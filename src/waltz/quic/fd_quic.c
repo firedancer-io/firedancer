@@ -510,7 +510,8 @@ fd_quic_init( fd_quic_t * quic ) {
   state->hs_pool = hs_pool;
 
   /* State: Initialize TLS handshake cache */
-  if( FD_UNLIKELY( !fd_quic_tls_hs_cache_join( fd_quic_tls_hs_cache_new( &state->hs_cache ) ) ) ) {
+  if( FD_UNLIKELY( !fd_quic_tls_hs_cache_join( fd_quic_tls_hs_cache_new( &state->hs_cache[ FD_QUIC_HS_PRIO_LOW  ] ) ) ||
+                   !fd_quic_tls_hs_cache_join( fd_quic_tls_hs_cache_new( &state->hs_cache[ FD_QUIC_HS_PRIO_HIGH ] ) ) ) ) {
     FD_LOG_WARNING(( "fd_quic_tls_hs_cache_new failed" ));
     return NULL;
   }
@@ -1018,7 +1019,8 @@ fd_quic_fini( fd_quic_t * quic ) {
 
   fd_quic_tls_hs_pool_delete( fd_quic_tls_hs_pool_leave( state->hs_pool ) ); state->hs_pool = NULL;
   fd_quic_tls_delete( state->tls );
-  fd_quic_tls_hs_cache_delete( fd_quic_tls_hs_cache_leave( &state->hs_cache ) );
+  fd_quic_tls_hs_cache_delete( fd_quic_tls_hs_cache_leave( &state->hs_cache[ FD_QUIC_HS_PRIO_LOW  ] ) );
+  fd_quic_tls_hs_cache_delete( fd_quic_tls_hs_cache_leave( &state->hs_cache[ FD_QUIC_HS_PRIO_HIGH ] ) );
 
 
   /* Delete conn ID map */
@@ -1444,16 +1446,27 @@ fd_quic_send_invalid_token( fd_quic_t *               quic,
                            pkt->ip4->daddr, pkt->udp->net_dport );
 }
 
-/* fd_quic_tls_hs_cache_evict evicts the oldest tls_hs if it's exceeded its ttl
-   Assumes cache is non-empty
-   and returns 1 if evicted, otherwise returns 0. */
+/* fd_quic_tls_hs_cache_evict frees a tls_hs for a new handshake of
+   class prio, with the hs pool full.  A HIGH newcomer evicts the oldest
+   LOW tls_hs regardless of age.  Otherwise, the oldest tls_hs of the
+   newcomer's own class is evicted if it exceeded its ttl, so LOW never
+   evicts HIGH.  Returns 1 if evicted, otherwise returns 0. */
 static int
 fd_quic_tls_hs_cache_evict( fd_quic_t       * quic,
-                            fd_quic_state_t * state ) {
+                            fd_quic_state_t * state,
+                            int               prio ) {
 
-  fd_quic_tls_hs_t* hs_to_free = fd_quic_tls_hs_cache_ele_peek_head( &state->hs_cache, state->hs_pool );
+  fd_quic_tls_hs_cache_t * low = &state->hs_cache[ FD_QUIC_HS_PRIO_LOW ];
+  int preempt = prio==FD_QUIC_HS_PRIO_HIGH && !fd_quic_tls_hs_cache_is_empty( low, state->hs_pool );
+  fd_quic_tls_hs_cache_t * cache = preempt ? low : &state->hs_cache[ prio ];
+  if( FD_UNLIKELY( fd_quic_tls_hs_cache_is_empty( cache, state->hs_pool ) ) ) {
+    quic->metrics.hs_err_alloc_fail_cnt++;
+    return 0;
+  }
 
-  if( state->now < hs_to_free->birthtime + quic->config.tls_hs_ttl ) {
+  fd_quic_tls_hs_t * hs_to_free = fd_quic_tls_hs_cache_ele_peek_head( cache, state->hs_pool );
+  int young = state->now < hs_to_free->birthtime + quic->config.tls_hs_ttl;
+  if( young && !preempt ) {
     /* oldest is too young to evict */
     quic->metrics.hs_err_alloc_fail_cnt++;
     return 0;
@@ -1462,7 +1475,49 @@ fd_quic_tls_hs_cache_evict( fd_quic_t       * quic,
   fd_quic_cb_conn_final(quic, hs_to_free->context);
   fd_quic_conn_free( quic, hs_to_free->context );
   quic->metrics.hs_evicted_cnt++;
+  quic->metrics.hs_preempted_cnt += (ulong)young;
   return 1;
+}
+
+/* fd_quic_conn_tls_hs_free releases conn's tls_hs, if any. */
+static void
+fd_quic_conn_tls_hs_free( fd_quic_t *      quic,
+                          fd_quic_conn_t * conn ) {
+  fd_quic_tls_hs_t * hs = conn->tls_hs;
+  if( !hs ) return;
+  conn->tls_hs = NULL;
+  if( hs->classified && quic->cb.hs_final ) quic->cb.hs_final( conn, conn->peer[0].ip_addr, hs->prio, !!conn->handshake_complete, quic->cb.quic_ctx );
+  fd_quic_state_t * state = fd_quic_get_state( quic );
+  fd_quic_tls_hs_delete( hs );
+  fd_quic_tls_hs_cache_ele_remove( &state->hs_cache[ hs->prio ], hs, state->hs_pool );
+  fd_quic_tls_hs_pool_ele_release( state->hs_pool, hs );
+}
+
+/* fd_quic_hs_classify asks cb.hs_prio about a new server conn from pkt's
+   source, setting *hs_prio.  Returns 1 if the Initial is refused, in
+   which case cb.hs_final was already called. */
+static int
+fd_quic_hs_classify( fd_quic_t *           quic,
+                     fd_quic_pkt_t const * pkt,
+                     int *                 hs_prio ) {
+  if( !quic->cb.hs_prio ) return 0;
+  int prio = quic->cb.hs_prio( quic->cb.quic_ctx, pkt->ip4->saddr, pkt->udp->net_sport );
+  if( FD_UNLIKELY( prio==FD_QUIC_HS_PRIO_REFUSE ) ) {
+    quic->metrics.hs_refused_cnt++;
+    if( quic->cb.hs_final ) quic->cb.hs_final( NULL, pkt->ip4->saddr, prio, 0, quic->cb.quic_ctx );
+    return 1;
+  }
+  *hs_prio = fd_int_if( prio==FD_QUIC_HS_PRIO_HIGH, FD_QUIC_HS_PRIO_HIGH, FD_QUIC_HS_PRIO_LOW );
+  return 0;
+}
+
+/* fd_quic_hs_unclassify calls cb.hs_final for a classified Initial that
+   allocated no handshake. */
+static inline void
+fd_quic_hs_unclassify( fd_quic_t *           quic,
+                       fd_quic_pkt_t const * pkt,
+                       int                   hs_prio ) {
+  if( hs_prio>=0 && quic->cb.hs_final ) quic->cb.hs_final( NULL, pkt->ip4->saddr, hs_prio, 0, quic->cb.quic_ctx );
 }
 
 /* fd_quic_handle_v1_initial handles an "Initial"-type packet.
@@ -1494,6 +1549,7 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
 
   fd_quic_state_t   * state   = fd_quic_get_state( quic );
   fd_quic_metrics_t * metrics = &quic->metrics;
+  int                 hs_prio = -1; /* FD_QUIC_HS_PRIO_* once cb.hs_prio classified a new conn */
 
   /* Initial packets are de-facto unencrypted.  Packet protection is
      still applied, albeit with publicly known encryption keys.
@@ -1588,6 +1644,7 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
         - Retry token, accepted:          reuse SCID from retry token */
     if( !quic->config.retry ) {
       scid = fd_quic_rng_ulong( state );
+      if( FD_UNLIKELY( fd_quic_hs_classify( quic, pkt, &hs_prio ) ) ) return FD_QUIC_PARSE_FAIL;
     } else { /* retry configured */
 
       /* Need to send retry? Do so before more work */
@@ -1613,10 +1670,16 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
              with it until its handshake times out. */
           if( retry_ok==FD_QUIC_RETRY_EXPIRED ) {
             metrics->conn_err_retry_expired_cnt++;
-            fd_quic_send_invalid_token( quic, pkt, dcid, peer_scid );
+            /* Answering costs a key derivation, so a replayed stale
+               token must not buy one per packet. */
+            if( FD_LIKELY( state->now-state->invalid_token_ts>=FD_QUIC_INVALID_TOKEN_INTERVAL_NS ) ) {
+              state->invalid_token_ts = state->now;
+              fd_quic_send_invalid_token( quic, pkt, dcid, peer_scid );
+            }
           }
           return FD_QUIC_PARSE_FAIL;
         };
+        if( FD_UNLIKELY( fd_quic_hs_classify( quic, pkt, &hs_prio ) ) ) return FD_QUIC_PARSE_FAIL;
       }
     }
   }
@@ -1666,6 +1729,7 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
         it to be reaped */
     FD_DEBUG( FD_LOG_DEBUG(( "fd_quic_crypto_decrypt_hdr failed" )) );
     quic->metrics.pkt_decrypt_fail_cnt[ fd_quic_enc_level_initial_id ]++;
+    fd_quic_hs_unclassify( quic, pkt, hs_prio );
     return FD_QUIC_PARSE_FAIL;
   }
 # endif /* !FD_QUIC_DISABLE_CRYPTO */
@@ -1688,6 +1752,7 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
     FD_DEBUG( FD_LOG_DEBUG(( "fd_quic_crypto_decrypt failed" )) );
     FD_DTRACE_PROBE_2( quic_err_decrypt_initial_pkt, pkt->ip4, pkt->pkt_number );
     quic->metrics.pkt_decrypt_fail_cnt[ fd_quic_enc_level_initial_id ]++;
+    fd_quic_hs_unclassify( quic, pkt, hs_prio );
     return FD_QUIC_PARSE_FAIL;
   }
 # endif /* FD_QUIC_DISABLE_CRYPTO */
@@ -1696,12 +1761,14 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
   pkt->pkt_number = pkt_number;
 
   if( FD_UNLIKELY( body_sz < pkt_number_sz + FD_QUIC_CRYPTO_TAG_SZ ) ) {
+    fd_quic_hs_unclassify( quic, pkt, hs_prio );
     return FD_QUIC_PARSE_FAIL;
   }
 
   /* Reject frame-less packets before allocating state (RFC 9000 §12.4). */
   if( FD_UNLIKELY( body_sz == pkt_number_sz + FD_QUIC_CRYPTO_TAG_SZ ) ) {
     if( conn ) fd_quic_conn_error( conn, FD_QUIC_CONN_REASON_PROTOCOL_VIOLATION, __LINE__ );
+    fd_quic_hs_unclassify( quic, pkt, hs_prio );
     return FD_QUIC_PARSE_FAIL;
   }
 
@@ -1797,9 +1864,11 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
     FD_STORE( ulong, tp->initial_source_connection_id, scid );
 
     /* tls hs available? After decrypting because might evict another hs */
+    int prio = fd_int_if( hs_prio<0, FD_QUIC_HS_PRIO_LOW, hs_prio );
     if( FD_UNLIKELY( !fd_quic_tls_hs_pool_free( state->hs_pool ) ) ) {
       /* try evicting, 0 if oldest is too young so fail */
-      if( !fd_quic_tls_hs_cache_evict( quic, state )) {
+      if( !fd_quic_tls_hs_cache_evict( quic, state, prio )) {
+        fd_quic_hs_unclassify( quic, pkt, hs_prio );
         return FD_QUIC_PARSE_FAIL;
       }
     }
@@ -1818,6 +1887,7 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
       /* TODO send failure back to origin? */
       /* FIXME unreachable? conn_cnt already checked above */
       FD_DEBUG( FD_LOG_WARNING( ( "failed to allocate QUIC conn" ) ) );
+      fd_quic_hs_unclassify( quic, pkt, hs_prio );
       return FD_QUIC_PARSE_FAIL;
     }
     FD_DEBUG( FD_LOG_DEBUG(( "new connection allocated" )) );
@@ -1833,7 +1903,9 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
         1 /*is_server*/,
         tp,
         state->now );
-    fd_quic_tls_hs_cache_ele_push_tail( &state->hs_cache, tls_hs, state->hs_pool );
+    tls_hs->prio       = prio;
+    tls_hs->classified = hs_prio>=0;
+    fd_quic_tls_hs_cache_ele_push_tail( &state->hs_cache[ prio ], tls_hs, state->hs_pool );
 
     conn->tls_hs = tls_hs;
     quic->metrics.hs_created_cnt++;
@@ -2762,6 +2834,24 @@ fd_quic_process_packet( fd_quic_t  *  quic,
   fd_quic_process_packet_impl( quic, data, data_sz, now );
   long delta_ticks = fd_tickcount() - now_ticks;
   fd_histf_sample( quic->metrics.receive_duration, (ulong)delta_ticks );
+}
+
+int
+fd_quic_retry_token_check( fd_quic_t *   quic,
+                           uchar const * payload,
+                           ulong         payload_sz,
+                           uint          ip4,
+                           ushort        port,
+                           long          now ) {
+  if( FD_UNLIKELY( !quic->config.retry || payload_sz<FD_QUIC_SHORTEST_PKT ) ) return 0;
+  if( FD_UNLIKELY( fd_quic_h0_hdr_form( payload[0] )!=1 || fd_quic_h0_long_packet_type( payload[0] )!=FD_QUIC_PKT_TYPE_INITIAL ) ) return 0;
+  fd_quic_initial_t initial[1] = {0};
+  if( FD_UNLIKELY( fd_quic_decode_initial( initial, payload, payload_sz )==FD_QUIC_PARSE_FAIL ) ) return 0;
+  fd_quic_state_t * state = fd_quic_get_state( quic );
+  fd_quic_pkt_t     pkt   = { .ip4 = {{ .saddr = ip4 }}, .udp = {{ .net_sport = port }} };
+  fd_quic_conn_id_t odcid;
+  ulong             scid;
+  return FD_QUIC_SUCCESS==fd_quic_retry_server_verify( &pkt, initial, &odcid, &scid, state->retry_secret, state->retry_iv, now, quic->config.retry_ttl );
 }
 
 /* main receive-side entry point */
@@ -4418,15 +4508,7 @@ fd_quic_conn_free( fd_quic_t *      quic,
     }
   }
 
-  if( conn->tls_hs ) {
-    /* free tls-hs */
-    fd_quic_tls_hs_delete( conn->tls_hs );
-
-    /* Remove the handshake from the cache before releasing it */
-    fd_quic_tls_hs_cache_ele_remove( &state->hs_cache, conn->tls_hs, state->hs_pool);
-    fd_quic_tls_hs_pool_ele_release( state->hs_pool, conn->tls_hs );
-  }
-  conn->tls_hs = NULL;
+  fd_quic_conn_tls_hs_free( quic, conn );
 
   /* remove from service queue */
   fd_quic_svc_timers_cancel( state->svc_timers, conn );
@@ -4455,7 +4537,7 @@ fd_quic_connect( fd_quic_t * quic,
 
   if( FD_UNLIKELY( !fd_quic_tls_hs_pool_free( state->hs_pool ) ) ) {
     /* try evicting, 0 if oldest is too young so fail */
-    if( !fd_quic_tls_hs_cache_evict( quic, state ) ) {
+    if( !fd_quic_tls_hs_cache_evict( quic, state, FD_QUIC_HS_PRIO_LOW ) ) {
       return NULL;
     }
   }
@@ -4520,7 +4602,7 @@ fd_quic_connect( fd_quic_t * quic,
     fd_quic_conn_free( quic, conn );
     return NULL;
   }
-  fd_quic_tls_hs_cache_ele_push_tail( &state->hs_cache, tls_hs, state->hs_pool );
+  fd_quic_tls_hs_cache_ele_push_tail( &state->hs_cache[ FD_QUIC_HS_PRIO_LOW ], tls_hs, state->hs_pool );
 
   quic->metrics.hs_created_cnt++;
   conn->tls_hs = tls_hs;
@@ -4957,13 +5039,7 @@ fd_quic_reclaim_pkt_meta( fd_quic_conn_t *     conn,
       do {
         conn->handshake_done_ackd = 1;
         conn->handshake_done_send = 0;
-        if( FD_LIKELY( conn->tls_hs ) ) {
-          fd_quic_state_t * state = fd_quic_get_state( conn->quic );
-          fd_quic_tls_hs_delete( conn->tls_hs );
-          fd_quic_tls_hs_cache_ele_remove( &state->hs_cache, conn->tls_hs, state->hs_pool );
-          fd_quic_tls_hs_pool_ele_release( state->hs_pool, conn->tls_hs );
-          conn->tls_hs = NULL;
-        }
+        fd_quic_conn_tls_hs_free( conn->quic, conn );
       } while(0);
       break;
 
@@ -5762,13 +5838,7 @@ fd_quic_handle_handshake_done_frame(
   fd_quic_cb_conn_hs_complete( conn->quic, conn );
 
   /* Deallocate tls_hs once completed */
-  if( FD_LIKELY( conn->tls_hs ) ) {
-    fd_quic_state_t * state = fd_quic_get_state( conn->quic );
-    fd_quic_tls_hs_delete( conn->tls_hs );
-    fd_quic_tls_hs_cache_ele_remove( &state->hs_cache, conn->tls_hs, state->hs_pool );
-    fd_quic_tls_hs_pool_ele_release( state->hs_pool, conn->tls_hs );
-    conn->tls_hs = NULL;
-  }
+  fd_quic_conn_tls_hs_free( conn->quic, conn );
 
   return 0;
 }

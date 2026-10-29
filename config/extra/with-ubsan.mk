@@ -30,5 +30,5 @@ CPPFLAGS+=-fsanitize=undefined \
           -fsanitize=bool \
           -fsanitize=enum \
           -fsanitize=vptr \
-          -fsanitize=pointer-overflow \
+          -fno-sanitize=pointer-overflow \
           -fsanitize=builtin

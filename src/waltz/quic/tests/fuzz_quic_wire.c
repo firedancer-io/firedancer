@@ -199,7 +199,7 @@ LLVMFuzzerTestOneInput( uchar const * data,
         1 /*is_server*/,
         &state->transport_params,
         g_clock );
-    fd_quic_tls_hs_cache_ele_push_tail( &state->hs_cache, tls_hs, state->hs_pool );
+    fd_quic_tls_hs_cache_ele_push_tail( &state->hs_cache[ FD_QUIC_HS_PRIO_LOW ], tls_hs, state->hs_pool );
     conn->tls_hs = tls_hs;
   }
 

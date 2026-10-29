@@ -1757,6 +1757,14 @@ deliberate exception with lint-allow="<rule id>")
     <counter name="TxnDropped" summary="Benchmark transactions dropped because no QUIC connection was established or it had no free stream" />
 </tile>
 
+<enum name="HandshakeClass">
+    <int value="0" name="Priority" label="Source IP is a peer's contact info IP within its handshake budget" />
+    <int value="1" name="RateLimited" label="Source IP is a peer's, but started too many handshakes recently, so it took the default budget" />
+    <int value="2" name="SlotLimited" label="Source IP is a peer's, but holds too many handshakes already, so it took the default budget" />
+    <int value="3" name="Default" label="Source IP is no peer's contact info IP, within the default budget" />
+    <int value="4" name="Refused" label="Out of the default budget, per source IP or overall, so refused before any crypto" />
+</enum>
+
 <enum name="DatagramRxResult">
     <int value="0" name="Vote" label="Datagram carried a vote and was handed to vote rx" />
     <int value="1" name="Cert" label="Datagram carried a cert and was handed to cert rx" />
@@ -1873,6 +1881,7 @@ deliberate exception with lint-allow="<rule id>")
     <counter name="ServerHandshakeCreated" summary="Handshake flows created" />
     <counter name="ServerHandshakePoolFullRejected" summary="Handshakes dropped due to alloc fail" />
     <counter name="ServerHandshakeEvicted" summary="Handshakes dropped due to eviction" />
+    <counter name="ServerHandshakeClassified" enum="HandshakeClass" summary="New handshakes after Retry, by priority class.  Priority handshakes come from a peer's contact info IP and evict any default class one" />
     <counter name="ServerStreamRx" summary="Stream receive events" />
     <counter name="ServerStreamRxBytes" summary="Stream payload bytes received" />
     <counter name="ServerFrameRx" enum="QuicFrameType" summary="QUIC frames received, by frame type" />
@@ -1885,6 +1894,7 @@ deliberate exception with lint-allow="<rule id>")
     <histogram name="ServerPktRxDurationNanos" min="10" max="100000000" source="ticks">
         <summary>Duration of processing one received packet</summary>
     </histogram>
+    <counter name="ServerHandshakePktDropped" summary="Connection setup packets from peers dropped before processing, because vote traffic kept the tile busy for too long or the identity was being switched. Peers retry, but sustained growth means new connections are being delayed" />
 
     <!-- Vote history file -->
 

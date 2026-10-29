@@ -1,4 +1,5 @@
 #include "../fd_quic.h"
+#include "../fd_quic_private.h"
 #include "fd_quic_test_helpers.h"
 #include "../../../util/net/fd_ip4.h"
 
@@ -102,6 +103,27 @@ test_initial_token_odd_sz( fd_quic_t * server_quic,
   FD_LOG_NOTICE(( "46-byte token test pass" ));
 }
 
+/* capture_aio keeps a copy of the last datagram it forwards. */
+
+static fd_aio_t const * capture_next;
+static uchar            capture_buf[ 2048 ];
+static ulong            capture_sz;
+
+static int
+capture_aio_send( void *                    ctx,
+                  fd_aio_pkt_info_t const * batch,
+                  ulong                     batch_cnt,
+                  ulong *                   opt_batch_idx,
+                  int                       flush ) {
+  (void)ctx;
+  for( ulong i=0UL; i<batch_cnt; i++ ) {
+    if( batch[ i ].buf_sz>sizeof(capture_buf) ) continue;
+    fd_memcpy( capture_buf, batch[ i ].buf, batch[ i ].buf_sz );
+    capture_sz = batch[ i ].buf_sz;
+  }
+  return fd_aio_send( capture_next, batch, batch_cnt, opt_batch_idx, flush );
+}
+
 /* Test that a post-Retry Initial whose token expired is answered with
    CONNECTION_CLOSE(INVALID_TOKEN), which the client takes as the end of
    the dial, instead of being dropped silently. */
@@ -133,6 +155,77 @@ test_retry_token_expired( fd_quic_t * server_quic,
   FD_TEST( client_quic->metrics.conn_closed_cnt==client_closed_cnt+1UL ); /* the close decrypted and ended the dial */
 
   FD_LOG_NOTICE(( "expired token test pass" ));
+}
+
+/* Replays of an expired-token Initial are answered at most once per
+   FD_QUIC_INVALID_TOKEN_INTERVAL_NS. */
+void
+test_retry_token_expired_replay( fd_quic_t * server_quic,
+                                 fd_quic_t * client_quic ) {
+  FD_LOG_NOTICE(( "Testing replays of an expired Retry token" ));
+
+  fd_aio_t capture[1];
+  capture_next = fd_quic_get_aio_net_rx( server_quic );
+  FD_TEST( fd_aio_join( fd_aio_new( capture, NULL, capture_aio_send ) ) );
+  fd_aio_t saved = client_quic->aio_tx;
+  fd_quic_set_aio_net_tx( client_quic, capture );
+
+  /* Capture a token Initial, delivered while its token is valid.  Both
+     clocks start past the server's, which earlier tests moved. */
+  now = fd_quic_get_state( server_quic )->now + 1000000000L;
+  fd_quic_get_state( server_quic )->now = fd_quic_get_state( client_quic )->now = now;
+  fd_quic_conn_t * client_conn = fd_quic_connect( client_quic, FD_QUIC_TEST_SERVER_IP4, 0, FD_QUIC_TEST_CLIENT_IP4, 0, now );
+  FD_TEST( client_conn );
+  fd_quic_service( client_quic, now );
+  fd_quic_service( server_quic, now );
+  fd_quic_service( client_quic, now );
+  fd_quic_set_aio_net_tx( client_quic, &saved );
+  FD_TEST( capture_sz );
+  uchar replay[ 2048 ];
+  ulong replay_sz = capture_sz;
+  fd_memcpy( replay, capture_buf, replay_sz );
+
+  /* fd_quic_retry_token_check accepts the token Initial while fresh and
+     only from the address it was issued to. */
+  {
+    fd_ip4_hdr_t const * ip4 = (fd_ip4_hdr_t const *)replay;
+    ulong                iplen = FD_IP4_GET_LEN( *ip4 );
+    fd_udp_hdr_t const * udp = (fd_udp_hdr_t const *)( replay+iplen );
+    uchar const *        pay = replay+iplen+sizeof(fd_udp_hdr_t);
+    ulong                psz = replay_sz-iplen-sizeof(fd_udp_hdr_t);
+    uint                 src = FD_LOAD( uint, ip4->saddr_c );
+    ushort               sp  = fd_ushort_bswap( udp->net_sport );
+    FD_TEST(  fd_quic_retry_token_check( server_quic, pay, psz, src,     sp,              now ) );
+    FD_TEST( !fd_quic_retry_token_check( server_quic, pay, psz, src+1U,  sp,              now ) );
+    FD_TEST( !fd_quic_retry_token_check( server_quic, pay, psz, src,     (ushort)(sp+1U), now ) );
+    FD_TEST( !fd_quic_retry_token_check( server_quic, pay, psz, src,     sp,              now+server_quic->config.retry_ttl+100000000L ) );
+    uchar bad[ 2048 ]; fd_memcpy( bad, pay, psz ); bad[ 40 ] ^= 1;
+    FD_TEST( !fd_quic_retry_token_check( server_quic, bad, psz, src,     sp,              now ) );
+  }
+
+  /* Replayed after expiry, once the conn it opened timed out, ten times
+     within one interval.  The server stamped the token with its own
+     clock. */
+  long  t        = now + server_quic->config.retry_ttl + 100000000L;
+  for( ulong i=0UL; i<16UL && server_quic->metrics.conn_alloc_cnt; i++ ) fd_quic_service( server_quic, t );
+  FD_TEST( !server_quic->metrics.conn_alloc_cnt );
+  ulong expired  = server_quic->metrics.conn_err_retry_expired_cnt;
+  ulong tx       = server_quic->metrics.net_tx_pkt_cnt;
+  for( ulong i=0UL; i<10UL; i++ ) {
+    uchar pkt[ 2048 ];
+    fd_memcpy( pkt, replay, replay_sz );
+    fd_quic_process_packet( server_quic, pkt, replay_sz, t+(long)i );
+  }
+  FD_TEST( server_quic->metrics.conn_err_retry_expired_cnt>=expired+9UL );
+  FD_TEST( server_quic->metrics.net_tx_pkt_cnt<=tx+1UL );
+
+  /* After the interval, one more reply. */
+  uchar pkt[ 2048 ];
+  fd_memcpy( pkt, replay, replay_sz );
+  fd_quic_process_packet( server_quic, pkt, replay_sz, t+FD_QUIC_INVALID_TOKEN_INTERVAL_NS+100L );
+  FD_TEST( server_quic->metrics.net_tx_pkt_cnt<=tx+2UL );
+
+  FD_LOG_NOTICE(( "expired token replay test pass" ));
 }
 
 void
@@ -296,6 +389,7 @@ main( int argc, char ** argv ) {
 
   /* Run the expired token test */
   test_retry_token_expired( server_quic, client_quic );
+  test_retry_token_expired_replay( server_quic, client_quic );
 
   FD_LOG_NOTICE(( "Cleaning up" ));
   fd_quic_virtual_pair_fini( &vp );

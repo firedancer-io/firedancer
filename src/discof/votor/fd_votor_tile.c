@@ -25,6 +25,7 @@
 #include "../../flamenco/stakes/fd_stake_weight.h"
 #include "../../util/net/fd_net_headers.h"
 #include "../../util/fd_hash32.h"
+#include "../../waltz/fd_token_bucket.h"
 #include "../../waltz/quic/fd_quic.h"
 #include "../../waltz/quic/fd_quic_conn.h"
 #include "../../waltz/quic/fd_quic_private.h"
@@ -61,11 +62,23 @@
 
 #define QUIC_CLIENT_CONN_BACKOFF_MIN_NS (1L*1000L*1000L*1000L)  /* 1 s */
 #define QUIC_CLIENT_CONN_BACKOFF_MAX_NS (1L*1000L*1000L*1000L)  /* 1 s */
+#define QUIC_CLIENT_PIN_FAIL_BACKOFF_NS (60L*1000L*1000L*1000L) /* the peer's contact info names someone else's server, retry rarely until it changes */
 #define QUIC_CLIENT_CONN_AHEAD_NS       (10L*1000L*1000L*1000L) /* connect to peers this long before our first ranked epoch, spreading the handshakes out (Agave admits next-epoch voters from 30000 slots out) */
 #define QUIC_CLIENT_CONN_MAX            (AG_VAT_MAX * (3 + 1))  /* one conn to every validator of the prev, curr and next epochs, plus an epoch of evicted conns still closing */
 
 #define QUIC_SERVER_CONN_PER_PEER_MAX (2UL)                                        /* allow up to 2 per peer, in case of failures (zombies, network partition, etc.) */
 #define QUIC_SERVER_CONN_MAX          (AG_VAT_MAX * QUIC_SERVER_CONN_PER_PEER_MAX) /* at most AG_VAT_MAX connections */
+#define QUIC_SERVER_HS_MAX            (2048UL)                                     /* about one handshake per validator at once */
+#define QUIC_SERVER_CONN_SLOT_MAX     (QUIC_SERVER_CONN_MAX + QUIC_SERVER_HS_MAX)  /* handshakes never wait on established conns for a slot */
+#define QUIC_SERVER_HS_RATE_NS        (1000L*1000L*1000L)                          /* a staked IP starts one priority handshake per second per identity */
+#define QUIC_SERVER_LO_BUCKET_CNT     (1UL<<16)                                    /* per source IP buckets for other handshakes, by keyed hash */
+#define QUIC_SERVER_LO_RATE_NS        (1000L*1000L*1000L)                          /* one handshake per second per bucket ... */
+#define QUIC_SERVER_LO_BURST          (2.0f)                                       /* ... after a burst of 2 */
+#define QUIC_SERVER_LO_GLOBAL_RATE    (200.0f)                                     /* all of them share 200 handshakes per second ... */
+#define QUIC_SERVER_LO_GLOBAL_BURST   (100.0f)                                     /* ... after a burst of 100 */
+
+#define QUIC_SERVER_DEFER_MAX     (2048UL) /* depth of deferral queue for handshake packets */
+#define QUIC_SERVER_DEFER_TOK_MAX (256UL)  /* same, for Initials with a valid Retry token */
 
 #define REWARD_VOTE_MAX        (AG_REWARD_SLOT_DELTA+AG_SLOTS_PER_WINDOW) /* voting slot+REWARD_VOTE_MAX needs ParentReady past slot+8's window, deciding slot's reward */
 #define REWARD_VOTE_RTT_MIN_NS (10000000L)                                /* retry a reward vote no sooner than 10ms */
@@ -89,10 +102,10 @@ static fd_quic_limits_t quic_client_limits = {
 };
 
 static fd_quic_limits_t quic_server_limits = {
-  .conn_cnt                    = QUIC_SERVER_CONN_MAX,
-  .handshake_cnt               = 1024UL,
+  .conn_cnt                    = QUIC_SERVER_CONN_SLOT_MAX,
+  .handshake_cnt               = QUIC_SERVER_HS_MAX,
   .conn_id_cnt                 = FD_QUIC_MIN_CONN_ID_CNT,
-  .inflight_frame_cnt          = 64UL * QUIC_SERVER_CONN_MAX,
+  .inflight_frame_cnt          = 64UL * QUIC_SERVER_CONN_SLOT_MAX,
   .min_inflight_frame_cnt_conn = 32UL,
 };
 
@@ -117,6 +130,59 @@ typedef struct contact_info contact_info_t;
 #define MAP_KEY_EQUAL(k0,k1)    (!memcmp( &(k0), &(k1), sizeof(fd_pubkey_t) ))
 #define MAP_KEY_EQUAL_IS_SLOW   1
 #define MAP_KEY_HASH(key,seed)  ((uint)fd_hash32( (key).uc, (seed) ))
+#include "../../util/tmpl/fd_map_dynamic.c"
+
+/* hs_defer buffers server port datagrams starting with a QUIC long
+   header (Initial, Handshake), so 1-RTT packets carrying votes and
+   certs have higher QoS.  hs_defer_tok holds Initials with a valid
+   Retry token, which only a source that receives our replies can send,
+   and drains first, so spoofed packets cannot push them out. */
+
+struct hs_defer {
+  ushort sz;
+  uchar  buf[ FD_NET_MTU ];
+};
+typedef struct hs_defer hs_defer_t;
+
+#define DEQUE_NAME hs_defer
+#define DEQUE_T    hs_defer_t
+#define DEQUE_MAX  QUIC_SERVER_DEFER_MAX
+#include "../../util/tmpl/fd_deque.c"
+
+#define DEQUE_NAME hs_defer_tok
+#define DEQUE_T    hs_defer_t
+#define DEQUE_MAX  QUIC_SERVER_DEFER_TOK_MAX
+#include "../../util/tmpl/fd_deque.c"
+
+/* staked_ips holds the alpenglow contact info IPs of peers, whose
+   handshakes the server prioritizes after Retry validated the source
+   address.  Each IP may hold at most QUIC_SERVER_CONN_PER_PEER_MAX
+   priority handshakes per identity behind it and starts one per
+   QUIC_SERVER_HS_RATE_NS per identity.  Past that its handshakes take
+   the budget of any other source.  An IP no peer names any more is kept
+   with id_cnt 0 until its handshakes are done and its bucket refilled,
+   so changing contact info does not reset a budget. */
+
+#define STAKED_IPS_LG_SLOT_CNT (14) /* 4*AG_VAT_MAX, fill ratio 0.25 */
+
+struct staked_ip {
+  uint              ip4;     /* net order */
+  uint              id_cnt;  /* peer identities with this contact info IP */
+  uint              hs_cnt;  /* priority handshakes open */
+  fd_token_bucket_t bucket;  /* priority handshake starts */
+};
+typedef struct staked_ip staked_ip_t;
+
+#define MAP_NAME              staked_ips
+#define MAP_T                 staked_ip_t
+#define MAP_KEY               ip4
+#define MAP_KEY_T             uint
+#define MAP_KEY_NULL          0U
+#define MAP_KEY_INVAL(k)      (!(k))
+#define MAP_KEY_EQUAL(k0,k1)  ((k0)==(k1))
+#define MAP_KEY_EQUAL_IS_SLOW 0
+#define MAP_KEY_HASH(key,seed) ((uint)fd_ulong_hash( (ulong)(key) ^ (seed) ))
+#define MAP_MEMOIZE           0
 #include "../../util/tmpl/fd_map_dynamic.c"
 
 #define PEERS_LG_SLOT_CNT (13) /* 2*AG_VAT_MAX, fill ratio 0.5 */
@@ -323,7 +389,7 @@ struct fd_votor_tile {
   contact_info_t *   contact_infos;
   peer_t *           peers;
   fd_pubkey_t        client_peer_id_keys[ QUIC_CLIENT_CONN_MAX ];
-  fd_pubkey_t        server_peer_id_keys[ QUIC_SERVER_CONN_MAX ];
+  fd_pubkey_t        server_peer_id_keys[ QUIC_SERVER_CONN_SLOT_MAX ];
   fd_net_rx_bounds_t net_in_bounds[ 32 ];
   uchar              net_buf[ FD_NET_MTU ];
   fd_quic_t *        quic_client;
@@ -336,6 +402,13 @@ struct fd_votor_tile {
   fd_ip4_udp_hdrs_t  hdr[ 1 ];
   ushort             net_id;
   reconn_t *         reconn_prq;
+  staked_ip_t *      staked_ips;
+  staked_ip_t *      staked_ips_spare;  /* rebuilt into, then swapped */
+  int                staked_ips_dirty;  /* peers or their contact infos changed */
+  long               staked_ips_zombie_ts; /* rebuild then to age out IPs no peer names, 0 if none */
+  ulong              lo_seed;           /* keys the lo_buckets hash */
+  fd_token_bucket_t  lo_global;         /* handshakes not in a staked IP's budget, ts==0 if untouched */
+  fd_token_bucket_t * lo_buckets;       /* same, QUIC_SERVER_LO_BUCKET_CNT per source IP hash */
   ulong              conn_ahead_slot; /* next_epoch_slot we last queued connects ahead of */
   reward_vote_t      reward_votes[ REWARD_VOTE_MAX ]; /* our reward votes awaiting an ACK from the leader for the reward slot.  circ buf indexed by slot%REWARD_VOTE_MAX */
   reward_cert_t      reward_certs[ AG_SLOTS_PER_WINDOW ]; /* reward certs published for our leader window.  circ buf indexed by slot%AG_SLOTS_PER_WINDOW */
@@ -389,7 +462,18 @@ struct fd_votor_tile {
     ulong vote_history_write;
     ulong leader_window_superseded;
     ulong cert_tx_unstaked;
+    ulong hs_defer_drop;
+    ulong hs_class[ FD_METRICS_ENUM_HANDSHAKE_CLASS_CNT ];
   } metrics;
+
+  /* Handshake QoS */
+
+  ulong              in_cnt;       /* polled ins */
+  ulong              net_idle_cnt; /* after_credit calls since a net frag was processed inline, every polled in was checked once it exceeds in_cnt */
+  hs_defer_t *           hs_defer;
+  hs_defer_private_t     hs_defer_mem[1];
+  hs_defer_t *           hs_defer_tok;
+  hs_defer_tok_private_t hs_defer_tok_mem[1];
 };
 typedef struct fd_votor_tile fd_votor_tile_t;
 
@@ -846,8 +930,9 @@ quic_client_conn_final( fd_quic_conn_t * conn,
 
   long now = fd_clock_tile_now( ctx->clock );
   long pto = (long)( conn->rtt->smoothed_rtt + fmaxf( 4.0f*conn->rtt->var_rtt, (float)QUIC_K_GRANULARITY_NS ) + conn->peer_max_ack_delay_ns ); /* RFC 9002 PTO */
+  int  pin = conn->tls_hs && conn->tls_hs->hs.base.reason==FD_TLS_REASON_WRONG_PUBKEY;
   peer->tx_conn      = NULL;
-  peer->conn_backoff = fd_long_min( fd_long_max( 2L*peer->conn_backoff, pto ), QUIC_CLIENT_CONN_BACKOFF_MAX_NS );
+  peer->conn_backoff = fd_long_if( pin, QUIC_CLIENT_PIN_FAIL_BACKOFF_NS, fd_long_min( fd_long_max( 2L*peer->conn_backoff, pto ), QUIC_CLIENT_CONN_BACKOFF_MAX_NS ) );
   peer->conn_ts      = now;
   if( FD_LIKELY( !peer->reconn_pending ) ) {
     reconn_t reconn = { .timeout = now+peer->conn_backoff, .id_key = peer->id_key };
@@ -893,6 +978,70 @@ quic_client_ack_range( fd_quic_conn_t * conn,
       break;
     }
   }
+}
+
+/* QUIC callback */
+
+/* quic_server_hs_lo returns LOW if ip4 is within the budget for
+   handshakes outside any staked IP's, else REFUSE. */
+
+static int
+quic_server_hs_lo( fd_votor_tile_t * ctx,
+                   uint              ip4,
+                   long              now ) {
+  if( FD_UNLIKELY( !ctx->lo_global.ts ) ) ctx->lo_global = (fd_token_bucket_t){ .ts = now, .rate = QUIC_SERVER_LO_GLOBAL_RATE/1e9f, .burst = QUIC_SERVER_LO_GLOBAL_BURST, .balance = QUIC_SERVER_LO_GLOBAL_BURST };
+  fd_token_bucket_t * b = &ctx->lo_buckets[ fd_ulong_hash( (ulong)ip4 ^ ctx->lo_seed ) & (QUIC_SERVER_LO_BUCKET_CNT-1UL) ];
+  if( FD_UNLIKELY( !b->ts ) ) *b = (fd_token_bucket_t){ .ts = now, .rate = 1.0f/(float)QUIC_SERVER_LO_RATE_NS, .burst = QUIC_SERVER_LO_BURST, .balance = QUIC_SERVER_LO_BURST };
+  fd_token_bucket_consume( b, 0.0f, now ); /* refill */
+  if( FD_UNLIKELY( b->balance<1.0f || !fd_token_bucket_consume( &ctx->lo_global, 1.0f, now ) ) ) {
+    ctx->metrics.hs_class[ FD_METRICS_ENUM_HANDSHAKE_CLASS_V_REFUSED_IDX ]++;
+    return FD_QUIC_HS_PRIO_REFUSE;
+  }
+  b->balance -= 1.0f;
+  return FD_QUIC_HS_PRIO_LOW;
+}
+
+static int
+quic_server_hs_prio( void * _ctx,
+                     uint   ip4,
+                     ushort port ) {
+  (void)port;
+  fd_votor_tile_t * ctx = _ctx;
+  long              now = fd_clock_tile_now( ctx->clock );
+  staked_ip_t *     sip = staked_ips_query( ctx->staked_ips, ip4, NULL );
+  if( FD_LIKELY( !sip ) ) {
+    int prio = quic_server_hs_lo( ctx, ip4, now );
+    ctx->metrics.hs_class[ FD_METRICS_ENUM_HANDSHAKE_CLASS_V_DEFAULT_IDX ] += (ulong)( prio==FD_QUIC_HS_PRIO_LOW );
+    return prio;
+  }
+  if( FD_UNLIKELY( sip->hs_cnt>=QUIC_SERVER_CONN_PER_PEER_MAX*sip->id_cnt ) ) {
+    int prio = quic_server_hs_lo( ctx, ip4, now );
+    ctx->metrics.hs_class[ FD_METRICS_ENUM_HANDSHAKE_CLASS_V_SLOT_LIMITED_IDX ] += (ulong)( prio==FD_QUIC_HS_PRIO_LOW );
+    return prio;
+  }
+  if( FD_UNLIKELY( !fd_token_bucket_consume( &sip->bucket, 1.0f, now ) ) ) {
+    int prio = quic_server_hs_lo( ctx, ip4, now );
+    ctx->metrics.hs_class[ FD_METRICS_ENUM_HANDSHAKE_CLASS_V_RATE_LIMITED_IDX ] += (ulong)( prio==FD_QUIC_HS_PRIO_LOW );
+    return prio;
+  }
+  ctx->metrics.hs_class[ FD_METRICS_ENUM_HANDSHAKE_CLASS_V_PRIORITY_IDX ]++;
+  sip->hs_cnt++;
+  return FD_QUIC_HS_PRIO_HIGH;
+}
+
+/* QUIC callback */
+
+static void
+quic_server_hs_final( fd_quic_conn_t * conn,
+                      uint             ip4,
+                      int              prio,
+                      int              ok,
+                      void *           _ctx ) {
+  (void)conn; (void)ok;
+  if( FD_LIKELY( prio!=FD_QUIC_HS_PRIO_HIGH ) ) return;
+  fd_votor_tile_t * ctx = _ctx;
+  staked_ip_t *     sip = staked_ips_query( ctx->staked_ips, ip4, NULL );
+  if( FD_LIKELY( sip ) ) sip->hs_cnt = fd_uint_sat_sub( sip->hs_cnt, 1U );
 }
 
 /* QUIC callback */
@@ -1427,6 +1576,8 @@ handle_epoch( fd_votor_tile_t *           ctx,
     peer->next_rank = (ushort)rank;
   }
 
+  ctx->staked_ips_dirty = 1;
+
   /* quic_connect new peers */
 
   for( ulong slot=0UL; slot<peers_slot_cnt( ctx->peers ); slot++ ) {
@@ -1470,6 +1621,7 @@ handle_epoch( fd_votor_tile_t *           ctx,
     contact_info_t * ci = contact_infos_query( ctx->contact_infos, peer->id_key, NULL );
     if( FD_UNLIKELY( ci && ci->removed ) ) contact_infos_remove( ctx->contact_infos, ci );
     peers_remove( ctx->peers, peer ); /* relocates, so reconsider the freed slot */
+    ctx->staked_ips_dirty = 1;
   }
 
   /* The latest epoch's slot time, only for the connect-ahead estimate:
@@ -1516,6 +1668,7 @@ handle_gossip( fd_votor_tile_t *                  ctx,
 
     if( FD_UNLIKELY( !ip4 || !port ) ) {
       if( FD_LIKELY( ci ) ) contact_infos_remove( ctx->contact_infos, ci );
+      ctx->staked_ips_dirty |= !!peer;
       return;
     }
 
@@ -1530,6 +1683,7 @@ handle_gossip( fd_votor_tile_t *                  ctx,
     ci->port    = port;
     ci->removed = 0;
     if( FD_LIKELY( !peer ) ) return;
+    ctx->staked_ips_dirty = 1;
     if( FD_UNLIKELY( peer->tx_conn ) ) {
       fd_quic_conn_set_context( peer->tx_conn, NULL );
       fd_quic_conn_close( peer->tx_conn, 0U );
@@ -1638,6 +1792,62 @@ handle_replay( fd_votor_tile_t *           ctx,
   }
 }
 
+/* staked_ips_rebuild rebuilds staked_ips from the contact infos of
+   peers, keeping the state of IPs that stay, and of IPs that left until
+   their handshakes are done and their bucket refilled. */
+
+static void
+staked_ips_rebuild( fd_votor_tile_t * ctx ) {
+  staked_ip_t * next = ctx->staked_ips_spare;
+  staked_ips_clear( next );
+  long  now        = fd_clock_tile_now( ctx->clock );
+  ulong zombie_cnt = 0UL;
+  for( ulong slot=0UL; slot<peers_slot_cnt( ctx->peers ); slot++ ) {
+    peer_t const * peer = &ctx->peers[ slot ];
+    if( FD_LIKELY( peers_key_inval( peer->id_key ) ) ) continue;
+    contact_info_t const * ci = contact_infos_query( ctx->contact_infos, peer->id_key, NULL );
+    if( FD_UNLIKELY( !ci || !ci->ip4 ) ) continue;
+    staked_ip_t * sip = staked_ips_query( next, ci->ip4, NULL );
+    if( FD_LIKELY( !sip ) ) {
+      if( FD_UNLIKELY( staked_ips_key_cnt( next )>=staked_ips_key_max( next )/2UL ) ) continue;
+      sip = staked_ips_insert( next, ci->ip4 );
+      staked_ip_t const * old = staked_ips_query( ctx->staked_ips, ci->ip4, NULL );
+      if( FD_LIKELY( old ) ) {
+        sip->hs_cnt = old->hs_cnt;
+        sip->bucket = old->bucket;
+      } else {
+        sip->hs_cnt = 0U;
+        sip->bucket = (fd_token_bucket_t){ .ts = now, .balance = 1.0f };
+      }
+      sip->id_cnt = 0U;
+    }
+    sip->id_cnt++;
+  }
+  for( ulong slot=0UL; slot<staked_ips_slot_cnt( ctx->staked_ips ); slot++ ) {
+    staked_ip_t const * old = &ctx->staked_ips[ slot ];
+    if( FD_LIKELY( staked_ips_key_inval( old->ip4 ) || staked_ips_query( next, old->ip4, NULL ) ) ) continue;
+    fd_token_bucket_t bucket = old->bucket;
+    fd_token_bucket_consume( &bucket, 0.0f, now ); /* refill */
+    if( FD_LIKELY( !old->hs_cnt && bucket.balance>=bucket.burst ) ) continue;
+    if( FD_UNLIKELY( staked_ips_key_cnt( next )>=staked_ips_key_max( next ) ) ) break;
+    staked_ip_t * sip = staked_ips_insert( next, old->ip4 );
+    sip->id_cnt = 0U;
+    sip->hs_cnt = old->hs_cnt;
+    sip->bucket = old->bucket;
+    zombie_cnt++;
+  }
+  for( ulong slot=0UL; slot<staked_ips_slot_cnt( next ); slot++ ) {
+    staked_ip_t * sip = &next[ slot ];
+    if( FD_LIKELY( staked_ips_key_inval( sip->ip4 ) || !sip->id_cnt ) ) continue;
+    sip->bucket.rate  = (float)sip->id_cnt/(float)QUIC_SERVER_HS_RATE_NS;
+    sip->bucket.burst = (float)( QUIC_SERVER_CONN_PER_PEER_MAX*sip->id_cnt );
+  }
+  ctx->staked_ips_spare     = ctx->staked_ips;
+  ctx->staked_ips           = next;
+  ctx->staked_ips_dirty     = 0;
+  ctx->staked_ips_zombie_ts = zombie_cnt ? now+QUIC_SERVER_HS_RATE_NS : 0L;
+}
+
 FD_FN_CONST static inline ulong
 scratch_align( void ) {
   return fd_ulong_max( alignof(fd_votor_tile_t), fd_quic_align() );
@@ -1655,6 +1865,9 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, peers_align(),                  peers_footprint( PEERS_LG_SLOT_CNT )                              );
   l = FD_LAYOUT_APPEND( l, contact_infos_align(),          contact_infos_footprint( CONTACT_INFOS_LG_SLOT_CNT )              );
   l = FD_LAYOUT_APPEND( l, reconn_prq_align(),             reconn_prq_footprint( RECONN_MAX )                                );
+  l = FD_LAYOUT_APPEND( l, staked_ips_align(),             staked_ips_footprint( STAKED_IPS_LG_SLOT_CNT )                    );
+  l = FD_LAYOUT_APPEND( l, staked_ips_align(),             staked_ips_footprint( STAKED_IPS_LG_SLOT_CNT )                    );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_token_bucket_t),     QUIC_SERVER_LO_BUCKET_CNT*sizeof(fd_token_bucket_t)               );
   l = FD_LAYOUT_APPEND( l, fd_multi_epoch_leaders_align(), fd_multi_epoch_leaders_footprint()                                );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
@@ -1662,6 +1875,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
 static void
 during_housekeeping( fd_votor_tile_t * ctx ) {
   if( FD_UNLIKELY( fd_clock_tile_recal_due( ctx->clock ) ) ) fd_clock_tile_recal( ctx->clock );
+  if( FD_UNLIKELY( ctx->staked_ips_dirty || ( ctx->staked_ips_zombie_ts && fd_clock_tile_now( ctx->clock )>=ctx->staked_ips_zombie_ts ) ) ) staked_ips_rebuild( ctx );
 
   /* Spread handshakes to newly ranked peers across 10 seconds. */
 
@@ -1989,9 +2203,11 @@ metrics_write( fd_votor_tile_t * ctx ) {
   FD_MCNT_SET        ( VOTOR, SERVER_HANDSHAKE_CREATED,            ctx->quic_server->metrics.hs_created_cnt          );
   FD_MCNT_SET        ( VOTOR, SERVER_HANDSHAKE_POOL_FULL_REJECTED, ctx->quic_server->metrics.hs_err_alloc_fail_cnt   );
   FD_MCNT_SET        ( VOTOR, SERVER_HANDSHAKE_EVICTED,            ctx->quic_server->metrics.hs_evicted_cnt          );
+  FD_MCNT_ENUM_COPY  ( VOTOR, SERVER_HANDSHAKE_CLASSIFIED,         ctx->metrics.hs_class                             );
   FD_MCNT_SET        ( VOTOR, SERVER_FRAME_PARSE_FAILED,           ctx->quic_server->metrics.frame_rx_err_cnt        );
   FD_MHIST_COPY      ( VOTOR, SERVER_SERVICE_DURATION_NANOS,       ctx->quic_server->metrics.service_duration        );
   FD_MHIST_COPY      ( VOTOR, SERVER_PKT_RX_DURATION_NANOS,        ctx->quic_server->metrics.receive_duration        );
+  FD_MCNT_SET        ( VOTOR, SERVER_HANDSHAKE_PKT_DROPPED,        ctx->metrics.hs_defer_drop                        );
 }
 
 /* cert_tx_skip returns 1 if a cert or standstill vote for slot should
@@ -2010,6 +2226,13 @@ cert_tx_skip( fd_votor_tile_t * ctx,
   return 0;
 }
 
+static inline void
+net_tx_flush( fd_votor_tile_t *   ctx,
+              fd_stem_context_t * stem ) {
+  for( ulong i=0UL; i<ctx->net_tx_cnt; i++ ) fd_stem_publish( stem, OUT_IDX_NET, ctx->net_tx[ i ].sig, ctx->net_tx[ i ].chunk, ctx->net_tx[ i ].sz, fd_frag_meta_ctl( 0UL, 1, 1, 0 ), 0L, 0L );
+  ctx->net_tx_cnt = 0UL;
+}
+
 /* after_credit is the tile's event loop.  Each step handles at most
    one item per pass, at most 9 votor_out frags in all:
 
@@ -2018,7 +2241,34 @@ cert_tx_skip( fd_votor_tile_t * ctx,
    3. republish reward certs new votes widened (one per tile loop)
    4. poll pool, repair, timeout events (can result in new votes, one per tile loop)
    5. broadcast new votes (one per tile loop)
-   6. standstill re-broadcast */
+   6. standstill re-broadcast
+   7. process a deferred long header datagram, once a round of polls
+      found no net frag to process inline and only in a pass that
+      polls, so votor's own work and 1-RTT datagrams go first */
+
+static void
+hs_defer_drain( fd_votor_tile_t *   ctx,
+                fd_stem_context_t * stem,
+                int                 poll_in,
+                int *               charge_busy ) {
+  ctx->net_idle_cnt++;
+  int tok = !hs_defer_tok_empty( ctx->hs_defer_tok );
+  if( FD_LIKELY( !tok && hs_defer_empty( ctx->hs_defer ) ) ) return;
+  if( FD_UNLIKELY( !ctx->curr_epoch_info || ctx->keyswitch_state ) ) {
+    ctx->metrics.hs_defer_drop += hs_defer_cnt( ctx->hs_defer ) + hs_defer_tok_cnt( ctx->hs_defer_tok );
+    hs_defer_remove_all( ctx->hs_defer );
+    hs_defer_tok_remove_all( ctx->hs_defer_tok );
+    return;
+  }
+  if( FD_UNLIKELY( !poll_in || ctx->net_idle_cnt<=ctx->in_cnt ) ) return;
+  hs_defer_t * d = tok ? hs_defer_tok_peek_head( ctx->hs_defer_tok ) : hs_defer_peek_head( ctx->hs_defer );
+  ctx->stem = stem;
+  fd_quic_process_packet( ctx->quic_server, d->buf, d->sz, fd_clock_tile_now( ctx->clock ) );
+  if( tok ) hs_defer_tok_remove_head( ctx->hs_defer_tok );
+  else      hs_defer_remove_head    ( ctx->hs_defer     );
+  net_tx_flush( ctx, stem );
+  *charge_busy = 1;
+}
 
 static inline void
 after_credit( fd_votor_tile_t *   ctx,
@@ -2051,12 +2301,11 @@ after_credit( fd_votor_tile_t *   ctx,
   /* Service both QUIC client and server. */
 
   *charge_busy = fd_quic_service( ctx->quic_client, now ) | fd_quic_service( ctx->quic_server, now );
-  for( ulong i=0UL; i<ctx->net_tx_cnt; i++ ) fd_stem_publish( stem, OUT_IDX_NET, ctx->net_tx[ i ].sig, ctx->net_tx[ i ].chunk, ctx->net_tx[ i ].sz, fd_frag_meta_ctl( 0UL, 1, 1, 0 ), 0L, 0L );
-  ctx->net_tx_cnt = 0UL;
+  net_tx_flush( ctx, stem );
 
   /* Not initialized. */
 
-  if( FD_UNLIKELY( !ctx->init ) ) return;
+  if( FD_UNLIKELY( !ctx->init ) ) { hs_defer_drain( ctx, stem, *opt_poll_in, charge_busy ); return; }
 
   /* 1. Notify if we can become leader. */
 
@@ -2324,7 +2573,7 @@ after_credit( fd_votor_tile_t *   ctx,
     ctx->standstill_slot = finalized_slot;
     ctx->standstill_ts   = now+AG_DELTA_STANDSTILL_NS;
   }
-  if( FD_LIKELY( now<ctx->standstill_ts ) ) return;
+  if( FD_LIKELY( now<ctx->standstill_ts ) ) { hs_defer_drain( ctx, stem, *opt_poll_in, charge_busy ); return; }
 
   ag_pool_standstill_iter_t * standstill_iter = ctx->standstill_iter;
   if( FD_UNLIKELY( standstill_iter->finalized!=finalized_slot ) ) FD_LOG_WARNING(( "standstill at finalized slot %lu, re-broadcasting", finalized_slot ));
@@ -2342,6 +2591,8 @@ after_credit( fd_votor_tile_t *   ctx,
     *charge_busy = 1;
   }
   ctx->standstill_ts = now+fd_long_if( ag_pool_standstill_iter_done( standstill_iter ), STANDSTILL_CYCLE_INTERVAL_NS, STANDSTILL_TX_INTERVAL_NS );
+
+  hs_defer_drain( ctx, stem, *opt_poll_in, charge_busy );
 }
 
 static int
@@ -2451,10 +2702,35 @@ after_frag( fd_votor_tile_t *   ctx,
     ushort               dport = fd_ushort_bswap( udp->net_dport );
     if( FD_UNLIKELY( dport!=ctx->quic_client_listen_port && dport!=ctx->quic_server_listen_port ) ) break;
     fd_quic_t * quic = fd_ptr_if( dport==ctx->quic_client_listen_port, ctx->quic_client, ctx->quic_server );
+    int long_hdr = sz>sizeof(fd_eth_hdr_t)+iplen+sizeof(fd_udp_hdr_t) && ( ((uchar const *)( udp+1 ))[ 0 ]&0x80 );
+    if( FD_UNLIKELY( quic==ctx->quic_server && long_hdr ) ) {
+      /* Defer Initial/Handshake packets and only process them when we
+         have free CPU time */
+      uchar const * payload = (uchar const *)( udp+1 );
+      ulong         pay_sz  = fd_ulong_min( sz-sizeof(fd_eth_hdr_t)-iplen, (ulong)fd_ushort_bswap( udp->net_len ) )-sizeof(fd_udp_hdr_t);
+      int           tok     = fd_quic_retry_token_check( quic, payload, pay_sz, FD_LOAD( uint, ip4->saddr_c ), fd_ushort_bswap( udp->net_sport ), fd_clock_tile_now( ctx->clock ) );
+      hs_defer_t *  d;
+      if( FD_UNLIKELY( tok ) ) {
+        if( FD_UNLIKELY( hs_defer_tok_full( ctx->hs_defer_tok ) ) ) {
+          hs_defer_tok_remove_head( ctx->hs_defer_tok ); /* drop oldest */
+          ctx->metrics.hs_defer_drop++;
+        }
+        d = hs_defer_tok_push_tail_nocopy( ctx->hs_defer_tok );
+      } else {
+        if( FD_UNLIKELY( hs_defer_full( ctx->hs_defer ) ) ) {
+          hs_defer_remove_head( ctx->hs_defer ); /* drop oldest */
+          ctx->metrics.hs_defer_drop++;
+        }
+        d = hs_defer_push_tail_nocopy( ctx->hs_defer );
+      }
+      d->sz = (ushort)( sz-sizeof(fd_eth_hdr_t) );
+      fd_memcpy( d->buf, ctx->net_buf+sizeof(fd_eth_hdr_t), d->sz );
+      break;
+    }
+    ctx->net_idle_cnt = 0UL;
     ctx->stem = stem;
     fd_quic_process_packet( quic, ctx->net_buf+sizeof(fd_eth_hdr_t), sz-sizeof(fd_eth_hdr_t), fd_clock_tile_now( ctx->clock ) );
-    for( ulong i=0UL; i<ctx->net_tx_cnt; i++ ) fd_stem_publish( stem, OUT_IDX_NET, ctx->net_tx[ i ].sig, ctx->net_tx[ i ].chunk, ctx->net_tx[ i ].sz, fd_frag_meta_ctl( 0UL, 1, 1, 0 ), 0L, 0L );
-    ctx->net_tx_cnt = 0UL;
+    net_tx_flush( ctx, stem );
     break;
   }
   case IN_KIND_REPLAY:
@@ -2573,6 +2849,9 @@ unprivileged_init( fd_topo_t const *      topo,
   void *            peers         = FD_SCRATCH_ALLOC_APPEND( l, peers_align(),                  peers_footprint( PEERS_LG_SLOT_CNT )                              );
   void *            contact_infos = FD_SCRATCH_ALLOC_APPEND( l, contact_infos_align(),          contact_infos_footprint( CONTACT_INFOS_LG_SLOT_CNT )              );
   void *            reconn_prq    = FD_SCRATCH_ALLOC_APPEND( l, reconn_prq_align(),             reconn_prq_footprint( RECONN_MAX )                                );
+  void *            staked_ips0   = FD_SCRATCH_ALLOC_APPEND( l, staked_ips_align(),             staked_ips_footprint( STAKED_IPS_LG_SLOT_CNT )                    );
+  void *            staked_ips1   = FD_SCRATCH_ALLOC_APPEND( l, staked_ips_align(),             staked_ips_footprint( STAKED_IPS_LG_SLOT_CNT )                    );
+  void *            lo_buckets    = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_token_bucket_t),     QUIC_SERVER_LO_BUCKET_CNT*sizeof(fd_token_bucket_t)               );
   void *            mleaders      = FD_SCRATCH_ALLOC_APPEND( l, fd_multi_epoch_leaders_align(), fd_multi_epoch_leaders_footprint()                                );
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) ) {
@@ -2629,8 +2908,22 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->reconn_prq = reconn_prq_join( reconn_prq_new( reconn_prq, RECONN_MAX ) );
   FD_TEST( ctx->reconn_prq );
 
+  ulong staked_ips_seed; FD_TEST( fd_rng_secure( &staked_ips_seed, sizeof(ulong) ) );
+  ctx->staked_ips       = staked_ips_join( staked_ips_new( staked_ips0, STAKED_IPS_LG_SLOT_CNT, staked_ips_seed ) );
+  ctx->staked_ips_spare = staked_ips_join( staked_ips_new( staked_ips1, STAKED_IPS_LG_SLOT_CNT, staked_ips_seed ) );
+  FD_TEST( ctx->staked_ips && ctx->staked_ips_spare );
+  ctx->staked_ips_dirty     = 0;
+  ctx->staked_ips_zombie_ts = 0L;
+  FD_TEST( fd_rng_secure( &ctx->lo_seed, sizeof(ulong) ) );
+  ctx->lo_buckets = memset( lo_buckets, 0, QUIC_SERVER_LO_BUCKET_CNT*sizeof(fd_token_bucket_t) );
+  memset( &ctx->lo_global, 0, sizeof(ctx->lo_global) );
+
   ctx->mleaders = fd_multi_epoch_leaders_join( fd_multi_epoch_leaders_new( mleaders ) );
   FD_TEST( ctx->mleaders );
+
+  ctx->hs_defer     = hs_defer_join    ( hs_defer_new    ( ctx->hs_defer_mem     ) );
+  ctx->hs_defer_tok = hs_defer_tok_join( hs_defer_tok_new( ctx->hs_defer_tok_mem ) );
+  FD_TEST( ctx->hs_defer && ctx->hs_defer_tok );
 
   for( ulong i=0UL; i<REWARD_VOTE_MAX; i++ ) ctx->reward_votes[ i ].slot = ULONG_MAX;
   for( ulong i=0UL; i<AG_SLOTS_PER_WINDOW; i++ ) ctx->reward_certs[ i ] = (reward_cert_t){ .slot = ULONG_MAX };
@@ -2656,6 +2949,9 @@ unprivileged_init( fd_topo_t const *      topo,
   ag_pool_standstill_iter_init( ctx->standstill_iter, ctx->pool );
 
   FD_TEST( tile->in_cnt<=sizeof(ctx->in_kind)/sizeof(ctx->in_kind[0]) );
+  ctx->in_cnt       = 0UL;
+  ctx->net_idle_cnt = 0UL;
+  for( ulong i=0UL; i<tile->in_cnt; i++ ) ctx->in_cnt += (ulong)!!tile->in_link_poll[ i ];
   for( ulong i=0UL; i<tile->in_cnt; i++ ) {
     fd_topo_link_t const * link = &topo->links[ tile->in_link_id[ i ] ];
 
@@ -2773,6 +3069,8 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->quic_server->cb.conn_new    = quic_server_conn_new;
   ctx->quic_server->cb.conn_final  = quic_server_conn_final;
   ctx->quic_server->cb.datagram_rx = quic_server_datagram_rx;
+  ctx->quic_server->cb.hs_prio     = quic_server_hs_prio;
+  ctx->quic_server->cb.hs_final    = quic_server_hs_final;
 
   FD_TEST( fd_quic_init( ctx->quic_server ) );
 
@@ -2819,6 +3117,11 @@ populate_allowed_fds( fd_topo_t const *      topo,
   return out_cnt;
 }
 
+static inline int
+prevent_park( fd_votor_tile_t * ctx ) {
+  return !hs_defer_empty( ctx->hs_defer ) || !hs_defer_tok_empty( ctx->hs_defer_tok );
+}
+
 #define STEM_BURST FD_VOTOR_OUT_BURST /* votor_out only; EXCLUDES VOTOR_NET (has no reliable consumers) */
 #define STEM_LAZY  (128L*3000L)
 
@@ -2831,6 +3134,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
 #define STEM_CALLBACK_BEFORE_FRAG         before_frag
 #define STEM_CALLBACK_DURING_FRAG         during_frag
 #define STEM_CALLBACK_AFTER_FRAG          after_frag
+#define STEM_CALLBACK_PREVENT_PARK        prevent_park
 
 #include "../../disco/stem/fd_stem.c"
 

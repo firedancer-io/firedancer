@@ -304,6 +304,35 @@ typedef void
                             ulong            pkt_num_hi,
                             void *           quic_ctx );
 
+/* fd_quic_cb_hs_prio_t classifies a new server conn from ip4 (net
+   order) and port (host order), returning FD_QUIC_HS_PRIO_*.  It is
+   called before any key derivation or TLS work, right after the Retry
+   token was verified; the address is return-routable only if
+   config.retry is set.  REFUSE drops the Initial.  A HIGH handshake may
+   evict any LOW one; a LOW one never evicts a HIGH one.
+
+   fd_quic_cb_hs_final_t is called once for every hs_prio call, with the
+   same ip4.  conn is NULL if no handshake was allocated (refused,
+   undecryptable, or the pool or conn table was full).  Otherwise it is
+   called when the handshake is released, ok==1 if its TLS handshake
+   completed and 0 otherwise (timeout, eviction, alert, close). */
+
+#define FD_QUIC_HS_PRIO_LOW    (0)
+#define FD_QUIC_HS_PRIO_HIGH   (1)
+#define FD_QUIC_HS_PRIO_REFUSE (2)
+
+typedef int
+(* fd_quic_cb_hs_prio_t)( void * quic_ctx,
+                          uint   ip4,
+                          ushort port );
+
+typedef void
+(* fd_quic_cb_hs_final_t)( fd_quic_conn_t * conn,
+                           uint             ip4,
+                           int              prio,
+                           int              ok,
+                           void *           quic_ctx );
+
 /* fd_quic_callbacks_t defines the set of user-provided callbacks that
    are invoked by the QUIC library.  Resets on leave. */
 
@@ -321,6 +350,8 @@ struct fd_quic_callbacks {
   fd_quic_cb_datagram_rx_t             datagram_rx;       /* nullable, with quic_ctx   */
   fd_quic_cb_tls_keylog_t              tls_keylog;        /* nullable, with quic_ctx   */
   fd_quic_cb_ack_range_t               ack_range;         /* nullable, with quic_ctx   */
+  fd_quic_cb_hs_prio_t                 hs_prio;           /* nullable, with quic_ctx, server only, all LOW if NULL */
+  fd_quic_cb_hs_final_t                hs_final;          /* nullable, with quic_ctx   */
 
 };
 typedef struct fd_quic_callbacks fd_quic_callbacks_t;
@@ -373,6 +404,8 @@ union fd_quic_metrics {
     ulong hs_created_cnt;          /* number of handshake flows created */
     ulong hs_err_alloc_fail_cnt;   /* number of handshakes dropped due to alloc fail */
     ulong hs_evicted_cnt;          /* number of handshakes evicted */
+    ulong hs_preempted_cnt;        /* number of LOW handshakes evicted before their ttl by a HIGH one */
+    ulong hs_refused_cnt;          /* number of new conns refused by cb.hs_prio */
 
     /* Stream metrics */
     ulong stream_opened_cnt;        /* number of streams opened */
@@ -690,6 +723,21 @@ fd_quic_process_packet( fd_quic_t * quic,
                         uchar *     data,
                         ulong       data_sz,
                         long        now );
+
+/* fd_quic_retry_token_check returns 1 if the UDP payload
+   payload[0,payload_sz) from ip4 (net order) and port (host order)
+   starts with an Initial carrying a Retry token this server issued for
+   that address, unexpired at now, and 0 otherwise.  Costs about one
+   AES-GCM tag check and no state; the token is checked again when the
+   packet is processed. */
+
+FD_QUIC_API int
+fd_quic_retry_token_check( fd_quic_t *   quic,
+                           uchar const * payload,
+                           ulong         payload_sz,
+                           uint          ip4,
+                           ushort        port,
+                           long          now );
 
 
 uint

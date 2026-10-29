@@ -564,6 +564,22 @@
                 "sum": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Sum of samples (nanos)" }
             }
         },
-        "server_conn_retry_expired_rejected":  { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Initials with an expired Retry token, also counted in ServerConnRetryRejected. Each gets an INVALID_TOKEN close so the client reconnects" }
+        "server_conn_retry_expired_rejected":  { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Initials with an expired Retry token, also counted in ServerConnRetryRejected. Each gets an INVALID_TOKEN close so the client reconnects" },
+        "server_handshake_classified": {
+            "type": "Tuple",
+            "description": "New handshakes after Retry, by priority class.  Priority handshakes come from a peer's contact info IP and evict any default class one",
+            "field_number": 427948910,
+            "aliases": {
+                "all": ["priority", "rate_limited", "slot_limited", "default", "refused"]
+            },
+            "fields": {
+                "priority":     { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Source IP is a peer's contact info IP within its handshake budget" },
+                "rate_limited": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Source IP is a peer's, but started too many handshakes recently, so it took the default budget" },
+                "slot_limited": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Source IP is a peer's, but holds too many handshakes already, so it took the default budget" },
+                "default":      { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Source IP is no peer's contact info IP, within the default budget" },
+                "refused":      { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Out of the default budget, per source IP or overall, so refused before any crypto" }
+            }
+        },
+        "server_handshake_pkt_dropped":        { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Connection setup packets from peers dropped before processing, because vote traffic kept the tile busy for too long or the identity was being switched. Peers retry, but sustained growth means new connections are being delayed", "field_number": 281116916 }
     }
 }

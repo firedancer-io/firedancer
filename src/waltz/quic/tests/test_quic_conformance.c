@@ -253,7 +253,7 @@ test_quic_frameless_conn( uint enc_level ) {
         fd_quic_tls_hs_pool_ele_acquire( state->hs_pool ),
         state->tls, (void *)conn, 1 /*is_server*/, tp, state->now );
     FD_TEST( conn->tls_hs );
-    fd_quic_tls_hs_cache_ele_push_tail( &state->hs_cache, conn->tls_hs, state->hs_pool );
+    fd_quic_tls_hs_cache_ele_push_tail( &state->hs_cache[ FD_QUIC_HS_PRIO_LOW ], conn->tls_hs, state->hs_pool );
   }
   return conn;
 }
