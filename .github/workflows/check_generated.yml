@@ -57,7 +57,7 @@ jobs:
           make -C src/disco/metrics metrics
           python3 src/disco/events/gen_events.py --skip-check --no-provisional
           python3 src/flamenco/features/gen_features.py
-          make frontend-generated
+          make frontend-generated CC=clang
 
       - name: Check generated files are up to date
         run: |
