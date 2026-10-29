@@ -243,6 +243,48 @@ run_tests( uint dst_ip ) {
   m_gre.eth.net_type = USHORT_BSWAP( FD_ETH_HDR_TYPE_IP );
   prog_test( m_gre.b, sizeof(m_gre), "gre_sanity_3", XDP_REDIRECT );
 
+  /* Check VLAN */
+  union {
+    uchar b[ 46 ];
+    struct __attribute__((packed)) {
+      fd_eth_hdr_t  eth;
+      fd_vlan_tag_t vlan;
+      fd_ip4_hdr_t  ip4;
+      fd_udp_hdr_t  udp;
+    };
+  } m_vlan = {
+    .eth  = { .net_type = USHORT_BSWAP( FD_ETH_HDR_TYPE_VLAN ) },
+    .vlan = { .net_vid  = USHORT_BSWAP( 100 ),
+              .net_type = USHORT_BSWAP( FD_ETH_HDR_TYPE_IP ) },
+    .ip4  = { .verihl = 0x45, .protocol = FD_IP4_HDR_PROTOCOL_UDP,
+              .net_tot_len = fd_ushort_bswap( 28 ) },
+    .udp  = { .net_dport = USHORT_BSWAP( PORT0 ) }
+  };
+  m_vlan.ip4.daddr = dst_ip;
+  prog_test( m_vlan.b, sizeof(m_vlan), "vlan", XDP_REDIRECT );
+
+  union {
+    uchar b[ 50 ];
+    struct __attribute__((packed)) {
+      fd_eth_hdr_t  eth;
+      fd_vlan_tag_t outer_vlan;
+      fd_vlan_tag_t inner_vlan;
+      fd_ip4_hdr_t  ip4;
+      fd_udp_hdr_t  udp;
+    };
+  } m_vlan2 = {
+    .eth        = { .net_type = USHORT_BSWAP( FD_ETH_HDR_TYPE_VLAN ) },
+    .outer_vlan = { .net_vid  = USHORT_BSWAP( 100 ),
+                    .net_type = USHORT_BSWAP( FD_ETH_HDR_TYPE_VLAN ) },
+    .inner_vlan = { .net_vid  = USHORT_BSWAP( 200 ),
+                    .net_type = USHORT_BSWAP( FD_ETH_HDR_TYPE_IP ) },
+    .ip4        = { .verihl = 0x45, .protocol = FD_IP4_HDR_PROTOCOL_UDP,
+                    .net_tot_len = fd_ushort_bswap( 28 ) },
+    .udp        = { .net_dport = USHORT_BSWAP( PORT0 ) }
+  };
+  m_vlan2.ip4.daddr = dst_ip;
+  prog_test( m_vlan2.b, sizeof(m_vlan2), "vlan_double_tag", XDP_PASS );
+
   /* Check IHL */
   union {
     uchar b[ 46 ];

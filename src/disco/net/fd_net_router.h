@@ -105,6 +105,13 @@ fd_net_tx_route( fd_net_router_t *   ctx,
     return 0;
   }
 
+  /* VLAN packets are sent on a socket and routed by the kernel, so
+     they do not need a neighbor table lookup. */
+  if( FD_UNLIKELY( netdev->is_vlan ) ) {
+    out->use_vlan = 1U;
+    return 1;
+  }
+
   if( FD_UNLIKELY( if_idx!=ctx->if_virt ) ) {
     net->metrics.tx_drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_UNSUPPORTED_INTERFACE_IDX ]++;
     return 0;

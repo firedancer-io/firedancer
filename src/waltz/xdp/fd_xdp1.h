@@ -12,7 +12,10 @@ FD_PROTOTYPES_BEGIN
    eBPF program bytecode at code_buf.  xsks_fd is the XSKMAP file
    descriptor.  If listen_ip_addr!=0, only redirects packets with a
    matching dst IP address.  ports is a list of UDP dst ports to
-   redirect.  If allowed_gre==1, also forwards GRE-tunnelled packets. */
+   redirect.  If allowed_gre==1, also forwards GRE-tunnelled packets.
+   Also redirects frames carrying a single 802.1Q tag (any VID) whose
+   inner Ethertype is IPv4.  Double-tagged frames are passed to the
+   kernel. */
 
 ulong
 fd_xdp_gen_program( ulong          code_buf[ 512 ],

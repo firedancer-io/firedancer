@@ -31,6 +31,12 @@ struct fd_netdev {
   ushort dev_type;       /* one of ARPHRD_ETHER/_LOOPBACK_/IPGRE*/
   uint   gre_dst_ip;
   uint   gre_src_ip;
+
+  /* is_vlan is 1 if the device is an 802.1Q VLAN and 0 otherwise.
+     Packets routed to a VLAN device are sent on a socket rather than
+     the configured provider.  This is intended only to be used for
+     votes. */
+  uint   is_vlan;
 };
 
 typedef struct fd_netdev fd_netdev_t;

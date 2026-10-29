@@ -4,6 +4,7 @@
 
 #include "../fd_net_tile.h"
 #include "../fd_net_tile_private.h"
+#include "../fd_net_sock.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -37,6 +38,7 @@
 #include <linux/rtnetlink.h>
 #include <linux/futex.h>
 
+#define FD_SOCKADDR_IN_SZ sizeof(struct sockaddr_in)
 #include "generated/fd_xdp_tile_seccomp.h"
 
 
@@ -51,6 +53,11 @@
 
 #define XSK_IDX_MAIN 0
 #define XSK_IDX_LO   1
+
+/* FD_VLAN_TAG_SZ is the size of the 802.1Q tag the kernel inserts into
+   packets sent on net_sock to a VLAN device. */
+
+#define FD_VLAN_TAG_SZ (4UL)
 
 /* XSK 'busy_poll_usecs' value (max amount of time
    spent spinning in a NAPI poll before returning back to
@@ -241,6 +248,9 @@ typedef struct {
   fd_netdev_tbl_join_t netdev_shared; /* shared table in netbase (seqlock protected) */
   ulong                netdev_seq;    /* netdev_shared seqlock value of the netdev_tbl copy */
 
+  /* Raw socket for kernel-routed (VLAN) TX */
+  fd_net_sock_t net_sock;
+
   struct {
     ulong rx_fill_blocked_cnt;
     long  rx_busy_cnt;
@@ -293,6 +303,7 @@ metrics_write( fd_net_ctx_t * ctx ) {
   FD_MCNT_SET(   NET, PKT_RX_BYTES,          ctx->net.metrics.rx_bytes_total     );
   FD_MCNT_ENUM_COPY( NET, PKT_RX_DROPPED,  ctx->net.metrics.rx_drop_cnt        );
   FD_MCNT_SET(   NET, GRE_PKT_RX,            ctx->net.metrics.rx_gre_cnt         );
+  FD_MCNT_SET(   NET, VLAN_PKT_RX,           ctx->net.metrics.rx_vlan_cnt        );
   FD_MCNT_SET(   NET, RX_FILL_RING_STALLED,  ctx->metrics.rx_fill_blocked_cnt    );
   FD_MGAUGE_SET( NET, RX_BUFFER_USED, (ulong)fd_long_max( ctx->metrics.rx_busy_cnt, 0L ) );
   FD_MGAUGE_SET( NET, RX_BUFFER_FREE, (ulong)fd_long_max( ctx->metrics.rx_idle_cnt, 0L ) );
@@ -310,6 +321,7 @@ metrics_write( fd_net_ctx_t * ctx ) {
   FD_MCNT_SET( NET, XSK_SYSCALL_RX,          ctx->metrics.xsk_rx_wakeup_cnt );
 
   FD_MCNT_SET( NET, GRE_PKT_TX_SUBMITTED,    ctx->net.metrics.tx_gre_cnt            );
+  FD_MCNT_SET( NET, SOCKET_PKT_TX_SUBMITTED, ctx->net.metrics.tx_sock_cnt           );
   /* fd_fib4_cnt includes the synthetic throw route at index zero. */
   FD_MGAUGE_SET( NET, ROUTE_COUNT_LOCAL, fd_ulong_sat_sub( fd_fib4_cnt( ctx->fib_local ), 1UL ) );
   FD_MGAUGE_SET( NET, ROUTE_COUNT_MAIN,  fd_ulong_sat_sub( fd_fib4_cnt( ctx->fib_main  ), 1UL ) );
@@ -566,6 +578,14 @@ net_tx_route( fd_net_ctx_t * ctx,
     return 0;
   }
 
+  if( FD_UNLIKELY( netdev->is_vlan ) ) {
+    route->use_vlan = 1U;
+    /* VLAN packets are sent on net_sock, but share the main XSK's
+       TX frame accounting in before_frag. */
+    ctx->tx_op.xsk_idx = XSK_IDX_MAIN;
+    return 1;
+  }
+
   if( FD_UNLIKELY( if_idx!=ctx->if_virt ) ) {
     ctx->net.metrics.tx_drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_UNSUPPORTED_INTERFACE_IDX ]++;
     return 0;
@@ -760,6 +780,31 @@ after_frag( fd_net_ctx_t *      ctx,
 
   if( FD_UNLIKELY( !fd_net_tx_pkt_prep( &ctx->net, frame, &sz, in_idx ) ) ) return;
   if( ctx->net.tx_route.use_gre ) xsk_idx = XSK_IDX_MAIN;
+
+  /* VLAN packets are sent on net_sock starting at the IPv4 header, and
+     the kernel constructs the L2 header.  fd_net_sock_send is
+     synchronous, so the frame is returned to free_tx immediately. */
+  if( FD_UNLIKELY( ctx->net.tx_route.use_vlan ) ) {
+    fd_ip4_hdr_t *       ip4      = (fd_ip4_hdr_t *)( frame+sizeof(fd_eth_hdr_t) );
+    ulong                ip4_sz   = sz-sizeof(fd_eth_hdr_t);
+    int                  ok       = fd_net_sock_send( &ctx->net_sock, ip4, ip4_sz );
+    fd_net_free_ring_t * free     = &ctx->free_tx;
+    ulong                free_idx = free->prod & (free->depth-1UL);
+    free->queue[ free_idx ] = (ulong)frame;
+    free->prod              = fd_seq_inc( free->prod, 1UL );
+    ctx->tx_op.frame        = NULL;
+    if( FD_LIKELY( ok ) ) {
+      ctx->metrics.tx_submit_cnt++;
+      ctx->net.metrics.tx_pkt_cnt++;
+      /* sz includes an ethernet frame but not the VLAN tag. */
+      ctx->net.metrics.tx_bytes_total += sz+FD_VLAN_TAG_SZ;
+      ctx->net.metrics.tx_sock_cnt++;
+      if (ctx->net.tx_route.use_gre) ctx->net.metrics.tx_gre_cnt++;
+    } else {
+      ctx->net.metrics.tx_drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_SOCKET_SEND_FAILURE_IDX ]++;
+    }
+    return;
+  }
 
   /* Submit packet TX job
 
@@ -1262,6 +1307,10 @@ privileged_init( fd_topo_t const *      topo,
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
+
+  if( FD_UNLIKELY( !fd_net_sock_init( &ctx->net_sock ) ) ) {
+    FD_LOG_ERR(( "failed to initialize net_sock (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
 }
 
 static void
@@ -1402,12 +1451,12 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
   /* A bit of a hack, if there is no loopback XSK for this tile, we still need to pass
      two "allow" FD arguments to the net policy, so we just make them both the same. */
   int allow_fd2 = ctx->xsk_cnt>1UL ? ctx->xsk[ 1 ].xsk_fd : ctx->xsk[ 0 ].xsk_fd;
-  FD_TEST( ctx->xsk[ 0 ].xsk_fd >= 0 && allow_fd2 >= 0 );
+  FD_TEST( ctx->xsk[ 0 ].xsk_fd >= 0 && allow_fd2 >= 0 && ctx->net_sock.sock >= 0 );
 
   /* not a waker client in performance mode: no fd matches, epoll_ctl denied */
   uint epoll_inner_fd = tile->is_waker_client ? (uint)FD_WAKER_INNER_FD( tile->waker_client_idx ) : (uint)-1;
   uint epoll_outer_fd = tile->is_waker_client ? (uint)FD_WAKER_OUTER_FD : (uint)-1;
-  populate_sock_filter_policy_fd_xdp_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)ctx->xsk[ 0 ].xsk_fd, (uint)allow_fd2, epoll_inner_fd, epoll_outer_fd );
+  populate_sock_filter_policy_fd_xdp_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)ctx->xsk[ 0 ].xsk_fd, (uint)allow_fd2, (uint)ctx->net_sock.sock, epoll_inner_fd, epoll_outer_fd );
   return sock_filter_policy_fd_xdp_tile_instr_cnt;
 }
 
@@ -1420,7 +1469,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_net_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_net_ctx_t ), sizeof( fd_net_ctx_t ) );
 
-  if( FD_UNLIKELY( out_fds_cnt<8UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+  if( FD_UNLIKELY( out_fds_cnt<9UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
 
   ulong out_cnt = 0UL;
 
@@ -1430,6 +1479,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
 
                                       out_fds[ out_cnt++ ] = ctx->xsk[ 0 ].xsk_fd;
                                       out_fds[ out_cnt++ ] = ctx->prog_link_fds[ 0 ];
+                                      out_fds[ out_cnt++ ] = ctx->net_sock.sock; /* VLAN TX socket */
   if( FD_LIKELY( ctx->xsk_cnt>1UL ) ) out_fds[ out_cnt++ ] = ctx->xsk[ 1 ].xsk_fd;
   if( FD_LIKELY( ctx->xsk_cnt>1UL ) ) out_fds[ out_cnt++ ] = ctx->prog_link_fds[ 1 ];
   if( FD_UNLIKELY( tile->is_waker_client ) ) {

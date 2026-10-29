@@ -181,8 +181,6 @@ fd_netdev_netlink_load_table( fd_netdev_tbl_join_t * tbl,
       } /* IFLA_MASTER */
 
       case IFLA_LINKINFO : {
-        if( ifi->ifi_type!=ARPHRD_IPGRE ) continue;
-
         struct rtattr * info_rat    = rta;
         long            info_rat_sz = (long)rta_sz;
 
@@ -191,7 +189,14 @@ fd_netdev_netlink_load_table( fd_netdev_tbl_join_t * tbl,
           ulong  info_rta_sz = RTA_PAYLOAD( info_rat );
 
           switch( info_rat->rta_type ) {
+          case IFLA_INFO_KIND: {
+            if( info_rta_sz==sizeof("vlan") && !memcmp( info_rta, "vlan", sizeof("vlan") ) ) {
+              netdev->is_vlan = 1U;
+            }
+            break;
+          } /* IFLA_INFO_KIND */
           case IFLA_INFO_DATA: {
+            if( ifi->ifi_type!=ARPHRD_IPGRE ) continue;
             struct rtattr * gre_rat    = (struct rtattr *)info_rta;
             long            gre_rat_sz = (long)info_rta_sz;
 
@@ -217,6 +222,7 @@ fd_netdev_netlink_load_table( fd_netdev_tbl_join_t * tbl,
           } /* IFLA_INFO_DATA */
           } /* info_rat->rta_type */
         } /* for each info_rta */
+        break;
       } /* IFLA_LINKINFO */
 
       } /* switch( rat->rta_type ) */

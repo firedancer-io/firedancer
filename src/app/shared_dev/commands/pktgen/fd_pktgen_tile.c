@@ -77,6 +77,10 @@ after_credit( fd_pktgen_tile_ctx_t * ctx,
   ulong          sz    = sizeof(fd_eth_hdr_t) + 46;
   eth->net_type        = fd_ushort_bswap( FD_ETH_HDR_TYPE_IP );
   ip4->verihl          = FD_IP4_VERIHL( 4, 5 );
+  /* Routing over the socket fallback requires a correct daddr */
+  ip4->daddr           = ctx->fake_dst_ip;
+  /* Some paths in firedancer (GRE) require a valid size. */
+  ip4->net_tot_len     = fd_ushort_bswap( (ushort)( sz-sizeof(fd_eth_hdr_t) ) );
   FD_STORE( ulong, ip4+1, tag ); /* Unique seq number */
   fd_stem_publish( stem, 0UL, sig, chunk, sz, 0UL, 0UL, 0UL );
 

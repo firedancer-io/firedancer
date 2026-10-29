@@ -45,6 +45,7 @@ struct fd_net_tx_route {
   uint   use_gre;
   uint   gre_outer_src_ip;
   uint   gre_outer_dst_ip;
+  uint   use_vlan;
 };
 typedef struct fd_net_tx_route fd_net_tx_route_t;
 
@@ -84,12 +85,14 @@ struct fd_net_tile {
     ulong rx_pkt_cnt;
     ulong rx_bytes_total;
     ulong rx_gre_cnt;
+    ulong rx_vlan_cnt;
     ulong rx_drop_cnt[ FD_METRICS_ENUM_PKT_RX_DROP_REASON_CNT ];
 
     ulong tx_pkt_cnt;
     ulong tx_bytes_total;
     ulong tx_drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_CNT ];
     ulong tx_gre_cnt;
+    ulong tx_sock_cnt;
   } metrics;
 };
 typedef struct fd_net_tile fd_net_tile_t;
@@ -207,7 +210,8 @@ fd_net_tx_pkt_prep( fd_net_tile_t * ctx,
     ctx->metrics.tx_drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_INVALID_IDX ]++;
     return 0;
   }
-  if( FD_UNLIKELY( !ip4_hdr->saddr && !route->src_ip ) ) {
+  /* VLAN packets are sent via the kernel which will fill in the saddr */
+  if( FD_UNLIKELY( !route->use_vlan && !ip4_hdr->saddr && !route->src_ip ) ) {
     ctx->metrics.tx_drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_SOURCE_IP_MISSING_IDX ]++;
     return 0;
   }
@@ -220,7 +224,8 @@ fd_net_tx_pkt_prep( fd_net_tile_t * ctx,
     ctx->metrics.tx_drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_INVALID_IDX ]++;
     return 0;
   }
-  if( FD_UNLIKELY( !route->gre_outer_src_ip || !route->gre_outer_dst_ip ) ) {
+  /* VLAN packets are sent via the kernel which will fill in the outer saddr */
+  if( FD_UNLIKELY( ( !route->use_vlan && !route->gre_outer_src_ip ) || !route->gre_outer_dst_ip ) ) {
     ctx->metrics.tx_drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_GRE_NO_ROUTE_IDX ]++;
     return 0;
   }
@@ -336,6 +341,21 @@ fd_net_rx_pkt( fd_net_tile_t *     ctx,
 
   uchar * frame = (uchar *)fd_chunk_to_laddr( ctx->pkt_buf_wksp_base, chunk ) + ctl;
   fd_eth_hdr_t * eth_hdr = (fd_eth_hdr_t *)frame;
+  int is_vlan = fd_ushort_bswap( eth_hdr->net_type )==FD_ETH_HDR_TYPE_VLAN;
+  if( FD_UNLIKELY( is_vlan ) ) {
+    fd_vlan_tag_t const * vlan_tag = (fd_vlan_tag_t const *)(eth_hdr+1);
+    /* Move the ethernet header so that it abuts the IP header. It uses
+       a temporary ethernet header because the memory regions will
+       overlap precluding the use of memcpy. */
+    fd_eth_hdr_t tmp_eth_hdr = *eth_hdr;
+    /* Take the net_type from the vlan tag so the ethernet header is valid. */
+    tmp_eth_hdr.net_type = vlan_tag->net_type;
+    FD_STORE( fd_eth_hdr_t, frame+sizeof(fd_vlan_tag_t), tmp_eth_hdr );
+    frame    += sizeof(fd_vlan_tag_t);
+    ctl      += sizeof(fd_vlan_tag_t);
+    byte_len -= sizeof(fd_vlan_tag_t);
+    eth_hdr   = (fd_eth_hdr_t *)frame;
+  }
   if( FD_UNLIKELY( fd_ushort_bswap( eth_hdr->net_type )!=FD_ETH_HDR_TYPE_IP ) ) {
     ctx->metrics.rx_drop_cnt[ FD_METRICS_ENUM_PKT_RX_DROP_REASON_V_MALFORMED_IDX ]++;
     return 0;
@@ -435,7 +455,8 @@ fd_net_rx_pkt( fd_net_tile_t *     ctx,
 
   fd_stem_publish( stem, out_idx, sig, chunk, byte_len, ctl, tsorig, tspub );
 
-  ctx->metrics.rx_gre_cnt += (ulong)is_gre;
+  ctx->metrics.rx_gre_cnt  += (ulong)is_gre;
+  ctx->metrics.rx_vlan_cnt += (ulong)is_vlan;
   ctx->metrics.rx_pkt_cnt++;
   ctx->metrics.rx_bytes_total += byte_len;
 
