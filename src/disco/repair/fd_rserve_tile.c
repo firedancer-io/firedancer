@@ -151,6 +151,11 @@ scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
+/* payload is a shred+nonce, a block id metadata response or a ping. */
+FD_STATIC_ASSERT( FD_REPAIR_RES_DE_MAX<=FD_SHRED_MAX_SZ+sizeof(uint), rserve_net_mtu );
+FD_STATIC_ASSERT( FD_REPAIR_PING_DE_SZ<=FD_SHRED_MAX_SZ+sizeof(uint), rserve_net_mtu );
+FD_STATIC_ASSERT( FD_RSERVE_NET_MTU<=FD_NET_MTU,                      rserve_net_mtu );
+
 static void
 send_packet( ctx_t               * ctx,
             fd_stem_context_t    * stem,

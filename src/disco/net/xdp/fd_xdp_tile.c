@@ -1313,12 +1313,13 @@ unprivileged_init( fd_topo_t const *      topo,
     if( !strcmp( link->name, "iproute_out" ) ) ctx->net.in_kind[i] = FD_NET_IN_KIND_IPROUTE;
     else {
       ctx->net.in_kind[i] = FD_NET_IN_KIND_TX;
-      if( FD_UNLIKELY( link->mtu!=FD_NET_MTU ) ) FD_LOG_ERR(( "net tile in link %s does not have a normal MTU", link->name ));
+      if( FD_UNLIKELY( link->mtu>FD_NET_MTU ) ) FD_LOG_ERR(( "net tile in link %s MTU exceeds FD_NET_MTU", link->name ));
     }
 
     ctx->net.in_dcache_ctx[ i ].wksp_base = topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ].wksp;
     ctx->net.in_dcache_ctx[ i ].chunk0    = fd_dcache_compact_chunk0( ctx->net.in_dcache_ctx[ i ].wksp_base, link->dcache );
     ctx->net.in_dcache_ctx[ i ].wmark     = fd_dcache_compact_wmark( ctx->net.in_dcache_ctx[ i ].wksp_base, link->dcache, link->mtu );
+    ctx->net.in_dcache_ctx[ i ].mtu       = link->mtu;
   }
 
   fd_net_rx_dst_ports_init( &ctx->net, topo, tile );

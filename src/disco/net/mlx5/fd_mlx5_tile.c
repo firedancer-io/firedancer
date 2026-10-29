@@ -1396,12 +1396,13 @@ unprivileged_init( fd_topo_t const *      topo,
       ctx->net.in_kind[ i ] = FD_NET_IN_KIND_IPROUTE;
     } else {
       ctx->net.in_kind[ i ] = FD_NET_IN_KIND_TX;
-      if( FD_UNLIKELY( link->mtu!=FD_NET_MTU ) ) FD_LOG_ERR(( "mlx5 tile in link does not have a normal MTU" ));
+      if( FD_UNLIKELY( link->mtu>FD_NET_MTU ) ) FD_LOG_ERR(( "mlx5 tile in link %s MTU exceeds FD_NET_MTU", link->name ));
     }
 
     ctx->net.in_dcache_ctx[ i ].wksp_base = topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ].wksp;
     ctx->net.in_dcache_ctx[ i ].chunk0    = fd_dcache_compact_chunk0( ctx->net.in_dcache_ctx[ i ].wksp_base, link->dcache );
     ctx->net.in_dcache_ctx[ i ].wmark     = fd_dcache_compact_wmark(  ctx->net.in_dcache_ctx[ i ].wksp_base, link->dcache, link->mtu );
+    ctx->net.in_dcache_ctx[ i ].mtu       = link->mtu;
   }
 
   /* Join netbase objects */

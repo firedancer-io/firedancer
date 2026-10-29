@@ -801,6 +801,9 @@ alpenglow_marker:
   }
 }
 
+FD_STATIC_ASSERT( FD_SHRED_MIN_SZ<=FD_SHRED_MAX_SZ,  shred_net_mtu );
+FD_STATIC_ASSERT( FD_SHRED_NET_MTU<=FD_NET_MTU,      shred_net_mtu );
+
 static inline void
 send_shred( fd_shred_ctx_t                 * ctx,
             fd_stem_context_t              * stem,

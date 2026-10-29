@@ -54,6 +54,7 @@ typedef struct {
   void * wksp_base;
   ulong  chunk0;    /* Lowest allowed starting chunk */
   ulong  wmark;     /* Highest allowed starting chunk */
+  ulong  mtu;       /* Largest allowed frag */
 } fd_net_in_dcache_ctx_t;
 
 /* fd_net_tile_t stores provider agnostic private tile state */
@@ -125,7 +126,7 @@ fd_net_in_frag_validate( fd_net_tile_t const * ctx,
   fd_net_in_dcache_ctx_t const * input_ctx = &ctx->in_dcache_ctx[ in_idx ];
   if( FD_UNLIKELY( chunk<input_ctx->chunk0 ||
                    chunk>input_ctx->wmark  ||
-                   frame_sz>FD_NET_MTU ) ) {
+                   frame_sz>input_ctx->mtu ) ) {
     FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]",
                  chunk, frame_sz, input_ctx->chunk0, input_ctx->wmark ));
   }

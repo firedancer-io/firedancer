@@ -544,6 +544,7 @@ main( int     argc,
   ctx->net.in_dcache_ctx[ 0 ].wksp_base = fd_wksp_containing( app_tx_dcache_mem );
   ctx->net.in_dcache_ctx[ 0 ].chunk0    = tx_chunk0;
   ctx->net.in_dcache_ctx[ 0 ].wmark     = tx_wmark;
+  ctx->net.in_dcache_ctx[ 0 ].mtu       = FD_NET_MTU;
 
   /* Start testing */
 

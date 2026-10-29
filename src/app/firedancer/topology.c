@@ -532,12 +532,12 @@ fd_topo_initialize( config_t * config ) {
      are consumed unreliably, so overrun drops the packet and the
      protocol retries. */
   /**/                 fd_topob_link( topo, "gossip_net",    "net_gossip",    8192UL,                                   FD_NET_MTU,                    1UL );
-  FOR(shred_tile_cnt)  fd_topob_link( topo, "shred_net",     "net_shred",     16384UL,                                  FD_NET_MTU,                    1UL );
-  /**/                 fd_topob_link( topo, "repair_net",    "net_repair",    config->net.ingress_buffer_size,          FD_NET_MTU,                    1UL );
+  FOR(shred_tile_cnt)  fd_topob_link( topo, "shred_net",     "net_shred",     16384UL,                                  FD_SHRED_NET_MTU,              1UL );
+  /**/                 fd_topob_link( topo, "repair_net",    "net_repair",    config->net.ingress_buffer_size,          FD_REPAIR_NET_MTU,             1UL );
   FOR(quic_tile_cnt)   fd_topob_link( topo, "quic_net",      "net_quic",      config->net.ingress_buffer_size,          FD_NET_MTU,                    1UL );
 
   if( FD_LIKELY( rserve_enabled ) ) {
-    /**/               fd_topob_link( topo, "rserve_net",    "net_rserve",    config->net.ingress_buffer_size,          FD_NET_MTU,                    1UL );
+    /**/               fd_topob_link( topo, "rserve_net",    "net_rserve",    config->net.ingress_buffer_size,          FD_RSERVE_NET_MTU,             1UL );
     /**/               fd_topob_link( topo, "rserve_sign",   "rserve_sign",   128UL,                                    32UL,                          1UL );
     /**/               fd_topob_link( topo, "sign_rserve",   "sign_rserve",   128UL,                                    sizeof(fd_ed25519_sig_t),      1UL );
     /**/               fd_topob_link( topo, "rotor_rserve",  "rotor_rserve",  2048UL,                                   sizeof(fd_repair_block_t),     1UL );
