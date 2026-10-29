@@ -33,6 +33,7 @@
 #include "../../util/bits/fd_bits.h"
 #include "../../util/fd_hash32.h"
 #include "../../util/log/fd_log.h"
+#include "../../util/racesan/fd_racesan_target.h"
 
 #include <errno.h>
 #include <unistd.h>
@@ -436,6 +437,7 @@ fd_accdb_cf_probe( fd_accdb_cf_t const * f,
     if( FD_UNLIKELY( s&1UL ) ) { FD_SPIN_PAUSE(); continue; }
     FD_COMPILER_MFENCE();
     if( fd_accdb_cf_word_has( FD_VOLATILE_CONST( f->cf[ i1 ] ), fp ) ) return 1;
+    fd_racesan_hook( "accdb_cf:probe_mid" );
     if( fd_accdb_cf_word_has( FD_VOLATILE_CONST( f->cf[ i2 ] ), fp ) ) return 1;
     if( FD_UNLIKELY( FD_VOLATILE_CONST( *f->stash_cnt ) ) ) {
       for( ulong k=0UL; k<FD_ACCDB_CF_STASH_MAX; k++ ) {
@@ -515,6 +517,7 @@ fd_accdb_cf_insert( fd_accdb_cf_t * f,
     for( ulong j=n+1UL; j>0UL; j-- ) {
       ulong k = j-1UL;
       FD_VOLATILE( f->cf[ pb[ k ] ] ) = fd_accdb_cf_set_lane( f->cf[ pb[ k ] ], pl[ k ], pf[ k ] );
+      fd_racesan_hook( "accdb_cf:kick_step" );
     }
     FD_COMPILER_MFENCE();
     FD_VOLATILE( *f->seq ) = *f->seq+1UL;
