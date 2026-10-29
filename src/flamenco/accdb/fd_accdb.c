@@ -1876,6 +1876,8 @@ remove_children( fd_accdb_t *              accdb,
   }
 }
 
+/* (definition of idx_root_tomb follows the bucket helpers) */
+
 /* fifo_push (T2, advance_root): a newly rooted live version. */
 
 static inline void
@@ -1899,6 +1901,15 @@ fifo_push( fd_accdb_t * accdb,
   shmem->fifo_head++;
   accdb->tier[ idx ] = FD_ACCDB_TIER_ROOTED;
 }
+
+/* idx_root_tomb (T2): a rooted tombstone for pubkey kills its bucket
+   slot (generation-guarded, idempotent) and hot copy while the
+   tombstone still shadows them in acc_map. */
+
+static void
+idx_root_tomb( fd_accdb_t * accdb,
+               uchar const  pubkey[ 32 ],
+               uint         gen );
 
 static void
 background_advance_root( fd_accdb_t *       accdb,
@@ -2002,6 +2013,7 @@ background_advance_root( fd_accdb_t *       accdb,
            slot and the disk bytes it occupies. */
         if( FD_UNLIKELY( new_acc_seen && new_acc->lamports==0UL ) ) {
           uint new_acc_idx = (uint)txne->acc_pool_idx;
+          if( accdb->fifo ) idx_root_tomb( accdb, new_acc->key.pubkey, new_acc->key.generation );
           acc_unlink( accdb, acc_map_idx, new_acc_prev, new_acc_idx );
           deferred_acc_append( accdb, new_acc_idx );
         } else if( accdb->fifo && new_acc_seen ) {
@@ -5099,22 +5111,25 @@ static void
 hot_unlink( fd_accdb_t * accdb,
             ulong        chain,
             uint         prev,
-            uint         idx ) {
+            uint         idx,
+            int          in_cmd ) {
   fd_accdb_accmeta_t * h = &accdb->acc_pool[ idx ];
   if( prev==UINT_MAX ) FD_VOLATILE( accdb->hot_map[ chain ] )        = h->map.next;
   else                 FD_VOLATILE( accdb->acc_pool[ prev ].map.next ) = h->map.next;
   acc_cache_teardown( accdb, h, 0 );
   accdb->tier[ idx ] = FD_ACCDB_TIER_NONE;
-  FD_TEST( bg_defer_append( accdb, idx | FD_ACCDB_DEFER_MIGRATED ) );
+  if( in_cmd ) deferred_acc_append( accdb, idx | FD_ACCDB_DEFER_MIGRATED ); /* cmd epoch tags it */
+  else         FD_TEST( bg_defer_append( accdb, idx | FD_ACCDB_DEFER_MIGRATED ) );
 }
 
 static void
 hot_purge( fd_accdb_t * accdb,
-           uchar const  pubkey[ 32 ] ) {
+           uchar const  pubkey[ 32 ],
+           int          in_cmd ) {
   ulong chain = idx_chain_of( accdb, pubkey );
   uint  prev;
   uint  idx = hot_find( accdb, chain, pubkey, &prev );
-  if( idx!=UINT_MAX ) hot_unlink( accdb, chain, prev, idx );
+  if( idx!=UINT_MAX ) hot_unlink( accdb, chain, prev, idx, in_cmd );
 }
 
 /* hot_insert (T2): replaces P's hot entry with h (initialized). */
@@ -5124,7 +5139,7 @@ hot_insert( fd_accdb_t * accdb,
             uint         idx ) {
   fd_accdb_accmeta_t * h = &accdb->acc_pool[ idx ];
   ulong chain = idx_chain_of( accdb, h->key.pubkey );
-  hot_purge( accdb, h->key.pubkey );
+  hot_purge( accdb, h->key.pubkey, 0 );
   h->map.next = accdb->hot_map[ chain ];
   accdb->tier   [ idx ] = FD_ACCDB_TIER_HOT;
   accdb->hot_ref[ idx ] = 0;
@@ -5155,6 +5170,23 @@ bkt_commit( fd_accdb_t *               accdb,
   } else {
     fd_accdb_cf_insert( accdb->cf, a->key.pubkey, &accdb->idx_rng );
   }
+}
+
+static void
+idx_root_tomb( fd_accdb_t * accdb,
+               uchar const  pubkey[ 32 ],
+               uint         gen ) {
+  if( fd_accdb_cf_probe( accdb->cf, pubkey ) ) {
+    fd_accdb_idx_slot_t old;
+    if( fd_accdb_idx_delete( accdb->bkt, accdb->shmem->seed, pubkey, 0, gen, &old ) ) {
+      ulong sz = sizeof(fd_accdb_disk_meta_t)+FD_ACCDB_SIZE_DATA( old.exec_size );
+      fd_accdb_shmem_bytes_freed( accdb->shmem, old.off_plus1-1UL, sz );
+      FD_ATOMIC_FETCH_AND_SUB( &accdb->shmem->shmetrics->disk_used_bytes, sz );
+      FD_ATOMIC_FETCH_AND_SUB( &accdb->shmem->shmetrics->accounts_total, 1UL );
+      fd_accdb_cf_delete( accdb->cf, pubkey );
+    }
+  }
+  hot_purge( accdb, pubkey, 1 );
 }
 
 /* idx_writeback (T2): persists a committed version whose offset is
@@ -5271,7 +5303,7 @@ demote_one( fd_accdb_t * accdb,
     FD_ATOMIC_FETCH_AND_AND( &a->executable_size, ~FD_ACCDB_SIZE_CACHE_CLAIM_BIT );
     hot_insert( accdb, h_idx );
   } else {
-    hot_purge( accdb, a->key.pubkey );
+    hot_purge( accdb, a->key.pubkey, 0 );
   }
 
   acc_chain_splice( accdb, (uint)chain, prev, a_idx );
@@ -5334,7 +5366,7 @@ background_hot_evict( fd_accdb_t * accdb ) {
       uint next = accdb->acc_pool[ cur ].map.next;
       int lineless = !FD_ACCDB_SIZE_CACHE_VALID( FD_VOLATILE_CONST( accdb->acc_pool[ cur ].executable_size ) );
       if( lineless || !accdb->hot_ref[ cur ] ) {
-        hot_unlink( accdb, chain, prev, cur );
+        hot_unlink( accdb, chain, prev, cur, 0 );
         evicted++;
       } else {
         accdb->hot_ref[ cur ] = 0;

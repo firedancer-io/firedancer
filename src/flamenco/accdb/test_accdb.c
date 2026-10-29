@@ -2598,6 +2598,19 @@ test_idx_demote_keeps_lines( void ) {
   FD_TEST( accdb_read( accdb, tip, key, &lamports, d, &data_len, owner ) && lamports==7UL && data_len==8UL );
   FD_TEST( fd_accdb_shmetrics( accdb )->accounts_total==16UL );
 
+  /* Closing a demoted account: the rooted tombstone deletes the bucket
+     slot and hot copy. */
+  memset( key, 0, 32 ); key[ 0 ] = 2;
+  fd_accdb_fork_id_t c = fd_accdb_attach_child( accdb, tip );
+  accdb_write( accdb, c, key, 0UL, NULL, 0UL, owner2 );
+  fd_accdb_advance_root( accdb, c );
+  drain_background( accdb );
+  tip = test_root_n( accdb, c, 2UL );
+  FD_TEST( !fd_accdb_idx_lookup( &bkt, test_shmem_mem->seed, key, 0, &slot ) );
+  FD_TEST( !accdb_read( accdb, tip, key, &lamports, d, &data_len, owner ) );
+  FD_TEST( !fd_accdb_exists( accdb, tip, key ) );
+  FD_TEST( fd_accdb_shmetrics( accdb )->accounts_total==15UL );
+
   close( test_idx_fd );
   test_teardown( accdb, fd );
 }
