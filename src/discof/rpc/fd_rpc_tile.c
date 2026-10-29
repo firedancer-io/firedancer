@@ -446,6 +446,13 @@ struct fd_rpc_tile {
   ulong * ws_subscribers_slot;
   ulong   ws_subscribers_slot_cnt;
 
+  /* Identical subscriptions share one subscription id while any
+     subscriber remains, and new subscriptions draw ids from a single
+     incrementing counter. */
+  ulong   ws_sub_id_vote;
+  ulong   ws_sub_id_slot;
+  ulong   ws_sub_id_next;
+
   fd_rpc_cluster_node_dlist_t * cluster_nodes_dlist;
   fd_rpc_cluster_node_t cluster_nodes[ FD_CONTACT_INFO_TABLE_SIZE ];
 
@@ -530,6 +537,7 @@ fd_rpc_ws_subscriber_vote_add( fd_rpc_tile_t * ctx,
     if( FD_UNLIKELY( ctx->ws_subscribers_vote[ i ]==ws_conn_id ) ) return;
 
   FD_TEST( ctx->ws_subscribers_vote_cnt<ctx->http->max_ws_conns );
+  if( FD_UNLIKELY( !ctx->ws_subscribers_vote_cnt ) ) ctx->ws_sub_id_vote = ctx->ws_sub_id_next++;
   ctx->ws_subscribers_vote[ ctx->ws_subscribers_vote_cnt++ ] = ws_conn_id;
 }
 
@@ -554,6 +562,7 @@ fd_rpc_ws_subscriber_slot_add( fd_rpc_tile_t * ctx,
     if( FD_UNLIKELY( ctx->ws_subscribers_slot[ i ]==ws_conn_id ) ) return;
 
   FD_TEST( ctx->ws_subscribers_slot_cnt<ctx->http->max_ws_conns );
+  if( FD_UNLIKELY( !ctx->ws_subscribers_slot_cnt ) ) ctx->ws_sub_id_slot = ctx->ws_sub_id_next++;
   ctx->ws_subscribers_slot[ ctx->ws_subscribers_slot_cnt++ ] = ws_conn_id;
 }
 
@@ -775,7 +784,8 @@ fd_rpc_publish_slot_event( fd_rpc_tile_t *                    ctx,
   for( ulong i=0UL; i<ctx->ws_subscribers_slot_cnt; ) {
     ulong ws_conn_id = ctx->ws_subscribers_slot[ i ];
     fd_http_server_printf( ctx->http,
-                           "{\"jsonrpc\":\"2.0\",\"method\":\"slotNotification\",\"params\":{\"subscription\":0,\"result\":{\"parent\":%lu,\"root\":%lu,\"slot\":%lu}}}\n",
+                           "{\"jsonrpc\":\"2.0\",\"method\":\"slotNotification\",\"params\":{\"subscription\":%lu,\"result\":{\"parent\":%lu,\"root\":%lu,\"slot\":%lu}}}\n",
+                           ctx->ws_sub_id_slot,
                            slot_completed->parent_slot,
                            slot_completed->root_slot,
                            slot_completed->slot );
@@ -2598,7 +2608,7 @@ voteSubscribe( fd_rpc_tile_t *         ctx,
 
   fd_rpc_ws_subscriber_vote_add( ctx, ws_conn_id );
 
-  return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"result\":0,\"id\":%s}\n", id_cstr );
+  return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"result\":%lu,\"id\":%s}\n", ctx->ws_sub_id_vote, id_cstr );
 }
 
 static fd_http_server_response_t
@@ -2618,7 +2628,7 @@ slotSubscribe( fd_rpc_tile_t *         ctx,
 
   fd_rpc_ws_subscriber_slot_add( ctx, ws_conn_id );
 
-  return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"result\":0,\"id\":%s}\n", id_cstr );
+  return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"result\":%lu,\"id\":%s}\n", ctx->ws_sub_id_slot, id_cstr );
 }
 
 static fd_http_server_response_t
@@ -2642,7 +2652,7 @@ voteUnsubscribe( fd_rpc_tile_t *         ctx,
   }
 
   int unsubscribed = 0;
-  if( FD_LIKELY( subscription->u==0UL ) )
+  if( FD_LIKELY( subscription->u==ctx->ws_sub_id_vote ) )
     unsubscribed = fd_rpc_ws_subscriber_vote_remove( ctx, ws_conn_id );
 
   return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"result\":%s,\"id\":%s}\n", unsubscribed ? "true" : "false", id_cstr );
@@ -2669,7 +2679,7 @@ slotUnsubscribe( fd_rpc_tile_t *         ctx,
   }
 
   int unsubscribed = 0;
-  if( FD_LIKELY( subscription->u==0UL ) )
+  if( FD_LIKELY( subscription->u==ctx->ws_sub_id_slot ) )
     unsubscribed = fd_rpc_ws_subscriber_slot_remove( ctx, ws_conn_id );
 
   return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"result\":%s,\"id\":%s}\n", unsubscribed ? "true" : "false", id_cstr );
@@ -3083,6 +3093,9 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->ws_subscribers_vote_cnt = 0UL;
   ctx->ws_subscribers_slot = _ws_sub_slot;
   ctx->ws_subscribers_slot_cnt = 0UL;
+  ctx->ws_sub_id_vote          = 0UL;
+  ctx->ws_sub_id_slot          = 0UL;
+  ctx->ws_sub_id_next          = 0UL;
 
   ctx->keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->id_keyswitch_obj_id ) );
   FD_TEST( ctx->keyswitch );
