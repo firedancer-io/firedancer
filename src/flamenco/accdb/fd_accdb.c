@@ -6467,7 +6467,7 @@ idx_residual_wait( fd_accdb_t *          accdb,
   }
   long t0 = fd_tickcount();
   if( FD_LIKELY( accdb->sleep ) ) fd_sleep_ring( accdb->sleep, accdb->sleep_tile_id );
-  while( FD_VOLATILE_CONST( ring->done )<=last ) FD_SPIN_PAUSE();
+  while( FD_VOLATILE_CONST( ring->done )<=last ) { fd_racesan_hook( "accdb_residual:wait" ); FD_SPIN_PAUSE(); }
   accdb->metrics->residual_waits++;
   accdb->metrics->residual_wait_ticks += (ulong)( fd_tickcount()-t0 );
   accdb->residual_ticket = last;
