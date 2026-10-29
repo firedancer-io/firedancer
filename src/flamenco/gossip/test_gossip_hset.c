@@ -154,6 +154,21 @@ test_push_dups( fd_rng_t * rng ) {
     for( ulong k=0UL; k<3UL; k++ ) FD_TEST( fd_crds_insert( crds, value, bytes, 128UL, 1UL, 0, 0, route[ t ][ k ], 1L<<40, stem, NULL )==want[ t ][ k ] );
   }
 
+  /* An mtu 0 misc link (mem NULL) drops the duplicate-shred update
+     payload; the value is still stored. */
+  out[ FD_GOSSIP_UPDATE_LINK_MISC ] = (fd_gossip_out_ctx_t){ .idx = 0UL, .mem = NULL, .chunk = ULONG_MAX };
+  fd_gossip_value_t dup[1];
+  memset( dup, 0, sizeof(dup) );
+  dup->tag       = FD_GOSSIP_VALUE_DUPLICATE_SHRED;
+  dup->wallclock = 1UL;
+  FD_STORE( ulong, dup->origin, 9UL );
+  for( ulong i=0UL; i<64UL; i++ ) dup->signature[ i ] = fd_rng_uchar( rng );
+  uchar dup_bytes[ 128 ];
+  memcpy( dup_bytes, dup->signature, 64UL );
+  for( ulong i=64UL; i<128UL; i++ ) dup_bytes[ i ] = fd_rng_uchar( rng );
+  FD_TEST( !fd_crds_insert( crds, dup, dup_bytes, 128UL, 1UL, 0, 0, 1, 1L<<40, stem, NULL ) );
+  FD_TEST( fd_crds_insert( crds, dup, dup_bytes, 128UL, 1UL, 0, 0, 1, 1L<<40, stem, NULL )==2L );
+
   free( crds_mem );
   free( purged_mem );
 }
