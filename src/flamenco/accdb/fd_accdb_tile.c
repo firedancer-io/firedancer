@@ -118,7 +118,7 @@ before_credit( fd_accdb_tile_ctx_t * ctx,
 
 static inline int
 prevent_park( fd_accdb_tile_ctx_t * ctx ) {
-  return ctx->busy;
+  return ctx->busy || fd_accdb_idx_busy( ctx->accdb );
 }
 
 static void
