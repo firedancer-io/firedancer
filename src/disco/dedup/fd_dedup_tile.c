@@ -84,9 +84,8 @@ metrics_write( fd_dedup_ctx_t * ctx ) {
 
 static inline void
 insert_executed( fd_dedup_ctx_t * ctx,
-                 fd_txn_t const * txn,
-                 uchar const *    payload ) {
-  ulong ha_dedup_tag = fd_hash( ctx->hashmap_seed, fd_txn_get_signatures( txn, payload ), FD_TXN_SIGNATURE_SZ );
+                 uchar const *    signature ) {
+  ulong ha_dedup_tag = fd_hash( ctx->hashmap_seed, signature, FD_TXN_SIGNATURE_SZ );
   int _is_dup;
   FD_TCACHE_INSERT( _is_dup, *ctx->tcache_sync, ctx->tcache_ring, ctx->tcache_depth, ctx->tcache_map, ctx->tcache_map_cnt, ha_dedup_tag );
   (void)_is_dup;
@@ -134,7 +133,7 @@ during_frag( fd_dedup_ctx_t * ctx,
     if( FD_LIKELY( sig==REPLAY_SIG_TXN_EXECUTED ) ) {
       fd_replay_txn_executed_t * txn_executed = fd_type_pun( src );
       if( FD_UNLIKELY( !txn_executed->is_committable ) ) return;
-      insert_executed( ctx, TXN(txn_executed->txn), txn_executed->txn->payload );
+      insert_executed( ctx, txn_executed->signature );
     } else if( FD_LIKELY( sig==REPLAY_SIG_TXN_EXECUTED_BAT ) ) {
       /* Hash every committed record's signature first and warm the
          map slots the inserts probe, and the slots of the tags they
