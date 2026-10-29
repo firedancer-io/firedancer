@@ -185,6 +185,19 @@ typedef struct fd_accdb_partition fd_accdb_partition_t;
 #define FD_ACCDB_BG_DEFER_CHUNK (1UL<<16)
 #define FD_ACCDB_BG_DEFER_CHUNKS (FD_ACCDB_BG_DEFER_MAX/FD_ACCDB_BG_DEFER_CHUNK)
 
+/* Hot (demoted / promoted rooted) entries carry this fork id; their
+   generation is <= root, so the fork bits are never consulted. */
+#define FD_ACCDB_FORK_ID_ROOTED ((ushort)(USHORT_MAX-1U))
+
+#define FD_ACCDB_DEMOTE_AGE   (64U)   /* generations before demotion */
+#define FD_ACCDB_DEMOTE_BATCH (64UL)  /* per background call         */
+#define FD_ACCDB_HOT_SWEEP    (256UL) /* hot chains per call         */
+
+/* tier[pool] (T2 only): where T2 last put a slot. */
+#define FD_ACCDB_TIER_NONE    (0)
+#define FD_ACCDB_TIER_ROOTED  (1)  /* rooted acc_map, in demote FIFO */
+#define FD_ACCDB_TIER_HOT     (2)
+
 struct fd_accdb_cache_key {
   uchar pubkey[ 32UL ];
   uint generation;
@@ -620,6 +633,13 @@ struct fd_accdb_shmem_private {
   ulong idx_file_sz;        /* bytes fallocated at boot            */
 
   ulong idx_bg_defer_off;   /* FD_ACCDB_BG_DEFER_MAX uints         */
+  ulong idx_tier_off;       /* acc_pool_max uchars                 */
+  ulong idx_hot_ref_off;    /* acc_pool_max uchars, FG sets on hit */
+  ulong idx_fifo_off;       /* acc_pool_max ulongs: idx<<32 | gen  */
+  ulong fifo_head;          /* T2 only                             */
+  ulong fifo_tail;
+  ulong hot_cursor;         /* T2 only                             */
+  ulong promote_reserve;    /* free slots kept for releases        */
   ulong bg_defer_head;      /* T2 only: total appended             */
   ulong bg_defer_tail;      /* T2 only: total released             */
   ulong bg_defer_sealed;    /* T2 only: entries below are tagged   */
