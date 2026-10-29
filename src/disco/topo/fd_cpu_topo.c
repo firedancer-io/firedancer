@@ -215,6 +215,21 @@ fd_topo_cpus_l3_complete( fd_topo_cpus_t const * cpus ) {
   return 1;
 }
 
+fd_cpuset_t *
+fd_topo_cpus_free_dies( fd_topo_cpus_t const * cpus,
+                        fd_cpuset_t const *    used,
+                        fd_cpuset_t *          free_cpus ) {
+  fd_cpuset_null( free_cpus );
+  for( ulong i=0UL; i<cpus->cpu_cnt; i++ ) {
+    ulong die = cpus->cpu[ i ].die_idx;
+    if( !cpus->cpu[ i ].online || die==ULONG_MAX ) continue;
+    int die_used = 0;
+    for( ulong j=0UL; j<cpus->cpu_cnt; j++ ) die_used |= cpus->cpu[ j ].die_idx==die && fd_cpuset_test( used, j );
+    if( !die_used ) fd_cpuset_insert( free_cpus, i );
+  }
+  return free_cpus;
+}
+
 void
 fd_topo_cpus_printf( fd_topo_cpus_t * cpus ) {
   for( ulong i=0UL; i<cpus->cpu_cnt; i++ ) {
