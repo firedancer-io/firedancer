@@ -102,10 +102,13 @@ fd_h2_rx_data( fd_h2_conn_t *            conn,
   uint  chunk_sz   = (uint)fd_ulong_min( frame_rem, rbuf_avail );
   uint  wnd_sz     = chunk_sz; /* + Pad Length and Padding on the last chunk */
   uint  fin_flag   = conn->rx_frame_flags & FD_H2_FLAG_END_STREAM;
+  /* The rest of the frame must fit before any of it is delivered, even
+     if credit is replenished between chunks (RFC 9113 6.9.1). */
+  uint  frame_wnd_sz = (uint)frame_rem + ( conn->rx_frame_flags & FD_H2_FLAG_PADDED ? 1U + conn->rx_pad_rem : 0U );
   if( rbuf_avail<frame_rem ) fin_flag = 0;
-  else if( FD_UNLIKELY( conn->rx_frame_flags & FD_H2_FLAG_PADDED ) ) wnd_sz += 1U + conn->rx_pad_rem;
+  else wnd_sz = frame_wnd_sz;
 
-  if( FD_UNLIKELY( wnd_sz > conn->rx_wnd ) ) {
+  if( FD_UNLIKELY( frame_wnd_sz > conn->rx_wnd ) ) {
     fd_h2_conn_error( conn, FD_H2_ERR_FLOW_CONTROL );
     return;
   }
@@ -129,7 +132,7 @@ fd_h2_rx_data( fd_h2_conn_t *            conn,
     goto skip_frame;
   }
 
-  if( FD_UNLIKELY( wnd_sz > stream->rx_wnd ) ) {
+  if( FD_UNLIKELY( frame_wnd_sz > stream->rx_wnd ) ) {
     fd_h2_stream_error( stream, conn, rbuf_tx, FD_H2_ERR_FLOW_CONTROL );
     cb->rst_stream( conn, stream, FD_H2_ERR_FLOW_CONTROL, 0 );
     goto skip_frame;
@@ -153,7 +156,7 @@ fd_h2_rx_data( fd_h2_conn_t *            conn,
     /* The first callback may have released the stream.  Re-query the stream
        map before dispatching the wrapped tail chunk. */
     stream = cb->stream_query( conn, stream_id );
-    if( FD_LIKELY( stream && !(conn->flags & (FD_H2_CONN_FLAGS_SEND_GOAWAY|FD_H2_CONN_FLAGS_DEAD)) ) ) {
+    if( FD_LIKELY( stream && !stream->rx_aborted && !(conn->flags & (FD_H2_CONN_FLAGS_SEND_GOAWAY|FD_H2_CONN_FLAGS_DEAD)) ) ) {
       cb->data( conn, stream, rbuf_rx->buf0, sz1, fin_flag );
     }
   }
@@ -210,18 +213,17 @@ fd_h2_rx_headers( fd_h2_conn_t *            conn,
 
   conn->rx_stream_id = stream_id;
 
-  /* Validate discarded blocks and keep state from the first fragment of
-     a live block in case its stream is released before CONTINUATION. */
-  if( FD_UNLIKELY( !stream || !(frame_flags & FD_H2_FLAG_END_HEADERS) ) ) {
-    conn->rx_hdrs_discard = (uchar)!stream;
-    if( !(frame_flags & FD_H2_FLAG_END_HEADERS) ) conn->flags |= FD_H2_CONN_FLAGS_CONTINUATION;
-    fd_hpack_skip_init( &conn->rx_hpack );
-    if( FD_UNLIKELY( fd_hpack_skip_feed( &conn->rx_hpack, payload, payload_sz, !!(frame_flags & FD_H2_FLAG_END_HEADERS) ) ) ) {
-      fd_h2_conn_error( conn, FD_H2_ERR_COMPRESSION );
-      return 0;
-    }
-    if( !stream ) return 1;
+  /* Validate every block, as HPACK errors are connection errors (RFC
+     9113 4.3), and keep state from the first fragment of a live block
+     in case its stream is released before CONTINUATION. */
+  conn->rx_hdrs_discard = (uchar)!stream;
+  if( !(frame_flags & FD_H2_FLAG_END_HEADERS) ) conn->flags |= FD_H2_CONN_FLAGS_CONTINUATION;
+  fd_hpack_skip_init( &conn->rx_hpack );
+  if( FD_UNLIKELY( fd_hpack_skip_feed( &conn->rx_hpack, payload, payload_sz, !!(frame_flags & FD_H2_FLAG_END_HEADERS) ) ) ) {
+    fd_h2_conn_error( conn, FD_H2_ERR_COMPRESSION );
+    return 0;
   }
+  if( !stream ) return 1;
 
   fd_h2_stream_rx_headers( stream, conn, frame_flags );
   if( FD_UNLIKELY( stream->state==FD_H2_STREAM_STATE_ILLEGAL ) ) {
@@ -323,12 +325,6 @@ fd_h2_rx_settings( fd_h2_conn_t *            conn,
 
   if( FD_UNLIKELY( stream_id ) ) {
     fd_h2_conn_error( conn, FD_H2_ERR_PROTOCOL );
-    return 0;
-  }
-
-  if( FD_UNLIKELY( conn->flags & FD_H2_CONN_FLAGS_SERVER_INITIAL ) ) {
-    /* As a server, the first frame we should send is SETTINGS, not
-       SETTINGS ACK as generated here */
     return 0;
   }
 
@@ -680,6 +676,12 @@ fd_h2_rx1( fd_h2_conn_t *            conn,
     fd_h2_conn_error( conn, FD_H2_ERR_PROTOCOL );
     return;
   }
+  /* The peer's preface is a non-ACK SETTINGS frame (RFC 9113 3.4) */
+  if( FD_UNLIKELY( (conn->flags & FD_H2_CONN_FLAGS_WAIT_SETTINGS_0) &&
+                   (frame_type!=FD_H2_FRAME_TYPE_SETTINGS || (hdr.flags & FD_H2_FLAG_ACK)) ) ) {
+    fd_h2_conn_error( conn, FD_H2_ERR_PROTOCOL );
+    return;
+  }
 
   /* Peek padding */
   uint pad_sz = 0U;
@@ -771,8 +773,10 @@ fd_h2_rx( fd_h2_conn_t *            conn,
           fd_h2_callbacks_t const * cb ) {
   /* Pre-receive TX work */
 
-  /* Stop handling frames on conn error. */
-  if( FD_UNLIKELY( conn->flags & (FD_H2_CONN_FLAGS_SEND_GOAWAY|FD_H2_CONN_FLAGS_DEAD) ) ) return;
+  /* Stop handling frames on conn error.  Defer them until our preface
+     is queued, so no reply precedes it (RFC 9113 3.4). */
+  if( FD_UNLIKELY( conn->flags & (FD_H2_CONN_FLAGS_SEND_GOAWAY|FD_H2_CONN_FLAGS_DEAD|
+                                  FD_H2_CONN_FLAGS_CLIENT_INITIAL|FD_H2_CONN_FLAGS_SERVER_INITIAL) ) ) return;
 
   /* All other logic below can only proceed if new data arrived. */
   if( FD_UNLIKELY( !fd_h2_rbuf_used_sz( rbuf_rx ) ) ) return;
