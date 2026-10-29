@@ -804,6 +804,7 @@ publish_update_msg( fd_crds_t *               crds,
   if( FD_UNLIKELY( tag==FD_GOSSIP_UPDATE_TAG_CONTACT_INFO && !ci_changed ) ) link = FD_GOSSIP_UPDATE_LINK_CI_SEEN;
   fd_gossip_out_ctx_t * out = crds->gossip_update + link;
   if( FD_UNLIKELY( out->idx==ULONG_MAX ) ) return; /* nobody reads this kind */
+  if( FD_UNLIKELY( !out->mem ) ) return; /* mtu 0: readers take no payload */
 
   fd_gossip_update_message_t * msg = fd_gossip_out_get_chunk( out );
   msg->tag       = tag;
