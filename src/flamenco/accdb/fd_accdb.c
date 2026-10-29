@@ -2482,6 +2482,38 @@ cold_load_acc( fd_accdb_t *     accdb,
 #define RESERVATION_TYPE_MAYBE_PROGRAMDATA (1)
 #define RESERVATION_TYPE_ALREADY_RESERVED  (2)
 
+/* idx_resolve returns the pool index of the first fork-visible version
+   of pubkey on fork, or UINT_MAX.  Every read API resolves through
+   here.  Caller holds an epoch.  See fd_accdb_acquire_inner STEP 1 for
+   the walk's safety under concurrent prepend. */
+
+static inline uint
+idx_resolve( fd_accdb_t *            accdb,
+             fd_accdb_fork_t const * fork,
+             ushort                  fork_id,
+             uint                    root_generation,
+             uchar const *           pubkey,
+             ulong                   map_idx,
+             int                     hook ) {
+  uint acc = FD_VOLATILE_CONST( accdb->acc_map[ map_idx ] );
+  while( acc!=UINT_MAX ) {
+    fd_accdb_accmeta_t const * candidate_acc = &accdb->acc_pool[ acc ];
+    uint next_acc = FD_VOLATILE_CONST( candidate_acc->map.next );
+
+    if( hook ) { fd_racesan_hook( "accdb_acquire:post_next" ); }
+
+    if( FD_UNLIKELY( (candidate_acc->key.generation>root_generation &&
+                      fd_accdb_acc_fork_id(candidate_acc)!=fork_id &&
+                      !descends_set_test( fork->descends, fd_accdb_acc_fork_id(candidate_acc) )) ) ||
+                      memcmp( pubkey, candidate_acc->key.pubkey, 32UL ) ) {
+      acc = next_acc;
+      continue;
+    }
+    break;
+  }
+  return acc;
+}
+
 static void
 fd_accdb_acquire_inner( fd_accdb_t *          accdb,
                         fd_accdb_fork_id_t    fork_id,
@@ -2536,23 +2568,7 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
      concurrent releases serialize on the CAS of the chain head. */
   for( ulong i=0UL; i<pubkeys_cnt; i++ ) {
     acc_map_idxs[ i ] = fd_hash32( pubkeys[ i ], accdb->shmem->seed )&(accdb->shmem->chain_cnt-1UL);
-    uint acc = FD_VOLATILE_CONST( accdb->acc_map[ acc_map_idxs[ i ] ] );
-    while( acc!=UINT_MAX ) {
-      fd_accdb_accmeta_t const * candidate_acc = &accdb->acc_pool[ acc ];
-      uint next_acc = FD_VOLATILE_CONST( candidate_acc->map.next );
-
-      fd_racesan_hook( "accdb_acquire:post_next" );
-
-      if( FD_UNLIKELY( (candidate_acc->key.generation>root_generation &&
-                        fd_accdb_acc_fork_id(candidate_acc)!=fork_id.val &&
-                        !descends_set_test( fork->descends, fd_accdb_acc_fork_id(candidate_acc) )) ) ||
-                        memcmp( pubkeys[ i ], candidate_acc->key.pubkey, 32UL ) ) {
-        acc = next_acc;
-        continue;
-      }
-
-      break;
-    }
+    uint acc = idx_resolve( accdb, fork, fork_id.val, root_generation, pubkeys[ i ], acc_map_idxs[ i ], 1 );
     if( FD_UNLIKELY( acc==UINT_MAX ) )                                       accmetas[ i ] = NULL;
     else                                                                     accmetas[ i ] = &accdb->acc_pool[ acc ];
 
@@ -3840,21 +3856,8 @@ fd_accdb_read_one_nocache( fd_accdb_t *       accdb,
   uint root_generation = accdb->fork_pool[ accdb->shmem->root_fork_id.val ].shmem->generation;
   fd_accdb_fork_t * fork = &accdb->fork_pool[ fork_id.val ];
   ulong hash = fd_hash32( pubkey, accdb->shmem->seed )&(accdb->shmem->chain_cnt-1UL);
-  uint acc_idx = FD_VOLATILE_CONST( accdb->acc_map[ hash ] );
-  fd_accdb_accmeta_t const * accmeta = NULL;
-  while( acc_idx!=UINT_MAX ) {
-    fd_accdb_accmeta_t const * candidate = &accdb->acc_pool[ acc_idx ];
-    uint next_idx = FD_VOLATILE_CONST( candidate->map.next );
-    if( FD_UNLIKELY( (candidate->key.generation>root_generation &&
-                      fd_accdb_acc_fork_id(candidate)!=fork_id.val &&
-                      !descends_set_test( fork->descends, fd_accdb_acc_fork_id(candidate) )) ) ||
-                     memcmp( pubkey, candidate->key.pubkey, 32UL ) ) {
-      acc_idx = next_idx;
-      continue;
-    }
-    accmeta = candidate;
-    break;
-  }
+  uint acc_idx = idx_resolve( accdb, fork, fork_id.val, root_generation, pubkey, hash, 0 );
+  fd_accdb_accmeta_t const * accmeta = acc_idx==UINT_MAX ? NULL : &accdb->acc_pool[ acc_idx ];
 
   if( FD_UNLIKELY( !accmeta ) ) {
     accdb->metrics->accounts_acquired_per_class[ 0 ]++;
@@ -4012,18 +4015,7 @@ fd_accdb_exists( fd_accdb_t *       accdb,
   uint root_generation = accdb->fork_pool[ accdb->shmem->root_fork_id.val ].shmem->generation;
   fd_accdb_fork_t * fork = &accdb->fork_pool[ fork_id.val ];
   ulong hash = fd_hash32( pubkey, accdb->shmem->seed )&(accdb->shmem->chain_cnt-1UL);
-  uint acc = FD_VOLATILE_CONST( accdb->acc_map[ hash ] );
-  while( acc!=UINT_MAX ) {
-    fd_accdb_accmeta_t const * candidate_acc = &accdb->acc_pool[ acc ];
-    uint next_acc = FD_VOLATILE_CONST( candidate_acc->map.next );
-
-    if( FD_UNLIKELY( (candidate_acc->key.generation>root_generation && fd_accdb_acc_fork_id(candidate_acc)!=fork_id.val && !descends_set_test( fork->descends, fd_accdb_acc_fork_id(candidate_acc) )) ) || memcmp( pubkey, candidate_acc->key.pubkey, 32UL ) ) {
-      acc = next_acc;
-      continue;
-    }
-
-    break;
-  }
+  uint acc = idx_resolve( accdb, fork, fork_id.val, root_generation, pubkey, hash, 0 );
 
   int result;
   if( FD_UNLIKELY( acc==UINT_MAX ) ) result = 0;
@@ -4048,18 +4040,7 @@ fd_accdb_probe_pd_this_fork( fd_accdb_t *       accdb,
   uint root_generation = accdb->fork_pool[ accdb->shmem->root_fork_id.val ].shmem->generation;
   fd_accdb_fork_t * fork = &accdb->fork_pool[ fork_id.val ];
   ulong hash = fd_hash32( pubkey, accdb->shmem->seed )&(accdb->shmem->chain_cnt-1UL);
-  uint acc = FD_VOLATILE_CONST( accdb->acc_map[ hash ] );
-  while( acc!=UINT_MAX ) {
-    fd_accdb_accmeta_t const * candidate_acc = &accdb->acc_pool[ acc ];
-    uint next_acc = FD_VOLATILE_CONST( candidate_acc->map.next );
-
-    if( FD_UNLIKELY( (candidate_acc->key.generation>root_generation && fd_accdb_acc_fork_id(candidate_acc)!=fork_id.val && !descends_set_test( fork->descends, fd_accdb_acc_fork_id(candidate_acc) )) ) || memcmp( pubkey, candidate_acc->key.pubkey, 32UL ) ) {
-      acc = next_acc;
-      continue;
-    }
-
-    break;
-  }
+  uint acc = idx_resolve( accdb, fork, fork_id.val, root_generation, pubkey, hash, 0 );
 
   int   pd        = 0;
   int   gen_match = 0;
@@ -4096,18 +4077,7 @@ fd_accdb_lamports( fd_accdb_t *       accdb,
   uint root_generation = accdb->fork_pool[ accdb->shmem->root_fork_id.val ].shmem->generation;
   fd_accdb_fork_t * fork = &accdb->fork_pool[ fork_id.val ];
   ulong hash = fd_hash32( pubkey, accdb->shmem->seed )&(accdb->shmem->chain_cnt-1UL);
-  uint acc = FD_VOLATILE_CONST( accdb->acc_map[ hash ] );
-  while( acc!=UINT_MAX ) {
-    fd_accdb_accmeta_t const * candidate_acc = &accdb->acc_pool[ acc ];
-    uint next_acc = FD_VOLATILE_CONST( candidate_acc->map.next );
-
-    if( FD_UNLIKELY( (candidate_acc->key.generation>root_generation && fd_accdb_acc_fork_id(candidate_acc)!=fork_id.val && !descends_set_test( fork->descends, fd_accdb_acc_fork_id(candidate_acc) )) ) || memcmp( pubkey, candidate_acc->key.pubkey, 32UL ) ) {
-      acc = next_acc;
-      continue;
-    }
-
-    break;
-  }
+  uint acc = idx_resolve( accdb, fork, fork_id.val, root_generation, pubkey, hash, 0 );
 
   ulong result;
   if( FD_UNLIKELY( acc==UINT_MAX ) ) result = 0UL;
@@ -4129,18 +4099,7 @@ fd_accdb_data_len( fd_accdb_t *       accdb,
   uint root_generation = accdb->fork_pool[ accdb->shmem->root_fork_id.val ].shmem->generation;
   fd_accdb_fork_t * fork = &accdb->fork_pool[ fork_id.val ];
   ulong hash = fd_hash32( pubkey, accdb->shmem->seed )&(accdb->shmem->chain_cnt-1UL);
-  uint acc = FD_VOLATILE_CONST( accdb->acc_map[ hash ] );
-  while( acc!=UINT_MAX ) {
-    fd_accdb_accmeta_t const * candidate_acc = &accdb->acc_pool[ acc ];
-    uint next_acc = FD_VOLATILE_CONST( candidate_acc->map.next );
-
-    if( FD_UNLIKELY( (candidate_acc->key.generation>root_generation && fd_accdb_acc_fork_id(candidate_acc)!=fork_id.val && !descends_set_test( fork->descends, fd_accdb_acc_fork_id(candidate_acc) )) ) || memcmp( pubkey, candidate_acc->key.pubkey, 32UL ) ) {
-      acc = next_acc;
-      continue;
-    }
-
-    break;
-  }
+  uint acc = idx_resolve( accdb, fork, fork_id.val, root_generation, pubkey, hash, 0 );
 
   ulong result;
   if( FD_UNLIKELY( acc==UINT_MAX || !FD_VOLATILE_CONST( accdb->acc_pool[ acc ].lamports ) ) ) result = 0UL;
