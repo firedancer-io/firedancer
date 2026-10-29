@@ -797,6 +797,7 @@ fd_repair_fec_notarized( fd_repair_t *     rotor,
     fec->data_rcvd     = 0U;
     fec->parity_rcvd   = 0U;
     fec->repair_rcvd   = 0U;
+    memset( &fec->update_parent, 0, sizeof(fec->update_parent) );
     fd_repair_fec_map_ele_insert( rotor->fec_map, fec, rotor->fec_pool );
   }
   fec->notarized       = 1;
@@ -883,6 +884,11 @@ fd_repair_shred_insert( fd_repair_t *      rotor,
   if( FD_UNLIKELY(  fec && !fec->first_ts ) ) fec->first_ts = ts;
   if( FD_LIKELY( fec && src && !fec->complete ) ) fec->final_src = src; /* frozen once complete */
 
+
+  fd_block_marker_t marker[1];
+  int               is_up = shred->idx%FD_FEC_SHRED_CNT==0U && shred->idx && !fd_block_marker_de( marker, fd_shred_data_payload( shred ), fd_shred_payload_sz( shred ) ) && marker->kind==FD_BLOCK_MARKER_KIND_UPDATE_PARENT;
+  if( FD_UNLIKELY( is_up && fec ) ) { fec->update_parent = marker->update_parent; }
+
   /* Second, handle an Eager shred (from Turbine or Eager Repair). */
 
   ulong                   parent_slot = shred->slot - shred->data.parent_off;
@@ -898,7 +904,6 @@ fd_repair_shred_insert( fd_repair_t *      rotor,
 
   /* Check for misbehavior that can invalidate the eager block. */
 
-  fd_block_marker_t marker[1];
   int               bad_header    = shred->idx==0U && ( fd_block_marker_de( marker, fd_shred_data_payload( shred ), fd_shred_payload_sz( shred ) ) || marker->kind!=FD_BLOCK_MARKER_KIND_HEADER || marker->header.parent_slot!=parent_slot );
   fd_mr32_t const * parent_blk_mr = shred->idx==0U ? &marker->header.parent_block_id : NULL;
 
@@ -943,11 +948,13 @@ fd_repair_shred_insert( fd_repair_t *      rotor,
     fec->data_rcvd     = 0U;
     fec->parity_rcvd   = 0U;
     fec->repair_rcvd   = 0U;
+    memset( &fec->update_parent, 0, sizeof(fec->update_parent) );
     fd_repair_fec_map_ele_insert( rotor->fec_map, fec, rotor->fec_pool );
   }
   blk->fecs[ fec_idx ] = fd_repair_fec_pool_idx( rotor->fec_pool, fec );
   blk->rcvd_fec_cnt    = fd_uint_max( blk->rcvd_fec_cnt, fec_idx+1U );
   fec->rcvd            = fd_uint_set_bit( fec->rcvd, (int)( shred->idx - fec_idx*FD_FEC_SHRED_CNT ) );
+  if( FD_UNLIKELY( is_up ) ) { fec->update_parent = marker->update_parent; }
 }
 
 void
