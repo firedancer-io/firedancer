@@ -5,6 +5,7 @@
 #include "../../disco/shred/fd_fec_set.h"
 #include "../../choreo/votor/fd_votor_base.h"
 #include "../../choreo/fd_choreo_base.h"
+#include "../../flamenco/alpenglow/fd_block_marker.h"
 
 struct fd_mr20 {
   uchar uc[ FD_SHRED_MERKLE_NODE_SZ ];
@@ -21,10 +22,10 @@ struct fd_repair_fec {
   uint      fec_idx;
   ulong     slot;
   uint      rcvd;
-  uchar     complete      : 1;
-  uchar     data_complete : 1;
-  uchar     is_leader     : 1;
-  uchar     notarized     : 1;
+  uchar     complete          : 1;
+  uchar     data_complete     : 1;
+  uchar     is_leader         : 1;
+  uchar     notarized         : 1;
   ulong     next;
   ulong     prev;
   uint      data_rcvd;     /* shred tile masks at first completion: bit j set if the data shred with in-type index j was received (vs recovered) */
@@ -34,9 +35,11 @@ struct fd_repair_fec {
   int       final_src;     /* FD_EVENT_BLOCK_RECEIVED_FEC_SETS_FINAL_SHRED_SOURCE_* of the last data shred received before it completed, 0 if none */
   long      first_ts;      /* when its first shred arrived, 0 if none yet */
   long      cmpl_ts;       /* when it first completed, 0 if not yet */
+
+  fd_update_parent_t update_parent; /* its first data shred, past FEC set 0, is an UpdateParent naming it, zero otherwise.  It counts only if the previous FEC set ends in DATA_COMPLETE */
 };
 typedef struct fd_repair_fec fd_repair_fec_t;
-FD_STATIC_ASSERT( sizeof(fd_repair_fec_t)==120UL, fd_repair_fec );
+FD_STATIC_ASSERT( sizeof(fd_repair_fec_t)==160UL, fd_repair_fec );
 
 #define POOL_NAME fd_repair_fec_pool
 #define POOL_T    fd_repair_fec_t
@@ -66,10 +69,12 @@ struct fd_repair_blk {
   uint cmpl_fec_cnt; /* FEC set count of the slot, 0 if not yet known */
   uint rcvd_fec_cnt; /* one past the highest FEC set received, there can be gaps below */
   uint buff_fec_cnt; /* FEC sets [0,buff_fec_cnt) are complete */
-  uint cons_fec_cnt; /* FEC sets [0,cons_fec_cnt) are consumed by replay, 0 until the parent is consumed in full */
+  uint cons_fec_cnt; /* FEC sets [init_fec_cnt,cons_fec_cnt) are consumed by replay, init_fec_cnt until the parent is consumed in full */
   uint wait_fec_cnt; /* FEC sets [0,wait_fec_cnt) are complete or have a repair req waiting, kept by the tile */
+  uint init_fec_cnt; /* FEC set of its UpdateParent, replay starts there, 0 if none */
 
-  ulong     parent_slot;
+  ulong     init_parent_slot; /* initial parent slot declared by shred headers. cannot be changed by UpdateParent. */
+  ulong     parent_slot;   /* the replay parent: the UpdateParent's if init_fec_cnt, else the header's */
   fd_mr32_t parent_blk_mr;
   ulong     orphan_next; /* orphan_map chain, while the blk waits for the blk named by parent_blk_mr */
   ulong     orphan_prev;
@@ -262,12 +267,18 @@ fd_repair_fini( fd_repair_t * self );
    invalidated so turbine can't rebuild it.  We do not prune the blk. If
    this blk gets finalized, we want to keep the block data so that if it
    gets re-delivered, we can notify replay that it is a finalized block
-   so replay can detect a hard fork.  */
+   so replay can detect a hard fork.
+
+   latest_fec_idx is the highest fec_set_idx the dead bank held, not
+   necessarily the one that failed.  UINT_MAX means the death is final
+   (alpenglow_fast_leader_handover is not active on the dead bank), so
+   the blk is never exempted as an optimistic prefix.  */
 
 void
 fd_repair_blk_dead( fd_repair_t *     self,
                     ulong             slot,
-                    fd_mr32_t const * blk_mr );
+                    fd_mr32_t const * blk_mr,
+                    uint              latest_fec_idx );
 
 /* votor_out     FD_VOTOR_SIG_CERTED FINAL, FAST_FINAL
    votor_out     FD_VOTOR_SIG_QUORUM IMPLICITLY_FINALIZED

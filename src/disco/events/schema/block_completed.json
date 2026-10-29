@@ -67,9 +67,11 @@
                 "entry_after_block_footer":    { "description": "An Alpenglow block carried an entry batch other than the alpentick after its footer." },
                 "invalid_alpentick_position":  { "description": "An Alpenglow block ended without the alpentick directly after its footer." },
                 "missing_block_footer":        { "description": "An Alpenglow block ended without a block footer." },
-                "spurious_update_parent":      { "description": "An Alpenglow block carried an UpdateParent marker where none is valid: before the header or after the footer." },
+                "spurious_update_parent":      { "description": "An Alpenglow block started on a UpdateParent marker, or found one after its footer." },
                 "bad_block_marker":            { "description": "An Alpenglow block marker (header, footer, genesis certificate or update parent) failed to parse or had an unknown kind." },
-                "too_many_writable_accounts":  { "description": "The block's transactions declare more writable accounts than a valid block can afford." }
+                "too_many_writable_accounts":  { "description": "The block's transactions declare more writable accounts than a valid block can afford." },
+                "multiple_update_parents":     { "description": "An Alpenglow block carried more than one UpdateParent marker." },
+                "update_parent_mismatch":      { "description": "An Alpenglow block's initial UpdateParent named a parent other than the one replay built it on." }
             }
         },
         "dead_time":                                 { "type": "DateTime64(9)",                                     "description": "When the block was ruled invalid; 0 if not dead." },
@@ -81,7 +83,8 @@
                 "not_abandoned": { "description": "Not abandoned; the block completed or was ruled invalid." },
                 "pruned":        { "description": "A block on another fork was rooted, discarding this fork before replay finished." },
                 "evicted":       { "description": "Dropped for lack of room to track in-progress blocks. The row is emitted once the block's in-flight verification has drained without ruling it invalid; a block ruled invalid while draining emits a dead row instead. May be replayed later, producing a second row for the same slot and block id under a new bank_seq; the retry usually completes but can itself end dead, evicted, or pruned. Blocks evicted after freezing already emitted a completed row and emit nothing further. Dedup on slot and block_id, keeping the highest bank_seq." },
-                "reset":         { "description": "Production of this leader block was abandoned mid-slot: consensus reset block production onto another fork before the slot completed. Only on blocks this validator produced; pack_end_reason is abandoned on the same row. The partial block never finished shredding, so block_id holds the merkle root of the last piece that had returned through reassembly when production was abandoned (may trail the last piece actually shredded), or 0 if none had." }
+                "reset":         { "description": "Production of this leader block was abandoned mid-slot: consensus reset block production onto another fork before the slot completed. Only on blocks this validator produced; pack_end_reason is abandoned on the same row. The partial block never finished shredding, so block_id holds the merkle root of the last piece that had returned through reassembly when production was abandoned (may trail the last piece actually shredded), or 0 if none had." },
+                "reparented":    { "description": "Prefix of a block we executed before detecting an UpdateParent marker. The prefix execution is abandoned, and the block execution after the UpdateParent marker shows up as new row." }
             }
         },
         "abandoned_time":                            { "type": "DateTime64(9)",                                     "description": "When the block was abandoned; 0 if not abandoned." },

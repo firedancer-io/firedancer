@@ -324,15 +324,18 @@ typedef struct fd_event_runtime_txn fd_event_runtime_txn_t;
 #define FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_ENTRY_AFTER_BLOCK_FOOTER    (33) /* An Alpenglow block carried an entry batch other than the alpentick after its footer. */
 #define FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_INVALID_ALPENTICK_POSITION  (34) /* An Alpenglow block ended without the alpentick directly after its footer. */
 #define FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_MISSING_BLOCK_FOOTER        (35) /* An Alpenglow block ended without a block footer. */
-#define FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_SPURIOUS_UPDATE_PARENT      (36) /* An Alpenglow block carried an UpdateParent marker where none is valid: before the header or after the footer. */
+#define FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_SPURIOUS_UPDATE_PARENT      (36) /* An Alpenglow block started on a UpdateParent marker, or found one after its footer. */
 #define FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_BAD_BLOCK_MARKER            (37) /* An Alpenglow block marker (header, footer, genesis certificate or update parent) failed to parse or had an unknown kind. */
 #define FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_TOO_MANY_WRITABLE_ACCOUNTS  (38) /* The block's transactions declare more writable accounts than a valid block can afford. */
+#define FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_MULTIPLE_UPDATE_PARENTS     (39) /* An Alpenglow block carried more than one UpdateParent marker. */
+#define FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_UPDATE_PARENT_MISMATCH      (40) /* An Alpenglow block's initial UpdateParent named a parent other than the one replay built it on. */
 
 /* Why this validator gave up on the block before it completed; not_abandoned otherwise. Independent of dead. */
 #define FD_EVENT_BLOCK_COMPLETED_ABANDONED_REASON_NOT_ABANDONED (1) /* Not abandoned; the block completed or was ruled invalid. */
 #define FD_EVENT_BLOCK_COMPLETED_ABANDONED_REASON_PRUNED        (2) /* A block on another fork was rooted, discarding this fork before replay finished. */
 #define FD_EVENT_BLOCK_COMPLETED_ABANDONED_REASON_EVICTED       (3) /* Dropped for lack of room to track in-progress blocks. The row is emitted once the block's in-flight verification has drained without ruling it invalid; a block ruled invalid while draining emits a dead row instead. May be replayed later, producing a second row for the same slot and block id under a new bank_seq; the retry usually completes but can itself end dead, evicted, or pruned. Blocks evicted after freezing already emitted a completed row and emit nothing further. Dedup on slot and block_id, keeping the highest bank_seq. */
 #define FD_EVENT_BLOCK_COMPLETED_ABANDONED_REASON_RESET         (4) /* Production of this leader block was abandoned mid-slot: consensus reset block production onto another fork before the slot completed. Only on blocks this validator produced; pack_end_reason is abandoned on the same row. The partial block never finished shredding, so block_id holds the merkle root of the last piece that had returned through reassembly when production was abandoned (may trail the last piece actually shredded), or 0 if none had. */
+#define FD_EVENT_BLOCK_COMPLETED_ABANDONED_REASON_REPARENTED    (5) /* Prefix of a block we executed before detecting an UpdateParent marker. The prefix execution is abandoned, and the block execution after the UpdateParent marker shows up as new row. */
 
 /* Why block production stopped; not_leader for blocks this validator did not produce. */
 #define FD_EVENT_BLOCK_COMPLETED_PACK_END_REASON_NOT_LEADER       (1) /* Not produced by this validator. */
@@ -954,6 +957,7 @@ fd_event_alpenglow_cert_footprint( fd_event_alpenglow_cert_t const * msg ) {
 #define FD_EVENT_BLOCK_RECEIVED_CANCELLED_REASON_PARENT_OFF_MISMATCH    (5) /* A data shred's parent_off disagreed with the slot's other shreds or with its block header. */
 #define FD_EVENT_BLOCK_RECEIVED_CANCELLED_REASON_INVALID_BLOCK_HEADER   (6) /* Shred 0 did not carry a valid block header. */
 #define FD_EVENT_BLOCK_RECEIVED_CANCELLED_REASON_SLOT_COMPLETE_MISMATCH (7) /* A data shred's slot complete flag disagreed with the slot's other shreds. */
+#define FD_EVENT_BLOCK_RECEIVED_CANCELLED_REASON_INVALID_UPDATE_PARENT  (8) /* An UpdateParent marker broke a rule: not in the first slot of its leader window, a second UpdateParent, a parent below the root or newer than the header's, a null parent block id, or naming the header's own parent. */
 
 /* The source of the final shred that completed the FEC set. */
 #define FD_EVENT_BLOCK_RECEIVED_FEC_SETS_FINAL_SHRED_SOURCE_TURBINE (1) /* Received via turbine. */

@@ -36,18 +36,21 @@ blk_insert( fd_repair_t *     self,
   FD_TEST( fd_repair_blk_pool_free( self->blk_pool ) );
   fd_repair_slot_meta_t *       meta = fd_repair_slot_meta( self, slot );
   fd_repair_blk_t *             blk  = fd_repair_blk_pool_ele_acquire( self->blk_pool );
-  blk->slot          = slot;
-  blk->dmr           = *dmr;
-  blk->parent        = fd_repair_blk_pool_idx_null( self->blk_pool );
-  blk->child         = fd_repair_blk_pool_idx_null( self->blk_pool );
-  blk->sibling       = fd_repair_blk_pool_idx_null( self->blk_pool );
-  blk->cmpl_fec_cnt  = 0U;
-  blk->rcvd_fec_cnt  = 0U;
-  blk->buff_fec_cnt  = 0U;
-  blk->cons_fec_cnt  = 0U;
-  blk->wait_fec_cnt  = 0U;
-  blk->parent_slot   = ULONG_MAX;
-  blk->parent_blk_mr = hash_null;
+  blk->slot             = slot;
+  blk->dmr              = *dmr;
+  blk->parent           = fd_repair_blk_pool_idx_null( self->blk_pool );
+  blk->child            = fd_repair_blk_pool_idx_null( self->blk_pool );
+  blk->sibling          = fd_repair_blk_pool_idx_null( self->blk_pool );
+  blk->cmpl_fec_cnt     = 0U;
+  blk->rcvd_fec_cnt     = 0U;
+  blk->buff_fec_cnt     = 0U;
+  blk->cons_fec_cnt     = 0U;
+  blk->wait_fec_cnt     = 0U;
+  blk->parent_slot      = ULONG_MAX;
+  blk->parent_blk_mr    = hash_null;
+  blk->init_fec_cnt     = 0U;
+  blk->init_parent_slot = ULONG_MAX;
+
   blk->in_blk_treap  = 0;
   blk->eager         = (!memcmp( dmr, &hash_null, sizeof(fd_mr32_t)) && !meta->invalidated && meta->final==fd_repair_blk_pool_idx_null( self->blk_pool ) && !meta->leader );
   blk->meta_req      = 0;
@@ -102,22 +105,13 @@ consume( fd_repair_t *     self,
   fd_repair_slot_meta_t const * meta = fd_repair_slot_meta( self, blk->slot );
   if( FD_UNLIKELY( meta->invalidated && !memcmp( &blk->dmr, &hash_null, sizeof(fd_mr32_t) ) ) ) return;
   if( FD_UNLIKELY( blk->parent==fd_repair_blk_pool_idx_null( self->blk_pool ) ) ) return; /* orphaned, even if partly consumed */
-  if( FD_UNLIKELY( !blk->cons_fec_cnt ) ) {
+  if( FD_UNLIKELY( blk->cons_fec_cnt<=blk->init_fec_cnt ) ) {
     fd_repair_blk_t const * parent = fd_repair_blk_pool_ele_const( self->blk_pool, blk->parent );
     if( FD_LIKELY( parent!=self->root_blk && ( !parent->cmpl_fec_cnt || parent->cons_fec_cnt!=parent->cmpl_fec_cnt ) ) ) return;
   }
   ulong             idx   = fd_repair_blk_pool_idx( self->blk_pool, blk );
   fd_repair_blk_t * eager = fd_repair_blk_pool_ele( self->blk_pool, meta->eager );
   if( FD_UNLIKELY(  eager && meta->eager!=idx && !meta->invalidated && !memcmp( &eager->dmr, &hash_null, sizeof(fd_mr32_t) ) ) ) {
-    if( FD_UNLIKELY( eager->parent==fd_repair_blk_pool_idx_null( self->blk_pool ) && blk->fecs[ 0 ]!=fd_repair_fec_pool_idx_null( self->fec_pool ) && eager->fecs[ 0 ]==blk->fecs[ 0 ] ) ) {
-      if( FD_LIKELY( eager!=self->root_blk && memcmp( &eager->parent_blk_mr, &hash_null, sizeof(fd_mr32_t) ) ) ) fd_repair_orphan_map_ele_remove_fast( self->orphan_map, eager, self->blk_pool );
-      fd_repair_blk_t * parent = fd_repair_blk_pool_ele( self->blk_pool, blk->parent );
-      eager->parent_slot   = blk->parent_slot;
-      eager->parent_blk_mr = blk->parent_blk_mr;
-      eager->parent        = blk->parent;
-      eager->sibling       = parent->child;
-      parent->child        = meta->eager;
-    }
     int dup = eager->parent==blk->parent;
     for( uint k=blk->cons_fec_cnt; dup && k<blk->buff_fec_cnt; k++ ) dup = eager->fecs[ k ]==blk->fecs[ k ];
     if( FD_LIKELY( dup ) ) {
@@ -128,7 +122,7 @@ consume( fd_repair_t *     self,
   if( FD_UNLIKELY( self->reconsume && blk->cons_fec_cnt<blk->buff_fec_cnt ) ) {
     self->reconsume = 0;
     for( fd_repair_blk_t * anc = blk; anc && anc!=self->root_blk; anc = fd_repair_blk_pool_ele( self->blk_pool, anc->parent ) ) {
-      for( uint k=anc->cons_fec_cnt; k; k-- ) fd_repair_deque_push_head( self->reasm_deque, (fd_repair_deque_t){ .blk_idx = (uint)fd_repair_blk_pool_idx( self->blk_pool, anc ), .fec_idx = k-1U } );
+      for( uint k=anc->cons_fec_cnt; k>anc->init_fec_cnt; k-- ) fd_repair_deque_push_head( self->reasm_deque, (fd_repair_deque_t){ .blk_idx = (uint)fd_repair_blk_pool_idx( self->blk_pool, anc ), .fec_idx = k-1U } );
     }
   }
   if( FD_UNLIKELY( meta->leader && meta->eager==idx ) ) { /* our leader blk goes first, in FEC order */
@@ -254,6 +248,94 @@ link_parent( fd_repair_t *     self,
   blk->sibling  = parent->child;
   parent->child = fd_repair_blk_pool_idx( pool, blk );
   return parent;
+}
+
+/* handle_update_parent applies the UpdateParent at the head of FEC set
+   fec_idx to each blk of slot holding it, once both halves of the
+   marker test are known: FEC set fec_idx-1 ends in DATA_COMPLETE and
+   the first data shred of FEC set fec_idx parsed as an UpdateParent.
+   Called when either half becomes known, again is a no-op.
+
+   The eager blk leaves the header's parent: it is unlinked from it, or
+   out of orphan_map under it, and is linked under the new parent if
+   held, else waits in orphan_map under it.  Its shreds keep the
+   header's parent offset, so they are checked against init_parent_slot.
+   An UpdateParent that breaks a rule invalidates the slot, as agave
+   marks it dead.
+
+   A notar blk's parent came from ParentAndFecSetCount, which its dmr
+   commits to, so it only learns init_fec_cnt.  Its UpdateParent must
+   name that parent. */
+
+static void
+handle_update_parent( fd_repair_t * self,
+                      ulong         slot,
+                      uint          fec_idx,
+                      long          ts ) {
+  if( FD_UNLIKELY( !fec_idx || fec_idx>=self->fec_blk_max ) ) return;
+  fd_repair_slot_meta_t * meta  = fd_repair_slot_meta( self, slot );
+  fd_repair_blk_t *       pool  = self->blk_pool;
+  ulong                   null  = fd_repair_blk_pool_idx_null( pool );
+  fd_repair_blk_t * next;
+  for( fd_repair_blk_t * blk = fd_repair_blk_map_ele_query( self->blk_map, &slot, NULL, pool ); blk; blk = next ) {
+    next = (fd_repair_blk_t *)fd_repair_blk_map_ele_next_const( blk, NULL, pool );
+
+    if( FD_LIKELY( blk->fecs[ fec_idx-1U ]==fd_repair_fec_pool_idx_null( self->fec_pool ) || blk->fecs[ fec_idx ]==fd_repair_fec_pool_idx_null( self->fec_pool ) ) ) continue;
+    fd_repair_fec_t const * prev_fec = fd_repair_fec_pool_ele_const( self->fec_pool, blk->fecs[ fec_idx-1U ] );
+    fd_repair_fec_t const * next_fec = fd_repair_fec_pool_ele_const( self->fec_pool, blk->fecs[ fec_idx    ] );
+
+    if( FD_LIKELY( !prev_fec->data_complete || next_fec->update_parent.new_parent_slot==ULONG_MAX ) ) continue;
+    if( FD_UNLIKELY( blk->init_fec_cnt==fec_idx ) ) continue;
+
+    fd_update_parent_t const * update = &next_fec->update_parent;
+    int                        eager  = meta->eager==fd_repair_blk_pool_idx( pool, blk );
+    if( FD_UNLIKELY( eager && meta->invalidated ) ) continue;
+
+    int bad = !fd_is_start_of_window( slot )                                            /* not in the first slot of its leader window */
+              || blk->init_fec_cnt                                                      /* a second UpdateParent */
+              || update->new_parent_slot<self->root                                    /* a parent below the root */
+              || update->new_parent_slot>=slot                                          /* a parent newer than the header's */
+              || ( eager && update->new_parent_slot>blk->init_parent_slot )             /* a parent newer than the header's */
+              || !memcmp( &update->new_parent_block_id, &hash_null, sizeof(fd_mr32_t) ) /* a null parent block id */
+              || ( eager && update->new_parent_slot==blk->parent_slot && !memcmp( &update->new_parent_block_id, &blk->parent_blk_mr, sizeof(fd_mr32_t) ) ); /* updating to the same thing */
+
+    /* TODO: mark notarize blks invalid? */
+    if( FD_UNLIKELY( bad && !eager ) ) { FD_LOG_WARNING(( "notarized blk at slot %lu has an invalid UpdateParent at fec set idx %u, ignoring it", slot, fec_idx*FD_FEC_SHRED_CNT )); continue; }
+    if( FD_UNLIKELY( bad &&  eager ) ) { fd_repair_slot_invalidated( self, slot, FD_EVENT_BLOCK_RECEIVED_CANCELLED_REASON_INVALID_UPDATE_PARENT, ts ); continue; }
+
+    if( FD_UNLIKELY( !eager ) ) {
+      if( FD_UNLIKELY( blk->parent_slot!=ULONG_MAX && ( blk->parent_slot!=update->new_parent_slot || memcmp( &blk->parent_blk_mr, &update->new_parent_block_id, sizeof(fd_mr32_t) ) ) ) ) {
+        FD_LOG_WARNING(( "notarized blk at slot %lu has an UpdateParent naming slot %lu, not its proven parent slot %lu, ignoring it", slot, update->new_parent_slot, blk->parent_slot ));
+        continue;
+      }
+      blk->init_fec_cnt = fec_idx;
+      blk->cons_fec_cnt = fd_uint_max( blk->cons_fec_cnt, fec_idx ); /* stream starts at the UpdateParent, prefix is skipped */
+      continue;
+    }
+
+    if( FD_LIKELY( blk->parent!=null ) ) {
+      ulong   idx  = fd_repair_blk_pool_idx( pool, blk );
+      ulong * link = &fd_repair_blk_pool_ele( pool, blk->parent )->child;
+      while( *link!=idx ) link = &fd_repair_blk_pool_ele( pool, *link )->sibling;
+      *link        = blk->sibling;
+      blk->parent  = null;
+      blk->sibling = null;
+    } else if( FD_LIKELY( blk!=self->root_blk && memcmp( &blk->parent_blk_mr, &hash_null, sizeof(fd_mr32_t) ) ) ) {
+      fd_repair_orphan_map_ele_remove_fast( self->orphan_map, blk, pool );
+    }
+
+    blk->parent_slot   = update->new_parent_slot;
+    blk->parent_blk_mr = update->new_parent_block_id;
+    blk->init_fec_cnt  = fec_idx;
+    blk->cons_fec_cnt  = fd_uint_max( blk->cons_fec_cnt, fec_idx ); /* stream starts at the UpdateParent, prefix is skipped */
+    blk->orphan_req    = 0; /* an ORPHAN req for the header's parent is moot */
+
+    fd_repair_orphan_map_ele_insert( self->orphan_map, blk, pool ); /* under the new key, link_parent takes it out if the new parent is held */
+    if( FD_UNLIKELY( link_parent( self, blk ) ) ) continue;
+    fd_repair_slot_meta_t * pmeta = fd_repair_slot_meta( self, blk->parent_slot );
+    if( FD_UNLIKELY( pmeta->eager==null && pmeta->final==null && !pmeta->skipped && !pmeta->invalidated ) ) blk_insert( self, blk->parent_slot, &hash_null ); /* seed the new parent slot's eager blk */
+    blk_treap_insert( self, blk ); /* its tile asks ORPHAN for the new parent */
+  }
 }
 
 /* link_children links the orphans naming parent's (slot, dmr) under
@@ -552,14 +634,20 @@ fd_repair_fini( fd_repair_t * self ) {
 void
 fd_repair_blk_dead( fd_repair_t *     self,
                     ulong             slot,
-                    fd_mr32_t const * blk_mr ) {
+                    fd_mr32_t const * blk_mr,
+                    uint              latest_fec_idx ) {
   fd_repair_blk_t * dead = fd_repair_blk_map_ele_query( self->blk_map, &slot, NULL, self->blk_pool );
   while( dead && memcmp( &dead->dmr, blk_mr, sizeof(fd_mr32_t) ) ) dead = (fd_repair_blk_t *)fd_repair_blk_map_ele_next_const( dead, NULL, self->blk_pool );
   if( FD_UNLIKELY( !dead ) ) return;
 
+  fd_repair_slot_meta_t * meta   = fd_repair_slot_meta( self, slot );
+  int                     eager  = meta->eager==fd_repair_blk_pool_idx( self->blk_pool, dead );
+  uint                    bound  = dead->init_fec_cnt ? dead->init_fec_cnt*FD_FEC_SHRED_CNT : UINT_MAX; /* UINT_MAX latest_fec_idx (no FLH) is never a prefix */
+  int                     prefix = eager && fd_is_start_of_window( slot ) && latest_fec_idx<bound;
+  if( FD_UNLIKELY( prefix ) ) return; /* the optimistic prefix died, the block may still replay from an UpdateParent */
+
   blk_treap_remove( self, dead ); /* replay rejected it, no point repairing the rest */
-  fd_repair_slot_meta_t * meta = fd_repair_slot_meta( self, slot );
-  if( FD_LIKELY( meta->eager!=fd_repair_blk_pool_idx( self->blk_pool, dead ) || meta->invalidated ) ) return;
+  if( FD_LIKELY( !eager || meta->invalidated ) ) return;
 
   meta->invalidated = 1; /* turbine must not rebuild it */
   dead->eager       = 0; /* never repaired by position */
@@ -797,10 +885,15 @@ fd_repair_fec_notarized( fd_repair_t *     self,
     fec->data_rcvd     = 0U;
     fec->parity_rcvd   = 0U;
     fec->repair_rcvd   = 0U;
+    fec->update_parent.new_parent_slot = ULONG_MAX;
     fd_repair_fec_map_ele_insert( self->fec_map, fec, self->fec_pool );
   }
   fec->notarized       = 1;
   blk->fecs[ fec_idx ] = fd_repair_fec_pool_idx( self->fec_pool, fec );
+
+  if( FD_UNLIKELY( fec->update_parent.new_parent_slot!=ULONG_MAX ) ) handle_update_parent( self, slot, fec_idx,    ts );
+  if( FD_UNLIKELY( fec->data_complete                            ) ) handle_update_parent( self, slot, fec_idx+1U, ts );
+
   if( FD_LIKELY( !fec->complete ) ) return fec;
 
   uint end = fd_uint_if( !!blk->cmpl_fec_cnt, blk->cmpl_fec_cnt, (uint)self->fec_blk_max );
@@ -883,6 +976,13 @@ fd_repair_shred_insert( fd_repair_t *      self,
   if( FD_UNLIKELY(  fec && !fec->first_ts ) ) fec->first_ts = ts;
   if( FD_LIKELY( fec && src && !fec->complete ) ) fec->final_src = src; /* frozen once complete */
 
+  fd_block_marker_t update[1];
+  int update_parent = shred->idx%FD_FEC_SHRED_CNT==0U && shred->idx && !fd_block_marker_de( update, fd_shred_data_payload( shred ), fd_shred_payload_sz( shred ) ) && update->kind==FD_BLOCK_MARKER_KIND_UPDATE_PARENT;
+  int data_complete = !!( shred->data.flags & FD_SHRED_DATA_FLAG_DATA_COMPLETE );
+
+  if( FD_UNLIKELY( update_parent && fec ) ) { fec->update_parent = update->update_parent; handle_update_parent( self, shred->slot, fec_idx,    ts ); }
+  if( FD_UNLIKELY( data_complete && fec ) ) { fec->data_complete = 1;                     handle_update_parent( self, shred->slot, fec_idx+1U, ts ); }
+
   /* Second, handle an Eager shred (from Turbine or Eager Repair). */
 
   ulong                   parent_slot = shred->slot - shred->data.parent_off;
@@ -891,24 +991,31 @@ fd_repair_shred_insert( fd_repair_t *      self,
   fd_repair_slot_meta_t * meta        = fd_repair_slot_meta( self, shred->slot );
   fd_repair_blk_t const * fin         = fd_repair_blk_pool_ele_const( pool, meta->final );
   int                     fin_done    = fin && fin->cmpl_fec_cnt && fin->buff_fec_cnt==fin->cmpl_fec_cnt;
+
   if( FD_UNLIKELY( meta->skipped || meta->invalidated || ( fin_done && meta->eager==null ) ) ) return; /* a final cert ahead of turbine still lets turbine build the blk, dedup merges it */
   if( FD_UNLIKELY( meta->eager==null ) ) meta->eager = fd_repair_blk_pool_idx( pool, blk_insert( self, shred->slot, &hash_null ) );
   fd_repair_blk_t * blk = fd_repair_blk_pool_ele( pool, meta->eager );
-  if( FD_UNLIKELY( blk->parent_slot==ULONG_MAX ) ) blk->parent_slot = parent_slot; /* created empty by a child or catchup */
+  if( FD_UNLIKELY( blk->parent_slot==ULONG_MAX      ) ) blk->parent_slot      = parent_slot; /* created empty by a child or catchup */
+  if( FD_UNLIKELY( blk->init_parent_slot==ULONG_MAX ) ) blk->init_parent_slot = parent_slot;
 
   /* Check for misbehavior that can invalidate the eager block. */
 
   fd_block_marker_t marker[1];
   int               bad_header    = shred->idx==0U && ( fd_block_marker_de( marker, fd_shred_data_payload( shred ), fd_shred_payload_sz( shred ) ) || marker->kind!=FD_BLOCK_MARKER_KIND_HEADER || marker->header.parent_slot!=parent_slot );
-  fd_mr32_t const * parent_blk_mr = shred->idx==0U ? &marker->header.parent_block_id : NULL;
+  fd_mr32_t const * parent_blk_mr = ( shred->idx==0U && !blk->init_fec_cnt ) ? &marker->header.parent_block_id : NULL;
 
   int slot_complete     = !!( shred->data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE );
   int eqvoc             = blk->fecs[ fec_idx ]!=fd_repair_fec_pool_idx_null( self->fec_pool ) && blk->fecs[ fec_idx ]!=fd_repair_fec_pool_idx( self->fec_pool, fec ); /* the leader signed two FEC sets at this index, eg. two shred 0s */
-  int parent_conflict   = bad_header || blk->parent_slot!=parent_slot;
+  int parent_conflict   = bad_header || blk->init_parent_slot!=parent_slot;
   int complete_conflict = ( blk->cmpl_fec_cnt && fec_idx>=blk->cmpl_fec_cnt ) || ( slot_complete && fec_idx+1U<blk->rcvd_fec_cnt );
   if( FD_UNLIKELY( eqvoc ) )             { fd_repair_slot_invalidated( self, shred->slot, FD_EVENT_BLOCK_RECEIVED_CANCELLED_REASON_MERKLE_ROOT_MISMATCH, ts ); return; }
   if( FD_UNLIKELY( parent_conflict ) )   { fd_repair_slot_invalidated( self, shred->slot, bad_header ? FD_EVENT_BLOCK_RECEIVED_CANCELLED_REASON_INVALID_BLOCK_HEADER : FD_EVENT_BLOCK_RECEIVED_CANCELLED_REASON_PARENT_OFF_MISMATCH, ts ); return; }
   if( FD_UNLIKELY( complete_conflict ) ) { fd_repair_slot_invalidated( self, shred->slot, FD_EVENT_BLOCK_RECEIVED_CANCELLED_REASON_SLOT_COMPLETE_MISMATCH, ts ); return; }
+  if( FD_UNLIKELY( shred->idx==0U && blk->init_fec_cnt && marker->header.parent_slot==blk->parent_slot && !memcmp( &marker->header.parent_block_id, &blk->parent_blk_mr, sizeof(fd_mr32_t) ) ) ) {
+    /* a late shred 0 header == UpdateParent's parent */
+    fd_repair_slot_invalidated( self, shred->slot, FD_EVENT_BLOCK_RECEIVED_CANCELLED_REASON_INVALID_UPDATE_PARENT, ts );
+    return;
+  }
 
   if( FD_UNLIKELY( parent_blk_mr ) ) { /* shred 0 again names the same parent, the key must not change while in orphan_map */
     if( FD_UNLIKELY( blk!=self->root_blk && blk->parent==null && memcmp( &blk->parent_blk_mr, &hash_null, sizeof(fd_mr32_t) ) ) ) fd_repair_orphan_map_ele_remove_fast( self->orphan_map, blk, pool );
@@ -943,11 +1050,15 @@ fd_repair_shred_insert( fd_repair_t *      self,
     fec->data_rcvd     = 0U;
     fec->parity_rcvd   = 0U;
     fec->repair_rcvd   = 0U;
+    fec->update_parent.new_parent_slot = ULONG_MAX;
     fd_repair_fec_map_ele_insert( self->fec_map, fec, self->fec_pool );
   }
   blk->fecs[ fec_idx ] = fd_repair_fec_pool_idx( self->fec_pool, fec );
   blk->rcvd_fec_cnt    = fd_uint_max( blk->rcvd_fec_cnt, fec_idx+1U );
   fec->rcvd            = fd_uint_set_bit( fec->rcvd, (int)( shred->idx - fec_idx*FD_FEC_SHRED_CNT ) );
+
+  if( FD_UNLIKELY( update_parent ) ) { fec->update_parent = update->update_parent; handle_update_parent( self, shred->slot, fec_idx,    ts ); }
+  if( FD_UNLIKELY( data_complete ) ) { fec->data_complete = 1;                     handle_update_parent( self, shred->slot, fec_idx+1U, ts ); }
 }
 
 void

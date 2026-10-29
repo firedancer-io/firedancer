@@ -156,10 +156,9 @@ struct fd_repair_replay_fec {
 
    /* conditional fields */
 
-   ulong     parent_slot;     /* only present if fec_set_idx is 0 or has
-                                 parentUpdate. TBD, could also just have
-                                 replay do parent reparsing */
+   ulong     parent_slot;       /* a non-stable field that could get updated as soon as repair has discovered a parentUpdate */
    fd_hash_t parent_block_id;
+   uint      update_parent_fec_idx; /* the fec_set_idx of the detected parentUpdate in the slot, 0 if none or undetected. */
 
    uchar     slot_complete : 1;
    uchar     data_complete : 1;

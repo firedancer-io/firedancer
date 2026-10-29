@@ -119,6 +119,46 @@ shred0( fd_repair_t *     repair,
   fd_repair_shred_insert( repair, shred, fec0_mr, 0, 0L );
 }
 
+/* shred_up inserts the first data shred of FEC set fec_idx of slot
+   under merkle root mr, whose payload is an UpdateParent naming
+   (up_slot, up_mr) if up, else an entry batch. */
+
+static void
+shred_up( fd_repair_t *     repair,
+          ulong             slot,
+          ulong             parent_slot,
+          uint              fec_idx,
+          int               up,
+          ulong             up_slot,
+          fd_mr32_t const * up_mr,
+          fd_mr32_t const * mr ) {
+  uchar buf[ FD_SHRED_MIN_SZ ] __attribute__((aligned(8UL))); memset( buf, 0, sizeof(buf) );
+  uchar * ser = buf+FD_SHRED_DATA_HEADER_SZ;
+  ulong   off = 0UL;
+  if( up ) {
+    /* fd_block_marker_ser does not produce an UpdateParent, so lay out
+       the preamble and the V1 payload by hand. */
+    FD_STORE( ulong,  ser+off, 0UL );                             off += sizeof(ulong);
+    FD_STORE( ushort, ser+off, (ushort)1 );                       off += sizeof(ushort);
+    ser[ off ] = (uchar)FD_BLOCK_MARKER_KIND_UPDATE_PARENT;       off += sizeof(uchar);
+    FD_STORE( ushort, ser+off, (ushort)FD_UPDATE_PARENT_SER_SZ ); off += sizeof(ushort);
+    ser[ off ] = (uchar)1;                                        off += sizeof(uchar);
+    FD_STORE( ulong,  ser+off, up_slot );                         off += sizeof(ulong);
+    memcpy( ser+off, up_mr->uc, sizeof(fd_mr32_t) );              off += sizeof(fd_mr32_t);
+  } else {
+    FD_STORE( ulong, ser, 1UL );                                  off += sizeof(ulong); /* entry_cnt!=0, an entry batch */
+  }
+
+  fd_shred_t * shred = (fd_shred_t *)buf;
+  shred->variant          = fd_shred_variant( FD_SHRED_TYPE_MERKLE_DATA, 6 );
+  shred->slot             = slot;
+  shred->idx              = fec_idx*FD_FEC_SHRED_CNT;
+  shred->fec_set_idx      = fec_idx*FD_FEC_SHRED_CNT;
+  shred->data.parent_off  = (ushort)( slot-parent_slot );
+  shred->data.size        = (ushort)( FD_SHRED_DATA_HEADER_SZ+off );
+  fd_repair_shred_insert( repair, shred, mr, 0, 0L );
+}
+
 static int
 is_eager( fd_repair_t const *     repair,
           fd_repair_blk_t const * blk ) {
@@ -468,6 +508,8 @@ test_telemetry_final_src( void ) {
   FD_TEST( f10 && !f10->final_src ); /* shred0 gives no source */
 
   fd_shred_t shred[1]; memset( shred, 0, sizeof(fd_shred_t) );
+  shred->variant         = fd_shred_variant( FD_SHRED_TYPE_MERKLE_DATA, 6 );
+  shred->data.size       = (ushort)FD_SHRED_DATA_HEADER_SZ; /* header only, no payload */
   shred->slot            = 1UL;
   shred->data.parent_off = 1;
   shred->idx = 1U; fd_repair_shred_insert( repair, shred, &m10, FD_EVENT_BLOCK_RECEIVED_FEC_SETS_FINAL_SHRED_SOURCE_TURBINE, 1L );
@@ -790,13 +832,13 @@ test_blk_dead(  void ) {
   fd_repair_blk_t * e2  = fd_repair_blk_map_ele_query( repair->blk_map, &two, NULL, repair->blk_pool );
   expect( repair, e1, 0U ); expect( repair, e2, 0U );
 
-  fd_repair_blk_dead( repair, 1UL, &d1 );
+  fd_repair_blk_dead( repair, 1UL, &d1, 0U );
   FD_TEST( fd_repair_blk_map_ele_query( repair->blk_map, &one, NULL, repair->blk_pool )==e1 && !fd_repair_blk_map_ele_next_const( e1, NULL, repair->blk_pool ) );
   FD_TEST( repair->slot_meta[ one % repair->slot_max ].invalidated && !e1->eager && !e1->in_blk_treap );
   FD_TEST( e2->parent==fd_repair_blk_pool_idx( repair->blk_pool, e1 ) );
   fd_mr20_t k10; memcpy( k10.uc, m10.uc, sizeof(fd_mr20_t) );
   FD_TEST( fd_repair_fec_map_ele_query( repair->fec_map, &k10, NULL, repair->fec_pool ) );
-  fd_repair_blk_dead( repair, 1UL, &d1 ); /* SLOT_DEAD again changes nothing */
+  fd_repair_blk_dead( repair, 1UL, &d1, 0U ); /* SLOT_DEAD again changes nothing */
   FD_TEST( fd_repair_deque_empty( repair->reasm_deque ) );
 
   shred0( repair, 1UL, 0UL, &root, &m10 );
@@ -844,7 +886,7 @@ test_blk_dead_renamed( void ) {
   expect( repair, c, 0U );
   FD_TEST( fd_repair_deque_empty( repair->reasm_deque ) );
 
-  fd_repair_blk_dead( repair, 1UL, &B );
+  fd_repair_blk_dead( repair, 1UL, &B, 0U );
   for( ulong i=0UL; i<3UL; i++ ) FD_TEST( !fd_repair_blk_notarized( repair, 1UL, &B ) ); /* found, not re-created */
   ulong named = 0UL;
   for( fd_repair_blk_t const * x = fd_repair_blk_map_ele_query_const( repair->blk_map, &one, NULL, repair->blk_pool ); x; x = fd_repair_blk_map_ele_next_const( x, NULL, repair->blk_pool ) ) {
@@ -891,7 +933,7 @@ test_blk_dead_minority_fork( void ) {
   expect( repair, c, 0U );
   FD_TEST( fd_repair_deque_empty( repair->reasm_deque ) );
 
-  fd_repair_blk_dead( repair, 1UL, &dB );
+  fd_repair_blk_dead( repair, 1UL, &dB, 0U );
   FD_TEST( repair->slot_meta[ one % repair->slot_max ].invalidated && !b->eager && !b->in_blk_treap );
   FD_TEST( c->parent==fd_repair_blk_pool_idx( repair->blk_pool, b ) && fd_repair_deque_empty( repair->reasm_deque ) );
 
@@ -929,7 +971,7 @@ test_blk_dead_minority_fork( void ) {
   fd_repair_blk_t * t = fd_repair_blk_map_ele_query( repair->blk_map, &one, NULL, repair->blk_pool );
   expect( repair, t, 0U );
 
-  fd_repair_blk_dead( repair, 1UL, &hash_null ); /* the incomplete turbine copy */
+  fd_repair_blk_dead( repair, 1UL, &hash_null, 0U ); /* the incomplete turbine copy */
   FD_TEST( repair->slot_meta[ one % repair->slot_max ].invalidated && !t->eager && !t->in_blk_treap );
   FD_TEST( !fd_repair_fec_complete( repair, &(fd_shred_t){ .slot = 1UL, .idx = 2U*FD_FEC_SHRED_CNT-1U, .data = { .parent_off = 1, .flags = FD_SHRED_DATA_FLAG_SLOT_COMPLETE } }, &m11, 0, 0U, 0U, 0U, 0U, 0U, 0U, 0L ) );
 
@@ -952,7 +994,7 @@ test_blk_dead_minority_fork( void ) {
   expect( repair, n, 0U ); expect( repair, c, 0U ); /* all of B before C */
   FD_TEST( fd_repair_deque_empty( repair->reasm_deque ) );
 
-  fd_repair_blk_dead( repair, 1UL, &X );
+  fd_repair_blk_dead( repair, 1UL, &X, 0U );
   FD_TEST( !fd_repair_blk_notarized( repair, 1UL, &X ) );
   ulong named = 0UL;
   for( fd_repair_blk_t const * x = fd_repair_blk_map_ele_query_const( repair->blk_map, &one, NULL, repair->blk_pool ); x; x = fd_repair_blk_map_ele_next_const( x, NULL, repair->blk_pool ) ) {
@@ -1120,6 +1162,7 @@ test_repair_blk_treap( void ) {
   FD_TEST( role( repair, e3 )==ROLE_EAGER && pop( repair, ROLE_EAGER )==e3 );
   fd_shred_t shred[1]; memset( shred, 0, sizeof(fd_shred_t) );
   shred->slot = 3UL; shred->idx = 2U*FD_FEC_SHRED_CNT; shred->data.parent_off = 3;
+  shred->variant = fd_shred_variant( FD_SHRED_TYPE_MERKLE_DATA, 6 ); shred->data.size = (ushort)FD_SHRED_DATA_HEADER_SZ; /* header only, no payload */
   fd_repair_shred_insert( repair, shred, &m32, 0, 77L );
   FD_TEST( e3->in_blk_treap && e3->rcvd_fec_ts==77L && e3->rcvd_fec_cnt==3U );
   pop( repair, ROLE_EAGER );
@@ -1144,12 +1187,12 @@ test_repair_blk_treap( void ) {
 
 static void
 test_blk_treap_freed( void ) {
-  fd_mr32_t         h20    = hash( 0x20 ), h30 = hash( 0x30 );
+  fd_mr32_t         h20   = hash( 0x20 ), h30 = hash( 0x30 );
   fd_repair_t *     repair = setup();
-  fd_repair_blk_t * a      = notar( repair, 2UL, 0x20 );
-  fd_repair_blk_t * b      = notar( repair, 3UL, 0x30 );
+  fd_repair_blk_t * a     = notar( repair, 2UL, 0x20 );
+  fd_repair_blk_t * b     = notar( repair, 3UL, 0x30 );
   FD_TEST( a->in_blk_treap && b->in_blk_treap && blk_treap_cnt( repair )==2UL );
-  fd_repair_blk_dead( repair, 2UL, &h20 );
+  fd_repair_blk_dead( repair, 2UL, &h20, 0U );
   FD_TEST( blk_treap_cnt( repair )==1UL );
   FD_TEST( pop( repair, ROLE_NOTAR )==b && !blk_treap_pop( repair ) );
 
@@ -1162,7 +1205,7 @@ test_blk_treap_freed( void ) {
   fd_repair_root_advanced( repair, 2UL, &h20 );
   FD_TEST( blk_treap_cnt( repair )==1UL );                                      /* the new root leaves, as the root blk at init */
   FD_TEST( pop( repair, ROLE_NOTAR )==c && !blk_treap_pop( repair ) );
-  fd_repair_blk_dead( repair, 3UL, &h30 );
+  fd_repair_blk_dead( repair, 3UL, &h30, 0U );
   FD_TEST( !blk_treap_cnt( repair ) );
   orphan_cnt( repair );
 }
@@ -1289,6 +1332,7 @@ test_eager_bit( void ) {
   FD_TEST( fin && fin!=e1 && e1->eager && e1->in_blk_treap ); check_eager( repair, e1 ); check_eager( repair, fin ); /* still repaired by position */
   fd_shred_t shred[1]; memset( shred, 0, sizeof(fd_shred_t) );
   shred->slot = 1UL; shred->idx = 2U*FD_FEC_SHRED_CNT; shred->data.parent_off = 1;
+  shred->variant = fd_shred_variant( FD_SHRED_TYPE_MERKLE_DATA, 6 ); shred->data.size = (ushort)FD_SHRED_DATA_HEADER_SZ; /* header only, no payload */
   fd_repair_shred_insert( repair, shred, &m12, 0, 0L );                            /* turbine moves its limit */
   FD_TEST( e1->rcvd_fec_cnt==3U && e1->in_blk_treap ); check_eager( repair, e1 );
 
@@ -2570,7 +2614,7 @@ test_ancestry_two_relinks( void ) {
   fd_repair_blk_parented ( repair, 3UL, &N, 2UL, &tid, 1U, 0L ); /* N under T, creating X under which T goes */
   ulong xidx = t->parent;
   FD_TEST( xidx!=fd_repair_blk_pool_idx_null( repair->blk_pool ) );
-  fd_repair_blk_dead     ( repair, 1UL, &X );                /* X dies and is held */
+  fd_repair_blk_dead     ( repair, 1UL, &X, 0U );           /* X dies and is held */
   FD_TEST( t->parent==xidx && !rooted( repair, t ) );
 
   fd_mr32_t lid = l->dmr;
@@ -2605,7 +2649,7 @@ test_ancestry_consume_top( void ) {
   expect( repair, t, 0U );
   FD_TEST( fd_repair_deque_empty( repair->reasm_deque ) );
 
-  fd_repair_blk_dead( repair, 1UL, &X );
+  fd_repair_blk_dead( repair, 1UL, &X, 0U );
   FD_TEST( t->parent==fd_repair_blk_pool_idx( repair->blk_pool, x ) && t->cons_fec_cnt==1U );
   complete( repair, 2UL, 1UL, 1U, 1, &m21 );
   expect( repair, t, 1U );
@@ -2648,7 +2692,7 @@ test_ancestry_relink_final( void ) {
   parented( repair, 2UL, 0x20, 1UL, 0xB0, 1U );
   FD_TEST( t->parent==fd_repair_blk_pool_idx( repair->blk_pool, x ) && role( repair, x )==ROLE_FINAL && role( repair, t )==ROLE_FINAL );
 
-  fd_repair_blk_dead( repair, 1UL, &X );
+  fd_repair_blk_dead( repair, 1UL, &X, 0U );
   FD_TEST( fd_repair_blk_map_ele_query( repair->blk_map, &one, NULL, repair->blk_pool )==x && !x->in_blk_treap );
   FD_TEST( t->parent==fd_repair_blk_pool_idx( repair->blk_pool, x ) && role( repair, x )==ROLE_FINAL );
   FD_TEST( !orphan_cnt( repair ) );
@@ -2687,7 +2731,7 @@ test_orphan_map( void ) {
   FD_TEST( e2->parent!=fd_repair_blk_pool_idx_null( repair->blk_pool ) && e2->parent==n3->parent );
 
   ulong pidx = e2->parent;
-  fd_repair_blk_dead( repair, 1UL, &P ); /* P dies, both stay linked under it */
+  fd_repair_blk_dead( repair, 1UL, &P, 0U ); /* P dies, both stay linked under it */
   FD_TEST( e2->parent==pidx && n3->parent==pidx && !orphan_cnt( repair ) );
   FD_TEST( !fd_repair_blk_notarized( repair, 1UL, &P ) ); /* found, not re-created */
   FD_TEST( e2->parent==pidx && n3->parent==pidx && !orphan_cnt( repair ) );
@@ -2809,6 +2853,1102 @@ test_orphan_map_slot_mismatch( void ) {
   orphan_cnt( repair );
 }
 
+/* The first data shred of each FEC set past FEC set 0 is parsed for
+   an UpdateParent, kept on the FEC set, also for a FEC set only a notar
+   blk holds. */
+
+static int
+has_up( fd_repair_fec_t const * fec ) {
+  return fec->update_parent.new_parent_slot!=ULONG_MAX;
+}
+
+static void
+test_fec_update_parent( void ) {
+  fd_repair_t * repair = setup();
+  fd_mr32_t     root  = hash( 0xEE );
+  fd_mr32_t     m0 = hash( 0x30 ), m1 = hash( 0x31 ), m2 = hash( 0x32 );
+  shred0( repair, 4UL, 3UL, &hash_null, &m0 );
+  shred_up( repair, 4UL, 3UL, 1U, 0, 0UL, &root, &m1 );
+  shred_up( repair, 4UL, 3UL, 2U, 1, 0UL, &root, &m2 );
+
+  fd_repair_blk_t const * e4 = fd_repair_blk_pool_ele_const( repair->blk_pool, repair->slot_meta[ 4UL % repair->slot_max ].eager );
+  fd_repair_fec_t const * f0 = fd_repair_fec_pool_ele_const( repair->fec_pool, e4->fecs[ 0 ] );
+  fd_repair_fec_t const * f1 = fd_repair_fec_pool_ele_const( repair->fec_pool, e4->fecs[ 1 ] );
+  fd_repair_fec_t const * f2 = fd_repair_fec_pool_ele_const( repair->fec_pool, e4->fecs[ 2 ] );
+  FD_TEST( !has_up( f0 ) ); /* the header */
+  FD_TEST( !has_up( f1 ) ); /* an entry batch */
+  FD_TEST(  has_up( f2 ) && f2->update_parent.new_parent_slot==0UL && !memcmp( &f2->update_parent.new_parent_block_id, &root, sizeof(fd_mr32_t) ) );
+
+  /* A FEC set only a notar blk holds keeps it, though the eager blk of
+     an invalidated slot ignores the shred. */
+
+  fd_mr32_t m5 = hash( 0x50 );
+  fd_mr20_t k5; memcpy( k5.uc, hash( 0x52 ).uc, sizeof(fd_mr20_t) );
+  fd_repair_slot_invalidated( repair, 5UL, FD_EVENT_BLOCK_RECEIVED_CANCELLED_REASON_MERKLE_ROOT_MISMATCH, 0L );
+  FD_TEST( fd_repair_blk_notarized( repair, 5UL, &m5 ) );
+  fd_repair_fec_t const * n2 = fd_repair_fec_notarized( repair, 5UL, &m5, 2U*FD_FEC_SHRED_CNT, &k5, 0L );
+  FD_TEST( n2 && !has_up( n2 ) );
+  fd_mr32_t r5 = hash( 0x52 );
+  shred_up( repair, 5UL, 4UL, 2U, 1, 4UL, &m5, &r5 );
+  FD_TEST( has_up( n2 ) && n2->update_parent.new_parent_slot==4UL );
+
+  fd_repair_fini( repair );
+}
+
+/* last_dc inserts the last data shred of FEC set fec_idx of (slot,
+   parent_slot) under merkle root mr, ending a data batch if dc. */
+
+static void
+last_dc( fd_repair_t *     repair,
+         ulong             slot,
+         ulong             parent_slot,
+         uint              fec_idx,
+         int               dc,
+         fd_mr32_t const * mr ) {
+  fd_shred_t shred[1]; memset( shred, 0, sizeof(fd_shred_t) );
+  shred->slot            = slot;
+  shred->idx             = fec_idx*FD_FEC_SHRED_CNT + FD_FEC_SHRED_CNT - 1U;
+  shred->fec_set_idx     = fec_idx*FD_FEC_SHRED_CNT;
+  shred->data.parent_off = (ushort)( slot-parent_slot );
+  shred->data.flags      = dc ? FD_SHRED_DATA_FLAG_DATA_COMPLETE : 0;
+  fd_repair_shred_insert( repair, shred, mr, 0, 0L );
+}
+
+static fd_repair_blk_t const *
+eager_of( fd_repair_t const * repair,
+          ulong               slot ) {
+  return fd_repair_blk_pool_ele_const( repair->blk_pool, repair->slot_meta[ slot % repair->slot_max ].eager );
+}
+
+static fd_repair_blk_t const *
+eager_req( fd_repair_t const * repair,
+           ulong               slot ) {
+  fd_repair_blk_t const * blk = eager_of( repair, slot );
+  FD_TEST( blk );
+  return blk;
+}
+
+/* An UpdateParent at the head of FEC set k, after FEC set k-1 ends in
+   DATA_COMPLETE, reparents the eager blk from the header's parent to
+   the one it names, whichever of the two is known last.  Later shreds
+   still carry the header's parent offset and are accepted, and a late
+   shred 0 does not undo it. */
+
+static void
+test_update_parent_reparent( void ) {
+  fd_repair_t * repair = setup();
+  fd_mr32_t     root  = hash( 0xEE );
+
+  /* DATA_COMPLETE first.  The header names (3, 0x33), not held, so the
+     blk is an orphan until the UpdateParent names the root. */
+
+  fd_mr32_t p3 = hash( 0x33 ), a0 = hash( 0x40 ), a1 = hash( 0x41 ), a2 = hash( 0x42 ), a3 = hash( 0x43 );
+  shred0( repair, 4UL, 3UL, &p3, &a0 );
+  fd_repair_blk_t const * e4 = eager_of( repair, 4UL );
+  FD_TEST( e4->parent==fd_repair_blk_pool_idx_null( repair->blk_pool ) && orphan_cnt( repair )==1UL );
+  shred_up( repair, 4UL, 3UL, 1U, 0, 0UL, &root, &a1 );
+  last_dc ( repair, 4UL, 3UL, 1U, 1, &a1 );
+  FD_TEST( e4->parent_slot==3UL && !e4->init_fec_cnt );
+  shred_up( repair, 4UL, 3UL, 2U, 1, 0UL, &root, &a2 );
+  FD_TEST( e4->parent_slot==0UL && !memcmp( &e4->parent_blk_mr, &root, sizeof(fd_mr32_t) ) && e4->init_fec_cnt==2U );
+  FD_TEST( rooted( repair, e4 ) && orphan_cnt( repair )==0UL );
+  shred_up( repair, 4UL, 3UL, 3U, 0, 0UL, &root, &a3 ); /* parent offset still names slot 3 */
+  FD_TEST( !repair->slot_meta[ 4UL % repair->slot_max ].invalidated && e4->fecs[ 3 ]!=fd_repair_fec_pool_idx_null( repair->fec_pool ) );
+  shred0( repair, 4UL, 3UL, &p3, &a0 );
+  FD_TEST( e4->parent_slot==0UL && !memcmp( &e4->parent_blk_mr, &root, sizeof(fd_mr32_t) ) && rooted( repair, e4 ) );
+
+  /* UpdateParent first, then the last shred of FEC set k-1: without
+     DATA_COMPLETE it is entry data, with it the blk reparents. */
+
+  fd_mr32_t p11 = hash( 0x55 ), b0 = hash( 0x60 ), b1 = hash( 0x61 ), b2 = hash( 0x62 );
+  shred0  ( repair, 12UL, 11UL, &p11, &b0 );
+  shred_up( repair, 12UL, 11UL, 2U, 1, 0UL, &root, &b2 );
+  fd_repair_blk_t const * e6 = eager_of( repair, 12UL );
+  FD_TEST( e6->parent_slot==11UL && !e6->init_fec_cnt );
+  shred_up( repair, 12UL, 11UL, 1U, 0, 0UL, &root, &b1 );
+  last_dc ( repair, 12UL, 11UL, 1U, 0, &b1 );
+  FD_TEST( e6->parent_slot==11UL && !e6->init_fec_cnt );
+  last_dc ( repair, 12UL, 11UL, 1U, 1, &b1 );
+  FD_TEST( e6->parent_slot==0UL && e6->init_fec_cnt==2U && rooted( repair, e6 ) && orphan_cnt( repair )==0UL );
+
+  /* A new parent that is not held: the blk waits in orphan_map under
+     it, and the new parent slot gets an eager blk to repair. */
+
+  fd_mr32_t p7 = hash( 0x77 ), p2 = hash( 0x22 ), c0 = hash( 0x80 ), c1 = hash( 0x81 ), c2 = hash( 0x82 );
+  shred0  ( repair, 8UL, 7UL, &p7, &c0 );
+  shred_up( repair, 8UL, 7UL, 1U, 0, 0UL, &root, &c1 );
+  last_dc ( repair, 8UL, 7UL, 1U, 1, &c1 );
+  shred_up( repair, 8UL, 7UL, 2U, 1, 2UL, &p2, &c2 );
+  fd_repair_blk_t const * e8 = eager_of( repair, 8UL );
+  FD_TEST( e8->parent_slot==2UL && !memcmp( &e8->parent_blk_mr, &p2, sizeof(fd_mr32_t) ) && e8->init_fec_cnt==2U );
+  FD_TEST( e8->parent==fd_repair_blk_pool_idx_null( repair->blk_pool ) && orphan_cnt( repair )==1UL ); /* the seeded parent blks name nothing yet */
+  FD_TEST( fd_repair_orphan_map_ele_query_const( repair->orphan_map, &p2, NULL, repair->blk_pool )==e8 );
+  FD_TEST( repair->slot_meta[ 2UL % repair->slot_max ].eager!=fd_repair_blk_pool_idx_null( repair->blk_pool ) );
+
+  fd_repair_fini( repair );
+}
+
+/* children returns the number of blks linked under blk and whether
+   child is one of them. */
+
+static ulong
+children( fd_repair_t const *     repair,
+          fd_repair_blk_t const * blk,
+          fd_repair_blk_t const * child,
+          int *                   found ) {
+  fd_repair_blk_t const * pool = repair->blk_pool;
+  ulong                   null = fd_repair_blk_pool_idx_null( pool );
+  ulong                   cnt  = 0UL;
+  *found = 0;
+  for( ulong c=blk->child; c!=null; c=fd_repair_blk_pool_ele_const( pool, c )->sibling ) {
+    *found |= fd_repair_blk_pool_ele_const( pool, c )==child;
+    cnt++;
+  }
+  return cnt;
+}
+
+/* Two complete eager blks chain root <- 1 <- 2.  Slot 4, the first slot
+   of its leader window, starts on 2 as the optimistic parent, then an
+   UpdateParent at FEC set 2 names 1.  The blk moves from 2's children
+   to 1's, and 2 is left childless. */
+
+static void
+test_update_parent_eager_chain( void ) {
+  fd_repair_t * repair = setup();
+  fd_mr32_t     root  = hash( 0xEE );
+  fd_mr32_t     m10   = hash( 0x11 ), m20 = hash( 0x21 );
+  fd_mr32_t     m40   = hash( 0x41 ), m41 = hash( 0x42 ), m42 = hash( 0x43 ), m43 = hash( 0x44 );
+  ulong         one   = 1UL, two = 2UL;
+
+  shred0  ( repair, 1UL, 0UL, &root, &m10 );
+  complete( repair, 1UL, 0UL, 0U, 1, &m10 );
+  fd_repair_blk_t const * e1 = fd_repair_blk_map_ele_query_const( repair->blk_map, &one, NULL, repair->blk_pool );
+  shred0  ( repair, 2UL, 1UL, &e1->dmr, &m20 );
+  complete( repair, 2UL, 1UL, 0U, 1, &m20 );
+  fd_repair_blk_t const * e2 = fd_repair_blk_map_ele_query_const( repair->blk_map, &two, NULL, repair->blk_pool );
+  FD_TEST( memcmp( &e1->dmr, &hash_null, sizeof(fd_mr32_t) ) && memcmp( &e2->dmr, &hash_null, sizeof(fd_mr32_t) ) );
+  FD_TEST( rooted( repair, e2 ) && e2->parent==fd_repair_blk_pool_idx( repair->blk_pool, e1 ) );
+  expect( repair, e1, 0U );
+  expect( repair, e2, 0U );
+  FD_TEST( fd_repair_deque_empty( repair->reasm_deque ) );
+
+  /* Slot 4 starts on 2. */
+
+  shred0  ( repair, 4UL, 2UL, &e2->dmr, &m40 );
+  fd_repair_blk_t const * e4 = eager_of( repair, 4UL );
+  int found;
+  FD_TEST( e4->parent==fd_repair_blk_pool_idx( repair->blk_pool, e2 ) && e4->parent_slot==2UL && !e4->init_fec_cnt );
+  FD_TEST( children( repair, e2, e4, &found )==1UL && found );
+  FD_TEST( children( repair, e1, e4, &found )==1UL && !found );
+
+  /* FEC set 1 ends the data batch, FEC set 2 is the UpdateParent. */
+
+  shred_up( repair, 4UL, 2UL, 1U, 0, 0UL, &root, &m41 );
+  last_dc ( repair, 4UL, 2UL, 1U, 1, &m41 );
+  FD_TEST( e4->parent==fd_repair_blk_pool_idx( repair->blk_pool, e2 ) && !e4->init_fec_cnt );
+  shred_up( repair, 4UL, 2UL, 2U, 1, 1UL, &e1->dmr, &m42 );
+
+  FD_TEST( e4->parent==fd_repair_blk_pool_idx( repair->blk_pool, e1 ) );
+  FD_TEST( e4->parent_slot==1UL && !memcmp( &e4->parent_blk_mr, &e1->dmr, sizeof(fd_mr32_t) ) );
+  FD_TEST( e4->init_fec_cnt==2U && e4->init_parent_slot==2UL );
+  FD_TEST( children( repair, e2, e4, &found )==0UL && !found );
+  FD_TEST( children( repair, e1, e4, &found )==2UL &&  found ); /* e2 and e4 */
+  FD_TEST( rooted( repair, e4 ) && orphan_cnt( repair )==0UL );
+
+  /* Later shreds still name slot 2 in their parent offset. */
+
+  shred_up( repair, 4UL, 2UL, 3U, 0, 0UL, &root, &m43 );
+  FD_TEST( !repair->slot_meta[ 4UL % repair->slot_max ].invalidated && e4->parent==fd_repair_blk_pool_idx( repair->blk_pool, e1 ) );
+  FD_TEST( fd_repair_deque_empty( repair->reasm_deque ) );
+
+  fd_repair_fini( repair );
+}
+
+/* invalidated returns whether slot's eager blk was given up on. */
+
+static int
+invalidated( fd_repair_t const * repair,
+             ulong               slot ) {
+  return repair->slot_meta[ slot % repair->slot_max ].invalidated;
+}
+
+/* up_blk builds slot's eager blk: shred 0 names (hdr_slot, hdr_mr), FEC
+   set k-1 ends in DATA_COMPLETE and FEC set k is an UpdateParent naming
+   (up_slot, up_mr).  FEC set j has merkle root hash( b+j ).  Returns
+   the eager blk. */
+
+static fd_repair_blk_t const *
+up_blk( fd_repair_t *     repair,
+        ulong             slot,
+        ulong             hdr_slot,
+        fd_mr32_t const * hdr_mr,
+        uint              k,
+        ulong             up_slot,
+        fd_mr32_t const * up_mr,
+        uchar             b ) {
+  fd_mr32_t m0 = hash( b ), mk1 = hash( (uchar)( b+k-1U ) ), mk = hash( (uchar)( b+k ) );
+  shred0( repair, slot, hdr_slot, hdr_mr, &m0 );
+  if( k>1U ) shred_up( repair, slot, hdr_slot, k-1U, 0, 0UL, hdr_mr, &mk1 );
+  last_dc ( repair, slot, hdr_slot, k-1U, 1, &mk1 );
+  shred_up( repair, slot, hdr_slot, k, 1, up_slot, up_mr, &mk );
+  return eager_req( repair, slot );
+}
+
+/* Group 1: the UpdateParent names a blk not held yet. */
+
+static void
+test_up_target_arrives_eager( void ) {
+  fd_repair_t * repair = setup();
+  fd_mr32_t     root  = hash( 0xEE );
+  fd_mr32_t     m10   = hash( 0x11 ), m20 = hash( 0x21 );
+
+  /* Slot 2's dmr, computed by a scratch repair. */
+
+  fd_repair_t * pre = setup_in( scratch );
+  shred0  ( pre, 1UL, 0UL, &root, &m10 );
+  complete( pre, 1UL, 0UL, 0U, 1, &m10 );
+  ulong one = 1UL, two = 2UL;
+  fd_mr32_t d1 = fd_repair_blk_map_ele_query_const( pre->blk_map, &one, NULL, pre->blk_pool )->dmr;
+  shred0  ( pre, 2UL, 1UL, &d1, &m20 );
+  complete( pre, 2UL, 1UL, 0U, 1, &m20 );
+  fd_mr32_t d2 = fd_repair_blk_map_ele_query_const( pre->blk_map, &two, NULL, pre->blk_pool )->dmr;
+
+  /* Slot 4 starts on (3, p3), the UpdateParent names (2, d2), neither
+     held. */
+
+  fd_mr32_t p3 = hash( 0x33 );
+  fd_repair_blk_t const * e4 = up_blk( repair, 4UL, 3UL, &p3, 2U, 2UL, &d2, 0x40 );
+  FD_TEST( e4->init_fec_cnt==2U && e4->parent_slot==2UL && e4->parent==fd_repair_blk_pool_idx_null( repair->blk_pool ) );
+  FD_TEST( fd_repair_orphan_map_ele_query_const( repair->orphan_map, &d2, NULL, repair->blk_pool )==e4 );
+  FD_TEST( eager_of( repair, 2UL ) );
+
+  /* Slots 1 and 2 arrive on turbine, 2's dmr is d2. */
+
+  shred0  ( repair, 1UL, 0UL, &root, &m10 );
+  complete( repair, 1UL, 0UL, 0U, 1, &m10 );
+  shred0  ( repair, 2UL, 1UL, &d1, &m20 );
+  complete( repair, 2UL, 1UL, 0U, 1, &m20 );
+  fd_repair_blk_t const * e2 = eager_req( repair, 2UL );
+  FD_TEST( !memcmp( &e2->dmr, &d2, sizeof(fd_mr32_t) ) );
+  FD_TEST( e4->parent==fd_repair_blk_pool_idx( repair->blk_pool, e2 ) && rooted( repair, e4 ) && orphan_cnt( repair )==0UL );
+  FD_TEST( !invalidated( repair, 4UL ) );
+  fd_repair_fini( repair );
+}
+
+static void
+test_up_target_arrives_notar( void ) {
+  fd_repair_t * repair = setup();
+  fd_mr32_t     root  = hash( 0xEE );
+  fd_mr32_t     x     = hash( 0x20 );
+
+  fd_mr32_t p3 = hash( 0x33 );
+  fd_repair_blk_t const * e4 = up_blk( repair, 4UL, 3UL, &p3, 2U, 2UL, &x, 0x40 );
+  FD_TEST( e4->parent==fd_repair_blk_pool_idx_null( repair->blk_pool ) && orphan_cnt( repair )==1UL );
+  (void)root;
+  fd_repair_blk_t * n2 = notar( repair, 2UL, 0x20 );
+  FD_TEST( e4->parent==fd_repair_blk_pool_idx( repair->blk_pool, n2 ) );
+  FD_TEST( !invalidated( repair, 4UL ) );
+  fd_repair_fini( repair );
+}
+
+/* The duplicate switch: the UpdateParent names another version of the
+   header's parent slot. */
+
+static void
+test_up_target_same_slot( void ) {
+  fd_repair_t * repair = setup();
+  fd_mr32_t     root  = hash( 0xEE );
+  fd_mr32_t     a     = hash( 0x2A ), b = hash( 0x2B );
+
+  fd_repair_blk_t * n2a = notar( repair, 2UL, 0x2A );
+  parented( repair, 2UL, 0x2A, 0UL, 0xEE, 1U );
+  fd_repair_blk_t const * e4 = up_blk( repair, 4UL, 2UL, &a, 2U, 2UL, &b, 0x40 );
+  FD_TEST( e4->init_fec_cnt==2U && e4->parent_slot==2UL && !memcmp( &e4->parent_blk_mr, &b, sizeof(fd_mr32_t) ) );
+  int found;
+  FD_TEST( !children( repair, n2a, e4, &found ) && !found );
+  FD_TEST( fd_repair_orphan_map_ele_query_const( repair->orphan_map, &b, NULL, repair->blk_pool )==e4 );
+
+  fd_repair_blk_t * n2b = notar( repair, 2UL, 0x2B );
+  FD_TEST( e4->parent==fd_repair_blk_pool_idx( repair->blk_pool, n2b ) );
+  FD_TEST( !invalidated( repair, 4UL ) );
+  (void)root;
+  fd_repair_fini( repair );
+}
+
+/* Group 2: the header's parent is not held. */
+
+static void
+test_up_orig_parent_missing( void ) {
+  fd_repair_t * repair = setup();
+  fd_mr32_t     root  = hash( 0xEE );
+  fd_mr32_t     m10   = hash( 0x11 ), m20 = hash( 0x21 );
+
+  /* The header names (2, d2), slot 2 has not arrived.  The UpdateParent
+     names the root. */
+
+  fd_repair_t * pre = setup_in( scratch );
+  shred0  ( pre, 1UL, 0UL, &root, &m10 );
+  complete( pre, 1UL, 0UL, 0U, 1, &m10 );
+  ulong one = 1UL, two = 2UL;
+  fd_mr32_t d1 = fd_repair_blk_map_ele_query_const( pre->blk_map, &one, NULL, pre->blk_pool )->dmr;
+  shred0  ( pre, 2UL, 1UL, &d1, &m20 );
+  complete( pre, 2UL, 1UL, 0U, 1, &m20 );
+  fd_mr32_t d2 = fd_repair_blk_map_ele_query_const( pre->blk_map, &two, NULL, pre->blk_pool )->dmr;
+
+  fd_mr32_t m40 = hash( 0x40 );
+  shred0( repair, 4UL, 2UL, &d2, &m40 );
+  fd_repair_blk_t const * e4 = eager_of( repair, 4UL );
+  FD_TEST( fd_repair_orphan_map_ele_query_const( repair->orphan_map, &d2, NULL, repair->blk_pool )==e4 );
+  FD_TEST( eager_of( repair, 2UL ) ); /* seeded by the header */
+
+  fd_mr32_t m41 = hash( 0x41 ), m42 = hash( 0x42 );
+  shred_up( repair, 4UL, 2UL, 1U, 0, 0UL, &root, &m41 );
+  last_dc ( repair, 4UL, 2UL, 1U, 1, &m41 );
+  shred_up( repair, 4UL, 2UL, 2U, 1, 0UL, &root, &m42 );
+  FD_TEST( e4->init_fec_cnt==2U && rooted( repair, e4 ) && !e4->orphan_req );
+  FD_TEST( !fd_repair_orphan_map_ele_query_const( repair->orphan_map, &d2, NULL, repair->blk_pool ) && orphan_cnt( repair )==0UL );
+
+  /* Slot 2 arrives and completes with dmr d2: slot 4 is not linked under
+     it again. */
+
+  shred0  ( repair, 1UL, 0UL, &root, &m10 );
+  complete( repair, 1UL, 0UL, 0U, 1, &m10 );
+  shred0  ( repair, 2UL, 1UL, &d1, &m20 );
+  complete( repair, 2UL, 1UL, 0U, 1, &m20 );
+  fd_repair_blk_t const * e2 = eager_req( repair, 2UL );
+  FD_TEST( !memcmp( &e2->dmr, &d2, sizeof(fd_mr32_t) ) );
+  int found;
+  FD_TEST( !children( repair, e2, e4, &found ) && !found );
+  FD_TEST( e4->parent==fd_repair_blk_pool_idx( repair->blk_pool, repair->root_blk ) );
+  fd_repair_fini( repair );
+}
+
+static void
+test_up_orig_parent_skipped( void ) {
+  fd_repair_t * repair = setup();
+  fd_mr32_t     root  = hash( 0xEE ), p2 = hash( 0x22 );
+  fd_mr32_t     m40   = hash( 0x40 ), m41 = hash( 0x41 ), m42 = hash( 0x42 );
+
+  shred0( repair, 4UL, 2UL, &p2, &m40 );
+  fd_repair_slot_skipped( repair, 2UL );
+  FD_TEST( !eager_of( repair, 2UL ) );
+  shred_up( repair, 4UL, 2UL, 1U, 0, 0UL, &root, &m41 );
+  last_dc ( repair, 4UL, 2UL, 1U, 1, &m41 );
+  shred_up( repair, 4UL, 2UL, 2U, 1, 0UL, &root, &m42 );
+  fd_repair_blk_t const * e4 = eager_of( repair, 4UL );
+  FD_TEST( e4->init_fec_cnt==2U && rooted( repair, e4 ) && orphan_cnt( repair )==0UL );
+  FD_TEST( !eager_of( repair, 2UL ) );
+
+  /* A skipped new parent slot is not seeded either. */
+
+  fd_mr32_t p6 = hash( 0x66 ), m80 = hash( 0x80 ), m81 = hash( 0x81 ), m82 = hash( 0x82 );
+  fd_repair_slot_skipped( repair, 6UL );
+  shred0  ( repair, 8UL, 7UL, &root, &m80 );
+  shred_up( repair, 8UL, 7UL, 1U, 0, 0UL, &root, &m81 );
+  last_dc ( repair, 8UL, 7UL, 1U, 1, &m81 );
+  shred_up( repair, 8UL, 7UL, 2U, 1, 6UL, &p6, &m82 );
+  FD_TEST( eager_of( repair, 8UL )->init_fec_cnt==2U && !eager_of( repair, 6UL ) );
+  fd_repair_fini( repair );
+}
+
+/* Group 3: blks discovered through fd_repair_blk_notarized. */
+
+static void
+test_up_eager_dmr( void ) {
+  fd_repair_t * repair = setup();
+  fd_mr32_t     root  = hash( 0xEE ), p2 = hash( 0x22 );
+
+  /* Slot 4 starts on (2, p2) and moves to the root, then completes. */
+
+  fd_repair_blk_t const * e4 = up_blk( repair, 4UL, 2UL, &p2, 2U, 0UL, &root, 0x40 );
+  fd_mr32_t m40 = hash( 0x40 ), m41 = hash( 0x41 ), m42 = hash( 0x42 );
+  complete( repair, 4UL, 2UL, 0U, 0, &m40 );
+  complete( repair, 4UL, 2UL, 1U, 0, &m41 );
+  complete( repair, 4UL, 2UL, 2U, 1, &m42 );
+  FD_TEST( memcmp( &e4->dmr, &hash_null, sizeof(fd_mr32_t) ) );
+
+  /* The same FEC roots under a header naming the root directly. */
+
+  fd_repair_t * pre = setup_in( scratch );
+  shred0  ( pre, 4UL, 0UL, &root, &m40 );
+  complete( pre, 4UL, 0UL, 0U, 0, &m40 );
+  complete( pre, 4UL, 0UL, 1U, 0, &m41 );
+  complete( pre, 4UL, 0UL, 2U, 1, &m42 );
+  FD_TEST( !memcmp( &e4->dmr, &eager_req( pre, 4UL )->dmr, sizeof(fd_mr32_t) ) );
+  fd_repair_fini( repair );
+}
+
+/* notar_up gives the notar blk (slot, dmr) FEC sets 0..k by id under
+   merkle roots hash( b+j ), the shreds that make FEC set k-1 end in
+   DATA_COMPLETE and FEC set k an UpdateParent naming (up_slot, up_mr). */
+
+static void
+notar_up( fd_repair_t *     repair,
+          ulong             slot,
+          uchar             dmr,
+          ulong             hdr_slot,
+          uint              k,
+          ulong             up_slot,
+          fd_mr32_t const * up_mr,
+          uchar             b ) {
+  fd_mr32_t id = hash( dmr );
+  for( uint j=0U; j<=k; j++ ) {
+    fd_mr32_t mr = hash( (uchar)( b+j ) );
+    fd_mr20_t key; memcpy( key.uc, mr.uc, sizeof(fd_mr20_t) );
+    FD_TEST( fd_repair_fec_notarized( repair, slot, &id, j*FD_FEC_SHRED_CNT, &key, 0L ) );
+  }
+  fd_mr32_t mk1 = hash( (uchar)( b+k-1U ) ), mk = hash( (uchar)( b+k ) );
+  last_dc ( repair, slot, hdr_slot, k-1U, 1, &mk1 );
+  shred_up( repair, slot, hdr_slot, k, 1, up_slot, up_mr, &mk );
+}
+
+static void
+test_up_notar_only( void ) {
+  fd_repair_t * repair = setup();
+  fd_mr32_t     root  = hash( 0xEE );
+
+  /* Slot 4 is invalidated, its notar blk is proven to sit on the root
+     and its shreds name slot 2 as the optimistic parent. */
+
+  fd_repair_slot_invalidated( repair, 4UL, FD_EVENT_BLOCK_RECEIVED_CANCELLED_REASON_MERKLE_ROOT_MISMATCH, 0L );
+  fd_repair_blk_t * n4 = notar( repair, 4UL, 0x4D );
+  parented( repair, 4UL, 0x4D, 0UL, 0xEE, 3U );
+  FD_TEST( rooted( repair, n4 ) && !n4->init_fec_cnt );
+  notar_up( repair, 4UL, 0x4D, 2UL, 2U, 0UL, &root, 0x40 );
+  FD_TEST( n4->init_fec_cnt==2U && rooted( repair, n4 ) && n4->parent_slot==0UL );
+  fd_repair_fini( repair );
+}
+
+static void
+test_up_notar_parented_late( void ) {
+  fd_repair_t * repair = setup();
+  fd_mr32_t     root  = hash( 0xEE );
+
+  fd_repair_slot_invalidated( repair, 4UL, FD_EVENT_BLOCK_RECEIVED_CANCELLED_REASON_MERKLE_ROOT_MISMATCH, 0L );
+  fd_repair_blk_t * n4 = notar( repair, 4UL, 0x4D );
+  notar_up( repair, 4UL, 0x4D, 2UL, 2U, 0UL, &root, 0x40 );
+  FD_TEST( n4->init_fec_cnt==2U && n4->parent_slot==ULONG_MAX );
+  parented( repair, 4UL, 0x4D, 0UL, 0xEE, 3U );
+  FD_TEST( n4->init_fec_cnt==2U && rooted( repair, n4 ) );
+  fd_repair_fini( repair );
+}
+
+/* The shreds that make FEC set 1 end in DATA_COMPLETE and FEC set 2 an
+   UpdateParent arrive before the FecSetRoot proofs that attach those
+   FEC sets to the notar blk.  Shred insert runs detection while the
+   notar blk does not hold them yet, so attaching each cached FEC set
+   must rerun it, whichever of the two is attached last, and nothing
+   of the prefix may be consumed. */
+
+static void
+test_up_notar_proofs_after_shreds( int up_last ) {
+  fd_repair_t * repair = setup();
+  fd_mr32_t     root  = hash( 0xEE );
+  fd_mr32_t     id    = hash( 0x4D );
+
+  /* Turbine (the eager blk of slot 4) caches the FEC sets, so the slot
+     must not be invalidated. */
+  fd_repair_blk_t * n4 = notar( repair, 4UL, 0x4D );
+  parented( repair, 4UL, 0x4D, 0UL, 0xEE, 3U );
+  FD_TEST( rooted( repair, n4 ) );
+
+  fd_mr32_t m41 = hash( 0x41 ), m42 = hash( 0x42 );
+  last_dc ( repair, 4UL, 2UL, 1U, 1, &m41 );
+  shred_up( repair, 4UL, 2UL, 2U, 1, 0UL, &root, &m42 );
+  FD_TEST( !n4->init_fec_cnt ); /* the notar blk holds neither FEC set yet */
+
+  fd_repair_deque_remove_all( repair->reasm_deque );
+  for( uint i=0U; i<3U; i++ ) {
+    uint      j  = up_last ? i : (uint[]){ 0U, 2U, 1U }[ i ]; /* FEC set 2 attached last, or FEC set 1 */
+    fd_mr32_t mr = hash( (uchar)( 0x40+j ) );
+    fd_mr20_t key; memcpy( key.uc, mr.uc, sizeof(fd_mr20_t) );
+    fd_repair_fec_notarized( repair, 4UL, &id, j*FD_FEC_SHRED_CNT, &key, 0L );
+  }
+  FD_TEST( n4->init_fec_cnt==2U && n4->cons_fec_cnt>=2U );
+
+  /* FEC set 0 completed while attaching, but it is the prefix. */
+  while( !fd_repair_deque_empty( repair->reasm_deque ) ) FD_TEST( fd_repair_deque_pop_head( repair->reasm_deque ).fec_idx>=2U );
+  fd_repair_fini( repair );
+}
+
+/* Version A, notar with an UpdateParent to the root, and version B,
+   turbine, still on its header's parent, share FEC set 0.  B, an
+   orphan, must not take A's parent. */
+
+static void
+test_up_consume_merge_equivocation( void ) {
+  fd_repair_t * repair = setup();
+  fd_mr32_t     root  = hash( 0xEE ), p2 = hash( 0x22 );
+  fd_mr32_t     m40   = hash( 0x40 );
+
+  shred0  ( repair, 4UL, 2UL, &p2, &m40 );
+  complete( repair, 4UL, 2UL, 0U, 0, &m40 );
+  fd_repair_blk_t const * b4 = eager_of( repair, 4UL );
+  FD_TEST( b4->parent==fd_repair_blk_pool_idx_null( repair->blk_pool ) );
+
+  fd_repair_blk_t * a4 = notar( repair, 4UL, 0x4A );
+  fd_mr20_t k0; memcpy( k0.uc, m40.uc, sizeof(fd_mr20_t) );
+  FD_TEST( fd_repair_fec_notarized( repair, 4UL, &a4->dmr, 0U, &k0, 0L ) );
+  parented( repair, 4UL, 0x4A, 0UL, 0xEE, 3U );
+  FD_TEST( rooted( repair, a4 ) );
+  FD_TEST( b4->parent==fd_repair_blk_pool_idx_null( repair->blk_pool ) && b4->parent_slot==2UL && !memcmp( &b4->parent_blk_mr, &p2, sizeof(fd_mr32_t) ) );
+  (void)root;
+  fd_repair_fini( repair );
+}
+
+/* Group 4: multiple UpdateParents and the rules. */
+
+static void
+test_up_multiple( void ) {
+  fd_mr32_t root = hash( 0xEE ), p2 = hash( 0x22 ), p1 = hash( 0x11 );
+
+  /* In order: k=2 then k=3. */
+
+  fd_repair_t * repair = setup();
+  fd_repair_blk_t const * e4 = up_blk( repair, 4UL, 2UL, &p2, 2U, 0UL, &root, 0x40 );
+  FD_TEST( e4->init_fec_cnt==2U && !invalidated( repair, 4UL ) );
+  fd_mr32_t m42 = hash( 0x42 ), m43 = hash( 0x43 );
+  last_dc ( repair, 4UL, 2UL, 2U, 1, &m42 );
+  shred_up( repair, 4UL, 2UL, 3U, 1, 1UL, &p1, &m43 );
+  FD_TEST( invalidated( repair, 4UL ) );
+  fd_repair_fini( repair );
+
+  /* Reverse: k=3 is confirmed first, then k=2. */
+
+  repair = setup();
+  fd_mr32_t m40 = hash( 0x40 ), m41 = hash( 0x41 );
+  shred0  ( repair, 4UL, 2UL, &p2, &m40 );
+  shred_up( repair, 4UL, 2UL, 2U, 1, 0UL, &root, &m42 );
+  last_dc ( repair, 4UL, 2UL, 2U, 1, &m42 );
+  shred_up( repair, 4UL, 2UL, 3U, 1, 1UL, &p1, &m43 );
+  FD_TEST( eager_of( repair, 4UL )->init_fec_cnt==3U && !invalidated( repair, 4UL ) );
+  shred_up( repair, 4UL, 2UL, 1U, 0, 0UL, &root, &m41 );
+  last_dc ( repair, 4UL, 2UL, 1U, 1, &m41 );
+  FD_TEST( invalidated( repair, 4UL ) );
+  fd_repair_fini( repair );
+}
+
+static void
+test_up_duplicate_and_decoy( void ) {
+  fd_repair_t * repair = setup();
+  fd_mr32_t     root  = hash( 0xEE ), p2 = hash( 0x22 ), p1 = hash( 0x11 );
+
+  /* The marker shred and the DATA_COMPLETE shred again. */
+
+  fd_repair_blk_t const * e4 = up_blk( repair, 4UL, 2UL, &p2, 2U, 0UL, &root, 0x40 );
+  fd_mr32_t m41 = hash( 0x41 ), m42 = hash( 0x42 );
+  shred_up( repair, 4UL, 2UL, 2U, 1, 0UL, &root, &m42 );
+  last_dc ( repair, 4UL, 2UL, 1U, 1, &m41 );
+  FD_TEST( e4->init_fec_cnt==2U && !invalidated( repair, 4UL ) && rooted( repair, e4 ) );
+
+  /* Marker bytes at k=1 after a FEC set without DATA_COMPLETE are entry
+     data, the real one is at k=2. */
+
+  fd_mr32_t m80 = hash( 0x80 ), m81 = hash( 0x81 ), m82 = hash( 0x82 );
+  shred0  ( repair, 8UL, 2UL, &p2, &m80 );
+  last_dc ( repair, 8UL, 2UL, 0U, 0, &m80 );
+  shred_up( repair, 8UL, 2UL, 1U, 1, 1UL, &p1, &m81 );
+  last_dc ( repair, 8UL, 2UL, 1U, 1, &m81 );
+  shred_up( repair, 8UL, 2UL, 2U, 1, 0UL, &root, &m82 );
+  fd_repair_blk_t const * e8 = eager_of( repair, 8UL );
+  FD_TEST( e8->init_fec_cnt==2U && e8->parent_slot==0UL && !invalidated( repair, 8UL ) );
+  fd_repair_fini( repair );
+}
+
+static void
+test_up_rules( void ) {
+  fd_mr32_t root = hash( 0xEE ), p2 = hash( 0x22 ), p3 = hash( 0x33 );
+
+  /* Not the first slot of its leader window. */
+
+  fd_repair_t * repair = setup();
+  up_blk( repair, 5UL, 2UL, &p2, 2U, 0UL, &root, 0x50 );
+  FD_TEST( invalidated( repair, 5UL ) );
+  fd_repair_fini( repair );
+
+  /* A parent newer than the header's. */
+
+  repair = setup();
+  up_blk( repair, 4UL, 2UL, &p2, 2U, 3UL, &p3, 0x40 );
+  FD_TEST( invalidated( repair, 4UL ) );
+  fd_repair_fini( repair );
+
+  /* A null parent block id. */
+
+  repair = setup();
+  up_blk( repair, 4UL, 2UL, &p2, 2U, 1UL, &hash_null, 0x40 );
+  FD_TEST( invalidated( repair, 4UL ) );
+  fd_repair_fini( repair );
+
+  /* The header's own parent, shred 0 first. */
+
+  repair = setup();
+  up_blk( repair, 4UL, 2UL, &p2, 2U, 2UL, &p2, 0x40 );
+  FD_TEST( invalidated( repair, 4UL ) );
+  fd_repair_fini( repair );
+
+  /* The header's own parent, shred 0 last. */
+
+  repair = setup();
+  fd_mr32_t m40 = hash( 0x40 ), m41 = hash( 0x41 ), m42 = hash( 0x42 );
+  shred_up( repair, 4UL, 2UL, 1U, 0, 0UL, &root, &m41 );
+  last_dc ( repair, 4UL, 2UL, 1U, 1, &m41 );
+  shred_up( repair, 4UL, 2UL, 2U, 1, 2UL, &p2, &m42 );
+  FD_TEST( !invalidated( repair, 4UL ) && eager_of( repair, 4UL )->init_fec_cnt==2U );
+  shred0  ( repair, 4UL, 2UL, &p2, &m40 );
+  FD_TEST( invalidated( repair, 4UL ) );
+  fd_repair_fini( repair );
+
+  /* An UpdateParent in place of the header. */
+
+  repair = setup();
+  uchar buf[ FD_SHRED_MIN_SZ ] __attribute__((aligned(8UL))); memset( buf, 0, sizeof(buf) );
+  uchar * ser = buf+FD_SHRED_DATA_HEADER_SZ; ulong off = 0UL;
+  FD_STORE( ulong,  ser+off, 0UL );                             off += sizeof(ulong);
+  FD_STORE( ushort, ser+off, (ushort)1 );                       off += sizeof(ushort);
+  ser[ off ] = (uchar)FD_BLOCK_MARKER_KIND_UPDATE_PARENT;       off += sizeof(uchar);
+  FD_STORE( ushort, ser+off, (ushort)FD_UPDATE_PARENT_SER_SZ ); off += sizeof(ushort);
+  ser[ off ] = (uchar)1;                                        off += sizeof(uchar);
+  FD_STORE( ulong,  ser+off, 0UL );                             off += sizeof(ulong);
+  memcpy( ser+off, root.uc, sizeof(fd_mr32_t) );                off += sizeof(fd_mr32_t);
+  fd_shred_t * shred = (fd_shred_t *)buf;
+  shred->variant         = fd_shred_variant( FD_SHRED_TYPE_MERKLE_DATA, 6 );
+  shred->slot            = 4UL;
+  shred->data.parent_off = 2;
+  shred->data.size       = (ushort)( FD_SHRED_DATA_HEADER_SZ+off );
+  fd_repair_shred_insert( repair, shred, &m40, 0, 0L );
+  FD_TEST( invalidated( repair, 4UL ) );
+  fd_repair_fini( repair );
+}
+
+/* A parent below the root, with the root advanced to 1. */
+
+static void
+test_up_below_root( void ) {
+  fd_repair_t * repair = setup();
+  fd_mr32_t     root  = hash( 0xEE ), m10 = hash( 0x11 ), p3 = hash( 0x33 );
+  shred0  ( repair, 1UL, 0UL, &root, &m10 );
+  complete( repair, 1UL, 0UL, 0U, 1, &m10 );
+  fd_mr32_t d1 = eager_req( repair, 1UL )->dmr;
+  fd_repair_root_advanced( repair, 1UL, &d1 );
+  FD_TEST( repair->root==1UL );
+  up_blk( repair, 4UL, 3UL, &p3, 2U, 0UL, &root, 0x40 );
+  FD_TEST( invalidated( repair, 4UL ) );
+  fd_repair_fini( repair );
+}
+
+/* drain pops the reasm deque into out, returns the count. */
+
+static ulong
+drain( fd_repair_t *       repair,
+       fd_repair_deque_t * out,
+       ulong               max ) {
+  ulong cnt = 0UL;
+  while( !fd_repair_deque_empty( repair->reasm_deque ) ) {
+    fd_repair_deque_t o = fd_repair_deque_pop_head( repair->reasm_deque );
+    FD_TEST( cnt<max );
+    out[ cnt++ ] = o;
+  }
+  return cnt;
+}
+
+/* order_setup builds root <- 1 <- 3, both delivered, and slot 2 by id
+   on 1 with 2 FEC sets, the first complete and delivered: N2 is partly
+   consumed.  Returns N2, d3 in *d3 and the notar id in *d2. */
+
+static fd_repair_blk_t *
+order_setup( fd_repair_t * repair,
+             fd_mr32_t *   d2,
+             fd_mr32_t *   d3 ) {
+  fd_mr32_t root = hash( 0xEE ), m10 = hash( 0x11 ), m20 = hash( 0x21 ), m21 = hash( 0x22 ), m30 = hash( 0x31 );
+  fd_mr20_t k20; memcpy( k20.uc, m20.uc, sizeof(fd_mr20_t) );
+  fd_mr20_t k21; memcpy( k21.uc, m21.uc, sizeof(fd_mr20_t) );
+  *d2 = hash( 0x2D );
+
+  shred0  ( repair, 1UL, 0UL, &root, &m10 );
+  complete( repair, 1UL, 0UL, 0U, 1, &m10 );
+  fd_mr32_t d1 = eager_req( repair, 1UL )->dmr;
+
+  fd_repair_slot_invalidated( repair, 2UL, FD_EVENT_BLOCK_RECEIVED_CANCELLED_REASON_MERKLE_ROOT_MISMATCH, 0L ); /* N2 alone carries slot 2 */
+  fd_repair_blk_t * n2 = fd_repair_blk_notarized( repair, 2UL, d2 );
+  fd_repair_blk_parented ( repair, 2UL, d2, 1UL, &d1, 2U, 0L );
+  fd_repair_fec_notarized( repair, 2UL, d2, 0U,               &k20, 0L );
+  fd_repair_fec_notarized( repair, 2UL, d2, FD_FEC_SHRED_CNT, &k21, 0L );
+  complete( repair, 2UL, 1UL, 0U, 0, &m20 );
+  FD_TEST( n2->cons_fec_cnt==1U && n2->cmpl_fec_cnt==2U );
+
+  shred0  ( repair, 3UL, 1UL, &d1, &m30 );
+  complete( repair, 3UL, 1UL, 0U, 1, &m30 );
+  *d3 = eager_req( repair, 3UL )->dmr;
+
+  fd_repair_deque_t out[ 8 ];
+  drain( repair, out, 8UL );
+  return n2;
+}
+
+/* The optimistic prefix of slot 4 went out on slot 3, then the
+   UpdateParent at FEC set 2 names N2, partly consumed.  FEC set 2 waits
+   for N2's last FEC set. */
+
+static void
+test_up_waits_for_new_parent( void ) {
+  fd_repair_t * repair = setup();
+  fd_mr32_t     d2, d3;
+  fd_repair_blk_t * n2 = order_setup( repair, &d2, &d3 );
+  fd_mr32_t m40 = hash( 0x41 ), m41 = hash( 0x42 ), m42 = hash( 0x43 ), m21 = hash( 0x22 );
+
+  shred0  ( repair, 4UL, 3UL, &d3, &m40 );
+  complete( repair, 4UL, 3UL, 0U, 0, &m40 );
+  complete( repair, 4UL, 3UL, 1U, 0, &m41 );
+  last_dc ( repair, 4UL, 3UL, 1U, 1, &m41 );
+  fd_repair_blk_t const * e4 = eager_req( repair, 4UL );
+  expect( repair, e4, 0U ); expect( repair, e4, 1U );
+  FD_TEST( fd_repair_deque_empty( repair->reasm_deque ) && e4->cons_fec_cnt==2U );
+
+  shred_up( repair, 4UL, 3UL, 2U, 1, 2UL, &d2, &m42 );
+  FD_TEST( e4->parent==fd_repair_blk_pool_idx( repair->blk_pool, n2 ) && e4->init_fec_cnt==2U && e4->cons_fec_cnt==2U );
+  complete( repair, 4UL, 3UL, 2U, 1, &m42 );
+  FD_TEST( fd_repair_deque_empty( repair->reasm_deque ) ); /* N2 still owes FEC set 1 */
+
+  complete( repair, 2UL, 1UL, 1U, 1, &m21 );
+  expect( repair, n2, 1U );
+  expect( repair, e4, 2U );
+  FD_TEST( fd_repair_deque_empty( repair->reasm_deque ) );
+  fd_repair_fini( repair );
+}
+
+/* The prefix went out only in part, FEC set 0 of 2: FEC set 1 is never
+   delivered, the stream starts at FEC set 2 once N2 is done. */
+
+static void
+test_up_skips_rest_of_prefix( void ) {
+  fd_repair_t * repair = setup();
+  fd_mr32_t     d2, d3;
+  fd_repair_blk_t * n2 = order_setup( repair, &d2, &d3 );
+  fd_mr32_t m40 = hash( 0x41 ), m41 = hash( 0x42 ), m42 = hash( 0x43 ), m21 = hash( 0x22 );
+
+  shred0  ( repair, 4UL, 3UL, &d3, &m40 );
+  complete( repair, 4UL, 3UL, 0U, 0, &m40 );
+  fd_repair_blk_t const * e4 = eager_req( repair, 4UL );
+  expect( repair, e4, 0U );
+  FD_TEST( e4->cons_fec_cnt==1U );
+
+  last_dc ( repair, 4UL, 3UL, 1U, 1, &m41 );
+  shred_up( repair, 4UL, 3UL, 2U, 1, 2UL, &d2, &m42 );
+  FD_TEST( e4->init_fec_cnt==2U && e4->cons_fec_cnt==2U );
+  complete( repair, 4UL, 3UL, 1U, 0, &m41 );
+  complete( repair, 4UL, 3UL, 2U, 1, &m42 );
+  FD_TEST( fd_repair_deque_empty( repair->reasm_deque ) );
+
+  complete( repair, 2UL, 1UL, 1U, 1, &m21 );
+  expect( repair, n2, 1U );
+  expect( repair, e4, 2U ); /* not FEC set 1 */
+  FD_TEST( fd_repair_deque_empty( repair->reasm_deque ) );
+  fd_repair_fini( repair );
+}
+
+/* The UpdateParent names a blk not held, cons_fec_cnt 0.  When it is
+   held but partly consumed, the stream still waits for it. */
+
+static void
+test_up_orphan_then_partial_parent( void ) {
+  fd_repair_t * repair = setup();
+  fd_mr32_t     root  = hash( 0xEE ), p3 = hash( 0x33 ), d2 = hash( 0x2D );
+  fd_mr32_t     m10   = hash( 0x11 ), m20 = hash( 0x21 ), m21 = hash( 0x22 );
+  fd_mr20_t     k20; memcpy( k20.uc, m20.uc, sizeof(fd_mr20_t) );
+  fd_mr20_t     k21; memcpy( k21.uc, m21.uc, sizeof(fd_mr20_t) );
+  fd_mr32_t     m40 = hash( 0x41 ), m41 = hash( 0x42 ), m42 = hash( 0x43 );
+
+  shred0  ( repair, 1UL, 0UL, &root, &m10 );
+  complete( repair, 1UL, 0UL, 0U, 1, &m10 );
+  fd_mr32_t d1 = eager_req( repair, 1UL )->dmr;
+  fd_repair_deque_t out[ 8 ];
+  drain( repair, out, 8UL );
+
+  shred0  ( repair, 4UL, 3UL, &p3, &m40 );
+  last_dc ( repair, 4UL, 3UL, 1U, 1, &m41 );
+  shred_up( repair, 4UL, 3UL, 2U, 1, 2UL, &d2, &m42 );
+  complete( repair, 4UL, 3UL, 0U, 0, &m40 );
+  complete( repair, 4UL, 3UL, 1U, 0, &m41 );
+  complete( repair, 4UL, 3UL, 2U, 1, &m42 );
+  fd_repair_blk_t const * e4 = eager_req( repair, 4UL );
+  FD_TEST( e4->parent==fd_repair_blk_pool_idx_null( repair->blk_pool ) && e4->init_fec_cnt==2U && e4->cons_fec_cnt==2U );
+  FD_TEST( fd_repair_deque_empty( repair->reasm_deque ) );
+
+  fd_repair_slot_invalidated( repair, 2UL, FD_EVENT_BLOCK_RECEIVED_CANCELLED_REASON_MERKLE_ROOT_MISMATCH, 0L );
+  fd_repair_blk_t * n2 = fd_repair_blk_notarized( repair, 2UL, &d2 );
+  FD_TEST( e4->parent==fd_repair_blk_pool_idx( repair->blk_pool, n2 ) );
+  fd_repair_blk_parented ( repair, 2UL, &d2, 1UL, &d1, 2U, 0L );
+  fd_repair_fec_notarized( repair, 2UL, &d2, 0U,               &k20, 0L );
+  fd_repair_fec_notarized( repair, 2UL, &d2, FD_FEC_SHRED_CNT, &k21, 0L );
+  complete( repair, 2UL, 1UL, 0U, 0, &m20 );
+  expect( repair, n2, 0U );
+  FD_TEST( fd_repair_deque_empty( repair->reasm_deque ) );
+
+  complete( repair, 2UL, 1UL, 1U, 1, &m21 );
+  expect( repair, n2, 1U );
+  expect( repair, e4, 2U );
+  FD_TEST( fd_repair_deque_empty( repair->reasm_deque ) );
+  fd_repair_fini( repair );
+}
+
+/* A redelivery after the reparent resends slot 4 from FEC set 2, after
+   its new ancestry, never its prefix. */
+
+static void
+test_up_reconsume( void ) {
+  fd_repair_t * repair = setup();
+  fd_mr32_t     root  = hash( 0xEE ), p3 = hash( 0x33 );
+  fd_mr32_t     m10   = hash( 0x11 ), m40 = hash( 0x41 ), m41 = hash( 0x42 ), m42 = hash( 0x43 ), m43 = hash( 0x44 ), m44 = hash( 0x45 );
+
+  shred0  ( repair, 1UL, 0UL, &root, &m10 );
+  complete( repair, 1UL, 0UL, 0U, 1, &m10 );
+  fd_repair_blk_t const * e1 = eager_req( repair, 1UL );
+  fd_mr32_t d1 = e1->dmr;
+  expect( repair, e1, 0U );
+
+  shred0  ( repair, 4UL, 3UL, &p3, &m40 );
+  last_dc ( repair, 4UL, 3UL, 1U, 1, &m41 );
+  shred_up( repair, 4UL, 3UL, 2U, 1, 1UL, &d1, &m42 );
+  complete( repair, 4UL, 3UL, 0U, 0, &m40 );
+  complete( repair, 4UL, 3UL, 1U, 0, &m41 );
+  complete( repair, 4UL, 3UL, 2U, 0, &m42 );
+  fd_repair_blk_t const * e4 = eager_req( repair, 4UL );
+  expect( repair, e4, 2U );
+  complete( repair, 4UL, 3UL, 3U, 0, &m43 );
+  expect( repair, e4, 3U );
+  FD_TEST( fd_repair_deque_empty( repair->reasm_deque ) );
+
+  repair->reconsume = 1;
+  complete( repair, 4UL, 3UL, 4U, 1, &m44 );
+  expect( repair, e1, 0U );
+  expect( repair, e4, 2U ); expect( repair, e4, 3U ); expect( repair, e4, 4U );
+  FD_TEST( fd_repair_deque_empty( repair->reasm_deque ) );
+  fd_repair_fini( repair );
+}
+
+/* Slots 8 and 4 both wait in orphan_map under (3, p3), 4 inserted last
+   so it heads the chain.  4's UpdateParent names the root, held: 4 is
+   linked and 8 still waits under p3, orphan_map intact. */
+
+static void
+test_up_orphan_map_neighbour( void ) {
+  fd_repair_t * repair = setup();
+  fd_mr32_t     root  = hash( 0xEE ), p3 = hash( 0x33 );
+  fd_mr32_t     m80   = hash( 0x80 ), m40 = hash( 0x41 ), m41 = hash( 0x42 ), m42 = hash( 0x43 );
+
+  shred0( repair, 8UL, 3UL, &p3, &m80 );
+  shred0( repair, 4UL, 3UL, &p3, &m40 );
+  fd_repair_blk_t const * e8 = eager_req( repair, 8UL );
+  fd_repair_blk_t const * e4 = eager_req( repair, 4UL );
+  FD_TEST( orphan_cnt( repair )==2UL );
+
+  last_dc ( repair, 4UL, 3UL, 1U, 1, &m41 );
+  shred_up( repair, 4UL, 3UL, 2U, 1, 0UL, &root, &m42 );
+  FD_TEST( e4->init_fec_cnt==2U && rooted( repair, e4 ) );
+  FD_TEST( orphan_cnt( repair )==1UL ); /* verifies orphan_map and that e8 is found under p3 */
+  FD_TEST( fd_repair_orphan_map_ele_query_const( repair->orphan_map, &p3, NULL, repair->blk_pool )==e8 );
+  fd_repair_fini( repair );
+}
+
+/* FEC set k, the UpdateParent, is never delivered on the old parent:
+   it can only go out once FEC sets k-1 and k are complete, which needs
+   the last shred of k-1 and shred 32k, and those two inserts confirm
+   the marker first.  Replay relies on this (see
+   test_process_rotor_fec_optimistic_bank).  Every arrival order of the
+   four shreds and two completions that matter is tried. */
+
+static void
+test_up_never_sends_marker_fec_early( void ) {
+  /* 0: shred 32k (UpdateParent), 1: last shred of k-1 (DATA_COMPLETE),
+     2: FEC set k-1 completes, 3: FEC set k completes.  2 needs 1, 3
+     needs 0. */
+  static int const orders[][ 4 ] = {
+    { 0, 1, 2, 3 }, { 0, 1, 3, 2 }, { 0, 3, 1, 2 },
+    { 1, 0, 2, 3 }, { 1, 0, 3, 2 }, { 1, 2, 0, 3 },
+  };
+  for( ulong o=0UL; o<sizeof(orders)/sizeof(orders[0]); o++ ) {
+    fd_repair_t * repair = setup();
+    fd_mr32_t     root  = hash( 0xEE ), m10 = hash( 0x11 ), m30 = hash( 0x31 );
+    fd_mr32_t     m40   = hash( 0x41 ), m41 = hash( 0x42 ), m42 = hash( 0x43 );
+
+    shred0  ( repair, 1UL, 0UL, &root, &m10 );
+    complete( repair, 1UL, 0UL, 0U, 1, &m10 );
+    fd_mr32_t d1 = eager_req( repair, 1UL )->dmr;
+    shred0  ( repair, 3UL, 1UL, &d1, &m30 );
+    complete( repair, 3UL, 1UL, 0U, 1, &m30 );
+    fd_mr32_t d3 = eager_req( repair, 3UL )->dmr;
+    fd_repair_deque_t out[ 16 ];
+    drain( repair, out, 16UL );
+
+    /* Slot 4 on 3, FEC set 0 delivered, the UpdateParent at FEC set 2
+       names 1. */
+    shred0  ( repair, 4UL, 3UL, &d3, &m40 );
+    complete( repair, 4UL, 3UL, 0U, 0, &m40 );
+    fd_repair_blk_t const * e4 = eager_req( repair, 4UL );
+    expect( repair, e4, 0U );
+
+    for( ulong i=0UL; i<4UL; i++ ) {
+      switch( orders[ o ][ i ] ) {
+      case 0: shred_up( repair, 4UL, 3UL, 2U, 1, 1UL, &d1, &m42 ); break;
+      case 1: last_dc ( repair, 4UL, 3UL, 1U, 1, &m41 );           break;
+      case 2: { /* its last shred is the DATA_COMPLETE one */
+        fd_shred_t shred[1]; memset( shred, 0, sizeof(fd_shred_t) );
+        shred->slot            = 4UL;
+        shred->idx             = 2U*FD_FEC_SHRED_CNT - 1U;
+        shred->data.parent_off = 1;
+        shred->data.flags      = FD_SHRED_DATA_FLAG_DATA_COMPLETE;
+        fd_repair_fec_complete( repair, shred, &m41, 0, 0U, 0U, 0U, 0U, 0U, 0U, 0L );
+        break;
+      }
+      case 3: complete( repair, 4UL, 3UL, 2U, 1, &m42 );           break;
+      }
+      ulong cnt = drain( repair, out, 16UL );
+      for( ulong j=0UL; j<cnt; j++ ) {
+        if( out[ j ].blk_idx!=fd_repair_blk_pool_idx( repair->blk_pool, e4 ) ) continue;
+        if( out[ j ].fec_idx==1U ) FD_TEST( !e4->init_fec_cnt );                            /* the prefix only goes out before the marker is known */
+        if( out[ j ].fec_idx==2U ) FD_TEST( e4->init_fec_cnt==2U && e4->parent_slot==1UL ); /* FEC set k only on the new parent */
+      }
+    }
+    FD_TEST( e4->init_fec_cnt==2U && e4->cons_fec_cnt==3U && e4->parent_slot==1UL );
+    fd_repair_fini( repair );
+  }
+}
+
+/* SLOT_DEAD for the turbine version of the first slot of a leader
+   window.  The leader may cut the optimistic prefix off anywhere, since
+   it is building an UpdateParent, so replay killing it is not the end of
+   the block: the slot is invalidated only when the stream that died is
+   the one after a confirmed UpdateParent.  latest_fec_idx is the
+   highest FEC set the dead bank held, not necessarily the one that
+   failed. */
+
+/* up_dead_setup: slot 4 on slot 3, FEC set 0 delivered, its eager blk
+   returned.  The UpdateParent, once confirmed, is at FEC set 2 naming
+   slot 1. */
+
+static fd_repair_blk_t const *
+up_dead_setup( fd_repair_t * repair,
+               fd_mr32_t *   d1 ) {
+  fd_mr32_t root = hash( 0xEE ), m10 = hash( 0x11 ), m30 = hash( 0x31 ), m40 = hash( 0x41 );
+  shred0  ( repair, 1UL, 0UL, &root, &m10 );
+  complete( repair, 1UL, 0UL, 0U, 1, &m10 );
+  *d1 = eager_req( repair, 1UL )->dmr;
+  shred0  ( repair, 3UL, 1UL, d1, &m30 );
+  complete( repair, 3UL, 1UL, 0U, 1, &m30 );
+  fd_mr32_t d3 = eager_req( repair, 3UL )->dmr;
+  fd_repair_deque_t out[ 8 ];
+  drain( repair, out, 8UL );
+  shred0  ( repair, 4UL, 3UL, &d3, &m40 );
+  complete( repair, 4UL, 3UL, 0U, 0, &m40 );
+  fd_repair_blk_t const * e4 = eager_req( repair, 4UL );
+  expect( repair, e4, 0U );
+  return e4;
+}
+
+/* The prefix dies before the marker is known: not invalidated, and the
+   block goes on to replay from the UpdateParent on the new parent. */
+
+static void
+test_up_dead_prefix_then_marker( void ) {
+  fd_repair_t * repair = setup();
+  fd_mr32_t     d1;
+  fd_repair_blk_t const * e4 = up_dead_setup( repair, &d1 );
+  fd_mr32_t m41 = hash( 0x42 ), m42 = hash( 0x43 );
+
+  fd_repair_blk_dead( repair, 4UL, &hash_null, 0U );
+  FD_TEST( !invalidated( repair, 4UL ) && e4->eager && e4->in_blk_treap );
+
+  last_dc ( repair, 4UL, 3UL, 1U, 1, &m41 );
+  shred_up( repair, 4UL, 3UL, 2U, 1, 1UL, &d1, &m42 );
+  FD_TEST( e4->init_fec_cnt==2U && e4->parent_slot==1UL );
+  complete( repair, 4UL, 3UL, 1U, 0, &m41 );
+  complete( repair, 4UL, 3UL, 2U, 1, &m42 );
+  expect( repair, e4, 2U );
+  FD_TEST( fd_repair_deque_empty( repair->reasm_deque ) && !invalidated( repair, 4UL ) );
+  fd_repair_fini( repair );
+}
+
+/* The prefix dies and the slot completes without an UpdateParent: still
+   not invalidated by repair.  Replay's bank is dead, so the block is never
+   completed or voted on, and it is only kept for repair. */
+
+static void
+test_up_dead_prefix_no_marker( void ) {
+  fd_repair_t * repair = setup();
+  fd_mr32_t     d1;
+  fd_repair_blk_t const * e4 = up_dead_setup( repair, &d1 );
+  fd_mr32_t m41 = hash( 0x42 );
+
+  fd_repair_blk_dead( repair, 4UL, &hash_null, 0U );
+  complete( repair, 4UL, 3UL, 1U, 1, &m41 );
+  FD_TEST( !invalidated( repair, 4UL ) && !e4->init_fec_cnt && memcmp( &e4->dmr, &hash_null, sizeof(fd_mr32_t) ) );
+  fd_repair_fini( repair );
+}
+
+/* The stream after the UpdateParent dies: the block itself is invalid,
+   so the slot is invalidated. */
+
+static void
+test_up_dead_after_marker( void ) {
+  fd_repair_t * repair = setup();
+  fd_mr32_t     d1;
+  fd_repair_blk_t const * e4 = up_dead_setup( repair, &d1 );
+  fd_mr32_t m41 = hash( 0x42 ), m42 = hash( 0x43 );
+
+  last_dc ( repair, 4UL, 3UL, 1U, 1, &m41 );
+  shred_up( repair, 4UL, 3UL, 2U, 1, 1UL, &d1, &m42 );
+  complete( repair, 4UL, 3UL, 1U, 0, &m41 );
+  complete( repair, 4UL, 3UL, 2U, 0, &m42 );
+  expect( repair, e4, 2U );
+
+  fd_repair_blk_dead( repair, 4UL, &hash_null, 2U*FD_FEC_SHRED_CNT );
+  FD_TEST( invalidated( repair, 4UL ) && !e4->eager && !e4->in_blk_treap );
+  fd_repair_fini( repair );
+}
+
+/* The old stream's bank dies after the marker is confirmed, eg. the
+   prefix FEC set it held last failed while the new stream was already
+   on its way: ignored. */
+
+static void
+test_up_dead_old_stream_late( void ) {
+  fd_repair_t * repair = setup();
+  fd_mr32_t     d1;
+  fd_repair_blk_t const * e4 = up_dead_setup( repair, &d1 );
+  fd_mr32_t m41 = hash( 0x42 ), m42 = hash( 0x43 );
+
+  last_dc ( repair, 4UL, 3UL, 1U, 1, &m41 );
+  shred_up( repair, 4UL, 3UL, 2U, 1, 1UL, &d1, &m42 );
+  FD_TEST( e4->init_fec_cnt==2U );
+
+  fd_repair_blk_dead( repair, 4UL, &hash_null, 0U );
+  FD_TEST( !invalidated( repair, 4UL ) && e4->eager );
+  complete( repair, 4UL, 3UL, 1U, 0, &m41 );
+  complete( repair, 4UL, 3UL, 2U, 1, &m42 );
+  expect( repair, e4, 2U );
+  FD_TEST( fd_repair_deque_empty( repair->reasm_deque ) );
+  fd_repair_fini( repair );
+}
+
+/* A slot that is not the first of its leader window can have no
+   UpdateParent, so its turbine version is invalidated on SLOT_DEAD as
+   before. */
+
+static void
+test_up_dead_not_window_start( void ) {
+  fd_repair_t * repair = setup();
+  fd_mr32_t     root = hash( 0xEE ), m50 = hash( 0x51 );
+  shred0  ( repair, 5UL, 0UL, &root, &m50 );
+  complete( repair, 5UL, 0UL, 0U, 0, &m50 );
+  fd_repair_blk_t const * e5 = eager_req( repair, 5UL );
+  expect( repair, e5, 0U );
+
+  fd_repair_blk_dead( repair, 5UL, &hash_null, 0U );
+  FD_TEST( invalidated( repair, 5UL ) && !e5->eager );
+  fd_repair_fini( repair );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -2851,6 +3991,35 @@ main( int     argc,
   test_notar_out_of_order();
   test_shared_fec();
   test_notarized_complete_fec();
+  test_fec_update_parent();
+  test_update_parent_reparent();
+  test_update_parent_eager_chain();
+  test_up_target_arrives_eager();
+  test_up_target_arrives_notar();
+  test_up_target_same_slot();
+  test_up_orig_parent_missing();
+  test_up_orig_parent_skipped();
+  test_up_eager_dmr();
+  test_up_notar_only();
+  test_up_notar_parented_late();
+  test_up_notar_proofs_after_shreds( 1 );
+  test_up_notar_proofs_after_shreds( 0 );
+  test_up_consume_merge_equivocation();
+  test_up_multiple();
+  test_up_duplicate_and_decoy();
+  test_up_rules();
+  test_up_below_root();
+  test_up_waits_for_new_parent();
+  test_up_skips_rest_of_prefix();
+  test_up_orphan_then_partial_parent();
+  test_up_reconsume();
+  test_up_orphan_map_neighbour();
+  test_up_never_sends_marker_fec_early();
+  test_up_dead_prefix_then_marker();
+  test_up_dead_prefix_no_marker();
+  test_up_dead_after_marker();
+  test_up_dead_old_stream_late();
+  test_up_dead_not_window_start();
   test_eager_invalidated();
   test_finalize_other();
   test_finalize_moves_child();

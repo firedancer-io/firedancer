@@ -135,6 +135,7 @@ build_shred_test_txn( uchar * payload ) {
 #define AG_COMP_TICK_0HASH    (4) /* tick declaring zero hashes: invalid under Alpenglow */
 #define AG_COMP_TICK_2HASH    (5) /* tick declaring two hashes: invalid under Alpenglow */
 #define AG_COMP_TICK_BADHASH  (6) /* one-hash tick whose end hash does not chain */
+#define AG_COMP_UPDATE_PARENT_OTHER (7) /* UpdateParent naming a slot other than the block's parent */
 
 /* AG_SPLIT( comp, cut ) is comp delivered as two FEC sets of the same
    batch, the first holding the leading cut bytes. */
@@ -158,7 +159,8 @@ encode_ag_component( uchar *     out,
     marker->footer.has_fast_final_cert       = test_footer_fast_final;
     marker->footer.fast_final_cert.slot      = TEST_ROOT_SLOT;
     return fd_block_marker_ser( marker, out );
-  case AG_COMP_UPDATE_PARENT: {
+  case AG_COMP_UPDATE_PARENT:
+  case AG_COMP_UPDATE_PARENT_OTHER: {
     /* fd_block_marker_ser only produces headers and footers (nothing
        Firedancer emits is an UpdateParent), so lay the wire format out
        by hand: preamble (entry_cnt=0, version=1, tag, length) then a
@@ -169,7 +171,7 @@ encode_ag_component( uchar *     out,
     out[ off ] = (uchar)FD_BLOCK_MARKER_KIND_UPDATE_PARENT;            off += sizeof(uchar);
     FD_STORE( ushort, out+off, (ushort)FD_UPDATE_PARENT_SER_SZ );      off += sizeof(ushort);
     out[ off ] = (uchar)1;                                             off += sizeof(uchar);
-    FD_STORE( ulong,  out+off, TEST_ROOT_SLOT );                       off += sizeof(ulong);
+    FD_STORE( ulong,  out+off, comp==AG_COMP_UPDATE_PARENT ? TEST_ROOT_SLOT : TEST_ROOT_SLOT-1UL ); off += sizeof(ulong);
     fd_memset( out+off, 0, sizeof(fd_hash_t) );                        off += sizeof(fd_hash_t);
     return off;
   }
@@ -551,11 +553,12 @@ run_shred_window_overflow_case( void ) {
    driven to completion, ending with expect_dead_reason (NONE for a
    valid block). */
 static void
-run_ag_structure_case( fd_hash_t const * start_poh,
-                       int const *       comps,
-                       ulong             comp_cnt,
-                       int               expect_ingest_ok,
-                       int               expect_dead_reason ) {
+run_ag_structure_case_up( fd_hash_t const * start_poh,
+                          int const *       comps,
+                          ulong             comp_cnt,
+                          int               starts_at_update_parent,
+                          int               expect_ingest_ok,
+                          int               expect_dead_reason ) {
   fd_sched_t * sched = new_sched_ext( fd_ulong_max( FD_SCHED_MIN_DEPTH, 512UL ), 4UL, FD_SHRED_BLK_MAX, FD_MAX_TXN_PER_SLOT );
 
   static uchar          encoded  [ 8 ][ FD_BLOCK_MARKER_SER_MAX ] __attribute__((aligned(64)));
@@ -589,6 +592,7 @@ run_ag_structure_case( fd_hash_t const * start_poh,
         .is_last_in_batch  = !!last,
         .is_last_in_block  = last && i==comp_cnt-1UL,
         .is_first_in_block = !i && !off,
+        .starts_at_update_parent = !i && !off && starts_at_update_parent,
       }};
       FD_TEST( fd_sched_fec_can_ingest( sched, fec ) );
       ingest_ok = !!fd_sched_fec_ingest( sched, fec );
@@ -631,6 +635,15 @@ run_ag_structure_case( fd_hash_t const * start_poh,
   while( fd_sched_pruned_block_next( sched )!=ULONG_MAX ) {}
 
   delete_sched( sched );
+}
+
+static void
+run_ag_structure_case( fd_hash_t const * start_poh,
+                       int const *       comps,
+                       ulong             comp_cnt,
+                       int               expect_ingest_ok,
+                       int               expect_dead_reason ) {
+  run_ag_structure_case_up( start_poh, comps, comp_cnt, 0, expect_ingest_ok, expect_dead_reason );
 }
 
 static void
@@ -689,12 +702,61 @@ run_ag_structure_cases( void ) {
   { int c[] = { AG_COMP_HEADER, AG_COMP_TICK };
     run_ag_structure_case( start_poh, c, 2UL, 0, FD_SCHED_DEAD_REASON_MISSING_BLOCK_FOOTER ); }
 
-  /* UpdateParent before the header or after the footer.  A valid
-     position aborts (unhandled reparent) and cannot be tested here. */
+  /* A block replay started at its UpdateParent FEC set (the abandoned
+     prefix skipped) opens with the UpdateParent, which stands in for
+     the header. */
   { int c[] = { AG_COMP_UPDATE_PARENT, AG_COMP_FOOTER, AG_COMP_TICK };
-    run_ag_structure_case( start_poh, c, 3UL, 0, FD_SCHED_DEAD_REASON_SPURIOUS_UPDATE_PARENT ); }
+    run_ag_structure_case_up( start_poh, c, 3UL, 1, 1, FD_SCHED_DEAD_REASON_NONE ); }
+
+  /* The same block, but replay did not start it at the UpdateParent. */
+  { int c[] = { AG_COMP_UPDATE_PARENT, AG_COMP_FOOTER, AG_COMP_TICK };
+    run_ag_structure_case( start_poh, c, 3UL, 0, FD_SCHED_DEAD_REASON_UNEXPECTED_INITIAL_UPDATE_PARENT ); }
+
+  /* Started at the UpdateParent, but it is not the first component. */
+  { int c[] = { AG_COMP_TICK, AG_COMP_UPDATE_PARENT, AG_COMP_FOOTER, AG_COMP_TICK };
+    run_ag_structure_case_up( start_poh, c, 4UL, 1, 0, FD_SCHED_DEAD_REASON_MISSING_PARENT_MARKER ); }
+
+  /* The initial UpdateParent names a parent other than the one replay
+     built the block on. */
+  { int c[] = { AG_COMP_UPDATE_PARENT_OTHER, AG_COMP_FOOTER, AG_COMP_TICK };
+    run_ag_structure_case_up( start_poh, c, 3UL, 1, 0, FD_SCHED_DEAD_REASON_UPDATE_PARENT_MISMATCH ); }
+
+  /* Two UpdateParents. */
+  { int c[] = { AG_COMP_UPDATE_PARENT, AG_COMP_UPDATE_PARENT, AG_COMP_FOOTER, AG_COMP_TICK };
+    run_ag_structure_case_up( start_poh, c, 4UL, 1, 0, FD_SCHED_DEAD_REASON_MULTIPLE_UPDATE_PARENTS ); }
+
+  /* A header after the initial UpdateParent. */
+  { int c[] = { AG_COMP_UPDATE_PARENT, AG_COMP_HEADER, AG_COMP_FOOTER, AG_COMP_TICK };
+    run_ag_structure_case_up( start_poh, c, 4UL, 1, 0, FD_SCHED_DEAD_REASON_MULTIPLE_BLOCK_HEADERS ); }
+
+  /* UpdateParent after the header: replay was handed the abandoned
+     prefix. */
+  { int c[] = { AG_COMP_HEADER, AG_COMP_UPDATE_PARENT, AG_COMP_FOOTER, AG_COMP_TICK };
+    run_ag_structure_case( start_poh, c, 4UL, 0, FD_SCHED_DEAD_REASON_SPURIOUS_UPDATE_PARENT ); }
+
+  /* UpdateParent after the footer. */
   { int c[] = { AG_COMP_HEADER, AG_COMP_FOOTER, AG_COMP_UPDATE_PARENT, AG_COMP_TICK };
     run_ag_structure_case( start_poh, c, 4UL, 0, FD_SCHED_DEAD_REASON_SPURIOUS_UPDATE_PARENT ); }
+
+  /* A prefix that is a whole block, footer and alpentick included, then
+     an UpdateParent and the real block.
+
+     All on one sched block, as when rotor never confirmed the marker
+     (it is not on a FEC set boundary after DATA_COMPLETE, so it is
+     entry bytes to rotor and replay feeds the slot from FEC set 0): the
+     prefix's footer makes the UpdateParent spurious.  Agave agrees,
+     blockstore never records such a marker and replay from shred 0
+     fails the same way.
+
+     With the marker confirmed, replay skips the prefix and opens a new
+     bank at the UpdateParent FEC set (see test_replay_tile), so sched
+     only sees the block from the UpdateParent, which completes.  Agave
+     never validates the prefix of a block it replays from the
+     UpdateParent either. */
+  { int c[] = { AG_COMP_HEADER, AG_COMP_FOOTER, AG_COMP_TICK, AG_COMP_UPDATE_PARENT, AG_COMP_FOOTER, AG_COMP_TICK };
+    run_ag_structure_case( start_poh, c, 6UL, 0, FD_SCHED_DEAD_REASON_SPURIOUS_UPDATE_PARENT ); }
+  { int c[] = { AG_COMP_UPDATE_PARENT, AG_COMP_FOOTER, AG_COMP_TICK };
+    run_ag_structure_case_up( start_poh, c, 3UL, 1, 1, FD_SCHED_DEAD_REASON_NONE ); }
 }
 
 /* More than FD_RUNTIME_MAX_HASHES_PER_TICK entries, each with one

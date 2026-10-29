@@ -111,6 +111,7 @@ struct fd_sched_fec {
                                            parser should ignore trailing bytes at the end of a batch. */
   uint             is_last_in_block:1;  /* Set if this is the last FEC set in the block. */
   uint             is_first_in_block:1; /* Set if this is the first FEC set in the block.  Bank should increment refcnt for sched if such a FEC set has been ingested by sched. */
+  uint             starts_at_update_parent:1; /* Set with is_first_in_block if replay starts the block at its UpdateParent FEC set, skipping the abandoned prefix.  The block must then open with an UpdateParent naming parent_slot. */
   long             completed_ns;        /* Network arrival (wallclock ns) of the shred that completed this FEC set; 0 if unavailable. */
 
   fd_sched_alut_ctx_t alut_ctx[ 1 ];
@@ -324,8 +325,10 @@ typedef struct fd_sched_task fd_sched_task_t;
 #define FD_SCHED_DEAD_REASON_ENTRY_AFTER_BLOCK_FOOTER    (26) /* An Alpenglow block carried an entry batch other than the alpentick after its footer. */
 #define FD_SCHED_DEAD_REASON_INVALID_ALPENTICK_POSITION  (27) /* An Alpenglow block ended without the alpentick directly after its footer. */
 #define FD_SCHED_DEAD_REASON_MISSING_BLOCK_FOOTER        (28) /* An Alpenglow block ended without a block footer. */
-#define FD_SCHED_DEAD_REASON_SPURIOUS_UPDATE_PARENT      (29) /* An Alpenglow block carried an UpdateParent marker where none is valid: before the header or after the footer. */
+#define FD_SCHED_DEAD_REASON_SPURIOUS_UPDATE_PARENT      (29) /* An Alpenglow block carried an UpdateParent marker after its header or footer.  Agave replays one after the header (before the footer) as a valid block, so that case means replay was handed the abandoned prefix rather than a bad block. */
 #define FD_SCHED_DEAD_REASON_TOO_MANY_WRITABLE_ACCOUNTS  (30) /* The block's transactions declare more writable accounts than a valid block can afford. */
+#define FD_SCHED_DEAD_REASON_MULTIPLE_UPDATE_PARENTS     (31) /* An Alpenglow block carried more than one UpdateParent marker. */
+#define FD_SCHED_DEAD_REASON_UPDATE_PARENT_MISMATCH      (33) /* An Alpenglow block's initial UpdateParent named a parent other than the one replay built it on. */
 /* Cause to pass to fd_sched_block_abandon().  A block is considered
    invalid when it violates the protocol, so validity is a function of
    the block's content.  A block may be discarded (temporarily) because
