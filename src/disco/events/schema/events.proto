@@ -4542,7 +4542,7 @@ message MetricsRserveStoreFecPreevictDurationNanos {
   uint64 sum = 17;
 }
 
-// Duration of persisting one accepted data shred
+// Duration of persisting one accepted data shred (a batched write is divided equally among its shreds)
 message MetricsRserveDiskWriteDurationNanos {
   // [0, 100) nanos
   uint64 b0 = 1;
@@ -10490,6 +10490,16 @@ message MetricsExecle {
   uint64 transpiled_executed = 383688624;
   // Transpiled invocations that bailed to the interpreter
   uint64 transpiled_bailed = 429405858;
+  // Acquires that waited for the accdb tile to bring keys from the on-disk account index into memory
+  uint64 accdb_index_residual_waited = 524108498;
+  // Time spent waiting for the accdb tile to bring keys from the on-disk account index into memory
+  uint64 accdb_index_residual_wait_duration_nanos = 366199351;
+  // Keys queued for the accdb tile to bring from the on-disk account index into memory ahead of use
+  uint64 accdb_index_prefetched = 536753434;
+  // Prefetch requests dropped because the queue to the accdb tile was full
+  uint64 accdb_index_prefetch_dropped = 352764537;
+  // Releases that waited for free account index slots
+  uint64 accdb_index_pool_waited = 439472780;
 }
 
 // Metrics of one shred tile instance, one row per sweep
@@ -10686,6 +10696,14 @@ message MetricsAccdb {
   uint64 progcache_preevicted_bytes = 47;
   // Program cache slots reclaimed by the background preevict pass, by size class
   MetricsAccdbProgcachePreevicted progcache_preevicted = 48;
+  // Rooted account versions moved to the on-disk account index
+  uint64 index_demoted = 363548297;
+  // Account index entries brought from the on-disk index into memory
+  uint64 index_promoted = 337069626;
+  // Lookups recorded in memory as absent from the on-disk account index
+  uint64 index_negative_recorded = 503909609;
+  // Account data loaded into the cache by the accdb tile ahead of use
+  uint64 index_warmed = 313725263;
 }
 
 // Metrics of one replay tile instance, one row per sweep
@@ -11016,6 +11034,16 @@ message MetricsReplay {
   uint64 stake_delegation_disk_written = 162;
   // Time all tiles spent in stake delegation spill file reads and writes
   uint64 stake_delegation_disk_duration_nanos = 163;
+  // Acquires that waited for the accdb tile to bring keys from the on-disk account index into memory
+  uint64 accdb_index_residual_waited = 455049313;
+  // Time spent waiting for the accdb tile to bring keys from the on-disk account index into memory
+  uint64 accdb_index_residual_wait_duration_nanos = 277960265;
+  // Keys queued for the accdb tile to bring from the on-disk account index into memory ahead of use
+  uint64 accdb_index_prefetched = 424281537;
+  // Prefetch requests dropped because the queue to the accdb tile was full
+  uint64 accdb_index_prefetch_dropped = 316781697;
+  // Releases that waited for free account index slots
+  uint64 accdb_index_pool_waited = 309553179;
 }
 
 // Metrics of one rotor tile instance, one row per sweep
@@ -11235,7 +11263,7 @@ message MetricsRserve {
   uint64 disk_used_bytes = 37;
   // Logical wire-ring high-water plus spill pages high-water
   uint64 disk_peak_bytes = 38;
-  // Duration of persisting one accepted data shred
+  // Duration of persisting one accepted data shred (a batched write is divided equally among its shreds)
   MetricsRserveDiskWriteDurationNanos disk_write_duration_nanos = 39;
   // Data shreds persisted to the repair store
   uint64 disk_shred_written = 40;
@@ -12505,6 +12533,16 @@ message MetricsExecrp {
   uint64 jit_bailed = 313142027;
   // JIT code cache resets (cache full)
   uint64 jit_cache_cleared = 445426720;
+  // Acquires that waited for the accdb tile to bring keys from the on-disk account index into memory
+  uint64 accdb_index_residual_waited = 344204989;
+  // Time spent waiting for the accdb tile to bring keys from the on-disk account index into memory
+  uint64 accdb_index_residual_wait_duration_nanos = 468772845;
+  // Keys queued for the accdb tile to bring from the on-disk account index into memory ahead of use
+  uint64 accdb_index_prefetched = 491079163;
+  // Prefetch requests dropped because the queue to the accdb tile was full
+  uint64 accdb_index_prefetch_dropped = 439657321;
+  // Releases that waited for free account index slots
+  uint64 accdb_index_pool_waited = 451834387;
 }
 
 // Metrics of one votor tile instance, one row per sweep
