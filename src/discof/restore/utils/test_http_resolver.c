@@ -246,6 +246,33 @@ test_full_absent_peer_rejected( void ) {
   FD_LOG_NOTICE(( "pass: test_full_absent_peer_rejected" ));
 }
 
+/* The server has moved on to a newer full, but its newest incremental
+   is still built on the previous one.  That incremental cannot be
+   paired with the full the server now offers. */
+
+static void
+test_incremental_on_older_full( void ) {
+  static char const * FULL_303_NEWER =
+    "HTTP/1.1 303 See Other\r\n"
+    "Location: /snapshot-300-" HASH_B58 ".tar.zst\r\n"
+    "Content-Length: 0\r\n\r\n";
+
+  resolve_record_t rec;
+  fd_sspeer_t      best_full, best_incr;
+  run_resolve( FULL_303_NEWER, INCR_303, 1, &rec, &best_full, &best_incr );
+
+  FD_TEST( rec.called==1 );
+  FD_TEST( rec.full_slot==300UL );
+  FD_TEST( rec.incr_slot==FD_SSPEER_SLOT_UNKNOWN );
+  FD_TEST( rec.incr_hash_null );
+
+  FD_TEST( best_full.addr.l );
+  FD_TEST( best_full.full_slot==300UL );
+  FD_TEST( !best_incr.addr.l );
+
+  FD_LOG_NOTICE(( "pass: test_incremental_on_older_full" ));
+}
+
 static void
 test_no_incremental_fetch( void ) {
   resolve_record_t rec;
@@ -270,6 +297,7 @@ main( int     argc,
   test_full_only_peer();
   test_full_and_incremental_peer();
   test_full_absent_peer_rejected();
+  test_incremental_on_older_full();
   test_no_incremental_fetch();
 
   FD_LOG_NOTICE(( "pass" ));

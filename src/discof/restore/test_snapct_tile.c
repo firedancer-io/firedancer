@@ -438,6 +438,47 @@ test_blacklist_peer_basic( fd_ssping_t * ssping ) {
   free( scratch );
 }
 
+/* A banned peer is not kept as the incremental fallback, whether it is
+   matched by address or, after it moved, by identity.  Banning a
+   different peer leaves it alone. */
+
+static void
+test_blacklist_forgets_remembered_peer( fd_ssping_t * ssping ) {
+  void * scratch = aligned_alloc( scratch_align(), scratch_footprint( NULL ) ); FD_TEST( scratch );
+
+  fd_snapct_tile_t * ctx;
+  setup_blacklist_snapct( scratch, ssping, TOTAL_PEERS_MAX, &ctx );
+
+  fd_ip4_port_t remembered = test_addr( 0x01020304, 8899 );
+  fd_ip4_port_t other      = test_addr( 0x01020305, 8899 );
+  ctx->predicted_incremental.peer.addr = remembered;
+
+  ctx->peer.addr = other;
+  ctx->peer.key  = test_key( 0xAB );
+  blacklist_peer( ctx );
+  FD_TEST( ctx->predicted_incremental.peer.addr.l==remembered.l );
+
+  ctx->peer.addr = remembered;
+  ctx->peer.key  = test_key( 0xAC );
+  blacklist_peer( ctx );
+  FD_TEST( !ctx->predicted_incremental.peer.addr.l );
+
+  /* Same identity, new address: still forgotten. */
+  fd_ip4_port_t moved = test_addr( 0x01020306, 8899 );
+  ctx->predicted_incremental.peer.addr = remembered;
+  ctx->predicted_incremental.peer.key  = test_key( 0xAD );
+  ctx->peer.addr = moved;
+  ctx->peer.key  = test_key( 0xAD );
+  blacklist_peer( ctx );
+  FD_TEST( !ctx->predicted_incremental.peer.addr.l );
+
+  fd_ssping_remove( ctx->ssping, other );
+  fd_ssping_remove( ctx->ssping, remembered );
+  fd_ssping_remove( ctx->ssping, moved );
+
+  free( scratch );
+}
+
 static void
 test_blacklist_peer_dedup( fd_ssping_t * ssping ) {
   void * scratch = aligned_alloc( scratch_align(), scratch_footprint( NULL ) ); FD_TEST( scratch );
@@ -764,10 +805,13 @@ test_start_after_init_acks( void ) {
       /* Committing an incremental source also queues an expected slot,
          drained by the first after_credit. */
       ulong pre_start_cnt = full ? 1UL : 2UL;
-      ctx->peer.addr                    = test_addr( 0x7f000001U, 8899 );
-      ctx->resolved_servers_cnt          = 1UL;
-      ctx->resolved_servers[ 0 ].addr     = ctx->peer.addr;
-      ctx->resolved_servers[ 0 ].is_https = 1;
+      ctx->peer.addr                       = test_addr( 0x7f000001U, 8899 );
+      ctx->peer.incr_hash[ 0 ]             = 1;
+      ctx->predicted_incremental.full_slot = 100UL;
+      ctx->predicted_incremental.slot      = 200UL;
+      ctx->resolved_servers_cnt            = 1UL;
+      ctx->resolved_servers[ 0 ].addr      = ctx->peer.addr;
+      ctx->resolved_servers[ 0 ].is_https  = 1;
       fd_cstr_ncpy( ctx->resolved_servers[ 0 ].hostname, "snapshots.example", FD_FQDN_BUF_MAX );
       ulong sig  = full ? FD_SNAPSHOT_MSG_CTRL_INIT_FULL : FD_SNAPSHOT_MSG_CTRL_INIT_INCR;
       int   busy = 0;
@@ -786,7 +830,18 @@ test_start_after_init_acks( void ) {
       if( !file ) {
         FD_TEST( test_start.addr.l==ctx->peer.addr.l && test_start.is_https );
         FD_TEST( !strcmp( test_start.hostname, "snapshots.example" ) );
-        FD_TEST( !strcmp( test_start.path, full ? "/snapshot.tar.bz2" : "/incremental-snapshot.tar.bz2" ) );
+        if( full ) {
+          FD_TEST( !strcmp( test_start.path, "/snapshot.tar.bz2" ) );
+        } else {
+          /* The incremental is asked for by name, which is also the
+             name the downloaded file gets. */
+          char hash_b58[ FD_BASE58_ENCODED_32_SZ ];
+          fd_base58_encode_32( ctx->peer.incr_hash, NULL, hash_b58 );
+          char expected[ PATH_MAX ];
+          FD_TEST( fd_cstr_printf_check( expected, PATH_MAX, NULL, "/incremental-snapshot-100-200-%s.tar.zst", hash_b58 ) );
+          FD_TEST( !strcmp( test_start.path, expected ) );
+          FD_TEST( !strcmp( ctx->http_incr_snapshot_name, expected+1 ) );
+        }
         FD_TEST( test_start.path_len==strlen( test_start.path ) );
       }
       after_credit( ctx, NULL, NULL, &busy );
@@ -797,6 +852,135 @@ test_start_after_init_acks( void ) {
   free( ci_table );
   free( sel );
   free( scratch );
+}
+
+/* Once no peer offers an incremental on our full any more, the newest
+   one seen on it is still used.  One remembered on a different full
+   is not. */
+
+static void
+test_best_incremental_peer( void ) {
+  static struct {
+    char const * name;
+    int          live;            /* a peer offers (100, 200) now */
+    ulong        remembered_full; /* full slot of the remembered peer */
+    ulong        expect_incr;     /* incremental slot picked, or none */
+  } const cases[] = {
+    { "live peer wins",             1, 100UL,     200UL     },
+    { "remembered on our full",     0, 100UL,     150UL     },
+    { "remembered on another full", 0, 50UL,      ULONG_MAX },
+    { "nothing remembered",         0, ULONG_MAX, ULONG_MAX },
+  };
+
+  fd_snapct_tile_t ctx[1];
+  void * sel = aligned_alloc( fd_sspeer_selector_align(), fd_sspeer_selector_footprint( TOTAL_PEERS_MAX ) ); FD_TEST( sel );
+  fd_ip4_port_t remembered_addr = test_addr( 0x0A000001U, 8899 );
+
+  for( ulong i=0UL; i<sizeof(cases)/sizeof(cases[0]); i++ ) {
+    fd_memset( ctx, 0, sizeof(*ctx) );
+    test_ctx_wake_init( ctx );
+    ctx->selector = fd_sspeer_selector_join( fd_sspeer_selector_new( sel, TOTAL_PEERS_MAX, TEST_SELECTOR_SEED ) );
+    FD_TEST( ctx->selector );
+
+    if( cases[ i ].live ) {
+      fd_sspeer_key_t key  = test_key( 0xC0 );
+      fd_ip4_port_t   addr = test_addr( 0x0C0D0E0FU, 9900 );
+      fd_sspeer_selector_add( ctx->selector, &key, addr, 5000UL, 100UL, 200UL, NULL, NULL );
+      fd_sspeer_selector_process_cluster_slot( ctx->selector );
+    }
+
+    ctx->predicted_incremental.full_slot = 100UL;
+    if( cases[ i ].remembered_full!=ULONG_MAX ) {
+      ctx->predicted_incremental.peer.addr      = remembered_addr;
+      ctx->predicted_incremental.peer.full_slot = cases[ i ].remembered_full;
+      ctx->predicted_incremental.peer.incr_slot = 150UL;
+    }
+
+    fd_sspeer_t best = best_incremental_peer( ctx );
+    ulong       incr = best.addr.l ? best.incr_slot : ULONG_MAX;
+    if( FD_UNLIKELY( incr!=cases[ i ].expect_incr ) ) {
+      FD_LOG_ERR(( "case `%s`: picked incremental slot %lu, expected %lu", cases[ i ].name, incr, cases[ i ].expect_incr ));
+    }
+    if( incr==150UL ) FD_TEST( best.addr.l==remembered_addr.l );
+  }
+
+  free( sel );
+  FD_LOG_NOTICE(( "pass: test_best_incremental_peer" ));
+}
+
+/* A full that resolves to a newer slot than the one picked moves the
+   incremental onto that full.  An incremental keeps the name it was
+   requested by. */
+
+static void
+test_meta_repins_full( void ) {
+  fd_snapct_tile_t ctx[1];
+  void * sel = aligned_alloc( fd_sspeer_selector_align(), fd_sspeer_selector_footprint( TOTAL_PEERS_MAX ) ); FD_TEST( sel );
+  static uchar meta_mem[ sizeof(fd_ssctrl_meta_t) ] __attribute__((aligned(FD_CHUNK_ALIGN)));
+  fd_ssctrl_meta_t * meta = (fd_ssctrl_meta_t *)meta_mem;
+
+  fd_memset( ctx, 0, sizeof(*ctx) );
+  test_ctx_wake_init( ctx );
+  ctx->selector = fd_sspeer_selector_join( fd_sspeer_selector_new( sel, TOTAL_PEERS_MAX, TEST_SELECTOR_SEED ) );
+  FD_TEST( ctx->selector );
+  ctx->snapld_in_mem = meta_mem;
+
+  /* The server has moved on: it offers (300, 400) now. */
+  fd_sspeer_key_t key  = test_key( 0xD0 );
+  fd_ip4_port_t   addr = test_addr( 0x0D0E0F10U, 9900 );
+  fd_sspeer_selector_add( ctx->selector, &key, addr, 5000UL, 300UL, 400UL, NULL, NULL );
+  fd_sspeer_selector_process_cluster_slot( ctx->selector );
+
+  ctx->state            = FD_SNAPCT_STATE_READING_FULL_HTTP;
+  ctx->load_incremental = 1;
+  ctx->predicted_incremental.full_slot      = 100UL;
+  ctx->predicted_incremental.slot           = 200UL;
+  ctx->predicted_incremental.peer.addr      = test_addr( 0x0A000001U, 8899 );
+  ctx->predicted_incremental.peer.full_slot = 100UL;
+  ctx->predicted_incremental.peer.incr_slot = 200UL;
+
+  /* The full we picked: nothing changes. */
+  fd_memset( meta, 0, sizeof(*meta) );
+  meta->total_sz      = 1UL;
+  meta->resolved_slot = 100UL;
+  fd_cstr_ncpy( meta->resolved_name, "snapshot-100-a.tar.zst", PATH_MAX );
+  snapld_frag( ctx, FD_SNAPSHOT_MSG_META, sizeof(*meta), 0UL, NULL );
+  FD_TEST( ctx->predicted_incremental.full_slot==100UL );
+  FD_TEST( ctx->predicted_incremental.slot==200UL );
+  FD_TEST( ctx->predicted_incremental.peer.full_slot==100UL );
+  FD_TEST( !strcmp( ctx->http_full_snapshot_name, "snapshot-100-a.tar.zst" ) );
+
+  /* A newer full: the incremental follows it. */
+  meta->resolved_slot = 300UL;
+  fd_cstr_ncpy( meta->resolved_name, "snapshot-300-b.tar.zst", PATH_MAX );
+  snapld_frag( ctx, FD_SNAPSHOT_MSG_META, sizeof(*meta), 0UL, NULL );
+  FD_TEST( ctx->predicted_incremental.full_slot==300UL );
+  FD_TEST( ctx->predicted_incremental.slot==400UL );
+  FD_TEST( ctx->predicted_incremental.pending==1 );
+  FD_TEST( ctx->predicted_incremental.peer.full_slot==300UL && ctx->predicted_incremental.peer.incr_slot==400UL );
+  FD_TEST( !strcmp( ctx->http_full_snapshot_name, "snapshot-300-b.tar.zst" ) );
+
+  /* A full nobody offers an incremental on yet: no stale prediction
+     is kept, and the remembered peer no longer qualifies. */
+  ctx->predicted_incremental.pending = 0;
+  meta->resolved_slot = 500UL;
+  fd_cstr_ncpy( meta->resolved_name, "snapshot-500-e.tar.zst", PATH_MAX );
+  snapld_frag( ctx, FD_SNAPSHOT_MSG_META, sizeof(*meta), 0UL, NULL );
+  FD_TEST( ctx->predicted_incremental.full_slot==500UL );
+  FD_TEST( ctx->predicted_incremental.slot==FD_SSPEER_SLOT_UNKNOWN );
+  FD_TEST( ctx->predicted_incremental.pending==0 );
+  FD_TEST( !best_incremental_peer( ctx ).addr.l );
+
+  /* The incremental was asked for by name; META does not rename it. */
+  ctx->state = FD_SNAPCT_STATE_READING_INCREMENTAL_HTTP;
+  fd_cstr_ncpy( ctx->http_incr_snapshot_name, "incremental-snapshot-300-400-c.tar.zst", PATH_MAX );
+  meta->resolved_slot = ULONG_MAX;
+  fd_cstr_ncpy( meta->resolved_name, "incremental-snapshot-300-500-d.tar.zst", PATH_MAX );
+  snapld_frag( ctx, FD_SNAPSHOT_MSG_META, sizeof(*meta), 0UL, NULL );
+  FD_TEST( !strcmp( ctx->http_incr_snapshot_name, "incremental-snapshot-300-400-c.tar.zst" ) );
+
+  free( sel );
+  FD_LOG_NOTICE(( "pass: test_meta_repins_full" ));
 }
 
 static void
@@ -1288,6 +1472,14 @@ test_collecting_peers_wfs_selection( void ) {
       FD_LOG_ERR(( "case `%s`: predicted incremental slot %lu, expected %lu",
                    cases[ i ].name, ctx->predicted_incremental.slot, cases[ i ].expected_predicted_slot ));
     }
+    /* A predicted incremental comes with the peer that offers it,
+       remembered for the pinned full. */
+    int picked = cases[ i ].expected_predicted_slot!=FD_SSPEER_SLOT_UNKNOWN;
+    FD_TEST( !!ctx->predicted_incremental.peer.addr.l==picked );
+    if( picked ) {
+      FD_TEST( ctx->predicted_incremental.peer.full_slot==ctx->predicted_incremental.full_slot );
+      FD_TEST( ctx->predicted_incremental.peer.incr_slot==cases[ i ].expected_predicted_slot );
+    }
   }
 
   free( sel );
@@ -1435,6 +1627,8 @@ main( int     argc,
   test_contact_info_slot_reuse_after_unallowed_peer_expires();
   test_load_complete_signal();
   test_start_after_init_acks();
+  test_best_incremental_peer();
+  test_meta_repins_full();
   test_snapct_needs_incr();
   test_incr_use_local();
   test_wfs_short_of_target();
@@ -1454,6 +1648,7 @@ main( int     argc,
   test_rpc_flap_to_invalidated_addr_evicts_selector( ssping );
 
   test_blacklist_peer_basic( ssping );
+  test_blacklist_forgets_remembered_peer( ssping );
   test_blacklist_peer_dedup( ssping );
   test_blacklist_peer_cluster_slot_regression( ssping );
   test_blacklist_peer_readd_blocked( ssping );

@@ -36,6 +36,7 @@ struct fd_ssresolve_peer {
   int           is_https;
   ulong         full_slot;
   ulong         incr_slot;
+  ulong         incr_base_slot; /* the full slot that the incremental is built upon */
   uchar         full_hash[ FD_HASH_FOOTPRINT ];
   uchar         incr_hash[ FD_HASH_FOOTPRINT ];
 
@@ -74,8 +75,9 @@ typedef struct fd_ssresolve_peer fd_ssresolve_peer_t;
 
 static inline void
 clear_peer_snapshot_data( fd_ssresolve_peer_t * peer ) {
-  peer->full_slot = FD_SSPEER_SLOT_UNKNOWN;
-  peer->incr_slot = FD_SSPEER_SLOT_UNKNOWN;
+  peer->full_slot      = FD_SSPEER_SLOT_UNKNOWN;
+  peer->incr_slot      = FD_SSPEER_SLOT_UNKNOWN;
+  peer->incr_base_slot = FD_SSPEER_SLOT_UNKNOWN;
   fd_memset( peer->full_hash, 0, FD_HASH_FOOTPRINT );
   fd_memset( peer->incr_hash, 0, FD_HASH_FOOTPRINT );
 }
@@ -276,10 +278,7 @@ fd_http_resolver_add( fd_http_resolver_t *   resolver,
   peer->addr                  = addr;
   peer->is_https              = is_https;
   peer->fd.idx                = ULONG_MAX;
-  peer->full_slot             = FD_SSPEER_SLOT_UNKNOWN;
-  peer->incr_slot             = FD_SSPEER_SLOT_UNKNOWN;
-  fd_memset( peer->full_hash, 0, FD_HASH_FOOTPRINT );
-  fd_memset( peer->incr_hash, 0, FD_HASH_FOOTPRINT );
+  clear_peer_snapshot_data( peer );
 
   /* Create the selector entry now.  Latency, full/incr slot, and
      full/incr hash are unknown at this point, so the peer only
@@ -483,8 +482,8 @@ poll_resolve( fd_http_resolver_t *  resolver,
         peer->full_slot = resolve_result.slot;
         fd_memcpy( peer->full_hash, resolve_result.hash, FD_HASH_FOOTPRINT );
       } else {
-        peer->full_slot = resolve_result.base_slot;
-        peer->incr_slot = resolve_result.slot;
+        peer->incr_base_slot = resolve_result.base_slot;
+        peer->incr_slot      = resolve_result.slot;
         fd_memcpy( peer->incr_hash, resolve_result.hash, FD_HASH_FOOTPRINT );
       }
     }
@@ -541,8 +540,10 @@ poll_advance( fd_http_resolver_t * resolver,
       deadline_list_ele_push_tail( resolver->valid, peer, resolver->pool );
       remove_peer( resolver, peer->fd.idx );
 
-      resolver->on_resolve_cb( resolver->cb_arg, &peer->key, peer->addr, peer->full_slot, peer->incr_slot, peer->full_hash,
-                               peer->incr_slot!=FD_SSPEER_SLOT_UNKNOWN ? peer->incr_hash : NULL );
+      int has_incr = peer->incr_slot!=FD_SSPEER_SLOT_UNKNOWN && peer->incr_base_slot==peer->full_slot;
+      resolver->on_resolve_cb( resolver->cb_arg, &peer->key, peer->addr, peer->full_slot,
+                               has_incr ? peer->incr_slot : FD_SSPEER_SLOT_UNKNOWN, peer->full_hash,
+                               has_incr ? peer->incr_hash : NULL );
     }
   }
 }
