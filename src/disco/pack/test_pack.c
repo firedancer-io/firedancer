@@ -238,9 +238,9 @@ make_vote_transaction( ulong i ) {
 }
 
 /* Makes enough of a durable nonce transaction to be scheduleable.
-   nonce_acct_idx and nonce_auth_idx are in [0, 8).  Accounts 0 and 1
-   are writable signers, accounts 2 and 3 are readonly signers, 4 and 5
-   are writable non-signers, and 6 and 7 are readonly nonsigners.  The
+   nonce_acct_idx and nonce_auth_idx are in [0, 8).  Account 0 is a
+   writable signer, 1 is a readonly signer, 2 through 5 are writable
+   non-signers, and 6 and 7 are readonly non-signers.  The
    recent blockhash is a 32-byte repetition of the specified character.
    i and priority are as in make_transaction. */
 static void
@@ -1554,6 +1554,19 @@ test_nonce( void ) {
 
   make_nonce_transaction( i, 11.0, 4, 0, 'h' );   FD_TEST( insert1( p, 1UL, pack )==FD_PACK_INSERT_ACCEPT_NONCE_NONVOTE_REPLACE ); i++; p++;
   make_nonce_transaction( i, 14.0, 4, 0, 'h' );   FD_TEST( insert1( p, 0UL, pack )==FD_PACK_INSERT_REJECT_NONCE_PRIORITY        ); i++; p++;
+
+  /* A readonly nonce account makes this an ordinary, expired txn. */
+  fd_pack_expire_before( pack, 10UL );
+  uchar readonly_nonce[] = { 1, 6, 7 };
+  for( ulong j=0UL; j<sizeof(readonly_nonce); j++ ) {
+    make_nonce_transaction( i, 11.0, readonly_nonce[j], 0, 'r' );
+    FD_TEST( !fd_disco_tpu_is_durable_nonce( TXN( p ), p->payload ) );
+    FD_TEST( insert1( p, 9UL, pack )==FD_PACK_INSERT_REJECT_EXPIRED ); i++; p++;
+  }
+  /* Use a nonce key distinct from the transactions already in pack. */
+  make_nonce_transaction( i, 11.0, 5, 1, 'r' );
+  FD_TEST( fd_disco_tpu_is_durable_nonce( TXN( p ), p->payload ) );
+  FD_TEST( insert1( p, 9UL, pack )==FD_PACK_INSERT_ACCEPT_NONCE_NONVOTE_ADD ); i++; p++;
   FD_TEST( !fd_pack_verify( pack, pack_verify_scratch ) );
 }
 
@@ -1616,7 +1629,7 @@ test_bundle_nonce( void ) {
   fd_txn_e_t * const * bundle = fd_pack_insert_bundle_init( pack, _bundle, 3UL );
   make_nonce_transaction1( bundle[0]->txnp, 0UL, 11.0, 4, 0, 'a' );
   make_nonce_transaction1( bundle[1]->txnp, 1UL, 11.0, 5, 0, 'b' );
-  make_nonce_transaction1( bundle[2]->txnp, 2UL, 11.0, 6, 0, 'c' );
+  make_nonce_transaction1( bundle[2]->txnp, 2UL, 11.0, 2, 0, 'c' );
   int result = fd_pack_insert_bundle_fini( pack, bundle, 3UL, 1000UL, 0, NULL, &_deleted );
   FD_TEST( result==FD_PACK_INSERT_ACCEPT_NONCE_NONVOTE_ADD );
   FD_TEST( fd_pack_avail_txn_cnt( pack ) == 3UL );
@@ -1709,7 +1722,7 @@ test_bundle_nonce( void ) {
   bundle = fd_pack_insert_bundle_init( pack, _bundle, 3UL );
   make_nonce_transaction1( bundle[0]->txnp, 0UL, 11.0, 4, 0, 'a' );
   make_nonce_transaction1( bundle[1]->txnp, 1UL, 11.0, 5, 0, 'b' );
-  make_nonce_transaction1( bundle[2]->txnp, 2UL, 11.0, 6, 0, 'c' );
+  make_nonce_transaction1( bundle[2]->txnp, 2UL, 11.0, 2, 0, 'c' );
   result = fd_pack_insert_bundle_fini( pack, bundle, 3UL, 1000UL, 0, NULL, &_deleted );
   FD_TEST( result==FD_PACK_INSERT_ACCEPT_NONCE_NONVOTE_ADD );
   FD_TEST( fd_pack_avail_txn_cnt( pack )==3UL );
