@@ -143,6 +143,10 @@ fd_tls_decode_client_hello( fd_tls_client_hello_t * out,
   }
   FD_TLS_DECODE_LIST_END
 
+  out->has_supported_groups     = !!( seen & (1UL<<FD_TLS_EXT_SUPPORTED_GROUPS) );
+  out->has_signature_algorithms = !!( seen & (1UL<<FD_TLS_EXT_SIGNATURE_ALGORITHMS) );
+  out->has_key_share            = !!( seen & (1UL<<FD_TLS_EXT_KEY_SHARE) );
+
   return (long)( wire_laddr - (ulong)wire );
 }
 
