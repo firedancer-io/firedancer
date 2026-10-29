@@ -10086,7 +10086,7 @@ message MetricsReplay {
   // Leader windows given up after votor sent them because certificates already let a later window start (Alpenglow)
   uint64 leader_window_superseded = 119;
   // Blocks replay gave up on because rotor dropped them: another block in the slot was finalized, or a finalized descendant declared the slot skipped
-  uint64 block_ruled_out_abandoned = 491426271;
+  uint64 block_ruled_out_abandoned = 120;
 }
 
 // Metrics of one rotor tile instance, one row per sweep
