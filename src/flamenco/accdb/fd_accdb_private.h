@@ -225,6 +225,7 @@ fd_accdb_cred_max( ulong class_max,
 #define FD_ACCDB_DEMOTE_AGE   (64U)   /* generations before demotion */
 #define FD_ACCDB_DEMOTE_BATCH (64UL)  /* per background call         */
 #define FD_ACCDB_HOT_SWEEP    (256UL) /* hot chains per call         */
+#define FD_ACCDB_COMPACT_IDX_IO (16UL) /* compaction bucket lookups per call */
 
 /* tier[pool] (T2 only): where T2 last put a slot. */
 #define FD_ACCDB_TIER_NONE    (0)
