@@ -311,7 +311,11 @@ test_kv_index_footprint( void ) {
     .base_regions = 2UL,
   };
   ulong fp = fd_gui_store_footprint( 512UL<<20, 1UL, &kv_desc );
-  FD_TEST( fp && fp<(40UL<<20) );
+  FD_TEST( fp && fp<(7UL<<20) ); /* 4 B links + 4 B chains */
+
+  fd_gui_store_desc_t big = kv_desc;
+  big.max_records = UINT_MAX;
+  FD_TEST( !fd_gui_store_footprint( 512UL<<20, 1UL, &big ) );
 
   FD_LOG_NOTICE(( "test_kv_index_footprint: ok" ));
 }
@@ -1019,6 +1023,67 @@ test_private_index_budget( void ) {
   FD_LOG_NOTICE(( "test_private_index_budget: ok" ));
 }
 
+static ulong const_key_hash( void const * key ) { (void)key; return 7UL; }
+
+static int
+kv_slot_lt( void const * rec, void * ctx ) {
+  return ((ulong const *)rec)[ 0 ]<*(ulong *)ctx;
+}
+
+/* One chain holds every record: positions cur%max_records are reused
+   after wraparound across all three evict paths and fork aliases. */
+static void
+test_kv_index_wrap_alias( void ) {
+  char path[ 128 ]; mk_path( path, sizeof(path) );
+  fd_gui_store_desc_t d = descs[ DB_ENT16 ];
+  d.key_hash    = const_key_hash;
+  d.max_records = 5UL;
+  ulong size = fd_gui_store_min_size( 1UL, &d );
+  void * mem = aligned_alloc( fd_gui_store_align(), fd_gui_store_footprint( size, 1UL, &d ) );
+  FD_TEST( mem );
+  fd_gui_store_t * db = fd_gui_store_join( fd_gui_store_new( mem, path, size, 1UL, TEST_SEED, &d ) );
+  FD_TEST( db );
+  ulong lo = 0UL; /* slots [lo,hi) are live, two forks each */
+  ulong hi = 0UL;
+  for( ulong round=0UL; round<64UL; round++ ) {
+    while( hi-lo<2UL ) {
+      for( ulong f=0UL; f<2UL; f++ ) {
+        ulong key[ 2 ] = { hi, 1UL-f }; void * val;
+        FD_TEST( !fd_gui_store_kv_get_or_create( db, 0UL, key, &val ) );
+        ((ulong *)val)[ 2 ] = hi*2UL+key[ 1 ];
+      }
+      hi++;
+    }
+    ulong key[ 2 ] = { hi, 0UL }; void * val;
+    FD_TEST( fd_gui_store_kv_get_or_create( db, 0UL, key, &val )==FD_GUI_STORE_SUCCESS ); /* 5th */
+    ((ulong *)val)[ 2 ] = hi*2UL;
+    FD_TEST( fd_gui_store_kv_get_or_create( db, 0UL, (ulong[2]){ hi, 1UL }, &val )==FD_GUI_STORE_RING_FULL );
+    for( ulong s=lo; s<=hi; s++ ) {
+      for( ulong f=0UL; f<2UL; f++ ) {
+        ent16_val_t const * v = fd_gui_store_kv_get( db, 0UL, (ulong[2]){ s, f } );
+        if( s==hi && f ) FD_TEST( !v );
+        else FD_TEST( v && v->slot==s && v->bank_seq==f && v->payload==s*2UL+f );
+      }
+      ent16_val_t const * any = fd_gui_store_kv_get_any( db, 0UL, (ulong[2]){ s, ULONG_MAX } );
+      FD_TEST( any && any->slot==s && any->bank_seq==0UL );
+    }
+    FD_TEST( !fd_gui_store_kv_get( db, 0UL, (ulong[2]){ lo-1UL, 0UL } ) );
+    /* evict slot lo via a rotating path */
+    switch( round%3UL ) {
+    case 0UL: { ulong b = ULONG_MAX; int dr; FD_TEST( !fd_gui_store_kv_evict( db, 0UL, (ulong[2]){ lo+1UL, 0UL }, &b, &dr ) ); break; }
+    case 1UL: { ulong t = lo+1UL; FD_TEST( fd_gui_store_kv_reclaim_prefix( db, 0UL, ULONG_MAX, kv_slot_lt, &t )==2UL ); break; }
+    case 2UL:   FD_TEST( fd_gui_store_reclaim( db, 0UL, 2UL, NULL, NULL )==2UL ); break;
+    }
+    lo++;
+    FD_TEST( !fd_gui_store_kv_get_or_create( db, 0UL, (ulong[2]){ hi, 1UL }, &val ) );
+    ((ulong *)val)[ 2 ] = hi*2UL+1UL;
+    hi++;
+  }
+  db_close( db );
+  cleanup( path );
+  FD_LOG_NOTICE(( "test_kv_index_wrap_alias: ok" ));
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -1043,6 +1108,7 @@ main( int     argc,
   test_protected_bases( 2UL );
   test_per_ring_bases();
   test_private_index_budget();
+  test_kv_index_wrap_alias();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
