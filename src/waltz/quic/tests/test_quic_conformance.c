@@ -524,6 +524,39 @@ FD_UNIT_TEST( quic_server_alpn_fail ) {
 
 }
 
+/* RFC 9000 Section 10.2.3: application closes in Initial or Handshake
+   packets use the transport APPLICATION_ERROR code. */
+
+FD_UNIT_TEST( quic_application_close_enc_level ) {
+  fd_quic_sandbox_init( sandbox, FD_QUIC_ROLE_SERVER );
+  fd_quic_conn_t * conn = fd_quic_sandbox_new_conn_established( sandbox, rng );
+  conn->handshake_complete = 0;
+  conn->keys_avail = 1U<<fd_quic_enc_level_initial_id;
+  fd_quic_crypto_keys_t keys;
+  fd_quic_gen_keys( &keys, conn->secrets.secret[fd_quic_enc_level_initial_id][1] );
+  conn->keys[fd_quic_enc_level_initial_id][1] = keys;
+  fd_quic_conn_close( conn, 42U );
+  fd_quic_service( sandbox->quic, sandbox->wallclock );
+  fd_frag_meta_t const * frag = fd_quic_sandbox_next_packet( sandbox );
+  FD_TEST( frag );
+  uchar * packet = fd_chunk_to_laddr( sandbox, frag->chunk );
+  packet += sizeof(fd_ip4_hdr_t)+sizeof(fd_udp_hdr_t);
+  ulong packet_sz = frag->sz-sizeof(fd_ip4_hdr_t)-sizeof(fd_udp_hdr_t);
+  fd_quic_initial_t hdr;
+  FD_TEST( fd_quic_decode_initial( &hdr, packet, packet_sz )!=FD_QUIC_PARSE_FAIL );
+  packet_sz = hdr.pkt_num_pnoff+hdr.len;
+  FD_TEST( fd_quic_crypto_decrypt_hdr( packet, packet_sz, hdr.pkt_num_pnoff, &keys )==FD_QUIC_SUCCESS );
+  uint pn_sz = fd_quic_h0_pkt_num_len( packet[0] )+1U;
+  ulong pn = fd_quic_pktnum_decode( packet+hdr.pkt_num_pnoff, pn_sz );
+  FD_TEST( fd_quic_crypto_decrypt( packet, packet_sz, hdr.pkt_num_pnoff, pn, &keys )==FD_QUIC_SUCCESS );
+  uchar * frame = packet+hdr.pkt_num_pnoff+pn_sz;
+  FD_TEST( frame[0]==0x1c );
+  fd_quic_conn_close_0_frame_t close;
+  FD_TEST( fd_quic_decode_conn_close_0_frame( &close, frame, packet_sz-hdr.pkt_num_pnoff-pn_sz-FD_QUIC_CRYPTO_TAG_SZ )!=FD_QUIC_PARSE_FAIL );
+  FD_TEST( close.error_code==FD_QUIC_CONN_REASON_APPLICATION_ERROR );
+  fd_quic_fini( sandbox->quic );
+}
+
 /* RFC 9000 Section 19.6. CRYPTO Frames
 
    > The CRYPTO frame offers the cryptographic protocol an in-order stream
