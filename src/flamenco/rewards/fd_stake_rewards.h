@@ -57,8 +57,8 @@ fd_stake_rewards_align( void );
    capacity of each in-memory window, not a bound on the rewards in an
    epoch.  max_bank_cnt sizes metadata, not reward-entry buffers.
    cache_cnt is the number of completed windows retained in memory and
-   must be in [1,max_bank_cnt+1].  Storage includes one additional
-   construction buffer.  An ancestor bank can retain an older evicted
+   must be in [1,max_bank_cnt+1]; the window under construction takes
+   one of these buffers.  An ancestor bank can retain an older evicted
    generation, so there is one metadata slot per bank.  An additional
    slot allows a cached window to be replaced before its old shared
    handle is released. */
@@ -115,9 +115,9 @@ ulong
 fd_stake_rewards_free_cnt( fd_stake_rewards_t const * stake_rewards );
 
 /* fd_stake_rewards_init starts reward calculation for a new fork and
-   returns its index.  win_lo is the first partition to retain.  The
-   fork claims the free construction buffer.  No other fork may be
-   staged. */
+   returns its index.  win_lo is the first partition to retain.  No
+   buffer is taken until the first in-window insert.  No other fork may
+   be staged. */
 
 ushort
 fd_stake_rewards_init( fd_stake_rewards_t * stake_rewards,
@@ -146,7 +146,9 @@ fd_stake_rewards_window_hi( fd_stake_rewards_t const * stake_rewards,
    only stored if its partition falls inside the fork's window, but it
    always counts towards fd_stake_rewards_total_rewards and
    fd_stake_rewards_total_block_rewards.  lamports is the inflation
-   reward, block_reward the SIMD-0123 block revenue share. */
+   reward, block_reward the SIMD-0123 block revenue share.  The first
+   stored reward takes a free buffer, evicting the least recently
+   finished resident window if none is free. */
 
 void
 fd_stake_rewards_insert( fd_stake_rewards_t * stake_rewards,
@@ -156,9 +158,8 @@ fd_stake_rewards_insert( fd_stake_rewards_t * stake_rewards,
                          ulong                credits_observed,
                          ulong                block_reward );
 
-/* fd_stake_rewards_fini makes the construction buffer resident without
-   moving its entries.  An empty window releases its buffer.  The oldest
-   resident window is evicted when the completed-window cache is full. */
+/* fd_stake_rewards_fini makes the staged window resident without
+   moving its entries.  An empty window holds no buffer. */
 
 void
 fd_stake_rewards_fini( fd_stake_rewards_t * stake_rewards,

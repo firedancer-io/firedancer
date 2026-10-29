@@ -2116,9 +2116,11 @@ test_stake_rewards_two_buffer_cache( void ) {
     fd_pubkey_t pubkey = { .ul={ i } };
     fd_stake_rewards_insert( sr, fork_idx[i], &pubkey, 10UL+i, 20UL+i, 0UL );
 
-    /* A construction buffer must coexist with a full resident cache. */
+    /* The first insert into a full cache evicts the least recently
+       finished window, the same victim fini used to pick. */
     if( i==2U ) {
-      for( ushort j=0U; j<2U; j++ ) {
+      FD_TEST( fd_stake_rewards_window_lo( sr, fork_idx[0] )==UINT_MAX );
+      for( ushort j=1U; j<2U; j++ ) {
         FD_TEST( fd_stake_rewards_window_lo( sr, fork_idx[j] )==0U );
         fd_stake_rewards_iter_init( sr, fork_idx[j], 0U );
         FD_TEST( !fd_stake_rewards_iter_done( sr ) );
@@ -2158,6 +2160,15 @@ test_stake_rewards_two_buffer_cache( void ) {
     fd_stake_rewards_iter_next( sr, fork_idx[i] );
     FD_TEST( fd_stake_rewards_iter_done( sr ) );
   }
+
+  /* An empty window takes no buffer and evicts nothing. */
+  ushort empty_fork = fd_stake_rewards_init(
+      sr, &parent_blockhash[0], 100UL, 1U, 0U, 0UL );
+  fd_stake_rewards_fini( sr, empty_fork );
+  FD_TEST( fd_stake_rewards_window_lo( sr, empty_fork  )==0U );
+  FD_TEST( fd_stake_rewards_window_lo( sr, fork_idx[1] )==0U );
+  FD_TEST( fd_stake_rewards_window_lo( sr, fork_idx[2] )==0U );
+  fd_stake_rewards_release( sr, empty_fork );
 
   ushort evicted_fork = fork_idx[0];
   fork_idx[0] = fd_stake_rewards_init(
