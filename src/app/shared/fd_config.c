@@ -10,6 +10,8 @@
 #include "../../disco/genesis/fd_genesis_cluster.h"
 #include "../../discof/genesis/fd_genesi_tile.h"
 #include "../../disco/net/fd_net_tile.h"
+#include "../../disco/net/fd_linux_bond.h"
+#include "../../disco/net/iavf/fd_iavf.h"
 #include "../../disco/pack/fd_pack_cost.h"
 #include "../../disco/pack/fd_microblock.h"
 #include "../../ballet/shred/fd_shred.h"
@@ -210,6 +212,19 @@ fd_config_fill_net( fd_config_t * config ) {
     FD_LOG_ERR(( "[net.provider] is set to \"mlx5\" but the network interface in use is not using the "
                  "mlx5_core driver. Please ensure you are using a Mellanox ConnectX NIC of version 4 "
                  "or newer. interface `%s` uses `%s`", config->net.interface, driver ));
+  }
+
+  if( 0==strcmp( config->net.provider, "iavf" ) ) {
+    char members[ FD_IAVF_MEMBER_MAX ][ 16 ];
+    ulong member_cnt;
+    if( FD_UNLIKELY( -1==fd_iavf_member_interfaces( config->net.interface, members, &member_cnt ) ) ) {
+      int err = errno;
+      if( err==EOPNOTSUPP && fd_bonding_is_active_backup( config->net.interface ) ) {
+        FD_LOG_ERR(( "IAVF does not support bond `%s` in active-backup mode. "
+                     "Only 802.3ad (LACP) bonds are currently supported.", config->net.interface ));
+      }
+      FD_LOG_ERR(( "IAVF requires ice or i40e PFs on a physical interface or 802.3ad bond (%i-%s)", err, fd_io_strerror( err ) ));
+    }
   }
 
   uint iface_ip;
@@ -588,13 +603,30 @@ fd_config_validate( fd_config_t const * config ) {
                      config->net.mlx5.tx_queue_size>FD_MLX5_QUEUE_DEPTH_MAX ) ) {
       FD_LOG_ERR(( "invalid mlx5 queue depth: RX and TX must not exceed %u", FD_MLX5_QUEUE_DEPTH_MAX ));
     }
+  } else if( 0==strcmp( config->net.provider, "iavf" ) ) {
+    CFG_HAS_POW2( net.iavf.rx_queue_size );
+    CFG_HAS_POW2( net.iavf.tx_queue_size );
+    if( FD_UNLIKELY( config->net.iavf.rx_queue_size<=FD_IAVF_BATCH_SIZE ||
+                     config->net.iavf.rx_queue_size>FD_IAVF_QUEUE_DEPTH_MAX ) ) {
+      FD_LOG_ERR(( "invalid iavf RX queue depth %u: must exceed %u and must not exceed %u",
+                   config->net.iavf.rx_queue_size, FD_IAVF_BATCH_SIZE, FD_IAVF_QUEUE_DEPTH_MAX ));
+    }
+    if( FD_UNLIKELY( config->net.iavf.tx_queue_size<FD_IAVF_BATCH_SIZE ||
+                     config->net.iavf.tx_queue_size>FD_IAVF_QUEUE_DEPTH_MAX ) ) {
+      FD_LOG_ERR(( "invalid iavf TX queue depth %u: must be at least %u and must not exceed %u",
+                   config->net.iavf.tx_queue_size, FD_IAVF_BATCH_SIZE, FD_IAVF_QUEUE_DEPTH_MAX ));
+    }
+    if( FD_UNLIKELY( config->layout.net_tile_count>FD_IAVF_TILE_MAX ) ) {
+      FD_LOG_ERR(( "invalid iavf net tile count %u: must be between 1 and %lu",
+                   config->layout.net_tile_count, FD_IAVF_TILE_MAX ));
+    }
   } else if( 0==strcmp( config->net.provider, "socket" ) ) {
     CFG_HAS_NON_ZERO( net.socket.receive_buffer_size );
     CFG_HAS_NON_ZERO( net.socket.send_buffer_size );
   } else if( 0==strcmp( config->net.provider, "auto" ) ) {
     /* "auto" is resolved after interface discovery in fd_config_fill(). */
   } else {
-    FD_LOG_ERR(( "invalid `net.provider`: \"%s\"; must be \"auto\", \"xdp\", \"socket\" or \"mlx5\"",
+    FD_LOG_ERR(( "invalid `net.provider`: \"%s\"; must be \"auto\", \"xdp\", \"socket\", \"mlx5\" or \"iavf\"",
                  config->net.provider ));
   }
 

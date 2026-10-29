@@ -178,6 +178,36 @@ configure_cmd_fn( args_t *   args,
   if( FD_UNLIKELY( error ) ) FD_LOG_ERR(( "failed to configure some stages" ));
 }
 
+/* FIXME: Centrally define listen port list to avoid this configure
+   stage from going out of sync with port mappings. */
+uint
+configure_udp_ports( fd_config_t const * config,
+                     ushort              ports[ 32 ] ) {
+  uint port_cnt = 0U;
+
+#define ADD_PORT( p ) do { \
+  ushort __port = ( p ); \
+  if( FD_UNLIKELY( __port==0U ) ) break; \
+  int __dupe = 0; \
+  for( uint __p=0U; !__dupe && __p<port_cnt; ++__p ) __dupe = (ports[ __p ]==__port); \
+  if( FD_UNLIKELY( __dupe ) ) break; \
+  ports[ port_cnt ] = __port; \
+  port_cnt++; \
+} while(0)
+
+  ADD_PORT( config->tiles.shred.shred_listen_port              );
+  ADD_PORT( config->tiles.quic.quic_transaction_listen_port    );
+  ADD_PORT( config->tiles.quic.regular_transaction_listen_port );
+  ADD_PORT( config->gossip.port                              );
+  ADD_PORT( config->tiles.repair.repair_client_listen_port   );
+  ADD_PORT( config->tiles.rserve.repair_serve_listen_port    );
+  ADD_PORT( config->firedancer.development.votor.quic_client_listen_port );
+  ADD_PORT( config->firedancer.development.votor.quic_server_listen_port );
+#undef ADD_PORT
+
+  return port_cnt;
+}
+
 static configure_result_t
 check_path( const char * path,
             uint         expected_uid,
@@ -222,6 +252,7 @@ check_file( const char * path,
 
 static char const *
 configure_stage_help( char const * name ) {
+  if( !strcmp( name, "iavf"             ) ) return "configure VFs, PF drop rules, and load the vfio-pci kernel module";
   if( !strcmp( name, "mlx5"             ) ) return "configure mlx5 network devices and load the ib_uverbs kernel module";
   if( !strcmp( name, "hugetlbfs"        ) ) return "mount the huge page filesystems";
   if( !strcmp( name, "sysctl"           ) ) return "apply required kernel sysctl tunables";

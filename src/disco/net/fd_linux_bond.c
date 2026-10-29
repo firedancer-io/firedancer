@@ -66,8 +66,9 @@ fd_bonding_slave_iter_ele(
   return iter->tok;
 }
 
-int
-fd_bonding_is_lacp( char const * device ) {
+static int
+fd_bonding_is_mode( char const * device,
+                    char const * mode ) {
   char path[ PATH_MAX ];
   FD_TEST( fd_cstr_printf_check( path, PATH_MAX, NULL, "/sys/class/net/%s/bonding/mode", device ) );
 
@@ -91,7 +92,18 @@ fd_bonding_is_lacp( char const * device ) {
     return 0;
   }
 
-  return 0==strncmp( line, "802.3ad ", 8UL );
+  ulong mode_len = strlen( mode );
+  return 0==strncmp( line, mode, mode_len ) && line[ mode_len ]==' ';
+}
+
+int
+fd_bonding_is_lacp( char const * device ) {
+  return fd_bonding_is_mode( device, "802.3ad" );
+}
+
+int
+fd_bonding_is_active_backup( char const * device ) {
+  return fd_bonding_is_mode( device, "active-backup" );
 }
 
 uint

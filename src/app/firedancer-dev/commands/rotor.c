@@ -110,7 +110,7 @@ metrics_src_init( metrics_src_t * src,
   src->rotor = fd_metrics_tile( rotor_tile->metrics );
 
   char const * net_name = fd_net_tile_name( config->net.provider );
-  src->net_kind = !strcmp( net_name, "net" ) ? 0 : !strcmp( net_name, "mlx5" ) ? 1 : 2;
+  src->net_kind = !strcmp( net_name, "net" ) ? 0 : !strcmp( net_name, "mlx5" ) ? 1 : !strcmp( net_name, "iavf" ) ? 3 : 2;
 
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
     fd_topo_tile_t * tile = &topo->tiles[ i ];
@@ -204,6 +204,14 @@ metrics_snap_take( metrics_snap_t * s, metrics_src_t const * src ) {
       s->net_tx      += m[ MIDX( COUNTER, MLX5, PKT_TX_COMPLETED ) ];
       for( ulong r=0UL; r<FD_METRICS_ENUM_PKT_RX_DROP_REASON_CNT; r++ ) s->net_rx_drop += m[ MIDX( COUNTER, MLX5, PKT_RX_DROPPED )+r ];
       for( ulong r=0UL; r<FD_METRICS_ENUM_PKT_TX_DROP_REASON_CNT; r++ ) s->net_tx_drop += m[ MIDX( COUNTER, MLX5, PKT_TX_DROPPED )+r ];
+      break;
+    case 3: /* iavf */
+      s->net_rx      += m[ MIDX( COUNTER, IAVF, PKT_RX ) ];
+      s->net_tx      += m[ MIDX( COUNTER, IAVF, PKT_TX_COMPLETED ) ];
+      for( ulong r=0UL; r<FD_METRICS_ENUM_PKT_RX_DROP_REASON_CNT; r++ ) s->net_rx_drop += m[ MIDX( COUNTER, IAVF, PKT_RX_DROPPED )+r ];
+      for( ulong r=0UL; r<FD_METRICS_ENUM_PKT_TX_DROP_REASON_CNT; r++ ) s->net_tx_drop += m[ MIDX( COUNTER, IAVF, PKT_TX_DROPPED )+r ];
+      s->net_rx_drop += m[ MIDX( COUNTER, IAVF, PKT_RX_NO_LINK_DROPPED ) ];
+      s->net_tx_drop += m[ MIDX( COUNTER, IAVF, PKT_TX_NO_LINK_DROPPED ) ];
       break;
     default: /* sock */
       s->net_rx      += m[ MIDX( COUNTER, SOCK, PKT_RX ) ];

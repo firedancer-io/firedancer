@@ -196,6 +196,19 @@ get_net_stats( ulong volatile const * net_metrics[ FD_TOPO_MAX_TILES ],
       for( ulong r=0UL; r<FD_METRICS_ENUM_PKT_RX_DROP_REASON_CNT; r++ ) rx_drop_now += metrics[ MIDX( COUNTER, MLX5, PKT_RX_DROPPED )+r ];
       tx_ok_now     = metrics[ MIDX( COUNTER, MLX5, PKT_TX_COMPLETED       ) ];
       tx_byte_now   = metrics[ MIDX( COUNTER, MLX5, PKT_TX_COMPLETED_BYTES ) ];
+    } else if( 0==strcmp( provider, "iavf" ) ) {
+      stats->rx_bufs_idle = metrics[ MIDX( GAUGE, IAVF, RX_BUFFER_FREE ) ];
+      stats->rx_bufs_busy = metrics[ MIDX( GAUGE, IAVF, RX_BUFFER_USED ) ];
+      stats->tx_bufs_idle = metrics[ MIDX( GAUGE, IAVF, TX_BUFFER_FREE ) ];
+      stats->tx_bufs_busy = metrics[ MIDX( GAUGE, IAVF, TX_BUFFER_USED ) ];
+
+      rx_ok_now     = metrics[ MIDX( COUNTER, IAVF, PKT_RX       ) ];
+      rx_byte_now   = metrics[ MIDX( COUNTER, IAVF, PKT_RX_BYTES ) ];
+      rx_drop_now   = 0UL;
+      for( ulong r=0UL; r<FD_METRICS_ENUM_PKT_RX_DROP_REASON_CNT; r++ ) rx_drop_now += metrics[ MIDX( COUNTER, IAVF, PKT_RX_DROPPED )+r ];
+      rx_drop_now  += metrics[ MIDX( COUNTER, IAVF, PKT_RX_NO_LINK_DROPPED ) ];
+      tx_ok_now     = metrics[ MIDX( COUNTER, IAVF, PKT_TX_COMPLETED ) ];
+      tx_byte_now   = metrics[ MIDX( COUNTER, IAVF, PKT_TX_COMPLETED_BYTES     ) ];
     }
 
 
@@ -316,6 +329,7 @@ pktgen_cmd_fn( args_t *   args FD_PARAM_UNUSED,
   metric_tile->metric.prometheus_listen_port = config->tiles.metric.prometheus_listen_port;
 
   configure_stage( &fd_cfg_stage_mlx5,             CONFIGURE_CMD_INIT, config );
+  configure_stage( &fd_cfg_stage_iavf,             CONFIGURE_CMD_INIT, config );
   configure_stage( &fd_cfg_stage_sysctl,           CONFIGURE_CMD_INIT, config );
   configure_stage( &fd_cfg_stage_hugetlbfs,        CONFIGURE_CMD_INIT, config );
   configure_stage( &fd_cfg_stage_bonding,          CONFIGURE_CMD_INIT, config );
@@ -333,6 +347,9 @@ pktgen_cmd_fn( args_t *   args FD_PARAM_UNUSED,
   fd_topo_join_workspaces( topo, FD_SHMEM_JOIN_MODE_READ_WRITE, FD_TOPO_CORE_DUMP_LEVEL_DISABLED );
   if( 0==strcmp( config->net.provider, "mlx5" ) ) {
     fd_topo_install_mlx5( topo, NULL );
+  }
+  if( 0==strcmp( config->net.provider, "iavf" ) ) {
+    fd_topo_install_iavf( topo, NULL );
   }
 
   /* FIXME allow running sandboxed/multiprocess */

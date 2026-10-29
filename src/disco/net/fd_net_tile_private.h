@@ -325,11 +325,13 @@ fd_net_rx_pkt( fd_net_tile_t *     ctx,
                ulong               ctl,   /* offset low bits */
                ulong               byte_len,
                ulong               tspub,
-               ulong *             freed_chunk ) {
+               ulong *             freed_chunk,
+               ulong *             iavf_non_fd_pkts_rx_total ) {
   *freed_chunk = chunk;
 
   ulong const min_udp_frame_sz = sizeof(fd_eth_hdr_t)+sizeof(fd_ip4_hdr_t)+sizeof(fd_udp_hdr_t);
-  if( FD_UNLIKELY( byte_len<min_udp_frame_sz || byte_len>FD_NET_MTU ) ) {
+  ulong const min_frame_sz = iavf_non_fd_pkts_rx_total ? sizeof(fd_eth_hdr_t) : min_udp_frame_sz;
+  if( FD_UNLIKELY( byte_len<min_frame_sz || byte_len>FD_NET_MTU ) ) {
     ctx->metrics.rx_drop_cnt[ FD_METRICS_ENUM_PKT_RX_DROP_REASON_V_MALFORMED_IDX ]++;
     return 0;
   }
@@ -337,6 +339,11 @@ fd_net_rx_pkt( fd_net_tile_t *     ctx,
   uchar * frame = (uchar *)fd_chunk_to_laddr( ctx->pkt_buf_wksp_base, chunk ) + ctl;
   fd_eth_hdr_t * eth_hdr = (fd_eth_hdr_t *)frame;
   if( FD_UNLIKELY( fd_ushort_bswap( eth_hdr->net_type )!=FD_ETH_HDR_TYPE_IP ) ) {
+    if( iavf_non_fd_pkts_rx_total ) goto iavf_non_fd_pkt;
+    ctx->metrics.rx_drop_cnt[ FD_METRICS_ENUM_PKT_RX_DROP_REASON_V_MALFORMED_IDX ]++;
+    return 0;
+  }
+  if( FD_UNLIKELY( byte_len<sizeof(fd_eth_hdr_t)+sizeof(fd_ip4_hdr_t) ) ) {
     ctx->metrics.rx_drop_cnt[ FD_METRICS_ENUM_PKT_RX_DROP_REASON_V_MALFORMED_IDX ]++;
     return 0;
   }
@@ -357,6 +364,7 @@ fd_net_rx_pkt( fd_net_tile_t *     ctx,
   int is_gre = ip4_hdr->protocol==FD_IP4_HDR_PROTOCOL_GRE;
   if( FD_UNLIKELY( is_gre ) ) {
     if( FD_UNLIKELY( !ctx->gre_tunnel_ip[0] ) ) {
+      if( iavf_non_fd_pkts_rx_total ) goto iavf_non_fd_pkt;
       ctx->metrics.rx_drop_cnt[ FD_METRICS_ENUM_PKT_RX_DROP_REASON_V_GRE_UNCONFIGURED_IDX ]++;
       return 0;
     }
@@ -389,13 +397,18 @@ fd_net_rx_pkt( fd_net_tile_t *     ctx,
   }
 
   if( FD_UNLIKELY( FD_IP4_GET_VERSION( *ip4_hdr )!=4 ||
-                   ip4_hdr->protocol!=FD_IP4_HDR_PROTOCOL_UDP ||
                    ip4_hdr_sz<sizeof(fd_ip4_hdr_t) || ip4_total_sz<ip4_hdr_sz ||
                    sizeof(fd_eth_hdr_t)+ip4_total_sz>byte_len ) ) {
     ctx->metrics.rx_drop_cnt[ FD_METRICS_ENUM_PKT_RX_DROP_REASON_V_MALFORMED_IDX ]++;
     return 0;
   }
+  if( FD_UNLIKELY( ip4_hdr->protocol!=FD_IP4_HDR_PROTOCOL_UDP ) ) {
+    if( iavf_non_fd_pkts_rx_total ) goto iavf_non_fd_pkt;
+    ctx->metrics.rx_drop_cnt[ FD_METRICS_ENUM_PKT_RX_DROP_REASON_V_MALFORMED_IDX ]++;
+    return 0;
+  }
   if( FD_UNLIKELY( ctx->bind_address && ip4_hdr->daddr!=ctx->bind_address ) ) {
+    if( iavf_non_fd_pkts_rx_total ) goto iavf_non_fd_pkt;
     ctx->metrics.rx_drop_cnt[ FD_METRICS_ENUM_PKT_RX_DROP_REASON_V_DST_IP_MISMATCH_IDX ]++;
     return 0;
   }
@@ -419,6 +432,14 @@ fd_net_rx_pkt( fd_net_tile_t *     ctx,
   ulong out_idx;
   ulong dst_proto;
   if( FD_UNLIKELY( !fd_net_rx_dst_port_lookup( ctx, dst_port, &out_idx, &dst_proto ) ) ) {
+    /* Missing output links for configured ports still count as drops. */
+    if( iavf_non_fd_pkts_rx_total ) {
+      ulong port_idx = 0UL;
+      for( ; port_idx<ctx->dst_port_cnt; port_idx++ ) {
+        if( ctx->dst_ports[ port_idx ]==dst_port ) break;
+      }
+      if( port_idx==ctx->dst_port_cnt ) goto iavf_non_fd_pkt;
+    }
     ctx->metrics.rx_drop_cnt[ FD_METRICS_ENUM_PKT_RX_DROP_REASON_V_DST_PORT_UNBOUND_IDX ]++;
     return 0;
   }
@@ -440,6 +461,10 @@ fd_net_rx_pkt( fd_net_tile_t *     ctx,
   ctx->metrics.rx_bytes_total += byte_len;
 
   return 1;
+
+iavf_non_fd_pkt:
+  (*iavf_non_fd_pkts_rx_total)++;
+  return 0;
 }
 
 FD_PROTOTYPES_END

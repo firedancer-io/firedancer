@@ -1,6 +1,9 @@
 #include "fd_auto_net.h"
+#include "../platform/fd_sys_util.h"
+#include "commands/configure/fd_ethtool_ioctl.h"
 #include "../../disco/net/fd_linux_bond.h"
 #include "../../disco/net/fd_net_tile.h"
+#include "../../disco/net/iavf/fd_iavf.h"
 #include "../../disco/net/mlx5/fd_mlx5.h"
 #include "../../disco/netlink/fd_netlink_tile.h"
 #include "../../waltz/mib/fd_netdev_netlink.h"
@@ -13,7 +16,7 @@
 #include <sys/utsname.h>
 #include <linux/if_arp.h>
 
-#define PROVIDER_CNT       ( 2UL)
+#define PROVIDER_CNT       ( 3UL)
 #define FEAT_CNT_MAX       (16UL)
 #define NET_DRIVER_CNT_MAX (16UL)
 
@@ -32,6 +35,9 @@ struct fd_auto_info {
   int  has_mlx5_rdma_port;
   int  has_uverbs;
   int  has_uverbs_module;
+  int  iavf_pf_checks_passed;
+  int  has_vfio;
+  int  has_vfio_module;
 };
 typedef struct fd_auto_info fd_auto_info_t;
 
@@ -266,6 +272,34 @@ mlx5_apply( fd_config_t * config ) {
   fd_memcpy( config->net.provider, "mlx5", 5 );
 }
 
+/* iavf tile checks/apply */
+static int
+iavf_check( fd_config_t    const * config,
+            fd_auto_info_t const * info ) {
+  if( 0!=strcmp( config->net.provider, "auto" ) ) return 0;
+
+  if( !info->iavf_pf_checks_passed ) return 0;
+  if( !info->has_vfio && !info->has_vfio_module ) return 0;
+
+  if( info->is_bonded_if ) {
+    /* Linux ice driver started allowing LACP bonds in combination with
+       SR-IOV from Linux v6.5.
+       https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=1c769b1a303f7a3b447fc7244340b77823bdbfdc */
+    static fd_auto_driver_rq_t const iavf_lacp_drivers[ NET_DRIVER_CNT_MAX ] = {
+      { "ice",  6,  5, 0, 0 },
+      { "i40e", 5, 14, 0, 0 }
+    };
+    if( 0==fd_auto_check_driver( info, iavf_lacp_drivers ) ) return 0;
+  }
+
+  return 1;
+}
+
+static void
+iavf_apply( fd_config_t * config ) {
+  fd_memcpy( config->net.provider, "iavf", 5 );
+}
+
 /* Each feature's supported Linux version matrix per driver decided
    based on fd-linux-version-testbed test results. */
 static const fd_auto_provider_t NET_PROVIDERS[] = {
@@ -274,6 +308,15 @@ static const fd_auto_provider_t NET_PROVIDERS[] = {
     .supported_drivers = { { "mlx5_core", 5, 14, 0, 0 } },
     .check = mlx5_check,
     .apply = mlx5_apply
+  },
+  {
+    .name = "iavf",
+    .supported_drivers = {
+      { "ice",  5, 14, 0, 0 },
+      { "i40e", 5, 14, 0, 0 }
+    },
+    .check = iavf_check,
+    .apply = iavf_apply
   },
   {
     .name  = "xdp",
@@ -436,6 +479,34 @@ scrape_networking( fd_auto_info_t * info,
   }
 }
 
+static int
+scrape_iavf_pfs( char const * if_name ) {
+  char members[ FD_IAVF_MEMBER_MAX ][ IF_NAMESIZE ];
+  ulong member_cnt;
+  if( FD_UNLIKELY( -1==fd_iavf_member_interfaces( if_name, members, &member_cnt ) ) ) return 0;
+
+  /* Each PF needs ARI, an IOMMU, PCIe resources for VFs and ntuple filtering */
+  for( ulong i=0UL; i<member_cnt; i++ ) {
+    uint numvfs;
+    if( FD_UNLIKELY( -1==fd_iavf_iommu_check( members[i], NULL ) ) ) return 0;
+    if( FD_UNLIKELY( -1==fd_iavf_ari_check( members[i] ) ) ) return 0;
+    if( FD_UNLIKELY( -1==fd_iavf_numvfs_get( members[i], &numvfs ) ) ) return 0;
+    if( FD_UNLIKELY( 0==numvfs && -1==fd_iavf_sriov_resources_check( members[i] ) ) ) return 0;
+
+    fd_ethtool_ioctl_t ioc;
+    if( FD_UNLIKELY( NULL==fd_ethtool_ioctl_init( &ioc, members[i] ) ) ) return 0;
+
+    /* Only select IAVF automatically if ntuple filtering is enabled */
+    int ntuple_enabled;
+    int err = fd_ethtool_ioctl_feature_test( &ioc, FD_ETHTOOL_FEATURE_NTUPLE, &ntuple_enabled );
+    fd_ethtool_ioctl_fini( &ioc );
+
+    if( FD_UNLIKELY( 0!=err ) ) return 0;
+    if( FD_UNLIKELY( !ntuple_enabled ) ) return 0;
+  }
+  return 1;
+}
+
 static fd_auto_info_t
 fd_auto_scrape_info( fd_config_t const * config ) {
   fd_auto_info_t info = {0};
@@ -446,7 +517,18 @@ fd_auto_scrape_info( fd_config_t const * config ) {
   if( !strcmp( config->net.provider, "auto" ) &&
       info.has_mlx5_rdma_port                 &&
       !info.has_uverbs ) {
-    info.has_uverbs_module = !fd_mlx5_uverbs_modprobe( 1 );
+    info.has_uverbs_module = 0==fd_sys_util_modprobe( "ib_uverbs", 1 );
+  }
+
+  if( 0==strcmp( config->net.provider, "auto" ) ) {
+    info.iavf_pf_checks_passed = scrape_iavf_pfs( config->net.interface );
+    if( info.iavf_pf_checks_passed ) {
+      if( fd_iavf_vfio_avail() ) {
+        info.has_vfio = 0==fd_iavf_vfio_api_check( NULL );
+      } else {
+        info.has_vfio_module = 0==fd_sys_util_modprobe( "vfio-pci", 1 );
+      }
+    }
   }
 
   return info;
