@@ -295,24 +295,28 @@ FD_UNIT_TEST( resolv_stash_map_seed_initialized ) {
 }
 
 static void
-test_add_blockhash( test_env_t * env,
-                    fd_hash_t *  hash,
-                    ulong        slot ) {
+test_add_blockhash_hint( test_env_t * env,
+                         fd_hash_t *  hash,
+                         ulong        slot,
+                         ulong        hint ) {
   blockhash_map_t * entry = env->ctx->blockhash_ring+(env->ctx->blockhash_ring_idx%BLOCKHASH_RING_LEN);
 
-  /* See fd_durable_nonce_from_blockhash */
-  struct {
-    char      tag[13];
-    fd_hash_t bh[1];
-  } hash_buf[1] = {{ .tag = "DURABLE_NONCE", .bh = { *hash } }};
-
   memcpy( entry->key.b, hash, 32UL );
-  fd_sha256_hash( hash_buf, sizeof(hash_buf), entry->nonce_key.b );
+  entry->nonce_hint   = hint;
   entry->block_height = slot;
 
   map_ele_insert ( env->ctx->blockhash_map,       entry, env->ctx->blockhash_ring );
   nmap_ele_insert( env->ctx->nonce_blockhash_map, entry, env->ctx->blockhash_ring );
   env->ctx->blockhash_ring_idx++;
+}
+
+static void
+test_add_blockhash( test_env_t * env,
+                    fd_hash_t *  hash,
+                    ulong        slot ) {
+  blockhash_t nonce[1];
+  durable_nonce_hash( (blockhash_t const *)hash, nonce );
+  test_add_blockhash_hint( env, hash, slot, FD_LOAD( ulong, nonce->b ) );
 }
 
 static void
@@ -366,6 +370,35 @@ FD_UNIT_TEST( resolv_durable_nonce ) {
   FD_TEST( published->reference_block_height==125UL );
 
   test_env_destroy( env );
+}
+
+/* A ring entry whose nonce hint collides but whose full durable nonce
+   differs must not match, whichever order the chain holds them in. */
+FD_UNIT_TEST( resolv_durable_nonce_hint_collision ) {
+  fd_hash_t hash  = { .ul = { 0xfeedUL } };
+  fd_hash_t other = { .ul = { 0xbeefUL } };
+  fd_hash_t durable_hash = { .ul = { 0x9af781fcada1b490, 0x60638414e047e3e1, 0x2a3c8375f0b67f7, 0xfeb08e84ac3cb6f9 } };
+  for( int order=0; order<2; order++ ) {
+    test_env_t env[1];
+    test_env_create( env );
+    env->ctx->completed_block_height = 7UL;
+    if( order ) test_add_blockhash( env, &hash, 125UL );
+    test_add_blockhash_hint( env, &other, 99UL, durable_hash.ul[ 0 ] );
+    if( !order ) test_add_blockhash( env, &hash, 125UL );
+    test_ingest_txn( env, &durable_hash, 1 );
+    fd_frag_meta_t const * meta = env->out_mcache[0] + fd_mcache_line_idx( 0UL, env->stem_depths[0] );
+    FD_TEST( env->stem_seqs[0]==1UL && meta->sig==125UL );
+
+    /* Only the colliding entry: no match, reference stays at the tip */
+    test_env_destroy( env );
+    test_env_create( env );
+    env->ctx->completed_block_height = 7UL;
+    test_add_blockhash_hint( env, &other, 99UL, durable_hash.ul[ 0 ] );
+    test_ingest_txn( env, &durable_hash, 1 );
+    meta = env->out_mcache[0] + fd_mcache_line_idx( 0UL, env->stem_depths[0] );
+    FD_TEST( env->stem_seqs[0]==1UL && meta->sig==7UL );
+    test_env_destroy( env );
+  }
 }
 
 FD_UNIT_TEST( resolv_blockhash_unknown ) {

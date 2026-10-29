@@ -34,20 +34,32 @@ struct blockhash {
 typedef struct blockhash blockhash_t;
 
 /* One ring element serves both the blockhash map (key/next/prev) and
-   the nonce map (nonce_key/nonce_next/nonce_prev).  Each map's probe
-   fields are adjacent to its key. */
+   the nonce map (nonce_hint/nonce_next/nonce_prev).  nonce_hint is the
+   first 8 bytes of the durable nonce sha256("DURABLE_NONCE"||key); a
+   hint match is confirmed by recomputing the full hash. */
 
 struct blockhash_map {
   blockhash_t key;
   uint        next;
   uint        prev;
   ulong       block_height;
-  blockhash_t nonce_key;
+  ulong       nonce_hint;
   uint        nonce_next;
   uint        nonce_prev;
 };
 
 typedef struct blockhash_map blockhash_map_t;
+FD_STATIC_ASSERT( sizeof(blockhash_map_t)==64UL, blockhash_map_sz );
+
+/* See fd_durable_nonce_from_blockhash */
+static inline void
+durable_nonce_hash( blockhash_t const * blockhash,
+                    blockhash_t *       out ) {
+  uchar buf[ 45 ];
+  memcpy( buf,    "DURABLE_NONCE", 13UL );
+  memcpy( buf+13, blockhash->b,    32UL );
+  fd_sha256_hash( buf, sizeof(buf), out->b );
+}
 
 /* The blockhash ring holds recent blockhashes, so we can identify when
    a transaction arrives, what slot it will expire (and can no longer be
@@ -88,14 +100,15 @@ typedef struct blockhash_map blockhash_map_t;
 
 #define MAP_NAME               nmap
 #define MAP_ELE_T              blockhash_map_t
-#define MAP_KEY_T              blockhash_t
-#define MAP_KEY                nonce_key
+#define MAP_KEY_T              ulong
+#define MAP_KEY                nonce_hint
 #define MAP_NEXT               nonce_next
 #define MAP_PREV               nonce_prev
 #define MAP_IDX_T              uint
+#define MAP_MULTI              1
 #define MAP_OPTIMIZE_RANDOM_ACCESS_REMOVAL 1
-#define MAP_KEY_EQ(k0,k1)      (!memcmp((k0)->b,(k1)->b, 32UL))
-#define MAP_KEY_HASH(key,seed) ((uint)fd_hash32( (key)->b, (seed) ))
+#define MAP_KEY_EQ(k0,k1)      (*(k0)==*(k1))
+#define MAP_KEY_HASH(key,seed) fd_ulong_hash( *(key)^(seed) )
 
 #include "../../util/tmpl/fd_map_chain.c"
 
@@ -480,14 +493,10 @@ after_frag( fd_resolv_ctx_t *   ctx,
         }
         blockhash_map_t * entry = ctx->blockhash_ring+(ctx->blockhash_ring_idx%BLOCKHASH_RING_LEN);
 
-        /* See fd_durable_nonce_from_blockhash */
-        struct {
-          char      tag[13];
-          fd_hash_t bh[1];
-        } hash_buf[1] = {{ .tag = "DURABLE_NONCE", .bh = { msg->block_hash } }};
-
         memcpy( entry->key.b, msg->block_hash.uc, 32UL );
-        fd_sha256_hash( hash_buf, sizeof(hash_buf), entry->nonce_key.b );
+        blockhash_t nonce[1];
+        durable_nonce_hash( &entry->key, nonce );
+        entry->nonce_hint   = FD_LOAD( ulong, nonce->b );
         entry->block_height = msg->block_height;
 
         map_ele_insert ( ctx->blockhash_map,       entry, ctx->blockhash_ring );
@@ -574,8 +583,19 @@ after_frag( fd_resolv_ctx_t *   ctx,
   int is_durable_nonce = fd_disco_tpu_is_durable_nonce( txnt, fd_txn_m_payload( txnm ) );
   blockhash_t const * recent_blockhash = (blockhash_t const *)( fd_txn_m_payload( txnm )+txnt->recent_blockhash_off );
 
-  blockhash_map_t const * blockhash = is_durable_nonce ? nmap_ele_query_const( ctx->nonce_blockhash_map, recent_blockhash, NULL, ctx->blockhash_ring )
-                                                       : map_ele_query_const ( ctx->blockhash_map,       recent_blockhash, NULL, ctx->blockhash_ring );
+  blockhash_map_t const * blockhash;
+  if( FD_LIKELY( !is_durable_nonce ) ) {
+    blockhash = map_ele_query_const( ctx->blockhash_map, recent_blockhash, NULL, ctx->blockhash_ring );
+  } else {
+    ulong hint = FD_LOAD( ulong, recent_blockhash->b );
+    for( blockhash = nmap_ele_query_const( ctx->nonce_blockhash_map, &hint, NULL, ctx->blockhash_ring );
+         blockhash;
+         blockhash = nmap_ele_next_const( blockhash, NULL, ctx->blockhash_ring ) ) {
+      blockhash_t nonce[1];
+      durable_nonce_hash( &blockhash->key, nonce );
+      if( FD_LIKELY( !memcmp( nonce->b, recent_blockhash->b, 32UL ) ) ) break;
+    }
+  }
   if( FD_LIKELY( blockhash ) ) {
     txnm->reference_block_height = blockhash->block_height;
     if( FD_UNLIKELY( (!is_durable_nonce) & (txnm->reference_block_height+151UL<ctx->completed_block_height) ) ) {
