@@ -19,7 +19,6 @@
 #include <sys/types.h> /* SEEK_SET */
 #include <sys/stat.h>
 #include <sys/syscall.h>
-#include <sys/sysmacros.h>
 #include <sys/vfs.h>
 #include <linux/futex.h>
 #include <time.h>
@@ -1426,18 +1425,57 @@ sensors_init( fd_diag_tile_t * ctx ) {
   FD_LOG_INFO(( "diag found %lu hardware sensors and %lu powercap packages", ctx->sensor.cnt, ctx->sensor.rapl_cnt ));
 }
 
+/* mount_device finds the mount that holds path in /proc/self/mountinfo
+   and copies its device numbers, written "major:minor", into devno.
+   Returns 0 if the mount is not found. */
+
+static int
+mount_device( char const * path,
+              char         devno[ static 32 ] ) {
+  int path_fd = open( path, O_PATH|O_CLOEXEC );
+  if( FD_UNLIKELY( path_fd<0 ) ) return 0;
+  ulong mnt_id;
+  int   err = fd_mount_id( path_fd, &mnt_id );
+  close( path_fd );
+  if( FD_UNLIKELY( err ) ) return 0;
+
+  int fd = open( "/proc/self/mountinfo", O_RDONLY|O_CLOEXEC );
+  if( FD_UNLIKELY( fd<0 ) ) return 0;
+  static char buf[ 262144 ];
+  ulong       len;
+  err = fd_io_read( fd, buf, sizeof(buf)-1UL, sizeof(buf)-1UL, &len );
+  close( fd );
+  /* error, or more mounts than fit */
+  if( FD_UNLIKELY( err>=0 ) ) return 0;
+  buf[ len ] = '\0';
+
+  /* fields: id parent major:minor ... */
+  char * lines;
+  for( char * line=strtok_r( buf, "\n", &lines ); line; line=strtok_r( NULL, "\n", &lines ) ) {
+    char * fields;
+    char * id = strtok_r( line, " ", &fields );
+    if( !id || fd_cstr_to_ulong( id )!=mnt_id ) continue;
+    strtok_r( NULL, " ", &fields ); /* parent */
+    char * numbers = strtok_r( NULL, " ", &fields );
+    if( FD_UNLIKELY( !numbers ) ) return 0;
+    fd_cstr_ncpy( devno, numbers, 32UL );
+    return 1;
+  }
+  return 0;
+}
+
 /* Opens the I/O stat file of the block device holding path: the whole
    disk for a partition, an md or dm device as is.  Returns -1 if path
    is not on a block device. */
 
 static int
 open_disk_stat( char const * path ) {
-  char        dev[ PATH_MAX ];
-  struct stat st;
-  if( !resolve_path_prefix( path, dev ) || stat( dev, &st ) ) return -1;
+  char dev[ PATH_MAX ];
+  char devno[ 32 ];
+  if( !resolve_path_prefix( path, dev ) || !mount_device( dev, devno ) ) return -1;
 
   char file[ PATH_MAX ];
-  FD_TEST( fd_cstr_printf_check( file, sizeof(file), NULL, "/sys/dev/block/%u:%u", major( st.st_dev ), minor( st.st_dev ) ) );
+  FD_TEST( fd_cstr_printf_check( file, sizeof(file), NULL, "/sys/dev/block/%s", devno ) );
   if( FD_UNLIKELY( !realpath( file, dev ) ) ) return -1;
   FD_TEST( fd_cstr_printf_check( file, sizeof(file), NULL, "%s/partition", dev ) );
   if( !access( file, F_OK ) ) *strrchr( dev, '/' ) = '\0';
