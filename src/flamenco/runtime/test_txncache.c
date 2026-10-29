@@ -64,10 +64,15 @@ test_spill( void ) {
     for( ulong i=0UL; i<4UL*FD_TXNCACHE_TXNS_PER_PAGE; i+=127UL )
       FD_TEST( fd_txncache_query( tc, a, BLOCKHASH(1UL), TXNHASH(100000UL+i) ) );
     fd_txncache_reset( tc );
-    ulong scratch_sz;
-    void * scratch = fd_txncache_snapin_scratch( tc, &scratch_sz );
-    FD_TEST( scratch_sz==sizeof(fd_txncache_txnpage_t) );
-    memset( scratch, 0xA5, scratch_sz );
+
+    /* One frame: the first page stages in memory, the second in the
+       spill file. */
+    static uchar stage_in [ 2UL*sizeof(fd_txncache_txnpage_t) ] __attribute__((aligned(FD_TXNCACHE_SNAPIN_STAGE_ALIGN)));
+    static uchar stage_out[ 2UL*sizeof(fd_txncache_txnpage_t) ] __attribute__((aligned(FD_TXNCACHE_SNAPIN_STAGE_ALIGN)));
+    for( ulong i=0UL; i<sizeof(stage_in); i++ ) stage_in[ i ] = (uchar)(i*31UL);
+    fd_txncache_snapin_stage( tc, 0UL, stage_in,  sizeof(stage_in),  1 );
+    fd_txncache_snapin_stage( tc, 0UL, stage_out, sizeof(stage_out), 0 );
+    FD_TEST( !memcmp( stage_in, stage_out, sizeof(stage_in) ) );
   }
   FD_TEST( lseek( fd, 0, SEEK_END )>0 );
   FD_TEST( !close( fd ) );
@@ -466,9 +471,9 @@ test_new_join( uchar * scratch0 ) {
 }
 
 static void
-test_scratch( uchar * scratch0,
-              uchar * scratch1 ) {
-  FD_LOG_NOTICE(( "TEST SCRATCH" ));
+test_snapin_stage( uchar * scratch0,
+                   uchar * scratch1 ) {
+  FD_LOG_NOTICE(( "TEST SNAPIN STAGE" ));
 
   ulong const max_live_slots   = 4UL;
   ulong const max_txn_per_slot = FD_PACK_MAX_TXNCACHE_TXN_PER_SLOT;
@@ -478,20 +483,18 @@ test_scratch( uchar * scratch0,
   fd_txncache_t * tc = test_join( scratch1, shtc );
   FD_TEST( tc );
 
-  ulong sz = 0UL;
-  uchar * scratch = fd_txncache_snapin_scratch( tc, &sz );
-  FD_TEST( scratch );
-  FD_TEST( sz );
+  static uchar buf[ FD_TXNCACHE_SNAPIN_STAGE_ALIGN ] __attribute__((aligned(FD_TXNCACHE_SNAPIN_STAGE_ALIGN)));
 
-  ulong footprint = fd_txncache_shmem_footprint( max_live_slots, max_txn_per_slot, ULONG_MAX );
-  FD_TEST( scratch>=scratch0 );
-  FD_TEST( scratch+sz<=scratch0+footprint );
-
-  FD_TEST( sz>=FD_TXNCACHE_MAX_SLOT_DELTAS*max_txn_per_slot*sizeof(fd_txncache_single_txn_t) );
-
+  /* A fully in-memory cache stages snapshot loading's worst case, one
+     40 byte group per transaction for every slot delta, without a spill
+     file. */
+  ulong row_sz   = fd_ulong_align_up( (max_txn_per_slot/2UL)*40UL, FD_TXNCACHE_SNAPIN_STAGE_ALIGN );
+  ulong last_off = FD_TXNCACHE_MAX_SLOT_DELTAS*row_sz-sizeof(buf);
   fd_txncache_reset( tc );
-  fd_memset( scratch, 0xFF, sz );
+  fd_memset( buf, 0x5A, sizeof(buf) );
+  fd_txncache_snapin_stage( tc, last_off, buf, sizeof(buf), 1 );
 
+  /* Inserts clobber the staging area. */
   fd_txncache_fork_id_t root = fd_txncache_attach_child( tc, NULL_FORK );
   fd_txncache_finalize_fork( tc, root, 0UL, BLOCKHASH(1UL) );
 
@@ -504,14 +507,14 @@ test_scratch( uchar * scratch0,
   FD_TEST( !fd_txncache_query( tc, slot1, BLOCKHASH(1UL), TXNHASH(2UL) ) );
   FD_TEST(  fd_txncache_query( tc, slot1, BLOCKHASH(1UL), TXNHASH(5UL) ) );
 
+  /* Reset does not touch staged contents. */
   fd_txncache_reset( tc );
-  fd_memset( scratch, 0xA5, 4096UL );
+  fd_memset( buf, 0xA5, sizeof(buf) );
+  fd_txncache_snapin_stage( tc, 0UL, buf, sizeof(buf), 1 );
   fd_txncache_reset( tc );
-  for( ulong i=0UL; i<4096UL; i++ ) FD_TEST( scratch[ i ]==0xA5 );
-
-  ulong sz2 = 0UL;
-  FD_TEST( fd_txncache_snapin_scratch( tc, &sz2 )==scratch );
-  FD_TEST( sz2==sz );
+  fd_memset( buf, 0, sizeof(buf) );
+  fd_txncache_snapin_stage( tc, 0UL, buf, sizeof(buf), 0 );
+  for( ulong i=0UL; i<sizeof(buf); i++ ) FD_TEST( buf[ i ]==0xA5 );
 }
 
 void
@@ -976,7 +979,7 @@ main( int     argc,
 
   test0( scratch0, scratch1 );
   test_new_join( scratch0 );
-  test_scratch( scratch0, scratch1 );
+  test_snapin_stage( scratch0, scratch1 );
   test_advance_root( scratch0, scratch1 );
   test_purge_stale( scratch0, scratch1, 4UL,   1000000UL ); /* Single page per blockhash.  */
   test_purge_stale( scratch0, scratch1, 256UL, 2000000UL ); /* Several pages per blockhash. */
