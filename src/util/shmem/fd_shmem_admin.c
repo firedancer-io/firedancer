@@ -341,13 +341,15 @@ fd_shmem_create_multi_flags( char const *  name,
 
     /* fd_numa_mbind the memory subregion to this numa node to nominally
        stay put after we unmap it.  We recompute the nodemask to be on
-       the safe side in case set mempolicy above clobbered it. */
+       the safe side in case set mempolicy above clobbered it.  We omit
+       MPOL_MF_STRICT, which fails with EIO on pages that compaction is
+       migrating. */
 
     fd_memset( nodemask, 0, 8UL*((FD_SHMEM_NUMA_MAX+63UL)/64UL) );
     nodemask[ sub_numa_idx >> 6 ] = 1UL << (sub_numa_idx & 63UL);
 
-    if( FD_UNLIKELY( fd_numa_mbind( sub_shmem, sub_sz, MPOL_BIND, nodemask, FD_SHMEM_NUMA_MAX, MPOL_MF_MOVE|MPOL_MF_STRICT ) ) ) {
-      FD_LOG_WARNING(( "sub[%lu]: fd_numa_mbind(\"%s\",%lu KiB,MPOL_BIND,1UL<<%lu,MPOL_MF_MOVE|MPOL_MF_STRICT) failed (%i-%s)",
+    if( FD_UNLIKELY( fd_numa_mbind( sub_shmem, sub_sz, MPOL_BIND, nodemask, FD_SHMEM_NUMA_MAX, MPOL_MF_MOVE ) ) ) {
+      FD_LOG_WARNING(( "sub[%lu]: fd_numa_mbind(\"%s\",%lu KiB,MPOL_BIND,1UL<<%lu,MPOL_MF_MOVE) failed (%i-%s)",
                        sub_idx, path, sub_sz>>10, sub_numa_idx, errno, fd_io_strerror( errno ) ));
       ERROR( unmap );
     }
@@ -591,8 +593,8 @@ fd_shmem_acquire_multi( ulong         page_sz,
     fd_memset( nodemask, 0, 8UL*((FD_SHMEM_NUMA_MAX+63UL)/64UL) );
     nodemask[ sub_numa_idx >> 6 ] = 1UL << (sub_numa_idx & 63UL);
 
-    if( FD_UNLIKELY( fd_numa_mbind( sub_mem, sub_sz, MPOL_BIND, nodemask, FD_SHMEM_NUMA_MAX, MPOL_MF_MOVE|MPOL_MF_STRICT ) ) ) {
-      FD_LOG_WARNING(( "sub[%lu]: fd_numa_mbind(anon,%lu KiB,MPOL_BIND,1UL<<%lu,MPOL_MF_MOVE|MPOL_MF_STRICT) failed (%i-%s)",
+    if( FD_UNLIKELY( fd_numa_mbind( sub_mem, sub_sz, MPOL_BIND, nodemask, FD_SHMEM_NUMA_MAX, MPOL_MF_MOVE ) ) ) {
+      FD_LOG_WARNING(( "sub[%lu]: fd_numa_mbind(anon,%lu KiB,MPOL_BIND,1UL<<%lu,MPOL_MF_MOVE) failed (%i-%s)",
                        sub_idx, sub_sz>>10, sub_numa_idx, errno, fd_io_strerror( errno ) ));
       ERROR( unmap );
     }
