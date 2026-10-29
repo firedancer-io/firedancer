@@ -395,6 +395,7 @@ unprivileged_init( fd_topo_t const *      topo,
     ctx->link_tx[ i ].base   = topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ].wksp;
     ctx->link_tx[ i ].chunk0 = fd_dcache_compact_chunk0( ctx->link_tx[ i ].base, link->dcache );
     ctx->link_tx[ i ].wmark  = fd_dcache_compact_wmark(  ctx->link_tx[ i ].base, link->dcache, link->mtu );
+    ctx->link_tx[ i ].mtu    = link->mtu;
   }
 
 }
@@ -683,7 +684,7 @@ during_frag( fd_sock_tile_t * ctx,
              ulong            chunk,
              ulong            sz,
              ulong            ctl FD_PARAM_UNUSED ) {
-  if( FD_UNLIKELY( chunk<ctx->link_tx[ in_idx ].chunk0 || chunk>ctx->link_tx[ in_idx ].wmark || sz>FD_NET_MTU ) ) {
+  if( FD_UNLIKELY( chunk<ctx->link_tx[ in_idx ].chunk0 || chunk>ctx->link_tx[ in_idx ].wmark || sz>ctx->link_tx[ in_idx ].mtu ) ) {
     FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->link_tx[ in_idx ].chunk0, ctx->link_tx[ in_idx ].wmark ));
   }
 

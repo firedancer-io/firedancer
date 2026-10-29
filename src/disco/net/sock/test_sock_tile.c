@@ -263,6 +263,7 @@ test_prevent_park_flushes_tx( void ) {
   ctx->link_tx[ 0 ].base   = frame_mem;
   ctx->link_tx[ 0 ].chunk0 = 0UL;
   ctx->link_tx[ 0 ].wmark  = 1UL;
+  ctx->link_tx[ 0 ].mtu    = FD_NET_MTU;
   ulong sig = fd_disco_netmux_sig( lo_addr, rx_port, lo_addr, DST_PROTO_OUTGOING, hdr_sz );
   FD_TEST( !before_frag( ctx, 0UL, 0UL, sig ) );
   during_frag( ctx, 0UL, 0UL, sig, 0UL, frame_sz, 0UL );
