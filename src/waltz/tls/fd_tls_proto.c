@@ -401,6 +401,7 @@ fd_tls_decode_server_hello( fd_tls_server_hello_t * out,
     long ext_parse_res;
     switch( ext_type ) {
     case FD_TLS_EXT_SUPPORTED_VERSIONS: {
+      if( FD_UNLIKELY( ext_sz!=2U ) ) return -(long)FD_TLS_ALERT_DECODE_ERROR;
       ushort chosen_version;
       FD_TLS_DECODE_FIELD( &chosen_version, ushort );
       ext_parse_res = 2L;
