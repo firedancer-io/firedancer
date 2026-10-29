@@ -38,7 +38,7 @@ fd_solfuzz_pb_get_slot( fd_exec_test_acct_state_t const * acct_states,
                         ulong                             acct_states_cnt ) {
   for( ulong i=0UL; i<acct_states_cnt; i++ ) {
     if( !memcmp( &acct_states[i].address, &fd_sysvar_clock_id, sizeof(fd_pubkey_t) ) ) {
-      pb_bytes_array_t const * data = fd_solfuzz_acct_data( &acct_states[i] );
+      fd_pb_bytes_array_t const * data = fd_solfuzz_acct_data( &acct_states[i] );
       FD_TEST( data && data->size==sizeof(fd_sol_sysvar_clock_t) );
       return FD_LOAD( ulong, data->bytes );
     }
@@ -55,7 +55,7 @@ fd_solfuzz_pb_load_account( fd_runtime_t *                    runtime,
   (void)runtime; (void)acc_idx;
   if( state->lamports==0UL ) return 0;
 
-  pb_bytes_array_t const * state_data = fd_solfuzz_acct_data( state );
+  fd_pb_bytes_array_t const * state_data = fd_solfuzz_acct_data( state );
   ulong size = state_data ? state_data->size : 0UL;
 
   fd_pubkey_t pubkey[1];  memcpy( pubkey, state->address, sizeof(fd_pubkey_t) );
@@ -105,11 +105,11 @@ fd_solfuzz_direct_mapping_handle_cu_exhaustion( fd_solfuzz_runner_t *       runn
                                                 ulong                       cu_avail,
                                                 int                         has_err,
                                                 fd_exec_test_acct_state_t * accounts,
-                                                pb_size_t                   accounts_cnt ) {
+                                                uint                   accounts_cnt ) {
   if( FD_FEATURE_ACTIVE_BANK( runner->bank, virtual_address_space_adjustments )
       && cu_avail == 0UL
       && has_err ) {
-    for( pb_size_t i=0; i<accounts_cnt; i++ ) {
+    for( uint i=0; i<accounts_cnt; i++ ) {
       fd_solfuzz_acct_set_data_hash( &accounts[i], NULL, 0UL );
     }
   }
@@ -120,7 +120,7 @@ fd_solfuzz_pb_create_feature_accounts( fd_accdb_t *                       accdb,
                                        fd_accdb_fork_id_t                 fork_id,
                                        fd_exec_test_feature_set_t const * feature_set,
                                        fd_exec_test_acct_state_t const *  acct_states,
-                                       pb_size_t                          acct_states_count ) {
+                                       uint                          acct_states_count ) {
   for( ulong j=0UL; j<feature_set->features_count; j++ ) {
     fd_feature_id_t const * id = fd_feature_id_query( feature_set->features[j] );
     if( FD_UNLIKELY( !id ) ) continue;
@@ -128,7 +128,7 @@ fd_solfuzz_pb_create_feature_accounts( fd_accdb_t *                       accdb,
     /* Skip if an acct_state already owns this pubkey so the
        caller-supplied state wins. */
     int collision = 0;
-    for( pb_size_t i=0U; i<acct_states_count; i++ ) {
+    for( uint i=0U; i<acct_states_count; i++ ) {
       if( !memcmp( acct_states[i].address, id->id.key, sizeof(fd_pubkey_t) ) ) {
         collision = 1;
         break;

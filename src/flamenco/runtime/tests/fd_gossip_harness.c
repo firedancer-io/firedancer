@@ -5,15 +5,15 @@
 #include "../../../disco/fd_disco_base.h"
 #include "generated/gossip.pb.h"
 
-/* alloc_bytes allocates a pb_bytes_array_t on the spad and copies
+/* alloc_bytes allocates a fd_pb_bytes_array_t on the spad and copies
    src[0..len) into it. */
 
-static pb_bytes_array_t *
+static fd_pb_bytes_array_t *
 alloc_bytes( fd_spad_t *   spad,
              uchar const * src,
              ulong         len ) {
-  pb_bytes_array_t * arr = fd_spad_alloc( spad, alignof(pb_bytes_array_t), PB_BYTES_ARRAY_T_ALLOCSIZE( len ) );
-  arr->size = (pb_size_t)len;
+  fd_pb_bytes_array_t * arr = fd_spad_alloc( spad, alignof(fd_pb_bytes_array_t), FD_PB_BYTES_ARRAY_T_ALLOCSIZE( len ) );
+  arr->size = (uint)len;
   if( FD_LIKELY( len ) ) memcpy( arr->bytes, src, len );
   return arr;
 }
@@ -84,7 +84,7 @@ reparse_contact_info_extra( fd_spad_t *                          spad,
   /* Addrs */
   ushort addrs_len = 0;
   if( FD_UNLIKELY( !read_varint_u16( &addrs_len, &p, &sz ) ) ) return;
-  ci->addrs_count = (pb_size_t)addrs_len;
+  ci->addrs_count = (uint)addrs_len;
   if( addrs_len ) {
     ci->addrs = fd_spad_alloc( spad, alignof(fd_exec_test_gossip_ip_addr_t),
                                addrs_len * sizeof(fd_exec_test_gossip_ip_addr_t) );
@@ -110,7 +110,7 @@ reparse_contact_info_extra( fd_spad_t *                          spad,
   /* Sockets */
   ushort sockets_len = 0;
   if( FD_UNLIKELY( !read_varint_u16( &sockets_len, &p, &sz ) ) ) return;
-  ci->sockets_count = (pb_size_t)sockets_len;
+  ci->sockets_count = (uint)sockets_len;
   if( sockets_len ) {
     ci->sockets = fd_spad_alloc( spad, alignof(fd_exec_test_gossip_socket_entry_t),
                                  sockets_len * sizeof(fd_exec_test_gossip_socket_entry_t) );
@@ -144,7 +144,7 @@ reparse_epoch_slots_extra( fd_spad_t *                         spad,
   ulong slots_len = FD_LOAD( ulong, p );
   p += 8UL; sz -= 8UL;
 
-  es->slots_count = (pb_size_t)slots_len;
+  es->slots_count = (uint)slots_len;
   if( !slots_len ) {
     es->slots = NULL;
     return;
@@ -254,7 +254,7 @@ convert_crds_data( fd_spad_t *                          spad,
     sh->full_slot = val->snapshot_hashes->full_slot;
     sh->full_hash = alloc_bytes( spad, val->snapshot_hashes->full_hash, sizeof(val->snapshot_hashes->full_hash) );
     sh->wallclock = val->wallclock;
-    sh->incremental_count = (pb_size_t)val->snapshot_hashes->incremental_len;
+    sh->incremental_count = (uint)val->snapshot_hashes->incremental_len;
     if( sh->incremental_count ) {
       sh->incremental = fd_spad_alloc( spad, alignof(fd_exec_test_gossip_incremental_hash_t),
                                        sh->incremental_count * sizeof(fd_exec_test_gossip_incremental_hash_t) );
@@ -303,8 +303,8 @@ convert_crds_values( fd_spad_t *                           spad,
                      ulong                                 vals_len,
                      uchar const *                         raw_in,
                      fd_exec_test_gossip_crds_value_t **   out_vals,
-                     pb_size_t *                           out_count ) {
-  *out_count = (pb_size_t)vals_len;
+                     uint *                           out_count ) {
+  *out_count = (uint)vals_len;
   if( !vals_len ) {
     *out_vals = NULL;
     return;
@@ -320,7 +320,7 @@ static void
 convert_bloom( fd_spad_t *                   spad,
                fd_gossip_bloom_t const *     bloom,
                fd_exec_test_gossip_bloom_t * out ) {
-  out->keys_count = (pb_size_t)bloom->keys_len;
+  out->keys_count = (uint)bloom->keys_len;
   if( bloom->keys_len ) {
     out->keys = fd_spad_alloc( spad, alignof(uint64_t), bloom->keys_len * sizeof(uint64_t) );
     memcpy( out->keys, bloom->keys, bloom->keys_len * sizeof(uint64_t) );
@@ -405,10 +405,10 @@ convert_gossip_msg( fd_spad_t *                 spad,
     pm->data.signature   = alloc_bytes( spad, msg->prune->signature,   sizeof(msg->prune->signature) );
     pm->data.destination = alloc_bytes( spad, msg->prune->destination, sizeof(msg->prune->destination) );
     pm->data.wallclock   = msg->prune->wallclock;
-    pm->data.prunes_count = (pb_size_t)msg->prune->prunes_len;
+    pm->data.prunes_count = (uint)msg->prune->prunes_len;
     if( msg->prune->prunes_len ) {
-      pm->data.prunes = fd_spad_alloc( spad, alignof(pb_bytes_array_t *),
-                                       msg->prune->prunes_len * sizeof(pb_bytes_array_t *) );
+      pm->data.prunes = fd_spad_alloc( spad, alignof(fd_pb_bytes_array_t *),
+                                       msg->prune->prunes_len * sizeof(fd_pb_bytes_array_t *) );
       for( ulong i=0UL; i<msg->prune->prunes_len; i++ ) {
         pm->data.prunes[i] = alloc_bytes( spad, msg->prune->prunes[i], sizeof(msg->prune->prunes[i]) );
       }
@@ -430,7 +430,7 @@ fd_solfuzz_gossip_decode( fd_solfuzz_runner_t * runner,
   if( FD_UNLIKELY( in_sz>FD_GOSSIP_MTU ) ) FD_LOG_CRIT(( "invariant violation: gossip input %lu bytes exceeds MTU %lu, check fuzzer configuration", in_sz, FD_GOSSIP_MTU ));
 
   fd_gossip_message_t msg[1] = {0};
-  fd_exec_test_gossip_effects_t effects = FD_EXEC_TEST_GOSSIP_EFFECTS_INIT_ZERO;
+  fd_exec_test_gossip_effects_t effects = {0};
 
   int ok = fd_gossip_message_deserialize( msg, in, in_sz );
   if( ok ) {

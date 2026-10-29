@@ -11,7 +11,7 @@
 #include <sys/types.h>
 #include <sys/stat.h> /* fstat */
 #include <unistd.h> /* close */
-#include "../../../third_party/nanopb/pb_firedancer.h"
+#include "../../../ballet/pb/fd_pb_gen.h"
 #include "../../../tango/fd_tango.h"
 
 #define MCACHE_DEPTH     (256UL)

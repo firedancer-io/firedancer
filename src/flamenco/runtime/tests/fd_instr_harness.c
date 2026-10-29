@@ -178,7 +178,7 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
     ulong txn_idx = input_txn_idx[j];
     fd_pubkey_t * acc_key = (fd_pubkey_t *)test_ctx->accounts[j].address;
 
-    pb_bytes_array_t const * in_data = fd_solfuzz_acct_data( &test_ctx->accounts[j] );
+    fd_pb_bytes_array_t const * in_data = fd_solfuzz_acct_data( &test_ctx->accounts[j] );
     uint dlen = in_data ? in_data->size : 0U;
     loaded_data_sz += dlen;
     if( FD_UNLIKELY( dlen>FD_RUNTIME_ACC_SZ_MAX || loaded_data_sz>FD_VM_LOADED_ACCOUNTS_DATA_SIZE_LIMIT ) ) {
@@ -215,7 +215,7 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
     }
 
     if( FD_UNLIKELY( !memcmp( owner, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t) ) ) ) {
-      pb_bytes_array_t const * prog_data = fd_solfuzz_acct_data( prog );
+      fd_pb_bytes_array_t const * prog_data = fd_solfuzz_acct_data( prog );
       if( FD_UNLIKELY( !prog_data ) ) continue;
 
       fd_bpf_state_t program_loader_state[1];
@@ -237,7 +237,7 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
           break;
         }
       }
-      pb_bytes_array_t const * pd_data = pd ? fd_solfuzz_acct_data( pd ) : NULL;
+      fd_pb_bytes_array_t const * pd_data = pd ? fd_solfuzz_acct_data( pd ) : NULL;
       if( FD_UNLIKELY( pd==NULL || !pd_data ) ) {
         continue;
       }
@@ -278,7 +278,7 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
   ctx->sysvar_cache = sysvar_cache;
   for( ulong i=0UL; i<test_ctx->accounts_count; i++ ) {
     fd_exec_test_acct_state_t const * account = &test_ctx->accounts[i];
-    pb_bytes_array_t const *          data    = fd_solfuzz_acct_data( account );
+    fd_pb_bytes_array_t const *          data    = fd_solfuzz_acct_data( account );
     if( FD_UNLIKELY( !data ) ) continue;
 
     fd_pubkey_t const * address = fd_type_pun_const( account->address );
@@ -477,7 +477,7 @@ fd_solfuzz_pb_instr_run( fd_solfuzz_runner_t * runner,
       executable = acc->executable;
       owner      = acc->owner;
     } else {
-      pb_bytes_array_t const * in_data = fd_solfuzz_acct_data( in_acct );
+      fd_pb_bytes_array_t const * in_data = fd_solfuzz_acct_data( in_acct );
       lamports   = in_acct->lamports;
       data       = in_data ? in_data->bytes : NULL;
       data_len   = in_data ? in_data->size  : 0UL;
@@ -506,7 +506,7 @@ fd_solfuzz_pb_instr_run( fd_solfuzz_runner_t * runner,
 
   fd_solfuzz_direct_mapping_handle_cu_exhaustion(
       runner, effects->cu_avail, effects->result,
-      effects->modified_accounts, (pb_size_t)effects->modified_accounts_count );
+      effects->modified_accounts, (uint)effects->modified_accounts_count );
 
   /* Capture return data */
   fd_txn_return_data_t * return_data = &ctx->txn_out->details.return_data;
