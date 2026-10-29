@@ -509,6 +509,7 @@
 | <span class="metrics-name">pack_&#8203;txn_&#8203;pending_&#8203;used</span><br/>{pending_&#8203;txn_&#8203;type="<span class="metrics-enum">vote</span>"} | gauge | Pending transactions in pack's pool, by type (Deprecated, always 0 since Firedancer v26.11.) |
 | <span class="metrics-name">pack_&#8203;txn_&#8203;pending_&#8203;used</span><br/>{pending_&#8203;txn_&#8203;type="<span class="metrics-enum">conflicting</span>"} | gauge | Pending transactions in pack's pool, by type (Transactions that write to a hotly-contended account) |
 | <span class="metrics-name">pack_&#8203;txn_&#8203;pending_&#8203;used</span><br/>{pending_&#8203;txn_&#8203;type="<span class="metrics-enum">bundle</span>"} | gauge | Pending transactions in pack's pool, by type (Transactions that are part of a bundle) |
+| <span class="metrics-name">pack_&#8203;txn_&#8203;pending_&#8203;used</span><br/>{pending_&#8203;txn_&#8203;type="<span class="metrics-enum">next_&#8203;auction</span>"} | gauge | Pending transactions in pack's pool, by type (Transactions that are currently held waiting for the next auction) |
 | <span class="metrics-name">pack_&#8203;txn_&#8203;pending_&#8203;capacity</span> | gauge | Maximum pending transactions pack can hold |
 | <span class="metrics-name">pack_&#8203;txn_&#8203;pending_&#8203;smallest_&#8203;cost</span> | gauge | Lower bound on the cost of the cheapest pending transaction, 0 if none pending |
 | <span class="metrics-name">pack_&#8203;block_&#8203;microblock_&#8203;limit_&#8203;reached</span> | counter | Times pack did not schedule a microblock because the block microblock limit was reached |
@@ -530,6 +531,13 @@
 | <span class="metrics-name">pack_&#8203;pre_&#8203;rotation_&#8203;bundle_&#8203;rejected</span> | counter | Bundles that arrived while not leader that pack dropped because it was full of ones that declare at least as large a tip |
 | <span class="metrics-name">pack_&#8203;pre_&#8203;rotation_&#8203;bundle_&#8203;evicted</span> | counter | Bundles that arrived while not leader that pack dropped for one that declares a larger tip |
 | <span class="metrics-name">pack_&#8203;pre_&#8203;rotation_&#8203;bundle_&#8203;scheduled</span> | counter | Bundles that arrived while not leader that pack scheduled |
+| <span class="metrics-name">pack_&#8203;auction_&#8203;started</span> | counter | Batch auctions started |
+| <span class="metrics-name">pack_&#8203;auction_&#8203;cancelled</span> | counter | Batch auctions skipped because the block was already at their CU limit |
+| <span class="metrics-name">pack_&#8203;auction_&#8203;ended</span><br/>{pack_&#8203;auction_&#8203;end_&#8203;reason="<span class="metrics-enum">limit</span>"} | counter | Batch auctions ended, by reason (An auction ended because the block reached the auction's CU limit) |
+| <span class="metrics-name">pack_&#8203;auction_&#8203;ended</span><br/>{pack_&#8203;auction_&#8203;end_&#8203;reason="<span class="metrics-enum">restarted</span>"} | counter | Batch auctions ended, by reason (An auction ended because a new auction was started) |
+| <span class="metrics-name">pack_&#8203;auction_&#8203;ended</span><br/>{pack_&#8203;auction_&#8203;end_&#8203;reason="<span class="metrics-enum">final</span>"} | counter | Batch auctions ended, by reason (An auction ended because the final 20ms of our leader rotation began) |
+| <span class="metrics-name">pack_&#8203;auction_&#8203;ended</span><br/>{pack_&#8203;auction_&#8203;end_&#8203;reason="<span class="metrics-enum">slot_&#8203;end</span>"} | counter | Batch auctions ended, by reason (An auction ended because the leader slot ended) |
+| <span class="metrics-name">pack_&#8203;auction_&#8203;duration_&#8203;nanos</span> | histogram | Duration that batch auctions ran for |
 | <span class="metrics-name">pack_&#8203;block_&#8203;cost</span> | gauge | Cost units used in the current block, 0 if not packing a block |
 | <span class="metrics-name">pack_&#8203;cost_&#8203;scheduled_&#8203;per_&#8203;block</span> | histogram | Cost units scheduled for each block pack produced; can exceed the block limit because of rebates |
 | <span class="metrics-name">pack_&#8203;cu_&#8203;rebated_&#8203;per_&#8203;block</span> | histogram | Compute units rebated for each block pack produced. Compute units are rebated when a transaction fails prior to execution or requests more compute units than it uses |
