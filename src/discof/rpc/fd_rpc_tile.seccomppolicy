@@ -9,6 +9,9 @@
 #                file.  The RPC tile uses preadv2 against this fd to
 #                serve account reads on cache miss.
 #
+# accdb_idx_ro_fd: Read-only file descriptor onto the accounts index
+#                  file (index mode), for accounts resolved only there.
+#
 # epoll_inner_fd: Kernel file descriptors are waited by a separate tile
 #                 (the waker) for scheduling reasons, so file
 #                 descriptors from server connections should be added
@@ -18,7 +21,7 @@
 #                 can poll all file descriptors across all tiles at once.
 #                 This tile needs access to the outer file descriptor to
 #                 rearm the inner set after a drain.
-uint logfile_fd, uint rpc_socket_fd, uint accdb_ro_fd, uint epoll_inner_fd, uint epoll_outer_fd
+uint logfile_fd, uint rpc_socket_fd, uint accdb_ro_fd, uint accdb_idx_ro_fd, uint epoll_inner_fd, uint epoll_outer_fd
 
 # logging: all log messages are written to a file and/or pipe
 #
@@ -114,6 +117,12 @@ epoll_ctl: (or (eq (arg 0) epoll_inner_fd)
 #
 # arg 0 is the file descriptor to read from.
 preadv2: (eq (arg 0) accdb_ro_fd)
+
+# accounts index (index mode): read index pages of accounts that are
+# not in memory
+#
+# arg 0 is the file descriptor to read from.
+pread64: (eq (arg 0) accdb_idx_ro_fd)
 
 # power saving: sleep when there is no work to do
 #

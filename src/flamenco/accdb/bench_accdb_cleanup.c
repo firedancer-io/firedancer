@@ -55,7 +55,7 @@ bench_setup( ulong writes_per_slot ) {
                                               BENCH_CACHE_FOOTPRINT,
                                               BENCH_CACHE_MIN_RESERVED,
                                               2UL,
-                                              0UL );
+                                              0UL, 0UL );
   FD_TEST( shmem_fp );
   void * shmem_mem = aligned_alloc( fd_accdb_shmem_align(), shmem_fp );
   FD_TEST( shmem_mem );
@@ -71,7 +71,7 @@ bench_setup( ulong writes_per_slot ) {
                           0,
                           42UL,
                           2UL,
-                          0UL ) );
+                          0UL, 0UL ) );
   FD_TEST( shmem );
 
   ulong accdb_fp = fd_accdb_footprint( BENCH_MAX_LIVE_SLOTS, 1 );
@@ -80,8 +80,8 @@ bench_setup( ulong writes_per_slot ) {
   void * t2_mem = aligned_alloc( fd_accdb_align(), accdb_fp );
   FD_TEST( t1_mem );
   FD_TEST( t2_mem );
-  fd_accdb_t * t1 = fd_accdb_join( fd_accdb_new( t1_mem, shmem, fd, -1, 0UL, NULL, NULL, 0UL, 1 ) );
-  fd_accdb_t * t2 = fd_accdb_join( fd_accdb_new( t2_mem, shmem, fd, -1, 0UL, NULL, NULL, 0UL, 1 ) );
+  fd_accdb_t * t1 = fd_accdb_join( fd_accdb_new( t1_mem, shmem, fd, -1, 0UL, NULL, NULL, 0UL, 1, -1 ) );
+  fd_accdb_t * t2 = fd_accdb_join( fd_accdb_new( t2_mem, shmem, fd, -1, 0UL, NULL, NULL, 0UL, 1, -1 ) );
   FD_TEST( t1 );
   FD_TEST( t2 );
 
