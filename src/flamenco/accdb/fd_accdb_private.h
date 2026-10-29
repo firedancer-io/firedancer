@@ -174,6 +174,17 @@ typedef struct fd_accdb_partition fd_accdb_partition_t;
 #define FD_ACCDB_DEFER_WINDOW_ELE (16UL<<20)  /* 64 MiB locked window  */
 #define FD_ACCDB_DEFER_STAGE_ELE  (2UL<<20)   /* 8 MiB spill I/O chunk */
 
+/* Deferred entry tag: pool slot moved between tiers, its bytes live
+   on.  Drain skips the byte free, never the CLAIM fence. */
+#define FD_ACCDB_DEFER_MIGRATED (1U<<31)
+
+/* T2 background defer ring (index mode): unlinks made outside
+   advance_root/purge, sealed in chunks tagged by a T2 epoch bump and
+   drained by T2 itself, so pool slots return without a root. */
+#define FD_ACCDB_BG_DEFER_MAX   (1UL<<20)
+#define FD_ACCDB_BG_DEFER_CHUNK (1UL<<16)
+#define FD_ACCDB_BG_DEFER_CHUNKS (FD_ACCDB_BG_DEFER_MAX/FD_ACCDB_BG_DEFER_CHUNK)
+
 struct fd_accdb_cache_key {
   uchar pubkey[ 32UL ];
   uint generation;
@@ -592,7 +603,18 @@ struct fd_accdb_shmem_private {
   ulong idx_hot_map_off;
   ulong idx_file_sz;        /* bytes fallocated at boot            */
 
+  ulong idx_bg_defer_off;   /* FD_ACCDB_BG_DEFER_MAX uints         */
+  ulong bg_defer_head;      /* T2 only: total appended             */
+  ulong bg_defer_tail;      /* T2 only: total released             */
+  ulong bg_defer_sealed;    /* T2 only: entries below are tagged   */
+  ulong bg_defer_tag[ FD_ACCDB_BG_DEFER_CHUNKS ];
+
   ulong idx_cf_seq __attribute__((aligned(64)));
+
+  /* Free accmeta slots not yet reserved by a release (index mode).
+     FG CAS-subtracts before publishing its epoch, T2 credits after
+     each deferred release. */
+  ulong pool_avail __attribute__((aligned(64)));
 
   acc_pool_shmem_t  acc_pool [1];
   fork_pool_shmem_t fork_pool[1];
