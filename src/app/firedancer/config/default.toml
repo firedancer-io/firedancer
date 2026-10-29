@@ -787,7 +787,9 @@ telemetry = true
     # index for rooted accounts lives in a file next to the accounts
     # database, read and written with explicit I/O, and only this many
     # entries (unrooted versions plus a cache of hot rooted ones) are
-    # kept in memory.
+    # kept in memory.  Not yet supported together with snapshot
+    # production.  Otherwise at least 66 times the per-slot account
+    # write limit plus 2,129,920 (13,537,426).
     index_ram_entries = 0
 
 [runtime]
