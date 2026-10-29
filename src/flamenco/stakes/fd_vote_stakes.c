@@ -890,6 +890,22 @@ fd_vote_stakes_refresh( fd_vote_stakes_t * vote_stakes,
                         fd_accdb_fork_id_t  accdb_fork_id ) {
   uchar __attribute__((aligned(FD_VOTE_STAKES_ITER_ALIGN))) iter_mem[ FD_VOTE_STAKES_ITER_FOOTPRINT ];
 
+  /* Index mode: queue every key before the reads (no-op otherwise). */
+  {
+    fd_pubkey_t   kb[ 64 ];
+    uchar const * keys[ 64 ];
+    ulong         n = 0UL;
+    for( fd_vote_stakes_iter_t * iter = fd_vote_stakes_iter_init( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_2, iter_mem );
+         !fd_vote_stakes_iter_done( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_2, iter );
+         fd_vote_stakes_iter_next( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_2, iter ) ) {
+      fd_vote_stakes_ele_t ele[1];
+      fd_vote_stakes_iter_ele( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_2, iter, ele );
+      kb[ n ] = ele->pubkey; keys[ n ] = kb[ n ].uc; n++;
+      if( n==64UL ) { fd_accdb_prefetch( accdb, accdb_fork_id, n, keys, 1 ); n = 0UL; }
+    }
+    fd_accdb_prefetch( accdb, accdb_fork_id, n, keys, 1 );
+  }
+
   for( fd_vote_stakes_iter_t * iter = fd_vote_stakes_iter_init( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_2, iter_mem );
        !fd_vote_stakes_iter_done( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_2, iter );
        fd_vote_stakes_iter_next( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_2, iter ) ) {
