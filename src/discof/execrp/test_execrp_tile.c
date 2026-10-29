@@ -4,6 +4,7 @@
 #define _GNU_SOURCE
 #include "fd_execrp_tile.c"
 #include "../../ballet/txn/fd_txn_build.h"
+#include "../../disco/pack/fd_pack_cost.h"
 #include "../../ballet/txn/fd_compact_u16.h"
 #include "../../disco/topo/fd_topob.h"
 #include "../../flamenco/accdb/fd_accdb.h"
@@ -947,6 +948,7 @@ FD_UNIT_TEST( execrp_simple_ok ) {
   FD_TEST( out_msg->txn_exec->tick_commit_start !=LONG_MAX );
   FD_TEST( out_msg->txn_exec->tick_commit_end>=out_msg->txn_exec->tick_commit_start );
   FD_TEST( out_msg->txn_exec->compute_units_consumed>0U );
+  FD_TEST( out_msg->txn_exec->compute_units_requested==(uint)fd_pack_compute_cost( TXN( txn ), txn->payload, NULL, NULL, NULL, NULL, NULL ) );
   FD_TEST( out_msg->txn_exec->transaction_fee==fee );
   FD_TEST( !out_msg->txn_exec->priority_fee );
   FD_TEST( !out_msg->txn_exec->tips );
@@ -982,6 +984,7 @@ FD_UNIT_TEST( execrp_simple_fee_payer_fail ) {
   FD_TEST( out_msg->txn_exec->tick_commit_start==LONG_MAX );
   FD_TEST( out_msg->txn_exec->tick_commit_end  ==LONG_MAX );
   FD_TEST( !out_msg->txn_exec->compute_units_consumed );
+  FD_TEST( !out_msg->txn_exec->compute_units_requested );
   FD_TEST( test_read_lamports( env, &data_acct )==data_acct_start );
 
   test_env_destroy( env );

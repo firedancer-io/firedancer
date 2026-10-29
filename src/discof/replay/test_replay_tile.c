@@ -623,6 +623,8 @@ test_txn_completion_publish( fd_wksp_t * wksp ) {
   mock_sched_txn_idx = 37UL;
   fd_memset( &mock_sched_txn, 0x5a, sizeof(mock_sched_txn) );
   mock_sched_txn.payload_sz = 321UL;
+  TXN( &mock_sched_txn )->signature_off = 1;
+  mock_sched_txn.payload[ 1 ] = 0xa5;
 
   mock_sched_txn_info = (fd_sched_txn_info_t) {
     .flags                    = FD_SCHED_TXN_SIGVERIFY_DONE,
@@ -670,6 +672,7 @@ test_txn_completion_publish( fd_wksp_t * wksp ) {
   msg->txn_exec->tick_commit_start      = 2003L;
   msg->txn_exec->tick_commit_end        = 2004L;
   msg->txn_exec->compute_units_consumed = 3456U;
+  msg->txn_exec->compute_units_requested = 7890U;
   msg->txn_exec->transaction_fee        = 5001UL;
   msg->txn_exec->priority_fee           = 5002UL;
   msg->txn_exec->tips                   = 5003UL;
@@ -696,7 +699,10 @@ test_txn_completion_publish( fd_wksp_t * wksp ) {
   FD_TEST( meta->sz==sizeof(fd_replay_txn_executed_t) );
 
   fd_replay_txn_executed_t const * out = fd_chunk_to_laddr_const( ctx->replay_out->mem, meta->chunk );
-  FD_TEST( !memcmp( out->txn, &mock_sched_txn, sizeof(mock_sched_txn) ) );
+  FD_TEST( !memcmp( out->signature, mock_sched_txn.payload+TXN( &mock_sched_txn )->signature_off, FD_TXN_SIGNATURE_SZ ) );
+  FD_TEST( out->start_shred_idx==mock_sched_txn.start_shred_idx );
+  FD_TEST( out->end_shred_idx==mock_sched_txn.end_shred_idx );
+  FD_TEST( out->compute_units_requested==7890U );
   FD_TEST( out->txn_err==msg->txn_exec->txn_err );
   FD_TEST( out->is_committable==msg->txn_exec->is_committable );
   FD_TEST( out->is_fees_only==msg->txn_exec->is_fees_only );

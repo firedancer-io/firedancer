@@ -152,6 +152,7 @@ struct fd_execrp_txn_exec_done_msg {
   long tick_commit_end;
 
   uint  compute_units_consumed; /* possibly zero if is_committable is zero */
+  uint  compute_units_requested; /* zero if is_committable is zero */
   ulong transaction_fee;
   ulong priority_fee;
   ulong tips;

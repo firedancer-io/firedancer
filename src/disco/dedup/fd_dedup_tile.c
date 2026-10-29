@@ -117,7 +117,7 @@ during_frag( fd_dedup_ctx_t * ctx,
     if( FD_LIKELY( sig==REPLAY_SIG_TXN_EXECUTED ) ) {
       fd_replay_txn_executed_t * txn_executed = fd_type_pun( src );
       if( FD_UNLIKELY( !txn_executed->is_committable ) ) return;
-      ulong ha_dedup_tag = fd_hash( ctx->hashmap_seed, fd_txn_get_signatures( TXN(txn_executed->txn), txn_executed->txn->payload ), FD_TXN_SIGNATURE_SZ );
+      ulong ha_dedup_tag = fd_hash( ctx->hashmap_seed, txn_executed->signature, FD_TXN_SIGNATURE_SZ );
       int _is_dup;
       FD_TCACHE_INSERT( _is_dup, *ctx->tcache_sync, ctx->tcache_ring, ctx->tcache_depth, ctx->tcache_map, ctx->tcache_map_cnt, ha_dedup_tag );
       (void)_is_dup;
