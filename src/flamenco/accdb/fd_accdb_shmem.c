@@ -146,6 +146,7 @@ fd_accdb_shmem_footprint( ulong max_accounts,
     l = FD_LAYOUT_APPEND( l, 64UL,                     fd_accdb_cf_nb( max_accounts )*sizeof(ulong)            );
     l = FD_LAYOUT_APPEND( l, 64UL,                     FD_ACCDB_CF_STASH_MAX*sizeof(ulong)                     );
     l = FD_LAYOUT_APPEND( l, alignof(uint),            chain_cnt*sizeof(uint)                                  );
+    l = FD_LAYOUT_APPEND( l, alignof(uint),            FD_ACCDB_BG_DEFER_MAX*sizeof(uint)                      );
   }
   return FD_LAYOUT_FINI( l, FD_ACCDB_SHMEM_ALIGN );
 }
@@ -346,6 +347,7 @@ fd_accdb_shmem_new( void * shmem,
   void * _cf         = FD_SCRATCH_ALLOC_APPEND( l, 64UL,          cf_nb*sizeof(ulong)                               );
   void * _cf_stash   = FD_SCRATCH_ALLOC_APPEND( l, 64UL,          FD_ACCDB_CF_STASH_MAX*sizeof(ulong)*!!index_ram_entries );
   void * _hot_map    = FD_SCRATCH_ALLOC_APPEND( l, alignof(uint), hot_cnt*sizeof(uint)                              );
+  void * _bg_defer   = FD_SCRATCH_ALLOC_APPEND( l, alignof(uint), FD_ACCDB_BG_DEFER_MAX*sizeof(uint)*!!index_ram_entries );
   if( index_ram_entries ) {
     memset( _bkt_seq,  0,    fd_accdb_idx_seq_cnt( bkt_npage )*sizeof(uint) );
     memset( _cf,       0,    cf_nb*sizeof(ulong) );
@@ -456,6 +458,11 @@ fd_accdb_shmem_new( void * shmem,
   accdb->idx_hot_chain_cnt = hot_cnt;
   accdb->idx_hot_map_off   = (ulong)_hot_map  - (ulong)shmem;
   accdb->idx_file_sz       = fd_accdb_idx_file_sz( max_accounts, index_ram_entries );
+  accdb->idx_bg_defer_off  = (ulong)_bg_defer - (ulong)shmem;
+  accdb->bg_defer_head     = 0UL;
+  accdb->bg_defer_tail     = 0UL;
+  accdb->bg_defer_sealed   = 0UL;
+  accdb->pool_avail        = pool_max;
   accdb->max_account_writes_per_slot = max_account_writes_per_slot;
   accdb->joiner_cnt_max   = joiner_cnt;
   accdb->cache_min_reserved = cache_min_reserved;
