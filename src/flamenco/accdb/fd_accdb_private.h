@@ -194,6 +194,47 @@ typedef struct fd_accdb_partition fd_accdb_partition_t;
 #define FD_ACCDB_HOT_SWEEP    (256UL) /* hot chains per call         */
 #define FD_ACCDB_COMPACT_IDX_IO (16UL) /* compaction bucket lookups per call */
 
+/* Promote rings (index mode).  Residual lane: FG waiters, never
+   drops.  Hint lane: prefetch, dropped when full.  Producers reserve
+   with a CAS after a fullness check, so no slot is ever owned and left
+   unpublished. */
+#define FD_ACCDB_RING_RES_CAP  (4096UL)
+#define FD_ACCDB_RING_HINT_CAP (65536UL)
+#define FD_ACCDB_RING_SERVE    (256UL)  /* hint requests per call  */
+#define FD_ACCDB_PROT_MAX      (4096UL)
+
+#define FD_ACCDB_REQ_WARM_PD   (1U)     /* also promote programdata */
+
+struct __attribute__((aligned(64))) fd_accdb_req {
+  uchar pubkey[ 32 ];
+  ulong seq;      /* ticket+1 once published */
+  uint  joiner;   /* residual: epoch slot index */
+  uint  flags;
+  uchar pad[ 16 ];
+};
+
+typedef struct fd_accdb_req fd_accdb_req_t;
+
+struct fd_accdb_ring {
+  ulong tail __attribute__((aligned(64))); /* producers (CAS) */
+  ulong head __attribute__((aligned(64))); /* T2 published    */
+  ulong done __attribute__((aligned(64))); /* T2: served < done */
+  ulong cap;
+  ulong ele_off;
+};
+
+typedef struct fd_accdb_ring fd_accdb_ring_t;
+
+struct fd_accdb_prot {
+  uint  idx;
+  uint  joiner;
+  ulong ticket;
+};
+
+typedef struct fd_accdb_prot fd_accdb_prot_t;
+
+#define FD_ACCDB_HOT_REF_PROT (2)
+
 /* tier[pool] (T2 only): where T2 last put a slot. */
 #define FD_ACCDB_TIER_NONE    (0)
 #define FD_ACCDB_TIER_ROOTED  (1)  /* rooted acc_map, in demote FIFO */
@@ -641,6 +682,12 @@ struct fd_accdb_shmem_private {
   ulong fifo_tail;
   ulong hot_cursor;         /* T2 only                             */
   ulong promote_reserve;    /* free slots kept for releases        */
+  ulong prot_off;           /* FD_ACCDB_PROT_MAX fd_accdb_prot_t   */
+  ulong prot_head;          /* T2 only                             */
+  ulong prot_tail;
+  fd_accdb_ring_t ring_res [1];
+  fd_accdb_ring_t ring_hint[1];
+  ulong res_ack[ FD_ACCDB_MAX_JOINERS ]; /* joiner: last ticket re-walked */
   ulong bg_defer_head;      /* T2 only: total appended             */
   ulong bg_defer_tail;      /* T2 only: total released             */
   ulong bg_defer_sealed;    /* T2 only: entries below are tagged   */

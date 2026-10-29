@@ -654,6 +654,25 @@ fd_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
                                ulong *             out_ignored_lamports,
                                uchar *             results );
 
+/* fd_accdb_prefetch asks the accdb tile to bring keys that may live
+   only in the on-disk index into RAM ahead of an acquire (index mode;
+   no-op otherwise).  Never blocks; requests are dropped when the queue
+   is full.  warm also loads the account data into the cache when a
+   free line is available. */
+
+void
+fd_accdb_prefetch( fd_accdb_t *          accdb,
+                   fd_accdb_fork_id_t    fork_id,
+                   ulong                 cnt,
+                   uchar const * const * pubkeys,
+                   int                   warm );
+
+/* fd_accdb_idx_busy returns non-zero while the accdb tile has index
+   requests or pool pressure to serve. */
+
+int
+fd_accdb_idx_busy( fd_accdb_t const * accdb );
+
 /* fd_accdb_background performs one unit of background work.
 
    THREADING MODEL
