@@ -836,6 +836,10 @@ deliberate exception with lint-allow="<rule id>")
     </histogram>
     <counter name="StoreFecSyncSpilled" summary="FEC payloads the shred tile spilled to the store synchronously because the store RAM cache was full" />
     <counter name="StoreFecSyncSpilledBytes" summary="FEC payload bytes the shred tile spilled to the store synchronously" />
+    <counter name="StoreFecInsertParked" summary="FEC inserts that waited for a store RAM cache slot because every slot was reserved, pinned or being spilled" />
+    <histogram name="StoreFecInsertParkDurationNanos" min="100" max="100000000" source="ticks">
+        <summary>Duration of one FEC insert waiting for a store RAM cache slot</summary>
+    </histogram>
 </tile>
 
 <tile name="accdb">
@@ -932,7 +936,20 @@ deliberate exception with lint-allow="<rule id>")
     <counter name="StoreFecSpillReadBytes" summary="Spilled FEC payload bytes read from disk" />
     <gauge name="StoreFecCacheUsed" summary="FEC payload slots in use in the store RAM cache" />
     <gauge name="StoreFecCacheCapacity" summary="FEC payload capacity of the store RAM cache" />
-    <gauge name="StoreFecCachePinned" ambiguous-kind="true" summary="FEC payload views currently pinned against eviction" />
+    <gauge name="StoreFecCachePinned" ambiguous-kind="true" deprecated="true" summary="FEC payload views currently pinned against eviction" />
+    <counter name="StoreFecQueryHit" enum="StoreFecSourceType" summary="FEC set store queries that found a payload, by where it was read from" />
+    <histogram name="StoreFecSpillReadDurationNanos" min="1000" max="100000000" source="ticks">
+        <summary>Duration of reading one spilled FEC payload from disk</summary>
+    </histogram>
+    <counter name="StoreFecPublishRemoved" summary="FEC sets removed from the store by root publishes" />
+    <counter name="StoreFecSpillCancelled" summary="FEC payload spills discarded because replay pinned the payload while it was being written" />
+    <gauge name="StoreFecUsed" summary="FEC sets with store metadata, including inserts in progress" />
+    <gauge name="StoreFecPeak" summary="Highest StoreFecUsed since the store was created" />
+    <gauge name="StoreFecCapacity" summary="FEC set metadata capacity of the store" />
+    <gauge name="StoreFecDiskCount" summary="Store spill file slots holding a FEC payload" />
+    <histogram name="StoreFecMapProbePerQuery" min="0" max="64">
+        <summary>FEC map chain entries examined by one replay store query</summary>
+    </histogram>
 
     <bool name="IsCaughtUp" summary="Whether replay has caught up to the cluster tip; set once per run, never cleared" />
     <gauge name="RootSlot" summary="Most recent consensus root, 0 if none" />
@@ -987,7 +1004,8 @@ deliberate exception with lint-allow="<rule id>")
     <counter name="SchedMicroblockDone" summary="Microblocks that were fully replayed" />
     <counter name="SchedIngestedBytes" summary="Bytes the replay scheduler has ingested" />
     <counter name="SchedTrailingSkippedBytes" summary="Trailing bytes of a block the replay scheduler ingested but did not parse" />
-    <counter name="SchedDroppedBytes" summary="Bytes the replay scheduler refused to ingest because the block was abandoned" />
+    <counter name="SchedDroppedBytes" deprecated="true" summary="Bytes the replay scheduler refused to ingest because the block was abandoned" />
+    <counter name="SchedFecDropped" summary="FEC sets the replay scheduler refused to ingest because the block was dead or abandoned" />
     <counter name="SchedFecIngested" summary="FEC sets the replay scheduler has been given" />
 
     <counter name="BankFrozen" summary="Banks frozen, including our own leader blocks" />
@@ -1131,6 +1149,11 @@ deliberate exception with lint-allow="<rule id>")
     <int value="4" name="PongTokenInvalid" label="Pong token outdated or invalid" />
     <int value="5" name="ShredIndexInvalid" label="Shred index past the end of a block" />
     <int value="6" name="FecSetIndexInvalid" label="FEC set index unaligned or past the end of the block" />
+</enum>
+
+<enum name="StoreFecSourceType">
+    <int value="0" name="Cache" label="Read from the store RAM cache" />
+    <int value="1" name="Disk" label="Read from the store spill file" />
 </enum>
 
 <enum name="DiskReadResult">

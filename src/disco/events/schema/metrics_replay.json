@@ -122,7 +122,7 @@
         "store_fec_spill_read_bytes":         { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Spilled FEC payload bytes read from disk" },
         "store_fec_cache_used":               { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "FEC payload slots in use in the store RAM cache" },
         "store_fec_cache_capacity":           { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "FEC payload capacity of the store RAM cache" },
-        "store_fec_cache_pinned":             { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "gauge: current value, do not sum over time. FEC payload views currently pinned against eviction" },
+        "store_fec_cache_pinned":             { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "gauge: current value, do not sum over time. FEC payload views currently pinned against eviction", "deprecated": true },
         "is_caught_up":                       { "type": "Bool",                                                           "description": "Whether replay has caught up to the cluster tip; set once per run, never cleared" },
         "root_slot":                          { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Most recent consensus root, 0 if none" },
         "root_slot_distance":                 { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Slots between the current reset slot and our root" },
@@ -216,7 +216,7 @@
         "sched_microblock_done":              { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Microblocks that were fully replayed" },
         "sched_ingested_bytes":               { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Bytes the replay scheduler has ingested" },
         "sched_trailing_skipped_bytes":       { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Trailing bytes of a block the replay scheduler ingested but did not parse" },
-        "sched_dropped_bytes":                { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Bytes the replay scheduler refused to ingest because the block was abandoned" },
+        "sched_dropped_bytes":                { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Bytes the replay scheduler refused to ingest because the block was abandoned", "deprecated": true },
         "sched_fec_ingested":                 { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "FEC sets the replay scheduler has been given" },
         "bank_frozen":                        { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Banks frozen, including our own leader blocks" },
         "chain_txn_height":                   { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "gauge: current value, do not sum over time. Transactions from genesis through the last replayed block, 0 if none; drops on a fork switch" },
@@ -373,6 +373,73 @@
         "is_runtime_loaded":                  { "type": "Bool",                                                           "description": "Whether the runtime has loaded a bank and can replay" },
         "fec_rooted_past_skipped":            { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Rotor FEC sets of a slot at or below the published root, or of a block whose parent is below it, skipped rather than dropped: no redelivery can replay them" },
         "leader_window_already_produced":     { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Leader windows given up because the cluster already produced one of their slots, eg. our own past slots replayed after a restart (Alpenglow)" },
-        "leader_window_superseded":           { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Leader windows given up after votor sent them because certificates already let a later window start (Alpenglow)" }
+        "leader_window_superseded":           { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Leader windows given up after votor sent them because certificates already let a later window start (Alpenglow)" },
+        "store_fec_query_hit": {
+            "type": "Tuple",
+            "description": "FEC set store queries that found a payload, by where it was read from",
+            "field_number": 479541129,
+            "aliases": {
+                "all": ["cache", "disk"]
+            },
+            "fields": {
+                "cache": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Read from the store RAM cache" },
+                "disk":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Read from the store spill file" }
+            }
+        },
+        "store_fec_spill_read_duration_nanos": {
+            "type": "Tuple",
+            "description": "Duration of reading one spilled FEC payload from disk",
+            "field_number": 474779101,
+            "fields": {
+                "b0":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[0, 1000) nanos" },
+                "b1":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[1000, 2276) nanos" },
+                "b2":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[2276, 5180) nanos" },
+                "b3":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[5180, 11789) nanos" },
+                "b4":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[11789, 26830) nanos" },
+                "b5":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[26830, 61060) nanos" },
+                "b6":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[61060, 138962) nanos" },
+                "b7":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[138962, 316253) nanos" },
+                "b8":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[316253, 719735) nanos" },
+                "b9":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[719735, 1637987) nanos" },
+                "b10": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[1637987, 3727764) nanos" },
+                "b11": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[3727764, 8483720) nanos" },
+                "b12": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[8483720, 19307419) nanos" },
+                "b13": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[19307419, 43940208) nanos" },
+                "b14": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[43940208, 100000000) nanos" },
+                "b15": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[100000000, inf) nanos" },
+                "sum": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Sum of samples (nanos)" }
+            }
+        },
+        "store_fec_publish_removed":          { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "FEC sets removed from the store by root publishes", "field_number": 311152129 },
+        "store_fec_spill_cancelled":          { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "FEC payload spills discarded because replay pinned the payload while it was being written", "field_number": 375569789 },
+        "store_fec_used":                     { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "FEC sets with store metadata, including inserts in progress", "field_number": 484539909 },
+        "store_fec_peak":                     { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Highest StoreFecUsed since the store was created", "field_number": 499082207 },
+        "store_fec_capacity":                 { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "FEC set metadata capacity of the store", "field_number": 508383645 },
+        "store_fec_disk_count":               { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Store spill file slots holding a FEC payload", "field_number": 423558583 },
+        "store_fec_map_probe_per_query": {
+            "type": "Tuple",
+            "description": "FEC map chain entries examined by one replay store query",
+            "field_number": 478619039,
+            "fields": {
+                "b0":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[0, 1)" },
+                "b1":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[1, 2)" },
+                "b2":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[2, 3)" },
+                "b3":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[3, 4)" },
+                "b4":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[4, 5)" },
+                "b5":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[5, 6)" },
+                "b6":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[6, 8)" },
+                "b7":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[8, 10)" },
+                "b8":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[10, 13)" },
+                "b9":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[13, 17)" },
+                "b10": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[17, 22)" },
+                "b11": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[22, 29)" },
+                "b12": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[29, 38)" },
+                "b13": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[38, 49)" },
+                "b14": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[49, 64)" },
+                "b15": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[64, inf)" },
+                "sum": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Sum of samples" }
+            }
+        },
+        "sched_fec_dropped":                  { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "FEC sets the replay scheduler refused to ingest because the block was dead or abandoned", "field_number": 492263128 }
     }
 }
