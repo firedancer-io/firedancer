@@ -76,11 +76,12 @@ test_setup_ex( int * out_fd,
 static int test_idx_fd = -1;
 
 static fd_accdb_t *
-test_setup_idx( int * out_fd,
-                ulong max_accounts,
-                ulong index_ram_entries,
-                ulong max_live_slots,
-                ulong max_account_writes_per_slot ) {
+test_setup_idx_part( int * out_fd,
+                     ulong max_accounts,
+                     ulong index_ram_entries,
+                     ulong max_live_slots,
+                     ulong max_account_writes_per_slot,
+                     ulong partition_sz ) {
   int fd = memfd_create( "accdb_test", 0 );
   FD_TEST( fd>=0 );
   *out_fd = fd;
@@ -89,7 +90,7 @@ test_setup_idx( int * out_fd,
   void * shmem_mem = aligned_alloc( fd_accdb_shmem_align(), shmem_fp );
   FD_TEST( shmem_mem );
   fd_accdb_shmem_t * shmem = fd_accdb_shmem_join( fd_accdb_shmem_new( shmem_mem, max_accounts, max_live_slots, max_account_writes_per_slot, 8192UL,
-                                                                      1UL<<30, TEST_CACHE_FOOTPRINT, TEST_CACHE_MIN_RESERVED, 0, 42UL, 4UL, 0UL, index_ram_entries ) );
+                                                                      partition_sz, TEST_CACHE_FOOTPRINT, TEST_CACHE_MIN_RESERVED, 0, 42UL, 4UL, 0UL, index_ram_entries ) );
   FD_TEST( shmem );
   FD_TEST( shmem->index_ram_entries==index_ram_entries );
   test_shmem_mem = shmem_mem;
@@ -100,6 +101,15 @@ test_setup_idx( int * out_fd,
   fd_accdb_t * accdb = fd_accdb_join( fd_accdb_new( accdb_mem, shmem, fd, -1, 0UL, NULL, NULL, 0UL, 1, test_idx_fd ) );
   FD_TEST( accdb );
   return accdb;
+}
+
+static fd_accdb_t *
+test_setup_idx( int * out_fd,
+                ulong max_accounts,
+                ulong index_ram_entries,
+                ulong max_live_slots,
+                ulong max_account_writes_per_slot ) {
+  return test_setup_idx_part( out_fd, max_accounts, index_ram_entries, max_live_slots, max_account_writes_per_slot, 1UL<<30 );
 }
 
 static fd_accdb_t *
@@ -2537,6 +2547,59 @@ test_idx_demote_keeps_lines( void ) {
   test_teardown( accdb, fd );
 }
 
+/* Compaction keeps bucket-only records live (the bucket slot names the
+   offset) and repoints the slot on relocation. */
+
+static void
+test_idx_compact_bucket_only( void ) {
+  int fd;
+  ulong part_sz = fd_accdb_cache_slot_sz[ FD_ACCDB_CACHE_CLASS_CNT-1UL ]+(64UL<<10);
+  fd_accdb_t * accdb = test_setup_idx_part( &fd, 16384UL, 4096UL, 256UL, 64UL, part_sz );
+  static uchar d[ 60000 ];
+  fd_accdb_fork_id_t tip = fd_accdb_attach_child( accdb, SENTINEL );
+  uchar key[ 32 ];
+  ulong n = 3UL*part_sz/(sizeof(d)+72UL);
+  for( ulong i=0UL; i<n; i++ ) {
+    fd_accdb_fork_id_t c = fd_accdb_attach_child( accdb, tip );
+    memset( key, 0, 32 ); FD_STORE( ulong, key, i+1UL );
+    memset( d, (int)(i&0xFF), sizeof(d) );
+    accdb_write( accdb, c, key, 1000UL+i, d, sizeof(d), owner2 );
+    fd_accdb_advance_root( accdb, c );
+    drain_background( accdb );
+    tip = c;
+  }
+  tip = test_root_n( accdb, tip, FD_ACCDB_DEMOTE_AGE+2UL );
+  FD_TEST( fd_accdb_metrics( accdb )->accounts_demoted==n );
+
+  /* Supersede every other key: frees half of each old partition. */
+  for( ulong i=0UL; i<n; i+=2UL ) {
+    fd_accdb_fork_id_t c = fd_accdb_attach_child( accdb, tip );
+    memset( key, 0, 32 ); FD_STORE( ulong, key, i+1UL );
+    accdb_write( accdb, c, key, 5UL, d, 16UL, owner2 );
+    fd_accdb_advance_root( accdb, c );
+    drain_background( accdb );
+    tip = c;
+  }
+  tip = test_root_n( accdb, tip, FD_ACCDB_DEMOTE_AGE+2UL );
+  for( ulong i=0UL; i<4096UL; i++ ) drain_background( accdb );
+  FD_TEST( fd_accdb_shmetrics( accdb )->compactions_completed>0UL );
+  FD_TEST( fd_accdb_shmetrics( accdb )->accounts_relocated>0UL );
+
+  fd_accdb_idx_region_t bkt = test_bkt_region();
+  for( ulong i=1UL; i<n; i+=2UL ) {
+    memset( key, 0, 32 ); FD_STORE( ulong, key, i+1UL );
+    fd_accdb_idx_slot_t slot;
+    FD_TEST( fd_accdb_idx_lookup( &bkt, test_shmem_mem->seed, key, 0, &slot ) );
+    fd_accdb_disk_meta_t meta; uchar b0;
+    FD_TEST( pread( fd, &meta, sizeof(meta), (long)(slot.off_plus1-1UL) )==(long)sizeof(meta) );
+    FD_TEST( !memcmp( meta.pubkey, key, 32 ) && meta.size==sizeof(d) );
+    FD_TEST( pread( fd, &b0, 1UL, (long)(slot.off_plus1-1UL+sizeof(meta)+100UL) )==1L );
+    FD_TEST( b0==(uchar)(i&0xFF) );
+  }
+  close( test_idx_fd );
+  test_teardown( accdb, fd );
+}
+
 /* Demote FIFO with rewrites every root: 64 roots x 64 rewritten keys
    fill a 4096-entry FIFO with superseded entries and no pool pressure;
    the push compacts them instead of aborting. */
@@ -2687,6 +2750,9 @@ main( int     argc,
 
   FD_LOG_NOTICE(( "test_idx_fifo_rewrite ..." ));
   test_idx_fifo_rewrite();
+
+  FD_LOG_NOTICE(( "test_idx_compact_bucket_only ..." ));
+  test_idx_compact_bucket_only();
 
   FD_LOG_NOTICE(( "success" ));
 
