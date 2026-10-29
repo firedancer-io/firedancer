@@ -2162,6 +2162,44 @@ message MetricsDedupRegimeDurationNanos {
   uint64 backpressure_sleeping = 10;
 }
 
+// Duration of one read from the account database file
+message MetricsResolvAccdbDiskReadDurationNanos {
+  // [0, 1000) nanos
+  uint64 b0 = 1;
+  // [1000, 2683) nanos
+  uint64 b1 = 2;
+  // [2683, 7198) nanos
+  uint64 b2 = 3;
+  // [7198, 19310) nanos
+  uint64 b3 = 4;
+  // [19310, 51802) nanos
+  uint64 b4 = 5;
+  // [51802, 138967) nanos
+  uint64 b5 = 6;
+  // [138967, 372801) nanos
+  uint64 b6 = 7;
+  // [372801, 1000098) nanos
+  uint64 b7 = 8;
+  // [1000098, 2682921) nanos
+  uint64 b8 = 9;
+  // [2682921, 7197360) nanos
+  uint64 b9 = 10;
+  // [7197360, 19308057) nanos
+  uint64 b10 = 11;
+  // [19308057, 51796919) nanos
+  uint64 b11 = 12;
+  // [51796919, 138953434) nanos
+  uint64 b12 = 13;
+  // [138953434, 372764583) nanos
+  uint64 b13 = 14;
+  // [372764583, 1000000000) nanos
+  uint64 b14 = 15;
+  // [1000000000, inf) nanos
+  uint64 b15 = 16;
+  // Sum of samples (nanos)
+  uint64 sum = 17;
+}
+
 // Accounts not found in the account database cache and read from disk, by cache size class
 message MetricsResolvAccdbAccountCacheMissed {
   // 0-128 B
@@ -2854,6 +2892,82 @@ message MetricsPackRegimeDurationNanos {
   uint64 backpressure_sleeping = 10;
 }
 
+// Duration of one write to the account database file
+message MetricsExecleAccdbDiskWriteDurationNanos {
+  // [0, 1000) nanos
+  uint64 b0 = 1;
+  // [1000, 2683) nanos
+  uint64 b1 = 2;
+  // [2683, 7198) nanos
+  uint64 b2 = 3;
+  // [7198, 19310) nanos
+  uint64 b3 = 4;
+  // [19310, 51802) nanos
+  uint64 b4 = 5;
+  // [51802, 138967) nanos
+  uint64 b5 = 6;
+  // [138967, 372801) nanos
+  uint64 b6 = 7;
+  // [372801, 1000098) nanos
+  uint64 b7 = 8;
+  // [1000098, 2682921) nanos
+  uint64 b8 = 9;
+  // [2682921, 7197360) nanos
+  uint64 b9 = 10;
+  // [7197360, 19308057) nanos
+  uint64 b10 = 11;
+  // [19308057, 51796919) nanos
+  uint64 b11 = 12;
+  // [51796919, 138953434) nanos
+  uint64 b12 = 13;
+  // [138953434, 372764583) nanos
+  uint64 b13 = 14;
+  // [372764583, 1000000000) nanos
+  uint64 b14 = 15;
+  // [1000000000, inf) nanos
+  uint64 b15 = 16;
+  // Sum of samples (nanos)
+  uint64 sum = 17;
+}
+
+// Duration of one read from the account database file
+message MetricsExecleAccdbDiskReadDurationNanos {
+  // [0, 1000) nanos
+  uint64 b0 = 1;
+  // [1000, 2683) nanos
+  uint64 b1 = 2;
+  // [2683, 7198) nanos
+  uint64 b2 = 3;
+  // [7198, 19310) nanos
+  uint64 b3 = 4;
+  // [19310, 51802) nanos
+  uint64 b4 = 5;
+  // [51802, 138967) nanos
+  uint64 b5 = 6;
+  // [138967, 372801) nanos
+  uint64 b6 = 7;
+  // [372801, 1000098) nanos
+  uint64 b7 = 8;
+  // [1000098, 2682921) nanos
+  uint64 b8 = 9;
+  // [2682921, 7197360) nanos
+  uint64 b9 = 10;
+  // [7197360, 19308057) nanos
+  uint64 b10 = 11;
+  // [19308057, 51796919) nanos
+  uint64 b11 = 12;
+  // [51796919, 138953434) nanos
+  uint64 b12 = 13;
+  // [138953434, 372764583) nanos
+  uint64 b13 = 14;
+  // [372764583, 1000000000) nanos
+  uint64 b14 = 15;
+  // [1000000000, inf) nanos
+  uint64 b15 = 16;
+  // Sum of samples (nanos)
+  uint64 sum = 17;
+}
+
 // Accounts not found in the account database cache and read from disk, by cache size class
 message MetricsExecleAccdbAccountCacheMissed {
   // 0-128 B
@@ -3528,6 +3642,82 @@ message MetricsShredRegimeDurationNanos {
   uint64 backpressure_sleeping = 10;
 }
 
+// Duration of one write to the account database file by compaction and writeback
+message MetricsAccdbAccountsDiskWriteDurationNanos {
+  // [0, 1000) nanos
+  uint64 b0 = 1;
+  // [1000, 2683) nanos
+  uint64 b1 = 2;
+  // [2683, 7198) nanos
+  uint64 b2 = 3;
+  // [7198, 19310) nanos
+  uint64 b3 = 4;
+  // [19310, 51802) nanos
+  uint64 b4 = 5;
+  // [51802, 138967) nanos
+  uint64 b5 = 6;
+  // [138967, 372801) nanos
+  uint64 b6 = 7;
+  // [372801, 1000098) nanos
+  uint64 b7 = 8;
+  // [1000098, 2682921) nanos
+  uint64 b8 = 9;
+  // [2682921, 7197360) nanos
+  uint64 b9 = 10;
+  // [7197360, 19308057) nanos
+  uint64 b10 = 11;
+  // [19308057, 51796919) nanos
+  uint64 b11 = 12;
+  // [51796919, 138953434) nanos
+  uint64 b12 = 13;
+  // [138953434, 372764583) nanos
+  uint64 b13 = 14;
+  // [372764583, 1000000000) nanos
+  uint64 b14 = 15;
+  // [1000000000, inf) nanos
+  uint64 b15 = 16;
+  // Sum of samples (nanos)
+  uint64 sum = 17;
+}
+
+// Duration of one read from the account database file by compaction
+message MetricsAccdbAccountsDiskReadDurationNanos {
+  // [0, 1000) nanos
+  uint64 b0 = 1;
+  // [1000, 2683) nanos
+  uint64 b1 = 2;
+  // [2683, 7198) nanos
+  uint64 b2 = 3;
+  // [7198, 19310) nanos
+  uint64 b3 = 4;
+  // [19310, 51802) nanos
+  uint64 b4 = 5;
+  // [51802, 138967) nanos
+  uint64 b5 = 6;
+  // [138967, 372801) nanos
+  uint64 b6 = 7;
+  // [372801, 1000098) nanos
+  uint64 b7 = 8;
+  // [1000098, 2682921) nanos
+  uint64 b8 = 9;
+  // [2682921, 7197360) nanos
+  uint64 b9 = 10;
+  // [7197360, 19308057) nanos
+  uint64 b10 = 11;
+  // [19308057, 51796919) nanos
+  uint64 b11 = 12;
+  // [51796919, 138953434) nanos
+  uint64 b12 = 13;
+  // [138953434, 372764583) nanos
+  uint64 b13 = 14;
+  // [372764583, 1000000000) nanos
+  uint64 b14 = 15;
+  // [1000000000, inf) nanos
+  uint64 b15 = 16;
+  // Sum of samples (nanos)
+  uint64 sum = 17;
+}
+
 // Program cache slots reclaimed by the background preevict pass, by size class
 message MetricsAccdbProgcachePreevicted {
   // 0-128 KiB
@@ -3730,6 +3920,82 @@ message MetricsAccdbRegimeDurationNanos {
   uint64 caught_up_sleeping = 9;
   // Backpressure + Sleeping
   uint64 backpressure_sleeping = 10;
+}
+
+// Duration of one write to the account database file
+message MetricsReplayAccdbDiskWriteDurationNanos {
+  // [0, 1000) nanos
+  uint64 b0 = 1;
+  // [1000, 2683) nanos
+  uint64 b1 = 2;
+  // [2683, 7198) nanos
+  uint64 b2 = 3;
+  // [7198, 19310) nanos
+  uint64 b3 = 4;
+  // [19310, 51802) nanos
+  uint64 b4 = 5;
+  // [51802, 138967) nanos
+  uint64 b5 = 6;
+  // [138967, 372801) nanos
+  uint64 b6 = 7;
+  // [372801, 1000098) nanos
+  uint64 b7 = 8;
+  // [1000098, 2682921) nanos
+  uint64 b8 = 9;
+  // [2682921, 7197360) nanos
+  uint64 b9 = 10;
+  // [7197360, 19308057) nanos
+  uint64 b10 = 11;
+  // [19308057, 51796919) nanos
+  uint64 b11 = 12;
+  // [51796919, 138953434) nanos
+  uint64 b12 = 13;
+  // [138953434, 372764583) nanos
+  uint64 b13 = 14;
+  // [372764583, 1000000000) nanos
+  uint64 b14 = 15;
+  // [1000000000, inf) nanos
+  uint64 b15 = 16;
+  // Sum of samples (nanos)
+  uint64 sum = 17;
+}
+
+// Duration of one read from the account database file
+message MetricsReplayAccdbDiskReadDurationNanos {
+  // [0, 1000) nanos
+  uint64 b0 = 1;
+  // [1000, 2683) nanos
+  uint64 b1 = 2;
+  // [2683, 7198) nanos
+  uint64 b2 = 3;
+  // [7198, 19310) nanos
+  uint64 b3 = 4;
+  // [19310, 51802) nanos
+  uint64 b4 = 5;
+  // [51802, 138967) nanos
+  uint64 b5 = 6;
+  // [138967, 372801) nanos
+  uint64 b6 = 7;
+  // [372801, 1000098) nanos
+  uint64 b7 = 8;
+  // [1000098, 2682921) nanos
+  uint64 b8 = 9;
+  // [2682921, 7197360) nanos
+  uint64 b9 = 10;
+  // [7197360, 19308057) nanos
+  uint64 b10 = 11;
+  // [19308057, 51796919) nanos
+  uint64 b11 = 12;
+  // [51796919, 138953434) nanos
+  uint64 b12 = 13;
+  // [138953434, 372764583) nanos
+  uint64 b13 = 14;
+  // [372764583, 1000000000) nanos
+  uint64 b14 = 15;
+  // [1000000000, inf) nanos
+  uint64 b15 = 16;
+  // Sum of samples (nanos)
+  uint64 sum = 17;
 }
 
 // Accounts not found in the account database cache and read from disk, by cache size class
@@ -5450,6 +5716,44 @@ message MetricsMetricRegimeDurationNanos {
   uint64 backpressure_sleeping = 10;
 }
 
+// Duration of one read from the account database file
+message MetricsRpcAccdbDiskReadDurationNanos {
+  // [0, 1000) nanos
+  uint64 b0 = 1;
+  // [1000, 2683) nanos
+  uint64 b1 = 2;
+  // [2683, 7198) nanos
+  uint64 b2 = 3;
+  // [7198, 19310) nanos
+  uint64 b3 = 4;
+  // [19310, 51802) nanos
+  uint64 b4 = 5;
+  // [51802, 138967) nanos
+  uint64 b5 = 6;
+  // [138967, 372801) nanos
+  uint64 b6 = 7;
+  // [372801, 1000098) nanos
+  uint64 b7 = 8;
+  // [1000098, 2682921) nanos
+  uint64 b8 = 9;
+  // [2682921, 7197360) nanos
+  uint64 b9 = 10;
+  // [7197360, 19308057) nanos
+  uint64 b10 = 11;
+  // [19308057, 51796919) nanos
+  uint64 b11 = 12;
+  // [51796919, 138953434) nanos
+  uint64 b12 = 13;
+  // [138953434, 372764583) nanos
+  uint64 b13 = 14;
+  // [372764583, 1000000000) nanos
+  uint64 b14 = 15;
+  // [1000000000, inf) nanos
+  uint64 b15 = 16;
+  // Sum of samples (nanos)
+  uint64 sum = 17;
+}
+
 // Accounts not found in the account database cache and read from disk, by cache size class
 message MetricsRpcAccdbAccountCacheMissed {
   // 0-128 B
@@ -6028,6 +6332,82 @@ message MetricsIpechoRegimeDurationNanos {
   uint64 caught_up_sleeping = 9;
   // Backpressure + Sleeping
   uint64 backpressure_sleeping = 10;
+}
+
+// Duration of one write to the account database file
+message MetricsExecrpAccdbDiskWriteDurationNanos {
+  // [0, 1000) nanos
+  uint64 b0 = 1;
+  // [1000, 2683) nanos
+  uint64 b1 = 2;
+  // [2683, 7198) nanos
+  uint64 b2 = 3;
+  // [7198, 19310) nanos
+  uint64 b3 = 4;
+  // [19310, 51802) nanos
+  uint64 b4 = 5;
+  // [51802, 138967) nanos
+  uint64 b5 = 6;
+  // [138967, 372801) nanos
+  uint64 b6 = 7;
+  // [372801, 1000098) nanos
+  uint64 b7 = 8;
+  // [1000098, 2682921) nanos
+  uint64 b8 = 9;
+  // [2682921, 7197360) nanos
+  uint64 b9 = 10;
+  // [7197360, 19308057) nanos
+  uint64 b10 = 11;
+  // [19308057, 51796919) nanos
+  uint64 b11 = 12;
+  // [51796919, 138953434) nanos
+  uint64 b12 = 13;
+  // [138953434, 372764583) nanos
+  uint64 b13 = 14;
+  // [372764583, 1000000000) nanos
+  uint64 b14 = 15;
+  // [1000000000, inf) nanos
+  uint64 b15 = 16;
+  // Sum of samples (nanos)
+  uint64 sum = 17;
+}
+
+// Duration of one read from the account database file
+message MetricsExecrpAccdbDiskReadDurationNanos {
+  // [0, 1000) nanos
+  uint64 b0 = 1;
+  // [1000, 2683) nanos
+  uint64 b1 = 2;
+  // [2683, 7198) nanos
+  uint64 b2 = 3;
+  // [7198, 19310) nanos
+  uint64 b3 = 4;
+  // [19310, 51802) nanos
+  uint64 b4 = 5;
+  // [51802, 138967) nanos
+  uint64 b5 = 6;
+  // [138967, 372801) nanos
+  uint64 b6 = 7;
+  // [372801, 1000098) nanos
+  uint64 b7 = 8;
+  // [1000098, 2682921) nanos
+  uint64 b8 = 9;
+  // [2682921, 7197360) nanos
+  uint64 b9 = 10;
+  // [7197360, 19308057) nanos
+  uint64 b10 = 11;
+  // [19308057, 51796919) nanos
+  uint64 b11 = 12;
+  // [51796919, 138953434) nanos
+  uint64 b12 = 13;
+  // [138953434, 372764583) nanos
+  uint64 b13 = 14;
+  // [372764583, 1000000000) nanos
+  uint64 b14 = 15;
+  // [1000000000, inf) nanos
+  uint64 b15 = 16;
+  // Sum of samples (nanos)
+  uint64 sum = 17;
 }
 
 // Accounts not found in the account database cache and read from disk, by cache size class
@@ -9420,6 +9800,8 @@ message MetricsResolv {
   uint64 accdb_disk_read = 33;
   // Account data bytes copied in memory between cache lines, staging buffers and callers; disk reads excluded
   uint64 accdb_copied_bytes = 34;
+  // Duration of one read from the account database file
+  MetricsResolvAccdbDiskReadDurationNanos accdb_disk_read_duration_nanos = 35;
 }
 
 // Metrics of one pack tile instance, one row per sweep
@@ -9646,6 +10028,10 @@ message MetricsExecle {
   uint64 accdb_copied_bytes = 61;
   // Cache invalidations due to transaction execution from a different block
   uint64 bank_switched = 62;
+  // Duration of one read from the account database file
+  MetricsExecleAccdbDiskReadDurationNanos accdb_disk_read_duration_nanos = 63;
+  // Duration of one write to the account database file
+  MetricsExecleAccdbDiskWriteDurationNanos accdb_disk_write_duration_nanos = 64;
 }
 
 // Metrics of one shred tile instance, one row per sweep
@@ -9842,6 +10228,10 @@ message MetricsAccdb {
   uint64 progcache_preevicted_bytes = 47;
   // Program cache slots reclaimed by the background preevict pass, by size class
   MetricsAccdbProgcachePreevicted progcache_preevicted = 48;
+  // Duration of one read from the account database file by compaction
+  MetricsAccdbAccountsDiskReadDurationNanos accounts_disk_read_duration_nanos = 49;
+  // Duration of one write to the account database file by compaction and writeback
+  MetricsAccdbAccountsDiskWriteDurationNanos accounts_disk_write_duration_nanos = 50;
 }
 
 // Metrics of one replay tile instance, one row per sweep
@@ -10084,6 +10474,10 @@ message MetricsReplay {
   uint64 leader_window_already_produced = 118;
   // Leader windows given up after votor sent them because certificates already let a later window start (Alpenglow)
   uint64 leader_window_superseded = 119;
+  // Duration of one read from the account database file
+  MetricsReplayAccdbDiskReadDurationNanos accdb_disk_read_duration_nanos = 120;
+  // Duration of one write to the account database file
+  MetricsReplayAccdbDiskWriteDurationNanos accdb_disk_write_duration_nanos = 121;
 }
 
 // Metrics of one rotor tile instance, one row per sweep
@@ -11004,6 +11398,8 @@ message MetricsRpc {
   uint64 accdb_disk_read = 36;
   // Account data bytes copied in memory between cache lines, staging buffers and callers; disk reads excluded
   uint64 accdb_copied_bytes = 37;
+  // Duration of one read from the account database file
+  MetricsRpcAccdbDiskReadDurationNanos accdb_disk_read_duration_nanos = 38;
 }
 
 // Metrics of one diag tile instance, one row per sweep
@@ -11544,6 +11940,10 @@ message MetricsExecrp {
   uint64 accdb_copied_bytes = 63;
   // Cache invalidations due to transaction execution from a different block
   uint64 bank_switched = 64;
+  // Duration of one read from the account database file
+  MetricsExecrpAccdbDiskReadDurationNanos accdb_disk_read_duration_nanos = 65;
+  // Duration of one write to the account database file
+  MetricsExecrpAccdbDiskWriteDurationNanos accdb_disk_write_duration_nanos = 66;
 }
 
 // Metrics of one votor tile instance, one row per sweep

@@ -2,6 +2,7 @@
 #define HEADER_fd_src_flamenco_accdb_fd_accdb_shmem_h
 
 #include "fd_accdb_cache.h"
+#include "../../util/hist/fd_histf.h"
 #include <stddef.h> /* offsetof */
 
 #define FD_ACCDB_SHMEM_ALIGN (128UL)
@@ -36,28 +37,31 @@ struct fd_accdb_shmem_metrics {
 typedef struct fd_accdb_shmem_metrics fd_accdb_shmem_metrics_t;
 
 struct fd_accdb_metrics {
-  ulong acquire_calls;
-  ulong accounts_acquired_per_class[ FD_ACCDB_CACHE_CLASS_CNT ];
-  ulong writable_accounts_acquired_per_class[ FD_ACCDB_CACHE_CLASS_CNT ];
-  ulong accounts_evicted;
-  ulong accounts_evicted_per_class[ FD_ACCDB_CACHE_CLASS_CNT ];
-  ulong accounts_preevicted;
-  ulong accounts_preevicted_per_class[ FD_ACCDB_CACHE_CLASS_CNT ];
-  ulong accounts_committed_new_per_class[ FD_ACCDB_CACHE_CLASS_CNT ];
-  ulong accounts_committed_overwrite_per_class[ FD_ACCDB_CACHE_CLASS_CNT ];
-  ulong accounts_not_found_per_class[ FD_ACCDB_CACHE_CLASS_CNT ];
-  ulong accounts_waited;
-  ulong accounts_deleted;
+  ulong      acquire_calls;
+  ulong      accounts_acquired_per_class[ FD_ACCDB_CACHE_CLASS_CNT ];
+  ulong      writable_accounts_acquired_per_class[ FD_ACCDB_CACHE_CLASS_CNT ];
+  ulong      accounts_evicted;
+  ulong      accounts_evicted_per_class[ FD_ACCDB_CACHE_CLASS_CNT ];
+  ulong      accounts_preevicted;
+  ulong      accounts_preevicted_per_class[ FD_ACCDB_CACHE_CLASS_CNT ];
+  ulong      accounts_committed_new_per_class[ FD_ACCDB_CACHE_CLASS_CNT ];
+  ulong      accounts_committed_overwrite_per_class[ FD_ACCDB_CACHE_CLASS_CNT ];
+  ulong      accounts_not_found_per_class[ FD_ACCDB_CACHE_CLASS_CNT ];
+  ulong      accounts_waited;
+  ulong      accounts_deleted;
 
-  ulong acquire_failed;
+  ulong      acquire_failed;
 
-  ulong bytes_read;
-  ulong read_ops;
-  ulong bytes_written;
-  ulong write_ops;
-  ulong copy_ops;
+  ulong      bytes_read;
+  ulong      read_ops;
+  ulong      bytes_written;
+  ulong      write_ops;
+  ulong      copy_ops;
 
-  ulong bytes_copied;
+  ulong      bytes_copied;
+
+  fd_histf_t disk_read_duration[1];
+  fd_histf_t disk_write_duration[1];
 };
 
 typedef struct fd_accdb_metrics fd_accdb_metrics_t;

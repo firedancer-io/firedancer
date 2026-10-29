@@ -449,6 +449,7 @@
 | <span class="metrics-name">resolv_&#8203;accdb_&#8203;account_&#8203;waited</span> | counter | Accounts that had to wait for another reader to finish loading them into the cache |
 | <span class="metrics-name">resolv_&#8203;accdb_&#8203;disk_&#8203;read_&#8203;bytes</span> | counter | Bytes read from the account database file |
 | <span class="metrics-name">resolv_&#8203;accdb_&#8203;disk_&#8203;read</span> | counter | Reads from the account database file |
+| <span class="metrics-name">resolv_&#8203;accdb_&#8203;disk_&#8203;read_&#8203;duration_&#8203;nanos</span> | histogram | Duration of one read from the account database file |
 | <span class="metrics-name">resolv_&#8203;accdb_&#8203;copied_&#8203;bytes</span> | counter | Account data bytes copied in memory between cache lines, staging buffers and callers; disk reads excluded |
 
 </div>
@@ -676,6 +677,8 @@
 | <span class="metrics-name">execle_&#8203;accdb_&#8203;disk_&#8203;read</span> | counter | Reads from the account database file |
 | <span class="metrics-name">execle_&#8203;accdb_&#8203;disk_&#8203;written_&#8203;bytes</span> | counter | Bytes written to the account database file |
 | <span class="metrics-name">execle_&#8203;accdb_&#8203;disk_&#8203;written</span> | counter | Writes to the account database file |
+| <span class="metrics-name">execle_&#8203;accdb_&#8203;disk_&#8203;read_&#8203;duration_&#8203;nanos</span> | histogram | Duration of one read from the account database file |
+| <span class="metrics-name">execle_&#8203;accdb_&#8203;disk_&#8203;write_&#8203;duration_&#8203;nanos</span> | histogram | Duration of one write to the account database file |
 | <span class="metrics-name">execle_&#8203;accdb_&#8203;copied_&#8203;bytes</span> | counter | Account data bytes copied in memory between cache lines, staging buffers and callers; disk reads excluded |
 
 </div>
@@ -1175,6 +1178,8 @@
 | <span class="metrics-name">replay_&#8203;accdb_&#8203;disk_&#8203;read</span> | counter | Reads from the account database file |
 | <span class="metrics-name">replay_&#8203;accdb_&#8203;disk_&#8203;written_&#8203;bytes</span> | counter | Bytes written to the account database file |
 | <span class="metrics-name">replay_&#8203;accdb_&#8203;disk_&#8203;written</span> | counter | Writes to the account database file |
+| <span class="metrics-name">replay_&#8203;accdb_&#8203;disk_&#8203;read_&#8203;duration_&#8203;nanos</span> | histogram | Duration of one read from the account database file |
+| <span class="metrics-name">replay_&#8203;accdb_&#8203;disk_&#8203;write_&#8203;duration_&#8203;nanos</span> | histogram | Duration of one write to the account database file |
 | <span class="metrics-name">replay_&#8203;accdb_&#8203;copied_&#8203;bytes</span> | counter | Account data bytes copied in memory between cache lines, staging buffers and callers; disk reads excluded |
 | <span class="metrics-name">replay_&#8203;is_&#8203;runtime_&#8203;loaded</span> | gauge | Whether the runtime has loaded a bank and can replay |
 
@@ -1322,6 +1327,8 @@
 | <span class="metrics-name">execrp_&#8203;accdb_&#8203;disk_&#8203;read</span> | counter | Reads from the account database file |
 | <span class="metrics-name">execrp_&#8203;accdb_&#8203;disk_&#8203;written_&#8203;bytes</span> | counter | Bytes written to the account database file |
 | <span class="metrics-name">execrp_&#8203;accdb_&#8203;disk_&#8203;written</span> | counter | Writes to the account database file |
+| <span class="metrics-name">execrp_&#8203;accdb_&#8203;disk_&#8203;read_&#8203;duration_&#8203;nanos</span> | histogram | Duration of one read from the account database file |
+| <span class="metrics-name">execrp_&#8203;accdb_&#8203;disk_&#8203;write_&#8203;duration_&#8203;nanos</span> | histogram | Duration of one write to the account database file |
 | <span class="metrics-name">execrp_&#8203;accdb_&#8203;copied_&#8203;bytes</span> | counter | Account data bytes copied in memory between cache lines, staging buffers and callers; disk reads excluded |
 
 </div>
@@ -1354,6 +1361,8 @@
 | <span class="metrics-name">accdb_&#8203;disk_&#8203;written_&#8203;bytes</span> | counter | Bytes written to the account database file by compaction and writeback |
 | <span class="metrics-name">accdb_&#8203;writeback_&#8203;written</span> | counter | Write syscalls that wrote evicted cache lines back to the account database file |
 | <span class="metrics-name">accdb_&#8203;compaction_&#8203;written</span> | counter | Writes that relocated a batch of records during compaction |
+| <span class="metrics-name">accdb_&#8203;accounts_&#8203;disk_&#8203;read_&#8203;duration_&#8203;nanos</span> | histogram | Duration of one read from the account database file by compaction |
+| <span class="metrics-name">accdb_&#8203;accounts_&#8203;disk_&#8203;write_&#8203;duration_&#8203;nanos</span> | histogram | Duration of one write to the account database file by compaction and writeback |
 | <span class="metrics-name">accdb_&#8203;account_&#8203;version_&#8203;removed</span> | counter | Account versions removed from the account database index |
 | <span class="metrics-name">accdb_&#8203;cache_&#8203;class_&#8203;used</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">le128_&#8203;b</span>"} | gauge | Cache lines in use, by size class (0-128 B) |
 | <span class="metrics-name">accdb_&#8203;cache_&#8203;class_&#8203;used</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">le512_&#8203;b</span>"} | gauge | Cache lines in use, by size class (129-512 B) |
@@ -1770,6 +1779,7 @@
 | <span class="metrics-name">rpc_&#8203;accdb_&#8203;account_&#8203;waited</span> | counter | Accounts that had to wait for another reader to finish loading them into the cache |
 | <span class="metrics-name">rpc_&#8203;accdb_&#8203;disk_&#8203;read_&#8203;bytes</span> | counter | Bytes read from the account database file |
 | <span class="metrics-name">rpc_&#8203;accdb_&#8203;disk_&#8203;read</span> | counter | Reads from the account database file |
+| <span class="metrics-name">rpc_&#8203;accdb_&#8203;disk_&#8203;read_&#8203;duration_&#8203;nanos</span> | histogram | Duration of one read from the account database file |
 | <span class="metrics-name">rpc_&#8203;accdb_&#8203;copied_&#8203;bytes</span> | counter | Account data bytes copied in memory between cache lines, staging buffers and callers; disk reads excluded |
 
 </div>

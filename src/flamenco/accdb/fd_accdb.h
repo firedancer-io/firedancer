@@ -713,6 +713,8 @@ fd_accdb_cache_class_thresholds( fd_accdb_t * accdb,
     FD_MCNT_SET      ( TILE, ACCDB_DISK_READ,                   _m->read_ops                               ); \
     FD_MCNT_SET      ( TILE, ACCDB_DISK_WRITTEN_BYTES,          _m->bytes_written                          ); \
     FD_MCNT_SET      ( TILE, ACCDB_DISK_WRITTEN,                _m->write_ops                              ); \
+    FD_MHIST_COPY    ( TILE, ACCDB_DISK_READ_DURATION_NANOS,    _m->disk_read_duration                     ); \
+    FD_MHIST_COPY    ( TILE, ACCDB_DISK_WRITE_DURATION_NANOS,   _m->disk_write_duration                    ); \
     FD_MCNT_SET      ( TILE, ACCDB_COPIED_BYTES,                _m->bytes_copied                           ); \
   } while(0)
 
@@ -728,6 +730,7 @@ fd_accdb_cache_class_thresholds( fd_accdb_t * accdb,
     FD_MCNT_SET      ( TILE, ACCDB_ACCOUNT_WAITED,            _m->accounts_waited              ); \
     FD_MCNT_SET      ( TILE, ACCDB_DISK_READ_BYTES,           _m->bytes_read                   ); \
     FD_MCNT_SET      ( TILE, ACCDB_DISK_READ,                 _m->read_ops                     ); \
+    FD_MHIST_COPY    ( TILE, ACCDB_DISK_READ_DURATION_NANOS,  _m->disk_read_duration           ); \
     FD_MCNT_SET      ( TILE, ACCDB_COPIED_BYTES,              _m->bytes_copied                 ); \
   } while(0)
 
