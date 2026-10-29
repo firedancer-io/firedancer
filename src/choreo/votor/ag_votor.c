@@ -449,6 +449,7 @@ try_notar( ag_votor_t *            self,
            uchar                   reason ) {
   FD_TEST( slot>=first_unpruned_slot( self ) );
   epoch_bls_key_t const * epoch = own_epoch( self, slot );
+  if( FD_UNLIKELY( !epoch->has_bls_key       ) ) return 0;
   if( FD_UNLIKELY( has_voted( self, slot ) ) ) return 0;
 
   ag_block_hash_t hash;
@@ -464,7 +465,7 @@ try_notar( ag_votor_t *            self,
     if( FD_UNLIKELY( memcmp( parent_state->voted_notar_hash, parent.hash, sizeof(ag_block_hash_t) )!=0 ) ) return 0;
   }
 
-  if( FD_LIKELY( epoch->has_bls_key && slot>=self->catchup_vote_slot ) ) {
+  if( FD_LIKELY( slot>=self->catchup_vote_slot ) ) {
     ag_vote_t vote = ag_vote_construct_notar( self->bls_sign_fn, self->bls_sign_ctx, epoch->bls_key, slot, hash, (ushort)epoch->rank, self->shred_version );
     push_vote( self, vote, reason );
   }
@@ -488,14 +489,15 @@ try_skip_window( ag_votor_t * self,
 
   ulong window_start = ag_first_slot_in_window( slot );
   for( ulong s=window_start; s<window_start+AG_SLOTS_PER_WINDOW; s++ ) {
+    epoch_bls_key_t const * epoch = own_epoch( self, s );
+    if( FD_UNLIKELY( !epoch->has_bls_key  ) ) continue;
     if( FD_UNLIKELY( has_voted( self, s ) ) ) continue;
 
     slot_state_ele_t * state = state_mut( self, s );
     state->voted             = 1;
     state->bad_window        = 1;
 
-    epoch_bls_key_t const * epoch = own_epoch( self, s );
-    if( FD_UNLIKELY( !epoch->has_bls_key || s<self->catchup_vote_slot ) ) continue;
+    if( FD_UNLIKELY( s<self->catchup_vote_slot ) ) continue;
 
     ag_vote_t vote = ag_vote_construct_skip( self->bls_sign_fn, self->bls_sign_ctx, epoch->bls_key, s, (ushort)epoch->rank, self->shred_version );
     push_vote( self, vote, reason );
@@ -612,6 +614,7 @@ ag_votor_set_bls_key( ag_votor_t *       self,
   epoch_bls_key_t * epoch = epoch_starting_at( self, epoch_slot );
   epoch->has_bls_key = !!bls_key;
   if( FD_LIKELY( bls_key ) ) memcpy( epoch->bls_key, bls_key, FD_BLS_PUB_COMPRESSED_SZ );
+  if( FD_LIKELY( bls_key ) ) check_pending_blocks( self, AG_VOTOR_REASON_BLOCK_REPLAYED );
 }
 
 void
@@ -665,7 +668,8 @@ ag_votor_handle_pool_event( ag_votor_t *            self,
     ulong                   slot  = event->safe_to_notar.slot;
     uchar const *           hash  = event->safe_to_notar.hash;
     epoch_bls_key_t const * epoch = own_epoch( self, slot );
-    if( FD_LIKELY( epoch->has_bls_key && slot>=self->catchup_vote_slot ) ) {
+    if( FD_UNLIKELY( !epoch->has_bls_key ) ) break;
+    if( FD_LIKELY( slot>=self->catchup_vote_slot ) ) {
       ag_vote_t vote = ag_vote_construct_notar_fallback( self->bls_sign_fn, self->bls_sign_ctx, epoch->bls_key, slot, hash, (ushort)epoch->rank, self->shred_version );
       push_vote( self, vote, AG_VOTOR_REASON_SAFE_TO_NOTAR );
     }
@@ -677,7 +681,8 @@ ag_votor_handle_pool_event( ag_votor_t *            self,
   case AG_POOL_EVENT_SAFE_TO_SKIP: {
     ulong                   slot  = event->safe_to_skip;
     epoch_bls_key_t const * epoch = own_epoch( self, slot );
-    if( FD_LIKELY( epoch->has_bls_key && slot>=self->catchup_vote_slot ) ) {
+    if( FD_UNLIKELY( !epoch->has_bls_key ) ) break;
+    if( FD_LIKELY( slot>=self->catchup_vote_slot ) ) {
       ag_vote_t vote = ag_vote_construct_skip_fallback( self->bls_sign_fn, self->bls_sign_ctx, epoch->bls_key, slot, (ushort)epoch->rank, self->shred_version );
       push_vote( self, vote, AG_VOTOR_REASON_SAFE_TO_SKIP );
     }
@@ -760,4 +765,3 @@ ag_votor_poll_vote( ag_votor_t * self,
   *reason = event.reason;
   return 1;
 }
-
