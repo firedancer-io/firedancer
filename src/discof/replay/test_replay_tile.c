@@ -2946,6 +2946,159 @@ test_stale_id_key_does_not_shadow_rebuild( fd_wksp_t * wksp ) {
   FD_LOG_NOTICE(( "pass: test_stale_id_key_does_not_shadow_rebuild" ));
 }
 
+/* Dropped-block tests: replay is a validator whose root is slot 0 with
+   id parent_bid. */
+static void
+setup_dropped_ctx( fd_replay_tile_t * ctx,
+                   fd_wksp_t *        wksp,
+                   fd_hash_t const *  parent_bid ) {
+  setup_ctx( ctx, wksp );
+  setup_ag_root( ctx, parent_bid );
+  ctx->consensus_root_slot = 0UL;
+  ctx->consensus_root      = *parent_bid;
+}
+
+/* Returns the live bank keyed {slot, block_id}, zero id for a turbine
+   copy that has not completed. */
+static fd_bank_t *
+bank_by_id( fd_replay_tile_t * ctx,
+            ulong              slot,
+            fd_hash_t const *  block_id ) {
+  ag_block_id_t       key = ag_block_id( slot, block_id->uc );
+  fd_block_id_ele_t * ele = fd_block_id_map_ele_query( ctx->block_id_map, &key, NULL, ctx->block_id_arr );
+  FD_TEST( ele );
+  fd_bank_t * bank = fd_banks_bank_query( ctx->banks, fd_block_id_ele_get_idx( ctx->block_id_arr, ele ) );
+  FD_TEST( bank );
+  return bank;
+}
+
+/* Delivers FEC 0 of slot off parent and returns its bank. */
+static fd_bank_t *
+deliver_block_start( fd_replay_tile_t * ctx,
+                     ulong              slot,
+                     ulong              parent_slot,
+                     fd_hash_t const *  parent_bid,
+                     fd_hash_t const *  mr ) {
+  FD_TEST( deliver_rotor_fec( ctx, slot, 0U, parent_slot, parent_bid, mr, 0, 0 )==0 );
+  fd_hash_t zero = {0};
+  return bank_by_id( ctx, slot, &zero );
+}
+
+/* Delivers rotor's word that it freed block {slot, block_id}. */
+static void
+deliver_dropped( fd_replay_tile_t * ctx,
+                 ulong              slot,
+                 fd_hash_t const *  block_id ) {
+  ulong chunk = ctx->in[ TEST_REPAIR_IN_IDX ].chunk0;
+  fd_repair_dropped_t * msg = fd_chunk_to_laddr( ctx->in[ TEST_REPAIR_IN_IDX ].mem, chunk );
+  msg->slot     = slot;
+  msg->block_id = *block_id;
+  FD_TEST( !returnable_frag( ctx, TEST_REPAIR_IN_IDX, 0UL, ROTOR_SIG_BLOCK_DROPPED, chunk, sizeof(fd_repair_dropped_t), 0UL, 0UL, 0UL, test_stem ) );
+}
+
+/* Rotor dropped block B of slot 5, which replay completed and built
+   slot 6 on.  Both are given up on, the scheduler drops them from the
+   top, and rotor is told as for any dead block. */
+static void
+test_block_dropped_by_id( fd_wksp_t * wksp ) {
+  static fd_replay_tile_t ctx[ 1 ];
+  fd_hash_t parent_bid = { .ul = { 0xBEEFUL } };
+  setup_dropped_ctx( ctx, wksp, &parent_bid );
+  ulong out_idx = ctx->replay_out->idx;
+
+  fd_hash_t B    = { .ul = { 0x5150UL } };
+  fd_hash_t mr0  = { .ul = { 501 } };
+  fd_hash_t mr32 = { .ul = { 502 } };
+  fd_hash_t mr6  = { .ul = { 601 } };
+  fd_bank_t * bank5 = deliver_block_start( ctx, 5UL, 0UL, &parent_bid, &mr0 );
+  FD_TEST( deliver_rotor_fec_bid( ctx, 5UL, FD_FEC_SHRED_CNT, 0UL, &parent_bid, &B, &mr32, 1, 0 )==0 );
+  fd_bank_t * bank6 = deliver_block_start( ctx, 6UL, 5UL, &B, &mr6 );
+
+  ulong seq0 = test_stem_seqs[ out_idx ];
+  deliver_dropped( ctx, 5UL, &B );
+  FD_TEST( bank5->state==FD_BANK_STATE_DEAD );
+  FD_TEST( bank6->state==FD_BANK_STATE_DEAD );
+  FD_TEST( mock_sched_abandon_cnt==1UL && mock_sched_abandon_idx==bank5->idx );
+  FD_TEST( ctx->metrics.block_ruled_out==1UL );
+  FD_TEST( test_stem_seqs[ out_idx ]==seq0+1UL && replay_out_sig( ctx, seq0 )==REPLAY_SIG_SLOT_DEAD );
+
+  FD_LOG_NOTICE(( "pass: test_block_dropped_by_id" ));
+}
+
+/* A turbine copy is keyed {slot, 0} until its last FEC is processed,
+   so rotor names it by a zero id.  A repaired copy of the same block
+   next to it is its own drop. */
+static void
+test_block_dropped_turbine_copy( fd_wksp_t * wksp ) {
+  static fd_replay_tile_t ctx[ 1 ];
+  fd_hash_t parent_bid = { .ul = { 0xBEEFUL } };
+  setup_dropped_ctx( ctx, wksp, &parent_bid );
+
+  fd_hash_t zero = {0};
+  fd_hash_t mr5  = { .ul = { 501 } };
+  fd_bank_t * bank5 = deliver_block_start( ctx, 5UL, 0UL, &parent_bid, &mr5 );
+  deliver_dropped( ctx, 5UL, &zero );
+  FD_TEST( bank5->state==FD_BANK_STATE_DEAD );
+  FD_TEST( mock_sched_abandon_cnt==1UL && mock_sched_abandon_idx==bank5->idx );
+
+  fd_hash_t Y    = { .ul = { 0x99UL } };
+  fd_hash_t mr9  = { .ul = { 901 } };
+  fd_hash_t mr9y = { .ul = { 902 } };
+  fd_bank_t * bank9  = deliver_block_start( ctx, 9UL, 0UL, &parent_bid, &mr9 );
+  FD_TEST( deliver_rotor_fec_bid( ctx, 9UL, 0U, 0UL, &parent_bid, &Y, &mr9y, 0, 1 )==0 );
+  fd_bank_t * bank9y = bank_by_id( ctx, 9UL, &Y );
+  FD_TEST( bank9y!=bank9 );
+  deliver_dropped( ctx, 9UL, &Y );
+  FD_TEST( bank9y->state==FD_BANK_STATE_DEAD && bank9->state!=FD_BANK_STATE_DEAD );
+  deliver_dropped( ctx, 9UL, &zero );
+  FD_TEST( bank9->state==FD_BANK_STATE_DEAD );
+  FD_TEST( mock_sched_abandon_cnt==3UL );
+
+  FD_LOG_NOTICE(( "pass: test_block_dropped_turbine_copy" ));
+}
+
+/* Nothing happens for a block replay does not have, a block already
+   dead, or, while we lead, the block our leader bank builds on. */
+static void
+test_block_dropped_ignored( fd_wksp_t * wksp ) {
+  static fd_replay_tile_t ctx[ 1 ];
+  fd_hash_t parent_bid = { .ul = { 0xBEEFUL } };
+  setup_dropped_ctx( ctx, wksp, &parent_bid );
+
+  fd_hash_t B    = { .ul = { 0x5150UL } };
+  fd_hash_t X    = { .ul = { 0xAAUL } };
+  fd_hash_t zero = {0};
+  fd_hash_t mr0  = { .ul = { 501 } };
+  fd_hash_t mr32 = { .ul = { 502 } };
+  fd_hash_t mr6  = { .ul = { 601 } };
+  fd_hash_t mr7  = { .ul = { 701 } };
+  fd_bank_t * bank5 = deliver_block_start( ctx, 5UL, 0UL, &parent_bid, &mr0 );
+  FD_TEST( deliver_rotor_fec_bid( ctx, 5UL, FD_FEC_SHRED_CNT, 0UL, &parent_bid, &B, &mr32, 1, 0 )==0 );
+  fd_bank_t * bank6 = deliver_block_start( ctx, 6UL, 5UL, &B, &mr6 );
+  fd_bank_t * bank7 = deliver_block_start( ctx, 7UL, 0UL, &parent_bid, &mr7 );
+  deliver_dropped( ctx, 9UL, &X );
+  deliver_dropped( ctx, 5UL, &X );
+  FD_TEST( mock_sched_abandon_cnt==0UL );
+
+  /* Leading off slot 6: its parent is spared, an unrelated block is
+     not. */
+  ctx->is_leader   = 1;
+  ctx->leader_bank = bank6;
+  deliver_dropped( ctx, 5UL, &B );
+  FD_TEST( bank5->state!=FD_BANK_STATE_DEAD && bank6->state!=FD_BANK_STATE_DEAD );
+  deliver_dropped( ctx, 7UL, &zero );
+  FD_TEST( bank7->state==FD_BANK_STATE_DEAD && mock_sched_abandon_cnt==1UL );
+  ctx->is_leader   = 0;
+  ctx->leader_bank = NULL;
+
+  deliver_dropped( ctx, 5UL, &B );
+  FD_TEST( bank5->state==FD_BANK_STATE_DEAD && bank6->state==FD_BANK_STATE_DEAD && mock_sched_abandon_cnt==2UL );
+  deliver_dropped( ctx, 5UL, &B );
+  FD_TEST( mock_sched_abandon_cnt==2UL );
+
+  FD_LOG_NOTICE(( "pass: test_block_dropped_ignored" ));
+}
+
 static void
 test_identity_switch_quiesces_replay( fd_wksp_t * wksp ) {
   static fd_replay_tile_t   ctx[1];
@@ -3909,6 +4062,9 @@ main( int     argc,
   test_ag_set_identity_leader_slot( wksp, 0 );      fd_wksp_reset( wksp, 42U );
   test_dead_block_children_drop( wksp );
   test_stale_id_key_does_not_shadow_rebuild( wksp ); fd_wksp_reset( wksp, 42U );
+  test_block_dropped_by_id( wksp );                 fd_wksp_reset( wksp, 42U );
+  test_block_dropped_turbine_copy( wksp );          fd_wksp_reset( wksp, 42U );
+  test_block_dropped_ignored( wksp );               fd_wksp_reset( wksp, 42U );
   test_identity_switch_quiesces_replay( wksp );     fd_wksp_reset( wksp, 42U );
   test_ag_leader_abandon_on_root_past_leader_slot( wksp ); fd_wksp_reset( wksp, 42U );
   test_ag_become_leader_refuses_settled_slot( wksp ); fd_wksp_reset( wksp, 42U );

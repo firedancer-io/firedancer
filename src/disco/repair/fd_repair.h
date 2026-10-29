@@ -213,6 +213,22 @@ typedef struct fd_repair_deque fd_repair_deque_t;
 
 typedef void (* fd_repair_report_fn_t)( void * ctx, struct fd_repair_blk const * blk );
 
+/* A block replay was already running that rotor threw away after
+   its fork was ruled out (a different block in its slot was
+   finalized, or the slot was finalized as skipped).  These blocks get
+   forwarded to replay so it stops executing new transactions for that
+   block.  A zero block_id names the slot's turbine copy, which replay
+   keys {slot, 0} until it completes; a turbine copy that completed is
+   listed under both keys. */
+
+#define FD_REPAIR_DROPPED_MAX (AG_EQVOC_BLOCK_HASH_MAX+2UL)
+
+struct fd_repair_dropped {
+  ulong     slot;
+  fd_mr32_t block_id;
+};
+typedef struct fd_repair_dropped fd_repair_dropped_t;
+
 struct fd_repair {
   ulong             root;
   fd_repair_blk_t * root_blk;     /* the root's blk, NULL if not held */
@@ -231,6 +247,9 @@ struct fd_repair {
   fd_repair_treap_t *     eager_treap; /* a blk is in its role's treap iff in_blk_treap */
   fd_repair_treap_t *     notar_treap;
   fd_repair_treap_t *     final_treap;
+
+  fd_repair_dropped_t dropped[ FD_REPAIR_DROPPED_MAX ];
+  ulong               dropped_cnt;
 
   struct {
     fd_repair_report_fn_t report; /* called once per blk, when it completes or when it is freed incomplete, NULL disables */

@@ -335,6 +335,23 @@ prune( fd_repair_t *     rotor,
   fd_repair_blk_pool_ele_release   ( pool, blk );
 }
 
+/* dropped lists blk in rotor->dropped if replay has consumed any of
+   it, see fd_repair_dropped_t. */
+
+static void
+dropped( fd_repair_t *     rotor,
+         fd_repair_blk_t * blk ) {
+  if( FD_LIKELY( !blk->cons_fec_cnt ) ) return;
+  int eager = fd_repair_slot_meta( rotor, blk->slot )->eager==fd_repair_blk_pool_idx( rotor->blk_pool, blk );
+  int both  = eager && memcmp( &blk->dmr, &hash_null, sizeof(fd_mr32_t) );
+  if( FD_UNLIKELY( rotor->dropped_cnt+1UL+(ulong)both>FD_REPAIR_DROPPED_MAX ) ) {
+    FD_LOG_WARNING(( "slot %lu: more dropped blks than fit, replay keeps replaying the rest", blk->slot ));
+    return;
+  }
+  rotor->dropped[ rotor->dropped_cnt++ ] = (fd_repair_dropped_t){ .slot = blk->slot, .block_id = blk->dmr };
+  if( both ) rotor->dropped[ rotor->dropped_cnt++ ] = (fd_repair_dropped_t){ .slot = blk->slot, .block_id = hash_null };
+}
+
 /* dedup checks for a duplicate of eager among the notar blks.  Only the
    eager blk can be duplicated, since notar blk DMRs are known a priori.
 
@@ -363,6 +380,7 @@ dedup( fd_repair_t *     rotor,
   if( FD_UNLIKELY( !notar && meta->final!=null ) ) {
     eager->telemetry.cancelled_ts     = fd_long_if( !eager->telemetry.cancelled_reason, ts, eager->telemetry.cancelled_ts );
     eager->telemetry.cancelled_reason = (uchar)FD_EVENT_BLOCK_RECEIVED_CANCELLED_REASON_NOTARIZED_VERSION;
+    dropped( rotor, eager );
     prune( rotor, eager );
     return;
   } /* turbine built a blk the cluster did not finalize */
@@ -529,6 +547,7 @@ fd_repair_init( fd_repair_t *         rotor,
   rotor->root          = root;
   rotor->root_blk      = blk;
   rotor->catchup_slot  = root;
+  rotor->dropped_cnt   = 0UL;
 }
 
 void
@@ -595,6 +614,7 @@ fd_repair_blk_finalized( fd_repair_t *     rotor,
     if( FD_UNLIKELY( meta->eager==fd_repair_blk_pool_idx( pool, blk ) && !meta->invalidated && !memcmp( &blk->dmr, &hash_null, sizeof(fd_mr32_t) ) ) ) continue; /* turbine may still complete as the finalized blk, see dedup */
     blk->telemetry.cancelled_ts     = fd_long_if( !blk->telemetry.cancelled_reason, ts, blk->telemetry.cancelled_ts );
     blk->telemetry.cancelled_reason = (uchar)fd_int_if( !blk->telemetry.cancelled_reason, FD_EVENT_BLOCK_RECEIVED_CANCELLED_REASON_NOTARIZED_VERSION, blk->telemetry.cancelled_reason ); /* an invalidated eager blk keeps its reason */
+    dropped( rotor, blk );
     prune( rotor, blk );
   }
   connect_ancestors( rotor, fin );
@@ -995,6 +1015,7 @@ fd_repair_slot_skipped( fd_repair_t * rotor,
                          blk;
                          blk = next ) {
     next = (fd_repair_blk_t *)fd_repair_blk_map_ele_next_const( blk, NULL, rotor->blk_pool );
+    dropped( rotor, blk );
     prune( rotor, blk );
   }
 }

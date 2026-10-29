@@ -373,6 +373,7 @@
         "is_runtime_loaded":                  { "type": "Bool",                                                           "description": "Whether the runtime has loaded a bank and can replay" },
         "fec_rooted_past_skipped":            { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Rotor FEC sets of a slot at or below the published root, or of a block whose parent is below it, skipped rather than dropped: no redelivery can replay them" },
         "leader_window_already_produced":     { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Leader windows given up because the cluster already produced one of their slots, eg. our own past slots replayed after a restart (Alpenglow)" },
-        "leader_window_superseded":           { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Leader windows given up after votor sent them because certificates already let a later window start (Alpenglow)" }
+        "leader_window_superseded":           { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Leader windows given up after votor sent them because certificates already let a later window start (Alpenglow)" },
+        "block_ruled_out_abandoned":          { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Blocks replay gave up on because rotor dropped them: another block in the slot was finalized, or a finalized descendant declared the slot skipped" }
     }
 }

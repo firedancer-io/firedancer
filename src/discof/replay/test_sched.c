@@ -1149,6 +1149,107 @@ run_zero_hashcnt_mblk_case( void ) {
   free( mem );
 }
 
+/* The replay tile gives up on a block whose transaction task it just
+   took and will not execute: it abandons the block with the task in
+   flight, then retires the task.  Nothing more of the block or of its
+   child comes out, and both are released once the task is retired.
+   Run for an exec task and for a sigverify task. */
+static void
+run_abandon_in_flight_case( ulong task_type ) {
+  fd_rng_t rng[1]; fd_rng_join( fd_rng_new( rng, 0U, 0UL ) );
+  void * mem; fd_sched_t * sched = new_sched( rng, &mem, 8UL );
+  fd_sched_set_bypass_poh_verify( sched, 1 );
+  fd_sched_block_add_done( sched, 1UL, ULONG_MAX, TEST_ROOT_SLOT );
+
+  fd_hash_t start_poh[ 1 ];
+  fd_hash_t mblk_hash[ 1 ];
+  hash_from_seed( start_poh, 0x6d1f4c9a3b57e802UL );
+  hash_from_seed( mblk_hash, 0xc40a97e5182b6d3fUL );
+  FD_TEST( ingest_ag_component( sched, 2UL, AG_COMP_HEADER, start_poh, 1, 0 ) );
+  fd_sched_set_poh_params( sched, 2UL, TEST_ROOT_TICK_HEIGHT, TEST_ROOT_TICK_HEIGHT+1UL, start_poh );
+
+  /* One microblock with two transactions from different payers, so the
+     second does not queue behind the first.  The batch declares more
+     microblocks, so the block stays open. */
+  uchar txn_payload[ FD_TXN_MTU ];
+  ulong txn_sz = build_shred_test_txn( txn_payload );
+  uchar txn_meta[ FD_TXN_MAX_SZ ] __attribute__((aligned(alignof(fd_txn_t))));
+  FD_TEST( fd_txn_parse( txn_payload, txn_sz, txn_meta, NULL ) );
+  uchar fec0[ 4096 ];
+  ulong fec0_sz = 0UL;
+  FD_STORE( ulong, fec0, 3UL );
+  fec0_sz += sizeof(ulong);
+  fd_microblock_hdr_t hdr = { .hash_cnt = 1UL, .txn_cnt = 2UL };
+  fd_memcpy( hdr.hash, mblk_hash->hash, sizeof(fd_hash_t) );
+  fd_memcpy( fec0+fec0_sz, &hdr, sizeof(hdr) );
+  fec0_sz += sizeof(hdr);
+  fd_memcpy( fec0+fec0_sz, txn_payload, txn_sz );
+  fec0_sz += txn_sz;
+  txn_payload[ ((fd_txn_t *)txn_meta)->acct_addr_off ] ^= 1;
+  fd_memcpy( fec0+fec0_sz, txn_payload, txn_sz );
+  fec0_sz += txn_sz;
+
+  fd_store_fec_t store_fec0[ 1 ] __attribute__((aligned(alignof(fd_store_fec_t))));
+  fd_memset( store_fec0, 0, sizeof(fd_store_fec_t) );
+  store_fec0->data_sz       = (uint)fec0_sz;
+  store_fec0->shred_sz[ 0 ] = (ushort)fec0_sz;
+  fd_sched_fec_t fec[ 1 ] = {{
+    .bank_idx        = 2UL,
+    .parent_bank_idx = 1UL,
+    .slot            = TEST_ROOT_SLOT+1UL,
+    .parent_slot     = TEST_ROOT_SLOT,
+    .fec             = store_fec0,
+    .data            = fec0,
+    .shred_cnt       = 1U,
+  }};
+  FD_TEST( fd_sched_fec_can_ingest( sched, fec ) );
+  FD_TEST( fd_sched_fec_ingest( sched, fec ) );
+  FD_TEST( add_live_block( sched, 3UL, 2UL, TEST_ROOT_SLOT+2UL, TEST_ROOT_SLOT+1UL ) );
+
+  /* Run tasks until one of the wanted kind comes out, and hold it. */
+  fd_sched_task_t task[ 1 ];
+  for(;;) {
+    FD_TEST( fd_sched_task_next_ready( sched, task ) );
+    if( task->task_type==task_type ) break;
+    switch( task->task_type ) {
+      case FD_SCHED_TT_BLOCK_START:
+        FD_TEST( !fd_sched_task_done( sched, FD_SCHED_TT_BLOCK_START, ULONG_MAX, ULONG_MAX, NULL ) );
+        break;
+      case FD_SCHED_TT_TXN_EXEC:
+        FD_TEST( !fd_sched_task_done( sched, FD_SCHED_TT_TXN_EXEC, task->txn_exec->txn_idx, task->txn_exec->exec_idx, NULL ) );
+        break;
+      case FD_SCHED_TT_TXN_SIGVERIFY:
+        FD_TEST( !fd_sched_task_done( sched, FD_SCHED_TT_TXN_SIGVERIFY, task->txn_sigverify->txn_idx, task->txn_sigverify->exec_idx, NULL ) );
+        break;
+      case FD_SCHED_TT_POH_HASH: {
+        fd_execrp_poh_hash_done_msg_t msg[ 1 ];
+        msg->cnt = task->poh_hash->cnt;
+        for( ulong i=0UL; i<task->poh_hash->cnt; i++ ) repeat_hash( msg->hash+i, task->poh_hash->hash+i, task->poh_hash->hashcnt );
+        FD_TEST( !fd_sched_task_done( sched, FD_SCHED_TT_POH_HASH, ULONG_MAX, task->poh_hash->exec_idx, msg ) );
+        break;
+      }
+      default:
+        FD_LOG_ERR(( "unexpected task type %lu", task->task_type ));
+    }
+  }
+  ulong txn_idx  = task_type==FD_SCHED_TT_TXN_EXEC ? task->txn_exec->txn_idx  : task->txn_sigverify->txn_idx;
+  ulong exec_idx = task_type==FD_SCHED_TT_TXN_EXEC ? task->txn_exec->exec_idx : task->txn_sigverify->exec_idx;
+
+  fd_sched_block_abandon( sched, 2UL, FD_SCHED_ABANDON_DISCARDED );
+  FD_TEST( !fd_sched_task_next_ready( sched, task ) );
+  FD_TEST( fd_sched_pruned_block_next( sched )==ULONG_MAX ); /* held while the task is out */
+
+  FD_TEST( !fd_sched_task_done( sched, task_type, txn_idx, exec_idx, NULL ) );
+  ulong first  = fd_sched_pruned_block_next( sched );
+  ulong second = fd_sched_pruned_block_next( sched );
+  FD_TEST( ( first==2UL && second==3UL ) || ( first==3UL && second==2UL ) );
+  FD_TEST( fd_sched_pruned_block_next( sched )==ULONG_MAX );
+  FD_TEST( !fd_sched_task_next_ready( sched, task ) );
+  FD_TEST( fd_sched_is_drained( sched ) );
+
+  fd_sched_delete( fd_sched_leave( sched ) ); free( mem );
+}
+
 /* A transaction entry whose claimed hash does not match the mixin rules
    the block dead when its PoH task retires. */
 static void
@@ -1367,6 +1468,8 @@ main( int     argc,
   run_entry_hash_mismatch_case();
   run_cert_verify_case( 0 );
   run_cert_verify_case( 1 );
+  run_abandon_in_flight_case( FD_SCHED_TT_TXN_EXEC );
+  run_abandon_in_flight_case( FD_SCHED_TT_TXN_SIGVERIFY );
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

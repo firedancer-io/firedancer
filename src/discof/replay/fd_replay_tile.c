@@ -43,6 +43,7 @@
 #include "../../flamenco/events/fd_event_runtime.h"
 #include "../../disco/events/generated/fd_event_gen.h"
 #include "../../disco/repair/fd_repair_tile.h"
+#include "../../disco/repair/fd_repair.h"
 #include "../../flamenco/runtime/fd_runtime.h"
 #include "../../flamenco/runtime/fd_runtime_stack_tmpl.h"
 
@@ -332,6 +333,7 @@ metrics_write( fd_replay_tile_t * ctx ) {
   FD_MCNT_SET( REPLAY, LEADER_WINDOW_ALREADY_PRODUCED,       ctx->metrics.leader_slot_already_produced );
   FD_MCNT_SET( REPLAY, LEADER_WINDOW_SUPERSEDED,             ctx->metrics.leader_window_superseded     );
   FD_MCNT_SET( REPLAY, FEC_ROOTED_PAST_SKIPPED,              ctx->metrics.fec_rooted_past    );
+  FD_MCNT_SET( REPLAY, BLOCK_RULED_OUT_ABANDONED,            ctx->metrics.block_ruled_out    );
   FD_MCNT_SET( REPLAY, ROOT_ADVANCE_DEFERRED,               ctx->metrics.storage_root_behind );
 
   fd_progcache_admin_metrics_t const * pcm = &fd_progcache_admin_metrics_g;
@@ -2896,6 +2898,34 @@ live_block_id_ele( fd_replay_tile_t *  ctx,
   return ele;
 }
 
+/* block_dropped: the rotor freed a block replay was consuming because
+   consensus settled against it.  Give up on our copy and everything
+   chained below it.  A zero id names the slot's turbine copy. */
+
+static void
+block_dropped( fd_replay_tile_t *          ctx,
+               fd_stem_context_t *         stem,
+               fd_repair_dropped_t const * msg ) {
+  ag_block_id_t key = { .slot = msg->slot };
+  if( FD_LIKELY( !fd_hash_check_zero( &msg->block_id ) ) ) key = ag_block_id( msg->slot, msg->block_id.uc );
+  fd_block_id_ele_t * ele = live_block_id_ele( ctx, fd_block_id_map_ele_query( ctx->block_id_map, &key, NULL, ctx->block_id_arr ) );
+  if( FD_UNLIKELY( !ele ) ) return;
+  ulong       bank_idx = fd_block_id_ele_get_idx( ctx->block_id_arr, ele );
+  fd_bank_t * bank     = fd_banks_bank_query( ctx->banks, bank_idx );
+  if( FD_UNLIKELY( bank->state==FD_BANK_STATE_DEAD ) ) return;
+
+  /* The block our leader bank builds on stays until the root passes
+     it, as nothing is pruned while we lead. */
+  if( FD_UNLIKELY( ctx->is_leader ) ) {
+    for( fd_bank_t * b=ctx->leader_bank; b; b=fd_banks_get_parent( ctx->banks, b ) ) if( b==bank ) return;
+  }
+
+  FD_LOG_INFO(( "slot %lu: consensus ruled the block out, giving up on it", msg->slot ));
+  ctx->metrics.block_ruled_out++;
+  mark_bank_dead( ctx, stem, bank_idx, FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_NOT_DEAD, FD_EVENT_BLOCK_COMPLETED_ABANDONED_REASON_RULED_OUT, NULL );
+  fd_sched_block_abandon( ctx->sched, bank_idx, FD_SCHED_ABANDON_DISCARDED );
+}
+
 static int
 can_process_rotor_fec( fd_replay_tile_t       * ctx,
                        fd_repair_replay_fec_t * fec,
@@ -4154,6 +4184,10 @@ returnable_frag( fd_replay_tile_t *  ctx,
       break;
     }
     case IN_KIND_REPAIR: {
+      if( FD_UNLIKELY( sig==ROTOR_SIG_BLOCK_DROPPED ) ) {
+        block_dropped( ctx, stem, fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk ) );
+        break;
+      }
       if( FD_UNLIKELY( sig!=ROTOR_SIG_FEC_REPLAY ) ) break;
 
       /* process rotor incoming FECs. 1 to keep frag for retry, returning 0 consumes it. */
