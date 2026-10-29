@@ -80,7 +80,7 @@ run1_cmd_fn( args_t *   args,
     cpu_idx = 0UL;
   }
 
-  void * stack = fd_topo_tile_stack_join( config->name, tile->name, tile->kind_id );
+  void * stack = fd_topo_tile_stack_join( config->name, tile->name, tile->kind_id, tile->stack_sz );
 
   tile_main_args_t clone_args = {
     .config      = config,
@@ -91,7 +91,7 @@ run1_cmd_fn( args_t *   args,
   /* Also clone tiles into PID namespaces so they cannot signal each
      other or the parent. */
   int flags = config->development.sandbox ? CLONE_NEWPID : 0;
-  pid_t clone_pid = clone( tile_main, (uchar *)stack + FD_TILE_PRIVATE_STACK_SZ, flags, &clone_args );
+  pid_t clone_pid = clone( tile_main, (uchar *)stack + tile->stack_sz, flags, &clone_args );
   if( FD_UNLIKELY( clone_pid<0 ) ) FD_LOG_ERR(( "clone() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   if( !strcmp( tile->name, "sign" ) && tile->sign.failover_junk_fd!=-1 ) {
     if( FD_UNLIKELY( close( tile->sign.failover_junk_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));

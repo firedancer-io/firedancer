@@ -219,11 +219,17 @@ fd_topo_fill( fd_topo_t * topo ) {
   }
 }
 
-FD_FN_CONST static ulong
+FD_FN_PURE static ulong
 fd_topo_tile_extra_huge_pages( fd_topo_tile_t const * tile ) {
   /* Every tile maps an additional set of pages for the stack. */
-  (void)tile;
-  return FD_TILE_PRIVATE_STACK_SZ/FD_SHMEM_HUGE_PAGE_SZ;
+  return tile->stack_sz/FD_SHMEM_HUGE_PAGE_SZ;
+}
+
+FD_FN_PURE ulong
+fd_topo_stack_sz( fd_topo_t const * topo ) {
+  ulong sz = 0UL;
+  for( ulong i=0UL; i<topo->tile_cnt; i++ ) sz += topo->tiles[ i ].stack_sz;
+  return sz;
 }
 
 FD_FN_PURE static ulong
@@ -478,7 +484,7 @@ fd_topo_print_log( int         stdout,
   /* The logic to compute number of stack pages is taken from
      fd_tile_thread.cxx, in function fd_topo_tile_stack_join, and this
      should match that. */
-  ulong stack_pages = topo->tile_cnt * FD_TILE_PRIVATE_STACK_SZ;
+  ulong stack_pages = fd_topo_stack_sz( topo );
 
   ulong normal_page_bytes = fd_topo_normal_page_cnt( topo ) * FD_SHMEM_NORMAL_PAGE_SZ;
   ulong total_bytes = fd_topo_mlock( topo ) + stack_pages + normal_page_bytes;
@@ -713,7 +719,7 @@ fd_topo_print_json( fd_topo_t * topo ) {
     cur += n;                                                                         \
   } while( 0 )
 
-  ulong stack_pages = topo->tile_cnt * FD_TILE_PRIVATE_STACK_SZ;
+  ulong stack_pages = fd_topo_stack_sz( topo );
   ulong normal_page_bytes = fd_topo_normal_page_cnt( topo ) * FD_SHMEM_NORMAL_PAGE_SZ;
   ulong total_bytes = fd_topo_mlock( topo ) + stack_pages + normal_page_bytes;
 

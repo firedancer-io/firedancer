@@ -193,6 +193,7 @@ fd_topob_tile( fd_topo_t *    topo,
   tile->uses_obj_cnt        = 0UL;
   tile->is_waker_client     = is_waker_client;
   tile->floats              = cpu_idx<ULONG_MAX && !!(cpu_idx & FD_TOPOB_CPU_SHARED);
+  tile->stack_sz            = FD_TILE_PRIVATE_STACK_SZ;
   tile->waker_client_idx    = ULONG_MAX;
   tile->waker_fseq_obj_id   = ULONG_MAX;
   tile->sleep_eventfd       = 0;

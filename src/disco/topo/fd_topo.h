@@ -139,6 +139,7 @@ struct fd_topo_tile {
   int   allow_shutdown;         /* If the tile is allowed to shutdown gracefully.  If false, when the tile exits it will tear down the entire application. */
 
   ulong cpu_idx;                /* The CPU index to pin the tile on.  A value of ULONG_MAX or more indicates the tile should be floating and not pinned to a core. */
+  ulong stack_sz;               /* Bytes of hugetlbfs stack, a multiple of FD_SHMEM_HUGE_PAGE_SZ */
   int   floats;                 /* Scheduled by the kernel over the CPUs of the floating tiles on its NUMA node, never a pinned tile's CPU, instead of pinned to cpu_idx (efficient mode).  cpu_idx still places memory and isolation, and is the fallback when no such CPU remains. */
   int   sleep_eventfd;          /* Parks in epoll on its own fds and is woken through the eventfd FD_SLEEP_EVENTFD( id ), not FUTEX_WAKE (efficient mode only) */
 
@@ -1283,7 +1284,8 @@ fd_topo_fill( fd_topo_t * topo );
 void *
 fd_topo_tile_stack_join( char const * app_name,
                          char const * tile_name,
-                         ulong        tile_kind_id );
+                         ulong        tile_kind_id,
+                         ulong        stack_sz );
 
 /* fd_topo_run_single_process runs all the tiles in a single process
    (the calling process).  This spawns a thread for each tile, switches
@@ -1378,6 +1380,11 @@ fd_topo_run_tile( fd_topo_t *          topo,
    actual amount of memory used will not be less than this value. */
 FD_FN_PURE ulong
 fd_topo_mlock_max_tile( fd_topo_t const * topo );
+
+/* fd_topo_stack_sz returns the total bytes of all tile stacks. */
+
+FD_FN_PURE ulong
+fd_topo_stack_sz( fd_topo_t const * topo );
 
 /* fd_topo_mlock_code locks the code, rodata and initialized data of
    every loaded ELF object into DRAM, so tiles cannot stall on major
