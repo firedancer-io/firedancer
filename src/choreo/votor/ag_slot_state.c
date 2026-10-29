@@ -491,8 +491,8 @@ count_skip_stake( ag_slot_state_t *  self,
   fd_bls_pub_t const *    pub           = ag_epoch_info_pubkey( epoch_info, rank );
 
   ag_slot_votes_t * votes = &self->votes;
-  if( FD_UNLIKELY( fallback ) ) { votes->skip_fallback_stake += stake; blst_p1_add_or_double_affine( &votes->skip_fallback_agg.pub, &votes->skip_fallback_agg.pub, pub ); blst_p2_add_or_double_affine( &votes->skip_fallback_agg.sig, &votes->skip_fallback_agg.sig, sig ); fd_bls_set_insert( votes->skip_fallback_agg.set, rank ); }
-  else                          { votes->skip_stake          += stake; blst_p1_add_or_double_affine( &votes->skip_agg.pub,          &votes->skip_agg.pub,          pub ); blst_p2_add_or_double_affine( &votes->skip_agg.sig,          &votes->skip_agg.sig,          sig ); fd_bls_set_insert( votes->skip_agg.set,          rank ); }
+  if( FD_UNLIKELY( fallback ) ) { votes->skip_fallback_stake += stake; fd_bls_pub_add( &votes->skip_fallback_agg.pub, &votes->skip_fallback_agg.pub, pub ); fd_bls_sig_add( &votes->skip_fallback_agg.sig, &votes->skip_fallback_agg.sig, sig ); fd_bls_set_insert( votes->skip_fallback_agg.set, rank ); }
+  else                          { votes->skip_stake          += stake; fd_bls_pub_add( &votes->skip_agg.pub,          &votes->skip_agg.pub,          pub ); fd_bls_sig_add( &votes->skip_agg.sig,          &votes->skip_agg.sig,          sig ); fd_bls_set_insert( votes->skip_agg.set,          rank ); }
 
   ag_block_hash_set_t pending = self->pending_safe_to_notar;
   for( ulong i=0UL; i<pending.cnt; i++ ) {
@@ -568,8 +568,8 @@ count_finalize_stake( ag_slot_state_t *       self,
 
   ag_slot_votes_t * votes = &self->votes;
   votes->finalize_stake += stake;
-  blst_p1_add_or_double_affine( &votes->finalize_agg.pub, &votes->finalize_agg.pub, pub );
-  blst_p2_add_or_double_affine( &votes->finalize_agg.sig, &votes->finalize_agg.sig, sig );
+  fd_bls_pub_add( &votes->finalize_agg.pub, &votes->finalize_agg.pub, pub );
+  fd_bls_sig_add( &votes->finalize_agg.sig, &votes->finalize_agg.sig, sig );
   fd_bls_set_insert( votes->finalize_agg.set, rank );
   if( FD_UNLIKELY( ag_epoch_info_is_quorum( epoch_info, votes->finalize_stake ) && self->certs.finalize.slot==ULONG_MAX ) ) {
     fd_bls_set_t bad_final[ fd_bls_set_word_cnt ];

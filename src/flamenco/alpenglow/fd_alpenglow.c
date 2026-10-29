@@ -50,7 +50,7 @@ struct validator_set {
   ulong          epoch;
   ulong          validator_cnt;          /* 0 if not built */
   ulong          total_stake;
-  blst_p1        key_sum;                /* sum of all keys, infinity for a t-1 set */
+  fd_bls_pub_t   key_sum;                /* sum of all keys, unused for a t-1 set */
   fd_bls_pub_t   bls_keys[ AG_VAT_MAX ]; /* indexed by rank */
   ulong          stakes  [ AG_VAT_MAX ]; /* indexed by rank */
 };
@@ -90,7 +90,9 @@ validator_set_for_slot( validator_set_t * set,
     if( FD_UNLIKELY( ele->rank==FD_VOTE_STAKES_ALPENGLOW_RANK_NULL ) ) continue;
     FD_TEST( ele->rank<AG_VAT_MAX );
 
-    if( FD_UNLIKELY( blst_p1_deserialize( set->bls_keys+ele->rank, ele->bls_key_uncompressed )!=BLST_SUCCESS ) ) {
+    /* finalize subgroup-checked each ranked key while producing this
+       uncompressed encoding, so do not repeat that expensive check here. */
+    if( FD_UNLIKELY( fd_bls_pub_de_unchecked( set->bls_keys+ele->rank, ele->bls_key_uncompressed ) ) ) {
       FD_LOG_WARNING(( "slot %lu: rank %u of epoch %lu has a malformed BLS key", bank->f.slot, ele->rank, epoch ));
       return 0;
     }
@@ -103,9 +105,9 @@ validator_set_for_slot( validator_set_t * set,
     FD_LOG_WARNING(( "slot %lu: epoch %lu has %lu ranked validators, highest rank %lu", bank->f.slot, epoch, cnt, max_rank ));
     return 0;
   }
-  memset( &set->key_sum, 0, sizeof(blst_p1) ); /* point at infinity */
   if( FD_LIKELY( iter_kind!=FD_VOTE_STAKES_ITER_T_1 ) ) {
-    for( ulong rank=0UL; rank<cnt; rank++ ) blst_p1_add_or_double_affine( &set->key_sum, &set->key_sum, set->bls_keys+rank );
+    fd_bls_set_t all[ fd_bls_set_word_cnt ];
+    fd_bls_pub_sum( &set->key_sum, set->bls_keys, fd_bls_set_range( all, 0UL, cnt ) );
   }
   set->epoch         = iter_kind==FD_VOTE_STAKES_ITER_T_1 ? ULONG_MAX : epoch;
   set->validator_cnt = cnt;
@@ -128,8 +130,8 @@ fd_alpenglow_cert_verify( fd_bank_t const *              bank,
                           ulong                          quorum_numer,
                           ushort                         shred_version,
                           fd_footer_cache_t *            cache,
-                          blst_p2_affine const *         hm,
-                          blst_p2_affine *               hm_out ) {
+                          fd_bls_hash_t const *         hm,
+                          fd_bls_hash_t *               hm_out ) {
   ulong bank_slot = bank->f.slot;
   ulong cert_slot = cert->slot;
 
@@ -155,23 +157,22 @@ fd_alpenglow_cert_verify( fd_bank_t const *              bank,
   for( ulong rank=fd_bls_set_const_iter_init( cert->signer_set ); !fd_bls_set_const_iter_done( rank ); rank=fd_bls_set_const_iter_next( cert->signer_set, rank ) ) {
     stake += set->stakes[ rank ];
   }
-  blst_p1 pub[1];
-  fd_bls_pub_sum( pub, set->bls_keys, set->validator_cnt, cert->signer_set, set->epoch!=ULONG_MAX ? &set->key_sum : NULL );
+  fd_bls_pub_t pub[1];
+  fd_bls_pub_sum_cached( pub, set->bls_keys, set->validator_cnt, cert->signer_set,
+                         set->epoch!=ULONG_MAX ? &set->key_sum : NULL );
   if( FD_UNLIKELY( quorum_numer && (uint128)stake*(uint128)AG_QUORUM_THRESHOLD_DENOM<(uint128)set->total_stake*(uint128)quorum_numer ) ) {
     FD_LOG_WARNING(( "slot %lu: footer cert for slot %lu has %lu of %lu stake, below %lu/%lu",
                      bank_slot, cert_slot, stake, set->total_stake, quorum_numer, AG_QUORUM_THRESHOLD_DENOM ));
     return -1;
   }
 
-  fd_bls_sig_t sig_affine[1];
-  blst_p2      sig[1];
-  if( FD_UNLIKELY( blst_p2_uncompress( sig_affine, cert->sig )!=BLST_SUCCESS || !blst_p2_affine_in_g2( sig_affine ) ) ) {
+  fd_bls_sig_t sig[1];
+  if( FD_UNLIKELY( fd_bls_sig_de_compressed( sig, cert->sig ) ) ) { /* uncompress + g2 subgroup check */
     FD_LOG_WARNING(( "slot %lu: footer cert for slot %lu has a malformed signature", bank_slot, cert_slot ));
     return -1;
   }
-  blst_p2_from_affine( sig, sig_affine );
 
-  blst_p2_affine h[1];
+  fd_bls_hash_t h[1];
   if( hm ) {
     *h = *hm;
   } else {

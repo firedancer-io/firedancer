@@ -31,44 +31,14 @@ check_threshold( ag_cert_t const *       self,
 /* TODO sum all the pubkeys on advance_epoch and subtract instead? */
 
 static int
-pub_sum( blst_p1 *               pub,
+pub_sum( fd_bls_pub_t *          pub,
          fd_bls_set_t const *    set,
          ag_epoch_info_t const * epoch_info ) {
-  memset( pub, 0, sizeof(blst_p1) ); /* zero is the point at infinity */
-  for( ulong rank=fd_bls_set_const_iter_init( set ); !fd_bls_set_const_iter_done( rank ); rank=fd_bls_set_const_iter_next( set, rank ) ) {
-    if( FD_UNLIKELY( rank>=epoch_info->validator_cnt ) ) return -1;
-    blst_p1_add_or_double_affine( pub, pub, epoch_info->pubkeys+rank );
-  }
+  memset( pub, 0, sizeof(fd_bls_pub_t) ); /* zero is the point at infinity */
+  if( FD_UNLIKELY( fd_bls_set_cnt( set ) &&
+                   fd_bls_set_last( set )>=epoch_info->validator_cnt ) ) return -1;
+  fd_bls_pub_sum( pub, epoch_info->pubkeys, set );
   return 0;
-}
-
-static int
-pair_verify( blst_p1 const * pub,
-             uchar const *   msg,
-             ulong           msg_sz,
-             blst_p1 const * pub_fb,
-             uchar const *   msg_fb,
-             ulong           msg_fb_sz,
-             blst_p2 const * sig ) {
-  if( FD_UNLIKELY( blst_p1_is_inf( pub ) || blst_p1_is_inf( pub_fb ) || blst_p2_is_inf( sig ) ) ) return 0; /* the miller loop is wrong on an infinity operand */
-
-  blst_p1_affine a[3];
-  blst_p2_affine b[3];
-  blst_p2        h[1];
-  blst_p1_to_affine( a, pub );
-  blst_hash_to_g2( h, msg, msg_sz, (uchar const *)FD_BLS_DST, FD_BLS_DST_SZ, NULL, 0UL );
-  blst_p2_to_affine( b, h );
-  blst_p1_to_affine( a+1, pub_fb );
-  blst_hash_to_g2( h, msg_fb, msg_fb_sz, (uchar const *)FD_BLS_DST, FD_BLS_DST_SZ, NULL, 0UL );
-  blst_p2_to_affine( b+1, h );
-  a[2] = BLS12_381_NEG_G1;
-  blst_p2_to_affine( b+2, sig );
-
-  blst_p1_affine const * aptr[3] = { a, a+1, a+2 };
-  blst_p2_affine const * bptr[3] = { b, b+1, b+2 };
-  blst_fp12 r[1];
-  blst_miller_loop_n( r, bptr, aptr, 3UL );
-  return !!blst_fp12_finalverify( r, blst_fp12_one() );
 }
 
 static int
@@ -78,11 +48,11 @@ check_sig_one( fd_bls_agg_t const *    agg,
                uchar const *           block_hash,
                ag_epoch_info_t const * epoch_info,
                ushort                  shred_version ) {
-  blst_p1 pub[1];
+  fd_bls_pub_t pub[1];
   if( FD_UNLIKELY( pub_sum( pub, agg->set, epoch_info ) ) ) return 0;
   uchar buf[ AG_VOTE_SIGNING_SER_MAX ];
   ulong sz = ag_vote_signing_ser( kind, slot, block_hash, shred_version, buf );
-  if( FD_UNLIKELY( !blst_p2_in_g2( &agg->sig ) ) ) return 0;
+  if( FD_UNLIKELY( !fd_bls_sig_validate( &agg->sig ) ) ) return 0; /* deferred g2 subgroup check */
   return fd_bls_agg_verify( buf, sz, pub, &agg->sig );
 }
 
@@ -95,16 +65,16 @@ check_sig_pair( fd_bls_agg_t const *    agg,
                 uchar const *           block_hash,
                 ag_epoch_info_t const * epoch_info,
                 ushort                  shred_version ) {
-  blst_p1 pub[1], pub_fb[1];
+  fd_bls_pub_t pub[1], pub_fb[1];
   if( FD_UNLIKELY( pub_sum( pub, agg->set, epoch_info ) || pub_sum( pub_fb, agg_fb->set, epoch_info ) ) ) return 0;
-  blst_p2 sig[1];
-  blst_p2_add_or_double( sig, &agg->sig, &agg_fb->sig );
-  if( FD_UNLIKELY( !blst_p2_in_g2( sig ) ) ) return 0;
+  fd_bls_sig_t sig[1];
+  fd_bls_sig_add( sig, &agg->sig, &agg_fb->sig );
+  if( FD_UNLIKELY( !fd_bls_sig_validate( sig ) ) ) return 0; /* deferred g2 subgroup check */
   uchar buf   [ AG_VOTE_SIGNING_SER_MAX ]; ulong sz    = ag_vote_signing_ser( kind,    slot, block_hash, shred_version, buf    );
   uchar buf_fb[ AG_VOTE_SIGNING_SER_MAX ]; ulong sz_fb = ag_vote_signing_ser( kind_fb, slot, block_hash, shred_version, buf_fb );
   if( FD_LIKELY  ( fd_bls_set_is_null( agg_fb->set ) ) ) return fd_bls_agg_verify( buf,    sz,    pub,    sig ); /* one partition is the common case */
   if( FD_UNLIKELY( fd_bls_set_is_null( agg->set    ) ) ) return fd_bls_agg_verify( buf_fb, sz_fb, pub_fb, sig );
-  return pair_verify( pub, buf, sz, pub_fb, buf_fb, sz_fb, sig );
+  return fd_bls_agg_verify_pair( buf, sz, pub, buf_fb, sz_fb, pub_fb, sig );
 }
 
 static int

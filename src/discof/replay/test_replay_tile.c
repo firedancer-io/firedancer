@@ -1619,7 +1619,7 @@ test_bls_pubkey( uchar out[ static FD_BLS_PUBKEY_COMPRESSED_SZ ],
   fd_bls_sec_derive( &sec, ikm, sizeof(ikm) );
   fd_bls_pub_t pub;
   fd_bls_sec_to_pub( &sec, &pub );
-  blst_p1_affine_compress( out, &pub );
+  fd_bls_pub_compress( &pub, out );
 }
 
 static ushort
@@ -1992,14 +1992,14 @@ static void
 cert_test_sign( fd_block_footer_cert_t * cert,
                 ulong                    slot,
                 fd_hash_t const *        bid ) {
-  blst_scalar sum = { 0 };
-  for( ulong r=0UL; r<CERT_TEST_VAL_CNT; r++ ) blst_sk_add_n_check( &sum, &sum, cert_test_sk+r );
   uchar msg[ AG_VOTE_SIGNING_SER_MAX ];
   ulong sz = ag_vote_signing_ser( AG_VOTE_KIND_NOTAR, slot, bid->uc, CERT_TEST_SV, msg );
   fd_bls_agg_t agg[1]; fd_bls_agg_null( agg );
-  fd_bls_sig_t sig[1]; fd_bls_sec_sign( &sum, msg, sz, sig );
-  blst_p2_from_affine( &agg->sig, sig );
-  for( ulong r=0UL; r<CERT_TEST_VAL_CNT; r++ ) fd_bls_set_insert( agg->set, r );
+  for( ulong r=0UL; r<CERT_TEST_VAL_CNT; r++ ) {
+    fd_bls_sig_t sig[1]; fd_bls_sec_sign( cert_test_sk+r, msg, sz, sig );
+    fd_bls_sig_add( &agg->sig, &agg->sig, sig );
+    fd_bls_set_insert( agg->set, r );
+  }
   FD_TEST( fd_block_footer_cert_from_agg( cert, slot, bid->uc, agg ) );
 }
 
@@ -2093,9 +2093,9 @@ test_footer_cert_tasks( fd_wksp_t * wksp ) {
           fd_execrp_cert_verify_msg_t const * msg = fd_chunk_to_laddr_const( wksp, m->chunk );
           FD_TEST( msg->bank_idx==b->idx && msg->shred_version==CERT_TEST_SV );
           if( msg->has_hm ) { /* from replay's memo: the payload's H(m) */
-            uchar pl[ FD_ALPENGLOW_CERT_PAYLOAD_MAX ]; blst_p2_affine h[1];
+            uchar pl[ FD_ALPENGLOW_CERT_PAYLOAD_MAX ]; fd_bls_hash_t h[1];
             fd_bls_hash_msg( pl, fd_alpenglow_cert_payload( msg->cert, msg->tag, msg->shred_version, pl ), h );
-            FD_TEST( blst_p2_affine_is_equal( h, &msg->hm ) );
+            FD_TEST( fd_bls_hash_eq( h, &msg->hm ) );
             hm_cnt++;
           }
           fd_execrp_task_done_msg_t done[1];
@@ -2108,8 +2108,8 @@ test_footer_cert_tasks( fd_wksp_t * wksp ) {
           if( done->cert_verify->has_hm ) { /* the tile's H(m) is now in replay's memo */
             uchar pl[ FD_ALPENGLOW_CERT_PAYLOAD_MAX ];
             ulong pl_sz = fd_alpenglow_cert_payload( msg->cert, msg->tag, msg->shred_version, pl );
-            blst_p2_affine const * h = fd_footer_cache_hash_query( ctx->footer_cache, pl, pl_sz );
-            FD_TEST( h && blst_p2_affine_is_equal( h, &done->cert_verify->hm ) );
+            fd_bls_hash_t const * h = fd_footer_cache_hash_query( ctx->footer_cache, pl, pl_sz );
+            FD_TEST( h && fd_bls_hash_eq( h, &done->cert_verify->hm ) );
           }
           FD_TEST( mock_sched_task_done_cnt==task_done0+1UL && mock_sched_task_done_type==FD_SCHED_TT_CERT_VERIFY && mock_sched_task_done_exec_idx==t );
           if( bad && k==1UL ) FD_TEST( b->state==FD_BANK_STATE_DEAD );

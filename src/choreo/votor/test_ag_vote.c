@@ -33,7 +33,7 @@ static void
 test_basic( void ) {
   fd_bls_sec_t sk; fd_memset( &sk, 9, FD_BLS_SEC_SZ );
   fd_bls_pub_t pk; fd_bls_sec_to_pub( &sk, &pk );
-  uchar selector[ FD_BLS_PUB_COMPRESSED_SZ ]; blst_p1_affine_compress( selector, &pk );
+  uchar selector[ FD_BLS_PUB_COMPRESSED_SZ ]; fd_bls_pub_compress( &pk, selector );
   ag_block_hash_t h; memset( h, 0, sizeof(ag_block_hash_t) );
 
   ag_vote_t v;
@@ -120,11 +120,11 @@ check_wire( ag_vote_t const *    v,
 
   uchar wire_comp[ AG_VOTE_SER_MAX ]; memcpy( wire_comp, out, n );
   uchar * comp_sig = wire_comp + ( wire_sig-out );
-  blst_p2_affine_compress( comp_sig, ag_vote_sig( v ) );
+  fd_bls_sig_compress( ag_vote_sig( v ), comp_sig );
   fd_memset( comp_sig+FD_BLS_SIG_COMPRESSED_SZ, 0xEE, FD_BLS_SIG_SZ-FD_BLS_SIG_COMPRESSED_SZ );
   FD_TEST( comp_sig[0]&0x80U );
   FD_TEST( ag_vote_de( &rt, wire_comp, n )==AG_VOTE_DE_SUCCESS );
-  FD_TEST( blst_p2_affine_is_equal( ag_vote_sig( &rt ), ag_vote_sig( v ) ) );
+  FD_TEST( fd_bls_sig_eq( ag_vote_sig( &rt ), ag_vote_sig( v ) ) );
 
   fd_memset( comp_sig, 0, FD_BLS_SIG_SZ );
   comp_sig[0] = 0x40; FD_TEST( ag_vote_de( &rt, wire_comp, n )==AG_VOTE_DE_ERR_SIG ); /* uncompressed identity */
@@ -132,15 +132,12 @@ check_wire( ag_vote_t const *    v,
 
   uchar          payload[ AG_VOTE_SIGNING_SER_MAX ];
   ulong          payload_sz = ag_vote_signing_ser( v->kind, ag_vote_slot( v ), h, TEST_SHRED_VERSION, payload );
-  blst_p2      sig[1];
-  fd_bls_sig_t sig_aff[1];
-  FD_TEST( blst_p2_deserialize( sig_aff, wire_sig )==BLST_SUCCESS );
-  blst_p2_from_affine( sig, sig_aff );
-  blst_p1 pub[1]; blst_p1_from_affine( pub, pk );
-  FD_TEST( fd_bls_agg_verify( payload, payload_sz, pub, sig ) );
+  fd_bls_sig_t sig[1];
+  FD_TEST( !fd_bls_sig_de_unchecked( sig, wire_sig ) );
+  FD_TEST( fd_bls_agg_verify( payload, payload_sz, pk, sig ) );
 
   payload[ 1 ] ^= 0xFFu;
-  FD_TEST( !fd_bls_agg_verify( payload, payload_sz, pub, sig ) );
+  FD_TEST( !fd_bls_agg_verify( payload, payload_sz, pk, sig ) );
 }
 
 static void
@@ -148,7 +145,7 @@ test_serialize( void ) {
   uchar        ikm[ 64 ]; for( ulong i=0UL; i<64UL; i++ ) ikm[i] = (uchar)(i+1u);
   fd_bls_sec_t sk; fd_bls_sec_derive( &sk, ikm, sizeof(ikm) );
   fd_bls_pub_t pk; fd_bls_sec_to_pub( &sk, &pk );
-  uchar selector[ FD_BLS_PUB_COMPRESSED_SZ ]; blst_p1_affine_compress( selector, &pk );
+  uchar selector[ FD_BLS_PUB_COMPRESSED_SZ ]; fd_bls_pub_compress( &pk, selector );
   ag_block_hash_t h; for( ulong i=0UL; i<32UL; i++ ) h[i] = (uchar)(0xA0u+i);
 
   ag_vote_t v;
