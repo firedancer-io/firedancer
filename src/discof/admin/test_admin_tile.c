@@ -195,10 +195,10 @@ test_set_identity( void ) {
 
 static uchar adminctl_mem[ 1UL<<18 ] __attribute__((aligned(FD_ADMINCTL_ALIGN)));
 
-/* With failover, set-identity changes the failover identity unless the
-   key is our junk key.  OPERATOR waits while the link has no room and
-   failover commands are busy until it goes out.  A switch request from
-   before set-identity gets STALE with the failover identity. */
+/* With failover, set-identity changes the failover identity.  OPERATOR
+   waits while the link has no room and failover commands are busy until
+   it goes out.  A switch request from before set-identity gets STALE
+   with the failover identity. */
 
 static fd_frag_meta_t    bus_mcache[ 8 ];
 static ulong             bus_seq;
@@ -309,14 +309,14 @@ test_failover_identity( void ) {
   fd_keyswitch_t * sign_ks  = mock_tile( "sign" );
   ctx.topo             = test_topo;
   ctx.failover_enabled = 1;
-  fd_memset( ctx.junk_pubkey,     0x11, 32UL );
+  uchar spare[ 32 ]; fd_memset( spare, 0x11, 32UL );
   fd_memset( ctx.failover_pubkey, 0x5A, 32UL );
-  fd_memcpy( ctx.identity_pubkey, ctx.junk_pubkey, 32UL );
+  fd_memcpy( ctx.identity_pubkey, spare, 32UL );
   uchar third[ 32 ]; fd_memset( third, 0x66, 32UL );
   bus_setup( 8UL );
 
-  /* A key other than junk and staked becomes the failover identity, and
-     nothing goes to the failover tile until every tile switched. */
+  /* The set-identity key becomes the failover identity, and nothing
+     goes to the failover tile until every tile switched. */
   failover_operator_begin( &ctx, third );
   FD_TEST( ctx.failover_epoch==1UL && fd_memeq( ctx.failover_pubkey, third, 32UL ) && ctx.failover_pending && !bus_seq );
   FD_TEST( sign_ks->param==FD_KEYSWITCH_PARAM_IDENTITY_KEYPAIR && votor_ks->failover==0UL );
@@ -326,13 +326,13 @@ test_failover_identity( void ) {
   FD_TEST( !ctx.failover_pending && operator.epoch==1UL );
   FD_TEST( fd_memeq( operator.identity, third, 32UL ) && fd_memeq( operator.failover_identity, third, 32UL ) );
 
-  /* The junk key keeps the failover identity.  With three credits left
-     OPERATOR waits, and goes out once there is room. */
+  /* So does any other key.  With three credits left OPERATOR waits,
+     and goes out once there is room. */
   bus_cr_avail = 3UL;
-  failover_operator_begin( &ctx, ctx.junk_pubkey );
-  fd_memcpy( ctx.identity_pubkey, ctx.junk_pubkey, 32UL );
+  failover_operator_begin( &ctx, spare );
+  fd_memcpy( ctx.identity_pubkey, spare, 32UL );
   failover_operator_notify( &ctx, bus_stem );
-  FD_TEST( ctx.failover_pending && bus_seq==1UL && fd_memeq( ctx.failover_pubkey, third, 32UL ) );
+  FD_TEST( ctx.failover_pending && bus_seq==1UL && fd_memeq( ctx.failover_pubkey, spare, 32UL ) );
   FD_TEST( fd_sha512_join( fd_sha512_new( ctx.sha512 ) ) );
   ctx.adminctl = fd_adminctl_join( fd_adminctl_new( adminctl_mem ) );
   FD_TEST( ctx.adminctl );
@@ -354,7 +354,7 @@ test_failover_identity( void ) {
   failover_operator_notify( &ctx, bus_stem );
   operator = bus_operator();
   FD_TEST( !ctx.failover_pending && operator.epoch==2UL );
-  FD_TEST( fd_memeq( operator.identity, ctx.junk_pubkey, 32UL ) && fd_memeq( operator.failover_identity, third, 32UL ) );
+  FD_TEST( fd_memeq( operator.identity, spare, 32UL ) && fd_memeq( operator.failover_identity, spare, 32UL ) );
 
   /* A switch request from before set-identity gets STALE with what it
      installed. */
@@ -366,7 +366,7 @@ test_failover_identity( void ) {
   fd_failover_switch_resp_t answer;
   fd_memcpy( &answer, ((fd_failover_bus_msg_t const *)bus_out)->payload, sizeof(answer) );
   FD_TEST( answer.result==FD_FAILOVER_SWITCH_ERR_STALE && answer.operator.epoch==2UL );
-  FD_TEST( fd_memeq( answer.operator.identity, ctx.junk_pubkey, 32UL ) && fd_memeq( answer.operator.failover_identity, third, 32UL ) );
+  FD_TEST( fd_memeq( answer.operator.identity, spare, 32UL ) && fd_memeq( answer.operator.failover_identity, spare, 32UL ) );
 
   /* Another key becomes the target, also while this machine runs the
      current one, the CLI warns about that case. */
@@ -381,7 +381,7 @@ test_failover_identity( void ) {
   FD_TEST( ctx.failover_epoch==3UL && ctx.failover_pending && ctx.failover_retargeted );
   FD_TEST( fd_memeq( ctx.failover_pubkey, keypair+32UL, 32UL ) && fd_memeq( ctx.identity_pubkey, third, 32UL ) );
 
-  /* Same key is a no-op, a mismatched keypair and the junk key are refused. */
+  /* Same key is a no-op, a mismatched keypair is refused. */
   uchar other[ 64 ]; fd_memset( other, 0x78, 32UL );
   fd_ed25519_public_from_private( other+32UL, other, ctx.sha512 );
   FD_TEST( failover_prepare( &ctx, other )==FD_ADMINCTL_RESULT_SUCCESS );
@@ -389,10 +389,6 @@ test_failover_identity( void ) {
   FD_TEST( failover_prepare( &ctx, other )==FD_ADMINCTL_RESULT_SUCCESS && ctx.failover_epoch==4UL );
   uchar bad[ 64 ]; fd_memcpy( bad, other, 64UL ); bad[ 32 ]^=1;
   FD_TEST( failover_prepare( &ctx, bad )==FD_SET_IDENTITY_RESULT_KEYPAIR_MISMATCH );
-  uchar junk[ 64 ]; fd_memset( junk, 0x79, 32UL );
-  fd_ed25519_public_from_private( junk+32UL, junk, ctx.sha512 );
-  fd_memcpy( ctx.junk_pubkey, junk+32UL, 32UL );
-  FD_TEST( failover_prepare( &ctx, junk )==FD_FAILOVER_CONTROL_RESULT_KEY_CONFLICT );
   FD_TEST( ctx.failover_epoch==4UL && fd_memeq( ctx.failover_pubkey, other+32UL, 32UL ) );
   ctx.topo = NULL;
 }

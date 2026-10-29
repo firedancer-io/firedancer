@@ -3,8 +3,9 @@
 
 /* TLS 1.3 over TCP for one failover candidate, built on fd_tls,
    fd_tlsrec and fd_tlsrec_sock.  Both ends present an Ed25519 cert for
-   their junk identity.  The channel admits a peer before TLS and checks
-   its TLS key against the admitted HELLO.  The caller owns the socket. */
+   the identity they hand off.  The channel admits a peer before TLS and
+   checks its TLS key against the admitted HELLO.  The caller owns the
+   socket. */
 
 #include "../../waltz/tlsrec/fd_tlsrec_sock.h"
 #include "../../ballet/chacha/fd_chacha_rng.h"
@@ -31,16 +32,17 @@ struct fd_failover_tls {
   int              verified;          /* handshake done, peer_pubkey is set */
   int              paired;            /* set by the channel after HELLO */
   int              peer_closed;       /* orderly EOF or close_notify */
-  uchar            peer_pubkey[ 32 ]; /* junk key the peer signed the handshake with */
+  uchar            peer_pubkey[ 32 ]; /* the key the peer signed the handshake with */
   ulong            received;          /* ciphertext bytes read before pairing */
 };
 typedef struct fd_failover_tls fd_failover_tls_t;
 
 FD_PROTOTYPES_BEGIN
 
-/* fd_failover_tls_ctx_init sets our junk pubkey and the signer for
-   CertificateVerify and seeds the RNG.  It and every new connection read
-   entropy from getrandom.  Returns 0 on success, -1 if entropy fails. */
+/* fd_failover_tls_ctx_init sets the public key of our cert and the
+   signer for CertificateVerify and seeds the RNG.  It and every new
+   connection read entropy from getrandom.  Returns 0 on success, -1 if
+   entropy fails. */
 
 int
 fd_failover_tls_ctx_init( fd_failover_tls_ctx_t * ctx,

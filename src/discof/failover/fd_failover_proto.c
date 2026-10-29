@@ -17,9 +17,7 @@ fd_failover_hello_check( fd_failover_hello_t const * self,
   if( FD_UNLIKELY( !self->boot_id || !peer->boot_id ) )                            return FD_FAILOVER_HELLO_ERR_BOOT_ID;
   if( FD_UNLIKELY( !fd_memeq( self->staked_pubkey, peer->staked_pubkey, 32UL ) ) ) return FD_FAILOVER_HELLO_ERR_STAKED;
   if( FD_UNLIKELY( !fd_memeq( self->vote_account,  peer->vote_account,  32UL ) ) ) return FD_FAILOVER_HELLO_ERR_VOTE_ACCT;
-  if( FD_UNLIKELY(  fd_memeq( self->junk_pubkey,   peer->junk_pubkey,   32UL ) ) ) return FD_FAILOVER_HELLO_ERR_JUNK_EQ;
-  if( FD_UNLIKELY(  fd_memeq( self->junk_pubkey,   self->staked_pubkey, 32UL ) ) ) return FD_FAILOVER_HELLO_ERR_JUNK_STAKE;
-  if( FD_UNLIKELY(  fd_memeq( peer->junk_pubkey,   peer->staked_pubkey, 32UL ) ) ) return FD_FAILOVER_HELLO_ERR_JUNK_STAKE;
+  if( FD_UNLIKELY( self->boot_id==peer->boot_id ) )                                return FD_FAILOVER_HELLO_ERR_SELF;
   if( FD_UNLIKELY( self->holds && peer->holds ) )                                  return FD_FAILOVER_HELLO_ERR_BOTH_HOLD;
   return FD_FAILOVER_HELLO_OK;
 }
@@ -55,12 +53,10 @@ fd_failover_response_hash( uchar const   transcript[ 32 ],
 void
 fd_failover_proof_msg( uchar       out[ FD_KEYGUARD_FAILOVER_PROOF_SZ ],
                        int         server,
-                       uchar const junk_pubkey[ 32 ],
                        uchar const transcript[ 32 ] ) {
   fd_memcpy( out, server ? FD_KEYGUARD_FAILOVER_SERVER_DOMAIN : FD_KEYGUARD_FAILOVER_CLIENT_DOMAIN,
              FD_KEYGUARD_FAILOVER_DOMAIN_SZ );
-  fd_memcpy( out+FD_KEYGUARD_FAILOVER_DOMAIN_SZ,      junk_pubkey, 32UL );
-  fd_memcpy( out+FD_KEYGUARD_FAILOVER_DOMAIN_SZ+32UL, transcript,  32UL );
+  fd_memcpy( out+FD_KEYGUARD_FAILOVER_DOMAIN_SZ, transcript, 32UL );
 }
 
 int

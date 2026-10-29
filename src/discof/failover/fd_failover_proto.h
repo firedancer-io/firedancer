@@ -42,13 +42,12 @@
 #define FD_FAILOVER_HELLO_ERR_VERSION    (1)
 #define FD_FAILOVER_HELLO_ERR_STAKED     (2)
 #define FD_FAILOVER_HELLO_ERR_VOTE_ACCT  (3)
-#define FD_FAILOVER_HELLO_ERR_JUNK_EQ    (4)
-#define FD_FAILOVER_HELLO_ERR_JUNK_STAKE (5)
-#define FD_FAILOVER_HELLO_ERR_BOTH_HOLD  (6)
-#define FD_FAILOVER_HELLO_ERR_HOLDS      (7)
-#define FD_FAILOVER_HELLO_ERR_BOOT_ID    (8)
-#define FD_FAILOVER_HELLO_ERR_MODE       (9)
-#define FD_FAILOVER_HELLO_ERR_PROOF      (10)
+#define FD_FAILOVER_HELLO_ERR_SELF       (4)
+#define FD_FAILOVER_HELLO_ERR_BOTH_HOLD  (5)
+#define FD_FAILOVER_HELLO_ERR_HOLDS      (6)
+#define FD_FAILOVER_HELLO_ERR_BOOT_ID    (7)
+#define FD_FAILOVER_HELLO_ERR_MODE       (8)
+#define FD_FAILOVER_HELLO_ERR_PROOF      (9)
 
 /* Upper bound on the vote history payload in alpenglow mode,
    AG_HIST_SER_MAX is 5274 bytes. */
@@ -58,7 +57,6 @@
 /* Wire protocol message bodies. Little endian, packed, fixed layout. */
 struct __attribute__((packed)) fd_failover_hello {
   ushort version;             /* FD_FAILOVER_VERSION */
-  uchar  junk_pubkey[ 32 ];   /* this host's junk key, generated at boot */
   uchar  staked_pubkey[ 32 ]; /* the identity this pair hands off */
   uchar  vote_account[ 32 ];  /* the vote account for this pair */
   uchar  holds;               /* 1 when this host runs staked_pubkey at pairing, else 0 */
@@ -67,7 +65,7 @@ struct __attribute__((packed)) fd_failover_hello {
   uchar  commit[ 20 ];        /* FD commit hash */
 };
 typedef struct fd_failover_hello fd_failover_hello_t;
-FD_STATIC_ASSERT( sizeof(fd_failover_hello_t)==128UL, wire_layout );
+FD_STATIC_ASSERT( sizeof(fd_failover_hello_t)==96UL, wire_layout );
 
 /* Pre-TLS admission */
 #define FD_FAILOVER_ADMISSION_MAGIC  (0x314d44414c494146UL)
@@ -81,7 +79,7 @@ struct __attribute__((packed)) fd_failover_admission_start {
   ushort              client_hello_sz;
 };
 typedef struct fd_failover_admission_start fd_failover_admission_start_t;
-FD_STATIC_ASSERT( sizeof(fd_failover_admission_start_t)==170UL, admission_start_layout );
+FD_STATIC_ASSERT( sizeof(fd_failover_admission_start_t)==138UL, admission_start_layout );
 
 struct __attribute__((packed)) fd_failover_admission_challenge {
   ulong               magic;
@@ -89,7 +87,7 @@ struct __attribute__((packed)) fd_failover_admission_challenge {
   uchar               nonce[ 32 ];
 };
 typedef struct fd_failover_admission_challenge fd_failover_admission_challenge_t;
-FD_STATIC_ASSERT( sizeof(fd_failover_admission_challenge_t)==168UL, admission_challenge_layout );
+FD_STATIC_ASSERT( sizeof(fd_failover_admission_challenge_t)==136UL, admission_challenge_layout );
 
 struct __attribute__((packed)) fd_failover_admission_response {
   ushort server_flight_sz;
@@ -178,7 +176,6 @@ fd_failover_response_hash( uchar const   transcript[ 32 ],
 void
 fd_failover_proof_msg( uchar       out[ FD_KEYGUARD_FAILOVER_PROOF_SZ ],
                        int         server,
-                       uchar const junk_pubkey[ 32 ],
                        uchar const transcript[ 32 ] );
 
 /* Validate a handoff request or response. */

@@ -7,7 +7,8 @@ static uchar       scratch[ 2 ][ 32UL<<20 ] __attribute__((aligned(128)));
 static uchar       keys[ 3 ][ 64 ] = { { 1 }, { 2 }, { 9 } };
 static fd_sha512_t sha[ 1 ];
 
-/* Stands in for the sign tile, the member's junk key signs its TLS. */
+/* Stands in for the sign tile, the identity a member hands off signs
+   its TLS handshakes and admission proofs. */
 static void
 sign_fn( void *      ctx,
          uchar       sig[ static FD_ED25519_SIG_SZ ],
@@ -22,6 +23,7 @@ proof_fn( void * ctx, uchar sig[ 64 ], uchar const msg[ FD_KEYGUARD_FAILOVER_PRO
   fd_ed25519_sign( sig, msg, FD_KEYGUARD_FAILOVER_PROOF_SZ, key+32UL, key, sha );
 }
 
+/* Member idx hands off the identity in keys[staked_idx]. */
 static fd_failover_channel_t *
 member( ulong idx, ulong staked_idx ) {
   fd_failover_channel_t * ch = fd_failover_channel_join( fd_failover_channel_new( scratch[idx] ) );
@@ -29,11 +31,10 @@ member( ulong idx, ulong staked_idx ) {
   fd_failover_hello_t hello = { .version=FD_FAILOVER_VERSION, .boot_id=idx+1UL,
                                 .holds=(uchar)(idx ? 0 : 1),
                                 .mode=FD_FAILOVER_MODE_ALPENGLOW };
-  fd_memcpy( hello.junk_pubkey, keys[idx]+32UL, 32UL );
   fd_memcpy( hello.staked_pubkey, keys[staked_idx]+32UL, 32UL );
   fd_memset( hello.vote_account, 0xBB, 32UL );
-  FD_TEST( !fd_failover_channel_set_identity( ch, keys[idx]+32UL, (fd_tls_sign_t){ .ctx=keys[idx], .sign_fn=sign_fn },
-                                                 (fd_failover_proof_signer_t){ .ctx=keys[staked_idx], .sign_fn=proof_fn }, &hello ) );
+  FD_TEST( !fd_failover_channel_set_identity( ch, (fd_tls_sign_t){ .ctx=keys[staked_idx], .sign_fn=sign_fn },
+                                                  (fd_failover_proof_signer_t){ .ctx=keys[staked_idx], .sign_fn=proof_fn }, &hello ) );
   fd_failover_channel_init_listener( ch, FD_IP4_ADDR(127,0,0,1), 0 );
   return ch;
 }

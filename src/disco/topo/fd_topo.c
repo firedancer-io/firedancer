@@ -223,9 +223,9 @@ FD_FN_PURE static ulong
 fd_topo_tile_extra_normal_pages( fd_topo_tile_t const * tile ) {
   ulong key_pages = 0UL;
   if( FD_UNLIKELY( !strcmp( tile->name, "sign" ) && tile->sign.failover_enabled ) ) {
-    /* The junk key, the read only copy of the boot key and the failover
-       target key, each with its guard pages, next to the identity key. */
-    key_pages += 15UL;
+    /* The junk key and the failover identity, each with its guard
+       pages, next to the identity key. */
+    key_pages += 10UL;
   }
   if( FD_UNLIKELY( tile->id_keyswitch_obj_id!=ULONG_MAX ) ) {
     /* Certain tiles using fd_keyload_load need normal pages to hold

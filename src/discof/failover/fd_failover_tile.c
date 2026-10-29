@@ -22,9 +22,9 @@
 
 /* The failov tile owns the sockets to the other failover machine, keeps
    host networking for them and holds no private keys.  The sign tile
-   signs fresh admission proofs with the failover identity and our TLS
-   handshakes with the junk key, and the admin tile does the identity
-   switch and stays off the network. */
+   signs the admission proofs and our TLS handshakes with the failover
+   identity, and the admin tile does the identity switch and stays off
+   the network. */
 
 #define FD_FAILOVER_TILE_POLL_NANOS (50000L) /* 50us */
 
@@ -61,18 +61,18 @@ struct fd_failover_history {
 
 typedef struct fd_failover_history fd_failover_history_t;
 
+/* A peer is a boot of the other machine.  Both authenticate as the
+   identity they hand off, so only the boot id tells them apart. */
 struct fd_failover_peer {
-  ulong boot_id;    /* the peer's boot */
-  uchar junk[ 32 ]; /* the peer's junk key */
+  ulong boot_id; /* the peer's boot */
 };
 
 typedef struct fd_failover_peer fd_failover_peer_t;
 
 static inline int
 is_same_peer( fd_failover_peer_t const * bound,
-              ulong                      boot_id,
-              uchar const *              junk ) {
-  return bound->boot_id==boot_id && fd_memeq( bound->junk, junk, 32UL );
+              ulong                      boot_id ) {
+  return bound->boot_id==boot_id;
 }
 
 struct fd_failover_session {
@@ -175,8 +175,8 @@ struct fd_failover_tile_ctx {
   int                     input_lost;           /* input overrun disables failover until restart */
   int                     read_pending;         /* cleared only after STEM validates the fragment */
   fd_failover_hello_t     hello;       /* the HELLO we send */
-  int                     holds;       /* we run the target identity, hello.staked_pubkey */
-  uchar                   installed[ 32 ]; /* the identity this machine signs with now, from the switches we asked for and set-identity */
+  uchar                   installed[ 32 ];    /* the identity this machine signs with now */
+  uchar                   spare_pubkey[ 32 ]; /* the junk key generated at boot, a handoff installs it */
   uint                    cmd_addr;    /* from `failover promote --address`, 0 when gossip finds the identity */
   ushort                  cmd_port;    /* from `failover promote --port`, 0 for the default port */
   fd_failover_channel_t * channel;     /* the TLS channel to the peer */
@@ -279,6 +279,12 @@ struct fd_failover_tile_ctx {
 
 typedef struct fd_failover_tile_ctx fd_failover_tile_ctx_t;
 
+/* Whether this machine currently runs the staked identity it hands off. */
+static inline int
+holds_identity( fd_failover_tile_ctx_t const * ctx ) {
+  return fd_memeq( ctx->installed, ctx->hello.staked_pubkey, 32UL );
+}
+
 FD_FN_CONST static inline ulong
 scratch_align( void ) {
   return fd_ulong_max( alignof(fd_failover_tile_ctx_t), fd_failover_channel_align() );
@@ -330,19 +336,21 @@ privileged_init( fd_topo_t const *      topo,
   ctx->hist_seen_seq         = ULONG_MAX;
   FD_TEST( fd_rng_secure( &ctx->handoff_base, sizeof(ulong) ) );
 
-  /* The junk key generated at boot goes into HELLO and TLS, and a
-     handoff switches to it.  Only Sign holds its private key.  The
-     configured identity is what we hand off until set-identity or
-     failover promote <keypair> switches to another key. */
-  uchar const * junk_pubkey = fd_keyload_load( FD_KEYLOAD_FAILOVER_JUNK, 1 );
-  fd_memcpy( ctx->hello.junk_pubkey, junk_pubkey, 32UL );
-  fd_keyload_unload( junk_pubkey, 1 );
-  uchar const * target_pubkey = fd_keyload_load( tile->failov.identity_key_path, 1 );
-  fd_memcpy( ctx->hello.staked_pubkey, target_pubkey, 32UL );
-  fd_memcpy( ctx->installed,           tile->failov.boot_to_standby ? ctx->hello.junk_pubkey : target_pubkey, 32UL );
-  fd_keyload_unload( target_pubkey,    1 );
+  /* The junk key generated at boot is the spare a handoff installs.
+     The configured identity is the key we hand off. */
+  uchar const * spare_pubkey = fd_keyload_load( FD_KEYLOAD_FAILOVER_JUNK, 1 );
+  fd_memcpy( ctx->spare_pubkey, spare_pubkey, 32UL );
+  fd_keyload_unload( spare_pubkey, 1 );
 
-  if( FD_UNLIKELY( fd_memeq( ctx->hello.junk_pubkey, ctx->hello.staked_pubkey, 32UL ) ) ) {
+  uchar const * target_pubkey = fd_keyload_load( tile->failov.target_key_path, 1 );
+  fd_memcpy( ctx->hello.staked_pubkey, target_pubkey, 32UL );
+  fd_keyload_unload( target_pubkey, 1 );
+
+  uchar const * identity_pubkey = fd_keyload_load( tile->failov.identity_key_path, 1 );
+  fd_memcpy( ctx->installed, identity_pubkey, 32UL );
+  fd_keyload_unload( identity_pubkey, 1 );
+
+  if( FD_UNLIKELY( fd_memeq( ctx->spare_pubkey, ctx->hello.staked_pubkey, 32UL ) ) ) {
     FD_LOG_ERR(( "the failover junk key must differ from [paths.identity_key]" ));
   }
 
@@ -356,10 +364,8 @@ privileged_init( fd_topo_t const *      topo,
   ctx->adopt_anchor     = FD_FAILOVER_SLOT_NULL;
   ctx->empty_vote_after = FD_FAILOVER_SLOT_NULL;
 
-  /* We run the target identity unless we booted to standby. */
-  ctx->holds         = !tile->failov.boot_to_standby;
   ctx->hello.version = (ushort)FD_FAILOVER_VERSION;
-  ctx->hello.holds   = (uchar)ctx->holds;
+  ctx->hello.holds   = (uchar)holds_identity( ctx );
   ctx->hello.mode    = (uchar)FD_FAILOVER_MODE_ALPENGLOW;
   while( FD_UNLIKELY( !ctx->hello.boot_id ) ) FD_TEST( fd_rng_secure( &ctx->hello.boot_id, sizeof(ulong) ) );
 
@@ -379,8 +385,8 @@ privileged_init( fd_topo_t const *      topo,
   ctx->channel = fd_failover_channel_join( fd_failover_channel_new( channel_mem ) );
   FD_TEST( ctx->channel );
   fd_tls_sign_t signer = { .ctx=ctx, .sign_fn=sign_ed25519 };
-  if( FD_UNLIKELY( fd_failover_channel_set_identity( ctx->channel, ctx->hello.junk_pubkey, signer, (fd_failover_proof_signer_t){ .ctx=ctx, .sign_fn=sign_proof }, &ctx->hello ) ) ) {
-    FD_LOG_ERR(( "failover TLS setup failed for the junk key" ));
+  if( FD_UNLIKELY( fd_failover_channel_set_identity( ctx->channel, signer, (fd_failover_proof_signer_t){ .ctx=ctx, .sign_fn=sign_proof }, &ctx->hello ) ) ) {
+    FD_LOG_ERR(( "failover TLS setup failed" ));
   }
 
   fd_failover_channel_init_listener( ctx->channel, tile->failov.listen_addr, tile->failov.port );
@@ -388,9 +394,9 @@ privileged_init( fd_topo_t const *      topo,
 
   char junk_b58  [ FD_BASE58_ENCODED_32_SZ ];
   char staked_b58[ FD_BASE58_ENCODED_32_SZ ];
-  fd_base58_encode_32( ctx->hello.junk_pubkey,   NULL, junk_b58   );
+  fd_base58_encode_32( ctx->spare_pubkey,        NULL, junk_b58   );
   fd_base58_encode_32( ctx->hello.staked_pubkey, NULL, staked_b58 );
-  if( FD_UNLIKELY( tile->failov.boot_to_standby ) ) {
+  if( FD_UNLIKELY( !holds_identity( ctx ) ) ) {
     FD_LOG_NOTICE(( "failover is on, booting as a standby under junk key `%s` for identity `%s`, listening on `" FD_IP4_ADDR_FMT ":%u`, "
                     "this machine does not vote until `failover promote` here takes the identity from the machine running it.",
                     junk_b58, staked_b58, FD_IP4_ADDR_FMT_ARGS( tile->failov.listen_addr ), (uint)tile->failov.port ));
@@ -665,7 +671,7 @@ after_credit( fd_failover_tile_ctx_t * ctx,
 
   if( FD_UNLIKELY( ctx->stuck!=ctx->stuck_logged ) ) {
     ctx->stuck_logged = ctx->stuck;
-    if( !ctx->stuck ) FD_LOG_NOTICE(( "failover is no longer stuck, %s", ctx->holds ? "this machine runs the identity" : "this machine does not run the identity" ));
+    if( !ctx->stuck ) FD_LOG_NOTICE(( "failover is no longer stuck, %s", holds_identity( ctx ) ? "this machine runs the identity" : "this machine does not run the identity" ));
   }
 }
 

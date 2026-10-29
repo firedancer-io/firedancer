@@ -396,7 +396,6 @@ struct fd_votor_tile {
 
   int         failover_enabled;         /* the topology has the failover links */
   int         installed_by_failover;    /* the identity we run came from a failover switch, not boot or set-identity */
-  fd_pubkey_t junk_key;                 /* the junk key generated at boot, a handoff switches to it */
   ulong       highest_unsent_slot;      /* highest vote the tile built but did not send, ULONG_MAX none */
   int         failover_hist_adopted;    /* a history, possibly empty, was adopted since the last switch */
   ulong       adopted_tip;              /* tip of the adopted history, ULONG_MAX for an empty one or none */
@@ -1519,8 +1518,7 @@ failover_switched( fd_votor_tile_t * ctx ) {
     }
   }
   int operator = !FD_VOLATILE_CONST( ctx->id_keyswitch->failover );
-  int junk     = fd_pubkey_eq( &ctx->id_key, &ctx->junk_key );
-  ctx->vote_authority        = operator || ( !junk && ctx->failover_hist_adopted );
+  ctx->vote_authority        = operator || ctx->failover_hist_adopted;
   ctx->installed_by_failover = !operator;
 
   /* A promotion votes past the adopted history's tip, its vote bound
@@ -1539,7 +1537,6 @@ failover_switched( fd_votor_tile_t * ctx ) {
   if( FD_UNLIKELY( !operator ) ) {
     FD_BASE58_ENCODE_32_BYTES( ctx->id_key.uc, id_key_b58 );
     FD_LOG_NOTICE(( "failover: switched to identity `%s`, this machine %s", id_key_b58, ctx->vote_authority ? "votes as it" : "does not vote as it" ));
-    if( FD_UNLIKELY( !junk && !ctx->failover_hist_adopted ) ) FD_LOG_WARNING(( "failover: the identity was installed without an adopted vote history, refusing to vote until an adoption precedes an identity switch" ));
   }
   ctx->failover_hist_adopted = 0;
   ctx->adopted_tip           = ULONG_MAX;
@@ -1611,7 +1608,6 @@ failover_init( fd_votor_tile_t *      ctx,
   /* Every validator votes as its boot identity with the usual voting
      rules.  Only an adopted history changes them, on the machine that
      adopted it. */
-  fd_memcpy( ctx->junk_key.uc, topo->failover_junk, 32UL );
   ctx->installed_by_failover    = 0;
   ctx->vote_authority           = 1;
   ctx->highest_unsent_slot      = ULONG_MAX;

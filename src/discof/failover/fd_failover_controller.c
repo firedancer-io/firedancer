@@ -130,16 +130,16 @@ get_dial_port( fd_failover_tile_ctx_t const * ctx ) {
 static inline int
 is_bound_peer( fd_failover_tile_ctx_t const * ctx,
                fd_failover_peer_t const *     bound ) {
-  fd_failover_hello_t const * peer = fd_failover_channel_peer_hello( ctx->channel );
-  return is_same_peer( bound, peer->boot_id, peer->junk_pubkey );
+  return is_same_peer( bound, fd_failover_channel_peer_hello( ctx->channel )->boot_id );
 }
 
+/* Sets the installed identity this machine currently signs with. */
 static void
-set_holds( fd_failover_tile_ctx_t * ctx,
-           int                      holds ) {
-  ctx->holds       = holds;
-  ctx->hello.holds = (uchar)holds;
-  fd_failover_channel_set_holds( ctx->channel, holds );
+set_installed( fd_failover_tile_ctx_t * ctx,
+               uchar const *            pubkey ) {
+  fd_memcpy( ctx->installed, pubkey, 32UL );
+  ctx->hello.holds = (uchar)holds_identity( ctx );
+  fd_failover_channel_set_holds( ctx->channel, ctx->hello.holds );
 }
 
 /* Updates our session state when the channel's session changes. */
@@ -206,9 +206,7 @@ queue_handoff_result( fd_failover_tile_ctx_t *   ctx,
                       ulong                      result ) {
   fd_failover_peer_t peer;
   if( !to ) {
-    fd_failover_hello_t const * hello = fd_failover_channel_peer_hello( ctx->channel );
-    peer.boot_id = hello->boot_id;
-    fd_memcpy( peer.junk, hello->junk_pubkey, 32UL );
+    peer.boot_id = fd_failover_channel_peer_hello( ctx->channel )->boot_id;
     to = &peer;
   }
   fd_failover_handoff_result_t response = { .handoff_id=id, .result=result };
@@ -336,7 +334,9 @@ on_votor_hist_msg( fd_failover_tile_ctx_t *    ctx,
   if( FD_LIKELY( hist->root_slot!=FD_FAILOVER_SLOT_NULL ) ) ctx->root_slot = hist->root_slot;
   /* Histories of another key can arrive during preparation or after the switch. */
   if( FD_UNLIKELY( !fd_memeq( hist->identity.uc, ctx->hello.staked_pubkey, 32UL ) || hist->vote_slot==FD_FAILOVER_SLOT_NULL ) ) return;
-  int producing = ctx->holds || ctx->action==FD_FAILOVER_ACTION_PROMOTE_SWITCH;
+  /* The drain still takes the history of our last votes after the
+     switch to the junk key. */
+  int producing = holds_identity( ctx ) || ctx->action==FD_FAILOVER_ACTION_PROMOTE_SWITCH || ctx->action==FD_FAILOVER_ACTION_DEMOTE_DRAIN;
   /* A vote we signed, or the first history with a vote in it while we
      run the identity, cast before we tracked our votes. */
   int voted     = hist->has_vote || ( producing && ctx->last_vote_slot==FD_FAILOVER_SLOT_NULL );
@@ -400,7 +400,7 @@ request_switch( fd_failover_tile_ctx_t * ctx,
   fd_memset( out, 0, sizeof(*out) );
   out->nonce = ctx->id_switch.request_id;
   fd_failover_switch_req_t req = { .epoch=ctx->id_switch.epoch };
-  fd_memcpy( req.identity, key==FD_FAILOVER_SWITCH_KEY_STAKED ? ctx->hello.staked_pubkey : ctx->hello.junk_pubkey, 32UL );
+  fd_memcpy( req.identity, key==FD_FAILOVER_SWITCH_KEY_STAKED ? ctx->hello.staked_pubkey : ctx->spare_pubkey, 32UL );
   fd_memcpy( out->payload, &req, sizeof(req) );
   ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
   fd_stem_publish( stem, ctx->admin_out_idx, FD_FAILOVER_BUS_SWITCH_REQ, ctx->admin_out_chunk, sizeof(*out), 0UL, tspub, tspub );
@@ -476,11 +476,9 @@ on_operator_action_msg( fd_failover_tile_ctx_t *       ctx,
   ulong boot_id = ctx->hello.boot_id;
   do FD_TEST( fd_rng_secure( &ctx->hello.boot_id, sizeof(ulong) ) ); while( FD_UNLIKELY( !ctx->hello.boot_id || ctx->hello.boot_id==boot_id ) );
   fd_memcpy( ctx->hello.staked_pubkey, operator->failover_identity, 32UL );
-  fd_memcpy( ctx->installed,           operator->identity,          32UL );
-  ctx->holds       = fd_memeq( operator->identity, operator->failover_identity, 32UL );
-  ctx->hello.holds = (uchar)ctx->holds;
+  set_installed( ctx, operator->identity );
   fd_tls_sign_t signer = { .ctx=ctx, .sign_fn=sign_ed25519 };
-  if( FD_UNLIKELY( fd_failover_channel_set_identity( ctx->channel, ctx->hello.junk_pubkey, signer, (fd_failover_proof_signer_t){ .ctx=ctx, .sign_fn=sign_proof }, &ctx->hello ) ) ) {
+  if( FD_UNLIKELY( fd_failover_channel_set_identity( ctx->channel, signer, (fd_failover_proof_signer_t){ .ctx=ctx, .sign_fn=sign_proof }, &ctx->hello ) ) ) {
     FD_LOG_ERR(( "failover TLS setup failed after the identity changed" ));
   }
   sync_session( ctx );
@@ -507,7 +505,7 @@ resolve_handoff( fd_failover_tile_ctx_t * ctx,
 static void
 abort_demotion( fd_failover_tile_ctx_t * ctx,
                 char const *             why ) {
-  FD_LOG_WARNING(( "handoff %lu: %s, %s", ctx->handoff.id, why, ctx->holds ? "this machine keeps the identity" : "nobody runs the identity" ));
+  FD_LOG_WARNING(( "handoff %lu: %s, %s", ctx->handoff.id, why, holds_identity( ctx ) ? "this machine keeps the identity" : "nobody runs the identity" ));
   if( FD_UNLIKELY( ctx->handoff.delivery!=FD_FAILOVER_DELIVERY_NONE ) ) queue_handoff_result( ctx, &ctx->handoff.target, ctx->handoff.id, FD_FAILOVER_CONTROL_RESULT_PEER_UNREADY );
   ctx->handoff.delivery = FD_FAILOVER_DELIVERY_NONE;
   ctx->stuck            = 1;
@@ -543,7 +541,6 @@ accept_handoff( fd_failover_tile_ctx_t * ctx,
   ctx->handoff.id             = handoff_id;
   ctx->handoff.delivery       = FD_FAILOVER_DELIVERY_PENDING;
   ctx->handoff.target.boot_id = ctx->session.peer_boot_id;
-  fd_memcpy( ctx->handoff.target.junk, fd_failover_channel_peer_hello( ctx->channel )->junk_pubkey, 32UL );
   ctx->last_requested = 0;
   ctx->stuck          = 0;
   FD_LOG_NOTICE(( "handoff %lu: accepted the request from peer boot %016lx, giving up the identity", handoff_id, ctx->handoff.target.boot_id ));
@@ -556,13 +553,9 @@ accept_handoff( fd_failover_tile_ctx_t * ctx,
 static void
 step_demote_drain( fd_failover_tile_ctx_t * ctx ) {
   if( FD_UNLIKELY( !fd_seq_ge( fd_seq_inc( ctx->hist_seen_seq, 1UL ), ctx->id_switch.result.history_watermark ) ) ) {
-    if( FD_UNLIKELY( is_overdue( ctx ) ) ) {
-      set_holds( ctx, 0 );
-      abort_demotion( ctx, "the vote history stream did not report its last votes in time, sending nothing" );
-    }
+    if( FD_UNLIKELY( is_overdue( ctx ) ) ) abort_demotion( ctx, "the vote history stream did not report its last votes in time, sending nothing" );
     return;
   }
-  set_holds( ctx, 0 );
   if( FD_UNLIKELY( !is_final_history_ok( ctx ) ) ) { abort_demotion( ctx, "no final vote history for the last vote, sending nothing" ); return; }
   ctx->handoff.payload_sz = fd_failover_demoted_encode( ctx->handoff.payload, ctx->handoff.id, ctx->handoff.target.boot_id, ctx->last_vote_slot, ctx->current_history.state, ctx->current_history.sz );
   if( FD_UNLIKELY( !ctx->handoff.payload_sz ) ) { abort_demotion( ctx, "the final vote history does not encode, sending nothing" ); return; }
@@ -590,7 +583,7 @@ step_demote_switch( fd_failover_tile_ctx_t * ctx,
     abort_demotion( ctx, result==FD_FAILOVER_SWITCH_ERR_DISABLED ? "failover is disabled" : result==FD_FAILOVER_SWITCH_ERR_AUTHORIZED_VOTER ? "the identity is an authorized voter" : "the identity switch failed" );
     return;
   }
-  fd_memcpy( ctx->installed, ctx->hello.junk_pubkey, 32UL );
+  set_installed( ctx, ctx->spare_pubkey );
   set_action( ctx, FD_FAILOVER_ACTION_DEMOTE_DRAIN );
   step_demote_drain( ctx );
 }
@@ -641,7 +634,7 @@ end_request( fd_failover_tile_ctx_t * ctx,
              long                     now,
              ulong                    result ) {
   FD_TEST( !is_switch_pending( ctx ) && is_requesting( ctx ) );
-  FD_LOG_NOTICE(( "handoff %lu: request ended (%s), %s", ctx->request.id, get_handoff_name( result ), ctx->holds ? "this machine runs the identity" : "this machine does not run the identity" ));
+  FD_LOG_NOTICE(( "handoff %lu: request ended (%s), %s", ctx->request.id, get_handoff_name( result ), holds_identity( ctx ) ? "this machine runs the identity" : "this machine does not run the identity" ));
   ctx->request.result           = result;
   ctx->request.id               = 0UL;
   ctx->request.until            = 0L;
@@ -691,7 +684,7 @@ check_promotion( fd_failover_tile_ctx_t const * ctx,
                  long                           now,
                  int                            force ) {
   if( FD_UNLIKELY( ctx->input_lost ) ) return FD_FAILOVER_CONTROL_RESULT_INPUT_LOST;
-  if( FD_UNLIKELY( ctx->holds ) )      return FD_FAILOVER_CONTROL_RESULT_WRONG_HOLDER;
+  if( FD_UNLIKELY( holds_identity( ctx ) ) ) return FD_FAILOVER_CONTROL_RESULT_WRONG_HOLDER;
   if( FD_UNLIKELY( ctx->action==FD_FAILOVER_ACTION_DEMOTE_WAIT_ACK && !force ) ) return FD_FAILOVER_CONTROL_RESULT_HANDOFF_PENDING;
   int cancellable = ctx->action==FD_FAILOVER_ACTION_DEMOTE_WAIT_ACK || ( force && ctx->request.id && is_requesting( ctx ) );
   if( FD_UNLIKELY( ( ctx->action!=FD_FAILOVER_ACTION_IDLE && !cancellable ) || is_switch_pending( ctx ) ) ) return FD_FAILOVER_CONTROL_RESULT_IN_PROGRESS;
@@ -896,8 +889,7 @@ step_promote_switch( fd_failover_tile_ctx_t * ctx ) {
   /* An operator promotion installed the identity outside a handoff, so
      a background session must not keep our old HELLO. */
   if( !ctx->promotion.from_peer ) hang_up( ctx, fd_failover_clock() );
-  fd_memcpy( ctx->installed, ctx->hello.staked_pubkey, 32UL );
-  set_holds( ctx, 1 );
+  set_installed( ctx, ctx->hello.staked_pubkey );
   ctx->peer_history.valid = 0; /* a new tenure starts, the saved history is older than its votes */
   ctx->taken              = 0;
   ctx->stuck              = 0;
@@ -953,7 +945,7 @@ on_handoff_request_msg( fd_failover_tile_ctx_t * ctx,
     result = ctx->handoff.result==FD_FAILOVER_HANDOFF_TAKEN ? FD_ADMINCTL_RESULT_SUCCESS : FD_FAILOVER_CONTROL_RESULT_PEER_UNREADY;
   } else if( ctx->action!=FD_FAILOVER_ACTION_IDLE || is_switch_pending( ctx ) || ctx->tx.valid || ctx->session.close_after_send ) {
     result = FD_FAILOVER_CONTROL_RESULT_IN_PROGRESS;
-  } else if( !ctx->holds || fd_failover_channel_peer_hello( ctx->channel )->holds ) {
+  } else if( !holds_identity( ctx ) || fd_failover_channel_peer_hello( ctx->channel )->holds ) {
     result = FD_FAILOVER_CONTROL_RESULT_WRONG_HOLDER;
   } else {
     result = check_handoff( ctx, request.replay_slot );
@@ -972,13 +964,13 @@ on_handoff_result_msg( fd_failover_tile_ctx_t * ctx,
   fd_failover_handoff_result_t result;
   if( FD_UNLIKELY( !fd_failover_handoff_result_decode( &result, ctx->rx, payload_sz ) ) ) return 0;
   if( FD_UNLIKELY( !ctx->request.id || result.handoff_id!=ctx->request.id || !is_bound_peer( ctx, &ctx->request.peer ) || !is_requesting( ctx ) ) ) return 1;
-  int failed = result.result!=FD_ADMINCTL_RESULT_SUCCESS || !ctx->holds;
+  int failed = result.result!=FD_ADMINCTL_RESULT_SUCCESS || !holds_identity( ctx );
   if( FD_UNLIKELY( failed && result.result==FD_FAILOVER_CONTROL_RESULT_NO_FINAL_HISTORY &&
                    ctx->action==FD_FAILOVER_ACTION_HANDOFF_WAIT_PEER && ctx->request.send_cnt<FD_FAILOVER_REQUEST_RETRIES ) ) {
     FD_LOG_NOTICE(( "handoff %lu: the other machine has no final vote state yet, asking again (send %lu)", result.handoff_id, ctx->request.send_cnt ));
     return 1;
   }
-  if( FD_UNLIKELY( failed ) ) FD_LOG_WARNING(( "handoff %lu ended, %s, %s", result.handoff_id, fd_adminctl_failover_result_cstr( result.result ), ctx->holds ? "this machine runs the identity and the other may run it too" : "this machine does not run the identity" ));
+  if( FD_UNLIKELY( failed ) ) FD_LOG_WARNING(( "handoff %lu ended, %s, %s", result.handoff_id, fd_adminctl_failover_result_cstr( result.result ), holds_identity( ctx ) ? "this machine runs the identity and the other may run it too" : "this machine does not run the identity" ));
   end_request( ctx, now, failed ? FD_FAILOVER_HANDOFF_DECLINED : FD_FAILOVER_HANDOFF_TAKEN );
   return 1;
 }
@@ -995,7 +987,7 @@ on_demoted_msg( fd_failover_tile_ctx_t * ctx,
   /* The same DEMOTED again.  Once we are done with it we repeat our answer. */
   if( FD_UNLIKELY( ctx->promotion.from_peer && ctx->promotion.handoff_id==demoted.handoff_id ) ) return 1;
   if( FD_UNLIKELY( ctx->reply.state!=FD_FAILOVER_REPLY_NONE && ctx->reply.handoff_id==demoted.handoff_id && is_bound_peer( ctx, &ctx->reply.peer ) ) ) { queue_reply( ctx ); return 1; }
-  uchar reason = ctx->holds                                                                  ? FD_FAILOVER_REJECT_HOLDS_IDENTITY :
+  uchar reason = holds_identity( ctx )                                                      ? FD_FAILOVER_REJECT_HOLDS_IDENTITY :
                  ctx->action!=FD_FAILOVER_ACTION_HANDOFF_WAIT_PEER || is_switch_pending( ctx ) ? FD_FAILOVER_REJECT_BUSY           : FD_FAILOVER_REJECT_NONE;
   if( FD_UNLIKELY( reason!=FD_FAILOVER_REJECT_NONE ) ) {
     FD_LOG_WARNING(( "handoff %lu: refusing the peer's final state (%s)", demoted.handoff_id, get_reject_name( reason ) ));
@@ -1063,8 +1055,8 @@ preconnect( fd_failover_tile_ctx_t * ctx,
             long                     now ) {
   if( ctx->request.id || ctx->stuck || ctx->tx.valid || ctx->session.close_after_send || ctx->action!=FD_FAILOVER_ACTION_IDLE || is_switch_pending( ctx ) ) return;
   /* A stale gossip address may name a validator that does not run the identity any more. */
-  if( !ctx->holds && fd_failover_channel_state( ctx->channel )==FD_FAILOVER_SESSION_PAIRED && !fd_failover_channel_peer_hello( ctx->channel )->holds ) fd_failover_channel_hangup( ctx->channel, now );
-  int ready = !ctx->holds && ctx->staked_addr && ctx->staked_seen_at && now>=ctx->staked_seen_at && now-ctx->staked_seen_at<FD_FAILOVER_GOSSIP_FRESH_NANOS;
+  if( !holds_identity( ctx ) && fd_failover_channel_state( ctx->channel )==FD_FAILOVER_SESSION_PAIRED && !fd_failover_channel_peer_hello( ctx->channel )->holds ) fd_failover_channel_hangup( ctx->channel, now );
+  int ready = !holds_identity( ctx ) && ctx->staked_addr && ctx->staked_seen_at && now>=ctx->staked_seen_at && now-ctx->staked_seen_at<FD_FAILOVER_GOSSIP_FRESH_NANOS;
   if( !ready )                                                                   fd_failover_channel_init_dialer( ctx->channel, 0U, 0 );
   else if( fd_failover_channel_state( ctx->channel )!=FD_FAILOVER_SESSION_PAIRED ) fd_failover_channel_init_dialer( ctx->channel, ctx->staked_addr, FD_FAILOVER_DEFAULT_PORT );
 }
@@ -1105,7 +1097,7 @@ poll_peer( fd_failover_tile_ctx_t * ctx,
        keeps its binding until the operator ends it. */
     if( ctx->action==FD_FAILOVER_ACTION_HANDOFF_WAIT_RESULT && !is_switch_pending( ctx ) ) {
       FD_LOG_WARNING(( "handoff %lu: the peer restarted before it confirmed our answer, ending the request", ctx->request.id ));
-      end_request( ctx, now, ctx->holds ? FD_FAILOVER_HANDOFF_TAKEN : FD_FAILOVER_HANDOFF_DECLINED );
+      end_request( ctx, now, holds_identity( ctx ) ? FD_FAILOVER_HANDOFF_TAKEN : FD_FAILOVER_HANDOFF_DECLINED );
     } else if( ctx->request.until ) {
       ctx->request.peer_restarted = 1;
       pause_request( ctx, now, "the peer restarted" );
@@ -1120,7 +1112,6 @@ poll_peer( fd_failover_tile_ctx_t * ctx,
       return;
     }
     ctx->request.peer.boot_id = peer->boot_id;
-    fd_memcpy( ctx->request.peer.junk, peer->junk_pubkey, 32UL );
   }
   fd_failover_handoff_request_t request = { .handoff_id=ctx->request.id, .target_boot_id=ctx->request.peer.boot_id, .replay_slot=ctx->replay_slot };
   if( FD_UNLIKELY( fd_failover_channel_send( ctx->channel, now, FD_FAILOVER_MSG_HANDOFF_REQUEST, (uchar const *)&request, sizeof(request) ) ) ) return;
@@ -1145,7 +1136,7 @@ run_handoff_cmd( fd_failover_tile_ctx_t *           ctx,
       /* Local adoption is settled, this only ends our wait for the old
          peer's confirmation, which its new boot cannot give. */
       FD_LOG_WARNING(( "handoff %lu: the authenticated peer changed before it confirmed our answer, ending the confirmation wait", ctx->request.id ));
-      end_request( ctx, now, ctx->holds ? FD_FAILOVER_HANDOFF_TAKEN : FD_FAILOVER_HANDOFF_DECLINED );
+      end_request( ctx, now, holds_identity( ctx ) ? FD_FAILOVER_HANDOFF_TAKEN : FD_FAILOVER_HANDOFF_DECLINED );
       return FD_ADMINCTL_RESULT_SUCCESS;
     }
     FD_LOG_NOTICE(( "handoff %lu was bound to peer boot %016lx, the authenticated peer changed, ending it and starting a new handoff", ctx->request.id, ctx->request.peer.boot_id ));
@@ -1168,7 +1159,7 @@ run_handoff_cmd( fd_failover_tile_ctx_t *           ctx,
     return FD_ADMINCTL_RESULT_SUCCESS;
   }
   if( FD_UNLIKELY( ctx->action!=FD_FAILOVER_ACTION_IDLE || is_switch_pending( ctx ) ) ) return FD_FAILOVER_CONTROL_RESULT_IN_PROGRESS;
-  if( FD_UNLIKELY( ctx->holds ) ) return FD_FAILOVER_CONTROL_RESULT_WRONG_HOLDER;
+  if( FD_UNLIKELY( holds_identity( ctx ) ) ) return FD_FAILOVER_CONTROL_RESULT_WRONG_HOLDER;
   uint addr = req->addr ? req->addr : ctx->staked_addr;
   if( FD_UNLIKELY( !addr ) ) return FD_FAILOVER_CONTROL_RESULT_NO_HOLDER_ADDRESS;
   ctx->cmd_addr = req->addr;
@@ -1231,7 +1222,7 @@ failover_status_resp( fd_failover_tile_ctx_t const *       ctx,
   fd_adminctl_failover_status_resp_init( resp );
   int paired = fd_failover_channel_state( ctx->channel )==FD_FAILOVER_SESSION_PAIRED;
   resp->enabled          = 1;
-  resp->holds            = (uchar)ctx->holds;
+  resp->holds            = (uchar)holds_identity( ctx );
   resp->action           = (uchar)ctx->action;
   resp->stuck            = (uchar)!!ctx->stuck;
   resp->link_state       = (uchar)fd_failover_channel_state( ctx->channel );
@@ -1250,7 +1241,7 @@ failover_status_resp( fd_failover_tile_ctx_t const *       ctx,
   resp->request_paused   = (uchar)is_request_paused( ctx );
   fd_memcpy( resp->target,    ctx->hello.staked_pubkey, 32UL );
   fd_memcpy( resp->installed, ctx->installed,           32UL );
-  fd_memcpy( resp->junk,      ctx->hello.junk_pubkey,   32UL );
+  fd_memcpy( resp->junk,      ctx->spare_pubkey,        32UL );
 }
 
 /* Answers one bus request with one frame.  The admin tile validated the
@@ -1276,7 +1267,12 @@ serve_bus_request( fd_failover_tile_ctx_t * ctx,
     /* Ending a paused confirmation wait zeroes request.id and keeps
        last_id, which is the handoff the command acted on. */
     ulong handoff_id = result==FD_ADMINCTL_RESULT_SUCCESS && req.cmd==FD_ADMINCTL_FAILOVER_CMD_HANDOFF ? ( ctx->request.id ? ctx->request.id : ctx->request.last_id ) : 0UL;
-    fd_adminctl_failover_control_resp_t response = { .version=FD_ADMINCTL_FAILOVER_PAYLOAD_VERSION, .holds=(uchar)ctx->holds, .action=(uchar)ctx->action, .handoff_id=handoff_id };
+    fd_adminctl_failover_control_resp_t response = {
+      .version=FD_ADMINCTL_FAILOVER_PAYLOAD_VERSION,
+      .holds=(uchar)holds_identity( ctx ),
+      .action=(uchar)ctx->action,
+      .handoff_id=handoff_id
+    };
     out->result = result;
     fd_memcpy( out->payload, &response, sizeof(response) );
   }

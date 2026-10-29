@@ -79,13 +79,13 @@ fd_failover_channel_init_dialer( fd_failover_channel_t * channel,
                                  uint                    address,
                                  ushort                  port );
 
-/* Configures admission and mutual TLS with separate proof and TLS signers. */
+/* Configures admission and mutual TLS, both using the staked_pubkey,
+   with separate proof and TLS signers. */
 int
 fd_failover_channel_set_identity( fd_failover_channel_t *     channel,
-                                  uchar const                 junk_pubkey[ 32 ],
                                   fd_tls_sign_t               signer,
-                                  fd_failover_proof_signer_t   proof_signer,
-                                  fd_failover_hello_t const *  hello );
+                                  fd_failover_proof_signer_t  proof_signer,
+                                  fd_failover_hello_t const * hello );
 
 /* Closes all sockets and releases the TLS context. */
 void
