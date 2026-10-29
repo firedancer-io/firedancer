@@ -46,8 +46,7 @@
    be allocated in sk_buff, and eventually flow through ip_rcv(), tc,
    and netfilter before reaching downstream sockets.
    If the `XDP_REDIRECT` action is taken however, the packet is copied
-   to the UMEM of an XSK, and a RX queue entry is allocated.  An fd_aio
-   backend is provided by fd_xdp_aio.
+   to the UMEM of an XSK, and a RX queue entry is allocated.
    The more generic `XDP_FLAGS_SKB_MODE` XDP mode falls back to sk_buff-
    based memory mgmt (still skipping the rest of the generic path), but
    is more widely available.
@@ -188,7 +187,7 @@ fd_xdp_ring_full( fd_xdp_ring_t * ring ) {
 }
 
 /* fd_xsk_params_t: XSK poll configuration and memory layout
-   parameters. Can be retrieved using fd_xsk_get_params() */
+   parameters passed to fd_xsk_init. */
 
 struct fd_xsk_params {
   /* {fr,rx,tx,cr}_depth: Number of frames allocated for the Fill, RX,
@@ -205,7 +204,7 @@ struct fd_xsk_params {
   ulong frame_sz;
 
   /* umem_sz: Total size of XSK ring shared memory area (contiguous).
-     Aligned by FD_XSK_ALIGN. */
+     Aligned by FD_XSK_UMEM_ALIGN. */
   ulong umem_sz;
 
   /* Linux interface index */
@@ -284,9 +283,6 @@ FD_PROTOTYPES_BEGIN
 fd_xsk_t *
 fd_xsk_init( fd_xsk_t *              xsk,
              fd_xsk_params_t const * params );
-
-void *
-fd_xsk_delete( void * shxsk );
 
 /* fd_xsk_rx_need_wakeup: returns whether a wakeup is required to
    complete a rx operation */

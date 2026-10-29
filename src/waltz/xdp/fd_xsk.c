@@ -120,11 +120,11 @@ fd_xsk_munmap_ring( fd_xdp_ring_t * ring,
                      mem, sz, fd_xsk_mmap_offset_cstr( map_off ), errno, fd_io_strerror( errno ) ));
 }
 
-/* fd_xsk_cleanup undoes a (partial) join by releasing all active kernel
+/* fd_xsk_fini undoes a (partial) join by releasing all active kernel
    objects, such as mapped memory regions and file descriptors.  Assumes
    that no join to `xsk` is currently being used. */
 
-fd_xsk_t *
+static fd_xsk_t *
 fd_xsk_fini( fd_xsk_t * xsk ) {
   /* Undo memory mappings */
 
