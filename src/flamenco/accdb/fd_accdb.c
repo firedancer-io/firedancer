@@ -447,6 +447,10 @@ fd_accdb_reset( fd_accdb_t * accdb ) {
   spin_lock_acquire( &shmem->grow_lock );
   acc_pool_reset( accdb->acc_pool_join );
   txn_pool_reset( accdb->txn_pool );
+  shmem->pool_avail    = shmem->acc_pool_max;
+  shmem->bg_defer_head   = 0UL;
+  shmem->bg_defer_tail   = 0UL;
+  shmem->bg_defer_sealed = 0UL;
   fork_pool_reset( accdb->fork_shmem_pool );
   partition_pool_reset( accdb->partition_pool );
 
@@ -1235,21 +1239,26 @@ cache_try_pin( fd_accdb_cache_line_t * line,
    exceeds tag, meaning all readers that were active at epoch=tag have
    since exited their critical sections. */
 
+static ulong
+min_joiner_epoch( fd_accdb_t const * accdb ) {
+  ulong min_epoch = ULONG_MAX;
+  ulong joiner_cnt = FD_VOLATILE_CONST( accdb->shmem->joiner_cnt );
+  for( ulong t=0UL; t<joiner_cnt; t++ ) {
+    ulong e = FD_VOLATILE_CONST( accdb->shmem->joiner_epochs[ t ].val );
+    if( FD_LIKELY( e<min_epoch ) ) min_epoch = e;
+  }
+  for( ulong t=0UL; t<accdb->external_epoch_cnt; t++ ) {
+    ulong e = FD_VOLATILE_CONST( *accdb->external_epoch_slots[ t ] );
+    if( FD_LIKELY( e<min_epoch ) ) min_epoch = e;
+  }
+  return min_epoch;
+}
+
 static void
 wait_for_epoch_drain( fd_accdb_t * accdb,
                       ulong        tag ) {
   for(;;) {
-    ulong min_epoch = ULONG_MAX;
-    ulong joiner_cnt = FD_VOLATILE_CONST( accdb->shmem->joiner_cnt );
-    for( ulong t=0UL; t<joiner_cnt; t++ ) {
-      ulong e = FD_VOLATILE_CONST( accdb->shmem->joiner_epochs[ t ].val );
-      if( FD_LIKELY( e<min_epoch ) ) min_epoch = e;
-    }
-    for( ulong t=0UL; t<accdb->external_epoch_cnt; t++ ) {
-      ulong e = FD_VOLATILE_CONST( *accdb->external_epoch_slots[ t ] );
-      if( FD_LIKELY( e<min_epoch ) ) min_epoch = e;
-    }
-    if( FD_LIKELY( tag<min_epoch ) ) break;
+    if( FD_LIKELY( tag<min_joiner_epoch( accdb ) ) ) break;
     fd_racesan_hook( "accdb_epoch_drain:wait" );
     FD_SPIN_PAUSE();
   }
@@ -1309,10 +1318,12 @@ scratch_io( fd_accdb_t * accdb,
 static uint
 drain_deferred_one( fd_accdb_t * accdb,
                     uint         v ) {
+  int migrated = !!( v & FD_ACCDB_DEFER_MIGRATED );
+  v &= ~FD_ACCDB_DEFER_MIGRATED;
   FD_TEST( (ulong)v<acc_pool_ele_max( accdb->acc_pool_join ) );
   fd_accdb_accmeta_t * accmeta = &accdb->acc_pool[ v ];
   ulong off = fd_accdb_acc_offset( accmeta );
-  if( FD_UNLIKELY( off!=FD_ACCDB_OFF_INVAL ) ) {
+  if( FD_UNLIKELY( !migrated && off!=FD_ACCDB_OFF_INVAL ) ) {
     ulong entry_sz = (ulong)FD_ACCDB_SIZE_DATA(accmeta->executable_size)+sizeof(fd_accdb_disk_meta_t);
     fd_accdb_shmem_bytes_freed( accdb->shmem, off, entry_sz );
     FD_ATOMIC_FETCH_AND_SUB( &accdb->shmem->shmetrics->disk_used_bytes, entry_sz );
@@ -1377,7 +1388,83 @@ drain_deferred_frees( fd_accdb_t * accdb ) {
 # undef DEFER_LINK
 
   acc_pool_release_chain( accdb->acc_pool_join, &accdb->acc_pool[ head ], &accdb->acc_pool[ prev ] );
+  if( idx_enabled( accdb ) ) FD_ATOMIC_FETCH_AND_ADD( &accdb->shmem->pool_avail, n );
   accdb->shmem->deferred_acc_buf_cnt = 0UL;
+}
+
+/* bg_defer_append (T2, index mode): records a background unlink.
+   Returns 0 if the ring is full; the caller stops unlinking. */
+
+static inline int
+bg_defer_append( fd_accdb_t * accdb,
+                 uint         v ) {
+  fd_accdb_shmem_t * shmem = accdb->shmem;
+  ulong head = shmem->bg_defer_head;
+  if( FD_UNLIKELY( head-shmem->bg_defer_tail>=FD_ACCDB_BG_DEFER_MAX-FD_ACCDB_BG_DEFER_CHUNK ) ) return 0;
+  uint * ring = (uint *)( (uchar *)shmem + shmem->idx_bg_defer_off );
+  ring[ head & (FD_ACCDB_BG_DEFER_MAX-1UL) ] = v;
+  shmem->bg_defer_head = head+1UL;
+  return 1;
+}
+
+static inline int
+bg_defer_room( fd_accdb_t const * accdb,
+               ulong              n ) {
+  fd_accdb_shmem_t const * shmem = accdb->shmem;
+  return shmem->bg_defer_head-shmem->bg_defer_tail+n<FD_ACCDB_BG_DEFER_MAX-FD_ACCDB_BG_DEFER_CHUNK;
+}
+
+static ulong
+min_joiner_epoch( fd_accdb_t const * accdb );
+
+/* bg_defer_seal tags every unsealed entry with a fresh epoch, padding
+   the open chunk so chunks stay aligned.  bg_defer_drain releases
+   sealed chunks whose tag every joiner has passed.  Both T2 only. */
+
+static void
+bg_defer_seal( fd_accdb_t * accdb ) {
+  fd_accdb_shmem_t * shmem = accdb->shmem;
+  ulong head = shmem->bg_defer_head;
+  if( head==shmem->bg_defer_sealed ) return;
+  uint * ring = (uint *)( (uchar *)shmem + shmem->idx_bg_defer_off );
+  while( head & (FD_ACCDB_BG_DEFER_CHUNK-1UL) ) ring[ (head++) & (FD_ACCDB_BG_DEFER_MAX-1UL) ] = UINT_MAX;
+  /* every chunk filled since the last seal, not just the open one */
+  ulong tag = FD_ATOMIC_FETCH_AND_ADD( &shmem->epoch, 1UL );
+  for( ulong c=shmem->bg_defer_sealed/FD_ACCDB_BG_DEFER_CHUNK; c<head/FD_ACCDB_BG_DEFER_CHUNK; c++ ) shmem->bg_defer_tag[ c % FD_ACCDB_BG_DEFER_CHUNKS ] = tag;
+  shmem->bg_defer_head   = head;
+  shmem->bg_defer_sealed = head;
+}
+
+static ulong
+bg_defer_drain( fd_accdb_t * accdb ) {
+  fd_accdb_shmem_t * shmem = accdb->shmem;
+  ulong released = 0UL;
+  uint * ring    = (uint *)( (uchar *)shmem + shmem->idx_bg_defer_off );
+  ulong  min_ep  = ULONG_MAX;
+  while( shmem->bg_defer_sealed-shmem->bg_defer_tail>=FD_ACCDB_BG_DEFER_CHUNK ) {
+    ulong tail = shmem->bg_defer_tail;
+    ulong tag  = shmem->bg_defer_tag[ (tail/FD_ACCDB_BG_DEFER_CHUNK) % FD_ACCDB_BG_DEFER_CHUNKS ];
+    if( min_ep==ULONG_MAX ) min_ep = min_joiner_epoch( accdb );
+    if( tag>=min_ep ) break;
+    uint head_idx = UINT_MAX, prev = UINT_MAX;
+    ulong n = 0UL;
+    for( ulong i=0UL; i<FD_ACCDB_BG_DEFER_CHUNK; i++ ) {
+      uint raw = ring[ (tail+i) & (FD_ACCDB_BG_DEFER_MAX-1UL) ];
+      if( raw==UINT_MAX ) continue;
+      uint v = drain_deferred_one( accdb, raw );
+      if( prev!=UINT_MAX ) accdb->acc_pool[ prev ].pool.next = acc_pool_private_cidx( (ulong)v );
+      else                 head_idx = v;
+      prev = v;
+      n++;
+    }
+    if( n ) {
+      acc_pool_release_chain( accdb->acc_pool_join, &accdb->acc_pool[ head_idx ], &accdb->acc_pool[ prev ] );
+      FD_ATOMIC_FETCH_AND_ADD( &shmem->pool_avail, n );
+    }
+    shmem->bg_defer_tail = tail+FD_ACCDB_BG_DEFER_CHUNK;
+    released += n;
+  }
+  return released;
 }
 
 /* deferred_acc_append records an unlinked acc index in the side buffer
@@ -3542,6 +3629,21 @@ release_inner( fd_accdb_t * accdb,
     FD_TEST( prev==ULONG_MAX || prev<=FD_VOLATILE_CONST( accdb->shmem->epoch ) );
   }
 
+  /* Index mode: reserve one pool slot per new version before taking
+     the epoch, so T2 never waits on us while we wait on it. */
+  if( FD_UNLIKELY( idx_enabled( accdb ) ) ) {
+    FD_TEST( FD_VOLATILE_CONST( *accdb->my_epoch_slot )==ULONG_MAX );
+    ulong need = 0UL;
+    for( ulong i=0UL; i<accs_cnt; i++ ) need += (ulong)( accs[ i ]._writable && accs[ i ].commit && !accs[ i ]._overwrite );
+    while( need ) {
+      ulong avail = FD_VOLATILE_CONST( accdb->shmem->pool_avail );
+      if( FD_LIKELY( avail>=need && FD_ATOMIC_CAS( &accdb->shmem->pool_avail, avail, avail-need )==avail ) ) break;
+      accdb->metrics->acquire_pool_waits++;
+      if( FD_LIKELY( accdb->sleep ) ) fd_sleep_ring( accdb->sleep, accdb->sleep_tile_id );
+      FD_SPIN_PAUSE();
+    }
+  }
+
   FD_COMPILER_MFENCE();
   FD_VOLATILE( *accdb->my_epoch_slot ) = FD_VOLATILE_CONST( accdb->shmem->epoch );
   FD_HW_MFENCE(); /* StoreLoad: epoch store must be globally visible
@@ -4646,6 +4748,7 @@ fd_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
   if( FD_UNLIKELY( !acc_pool_acquire_batch( accdb->acc_pool_join, cnt, acquired ) ) ) {
     FD_LOG_ERR(( "accounts database ran out of space during snapshot loading, increase [accounts.max_accounts], current value is %lu", acc_pool_ele_max( accdb->acc_pool_join ) ));
   }
+  if( FD_UNLIKELY( idx_enabled( accdb ) ) ) FD_ATOMIC_FETCH_AND_SUB( &accdb->shmem->pool_avail, cnt );
 
   /* Phase 2: walk and commit under the account chain lock. */
 
@@ -4772,6 +4875,7 @@ fini:
   for( ulong i=acquired_used; i<cnt; i++ ) {
     acc_pool_release( accdb->acc_pool_join, acquired[ i ] );
   }
+  if( FD_UNLIKELY( idx_enabled( accdb ) ) ) FD_ATOMIC_FETCH_AND_ADD( &accdb->shmem->pool_avail, cnt-acquired_used );
 
   accdb->write_stats.disk_used_added      += used_bytes_added;
   accdb->write_stats.disk_used_removed    += used_bytes_removed;
@@ -4801,6 +4905,16 @@ delta_reset( fd_accdb_t * accdb ) {
 static int
 delta_is_valid( fd_accdb_shmem_t const * accdb ) {
   return accdb->delta.head < accdb->delta.ele_max;
+}
+
+/* background_idx: index-mode T2 maintenance, one bounded slice per
+   call. */
+
+static void
+background_idx( fd_accdb_t * accdb,
+                int *        charge_busy ) {
+  bg_defer_seal( accdb );
+  if( bg_defer_drain( accdb ) ) *charge_busy = 1;
 }
 
 void
@@ -4883,6 +4997,8 @@ fd_accdb_background( fd_accdb_t * accdb,
   }
 
   background_preevict( accdb, charge_busy, 0 );
+
+  if( FD_UNLIKELY( idx_enabled( accdb ) ) ) background_idx( accdb, charge_busy );
 
   /* Keep one partition allocated ahead so a write head rotating into a
      new partition never waits on fallocate. */
