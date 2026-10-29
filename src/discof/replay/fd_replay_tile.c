@@ -1462,7 +1462,11 @@ publish_txn_executed( fd_replay_tile_t *  ctx,
   if( FD_UNLIKELY( ctx->bat_out->idx!=ULONG_MAX ) ) bat_append( ctx, stem, fd_sched_get_txn( ctx->sched, txn_idx ), txn_info );
 
   fd_replay_txn_executed_t * txn_executed = fd_type_pun( fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk ) );
-  *txn_executed->txn = *fd_sched_get_txn( ctx->sched, txn_idx );
+  fd_txn_p_t const *         txn          = fd_sched_get_txn( ctx->sched, txn_idx );
+  fd_memcpy( txn_executed->signature, txn->payload+TXN( txn )->signature_off, FD_TXN_SIGNATURE_SZ );
+  txn_executed->start_shred_idx = txn->start_shred_idx;
+  txn_executed->end_shred_idx = txn->end_shred_idx;
+  txn_executed->compute_units_requested = txn_info->compute_units_requested;
   txn_executed->txn_err = txn_info->txn_err;
   txn_executed->is_committable = !!(txn_info->flags&FD_SCHED_TXN_IS_COMMITTABLE);
   txn_executed->is_fees_only = !!(txn_info->flags&FD_SCHED_TXN_IS_FEES_ONLY);
@@ -3811,6 +3815,7 @@ process_exec_task_done( fd_replay_tile_t *          ctx,
       txn_info->tick_commit_end        = msg->txn_exec->tick_commit_end;
 
       txn_info->compute_units_consumed = msg->txn_exec->compute_units_consumed;
+      txn_info->compute_units_requested = msg->txn_exec->compute_units_requested;
       txn_info->max_compute_units      = max_compute_units;
       txn_info->transaction_fee        = msg->txn_exec->transaction_fee;
       txn_info->priority_fee           = msg->txn_exec->priority_fee;

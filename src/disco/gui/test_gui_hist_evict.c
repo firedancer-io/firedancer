@@ -1267,14 +1267,19 @@ test_timeline_agg( fd_gui_t * gui ) {
     .slot=101UL, .exec_tile_idx=3UL, .sigverify_exec_tile_idx=4UL, .index_in_slot=5UL,
     .tick_sigverify_disp=tick, .tick_sigverify_done=tick, .tick_load_start=tick,
     .tick_check_start=LONG_MAX, .tick_exec_start=LONG_MAX, .tick_commit_start=LONG_MAX, .tick_commit_end=tick,
-    .is_committable=1, .max_compute_units=60000000UL, .transaction_fee=5000UL, .priority_fee=11UL, .tips=13UL
+    .is_committable=1, .max_compute_units=60000000UL, .transaction_fee=5000UL, .priority_fee=11UL, .tips=13UL,
+    .start_shred_idx=2, .end_shred_idx=3, .compute_units_requested=1234U, .signature={ 0x77 }
   };
-  executed.txn->payload[ 0 ]  = 1U;
-  executed.txn->payload[ 65 ] = 1U;
-  executed.txn->payload[ 68 ] = 1U;
-  executed.txn->payload_sz    = 134U;
-  FD_TEST( fd_txn_parse( executed.txn->payload, executed.txn->payload_sz, TXN( executed.txn ), NULL ) );
   fd_gui_handle_replay_txn( gui, &executed, now );
+  {
+    fd_gui_hist_iter_t it;
+    FD_TEST( !fd_gui_hist_range_begin( gui, &it, FD_GUI_HIST_REPLAY_TXN, now, now, NULL, NULL ) );
+    FD_TEST( fd_gui_hist_range_next( &it ) );
+    fd_gui_store_replay_txn_t const * rec = it.rec;
+    FD_TEST( rec->compute_units_requested==1234U && rec->signature[ 0 ]==0x77 );
+    FD_TEST( rec->txn_start_shred_idx==2U && rec->txn_end_shred_idx==3U );
+    fd_gui_hist_range_end( &it );
+  }
   executed.tick_commit_end = LONG_MAX; /* incomplete transactions are not recorded */
   fd_gui_handle_replay_txn( gui, &executed, now );
 

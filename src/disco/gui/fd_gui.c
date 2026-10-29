@@ -3656,7 +3656,6 @@ fd_gui_handle_replay_txn( fd_gui_t *                       gui,
                           long                             now ) {
   if( FD_UNLIKELY( !gui->db || !gui->hist || txn->tick_sigverify_done==LONG_MAX || txn->tick_commit_end==LONG_MAX ) ) return;
   long  tick_now   = fd_tickcount();
-  ulong requested  = fd_pack_compute_cost( TXN( txn->txn ), txn->txn->payload, NULL, NULL, NULL, NULL, NULL );
   fd_gui_store_replay_txn_t rec = {
     .insert_time_ns           = now,
     .completion_time_ns       = fd_gui_tick_to_nanos( gui, now, tick_now, fd_long_max( txn->tick_sigverify_done, txn->tick_commit_end ) ),
@@ -3665,8 +3664,8 @@ fd_gui_handle_replay_txn( fd_gui_t *                       gui,
     .txn_idx                  = txn->index_in_slot,
     .txn_exec_idx             = txn->exec_tile_idx,
     .txn_sigverify_exec_idx   = txn->sigverify_exec_tile_idx,
-    .txn_start_shred_idx      = txn->txn->start_shred_idx,
-    .txn_end_shred_idx        = txn->txn->end_shred_idx,
+    .txn_start_shred_idx      = txn->start_shred_idx,
+    .txn_end_shred_idx        = txn->end_shred_idx,
     .sigverify_start_ns       = fd_gui_tick_to_nanos( gui, now, tick_now, txn->tick_sigverify_disp ),
     .sigverify_end_ns         = fd_gui_tick_to_nanos( gui, now, tick_now, txn->tick_sigverify_done ),
     .load_start_ns            = fd_gui_tick_to_nanos( gui, now, tick_now, txn->tick_load_start ),
@@ -3677,13 +3676,13 @@ fd_gui_handle_replay_txn( fd_gui_t *                       gui,
     .transaction_fee          = txn->transaction_fee,
     .priority_fee             = txn->priority_fee,
     .tips                     = txn->tips,
-    .compute_units_requested  = (uint)requested,
+    .compute_units_requested  = txn->compute_units_requested,
     .compute_units_consumed   = txn->compute_units_consumed,
     .error_code               = (uint)(-(long)txn->txn_err),
     .is_committable           = (uchar)!!txn->is_committable,
     .is_fees_only             = (uchar)!!txn->is_fees_only,
   };
-  fd_memcpy( rec.signature, txn->txn->payload+TXN( txn->txn )->signature_off, FD_TXN_SIGNATURE_SZ );
+  fd_memcpy( rec.signature, txn->signature, FD_TXN_SIGNATURE_SZ );
   fd_gui_record_replay_txn( gui, &rec );
 }
 

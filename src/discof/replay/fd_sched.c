@@ -4730,6 +4730,7 @@ fd_sched_parse_txn( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_
   sched->txn_info_pool[ txn_idx ].exec_tile_idx           = ULONG_MAX;
   sched->txn_info_pool[ txn_idx ].sigverify_exec_tile_idx = ULONG_MAX;
   sched->txn_info_pool[ txn_idx ].compute_units_consumed = 0U;
+  sched->txn_info_pool[ txn_idx ].compute_units_requested = 0U;
   sched->txn_info_pool[ txn_idx ].max_compute_units = ULONG_MAX;
   sched->txn_info_pool[ txn_idx ].transaction_fee = 0UL;
   sched->txn_info_pool[ txn_idx ].priority_fee = 0UL;
