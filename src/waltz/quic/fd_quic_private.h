@@ -48,6 +48,11 @@
 #define FD_QUIC_K_TIME_THRESHOLD 1.125f
 #define FD_QUIC_K_GRANULARITY_NS 1000000L
 
+/* FD_QUIC_INVALID_TOKEN_INTERVAL_NS spaces stateless INVALID_TOKEN
+   closes for expired Retry tokens: at most 100 per second. */
+
+#define FD_QUIC_INVALID_TOKEN_INTERVAL_NS 10000000L
+
 /* fd_quic_state_t is the internal state of an fd_quic_t.  Valid for
    lifetime of join. */
 
@@ -80,7 +85,7 @@ struct __attribute__((aligned(16UL))) fd_quic_state_private {
 
   fd_quic_tls_t           tls[1];
   fd_quic_tls_hs_t *      hs_pool;
-  fd_quic_tls_hs_cache_t  hs_cache; /* dlist <> dlist_private */
+  fd_quic_tls_hs_cache_t  hs_cache[2]; /* dlist <> dlist_private, FIFO per FD_QUIC_HS_PRIO_* */
 
   fd_quic_stream_pool_t * stream_pool;    /* stream pool, nullable */
   fd_quic_pkt_meta_t    * pkt_meta_pool;
@@ -99,6 +104,8 @@ struct __attribute__((aligned(16UL))) fd_quic_state_private {
 
   /* last arp/routing tables update */
   ulong ip_table_upd;
+
+  long invalid_token_ts; /* last INVALID_TOKEN close sent, see FD_QUIC_INVALID_TOKEN_INTERVAL_NS */
 
   /* secret for generating RETRY tokens */
   uchar retry_secret[FD_QUIC_RETRY_SECRET_SZ];

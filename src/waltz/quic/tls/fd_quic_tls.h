@@ -119,6 +119,8 @@ struct fd_quic_tls_hs {
 
   int             is_server;
   int             is_hs_complete;
+  int             prio;       /* FD_QUIC_HS_PRIO_{LOW,HIGH}, indexes hs_cache */
+  int             classified; /* prio came from cb.hs_prio, so cb.hs_final is due */
 
   /* user defined context supplied in callbacks */
   void *          context;
