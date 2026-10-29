@@ -3,6 +3,7 @@
 #include "fd_accdb_shmem.h"
 #include "fd_accdb_private.h"
 #include "fd_accdb_idx.h"
+#include "../runtime/fd_system_ids.h"
 #include "../../util/fd_hash32.h"
 
 #if FD_TMPL_USE_HANDHOLDING
@@ -145,6 +146,7 @@ struct __attribute__((aligned(FD_ACCDB_ALIGN))) fd_accdb_private {
   ulong *               fifo;
   ulong                 idx_rng;
   int                   readonly;
+  ulong                 residual_ticket; /* ULONG_MAX = none to ack */
 
   /* Track account addresses changed since a full snap.
      Used to determine which accounts should be packed into a full
@@ -410,10 +412,11 @@ fd_accdb_new( void *              ljoin,
 
   ulong epoch_idx = FD_ATOMIC_FETCH_AND_ADD( &shmem->joiner_cnt, 1UL );
   FD_TEST( epoch_idx<shmem->joiner_cnt_max );
-  accdb->my_epoch_slot = &shmem->joiner_epochs[ epoch_idx ].val;
-  accdb->joiner_idx    = FD_ATOMIC_FETCH_AND_ADD( &shmem->free_owner_cnt, 1UL );
-  FD_TEST( accdb->joiner_idx<FD_ACCDB_MAX_JOINERS );
-  accdb->hazard_cnt    = 0UL;
+  accdb->my_epoch_slot   = &shmem->joiner_epochs[ epoch_idx ].val;
+  accdb->joiner_idx      = FD_ATOMIC_FETCH_AND_ADD( &shmem->free_owner_cnt, 1UL );
+  FD_TEST( accdb->joiner_idx<shmem->joiner_cnt_max ); /* also indexes res_ack, stage_dir, place_out, ovl answers */
+  accdb->hazard_cnt      = 0UL;
+  accdb->residual_ticket = ULONG_MAX;
 
   accdb->external_epoch_slots = external_epoch_slots;
   accdb->external_epoch_cnt   = external_epoch_cnt;
@@ -847,6 +850,7 @@ fd_accdb_join_readonly( void *             ljoin,
   accdb->fd    = fd_ro;
   accdb->scratch_fd = -1;
   accdb->readonly   = 1;
+  accdb->residual_ticket = ULONG_MAX;
   accdb->acquire_state = FD_ACCDB_ACQUIRE_STATE_IDLE;
   accdb->shmem = shmem;
   FD_TEST( acc_pool_join( accdb->acc_pool_join, shmem->acc_pool, _acc_pool_ele, pool_max ) );
@@ -3009,7 +3013,8 @@ idx_resolve( fd_accdb_t *            accdb,
              uint                    root_generation,
              uchar const *           pubkey,
              ulong                   map_idx,
-             int                     hook ) {
+             int                     hook,
+             int *                   known ) {
   uint acc = FD_VOLATILE_CONST( accdb->acc_map[ map_idx ] );
   while( acc!=UINT_MAX ) {
     fd_accdb_accmeta_t const * candidate_acc = &accdb->acc_pool[ acc ];
@@ -3036,8 +3041,30 @@ idx_resolve( fd_accdb_t *            accdb,
       acc = next;
     }
     if( acc!=UINT_MAX && !accdb->readonly && !FD_VOLATILE_CONST( accdb->hot_ref[ acc ] ) ) FD_VOLATILE( accdb->hot_ref[ acc ] ) = 1;
+    if( acc!=UINT_MAX && !FD_VOLATILE_CONST( accdb->acc_pool[ acc ].lamports ) ) { /* NEG */
+      *known = 1;
+      return UINT_MAX;
+    }
   }
+  *known = acc!=UINT_MAX;
   return acc;
+}
+
+static void idx_residual_wait( fd_accdb_t * accdb, ulong cnt, uchar const * const * keys );
+
+/* idx_maybe_bucket: RAM tiers missed; might the key be bucket-only? */
+
+static inline int
+idx_maybe_bucket( fd_accdb_t const * accdb,
+                  uchar const *      pubkey ) {
+  return accdb->hot_map && fd_accdb_cf_probe( accdb->cf, pubkey );
+}
+
+static inline void
+idx_residual_ack( fd_accdb_t * accdb ) {
+  if( FD_LIKELY( accdb->residual_ticket==ULONG_MAX ) ) return;
+  FD_VOLATILE( accdb->shmem->res_ack[ accdb->joiner_idx ] ) = accdb->residual_ticket+1UL;
+  accdb->residual_ticket = ULONG_MAX;
 }
 
 static int
@@ -3093,6 +3120,12 @@ retry:
 
   fd_racesan_hook( "accdb_acquire:post_root_gen" );
 
+  uchar const * miss_keys[ FD_ACCDB_MAX_ACQUIRE_CNT ];
+  ulong miss_cnt;
+
+step1:
+  miss_cnt = 0UL;
+
   /* Walk the hash chain for each pubkey and take the first visible
      match.  Correctness relies on newer entries always being prepended
      to the chain head, which is guaranteed because replay processes
@@ -3112,7 +3145,12 @@ retry:
      concurrent releases serialize on the CAS of the chain head. */
   for( ulong i=0UL; i<pubkeys_cnt; i++ ) {
     acc_map_idxs[ i ] = fd_hash32( pubkeys[ i ], accdb->shmem->seed )&(accdb->shmem->chain_cnt-1UL);
-    uint acc = idx_resolve( accdb, fork, fork_id.val, root_generation, pubkeys[ i ], acc_map_idxs[ i ], 1 );
+    int  known;
+    uint acc = idx_resolve( accdb, fork, fork_id.val, root_generation, pubkeys[ i ], acc_map_idxs[ i ], 1, &known );
+    if( FD_UNLIKELY( !known && idx_maybe_bucket( accdb, pubkeys[ i ] ) ) ) {
+      miss_keys[ miss_cnt++ ] = pubkeys[ i ];
+      continue;
+    }
     if( FD_UNLIKELY( acc==UINT_MAX ) )                                       accmetas[ i ] = NULL;
     else                                                                     accmetas[ i ] = &accdb->acc_pool[ acc ];
 
@@ -3137,6 +3175,20 @@ retry:
     if( FD_LIKELY( writable[ i ] ) ) accdb->metrics->writable_accounts_acquired_per_class[ acq_class ]++;
     else                             accdb->metrics->accounts_acquired_per_class[ acq_class ]++;
   }
+
+  /* Residual miss (index mode): STEP 1 holds nothing, so leave the
+     epoch, have T2 promote every missing key, and walk again. */
+  if( FD_UNLIKELY( miss_cnt ) ) {
+    FD_COMPILER_MFENCE();
+    FD_VOLATILE( *accdb->my_epoch_slot ) = ULONG_MAX;
+    idx_residual_wait( accdb, miss_cnt, miss_keys );
+    FD_COMPILER_MFENCE();
+    FD_VOLATILE( *accdb->my_epoch_slot ) = FD_VOLATILE_CONST( accdb->shmem->epoch );
+    FD_HW_MFENCE();
+    root_generation = accdb->fork_pool[ accdb->shmem->root_fork_id.val ].shmem->generation;
+    goto step1;
+  }
+  idx_residual_ack( accdb );
 
   // STEP 2.
   //   Nothing is reserved ahead of time.  Every line is pulled as it
@@ -4324,14 +4376,37 @@ fd_accdb_read_one_nocache( fd_accdb_t *       accdb,
   uint root_generation = accdb->fork_pool[ accdb->shmem->root_fork_id.val ].shmem->generation;
   fd_accdb_fork_t * fork = &accdb->fork_pool[ fork_id.val ];
   ulong hash = fd_hash32( pubkey, accdb->shmem->seed )&(accdb->shmem->chain_cnt-1UL);
-  uint acc_idx = idx_resolve( accdb, fork, fork_id.val, root_generation, pubkey, hash, 0 );
+  int  known;
+  uint acc_idx = idx_resolve( accdb, fork, fork_id.val, root_generation, pubkey, hash, 0, &known );
   fd_accdb_accmeta_t const * accmeta = acc_idx==UINT_MAX ? NULL : &accdb->acc_pool[ acc_idx ];
 
+  /* Bucket-only (index mode): read the slot, then the record. */
+  fd_accdb_accmeta_t bkt_meta[1];
+  if( FD_UNLIKELY( !accmeta && !known && idx_maybe_bucket( accdb, pubkey ) && accdb->bkt->fd>=0 ) ) {
+    fd_accdb_idx_slot_t slot;
+    if( fd_accdb_idx_lookup( accdb->bkt, accdb->shmem->seed, pubkey, 0, &slot ) ) {
+      memset( bkt_meta, 0, sizeof(bkt_meta) );
+      memcpy( bkt_meta->key.pubkey, pubkey, 32UL );
+      bkt_meta->key.generation  = slot.generation;
+      bkt_meta->lamports        = slot.lamports;
+      bkt_meta->executable_size = slot.exec_size;
+      bkt_meta->cache_idx       = FD_ACCDB_ACC_CIDX_INVAL;
+      bkt_meta->offset_fork     = fd_accdb_acc_pack_offset_fork( slot.off_plus1-1UL, FD_ACCDB_FORK_ID_ROOTED );
+      accmeta = bkt_meta;
+    }
+  }
+
   if( FD_UNLIKELY( !accmeta ) ) {
-    accdb->metrics->accounts_acquired_per_class[ 0 ]++;
-    *out_lamports = 0UL;
     FD_COMPILER_MFENCE();
     FD_VOLATILE( *accdb->my_epoch_slot ) = ULONG_MAX;
+    if( FD_UNLIKELY( !known && !accdb->readonly && accdb->bkt->fd<0 && idx_maybe_bucket( accdb, pubkey ) ) ) {
+      idx_residual_wait( accdb, 1UL, &pubkey );
+      int r = fd_accdb_read_one_nocache( accdb, fork_id, pubkey, out_lamports, out_executable, out_owner, out_data, out_data_len );
+      idx_residual_ack( accdb );
+      return r;
+    }
+    accdb->metrics->accounts_acquired_per_class[ 0 ]++;
+    *out_lamports = 0UL;
     return FD_ACCDB_READ_ONE_NOCACHE_MISS;
   }
 
@@ -4473,6 +4548,48 @@ miss:;
   return FD_ACCDB_READ_ONE_NOCACHE_DISK;
 }
 
+/* idx_meta resolves (lamports, executable_size) of pubkey on fork
+   through every tier.  Returns 0 if absent. */
+
+static int
+idx_meta( fd_accdb_t *       accdb,
+          fd_accdb_fork_id_t fork_id,
+          uchar const *      pubkey,
+          ulong *            out_lamports,
+          uint *             out_es ) {
+  ulong hash = fd_hash32( pubkey, accdb->shmem->seed )&(accdb->shmem->chain_cnt-1UL);
+  for(;;) {
+    FD_COMPILER_MFENCE();
+    FD_VOLATILE( *accdb->my_epoch_slot ) = FD_VOLATILE_CONST( accdb->shmem->epoch );
+    FD_HW_MFENCE();
+    uint root_generation = accdb->fork_pool[ accdb->shmem->root_fork_id.val ].shmem->generation;
+    fd_accdb_fork_t * fork = &accdb->fork_pool[ fork_id.val ];
+    int  known;
+    uint acc   = idx_resolve( accdb, fork, fork_id.val, root_generation, pubkey, hash, 0, &known );
+    int  found = 0;
+    if( acc!=UINT_MAX ) {
+      *out_lamports = FD_VOLATILE_CONST( accdb->acc_pool[ acc ].lamports );
+      *out_es       = FD_VOLATILE_CONST( accdb->acc_pool[ acc ].executable_size );
+      found = 1;
+    } else if( !known && idx_maybe_bucket( accdb, pubkey ) && accdb->bkt->fd>=0 ) {
+      fd_accdb_idx_slot_t slot;
+      if( fd_accdb_idx_lookup( accdb->bkt, accdb->shmem->seed, pubkey, 0, &slot ) ) {
+        *out_lamports = slot.lamports;
+        *out_es       = slot.exec_size;
+        found = 1;
+      }
+      known = 1;
+    }
+    FD_COMPILER_MFENCE();
+    FD_VOLATILE( *accdb->my_epoch_slot ) = ULONG_MAX;
+    if( found || known || !idx_maybe_bucket( accdb, pubkey ) || accdb->readonly ) {
+      idx_residual_ack( accdb );
+      return found;
+    }
+    idx_residual_wait( accdb, 1UL, &pubkey );
+  }
+}
+
 int
 fd_accdb_read_one_meta( fd_accdb_t *       accdb,
                         fd_accdb_fork_id_t fork_id,
@@ -4489,22 +4606,8 @@ int
 fd_accdb_exists( fd_accdb_t *       accdb,
                  fd_accdb_fork_id_t fork_id,
                  uchar const *      pubkey ) {
-  FD_COMPILER_MFENCE();
-  FD_VOLATILE( *accdb->my_epoch_slot ) = FD_VOLATILE_CONST( accdb->shmem->epoch );
-  FD_HW_MFENCE();
-
-  uint root_generation = accdb->fork_pool[ accdb->shmem->root_fork_id.val ].shmem->generation;
-  fd_accdb_fork_t * fork = &accdb->fork_pool[ fork_id.val ];
-  ulong hash = fd_hash32( pubkey, accdb->shmem->seed )&(accdb->shmem->chain_cnt-1UL);
-  uint acc = idx_resolve( accdb, fork, fork_id.val, root_generation, pubkey, hash, 0 );
-
-  int result;
-  if( FD_UNLIKELY( acc==UINT_MAX ) ) result = 0;
-  else                               result = !!FD_VOLATILE_CONST( accdb->acc_pool[ acc ].lamports );
-
-  FD_COMPILER_MFENCE();
-  FD_VOLATILE( *accdb->my_epoch_slot ) = ULONG_MAX;
-  return result;
+  ulong lamports; uint es;
+  return idx_meta( accdb, fork_id, pubkey, &lamports, &es ) && lamports;
 }
 
 int
@@ -4521,7 +4624,8 @@ fd_accdb_probe_pd_this_fork( fd_accdb_t *       accdb,
   uint root_generation = accdb->fork_pool[ accdb->shmem->root_fork_id.val ].shmem->generation;
   fd_accdb_fork_t * fork = &accdb->fork_pool[ fork_id.val ];
   ulong hash = fd_hash32( pubkey, accdb->shmem->seed )&(accdb->shmem->chain_cnt-1UL);
-  uint acc = idx_resolve( accdb, fork, fork_id.val, root_generation, pubkey, hash, 0 );
+  int  known;
+  uint acc = idx_resolve( accdb, fork, fork_id.val, root_generation, pubkey, hash, 0, &known );
 
   int   pd        = 0;
   int   gen_match = 0;
@@ -4551,44 +4655,17 @@ ulong
 fd_accdb_lamports( fd_accdb_t *       accdb,
                    fd_accdb_fork_id_t fork_id,
                    uchar const *      pubkey ) {
-  FD_COMPILER_MFENCE();
-  FD_VOLATILE( *accdb->my_epoch_slot ) = FD_VOLATILE_CONST( accdb->shmem->epoch );
-  FD_HW_MFENCE();
-
-  uint root_generation = accdb->fork_pool[ accdb->shmem->root_fork_id.val ].shmem->generation;
-  fd_accdb_fork_t * fork = &accdb->fork_pool[ fork_id.val ];
-  ulong hash = fd_hash32( pubkey, accdb->shmem->seed )&(accdb->shmem->chain_cnt-1UL);
-  uint acc = idx_resolve( accdb, fork, fork_id.val, root_generation, pubkey, hash, 0 );
-
-  ulong result;
-  if( FD_UNLIKELY( acc==UINT_MAX ) ) result = 0UL;
-  else                               result = FD_VOLATILE_CONST( accdb->acc_pool[ acc ].lamports );
-
-  FD_COMPILER_MFENCE();
-  FD_VOLATILE( *accdb->my_epoch_slot ) = ULONG_MAX;
-  return result;
+  ulong lamports; uint es;
+  return idx_meta( accdb, fork_id, pubkey, &lamports, &es ) ? lamports : 0UL;
 }
 
 ulong
 fd_accdb_data_len( fd_accdb_t *       accdb,
                    fd_accdb_fork_id_t fork_id,
                    uchar const *      pubkey ) {
-  FD_COMPILER_MFENCE();
-  FD_VOLATILE( *accdb->my_epoch_slot ) = FD_VOLATILE_CONST( accdb->shmem->epoch );
-  FD_HW_MFENCE();
-
-  uint root_generation = accdb->fork_pool[ accdb->shmem->root_fork_id.val ].shmem->generation;
-  fd_accdb_fork_t * fork = &accdb->fork_pool[ fork_id.val ];
-  ulong hash = fd_hash32( pubkey, accdb->shmem->seed )&(accdb->shmem->chain_cnt-1UL);
-  uint acc = idx_resolve( accdb, fork, fork_id.val, root_generation, pubkey, hash, 0 );
-
-  ulong result;
-  if( FD_UNLIKELY( acc==UINT_MAX || !FD_VOLATILE_CONST( accdb->acc_pool[ acc ].lamports ) ) ) result = 0UL;
-  else result = FD_ACCDB_SIZE_DATA( FD_VOLATILE_CONST( accdb->acc_pool[ acc ].executable_size ) );
-
-  FD_COMPILER_MFENCE();
-  FD_VOLATILE( *accdb->my_epoch_slot ) = ULONG_MAX;
-  return result;
+  ulong lamports; uint es;
+  if( !idx_meta( accdb, fork_id, pubkey, &lamports, &es ) || !lamports ) return 0UL;
+  return FD_ACCDB_SIZE_DATA( es );
 }
 
 /* Dirty lines are staged in accdb->stage and written with one
@@ -5251,7 +5328,6 @@ demote_one( fd_accdb_t * accdb,
   }
   if( FD_UNLIKELY( !bg_defer_room( accdb, 2UL ) ) ) return 0;
   fd_accdb_accmeta_t * h = idx_pool_take( accdb, accdb->shmem->promote_reserve );
-  if( FD_UNLIKELY( !h ) ) return 0; /* no bucket read path yet */
 
   bkt_commit( accdb, a, off );
 
@@ -5340,7 +5416,7 @@ background_demote( fd_accdb_t * accdb ) {
 /* background_hot_evict (T2): CLOCK over hot chains while the pool is
    below 2x reserve.  Lineless entries first, then unreferenced. */
 
-FD_FN_UNUSED static ulong
+static ulong
 background_hot_evict( fd_accdb_t * accdb ) {
   fd_accdb_shmem_t * shmem = accdb->shmem;
   if( FD_LIKELY( idx_pool_free( accdb )>=2UL*shmem->promote_reserve ) ) return 0UL;
@@ -5352,7 +5428,9 @@ background_hot_evict( fd_accdb_t * accdb ) {
     while( cur!=UINT_MAX && bg_defer_room( accdb, 1UL ) ) {
       uint next = accdb->acc_pool[ cur ].map.next;
       int lineless = !FD_ACCDB_SIZE_CACHE_VALID( FD_VOLATILE_CONST( accdb->acc_pool[ cur ].executable_size ) );
-      if( lineless || !accdb->hot_ref[ cur ] ) {
+      if( accdb->hot_ref[ cur ]==FD_ACCDB_HOT_REF_PROT ) {
+        prev = cur;
+      } else if( lineless || !accdb->hot_ref[ cur ] ) {
         hot_unlink( accdb, chain, prev, cur, 0 );
         evicted++;
       } else {
@@ -5365,6 +5443,300 @@ background_hot_evict( fd_accdb_t * accdb ) {
   return evicted;
 }
 
+/* ---- Promote rings (§6.2, §6.3, §15 R3/R12/R14/R16) ----------------- */
+
+/* ring_push: reserve with a CAS after the fullness check, publish seq.
+   Returns the ticket, or ULONG_MAX if the ring is full and !wait. */
+
+static ulong
+ring_push( fd_accdb_t *  accdb,
+           fd_accdb_ring_t * ring,
+           uchar const   pubkey[ 32 ],
+           uint          flags,
+           int           wait ) {
+  fd_accdb_req_t * ele = (fd_accdb_req_t *)( (uchar *)accdb->shmem + ring->ele_off );
+  ulong t;
+  for(;;) {
+    t = FD_VOLATILE_CONST( ring->tail );
+    if( FD_UNLIKELY( t-FD_VOLATILE_CONST( ring->head )>=ring->cap ) ) {
+      if( !wait ) return ULONG_MAX;
+      if( FD_LIKELY( accdb->sleep ) ) fd_sleep_ring( accdb->sleep, accdb->sleep_tile_id );
+      FD_SPIN_PAUSE();
+      continue;
+    }
+    if( FD_LIKELY( FD_ATOMIC_CAS( &ring->tail, t, t+1UL )==t ) ) break;
+  }
+  fd_accdb_req_t * r = &ele[ t & (ring->cap-1UL) ];
+  memcpy( r->pubkey, pubkey, 32UL );
+  r->flags  = flags;
+  r->joiner = (uint)accdb->joiner_idx;
+  FD_COMPILER_MFENCE();
+  FD_VOLATILE( r->seq ) = t+1UL;
+  return t;
+}
+
+/* fd_accdb_prefetch: hint-lane pushes for keys that may live only in
+   the bucket.  Never waits. */
+
+void
+fd_accdb_prefetch( fd_accdb_t *          accdb,
+                   fd_accdb_fork_id_t    fork_id,
+                   ulong                 cnt,
+                   uchar const * const * pubkeys,
+                   int                   warm ) {
+  if( FD_LIKELY( !idx_enabled( accdb ) ) ) return;
+  FD_COMPILER_MFENCE();
+  FD_VOLATILE( *accdb->my_epoch_slot ) = FD_VOLATILE_CONST( accdb->shmem->epoch );
+  FD_HW_MFENCE();
+  uint root_generation = accdb->fork_pool[ accdb->shmem->root_fork_id.val ].shmem->generation;
+  fd_accdb_fork_t * fork = &accdb->fork_pool[ fork_id.val ];
+  for( ulong i=0UL; i<cnt; i++ ) {
+    ulong hash = fd_hash32( pubkeys[ i ], accdb->shmem->seed )&(accdb->shmem->chain_cnt-1UL);
+    int known;
+    idx_resolve( accdb, fork, fork_id.val, root_generation, pubkeys[ i ], hash, 0, &known );
+    if( known ) continue;
+    if( !fd_accdb_cf_probe( accdb->cf, pubkeys[ i ] ) ) continue;
+    if( ring_push( accdb, accdb->shmem->ring_hint, pubkeys[ i ], warm ? FD_ACCDB_REQ_WARM_PD : 0U, 0 )==ULONG_MAX ) accdb->metrics->prefetch_dropped++;
+    else                                                                                                           accdb->metrics->prefetch_pushed++;
+  }
+  FD_COMPILER_MFENCE();
+  FD_VOLATILE( *accdb->my_epoch_slot ) = ULONG_MAX;
+  if( FD_LIKELY( accdb->sleep ) ) fd_sleep_ring( accdb->sleep, accdb->sleep_tile_id );
+}
+
+/* idx_residual_wait (FG, outside any epoch): pushes every key and
+   waits once for T2 to serve the last ticket, then acks it so T2 drops
+   protection of what it promoted. */
+
+static void
+idx_residual_wait( fd_accdb_t *          accdb,
+                   ulong                 cnt,
+                   uchar const * const * keys ) {
+  FD_TEST( FD_VOLATILE_CONST( *accdb->my_epoch_slot )==ULONG_MAX );
+  fd_accdb_ring_t * ring = accdb->shmem->ring_res;
+  ulong last = 0UL;
+  for( ulong i=0UL; i<cnt; i++ ) last = ring_push( accdb, ring, keys[ i ], FD_ACCDB_REQ_WARM_PD, 1 );
+  long t0 = fd_tickcount();
+  if( FD_LIKELY( accdb->sleep ) ) fd_sleep_ring( accdb->sleep, accdb->sleep_tile_id );
+  while( FD_VOLATILE_CONST( ring->done )<=last ) FD_SPIN_PAUSE();
+  accdb->metrics->residual_waits++;
+  accdb->metrics->residual_wait_ticks += (ulong)( fd_tickcount()-t0 );
+  accdb->residual_ticket = last;
+}
+
+/* T2 side ---------------------------------------------------------- */
+
+static int
+idx_warm_line( fd_accdb_t *         accdb,
+               fd_accdb_accmeta_t * h,
+               uchar *              owner_out,
+               uchar *              head_out );
+
+/* idx_promote (T2): makes pubkey resolvable from RAM: a hot entry
+   built from its bucket slot, or a NEG entry if absent.  Returns the
+   hot idx (UINT_MAX if the pool is short). */
+
+static uint
+idx_promote( fd_accdb_t * accdb,
+             uchar const  pubkey[ 32 ],
+             uint         flags,
+             int          residual ) {
+  fd_accdb_shmem_t * shmem = accdb->shmem;
+  ulong chain = idx_chain_of( accdb, pubkey );
+  uint  prev;
+  uint  idx = hot_find( accdb, chain, pubkey, &prev );
+  if( idx==UINT_MAX ) {
+    /* acc_map first: a version there makes the request moot */
+    uint a = FD_VOLATILE_CONST( accdb->acc_map[ chain ] );
+    while( a!=UINT_MAX && memcmp( accdb->acc_pool[ a ].key.pubkey, pubkey, 32UL ) ) a = accdb->acc_pool[ a ].map.next;
+    if( a!=UINT_MAX ) return UINT_MAX;
+    if( !bg_defer_room( accdb, 1UL ) ) return UINT_MAX;
+    fd_accdb_accmeta_t * h = idx_pool_take( accdb, residual ? shmem->promote_reserve/2UL : shmem->promote_reserve );
+    if( FD_UNLIKELY( !h ) ) return UINT_MAX;
+    fd_accdb_idx_slot_t slot;
+    int hit = fd_accdb_cf_probe( accdb->cf, pubkey ) && fd_accdb_idx_lookup( accdb->bkt, shmem->seed, pubkey, 0, &slot );
+    memcpy( h->key.pubkey, pubkey, 32UL );
+    h->cache_idx = FD_ACCDB_ACC_CIDX_INVAL;
+    if( hit ) {
+      h->key.generation  = slot.generation;
+      h->lamports        = slot.lamports;
+      h->executable_size = slot.exec_size;
+      h->offset_fork     = fd_accdb_acc_pack_offset_fork( slot.off_plus1-1UL, FD_ACCDB_FORK_ID_ROOTED );
+    } else {
+      /* NEG: resolves as a tombstone, so every reader treats it absent */
+      h->key.generation  = 0U;
+      h->lamports        = 0UL;
+      h->executable_size = 0U;
+      h->offset_fork     = fd_accdb_acc_pack_offset_fork( FD_ACCDB_OFF_INVAL, FD_ACCDB_FORK_ID_ROOTED );
+      accdb->metrics->neg_hot++;
+    }
+    idx = (uint)acc_pool_idx( accdb->acc_pool_join, h );
+    hot_insert( accdb, idx );
+    accdb->metrics->promoted++;
+  }
+  fd_accdb_accmeta_t * h = &accdb->acc_pool[ idx ];
+  if( h->lamports && (flags & FD_ACCDB_REQ_WARM_PD) ) {
+    uchar owner[ 32 ], head[ 36 ];
+    if( idx_warm_line( accdb, h, owner, head ) && !memcmp( owner, fd_solana_bpf_loader_upgradeable_program_id.uc, 32UL ) &&
+        FD_ACCDB_SIZE_DATA( h->executable_size )>=36UL ) {
+      /* Program state: programdata address at data[4..36) */
+      if( FD_LOAD( uint, head )==2U ) idx_promote( accdb, head+4, 0U, residual );
+    }
+  }
+  return idx;
+}
+
+/* idx_warm_line (T2): try-only cold load of h's data into a free or
+   never-used line (never CLOCK, never waits on a line or on CLAIM).
+   Returns 1 with owner and data[0,36) (zero past the data) if h has a
+   line afterwards; both are copied under a pin. */
+
+static int
+idx_warm_line( fd_accdb_t *         accdb,
+               fd_accdb_accmeta_t * h,
+               uchar *              owner_out,
+               uchar *              head_out ) {
+  fd_accdb_shmem_t * shmem = accdb->shmem;
+  uint es = FD_VOLATILE_CONST( h->executable_size );
+  memset( head_out, 0, 36UL );
+  ulong head_sz = fd_ulong_min( 36UL, FD_ACCDB_SIZE_DATA( es ) );
+  if( FD_ACCDB_SIZE_CACHE_VALID( es ) ) {
+    /* evict_clear may clear VALID and store INVAL after our load */
+    uint cidx = FD_VOLATILE_CONST( h->cache_idx );
+    if( FD_UNLIKELY( cidx==FD_ACCDB_ACC_CIDX_INVAL ) ) return 0;
+    fd_accdb_cache_line_t * l = cache_try_pin( cache_line( accdb, FD_ACCDB_ACC_CIDX_CLASS( cidx ), FD_ACCDB_ACC_CIDX_IDX( cidx ) ), h->key.pubkey, h->key.generation );
+    if( FD_UNLIKELY( !l ) ) return 0;
+    int ok = FD_VOLATILE_CONST( l->acc_idx )!=UINT_MAX; /* not mid cold load */
+    if( ok ) { memcpy( owner_out, l->owner, 32UL ); memcpy( head_out, l+1UL, head_sz ); }
+    FD_ATOMIC_FETCH_AND_SUB( &l->refcnt, 1U );
+    return ok;
+  }
+  ulong cls   = fd_accdb_cache_class( FD_ACCDB_SIZE_DATA( es ) );
+  ulong max_c = shmem->cache_class_max[ cls ];
+  ulong init  = fd_ulong_min( FD_VOLATILE_CONST( shmem->cache_class_init[ cls ].val ), max_c );
+  ulong freec = cache_free_total( shmem, cls );
+  if( max_c-(init>freec ? init-freec : 0UL)<=shmem->cache_free_low_water[ cls ] ) return 0;
+
+  /* try-only, same source order as acquire_cache_line minus eviction */
+  fd_accdb_cache_line_t * l = cache_free_pop_from( accdb, accdb->joiner_idx, cls, 0 );
+  if( !l && FD_VOLATILE_CONST( shmem->cache_class_init[ cls ].val )<max_c ) {
+    ulong old_init = FD_ATOMIC_FETCH_AND_ADD( &shmem->cache_class_init[ cls ].val, 1UL );
+    if( FD_LIKELY( old_init<max_c ) ) {
+      l = cache_line( accdb, cls, old_init );
+      l->refcnt         = 1U;
+      l->persisted      = 1;
+      l->hazard_pending = 0;
+      l->hazard_read    = 0;
+      l->acc_idx        = UINT_MAX;
+      l->key.generation = UINT_MAX;
+    } else {
+      FD_ATOMIC_FETCH_AND_SUB( &shmem->cache_class_init[ cls ].val, 1UL );
+    }
+  } else if( l ) {
+    if( FD_UNLIKELY( FD_ATOMIC_CAS( &l->refcnt, 0U, 1U )!=0U ) ) { cache_free_push( accdb, cls, l ); return 0; }
+  }
+  if( !l ) {
+    l = cache_free_steal( accdb, cls );
+    if( !l ) return 0;
+    if( FD_UNLIKELY( FD_ATOMIC_CAS( &l->refcnt, 0U, 1U )!=0U ) ) { cache_free_push( accdb, cls, l ); return 0; }
+  }
+  l->referenced = 0;
+  FD_VOLATILE( l->seq ) = l->seq+1U;
+
+  ulong off = fd_accdb_acc_offset( h );
+  ulong sz  = FD_ACCDB_SIZE_DATA( es );
+  FD_COMPILER_MFENCE();
+  FD_VOLATILE( *accdb->my_epoch_slot ) = FD_VOLATILE_CONST( shmem->epoch );
+  FD_HW_MFENCE();
+  fd_accdb_idx_io( accdb->fd, 0, l->owner, 32UL, off+offsetof( fd_accdb_disk_meta_t, owner ) );
+  if( sz ) fd_accdb_idx_io( accdb->fd, 0, l+1UL, sz, off+sizeof(fd_accdb_disk_meta_t) );
+  accdb->metrics->read_ops++;
+  accdb->metrics->bytes_read += 32UL+sz;
+  FD_COMPILER_MFENCE();
+  FD_VOLATILE( *accdb->my_epoch_slot ) = ULONG_MAX;
+
+  uint cur = FD_VOLATILE_CONST( h->executable_size );
+  if( FD_UNLIKELY( (cur & (FD_ACCDB_SIZE_CACHE_CLAIM_BIT|FD_ACCDB_SIZE_CACHE_VALID_BIT)) ||
+                   FD_ATOMIC_CAS( &h->executable_size, cur, cur|FD_ACCDB_SIZE_CACHE_CLAIM_BIT )!=cur ) ) {
+    cache_line_free( accdb, cls, l ); /* an FG cold load got there first */
+    return 0;
+  }
+  memcpy( l->key.pubkey, h->key.pubkey, 32UL );
+  l->key.generation = h->key.generation;
+  l->acc_idx        = (uint)acc_pool_idx( accdb->acc_pool_join, h );
+  l->persisted      = 1;
+  l->referenced     = 1;
+  memcpy( owner_out, l->owner, 32UL );
+  memcpy( head_out, l+1UL, head_sz );
+  FD_VOLATILE( h->cache_idx ) = FD_ACCDB_ACC_CIDX_PACK( (uint)cls, (uint)cache_line_idx( accdb, cls, l ) );
+  FD_COMPILER_MFENCE();
+  for(;;) {
+    uint c2 = FD_VOLATILE_CONST( h->executable_size );
+    if( FD_LIKELY( FD_ATOMIC_CAS( &h->executable_size, c2, (c2 & ~FD_ACCDB_SIZE_CACHE_CLAIM_BIT)|FD_ACCDB_SIZE_CACHE_VALID_BIT )==c2 ) ) break;
+  }
+  FD_COMPILER_MFENCE();
+  FD_VOLATILE( l->refcnt ) = 0U;
+  accdb->metrics->warmed++;
+  return 1;
+}
+
+/* ring_serve (T2): serves up to max requests; returns count. */
+
+static ulong
+ring_serve( fd_accdb_t *      accdb,
+            fd_accdb_ring_t * ring,
+            ulong             max,
+            int               residual ) {
+  fd_accdb_req_t * ele = (fd_accdb_req_t *)( (uchar *)accdb->shmem + ring->ele_off );
+  ulong n = 0UL;
+  while( n<max ) {
+    ulong h = ring->head;
+    fd_accdb_req_t * r = &ele[ h & (ring->cap-1UL) ];
+    if( FD_VOLATILE_CONST( r->seq )!=h+1UL ) break;
+    FD_COMPILER_MFENCE();
+    uchar key[ 32 ]; memcpy( key, r->pubkey, 32UL );
+    uint flags  = r->flags;
+    uint joiner = r->joiner;
+    FD_COMPILER_MFENCE();
+    FD_VOLATILE( ring->head ) = h+1UL;
+    uint idx = idx_promote( accdb, key, flags, residual );
+    if( residual && idx!=UINT_MAX && accdb->shmem->prot_head-accdb->shmem->prot_tail<FD_ACCDB_PROT_MAX ) {
+      fd_accdb_prot_t * prot = (fd_accdb_prot_t *)( (uchar *)accdb->shmem + accdb->shmem->prot_off );
+      prot[ accdb->shmem->prot_head % FD_ACCDB_PROT_MAX ] = (fd_accdb_prot_t){ .idx=idx, .joiner=joiner, .ticket=h };
+      accdb->shmem->prot_head++;
+      accdb->hot_ref[ idx ] = FD_ACCDB_HOT_REF_PROT;
+    }
+    FD_COMPILER_MFENCE();
+    FD_VOLATILE( ring->done ) = h+1UL;
+    n++;
+    if( !residual && FD_VOLATILE_CONST( accdb->shmem->cmd_op )!=FD_ACCDB_CMD_IDLE ) break;
+  }
+  return n;
+}
+
+/* prot_release (T2): unprotect entries whose waiter re-walked. */
+
+static void
+prot_release( fd_accdb_t * accdb ) {
+  fd_accdb_shmem_t * shmem = accdb->shmem;
+  fd_accdb_prot_t * prot = (fd_accdb_prot_t *)( (uchar *)shmem + shmem->prot_off );
+  while( shmem->prot_tail<shmem->prot_head ) {
+    fd_accdb_prot_t * p = &prot[ shmem->prot_tail % FD_ACCDB_PROT_MAX ];
+    if( FD_VOLATILE_CONST( shmem->res_ack[ p->joiner ] )<=p->ticket ) break;
+    if( accdb->tier[ p->idx ]==FD_ACCDB_TIER_HOT && accdb->hot_ref[ p->idx ]==FD_ACCDB_HOT_REF_PROT ) accdb->hot_ref[ p->idx ] = 1;
+    shmem->prot_tail++;
+  }
+}
+
+int
+fd_accdb_idx_busy( fd_accdb_t const * accdb ) {
+  fd_accdb_shmem_t const * shmem = accdb->shmem;
+  if( FD_LIKELY( !shmem->index_ram_entries ) ) return 0;
+  return FD_VOLATILE_CONST( shmem->ring_res->tail )!=FD_VOLATILE_CONST( shmem->ring_res->head ) ||
+         FD_VOLATILE_CONST( shmem->ring_hint->tail )!=FD_VOLATILE_CONST( shmem->ring_hint->head ) ||
+         FD_VOLATILE_CONST( shmem->pool_avail )<2UL*shmem->promote_reserve;
+}
+
 /* background_idx: index-mode T2 maintenance, one bounded slice per
    call.  Bucket writes stop while a snapshot is being produced. */
 
@@ -5372,7 +5744,8 @@ static void
 background_idx( fd_accdb_t * accdb,
                 int *        charge_busy ) {
   int producing = fd_accdb_snapshot_sync_state( &accdb->shmem->snapshot_sync )!=FD_ACCDB_SNAPSHOT_SYNC_IDLE;
-  ulong work = 0UL;
+  prot_release( accdb );
+  ulong work = background_hot_evict( accdb );
   if( !producing ) work += background_demote( accdb );
   bg_defer_seal( accdb );
   work += bg_defer_drain( accdb );
@@ -5420,6 +5793,12 @@ fd_accdb_background( fd_accdb_t * accdb,
     FD_VOLATILE( shmem->cmd_op ) = FD_ACCDB_CMD_IDLE;
     *charge_busy = 1;
     return;
+  }
+
+  if( FD_UNLIKELY( idx_enabled( accdb ) && !FD_VOLATILE_CONST( shmem->snapshot_loading ) ) ) {
+    ulong n = ring_serve( accdb, shmem->ring_res, FD_ACCDB_RING_RES_CAP, 1 );
+    n      += ring_serve( accdb, shmem->ring_hint, FD_ACCDB_RING_SERVE, 0 );
+    if( n ) *charge_busy = 1;
   }
 
   if( FD_UNLIKELY( snap_sync!=FD_ACCDB_SNAPSHOT_SYNC_IDLE ) ) {
