@@ -1627,6 +1627,14 @@ deliberate exception with lint-allow="<rule id>")
     <counter name="MemoryPressureFullDurationNanos" summary="Time all non-idle tasks stalled on memory together since boot (PSI full), a subset of MemoryPressureDurationNanos" />
     <counter name="IoPressureDurationNanos" summary="Time at least one task stalled on IO since boot (PSI some), 0 if the kernel lacks PSI" />
     <counter name="IoPressureFullDurationNanos" summary="Time all non-idle tasks stalled on IO together since boot (PSI full), a subset of IoPressureDurationNanos" />
+
+    <counter name="AccountsDiskReadBytes" summary="Bytes read from the accounts disk since boot (/sys/block stat sectors read), 0 if not on a block device" lint-allow="plural" />
+    <counter name="AccountsDiskWrittenBytes" summary="Bytes written to the accounts disk since boot (/sys/block stat sectors written), 0 if not on a block device" lint-allow="plural" />
+    <counter name="AccountsDiskWritten" summary="Write requests the accounts disk completed since boot (/sys/block stat writes completed), 0 if not on a block device" lint-allow="plural" />
+    <counter name="AccountsDiskWriteDurationNanos" summary="Time write requests to the accounts disk spent from submission to completion since the diag tile started, summed over requests (/sys/block stat write ticks), 0 if not on a block device" lint-allow="plural" />
+    <counter name="AccountsDiskBusyDurationNanos" summary="Time the accounts disk had at least one request in flight since the diag tile started (/sys/block stat io_ticks), 0 if not on a block device" lint-allow="plural" />
+    <counter name="AccountsDiskRequestInFlightIntegralNanos" summary="Integral of requests in flight at the accounts disk over time since the diag tile started (request-nanoseconds, /sys/block stat time_in_queue); divide by elapsed time for the average queue depth, 0 if not on a block device" lint-allow="plural" />
+    <gauge name="AccountsDiskRequestInFlight" summary="Requests the accounts disk had in flight at the last sample (/sys/block stat in_flight), 0 if not on a block device" lint-allow="plural" />
 </tile>
 
 <tile name="genesi">
