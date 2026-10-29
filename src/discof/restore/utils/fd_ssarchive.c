@@ -4,6 +4,7 @@
 
 #include <errno.h>
 #include <dirent.h>
+#include <limits.h>
 #include <stdlib.h>
 #include <unistd.h>
 
@@ -11,7 +12,7 @@ struct fd_ssarchive_entry {
   ulong slot;
   ulong base_slot;
   int   is_zstd;
-  char  path[ PATH_MAX ];
+  char  name[ NAME_MAX+1UL ]; /* path = directory/name */
   uchar hash[ FD_HASH_FOOTPRINT ];
 };
 typedef struct fd_ssarchive_entry fd_ssarchive_entry_t;
@@ -96,9 +97,10 @@ fd_ssarchive_latest_pair( char const * directory,
     dst->slot      = dst_slot;
     dst->base_slot = dst_base_slot;
     dst->is_zstd   = is_zstd;
-    if( FD_UNLIKELY( !fd_cstr_printf_check( dst->path, PATH_MAX, NULL, "%s/%s", directory, entry->d_name ) ) ) {
+    if( FD_UNLIKELY( strlen( directory )+1UL+strlen( entry->d_name )>=PATH_MAX ) ) {
       FD_LOG_ERR(( "snapshot path too long `%s/%s`", directory, entry->d_name ));
     }
+    fd_cstr_ncpy( dst->name, entry->d_name, sizeof(dst->name) );
     fd_memcpy( dst->hash, decoded_hash, FD_HASH_FOOTPRINT );
   }
 
@@ -118,7 +120,7 @@ fd_ssarchive_latest_pair( char const * directory,
       *full_is_zstd        = full_snapshots[ 0UL ].is_zstd;
       *incremental_slot    = ULONG_MAX;
       *incremental_is_zstd = 0;
-      FD_TEST( fd_cstr_printf_check( full_path, PATH_MAX, NULL, "%s", full_snapshots[ 0UL ].path ) );
+      FD_TEST( fd_cstr_printf_check( full_path, PATH_MAX, NULL, "%s/%s", directory, full_snapshots[ 0UL ].name ) );
       incremental_path[ 0UL ] = '\0';
       fd_memcpy( full_hash, full_snapshots[ 0UL ].hash, FD_HASH_FOOTPRINT );
       memset( incremental_hash, 0, FD_HASH_FOOTPRINT );
@@ -133,8 +135,8 @@ fd_ssarchive_latest_pair( char const * directory,
           *incremental_slot    = incremental_snapshots[ i ].slot;
           *full_is_zstd        = full_snapshots[ j ].is_zstd;
           *incremental_is_zstd = incremental_snapshots[ i ].is_zstd;
-          FD_TEST( fd_cstr_printf_check( full_path, PATH_MAX, NULL, "%s", full_snapshots[ j ].path ) );
-          FD_TEST( fd_cstr_printf_check( incremental_path, PATH_MAX, NULL, "%s", incremental_snapshots[ i ].path ) );
+          FD_TEST( fd_cstr_printf_check( full_path, PATH_MAX, NULL, "%s/%s", directory, full_snapshots[ j ].name ) );
+          FD_TEST( fd_cstr_printf_check( incremental_path, PATH_MAX, NULL, "%s/%s", directory, incremental_snapshots[ i ].name ) );
           fd_memcpy( full_hash, full_snapshots[ j ].hash, FD_HASH_FOOTPRINT );
           fd_memcpy( incremental_hash, incremental_snapshots[ i ].hash, FD_HASH_FOOTPRINT );
           return 0;
@@ -154,7 +156,7 @@ fd_ssarchive_latest_pair( char const * directory,
     *full_is_zstd        = full_snapshots[ 0UL ].is_zstd;
     *incremental_slot    = ULONG_MAX;
     *incremental_is_zstd = 0;
-    FD_TEST( fd_cstr_printf_check( full_path, PATH_MAX, NULL, "%s", full_snapshots[ 0UL ].path ) );
+    FD_TEST( fd_cstr_printf_check( full_path, PATH_MAX, NULL, "%s/%s", directory, full_snapshots[ 0UL ].name ) );
     incremental_path[ 0UL ] = '\0';
     fd_memcpy( full_hash, full_snapshots[ 0UL ].hash, FD_HASH_FOOTPRINT );
     memset( incremental_hash, 0, FD_HASH_FOOTPRINT );
@@ -169,7 +171,7 @@ fd_ssarchive_latest_pair( char const * directory,
     *full_is_zstd        = full_snapshots[ 0UL ].is_zstd;
     *incremental_slot    = ULONG_MAX;
     *incremental_is_zstd = 0;
-    FD_TEST( fd_cstr_printf_check( full_path, PATH_MAX, NULL, "%s", full_snapshots[ 0UL ].path ) );
+    FD_TEST( fd_cstr_printf_check( full_path, PATH_MAX, NULL, "%s/%s", directory, full_snapshots[ 0UL ].name ) );
     incremental_path[ 0UL ] = '\0';
     fd_memcpy( full_hash, full_snapshots[ 0UL ].hash, FD_HASH_FOOTPRINT );
     memset( incremental_hash, 0, FD_HASH_FOOTPRINT );

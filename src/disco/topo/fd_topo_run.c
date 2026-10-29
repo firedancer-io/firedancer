@@ -25,13 +25,14 @@
 static void
 initialize_logging( char const * tile_name,
                     ulong        tile_kind_id,
-                    ulong        tid ) {
+                    ulong        tid,
+                    ulong        stack_sz ) {
   fd_log_cpu_set( NULL );
   fd_log_private_tid_set( tid );
   char thread_name[ 20 ];
   FD_TEST( fd_cstr_printf_check( thread_name, sizeof( thread_name ), NULL, "%s:%lu", tile_name, tile_kind_id ) );
   fd_log_thread_set( thread_name );
-  fd_log_private_stack_discover( FD_TILE_PRIVATE_STACK_SZ,
+  fd_log_private_stack_discover( stack_sz,
                                  &fd_tile_private_stack0, &fd_tile_private_stack1 );
   FD_LOG_INFO(( "booting tile %s pid:%lu tid:%lu", thread_name, fd_log_group_id(), tid ));
 
@@ -74,7 +75,7 @@ fd_topo_run_tile( fd_topo_t *          topo,
   ulong pid = fd_sandbox_getpid(); /* Need to read /proc again.. we got a new PID from clone */
   ulong tid = fd_sandbox_gettid(); /* Need to read /proc again.. we got a new TID from clone */
 
-  initialize_logging( tile->name, tile->kind_id, tid );
+  initialize_logging( tile->name, tile->kind_id, tid, tile->stack_sz );
 
   /* preload shared memory before sandboxing, so it is already mapped */
   fd_topo_join_tile_workspaces( topo, tile, core_dump_level );
@@ -193,9 +194,9 @@ run_tile_thread_main( void * _args ) {
    unfortunately rely on it. */
 
 FD_FN_UNUSED static void *
-fd_topo_tile_stack_join_anon( void ) {
+fd_topo_tile_stack_join_anon( ulong stack_sz ) {
 
-  ulong sz    = 2*FD_TILE_PRIVATE_STACK_SZ;
+  ulong sz    = 2*stack_sz;
   int   prot  = PROT_READ|PROT_WRITE;
   int   flags = MAP_PRIVATE|MAP_ANONYMOUS|MAP_STACK;
 
@@ -217,7 +218,7 @@ fd_topo_tile_stack_join_anon( void ) {
                          MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, -1, (off_t)0 )!=guard_lo ) )
     FD_LOG_ERR(( "mmap(%p) failed (%i-%s)", guard_lo, errno, fd_io_strerror( errno ) ));
 
-  void * guard_hi = (void *)( stack + FD_TILE_PRIVATE_STACK_SZ );
+  void * guard_hi = (void *)( stack + stack_sz );
   if( FD_UNLIKELY( mmap( guard_hi, FD_SHMEM_NORMAL_PAGE_SZ, PROT_NONE,
                          MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, -1, (off_t)0 )!=guard_hi ) )
     FD_LOG_ERR(( "mmap(%p) failed (%i-%s)", guard_hi, errno, fd_io_strerror( errno ) ));
@@ -228,9 +229,10 @@ fd_topo_tile_stack_join_anon( void ) {
 void *
 fd_topo_tile_stack_join( char const * app_name,
                          char const * tile_name,
-                         ulong        tile_kind_id ) {
+                         ulong        tile_kind_id,
+                         ulong        stack_sz ) {
 #if FD_HAS_MSAN
-  return fd_topo_tile_stack_join_anon();
+  return fd_topo_tile_stack_join_anon( stack_sz );
 #endif
 
   char name[ PATH_MAX ];
@@ -240,7 +242,7 @@ fd_topo_tile_stack_join( char const * app_name,
      file into the 2 MiB aligned middle.  The flanks (>=4 KiB each)
      stay PROT_NONE and guard overflow/underflow at zero physical page
      cost. */
-  ulong reserve_sz = FD_TILE_PRIVATE_STACK_SZ+2UL*FD_SHMEM_HUGE_PAGE_SZ;
+  ulong reserve_sz = stack_sz+2UL*FD_SHMEM_HUGE_PAGE_SZ;
   uchar * reserve = (uchar *)mmap( NULL, reserve_sz, PROT_NONE, MAP_PRIVATE|MAP_ANONYMOUS|MAP_NORESERVE, -1, (off_t)0 );
   if( FD_UNLIKELY( reserve==MAP_FAILED ) )
     FD_LOG_ERR(( "mmap() for stack reservation failed (%i-%s)", errno, fd_io_strerror( errno ) ));
@@ -250,17 +252,17 @@ fd_topo_tile_stack_join( char const * app_name,
   int fd = open( fd_shmem_private_path( name, FD_SHMEM_HUGE_PAGE_SZ, path ), O_RDWR, (mode_t)0 );
   if( FD_UNLIKELY( -1==fd ) ) FD_LOG_ERR(( "open(\"%s\") failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
 
-  if( FD_UNLIKELY( mmap( stack, FD_TILE_PRIVATE_STACK_SZ, PROT_READ|PROT_WRITE, MAP_SHARED|MAP_FIXED, fd, (off_t)0 )!=(void *)stack ) )
+  if( FD_UNLIKELY( mmap( stack, stack_sz, PROT_READ|PROT_WRITE, MAP_SHARED|MAP_FIXED, fd, (off_t)0 )!=(void *)stack ) )
     FD_LOG_ERR(( "mmap(\"%s\") failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( close( fd ) ) ) FD_LOG_ERR(( "close(\"%s\") failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
 
-  if( FD_UNLIKELY( fd_numa_mlock( stack, FD_TILE_PRIVATE_STACK_SZ ) ) )
+  if( FD_UNLIKELY( fd_numa_mlock( stack, stack_sz ) ) )
     FD_LOG_WARNING(( "mlock(\"%s\") failed (%i-%s); attempting to continue", path, errno, fd_io_strerror( errno ) ));
 
   /* avoid core dumps of sign tile stacks, and of failov ones, which hold
      TLS session secrets */
   int dump = strcmp( tile_name, "sign" ) && strcmp( tile_name, "failov" ) ? 1 : 0;
-  if( FD_UNLIKELY( !dump && madvise( stack, FD_TILE_PRIVATE_STACK_SZ, MADV_DONTDUMP ) ) )
+  if( FD_UNLIKELY( !dump && madvise( stack, stack_sz, MADV_DONTDUMP ) ) )
     FD_LOG_ERR(( "madvise(MADV_DONTDUMP) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
   return stack;
@@ -278,12 +280,12 @@ run_tile_thread( fd_topo_t *         topo,
                  fd_topo_run_thread_args_t * args ) {
   /* tpool will assign a thread later */
   if( FD_UNLIKELY( tile_run.for_tpool ) ) return;
-  void * stack = fd_topo_tile_stack_join( topo->app_name, tile->name, tile->kind_id );
+  void * stack = fd_topo_tile_stack_join( topo->app_name, tile->name, tile->kind_id, tile->stack_sz );
 
   pthread_attr_t attr[ 1 ];
   int err = pthread_attr_init( attr );
   if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "pthread_attr_init() failed (%i-%s)", err, fd_io_strerror( err ) ));
-  err = pthread_attr_setstack( attr, stack, FD_TILE_PRIVATE_STACK_SZ );
+  err = pthread_attr_setstack( attr, stack, tile->stack_sz );
   if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "pthread_attr_setstack() failed (%i-%s)", err, fd_io_strerror( err ) ));
 
   FD_CPUSET_DECL( cpu_set );
@@ -322,7 +324,7 @@ run_tile_thread( fd_topo_t *         topo,
     .gid        = gid,
     .copied     = 0,
     .stack_lo   = stack,
-    .stack_hi   = (uchar *)stack + FD_TILE_PRIVATE_STACK_SZ
+    .stack_hi   = (uchar *)stack + tile->stack_sz
   };
 
   pthread_t pthread;
