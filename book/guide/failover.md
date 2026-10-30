@@ -25,7 +25,7 @@ safe-guards described here.
 
 ## How it works
 
-Every validator with `[failover.enabled]` runs a failover tile, which
+Validators with `[failover.enabled]` set run a failover tile, which
 listens on `[failover.listen_address]:[failover.listen_port]` (TCP port
 `8010` by default) and dials the same port on the remote validator when
 you ask for a handoff. The coordinated hand-off works as follows:
@@ -48,7 +48,7 @@ you ask for a handoff. The coordinated hand-off works as follows:
    voting and producing blocks as it, and tells the remote validator the
    handoff is done.
 
-A coordinated handoff never has both validators double-voting with the
+A coordinated handoff avoids having both validators double-voting with the
 same identity. This may not hold true for a [forced promotion](#forced-promotion).
 
 ## Setup
