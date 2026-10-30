@@ -387,23 +387,28 @@ test_insert_errors( fd_wksp_t * wksp ) {
   FD_TEST( is_miss( store, &mr1 ) );
   { fd_store_key_t key = store_key( &mr1 ); FD_TEST( map_find( &ljoin, &key, NULL )==FD_STORE_NULL ); }
 
-  /* ERR_DUPLICATE: committed FEC, from either partition. */
-  FD_TEST( fd_store_insert_begin( store, -1, &mr0, 10UL, 1UL, NULL, &ins )==FD_STORE_ERR_DUPLICATE );
+  /* ERR_DUP: committed FEC, from either partition. */
+  FD_TEST( fd_store_insert_begin( store, -1, &mr0, 10UL, 1UL, NULL, &ins )==FD_STORE_ERR_DUP );
   FD_TEST( ins==FD_STORE_INSERT_NULL );
   FD_TEST( live_cnt( store )==1UL && !cache_free( store ) );
   FD_TEST( !check( store, -1, &mr0, 100UL, 0UL ) );
 
-  /* ERR_DUPLICATE: a FEC still being inserted (ACQUIRED/RESERVED) is a
-     duplicate but a query miss. */
+  /* ERR_PENDING_DUP: a FEC still being inserted is a query miss;
+     another tile must not notify replay until the inserter commits. */
   fd_store_publish( store, 11UL, NULL );
   FD_TEST( fd_store_insert_begin( store, -1, &mr1, 11UL, 0UL, NULL, &ins )==FD_STORE_SUCCESS );
   fd_store_insert_t ins2;
-  FD_TEST( fd_store_insert_begin( store, -1, &mr1, 11UL, 1UL, NULL, &ins2 )==FD_STORE_ERR_DUPLICATE );
+  FD_TEST( fd_store_insert_begin( store, -1, &mr1, 11UL, 1UL, NULL, &ins2 )==FD_STORE_ERR_PENDING_DUP );
   FD_TEST( ins2==FD_STORE_INSERT_NULL );
   FD_TEST( is_miss( store, &mr1 ) );
 
-  /* ERR_CACHE_FULL releases the meta it took. */
+  /* Once committed, the same key is queryable and a committed duplicate. */
   FD_TEST( !fd_store_insert_commit( store, ins, 0UL ) );
+  FD_TEST( fd_store_insert_begin( store, -1, &mr1, 11UL, 1UL, NULL, &ins2 )==FD_STORE_ERR_DUP );
+  FD_TEST( ins2==FD_STORE_INSERT_NULL );
+  FD_TEST( !check( store, -1, &mr1, 0UL, 0UL ) );
+
+  /* ERR_CACHE_FULL releases the meta it took. */
   FD_TEST( fd_store_insert_begin( store, -1, &mr2, 11UL, 0UL, NULL, &ins )==FD_STORE_ERR_CACHE_FULL );
   FD_TEST( ins==FD_STORE_INSERT_NULL );
   FD_TEST( live_cnt( store )==1UL && fd_store_meta_pool_free( ljoin.meta )==1UL );
@@ -449,6 +454,9 @@ test_commit_expired( fd_wksp_t * wksp ) {
   fd_store_publish( store, 6UL, pub );
   FD_TEST( !pub->removed_cnt );                     /* not in slot_ring yet */
   FD_TEST( live_cnt( store )==1UL );
+  fd_store_insert_t dup;
+  FD_TEST( fd_store_insert_begin( store, -1, &mr, 6UL, 0UL, NULL, &dup )==FD_STORE_ERR_PENDING_DUP );
+  FD_TEST( dup==FD_STORE_INSERT_NULL );
   FD_TEST( fd_store_insert_commit( store, ins, 10UL )==FD_STORE_ERR_EXPIRED );
   FD_TEST( !live_cnt( store ) && cache_free( store )==4UL );
   FD_TEST( is_miss( store, &mr ) );
@@ -472,7 +480,7 @@ test_key_20( fd_wksp_t * wksp ) {
   /* Bytes 20-31 are not part of the key. */
   fd_hash_t same = mr;
   for( ulong i=20UL; i<32UL; i++ ) same.uc[ i ] ^= 0xffU;
-  FD_TEST( insert( store, -1, &same, 1UL, 64UL, 8UL )==FD_STORE_ERR_DUPLICATE );
+  FD_TEST( insert( store, -1, &same, 1UL, 64UL, 8UL )==FD_STORE_ERR_DUP );
   FD_TEST( !check( store, -1, &same, 64UL, 7UL ) );
 
   /* Bytes 16-19 are. */
@@ -497,7 +505,7 @@ test_key_20( fd_wksp_t * wksp ) {
   fd_hash_t const * edge = (fd_hash_t const *)( pages + page_sz - FD_SHRED_MERKLE_NODE_SZ );
   memcpy( (uchar *)edge, mr.uc, FD_SHRED_MERKLE_NODE_SZ );
   FD_TEST( !check( store, -1, edge, 64UL, 7UL ) );
-  FD_TEST( insert( store, -1, edge, 1UL, 1UL, 0UL )==FD_STORE_ERR_DUPLICATE );
+  FD_TEST( insert( store, -1, edge, 1UL, 1UL, 0UL )==FD_STORE_ERR_DUP );
   FD_TEST( !munmap( pages, 2UL*(ulong)page_sz ) );
 
   check_invariants( store );
@@ -537,7 +545,7 @@ test_probe_cnt( fd_wksp_t * wksp ) {
   FD_TEST( lookup->probe_cnt==k );
 
   fd_hash_t dup = mr_make( 1UL, 0UL );
-  FD_TEST( insert_ex( store, -1, &dup, 1UL, 0UL, 0UL, 0UL, 0UL, 0UL, stats )==FD_STORE_ERR_DUPLICATE );
+  FD_TEST( insert_ex( store, -1, &dup, 1UL, 0UL, 0UL, 0UL, 0UL, 0UL, stats )==FD_STORE_ERR_DUP );
   FD_TEST( stats->lookup.probe_cnt==k );
 
   check_invariants( store );
@@ -759,7 +767,7 @@ spill_hook( fd_store_t * store ) {
     fd_store_publish( store, 2UL, pub );
     FD_TEST( pub->removed_cnt==1UL );
     FD_TEST( is_miss( store, &hook_mr ) );
-    FD_TEST( insert( store, -1, &hook_mr, 2UL, 0UL, 0UL )==FD_STORE_ERR_DUPLICATE );
+    FD_TEST( insert( store, -1, &hook_mr, 2UL, 0UL, 0UL )==FD_STORE_ERR_DUP );
     break;
   }
   case HOOK_PIN:
@@ -1869,7 +1877,7 @@ conc_tile_insert_same_part( int     argc FD_PARAM_UNUSED,
   int err = insert_ex( conc_store, conc_fd, &mr, 2UL, part, 64UL, 64UL, 1UL, 77UL, NULL );
   if( !err ) atomic_fetch_add_explicit( &conc_same_success, 1UL, memory_order_relaxed );
   else {
-    FD_TEST( err==FD_STORE_ERR_DUPLICATE );
+    FD_TEST( err==FD_STORE_ERR_DUP );
     atomic_fetch_add_explicit( &conc_same_dup, 1UL, memory_order_relaxed );
   }
   return 0;

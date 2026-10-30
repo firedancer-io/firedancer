@@ -933,10 +933,9 @@ complete_fec_set( fd_shred_ctx_t *         ctx,
   if( FD_LIKELY( ctx->store ) ) {
     fd_hash_t const * mr = fd_type_pun_const( merkle_root );
 
-    /* The payload is filled before the FEC is linked.  All shreds of a
-       FEC share the signature over its merkle root, so only this tile
-       ever inserts it: a duplicate is a committed FEC, or one being torn
-       down below the root. */
+    /* Different signatures over the same Merkle root can route the same
+       store key to different shred tiles.  A duplicate may still be
+       pending on the other tile. */
 
     fd_store_insert_stats_t stats[1];
     fd_store_insert_t       ins;
@@ -970,7 +969,13 @@ complete_fec_set( fd_shred_ctx_t *         ctx,
     switch( err ) {
     case FD_STORE_SUCCESS:
       break;
-    case FD_STORE_ERR_DUPLICATE:
+    case FD_STORE_ERR_PENDING_DUP:
+      /* The original inserter will notify replay after commit.  A
+         completion here could reach replay while the key is a miss,
+         advancing rotor past the only delivery of this FEC. */
+      replay_fwd = 0;
+      break;
+    case FD_STORE_ERR_DUP:
     case FD_STORE_ERR_EXPIRED: /* below the root: rotor drops it anyway */
       again = 1;
       break;
@@ -979,7 +984,6 @@ complete_fec_set( fd_shred_ctx_t *         ctx,
          later shred of a completed set. */
       FD_LOG_CRIT(( "Shred tile %lu: store could not insert FEC set (slot %lu, err %d)", ctx->round_robin_id, last->slot, err ));
     }
-    replay_fwd = 1;
   }
 
   if( FD_LIKELY( ctx->shred_out_idx!=ULONG_MAX && replay_fwd ) ) {

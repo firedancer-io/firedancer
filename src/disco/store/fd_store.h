@@ -55,11 +55,12 @@ fd_store_fec_slot_sz( ulong fec_data_max ) {
 #define FD_STORE_MAGIC (0xf17eda2ce75702efUL) /* firedancer store version 15 */
 
 #define FD_STORE_SUCCESS          ( 0)
-#define FD_STORE_ERR_DUPLICATE    (-1) /* key already in the FEC map */
+#define FD_STORE_ERR_DUP          (-1) /* committed key already in the FEC map */
 #define FD_STORE_ERR_EXPIRED      (-2) /* slot is below the last published root */
 #define FD_STORE_ERR_FEC_FULL     (-3) /* no free FEC metadata: fec_max exhausted */
 #define FD_STORE_ERR_CACHE_FULL   (-4) /* no free payload cache slot and no spill disk */
 #define FD_STORE_ERR_TOO_BIG      (-5) /* query_read: data_sz exceeds the caller's buffer */
+#define FD_STORE_ERR_PENDING_DUP  (-6) /* key present, but insert has not committed */
 
 /* Bounds of the packed 28-bit metadata and slot indices. */
 #define FD_STORE_IDX_MAX (1UL<<28)
@@ -415,9 +416,10 @@ typedef struct fd_store_fec_cache_stats fd_store_fec_cache_stats_t;
    ERR_CACHE_FULL instead.
 
    Returns SUCCESS, ERR_EXPIRED (slot below the published root),
-   ERR_DUPLICATE (key present, including FECs being inserted or torn
-   down), ERR_FEC_FULL or ERR_CACHE_FULL.  On error nothing is held and
-   *out is FD_STORE_INSERT_NULL.  insert_stats is optional. */
+   ERR_DUP (committed key, including FECs being torn down),
+   ERR_PENDING_DUP (key still being inserted), ERR_FEC_FULL or
+   ERR_CACHE_FULL.  On error nothing is held and *out is
+   FD_STORE_INSERT_NULL.  insert_stats is optional. */
 
 int
 fd_store_insert_begin( fd_store_t *              store,

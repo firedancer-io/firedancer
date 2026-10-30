@@ -822,9 +822,11 @@ fd_store_insert_begin( fd_store_t *              store,
     fd_rwlock_unwrite( &store->lock );
     return FD_STORE_ERR_EXPIRED;
   }
-  if( FD_UNLIKELY( map_find( &ljoin, &key, insert_stats ? &insert_stats->lookup : NULL )!=FD_STORE_NULL ) ) {
+  uint existing = map_find( &ljoin, &key, insert_stats ? &insert_stats->lookup : NULL );
+  if( FD_UNLIKELY( existing!=FD_STORE_NULL ) ) {
+    uint state = data_state( ljoin.meta[ existing ].data );
     fd_rwlock_unwrite( &store->lock );
-    return FD_STORE_ERR_DUPLICATE;
+    return (state==FD_STORE_STATE_ACQUIRED || state==FD_STORE_STATE_RESERVED) ? FD_STORE_ERR_PENDING_DUP : FD_STORE_ERR_DUP;
   }
   if( FD_UNLIKELY( !fd_store_meta_pool_free( ljoin.meta ) ) ) {
     fd_rwlock_unwrite( &store->lock );
