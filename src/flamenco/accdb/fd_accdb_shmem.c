@@ -80,9 +80,11 @@ fd_accdb_shmem_footprint( ulong max_accounts,
 
   if( FD_UNLIKELY( max_live_slots>=USHORT_MAX ) ) return 0UL;
 
-  ulong txn_max = max_live_slots * max_account_writes_per_slot;
-  if( FD_UNLIKELY( txn_max/max_account_writes_per_slot!=max_live_slots ) ) return 0UL;
-  if( FD_UNLIKELY( txn_max>=UINT_MAX                        ) ) return 0UL;
+  /* writes per live fork (+2 for rooting), capped at max_accounts, plus
+     a partial chunk per list and joiner. */
+  ulong writes    = fd_ulong_min( max_account_writes_per_slot, max_accounts );
+  ulong chunk_max = (fd_ulong_min( (max_live_slots+2UL)*writes, max_accounts ) + FD_ACCDB_CHUNK_ACC_MAX-1UL )/FD_ACCDB_CHUNK_ACC_MAX +
+                    max_live_slots + 1UL + joiner_cnt;
 
   ulong descends_fp = descends_set_footprint( max_live_slots );
   if( FD_UNLIKELY( !descends_fp                          ) ) return 0UL;
@@ -106,13 +108,12 @@ fd_accdb_shmem_footprint( ulong max_accounts,
   l = FD_LAYOUT_APPEND( l, descends_set_align(),     max_live_slots*descends_set_footprint( max_live_slots ) );
   l = FD_LAYOUT_APPEND( l, alignof(uint),            chain_cnt*sizeof(uint)                                  );
   l = FD_LAYOUT_APPEND( l, alignof(fd_accdb_accmeta_t), max_accounts*sizeof(fd_accdb_accmeta_t)              );
-  l = FD_LAYOUT_APPEND( l, alignof(fd_accdb_txn_t),  txn_max*sizeof(fd_accdb_txn_t)                          );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_accdb_chunk_t), chunk_max*sizeof(fd_accdb_chunk_t)                     );
   l = FD_LAYOUT_APPEND( l, partition_pool_align(),   partition_pool_footprint( partition_cnt )               );
   for( ulong k=0UL; k<FD_ACCDB_COMPACTION_LAYER_CNT; k++ ) {
     l = FD_LAYOUT_APPEND( l, compaction_dlist_align(), compaction_dlist_footprint()                          );
   }
   l = FD_LAYOUT_APPEND( l, deferred_free_dlist_align(), deferred_free_dlist_footprint()                      );
-  l = FD_LAYOUT_APPEND( l, alignof(uint),            txn_max*sizeof(uint)                                    );
   for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) {
     l = FD_LAYOUT_APPEND( l, alignof(fd_accdb_cache_line_t), cache_class_max[c]*fd_accdb_cache_slot_sz[c]   );
   }
@@ -233,15 +234,11 @@ fd_accdb_shmem_new( void * shmem,
     return NULL;
   }
 
-  ulong txn_max = max_live_slots * max_account_writes_per_slot;
-  if( FD_UNLIKELY( txn_max/max_account_writes_per_slot!=max_live_slots ) ) {
-    FD_LOG_WARNING(( "max_live_slots*max_account_writes_per_slot overflows" ));
-    return NULL;
-  }
-  if( FD_UNLIKELY( txn_max>=UINT_MAX ) ) {
-    FD_LOG_WARNING(( "max_live_slots*max_account_writes_per_slot must be less than UINT_MAX" ));
-    return NULL;
-  }
+  /* writes per live fork (+2 for rooting), capped at max_accounts, plus
+     a partial chunk per list and joiner. */
+  ulong writes    = fd_ulong_min( max_account_writes_per_slot, max_accounts );
+  ulong chunk_max = (fd_ulong_min( (max_live_slots+2UL)*writes, max_accounts ) + FD_ACCDB_CHUNK_ACC_MAX-1UL )/FD_ACCDB_CHUNK_ACC_MAX +
+                    max_live_slots + 1UL + joiner_cnt;
 
   ulong descends_fp = descends_set_footprint( max_live_slots );
   if( FD_UNLIKELY( !descends_fp || max_live_slots>ULONG_MAX/descends_fp ) ) {
@@ -290,14 +287,13 @@ fd_accdb_shmem_new( void * shmem,
   void * _descends_sets    = FD_SCRATCH_ALLOC_APPEND( l, descends_set_align(),     max_live_slots*descends_set_footprint( max_live_slots ) );
   void * _acc_map          = FD_SCRATCH_ALLOC_APPEND( l, alignof(uint),            chain_cnt*sizeof(uint)                                  );
   void * _acc_pool_ele     = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_accdb_accmeta_t), max_accounts*sizeof(fd_accdb_accmeta_t)                     );
-  void * _txn_pool_ele     = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_accdb_txn_t),  txn_max*sizeof(fd_accdb_txn_t)                          );
+  void * _chunk_pool_ele   = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_accdb_chunk_t), chunk_max*sizeof(fd_accdb_chunk_t)                    );
   void * _partition_pool   = FD_SCRATCH_ALLOC_APPEND( l, partition_pool_align(),   partition_pool_footprint( partition_cnt )               );
   void * _compaction_dlists[ FD_ACCDB_COMPACTION_LAYER_CNT ];
   for( ulong k=0UL; k<FD_ACCDB_COMPACTION_LAYER_CNT; k++ ) {
     _compaction_dlists[ k ] = FD_SCRATCH_ALLOC_APPEND( l, compaction_dlist_align(), compaction_dlist_footprint()                           );
   }
   void * _deferred_free_dlist = FD_SCRATCH_ALLOC_APPEND( l, deferred_free_dlist_align(), deferred_free_dlist_footprint()                   );
-  void * _deferred_acc_buf    = FD_SCRATCH_ALLOC_APPEND( l, alignof(uint),            txn_max*sizeof(uint)                                 );
   void * _cache_regions[ FD_ACCDB_CACHE_CLASS_CNT ];
   for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) {
     _cache_regions[ c ] = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_accdb_cache_line_t), cache_class_max[c]*fd_accdb_cache_slot_sz[c]        );
@@ -325,11 +321,11 @@ fd_accdb_shmem_new( void * shmem,
     FD_TEST( descends_set );
   }
 
-  FD_TEST( txn_pool_new( accdb->txn_pool ) );
-  txn_pool_t _txn_pool_join[1];
-  FD_TEST( txn_pool_join( _txn_pool_join, accdb->txn_pool, _txn_pool_ele, txn_max ) );
-  txn_pool_reset( _txn_pool_join );
-  txn_pool_leave( _txn_pool_join );
+  FD_TEST( chunk_pool_new( accdb->chunk_pool ) );
+  chunk_pool_t _chunk_pool_join[1];
+  FD_TEST( chunk_pool_join( _chunk_pool_join, accdb->chunk_pool, _chunk_pool_ele, chunk_max ) );
+  chunk_pool_reset( _chunk_pool_join );
+  chunk_pool_leave( _chunk_pool_join );
 
   fd_accdb_partition_t * partition_pool = partition_pool_join( partition_pool_new( _partition_pool, partition_cnt ) );
   FD_TEST( partition_pool );
@@ -387,7 +383,7 @@ fd_accdb_shmem_new( void * shmem,
   accdb->chain_cnt        = chain_cnt;
   accdb->max_live_slots   = max_live_slots;
   accdb->max_accounts     = max_accounts;
-  accdb->max_account_writes_per_slot = max_account_writes_per_slot;
+  accdb->chunk_max        = chunk_max;
   accdb->joiner_cnt_max   = joiner_cnt;
   accdb->cache_min_reserved = cache_min_reserved;
   accdb->partition_cnt    = partition_cnt;
@@ -401,10 +397,9 @@ fd_accdb_shmem_new( void * shmem,
   }
   accdb->deferred_free_dlist_off = (ulong)_deferred_free_dlist - (ulong)shmem;
 
-  accdb->deferred_acc_buf_off = (ulong)_deferred_acc_buf - (ulong)shmem;
-  accdb->deferred_acc_buf_cnt = 0UL;
-  accdb->deferred_acc_buf_max = txn_max;
-  accdb->deferred_acc_epoch   = 0UL;
+  accdb->deferred_chunk_head = UINT_MAX;
+  accdb->deferred_acc_cnt    = 0UL;
+  accdb->deferred_acc_epoch  = 0UL;
 
   accdb->epoch          = 1UL;
   accdb->snapshot_sync  = FD_ACCDB_SNAPSHOT_SYNC_IDLE;
@@ -455,6 +450,7 @@ fd_accdb_shmem_new( void * shmem,
 
   memset( accdb->shmetrics, 0, sizeof( fd_accdb_shmem_metrics_t ) );
   accdb->shmetrics->accounts_capacity = max_accounts;
+  accdb->shmetrics->chunks_capacity   = chunk_max;
 
   accdb->cmd_op      = FD_ACCDB_CMD_IDLE;
   accdb->cmd_fork_id = USHORT_MAX;

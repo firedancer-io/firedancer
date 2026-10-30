@@ -1355,6 +1355,8 @@
 |--------|------|-------------|
 | <span class="metrics-name">accdb_&#8203;account_&#8203;used</span> | gauge | Account versions in the index; every unrooted fork version counts |
 | <span class="metrics-name">accdb_&#8203;account_&#8203;capacity</span> | gauge | Account versions the index can hold |
+| <span class="metrics-name">accdb_&#8203;chunk_&#8203;used</span> | gauge | Fork list chunks in use, including chunks of deferred frees |
+| <span class="metrics-name">accdb_&#8203;chunk_&#8203;capacity</span> | gauge | Fork list chunks the pool can hold |
 | <span class="metrics-name">accdb_&#8203;account_&#8203;relocated</span> | counter | Accounts moved in the account database during compaction |
 | <span class="metrics-name">accdb_&#8203;disk_&#8203;allocated_&#8203;bytes</span> | gauge | Allocated size of the account database file |
 | <span class="metrics-name">accdb_&#8203;disk_&#8203;consumed_&#8203;bytes</span> | gauge | Bytes of the account database file written at least once, excluding never-written partition tail space |

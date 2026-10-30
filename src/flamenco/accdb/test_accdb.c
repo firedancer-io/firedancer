@@ -1031,7 +1031,6 @@ test_mainnet_footprint( void ) {
   ulong cache_footprint             = 32UL*(1UL<<30UL);
 
   FD_TEST( max_account_writes_per_slot==321280UL );
-  FD_TEST( sizeof(fd_accdb_txn_t)==8UL );
 
   ulong shmem_fp = fd_accdb_shmem_footprint( max_accounts, max_live_slots, max_account_writes_per_slot, partition_cnt, cache_footprint, 640UL, 1UL, 0UL );
   FD_TEST( shmem_fp );
@@ -1040,7 +1039,9 @@ test_mainnet_footprint( void ) {
   FD_TEST( accdb_fp );
 
   /* Derived values for component breakdown */
-  ulong txn_max   = max_live_slots * max_account_writes_per_slot;
+  ulong writes    = fd_ulong_min( max_account_writes_per_slot, max_accounts );
+  ulong chunk_max = (fd_ulong_min( (max_live_slots+2UL)*writes, max_accounts ) + FD_ACCDB_CHUNK_ACC_MAX-1UL )/FD_ACCDB_CHUNK_ACC_MAX +
+                    max_live_slots + 1UL + 1UL; /* must match fd_accdb_shmem_footprint */
   ulong chain_cnt = fd_ulong_pow2_up( (max_accounts>>1) + (max_accounts&1UL) ); /* must match fd_accdb_shmem_footprint */
 
   ulong cache_class_max[ FD_ACCDB_CACHE_CLASS_CNT ];
@@ -1058,7 +1059,7 @@ test_mainnet_footprint( void ) {
   FD_LOG_NOTICE(( "  max_live_slots              = %lu",     max_live_slots ));
   FD_LOG_NOTICE(( "  max_account_writes_per_slot = %lu",     max_account_writes_per_slot ));
   FD_LOG_NOTICE(( "  partition_cnt               = %lu",     partition_cnt ));
-  FD_LOG_NOTICE(( "  txn_pool_max                = %lu",     txn_max ));
+  FD_LOG_NOTICE(( "  chunk_max                   = %lu",     chunk_max ));
   FD_LOG_NOTICE(( "  chain_cnt                   = %lu",     chain_cnt ));
   FD_LOG_NOTICE(( "  max disk file               = %lu GiB", partition_cnt*(1UL<<30UL)/(1UL<<30UL) ));
   FD_LOG_NOTICE(( "  cache_footprint             = %lu GiB", cache_footprint/(1UL<<30UL) ));
@@ -1079,7 +1080,7 @@ test_mainnet_footprint( void ) {
   ulong sz_descends       = max_live_slots*descends_fp;
   ulong sz_chain          = chain_cnt*sizeof(uint);
   ulong sz_acc_pool       = max_accounts*sizeof(fd_accdb_accmeta_t);
-  ulong sz_txn_pool       = txn_max*sizeof(fd_accdb_txn_t);
+  ulong sz_chunk_pool     = chunk_max*sizeof(fd_accdb_chunk_t);
   ulong sz_part_pool      = partition_pool_footprint( partition_cnt );
   ulong sz_compact_dlists = FD_ACCDB_COMPACTION_LAYER_CNT*compaction_dlist_footprint();
   ulong sz_deferred_dlist = deferred_free_dlist_footprint();
@@ -1090,14 +1091,14 @@ test_mainnet_footprint( void ) {
   ulong sum = sz_shmem_t + sz_fork_shmem + sz_descends
             + sz_chain
             + sz_acc_pool
-            + sz_txn_pool
+            + sz_chunk_pool
             + sz_part_pool + sz_compact_dlists + sz_deferred_dlist
             + sz_cache_regions;
 
   struct { char const * name; ulong sz; } rows[] = {
     { "acc_pool",           sz_acc_pool       },
     { "cache regions",      sz_cache_regions  },
-    { "txn_pool",           sz_txn_pool       },
+    { "chunk_pool",         sz_chunk_pool     },
     { "acc_map chains",     sz_chain          },
     { "descends_set",       sz_descends       },
     { "partition_pool",     sz_part_pool      },
@@ -2190,7 +2191,7 @@ test_incremental_retry_reuses_acc_pool( void ) {
   ulong lazy_before = FD_VOLATILE_CONST( pool->ver_lazy );
   FD_TEST( acc_pool_private_vidx_idx( top_before  )<5UL );
   FD_TEST( acc_pool_private_vidx_idx( lazy_before )==acc_pool_idx_null() );
-  FD_TEST( test_shmem_mem->deferred_acc_buf_cnt==2UL );
+  FD_TEST( test_shmem_mem->deferred_acc_cnt==2UL );
 
   fd_accdb_fork_id_t success = fd_accdb_attach_child( accdb, root );
   uchar success_pk[ 32UL ] = { 0xE0 };
@@ -2211,7 +2212,7 @@ test_incremental_retry_reuses_acc_pool( void ) {
   fd_accdb_advance_root( accdb, next );
   while( FD_VOLATILE_CONST( test_shmem_mem->cmd_op )!=FD_ACCDB_CMD_IDLE ) FD_SPIN_PAUSE();
   FD_COMPILER_MFENCE();
-  FD_TEST( !test_shmem_mem->deferred_acc_buf_cnt );
+  FD_TEST( !test_shmem_mem->deferred_acc_cnt );
 
   FD_VOLATILE( bg_ctx.stop ) = 1;
   FD_TEST( !pthread_join( bg_thread, NULL ) );
@@ -2300,17 +2301,356 @@ test_sentinel_index_wrap( void ) {
 }
 
 static void
-test_txn_footprint_growth( void ) {
-  ulong fp_64 = fd_accdb_shmem_footprint( 1024UL, 1UL, 64UL, 64UL,
-                                          TEST_CACHE_FOOTPRINT, TEST_CACHE_MIN_RESERVED, 1UL, 0UL );
-  ulong fp_96 = fd_accdb_shmem_footprint( 1024UL, 1UL, 96UL, 64UL,
-                                          TEST_CACHE_FOOTPRINT, TEST_CACHE_MIN_RESERVED, 1UL, 0UL );
-  FD_TEST( fp_64 );
-  FD_TEST( fp_96 );
+chunk_metrics_write( fd_accdb_t *       accdb,
+                     fd_accdb_fork_id_t fork,
+                     ulong              cnt,
+                     ulong              lamports ) {
+  for( ulong i=0UL; i<cnt; i++ ) {
+    uchar pubkey[ 32UL ] = { 0xA0 };
+    memcpy( pubkey+1, &i, sizeof(ulong) );
+    accdb_write( accdb, fork, pubkey, lamports, NULL, 0UL, owner2 );
+  }
+}
 
-  /* Each additional transaction needs an 8-byte fork-list entry and a
-     4-byte deferred-free index.  Both counts increase by 32 here. */
-  FD_TEST( fp_96-fp_64==32UL*(8UL+4UL) );
+static void
+test_chunk_metrics( void ) {
+  int fd;
+  fd_accdb_t * accdb = test_setup( &fd, 1024UL, 64UL, 8192UL, 8192UL, 1UL<<30UL );
+  fd_accdb_shmem_metrics_t const * metrics = fd_accdb_shmetrics( accdb );
+  FD_TEST( metrics->chunks_capacity==test_shmem_mem->chunk_max );
+  FD_TEST( !metrics->chunks_used );
+
+  fd_accdb_fork_id_t root    = fd_accdb_attach_child( accdb, SENTINEL );
+  fd_accdb_fork_id_t dropped = fd_accdb_attach_child( accdb, root );
+  chunk_metrics_write( accdb, dropped, 100UL, 1UL );
+  FD_TEST( metrics->chunks_used==2UL );
+
+  /* Purged chunks stay in use as deferred frees until the next command
+     drains them. */
+  fd_accdb_purge( accdb, dropped );
+  drain_background( accdb );
+  FD_TEST( metrics->chunks_used==2UL );
+
+  fd_accdb_fork_id_t first = fd_accdb_attach_child( accdb, root );
+  chunk_metrics_write( accdb, first, 100UL, 2UL );
+  fd_accdb_advance_root( accdb, first );
+  drain_background( accdb );
+  FD_TEST( !metrics->chunks_used );
+
+  /* Rooting over first defers its 100 versions into 2 chunks. */
+  fd_accdb_fork_id_t second = fd_accdb_attach_child( accdb, first );
+  chunk_metrics_write( accdb, second, 100UL, 3UL );
+  fd_accdb_advance_root( accdb, second );
+  drain_background( accdb );
+  FD_TEST( metrics->chunks_used==2UL );
+
+  fd_accdb_purge( accdb, fd_accdb_attach_child( accdb, second ) );
+  drain_background( accdb );
+  FD_TEST( !metrics->chunks_used );
+
+  test_teardown( accdb, fd );
+}
+
+/* test_incremental_retry_large loads an incremental snapshot larger
+   than one slot's write limit that replaces the full snapshot's
+   accounts, retrying after a failed attempt, then writes descendants as
+   replay does, following snapin's sequence.  Neither the failed
+   attempt's chunks nor the replaced versions deferred by rooting may
+   stay in the pool once writers start. */
+static void
+test_incremental_retry_large( void ) {
+  ulong const acc_cnt  = 40000UL;
+  ulong const writes   = 6200UL;
+  uchar const owner[ 32UL ] = { 0x01 };
+  int fd;
+  fd_accdb_t * accdb = test_setup_ex( &fd, 200000UL, 8UL, writes, 64UL, 1UL<<30UL,
+                                      TEST_CACHE_FOOTPRINT, TEST_CACHE_MIN_RESERVED, 3UL );
+  FD_TEST( test_shmem_mem->chunk_max==1012UL );
+  fd_accdb_t * background = test_join_writer( fd );
+  test_background_ctx_t bg_ctx = { .accdb = background, .stop = 0 };
+  pthread_t bg_thread;
+  FD_TEST( !pthread_create( &bg_thread, NULL, run_background, &bg_ctx ) );
+
+  ulong replaced_lamports;
+  fd_accdb_fork_id_t root = fd_accdb_attach_child( accdb, SENTINEL );
+  fd_accdb_snapshot_load_begin( accdb );
+  for( ulong i=0UL; i<acc_cnt; i++ ) {
+    uchar pubkey[ 32UL ] = { 0xC0 };
+    memcpy( pubkey+1, &i, sizeof(ulong) );
+    FD_TEST( test_snapshot_write_one( accdb, SENTINEL, pubkey, 10UL, 1UL, 0UL, 0, &replaced_lamports )==1 );
+  }
+  fd_accdb_snapshot_recovery_t recovery;
+  fd_accdb_snapshot_save_whead( accdb, &recovery );
+
+  fd_accdb_fork_id_t failed = fd_accdb_attach_child( accdb, root );
+  for( ulong i=0UL; i<acc_cnt; i++ ) {
+    uchar pubkey[ 32UL ] = { 0xC0 };
+    memcpy( pubkey+1, &i, sizeof(ulong) );
+    FD_TEST( test_snapshot_write_one( accdb, failed, pubkey, 20UL, 2UL, 0UL, 0, &replaced_lamports )==2 );
+  }
+  fd_accdb_purge( accdb, failed );
+  fd_accdb_drain_deferred( accdb );
+  fd_accdb_snapshot_revert_whead( accdb, &recovery );
+
+  fd_accdb_fork_id_t retry = fd_accdb_attach_child( accdb, root );
+  for( ulong i=0UL; i<acc_cnt; i++ ) {
+    uchar pubkey[ 32UL ] = { 0xC0 };
+    memcpy( pubkey+1, &i, sizeof(ulong) );
+    FD_TEST( test_snapshot_write_one( accdb, retry, pubkey, 20UL, 3UL, 0UL, 0, &replaced_lamports )==2 );
+  }
+  fd_accdb_advance_root( accdb, retry );
+  fd_accdb_drain_deferred( accdb );
+  fd_accdb_snapshot_load_end( accdb );
+
+  /* Replay fills every live slot before its next root or purge. */
+  fd_accdb_fork_id_t parent = retry;
+  for( ulong f=0UL; f<7UL; f++ ) {
+    fd_accdb_fork_id_t child = fd_accdb_attach_child( accdb, parent );
+    for( ulong i=0UL; i<writes; i++ ) {
+      uchar pubkey[ 32UL ] = { 0xD0 };
+      ulong key = f*writes+i;
+      memcpy( pubkey+1, &key, sizeof(ulong) );
+      accdb_write( accdb, child, pubkey, 4UL, NULL, 0UL, owner );
+    }
+    parent = child;
+  }
+  while( FD_VOLATILE_CONST( test_shmem_mem->cmd_op )!=FD_ACCDB_CMD_IDLE ) FD_SPIN_PAUSE();
+  FD_COMPILER_MFENCE();
+
+  FD_VOLATILE( bg_ctx.stop ) = 1;
+  FD_TEST( !pthread_join( bg_thread, NULL ) );
+
+  for( ulong i=0UL; i<acc_cnt; i++ ) {
+    uchar pubkey[ 32UL ] = { 0xC0 };
+    memcpy( pubkey+1, &i, sizeof(ulong) );
+    ulong lamports;
+    FD_TEST( accdb_read( accdb, parent, pubkey, &lamports, NULL, NULL, NULL ) );
+    FD_TEST( lamports==3UL );
+  }
+  for( ulong i=0UL; i<7UL*writes; i++ ) {
+    uchar pubkey[ 32UL ] = { 0xD0 };
+    memcpy( pubkey+1, &i, sizeof(ulong) );
+    ulong lamports;
+    FD_TEST( accdb_read( accdb, parent, pubkey, &lamports, NULL, NULL, NULL ) );
+    FD_TEST( lamports==4UL );
+  }
+
+  free( background );
+  test_teardown( accdb, fd );
+}
+
+/* test_root_closures_release_parent_chunks roots a child that closes
+   every account written on the root fork.  Each closure defers both
+   versions, so the root fork's own chunks must be released first or
+   its versions are counted against the chunk pool twice. */
+static void
+test_root_closures_release_parent_chunks( void ) {
+  ulong const acc_cnt = 6200UL;
+  int fd;
+  fd_accdb_t * accdb = test_setup_ex( &fd, 2UL*acc_cnt+1UL, 8UL, acc_cnt, 64UL, 1UL<<30UL,
+                                      TEST_CACHE_FOOTPRINT, TEST_CACHE_MIN_RESERVED, 1UL );
+  fd_accdb_shmem_metrics_t const * metrics = fd_accdb_shmetrics( accdb );
+
+  fd_accdb_fork_id_t root  = fd_accdb_attach_child( accdb, SENTINEL );
+  fd_accdb_fork_id_t child = fd_accdb_attach_child( accdb, root );
+  for( ulong i=0UL; i<acc_cnt; i++ ) {
+    uchar pubkey[ 32UL ] = { 0xB0 };
+    memcpy( pubkey+1, &i, sizeof(ulong) );
+    accdb_write( accdb, root,  pubkey, 1UL, NULL, 0UL, owner2 );
+  }
+  for( ulong i=0UL; i<acc_cnt; i++ ) {
+    uchar pubkey[ 32UL ] = { 0xB0 };
+    memcpy( pubkey+1, &i, sizeof(ulong) );
+    accdb_write( accdb, child, pubkey, 0UL, NULL, 0UL, owner2 );
+  }
+
+  fd_accdb_advance_root( accdb, child );
+  drain_background( accdb );
+  FD_TEST( test_shmem_mem->deferred_acc_cnt==2UL*acc_cnt );
+  FD_TEST( !metrics->accounts_total );
+
+  for( ulong i=0UL; i<acc_cnt; i++ ) {
+    uchar pubkey[ 32UL ] = { 0xB0 };
+    memcpy( pubkey+1, &i, sizeof(ulong) );
+    FD_TEST( !accdb_read( accdb, child, pubkey, NULL, NULL, NULL, NULL ) );
+  }
+
+  test_teardown( accdb, fd );
+}
+
+/* test_incremental_root_recycles_chunks roots an incremental snapshot
+   fork larger than one slot's write limit.  Each of its entries defers
+   the version it replaces, which only fits the chunk pool if the fork's
+   own chunks are recycled as they are walked. */
+static void
+test_incremental_root_recycles_chunks( void ) {
+  ulong const acc_cnt = 40000UL;
+  int fd;
+  fd_accdb_t * accdb = test_setup_ex( &fd, 100000UL, 8UL, 6200UL, 64UL, 1UL<<30UL,
+                                      TEST_CACHE_FOOTPRINT, TEST_CACHE_MIN_RESERVED, 3UL );
+  /* Too small to hold the fork's chunks and its deferred frees at once. */
+  FD_TEST( test_shmem_mem->chunk_max<2UL*((acc_cnt+FD_ACCDB_CHUNK_ACC_MAX-1UL)/FD_ACCDB_CHUNK_ACC_MAX) );
+
+  ulong replaced_lamports;
+  fd_accdb_fork_id_t root = fd_accdb_attach_child( accdb, SENTINEL );
+  fd_accdb_snapshot_load_begin( accdb );
+  for( ulong i=0UL; i<acc_cnt; i++ ) {
+    uchar pubkey[ 32UL ] = {0};
+    memcpy( pubkey, &i, sizeof(ulong) );
+    FD_TEST( test_snapshot_write_one( accdb, SENTINEL, pubkey, 10UL, 1UL, 0UL, 0, &replaced_lamports )==1 );
+  }
+  fd_accdb_fork_id_t incr = fd_accdb_attach_child( accdb, root );
+  for( ulong i=0UL; i<acc_cnt; i++ ) {
+    uchar pubkey[ 32UL ] = {0};
+    memcpy( pubkey, &i, sizeof(ulong) );
+    FD_TEST( test_snapshot_write_one( accdb, incr, pubkey, 20UL, 2UL, 0UL, 0, &replaced_lamports )==2 );
+  }
+  fd_accdb_advance_root( accdb, incr );
+  drain_background( accdb );
+  fd_accdb_snapshot_load_end( accdb );
+  FD_TEST( test_shmem_mem->deferred_acc_cnt==acc_cnt );
+
+  for( ulong i=0UL; i<acc_cnt; i++ ) {
+    uchar pubkey[ 32UL ] = {0};
+    memcpy( pubkey, &i, sizeof(ulong) );
+    ulong lamports;
+    FD_TEST( accdb_read( accdb, incr, pubkey, &lamports, NULL, NULL, NULL ) );
+    FD_TEST( lamports==2UL );
+  }
+
+  test_teardown( accdb, fd );
+}
+
+/* test_concurrent_fork_writes has several writer joiners append to one
+   fork's list at once, then checks that purge and advance_root find
+   every version exactly once. */
+
+#define CONCURRENT_WRITER_CNT (4UL)
+#define CONCURRENT_WRITE_CNT  (10000UL)
+
+static int concurrent_go;
+
+typedef struct {
+  fd_accdb_t *       accdb;
+  fd_accdb_fork_id_t fork;
+  ulong              writer;
+  ulong              lamports;
+} test_concurrent_writer_t;
+
+static void
+concurrent_pubkey( uchar * pubkey,
+                   ulong   writer,
+                   ulong   i ) {
+  memset( pubkey, 0, 32UL );
+  pubkey[ 0 ] = (uchar)(writer+1UL);
+  memcpy( pubkey+1, &i, sizeof(ulong) );
+}
+
+static void *
+run_concurrent_writer( void * _ctx ) {
+  test_concurrent_writer_t * ctx = _ctx;
+  while( !FD_VOLATILE_CONST( concurrent_go ) ) FD_SPIN_PAUSE();
+  for( ulong i=0UL; i<CONCURRENT_WRITE_CNT; i++ ) {
+    uchar pubkey[ 32UL ];
+    concurrent_pubkey( pubkey, ctx->writer, i );
+    accdb_write( ctx->accdb, ctx->fork, pubkey, ctx->lamports+i, NULL, 0UL, owner2 );
+  }
+  return NULL;
+}
+
+static void
+concurrent_write_fork( test_concurrent_writer_t * writers,
+                       fd_accdb_fork_id_t         fork,
+                       ulong                      lamports ) {
+  pthread_t threads[ CONCURRENT_WRITER_CNT ];
+  FD_VOLATILE( concurrent_go ) = 0;
+  for( ulong w=0UL; w<CONCURRENT_WRITER_CNT; w++ ) {
+    writers[ w ].fork     = fork;
+    writers[ w ].lamports = lamports;
+    FD_TEST( !pthread_create( &threads[ w ], NULL, run_concurrent_writer, &writers[ w ] ) );
+  }
+  FD_VOLATILE( concurrent_go ) = 1;
+  for( ulong w=0UL; w<CONCURRENT_WRITER_CNT; w++ ) FD_TEST( !pthread_join( threads[ w ], NULL ) );
+}
+
+static void
+test_concurrent_fork_writes( void ) {
+  ulong const total = CONCURRENT_WRITER_CNT*CONCURRENT_WRITE_CNT;
+  int fd;
+  fd_accdb_t * accdb = test_setup_ex( &fd, 4UL*total, 8UL, total, 64UL, 1UL<<30UL,
+                                      TEST_CACHE_FOOTPRINT, TEST_CACHE_MIN_RESERVED, 1UL+CONCURRENT_WRITER_CNT );
+  test_concurrent_writer_t writers[ CONCURRENT_WRITER_CNT ];
+  for( ulong w=0UL; w<CONCURRENT_WRITER_CNT; w++ ) {
+    writers[ w ].accdb  = test_join_writer( fd );
+    writers[ w ].writer = w;
+  }
+  fd_accdb_shmem_metrics_t const * metrics = fd_accdb_shmetrics( accdb );
+
+  fd_accdb_fork_id_t root    = fd_accdb_attach_child( accdb, SENTINEL );
+  fd_accdb_fork_id_t dropped = fd_accdb_attach_child( accdb, root );
+  concurrent_write_fork( writers, dropped, 1UL );
+  FD_TEST( metrics->accounts_total==total );
+
+  fd_accdb_purge( accdb, dropped );
+  drain_background( accdb );
+  FD_TEST( test_shmem_mem->deferred_acc_cnt==total );
+  FD_TEST( metrics->accounts_total==0UL );
+
+  fd_accdb_fork_id_t first = fd_accdb_attach_child( accdb, root );
+  concurrent_write_fork( writers, first, 1000000UL );
+  fd_accdb_advance_root( accdb, first );
+  drain_background( accdb );
+
+  fd_accdb_fork_id_t second = fd_accdb_attach_child( accdb, first );
+  concurrent_write_fork( writers, second, 2000000UL );
+  fd_accdb_advance_root( accdb, second );
+  drain_background( accdb );
+  FD_TEST( test_shmem_mem->deferred_acc_cnt==total );
+  FD_TEST( metrics->accounts_total==total );
+
+  for( ulong w=0UL; w<CONCURRENT_WRITER_CNT; w++ ) {
+    for( ulong i=0UL; i<CONCURRENT_WRITE_CNT; i++ ) {
+      uchar pubkey[ 32UL ];
+      concurrent_pubkey( pubkey, w, i );
+      ulong lamports;
+      FD_TEST( accdb_read( accdb, second, pubkey, &lamports, NULL, NULL, NULL ) );
+      FD_TEST( lamports==2000000UL+i );
+    }
+  }
+
+  for( ulong w=0UL; w<CONCURRENT_WRITER_CNT; w++ ) free( writers[ w ].accdb );
+  test_teardown( accdb, fd );
+}
+
+static void
+test_footprint_live_write_cost( void ) {
+  /* max_accounts exceeds max_live_slots*writes, so writes bound the
+     fork lists. */
+  ulong fp_lo = fd_accdb_shmem_footprint( 8000000UL, 1024UL, 3100UL, 64UL,
+                                          TEST_CACHE_FOOTPRINT, TEST_CACHE_MIN_RESERVED, 1UL, 0UL );
+  ulong fp_hi = fd_accdb_shmem_footprint( 8000000UL, 1024UL, 6200UL, 64UL,
+                                          TEST_CACHE_FOOTPRINT, TEST_CACHE_MIN_RESERVED, 1UL, 0UL );
+  FD_TEST( fp_lo );
+  FD_TEST( fp_hi );
+
+  FD_TEST( fp_hi-fp_lo<1024UL*3100UL*5UL );
+}
+
+static void
+test_footprint_live_slot_cap( void ) {
+  /* Past max_accounts/writes live slots, max_accounts bounds the fork
+     lists. */
+  ulong fp_lo = fd_accdb_shmem_footprint( 1000000UL, 16384UL, 172841UL, 64UL,
+                                          TEST_CACHE_FOOTPRINT, TEST_CACHE_MIN_RESERVED, 1UL, 0UL );
+  ulong fp_hi = fd_accdb_shmem_footprint( 1000000UL, 32768UL, 172841UL, 64UL,
+                                          TEST_CACHE_FOOTPRINT, TEST_CACHE_MIN_RESERVED, 1UL, 0UL );
+  FD_TEST( fp_lo );
+  FD_TEST( fp_hi );
+
+  /* A live slot costs its fork bookkeeping and at most one partially
+     filled chunk, not worst-case writes. */
+  ulong slot_fp = sizeof(fd_accdb_fork_shmem_t) + descends_set_footprint( 32768UL ) + sizeof(fd_accdb_chunk_t);
+  FD_TEST( fp_hi-fp_lo<=32768UL*slot_fp );
 }
 
 int
@@ -2378,8 +2718,26 @@ main( int     argc,
   FD_LOG_NOTICE(( "test_mainnet_footprint ..." ));
   test_mainnet_footprint();
 
-  FD_LOG_NOTICE(( "test_txn_footprint_growth ..." ));
-  test_txn_footprint_growth();
+  FD_LOG_NOTICE(( "test_chunk_metrics ..." ));
+  test_chunk_metrics();
+
+  FD_LOG_NOTICE(( "test_incremental_retry_large ..." ));
+  test_incremental_retry_large();
+
+  FD_LOG_NOTICE(( "test_root_closures_release_parent_chunks ..." ));
+  test_root_closures_release_parent_chunks();
+
+  FD_LOG_NOTICE(( "test_incremental_root_recycles_chunks ..." ));
+  test_incremental_root_recycles_chunks();
+
+  FD_LOG_NOTICE(( "test_concurrent_fork_writes ..." ));
+  test_concurrent_fork_writes();
+
+  FD_LOG_NOTICE(( "test_footprint_live_write_cost ..." ));
+  test_footprint_live_write_cost();
+
+  FD_LOG_NOTICE(( "test_footprint_live_slot_cap ..." ));
+  test_footprint_live_slot_cap();
 
   FD_LOG_NOTICE(( "test_acquire_b_refund_accounting ..." ));
   test_acquire_b_refund_accounting();

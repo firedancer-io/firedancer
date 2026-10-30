@@ -850,6 +850,8 @@ deliberate exception with lint-allow="<rule id>")
 <tile name="accdb">
     <gauge name="AccountUsed" summary="Account versions in the index; every unrooted fork version counts" />
     <gauge name="AccountCapacity" summary="Account versions the index can hold" />
+    <gauge name="ChunkUsed" summary="Fork list chunks in use, including chunks of deferred frees" />
+    <gauge name="ChunkCapacity" summary="Fork list chunks the pool can hold" />
     <counter name="AccountRelocated" summary="Accounts moved in the account database during compaction" />
     <gauge name="DiskAllocatedBytes" summary="Allocated size of the account database file" />
     <gauge name="DiskConsumedBytes" ambiguous-kind="true" summary="Bytes of the account database file written at least once, excluding never-written partition tail space" />

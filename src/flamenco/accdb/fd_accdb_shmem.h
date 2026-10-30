@@ -22,6 +22,8 @@ typedef struct fd_accdb_shmem_private fd_accdb_shmem_t;
 struct fd_accdb_shmem_metrics {
    ulong accounts_total;
    ulong accounts_capacity;
+   ulong chunks_used;
+   ulong chunks_capacity;
    ulong disk_allocated_bytes;
    ulong disk_current_bytes;
    ulong disk_used_bytes;

@@ -62,6 +62,8 @@ metrics_write( fd_accdb_tile_ctx_t * ctx ) {
 
   FD_MGAUGE_SET( ACCDB, ACCOUNT_USED,           metrics->accounts_total );
   FD_MGAUGE_SET( ACCDB, ACCOUNT_CAPACITY,       metrics->accounts_capacity );
+  FD_MGAUGE_SET( ACCDB, CHUNK_USED,             metrics->chunks_used );
+  FD_MGAUGE_SET( ACCDB, CHUNK_CAPACITY,         metrics->chunks_capacity );
   FD_MCNT_SET( ACCDB, ACCOUNT_RELOCATED,        metrics->accounts_relocated );
   FD_MGAUGE_SET( ACCDB, DISK_ALLOCATED_BYTES,   metrics->disk_allocated_bytes );
   FD_MGAUGE_SET( ACCDB, DISK_CONSUMED_BYTES,    metrics->disk_current_bytes );
