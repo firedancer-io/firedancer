@@ -180,22 +180,6 @@ spill_io( fd_txncache_t *         tc,
   FD_ATOMIC_FETCH_AND_ADD( &tc->shmem->spill_ticks, (ulong)(fd_tickcount()-t0) );
 }
 
-/* Waits until no fetch is moving the page.  Fetches publish without the
-   lock, so this may be called with the lock held. */
-
-static inline void
-page_wait_idle( fd_txncache_page_meta_t const * meta ) {
-  while( FD_UNLIKELY( FD_VOLATILE_CONST( meta->io ) ) ) FD_SPIN_PAUSE();
-  FD_COMPILER_MFENCE();
-}
-
-/* Takes a frame to load a page into, under the write lock.  Uses a free
-   frame, or evicts by CLOCK: the sweep spares, once, each frame
-   accessed since it last passed, and skips frames a fetch is filling.
-   On eviction *victim is the evicted page, which is no longer resident
-   and whose dirty contents are still in the frame, otherwise UINT_MAX.
-   Returns UINT_MAX if every frame is being filled. */
-
 static uint
 frame_take( fd_txncache_t * tc,
             uint *          victim ) {
@@ -241,8 +225,10 @@ page_io( fd_txncache_t * tc,
   }
   FD_TEST( page<tc->shmem->txnpages_max );
 
-  /* A fetch may be loading or writing back the page. */
-  page_wait_idle( meta );
+  /* A fetch may be loading or writing back the page.  Fetches publish
+     without the lock, so this does not deadlock. */
+  while( FD_UNLIKELY( FD_VOLATILE_CONST( meta->io ) ) ) FD_SPIN_PAUSE();
+  FD_COMPILER_MFENCE();
   if( FD_UNLIKELY( meta->frame!=UINT_MAX ) ) {
     if( FD_UNLIKELY( !meta->ref ) ) meta->ref = 1U;
     return &tc->txnpages[ meta->frame ];
@@ -273,31 +259,27 @@ page_io( fd_txncache_t * tc,
   return data;
 }
 
-/* page_fetch loads page into a frame for a caller that does not hold
-   the lock, so that its spill I/O does not block other threads.  It
-   takes the write lock only to reserve the frame, marking the page and
-   any dirty evicted page busy, and publishes them without the lock.
-   seq is the release_seq the caller saw while it held the lock and
-   found page in use.  If any page has been released since, page may
-   no longer be in use and the fetch is abandoned.  The caller retakes
-   the lock and checks again, since another thread may evict page
-   before then. */
-
 static void
 page_fetch( fd_txncache_t * tc,
             ulong           page,
             ulong           seq ) {
   fd_txncache_page_meta_t * meta = &tc->page_meta[ page ];
   lock_write( tc );
+
+  /* page may have been freed, or is already resident. */
   if( FD_UNLIKELY( tc->shmem->release_seq!=seq || meta->frame!=UINT_MAX ) ) {
     fd_rwlock_unwrite( tc->shmem->lock );
     return;
   }
+
+  /* Another fetch is moving page. */
   if( FD_UNLIKELY( meta->io ) ) {
     fd_rwlock_unwrite( tc->shmem->lock );
-    page_wait_idle( meta );
+    while( FD_UNLIKELY( FD_VOLATILE_CONST( meta->io ) ) ) FD_SPIN_PAUSE();
     return;
   }
+
+  /* Every frame is busy. */
   uint victim;
   uint frame = frame_take( tc, &victim );
   if( FD_UNLIKELY( frame==UINT_MAX ) ) {
@@ -305,6 +287,8 @@ page_fetch( fd_txncache_t * tc,
     FD_SPIN_PAUSE();
     return;
   }
+
+  /* Mark page and the evicted page busy until i/o finishes. */
   fd_txncache_page_meta_t * old = victim!=UINT_MAX ? &tc->page_meta[ victim ] : NULL;
   int write = old && old->dirty;
   if( write ) {
@@ -316,14 +300,15 @@ page_fetch( fd_txncache_t * tc,
   tc->frame_page[ frame ] = (uint)page;
   fd_rwlock_unwrite( tc->shmem->lock );
 
+  /* Write back the evicted page, then read page, without the lock. */
   fd_racesan_hook( "txncache:fetch_io" );
   fd_txncache_txnpage_t * data = &tc->txnpages[ frame ];
   if( write ) spill_io( tc, victim, data, 1 );
   if( read  ) spill_io( tc, page, data, 0 );
   else        data->free = FD_TXNCACHE_TXNS_PER_PAGE;
 
-  /* Publish without the lock, as write lock holders may be waiting for
-     these pages to become idle. */
+  /* Publish without the lock, as write lock holders may be waiting on
+     io.  io is cleared last. */
   if( write ) {
     old->disk_valid = 1;
     FD_HW_MFENCE_ST();
@@ -341,7 +326,8 @@ static void
 release_page( fd_txncache_t * tc,
               ulong           page ) {
   fd_txncache_page_meta_t * meta = &tc->page_meta[ page ];
-  page_wait_idle( meta );
+  while( FD_UNLIKELY( FD_VOLATILE_CONST( meta->io ) ) ) FD_SPIN_PAUSE();
+  FD_COMPILER_MFENCE();
   tc->shmem->release_seq++;
   if( meta->frame!=UINT_MAX ) {
     tc->frame_page[ meta->frame ] = UINT_MAX;
@@ -365,7 +351,10 @@ fd_txncache_reset( fd_txncache_t * tc ) {
   tc->shmem->frames_free_cnt = tc->shmem->frames_max;
   tc->shmem->evict_next      = 0UL;
   tc->shmem->release_seq++;
-  for( ulong i=0UL; i<tc->shmem->txnpages_max; i++ ) page_wait_idle( &tc->page_meta[ i ] );
+  for( ulong i=0UL; i<tc->shmem->txnpages_max; i++ ) {
+    while( FD_UNLIKELY( FD_VOLATILE_CONST( tc->page_meta[ i ].io ) ) ) FD_SPIN_PAUSE();
+  }
+  FD_COMPILER_MFENCE();
   for( ulong i=0UL; i<tc->shmem->txnpages_max; i++ ) {
     tc->txnpages_free[ i ] = (uint)i;
     tc->page_meta[ i ].frame      = UINT_MAX;
@@ -843,27 +832,31 @@ fd_txncache_insert( fd_txncache_t *       tc,
   blockcache_t * blockcache = blockhash_on_fork( tc, fork, blockhash );
   FD_TEST( blockcache );
 
-  ulong fetch_cnt = 0UL;
-  int   miss      = 0;
-  int   write     = 0;
+  ulong fetched_idx = ULONG_MAX;
+  int   miss        = 0;
+  int   write       = 0;
   for(;;) {
     /* First look for an in-memory page (write==0) */
     ulong                   txnpage_idx;
     fd_txncache_txnpage_t * txnpage = fd_txncache_ensure_txnpage( tc, blockcache, 0, &txnpage_idx );
     if( FD_UNLIKELY( !txnpage && txnpage_idx!=ULONG_MAX ) ) miss = 1;
-    if( FD_UNLIKELY( !txnpage && txnpage_idx!=ULONG_MAX && fetch_cnt<FD_TXNCACHE_FETCH_MAX ) ) {
+    if( FD_UNLIKELY( !txnpage && txnpage_idx!=ULONG_MAX && txnpage_idx!=fetched_idx ) ) {
       /* The page is not resident.  Load it without blocking others. */
       ulong seq = tc->shmem->release_seq;
       fd_rwlock_unread( tc->shmem->lock );
       page_fetch( tc, txnpage_idx, seq );
-      fetch_cnt++;
+      fetched_idx = txnpage_idx;
       lock_read( tc );
       blockcache = blockhash_on_fork( tc, fork, blockhash );
       FD_TEST( blockcache );
       continue;
     }
     if( FD_UNLIKELY( !txnpage ) ) {
-      /* Because of sizing invariants when creating the structure, it is
+      /* The page was evicted again after fetching it without the lock,
+         or no page is available.  Retry under the write lock, which
+         loads pages in place.
+
+         Because of sizing invariants when creating the structure, it is
          not typically possible to fill it, unless there are stale
          transactions from minority forks that were purged floating
          around, in which case we can purge them here and try again.
@@ -934,19 +927,25 @@ fd_txncache_query( fd_txncache_t *       tc,
   ulong head_hash = fd_txncache_bucket( tc, txnhash+txnhash_offset );
   /* Walk the bucket's list.  UINT_MAX marks the end. */
   for( uint head=blockcache->heads[ head_hash ]; head!=UINT_MAX; ) {
-    /* If the page is not resident, load it without the lock and walk
-       again, or after too many loads walk under the write lock, which
-       loads pages in place. */
+    /* If the page is not in-memory, try to load it optimistically
+       without the lock and check again.  Try fetching upto the number
+       of pages in the blockcache, or frames if fewer; if there's a lot
+       of contention, fall back to use the write-lock to do the i/o.  On
+       average, this means that we will try to do 1 optimsitic load
+       before falling back to the write lock. */
     fd_txncache_txnpage_t * page = page_io( tc, head/FD_TXNCACHE_TXNS_PER_PAGE, write );
     if( FD_UNLIKELY( !page ) ) {
       miss = 1;
-      ulong seq = tc->shmem->release_seq;
+      ulong seq   = tc->shmem->release_seq;
+      int   fetch = fetch_cnt<fd_ulong_min( blockcache->shmem->pages_cnt, tc->shmem->frames_max );
       fd_rwlock_unread( tc->shmem->lock );
-      if( FD_LIKELY( fetch_cnt<FD_TXNCACHE_FETCH_MAX ) ) {
+      if( FD_LIKELY( fetch ) ) {
+        /* Optimistically do I/O without the lock and check again. */
         page_fetch( tc, head/FD_TXNCACHE_TXNS_PER_PAGE, seq );
         fetch_cnt++;
         lock_read( tc );
       } else {
+        /* Acquire write lock to load the page in place. */
         lock_write( tc );
         write = 1;
       }
@@ -1041,13 +1040,14 @@ blockcache_iter_bucket_open( fd_txncache_blockcache_iter_t * iter ) {
     if( FD_LIKELY( miss==ULONG_MAX ) ) break;
 
     /* Load the missing page without the lock and check again, or after
-       too many loads hold the write lock, which loads pages in place.
-       The chain may be compacted while unlocked, so the head is
-       reloaded. */
-    ulong seq = tc->shmem->release_seq;
+       min(pages, frames) loads hold the write lock, which loads pages
+       in place.  The chain may be compacted while unlocked, so the head
+       is reloaded. */
+    ulong seq   = tc->shmem->release_seq;
+    int   fetch = fetch_cnt<fd_ulong_min( tc->blockcache_pool[ iter->blockcache_idx ].shmem->pages_cnt, tc->shmem->frames_max );
     fd_rwlock_unread( lock );
     if( !fetch_cnt ) { fd_racesan_hook( "txncache:bucket_iter_miss" ); }
-    if( FD_LIKELY( fetch_cnt<FD_TXNCACHE_FETCH_MAX ) ) {
+    if( FD_LIKELY( fetch ) ) {
       page_fetch( tc, miss, seq );
       lock_read( tc );
       continue;
