@@ -2992,10 +2992,10 @@ fd_pack_schedule_next_microblock( fd_pack_t *  pack,
   return scheduled;
 }
 
-ulong fd_pack_bank_tile_cnt     ( fd_pack_t const * pack ) { return pack->bank_tile_cnt;         }
-ulong fd_pack_current_block_cost( fd_pack_t const * pack ) { return pack->cumulative_block_cost; }
+ulong fd_pack_bank_tile_cnt       ( fd_pack_t const * pack ) { return pack->bank_tile_cnt;         }
+ulong fd_pack_current_block_cost  ( fd_pack_t const * pack ) { return pack->cumulative_block_cost; }
 ulong fd_pack_next_auction_txn_cnt( fd_pack_t const * pack ) { return treap_ele_cnt( pack->next_auction ); }
-int   fd_pack_auction_running     ( fd_pack_t const * pack ) { return pack->auction_running;               }
+int   fd_pack_auction_running     ( fd_pack_t const * pack ) { return pack->auction_running;       }
 
 void
 fd_pack_auction_begin( fd_pack_t * pack ) {
