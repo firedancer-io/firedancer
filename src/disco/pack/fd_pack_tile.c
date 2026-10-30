@@ -727,7 +727,7 @@ after_credit( fd_pack_ctx_t *     ctx,
       auction_end( ctx, now, FD_METRICS_ENUM_PACK_AUCTION_END_REASON_V_FINAL_IDX );
     } else if( now>=ctx->auction_next_tick ) {
       /* End the current auction, if one is running. This will flush
-         all transactions held in next_auction.*/
+         all transactions held in next_auction. */
       auction_end( ctx, now, FD_METRICS_ENUM_PACK_AUCTION_END_REASON_V_RESTARTED_IDX );
       /* Start the new auction, holding any new transactions in
          next_auction. */
