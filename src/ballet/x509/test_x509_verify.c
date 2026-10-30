@@ -617,6 +617,32 @@ main( int     argc,
     FD_LOG_INFO(( "OK: IPv4 literal matches iPAddress SAN" ));
   }
 
+  /* Leading-zero octets can resolve as octal, not the decimal IP SAN. */
+  {
+    static uchar const decimal[ 4 ] = { 10, 1, 2, 3 };
+    static uchar const octal  [ 4 ] = {  8, 1, 2, 3 };
+    static uchar const zero   [ 4 ] = {  0, 0, 0, 0 };
+    uchar general_names[ 64 ]; fd_x509_cert_info_t info;
+    memset( &info, 0, sizeof(info) );
+    info.san_general_names    = general_names;
+    info.has_subject_alt_name = 1;
+    info.san_general_names_len = der_tlv( general_names, FD_DER_TAG_CONTEXT_PRIM(7), decimal, 4UL );
+    FD_TEST( fd_x509_san_matches( &info, "10.1.2.3", 8UL )==1 );
+    FD_TEST( fd_x509_san_matches( &info, "010.1.2.3", 9UL )==0 );
+    FD_TEST( fd_x509_san_matches( &info, "10.01.2.3", 9UL )==0 );
+    FD_TEST( fd_x509_san_matches( &info, "10.1.02.3", 9UL )==0 );
+    FD_TEST( fd_x509_san_matches( &info, "10.1.2.03", 9UL )==0 );
+    info.san_general_names_len = der_tlv( general_names, FD_DER_TAG_CONTEXT_PRIM(7), octal, 4UL );
+    FD_TEST( fd_x509_san_matches( &info, "010.1.2.3", 9UL )==0 );
+    info.san_general_names_len = der_tlv( general_names, FD_DER_TAG_CONTEXT_PRIM(7), zero, 4UL );
+    FD_TEST( fd_x509_san_matches( &info, "0.0.0.0", 7UL )==1 );
+    set_san_info( &info, general_names, "010.1.2.3", 9UL );
+    FD_TEST( fd_x509_san_matches( &info, "010.1.2.3", 9UL )==0 );
+    set_san_info( &info, general_names, "01.example.com", 14UL );
+    FD_TEST( fd_x509_san_matches( &info, "01.example.com", 14UL )==1 );
+    FD_LOG_INFO(( "OK: ambiguous IPv4 references rejected" ));
+  }
+
   /* Test 11: Empty store find returns NULL */
   {
     memset( &ca_store, 0, sizeof(ca_store) );

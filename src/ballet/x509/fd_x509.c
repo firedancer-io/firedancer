@@ -1204,6 +1204,12 @@ fd_x509_san_matches( fd_x509_cert_info_t const * info,
     ip4_cstr[ hostname_len ] = '\0';
     uint addr;
     if( fd_cstr_to_ip4_addr( ip4_cstr, &addr ) ) {
+      /* The resolver accepts octal octets; only accept canonical
+         dotted decimal here so the two interpretations cannot differ. */
+      for( ulong i=0UL; i<hostname_len; i++ ) {
+        if( ( !i || hostname[ i-1UL ]=='.' ) && hostname[ i ]=='0' &&
+            i+1UL<hostname_len && hostname[ i+1UL ]!='.' ) return 0;
+      }
       is_ip4 = 1;
       /* opposite endianness of FD_IP4_ADDR */
       ip4[0] = (uchar)( addr       );
