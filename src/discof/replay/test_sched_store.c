@@ -22,6 +22,9 @@ int
 main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
+  int require_multitile = fd_env_strip_cmdline_contains( &argc, &argv, "--require-multitile" );
+  if( FD_UNLIKELY( require_multitile && fd_tile_cnt()<2UL ) )
+    FD_LOG_ERR(( "--require-multitile needs at least two tile CPUs" ));
 
   fd_sched_test_fec_t fec = {0};
   fd_sched_fec_read_t read = fd_sched_test_fec_pin( &fec, NULL );
