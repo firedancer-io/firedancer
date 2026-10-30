@@ -2997,11 +2997,24 @@ ulong fd_pack_current_block_cost  ( fd_pack_t const * pack ) { return pack->cumu
 ulong fd_pack_next_auction_txn_cnt( fd_pack_t const * pack ) { return treap_ele_cnt( pack->next_auction ); }
 int   fd_pack_auction_running     ( fd_pack_t const * pack ) { return pack->auction_running;       }
 
+/* fd_pack_auction_begin doesn't actually move any transactions
+   between treaps.  It just sets the auction_running flag, which means
+   that new transactions enter the next_auction treap instead of the
+   pending/penalty treaps.  These are not eligible for scheduling until
+   the auction ends, at which point the transactions in the
+   next_auction treap are moved into the pending/penalty treaps.
+
+   Transactions already in the pending/penalty treaps, as well as all
+   new and already received bundles, are still elegible for scheduling
+   throughout the auction period. */
 void
 fd_pack_auction_begin( fd_pack_t * pack ) {
   pack->auction_running = 1;
 }
 
+/* fd_pack_auction_end ends an auction, if there was one running.  It
+   moves every transaction that was held in next_auction to the
+   pending/penalty treaps, making them eligible for scheduling. */
 void
 fd_pack_auction_end( fd_pack_t * pack ) {
   pack->auction_running = 0;
