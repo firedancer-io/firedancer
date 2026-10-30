@@ -212,7 +212,7 @@
         "disk_shred_written_bytes":       { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Bytes written by persisted data shreds" },
         "store_fec_preevict_duration_nanos": {
             "type": "Tuple",
-            "description": "Duration of preevicting one FEC payload from the store RAM cache",
+            "description": "Disk write duration of one store FEC preeviction attempt, including cancelled spills",
             "fields": {
                 "b0":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[0, 100) nanos" },
                 "b1":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[100, 268) nanos" },

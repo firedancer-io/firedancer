@@ -1066,6 +1066,7 @@ after_credit( fd_repair_tile_t *  ctx,
     fd_memset( msg, 0, sizeof(fd_repair_replay_fec_t) );
     msg->slot            = blk->slot;
     msg->fec_set_idx     = out.fec_idx*FD_FEC_SHRED_CNT;
+    msg->shred_cnt       = FD_FEC_SHRED_CNT;
     msg->mr              = fec->mr32;
     msg->parent_slot     = blk->parent_slot;
     msg->parent_block_id = blk->parent_blk_mr;

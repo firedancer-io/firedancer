@@ -707,7 +707,7 @@
 | <span class="metrics-name">shred_&#8203;microblock_&#8203;per_&#8203;batch</span> | histogram | Microblocks in each microblock batch that is shredded |
 | <span class="metrics-name">shred_&#8203;batch_&#8203;shred_&#8203;duration_&#8203;nanos</span> | histogram | Duration of shredding one microblock batch |
 | <span class="metrics-name">shred_&#8203;add_&#8203;shred_&#8203;duration_&#8203;nanos</span> | histogram | Duration of verifying and processing one shred received from the network |
-| <span class="metrics-name">shred_&#8203;store_&#8203;fec_&#8203;sync_&#8203;spill_&#8203;duration_&#8203;nanos</span> | histogram | Duration of synchronously spilling one FEC payload to the store |
+| <span class="metrics-name">shred_&#8203;store_&#8203;fec_&#8203;sync_&#8203;spill_&#8203;duration_&#8203;nanos</span> | histogram | Duration of disk writes during one synchronous FEC insert, including cancelled spills |
 | <span class="metrics-name">shred_&#8203;processed</span><br/>{shred_&#8203;process_&#8203;result="<span class="metrics-enum">own_&#8203;leader_&#8203;echoed</span>"} | counter | Shreds assigned to this tile that passed the initial parse and chained check, by processing result, plus received frags that failed the initial parse; InitialRejected and FecFatalRejected are subsets of Rejected (Turbine shred for a slot we led, echoed back to us by a relay) |
 | <span class="metrics-name">shred_&#8203;processed</span><br/>{shred_&#8203;process_&#8203;result="<span class="metrics-enum">leader_&#8203;unknown</span>"} | counter | Shreds assigned to this tile that passed the initial parse and chained check, by processing result, plus received frags that failed the initial parse; InitialRejected and FecFatalRejected are subsets of Rejected (Shred was for a slot whose leader is unknown) |
 | <span class="metrics-name">shred_&#8203;processed</span><br/>{shred_&#8203;process_&#8203;result="<span class="metrics-enum">parse_&#8203;failed</span>"} | counter | Shreds assigned to this tile that passed the initial parse and chained check, by processing result, plus received frags that failed the initial parse; InitialRejected and FecFatalRejected are subsets of Rejected (Shred parsing failed) |
@@ -730,6 +730,8 @@
 | <span class="metrics-name">shred_&#8203;repair_&#8203;lead_&#8203;delay_&#8203;nanos</span> | histogram | Estimated time repair advanced FEC set completion: the delay from a repair-assisted completion until turbine had delivered as many shreds for that set as repair contributed. Counts arrivals rather than distinct indices, so turbine duplicates bias this low |
 | <span class="metrics-name">shred_&#8203;store_&#8203;fec_&#8203;sync_&#8203;spilled</span> | counter | FEC payloads the shred tile spilled to the store synchronously because the store RAM cache was full |
 | <span class="metrics-name">shred_&#8203;store_&#8203;fec_&#8203;sync_&#8203;spilled_&#8203;bytes</span> | counter | FEC payload bytes the shred tile spilled to the store synchronously |
+| <span class="metrics-name">shred_&#8203;store_&#8203;fec_&#8203;insert_&#8203;parked</span> | counter | FEC inserts that waited for a store RAM cache slot because every slot was reserved, pinned or being spilled |
+| <span class="metrics-name">shred_&#8203;store_&#8203;fec_&#8203;insert_&#8203;park_&#8203;duration_&#8203;nanos</span> | histogram | Duration of one FEC insert waiting for a store RAM cache slot |
 
 </div>
 
@@ -1006,7 +1008,7 @@
 | <span class="metrics-name">rserve_&#8203;disk_&#8203;shred_&#8203;written</span> | counter | Data shreds persisted to the repair store |
 | <span class="metrics-name">rserve_&#8203;disk_&#8203;shred_&#8203;write_&#8203;failed</span> | counter | Data shreds rejected by the repair store API |
 | <span class="metrics-name">rserve_&#8203;disk_&#8203;shred_&#8203;written_&#8203;bytes</span> | counter | Bytes written by persisted data shreds |
-| <span class="metrics-name">rserve_&#8203;store_&#8203;fec_&#8203;preevict_&#8203;duration_&#8203;nanos</span> | histogram | Duration of preevicting one FEC payload from the store RAM cache |
+| <span class="metrics-name">rserve_&#8203;store_&#8203;fec_&#8203;preevict_&#8203;duration_&#8203;nanos</span> | histogram | Disk write duration of one store FEC preeviction attempt, including cancelled spills |
 | <span class="metrics-name">rserve_&#8203;store_&#8203;fec_&#8203;preevicted</span> | counter | FEC payloads preevicted from the store RAM cache to disk |
 | <span class="metrics-name">rserve_&#8203;store_&#8203;fec_&#8203;preevicted_&#8203;bytes</span> | counter | FEC payload bytes preevicted from the store RAM cache to disk |
 | <span class="metrics-name">rserve_&#8203;store_&#8203;fec_&#8203;cache_&#8203;free</span> | gauge | Immediately available FEC payload cache entries |
@@ -1040,7 +1042,16 @@
 | <span class="metrics-name">replay_&#8203;store_&#8203;fec_&#8203;spill_&#8203;read_&#8203;bytes</span> | counter | Spilled FEC payload bytes read from disk |
 | <span class="metrics-name">replay_&#8203;store_&#8203;fec_&#8203;cache_&#8203;used</span> | gauge | FEC payload slots in use in the store RAM cache |
 | <span class="metrics-name">replay_&#8203;store_&#8203;fec_&#8203;cache_&#8203;capacity</span> | gauge | FEC payload capacity of the store RAM cache |
-| <span class="metrics-name">replay_&#8203;store_&#8203;fec_&#8203;cache_&#8203;pinned</span> | gauge | FEC payload views currently pinned against eviction |
+| <span class="metrics-name">replay_&#8203;store_&#8203;fec_&#8203;query_&#8203;hit</span><br/>{store_&#8203;fec_&#8203;source_&#8203;type="<span class="metrics-enum">cache</span>"} | counter | FEC set store queries that found a payload, by its cache or disk location (Read from the store RAM cache) |
+| <span class="metrics-name">replay_&#8203;store_&#8203;fec_&#8203;query_&#8203;hit</span><br/>{store_&#8203;fec_&#8203;source_&#8203;type="<span class="metrics-enum">disk</span>"} | counter | FEC set store queries that found a payload, by its cache or disk location (Read from the store spill file) |
+| <span class="metrics-name">replay_&#8203;store_&#8203;fec_&#8203;spill_&#8203;read_&#8203;duration_&#8203;nanos</span> | histogram | Duration of reading one spilled FEC payload from disk |
+| <span class="metrics-name">replay_&#8203;store_&#8203;fec_&#8203;publish_&#8203;removed</span> | counter | FEC sets removed from the store by root publishes |
+| <span class="metrics-name">replay_&#8203;store_&#8203;fec_&#8203;spill_&#8203;cancelled</span> | counter | FEC payload spills discarded because replay pinned the payload while it was being written |
+| <span class="metrics-name">replay_&#8203;store_&#8203;fec_&#8203;used</span> | gauge | FEC sets with store metadata, including inserts in progress |
+| <span class="metrics-name">replay_&#8203;store_&#8203;fec_&#8203;peak</span> | gauge | Highest StoreFecUsed since the store was created |
+| <span class="metrics-name">replay_&#8203;store_&#8203;fec_&#8203;capacity</span> | gauge | FEC set metadata capacity of the store |
+| <span class="metrics-name">replay_&#8203;store_&#8203;fec_&#8203;disk_&#8203;count</span> | gauge | Store spill file slots holding a FEC payload |
+| <span class="metrics-name">replay_&#8203;store_&#8203;fec_&#8203;map_&#8203;probe_&#8203;per_&#8203;query</span> | histogram | FEC map chain entries examined by one replay store query |
 | <span class="metrics-name">replay_&#8203;txncache_&#8203;page_&#8203;miss</span> | counter | Transaction cache lookups under the read lock that found their page not resident |
 | <span class="metrics-name">replay_&#8203;txncache_&#8203;page_&#8203;spilled</span> | counter | Dirty transaction cache pages written to the spill file on eviction |
 | <span class="metrics-name">replay_&#8203;txncache_&#8203;page_&#8203;spill_&#8203;read</span> | counter | Transaction cache pages read back from the spill file |
@@ -1111,7 +1122,7 @@
 | <span class="metrics-name">replay_&#8203;sched_&#8203;microblock_&#8203;done</span> | counter | Microblocks that were fully replayed |
 | <span class="metrics-name">replay_&#8203;sched_&#8203;ingested_&#8203;bytes</span> | counter | Bytes the replay scheduler has ingested |
 | <span class="metrics-name">replay_&#8203;sched_&#8203;trailing_&#8203;skipped_&#8203;bytes</span> | counter | Trailing bytes of a block the replay scheduler ingested but did not parse |
-| <span class="metrics-name">replay_&#8203;sched_&#8203;dropped_&#8203;bytes</span> | counter | Bytes the replay scheduler refused to ingest because the block was abandoned |
+| <span class="metrics-name">replay_&#8203;sched_&#8203;fec_&#8203;dropped</span> | counter | FEC sets the replay scheduler refused to ingest because the block was dead or abandoned |
 | <span class="metrics-name">replay_&#8203;sched_&#8203;fec_&#8203;ingested</span> | counter | FEC sets the replay scheduler has been given |
 | <span class="metrics-name">replay_&#8203;bank_&#8203;frozen</span> | counter | Banks frozen, including our own leader blocks |
 | <span class="metrics-name">replay_&#8203;chain_&#8203;txn_&#8203;height</span> | gauge | Transactions from genesis through the last replayed block, 0 if none; drops on a fork switch |

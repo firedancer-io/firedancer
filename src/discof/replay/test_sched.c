@@ -4,6 +4,7 @@
 #include "../../util/fd_util.h"
 #include "fd_execrp.h"
 #include "fd_sched.h"
+#include "fd_sched_test_store.h"
 #include "../../ballet/sha256/fd_sha256.h"
 #include "../../flamenco/txn/fd_txn_generate.h"
 #include "../../flamenco/alpenglow/fd_block_marker_serde.h"
@@ -149,8 +150,8 @@ ingest_ag_component( fd_sched_t * sched,
                      int          last ) {
   uchar buf[ FD_BLOCK_MARKER_SER_MAX ] __attribute__((aligned(64)));
   ulong sz = encode_ag_component( buf, comp, prev_hash );
-  fd_store_fec_t store_fec[ 1 ] __attribute__((aligned(alignof(fd_store_fec_t))));
-  fd_memset( store_fec, 0, sizeof(fd_store_fec_t) );
+  fd_sched_test_fec_t store_fec[ 1 ];
+  fd_memset( store_fec, 0, sizeof(fd_sched_test_fec_t) );
   store_fec->data_sz       = (uint)sz;
   store_fec->shred_sz[ 0 ] = (ushort)sz;
   fd_sched_fec_t fec[ 1 ] = {{
@@ -158,15 +159,14 @@ ingest_ag_component( fd_sched_t * sched,
     .parent_bank_idx   = 1UL,
     .slot              = TEST_ROOT_SLOT+1UL,
     .parent_slot       = TEST_ROOT_SLOT,
-    .fec               = store_fec,
-    .data              = buf,
+    .read              = fd_sched_test_fec_pin( store_fec, buf ),
     .shred_cnt         = 1U,
     .is_last_in_batch  = 1U,
     .is_last_in_block  = !!last,
     .is_first_in_block = !!first,
   }};
   FD_TEST( fd_sched_fec_can_ingest( sched, fec ) );
-  return fd_sched_fec_ingest( sched, fec );
+  return fd_sched_test_fec_ingest( sched, fec );
 }
 
 static void
@@ -265,8 +265,8 @@ run_interleaved_fec_residual_case( void ) {
   }
 
   for( ulong i=0UL; i<2UL; i++ ) {
-    fd_store_fec_t store_fec[ 1 ] __attribute__((aligned(alignof(fd_store_fec_t))));
-    fd_memset( store_fec, 0, sizeof(fd_store_fec_t) );
+    fd_sched_test_fec_t store_fec[ 1 ];
+    fd_memset( store_fec, 0, sizeof(fd_sched_test_fec_t) );
     FD_TEST( split_off[ i ]<=USHORT_MAX );
     store_fec->data_sz       = (uint)split_off[ i ];
     store_fec->shred_sz[ 0 ] = (ushort)split_off[ i ];
@@ -275,12 +275,11 @@ run_interleaved_fec_residual_case( void ) {
       .parent_bank_idx   = 1UL,
       .slot              = TEST_ROOT_SLOT+1UL,
       .parent_slot       = TEST_ROOT_SLOT,
-      .fec               = store_fec,
-      .data              = encoded[ i ],
+      .read              = fd_sched_test_fec_pin( store_fec, encoded[ i ] ),
       .shred_cnt         = 1U,
     }};
     FD_TEST( fd_sched_fec_can_ingest( sched, fec ) );
-    FD_TEST( fd_sched_fec_ingest( sched, fec ) );
+    FD_TEST( fd_sched_test_fec_ingest( sched, fec ) );
   }
 
   /* Only the first half of each txn has arrived, so both blocks wait
@@ -291,8 +290,8 @@ run_interleaved_fec_residual_case( void ) {
   while( fd_log_wallclock()<wait_until ) FD_SPIN_PAUSE();
 
   for( ulong i=0UL; i<2UL; i++ ) {
-    fd_store_fec_t store_fec[ 1 ] __attribute__((aligned(alignof(fd_store_fec_t))));
-    fd_memset( store_fec, 0, sizeof(fd_store_fec_t) );
+    fd_sched_test_fec_t store_fec[ 1 ];
+    fd_memset( store_fec, 0, sizeof(fd_sched_test_fec_t) );
     store_fec->data_sz = (uint)(encoded_sz[ i ]-split_off[ i ]);
     if( !i ) {
       FD_TEST( store_fec->data_sz<=USHORT_MAX );
@@ -307,13 +306,12 @@ run_interleaved_fec_residual_case( void ) {
       .parent_bank_idx  = 1UL,
       .slot             = TEST_ROOT_SLOT+1UL,
       .parent_slot      = TEST_ROOT_SLOT,
-      .fec              = store_fec,
-      .data             = encoded[ i ]+split_off[ i ],
+      .read             = fd_sched_test_fec_pin( store_fec, encoded[ i ]+split_off[ i ] ),
       .shred_cnt        = (uint)(i ? 1UL : 2UL),
       .is_last_in_batch = 1U,
     }};
     FD_TEST( fd_sched_fec_can_ingest( sched, fec ) );
-    FD_TEST( fd_sched_fec_ingest( sched, fec ) );
+    FD_TEST( fd_sched_test_fec_ingest( sched, fec ) );
   }
 
   /* PoH bypass skips the mixin compare only, so the alpentick chains
@@ -377,7 +375,7 @@ run_ag_structure_case( fd_hash_t const * start_poh,
   fd_sched_block_add_done( sched, 1UL, ULONG_MAX, TEST_ROOT_SLOT );
 
   static uchar          encoded  [ 8 ][ FD_BLOCK_MARKER_SER_MAX ] __attribute__((aligned(64)));
-  static fd_store_fec_t store_fec[ 16 ] __attribute__((aligned(alignof(fd_store_fec_t))));
+  static fd_sched_test_fec_t store_fec[ 16 ];
   FD_TEST( comp_cnt<=8UL );
 
   fd_hash_t prev_hash[ 1 ];
@@ -392,8 +390,8 @@ run_ag_structure_case( fd_hash_t const * start_poh,
     for( ulong off=0UL, n; off<sz && ingest_ok; off+=n ) {
       n = (cut && cut<sz && !off) ? cut : sz-off;
       int last = off+n==sz;
-      fd_store_fec_t * sf = store_fec+fec_cnt++;
-      fd_memset( sf, 0, sizeof(fd_store_fec_t) );
+      fd_sched_test_fec_t * sf = store_fec+fec_cnt++;
+      fd_memset( sf, 0, sizeof(fd_sched_test_fec_t) );
       sf->data_sz     = (uint)n;
       sf->shred_sz[0] = (ushort)n;
       fd_sched_fec_t fec[ 1 ] = {{
@@ -401,15 +399,14 @@ run_ag_structure_case( fd_hash_t const * start_poh,
         .parent_bank_idx   = 1UL,
         .slot              = TEST_ROOT_SLOT + 1UL,
         .parent_slot       = TEST_ROOT_SLOT,
-        .fec               = sf,
-        .data              = encoded[ i ]+off,
+        .read              = fd_sched_test_fec_pin( sf, encoded[ i ]+off ),
         .shred_cnt         = 1U,
         .is_last_in_batch  = !!last,
         .is_last_in_block  = last && i==comp_cnt-1UL,
         .is_first_in_block = !i && !off,
       }};
       FD_TEST( fd_sched_fec_can_ingest( sched, fec ) );
-      ingest_ok = !!fd_sched_fec_ingest( sched, fec );
+      ingest_ok = !!fd_sched_test_fec_ingest( sched, fec );
       if( FD_LIKELY( ingest_ok && !i && !off ) ) {
         fd_sched_set_poh_params( sched, 2UL, TEST_ROOT_TICK_HEIGHT, TEST_ROOT_TICK_HEIGHT+1UL, start_poh );
       }
@@ -568,7 +565,7 @@ run_many_entries_case( ulong entry_cnt,
   FD_TEST( cursor==stream_sz );
 
   static uchar          marker_buf[ FD_BLOCK_MARKER_SER_MAX ] __attribute__((aligned(64)));
-  static fd_store_fec_t store_fec[ 1 ] __attribute__((aligned(alignof(fd_store_fec_t))));
+  static fd_sched_test_fec_t store_fec[ 1 ];
   fd_hash_t prev_hash[ 1 ]; hash_from_seed( prev_hash, 0x5eedUL );
 
   int   ingest_ok = 1;
@@ -577,17 +574,17 @@ run_many_entries_case( ulong entry_cnt,
 
   {
     ulong sz = encode_ag_component( marker_buf, AG_COMP_HEADER, prev_hash );
-    fd_memset( store_fec, 0, sizeof(fd_store_fec_t) );
+    fd_memset( store_fec, 0, sizeof(fd_sched_test_fec_t) );
     store_fec->data_sz     = (uint)sz;
     store_fec->shred_sz[0] = (ushort)sz;
     fd_sched_fec_t fec[ 1 ] = {{
       .bank_idx = 2UL, .parent_bank_idx = 1UL,
       .slot = TEST_ROOT_SLOT+1UL, .parent_slot = TEST_ROOT_SLOT,
-      .fec = store_fec, .data = marker_buf, .shred_cnt = 1U,
+      .read = fd_sched_test_fec_pin( store_fec, marker_buf ), .shred_cnt = 1U,
       .is_last_in_batch = 1U, .is_first_in_block = 1U,
     }};
     FD_TEST( fd_sched_fec_can_ingest( sched, fec ) );
-    FD_TEST( fd_sched_fec_ingest( sched, fec ) );
+    FD_TEST( fd_sched_test_fec_ingest( sched, fec ) );
     first = 0U;
   }
 
@@ -595,18 +592,18 @@ run_many_entries_case( ulong entry_cnt,
      FEC boundaries gets exercised too. */
   while( off<stream_sz ) {
     ulong sz = fd_ulong_min( stream_sz-off, 63985UL );
-    fd_memset( store_fec, 0, sizeof(fd_store_fec_t) );
+    fd_memset( store_fec, 0, sizeof(fd_sched_test_fec_t) );
     store_fec->data_sz     = (uint)sz;
     store_fec->shred_sz[0] = (ushort)sz;
     fd_sched_fec_t fec[ 1 ] = {{
       .bank_idx = 2UL, .parent_bank_idx = 1UL,
       .slot = TEST_ROOT_SLOT+1UL, .parent_slot = TEST_ROOT_SLOT,
-      .fec = store_fec, .data = stream+off, .shred_cnt = 1U,
+      .read = fd_sched_test_fec_pin( store_fec, stream+off ), .shred_cnt = 1U,
       .is_last_in_batch = off+sz==stream_sz,
       .is_first_in_block = !!first,
     }};
     FD_TEST( fd_sched_fec_can_ingest( sched, fec ) );
-    int ok = !!fd_sched_fec_ingest( sched, fec );
+    int ok = !!fd_sched_test_fec_ingest( sched, fec );
     if( FD_LIKELY( first ) ) {
       fd_sched_set_poh_params( sched, 2UL, TEST_ROOT_TICK_HEIGHT, TEST_ROOT_TICK_HEIGHT+1UL, prev_hash );
     }
@@ -664,22 +661,22 @@ run_lane_policy_case( void ) {
   hash_from_seed( start_poh, 0x91b53d8a74f2c601UL );
 
   for( ulong bank_idx=2UL; bank_idx<=5UL; bank_idx++ ) {
-    fd_store_fec_t store_fec[ 1 ] __attribute__((aligned(alignof(fd_store_fec_t))));
-    fd_memset( store_fec, 0, sizeof(fd_store_fec_t) );
+    fd_sched_test_fec_t store_fec[ 1 ];
+    fd_memset( store_fec, 0, sizeof(fd_sched_test_fec_t) );
 
     fd_sched_fec_t fec[ 1 ] = {{
       .bank_idx          = bank_idx,
       .parent_bank_idx   = 1UL,
       .slot              = TEST_ROOT_SLOT + bank_idx - 1UL,
       .parent_slot       = TEST_ROOT_SLOT,
-      .fec               = store_fec,
+      .read              = fd_sched_test_fec_pin( store_fec, NULL ),
       .shred_cnt         = 1U,
       .is_last_in_batch  = 0U,
       .is_last_in_block  = 0U,
       .is_first_in_block = 1U
     }};
     FD_TEST( fd_sched_fec_can_ingest( sched, fec ) );
-    FD_TEST( fd_sched_fec_ingest( sched, fec ) );
+    FD_TEST( fd_sched_test_fec_ingest( sched, fec ) );
     fd_sched_set_poh_params( sched, bank_idx, TEST_ROOT_TICK_HEIGHT + bank_idx, TEST_ROOT_TICK_HEIGHT + bank_idx + 1UL, start_poh );
 
     fd_sched_task_t task[ 1 ];
@@ -695,22 +692,22 @@ run_lane_policy_case( void ) {
 
   {
     ulong bank_idx = 6UL;
-    fd_store_fec_t store_fec[ 1 ] __attribute__((aligned(alignof(fd_store_fec_t))));
-    fd_memset( store_fec, 0, sizeof(fd_store_fec_t) );
+    fd_sched_test_fec_t store_fec[ 1 ];
+    fd_memset( store_fec, 0, sizeof(fd_sched_test_fec_t) );
 
     fd_sched_fec_t fec[ 1 ] = {{
       .bank_idx          = bank_idx,
       .parent_bank_idx   = 1UL,
       .slot              = TEST_ROOT_SLOT + bank_idx - 1UL,
       .parent_slot       = TEST_ROOT_SLOT,
-      .fec               = store_fec,
+      .read              = fd_sched_test_fec_pin( store_fec, NULL ),
       .shred_cnt         = 1U,
       .is_last_in_batch  = 0U,
       .is_last_in_block  = 0U,
       .is_first_in_block = 1U
     }};
     FD_TEST( fd_sched_fec_can_ingest( sched, fec ) );
-    FD_TEST( fd_sched_fec_ingest( sched, fec ) );
+    FD_TEST( fd_sched_test_fec_ingest( sched, fec ) );
     fd_sched_set_poh_params( sched, bank_idx, TEST_ROOT_TICK_HEIGHT + bank_idx, TEST_ROOT_TICK_HEIGHT + bank_idx + 1UL, start_poh );
   }
 
@@ -755,22 +752,22 @@ add_live_block( fd_sched_t * sched,
                 ulong        parent_bank_idx,
                 ulong        slot,
                 ulong        parent_slot ) {
-  fd_store_fec_t store_fec[ 1 ] __attribute__((aligned(alignof(fd_store_fec_t))));
-  fd_memset( store_fec, 0, sizeof(fd_store_fec_t) );
+  fd_sched_test_fec_t store_fec[ 1 ];
+  fd_memset( store_fec, 0, sizeof(fd_sched_test_fec_t) );
 
   fd_sched_fec_t fec[ 1 ] = {{
     .bank_idx          = bank_idx,
     .parent_bank_idx   = parent_bank_idx,
     .slot              = slot,
     .parent_slot       = parent_slot,
-    .fec               = store_fec,
+    .read              = fd_sched_test_fec_pin( store_fec, NULL ),
     .shred_cnt         = 1U,
     .is_last_in_batch  = 0U,
     .is_last_in_block  = 0U,
     .is_first_in_block = 1U
   }};
   while( fd_sched_pruned_block_next( sched )!=ULONG_MAX ) {}
-  return fd_sched_fec_ingest( sched, fec );
+  return fd_sched_test_fec_ingest( sched, fec );
 }
 
 static fd_sched_t *
@@ -1038,8 +1035,8 @@ run_zero_hashcnt_mblk_case( void ) {
   fd_memcpy( fec0+fec0_sz, txn_payload, txn_sz );
   fec0_sz += txn_sz;
 
-  fd_store_fec_t store_fec0[ 1 ] __attribute__((aligned(alignof(fd_store_fec_t))));
-  fd_memset( store_fec0, 0, sizeof(fd_store_fec_t) );
+  fd_sched_test_fec_t store_fec0[ 1 ];
+  fd_memset( store_fec0, 0, sizeof(fd_sched_test_fec_t) );
   store_fec0->data_sz         = (uint)fec0_sz;
   store_fec0->shred_sz[ 0 ]   = (ushort)fec0_sz;
   fd_sched_fec_t fec[ 1 ] = {{
@@ -1047,12 +1044,11 @@ run_zero_hashcnt_mblk_case( void ) {
     .parent_bank_idx   = 1UL,
     .slot              = TEST_ROOT_SLOT+1UL,
     .parent_slot       = TEST_ROOT_SLOT,
-    .fec               = store_fec0,
-    .data              = fec0,
+    .read              = fd_sched_test_fec_pin( store_fec0, fec0 ),
     .shred_cnt         = 1U,
   }};
   FD_TEST( fd_sched_fec_can_ingest( sched, fec ) );
-  FD_TEST( fd_sched_fec_ingest( sched, fec ) );
+  FD_TEST( fd_sched_test_fec_ingest( sched, fec ) );
 
   /* Drain everything the first FEC made available. */
   ulong exec_cnt = 0UL;
@@ -1099,14 +1095,13 @@ run_zero_hashcnt_mblk_case( void ) {
   fd_memcpy( fec1+fec1_sz, txn_payload, txn_sz/2UL );
   fec1_sz += txn_sz/2UL;
 
-  fd_store_fec_t store_fec1[ 1 ] __attribute__((aligned(alignof(fd_store_fec_t))));
-  fd_memset( store_fec1, 0, sizeof(fd_store_fec_t) );
+  fd_sched_test_fec_t store_fec1[ 1 ];
+  fd_memset( store_fec1, 0, sizeof(fd_sched_test_fec_t) );
   store_fec1->data_sz         = (uint)fec1_sz;
   store_fec1->shred_sz[ 0 ]   = (ushort)fec1_sz;
-  fec->fec  = store_fec1;
-  fec->data = fec1;
+  fec->read = fd_sched_test_fec_pin( store_fec1, fec1 );
   FD_TEST( fd_sched_fec_can_ingest( sched, fec ) );
-  FD_TEST( fd_sched_fec_ingest( sched, fec ) );
+  FD_TEST( fd_sched_test_fec_ingest( sched, fec ) );
 
   /* The microblock dispatches with nothing to hash, and retiring it
      exhausts the block.  Deactivation happens in fd_sched_task_done, so
@@ -1132,14 +1127,13 @@ run_zero_hashcnt_mblk_case( void ) {
   ulong fec2_sz = txn_sz-txn_sz/2UL;
   fd_memcpy( fec2, txn_payload+txn_sz/2UL, fec2_sz );
 
-  fd_store_fec_t store_fec2[ 1 ] __attribute__((aligned(alignof(fd_store_fec_t))));
-  fd_memset( store_fec2, 0, sizeof(fd_store_fec_t) );
+  fd_sched_test_fec_t store_fec2[ 1 ];
+  fd_memset( store_fec2, 0, sizeof(fd_sched_test_fec_t) );
   store_fec2->data_sz         = (uint)fec2_sz;
   store_fec2->shred_sz[ 0 ]   = (ushort)fec2_sz;
-  fec->fec  = store_fec2;
-  fec->data = fec2;
+  fec->read = fd_sched_test_fec_pin( store_fec2, fec2 );
   FD_TEST( fd_sched_fec_can_ingest( sched, fec ) );
-  FD_TEST( fd_sched_fec_ingest( sched, fec ) );
+  FD_TEST( fd_sched_test_fec_ingest( sched, fec ) );
 
   FD_TEST( fd_sched_task_next_ready( sched, task ) );
   FD_TEST( task->task_type==FD_SCHED_TT_TXN_EXEC );
@@ -1173,8 +1167,8 @@ run_entry_hash_mismatch_case( void ) {
   fd_memcpy( entry+entry_sz, &hdr, sizeof(hdr) );               entry_sz += sizeof(hdr);
   fd_memcpy( entry+entry_sz, txn_payload, txn_sz );             entry_sz += txn_sz;
 
-  fd_store_fec_t store_fec[ 1 ] __attribute__((aligned(alignof(fd_store_fec_t))));
-  fd_memset( store_fec, 0, sizeof(fd_store_fec_t) );
+  fd_sched_test_fec_t store_fec[ 1 ];
+  fd_memset( store_fec, 0, sizeof(fd_sched_test_fec_t) );
   store_fec->data_sz       = (uint)entry_sz;
   store_fec->shred_sz[ 0 ] = (ushort)entry_sz;
   fd_sched_fec_t fec[ 1 ] = {{
@@ -1182,13 +1176,12 @@ run_entry_hash_mismatch_case( void ) {
     .parent_bank_idx  = 1UL,
     .slot             = TEST_ROOT_SLOT+1UL,
     .parent_slot      = TEST_ROOT_SLOT,
-    .fec              = store_fec,
-    .data             = entry,
+    .read             = fd_sched_test_fec_pin( store_fec, entry ),
     .shred_cnt        = 1U,
     .is_last_in_batch = 1U,
   }};
   FD_TEST( fd_sched_fec_can_ingest( sched, fec ) );
-  FD_TEST( fd_sched_fec_ingest( sched, fec ) );
+  FD_TEST( fd_sched_test_fec_ingest( sched, fec ) );
 
   int poh_dead = 0;
   fd_sched_task_t task[ 1 ];
@@ -1225,6 +1218,19 @@ run_entry_hash_mismatch_case( void ) {
   free( mem );
 }
 
+/* sched_metric returns the value of the named counter in the
+   scheduler's state dump. */
+static ulong
+sched_metric( fd_sched_t * sched,
+              char const * name ) {
+  char const * state = fd_sched_get_state_cstr( sched );
+  char         pat[ 64 ];
+  FD_TEST( fd_cstr_printf_check( pat, sizeof(pat), NULL, " %s ", name ) );
+  char const * p = strstr( state, pat );
+  FD_TEST( p );
+  return strtoul( p+strlen( pat ), NULL, 10 );
+}
+
 static void
 run_runtime_limit_case( void ) {
   fd_rng_t rng[1]; fd_rng_join( fd_rng_new( rng, 0U, 0UL ) );
@@ -1241,29 +1247,31 @@ run_runtime_limit_case( void ) {
     FD_TEST( sched );
     fd_sched_block_add_done( sched, 1UL, ULONG_MAX, TEST_ROOT_SLOT );
 
-    fd_store_fec_t store_fec[ 1 ] __attribute__((aligned(alignof(fd_store_fec_t))));
-    fd_memset( store_fec, 0, sizeof(fd_store_fec_t) );
+    fd_sched_test_fec_t store_fec[ 1 ];
+    fd_memset( store_fec, 0, sizeof(fd_sched_test_fec_t) );
     fd_sched_fec_t fec[ 1 ] = {{
       .bank_idx          = 2UL,
       .parent_bank_idx   = 1UL,
       .slot              = TEST_ROOT_SLOT+1UL,
       .parent_slot       = TEST_ROOT_SLOT,
-      .fec               = store_fec,
+      .read              = fd_sched_test_fec_pin( store_fec, NULL ),
       .shred_cnt         = 2U,
       .is_first_in_block = 1U
     }};
-    FD_TEST( fd_sched_fec_ingest( sched, fec ) );
+    FD_TEST( fd_sched_test_fec_ingest( sched, fec ) );
     FD_TEST( fd_sched_get_shred_cnt( sched, 2UL )==2U );
 
     fec->is_first_in_block = 0U;
     fec->shred_cnt         = 1U;
-    FD_TEST( fd_sched_fec_ingest( sched, fec ) );
+    fec->read              = fd_sched_test_fec_pin( store_fec, NULL );
+    FD_TEST( fd_sched_test_fec_ingest( sched, fec ) );
     FD_TEST( fd_sched_get_shred_cnt( sched, 2UL )==3U );
 
     fec->bank_idx          = 3UL;
     fec->shred_cnt         = 3U;
     fec->is_first_in_block = 1U;
-    FD_TEST( fd_sched_fec_ingest( sched, fec ) );
+    fec->read              = fd_sched_test_fec_pin( store_fec, NULL );
+    FD_TEST( fd_sched_test_fec_ingest( sched, fec ) );
     FD_TEST( fd_sched_get_shred_cnt( sched, 3UL )==3U );
 
     while( fd_sched_pruned_block_next( sched )!=ULONG_MAX ) {}
@@ -1285,8 +1293,8 @@ run_runtime_limit_case( void ) {
     fd_microblock_hdr_t hdr = { .hash_cnt = 1UL, .txn_cnt = 2UL };
     fd_memcpy( encoded+sizeof(ulong), &hdr, sizeof(hdr) );
 
-    fd_store_fec_t store_fec[ 1 ] __attribute__((aligned(alignof(fd_store_fec_t))));
-    fd_memset( store_fec, 0, sizeof(fd_store_fec_t) );
+    fd_sched_test_fec_t store_fec[ 1 ];
+    fd_memset( store_fec, 0, sizeof(fd_sched_test_fec_t) );
     FD_TEST( sizeof(encoded)<=USHORT_MAX );
     store_fec->data_sz       = (uint)sizeof(encoded);
     store_fec->shred_sz[ 0 ] = (ushort)sizeof(encoded);
@@ -1297,13 +1305,23 @@ run_runtime_limit_case( void ) {
       .parent_bank_idx   = 1UL,
       .slot              = TEST_ROOT_SLOT+1UL,
       .parent_slot       = TEST_ROOT_SLOT,
-      .fec               = store_fec,
-      .data              = encoded,
+      .read              = fd_sched_test_fec_pin( store_fec, encoded ),
       .shred_cnt         = 1U,
     }};
+    ulong bytes0 = sched_metric( sched, "bytes_ingested_cnt" );
     FD_TEST( fd_sched_fec_can_ingest( sched, fec ) );
-    FD_TEST( !fd_sched_fec_ingest( sched, fec ) );
+    FD_TEST( !fd_sched_test_fec_ingest( sched, fec ) );
     FD_TEST( fd_sched_get_dead_reason( sched, 2UL )==FD_SCHED_DEAD_REASON_TOO_MANY_TXNS );
+
+    /* The unparsed residual of the bad FEC is not counted as dropped;
+       a later FEC of the dead block is. */
+    FD_TEST( sched_metric( sched, "fecs_dropped_cnt" )==0UL );
+    FD_TEST( sched_metric( sched, "bytes_ingested_cnt" )==bytes0+sizeof(encoded) );
+    while( fd_sched_pruned_block_next( sched )!=ULONG_MAX ) {}
+    fec->read = fd_sched_test_fec_pin( store_fec, encoded );
+    FD_TEST( fd_sched_test_fec_ingest( sched, fec ) );
+    FD_TEST( sched_metric( sched, "fecs_dropped_cnt" )==1UL );
+    FD_TEST( sched_metric( sched, "bytes_ingested_cnt" )==bytes0+sizeof(encoded) );
 
     while( fd_sched_pruned_block_next( sched )!=ULONG_MAX ) {}
     fd_sched_delete( fd_sched_leave( sched ) ); free( mem );
@@ -1323,8 +1341,8 @@ run_runtime_limit_case( void ) {
     uchar encoded[ sizeof(ulong) ] = {0};
     FD_STORE( ulong, encoded, mblk_cnt );
 
-    fd_store_fec_t store_fec[ 1 ] __attribute__((aligned(alignof(fd_store_fec_t))));
-    fd_memset( store_fec, 0, sizeof(fd_store_fec_t) );
+    fd_sched_test_fec_t store_fec[ 1 ];
+    fd_memset( store_fec, 0, sizeof(fd_sched_test_fec_t) );
     FD_TEST( sizeof(encoded)<=USHORT_MAX );
     store_fec->data_sz       = (uint)sizeof(encoded);
     store_fec->shred_sz[ 0 ] = (ushort)sizeof(encoded);
@@ -1335,13 +1353,12 @@ run_runtime_limit_case( void ) {
       .parent_bank_idx   = 1UL,
       .slot              = TEST_ROOT_SLOT+1UL,
       .parent_slot       = TEST_ROOT_SLOT,
-      .fec               = store_fec,
-      .data              = encoded,
+      .read              = fd_sched_test_fec_pin( store_fec, encoded ),
       .shred_cnt         = 1U,
     }};
     FD_TEST( fd_sched_fec_can_ingest( sched, fec ) );
     int too_many = mblk_cnt>2UL*FD_SCHED_MAX_MBLK_PER_SLOT;
-    FD_TEST( (!fd_sched_fec_ingest( sched, fec ))==too_many );
+    FD_TEST( (!fd_sched_test_fec_ingest( sched, fec ))==too_many );
     FD_TEST( (fd_sched_get_dead_reason( sched, 2UL )==FD_SCHED_DEAD_REASON_TOO_MANY_MICROBLOCKS)==too_many );
 
     while( fd_sched_pruned_block_next( sched )!=ULONG_MAX ) {}

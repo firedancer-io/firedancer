@@ -251,7 +251,6 @@ typedef struct {
   ulong       rtx_slot;
 
   fd_store_t    * store;
-  fd_store_map_t  map_join[1];
   int             disk_fd;
 
   fd_gossip_update_message_t gossip_upd_buf[1];
@@ -262,6 +261,7 @@ typedef struct {
     fd_histf_t shredding_timing[ 1 ];
     fd_histf_t add_shred_timing[ 1 ];
     fd_histf_t fec_fallback_write_timing[ 1 ];
+    fd_histf_t store_insert_park_timing[ 1 ];
     ulong shred_processing_result[ FD_FEC_RESOLVER_ADD_SHRED_RETVAL_CNT+FD_SHRED_ADD_SHRED_EXTRA_RETVAL_CNT ];
     ulong invalid_block_id_cnt;
     ulong shred_rejected_unchained_cnt;
@@ -272,6 +272,7 @@ typedef struct {
     ulong bad_nonce;
     ulong fec_fallback_write_cnt;
     ulong fec_fallback_write_bytes;
+    ulong store_insert_park_cnt;
   } metrics[ 1 ];
 
   struct {
@@ -394,6 +395,7 @@ metrics_write( fd_shred_ctx_t * ctx ) {
   FD_MHIST_COPY( SHRED, BATCH_SHRED_DURATION_NANOS,          ctx->metrics->shredding_timing                       );
   FD_MHIST_COPY( SHRED, ADD_SHRED_DURATION_NANOS,            ctx->metrics->add_shred_timing                       );
   FD_MHIST_COPY( SHRED, STORE_FEC_SYNC_SPILL_DURATION_NANOS, ctx->metrics->fec_fallback_write_timing              );
+  FD_MHIST_COPY( SHRED, STORE_FEC_INSERT_PARK_DURATION_NANOS, ctx->metrics->store_insert_park_timing              );
   FD_MCNT_SET  ( SHRED, REPAIR_RX,                           ctx->metrics->repair_rcv_cnt                         );
   FD_MCNT_SET  ( SHRED, REPAIR_RX_BYTES,                     ctx->metrics->repair_rcv_bytes                       );
   FD_MCNT_SET  ( SHRED, TURBINE_RX,                          ctx->metrics->turbine_rcv_cnt                        );
@@ -401,6 +403,7 @@ metrics_write( fd_shred_ctx_t * ctx ) {
   FD_MCNT_SET  ( SHRED, REPAIR_NONCE_FAILED,                 ctx->metrics->bad_nonce                              );
   FD_MCNT_SET  ( SHRED, STORE_FEC_SYNC_SPILLED,              ctx->metrics->fec_fallback_write_cnt                 );
   FD_MCNT_SET  ( SHRED, STORE_FEC_SYNC_SPILLED_BYTES,        ctx->metrics->fec_fallback_write_bytes               );
+  FD_MCNT_SET  ( SHRED, STORE_FEC_INSERT_PARKED,             ctx->metrics->store_insert_park_cnt                  );
 
   FD_MCNT_SET  ( SHRED, PARENT_BLOCK_ID_ZEROED, ctx->metrics->invalid_block_id_cnt         );
   FD_MCNT_SET  ( SHRED, UNCHAINED_REJECTED,     ctx->metrics->shred_rejected_unchained_cnt );
@@ -930,38 +933,55 @@ complete_fec_set( fd_shred_ctx_t *         ctx,
   if( FD_LIKELY( ctx->store ) ) {
     fd_hash_t const * mr = fd_type_pun_const( merkle_root );
 
-    /* The payload is filled before the FEC is linked */
+    /* Different signatures over the same Merkle root can route the same
+       store key to different shred tiles.  A duplicate may still be
+       pending on the other tile. */
 
-    if( FD_UNLIKELY( fd_store_query( ctx->map_join, mr ) ) ) {
-      again = 1;
-    } else {
-      fd_store_fec_spill_stats_t spill[1];
-      uint    data_idx;
-      uchar * fec_data = fd_store_fec_data_reserve( ctx->store, ctx->disk_fd, &data_idx, spill );
-      if( FD_UNLIKELY( spill->write_cnt ) ) {
-        fd_histf_sample( ctx->metrics->fec_fallback_write_timing, spill->write_ticks );
-        ctx->metrics->fec_fallback_write_cnt   += spill->write_cnt;
-        ctx->metrics->fec_fallback_write_bytes += spill->write_bytes;
-      }
-      if( FD_UNLIKELY( !fec_data ) ) FD_LOG_CRIT(( "Store could not allocate a FEC payload" ));
-      uint   data_sz = 0U;
-      ushort shred_sz[ FD_FEC_SHRED_CNT ];
+    fd_store_insert_stats_t stats[1];
+    fd_store_insert_t       ins;
+    int err = fd_store_insert_begin( ctx->store, ctx->disk_fd, mr, last->slot, ctx->round_robin_id, stats, &ins );
+    if( FD_UNLIKELY( stats->spill.write_ticks ) ) fd_histf_sample( ctx->metrics->fec_fallback_write_timing, stats->spill.write_ticks );
+    ctx->metrics->fec_fallback_write_cnt   += stats->spill.spilled_cnt;
+    ctx->metrics->fec_fallback_write_bytes += stats->spill.spilled_bytes;
+    if( FD_UNLIKELY( stats->park_cnt ) ) {
+      fd_histf_sample( ctx->metrics->store_insert_park_timing, stats->park_ticks );
+      ctx->metrics->store_insert_park_cnt++;
+    }
+    if( FD_LIKELY( err==FD_STORE_SUCCESS ) ) {
+      fd_store_fec_t * rec     = fd_store_insert_data( ctx->store, ins );
+      uint             data_sz = 0U;
       for( ulong i=0UL; i<FD_FEC_SHRED_CNT; i++ ) {
         fd_shred_t * data_shred = set->data_shreds[i].s;
         ulong        payload_sz = fd_shred_payload_sz( data_shred );
         if( FD_UNLIKELY( data_sz + payload_sz > ctx->store->fec_data_max ) ) {
           FD_LOG_CRIT(( "Shred tile %lu: completed FEC set %lu %u data_sz: %lu exceeds data_max: %lu", ctx->round_robin_id, data_shred->slot, data_shred->fec_set_idx, data_sz + payload_sz, ctx->store->fec_data_max ));
         }
-        fd_memcpy_nt_nofence( fec_data + data_sz, fd_shred_data_payload( data_shred ), payload_sz );
+        fd_memcpy_nt_nofence( rec->payload + data_sz, fd_shred_data_payload( data_shred ), payload_sz );
         data_sz += (uint)payload_sz;
         FD_TEST( payload_sz<=USHORT_MAX );
-        shred_sz[ i ] = (ushort)payload_sz;
+        rec->shred_sz[ i ] = (ushort)payload_sz;
       }
       _mm_sfence();
-      fd_store_fec_t * fec;
-      again = fd_store_insert( ctx->store, ctx->map_join, mr, last->slot, ctx->round_robin_id, data_idx, data_sz, shred_sz, &fec )==FD_MAP_ERR_KEY;
+      err = fd_store_insert_commit( ctx->store, ins, data_sz );
     }
-    replay_fwd = 1;
+    switch( err ) {
+    case FD_STORE_SUCCESS:
+      break;
+    case FD_STORE_ERR_PENDING_DUP:
+      /* The original inserter will notify replay after commit.  A
+         completion here could reach replay while the key is a miss,
+         advancing rotor past the only delivery of this FEC. */
+      replay_fwd = 0;
+      break;
+    case FD_STORE_ERR_DUP:
+    case FD_STORE_ERR_EXPIRED: /* below the root: rotor drops it anyway */
+      again = 1;
+      break;
+    default:
+      /* The FEC can't be dropped and retried: the resolver ignores every
+         later shred of a completed set. */
+      FD_LOG_CRIT(( "Shred tile %lu: store could not insert FEC set (slot %lu, err %d)", ctx->round_robin_id, last->slot, err ));
+    }
   }
 
   if( FD_LIKELY( ctx->shred_out_idx!=ULONG_MAX && replay_fwd ) ) {
@@ -1347,7 +1367,6 @@ unprivileged_init( fd_topo_t const *      topo,
   if( FD_LIKELY( store_obj_id!=ULONG_MAX ) ) {
     ctx->store = fd_store_join( fd_topo_obj_laddr( topo, store_obj_id ) );
     FD_TEST( ctx->store->magic==FD_STORE_MAGIC );
-    FD_TEST( fd_store_map_ljoin( ctx->store, ctx->map_join ) );
   }
 
   /* If the default partial_depth is ever changed, correspondingly
@@ -1538,6 +1557,7 @@ unprivileged_init( fd_topo_t const *      topo,
   fd_histf_join( fd_metrics_histf_new_ns( ctx->metrics->shredding_timing,     FD_MHIST_EDGES_NS( SHRED, BATCH_SHRED_DURATION_NANOS ) ) );
   fd_histf_join( fd_metrics_histf_new_ns( ctx->metrics->add_shred_timing,     FD_MHIST_EDGES_NS( SHRED, ADD_SHRED_DURATION_NANOS ) ) );
   fd_histf_join( fd_metrics_histf_new_ns( ctx->metrics->fec_fallback_write_timing, FD_MHIST_EDGES_NS( SHRED, STORE_FEC_SYNC_SPILL_DURATION_NANOS ) ) );
+  fd_histf_join( fd_metrics_histf_new_ns( ctx->metrics->store_insert_park_timing,  FD_MHIST_EDGES_NS( SHRED, STORE_FEC_INSERT_PARK_DURATION_NANOS ) ) );
   memset( ctx->metrics->shred_processing_result, '\0', sizeof(ctx->metrics->shred_processing_result) );
   ctx->metrics->invalid_block_id_cnt         = 0UL;
   ctx->metrics->shred_rejected_unchained_cnt = 0UL;
@@ -1548,6 +1568,7 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->metrics->bad_nonce                    = 0UL;
   ctx->metrics->fec_fallback_write_cnt       = 0UL;
   ctx->metrics->fec_fallback_write_bytes     = 0UL;
+  ctx->metrics->store_insert_park_cnt        = 0UL;
 
   ctx->pending_batch.microblock_cnt = 0UL;
   ctx->pending_batch.pos            = 0UL;
