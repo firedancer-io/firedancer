@@ -268,6 +268,14 @@ void
 fd_accdb_purge( fd_accdb_t *       accdb,
                 fd_accdb_fork_id_t fork_id );
 
+/* fd_accdb_drain_deferred blocks until the accounts, fork list chunks
+   and fork slots freed by the last advance_root or purge are back in
+   their pools, so writers that start next have the full pools.
+   Requires the background tile to be running. */
+
+void
+fd_accdb_drain_deferred( fd_accdb_t * accdb );
+
 /* fd_accdb_acquire brings all of the requested accounts as-of the given
    fork_idx into the cache, and refcnts them in the cache so they cannot
    be evicted until later released.
@@ -570,12 +578,12 @@ fd_accdb_snapshot_reserve_write( fd_accdb_t * accdb,
    fork_id controls recovery behavior:
 
      USHORT_MAX, full-snapshot mode.  Existing entries with the same
-                 pubkey are replaced in-place.  No txn entries are
-                 created.
+                 pubkey are replaced in-place.  No fork list entries
+                 are created.
 
      other,      incremental-snapshot mode.  Cross-snapshot overrides
                  insert a new acc_pool entry alongside the old one and
-                 create a txn record on fork_id, so fd_accdb_purge can
+                 add it to fork_id's list, so fd_accdb_purge can
                  revert the incremental writes on failure.  Intra-fork
                  duplicates are replaced in-place. */
 

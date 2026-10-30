@@ -216,6 +216,8 @@
                 "le4_mib":   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "2-4 MiB" },
                 "le11_mib":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "4-11 MiB" }
             }
-        }
+        },
+        "chunk_used":                 { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Fork list chunks in use, including chunks of deferred frees" },
+        "chunk_capacity":             { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Fork list chunks the pool can hold" }
     }
 }

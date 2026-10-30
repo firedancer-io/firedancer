@@ -1937,6 +1937,7 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
         /* Purge failed incremental state unless a full reset follows. */
         if( !ctx->lead.rollback.full && FD_LIKELY( !ctx->full ) ) {
           fd_accdb_purge( ctx->accdb, ctx->lead.rollback.fork );
+          fd_accdb_drain_deferred( ctx->accdb );
           fd_accdb_snapshot_revert_whead( ctx->accdb, &ctx->lead.recovery.accdb_metadata );
           fd_stake_delegations_evict_fork( ctx->stake_delegations, FD_VOLATILE_CONST( ctx->shmem->stake_fork ) );
         }
@@ -2097,6 +2098,7 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
         /* ensure that snapin tile sees all delta changes before rooting */
         __atomic_thread_fence( __ATOMIC_SEQ_CST );
         fd_accdb_advance_root( ctx->accdb, ctx->lead.accdb_incr_fork_id );
+        fd_accdb_drain_deferred( ctx->accdb );
         ctx->lead.accdb_root_fork_id = ctx->lead.accdb_incr_fork_id;
         ctx->lead.accdb_incr_fork_id = (fd_accdb_fork_id_t){ .val = USHORT_MAX };
         ushort stake_fork = FD_VOLATILE_CONST( ctx->shmem->stake_fork );

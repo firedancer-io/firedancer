@@ -10032,6 +10032,10 @@ message MetricsAccdb {
   uint64 progcache_preevicted_bytes = 47;
   // Program cache slots reclaimed by the background preevict pass, by size class
   MetricsAccdbProgcachePreevicted progcache_preevicted = 48;
+  // Fork list chunks in use, including chunks of deferred frees
+  uint64 chunk_used = 49;
+  // Fork list chunks the pool can hold
+  uint64 chunk_capacity = 50;
 }
 
 // Metrics of one replay tile instance, one row per sweep

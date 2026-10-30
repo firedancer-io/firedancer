@@ -88,6 +88,7 @@ static ulong test_accdb_flush_metrics_cnt;
 static ulong test_accdb_recover_delta_cnt;
 static ulong test_accdb_save_whead_cnt;
 static ulong test_accdb_revert_whead_cnt;
+static ulong test_accdb_drain_deferred_cnt;
 static ulong test_feature_restore_cnt;
 static fd_accdb_fork_id_t test_feature_restore_fork;
 static ulong  test_stake_new_fork_cnt;
@@ -162,6 +163,7 @@ test_stem_publish( fd_stem_context_t * stem,
 #define fd_accdb_reset                               mock_accdb_reset
 #define fd_accdb_attach_child                        mock_accdb_attach_child
 #define fd_accdb_purge                               mock_accdb_purge
+#define fd_accdb_drain_deferred                      mock_accdb_drain_deferred
 #define fd_accdb_advance_root                        mock_accdb_advance_root
 #define fd_accdb_snapshot_load_begin                 mock_accdb_snapshot_load_begin
 #define fd_accdb_snapshot_load_end                   mock_accdb_snapshot_load_end
@@ -220,6 +222,7 @@ test_padded_sz( ulong used ) {
 #undef fd_accdb_snapshot_load_end
 #undef fd_accdb_snapshot_load_begin
 #undef fd_accdb_advance_root
+#undef fd_accdb_drain_deferred
 #undef fd_accdb_purge
 #undef fd_accdb_attach_child
 #undef fd_accdb_reset
@@ -288,6 +291,12 @@ mock_accdb_purge( fd_accdb_t *       accdb,
   (void)accdb;
   (void)fork_id;
   test_accdb_purge_cnt++;
+}
+
+void
+mock_accdb_drain_deferred( fd_accdb_t * accdb ) {
+  (void)accdb;
+  test_accdb_drain_deferred_cnt++;
 }
 
 void
@@ -637,6 +646,7 @@ test_counters_reset( void ) {
   test_accdb_recover_delta_cnt  = 0UL;
   test_accdb_save_whead_cnt     = 0UL;
   test_accdb_revert_whead_cnt   = 0UL;
+  test_accdb_drain_deferred_cnt = 0UL;
   test_feature_restore_cnt      = 0UL;
   test_feature_restore_fork     = (fd_accdb_fork_id_t){ .val = USHORT_MAX };
   test_stake_new_fork_cnt       = 0UL;
@@ -2672,6 +2682,7 @@ test_retry_resets( void ) {
   FD_TEST( !cl->ctx[ 0 ].lead.rollback.pending );
   FD_TEST( test_accdb_reset_cnt==1UL );      /* full retry wipes the fork wholesale */
   FD_TEST( !test_accdb_purge_cnt );          /* ... so no incremental purge */
+  FD_TEST( !test_accdb_drain_deferred_cnt );
   FD_TEST( !test_accdb_revert_whead_cnt );
   for( ulong t=0UL; t<n; t++ ) FD_TEST( !cl->ctx[ t ].writer.buf_used );
 
@@ -3124,6 +3135,7 @@ test_full_lifecycle_9_tiles( void ) {
   test_stream_init( T );
   cluster_barrier( cl, FD_SNAPSHOT_MSG_CTRL_INIT_INCR );
   FD_TEST( test_accdb_purge_cnt==1UL );                    /* failed fork purged */
+  FD_TEST( test_accdb_drain_deferred_cnt==1UL );           /* ... and its chunks freed */
   FD_TEST( test_accdb_revert_whead_cnt==1UL );
   FD_TEST( test_stake_evict_cnt==1UL && test_stake_evict_fork==3U ); /* failed stake fork evicted */
   FD_TEST( test_stake_new_fork_cnt==1UL );
@@ -3144,6 +3156,7 @@ test_full_lifecycle_9_tiles( void ) {
   cluster_barrier( cl, FD_SNAPSHOT_MSG_CTRL_DONE );
   FD_TEST( test_accdb_recover_delta_cnt==1UL );
   FD_TEST( test_accdb_advance_root_cnt==1UL );
+  FD_TEST( test_accdb_drain_deferred_cnt==2UL );           /* rollback, then root */
   FD_TEST( test_accdb_load_end_cnt==1UL );
   FD_TEST( test_feature_restore_cnt==1UL );
   FD_TEST( test_feature_restore_fork.val==7U );

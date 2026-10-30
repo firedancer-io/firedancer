@@ -1438,7 +1438,7 @@ static fd_metrics_sample_field_t const fields_shred[ 177 ] = {
   { FD_METRICS_COUNTER_SHRED_STORE_FEC_SYNC_SPILLED_BYTES_OFF, 46U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
 };
 
-static fd_metrics_sample_field_t const fields_accdb[ 132 ] = {
+static fd_metrics_sample_field_t const fields_accdb[ 134 ] = {
   { FD_METRICS_GAUGE_TILE_PID_OFF, 8U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_GAUGE_TILE_TID_OFF, 9U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_GAUGE_TILE_LAST_CPU_INDEX_OFF, 10U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
@@ -1479,6 +1479,8 @@ static fd_metrics_sample_field_t const fields_accdb[ 132 ] = {
   { FD_METRICS_COUNTER_TILE_TIMER_IRQ_OFF, 24U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_GAUGE_ACCDB_ACCOUNT_USED_OFF, 25U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_GAUGE_ACCDB_ACCOUNT_CAPACITY_OFF, 26U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
+  { FD_METRICS_GAUGE_ACCDB_CHUNK_USED_OFF, 49U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
+  { FD_METRICS_GAUGE_ACCDB_CHUNK_CAPACITY_OFF, 50U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_COUNTER_ACCDB_ACCOUNT_RELOCATED_OFF, 27U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_GAUGE_ACCDB_DISK_ALLOCATED_BYTES_OFF, 28U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_GAUGE_ACCDB_DISK_CONSUMED_BYTES_OFF, 29U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
@@ -4485,7 +4487,7 @@ fd_metrics_sample_schema_t const fd_metrics_sample_tiles[] = {
   { "pack", 30U, fields_pack, 283UL, 3013UL },
   { "execle", 31U, fields_execle, 247UL, 2599UL },
   { "shred", 32U, fields_shred, 177UL, 1962UL },
-  { "accdb", 33U, fields_accdb, 132UL, 1361UL },
+  { "accdb", 33U, fields_accdb, 134UL, 1385UL },
   { "replay", 34U, fields_replay, 250UL, 2700UL },
   { "rotor", 35U, fields_rotor, 158UL, 1769UL },
   { "rserve", 36U, fields_rserve, 145UL, 1593UL },
