@@ -4677,6 +4677,7 @@ fd_quic_conn_create( fd_quic_t *               quic,
   rtt->min_rtt                   = FD_QUIC_INITIAL_RTT_US * 1e3f;
   rtt->var_rtt                   = FD_QUIC_INITIAL_RTT_US * 1e3f * 0.5f;
   conn->rtt_period_ns            = FD_QUIC_RTT_PERIOD_US  * 1e3f;
+  conn->last_ack                 = state->now;
 
   /* idle timeout */
   conn->idle_timeout_ns      = config->idle_timeout;
