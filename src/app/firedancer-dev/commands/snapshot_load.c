@@ -1,3 +1,4 @@
+#define _GNU_SOURCE
 #include "../../../flamenco/progcache/fd_prog_load.h"
 #include "../../../flamenco/runtime/fd_bank.h"
 #include "../../../flamenco/runtime/fd_system_ids.h"
@@ -19,6 +20,7 @@
 #include "../../../discof/restore/utils/fd_ssmsg.h"
 #include "../../../flamenco/runtime/fd_cost_tracker.h"
 #include "../../../flamenco/accdb/fd_accdb_private.h"
+#include "../../../flamenco/accdb/fd_accdb_idx.h"
 
 #include <errno.h>
 #include <fcntl.h> /* open */
@@ -141,7 +143,7 @@ snapshot_load_topo( config_t * config ) {
       config->tiles.bundle.enabled,
       1UL+config->firedancer.layout.snapin_tile_count,
       0UL,
-      0UL );
+      config->firedancer.accounts.index_ram_entries );
   FD_TEST( fd_pod_insertf_ulong( topo->props, accdb_obj->id, "accdb" ) );
 
   fd_topob_wksp( topo, "banks" );
@@ -249,8 +251,10 @@ snapshot_load_topo( config_t * config ) {
   fd_topob_finish( topo, CALLBACKS );
 }
 
+/* RAM-only index unless --index-ram-entries is given, see backtest */
 static void
 snapshot_load_topo1( config_t * config ) {
+  config->firedancer.accounts.index_ram_entries = 0UL;
   snapshot_load_topo( config );
 }
 
@@ -273,6 +277,7 @@ snapshot_load_args( int *    pargc,
       "  --no-incremental     Disable incremental snapshot loading\n"
       "  --no-watch           Do not print periodic progress updates\n"
       "  --db-rec-max <num>   Database max record/account count (e.g. 10e6 -> 10M accounts)\n"
+      "  --index-ram-entries <num>  Keep only this many account index entries in memory\n"
       "  --accounts-hist      After loading, analyze account size distribution\n"
       "  --transpile \"<addr> ...\"  After loading, transpile these programs to x86\n"
       "  --transpile-list PATH  After loading, transpile programs listed in file\n"
@@ -291,8 +296,10 @@ snapshot_load_args( int *    pargc,
   char const * transpile_list= fd_env_strip_cmdline_cstr    ( pargc, pargv, "--transpile-list", NULL, NULL );
   double       db_sz         = fd_env_strip_cmdline_double  ( pargc, pargv, "--db-sz",        NULL, 0.0    );
   double       db_rec_max    = fd_env_strip_cmdline_double  ( pargc, pargv, "--db-rec-max",   NULL, 0.0    );
+  double       idx_ram       = fd_env_strip_cmdline_double  ( pargc, pargv, "--index-ram-entries", NULL, 0.0 );
   if( FD_UNLIKELY( !(db_sz>=0.0 && db_sz<1.8e19) ) )           FD_LOG_ERR(( "--db-sz out of range" ));      /* also rejects NaN */
   if( FD_UNLIKELY( !(db_rec_max>=0.0 && db_rec_max<1.8e19) ) ) FD_LOG_ERR(( "--db-rec-max out of range" ));
+  if( FD_UNLIKELY( !(idx_ram>=0.0 && idx_ram<1.8e19) ) )       FD_LOG_ERR(( "--index-ram-entries out of range" ));
 
   fd_cstr_ncpy( args->snapshot_load.snapshot_dir, snapshot_dir, sizeof(args->snapshot_load.snapshot_dir) );
   args->snapshot_load.accounts_hist  = accounts_hist;
@@ -303,6 +310,7 @@ snapshot_load_args( int *    pargc,
   args->snapshot_load.cache_sz       = (ulong)db_sz;
   args->snapshot_load.transpile      = transpile;
   args->snapshot_load.transpile_list = transpile_list;
+  args->snapshot_load.index_ram_entries = (ulong)idx_ram;
 }
 
 /* ACCOUNTS_HIST_N (32) is chosen to make the histogram lightweight.
@@ -437,6 +445,19 @@ accounts_hist( accounts_hist_t * hist,
       ulong data_sz = (ulong)FD_ACCDB_SIZE_DATA( accmeta->executable_size );
       accounts_hist_update( hist, sizeof(fd_accdb_disk_meta_t) + data_sz );
       acc_idx = accmeta->map.next;
+    }
+  }
+
+  /* Index mode: rooted accounts placed by the load live in the bucket. */
+  if( shmem->index_ram_entries ) {
+    static fd_accdb_idx_page_t pages[ 512 ];
+    for( ulong p0=0UL; p0<shmem->idx_bkt_npage; p0+=512UL ) {
+      ulong sz = fd_ulong_min( 512UL, shmem->idx_bkt_npage-p0 )*FD_ACCDB_IDX_PAGE_SZ;
+      if( FD_UNLIKELY( (long)sz!=pread( FD_ACCDB_IDX_FD_RW, pages, sz, (long)(p0*FD_ACCDB_IDX_PAGE_SZ) ) ) ) FD_LOG_ERR(( "pread index failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+      for( ulong k=0UL; k<sz/FD_ACCDB_IDX_PAGE_SZ; k++ ) for( ulong i=0UL; i<FD_ACCDB_IDX_SLOT_CNT; i++ ) {
+        fd_accdb_idx_slot_t const * sl = &pages[ k ].slot[ i ];
+        if( sl->off_plus1 ) accounts_hist_update( hist, sizeof(fd_accdb_disk_meta_t) + FD_ACCDB_SIZE_DATA( sl->exec_size ) );
+      }
     }
   }
 }
@@ -735,6 +756,8 @@ fixup_config( config_t *     config,
   if( args->snapshot_load.db_rec_max ) {
     config->firedancer.accounts.max_accounts = args->snapshot_load.db_rec_max;
   }
+
+  config->firedancer.accounts.index_ram_entries = args->snapshot_load.index_ram_entries;
 
   if( args->snapshot_load.cache_sz ) {
     config->firedancer.accounts.cache_size_gib = fd_ulong_align_up( args->snapshot_load.cache_sz, (1UL<<30) )>>30;
