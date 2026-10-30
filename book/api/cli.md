@@ -382,8 +382,8 @@ default port 8010.
 | `2` | No hand-off, a fix is needed |
 | `3` | No hand-off, retry again |
 | `4` | The outcome is unknown, check both machines with [`get-identity`](#get-identity) |
-| `6` | `set-identity` was run and took precedent over this hand-off |
 | `5` | The remote validator gave the identity up but the local one did not take it. Use `--force` on the local machine to recover |
+| `6` | `set-identity` was run and took precedent over this hand-off |
 
 <<< @/snippets/commands/failover-promote.ansi
 
