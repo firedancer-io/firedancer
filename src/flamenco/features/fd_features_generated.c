@@ -1103,8 +1103,8 @@ fd_feature_id_t const ids[] = {
     .hardcode_for_fuzzing      = 1 },
 
   { .index                     = offsetof(fd_features_t, enable_big_mod_exp_syscall)>>3,
-    .id                        = {"\x09\xb9\x99\xac\x1a\x48\x7e\xf6\x04\xba\xb3\x87\x63\x5f\xf5\x37\xce\x0c\x3a\x39\xf1\xec\x62\x0c\xc1\xfc\xc1\x65\x30\xfc\x2e\x11"},
-                                 /* expH2ppKPW2ANEdEmAjfhSEcnBQJfmoX4FjuNpe9ttg */
+    .id                        = {"\x09\xb9\x99\xbc\x07\x17\xb8\x50\x4d\x5b\xed\x85\x47\x07\xf2\xb7\xbd\x58\x65\x20\x5b\xc6\x86\x8d\x10\xe5\xaa\x19\xfa\x3a\xae\x90"},
+                                 /* expHkkpN92z71GU7EwB7AXCy8Mz4kzDJFpGY1dZV9A7 */
     .name                      = "enable_big_mod_exp_syscall",
     .implemented               = 1,
     .cleaned_up                = 0 },
@@ -2542,7 +2542,7 @@ typedef struct fd_feature_id_lookup_entry fd_feature_id_lookup_entry_t;
 #define MAP_PERFECT_135 0x71eba1d288ba2bfcUL, .val = &ids[135]
 #define MAP_PERFECT_136 0x823d14dd6235f859UL, .val = &ids[136]
 #define MAP_PERFECT_137 0xb3f6cd09abba192bUL, .val = &ids[137]
-#define MAP_PERFECT_138 0xf67e481aac99b909UL, .val = &ids[138]
+#define MAP_PERFECT_138 0x50b81707bc99b909UL, .val = &ids[138]
 #define MAP_PERFECT_139 0x500aab8a23ff8b33UL, .val = &ids[139]
 #define MAP_PERFECT_140 0xffe35ea7abb29bbbUL, .val = &ids[140]
 #define MAP_PERFECT_141 0x8a22c4e80489c387UL, .val = &ids[141]
