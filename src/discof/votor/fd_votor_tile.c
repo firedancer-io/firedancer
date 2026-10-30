@@ -906,7 +906,7 @@ quic_server_conn_new( fd_quic_conn_t * conn,
   fd_votor_tile_t * ctx  = _ctx;
   peer_t *          peer = peers_query( ctx->peers, *id_key, NULL );
   if( FD_LIKELY( ctx->curr_epoch_info ) && FD_UNLIKELY( !peer ) ) {
-    fd_quic_conn_close( conn, 0U );
+    fd_quic_conn_close( conn, QUIC_CLOSE_CODE_NOT_ADMITTED );
     return;
   }
   if( FD_UNLIKELY( peer && fd_clock_tile_now( ctx->clock )<peer->ban_ts+QUIC_BAN_TIMEOUT_NS ) ) {
