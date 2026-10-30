@@ -120,7 +120,8 @@ fd_h2_conn_fini( fd_h2_conn_t * conn );
    May write control messages to rbuf_out.  Stops when no more data in
    rbuf_tx is full, rbuf_rx is available, or a connection error
    occurred.  scratch points to a scratch buffer used for reassembly.
-   Assumes scratch_sz >= conn.self_settings.max_frame_size. */
+   Assumes scratch_sz >= conn.self_settings.max_frame_size.  Leaves
+   rbuf_rx intact until fd_h2_tx_control has queued our preface. */
 
 void
 fd_h2_rx( fd_h2_conn_t *            conn,
