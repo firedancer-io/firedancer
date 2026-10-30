@@ -566,9 +566,7 @@ operator_cmd( fd_failover_tile_ctx_t * ctx,
 }
 
 /* test_request_address: the open request dials the gossip address fixed
-   when it opened.  A resume replaces the address or port it gives and
-   keeps the other, one that gives neither keeps both, and a bound
-   request takes a given address too. */
+   when it opened. */
 static void
 test_request_address( void ) {
   fd_failover_tile_ctx_t * ctx = controller_init( 0 );
@@ -582,17 +580,21 @@ test_request_address( void ) {
   FD_TEST( ctx->request.addr==FD_IP4_ADDR(10,0,0,4) && get_dial_port( ctx )==9001 );
   pause_request( ctx, 1000L, FD_FAILOVER_CONTROL_RESULT_TIMEOUT, "test" );
   FD_TEST( operator_cmd( ctx, FD_ADMINCTL_FAILOVER_CMD_HANDOFF, FD_IP4_ADDR(10,0,0,5), 0 )==FD_FAILOVER_CMD_PENDING );
-  FD_TEST( ctx->request.addr==FD_IP4_ADDR(10,0,0,5) && get_dial_port( ctx )==9001 );
+  FD_TEST( ctx->request.addr==FD_IP4_ADDR(10,0,0,5) && get_dial_port( ctx )==8010 );
   pause_request( ctx, 1000L, FD_FAILOVER_CONTROL_RESULT_TIMEOUT, "test" );
   FD_TEST( operator_cmd( ctx, FD_ADMINCTL_FAILOVER_CMD_HANDOFF, 0U, 9002 )==FD_FAILOVER_CMD_PENDING );
-  FD_TEST( ctx->request.addr==FD_IP4_ADDR(10,0,0,5) && get_dial_port( ctx )==9002 );
+  FD_TEST( ctx->request.addr==FD_IP4_ADDR(10,0,0,3) && !ctx->cmd_addr && get_dial_port( ctx )==9002 );
   pause_request( ctx, 1000L, FD_FAILOVER_CONTROL_RESULT_TIMEOUT, "test" );
   FD_TEST( operator_cmd( ctx, FD_ADMINCTL_FAILOVER_CMD_HANDOFF, 0U, 0 )==FD_FAILOVER_CMD_PENDING );
-  FD_TEST( ctx->request.addr==FD_IP4_ADDR(10,0,0,5) && get_dial_port( ctx )==9002 );
-  ctx->request.peer.boot_id = 77UL;
+  FD_TEST( ctx->request.addr==FD_IP4_ADDR(10,0,0,3) && get_dial_port( ctx )==8010 );
   pause_request( ctx, 1000L, FD_FAILOVER_CONTROL_RESULT_TIMEOUT, "test" );
+  ctx->staked_addr = 0U;
+  ulong id = ctx->request.id;
+  FD_TEST( operator_cmd( ctx, FD_ADMINCTL_FAILOVER_CMD_HANDOFF, 0U, 0 )==FD_FAILOVER_CONTROL_RESULT_NO_HOLDER_ADDRESS );
+  FD_TEST( is_request_paused( ctx ) && ctx->request.id==id && ctx->request.addr==FD_IP4_ADDR(10,0,0,3) && ctx->stuck );
+  ctx->request.peer.boot_id = 77UL;
   FD_TEST( operator_cmd( ctx, FD_ADMINCTL_FAILOVER_CMD_HANDOFF, FD_IP4_ADDR(10,0,0,6), 0 )==FD_FAILOVER_CMD_PENDING );
-  FD_TEST( ctx->request.addr==FD_IP4_ADDR(10,0,0,6) && ctx->request.peer.boot_id==77UL );
+  FD_TEST( ctx->request.addr==FD_IP4_ADDR(10,0,0,6) && ctx->request.peer.boot_id==77UL && ctx->request.id==id );
 
   end_request( ctx, 1000L, FD_FAILOVER_HANDOFF_DECLINED );
   controller_fini( ctx );

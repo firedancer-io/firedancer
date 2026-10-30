@@ -159,7 +159,7 @@ fd_adminctl_failover_result_cstr( ulong result ) {
     case FD_FAILOVER_CONTROL_RESULT_PEER_RESTARTED:    return "the machine running the identity restarted before it answered";
     case FD_FAILOVER_CONTROL_RESULT_ADOPTION_FAILED:   return "this machine did not adopt the vote history";
     case FD_FAILOVER_CONTROL_RESULT_SWITCH_FAILED:     return "the identity switch failed";
-    case FD_FAILOVER_CONTROL_RESULT_HOLDS_OTHER:       return "this machine votes as the identity failover manages";
+    case FD_FAILOVER_CONTROL_RESULT_HOLDS_OTHER:       return "this machine votes as the identity failover manages, hand that identity off first";
     case FD_FAILOVER_CONTROL_RESULT_IDENTITY_CHANGED:  return "set-identity changed the identity while the command ran";
     case FD_SET_IDENTITY_RESULT_KEYPAIR_MISMATCH:      return "the public key in the keypair file does not match its private key";
     case FD_SET_IDENTITY_RESULT_AUTHORIZED_VOTER:      return "the keypair is an authorized voter on this validator";

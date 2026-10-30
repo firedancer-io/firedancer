@@ -205,11 +205,7 @@ failover_cmd_fn( args_t *   args,
                  config_t * config ) {
   fd_adminctl_t * adminctl = adminctl_client_attach( config, args->failover.name );
   uchar const *   keypair  = args->failover.keypair_path[ 0 ] ? failover_keypair_load( args->failover.keypair_path ) : NULL;
-  /* The pre-check runs in a terminal without --yes, before the prompt,
-     so a validator that votes as another identity refuses before the
-     operator confirms.  --yes skips it, so a requester can be
-     retargeted mid-handoff. */
-  if( keypair && !args->failover.yes && isatty( STDIN_FILENO ) ) failover_preflight( adminctl, args, keypair );
+  if( keypair ) failover_preflight( adminctl, args, keypair );
   failover_confirm( args );
 
   fd_adminctl_failover_req_t req;
@@ -253,7 +249,7 @@ failover_args_help( fd_action_help_t * help ) {
                                                         "running on this host" );
   fd_action_help_arg( help, "--yes",       NULL,        "Bypass the interactive confirmation prompt." );
   fd_action_help_arg( help, "--force",     NULL,        "Forcibly take the identity without asking the machine running it, skipping every\n"
-                                                        "check.  Only use when the other machine cannot vote.\n" );
+                                                        "check on that machine.  Only use when the other machine cannot vote.\n" );
   fd_action_help_arg( help, "--address",   "<address>", "Only without --force.  The target machine's IPv4 address or host name" );
   fd_action_help_arg( help, "--port",      "<port>",    "Only without --force.  The target machine's failover port, 8010 by default" );
 }

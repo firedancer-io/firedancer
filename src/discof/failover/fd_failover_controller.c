@@ -1185,12 +1185,11 @@ run_handoff_cmd( fd_failover_tile_ctx_t *           ctx,
     paused = 0;
   }
   if( FD_UNLIKELY( paused ) ) {
-    /* Resume with a fresh deadline.  A given address or port replaces
-       the one we have, and the authenticated member and boot stay. */
-    if( req->addr ) ctx->cmd_addr = req->addr;
-    if( req->port ) ctx->cmd_port = req->port;
-    if(      ctx->cmd_addr    ) ctx->request.addr = ctx->cmd_addr;
-    else if( ctx->staked_addr ) ctx->request.addr = ctx->staked_addr;
+    uint addr = req->addr ? req->addr : ctx->staked_addr;
+    if( FD_UNLIKELY( !addr ) ) return FD_FAILOVER_CONTROL_RESULT_NO_HOLDER_ADDRESS;
+    ctx->cmd_addr      = req->addr;
+    ctx->cmd_port      = req->port;
+    ctx->request.addr  = addr;
     ctx->request.until = fd_long_sat_add( now, FD_FAILOVER_DEADLINE_NANOS );
     ctx->request.sent  = 0;
     ctx->stuck         = 0;
@@ -1243,8 +1242,10 @@ run_promote_cmd( fd_failover_tile_ctx_t *           ctx,
 static ulong
 run_preflight_cmd( fd_failover_tile_ctx_t const *     ctx,
                    fd_adminctl_failover_req_t const * req ) {
-  if( fd_memeq( req->target, ctx->hello.staked_pubkey, 32UL ) || ( req->flags & FD_ADMINCTL_FAILOVER_FLAG_FORCE ) ) return FD_ADMINCTL_RESULT_SUCCESS;
-  if( FD_UNLIKELY( ctx->action!=FD_FAILOVER_ACTION_IDLE || ctx->request.id || is_switch_pending( ctx ) ) ) return FD_FAILOVER_CONTROL_RESULT_IN_PROGRESS;
+  if( fd_memeq( req->target, ctx->hello.staked_pubkey, 32UL ) ) return FD_ADMINCTL_RESULT_SUCCESS;
+  if( FD_UNLIKELY( is_switch_pending( ctx ) || ( ctx->action!=FD_FAILOVER_ACTION_IDLE && !is_request_paused( ctx ) ) ) ) {
+    return FD_FAILOVER_CONTROL_RESULT_IN_PROGRESS;
+  }
   if( FD_UNLIKELY( holds_identity( ctx ) && ctx->own_voted ) ) return FD_FAILOVER_CONTROL_RESULT_HOLDS_OTHER;
   return FD_ADMINCTL_RESULT_SUCCESS;
 }
