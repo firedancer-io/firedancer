@@ -2,6 +2,7 @@
 #include "fd_stake_rewards.h"
 #include "fd_reward_epoch_delegated_stakes.h"
 #include "fd_epoch_inflation_account.h"
+#include "fd_integer_inflation.h"
 
 #include "../runtime/sysvar/fd_sysvar_epoch_rewards.h"
 #include "../runtime/sysvar/fd_sysvar_epoch_schedule.h"
@@ -99,17 +100,19 @@ slot_in_year_for_inflation( fd_bank_t const * bank ) {
                                                    inflation_start_slot, inflation_start_slot + num_slots );
 }
 
+/* https://github.com/anza-xyz/agave/blob/9bcf93e368b5fb52c21677ed8c7f0360eb93b5b7/runtime/src/bank.rs#L6265-L6270 */
 void
 fd_apply_double_disinflation_rate( fd_bank_t * bank ) {
-  double           year        = slot_in_year_for_inflation( bank );
-  fd_inflation_t * inflation   = &bank->f.inflation;
-  double           anchor_rate = total( inflation, year );
+  bank->f.inflation.taper = FD_DOUBLE_DISINFLATION_TAPER;
+}
 
-  inflation->taper   = FD_DOUBLE_DISINFLATION_TAPER;
-
-  /* Matches Agave's calculation, as this is floating-point calculation
-     https://github.com/anza-xyz/agave/blob/v4.3.0-beta.0/runtime/src/bank.rs#L6125 */
-  inflation->initial = anchor_rate / pow( 1.0-FD_DOUBLE_DISINFLATION_TAPER, year );
+/* https://github.com/anza-xyz/agave/blob/9bcf93e368b5fb52c21677ed8c7f0360eb93b5b7/runtime/src/bank.rs#L6257-L6261 */
+void
+fd_apply_integer_inflation_initial_rate( fd_bank_t * bank ) {
+  /* Nothing reads this value after remove_runtime_float_ops is active,
+     but we write it here so that our snapshot manifest is consistent
+     with Agave's. */
+  bank->f.inflation.initial = 0.08;
 }
 
 /* https://github.com/anza-xyz/agave/blob/v4.3.0-beta.0/runtime/src/inflation_rewards/mod.rs#L412-L440 */
@@ -257,19 +260,22 @@ epoch_duration_in_years( fd_bank_t const * bank,
   return (double)slots_in_epoch / slots_per_year;
 }
 
-/* https://github.com/anza-xyz/agave/blob/7117ed9653ce19e8b2dea108eff1f3eb6a3378a7/runtime/src/bank.rs#L2128 */
-static void
-calculate_previous_epoch_inflation_rewards( fd_bank_t const *                   bank,
-                                            ulong                               prev_epoch_capitalization,
-                                            ulong                               prev_epoch,
-                                            fd_prev_epoch_inflation_rewards_t * rewards ) {
-  double slot_in_year = slot_in_year_for_inflation( bank );
+/* https://github.com/anza-xyz/agave/blob/7117ed9653ce19e8b2dea108eff1f3eb6a3378a7/runtime/src/bank.rs#L2128
+   https://github.com/anza-xyz/agave/blob/9bcf93e368b5fb52c21677ed8c7f0360eb93b5b7/runtime/src/bank.rs#L3150-L3177 */
+static ulong
+calculate_epoch_inflation_rewards( fd_bank_t const * bank,
+                                   ulong             capitalization,
+                                   ulong             epoch ) {
+  if( FD_FEATURE_ACTIVE_BANK( bank, remove_runtime_float_ops ) ) {
+    ulong inflation_start_slot = inflation_start_slot_aligned_to_rewards( bank, &bank->f.epoch_schedule );
+    return fd_integer_inflation_epoch_rewards( bank, inflation_start_slot, capitalization, epoch );
+  }
 
-  rewards->validator_rate               = validator( &bank->f.inflation, slot_in_year );
-  rewards->foundation_rate              = foundation( &bank->f.inflation, slot_in_year );
-  rewards->prev_epoch_duration_in_years = epoch_duration_in_years( bank, prev_epoch );
-  rewards->validator_rewards            = (ulong)(rewards->validator_rate * (double)prev_epoch_capitalization * rewards->prev_epoch_duration_in_years);
-  FD_LOG_DEBUG(( "Rewards %lu, Rate %.16f, Duration %.18f Capitalization %lu Slot in year %.16f", rewards->validator_rewards, rewards->validator_rate, rewards->prev_epoch_duration_in_years, prev_epoch_capitalization, slot_in_year ));
+  double slot_in_year     = slot_in_year_for_inflation( bank );
+  double validator_rate   = validator( &bank->f.inflation, slot_in_year );
+  double epoch_duration   = epoch_duration_in_years( bank, epoch );
+  ulong  validator_reward = (ulong)( ( validator_rate * (double)capitalization ) * epoch_duration );
+  return validator_reward;
 }
 
 /* Calculate the number of blocks required to distribute rewards to all stake accounts.
@@ -903,12 +909,6 @@ calculate_rewards_for_partitioning( fd_bank_t *                            bank,
                                     fd_capture_ctx_t *                     capture_ctx,
                                     ulong                                  prev_epoch,
                                     fd_partitioned_rewards_calculation_t * result ) {
-  fd_prev_epoch_inflation_rewards_t rewards;
-
-  calculate_previous_epoch_inflation_rewards( bank,
-                                              bank->f.capitalization,
-                                              prev_epoch,
-                                              &rewards );
   ulong total_rewards = fd_epoch_inflation_rewards_for_epoch( bank, accdb, prev_epoch );
 
   calculate_validator_rewards( bank,
@@ -922,11 +922,8 @@ calculate_rewards_for_partitioning( fd_bank_t *                            bank,
   /* The agave client does not partition the stake rewards until the
      first distribution block.  We calculate the partitions during the
      boundary. */
-  result->validator_rewards            = total_rewards;
-  result->validator_rate               = rewards.validator_rate;
-  result->foundation_rate              = rewards.foundation_rate;
-  result->prev_epoch_duration_in_years = rewards.prev_epoch_duration_in_years;
-  result->capitalization               = bank->f.capitalization;
+  result->validator_rewards = total_rewards;
+  result->capitalization    = bank->f.capitalization;
 }
 
 /* Sweeps the given vote account's pending delegator rewards.
@@ -1514,9 +1511,7 @@ fd_begin_partitioned_rewards( fd_bank_t *                    bank,
 
   ulong capitalization;
   FD_TEST( !__builtin_uaddl_overflow( parent_capitalization, capitalization_rewards, &capitalization ) );
-  fd_prev_epoch_inflation_rewards_t rewards[1];
-  calculate_previous_epoch_inflation_rewards( bank, capitalization, bank->f.epoch, rewards );
-  fd_epoch_inflation_account_update( bank, accdb, capture_ctx, rewards->validator_rewards );
+  fd_epoch_inflation_account_update( bank, accdb, capture_ctx, calculate_epoch_inflation_rewards( bank, capitalization, bank->f.epoch ) );
 }
 
 /*

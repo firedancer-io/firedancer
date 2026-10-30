@@ -635,6 +635,11 @@ fd_compute_and_apply_new_feature_activations( fd_bank_t *          bank,
     set_lamports_per_byte( bank, accdb, capture_ctx, 6960UL );
   }
 
+  /* https://github.com/anza-xyz/agave/blob/9bcf93e368b5fb52c21677ed8c7f0360eb93b5b7/runtime/src/bank.rs#L6366-L6368 */
+  if( FD_UNLIKELY( FD_FEATURE_JUST_ACTIVATED_BANK( bank, remove_runtime_float_ops ) ) ) {
+    fd_apply_integer_inflation_initial_rate( bank );
+  }
+
   /* SIMD-0550: double_disinflation_rate
      https://github.com/anza-xyz/agave/blob/v4.3.0-beta.0/runtime/src/bank.rs#L6232-L6234 */
   if( FD_UNLIKELY( FD_FEATURE_JUST_ACTIVATED_BANK( bank, double_disinflation_rate ) ) ) {
@@ -1656,6 +1661,11 @@ fd_runtime_init_bank_from_genesis( fd_banks_t *         banks,
   }
 
   fd_features_restore( &bank->f.features, accdb, bank->accdb_fork_id, bank->f.slot, &bank->f.epoch_schedule );
+
+  /* https://github.com/anza-xyz/agave/blob/9bcf93e368b5fb52c21677ed8c7f0360eb93b5b7/runtime/src/bank.rs#L6237-L6242 */
+  if( FD_UNLIKELY( FD_FEATURE_ACTIVE_BANK( bank, remove_runtime_float_ops ) ) ) {
+    fd_apply_integer_inflation_initial_rate( bank );
+  }
 
   /* https://github.com/anza-xyz/agave/blob/v4.3.0-beta.0/runtime/src/bank.rs#L6101-L6109 */
   if( FD_UNLIKELY( FD_FEATURE_ACTIVE_BANK( bank, double_disinflation_rate ) ) ) {

@@ -2290,8 +2290,8 @@ fd_feature_id_t const ids[] = {
     .cleaned_up                = 0 },
 
   { .index                     = offsetof(fd_features_t, double_disinflation_rate)>>3,
-    .id                        = {"\x3c\xa9\xe5\xb4\x9c\x46\xa2\x8e\xe8\xdc\x2c\x26\x19\xe0\x01\x09\x59\xaa\xaf\x28\x04\x8f\x3d\x5f\x9f\x4a\x96\x96\x6e\xad\xb0\x75"},
-                                 /* 55oikhjJ2LUi1xdgJ17ueRyHFURZEw32asT3iAKfh7gg */
+    .id                        = {"\x09\x62\x6c\xe8\x20\x77\x2c\xf5\x37\x7e\x00\x68\x91\x01\x6f\xcb\xfd\x0b\x53\x67\xeb\xfb\xaa\x01\xe2\xc3\x0e\x6f\xfe\x63\x42\xa7"},
+                                 /* ddibiks7RHZR69QXYMCmk4EZNt6WckspTqEEWv6cS38 */
     .name                      = "double_disinflation_rate",
     .implemented               = 1,
     .cleaned_up                = 0 },
@@ -2395,6 +2395,13 @@ fd_feature_id_t const ids[] = {
     .implemented               = 1,
     .cleaned_up                = 0,
     .hardcode_for_fuzzing      = 1 },
+
+  { .index                     = offsetof(fd_features_t, remove_runtime_float_ops)>>3,
+    .id                        = {"\x5b\xb5\xbe\x6c\x59\x1c\x64\x30\xc9\x7c\x8a\xd9\xdf\x40\xb8\xaa\xd9\xe2\x2b\x23\x24\x34\x2d\x80\x27\xe1\x22\x4b\xe2\xa2\x56\x93"},
+                                 /* 7AzqUCKQjoCKhWDDHgEYkTY8iRwWtuuxHogcmx1UJzR8 */
+    .name                      = "remove_runtime_float_ops",
+    .implemented               = 1,
+    .cleaned_up                = 0 },
 
   { .index = ULONG_MAX }
 };
@@ -2703,7 +2710,7 @@ typedef struct fd_feature_id_lookup_entry fd_feature_id_lookup_entry_t;
 #define MAP_PERFECT_288 0xe8f8dc2ca192d30cUL, .val = &ids[288]
 #define MAP_PERFECT_289 0x1dd8741ccebef821UL, .val = &ids[289]
 #define MAP_PERFECT_290 0x9c92e629e8d74f0dUL, .val = &ids[290]
-#define MAP_PERFECT_291 0x8ea2469cb4e5a93cUL, .val = &ids[291]
+#define MAP_PERFECT_291 0xf52c7720e86c6209UL, .val = &ids[291]
 #define MAP_PERFECT_292 0x3d030a2e7e893d06UL, .val = &ids[292]
 #define MAP_PERFECT_293 0xb2513619e40fef85UL, .val = &ids[293]
 #define MAP_PERFECT_294 0x1e7f253e967667d3UL, .val = &ids[294]
@@ -2718,6 +2725,7 @@ typedef struct fd_feature_id_lookup_entry fd_feature_id_lookup_entry_t;
 #define MAP_PERFECT_303 0x363f3e34c2720204UL, .val = &ids[303]
 #define MAP_PERFECT_304 0x663c696babd69106UL, .val = &ids[304]
 #define MAP_PERFECT_305 0xcb2d7ae31276d40cUL, .val = &ids[305]
+#define MAP_PERFECT_306 0x30641c596cbeb55bUL, .val = &ids[306]
 
 #include "../../util/tmpl/fd_map_perfect.c"
 
@@ -3034,4 +3042,5 @@ FD_STATIC_ASSERT( offsetof( fd_features_t, enforce_validator_location_registrati
 FD_STATIC_ASSERT( offsetof( fd_features_t, geo_aware_leader_schedule                               )>>3==303UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, secp256r1_syscall_enabled                               )>>3==304UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, stricter_shred_validation                               )>>3==305UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, remove_runtime_float_ops                                )>>3==306UL, layout );
 FD_STATIC_ASSERT( sizeof( fd_features_t )>>3==FD_FEATURE_ID_CNT, layout );
