@@ -239,30 +239,39 @@ after_credit( fd_backt_tile_t *   ctx,
      ledgers which may not have merkle roots or chained merkle roots. */
   fd_hash_t mr = { .ul[0] = shred->slot, .ul[1] = ctx->out_fec_set_idx };
   if( FD_UNLIKELY( begins_fec_set ) ) {
-    /* Backtest is the only user of partition 0 in its topology. */
-    FD_TEST( fd_store_insert_begin( ctx->store, ctx->store_disk_fd, &mr, shred->slot, 0UL, NULL, &ctx->fec_ins )==FD_STORE_SUCCESS );
-    ctx->fec_rec       = fd_store_insert_data( ctx->store, ctx->fec_ins ); /* shred_sz zeroed */
+    /* Backtest is the only user of partition 0 in its topology.  A
+       FEC already below the published root needs no store payload. */
+    int err = fd_store_insert_begin( ctx->store, ctx->store_disk_fd, &mr, shred->slot, 0UL, NULL, &ctx->fec_ins );
+    FD_TEST( err==FD_STORE_SUCCESS || err==FD_STORE_ERR_EXPIRED );
+    ctx->fec_rec       = err==FD_STORE_SUCCESS ? fd_store_insert_data( ctx->store, ctx->fec_ins ) : NULL;
     ctx->fec_data_sz   = 0U;
     ctx->fec_shred_cnt = 0U;
   }
 
-  ulong payload_sz = fd_shred_payload_sz( shred );
-  if( FD_UNLIKELY( ctx->fec_data_sz+payload_sz>ctx->store->fec_data_max ) ) {
-    FD_LOG_ERR(( "backtest FEC payload exceeds store maximum (%lu>%lu)",
-                 ctx->fec_data_sz+payload_sz, ctx->store->fec_data_max ));
+  if( FD_LIKELY( ctx->fec_ins!=FD_STORE_INSERT_NULL ) ) {
+    ulong payload_sz = fd_shred_payload_sz( shred );
+    if( FD_UNLIKELY( ctx->fec_data_sz+payload_sz>ctx->store->fec_data_max ) ) {
+      FD_LOG_ERR(( "backtest FEC payload exceeds store maximum (%lu>%lu)",
+                   ctx->fec_data_sz+payload_sz, ctx->store->fec_data_max ));
+    }
+    /* Append every data shred, including legacy shreds past the first 32
+       whose sizes are not tracked; data_sz counts them all. */
+    fd_memcpy( ctx->fec_rec->payload + ctx->fec_data_sz, fd_shred_data_payload( shred ), payload_sz );
+    ctx->fec_data_sz += (uint)payload_sz;
+    ulong shred_idx = out_shred_idx - ctx->out_fec_set_idx;
+    if( FD_LIKELY( shred_idx<FD_FEC_SHRED_CNT ) ) {
+      FD_TEST( payload_sz<=USHORT_MAX );
+      ctx->fec_rec->shred_sz[ shred_idx ] = (ushort)payload_sz;
+    }
   }
-  /* Append every data shred, including legacy shreds past the first 32
-     whose sizes are not tracked; data_sz counts them all. */
-  fd_memcpy( ctx->fec_rec->payload + ctx->fec_data_sz, fd_shred_data_payload( shred ), payload_sz );
-  ctx->fec_data_sz += (uint)payload_sz;
   FD_TEST( ++ctx->fec_shred_cnt<=67U ); /* legacy variable-length FEC bound */
-  ulong shred_idx = out_shred_idx - ctx->out_fec_set_idx;
-  if( FD_LIKELY( shred_idx<FD_FEC_SHRED_CNT ) ) {
-    FD_TEST( payload_sz<=USHORT_MAX );
-    ctx->fec_rec->shred_sz[ shred_idx ] = (ushort)payload_sz;
-  }
+  int expired = ctx->fec_ins==FD_STORE_INSERT_NULL;
   if( FD_UNLIKELY( completes_fec_set ) ) {
-    FD_TEST( fd_store_insert_commit( ctx->store, ctx->fec_ins, ctx->fec_data_sz )==FD_STORE_SUCCESS );
+    if( FD_LIKELY( !expired ) ) {
+      int err = fd_store_insert_commit( ctx->store, ctx->fec_ins, ctx->fec_data_sz );
+      FD_TEST( err==FD_STORE_SUCCESS || err==FD_STORE_ERR_EXPIRED );
+      expired = err==FD_STORE_ERR_EXPIRED;
+    }
     ctx->fec_ins = FD_STORE_INSERT_NULL;
     ctx->fec_rec = NULL;
   }
@@ -274,6 +283,14 @@ after_credit( fd_backt_tile_t *   ctx,
   ctx->prev_fec_set_idx = shred->fec_set_idx;
 
   if( FD_LIKELY( !completes_fec_set ) ) return;
+
+  ctx->fec_set_idxs[ shred->slot % OUT_FECS_BUFFER_LEN ] = ctx->out_fec_set_idx;
+  /* Replay already rooted this FEC.  Do not send rotor a completion
+     with no queryable payload. */
+  if( FD_UNLIKELY( expired ) ) {
+    if( FD_UNLIKELY( ctx->source_exhausted && !ctx->shreds_cnt ) ) ctx->publish_time += fd_log_wallclock();
+    return;
+  }
 
   ulong parent_slot = shred->slot - shred->data.parent_off;
 
@@ -297,8 +314,6 @@ after_credit( fd_backt_tile_t *   ctx,
     }
   }
   if( FD_UNLIKELY( completes_slot ) ) rotor_fec->block_id = mr;
-
-  ctx->fec_set_idxs[ shred->slot % OUT_FECS_BUFFER_LEN ] = ctx->out_fec_set_idx;
 
   fd_stem_publish( stem, ctx->repair_out->idx, ROTOR_SIG_FEC_REPLAY, ctx->repair_out->chunk, sizeof(fd_repair_replay_fec_t), 0, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
   ctx->repair_out->chunk = fd_dcache_compact_next( ctx->repair_out->chunk, sizeof(fd_repair_replay_fec_t), ctx->repair_out->chunk0, ctx->repair_out->wmark );

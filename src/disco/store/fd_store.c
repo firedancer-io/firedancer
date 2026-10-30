@@ -734,13 +734,15 @@ fec_release( fd_store_t *          store,
 }
 
 #define FD_STORE_SPILL_NO_VICTIM (0)
-#define FD_STORE_SPILL_FREED     (1)
+#define FD_STORE_SPILL_FREED     (1) /* live FEC moved to disk */
 #define FD_STORE_SPILL_CANCELLED (2)
+#define FD_STORE_SPILL_DEAD      (3) /* published during write; slot freed */
 
 /* cache_spill spills the LRU head to a disk slot, writing with the
-   lock dropped.  Returns FREED if a cache slot was freed, CANCELLED if
-   replay pinned the victim during the write, or NO_VICTIM if the LRU
-   is empty.  Enter and return with the lock held. */
+   lock dropped.  Returns FREED if a live FEC was spilled, DEAD if
+   publish freed the cache slot during the write, CANCELLED if replay
+   pinned the victim, or NO_VICTIM if the LRU is empty.  Enter and
+   return with the lock held. */
 
 static int
 cache_spill( fd_store_t *             store,
@@ -790,7 +792,7 @@ cache_spill( fd_store_t *             store,
     disk_release( store, ljoin, disk_idx );
     cache_release( store, ljoin, cache_idx, wake );
     fec_release( store, ljoin, f );
-    return FD_STORE_SPILL_FREED;
+    return FD_STORE_SPILL_DEAD;
   case FD_STORE_STATE_PINNED_SPILLING: /* replay pinned the cache copy, discard the disk copy */
     disk_release( store, ljoin, disk_idx );
     ljoin->meta[ f ].data = data_pack( cache_idx, FD_STORE_STATE_PINNED );

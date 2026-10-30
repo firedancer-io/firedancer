@@ -801,7 +801,7 @@ test_spill_races( fd_wksp_t * wksp ) {
   FD_TEST( !insert( store, fd, &hook_mr, 1UL, 100UL, 0UL ) );
   hook_action = HOOK_PUBLISH;
   active = 1;
-  FD_TEST( fd_store_preevict( store, fd, &active, spill ) ); /* a cache slot was freed */
+  FD_TEST( !fd_store_preevict( store, fd, &active, spill ) ); /* a slot freed, but no live FEC reached disk */
   FD_TEST( !hook_action );
   FD_TEST( !live_cnt( store ) && cache_free( store )==1UL );
   FD_TEST( !atomic_load_explicit( &store->disk_live_cnt, memory_order_relaxed ) );
@@ -1880,7 +1880,8 @@ conc_tile_insert_same_part( int     argc FD_PARAM_UNUSED,
   int err = insert_ex( conc_store, conc_fd, &mr, 2UL, part, 64UL, 64UL, 1UL, 77UL, NULL );
   if( !err ) atomic_fetch_add_explicit( &conc_same_success, 1UL, memory_order_relaxed );
   else {
-    FD_TEST( err==FD_STORE_ERR_DUP );
+    /* The winner may still be filling its payload on another tile. */
+    FD_TEST( err==FD_STORE_ERR_DUP || err==FD_STORE_ERR_PENDING_DUP );
     atomic_fetch_add_explicit( &conc_same_dup, 1UL, memory_order_relaxed );
   }
   return 0;
