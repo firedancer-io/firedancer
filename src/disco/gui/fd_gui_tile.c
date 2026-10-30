@@ -59,6 +59,8 @@ static ulong const gui_db_type_idx[ FD_GUI_HIST_CNT ] = {
   [ FD_GUI_HIST_TIMELINE_DAY     ] = FD_METRICS_ENUM_GUI_DB_TYPE_V_TIMELINE_DAY_IDX,
   [ FD_GUI_HIST_REPLAY_TXN       ] = FD_METRICS_ENUM_GUI_DB_TYPE_V_REPLAY_TXN_IDX,
   [ FD_GUI_HIST_TIMELINE_TILE_DAY ] = FD_METRICS_ENUM_GUI_DB_TYPE_V_TIMELINE_TILE_DAY_IDX,
+  [ FD_GUI_HIST_FEC_EVENTS ]        = FD_METRICS_ENUM_GUI_DB_TYPE_V_FEC_EVENTS_IDX,
+  [ FD_GUI_HIST_FEC_EVENT_ARCHIVE ] = FD_METRICS_ENUM_GUI_DB_TYPE_V_FEC_EVENT_ARCHIVE_IDX,
 };
 
 #define IN_KIND_PACK_EXECLE   ( 2UL)
@@ -89,9 +91,11 @@ FD_IMPORT_BINARY( firedancer_svg, "book/public/fire.svg" );
 
 #define FD_GUI_TIMELINE_RAW_RESPONSE_MAX (32UL<<20)
 FD_STATIC_ASSERT( FD_GUI_TIMELINE_QUERY_SHRED_MAX*56UL+4096UL<=FD_GUI_TIMELINE_RAW_RESPONSE_MAX, shred_response_bound );
-/* Agg txn has four numeric arrays, and agg revenue has three
-   ulong-string arrays: at most 4*21=84 or 3*23=69 bytes per bucket
-   including commas, within the shared 512-byte budget. */
+/* Agg shreds has five numeric arrays: four counts and slot_duration.
+   Agg txn has four numeric arrays.  Agg revenue has three ulong-string
+   arrays.  With commas, these use at most 5*21=105, 4*21=84 and
+   3*23=69 bytes for each bucket.  All are in the shared 512-byte
+   budget. */
 FD_STATIC_ASSERT( FD_GUI_TIMELINE_QUERY_MAX_BUCKETS*512UL+4096UL<=FD_GUI_TIMELINE_RAW_RESPONSE_MAX, agg_response_bound );
 /* Agg cpu is per tile: at most FD_TOPO_MAX_TILES arrays of 5 bytes
    ("null," or "250,") per bucket, plus brackets. */
@@ -531,7 +535,14 @@ after_frag( fd_gui_ctx_t *      ctx,
         ulong shred_idx = msg->shred.idx;
         int is_turbine  = sig_src==SHRED_SIG_SRC_TURBINE;
         /* tsorig is the timestamp when the shred was received by the shred tile */
-        fd_gui_handle_shred( ctx->gui, slot, shred_idx, is_turbine, tsorig_nanos, fd_clock_tile_now( ctx->clock ) );
+        fd_gui_handle_shred( ctx->gui, slot, shred_idx, msg->shred.fec_set_idx, is_turbine, tsorig_nanos, fd_clock_tile_now( ctx->clock ) );
+      }
+      if( FD_UNLIKELY( sig==SHRED_SIG_FEC_COMPLETE || sig==SHRED_SIG_FEC_COMPLETE_LEADER ) ) {
+        fd_fec_complete_t const * msg = (fd_fec_complete_t const *)src;
+        fd_gui_timeline_handle_fec( ctx->gui, msg->last_shred_hdr.slot, sig==SHRED_SIG_FEC_COMPLETE_LEADER,
+                                    fd_clock_tile_tickcomp_to_wallclock( ctx->clock, tspub ),
+                                    msg->turbine_shred_cnt, msg->repair_shred_cnt, msg->reconstructed_shred_cnt,
+                                    fd_clock_tile_now( ctx->clock ) );
       }
       if( FD_UNLIKELY( sig==SHRED_SIG_FEC_COMPLETE_LEADER ) ) {
         fd_fec_complete_t const * complete_msg = (fd_fec_complete_t const *)fd_type_pun_const( src );

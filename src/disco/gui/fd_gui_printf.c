@@ -3342,15 +3342,17 @@ fd_gui_timeline_slot_skipped( fd_gui_t * gui,
 #define SORT_BEFORE(a,b) ((a).slot<(b).slot)
 #include "../../util/tmpl/fd_sort.c"
 
-int
-fd_gui_printf_timeline_query_shreds( fd_gui_t * gui,
-                                     long       start,
-                                     long       end,
-                                     ulong      id ) {
+static int
+fd_gui_timeline_query_events( fd_gui_t * gui,
+                              long       start,
+                              long       end,
+                              ulong      id,
+                              int        fec ) {
   if( FD_UNLIKELY( start<0L || end<=start || end==LONG_MAX ) ) return -1;
   fd_gui_shred_event_t * events = gui->timeline_scratch.events;
   fd_gui_shred_event_iter_t it;
-  fd_gui_shred_event_hist_iter_begin( gui, &it, start, end );
+  if( fec ) fd_gui_fec_event_iter_begin( gui, &it, start, end );
+  else      fd_gui_shred_event_hist_iter_begin( gui, &it, start, end );
   ulong n              = 0UL;
   ulong reference_slot = ULONG_MAX;
   long  reference_ts   = LONG_MAX;
@@ -3376,8 +3378,8 @@ fd_gui_printf_timeline_query_shreds( fd_gui_t * gui,
   jsonp_open_envelope( gui->http, "timeline", "query_shreds" );
   jsonp_ulong( gui->http, "id", id );
   jsonp_open_object( gui->http, "value" );
-  jsonp_string( gui->http, "granularity", "shred" );
-  fd_gui_timeline_bounds( gui, FD_GUI_HIST_SHRED_EVENTS );
+  jsonp_string( gui->http, "granularity", fec ? "fec" : "shred" );
+  fd_gui_timeline_bounds( gui, fec ? FD_GUI_HIST_FEC_EVENTS : FD_GUI_HIST_SHRED_EVENTS );
   if( n ) {
     jsonp_ulong( gui->http, "reference_slot", reference_slot );
     jsonp_long_as_str( gui->http, "reference_ts", reference_ts );
@@ -3415,6 +3417,22 @@ fd_gui_printf_timeline_query_shreds( fd_gui_t * gui,
   return 0;
 }
 
+int
+fd_gui_printf_timeline_query_shreds( fd_gui_t * gui,
+                                     long       start,
+                                     long       end,
+                                     ulong      id ) {
+  return fd_gui_timeline_query_events( gui, start, end, id, 0 );
+}
+
+int
+fd_gui_printf_timeline_query_fec_events( fd_gui_t * gui,
+                                         long       start,
+                                         long       end,
+                                         ulong      id ) {
+  return fd_gui_timeline_query_events( gui, start, end, id, 1 );
+}
+
 /* fd_gui_timeline_day_bounds returns the span of live day records.
    Returns 1 and sets *start / *end if any are available, else 0. */
 
@@ -3430,6 +3448,23 @@ fd_gui_timeline_day_bounds( fd_gui_t * gui,
   *start = first-FD_GUI_TIMELINE_DAY_NS;
   *end   = last;
   return 1;
+}
+
+/* fd_gui_timeline_duration_query calculates the slot duration of each
+   bucket. */
+
+static void
+fd_gui_timeline_duration_query( fd_gui_timeline_query_bucket_t * buckets,
+                                ulong                            count ) {
+  for( ulong i=0UL; i<count; i++ ) {
+    ulong wall  = buckets[ i ].fields[ FD_GUI_TIMELINE_FIELD_DURATION_WALL  ];
+    ulong slots = buckets[ i ].fields[ FD_GUI_TIMELINE_FIELD_DURATION_SLOTS ];
+    if( wall==ULONG_MAX || slots==ULONG_MAX || !slots ) continue;
+    int sh = fd_int_max( fd_ulong_find_msb_w_default( wall, 0 )-38, 0 ); /* wall>>sh<2^39, so wall*FD_GUI_TIMELINE_SLOT_UNIT<2^63 */
+    wall  >>= sh;
+    slots >>= sh;
+    buckets[ i ].slot_duration = FD_LIKELY( slots ) ? ( wall*FD_GUI_TIMELINE_SLOT_UNIT + slots/2UL ) / slots : ULONG_MAX-1UL;
+  }
 }
 
 int
@@ -3448,7 +3483,10 @@ fd_gui_printf_timeline_query_agg( fd_gui_t *   gui,
   if( FD_UNLIKELY( (ulong)reference+count*ns>=(ulong)LONG_MAX ) ) return -1; /* window end must be representable */
 
   fd_gui_timeline_query_bucket_t * b = gui->timeline_scratch.buckets;
-  for( ulong i=0UL; i<count; i++ ) memset( b[ i ].fields, 0xFF, sizeof(b[ i ].fields) );
+  for( ulong i=0UL; i<count; i++ ) {
+    memset( b[ i ].fields, 0xFF, sizeof(b[ i ].fields) );
+    b[ i ].slot_duration = ULONG_MAX;
+  }
 
   /* The buckets are visited in ascending time order, so the record for
      the previous bucket's day is reused until the query crosses into
@@ -3472,6 +3510,7 @@ fd_gui_printf_timeline_query_agg( fd_gui_t *   gui,
       }
     }
   }
+  if( !strcmp( key, "query_agg_shreds" ) ) fd_gui_timeline_duration_query( b, count );
 
   jsonp_open_envelope( gui->http, "timeline", key );
   jsonp_ulong( gui->http, "id", id );
@@ -3496,7 +3535,18 @@ fd_gui_printf_timeline_query_agg( fd_gui_t *   gui,
   } \
   jsonp_close_array( gui->http ); \
 } while(0)
-  if( !strcmp( key, "query_agg_compute" ) ) {
+  if( !strcmp( key, "query_agg_shreds" ) ) {
+    AGG_ARRAY( "turbine", TURBINE, 0 );
+    AGG_ARRAY( "repair", REPAIR, 0 );
+    AGG_ARRAY( "reconstructed", RECONSTRUCTED, 0 );
+    AGG_ARRAY( "published", PUBLISHED, 0 );
+    jsonp_open_array( gui->http, "slot_duration" );
+    for( ulong i=0UL; i<count; i++ ) {
+      if( b[ i ].slot_duration==ULONG_MAX ) jsonp_null( gui->http, NULL );
+      else jsonp_ulong( gui->http, NULL, b[ i ].slot_duration );
+    }
+    jsonp_close_array( gui->http );
+  } else if( !strcmp( key, "query_agg_compute" ) ) {
     AGG_ARRAY( "compute_units", COMPUTE_UNITS, 0 );
     ulong max = ULONG_MAX;
     for( ulong i=0UL; i<count; i++ ) {

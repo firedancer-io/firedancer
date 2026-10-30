@@ -108,6 +108,10 @@ typedef struct fd_gui_rate_entry fd_gui_rate_entry_t;
 #define FD_GUI_REPAIR_CATCH_UP_HISTORY_SZ  (4096UL)
 #define FD_GUI_TURBINE_CATCH_UP_HISTORY_SZ (4096UL)
 
+/* FD_GUI_MAX_CONSECUTIVE_SKIPS is the largest run of skipped slots
+   that the gui expects.  TODO: prove derivation. */
+#define FD_GUI_MAX_CONSECUTIVE_SKIPS (1024UL)
+
 #define FD_GUI_SLOT_RANKINGS_SZ (100UL)
 #define FD_GUI_SLOT_RANKING_TYPE_ASC  (0)
 #define FD_GUI_SLOT_RANKING_TYPE_DESC (1)
@@ -251,7 +255,9 @@ fd_gui_timeline_tier( char const * key,
   X( NONVOTE_FAILED,  nonvote_failed,   uint,   uint,   uint,   uint,   uint,   ulong,  ulong  ) \
   X( VOTE_SUCCESS,    vote_success,     uint,   uint,   uint,   uint,   uint,   ulong,  ulong  ) \
   X( VOTE_FAILED,     vote_failed,      uint,   uint,   uint,   uint,   uint,   ulong,  ulong  ) \
-  X( SKIPPED,         skipped,          ushort, ushort, ushort, ushort, ushort, ushort, uint   )
+  X( SKIPPED,         skipped,          ushort, ushort, ushort, ushort, ushort, ushort, uint   ) \
+  X( DURATION_WALL,   duration_wall,    ulong,  ulong,  ulong,  ulong,  ulong,  ulong,  ulong  ) \
+  X( DURATION_SLOTS,  duration_slots,   ulong,  ulong,  ulong,  ulong,  ulong,  ulong,  ulong  )
 
 #define FD_GUI_TIMELINE_FIELD_ENUM( id, name, t0, t1, t2, t3, t4, t5, t6 ) FD_GUI_TIMELINE_FIELD_##id,
 enum fd_gui_timeline_field {
@@ -394,6 +400,13 @@ fd_gui_timeline_field_accum( fd_gui_timeline_day_t * day,
   ulong acc = fd_gui_timeline_field_get( day, granularity, field, idx );
   fd_gui_timeline_field_set( day, granularity, field, idx, fd_gui_timeline_combine( acc, value, field ) );
 }
+
+/* Each time bucket counts how many slots the chain advanced in it.  A
+   block can start in one bucket and end in a different bucket, so a
+   bucket can get only part of a slot.  To keep these parts, the count
+   uses units of 1/2^24 slot.  FD_GUI_TIMELINE_SLOT_UNIT is the count
+   for one full slot. */
+#define FD_GUI_TIMELINE_SLOT_UNIT (1UL<<24)
 
 /* Per-tile CPU utilization is sampled every 25ms from the tile regime
    timers as 0 (idle) to FD_GUI_CPU_UTIL_MAX (busy). */
@@ -1203,6 +1216,7 @@ typedef struct fd_gui_summary fd_gui_summary_t;
 
 struct fd_gui_timeline_query_bucket {
   ulong fields[ FD_GUI_TIMELINE_FIELD_CNT ];
+  ulong slot_duration;
 };
 typedef struct fd_gui_timeline_query_bucket fd_gui_timeline_query_bucket_t;
 
@@ -1328,6 +1342,13 @@ struct fd_gui {
     fd_gui_shred_builder_t builder;
     ulong                  dropped_event_cnt;
 
+    /* FEC event staging (see fd_gui_fec_event_append). */
+    ulong closed_slot_wmark;     /* Slots below this are permanently closed */
+    ulong fec_marker_sequence;   /* Last slot complete marker sequence */
+    long  fec_insert_time_ns;    /* Last staged admission time */
+    ulong dropped_fec_event_cnt;
+    ulong clamped_fec_event_cnt;
+
     /* Events with insert_time_ns below this watermark have already
        been pushed to clients. */
     long broadcast_watermark_ns;
@@ -1372,6 +1393,19 @@ int
 fd_gui_timeline_tile_day_bounds( fd_gui_t * gui,
                                  ulong *    lo_day,
                                  ulong *    hi_day );
+
+/* fd_gui_timeline_handle_fec adds the shred counts of one completed FEC
+   set to the calendar-day aggregates.  It ignores invalid input. */
+
+void
+fd_gui_timeline_handle_fec( fd_gui_t * gui,
+                            ulong      slot,
+                            int        published,
+                            long       timestamp_ns,
+                            ulong      turbine,
+                            ulong      repair,
+                            ulong      reconstructed,
+                            long       now );
 
 /* fd_gui_handle_replay_txn records replay transaction metadata. */
 
@@ -1527,6 +1561,7 @@ void
 fd_gui_handle_shred( fd_gui_t * gui,
                      ulong      slot,
                      ulong      shred_idx,
+                     ulong      fec_set_idx,
                      int        is_turbine,
                      long       tsorig,
                      long       now );
