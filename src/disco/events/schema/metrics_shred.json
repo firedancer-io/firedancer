@@ -205,7 +205,7 @@
         },
         "store_fec_sync_spill_duration_nanos": {
             "type": "Tuple",
-            "description": "Duration of synchronously spilling one FEC payload to the store",
+            "description": "Duration of disk writes during one synchronous FEC insert, including cancelled spills",
             "fields": {
                 "b0":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[0, 100) nanos" },
                 "b1":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[100, 268) nanos" },

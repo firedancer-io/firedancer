@@ -127,8 +127,8 @@ typedef struct ctx {
     ulong      disk_write_failed;
     ulong      disk_write_bytes;
     fd_histf_t fec_preevict_timing[1];
-    ulong      fec_preevict_write_cnt;
-    ulong      fec_preevict_write_bytes;
+    ulong      fec_preevict_cnt;
+    ulong      fec_preevict_bytes;
 
     ulong ping_cache_entries;
     ulong ping_cache_capacity;
@@ -678,12 +678,13 @@ before_credit( ctx_t             * ctx,
                fd_stem_context_t * stem FD_PARAM_UNUSED,
                int               * charge_busy ) {
   fd_store_spill_stats_t spill[1];
-  if( FD_UNLIKELY( fd_store_preevict( ctx->store, ctx->disk_fd, &ctx->preevict_active, spill ) ) ) {
+  fd_store_preevict( ctx->store, ctx->disk_fd, &ctx->preevict_active, spill );
+  if( FD_UNLIKELY( spill->write_ticks ) ) {
     fd_histf_sample( ctx->metrics->fec_preevict_timing, spill->write_ticks );
-    ctx->metrics->fec_preevict_write_cnt   += spill->write_cnt;
-    ctx->metrics->fec_preevict_write_bytes += spill->write_bytes;
     *charge_busy = 1;
   }
+  ctx->metrics->fec_preevict_cnt   += spill->spilled_cnt;
+  ctx->metrics->fec_preevict_bytes += spill->spilled_bytes;
 }
 
 static inline void
@@ -749,8 +750,8 @@ metrics_write( ctx_t * ctx ) {
   FD_MCNT_SET      ( RSERVE, DISK_SHRED_WRITE_FAILED,            ctx->metrics->disk_write_failed        );
   FD_MCNT_SET      ( RSERVE, DISK_SHRED_WRITTEN_BYTES,           ctx->metrics->disk_write_bytes         );
   FD_MHIST_COPY    ( RSERVE, STORE_FEC_PREEVICT_DURATION_NANOS,  ctx->metrics->fec_preevict_timing      );
-  FD_MCNT_SET      ( RSERVE, STORE_FEC_PREEVICTED,               ctx->metrics->fec_preevict_write_cnt   );
-  FD_MCNT_SET      ( RSERVE, STORE_FEC_PREEVICTED_BYTES,         ctx->metrics->fec_preevict_write_bytes );
+  FD_MCNT_SET      ( RSERVE, STORE_FEC_PREEVICTED,               ctx->metrics->fec_preevict_cnt   );
+  FD_MCNT_SET      ( RSERVE, STORE_FEC_PREEVICTED_BYTES,         ctx->metrics->fec_preevict_bytes );
   FD_MGAUGE_SET    ( RSERVE, STORE_FEC_CACHE_FREE,               cache_stats->free_cnt                  );
   FD_MGAUGE_SET    ( RSERVE, STORE_FEC_CACHE_CAPACITY,           cache_stats->max                       );
   FD_MGAUGE_SET    ( RSERVE, STORE_FEC_CACHE_FREE_TARGET,        cache_stats->target                    );

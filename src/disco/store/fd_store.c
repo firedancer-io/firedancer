@@ -771,11 +771,7 @@ cache_spill( fd_store_t *             store,
 
   fd_rwlock_write( &store->lock );
   ticks += fd_tickcount();
-  if( spill_stats ) {
-    spill_stats->write_cnt++;
-    spill_stats->write_bytes += bytes;
-    spill_stats->write_ticks += (ulong)ticks;
-  }
+  if( spill_stats ) spill_stats->write_ticks += (ulong)ticks;
 
   uint state = data_state( ljoin->meta[ f ].data );
   FD_TEST( data_idx( ljoin->meta[ f ].data )==cache_idx );
@@ -783,6 +779,10 @@ cache_spill( fd_store_t *             store,
   case FD_STORE_STATE_SPILLING: /* disk copy is authoritative, free the cache slot */
     ljoin->meta[ f ].data = data_pack( disk_idx, FD_STORE_STATE_SPILLED );
     cache_release( store, ljoin, cache_idx, wake );
+    if( spill_stats ) {
+      spill_stats->spilled_cnt++;
+      spill_stats->spilled_bytes += bytes;
+    }
     stat_add( &store->spill_cnt,   1UL   );
     stat_add( &store->spill_bytes, bytes );
     return FD_STORE_SPILL_FREED;

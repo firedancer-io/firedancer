@@ -387,7 +387,7 @@
         "txncache_lock_write_wait_duration_nanos": { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Time all tiles spent waiting to take the transaction cache exclusive lock" },
         "store_fec_query_hit": {
             "type": "Tuple",
-            "description": "FEC set store queries that found a payload, by where it was read from",
+            "description": "FEC set store queries that found a payload, by its cache or disk location",
             "aliases": {
                 "all": ["cache", "disk"]
             },

@@ -940,14 +940,12 @@ complete_fec_set( fd_shred_ctx_t *         ctx,
     fd_store_insert_stats_t stats[1];
     fd_store_insert_t       ins;
     int err = fd_store_insert_begin( ctx->store, ctx->disk_fd, mr, last->slot, ctx->round_robin_id, stats, &ins );
-    if( FD_UNLIKELY( stats->spill.write_cnt ) ) {
-      fd_histf_sample( ctx->metrics->fec_fallback_write_timing, stats->spill.write_ticks );
-      ctx->metrics->fec_fallback_write_cnt   += stats->spill.write_cnt;
-      ctx->metrics->fec_fallback_write_bytes += stats->spill.write_bytes;
-    }
+    if( FD_UNLIKELY( stats->spill.write_ticks ) ) fd_histf_sample( ctx->metrics->fec_fallback_write_timing, stats->spill.write_ticks );
+    ctx->metrics->fec_fallback_write_cnt   += stats->spill.spilled_cnt;
+    ctx->metrics->fec_fallback_write_bytes += stats->spill.spilled_bytes;
     if( FD_UNLIKELY( stats->park_cnt ) ) {
       fd_histf_sample( ctx->metrics->store_insert_park_timing, stats->park_ticks );
-      ctx->metrics->store_insert_park_cnt += stats->park_cnt;
+      ctx->metrics->store_insert_park_cnt++;
     }
     if( FD_LIKELY( err==FD_STORE_SUCCESS ) ) {
       fd_store_fec_t * rec     = fd_store_insert_data( ctx->store, ins );

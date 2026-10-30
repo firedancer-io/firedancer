@@ -3662,6 +3662,10 @@ process_rotor_fec( fd_replay_tile_t       * ctx,
     FD_LOG_INFO(( "store fec for slot: %lu unavailable (pruned by publish); abandoning slice. root: %lu. merkle: %s", fec->slot, ctx->consensus_root_slot, key_b58 ));
     return;
   }
+  /* Count the acquisition even for leader FECs, which are not ingested
+     into the scheduler but still found a payload in the store. */
+  ctx->metrics.store_query_hit_cnt[ fd_store_view_spilled( view ) ? FD_METRICS_ENUM_STORE_FEC_SOURCE_TYPE_V_DISK_IDX
+                                                                : FD_METRICS_ENUM_STORE_FEC_SOURCE_TYPE_V_CACHE_IDX ]++;
 
   long now = fd_log_wallclock();
   fd_block_id_ele_t * block_id_ele;
@@ -3769,8 +3773,6 @@ process_rotor_fec( fd_replay_tile_t       * ctx,
   int ingested = fd_sched_fec_ingest( ctx->sched, sched_fec );
   int spilled  = fd_store_view_spilled( view );
   if( FD_UNLIKELY( spilled && sched_fec->read.read_ticks ) ) fd_histf_sample( ctx->metrics.store_spill_read_work, (ulong)sched_fec->read.read_ticks );
-  ctx->metrics.store_query_hit_cnt[ spilled ? FD_METRICS_ENUM_STORE_FEC_SOURCE_TYPE_V_DISK_IDX
-                                            : FD_METRICS_ENUM_STORE_FEC_SOURCE_TYPE_V_CACHE_IDX ]++;
   fd_store_query_release( ctx->store, view );
 
   if( FD_UNLIKELY( !ingested ) ) {

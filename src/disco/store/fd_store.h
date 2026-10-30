@@ -376,9 +376,9 @@ struct fd_store_lookup_stats {
 typedef struct fd_store_lookup_stats fd_store_lookup_stats_t;
 
 struct fd_store_spill_stats {
-  ulong write_cnt;
-  ulong write_bytes;
-  ulong write_ticks;
+  ulong write_ticks;   /* total I/O time, including cancelled/expired writes */
+  ulong spilled_cnt;   /* live FECs actually moved to disk */
+  ulong spilled_bytes;
 };
 typedef struct fd_store_spill_stats fd_store_spill_stats_t;
 

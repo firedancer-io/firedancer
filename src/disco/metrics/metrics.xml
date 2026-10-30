@@ -827,7 +827,7 @@ deliberate exception with lint-allow="<rule id>")
         <summary>Duration of verifying and processing one shred received from the network</summary>
     </histogram>
     <histogram name="StoreFecSyncSpillDurationNanos" min="100" max="100000000" source="ticks">
-        <summary>Duration of synchronously spilling one FEC payload to the store</summary>
+        <summary>Duration of disk writes during one synchronous FEC insert, including cancelled spills</summary>
     </histogram>
     <counter name="Processed" enum="ShredProcessResult" summary="Shreds assigned to this tile that passed the initial parse and chained check, by processing result, plus received frags that failed the initial parse; InitialRejected and FecFatalRejected are subsets of Rejected" />
     <counter name="FecIncompleteEvicted" summary="Incomplete FEC sets evicted from the resolver to make room for new ones" />
@@ -946,7 +946,7 @@ deliberate exception with lint-allow="<rule id>")
     <gauge name="StoreFecCacheUsed" summary="FEC payload slots in use in the store RAM cache" />
     <gauge name="StoreFecCacheCapacity" summary="FEC payload capacity of the store RAM cache" />
     <gauge name="StoreFecCachePinned" ambiguous-kind="true" deprecated="true" summary="FEC payload views currently pinned against eviction" />
-    <counter name="StoreFecQueryHit" enum="StoreFecSourceType" summary="FEC set store queries that found a payload, by where it was read from" />
+    <counter name="StoreFecQueryHit" enum="StoreFecSourceType" summary="FEC set store queries that found a payload, by its cache or disk location" />
     <histogram name="StoreFecSpillReadDurationNanos" min="1000" max="100000000" source="ticks">
         <summary>Duration of reading one spilled FEC payload from disk</summary>
     </histogram>
@@ -1210,7 +1210,7 @@ deliberate exception with lint-allow="<rule id>")
     <counter name="DiskShredWrittenBytes" summary="Bytes written by persisted data shreds" />
 
     <histogram name="StoreFecPreevictDurationNanos" min="100" max="100000000" source="ticks">
-        <summary>Duration of preevicting one FEC payload from the store RAM cache</summary>
+        <summary>Disk write duration of one store FEC preeviction attempt, including cancelled spills</summary>
     </histogram>
     <counter name="StoreFecPreevicted" summary="FEC payloads preevicted from the store RAM cache to disk" />
     <counter name="StoreFecPreevictedBytes" summary="FEC payload bytes preevicted from the store RAM cache to disk" />

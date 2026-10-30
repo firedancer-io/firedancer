@@ -318,7 +318,7 @@ test_basic( fd_wksp_t * wksp ) {
 
   fd_store_insert_stats_t stats[1];
   FD_TEST( !insert_ex( store, -1, &mr0, 1UL, 0UL, 31840UL, 31840UL, 32UL, 0UL, stats ) );
-  FD_TEST( !stats->park_cnt && !stats->spill.write_cnt );
+  FD_TEST( !stats->park_cnt && !stats->spill.write_ticks && !stats->spill.spilled_cnt );
   FD_TEST( !insert( store, -1, &mr1, 1UL, 1000UL, 1UL ) );
   FD_TEST( !insert( store, -1, &mr2, 2UL, 0UL,    2UL ) ); /* empty payload */
   FD_TEST( live_cnt( store )==3UL && cache_free( store )==5UL );
@@ -637,11 +637,11 @@ test_spill( fd_wksp_t * wksp ) {
   fd_store_insert_stats_t stats[1];
   FD_TEST( !insert_ex( store, fd, &mr0, 1UL, 0UL, 31840UL, 31840UL, 32UL, 0UL, stats ) );
   FD_TEST( !insert_ex( store, fd, &mr1, 1UL, 0UL, 5000UL,  5000UL,  3UL,  1UL, stats ) );
-  FD_TEST( !stats->spill.write_cnt );
+  FD_TEST( !stats->spill.write_ticks && !stats->spill.spilled_cnt );
 
   /* The cache is full: the LRU head (mr0) is spilled synchronously. */
   FD_TEST( !insert_ex( store, fd, &mr2, 1UL, 0UL, 100UL, 100UL, 1UL, 2UL, stats ) );
-  FD_TEST( stats->spill.write_cnt==1UL && stats->spill.write_bytes==31840UL && stats->spill.write_ticks );
+  FD_TEST( stats->spill.write_ticks && stats->spill.spilled_cnt==1UL && stats->spill.spilled_bytes==31840UL );
   FD_TEST( atomic_load_explicit( &store->spill_cnt,   memory_order_relaxed )==1UL );
   FD_TEST( atomic_load_explicit( &store->spill_bytes, memory_order_relaxed )==31840UL );
   FD_TEST( atomic_load_explicit( &store->disk_live_cnt, memory_order_relaxed )==1UL );
@@ -717,7 +717,7 @@ test_preevict( fd_wksp_t * wksp ) {
      water mark. */
   ulong i = 0UL;
   while( cache_free( store )>=low ) {
-    FD_TEST( !fd_store_preevict( store, fd, &active, spill ) && !active && !spill->write_cnt );
+    FD_TEST( !fd_store_preevict( store, fd, &active, spill ) && !active && !spill->write_ticks && !spill->spilled_cnt );
     fd_hash_t mr = mr_make( 1UL, i );
     FD_TEST( !insert( store, fd, &mr, 1UL, 1000UL, i ) );
     i++;
@@ -728,12 +728,14 @@ test_preevict( fd_wksp_t * wksp ) {
      target, then deactivates. */
   ulong spilled = 0UL;
   while( fd_store_preevict( store, fd, &active, spill ) ) {
-    FD_TEST( spill->write_cnt==1UL && spill->write_bytes==1000UL );
+    FD_TEST( spill->write_ticks && spill->spilled_cnt==1UL && spill->spilled_bytes==1000UL );
     spilled++;
     FD_TEST( active==(cache_free( store )<target) );
   }
   FD_TEST( !active && cache_free( store )==target );
   FD_TEST( spilled==target-(low-1UL) );
+  FD_TEST( atomic_load_explicit( &store->spill_cnt, memory_order_relaxed )==spilled );
+  FD_TEST( atomic_load_explicit( &store->spill_bytes, memory_order_relaxed )==spilled*1000UL );
   FD_TEST( !fd_store_preevict( store, fd, &active, spill ) && !active );
 
   /* The oldest FECs were spilled. */
@@ -804,6 +806,7 @@ test_spill_races( fd_wksp_t * wksp ) {
   FD_TEST( !live_cnt( store ) && cache_free( store )==1UL );
   FD_TEST( !atomic_load_explicit( &store->disk_live_cnt, memory_order_relaxed ) );
   FD_TEST( !atomic_load_explicit( &store->spill_cnt, memory_order_relaxed ) );
+  FD_TEST( spill->write_ticks && !spill->spilled_cnt && !spill->spilled_bytes );
   FD_TEST( !insert( store, fd, &hook_mr, 2UL, 100UL, 0UL ) ); /* the key is free again */
   check_invariants( store );
 
@@ -812,7 +815,7 @@ test_spill_races( fd_wksp_t * wksp ) {
   hook_action = HOOK_PIN;
   active = 1;
   FD_TEST( !fd_store_preevict( store, fd, &active, spill ) );
-  FD_TEST( spill->write_cnt==1UL );
+  FD_TEST( spill->write_ticks && !spill->spilled_cnt && !spill->spilled_bytes );
   FD_TEST( atomic_load_explicit( &store->spill_cancel_cnt, memory_order_relaxed )==1UL );
   FD_TEST( !atomic_load_explicit( &store->disk_live_cnt, memory_order_relaxed ) );
   store_ljoin_t ljoin = store_ljoin( store );
@@ -840,7 +843,7 @@ test_spill_races( fd_wksp_t * wksp ) {
   fd_hash_t mr1 = mr_make( 3UL, 32UL );
   fd_store_insert_stats_t stats[1];
   FD_TEST( !insert_ex( store, fd, &mr1, 3UL, 0UL, 10UL, 10UL, 1UL, 1UL, stats ) );
-  FD_TEST( stats->spill.write_cnt==1UL ); /* completed: the pin was released before the write finished */
+  FD_TEST( stats->spill.write_ticks && stats->spill.spilled_cnt==1UL ); /* completed: the pin was released before the write finished */
   FD_TEST( check( store, fd, &hook_mr, 100UL, 0UL ) );
   check_invariants( store );
 
@@ -1824,7 +1827,7 @@ test_park( fd_wksp_t * wksp ) {
 
   for( ulong i=1UL; i<=park_cnt; i++ ) {
     FD_TEST( park_stats[ i ].park_cnt==1UL && park_stats[ i ].park_ticks );
-    FD_TEST( park_stats[ i ].spill.write_cnt==1UL );
+    FD_TEST( park_stats[ i ].spill.spilled_cnt==1UL );
   }
   FD_TEST( atomic_load_explicit( &park_store->spill_cnt, memory_order_relaxed )==park_cnt );
 

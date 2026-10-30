@@ -282,7 +282,7 @@ enum {
 
 #define FD_METRICS_COUNTER_REPLAY_STORE_FEC_QUERY_HIT_NAME "replay_store_fec_query_hit"
 #define FD_METRICS_COUNTER_REPLAY_STORE_FEC_QUERY_HIT_TYPE (FD_METRICS_TYPE_COUNTER)
-#define FD_METRICS_COUNTER_REPLAY_STORE_FEC_QUERY_HIT_DESC "FEC set store queries that found a payload, by where it was read from"
+#define FD_METRICS_COUNTER_REPLAY_STORE_FEC_QUERY_HIT_DESC "FEC set store queries that found a payload, by its cache or disk location"
 #define FD_METRICS_COUNTER_REPLAY_STORE_FEC_QUERY_HIT_CVT  (FD_METRICS_CONVERTER_NONE)
 #define FD_METRICS_COUNTER_REPLAY_STORE_FEC_QUERY_HIT_CNT  (2UL)
 

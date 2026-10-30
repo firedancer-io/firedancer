@@ -2309,12 +2309,17 @@ test_process_rotor_fec_skip_replayed( fd_wksp_t * wksp ) {
   ag_block_id_t C_key = ag_block_id( 6UL, C.uc );
   ulong view0    = mock_store_view_call_cnt;
   ulong missing0 = ctx->metrics.store_query_missing_cnt;
+  ulong hits0 = ctx->metrics.store_query_hit_cnt[ FD_METRICS_ENUM_STORE_FEC_SOURCE_TYPE_V_CACHE_IDX ];
   mock_store_view_fail = 1;
   r = deliver_rotor_fec_bid( ctx, 6UL, 0U, 0UL, &parent_bid, &C, &mrY, 1, 1 );
   mock_store_view_fail = 0;
   FD_TEST( r==0 );
   FD_TEST( ctx->metrics.store_query_cnt==q0+1UL );
   FD_TEST( ctx->metrics.store_query_missing_cnt==missing0+1UL );
+  FD_TEST( ctx->metrics.store_query_hit_cnt[ FD_METRICS_ENUM_STORE_FEC_SOURCE_TYPE_V_CACHE_IDX ]==hits0 );
+  FD_TEST( ctx->metrics.store_query_cnt==ctx->metrics.store_query_missing_cnt +
+           ctx->metrics.store_query_hit_cnt[ FD_METRICS_ENUM_STORE_FEC_SOURCE_TYPE_V_CACHE_IDX ] +
+           ctx->metrics.store_query_hit_cnt[ FD_METRICS_ENUM_STORE_FEC_SOURCE_TYPE_V_DISK_IDX ] );
   FD_TEST( mock_store_view_call_cnt==view0+1UL );
   FD_TEST( mock_store_view_success_cnt==mock_store_view_release_cnt );
   FD_TEST( fd_banks_pool_used_cnt( ctx->banks )==used0 );
@@ -2536,6 +2541,8 @@ test_rotor_fec_turbine_keying( fd_wksp_t * wksp ) {
   ulong seq0    = test_stem_seqs[ out_idx ];
   ulong used0   = fd_banks_pool_used_cnt( ctx->banks );
   ulong ing0    = mock_sched_fec_ingest_cnt;
+  ulong queries0 = ctx->metrics.store_query_cnt;
+  ulong hits0    = ctx->metrics.store_query_hit_cnt[ FD_METRICS_ENUM_STORE_FEC_SOURCE_TYPE_V_CACHE_IDX ];
 
   fd_hash_t B    = { .ul = { 0x5150UL } };
   fd_hash_t mr0  = { .ul = { 501 } };
@@ -2549,6 +2556,11 @@ test_rotor_fec_turbine_keying( fd_wksp_t * wksp ) {
   FD_TEST( deliver_rotor_fec_bid( ctx, 5UL, 0U, 0UL, &parent_bid, &B, &mr0, 0, 0 )==0 );
   FD_TEST( fd_banks_pool_used_cnt( ctx->banks )==used0+1UL );
   FD_TEST( mock_sched_fec_ingest_cnt==ing0+1UL );
+  FD_TEST( ctx->metrics.store_query_cnt==queries0+1UL );
+  FD_TEST( ctx->metrics.store_query_hit_cnt[ FD_METRICS_ENUM_STORE_FEC_SOURCE_TYPE_V_CACHE_IDX ]==hits0+1UL );
+  FD_TEST( ctx->metrics.store_query_cnt==ctx->metrics.store_query_missing_cnt +
+           ctx->metrics.store_query_hit_cnt[ FD_METRICS_ENUM_STORE_FEC_SOURCE_TYPE_V_CACHE_IDX ] +
+           ctx->metrics.store_query_hit_cnt[ FD_METRICS_ENUM_STORE_FEC_SOURCE_TYPE_V_DISK_IDX ] );
   fd_block_id_ele_t * ele5 = fd_block_id_map_ele_query( ctx->block_id_map, &key_slot, NULL, ctx->block_id_arr );
   FD_TEST( ele5 );
   FD_TEST( !fd_block_id_map_ele_query( ctx->block_id_map, &key_id, NULL, ctx->block_id_arr ) );
@@ -3175,7 +3187,16 @@ test_ag_leader_abandon_on_root_past_leader_slot( fd_wksp_t * wksp ) {
   fd_hash_t zero    = {0};
   fd_hash_t mr2_0   = { .ul = { 2001UL } };
   fd_hash_t mr2_32  = { .ul = { 2002UL } };
+  ulong queries0 = ctx->metrics.store_query_cnt;
+  ulong hits0 = ctx->metrics.store_query_hit_cnt[ FD_METRICS_ENUM_STORE_FEC_SOURCE_TYPE_V_CACHE_IDX ];
+  ulong misses0 = ctx->metrics.store_query_missing_cnt;
   FD_TEST( !deliver_leader_fec( ctx, 2UL, 0U, 1UL, &id1, &zero, &mr2_0, 0 ) );
+  FD_TEST( ctx->metrics.store_query_cnt==queries0+1UL );
+  FD_TEST( ctx->metrics.store_query_hit_cnt[ FD_METRICS_ENUM_STORE_FEC_SOURCE_TYPE_V_CACHE_IDX ]==hits0+1UL );
+  FD_TEST( ctx->metrics.store_query_missing_cnt==misses0 );
+  FD_TEST( ctx->metrics.store_query_cnt==ctx->metrics.store_query_missing_cnt +
+           ctx->metrics.store_query_hit_cnt[ FD_METRICS_ENUM_STORE_FEC_SOURCE_TYPE_V_CACHE_IDX ] +
+           ctx->metrics.store_query_hit_cnt[ FD_METRICS_ENUM_STORE_FEC_SOURCE_TYPE_V_DISK_IDX ] );
   FD_TEST( fd_hash_eq( &ctx->block_id_arr[ leader_idx ].latest_mr, &mr2_0 ) );
   FD_TEST( !ctx->block_id_arr[ leader_idx ].block_id_seen );
 
