@@ -2259,7 +2259,7 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
     fd_bpf_state_t program_account_state[1];
     err = fd_bpf_loader_program_get_state( program_account.acc, program_account_state );
     if( FD_UNLIKELY( err!=FD_EXECUTOR_INSTR_SUCCESS ) ) {
-      fd_log_collector_msg_literal( ctx, "Program is not deployed" );
+      fd_log_collector_msg_literal( ctx, "Program is not cached" );
       return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
     }
 
@@ -2273,7 +2273,7 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
          cases, Agave does not log this message. Meanwhile, non-migrating
          built-in programs do not use the BPF loader, by definition. */
       if( !fd_is_non_migrating_builtin_program( program_id ) ) {
-        fd_log_collector_msg_literal( ctx, "Program is not deployed" );
+        fd_log_collector_msg_literal( ctx, "Program is not cached" );
       }
       return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
     }
@@ -2283,19 +2283,25 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
     int pd_write_this_slot = 0;
     progdata_ro = fd_runtime_get_executable_account( ctx->txn_out, programdata_pubkey, &from_parent_copy, &pd_write_this_slot );
     if( FD_UNLIKELY( !progdata_ro ) ) {
-      fd_log_collector_msg_literal( ctx, "Program is not deployed" );
+      fd_log_collector_msg_literal( ctx, "Program is not cached" );
+      return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
+    }
+
+    /* https://github.com/anza-xyz/agave/blob/v4.4.0/svm/src/program_loader.rs#L216-L218 */
+    if( FD_UNLIKELY( memcmp( progdata_ro->owner, &fd_solana_bpf_loader_upgradeable_program_id, sizeof(fd_pubkey_t) ) ) ) {
+      fd_log_collector_msg_literal( ctx, "Program is not cached" );
       return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
     }
 
     if( FD_UNLIKELY( progdata_ro->data_len<PROGRAMDATA_METADATA_SIZE ) ) {
-      fd_log_collector_msg_literal( ctx, "Program is not deployed" );
+      fd_log_collector_msg_literal( ctx, "Program is not cached" );
       return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
     }
 
     fd_bpf_state_t program_data_account_state[1];
     err = fd_bpf_loader_program_get_state( progdata_ro, program_data_account_state );
     if( FD_UNLIKELY( err!=FD_EXECUTOR_INSTR_SUCCESS ) ) {
-      fd_log_collector_msg_literal( ctx, "Program is not deployed" );
+      fd_log_collector_msg_literal( ctx, "Program is not cached" );
       return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
     }
 
@@ -2303,7 +2309,7 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
        Same as above comment. Program data discriminant must be set correctly. */
     if( FD_UNLIKELY( program_data_account_state->discriminant!=FD_BPF_STATE_PROGRAM_DATA ) ) {
       /* The account is closed. */
-      fd_log_collector_msg_literal( ctx, "Program is not deployed" );
+      fd_log_collector_msg_literal( ctx, "Program is not cached" );
       return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
     }
 
@@ -2321,6 +2327,14 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
         return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
       }
     }
+  }
+
+  /* A loader v1 or v2 program with no data has no deployment slot and
+     is never loaded.
+     https://github.com/anza-xyz/agave/blob/v4.4.0/svm/src/program_loader.rs#L197-L204 */
+  if( FD_UNLIKELY( progdata_ro==program_account.acc && !progdata_ro->data_len ) ) {
+    fd_log_collector_msg_literal( ctx, "Program is not cached" );
+    return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
   }
 
   fd_prog_load_env_t load_env[1]; fd_prog_load_env_from_bank( load_env, ctx->bank );

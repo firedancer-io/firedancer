@@ -1935,6 +1935,10 @@ fd_runtime_get_executable_account( fd_txn_out_t *      txn_out,
     fd_acc_t * ro = txn_out->accounts.executable[ i ];
     if( FD_UNLIKELY( !memcmp( pubkey->uc, ro->pubkey, 32UL ) ) ) {
       if( FD_UNLIKELY( !ro->lamports ) ) return NULL;
+      /* A parent copy of an account closed on the current fork is dead. */
+      if( FD_UNLIKELY( txn_out->accounts.executable_from_parent[ i ] &&
+                       txn_out->accounts.executable_cur_len[ i ]!=ULONG_MAX &&
+                       !txn_out->accounts.executable_cur_lamports[ i ] ) ) return NULL;
       if( FD_UNLIKELY( from_parent_copy   ) ) *from_parent_copy   = txn_out->accounts.executable_from_parent[ i ];
       if( FD_UNLIKELY( pd_write_this_slot ) ) *pd_write_this_slot = txn_out->accounts.executable_pd_write[ i ];
       return ro;

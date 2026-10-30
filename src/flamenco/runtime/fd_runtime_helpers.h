@@ -133,7 +133,8 @@ fd_runtime_get_account_at_index( fd_txn_in_t const *             txn_in,
                                  ushort                          idx,
                                  fd_txn_account_condition_fn_t * condition );
 
-/* Gets an executable (program data) account via its pubkey. */
+/* Gets an executable (program data) account via its pubkey, or NULL if
+   it is dead on the current fork. */
 
 fd_acc_t *
 fd_runtime_get_executable_account( fd_txn_out_t *      txn_out,

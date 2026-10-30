@@ -22,6 +22,7 @@
 #include "program/fd_bpf_loader_program.h"
 #include "sysvar/fd_sysvar_rent.h"
 #include "../accdb/fd_accdb.h"
+#include "../log_collector/fd_log_collector.h"
 #include "../features/fd_features.h"
 #include "../../disco/fd_txn_p.h"
 #include "../../ballet/txn/fd_txn_build.h"
@@ -237,6 +238,28 @@ assert_invoke_not_deployed( fd_txn_out_t const * o ) {
   FD_TEST( o->err.exec_err==FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID );
 }
 
+/* exec_logged runs txn like exec_single with the log collector enabled
+   and asserts that one of the lines it logged is exactly msg. */
+
+static fd_txn_out_t *
+exec_logged( test_env_t * env,
+             fd_txn_p_t * txn,
+             char const * msg ) {
+  env->runtime->log.enable_log_collector = 1;
+  fd_txn_out_t * o = exec_single( env, txn );
+  env->runtime->log.enable_log_collector = 0;
+
+  fd_log_collector_t const * log = env->mini->log_collector;
+  ulong cnt = fd_log_collector_debug_len( log );
+  for( ulong i=0UL; i<cnt; i++ ) {
+    uchar const * got    = NULL;
+    ulong         got_sz = 0UL;
+    fd_log_collector_debug_get( log, i, &got, &got_sz );
+    if( got_sz==strlen( msg ) && !memcmp( got, msg, got_sz ) ) return o;
+  }
+  FD_LOG_ERR(( "log line \"%s\" not found among %lu lines", msg, cnt ));
+}
+
 static void
 assert_invoke_success( fd_txn_out_t const * o ) {
   FD_TEST( o->err.is_committable );
@@ -305,7 +328,7 @@ test_upgrade_then_invoke( fd_svm_mini_t * mini ) {
   upgrade_sim( env );
   fd_txn_p_t txn[1];
   build_invoke_txn( env, txn );
-  assert_invoke_not_deployed( exec_single( env, txn ) );
+  assert_invoke_not_deployed( exec_logged( env, txn, "Program is not deployed" ) );
   FD_LOG_NOTICE(( "upgrade -> invoke rejected... ok" ));
 }
 
@@ -350,7 +373,8 @@ test_setauthority_then_invoke( fd_svm_mini_t * mini ) {
 /* Case 4 (close -> invoke): real Close txn (the fails-open case: the
    parent copy is still funded and would pass the legacy slot check, so
    the pd_write bit is the only defense).  Asserts the Close mark-site
-   fired and the invoke fails. */
+   fired and the invoke fails as an unloadable program: D is dead on the
+   current fork, so the program never enters the cache. */
 static void
 test_close_then_invoke( fd_svm_mini_t * mini ) {
   setup_env( env, mini );
@@ -366,7 +390,7 @@ test_close_then_invoke( fd_svm_mini_t * mini ) {
   FD_TEST( pd_write_committed_on_child( env ) ); /* Close mark-site fired */
 
   build_invoke_txn( env, txn );
-  assert_invoke_not_deployed( exec_single( env, txn ) );
+  assert_invoke_not_deployed( exec_logged( env, txn, "Program is not cached" ) );
   FD_LOG_NOTICE(( "close -> invoke rejected (mark fired)... ok" ));
 }
 
