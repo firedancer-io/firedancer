@@ -851,6 +851,31 @@ test_tls_cert_req_rules( fd_rng_t * rng ) {
 }
 
 static void
+test_tls_client_cert_encode_failure( fd_rng_t * rng ) {
+  fd_tls_t client[1], server[1];
+  prepare_tls_pair( rng, client, server );
+  client->cert_x509_sz = FD_TLS_SERVER_CERT_SZ_MAX+1UL;
+  fd_tls_estate_cli_t hs[1];
+  FD_TEST( fd_tls_estate_cli_new( hs ) );
+  hs->base.state = FD_TLS_HS_WAIT_FINISHED;
+  hs->client_cert = 1;
+  fd_sha256_init( &hs->transcript );
+
+  uchar finished[36] = { FD_TLS_MSG_FINISHED, 0, 0, 32 };
+  uchar hash[32], key[32];
+  fd_sha256_t transcript = hs->transcript;
+  fd_sha256_fini( &transcript, hash );
+  fd_tls_hkdf_expand_label( key, 32UL, hs->server_hs_secret, "finished", 8UL, NULL, 0UL );
+  fd_hmac_sha256( hash, 32UL, key, 32UL, finished+4UL );
+  test_record_reset( &test_client_out );
+  FD_TEST( fd_tls_client_handshake( client, hs, finished, sizeof(finished), FD_TLS_LEVEL_HANDSHAKE )==-FD_TLS_ALERT_DECODE_ERROR );
+  FD_TEST( hs->base.reason==FD_TLS_REASON_CERT_ENCODE );
+  FD_TEST( !test_client_out.send );
+  FD_TEST( hs->base.state!=FD_TLS_HS_CONNECTED );
+  fd_tls_estate_cli_delete( hs );
+}
+
+static void
 test_tls_ee_solicitation( fd_rng_t * rng ) {
   fd_tls_t _client[1]; fd_tls_t * client = fd_tls_join( fd_tls_new( _client ) );
   fd_tls_t _server[1]; fd_tls_t * server = fd_tls_join( fd_tls_new( _server ) );
@@ -1427,6 +1452,7 @@ main( int     argc,
   test_tls_client_unsolicited_cert_type( rng );
   test_tls_client_accepts_cert_req( rng );
   test_tls_cert_req_rules( rng );
+  test_tls_client_cert_encode_failure( rng );
   test_tls_ee_solicitation( rng );
   test_tls_client_hello_sigalgs( rng );
   test_tls_client_rejects_oversz_sni( rng );
