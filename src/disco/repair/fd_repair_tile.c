@@ -311,7 +311,7 @@ push_timeout( fd_repair_tile_t * ctx,
   blk->meta_req    = ( blk->meta_req    && req->tag!=FD_REPAIR_SERDE_TAG_PARENT_AND_FEC_SET_COUNT );
   blk->highest_req = ( blk->highest_req && req->tag!=FD_REPAIR_SERDE_TAG_HIGHEST_WINDOW_INDEX      );
   blk->orphan_req  = ( blk->orphan_req  && req->tag!=FD_REPAIR_SERDE_TAG_ORPHAN                    );
-  if( FD_UNLIKELY( blk->in_blk_treap ) ) return;
+  if( FD_UNLIKELY( blk->in_blk_treap || blk->dead ) ) return;
   fd_repair_treap_ele_insert( meta->final==idx ? ctx->rotor->final_treap : meta->notar==idx ? ctx->rotor->notar_treap : ctx->rotor->eager_treap, blk, ctx->rotor->blk_pool );
   blk->in_blk_treap = 1;
 }
@@ -335,6 +335,7 @@ poll_timeout( fd_repair_tile_t * ctx,
       if( FD_UNLIKELY( !blk ) ) { ctx->metrics->req_cancelled++; continue; }
 
       fd_repair_slot_meta_t const * meta = fd_repair_slot_meta( ctx->rotor, blk->slot );
+      if( FD_UNLIKELY( blk->dead ) ) { ctx->metrics->req_cancelled++; continue; } /* replay rejected it or an ancestor */
       if( FD_UNLIKELY( meta->final!=req.blk && meta->notar!=req.blk && meta->eager==req.blk && !blk->eager ) ) { ctx->metrics->req_cancelled++; continue; } /* the slot's eager blk, never repaired */
       fd_repair_fec_t const * fec = fd_repair_fec_pool_ele_const( ctx->rotor->fec_pool, fd_ulong_if( req.tag==FD_REPAIR_SERDE_TAG_WINDOW_INDEX, blk->fecs[ req.fec_idx ], fd_repair_fec_pool_idx_null( ctx->rotor->fec_pool ) ) );
       if( FD_UNLIKELY( req.tag==FD_REPAIR_SERDE_TAG_PARENT_AND_FEC_SET_COUNT && blk->parent_slot!=ULONG_MAX                   ) ) { ctx->metrics->req_cancelled++; continue; }
@@ -365,7 +366,7 @@ discover( fd_repair_tile_t * ctx,
           long               now ) {
   fd_repair_slot_meta_t const * meta = fd_repair_slot_meta( ctx->rotor, blk->slot );
   ulong                         idx  = fd_repair_blk_pool_idx( ctx->rotor->blk_pool, blk );
-  if( FD_UNLIKELY( blk->slot<=ctx->rotor->root ) ) return;
+  if( FD_UNLIKELY( blk->slot<=ctx->rotor->root || blk->dead ) ) return;
   if( FD_UNLIKELY( meta->final!=idx && meta->notar!=idx && meta->eager==idx && !blk->eager ) ) return; /* the slot's eager blk, never repaired */
 
   int       eager   = blk->eager;
@@ -411,7 +412,7 @@ discover( fd_repair_tile_t * ctx,
   }
   blk->wait_fec_cnt = fec_idx;
   if( FD_LIKELY( timeout_prq_cnt( prq )<timeout_prq_max( prq ) ) ) return;
-  if( FD_UNLIKELY( blk->in_blk_treap ) ) return;
+  if( FD_UNLIKELY( blk->in_blk_treap || blk->dead ) ) return;
   ctx->metrics->timeout_paused++;
   fd_repair_treap_ele_insert( meta->final==idx ? ctx->rotor->final_treap : meta->notar==idx ? ctx->rotor->notar_treap : ctx->rotor->eager_treap, blk, ctx->rotor->blk_pool ); /* timeout_prq filled up, resume later */
   blk->in_blk_treap = 1;
