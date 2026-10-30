@@ -221,8 +221,6 @@ typedef void (* fd_repair_report_fn_t)( void * ctx, struct fd_repair_blk const *
    keys {slot, 0} until it completes; a turbine copy that completed is
    listed under both keys. */
 
-#define FD_REPAIR_DROPPED_MAX (AG_EQVOC_BLOCK_HASH_MAX+2UL)
-
 struct fd_repair_dropped {
   ulong     slot;
   fd_mr32_t block_id;
@@ -248,8 +246,8 @@ struct fd_repair {
   fd_repair_treap_t *     notar_treap;
   fd_repair_treap_t *     final_treap;
 
-  fd_repair_dropped_t dropped[ FD_REPAIR_DROPPED_MAX ];
-  ulong               dropped_cnt;
+  fd_repair_dropped_t * dropped;     /* blk_max+1 entries */
+  ulong                 dropped_cnt;
 
   struct {
     fd_repair_report_fn_t report; /* called once per blk, when it completes or when it is freed incomplete, NULL disables */

@@ -343,13 +343,10 @@ dropped( fd_repair_t *     rotor,
          fd_repair_blk_t * blk ) {
   if( FD_LIKELY( !blk->cons_fec_cnt ) ) return;
   int eager = fd_repair_slot_meta( rotor, blk->slot )->eager==fd_repair_blk_pool_idx( rotor->blk_pool, blk );
-  int both  = eager && memcmp( &blk->dmr, &hash_null, sizeof(fd_mr32_t) );
-  if( FD_UNLIKELY( rotor->dropped_cnt+1UL+(ulong)both>FD_REPAIR_DROPPED_MAX ) ) {
-    FD_LOG_WARNING(( "slot %lu: more dropped blks than fit, replay keeps replaying the rest", blk->slot ));
-    return;
-  }
   rotor->dropped[ rotor->dropped_cnt++ ] = (fd_repair_dropped_t){ .slot = blk->slot, .block_id = blk->dmr };
-  if( both ) rotor->dropped[ rotor->dropped_cnt++ ] = (fd_repair_dropped_t){ .slot = blk->slot, .block_id = hash_null };
+  if( eager && memcmp( &blk->dmr, &hash_null, sizeof(fd_mr32_t) ) ) {
+    rotor->dropped[ rotor->dropped_cnt++ ] = (fd_repair_dropped_t){ .slot = blk->slot, .block_id = hash_null };
+  }
 }
 
 /* dedup checks for a duplicate of eager among the notar blks.  Only the
@@ -447,6 +444,7 @@ fd_repair_footprint( ulong slot_max,
     FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
+    FD_LAYOUT_APPEND(
     FD_LAYOUT_INIT,
       fd_repair_align(),              sizeof(fd_repair_t)                                                        ),
       alignof(fd_repair_slot_meta_t), sizeof(fd_repair_slot_meta_t)*slot_max                                     ),
@@ -460,6 +458,7 @@ fd_repair_footprint( ulong slot_max,
       fd_repair_treap_align(),        fd_repair_treap_footprint     ( blk_max                                    ) ),
       fd_repair_treap_align(),        fd_repair_treap_footprint     ( blk_max                                    ) ),
       fd_repair_treap_align(),        fd_repair_treap_footprint     ( blk_max                                    ) ),
+      alignof(fd_repair_dropped_t),   sizeof(fd_repair_dropped_t)*(blk_max+1UL)                                 ),
     fd_repair_align() );
 }
 
@@ -493,6 +492,7 @@ fd_repair_new( void * shmem,
   void * eager_treap = FD_SCRATCH_ALLOC_APPEND( l, fd_repair_treap_align(),        fd_repair_treap_footprint    ( blk_max                                    ) );
   void * notar_treap = FD_SCRATCH_ALLOC_APPEND( l, fd_repair_treap_align(),        fd_repair_treap_footprint    ( blk_max                                    ) );
   void * final_treap = FD_SCRATCH_ALLOC_APPEND( l, fd_repair_treap_align(),        fd_repair_treap_footprint    ( blk_max                                    ) );
+  void * dropped     = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_repair_dropped_t),   sizeof(fd_repair_dropped_t)*(blk_max+1UL)                                 );
   FD_TEST( FD_SCRATCH_ALLOC_FINI( l, fd_repair_align() ) == (ulong)shmem + footprint );
 
   rotor->root        = ULONG_MAX;
@@ -511,6 +511,7 @@ fd_repair_new( void * shmem,
   rotor->eager_treap = fd_repair_treap_join( fd_repair_treap_new( eager_treap, blk_max ) );
   rotor->notar_treap = fd_repair_treap_join( fd_repair_treap_new( notar_treap, blk_max ) );
   rotor->final_treap = fd_repair_treap_join( fd_repair_treap_new( final_treap, blk_max ) );
+  rotor->dropped     = (fd_repair_dropped_t *)dropped;
 
   return shmem;
 }
