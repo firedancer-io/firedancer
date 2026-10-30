@@ -188,9 +188,18 @@ test_tls_extension_rules( void ) {
              (type==FD_TLS_EXT_SUPPORTED_VERSIONS ? -FD_TLS_ALERT_PROTOCOL_VERSION : -FD_TLS_ALERT_MISSING_EXTENSION) );
     off += 4UL+len;
   }
-  sz = test_tls_append_ext( wire, sz, sh_ext_off, FD_TLS_EXT_QUIC_TRANSPORT_PARAMS, NULL, 0 );
-  sh = (fd_tls_server_hello_t){0};
-  FD_TEST( fd_tls_decode_server_hello( &sh, wire, sz )==-FD_TLS_ALERT_UNSUPPORTED_EXTENSION );
+  ushort const sh_forbidden[] = {
+    FD_TLS_EXT_SERVER_NAME, FD_TLS_EXT_SUPPORTED_GROUPS,
+    FD_TLS_EXT_SIGNATURE_ALGORITHMS, FD_TLS_EXT_ALPN,
+    FD_TLS_EXT_CLIENT_CERT_TYPE, FD_TLS_EXT_SERVER_CERT_TYPE,
+    FD_TLS_EXT_SIGNATURE_ALGORITHMS_CERT, FD_TLS_EXT_QUIC_TRANSPORT_PARAMS
+  };
+  for( ulong i=0UL; i<sizeof(sh_forbidden)/sizeof(sh_forbidden[0]); i++ ) {
+    fd_memcpy( copy, wire, sz );
+    ulong bad_sz = test_tls_append_ext( copy, sz, sh_ext_off, sh_forbidden[i], NULL, 0 );
+    sh = (fd_tls_server_hello_t){0};
+    FD_TEST( fd_tls_decode_server_hello( &sh, copy, bad_sz )==-FD_TLS_ALERT_ILLEGAL_PARAMETER );
+  }
 
   uchar const groups[] = { 0, 2, 0, 29 };
   fd_tls_enc_ext_t ee = {0};
@@ -198,8 +207,14 @@ test_tls_extension_rules( void ) {
   FD_TEST( fd_tls_decode_enc_ext( &ee, wire, sz )==(long)sz );
   sz = test_tls_append_ext( wire, sz, 0UL, FD_TLS_EXT_SUPPORTED_GROUPS, groups, sizeof(groups) );
   FD_TEST( fd_tls_decode_enc_ext( &ee, wire, sz )==-FD_TLS_ALERT_ILLEGAL_PARAMETER );
-  sz = test_tls_append_ext( wire, 2UL, 0UL, FD_TLS_EXT_KEY_SHARE, NULL, 0 );
-  FD_TEST( fd_tls_decode_enc_ext( &ee, wire, sz )==-FD_TLS_ALERT_UNSUPPORTED_EXTENSION );
+  ushort const ee_forbidden[] = {
+    FD_TLS_EXT_SIGNATURE_ALGORITHMS, FD_TLS_EXT_SUPPORTED_VERSIONS,
+    FD_TLS_EXT_SIGNATURE_ALGORITHMS_CERT, FD_TLS_EXT_KEY_SHARE
+  };
+  for( ulong i=0UL; i<sizeof(ee_forbidden)/sizeof(ee_forbidden[0]); i++ ) {
+    sz = test_tls_append_ext( wire, 2UL, 0UL, ee_forbidden[i], NULL, 0 );
+    FD_TEST( fd_tls_decode_enc_ext( &ee, wire, sz )==-FD_TLS_ALERT_ILLEGAL_PARAMETER );
+  }
   sz = test_tls_append_ext( wire, 2UL, 0UL, 0xfafa, NULL, 0 );
   FD_TEST( fd_tls_decode_enc_ext( &ee, wire, sz )==-FD_TLS_ALERT_UNSUPPORTED_EXTENSION );
 }
