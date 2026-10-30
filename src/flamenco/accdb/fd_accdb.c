@@ -78,7 +78,7 @@ struct __attribute__((aligned(FD_ACCDB_ALIGN))) fd_accdb_private {
   compaction_dlist_t * compaction_dlist[ FD_ACCDB_COMPACTION_LAYER_CNT ];
   deferred_free_dlist_t * deferred_free_dlist;
 
-  txn_pool_t txn_pool[1];
+  chunk_pool_t chunk_pool[1];
 
   /* Pointer into shmem->joiner_epochs[ my_slot ].val for writer
      joiners, or into a private per-tile fseq for read-only joiners.
@@ -94,17 +94,6 @@ struct __attribute__((aligned(FD_ACCDB_ALIGN))) fd_accdb_private {
      storage. */
   ulong const * const * external_epoch_slots;
   ulong                 external_epoch_cnt;
-
-  /* Side buffer of acc pool indices that have been CAS-unlinked from
-     their hash chains but cannot be released back to acc_pool yet,
-     because concurrent readers (acquire / compact) may still be
-     traversing the removed nodes via map.next.  The batch is released
-     once all joiner_epochs exceed shmem->deferred_acc_epoch.  Indices
-     are written here (not into pool.next) until after the epoch drain
-     because pool.next is union-aliased to cache_idx, which a concurrent
-     cold_load_acc may still write through a captured pointer.  Backed
-     by shmem->deferred_acc_buf_off; cnt and epoch live in shmem too. */
-  uint * deferred_acc_buf;
 
   /* Chain of fork pool slots whose IDs are still potentially
      referenced by concurrent readers (via descends_set_test or
@@ -287,11 +276,10 @@ fd_accdb_new( void *              ljoin,
 
   ulong max_live_slots = shmem->max_live_slots;
   ulong max_accounts = shmem->max_accounts;
-  ulong max_account_writes_per_slot = shmem->max_account_writes_per_slot;
+  ulong chunk_max = shmem->chunk_max;
   ulong partition_cnt = shmem->partition_cnt;
 
   ulong chain_cnt = fd_ulong_pow2_up( (max_accounts>>1) + (max_accounts&1UL) );
-  ulong txn_max = max_live_slots * max_account_writes_per_slot;
 
   FD_SCRATCH_ALLOC_INIT( l, shmem );
                              FD_SCRATCH_ALLOC_APPEND( l, FD_ACCDB_SHMEM_ALIGN,           sizeof(fd_accdb_shmem_t)                                );
@@ -299,7 +287,7 @@ fd_accdb_new( void *              ljoin,
   void * _descends_sets    = FD_SCRATCH_ALLOC_APPEND( l, descends_set_align(),           max_live_slots*descends_set_footprint( max_live_slots ) );
   void * _acc_map          = FD_SCRATCH_ALLOC_APPEND( l, alignof(uint),                  chain_cnt*sizeof(uint)                                  );
   void * _acc_pool_ele     = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_accdb_accmeta_t),        max_accounts*sizeof(fd_accdb_accmeta_t)             );
-  void * _txn_pool_ele     = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_accdb_txn_t),        txn_max*sizeof(fd_accdb_txn_t)                          );
+  void * _chunk_pool_ele   = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_accdb_chunk_t),      chunk_max*sizeof(fd_accdb_chunk_t)                      );
   void * _partition_pool   = FD_SCRATCH_ALLOC_APPEND( l, partition_pool_align(),         partition_pool_footprint( partition_cnt )               );
   void * _compaction_dlists[ FD_ACCDB_COMPACTION_LAYER_CNT ];
   for( ulong k=0UL; k<FD_ACCDB_COMPACTION_LAYER_CNT; k++ ) {
@@ -321,7 +309,7 @@ fd_accdb_new( void *              ljoin,
   FD_TEST( acc_pool_join( accdb->acc_pool_join, shmem->acc_pool, _acc_pool_ele, max_accounts ) );
   accdb->acc_pool = accdb->acc_pool_join->ele;
   accdb->acc_map = _acc_map;
-  FD_TEST( txn_pool_join( accdb->txn_pool, shmem->txn_pool, _txn_pool_ele, txn_max ) );
+  FD_TEST( chunk_pool_join( accdb->chunk_pool, shmem->chunk_pool, _chunk_pool_ele, chunk_max ) );
   for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) accdb->cache[ c ] = (uchar *)shmem + shmem->cache_region_off[ c ];
   accdb->partition_pool = partition_pool_join( _partition_pool );
   FD_TEST( accdb->partition_pool );
@@ -355,8 +343,6 @@ fd_accdb_new( void *              ljoin,
   accdb->carry_layer = 0UL;
   accdb->stage       = _bounce ? _bounce+FD_ACCDB_BOUNCE_SZ : NULL;
 
-  accdb->deferred_acc_buf = (uint *)( (uchar *)shmem + shmem->deferred_acc_buf_off );
-
   accdb->delta.chains = (uint *)             ( (uchar *)shmem + shmem->delta.chain_off );
   accdb->delta.pool   = (fd_accdb_delta_t *) ( (uchar *)shmem + shmem->delta.ele_off   );
 
@@ -383,12 +369,12 @@ fd_accdb_reset( fd_accdb_t * accdb ) {
   wait_cmd( accdb );
 
   /* Reset pools through the joiner's existing pointers.  acc_pool and
-     txn_pool use POOL_LAZY=1 so reset is O(1).  fork_pool and
+     chunk_pool use POOL_LAZY=1 so reset is O(1).  fork_pool and
      partition_pool rebuild their free lists in O(max_live_slots) and
      O(partition_cnt), both small. */
   spin_lock_acquire( &shmem->grow_lock );
   acc_pool_reset( accdb->acc_pool_join );
-  txn_pool_reset( accdb->txn_pool );
+  chunk_pool_reset( accdb->chunk_pool );
   fork_pool_reset( accdb->fork_shmem_pool );
   partition_pool_reset( accdb->partition_pool );
 
@@ -453,9 +439,10 @@ fd_accdb_reset( fd_accdb_t * accdb ) {
   shmem->epoch = 1UL;
   for( ulong i=0UL; i<FD_ACCDB_MAX_JOINERS; i++ ) shmem->joiner_epochs[ i ].val = ULONG_MAX;
 
-  /* Deferred acc buffer. */
-  shmem->deferred_acc_buf_cnt = 0UL;
-  shmem->deferred_acc_epoch   = 0UL;
+  /* Deferred acc list. */
+  shmem->deferred_chunk_head = UINT_MAX;
+  shmem->deferred_acc_cnt    = 0UL;
+  shmem->deferred_acc_epoch  = 0UL;
 
   /* Shared metrics: zero gauges that reflect current state (now empty)
      but preserve counters and accounts_capacity. */
@@ -583,12 +570,16 @@ fd_accdb_snapshot_recover_delta( fd_accdb_t *       accdb,
                   (uint)fork_id.val, fork_pool_ele_max( accdb->fork_shmem_pool ) ));
   }
 
-  uint txn_idx = accdb->fork_pool[ fork_id.val ].shmem->txn_head;
-  while( txn_idx!=UINT_MAX ) {
-    fd_accdb_txn_t const * txn = txn_pool_ele( accdb->txn_pool, (ulong)txn_idx );
-    fd_accdb_accmeta_t const * acc = &accdb->acc_pool[ txn->acc_pool_idx ];
-    if( FD_UNLIKELY( !delta_insert( accdb, acc->key.pubkey ) ) ) return -1;
-    txn_idx = txn->fork.next;
+  uint chunk_idx = accdb->fork_pool[ fork_id.val ].shmem->chunk_head;
+  while( chunk_idx!=UINT_MAX ) {
+    fd_accdb_chunk_t const * chunk = chunk_pool_ele( accdb->chunk_pool, (ulong)chunk_idx );
+    ulong        cnt;
+    uint const * accs = fd_accdb_chunk_accs( chunk, &cnt );
+    for( ulong i=0UL; i<cnt; i++ ) {
+      fd_accdb_accmeta_t const * acc = &accdb->acc_pool[ accs[ i ] ];
+      if( FD_UNLIKELY( !delta_insert( accdb, acc->key.pubkey ) ) ) return -1;
+    }
+    chunk_idx = chunk->next;
   }
   return 0;
 }
@@ -719,11 +710,10 @@ fd_accdb_join_readonly( void *             ljoin,
 
   ulong max_live_slots               = shmem->max_live_slots;
   ulong max_accounts                 = shmem->max_accounts;
-  ulong max_account_writes_per_slot  = shmem->max_account_writes_per_slot;
+  ulong chunk_max                    = shmem->chunk_max;
   ulong partition_cnt                = shmem->partition_cnt;
 
   ulong chain_cnt = fd_ulong_pow2_up( (max_accounts>>1) + (max_accounts&1UL) );
-  ulong txn_max   = max_live_slots * max_account_writes_per_slot;
 
   /* Recompute the same shmem scratch layout that fd_accdb_shmem_new
      used.  All FD_SCRATCH_ALLOC_APPEND calls here only compute pointer
@@ -734,7 +724,7 @@ fd_accdb_join_readonly( void *             ljoin,
   void * _descends_sets    = FD_SCRATCH_ALLOC_APPEND( l, descends_set_align(),           max_live_slots*descends_set_footprint( max_live_slots ) );
   void * _acc_map          = FD_SCRATCH_ALLOC_APPEND( l, alignof(uint),                  chain_cnt*sizeof(uint)                                  );
   void * _acc_pool_ele     = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_accdb_accmeta_t),    max_accounts*sizeof(fd_accdb_accmeta_t)                 );
-                             FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_accdb_txn_t),        txn_max*sizeof(fd_accdb_txn_t)                          );
+                             FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_accdb_chunk_t),      chunk_max*sizeof(fd_accdb_chunk_t)                      );
                              FD_SCRATCH_ALLOC_APPEND( l, partition_pool_align(),         partition_pool_footprint( partition_cnt )               );
   for( ulong k=0UL; k<FD_ACCDB_COMPACTION_LAYER_CNT; k++ ) {
                              FD_SCRATCH_ALLOC_APPEND( l, compaction_dlist_align(),       compaction_dlist_footprint()                            );
@@ -787,7 +777,6 @@ fd_accdb_join_readonly( void *             ljoin,
   accdb->bounce               = NULL;
   accdb->stage                = NULL;
 
-  accdb->deferred_acc_buf    = NULL;
   accdb->deferred_fork_head  = NULL;
   accdb->deferred_fork_tail  = NULL;
   accdb->deferred_fork_epoch = 0UL;
@@ -878,7 +867,7 @@ fd_accdb_attach_child( fd_accdb_t *       accdb,
   }
 
   fork->shmem->generation = accdb->shmem->generation++;
-  fork->shmem->txn_head = UINT_MAX;
+  fork->shmem->chunk_head = UINT_MAX;
 
   FD_TEST( !descends_set_test( fork->descends, fork_id.val ) );
 
@@ -1077,6 +1066,18 @@ stray_pin_drained( fd_accdb_t *            accdb,
   return FD_VOLATILE_CONST( line->refcnt )==1U;
 }
 
+/* chunk_list_release returns the chunk list at head to the pool.  The
+   list links double as the pool's free list links. */
+
+static void
+chunk_list_release( fd_accdb_t * accdb,
+                    uint         head ) {
+  if( head==UINT_MAX ) return;
+  fd_accdb_chunk_t * tail = chunk_pool_ele( accdb->chunk_pool, (ulong)head );
+  while( tail->next!=UINT_MAX ) tail = chunk_pool_ele( accdb->chunk_pool, (ulong)tail->next );
+  chunk_pool_release_chain( accdb->chunk_pool, chunk_pool_ele( accdb->chunk_pool, (ulong)head ), tail );
+}
+
 /* drain_deferred_frees releases back to their respective pools any acc
    batch and/or fork slots that were unlinked in a prior advance_root /
    purge call.  The resources cannot be released immediately because
@@ -1096,7 +1097,7 @@ drain_deferred_frees( fd_accdb_t * accdb ) {
     accdb->deferred_fork_tail = NULL;
   }
 
-  ulong n = accdb->shmem->deferred_acc_buf_cnt;
+  ulong n = accdb->shmem->deferred_acc_cnt;
   if( FD_LIKELY( !n ) ) return;
   wait_for_epoch_drain( accdb, accdb->shmem->deferred_acc_epoch );
 
@@ -1104,7 +1105,6 @@ drain_deferred_frees( fd_accdb_t * accdb ) {
      of these accs at unlink time have now exited their epoch sections.
      It is safe to materialize pool.next links and hand the chain to
      acc_pool_release_chain. */
-  uint *               buf      = accdb->deferred_acc_buf;
   fd_accdb_accmeta_t * acc_pool = accdb->acc_pool;
 
   /* Late-publish sweep: a concurrent acquire evictor may have published
@@ -1114,45 +1114,61 @@ drain_deferred_frees( fd_accdb_t * accdb ) {
      orphaned disk bytes here, before the accmeta is released to the
      pool and its fields recycled. */
   ulong acc_pool_cap = acc_pool_ele_max( accdb->acc_pool_join );
-  for( ulong i=0UL; i<n; i++ ) {
-    FD_TEST( (ulong)buf[ i ]<acc_pool_cap );
-    fd_accdb_accmeta_t * accmeta = &acc_pool[ buf[ i ] ];
-    ulong off = fd_accdb_acc_offset( accmeta );
-    if( FD_UNLIKELY( off!=FD_ACCDB_OFF_INVAL ) ) {
-      ulong entry_sz = (ulong)FD_ACCDB_SIZE_DATA(accmeta->executable_size)+sizeof(fd_accdb_disk_meta_t);
-      fd_accdb_shmem_bytes_freed( accdb->shmem, off, entry_sz );
-      FD_ATOMIC_FETCH_AND_SUB( &accdb->shmem->shmetrics->disk_used_bytes, entry_sz );
-    }
-    /* A reader that captured this accmeta before the unlink may have
-       cold-loaded it since (tombstones skip the offset wait), publishing
-       a line and VALID, and an evictor of that line may be clearing the
-       binding right now under CLAIM.  Take CLAIM so that evictor has
-       finished its cache_idx store before pool.next overwrites it, then
-       leave the slot with VALID clear. */
-    for(;;) {
-      uint cur = FD_VOLATILE_CONST( accmeta->executable_size );
-      if( FD_UNLIKELY( cur & FD_ACCDB_SIZE_CACHE_CLAIM_BIT ) ) {
-        fd_racesan_hook( "accdb_drain:claim_wait" );
-        FD_SPIN_PAUSE();
-        continue;
+  ulong walked       = 0UL;
+  uint  head         = UINT_MAX;
+  uint  tail         = UINT_MAX;
+  uint  chunk_idx    = accdb->shmem->deferred_chunk_head;
+  while( chunk_idx!=UINT_MAX ) {
+    fd_accdb_chunk_t const * chunk = chunk_pool_ele( accdb->chunk_pool, (ulong)chunk_idx );
+    ulong        cnt;
+    uint const * accs = fd_accdb_chunk_accs( chunk, &cnt );
+    for( ulong i=0UL; i<cnt; i++ ) {
+      uint acc_idx = accs[ i ];
+      FD_TEST( (ulong)acc_idx<acc_pool_cap );
+      fd_accdb_accmeta_t * accmeta = &acc_pool[ acc_idx ];
+      ulong off = fd_accdb_acc_offset( accmeta );
+      if( FD_UNLIKELY( off!=FD_ACCDB_OFF_INVAL ) ) {
+        ulong entry_sz = (ulong)FD_ACCDB_SIZE_DATA(accmeta->executable_size)+sizeof(fd_accdb_disk_meta_t);
+        fd_accdb_shmem_bytes_freed( accdb->shmem, off, entry_sz );
+        FD_ATOMIC_FETCH_AND_SUB( &accdb->shmem->shmetrics->disk_used_bytes, entry_sz );
       }
-      if( FD_LIKELY( FD_ATOMIC_CAS( &accmeta->executable_size, cur, cur | FD_ACCDB_SIZE_CACHE_CLAIM_BIT )==cur ) ) break;
-      FD_SPIN_PAUSE();
-    }
-    FD_ATOMIC_FETCH_AND_AND( &accmeta->executable_size, ~(FD_ACCDB_SIZE_CACHE_VALID_BIT|FD_ACCDB_SIZE_CACHE_CLAIM_BIT) );
-  }
+      /* A reader that captured this accmeta before the unlink may have
+         cold-loaded it since (tombstones skip the offset wait),
+         publishing a line and VALID, and an evictor of that line may be
+         clearing the binding right now under CLAIM.  Take CLAIM so that
+         evictor has finished its cache_idx store before pool.next
+         overwrites it, then leave the slot with VALID clear. */
+      for(;;) {
+        uint cur = FD_VOLATILE_CONST( accmeta->executable_size );
+        if( FD_UNLIKELY( cur & FD_ACCDB_SIZE_CACHE_CLAIM_BIT ) ) {
+          fd_racesan_hook( "accdb_drain:claim_wait" );
+          FD_SPIN_PAUSE();
+          continue;
+        }
+        if( FD_LIKELY( FD_ATOMIC_CAS( &accmeta->executable_size, cur, cur | FD_ACCDB_SIZE_CACHE_CLAIM_BIT )==cur ) ) break;
+        FD_SPIN_PAUSE();
+      }
+      FD_ATOMIC_FETCH_AND_AND( &accmeta->executable_size, ~(FD_ACCDB_SIZE_CACHE_VALID_BIT|FD_ACCDB_SIZE_CACHE_CLAIM_BIT) );
 
-  for( ulong i=0UL; i+1UL<n; i++ ) {
-    acc_pool[ buf[ i ] ].pool.next = acc_pool_private_cidx( (ulong)buf[ i+1UL ] );
+      if( FD_LIKELY( tail!=UINT_MAX ) ) acc_pool[ tail ].pool.next = acc_pool_private_cidx( (ulong)acc_idx );
+      else                              head = acc_idx;
+      tail = acc_idx;
+    }
+    walked   += cnt;
+    chunk_idx = chunk->next;
   }
-  fd_accdb_accmeta_t * head = &acc_pool[ buf[ 0UL ] ];
-  fd_accdb_accmeta_t * tail = &acc_pool[ buf[ n-1UL ] ];
-  acc_pool_release_chain( accdb->acc_pool_join, head, tail );
-  accdb->shmem->deferred_acc_buf_cnt = 0UL;
+  FD_TEST( walked==n );
+
+  /* Release the chunks first: once the accs are reusable, writers fill
+     new chunks, and the pool only covers chunks of allocated accs. */
+  chunk_list_release( accdb, accdb->shmem->deferred_chunk_head );
+  acc_pool_release_chain( accdb->acc_pool_join, &acc_pool[ head ], &acc_pool[ tail ] );
+  accdb->shmem->deferred_chunk_head = UINT_MAX;
+  accdb->shmem->deferred_acc_cnt    = 0UL;
 }
 
-/* deferred_acc_append records an unlinked acc index in the side buffer
-   for later release after wait_for_epoch_drain.  T2 is the sole writer.
+/* deferred_acc_append records an unlinked acc in the deferred list for
+   later release after wait_for_epoch_drain.  T2 is the sole writer.
    The chain link from acc->pool.next is NOT laid down here: pool.next
    is union-aliased to cache_idx, and a concurrent cold_load_acc may
    still publish through a captured pointer until the epoch drains.
@@ -1162,8 +1178,69 @@ static inline void
 deferred_acc_append( fd_accdb_t * accdb,
                      uint         acc_idx ) {
   fd_accdb_shmem_t * shmem = accdb->shmem;
-  FD_TEST( shmem->deferred_acc_buf_cnt<shmem->deferred_acc_buf_max );
-  accdb->deferred_acc_buf[ shmem->deferred_acc_buf_cnt++ ] = acc_idx;
+  fd_accdb_chunk_t * chunk = NULL;
+  if( FD_LIKELY( shmem->deferred_chunk_head!=UINT_MAX ) ) {
+    chunk = chunk_pool_ele( accdb->chunk_pool, (ulong)shmem->deferred_chunk_head );
+  }
+  if( FD_UNLIKELY( !chunk || chunk->cnt>=FD_ACCDB_CHUNK_ACC_MAX ) ) {
+    chunk = chunk_pool_acquire( accdb->chunk_pool );
+    FD_TEST( chunk ); /* Sized so it always succeeds */
+    chunk->cnt                 = 0U;
+    chunk->next                = shmem->deferred_chunk_head;
+    shmem->deferred_chunk_head = (uint)chunk_pool_idx( accdb->chunk_pool, chunk );
+  }
+  chunk->acc_idx[ FD_ACCDB_CHUNK_ACC_MAX-1UL-chunk->cnt ] = acc_idx;
+  chunk->cnt++;
+  shmem->deferred_acc_cnt++;
+}
+
+/* deferred_chunks_splice moves the chunk list [head,tail] of a purged
+   fork onto the deferred list.  All acc_cnt entries were just unlinked
+   from their map chains. */
+
+static inline void
+deferred_chunks_splice( fd_accdb_t * accdb,
+                        uint         head,
+                        uint         tail,
+                        ulong        acc_cnt ) {
+  fd_accdb_shmem_t * shmem = accdb->shmem;
+  chunk_pool_ele( accdb->chunk_pool, (ulong)tail )->next = shmem->deferred_chunk_head;
+  shmem->deferred_chunk_head = head;
+  shmem->deferred_acc_cnt   += acc_cnt;
+}
+
+/* fork_list_append adds acc_idx to the version list of fork.  Writers
+   claim a slot in the head chunk with an atomic increment.  When the
+   head is full, they race to install a fresh chunk holding their entry,
+   and losers return theirs to the pool and retry.  Chunks are only
+   released once the fork stops taking writes, so the head cannot be
+   recycled under a writer. */
+
+static void
+fork_list_append( fd_accdb_t *            accdb,
+                  fd_accdb_fork_shmem_t * fork,
+                  uint                    acc_idx ) {
+  for(;;) {
+    uint head = FD_VOLATILE_CONST( fork->chunk_head );
+    if( FD_LIKELY( head!=UINT_MAX ) ) {
+      fd_accdb_chunk_t * chunk = chunk_pool_ele( accdb->chunk_pool, (ulong)head );
+      uint slot = FD_ATOMIC_FETCH_AND_ADD( &chunk->cnt, 1U );
+      if( FD_LIKELY( slot<FD_ACCDB_CHUNK_ACC_MAX ) ) {
+        chunk->acc_idx[ FD_ACCDB_CHUNK_ACC_MAX-1UL-slot ] = acc_idx;
+        return;
+      }
+      if( FD_VOLATILE_CONST( fork->chunk_head )!=head ) continue;
+    }
+
+    fd_accdb_chunk_t * fresh = chunk_pool_acquire( accdb->chunk_pool );
+    if( FD_UNLIKELY( !fresh ) ) FD_LOG_ERR(( "accounts database fork list chunk pool exhausted" ));
+    fresh->cnt  = 1U;
+    fresh->next = head;
+    fresh->acc_idx[ FD_ACCDB_CHUNK_ACC_MAX-1UL ] = acc_idx;
+    uint fresh_idx = (uint)chunk_pool_idx( accdb->chunk_pool, fresh );
+    if( FD_LIKELY( FD_ATOMIC_CAS( &fork->chunk_head, head, fresh_idx )==head ) ) return;
+    chunk_pool_release( accdb->chunk_pool, fresh );
+  }
 }
 
 /* acc_unlink unlinks an account from its hash map chain, frees any
@@ -1390,30 +1467,22 @@ fork_slot_defer( fd_accdb_t *              accdb,
   *fork_tail = shmem;
 }
 
-/* chain_prewalk prefetches the hash chain walks of up to CHAIN_PREWALK_W
-   txn records from txn in lock-step, over the span the caller will walk.
-   Read only.  Fills txns[] and map_idxs[] and returns the count. */
+/* chain_prewalk prefetches the hash chain walks of the cnt (at most
+   CHAIN_PREWALK_W) accs in acc_idx in lock-step, over the span the
+   caller will walk.  Read only.  Fills map_idxs[]. */
 
 #define CHAIN_PREWALK_W (16UL)
 
-static ulong
-chain_prewalk( fd_accdb_t *      accdb,
-               uint              txn,
-               int               purge,
-               fd_accdb_txn_t ** txns,
-               uint *            map_idxs ) {
-  uint acc_idx  [ CHAIN_PREWALK_W ];
+static void
+chain_prewalk( fd_accdb_t * accdb,
+               uint const * acc_idx,
+               ulong        cnt,
+               int          purge,
+               uint *       map_idxs ) {
   uint cur      [ CHAIN_PREWALK_W ];
   int  from_head[ CHAIN_PREWALK_W ];
 
-  ulong cnt = 0UL;
-  for( ; cnt<CHAIN_PREWALK_W && txn!=UINT_MAX; cnt++ ) {
-    fd_accdb_txn_t * txne = txn_pool_ele( accdb->txn_pool, (ulong)txn );
-    txns   [ cnt ] = txne;
-    acc_idx[ cnt ] = txne->acc_pool_idx;
-    __builtin_prefetch( &accdb->acc_pool[ txne->acc_pool_idx ], 0, 3 );
-    txn = txne->fork.next;
-  }
+  for( ulong i=0UL; i<cnt; i++ ) __builtin_prefetch( &accdb->acc_pool[ acc_idx[ i ] ], 0, 3 );
   for( ulong i=0UL; i<cnt; i++ ) {
     fd_accdb_accmeta_t const * acc = &accdb->acc_pool[ acc_idx[ i ] ];
     map_idxs [ i ] = (uint)(fd_hash32( acc->key.pubkey, accdb->shmem->seed ) & (accdb->shmem->chain_cnt-1UL));
@@ -1434,7 +1503,6 @@ chain_prewalk( fd_accdb_t *      accdb,
     }
     if( !live ) break;
   }
-  return cnt;
 }
 
 static void
@@ -1451,18 +1519,19 @@ purge_inner( fd_accdb_t *              accdb,
     child = next;
   }
 
-  uint txn = fork->shmem->txn_head;
-  if( txn!=UINT_MAX ) {
-    fd_accdb_txn_t * txn_head = txn_pool_ele( accdb->txn_pool, (ulong)txn );
-    fd_accdb_txn_t * txn_tail = NULL;
-    while( txn!=UINT_MAX ) {
-      fd_accdb_txn_t * txns    [ CHAIN_PREWALK_W ];
-      uint             map_idxs[ CHAIN_PREWALK_W ];
-      ulong cnt = chain_prewalk( accdb, txn, 1, txns, map_idxs );
+  uint  chunk_idx  = fork->shmem->chunk_head;
+  uint  chunk_tail = UINT_MAX;
+  ulong acc_cnt    = 0UL;
+  while( chunk_idx!=UINT_MAX ) {
+    fd_accdb_chunk_t const * chunk = chunk_pool_ele( accdb->chunk_pool, (ulong)chunk_idx );
+    ulong        chunk_cnt;
+    uint const * accs = fd_accdb_chunk_accs( chunk, &chunk_cnt );
+    for( ulong off=0UL; off<chunk_cnt; off+=CHAIN_PREWALK_W ) {
+      ulong cnt = fd_ulong_min( CHAIN_PREWALK_W, chunk_cnt-off );
+      uint  map_idxs[ CHAIN_PREWALK_W ];
+      chain_prewalk( accdb, accs+off, cnt, 1, map_idxs );
       for( ulong w=0UL; w<cnt; w++ ) {
-        fd_accdb_txn_t * txne = txns[ w ];
-
-        uint acc_idx     = txne->acc_pool_idx;
+        uint acc_idx     = accs[ off+w ];
         uint acc_map_idx = map_idxs[ w ];
 
         uint prev = UINT_MAX;
@@ -1474,14 +1543,13 @@ purge_inner( fd_accdb_t *              accdb,
 
         fd_racesan_hook( "accdb_purge:pre_unlink" );
         acc_unlink( accdb, acc_map_idx, prev, acc_idx );
-        deferred_acc_append( accdb, acc_idx );
-
-        txn_tail = txne;
-        txn = txne->fork.next;
       }
     }
-    txn_pool_release_chain( accdb->txn_pool, txn_head, txn_tail );
+    acc_cnt   += chunk_cnt;
+    chunk_tail = chunk_idx;
+    chunk_idx  = chunk->next;
   }
+  if( FD_LIKELY( chunk_tail!=UINT_MAX ) ) deferred_chunks_splice( accdb, fork->shmem->chunk_head, chunk_tail, acc_cnt );
 
   fork_slot_defer( accdb, fork_id, fork_head, fork_tail );
 }
@@ -1521,8 +1589,8 @@ background_advance_root( fd_accdb_t *       accdb,
   /* Accumulate freed fork pool slots across remove_children and the
      old-version cleanup below into a chain that will be deferred-
      released after the epoch bump.  Freed acc pool slots are recorded
-     in the shmem side buffer via deferred_acc_append (they cannot be
-     chained via pool.next yet — see comment on the side buffer). */
+     in the deferred acc list via deferred_acc_append (they cannot be
+     chained via pool.next yet — see comment on the deferred list). */
   fd_accdb_fork_shmem_t * fork_head = NULL;
   fd_accdb_fork_shmem_t * fork_tail = NULL;
 
@@ -1534,18 +1602,18 @@ background_advance_root( fd_accdb_t *       accdb,
   /* And for any accounts which were updated in the newly rooted slot,
      we will now never need to access any older version, so we can
      discard any slots earlier than the one we are rooting. */
-  uint txn = fork->shmem->txn_head;
-  if( txn!=UINT_MAX ) {
-    fd_accdb_txn_t * txn_head = txn_pool_ele( accdb->txn_pool, (ulong)txn );
-    fd_accdb_txn_t * txn_tail = NULL;
-    while( txn!=UINT_MAX ) {
-      fd_accdb_txn_t * txns    [ CHAIN_PREWALK_W ];
-      uint             map_idxs[ CHAIN_PREWALK_W ];
-      ulong cnt = chain_prewalk( accdb, txn, 0, txns, map_idxs );
+  uint chunk_idx = fork->shmem->chunk_head;
+  while( chunk_idx!=UINT_MAX ) {
+    fd_accdb_chunk_t * chunk = chunk_pool_ele( accdb->chunk_pool, (ulong)chunk_idx );
+    ulong        chunk_cnt;
+    uint const * accs = fd_accdb_chunk_accs( chunk, &chunk_cnt );
+    for( ulong off=0UL; off<chunk_cnt; off+=CHAIN_PREWALK_W ) {
+      ulong cnt = fd_ulong_min( CHAIN_PREWALK_W, chunk_cnt-off );
+      uint  map_idxs[ CHAIN_PREWALK_W ];
+      chain_prewalk( accdb, accs+off, cnt, 0, map_idxs );
       for( ulong w=0UL; w<cnt; w++ ) {
-        fd_accdb_txn_t * txne = txns[ w ];
-
-        fd_accdb_accmeta_t const * new_acc = &accdb->acc_pool[ txne->acc_pool_idx ];
+        uint                       new_acc_idx = accs[ off+w ];
+        fd_accdb_accmeta_t const * new_acc     = &accdb->acc_pool[ new_acc_idx ];
         uint acc_map_idx = map_idxs[ w ];
 
         delta_insert( accdb, new_acc->key.pubkey );
@@ -1561,22 +1629,22 @@ background_advance_root( fd_accdb_t *       accdb,
         if( FD_LIKELY( new_acc->lamports ) ) {
 #if FD_TMPL_USE_HANDHOLDING
           uint chk = FD_VOLATILE_CONST( accdb->acc_map[ acc_map_idx ] );
-          while( chk!=UINT_MAX && chk!=txne->acc_pool_idx ) {
+          while( chk!=UINT_MAX && chk!=new_acc_idx ) {
             fd_accdb_accmeta_t const * ahead = &accdb->acc_pool[ chk ];
             FD_TEST( !( (ahead->key.generation<=parent_fork->shmem->generation || descends_set_test( fork->descends, fd_accdb_acc_fork_id(ahead) ) ) && !memcmp( new_acc->key.pubkey, ahead->key.pubkey, 32UL ) ) );
             chk = FD_VOLATILE_CONST( ahead->map.next );
           }
-          FD_TEST( chk==txne->acc_pool_idx );
+          FD_TEST( chk==new_acc_idx );
 #endif
           new_acc_seen = 1;
-          prev = txne->acc_pool_idx;
+          prev = new_acc_idx;
           acc  = FD_VOLATILE_CONST( new_acc->map.next );
         } else {
           acc = FD_VOLATILE_CONST( accdb->acc_map[ acc_map_idx ] );
           FD_TEST( acc!=UINT_MAX );
         }
         while( acc!=UINT_MAX ) {
-          if( FD_UNLIKELY( acc==txne->acc_pool_idx ) ) {
+          if( FD_UNLIKELY( acc==new_acc_idx ) ) {
             new_acc_prev = prev;
             new_acc_seen = 1;
             prev = acc;
@@ -1604,29 +1672,18 @@ background_advance_root( fd_accdb_t *       accdb,
            reach it anymore, and keeping it around just wastes a hash
            slot and the disk bytes it occupies. */
         if( FD_UNLIKELY( new_acc_seen && new_acc->lamports==0UL ) ) {
-          uint new_acc_idx = (uint)txne->acc_pool_idx;
           acc_unlink( accdb, acc_map_idx, new_acc_prev, new_acc_idx );
           deferred_acc_append( accdb, new_acc_idx );
         }
-
-        txn_tail = txne;
-        txn = txne->fork.next;
       }
     }
-    txn_pool_release_chain( accdb->txn_pool, txn_head, txn_tail );
+    /* Recycle each chunk once walked: the accs deferred above reuse it,
+       and an incremental snapshot fork can outgrow the pool reserve. */
+    chunk_idx = chunk->next;
+    chunk_pool_release( accdb->chunk_pool, chunk );
   }
 
-  uint parent_txn = parent_fork->shmem->txn_head;
-  if( parent_txn!=UINT_MAX ) {
-    fd_accdb_txn_t * parent_head = txn_pool_ele( accdb->txn_pool, (ulong)parent_txn );
-    fd_accdb_txn_t * parent_tail = NULL;
-    while( parent_txn!=UINT_MAX ) {
-      fd_accdb_txn_t * t = txn_pool_ele( accdb->txn_pool, (ulong)parent_txn );
-      parent_tail = t;
-      parent_txn = t->fork.next;
-    }
-    txn_pool_release_chain( accdb->txn_pool, parent_head, parent_tail );
-  }
+  chunk_list_release( accdb, parent_fork->shmem->chunk_head );
 
   /* Remove the parent from all descends_sets and chain it for deferred
      release, so that when the slot is eventually recycled to a new
@@ -1638,7 +1695,7 @@ background_advance_root( fd_accdb_t *       accdb,
 
   fork->shmem->parent_id  = (fd_accdb_fork_id_t){ .val = USHORT_MAX };
   fork->shmem->sibling_id = (fd_accdb_fork_id_t){ .val = USHORT_MAX };
-  fork->shmem->txn_head   = UINT_MAX;
+  fork->shmem->chunk_head = UINT_MAX;
   descends_set_null( fork->descends );
 
   /* Publish the new root_fork_id BEFORE bumping the epoch and deferring
@@ -1655,9 +1712,9 @@ background_advance_root( fd_accdb_t *       accdb,
   /* Bump epoch and defer both the acc batch and parent fork slot. They
      will be released at the next drain_deferred_frees call once all
      concurrent readers have exited.  The acc batch lives in the shmem
-     side buffer; only its epoch tag needs setting here. */
+     deferred acc list; only its epoch tag needs setting here. */
   ulong tag = FD_ATOMIC_FETCH_AND_ADD( &accdb->shmem->epoch, 1UL );
-  if( FD_LIKELY( accdb->shmem->deferred_acc_buf_cnt ) ) {
+  if( FD_LIKELY( accdb->shmem->deferred_acc_cnt ) ) {
     accdb->shmem->deferred_acc_epoch = tag;
   }
   if( FD_LIKELY( fork_head ) ) {
@@ -1720,7 +1777,7 @@ background_purge( fd_accdb_t *       accdb,
   purge_inner( accdb, fork_id, &fork_head, &fork_tail );
 
   ulong tag = FD_ATOMIC_FETCH_AND_ADD( &accdb->shmem->epoch, 1UL );
-  if( FD_LIKELY( accdb->shmem->deferred_acc_buf_cnt ) ) {
+  if( FD_LIKELY( accdb->shmem->deferred_acc_cnt ) ) {
     accdb->shmem->deferred_acc_epoch = tag;
   }
   if( FD_LIKELY( fork_head ) ) {
@@ -3551,8 +3608,8 @@ release_inner( fd_accdb_t * accdb,
     /* Update the accounts index for this committed write.  For an
        overwrite (same fork+generation), update the existing acc
        in place.  Otherwise allocate a new acc, prepend it
-       to the hash chain, and record the write in a txn linked to
-       the fork so advance_root can clean up old versions. */
+       to the hash chain, and append it to the fork's list so
+       advance_root can clean up old versions. */
     if( FD_LIKELY( accs[ i ]._overwrite ) ) {
       accdb->metrics->accounts_committed_overwrite_per_class[ new_size_class ]++;
       committed_line->acc_idx = original_acc_idx;
@@ -3661,16 +3718,7 @@ release_inner( fd_accdb_t * accdb,
              head away between our load and CAS here.  The CAS retry
              loop handles this. */
 
-      fd_accdb_txn_t * txn = txn_pool_acquire( accdb->txn_pool );
-      FD_TEST( txn ); /* Sized so it always succeeds */
-      txn->acc_pool_idx = (uint)acc_idx;
-      uint txn_idx = (uint)txn_pool_idx( accdb->txn_pool, txn );
-      for(;;) {
-        uint old_head = FD_VOLATILE_CONST( accdb->fork_pool[ accs[ i ]._fork_id ].shmem->txn_head );
-        txn->fork.next = old_head;
-        if( FD_LIKELY( FD_ATOMIC_CAS( &accdb->fork_pool[ accs[ i ]._fork_id ].shmem->txn_head, old_head, txn_idx )==old_head ) ) break;
-        FD_SPIN_PAUSE();
-      }
+      fork_list_append( accdb, accdb->fork_pool[ accs[ i ]._fork_id ].shmem, (uint)acc_idx );
 
       FD_ATOMIC_FETCH_AND_ADD( &accdb->shmem->shmetrics->accounts_total, 1UL );
     }
@@ -4470,16 +4518,7 @@ fd_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
       new_head = acc_idx;
 
       if( FD_UNLIKELY( incremental ) ) {
-        fd_accdb_txn_t * txn = txn_pool_acquire( accdb->txn_pool );
-        if( FD_UNLIKELY( !txn ) ) FD_LOG_ERR(( "txn pool exhausted during incremental snapshot loading" ));
-        txn->acc_pool_idx = acc_idx;
-        uint txn_idx      = (uint)txn_pool_idx( accdb->txn_pool, txn );
-        for(;;) {
-          uint old_head  = FD_VOLATILE_CONST( fork->shmem->txn_head );
-          txn->fork.next = old_head;
-          if( FD_LIKELY( FD_ATOMIC_CAS( &fork->shmem->txn_head, old_head, txn_idx )==old_head ) ) break;
-          FD_SPIN_PAUSE();
-        }
+        fork_list_append( accdb, fork->shmem, acc_idx );
       }
 
       if( FD_UNLIKELY( cross_existing ) ) {
