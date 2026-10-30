@@ -1028,7 +1028,7 @@ again:
     /* Ping frame, queue pong unless we are already sending one */
     uchar * trailing_data     = conn->recv_bytes+conn->recv_bytes_parsed+frame_len;
     ulong   trailing_data_len = conn->recv_bytes_read-frame_len;
-    if( FD_LIKELY( conn->pong_state!=FD_HTTP_SERVER_PONG_STATE_WAITING ) ) {
+    if( FD_LIKELY( conn->pong_state==FD_HTTP_SERVER_PONG_STATE_NONE ) ) {
       conn->pong_state    = FD_HTTP_SERVER_PONG_STATE_WAITING;
       conn->pong_data_len = payload_len;
       FD_TEST( payload_len<=125UL );

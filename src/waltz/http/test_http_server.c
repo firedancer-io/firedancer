@@ -986,6 +986,44 @@ test_ws_fragmented_interleaved_control( void ) {
   ws_test_server_delete( http, scratch, client_fd );
 }
 
+static void
+test_ws_ping_during_pong( void ) {
+  uchar const pong[] = { 0x8aU, 3U, 'o', 'l', 'd' };
+  for( ulong sent=1UL; sent<sizeof(pong); sent++ ) {
+    ws_msg_state_t state = {0};
+    uchar * scratch;
+    int client_fd;
+    fd_http_server_t * http = ws_test_server_new( &scratch, &state, &client_fd );
+    ws_connect( http, client_fd, &state );
+
+    /* Seed a short send at each header/payload boundary. */
+    struct fd_http_server_ws_connection * conn = &http->ws_conns[ 0 ];
+    conn->pong_state         = FD_HTTP_SERVER_PONG_STATE_WRITING;
+    conn->pong_bytes_written = sent;
+    conn->pong_data_len      = 3UL;
+    memcpy( conn->pong_data, "old", 3UL );
+    send_all( http->pollfds[ http->max_conns ].fd, (char const *)pong, sent );
+
+    uchar ping[ 32 ];
+    ulong ping_sz = 0UL;
+    ws_frame( ping, &ping_sz, 0x9, 1, (uchar const *)"new", 3UL );
+    send_all( client_fd, (char const *)ping, ping_sz );
+    FD_TEST( wait_work( http ) );
+    FD_TEST( conn->pong_state==FD_HTTP_SERVER_PONG_STATE_WRITING );
+    FD_TEST( conn->pong_bytes_written==sent );
+    FD_TEST( conn->pong_data_len==3UL );
+    FD_TEST( !memcmp( conn->pong_data, "old", 3UL ) );
+
+    FD_TEST( wait_work( http ) );
+    FD_TEST( conn->pong_state==FD_HTTP_SERVER_PONG_STATE_NONE );
+    uchar received[ sizeof(pong) ];
+    FD_TEST( recv( client_fd, received, sizeof(received), MSG_WAITALL )==(long)sizeof(received) );
+    FD_TEST( !memcmp( received, pong, sizeof(pong) ) );
+    FD_TEST( !state.close_cnt );
+    ws_test_server_delete( http, scratch, client_fd );
+  }
+}
+
 /* test_keep_alive covers connection reuse: sequential requests on one
    connection, Connection token parsing, explicit close, HTTP/1.0, and
    pipelined requests, and body framing on GET. */
@@ -1671,6 +1709,7 @@ main( int     argc,
   test_ws_fragmented_coalesced();
   test_ws_fragmented_split();
   test_ws_fragmented_interleaved_control();
+  test_ws_ping_during_pong();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
