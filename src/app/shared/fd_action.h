@@ -84,7 +84,8 @@ union fdctl_args {
   } dev;
 
   struct {
-    int no_watch;
+    int   no_watch;
+    ulong index_ram_entries;
   } backtest;
 
   struct {
@@ -185,6 +186,7 @@ union fdctl_args {
 
     char const * transpile;      /* whitespace separated base58 addresses */
     char const * transpile_list; /* path to file of base58 addresses */
+    ulong index_ram_entries;
   } snapshot_load;
 
   struct {
