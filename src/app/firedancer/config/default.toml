@@ -1725,8 +1725,8 @@ telemetry = true
         #   execle tile count beyond the default of 2.
         #
         #  "auction"
-        #   Schedule transactions in 50ms batch auctions. Votes and
-        #   bundles are not included in the auctions.
+        #   Schedule transactions in 50ms batch auctions. Bundles are
+        #   not included in the auctions.
         #
         # In cases of network congestion, high volume, or if seeing poor
         # block packing performance for any reason, it is recommended to
