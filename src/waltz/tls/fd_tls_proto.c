@@ -411,9 +411,18 @@ fd_tls_decode_server_hello( fd_tls_server_hello_t * out,
     case FD_TLS_EXT_KEY_SHARE:
       ext_parse_res = fd_tls_decode_key_share( &out->key_share, ext_data, ext_sz );
       break;
+    case FD_TLS_EXT_SERVER_NAME:
+    case FD_TLS_EXT_SUPPORTED_GROUPS:
+    case FD_TLS_EXT_SIGNATURE_ALGORITHMS:
+    case FD_TLS_EXT_ALPN:
+    case FD_TLS_EXT_CLIENT_CERT_TYPE:
+    case FD_TLS_EXT_SERVER_CERT_TYPE:
+    case FD_TLS_EXT_SIGNATURE_ALGORITHMS_CERT:
+    case FD_TLS_EXT_QUIC_TRANSPORT_PARAMS:
+      /* RFC 8446 Section 4.2: recognized extension in the wrong message. */
+      return -(long)FD_TLS_ALERT_ILLEGAL_PARAMETER;
     default:
-      /* RFC 8446 Section 4.2: a ServerHello may only carry responses
-         to extensions the client offered */
+      /* A ServerHello may only carry responses to extensions offered. */
       return -(long)FD_TLS_ALERT_UNSUPPORTED_EXTENSION;
     }
 
@@ -600,6 +609,11 @@ fd_tls_decode_enc_ext( fd_tls_enc_ext_t * const out,
       out->quic_tp.buf   = (void *)wire_laddr;
       out->quic_tp.bufsz = (ushort)ext_sz;
       break;
+    case FD_TLS_EXT_SIGNATURE_ALGORITHMS:
+    case FD_TLS_EXT_SUPPORTED_VERSIONS:
+    case FD_TLS_EXT_SIGNATURE_ALGORITHMS_CERT:
+    case FD_TLS_EXT_KEY_SHARE:
+      return -(long)FD_TLS_ALERT_ILLEGAL_PARAMETER;
     default:
       return -(long)FD_TLS_ALERT_UNSUPPORTED_EXTENSION;
     }
