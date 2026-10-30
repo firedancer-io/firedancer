@@ -7,10 +7,11 @@
    (insert_begin, fill, insert_commit, query_acquire), and unpinned
    with fd_sched_test_fec_unpin, which releases the view and publishes
    past the FEC's slot so the store never fills.  Like replay, at most
-   one FEC may be pinned at a time.
+   one FEC may be pinned at a time per thread.
 
-   Each translation unit including this header gets its own store,
-   created on first use in an anonymous normal page workspace. */
+   Each thread in a translation unit including this header gets its own
+   store, created on first use in an anonymous normal page workspace.
+   Solfuzz runs shred fixtures concurrently on multiple tile threads. */
 
 #include "fd_sched.h"
 
@@ -22,8 +23,8 @@ struct fd_sched_test_fec {
 };
 typedef struct fd_sched_test_fec fd_sched_test_fec_t;
 
-static fd_store_t * fd_sched_test_store;
-static ulong        fd_sched_test_store_slot;
+static FD_TL fd_store_t * fd_sched_test_store;
+static FD_TL ulong        fd_sched_test_store_slot;
 
 static inline fd_store_t *
 fd_sched_test_store_get( void ) {
@@ -33,7 +34,9 @@ fd_sched_test_store_get( void ) {
   ulong footprint = fd_store_footprint( fec_max, FD_STORE_MAX_FEC_DATA_SZ, 0UL, 0UL, 0UL, 1UL, fec_max );
   FD_TEST( footprint );
   ulong page_cnt  = footprint/FD_SHMEM_NORMAL_PAGE_SZ + 64UL;
-  fd_wksp_t * wksp = fd_wksp_new_anonymous( FD_SHMEM_NORMAL_PAGE_SZ, page_cnt, fd_shmem_cpu_idx( 0UL ), "sched_test_store", 0UL );
+  char  name[ 64 ];
+  fd_cstr_printf( name, sizeof(name), NULL, "sched_test_store_%lu", fd_tile_idx() );
+  fd_wksp_t * wksp = fd_wksp_new_anonymous( FD_SHMEM_NORMAL_PAGE_SZ, page_cnt, fd_shmem_cpu_idx( 0UL ), name, 0UL );
   FD_TEST( wksp );
   void * mem = fd_wksp_alloc_laddr( wksp, fd_store_align(), footprint, 1UL );
   FD_TEST( mem );
