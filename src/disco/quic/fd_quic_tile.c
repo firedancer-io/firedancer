@@ -498,9 +498,9 @@ privileged_init( fd_topo_t const *      topo,
   ctx->keylog_fd = -1;
 
   if( 0!=strcmp( tile->quic.key_log_path, "" ) ) {
-    ctx->keylog_fd = open( tile->quic.key_log_path, O_WRONLY|O_CREAT|O_APPEND, 0644 );
+    ctx->keylog_fd = open( tile->quic.key_log_path, O_WRONLY|O_CREAT|O_APPEND, 0600 );
     if( FD_UNLIKELY( ctx->keylog_fd<0 ) ) {
-      FD_LOG_ERR(( "open(%s, O_WRONLY|O_CREAT|O_APPEND, 0644) failed (%i-%s)",
+      FD_LOG_ERR(( "open(%s, O_WRONLY|O_CREAT|O_APPEND, 0600) failed (%i-%s)",
                    tile->quic.key_log_path, errno, fd_io_strerror( errno ) ));
     }
     fd_io_buffered_ostream_init( &ctx->keylog_stream, ctx->keylog_fd, ctx->keylog_buf, sizeof(ctx->keylog_buf) );
