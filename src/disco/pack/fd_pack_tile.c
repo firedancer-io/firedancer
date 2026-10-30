@@ -15,7 +15,6 @@
 #include "../pack/fd_pack_cost.h"
 #include "../pack/fd_pack_pacing.h"
 #include "../fd_clock_tile.h"
-#include "../../flamenco/leaders/fd_leaders.h"
 
 #include <string.h>
 
@@ -1223,7 +1222,7 @@ after_frag( fd_pack_ctx_t *     ctx,
     ctx->slot_end_ns                   = ctx->_became_leader->slot_end_ns;
     ctx->leader_slot_start_tick        = now_ticks + (long)((double)( ctx->_became_leader->slot_start_ns - now_ns )*tick_per_ns);
     ctx->leader_slot_end_tick          = end_ticks;
-    ctx->auction_final_start_tick      = fd_long_if( ctx->leader_slot%FD_EPOCH_SLOTS_PER_ROTATION==FD_EPOCH_SLOTS_PER_ROTATION-1UL,
+    ctx->auction_final_start_tick      = fd_long_if( ctx->leader_slot%4UL==3UL,
                                                      end_ticks-(long)(tick_per_ns*(double)FD_PACK_AUCTION_FINAL_NS), LONG_MAX );
     ctx->auction_last_attempt_tick     = now_ticks - ctx->auction_interval_tick;
     ctx->auction_next_tick             = now_ticks;
