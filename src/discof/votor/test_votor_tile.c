@@ -1562,6 +1562,21 @@ test_server_conn_slots( void ) {
     conn[ i ]->tls_hs = &hs;
   }
 
+  /* Before epoch information arrives an unknown peer is kept.  Once
+     admission is known, reject it with the protocol's close code. */
+  memset( hs.hs.srv.client_pubkey, 0xff, 32UL );
+  ctx.curr_epoch_info = NULL;
+  quic_server_conn_new( conn[ 2 ], &ctx );
+  FD_TEST( conn[ 2 ]->state==FD_QUIC_CONN_STATE_ACTIVE && fd_quic_conn_get_context( conn[ 2 ] ) );
+  quic_server_conn_final( conn[ 2 ], &ctx );
+  ctx.curr_epoch_info = &epoch_info_mem;
+  quic_server_conn_new( conn[ 2 ], &ctx );
+  FD_TEST( conn[ 2 ]->state==FD_QUIC_CONN_STATE_CLOSE_PENDING && !fd_quic_conn_get_context( conn[ 2 ] ) );
+  FD_TEST( conn[ 2 ]->app_reason==QUIC_CLOSE_CODE_NOT_ADMITTED );
+  FD_TEST( !peer->rx_conn[ 0 ] && !peer->rx_conn[ 1 ] );
+  conn[ 2 ]->state = FD_QUIC_CONN_STATE_ACTIVE;
+  memcpy( hs.hs.srv.client_pubkey, peer->id_key.uc, 32UL );
+
   quic_server_conn_new( conn[ 0 ], &ctx );
   quic_server_conn_new( conn[ 1 ], &ctx );
   FD_TEST( peer->rx_conn[ 0 ]==conn[ 0 ] && peer->rx_conn[ 1 ]==conn[ 1 ] );
