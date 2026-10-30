@@ -2482,7 +2482,7 @@ test_idx_primitives( void ) {
   ulong rng = 1UL;
 
   /* involution on a non-pow2 nb */
-  for( ulong b=0UL; b<nb; b+=97UL ) for( ulong fp=1UL; fp<65536UL; fp+=4099UL ) FD_TEST( fd_accdb_cf_alt( &cf, fd_accdb_cf_alt( &cf, b, fp ), fp )==b );
+  for( ulong b=0UL; b<nb; b+=97UL ) for( ulong fp=1UL; fp<=FD_ACCDB_CF_FP_MASK; fp+=251UL ) FD_TEST( fd_accdb_cf_alt( &cf, fd_accdb_cf_alt( &cf, b, fp ), fp )==b );
 
   /* All keys land on few pages via a narrow region to force overflow */
   fd_accdb_idx_region_t narrow = r; narrow.nhome = 2UL; narrow.npage = 2UL+FD_ACCDB_IDX_PROBE_MAX;
@@ -2520,7 +2520,7 @@ test_idx_primitives( void ) {
   for( ulong i=0UL; i<n; i++ ) { memset( key, 0, 32 ); FD_STORE( ulong, key+8, i ); FD_TEST( fd_accdb_cf_probe( &cf, key ) ); }
   ulong fp_hits = 0UL;
   for( ulong i=0UL; i<100000UL; i++ ) { memset( key, 0, 32 ); FD_STORE( ulong, key+8, i ); key[ 31 ] = 1; fp_hits += (ulong)fd_accdb_cf_probe( &cf, key ); }
-  FD_TEST( fp_hits<100000UL/1000UL );
+  FD_TEST( fp_hits<100000UL*4UL/1000UL ); /* 2*5*0.9/2^12 = 2.2e-3 */
   for( ulong i=0UL; i<n; i+=2UL ) { memset( key, 0, 32 ); FD_STORE( ulong, key+8, i ); fd_accdb_cf_delete( &cf, key ); }
   for( ulong i=1UL; i<n; i+=2UL ) { memset( key, 0, 32 ); FD_STORE( ulong, key+8, i ); FD_TEST( fd_accdb_cf_probe( &cf, key ) ); }
 

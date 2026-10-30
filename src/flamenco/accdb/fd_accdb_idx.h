@@ -20,8 +20,9 @@
    use buffered same-thread pwritev2 so the page bytes are ordered
    between the odd and even seq stores.
 
-   The cuckoo filter answers "maybe in bkt" for any pubkey.  4 x 16-bit
-   fingerprints per ulong bucket, two candidate buckets per key:
+   The cuckoo filter answers "maybe in bkt" for any pubkey.  5 x 12-bit
+   fingerprints per ulong bucket (60 bits, so every lane update is one
+   aligned 8 B store), two candidate buckets per key:
    i1 = fastrange(h,nb), i2 = (fastrange(hash(fp),nb) - i1) mod nb, an
    involution for any nb.  Only the writer mutates it.  Plain inserts
    and deletes are one 8 B store.  A kick path is computed first, then
@@ -50,7 +51,10 @@
 #define FD_ACCDB_IDX_SALT_O  (0x6f766c5f6f766c5fUL)
 #define FD_ACCDB_IDX_SALT_CF (0x63756b6f6f63756bUL)
 
-#define FD_ACCDB_CF_LANES     (4UL)
+#define FD_ACCDB_CF_LANES     (5UL)
+#define FD_ACCDB_CF_FP_BITS   (12UL)
+#define FD_ACCDB_CF_FP_MASK   ((1UL<<FD_ACCDB_CF_FP_BITS)-1UL)
+FD_STATIC_ASSERT( FD_ACCDB_CF_LANES*FD_ACCDB_CF_FP_BITS<=64UL, cf_word );
 #define FD_ACCDB_CF_LOAD_PCT  (90UL)
 #define FD_ACCDB_CF_KICK_MAX  (500UL)
 #define FD_ACCDB_CF_STASH_MAX (64UL)
@@ -400,7 +404,7 @@ fd_accdb_cf_key( fd_accdb_cf_t const * f,
                  ulong *               i2,
                  ulong *               fp ) {
   ulong h  = fd_hash32( pubkey, f->seed^FD_ACCDB_IDX_SALT_CF );
-  ulong p  = (h&0xFFFFUL) ? (h&0xFFFFUL) : 1UL; /* low bits: fastrange uses the high ones */
+  ulong p  = (h&FD_ACCDB_CF_FP_MASK) ? (h&FD_ACCDB_CF_FP_MASK) : 1UL; /* low bits: fastrange uses the high ones */
   ulong b1 = fd_accdb_idx_fastrange( h, f->nb );
   ulong hf = fd_accdb_idx_fastrange( fd_ulong_hash( p ), f->nb );
   *i1 = b1;
@@ -419,7 +423,7 @@ fd_accdb_cf_alt( fd_accdb_cf_t const * f,
 static inline int
 fd_accdb_cf_word_has( ulong w,
                       ulong fp ) {
-  for( ulong l=0UL; l<FD_ACCDB_CF_LANES; l++ ) if( ((w>>(16UL*l))&0xFFFFUL)==fp ) return 1;
+  for( ulong l=0UL; l<FD_ACCDB_CF_LANES; l++ ) if( ((w>>(FD_ACCDB_CF_FP_BITS*l))&FD_ACCDB_CF_FP_MASK)==fp ) return 1;
   return 0;
 }
 
@@ -452,7 +456,7 @@ fd_accdb_cf_probe( fd_accdb_cf_t const * f,
 
 static inline int
 fd_accdb_cf_free_lane( ulong w ) {
-  for( ulong l=0UL; l<FD_ACCDB_CF_LANES; l++ ) if( !((w>>(16UL*l))&0xFFFFUL) ) return (int)l;
+  for( ulong l=0UL; l<FD_ACCDB_CF_LANES; l++ ) if( !((w>>(FD_ACCDB_CF_FP_BITS*l))&FD_ACCDB_CF_FP_MASK) ) return (int)l;
   return -1;
 }
 
@@ -460,7 +464,7 @@ static inline ulong
 fd_accdb_cf_set_lane( ulong w,
                       ulong l,
                       ulong fp ) {
-  return ( w & ~(0xFFFFUL<<(16UL*l)) ) | ( fp<<(16UL*l) );
+  return ( w & ~(FD_ACCDB_CF_FP_MASK<<(FD_ACCDB_CF_FP_BITS*l)) ) | ( fp<<(FD_ACCDB_CF_FP_BITS*l) );
 }
 
 /* fd_accdb_cf_insert (writer only).  rng picks kick lanes. */
@@ -496,7 +500,7 @@ fd_accdb_cf_insert( fd_accdb_cf_t * f,
       if( dup ) break;
       *rng = fd_ulong_hash( *rng+1UL );
       ulong l      = *rng % FD_ACCDB_CF_LANES;
-      ulong victim = (f->cf[ b ]>>(16UL*l)) & 0xFFFFUL;
+      ulong victim = (f->cf[ b ]>>(FD_ACCDB_CF_FP_BITS*l)) & FD_ACCDB_CF_FP_MASK;
       pb[ n ] = b; pl[ n ] = l; pf[ n ] = cf;
       ulong nb2 = fd_accdb_cf_alt( f, b, victim );
       int   fl  = fd_accdb_cf_free_lane( f->cf[ nb2 ] );
@@ -549,7 +553,7 @@ fd_accdb_cf_delete( fd_accdb_cf_t * f,
   for( ulong k=0UL; k<2UL; k++ ) {
     ulong w = f->cf[ bs[ k ] ];
     for( ulong l=0UL; l<FD_ACCDB_CF_LANES; l++ ) {
-      if( ((w>>(16UL*l))&0xFFFFUL)!=fp ) continue;
+      if( ((w>>(FD_ACCDB_CF_FP_BITS*l))&FD_ACCDB_CF_FP_MASK)!=fp ) continue;
       FD_VOLATILE( f->cf[ bs[ k ] ] ) = fd_accdb_cf_set_lane( w, l, 0UL );
       return;
     }
