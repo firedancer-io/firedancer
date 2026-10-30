@@ -113,6 +113,32 @@ FD_UNIT_TEST( quic_stream_concurrency ) {
 
 /* RFC 9000 Section 19.2. PING Frames */
 
+FD_UNIT_TEST( quic_initial_rtt_probe ) {
+  for( int role=FD_QUIC_ROLE_CLIENT; role<=FD_QUIC_ROLE_SERVER; role++ ) {
+    fd_quic_sandbox_init( sandbox, role );
+    fd_quic_state_t * state = fd_quic_get_state( sandbox->quic );
+    long start = (long)1e12;
+    sandbox->wallclock = state->now = start;
+    fd_quic_conn_t * conn = fd_quic_sandbox_new_conn_established( sandbox, rng );
+    FD_TEST( conn );
+
+    fd_quic_conn_service( sandbox->quic, conn, start );
+    FD_TEST( !(conn->flags & (FD_QUIC_CONN_FLAGS_PING | FD_QUIC_CONN_FLAGS_PING_SENT)) );
+    FD_TEST( !fd_quic_sandbox_next_packet( sandbox ) );
+
+    long probe_time = start+(long)conn->rtt_period_ns;
+    sandbox->wallclock = state->now = probe_time;
+    fd_quic_conn_service( sandbox->quic, conn, probe_time );
+    FD_TEST( !(conn->flags & (FD_QUIC_CONN_FLAGS_PING | FD_QUIC_CONN_FLAGS_PING_SENT)) );
+
+    sandbox->wallclock = state->now = probe_time+1L;
+    fd_quic_conn_service( sandbox->quic, conn, probe_time+1L );
+    FD_TEST( conn->flags & FD_QUIC_CONN_FLAGS_PING_SENT );
+    FD_TEST( fd_quic_sandbox_next_packet( sandbox ) );
+    fd_quic_fini( sandbox->quic );
+  }
+}
+
 FD_UNIT_TEST( quic_ping_frame ) {
   fd_quic_sandbox_init( sandbox, FD_QUIC_ROLE_SERVER );
   fd_quic_conn_t * conn = fd_quic_sandbox_new_conn_established( sandbox, rng );
