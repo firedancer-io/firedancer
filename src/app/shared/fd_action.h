@@ -84,7 +84,8 @@ union fdctl_args {
   } dev;
 
   struct {
-    int no_watch;
+    int   no_watch;
+    ulong index_ram_entries;
   } backtest;
 
   struct {
@@ -182,6 +183,7 @@ union fdctl_args {
 
     ulong db_rec_max;
     ulong cache_sz;
+    ulong index_ram_entries;
   } snapshot_load;
 
   struct {

@@ -8,6 +8,7 @@
 #include "../../../../flamenco/runtime/fd_txncache.h"
 #include "../../../../flamenco/runtime/fd_runtime_const.h"
 #include "../../../../flamenco/accdb/fd_accdb_shmem.h"
+#include "../../../../flamenco/genesis/fd_genesis_parse.h"
 #include "../../../../choreo/votor/ag_pool.h"
 #include "../../../../choreo/votor/ag_slot_state.h"
 #include "../../../../flamenco/runtime/fd_runtime_stack.h"
@@ -1279,6 +1280,9 @@ initialize_accdb_fd( config_t const * config ) {
   int idx_fd = open( idx_path, O_RDWR|O_CREAT|O_TRUNC|O_NOATIME|O_CLOEXEC, S_IRUSR|S_IWUSR );
   if( FD_UNLIKELY( -1==idx_fd ) ) FD_LOG_ERR(( "failed to open %s (%i-%s)", idx_path, errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( -1==unlink( idx_path ) ) ) FD_LOG_ERR(( "unlink(%s) failed (%i-%s)", idx_path, errno, fd_io_strerror( errno ) ));
+  ulong ram = config->firedancer.accounts.index_ram_entries;
+  if( FD_UNLIKELY( ram && ram<config->firedancer.accounts.max_accounts && ram<fd_accdb_idx_ram_min( FD_RUNTIME_MAX_ACC_WRITES_PER_SLOT, fd_genesis_account_max( config->firedancer.development.genesis.max_file_size_mib<<20 ) ) ) )
+    FD_LOG_ERR(( "index_ram_entries %lu below the minimum %lu", ram, fd_accdb_idx_ram_min( FD_RUNTIME_MAX_ACC_WRITES_PER_SLOT, fd_genesis_account_max( config->firedancer.development.genesis.max_file_size_mib<<20 ) ) ));
   ulong idx_sz = fd_accdb_idx_file_sz( config->firedancer.accounts.max_accounts, config->firedancer.accounts.index_ram_entries,
                                        config->firedancer.runtime.max_live_slots, FD_RUNTIME_MAX_ACC_WRITES_PER_SLOT );
   if( FD_LIKELY( idx_sz ) && FD_UNLIKELY( -1==fallocate( idx_fd, 0, 0L, (long)idx_sz ) ) ) {
