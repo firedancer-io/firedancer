@@ -58,9 +58,10 @@
 
    The concurrency model is: every mutating operation takes the struct's
    write lock for its whole duration, so mutators are safe to call
-   concurrently from any tile.  fd_stake_delegations_{mark,unmark}_delta
-   and the iterator are the exception: the caller holds the write lock
-   across the whole mark/iterate/unmark bracket.
+   concurrently from any tile.  fd_stake_delegations_view_{begin,end}
+   and the iterator are the exception: view_begin takes the write lock
+   and view_end releases it, so it is held across the whole
+   view_begin/iterate/view_end bracket.
 
    max_disk_records bounds the number of delta records that can spill
    to disk.  The disk root capacity is max_stake_accounts plus twice
@@ -275,8 +276,8 @@ fd_stake_delegations_align( void );
 
 /* fd_stake_delegations_footprint returns the footprint of the stake
    delegations struct for the given root pool capacity and max live
-   slots.  The in-memory delta pool holds one eighth as many elements,
-   with a minimum capacity of one; further deltas spill to disk. */
+   slots.  The in-memory delta pool holds half as many elements, with a
+   minimum capacity of one; further deltas spill to disk. */
 
 ulong
 fd_stake_delegations_footprint( ulong max_stake_accounts,
@@ -387,7 +388,7 @@ fd_stake_delegations_vote_account_status( fd_stake_delegations_t *   stake_deleg
                                           int                        use_fixed_point_stake_math );
 
 /* fd_stake_delegations_new_fork allocates a child of parent_fork_idx.
-   USHORT_MAX indicates that the parent is the fork. */
+   USHORT_MAX indicates that the parent is the root. */
 
 ushort
 fd_stake_delegations_new_fork( fd_stake_delegations_t * stake_delegations,
@@ -562,7 +563,7 @@ fd_stake_delegations_iter_done( fd_stake_delegations_iter_t * iter ) {
 
    Unlike the other mutators, this one does not take the write lock
    itself: its only callers run inside the boundary's
-   mark/iterate/unmark bracket, which already holds it. */
+   view_begin/iterate/view_end bracket, which already holds it. */
 
 void
 fd_stake_delegations_invalidate_warmed( fd_stake_delegations_t * stake_delegations );
