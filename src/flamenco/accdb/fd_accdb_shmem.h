@@ -131,6 +131,21 @@ fd_accdb_shmem_new( void * shmem,
    FD_ACCDB_IDX_FD_RW).  Index regions are appended after every
    RAM-only region, so existing offsets never move. */
 
+/* fd_accdb_idx_ram_min: smallest index_ram_entries.  Only forks a
+   release can still target are unspillable: one per exec tile with a
+   task in flight (at most FD_SCHED_MAX_EXEC_TILE_CNT, 64), replay's own
+   block start / finalize fork, and the leader bank; replay parks every
+   other fork.  On top: the promote reserve, the T2 defer ring and
+   unspill copies in flight, and genesis, whose root-fork commits stay
+   pool-bound until the first child roots. */
+
+static inline ulong
+fd_accdb_idx_ram_min( ulong max_account_writes_per_slot,
+                      ulong genesis_account_max ) {
+  ulong reserve = 5UL*max_account_writes_per_slot>(1UL<<20) ? 5UL*max_account_writes_per_slot : (1UL<<20);
+  return 66UL*max_account_writes_per_slot + reserve + (1UL<<20) + (1UL<<15) + genesis_account_max;
+}
+
 ulong
 fd_accdb_idx_file_sz( ulong max_accounts,
                       ulong index_ram_entries,
