@@ -343,10 +343,13 @@ dropped( fd_repair_t *     rotor,
          fd_repair_blk_t * blk ) {
   if( FD_LIKELY( !blk->cons_fec_cnt ) ) return;
   int eager = fd_repair_slot_meta( rotor, blk->slot )->eager==fd_repair_blk_pool_idx( rotor->blk_pool, blk );
-  rotor->dropped[ rotor->dropped_cnt++ ] = (fd_repair_dropped_t){ .slot = blk->slot, .block_id = blk->dmr };
-  if( eager && memcmp( &blk->dmr, &hash_null, sizeof(fd_mr32_t) ) ) {
-    rotor->dropped[ rotor->dropped_cnt++ ] = (fd_repair_dropped_t){ .slot = blk->slot, .block_id = hash_null };
+  int both  = eager && memcmp( &blk->dmr, &hash_null, sizeof(fd_mr32_t) );
+  if( FD_UNLIKELY( fd_repair_dropped_deque_avail( rotor->dropped )<1UL+(ulong)both ) ) {
+    FD_LOG_WARNING(( "slot %lu: more dropped blks than fit, replay keeps replaying the rest", blk->slot ));
+    return;
   }
+  fd_repair_dropped_deque_push_tail( rotor->dropped, (fd_repair_dropped_t){ .slot = blk->slot, .block_id = blk->dmr } );
+  if( both ) fd_repair_dropped_deque_push_tail( rotor->dropped, (fd_repair_dropped_t){ .slot = blk->slot, .block_id = hash_null } );
 }
 
 /* dedup checks for a duplicate of eager among the notar blks.  Only the
@@ -446,19 +449,19 @@ fd_repair_footprint( ulong slot_max,
     FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
     FD_LAYOUT_INIT,
-      fd_repair_align(),              sizeof(fd_repair_t)                                                        ),
-      alignof(fd_repair_slot_meta_t), sizeof(fd_repair_slot_meta_t)*slot_max                                     ),
-      fd_repair_blk_pool_align(),     fd_repair_blk_pool_footprint ( blk_max                                   ) ),
-      alignof(ulong),                 sizeof(ulong)*blk_max*fec_blk_max                                          ),
-      fd_repair_blk_map_align(),      fd_repair_blk_map_footprint   ( fd_repair_blk_map_chain_cnt_est( blk_max ) ) ),
-      fd_repair_orphan_map_align(),   fd_repair_orphan_map_footprint( fd_repair_orphan_map_chain_cnt_est( blk_max ) ) ),
-      fd_repair_fec_pool_align(),     fd_repair_fec_pool_footprint  ( fec_max                                    ) ),
-      fd_repair_fec_map_align(),      fd_repair_fec_map_footprint   ( fd_repair_fec_map_chain_cnt_est( fec_max ) ) ),
-      fd_repair_deque_align(),        fd_repair_deque_footprint     ( fec_max                                    ) ),
-      fd_repair_treap_align(),        fd_repair_treap_footprint     ( blk_max                                    ) ),
-      fd_repair_treap_align(),        fd_repair_treap_footprint     ( blk_max                                    ) ),
-      fd_repair_treap_align(),        fd_repair_treap_footprint     ( blk_max                                    ) ),
-      alignof(fd_repair_dropped_t),   sizeof(fd_repair_dropped_t)*(blk_max+1UL)                                 ),
+      fd_repair_align(),               sizeof(fd_repair_t)                                                        ),
+      alignof(fd_repair_slot_meta_t),  sizeof(fd_repair_slot_meta_t)*slot_max                                     ),
+      fd_repair_blk_pool_align(),      fd_repair_blk_pool_footprint ( blk_max                                   ) ),
+      alignof(ulong),                  sizeof(ulong)*blk_max*fec_blk_max                                          ),
+      fd_repair_blk_map_align(),       fd_repair_blk_map_footprint   ( fd_repair_blk_map_chain_cnt_est( blk_max ) ) ),
+      fd_repair_orphan_map_align(),    fd_repair_orphan_map_footprint( fd_repair_orphan_map_chain_cnt_est( blk_max ) ) ),
+      fd_repair_fec_pool_align(),      fd_repair_fec_pool_footprint  ( fec_max                                    ) ),
+      fd_repair_fec_map_align(),       fd_repair_fec_map_footprint   ( fd_repair_fec_map_chain_cnt_est( fec_max ) ) ),
+      fd_repair_deque_align(),         fd_repair_deque_footprint     ( fec_max                                    ) ),
+      fd_repair_treap_align(),         fd_repair_treap_footprint     ( blk_max                                    ) ),
+      fd_repair_treap_align(),         fd_repair_treap_footprint     ( blk_max                                    ) ),
+      fd_repair_treap_align(),         fd_repair_treap_footprint     ( blk_max                                    ) ),
+      fd_repair_dropped_deque_align(), fd_repair_dropped_deque_footprint()                                         ),
     fd_repair_align() );
 }
 
@@ -480,19 +483,19 @@ fd_repair_new( void * shmem,
   ulong blk_max = fd_repair_blk_max( slot_max );
 
   FD_SCRATCH_ALLOC_INIT( l, shmem );
-  rotor              = FD_SCRATCH_ALLOC_APPEND( l, fd_repair_align(),              sizeof(fd_repair_t)                                                         );
-  void * slot_meta   = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_repair_slot_meta_t), sizeof(fd_repair_slot_meta_t)*slot_max                                      );
-  void * blk_pool    = FD_SCRATCH_ALLOC_APPEND( l, fd_repair_blk_pool_align(),     fd_repair_blk_pool_footprint ( blk_max                                   )  );
-  ulong * blk_fecs   = FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong),                 sizeof(ulong)*blk_max*fec_blk_max                                           );
-  void * blk_map     = FD_SCRATCH_ALLOC_APPEND( l, fd_repair_blk_map_align(),      fd_repair_blk_map_footprint  ( fd_repair_blk_map_chain_cnt_est( blk_max ) ) );
-  void * orphan_map  = FD_SCRATCH_ALLOC_APPEND( l, fd_repair_orphan_map_align(),   fd_repair_orphan_map_footprint( fd_repair_orphan_map_chain_cnt_est( blk_max ) ) );
-  void * fec_pool    = FD_SCRATCH_ALLOC_APPEND( l, fd_repair_fec_pool_align(),     fd_repair_fec_pool_footprint ( fec_max                                    ) );
-  void * fec_map     = FD_SCRATCH_ALLOC_APPEND( l, fd_repair_fec_map_align(),      fd_repair_fec_map_footprint  ( fd_repair_fec_map_chain_cnt_est( fec_max ) ) );
-  void * reasm_deque = FD_SCRATCH_ALLOC_APPEND( l, fd_repair_deque_align(),        fd_repair_deque_footprint    ( fec_max                                    ) );
-  void * eager_treap = FD_SCRATCH_ALLOC_APPEND( l, fd_repair_treap_align(),        fd_repair_treap_footprint    ( blk_max                                    ) );
-  void * notar_treap = FD_SCRATCH_ALLOC_APPEND( l, fd_repair_treap_align(),        fd_repair_treap_footprint    ( blk_max                                    ) );
-  void * final_treap = FD_SCRATCH_ALLOC_APPEND( l, fd_repair_treap_align(),        fd_repair_treap_footprint    ( blk_max                                    ) );
-  void * dropped     = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_repair_dropped_t),   sizeof(fd_repair_dropped_t)*(blk_max+1UL)                                 );
+  rotor              = FD_SCRATCH_ALLOC_APPEND( l, fd_repair_align(),               sizeof(fd_repair_t)                                                         );
+  void * slot_meta   = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_repair_slot_meta_t),  sizeof(fd_repair_slot_meta_t)*slot_max                                      );
+  void * blk_pool    = FD_SCRATCH_ALLOC_APPEND( l, fd_repair_blk_pool_align(),      fd_repair_blk_pool_footprint ( blk_max                                   )  );
+  ulong * blk_fecs   = FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong),                  sizeof(ulong)*blk_max*fec_blk_max                                           );
+  void * blk_map     = FD_SCRATCH_ALLOC_APPEND( l, fd_repair_blk_map_align(),       fd_repair_blk_map_footprint  ( fd_repair_blk_map_chain_cnt_est( blk_max ) ) );
+  void * orphan_map  = FD_SCRATCH_ALLOC_APPEND( l, fd_repair_orphan_map_align(),    fd_repair_orphan_map_footprint( fd_repair_orphan_map_chain_cnt_est( blk_max ) ) );
+  void * fec_pool    = FD_SCRATCH_ALLOC_APPEND( l, fd_repair_fec_pool_align(),      fd_repair_fec_pool_footprint ( fec_max                                    ) );
+  void * fec_map     = FD_SCRATCH_ALLOC_APPEND( l, fd_repair_fec_map_align(),       fd_repair_fec_map_footprint  ( fd_repair_fec_map_chain_cnt_est( fec_max ) ) );
+  void * reasm_deque = FD_SCRATCH_ALLOC_APPEND( l, fd_repair_deque_align(),         fd_repair_deque_footprint    ( fec_max                                    ) );
+  void * eager_treap = FD_SCRATCH_ALLOC_APPEND( l, fd_repair_treap_align(),         fd_repair_treap_footprint    ( blk_max                                    ) );
+  void * notar_treap = FD_SCRATCH_ALLOC_APPEND( l, fd_repair_treap_align(),         fd_repair_treap_footprint    ( blk_max                                    ) );
+  void * final_treap = FD_SCRATCH_ALLOC_APPEND( l, fd_repair_treap_align(),         fd_repair_treap_footprint    ( blk_max                                    ) );
+  void * dropped     = FD_SCRATCH_ALLOC_APPEND( l, fd_repair_dropped_deque_align(), fd_repair_dropped_deque_footprint()                                         );
   FD_TEST( FD_SCRATCH_ALLOC_FINI( l, fd_repair_align() ) == (ulong)shmem + footprint );
 
   rotor->root        = ULONG_MAX;
@@ -511,7 +514,7 @@ fd_repair_new( void * shmem,
   rotor->eager_treap = fd_repair_treap_join( fd_repair_treap_new( eager_treap, blk_max ) );
   rotor->notar_treap = fd_repair_treap_join( fd_repair_treap_new( notar_treap, blk_max ) );
   rotor->final_treap = fd_repair_treap_join( fd_repair_treap_new( final_treap, blk_max ) );
-  rotor->dropped     = (fd_repair_dropped_t *)dropped;
+  rotor->dropped     = fd_repair_dropped_deque_join( fd_repair_dropped_deque_new( dropped ) );
 
   return shmem;
 }
@@ -548,7 +551,7 @@ fd_repair_init( fd_repair_t *         rotor,
   rotor->root          = root;
   rotor->root_blk      = blk;
   rotor->catchup_slot  = root;
-  rotor->dropped_cnt   = 0UL;
+  fd_repair_dropped_deque_remove_all( rotor->dropped );
 }
 
 void

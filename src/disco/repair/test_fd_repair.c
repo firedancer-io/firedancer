@@ -2669,13 +2669,13 @@ test_dropped_listed( void ) {
   fecs( rotor, 1UL, 0x40, 1U );
   fd_mr32_t m41 = hash( 0x41 ); complete( rotor, 1UL, 0UL, 0U, 1, &m41 );
   expect( rotor, b, 0U );
-  FD_TEST( b->cons_fec_cnt==1U && !rotor->dropped_cnt );
+  FD_TEST( b->cons_fec_cnt==1U && fd_repair_dropped_deque_empty( rotor->dropped ) );
 
   fd_mr32_t h10 = hash( 0x10 ), h40 = hash( 0x40 );
   FD_TEST( fd_repair_blk_finalized( rotor, 1UL, &h10, 0L )==a );
-  FD_TEST( rotor->dropped_cnt==1UL );
-  FD_TEST( rotor->dropped[ 0 ].slot==1UL && !memcmp( &rotor->dropped[ 0 ].block_id, &h40, sizeof(fd_mr32_t) ) );
-  rotor->dropped_cnt = 0UL;
+  FD_TEST( fd_repair_dropped_deque_cnt( rotor->dropped )==1UL );
+  fd_repair_dropped_t d = fd_repair_dropped_deque_pop_head( rotor->dropped );
+  FD_TEST( d.slot==1UL && !memcmp( &d.block_id, &h40, sizeof(fd_mr32_t) ) );
 
   /* The eager blk of slot 2 is consumed, then the slot is skipped: it
      is listed under the zero id, having none yet. */
@@ -2686,9 +2686,9 @@ test_dropped_listed( void ) {
   expect( rotor, e2, 0U );
   FD_TEST( e2->cons_fec_cnt==1U );
   fd_repair_slot_skipped( rotor, 2UL );
-  FD_TEST( rotor->dropped_cnt==1UL );
-  FD_TEST( rotor->dropped[ 0 ].slot==2UL && !memcmp( &rotor->dropped[ 0 ].block_id, &hash_null, sizeof(fd_mr32_t) ) );
-  rotor->dropped_cnt = 0UL;
+  FD_TEST( fd_repair_dropped_deque_cnt( rotor->dropped )==1UL );
+  d = fd_repair_dropped_deque_pop_head( rotor->dropped );
+  FD_TEST( d.slot==2UL && !memcmp( &d.block_id, &hash_null, sizeof(fd_mr32_t) ) );
 
   /* The eager blk of slot 3 is consumed, the slot is finalized as a
      blk we do not hold, and the eager blk then completes as another
@@ -2698,11 +2698,13 @@ test_dropped_listed( void ) {
   complete( rotor, 3UL, 0UL, 0U, 0, &m30 );
   fd_repair_blk_t * e3 = fd_repair_blk_pool_ele( rotor->blk_pool, fd_repair_slot_meta( rotor, 3UL )->eager );
   expect( rotor, e3, 0U );
-  FD_TEST( fd_repair_blk_finalized( rotor, 3UL, &h3f, 0L ) && !rotor->dropped_cnt );
+  FD_TEST( fd_repair_blk_finalized( rotor, 3UL, &h3f, 0L ) && fd_repair_dropped_deque_empty( rotor->dropped ) );
   complete( rotor, 3UL, 0UL, 1U, 1, &m31 );
-  FD_TEST( rotor->dropped_cnt==2UL );
-  FD_TEST( rotor->dropped[ 0 ].slot==3UL &&  memcmp( &rotor->dropped[ 0 ].block_id, &hash_null, sizeof(fd_mr32_t) ) );
-  FD_TEST( rotor->dropped[ 1 ].slot==3UL && !memcmp( &rotor->dropped[ 1 ].block_id, &hash_null, sizeof(fd_mr32_t) ) );
+  FD_TEST( fd_repair_dropped_deque_cnt( rotor->dropped )==2UL );
+  d = fd_repair_dropped_deque_pop_head( rotor->dropped );
+  FD_TEST( d.slot==3UL &&  memcmp( &d.block_id, &hash_null, sizeof(fd_mr32_t) ) );
+  d = fd_repair_dropped_deque_pop_head( rotor->dropped );
+  FD_TEST( d.slot==3UL && !memcmp( &d.block_id, &hash_null, sizeof(fd_mr32_t) ) );
   orphan_cnt( rotor );
 }
 

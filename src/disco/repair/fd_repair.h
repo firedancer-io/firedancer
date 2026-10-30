@@ -227,6 +227,11 @@ struct fd_repair_dropped {
 };
 typedef struct fd_repair_dropped fd_repair_dropped_t;
 
+#define DEQUE_NAME fd_repair_dropped_deque
+#define DEQUE_T    fd_repair_dropped_t
+#define DEQUE_MAX  (AG_EQVOC_BLOCK_HASH_MAX+2UL)
+#include "../../util/tmpl/fd_deque.c"
+
 struct fd_repair {
   ulong             root;
   fd_repair_blk_t * root_blk;     /* the root's blk, NULL if not held */
@@ -246,8 +251,7 @@ struct fd_repair {
   fd_repair_treap_t *     notar_treap;
   fd_repair_treap_t *     final_treap;
 
-  fd_repair_dropped_t * dropped;     /* blk_max+1 entries */
-  ulong                 dropped_cnt;
+  fd_repair_dropped_t *   dropped;     /* deque_dynamic */
 
   struct {
     fd_repair_report_fn_t report; /* called once per blk, when it completes or when it is freed incomplete, NULL disables */
