@@ -449,6 +449,19 @@ main_pid_namespace( void * _args ) {
           if( FD_UNLIKELY( -1==fcntl( FD_ACCDB_FD_RO, F_SETFD, FD_CLOEXEC ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,FD_CLOEXEC) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
         }
 
+        /* snaprd reads partitions directly and never the index. */
+        int tile_uses_idx_ro = tile_uses_accdb_ro && strcmp( tile->name, "snaprd" );
+        for( int i=0; i<(int)FD_ACCDB_IDX_SHARD_CNT; i++ ) {
+          if( FD_UNLIKELY( -1==fcntl( FD_ACCDB_IDX_FD_RW+i, F_SETFD, tile_uses_accdb  ? 0 : FD_CLOEXEC ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+          if( FD_UNLIKELY( -1==fcntl( FD_ACCDB_IDX_FD_RO+i, F_SETFD, tile_uses_idx_ro ? 0 : FD_CLOEXEC ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+        }
+
+        /* snapin and snapdc build the index from the spill, accdb
+           punches it out. */
+        int tile_uses_spill = !strcmp( tile->name, "snapin" ) || !strcmp( tile->name, "accdb" ) ||
+                              ( !strcmp( tile->name, "snapdc" ) && tile_uses_accdb );
+        if( FD_UNLIKELY( -1==fcntl( FD_ACCDB_SPILL_FD, F_SETFD, tile_uses_spill ? 0 : FD_CLOEXEC ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
         if( FD_LIKELY( has_store ) ) {
           int tile_uses_store = 0;
           for( ulong i=0UL; i<tile->uses_obj_cnt; i++ ) tile_uses_store |= tile->uses_obj_id[ i ]==store_obj_id;
@@ -547,6 +560,11 @@ main_pid_namespace( void * _args ) {
 
     if( FD_UNLIKELY( -1==close( FD_ACCDB_FD_RW ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     if( FD_UNLIKELY( -1==close( FD_ACCDB_FD_RO ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    for( int i=0; i<(int)FD_ACCDB_IDX_SHARD_CNT; i++ ) {
+      if( FD_UNLIKELY( -1==close( FD_ACCDB_IDX_FD_RW+i ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+      if( FD_UNLIKELY( -1==close( FD_ACCDB_IDX_FD_RO+i ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    }
+    if( FD_UNLIKELY( -1==close( FD_ACCDB_SPILL_FD ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     if( FD_LIKELY( has_store ) ) {
       if( FD_UNLIKELY( -1==close( FD_STORE_FD_RW ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
       if( FD_UNLIKELY( -1==close( FD_STORE_FD_RO ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
@@ -1107,6 +1125,32 @@ initialize_accdb_fd( config_t const * config ) {
   if( FD_UNLIKELY( -1==accounts_ro_fd ) ) FD_LOG_ERR(( "failed to open accounts.db read-only (%i-%s)", errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( -1==dup2( accounts_ro_fd, FD_ACCDB_FD_RO ) ) ) FD_LOG_ERR(( "dup2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( -1==close( accounts_ro_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
+  /* The disk index shards (used when [accounts.index_ram_max] is
+     non-zero) are rebuilt on every boot, so stale pages must never
+     survive. */
+  for( int i=0; i<(int)FD_ACCDB_IDX_SHARD_CNT; i++ ) {
+    char idx_path[ PATH_MAX ];
+    FD_TEST( fd_cstr_printf_check( idx_path, sizeof(idx_path), NULL, "%s-index.%d", config->paths.accounts, i ) );
+    int idx_fd = open( idx_path, O_RDWR|O_CREAT|O_TRUNC|O_NOATIME, S_IRUSR|S_IWUSR );
+    if( FD_UNLIKELY( -1==idx_fd ) ) FD_LOG_ERR(( "failed to open %s (%i-%s)", idx_path, errno, fd_io_strerror( errno ) ));
+    if( FD_UNLIKELY( -1==dup2( idx_fd, FD_ACCDB_IDX_FD_RW+i ) ) ) FD_LOG_ERR(( "dup2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    if( FD_UNLIKELY( -1==close( idx_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    FD_TEST( fd_cstr_printf_check( proc_path, sizeof(proc_path), NULL, "/proc/self/fd/%d", FD_ACCDB_IDX_FD_RW+i ) );
+    int idx_ro_fd = open( proc_path, O_RDONLY|O_NOATIME );
+    if( FD_UNLIKELY( -1==idx_ro_fd ) ) FD_LOG_ERR(( "failed to open %s read-only (%i-%s)", idx_path, errno, fd_io_strerror( errno ) ));
+    if( FD_UNLIKELY( -1==dup2( idx_ro_fd, FD_ACCDB_IDX_FD_RO+i ) ) ) FD_LOG_ERR(( "dup2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    if( FD_UNLIKELY( -1==close( idx_ro_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
+
+  /* The index spill is scratch for one boot: unlinked once open. */
+  char spill_path[ PATH_MAX ];
+  FD_TEST( fd_cstr_printf_check( spill_path, sizeof(spill_path), NULL, "%s-spill", config->paths.accounts ) );
+  int spill_fd = open( spill_path, O_RDWR|O_CREAT|O_TRUNC|O_NOATIME, S_IRUSR|S_IWUSR );
+  if( FD_UNLIKELY( -1==spill_fd ) ) FD_LOG_ERR(( "failed to open %s (%i-%s)", spill_path, errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( -1==unlink( spill_path ) ) ) FD_LOG_ERR(( "unlink(%s) failed (%i-%s)", spill_path, errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( -1==dup2( spill_fd, FD_ACCDB_SPILL_FD ) ) ) FD_LOG_ERR(( "dup2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( -1==close( spill_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 }
 
 void

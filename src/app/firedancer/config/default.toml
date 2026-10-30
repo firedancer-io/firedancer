@@ -740,6 +740,14 @@ telemetry = true
     # down the index structure, and use more memory than is necessary.
     max_accounts = 1_300_000_000
 
+    # The maximum number of account index entries kept in memory.  If
+    # zero, the whole index of up to max_accounts entries is kept in
+    # memory (64 bytes per entry).  Otherwise rooted accounts that are
+    # not in use move to index files next to the accounts database
+    # (`accounts.db-index.N`) and only this many entries stay in memory.
+    # The default of 32 million entries is 2 GiB.
+    index_ram_max = 33_554_432
+
     # The size of the in-memory cache for hit accounts, in GiB.  The
     # performance of the validator is surprisingly not sensitive to this
     # parameter, as long as it is large enough to hold the hottest
@@ -1112,15 +1120,17 @@ telemetry = true
 
     # How many snapshot inserter tiles to run.  Snapshot inserter tiles
     # take the decompressed snapshot and write out its accounts to the
-    # accounts database.
+    # accounts database.  When the accounts index is on disk, they also
+    # build the index once the full snapshot is inserted.
     #
-    # It is recommended to use five tiles for all clusters and
-    # configurations, unless there is an indication that disk write
-    # speeds during snapshot load are lower than expected, or the
-    # snapin tiles are completely busy but disk writing is not yet
-    # fully saturated.  This is not typically expected on current
-    # NVMe, but may occur if using a RAM disk.
-    snapin_tile_count = 5
+    # It is recommended to use eight tiles for all clusters and
+    # configurations.  Snapshot tiles only run during boot, so the auto
+    # layout places them on the same cores as the execution tiles, and
+    # eight tiles use no cores beyond the default execution tiles.
+    # More tiles may help if the snapin tiles are completely busy but
+    # disk writing is not yet fully saturated.  This is not typically
+    # expected on current NVMe, but may occur if using a RAM disk.
+    snapin_tile_count = 8
 
     # How many snapshot compressor tiles to run.  These tiles do not
     # consume CPU when idle.  If set to 0, snapshot creation and all

@@ -235,12 +235,13 @@ populate_allowed_fds( fd_topo_t const *      topo,
                       int *                  out_fds ) {
   (void)topo;
   ulong snap_fd_cnt = tile->snapzp.snap_fd_cnt;
-  FD_CHECK_ERR( out_fds_cnt>=3UL+snap_fd_cnt, "out_fds[] too small" );
+  FD_CHECK_ERR( out_fds_cnt>=3UL+FD_ACCDB_IDX_SHARD_CNT+snap_fd_cnt, "out_fds[] too small" );
   ulong out_cnt = 0UL;
   out_fds[ out_cnt++ ] = 2; /* stderr */
   if( FD_LIKELY( -1!=fd_log_private_logfile_fd() ) )
     out_fds[ out_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
   out_fds[ out_cnt++ ] = FD_ACCDB_FD_RO;
+  for( int fd=FD_ACCDB_IDX_FD_RO; fd<=FD_ACCDB_IDX_FD_RO_MAX; fd++ ) out_fds[ out_cnt++ ] = fd; /* accounts index shards */
   for( uint i=0U; i<snap_fd_cnt; i++ )
     out_fds[ out_cnt++ ] = FD_SNAP_DIO_FD( i );
   return out_cnt;
@@ -258,7 +259,7 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
       (uint)fd_log_private_logfile_fd(),
       (uint)FD_SNAP_DIO_FD( 0 ),
       (uint)FD_SNAP_DIO_FD( snap_fd_cnt-1U ),
-      (uint)FD_ACCDB_FD_RO );
+      (uint)FD_ACCDB_FD_RO, FD_ACCDB_IDX_FD_RO, FD_ACCDB_IDX_FD_RO_MAX );
   return sock_filter_policy_fd_snapzp_tile_instr_cnt;
 }
 
@@ -578,29 +579,6 @@ msg_acc_delta( fd_snapzp_t *                 ctx,
   }
 }
 
-/* accmeta_disk validates that an index entry (at acc_idx with given
-   pubkey) is an on-disk rooted account.
-   (Safe while compaction and rooting are disabled, as on-disk rooted
-   accounts are pinned in the index and on-disk under these conditions.
-
-   Returns a pointer to the index entry if a matching record is found,
-   NULL otherwise.  (Never returns NULL under correct usage.) */
-
-static fd_accdb_accmeta_t const *
-accmeta_disk( fd_snapzp_t *       ctx,
-              fd_pubkey_t const * pubkey,
-              uint                size,
-              uint                acc_idx ) {
-  fd_backup_accidx_t const * idx = &ctx->acc_cache->idx;
-  if( FD_UNLIKELY( !fd_backup_accidx_valid( idx, acc_idx ) ) ) return NULL;
-
-  fd_accdb_accmeta_t const * acc = &idx->acc_pool[ acc_idx ];
-  uint es = FD_VOLATILE_CONST( acc->executable_size );
-  if( FD_UNLIKELY( FD_ACCDB_SIZE_DATA( es )!=FD_ACCDB_SIZE_DATA( size ) ) ) return NULL;
-  if( FD_UNLIKELY( memcmp( acc->key.pubkey, pubkey->uc, sizeof(fd_pubkey_t) ) ) ) return NULL;
-  return acc;
-}
-
 /* msg_acc_disk instructs snapzp to compress an account fragment that
    was read from the accdb disk file.  (slow path)
 
@@ -639,15 +617,12 @@ msg_acc_disk_start( fd_snapzp_t *                ctx,
   ctx->disk.size    = frag->size;
   ctx->disk.acc_idx = frag->acc_idx;
 
-  fd_accdb_accmeta_t const * accmeta = accmeta_disk( ctx, &ctx->disk.pubkey, ctx->disk.size, ctx->disk.acc_idx );
-  FD_CHECK_CRIT( accmeta, "bug in snapshot producer: rooted account disappeared from index" );
-
   snap_acc_hdr_t * hdr = (snap_acc_hdr_t *)( ctx->raw + ctx->raw_buf.size );
   memset( hdr, 0, sizeof(snap_acc_hdr_t) );
   hdr->pubkey    = ctx->disk.pubkey;
   hdr->owner     = ctx->disk.owner;
-  hdr->lamports   = FD_VOLATILE_CONST( accmeta->lamports );
-  hdr->executable = !!FD_ACCDB_SIZE_EXEC( FD_VOLATILE_CONST( accmeta->executable_size ) );
+  hdr->lamports   = frag->lamports;
+  hdr->executable = !!FD_ACCDB_SIZE_EXEC( frag->size );
   hdr->data_len   = data_len;
 
   ctx->raw_buf.size += sizeof(snap_acc_hdr_t);
@@ -732,23 +707,6 @@ msg_acc_disk_batch( fd_snapzp_t *                      ctx,
   FD_CHECK_CRIT( ctx->snap_fd>=0, "invalid snapshot file descriptor" );
   FD_CHECK_CRIT( !ctx->disk.active, "received account batch while already processing a disk account" );
 
-  fd_backup_accidx_t const * idx      = &ctx->acc_cache->idx;
-  fd_accdb_accmeta_t const * acc_pool = idx->acc_pool;
-
-  /* MLP gather of account index entries */
-  static fd_accdb_accmeta_t const dead = {0};
-  fd_accdb_accmeta_t const * gather[ FD_BACKUP_DISK_PARA ];
-  for( ulong i=0UL; i<FD_BACKUP_DISK_PARA; i++ ) {
-    uint ai = batch->acc_idx[ i ];
-    gather[ i ] = fd_backup_accidx_valid( idx, ai ) ? &acc_pool[ ai ] : &dead;
-  }
-  ulong lamports[ FD_BACKUP_DISK_PARA ];
-  uint  exec_sz [ FD_BACKUP_DISK_PARA ];
-  for( ulong i=0UL; i<FD_BACKUP_DISK_PARA; i++ ) {
-    lamports[ i ] = FD_VOLATILE_CONST( gather[ i ]->lamports        );
-    exec_sz [ i ] = FD_VOLATILE_CONST( gather[ i ]->executable_size );
-  }
-
   /* Bounds check batch (TOCTOU susceptible, but this is an accepted
      risk, as snapmk->snapzp is a trusted link) */
   uchar const * base = fd_wksp_laddr_fast( ctx->snaprd_mem, sig );
@@ -762,17 +720,12 @@ msg_acc_disk_batch( fd_snapzp_t *                      ctx,
   for( ulong i=0UL; i<FD_BACKUP_DISK_PARA; i++ ) {
     uint acc_idx = batch->acc_idx[ i ];
     if( acc_idx==UINT_MAX ) continue;
-    FD_CHECK_CRIT( fd_backup_accidx_valid( idx, acc_idx ), "account index bounds check fail" );
 
     fd_accdb_disk_meta_t const * dm = (fd_accdb_disk_meta_t const *)( base + batch->frag_off[ i ] );
     FD_CHECK_CRIT( (ulong)(dm+1) <= (ulong)ctx->snaprd_data1, "account data bounds check fail" );
 
     ulong data_len = (ulong)FD_ACCDB_SIZE_DATA( dm->size );
     FD_CHECK_CRIT( (ulong)(dm+1)+data_len <= (ulong)ctx->snaprd_data1, "account data bounds check fail" );
-
-    /* validate that disk data matches index */
-    FD_CHECK_CRIT( FD_ACCDB_SIZE_DATA( exec_sz[ i ] )==data_len, "account query corruption detected" );
-    FD_CHECK_CRIT( !memcmp( gather[ i ]->key.pubkey, dm->pubkey, sizeof(fd_pubkey_t) ), "account query corruption detected" );
 
     ulong rec_sz   = sizeof(snap_acc_hdr_t) + fd_ulong_align_up( data_len, 8UL );
     ulong data_pad = fd_ulong_align_up( data_len, 8UL ) - data_len;
@@ -785,8 +738,8 @@ msg_acc_disk_batch( fd_snapzp_t *                      ctx,
     memset( hdr, 0, sizeof(snap_acc_hdr_t) );
     memcpy( hdr->pubkey.uc, dm->pubkey, sizeof(fd_pubkey_t) );
     memcpy( hdr->owner.uc,  dm->owner,  sizeof(fd_pubkey_t) );
-    hdr->lamports   = lamports[ i ];
-    hdr->executable = !!FD_ACCDB_SIZE_EXEC( exec_sz[ i ] );
+    hdr->lamports   = batch->lamports[ i ];
+    hdr->executable = !!FD_ACCDB_SIZE_EXEC( batch->size[ i ] );
     hdr->data_len   = data_len;
     ctx->raw_buf.size += sizeof(snap_acc_hdr_t);
 

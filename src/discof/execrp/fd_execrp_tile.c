@@ -533,7 +533,7 @@ populate_allowed_seccomp( fd_topo_t const *      topo FD_PARAM_UNUSED,
                           fd_topo_tile_t const * tile FD_PARAM_UNUSED,
                           ulong                  out_cnt,
                           struct sock_filter *   out ) {
-  populate_sock_filter_policy_fd_execrp_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)FD_ACCDB_FD_RW, FD_STAKE_DELEGATIONS_FD, FD_VOTE_STAKES_FD );
+  populate_sock_filter_policy_fd_execrp_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)FD_ACCDB_FD_RW, FD_STAKE_DELEGATIONS_FD, FD_VOTE_STAKES_FD, FD_ACCDB_IDX_FD_RW, FD_ACCDB_IDX_FD_RW_MAX );
   return sock_filter_policy_fd_execrp_tile_instr_cnt;
 }
 
@@ -543,7 +543,7 @@ populate_allowed_fds( fd_topo_t const *      topo FD_PARAM_UNUSED,
                       ulong                  out_fds_cnt,
                       int *                  out_fds ) {
 
-  if( FD_UNLIKELY( out_fds_cnt<5UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+  if( FD_UNLIKELY( out_fds_cnt<5UL+FD_ACCDB_IDX_SHARD_CNT ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
 
   ulong out_cnt = 0UL;
   out_fds[ out_cnt++ ] = 2; /* stderr */
@@ -551,6 +551,7 @@ populate_allowed_fds( fd_topo_t const *      topo FD_PARAM_UNUSED,
     out_fds[ out_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
   }
   out_fds[ out_cnt++ ] = FD_ACCDB_FD_RW; /* accounts db */
+  for( int fd=FD_ACCDB_IDX_FD_RW; fd<=FD_ACCDB_IDX_FD_RW_MAX; fd++ ) out_fds[ out_cnt++ ] = fd; /* accounts index shards */
   out_fds[ out_cnt++ ] = FD_STAKE_DELEGATIONS_FD; /* stake delegation disk spill */
   out_fds[ out_cnt++ ] = FD_VOTE_STAKES_FD; /* vote stakes disk spill */
 

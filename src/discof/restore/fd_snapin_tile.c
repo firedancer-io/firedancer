@@ -292,6 +292,7 @@ struct fd_snapin_tile {
   uchar control_seen[ FD_TOPO_MAX_TILE_IN_LINKS ];
 
   fd_accdb_t * accdb;
+  void *       idx_scratch; /* disk index build window */
 
   /* Shared stake data updated by every tile. */
   fd_stake_delegations_t * stake_delegations;
@@ -400,6 +401,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_snapin_tile_t),         sizeof(fd_snapin_tile_t)                                          );
   l = FD_LAYOUT_APPEND( l, fd_accdb_align(),                  fd_accdb_footprint( tile->snapin.max_live_slots, 0 ) );
+  l = FD_LAYOUT_APPEND( l, fd_accdb_snapshot_index_build_scratch_align(), fd_accdb_snapshot_index_build_scratch_footprint( tile->snapin.max_accounts, tile->snapin.index_ram_max ) );
 
   /* Only tile 0 publishes the manifest */
   if( FD_LIKELY( !tile->kind_id ) ) {
@@ -1875,6 +1877,38 @@ validate_capitalization( fd_snapin_tile_t * ctx ) {
   return 0;
 }
 
+/* index_build finishes the accdb disk index after a full snapshot
+   (no-op without one), placing windows alongside the other tiles, and
+   books the duplicate records it resolved.  The spill could not tell
+   which version of a duplicated account wins, so every snooped
+   delegation was kept: drop those a newer record replaced.  Returns
+   non-zero if the snapshot is corrupt. */
+
+static int
+index_build( fd_snapin_tile_t * ctx ) {
+  ulong dup_cnt, dup_lamports_hi, dup_lamports;
+  if( FD_UNLIKELY( fd_accdb_snapshot_index_build_fini( ctx->accdb, ctx->idx_scratch, &dup_cnt, &dup_lamports_hi, &dup_lamports ) ) ) return -1;
+  if( FD_LIKELY( !dup_cnt ) ) return 0;
+
+  ctx->shmem->values[ 0 ].loaded     -= dup_cnt;
+  ctx->shmem->values[ 0 ].duplicates += dup_cnt;
+  ulong * dup_hi = &ctx->shmem->values[ 0 ].duplicate_lamports_hi; ulong * dup_lo = &ctx->shmem->values[ 0 ].duplicate_lamports;
+  fd_uwide_add( dup_hi, dup_lo, *dup_hi, *dup_lo, dup_lamports_hi, dup_lamports, 0UL );
+
+  fd_stake_delegations_iter_t iter_[1];
+  for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, ctx->stake_delegations );
+       !fd_stake_delegations_iter_done( iter );
+       fd_stake_delegations_iter_next( iter ) ) {
+    fd_stake_delegation_t const * d = fd_stake_delegations_iter_ele( iter );
+    if( d->lamports && fd_accdb_snapshot_index_maybe_dup( ctx->accdb, d->stake_account.uc ) &&
+        fd_accdb_snapshot_index_slot( ctx->accdb, d->stake_account.uc )!=(ulong)d->slot ) {
+      fd_pubkey_t stake_account = d->stake_account;
+      fd_stake_delegations_fork_remove( ctx->stake_delegations, USHORT_MAX, UINT_MAX, &stake_account, 0 );
+    }
+  }
+  return 0;
+}
+
 static void
 fold_account_counts( fd_snapin_tile_t * ctx ) {
   for( ulong i=0UL; i<FD_TOPO_MAX_TILE_IN_LINKS; i++ ) {
@@ -2043,10 +2077,18 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
       ctx->metrics.full_accounts_replaced = ctx->metrics.accounts_replaced;
       ctx->metrics.full_accounts_ignored  = ctx->metrics.accounts_ignored;
 
-      /* Tile 0 only. */
-      if( FD_LIKELY( !is_lead( ctx ) ) ) break;
+      /* FINI acks make shared data stable.  Every tile helps build the
+         disk index, tile 0 finishes it. */
+      if( FD_LIKELY( !is_lead( ctx ) ) ) {
+        if( ctx->full ) fd_accdb_snapshot_index_build_work( ctx->accdb, ctx->idx_scratch );
+        break;
+      }
 
-      /* FINI acks make shared data stable. */
+      if( FD_UNLIKELY( ctx->full && index_build( ctx ) ) ) {
+        transition_malformed( ctx, stem );
+        forward_msg = 0;
+        break;
+      }
       if( FD_UNLIKELY( verify_sysvars( ctx ) ) ) {
         FD_LOG_WARNING(( "sysvar verification failed for full snapshot" ));
         transition_malformed( ctx, stem );
@@ -2070,8 +2112,16 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
     case FD_SNAPSHOT_MSG_CTRL_DONE: {
       FD_TEST( ctx->state==FD_SNAPSHOT_STATE_FINISHING );
       ctx->state = FD_SNAPSHOT_STATE_IDLE;
-      if( FD_LIKELY( !is_lead( ctx ) ) ) break;
+      if( FD_LIKELY( !is_lead( ctx ) ) ) {
+        if( ctx->full ) fd_accdb_snapshot_index_build_work( ctx->accdb, ctx->idx_scratch );
+        break;
+      }
 
+      if( FD_UNLIKELY( ctx->full && index_build( ctx ) ) ) {
+        transition_malformed( ctx, stem );
+        forward_msg = 0;
+        break;
+      }
       if( FD_UNLIKELY( verify_sysvars( ctx ) ) ) {
         if( ctx->full ) FD_LOG_WARNING(( "sysvar verification failed for full snapshot" ));
         else            FD_LOG_WARNING(( "sysvar verification failed for incremental snapshot" ));
@@ -2292,7 +2342,7 @@ populate_allowed_fds( fd_topo_t      const * topo,
                       fd_topo_tile_t const * tile,
                       ulong                  out_fds_cnt,
                       int *                  out_fds ) {
-  if( FD_UNLIKELY( out_fds_cnt<5UL ) ) FD_LOG_ERR(( "invalid out_fds_cnt %lu", out_fds_cnt ));
+  if( FD_UNLIKELY( out_fds_cnt<6UL+FD_ACCDB_IDX_SHARD_CNT ) ) FD_LOG_ERR(( "invalid out_fds_cnt %lu", out_fds_cnt ));
   fd_snapin_tile_t const * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   ulong out_cnt = 0;
@@ -2301,6 +2351,8 @@ populate_allowed_fds( fd_topo_t      const * topo,
     out_fds[ out_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
   }
   out_fds[ out_cnt++ ] = FD_ACCDB_FD_RW; /* accounts db */
+  for( int fd=FD_ACCDB_IDX_FD_RW; fd<=FD_ACCDB_IDX_FD_RW_MAX; fd++ ) out_fds[ out_cnt++ ] = fd; /* accounts index shards */
+  out_fds[ out_cnt++ ] = FD_ACCDB_SPILL_FD; /* accounts index spill */
   out_fds[ out_cnt++ ] = FD_STAKE_DELEGATIONS_FD; /* stake delegation disk spill */
   out_fds[ out_cnt++ ] = ctx->writer.accdb_direct_fd; /* accounts db, O_DIRECT */
 
@@ -2313,7 +2365,7 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
                           ulong                  out_cnt,
                           struct sock_filter *   out ) {
   fd_snapin_tile_t const * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
-  populate_sock_filter_policy_fd_snapin_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), FD_ACCDB_FD_RW, (uint)ctx->writer.accdb_direct_fd, FD_STAKE_DELEGATIONS_FD );
+  populate_sock_filter_policy_fd_snapin_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), FD_ACCDB_FD_RW, (uint)ctx->writer.accdb_direct_fd, FD_STAKE_DELEGATIONS_FD, FD_ACCDB_IDX_FD_RW, FD_ACCDB_IDX_FD_RW_MAX, FD_ACCDB_SPILL_FD );
   return sock_filter_policy_fd_snapin_tile_instr_cnt;
 }
 
@@ -2356,6 +2408,7 @@ unprivileged_init( fd_topo_t const *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_snapin_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snapin_tile_t), sizeof(fd_snapin_tile_t) );
   void * _accdb          = FD_SCRATCH_ALLOC_APPEND( l, fd_accdb_align(),          fd_accdb_footprint( tile->snapin.max_live_slots, 0 ) );
+  ctx->idx_scratch       = FD_SCRATCH_ALLOC_APPEND( l, fd_accdb_snapshot_index_build_scratch_align(), fd_accdb_snapshot_index_build_scratch_footprint( tile->snapin.max_accounts, tile->snapin.index_ram_max ) );
 
   ctx->tile_idx = tile->kind_id;
   if( FD_UNLIKELY( ctx->tile_idx>=FD_TOPO_MAX_TILE_IN_LINKS ) ) FD_LOG_ERR(( "tile `" NAME "` has unsupported kind id %lu", tile->kind_id ));

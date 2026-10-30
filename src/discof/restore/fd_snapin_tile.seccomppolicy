@@ -5,7 +5,14 @@
 #              tiles may need to pull accounts into the cache from disk,
 #              or purge out of cache to the disk to make forward
 #              progress.
-uint logfile_fd, uint accounts_fd, uint accounts_direct_fd, uint stake_spill_fd
+#
+# accounts_idx_min_fd, accounts_idx_max_fd: The first and last of the
+#                  accounts index shard files (accounts.db-index.N),
+#                  read to find rooted accounts that are not in memory.
+#
+# accounts_spill_fd: The accounts index spill (accounts.db-spill),
+#                    scratch for building the index of a full snapshot.
+uint logfile_fd, uint accounts_fd, uint accounts_direct_fd, uint stake_spill_fd, uint accounts_idx_min_fd, uint accounts_idx_max_fd, uint accounts_spill_fd
 
 # logging: all log messages are written to a file and/or pipe
 #
@@ -30,14 +37,29 @@ exit: (eq (arg 0) 0)
 # Tile 0 reads SlotHistory and feature accounts from the database.
 #
 # arg 0 is the file descriptor to read from.
-preadv2: (eq (arg 0) accounts_fd)
+preadv2: (or (eq (arg 0) accounts_fd)
+             (and (>= (arg 0) accounts_idx_min_fd) (<= (arg 0) accounts_idx_max_fd))
+             (eq (arg 0) accounts_spill_fd))
+
+# accounts index: spill and build the index of a full snapshot
+pwritev2: (or (and (>= (arg 0) accounts_idx_min_fd) (<= (arg 0) accounts_idx_max_fd))
+              (eq (arg 0) accounts_spill_fd))
+
+# accounts index: start writeback of each index build window
+# (SYNC_FILE_RANGE_WRITE)
+sync_file_range: (and (and (>= (arg 0) accounts_idx_min_fd) (<= (arg 0) accounts_idx_max_fd))
+                      (eq (arg 3) 2))
 
 # accounts database: allocate more space from the disk
 #
 # The accounts database allocates more space from the underlying storage
-# device in chunks, as it runs out.
-fallocate: (and (eq (arg 0) accounts_fd)
-                (eq (arg 1) 0))
+# device in chunks, as it runs out.  A full snapshot load finishes
+# punching out the spill of the previous index build
+# (FALLOC_FL_PUNCH_HOLE|FALLOC_FL_KEEP_SIZE).
+fallocate: (or (and (eq (arg 0) accounts_fd)
+                    (eq (arg 1) 0))
+               (and (eq (arg 0) accounts_spill_fd)
+                    (eq (arg 1) 3)))
 
 # stake delegations: full root and fork-delta records spilled beyond
 # the in-memory delegation pools.

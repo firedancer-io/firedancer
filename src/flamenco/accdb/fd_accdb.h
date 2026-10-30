@@ -17,6 +17,25 @@
 #define FD_ACCDB_FD_RW (123461)
 #define FD_ACCDB_FD_RO (123460)
 
+/* Well-known fds of the disk index, used when index_ram_max is
+   non-zero.  The index is split over FD_ACCDB_IDX_SHARD_CNT files
+   (accounts.db-index.0 ...) with the placement windows interleaved
+   across them, because buffered writes to one file serialize.  Shard i
+   is fd FD_ACCDB_IDX_FD_RW+i for fd_accdb_new joins and
+   FD_ACCDB_IDX_FD_RO+i for readonly joins; fd_accdb_set_index_fd
+   overrides them with a single file. */
+
+#define FD_ACCDB_IDX_SHARD_CNT (8UL)
+#define FD_ACCDB_IDX_FD_RW     (123400)
+#define FD_ACCDB_IDX_FD_RO     (123410)
+#define FD_ACCDB_IDX_FD_RW_MAX (FD_ACCDB_IDX_FD_RW+(int)FD_ACCDB_IDX_SHARD_CNT-1)
+#define FD_ACCDB_IDX_FD_RO_MAX (FD_ACCDB_IDX_FD_RO+(int)FD_ACCDB_IDX_SHARD_CNT-1)
+
+/* Well-known fd of the full snapshot spill file (accounts.db-spill),
+   scratch for the disk index build.  fd_accdb_new joins use it. */
+
+#define FD_ACCDB_SPILL_FD (123451)
+
 struct fd_accdb_entry {
   uchar   pubkey[ 32UL ];
   uchar   owner[ 32UL ];
@@ -125,6 +144,95 @@ fd_accdb_join_readonly( void *             ljoin,
                         fd_accdb_shmem_t * shmem_ro,
                         ulong *            my_epoch_slot_rw,
                         int                fd_ro );
+
+/* fd_accdb_set_index_fd makes accdb use the single file idx_fd for the
+   disk index, with the spill stored after the index pages in the same
+   file.
+   fd_accdb_set_spill_fd then moves the spill to its own file. */
+
+void
+fd_accdb_set_index_fd( fd_accdb_t * accdb,
+                       int          idx_fd );
+
+void
+fd_accdb_set_spill_fd( fd_accdb_t * accdb,
+                       int          spill_fd );
+
+/* fd_accdb_idx_query looks pubkey up in the disk index only.  On a hit
+   it stores the file offset of the record, lamports and packed size
+   (FD_ACCDB_SIZE_PACK) and returns 1, else returns 0.  Always 0 when
+   the disk index is disabled. */
+
+int
+fd_accdb_idx_query( fd_accdb_t *  accdb,
+                    uchar const * pubkey,
+                    ulong *       out_off,
+                    ulong *       out_lamports,
+                    uint *        out_size );
+
+/* The disk index is built from the records that
+   fd_accdb_snapshot_write_batch spilled during a full snapshot load,
+   after all writers stop and before any account read.  For each pubkey
+   the newest snapshot slot wins.  The build is split into placement
+   windows that any number of joins place concurrently, each with its
+   own scratch of fd_accdb_snapshot_index_build_scratch_footprint bytes
+   (0 when the disk index is disabled).  fd_accdb_reset rearms it.
+
+   fd_accdb_snapshot_index_build_work places windows until none are left
+   unclaimed.
+
+   fd_accdb_snapshot_index_build_fini places windows too, waits for the
+   ones other joins claimed, and finishes the index.  Exactly one join
+   calls it.  The losers' count and 128-bit lamports are returned for
+   capitalization checks.  Returns 0 on success, -1 (outputs zero) if
+   the snapshot is corrupt: a pubkey has two records at one slot.
+
+   fd_accdb_snapshot_index_build is a single join build (rearm + fini).
+
+   All are no-ops (outputs zero, return 0) when the disk index is
+   disabled. */
+
+FD_FN_CONST ulong
+fd_accdb_snapshot_index_build_scratch_align( void );
+
+FD_FN_CONST ulong
+fd_accdb_snapshot_index_build_scratch_footprint( ulong max_accounts,
+                                                 ulong index_ram_max );
+
+void
+fd_accdb_snapshot_index_build_work( fd_accdb_t * accdb,
+                                    void *       scratch );
+
+int
+fd_accdb_snapshot_index_build_fini( fd_accdb_t * accdb,
+                                    void *       scratch,
+                                    ulong *      out_dup_cnt,
+                                    ulong *      out_dup_lamports_hi,
+                                    ulong *      out_dup_lamports );
+
+int
+fd_accdb_snapshot_index_build( fd_accdb_t * accdb,
+                               void *       scratch,
+                               ulong *      out_dup_cnt,
+                               ulong *      out_dup_lamports_hi,
+                               ulong *      out_dup_lamports );
+
+/* fd_accdb_snapshot_index_slot returns the snapshot slot of pubkey's
+   winning record after fd_accdb_snapshot_index_build, or ULONG_MAX if
+   the account does not exist. */
+
+ulong
+fd_accdb_snapshot_index_slot( fd_accdb_t *  accdb,
+                              uchar const * pubkey );
+
+/* fd_accdb_snapshot_index_maybe_dup returns 1 if the last index build
+   may have resolved a losing record of pubkey, and 0 if it certainly
+   did not (always 0 when the disk index is disabled).  It needs no
+   disk access, so it screens fd_accdb_snapshot_index_slot queries. */
+
+int
+fd_accdb_snapshot_index_maybe_dup( fd_accdb_t *  accdb,
+                                   uchar const * pubkey );
 
 /* fd_accdb_snapshot_load_{begin,end} suspend compaction while snapshot
    writers build the index.  New layer-0 partitions are tagged Cold;

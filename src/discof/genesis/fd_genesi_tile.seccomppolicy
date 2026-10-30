@@ -14,7 +14,11 @@
 #                 can poll all file descriptors across all tiles at once.
 #                 This tile needs access to the outer file descriptor to
 #                 rearm the inner set after a drain.
-uint logfile_fd, uint in_genesis_fd, uint out_genesis_fd, uint out_dir_fd, uint accounts_fd, uint epoll_inner_fd, uint epoll_outer_fd
+#
+# accounts_idx_min_fd, accounts_idx_max_fd: The first and last of the
+#                  accounts index shard files (accounts.db-index.N),
+#                  read to find rooted accounts that are not in memory.
+uint logfile_fd, uint in_genesis_fd, uint out_genesis_fd, uint out_dir_fd, uint accounts_fd, uint epoll_inner_fd, uint epoll_outer_fd, uint accounts_idx_min_fd, uint accounts_idx_max_fd
 
 # logging: all log messages are written to a file and/or pipe
 #
@@ -66,7 +70,8 @@ pwritev2: (eq (arg 0) accounts_fd)
 # Users of the accounts database may need to read data into the cache.
 #
 # arg 0 is the file descriptor to read from
-preadv2: (eq (arg 0) accounts_fd)
+preadv2: (or (eq (arg 0) accounts_fd)
+             (and (>= (arg 0) accounts_idx_min_fd) (<= (arg 0) accounts_idx_max_fd)))
 
 # accounts database: allocate more space from the disk
 #

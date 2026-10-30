@@ -164,6 +164,96 @@ typedef struct fd_accdb_partition fd_accdb_partition_t;
 
 #include "../../util/tmpl/fd_dlist.c"
 
+/* Disk index.  When index_ram_max is non-zero, acc_pool holds at most
+   index_ram_max entries and the rooted index lives in a file of
+   idx_page_cnt 4 KiB pages of 64 byte slots, accessed with explicit
+   pread/pwrite.  A pubkey hashes to a home page and takes any slot in
+   it.  Only a page with no empty slot sends pubkeys on to the next
+   page of its placement window, wrapping at the window end, so pages
+   fill to FD_ACCDB_IDX_FILL_PCT at max_accounts and a lookup almost
+   always reads one page.  acc_map
+   keeps unrooted versions, rooted versions not yet demoted, and
+   promoted copies of disk slots.
+
+   A promoted copy has fork_id FD_ACCDB_FORK_ID_DISK and the original
+   generation, which is never above the root generation.  It is older
+   than every normal entry a fork can see, so readers take the first
+   visible normal entry and fall back to the first visible copy.  A
+   copy that may be stale is retagged FD_ACCDB_FORK_ID_DEAD and skipped.
+
+   Only T2 and the snapshot loader write the file.  After T2 rewrites
+   the slot of a pubkey it kills that pubkey's copies, and a promoter
+   rechecks the page seqlock after it links its copy, so no stale copy
+   survives. */
+
+#define FD_ACCDB_FORK_ID_DISK     ((ushort)(USHORT_MAX-1U))
+#define FD_ACCDB_FORK_ID_DEAD     ((ushort)(USHORT_MAX-2U))
+#define FD_ACCDB_IDX_SLOT_CNT     (64UL)      /* slots per page */
+#define FD_ACCDB_IDX_SEQ_LG       (3)         /* pages per seqlock (lg) */
+#define FD_ACCDB_IDX_WINDOW_PAGES (8192UL)    /* 32 MiB placement window */
+#define FD_ACCDB_IDX_STAGE_CNT    (512UL)     /* 32 KiB spill stage per range */
+#define FD_ACCDB_IDX_FILL_PCT     (85UL)      /* slots used at max_accounts */
+#define FD_ACCDB_IDX_DUP_WORDS    (1UL<<21)   /* 16 MiB filter of pubkeys that lost a version */
+#define FD_ACCDB_IDX_PUNCH_CHUNK  (1UL<<30)   /* spill bytes punched per background call */
+
+#define FD_ACCDB_IDX_SPILL_IDLE     (0UL)
+#define FD_ACCDB_IDX_SPILL_PENDING  (1UL)
+#define FD_ACCDB_IDX_SPILL_PUNCHING (2UL)
+#define FD_ACCDB_IDX_BLOOM_BITS   (6UL)       /* bloom filter bits per account */
+#define FD_ACCDB_IDX_TOMB         (ULONG_MAX)
+#define FD_ACCDB_DEMOTE_AGE       (64U)
+#define FD_ACCDB_DEFER_MIGRATED   (0x80000000U)
+
+struct fd_accdb_idx_slot {
+  uchar pubkey[ 32UL ];
+  ulong off_plus1;       /* 0 empty, FD_ACCDB_IDX_TOMB deleted, else file offset+1 */
+  ulong lamports;
+  uint  executable_size; /* FD_ACCDB_SIZE_PACK, no in-memory bits */
+  uint  generation;
+  ulong slot;            /* snapshot slot (full snapshot loading only) */
+};
+
+typedef struct fd_accdb_idx_slot fd_accdb_idx_slot_t;
+
+FD_STATIC_ASSERT( sizeof(fd_accdb_idx_slot_t)==64UL, idx_slot_layout );
+
+struct fd_accdb_idx_range {
+  int   lock;
+  uint  stage_cnt;
+  ulong spill_tail; /* spill offset+1 of the newest chunk, 0 if none */
+};
+
+typedef struct fd_accdb_idx_range fd_accdb_idx_range_t;
+
+/* A spill chunk is FD_ACCDB_IDX_STAGE_CNT slots: this header, then up
+   to FD_ACCDB_IDX_STAGE_CNT-1 records.  A range's chunks are linked
+   newest first. */
+
+struct fd_accdb_idx_chunk_hdr {
+  ulong prev_plus1; /* 0 for the oldest chunk of a range */
+  ulong cnt;
+  uchar pad[ 48UL ];
+};
+
+typedef struct fd_accdb_idx_chunk_hdr fd_accdb_idx_chunk_hdr_t;
+
+FD_STATIC_ASSERT( sizeof(fd_accdb_idx_chunk_hdr_t)==sizeof(fd_accdb_idx_slot_t), idx_chunk_hdr_layout );
+
+#define FD_ACCDB_IDX_CHUNK_SZ (FD_ACCDB_IDX_STAGE_CNT*sizeof(fd_accdb_idx_slot_t))
+
+static inline ulong
+fd_accdb_pool_max( ulong max_accounts,
+                   ulong index_ram_max ) {
+  return index_ram_max ? fd_ulong_min( index_ram_max, max_accounts ) : max_accounts;
+}
+
+static inline ulong
+fd_accdb_idx_page_cnt( ulong max_accounts,
+                       ulong index_ram_max ) {
+  ulong slot_cnt = ( max_accounts*100UL+FD_ACCDB_IDX_FILL_PCT-1UL )/FD_ACCDB_IDX_FILL_PCT;
+  return index_ram_max ? ( slot_cnt+FD_ACCDB_IDX_SLOT_CNT-1UL )/FD_ACCDB_IDX_SLOT_CNT : 0UL;
+}
+
 struct fd_accdb_cache_key {
   uchar pubkey[ 32UL ];
   uint generation;
@@ -560,6 +650,41 @@ struct fd_accdb_shmem_private {
   ulong deferred_acc_buf_max;
   ulong deferred_acc_epoch;
 
+  /* Disk index (see the comment above fd_accdb_idx_slot_t).  The
+     region offsets are from the shmem base. */
+  ulong pool_max;         /* acc_pool capacity */
+  ulong idx_page_cnt;     /* 0 when the disk index is disabled */
+  ulong idx_range_cnt;    /* placement windows */
+  ulong idx_seq_off;      /* uint seqlock per 2^FD_ACCDB_IDX_SEQ_LG pages */
+  ulong idx_range_off;    /* fd_accdb_idx_range_t per range */
+  ulong idx_stage_off;    /* FD_ACCDB_IDX_STAGE_CNT slots per range */
+  ulong idx_bloom_off;    /* bloom filter, idx_bloom_cnt 64 byte blocks */
+  ulong idx_bloom_cnt;
+  ulong idx_dup_off;      /* FD_ACCDB_IDX_DUP_WORDS bit words, see fd_accdb_snapshot_index_maybe_dup */
+  ulong idx_sweep_cursor; /* T2 demotion sweep position in acc_map */
+
+  /* Full snapshot index build, shared by the workers that place the
+     ranges (fd_accdb_snapshot_index_build_work).  Reset by
+     fd_accdb_reset. */
+  struct __attribute__((aligned(64))) {
+    ulong next;          /* next unclaimed range */
+    ulong done;          /* ranges placed */
+    ulong winners;
+    ulong dup_cnt;
+    ulong dup_lamports;  /* low word */
+    ulong dup_lamports_hi;
+    ulong freed;         /* bytes of losing and zero-lamport records */
+    ulong corrupt_slot;  /* slot+1 of a pubkey seen twice at one slot, 0 if none */
+  } idx_build;
+
+  /* The spill of a finished build is punched out in the background,
+     from idx_spill_punch_off up to idx_spill_end, the bytes of chunks
+     allocated.  Holds one of FD_ACCDB_IDX_SPILL_*. */
+  ulong idx_spill_state __attribute__((aligned(64)));
+  ulong idx_spill_punch_off;
+  ulong idx_spill_end;
+  struct __attribute__((aligned(64))) { ulong val; } acc_used;
+
   acc_pool_shmem_t  acc_pool [1];
   fork_pool_shmem_t fork_pool[1];
   txn_pool_shmem_t  txn_pool [1];
@@ -589,5 +714,22 @@ struct fd_accdb_shmem_private {
 
   ulong magic; /* ==FD_ACCDB_SHMEM_MAGIC */
 };
+
+/* fd_accdb_idx_seed returns the seed of the disk index pubkey hash,
+   which picks a pubkey's home slot and its bloom filter bits. */
+
+static inline ulong
+fd_accdb_idx_seed( fd_accdb_shmem_t const * shmem ) {
+  return shmem->seed^0x5bd1e9955bd1e995UL;
+}
+
+/* fd_accdb_idx_home returns the disk index page pubkey probes from. */
+
+static inline ulong
+fd_accdb_idx_home( fd_accdb_shmem_t const * shmem,
+                   uchar const              pubkey[ 32 ] ) {
+  ulong h = fd_hash32( pubkey, fd_accdb_idx_seed( shmem ) );
+  return (ulong)( ( (uint128)h*(uint128)shmem->idx_page_cnt )>>64 );
+}
 
 #endif /* HEADER_fd_src_flamenco_accdb_fd_accdb_private_h */

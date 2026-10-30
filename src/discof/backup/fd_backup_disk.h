@@ -37,6 +37,8 @@ struct fd_snapmk_accparse {
   uint  acc_snap_sz;  /* account byte count in snapshot format */
   uint  acc_idx;      /* index entry, UINT_MAX if not in the snapshot */
   uint  acc_keep;
+  ulong acc_lamports; /* lamports of the index entry */
+  uint  acc_size;     /* FD_ACCDB_SIZE_PACK of the index entry */
   ulong acc_file_off; /* accdb file offset of the record header */
 
   /* output frag staged by fd_snapmk_accparse_publish, drained on its
@@ -64,6 +66,7 @@ struct fd_snapmk_accparse {
   ulong       ps_chain_idx[ FD_BACKUP_DISK_PARA ];
   uint        ps_frag_off [ FD_BACKUP_DISK_PARA ];
   ulong       ps_file_off [ FD_BACKUP_DISK_PARA ];
+  uchar const * ps_pubkey [ FD_BACKUP_DISK_PARA ];
 };
 
 typedef struct fd_snapmk_accparse fd_snapmk_accparse_t;
@@ -73,27 +76,37 @@ FD_PROTOTYPES_BEGIN
 /* Implementation */
 
 /* fd_snapmk_accparse_lookup resolves cnt parsed disk records against
-   the accdb index.  chain_idx[ i ] is the acc_map chain that record i's
-   address hashes to, file_off[ i ] its accdb file offset.  Sets
-   acc_idx[ i ] to the index entry to copy into the snapshot, or
-   UINT_MAX if the record should be skipped.
+   the accdb index.  pubkey[ i ] is record i's address, chain_idx[ i ]
+   the acc_map chain it hashes to, file_off[ i ] its accdb file offset.
+   Sets acc_idx[ i ] to the index entry to copy into the snapshot
+   (FD_BACKUP_ACC_IDX_DISK for a disk index slot), lamports[ i ] to its
+   lamports and size[ i ] to its packed size (FD_ACCDB_SIZE_PACK, with
+   the executable bit, which disk record headers do not carry), or
+   acc_idx[ i ] to UINT_MAX if the record should be skipped.
 
    A record is claimed by the index entry pointing at its exact file
    offset.  accdb file offsets are unique.  The record is skipped if
    no entry points at it (a superseded version still on disk), if the
    entry is unrooted or a tombstone, or if the account was already
-   emitted from cache or from another partition. */
+   emitted from cache or from another partition.  Promoted copies of
+   disk index slots never claim a record: a record no rooted RAM entry
+   claims or supersedes is checked against the disk index. */
 
 static inline void
 fd_snapmk_accparse_lookup( fd_snapmk_accparse_t * parse,
+                           uchar const * const *  pubkey,
                            ulong const *          chain_idx,
                            ulong const *          file_off,
                            uint *                 acc_idx,
+                           ulong *                lamports,
+                           uint *                 size,
                            ulong                  cnt ) {
   fd_backup_accidx_t *       idx      = &parse->idx;
   fd_accdb_accmeta_t const * acc_pool = idx->acc_pool;
 
-  uint cur[ FD_BACKUP_DISK_PARA ]; /* chain node lane i sits on */
+  uint cur [ FD_BACKUP_DISK_PARA ]; /* chain node lane i sits on */
+  int  seen[ FD_BACKUP_DISK_PARA ]; /* lane i saw a rooted RAM version */
+  int  disk = !!idx->accdb;
 
   FD_COMPILER_MFENCE();
   FD_VOLATILE( *idx->epoch_slot ) = FD_VOLATILE_CONST( *idx->epoch );
@@ -103,6 +116,7 @@ fd_snapmk_accparse_lookup( fd_snapmk_accparse_t * parse,
      batch resolve ago. */
   for( ulong i=0UL; i<cnt; i++ ) {
     acc_idx[ i ] = UINT_MAX;
+    seen   [ i ] = 0;
     cur    [ i ] = FD_VOLATILE_CONST( idx->acc_map[ chain_idx[ i ] ] );
   }
 
@@ -118,10 +132,16 @@ fd_snapmk_accparse_lookup( fd_snapmk_accparse_t * parse,
       uint  gen  = FD_VOLATILE_CONST( m->key.generation );
       ulong off  = FD_VOLATILE_CONST( m->offset_fork    );
       ulong lam  = FD_VOLATILE_CONST( m->lamports       );
+      uint  es   = FD_VOLATILE_CONST( m->executable_size );
 
+      int normal = ( off>>FD_ACCDB_OFF_BITS )<FD_ACCDB_FORK_ID_DEAD;
       int hit = fd_backup_accidx_rooted( idx, gen, lam )
-              & ( ( off & FD_ACCDB_OFF_MASK )==file_off[ i ] );
-      fd_uint_store_if( hit, &acc_idx[ i ], ele );
+              & ( ( off & FD_ACCDB_OFF_MASK )==file_off[ i ] )
+              & normal;
+      fd_uint_store_if ( hit, &acc_idx [ i ], ele );
+      fd_ulong_store_if( hit, &lamports[ i ], lam );
+      fd_uint_store_if ( hit, &size    [ i ], FD_ACCDB_SIZE_PACK( FD_ACCDB_SIZE_DATA( es ), FD_ACCDB_SIZE_EXEC( es ) ) );
+      seen[ i ] |= disk && normal && gen<=idx->root_generation && !memcmp( m->key.pubkey, pubkey[ i ], 32UL );
 
       /* Resolving hit and next in the same pass keeps the next node
          prefetch to the lanes that will actually use it. */
@@ -132,6 +152,16 @@ fd_snapmk_accparse_lookup( fd_snapmk_accparse_t * parse,
     }
   } while( any );
 
+  for( ulong i=0UL; i<cnt; i++ ) {
+    ulong off, lam; uint sz;
+    if( FD_UNLIKELY( disk && acc_idx[ i ]==UINT_MAX && !seen[ i ] &&
+                     fd_accdb_idx_query( idx->accdb, pubkey[ i ], &off, &lam, &sz ) && off==file_off[ i ] ) ) {
+      acc_idx [ i ] = FD_BACKUP_ACC_IDX_DISK;
+      lamports[ i ] = lam;
+      size    [ i ] = sz;
+    }
+  }
+
   FD_COMPILER_MFENCE();
   FD_VOLATILE( *idx->epoch_slot ) = ULONG_MAX;
 
@@ -139,7 +169,7 @@ fd_snapmk_accparse_lookup( fd_snapmk_accparse_t * parse,
      lost the claim to an earlier sighting. */
   for( ulong i=0UL; i<cnt; i++ ) {
     uint ele = acc_idx[ i ];
-    if( FD_UNLIKELY( ele==UINT_MAX ) ) continue;
+    if( FD_UNLIKELY( ele==UINT_MAX || ele==FD_BACKUP_ACC_IDX_DISK ) ) continue;
     if( FD_UNLIKELY( fd_backup_visited_test_and_set( parse->visited_set, (ulong)ele ) ) ) {
       acc_idx[ i ] = UINT_MAX;
     }
@@ -158,8 +188,9 @@ fd_snapmk_accparse_keep( fd_snapmk_accparse_t * parse ) {
     parse->acc_idx = UINT_MAX;
     return 0;
   }
-  ulong chain_idx = fd_backup_accidx_chain( &parse->idx, parse->meta.pubkey );
-  fd_snapmk_accparse_lookup( parse, &chain_idx, &parse->acc_file_off, &parse->acc_idx, 1UL );
+  ulong         chain_idx = fd_backup_accidx_chain( &parse->idx, parse->meta.pubkey );
+  uchar const * pubkey    = parse->meta.pubkey;
+  fd_snapmk_accparse_lookup( parse, &pubkey, &chain_idx, &parse->acc_file_off, &parse->acc_idx, &parse->acc_lamports, &parse->acc_size, 1UL );
   return parse->acc_idx!=UINT_MAX;
 }
 
@@ -320,6 +351,7 @@ fd_snapmk_accparse_prestage( fd_snapmk_accparse_t * parse ) {
       __builtin_prefetch( &acc_map[ chain_idx[ n ] ], 0, 3 );
       parse->ps_frag_off[ n ] = (uint)( parse->src_gaddr - parse->frag_base_gaddr );
       parse->ps_file_off[ n ] = parse->src_off;
+      parse->ps_pubkey  [ n ] = dm->pubkey;
       n++;
     }
 
@@ -358,6 +390,8 @@ fd_snapmk_accparse_publish_batch( fd_snapmk_accparse_t *       parse,
      resolving N so N+1's prefetches overlap N's chain walk. */
   ulong chain_idx[ FD_BACKUP_DISK_PARA ];
   ulong file_off [ FD_BACKUP_DISK_PARA ];
+  uchar const * pubkey[ FD_BACKUP_DISK_PARA ];
+  memcpy( pubkey,          parse->ps_pubkey,    n*sizeof(uchar const *) );
   memcpy( chain_idx,       parse->ps_chain_idx, n*sizeof(ulong)       );
   memcpy( file_off,        parse->ps_file_off,  n*sizeof(ulong)       );
   memcpy( batch->frag_off, parse->ps_frag_off,  n*sizeof(uint)        );
@@ -365,7 +399,7 @@ fd_snapmk_accparse_publish_batch( fd_snapmk_accparse_t *       parse,
 
   fd_snapmk_accparse_prestage( parse );
 
-  fd_snapmk_accparse_lookup( parse, chain_idx, file_off, batch->acc_idx, n );
+  fd_snapmk_accparse_lookup( parse, pubkey, chain_idx, file_off, batch->acc_idx, batch->lamports, batch->size, n );
   for( ulong i=n; i<FD_BACKUP_DISK_PARA; i++ ) batch->acc_idx[ i ] = UINT_MAX;
 
   return n;
