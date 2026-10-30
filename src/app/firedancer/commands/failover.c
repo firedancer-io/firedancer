@@ -12,6 +12,7 @@
 
 #include <errno.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <unistd.h>
 #include <sys/resource.h>
 
@@ -148,6 +149,20 @@ failover_request( fd_adminctl_t *                    adminctl,
   return result;
 }
 
+/* Exit codes. */
+
+#define FAILOVER_EXIT_REFUSED (2)
+#define FAILOVER_EXIT_RETRY   (3)
+#define FAILOVER_EXIT_UNKNOWN (4)
+#define FAILOVER_EXIT_NOBODY  (5)
+#define FAILOVER_EXIT_CHANGED (6)
+
+#define FD_LOG_ERR_NOEXIT(a) do {                                       \
+    long _fd_log_msg_now = fd_log_wallclock();                          \
+    fd_log_private_1( 4, _fd_log_msg_now, __FILE__, __LINE__, __func__, \
+                      fd_log_private_0 a );                             \
+  } while(0)
+
 static void __attribute__((noreturn))
 fail_disabled( void ) {
   FD_LOG_ERR(( "failover is not running on this validator, set [failover.enabled] to true and restart it" ));
@@ -155,6 +170,7 @@ fail_disabled( void ) {
 
 static void __attribute__((noreturn))
 fail_result( ulong result ) {
+  int code;
   switch( result ) {
     case FD_ADMINCTL_RESULT_UNKNOWN_COMMAND:
     case FD_ADMINCTL_RESULT_UNSUPPORTED:
@@ -162,26 +178,37 @@ fail_result( ulong result ) {
     case FD_ADMINCTL_RESULT_ABI_VERSION_MISMATCH:
     case FD_ADMINCTL_RESULT_ABI_SIZE_MISMATCH:
       FD_LOG_ERR(( "failover is incompatible with the running validator, use the same firedancer version this validator runs" ));
-    case FD_FAILOVER_CONTROL_RESULT_BUSY:
     case FD_FAILOVER_CONTROL_RESULT_WRONG_HOLDER:
-    case FD_FAILOVER_CONTROL_RESULT_IN_PROGRESS:
-    case FD_FAILOVER_CONTROL_RESULT_PEER_UNREADY:
     case FD_FAILOVER_CONTROL_RESULT_PEER_HOLDS:
-    case FD_FAILOVER_CONTROL_RESULT_NO_FINAL_HISTORY:
-    case FD_FAILOVER_CONTROL_RESULT_NO_HOLDER_ADDRESS:
-    case FD_FAILOVER_CONTROL_RESULT_REPLAY_BEHIND:
-    case FD_FAILOVER_CONTROL_RESULT_TIMEOUT:
-    case FD_FAILOVER_CONTROL_RESULT_PEER_RESTARTED:
-    case FD_FAILOVER_CONTROL_RESULT_ADOPTION_FAILED:
-    case FD_FAILOVER_CONTROL_RESULT_SWITCH_FAILED:
     case FD_FAILOVER_CONTROL_RESULT_HOLDS_OTHER:
-    case FD_FAILOVER_CONTROL_RESULT_IDENTITY_CHANGED:
     case FD_SET_IDENTITY_RESULT_KEYPAIR_MISMATCH:
     case FD_SET_IDENTITY_RESULT_AUTHORIZED_VOTER:
-      FD_LOG_ERR(( "`failover promote` failed, %s", fd_adminctl_failover_result_cstr( result ) ));
+      code = FAILOVER_EXIT_REFUSED;
+      break;
+    case FD_FAILOVER_CONTROL_RESULT_BUSY:
+    case FD_FAILOVER_CONTROL_RESULT_IN_PROGRESS:
+    case FD_FAILOVER_CONTROL_RESULT_NO_HOLDER_ADDRESS:
+    case FD_FAILOVER_CONTROL_RESULT_REPLAY_BEHIND:
+    case FD_FAILOVER_CONTROL_RESULT_NO_FINAL_HISTORY:
+      code = FAILOVER_EXIT_RETRY;
+      break;
+    case FD_FAILOVER_CONTROL_RESULT_TIMEOUT:
+    case FD_FAILOVER_CONTROL_RESULT_PEER_RESTARTED:
+    case FD_FAILOVER_CONTROL_RESULT_PEER_UNREADY:
+      code = FAILOVER_EXIT_UNKNOWN;
+      break;
+    case FD_FAILOVER_CONTROL_RESULT_ADOPTION_FAILED:
+    case FD_FAILOVER_CONTROL_RESULT_SWITCH_FAILED:
+      code = FAILOVER_EXIT_NOBODY;
+      break;
+    case FD_FAILOVER_CONTROL_RESULT_IDENTITY_CHANGED:
+      code = FAILOVER_EXIT_CHANGED;
+      break;
     default:
       FD_LOG_ERR(( "unexpected failover result %lu, use the same firedancer version this validator runs", result ));
   }
+  FD_LOG_ERR_NOEXIT(( "`failover promote` failed, %s", fd_adminctl_failover_result_cstr( result ) ));
+  exit( code );
 }
 
 /* Run sanity checks before invoking failover. */
