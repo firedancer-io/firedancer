@@ -212,7 +212,7 @@ struct fd_failover_tile_ctx {
 
   ulong peer_floor; /* highest last vote the peer reported for the target, kept across sessions */
   ulong own_floor;  /* highest vote this machine signed as the target */
-  int   own_voted;  /* a vote this machine signed as the target arrived since boot or since the target changed */
+  int   own_voted;  /* this machine votes as the target: it signed a vote as it, or a promotion installed it, since boot or since the target changed */
 
   /* Gossip */
   ulong       gossip_in_idx;

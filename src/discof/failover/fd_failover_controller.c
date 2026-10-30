@@ -914,6 +914,7 @@ step_promote_switch( fd_failover_tile_ctx_t * ctx ) {
   if( !ctx->promotion.from_peer ) hang_up( ctx, fd_failover_clock() );
   set_installed( ctx, ctx->hello.staked_pubkey );
   ctx->peer_history.valid = 0; /* a new tenure starts, the saved history is older than its votes */
+  ctx->own_voted          = 1; /* this machine votes as the identity from here, before its first vote goes out */
   ctx->stuck              = 0;
   FD_LOG_NOTICE(( "%s: this machine runs the identity now, last vote at slot %lu", ctx->promotion.label, ctx->last_vote_slot ));
   finish_cmd( ctx, FD_ADMINCTL_RESULT_SUCCESS );
