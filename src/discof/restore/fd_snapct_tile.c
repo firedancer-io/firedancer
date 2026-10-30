@@ -183,6 +183,7 @@ struct fd_snapct_tile {
 
   int           state;
   int           malformed;
+  int           absent;
   int           load_complete;
   long          deadline_nanos;
   long          io_due_nanos;
@@ -710,6 +711,7 @@ init_load( fd_snapct_tile_t *  ctx,
   ctx->out_ld.chunk = fd_dcache_compact_next( ctx->out_ld.chunk, sizeof(fd_ssctrl_init_t), ctx->out_ld.chunk0, ctx->out_ld.wmark );
   ctx->flush_ack = 0;
   ctx->start_sent = 0;
+  ctx->absent = 0;
   ctx->load_complete = 0;
 
   if( !file ) {
@@ -779,6 +781,12 @@ log_completion( fd_snapct_tile_t * ctx,
   else       FD_LOG_INFO(( "incremental snapshot load completed in %.3f seconds", elapsed ));
 }
 
+static void
+drop_peer( fd_snapct_tile_t * ctx ) {
+  fd_sspeer_selector_remove_by_addr( ctx->selector, ctx->peer.addr );
+  fd_sspeer_selector_process_cluster_slot( ctx->selector );
+}
+
 /* Blacklist the current peer: invalidate in ssping, remove from the
    selector, and add to the dedicated blacklist map.  Skips the insert
    if the peer is already blacklisted (dedup).  Warns if the pool is
@@ -786,8 +794,7 @@ log_completion( fd_snapct_tile_t * ctx,
 static void
 blacklist_peer( fd_snapct_tile_t * ctx ) {
   fd_ssping_invalidate( ctx->ssping, ctx->peer.addr, fd_clock_tile_now( ctx->clock ) );
-  fd_sspeer_selector_remove_by_addr( ctx->selector, ctx->peer.addr );
-  fd_sspeer_selector_process_cluster_slot( ctx->selector );
+  drop_peer( ctx );
   if( FD_UNLIKELY( blacklist_map_ele_query( ctx->blacklist_map, &ctx->peer.key, NULL, ctx->blacklist_pool ) ) ) return;
   if( FD_LIKELY( blacklist_pool_free( ctx->blacklist_pool ) ) ) {
     fd_sspeer_blacklist_entry_t * bl = blacklist_pool_ele_acquire( ctx->blacklist_pool );
@@ -1319,11 +1326,9 @@ after_credit( fd_snapct_tile_t *  ctx,
         fd_stem_publish( stem, ctx->out_ld.idx, FD_SNAPSHOT_MSG_CTRL_FAIL, 0UL, 0UL, 0UL, 0UL, 0UL );
         ctx->flush_ack = 0;
         set_state( ctx, FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP_RESET );
-        FD_LOG_WARNING(( "failed to load incremental snapshot at slot %lu from http://" FD_IP4_ADDR_FMT ":%hu/%s. "
-                         "blacklisting peer due to download failure.",
+        FD_LOG_WARNING(( "failed to load incremental snapshot at slot %lu from http://" FD_IP4_ADDR_FMT ":%hu/%s",
                          ctx->predicted_incremental.slot,
                          FD_IP4_ADDR_FMT_ARGS( ctx->peer.addr.addr ), fd_ushort_bswap( ctx->peer.addr.port ), ctx->http_incr_snapshot_name ));
-        blacklist_peer( ctx );
         break;
       }
 
@@ -1341,11 +1346,9 @@ after_credit( fd_snapct_tile_t *  ctx,
         fd_stem_publish( stem, ctx->out_ld.idx, FD_SNAPSHOT_MSG_CTRL_FAIL, 0UL, 0UL, 0UL, 0UL, 0UL );
         ctx->flush_ack = 0;
         set_state( ctx, FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP_RESET );
-        FD_LOG_WARNING(( "failed to load incremental snapshot at slot %lu from http://" FD_IP4_ADDR_FMT ":%hu/%s. "
-                         "blacklisting peer due to download failure.",
+        FD_LOG_WARNING(( "failed to load incremental snapshot at slot %lu from http://" FD_IP4_ADDR_FMT ":%hu/%s",
                          ctx->predicted_incremental.slot,
                          FD_IP4_ADDR_FMT_ARGS( ctx->peer.addr.addr ), fd_ushort_bswap( ctx->peer.addr.port ), ctx->http_incr_snapshot_name ));
-        blacklist_peer( ctx );
         break;
       }
 
@@ -1521,6 +1524,19 @@ after_credit( fd_snapct_tile_t *  ctx,
     case FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP_RESET:
       if( FD_UNLIKELY( ctx->flush_ack<ctx->flush_ack_cnt ) ) break;
 
+      if( ctx->state==FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP_RESET ) {
+        if( FD_UNLIKELY( ctx->absent ) ) {
+          ctx->absent = 0;
+          FD_LOG_WARNING(( "peer http://" FD_IP4_ADDR_FMT ":%hu has no incremental snapshot for full snapshot slot %lu, selecting another peer",
+                           FD_IP4_ADDR_FMT_ARGS( ctx->peer.addr.addr ), fd_ushort_bswap( ctx->peer.addr.port ), ctx->predicted_incremental.full_slot ));
+          drop_peer( ctx );
+        } else {
+          FD_LOG_WARNING(( "blacklisting peer http://" FD_IP4_ADDR_FMT ":%hu due to incremental snapshot download failure",
+                           FD_IP4_ADDR_FMT_ARGS( ctx->peer.addr.addr ), fd_ushort_bswap( ctx->peer.addr.port ) ));
+          blacklist_peer( ctx );
+        }
+      }
+
       if( ctx->metrics.incremental.num_retries>=ctx->config.max_retry_abort ) {
         FD_LOG_ERR(( "hit retry limit of %u for incremental snapshot, aborting", ctx->config.max_retry_abort ));
       }
@@ -1615,11 +1631,9 @@ after_credit( fd_snapct_tile_t *  ctx,
         fd_stem_publish( stem, ctx->out_ld.idx, FD_SNAPSHOT_MSG_CTRL_FAIL, 0UL, 0UL, 0UL, 0UL, 0UL );
         ctx->flush_ack = 0;
         set_state( ctx, FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP_RESET );
-        FD_LOG_WARNING(( "failed to load incremental snapshot at slot %lu from http://" FD_IP4_ADDR_FMT ":%hu/%s. "
-                         "blacklisting peer due to download failure",
+        FD_LOG_WARNING(( "failed to load incremental snapshot at slot %lu from http://" FD_IP4_ADDR_FMT ":%hu/%s",
                          ctx->predicted_incremental.slot,
                          FD_IP4_ADDR_FMT_ARGS( ctx->peer.addr.addr ), fd_ushort_bswap( ctx->peer.addr.port ), ctx->http_incr_snapshot_name ));
-        blacklist_peer( ctx );
         break;
       }
       if( FD_UNLIKELY( ctx->flush_ack < ctx->flush_ack_cnt ) ) break;
@@ -1981,6 +1995,11 @@ snapld_frag( fd_snapct_tile_t *  ctx,
       default:
         break;
     }
+    return;
+  }
+  if( FD_UNLIKELY( sig==FD_SNAPSHOT_MSG_LOAD_ABSENT ) ) {
+    if( FD_LIKELY( ctx->state==FD_SNAPCT_STATE_READING_INCREMENTAL_HTTP ||
+                   ctx->state==FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP_RESET ) ) ctx->absent = 1;
     return;
   }
   if( FD_UNLIKELY( sig==FD_SNAPSHOT_MSG_LOAD_COMPLETE ) ) {

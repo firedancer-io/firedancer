@@ -73,6 +73,7 @@ fd_sshttp_deadline( fd_sshttp_t const * http );
 #define FD_SSHTTP_ADVANCE_AGAIN ( 0)
 #define FD_SSHTTP_ADVANCE_DATA  ( 1)
 #define FD_SSHTTP_ADVANCE_DONE  ( 2)
+#define FD_SSHTTP_ADVANCE_ABSENT ( 3) /* the server has no such snapshot (404 or 410) */
 
 int
 fd_sshttp_advance( fd_sshttp_t * http,

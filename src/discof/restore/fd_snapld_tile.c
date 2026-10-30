@@ -491,6 +491,11 @@ after_credit( fd_snapld_tile_t *  ctx,
         transition_malformed( ctx, stem );
         fd_sshttp_cancel( ctx->sshttp );
         break;
+      case FD_SSHTTP_ADVANCE_ABSENT:
+        fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_LOAD_ABSENT, 0UL, 0UL, 0UL, 0UL, 0UL );
+        transition_malformed( ctx, stem );
+        fd_sshttp_cancel( ctx->sshttp );
+        break;
       default: FD_LOG_ERR(( "unexpected fd_sshttp_advance result %d for %s snapshot",
                             result, ctx->load_full ? "full" : "incremental" ));
     }
