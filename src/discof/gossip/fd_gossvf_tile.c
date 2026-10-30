@@ -626,11 +626,14 @@ check_duplicate_instance( fd_gossvf_tile_ctx_t *      ctx,
     long their_creation_nanos = FD_MICRO_TO_NANOSEC( value->contact_info->outset );
     if( FD_UNLIKELY( their_creation_nanos>our_creation_nanos &&
                      !memcmp( ctx->identity_pubkey->uc, value->origin, 32UL ) ) ) {
+      fd_gossip_socket_t const * socket = &value->contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ];
       FD_LOG_ERR(( "duplicate running instances of the same validator node, our timestamp: %ldns their timestamp: %ldns. "
-                   "If the newer instance is a failover machine that restarted with this identity in [paths.identity_key], stop it, "
-                   "enable [failover.boot_to_standby] and/or set its [paths.identity_key] to a random junk key, restart it, "
-                   "then run `firedancer get-identity` on both machines to check the status.",
-                   our_creation_nanos, their_creation_nanos ));
+                   "Another validator advertises this identity from gossip address " FD_IP4_ADDR_FMT ":%hu with a newer start time, so it keeps the "
+                   "identity and this validator exits.  If using failover, restart using  "
+                   "[failover.boot_to_standby] set or a junk [paths.identity_key], then use `firedancer failover promote`.  "
+                   "Check `firedancer get-identity` on both machines.",
+                   our_creation_nanos, their_creation_nanos,
+                   FD_IP4_ADDR_FMT_ARGS( socket->is_ipv6 ? 0U : socket->ip4 ), fd_ushort_bswap( socket->port ) ));
     }
   }
 }
