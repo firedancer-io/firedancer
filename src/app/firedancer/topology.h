@@ -80,6 +80,9 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
 void
 wire_event_links( fd_topo_t * topo );
 
+void
+wire_replay_diff_link( fd_topo_t * topo );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_app_firedancer_topology_h */

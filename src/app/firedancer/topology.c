@@ -34,6 +34,7 @@
 #include "../../discof/restore/utils/fd_ssmsg.h"
 #include "../../flamenco/accdb/fd_accdb_cache.h"
 #include "../../flamenco/capture/fd_solcap_writer.h"
+#include "../../flamenco/events/fd_event_runtime.h"
 #include "../../flamenco/progcache/fd_progcache.h"
 #include "../../flamenco/runtime/fd_cost_tracker.h"
 
@@ -86,6 +87,21 @@ wire_event_links( fd_topo_t * topo ) {
 
     fd_topob_tile_in( topo, "event", 0UL, "metric_in", link_name, link->kind_id, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
   }
+}
+
+void
+wire_replay_diff_link( fd_topo_t * topo ) {
+  ulong replay_tile_id = fd_topo_find_tile( topo, "replay", 0UL );
+  if( FD_UNLIKELY( replay_tile_id==ULONG_MAX || !topo->tiles[ replay_tile_id ].replay.report_runtime_diffs ) ) return;
+  fd_topo_tile_t * replay = &topo->tiles[ replay_tile_id ];
+
+  fd_topo_link_t * link = fd_topob_link( topo, "replay_diff", "event_in", 65536UL, FD_EVENT_RUNTIME_DIFF_MTU, 1UL );
+  link->permit_no_producers = 1;
+
+  fd_topob_tile_uses( topo, replay, &topo->objs[ link->mcache_obj_id ], FD_SHMEM_JOIN_MODE_READ_WRITE );
+  fd_topob_tile_uses( topo, replay, &topo->objs[ link->dcache_obj_id ], FD_SHMEM_JOIN_MODE_READ_WRITE );
+
+  fd_topob_tile_in( topo, "event", 0UL, "metric_in", "replay_diff", link->kind_id, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
 }
 
 fd_topo_obj_t *
@@ -1323,6 +1339,7 @@ fd_topo_initialize( config_t * config ) {
 
   if( FD_LIKELY( telemetry_enabled ) ) {
     wire_event_links( topo );
+    wire_replay_diff_link( topo );
 
     fd_topo_tile_t * event_tile = &topo->tiles[ fd_topo_find_tile( topo, "event", 0UL ) ];
     for( ulong i=0UL; i<topo->tile_cnt; i++ ) {

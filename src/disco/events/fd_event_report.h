@@ -59,6 +59,14 @@ void
 fd_event_register( fd_topo_t const *      topo,
                    fd_topo_tile_t const * tile );
 
+/* fd_event_reporter_join sets up r to publish on topo link link_id,
+   whose mcache/dcache the calling tile has joined.  Returns r. */
+
+fd_event_reporter_t *
+fd_event_reporter_join( fd_event_reporter_t * r,
+                        fd_topo_t const *     topo,
+                        ulong                 link_id );
+
 #define FD_EVENT_SIG( type, sz ) ( ((ulong)(sz)<<8) | ((ulong)(type)&0xFFUL) )
 #define FD_EVENT_SIG_TYPE( sig ) ( (ulong)(sig)&0xFFUL )
 #define FD_EVENT_SIG_SZ( sig )   ( (ulong)(sig)>>8 )

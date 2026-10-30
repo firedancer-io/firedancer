@@ -587,7 +587,7 @@ link_is_event_report( fd_topo_t const * topo,
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
     if( FD_UNLIKELY( topo->tiles[ i ].event_link_id==link_id ) ) return 1;
   }
-  return 0;
+  return !strcmp( topo->links[ link_id ].name, "replay_diff" );
 }
 
 static void
