@@ -171,6 +171,14 @@ fd_slot_params_next_effective_slot( fd_slot_params_t const *    params,
                                     fd_features_t const *       features,
                                     fd_epoch_schedule_t const * epoch_schedule );
 
+/* https://github.com/anza-xyz/agave/blob/9bcf93e368b5fb52c21677ed8c7f0360eb93b5b7/runtime/src/slot_params.rs#L243-L269 */
+
+ulong
+fd_slot_params_next_transition( fd_features_t const *       features,
+                                fd_epoch_schedule_t const * epoch_schedule,
+                                ulong                       slot,
+                                ulong                       current_ns_per_slot );
+
 /* fd_slot_params_slot_range_duration_ns returns the duration in
    nanoseconds for the slot range [start_slot, end_slot),
    taking into account any reduce_slot_time feature gate activations

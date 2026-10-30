@@ -8,10 +8,10 @@
 #endif
 
 /* FEATURE_ID_CNT is the number of features in ids */
-#define FD_FEATURE_ID_CNT (305UL)
+#define FD_FEATURE_ID_CNT (306UL)
 
 /* Feature set ID calculated from all feature names */
-#define FD_FEATURE_SET_ID (4226600899U)
+#define FD_FEATURE_SET_ID (397358594U)
 
 union fd_features {
   ulong f[ FD_FEATURE_ID_CNT ];
@@ -307,7 +307,7 @@ union fd_features {
     /* 0xe8f8dc2ca192d30c */ ulong upgrade_bpf_stake_program_to_v5_1;
     /* 0x1dd8741ccebef821 */ ulong custom_commission_collector;
     /* 0x9c92e629e8d74f0d */ ulong enable_tx_v1;
-    /* 0x8ea2469cb4e5a93c */ ulong double_disinflation_rate;
+    /* 0xf52c7720e86c6209 */ ulong double_disinflation_rate;
     /* 0x3d030a2e7e893d06 */ ulong remove_inactive_stakes;
     /* 0xb2513619e40fef85 */ ulong alpenglow;
     /* 0x1e7f253e967667d3 */ ulong relax_fee_payer_constraint;
@@ -321,5 +321,6 @@ union fd_features {
     /* 0xee06a6ef50308803 */ ulong enforce_validator_location_registration;
     /* 0x363f3e34c2720204 */ ulong geo_aware_leader_schedule;
     /* 0x663c696babd69106 */ ulong secp256r1_syscall_enabled;
+    /* 0x30641c596cbeb55b */ ulong remove_runtime_float_ops;
   };
 };

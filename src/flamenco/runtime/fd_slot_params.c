@@ -76,7 +76,7 @@ fd_slot_params_effective_slot( fd_slot_params_t const *    params,
   return 0UL;
 }
 
-static ulong
+ulong
 fd_slot_params_next_transition( fd_features_t const *       features,
                                 fd_epoch_schedule_t const * epoch_schedule,
                                 ulong                       slot,
