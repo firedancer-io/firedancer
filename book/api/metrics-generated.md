@@ -677,6 +677,11 @@
 | <span class="metrics-name">execle_&#8203;accdb_&#8203;disk_&#8203;written_&#8203;bytes</span> | counter | Bytes written to the account database file |
 | <span class="metrics-name">execle_&#8203;accdb_&#8203;disk_&#8203;written</span> | counter | Writes to the account database file |
 | <span class="metrics-name">execle_&#8203;accdb_&#8203;copied_&#8203;bytes</span> | counter | Account data bytes copied in memory between cache lines, staging buffers and callers; disk reads excluded |
+| <span class="metrics-name">execle_&#8203;txncache_&#8203;query_&#8203;miss</span> | counter | Transaction cache queries by this tile that found a page not in memory |
+| <span class="metrics-name">execle_&#8203;txncache_&#8203;insert_&#8203;miss</span> | counter | Transaction cache inserts by this tile that found a page not in memory |
+| <span class="metrics-name">execle_&#8203;txncache_&#8203;operation_&#8203;stalled</span> | counter | Transaction cache queries and inserts by this tile that fell back to the exclusive lock, stalling every tile; pages they load are read while holding it |
+| <span class="metrics-name">execle_&#8203;txncache_&#8203;query_&#8203;duration_&#8203;nanos</span> | histogram | Duration of one transaction cache query |
+| <span class="metrics-name">execle_&#8203;txncache_&#8203;insert_&#8203;duration_&#8203;nanos</span> | histogram | Duration of one transaction cache insert |
 
 </div>
 
@@ -1047,6 +1052,17 @@
 | <span class="metrics-name">replay_&#8203;store_&#8203;fec_&#8203;capacity</span> | gauge | FEC set metadata capacity of the store |
 | <span class="metrics-name">replay_&#8203;store_&#8203;fec_&#8203;disk_&#8203;count</span> | gauge | Store spill file slots holding a FEC payload |
 | <span class="metrics-name">replay_&#8203;store_&#8203;fec_&#8203;map_&#8203;probe_&#8203;per_&#8203;query</span> | histogram | FEC map chain entries examined by one replay store query |
+| <span class="metrics-name">replay_&#8203;txncache_&#8203;page_&#8203;miss</span> | counter | Transaction cache lookups under the read lock that found their page not resident |
+| <span class="metrics-name">replay_&#8203;txncache_&#8203;page_&#8203;spilled</span> | counter | Dirty transaction cache pages written to the spill file on eviction |
+| <span class="metrics-name">replay_&#8203;txncache_&#8203;page_&#8203;spill_&#8203;read</span> | counter | Transaction cache pages read back from the spill file |
+| <span class="metrics-name">replay_&#8203;txncache_&#8203;frame_&#8203;evicted</span> | counter | Transaction cache frames evicted to load another page |
+| <span class="metrics-name">replay_&#8203;txncache_&#8203;spill_&#8203;duration_&#8203;nanos</span> | counter | Time in transaction cache spill file reads and writes |
+| <span class="metrics-name">replay_&#8203;txncache_&#8203;lock_&#8203;read_&#8203;wait_&#8203;duration_&#8203;nanos</span> | counter | Time all tiles spent waiting to take the transaction cache shared lock |
+| <span class="metrics-name">replay_&#8203;txncache_&#8203;lock_&#8203;write_&#8203;wait_&#8203;duration_&#8203;nanos</span> | counter | Time all tiles spent waiting to take the transaction cache exclusive lock |
+| <span class="metrics-name">replay_&#8203;txncache_&#8203;page_&#8203;used</span> | gauge | Transaction cache logical pages in use, resident or spilled |
+| <span class="metrics-name">replay_&#8203;txncache_&#8203;page_&#8203;capacity</span> | gauge | Maximum transaction cache logical pages |
+| <span class="metrics-name">replay_&#8203;txncache_&#8203;frame_&#8203;used</span> | gauge | Transaction cache in-memory frames holding a page |
+| <span class="metrics-name">replay_&#8203;txncache_&#8203;frame_&#8203;capacity</span> | gauge | Transaction cache in-memory frames, from runtime.transaction_cache_size_mib |
 | <span class="metrics-name">replay_&#8203;is_&#8203;caught_&#8203;up</span> | gauge | Whether replay has caught up to the cluster tip; set once per run, never cleared |
 | <span class="metrics-name">replay_&#8203;root_&#8203;slot</span> | gauge | Most recent consensus root, 0 if none |
 | <span class="metrics-name">replay_&#8203;root_&#8203;slot_&#8203;distance</span> | gauge | Slots between the current reset slot and our root |
@@ -1334,6 +1350,11 @@
 | <span class="metrics-name">execrp_&#8203;accdb_&#8203;disk_&#8203;written_&#8203;bytes</span> | counter | Bytes written to the account database file |
 | <span class="metrics-name">execrp_&#8203;accdb_&#8203;disk_&#8203;written</span> | counter | Writes to the account database file |
 | <span class="metrics-name">execrp_&#8203;accdb_&#8203;copied_&#8203;bytes</span> | counter | Account data bytes copied in memory between cache lines, staging buffers and callers; disk reads excluded |
+| <span class="metrics-name">execrp_&#8203;txncache_&#8203;query_&#8203;miss</span> | counter | Transaction cache queries by this tile that found a page not in memory |
+| <span class="metrics-name">execrp_&#8203;txncache_&#8203;insert_&#8203;miss</span> | counter | Transaction cache inserts by this tile that found a page not in memory |
+| <span class="metrics-name">execrp_&#8203;txncache_&#8203;operation_&#8203;stalled</span> | counter | Transaction cache queries and inserts by this tile that fell back to the exclusive lock, stalling every tile; pages they load are read while holding it |
+| <span class="metrics-name">execrp_&#8203;txncache_&#8203;query_&#8203;duration_&#8203;nanos</span> | histogram | Duration of one transaction cache query |
+| <span class="metrics-name">execrp_&#8203;txncache_&#8203;insert_&#8203;duration_&#8203;nanos</span> | histogram | Duration of one transaction cache insert |
 
 </div>
 

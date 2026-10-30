@@ -359,6 +359,55 @@
         "accdb_disk_written_bytes":      { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Bytes written to the account database file" },
         "accdb_disk_written":            { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Writes to the account database file" },
         "accdb_copied_bytes":            { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Account data bytes copied in memory between cache lines, staging buffers and callers; disk reads excluded" },
-        "bank_switched":                 { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Cache invalidations due to transaction execution from a different block" }
+        "bank_switched":                 { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Cache invalidations due to transaction execution from a different block" },
+        "txncache_query_miss":           { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Transaction cache queries by this tile that found a page not in memory" },
+        "txncache_insert_miss":          { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Transaction cache inserts by this tile that found a page not in memory" },
+        "txncache_operation_stalled":    { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Transaction cache queries and inserts by this tile that fell back to the exclusive lock, stalling every tile; pages they load are read while holding it" },
+        "txncache_query_duration_nanos": {
+            "type": "Tuple",
+            "description": "Duration of one transaction cache query",
+            "fields": {
+                "b0":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[0, 10) nanos" },
+                "b1":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[10, 32) nanos" },
+                "b2":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[32, 101) nanos" },
+                "b3":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[101, 319) nanos" },
+                "b4":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[319, 1008) nanos" },
+                "b5":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[1008, 3185) nanos" },
+                "b6":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[3185, 10064) nanos" },
+                "b7":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[10064, 31800) nanos" },
+                "b8":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[31800, 100480) nanos" },
+                "b9":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[100480, 317492) nanos" },
+                "b10": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[317492, 1003197) nanos" },
+                "b11": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[1003197, 3169857) nanos" },
+                "b12": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[3169857, 10015972) nanos" },
+                "b13": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[10015972, 31648020) nanos" },
+                "b14": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[31648020, 100000000) nanos" },
+                "b15": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[100000000, inf) nanos" },
+                "sum": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Sum of samples (nanos)" }
+            }
+        },
+        "txncache_insert_duration_nanos": {
+            "type": "Tuple",
+            "description": "Duration of one transaction cache insert",
+            "fields": {
+                "b0":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[0, 10) nanos" },
+                "b1":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[10, 32) nanos" },
+                "b2":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[32, 101) nanos" },
+                "b3":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[101, 319) nanos" },
+                "b4":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[319, 1008) nanos" },
+                "b5":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[1008, 3185) nanos" },
+                "b6":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[3185, 10064) nanos" },
+                "b7":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[10064, 31800) nanos" },
+                "b8":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[31800, 100480) nanos" },
+                "b9":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[100480, 317492) nanos" },
+                "b10": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[317492, 1003197) nanos" },
+                "b11": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[1003197, 3169857) nanos" },
+                "b12": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[3169857, 10015972) nanos" },
+                "b13": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[10015972, 31648020) nanos" },
+                "b14": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[31648020, 100000000) nanos" },
+                "b15": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[100000000, inf) nanos" },
+                "sum": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Sum of samples (nanos)" }
+            }
+        }
     }
 }

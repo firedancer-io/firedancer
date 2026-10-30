@@ -627,6 +627,58 @@ bench_streamlined( void ) {
   }
 }
 
+/* bench_alpenglow_rewards mirrors the footer reward pass's lthash work
+   (fd_alpenglow_rewards_apply via fd_vote_queue): per block, each
+   rewarded vote account's prior and new image are hashed as one
+   fd_blake3_fini_2048_xn pair.  An image is the account lthash input:
+   lamports, vote state data, executable flag, owner, pubkey.  Sampled
+   on mainnet: ~170 queue flushes over ~672 images per block (mostly
+   pairs, a few lone images where the footer cache memo had the prior
+   lthash).  Measured as one block's serial cost. */
+
+#define BENCH_AG_VOTER_CNT (336UL)
+#define BENCH_AG_DATA_SZ   (3762UL) /* FD_VOTE_STATE_V4_SZ */
+#define BENCH_AG_IMAGE_SZ  (8UL+BENCH_AG_DATA_SZ+1UL+32UL+32UL)
+
+static void
+bench_alpenglow_rewards( void ) {
+  FD_LOG_NOTICE(( "Benchmarking alpenglow rewards (%lu vote accounts, %lu byte lthash inputs)",
+                  BENCH_AG_VOTER_CNT, BENCH_AG_IMAGE_SZ ));
+
+  static fd_blake3_t sha[ 2 ];
+  static uchar       out[ 2 ][ 2048 ] __attribute__((aligned(64)));
+  fd_blake3_t * s[ 2 ] = { sha+0, sha+1 };
+  void *        h[ 2 ] = { out[0], out[1] };
+
+  ulong iter = 1000UL;
+  long  dt   = 0L;
+  for( ulong pass=0UL; pass<2UL; pass++ ) { /* first pass warms up */
+    dt = -fd_log_wallclock();
+    for( ulong rem=iter; rem; rem-- ) {
+      for( ulong i=0UL; i<BENCH_AG_VOTER_CNT; i++ ) {
+        /* distinct prior and new images per account, as in the
+           reward pass (cache footprint matches a real block) */
+        for( ulong j=0UL; j<2UL; j++ ) {
+          uchar const * img = rand_buf + (2UL*i+j)*BENCH_AG_IMAGE_SZ;
+          /* same append sequence as account_lthash_init */
+          fd_blake3_init( s[j] );
+          fd_blake3_append( s[j], img,                           8UL              );
+          fd_blake3_append( s[j], img+8UL,                       BENCH_AG_DATA_SZ );
+          fd_blake3_append( s[j], img+8UL+BENCH_AG_DATA_SZ,      1UL              );
+          fd_blake3_append( s[j], img+8UL+BENCH_AG_DATA_SZ+1UL,  32UL             );
+          fd_blake3_append( s[j], img+8UL+BENCH_AG_DATA_SZ+33UL, 32UL             );
+        }
+        fd_blake3_fini_2048_xn( 2UL, s, h );
+      }
+    }
+    dt += fd_log_wallclock();
+  }
+
+  double ns_block = (double)dt/(double)iter;
+  FD_LOG_NOTICE(( "  %8.1f us per block; %7.1f ns per account image",
+                  ns_block*1e-3, ns_block/(double)(2UL*BENCH_AG_VOTER_CNT) ));
+}
+
 #define XN2(s0,s1,h0,h1) do { fd_blake3_t * _s[2] = { (s0), (s1) }; void * _h[2] = { (h0), (h1) }; fd_blake3_fini_2048_xn( 2UL, _s, _h ); } while(0)
 
 static void
@@ -1003,6 +1055,7 @@ static struct test_fn const tests[] = {
   { "bench streamlined",            bench_streamlined },
   { "bench incremental xof 2048",   bench_incremental_xof_2048 },
   { "bench fini_2048_xn",           bench_fini_2048_xn },
+  { "bench alpenglow rewards",      bench_alpenglow_rewards },
 #if FD_HAS_AVX512
   { "bench avx512_compress16_fast", bench_avx512_compress16_fast },
   { "bench avx512_compress16",      bench_avx512_compress16 },

@@ -46,6 +46,7 @@ fd_config_extract_podf( uchar *        pod,
   CFG_POP      ( ulong,  runtime.stake_delegation_cache_cnt                  );
 
   CFG_POP      ( ulong,  runtime.program_cache_size_mib                      );
+  CFG_POP      ( ulong,  runtime.transaction_cache_size_mib                  );
 
   CFG_POP      ( ulong,  runtime.bank_cache_cnt                              );
 
@@ -121,6 +122,7 @@ fd_config_extract_pod( uchar *       pod,
     CFG_POP    ( cstr,   paths.epoch_credits                              );
     CFG_POP    ( cstr,   paths.cost_tracker                               );
     CFG_POP    ( cstr,   paths.vote_stakes                                );
+    CFG_POP    ( cstr,   paths.txncache                                   );
     CFG_POP    ( cstr,   paths.shredb                                     );
     CFG_POP    ( cstr,   paths.guidb                                      );
     CFG_POP    ( cstr,   paths.vote_history                               );

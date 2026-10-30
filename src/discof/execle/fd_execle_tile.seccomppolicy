@@ -9,7 +9,10 @@
 # vote_stakes_fd: Disk backing for t-1 vote stakes sets beyond the
 #                 in-memory cache.  Any tile reading a set that is not
 #                 cached loads it, writing back the evicted set.
-uint logfile_fd, uint accounts_fd, uint stake_spill_fd, uint vote_stakes_fd
+#
+# txncache_fd: Disk backing for transaction cache pages beyond the
+#              in-memory cache.
+uint logfile_fd, uint accounts_fd, uint stake_spill_fd, uint vote_stakes_fd, uint txncache_fd
 
 # logging: all log messages are written to a file and/or pipe
 #
@@ -55,14 +58,18 @@ fallocate: (and (eq (arg 0) accounts_fd)
 # the in-memory delegation pools.
 #
 # vote stakes: load a spilled t-1 set into the cache.
+# transaction cache: read spilled pages
 pread64: (or (eq (arg 0) stake_spill_fd)
-             (eq (arg 0) vote_stakes_fd))
+             (eq (arg 0) vote_stakes_fd)
+             (eq (arg 0) txncache_fd))
 
 # stake delegations: full-record disk spill
 #
 # vote stakes: write back the t-1 set evicted from the cache.
+# transaction cache: spill pages to disk
 pwrite64: (or (eq (arg 0) stake_spill_fd)
-              (eq (arg 0) vote_stakes_fd))
+              (eq (arg 0) vote_stakes_fd)
+              (eq (arg 0) txncache_fd))
 
 # power saving: sleep when there is no work to do
 #

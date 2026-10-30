@@ -136,6 +136,14 @@ typedef struct blockhash_group blockhash_group_t;
 
 FD_STATIC_ASSERT( sizeof(blockhash_group_t)==40UL, blockhash_group );
 
+/* Each slot delta's groups are staged in the txncache at a fixed
+   stride of txncache_staging_row_sz bytes. */
+
+FD_FN_CONST static inline ulong
+txncache_staging_row_sz( ulong max_groups_per_slot ) {
+  return fd_ulong_align_up( max_groups_per_slot*sizeof(blockhash_group_t), FD_TXNCACHE_SNAPIN_STAGE_ALIGN );
+}
+
 /* After filtering with the recent blockhash queue, there is at most one
    group per retained (slot, recent blockhash) pair.  Filtering can only
    happen after we receive the manifest, hence we still need
@@ -224,7 +232,7 @@ struct fd_snapin_lead {
 
   fd_sysvar_cache_t sysvar_cache[1]; /* verify_sysvars scratch */
 
-  blockhash_group_t *        blockhash_groups;
+  blockhash_group_t *        blockhash_groups;     /* groups of one staged slot delta */
   ulong                      blockhash_groups_cnt; /* every group parsed, including those from dropped slots */
   recent_blockhash_group_t * recent_groups;
   ulong                      recent_groups_len;
@@ -408,6 +416,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
     l = FD_LAYOUT_APPEND( l, fd_slot_delta_parser_align(),      fd_slot_delta_parser_footprint()                             );
     l = FD_LAYOUT_APPEND( l, alignof(recent_blockhash_group_t), sizeof(recent_blockhash_group_t)*FD_SNAPIN_MAX_RECENT_GROUPS );
     l = FD_LAYOUT_APPEND( l, alignof(fd_sstxncache_hash_t),     sizeof(fd_sstxncache_hash_t)*FD_TXNCACHE_MAX_SLOT_DELTAS*2UL*tile->snapin.max_txn_per_slot );
+    l = FD_LAYOUT_APPEND( l, FD_TXNCACHE_SNAPIN_STAGE_ALIGN,    txncache_staging_row_sz( tile->snapin.max_txn_per_slot )     );
   }
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
@@ -801,25 +810,17 @@ transition_malformed( fd_snapin_tile_t *  ctx,
   fd_stem_publish( stem, ctx->ct_out.idx, FD_SNAPSHOT_MSG_CTRL_ERROR, 0UL, 0UL, 0UL, 0UL, 0UL );
 }
 
-static blockhash_group_t *
-txncache_staging_groups_join( void * scratch,
-                              ulong  scratch_sz,
-                              ulong  groups_max ) {
-  ulong start = fd_ulong_align_up( (ulong)scratch, alignof(blockhash_group_t) );
-  ulong pad   = start-(ulong)scratch;
-  if( FD_UNLIKELY( pad>scratch_sz ) ) return NULL;
-  if( FD_UNLIKELY( scratch_sz-pad<groups_max*sizeof(blockhash_group_t) ) ) return NULL;
-  return (blockhash_group_t *)start;
-}
+/* Writes (write!=0) or reads the staged groups of slot delta slot_idx
+   between the in-memory buffer and the txncache.  No-op if slot_idx is
+   ULONG_MAX. */
 
-static blockhash_group_t *
-txncache_staging_scratch( fd_snapin_tile_t * ctx ) {
-  ulong  scratch_sz;
-  void * scratch    = fd_txncache_snapin_scratch( ctx->lead.txncache, &scratch_sz );
-  ulong  groups_max = FD_TXNCACHE_MAX_SLOT_DELTAS*ctx->lead.txncache_max_groups_per_slot;
-  blockhash_group_t * groups = txncache_staging_groups_join( scratch, scratch_sz, groups_max );
-  if( FD_UNLIKELY( !groups ) ) FD_LOG_ERR(( "txncache scratch (%lu bytes) too small to stage %lu blockhash groups (%lu bytes)", scratch_sz, groups_max, groups_max*sizeof(blockhash_group_t) ));
-  return groups;
+static void
+txncache_staging_row_io( fd_snapin_tile_t * ctx,
+                         ulong              slot_idx,
+                         int                write ) {
+  if( FD_UNLIKELY( slot_idx==ULONG_MAX ) ) return;
+  ulong sz = fd_ulong_align_up( ctx->lead.txncache_slots[ slot_idx ].group_cnt*sizeof(blockhash_group_t), FD_TXNCACHE_SNAPIN_STAGE_ALIGN );
+  if( FD_LIKELY( sz ) ) fd_txncache_snapin_stage( ctx->lead.txncache, slot_idx*txncache_staging_row_sz( ctx->lead.txncache_max_groups_per_slot ), ctx->lead.blockhash_groups, sz, write );
 }
 
 static void
@@ -835,6 +836,8 @@ txncache_staging_reset( fd_snapin_tile_t * ctx ) {
 static ulong
 txncache_staging_slot_begin( fd_snapin_tile_t * ctx,
                              ulong              slot ) {
+  txncache_staging_row_io( ctx, ctx->lead.txncache_current_slot_idx, 1 );
+
   ulong candidate_idx;
   if( FD_LIKELY( ctx->lead.txncache_slots_len<FD_TXNCACHE_MAX_SLOT_DELTAS ) ) {
     candidate_idx = ctx->lead.txncache_slots_len++;
@@ -871,7 +874,7 @@ txncache_staging_group_begin( fd_snapin_tile_t * ctx,
   FD_TEST( slot_idx<ctx->lead.txncache_slots_len );
   txncache_staging_slot_t * staging_slot = &ctx->lead.txncache_slots[ slot_idx ];
   FD_TEST( staging_slot->group_cnt<ctx->lead.txncache_max_groups_per_slot );
-  blockhash_group_t * group = &ctx->lead.blockhash_groups[ slot_idx*ctx->lead.txncache_max_groups_per_slot+staging_slot->group_cnt ];
+  blockhash_group_t * group = &ctx->lead.blockhash_groups[ staging_slot->group_cnt ];
   memcpy( group->blockhash, blockhash, 32UL );
   group->txnhash_offset     = (uint)txnhash_offset;
   group->txncache_entry_cnt = 0U;
@@ -894,7 +897,7 @@ txncache_staging_entry_add( fd_snapin_tile_t * ctx,
   FD_TEST( staging_slot->slot==slot );
   FD_TEST( staging_slot->group_cnt );
   FD_TEST( staging_slot->entry_cnt<ctx->lead.txncache_max_entries_per_slot );
-  blockhash_group_t * group = &ctx->lead.blockhash_groups[ slot_idx*ctx->lead.txncache_max_groups_per_slot+staging_slot->group_cnt-1UL ];
+  blockhash_group_t * group = &ctx->lead.blockhash_groups[ staging_slot->group_cnt-1UL ];
   memcpy( ctx->lead.txncache_entries[ slot_idx*ctx->lead.txncache_max_entries_per_slot+staging_slot->entry_cnt ].txnhash, txnhash, sizeof(fd_sstxncache_hash_t) );
   staging_slot->entry_cnt++;
   group->txncache_entry_cnt++;
@@ -932,10 +935,13 @@ txncache_staging_filter_groups( fd_snapin_tile_t *           ctx,
     return 1;
   }
 
+  txncache_staging_row_io( ctx, ctx->lead.txncache_current_slot_idx, 1 );
+
   ctx->lead.recent_groups_len = 0UL;
   for( ulong staging_idx=0UL; staging_idx<ctx->lead.txncache_slots_len; staging_idx++ ) {
     txncache_staging_slot_t const * staging_slot = &ctx->lead.txncache_slots[ staging_idx ];
-    blockhash_group_t const *       groups       = &ctx->lead.blockhash_groups[ staging_idx*ctx->lead.txncache_max_groups_per_slot ];
+    txncache_staging_row_io( ctx, staging_idx, 0 );
+    blockhash_group_t const *       groups       = ctx->lead.blockhash_groups;
     ulong                           entry_idx    = staging_idx*ctx->lead.txncache_max_entries_per_slot;
 
     for( ulong i=0UL; i<staging_slot->group_cnt; i++ ) {
@@ -1130,7 +1136,7 @@ populate_txncache( fd_snapin_tile_t *                     ctx,
     blockhash_map_ele_insert( blockhash_map, &blockhash_pool[ i ], blockhash_pool );
   }
 
-  /* blockhash_groups aliases txncache memory, so filtering must finish
+  /* The staged groups live in the txncache, so filtering must finish
      before the first txncache insert. */
   if( FD_UNLIKELY( txncache_staging_filter_groups( ctx, blockhash_map, blockhash_pool, snapshot_slot ) ) ) return 1;
   for( ulong i=0UL; i<ctx->lead.recent_groups_len; i++ ) {
@@ -1940,7 +1946,6 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
 
       fd_txncache_reset( ctx->lead.txncache );
       txncache_staging_reset( ctx );
-      ctx->lead.blockhash_groups = txncache_staging_scratch( ctx );
       fd_ssmanifest_parser_init( ctx->lead.manifest_parser, fd_chunk_to_laddr( ctx->lead.manifest_out.mem, ctx->lead.manifest_out.chunk ) );
       fd_slot_delta_parser_init( ctx->lead.slot_delta_parser );
       fd_memset( &ctx->lead.flags,    0, sizeof(ctx->lead.flags)    );
@@ -2292,7 +2297,7 @@ populate_allowed_fds( fd_topo_t      const * topo,
                       fd_topo_tile_t const * tile,
                       ulong                  out_fds_cnt,
                       int *                  out_fds ) {
-  if( FD_UNLIKELY( out_fds_cnt<5UL ) ) FD_LOG_ERR(( "invalid out_fds_cnt %lu", out_fds_cnt ));
+  if( FD_UNLIKELY( out_fds_cnt<6UL ) ) FD_LOG_ERR(( "invalid out_fds_cnt %lu", out_fds_cnt ));
   fd_snapin_tile_t const * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   ulong out_cnt = 0;
@@ -2303,6 +2308,7 @@ populate_allowed_fds( fd_topo_t      const * topo,
   out_fds[ out_cnt++ ] = FD_ACCDB_FD_RW; /* accounts db */
   out_fds[ out_cnt++ ] = FD_STAKE_DELEGATIONS_FD; /* stake delegation disk spill */
   out_fds[ out_cnt++ ] = ctx->writer.accdb_direct_fd; /* accounts db, O_DIRECT */
+  if( FD_LIKELY( !tile->kind_id ) ) out_fds[ out_cnt++ ] = FD_TXNCACHE_FD;
 
   return out_cnt;
 }
@@ -2313,7 +2319,7 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
                           ulong                  out_cnt,
                           struct sock_filter *   out ) {
   fd_snapin_tile_t const * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
-  populate_sock_filter_policy_fd_snapin_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), FD_ACCDB_FD_RW, (uint)ctx->writer.accdb_direct_fd, FD_STAKE_DELEGATIONS_FD );
+  populate_sock_filter_policy_fd_snapin_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), FD_ACCDB_FD_RW, (uint)ctx->writer.accdb_direct_fd, FD_STAKE_DELEGATIONS_FD, (uint)FD_TXNCACHE_FD );
   return sock_filter_policy_fd_snapin_tile_instr_cnt;
 }
 
@@ -2412,14 +2418,14 @@ unprivileged_init( fd_topo_t const *      topo,
   void * _sd_parser          = FD_SCRATCH_ALLOC_APPEND( l, fd_slot_delta_parser_align(),      fd_slot_delta_parser_footprint()                             );
   ctx->lead.recent_groups    = FD_SCRATCH_ALLOC_APPEND( l, alignof(recent_blockhash_group_t), sizeof(recent_blockhash_group_t)*FD_SNAPIN_MAX_RECENT_GROUPS );
   ctx->lead.txncache_entries = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_sstxncache_hash_t),     sizeof(fd_sstxncache_hash_t)*FD_TXNCACHE_MAX_SLOT_DELTAS*2UL*tile->snapin.max_txn_per_slot );
+  ctx->lead.blockhash_groups = FD_SCRATCH_ALLOC_APPEND( l, FD_TXNCACHE_SNAPIN_STAGE_ALIGN,    txncache_staging_row_sz( tile->snapin.max_txn_per_slot )     );
 
   void * _txncache_shmem = fd_topo_obj_laddr( topo, tile->snapin.txncache_obj_id );
   fd_txncache_shmem_t * txncache_shmem = fd_txncache_shmem_join( _txncache_shmem );
   FD_TEST( txncache_shmem );
-  ctx->lead.txncache = fd_txncache_join( fd_txncache_new( _txncache, txncache_shmem ) );
+  ctx->lead.txncache = fd_txncache_join( fd_txncache_new( _txncache, txncache_shmem, FD_TXNCACHE_FD ) );
   FD_TEST( ctx->lead.txncache );
 
-  ctx->lead.blockhash_groups = NULL;
   txncache_staging_reset( ctx );
 
   ctx->lead.bank = fd_banks_init_bank( banks );

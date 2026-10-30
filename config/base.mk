@@ -6,7 +6,7 @@ endif
 VERBOSE?=0
 CPPFLAGS:=
 RUSTFLAGS:=-C force-frame-pointers=yes
-CFLAGS=-std=c17 -fwrapv
+CFLAGS=-std=c17 -fno-strict-overflow
 LDFLAGS:=-lm -ldl
 LDFLAGS_EXE:=
 LDFLAGS_SO:=-shared

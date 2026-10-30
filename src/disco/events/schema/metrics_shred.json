@@ -279,11 +279,10 @@
         },
         "store_fec_sync_spilled":       { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "FEC payloads the shred tile spilled to the store synchronously because the store RAM cache was full" },
         "store_fec_sync_spilled_bytes": { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "FEC payload bytes the shred tile spilled to the store synchronously" },
-        "store_fec_insert_parked":      { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "FEC inserts that waited for a store RAM cache slot because every slot was reserved, pinned or being spilled", "field_number": 287184488 },
+        "store_fec_insert_parked":      { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "FEC inserts that waited for a store RAM cache slot because every slot was reserved, pinned or being spilled" },
         "store_fec_insert_park_duration_nanos": {
             "type": "Tuple",
             "description": "Duration of one FEC insert waiting for a store RAM cache slot",
-            "field_number": 380277759,
             "fields": {
                 "b0":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[0, 100) nanos" },
                 "b1":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[100, 268) nanos" },

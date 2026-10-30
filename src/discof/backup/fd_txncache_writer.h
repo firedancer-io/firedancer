@@ -6,9 +6,7 @@
    Vec<SlotDelta>), shaped the way Agave writes it: one slot delta per
    recent rooted slot with a block, holding the transactions that
    executed in that slot, grouped by the blockhash they referenced.
-   Takes the txncache read lock only during initial setup.  The full
-   scale walks over the txncache are lock free and retry when they race
-   a mutation. */
+   The txncache bucket iterator handles locking and paging. */
 
 #include "../../flamenco/runtime/fd_txncache.h"
 #include "../../flamenco/runtime/fd_txncache_shmem.h"
@@ -35,13 +33,6 @@
    does not fit; the caller comes back with more room. */
 
 #define FD_TXNCACHE_WRITER_BUF_MIN (4096UL)
-
-/* How many chain entries a walk visits between re-reads of the txncache
-   mutation generation.  The walks hold no lock.  A concurrent
-   compaction or root advancement is detected through the generation
-   number. */
-
-#define FD_TXNCACHE_WRITER_CHECK_INTERVAL (1024UL)
 
 struct fd_txncache_writer_blockhash_desc {
   ulong  blockcache_idx; /* blockcache pool index */
@@ -83,10 +74,6 @@ struct fd_txncache_writer {
   fd_txncache_writer_blockhash_desc_t blockhash_descs[ FD_TXNCACHE_WRITER_MAX_BLOCKHASHES ];
   ulong                               blockhash_cnt;
   ushort                              fork_id_to_blockhash_i[ USHORT_MAX+1UL ];
-
-  /* The txncache's root generation captured at init.  Must not move
-     during snapshot production. */
-  ulong             root_gen;
 
   /* Groups in wire order (slot ascending, then blockhash descriptor ascending). */
   uint                       entry_cnt_by_key[ FD_TXNCACHE_WRITER_MAX_GROUPS ];
@@ -131,25 +118,22 @@ FD_FN_CONST ulong
 fd_txncache_writer_arena_align( void );
 
 /* fd_txncache_writer_init prepares writer to serialize the status
-   cache of tc as of the rooted fork fork_id, which must be the most
-   recent root.  snapshot_slot is the fork's slot.  slot_history points
-   to the slot_history_sz byte bincode encoding of the bank's
-   SlotHistory sysvar account, which decides which slots get a
-   slot delta and names each execution slot.  arena is the arena_sz byte
-   staging area.
+   cache of tc as of its newest root.  The caller must keep the root
+   from advancing until the writer is done.  snapshot_slot is the newest
+   root's slot.  slot_history points to the slot_history_sz byte bincode
+   encoding of the bank's SlotHistory sysvar account, which decides
+   which slots get a slot delta and names each execution slot.  arena
+   is the arena_sz byte staging area.
 
    Walks the whole txncache once to count the transactions of every
    (slot, blockhash) group, so the serialized size is known on return.
 
-   Returns writer on success.  Returns NULL if fork_id is not the most
-   recent root or if more than one rooted blockhash descriptor lacks a
-   named execution slot.  Replay should not be advancing the root while
-   a snapshot is in progress, so snapmk treats NULL as fatal. */
+   Returns writer.  Crashes if more than one rooted blockhash
+   descriptor lacks a named execution slot. */
 
 fd_txncache_writer_t *
 fd_txncache_writer_init( fd_txncache_writer_t * writer,
                          fd_txncache_t *        tc,
-                         fd_txncache_fork_id_t  fork_id,
                          ulong                  snapshot_slot,
                          uchar const *          slot_history,
                          ulong                  slot_history_sz,
