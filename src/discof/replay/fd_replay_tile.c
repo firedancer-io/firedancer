@@ -650,7 +650,7 @@ replay_block_start( fd_replay_tile_t * ctx,
 
   fd_bank_t * parent_bank = fd_banks_bank_query( ctx->banks, parent_bank_idx );
   FD_CHECK_CRIT( parent_bank, "invariant violation: parent bank is NULL" );
-  FD_CHECK_CRIT( parent_bank->state==FD_BANK_STATE_FROZEN || parent_bank->state==FD_BANK_STATE_PRUNABLE, "invariant violation: parent bank is not in correct state" );
+  FD_CHECK_CRIT( parent_bank->state==FD_BANK_STATE_FROZEN, "invariant violation: parent bank is not in correct state" );
 
   /* Clone the bank from the parent.  We must special case the first
      slot that is executed as the snapshot does not provide a parent
@@ -2817,11 +2817,9 @@ mark_bank_dead( fd_replay_tile_t *        ctx,
   /* Report each newly dead bank now (dead_idxs excludes already-dead,
      already-reported subtrees): the failing bank with its real reason and
      descendants as parent_dead, or the whole lineage with the caller's
-     abandoned flavor.  Exactly one of the two reasons is set.
-     A previously PRUNABLE (evicted) bank converted by this walk reports
-     here like any other: eviction emits no row, and the sched-drain
-     emission is gated on the state still being PRUNABLE.  Blocks still
-     receiving FECs dedup the slot-completion report via dead_reported. */
+     abandoned flavor.  Exactly one of the two reasons is set.  Blocks
+     still receiving FECs dedup the slot-completion report via
+     dead_reported. */
   int abandoned = abandoned_reason!=FD_EVENT_BLOCK_COMPLETED_ABANDONED_REASON_NOT_ABANDONED;
   for( ulong i=0UL; i<dead_idxs_cnt; i++ ) {
     fd_block_id_ele_t * ele = &ctx->block_id_arr[ dead_idxs[ i ] ];
@@ -2899,25 +2897,24 @@ try_replay( fd_replay_tile_t *  ctx,
 #define PROCESS_FEC_SKIP 3  /* Good to skip this FEC set, drop from dcache */
 
 /* live_block_id_ele returns ele if it is backed by a live bank (same
-   bank_seq, not PRUNABLE), else NULL.  Map entries outlive their banks
-   through eviction.  TODO if we remove block_id_eles with banks, we
-   can get rid of this */
+   bank_seq), else NULL.  Map entries outlive their banks through
+   pruning.  TODO if we remove block_id_eles with banks, we can get rid
+   of this */
 static fd_block_id_ele_t *
 live_block_id_ele( fd_replay_tile_t *  ctx,
                    fd_block_id_ele_t * ele ) {
   if( FD_UNLIKELY( !ele ) ) return NULL;
   fd_bank_t * bank = fd_banks_bank_query( ctx->banks, fd_block_id_ele_get_idx( ctx->block_id_arr, ele ) );
-  if( FD_UNLIKELY( !bank || bank->bank_seq!=ele->bank_seq || bank->state==FD_BANK_STATE_PRUNABLE ) ) return NULL;
+  if( FD_UNLIKELY( !bank || bank->bank_seq!=ele->bank_seq ) ) return NULL;
   return ele;
 }
 
 static int
 can_process_rotor_fec( fd_replay_tile_t       * ctx,
-                       fd_repair_replay_fec_t * fec,
-                       int *                    evict_banks_out ) {
+                       fd_repair_replay_fec_t * fec ) {
   /* We can process a FEC set if a few conditions are met:
      - sched has capacity
-     - banks has capacity.  Evict if we don't (see below)
+     - banks has capacity
      Our leader FECs bind to the existing leader bank and never enter
      sched, so neither capacity gate applies to them.  One that is not
      for the current leader slot has no bank to bind to. */
@@ -2978,10 +2975,8 @@ can_process_rotor_fec( fd_replay_tile_t       * ctx,
       FD_LOG_INFO(( "parent bank not found for slot %lu fec set idx %u, parent slot %lu parent block_id %s", fec->slot, fec->fec_set_idx, fec->parent_slot, parent_key_b58 ));
 
       /* We cannot tell here why the parent is missing -- dropped on a
-         dead lineage, evicted with its tracking slot reused, or rooted
-         past -- and the latter two are routine and recoverable, so do
-         not emit events; they would be emitted in bulk during the
-         redelivery that recovers them. */
+         dead lineage or rooted past -- and the latter is routine, so do
+         not emit events. */
       ctx->metrics.parent_unavailable++;
       return PROCESS_FEC_DROP;
     }
@@ -2995,7 +2990,7 @@ can_process_rotor_fec( fd_replay_tile_t       * ctx,
       FD_BASE58_ENCODE_32_BYTES( fec->block_id.uc, block_id_b58 );
       FD_LOG_INFO(( "parent bank not found for slot %lu fec set idx %u slot_bid %s. parent slot %lu", fec->slot, fec->fec_set_idx, block_id_b58, fec->parent_slot ));
       ctx->metrics.parent_unavailable++;
-      return PROCESS_FEC_DROP; // either pruned or bank evicted
+      return PROCESS_FEC_DROP; // pruned
     }
     parent_bank_idx = fd_block_id_ele_get_idx( ctx->block_id_arr, parent );
   }
@@ -3003,13 +2998,7 @@ can_process_rotor_fec( fd_replay_tile_t       * ctx,
   ctx->metrics.reasm_latest_slot    = fec->slot;
   ctx->metrics.reasm_latest_fec_idx = fec->fec_set_idx;
 
-  /* If the FEC we are building off of is for a prunable bank, we must
-     wait to process the FEC until the bank has been evicted. */
   fd_bank_t * parent_fec_bank = parent_bank_idx==UINT_MAX ? NULL : fd_banks_bank_query( ctx->banks, parent_bank_idx );
-  if( FD_UNLIKELY( parent_fec_bank && parent_fec_bank->bank_seq==parent->bank_seq && parent_fec_bank->state==FD_BANK_STATE_PRUNABLE ) ) {
-    FD_LOG_DEBUG(( "waiting to process FEC set (slot=%lu, fec_set_idx=%u) because parent bank is being pruned", fec->slot, fec->fec_set_idx ));
-    return PROCESS_FEC_WAIT;
-  }
 
   if( FD_UNLIKELY( ctx->is_leader &&
                    fec->fec_set_idx==0U &&
@@ -3027,42 +3016,22 @@ can_process_rotor_fec( fd_replay_tile_t       * ctx,
        ingesting the FEC set for the ensuing slot before the leader
        bank freezes, because that would violate ordering invariants in
        banks and sched.  Both the bank index and sequence must match
-       because bank indices are recycled after eviction. */
+       because bank indices are recycled after pruning. */
     FD_TEST( ctx->block_id_arr[ ctx->leader_bank->idx ].block_id_seen );
     FD_TEST( !ctx->recv_poh );
     ctx->metrics.leader_bid_wait++;
     return PROCESS_FEC_WAIT;
   }
 
-  /* Should we evict banks if there are no more free banks?  The answer
-     is it depends.  Eviction should only happen if we can make no
-     forward replay progress.  This can only happen if:
-     1. banks are full
-     2. sched is drained: pending txns could complete a block and
-        eventually advance the root.
-     AND
-     3. next reasm FEC needs a new bank.  A fec that chains off of a
-        bank that is already allocated can be processed.  A FEC can
-        require a new bank in three ways:
-        - fec_set_idx==0: we don't have any free banks to provision a
-          new bank for this FEC.
-        - equivocation: a FEC may be in the middle of a block, but if
-          it's the first equivocating FEC detected, we need to allocate
-          a new bank for the version of the block.
-        - backfill: the parent FEC's bank was never created or has been
-          evicted and must be reconstructed.
-
-
-     - Without reasm there is no backfill: if the parent bank was
-       evicted or its bank idx was reused, this FEC can't be
-       processed, so drop it and notify rotor to redeliver.
-     - Rotor equivocating slots are guaranteed to be delivered starting
-       from FEC 0, so even equivocations mid-slot are delivered from
-       fec 0 */
+  /* If the parent bank was pruned or its bank idx was reused, this FEC
+     can't be processed, so drop it and notify rotor to redeliver.
+     Rotor equivocating slots are guaranteed to be delivered starting
+     from FEC 0, so even equivocations mid-slot are delivered from
+     fec 0 */
 
   int invalid_parent = !parent_fec_bank || parent_fec_bank->bank_seq!=parent->bank_seq;
   if( FD_UNLIKELY( invalid_parent ) ) {
-    FD_LOG_INFO(( "parent bank evicted for slot %lu fec set idx %u, parent slot %lu", fec->slot, fec->fec_set_idx, fec->parent_slot ));
+    FD_LOG_INFO(( "parent bank pruned for slot %lu fec set idx %u, parent slot %lu", fec->slot, fec->fec_set_idx, fec->parent_slot ));
     ctx->metrics.parent_unavailable++;
     return PROCESS_FEC_DROP;
   } else if( FD_UNLIKELY( fec->fec_set_idx!=0U && parent->latest_fec_idx!=fec->fec_set_idx - FD_FEC_SHRED_CNT ) ) {
@@ -3078,7 +3047,6 @@ can_process_rotor_fec( fd_replay_tile_t       * ctx,
     int is_new_block = fec->fec_set_idx==0U && !fec->is_leader;
     if( FD_UNLIKELY( is_new_block ) ) {
       ctx->metrics.banks_full++;
-      if( FD_UNLIKELY( fd_sched_is_drained( ctx->sched ) && !ctx->snapmk.active ) ) *evict_banks_out = 1; /* see can_process_fec */
       return PROCESS_FEC_WAIT;
     }
   }
@@ -3110,8 +3078,7 @@ try_notify_consensus_root( fd_replay_tile_t *  ctx,
   fd_bank_t * bank = fd_banks_bank_query( ctx->banks, fd_block_id_ele_get_idx( ctx->block_id_arr, block_id_ele ) );
   if( FD_UNLIKELY( !bank ||
                    bank->bank_seq!=block_id_ele->bank_seq ||
-                   !fd_hash_eq( &bank->f.block_id, &ctx->consensus_root ) ||
-                   bank->state==FD_BANK_STATE_PRUNABLE ) ) return 0;
+                   !fd_hash_eq( &bank->f.block_id, &ctx->consensus_root ) ) ) return 0;
 
   fd_sched_root_notify( ctx->sched, bank->idx );
   publish_root_advanced( ctx, stem, bank );
@@ -3197,8 +3164,8 @@ try_advance_published_root( fd_replay_tile_t *  ctx,
      wait out the whole drain. */
   if( FD_UNLIKELY( fd_sched_block_start_pending( ctx->sched ) ) ) return 0;
 
-  /* If the new root is not available because the bank is/has been
-     evicted, we can't advance the root.  Try again later. */
+  /* If the new root's bank is not available, we can't advance the
+     root.  Try again later. */
 
   ag_block_id_t consensus_root_key = ag_block_id( ctx->consensus_root_slot, ctx->consensus_root.uc );
   fd_block_id_ele_t * block_id_ele = fd_block_id_map_ele_query( ctx->block_id_map, &consensus_root_key, NULL, ctx->block_id_arr );
@@ -3206,8 +3173,7 @@ try_advance_published_root( fd_replay_tile_t *  ctx,
   fd_bank_t * target_bank = fd_banks_bank_query( ctx->banks, fd_block_id_ele_get_idx( ctx->block_id_arr, block_id_ele ) );
   if( FD_UNLIKELY( !target_bank ||
                    target_bank->bank_seq!=block_id_ele->bank_seq ||
-                   !fd_hash_eq( &target_bank->f.block_id, &ctx->consensus_root ) ||
-                   target_bank->state==FD_BANK_STATE_PRUNABLE ) ) {
+                   !fd_hash_eq( &target_bank->f.block_id, &ctx->consensus_root ) ) ) {
     return 0;
   }
 
@@ -3314,17 +3280,6 @@ try_prune_sched( fd_replay_tile_t * ctx ) {
   while( (bank_idx=fd_sched_pruned_block_next( ctx->sched ) )!=ULONG_MAX ) {
     fd_bank_t * bank = fd_banks_bank_query( ctx->banks, bank_idx );
     FD_TEST( bank );
-    /* An evicted bank drains here with its verdict final: every
-       in-flight task has resolved, so still PRUNABLE means none ruled
-       it invalid (that would have converted it to DEAD and reported a
-       dead row), and this is the block's only row.  A frozen victim
-       already reported a completed row. */
-    if( FD_UNLIKELY( bank->state==FD_BANK_STATE_PRUNABLE && !bank->block_completed_nanos ) ) {
-      fd_block_id_ele_t * ele = &ctx->block_id_arr[ bank_idx ];
-      report_block_incomplete( ctx, ele->slot, ele->block_id_seen ? &ele->dmr : &ele->latest_mr, bank,
-                               FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_NOT_DEAD,
-                               FD_EVENT_BLOCK_COMPLETED_ABANDONED_REASON_EVICTED );
-    }
     bank->refcnt--;
     FD_LOG_DEBUG(( "bank (idx=%lu) refcnt decremented to %lu for sched", bank->idx, bank->refcnt ));
     pruned = 1;
@@ -3381,10 +3336,7 @@ after_credit( fd_replay_tile_t *  ctx,
   if( FD_UNLIKELY( !ctx->is_booted || !ctx->wfs_complete ) ) return;
 
   /* The overall priority for the replay tile in order is:
-     1. Make sure replay has room to progress:
-        a. evicting pending FECs from the reassembler
-        b. queueing up evictable banks for pruning if needed
-        c. clearing any pending bank eviction victims.
+     1. Make sure replay has room to progress by pruning dead banks.
      2. Drain outstanding bank references from the scheduler.  This
         happens after a block gets completed or a fork gets pruned.
      3. Notify sched and bank consumers of a new consensus root, then
@@ -3689,10 +3641,10 @@ process_rotor_fec( fd_replay_tile_t       * ctx,
     block_id_ele->finalized      = 0;
     block_id_ele->block_info     = fec->known_id ? ag_block_id( fec->slot, fec->block_id.uc ) : (ag_block_id_t){ .slot = fec->slot };
 
-    /* If this fec 0 is rebuilding an evicted block (recovery redelivery),
-       the evicted bank's stale map entry may still hold this key at a
+    /* If this fec 0 is rebuilding a pruned block (recovery redelivery),
+       the pruned bank's stale map entry may still hold this key at a
        DIFFERENT idx. */
-    fd_block_id_map_ele_remove( ctx->block_id_map, &block_id_ele->block_info, NULL, ctx->block_id_arr ); // evicted / stale entry
+    fd_block_id_map_ele_remove( ctx->block_id_map, &block_id_ele->block_info, NULL, ctx->block_id_arr ); // stale entry
     FD_TEST( fd_block_id_map_ele_insert( ctx->block_id_map, block_id_ele, ctx->block_id_arr ) );
   } else { /* FEC for the middle or end of a block */
     /* Assign bank idx + seqno to the FEC.  Update block id pool ele.
@@ -3728,13 +3680,13 @@ process_rotor_fec( fd_replay_tile_t       * ctx,
        fd_repair_tile.h), so {slot, block_id} can never already be
        occupied by another LIVE bank.  It can however be occupied by a
        STALE entry: a previously-completed copy of this block whose bank
-       was evicted (eviction does not remove map entries), now being
-       rebuilt through recovery redelivery.  Evict the stale entry before
-       inserting. */
+       was pruned (pruning does not remove map entries), now being
+       rebuilt through recovery redelivery.  Remove the stale entry
+       before inserting. */
     FD_TEST( fd_block_id_map_ele_remove( ctx->block_id_map, &block_id_ele->block_info, NULL, ctx->block_id_arr )==block_id_ele );
     ag_block_id_t key = ag_block_id( fec->slot, fec->block_id.uc );
     block_id_ele->block_info = key;
-    fd_block_id_map_ele_remove( ctx->block_id_map, &key, NULL, ctx->block_id_arr ); // evicted / stale entry
+    fd_block_id_map_ele_remove( ctx->block_id_map, &key, NULL, ctx->block_id_arr ); // stale entry
     FD_TEST( fd_block_id_map_ele_insert( ctx->block_id_map, block_id_ele, ctx->block_id_arr ) );
   }
 
@@ -4188,24 +4140,19 @@ returnable_frag( fd_replay_tile_t *  ctx,
         if( FD_LIKELY( ele && ele->block_id_seen ) ) ele->finalized = 1;
       }
 
-      int evict_banks = 0;
-      int res = can_process_rotor_fec( ctx, fec, &evict_banks );
+      int res = can_process_rotor_fec( ctx, fec );
 
-      /* drain_rotor_fecs: a bank eviction broke the replayable chain of
-         FECs delivered from rotor (we lost a parent we needed to
-         replay off of).  While draining, ignore DROP/SKIP FECs until
-         one is replayable again (PROCESS_FEC_OK, i.e. its parent
-         context is present), then resume normal processing.  WAIT must
-         fall through to the retry/eviction logic below: WAIT's contract
-         is keep-and-retry, and the redelivered FEC that rebuilds the
-         evicted block can itself return WAIT+evict_banks (banks full) --
-         swallowing it would consume the frag, never queue the eviction,
-         and wedge recovery. */
+      /* drain_rotor_fecs: the replayable chain of FECs delivered from
+         rotor is broken (we lost a parent we needed to replay off of).
+         While draining, ignore DROP/SKIP FECs until one is replayable
+         again (PROCESS_FEC_OK, i.e. its parent context is present),
+         then resume normal processing.  WAIT keeps its keep-and-retry
+         contract. */
       if( FD_UNLIKELY( ctx->drain_rotor_fecs ) ) {
         if( FD_LIKELY( res==PROCESS_FEC_OK ) ) {
           ctx->drain_rotor_fecs = 0; /* chain re-established, resume */
         }
-        else if( res!=PROCESS_FEC_WAIT ) return 0; /* swallow DROPs/SKIPs, do evict_banks if needed */
+        else if( res!=PROCESS_FEC_WAIT ) return 0; /* swallow DROPs/SKIPs */
       }
 
       switch( res ) {
@@ -4220,35 +4167,7 @@ returnable_frag( fd_replay_tile_t *  ctx,
           return 0;
         }
         case PROCESS_FEC_SKIP: { return 0; }
-        case PROCESS_FEC_WAIT: {
-          /* queue an eviction, then retry the frag. */
-          if( FD_UNLIKELY( evict_banks ) ) {
-            ulong evictable_bank_idx = fd_banks_get_evictable_bank( ctx->banks, ctx->notified_root_bank );
-            if( FD_UNLIKELY( evictable_bank_idx==ULONG_MAX ) ) {
-              FD_LOG_DEBUG(( "replay has no banks to mark as prunable, it's possible that there is one bank already marked as prunable" ));
-              return 1;
-            }
-
-            FD_LOG_WARNING(( "banks full, evicting bank (idx=%lu)", evictable_bank_idx ));
-
-            timing_slot_release( ctx, evictable_bank_idx );
-
-            if( FD_UNLIKELY( fd_sched_block_is_discarded( ctx->sched, evictable_bank_idx ) ) ) {
-              fd_block_id_ele_t * ele = &ctx->block_id_arr[ evictable_bank_idx ];
-              report_block_incomplete( ctx, ele->slot, ele->block_id_seen ? &ele->dmr : &ele->latest_mr, fd_banks_bank_query( ctx->banks, evictable_bank_idx ),
-                                       FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_NOT_DEAD, FD_EVENT_BLOCK_COMPLETED_ABANDONED_REASON_PRUNED );
-            }
-
-            /* Send a notification to other tiles to drop a reference to the
-               evictable bank.  The RPC tile is the only tile which holds onto
-               non-rooted banks, non-transiently. */
-            fd_replay_drop_bank_ref_t * msg = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
-            fd_sched_block_abandon( ctx->sched, evictable_bank_idx, FD_SCHED_ABANDON_DISCARDED );
-            msg->bank_idx = evictable_bank_idx;
-            publish_replay_out( ctx, stem, REPLAY_SIG_DROP_BANK_REF, sizeof(fd_replay_drop_bank_ref_t) );
-          }
-          return 1;
-        }
+        case PROCESS_FEC_WAIT: { return 1; }
         default:
           FD_LOG_CRIT(( "unhandled process_rotor_fec result: %d", res ));
       }

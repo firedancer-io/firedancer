@@ -44,13 +44,6 @@
      2. Releasing each evicted element back to the reasm pool before
         the next insert.
 
-   It's important to note that replay bank eviction is NOT coupled with
-   reasm FEC eviction.  Reasm FEC eviction is triggered by the reasm pool
-   being full, and is independent of the replay bank eviction.  Reasm
-   FEC eviction is triggered by the reasm pool being full while banks
-   eviction is triggered by the banks being full and the scheduler
-   being drained.
-
    By evicting and publishing evicted FECs to repair, replay is
    attempting a "go-around" strategy to ensure progress is made even
    when memory pressure is high.  An evicted FEC - if valid - will be
@@ -87,7 +80,7 @@
    Alpenglow simplifies eviction logic by removing the notion of reasm
    evictions.  Rotor is sized to protocol limits and will not have
    evictions; and thus can be relied on to always have all data since
-   the root. Banks can still evict.  On an eviction, some context in the
+   the root.  When a parent bank is pruned, some context in the
    replayable chain of FECs is lost, and newer incoming FECs may be
    unlinked.  When this happens, replay sends a signal to rotor to send
    the next FEC with the full replayable path from root. Replay will
@@ -111,7 +104,6 @@
 #define REPLAY_SIG_TXN_EXECUTED   (6)
 #define REPLAY_SIG_REASM_EVICTED  (7)
 #define REPLAY_SIG_WFS_DONE       (8)
-#define REPLAY_SIG_DROP_BANK_REF  (9)
 #define REPLAY_SIG_SNAP_START     (10)
 #define REPLAY_SIG_FINAL_CERT     (11)
 #define REPLAY_SIG_LEADER_FOOTER  (12)
@@ -274,14 +266,6 @@ struct fd_replay_fec_evicted {
 };
 typedef struct fd_replay_fec_evicted fd_replay_fec_evicted_t;
 
-/* Only rpc needs to consume this message since the resolv tile holds
-   onto a bank reference based on the root, which will never be forced
-   to drop its bank reference. */
-struct fd_replay_drop_bank_ref {
-  ulong bank_idx;
-};
-typedef struct fd_replay_drop_bank_ref fd_replay_drop_bank_ref_t;
-
 /* The replay tile broadcasts fd_replay_snap_start_t
    (REPLAY_SIG_SNAP_START) just before starting snapshot creation.
    Replay keeps the bank's epoch credits pinned in memory until the
@@ -331,7 +315,6 @@ union fd_replay_message {
   fd_became_leader_t          became_leader;
   fd_replay_txn_executed_t    txn_executed;
   fd_replay_fec_evicted_t     reasm_evicted;
-  fd_replay_drop_bank_ref_t   drop_bank_ref;
   fd_replay_leader_footer_t   leader_footer;
   fd_replay_next_leader_t     next_leader;
   fd_replay_slot_states_t     slot_states;

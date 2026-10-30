@@ -570,12 +570,12 @@ fd_accdb_snapshot_reserve_write( fd_accdb_t * accdb,
    fork_id controls recovery behavior:
 
      USHORT_MAX, full-snapshot mode.  Existing entries with the same
-                 pubkey are replaced in-place.  No txn entries are
-                 created.
+                 pubkey are replaced in-place.  No fork list entries
+                 are created.
 
      other,      incremental-snapshot mode.  Cross-snapshot overrides
                  insert a new acc_pool entry alongside the old one and
-                 create a txn record on fork_id, so fd_accdb_purge can
+                 add it to fork_id's list, so fd_accdb_purge can
                  revert the incremental writes on failure.  Intra-fork
                  duplicates are replaced in-place. */
 

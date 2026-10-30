@@ -440,11 +440,11 @@ fd_topo_initialize( config_t * config ) {
 
   ulong shred_depth = 65536UL;
 
-  /* Under Alpenglow, rotor redelivers every FEC set replay can hold when
+  /* Under Alpenglow, rotor redelivers every FEC set in its window when
      replay loses a parent bank, and polls nothing until that is
      published, so repair_out holds all of it. */
 
-  ulong repair_out_depth = fd_ulong_pow2_up( config->firedancer.runtime.max_live_slots * (config->limits.max_shreds_per_block/FD_FEC_SHRED_CNT) );
+  ulong repair_out_depth = fd_ulong_pow2_up( config->tiles.repair.slot_max * (config->limits.max_shreds_per_block/FD_FEC_SHRED_CNT) );
 
   /*                                  topo, link_name,       wksp_name,       depth,                                    mtu,                           burst */
   /**/                 fd_topob_link( topo, "gossip_net",    "net_gossip",    32768UL,                                  FD_NET_MTU,                    1UL );
@@ -1131,7 +1131,7 @@ fd_topo_initialize( config_t * config ) {
   /* store_fec_max is the maximum number of FEC sets Store retains.
 
       With Alpenglow, Store is sized to rotor's window of
-      N = max_live_slots slots, each of which can hold up to
+      N = tiles.repair.slot_max slots, each of which can hold up to
       fec_sets_per_slot FEC sets per version of its block.  The number of versions in the window
       is bounded as follows.
 
@@ -1160,7 +1160,7 @@ fd_topo_initialize( config_t * config ) {
 
   ulong fec_sets_per_slot = fd_ulong_if( config->firedancer.development.fixed_fec_sets,
                                          config->limits.max_shreds_per_block/FD_FEC_SHRED_CNT, config->limits.max_shreds_per_block );
-  ulong store_fec_max = fd_repair_blk_max( config->firedancer.runtime.max_live_slots ) * fec_sets_per_slot; /* every FEC set of every blk rotor holds */
+  ulong store_fec_max = fd_repair_blk_max( config->tiles.repair.slot_max ) * fec_sets_per_slot; /* every FEC set of every blk rotor holds */
 
   /* 32 shreds * 995 payload bytes = 31840 bytes with fixed_fec_sets = true
      67 shreds * 955 payload bytes = 63985 bytes with fixed_fec_sets = false */
@@ -1551,7 +1551,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->snapin.shmem_obj_id = fd_pod_query_ulong( config->topo.props, "snapin_shmem", ULONG_MAX );
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "rotor" ) ) ) {
-    tile->rotor.slot_max = config->firedancer.runtime.max_live_slots;
+    tile->rotor.slot_max = config->tiles.repair.slot_max;
     tile->rotor.fec_max  = fd_pod_queryf_ulong( config->topo.props, ULONG_MAX, "obj.%lu.fec_max", fd_pod_query_ulong( config->topo.props, "store", ULONG_MAX ) ); /* as many FEC sets as Store */
     tile->rotor.max_shreds_per_block = config->limits.max_shreds_per_block;
     tile->rotor.repair_client_listen_port = config->tiles.repair.repair_client_listen_port;
@@ -1647,7 +1647,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->votor.quic_client_listen_port = config->firedancer.development.votor.quic_client_listen_port;
     tile->votor.quic_server_listen_port = config->firedancer.development.votor.quic_server_listen_port;
     tile->votor.ip_addr                 = config->net.ip_addr;
-    tile->votor.max_live_slots          = config->firedancer.runtime.max_live_slots;
+    tile->votor.slot_max                = config->tiles.votor.slot_max;
     fd_cstr_ncpy( tile->votor.identity_key_path, config->paths.identity_key, sizeof(tile->votor.identity_key_path) );
     fd_cstr_ncpy( tile->votor.vote_history_path, config->paths.vote_history, sizeof(tile->votor.vote_history_path) );
     tile->votor.target_gid = config->gid;
@@ -1759,7 +1759,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
 
     tile->shred.fec_exposure                  = FD_SHRED_FIREDANCER_FEC_EXPOSURE;
     tile->shred.fec_resolver_depth            = config->tiles.shred.max_pending_shred_sets;
-    tile->shred.slot_max                      = config->firedancer.runtime.max_live_slots;
+    tile->shred.slot_max                      = config->tiles.repair.slot_max;
     tile->shred.expected_shred_version        = config->consensus.expected_shred_version;
     tile->shred.shred_listen_port             = config->tiles.shred.shred_listen_port;
     tile->shred.max_shreds_per_block          = config->limits.max_shreds_per_block;

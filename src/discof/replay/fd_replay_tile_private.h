@@ -213,7 +213,7 @@ struct fd_replay_tile {
   fd_reception_stats_t * reception_stats;
   ulong                  reception_stats_cnt;
 
-  /* When a bank is evicted, the replayable chain of FECs delivered from rotor is broken. i.e.
+  /* When a parent bank is pruned, the replayable chain of FECs delivered from rotor is broken. i.e.
      we lose context for a parent we needed to replay off of. When this happens,
      on the first FEC we see we can't replay, we need to drain everything in the dcache
      until there's something we can replay off of.  Set this flag to enter that state (i.e. ignore FECs

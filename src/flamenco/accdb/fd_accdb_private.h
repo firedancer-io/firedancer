@@ -28,26 +28,75 @@ spin_lock_release( int * lock ) {
 # endif
 }
 
-struct fd_accdb_txn {
-  union {
-    struct { uint next; } pool;
-    struct { uint next; } fork;
-  };
+/* fd_accdb_chunk_t holds up to FD_ACCDB_CHUNK_ACC_MAX acc pool indices
+   of one list: the versions a fork wrote, or the deferred acc unlinks.
+   A list is a chain of chunks, newest first, linked through next and
+   terminated by UINT_MAX.  Entries fill acc_idx from the back, so a
+   list is newest first within each chunk too.  Freed accs return to the
+   LIFO acc pool in list order, and keeping that order consistent keeps
+   their reuse sequential. */
 
-  uint acc_pool_idx;
+#define FD_ACCDB_CHUNK_ACC_MAX (62UL)
+
+struct __attribute__((aligned(64))) fd_accdb_chunk {
+  uint next;
+
+  /* Number of acc_idx slots claimed.  Writers claim slots with an
+     atomic increment, so cnt can exceed FD_ACCDB_CHUNK_ACC_MAX once the
+     chunk is full. */
+  uint cnt;
+
+  uint acc_idx[ FD_ACCDB_CHUNK_ACC_MAX ];
 };
 
-typedef struct fd_accdb_txn fd_accdb_txn_t;
+typedef struct fd_accdb_chunk fd_accdb_chunk_t;
 
-#define POOL_NAME       txn_pool
-#define POOL_ELE_T      fd_accdb_txn_t
-#define POOL_NEXT       pool.next
+FD_STATIC_ASSERT( sizeof(fd_accdb_chunk_t)==256UL, layout );
+
+/* fd_accdb_chunk_accs returns the entries of chunk, newest first, and
+   stores their count in *cnt. */
+
+static inline uint const *
+fd_accdb_chunk_accs( fd_accdb_chunk_t const * chunk,
+                     ulong *                  cnt ) {
+  ulong n = fd_ulong_min( chunk->cnt, FD_ACCDB_CHUNK_ACC_MAX );
+  *cnt = n;
+  return chunk->acc_idx + FD_ACCDB_CHUNK_ACC_MAX - n;
+}
+
+#define POOL_NAME       chunk_pool
+#define POOL_ELE_T      fd_accdb_chunk_t
+#define POOL_NEXT       next
 #define POOL_IDX_T      uint
 #define POOL_IDX_WIDTH  32
 #define POOL_IMPL_STYLE 0
 #define POOL_LAZY       1
 
 #include "../../util/tmpl/fd_pool_para.c"
+
+/* fd_accdb_chunk_max returns the chunk pool capacity.  Every list entry
+   is a distinct allocated acc, and a live fork writes at most
+   max_account_writes_per_slot accs (incremental snapshot loading is the
+   exception, and fails loudly on exhaustion), so entries never exceed
+   min(max_accounts, max_live_slots*max_account_writes_per_slot).  On
+   top of that, each fork list and the deferred list may end in a
+   partial chunk, advance_root may defer two accs (a tombstone and the
+   version it replaces) per entry of the rooted fork while it recycles
+   that fork's chunks, and each joiner may briefly hold a chunk that
+   lost the race to extend a fork list.  Assumes max_accounts<UINT_MAX and
+   max_live_slots<USHORT_MAX. */
+
+static inline ulong
+fd_accdb_chunk_max( ulong max_accounts,
+                    ulong max_live_slots,
+                    ulong max_account_writes_per_slot,
+                    ulong joiner_cnt ) {
+  ulong writes      = fd_ulong_min( max_account_writes_per_slot, max_accounts );
+  ulong live_writes = fd_ulong_min( max_live_slots*writes, max_accounts );
+  return (live_writes+FD_ACCDB_CHUNK_ACC_MAX-1UL)/FD_ACCDB_CHUNK_ACC_MAX
+       + (2UL*writes +FD_ACCDB_CHUNK_ACC_MAX-1UL)/FD_ACCDB_CHUNK_ACC_MAX
+       + max_live_slots + 1UL + joiner_cnt;
+}
 
 #define SET_NAME       descends_set
 #define SET_IMPL_STYLE 1
@@ -64,7 +113,7 @@ struct fd_accdb_fork_shmem {
     ulong next;
   } pool;
 
-  uint txn_head;
+  uint chunk_head;
 };
 
 typedef struct fd_accdb_fork_shmem fd_accdb_fork_shmem_t;
@@ -477,7 +526,7 @@ struct fd_accdb_shmem_private {
   ulong chain_cnt;
   ulong max_live_slots;
   ulong max_accounts;
-  ulong max_account_writes_per_slot;
+  ulong chunk_max;
 
   /* Hard upper bound on concurrent joiners, set at construction.
      Used to determine whether cache_class_used tracking can be
@@ -542,27 +591,23 @@ struct fd_accdb_shmem_private {
   uint   cmd_op       __attribute__((aligned(64))); /* FD_ACCDB_CMD_* */
   ushort cmd_fork_id;                               /* argument       */
 
-  /* T2-only side buffer for deferred acc unlinks.  Holds the indices of
-     accs that have been CAS-unlinked from their map chains in the
-     current advance_root or purge call but cannot yet have pool.next
-     written: a concurrent cold_load_acc may stomp it via the cache_idx
-     union alias.  After wait_for_epoch_drain the list is materialized
-     into pool.next links and released via acc_pool_release_chain.
+  /* T2-only chunk list of deferred acc unlinks.  Holds the accs that
+     have been CAS-unlinked from their map chains in the current
+     advance_root or purge call but cannot yet have pool.next written: a
+     concurrent cold_load_acc may stomp it via the cache_idx union
+     alias.  After wait_for_epoch_drain the list is materialized into
+     pool.next links and released via acc_pool_release_chain.
 
      T2 is the sole writer (advance_root and purge both run on T2 via
-     the cmd offload above), so cnt is plain.  Capacity is
-     txn_max = max_live_slots * max_account_writes_per_slot, the same
-     bound used to size txn_pool.  Stored as a byte offset from shmem
-     base. */
+     the cmd offload above), so head and cnt are plain. */
 
-  ulong deferred_acc_buf_off;
-  ulong deferred_acc_buf_cnt;
-  ulong deferred_acc_buf_max;
+  uint  deferred_chunk_head;
+  ulong deferred_acc_cnt;
   ulong deferred_acc_epoch;
 
-  acc_pool_shmem_t  acc_pool [1];
-  fork_pool_shmem_t fork_pool[1];
-  txn_pool_shmem_t  txn_pool [1];
+  acc_pool_shmem_t   acc_pool  [1];
+  fork_pool_shmem_t  fork_pool [1];
+  chunk_pool_shmem_t chunk_pool[1];
 
   /* Track accounts modified since full snapshot.
 

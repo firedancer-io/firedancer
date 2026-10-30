@@ -474,7 +474,7 @@ fd_sched_task_done( fd_sched_t * sched, ulong task_type, ulong txn_idx, ulong ex
 
    Pass FD_SCHED_ABANDON_INVALID if the block is ruled invalid for any
    reason, or FD_SCHED_ABANDON_DISCARDED if we are merely giving up on
-   it without fault, e.g. eviction under resource pressure.  Descendants
+   it without fault.  Descendants
    inherit the flavor: they record DEAD_ANCESTOR, and are marked
    discarded iff the lineage was discarded, provided they have no dead
    reason of their own.  A block that is already going down keeps the
@@ -485,7 +485,7 @@ fd_sched_block_abandon( fd_sched_t * sched, ulong bank_idx, int cause );
 /* fd_sched_get_dead_reason returns the scheduler's reason (one of
    FD_SCHED_DEAD_REASON_*) for why the block at bank_idx went down.
    Returns FD_SCHED_DEAD_REASON_NONE if the block itself was merely
-   discarded (root advance, eviction) or if no block is currently
+   discarded (root advance) or if no block is currently
    tracked at bank_idx.  Descendants of a discarded lineage carry
    DEAD_ANCESTOR like any other lineage death;
    fd_sched_block_is_discarded disambiguates discarded from
