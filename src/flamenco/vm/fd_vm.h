@@ -371,13 +371,10 @@ fd_vm_is_check_size_enabled( fd_vm_t const * vm ) {
 
 /* fd_vm_exec runs vm from program start to program halt or program
    fault, appending an execution trace if vm is attached to a trace.
-   vm must be initialized with fd_vm_init before each call.
+   vm must be successfully initialized with fd_vm_init before each call.
 
    Returns FD_VM_SUCCESS (0) on success and an FD_VM_ERR code (negative)
    on failure.  Reasons for failure include:
-
-     INVAL     - NULL vm (or, for fd_vm_exec_trace, the vm is not
-                 attached to trace).  FIXME: ADD OTHER INPUT ARG CHECKS?
 
      SIGTEXT   - A jump/call set the program counter outside the text
                  region or the program counter incremented beyond the
