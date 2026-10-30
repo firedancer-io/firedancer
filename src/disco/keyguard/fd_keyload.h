@@ -3,6 +3,9 @@
 
 #include "../fd_disco_base.h"
 
+/* Internal identity source selected by failover for standby nodes. */
+#define FD_KEYLOAD_FAILOVER_JUNK "@failover-junk"
+
 /* fd_keyload_read() reads a JSON encoded keypair from the provided file
    descriptor.  The key_path is not opened or read from, it is only used
    to output diagnostic error messages if reading the key fails.
@@ -30,7 +33,9 @@ fd_keyload_read( int          key_fd,
    key_path must point to the first letter in a NUL-terminated cstr that
    is the path on disk of the key file.  The key file must exist, be
    readable, and have the form of a Solana keypair (64 element JSON
-   array of bytes).  If public_key_only is non-zero, zeros out the
+   array of bytes).  FD_KEYLOAD_FAILOVER_JUNK instead selects the
+   failover junk key installed by fd_keyload_set_failover_junk.
+   If public_key_only is non-zero, zeros out the
    private part of the key and returns a pointer to the first byte (of
    32) of the public part of the key in binary format.  If
    public_key_only is zero, returns a pointer to the first byte (of 64)
@@ -50,6 +55,21 @@ fd_keyload_read( int          key_fd,
 uchar const * FD_FN_SENSITIVE
 fd_keyload_load( char const * key_path,
                  int          public_key_only );
+
+/* Set this tile thread's failover junk public key and private startup
+   pipe before loading FD_KEYLOAD_FAILOVER_JUNK.  Only Sign gets a pipe,
+   other tiles pass -1 and can load only the public key. */
+
+void
+fd_keyload_set_failover_junk( uchar const public_key[ 32 ],
+                              int         key_fd );
+
+/* Generate a fresh Ed25519 keypair in protected memory.  The returned
+   read-only key has the same unload contract as fd_keyload_load with
+   public_key_only clear.  No key material is written to a file. */
+
+uchar const * FD_FN_SENSITIVE
+fd_keyload_generate( void );
 
 /* fd_keyload_mprotect_wr() makes a key page loaded with
    fd_keyload_load writable.  Accepts the const pointer returned by

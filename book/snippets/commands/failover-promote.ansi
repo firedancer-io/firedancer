@@ -1,0 +1,10 @@
+$ sudo firedancer failover promote identity.json --yes
+[32mNOTICE [0m attached to [32mlive[0m validator [1mfd1[0m version 0.1.1 [2m(babe91c83ca)[0m pid 1983468 up 3m at [2m/mnt/.fd[0m
+[32mNOTICE [0m requesting takeover of the identity from the peer running it in gossip
+[32mNOTICE [0m handoff 4142940312112305589: requesting handoff from the machine running the identity at `192.0.2.10:8010` using gossip
+[32mNOTICE [0m handoff 4142940312112305589: asked peer boot bdb26c31cb1b6921 for the identity (send 1)
+[32mNOTICE [0m handoff 4142940312112305589: adopting the vote history the peer gave us
+[32mNOTICE [0m handoff 4142940312112305589: asking the votor to adopt the vote history the peer gave us
+[32mNOTICE [0m handoff 4142940312112305589: the votor adopted the vote history the peer gave us, last vote at slot 389274617, no vote at or below slot 389274493
+[32mNOTICE [0m handoff 4142940312112305589: asked the admin tile to install the identity
+[32mNOTICE [0m promotion success (identity now [1m2vJXGJVGTxabY97CtBfby7KcHz3Pb2ZEX8aH6vLbqvTf[0m at slot 389274618)

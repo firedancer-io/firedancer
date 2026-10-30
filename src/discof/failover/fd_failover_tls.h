@@ -1,0 +1,105 @@
+#ifndef HEADER_fd_src_discof_failover_fd_failover_tls_h
+#define HEADER_fd_src_discof_failover_fd_failover_tls_h
+
+/* TLS 1.3 over TCP for one failover candidate, built on fd_tls,
+   fd_tlsrec and fd_tlsrec_sock.  Both ends present an Ed25519 cert for
+   the identity they hand off.  The channel admits a peer before TLS and
+   checks its TLS key against the admitted HELLO.  The caller owns the
+   socket. */
+
+#include "../../waltz/tlsrec/fd_tlsrec_sock.h"
+#include "../../ballet/chacha/fd_chacha_rng.h"
+
+/* Max ciphertext accepted from a candidate before it pairs */
+#define FD_FAILOVER_TLS_PREPAIR_MAX (32768UL)
+
+/* Per-channel TLS config, the fd_tls template and its RNG.  The sign
+   tile signs our CertificateVerify, no private key is kept here. */
+
+struct fd_failover_tls_ctx {
+  fd_tls_t        tls;
+  fd_chacha_rng_t rng[ 1 ];
+  int             ready; /* set by init and wiped by fini, fd_failover_tls_new fails without it */
+};
+typedef struct fd_failover_tls_ctx fd_failover_tls_ctx_t;
+
+/* One TLS connection. */
+
+struct fd_failover_tls {
+  fd_tlsrec_conn_t conn;
+  fd_tlsrec_sock_t sock;
+  int              fd;
+  int              verified;          /* handshake done, peer_pubkey is set */
+  int              paired;            /* set by the channel after HELLO */
+  int              peer_closed;       /* orderly EOF or close_notify */
+  uchar            peer_pubkey[ 32 ]; /* the key the peer signed the handshake with */
+  ulong            received;          /* ciphertext bytes read before pairing */
+};
+typedef struct fd_failover_tls fd_failover_tls_t;
+
+FD_PROTOTYPES_BEGIN
+
+/* fd_failover_tls_ctx_init sets the public key of our cert and the
+   signer for CertificateVerify and seeds the RNG.  It and every new
+   connection read entropy from getrandom.  Returns 0 on success, -1 if
+   entropy fails. */
+
+int
+fd_failover_tls_ctx_init( fd_failover_tls_ctx_t * ctx,
+                          uchar const             public_key[ 32 ],
+                          fd_tls_sign_t           signer );
+
+/* fd_failover_tls_ctx_fini wipes the context. */
+
+void
+fd_failover_tls_ctx_fini( fd_failover_tls_ctx_t * ctx );
+
+/* fd_failover_tls_new binds a fresh connection to fd.  The listener
+   requires a client cert.  Returns 0 on success, -1 if ctx is not
+   initialized or entropy fails. */
+
+int
+fd_failover_tls_new( fd_failover_tls_t *     tls,
+                     fd_failover_tls_ctx_t * ctx,
+                     int                     fd,
+                     int                     dial_peer );
+
+/* Prepare the outbound ClientHello without sending it, or feed an
+   admitted peer flight to the connection without socket I/O.  The
+   generated reply is left in sock.tx_buf for the caller to capture or
+   flush with fd_tlsrec_sock_flush.  No earlier output may be pending. */
+int
+fd_failover_tls_client_hello( fd_failover_tls_t * tls, uchar * out, ulong * out_sz );
+
+int
+fd_failover_tls_accept_flight( fd_failover_tls_t * tls, uchar const * data, ulong sz );
+
+/* fd_failover_tls_fini sends close_notify if the connection is up and
+   wipes the connection state.  The caller closes fd. */
+
+void
+fd_failover_tls_fini( fd_failover_tls_t * tls );
+
+/* fd_failover_tls_handshake returns 1 once the handshake is done and
+   the peer signed it with an Ed25519 key, which is then in peer_pubkey,
+   0 while pending, -1 on failure.  fd_failover_tls_read and
+   fd_failover_tls_write return bytes moved, 0 when pending, -1 on error
+   or peer close.  A write may take fewer bytes than offered (at most one
+   record), callers are responsible for retrying to obtain the rest. */
+
+int
+fd_failover_tls_handshake( fd_failover_tls_t * tls );
+
+long
+fd_failover_tls_read( fd_failover_tls_t * tls,
+                      void *              buf,
+                      ulong               sz );
+
+long
+fd_failover_tls_write( fd_failover_tls_t * tls,
+                       void const *        buf,
+                       ulong               sz );
+
+FD_PROTOTYPES_END
+
+#endif /* HEADER_fd_src_discof_failover_fd_failover_tls_h */

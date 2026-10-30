@@ -6,7 +6,7 @@
 #include <signal.h>
 #include <unistd.h>
 
-#define FD_ADMINCTL_MAGIC          (0xF17EDA2C37AD0201UL)
+#define FD_ADMINCTL_MAGIC          (0xF17EDA2C37AD0202UL)
 #define FD_ADMINCTL_STATE_MASK     (7UL)
 #define FD_ADMINCTL_SEQ_SHIFT      (3UL)
 #define FD_ADMINCTL_SEQ_BITS       (8UL)
@@ -29,6 +29,8 @@ struct fd_adminctl_slot {
   ulong result;
   ulong payload_sz;
   uchar payload[ FD_ADMINCTL_PAYLOAD_MAX ];
+  ulong step_cnt; /* step lines added to the command, the newest FD_ADMINCTL_STEP_CNT are in step */
+  char  step[ FD_ADMINCTL_STEP_CNT ][ FD_ADMINCTL_STEP_MAX ];
 };
 typedef struct fd_adminctl_slot fd_adminctl_slot_t;
 
@@ -242,6 +244,7 @@ fd_adminctl_publish( fd_adminctl_t * adminctl,
 
   slot->cmd        = cmd_id;
   slot->payload_sz = payload_sz;
+  slot->step_cnt   = 0UL;
 
   if( FD_UNLIKELY( FD_ATOMIC_CAS( &slot->state_pid_seq,
                                   state_pid_seq,
@@ -309,16 +312,58 @@ fd_adminctl_complete( fd_adminctl_t * adminctl,
   fd_adminctl_complete_response( adminctl, slot_id, result, NULL, 0UL );
 }
 
+void
+fd_adminctl_step( fd_adminctl_t * adminctl,
+                  ulong           slot_id,
+                  char const *    step ) {
+  fd_adminctl_slot_t * slot = fd_adminctl_slot_laddr( adminctl, slot_id );
+  if( FD_UNLIKELY( fd_adminctl_state( __atomic_load_n( &slot->state_pid_seq, __ATOMIC_ACQUIRE ) )!=FD_ADMINCTL_STATE_PROCESSING ) ) {
+    FD_LOG_ERR(( "adminctl step without processing command" ));
+  }
+  ulong cnt = slot->step_cnt;
+  fd_cstr_ncpy( slot->step[ cnt%FD_ADMINCTL_STEP_CNT ], step, FD_ADMINCTL_STEP_MAX );
+  FD_COMPILER_MFENCE();
+  FD_VOLATILE( slot->step_cnt ) = cnt+1UL;
+}
+
+static void
+fd_adminctl_show_steps( fd_adminctl_slot_t const * slot,
+                        ulong *                    shown,
+                        fd_adminctl_step_fn_t      step_fn ) {
+  ulong cnt = FD_VOLATILE_CONST( slot->step_cnt );
+  FD_COMPILER_MFENCE();
+  if( FD_UNLIKELY( cnt-*shown>FD_ADMINCTL_STEP_CNT-1UL ) ) *shown = cnt-(FD_ADMINCTL_STEP_CNT-1UL);
+  for( ; *shown<cnt; (*shown)++ ) {
+    char line[ FD_ADMINCTL_STEP_MAX ];
+    fd_memcpy( line, slot->step[ *shown%FD_ADMINCTL_STEP_CNT ], FD_ADMINCTL_STEP_MAX );
+    line[ FD_ADMINCTL_STEP_MAX-1UL ] = '\0';
+    FD_COMPILER_MFENCE();
+    if( FD_UNLIKELY( FD_VOLATILE_CONST( slot->step_cnt )-*shown>FD_ADMINCTL_STEP_CNT-1UL ) ) continue; /* overwritten while copied */
+    step_fn( line );
+  }
+}
+
 ulong
 fd_adminctl_wait_response( fd_adminctl_t * adminctl,
                            ulong           slot_id,
                            void *          resp,
                            ulong           resp_max,
                            ulong *         resp_sz_out ) {
+  return fd_adminctl_wait_steps( adminctl, slot_id, resp, resp_max, resp_sz_out, NULL );
+}
+
+ulong
+fd_adminctl_wait_steps( fd_adminctl_t *       adminctl,
+                        ulong                 slot_id,
+                        void *                resp,
+                        ulong                 resp_max,
+                        ulong *               resp_sz_out,
+                        fd_adminctl_step_fn_t step_fn ) {
 
   fd_adminctl_slot_t * slot = fd_adminctl_slot_laddr( adminctl, slot_id );
 
-  uint pid = (uint)getpid();
+  uint  pid   = (uint)getpid();
+  ulong shown = 0UL;
 
   for(;;) {
     ulong state_pid_seq = __atomic_load_n( &slot->state_pid_seq, __ATOMIC_ACQUIRE );
@@ -333,6 +378,8 @@ fd_adminctl_wait_response( fd_adminctl_t * adminctl,
                    "the command to complete.  This is likely the result of a bug in firedancer. "
                    "Please report this to the firedancer team." ));
     }
+
+    if( FD_UNLIKELY( step_fn ) ) fd_adminctl_show_steps( slot, &shown, step_fn );
 
     if( FD_LIKELY( state==FD_ADMINCTL_STATE_DONE ) ) {
       ulong result  = slot->result;

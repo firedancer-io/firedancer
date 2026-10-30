@@ -72,6 +72,7 @@ static struct { char const * name; uint flags; } const TILE_CLASS[] = {
   { "genesi", FLOATING                     },
   { "ipecho", FLOATING                     },
   { "admin",  FLOATING                     },
+  { "failov", FLOATING                     },
   { "snapsv", FLOATING|PIN_EFF             },
   { "snapmk", FLOATING                     },
   { "snapzp", FLOATING                     },

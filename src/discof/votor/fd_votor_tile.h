@@ -2,6 +2,7 @@
 #define HEADER_fd_src_discof_votor_fd_votor_tile_h
 
 #include "../../ballet/bls/fd_bls.h"
+#include "../../choreo/votor/ag_hist.h"
 #include "../../disco/topo/fd_topo.h"
 #include "../../waltz/quic/tls/fd_quic_tls.h"
 
@@ -125,6 +126,48 @@ union fd_votor_msg {
   fd_votor_parent_ready_t parent_ready;
 };
 typedef union fd_votor_msg fd_votor_msg_t;
+
+/* fd_votor_hist_msg is one frame on the votor_hist link to the failover
+   tile, with our replay slots and our own vote history. */
+
+#define FD_VOTOR_HIST_SIG (0UL)
+
+struct fd_votor_hist_msg {
+  fd_pubkey_t identity;    /* identity installed when this history was published */
+  ulong       replay_slot; /* highest slot replay completed, ULONG_MAX before any */
+  ulong       root_slot;   /* replay's root at the last completed slot, ULONG_MAX before any */
+  ulong       vote_slot;   /* the history's tip, ULONG_MAX while it is empty */
+  int         has_vote;    /* we sent a vote just before this frame, so vote_slot is a vote we signed */
+  int         truncated;   /* the export dropped old windows and lifted the anchor */
+  ag_hist_t   hist;
+};
+typedef struct fd_votor_hist_msg fd_votor_hist_msg_t;
+
+/* Adoption of a peer's vote history. */
+
+/* Frame sizes */
+
+#define FD_VOTOR_ADOPT_REQ_HDR_SZ (32UL) /* the identity the adoption is for, before the payload */
+#define FD_VOTOR_ADOPT_EMPTY_SZ   (8UL)  /* an empty payload, a slot as a ulong */
+
+/* Result codes */
+
+#define FD_VOTOR_ADOPT_SUCCESS             (0UL)
+#define FD_VOTOR_ADOPT_ERR_DECODE          (1UL)
+#define FD_VOTOR_ADOPT_ERR_INVALID         (2UL)
+#define FD_VOTOR_ADOPT_ERR_UNREPLAYED_ROOT (3UL) /* the history's finality anchor is past our replayed slots */
+#define FD_VOTOR_ADOPT_ERR_UNREPLAYED      (4UL) /* consensus is not up yet, ask again as replay moves */
+#define FD_VOTOR_ADOPT_ERR_STALE           (5UL) /* older than the votes this identity sent from here */
+#define FD_VOTOR_ADOPT_ERR_CAPACITY        (6UL) /* retained local and imported slots exceed capacity */
+#define FD_VOTOR_ADOPT_RESULT_CNT          (7UL)
+
+struct fd_votor_adopt_result {
+  ulong result;
+  ulong root;       /* our finality anchor after the adoption */
+  ulong vote_slot;  /* the adopted history's tip, ULONG_MAX for an empty one */
+  ulong vote_bound; /* we cast no vote at or below this slot, ULONG_MAX when there is none */
+};
+typedef struct fd_votor_adopt_result fd_votor_adopt_result_t;
 
 extern fd_topo_run_tile_t fd_tile_votor;
 

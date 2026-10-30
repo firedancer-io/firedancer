@@ -34,6 +34,19 @@ fd_token_bucket_consume( fd_token_bucket_t * bucket,
   return ok;
 }
 
+/* fd_token_bucket_peek returns 1 if consuming delta at ts would
+   succeed without changing the bucket. */
+
+FD_FN_PURE static inline int
+fd_token_bucket_peek( fd_token_bucket_t const * bucket,
+                      float                     delta,
+                      long                      ts ) {
+  long  elapsed = ts - bucket->ts;
+  float balance = bucket->balance + ((float)elapsed * bucket->rate);
+  balance = fminf( balance, bucket->burst );
+  return delta <= balance;
+}
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_waltz_fd_token_bucket_h */

@@ -103,6 +103,13 @@ telemetry = true
     # if one is not provided (or has not already been generated) and
     # place it in this path.  If no path is provided, it is defaulted
     # to inside the base directory, under path `identity.json`.
+    #
+    # The validator boots under this identity.  For failover, a standby
+    # machine that waits to take over another validator's identity
+    # should boot under an unstaked randomized key, created using
+    # `firedancer keys new`, or set [failover.boot_to_standby] to boot
+    # under an ephemeral junk key generated in memory, with the keypair
+    # here as the identity it can take over via hand-off.
     identity_key = ""
 
     # Absolute path to a `keypair.json` containing the voting account
@@ -1973,6 +1980,51 @@ telemetry = true
         # RPC to serve a subset of calls even when snapshots are
         # loading.
         delay_startup = true
+
+# Firedancer validators support a coordinated failover protocol.  A
+# handoff transfers the final vote history after the active stops signing.
+# `failover promote --force` bypasses peer checks and can discard earlier
+# lockouts or allow both validators to vote.
+#
+# The protocol works by hosting a TCP listener on your validator.  Any
+# peer in possession of the currently active identity private key can
+# demote this validator to the junk identity by sending a specially
+# signed packet proving that possession.
+#
+# Between two Firedancer validators, only hand off the identity with
+# `failover promote`.  Do not use `set-identity --vote-history-file`
+# for this.  The failover protocol passes the final vote history
+# directly and checks it against what this validator replayed.  Vote
+# history files are only for handing off an identity from a validator that
+# does not run failover, such as Agave.
+[failover]
+    # Whether to enable failover.  The validator boots under
+    # [paths.identity_key], and when `failover promote <keypair>` is
+    # run on a standby host, it takes over the identity in that keypair
+    # from the machine that is actively running it.
+    enabled = true
+
+    # Whether to boot as a standby under a junk identity generated in
+    # memory at each start, instead of under [paths.identity_key].  The
+    # junk private key is never written out to a file.  The keypair in
+    # [paths.identity_key] is then the identity this machine takes with
+    # `failover promote`.  Set it on a standby machine that should take
+    # over a staked identity another machine runs. This prevents a
+    # restarted standby from double-voting under the same staked identity
+    # while the other active machine is already voting with it.
+    # Requires [failover.enabled].
+    boot_to_standby = false
+
+    # The address to listen on.  If enabled, by default the listener is
+    # exposed to the network.  This is safe as possession of the private
+    # key is required to take over the identity, but could be a vector
+    # for a targeted denial of service.  For added reliability, restrict
+    # the listener to a private network.
+    listen_address = "0.0.0.0"
+
+    # The port to listen on for handoff requests.  The other validator
+    # dials 8010 unless `failover promote --port` gives another port.
+    listen_port = 8010
 
 # These options can be useful for development, but should not be used
 # when connecting to a live cluster, as they may cause the validator to

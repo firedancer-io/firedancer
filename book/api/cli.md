@@ -190,6 +190,16 @@ argument is required and must be the path to an Agave style
 `identity.json` keypair file. If the path is specified as `-` the key
 will instead be read from `stdin`.
 
+::: tip NOTE
+
+Between two Firedancer validators, Firedancer supports a native
+[failover](#failover-promote) mechanism that is faster and safer than
+`set-identity`, and using `set-identity` between them is heavily
+discouraged. Use `set-identity` primarily for failing over between Agave
+and Firedancer.
+
+:::
+
 It is not generally safe to call `set-identity`, as another validator
 might be running with the same identity, and if they both produce a
 block or vote concurrently, the validator may violate consensus and be
@@ -292,6 +302,8 @@ prints diagnostic messages to `stderr`.
 | `--name <name>`   | Name of the validator instance to attach to, if more than one is running on this host |
 | `--config <path>` | Optional path to a configuration TOML file naming the validator to attach to. Only the `name` and `[hugetlbfs.mount_path]` values are used, and they must match the running validator |
 
+<<< @/snippets/commands/get-identity.ansi
+
 ## `add-authorized-voter`
 Adds an authorized voter to the running validator. The `<keypair>`
 argument is required and must be the path to an Agave style
@@ -332,6 +344,134 @@ than 16).
 | `--config <path>` | Optional path to a configuration TOML file naming the validator to attach to. Only the `name` and `[hugetlbfs.mount_path]` values are used, and they must match the running validator |
 
 <<< @/snippets/commands/add-authorized-voter.ansi
+
+## `failover promote`
+This command takes an identity key, with its vote history, from the
+remote validator currently running it and installs it on this local
+validator. Run this command on the machine that should take over,
+with the target keypair of the identity to take. The machine that
+originally ran it will switch to a random junk key that it generated
+at boot. Both validators must have failover enabled.
+
+```sh
+firedancer failover promote [<keypair>] [--name <name>] [--yes] [--force] [--address <address>] [--port <port>]
+```
+
+The `<keypair>` argument is the path to an Agave style `identity.json`
+keypair file of the identity to take. If the path is specified as `-`
+the key will instead be read from `stdin`. Without `<keypair>`, the
+command takes the identity in `[paths.identity_key]`, or the last
+keypair passed into `failover promote` or `set-identity` since the
+validator started.
+
+The command attaches to the local running validator and discovers it
+automatically. If more than one is running, pass `--name <name>` to
+select one (see [`ps`](#ps)). It asks for confirmation when run from a
+terminal unless `--yes` is given.
+
+The local validator finds the address of the machine running the
+identity through gossip. Use `--address` to give its IPv4 address or host
+name instead, for example when connecting over a private network. Use
+`--port` if its failover listener does not use the default port 8010.
+
+For example, to connect to a known failover listener over a private
+network, run the following on the machine that should take over.
+
+<<< @/snippets/commands/failover-promote-address.ansi
+
+### Setup
+
+Failover runs on every validator with `[failover.enabled]` set to `true`.
+Each validator boots under its own `[paths.identity_key]`. The validator
+that should vote keeps the identity's keypair there. On every other
+machine, create a random unstaked placeholder keypair of its own and point
+`[paths.identity_key]` at it, so it replays without voting until it takes
+over. `[paths.vote_account]` takes no part in the handoff, it does not
+need to be set or to match between the validators.
+
+<<< @/snippets/commands/keys-new-junk.ansi
+
+Alternatively, set `[failover.boot_to_standby]` to `true` on the other
+machine and keep the identity's keypair in its `[paths.identity_key]`.
+It then boots as a standby under an unstaked junk key generated in memory
+at each start, and loads the keypair in `[paths.identity_key]` as the
+identity it takes, so `failover promote` there reads the keypair from the
+configuration instead of a command line argument. The junk private key
+is ephemeral and not written to a file. This requires `[failover.enabled]`.
+
+To hand the identity over, run the following on the machine that should
+take it, with the keypair of the identity to take.
+
+<<< @/snippets/commands/failover-promote.ansi
+
+The command waits for the outcome. It exits with code 0 once this
+machine runs the identity, and with a non-zero code and the reason on
+`stderr` when it does not. Each step of a handoff gives up after 64
+seconds, so a machine that cannot be reached is reported after about a
+minute. If the machine running the identity did not answer in time, the
+request stays open on this validator and running `failover promote`
+again resumes it, since that machine may already have given up the
+identity. Ctrl-C stops waiting, but not the handoff. Use
+[`get-identity`](#get-identity) to see which key a machine runs.
+
+When the handoff fails, the command prints the reason and exits with a
+non-zero code. Nothing changed on either machine.
+
+<<< @/snippets/commands/failover-promote-failed.ansi
+
+The machine that gave it up then runs its junk key. To take the identity
+back, run `failover promote` again on the demoted machine.
+
+### Restarts
+
+A validator boots under its `[paths.identity_key]` unless
+`[failover.boot_to_standby]` is set. Before restarting the machine that
+gave the identity up, point its `[paths.identity_key]` at a junk key of
+its own, or set `[failover.boot_to_standby]` there. If it boots under the
+identity while the other machine runs it, the duplicate instance check
+stops the other machine. A machine with `[failover.boot_to_standby]` boots
+under a fresh junk key every time, so it can restart while the other
+machine runs the identity, and it takes the identity back with
+`failover promote`.
+
+Leaving an identity renames its vote history file in
+`[paths.vote_history]` to `vote_history-<pubkey>.bin.bak`, and a
+validator refuses to boot under a key whose vote history file is missing
+while other vote history files are there.
+
+- To restart a machine that took the identity under its junk key, first
+  rename `vote_history-<junk>.bin.bak` back to `vote_history-<junk>.bin`.
+- To restart the machine that gave the identity up under a junk key,
+  first move the `vote_history-*` files out of `[paths.vote_history]`.
+  The identity's vote history now lives on the other machine.
+
+### Forced promotion
+
+With `--force`, the local validator takes the identity without
+contacting the machine running it. Use it when no machine runs the
+identity, for example after both restarted, or when the other machine
+cannot sign.
+
+::: warning WARNING
+
+Only use `--force` after ensuring every other machine with the identity
+cannot sign. It skips the checks on the other machine and can leave votes
+and leader windows unaccounted for by accepting incomplete or empty history.
+Never force promotion on both machines at once.
+
+:::
+
+<<< @/snippets/commands/failover-promote-force.ansi
+
+| Arguments             | Description |
+|-----------------------|-------------|
+| `<keypair>`           | Path to the `identity.json` keypair file of the identity to take, or `-` to read the JSON formatted key from `stdin` |
+| `--name <name>`       | Select the validator instance to attach to if more than one is running on this host. |
+| `--config <path>`     | Optionally use the configuration TOML file the validator was started with. |
+| `--yes`               | Skip the confirmation prompt. |
+| `--force`             | Forcibly take the identity without cooperation with the machine running it, allowing incomplete or empty vote history. |
+| `--address <address>` | Use this IPv4 address or host name for the machine running the identity instead of the address found through gossip. |
+| `--port <port>`       | Set the failover TCP port of the machine running the identity. The default is 8010. |
 
 ## `remove-all-authorized-voters`
 Removes all authorized voters from the running validator, including any

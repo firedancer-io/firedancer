@@ -519,9 +519,27 @@ fd_config_validatef( fd_configf_t const * config ) {
   CFG_HAS_NON_ZERO( runtime.program_cache_size_mib );
 }
 
+static void
+fd_config_validate_failover( fd_config_t const * config ) {
+  fd_configf_t const * f = &config->firedancer;
+
+  if( FD_UNLIKELY( f->failover.boot_to_standby && !f->failover.enabled ) ) {
+    FD_LOG_ERR(( "[failover.boot_to_standby] is true, so [failover.enabled] must be true" ));
+  }
+  if( FD_LIKELY( !f->failover.enabled ) ) return;
+  if( FD_UNLIKELY( !f->failover.listen_port ) ) {
+    FD_LOG_ERR(( "[failover.listen_port] must not be zero" ));
+  }
+  uint listen_addr;
+  if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( f->failover.listen_address, &listen_addr ) ) ) {
+    FD_LOG_ERR(( "[failover.listen_address] `%s` must be an IPv4 address, host names are not accepted", f->failover.listen_address ));
+  }
+}
+
 void
 fd_config_validate( fd_config_t const * config ) {
   fd_config_validatef( &config->firedancer );
+  fd_config_validate_failover( config );
 
   if( FD_UNLIKELY( config->tiles.gui.enabled && config->tiles.gui.db_size_gib<4UL ) )
     FD_LOG_ERR(( "invalid [tiles.gui.db_size_gib]: must be at least 4 GiB" ));

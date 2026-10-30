@@ -27,6 +27,7 @@
 #include "../../../../disco/sleep/fd_sleep.h"
 #include "../../../../util/pod/fd_pod_format.h"
 #include "../../../../discof/restore/utils/fd_wfs.h"
+#include "../../../../disco/keyguard/fd_keyload.h"
 
 #include "../configure/configure.h"
 #include "../configure/fd_cpu_isolation.h"
@@ -80,6 +81,8 @@ run_cmd_perm( args_t *         args,
     fd_cap_chk_cap(        chk, NAME, CAP_NET_BIND_SERVICE,        "call `bind(2)` to bind to a privileged port for serving metrics" );
   if( FD_UNLIKELY( config->tiles.gui.gui_listen_port<1024 ) )
     fd_cap_chk_cap(        chk, NAME, CAP_NET_BIND_SERVICE,        "call `bind(2)` to bind to a privileged port for serving the GUI" );
+  if( FD_UNLIKELY( config->firedancer.failover.enabled && config->firedancer.failover.listen_port<1024 ) )
+    fd_cap_chk_cap(        chk, NAME, CAP_NET_BIND_SERVICE,        "call `bind(2)` to bind to a privileged port for the failover listener" );
 }
 
 struct pidns_clone_args {
@@ -275,6 +278,11 @@ execve_tile( char const *           name,
   pid_t child = fork();
   if( FD_UNLIKELY( -1==child ) ) FD_LOG_ERR(( "fork() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   if( FD_LIKELY( !child ) ) {
+    if( !strcmp( tile->name, "sign" ) && tile->sign.failover_junk_fd!=-1 ) {
+      if( FD_UNLIKELY( -1==fcntl( tile->sign.failover_junk_fd, F_SETFD, 0 ) ) )
+        FD_LOG_ERR(( "passing the failover junk key pipe failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    }
+
     char _current_executable_path[ PATH_MAX ];
     FD_TEST( -1!=fd_file_util_self_exe( _current_executable_path ) );
 
@@ -537,6 +545,12 @@ main_pid_namespace( void * _args ) {
   if( FD_UNLIKELY( fd_cpuset_setaffinity( 0, floating_cpu_set ) ) )
     FD_LOG_ERR(( "fd_cpuset_setaffinity failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
+  for( ulong i=0UL; i<config->topo.tile_cnt; i++ ) {
+    fd_topo_tile_t const * tile = &config->topo.tiles[ i ];
+    if( strcmp( tile->name, "sign" ) || tile->sign.failover_junk_fd==-1 ) continue;
+    if( FD_UNLIKELY( close( tile->sign.failover_junk_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
+
   if( FD_UNLIKELY( close( config_memfd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   if( need_xdp ) {
     for( uint i=0U; i<xdp_fds_cnt; i++ ) {
@@ -716,6 +730,11 @@ clone_firedancer( config_t const * config,
 
   int pid_namespace = clone( main_pid_namespace, (uchar *)stack + FD_TILE_PRIVATE_STACK_SZ, flags, &args );
   if( FD_UNLIKELY( pid_namespace<0 ) ) FD_LOG_ERR(( "clone() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  for( ulong i=0UL; i<config->topo.tile_cnt; i++ ) {
+    fd_topo_tile_t const * tile = &config->topo.tiles[ i ];
+    if( strcmp( tile->name, "sign" ) || tile->sign.failover_junk_fd==-1 ) continue;
+    if( FD_UNLIKELY( close( tile->sign.failover_junk_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
 
   if( FD_UNLIKELY( close( pipefd[ 1 ] ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
@@ -1066,14 +1085,42 @@ fdctl_check_configure( config_t const * config ) {
   fd_cpu_isolation_check_cgroup( config );
 }
 
+/* Each Sign tile gets its own one-shot pipe for receiving the ephemeral
+   generated junk key. */
+static void FD_FN_SENSITIVE
+failover_junk_prepare( config_t * config ) {
+  if( fd_topo_find_tile( &config->topo, "failov", 0UL )==ULONG_MAX ) return;
+  uchar const * key = fd_keyload_generate();
+  fd_memcpy( config->topo.failover_junk, key+32UL, 32UL );
+  for( ulong i=0UL; i<config->topo.tile_cnt; i++ ) {
+    fd_topo_tile_t * tile = &config->topo.tiles[ i ];
+    if( strcmp( tile->name, "sign" ) ) continue;
+    FD_TEST( tile->sign.failover_enabled && tile->sign.failover_junk_fd==-1 );
+    int pipefd[ 2 ];
+    if( FD_UNLIKELY( pipe2( pipefd, O_CLOEXEC ) ) ) FD_LOG_ERR(( "pipe2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    for( ulong off=0UL; off<64UL; ) {
+      long n = write( pipefd[ 1 ], key+off, 64UL-off );
+      if( FD_UNLIKELY( n==-1L && errno==EINTR ) ) continue;
+      if( FD_UNLIKELY( n<=0L ) ) FD_LOG_ERR(( "could not deliver the failover junk key" ));
+      off += (ulong)n;
+    }
+    if( FD_UNLIKELY( close( pipefd[ 1 ] ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    tile->sign.failover_junk_fd = pipefd[ 0 ];
+  }
+  fd_keyload_unload( key, 0 );
+}
+
 void
 run_firedancer_init( config_t * config,
                      int        init_workspaces,
                      int        check_configure ) {
   struct stat st;
   int err = stat( config->paths.identity_key, &st );
-  if( FD_UNLIKELY( -1==err && errno==ENOENT ) ) FD_LOG_ERR(( "[consensus.identity_path] key does not exist `%s`. You can generate an identity key at this path by running `%s keys new %s --config <toml>`", config->paths.identity_key, FD_BINARY_NAME, config->paths.identity_key ));
-  else if( FD_UNLIKELY( -1==err ) )             FD_LOG_ERR(( "could not stat [consensus.identity_path] `%s` (%i-%s)", config->paths.identity_key, errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( -1==err && errno==ENOENT ) ) FD_LOG_ERR(( "[paths.identity_key] key does not exist `%s`. You can generate an identity key at this path by running `%s keys new %s --config <toml>`", config->paths.identity_key, FD_BINARY_NAME, config->paths.identity_key ));
+  else if( FD_UNLIKELY( -1==err ) )             FD_LOG_ERR(( "could not stat [paths.identity_key] `%s` (%i-%s)", config->paths.identity_key, errno, fd_io_strerror( errno ) ));
+
+  /* Failover needs a fresh in-memory junk key. */
+  failover_junk_prepare( config );
 
   /* FIXME: fdctl_check_configure unconditionally checks for network
             stack prerequisites even if the command being run does not
