@@ -48,7 +48,8 @@ void
 backtest_cmd_args( int *    pargc,
                    char *** pargv,
                    args_t * args ) {
-  args->backtest.no_watch = fd_env_strip_cmdline_contains( pargc, pargv, "--no-watch" );
+  args->backtest.no_watch          = fd_env_strip_cmdline_contains( pargc, pargv, "--no-watch" );
+  args->backtest.index_ram_entries = fd_env_strip_cmdline_ulong( pargc, pargv, "--index-ram-entries", NULL, 0UL );
 }
 
 static void
@@ -133,7 +134,7 @@ backtest_topo( config_t * config ) {
       config->tiles.bundle.enabled,
       execrp_tile_cnt+2UL+fd_ulong_if( disable_snap_loader, 1UL, snapin_tile_cnt ),
       0UL,
-      0UL );
+      config->firedancer.accounts.index_ram_entries );
   FD_TEST( fd_pod_insertf_ulong( topo->props, accdb_obj->id, "accdb" ) );
 
   /**********************************************************************/
@@ -486,8 +487,11 @@ backtest_topo( config_t * config ) {
   fd_topob_finish( topo, CALLBACKS );
 }
 
+/* RAM-only index unless --index-ram-entries is given (fixup_config);
+   the boot topology is the larger one, so permission checks cover it. */
 static void
 backtest_cmd_topo( config_t * config ) {
+  config->firedancer.accounts.index_ram_entries = 0UL;
   backtest_topo( config );
 }
 
@@ -538,6 +542,7 @@ fixup_config( config_t * config ) {
 static void
 backtest_cmd_fn( args_t *   args,
                  config_t * config ) {
+  config->firedancer.accounts.index_ram_entries = args->backtest.index_ram_entries;
   fixup_config( config );
   args_t c_args = configure_args();
   configure_cmd_fn( &c_args, config );
