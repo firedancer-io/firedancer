@@ -2654,8 +2654,8 @@ test_orphan_map_slot_mismatch( void ) {
 /* Finalizing a slot, or skipping it, lists the competing blks replay
    has started consuming in rotor->dropped for the tile to forward.
    Blks replay never saw are not listed.  A turbine copy that completes
-   as a block other than the finalized one is listed too, under both
-   of its keys. */
+   as a block other than the finalized one is listed too, by slot, as
+   replay never saw its last FEC set. */
 
 static void
 test_dropped_listed( void ) {
@@ -2692,7 +2692,7 @@ test_dropped_listed( void ) {
 
   /* The eager blk of slot 3 is consumed, the slot is finalized as a
      blk we do not hold, and the eager blk then completes as another
-     block: listed under its id and under the zero id. */
+     block: listed under the zero id. */
   fd_mr32_t m30 = hash( 0x30 ), m31 = hash( 0x31 ), h3f = hash( 0x3F );
   shred0  ( rotor, 3UL, 0UL, &root, &m30 );
   complete( rotor, 3UL, 0UL, 0U, 0, &m30 );
@@ -2700,9 +2700,7 @@ test_dropped_listed( void ) {
   expect( rotor, e3, 0U );
   FD_TEST( fd_repair_blk_finalized( rotor, 3UL, &h3f, 0L ) && fd_repair_dropped_deque_empty( rotor->dropped ) );
   complete( rotor, 3UL, 0UL, 1U, 1, &m31 );
-  FD_TEST( fd_repair_dropped_deque_cnt( rotor->dropped )==2UL );
-  d = fd_repair_dropped_deque_pop_head( rotor->dropped );
-  FD_TEST( d.slot==3UL &&  memcmp( &d.block_id, &hash_null, sizeof(fd_mr32_t) ) );
+  FD_TEST( fd_repair_dropped_deque_cnt( rotor->dropped )==1UL );
   d = fd_repair_dropped_deque_pop_head( rotor->dropped );
   FD_TEST( d.slot==3UL && !memcmp( &d.block_id, &hash_null, sizeof(fd_mr32_t) ) );
   orphan_cnt( rotor );

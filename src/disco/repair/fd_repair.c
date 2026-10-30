@@ -335,21 +335,19 @@ prune( fd_repair_t *     rotor,
   fd_repair_blk_pool_ele_release   ( pool, blk );
 }
 
-/* dropped lists blk in rotor->dropped if replay has consumed any of
-   it, see fd_repair_dropped_t. */
+/* dropped lists blk in rotor->dropped under the key replay holds it
+   by, if replay has consumed any of it, see fd_repair_dropped_t. */
 
 static void
 dropped( fd_repair_t *     rotor,
-         fd_repair_blk_t * blk ) {
+         fd_repair_blk_t * blk,
+         fd_mr32_t const * block_id ) {
   if( FD_LIKELY( !blk->cons_fec_cnt ) ) return;
-  int eager = fd_repair_slot_meta( rotor, blk->slot )->eager==fd_repair_blk_pool_idx( rotor->blk_pool, blk );
-  int both  = eager && memcmp( &blk->dmr, &hash_null, sizeof(fd_mr32_t) );
-  if( FD_UNLIKELY( fd_repair_dropped_deque_avail( rotor->dropped )<1UL+(ulong)both ) ) {
+  if( FD_UNLIKELY( fd_repair_dropped_deque_full( rotor->dropped ) ) ) {
     FD_LOG_WARNING(( "slot %lu: more dropped blks than fit, replay keeps replaying the rest", blk->slot ));
     return;
   }
-  fd_repair_dropped_deque_push_tail( rotor->dropped, (fd_repair_dropped_t){ .slot = blk->slot, .block_id = blk->dmr } );
-  if( both ) fd_repair_dropped_deque_push_tail( rotor->dropped, (fd_repair_dropped_t){ .slot = blk->slot, .block_id = hash_null } );
+  fd_repair_dropped_deque_push_tail( rotor->dropped, (fd_repair_dropped_t){ .slot = blk->slot, .block_id = *block_id } );
 }
 
 /* dedup checks for a duplicate of eager among the notar blks.  Only the
@@ -380,7 +378,7 @@ dedup( fd_repair_t *     rotor,
   if( FD_UNLIKELY( !notar && meta->final!=null ) ) {
     eager->telemetry.cancelled_ts     = fd_long_if( !eager->telemetry.cancelled_reason, ts, eager->telemetry.cancelled_ts );
     eager->telemetry.cancelled_reason = (uchar)FD_EVENT_BLOCK_RECEIVED_CANCELLED_REASON_NOTARIZED_VERSION;
-    dropped( rotor, eager );
+    dropped( rotor, eager, &hash_null ); /* its last FEC set never went out, replay still keys it by slot */
     prune( rotor, eager );
     return;
   } /* turbine built a blk the cluster did not finalize */
@@ -617,7 +615,7 @@ fd_repair_blk_finalized( fd_repair_t *     rotor,
     if( FD_UNLIKELY( meta->eager==fd_repair_blk_pool_idx( pool, blk ) && !meta->invalidated && !memcmp( &blk->dmr, &hash_null, sizeof(fd_mr32_t) ) ) ) continue; /* turbine may still complete as the finalized blk, see dedup */
     blk->telemetry.cancelled_ts     = fd_long_if( !blk->telemetry.cancelled_reason, ts, blk->telemetry.cancelled_ts );
     blk->telemetry.cancelled_reason = (uchar)fd_int_if( !blk->telemetry.cancelled_reason, FD_EVENT_BLOCK_RECEIVED_CANCELLED_REASON_NOTARIZED_VERSION, blk->telemetry.cancelled_reason ); /* an invalidated eager blk keeps its reason */
-    dropped( rotor, blk );
+    dropped( rotor, blk, &blk->dmr );
     prune( rotor, blk );
   }
   connect_ancestors( rotor, fin );
@@ -1018,7 +1016,7 @@ fd_repair_slot_skipped( fd_repair_t * rotor,
                          blk;
                          blk = next ) {
     next = (fd_repair_blk_t *)fd_repair_blk_map_ele_next_const( blk, NULL, rotor->blk_pool );
-    dropped( rotor, blk );
+    dropped( rotor, blk, &blk->dmr );
     prune( rotor, blk );
   }
 }

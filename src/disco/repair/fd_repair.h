@@ -218,8 +218,7 @@ typedef void (* fd_repair_report_fn_t)( void * ctx, struct fd_repair_blk const *
    finalized, or the slot was finalized as skipped).  These blocks get
    forwarded to replay so it stops executing new transactions for that
    block.  A zero block_id names the slot's turbine copy, which replay
-   keys {slot, 0} until it completes; a turbine copy that completed is
-   listed under both keys. */
+   keys {slot, 0} until it has processed the copy's last FEC set. */
 
 struct fd_repair_dropped {
   ulong     slot;
@@ -227,9 +226,10 @@ struct fd_repair_dropped {
 };
 typedef struct fd_repair_dropped fd_repair_dropped_t;
 
+/* One slot's versions at a time: the named ones plus the turbine copy. */
 #define DEQUE_NAME fd_repair_dropped_deque
 #define DEQUE_T    fd_repair_dropped_t
-#define DEQUE_MAX  (AG_EQVOC_BLOCK_HASH_MAX+2UL)
+#define DEQUE_MAX  (AG_EQVOC_BLOCK_HASH_MAX+1UL)
 #include "../../util/tmpl/fd_deque.c"
 
 struct fd_repair {
@@ -251,7 +251,7 @@ struct fd_repair {
   fd_repair_treap_t *     notar_treap;
   fd_repair_treap_t *     final_treap;
 
-  fd_repair_dropped_t *   dropped;     /* deque_dynamic */
+  fd_repair_dropped_t *   dropped;     /* fd_repair_dropped_deque */
 
   struct {
     fd_repair_report_fn_t report; /* called once per blk, when it completes or when it is freed incomplete, NULL disables */

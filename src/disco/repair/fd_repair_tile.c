@@ -1062,6 +1062,7 @@ after_credit( fd_repair_tile_t *  ctx,
 
   if( FD_UNLIKELY( !fd_repair_dropped_deque_empty( ctx->rotor->dropped ) ) ) {
     *opt_poll_in = 0;
+    *charge_busy = 1;
     fd_repair_dropped_t * msg = fd_chunk_to_laddr( ctx->replay_out_mem, ctx->replay_out_chunk );
     *msg = fd_repair_dropped_deque_pop_head( ctx->rotor->dropped );
     fd_stem_publish( stem, ctx->replay_out_idx, ROTOR_SIG_BLOCK_DROPPED, ctx->replay_out_chunk, sizeof(fd_repair_dropped_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
