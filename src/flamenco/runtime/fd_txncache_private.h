@@ -28,13 +28,6 @@
 
 #define FD_TXNCACHE_MAX_TXNPAGES (UINT_MAX/FD_TXNCACHE_TXNS_PER_PAGE)
 
-/* The most pages a read-locked operation loads without the lock before
-   it retries under the write lock.  The fallback guarantees progress
-   when the pages an operation needs do not fit in the frames at
-   once. */
-
-#define FD_TXNCACHE_FETCH_MAX (4UL)
-
 struct __attribute__((packed)) fd_txncache_single_txn {
   uint  blockcache_next; /* Global txn index of the next element in this blockcache hash chain, or UINT_MAX. */
   uint  generation;      /* The generation of the fork when this transaction was inserted.  Used to
@@ -148,8 +141,9 @@ struct __attribute__((aligned(FD_TXNCACHE_SHMEM_ALIGN))) fd_txncache_shmem_priva
      a read lock.  Structural operations take a write lock.  A cache
      miss takes the write lock only to reserve a frame and does its
      spill I/O without the lock, marking the pages it moves busy (see
-     page_meta io) until it publishes them.  The lock prevents eviction
-     while a reader uses a frame.
+     page_meta io) until it publishes them.  If fetched pages are
+     evicted before use, it loads under the write lock instead.  The
+     lock prevents eviction while a reader uses a frame.
 
      The lock needs to be aligned to 128 bytes to avoid false sharing
      with other data that might be on the same cache line. */
@@ -275,9 +269,10 @@ fd_txncache_snapshot_roots( fd_txncache_t *      tc,
    is opened do not change while it is held.  The lock is released
    between chains.
 
-   For each chain, the iterator holds the read lock if every page of the
-   chain is resident.  Otherwise it holds the write lock, under which it
-   loads pages on demand.
+   For each chain, the iterator holds the read lock once every page of
+   the chain is resident, fetching missing pages without the lock.
+   After min(pages, frames) fetches it holds the write lock instead,
+   under which it loads pages on demand.
 
    fd_txncache_blockcache_iter_init locks tc and positions iter at the
    first transaction of blockcache blockcache_idx.  Returns iter.  init

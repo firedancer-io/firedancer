@@ -20,8 +20,10 @@
    Queries and inserts on resident pages run concurrently under the
    shared lock.  A cache miss takes the exclusive lock only to reserve a
    frame and reads or writes the spill file without the lock, so it
-   does not stall other threads.  Structural operations take the
-   exclusive lock.  Dirty pages are written back on eviction.
+   usually does not stall other threads.  After a few failed fetches it
+   falls back to loading under the exclusive lock, which does.
+   Structural operations take the exclusive lock.  Dirty pages are
+   written back on eviction.
 
    The txn cache is somewhat CPU and memory sensitive.  To store message
    hashes requires 20 bytes (only the first 20 of the 32 bytes of the
