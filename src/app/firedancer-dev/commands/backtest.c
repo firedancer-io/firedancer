@@ -48,7 +48,8 @@ void
 backtest_cmd_args( int *    pargc,
                    char *** pargv,
                    args_t * args ) {
-  args->backtest.no_watch = fd_env_strip_cmdline_contains( pargc, pargv, "--no-watch" );
+  args->backtest.no_watch          = fd_env_strip_cmdline_contains( pargc, pargv, "--no-watch" );
+  args->backtest.index_ram_entries = fd_env_strip_cmdline_ulong( pargc, pargv, "--index-ram-entries", NULL, 0UL );
 }
 
 static void
@@ -133,7 +134,7 @@ backtest_topo( config_t * config ) {
       config->tiles.bundle.enabled,
       execrp_tile_cnt+2UL+fd_ulong_if( disable_snap_loader, 1UL, snapin_tile_cnt ),
       0UL,
-      0UL );
+      config->firedancer.accounts.index_ram_entries );
   FD_TEST( fd_pod_insertf_ulong( topo->props, accdb_obj->id, "accdb" ) );
 
   /**********************************************************************/
@@ -488,6 +489,15 @@ backtest_cmd_topo( config_t * config ) {
   backtest_topo( config );
 }
 
+/* backtest_cmd_apply_args keeps the account index RAM-only unless
+   --index-ram-entries is given. */
+
+static void
+backtest_cmd_apply_args( args_t const * args,
+                         config_t *     config ) {
+  config->firedancer.accounts.index_ram_entries = args->backtest.index_ram_entries;
+}
+
 extern configure_stage_t fd_cfg_stage_keys;
 
 static args_t
@@ -568,6 +578,7 @@ action_t fd_action_backtest = {
   .args        = backtest_cmd_args,
   .fn          = backtest_cmd_fn,
   .perm        = backtest_cmd_perm,
+  .apply_args  = backtest_cmd_apply_args,
   .topo        = backtest_cmd_topo,
   .description = "Replay a ledger offline through the replay tile with mocked consensus",
 };

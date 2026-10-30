@@ -20,6 +20,8 @@
 #include "../../discof/restore/utils/fd_wfs.h"
 #include "../../util/fd_boolau.h"
 #include "../../flamenco/runtime/fd_runtime_const.h"
+#include "../../flamenco/accdb/fd_accdb_shmem.h"
+#include "../../flamenco/genesis/fd_genesis_parse.h"
 
 #include <unistd.h>
 #include <fcntl.h>
@@ -539,13 +541,10 @@ fd_config_validatef( fd_configf_t const * config ) {
        only, so it would miss bucket-only accounts. */
     FD_LOG_ERR(( "[accounts.index_ram_entries] must be 0 when [layout.enable_snapshot_production] is true" ));
   }
-  if( FD_UNLIKELY( config->accounts.index_ram_entries ) ) {
-    /* Only forks a release can target cannot spill: one per exec tile
-       in flight (<=64), replay's own and the leader's; plus the promote
-       reserve, T2 defer ring and unspill copies. */
-    ulong ram_min = 66UL*FD_RUNTIME_MAX_ACC_WRITES_PER_SLOT + fd_ulong_max( 1UL<<20, 5UL*FD_RUNTIME_MAX_ACC_WRITES_PER_SLOT ) + (1UL<<20) + (1UL<<15);
-    if( FD_UNLIKELY( config->accounts.index_ram_entries<ram_min || config->accounts.index_ram_entries>=config->accounts.max_accounts ) )
-      FD_LOG_ERR(( "[accounts.index_ram_entries] must be 0 or in [%lu,%lu)", ram_min, config->accounts.max_accounts ));
+  if( FD_UNLIKELY( config->accounts.index_ram_entries && config->accounts.index_ram_entries<config->accounts.max_accounts ) ) {
+    ulong ram_min = fd_accdb_idx_ram_min( FD_RUNTIME_MAX_ACC_WRITES_PER_SLOT, fd_genesis_account_max( config->development.genesis.max_file_size_mib<<20 ) );
+    if( FD_UNLIKELY( config->accounts.index_ram_entries<ram_min ) )
+      FD_LOG_ERR(( "[accounts.index_ram_entries] must be 0, at least %lu, or at least [accounts.max_accounts]", ram_min ));
   }
 
   CFG_HAS_NON_ZERO( development.genesis.max_file_size_mib );

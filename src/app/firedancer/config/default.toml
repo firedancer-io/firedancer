@@ -782,15 +782,17 @@ telemetry = true
     # (e.g. back to 12 or more) on bundle-enabled configurations.
     cache_size_gib = 8
 
-    # Number of account index entries kept in memory.  0 keeps the
-    # whole index (max_accounts entries) in memory.  Otherwise the
-    # index for rooted accounts lives in a file next to the accounts
-    # database, read and written with explicit I/O, and only this many
-    # entries (unrooted versions plus a cache of hot rooted ones) are
-    # kept in memory.  Not yet supported together with snapshot
-    # production.  Otherwise at least 66 times the per-slot account
-    # write limit plus 2,129,920 (13,537,426).
-    index_ram_entries = 0
+    # Number of account index entries kept in memory.  0, or a value
+    # of at least max_accounts, keeps the whole index in memory.
+    # Otherwise the index for rooted accounts lives in a file next to
+    # the accounts database, read and written with explicit I/O, and
+    # only this many entries (unrooted versions plus a cache of hot
+    # rooted ones) are kept in memory.  An account outside that cache
+    # costs one extra index read when it is first touched.  Must be at
+    # least 66 times the per-slot account write limit plus 2,129,920
+    # plus the genesis account limit (13,725,934 with the defaults).
+    # Not yet supported together with snapshot production.
+    index_ram_entries = 33_554_432
 
 [runtime]
     # Certain slots are considered "live" in the validator if we must
