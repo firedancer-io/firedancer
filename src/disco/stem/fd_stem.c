@@ -398,6 +398,9 @@ STEM_(park)( STEM_CALLBACK_CONTEXT_TYPE * ctx,
 #ifdef STEM_CALLBACK_SHOULD_SHUTDOWN
   pending |= STEM_CALLBACK_SHOULD_SHUTDOWN( ctx );
 #endif
+#ifdef STEM_CALLBACK_PARK_RECHECK
+  if( FD_LIKELY( !backpressured ) ) pending |= STEM_CALLBACK_PARK_RECHECK( ctx, now ); /* work signalled outside frags, whose ring may have preceded the parked bit */
+#endif
 
   if( FD_UNLIKELY( pending ) ) {
     FD_VOLATILE( word[0] ) = 1UL;
@@ -807,6 +810,7 @@ STEM_(run)( fd_topo_t *      topo,
 #undef STEM_CALLBACK_METRICS_WRITE
 #undef STEM_CALLBACK_NEXT_DEADLINE
 #undef STEM_CALLBACK_PREVENT_PARK
+#undef STEM_CALLBACK_PARK_RECHECK
 #undef STEM_CALLBACK_PARK_WAIT
 #undef STEM_CALLBACK_RECV_CREDIT
 #undef STEM_CALLBACK_CHECK_CREDIT

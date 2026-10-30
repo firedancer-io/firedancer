@@ -211,6 +211,7 @@ typedef struct {
   int      poll_cursor; /* in [0, execle_cnt), the next execle to poll */
   int      use_consumed_cus;
   long     skip_cnt;
+  int      pacing_execle_cnt;
   ulong *  execle_current[ FD_PACK_MAX_EXECLE_TILES ];
   ulong    execle_expect[ FD_PACK_MAX_EXECLE_TILES  ];
   /* execle_ready_at[x] means don't check execle x until tickcount is at
@@ -518,6 +519,19 @@ prevent_park( fd_pack_ctx_t * ctx ) {
   return ctx->skip_cnt>0L;
 }
 
+static inline int
+park_recheck( fd_pack_ctx_t * ctx,
+              long            now ) {
+  if( FD_UNLIKELY( ctx->leader_slot!=ULONG_MAX &&
+                   (int)fd_ulong_min( fd_pack_pacing_enabled_bank_cnt( ctx->pacer, now ), ctx->execle_cnt )>ctx->pacing_execle_cnt ) ) return 1;
+  ulong busy = (~ctx->execle_idle_bitset) & fd_ulong_mask_lsb( (int)ctx->execle_cnt );
+  for( ; busy; busy=fd_ulong_pop_lsb( busy ) ) {
+    int i = fd_ulong_find_lsb( busy );
+    if( FD_UNLIKELY( fd_fseq_query( ctx->execle_current[ i ] )==ctx->execle_expect[ i ] ) ) return 1;
+  }
+  return 0;
+}
+
 static inline long
 next_deadline( fd_pack_ctx_t * ctx ) {
   if( FD_LIKELY( ctx->leader_slot==ULONG_MAX ) ) return LONG_MAX;
@@ -535,11 +549,10 @@ after_credit( fd_pack_ctx_t *     ctx,
               int *               charge_busy ) {
   if( FD_UNLIKELY( (ctx->skip_cnt--)>0L ) ) return; /* It would take ages for this to hit LONG_MIN */
 
-  long now = fd_tickcount();
-
   ulong execle_cnt = ctx->execle_cnt;
 
-  int pacing_execle_cnt = (int)fd_ulong_min( fd_pack_pacing_enabled_bank_cnt( ctx->pacer, now ), execle_cnt );
+  int pacing_execle_cnt = (int)fd_ulong_min( fd_pack_pacing_enabled_bank_cnt( ctx->pacer, stem->now ), execle_cnt );
+  ctx->pacing_execle_cnt = pacing_execle_cnt;
 
   /* If any execle are busy, check one of the busy ones see if it is
      still busy. */
@@ -573,7 +586,7 @@ after_credit( fd_pack_ctx_t *     ctx,
            to avoid a potential cache miss.  Can't use an ifdef here
            because FD_UNLIKELY is a macro, but the compiler should
            eliminate the check easily. */
-        ( (MICROBLOCK_DURATION_NS==0L) || (ctx->execle_ready_at[poll_cursor]<now) ) &&
+        ( (MICROBLOCK_DURATION_NS==0L) || (ctx->execle_ready_at[poll_cursor]<stem->now) ) &&
         (fd_fseq_query( ctx->execle_current[poll_cursor] )==ctx->execle_expect[poll_cursor]) ) ) {
       *charge_busy = 1;
       ctx->execle_idle_bitset |= 1UL<<poll_cursor;
@@ -590,12 +603,12 @@ after_credit( fd_pack_ctx_t *     ctx,
 
   /* If we time out on our slot, then stop being leader. */
   if( FD_UNLIKELY( ctx->leader_slot!=ULONG_MAX &&
-                   fd_clock_tile_tickcount_to_wallclock( ctx->clock, now )>=ctx->slot_end_ns ) ) {
+                   fd_clock_tile_tickcount_to_wallclock( ctx->clock, stem->now )>=ctx->slot_end_ns ) ) {
     *charge_busy = 1;
 
     fd_done_packing_t * done_packing = fd_chunk_to_laddr( ctx->poh_out.mem, ctx->poh_out.chunk );
     get_done_packing( ctx, done_packing, FD_PACK_END_SLOT_REASON_TIME ); /* needs to be called before fd_pack_end_block */
-    log_end_block_metrics( ctx, now, "time", done_packing->limits_usage->block_cost ); /* reads gauges fd_pack_end_block resets */
+    log_end_block_metrics( ctx, stem->now, "time", done_packing->limits_usage->block_cost ); /* reads gauges fd_pack_end_block resets */
     fd_pack_end_block( ctx->pack );
     fd_pack_get_top_writers( ctx->pack, done_packing->limits_usage->top_writers ); /* needs to be called after fd_pack_end_block */
 
@@ -609,9 +622,9 @@ after_credit( fd_pack_ctx_t *     ctx,
     ctx->slot_microblock_cnt = 0UL;
     remove_ib( ctx );
 
-    update_metric_state( ctx, now, FD_PACK_METRIC_STATE_LEADER,       0 );
-    update_metric_state( ctx, now, FD_PACK_METRIC_STATE_EXECLES,      0 );
-    update_metric_state( ctx, now, FD_PACK_METRIC_STATE_MICROBLOCKS,  0 );
+    update_metric_state( ctx, stem->now, FD_PACK_METRIC_STATE_LEADER,       0 );
+    update_metric_state( ctx, stem->now, FD_PACK_METRIC_STATE_EXECLES,      0 );
+    update_metric_state( ctx, stem->now, FD_PACK_METRIC_STATE_MICROBLOCKS,  0 );
     return;
   }
 
@@ -651,8 +664,6 @@ after_credit( fd_pack_ctx_t *     ctx,
   int any_ready     = 0;
   int any_scheduled = 0;
 
-  *charge_busy = 1;
-
   if( FD_LIKELY( ctx->crank->enabled ) ) {
     block_builder_info_t const * top_meta = fd_pack_peek_bundle_meta( ctx->pack );
     if( FD_UNLIKELY( top_meta ) ) {
@@ -665,6 +676,7 @@ after_credit( fd_pack_ctx_t *     ctx,
           ctx->crank->identity_pubkey, ctx->crank->tip_receiver_owner, ctx->crank->epoch, top_meta->commission,
           bundle[0]->txnp->payload, TXN( bundle[0]->txnp ) );
 
+      *charge_busy = 1;
       if( FD_LIKELY( txn_sz==0UL ) ) { /* Everything in good shape! */
         fd_pack_insert_bundle_cancel( ctx->pack, bundle, 1UL );
         fd_pack_set_initializer_bundles_ready( ctx->pack );
@@ -753,9 +765,10 @@ after_credit( fd_pack_ctx_t *     ctx,
     fd_histf_sample( (schedule_cnt>0UL) ? ctx->schedule_duration : ctx->no_sched_duration, (ulong)schedule_duration );
 
     if( FD_LIKELY( schedule_cnt ) ) {
+      *charge_busy  = 1;
       any_scheduled = 1;
       long  now2   = fd_tickcount();
-      ulong tsorig = (ulong)fd_frag_meta_ts_comp( now  ); /* A bound on when we observed execle was idle */
+      ulong tsorig = (ulong)fd_frag_meta_ts_comp( stem->now  ); /* A bound on when we observed execle was idle */
       ulong tspub  = (ulong)fd_frag_meta_ts_comp( now2 );
       ulong chunk  = execle_out->chunk;
       ulong msg_sz = schedule_cnt*sizeof(fd_txn_e_t);
@@ -795,9 +808,9 @@ after_credit( fd_pack_ctx_t *     ctx,
     }
   }
 
-  update_metric_state( ctx, now, FD_PACK_METRIC_STATE_EXECLES,     any_ready     );
-  update_metric_state( ctx, now, FD_PACK_METRIC_STATE_MICROBLOCKS, any_scheduled );
-  now = fd_tickcount();
+  update_metric_state( ctx, stem->now, FD_PACK_METRIC_STATE_EXECLES,     any_ready     );
+  update_metric_state( ctx, stem->now, FD_PACK_METRIC_STATE_MICROBLOCKS, any_scheduled );
+  long now = fd_tickcount();
   update_metric_state( ctx, now, FD_PACK_METRIC_STATE_TRANSACTIONS, fd_pack_avail_txn_cnt( ctx->pack )>0 );
 
   /* Did we send the maximum allowed microblocks? Then end the slot. */
@@ -1337,6 +1350,7 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->execle_cnt       = tile->pack.execle_tile_count;
   ctx->poll_cursor      = 0;
   ctx->skip_cnt         = 0L;
+  ctx->pacing_execle_cnt = 0;
   ctx->execle_idle_bitset = fd_ulong_mask_lsb( (int)tile->pack.execle_tile_count );
   for( ulong i=0UL; i<tile->pack.execle_tile_count; i++ ) {
     ulong busy_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "execle_busy.%lu", i );
@@ -1463,6 +1477,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
 
 #define STEM_CALLBACK_DURING_HOUSEKEEPING during_housekeeping
 #define STEM_CALLBACK_PREVENT_PARK        prevent_park
+#define STEM_CALLBACK_PARK_RECHECK        park_recheck
 #define STEM_CALLBACK_NEXT_DEADLINE       next_deadline
 #define STEM_CALLBACK_BEFORE_CREDIT       before_credit
 #define STEM_CALLBACK_AFTER_CREDIT        after_credit
