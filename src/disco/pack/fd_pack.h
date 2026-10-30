@@ -261,9 +261,30 @@ fd_pack_avail_txn_cnt( fd_pack_t const * pack ) {
    be a valid local join. */
 FD_FN_PURE ulong fd_pack_current_block_cost( fd_pack_t const * pack );
 
+/* fd_pack_auction_begin starts an auction, which will last until
+   fd_pack_auction_end is called.
+
+   During the auction period, newly arrived transactions are not
+   immediately scheduled, but instead held and can't be scheduled until
+   the auction ends.  Newly arrived bundles are eligible for scheduling
+   immediately.  Transactions that arrived before the auction started
+   are eligible for scheduling throughout the auction.
+
+   pack must be a valid local join. */
 void             fd_pack_auction_begin       ( fd_pack_t *       pack );
+
+/* fd_pack_auction_end ends the current auction, if there is one.  Any
+   transactions that were held back during the auction now become
+   eligible for scheduling.  pack must be a valid local join. */
 void             fd_pack_auction_end         ( fd_pack_t *       pack );
+
+/* fd_pack_auction_running returns 1 if an auction is currently running
+   and 0 otherwise.  pack must be a valid local join. */
 FD_FN_PURE int   fd_pack_auction_running     ( fd_pack_t const * pack );
+
+/* fd_pack_next_auction_txn_cnt returns the number of transactions
+   currently being held back until the current auction ends.  This will
+   be 0 if no auction is running.  pack must be a valid local join. */
 FD_FN_PURE ulong fd_pack_next_auction_txn_cnt( fd_pack_t const * pack );
 
 /* fd_pack_bank_tile_cnt: returns the value of bank_tile_cnt provided in

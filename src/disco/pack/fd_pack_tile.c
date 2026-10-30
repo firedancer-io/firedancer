@@ -193,12 +193,12 @@ typedef struct {
   long slot_end_ns;
 
   /* The batch auction bookkeeping state.
-     leader_slot_start_tick - the start tick of the leader slot
-     leader_slot_end_tick - the end tick of the leader slot
-     auction_start_tick - the tick when the current auction started
-     auction_last_attempt_tick - the tick when we last started or skipped an auction
-     auction_next_tick - the tick when the next auction is due to be attempted
-     auction_cu_limit - the total number of CUs within a block at which the auction must stop (for pacing) */
+     leader_slot_start_tick:    the start tick of the leader slot
+     leader_slot_end_tick:      the end tick of the leader slot
+     auction_start_tick:        the tick when the current auction started
+     auction_last_attempt_tick: the tick when we last started or skipped an auction
+     auction_next_tick:         the tick when the next auction is due to be attempted
+     auction_cu_limit:          the total number of CUs within a block at which the auction must stop (for pacing) */
   long  leader_slot_start_tick;
   long  leader_slot_end_tick;
   long  auction_start_tick;
