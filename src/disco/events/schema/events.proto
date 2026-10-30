@@ -3366,7 +3366,7 @@ message MetricsShredProcessed {
   uint64 own_leader_echoed = 9;
 }
 
-// Duration of synchronously spilling one FEC payload to the store
+// Duration of disk writes during one synchronous FEC insert, including cancelled spills
 message MetricsShredStoreFecSyncSpillDurationNanos {
   // [0, 100) nanos
   uint64 b0 = 1;
@@ -3922,7 +3922,7 @@ message MetricsReplayStoreFecSpillReadDurationNanos {
   uint64 sum = 17;
 }
 
-// FEC set store queries that found a payload, by where it was read from
+// FEC set store queries that found a payload, by its cache or disk location
 message MetricsReplayStoreFecQueryHit {
   // Read from the store RAM cache
   uint64 cache = 1;
@@ -4438,7 +4438,7 @@ message MetricsRotorRegimeDurationNanos {
   uint64 backpressure_sleeping = 10;
 }
 
-// Duration of preevicting one FEC payload from the store RAM cache
+// Disk write duration of one store FEC preeviction attempt, including cancelled spills
 message MetricsRserveStoreFecPreevictDurationNanos {
   // [0, 100) nanos
   uint64 b0 = 1;
@@ -10024,7 +10024,7 @@ message MetricsShred {
   MetricsShredBatchShredDurationNanos batch_shred_duration_nanos = 30;
   // Duration of verifying and processing one shred received from the network
   MetricsShredAddShredDurationNanos add_shred_duration_nanos = 31;
-  // Duration of synchronously spilling one FEC payload to the store
+  // Duration of disk writes during one synchronous FEC insert, including cancelled spills
   MetricsShredStoreFecSyncSpillDurationNanos store_fec_sync_spill_duration_nanos = 32;
   // Shreds assigned to this tile that passed the initial parse and chained check, by processing result, plus received frags that failed the initial parse; InitialRejected and FecFatalRejected are subsets of Rejected
   MetricsShredProcessed processed = 33;
@@ -10422,7 +10422,7 @@ message MetricsReplay {
   uint64 txncache_lock_read_wait_duration_nanos = 129;
   // Time all tiles spent waiting to take the transaction cache exclusive lock
   uint64 txncache_lock_write_wait_duration_nanos = 130;
-  // FEC set store queries that found a payload, by where it was read from
+  // FEC set store queries that found a payload, by its cache or disk location
   MetricsReplayStoreFecQueryHit store_fec_query_hit = 131;
   // Duration of reading one spilled FEC payload from disk
   MetricsReplayStoreFecSpillReadDurationNanos store_fec_spill_read_duration_nanos = 132;
@@ -10668,7 +10668,7 @@ message MetricsRserve {
   uint64 disk_shred_write_failed = 41;
   // Bytes written by persisted data shreds
   uint64 disk_shred_written_bytes = 42;
-  // Duration of preevicting one FEC payload from the store RAM cache
+  // Disk write duration of one store FEC preeviction attempt, including cancelled spills
   MetricsRserveStoreFecPreevictDurationNanos store_fec_preevict_duration_nanos = 43;
   // FEC payloads preevicted from the store RAM cache to disk
   uint64 store_fec_preevicted = 44;

@@ -1073,7 +1073,7 @@ fd_store_publish( fd_store_t *               store,
         link = &meta->slot_next;
         continue;
       }
-      
+
       /* Replay is the only pinner and publisher, and never holds a view
          across publish.  Waiting here would deadlock. */
       uint state = data_state( meta->data );

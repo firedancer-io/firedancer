@@ -61,7 +61,8 @@ fd_sched_test_fec_pin( fd_sched_test_fec_t const * fec,
   FD_TEST( fd_store_insert_begin( store, -1, &mr, slot, 0UL, NULL, &ins )==FD_STORE_SUCCESS );
   fd_store_fec_t * rec = fd_store_insert_data( store, ins );
   fd_memcpy( rec->shred_sz, fec->shred_sz, sizeof(rec->shred_sz) );
-  if( FD_LIKELY( fec->data_sz ) ) fd_memcpy( rec->payload, data, fec->data_sz );
+  if( FD_LIKELY( data ) ) fd_memcpy( rec->payload, data, fec->data_sz );
+  else FD_TEST( !fec->data_sz );
   FD_TEST( fd_store_insert_commit( store, ins, fec->data_sz )==FD_STORE_SUCCESS );
 
   fd_store_view_t view = fd_store_query_acquire( store, &mr, NULL );
