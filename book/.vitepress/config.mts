@@ -58,6 +58,7 @@ export default defineConfig({
           items: [
             { text: 'Monitoring', link: 'monitoring' },
             { text: 'Networking', link: 'networking' },
+            { text: 'Failover', link: 'failover' },
             { text: 'Troubleshooting', link: 'troubleshooting' },
             { text: 'Frequently Asked Questions', link: 'faq' },
           ]
