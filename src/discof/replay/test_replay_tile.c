@@ -89,6 +89,7 @@ static ulong          mock_sched_root_notify_idx;
 static ulong          mock_sched_cancel_idx;
 static ulong          mock_sched_add_done_idx;
 static ulong          mock_sched_capacity;
+static int            mock_sched_lane_wait; /* fd_sched_fec_waits_for_lane's answer while the sched is mocked */
 static int            mock_sched_drained;
 static fd_sched_txn_info_t mock_sched_txn_info;
 static fd_txn_p_t     mock_sched_txn;
@@ -98,6 +99,9 @@ static ulong          mock_sched_task_done_type;
 static ulong          mock_sched_task_done_txn_idx;
 static ulong          mock_sched_task_done_exec_idx;
 static long           mock_sched_task_done_tick;
+static void *         mock_sched_task_done_data;
+static ulong          mock_sched_task_done_alts_cnt;   /* copied out of the fd_sched_txn_alts_t a TXN_EXEC passes as data, a local of the caller */
+static fd_acct_addr_t const * mock_sched_task_done_alts_addrs;
 
 int mock_sched_fec_ingest_fn( fd_sched_t * s, fd_sched_fec_t * f ) {
   (void)s; (void)f;
@@ -127,11 +131,19 @@ mock_sched_task_done_fn( fd_sched_t * s FD_PARAM_UNUSED,
                          ulong        task_type,
                          ulong        txn_idx,
                          ulong        exec_idx,
-                         void *       data FD_PARAM_UNUSED ) {
+                         void *       data ) {
   mock_sched_task_done_cnt++;
   mock_sched_task_done_type     = task_type;
   mock_sched_task_done_txn_idx  = txn_idx;
   mock_sched_task_done_exec_idx = exec_idx;
+  mock_sched_task_done_data     = data;
+  mock_sched_task_done_alts_cnt   = 0UL;
+  mock_sched_task_done_alts_addrs = NULL;
+  if( task_type==FD_SCHED_TT_TXN_EXEC && data ) {
+    fd_sched_txn_alts_t const * alts = data;
+    mock_sched_task_done_alts_cnt   = alts->cnt;
+    mock_sched_task_done_alts_addrs = alts->addrs;
+  }
   if( task_type==FD_SCHED_TT_TXN_EXEC ) mock_sched_txn_info.tick_exec_done = mock_sched_task_done_tick;
   return 0;
 }
@@ -258,6 +270,8 @@ mock_runtime_block_execute_prepare_fn( fd_banks_t *         banks FD_PARAM_UNUSE
 #define fd_accdb_metrics(a)                  ( (a) ? (fd_accdb_metrics)(a) : &mock_accdb_metrics )
 #define fd_progcache_cache_class_occupancy(c,u,m) do { if( (c)->shmem ) (fd_progcache_cache_class_occupancy)(c,u,m); else { memset( u, 0, FD_PROGCACHE_CACHE_CLASS_CNT*sizeof(ulong) ); memset( m, 0, FD_PROGCACHE_CACHE_CLASS_CNT*sizeof(ulong) ); } } while(0)
 #define fd_sched_block_start_pending(s)      ( (s) ? (fd_sched_block_start_pending)(s) : 0 )
+#define fd_sched_fec_waits_for_lane(s,p,f)  ( (s) ? (fd_sched_fec_waits_for_lane)(s,p,f) : mock_sched_lane_wait )
+#define fd_sched_block_start_writes(s,b,a,c) do { if( (s) ) (fd_sched_block_start_writes)(s,b,a,c); } while(0)
 /* Bypass unrelated boot dependencies while exercising snapshot DONE to completion. */
 #define fd_sysvar_cache_validate(bank,accdb) (mock_snapshot_boot ? 1 : (fd_sysvar_cache_validate)(bank,accdb))
 #define fd_sysvar_rent_read(accdb,fork,rent) (mock_snapshot_boot ? (rent) : (fd_sysvar_rent_read)(accdb,fork,rent))
@@ -285,6 +299,8 @@ static fd_hash_t         mock_footer_poh;
 #define fd_sched_get_poh(s,b)        (mock_footer_finalize ? &mock_footer_poh : (fd_sched_get_poh)(s,b))
 #define fd_sched_get_shred_cnt(s,b)  (mock_footer_finalize ? 0U : (fd_sched_get_shred_cnt)(s,b))
 #define fd_sched_get_footer(s,b)     (mock_footer_finalize ? mock_footer : mock_snapshot_boot ? NULL : (fd_sched_get_footer)(s,b))
+static fd_lthash_value_t mock_sched_lthash_delta[ 1 ];
+#define fd_sched_lthash_delta(s,b)   ((mock_footer_finalize || !(s)) ? mock_sched_lthash_delta : (fd_sched_lthash_delta)(s,b))
 static int mock_footer_verify; /* mocked finalize still verifies certs */
 #define fd_alpenglow_producer_time_bounds(b,a,l,h) do { if( mock_footer_finalize ) { *(l) = 0L; *(h) = LONG_MAX; } else (fd_alpenglow_producer_time_bounds)(b,a,l,h); } while(0)
 #define fd_runtime_block_execute_finalize(b,a,c,f,s,g) (mock_footer_finalize ? ( mock_footer_verify && (f) ? fd_alpenglow_footer_verify(b,f,s,g) : 0 ) : (fd_runtime_block_execute_finalize)(b,a,c,f,s,g))
@@ -532,6 +548,7 @@ setup_ctx( fd_replay_tile_t * ctx,
   mock_sched_root_notify_cnt  = 0UL;
   mock_sched_root_notify_idx  = ULONG_MAX;
   mock_sched_capacity         = ULONG_MAX;
+  mock_sched_lane_wait        = 0;
   mock_sched_drained          = 1;
   mock_epoch_boundary_enabled = 0;
   mock_leader_for_slot_override = 0;
@@ -699,6 +716,182 @@ test_txn_completion_publish( fd_wksp_t * wksp ) {
   bank->cost_tracker_fork_id = USHORT_MAX;
 
   FD_LOG_NOTICE(( "pass: test_txn_completion_publish" ));
+}
+
+/* Out-of-band LtHash routing.  dispatch_task publishes LTHASH_SUB and
+   LTHASH_ADD requests, and sets want_alts only when the transaction's
+   lookup tables did not resolve at parse.  process_exec_task_done
+   routes a standalone LtHash done frag, and the lookup table accounts
+   a TXN_EXEC frag reports, to fd_sched_task_done, and every kind
+   balances the bank refcnt. */
+
+static void
+test_lthash_oob_routing( fd_wksp_t * wksp ) {
+  static fd_replay_tile_t ctx[ 1 ];
+  setup_ctx( ctx, wksp );
+
+  ulong const depth = 128UL;
+  ulong const mtu   = sizeof(fd_execrp_task_done_msg_t);
+  ulong dcache_data_sz = fd_dcache_req_data_sz( mtu, depth, 1UL, 1 );
+  void * dcache_mem = fd_wksp_alloc_laddr( wksp, fd_dcache_align(), fd_dcache_footprint( dcache_data_sz, 0UL ), 1UL );
+  FD_TEST( dcache_mem );
+  void * dcache = fd_dcache_join( fd_dcache_new( dcache_mem, dcache_data_sz, 0UL ) );
+  FD_TEST( dcache );
+
+  ctx->in_cnt = fd_ulong_max( ctx->in_cnt, TEST_EXECRP_IN_IDX+1UL );
+  ctx->in_kind[ TEST_EXECRP_IN_IDX ] = IN_KIND_EXECRP;
+  ctx->in[ TEST_EXECRP_IN_IDX ].mem    = wksp;
+  ctx->in[ TEST_EXECRP_IN_IDX ].chunk0 = fd_dcache_compact_chunk0( wksp, dcache );
+  ctx->in[ TEST_EXECRP_IN_IDX ].wmark  = fd_dcache_compact_wmark ( wksp, dcache, mtu );
+  ctx->in[ TEST_EXECRP_IN_IDX ].mtu    = mtu;
+
+  fd_bank_t * bank = fd_banks_root( ctx->banks );
+  FD_TEST( bank );
+  FD_TEST( bank->cost_tracker_fork_id==USHORT_MAX );
+  bank->refcnt = 0UL;
+
+  fd_acct_addr_t acct[ 2 ];
+  memset( acct,   0xa5, sizeof(fd_acct_addr_t) );
+  memset( acct+1, 0x5a, sizeof(fd_acct_addr_t) );
+  ulong exec_out_idx = ctx->exec_out[ 0 ].idx;
+
+  /* A request per LtHash kind carries the task's accounts, is
+     published at the used size, and holds a bank ref. */
+
+  fd_sched_task_t task[ 1 ];
+  memset( task, 0, sizeof(task) );
+  task->task_type        = FD_SCHED_TT_LTHASH_SUB;
+  task->lthash->bank_idx = bank->idx;
+  task->lthash->exec_idx = 0UL;
+  task->lthash->cnt      = 1UL;
+  task->lthash->accts    = acct;
+  ulong chunk = ctx->exec_out[ 0 ].chunk;
+  dispatch_task( ctx, test_stem, task );
+  FD_TEST( bank->refcnt==1UL );
+  fd_frag_meta_t const * meta = test_stem_mcaches[ exec_out_idx ] + fd_mcache_line_idx( 0UL, test_stem_depths[ exec_out_idx ] );
+  FD_TEST( meta->seq==0UL );
+  FD_TEST( meta->sig==((FD_EXECRP_TT_LTHASH_SUB<<32)|0UL) );
+  FD_TEST( meta->sz==fd_execrp_lthash_msg_sz( 1UL ) );
+  FD_TEST( meta->chunk==chunk );
+  fd_execrp_lthash_msg_t const * req = fd_chunk_to_laddr_const( wksp, meta->chunk );
+  FD_TEST( req->bank_idx==bank->idx );
+  FD_TEST( req->cnt==1UL );
+  FD_TEST( !memcmp( req->acct, acct, sizeof(fd_acct_addr_t) ) );
+
+  task->task_type   = FD_SCHED_TT_LTHASH_ADD;
+  task->lthash->cnt = 2UL;
+  chunk = ctx->exec_out[ 0 ].chunk;
+  dispatch_task( ctx, test_stem, task );
+  FD_TEST( bank->refcnt==2UL );
+  meta = test_stem_mcaches[ exec_out_idx ] + fd_mcache_line_idx( 1UL, test_stem_depths[ exec_out_idx ] );
+  FD_TEST( meta->seq==1UL );
+  FD_TEST( meta->sig==((FD_EXECRP_TT_LTHASH_ADD<<32)|0UL) );
+  FD_TEST( meta->sz==fd_execrp_lthash_msg_sz( 2UL ) );
+  FD_TEST( meta->chunk==chunk );
+  req = fd_chunk_to_laddr_const( wksp, meta->chunk );
+  FD_TEST( req->bank_idx==bank->idx );
+  FD_TEST( req->cnt==2UL );
+  FD_TEST( !memcmp( req->acct, acct, 2UL*sizeof(fd_acct_addr_t) ) );
+
+  /* want_alts is set iff the transaction is ALT_UNRESOLVED.  A
+     transaction dispatch pins the bank's cost tracker and its
+     completion reads the limit and unpins, so the bank needs a cost
+     tracker fork. */
+
+  fd_cost_tracker_store_t * cost_tracker_store = fd_bank_cost_tracker( bank );
+  bank->cost_tracker_fork_id = fd_cost_tracker_store_new_fork( cost_tracker_store, USHORT_MAX );
+  fd_cost_tracker_store_pin( cost_tracker_store, bank->cost_tracker_fork_id )->block_cost_limit = 48000000UL;
+  fd_cost_tracker_store_unpin( cost_tracker_store, bank->cost_tracker_fork_id );
+
+  mock_sched_txn_idx = 37UL;
+  memset( &mock_sched_txn, 0, sizeof(mock_sched_txn) );
+  mock_sched_txn.payload_sz = 64UL;
+  memset( &mock_sched_txn_info, 0, sizeof(mock_sched_txn_info) );
+  memset( task, 0, sizeof(task) );
+  task->task_type          = FD_SCHED_TT_TXN_EXEC;
+  task->txn_exec->bank_idx = bank->idx;
+  task->txn_exec->slot     = 1UL;
+  task->txn_exec->txn_idx  = mock_sched_txn_idx;
+  task->txn_exec->exec_idx = 0UL;
+  for( ulong i=0UL; i<2UL; i++ ) {
+    mock_sched_txn_info.flags = i==0UL ? FD_SCHED_TXN_ALT_UNRESOLVED : 0UL;
+    chunk = ctx->exec_out[ 0 ].chunk;
+    dispatch_task( ctx, test_stem, task );
+    fd_execrp_txn_exec_msg_t const * exec_req = fd_chunk_to_laddr_const( wksp, chunk );
+    FD_TEST( exec_req->txn_idx==mock_sched_txn_idx );
+    FD_TEST( exec_req->want_alts==(i==0UL) );
+  }
+  FD_TEST( bank->refcnt==4UL );
+
+  /* An LtHash result routes by kind with the sum in the tile's result
+     entry and no transaction index, and drops the ref the dispatch
+     took. */
+
+  static fd_execrp_result_t result[ 1 ];
+  ctx->execrp_result = result;
+  ulong in_chunk = ctx->in[ TEST_EXECRP_IN_IDX ].chunk0;
+  fd_execrp_task_done_msg_t * done = fd_chunk_to_laddr( wksp, in_chunk );
+  memset( done, 0, sizeof(*done) );
+  done->bank_idx            = bank->idx;
+  done->lthash->cnt         = 2UL;
+  result->lthash.words[ 0 ] = 0x1234;
+
+  mock_sched_task_done_cnt = 0UL;
+  ulong sig = (FD_EXECRP_TT_LTHASH_ADD<<32) | 0UL;
+  FD_TEST( !returnable_frag( ctx, TEST_EXECRP_IN_IDX, 0UL, sig, in_chunk, sizeof(*done), 0UL, 0UL, 0UL, test_stem ) );
+  FD_TEST( bank->refcnt==3UL );
+  FD_TEST( mock_sched_task_done_cnt==1UL );
+  FD_TEST( mock_sched_task_done_type==FD_SCHED_TT_LTHASH_ADD );
+  FD_TEST( mock_sched_task_done_txn_idx==ULONG_MAX );
+  FD_TEST( mock_sched_task_done_exec_idx==0UL );
+  FD_TEST( mock_sched_task_done_data==&result->lthash );
+
+  done->lthash->cnt = 1UL;
+  sig = (FD_EXECRP_TT_LTHASH_SUB<<32) | 0UL;
+  FD_TEST( !returnable_frag( ctx, TEST_EXECRP_IN_IDX, 1UL, sig, in_chunk, sizeof(*done), 0UL, 0UL, 0UL, test_stem ) );
+  FD_TEST( bank->refcnt==2UL );
+  FD_TEST( mock_sched_task_done_cnt==2UL );
+  FD_TEST( mock_sched_task_done_type==FD_SCHED_TT_LTHASH_SUB );
+  FD_TEST( mock_sched_task_done_txn_idx==ULONG_MAX );
+  FD_TEST( mock_sched_task_done_exec_idx==0UL );
+  FD_TEST( mock_sched_task_done_data==&result->lthash );
+
+  /* The lookup table accounts a TXN_EXEC frag reports, left in the
+     tile's result entry, reach the scheduler as an fd_sched_txn_alts_t.
+     A frag without them passes NULL. */
+
+  mock_sched_txn_info.flags = FD_SCHED_TXN_ALT_UNRESOLVED;
+  fd_execrp_task_done_msg_t * msg = fd_chunk_to_laddr( wksp, in_chunk );
+  memset( msg, 0, sizeof(*msg) );
+  msg->bank_idx                   = bank->idx;
+  msg->txn_exec->txn_idx          = mock_sched_txn_idx;
+  msg->txn_exec->is_committable   = 1;
+  msg->txn_exec->alt_writable_cnt = 2;
+  fd_pubkey_t * keys = result->alt_writable;
+  memset( keys[ 0 ].uc, 0x11, sizeof(fd_pubkey_t) );
+  memset( keys[ 1 ].uc, 0x22, sizeof(fd_pubkey_t) );
+
+  sig = (FD_EXECRP_TT_TXN_EXEC<<32) | 0UL;
+  FD_TEST( !returnable_frag( ctx, TEST_EXECRP_IN_IDX, 2UL, sig, in_chunk, sizeof(*msg), 0UL, 0UL, 0UL, test_stem ) );
+  FD_TEST( bank->refcnt==1UL );
+  FD_TEST( mock_sched_task_done_cnt==3UL );
+  FD_TEST( mock_sched_task_done_type==FD_SCHED_TT_TXN_EXEC );
+  FD_TEST( mock_sched_task_done_txn_idx==mock_sched_txn_idx );
+  FD_TEST( mock_sched_task_done_alts_cnt==2UL );
+  FD_TEST( mock_sched_task_done_alts_addrs==fd_type_pun_const( keys ) );
+  FD_TEST( !memcmp( mock_sched_task_done_alts_addrs+1, keys+1, sizeof(fd_pubkey_t) ) );
+
+  msg->txn_exec->alt_writable_cnt = 0;
+  FD_TEST( !returnable_frag( ctx, TEST_EXECRP_IN_IDX, 3UL, sig, in_chunk, sizeof(*msg), 0UL, 0UL, 0UL, test_stem ) );
+  FD_TEST( bank->refcnt==0UL );
+  FD_TEST( mock_sched_task_done_cnt==4UL );
+  FD_TEST( mock_sched_task_done_type==FD_SCHED_TT_TXN_EXEC );
+  FD_TEST( mock_sched_task_done_data==NULL );
+
+  fd_cost_tracker_store_release( cost_tracker_store, bank->cost_tracker_fork_id );
+  bank->cost_tracker_fork_id = USHORT_MAX;
+
+  FD_LOG_NOTICE(( "pass: test_lthash_oob_routing" ));
 }
 
 static void
@@ -1470,6 +1663,7 @@ add_replayable_block( fd_replay_tile_t * ctx,
   bank->f.slot        = slot;
   bank->f.parent_slot = parent->f.slot;
   bank->f.block_id    = *block_id;
+  bank->lthash_mode   = FD_BANK_LTHASH_MODE_OOB_SKIP; /* as block start leaves it */
 
   fd_block_id_ele_t * ele = &ctx->block_id_arr[ bank->idx ];
   ele->dmr           = *block_id;
@@ -1972,6 +2166,28 @@ test_root_from_footer( fd_wksp_t * wksp ) {
   FD_TEST( !replay_block_finalize( ctx, test_stem, b3 ) );
   expect_rooted( ctx, wksp, seq0+7UL, b2 );
   FD_TEST( ctx->votor_final->slot==ULONG_MAX );
+
+  /* An out-of-band block folds the scheduler's delta into its lthash
+     at its end.  An in-band block, which block start left in band, has
+     nothing to fold. */
+  fd_hash_t id4 = { .ul = { 204UL } };
+  fd_hash_t id5 = { .ul = { 205UL } };
+  mock_footer->has_fast_final_cert = 0;
+  mock_footer->has_final_cert      = 0;
+  fd_lthash_zero( mock_sched_lthash_delta );
+  mock_sched_lthash_delta->words[ 0 ] = (ushort)7;
+  fd_bank_t * b4 = add_replayable_block( ctx, b3, 4UL, &id4 );
+  fd_lthash_value_t before[ 1 ]; fd_memcpy( before, fd_bank_lthash_locking_query( b4 ), sizeof(fd_lthash_value_t) ); fd_bank_lthash_end_locking_query( b4 );
+  FD_TEST( !replay_block_finalize( ctx, test_stem, b4 ) );
+  fd_lthash_value_t folded[ 1 ]; fd_memcpy( folded, before, sizeof(fd_lthash_value_t) ); fd_lthash_add( folded, mock_sched_lthash_delta );
+  FD_TEST( fd_lthash_eq( fd_bank_lthash_locking_query( b4 ), folded ) ); fd_bank_lthash_end_locking_query( b4 );
+  fd_bank_t * b5 = add_replayable_block( ctx, b4, 5UL, &id5 );
+  b5->lthash_mode = FD_BANK_LTHASH_MODE_INBAND; /* as block start leaves an in-band block */
+  fd_memcpy( before, fd_bank_lthash_locking_query( b5 ), sizeof(fd_lthash_value_t) ); fd_bank_lthash_end_locking_query( b5 );
+  FD_TEST( !replay_block_finalize( ctx, test_stem, b5 ) );
+  FD_TEST( fd_lthash_eq( fd_bank_lthash_locking_query( b5 ), before ) ); fd_bank_lthash_end_locking_query( b5 );
+  FD_TEST( b5->lthash_mode==FD_BANK_LTHASH_MODE_INBAND );
+  fd_lthash_zero( mock_sched_lthash_delta );
   mock_footer_finalize = 0;
 
   FD_LOG_NOTICE(( "pass: test_root_from_footer" ));
@@ -2105,7 +2321,7 @@ test_footer_cert_tasks( fd_wksp_t * wksp ) {
           done->cert_verify->has_hm = !msg->has_hm && !done->cert_verify->err;
           FD_TEST( done->cert_verify->err==( bad && k==1UL ) );
           ulong task_done0 = mock_sched_task_done_cnt;
-          process_exec_task_done( ctx, test_stem, done, (FD_EXECRP_TT_CERT_VERIFY<<32) | t );
+          process_exec_task_done( ctx, test_stem, done, sizeof(fd_execrp_task_done_msg_t), (FD_EXECRP_TT_CERT_VERIFY<<32) | t );
           if( done->cert_verify->has_hm ) { /* the tile's H(m) is now in replay's memo */
             uchar pl[ FD_ALPENGLOW_CERT_PAYLOAD_MAX ];
             ulong pl_sz = fd_alpenglow_cert_payload( msg->cert, msg->tag, msg->shred_version, pl );
@@ -3352,8 +3568,9 @@ test_ag_leader_fec_not_gated( fd_wksp_t * wksp ) {
     tip = fd_banks_new_bank( ctx->banks, tip->idx, 0L, 0 );
     FD_TEST( tip );
   }
-  mock_sched_capacity = 0UL;
-  mock_sched_drained  = 0;
+  mock_sched_capacity  = 0UL;
+  mock_sched_drained   = 0;
+  mock_sched_lane_wait = 1; /* and every lane is taken */
 
   /* Another block's FEC 0 waits. */
   fd_hash_t mr9 = { .ul = { 9001UL } };
@@ -3379,8 +3596,9 @@ test_ag_leader_fec_not_gated( fd_wksp_t * wksp ) {
   FD_TEST( fd_block_id_map_ele_query( ctx->block_id_map, &key2, NULL, ctx->block_id_arr )==ele );
   FD_TEST( !ctx->drain_rotor_fecs && test_stem_seqs[ ctx->replay_out->idx ]==seq0 );
 
-  mock_sched_capacity = ULONG_MAX;
-  mock_sched_drained  = 1;
+  mock_sched_capacity  = ULONG_MAX;
+  mock_sched_drained   = 1;
+  mock_sched_lane_wait = 0;
   FD_LOG_NOTICE(( "pass: test_ag_leader_fec_not_gated" ));
 }
 
@@ -3870,6 +4088,7 @@ main( int     argc,
   fd_metrics_register( (ulong *)fd_metrics_new( metrics_scratch, 0UL ) ); /* leader paths run metrics_write */
 
   test_txn_completion_publish( wksp );              fd_wksp_reset( wksp, 42U );
+  test_lthash_oob_routing( wksp );                  fd_wksp_reset( wksp, 42U );
   test_reward_cert_signer_count( wksp );            fd_wksp_reset( wksp, 42U );
   test_snapshot_intervals_use_block_height();
   test_snapshot_found_deleted_state( wksp );        fd_wksp_reset( wksp, 42U );

@@ -140,7 +140,7 @@
         "poh_hash_computed":             { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "PoH SHA-256 iterations computed" },
         "instruction_executed":          { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Top-level instructions executed" },
         "cpi_executed":                  { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Cross-program invocations executed" },
-        "account_lthash_skipped":        { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Committed writable accounts left byte-identical by their transaction, so their lthash update was skipped" },
+        "account_lthash_skipped":        { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Committed writable accounts left byte-identical by their transaction, so their lthash update was skipped; always zero, since replay hashes transaction writes out of band" },
         "txn_regime_duration_nanos": {
             "type": "Tuple",
             "description": "Time per transaction, by phase; a phase counts only once the next phase starts, so dropped, fees-only and no-op transactions lose their trailing phases",

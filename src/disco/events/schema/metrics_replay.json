@@ -176,18 +176,19 @@
             "type": "Tuple",
             "description": "Times the replay scheduler stopped dispatching a block, by reason",
             "aliases": {
-                "all": ["no_child", "no_work", "abandoned", "minority_fork"]
+                "all": ["no_child", "no_work", "abandoned", "minority_fork", "spec_yield"]
             },
             "fields": {
-                "no_child":      { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "A block fully replayed and there was no child block available yet" },
+                "no_child":      { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "A block fully replayed and the block activated next, if any, was not its child" },
                 "no_work":       { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "A partially replayed block ran out of work to dispatch" },
                 "abandoned":     { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "A block was abandoned, other than by minority fork pruning" },
-                "minority_fork": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "A block was pruned for being on a minority fork (not also counted as Abandoned)" }
+                "minority_fork": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "A block was pruned for being on a minority fork (not also counted as Abandoned)" },
+                "spec_yield":    { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "A block that could only speculate on out-of-band lthash additions gave way to another lane head's real work" }
             }
         },
-        "sched_lane_switched":                     { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Times the replay scheduler switched the lane it is dispatching from" },
-        "sched_lane_promoted":                     { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Times the replay scheduler promoted one or more blocks onto a staging lane" },
-        "sched_lane_demoted":                      { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Times the replay scheduler demoted one or more blocks from a staging lane" },
+        "sched_lane_switched":                     { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Times the replay scheduler activated a block on a different fork than the previously active block" },
+        "sched_lane_promoted":                     { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Times the replay scheduler promoted a block onto a staging lane" },
+        "sched_lane_demoted":                      { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Times the replay scheduler demoted a block from a staging lane" },
         "sched_fork_observed":                     { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Forks the replay scheduler has observed" },
         "sched_txn_lut_resolve_attempted": {
             "type": "Tuple",
@@ -224,13 +225,14 @@
             "type": "Tuple",
             "description": "Replay loop iterations that processed no FEC set, by reason",
             "aliases": {
-                "all": ["sched_full", "leader_freeze_wait", "bank_full"]
+                "all": ["sched_full", "leader_freeze_wait", "bank_full", "lane_wait"]
             },
             "fields": {
                 "sched_full":         { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "The scheduler was full" },
                 "reassembly_empty":   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "The reassembly queue was empty", "deprecated": true },
                 "leader_freeze_wait": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Waiting for PoH to end our leader block" },
-                "bank_full":          { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "The bank pool was full" }
+                "bank_full":          { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "The bank pool was full" },
+                "lane_wait":          { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "A block's first FEC set waited for a staging lane" }
             }
         },
         "fec_parent_missing_dropped":              { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "FEC sets dropped because replay could not resolve the block's parent (Alpenglow), which was dropped on a dead lineage, evicted with its tracking slot reused, or rooted past" },
@@ -384,6 +386,79 @@
         "txncache_frame_used":                     { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Transaction cache in-memory frames holding a page" },
         "txncache_frame_capacity":                 { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Transaction cache in-memory frames, from runtime.transaction_cache_size_mib" },
         "txncache_lock_read_wait_duration_nanos":  { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Time all tiles spent waiting to take the transaction cache shared lock" },
-        "txncache_lock_write_wait_duration_nanos": { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Time all tiles spent waiting to take the transaction cache exclusive lock" }
+        "txncache_lock_write_wait_duration_nanos": { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Time all tiles spent waiting to take the transaction cache exclusive lock" },
+        "sched_txn_promoted":                      { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Transactions the replay scheduler moved into a staging lane when it promoted their block" },
+        "sched_block_inband_picked":               { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Blocks the replay scheduler picked in-band hashing for, because as many out-of-band blocks as the dispatcher can park demoted were already live" },
+        "sched_lane_waited":                       { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Ingest capacity queries the replay scheduler refused because a block's first FEC set needed a staging lane and none was free or could be given up" },
+        "sched_lthash_write_observed": {
+            "type": "Tuple",
+            "description": "Writes the replay scheduler saw for out-of-band lthash, by result",
+            "aliases": {
+                "all": ["first_write", "coalesced"]
+            },
+            "fields": {
+                "first_write": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "First write to the account since its last addition pseudo transaction, which makes the block owe it an addition" },
+                "coalesced":   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Write to an account the block already owed an addition for" }
+            }
+        },
+        "sched_lthash_write_observed_by_type": {
+            "type": "Tuple",
+            "description": "Writes the replay scheduler saw for out-of-band lthash, the same as SchedLthashWriteObserved, by type",
+            "aliases": {
+                "all": ["parsed", "start_reg", "late_reg", "demote_reg", "spec_given_up"]
+            },
+            "fields": {
+                "parsed":        { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Declared writable accounts of parsed transactions, as handed to the dispatcher" },
+                "start_reg":     { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Accounts registered by start-of-block processing" },
+                "late_reg":      { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Writable lookup table accounts registered at transaction completion" },
+                "demote_reg":    { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Accounts re-registered when their block was demoted" },
+                "spec_given_up": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Accounts re-registered when a speculative addition was given up" }
+            }
+        },
+        "sched_lthash_add_created":                { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Out-of-band lthash addition pseudo transactions the dispatcher handed back" },
+        "sched_lthash_add_surfaced":               { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Addition pseudo transactions the dispatcher handed out as ready" },
+        "sched_lthash_add_stale_surfaced":         { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Addition pseudo transactions surfaced after a later write made them stale, completed without hashing" },
+        "sched_lthash_add_dispatched":             { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Additions handed to an exec tile" },
+        "sched_lthash_add_stale_dropped":          { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Addition results dropped because a later write made them stale while on the tile" },
+        "sched_lthash_add_applied":                { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Addition results added to a block's delta" },
+        "sched_lthash_add_undone":                 { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Applied additions subtracted back out after a later write" },
+        "sched_lthash_spec_created":               { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Speculative additions created" },
+        "sched_lthash_spec_applied":               { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Speculative additions applied; a subset of SchedLthashAddApplied" },
+        "sched_lthash_spec_invalidated":           { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Speculative additions invalidated before they applied" },
+        "sched_lthash_sub_owed":                   { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Lane map entries inserted, each owing one out-of-band lthash subtraction" },
+        "sched_lthash_sub_dispatched":             { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Subtractions handed to an exec tile" },
+        "sched_lthash_sub_applied":                { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Subtraction results subtracted from a block's delta" },
+        "sched_lthash_account_frozen":             { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Accounts whose out-of-band lthash subtraction and addition are in the delta of a block whose end task completed" },
+        "sched_lthash_work_dropped": {
+            "type": "Tuple",
+            "description": "Out-of-band lthash work thrown away when a block was abandoned or demoted, or picked in-band hashing, by type",
+            "aliases": {
+                "all": ["add_owed", "add_pending", "add_applied", "sub_queued", "sub_applied", "add_held", "inband_add_owed", "inband_sub_queued"]
+            },
+            "fields": {
+                "add_owed":          { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Additions owed by abandoned blocks, never created" },
+                "add_pending":       { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Pseudo transactions of abandoned blocks, never surfaced" },
+                "add_applied":       { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Additions in the delta of an abandoned or demoted block, net of undone" },
+                "sub_queued":        { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Subtractions of abandoned blocks, never dispatched" },
+                "sub_applied":       { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Subtractions in the delta of an abandoned or demoted block" },
+                "add_held":          { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Additions of abandoned blocks that were batched behind a transaction and never reached a tile" },
+                "inband_add_owed":   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Additions owed by blocks that picked in-band hashing, never created" },
+                "inband_sub_queued": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Subtractions of blocks that picked in-band hashing, never dispatched" }
+            }
+        },
+        "sched_lthash_pool_full_deactivated":      { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Deactivations of a block that still owed additions because the speculation pool had no free entry; a subset of the no-work reason of SchedBlockDeactivated" },
+        "sched_lthash_task_dispatched": {
+            "type": "Tuple",
+            "description": "Out-of-band lthash tasks handed to exec tiles, each a batch of the accounts SchedLthashSubDispatched and SchedLthashAddDispatched count, by type",
+            "aliases": {
+                "all": ["sub", "add"]
+            },
+            "fields": {
+                "sub": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Subtraction tasks, each a batch of accounts hashed on the parent fork" },
+                "add": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Addition tasks, each a batch of accounts hashed on the block's fork" }
+            }
+        },
+        "sched_lthash_batch_held":                 { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Out-of-band lthash addition batches held for the next dispatch because a transaction, or a speculative addition dispatched alone, surfaced behind them" },
+        "sched_lthash_batch_idle_waited":          { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Times a dispatch poll left an out-of-band lthash addition batch held because too few exec tiles were idle for a hash batch" }
     }
 }
