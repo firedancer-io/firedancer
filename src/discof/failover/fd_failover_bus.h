@@ -7,9 +7,7 @@
    until the response comes back, which for a handoff or promotion is
    when its outcome is known.  The failover tile asks for identity
    switches the same way.  Every frame is one fd_failover_bus_msg_t.
-   Each side has at most one request outstanding, so neither link has
-   more than two frames in flight and neither tile can backpressure the
-   other, even behind an identity switch that never terminates. */
+   Both links are reliable, so no frame is lost behind a busy tile. */
 
 #include "../admin/fd_adminctl.h"
 

@@ -1364,7 +1364,6 @@ failover_result_name( ulong result ) {
     case FD_FAILOVER_CONTROL_RESULT_NO_FINAL_HISTORY:  return "no_final_history";
     case FD_FAILOVER_CONTROL_RESULT_REPLAY_BEHIND:     return "replay_behind";
     case FD_FAILOVER_CONTROL_RESULT_NO_HOLDER_ADDRESS: return "no_holder_address";
-    case FD_FAILOVER_CONTROL_RESULT_INPUT_LOST:        return "input_lost";
     case FD_FAILOVER_CONTROL_RESULT_TIMEOUT:           return "timeout";
     case FD_FAILOVER_CONTROL_RESULT_PEER_RESTARTED:    return "peer_restarted";
     case FD_FAILOVER_CONTROL_RESULT_ADOPTION_FAILED:   return "adoption_failed";

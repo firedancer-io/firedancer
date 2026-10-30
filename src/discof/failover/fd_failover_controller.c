@@ -361,6 +361,8 @@ on_votor_hist_msg( fd_failover_tile_ctx_t *    ctx,
   if( FD_LIKELY( !voted && !changed ) ) return;
   ctx->last_vote_slot = hist->vote_slot;
   if( voted && ( ctx->own_floor==FD_FAILOVER_SLOT_NULL || hist->vote_slot>ctx->own_floor ) ) ctx->own_floor = hist->vote_slot;
+  /* The tip of a history always counts toward the floor. */
+  if( hist->has_vote ) ctx->own_voted = 1;
   prepare_history( ctx, hist );
 }
 
@@ -488,6 +490,7 @@ on_operator_action_msg( fd_failover_tile_ctx_t *       ctx,
     ctx->staked_seen_at = 0L;
     ctx->peer_floor     = FD_FAILOVER_SLOT_NULL;
     ctx->own_floor      = FD_FAILOVER_SLOT_NULL;
+    ctx->own_voted      = 0;
   }
   ulong boot_id = ctx->hello.boot_id;
   do FD_TEST( fd_rng_secure( &ctx->hello.boot_id, sizeof(ulong) ) ); while( FD_UNLIKELY( !ctx->hello.boot_id || ctx->hello.boot_id==boot_id ) );
@@ -697,7 +700,6 @@ get_promote_source( fd_failover_tile_ctx_t const * ctx ) {
    FD_ADMINCTL_RESULT_SUCCESS or the refusal. */
 static ulong
 check_promotion( fd_failover_tile_ctx_t const * ctx ) {
-  if( FD_UNLIKELY( ctx->input_lost ) ) return FD_FAILOVER_CONTROL_RESULT_INPUT_LOST;
   if( FD_UNLIKELY( holds_identity( ctx ) ) ) return FD_FAILOVER_CONTROL_RESULT_WRONG_HOLDER;
   int cancellable = ctx->action==FD_FAILOVER_ACTION_DEMOTE_WAIT_ACK || ( ctx->request.id && is_requesting( ctx ) );
   if( FD_UNLIKELY( ( ctx->action!=FD_FAILOVER_ACTION_IDLE && !cancellable ) || is_switch_pending( ctx ) ) ) return FD_FAILOVER_CONTROL_RESULT_IN_PROGRESS;
@@ -1242,7 +1244,7 @@ run_preflight_cmd( fd_failover_tile_ctx_t const *     ctx,
                    fd_adminctl_failover_req_t const * req ) {
   if( fd_memeq( req->target, ctx->hello.staked_pubkey, 32UL ) || ( req->flags & FD_ADMINCTL_FAILOVER_FLAG_FORCE ) ) return FD_ADMINCTL_RESULT_SUCCESS;
   if( FD_UNLIKELY( ctx->action!=FD_FAILOVER_ACTION_IDLE || ctx->request.id || is_switch_pending( ctx ) ) ) return FD_FAILOVER_CONTROL_RESULT_IN_PROGRESS;
-  if( FD_UNLIKELY( holds_identity( ctx ) && get_coverage_floor( ctx )!=FD_FAILOVER_SLOT_NULL ) ) return FD_FAILOVER_CONTROL_RESULT_HOLDS_OTHER;
+  if( FD_UNLIKELY( holds_identity( ctx ) && ctx->own_voted ) ) return FD_FAILOVER_CONTROL_RESULT_HOLDS_OTHER;
   return FD_ADMINCTL_RESULT_SUCCESS;
 }
 
@@ -1252,8 +1254,7 @@ static ulong
 apply_control( fd_failover_tile_ctx_t *           ctx,
                fd_adminctl_failover_req_t const * req,
                long                               now ) {
-  if( FD_UNLIKELY( ctx->input_lost ) ) return FD_FAILOVER_CONTROL_RESULT_INPUT_LOST;
-  if( FD_UNLIKELY( ctx->cmd_nonce ) )  return FD_FAILOVER_CONTROL_RESULT_BUSY;
+  if( FD_UNLIKELY( ctx->cmd_nonce ) ) return FD_FAILOVER_CONTROL_RESULT_BUSY;
   switch( req->cmd ) {
   case FD_ADMINCTL_FAILOVER_CMD_HANDOFF:   return run_handoff_cmd( ctx, req, now );
   case FD_ADMINCTL_FAILOVER_CMD_PROMOTE:   return run_promote_cmd( ctx, req, now );

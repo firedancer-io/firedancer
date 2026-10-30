@@ -6,12 +6,10 @@ static void
 fill_hello( fd_failover_hello_t * h,
             uchar                 boot,
             uchar                 staked,
-            uchar                 vote,
             uchar                 holds ) {
   fd_memset( h, 0, sizeof(fd_failover_hello_t) );
   h->version = (ushort)FD_FAILOVER_VERSION;
   fd_memset( h->staked_pubkey, staked, 32UL );
-  fd_memset( h->vote_account,  vote,   32UL );
   h->holds   = holds;
   h->mode    = (uchar)FD_FAILOVER_MODE_ALPENGLOW;
   h->boot_id = 0x1000UL+boot;
@@ -20,8 +18,8 @@ fill_hello( fd_failover_hello_t * h,
 static void
 test_hello( void ) {
   fd_failover_hello_t holder, other;
-  fill_hello( &holder, 1U, 0xAA, 0xBB, 1 );
-  fill_hello( &other,  2U, 0xAA, 0xBB, 0 );
+  fill_hello( &holder, 1U, 0xAA, 1 );
+  fill_hello( &other,  2U, 0xAA, 0 );
   FD_TEST( fd_failover_hello_check( &holder, &other )==FD_FAILOVER_HELLO_OK );
   FD_TEST( fd_failover_hello_check( &other, &holder )==FD_FAILOVER_HELLO_OK );
   uchar unsupported[] = { 0U, 2U, 255U };
@@ -33,20 +31,14 @@ test_hello( void ) {
     holder.mode = FD_FAILOVER_MODE_ALPENGLOW;
   }
   /* A different staked key is refused. */
-  fill_hello( &holder, 1U, 0xAA, 0xBB, 1 );
-  fill_hello( &other,  2U, 0xAC, 0xBB, 0 );
+  fill_hello( &holder, 1U, 0xAA, 1 );
+  fill_hello( &other,  2U, 0xAC, 0 );
   FD_TEST( fd_failover_hello_check( &holder, &other )==FD_FAILOVER_HELLO_ERR_STAKED );
   /* So are our own HELLO, as when we dial ourselves, and two holders. */
-  fill_hello( &other,  1U, 0xAA, 0xBB, 0 );
+  fill_hello( &other,  1U, 0xAA, 0 );
   FD_TEST( fd_failover_hello_check( &holder, &other )==FD_FAILOVER_HELLO_ERR_SELF );
-  fill_hello( &other,  2U, 0xAA, 0xBB, 1 );
+  fill_hello( &other,  2U, 0xAA, 1 );
   FD_TEST( fd_failover_hello_check( &holder, &other )==FD_FAILOVER_HELLO_ERR_BOTH_HOLD );
-  /* A zero vote account, none configured, pairs only with another zero. */
-  fill_hello( &holder, 1U, 0xAA, 0x00, 1 );
-  fill_hello( &other,  2U, 0xAA, 0x00, 0 );
-  FD_TEST( fd_failover_hello_check( &holder, &other )==FD_FAILOVER_HELLO_OK );
-  fill_hello( &other,  2U, 0xAA, 0xBB, 0 );
-  FD_TEST( fd_failover_hello_check( &holder, &other )==FD_FAILOVER_HELLO_ERR_VOTE_ACCT );
 }
 
 static void

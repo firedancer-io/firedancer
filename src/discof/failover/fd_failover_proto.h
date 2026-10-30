@@ -41,13 +41,12 @@
 #define FD_FAILOVER_HELLO_OK             (0)
 #define FD_FAILOVER_HELLO_ERR_VERSION    (1)
 #define FD_FAILOVER_HELLO_ERR_STAKED     (2)
-#define FD_FAILOVER_HELLO_ERR_VOTE_ACCT  (3)
-#define FD_FAILOVER_HELLO_ERR_SELF       (4)
-#define FD_FAILOVER_HELLO_ERR_BOTH_HOLD  (5)
-#define FD_FAILOVER_HELLO_ERR_HOLDS      (6)
-#define FD_FAILOVER_HELLO_ERR_BOOT_ID    (7)
-#define FD_FAILOVER_HELLO_ERR_MODE       (8)
-#define FD_FAILOVER_HELLO_ERR_PROOF      (9)
+#define FD_FAILOVER_HELLO_ERR_SELF       (3)
+#define FD_FAILOVER_HELLO_ERR_BOTH_HOLD  (4)
+#define FD_FAILOVER_HELLO_ERR_HOLDS      (5)
+#define FD_FAILOVER_HELLO_ERR_BOOT_ID    (6)
+#define FD_FAILOVER_HELLO_ERR_MODE       (7)
+#define FD_FAILOVER_HELLO_ERR_PROOF      (8)
 
 /* Upper bound on the vote history payload in alpenglow mode,
    AG_HIST_SER_MAX is 5274 bytes. */
@@ -58,14 +57,13 @@
 struct __attribute__((packed)) fd_failover_hello {
   ushort version;             /* FD_FAILOVER_VERSION */
   uchar  staked_pubkey[ 32 ]; /* the identity this pair hands off */
-  uchar  vote_account[ 32 ];  /* the vote account for this pair */
   uchar  holds;               /* 1 when this host runs staked_pubkey at pairing, else 0 */
   uchar  mode;                /* FD_FAILOVER_MODE_* consensus */
   ulong  boot_id;             /* random nonzero value per boot to distinguish restarts */
   uchar  commit[ 20 ];        /* FD commit hash */
 };
 typedef struct fd_failover_hello fd_failover_hello_t;
-FD_STATIC_ASSERT( sizeof(fd_failover_hello_t)==96UL, wire_layout );
+FD_STATIC_ASSERT( sizeof(fd_failover_hello_t)==64UL, wire_layout );
 
 /* Pre-TLS admission */
 #define FD_FAILOVER_ADMISSION_MAGIC  (0x314d44414c494146UL)
@@ -79,7 +77,7 @@ struct __attribute__((packed)) fd_failover_admission_start {
   ushort              client_hello_sz;
 };
 typedef struct fd_failover_admission_start fd_failover_admission_start_t;
-FD_STATIC_ASSERT( sizeof(fd_failover_admission_start_t)==138UL, admission_start_layout );
+FD_STATIC_ASSERT( sizeof(fd_failover_admission_start_t)==106UL, admission_start_layout );
 
 struct __attribute__((packed)) fd_failover_admission_challenge {
   ulong               magic;
@@ -87,7 +85,7 @@ struct __attribute__((packed)) fd_failover_admission_challenge {
   uchar               nonce[ 32 ];
 };
 typedef struct fd_failover_admission_challenge fd_failover_admission_challenge_t;
-FD_STATIC_ASSERT( sizeof(fd_failover_admission_challenge_t)==136UL, admission_challenge_layout );
+FD_STATIC_ASSERT( sizeof(fd_failover_admission_challenge_t)==104UL, admission_challenge_layout );
 
 struct __attribute__((packed)) fd_failover_admission_response {
   ushort server_flight_sz;

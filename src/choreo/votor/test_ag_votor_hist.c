@@ -261,6 +261,9 @@ test_adopt_capacity( void ) {
 static void
 test_adopt_equal_anchor_prunes( void ) {
   ag_votor_t * votor = setup_votor_at_root( scratch_a, 0L, 100UL );
+  ag_votor_arm_skip_timeouts( votor, 0L );
+  long armed = ag_votor_next_skip_timeout( votor );
+  FD_TEST( armed!=LONG_MAX );
 
   /* A rejected import must leave the pruning cursor and all state
      unchanged, even when its records start below the initial root. */
@@ -278,6 +281,7 @@ test_adopt_equal_anchor_prunes( void ) {
   FD_TEST( !ag_votor_hist_adopt( votor, &hist ) );
   FD_TEST( !ag_votor_hist_adopt( votor, &hist ) );
   for( ulong slot=92UL; slot<=100UL; slot++ ) FD_TEST( has_voted( votor, slot ) );
+  FD_TEST( ag_votor_next_skip_timeout( votor )==armed ); /* an equal anchor prunes nothing, the timers stay */
 
   ag_pool_event_t event = { .kind = AG_POOL_EVENT_CERT_CREATED,
                            .cert_created = { .kind = AG_CERT_KIND_FINAL, .final = { .slot = 112UL } } };

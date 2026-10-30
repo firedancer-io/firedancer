@@ -715,7 +715,24 @@ ag_votor_hist_adopt( ag_votor_t *      self,
     free--;
   }
 
+  /* A newer anchor prunes the skip timeouts of the windows below it.
+     If any timeout was set, the anchor's window gets its timeouts, as
+     it would from a final certificate there.  Its slot states need
+     room too. */
+  int set_anchor_timeouts = hist->anchor>self->highest_final_cert_slot && next_timeout( self );
+  if( set_anchor_timeouts ) {
+    for( ulong s=ag_first_slot_in_window( hist->anchor ); s<ag_first_slot_in_window( hist->anchor )+AG_SLOTS_PER_WINDOW; s++ ) {
+      if( slot_state_map_ele_query_const( map, &s, NULL, pool ) ) continue;
+      int imported = 0;
+      for( ulong i=0UL; i<hist->rec_cnt; i++ ) imported |= hist->rec[ i ].slot==s;
+      if( imported ) continue;
+      if( FD_UNLIKELY( !free ) ) return ULONG_MAX;
+      free--;
+    }
+  }
+
   advance_root( self, hist->anchor );
+  if( set_anchor_timeouts ) set_timeouts( self, ag_first_slot_in_window( hist->anchor ) );
   /* Later pruning must visit records imported below the startup cursor. */
   self->root = fd_ulong_min( self->root, first );
   /* Take the exporter's vote bound as well. */

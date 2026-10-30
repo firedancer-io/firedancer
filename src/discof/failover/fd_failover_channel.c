@@ -515,7 +515,6 @@ hello_err_cstr( int err ) {
   case HELLO_ERR_TLS_KEY:                return "the key TLS authenticated is not the failover identity";
   case FD_FAILOVER_HELLO_ERR_VERSION:    return "the protocol version differs";
   case FD_FAILOVER_HELLO_ERR_STAKED:     return "the failover identity differs";
-  case FD_FAILOVER_HELLO_ERR_VOTE_ACCT:  return "the vote account differs";
   case FD_FAILOVER_HELLO_ERR_SELF:       return "its boot id is ours, this machine dialed itself";
   case FD_FAILOVER_HELLO_ERR_BOTH_HOLD:  return "both machines run the identity";
   case FD_FAILOVER_HELLO_ERR_HOLDS:      return "it sent an unknown value";
