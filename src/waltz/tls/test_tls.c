@@ -677,6 +677,30 @@ test_tls_truncated_cert_handshake( fd_rng_t * rng ) {
   fd_tls_delete( fd_tls_leave( client ) );
 }
 
+static void
+test_tls_certificate_length_reason( fd_rng_t * rng ) {
+  fd_tls_t client[1], server[1];
+  prepare_tls_pair( rng, client, server );
+  uchar const record[] = { FD_TLS_MSG_CERT, 0, 0, 1 };
+  for( ulong sz=0UL; sz<=sizeof(record); sz++ ) {
+    fd_tls_estate_srv_t srv_hs[1];
+    FD_TEST( fd_tls_estate_srv_new( srv_hs ) );
+    srv_hs->base.state = FD_TLS_HS_WAIT_CERT;
+    FD_TEST( fd_tls_server_handshake( server, srv_hs, record, sz, FD_TLS_LEVEL_HANDSHAKE )==-FD_TLS_ALERT_DECODE_ERROR );
+    FD_TEST( srv_hs->base.reason==FD_TLS_REASON_CERT_PARSE );
+    FD_TEST( srv_hs->base.state!=FD_TLS_HS_WAIT_CV );
+    fd_tls_estate_srv_delete( srv_hs );
+
+    fd_tls_estate_cli_t cli_hs[1];
+    FD_TEST( fd_tls_estate_cli_new( cli_hs ) );
+    cli_hs->base.state = FD_TLS_HS_WAIT_CERT;
+    FD_TEST( fd_tls_client_handshake( client, cli_hs, record, sz, FD_TLS_LEVEL_HANDSHAKE )==-FD_TLS_ALERT_DECODE_ERROR );
+    FD_TEST( cli_hs->base.reason==FD_TLS_REASON_CERT_PARSE );
+    FD_TEST( cli_hs->base.state!=FD_TLS_HS_WAIT_CV );
+    fd_tls_estate_cli_delete( cli_hs );
+  }
+}
+
 /* fd_tls does not support the certificate_type extension (RFC 7250).
    A server that sends one anyway must be rejected. */
 
@@ -1424,6 +1448,7 @@ main( int     argc,
   test_tls_server_session_id_mismatch( rng, 1 );
   test_tls_truncated_cert_extract();
   test_tls_truncated_cert_handshake( rng );
+  test_tls_certificate_length_reason( rng );
   test_tls_client_unsolicited_cert_type( rng );
   test_tls_client_accepts_cert_req( rng );
   test_tls_cert_req_rules( rng );

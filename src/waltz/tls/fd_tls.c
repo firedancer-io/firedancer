@@ -1044,7 +1044,7 @@ fd_tls_server_hs_wait_cert( fd_tls_t const *      server,
 
     ulong msg_sz = fd_tls_u24_to_uint( msg_hdr.sz );
     if( FD_UNLIKELY( msg_sz > (ulong)(wire_end-wire) ) )
-      return fd_tls_alert( &handshake->base, FD_TLS_ALERT_DECODE_ERROR, FD_TLS_REASON_CERT_CR_PARSE );
+      return fd_tls_alert( &handshake->base, FD_TLS_ALERT_DECODE_ERROR, FD_TLS_REASON_CERT_PARSE );
 
     /* Decode Certificate */
 
@@ -1745,7 +1745,7 @@ fd_tls_client_hs_wait_cert( fd_tls_t const *      const client,
 
     ulong msg_sz = fd_tls_u24_to_uint( msg_hdr.sz );
     if( FD_UNLIKELY( msg_sz > (ulong)(wire_end-wire) ) )
-      return fd_tls_alert( &handshake->base, FD_TLS_ALERT_DECODE_ERROR, FD_TLS_REASON_CERT_CR_PARSE );
+      return fd_tls_alert( &handshake->base, FD_TLS_ALERT_DECODE_ERROR, FD_TLS_REASON_CERT_PARSE );
 
     /* Decode Certificate */
 
