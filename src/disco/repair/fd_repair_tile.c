@@ -541,7 +541,7 @@ handle_shred( fd_repair_tile_t * ctx,
   ctx->metrics->slot_current        = fd_ulong_if( slot>ctx->rotor->root && fd_shred_sig_src( sig )<=SHRED_SIG_SRC_BAD_REPAIR, fd_ulong_max( ctx->metrics->slot_current, slot ), ctx->metrics->slot_current );
   int turbine_first = slot>ctx->rotor->root && slot<ctx->rotor->root+ctx->rotor->slot_max && fd_shred_sig_src( sig )==SHRED_SIG_SRC_TURBINE && !ctx->turbine_slot0;
   ctx->turbine_slot0 = fd_ulong_if( turbine_first, slot, ctx->turbine_slot0 );
-  if( FD_UNLIKELY( slot<=ctx->rotor->root || slot>=ctx->rotor->root+ctx->rotor->slot_max ) ) return; /* outside the window */
+  if( FD_UNLIKELY( slot<=ctx->rotor->root || slot>=cex->rotor->root+ctx->rotor->slot_max ) ) return; /* outside the window */
 
   if( FD_UNLIKELY( turbine_first && !ctx->staked ) ) fd_repair_slot_catchup( ctx->rotor, slot ); /* unstaked has no certs, turbine is untrusted so staked never does this */
 

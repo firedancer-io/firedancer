@@ -119,6 +119,46 @@ shred0( fd_repair_t *     rotor,
   fd_repair_shred_insert( rotor, shred, fec0_mr, 0, 0L );
 }
 
+/* shred_up inserts the first data shred of FEC set fec_idx of slot
+   under merkle root mr, whose payload is an UpdateParent naming
+   (up_slot, up_mr) if up, else an entry batch. */
+
+static void
+shred_up( fd_repair_t *     rotor,
+          ulong             slot,
+          ulong             parent_slot,
+          uint              fec_idx,
+          int               up,
+          ulong             up_slot,
+          fd_mr32_t const * up_mr,
+          fd_mr32_t const * mr ) {
+  uchar buf[ FD_SHRED_MIN_SZ ] __attribute__((aligned(8UL))); memset( buf, 0, sizeof(buf) );
+  uchar * ser = buf+FD_SHRED_DATA_HEADER_SZ;
+  ulong   off = 0UL;
+  if( up ) {
+    /* fd_block_marker_ser does not produce an UpdateParent, so lay out
+       the preamble and the V1 payload by hand. */
+    FD_STORE( ulong,  ser+off, 0UL );                             off += sizeof(ulong);
+    FD_STORE( ushort, ser+off, (ushort)1 );                       off += sizeof(ushort);
+    ser[ off ] = (uchar)FD_BLOCK_MARKER_KIND_UPDATE_PARENT;       off += sizeof(uchar);
+    FD_STORE( ushort, ser+off, (ushort)FD_UPDATE_PARENT_SER_SZ ); off += sizeof(ushort);
+    ser[ off ] = (uchar)1;                                        off += sizeof(uchar);
+    FD_STORE( ulong,  ser+off, up_slot );                         off += sizeof(ulong);
+    memcpy( ser+off, up_mr->uc, sizeof(fd_mr32_t) );              off += sizeof(fd_mr32_t);
+  } else {
+    FD_STORE( ulong, ser, 1UL );                                  off += sizeof(ulong); /* entry_cnt!=0, an entry batch */
+  }
+
+  fd_shred_t * shred = (fd_shred_t *)buf;
+  shred->variant          = fd_shred_variant( FD_SHRED_TYPE_MERKLE_DATA, 6 );
+  shred->slot             = slot;
+  shred->idx              = fec_idx*FD_FEC_SHRED_CNT;
+  shred->fec_set_idx      = fec_idx*FD_FEC_SHRED_CNT;
+  shred->data.parent_off  = (ushort)( slot-parent_slot );
+  shred->data.size        = (ushort)( FD_SHRED_DATA_HEADER_SZ+off );
+  fd_repair_shred_insert( rotor, shred, mr, 0, 0L );
+}
+
 static int
 is_eager( fd_repair_t const *     rotor,
           fd_repair_blk_t const * blk ) {
@@ -2809,6 +2849,43 @@ test_orphan_map_slot_mismatch( void ) {
   orphan_cnt( rotor );
 }
 
+/* The first data shred of each FEC set past FEC set 0 is parsed for
+   an UpdateParent, kept on the FEC set, also for a FEC set only a notar
+   blk holds. */
+
+static void
+test_fec_update_parent( void ) {
+  fd_repair_t * rotor = setup();
+  fd_mr32_t     root  = hash( 0xEE );
+  fd_mr32_t     m0 = hash( 0x30 ), m1 = hash( 0x31 ), m2 = hash( 0x32 );
+  shred0( rotor, 4UL, 3UL, &hash_null, &m0 );
+  shred_up( rotor, 4UL, 3UL, 1U, 0, 0UL, &root, &m1 );
+  shred_up( rotor, 4UL, 3UL, 2U, 1, 0UL, &root, &m2 );
+
+  fd_repair_blk_t const * e4 = fd_repair_blk_pool_ele_const( rotor->blk_pool, rotor->slot_meta[ 4UL % rotor->slot_max ].eager );
+  fd_repair_fec_t const * f0 = fd_repair_fec_pool_ele_const( rotor->fec_pool, e4->fecs[ 0 ] );
+  fd_repair_fec_t const * f1 = fd_repair_fec_pool_ele_const( rotor->fec_pool, e4->fecs[ 1 ] );
+  fd_repair_fec_t const * f2 = fd_repair_fec_pool_ele_const( rotor->fec_pool, e4->fecs[ 2 ] );
+  FD_TEST( !f0->has_update_parent ); /* the header */
+  FD_TEST( !f1->has_update_parent ); /* an entry batch */
+  FD_TEST(  f2->has_update_parent && f2->update_parent.new_parent_slot==0UL && !memcmp( &f2->update_parent.new_parent_block_id, &root, sizeof(fd_mr32_t) ) );
+
+  /* A FEC set only a notar blk holds keeps it, though the eager blk of
+     an invalidated slot ignores the shred. */
+
+  fd_mr32_t m5 = hash( 0x50 );
+  fd_mr20_t k5; memcpy( k5.uc, hash( 0x52 ).uc, sizeof(fd_mr20_t) );
+  fd_repair_slot_invalidated( rotor, 5UL, FD_EVENT_BLOCK_RECEIVED_CANCELLED_REASON_MERKLE_ROOT_MISMATCH, 0L );
+  FD_TEST( fd_repair_blk_notarized( rotor, 5UL, &m5 ) );
+  fd_repair_fec_t const * n2 = fd_repair_fec_notarized( rotor, 5UL, &m5, 2U*FD_FEC_SHRED_CNT, &k5, 0L );
+  FD_TEST( n2 && !n2->has_update_parent );
+  fd_mr32_t r5 = hash( 0x52 );
+  shred_up( rotor, 5UL, 4UL, 2U, 1, 4UL, &m5, &r5 );
+  FD_TEST( n2->has_update_parent && n2->update_parent.new_parent_slot==4UL );
+
+  fd_repair_fini( rotor );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -2851,6 +2928,7 @@ main( int     argc,
   test_notar_out_of_order();
   test_shared_fec();
   test_notarized_complete_fec();
+  test_fec_update_parent();
   test_eager_invalidated();
   test_finalize_other();
   test_finalize_moves_child();

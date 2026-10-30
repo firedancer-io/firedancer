@@ -5,6 +5,7 @@
 #include "../../disco/shred/fd_fec_set.h"
 #include "../../choreo/votor/ag_votor_base.h"
 #include "../../choreo/fd_choreo_base.h"
+#include "../../flamenco/alpenglow/fd_block_marker.h"
 
 struct fd_mr20 {
   uchar uc[ FD_SHRED_MERKLE_NODE_SZ ];
@@ -40,10 +41,10 @@ struct fd_repair_fec {
   uint      fec_idx;
   ulong     slot;
   uint      rcvd;
-  uchar     complete      : 1;
-  uchar     data_complete : 1;
-  uchar     is_leader     : 1;
-  uchar     notarized     : 1;
+  uchar     complete          : 1;
+  uchar     data_complete     : 1;
+  uchar     is_leader         : 1;
+  uchar     notarized         : 1;
   ulong     next;
   ulong     prev;
   uint      data_rcvd;     /* shred tile masks at first completion: bit j set if the data shred with in-type index j was received (vs recovered) */
@@ -53,9 +54,11 @@ struct fd_repair_fec {
   int       final_src;     /* FD_EVENT_BLOCK_RECEIVED_FEC_SETS_FINAL_SHRED_SOURCE_* of the last data shred received before it completed, 0 if none */
   long      first_ts;      /* when its first shred arrived, 0 if none yet */
   long      cmpl_ts;       /* when it first completed, 0 if not yet */
+
+  fd_update_parent_t update_parent; /* only if has_update_parent.  Whether it counts also depends on the previous FEC set ending in DATA_COMPLETE */
 };
 typedef struct fd_repair_fec fd_repair_fec_t;
-FD_STATIC_ASSERT( sizeof(fd_repair_fec_t)==120UL, fd_repair_fec );
+FD_STATIC_ASSERT( sizeof(fd_repair_fec_t)==160UL, fd_repair_fec );
 
 #define POOL_NAME fd_repair_fec_pool
 #define POOL_T    fd_repair_fec_t
