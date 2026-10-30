@@ -1987,8 +1987,8 @@ fd_sbpf_program_load_lenient( fd_sbpf_program_t *             prog,
   fd_elf64_shdr const * sh_text  = &shdrs[ elf_info->shndx_text ];
 
   /* Fast (no-scratch) path is selected by the caller passing scratch==NULL,
-     which the program cache does for fast-eligible programs (peek set
-     load_buf_sz < bin_sz, i.e. !fd_sbpf_loader_is_legacy_lenient).  On the
+     which the program cache does when load_buf_sz < bin_sz.  Fast-eligible
+     images with load_buf_sz==bin_sz still use scratch.  On the
      fast path the rodata buffer is sized to load_buf_sz and the read-only
      image is assembled in place; otherwise we take the original
      scratch-based path with a bin_sz buffer. */
@@ -2098,7 +2098,7 @@ fd_sbpf_program_load( fd_sbpf_program_t *             prog,
   };
 
   /* Invoke strict vs lenient loader
-     Note: info.sbpf_version is already set by fd_sbpf_program_parse()
+     Note: info.sbpf_version is already set by fd_sbpf_elf_peek()
      https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/elf.rs#L396-L402 */
   if( FD_UNLIKELY( fd_sbpf_enable_stricter_elf_headers_enabled( prog->info.sbpf_version ) ) ) {
     return fd_sbpf_program_load_strict( prog, bin );

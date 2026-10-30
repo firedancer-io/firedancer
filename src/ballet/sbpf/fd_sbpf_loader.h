@@ -185,8 +185,8 @@ struct fd_sbpf_elf_info {
        - lenient legacy path: bin_sz -- the loader relocates in place over the
                              full ELF image (and may read the unused account
                              tail), so it needs the whole binary plus scratch
-     fd_sbpf_loader_is_legacy_lenient() (load_buf_sz==bin_sz) identifies the
-     last case -- the only one that requires a scratch buffer. */
+     fd_sbpf_loader_is_legacy_lenient() selects the scratch path when
+     load_buf_sz==bin_sz, including fast-eligible images ending at EOF. */
   ulong load_buf_sz;
 
   /* Known section indices
@@ -210,11 +210,9 @@ struct fd_sbpf_elf_info {
 };
 typedef struct fd_sbpf_elf_info fd_sbpf_elf_info_t;
 
-/* fd_sbpf_loader_is_legacy_lenient returns 1 iff the program must be loaded via
-   the legacy lenient path (relocate in place over the full ELF image using a
-   scratch buffer).  This is exactly the case load_buf_sz==bin_sz: strict (v3+)
-   and lenient-fast loads assemble a smaller, exact-size buffer with no scratch,
-   while the legacy path needs the whole binary (load_buf_sz==bin_sz) + scratch. */
+/* fd_sbpf_loader_is_legacy_lenient selects the scratch-based lenient load
+   path when load_buf_sz==bin_sz.  This conservatively includes fast-eligible
+   lenient images whose read-only image ends at EOF. */
 FD_FN_PURE static inline int
 fd_sbpf_loader_is_legacy_lenient( fd_sbpf_elf_info_t const * info ) {
   return info->load_buf_sz==info->bin_sz;
