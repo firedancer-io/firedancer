@@ -550,7 +550,7 @@ fd_banks_clone_from_parent( fd_banks_t * banks,
   return child_bank;
 }
 
-/* fd_bank_stake_delegation_apply_deltas applies all of the stake
+/* fd_bank_apply_deltas applies all of the stake
    delegations for the entire direct ancestry from the bank to the
    root into a full fd_stake_delegations_t object. */
 

@@ -154,7 +154,7 @@ FD_PROTOTYPES_BEGIN
 
    To create a new bank.  This simply provisions the memory for the bank
    but it should not be used to execute transactions against.
-   ulong bank_index = fd_banks_new_bank( banks, parent_bank_index )->idx;
+   ulong bank_index = fd_banks_new_bank( banks, parent_bank_index, now, is_leader )->idx;
 
    To clone bank from parent banks.  This makes a bank replayable by
    copying over the state from the parent bank into the child.  It
@@ -175,15 +175,10 @@ FD_PROTOTYPES_BEGIN
    To query some arbitrary bank:
    fd_bank_t * bank_query = fd_banks_bank_query( banks, bank_index );
 
-  To access the fields in the bank if they are templatized:
+  To access a simple field in the bank:
 
-  fd_struct_t const * field = fd_bank_field_query( bank );
-  OR
-  fd_struct field = fd_bank_field_get( bank );
-
-  fd_struct_t * field = fd_bank_field_modify( bank );
-  OR
-  fd_bank_field_set( bank, value );
+  ulong slot = bank->f.slot;
+  bank->f.slot = slot;
 
   If a bank is marked dead, the caller should call
   fd_banks_mark_bank_dead() to mark the bank and all of its descendants
@@ -538,7 +533,7 @@ fd_banks_join( void * banks_data_mem );
 fd_bank_t *
 fd_banks_init_bank( fd_banks_t * banks );
 
-/* fd_banks_get_bank_idx returns a bank for a given bank index. */
+/* fd_banks_bank_query returns a bank for a given bank index. */
 
 fd_bank_t *
 fd_banks_bank_query( fd_banks_t * banks,
@@ -695,7 +690,7 @@ fd_banks_get_evictable_bank( fd_banks_t *      banks,
 int
 fd_banks_can_start_bank( fd_banks_t * banks );
 
-/* fd_bank_clear_bank() clears the contents of a bank. This should ONLY
+/* fd_banks_clear_bank() clears the contents of a bank. This should ONLY
    be used with banks that have no children and should only be used in
    testing and fuzzing.  WARNING: This should NOT be used in production.
 
