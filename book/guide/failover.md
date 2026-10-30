@@ -28,7 +28,7 @@ safe-guards described here.
 Validators with `[failover.enabled]` set run a failover tile, which
 listens on `[failover.listen_address]:[failover.listen_port]` (TCP port
 `8010` by default) and dials the same port on the remote validator when
-you ask for a handoff. The coordinated hand-off works as follows:
+you ask for a handoff. The coordinated handoff works as follows:
 
 1. **Discovery.** The local validator looks the identity up in gossip and
    dials the gossip address of the validator advertising it. Pass
@@ -70,10 +70,10 @@ a stand-by, instead of actively voting:
 
 ```toml [boot_to_standby]
 # Keep the staked identity keypair in [paths.identity_key] but set
-# `boot_to_standby` so the validator boots up with a mew junk key
-# that is auotmatically generated in memory at every start.
+# `boot_to_standby` so the validator boots up with a new junk key
+# that is automatically generated in memory at every start.
 # The staked keypair is the identity this validator takes with
-# `failover promote`, so # no keypair argument is needed.
+# `failover promote`, so no keypair argument is needed.
 [paths]
     identity_key = "/home/firedancer/validator-keypair.json"
 

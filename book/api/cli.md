@@ -379,11 +379,11 @@ default port 8010.
 |-----------|---------|
 | `0` | Success, the local validator now runs the identity |
 | `1` | Nothing changed due to initial checks failing |
-| `2` | No hand-off, a fix is needed |
-| `3` | No hand-off, retry again |
+| `2` | No handoff, a fix is needed |
+| `3` | No handoff, retry again |
 | `4` | The outcome is unknown, check both machines with [`get-identity`](#get-identity) |
 | `5` | The remote validator gave the identity up but the local one did not take it. Use `--force` on the local machine to recover |
-| `6` | `set-identity` was run and took precedent over this hand-off |
+| `6` | `set-identity` was run and took precedence over this handoff |
 
 <<< @/snippets/commands/failover-promote.ansi
 
