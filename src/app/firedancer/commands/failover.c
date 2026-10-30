@@ -170,7 +170,6 @@ fail_result( ulong result ) {
     case FD_FAILOVER_CONTROL_RESULT_NO_FINAL_HISTORY:
     case FD_FAILOVER_CONTROL_RESULT_NO_HOLDER_ADDRESS:
     case FD_FAILOVER_CONTROL_RESULT_REPLAY_BEHIND:
-    case FD_FAILOVER_CONTROL_RESULT_INPUT_LOST:
     case FD_FAILOVER_CONTROL_RESULT_TIMEOUT:
     case FD_FAILOVER_CONTROL_RESULT_PEER_RESTARTED:
     case FD_FAILOVER_CONTROL_RESULT_ADOPTION_FAILED:
@@ -206,10 +205,10 @@ failover_cmd_fn( args_t *   args,
                  config_t * config ) {
   fd_adminctl_t * adminctl = adminctl_client_attach( config, args->failover.name );
   uchar const *   keypair  = args->failover.keypair_path[ 0 ] ? failover_keypair_load( args->failover.keypair_path ) : NULL;
-  /* The pre-check runs where it always did, in a terminal without --yes.
-     --yes keeps both escapes the operator relies on: a standby booted
-     under its junk key file names the staked target, and a requester
-     can be retargeted mid-handoff. */
+  /* The pre-check runs in a terminal without --yes, before the prompt,
+     so a validator that votes as another identity refuses before the
+     operator confirms.  --yes skips it, so a requester can be
+     retargeted mid-handoff. */
   if( keypair && !args->failover.yes && isatty( STDIN_FILENO ) ) failover_preflight( adminctl, args, keypair );
   failover_confirm( args );
 
@@ -277,8 +276,8 @@ action_t fd_action_failover = {
   .perm           = failover_promote_perm,
   .description    = "Take the identity that another validator runs",
   .detail         = "Hands off an identity between validators.  Each boots under its own\n"
-                    "[paths.identity_key], and all validators must use the same [paths.vote_account].\n"
-                    "On the machine that should take over, pass the keypair of the target identity.\n"
+                    "[paths.identity_key].  On the machine that should take over, pass the keypair\n"
+                    "of the target identity.\n"
                     "A validator with [failover.boot_to_standby] boots as a standby under a junk key\n"
                     "generated in memory and loads the keypair in its [paths.identity_key] as the\n"
                     "identity to take over, so `failover promote` there reads the keypair from the\n"

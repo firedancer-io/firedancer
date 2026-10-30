@@ -1094,11 +1094,11 @@ fd_topo_initialize( config_t * config ) {
     /**/               fd_topob_tile(       topo, "failov",  "failov",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0, 0, 0 );
 
     /**/               fd_topob_tile_in (   topo, "failov",  0UL,          "metric_in", "gossip_ciseen", 0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
-    /**/               fd_topob_tile_in (   topo, "failov",  0UL,          "metric_in", "admin_failov",  0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
+    /**/               fd_topob_tile_in (   topo, "failov",  0UL,          "metric_in", "admin_failov",  0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
     /**/               fd_topob_tile_out(   topo, "failov",  0UL,                       "failov_admin",  0UL                                                );
     /**/               fd_topob_tile_in (   topo, "failov",  0UL,          "metric_in", "votor_hist",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
     /**/               fd_topob_tile_out(   topo, "failov",  0UL,                       "failov_votor",  0UL                                                );
-    /**/               fd_topob_tile_in (   topo, "failov",  0UL,          "metric_in", "votor_failov",  0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
+    /**/               fd_topob_tile_in (   topo, "failov",  0UL,          "metric_in", "votor_failov",  0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
     /**/               fd_topob_tile_out(   topo, "failov",  0UL,                       "failov_sign",   0UL                                                );
     /**/               fd_topob_tile_in (   topo, "failov",  0UL,          "metric_in", "sign_failov",   0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_UNPOLLED );
   }
@@ -1518,7 +1518,6 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
 
     fd_cstr_ncpy( tile->failov.identity_key_path, identity_key_path,           sizeof(tile->failov.identity_key_path) );
     fd_cstr_ncpy( tile->failov.target_key_path,   config->paths.identity_key,  sizeof(tile->failov.target_key_path)   );
-    fd_cstr_ncpy( tile->failov.vote_account_path, config->paths.vote_account,  sizeof(tile->failov.vote_account_path) );
     if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( config->firedancer.failover.listen_address, &tile->failov.listen_addr ) ) )
       FD_LOG_ERR(( "[failover.listen_address] `%s` must be an IPv4 address, host names are not accepted", config->firedancer.failover.listen_address ));
     tile->failov.port = config->firedancer.failover.listen_port;

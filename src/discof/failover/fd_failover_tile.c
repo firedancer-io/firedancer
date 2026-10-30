@@ -199,8 +199,6 @@ typedef struct fd_failover_id_switch fd_failover_id_switch_t;
 struct fd_failover_tile_ctx {
   /* Networking */  
   fd_keyguard_client_t    keyguard_client[ 1 ]; /* signs admission proofs and TLS */
-  int                     input_lost;           /* input overrun disables failover until restart */
-  int                     read_pending;         /* cleared only after STEM validates the fragment */
   fd_failover_hello_t     hello;       /* the HELLO we send */
   uchar                   installed[ 32 ];    /* the identity this machine signs with now */
   uchar                   spare_pubkey[ 32 ]; /* the junk key generated at boot, a handoff installs it */
@@ -214,6 +212,7 @@ struct fd_failover_tile_ctx {
 
   ulong peer_floor; /* highest last vote the peer reported for the target, kept across sessions */
   ulong own_floor;  /* highest vote this machine signed as the target */
+  int   own_voted;  /* a vote this machine signed as the target arrived since boot or since the target changed */
 
   /* Gossip */
   ulong       gossip_in_idx;
@@ -386,13 +385,6 @@ privileged_init( fd_topo_t const *      topo,
     FD_LOG_ERR(( "the failover junk key must differ from [paths.identity_key]" ));
   }
 
-  /* The vote key is a base58 pubkey or a keypair file. */
-  if( FD_UNLIKELY( tile->failov.vote_account_path[ 0 ] && !fd_base58_decode_32( tile->failov.vote_account_path, ctx->hello.vote_account ) ) ) {
-    uchar const * vote_account = fd_keyload_load( tile->failov.vote_account_path, 1 );
-    fd_memcpy( ctx->hello.vote_account, vote_account, 32UL );
-    fd_keyload_unload( vote_account, 1 );
-  }
-
   ctx->adopt_anchor     = FD_FAILOVER_SLOT_NULL;
   ctx->empty_vote_after = FD_FAILOVER_SLOT_NULL;
 
@@ -530,25 +522,11 @@ unprivileged_init( fd_topo_t const *      topo,
 
 #include "fd_failover_controller.c"
 
-/* Failover must not backpressure validator work. */
-static void
-on_input_overrun( fd_failover_tile_ctx_t * ctx ) {
-  if( FD_UNLIKELY( ctx->input_lost ) ) return;
-  ctx->input_lost = 1;
-  ctx->stuck      = 1;
-  ctx->hist_fresh = 0;
-  finish_cmd( ctx, FD_FAILOVER_CONTROL_RESULT_INPUT_LOST );
-  fd_failover_channel_init_dialer( ctx->channel, 0U, 0 );
-  fd_failover_channel_hangup( ctx->channel, fd_failover_clock() );
-  FD_LOG_WARNING(( "failover input overrun, failover is disabled until restart, validator processing continues" ));
-}
-
 static inline int
 before_frag( fd_failover_tile_ctx_t * ctx,
              ulong                    in_idx,
              ulong                    seq FD_PARAM_UNUSED,
              ulong                    sig ) {
-  if( FD_UNLIKELY( ctx->input_lost ) ) return in_idx!=ctx->admin_in_idx || sig!=FD_FAILOVER_BUS_REQUEST;
   if( FD_LIKELY( in_idx==ctx->gossip_in_idx ) ) {
     return sig!=FD_GOSSIP_UPDATE_TAG_CONTACT_INFO && sig!=FD_GOSSIP_UPDATE_TAG_CONTACT_INFO_REMOVE;
   }
@@ -570,7 +548,6 @@ during_frag( fd_failover_tile_ctx_t * ctx,
              ulong                    chunk,
              ulong                    sz,
              ulong                    ctl FD_PARAM_UNUSED ) {
-  ctx->read_pending = 1;
   if( FD_UNLIKELY( in_idx==ctx->adopt_in_idx ) ) {
     if( FD_UNLIKELY( chunk<ctx->adopt_in_chunk0 || chunk>ctx->adopt_in_wmark || sz!=sizeof(fd_votor_adopt_result_t) ) ) {
       FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->adopt_in_chunk0, ctx->adopt_in_wmark ));
@@ -634,7 +611,6 @@ after_frag( fd_failover_tile_ctx_t * ctx,
             ulong                    tsorig FD_PARAM_UNUSED,
             ulong                    tspub  FD_PARAM_UNUSED,
             fd_stem_context_t *      stem   FD_PARAM_UNUSED ) {
-  ctx->read_pending = 0;
   if( FD_UNLIKELY( in_idx==ctx->adopt_in_idx ) ) {
     ctx->adopt_result.result = validate_adopt_code( ctx->adopt_result.result );
     ctx->adopt_result_id     = sig;
@@ -671,19 +647,6 @@ after_credit( fd_failover_tile_ctx_t * ctx,
               fd_stem_context_t *      stem,
               int *                    opt_poll_in FD_PARAM_UNUSED,
               int *                    charge_busy ) {
-  /* STEM skips after_frag if the fragment was overwritten during the read. */
-  if( FD_UNLIKELY( ctx->read_pending ) ) on_input_overrun( ctx );
-  if( FD_UNLIKELY( ctx->input_lost ) ) {
-    if( FD_UNLIKELY( ctx->bus_req_fresh ) ) {
-      ctx->bus_req_fresh = 0;
-      serve_bus_request( ctx, stem, fd_failover_clock() );
-      *charge_busy = 1;
-    }
-    if( FD_UNLIKELY( ctx->cmd_done ) ) {
-      publish_cmd_answer( ctx, stem );
-    }
-    return;
-  }
   if( FD_UNLIKELY( ctx->hist_fresh ) ) {
     ctx->hist_fresh = 0;
     on_votor_hist_msg( ctx, &ctx->hist );
@@ -762,7 +725,6 @@ populate_allowed_fds( fd_topo_t const *      topo,
 #define STEM_CALLBACK_CONTEXT_TYPE       fd_failover_tile_ctx_t
 #define STEM_CALLBACK_CONTEXT_ALIGN      alignof(fd_failover_tile_ctx_t)
 
-#define STEM_CALLBACK_AFTER_POLL_OVERRUN on_input_overrun
 #define STEM_CALLBACK_AFTER_CREDIT       after_credit
 #define STEM_CALLBACK_BEFORE_FRAG        before_frag
 #define STEM_CALLBACK_DURING_FRAG        during_frag

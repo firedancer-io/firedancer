@@ -76,13 +76,12 @@
 #define FD_FAILOVER_CONTROL_RESULT_NO_FINAL_HISTORY  (0x4006UL)
 #define FD_FAILOVER_CONTROL_RESULT_NO_HOLDER_ADDRESS (0x4007UL)
 #define FD_FAILOVER_CONTROL_RESULT_REPLAY_BEHIND     (0x4008UL)
-#define FD_FAILOVER_CONTROL_RESULT_INPUT_LOST        (0x4009UL)
-#define FD_FAILOVER_CONTROL_RESULT_TIMEOUT           (0x400AUL)
-#define FD_FAILOVER_CONTROL_RESULT_PEER_RESTARTED    (0x400BUL)
-#define FD_FAILOVER_CONTROL_RESULT_ADOPTION_FAILED   (0x400CUL)
-#define FD_FAILOVER_CONTROL_RESULT_SWITCH_FAILED     (0x400DUL)
-#define FD_FAILOVER_CONTROL_RESULT_HOLDS_OTHER       (0x400EUL)
-#define FD_FAILOVER_CONTROL_RESULT_IDENTITY_CHANGED  (0x400FUL)
+#define FD_FAILOVER_CONTROL_RESULT_TIMEOUT           (0x4009UL)
+#define FD_FAILOVER_CONTROL_RESULT_PEER_RESTARTED    (0x400AUL)
+#define FD_FAILOVER_CONTROL_RESULT_ADOPTION_FAILED   (0x400BUL)
+#define FD_FAILOVER_CONTROL_RESULT_SWITCH_FAILED     (0x400CUL)
+#define FD_FAILOVER_CONTROL_RESULT_HOLDS_OTHER       (0x400DUL)
+#define FD_FAILOVER_CONTROL_RESULT_IDENTITY_CHANGED  (0x400EUL)
 
 struct fd_adminctl_add_auth_voter_v1 {
   ulong version; /* ==FD_ADMINCTL_ADD_AUTH_VOTER_PAYLOAD_VERSION */
@@ -156,7 +155,6 @@ fd_adminctl_failover_result_cstr( ulong result ) {
     case FD_FAILOVER_CONTROL_RESULT_NO_FINAL_HISTORY:  return "the machine running the identity has no eligible final vote state to hand over, its log says why";
     case FD_FAILOVER_CONTROL_RESULT_NO_HOLDER_ADDRESS: return "gossip has no address for the machine running the identity, wait or pass --address";
     case FD_FAILOVER_CONTROL_RESULT_REPLAY_BEHIND:     return "this machine's replay is too far behind the last vote of the machine running the identity, retry once caught up";
-    case FD_FAILOVER_CONTROL_RESULT_INPUT_LOST:        return "failover lost an input update and is disabled until restart";
     case FD_FAILOVER_CONTROL_RESULT_TIMEOUT:           return "the machine running the identity did not answer within 64 seconds";
     case FD_FAILOVER_CONTROL_RESULT_PEER_RESTARTED:    return "the machine running the identity restarted before it answered";
     case FD_FAILOVER_CONTROL_RESULT_ADOPTION_FAILED:   return "this machine did not adopt the vote history";

@@ -16,7 +16,6 @@ fd_failover_hello_check( fd_failover_hello_t const * self,
                    self->mode!=peer->mode ) )                                      return FD_FAILOVER_HELLO_ERR_MODE;
   if( FD_UNLIKELY( !self->boot_id || !peer->boot_id ) )                            return FD_FAILOVER_HELLO_ERR_BOOT_ID;
   if( FD_UNLIKELY( !fd_memeq( self->staked_pubkey, peer->staked_pubkey, 32UL ) ) ) return FD_FAILOVER_HELLO_ERR_STAKED;
-  if( FD_UNLIKELY( !fd_memeq( self->vote_account,  peer->vote_account,  32UL ) ) ) return FD_FAILOVER_HELLO_ERR_VOTE_ACCT;
   if( FD_UNLIKELY( self->boot_id==peer->boot_id ) )                                return FD_FAILOVER_HELLO_ERR_SELF;
   if( FD_UNLIKELY( self->holds && peer->holds ) )                                  return FD_FAILOVER_HELLO_ERR_BOTH_HOLD;
   return FD_FAILOVER_HELLO_OK;

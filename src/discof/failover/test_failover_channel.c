@@ -32,7 +32,6 @@ member( ulong idx, ulong staked_idx ) {
                                 .holds=(uchar)(idx ? 0 : 1),
                                 .mode=FD_FAILOVER_MODE_ALPENGLOW };
   fd_memcpy( hello.staked_pubkey, keys[staked_idx]+32UL, 32UL );
-  fd_memset( hello.vote_account, 0xBB, 32UL );
   FD_TEST( !fd_failover_channel_set_identity( ch, (fd_tls_sign_t){ .ctx=keys[staked_idx], .sign_fn=sign_fn },
                                                   (fd_failover_proof_signer_t){ .ctx=keys[staked_idx], .sign_fn=proof_fn }, &hello ) );
   fd_failover_channel_init_listener( ch, FD_IP4_ADDR(127,0,0,1), 0 );

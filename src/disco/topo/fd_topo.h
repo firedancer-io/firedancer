@@ -246,7 +246,6 @@ struct fd_topo_tile {
     struct {
       char   identity_key_path[ PATH_MAX ]; /* the key this machine boots under */
       char   target_key_path[ PATH_MAX ];   /* the identity failover hands off, [paths.identity_key] */
-      char   vote_account_path[ PATH_MAX ];
       uint   listen_addr;          /* network byte order */
       ushort port;
 

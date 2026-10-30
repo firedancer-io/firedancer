@@ -430,6 +430,16 @@ load_keys( fd_sign_ctx_t *        ctx,
     if( FD_UNLIKELY( fd_memeq( ctx->failover_junk_key+32UL, ctx->failover_key+32UL, 32UL ) ) ) {
       FD_LOG_ERR(( "the failover junk key must differ from the [paths.identity_key] key" ));
     }
+
+    fd_sha512_t sha512[ 1 ];
+    FD_TEST( fd_sha512_join( fd_sha512_new( sha512 ) ) );
+    uchar check_public_key[ 32 ];
+    fd_ed25519_public_from_private( check_public_key, ctx->failover_key, sha512 );
+    fd_memzero_explicit( sha512, sizeof(sha512) );
+    if( FD_UNLIKELY( !fd_memeq( check_public_key, ctx->failover_key+32UL, 32UL ) ) ) {
+      FD_LOG_EMERG(( "The public key in the failover identity key file does not match the public key derived from the private key. "
+                     "Firedancer will not use the key pair to sign as it might leak the private key." ));
+    }
   } else {
     FD_TEST( !standby );
   }

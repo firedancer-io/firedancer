@@ -351,8 +351,7 @@ remote validator currently running it and installs it on this local
 validator. Run this command on the machine that should take over,
 with the target keypair of the identity to take. The machine that
 originally ran it will switch to a random junk key that it generated
-at boot. The validators must use the same vote account and have
-failover enabled.
+at boot. Both validators must have failover enabled.
 
 ```sh
 firedancer failover promote [<keypair>] [--name <name>] [--yes] [--force] [--address <address>] [--port <port>]
@@ -383,11 +382,12 @@ network, run the following on the machine that should take over.
 ### Setup
 
 Failover runs on every validator with `[failover.enabled]` set to `true`.
-Each validator boots under its own `[paths.identity_key]`, and all must
-use the same vote account. The validator that should vote keeps the
-identity's keypair there. On every other machine, create a random unstaked
-placeholder keypair of its own and point `[paths.identity_key]` at it, so
-it replays without voting until it takes over.
+Each validator boots under its own `[paths.identity_key]`. The validator
+that should vote keeps the identity's keypair there. On every other
+machine, create a random unstaked placeholder keypair of its own and point
+`[paths.identity_key]` at it, so it replays without voting until it takes
+over. `[paths.vote_account]` takes no part in the handoff, it does not
+need to be set or to match between the validators.
 
 <<< @/snippets/commands/keys-new-junk.ansi
 
