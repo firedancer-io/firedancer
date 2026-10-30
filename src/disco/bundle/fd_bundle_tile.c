@@ -509,7 +509,7 @@ privileged_init( fd_topo_t const *      topo,
   ctx->keylog_fd = -1;
 
   if( FD_UNLIKELY( tile->bundle.key_log_path[0] ) ) {
-    ctx->keylog_fd = open( tile->bundle.key_log_path, O_WRONLY|O_APPEND|O_CREAT, 0644 );
+    ctx->keylog_fd = open( tile->bundle.key_log_path, O_WRONLY|O_APPEND|O_CREAT, 0600 );
     if( FD_UNLIKELY( ctx->keylog_fd < 0 ) ) {
       FD_LOG_ERR(( "open(%s) failed (%i-%s)", tile->bundle.key_log_path, errno, fd_io_strerror( errno ) ));
     }
