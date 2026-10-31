@@ -99,8 +99,10 @@ def convert_dbip(input_path: Path, output_path: Path) -> None:
         for cy in sorted(city_names.keys()):
             f.write(cy.encode('ascii'))
 
-        # 4-byte align so the validator uses the arrays in place
+        # 4-byte align; the head (through here) and the segment section
+        # are separate zstd frames (see fd_gui_peers.h)
         f.write(b'\0' * (-f.tell() % 4))
+        head_sz = f.tell()
         f.write(struct.pack('<Q', len(segments)))
         for start, _, _ in segments:
             f.write(struct.pack('<I', start))
@@ -113,8 +115,9 @@ def convert_dbip(input_path: Path, output_path: Path) -> None:
         assert f.tell() <= FD_GUI_GEOIP_BIN_MAX
 
     print(f"Converted {len(records)} records into {len(segments)} segments with {len(country_codes)} country codes")
+    return head_sz
 
-def update_db(url: str, output_path: Path, processor: Callable[[Path, Path], None]) -> None:
+def update_db(url: str, output_path: Path, processor: Callable[[Path, Path], int]) -> None:
     req = urllib.request.Request(url=url, headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36'})
 
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -122,9 +125,10 @@ def update_db(url: str, output_path: Path, processor: Callable[[Path, Path], Non
             with gzip.open(f, 'rb') as f_in:
                 (Path(tmpdir) / "db.csv").write_bytes(f_in.read())
 
-        processor(Path(tmpdir) / "db.csv", Path(tmpdir) / "db.bin")
+        head_sz = processor(Path(tmpdir) / "db.csv", Path(tmpdir) / "db.bin")
         compressor = zstandard.ZstdCompressor(level=FD_GUI_GEOIP_ZSTD_COMPRESSION_LEVEL)
-        output_path.write_bytes(compressor.compress((Path(tmpdir) / "db.bin").read_bytes()))
+        image = (Path(tmpdir) / "db.bin").read_bytes()
+        output_path.write_bytes(compressor.compress(image[:head_sz]) + compressor.compress(image[head_sz:]))
 
 def update_dbip() -> None:
     print("Updating dbip.bin (this will take ~2-5 minutes)")
