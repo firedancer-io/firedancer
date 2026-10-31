@@ -411,6 +411,22 @@ GET_ACCOUNT_INFO = [
                 "jsonrpc": "2.0",
                 "id": 1,
                 "method": "getAccountInfo",
+                "params": e,
+            },
+            "description": f"getAccountInfo missing account params={json.dumps(e)}",
+            "exclude_paths": ["root['msg']['result']['context']['slot']"],
+        }
+        for e in [
+            ["JEKNVnkbo3jma5nREBBJCDoXFVeKkD56V3xKrvRmWxFG"],
+            ["JEKNVnkbo3jma5nREBBJCDoXFVeKkD56V3xKrvRmWxFG", {"encoding": "base64", "commitment": "finalized"}],
+        ]
+    ],
+    *[
+        {
+            "payload": {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "getAccountInfo",
                 "params": [
                     "11111111111111111111111111111111",  # system program
                     {
