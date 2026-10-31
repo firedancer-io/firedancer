@@ -1937,7 +1937,7 @@ fd_tls_client_hs_wait_finished( fd_tls_t const *      const client,
     uchar msg_buf[ FD_TLS_SERVER_CERT_MSG_SZ_MAX ];
     long cert_msg_sz = fd_tls_encode_cert_x509( client->cert_x509, client->cert_x509_sz, msg_buf, sizeof(msg_buf) );
     if( FD_UNLIKELY( cert_msg_sz<0L ) )
-      return fd_tls_alert( &hs->base, FD_TLS_ALERT_INTERNAL_ERROR, FD_TLS_REASON_SENDMSG_FAIL );
+      return fd_tls_alert( &hs->base, (uint)(-cert_msg_sz), FD_TLS_REASON_CERT_ENCODE );
 
     /* Send certificate message */
 
