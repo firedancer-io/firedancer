@@ -4747,13 +4747,11 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->genesis = fd_genesis_new( genesis_mem, fd_genesis_account_max( tile->replay.genesis_max_message_size ) );
   FD_TEST( ctx->genesis );
 
-  /* Distinct voters <= delegations iterated: root pool plus disk roots
-     (2*root+2*disk, see fd_stake_delegations.h). */
+  /* Distinct voters <= delegations iterated: RAM plus disk roots
+     (2*max_stake_accounts+2*disk, see fd_stake_delegations.h). */
   ulong banks_obj_id = fd_pod_query_ulong( topo->props, "banks", ULONG_MAX );
   FD_TEST( banks_obj_id!=ULONG_MAX );
-  ulong root_max = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "obj.%lu.stake_delegation_cache_cnt", banks_obj_id );
-  FD_TEST( root_max!=ULONG_MAX );
-  ulong accum_max = 2UL*root_max + 2UL*FD_RUNTIME_MAX_STAKE_DELEGATION_DISK_RECORDS;
+  ulong accum_max = 2UL*FD_RUNTIME_MAX_STAKE_ACCOUNTS + 2UL*FD_RUNTIME_MAX_STAKE_DELEGATION_DISK_RECORDS;
   ctx->runtime_stack = fd_runtime_stack_join( fd_runtime_stack_new( runtime_stack_mem, FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS, FD_RUNTIME_STAKE_ACCUM_RAM_MAX, FD_RUNTIME_STAKE_POINTS_WINDOW,
                                                                     FD_STAKE_ACCUM_FD, accum_max, ctx->runtime_stack_seed ) );
   FD_TEST( ctx->runtime_stack );

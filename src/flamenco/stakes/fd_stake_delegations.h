@@ -64,8 +64,8 @@
    view_begin/iterate/view_end bracket.
 
    max_disk_records bounds the number of delta records that can spill
-   to disk.  The disk root capacity is max_stake_accounts plus twice
-   max_disk_records. */
+   to disk.  root_cache_cnt roots stay in memory; the disk root tier
+   holds the rest of 2*max_stake_accounts+2*max_disk_records roots. */
 
 #define FD_STAKE_DELEGATIONS_ALIGN    (128UL)
 #define FD_STAKE_DELEGATIONS_FORK_MAX (65534UL)
@@ -274,12 +274,14 @@ ulong
 fd_stake_delegations_align( void );
 
 /* fd_stake_delegations_footprint returns the footprint of the stake
-   delegations struct for the given root pool capacity and max live
-   slots.  The in-memory delta pool has the same capacity as the root
-   pool (max_stake_accounts); further deltas spill to disk. */
+   delegations struct for the given stake account bound, in-memory root
+   pool capacity (root_cache_cnt in [1,max_stake_accounts]) and max live
+   slots.  The in-memory delta pool holds root_cache_cnt elements;
+   further deltas spill to disk. */
 
 ulong
 fd_stake_delegations_footprint( ulong max_stake_accounts,
+                                ulong root_cache_cnt,
                                 ulong max_live_slots );
 
 /* fd_stake_delegations_new creates a new stake delegations struct with
@@ -293,6 +295,7 @@ fd_stake_delegations_new( void * mem,
                           int    disk_fd,
                           ulong  seed,
                           ulong  max_stake_accounts,
+                          ulong  root_cache_cnt,
                           ulong  max_disk_records,
                           ulong  max_live_slots );
 

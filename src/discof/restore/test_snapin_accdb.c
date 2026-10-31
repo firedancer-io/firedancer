@@ -143,10 +143,10 @@ test_env_init_ex( test_env_t * env,
   env->snapin_shmem->stake_fork = USHORT_MAX;
 
   /* Replaced versions tombstone snooped stake delegations. */
-  ulong stake_fp = fd_ulong_align_up( fd_stake_delegations_footprint( 16UL, 4UL ), fd_stake_delegations_align() );
+  ulong stake_fp = fd_ulong_align_up( fd_stake_delegations_footprint( 16UL, 16UL, 4UL ), fd_stake_delegations_align() );
   env->stake_mem = aligned_alloc( fd_stake_delegations_align(), stake_fp );
   FD_TEST( env->stake_mem );
-  FD_TEST( fd_stake_delegations_new( env->stake_mem, FD_STAKE_DELEGATIONS_FD, 1UL, 16UL, 16UL, 4UL ) );
+  FD_TEST( fd_stake_delegations_new( env->stake_mem, FD_STAKE_DELEGATIONS_FD, 1UL, 16UL, 16UL, 16UL, 4UL ) );
   fd_stake_delegations_t * stake_delegations = fd_stake_delegations_join( env->stake_mem, FD_STAKE_DELEGATIONS_FD );
   FD_TEST( stake_delegations );
 

@@ -388,6 +388,7 @@ struct fd_banks {
   ulong max_total_banks;             /* Maximum number of banks */
   ulong cache_cnt;                   /* In-memory entries of each disk backed per-fork store */
   ulong max_stake_accounts;          /* Maximum number of stake accounts */
+  ulong stake_root_cache_cnt;        /* In-memory stake delegation roots and stake reward window */
   ulong max_vote_accounts;           /* Maximum number of vote accounts */
   ulong root_idx;                    /* root idx */
   ulong bank_seq;                    /* app-wide bank sequence number counter; starts at 1 (0 is reserved as an invalid bank_seq sentinel) */
@@ -524,6 +525,7 @@ ulong
 fd_banks_footprint( ulong max_total_banks,
                     ulong cache_cnt,
                     ulong max_stake_accounts,
+                    ulong stake_root_cache_cnt,
                     ulong max_vote_accounts );
 
 /* fd_banks_new() creates a new fd_banks_t struct.  This function
@@ -537,6 +539,7 @@ fd_banks_new( void * mem,
               ulong  max_total_banks,
               ulong  cache_cnt,
               ulong  max_stake_accounts,
+              ulong  stake_root_cache_cnt,
               ulong  max_disk_records,
               ulong  max_vote_accounts,
               ulong  bench_max_cost_per_block, /* [development.bench], floors the block cost limit */
