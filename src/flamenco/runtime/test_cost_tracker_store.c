@@ -69,6 +69,8 @@ test_spill_reload( int fd ) {
     fd_cost_tracker_store_unpin( store, idx[ i ] );
   }
   FD_TEST( spill_sz( fd ) );
+  fd_cost_tracker_store_metrics_t const * m = fd_cost_tracker_store_metrics( store );
+  FD_TEST( m->spilled_cnt==live_cnt-cache_cnt && !m->spill_read_cnt );
 
   fd_cost_tracker_t * pinned = fd_cost_tracker_store_pin( store, idx[ 0 ] );
   FD_TEST( pinned->block_cost==1000UL );
@@ -83,6 +85,8 @@ test_spill_reload( int fd ) {
   FD_TEST( fd_cost_tracker_store_peek( store, idx[ 0 ] )==pinned );
   FD_TEST( pinned->block_cost==1000UL );
   fd_cost_tracker_store_unpin( store, idx[ 0 ] );
+  FD_TEST( m->spill_read_cnt==1UL+2UL*(live_cnt-1UL) ); /* only 1 unpinned entry: every pin after the first misses */
+  FD_TEST( m->spilled_cnt   ==m->spill_read_cnt+live_cnt-cache_cnt );
 
   free( mem );
 }

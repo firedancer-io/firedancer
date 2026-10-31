@@ -797,17 +797,6 @@ enum MetricsSnapinStreamState {
   METRICS_SNAPIN_STREAM_STATE_SHUTDOWN = 5;  // Shutdown
 }
 
-// Snapshot account index finalization stage; published synchronously by the lead inserter: 0=idle, 1=count (counting), 2=scatter (scattering), 3=build (building), 4=cleanup, 5=done
-enum MetricsSnapinIndexState {
-  METRICS_SNAPIN_INDEX_STATE_UNSPECIFIED = 0;
-  METRICS_SNAPIN_INDEX_STATE_IDLE = 1;  // idle
-  METRICS_SNAPIN_INDEX_STATE_COUNT = 2;  // counting
-  METRICS_SNAPIN_INDEX_STATE_SCATTER = 3;  // scattering
-  METRICS_SNAPIN_INDEX_STATE_BUILD = 4;  // building
-  METRICS_SNAPIN_INDEX_STATE_CLEANUP = 5;  // cleanup
-  METRICS_SNAPIN_INDEX_STATE_DONE = 6;  // done
-}
-
 // Tile lifecycle state: 0=booting, 1=running, 2=shutdown
 enum MetricsMetricState {
   METRICS_METRIC_STATE_UNSPECIFIED = 0;
@@ -11840,12 +11829,6 @@ message MetricsSnapin {
   uint64 account_processed = 29;
   // Account batches processed across all snapshots
   uint64 account_batch_processed = 30;
-  // Snapshot account index finalization stage; published synchronously by the lead inserter: 0=idle, 1=count (counting), 2=scatter (scattering), 3=build (building), 4=cleanup, 5=done
-  MetricsSnapinIndexState index_state = 421830292;
-  // Completed index finalization work units (placement ranges, then cleanup); resets on each placement or snapshot attempt
-  uint64 index_progress = 511317753;
-  // Expected index finalization work units (placement ranges plus one for cleanup); work progress is not elapsed-time progress
-  uint64 index_expected = 531162716;
 }
 
 // Metrics of one metric tile instance, one row per sweep

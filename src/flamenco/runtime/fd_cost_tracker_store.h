@@ -17,6 +17,14 @@
 struct fd_cost_tracker_store;
 typedef struct fd_cost_tracker_store fd_cost_tracker_store_t;
 
+/* Spill file I/O counts.  Only grow. */
+
+struct fd_cost_tracker_store_metrics {
+  ulong spilled_cnt;    /* cost trackers written to disk on eviction */
+  ulong spill_read_cnt; /* cost trackers read back from disk */
+};
+typedef struct fd_cost_tracker_store_metrics fd_cost_tracker_store_metrics_t;
+
 FD_PROTOTYPES_BEGIN
 
 /* fd_cost_tracker_store_align returns the alignment of a
@@ -88,6 +96,11 @@ fd_cost_tracker_store_unpin( fd_cost_tracker_store_t * store,
 fd_cost_tracker_t *
 fd_cost_tracker_store_peek( fd_cost_tracker_store_t const * store,
                             ushort                          fork_id );
+
+/* fd_cost_tracker_store_metrics returns the store's spill counters. */
+
+fd_cost_tracker_store_metrics_t const *
+fd_cost_tracker_store_metrics( fd_cost_tracker_store_t const * store );
 
 /* fd_cost_tracker_store_reset resets the cost tracker store.  This is
    not meant for production use and is for testing only. */
