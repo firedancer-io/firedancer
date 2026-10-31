@@ -314,7 +314,6 @@ ENCODE_FN {
     enc->state = STATE_EPOCH_TOTAL_STAKE;
     break;
   }
-  case STATE_EPOCH_STAKE_HISTORY: { __builtin_unreachable(); }
   case STATE_EPOCH_TOTAL_STAKE: {
     int iter_kind = epoch_stakes_iter_kind( bank, enc->epoch_idx );
     ulong total_stake = (iter_kind==FD_VOTE_STAKES_ITER_T_1) ? bank->f.total_epoch_stake : enc->total_stake;
