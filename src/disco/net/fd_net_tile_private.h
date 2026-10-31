@@ -433,7 +433,7 @@ fd_net_rx_pkt( fd_net_tile_t *     ctx,
   ulong const  sig      = fd_disco_netmux_sig( ip4_hdr->saddr, src_port, ip4_hdr->saddr, dst_proto, dgram_off );
   ulong const  tsorig   = 0UL;
 
-  fd_stem_publish( stem, out_idx, sig, chunk, byte_len, ctl, tsorig, tspub );
+  fd_stem_publish( stem, out_idx, sig, chunk, udp_off+udp_sz, ctl, tsorig, tspub );
 
   ctx->metrics.rx_gre_cnt += (ulong)is_gre;
   ctx->metrics.rx_pkt_cnt++;
