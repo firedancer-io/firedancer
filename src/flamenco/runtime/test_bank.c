@@ -1149,6 +1149,59 @@ test_bank_epoch_credits_init_bank_set( void * mem ) {
   fd_epoch_credits_store_release( store, fork_id );
 }
 
+/* Cost trackers keep FD_BANKS_COST_TRACKER_CACHE_MAX entries in RAM
+   even when cache_cnt is larger.  Only REPLAYABLE banks hold one, so
+   frozen banks free their entry without disk I/O. */
+
+static void
+test_bank_cost_tracker_window( void ) {
+  ulong const win       = FD_BANKS_COST_TRACKER_CACHE_MAX;
+  ulong const bank_max  = 1UL+2UL*win;
+  ulong const cache_cnt = 2UL*win;
+  void * mem = aligned_alloc( fd_banks_align(), fd_banks_footprint( bank_max, cache_cnt, 16UL, 16UL, 4UL ) );
+  FD_TEST( mem );
+  fd_banks_t * banks = fd_banks_join( fd_banks_new( mem, FD_STAKE_DELEGATIONS_FD, bank_max, cache_cnt, 16UL, 16UL, 256UL, 4UL, 0, 7779UL ) );
+  FD_TEST( banks );
+  fd_cost_tracker_store_t *               store = fd_banks_get_cost_tracker( banks );
+  fd_cost_tracker_store_metrics_t const * m     = fd_cost_tracker_store_metrics( store );
+  fd_bank_t * root = fd_banks_init_bank( banks );
+  FD_TEST( root );
+
+  fd_bank_t * live[ 16 ];
+  ulong       live_cnt = 0UL;
+  for( ulong r=0UL; r<2UL; r++ ) {
+    for( ulong i=0UL; i<win; i++ ) {
+      fd_bank_t * b = fd_banks_clone_from_parent( banks, fd_banks_new_bank( banks, root->idx, 0L, 0 )->idx );
+      FD_TEST( b );
+      if( r ) {
+        fd_cost_tracker_store_pin( store, b->cost_tracker_fork_id )->block_cost = 100UL+live_cnt;
+        fd_cost_tracker_store_unpin( store, b->cost_tracker_fork_id );
+        live[ live_cnt++ ] = b;
+      } else if( i&1UL ) {
+        fd_banks_mark_bank_frozen( b );
+      } else {
+        live[ live_cnt++ ] = b; /* r=0: half frozen, half live */
+      }
+    }
+  }
+  /* win/2 live + win/2 frozen-then-reused + win/2 new = win/2 spills */
+  FD_TEST( live_cnt==win+win/2UL );
+  FD_TEST( m->spilled_cnt==live_cnt-win && !m->spill_read_cnt );
+
+  /* The topology pin bound (staging lanes + 2) leaves an entry free for
+     the other live trackers to cycle through. */
+  ulong const pin_cnt = 4UL+2UL; /* FD_SCHED_MAX_STAGING_LANES+2 */
+  FD_TEST( pin_cnt<win );
+  for( ulong i=0UL; i<pin_cnt; i++ ) fd_cost_tracker_store_pin( store, live[ i ]->cost_tracker_fork_id );
+  for( ulong i=win/2UL; i<live_cnt; i++ ) {
+    FD_TEST( fd_cost_tracker_store_pin( store, live[ i ]->cost_tracker_fork_id )->block_cost==100UL+i );
+    fd_cost_tracker_store_unpin( store, live[ i ]->cost_tracker_fork_id );
+  }
+  for( ulong i=0UL; i<pin_cnt; i++ ) fd_cost_tracker_store_unpin( store, live[ i ]->cost_tracker_fork_id );
+  FD_TEST( m->spill_read_cnt );
+  free( mem );
+}
+
 /* Logical epoch-credit capacity follows max_total_banks, and
    TEST_BANK_CACHE_CNT sets stay in memory.  More live sets spill and
    reload without evicting a pinned reader. */
@@ -1754,6 +1807,7 @@ main( int argc, char ** argv ) {
   test_bank_epoch_credits_init_bank_set( mem );
   test_bank_epoch_credits_disk_cache( mem );
   test_bank_epoch_credits_fork_id_width();
+  test_bank_cost_tracker_window();
 
   FD_TEST( fd_vote_stakes_footprint( 1UL, FD_BANKS_MAX_BANKS )==fd_vote_stakes_footprint( 1UL, 1UL ) );
   FD_TEST( fd_vote_stakes_footprint( 1UL, 0UL )==0UL );

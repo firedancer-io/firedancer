@@ -41,6 +41,7 @@
 #include "../../flamenco/capture/fd_solcap_writer.h"
 #include "../../flamenco/events/fd_event_runtime.h"
 #include "../../flamenco/progcache/fd_progcache.h"
+#include "../../flamenco/runtime/fd_bank.h"
 #include "../../flamenco/runtime/fd_bpf_ser_arena.h"
 #include "../../flamenco/runtime/fd_cost_tracker.h"
 
@@ -1098,6 +1099,7 @@ fd_topo_initialize( config_t * config ) {
     FD_TEST( fd_pod_insertf_ulong( topo->props, ldr_tt_obj->id, "ldr_tt" ) );
   }
 
+  FD_STATIC_ASSERT( FD_SCHED_MAX_STAGING_LANES+2UL<=FD_BANKS_COST_TRACKER_CACHE_MAX, cost_tracker_pins_fit_window );
   ulong min_bank_cache_cnt = fd_ulong_min( execrp_tile_cnt, FD_SCHED_MAX_STAGING_LANES )+2UL;
   if( FD_UNLIKELY( config->firedancer.runtime.bank_cache_cnt<min_bank_cache_cnt ) ) {
     FD_LOG_ERR(( "Invalid [runtime]: bank_cache_cnt is %lu, but it must be at least %lu (2 more than the smaller of [layout] "

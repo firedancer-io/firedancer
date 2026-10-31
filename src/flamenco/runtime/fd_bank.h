@@ -21,6 +21,9 @@ FD_PROTOTYPES_BEGIN
 #define FD_BANKS_MAX_BANKS (65534UL)
 #define FD_BANKS_ALIGN     (128UL)
 
+/* Max cost trackers held in RAM; the rest spill to disk. */
+#define FD_BANKS_COST_TRACKER_CACHE_MAX (8UL)
+
 /* A fd_bank_t struct is the representation of the bank state on Solana
    for a given block.  More specifically, the bank state corresponds to
    all information needed during execution that is not stored on-chain,
@@ -467,6 +470,9 @@ fd_bank_vote_stakes( fd_bank_t const * bank );
 
 fd_cost_tracker_store_t *
 fd_bank_cost_tracker( fd_bank_t const * bank );
+
+fd_cost_tracker_store_t *
+fd_banks_get_cost_tracker( fd_banks_t * banks );
 
 fd_lthash_value_t const *
 fd_bank_lthash_locking_query( fd_bank_t * bank );
