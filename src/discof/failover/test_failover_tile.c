@@ -759,6 +759,9 @@ test_promote_flags( void ) {
   /* Paired with a peer that does not run it. */
   ctx = controller_init( 0 );
   pair( ctx, 77UL, 0, 1000L );
+  FD_TEST( operator_promote( ctx, FD_ADMINCTL_FAILOVER_FLAG_ADOPT, 1000L )==FD_FAILOVER_CONTROL_RESULT_HOLDER_LIVE );
+  FD_TEST( ctx->action==FD_FAILOVER_ACTION_IDLE );
+  ctx->target_since = 1000L-FD_FAILOVER_GOSSIP_FRESH_NANOS;
   FD_TEST( operator_promote( ctx, FD_ADMINCTL_FAILOVER_FLAG_ADOPT, 1000L )==FD_FAILOVER_CMD_PENDING );
   FD_TEST( ctx->action==FD_FAILOVER_ACTION_PROMOTE_WAIT_REPLAY );
   controller_fini( ctx );

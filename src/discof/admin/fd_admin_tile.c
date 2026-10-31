@@ -1498,7 +1498,7 @@ failover_request( fd_admin_tile_ctx_t * ctx,
   if(      req.cmd>=FD_ADMINCTL_FAILOVER_CMD_CNT )                                           invalid = "unknown command";
   else if( req.flags & ~(FD_ADMINCTL_FAILOVER_FLAG_YES|FD_ADMINCTL_FAILOVER_FLAG_FORCE|FD_ADMINCTL_FAILOVER_FLAG_ADOPT) ) invalid = "unknown flags";
   else if( force && adopt )                                                                  invalid = "--adopt and --force are mutually exclusive";
-  else if( !preflight && (req.cmd==FD_ADMINCTL_FAILOVER_CMD_PROMOTE)!=(force|adopt) )        invalid = "--adopt or --force are for promote";
+  else if( req.cmd==FD_ADMINCTL_FAILOVER_CMD_PROMOTE && !force && !adopt )                   invalid = "a promote request needs --adopt or --force";
   else if( req.cmd!=FD_ADMINCTL_FAILOVER_CMD_HANDOFF && (req.addr || req.port) )             invalid = "an address or port goes only with a handoff";
   else if( preflight && prepare )                                                            invalid = "a preflight carries no keypair";
   if( FD_UNLIKELY( invalid ) ) {

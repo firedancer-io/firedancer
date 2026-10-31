@@ -151,7 +151,7 @@ machine runs the identity, and it takes the identity back with
 Leaving an identity renames its vote history file in
 `[paths.vote_history]` to `vote_history-<pubkey>.bin.bak`, and a
 validator refuses to boot under a key whose vote history file is missing
-while other vote history files are there. 
+while other vote history files are there.
 
 - To restart a machine that took the identity under its junk key, first
   rename `vote_history-<junk>.bin.bak` back to `vote_history-<junk>.bin`.

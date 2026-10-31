@@ -491,6 +491,7 @@ on_operator_action_msg( fd_failover_tile_ctx_t *       ctx,
     ctx->peer_floor     = FD_FAILOVER_SLOT_NULL;
     ctx->own_floor      = FD_FAILOVER_SLOT_NULL;
     ctx->own_voted      = 0;
+    ctx->target_since   = fd_failover_clock();
   }
   ulong boot_id = ctx->hello.boot_id;
   do FD_TEST( fd_rng_secure( &ctx->hello.boot_id, sizeof(ulong) ) ); while( FD_UNLIKELY( !ctx->hello.boot_id || ctx->hello.boot_id==boot_id ) );
@@ -784,6 +785,7 @@ start_promotion( fd_failover_tile_ctx_t *   ctx,
   }
   ctx->promotion.source = source;
   ctx->promotion.force  = !!( flags & (FD_ADMINCTL_FAILOVER_FLAG_ADOPT|FD_ADMINCTL_FAILOVER_FLAG_FORCE) );
+  ctx->promotion.soft   = !!( flags & FD_ADMINCTL_FAILOVER_FLAG_ADOPT );
   ctx->promotion.floor  = get_coverage_floor( ctx );
   /* Until this tenure votes, its final history is exactly the adopted one. */
   ctx->current_history = ctx->promotion.adopt;
@@ -895,7 +897,7 @@ step_promote_wait_adopt( fd_failover_tile_ctx_t * ctx,
     ctx->promotion.retry_slot = FD_FAILOVER_SLOT_NULL;
     return;
   }
-  if( FD_UNLIKELY( ctx->promotion.holder_seen && !ctx->promotion.force ) ) { reject_promotion( ctx, FD_FAILOVER_REJECT_HOLDS_IDENTITY, 0 ); return; }
+  if( FD_UNLIKELY( ctx->promotion.holder_seen && ( !ctx->promotion.force || ctx->promotion.soft ) ) ) { reject_promotion( ctx, FD_FAILOVER_REJECT_HOLDS_IDENTITY, 0 ); return; }
   if( FD_UNLIKELY( tip==FD_FAILOVER_SLOT_NULL ) ) ctx->last_vote_slot = ctx->adopt_result.vote_slot;
   if( FD_UNLIKELY( request_switch( ctx, stem, FD_FAILOVER_SWITCH_KEY_STAKED )==ULONG_MAX ) ) { reject_promotion( ctx, FD_FAILOVER_REJECT_ADOPTION_FAILED, 0 ); return; }
   LOG_CMD_STEP( ctx, "%s: asked the admin tile to install the identity", ctx->promotion.label );
@@ -1095,7 +1097,9 @@ static int
 is_holder_live( fd_failover_tile_ctx_t const * ctx,
                 long                           now ) {
   if( is_holder_fresh( ctx, now ) ) return 1;
-  return fd_failover_channel_state( ctx->channel )==FD_FAILOVER_SESSION_PAIRED && fd_failover_channel_peer_hello( ctx->channel )->holds;
+  if( now>=ctx->target_since && now-ctx->target_since<FD_FAILOVER_GOSSIP_FRESH_NANOS ) return 1;
+  if( fd_failover_channel_state( ctx->channel )!=FD_FAILOVER_SESSION_PAIRED || !fd_failover_channel_peer_hello( ctx->channel )->holds ) return 0;
+  return !( ctx->reply.state!=FD_FAILOVER_REPLY_NONE && is_bound_peer( ctx, &ctx->reply.peer ) );
 }
 
 /* An idle machine that does not run the identity authenticates to the
@@ -1210,7 +1214,8 @@ run_handoff_cmd( fd_failover_tile_ctx_t *           ctx,
     ctx->cmd_addr      = req->addr;
     ctx->cmd_port      = req->port;
     ctx->request.addr  = addr;
-    ctx->request.until = fd_long_sat_add( now, FD_FAILOVER_DEADLINE_NANOS );
+    ctx->request.quick = !!( req->flags & (FD_ADMINCTL_FAILOVER_FLAG_ADOPT|FD_ADMINCTL_FAILOVER_FLAG_FORCE) );
+    ctx->request.until = fd_long_sat_add( now, ctx->request.quick ? FD_FAILOVER_FORCE_WAIT_NANOS : FD_FAILOVER_DEADLINE_NANOS );
     ctx->request.sent  = 0;
     ctx->stuck         = 0;
     fd_failover_channel_init_dialer( ctx->channel, ctx->request.addr, get_dial_port( ctx ) );
@@ -1228,7 +1233,8 @@ run_handoff_cmd( fd_failover_tile_ctx_t *           ctx,
   ctx->request.id = ctx->handoff_base+(++ctx->handoff_cnt);
   if( FD_UNLIKELY( !ctx->request.id ) ) ctx->request.id = ++ctx->handoff_cnt;
   ctx->request.addr             = addr;
-  ctx->request.until            = fd_long_sat_add( now, FD_FAILOVER_DEADLINE_NANOS );
+  ctx->request.quick            = !!( req->flags & (FD_ADMINCTL_FAILOVER_FLAG_ADOPT|FD_ADMINCTL_FAILOVER_FLAG_FORCE) );
+  ctx->request.until            = fd_long_sat_add( now, ctx->request.quick ? FD_FAILOVER_FORCE_WAIT_NANOS : FD_FAILOVER_DEADLINE_NANOS );
   ctx->stuck                    = 0;
   ctx->session.close_after_send = 0;
   fd_failover_channel_init_dialer( ctx->channel, addr, get_dial_port( ctx ) );

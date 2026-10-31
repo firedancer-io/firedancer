@@ -35,6 +35,7 @@
 
 #define FD_FAILOVER_GOSSIP_FRESH_NANOS (15000000000L)
 #define FD_FAILOVER_REQUEST_RETRIES    (3UL)
+#define FD_FAILOVER_FORCE_WAIT_NANOS   (10L*(long)FD_FAILOVER_NANOS_PER_SECOND)
 #define FD_FAILOVER_STEP_CNT           (8UL)  /* steps kept for the admin tile */
 
 /* apply_control's result for a pending command */
@@ -123,6 +124,7 @@ struct fd_failover_request {
   int                sent;           /* sent on this session */
   int                peer_restarted; /* paused because the authenticated member or boot changed */
   ulong              send_cnt;       /* how many times we sent it */
+  int                quick;          /* use a quicker wait time for the peer's history, not the full deadline */
 };
 
 typedef struct fd_failover_request fd_failover_request_t;
@@ -147,7 +149,8 @@ struct fd_failover_promotion {
   fd_failover_peer_t    peer;         /* that DEMOTED's member boot, it gets our response */
   ulong                 handoff_id;   /* and its handoff id */
   ulong                 floor;        /* coverage floor when it started */
-  int                   force;        /*  for adopt/force, we skip the peer checks and accept incomplete or empty history */
+  int                   force;        /* for adopt/force, we skip the peer checks and accept incomplete or empty history */
+  int                   soft;         /* we still demote ourselves if a peer running the identity authenticates */
   int                   holder_seen;  /* a peer running the identity authenticated after promotion started */
   fd_failover_history_t adopt;        /* history or the bound sent to votor */
   ulong                 adopt_id;     /* id of the adoption we asked the votor for */
@@ -197,7 +200,7 @@ struct fd_failover_id_switch {
 typedef struct fd_failover_id_switch fd_failover_id_switch_t;
 
 struct fd_failover_tile_ctx {
-  /* Networking */  
+  /* Networking */
   fd_keyguard_client_t    keyguard_client[ 1 ]; /* signs admission proofs and TLS */
   fd_failover_hello_t     hello;       /* the HELLO we send */
   uchar                   installed[ 32 ];    /* the identity this machine signs with now */
@@ -207,6 +210,7 @@ struct fd_failover_tile_ctx {
   fd_failover_channel_t * channel;     /* the TLS channel to the peer */
   fd_failover_session_t   session;     /* the session we last saw on the channel */
   long                    poll_at;     /* next idle socket poll */
+  long                    target_since; /* our clock since we started watching gossip for the target */
 
   fd_failover_request_t request;               /* our handoff request */
 
@@ -442,6 +446,7 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->hist_in_idx   = ULONG_MAX;
   ctx->admin_in_idx  = ULONG_MAX;
   ctx->adopt_in_idx  = ULONG_MAX;
+  ctx->target_since  = fd_failover_clock();
   ctx->adopt_out_idx = fd_topo_find_tile_out_link( topo, tile, "failov_votor", 0UL );
   if( FD_LIKELY( ctx->adopt_out_idx!=ULONG_MAX ) ) {
     fd_topo_link_t const * link = &topo->links[ tile->out_link_id[ ctx->adopt_out_idx ] ];

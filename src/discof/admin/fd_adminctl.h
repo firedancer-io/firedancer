@@ -157,13 +157,13 @@ fd_adminctl_failover_result_cstr( ulong result ) {
     case FD_FAILOVER_CONTROL_RESULT_NO_FINAL_HISTORY:  return "the machine running the identity has no eligible final vote state to hand over, its log says why";
     case FD_FAILOVER_CONTROL_RESULT_NO_HOLDER_ADDRESS: return "gossip has no address for the machine running the identity, wait or pass --address";
     case FD_FAILOVER_CONTROL_RESULT_REPLAY_BEHIND:     return "this machine's replay is too far behind the last vote of the machine running the identity, retry once caught up";
-    case FD_FAILOVER_CONTROL_RESULT_TIMEOUT:           return "the machine running the identity did not answer within 64 seconds";
+    case FD_FAILOVER_CONTROL_RESULT_TIMEOUT:           return "the machine running the identity did not answer before the deadline";
     case FD_FAILOVER_CONTROL_RESULT_PEER_RESTARTED:    return "the machine running the identity restarted before it answered";
     case FD_FAILOVER_CONTROL_RESULT_ADOPTION_FAILED:   return "this machine did not adopt the vote history";
     case FD_FAILOVER_CONTROL_RESULT_SWITCH_FAILED:     return "the identity switch failed";
     case FD_FAILOVER_CONTROL_RESULT_HOLDS_OTHER:       return "this machine votes as the identity failover manages, hand that identity off first";
     case FD_FAILOVER_CONTROL_RESULT_IDENTITY_CHANGED:  return "set-identity changed the identity while the command ran";
-    case FD_FAILOVER_CONTROL_RESULT_HOLDER_LIVE:       return "the machine running the identity may still be live, wait 15 seconds and retry, or pass --force to take the identity from a live machine";
+    case FD_FAILOVER_CONTROL_RESULT_HOLDER_LIVE:       return "the machine running the identity may still be live";
     case FD_SET_IDENTITY_RESULT_KEYPAIR_MISMATCH:      return "the public key in the keypair file does not match its private key";
     case FD_SET_IDENTITY_RESULT_AUTHORIZED_VOTER:      return "the keypair is an authorized voter on this validator";
     default:                                           return "unknown result";

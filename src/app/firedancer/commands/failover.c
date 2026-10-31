@@ -86,19 +86,13 @@ failover_confirm( args_t const * args ) {
                     "identity.  Use it only when that machine is not signing votes, or both machines\n"
                     "may double-vote.  A Firedancer validator that still runs the identity stops on\n"
                     "its duplicate instance check once it sees this machine in gossip.  Never promote\n"
-                    "both machines at once.\n"
-                    "Promotion tries eligible saved vote history first, then starts from an EMPTY\n"
-                    "history with a bound covering replay and known votes.  Missing votes and leader\n"
-                    "windows above that bound remain unprotected.\n" ));
+                    "both machines at once.\n" ));
   } else if( args->failover.adopt ) {
     FD_LOG_STDOUT(( "This asks the machine running the identity to hand it over.  If that fails and\n"
                     "the other machine shows no sign of life, neither in gossip for 15 seconds nor on\n"
                     "the failover channel, this machine takes the identity anyway.\n"
                     "WARNING: --adopt skips the checks on the other machine.  A machine that is only\n"
-                    "cut off from this one may still sign votes, and both machines may double-vote.\n"
-                    "Promotion tries eligible saved vote history first, then starts from an EMPTY\n"
-                    "history with a bound covering replay and known votes.  Missing votes and leader\n"
-                    "windows above that bound remain unprotected.\n" ));
+                    "cut off from this one may still sign votes, and both machines may double-vote.\n" ));
   }
   if( FD_UNLIKELY( !args->failover.yes && isatty( STDIN_FILENO ) ) ) {
     if( !args->failover.force && !args->failover.adopt ) {
@@ -246,6 +240,7 @@ failover_preflight( fd_adminctl_t * adminctl,
                     uchar const *   keypair ) {
   fd_adminctl_failover_req_t req = { .version=FD_ADMINCTL_FAILOVER_PAYLOAD_VERSION, .cmd=FD_ADMINCTL_FAILOVER_CMD_PREFLIGHT };
   if( FD_UNLIKELY( args->failover.force ) ) req.flags |= FD_ADMINCTL_FAILOVER_FLAG_FORCE;
+  if( FD_UNLIKELY( args->failover.adopt ) ) req.flags |= FD_ADMINCTL_FAILOVER_FLAG_ADOPT;
   fd_sha512_t sha512[ 1 ];
   FD_TEST( fd_sha512_join( fd_sha512_new( sha512 ) ) );
   fd_ed25519_public_from_private( req.target, keypair, sha512 );
@@ -267,7 +262,9 @@ failover_cmd_fn( args_t *   args,
   fd_memset( &req, 0, sizeof(req) );
   req.version = FD_ADMINCTL_FAILOVER_PAYLOAD_VERSION;
   req.cmd     = FD_ADMINCTL_FAILOVER_CMD_HANDOFF;
-  if( FD_UNLIKELY( args->failover.yes ) ) req.flags |= FD_ADMINCTL_FAILOVER_FLAG_YES;
+  if( FD_UNLIKELY( args->failover.yes   ) ) req.flags |= FD_ADMINCTL_FAILOVER_FLAG_YES;
+  if( FD_UNLIKELY( args->failover.force ) ) req.flags |= FD_ADMINCTL_FAILOVER_FLAG_FORCE;
+  if( FD_UNLIKELY( args->failover.adopt ) ) req.flags |= FD_ADMINCTL_FAILOVER_FLAG_ADOPT;
   req.addr = args->failover.addr;
   req.port = args->failover.port;
 
@@ -292,7 +289,7 @@ failover_cmd_fn( args_t *   args,
     req.flags = ( req.flags & FD_ADMINCTL_FAILOVER_FLAG_YES ) | ( args->failover.force ? FD_ADMINCTL_FAILOVER_FLAG_FORCE : FD_ADMINCTL_FAILOVER_FLAG_ADOPT );
     req.addr  = 0U;
     req.port  = (ushort)0;
-    result    = failover_request( adminctl, &req, keypair, &resp );
+    result    = failover_request( adminctl, &req, NULL, &resp );
   }
   if( keypair ) fd_keyload_unload( keypair, 0 );
   if( FD_UNLIKELY( result!=FD_ADMINCTL_RESULT_SUCCESS ) ) fail_result( result );
