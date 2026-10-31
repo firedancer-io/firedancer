@@ -240,7 +240,6 @@ main( int     argc,
   config->firedancer.runtime.bpf_shared_frames                 = 12UL;
   config->firedancer.runtime.bpf_local_frames                  = 2UL;
   config->firedancer.development.genesis.max_file_size_mib     = 33UL;
-  config->tiles.repair.slot_max                                   = 1UL;
   strcpy( config->firedancer.layout.mode, "performance" );
 
   pod = fd_pod_join( fd_pod_new( pod_mem, sizeof(pod_mem) ) );

@@ -704,14 +704,8 @@ requests for anything still missing, and reconstructs the block.
 - replay: Consumes block shreds from repair and schedules
 execution and validation of block transactions.
 - exec: Executes replay transactions.
-- tower: Runs Tower BFT consensus and communicates Tower fork-choice and
-root decisions to replay. This tile is present only in Tower mode.
 - votor: Runs Alpenglow consensus, exchanges BLS votes and certificates,
-and communicates parent and root decisions to replay. This tile is
-present only in Alpenglow mode.
-- send: Sends Tower vote transactions originating from this validator
-into our own TPU as well as to other leaders' TPU. This tile is not used
-for Alpenglow consensus votes (which are not transactions).
+and communicates parent and root decisions to replay.
 - quic: Implements QUIC network protocol for receiving transactions.
 - verify: Verifies transaction signatures and performs preliminary
 deduplication.
@@ -2064,9 +2058,9 @@ to 128 B, `1` covers 129 B - 512 B, `2` covers 513 B - 2 KiB, `3` covers
 **`Tile`**
 | Field                       | Type     | Description |
 |-----------------------------|----------|-------------|
-| name                        | `string` | Tile kind name, e.g. `execle`, `execrp`, `replay`, `tower`, `rpc`, `resolv`, or `accdb` |
+| name                        | `string` | Tile kind name, e.g. `execle`, `execrp`, `replay`, `rpc`, `resolv`, or `accdb` |
 | kind_id                     | `number` | Instance index within this tile kind |
-| joiner_type                 | `string` | `RW` if the tile reads and writes accounts (`execle`, `execrp`, `replay`, `tower`, `accdb`), `RO` if it only reads (`rpc`, `resolv`) |
+| joiner_type                 | `string` | `RW` if the tile reads and writes accounts (`execle`, `execrp`, `replay`, `accdb`), `RO` if it only reads (`rpc`, `resolv`) |
 | status                      | `number` | `1` if the tile is running, `2` if it has gracefully shut down |
 | acquired                    | `number` | Cumulative count of accounts this tile has acquired since startup |
 | bytes_read                  | `number` | Cumulative bytes this tile has read from disk since startup |
