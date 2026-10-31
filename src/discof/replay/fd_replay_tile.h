@@ -325,6 +325,11 @@ struct fd_replay_slot_states {
 };
 typedef struct fd_replay_slot_states fd_replay_slot_states_t;
 
+/* replay_out carries only TXN_EXECUTED and SLOT_STATES; every other
+   message goes on replay_slot (or replay_rotor). */
+#define FD_REPLAY_OUT_MTU (sizeof(fd_replay_slot_states_t))
+FD_STATIC_ASSERT( sizeof(fd_replay_txn_executed_t)<=FD_REPLAY_OUT_MTU, replay_out_mtu );
+
 union fd_replay_message {
   fd_replay_slot_completed_t  slot_completed;
   fd_replay_slot_dead_t       slot_dead;

@@ -29,6 +29,11 @@ struct fd_became_leader {
      monitoring (the GUI) to key per-fork transaction history. */
   ulong bank_seq;
 
+  /* replay_out seq after the leader's parent's last TXN_EXECUTED.
+     BECAME_LEADER travels on replay_slot, so pack holds it until its
+     replay_out cursor reaches this. */
+  ulong replay_out_seq;
+
   /* The maximum number of microblocks that pack is allowed to put
      into the block. This allows PoH to accurately track and make sure
      microblocks do not need to be dropped. */

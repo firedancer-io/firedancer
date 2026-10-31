@@ -296,7 +296,7 @@ backtest_topo( config_t * config ) {
   /**********************************************************************/
 
   fd_topob_wksp( topo, "replay_out" );
-  fd_topob_link( topo, "replay_out", "replay_out", 8192UL, sizeof( fd_replay_message_t ), 1UL )->permit_no_consumers = 1;
+  fd_topob_link( topo, "replay_out", "replay_out", 8192UL, FD_REPLAY_OUT_MTU, 1UL )->permit_no_consumers = 1;
   fd_topob_tile_out( topo, "replay", 0UL, "replay_out", 0UL );
   fd_topob_wksp( topo, "replay_slot" );
   fd_topob_link( topo, "replay_slot", "replay_slot", 4096UL, sizeof( fd_replay_message_t ), 1UL );
@@ -354,6 +354,7 @@ backtest_topo( config_t * config ) {
     FOR(snapin_tile_cnt) fd_topob_tile_out( topo, "snapin", i, "snapin_gui", i );
 
     /**/                 fd_topob_tile_in( topo, "gui", 0UL, "metric_in", "replay_out",    0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+    /**/                 fd_topob_tile_in( topo, "gui", 0UL, "metric_in", "replay_slot",   0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
     /**/                 fd_topob_tile_in( topo, "gui", 0UL, "metric_in", "replay_epoch",  0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
     /**/                 fd_topob_tile_in( topo, "gui", 0UL, "metric_in", "genesi_out",    0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
     FOR(execrp_tile_cnt) fd_topob_tile_in( topo, "gui", 0UL, "metric_in", "execrp_replay", i,   FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );

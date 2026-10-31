@@ -615,17 +615,12 @@ publish_replay_out( fd_replay_tile_t *  ctx,
                     fd_stem_context_t * stem,
                     ulong               sig,
                     ulong               sz ) {
-  ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
-  if( FD_UNLIKELY( sig!=REPLAY_SIG_TXN_EXECUTED && sig!=REPLAY_SIG_SLOT_STATES ) ) {
-    fd_replay_out_link_t * out = sig==REPLAY_SIG_MISSING_FEC ? ctx->rotor_out : ctx->slot_out;
-    if( FD_LIKELY( out->idx!=ULONG_MAX ) ) { /* backtest has no rotor */
-      fd_memcpy( fd_chunk_to_laddr( out->mem, out->chunk ), fd_chunk_to_laddr_const( ctx->replay_out->mem, ctx->replay_out->chunk ), sz );
-      fd_stem_publish( stem, out->idx, sig, out->chunk, sz, 0UL, 0UL, tspub );
-      out->chunk = fd_dcache_compact_next( out->chunk, sz, out->chunk0, out->wmark );
-    }
-  }
-  fd_stem_publish( stem, ctx->replay_out->idx, sig, ctx->replay_out->chunk, sz, 0UL, 0UL, tspub );
-  ctx->replay_out->chunk = fd_dcache_compact_next( ctx->replay_out->chunk, sz, ctx->replay_out->chunk0, ctx->replay_out->wmark );
+  /* Callers build the message in this same out's chunk. */
+  fd_replay_out_link_t * out = sig==REPLAY_SIG_TXN_EXECUTED || sig==REPLAY_SIG_SLOT_STATES ? ctx->replay_out :
+                               sig==REPLAY_SIG_MISSING_FEC ? ctx->rotor_out : ctx->slot_out;
+  if( FD_UNLIKELY( out->idx==ULONG_MAX ) ) return; /* backtest has no rotor */
+  fd_stem_publish( stem, out->idx, sig, out->chunk, sz, 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+  out->chunk = fd_dcache_compact_next( out->chunk, sz, out->chunk0, out->wmark );
 }
 
 /**********************************************************************/
@@ -1182,7 +1177,7 @@ publish_slot_completed( fd_replay_tile_t *        ctx,
                     fd_log_style_dim(), boot_secs, fd_log_style_normal() ));
   }
 
-  fd_replay_slot_completed_t * slot_info = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
+  fd_replay_slot_completed_t * slot_info = fd_chunk_to_laddr( ctx->slot_out->mem, ctx->slot_out->chunk );
   slot_info->slot                  = slot;
   slot_info->root_slot             = ctx->consensus_root_slot;
   slot_info->storage_slot          = ctx->published_root_slot;
@@ -1271,7 +1266,7 @@ publish_slot_completed( fd_replay_tile_t *        ctx,
 
   publish_replay_out( ctx, stem, REPLAY_SIG_SLOT_COMPLETED, sizeof(fd_replay_slot_completed_t) );
 
-  fd_replay_next_leader_t * next_leader = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
+  fd_replay_next_leader_t * next_leader = fd_chunk_to_laddr( ctx->slot_out->mem, ctx->slot_out->chunk );
   next_leader->slot             = ctx->reset_slot;
   next_leader->next_leader_slot = ctx->leader_bank ? ctx->leader_bank->f.slot :
                                   query_next_leader_slot( ctx, fd_ulong_max( ctx->reset_slot+1UL, fd_ulong_if( ctx->highwater_leader_slot==ULONG_MAX, 0UL, ctx->highwater_leader_slot+1UL ) ) );
@@ -1342,7 +1337,7 @@ publish_slot_dead( fd_replay_tile_t *        ctx,
                    ulong                     slot,
                    fd_hash_t const *         block_id,
                    fd_block_footer_t const * footer ) {
-  fd_replay_slot_dead_t * slot_dead = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
+  fd_replay_slot_dead_t * slot_dead = fd_chunk_to_laddr( ctx->slot_out->mem, ctx->slot_out->chunk );
   slot_dead->slot                   = slot;
   slot_dead->block_id               = *block_id;
   slot_dead->footer                 = footer ? *footer : (fd_block_footer_t){0};
@@ -1582,7 +1577,7 @@ publish_leader_footer( fd_replay_tile_t *        ctx,
                        fd_stem_context_t *       stem,
                        ulong                     slot,
                        fd_block_footer_t const * footer ) {
-  fd_replay_leader_footer_t * msg = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
+  fd_replay_leader_footer_t * msg = fd_chunk_to_laddr( ctx->slot_out->mem, ctx->slot_out->chunk );
   msg->slot   = slot;
   msg->footer = *footer;
 
@@ -1674,7 +1669,7 @@ try_become_leader( fd_replay_tile_t *  ctx,
   FD_TEST( ctx->next_leader_slot>ctx->reset_slot );
   long now = fd_tickcount();
 
-  fd_poh_reset_t * reset = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
+  fd_poh_reset_t * reset = fd_chunk_to_laddr( ctx->slot_out->mem, ctx->slot_out->chunk );
 
   reset->bank_idx         = reset_bank->idx;
   reset->timestamp        = ctx->reset_timestamp_nanos;
@@ -1755,13 +1750,14 @@ try_become_leader( fd_replay_tile_t *  ctx,
                    + (long)( ( ctx->next_leader_slot%AG_SLOTS_PER_WINDOW+1UL )*bank->f.slot_params.ns_per_slot )
                    - (long)FD_TARGET_SLOT_ADJUSTMENT_NS - AG_TIME_TO_COMPLETE_BROADCAST_NS;
 
-  fd_became_leader_t * msg = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
+  fd_became_leader_t * msg = fd_chunk_to_laddr( ctx->slot_out->mem, ctx->slot_out->chunk );
   msg->slot                = ctx->next_leader_slot;
   msg->block_height        = bank->f.block_height;
   msg->slot_start_ns       = now_nanos;
   msg->slot_end_ns         = fd_long_max( slot_end_ns, now_nanos );
   msg->bank_idx            = bank->idx;
   msg->bank_seq            = bank->bank_seq;
+  msg->replay_out_seq      = stem->seqs[ ctx->replay_out->idx ];
   msg->ticks_per_slot      = bank->f.ticks_per_slot;
   msg->hashcnt_per_tick    = 1UL; /* one tick per block, no hash budget (see replay_block_start) */
   msg->tick_duration_ns    = bank->f.slot_params.ns_per_slot_adjusted/msg->ticks_per_slot;
@@ -1843,7 +1839,7 @@ replay_block_complete( fd_replay_tile_t *        ctx,
   }
 
   /* Copy out cost tracker fields before freezing */
-  fd_replay_slot_completed_t * slot_info = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
+  fd_replay_slot_completed_t * slot_info = fd_chunk_to_laddr( ctx->slot_out->mem, ctx->slot_out->chunk );
   cost_tracker_snap( bank, slot_info );
 
   /* fetch identity balance infrequently and after set-identity. */
@@ -2100,7 +2096,7 @@ try_fini_leader( fd_replay_tile_t *  ctx,
 
   if( FD_UNLIKELY( ctx->report_runtime_diffs ) ) replay_runtime_block_emit( ctx, ctx->leader_bank, execution_fees_pre_settle, priority_fees_pre_settle, tips_pre_settle );
 
-  fd_replay_slot_completed_t * slot_info = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
+  fd_replay_slot_completed_t * slot_info = fd_chunk_to_laddr( ctx->slot_out->mem, ctx->slot_out->chunk );
   cost_tracker_snap( ctx->leader_bank, slot_info );
   slot_info->identity_balance = ULONG_MAX;
   if( FD_UNLIKELY( ctx->identity_dirty || curr_slot%4096UL==0UL ) ) {
@@ -2170,7 +2166,7 @@ publish_root_advanced( fd_replay_tile_t *  ctx,
   bank->refcnt += ctx->resolv_tile_cnt;
   FD_LOG_DEBUG(( "bank (idx=%lu, slot=%lu) refcnt incremented to %lu for resolv", bank->idx, bank->f.slot, bank->refcnt ));
 
-  fd_replay_root_advanced_t * msg = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
+  fd_replay_root_advanced_t * msg = fd_chunk_to_laddr( ctx->slot_out->mem, ctx->slot_out->chunk );
   /* f.* first: gcc 11 SLP otherwise materialises the 27 KB idx..f.slot gap element-wise */
   msg->slot      = bank->f.slot;
   msg->bank_hash = bank->f.bank_hash;
@@ -2192,7 +2188,7 @@ static void
 publish_boot_slot( fd_replay_tile_t *  ctx,
                    fd_stem_context_t * stem,
                    fd_bank_t *         bank ) {
-  fd_replay_slot_completed_t * slot_info = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
+  fd_replay_slot_completed_t * slot_info = fd_chunk_to_laddr( ctx->slot_out->mem, ctx->slot_out->chunk );
   cost_tracker_snap( bank, slot_info );
   slot_info->identity_balance = fd_accdb_lamports( ctx->accdb, bank->accdb_fork_id, ctx->identity_pubkey->uc );
 
@@ -2533,7 +2529,7 @@ boot_genesis( fd_replay_tile_t *        ctx,
   bank->f.block_id             = initial_block_id;
   FD_TEST( fd_block_id_map_ele_insert( ctx->block_id_map, block_id_ele, ctx->block_id_arr ) );
 
-  fd_replay_slot_completed_t * slot_info = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
+  fd_replay_slot_completed_t * slot_info = fd_chunk_to_laddr( ctx->slot_out->mem, ctx->slot_out->chunk );
   cost_tracker_snap( bank, slot_info );
 
   slot_info->identity_balance = fd_accdb_lamports( ctx->accdb, bank->accdb_fork_id, ctx->identity_pubkey->uc );
@@ -2546,7 +2542,7 @@ boot_genesis( fd_replay_tile_t *        ctx,
   publish_root_advanced( ctx, stem, bank );
 
   if( FD_LIKELY( ctx->replay_out->idx!=ULONG_MAX ) ) {
-    fd_poh_reset_t * reset = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
+    fd_poh_reset_t * reset = fd_chunk_to_laddr( ctx->slot_out->mem, ctx->slot_out->chunk );
 
     reset->bank_idx         = bank->idx;
     reset->timestamp        = ctx->reset_timestamp_nanos;
@@ -2743,7 +2739,7 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
     publish_boot_slot( ctx, stem, bank );
 
     if( FD_LIKELY( ctx->replay_out->idx!=ULONG_MAX ) ) {
-      fd_poh_reset_t * reset = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
+      fd_poh_reset_t * reset = fd_chunk_to_laddr( ctx->slot_out->mem, ctx->slot_out->chunk );
 
       reset->bank_idx         = bank->idx;
       reset->timestamp        = ctx->reset_timestamp_nanos;
@@ -4457,7 +4453,7 @@ returnable_frag( fd_replay_tile_t *  ctx,
             /* Send a notification to other tiles to drop a reference to the
                evictable bank.  The RPC tile is the only tile which holds onto
                non-rooted banks, non-transiently. */
-            fd_replay_drop_bank_ref_t * msg = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
+            fd_replay_drop_bank_ref_t * msg = fd_chunk_to_laddr( ctx->slot_out->mem, ctx->slot_out->chunk );
             fd_sched_block_abandon( ctx->sched, evictable_bank_idx, FD_SCHED_ABANDON_DISCARDED );
             msg->bank_idx = evictable_bank_idx;
             publish_replay_out( ctx, stem, REPLAY_SIG_DROP_BANK_REF, sizeof(fd_replay_drop_bank_ref_t) );

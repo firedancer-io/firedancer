@@ -82,6 +82,7 @@ static ulong const gui_db_type_idx[ FD_GUI_HIST_CNT ] = {
 #define IN_KIND_SNAPSV_OUT    (19UL) /* firedancer only */
 #define IN_KIND_DIAG          (20UL) /* firedancer only */
 #define IN_KIND_VOTOR_OUT     (21UL) /* firedancer only */
+#define IN_KIND_REPLAY_SLOT   (22UL) /* firedancer only */
 
 FD_IMPORT_BINARY( firedancer_svg, "book/public/fire.svg" );
 
@@ -350,6 +351,11 @@ before_frag( fd_gui_ctx_t * ctx,
 
   if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_PACK_POH && sig==FD_PACK_MSG_REDUCE_MB_BOUND ) ) return 1;
   if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_EXECRP_REPLAY && sig>>32!=FD_EXECRP_TT_TXN_EXEC ) ) return 1;
+  if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_REPLAY_OUT && sig!=REPLAY_SIG_TXN_EXECUTED ) ) return 1;
+  if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_REPLAY_SLOT &&
+                 sig!=REPLAY_SIG_SLOT_COMPLETED &&
+                 sig!=REPLAY_SIG_BECAME_LEADER  &&
+                 sig!=REPLAY_SIG_ROOT_ADVANCED ) ) return 1;
 
   if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_GOSSIP_OUT &&
                  (sig==FD_GOSSIP_UPDATE_TAG_WFS_DONE || sig==FD_GOSSIP_UPDATE_TAG_PEER_SATURATED) ) ) return 1;
@@ -379,13 +385,6 @@ during_frag( fd_gui_ctx_t * ctx,
 
   if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_DIAG ) ) {
     sz = sig;
-  }
-
-  if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_REPLAY_OUT ) ) {
-    if( FD_LIKELY( sig!=REPLAY_SIG_SLOT_COMPLETED &&
-                   sig!=REPLAY_SIG_BECAME_LEADER  &&
-                   sig!=REPLAY_SIG_ROOT_ADVANCED  &&
-                   sig!=REPLAY_SIG_TXN_EXECUTED ) ) return;
   }
 
   if( FD_UNLIKELY( (sz>0UL && (chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark)) || sz>ctx->in[ in_idx ].mtu ) )
@@ -483,7 +482,8 @@ after_frag( fd_gui_ctx_t *      ctx,
       }
       break;
     }
-    case IN_KIND_REPLAY_OUT: {
+    case IN_KIND_REPLAY_OUT:
+    case IN_KIND_REPLAY_SLOT: {
       if( FD_UNLIKELY( sig==REPLAY_SIG_SLOT_COMPLETED ) ) {
         fd_replay_slot_completed_t const * slot_completed =  (fd_replay_slot_completed_t const *)src;
 
@@ -649,7 +649,7 @@ returnable_frag( fd_gui_ctx_t *      ctx,
                  ulong               tsorig FD_PARAM_UNUSED,
                  ulong               tspub  FD_PARAM_UNUSED,
                  fd_stem_context_t * stem   FD_PARAM_UNUSED ) {
-  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_REPLAY_OUT && !ctx->gui->epoch.has_epoch_schedule ) ) return 1; /* epoch info not received yet: defer polling */
+  if( FD_UNLIKELY( (ctx->in_kind[ in_idx ]==IN_KIND_REPLAY_OUT || ctx->in_kind[ in_idx ]==IN_KIND_REPLAY_SLOT) && !ctx->gui->epoch.has_epoch_schedule ) ) return 1; /* epoch info not received yet: defer polling */
   return 0;
 }
 
@@ -997,6 +997,7 @@ unprivileged_init( fd_topo_t const *      topo,
     else if( FD_LIKELY( !strcmp( link->name, "snapct_gui"    ) ) ) ctx->in_kind[ i ] = IN_KIND_SNAPCT;
     else if( FD_LIKELY( !strcmp( link->name, "repair_net"    ) ) ) ctx->in_kind[ i ] = IN_KIND_REPAIR_NET;
     else if( FD_LIKELY( !strcmp( link->name, "replay_out"    ) ) ) ctx->in_kind[ i ] = IN_KIND_REPLAY_OUT;
+    else if( FD_LIKELY( !strcmp( link->name, "replay_slot"   ) ) ) ctx->in_kind[ i ] = IN_KIND_REPLAY_SLOT;
     else if( FD_LIKELY( !strcmp( link->name, "replay_epoch"  ) ) ) ctx->in_kind[ i ] = IN_KIND_EPOCH;
     else if( FD_LIKELY( !strcmp( link->name, "genesi_out"    ) ) ) ctx->in_kind[ i ] = IN_KIND_GENESI_OUT;
     else if( FD_LIKELY( !strcmp( link->name, "snapin_gui"    ) ) ) ctx->in_kind[ i ] = IN_KIND_SNAPIN;

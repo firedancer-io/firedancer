@@ -367,9 +367,9 @@ setup_repair_input( fd_replay_tile_t * ctx, fd_wksp_t * wksp ) {
 static void
 setup_stem( fd_replay_tile_t * ctx, fd_wksp_t * wksp ) {
   ulong const depth = 128UL;
-  ulong const mtu   = FD_TPU_PARSED_MTU;
 
   for( ulong i=0UL; i<TEST_OUT_CNT; i++ ) {
+    ulong mtu = i==0UL ? FD_REPLAY_OUT_MTU : FD_TPU_PARSED_MTU; /* replay_out as in topology */
     void * mcache_mem = fd_wksp_alloc_laddr( wksp, fd_mcache_align(), fd_mcache_footprint( depth, 0UL ), 1UL );
     FD_TEST( mcache_mem );
     test_stem_mcaches[ i ] = fd_mcache_join( fd_mcache_new( mcache_mem, depth, 0UL, 0UL ) );
@@ -1482,9 +1482,9 @@ test_consensus_root_notification_handoff( fd_wksp_t * wksp ) {
   static ulong test_metrics[ FD_METRICS_TOTAL_SZ/sizeof(ulong) ];
   volatile ulong * saved_metrics_tl = fd_metrics_tl;
   fd_metrics_tl = test_metrics;
-  ulong out_idx = ctx->replay_out->idx;
+  ulong out_idx = ctx->slot_out->idx;
   ulong seq0    = test_stem_seqs[ out_idx ];
-  ulong slot_seq0 = test_stem_seqs[ ctx->slot_out->idx ];
+  ulong txn_seq0 = test_stem_seqs[ ctx->replay_out->idx ];
   mock_snapshot_boot = 1;
   on_snapshot_message( ctx, test_stem, 0UL, 0UL, fd_ssmsg_sig( FD_SSMSG_DONE ) );
   mock_snapshot_boot = 0;
@@ -1500,17 +1500,16 @@ test_consensus_root_notification_handoff( fd_wksp_t * wksp ) {
       + fd_mcache_line_idx( seq0+3UL, test_stem_depths[ out_idx ] );
   FD_TEST( reset_meta->sig==REPLAY_SIG_RESET );
   FD_TEST( reset_meta->sz ==sizeof(fd_poh_reset_t) );
-  fd_poh_reset_t const * reset = fd_chunk_to_laddr_const( ctx->replay_out->mem, reset_meta->chunk );
+  fd_poh_reset_t const * reset = fd_chunk_to_laddr_const( ctx->slot_out->mem, reset_meta->chunk );
   FD_TEST( reset->completed_slot==0UL );
   FD_TEST( reset->ticks_per_slot==64UL );
 
-  /* replay_slot carries the same slot events, in order, byte for byte. */
-  FD_TEST( test_stem_seqs[ ctx->slot_out->idx ]-slot_seq0==test_stem_seqs[ out_idx ]-seq0 );
+  /* Slot events go only on replay_slot; replay_out (MTU sized for
+     TXN_EXECUTED / SLOT_STATES) carries none of them. */
+  FD_TEST( test_stem_seqs[ ctx->replay_out->idx ]==txn_seq0 );
   for( ulong i=0UL; i<test_stem_seqs[ out_idx ]-seq0; i++ ) {
-    fd_frag_meta_t const * a = test_stem_mcaches[ out_idx ]            + fd_mcache_line_idx( seq0+i,      test_stem_depths[ out_idx ] );
-    fd_frag_meta_t const * b = test_stem_mcaches[ ctx->slot_out->idx ] + fd_mcache_line_idx( slot_seq0+i, test_stem_depths[ ctx->slot_out->idx ] );
-    FD_TEST( a->sig==b->sig && a->sz==b->sz );
-    FD_TEST( !memcmp( fd_chunk_to_laddr_const( ctx->replay_out->mem, a->chunk ), fd_chunk_to_laddr_const( ctx->slot_out->mem, b->chunk ), a->sz ) );
+    fd_frag_meta_t const * a = test_stem_mcaches[ out_idx ] + fd_mcache_line_idx( seq0+i, test_stem_depths[ out_idx ] );
+    FD_TEST( a->sig!=REPLAY_SIG_TXN_EXECUTED && a->sig!=REPLAY_SIG_SLOT_STATES );
   }
 
   root->refcnt = 0UL;
@@ -1722,7 +1721,7 @@ expect_rooted( fd_replay_tile_t * ctx,
                fd_wksp_t *        wksp,
                ulong              seq,
                fd_bank_t const *  bank ) {
-  ulong out_idx = ctx->replay_out->idx;
+  ulong out_idx = ctx->slot_out->idx;
   FD_TEST( ctx->consensus_root_slot==bank->f.slot && fd_hash_eq( &ctx->consensus_root, &bank->f.block_id ) );
   FD_TEST( test_stem_seqs[ out_idx ]==seq );
   FD_TEST( try_notify_consensus_root( ctx, test_stem ) );
@@ -1745,7 +1744,7 @@ test_root_from_votor_cert( fd_wksp_t * wksp ) {
   fd_bank_t * b1   = add_block( ctx, root, 1UL, &id1 );
   fd_bank_t * b2   = add_block( ctx, b1,   2UL, &id2 );
 
-  ulong out_idx = ctx->replay_out->idx;
+  ulong out_idx = ctx->slot_out->idx;
   ulong seq0    = test_stem_seqs[ out_idx ];
 
   /* A fast final cert for the replayed tip roots it and its unrooted
@@ -2003,7 +2002,7 @@ test_root_waits_for_replay( fd_wksp_t * wksp ) {
   fd_bank_t * root = setup_rooting_ctx( ctx, wksp, &root_id );
   fd_bank_t * b1   = add_block( ctx, root, 1UL, &id1 );
 
-  ulong out_idx = ctx->replay_out->idx;
+  ulong out_idx = ctx->slot_out->idx;
   ulong seq0    = test_stem_seqs[ out_idx ];
 
   /* Finalized ahead of replay: cached, nothing rooted. */
@@ -2041,7 +2040,7 @@ test_root_out_of_order_certs( fd_wksp_t * wksp ) {
   fd_bank_t * root = setup_rooting_ctx( ctx, wksp, &root_id );
   fd_bank_t * b1   = add_block( ctx, root, 1UL, &id1 );
 
-  ulong out_idx = ctx->replay_out->idx;
+  ulong out_idx = ctx->slot_out->idx;
   ulong seq0    = test_stem_seqs[ out_idx ];
 
   /* Newer finality replaces the pending block, but an older cert
@@ -2093,7 +2092,7 @@ test_root_lagging_replay( fd_wksp_t * wksp ) {
   fd_bank_t * root = setup_rooting_ctx( ctx, wksp, &root_id );
   fd_bank_t * b1   = add_block( ctx, root, 1UL, &id1 );
 
-  ulong out_idx = ctx->replay_out->idx;
+  ulong out_idx = ctx->slot_out->idx;
   ulong seq0    = test_stem_seqs[ out_idx ];
 
   /* Finality runs ahead of replay: the oldest pending finalization is
@@ -2124,7 +2123,7 @@ test_root_newer_first( fd_wksp_t * wksp ) {
   fd_bank_t * root = setup_rooting_ctx( ctx, wksp, &root_id );
   fd_bank_t * b1   = add_block( ctx, root, 1UL, &id1 );
 
-  ulong out_idx = ctx->replay_out->idx;
+  ulong out_idx = ctx->slot_out->idx;
   ulong seq0    = test_stem_seqs[ out_idx ];
 
   /* The newer finalization arrives first: the older one still becomes
@@ -2157,7 +2156,7 @@ test_root_from_footer( fd_wksp_t * wksp ) {
   fd_blockhashes_init( &root->f.block_hash_queue, 42UL );
   FD_TEST( fd_blockhashes_push_new( &root->f.block_hash_queue, &root_id ) );
 
-  ulong out_idx = ctx->replay_out->idx;
+  ulong out_idx = ctx->slot_out->idx;
   ulong seq0    = test_stem_seqs[ out_idx ];
 
   mock_footer_finalize = 1;
@@ -2296,7 +2295,7 @@ test_footer_cert_tasks( fd_wksp_t * wksp ) {
   fd_bank_t * parent  = root;
   ulong       slot    = 1UL;
   ulong       hm_cnt  = 0UL;
-  ulong       out_idx = ctx->replay_out->idx;
+  ulong       out_idx = ctx->slot_out->idx;
   /* mode 0 two tiles, 1 one tile (one cert inline), 2 no idle tile, 3
      capture on, 4 two tiles and a footer bank hash mismatch, 5 one cert
      on a tile and a reward slice on the other, where the bad round
@@ -2670,7 +2669,7 @@ test_drain_rotor_fecs( fd_wksp_t * wksp ) {
   fd_hash_t mr_root = { .ul = { 100 } };
   init_root( ctx, &mr_root );
 
-  ulong out_idx = ctx->replay_out->idx;
+  ulong out_idx = ctx->rotor_out->idx;
   ulong seq0    = test_stem_seqs[ out_idx ];
 
   FD_TEST( ctx->drain_rotor_fecs==0 );
@@ -2758,7 +2757,7 @@ test_drain_rotor_fecs_skip_wait_reentry( fd_wksp_t * wksp ) {
   skip_ele->block_info     = ag_block_id( 5UL, zero.uc );
   FD_TEST( fd_block_id_map_ele_insert( ctx->block_id_map, skip_ele, ctx->block_id_arr ) );
 
-  ulong out_idx = ctx->replay_out->idx;
+  ulong out_idx = ctx->rotor_out->idx;
   ulong seq0    = test_stem_seqs[ out_idx ];
   FD_TEST( ctx->drain_rotor_fecs==0 );
 
@@ -2834,8 +2833,8 @@ setup_ag_root( fd_replay_tile_t * ctx,
 }
 
 static ulong
-replay_out_sig( fd_replay_tile_t * ctx, ulong seq ) {
-  ulong out_idx = ctx->replay_out->idx;
+replay_out_sig( fd_replay_out_link_t const * out, ulong seq ) {
+  ulong out_idx = out->idx;
   fd_frag_meta_t const * m = test_stem_mcaches[ out_idx ] + fd_mcache_line_idx( seq, test_stem_depths[ out_idx ] );
   return m->sig;
 }
@@ -2866,7 +2865,7 @@ test_rotor_fec_turbine_keying( fd_wksp_t * wksp ) {
   fd_hash_t parent_bid = { .ul = { 0xBEEFUL } };
   setup_ag_root( ctx, &parent_bid );
 
-  ulong out_idx = ctx->replay_out->idx;
+  ulong out_idx = ctx->rotor_out->idx;
   ulong seq0    = test_stem_seqs[ out_idx ];
   ulong used0   = fd_banks_pool_used_cnt( ctx->banks );
   ulong ing0    = mock_sched_fec_ingest_cnt;
@@ -2909,7 +2908,7 @@ test_rotor_fec_turbine_keying( fd_wksp_t * wksp ) {
   FD_TEST( deliver_rotor_fec( ctx, 6UL, 0U, 5UL, &B, &mr6, 0, 0 )==0 );
   FD_TEST( ctx->drain_rotor_fecs==1 );
   FD_TEST( test_stem_seqs[ out_idx ]==seq0+1UL );
-  FD_TEST( replay_out_sig( ctx, seq0 )==REPLAY_SIG_MISSING_FEC );
+  FD_TEST( replay_out_sig( ctx->rotor_out, seq0 )==REPLAY_SIG_MISSING_FEC );
   FD_TEST( fd_banks_pool_used_cnt( ctx->banks )==used0+1UL );      /* no bank for the child */
 
   /* (d) The slot-complete FEC re-keys 5 to {5, B} (and, being OK, exits
@@ -2944,7 +2943,7 @@ test_rotor_fec_rooted_past( fd_wksp_t * wksp ) {
   setup_ag_root( ctx, &parent_bid );
   ctx->published_root_slot = 10UL;
 
-  ulong     out_idx = ctx->replay_out->idx;
+  ulong     out_idx = ctx->rotor_out->idx;
   ulong     seq0    = test_stem_seqs[ out_idx ];
   ulong     ing0    = mock_sched_fec_ingest_cnt;
   fd_hash_t gone    = { .ul = { 0xDEADUL } };
@@ -2959,7 +2958,7 @@ test_rotor_fec_rooted_past( fd_wksp_t * wksp ) {
 
   FD_TEST( deliver_rotor_fec( ctx, 12UL, 0U, 11UL, &gone, &mr, 0, 0 )==0 );              /* missing parent above it */
   FD_TEST( ctx->drain_rotor_fecs==1 && test_stem_seqs[ out_idx ]==seq0+1UL );
-  FD_TEST( replay_out_sig( ctx, seq0 )==REPLAY_SIG_MISSING_FEC );
+  FD_TEST( replay_out_sig( ctx->rotor_out, seq0 )==REPLAY_SIG_MISSING_FEC );
 
   FD_LOG_NOTICE(( "pass: test_rotor_fec_rooted_past" ));
 }
@@ -2986,7 +2985,7 @@ rotor_fec_merged_copies( fd_wksp_t * wksp,
   fd_hash_t     B      = { .ul = { 0x5150UL } }, zero = {0};
   fd_hash_t     mr[3]  = { { .ul = { 501 } }, { .ul = { 502 } }, { .ul = { 503 } } };
   ag_block_id_t key_id = ag_block_id( 5UL, B.uc );
-  ulong         out_idx = ctx->replay_out->idx;
+  ulong         out_idx = ctx->rotor_out->idx;
   ulong         seq0    = test_stem_seqs[ out_idx ];
 
   for( uint k=0U; k<3U; k++ ) {
@@ -3129,7 +3128,8 @@ test_dead_block_children_drop( fd_wksp_t * wksp ) {
   fd_hash_t parent_bid = { .ul = { 0xBEEFUL } };
   setup_ag_root( ctx, &parent_bid );
 
-  ulong out_idx = ctx->replay_out->idx;
+  ulong out_idx   = ctx->slot_out->idx;
+  ulong rotor_idx = ctx->rotor_out->idx;
 
   /* Replay block 5 in full: FEC 0 and the slot-complete FEC 32 with id B. */
   fd_hash_t B    = { .ul = { 0x5150UL } };
@@ -3150,7 +3150,7 @@ test_dead_block_children_drop( fd_wksp_t * wksp ) {
   mark_bank_dead( ctx, test_stem, idx5, FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_BAD_FOOTER, FD_EVENT_BLOCK_COMPLETED_ABANDONED_REASON_NOT_ABANDONED, NULL );
   FD_TEST( bank5->state==FD_BANK_STATE_DEAD );
   FD_TEST( test_stem_seqs[ out_idx ]==seq_dead+1UL );
-  FD_TEST( replay_out_sig( ctx, seq_dead )==REPLAY_SIG_SLOT_DEAD );
+  FD_TEST( replay_out_sig( ctx->slot_out, seq_dead )==REPLAY_SIG_SLOT_DEAD );
 
   /* Eager prune of the dead leaf, as try_prune_bank does on the next
      credit.  Ingest took one refcnt for sched; live, sched's abandon
@@ -3169,12 +3169,12 @@ test_dead_block_children_drop( fd_wksp_t * wksp ) {
   /* The child's FEC 0 finds the stale {5, B} element but no live bank:
      DROP, drain, one MISSING_FEC, no bank. */
   fd_hash_t mr6 = { .ul = { 601 } };
-  ulong seq1 = test_stem_seqs[ out_idx ];
+  ulong seq1 = test_stem_seqs[ rotor_idx ];
   FD_TEST( ctx->drain_rotor_fecs==0 );
   FD_TEST( deliver_rotor_fec( ctx, 6UL, 0U, 5UL, &B, &mr6, 0, 0 )==0 );
   FD_TEST( ctx->drain_rotor_fecs==1 );
-  FD_TEST( test_stem_seqs[ out_idx ]==seq1+1UL );
-  FD_TEST( replay_out_sig( ctx, seq1 )==REPLAY_SIG_MISSING_FEC );
+  FD_TEST( test_stem_seqs[ rotor_idx ]==seq1+1UL );
+  FD_TEST( replay_out_sig( ctx->rotor_out, seq1 )==REPLAY_SIG_MISSING_FEC );
   FD_TEST( fd_banks_pool_used_cnt( ctx->banks )==used_dead );
   FD_TEST( mock_sched_fec_ingest_cnt==ing_dead );
 
@@ -3184,7 +3184,7 @@ test_dead_block_children_drop( fd_wksp_t * wksp ) {
   FD_TEST( deliver_rotor_fec_bid( ctx, 5UL, FD_FEC_SHRED_CNT, 0UL, &parent_bid, &B, &mr32, 1, 0 )==0 );
   FD_TEST( deliver_rotor_fec    ( ctx, 6UL, FD_FEC_SHRED_CNT, 5UL, &B,              &mr6b, 0, 0 )==0 );
   FD_TEST( ctx->drain_rotor_fecs==1 );
-  FD_TEST( test_stem_seqs[ out_idx ]==seq1+1UL );
+  FD_TEST( test_stem_seqs[ rotor_idx ]==seq1+1UL );
   FD_TEST( fd_banks_pool_used_cnt( ctx->banks )==used_dead );
   FD_TEST( mock_sched_fec_ingest_cnt==ing_dead );
 
@@ -3196,7 +3196,7 @@ test_dead_block_children_drop( fd_wksp_t * wksp ) {
   FD_TEST( ctx->drain_rotor_fecs==0 );
   FD_TEST( fd_banks_pool_used_cnt( ctx->banks )==used_dead+1UL );
   FD_TEST( mock_sched_fec_ingest_cnt==ing_dead+1UL );
-  FD_TEST( test_stem_seqs[ out_idx ]==seq1+1UL );
+  FD_TEST( test_stem_seqs[ rotor_idx ]==seq1+1UL );
 
   FD_LOG_NOTICE(( "pass: test_dead_block_children_drop" ));
 }
@@ -3213,7 +3213,7 @@ test_stale_id_key_does_not_shadow_rebuild( fd_wksp_t * wksp ) {
   setup_ctx( ctx, wksp );
   fd_hash_t parent_bid = { .ul = { 0xBEEFUL } };
   setup_ag_root( ctx, &parent_bid );
-  ulong out_idx = ctx->replay_out->idx;
+  ulong out_idx = ctx->slot_out->idx;
 
   /* Replay blocks 5 and 6 (siblings off the root) in full, then rule
      both dead and prune them in that order, so 6's idx is the next one
@@ -3500,7 +3500,7 @@ test_ag_leader_abandon_on_root_past_leader_slot( fd_wksp_t * wksp ) {
   fd_bank_t * leader = ctx->leader_bank;
   FD_TEST( ctx->is_leader && leader && leader->f.slot==2UL && leader->refcnt==1UL );
   ulong leader_idx = leader->idx;
-  ulong out_idx    = ctx->replay_out->idx;
+  ulong out_idx    = ctx->slot_out->idx;
 
   /* FEC 0 of our block comes back, the rest never does. */
   fd_hash_t zero    = {0};
@@ -3550,7 +3550,7 @@ test_ag_leader_abandon_on_root_past_leader_slot( fd_wksp_t * wksp ) {
 
   /* The root hands off and the dead leader bank prunes. */
   FD_TEST( try_notify_consensus_root( ctx, test_stem ) );
-  FD_TEST( replay_out_sig( ctx, seq0 )==REPLAY_SIG_ROOT_ADVANCED );
+  FD_TEST( replay_out_sig( ctx->slot_out, seq0 )==REPLAY_SIG_ROOT_ADVANCED );
   FD_TEST( ctx->notified_root_bank==b3 );
   mock_sched_cancel_idx = ULONG_MAX;
   FD_TEST( try_prune_bank( ctx ) );
@@ -3633,11 +3633,21 @@ test_ag_become_leader_refuses_settled_slot( fd_wksp_t * wksp ) {
   FD_TEST( ctx->metrics.leader_slot_already_produced==produced0 ); /* nothing was produced */
   ctx->votor_parent_ready_slot = 0UL;
 
-  /* Rooted at the parent itself: lead. */
+  /* Rooted at the parent itself: lead.  BECAME_LEADER goes on
+     replay_slot carrying the replay_out seq pack must reach first. */
   ctx->next_leader_slot = 2UL;
   ctx->consensus_root   = id1;
+  test_stem_seqs[ ctx->replay_out->idx ] = 77UL;
+  ulong bl_seq = test_stem_seqs[ ctx->slot_out->idx ];
   FD_TEST( try_become_leader( ctx, test_stem, FD_METRICS_SAMPLE_REASON_LEADER_START, 0UL ) );
   FD_TEST( ctx->is_leader && ctx->leader_bank->f.slot==2UL );
+  FD_TEST( test_stem_seqs[ ctx->replay_out->idx ]==77UL );
+  fd_frag_meta_t const * bl = test_stem_mcaches[ ctx->slot_out->idx ] + fd_mcache_line_idx( bl_seq, test_stem_depths[ ctx->slot_out->idx ] );
+  while( bl->sig!=REPLAY_SIG_BECAME_LEADER ) {
+    FD_TEST( ++bl_seq<test_stem_seqs[ ctx->slot_out->idx ] );
+    bl = test_stem_mcaches[ ctx->slot_out->idx ] + fd_mcache_line_idx( bl_seq, test_stem_depths[ ctx->slot_out->idx ] );
+  }
+  FD_TEST( ((fd_became_leader_t const *)fd_chunk_to_laddr_const( ctx->slot_out->mem, bl->chunk ))->replay_out_seq==77UL );
   fd_bank_t * leader = ctx->leader_bank;
 
   /* Finish slot 2 normally with a final cert for 3 already known: the
@@ -3699,7 +3709,7 @@ test_ag_leader_fec_not_gated( fd_wksp_t * wksp ) {
   fd_hash_t zero   = {0};
   fd_hash_t mr2_0  = { .ul = { 2001UL } };
   fd_hash_t mr2_32 = { .ul = { 2002UL } };
-  ulong seq0 = test_stem_seqs[ ctx->replay_out->idx ];
+  ulong seq0 = test_stem_seqs[ ctx->rotor_out->idx ];
   mock_sched_capacity = ULONG_MAX;
   FD_TEST( !deliver_leader_fec( ctx, 2UL, 0U,               1UL, &id1, &zero, &mr2_0,  0 ) );
   FD_TEST( fd_hash_eq( &ctx->block_id_arr[ leader->idx ].latest_mr, &mr2_0 ) );
@@ -3709,7 +3719,7 @@ test_ag_leader_fec_not_gated( fd_wksp_t * wksp ) {
   FD_TEST( ele->block_id_seen && fd_hash_eq( &ele->dmr, &id2 ) );
   ag_block_id_t key2 = ag_block_id( 2UL, id2.uc );
   FD_TEST( fd_block_id_map_ele_query( ctx->block_id_map, &key2, NULL, ctx->block_id_arr )==ele );
-  FD_TEST( !ctx->drain_rotor_fecs && test_stem_seqs[ ctx->replay_out->idx ]==seq0 );
+  FD_TEST( !ctx->drain_rotor_fecs && test_stem_seqs[ ctx->rotor_out->idx ]==seq0 );
 
   mock_sched_capacity  = ULONG_MAX;
   mock_sched_drained   = 1;
@@ -4007,7 +4017,7 @@ test_wfs_done_idempotency( fd_wksp_t * wksp ) {
      the IN_KIND_GOSSIP_OUT handler. */
   ctx->in_kind[ 1UL ] = IN_KIND_GOSSIP_OUT;
 
-  ulong out_idx = ctx->replay_out->idx;
+  ulong out_idx = ctx->slot_out->idx;
   ulong seq0    = test_stem_seqs[ out_idx ];
 
   /* First WFS_DONE: transitions wfs_complete from 0 to 1 and publishes. */
@@ -4048,7 +4058,7 @@ test_wfs_boot_publish_order( fd_wksp_t * wksp ) {
   ctx->expected_shred_version         = 1234;
   ctx->wait_for_vote_to_start_leader  = FD_BOOLAU_AUTO;
 
-  ulong out_idx = ctx->replay_out->idx;
+  ulong out_idx = ctx->slot_out->idx;
   ulong seq0    = test_stem_seqs[ out_idx ];
 
   mock_footer_finalize = 1;
@@ -4066,7 +4076,7 @@ test_wfs_boot_publish_order( fd_wksp_t * wksp ) {
 
   /* publish_boot_slot stages the completed frag's payload itself. */
   fd_frag_meta_t const * completed_frag = test_stem_mcaches[ out_idx ] + fd_mcache_line_idx( seq0, test_stem_depths[ out_idx ] );
-  fd_replay_slot_completed_t const * completed = fd_chunk_to_laddr_const( ctx->replay_out->mem, completed_frag->chunk );
+  fd_replay_slot_completed_t const * completed = fd_chunk_to_laddr_const( ctx->slot_out->mem, completed_frag->chunk );
   FD_TEST( completed->cost_tracker.block_cost_limit==ULONG_MAX );
 
   ulong seq1 = test_stem_seqs[ out_idx ];

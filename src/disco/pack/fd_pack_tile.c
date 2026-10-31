@@ -27,7 +27,8 @@
 #define IN_KIND_RESOLV       (0UL)
 #define IN_KIND_EXECLE       (2UL)
 #define IN_KIND_SIGN         (3UL)
-#define IN_KIND_REPLAY       (4UL)
+#define IN_KIND_REPLAY       (4UL) /* replay_out: TXN_EXECUTED */
+#define IN_KIND_REPLAY_SLOT  (5UL) /* replay_slot: BECAME_LEADER, RESET */
 
 /* Pace microblocks, but only slightly.  This helps keep performance
    more stable.  This limit is 2,000 microblocks/second/execle.  At
@@ -205,6 +206,7 @@ typedef struct {
 
   uchar executed_txn_sig[ 64UL ];
   uchar txn_committed;
+  ulong replay_out_seq; /* next replay_out seq to consume */
 
   /* One of the FD_PACK_STRATEGY_* values defined above */
   int      strategy;
@@ -1048,13 +1050,14 @@ during_frag( fd_pack_ctx_t * ctx,
 
   switch( ctx->in_kind[ in_idx ] ) {
   case IN_KIND_REPLAY: {
-    if( FD_LIKELY( sig==REPLAY_SIG_TXN_EXECUTED ) ) {
-      fd_replay_txn_executed_t const * txn_executed = fd_type_pun_const( dcache_entry );
-      ctx->txn_committed = !!txn_executed->is_committable;
-      if( FD_UNLIKELY( !txn_executed->is_committable ) ) return;
-      memcpy( ctx->executed_txn_sig, txn_executed->signature, FD_TXN_SIGNATURE_SZ );
-      return;
-    }
+    if( FD_UNLIKELY( sig!=REPLAY_SIG_TXN_EXECUTED ) ) return;
+    fd_replay_txn_executed_t const * txn_executed = fd_type_pun_const( dcache_entry );
+    ctx->txn_committed = !!txn_executed->is_committable;
+    if( FD_UNLIKELY( !txn_executed->is_committable ) ) return;
+    memcpy( ctx->executed_txn_sig, txn_executed->signature, FD_TXN_SIGNATURE_SZ );
+    return;
+  }
+  case IN_KIND_REPLAY_SLOT: {
     if( FD_LIKELY( sig!=REPLAY_SIG_BECAME_LEADER ) ) return;
 
     /* There was a leader transition.  Handle it. */
@@ -1166,6 +1169,25 @@ during_frag( fd_pack_ctx_t * ctx,
 }
 
 
+/* Hold BECAME_LEADER (replay_slot) until every TXN_EXECUTED replay
+   published before it (replay_out) is consumed, so the parent's
+   executed txns leave pack before packing starts. */
+
+static inline int
+returnable_frag( fd_pack_ctx_t *     ctx,
+                 ulong               in_idx,
+                 ulong               seq    FD_PARAM_UNUSED,
+                 ulong               sig,
+                 ulong               chunk  FD_PARAM_UNUSED,
+                 ulong               sz     FD_PARAM_UNUSED,
+                 ulong               ctl    FD_PARAM_UNUSED,
+                 ulong               tsorig FD_PARAM_UNUSED,
+                 ulong               tspub  FD_PARAM_UNUSED,
+                 fd_stem_context_t * stem   FD_PARAM_UNUSED ) {
+  return ctx->in_kind[ in_idx ]==IN_KIND_REPLAY_SLOT && sig==REPLAY_SIG_BECAME_LEADER &&
+         fd_seq_lt( ctx->replay_out_seq, ctx->_became_leader->replay_out_seq );
+}
+
 /* After the transaction has been fully received, and we know we were
    not overrun while reading it, insert it into pack. */
 
@@ -1178,7 +1200,6 @@ after_frag( fd_pack_ctx_t *     ctx,
             ulong               tsorig,
             ulong               tspub,
             fd_stem_context_t * stem ) {
-  (void)seq;
   (void)sz;
   (void)tsorig;
   (void)tspub;
@@ -1189,11 +1210,14 @@ after_frag( fd_pack_ctx_t *     ctx,
   ulong leader_slot = ULONG_MAX;
   switch( ctx->in_kind[ in_idx ] ) {
     case IN_KIND_REPLAY:
+      ctx->replay_out_seq = fd_seq_inc( seq, 1UL );
       if( FD_LIKELY( sig==REPLAY_SIG_TXN_EXECUTED && ctx->txn_committed ) ) {
         ulong deleted = fd_pack_delete_transaction( ctx->pack, fd_type_pun( ctx->executed_txn_sig ) );
         FD_MCNT_INC( PACK, TXN_DROPPED_ALREADY_EXECUTED, deleted );
         update_metric_state( ctx, now, FD_PACK_METRIC_STATE_TRANSACTIONS, fd_pack_avail_txn_cnt( ctx->pack )>0 );
       }
+      return;
+    case IN_KIND_REPLAY_SLOT:
       if( FD_UNLIKELY( sig==REPLAY_SIG_RESET && ctx->leader_slot!=ULONG_MAX ) ) {
         fd_done_packing_t * done_packing = fd_chunk_to_laddr( ctx->poh_out.mem, ctx->poh_out.chunk );
         get_done_packing( ctx, done_packing, FD_PACK_END_SLOT_REASON_ABANDONED );
@@ -1229,7 +1253,7 @@ after_frag( fd_pack_ctx_t *     ctx,
   }
 
   switch( ctx->in_kind[ in_idx ] ) {
-  case IN_KIND_REPLAY: {
+  case IN_KIND_REPLAY_SLOT: {
     long now_ticks = fd_tickcount();
     long now_ns    = fd_log_wallclock();
 
@@ -1461,6 +1485,7 @@ unprivileged_init( fd_topo_t const *      topo,
     else if( FD_LIKELY( !strcmp( link->name, "execle_pack"  ) ) ) ctx->in_kind[ i ] = IN_KIND_EXECLE;
     else if( FD_LIKELY( !strcmp( link->name, "sign_pack"    ) ) ) ctx->in_kind[ i ] = IN_KIND_SIGN;
     else if( FD_LIKELY( !strcmp( link->name, "replay_out"   ) ) ) ctx->in_kind[ i ] = IN_KIND_REPLAY;
+    else if( FD_LIKELY( !strcmp( link->name, "replay_slot"  ) ) ) ctx->in_kind[ i ] = IN_KIND_REPLAY_SLOT;
     else FD_LOG_ERR(( "pack tile has unexpected input link %lu %s", i, link->name ));
   }
 
@@ -1540,6 +1565,7 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->pending_reduce_mb_bound       = 0;
   ctx->slot_max_data                 = 0UL;
   ctx->drain_execle                  = 0;
+  ctx->replay_out_seq                = 0UL;
   ctx->rng                           = rng;
   fd_clock_tile_init( ctx->clock );
   double tick_per_ns                 = ctx->clock->epoch->w;
@@ -1697,6 +1723,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
 #define STEM_CALLBACK_BEFORE_CREDIT       before_credit
 #define STEM_CALLBACK_AFTER_CREDIT        after_credit
 #define STEM_CALLBACK_DURING_FRAG         during_frag
+#define STEM_CALLBACK_RETURNABLE_FRAG     returnable_frag
 #define STEM_CALLBACK_AFTER_FRAG          after_frag
 #define STEM_CALLBACK_METRICS_WRITE       metrics_write
 
