@@ -1,7 +1,5 @@
 #include "fd_keyguard.h"
 #include "../../ballet/txn/fd_txn.h"
-#include "../../flamenco/gossip/fd_gossip_value.h"
-#include "../../disco/repair/fd_repair_serde.h"
 
 static uchar v1_buf [ FD_TXN_MTU    ];
 static uchar v1_txn [ FD_TXN_MAX_SZ ];
@@ -206,87 +204,6 @@ test_bls_pubkey_authorize( void ) {
 }
 
 static void
-test_tower_authorize( void ) {
-  /* The smallest body the tower tile writes: prefix, vote state with
-     one vote and no root, TowerSync with one lockout, last_timestamp.
-     The largest adds 30 votes, a root, a timestamp, and has 31
-     lockouts with 10 byte offsets instead of one with a 1 byte offset. */
-  ulong const min_sz = 48UL + (65UL+8UL+12UL+1UL+8UL+32UL*48UL+8UL+1UL+8UL+16UL) + (4UL+74UL+2UL) + 16UL;
-  ulong const max_sz = min_sz + 30UL*12UL + 8UL + 8UL + (31UL*11UL-2UL);
-
-  static uchar body[ FD_KEYGUARD_SIGN_REQ_MTU ];
-  fd_keyguard_authority_t authority;
-  memset( &authority, 0xAA, sizeof(authority) );
-  memcpy( body, authority.identity_pubkey, 32UL );
-  FD_STORE( ulong,  body+32UL,  8UL     ); /* threshold_depth */
-  FD_STORE( double, body+40UL,  2.0/3.0 ); /* threshold_size */
-  FD_STORE( ulong,  body+113UL, 1UL     ); /* votes_cnt */
-
-  FD_TEST(  fd_keyguard_payload_authorize( &authority, body, min_sz,       FD_KEYGUARD_ROLE_TOWER,  FD_KEYGUARD_SIGN_TYPE_ED25519        ) );
-  FD_TEST(  fd_keyguard_payload_authorize( &authority, body, max_sz,       FD_KEYGUARD_ROLE_TOWER,  FD_KEYGUARD_SIGN_TYPE_ED25519        ) );
-  /* too small for a Tower1_14_11 body, larger than the tower tile writes */
-  FD_TEST( !fd_keyguard_payload_authorize( &authority, body, min_sz-1UL,   FD_KEYGUARD_ROLE_TOWER,  FD_KEYGUARD_SIGN_TYPE_ED25519        ) );
-  FD_TEST( !fd_keyguard_payload_authorize( &authority, body, max_sz+1UL,   FD_KEYGUARD_ROLE_TOWER,  FD_KEYGUARD_SIGN_TYPE_ED25519        ) );
-  /* wrong sign type */
-  FD_TEST( !fd_keyguard_payload_authorize( &authority, body, min_sz,       FD_KEYGUARD_ROLE_TOWER,  FD_KEYGUARD_SIGN_TYPE_SHA256_ED25519 ) );
-  /* wrong role */
-  FD_TEST( !fd_keyguard_payload_authorize( &authority, body, min_sz,       FD_KEYGUARD_ROLE_TXSEND, FD_KEYGUARD_SIGN_TYPE_ED25519        ) );
-  FD_TEST( !fd_keyguard_payload_authorize( &authority, body, min_sz,       FD_KEYGUARD_ROLE_GOSSIP, FD_KEYGUARD_SIGN_TYPE_ED25519        ) );
-  /* not our identity, threshold_depth, threshold_size, the zeroed vote
-     state node_pubkey, authorized_withdrawer and commission, votes_cnt */
-  ulong const flip[ 6 ] = { 31UL, 32UL, 40UL, 48UL, 112UL, 113UL };
-  for( ulong i=0UL; i<6UL; i++ ) {
-    body[ flip[ i ] ] ^= (uchar)1;
-    FD_TEST( !fd_keyguard_payload_authorize( &authority, body, min_sz,     FD_KEYGUARD_ROLE_TOWER,  FD_KEYGUARD_SIGN_TYPE_ED25519        ) );
-    body[ flip[ i ] ] ^= (uchar)1;
-  }
-  /* 1 to 31 votes */
-  FD_STORE( ulong, body+113UL, 31UL );
-  FD_TEST(  fd_keyguard_payload_authorize( &authority, body, min_sz,       FD_KEYGUARD_ROLE_TOWER,  FD_KEYGUARD_SIGN_TYPE_ED25519        ) );
-  FD_STORE( ulong, body+113UL, 32UL );
-  FD_TEST( !fd_keyguard_payload_authorize( &authority, body, min_sz,       FD_KEYGUARD_ROLE_TOWER,  FD_KEYGUARD_SIGN_TYPE_ED25519        ) );
-  FD_STORE( ulong, body+113UL, 1UL );
-  /* an identity that also reads as a legacy txn header */
-  uchar const txn_hdr[ 4 ] = { 1, 0, 0, 1 };
-  memcpy( authority.identity_pubkey, txn_hdr, 4UL );
-  memcpy( body,                      txn_hdr, 4UL );
-  FD_TEST(  fd_keyguard_payload_authorize( &authority, body, min_sz,       FD_KEYGUARD_ROLE_TOWER,  FD_KEYGUARD_SIGN_TYPE_ED25519        ) );
-}
-
-static void
-test_tower_match( void ) {
-  /* The identity at the start of a tower body can read as the header of
-     another payload type.  Those types fit in a packet and a tower body
-     does not, so a tower body only matches the tower type. */
-
-  ulong const min_sz = 48UL + (65UL+8UL+12UL+1UL+8UL+32UL*48UL+8UL+1UL+8UL+16UL) + (4UL+74UL+2UL) + 16UL;
-  static uchar body[ FD_KEYGUARD_SIGN_REQ_MTU ];
-  FD_STORE( ulong,  body+32UL,  8UL     ); /* threshold_depth */
-  FD_STORE( double, body+40UL,  2.0/3.0 ); /* threshold_size */
-  FD_STORE( ulong,  body+113UL, 1UL     ); /* votes_cnt */
-
-  uint  const hdr [ 3 ] = { 0x01000001U /* legacy txn, 1 signer, 1 account */, FD_GOSSIP_VALUE_VOTE,       FD_REPAIR_SERDE_TAG_WINDOW_INDEX };
-  ulong const type[ 3 ] = { FD_KEYGUARD_PAYLOAD_TXN,                           FD_KEYGUARD_PAYLOAD_GOSSIP, FD_KEYGUARD_PAYLOAD_REPAIR       };
-  ulong const max [ 3 ] = { FD_TXN_MTU_V0,                                     FD_GOSSIP_MTU,              FD_REPAIR_SIG_SER_MAX            };
-  for( ulong i=0UL; i<3UL; i++ ) {
-    FD_STORE( uint, body, hdr[ i ] );
-    FD_TEST(    fd_keyguard_payload_match( body, min_sz,       FD_KEYGUARD_SIGN_TYPE_ED25519 )==FD_KEYGUARD_PAYLOAD_TOWER );
-    FD_TEST(    fd_keyguard_payload_match( body, max[ i ],     FD_KEYGUARD_SIGN_TYPE_ED25519 ) & type[ i ]                );
-    FD_TEST( !( fd_keyguard_payload_match( body, max[ i ]+1UL, FD_KEYGUARD_SIGN_TYPE_ED25519 ) & type[ i ] )              );
-  }
-
-  /* prune data is 106 bytes plus 32 per prune, the prune count is at
-     offset 58, in the zeroed vote state of a tower body */
-  FD_STORE( ulong, body, 18UL );
-  memcpy( body+8UL, "\xffSOLANA_PRUNE_DATA", 18UL );
-  FD_TEST(    fd_keyguard_payload_match( body, 106UL+54UL*32UL, FD_KEYGUARD_SIGN_TYPE_ED25519 )==FD_KEYGUARD_PAYLOAD_TOWER );
-  FD_STORE( ulong, body+58UL, 35UL );
-  FD_TEST(    fd_keyguard_payload_match( body, 106UL+35UL*32UL, FD_KEYGUARD_SIGN_TYPE_ED25519 ) & FD_KEYGUARD_PAYLOAD_PRUNE  );
-  FD_STORE( ulong, body+58UL, 36UL );
-  FD_TEST( !( fd_keyguard_payload_match( body, 106UL+36UL*32UL, FD_KEYGUARD_SIGN_TYPE_ED25519 ) & FD_KEYGUARD_PAYLOAD_PRUNE ) );
-}
-
-static void
 test_vote_history_authorize( void ) {
   /* The only VoteHistory body the votor writes: identity, nine empty
      collections and root. */
@@ -311,20 +228,10 @@ test_vote_history_authorize( void ) {
   FD_TEST(  fd_keyguard_payload_authorize( &authority, body, sz, FD_KEYGUARD_ROLE_VOTOR,  FD_KEYGUARD_SIGN_TYPE_ED25519        ) );
   /* wrong sign type, wrong role, not our identity */
   FD_TEST( !fd_keyguard_payload_authorize( &authority, body, sz, FD_KEYGUARD_ROLE_VOTOR,  FD_KEYGUARD_SIGN_TYPE_SHA256_ED25519 ) );
-  FD_TEST( !fd_keyguard_payload_authorize( &authority, body, sz, FD_KEYGUARD_ROLE_TOWER,  FD_KEYGUARD_SIGN_TYPE_ED25519        ) );
   FD_TEST( !fd_keyguard_payload_authorize( &authority, body, sz, FD_KEYGUARD_ROLE_GOSSIP, FD_KEYGUARD_SIGN_TYPE_ED25519        ) );
   body[ 31 ] ^= (uchar)1;
   FD_TEST( !fd_keyguard_payload_authorize( &authority, body, sz, FD_KEYGUARD_ROLE_VOTOR,  FD_KEYGUARD_SIGN_TYPE_ED25519        ) );
   body[ 31 ] ^= (uchar)1;
-
-  /* A payload of another type is never a vote history, even with our
-     identity in front, here a tower body */
-  memset( body+32UL, 0, 1807UL-32UL );
-  FD_STORE( ulong,  body+32UL,  8UL     ); /* threshold_depth */
-  FD_STORE( double, body+40UL,  2.0/3.0 ); /* threshold_size */
-  FD_STORE( ulong,  body+113UL, 1UL     ); /* votes_cnt */
-  FD_TEST(  fd_keyguard_payload_match( body, 1807UL, FD_KEYGUARD_SIGN_TYPE_ED25519 )==FD_KEYGUARD_PAYLOAD_TOWER );
-  FD_TEST( !fd_keyguard_payload_authorize( &authority, body, 1807UL, FD_KEYGUARD_ROLE_VOTOR, FD_KEYGUARD_SIGN_TYPE_ED25519 ) );
 
   /* An identity whose first bytes read as a legacy txn message header
      (one signer, three accounts) still makes the vote history body also
@@ -348,8 +255,6 @@ main( int     argc,
   test_txn_v1_match();
   test_ag_vote_authorize();
   test_bls_pubkey_authorize();
-  test_tower_authorize();
-  test_tower_match();
   test_vote_history_authorize();
   FD_LOG_NOTICE(( "pass" ));
   return 0;

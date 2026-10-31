@@ -33,8 +33,7 @@ struct fd_wait_info {
   ulong slots_per_epoch;
   ulong ns_per_slot;
 
-  /* Delinquent stake.  Tower derives it from vote account
-     last_vote_slot; Alpenglow from the block footer reward certs.
+  /* Delinquent stake, derived from the block footer reward certs.
      0 until the first real figure is computed. */
   int   delinquent_known;
   ulong delinquent_stake_lamports;

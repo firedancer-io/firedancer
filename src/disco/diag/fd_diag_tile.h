@@ -10,8 +10,8 @@
 #define FD_DIAG_BUNDLE_STATUS_SLEEPING     (3UL) /* At least one bundle tile sleeping, none connected */
 #define FD_DIAG_BUNDLE_STATUS_DISABLED     (4UL) /* No bundle tiles configured */
 
-#define FD_DIAG_VOTE_STATUS_DISABLED     (0UL) /* Non-voting or no tower tile */
-#define FD_DIAG_VOTE_STATUS_NOT_STARTED  (1UL) /* Tower tile not running or no votes cast yet */
+#define FD_DIAG_VOTE_STATUS_DISABLED     (0UL) /* Non-voting or no votor tile */
+#define FD_DIAG_VOTE_STATUS_NOT_STARTED  (1UL) /* Votor tile not running or no votes cast yet */
 #define FD_DIAG_VOTE_STATUS_DELINQUENT   (2UL) /* Vote distance exceeds threshold or vote stalled */
 #define FD_DIAG_VOTE_STATUS_VOTING       (3UL) /* Voting normally */
 #define FD_DIAG_VOTE_STATUS_INADMISSIBLE (4UL) /* Voting, but vote account fails the admission ticket filter */

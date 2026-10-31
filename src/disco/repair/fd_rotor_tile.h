@@ -9,14 +9,6 @@
    Rotor tile forwards FECs in replay order to replay tile with sig
    ROTOR_SIG_FEC_REPLAY.
 
-   However since rotor is a direct drop in for repair tile, we have to make
-   sure the sigs do not clobber the repair tile's sigs.
-
-   See fd_rotor_tile.h
-   #define REPAIR_SIG_FEC_INVALID (2UL)
-   #define REPAIR_SIG_FEC_LEADER  (1UL)
-   #define REPAIR_SIG_FEC         (0UL)
-
    FECs are delivered in replay order. Blocks that were not repaired
    through verified (i.e., received through turbine) means are delivered
    with block_id = {0} until the last FEC in the block, in which the
@@ -101,10 +93,6 @@
    filters and validates aggressively.  The responses are matches by
    nonce and verified before being ingested by the rotor. */
 
-/* keep in line with repair tile sigs */
-#define REPAIR_SIG_FEC         (0UL)
-#define REPAIR_SIG_FEC_LEADER  (1UL)
-#define REPAIR_SIG_FEC_INVALID (2UL)
 /* alpenglow type - replayable fec */
 #define ROTOR_SIG_FEC_REPLAY  (3UL)
 /* alpenglow type - completed block metadata, on rotor_rserve */

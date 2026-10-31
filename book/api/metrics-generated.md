@@ -1030,7 +1030,7 @@
 | <span class="metrics-name">replay_&#8203;cluster_&#8203;active_&#8203;stake_&#8203;lamports</span> | gauge | Cluster active stake at the optimistically confirmed slot, or the finalized slot under Alpenglow |
 | <span class="metrics-name">replay_&#8203;epoch_&#8203;credits</span> | gauge | Credits our vote account earned this epoch, as of the optimistically confirmed slot, or the finalized slot under Alpenglow, where they are lamport-denominated reward credits |
 | <span class="metrics-name">replay_&#8203;is_&#8203;vote_&#8203;account_&#8203;inadmissible</span> | gauge | Whether our vote account's stake is not admitted: at the optimistically confirmed slot it fails the validator admission ticket filter (missing, below the V4 rent-exempt minimum, or not V4 with a BLS pubkey), or it passes but has not yet been admitted at an epoch boundary |
-| <span class="metrics-name">replay_&#8203;last_&#8203;rewarded_&#8203;vote_&#8203;slot</span> | gauge | Latest slot for which our vote appears in a reward certificate, 0 if none observed (always 0 under Tower) |
+| <span class="metrics-name">replay_&#8203;last_&#8203;rewarded_&#8203;vote_&#8203;slot</span> | gauge | Latest slot for which our vote appears in a reward certificate, 0 if none observed |
 | <span class="metrics-name">replay_&#8203;store_&#8203;query_&#8203;duration_&#8203;nanos</span> | histogram | Duration of ingesting one queried FEC set into the scheduler |
 | <span class="metrics-name">replay_&#8203;store_&#8203;fec_&#8203;queried</span> | counter | FEC sets queried from the store |
 | <span class="metrics-name">replay_&#8203;store_&#8203;fec_&#8203;query_&#8203;missed</span> | counter | FEC set store queries that found no entry |
@@ -1057,7 +1057,7 @@
 | <span class="metrics-name">replay_&#8203;root_&#8203;slot_&#8203;distance</span> | gauge | Slots between the current reset slot and our root |
 | <span class="metrics-name">replay_&#8203;leader_&#8203;slot</span> | gauge | Slot at which we are currently leader, or 0 if none |
 | <span class="metrics-name">replay_&#8203;next_&#8203;leader_&#8203;slot</span> | gauge | Slot at which we are next leader, or 0 if none. If we are currently leader, this is the same as the current leader slot |
-| <span class="metrics-name">replay_&#8203;reset_&#8203;slot</span> | gauge | Slot replay last reset to (Tower reset slot; under Alpenglow the newest replayed slot or parent-ready parent); can decrease |
+| <span class="metrics-name">replay_&#8203;reset_&#8203;slot</span> | gauge | Slot replay last reset to (the newest replayed slot or parent-ready parent); can decrease |
 | <span class="metrics-name">replay_&#8203;bank_&#8203;capacity</span> | gauge | Maximum number of banks we can have alive |
 | <span class="metrics-name">replay_&#8203;bank_&#8203;used</span> | gauge | Banks we currently have alive |
 | <span class="metrics-name">replay_&#8203;last_&#8203;reassembly_&#8203;dequeued_&#8203;slot</span> | gauge | Slot of the FEC set most recently dequeued from reassembly for replay, 0 if none |
@@ -1441,7 +1441,7 @@
 | Metric | Type | Description |
 |--------|------|-------------|
 | <span class="metrics-name">diag_&#8203;bundle_&#8203;state</span> | gauge | Bundle subsystem state: 0=disconnected (All bundle tiles disconnected), 1=connecting (At least one bundle tile connecting, none connected or sleeping), 2=connected (At least one bundle tile connected), 3=sleeping (At least one bundle tile sleeping, none connected), 4=disabled (No bundle tiles configured) |
-| <span class="metrics-name">diag_&#8203;vote_&#8203;state</span> | gauge | Vote subsystem state: 0=disabled (Non-voting or no tower tile), 1=not_started (Tower tile not running or no votes cast yet), 2=delinquent (Vote distance exceeds threshold or vote stalled), 3=voting (Voting normally), 4=inadmissible (Voting, but the vote account fails the validator admission ticket filter) |
+| <span class="metrics-name">diag_&#8203;vote_&#8203;state</span> | gauge | Vote subsystem state: 0=disabled (Non-voting or no votor tile), 1=not_started (Votor tile not running or no votes cast yet), 2=delinquent (Vote distance exceeds threshold or vote stalled), 3=voting (Voting normally), 4=inadmissible (Voting, but the vote account fails the validator admission ticket filter) |
 | <span class="metrics-name">diag_&#8203;replay_&#8203;state</span> | gauge | Replay subsystem state: 0=disabled (No replay tile), 1=not_started (Replay tile not running or slots are zero), 2=behind (Replay lagging behind turbine or reset slot stalled), 3=running (Replay keeping up) |
 | <span class="metrics-name">diag_&#8203;turbine_&#8203;state</span> | gauge | Turbine subsystem state: 0=disabled (No shred or replay tiles), 1=not_started (Tiles not all running or turbine slot is zero), 2=stalled (Turbine slot not advancing), 3=repair_outpacing (Repair byte throughput exceeds turbine), 4=running (Turbine receiving normally) |
 | <span class="metrics-name">diag_&#8203;builder_&#8203;state</span> | gauge | External block builder subsystem state: 0=disabled (No block builder configured), 1=disconnected (Block builder disconnected), 2=connecting (Block builder connection in progress), 3=unhealthy (Connected, but the block builder is not in a usable state), 4=connected (Block builder connected and healthy) |

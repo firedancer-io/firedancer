@@ -68,7 +68,7 @@ enum {
 
 #define FD_METRICS_GAUGE_DIAG_VOTE_STATE_NAME "diag_vote_state"
 #define FD_METRICS_GAUGE_DIAG_VOTE_STATE_TYPE (FD_METRICS_TYPE_GAUGE)
-#define FD_METRICS_GAUGE_DIAG_VOTE_STATE_DESC "Vote subsystem state: 0=disabled (Non-voting or no tower tile), 1=not_started (Tower tile not running or no votes cast yet), 2=delinquent (Vote distance exceeds threshold or vote stalled), 3=voting (Voting normally), 4=inadmissible (Voting, but the vote account fails the validator admission ticket filter)"
+#define FD_METRICS_GAUGE_DIAG_VOTE_STATE_DESC "Vote subsystem state: 0=disabled (Non-voting or no votor tile), 1=not_started (Votor tile not running or no votes cast yet), 2=delinquent (Vote distance exceeds threshold or vote stalled), 3=voting (Voting normally), 4=inadmissible (Voting, but the vote account fails the validator admission ticket filter)"
 #define FD_METRICS_GAUGE_DIAG_VOTE_STATE_CVT  (FD_METRICS_CONVERTER_NONE)
 
 #define FD_METRICS_GAUGE_DIAG_REPLAY_STATE_NAME "diag_replay_state"

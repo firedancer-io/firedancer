@@ -396,22 +396,6 @@ fd_keyguard_payload_matches_event( uchar const * data,
   return 1;
 }
 
-/* Tower1_14_11: node_pubkey, threshold_depth, threshold_size, ... */
-
-FD_FN_PURE static int
-fd_keyguard_payload_matches_tower( uchar const * data,
-                                   ulong         sz,
-                                   int           sign_type ) {
-  static uchar const zeros[ 65 ] = {0};
-  if( sign_type!=FD_KEYGUARD_SIGN_TYPE_ED25519          ) return 0;
-  if( sz<1807UL || sz>2522UL                            ) return 0; /* smallest and largest the tower tile writes */
-  if( FD_LOAD( ulong, data+32UL )!=8UL                  ) return 0; /* threshold_depth */
-  if( FD_LOAD( ulong, data+40UL )!=0x3FE5555555555555UL ) return 0; /* threshold_size, 2/3 as f64 bits */
-  if( memcmp( data+48UL, zeros, sizeof(zeros) )         ) return 0;
-  ulong votes_cnt = FD_LOAD( ulong, data+113UL );
-  return votes_cnt>=1UL && votes_cnt<=31UL;
-}
-
 /* VoteHistory, as the votor writes it: node_pubkey, nine empty
    collections, root */
 
@@ -442,7 +426,6 @@ fd_keyguard_payload_match( uchar const * data,
   res |= fd_ulong_if( fd_keyguard_payload_matches_event       ( data, sz, sign_type ), FD_KEYGUARD_PAYLOAD_EVENT,        0 );
   res |= fd_ulong_if( fd_keyguard_payload_matches_ag_vote     ( data, sz, sign_type ), FD_KEYGUARD_PAYLOAD_AG_VOTE,      0 );
   res |= fd_ulong_if( fd_keyguard_payload_matches_bls_pubkey  ( data, sz, sign_type ), FD_KEYGUARD_PAYLOAD_BLS_PUBKEY,   0 );
-  res |= fd_ulong_if( fd_keyguard_payload_matches_tower       ( data, sz, sign_type ), FD_KEYGUARD_PAYLOAD_TOWER,        0 );
   res |= fd_ulong_if( fd_keyguard_payload_matches_vote_history( data, sz, sign_type ), FD_KEYGUARD_PAYLOAD_VOTE_HISTORY, 0 );
   return res;
 }

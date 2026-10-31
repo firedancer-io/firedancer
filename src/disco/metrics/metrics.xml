@@ -928,7 +928,7 @@ deliberate exception with lint-allow="<rule id>")
     <gauge name="ClusterActiveStakeLamports" summary="Cluster active stake at the optimistically confirmed slot, or the finalized slot under Alpenglow" />
     <gauge name="EpochCredits" ambiguous-kind="true" summary="Credits our vote account earned this epoch, as of the optimistically confirmed slot, or the finalized slot under Alpenglow, where they are lamport-denominated reward credits" lint-allow="plural vocab" />
     <bool name="IsVoteAccountInadmissible" summary="Whether our vote account's stake is not admitted: at the optimistically confirmed slot it fails the validator admission ticket filter (missing, below the V4 rent-exempt minimum, or not V4 with a BLS pubkey), or it passes but has not yet been admitted at an epoch boundary" />
-    <gauge name="LastRewardedVoteSlot" summary="Latest slot for which our vote appears in a reward certificate, 0 if none observed (always 0 under Tower)" />
+    <gauge name="LastRewardedVoteSlot" summary="Latest slot for which our vote appears in a reward certificate, 0 if none observed" />
 
     <histogram name="StoreQueryDurationNanos" min="10" max="1000000" source="ticks">
         <summary>Duration of ingesting one queried FEC set into the scheduler</summary>
@@ -959,7 +959,7 @@ deliberate exception with lint-allow="<rule id>")
     <gauge name="RootSlotDistance" summary="Slots between the current reset slot and our root" />
     <gauge name="LeaderSlot" summary="Slot at which we are currently leader, or 0 if none" />
     <gauge name="NextLeaderSlot" summary="Slot at which we are next leader, or 0 if none. If we are currently leader, this is the same as the current leader slot" />
-    <gauge name="ResetSlot" summary="Slot replay last reset to (Tower reset slot; under Alpenglow the newest replayed slot or parent-ready parent); can decrease" />
+    <gauge name="ResetSlot" summary="Slot replay last reset to (the newest replayed slot or parent-ready parent); can decrease" />
     <gauge name="BankCapacity" summary="Maximum number of banks we can have alive" />
     <gauge name="BankUsed" summary="Banks we currently have alive" />
 
@@ -1568,8 +1568,8 @@ deliberate exception with lint-allow="<rule id>")
 </enum>
 
 <enum name="DiagVoteState">
-    <int value="0" name="Disabled" label="Non-voting or no tower tile" />
-    <int value="1" name="NotStarted" label="Tower tile not running or no votes cast yet" />
+    <int value="0" name="Disabled" label="Non-voting or no votor tile" />
+    <int value="1" name="NotStarted" label="Votor tile not running or no votes cast yet" />
     <int value="2" name="Delinquent" label="Vote distance exceeds threshold or vote stalled" />
     <int value="3" name="Voting" label="Voting normally" />
     <int value="4" name="Inadmissible" label="Voting, but the vote account fails the validator admission ticket filter" />

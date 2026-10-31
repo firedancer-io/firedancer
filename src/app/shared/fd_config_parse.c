@@ -231,7 +231,6 @@ fd_config_extract_pod( uchar *       pod,
   CFG_POP      ( bool,   tiles.rpc.delay_startup                          );
 
   CFG_POP      ( ushort, tiles.repair.repair_client_listen_port           );
-  CFG_POP      ( ulong,  tiles.repair.slot_max                            );
 
   CFG_POP      ( bool,   tiles.rserve.enabled                             );
   CFG_POP      ( ushort, tiles.rserve.repair_serve_listen_port            );
@@ -340,6 +339,7 @@ fd_config_extract_pod( uchar *       pod,
 
   CFG_DEPRECATED( development.bundle.ssl_heap_size_mib );
   CFG_DEPRECATED( tiles.tower.write_vote_history_file );
+  CFG_DEPRECATED( tiles.repair.slot_max );
   CFG_DEPRECATED( tiles.txsend.txsend_src_port );
   CFG_DEPRECATED( consensus.alpenglow );
 
