@@ -61,16 +61,21 @@
   last segment extends to 2^32).  The generator flattens the source
   database's (possibly nested) CIDR records into this form with
   longest-prefix-match semantics, so lookup is a binary search over
-  seg_start rather than a bit trie walk: the columnar arrays are used
-  in place directly out of the decompressed image, making startup a
-  single streaming decompress.  seg_country[i] is an index into
+  seg_start rather than a bit trie walk.  seg_country[i] is an index into
   country_codes, or 255 for unmapped space; seg_city[i] is an index
   into city_names, or UINT_MAX.  Adjacent segments never share both.
 
-  The image buffer is sized exactly from the embedded frame's content
-  size. */
+  The image is embedded as two zstd frames: the head (through the zero
+  pad) and the segment section (from seg_cnt).  The head stays in RAM.
+  The segment section is streamed at boot into the FD_GUI_GEOIP_FD file
+  and read with pread; RAM keeps only every FD_GUI_GEOIP_BLK_SEGS-th
+  seg_start, so a lookup reads one block of seg_start plus the
+  segment's country and city. */
 
-#define FD_GUI_GEOIP_BIN_MAX          (64UL<<20) /* decompressed image sanity cap */
+#define FD_GUI_GEOIP_BIN_MAX          (64UL<<20) /* decompressed frame sanity cap */
+#define FD_GUI_GEOIP_BLK_SEGS         (256UL)
+#define FD_GUI_GEOIP_BOUNCE_SZ        (256UL<<10) /* segment section stream buffer, follows the DCtx in dctx_scratch */
+#define FD_GUI_GEOIP_FD               (123445)
 #define FD_GUI_GEOIP_MAX_CITY_NAME_SZ (80UL)
 #define FD_GUI_GEOIP_MAX_CITY_CNT     (160000UL)
 #define FD_GUI_GEOIP_MAX_COUNTRY_CNT  (254UL)
@@ -350,13 +355,15 @@ struct fd_gui_peers_ws_conn {
 typedef struct fd_gui_peers_ws_conn fd_gui_peers_ws_conn_t;
 
 struct fd_gui_ip_db {
-  /* Columnar disjoint-segment table, pointing into the decompressed
-     database image (see format comment above). */
+  /* Segment section lives in the fd file at offset 0 (see format
+     comment above); idx[b] is seg_start[b*FD_GUI_GEOIP_BLK_SEGS]. */
+  int           fd;
   ulong         seg_cnt;
-  uint const *  seg_start;   /* [seg_cnt] sorted, host byte order */
-  uchar const * seg_country; /* [seg_cnt] index into country_code, 255=unknown */
-  uint const *  seg_city;    /* [seg_cnt] index into city_name_off, UINT_MAX=unknown */
-  char const *  image;
+  ulong         idx_cnt;
+  uint const *  idx;
+  ulong         country_cnt;
+  ulong         city_cnt;
+  char const *  image;       /* head frame */
   char country_code[ FD_GUI_GEOIP_MAX_COUNTRY_CNT ][ 3 ]; /* ISO 3166-1 alpha-2 country codes as cstrings */
   uint city_name_off[ FD_GUI_GEOIP_MAX_CITY_CNT ]; /* image offset of each NUL-terminated city name */
 };
@@ -443,7 +450,8 @@ void *
 fd_gui_peers_new( void *             shmem,
                   fd_http_server_t * http,
                   fd_topo_t const *  topo,
-                  void *             dctx_scratch, /* geoip DCtx, only used inside new; fd_gui_shared_scratch_footprint */
+                  void *             dctx_scratch, /* geoip DCtx + bounce, only used inside new; fd_gui_shared_scratch_footprint */
+                  int                geoip_fd,     /* written here, read by lookups */
                   ulong              max_ws_conn_cnt,
                   char const *       wfs_expected_bank_hash_cstr,
                   ulong              seed,
@@ -548,6 +556,15 @@ fd_gui_peers_next_deadline( fd_gui_peers_ctx_t const * peers );
 void
 fd_gui_peers_rate_update( fd_gui_peers_ctx_t * peers,
                           long                 now );
+
+/* fd_gui_peers_geoip_lookup sets the country and city indices of
+   ip_addr (network byte order), UCHAR_MAX/UINT_MAX if unknown.
+   Exposed for tests. */
+void
+fd_gui_peers_geoip_lookup( fd_gui_ip_db_t const * ip_db,
+                           uint                   ip_addr,
+                           uchar *                country_idx,
+                           uint *                 city_idx );
 
 FD_PROTOTYPES_END
 
