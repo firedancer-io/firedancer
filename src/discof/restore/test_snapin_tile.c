@@ -726,7 +726,7 @@ test_cluster_new( ulong tile_cnt,
   FD_TEST( cl->in_mem );
   fd_memset( cl->in_mem, 0, tile_cnt*lane_cnt*TEST_FRAG_SZ );
 
-  ulong stake_delegations_footprint = fd_stake_delegations_footprint( 1UL, 1UL );
+  ulong stake_delegations_footprint = fd_stake_delegations_footprint( 1UL, 1UL, 1UL );
   cl->stake_delegations = aligned_alloc( fd_stake_delegations_align(), stake_delegations_footprint );
   FD_TEST( cl->stake_delegations );
   fd_memset( cl->stake_delegations, 0, stake_delegations_footprint );
@@ -1581,9 +1581,9 @@ test_nonempty_raw_data( void ) {
 
 static fd_banks_t *
 new_banks( fd_wksp_t * wksp ) {
-  void * mem = fd_wksp_alloc_laddr( wksp, fd_banks_align(), fd_banks_footprint( 16UL, 8UL, 16UL, 16UL ), 1UL );
+  void * mem = fd_wksp_alloc_laddr( wksp, fd_banks_align(), fd_banks_footprint( 16UL, 8UL, 16UL, 16UL, 16UL ), 1UL );
   FD_TEST( mem );
-  fd_banks_t * banks = fd_banks_join( fd_banks_new( mem, FD_STAKE_DELEGATIONS_FD, 16UL, 8UL, 16UL, 64UL, 16UL, 0, 42UL ) );
+  fd_banks_t * banks = fd_banks_join( fd_banks_new( mem, FD_STAKE_DELEGATIONS_FD, 16UL, 8UL, 16UL, 16UL, 64UL, 16UL, 0, 42UL ) );
   FD_TEST( banks );
   return banks;
 }
