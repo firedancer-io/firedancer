@@ -1130,6 +1130,8 @@
 | <span class="metrics-name">replay_&#8203;store_&#8203;fec_&#8203;cache_&#8203;used</span> | gauge | FEC payload slots in use in the store RAM cache |
 | <span class="metrics-name">replay_&#8203;store_&#8203;fec_&#8203;cache_&#8203;capacity</span> | gauge | FEC payload capacity of the store RAM cache |
 | <span class="metrics-name">replay_&#8203;store_&#8203;fec_&#8203;cache_&#8203;pinned</span> | gauge | FEC payload views currently pinned against eviction |
+| <span class="metrics-name">replay_&#8203;cost_&#8203;tracker_&#8203;spilled</span> | counter | Cost trackers written to the spill file because the RAM window was full |
+| <span class="metrics-name">replay_&#8203;cost_&#8203;tracker_&#8203;spill_&#8203;read</span> | counter | Cost trackers read back from the spill file |
 | <span class="metrics-name">replay_&#8203;txncache_&#8203;page_&#8203;miss</span> | counter | Transaction cache lookups under the read lock that found their page not resident |
 | <span class="metrics-name">replay_&#8203;txncache_&#8203;page_&#8203;spilled</span> | counter | Dirty transaction cache pages written to the spill file on eviction |
 | <span class="metrics-name">replay_&#8203;txncache_&#8203;page_&#8203;spill_&#8203;read</span> | counter | Transaction cache pages read back from the spill file |

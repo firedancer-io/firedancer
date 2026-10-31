@@ -1025,6 +1025,8 @@ deliberate exception with lint-allow="<rule id>")
     <gauge name="StoreFecCacheUsed" summary="FEC payload slots in use in the store RAM cache" />
     <gauge name="StoreFecCacheCapacity" summary="FEC payload capacity of the store RAM cache" />
     <gauge name="StoreFecCachePinned" ambiguous-kind="true" summary="FEC payload views currently pinned against eviction" />
+    <counter name="CostTrackerSpilled" summary="Cost trackers written to the spill file because the RAM window was full" />
+    <counter name="CostTrackerSpillRead" summary="Cost trackers read back from the spill file" />
     <counter name="TxncachePageMiss" summary="Transaction cache lookups under the read lock that found their page not resident" />
     <counter name="TxncachePageSpilled" summary="Dirty transaction cache pages written to the spill file on eviction" />
     <counter name="TxncachePageSpillRead" summary="Transaction cache pages read back from the spill file" />

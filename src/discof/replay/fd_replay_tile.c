@@ -301,6 +301,10 @@ metrics_write( fd_replay_tile_t * ctx ) {
   FD_MGAUGE_SET( REPLAY, STORE_FEC_CACHE_CAPACITY,   store_fec_cache_max                  );
   FD_MGAUGE_SET( REPLAY, STORE_FEC_CACHE_PINNED,     store_fec_cache_pinned               );
 
+  fd_cost_tracker_store_metrics_t const * ct_metrics = fd_cost_tracker_store_metrics( fd_banks_get_cost_tracker( ctx->banks ) );
+  FD_MCNT_SET  ( REPLAY, COST_TRACKER_SPILLED,    ct_metrics->spilled_cnt    );
+  FD_MCNT_SET  ( REPLAY, COST_TRACKER_SPILL_READ, ct_metrics->spill_read_cnt );
+
   fd_txncache_metrics_t txncache_metrics[1];
   fd_txncache_metrics_snap( ctx->txncache, txncache_metrics );
   FD_MCNT_SET  ( REPLAY, TXNCACHE_PAGE_MISS,                       txncache_metrics->page_miss_cnt         );
