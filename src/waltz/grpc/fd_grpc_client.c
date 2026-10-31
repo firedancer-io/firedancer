@@ -928,6 +928,11 @@ fd_grpc_h2_cb_headers(
     if( FD_LIKELY( ( stream->hdrs.h2_status==200  ) &
                    ( !!stream->hdrs.is_grpc_proto ) ) ) {
       client->callbacks->rx_start( client->ctx, stream->request_ctx );
+    } else if( !rx_end ) {
+      fd_h2_stream_error( h2_stream, conn, client->frame_tx, FD_H2_ERR_CANCEL );
+      client->callbacks->rx_end( client->ctx, stream->request_ctx, &stream->hdrs );
+      fd_grpc_client_stream_release( client, stream );
+      return;
     }
   }
 
