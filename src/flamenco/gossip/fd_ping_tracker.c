@@ -326,7 +326,7 @@ fd_ping_tracker_track( fd_ping_tracker_t * ping_tracker,
     /* Node went from unstaked (or low staked) to
        >=FD_GOSSIP_STAKED_THRESHOLD lamports.  No longer need to ping
        it at any socket. */
-    ulong cnt = fd_ping_tracker_remove_all( ping_tracker, peer_pubkey, now, FD_PING_TRACKER_CHANGE_TYPE_INACTIVE_STAKED );
+    ulong cnt = fd_ping_tracker_remove_all( ping_tracker, peer_pubkey, now, FD_PING_TRACKER_CHANGE_TYPE_INACTIVE_STAKED, FD_PING_TRACKER_STAKED_REMOVE_MAX );
     ping_tracker->metrics->removed[ FD_METRICS_ENUM_PING_PEER_REMOVE_REASON_V_STAKED_IDX ] += cnt;
     return;
   }
@@ -426,6 +426,7 @@ fd_ping_tracker_next_deadline( fd_ping_tracker_t const * ping_tracker ) {
 int
 fd_ping_tracker_pop_request( fd_ping_tracker_t *    ping_tracker,
                              long                   now,
+                             ulong *                opt_budget,
                              uchar const **         out_peer_pubkey,
                              fd_ip4_port_t const ** out_peer_address,
                              uchar const **         out_token ) {
@@ -464,6 +465,7 @@ fd_ping_tracker_pop_request( fd_ping_tracker_t *    ping_tracker,
     if( FD_UNLIKELY( next->last_rx_nanos<now-60L*1000L*1000L*1000L ) ) {
       /* The peer is no longer sending us contact information, no need
          to ping it and instead remove it from the table. */
+      if( FD_UNLIKELY( opt_budget ) ) { if( FD_UNLIKELY( !*opt_budget ) ) return 0; (*opt_budget)--; }
       remove_peer( ping_tracker, next, now, FD_PING_TRACKER_CHANGE_TYPE_INACTIVE );
       ping_tracker->metrics->removed[ FD_METRICS_ENUM_PING_PEER_REMOVE_REASON_V_STALE_IDX ]++;
       continue;
@@ -472,6 +474,9 @@ fd_ping_tracker_pop_request( fd_ping_tracker_t *    ping_tracker,
     /* The next ping we want to send is still in the future, so do
        nothing for now. */
     if( FD_LIKELY( next->next_ping_nanos>now ) ) return 0;
+
+    int expiring = next->state==FD_PING_TRACKER_STATE_VALID_REFRESHING && next->valid_until_nanos<=now;
+    if( FD_UNLIKELY( expiring && opt_budget ) ) { if( FD_UNLIKELY( !*opt_budget ) ) return 0; (*opt_budget)--; }
 
     if( FD_LIKELY( next==peer_refreshing ) )   refreshing_list_ele_pop_head( ping_tracker->refreshing, ping_tracker->pool );
     else if( FD_LIKELY( next==peer_waiting ) ) waiting_list_ele_pop_head( ping_tracker->waiting, ping_tracker->pool );
@@ -484,7 +489,7 @@ fd_ping_tracker_pop_request( fd_ping_tracker_t *    ping_tracker,
       next->state = FD_PING_TRACKER_STATE_VALID_REFRESHING;
       ping_tracker->metrics->valid_cnt--;
       ping_tracker->metrics->refreshing_cnt++;
-    } else if( FD_LIKELY( next->state==FD_PING_TRACKER_STATE_VALID_REFRESHING && next->valid_until_nanos<=now ) ) {
+    } else if( FD_LIKELY( expiring ) ) {
       ping_tracker->change_fn( ping_tracker->change_fn_ctx, next->identity_pubkey.b, next->address, now, FD_PING_TRACKER_CHANGE_TYPE_INACTIVE );
       switch( next->state ) {
         case FD_PING_TRACKER_STATE_UNPINGED:         ping_tracker->metrics->unpinged_cnt--; break;
@@ -509,11 +514,12 @@ ulong
 fd_ping_tracker_remove_all( fd_ping_tracker_t * ping_tracker,
                             uchar const *       peer_pubkey,
                             long                now,
-                            int                 change_type ) {
+                            int                 change_type,
+                            ulong               max ) {
   ulong cnt = 0UL;
   pubkey_private_t const * key = fd_type_pun_const( peer_pubkey );
   ulong idx = id_map_idx_query_const( ping_tracker->ids, key, ULONG_MAX, ping_tracker->pool );
-  while( idx!=ULONG_MAX ) {
+  while( idx!=ULONG_MAX && cnt<max ) {
     ulong next_idx = id_map_idx_next_const( idx, ULONG_MAX, ping_tracker->pool );
     remove_peer( ping_tracker, pool_ele( ping_tracker->pool, idx ), now, change_type );
     cnt++;
@@ -522,12 +528,13 @@ fd_ping_tracker_remove_all( fd_ping_tracker_t * ping_tracker,
   return cnt;
 }
 
-void
+int
 fd_ping_tracker_remove( fd_ping_tracker_t * ping_tracker,
                         uchar const *       peer_pubkey,
                         long                now ) {
-  ulong cnt = fd_ping_tracker_remove_all( ping_tracker, peer_pubkey, now, FD_PING_TRACKER_CHANGE_TYPE_INACTIVE );
+  ulong cnt = fd_ping_tracker_remove_all( ping_tracker, peer_pubkey, now, FD_PING_TRACKER_CHANGE_TYPE_INACTIVE, FD_PING_TRACKER_SWEEP_MAX );
   ping_tracker->metrics->removed[ FD_METRICS_ENUM_PING_PEER_REMOVE_REASON_V_IDENTITY_IDX ] += cnt;
+  return id_map_idx_query_const( ping_tracker->ids, fd_type_pun_const( peer_pubkey ), ULONG_MAX, ping_tracker->pool )==ULONG_MAX;
 }
 
 fd_ping_tracker_metrics_t const *
