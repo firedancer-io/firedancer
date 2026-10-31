@@ -661,8 +661,8 @@ fd_topos_sock_lo( fd_topo_t *            topo,
     /* Which links of net to duplicate */
     if( 0!=strncmp( net_out_link->name, "net_", 4UL ) || 0==strcmp( net_out_link->name, "net_netlnk" ) ) continue;
 
-    /* Duplicate link */
-    fd_topo_link_t * sock_out_link = fd_topob_link( topo, net_out_link->name, "sock", 4096UL, FD_NET_MTU, 64UL );
+    /* Duplicate link (lo is local best-effort traffic) */
+    fd_topo_link_t * sock_out_link = fd_topob_link( topo, net_out_link->name, "sock", 1024UL, FD_NET_MTU, 64UL );
     fd_topob_tile_out( topo, "sock", sock->kind_id, sock_out_link->name, sock_out_link->kind_id );
 
     /* Loop through all tiles, check their in links for net */
