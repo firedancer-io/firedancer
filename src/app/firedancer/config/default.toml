@@ -1837,7 +1837,7 @@ telemetry = true
         # This cache helps reduce disk I/O against the shred database file.
         shred_cache_size_mib = 32
 
-    # The repair tile watches incoming shreds and sends repair requests
+    # The rotor tile watches incoming shreds and sends repair requests
     # to other validators when it notices we are missing data needed to
     # replay the chain.
     [tiles.repair]
@@ -1845,13 +1845,6 @@ telemetry = true
         # requests.  This port must be open and accessible from the
         # network.
         repair_client_listen_port = 8701
-
-        # Slot max is the maximum number of slots that repair tile can
-        # maintain at once.  This is expected to be the largest at
-        # startup, when the validator is catching up from the snapshot
-        # slot, but still maintaining and receiving new turbine slots.
-        # Must be power of 2
-        slot_max = 4096
 
     [tiles.rserve]
         # If the repair server is enabled.

@@ -42,7 +42,7 @@
 #include "../../disco/metrics/fd_metrics.h"
 #include "../../flamenco/events/fd_event_runtime.h"
 #include "../../disco/events/generated/fd_event_gen.h"
-#include "../../disco/repair/fd_repair_tile.h"
+#include "../../disco/repair/fd_rotor_tile.h"
 #include "../../flamenco/runtime/fd_runtime.h"
 #include "../../flamenco/runtime/fd_runtime_stack_tmpl.h"
 
@@ -3725,7 +3725,7 @@ process_rotor_fec( fd_replay_tile_t       * ctx,
        map does not support duplicate keys: rotor guarantees at most one
        delivery stream per block (a turbine copy of a slot with a
        votor-driven version is abandoned in the rotor, see
-       fd_repair_tile.h), so {slot, block_id} can never already be
+       fd_rotor_tile.h), so {slot, block_id} can never already be
        occupied by another LIVE bank.  It can however be occupied by a
        STALE entry: a previously-completed copy of this block whose bank
        was evicted (eviction does not remove map entries), now being

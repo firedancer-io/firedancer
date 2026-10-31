@@ -219,7 +219,7 @@ enum {
 
 #define FD_METRICS_GAUGE_REPLAY_LAST_REWARDED_VOTE_SLOT_NAME "replay_last_rewarded_vote_slot"
 #define FD_METRICS_GAUGE_REPLAY_LAST_REWARDED_VOTE_SLOT_TYPE (FD_METRICS_TYPE_GAUGE)
-#define FD_METRICS_GAUGE_REPLAY_LAST_REWARDED_VOTE_SLOT_DESC "Latest slot for which our vote appears in a reward certificate, 0 if none observed (always 0 under Tower)"
+#define FD_METRICS_GAUGE_REPLAY_LAST_REWARDED_VOTE_SLOT_DESC "Latest slot for which our vote appears in a reward certificate, 0 if none observed"
 #define FD_METRICS_GAUGE_REPLAY_LAST_REWARDED_VOTE_SLOT_CVT  (FD_METRICS_CONVERTER_NONE)
 
 #define FD_METRICS_HISTOGRAM_REPLAY_STORE_QUERY_DURATION_NANOS_NAME "replay_store_query_duration_nanos"
@@ -355,7 +355,7 @@ enum {
 
 #define FD_METRICS_GAUGE_REPLAY_RESET_SLOT_NAME "replay_reset_slot"
 #define FD_METRICS_GAUGE_REPLAY_RESET_SLOT_TYPE (FD_METRICS_TYPE_GAUGE)
-#define FD_METRICS_GAUGE_REPLAY_RESET_SLOT_DESC "Slot replay last reset to (Tower reset slot; under Alpenglow the newest replayed slot or parent-ready parent); can decrease"
+#define FD_METRICS_GAUGE_REPLAY_RESET_SLOT_DESC "Slot replay last reset to (the newest replayed slot or parent-ready parent); can decrease"
 #define FD_METRICS_GAUGE_REPLAY_RESET_SLOT_CVT  (FD_METRICS_CONVERTER_NONE)
 
 #define FD_METRICS_GAUGE_REPLAY_BANK_CAPACITY_NAME "replay_bank_capacity"

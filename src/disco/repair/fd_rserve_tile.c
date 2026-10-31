@@ -5,7 +5,7 @@
 #include <fcntl.h>
 
 #include "fd_rserve.h"
-#include "fd_repair_tile.h"
+#include "fd_rotor_tile.h"
 #include "fd_repair_serde.h"
 #include "../../disco/fd_disco_base.h"
 #include "../../disco/keyguard/fd_keyguard_client.h"

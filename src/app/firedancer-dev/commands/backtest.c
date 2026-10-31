@@ -28,7 +28,7 @@
 #include "../../../discof/restore/fd_snapct_tile.h"
 #include "../../../discof/restore/utils/fd_ssctrl.h"
 #include "../../../discof/restore/utils/fd_ssmsg.h"
-#include "../../../disco/repair/fd_repair_tile.h"
+#include "../../../disco/repair/fd_rotor_tile.h"
 #include "../../../discof/votor/fd_votor_tile.h"
 #include "../../../discof/replay/fd_execrp.h"
 #include "../../../disco/shred/fd_shred_tile.h"

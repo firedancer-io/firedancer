@@ -454,7 +454,6 @@ struct fd_config {
 
     struct {
       ushort repair_client_listen_port;
-      ulong  slot_max;
     } repair;
 
     struct {

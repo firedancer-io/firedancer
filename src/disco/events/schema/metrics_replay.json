@@ -90,7 +90,7 @@
         "cluster_active_stake_lamports":           { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Cluster active stake at the optimistically confirmed slot, or the finalized slot under Alpenglow" },
         "epoch_credits":                           { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "gauge: current value, do not sum over time. Credits our vote account earned this epoch, as of the optimistically confirmed slot, or the finalized slot under Alpenglow, where they are lamport-denominated reward credits" },
         "is_vote_account_inadmissible":            { "type": "Bool",                                                           "description": "Whether our vote account's stake is not admitted: at the optimistically confirmed slot it fails the validator admission ticket filter (missing, below the V4 rent-exempt minimum, or not V4 with a BLS pubkey), or it passes but has not yet been admitted at an epoch boundary" },
-        "last_rewarded_vote_slot":                 { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Latest slot for which our vote appears in a reward certificate, 0 if none observed (always 0 under Tower)" },
+        "last_rewarded_vote_slot":                 { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Latest slot for which our vote appears in a reward certificate, 0 if none observed" },
         "store_query_duration_nanos": {
             "type": "Tuple",
             "description": "Duration of ingesting one queried FEC set into the scheduler",
@@ -128,7 +128,7 @@
         "root_slot_distance":                      { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Slots between the current reset slot and our root" },
         "leader_slot":                             { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Slot at which we are currently leader, or 0 if none" },
         "next_leader_slot":                        { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Slot at which we are next leader, or 0 if none. If we are currently leader, this is the same as the current leader slot" },
-        "reset_slot":                              { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Slot replay last reset to (Tower reset slot; under Alpenglow the newest replayed slot or parent-ready parent); can decrease" },
+        "reset_slot":                              { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Slot replay last reset to (the newest replayed slot or parent-ready parent); can decrease" },
         "bank_capacity":                           { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Maximum number of banks we can have alive" },
         "bank_used":                               { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Banks we currently have alive" },
         "reassembly_free":                         { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Free FEC sets in the reassembly queue, 0 under Alpenglow (no reassembly queue)", "deprecated": true },

@@ -3,7 +3,7 @@
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/fd_clock_tile.h"
 #include <linux/futex.h>
-#include "generated/fd_repair_tile_seccomp.h"
+#include "generated/fd_rotor_tile_seccomp.h"
 #include "../../disco/shred/fd_shred_tile.h"
 #include "fd_repair.h"
 #include "../../choreo/votor/ag_cert.h"
@@ -26,7 +26,7 @@
 #include "../../disco/shred/fd_rnonce_ss.h"
 #include "../../util/net/fd_net_headers.h"
 #include "../../util/pod/fd_pod_format.h"
-#include "fd_repair_tile.h"
+#include "fd_rotor_tile.h"
 
 /* timeout: tracks a repair request we've made that expires at the given
    time.  If the repair request is not responded by timeout, retry. */
@@ -148,7 +148,7 @@ static fd_ed25519_sig_t const sig_null = {0};
 #define IN_KIND_SIGN    (7)
 #define IN_KIND_EPOCH   (8)
 
-struct fd_repair_tile {
+struct fd_rotor_tile {
 
   /* Signing */
 
@@ -289,14 +289,14 @@ struct fd_repair_tile {
     fd_histf_t escape_hedge[ 1 ];
   } metrics[ 1 ];
 };
-typedef struct fd_repair_tile fd_repair_tile_t;
+typedef struct fd_rotor_tile fd_rotor_tile_t;
 
 /* push_timeout inserts req into its blk's role's timeout_prq.  A full
    timeout_prq drops it and rewinds the blk, back into its blk_treap,
    so the work is discovered again. */
 
 static void
-push_timeout( fd_repair_tile_t * ctx,
+push_timeout( fd_rotor_tile_t * ctx,
               fd_repair_blk_t *  blk,
               timeout_t const *  req ) {
   fd_repair_slot_meta_t const * meta = fd_repair_slot_meta( ctx->rotor, blk->slot );
@@ -319,7 +319,7 @@ push_timeout( fd_repair_tile_t * ctx,
 /* poll_timeout polls for one or more requests that have timed out. */
 
 static fd_repair_blk_t *
-poll_timeout( fd_repair_tile_t * ctx,
+poll_timeout( fd_rotor_tile_t * ctx,
               long               now,
               timeout_t *        out ) {
   timeout_t * prqs[3] = { ctx->final_prq, ctx->notar_prq, ctx->eager_prq };
@@ -360,7 +360,7 @@ poll_timeout( fd_repair_tile_t * ctx,
 /* discover new requests translating rotor treaps => repair requests. */
 
 static void
-discover( fd_repair_tile_t * ctx,
+discover( fd_rotor_tile_t * ctx,
           fd_repair_blk_t *  blk,
           long               now ) {
   fd_repair_slot_meta_t const * meta = fd_repair_slot_meta( ctx->rotor, blk->slot );
@@ -423,7 +423,7 @@ static void
 report_block_received( void *                  ctx_,
                        fd_repair_blk_t const * blk ) {
   if( FD_LIKELY( !fd_event_tl ) ) return;
-  fd_repair_tile_t *      ctx       = (fd_repair_tile_t *)ctx_;
+  fd_rotor_tile_t *      ctx       = (fd_rotor_tile_t *)ctx_;
   uint                    fec_cnt   = fd_uint_if( !!blk->cmpl_fec_cnt, blk->cmpl_fec_cnt, blk->rcvd_fec_cnt ); /* an incomplete blk reports what it received */
   fd_repair_fec_t const * last      = fd_repair_fec_pool_ele_const( ctx->rotor->fec_pool, fec_cnt ? blk->fecs[ fec_cnt-1U ] : fd_repair_fec_pool_idx_null( ctx->rotor->fec_pool ) );
   int                     is_leader = last && last->is_leader;
@@ -482,7 +482,7 @@ report_block_received( void *                  ctx_,
 }
 
 static void
-report_repair_request( fd_repair_tile_t * ctx,
+report_repair_request( fd_rotor_tile_t * ctx,
                        pending_t const *  pending,
                        uint               bit_idx,
                        long               res_ts,
@@ -523,7 +523,7 @@ report_repair_request( fd_repair_tile_t * ctx,
 
 
 static inline void
-handle_shred( fd_repair_tile_t * ctx,
+handle_shred( fd_rotor_tile_t * ctx,
               ulong              sig,
               uchar const *      chunk,
               long               rx_ts ) {
@@ -631,7 +631,7 @@ handle_shred( fd_repair_tile_t * ctx,
 }
 
 static void
-handle_snapshot( fd_repair_tile_t * ctx,
+handle_snapshot( fd_rotor_tile_t * ctx,
                  ulong              sig,
                  uchar const *      chunk ) {
   switch( fd_ssmsg_sig_message( sig ) ) {
@@ -651,7 +651,7 @@ handle_snapshot( fd_repair_tile_t * ctx,
 }
 
 static inline void
-handle_votor( fd_repair_tile_t * ctx,
+handle_votor( fd_rotor_tile_t * ctx,
               ulong              sig,
               uchar const *      chunk ) {
   fd_votor_msg_t const * msg = (fd_votor_msg_t const *)fd_type_pun_const( chunk );
@@ -703,7 +703,7 @@ handle_votor( fd_repair_tile_t * ctx,
 }
 
 static inline void
-handle_replay( fd_repair_tile_t * ctx,
+handle_replay( fd_rotor_tile_t * ctx,
                ulong              sig,
                uchar const *      chunk ) {
   switch( sig ) {
@@ -730,7 +730,7 @@ handle_replay( fd_repair_tile_t * ctx,
 }
 
 static void
-handle_gossip( fd_repair_tile_t *                 ctx,
+handle_gossip( fd_rotor_tile_t *                 ctx,
                ulong                              sig,
                fd_gossip_update_message_t const * msg ) {
 
@@ -764,7 +764,7 @@ handle_gossip( fd_repair_tile_t *                 ctx,
    request to in the last PING_TTL. */
 
 static void
-handle_ping( fd_repair_tile_t *   ctx,
+handle_ping( fd_rotor_tile_t *   ctx,
              fd_stem_context_t *  stem,
              uchar const *        data,
              ulong                data_sz,
@@ -804,7 +804,7 @@ handle_ping( fd_repair_tile_t *   ctx,
 }
 
 static void
-handle_parent_and_fec_set_count_res( fd_repair_tile_t *   ctx,
+handle_parent_and_fec_set_count_res( fd_rotor_tile_t *   ctx,
                                      uchar const *        data,
                                      ulong                data_sz,
                                      fd_ip4_hdr_t const * ip4,
@@ -850,7 +850,7 @@ handle_parent_and_fec_set_count_res( fd_repair_tile_t *   ctx,
 }
 
 static void
-handle_fec_set_root_res( fd_repair_tile_t *   ctx,
+handle_fec_set_root_res( fd_rotor_tile_t *   ctx,
                          uchar const *        data,
                          ulong                data_sz,
                          fd_ip4_hdr_t const * ip4,
@@ -891,7 +891,7 @@ handle_fec_set_root_res( fd_repair_tile_t *   ctx,
 }
 
 static void
-handle_net( fd_repair_tile_t *  ctx,
+handle_net( fd_rotor_tile_t *  ctx,
             fd_stem_context_t * stem,
             ulong               sz,
             long                rx_ts ) {
@@ -917,7 +917,7 @@ handle_net( fd_repair_tile_t *  ctx,
 /* handle_sign sends the message that was waiting for this signature. */
 
 static void
-handle_sign( fd_repair_tile_t *  ctx,
+handle_sign( fd_rotor_tile_t *  ctx,
              fd_stem_context_t * stem,
              ulong               in_idx,
              ulong               sig ) {
@@ -946,7 +946,7 @@ handle_sign( fd_repair_tile_t *  ctx,
 }
 
 static inline void
-metrics_write( fd_repair_tile_t * ctx ) {
+metrics_write( fd_rotor_tile_t * ctx ) {
   long now = fd_clock_tile_now( ctx->clock );
   long due = now;
   due = fd_long_if( !!timeout_prq_cnt( ctx->eager_prq ), fd_long_min( due, ctx->eager_prq[ 0 ].timeout ), due );
@@ -1031,7 +1031,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   ulong pending_max = tile->rotor.repair_sign_cnt*(ulong)( PENDING_TTL/SIGN_NS ); /* what the sign tiles can sign within PENDING_TTL, each pending is at least one */
   ulong chain_cnt   = pending_map_chain_cnt_est( pending_max );
   ulong l = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l, alignof(fd_repair_tile_t),          sizeof(fd_repair_tile_t)                         );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_rotor_tile_t),          sizeof(fd_rotor_tile_t)                         );
   l = FD_LAYOUT_APPEND( l, fd_repair_align(),                  fd_repair_footprint( tile->rotor.slot_max, tile->rotor.fec_max, tile->rotor.max_shreds_per_block/FD_FEC_SHRED_CNT ) );
   l = FD_LAYOUT_APPEND( l, fd_repair_strat_align(),            fd_repair_strat_footprint()                      );
   l = FD_LAYOUT_APPEND( l, fd_multi_epoch_leaders_align(),     fd_multi_epoch_leaders_footprint()               );
@@ -1048,7 +1048,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
 }
 
 static inline void
-after_credit( fd_repair_tile_t *  ctx,
+after_credit( fd_rotor_tile_t *  ctx,
               fd_stem_context_t * stem,
               int *               opt_poll_in,
               int *               charge_busy ) {
@@ -1301,7 +1301,7 @@ after_credit( fd_repair_tile_t *  ctx,
 }
 
 static int
-before_frag( fd_repair_tile_t * ctx,
+before_frag( fd_rotor_tile_t * ctx,
              ulong              in_idx,
              ulong              seq FD_PARAM_UNUSED,
              ulong              sig ) {
@@ -1340,7 +1340,7 @@ before_frag( fd_repair_tile_t * ctx,
 }
 
 static void
-during_frag( fd_repair_tile_t * ctx,
+during_frag( fd_rotor_tile_t * ctx,
              ulong              in_idx,
              ulong              seq FD_PARAM_UNUSED,
              ulong              sig FD_PARAM_UNUSED,
@@ -1373,7 +1373,7 @@ during_frag( fd_repair_tile_t * ctx,
 }
 
 static void
-after_frag( fd_repair_tile_t *  ctx,
+after_frag( fd_rotor_tile_t *  ctx,
             ulong               in_idx,
             ulong               seq    FD_PARAM_UNUSED,
             ulong               sig,
@@ -1444,7 +1444,7 @@ after_frag( fd_repair_tile_t *  ctx,
    earliest timeout due, or the oldest pending expiring. */
 
 static long
-next_deadline( fd_repair_tile_t * ctx ) {
+next_deadline( fd_rotor_tile_t * ctx ) {
   long due = LONG_MAX;
   due = fd_long_if( !!timeout_prq_cnt( ctx->eager_prq ), fd_long_min( due, ctx->eager_prq[ 0 ].timeout ), due );
   due = fd_long_if( !!timeout_prq_cnt( ctx->notar_prq ), fd_long_min( due, ctx->notar_prq[ 0 ].timeout ), due );
@@ -1455,7 +1455,7 @@ next_deadline( fd_repair_tile_t * ctx ) {
 }
 
 static inline void
-during_housekeeping( fd_repair_tile_t * ctx ) {
+during_housekeeping( fd_rotor_tile_t * ctx ) {
   if( FD_UNLIKELY( fd_clock_tile_recal_due( ctx->clock ) ) ) fd_clock_tile_recal( ctx->clock );
 
   if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->keyswitch )==FD_KEYSWITCH_STATE_UNHALT_PENDING ) ) {
@@ -1491,8 +1491,8 @@ privileged_init( fd_topo_t const *      topo,
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
-  fd_repair_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_repair_tile_t), sizeof(fd_repair_tile_t) );
-  fd_memset( ctx, 0, sizeof(fd_repair_tile_t) );
+  fd_rotor_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_rotor_tile_t), sizeof(fd_rotor_tile_t) );
+  fd_memset( ctx, 0, sizeof(fd_rotor_tile_t) );
 
   FD_TEST( fd_rng_secure( &ctx->seed, sizeof(ulong) ) );
 
@@ -1514,7 +1514,7 @@ unprivileged_init( fd_topo_t const *      topo,
   ulong  chain_cnt   = pending_map_chain_cnt_est( pending_max );
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
-  fd_repair_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_repair_tile_t),          sizeof(fd_repair_tile_t)                         );
+  fd_rotor_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_rotor_tile_t),          sizeof(fd_rotor_tile_t)                         );
   ctx->rotor             = FD_SCRATCH_ALLOC_APPEND( l, fd_repair_align(),                  fd_repair_footprint( tile->rotor.slot_max, tile->rotor.fec_max, tile->rotor.max_shreds_per_block/FD_FEC_SHRED_CNT ) );
   void * strat           = FD_SCRATCH_ALLOC_APPEND( l, fd_repair_strat_align(),            fd_repair_strat_footprint()                      );
   void * mleaders        = FD_SCRATCH_ALLOC_APPEND( l, fd_multi_epoch_leaders_align(),     fd_multi_epoch_leaders_footprint()               );
@@ -1629,8 +1629,8 @@ populate_allowed_seccomp( fd_topo_t const *      topo FD_PARAM_UNUSED,
                           fd_topo_tile_t const * tile FD_PARAM_UNUSED,
                           ulong                  out_cnt,
                           struct sock_filter *   out ) {
-  populate_sock_filter_policy_fd_repair_tile( out_cnt, out, (uint)fd_log_private_logfile_fd() );
-  return sock_filter_policy_fd_repair_tile_instr_cnt;
+  populate_sock_filter_policy_fd_rotor_tile( out_cnt, out, (uint)fd_log_private_logfile_fd() );
+  return sock_filter_policy_fd_rotor_tile_instr_cnt;
 }
 
 static ulong
@@ -1650,8 +1650,8 @@ populate_allowed_fds( fd_topo_t const *      topo FD_PARAM_UNUSED,
 #define STEM_BURST (1UL)
 #define STEM_LAZY  (128L*3000L)
 
-#define STEM_CALLBACK_CONTEXT_TYPE  fd_repair_tile_t
-#define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_repair_tile_t)
+#define STEM_CALLBACK_CONTEXT_TYPE  fd_rotor_tile_t
+#define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_rotor_tile_t)
 
 #define STEM_CALLBACK_METRICS_WRITE       metrics_write
 #define STEM_CALLBACK_DURING_HOUSEKEEPING during_housekeeping
