@@ -39,6 +39,14 @@
 
 #define FD_PING_TRACKER_MAX (65536UL)
 
+/* Each removal of an active peer fires change_fn, which the gossip
+   tile turns into a reliable publish, so removals are budgeted per
+   call (not FD_PING_TRACKER_MAX) to bound the tile's STEM_BURST.
+   Leftovers are removed by later calls. */
+
+#define FD_PING_TRACKER_SWEEP_MAX         (512UL) /* per pop_request loop / remove call */
+#define FD_PING_TRACKER_STAKED_REMOVE_MAX (1UL)   /* per staked track call, rest go stale */
+
 struct fd_ping_tracker_private;
 typedef struct fd_ping_tracker_private fd_ping_tracker_t;
 
@@ -94,7 +102,8 @@ fd_ping_tracker_join( void * shpt );
    address gets a separate entry that must pong on its own, and the
    old one ages out.  Tracking is idempotent and refreshes liveness.
    A peer that reaches FD_GOSSIP_STAKED_THRESHOLD stake is dropped at
-   every address. */
+   every address, at most FD_PING_TRACKER_STAKED_REMOVE_MAX per call;
+   the rest are no longer refreshed and go stale. */
 
 void
 fd_ping_tracker_track( fd_ping_tracker_t * ping_tracker,
@@ -125,30 +134,37 @@ fd_ping_tracker_active( fd_ping_tracker_t * ping_tracker,
                         uchar const *       peer_pubkey,
                         fd_ip4_port_t       peer_address );
 
-/* fd_ping_tracker_remove removes every address of a peer from the
-   ping tracker.  change_fn fires with INACTIVE for each address that
-   was active (VALID or VALID_REFRESHING).  No-op for an untracked
-   peer. */
+/* fd_ping_tracker_remove removes up to FD_PING_TRACKER_SWEEP_MAX
+   addresses of a peer from the ping tracker.  change_fn fires with
+   INACTIVE for each address that was active (VALID or
+   VALID_REFRESHING).  Returns 1 once the peer has no addresses left
+   (no-op for an untracked peer), 0 if the caller must call again. */
 
-void
+int
 fd_ping_tracker_remove( fd_ping_tracker_t * ping_tracker,
                         uchar const *       peer_pubkey,
                         long                now );
 
-/* fd_ping_tracker_remove_all is fd_ping_tracker_remove with the given
-   change type.  Returns the entries removed. */
+/* fd_ping_tracker_remove_all removes up to max addresses of a peer
+   with the given change type.  Returns the entries removed. */
 
 ulong
 fd_ping_tracker_remove_all( fd_ping_tracker_t * ping_tracker,
                             uchar const *       peer_pubkey,
                             long                now,
-                            int                 change_type );
+                            int                 change_type,
+                            ulong               max );
 
 /* fd_ping_tracker_pop_request informs the caller if a ping request
    needs to be sent to a peer.  If a ping request needs to be sent, the
    peer pubkey is returned in out_peer_pubkey.  The caller should send a
    ping message to the peer.  The structure assumes the ping will be
    sent, and updates internal state accordingly.
+
+   Stale peers are removed and expiring ones go INVALID as they are
+   met.  opt_budget, if non-NULL, is decremented for each and
+   pop_request returns 0 when it is exhausted, bounding change_fn
+   calls across a caller's pop loop.
 
    Returns 1 if a ping request needs to be sent, or 0 if no ping request
    is needed.
@@ -161,6 +177,7 @@ fd_ping_tracker_remove_all( fd_ping_tracker_t * ping_tracker,
 int
 fd_ping_tracker_pop_request( fd_ping_tracker_t *    ping_tracker,
                              long                   now,
+                             ulong *                opt_budget,
                              uchar const **         out_peer_pubkey,
                              fd_ip4_port_t const ** out_peer_address,
                              uchar const **         out_token );

@@ -3,6 +3,7 @@
 #include <linux/futex.h>
 #include "generated/fd_gossip_tile_seccomp.h"
 
+#include "../../flamenco/gossip/fd_crds.h"
 #include "../../flamenco/gossip/fd_gossip_out.h"
 #include "../../flamenco/gossip/fd_active_set.h"
 #include "../../flamenco/features/fd_features.h"
@@ -277,14 +278,14 @@ after_credit( fd_gossip_tile_ctx_t * ctx,
     /* the identity key is swapped after the sign tile has been swapped
        because the below function directly sends a sign request. */
     FD_BASE58_ENCODE_32_BYTES( ctx->keyswitch->bytes, _new_id_b58 );
-    fd_gossip_set_identity( ctx->gossip,
-                            ctx->keyswitch->bytes,
-                            fd_clock_tile_now( ctx->clock ),
-                            (ulong)FD_NANOSEC_TO_MICRO( ctx->keyswitch->param ) );
+    *charge_busy = 1;
+    if( FD_UNLIKELY( !fd_gossip_set_identity( ctx->gossip,
+                                              ctx->keyswitch->bytes,
+                                              fd_clock_tile_now( ctx->clock ),
+                                              (ulong)FD_NANOSEC_TO_MICRO( ctx->keyswitch->param ) ) ) ) return; /* budgeted, resume next credit */
     ctx->is_halting_signing        = 0;
     ctx->is_pending_set_identity   = 0;
     fd_keyswitch_state( ctx->keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
-    *charge_busy = 1;
     return;
   }
 
@@ -757,37 +758,36 @@ populate_allowed_fds( fd_topo_t const *      topo,
 /* STEM_BURST must bound the maximum number of fd_stem_publish
    calls on any single output link between two consecutive
    credit checks in the stem run loop.  One iteration consists
-   of after_credit (which calls fd_gossip_advance) followed by
-   processing one input fragment (returnable_frag).  A gossip packet
-   handler calls fd_gossip_advance again after fd_gossip_rx.
+   of after_credit followed by processing one input fragment, and
+   BOTH may call fd_gossip_advance (after_credit, and handle_packet
+   after fd_gossip_rx), so the budgeted sweeps count twice.
 
    The reliable output links and their per-iteration worst cases:
 
    gossvf_out (via gossip_ping_tracker_change_fn):
-     tx_ping evictions + expiries            FD_PING_TRACKER_MAX
-     fd_ping_tracker_track from rx_values    2*FD_GOSSIP_MESSAGE_MAX_CRDS
-     Total: FD_PING_TRACKER_MAX + 2*FD_GOSSIP_MESSAGE_MAX_CRDS
+     tx_ping stale removals + expiries       2*FD_PING_TRACKER_SWEEP_MAX
+       (or set_identity removals in place of the after_credit sweep)
+     fd_ping_tracker_track/register from rx  FD_GOSSIP_MESSAGE_MAX_CRDS
+       (each removes <=1: staked remove or LRU evict)
 
    gossip_ciaddr and gossip_ciseen (via fd_gossip_tx_publish_chunk),
    each at most one frag per contact info event:
-     fd_crds_advance expire (ContactInfos)   FD_CONTACT_INFO_TABLE_SIZE
+     fd_crds_advance expire (ContactInfos)   2*FD_CRDS_SWEEP_MAX
      fd_crds_insert publish + evictions      2*FD_GOSSIP_MESSAGE_MAX_CRDS
-     Total: FD_CONTACT_INFO_TABLE_SIZE + 2*FD_GOSSIP_MESSAGE_MAX_CRDS
+     PEER_SATURATED (ciaddr, one shot)       1
 
-   gossip_misc carries a subset of the fd_crds_insert publishes
-   (at most FD_GOSSIP_MESSAGE_MAX_CRDS, plus local pushes), so the
-   contact info links bound it.
-
-   Among the reliable output links, gossvf_out dominates.  Every
-   reliable out link must be at least STEM_BURST deep. */
-FD_STATIC_ASSERT( FD_PING_TRACKER_MAX+2UL*FD_GOSSIP_MESSAGE_MAX_CRDS>=FD_CONTACT_INFO_TABLE_SIZE+2UL*FD_GOSSIP_MESSAGE_MAX_CRDS, "STEM_BURST does not account for worst case output link" );
+   gossip_misc carries a subset of the fd_crds_insert publishes plus
+   WFS_DONE (exclusive with advance), so the contact info links bound
+   it.  Every reliable out link must be at least STEM_BURST deep. */
+FD_STATIC_ASSERT( FD_PING_TRACKER_STAKED_REMOVE_MAX==1UL, "rx removal bound assumes one removal per track" );
+FD_STATIC_ASSERT( 2UL*FD_CRDS_SWEEP_MAX+2UL*FD_GOSSIP_MESSAGE_MAX_CRDS+1UL>=2UL*FD_PING_TRACKER_SWEEP_MAX+FD_GOSSIP_MESSAGE_MAX_CRDS, "STEM_BURST does not account for worst case output link" );
 
 /* Raw state values exported by the metrics (states= enums) */
 FD_STATIC_ASSERT( FD_GOSSIP_WFS_STATE_INIT==FD_METRICS_ENUM_WAIT_FOR_SUPERMAJORITY_STATE_V_LOADING_STAKES_IDX, metrics_state );
 FD_STATIC_ASSERT( FD_GOSSIP_WFS_STATE_WAIT==FD_METRICS_ENUM_WAIT_FOR_SUPERMAJORITY_STATE_V_WAITING_FOR_STAKE_IDX, metrics_state );
 FD_STATIC_ASSERT( FD_GOSSIP_WFS_STATE_PUBLISH==FD_METRICS_ENUM_WAIT_FOR_SUPERMAJORITY_STATE_V_PUBLISHING_IDX, metrics_state );
 FD_STATIC_ASSERT( FD_GOSSIP_WFS_STATE_DONE==FD_METRICS_ENUM_WAIT_FOR_SUPERMAJORITY_STATE_V_DONE_OR_DISABLED_IDX, metrics_state );
-#define STEM_BURST (FD_PING_TRACKER_MAX+2UL*FD_GOSSIP_MESSAGE_MAX_CRDS)
+#define STEM_BURST (2UL*FD_CRDS_SWEEP_MAX+2UL*FD_GOSSIP_MESSAGE_MAX_CRDS+1UL)
 
 #define STEM_LAZY  (128L*3000L)
 

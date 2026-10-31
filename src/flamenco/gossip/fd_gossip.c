@@ -525,13 +525,13 @@ get_stake( fd_gossip_t const * gossip,
   return entry->stake;
 }
 
-void
+int
 fd_gossip_set_identity( fd_gossip_t * gossip,
                         uchar const * identity_pubkey,
                         long          now,
                         ulong         identity_outset ) {
   int identity_changed = memcmp( gossip->identity_pubkey, identity_pubkey, 32UL );
-  if( FD_UNLIKELY( !identity_changed ) ) return;
+  if( FD_UNLIKELY( !identity_changed ) ) return 1;
 
   ulong new_ci_idx = fd_crds_ci_idx( gossip->crds, identity_pubkey );
 
@@ -542,8 +542,8 @@ fd_gossip_set_identity( fd_gossip_t * gossip,
   if( FD_UNLIKELY( new_ci_idx!=ULONG_MAX ) ) fd_active_set_remove_peer( gossip->active_set, new_ci_idx );
 
   /* Also remove the new identity from the ping tracker (we don't
-     track ourselves). */
-  fd_ping_tracker_remove( gossip->ping_tracker, identity_pubkey, now );
+     track ourselves).  Budgeted, steps above are idempotent. */
+  if( FD_UNLIKELY( !fd_ping_tracker_remove( gossip->ping_tracker, identity_pubkey, now ) ) ) return 0;
 
   fd_memcpy( gossip->identity_pubkey, identity_pubkey, 32UL );
   gossip->identity_stake = get_stake( gossip, identity_pubkey );
@@ -556,6 +556,7 @@ fd_gossip_set_identity( fd_gossip_t * gossip,
      instance can override older contact info for the same identity. */
   gossip->my_contact_info.ci->contact_info->outset = identity_outset;
   refresh_contact_info( gossip );
+  return 1;
 }
 
 void
@@ -1114,8 +1115,10 @@ tx_ping( fd_gossip_t * gossip,
   uchar const *         peer_pubkey;
   uchar const *         ping_token;
   fd_ip4_port_t const * peer_address;
+  ulong                 budget = FD_PING_TRACKER_SWEEP_MAX;
   while( fd_ping_tracker_pop_request( gossip->ping_tracker,
                                       now,
+                                      &budget,
                                       &peer_pubkey,
                                       &peer_address,
                                       &ping_token ) ) {
@@ -1124,6 +1127,7 @@ tx_ping( fd_gossip_t * gossip,
     sign_request( gossip, SIGN_PEND_SEND, peer_address, NULL, out_payload, sizeof(out_payload), 4UL+(ulong)((uchar *)out_ping->signature-(uchar *)out_ping), out_ping->token, 32UL, FD_KEYGUARD_SIGN_TYPE_ED25519 );
     if( charge_busy ) *charge_busy = 1;
   }
+  if( FD_UNLIKELY( !budget && charge_busy ) ) *charge_busy = 1; /* leftovers next advance */
 }
 
 /* Construct and send a pull request to a random peer.  The pull
