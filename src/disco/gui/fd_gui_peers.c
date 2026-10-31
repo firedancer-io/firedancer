@@ -5,6 +5,9 @@
 #include "../../disco/metrics/fd_metrics_base.h"
 #include "../../ballet/json/fd_jtok.h"
 
+#include <errno.h>
+#include <unistd.h>
+
 FD_IMPORT_BINARY( dbip_f, "src/disco/gui/dbip.bin.zst" );
 
 #define LOGGING 0
@@ -25,6 +28,24 @@ fd_gui_peers_align( void ) {
   return a;
 }
 
+/* geoip_frames splits the embedded database into its head and segment
+   section frames (see fd_gui_peers.h).  seg_cnt follows from seg_sz
+   (8+9*seg_cnt plus at most 3 pad bytes).  Returns 0 if malformed. */
+
+static int
+geoip_frames( ulong * head_sz,
+              ulong * seg_sz,
+              ulong * seg_cnt ) {
+  ulong f0 = ZSTD_findFrameCompressedSize( dbip_f, dbip_f_sz );
+  if( FD_UNLIKELY( ZSTD_isError( f0 ) || f0>=dbip_f_sz ) ) return 0;
+  if( FD_UNLIKELY( ZSTD_findFrameCompressedSize( dbip_f+f0, dbip_f_sz-f0 )!=dbip_f_sz-f0 ) ) return 0;
+  *head_sz = ZSTD_getFrameContentSize( dbip_f,    f0           );
+  *seg_sz  = ZSTD_getFrameContentSize( dbip_f+f0, dbip_f_sz-f0 );
+  if( FD_UNLIKELY( *head_sz>FD_GUI_GEOIP_BIN_MAX || *seg_sz>FD_GUI_GEOIP_BIN_MAX || *seg_sz<17UL ) ) return 0; /* also CONTENTSIZE_UNKNOWN/ERROR */
+  *seg_cnt = (*seg_sz-8UL)/9UL;
+  return 1;
+}
+
 FD_FN_PURE ulong
 fd_gui_peers_footprint( ulong max_ws_conn_cnt ) {
   ulong info_chain_cnt   = fd_gui_peers_node_info_map_chain_cnt_est  ( FD_CONTACT_INFO_TABLE_SIZE );
@@ -40,34 +61,44 @@ fd_gui_peers_footprint( ulong max_ws_conn_cnt ) {
   l = FD_LAYOUT_APPEND( l, fd_gui_peers_node_sock_map_align(),      fd_gui_peers_node_sock_map_footprint     ( sock_chain_cnt )             );
   l = FD_LAYOUT_APPEND( l, alignof(fd_gui_peers_ws_conn_t),         max_ws_conn_cnt*sizeof(fd_gui_peers_ws_conn_t)                          );
 
-  ulong image_sz = ZSTD_getFrameContentSize( dbip_f, dbip_f_sz );
-  if( FD_UNLIKELY( image_sz>FD_GUI_GEOIP_BIN_MAX ) ) return 0UL; /* also CONTENTSIZE_UNKNOWN/ERROR */
-  l = FD_LAYOUT_APPEND( l, 16UL,                                    image_sz                                                                );
+  ulong head_sz, seg_sz, seg_cnt;
+  if( FD_UNLIKELY( !geoip_frames( &head_sz, &seg_sz, &seg_cnt ) ) ) return 0UL;
+  l = FD_LAYOUT_APPEND( l, 16UL,                                    head_sz                                                                 );
+  l = FD_LAYOUT_APPEND( l, alignof(uint),                           fd_ulong_align_up( seg_cnt, FD_GUI_GEOIP_BLK_SEGS )/FD_GUI_GEOIP_BLK_SEGS*sizeof(uint) );
 
   return FD_LAYOUT_FINI( l, fd_gui_peers_align() );
 }
 
-/* load_geoip decompresses the dbip database image into image (a
-   single streaming decompress; the image is the on-disk format, see
-   fd_gui_peers.h) and points ip_db's columnar segment arrays and city
-   names at it.  Country codes are copied out. */
+static void
+geoip_pread( int fd, void * dst, ulong sz, ulong off ) {
+  if( FD_UNLIKELY( (long)sz!=pread( fd, dst, sz, (off_t)off ) ) )
+    FD_LOG_ERR(( "pread(geoip,%lu,%lu) failed (%i-%s)", sz, off, errno, fd_io_strerror( errno ) ));
+}
+
+/* load_geoip decompresses the head frame into image (country codes are
+   copied out, city names stay in place) and streams the segment frame
+   through bounce into fd.  The segment section is then read back once
+   to validate it and sample ip_db->idx. */
 
 static void
 load_geoip( ZSTD_DCtx *      dctx,
+            uchar *          bounce,
             uchar *          image,
-            ulong            image_max,
-            uchar const *    db_f,
-            ulong            db_f_sz,
+            ulong            head_sz,
+            ulong            seg_sz,
+            ulong            seg_cnt,
+            uint *           idx,
+            int              fd,
             fd_gui_ip_db_t * ip_db ) {
+  ulong f0 = ZSTD_findFrameCompressedSize( dbip_f, dbip_f_sz );
   ulong decompressed_sz = 0UL;
   ulong compressed_sz   = 0UL;
-  ulong err = ZSTD_decompressStream_simpleArgs( dctx, image, image_max, &decompressed_sz, db_f, db_f_sz, &compressed_sz );
+  ulong err = ZSTD_decompressStream_simpleArgs( dctx, image, head_sz, &decompressed_sz, dbip_f, f0, &compressed_sz );
   if( FD_UNLIKELY( ZSTD_isError( err ) ) ) FD_LOG_ERR(( "ZSTD_decompressStream_simpleArgs failed (%s)", ZSTD_getErrorName( err ) ));
-  if( FD_UNLIKELY( err!=0UL ) )            FD_LOG_ERR(( "dbip database truncated (needs %lu more bytes)", err ));
-  if( FD_UNLIKELY( compressed_sz!=db_f_sz ) ) FD_LOG_ERR(( "dbip database has %lu trailing bytes", db_f_sz-compressed_sz ));
+  if( FD_UNLIKELY( err!=0UL || decompressed_sz!=head_sz ) ) FD_LOG_ERR(( "dbip database truncated" ));
 
   uchar const * p   = image;
-  uchar const * end = image+decompressed_sz;
+  uchar const * end = image+head_sz;
 
 # define CHECK(n)   do { if( FD_UNLIKELY( (ulong)(end-p)<(ulong)(n) ) ) FD_LOG_ERR(( "dbip database corrupt (truncated)" )); } while(0)
 # define ADVANCE(n) do { CHECK(n); p += (n); } while(0)
@@ -95,34 +126,62 @@ load_geoip( ZSTD_DCtx *      dctx,
     char const * cur  = (char const *)image+ip_db->city_name_off[ i ];
     if( FD_UNLIKELY( strcmp( prev, cur )>0 ) ) FD_LOG_ERR(( "city names not sorted a=%s > b=%s i=%lu", prev, cur, i ));
   }
-
-  /* Sections below are 4-byte aligned in the file (the generator pads
-     with zeros) so the arrays can be used in place. */
-  ADVANCE( fd_ulong_align_up( (ulong)(p-image), 4UL )-(ulong)(p-image) );
-  CHECK( sizeof(ulong) );
-  ulong seg_cnt = FD_LOAD( ulong, p ); ADVANCE( sizeof(ulong) );
-  FD_TEST( seg_cnt && seg_cnt<=(1UL<<32) ); /* disjoint uint starts; also keeps seg_cnt*4 from overflowing */
-
-  uint const * seg_start = fd_type_pun_const( p ); ADVANCE( seg_cnt*sizeof(uint) );
-  uchar const * seg_country = p;                   ADVANCE( fd_ulong_align_up( seg_cnt, 4UL ) );
-  uint const * seg_city = fd_type_pun_const( p );  ADVANCE( seg_cnt*sizeof(uint) );
-  if( FD_UNLIKELY( p!=end ) ) FD_LOG_ERR(( "dbip database corrupt (%lu trailing bytes)", (ulong)(end-p) ));
-  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)seg_start, alignof(uint) ) ) ) FD_LOG_ERR(( "dbip database corrupt (misaligned)" ));
-
-  if( FD_UNLIKELY( seg_start[ 0 ] ) ) FD_LOG_ERR(( "dbip database corrupt (first segment not 0)" ));
-  for( ulong i=0UL; i<seg_cnt; i++ ) {
-    if( FD_UNLIKELY( i && seg_start[ i ]<=seg_start[ i-1UL ] ) ) FD_LOG_ERR(( "dbip database corrupt (segments not sorted)" ));
-    if( FD_UNLIKELY( seg_country[ i ]!=UCHAR_MAX && seg_country[ i ]>=country_code_cnt ) ) FD_LOG_ERR(( "dbip database corrupt (bad country idx)" ));
-    if( FD_UNLIKELY( seg_city[ i ]!=UINT_MAX && seg_city[ i ]>=city_name_cnt ) ) FD_LOG_ERR(( "dbip database corrupt (bad city idx)" ));
-  }
+  if( FD_UNLIKELY( fd_ulong_align_up( (ulong)(p-image), 4UL )!=head_sz ) ) FD_LOG_ERR(( "dbip database corrupt (head frame size)" ));
 
 # undef ADVANCE
 # undef CHECK
 
+  FD_TEST( !ZSTD_isError( ZSTD_DCtx_reset( dctx, ZSTD_reset_session_only ) ) );
+  ZSTD_inBuffer in = { .src=dbip_f+f0, .size=dbip_f_sz-f0, .pos=0UL };
+  ulong off = 0UL;
+  do {
+    ZSTD_outBuffer out = { .dst=bounce, .size=FD_GUI_GEOIP_BOUNCE_SZ, .pos=0UL };
+    err = ZSTD_decompressStream( dctx, &out, &in );
+    if( FD_UNLIKELY( ZSTD_isError( err ) ) ) FD_LOG_ERR(( "ZSTD_decompressStream failed (%s)", ZSTD_getErrorName( err ) ));
+    if( FD_UNLIKELY( off+out.pos>seg_sz || ( err && !out.pos && in.pos==in.size ) ) ) FD_LOG_ERR(( "dbip database corrupt (segment frame size)" ));
+    if( FD_UNLIKELY( (long)out.pos!=pwrite( fd, bounce, out.pos, (off_t)off ) ) )
+      FD_LOG_ERR(( "pwrite(geoip,%lu,%lu) failed (%i-%s)", out.pos, off, errno, fd_io_strerror( errno ) ));
+    off += out.pos;
+  } while( err );
+  if( FD_UNLIKELY( off!=seg_sz || in.pos!=in.size ) ) FD_LOG_ERR(( "dbip database truncated" ));
+
+  /* seg_cnt is implied by seg_sz; the header must agree */
+  ulong hdr_cnt; geoip_pread( fd, &hdr_cnt, sizeof(ulong), 0UL );
+  ulong country_off = 8UL+seg_cnt*sizeof(uint);
+  ulong city_off    = country_off+fd_ulong_align_up( seg_cnt, 4UL );
+  if( FD_UNLIKELY( hdr_cnt!=seg_cnt || city_off+seg_cnt*sizeof(uint)!=seg_sz ) ) FD_LOG_ERR(( "dbip database corrupt (segment count)" ));
+
+  ulong const blk = FD_GUI_GEOIP_BOUNCE_SZ/sizeof(uint);
+  uint * u = (uint *)bounce;
+  uint prev = 0U;
+  for( ulong i0=0UL; i0<seg_cnt; i0+=blk ) {
+    ulong n = fd_ulong_min( blk, seg_cnt-i0 );
+    geoip_pread( fd, u, n*sizeof(uint), 8UL+i0*sizeof(uint) );
+    for( ulong j=0UL; j<n; j++ ) {
+      ulong i = i0+j;
+      if( FD_UNLIKELY( !i && u[ j ] ) )            FD_LOG_ERR(( "dbip database corrupt (first segment not 0)" ));
+      if( FD_UNLIKELY( i && u[ j ]<=prev ) )        FD_LOG_ERR(( "dbip database corrupt (segments not sorted)" ));
+      if( !(i%FD_GUI_GEOIP_BLK_SEGS) ) idx[ i/FD_GUI_GEOIP_BLK_SEGS ] = u[ j ];
+      prev = u[ j ];
+    }
+  }
+  for( ulong i0=0UL; i0<seg_cnt; i0+=FD_GUI_GEOIP_BOUNCE_SZ ) {
+    ulong n = fd_ulong_min( FD_GUI_GEOIP_BOUNCE_SZ, seg_cnt-i0 );
+    geoip_pread( fd, bounce, n, country_off+i0 );
+    for( ulong j=0UL; j<n; j++ ) if( FD_UNLIKELY( bounce[ j ]!=UCHAR_MAX && bounce[ j ]>=country_code_cnt ) ) FD_LOG_ERR(( "dbip database corrupt (bad country idx)" ));
+  }
+  for( ulong i0=0UL; i0<seg_cnt; i0+=blk ) {
+    ulong n = fd_ulong_min( blk, seg_cnt-i0 );
+    geoip_pread( fd, u, n*sizeof(uint), city_off+i0*sizeof(uint) );
+    for( ulong j=0UL; j<n; j++ ) if( FD_UNLIKELY( u[ j ]!=UINT_MAX && u[ j ]>=city_name_cnt ) ) FD_LOG_ERR(( "dbip database corrupt (bad city idx)" ));
+  }
+
+  ip_db->fd          = fd;
   ip_db->seg_cnt     = seg_cnt;
-  ip_db->seg_start   = seg_start;
-  ip_db->seg_country = seg_country;
-  ip_db->seg_city    = seg_city;
+  ip_db->idx_cnt     = fd_ulong_align_up( seg_cnt, FD_GUI_GEOIP_BLK_SEGS )/FD_GUI_GEOIP_BLK_SEGS;
+  ip_db->idx         = idx;
+  ip_db->country_cnt = country_code_cnt;
+  ip_db->city_cnt    = city_name_cnt;
   ip_db->image       = (char const *)image;
 }
 
@@ -131,6 +190,7 @@ fd_gui_peers_new( void *             shmem,
                   fd_http_server_t * http,
                   fd_topo_t const *  topo,
                   void *             dctx_scratch,
+                  int                geoip_fd,
                   ulong              max_ws_conn_cnt,
                   char const *       wfs_expected_bank_hash_cstr,
                   ulong              seed,
@@ -157,11 +217,14 @@ fd_gui_peers_new( void *             shmem,
   void * _pubkey_map       = FD_SCRATCH_ALLOC_APPEND( l, fd_gui_peers_node_pubkey_map_align(),    fd_gui_peers_node_pubkey_map_footprint   ( pubkey_chain_cnt )           );
   void * _sock_map         = FD_SCRATCH_ALLOC_APPEND( l, fd_gui_peers_node_sock_map_align(),      fd_gui_peers_node_sock_map_footprint     ( sock_chain_cnt )             );
   ctx->client_viewports    = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_gui_peers_ws_conn_t),         max_ws_conn_cnt*sizeof(fd_gui_peers_ws_conn_t)                          );
-  ulong  image_sz    = ZSTD_getFrameContentSize( dbip_f, dbip_f_sz );
-  FD_TEST( image_sz<=FD_GUI_GEOIP_BIN_MAX );
-  ctx->dbip_image          = FD_SCRATCH_ALLOC_APPEND( l, 16UL,                                    image_sz                                                                );
-  ZSTD_DCtx * zstd_dctx = ZSTD_initStaticDStream( dctx_scratch, ZSTD_estimateDStreamSize( 1 << FD_GUI_GEOIP_ZSTD_WINDOW_LOG ) );
+  ulong head_sz, seg_sz, seg_cnt;
+  FD_TEST( geoip_frames( &head_sz, &seg_sz, &seg_cnt ) );
+  ctx->dbip_image          = FD_SCRATCH_ALLOC_APPEND( l, 16UL,                                    head_sz                                                                 );
+  uint * geoip_idx         = FD_SCRATCH_ALLOC_APPEND( l, alignof(uint),                           fd_ulong_align_up( seg_cnt, FD_GUI_GEOIP_BLK_SEGS )/FD_GUI_GEOIP_BLK_SEGS*sizeof(uint) );
+  ulong dctx_sz = ZSTD_estimateDStreamSize( 1 << FD_GUI_GEOIP_ZSTD_WINDOW_LOG );
+  ZSTD_DCtx * zstd_dctx = ZSTD_initStaticDStream( dctx_scratch, dctx_sz );
   FD_TEST( zstd_dctx );
+  uchar * geoip_bounce = (uchar *)dctx_scratch+fd_ulong_align_up( dctx_sz, 128UL );
 
     for( ulong i = 0UL; i<max_ws_conn_cnt; i++ ) ctx->client_viewports[ i ].connected = 0;
 
@@ -201,7 +264,7 @@ fd_gui_peers_new( void *             shmem,
     ctx->node_pubkey_map = fd_gui_peers_node_pubkey_map_join( fd_gui_peers_node_pubkey_map_new( _pubkey_map, pubkey_chain_cnt, seed ) );
     ctx->node_sock_map   = fd_gui_peers_node_sock_map_join  ( fd_gui_peers_node_sock_map_new  ( _sock_map,   sock_chain_cnt,   seed ) );
 
-    load_geoip( zstd_dctx, ctx->dbip_image, image_sz, dbip_f, dbip_f_sz, &ctx->dbip );
+    load_geoip( zstd_dctx, geoip_bounce, ctx->dbip_image, head_sz, seg_sz, seg_cnt, geoip_idx, geoip_fd, &ctx->dbip );
 
     ctx->wfs_peers_cnt = 0UL;
     ctx->wfs_peers_valid = 0;
@@ -506,26 +569,41 @@ fd_gui_peers_handle_gossip_bw( fd_gui_peers_ctx_t *           peers,
   }
 }
 
-/* geoip_lookup finds the segment covering ip_addr (network byte
-   order) by binary search over the sorted disjoint segment starts.
-   Returns the segment index, or ULONG_MAX if the database is empty. */
-
-static ulong
-geoip_lookup( fd_gui_ip_db_t const * ip_db,
-              uint                   ip_addr ) {
-  if( FD_UNLIKELY( !ip_db->seg_cnt ) ) return ULONG_MAX;
-
+void
+fd_gui_peers_geoip_lookup( fd_gui_ip_db_t const * ip_db,
+                           uint                   ip_addr,
+                           uchar *                country_idx,
+                           uint *                 city_idx ) {
   uint ip = fd_uint_bswap( ip_addr );
 
-  /* Greatest i with seg_start[i] <= ip; seg_start[0]==0 */
+  /* Greatest block b with idx[b] <= ip, then greatest segment in it;
+     idx[0]==seg_start[0]==0 */
   ulong lo = 0UL;
-  ulong hi = ip_db->seg_cnt;
+  ulong hi = ip_db->idx_cnt;
   while( hi-lo>1UL ) {
     ulong mid = (lo+hi)>>1;
-    if( ip_db->seg_start[ mid ]<=ip ) lo = mid;
-    else                              hi = mid;
+    if( ip_db->idx[ mid ]<=ip ) lo = mid;
+    else                        hi = mid;
   }
-  return lo;
+  ulong s0 = lo*FD_GUI_GEOIP_BLK_SEGS;
+  uint  blk[ FD_GUI_GEOIP_BLK_SEGS ];
+  hi = fd_ulong_min( FD_GUI_GEOIP_BLK_SEGS, ip_db->seg_cnt-s0 );
+  geoip_pread( ip_db->fd, blk, hi*sizeof(uint), 8UL+s0*sizeof(uint) );
+  lo = 0UL;
+  while( hi-lo>1UL ) {
+    ulong mid = (lo+hi)>>1;
+    if( blk[ mid ]<=ip ) lo = mid;
+    else                 hi = mid;
+  }
+  ulong seg = s0+lo;
+
+  ulong country_off = 8UL+ip_db->seg_cnt*sizeof(uint);
+  ulong city_off    = country_off+fd_ulong_align_up( ip_db->seg_cnt, 4UL );
+  uchar country; geoip_pread( ip_db->fd, &country, 1UL,          country_off+seg              );
+  uint  city;    geoip_pread( ip_db->fd, &city,    sizeof(uint), city_off+seg*sizeof(uint) );
+  /* validated at boot; re-checked since the bytes come from disk */
+  *country_idx = country<ip_db->country_cnt ? country : (uchar)UCHAR_MAX;
+  *city_idx    = city   <ip_db->city_cnt    ? city    : UINT_MAX;
 }
 
 #define SORT_NAME wfs_peer_sort
@@ -648,10 +726,7 @@ fd_gui_peers_handle_gossip_update( fd_gui_peers_ctx_t *               peers,
           peer->row.update_time_nanos = now;
           /* fetch and set country code */
           uint ip4 = peer->row.contact_info.sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].is_ipv6 ? 0 : peer->row.contact_info.sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].ip4;
-          ulong dbip_seg = geoip_lookup( &peers->dbip, ip4 );
-
-          peer->row.country_code_idx = dbip_seg!=ULONG_MAX ? peers->dbip.seg_country[ dbip_seg ] : UCHAR_MAX;
-          peer->row.city_name_idx    = dbip_seg!=ULONG_MAX ? peers->dbip.seg_city   [ dbip_seg ] : UINT_MAX;
+          fd_gui_peers_geoip_lookup( &peers->dbip, ip4, &peer->row.country_code_idx, &peer->row.city_name_idx );
 
           fd_gui_peers_live_table_idx_insert        ( peers->live_table,    update->contact_info->idx, peers->contact_info_table );
           fd_gui_peers_node_sock_map_idx_insert     ( peers->node_sock_map, update->contact_info->idx, peers->contact_info_table );
@@ -722,10 +797,7 @@ fd_gui_peers_handle_gossip_update( fd_gui_peers_ctx_t *               peers,
 
           /* fetch and set country code */
           uint ip4 = peer->row.contact_info.sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].is_ipv6 ? 0 : peer->row.contact_info.sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].ip4;
-          ulong dbip_seg = geoip_lookup( &peers->dbip, ip4 );
-
-          peer->row.country_code_idx = dbip_seg!=ULONG_MAX ? peers->dbip.seg_country[ dbip_seg ] : UCHAR_MAX;
-          peer->row.city_name_idx    = dbip_seg!=ULONG_MAX ? peers->dbip.seg_city   [ dbip_seg ] : UINT_MAX;
+          fd_gui_peers_geoip_lookup( &peers->dbip, ip4, &peer->row.country_code_idx, &peer->row.city_name_idx );
 
           peer->row.valid = 1;
 

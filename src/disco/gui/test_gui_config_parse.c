@@ -1,3 +1,4 @@
+#define _GNU_SOURCE
 #include "fd_gui_config_parse.h"
 #include "fd_gui_peers.h"
 #include "../../waltz/http/fd_http_server_private.h"
@@ -6,8 +7,13 @@
 #include "../../flamenco/stakes/fd_vote_stakes.h"
 
 #include <stdlib.h>
+#include <sys/mman.h>
 
-static uchar dctx_scratch[ 9UL<<20 ] __attribute__((aligned(128)));
+static uchar dctx_scratch[ 10UL<<20 ] __attribute__((aligned(128)));
+static int   geoip_fd;
+
+extern uchar const dbip_f[]; /* fd_gui_peers.c */
+extern ulong const dbip_f_sz;
 
 /* Builds a ConfigProgram account: ConfigKeys of length 2 with the
    Va1idator1nfo key first and the identity second, then the bincode
@@ -53,7 +59,7 @@ test_newest_copy( void ) {
   fd_pubkey_t id; memset( id.uc, 0x42, 32UL );
 
   for( int order=0; order<2; order++ ) {
-    fd_gui_peers_ctx_t * peers = fd_gui_peers_join( fd_gui_peers_new( peers_mem, http, NULL, dctx_scratch, 1UL, "", 0UL, 0L ) );
+    fd_gui_peers_ctx_t * peers = fd_gui_peers_join( fd_gui_peers_new( peers_mem, http, NULL, dctx_scratch, geoip_fd, 1UL, "", 0UL, 0L ) );
     FD_TEST( peers );
     if( order ) { fd_gui_peers_handle_config_account( peers, cleared,   csz, 200UL ); fd_gui_peers_handle_config_account( peers, populated, psz, 100UL ); }
     else        { fd_gui_peers_handle_config_account( peers, populated, psz, 100UL ); fd_gui_peers_handle_config_account( peers, cleared,   csz, 200UL ); }
@@ -68,7 +74,7 @@ test_newest_copy( void ) {
   }
 
   /* a known peer: populated@100, cleared@200, populated@300 each broadcast */
-  fd_gui_peers_ctx_t * peers = fd_gui_peers_join( fd_gui_peers_new( peers_mem, http, NULL, dctx_scratch, 1UL, "", 0UL, 0L ) );
+  fd_gui_peers_ctx_t * peers = fd_gui_peers_join( fd_gui_peers_new( peers_mem, http, NULL, dctx_scratch, geoip_fd, 1UL, "", 0UL, 0L ) );
   fd_gui_peers_node_t * peer = &peers->contact_info_table[ 0 ];
   peer->row.valid  = 1;
   peer->row.pubkey = id;
@@ -84,18 +90,40 @@ test_newest_copy( void ) {
     FD_TEST( !strcmp( peer->row.name, want[ k ] ) );
   }
 
-  /* geoip image: merged segments, city names in place */
+  /* geoip: tiered lookups match a binary search over the full image
+     at block-edge and sampled segment starts, start-1 and random IPs */
   fd_gui_ip_db_t const * db = &peers->dbip;
-  FD_TEST( db->seg_cnt>1UL );
-  for( ulong i=1UL; i<db->seg_cnt; i++ ) FD_TEST( db->seg_country[ i ]!=db->seg_country[ i-1UL ] || db->seg_city[ i ]!=db->seg_city[ i-1UL ] );
+  ulong f0     = ZSTD_findFrameCompressedSize( dbip_f, dbip_f_sz );
+  ulong img_sz = ZSTD_getFrameContentSize( dbip_f, f0 )+ZSTD_getFrameContentSize( dbip_f+f0, dbip_f_sz-f0 );
+  uchar * img = aligned_alloc( 16UL, fd_ulong_align_up( img_sz, 16UL ) );
+  FD_TEST( img && ZSTD_decompress( img, img_sz, dbip_f, dbip_f_sz )==img_sz );
+  uchar const * p = img+8UL+2UL*FD_LOAD( ulong, img );
+  ulong city_cnt = FD_LOAD( ulong, p ); p += 8UL;
+  for( ulong i=0UL; i<city_cnt; i++ ) p += strlen( (char const *)p )+1UL;
+  p = img+fd_ulong_align_up( (ulong)(p-img), 4UL );
+  ulong seg_cnt = FD_LOAD( ulong, p ); p += 8UL;
+  FD_TEST( seg_cnt==db->seg_cnt && seg_cnt>FD_GUI_GEOIP_BLK_SEGS && city_cnt==db->city_cnt );
+  uint  const * seg_start   = (uint const *)p;
+  uchar const * seg_country = p+4UL*seg_cnt;
+  uint  const * seg_city    = (uint const *)( seg_country+fd_ulong_align_up( seg_cnt, 4UL ) );
+  fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 7U, 0UL ) );
   ulong named = 0UL;
-  for( ulong i=0UL; i<db->seg_cnt; i++ ) {
-    if( db->seg_city[ i ]==UINT_MAX ) continue;
-    char const * name = db->image+db->city_name_off[ db->seg_city[ i ] ];
-    FD_TEST( (uchar const *)name>=peers->dbip_image && strlen( name )<FD_GUI_GEOIP_MAX_CITY_NAME_SZ );
-    named++;
+  for( ulong i=0UL; i<2UL*seg_cnt+(1UL<<18); i++ ) {
+    ulong k = i%seg_cnt;
+    if( i<2UL*seg_cnt && k%FD_GUI_GEOIP_BLK_SEGS>1UL && k%FD_GUI_GEOIP_BLK_SEGS<FD_GUI_GEOIP_BLK_SEGS-1UL && k%61UL ) continue;
+    uint ip = i<seg_cnt ? seg_start[ k ] : i<2UL*seg_cnt ? seg_start[ k ]-1U : fd_rng_uint( rng );
+    ulong lo = 0UL, hi = seg_cnt;
+    while( hi-lo>1UL ) { ulong mid = (lo+hi)>>1; if( seg_start[ mid ]<=ip ) lo = mid; else hi = mid; }
+    uchar country; uint city;
+    fd_gui_peers_geoip_lookup( db, fd_uint_bswap( ip ), &country, &city );
+    FD_TEST( country==seg_country[ lo ] && city==seg_city[ lo ] );
+    if( city!=UINT_MAX ) {
+      FD_TEST( strlen( db->image+db->city_name_off[ city ] )<FD_GUI_GEOIP_MAX_CITY_NAME_SZ );
+      named++;
+    }
   }
   FD_TEST( named );
+  free( img );
 
   free( peers_mem );
   free( fd_http_server_delete( fd_http_server_leave( http ) ) );
@@ -112,7 +140,7 @@ test_delinquent( void ) {
   void * http_mem = aligned_alloc( fd_http_server_align(), fd_http_server_footprint( params ) );
   fd_http_server_t * http = fd_http_server_join( fd_http_server_new( http_mem, params, callbacks, NULL ) );
   void * peers_mem = aligned_alloc( fd_gui_peers_align(), fd_gui_peers_footprint( 1UL ) );
-  fd_gui_peers_ctx_t * peers = fd_gui_peers_join( fd_gui_peers_new( peers_mem, http, NULL, dctx_scratch, 1UL, "", 0UL, 0L ) );
+  fd_gui_peers_ctx_t * peers = fd_gui_peers_join( fd_gui_peers_new( peers_mem, http, NULL, dctx_scratch, geoip_fd, 1UL, "", 0UL, 0L ) );
 
   fd_pubkey_t id; memset( id.uc, 0x42, sizeof(fd_pubkey_t) );
   fd_gui_peers_node_t * peer = &peers->contact_info_table[ 0 ];
@@ -173,6 +201,8 @@ int
 main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
+  geoip_fd = memfd_create( "test_gui_geoip", 0U );
+  FD_TEST( geoip_fd>=0 );
 
   uchar account[ 1024UL ];
   fd_gui_config_parse_info_t info[1];
