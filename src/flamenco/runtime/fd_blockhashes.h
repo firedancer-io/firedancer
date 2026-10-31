@@ -22,15 +22,13 @@
    index is simply absent.  The queue holds only the entries that exist,
    so a skipped index costs no space and needs no special handling.
 
-   FD_BLOCKHASHES_DEQ_MAX is the deque capacity: the power of two that
-   holds FD_BLOCKHASHES_MAX entries.  The runtime evicts by count when
-   it is full; entries beyond age 300 that this retains are never valid,
-   since every lookup bounds the age. */
+   FD_BLOCKHASHES_DEQ_MAX is the deque capacity, FD_BLOCKHASHES_MAX.
+   The runtime evicts by count when it is full.  Indices ascend, so the
+   entries of age <=300 are always among the newest 301; any older entry
+   this retains is never valid, since every lookup bounds the age. */
 
 #define FD_BLOCKHASHES_MAX     (301UL)
-#define FD_BLOCKHASHES_DEQ_MAX (512UL)
-FD_STATIC_ASSERT( !( FD_BLOCKHASHES_DEQ_MAX & (FD_BLOCKHASHES_DEQ_MAX-1UL) ), blockhashes_deq_max_pow2 );
-FD_STATIC_ASSERT( FD_BLOCKHASHES_DEQ_MAX>=FD_BLOCKHASHES_MAX, blockhashes_deq_max_fits );
+#define FD_BLOCKHASHES_DEQ_MAX FD_BLOCKHASHES_MAX
 
 /* See solana_accounts_db::blockhash_queue::HashInfo. */
 
@@ -47,7 +45,7 @@ typedef struct fd_blockhash_info fd_blockhash_info_t;
 
 #define DEQUE_NAME fd_blockhash_deq
 #define DEQUE_T    fd_blockhash_info_t
-#define DEQUE_MAX  FD_BLOCKHASHES_DEQ_MAX /* must be a power of 2 */
+#define DEQUE_MAX  FD_BLOCKHASHES_DEQ_MAX
 #include "../../util/tmpl/fd_deque.c"
 
 /* Declare a separately chained hash map over the blockhash queue. */
