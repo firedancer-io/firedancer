@@ -78,6 +78,15 @@ test_sched_footprint( void ) {
   FD_TEST( fd_sched_footprint( 65536UL, 2048UL, FD_SHRED_BLK_MAX, 5UL*FD_MAX_TXN_PER_SLOT )==footprint );
   FD_TEST( !fd_sched_footprint( 65536UL, 2048UL, 0UL, FD_MAX_TXN_PER_SLOT ) );
   FD_TEST( !fd_sched_footprint( 65536UL, 2048UL, FD_SHRED_BLK_MAX, 0UL ) );
+
+  /* mblk_pool is floored at 16384, so admission stays 12 FECs at a
+     smaller txn window. */
+  ulong depths[ 2 ] = { 8192UL, 16384UL };
+  for( ulong i=0UL; i<2UL; i++ ) {
+    fd_sched_t * sched = new_sched_ext( depths[ i ], 4UL, FD_SHRED_BLK_MAX, FD_MAX_TXN_PER_SLOT );
+    FD_TEST( fd_sched_can_ingest_cnt( sched )==12UL );
+    delete_sched( sched );
+  }
 }
 
 static void
