@@ -743,6 +743,40 @@ test_recover_blockhash_queue_gap( fd_wksp_t * wksp, fd_snapshot_manifest_t * man
   fd_hash_t next; fd_memset( next.uc, 0xEE, 32 );
   FD_TEST( fd_blockhashes_push_new( bhq, &next )->hash_index==2417918UL );
 
+  /* A full FD_BLOCKHASHES_MAX queue recovers in order into the
+     non-pow2 deque, then pushes wrap the array and evict by count. */
+  fd_memset( manifest, 0, sizeof(*manifest) );
+  setup_valid_manifest_base( manifest );
+  manifest->blockhashes_len = 0UL;
+  for( ulong hi=5300UL; hi>=5000UL; hi-- ) {
+    fd_snapshot_manifest_blockhash_t * e = &manifest->blockhashes[ manifest->blockhashes_len++ ];
+    e->hash_index = hi;
+    fd_memset( e->hash, 0, 32 );
+    FD_STORE( ulong, e->hash, hi );
+  }
+  FD_TEST( manifest->blockhashes_len==FD_BLOCKHASHES_MAX );
+  FD_TEST( VALIDATE_MANIFEST( manifest )==0 );
+  FD_TEST( fd_ssload_recover_apply( manifest, bank, seed )==0 );
+  FD_TEST( fd_blockhash_deq_full( bhq->d.deque ) );
+  for( ulong i=0UL; i<FD_BLOCKHASHES_MAX; i++ ) {
+    FD_TEST( fd_blockhash_deq_peek_index_const( bhq->d.deque, i )->hash_index==5000UL+i );
+  }
+  fd_memset( h.uc, 0, 32 ); FD_STORE( ulong, h.uc, 5000UL );
+  FD_TEST( fd_blockhashes_check_age( bhq, &h, 300UL )==1 );
+  for( ulong i=0UL; i<2UL*FD_BLOCKHASHES_MAX+7UL; i++ ) {
+    fd_hash_t u; fd_memset( u.uc, 0, 32 ); FD_STORE( ulong, u.uc, 5301UL+i );
+    FD_TEST( fd_blockhashes_push_new( bhq, &u )->hash_index==5301UL+i );
+    FD_TEST( fd_blockhash_deq_full( bhq->d.deque ) );
+    ulong tail = 5301UL+i;
+    for( ulong age=0UL; age<FD_BLOCKHASHES_MAX; age++ ) {
+      fd_memset( h.uc, 0, 32 ); FD_STORE( ulong, h.uc, tail-age );
+      FD_TEST( fd_blockhashes_check_age( bhq, &h, age )==1 );
+      FD_TEST( fd_blockhash_deq_peek_index_const( bhq->d.deque, FD_BLOCKHASHES_MAX-1UL-age )->hash_index==tail-age );
+    }
+    fd_memset( h.uc, 0, 32 ); FD_STORE( ulong, h.uc, tail-FD_BLOCKHASHES_MAX );
+    FD_TEST( fd_blockhashes_check_age( bhq, &h, ULONG_MAX )==0 );
+  }
+
   /* A wide index range is loaded without regard to capacity. */
   fd_memset( manifest, 0, sizeof(*manifest) );
   setup_valid_manifest_base( manifest );
