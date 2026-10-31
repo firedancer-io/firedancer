@@ -173,6 +173,37 @@ test_push_dups( fd_rng_t * rng ) {
   free( purged_mem );
 }
 
+/* Expiry is budgeted at FD_CRDS_SWEEP_MAX per advance (each expired
+   contact info is a reliable publish); leftovers go on later calls. */
+
+static void
+test_expire_budget( fd_rng_t * rng ) {
+  ulong                ele_max    = 2048UL;
+  ulong                n          = 2UL*FD_CRDS_SWEEP_MAX+100UL;
+  void *               purged_mem = aligned_alloc( fd_gossip_purged_align(), fd_gossip_purged_footprint( ele_max ) );
+  void *               crds_mem   = aligned_alloc( fd_crds_align(),          fd_crds_footprint( ele_max )          );
+  fd_gossip_purged_t * purged     = fd_gossip_purged_join( fd_gossip_purged_new( purged_mem, rng, ele_max ) );
+  fd_gossip_out_ctx_t  out[ FD_GOSSIP_UPDATE_LINK_CNT ] = {{0}};
+  fd_stem_context_t    stem[1];
+  memset( stem, 0, sizeof(stem) );
+  fd_crds_t * crds = fd_crds_join( fd_crds_new( crds_mem, NULL, 0UL, NULL, NULL, rng, ele_max, purged, dummy_activity, NULL, out ) );
+  FD_TEST( crds );
+
+  long now = 1L<<40;
+  for( ulong i=0UL; i<n; i++ ) crds_upsert( crds, rng, stem, i+1UL, 0, 1UL, now );
+  FD_TEST( fd_crds_len( crds )==n );
+  long later = now+432000L*400L*1000L*1000L+1L;
+  int  busy  = 0;
+  fd_crds_advance( crds, later, stem, &busy ); FD_TEST( busy && fd_crds_metrics( crds )->expired_cnt==  FD_CRDS_SWEEP_MAX );
+  fd_crds_advance( crds, later, stem, NULL  ); FD_TEST(         fd_crds_metrics( crds )->expired_cnt==2*FD_CRDS_SWEEP_MAX );
+  fd_crds_advance( crds, later, stem, NULL  ); FD_TEST( !fd_crds_len( crds ) );
+  busy = 0;
+  fd_crds_advance( crds, later, stem, &busy ); FD_TEST( !busy );
+
+  free( crds_mem );
+  free( purged_mem );
+}
+
 /* An entrypoint's contact info counts while it is fresh: it stops
    counting when it goes unfresh, moves to another address, or expires,
    and counts again when re-received. */
@@ -590,6 +621,7 @@ main( int     argc,
   test_hset_ref( rng, 1024UL );
   test_hset_ref( rng, 16384UL );
   test_push_dups( rng );
+  test_expire_budget( rng );
   test_entrypoint_fresh( rng );
   test_relay_coalesce( rng );
   if( bench ) { bench_update( rng ); test_tables( rng, 524288UL, 230000UL, 423000UL, 1 ); }
