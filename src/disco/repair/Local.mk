@@ -1,8 +1,8 @@
 $(call add-hdrs,fd_repair.h fd_repair_serde.h fd_repair_strat.h)
 $(call add-objs,fd_repair fd_repair_serde fd_repair_strat,fd_disco)
-$(call add-hdrs,fd_repair_tile.h)
+$(call add-hdrs,fd_rotor_tile.h)
 ifdef FD_HAS_HOSTED
-$(call add-objs,fd_repair_tile,fd_disco)
+$(call add-objs,fd_rotor_tile,fd_disco)
 $(call add-objs,fd_rserve_tile,fd_disco)
 endif
 $(call add-objs,fd_rserve,fd_disco)

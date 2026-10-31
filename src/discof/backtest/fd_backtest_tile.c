@@ -4,7 +4,7 @@
 #include "../../disco/events/fd_event_client.h"
 #include "../../discof/replay/fd_replay_tile.h"
 #include "../../disco/shred/fd_shred_tile.h"
-#include "../../disco/repair/fd_repair_tile.h"
+#include "../../disco/repair/fd_rotor_tile.h"
 #include "../../discof/restore/utils/fd_ssmsg.h"
 #include "../../discof/votor/fd_votor_tile.h"
 #include "../../choreo/votor/ag_cert.h"

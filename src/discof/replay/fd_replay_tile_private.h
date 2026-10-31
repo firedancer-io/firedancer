@@ -9,7 +9,7 @@
 #include "../../disco/node_info/fd_node_info.h"
 #include "../../disco/wait_info/fd_wait_info.h"
 #include "../../discof/poh/fd_poh.h"
-#include "../../disco/repair/fd_repair_tile.h"
+#include "../../disco/repair/fd_rotor_tile.h"
 #include "../../discof/replay/fd_sched.h"
 #include "../../discof/votor/fd_votor_tile.h"
 #include "../../flamenco/capture/fd_capture_ctx.h"
