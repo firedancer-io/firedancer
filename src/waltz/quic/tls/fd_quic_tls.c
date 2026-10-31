@@ -1,4 +1,5 @@
 #include "fd_quic_tls.h"
+#include "../../tls/fd_tls_proto.h"
 #include "../../../ballet/ed25519/fd_x25519.h"
 #include "../../../ballet/x509/fd_x509_mock.h"
 
@@ -214,16 +215,36 @@ fd_quic_tls_hs_delete( fd_quic_tls_hs_t * self ) {
     fd_tls_estate_cli_delete( &self->hs.cli );
 }
 
+/* fd_quic_tls_check_post_hs is called once the TLS handshake reached
+   the CONNECTED state.  Finished is the last handshake message either
+   peer sends before the key change to the 1-RTT encryption level, so
+   any handshake data following it at the same encryption level is
+   rejected with an unexpected_message alert (RFC 8446 Section 5.1).
+   Post-handshake messages (e.g. NewSessionTicket) can only arrive at
+   the 1-RTT level (RFC 9001 Section 4.1.3), where they are ignored. */
+
+static int
+fd_quic_tls_check_post_hs( fd_quic_tls_hs_t * self ) {
+  if( FD_UNLIKELY( self->rx_enc_level<FD_TLS_LEVEL_APPLICATION &&
+                   self->rx_off<self->rx_sz ) ) {
+    if( !self->hs.base.reason ) self->hs.base.reason = FD_TLS_REASON_HS_KEY_CHANGE;
+    self->hs.base.state = FD_TLS_HS_FAIL;
+    self->alert         = FD_TLS_ALERT_UNEXPECTED_MESSAGE;
+    return FD_QUIC_FAILED;
+  }
+  return FD_QUIC_SUCCESS;
+}
+
 int
 fd_quic_tls_process( fd_quic_tls_hs_t * self ) {
 
   if( FD_UNLIKELY( self->hs.base.state==FD_TLS_HS_FAIL ) ) return FD_QUIC_FAILED;
-  if( self->hs.base.state==FD_TLS_HS_CONNECTED ) return FD_QUIC_SUCCESS;
+  if( self->hs.base.state==FD_TLS_HS_CONNECTED ) return fd_quic_tls_check_post_hs( self );
 
   /* Process all fully received messages */
 
   uint enc_level = self->rx_enc_level;
-  for(;;) {
+  while( self->hs.base.state!=FD_TLS_HS_CONNECTED ) {
     uchar const * buf   = self->rx_hs_buf;
     ulong         off   = self->rx_off;
     ulong         avail = self->rx_sz - off;
@@ -252,6 +273,7 @@ fd_quic_tls_process( fd_quic_tls_hs_t * self ) {
   switch( self->hs.base.state ) {
   case FD_TLS_HS_CONNECTED:
     /* handshake completed */
+    if( FD_UNLIKELY( fd_quic_tls_check_post_hs( self )!=FD_QUIC_SUCCESS ) ) return FD_QUIC_FAILED;
     self->quic_tls->handshake_complete_cb( self, self->context );
     return FD_QUIC_SUCCESS;
   case FD_TLS_HS_FAIL:

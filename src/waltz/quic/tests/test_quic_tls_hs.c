@@ -67,6 +67,112 @@ fd_quic_tls_provide_data( fd_quic_tls_hs_t * tls_hs,
   fd_quic_tls_process( tls_hs );
 }
 
+/* test_hs performs a handshake between a fresh client and server.  If
+   trailer_sz>0, trailer is appended to the client's Finished message
+   (in the same CRYPTO stream chunk). */
+
+static void
+test_hs( fd_quic_tls_t *                    quic_tls,
+         fd_quic_transport_params_t const * tp,
+         uchar const *                      trailer,
+         ulong                              trailer_sz ) {
+
+  my_quic_tls_t    tls_client[1] = {0};
+  fd_quic_tls_hs_t hs_client[1];
+  FD_TEST( fd_quic_tls_hs_new(
+      hs_client,
+      quic_tls,
+      tls_client,
+      0 /* is_server */,
+      tp,
+      100UL ) );
+
+  my_quic_tls_t    tls_server[1] = {0};
+  fd_quic_tls_hs_t hs_server[1];
+  FD_TEST( fd_quic_tls_hs_new(
+      hs_server,
+      quic_tls,
+      tls_server,
+      1 /* is_server */,
+      tp,
+      100UL ) );
+
+  int injected = 0;
+  for( int l=0; l<16; ++l ) {
+    while( 1 ) {
+      fd_quic_tls_hs_data_t * hs_data = NULL;
+      for( uint j=0; j<4; ++j ) {
+        hs_data = fd_quic_tls_get_hs_data( hs_client, j );
+        if( hs_data ) break;
+      }
+      if( !hs_data ) break;
+      if( trailer_sz && hs_data->enc_level==FD_TLS_LEVEL_HANDSHAKE &&
+          hs_data->data[0]==FD_TLS_MSG_FINISHED ) {
+        static uchar buf[ FD_QUIC_TLS_RX_DATA_SZ ];
+        FD_TEST( hs_data->data_sz+trailer_sz<=sizeof(buf) );
+        fd_memcpy( buf,                   hs_data->data, hs_data->data_sz );
+        fd_memcpy( buf+hs_data->data_sz,  trailer,       trailer_sz       );
+        fd_quic_tls_provide_data( hs_server, hs_data->enc_level, buf, hs_data->data_sz+trailer_sz );
+        injected = 1;
+      } else {
+        fd_quic_tls_provide_data( hs_server, hs_data->enc_level, hs_data->data, hs_data->data_sz );
+      }
+      fd_quic_tls_pop_hs_data( hs_client, hs_data->enc_level );
+    }
+    while( 1 ) {
+      fd_quic_tls_hs_data_t * hs_data = NULL;
+      for( uint j=0; j<4; ++j ) {
+        hs_data = fd_quic_tls_get_hs_data( hs_server, j );
+        if( hs_data ) break;
+      }
+      if( !hs_data ) break;
+      fd_quic_tls_provide_data( hs_client, hs_data->enc_level, hs_data->data, hs_data->data_sz );
+      fd_quic_tls_pop_hs_data( hs_server, hs_data->enc_level );
+    }
+  }
+
+  FD_TEST( hs_client->hs.base.state==FD_TLS_HS_CONNECTED );
+  FD_TEST( tls_client->is_hs_complete );
+
+  if( trailer_sz ) {
+    /* Data trailing Finished at the Handshake level is rejected without
+       ever dispatching it to fd_tls in the CONNECTED state */
+    FD_TEST( injected );
+    FD_TEST( hs_server->hs.base.state==FD_TLS_HS_FAIL );
+    FD_TEST( hs_server->alert==FD_TLS_ALERT_UNEXPECTED_MESSAGE );
+    FD_TEST( hs_server->hs.base.reason==FD_TLS_REASON_HS_KEY_CHANGE );
+    FD_TEST( !tls_server->is_hs_complete );
+    FD_TEST( fd_quic_tls_process( hs_server )==FD_QUIC_FAILED );
+  } else {
+    FD_TEST( hs_server->hs.base.state==FD_TLS_HS_CONNECTED );
+    FD_TEST( tls_server->is_hs_complete );
+
+    /* Duplicate Handshake level data is fine */
+    FD_TEST( hs_server->rx_enc_level==FD_TLS_LEVEL_HANDSHAKE );
+    FD_TEST( hs_server->rx_off==hs_server->rx_sz );
+    FD_TEST( fd_quic_tls_process( hs_server )==FD_QUIC_SUCCESS );
+
+    /* Post-handshake data at the 1-RTT level is ignored */
+    hs_client->rx_enc_level = FD_TLS_LEVEL_APPLICATION;
+    hs_client->rx_off       = 0;
+    hs_client->rx_sz        = 4;
+    memcpy( hs_client->rx_hs_buf, "\x04\x00\x00\x00", 4 );
+    FD_TEST( fd_quic_tls_process( hs_client )==FD_QUIC_SUCCESS );
+    FD_TEST( hs_client->hs.base.state==FD_TLS_HS_CONNECTED );
+
+    /* New Handshake level data arriving after Finished is rejected */
+    ushort sz = hs_server->rx_sz;
+    hs_server->rx_hs_buf[ sz ] = 0x00;
+    hs_server->rx_sz = (ushort)( sz+1 );
+    FD_TEST( fd_quic_tls_process( hs_server )==FD_QUIC_FAILED );
+    FD_TEST( hs_server->hs.base.state==FD_TLS_HS_FAIL );
+    FD_TEST( hs_server->alert==FD_TLS_ALERT_UNEXPECTED_MESSAGE );
+  }
+
+  fd_quic_tls_hs_delete( hs_client );
+  fd_quic_tls_hs_delete( hs_server );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -222,6 +328,17 @@ main( int     argc,
 
            fd_quic_tls_hs_delete( hs_client );
            fd_quic_tls_hs_delete( hs_server );
+
+  test_hs( quic_tls, tmp_tp, NULL, 0UL );
+  /* KeyUpdate (complete message) trailing Finished */
+  static uchar const trailer_ku[] = { 0x18, 0x00, 0x00, 0x01, 0x00 };
+  test_hs( quic_tls, tmp_tp, trailer_ku, sizeof(trailer_ku) );
+  /* Partial message header trailing Finished */
+  static uchar const trailer_short[] = { 0x00, 0x00 };
+  test_hs( quic_tls, tmp_tp, trailer_short, sizeof(trailer_short) );
+  /* Incomplete message trailing Finished */
+  static uchar const trailer_incomplete[] = { 0x14, 0x00, 0x00, 0x20, 0x00 };
+  test_hs( quic_tls, tmp_tp, trailer_incomplete, sizeof(trailer_incomplete) );
   FD_TEST( fd_quic_tls_delete   ( quic_tls  ) );
 
   fd_rng_delete( fd_rng_leave( rng ) );
