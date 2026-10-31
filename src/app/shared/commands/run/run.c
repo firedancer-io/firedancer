@@ -15,6 +15,7 @@
 #include "../../../../disco/store/fd_store.h"
 #include "../../../../disco/events/fd_circq.h"
 #include "../../../../disco/repair/fd_repair.h"
+#include "../../../../disco/gui/fd_gui_peers.h"
 
 #include <sys/wait.h>
 #include "generated/main_seccomp.h"
@@ -393,6 +394,7 @@ main_pid_namespace( void * _args ) {
   initialize_txncache_fd( config );
   initialize_votor_spill_fd( config );
   initialize_event_spool_fd( config );
+  initialize_gui_geoip_fd( config );
   initialize_stake_accum_fd( config );
   initialize_repair_fec_fd( config );
   initialize_store_fds( config );
@@ -513,6 +515,8 @@ main_pid_namespace( void * _args ) {
           FD_LOG_ERR(( "fcntl(FD_VOTOR_SPILL_FD,F_SETFD) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
         if( FD_UNLIKELY( fcntl( FD_EVENT_SPOOL_FD, F_SETFD, !strcmp( tile->name, "event" ) ? 0 : FD_CLOEXEC )<0 ) )
           FD_LOG_ERR(( "fcntl(FD_EVENT_SPOOL_FD,F_SETFD) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+        if( FD_UNLIKELY( fcntl( FD_GUI_GEOIP_FD, F_SETFD, !strcmp( tile->name, "gui" ) ? 0 : FD_CLOEXEC )<0 ) )
+          FD_LOG_ERR(( "fcntl(FD_GUI_GEOIP_FD,F_SETFD) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
         if( FD_LIKELY( has_store ) ) {
           int tile_uses_store = 0;
@@ -630,6 +634,7 @@ main_pid_namespace( void * _args ) {
     if( FD_UNLIKELY( -1==close( FD_TXNCACHE_FD ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     if( FD_UNLIKELY( -1==close( FD_VOTOR_SPILL_FD ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     if( FD_UNLIKELY( -1==close( FD_EVENT_SPOOL_FD ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    if( FD_UNLIKELY( -1==close( FD_GUI_GEOIP_FD ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     if( FD_LIKELY( has_store ) ) {
       if( FD_UNLIKELY( -1==close( FD_STORE_FD_RW ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
       if( FD_UNLIKELY( -1==close( FD_STORE_FD_RO ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
@@ -1452,6 +1457,20 @@ initialize_event_spool_fd( config_t const * config ) {
   if( FD_LIKELY( spill_fd!=FD_EVENT_SPOOL_FD ) ) {
     if( FD_UNLIKELY( -1==dup2( spill_fd, FD_EVENT_SPOOL_FD ) ) ) FD_LOG_ERR(( "dup2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     if( FD_UNLIKELY( -1==close( spill_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
+}
+
+void
+initialize_gui_geoip_fd( config_t const * config ) {
+  char path[ PATH_MAX ];
+  FD_TEST( fd_cstr_printf_check( path, PATH_MAX, NULL, "%s/geoip.db", config->paths.base ) );
+  int fd = open( path, O_RDWR|O_CREAT|O_TRUNC|O_NOATIME, S_IRUSR|S_IWUSR );
+  if( FD_UNLIKELY( -1==fd ) ) FD_LOG_ERR(( "failed to open %s (%i-%s)", path, errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( -1==unlink( path ) ) ) FD_LOG_ERR(( "unlink(%s) failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
+
+  if( FD_LIKELY( fd!=FD_GUI_GEOIP_FD ) ) {
+    if( FD_UNLIKELY( -1==dup2( fd, FD_GUI_GEOIP_FD ) ) ) FD_LOG_ERR(( "dup2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    if( FD_UNLIKELY( -1==close( fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
 }
 

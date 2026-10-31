@@ -1462,7 +1462,7 @@ fd_gui_footprint( ulong tile_cnt,
 /* fd_gui_shared_scratch_footprint sizes one region shared by buffers
    whose users run to completion on the single-threaded gui tile and
    never nest: slot txn join, shreds window, timeline queries, epoch
-   leader schedule, and the geoip DCtx in fd_gui_peers_new. */
+   leader schedule, and the geoip DCtx + bounce in fd_gui_peers_new. */
 
 ulong
 fd_gui_shared_scratch_footprint( ulong max_txn_per_slot );

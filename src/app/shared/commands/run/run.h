@@ -47,6 +47,12 @@ initialize_txncache_fd( config_t const * config );
 void
 initialize_event_spool_fd( config_t const * config );
 
+/* initialize_gui_geoip_fd opens the unlinked gui geoip segment table
+   at FD_GUI_GEOIP_FD. */
+
+void
+initialize_gui_geoip_fd( config_t const * config );
+
 void
 initialize_votor_spill_fd( config_t const * config );
 

@@ -63,7 +63,7 @@ fd_gui_shared_scratch_footprint( ulong max_txn_per_slot ) {
   sz = fd_ulong_max( sz, FD_GUI_SHRED_SCRATCH_MAX*sizeof(fd_gui_shred_scratch_t) );
   sz = fd_ulong_max( sz, sizeof(fd_gui_timeline_scratch_t) );
   sz = fd_ulong_max( sz, FD_GUI_LSCHED_SCRATCH_SZ+MAX_STAKE_WEIGHTS*sizeof(fd_vote_stake_weight_t) );
-  sz = fd_ulong_max( sz, ZSTD_estimateDStreamSize( 1<<FD_GUI_GEOIP_ZSTD_WINDOW_LOG ) );
+  sz = fd_ulong_max( sz, fd_ulong_align_up( ZSTD_estimateDStreamSize( 1<<FD_GUI_GEOIP_ZSTD_WINDOW_LOG ), 128UL )+FD_GUI_GEOIP_BOUNCE_SZ );
   return fd_ulong_align_up( sz, fd_gui_align() );
 }
 
