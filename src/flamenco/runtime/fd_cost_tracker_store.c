@@ -37,6 +37,7 @@ struct fd_cost_tracker_store {
   ulong set_off;
   ulong cache_off;
   ulong lru;
+  fd_cost_tracker_store_metrics_t metrics;
 };
 
 static inline set_t *
@@ -115,6 +116,7 @@ cache_evict( fd_cost_tracker_store_t * store,
   if( victim->set_idx!=ULONG_MAX ) {
     disk_write( store, victim->data, victim->set_idx );
     set[ victim->set_idx ].cache_idx = USHORT_MAX;
+    store->metrics.spilled_cnt++;
   }
   victim->set_idx          = set_idx;
   set[ set_idx ].cache_idx = (ushort)( victim - ent );
@@ -129,6 +131,7 @@ cache_get( fd_cost_tracker_store_t * store,
 
   cache_ent_t * ent = cache_evict( store, set_idx );
   disk_read( store, ent->data, set_idx );
+  store->metrics.spill_read_cnt++;
   return ent;
 }
 
@@ -205,6 +208,7 @@ fd_cost_tracker_store_new( void * shmem,
   store->seed                     = seed;
   store->set_off                  = (ulong)set_pool  - (ulong)store;
   store->cache_off                = (ulong)cache_mem - (ulong)store;
+  store->metrics                  = (fd_cost_tracker_store_metrics_t){0};
   for( ulong i=0UL; i<cache_cnt; i++ ) cache_mem[ i ].pin_cnt = 0UL;
   fd_cost_tracker_store_reset( store );
 
@@ -307,4 +311,9 @@ fd_cost_tracker_t *
 fd_cost_tracker_store_peek( fd_cost_tracker_store_t const * store,
                             ushort                          fork_id ) {
   return fd_type_pun( cached_ent( store, (ulong)fork_id )->data );
+}
+
+fd_cost_tracker_store_metrics_t const *
+fd_cost_tracker_store_metrics( fd_cost_tracker_store_t const * store ) {
+  return &store->metrics;
 }

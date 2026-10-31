@@ -11039,6 +11039,10 @@ message MetricsReplay {
   uint64 stake_delegation_disk_written = 162;
   // Time all tiles spent in stake delegation spill file reads and writes
   uint64 stake_delegation_disk_duration_nanos = 163;
+  // Cost trackers written to the spill file because the RAM window was full
+  uint64 cost_tracker_spilled = 402197561;
+  // Cost trackers read back from the spill file
+  uint64 cost_tracker_spill_read = 526544996;
   // Acquires that waited for the accdb tile to bring keys from the on-disk account index into memory
   uint64 accdb_index_residual_waited = 455049313;
   // Time spent waiting for the accdb tile to bring keys from the on-disk account index into memory
