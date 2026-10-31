@@ -728,7 +728,7 @@ struct fd_pack_private {
   wrapped_acct_t        acct_blocklist[ 2*FD_PACK_ACCT_BLOCKLIST_MAX ];
 
   /* Noncemap is a map_chain that maps from tuples (nonce account,
-     recent blockhash value, nonce authority) to a transaction.  This
+     nonce authority) to a transaction.  This
      map stores exactly the transactions in pool that have the nonce
      flag set. */
   noncemap_t * noncemap;

@@ -212,8 +212,7 @@ fd_tls_alert( fd_tls_estate_base_t * hs,
    failure.  this is the local client or server object.  hs is the
    local handshake object.  transcript is the hash state immediately
    preceding the CertificateVerify (where last entry is Certificate).
-   cs describes the negotiated cipher suite.  is_client is 1 if the
-   local role is a client, 0 otherwise. */
+   is_client is 1 if the local role is a client, 0 otherwise. */
 
 static long
 fd_tls_send_cert_verify( fd_tls_t const *       this,
@@ -2103,7 +2102,7 @@ fd_tls_reason_cstr( uint reason ) {
   case FD_TLS_REASON_X25519_FAIL:
     return "X25519 key exchange failed";
   case FD_TLS_REASON_NO_X509:
-    return "peer requested X.509 cert, but we don't have one";
+    return "local X.509 certificate is not configured";
   case FD_TLS_REASON_WRONG_PUBKEY:
     return "peer identity does not match expected public key";
   case FD_TLS_REASON_ED25519_FAIL:

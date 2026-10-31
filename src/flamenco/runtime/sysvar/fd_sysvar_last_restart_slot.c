@@ -35,9 +35,6 @@ fd_sysvar_last_restart_slot_read( fd_accdb_t *       accdb,
   return result;
 }
 
-/* fd_sysvar_last_restart_slot_update is equivalent to
-   Agave's solana_runtime::bank::Bank::update_last_restart_slot */
-
 ulong
 fd_sysvar_last_restart_slot_derive( fd_bank_t const * bank ) {
   ulong slot = bank->f.slot;
@@ -52,6 +49,9 @@ fd_sysvar_last_restart_slot_derive( fd_bank_t const * bank ) {
 
   return last_restart_slot;
 }
+
+/* fd_sysvar_last_restart_slot_update is equivalent to
+   Agave's solana_runtime::bank::Bank::update_last_restart_slot */
 
 void
 fd_sysvar_last_restart_slot_update( fd_bank_t *        bank,

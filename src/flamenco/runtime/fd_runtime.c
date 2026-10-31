@@ -1030,31 +1030,6 @@ fd_runtime_pre_execute_check( fd_runtime_t *      runtime,
                               fd_txn_in_t const * txn_in,
                               fd_txn_out_t *      txn_out ) {
 
-  /* https://github.com/anza-xyz/agave/blob/16de8b75ebcd57022409b422de557dd37b1de8db/sdk/src/transaction/sanitized.rs#L263-L275
-     TODO: Agave's precompile verification is done at the slot level, before batching and executing transactions. This logic should probably
-     be moved in the future. The Agave call hierarchy looks something like this:
-            process_single_slot
-                   v
-            confirm_full_slot
-                   v
-            confirm_slot_entries --------------------------------------------------->
-                   v                               v                                v
-            verify_transaction    ComputeBudget::process_instruction         process_entries
-                   v                                                                v
-            verify_precompiles                                                process_batches
-                                                                                    v
-                                                                                   ...
-                                                                                    v
-                                                                        load_and_execute_transactions
-                                                                                    v
-                                                                                   ...
-                                                                                    v
-                                                                              load_accounts --> load_transaction_accounts
-                                                                                    v
-                                                                       general transaction execution
-
-  */
-
   /* Verify the transaction. For now, this step only involves processing
      the compute budget instructions. */
   int err = fd_executor_verify_transaction( bank, txn_in, txn_out );

@@ -21,6 +21,9 @@ fd_bpf_loader_input_serialize_parameters( fd_exec_instr_ctx_t *     instr_ctx,
                                           ulong *                   instr_data_offset,
                                           ulong *                   serialized_bytes_written );
 
+/* input and pre_lens must come from serialize_parameters for this
+   instruction with the same ABI and mapping settings.  ABI v0 account
+   offsets use pre_lens, ignoring serialized data-length fields. */
 int
 fd_bpf_loader_input_deserialize_parameters( fd_exec_instr_ctx_t * ctx,
                                             ulong const *         pre_lens,

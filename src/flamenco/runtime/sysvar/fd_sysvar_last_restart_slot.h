@@ -6,8 +6,7 @@
 FD_PROTOTYPES_BEGIN
 
 /* fd_sysvar_last_restart_slot_init creates or updates the "last restart
-   slot" sysvar account using the information in the bank's implicit
-   state. */
+   slot" sysvar account with 0 for genesis initialization. */
 
 void
 fd_sysvar_last_restart_slot_init( fd_bank_t *        bank,
@@ -33,7 +32,8 @@ fd_sysvar_last_restart_slot_update( fd_bank_t *        bank,
 
 /* fd_sysvar_last_restart_slot_read queries the last restart slot sysvar
    from the given fork. If the account doesn't exist in the database or
-   if the account has zero lamports, this function returns sentinel. */
+   if the account has zero lamports or an invalid data length, this
+   function returns sentinel. */
 
 ulong
 fd_sysvar_last_restart_slot_read( fd_accdb_t *       accdb,

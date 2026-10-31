@@ -345,10 +345,9 @@ target_bpf_v2_new_checked( target_builtin_t *        target_bpf_v2,
    checks that our program cache does upon deployment.
 
    This is safe because the bpf migration code runs at the epoch
-   boundary, before any transaction execution. The program cache
-   automatically invalidates all programs at the start of an epoch
-   boundary, so we do not need to explicitly update the cache during the
-   migration.
+   boundary when the migration feature activates, before transaction
+   execution.  The feature activation selects a new program-cache
+   revision, so no explicit cache update is needed here.
 
    https://github.com/anza-xyz/agave/blob/v4.0.0-beta.2/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L120-L218 */
 static int
@@ -851,10 +850,9 @@ fd_upgrade_loader_v2_program_with_loader_v3_program( fd_bank_t *               b
      invalid.
 
      This is safe because the bpf migration code runs at the epoch
-     boundary, before any transaction execution. The program cache
-     automatically invalidates all programs at the start of an epoch
-     boundary, so we do not need to explicitly update the cache during the
-     migration.
+     boundary when the migration feature activates, before transaction
+     execution.  The feature activation selects a new program-cache
+     revision, so no explicit cache update is needed here.
 
      https://github.com/anza-xyz/agave/blob/v4.0.0-beta.2/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L437-L443*/
   uchar const * elf    = (uchar const *)new_target_program_data->data + PROGRAMDATA_METADATA_SIZE;

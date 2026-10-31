@@ -15,19 +15,9 @@ FD_PROTOTYPES_BEGIN
    amount of distinct accounts the transaction can access. */
 #define FD_INSTR_SIGNERS_MAX FD_TXN_ACCT_ADDR_MAX
 
-/* FD_RUNTIME_MAX_STAKE_ACCOUNTS is the maximum number of stake accounts
-   that the system supports: anything larger will result in a crash.
-   The bounds were set with the intention of making a dos vector to mint
-   stake accounts financially infeasible.  Similarly, the number of
-   stake accounts that the system supports is also the maximum number of
-   staked vote accounts that the system supports since in the worst case
-   we have one stake account per vote account.
-
-   Prior to the feature upgrade_bpf_stake_program_to_v5, which
-   introduced the minimum 1 SOL delegation amount, there were 1.6
-   million stake accounts on mainnet.  With a bound of 2.15 million
-   stake accounts, this means an attacker would need roughly 0.75
-   million SOL to attack the system which is a reasonable bound. */
+/* FD_RUNTIME_MAX_STAKE_ACCOUNTS bounds the in-memory stake-delegation
+   cache and the number of distinct staked vote accounts.  Additional
+   stake delegations spill to disk. */
 
 #define FD_RUNTIME_MAX_STAKE_ACCOUNTS (2150000UL)
 

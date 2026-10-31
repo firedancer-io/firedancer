@@ -15,7 +15,7 @@
    The program cache is fork-aware (using transactions).  Txn-level
    operations (attach/publish/cancel) take the fork graph's exclusive
    lock; a read on the cached lineage never touches it, while switching
-   fork, publishing and the eviction sweep take it shared.
+   fork, inserting and the eviction sweep take it shared.
 
    ### Cache entry
 

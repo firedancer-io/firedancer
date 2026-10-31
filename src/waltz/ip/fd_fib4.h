@@ -52,7 +52,7 @@ struct __attribute__((aligned(16))) fd_fib4_hop {
   uint  if_idx;   /* output interface index */
   uint  ip4_src;  /* override source address (big endian). 0 implies unset */
   uchar rtype;    /* route type (e.g. FD_FIB4_RTYPE_UNICAST) */
-  uchar scope;    /* used to select source address */
+  uchar scope;    /* reserved; currently unused */
   uchar flags;    /* app-specific flags */
 };
 
@@ -75,7 +75,8 @@ fd_fib4_footprint( ulong route_max,
 
 /* fd_fib4_new formats a shared memory region mem with alignment and footprint
    suitable for a fib4. It expects at most route_peer_max /32 routes, and
-   at most route_max non-/32 routes. Returns mem on success and NULL on failure.
+   at most route_max-1 non-/32 routes (one slot is reserved for a throw
+   route). Returns mem on success and NULL on failure.
    Takes seed to be used for the hashmap. */
 
 void *

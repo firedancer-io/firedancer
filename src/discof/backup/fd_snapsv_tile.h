@@ -60,9 +60,9 @@ typedef struct fd_snapsv_conn_key fd_snapsv_conn_key_t;
    - ctl::som: first frag of this request
    - ctl::eom: last frag of this request (request ended)
 
-   For every snapshot GET request, there is at least one {som,eom} frag
-   generated (might be the same frag), but they might get dropped due to
-   mcache overruns. */
+   Once a snapshot GET starts streaming, separate som and eom frags
+   mark its start and end.  Requests aborted before streaming emit neither.
+   Frags may be dropped due to mcache overruns. */
 
 struct fd_snapsv_msg_snap {
   fd_snapsv_conn_key_t key;

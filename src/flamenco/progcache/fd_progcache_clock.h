@@ -9,8 +9,8 @@
 
    rec->state holds the flag, one byte per record including free ones:
 
-     0                    free, or acquired and not yet published
-     LOADING|MAPPED       published, program not yet loaded
+     0                    free, or acquired before load_begin
+     LOADING|MAPPED       loading; set before map publication
      LIVE|MAPPED          holds a value and is reachable
      LIVE|VISITED|MAPPED  as above, recently accessed (CLOCK second chance)
      LOADING              unmapped mid-load; becomes a zombie when the load ends

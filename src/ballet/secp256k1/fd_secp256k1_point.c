@@ -296,7 +296,7 @@ fd_secp256k1_slide( schar       r[ 2 * 32 + 1 ],
     r[i * 2 + 0] = x & 0xF;
     r[i * 2 + 1] = (x >> 4) & 0xF;
   }
-  /* Now, r[0..63] is between 0 and 15, r[63] is between 0 and 7 */
+  /* Now, r[0..63] is between 0 and 15. */
   schar carry = 0;
   for( ulong i=0UL; i<64UL; i++ ) {
     r[i]  = (schar)(r[i] + carry);

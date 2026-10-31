@@ -756,7 +756,8 @@ populate_allowed_fds( fd_topo_t const *      topo,
    calls on any single output link between two consecutive
    credit checks in the stem run loop.  One iteration consists
    of after_credit (which calls fd_gossip_advance) followed by
-   processing one input fragment (returnable_frag).
+   processing one input fragment (returnable_frag).  A gossip packet
+   handler calls fd_gossip_advance again after fd_gossip_rx.
 
    The reliable output links and their per-iteration worst cases:
 
@@ -771,9 +772,9 @@ populate_allowed_fds( fd_topo_t const *      topo,
      fd_crds_insert publish + evictions      2*FD_GOSSIP_MESSAGE_MAX_CRDS
      Total: FD_CONTACT_INFO_TABLE_SIZE + 2*FD_GOSSIP_MESSAGE_MAX_CRDS
 
-   gossip_vote and gossip_misc carry a subset of the fd_crds_insert
-   publishes (at most FD_GOSSIP_MESSAGE_MAX_CRDS each, plus a few local
-   pushes), so the contact info links bound them.
+   gossip_misc carries a subset of the fd_crds_insert publishes
+   (at most FD_GOSSIP_MESSAGE_MAX_CRDS, plus local pushes), so the
+   contact info links bound it.
 
    Among the reliable output links, gossvf_out dominates.  Every
    reliable out link must be at least STEM_BURST deep. */

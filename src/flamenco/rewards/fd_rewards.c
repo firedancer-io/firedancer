@@ -1591,9 +1591,7 @@ recalculate_partitioned_rewards( fd_bank_t *          bank,
     /* The rewards of this epoch were computed once already, at the epoch
        boundary or at snapshot load, and only the window is moving.  The
        commissions resolved back then are stored with the epoch credits
-       and must be reused: they come from a vote account snapshot two
-       epochs behind the rewarded epoch, which the top votes sets no
-       longer retain. */
+       and must be reused. */
 
     for( ulong i=0UL; i<epoch_credits_len; i++ ) {
       fd_epoch_credits_t const * epoch_credits = &epoch_credits_arr[i];

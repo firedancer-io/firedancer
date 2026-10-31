@@ -1611,16 +1611,11 @@ publish_leader_footer( fd_replay_tile_t *        ctx,
   publish_replay_out( ctx, stem, REPLAY_SIG_LEADER_FOOTER, sz );
 }
 
-/* 1. no more PoH-hashing and 2. picking the reset bank is based on
-   ParentReady rather than fork choice. */
-
 static inline int
 try_become_leader( fd_replay_tile_t *  ctx,
                    fd_stem_context_t * stem,
                    uint                reason,
                    ulong               end_slot ) {
-
-  /* Mirrors check from try_become_leader. */
 
   if( FD_LIKELY( ctx->next_leader_slot==ULONG_MAX ||
                  ctx->is_leader ||
@@ -1717,8 +1712,6 @@ try_become_leader( fd_replay_tile_t *  ctx,
   reset->wfs_paused       = !ctx->wfs_complete;
 
   publish_replay_out( ctx, stem, REPLAY_SIG_RESET, sizeof(fd_poh_reset_t) );
-
-  /* The remainder of this function mirrors try_become_leader. */
 
   long now_nanos = fd_clock_epoch_y( ctx->clock->epoch, now );
 
@@ -2657,8 +2650,7 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
                          "=%lu bank_hash=%s. If you are loading a snapshot from the network, check that the slot matches the "
                          "cluster restart slot.", expected_bank_hash_cstr, snapshot_slot, actual_bank_hash_cstr ));
           }
-          /* Not gated on wfs_complete: gossip can signal the cluster
-             back before we boot, which says nothing about our vote. */
+          /* Booting at the WFS target does not require our vote to be rooted. */
           if( FD_UNLIKELY( ctx->wait_for_vote_to_start_leader==FD_BOOLAU_AUTO ) ) {
             FD_LOG_NOTICE(( "auto-overriding wait_for_vote_to_start_leader to false "
                             "(WFS target slot %lu, boot slot %lu)",

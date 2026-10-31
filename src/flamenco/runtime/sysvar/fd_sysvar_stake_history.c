@@ -89,7 +89,7 @@ fd_sysvar_stake_history_update( fd_bank_t *                      bank,
   }
   /* else: idx == cap and not found - new entry would be truncated, drop */
 
-  /* Zero trailing bytes (technically a no-op) */
+  /* Zero trailing bytes */
   FD_TEST( used_sz <= FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ );
   fd_memset( rw.data+used_sz, 0, FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ-used_sz );
 

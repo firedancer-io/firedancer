@@ -405,14 +405,8 @@ struct fd_banks {
 
   ulong epoch_credits_offset;
 
-  /* The set of epoch leaders for the current and previous epochs is
-     allocated out-of-line and tracked by epoch_leaders_offset.  Only
-     two need to be stored because in the worst case we will have a root
-     that sits behind an epoch boundary, with leaf banks executing into
-     the next epoch.  All banks that execute behind the boundary, will
-     use the previous epoch's leader schedule, and all nodes after the
-     epoch boundary are guaranteed to produce identical leader
-     schedules. */
+  /* Leader schedules for two adjacent epochs are allocated out-of-line.
+     Computing a new schedule replaces the older of the two. */
 
   ulong epoch_leaders_offset;
   ulong epoch_leaders_footprint;

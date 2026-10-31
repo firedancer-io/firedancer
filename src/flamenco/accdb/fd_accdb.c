@@ -864,9 +864,8 @@ fd_accdb_attach_child( fd_accdb_t *       accdb,
     descends_set_copy( fork->descends, parent->descends );
     descends_set_insert( fork->descends, parent_fork_id.val );
 
-    /* Atomically prepend to parent's child list.  T2 (background_purge)
-       may concurrently unlink a different child from the same list, so
-       we must CAS here. */
+    /* Atomically prepend to parent's child list.  attach_child waits
+       for pending T2 commands before modifying the list. */
     FD_COMPILER_MFENCE();
     for(;;) {
       ushort old_head = FD_VOLATILE_CONST( parent->shmem->child_id.val );
@@ -888,9 +887,8 @@ fd_accdb_attach_child( fd_accdb_t *       accdb,
 /* evict_clear_acc_cache_ref atomically tears down acc->cache_idx and
    acc->executable_size.CACHE_VALID for an acc that is being evicted
    from cache line (size_class, line_idx).  The caller must already
-   hold an exclusive claim on the line (line->refcnt ==
-   FD_ACCDB_EVICT_SENTINEL) so that no concurrent thread can pin the
-   line.
+   hold a pin or an exclusive eviction claim on the line to prevent
+   its reuse.
 
    The naive sequence (clear cache_idx, clear VALID) lets a reader in
    cold_load_acc see VALID=1 and read a stale INVAL cache_idx, which
@@ -1193,16 +1191,16 @@ acc_unlink( fd_accdb_t * accdb,
 
      (1) A concurrent fd_accdb_acquire_inner that is CLOCK-evicting the
          cache line currently holding this acc's data may have already
-         xchg'd the offset to INVAL in step 5-6 and freed the old disk
+         xchg'd the offset to INVAL during eviction and freed the old disk
          bytes.  Without atomicity we would re-read the old offset and
          free those same bytes a second time.  The xchg here serializes:
          whoever wins sees the real offset and frees; the loser sees
          INVAL and skips.
 
      (2) That same evictor may also be mid-flight to publish a NEW
-         offset in step 9 (after step 5-6's free but before step 9's
-         store).  That late publish lands on an accmeta that is about
-         to be chain-unlinked and deferred-released.  drain_deferred_
+         offset after freeing the old disk bytes.  That late publish
+         lands on an accmeta that is about to be chain-unlinked and
+         deferred-released.  drain_deferred_
          frees sweeps the deferred buffer after epoch drain to catch
          the late publish and free the orphaned bytes. */
   uint  es       = FD_VOLATILE_CONST( accmeta->executable_size );
@@ -1691,9 +1689,9 @@ fd_accdb_advance_root( fd_accdb_t *       accdb,
 static void
 background_purge( fd_accdb_t *       accdb,
                   fd_accdb_fork_id_t fork_id ) {
-  /* Unlink fork_id from its parent's child list.  This runs on T2
-     which is the sole mutator of sibling lists (advance_root and
-     remove_children also run on T2), so plain stores are safe. */
+  /* Unlink fork_id from its parent's child list.  T2 mutations are
+     serialized with T1 attach_child through the command handshake,
+     so plain stores are safe here. */
   fd_accdb_fork_t * fork = &accdb->fork_pool[ fork_id.val ];
   fd_accdb_fork_id_t parent_id = fork->shmem->parent_id;
   if( FD_LIKELY( parent_id.val!=USHORT_MAX ) ) {
@@ -2036,12 +2034,9 @@ allocate_next_compaction_write( fd_accdb_t * accdb,
   return file_offset;
 }
 
-/* fd_accdb_compact relocates one record from the oldest partition
-   queued for compaction at src_layer into the write head for the
-   next colder tier, or the same tier for the deepest layer.  It is
-   designed to be called repeatedly from a dedicated compaction tile.
-   If there is work to do, *charge_busy is set to 1; otherwise 0 is
-   left unchanged and the call returns immediately.
+/* background_compact relocates batches of records from src_layer
+   into the next colder tier (or the same tier for the deepest layer)
+   and reclaims retired partitions.  Sets *charge_busy if work is done.
 
    src_layer must be in 0..FD_ACCDB_COMPACTION_LAYER_CNT-1. */
 
@@ -2391,9 +2386,9 @@ cold_load_acc( fd_accdb_t *     accdb,
     fd_accdb_cache_line_t * line = acquire_cache_line( accdb, size_class, out_evicted_acc_idx );
     fd_memcpy( line->key.pubkey, accmeta->key.pubkey, 32UL );
     line->key.generation = accmeta->key.generation;
-    /* Leave acc_idx at UINT_MAX (the "loading" sentinel) until step 12
-       publishes it after the preadv2 fence.  Concurrent threads that
-       pin via cache_idx will spin on this in step 13. */
+    /* Leave acc_idx at UINT_MAX (the "loading" sentinel) until the disk-read
+       completion fence has passed.  Concurrent threads that
+       pin via cache_idx will spin on this before copying the owner. */
     line->acc_idx = UINT_MAX;
     FD_COMPILER_MFENCE();
     FD_VOLATILE( accmeta->cache_idx ) = FD_ACCDB_ACC_CIDX_PACK( (uint)size_class, (uint)cache_line_idx( accdb, size_class, line ) );
@@ -2605,10 +2600,10 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
        every size class (for the write destination buffers). But if the
        account is already resident in cache (which is the common case
        for hot accounts), the read-into-cache line is unnecessary — we
-       will get a cache hit in step 4 and never use it.  The fix is to
-       probe acc->cache_idx here and skip the per-account size class
-       reservation per-account size class reservation when a hit is
-       found. This would reduce peak reservation by up to one line per
+       will get a cache hit when acquiring cache lines and never use it.
+       The fix is to probe acc->cache_idx here and skip the per-account
+       size class reservation when a hit is found. This would reduce
+       peak reservation by up to one line per
        writable account per acquire batch, lowering contention on the
        cache class counters and allowing smaller cache provisioning. */
 
@@ -2658,9 +2653,8 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
 
   /* Saved acc_pool indices of evicted dirty cache lines.  These are
      captured before clearing acc_idx to UINT_MAX on the line struct, so
-     that the sentinel protocol (step 14) works correctly while the
-     evicted account metadata is still available for writeback in steps
-     4 and 6. */
+     that the loading-sentinel protocol works correctly while the
+     evicted account metadata is still available for writeback. */
   uint evicted_dest_acc[ FD_ACCDB_MAX_ACQUIRE_CNT ][ FD_ACCDB_CACHE_CLASS_CNT ];
   uint evicted_orig_acc[ FD_ACCDB_MAX_ACQUIRE_CNT ];
 
@@ -2792,7 +2786,7 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
   //   individual write fits in a single partition.
   //
   //   The actual stores to evicted->offset_fork and line->persisted
-  //   are deferred until after pwritev2 completes (Step 9-10), so
+  //   are deferred until after pwritev2 completes, so
   //   a concurrent acquire spinning on offset==FD_ACCDB_OFF_INVAL
   //   does not proceed to preadv2 from a location that hasn't been
   //   written.
@@ -2823,9 +2817,9 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
         ulong entry_sz = sizeof(fd_accdb_disk_meta_t) + (ulong)FD_ACCDB_SIZE_DATA( evicted->executable_size );
         /* xchg-to-INVAL atomically captures the old offset and prevents
            a concurrent acc_unlink from also reading and freeing it (the
-           xchg there will see INVAL and skip).  Step 10 republishes the
-           new offset; the spinner at line ~2082 tolerates the transient
-           INVAL.  Same pattern as the overwrite path at line ~2388. */
+           xchg there will see INVAL and skip).  After writeback, the new
+           offset is published; cold_load_acc tolerates the transient
+           INVAL.  The overwrite path uses the same protocol. */
         ulong old_off = fd_accdb_acc_xchg_offset( evicted, FD_ACCDB_OFF_INVAL );
         if( FD_LIKELY( old_off!=FD_ACCDB_OFF_INVAL ) ) {
           fd_accdb_shmem_bytes_freed( accdb->shmem, old_off, entry_sz );
@@ -2920,8 +2914,7 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
       memset( out_accs[ i ].prior_owner, 0, 32UL );
     }
     /* For accmetas[i] != NULL, both owners are copied from the cache
-       line below in step 15, after step 12 has populated it from disk
-       for cold loads. */
+       line below after disk reads have completed for cold loads. */
 
     out_accs[ i ].prior_lamports   = out_accs[ i ].lamports;
     out_accs[ i ].prior_data_len   = out_accs[ i ].data_len;
@@ -2968,8 +2961,8 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
 
   // STEP 9.
   //   Write the dirty eviction data to disk and publish the new offsets
-  //   BEFORE constructing read iovecs.  This is critical: step 4 may
-  //   have evicted a dirty cache line belonging to another account in
+  //   BEFORE constructing read iovecs.  Cache-line allocation may have
+  //   evicted a dirty cache line belonging to another account in
   //   the same batch whose acc->offset is still FD_ACCDB_OFF_INVAL.
   //   The read-iovec loop below spin-waits on
   //   offset!=FD_ACCDB_OFF_INVAL, so publishing evicted offsets first
@@ -3070,7 +3063,7 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
     /* Tombstones (lamports==0) have no on-disk payload to read, and
        background_advance_root may unlink the acc and never assign it a
        disk offset, so the offset_fork spin below would hang forever.
-       Step 15's tombstone reset zeros the owner for these accounts.
+       The final tombstone reset zeros the owner for these accounts.
 
        Exception: when re-creating a closed account on the same fork,
        wait anyway, or a concurrent evictor will later store the
@@ -3179,9 +3172,8 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
   // STEP 15.
   //   Now that all reads from disk into original_cache_line have
   //   completed (and any concurrent loaders have published their
-  //   acc_idx in step 14), copy the owner into the output entries.
-  //   This must happen here rather than in step 8 because the cache
-  //   line owner is only valid post-read for cold loads.
+  //   acc_idx after disk-read completion), copy the owner into the output
+  //   entries.  The cache line owner is only valid post-read for cold loads.
   for( ulong i=0UL; i<pubkeys_cnt; i++ ) {
     if( FD_UNLIKELY( !accmetas[ i ] ) ) continue;
     fd_racesan_hook( "accdb_acquire:pre_step14_owner" );

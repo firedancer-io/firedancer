@@ -119,7 +119,7 @@ typedef struct contact_info contact_info_t;
 #define MAP_KEY_HASH(key,seed)  ((uint)fd_hash32((key).uc,(seed)))
 #include "../../util/tmpl/fd_map_dynamic.c"
 
-#define PEERS_LG_SLOT_CNT (13) /* 2*FD_VOTOR_VAT_MAX, fill ratio 0.5 */
+#define PEERS_LG_SLOT_CNT (13) /* Capacity for four epochs of FD_VOTOR_VAT_MAX identities. */
 FD_STATIC_ASSERT( (1UL<<PEERS_LG_SLOT_CNT)>=4UL*FD_VOTOR_VAT_MAX, peers );
 
 struct peer {

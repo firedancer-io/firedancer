@@ -8,35 +8,12 @@
 #include "../../ballet/txn/fd_txn.h"
 #include "../../ballet/txn/fd_txn_v1.h"
 
-/* The functions in this header implement the transaction cost model
-   that is soon to be part of consensus.
-   The cost model consists of several components:
-     * per-signature cost: The costs associated with transaction
-       signatures + signatures from precompiles (ED25519 + SECP256*)
-     * per-write-lock cost: cost associated with acquiring write locks
-       for writable accounts listed in the transaction.
-     * instruction data length cost: The fixed cost for each instruction
-       data byte in the transaction payload.
-     * built-in execution cost: The fixed cost associated with "builtin"
-       instructions. "What are builtins" is defined here:
-       https://github.com/anza-xyz/agave/blob/1baa4033e0d2d4175373f07b73ddda2f3cc0a8d6/builtins-default-costs/src/lib.rs#L120-L200
-       After SIMD 170, all builtins have a fixed cost of 3000 cus.
-     * BPF execution cost: The costs associated with any instruction
-       that is not a builtin.  This value comes from the VM after
-       transaction execution.
-     * loaded accounts data cost: Costs associated with all the account
-       data loaded from the chain.  This value is known in the
-       transaction loading stage, after accounts data is loaded.
-   These are all summed to determine the total transaction cost. */
+/* Transaction cost estimates sum signature, write-lock, instruction
+   data, execution and loaded-account data costs.  Execution and loaded
+   data costs use compute-budget limits before execution.
 
-/* To compute the built-in cost, we need to check a table. The table
-   is known ahead of time though, so we can build a perfect hash
-   table for performance.
-   The values of the table are based on https://github.com/
-   solana-labs/solana/blob/9fb105c801e2999a24f0773443d6164e30c9ff0c/
-   runtime/src/block_cost_limits.rs#L34-L47 . */
-
-
+   The perfect hash below identifies builtins for the default compute
+   budget when no explicit execution limit is provided. */
 
 struct __attribute__((aligned(32))) fd_pack_builtin_prog_cost {
   uchar program_id[32];

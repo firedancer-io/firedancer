@@ -270,9 +270,9 @@ FD_VM_SYSCALL_DECL( sol_log_compute_units );
      vm->reg[0] unchanged. vm->cu==0.
 
      FD_VM_SYSCALL_ERR_SEGFAULT: bad address range.  vm->reg[0] unchanged.  vm->cu
-     decremented and vm->cu>0.
+     decremented and vm->cu>=0.
 
-     FD_VM_SUCCESS: success.  vm->reg[0]=0.  vm->cu decremented and vm->cu>0.
+     FD_VM_SUCCESS: success.  vm->reg[0]=0.  vm->cu decremented and vm->cu>=0.
 
      IMPORTANT SAFETY TIP!  The log message will be silently truncated
      if there was not enough room for the message in the syscall log
@@ -368,10 +368,10 @@ FD_VM_SYSCALL_DECL( sol_memcpy );
      vm->reg[0]==0. vm->cu==0.
 
      FD_VM_SYSCALL_ERR_SEGFAULT: bad address range (including out not 4 byte
-     aligned).  vm->reg[0]==0.  vm->cu decremented and vm->cu>0.
+     aligned).  vm->reg[0]==0.  vm->cu decremented and vm->cu>=0.
      Strict alignment is only required when the VM has check_align set.
 
-     FD_VM_SUCCESS: success.  vm->reg[0]=0.  vm->cu decremented and vm->cu>0.
+     FD_VM_SUCCESS: success.  vm->reg[0]=0.  vm->cu decremented and vm->cu>=0.
      On return, *_out will hold a positive / zero / negative number if
      the region at m0 lexicographically compares strictly greater than /
      equal to / strictly less than the region at m1 when treated as
@@ -400,9 +400,9 @@ FD_VM_SYSCALL_DECL( sol_memcmp );
      vm->reg[0]==0. vm->cu==0.
 
      FD_VM_SYSCALL_ERR_SEGFAULT: bad address range.  vm->reg[0]==0.  vm->cu
-     decremented and vm->cu>0.
+     decremented and vm->cu>=0.
 
-     FD_VM_SUCCESS: success.  vm->reg[0]=0.  vm->cu decremented and vm->cu>0.
+     FD_VM_SUCCESS: success.  vm->reg[0]=0.  vm->cu decremented and vm->cu>=0.
      On return, dst[i]==(uchar)(c & 255UL) for i in [0,sz). */
 
 FD_VM_SYSCALL_DECL( sol_memset );
@@ -424,9 +424,9 @@ FD_VM_SYSCALL_DECL( sol_memset );
      vm->reg[0] unchanged. vm->cu==0.
 
      FD_VM_SYSCALL_ERR_SEGFAULT: bad address range.  vm->reg[0]==0.  vm->cu
-     decremented and vm->cu>0.
+     decremented and vm->cu>=0.
 
-     FD_VM_SUCCESS: success.  vm->reg[0]=0.  vm->cu decremented and vm->cu>0.
+     FD_VM_SUCCESS: success.  vm->reg[0]=0.  vm->cu decremented and vm->cu>=0.
      On return, dst[i]==src_as_it_was_before_the_call[i] for i in
      [0,sz). */
 
@@ -465,7 +465,7 @@ FD_VM_SYSCALL_DECL( sol_memmove );
        last restart slot  |     8 | 8
      Strict alignment is only required when the VM has check_align set.
 
-     FD_VM_SUCCESS: success.  vm->reg[0]=0.  vm->cu decremented and vm->cu>0.
+     FD_VM_SUCCESS: success.  vm->reg[0]=0.  vm->cu decremented and vm->cu>=0.
      On return, *out will hold the value of the appropriate sysvar. */
 
 FD_VM_SYSCALL_DECL( sol_get_clock_sysvar             );
@@ -559,9 +559,6 @@ FD_VM_SYSCALL_DECL( sol_get_epoch_stake );
      FD_VM_SYSCALL_ERR_COMPUTE_BUDGET_EXCEEDED: insufficient compute
      budget.  vm->reg[0] unchanged.  vm->cu==0.
 
-     FD_VM_SYSCALL_ERR_SEGFAULT: bad address range.  vm->reg[0] unchanged.
-     vm->cu decremented and vm->cu>=0.
-
      FD_VM_SUCCESS: success.  vm->reg[0]==stack_height.  vm->cu decremented
      and vm->cu>=0. */
 
@@ -569,6 +566,7 @@ FD_VM_SYSCALL_DECL( sol_get_stack_height );
 
 /* syscall(5d2245e4) "sol_get_return_data"
    Get the return data and program id associated with it.
+   Requires a valid runtime instruction context in vm->instr_ctx.
 
    Inputs:
 
@@ -579,9 +577,6 @@ FD_VM_SYSCALL_DECL( sol_get_stack_height );
      r5 - ignored
 
    Return:
-
-     FD_VM_SYSCALL_ERR_OUTSIDE_RUNTIME: the VM is not running within
-     the Solana runtime.  vm->reg[0] unchanged.  vm->cu unchanged.
 
      FD_VM_SYSCALL_ERR_COMPUTE_BUDGET_EXCEEDED: insufficient compute
      budget.  vm->reg[0] unchanged. vm->cu==0.
@@ -594,13 +589,14 @@ FD_VM_SYSCALL_DECL( sol_get_stack_height );
      program_id. vm->reg[0] unchanged.  Compute budget decremented.
 
      FD_VM_SUCCESS: success.  vm->reg[0]=return_data_sz.  vm->cu decremented
-     and vm->cu>=0.  On return, if dst_max was non-zero, dst holds the
-     leading min(return_data_sz,dst_max) bytes of return data (as such,
-     if return_data_sz>dst_max, the value returned in the buffer was
+     and vm->cu>=0.  On return, if return_data_sz and dst_max are non-zero,
+     dst holds the leading min(return_data_sz,dst_max) bytes of return data
+     (as such, if return_data_sz>dst_max, the value returned in the buffer was
      truncated).  Any trailing bytes of dst are unchanged.  program_id
      holds the program_id associated with the return data.
 
-     If dst_max was zero, dst and program_id are untouched. */
+     If either return_data_sz or dst_max is zero, dst and program_id are
+     untouched. */
 
 FD_VM_SYSCALL_DECL( sol_get_return_data );
 
@@ -624,12 +620,12 @@ FD_VM_SYSCALL_DECL( sol_get_return_data );
      budget.  vm->reg[0] unchanged.  vm->cu==0.
 
      FD_VM_SYSCALL_ERR_RETURN_DATA_TOO_LARGE: src_sz too large.  vm->reg[0]
-     unchanged.  vm->cu decremented and vm->cu>0.
+     unchanged.  vm->cu decremented and vm->cu>=0.
 
      FD_VM_SYSCALL_ERR_SEGFAULT: bad address range for src.  vm->reg[0] unchanged.
      vm->cu decremented and vm->cu>=0.
 
-     FD_VM_SUCCESS: success.  vm->reg[0]=0.  vm->cu decremented and vm->cu>0. */
+     FD_VM_SUCCESS: success.  vm->reg[0]=0.  vm->cu decremented and vm->cu>=0. */
 
 FD_VM_SYSCALL_DECL( sol_set_return_data );
 
@@ -680,6 +676,15 @@ FD_VM_SYSCALL_DECL( sol_set_return_data );
      FD_VM_SYSCALL_ERR_COMPUTE_BUDGET_EXCEEDED: insufficient compute
      budget.  vm->reg[0] unchanged.  vm->cu==0.
 
+     FD_VM_SYSCALL_ERR_SEGFAULT: invalid output address range.
+
+     FD_VM_SYSCALL_ERR_COPY_OVERLAPPING: translated output ranges overlap.
+
+     FD_VM_SYSCALL_ERR_INVALID_LENGTH: a translated slice exceeds LONG_MAX.
+
+     FD_EXECUTOR_INSTR_ERR_MISSING_ACC: an instruction account
+     index is outside the transaction account list.
+
      FD_VM_SUCCESS: vm->reg[0]==1 if the instruction was found and, vm->reg[0]==0
      otherwise.  vm->cu decremented and vm->cu>=0. */
 
@@ -726,8 +731,8 @@ FD_VM_SYSCALL_DECL( sol_create_program_address );
 
 /* syscall(48504a38) "sol_try_find_program_address"
 
-   Repeatedly derive program address while incrementing nonce in seed
-   list until a point is found that is not a valid Ed25519 curve point.
+   Derive program addresses with bump seeds descending from 255 through 1
+   until a point is found that is not a valid Ed25519 curve point.
 
    Inputs:
 
@@ -753,6 +758,10 @@ FD_VM_SYSCALL_DECL( sol_create_program_address );
      program_id, out and/or bump_seed (including 8-byte alignment for
      seed if the VM has check_align set).  vm->reg[0] unchanged.  vm->cu
      decremented and vm->cu>=0.
+
+     FD_VM_SYSCALL_ERR_COPY_OVERLAPPING: translated output ranges overlap.
+
+     FD_VM_SYSCALL_ERR_INVALID_LENGTH: a translated slice exceeds LONG_MAX.
 
      FD_VM_SUCCESS: success.  If vm->reg[0]==0, a PDA was found and stored at
      out and the suffix stored at bump_seed.  If vm->reg[0]==1, no PDA was
