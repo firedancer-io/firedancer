@@ -44,12 +44,11 @@ failover_args( int *    pargc,
   char const * port    = strip_value( pargc, pargv, "--port"    );
   if( FD_UNLIKELY( name ) ) fd_cstr_ncpy( args->failover.name, name, sizeof(args->failover.name) );
   args->failover.yes   = fd_env_strip_cmdline_contains( pargc, pargv, "--yes"   );
+  args->failover.adopt = fd_env_strip_cmdline_contains( pargc, pargv, "--adopt" );
   args->failover.force = fd_env_strip_cmdline_contains( pargc, pargv, "--force" );
 
-  args->failover.cmd   = (int)( args->failover.force ? FD_ADMINCTL_FAILOVER_CMD_PROMOTE : FD_ADMINCTL_FAILOVER_CMD_HANDOFF );
-
-  if( FD_UNLIKELY( ( address || port ) && args->failover.force ) ) {
-    FD_LOG_ERR(( "--address and --port are only meaningful without --force" ));
+  if( FD_UNLIKELY( args->failover.adopt && args->failover.force ) ) {
+    FD_LOG_ERR(( "--adopt and --force are mutually exclusive" ));
   }
   if( FD_UNLIKELY( address && !fd_dns_resolve_address( address, &args->failover.addr ) ) ) {
     FD_LOG_ERR(( "could not resolve --address `%s` to an IPv4 address", address ));
@@ -81,19 +80,28 @@ failover_args( int *    pargc,
 static void
 failover_confirm( args_t const * args ) {
   if( args->failover.force ) {
-    FD_LOG_STDOUT(( "This takes the identity upon your command.  No other machine may run it or be in a\n"
-                    "promotion, including any validator running this identity without failover.\n"
-                    "`firedancer get-identity` on the other machine must not print this identity, or\n"
-                    "that machine must be stopped or otherwise unable to vote.  Never promote both\n"
-                    "machines at once.\n"
-                    "WARNING: --force skips every check on the other machine.  Use it only when the\n"
-                    "other machine is not signing votes, or both machines may double-vote.\n"
+    FD_LOG_STDOUT(( "This asks the machine running the identity to hand it over.  If that fails for any\n"
+                    "reason, this machine takes the identity anyway.\n"
+                    "WARNING: --force skips every check on the other machine, which may still run the\n"
+                    "identity.  Use it only when that machine is not signing votes, or both machines\n"
+                    "may double-vote.  A Firedancer validator that still runs the identity stops on\n"
+                    "its duplicate instance check once it sees this machine in gossip.  Never promote\n"
+                    "both machines at once.\n"
+                    "Promotion tries eligible saved vote history first, then starts from an EMPTY\n"
+                    "history with a bound covering replay and known votes.  Missing votes and leader\n"
+                    "windows above that bound remain unprotected.\n" ));
+  } else if( args->failover.adopt ) {
+    FD_LOG_STDOUT(( "This asks the machine running the identity to hand it over.  If that fails and\n"
+                    "the other machine shows no sign of life, neither in gossip for 15 seconds nor on\n"
+                    "the failover channel, this machine takes the identity anyway.\n"
+                    "WARNING: --adopt skips the checks on the other machine.  A machine that is only\n"
+                    "cut off from this one may still sign votes, and both machines may double-vote.\n"
                     "Promotion tries eligible saved vote history first, then starts from an EMPTY\n"
                     "history with a bound covering replay and known votes.  Missing votes and leader\n"
                     "windows above that bound remain unprotected.\n" ));
   }
   if( FD_UNLIKELY( !args->failover.yes && isatty( STDIN_FILENO ) ) ) {
-    if( !args->failover.force ) {
+    if( !args->failover.force && !args->failover.adopt ) {
       FD_LOG_STDOUT(( "This asks the remote validator running this identity to hand it to this machine.  It keeps\n"
                       "the identity if this machine is more than 64 slots behind its finality anchor.\n"
                       "Otherwise, it gives up the identity before this validator adopts its history.\n"
@@ -190,6 +198,7 @@ fail_result( ulong result ) {
     case FD_FAILOVER_CONTROL_RESULT_NO_HOLDER_ADDRESS:
     case FD_FAILOVER_CONTROL_RESULT_REPLAY_BEHIND:
     case FD_FAILOVER_CONTROL_RESULT_NO_FINAL_HISTORY:
+    case FD_FAILOVER_CONTROL_RESULT_HOLDER_LIVE:
       code = FAILOVER_EXIT_RETRY;
       break;
     case FD_FAILOVER_CONTROL_RESULT_TIMEOUT:
@@ -211,6 +220,25 @@ fail_result( ulong result ) {
   exit( code );
 }
 
+static int
+is_handoff_failure( ulong result ) {
+  switch( result ) {
+    case FD_FAILOVER_CONTROL_RESULT_WRONG_HOLDER:
+    case FD_FAILOVER_CONTROL_RESULT_PEER_UNREADY:
+    case FD_FAILOVER_CONTROL_RESULT_PEER_HOLDS:
+    case FD_FAILOVER_CONTROL_RESULT_NO_FINAL_HISTORY:
+    case FD_FAILOVER_CONTROL_RESULT_NO_HOLDER_ADDRESS:
+    case FD_FAILOVER_CONTROL_RESULT_REPLAY_BEHIND:
+    case FD_FAILOVER_CONTROL_RESULT_TIMEOUT:
+    case FD_FAILOVER_CONTROL_RESULT_PEER_RESTARTED:
+    case FD_FAILOVER_CONTROL_RESULT_ADOPTION_FAILED:
+    case FD_FAILOVER_CONTROL_RESULT_SWITCH_FAILED:
+      return 1;
+    default:
+      return 0;
+  }
+}
+
 /* Run sanity checks before invoking failover. */
 static void FD_FN_SENSITIVE
 failover_preflight( fd_adminctl_t * adminctl,
@@ -226,7 +254,7 @@ failover_preflight( fd_adminctl_t * adminctl,
   if( FD_UNLIKELY( result!=FD_ADMINCTL_RESULT_SUCCESS ) ) fail_result( result );
 }
 
-/* Sends the command to the failover tile and waits for its outcome. */
+/* Asks the failover tile for the handoff and waits for its outcome. */
 static void
 failover_cmd_fn( args_t *   args,
                  config_t * config ) {
@@ -238,17 +266,14 @@ failover_cmd_fn( args_t *   args,
   fd_adminctl_failover_req_t req;
   fd_memset( &req, 0, sizeof(req) );
   req.version = FD_ADMINCTL_FAILOVER_PAYLOAD_VERSION;
-  req.cmd     = (ulong)args->failover.cmd;
-  if( FD_UNLIKELY( args->failover.yes   ) ) req.flags |= FD_ADMINCTL_FAILOVER_FLAG_YES;
-  if( FD_UNLIKELY( args->failover.force ) ) req.flags |= FD_ADMINCTL_FAILOVER_FLAG_FORCE;
+  req.cmd     = FD_ADMINCTL_FAILOVER_CMD_HANDOFF;
+  if( FD_UNLIKELY( args->failover.yes ) ) req.flags |= FD_ADMINCTL_FAILOVER_FLAG_YES;
   req.addr = args->failover.addr;
   req.port = args->failover.port;
 
   char const * bold   = fd_log_style_bold();
   char const * normal = fd_log_style_normal();
-  if( args->failover.force ) {
-    FD_LOG_NOTICE(( "requesting forced promotion, this machine takes the identity without its peer" ));
-  } else if( args->failover.addr ) {
+  if( args->failover.addr ) {
     FD_LOG_NOTICE(( "requesting takeover of the identity from peer `" FD_IP4_ADDR_FMT ":%hu`", FD_IP4_ADDR_FMT_ARGS( args->failover.addr ),
                     (ushort)( args->failover.port ? args->failover.port : 8010 ) ));
   } else {
@@ -257,6 +282,18 @@ failover_cmd_fn( args_t *   args,
 
   fd_adminctl_failover_resp_t resp;
   ulong result = failover_request( adminctl, &req, keypair, &resp );
+
+  if( FD_UNLIKELY( result!=FD_ADMINCTL_RESULT_SUCCESS && ( args->failover.adopt || args->failover.force ) && is_handoff_failure( result ) ) ) {
+    FD_LOG_WARNING(( "the handoff failed, %s", fd_adminctl_failover_result_cstr( result ) ));
+    if( args->failover.force ) FD_LOG_NOTICE(( "requesting forced promotion, this machine takes the identity without the other machine" ));
+    else                       FD_LOG_NOTICE(( "requesting promotion, this machine takes the identity if the other machine shows no sign of life" ));
+
+    req.cmd   = FD_ADMINCTL_FAILOVER_CMD_PROMOTE;
+    req.flags = ( req.flags & FD_ADMINCTL_FAILOVER_FLAG_YES ) | ( args->failover.force ? FD_ADMINCTL_FAILOVER_FLAG_FORCE : FD_ADMINCTL_FAILOVER_FLAG_ADOPT );
+    req.addr  = 0U;
+    req.port  = (ushort)0;
+    result    = failover_request( adminctl, &req, keypair, &resp );
+  }
   if( keypair ) fd_keyload_unload( keypair, 0 );
   if( FD_UNLIKELY( result!=FD_ADMINCTL_RESULT_SUCCESS ) ) fail_result( result );
   if( FD_UNLIKELY( !resp.version ) ) FD_LOG_ERR(( "running validator returned an incompatible failover response, use the firedancer binary the validator runs" ));
@@ -275,10 +312,14 @@ failover_args_help( fd_action_help_t * help ) {
   fd_action_help_arg( help, "--name",      "<name>",    "Name of the validator instance to attach to, if more than one is\n"
                                                         "running on this host" );
   fd_action_help_arg( help, "--yes",       NULL,        "Bypass the interactive confirmation prompt." );
-  fd_action_help_arg( help, "--force",     NULL,        "Forcibly take the identity without asking the machine running it, skipping every\n"
-                                                        "check on that machine.  Only use when the other machine cannot vote.\n" );
-  fd_action_help_arg( help, "--address",   "<address>", "Only without --force.  The target machine's IPv4 address or host name" );
-  fd_action_help_arg( help, "--port",      "<port>",    "Only without --force.  The target machine's failover port, 8010 by default" );
+  fd_action_help_arg( help, "--adopt",     NULL,        "If the handoff fails and the machine running the identity shows no sign of\n"
+                                                        "life, take the identity without it, skipping its checks.  Use when that\n"
+                                                        "machine is down." );
+  fd_action_help_arg( help, "--force",     NULL,        "If the handoff fails, take the identity without the machine running it, even\n"
+                                                        "if it may be live, skipping every check.  Only use when that machine cannot\n"
+                                                        "vote, or both machines may double-vote." );
+  fd_action_help_arg( help, "--address",   "<address>", "The target machine's IPv4 address or host name" );
+  fd_action_help_arg( help, "--port",      "<port>",    "The target machine's failover port, 8010 by default" );
 }
 
 static void
@@ -306,8 +347,10 @@ action_t fd_action_failover = {
                     "identity to take over, so `failover promote` there reads the keypair from the\n"
                     "configuration instead of the command line.\n"
                     "\n"
-                    "Asks the machine running the identity to hand it over.  With --force,\n"
-                    "takes the identity without handover.\n"
+                    "Asks the machine running the identity to hand it over.  With --adopt, if that\n"
+                    "fails and the other machine shows no sign of life, takes the identity without\n"
+                    "handover.  With --force, takes it without handover whenever the handoff fails,\n"
+                    "even from a machine that may be live.\n"
                     "This command asks for confirmation unless --yes is given.\n"
                     "It waits for the outcome and exits 0 once this machine runs the identity,\n"
                     "and non-zero with the reason when it does not.  For checking status,\n"
@@ -315,6 +358,6 @@ action_t fd_action_failover = {
                     "\n"
                     "This command does not start a validator. It attaches to one that is already\n"
                     "running.  If multiple validators are running, pass --name to select one.\n",
-  .usage          = "failover promote [<keypair>] [--name <name>] [--yes] [--force] [--address <address>] [--port <port>]",
+  .usage          = "failover promote [<keypair>] [--name <name>] [--yes] [--adopt|--force] [--address <address>] [--port <port>]",
   .args_help      = failover_args_help,
 };

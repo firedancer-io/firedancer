@@ -64,8 +64,8 @@ union fdctl_args {
   struct {
     char   name[ 64UL ];
     char   keypair_path[ PATH_MAX ];
-    int    cmd;
     int    yes;
+    int    adopt;
     int    force;
     uint   addr;
     ushort port;

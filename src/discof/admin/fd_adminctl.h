@@ -82,6 +82,7 @@
 #define FD_FAILOVER_CONTROL_RESULT_SWITCH_FAILED     (0x400CUL)
 #define FD_FAILOVER_CONTROL_RESULT_HOLDS_OTHER       (0x400DUL)
 #define FD_FAILOVER_CONTROL_RESULT_IDENTITY_CHANGED  (0x400EUL)
+#define FD_FAILOVER_CONTROL_RESULT_HOLDER_LIVE       (0x400FUL)
 
 struct fd_adminctl_add_auth_voter_v1 {
   ulong version; /* ==FD_ADMINCTL_ADD_AUTH_VOTER_PAYLOAD_VERSION */
@@ -139,7 +140,8 @@ fd_adminctl_failover_cmd_typed( ulong cmd ) {
 }
 
 #define FD_ADMINCTL_FAILOVER_FLAG_YES   (1UL) /* confirmation only, does not authorize peer or history overrides */
-#define FD_ADMINCTL_FAILOVER_FLAG_FORCE (2UL) /* --force, bypass peer guards and accept incomplete or empty vote history */
+#define FD_ADMINCTL_FAILOVER_FLAG_FORCE (2UL) /* --force, take the identity even from a live machine */
+#define FD_ADMINCTL_FAILOVER_FLAG_ADOPT (4UL) /* --adopt, take the identity only from a machine that shows no sign of life */
 
 static inline char const *
 fd_adminctl_failover_result_cstr( ulong result ) {
@@ -161,6 +163,7 @@ fd_adminctl_failover_result_cstr( ulong result ) {
     case FD_FAILOVER_CONTROL_RESULT_SWITCH_FAILED:     return "the identity switch failed";
     case FD_FAILOVER_CONTROL_RESULT_HOLDS_OTHER:       return "this machine votes as the identity failover manages, hand that identity off first";
     case FD_FAILOVER_CONTROL_RESULT_IDENTITY_CHANGED:  return "set-identity changed the identity while the command ran";
+    case FD_FAILOVER_CONTROL_RESULT_HOLDER_LIVE:       return "the machine running the identity may still be live, wait 15 seconds and retry, or pass --force to take the identity from a live machine";
     case FD_SET_IDENTITY_RESULT_KEYPAIR_MISMATCH:      return "the public key in the keypair file does not match its private key";
     case FD_SET_IDENTITY_RESULT_AUTHORIZED_VOTER:      return "the keypair is an authorized voter on this validator";
     default:                                           return "unknown result";

@@ -565,6 +565,14 @@ operator_cmd( fd_failover_tile_ctx_t * ctx,
   return apply_control( ctx, &req, 1000L );
 }
 
+static ulong
+operator_promote( fd_failover_tile_ctx_t * ctx,
+                  ulong                    flags,
+                  long                     now ) {
+  fd_adminctl_failover_req_t req = { .version=FD_ADMINCTL_FAILOVER_PAYLOAD_VERSION, .cmd=FD_ADMINCTL_FAILOVER_CMD_PROMOTE, .flags=flags };
+  return apply_control( ctx, &req, now );
+}
+
 /* test_request_address: the open request dials the gossip address fixed
    when it opened. */
 static void
@@ -707,6 +715,52 @@ test_force_empty_bound( void ) {
     FD_TEST( ctx->empty_vote_after==fences[ i ] );
     FD_TEST( ctx->promotion.adopt.sz==FD_VOTOR_ADOPT_EMPTY_SZ && FD_LOAD( ulong, ctx->promotion.adopt.state )==fences[ i ] );
   }
+  controller_fini( ctx );
+}
+
+static void
+test_promote_flags( void ) {
+  long fresh = 1000L+FD_FAILOVER_GOSSIP_FRESH_NANOS-1L;
+  long stale = 1000L+FD_FAILOVER_GOSSIP_FRESH_NANOS;
+
+  fd_failover_tile_ctx_t * ctx = controller_init( 0 );
+  FD_TEST( operator_promote( ctx, 0UL, 1000L )==FD_ADMINCTL_RESULT_UNKNOWN_COMMAND );
+  FD_TEST( operator_promote( ctx, FD_ADMINCTL_FAILOVER_FLAG_ADOPT|FD_ADMINCTL_FAILOVER_FLAG_FORCE, 1000L )==FD_ADMINCTL_RESULT_UNKNOWN_COMMAND );
+  FD_TEST( ctx->action==FD_FAILOVER_ACTION_IDLE );
+
+  /* Fresh in gossip. */
+  ctx->staked_addr    = FD_IP4_ADDR(10,0,0,2);
+  ctx->staked_seen_at = 1000L;
+  FD_TEST( operator_promote( ctx, FD_ADMINCTL_FAILOVER_FLAG_ADOPT, fresh )==FD_FAILOVER_CONTROL_RESULT_HOLDER_LIVE );
+  FD_TEST( ctx->action==FD_FAILOVER_ACTION_IDLE && !ctx->promotion.force );
+  FD_TEST( operator_promote( ctx, FD_ADMINCTL_FAILOVER_FLAG_FORCE, fresh )==FD_FAILOVER_CMD_PENDING );
+  FD_TEST( ctx->action==FD_FAILOVER_ACTION_PROMOTE_WAIT_REPLAY && ctx->promotion.force && ctx->promotion.source==FD_FAILOVER_SOURCE_EMPTY );
+  controller_fini( ctx );
+
+  /* Stale in gossip. */
+  ctx = controller_init( 0 );
+  ctx->staked_addr    = FD_IP4_ADDR(10,0,0,2);
+  ctx->staked_seen_at = 1000L;
+  FD_TEST( operator_promote( ctx, FD_ADMINCTL_FAILOVER_FLAG_ADOPT, stale )==FD_FAILOVER_CMD_PENDING );
+  FD_TEST( ctx->action==FD_FAILOVER_ACTION_PROMOTE_WAIT_REPLAY && ctx->promotion.force && ctx->promotion.source==FD_FAILOVER_SOURCE_EMPTY );
+  controller_fini( ctx );
+
+  /* Paired with the peer running the identity, our request to it paused. */
+  ctx = controller_init( 0 );
+  open_request( ctx, FD_FAILOVER_ACTION_HANDOFF_WAIT_PEER );
+  ctx->request.until = 0L;
+  pair( ctx, 77UL, 1, 1000L );
+  FD_TEST( operator_promote( ctx, FD_ADMINCTL_FAILOVER_FLAG_ADOPT, 1000L )==FD_FAILOVER_CONTROL_RESULT_HOLDER_LIVE );
+  FD_TEST( ctx->request.id==900UL && ctx->action==FD_FAILOVER_ACTION_HANDOFF_WAIT_PEER );
+  FD_TEST( operator_promote( ctx, FD_ADMINCTL_FAILOVER_FLAG_FORCE, 1000L )==FD_FAILOVER_CMD_PENDING );
+  FD_TEST( !ctx->request.id && ctx->action==FD_FAILOVER_ACTION_PROMOTE_WAIT_REPLAY );
+  controller_fini( ctx );
+
+  /* Paired with a peer that does not run it. */
+  ctx = controller_init( 0 );
+  pair( ctx, 77UL, 0, 1000L );
+  FD_TEST( operator_promote( ctx, FD_ADMINCTL_FAILOVER_FLAG_ADOPT, 1000L )==FD_FAILOVER_CMD_PENDING );
+  FD_TEST( ctx->action==FD_FAILOVER_ACTION_PROMOTE_WAIT_REPLAY );
   controller_fini( ctx );
 }
 
@@ -862,6 +916,7 @@ main( int argc, char ** argv ) {
   test_dialed_non_holder();
   test_restarted_peer_new_request();
   test_force_empty_bound();
+  test_promote_flags();
   test_adopt_capacity_retry();
   test_session_wait();
   test_listen_slot();

@@ -762,14 +762,15 @@ reject_promotion( fd_failover_tile_ctx_t * ctx,
 
 /* Takes the identity with the history from source.  peer is the member
    boot whose DEMOTED with handoff_id asked for it and gets our answer,
-   NULL for an operator promotion.  force is `failover promote --force`,
-   which also accepts an empty history. */
+   NULL for an operator promotion.  flags is whether the promotion uses
+   FD_ADMINCTL_FAILOVER_FLAG_ADOPT or _FORCE, which also accept an empty
+   history, and 0 for a handoff. */
 static void
 start_promotion( fd_failover_tile_ctx_t *   ctx,
                  ulong                      source,
                  fd_failover_peer_t const * peer,
                  ulong                      handoff_id,
-                 int                        force ) {
+                 ulong                      flags ) {
   fd_memset( &ctx->promotion, 0, sizeof(ctx->promotion) );
   if( source==FD_FAILOVER_SOURCE_PEER ) ctx->promotion.adopt = ctx->peer_history;
   else                                  ctx->promotion.adopt.tip = FD_FAILOVER_SLOT_NULL;
@@ -782,14 +783,16 @@ start_promotion( fd_failover_tile_ctx_t *   ctx,
     fd_cstr_printf( ctx->promotion.label, sizeof(ctx->promotion.label), NULL, "operator promotion" );
   }
   ctx->promotion.source = source;
-  ctx->promotion.force  = force;
+  ctx->promotion.force  = !!( flags & (FD_ADMINCTL_FAILOVER_FLAG_ADOPT|FD_ADMINCTL_FAILOVER_FLAG_FORCE) );
   ctx->promotion.floor  = get_coverage_floor( ctx );
   /* Until this tenure votes, its final history is exactly the adopted one. */
   ctx->current_history = ctx->promotion.adopt;
   ctx->last_vote_slot  = ctx->promotion.adopt.tip;
   ctx->stuck           = 0;
   set_adopt_anchor( ctx );
-  LOG_CMD_STEP( ctx, "%s: adopting %s%s", ctx->promotion.label, get_source_name( source ), force ? ", --force skips the checks on the other machine" : "" );
+  LOG_CMD_STEP( ctx, "%s: adopting %s%s", ctx->promotion.label, get_source_name( source ),
+                ( flags & FD_ADMINCTL_FAILOVER_FLAG_FORCE ) ? ", --force skips the checks on the other machine" :
+                ( flags & FD_ADMINCTL_FAILOVER_FLAG_ADOPT ) ? ", --adopt found no sign of life on the other machine" : "" );
   set_action( ctx, FD_FAILOVER_ACTION_PROMOTE_WAIT_REPLAY );
 }
 
@@ -1078,6 +1081,23 @@ handle_control( fd_failover_tile_ctx_t * ctx,
   sync_session( ctx );
 }
 
+/* The machine running the identity refreshed its contact info in gossip
+   within FD_FAILOVER_GOSSIP_FRESH_NANOS. */
+static inline int
+is_holder_fresh( fd_failover_tile_ctx_t const * ctx,
+                 long                           now ) {
+  return ctx->staked_seen_at && now>=ctx->staked_seen_at && now-ctx->staked_seen_at<FD_FAILOVER_GOSSIP_FRESH_NANOS;
+}
+
+/* Whether the machine running the identity showed a sign of life
+   recently. */
+static int
+is_holder_live( fd_failover_tile_ctx_t const * ctx,
+                long                           now ) {
+  if( is_holder_fresh( ctx, now ) ) return 1;
+  return fd_failover_channel_state( ctx->channel )==FD_FAILOVER_SESSION_PAIRED && fd_failover_channel_peer_hello( ctx->channel )->holds;
+}
+
 /* An idle machine that does not run the identity authenticates to the
    one that does ahead of an operator command.  Merely pairing never
    creates a request or changes the installed identity. */
@@ -1087,7 +1107,7 @@ preconnect( fd_failover_tile_ctx_t * ctx,
   if( ctx->request.id || ctx->stuck || ctx->tx.valid || ctx->session.close_after_send || ctx->action!=FD_FAILOVER_ACTION_IDLE || is_switch_pending( ctx ) ) return;
   /* A stale gossip address may name a validator that does not run the identity any more. */
   if( !holds_identity( ctx ) && fd_failover_channel_state( ctx->channel )==FD_FAILOVER_SESSION_PAIRED && !fd_failover_channel_peer_hello( ctx->channel )->holds ) fd_failover_channel_hangup( ctx->channel, now );
-  int ready = !holds_identity( ctx ) && ctx->staked_addr && ctx->staked_seen_at && now>=ctx->staked_seen_at && now-ctx->staked_seen_at<FD_FAILOVER_GOSSIP_FRESH_NANOS;
+  int ready = !holds_identity( ctx ) && ctx->staked_addr && is_holder_fresh( ctx, now );
   if( !ready )                                                                   fd_failover_channel_init_dialer( ctx->channel, 0U, 0 );
   else if( fd_failover_channel_state( ctx->channel )!=FD_FAILOVER_SESSION_PAIRED ) fd_failover_channel_init_dialer( ctx->channel, ctx->staked_addr, FD_FAILOVER_DEFAULT_PORT );
 }
@@ -1218,24 +1238,29 @@ run_handoff_cmd( fd_failover_tile_ctx_t *           ctx,
   return FD_FAILOVER_CMD_PENDING;
 }
 
-/* `failover promote --force`: takes the identity without the peer, on
-   the operator's word that it cannot sign.  It cancels our request or
+/* `failover promote --adopt` or `--force` (after the handoff failed)
+   take the identity without coordination.  --adopt refuses while the
+   machine running the identity shows a sign of life, --force takes it
+   on the operator's word that it cannot sign.  It cancels our request or
    the wait for the peer's answer to our DEMOTED first. */
 static ulong
 run_promote_cmd( fd_failover_tile_ctx_t *           ctx,
                  fd_adminctl_failover_req_t const * req,
                  long                               now ) {
-  /* The admin tile sends an unforced promote as a handoff. */
-  if( FD_UNLIKELY( !( req->flags & FD_ADMINCTL_FAILOVER_FLAG_FORCE ) ) ) return FD_ADMINCTL_RESULT_UNKNOWN_COMMAND;
+  int force = !!( req->flags & FD_ADMINCTL_FAILOVER_FLAG_FORCE );
+  int adopt = !!( req->flags & FD_ADMINCTL_FAILOVER_FLAG_ADOPT );
+  /* The admin tile sends a promote with neither flag as a handoff. */
+  if( FD_UNLIKELY( force==adopt ) ) return FD_ADMINCTL_RESULT_UNKNOWN_COMMAND;
   ulong result = check_promotion( ctx );
   if( FD_UNLIKELY( result!=FD_ADMINCTL_RESULT_SUCCESS ) ) return result;
+  if( FD_UNLIKELY( adopt && is_holder_live( ctx, now ) ) ) return FD_FAILOVER_CONTROL_RESULT_HOLDER_LIVE;
   ulong source = get_promote_source( ctx );
   if( ctx->request.id && is_requesting( ctx ) ) end_request( ctx, now, FD_FAILOVER_HANDOFF_CANCELLED );
   if( ctx->action==FD_FAILOVER_ACTION_DEMOTE_WAIT_ACK ) {
     ctx->peer_history.valid = 0; /* the peer may have voted */
     resolve_handoff( ctx, FD_FAILOVER_HANDOFF_CANCELLED );
   }
-  start_promotion( ctx, source, NULL, 0UL, 1 );
+  start_promotion( ctx, source, NULL, 0UL, req->flags & (FD_ADMINCTL_FAILOVER_FLAG_ADOPT|FD_ADMINCTL_FAILOVER_FLAG_FORCE) );
   return FD_FAILOVER_CMD_PENDING;
 }
 
@@ -1322,6 +1347,7 @@ serve_bus_request( fd_failover_tile_ctx_t * ctx,
     ctx->cmd_step_tail = step_head; /* the steps it took are sent, older ones are not */
     return;
   }
-  if( FD_UNLIKELY( result!=FD_ADMINCTL_RESULT_SUCCESS ) ) FD_LOG_WARNING(( "`%s%s` refused, %s", cmd_name, ( req.flags & FD_ADMINCTL_FAILOVER_FLAG_FORCE ) ? " --force" : "", fd_adminctl_failover_result_cstr( result ) ));
+  char const * flag = ( req.flags & FD_ADMINCTL_FAILOVER_FLAG_FORCE ) ? " --force" : ( req.flags & FD_ADMINCTL_FAILOVER_FLAG_ADOPT ) ? " --adopt" : "";
+  if( FD_UNLIKELY( result!=FD_ADMINCTL_RESULT_SUCCESS ) ) FD_LOG_WARNING(( "`%s%s` refused, %s", cmd_name, flag, fd_adminctl_failover_result_cstr( result ) ));
   publish_bus_result( ctx, stem, ctx->bus_req.nonce, result );
 }
