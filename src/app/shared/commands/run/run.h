@@ -54,6 +54,9 @@ void
 initialize_stake_accum_fd( config_t const * config );
 
 void
+initialize_repair_fec_fd( config_t const * config );
+
+void
 initialize_store_fds( config_t const * config );
 
 /* initialize_snapshot_fds opens the snapshot file pool at

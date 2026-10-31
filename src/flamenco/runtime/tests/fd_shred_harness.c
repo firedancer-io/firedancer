@@ -336,8 +336,8 @@ fd_solfuzz_pb_shred_run( fd_solfuzz_runner_t * runner,
   FD_TEST( slot_max<=RESOLVER_SLOT_MAX );
   ulong         fec_max     = fd_ulong_max( completed_cnt, 1UL );
   ulong         fec_blk_max = FD_SHRED_PROTOCOL_BLK_MAX/FD_FEC_SHRED_CNT;
-  void *        rotor_mem   = fd_spad_alloc( runner->spad, fd_repair_align(), fd_repair_footprint( slot_max, fec_max, fec_blk_max ) );
-  fd_repair_t * rotor       = fd_repair_join( fd_repair_new( rotor_mem, slot_max, fec_max, fec_blk_max, 0UL ) );
+  void *        rotor_mem   = fd_spad_alloc( runner->spad, fd_repair_align(), fd_repair_footprint( slot_max, fec_max, fec_max, fec_blk_max ) );
+  fd_repair_t * rotor       = fd_repair_join( fd_repair_new( rotor_mem, slot_max, fec_max, fec_max, fec_blk_max, -1, 0UL ) );
   FD_TEST( rotor );
   fd_repair_init( rotor, input->root_slot, &root_blk_mr, NULL, NULL );
 
@@ -378,7 +378,7 @@ fd_solfuzz_pb_shred_run( fd_solfuzz_runner_t * runner,
     while( !fd_repair_deque_empty( rotor->reasm_deque ) ) {
       fd_repair_deque_t       out = fd_repair_deque_pop_head( rotor->reasm_deque );
       fd_repair_blk_t const * blk = fd_repair_blk_pool_ele_const( rotor->blk_pool, out.blk_idx );
-      fd_repair_fec_t const * fec = fd_repair_fec_pool_ele_const( rotor->fec_pool, blk->fecs[ out.fec_idx ] );
+      fd_repair_fec_t const * fec = fd_repair_fec_read( rotor, blk->fecs[ out.fec_idx ], NULL ); /* all in RAM */
 
       /* Query our "store"-adjacent structure (completed) for the FEC
          set payload */

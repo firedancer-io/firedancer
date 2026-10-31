@@ -14,6 +14,7 @@
 #include "../../../../flamenco/runtime/fd_runtime_stack.h"
 #include "../../../../disco/store/fd_store.h"
 #include "../../../../disco/events/fd_circq.h"
+#include "../../../../disco/repair/fd_repair.h"
 
 #include <sys/wait.h>
 #include "generated/main_seccomp.h"
@@ -393,6 +394,7 @@ main_pid_namespace( void * _args ) {
   initialize_votor_spill_fd( config );
   initialize_event_spool_fd( config );
   initialize_stake_accum_fd( config );
+  initialize_repair_fec_fd( config );
   initialize_store_fds( config );
   ulong store_obj_id = fd_pod_query_ulong( config->topo.props, "store", ULONG_MAX );
   int   has_store     = store_obj_id!=ULONG_MAX;
@@ -535,6 +537,9 @@ main_pid_namespace( void * _args ) {
         if( FD_UNLIKELY( -1==fcntl( FD_STAKE_ACCUM_FD, F_SETFD, !strcmp( tile->name, "replay" ) ? 0 : FD_CLOEXEC ) ) )
           FD_LOG_ERR(( "fcntl(F_SETFD) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
+        if( FD_UNLIKELY( -1==fcntl( FD_REPAIR_FEC_FD, F_SETFD, !strcmp( tile->name, "rotor" ) ? 0 : FD_CLOEXEC ) ) )
+          FD_LOG_ERR(( "fcntl(F_SETFD) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
         int tile_uses_vote_stakes = !strcmp( tile->name, "replay" ) || !strcmp( tile->name, "execle" ) ||
                                     !strcmp( tile->name, "execrp" ) || !strcmp( tile->name, "snapmk" );
         if( FD_UNLIKELY( -1==fcntl( FD_VOTE_STAKES_FD, F_SETFD, tile_uses_vote_stakes ? 0 : FD_CLOEXEC ) ) )
@@ -632,6 +637,7 @@ main_pid_namespace( void * _args ) {
     if( FD_UNLIKELY( -1==close( FD_EPOCH_CREDITS_FD ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     if( FD_UNLIKELY( -1==close( FD_COST_TRACKER_FD ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     if( FD_UNLIKELY( -1==close( FD_STAKE_ACCUM_FD ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    if( FD_UNLIKELY( -1==close( FD_REPAIR_FEC_FD ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     if( FD_UNLIKELY( -1==close( FD_VOTE_STAKES_FD ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     if( FD_UNLIKELY( -1==close( FD_STAKE_DELEGATIONS_FD ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     for( ulong j=0UL; j<snap_max; j++ ) {
@@ -1366,6 +1372,30 @@ initialize_stake_accum_fd( config_t const * config ) {
 
   if( FD_LIKELY( spill_fd!=FD_STAKE_ACCUM_FD ) ) {
     if( FD_UNLIKELY( -1==dup2( spill_fd, FD_STAKE_ACCUM_FD ) ) ) FD_LOG_ERR(( "dup2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    if( FD_UNLIKELY( -1==close( spill_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
+}
+
+/* Unlinked file of rotor's FEC sets beyond its RAM window, reserved up
+   front so a spill cannot hit ENOSPC. */
+
+void
+initialize_repair_fec_fd( config_t const * config ) {
+  char spill_path[ PATH_MAX ];
+  FD_TEST( fd_cstr_printf_check( spill_path, sizeof(spill_path), NULL, "%s/rotorfec.db", config->paths.base ) );
+  int spill_fd = open( spill_path, O_RDWR|O_CREAT|O_TRUNC|O_NOATIME, S_IRUSR|S_IWUSR );
+  if( FD_UNLIKELY( -1==spill_fd ) ) FD_LOG_ERR(( "failed to open %s (%i-%s)", spill_path, errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( -1==unlink( spill_path ) ) ) FD_LOG_ERR(( "unlink(%s) failed (%i-%s)", spill_path, errno, fd_io_strerror( errno ) ));
+  ulong rotor_idx = fd_topo_find_tile( &config->topo, "rotor", 0UL );
+  if( rotor_idx!=ULONG_MAX ) {
+    ulong fec_max  = config->topo.tiles[ rotor_idx ].rotor.fec_max;
+    ulong spill_sz = ( fec_max-fd_ulong_min( fec_max, FD_REPAIR_FEC_RAM_MAX ) )*sizeof(fd_repair_fec_t);
+    if( FD_UNLIKELY( spill_sz && fallocate( spill_fd, 0, 0L, (off_t)spill_sz ) && errno!=EOPNOTSUPP ) )
+      FD_LOG_ERR(( "fallocate(%s,%lu) failed (%i-%s)", spill_path, spill_sz, errno, fd_io_strerror( errno ) ));
+  }
+
+  if( FD_LIKELY( spill_fd!=FD_REPAIR_FEC_FD ) ) {
+    if( FD_UNLIKELY( -1==dup2( spill_fd, FD_REPAIR_FEC_FD ) ) ) FD_LOG_ERR(( "dup2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     if( FD_UNLIKELY( -1==close( spill_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
 }

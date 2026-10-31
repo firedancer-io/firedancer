@@ -243,6 +243,7 @@ bench_cmd_fn( args_t *   args,
   initialize_votor_spill_fd( config );
   initialize_event_spool_fd( config );
   initialize_stake_accum_fd( config );
+  initialize_repair_fec_fd( config );
   initialize_store_fds( config );
   initialize_snapshot_fds( config );
 

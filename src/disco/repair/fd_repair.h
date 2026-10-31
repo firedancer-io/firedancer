@@ -71,20 +71,16 @@ fd_repair_fec_mr32( fd_repair_fec_t const * fec ) {
   return mr;
 }
 
-#define POOL_NAME  fd_repair_fec_pool
-#define POOL_T     fd_repair_fec_t
-#define POOL_IDX_T uint
-#include "../../util/tmpl/fd_pool.c"
+/* FEC set idx [0,fec_ram_max) live in the RAM window, the rest at
+   (idx-fec_ram_max)*sizeof(fd_repair_fec_t) in the spill file.  The
+   RAM window is handed out first, mainnet never spills. */
 
-#define MAP_NAME               fd_repair_fec_map
-#define MAP_ELE_T              fd_repair_fec_t
-#define MAP_KEY_T              fd_mr20_t
-#define MAP_KEY                key
-#define MAP_IDX_T              uint
-#define MAP_KEY_EQ(k0,k1)      (!memcmp((k0),(k1),sizeof(fd_mr20_t)))
-#define MAP_KEY_HASH(key,seed) fd_ulong_hash((seed)^FD_LOAD(ulong,(key)->uc))
-#define MAP_OPTIMIZE_RANDOM_ACCESS_REMOVAL 1
-#include "../../util/tmpl/fd_map_chain.c"
+#define FD_REPAIR_FEC_IDX_NULL (UINT_MAX)
+#define FD_REPAIR_FEC_RAM_MAX  (1UL<<19)
+
+/* Spill file of FEC sets beyond the RAM window, opened at boot. */
+
+#define FD_REPAIR_FEC_FD (123444)
 
 struct fd_repair_blk {
   ulong     slot;
@@ -117,7 +113,7 @@ struct fd_repair_blk {
   uchar highest_req  : 1; /* tile: a HIGHEST req was made */
   uchar orphan_req   : 1; /* tile: an ORPHAN req was made */
 
-  uint * fecs; /* fec_pool idx of each FEC set, null if none, fec_blk_max of them */
+  uint * fecs; /* FEC set idx of each FEC set, null if none, fec_blk_max of them */
 
   long rcvd_fec_ts; /* when rcvd_fec_cnt last grew */
   struct {
@@ -241,8 +237,17 @@ struct fd_repair {
   fd_repair_blk_t *       blk_pool;
   fd_repair_blk_map_t *   blk_map;
   fd_repair_orphan_map_t * orphan_map;
-  fd_repair_fec_t *       fec_pool;
-  fd_repair_fec_map_t *   fec_map;
+  fd_repair_fec_t *       fec_ram;       /* FEC set idx [0,fec_ram_max) */
+  uint *                  fec_chain;     /* key hash chain heads, chains go through next */
+  ulong                   fec_chain_cnt;
+  ulong                   fec_seed;
+  ulong                   fec_max;
+  ulong                   fec_ram_max;
+  int                     fec_fd;        /* spill file of FEC set idx [fec_ram_max,fec_max), -1 if none */
+  uint                    fec_ram_free;  /* free stacks, through next */
+  uint                    fec_file_free;
+  uint                    fec_file_hwm;  /* file idx at or above it were never handed out */
+  fd_repair_fec_t         fec_ret[1];    /* spilled FEC set returned by fec_complete and fec_notarized */
   fd_repair_deque_t *     reasm_deque;
   fd_repair_treap_t *     eager_treap; /* a blk is in its role's treap iff in_blk_treap */
   fd_repair_treap_t *     notar_treap;
@@ -263,13 +268,19 @@ fd_repair_align( void );
 FD_FN_CONST ulong
 fd_repair_footprint( ulong slot_max,
                      ulong fec_max,
+                     ulong fec_ram_max,
                      ulong fec_blk_max );
+
+/* fec_fd is the spill file of the FEC sets beyond fec_ram_max, unused
+   (may be -1) if fec_ram_max==fec_max. */
 
 void *
 fd_repair_new( void * shmem,
                ulong  slot_max,
                ulong  fec_max,
+               ulong  fec_ram_max,
                ulong  fec_blk_max,
+               int    fec_fd,
                ulong  seed );
 
 fd_repair_t *
@@ -290,6 +301,31 @@ fd_repair_init( fd_repair_t *          rotor,
 
 void
 fd_repair_fini( fd_repair_t * rotor );
+
+void
+fd_repair_private_fec_pread( fd_repair_t const * rotor,
+                             ulong               idx,
+                             fd_repair_fec_t *   buf );
+
+/* fd_repair_fec_read returns FEC set idx, NULL if null: its RAM entry,
+   or buf filled from the spill file. */
+
+static inline fd_repair_fec_t *
+fd_repair_fec_read( fd_repair_t const * rotor,
+                    ulong               idx,
+                    fd_repair_fec_t *   buf ) {
+  if( FD_LIKELY( idx<rotor->fec_ram_max ) ) return rotor->fec_ram + idx;
+  if( FD_UNLIKELY( idx==FD_REPAIR_FEC_IDX_NULL ) ) return NULL;
+  fd_repair_private_fec_pread( rotor, idx, buf );
+  return buf;
+}
+
+/* fd_repair_fec_query returns the idx of the FEC set keyed by key, null
+   if none. */
+
+ulong
+fd_repair_fec_query( fd_repair_t const * rotor,
+                     fd_mr20_t const *   key );
 
 /* replay_slot   REPLAY_SIG_SLOT_DEAD
 
@@ -363,9 +399,10 @@ fd_repair_slot_catchup( fd_repair_t * rotor,
    are the FEC set's shred counts from the shred tile, added to the
    telemetry of each blk holding the FEC set on its first completion.
    {data,parity,repair}_rcvd are its received-shred masks from the
-   shred tile, kept on the FEC set from its first completion. */
+   shred tile, kept on the FEC set from its first completion.  A spilled
+   FEC set is returned in fec_ret, valid until the next call. */
 
-fd_repair_fec_t *
+fd_repair_fec_t const *
 fd_repair_fec_complete( fd_repair_t *      rotor,
                         fd_shred_t const * last_shred,
                         fd_mr32_t const *  fec_mr,
@@ -393,9 +430,10 @@ fd_repair_fec_evicted( fd_repair_t *     rotor,
 
    after its proof verifies against the blk id.  fec_mr is the proven
    20-byte prefix, the FEC set's shreds can be asked for by blk id now.
-   counts the response, arriving at ts, in the blk's telemetry. */
+   counts the response, arriving at ts, in the blk's telemetry.  Returns
+   as fd_repair_fec_complete. */
 
-fd_repair_fec_t *
+fd_repair_fec_t const *
 fd_repair_fec_notarized( fd_repair_t *     rotor,
                          ulong             slot,
                          fd_mr32_t const * blk_mr,

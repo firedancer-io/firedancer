@@ -1,6 +1,10 @@
+#define _GNU_SOURCE
 #include "fd_repair.h"
 #include "../../flamenco/alpenglow/fd_block_marker_serde.h"
 #include "../../disco/events/generated/fd_event_gen.h"
+#include <sys/mman.h>
+#include <sys/stat.h>
+#include <unistd.h>
 
 #define SLOT_MAX (16UL)
 #define FEC_MAX  (SLOT_MAX*AG_EQVOC_BLOCK_HASH_MAX*FD_FEC_BLK_MAX)
@@ -8,6 +12,24 @@
 
 static uchar mem    [ 64UL<<20 ] __attribute__((aligned(128UL)));
 static uchar scratch[ 64UL<<20 ] __attribute__((aligned(128UL)));
+
+/* The suite runs twice: every FEC set in RAM, then a RAM window of
+   FEC_RAM_SPILL with the rest in a memfd spill file. */
+
+#define FEC_RAM_SPILL (3UL)
+
+static ulong fec_ram_max = FEC_MAX;
+static int   fec_fd      = -1;
+
+/* fec_of returns the FEC set keyed by key, NULL if none, in a static
+   copy valid until the next call. */
+
+static fd_repair_fec_t const *
+fec_of( fd_repair_t const * rotor,
+        fd_mr20_t const *   key ) {
+  static fd_repair_fec_t buf[1];
+  return fd_repair_fec_read( rotor, fd_repair_fec_query( rotor, key ), buf );
+}
 
 static fd_mr32_t
 hash( uchar b ) {
@@ -19,7 +41,7 @@ hash( uchar b ) {
    under merkle root mr, the way the shred tile does, as our own leader
    FEC set if is_leader. */
 
-static fd_repair_fec_t *
+static fd_repair_fec_t const *
 complete_as( fd_repair_t *     rotor,
              ulong             slot,
              ulong             parent_slot,
@@ -35,7 +57,7 @@ complete_as( fd_repair_t *     rotor,
   return fd_repair_fec_complete( rotor, shred, mr, is_leader, 0U, 0U, 0U, 0U, 0U, 0U, 0L );
 }
 
-static fd_repair_fec_t *
+static fd_repair_fec_t const *
 complete( fd_repair_t *     rotor,
           ulong             slot,
           ulong             parent_slot,
@@ -127,8 +149,9 @@ is_eager( fd_repair_t const *     rotor,
 
 static fd_repair_t *
 setup_in( uchar * buf ) {
-  FD_TEST( fd_repair_footprint( SLOT_MAX, FEC_MAX, BLK_FECS )<=sizeof(mem) );
-  fd_repair_t * rotor = fd_repair_join( fd_repair_new( buf, SLOT_MAX, FEC_MAX, BLK_FECS, 42UL ) );
+  int           spill = buf==mem; /* a scratch rotor has no spill file of its own */
+  FD_TEST( fd_repair_footprint( SLOT_MAX, FEC_MAX, FEC_MAX, BLK_FECS )<=sizeof(mem) );
+  fd_repair_t * rotor = fd_repair_join( fd_repair_new( buf, SLOT_MAX, FEC_MAX, spill ? fec_ram_max : FEC_MAX, BLK_FECS, spill ? fec_fd : -1, 42UL ) );
   fd_mr32_t     root  = hash( 0xEE );
   fd_repair_init( rotor, 0UL, &root, NULL, NULL );
   return rotor;
@@ -442,7 +465,7 @@ test_telemetry_cancelled( void ) {
   fd_repair_slot_invalidated( rotor, 1UL, FD_EVENT_BLOCK_RECEIVED_CANCELLED_REASON_INVALID_BLOCK_HEADER, 60L );
   FD_TEST( e1->telemetry.cancelled_reason==FD_EVENT_BLOCK_RECEIVED_CANCELLED_REASON_INVALID_BLOCK_HEADER && e1->telemetry.cancelled_ts==50L );
 
-  rotor = fd_repair_join( fd_repair_new( mem, SLOT_MAX, FEC_MAX, BLK_FECS, 42UL ) );
+  rotor = fd_repair_join( fd_repair_new( mem, SLOT_MAX, FEC_MAX, fec_ram_max, BLK_FECS, fec_fd, 42UL ) );
   fd_repair_init( rotor, 0UL, &root, report_cancelled, NULL );
   reported_cancelled_ts = 0L; reported_cancelled_reason = 0;
   notar( rotor, 1UL, 0x40 );
@@ -464,7 +487,8 @@ test_telemetry_final_src( void ) {
 
   fd_repair_t * rotor = setup();
   shred0( rotor, 1UL, 0UL, &root, &m10 );
-  fd_repair_fec_t const * f10 = fd_repair_fec_map_ele_query_const( rotor->fec_map, &k10, NULL, rotor->fec_pool );
+  ulong                   i10 = fd_repair_fec_query( rotor, &k10 );
+  fd_repair_fec_t const * f10 = fec_of( rotor, &k10 );
   FD_TEST( f10 && !f10->final_src ); /* shred0 gives no source */
   fd_mr32_t zero = {0};
   FD_TEST( !memcmp( fd_repair_fec_mr32( f10 ).uc, zero.uc, sizeof(fd_mr32_t) ) ); /* incomplete: no root yet */
@@ -473,19 +497,20 @@ test_telemetry_final_src( void ) {
   shred->slot            = 1UL;
   shred->data.parent_off = 1;
   shred->idx = 1U; fd_repair_shred_insert( rotor, shred, &m10, FD_EVENT_BLOCK_RECEIVED_FEC_SETS_FINAL_SHRED_SOURCE_TURBINE, 1L );
-  FD_TEST( f10->final_src==FD_EVENT_BLOCK_RECEIVED_FEC_SETS_FINAL_SHRED_SOURCE_TURBINE );
+  FD_TEST( fec_of( rotor, &k10 )->final_src==FD_EVENT_BLOCK_RECEIVED_FEC_SETS_FINAL_SHRED_SOURCE_TURBINE );
   shred->idx = 2U; fd_repair_shred_insert( rotor, shred, &m10, FD_EVENT_BLOCK_RECEIVED_FEC_SETS_FINAL_SHRED_SOURCE_REPAIR, 2L );
   shred->idx = 3U; fd_repair_shred_insert( rotor, shred, &m10, 0, 3L ); /* reconstructed */
-  FD_TEST( f10->final_src==FD_EVENT_BLOCK_RECEIVED_FEC_SETS_FINAL_SHRED_SOURCE_REPAIR );
+  FD_TEST( fec_of( rotor, &k10 )->final_src==FD_EVENT_BLOCK_RECEIVED_FEC_SETS_FINAL_SHRED_SOURCE_REPAIR );
 
   shred->idx = FD_FEC_SHRED_CNT-1U;
-  FD_TEST( fd_repair_fec_complete( rotor, shred, &m10, 0, 0U, 0U, 0U, 0U, 0U, 0U, 4L )==f10 && f10->final_src==FD_EVENT_BLOCK_RECEIVED_FEC_SETS_FINAL_SHRED_SOURCE_REPAIR );
+  f10 = fd_repair_fec_complete( rotor, shred, &m10, 0, 0U, 0U, 0U, 0U, 0U, 0U, 4L );
+  FD_TEST( fd_repair_fec_query( rotor, &k10 )==i10 && f10->final_src==FD_EVENT_BLOCK_RECEIVED_FEC_SETS_FINAL_SHRED_SOURCE_REPAIR );
   FD_TEST( !memcmp( fd_repair_fec_mr32( f10 ).uc, m10.uc, sizeof(fd_mr32_t) ) ); /* key||tail is the full root */
   shred->idx = 4U; fd_repair_shred_insert( rotor, shred, &m10, FD_EVENT_BLOCK_RECEIVED_FEC_SETS_FINAL_SHRED_SOURCE_TURBINE, 5L );
-  FD_TEST( f10->final_src==FD_EVENT_BLOCK_RECEIVED_FEC_SETS_FINAL_SHRED_SOURCE_REPAIR ); /* frozen */
+  FD_TEST( fec_of( rotor, &k10 )->final_src==FD_EVENT_BLOCK_RECEIVED_FEC_SETS_FINAL_SHRED_SOURCE_REPAIR ); /* frozen */
 
   shred->idx = FD_FEC_SHRED_CNT; fd_repair_shred_insert( rotor, shred, &m11, FD_EVENT_BLOCK_RECEIVED_FEC_SETS_FINAL_SHRED_SOURCE_TURBINE, 6L );
-  fd_repair_fec_t const * f11 = fd_repair_fec_map_ele_query_const( rotor->fec_map, &k11, NULL, rotor->fec_pool );
+  fd_repair_fec_t const * f11 = fec_of( rotor, &k11 );
   FD_TEST( f11 && f11->final_src==FD_EVENT_BLOCK_RECEIVED_FEC_SETS_FINAL_SHRED_SOURCE_TURBINE ); /* a new set takes its first shred's source */
 
   shred->slot = 2UL; shred->idx = FD_FEC_SHRED_CNT-1U; shred->data.flags = FD_SHRED_DATA_FLAG_SLOT_COMPLETE;
@@ -798,7 +823,7 @@ test_blk_dead(  void ) {
   FD_TEST( rotor->slot_meta[ one % rotor->slot_max ].invalidated && !e1->eager && !e1->in_blk_treap );
   FD_TEST( e2->parent==fd_repair_blk_pool_idx( rotor->blk_pool, e1 ) );
   fd_mr20_t k10; memcpy( k10.uc, m10.uc, sizeof(fd_mr20_t) );
-  FD_TEST( fd_repair_fec_map_ele_query( rotor->fec_map, &k10, NULL, rotor->fec_pool ) );
+  FD_TEST( fd_repair_fec_query( rotor, &k10 )!=FD_REPAIR_FEC_IDX_NULL );
   fd_repair_blk_dead( rotor, 1UL, &d1 ); /* SLOT_DEAD again changes nothing */
   FD_TEST( fd_repair_deque_empty( rotor->reasm_deque ) );
 
@@ -1029,13 +1054,13 @@ test_fec_alias_refused( void ) {
   parented( rotor,  2UL, 0x50, 0UL, 0xEE, 2U );
   fd_mr32_t         t_id = hash( 0x50 );
   FD_TEST( !fd_repair_fec_notarized( rotor, 2UL, &t_id, 0U, &k10, 0L ) );               /* another slot */
-  FD_TEST( t->fecs[ 0 ]==fd_repair_fec_pool_idx_null( rotor->fec_pool ) );
+  FD_TEST( t->fecs[ 0 ]==FD_REPAIR_FEC_IDX_NULL );
 
   fd_repair_blk_t * s = notar( rotor, 1UL, 0x30 );
   parented( rotor,  1UL, 0x30, 0UL, 0xEE, 2U );
   fd_mr32_t         s_id = hash( 0x30 );
   FD_TEST( !fd_repair_fec_notarized( rotor, 1UL, &s_id, FD_FEC_SHRED_CNT, &k10, 0L ) ); /* another index */
-  FD_TEST( s->fecs[ 1 ]==fd_repair_fec_pool_idx_null( rotor->fec_pool ) );
+  FD_TEST( s->fecs[ 1 ]==FD_REPAIR_FEC_IDX_NULL );
   orphan_cnt( rotor );
 }
 
@@ -1131,7 +1156,7 @@ test_repair_blk_treap( void ) {
 
   fd_mr20_t k32; memcpy( k32.uc, m32.uc, sizeof(fd_mr20_t) );
   fd_repair_fec_evicted( rotor, 3UL, 2U*FD_FEC_SHRED_CNT, &k32 );
-  FD_TEST( !fd_repair_fec_pool_ele( rotor->fec_pool, e3->fecs[ 2 ] )->rcvd );
+  FD_TEST( !fec_of( rotor, &k32 )->rcvd );
 
   /* Finalized blks are ROLE_FINAL. */
 
@@ -1317,7 +1342,7 @@ test_eager_bit( void ) {
   e1 = fd_repair_blk_map_ele_query( rotor->blk_map, &one, NULL, rotor->blk_pool );
   FD_TEST( !e1->eager && !e1->in_blk_treap ); check_eager( rotor, e1 );
 
-  rotor = fd_repair_join( fd_repair_new( mem, SLOT_MAX, FEC_MAX, BLK_FECS, 42UL ) );
+  rotor = fd_repair_join( fd_repair_new( mem, SLOT_MAX, FEC_MAX, fec_ram_max, BLK_FECS, fec_fd, 42UL ) );
   fd_repair_init( rotor, 0UL, &hash_null, NULL, NULL );
   fd_repair_blk_t * r = fd_repair_blk_map_ele_query( rotor->blk_map, &zero, NULL, rotor->blk_pool );
   FD_TEST( role( rotor, r )==ROLE_FINAL && !r->in_blk_treap ); check_eager( rotor, r );
@@ -1330,7 +1355,7 @@ test_eager_bit( void ) {
 
 static void
 test_genesis( void ) {
-  fd_repair_t * rotor = fd_repair_join( fd_repair_new( mem, SLOT_MAX, FEC_MAX, BLK_FECS, 42UL ) );
+  fd_repair_t * rotor = fd_repair_join( fd_repair_new( mem, SLOT_MAX, FEC_MAX, fec_ram_max, BLK_FECS, fec_fd, 42UL ) );
   fd_repair_init( rotor, 0UL, &hash_null, NULL, NULL );
   fd_mr32_t m10 = hash( 0x11 ), m20 = hash( 0x21 );
 
@@ -1365,9 +1390,9 @@ static void
 test_raised_blk_max( void ) {
   ulong        blk_fecs = 4UL*FD_FEC_BLK_MAX;
   ulong        fec_max  = SLOT_MAX*blk_fecs;
-  FD_TEST( fd_repair_footprint( SLOT_MAX, fec_max, blk_fecs )<=sizeof(mem) );
-  FD_TEST( !fd_repair_new( mem, SLOT_MAX, fec_max, FD_FEC_BLK_MAX-1UL, 42UL ) );
-  fd_repair_t * rotor = fd_repair_join( fd_repair_new( mem, SLOT_MAX, fec_max, blk_fecs, 42UL ) );
+  FD_TEST( fd_repair_footprint( SLOT_MAX, fec_max, fec_max, blk_fecs )<=sizeof(mem) );
+  FD_TEST( !fd_repair_new( mem, SLOT_MAX, fec_max, fec_max, FD_FEC_BLK_MAX-1UL, -1, 42UL ) );
+  fd_repair_t * rotor = fd_repair_join( fd_repair_new( mem, SLOT_MAX, fec_max, fec_max, blk_fecs, -1, 42UL ) );
   fd_repair_init( rotor, 0UL, &hash_null, NULL, NULL );
 
   fd_mr32_t m0 = hash( 0x11 );
@@ -2120,7 +2145,7 @@ test_root_advanced( void  ) {
   FD_TEST( rotor->root==2UL );
   FD_TEST( !fd_repair_blk_map_ele_query( rotor->blk_map, &zero, NULL, rotor->blk_pool ) && !fd_repair_blk_map_ele_query( rotor->blk_map, &one, NULL, rotor->blk_pool ) );
   FD_TEST( b->parent==fd_repair_blk_pool_idx_null( rotor->blk_pool ) && c->parent==fd_repair_blk_pool_idx( rotor->blk_pool, b ) );
-  FD_TEST( b->fecs[ 0 ]==fd_repair_fec_pool_idx_null( rotor->fec_pool ) && b->fecs[ 1 ]==fd_repair_fec_pool_idx_null( rotor->fec_pool ) );
+  FD_TEST( b->fecs[ 0 ]==FD_REPAIR_FEC_IDX_NULL && b->fecs[ 1 ]==FD_REPAIR_FEC_IDX_NULL );
   mr = hash( 0x32 ); complete( rotor, 3UL, 2UL, 1U, 1, &mr );
   expect( rotor, c, 1U );
   FD_TEST( fd_repair_deque_empty( rotor->reasm_deque ) );
@@ -2812,10 +2837,77 @@ test_orphan_map_slot_mismatch( void ) {
   orphan_cnt( rotor );
 }
 
-int
-main( int     argc,
-      char ** argv ) {
-  fd_boot( &argc, &argv );
+/* With the RAM window full, FEC sets spill to the file and round-trip
+   every field, freed RAM idx are handed out again before file idx, and
+   a full pool still fails like the RAM-only pool. */
+
+static void
+test_fec_spill( void ) {
+  int fd = memfd_create( "rotor_fec_spill", 0U );
+  FD_TEST( fd>=0 );
+  ulong fec_max = 2UL*FD_FEC_BLK_MAX;
+  FD_TEST( fd_repair_footprint( SLOT_MAX, fec_max, 2UL, BLK_FECS )<=sizeof(mem) );
+  FD_TEST( !fd_repair_new( mem, SLOT_MAX, fec_max, 2UL, BLK_FECS, -1, 42UL ) ); /* a window short of fec_max needs the file */
+  FD_TEST( !fd_repair_footprint( SLOT_MAX, fec_max, fec_max+1UL, BLK_FECS ) );
+  fd_repair_t * rotor = fd_repair_join( fd_repair_new( mem, SLOT_MAX, fec_max, 2UL, BLK_FECS, fd, 42UL ) );
+  fd_mr32_t root = hash( 0xEE );
+  fd_repair_init( rotor, 0UL, &root, NULL, NULL );
+
+  fd_mr32_t m[ 4 ]; fd_mr20_t k[ 4 ];
+  for( uint i=0U; i<4U; i++ ) { m[ i ] = hash( (uchar)( 0x11+i ) ); memcpy( k[ i ].uc, m[ i ].uc, sizeof(fd_mr20_t) ); }
+  shred0( rotor, 1UL, 0UL, &root, &m[ 0 ] );
+  fd_shred_t shred[1]; memset( shred, 0, sizeof(fd_shred_t) );
+  shred->slot = 1UL; shred->data.parent_off = 1;
+  for( uint i=1U; i<4U; i++ ) { shred->idx = i*FD_FEC_SHRED_CNT+5U; fd_repair_shred_insert( rotor, shred, &m[ i ], FD_EVENT_BLOCK_RECEIVED_FEC_SETS_FINAL_SHRED_SOURCE_TURBINE, 10L+i ); }
+  for( uint i=0U; i<4U; i++ ) FD_TEST( fd_repair_fec_query( rotor, &k[ i ] )==i ); /* RAM window first, then the file */
+  struct stat st; FD_TEST( !fstat( fd, &st ) && st.st_size==2L*(long)sizeof(fd_repair_fec_t) );
+
+  fd_repair_fec_t const * f3 = fec_of( rotor, &k[ 3 ] );
+  FD_TEST( f3->slot==1UL && f3->fec_idx==3U && f3->rcvd==(1U<<5) && f3->first_ts==13L && !f3->complete );
+  FD_TEST( f3->final_src==FD_EVENT_BLOCK_RECEIVED_FEC_SETS_FINAL_SHRED_SOURCE_TURBINE );
+
+  shred->idx = 3U*FD_FEC_SHRED_CNT+FD_FEC_SHRED_CNT-1U;
+  f3 = fd_repair_fec_complete( rotor, shred, &m[ 3 ], 0, 1U, 2U, 3U, 0xaU, 0xbU, 0xcU, 40L );
+  FD_TEST( f3==rotor->fec_ret && f3->complete && f3->cmpl_ts==40L && f3->data_rcvd==0xaU && f3->parity_rcvd==0xbU && f3->repair_rcvd==0xcU );
+  FD_TEST( !memcmp( fd_repair_fec_mr32( fec_of( rotor, &k[ 3 ] ) ).uc, m[ 3 ].uc, sizeof(fd_mr32_t) ) );
+  fd_repair_fec_evicted( rotor, 1UL, 2U*FD_FEC_SHRED_CNT, &k[ 2 ] );
+  FD_TEST( !fec_of( rotor, &k[ 2 ] )->rcvd && fec_of( rotor, &k[ 3 ] )->complete );
+
+  /* Skipping the slot frees its FEC sets, RAM idx are handed out again
+     first. */
+
+  fd_repair_slot_skipped( rotor, 1UL );
+  for( uint i=0U; i<4U; i++ ) FD_TEST( fd_repair_fec_query( rotor, &k[ i ] )==FD_REPAIR_FEC_IDX_NULL );
+  shred->slot = 2UL; shred->data.parent_off = 2;
+  for( uint i=0U; i<3U; i++ ) { shred->idx = i*FD_FEC_SHRED_CNT+1U; fd_repair_shred_insert( rotor, shred, &m[ i ], 0, 0L ); }
+  FD_TEST( fd_repair_fec_query( rotor, &k[ 0 ] )<2UL && fd_repair_fec_query( rotor, &k[ 1 ] )<2UL && fd_repair_fec_query( rotor, &k[ 2 ] )>=2UL );
+
+  /* Fill every FEC set across the RAM window and the file, a FecRoot
+     names one in the file, then a root advance frees them all. */
+
+  fd_mr32_t id[ 2 ] = { hash( 0x70 ), hash( 0x71 ) };
+  FD_TEST( fd_repair_blk_notarized( rotor, 3UL, &id[ 0 ] ) && fd_repair_blk_notarized( rotor, 4UL, &id[ 1 ] ) );
+  for( uint i=0U; i<(uint)fec_max-3U; i++ ) {
+    uint j = i/(uint)BLK_FECS, f_idx = i%(uint)BLK_FECS;
+    fd_mr20_t key; memset( key.uc, 0, sizeof(fd_mr20_t) ); FD_STORE( uint, key.uc, i+1U );
+    fd_repair_fec_t const * f = fd_repair_fec_notarized( rotor, 3UL+j, &id[ j ], f_idx*FD_FEC_SHRED_CNT, &key, 0L );
+    FD_TEST( f && f->notarized && f->slot==3UL+j && f->fec_idx==f_idx );
+  }
+  FD_TEST( rotor->fec_ram_free==FD_REPAIR_FEC_IDX_NULL && rotor->fec_file_free==FD_REPAIR_FEC_IDX_NULL && rotor->fec_file_hwm==fec_max );
+  for( uint i=0U; i<(uint)fec_max-3U; i+=97U ) {
+    fd_mr20_t key; memset( key.uc, 0, sizeof(fd_mr20_t) ); FD_STORE( uint, key.uc, i+1U );
+    FD_TEST( fec_of( rotor, &key )->fec_idx==i%(uint)BLK_FECS );
+  }
+  fd_repair_root_advanced( rotor, 3UL, &id[ 0 ] );
+  FD_TEST( fd_repair_fec_query( rotor, &k[ 0 ] )==FD_REPAIR_FEC_IDX_NULL );
+  FD_TEST( rotor->fec_ram_free!=FD_REPAIR_FEC_IDX_NULL && rotor->fec_file_free!=FD_REPAIR_FEC_IDX_NULL );
+  fd_repair_fini( rotor );
+  FD_TEST( rotor->fec_ram_free==0U && rotor->fec_file_free==FD_REPAIR_FEC_IDX_NULL && rotor->fec_file_hwm==2U );
+  close( fd );
+}
+
+static void
+run_suite( void ) {
   test_chain();
   test_link_late();
   test_finalize_unlinks();
@@ -2882,6 +2974,19 @@ main( int     argc,
   test_orphan_map_root_advanced();
   test_root_advanced_unheld();
   test_orphan_map_slot_mismatch();
+}
+
+int
+main( int     argc,
+      char ** argv ) {
+  fd_boot( &argc, &argv );
+  run_suite();
+  test_fec_spill();
+  fec_fd = memfd_create( "rotor_fec_suite", 0U );
+  FD_TEST( fec_fd>=0 );
+  fec_ram_max = FEC_RAM_SPILL;
+  run_suite();
+  close( fec_fd );
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
   return 0;

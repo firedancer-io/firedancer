@@ -3,6 +3,134 @@
 #include "../../ballet/sha256/fd_sha256.h"
 #include "../../flamenco/alpenglow/fd_block_marker_serde.h"
 #include "../../disco/events/generated/fd_event_gen.h"
+#include <errno.h>
+#include <unistd.h>
+
+#define FEC_NULL FD_REPAIR_FEC_IDX_NULL
+
+/* FEC sets are a pool and a key map chained through next/prev, as
+   fd_pool/fd_map_chain but by idx, so a FEC set past the RAM window is
+   read and written with explicit I/O.  Single threaded. */
+
+static void
+fec_io( fd_repair_t const * rotor,
+        ulong               idx,
+        ulong               off,
+        void *              buf,
+        ulong               sz,
+        int                 write ) {
+  long pos = (long)( ( idx-rotor->fec_ram_max )*sizeof(fd_repair_fec_t) + off );
+  long n   = write ? pwrite( rotor->fec_fd, buf, sz, pos ) : pread( rotor->fec_fd, buf, sz, pos );
+  if( FD_UNLIKELY( n!=(long)sz ) ) FD_LOG_CRIT(( "%s(rotor FEC spill file, fd=%d) failed (%i-%s)", write ? "pwrite" : "pread", rotor->fec_fd, errno, fd_io_strerror( errno ) ));
+}
+
+void
+fd_repair_private_fec_pread( fd_repair_t const * rotor,
+                             ulong               idx,
+                             fd_repair_fec_t *   buf ) {
+  fec_io( rotor, idx, 0UL, buf, sizeof(fd_repair_fec_t), 0 );
+}
+
+/* fec_put writes back FEC set idx, as modified in the fec from
+   fd_repair_fec_read. */
+
+static void
+fec_put( fd_repair_t *           rotor,
+         ulong                   idx,
+         fd_repair_fec_t const * fec ) {
+  if( FD_UNLIKELY( idx>=rotor->fec_ram_max ) ) fec_io( rotor, idx, 0UL, (void *)fec, sizeof(fd_repair_fec_t), 1 );
+}
+
+/* fec_link sets the next (or prev) of FEC set idx. */
+
+static void
+fec_link( fd_repair_t * rotor,
+          ulong         idx,
+          int           prev,
+          uint          val ) {
+  if( FD_LIKELY( idx<rotor->fec_ram_max ) ) { *( prev ? &rotor->fec_ram[ idx ].prev : &rotor->fec_ram[ idx ].next ) = val; return; }
+  fec_io( rotor, idx, prev ? offsetof(fd_repair_fec_t, prev) : offsetof(fd_repair_fec_t, next), &val, sizeof(uint), 1 );
+}
+
+static inline uint *
+fec_chain( fd_repair_t const * rotor,
+           fd_mr20_t const *   key ) {
+  return rotor->fec_chain + ( fd_ulong_hash( rotor->fec_seed^FD_LOAD( ulong, key->uc ) ) & ( rotor->fec_chain_cnt-1UL ) );
+}
+
+ulong
+fd_repair_fec_query( fd_repair_t const * rotor,
+                     fd_mr20_t const *   key ) {
+  fd_repair_fec_t buf[1];
+  for( ulong idx=*fec_chain( rotor, key ); idx!=FEC_NULL; ) {
+    fd_repair_fec_t const * fec = fd_repair_fec_read( rotor, idx, buf );
+    if( FD_LIKELY( !memcmp( fec->key.uc, key->uc, sizeof(fd_mr20_t) ) ) ) return idx;
+    idx = fec->next;
+  }
+  return FEC_NULL;
+}
+
+/* fec_acquire takes a free FEC set idx, from the RAM window first,
+   zeroes it but for key and inserts it into the map.  Returns it as
+   fd_repair_fec_read, the caller fec_puts it. */
+
+static fd_repair_fec_t *
+fec_acquire( fd_repair_t *     rotor,
+             fd_mr20_t const * key,
+             fd_repair_fec_t * buf,
+             ulong *           out_idx ) {
+  ulong idx = rotor->fec_ram_free;
+  if( FD_LIKELY( idx!=FEC_NULL ) ) {
+    rotor->fec_ram_free = rotor->fec_ram[ idx ].next;
+  } else if( rotor->fec_file_free!=FEC_NULL ) {
+    idx = rotor->fec_file_free;
+    fec_io( rotor, idx, offsetof(fd_repair_fec_t, next), &rotor->fec_file_free, sizeof(uint), 0 );
+  } else {
+    FD_TEST( rotor->fec_file_hwm<rotor->fec_max ); /* full */
+    idx = rotor->fec_file_hwm++;
+  }
+  fd_repair_fec_t * fec  = idx<rotor->fec_ram_max ? rotor->fec_ram+idx : buf;
+  uint *            head = fec_chain( rotor, key );
+  memset( fec, 0, sizeof(fd_repair_fec_t) );
+  fec->key  = *key;
+  fec->next = *head;
+  fec->prev = FEC_NULL;
+  if( FD_LIKELY( *head!=FEC_NULL ) ) fec_link( rotor, *head, 1, (uint)idx );
+  *head    = (uint)idx;
+  *out_idx = idx;
+  return fec;
+}
+
+/* fec_release removes FEC set idx, read into fec, from the map and
+   frees it. */
+
+static void
+fec_release( fd_repair_t *           rotor,
+             ulong                   idx,
+             fd_repair_fec_t const * fec ) {
+  uint next = fec->next, prev = fec->prev;
+  if( FD_LIKELY( prev==FEC_NULL ) ) *fec_chain( rotor, &fec->key ) = next;
+  else                              fec_link( rotor, prev, 0, next );
+  if( FD_LIKELY( next!=FEC_NULL ) ) fec_link( rotor, next, 1, prev );
+  if( FD_LIKELY( idx<rotor->fec_ram_max ) ) {
+    rotor->fec_ram[ idx ].next = rotor->fec_ram_free;
+    rotor->fec_ram_free        = (uint)idx;
+  } else {
+    fec_link( rotor, idx, 0, rotor->fec_file_free );
+    rotor->fec_file_free = (uint)idx;
+  }
+}
+
+/* fec_reset frees every FEC set, the RAM window in idx order. */
+
+static void
+fec_reset( fd_repair_t * rotor ) {
+  for( ulong i=0UL; i<rotor->fec_chain_cnt; i++ ) rotor->fec_chain[ i ] = FEC_NULL;
+  for( ulong i=0UL; i<rotor->fec_ram_max;   i++ ) rotor->fec_ram[ i ].next = (uint)fd_ulong_if( i+1UL<rotor->fec_ram_max, i+1UL, FEC_NULL );
+  rotor->fec_ram_free  = (uint)fd_ulong_if( !!rotor->fec_ram_max, 0UL, FEC_NULL );
+  rotor->fec_file_free = FEC_NULL;
+  rotor->fec_file_hwm  = (uint)rotor->fec_ram_max;
+}
 
 static void
 blk_treap_insert( fd_repair_t *     rotor,
@@ -56,7 +184,7 @@ blk_insert( fd_repair_t *     rotor,
   memset( &blk->telemetry, 0, sizeof(blk->telemetry) );
   blk->telemetry.last_cmpl_fec_idx = UINT_MAX;
   blk->rcvd_fec_ts   = 0L;
-  for( ulong k=0UL; k<rotor->fec_blk_max; k++ ) blk->fecs[ k ] = (uint)fd_repair_fec_pool_idx_null( rotor->fec_pool );
+  for( ulong k=0UL; k<rotor->fec_blk_max; k++ ) blk->fecs[ k ] = FEC_NULL;
   fd_repair_blk_map_ele_insert( rotor->blk_map, blk, rotor->blk_pool );
   if     ( !memcmp( dmr, &hash_null, sizeof(fd_mr32_t) )    ) meta->eager = fd_repair_blk_pool_idx( rotor->blk_pool, blk );
   else if( meta->notar==fd_repair_blk_pool_idx_null( rotor->blk_pool ) ) meta->notar = fd_repair_blk_pool_idx( rotor->blk_pool, blk );
@@ -76,7 +204,8 @@ compute_dmr( fd_repair_t *     rotor,
   fd_bmtree_commit_t * tree = fd_bmtree_commit_init( tree_mem, FD_SHRED_MERKLE_NODE_SZ, FD_BMTREE_LONG_PREFIX_SZ, 0UL );
   for( uint k=0U; k<fec_set_cnt; k++ ) {
     fd_bmtree_node_t leaf[1];
-    fd_mr32_t mr = fd_repair_fec_mr32( fd_repair_fec_pool_ele( rotor->fec_pool, blk->fecs[ k ] ) );
+    fd_repair_fec_t  buf[1];
+    fd_mr32_t mr = fd_repair_fec_mr32( fd_repair_fec_read( rotor, blk->fecs[ k ], buf ) );
     memcpy( leaf->hash, mr.uc, sizeof(fd_mr32_t) );
     fd_bmtree_commit_append( tree, leaf, 1UL );
   }
@@ -110,7 +239,7 @@ consume( fd_repair_t *     rotor,
   ulong             idx   = fd_repair_blk_pool_idx( rotor->blk_pool, blk );
   fd_repair_blk_t * eager = fd_repair_blk_pool_ele( rotor->blk_pool, meta->eager );
   if( FD_UNLIKELY(  eager && meta->eager!=idx && !meta->invalidated && !memcmp( &eager->dmr, &hash_null, sizeof(fd_mr32_t) ) ) ) {
-    if( FD_UNLIKELY( eager->parent==fd_repair_blk_pool_idx_null( rotor->blk_pool ) && blk->fecs[ 0 ]!=fd_repair_fec_pool_idx_null( rotor->fec_pool ) && eager->fecs[ 0 ]==blk->fecs[ 0 ] ) ) {
+    if( FD_UNLIKELY( eager->parent==fd_repair_blk_pool_idx_null( rotor->blk_pool ) && blk->fecs[ 0 ]!=FEC_NULL && eager->fecs[ 0 ]==blk->fecs[ 0 ] ) ) {
       if( FD_LIKELY( eager!=rotor->root_blk && memcmp( &eager->parent_blk_mr, &hash_null, sizeof(fd_mr32_t) ) ) ) fd_repair_orphan_map_ele_remove_fast( rotor->orphan_map, eager, rotor->blk_pool );
       fd_repair_blk_t * parent = fd_repair_blk_pool_ele( rotor->blk_pool, blk->parent );
       eager->parent_slot   = blk->parent_slot;
@@ -283,7 +412,7 @@ link_children( fd_repair_t *     rotor,
 }
 
 static void
-unlink( fd_repair_t *     rotor,
+blk_unlink( fd_repair_t *     rotor,
         fd_repair_blk_t * blk ) {
   fd_repair_blk_t * pool = rotor->blk_pool;
   ulong             null = fd_repair_blk_pool_idx_null( pool );
@@ -311,7 +440,7 @@ prune( fd_repair_t *     rotor,
   fd_repair_blk_t * pool = rotor->blk_pool;
   if( FD_UNLIKELY( !blk->telemetry.reported && rotor->telemetry.report ) ) rotor->telemetry.report( rotor->telemetry.ctx, blk );
   for( ulong k=0UL; k<rotor->fec_blk_max; k++ ) {
-    if( FD_LIKELY( blk->fecs[ k ]==fd_repair_fec_pool_idx_null( rotor->fec_pool ) ) ) continue;
+    if( FD_LIKELY( blk->fecs[ k ]==FEC_NULL ) ) continue;
     int held = 0;
     for( fd_repair_blk_t const * other = fd_repair_blk_map_ele_query_const( rotor->blk_map, &blk->slot, NULL, pool );
                                  other && !held;
@@ -319,11 +448,10 @@ prune( fd_repair_t *     rotor,
       held = other!=blk && other->fecs[ k ]==blk->fecs[ k ];
     }
     if( FD_UNLIKELY( held ) ) continue;
-    fd_repair_fec_t * fec = fd_repair_fec_pool_ele( rotor->fec_pool, blk->fecs[ k ] );
-    fd_repair_fec_map_ele_remove_fast( rotor->fec_map, fec, rotor->fec_pool );
-    fd_repair_fec_pool_ele_release   ( rotor->fec_pool, fec );
+    fd_repair_fec_t buf[1];
+    fec_release( rotor, blk->fecs[ k ], fd_repair_fec_read( rotor, blk->fecs[ k ], buf ) );
   }
-  unlink( rotor, blk );
+  blk_unlink( rotor, blk );
   if( FD_UNLIKELY( blk!=rotor->root_blk && blk->parent==fd_repair_blk_pool_idx_null( pool ) && memcmp( &blk->parent_blk_mr, &hash_null, sizeof(fd_mr32_t) ) ) ) {
     fd_repair_orphan_map_ele_remove_fast( rotor->orphan_map, blk, pool );
   }
@@ -415,8 +543,10 @@ fd_repair_align( void ) {
 FD_FN_CONST ulong
 fd_repair_footprint( ulong slot_max,
                      ulong fec_max,
+                     ulong fec_ram_max,
                      ulong fec_blk_max ) {
   ulong blk_max = fd_repair_blk_max( slot_max );
+  if( FD_UNLIKELY( fec_ram_max>fec_max || fec_max>=FEC_NULL ) ) return 0UL;
   return FD_LAYOUT_FINI(
     FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
@@ -437,8 +567,8 @@ fd_repair_footprint( ulong slot_max,
       alignof(uint),                  sizeof(uint)*blk_max*fec_blk_max                                           ),
       fd_repair_blk_map_align(),      fd_repair_blk_map_footprint   ( fd_repair_blk_map_chain_cnt_est( blk_max ) ) ),
       fd_repair_orphan_map_align(),   fd_repair_orphan_map_footprint( fd_repair_orphan_map_chain_cnt_est( blk_max ) ) ),
-      fd_repair_fec_pool_align(),     fd_repair_fec_pool_footprint  ( fec_max                                    ) ),
-      fd_repair_fec_map_align(),      fd_repair_fec_map_footprint   ( fd_repair_fec_map_chain_cnt_est( fec_max ) ) ),
+      alignof(fd_repair_fec_t),       sizeof(fd_repair_fec_t)*fec_ram_max                                        ),
+      alignof(uint),                  sizeof(uint)*fd_ulong_pow2_up( fd_ulong_max( (fec_max+1UL)/2UL, 1UL ) )    ),
       fd_repair_deque_align(),        fd_repair_deque_footprint     ( fec_max                                    ) ),
       fd_repair_treap_align(),        fd_repair_treap_footprint     ( blk_max                                    ) ),
       fd_repair_treap_align(),        fd_repair_treap_footprint     ( blk_max                                    ) ),
@@ -450,18 +580,21 @@ void *
 fd_repair_new( void * shmem,
                ulong  slot_max,
                ulong  fec_max,
+               ulong  fec_ram_max,
                ulong  fec_blk_max,
+               int    fec_fd,
                ulong  seed ) {
-  ulong footprint = fd_repair_footprint( slot_max, fec_max, fec_blk_max );
-  if( FD_UNLIKELY( !footprint || fec_blk_max<FD_FEC_BLK_MAX || fec_blk_max>UINT_MAX ) ) {
-    FD_LOG_WARNING(( "bad footprint: %lu %lu %lu", slot_max, fec_max, fec_blk_max ));
+  ulong footprint = fd_repair_footprint( slot_max, fec_max, fec_ram_max, fec_blk_max );
+  if( FD_UNLIKELY( !footprint || fec_blk_max<FD_FEC_BLK_MAX || fec_blk_max>UINT_MAX || ( fec_ram_max<fec_max && fec_fd<0 ) ) ) {
+    FD_LOG_WARNING(( "bad footprint: %lu %lu %lu %lu %d", slot_max, fec_max, fec_ram_max, fec_blk_max, fec_fd ));
     return NULL;
   }
 
   fd_memset( shmem, 0, footprint );
   fd_repair_t * rotor;
 
-  ulong blk_max = fd_repair_blk_max( slot_max );
+  ulong blk_max       = fd_repair_blk_max( slot_max );
+  ulong fec_chain_cnt = fd_ulong_pow2_up( fd_ulong_max( (fec_max+1UL)/2UL, 1UL ) );
 
   FD_SCRATCH_ALLOC_INIT( l, shmem );
   rotor              = FD_SCRATCH_ALLOC_APPEND( l, fd_repair_align(),              sizeof(fd_repair_t)                                                         );
@@ -470,8 +603,8 @@ fd_repair_new( void * shmem,
   uint * blk_fecs    = FD_SCRATCH_ALLOC_APPEND( l, alignof(uint),                  sizeof(uint)*blk_max*fec_blk_max                                            );
   void * blk_map     = FD_SCRATCH_ALLOC_APPEND( l, fd_repair_blk_map_align(),      fd_repair_blk_map_footprint  ( fd_repair_blk_map_chain_cnt_est( blk_max ) ) );
   void * orphan_map  = FD_SCRATCH_ALLOC_APPEND( l, fd_repair_orphan_map_align(),   fd_repair_orphan_map_footprint( fd_repair_orphan_map_chain_cnt_est( blk_max ) ) );
-  void * fec_pool    = FD_SCRATCH_ALLOC_APPEND( l, fd_repair_fec_pool_align(),     fd_repair_fec_pool_footprint ( fec_max                                    ) );
-  void * fec_map     = FD_SCRATCH_ALLOC_APPEND( l, fd_repair_fec_map_align(),      fd_repair_fec_map_footprint  ( fd_repair_fec_map_chain_cnt_est( fec_max ) ) );
+  void * fec_ram     = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_repair_fec_t),       sizeof(fd_repair_fec_t)*fec_ram_max                                         );
+  void * fec_chain   = FD_SCRATCH_ALLOC_APPEND( l, alignof(uint),                  sizeof(uint)*fec_chain_cnt                                                  );
   void * reasm_deque = FD_SCRATCH_ALLOC_APPEND( l, fd_repair_deque_align(),        fd_repair_deque_footprint    ( fec_max                                    ) );
   void * eager_treap = FD_SCRATCH_ALLOC_APPEND( l, fd_repair_treap_align(),        fd_repair_treap_footprint    ( blk_max                                    ) );
   void * notar_treap = FD_SCRATCH_ALLOC_APPEND( l, fd_repair_treap_align(),        fd_repair_treap_footprint    ( blk_max                                    ) );
@@ -487,8 +620,14 @@ fd_repair_new( void * shmem,
   for( ulong i=0UL; i<blk_max; i++ ) rotor->blk_pool[ i ].fecs = blk_fecs + i*fec_blk_max;
   rotor->blk_map     = fd_repair_blk_map_join ( fd_repair_blk_map_new ( blk_map,     fd_repair_blk_map_chain_cnt_est( blk_max ), seed ) );
   rotor->orphan_map  = fd_repair_orphan_map_join( fd_repair_orphan_map_new( orphan_map, fd_repair_orphan_map_chain_cnt_est( blk_max ), seed ) );
-  rotor->fec_pool    = fd_repair_fec_pool_join( fd_repair_fec_pool_new( fec_pool,    fec_max                                          ) );
-  rotor->fec_map     = fd_repair_fec_map_join ( fd_repair_fec_map_new ( fec_map,     fd_repair_fec_map_chain_cnt_est( fec_max ), seed ) );
+  rotor->fec_ram       = (fd_repair_fec_t *)fec_ram;
+  rotor->fec_chain     = (uint *)fec_chain;
+  rotor->fec_chain_cnt = fec_chain_cnt;
+  rotor->fec_seed      = seed;
+  rotor->fec_max       = fec_max;
+  rotor->fec_ram_max   = fec_ram_max;
+  rotor->fec_fd        = fec_fd;
+  fec_reset( rotor );
   rotor->reasm_deque = fd_repair_deque_join   ( fd_repair_deque_new   ( reasm_deque, fec_max                                          ) );
   fd_repair_treap_seed( rotor->blk_pool, blk_max, seed ); /* the treaps share each blk's prio */
   rotor->eager_treap = fd_repair_treap_join( fd_repair_treap_new( eager_treap, blk_max ) );
@@ -538,8 +677,7 @@ fd_repair_fini( fd_repair_t * rotor ) {
   fd_repair_blk_map_reset( rotor->blk_map );
   fd_repair_orphan_map_reset( rotor->orphan_map );
   fd_repair_blk_pool_reset( rotor->blk_pool );
-  fd_repair_fec_map_reset( rotor->fec_map );
-  fd_repair_fec_pool_reset( rotor->fec_pool );
+  fec_reset( rotor );
   fd_repair_deque_remove_all( rotor->reasm_deque );
   rotor->eager_treap = fd_repair_treap_join( fd_repair_treap_new( fd_repair_treap_leave( rotor->eager_treap ), fd_repair_blk_pool_max( rotor->blk_pool ) ) );
   rotor->notar_treap = fd_repair_treap_join( fd_repair_treap_new( fd_repair_treap_leave( rotor->notar_treap ), fd_repair_blk_pool_max( rotor->blk_pool ) ) );
@@ -671,7 +809,7 @@ fd_repair_slot_catchup( fd_repair_t * rotor,
   rotor->catchup_slot = fd_ulong_max( rotor->catchup_slot, slot );
 }
 
-fd_repair_fec_t *
+fd_repair_fec_t const *
 fd_repair_fec_complete( fd_repair_t *      rotor,
                         fd_shred_t const * last_shred,
                         fd_mr32_t const *  fec_mr,
@@ -687,8 +825,10 @@ fd_repair_fec_complete( fd_repair_t *      rotor,
 
   fd_mr20_t key;
   memcpy( key.uc, fec_mr->uc, sizeof(fd_mr20_t) );
-  fd_repair_fec_t * fec = fd_repair_fec_map_ele_query( rotor->fec_map, &key, NULL, rotor->fec_pool );
-  if( FD_UNLIKELY( !fec ) ) return NULL; /* fd_repair_shred_insert dropped it as conflicting with the eager blk */
+  ulong fidx = fd_repair_fec_query( rotor, &key );
+  if( FD_UNLIKELY( fidx==FEC_NULL ) ) return NULL; /* fd_repair_shred_insert dropped it as conflicting with the eager blk */
+  fd_repair_fec_t fbuf[1];
+  fd_repair_fec_t * fec = fd_repair_fec_read( rotor, fidx, fbuf );
 
   int first_complete = !fec->complete;
   fec->cmpl_ts       = fd_long_if( first_complete, ts, fec->cmpl_ts );
@@ -701,6 +841,8 @@ fd_repair_fec_complete( fd_repair_t *      rotor,
   fec->complete      = 1;
   fec->data_complete = !!( last_shred->data.flags & FD_SHRED_DATA_FLAG_DATA_COMPLETE );
   fec->is_leader    |= !!is_leader; /* a completion again from the network does not clear our own */
+  fec_put( rotor, fidx, fec );
+  uint fec_idx = fec->fec_idx;
 
   ulong                   slot  = last_shred->slot; /* fd_shred_t is packed, the map query needs an aligned key */
   fd_repair_slot_meta_t * meta  = fd_repair_slot_meta( rotor, slot );
@@ -708,7 +850,8 @@ fd_repair_fec_complete( fd_repair_t *      rotor,
   fd_repair_blk_t *       eager = fd_repair_blk_pool_ele( pool, meta->eager );
   int                     cmpl  = eager && !meta->invalidated && eager->cmpl_fec_cnt && !memcmp( &eager->dmr, &hash_null, sizeof(fd_mr32_t) );
   for( uint k=0U; cmpl && k<eager->cmpl_fec_cnt; k++ ) {
-    cmpl = eager->fecs[ k ]!=fd_repair_fec_pool_idx_null( rotor->fec_pool ) && fd_repair_fec_pool_ele( rotor->fec_pool, eager->fecs[ k ] )->complete;
+    fd_repair_fec_t buf[1];
+    cmpl = eager->fecs[ k ]!=FEC_NULL && fd_repair_fec_read( rotor, eager->fecs[ k ], buf )->complete;
   }
   meta->leader |= (uint)!!is_leader;
   if( FD_UNLIKELY( is_leader && eager ) ) eager->eager = 0; /* our own, never repaired */
@@ -717,31 +860,32 @@ fd_repair_fec_complete( fd_repair_t *      rotor,
     compute_dmr( rotor, eager );
     link_children( rotor, eager ); /* the blks naming its dmr waited for it */
     dedup( rotor, eager, ts );
-    if( FD_UNLIKELY( fd_repair_fec_map_ele_query( rotor->fec_map, &key, NULL, rotor->fec_pool )!=fec ) ) return NULL; /* dedup pruned eager and with it the FEC set */
+    if( FD_UNLIKELY( fd_repair_fec_query( rotor, &key )!=fidx ) ) return NULL; /* dedup pruned eager and with it the FEC set */
   }
 
   for( fd_repair_blk_t * blk = fd_repair_blk_map_ele_query( rotor->blk_map, &slot, NULL, pool );
                          blk;
                          blk = (fd_repair_blk_t *)fd_repair_blk_map_ele_next_const( blk, NULL, pool ) ) {
-    if( FD_LIKELY( blk->fecs[ fec->fec_idx ]!=fd_repair_fec_pool_idx( rotor->fec_pool, fec ) ) ) continue;
+    if( FD_LIKELY( blk->fecs[ fec_idx ]!=fidx ) ) continue;
     uint end = fd_uint_if( !!blk->cmpl_fec_cnt, blk->cmpl_fec_cnt, (uint)rotor->fec_blk_max );
+    fd_repair_fec_t buf[1];
     while(    blk->buff_fec_cnt<end
-           && blk->fecs[ blk->buff_fec_cnt ]!=fd_repair_fec_pool_idx_null( rotor->fec_pool )
-           && fd_repair_fec_pool_ele( rotor->fec_pool, blk->fecs[ blk->buff_fec_cnt ] )->complete ) {
+           && blk->fecs[ blk->buff_fec_cnt ]!=FEC_NULL
+           && fd_repair_fec_read( rotor, blk->fecs[ blk->buff_fec_cnt ], buf )->complete ) {
       blk->buff_fec_cnt++;
     }
     if( FD_LIKELY( first_complete ) ) {
       blk->telemetry.turbine_shred_cnt   += turbine_cnt;
       blk->telemetry.repair_shred_cnt    += repair_cnt;
       blk->telemetry.recovered_shred_cnt += recovered_cnt;
-      blk->telemetry.last_cmpl_fec_idx    = fec->fec_idx*FD_FEC_SHRED_CNT;
+      blk->telemetry.last_cmpl_fec_idx    = fec_idx*FD_FEC_SHRED_CNT;
     }
     blk->telemetry.last_shred_ts = fd_long_if( blk->cmpl_fec_cnt && blk->buff_fec_cnt==blk->cmpl_fec_cnt && !blk->telemetry.last_shred_ts, ts, blk->telemetry.last_shred_ts );
     if( FD_UNLIKELY( blk->cmpl_fec_cnt && blk->buff_fec_cnt==blk->cmpl_fec_cnt && !blk->telemetry.reported && rotor->telemetry.report ) ) { blk->telemetry.reported = 1; rotor->telemetry.report( rotor->telemetry.ctx, blk ); }
     consume( rotor, blk );
     if( FD_UNLIKELY( blk->cmpl_fec_cnt && blk->cons_fec_cnt==blk->cmpl_fec_cnt ) ) cascade( rotor, blk );
   }
-  return fec;
+  return fd_repair_fec_read( rotor, fidx, rotor->fec_ret );
 }
 
 void
@@ -749,14 +893,17 @@ fd_repair_fec_evicted( fd_repair_t *     rotor,
                        ulong             slot,
                        uint              fec_set_idx,
                        fd_mr20_t const * fec_mr ) {
-  uint              k   = fec_set_idx/FD_FEC_SHRED_CNT;
-  fd_repair_fec_t * fec = fd_repair_fec_map_ele_query( rotor->fec_map, fec_mr, NULL, rotor->fec_pool );
+  uint              k    = fec_set_idx/FD_FEC_SHRED_CNT;
+  ulong             fidx = fd_repair_fec_query( rotor, fec_mr );
+  fd_repair_fec_t   buf[1];
+  fd_repair_fec_t * fec  = fd_repair_fec_read( rotor, fidx, buf );
   if( FD_UNLIKELY(  !fec || fec->complete || fec->slot!=slot || fec->fec_idx!=k ) ) return;
 
   fec->rcvd = 0U; /* its req, still waiting since the set is incomplete, asks for every shred again */
+  fec_put( rotor, fidx, fec );
 }
 
-fd_repair_fec_t *
+fd_repair_fec_t const *
 fd_repair_fec_notarized( fd_repair_t *     rotor,
                          ulong             slot,
                          fd_mr32_t const * blk_mr,
@@ -772,47 +919,39 @@ fd_repair_fec_notarized( fd_repair_t *     rotor,
   blk->telemetry.fec_root_res_cnt++;
   blk->telemetry.first_meta_res_ts = fd_long_if( !blk->telemetry.first_meta_res_ts, ts, blk->telemetry.first_meta_res_ts );
 
-  if( FD_UNLIKELY( blk->fecs[ fec_idx ]!=fd_repair_fec_pool_idx_null( rotor->fec_pool ) ) ) return NULL; /* duplicate response, eg. a retried request */
+  if( FD_UNLIKELY( blk->fecs[ fec_idx ]!=FEC_NULL ) ) return NULL; /* duplicate response, eg. a retried request */
 
   fd_repair_slot_meta_t * meta  = fd_repair_slot_meta( rotor, slot );
   fd_repair_blk_t *       eager = fd_repair_blk_pool_ele( rotor->blk_pool, meta->eager );
-  int                     eqvoc = eager && eager->fecs[ fec_idx ]!=fd_repair_fec_pool_idx_null( rotor->fec_pool ) && memcmp( &fd_repair_fec_pool_ele( rotor->fec_pool, eager->fecs[ fec_idx ] )->key, fec_mr, sizeof(fd_mr20_t) );
+  fd_repair_fec_t         ebuf[1];
+  int                     eqvoc = eager && eager->fecs[ fec_idx ]!=FEC_NULL && memcmp( &fd_repair_fec_read( rotor, eager->fecs[ fec_idx ], ebuf )->key, fec_mr, sizeof(fd_mr20_t) );
   if( FD_UNLIKELY( eqvoc  ) ) fd_repair_slot_invalidated( rotor, slot, FD_EVENT_BLOCK_RECEIVED_CANCELLED_REASON_MERKLE_ROOT_MISMATCH, ts );
 
-  fd_repair_fec_t * fec = fd_repair_fec_map_ele_query( rotor->fec_map, fec_mr, NULL, rotor->fec_pool );
+  ulong             fidx = fd_repair_fec_query( rotor, fec_mr );
+  fd_repair_fec_t   fbuf[1];
+  fd_repair_fec_t * fec  = fd_repair_fec_read( rotor, fidx, fbuf );
   if( FD_UNLIKELY( fec && ( fec->slot!=slot || fec->fec_idx!=fec_idx ) ) ) return NULL; /* a FEC set root commits to its slot and index, so this leaf names no FEC set a shred can fill */
   if( FD_UNLIKELY( !fec ) ) {
-    FD_TEST( fd_repair_fec_pool_free( rotor->fec_pool ) );
-    fec                = fd_repair_fec_pool_ele_acquire( rotor->fec_pool );
-    fec->key           = *fec_mr;
-    fec->fec_idx       = fec_idx;
-    fec->slot          = slot;
-    fec->rcvd          = 0U;
-    fec->complete      = 0;
-    fec->data_complete = 0;
-    fec->final_src     = 0;
-    fec->first_ts      = 0L;
-    fec->cmpl_ts       = 0L;
-    fec->is_leader     = 0;
-    fec->data_rcvd     = 0U;
-    fec->parity_rcvd   = 0U;
-    fec->repair_rcvd   = 0U;
-    fd_repair_fec_map_ele_insert( rotor->fec_map, fec, rotor->fec_pool );
+    fec          = fec_acquire( rotor, fec_mr, fbuf, &fidx );
+    fec->fec_idx = fec_idx;
+    fec->slot    = slot;
   }
   fec->notarized       = 1;
-  blk->fecs[ fec_idx ] = (uint)fd_repair_fec_pool_idx( rotor->fec_pool, fec );
-  if( FD_LIKELY( !fec->complete ) ) return fec;
+  fec_put( rotor, fidx, fec );
+  blk->fecs[ fec_idx ] = (uint)fidx;
+  if( FD_LIKELY( !fec->complete ) ) return fd_repair_fec_read( rotor, fidx, rotor->fec_ret );
 
   uint end = fd_uint_if( !!blk->cmpl_fec_cnt, blk->cmpl_fec_cnt, (uint)rotor->fec_blk_max );
+  fd_repair_fec_t buf[1];
   while(    blk->buff_fec_cnt<end
-         && blk->fecs[ blk->buff_fec_cnt ]!=fd_repair_fec_pool_idx_null( rotor->fec_pool )
-         && fd_repair_fec_pool_ele( rotor->fec_pool, blk->fecs[ blk->buff_fec_cnt ] )->complete ) {
+         && blk->fecs[ blk->buff_fec_cnt ]!=FEC_NULL
+         && fd_repair_fec_read( rotor, blk->fecs[ blk->buff_fec_cnt ], buf )->complete ) {
     blk->buff_fec_cnt++;
   }
   if( FD_UNLIKELY( blk->cmpl_fec_cnt && blk->buff_fec_cnt==blk->cmpl_fec_cnt && !blk->telemetry.reported && rotor->telemetry.report ) ) { blk->telemetry.reported = 1; rotor->telemetry.report( rotor->telemetry.ctx, blk ); }
   consume( rotor, blk );
   if( FD_UNLIKELY( blk->cmpl_fec_cnt && blk->cons_fec_cnt==blk->cmpl_fec_cnt ) ) cascade( rotor, blk );
-  return fec;
+  return fd_repair_fec_read( rotor, fidx, rotor->fec_ret );
 }
 
 void
@@ -830,12 +969,12 @@ fd_repair_root_advanced( fd_repair_t *     rotor,
       if( FD_UNLIKELY( !blk->telemetry.reported && rotor->telemetry.report ) ) { blk->telemetry.reported = 1; rotor->telemetry.report( rotor->telemetry.ctx, blk ); }
       for( ulong k=0UL; k<rotor->fec_blk_max; k++ ) {
         ulong idx = blk->fecs[ k ];
-        blk->fecs[ k ] = (uint)fd_repair_fec_pool_idx_null( rotor->fec_pool );
-        if( FD_LIKELY( idx==fd_repair_fec_pool_idx_null( rotor->fec_pool ) ) ) continue;
-        fd_repair_fec_t * fec = fd_repair_fec_pool_ele( rotor->fec_pool, idx );
-        if( FD_LIKELY( fd_repair_fec_map_ele_query( rotor->fec_map, &fec->key, NULL, rotor->fec_pool )!=fec ) ) continue; /* freed through a sibling */
-        fd_repair_fec_map_ele_remove_fast( rotor->fec_map, fec, rotor->fec_pool );
-        fd_repair_fec_pool_ele_release   ( rotor->fec_pool, fec );
+        blk->fecs[ k ] = FEC_NULL;
+        if( FD_LIKELY( idx==FEC_NULL ) ) continue;
+        fd_repair_fec_t         buf[1];
+        fd_repair_fec_t const * fec = fd_repair_fec_read( rotor, idx, buf );
+        if( FD_LIKELY( fd_repair_fec_query( rotor, &fec->key )!=idx ) ) continue; /* freed through a sibling */
+        fec_release( rotor, idx, fec );
       }
       if( FD_UNLIKELY( s==slot && !memcmp( &blk->dmr, blk_mr, sizeof(fd_mr32_t) ) ) ) { /* the new root */
         blk_treap_remove( rotor, blk ); /* the root is never repaired */
@@ -848,7 +987,7 @@ fd_repair_root_advanced( fd_repair_t *     rotor,
         continue;
       }
 
-      unlink( rotor, blk );
+      blk_unlink( rotor, blk );
       if( FD_UNLIKELY( blk!=rotor->root_blk && blk->parent==fd_repair_blk_pool_idx_null( rotor->blk_pool ) && memcmp( &blk->parent_blk_mr, &hash_null, sizeof(fd_mr32_t) ) ) ) fd_repair_orphan_map_ele_remove_fast( rotor->orphan_map, blk, rotor->blk_pool );
       blk_treap_remove( rotor, blk );
       fd_repair_slot_meta_t * meta = fd_repair_slot_meta( rotor, s );
@@ -876,12 +1015,15 @@ fd_repair_shred_insert( fd_repair_t *      rotor,
      reached a notarized status ie. SafeToNotar or stronger).  It also
      belongs to the eager blk, so fall through. */
 
-  fd_repair_fec_t * fec     = fd_repair_fec_map_ele_query( rotor->fec_map, &key, NULL, rotor->fec_pool );
+  ulong             fidx    = fd_repair_fec_query( rotor, &key );
+  fd_repair_fec_t   fbuf[1];
+  fd_repair_fec_t * fec     = fd_repair_fec_read( rotor, fidx, fbuf );
   uint              fec_idx = shred->idx / FD_FEC_SHRED_CNT;
   if( FD_UNLIKELY(  fec && ( fec->slot!=shred->slot || fec->fec_idx!=fec_idx ) ) ) return; /* a 20-byte root collision */
   if( FD_UNLIKELY(  fec && fec->notarized ) ) fec->rcvd = fd_uint_set_bit( fec->rcvd, (int)( shred->idx - fec_idx * FD_FEC_SHRED_CNT ) );
   if( FD_UNLIKELY(  fec && !fec->first_ts ) ) fec->first_ts = ts;
   if( FD_LIKELY( fec && src && !fec->complete ) ) fec->final_src = (uchar)src; /* frozen once complete */
+  if( FD_LIKELY( fec ) ) fec_put( rotor, fidx, fec );
 
   /* Second, handle an Eager shred (from Turbine or Eager Repair). */
 
@@ -903,7 +1045,7 @@ fd_repair_shred_insert( fd_repair_t *      rotor,
   fd_mr32_t const * parent_blk_mr = shred->idx==0U ? &marker->header.parent_block_id : NULL;
 
   int slot_complete     = !!( shred->data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE );
-  int eqvoc             = blk->fecs[ fec_idx ]!=fd_repair_fec_pool_idx_null( rotor->fec_pool ) && blk->fecs[ fec_idx ]!=fd_repair_fec_pool_idx( rotor->fec_pool, fec ); /* the leader signed two FEC sets at this index, eg. two shred 0s */
+  int eqvoc             = blk->fecs[ fec_idx ]!=FEC_NULL && blk->fecs[ fec_idx ]!=fidx; /* the leader signed two FEC sets at this index, eg. two shred 0s */
   int parent_conflict   = bad_header || blk->parent_slot!=parent_slot;
   int complete_conflict = ( blk->cmpl_fec_cnt && fec_idx>=blk->cmpl_fec_cnt ) || ( slot_complete && fec_idx+1U<blk->rcvd_fec_cnt );
   if( FD_UNLIKELY( eqvoc ) )             { fd_repair_slot_invalidated( rotor, shred->slot, FD_EVENT_BLOCK_RECEIVED_CANCELLED_REASON_MERKLE_ROOT_MISMATCH, ts ); return; }
@@ -926,27 +1068,16 @@ fd_repair_shred_insert( fd_repair_t *      rotor,
   }
 
   if( FD_UNLIKELY( !fec ) ) {
-    FD_TEST( fd_repair_fec_pool_free( rotor->fec_pool ) );
-    fec                = fd_repair_fec_pool_ele_acquire( rotor->fec_pool );
-    fec->key           = key;
-    fec->fec_idx       = fec_idx;
-    fec->slot          = shred->slot;
-    fec->rcvd          = 0U;
-    fec->complete      = 0;
-    fec->data_complete = 0;
-    fec->final_src     = (uchar)src;
-    fec->first_ts      = ts;
-    fec->cmpl_ts       = 0L;
-    fec->is_leader     = 0;
-    fec->notarized     = 0;
-    fec->data_rcvd     = 0U;
-    fec->parity_rcvd   = 0U;
-    fec->repair_rcvd   = 0U;
-    fd_repair_fec_map_ele_insert( rotor->fec_map, fec, rotor->fec_pool );
+    fec            = fec_acquire( rotor, &key, fbuf, &fidx );
+    fec->fec_idx   = fec_idx;
+    fec->slot      = shred->slot;
+    fec->final_src = (uchar)src;
+    fec->first_ts  = ts;
   }
-  blk->fecs[ fec_idx ] = (uint)fd_repair_fec_pool_idx( rotor->fec_pool, fec );
+  blk->fecs[ fec_idx ] = (uint)fidx;
   blk->rcvd_fec_cnt    = fd_uint_max( blk->rcvd_fec_cnt, fec_idx+1U );
   fec->rcvd            = fd_uint_set_bit( fec->rcvd, (int)( shred->idx - fec_idx*FD_FEC_SHRED_CNT ) );
+  fec_put( rotor, fidx, fec );
 }
 
 void

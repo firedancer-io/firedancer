@@ -340,7 +340,8 @@ poll_timeout( fd_repair_tile_t * ctx,
 
       fd_repair_slot_meta_t const * meta = fd_repair_slot_meta( ctx->rotor, blk->slot );
       if( FD_UNLIKELY( meta->final!=req.blk && meta->notar!=req.blk && meta->eager==req.blk && !blk->eager ) ) { ctx->metrics->req_cancelled++; continue; } /* the slot's eager blk, never repaired */
-      fd_repair_fec_t const * fec = fd_repair_fec_pool_ele_const( ctx->rotor->fec_pool, fd_ulong_if( req.tag==FD_REPAIR_SERDE_TAG_WINDOW_INDEX, blk->fecs[ req.fec_idx ], fd_repair_fec_pool_idx_null( ctx->rotor->fec_pool ) ) );
+      fd_repair_fec_t         buf[1];
+      fd_repair_fec_t const * fec = fd_repair_fec_read( ctx->rotor, fd_ulong_if( req.tag==FD_REPAIR_SERDE_TAG_WINDOW_INDEX, blk->fecs[ req.fec_idx ], FD_REPAIR_FEC_IDX_NULL ), buf );
       if( FD_UNLIKELY( req.tag==FD_REPAIR_SERDE_TAG_PARENT_AND_FEC_SET_COUNT && blk->parent_slot!=ULONG_MAX                   ) ) { ctx->metrics->req_cancelled++; continue; }
       if( FD_UNLIKELY( req.tag==FD_REPAIR_SERDE_TAG_WINDOW_INDEX             && fec && fec->complete                          ) ) { ctx->metrics->req_cancelled++; continue; }
       if( FD_UNLIKELY( req.tag==FD_REPAIR_SERDE_TAG_WINDOW_INDEX             && !blk->eager && req.fec_idx>=blk->cmpl_fec_cnt ) ) { ctx->metrics->req_cancelled++; continue; } /* of a freed blk whose pool idx was reused */
@@ -406,7 +407,8 @@ discover( fd_repair_tile_t * ctx,
   uint        cmpl_fec_cnt = fd_uint_if( !!blk->cmpl_fec_cnt, blk->cmpl_fec_cnt, fd_uint_if( eager, blk->rcvd_fec_cnt, 0U ) );
   uint        fec_idx      = blk->wait_fec_cnt;
   for( ; fec_idx<cmpl_fec_cnt && timeout_prq_cnt( prq )<timeout_prq_max( prq ); fec_idx++ ) {
-    fd_repair_fec_t const * fec = fd_repair_fec_pool_ele_const( ctx->rotor->fec_pool, blk->fecs[ fec_idx ] );
+    fd_repair_fec_t         buf[1];
+    fd_repair_fec_t const * fec = fd_repair_fec_read( ctx->rotor, blk->fecs[ fec_idx ], buf );
     if( FD_LIKELY( fec && fec->complete ) ) continue;
     req.tag     = FD_REPAIR_SERDE_TAG_WINDOW_INDEX;
     req.fec_idx = fec_idx;
@@ -429,7 +431,8 @@ report_block_received( void *                  ctx_,
   if( FD_LIKELY( !fd_event_tl ) ) return;
   fd_repair_tile_t *      ctx       = (fd_repair_tile_t *)ctx_;
   uint                    fec_cnt   = fd_uint_if( !!blk->cmpl_fec_cnt, blk->cmpl_fec_cnt, blk->rcvd_fec_cnt ); /* an incomplete blk reports what it received */
-  fd_repair_fec_t const * last      = fd_repair_fec_pool_ele_const( ctx->rotor->fec_pool, fec_cnt ? blk->fecs[ fec_cnt-1U ] : fd_repair_fec_pool_idx_null( ctx->rotor->fec_pool ) );
+  fd_repair_fec_t         buf[1];
+  fd_repair_fec_t const * last      = fd_repair_fec_read( ctx->rotor, fec_cnt ? blk->fecs[ fec_cnt-1U ] : FD_REPAIR_FEC_IDX_NULL, buf );
   int                     is_leader = last && last->is_leader;
   int                     known_id  = fd_repair_slot_meta( ctx->rotor, blk->slot )->eager!=fd_repair_blk_pool_idx( ctx->rotor->blk_pool, blk );
   fd_event_block_received_t * ev =  ctx->event;
@@ -468,7 +471,7 @@ report_block_received( void *                  ctx_,
   memcpy( ev->parent_block_id, blk->parent_blk_mr.uc, sizeof(fd_mr32_t) );
   ev->fec_sets_cnt = fd_ulong_min( fec_cnt, FD_EVENT_BLOCK_RECEIVED_FEC_SETS_MAX );
   for( ulong k=0UL; k<ev->fec_sets_cnt; k++ ) {
-    fd_repair_fec_t const *              fec = fd_repair_fec_pool_ele_const( ctx->rotor->fec_pool, blk->fecs[ k ] );
+    fd_repair_fec_t const *              fec = fd_repair_fec_read( ctx->rotor, blk->fecs[ k ], buf );
     fd_event_block_received_fec_sets_t * f   = &ev->fec_sets[ k ];
     fd_memset( f, 0, sizeof(fd_event_block_received_fec_sets_t) );
     if( FD_UNLIKELY( !fec ) ) continue; /* an incomplete blk can miss FEC sets */
@@ -1037,7 +1040,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   ulong chain_cnt   = pending_map_chain_cnt_est( pending_max );
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_repair_tile_t),          sizeof(fd_repair_tile_t)                         );
-  l = FD_LAYOUT_APPEND( l, fd_repair_align(),                  fd_repair_footprint( tile->rotor.slot_max, tile->rotor.fec_max, tile->rotor.max_shreds_per_block/FD_FEC_SHRED_CNT ) );
+  l = FD_LAYOUT_APPEND( l, fd_repair_align(),                  fd_repair_footprint( tile->rotor.slot_max, tile->rotor.fec_max, fd_ulong_min( tile->rotor.fec_max, FD_REPAIR_FEC_RAM_MAX ), tile->rotor.max_shreds_per_block/FD_FEC_SHRED_CNT ) );
   l = FD_LAYOUT_APPEND( l, fd_repair_strat_align(),            fd_repair_strat_footprint()                      );
   l = FD_LAYOUT_APPEND( l, fd_multi_epoch_leaders_align(),     fd_multi_epoch_leaders_footprint()               );
   l = FD_LAYOUT_APPEND( l, ping_deque_align(),                 ping_deque_footprint( FD_REPAIR_STRAT_PEER_MAX ) );
@@ -1066,7 +1069,8 @@ after_credit( fd_repair_tile_t *  ctx,
 
     fd_repair_deque_t        out = fd_repair_deque_pop_head( ctx->rotor->reasm_deque );
     fd_repair_blk_t const *  blk = fd_repair_blk_pool_ele_const( ctx->rotor->blk_pool, out.blk_idx );
-    fd_repair_fec_t const *  fec = fd_repair_fec_pool_ele_const( ctx->rotor->fec_pool, blk->fecs[ out.fec_idx ] );
+    fd_repair_fec_t          buf[1];
+    fd_repair_fec_t const *  fec = fd_repair_fec_read( ctx->rotor, blk->fecs[ out.fec_idx ], buf );
     fd_repair_replay_fec_t * msg = fd_chunk_to_laddr( ctx->replay_out_mem, ctx->replay_out_chunk );
     fd_memset( msg, 0, sizeof(fd_repair_replay_fec_t) );
     ulong fec_set_idx    = (ulong)out.fec_idx*FD_FEC_SHRED_CNT;
@@ -1096,7 +1100,7 @@ after_credit( fd_repair_tile_t *  ctx,
       block->parent_slot     = blk->parent_slot;
       block->parent_block_id = blk->parent_blk_mr;
       block->fec_set_cnt     = blk->cmpl_fec_cnt;
-      for( uint k=0U; k<blk->cmpl_fec_cnt; k++ ) memcpy( block->merkle_roots[ k ], fd_repair_fec_pool_ele_const( ctx->rotor->fec_pool, blk->fecs[ k ] )->key.uc, FD_SHRED_MERKLE_NODE_SZ );
+      for( uint k=0U; k<blk->cmpl_fec_cnt; k++ ) memcpy( block->merkle_roots[ k ], fd_repair_fec_read( ctx->rotor, blk->fecs[ k ], buf )->key.uc, FD_SHRED_MERKLE_NODE_SZ );
       ulong sz = FD_REPAIR_BLOCK_SZ( blk->cmpl_fec_cnt );
       fd_stem_publish( stem, ctx->rserve_out_idx, ROTOR_SIG_BLOCK, ctx->rserve_out_chunk, sz, 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
       ctx->rserve_out_chunk = fd_dcache_compact_next( ctx->rserve_out_chunk, sz, ctx->rserve_out_chunk0, ctx->rserve_out_wmark );
@@ -1189,7 +1193,8 @@ after_credit( fd_repair_tile_t *  ctx,
     fd_repair_blk_t * blk = poll_timeout( ctx, now, &req );
     if( FD_UNLIKELY(  !blk ) ) break;
 
-    fd_repair_fec_t const * fec   = fd_repair_fec_pool_ele_const( ctx->rotor->fec_pool, fd_ulong_if( req.tag==FD_REPAIR_SERDE_TAG_WINDOW_INDEX, blk->fecs[ req.fec_idx ], fd_repair_fec_pool_idx_null( ctx->rotor->fec_pool ) ) );
+    fd_repair_fec_t         buf[1];
+    fd_repair_fec_t const * fec   = fd_repair_fec_read( ctx->rotor, fd_ulong_if( req.tag==FD_REPAIR_SERDE_TAG_WINDOW_INDEX, blk->fecs[ req.fec_idx ], FD_REPAIR_FEC_IDX_NULL ), buf );
     int                     eager = blk->eager;
     uint                    tag   = req.tag!=FD_REPAIR_SERDE_TAG_WINDOW_INDEX ? req.tag                                      : /* a FEC set req becomes what its blk still lacks */
                                     eager                                     ? FD_REPAIR_SERDE_TAG_WINDOW_INDEX             :
@@ -1528,7 +1533,7 @@ unprivileged_init( fd_topo_t const *      topo,
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_repair_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_repair_tile_t),          sizeof(fd_repair_tile_t)                         );
-  ctx->rotor             = FD_SCRATCH_ALLOC_APPEND( l, fd_repair_align(),                  fd_repair_footprint( tile->rotor.slot_max, tile->rotor.fec_max, tile->rotor.max_shreds_per_block/FD_FEC_SHRED_CNT ) );
+  ctx->rotor             = FD_SCRATCH_ALLOC_APPEND( l, fd_repair_align(),                  fd_repair_footprint( tile->rotor.slot_max, tile->rotor.fec_max, fd_ulong_min( tile->rotor.fec_max, FD_REPAIR_FEC_RAM_MAX ), tile->rotor.max_shreds_per_block/FD_FEC_SHRED_CNT ) );
   void * strat           = FD_SCRATCH_ALLOC_APPEND( l, fd_repair_strat_align(),            fd_repair_strat_footprint()                      );
   void * mleaders        = FD_SCRATCH_ALLOC_APPEND( l, fd_multi_epoch_leaders_align(),     fd_multi_epoch_leaders_footprint()               );
   void * ping_deque      = FD_SCRATCH_ALLOC_APPEND( l, ping_deque_align(),                 ping_deque_footprint( FD_REPAIR_STRAT_PEER_MAX ) );
@@ -1544,7 +1549,7 @@ unprivileged_init( fd_topo_t const *      topo,
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
 
-  ctx->rotor = fd_repair_join( fd_repair_new( ctx->rotor, tile->rotor.slot_max, tile->rotor.fec_max, tile->rotor.max_shreds_per_block/FD_FEC_SHRED_CNT, ctx->seed ) );
+  ctx->rotor = fd_repair_join( fd_repair_new( ctx->rotor, tile->rotor.slot_max, tile->rotor.fec_max, fd_ulong_min( tile->rotor.fec_max, FD_REPAIR_FEC_RAM_MAX ), tile->rotor.max_shreds_per_block/FD_FEC_SHRED_CNT, FD_REPAIR_FEC_FD, ctx->seed ) );
   FD_TEST( ctx->rotor );
   ctx->mleaders = fd_multi_epoch_leaders_join( fd_multi_epoch_leaders_new( mleaders ) );
   FD_TEST( ctx->mleaders );
@@ -1642,7 +1647,7 @@ populate_allowed_seccomp( fd_topo_t const *      topo FD_PARAM_UNUSED,
                           fd_topo_tile_t const * tile FD_PARAM_UNUSED,
                           ulong                  out_cnt,
                           struct sock_filter *   out ) {
-  populate_sock_filter_policy_fd_repair_tile( out_cnt, out, (uint)fd_log_private_logfile_fd() );
+  populate_sock_filter_policy_fd_repair_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)FD_REPAIR_FEC_FD );
   return sock_filter_policy_fd_repair_tile_instr_cnt;
 }
 
@@ -1651,12 +1656,13 @@ populate_allowed_fds( fd_topo_t const *      topo FD_PARAM_UNUSED,
                       fd_topo_tile_t const * tile FD_PARAM_UNUSED,
                       ulong                  out_fds_cnt,
                       int *                  out_fds ) {
-  if( FD_UNLIKELY( out_fds_cnt<2UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+  if( FD_UNLIKELY( out_fds_cnt<3UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
 
   ulong out_cnt = 0UL;
   out_fds[ out_cnt++ ] = 2; /* stderr */
   if( FD_LIKELY( -1!=fd_log_private_logfile_fd() ) )
     out_fds[ out_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
+  out_fds[ out_cnt++ ] = FD_REPAIR_FEC_FD; /* FEC set spill */
   return out_cnt;
 }
 
