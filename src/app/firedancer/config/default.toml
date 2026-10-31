@@ -1983,8 +1983,9 @@ telemetry = true
 
 # Firedancer validators support a coordinated failover protocol.  A
 # handoff transfers the final vote history after the active stops signing.
-# `failover promote --force` bypasses peer checks and can discard earlier
-# lockouts or allow both validators to vote.
+# When the handoff fails, `failover promote --adopt` and `--force` take the
+# identity without coordination and can discard earlier lockouts or allow
+# both validators to vote.
 #
 # The protocol works by hosting a TCP listener on your validator.  Any
 # peer in possession of the currently active identity private key can

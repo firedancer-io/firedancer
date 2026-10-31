@@ -62,7 +62,7 @@
 #define FD_FAILOVER_HANDOFF_TAKEN      (2UL) /* the requesting machine took the identity */
 #define FD_FAILOVER_HANDOFF_DECLINED   (3UL) /* it did not take the identity, or the machine that handed it over did not record that it did */
 #define FD_FAILOVER_HANDOFF_RESTARTED  (4UL) /* the peer came back with a new boot_id */
-#define FD_FAILOVER_HANDOFF_CANCELLED  (5UL) /* `failover promote --force` stopped waiting for the peer */
+#define FD_FAILOVER_HANDOFF_CANCELLED  (5UL) /* `failover promote --adopt` or `--force` stopped waiting for the peer */
 #define FD_FAILOVER_HANDOFF_NOT_HOLDER (6UL) /* the machine we dialed does not run the identity */
 #define FD_FAILOVER_HANDOFF_CNT        (7UL)
 
@@ -147,7 +147,7 @@ struct fd_failover_promotion {
   fd_failover_peer_t    peer;         /* that DEMOTED's member boot, it gets our response */
   ulong                 handoff_id;   /* and its handoff id */
   ulong                 floor;        /* coverage floor when it started */
-  int                   force;        /* `failover promote --force`, we skip the peer checks and accept incomplete or empty history */
+  int                   force;        /*  for adopt/force, we skip the peer checks and accept incomplete or empty history */
   int                   holder_seen;  /* a peer running the identity authenticated after promotion started */
   fd_failover_history_t adopt;        /* history or the bound sent to votor */
   ulong                 adopt_id;     /* id of the adoption we asked the votor for */

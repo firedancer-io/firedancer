@@ -1,6 +1,9 @@
 $ sudo firedancer failover promote identity.json --yes --force
 [32mNOTICE [0m attached to [32mlive[0m validator [1mfd1[0m version 0.1.1 [2m(babe91c83ca)[0m pid 1983468 up 3m at [2m/mnt/.fd[0m
-[32mNOTICE [0m requesting forced promotion, this machine takes the identity without its peer
+[32mNOTICE [0m requesting takeover of the identity from the peer running it in gossip
+[32mNOTICE [0m handoff 4142940312112305589: requesting handoff from the machine running the identity at `192.0.2.10:8010` using gossip
+[93mWARNING[0m the handoff failed, the machine running the identity did not answer within 64 seconds
+[32mNOTICE [0m requesting forced promotion, this machine takes the identity without the other machine
 [32mNOTICE [0m operator promotion: adopting an empty history, --force skips the checks on the other machine
 [32mNOTICE [0m operator promotion: asking the votor to adopt an empty history
 [32mNOTICE [0m operator promotion: the votor adopted an empty history, no last vote, no vote at or below slot 389274493

@@ -161,11 +161,11 @@ while other vote history files are there.
 
 ## Forced promotion
 
-`failover promote --force` makes the local validator take the identity
-without contacting the remote validator. It is for when no machine runs
-the identity: after both machines restarted, after a handoff that failed
-part way, or when the machine running the identity is down and cannot
-be reached.
+`failover promote --force` first asks the remote validator for a handoff
+and, if that fails, makes the local validator take the identity anyway.
+`failover promote --adopt` does the same, but only while the remote
+shows no sign of life, neither in gossip nor on the failover channel,
+and fails otherwise.
 
 ::: warning WARNING
 

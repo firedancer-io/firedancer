@@ -355,7 +355,7 @@ to an unstaked junk key.
 See the [failover guide](/guide/failover) for more details.
 
 ```sh
-firedancer failover promote [<keypair>] [--name <name>] [--yes] [--force] [--address <address>] [--port <port>]
+firedancer failover promote [<keypair>] [--name <name>] [--yes] [--adopt | --force] [--address <address>] [--port <port>]
 ```
 
 The `<keypair>` argument is the path to an Agave style `identity.json`
@@ -380,29 +380,34 @@ default port 8010.
 | `0` | Success, the local validator now runs the identity |
 | `1` | Nothing changed due to initial checks failing |
 | `2` | No handoff, a fix is needed |
-| `3` | No handoff, retry again |
+| `3` | No handoff, retry again. With `--adopt`, also when the remote validator may still be live |
 | `4` | The outcome is unknown, check both machines with [`get-identity`](#get-identity) |
-| `5` | The remote validator gave the identity up but the local one did not take it. Use `--force` on the local machine to recover |
+| `5` | The remote validator gave the identity up but the local one did not take it. Use `--adopt` on the local machine to recover |
 | `6` | `set-identity` was run and took precedence over this handoff |
 
 <<< @/snippets/commands/failover-promote.ansi
 
 <<< @/snippets/commands/failover-promote-failed.ansi
-### Forced promotion
+### Taking the identity without the remote
 
-With `--force`, the local validator takes the identity without
-contacting the machine running it. Use it when no machine runs the
-identity, for example after both restarted, or when the other machine
-cannot sign.
+With `--adopt` or `--force`, the command asks for the handoff first. If
+that fails, it prints the reason as a warning and the local validator
+takes the identity without the machine running it. `--adopt` does so
+only while that machine shows no sign of life, neither in gossip for 15
+seconds nor on the failover channel, and otherwise exits with code `3`
+and nothing changed. `--force` does so even if that machine may be live.
 
 ::: warning WARNING
 
-Only use `--force` after ensuring every other machine with the identity
-cannot sign. It skips the checks on the other machine and can leave votes
-and leader windows unaccounted for by accepting incomplete or empty history.
-Never force promotion on both machines at once.
+Both skip the checks on the other machine and can leave votes and leader
+windows unaccounted for by accepting incomplete or empty history. Use
+`--adopt` when the other machine is down, and `--force` only after
+ensuring every other machine with the identity cannot sign. Never do
+this on both machines at once.
 
 :::
+
+<<< @/snippets/commands/failover-promote-adopt.ansi
 
 <<< @/snippets/commands/failover-promote-force.ansi
 
@@ -411,7 +416,8 @@ Never force promotion on both machines at once.
 | `<keypair>`           | Path to the `identity.json` keypair file of the identity to take, or `-` to read the JSON formatted key from `stdin`. Defaults to `[paths.identity_key]`, or the last keypair given to `failover promote` or `set-identity` |
 | `--name <name>`       | Name of the validator instance to attach to, if more than one is running on this host |
 | `--yes`               | Skip the confirmation prompt |
-| `--force`             | Take the identity without contacting the machine running it, accepting incomplete or empty vote history |
+| `--adopt`             | If the handoff fails and the machine running the identity shows no sign of life, take the identity without it, accepting incomplete or empty vote history |
+| `--force`             | If the handoff fails, take the identity without the machine running it even if it may be live, accepting incomplete or empty vote history |
 | `--address <address>` | IPv4 address or host name of the machine running the identity, instead of the address found through gossip. |
 | `--port <port>`       | Failover TCP port of the machine running the identity, 8010 as default |
 
