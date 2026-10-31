@@ -122,7 +122,7 @@ window_sz( ulong capacity,
      of that mean.  Reserving a hundredth of the capacity puts the
      overflow threshold at sqrt(capacity)/100 deviations above the mean,
      which is over thirteen deviations at the production capacity of
-     2150000 stake accounts. */
+     1750000 stake accounts. */
   if( FD_LIKELY( max_rewards_cnt<=capacity ) ) return partitions_cnt;
 
   ulong usable = fd_ulong_max( fd_ulong_sat_sub( capacity, fd_ulong_max( capacity*1UL/100UL, 1UL ) ), 1UL );
