@@ -103,8 +103,8 @@ static void
 test_footprint( void ) {
   ulong const small_forks = 32UL;
   ulong const large_forks = FD_STAKE_DELEGATIONS_FORK_MAX;
-  ulong small = fd_stake_delegations_footprint( 1024UL, small_forks );
-  ulong large = fd_stake_delegations_footprint( 1024UL, large_forks );
+  ulong small = fd_stake_delegations_footprint( 1024UL, 1024UL, small_forks );
+  ulong large = fd_stake_delegations_footprint( 1024UL, 1024UL, large_forks );
   FD_TEST( large>small );
   FD_TEST( large-small<64UL*(large_forks-small_forks) );
 }
@@ -157,13 +157,13 @@ test_instance_disk_isolation( void ) {
   FD_TEST( fd_a>=0 && fd_b>=0 );
 
   ulong align     = fd_stake_delegations_align();
-  ulong footprint = fd_ulong_align_up( fd_stake_delegations_footprint( 1UL, 1UL ), align );
+  ulong footprint = fd_ulong_align_up( fd_stake_delegations_footprint( 1UL, 1UL, 1UL ), align );
   void * mem_a = aligned_alloc( align, footprint );
   void * mem_b = aligned_alloc( align, footprint );
   FD_TEST( mem_a && mem_b );
 
-  FD_TEST( fd_stake_delegations_new( mem_a, fd_a, 1UL, 1UL, 8UL, 1UL ) );
-  FD_TEST( fd_stake_delegations_new( mem_b, fd_b, 1UL, 1UL, 8UL, 1UL ) );
+  FD_TEST( fd_stake_delegations_new( mem_a, fd_a, 1UL, 1UL, 1UL, 8UL, 1UL ) );
+  FD_TEST( fd_stake_delegations_new( mem_b, fd_b, 1UL, 1UL, 1UL, 8UL, 1UL ) );
   FD_TEST( !fd_stake_delegations_join( mem_a, fd_b ) );
   fd_stake_delegations_t * a = fd_stake_delegations_join( mem_a, fd_a );
   fd_stake_delegations_t * b = fd_stake_delegations_join( mem_b, fd_b );
@@ -210,11 +210,11 @@ static void
 test_totals( void ) {
   int spill_fd = memfd_create( "stake_delegations_totals", 0 );
   FD_TEST( spill_fd>=0 );
-  ulong footprint = fd_stake_delegations_footprint( 2UL, 2UL );
+  ulong footprint = fd_stake_delegations_footprint( 2UL, 2UL, 2UL );
   void * mem = aligned_alloc( fd_stake_delegations_align(), footprint );
   FD_TEST( mem );
   fd_stake_delegations_t * stake_delegations = fd_stake_delegations_join(
-      fd_stake_delegations_new( mem, spill_fd, 23UL, 2UL, 8UL, 2UL ), spill_fd );
+      fd_stake_delegations_new( mem, spill_fd, 23UL, 2UL, 2UL, 8UL, 2UL ), spill_fd );
   FD_TEST( stake_delegations );
 
   fd_stake_history_entry_t totals = fd_stake_delegations_totals( stake_delegations );
@@ -251,11 +251,11 @@ static void
 test_shared_forks( ulong max_stake_accounts ) {
   int spill_fd = memfd_create( "stake_delegations_shared_forks", 0 );
   FD_TEST( spill_fd>=0 );
-  ulong footprint = fd_stake_delegations_footprint( max_stake_accounts, 16UL );
+  ulong footprint = fd_stake_delegations_footprint( max_stake_accounts, max_stake_accounts, 16UL );
   void * mem = aligned_alloc( fd_stake_delegations_align(), footprint );
   FD_TEST( mem );
   fd_stake_delegations_t * stake_delegations = fd_stake_delegations_join(
-      fd_stake_delegations_new( mem, spill_fd, 9UL, max_stake_accounts, 128UL, 16UL ), spill_fd );
+      fd_stake_delegations_new( mem, spill_fd, 9UL, max_stake_accounts, max_stake_accounts, 128UL, 16UL ), spill_fd );
   FD_TEST( stake_delegations );
 
   fd_stake_history_t history[1] = {0};
@@ -375,11 +375,11 @@ static void
 test_disk_iterator_batches( void ) {
   int spill_fd = memfd_create( "stake_delegations_iter_batches", 0 );
   FD_TEST( spill_fd>=0 );
-  ulong footprint = fd_stake_delegations_footprint( 8UL, 4UL );
+  ulong footprint = fd_stake_delegations_footprint( 8UL, 8UL, 4UL );
   void * mem = aligned_alloc( fd_stake_delegations_align(), footprint );
   FD_TEST( mem );
   fd_stake_delegations_t * stake_delegations = fd_stake_delegations_join(
-      fd_stake_delegations_new( mem, spill_fd, 17UL, 8UL, 512UL, 4UL ), spill_fd );
+      fd_stake_delegations_new( mem, spill_fd, 17UL, 8UL, 8UL, 512UL, 4UL ), spill_fd );
   FD_TEST( stake_delegations );
 
   fd_pubkey_t keys[ 269 ];
@@ -467,11 +467,11 @@ static void
 test_disk_delta_links( void ) {
   int spill_fd = memfd_create( "stake_delegations_delta_links", 0 );
   FD_TEST( spill_fd>=0 );
-  ulong footprint = fd_stake_delegations_footprint( 2UL, 4UL );
+  ulong footprint = fd_stake_delegations_footprint( 2UL, 2UL, 4UL );
   void * mem = aligned_alloc( fd_stake_delegations_align(), footprint );
   FD_TEST( mem );
   fd_stake_delegations_t * stake_delegations = fd_stake_delegations_join(
-      fd_stake_delegations_new( mem, spill_fd, 19UL, 2UL, 64UL, 4UL ), spill_fd );
+      fd_stake_delegations_new( mem, spill_fd, 19UL, 2UL, 2UL, 64UL, 4UL ), spill_fd );
   FD_TEST( stake_delegations );
   fd_pubkey_t vote_key = { .ul = { 19UL, 23UL } };
   fd_pubkey_t filler_key = { .ul = { 29UL, 31UL } };
@@ -551,11 +551,11 @@ static void
 test_ancestry( ulong root_max ) {
   int spill_fd = memfd_create( "stake_delegations_ancestry", 0 );
   FD_TEST( spill_fd>=0 );
-  ulong footprint = fd_stake_delegations_footprint( root_max, 16UL );
+  ulong footprint = fd_stake_delegations_footprint( root_max, root_max, 16UL );
   void * mem = aligned_alloc( fd_stake_delegations_align(), footprint );
   FD_TEST( mem );
   fd_stake_delegations_t * sd = fd_stake_delegations_join(
-      fd_stake_delegations_new( mem, spill_fd, 7UL, root_max, 64UL, 16UL ), spill_fd );
+      fd_stake_delegations_new( mem, spill_fd, 7UL, root_max, root_max, 64UL, 16UL ), spill_fd );
   FD_TEST( sd );
   fd_pubkey_t a = { .ul = { 1UL } };
   fd_pubkey_t b = { .ul = { 2UL } };
@@ -615,11 +615,11 @@ static void
 test_ancestry_lifetimes( void ) {
   int spill_fd = memfd_create( "stake_delegations_ancestry_lifetimes", 0 );
   FD_TEST( spill_fd>=0 );
-  ulong footprint = fd_stake_delegations_footprint( 2UL, FD_STAKE_DELEGATIONS_FORK_MAX );
+  ulong footprint = fd_stake_delegations_footprint( 2UL, 2UL, FD_STAKE_DELEGATIONS_FORK_MAX );
   void * mem = aligned_alloc( fd_stake_delegations_align(), footprint );
   FD_TEST( mem );
   fd_stake_delegations_t * sd = fd_stake_delegations_join(
-      fd_stake_delegations_new( mem, spill_fd, 11UL, 2UL, 64UL, FD_STAKE_DELEGATIONS_FORK_MAX ), spill_fd );
+      fd_stake_delegations_new( mem, spill_fd, 11UL, 2UL, 2UL, 64UL, FD_STAKE_DELEGATIONS_FORK_MAX ), spill_fd );
   FD_TEST( sd );
   fd_pubkey_t key = { .ul = { 17UL } };
   fd_stake_history_t history[1] = {0};
@@ -709,16 +709,16 @@ int main( int argc, char ** argv ) {
 
   ulong const max_live_slots = 32UL;
 
-  void * stake_delegations_mem = fd_wksp_alloc_laddr( wksp, fd_stake_delegations_align(), fd_stake_delegations_footprint( max_stake_accounts, max_live_slots ), wksp_tag );
+  void * stake_delegations_mem = fd_wksp_alloc_laddr( wksp, fd_stake_delegations_align(), fd_stake_delegations_footprint( max_stake_accounts, max_stake_accounts, max_live_slots ), wksp_tag );
   FD_TEST( stake_delegations_mem );
 
   FD_TEST( fd_stake_delegations_align()>=alignof(fd_stake_delegations_t)  );
   FD_TEST( fd_stake_delegations_align()==FD_STAKE_DELEGATIONS_ALIGN );
 
-  FD_TEST( !fd_stake_delegations_new( NULL, FD_STAKE_DELEGATIONS_FD, 0UL, max_stake_accounts, max_disk_records, max_live_slots ) );
-  FD_TEST( !fd_stake_delegations_new( stake_delegations_mem, -1, 0UL, max_stake_accounts, max_disk_records, max_live_slots ) );
-  FD_TEST( !fd_stake_delegations_new( stake_delegations_mem, FD_STAKE_DELEGATIONS_FD, 0UL, 0UL, max_disk_records, max_live_slots ) );
-  void * new_stake_delegations_mem = fd_stake_delegations_new( stake_delegations_mem, FD_STAKE_DELEGATIONS_FD, 0UL, max_stake_accounts, max_disk_records, max_live_slots );
+  FD_TEST( !fd_stake_delegations_new( NULL, FD_STAKE_DELEGATIONS_FD, 0UL, max_stake_accounts, max_stake_accounts, max_disk_records, max_live_slots ) );
+  FD_TEST( !fd_stake_delegations_new( stake_delegations_mem, -1, 0UL, max_stake_accounts, max_stake_accounts, max_disk_records, max_live_slots ) );
+  FD_TEST( !fd_stake_delegations_new( stake_delegations_mem, FD_STAKE_DELEGATIONS_FD, 0UL, 0UL, 0UL, max_disk_records, max_live_slots ) );
+  void * new_stake_delegations_mem = fd_stake_delegations_new( stake_delegations_mem, FD_STAKE_DELEGATIONS_FD, 0UL, max_stake_accounts, max_stake_accounts, max_disk_records, max_live_slots );
   FD_TEST( new_stake_delegations_mem );
 
   FD_TEST( !fd_stake_delegations_join( NULL, FD_STAKE_DELEGATIONS_FD ) );
@@ -1661,11 +1661,11 @@ int main( int argc, char ** argv ) {
     void * small_mem = fd_wksp_alloc_laddr(
         wksp,
         fd_stake_delegations_align(),
-        fd_stake_delegations_footprint( small_max, small_forks ),
+        fd_stake_delegations_footprint( small_max, small_max, small_forks ),
         wksp_tag );
     FD_TEST( small_mem );
     fd_stake_delegations_t * small = fd_stake_delegations_join(
-        fd_stake_delegations_new( small_mem, small_fd, 1UL, small_max, small_disk_max, small_forks ),
+        fd_stake_delegations_new( small_mem, small_fd, 1UL, small_max, small_max, small_disk_max, small_forks ),
         small_fd );
     FD_TEST( small );
 
@@ -1716,11 +1716,11 @@ int main( int argc, char ** argv ) {
     void * small_mem = fd_wksp_alloc_laddr(
         wksp,
         fd_stake_delegations_align(),
-        fd_stake_delegations_footprint( small_max, small_forks ),
+        fd_stake_delegations_footprint( small_max, small_max, small_forks ),
         wksp_tag );
     FD_TEST( small_mem );
     fd_stake_delegations_t * small = fd_stake_delegations_join(
-        fd_stake_delegations_new( small_mem, small_fd, 3UL, small_max, small_disk_max, small_forks ),
+        fd_stake_delegations_new( small_mem, small_fd, 3UL, small_max, small_max, small_disk_max, small_forks ),
         small_fd );
     FD_TEST( small );
 
@@ -1747,6 +1747,61 @@ int main( int argc, char ** argv ) {
     FD_TEST( !small->disk_delta_cnt_ );
     FD_TEST( !close( small_fd ) );
     fd_wksp_free_laddr( small_mem );
+  }
+
+  /* Case 41: A RAM root window below max_stake_accounts keeps the full
+     2*max_stake_accounts+2*max_disk_records root capacity via the disk
+     tier, and the delta pool stays sized by max_stake_accounts. */
+  {
+    int win_fd = memfd_create( "stake_delegations_root_window", 0 );
+    FD_TEST( win_fd>=0 );
+
+    ulong const win_max      = 4UL;
+    ulong const win_cache    = 2UL;
+    ulong const win_disk_max = 1UL;
+    ulong const win_forks    = 2UL;
+    FD_TEST( fd_stake_delegations_footprint( win_max, win_cache, win_forks )<fd_stake_delegations_footprint( win_max, win_max, win_forks ) );
+    void * win_mem = fd_wksp_alloc_laddr(
+        wksp,
+        fd_stake_delegations_align(),
+        fd_stake_delegations_footprint( win_max, win_cache, win_forks ),
+        wksp_tag );
+    FD_TEST( win_mem );
+    FD_TEST( !fd_stake_delegations_new( win_mem, win_fd, 5UL, win_max, 0UL, win_disk_max, win_forks ) );
+    FD_TEST( !fd_stake_delegations_new( win_mem, win_fd, 5UL, win_max, win_max+1UL, win_disk_max, win_forks ) );
+    fd_stake_delegations_t * win = fd_stake_delegations_join(
+        fd_stake_delegations_new( win_mem, win_fd, 5UL, win_max, win_cache, win_disk_max, win_forks ),
+        win_fd );
+    FD_TEST( win );
+
+    ulong const root_cap = 2UL*win_max+2UL*win_disk_max;
+    for( ulong i=0UL; i<root_cap; i++ ) {
+      fd_pubkey_t k = { .ul = { 290000UL+i, 300000UL+i } };
+      fd_stake_delegations_root_update( win, &k, &voter_pubkey_0, i+1UL, ULONG_MAX, ULONG_MAX, 0UL, TEST_STAKE_DELEGATION_LAMPORTS, TEST_STAKE_DELEGATION_ACC_DLEN );
+    }
+    FD_TEST( win->disk_root_cnt_==root_cap-win_cache );
+    ulong seen = 0UL;
+    fd_stake_delegations_iter_t iter_[1];
+    for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, win );
+         !fd_stake_delegations_iter_done( iter );
+         fd_stake_delegations_iter_next( iter ) ) {
+      fd_stake_delegation_t const * d = fd_stake_delegations_iter_ele( iter );
+      ulong i = d->stake_account.ul[0]-290000UL;
+      FD_TEST( i<root_cap && d->stake==i+1UL );
+      FD_TEST( (fd_stake_delegations_iter_idx( iter )<win_cache)==(i<win_cache) );
+      seen++;
+    }
+    FD_TEST( seen==root_cap );
+
+    ushort fork_idx = fd_stake_delegations_new_fork( win, USHORT_MAX );
+    for( ulong i=0UL; i<win_max/FD_STAKE_DELEGATIONS_DELTA_POOL_DIVISOR; i++ ) {
+      fd_pubkey_t k = { .ul = { 310000UL+i, 320000UL+i } };
+      fd_stake_delegations_fork_update( win, fork_idx, 0UL, &k, &voter_pubkey_1, 1UL, ULONG_MAX, ULONG_MAX, 0UL, TEST_STAKE_DELEGATION_LAMPORTS, TEST_STAKE_DELEGATION_ACC_DLEN );
+    }
+    FD_TEST( !win->disk_delta_cnt_ );
+    fd_stake_delegations_evict_fork( win, fork_idx );
+    FD_TEST( !close( win_fd ) );
+    fd_wksp_free_laddr( win_mem );
   }
 
   /* advance_root stats.  Stats count delta entries applied:

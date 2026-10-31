@@ -1120,6 +1120,10 @@ fd_topo_initialize( config_t * config ) {
   FD_TEST( fd_pod_insertf_ulong( topo->props, banks_obj->id, "banks" ) );
 
   if( FD_UNLIKELY( config->firedancer.runtime.max_live_slots<32UL ) ) FD_LOG_ERR(( "max_live_slots must be >= 32" ));
+  if( FD_UNLIKELY( !config->firedancer.runtime.stake_delegation_cache_cnt ||
+                   config->firedancer.runtime.stake_delegation_cache_cnt>FD_RUNTIME_MAX_STAKE_ACCOUNTS ) ) {
+    FD_LOG_ERR(( "stake_delegation_cache_cnt must be in [1,%lu]", FD_RUNTIME_MAX_STAKE_ACCOUNTS ));
+  }
 
   setup_topo_progcache( topo, "progcache",
       config->firedancer.runtime.max_live_slots,
