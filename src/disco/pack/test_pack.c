@@ -1558,6 +1558,59 @@ test_nonce( void ) {
 }
 
 static void
+make_penalty_nonce_transaction( fd_txn_p_t * txnp,
+                                ulong        signature_idx,
+                                ulong        nonce_idx,
+                                double       priority ) {
+  make_nonce_transaction1( txnp, signature_idx, priority, 4, 0, (char)nonce_idx );
+  /* Distinct nonce keys, with the other writable accounts still shared. */
+  uchar * nonce_acct = txnp->payload+TXN( txnp )->acct_addr_off+4UL*FD_TXN_ACCT_ADDR_SZ;
+  fd_memcpy( nonce_acct+24UL, &nonce_idx, sizeof(nonce_idx) );
+}
+
+static void
+test_nonce_replacement_penalty( int as_bundle ) {
+  FD_LOG_NOTICE(( "TEST NONCE REPLACEMENT PENALTY PROMOTION" ));
+  fd_pack_t * pack = init_all( 1024UL, 1UL, 128UL, &outcome );
+
+  /* Shared writable accounts put the later transactions in penalty
+     treaps.  Replacing the first 65 must not drain the ready treap. */
+  for( ulong i=0UL; i<128UL; i++ ) {
+    make_penalty_nonce_transaction( txnp_scratch+i, i, i, 10.0 );
+    FD_TEST( insert1( txnp_scratch+i, 0UL, pack )==FD_PACK_INSERT_ACCEPT_NONCE_NONVOTE_ADD );
+  }
+  fd_ed25519_sig_t bundle_sig[65];
+  for( ulong i=0UL; i<65UL; i++ ) {
+    if( as_bundle ) {
+      fd_txn_e_t * _bundle[1];
+      fd_txn_e_t * const * bundle = fd_pack_insert_bundle_init( pack, _bundle, 1UL );
+      make_penalty_nonce_transaction( bundle[0]->txnp, 128UL+i, i, 11.0 );
+      fd_memcpy( bundle_sig+i, txnp_get_signatures( bundle[0]->txnp ), sizeof(fd_ed25519_sig_t) );
+      ulong deleted;
+      FD_TEST( fd_pack_insert_bundle_fini( pack, bundle, 1UL, 1UL, 0, NULL, &deleted )==FD_PACK_INSERT_ACCEPT_NONCE_NONVOTE_REPLACE );
+      FD_TEST( deleted==1UL );
+    } else {
+      make_penalty_nonce_transaction( txnp_scratch+128UL+i, 128UL+i, i, 11.0 );
+      FD_TEST( insert1( txnp_scratch+128UL+i, 1UL, pack )==FD_PACK_INSERT_ACCEPT_NONCE_NONVOTE_REPLACE );
+    }
+  }
+  FD_TEST( fd_pack_avail_txn_cnt( pack )==128UL );
+  if( as_bundle ) {
+    /* Remove the replacements without completing any microblock, so
+       scheduling cannot itself promote the stranded writers. */
+    for( ulong i=0UL; i<65UL; i++ ) FD_TEST( fd_pack_delete_transaction( pack, fd_type_pun( bundle_sig+i ) )==1UL );
+  }
+  ulong remaining = as_bundle ? 63UL : 128UL;
+  FD_TEST( fd_pack_avail_txn_cnt( pack )==remaining );
+  FD_TEST( !fd_pack_verify( pack, pack_verify_scratch ) );
+  for( ulong i=0UL; i<remaining; i++ ) {
+    schedule_validate_microblock( pack, FD_PACK_TEST_MAX_COST_PER_BLOCK, 1UL, 0UL, 0UL, &outcome );
+  }
+  FD_TEST( !fd_pack_avail_txn_cnt( pack ) );
+  FD_TEST( !fd_pack_verify( pack, pack_verify_scratch ) );
+}
+
+static void
 test_bundle_nonce_conflict_detect( fd_pack_t * pack,
                                    ulong       txn_cnt,
                                    ulong       dup_idx_0,
@@ -1756,6 +1809,8 @@ main( int     argc,
   test_reject_blocklist();
   test_duplicate_sig();
   test_nonce();
+  test_nonce_replacement_penalty( 0 );
+  test_nonce_replacement_penalty( 1 );
   test_bundle_nonce();
   if( extra_benchmark ) {
     performance_test( extra_benchmark );
