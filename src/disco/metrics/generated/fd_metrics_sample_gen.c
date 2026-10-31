@@ -1693,7 +1693,7 @@ static fd_metrics_sample_field_t const fields_accdb[ 136 ] = {
   { 0, 0U, FD_METRICS_SAMPLE_CLOSE, NULL, 0UL },
 };
 
-static fd_metrics_sample_field_t const fields_replay[ 312 ] = {
+static fd_metrics_sample_field_t const fields_replay[ 314 ] = {
   { FD_METRICS_GAUGE_TILE_PID_OFF, 8U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_GAUGE_TILE_TID_OFF, 9U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_GAUGE_TILE_LAST_CPU_INDEX_OFF, 10U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
@@ -1766,6 +1766,8 @@ static fd_metrics_sample_field_t const fields_replay[ 312 ] = {
   { FD_METRICS_GAUGE_REPLAY_STORE_FEC_CACHE_USED_OFF, 38U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_GAUGE_REPLAY_STORE_FEC_CACHE_CAPACITY_OFF, 39U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_GAUGE_REPLAY_STORE_FEC_CACHE_PINNED_OFF, 40U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
+  { FD_METRICS_COUNTER_REPLAY_COST_TRACKER_SPILLED_OFF, 402197561U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
+  { FD_METRICS_COUNTER_REPLAY_COST_TRACKER_SPILL_READ_OFF, 526544996U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_COUNTER_REPLAY_TXNCACHE_PAGE_MISS_OFF, 120U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_COUNTER_REPLAY_TXNCACHE_PAGE_SPILLED_OFF, 121U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_COUNTER_REPLAY_TXNCACHE_PAGE_SPILL_READ_OFF, 122U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
@@ -4752,7 +4754,7 @@ fd_metrics_sample_schema_t const fd_metrics_sample_tiles[] = {
   { "execle", 31U, fields_execle, 254UL, 2704UL },
   { "shred", 32U, fields_shred, 177UL, 1962UL },
   { "accdb", 33U, fields_accdb, 136UL, 1421UL },
-  { "replay", 34U, fields_replay, 312UL, 3371UL },
+  { "replay", 34U, fields_replay, 314UL, 3401UL },
   { "repair", 66U, fields_repair, 158UL, 1769UL },
   { "rserve", 36U, fields_rserve, 145UL, 1593UL },
   { "gossip", 37U, fields_gossip, 185UL, 1964UL },
