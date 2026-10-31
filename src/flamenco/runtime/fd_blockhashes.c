@@ -8,6 +8,8 @@ fd_blockhashes_init( fd_blockhashes_t * mem,
     return NULL;
   }
   FD_TEST( fd_blockhash_deq_join( fd_blockhash_deq_new( &mem->d ) ) );
+  /* Non-pow2 capacity: start the head at array slot 0. */
+  mem->d.start = mem->d.end = (1UL<<63) - (1UL<<63)%FD_BLOCKHASHES_DEQ_MAX;
   memset( mem->d.deque, 0x5a, sizeof(fd_blockhash_info_t) * FD_BLOCKHASHES_DEQ_MAX );
   FD_TEST( fd_blockhash_map_join( fd_blockhash_map_new( mem, FD_BLOCKHASH_MAP_CHAIN_MAX, seed ) ) );
   return mem;
