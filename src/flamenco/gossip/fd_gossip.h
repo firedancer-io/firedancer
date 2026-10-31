@@ -134,7 +134,10 @@ fd_gossip_purged_metrics2( fd_gossip_t const * gossip );
 fd_active_set_metrics_t const *
 fd_gossip_active_set_metrics2( fd_gossip_t const * gossip );
 
-void
+/* fd_gossip_set_identity returns 1 once the switch is done, 0 if the
+   caller must call it again (ping tracker removal is budgeted). */
+
+int
 fd_gossip_set_identity( fd_gossip_t * gossip,
                         uchar const * identity_pubkey,
                         long          now,
