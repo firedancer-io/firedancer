@@ -22,13 +22,12 @@
 #define STATE_EPOCH_STAKES          12
 #define STATE_EPOCH_STAKES_STAKES   13
 #define STATE_EPOCH_STAKES_EPOCH    14
-#define STATE_EPOCH_STAKE_HISTORY   15
-#define STATE_EPOCH_TOTAL_STAKE     16
-#define STATE_NODE_VOTE_ACCOUNTS    17
-#define STATE_AUTH_VOTER            18
-#define STATE_LTHASH                19
-#define STATE_BLOCK_ID              20
-#define STATE_DONE                  21
+#define STATE_EPOCH_TOTAL_STAKE     15
+#define STATE_NODE_VOTE_ACCOUNTS    16
+#define STATE_AUTH_VOTER            17
+#define STATE_LTHASH                18
+#define STATE_BLOCK_ID              19
+#define STATE_DONE                  20
 #define STATE_INIT STATE_BLOCKHASH_QUEUE
 
 /* Epoch stakes entries are keyed max(E-3,0)..E+1, as agave retains.
