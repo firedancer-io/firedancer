@@ -234,6 +234,58 @@ test_wfs_stake_list( void ) {
   free( manifest_mem );
 }
 
+/* The ping tracker removal in a keyswitch is budgeted: after_credit
+   retries until the new identity is gone at every address, and only
+   then completes the switch. */
+
+static void
+test_set_identity_budget( void ) {
+  static ulong metrics[ FD_METRICS_TOTAL_SZ/sizeof(ulong) ];
+  fd_metrics_tl = metrics;
+
+  ulong  max_values = 256UL;
+  void * mem        = aligned_alloc( fd_gossip_align(), fd_gossip_footprint( max_values, 1UL ) );
+  void * ks_mem     = aligned_alloc( fd_keyswitch_align(), fd_keyswitch_footprint() );
+  FD_TEST( mem && ks_mem );
+
+  uchar         ping_seed[ 32 ] = {0};
+  fd_ip4_port_t entrypoint[1]   = {0};
+  ctx.gossip = fd_gossip_join( fd_gossip_new( mem, fd_rng_join( fd_rng_new( ctx.rng, 0U, 0UL ) ), ping_seed, max_values, 1UL, entrypoint,
+                                              ctx.identity_key->uc, ctx.my_contact_info, fd_clock_tile_now( ctx.clock ),
+                                              gossip_send_fn,                &ctx,
+                                              test_sign_fn,                  NULL,
+                                              gossip_ping_tracker_change_fn, &ctx,
+                                              gossip_activity_update_fn,     &ctx,
+                                              ctx.update_out, ctx.net_out ) );
+  FD_TEST( ctx.gossip );
+  ctx.keyswitch = fd_keyswitch_join( fd_keyswitch_new( ks_mem, FD_KEYSWITCH_STATE_UNLOCKED ) );
+  FD_TEST( ctx.keyswitch );
+
+  /* New identity tracked (unpinged) at more addresses than two
+     removal budgets */
+  ulong n = 2UL*FD_PING_TRACKER_SWEEP_MAX+1UL;
+  memset( ctx.keyswitch->bytes, 0x5A, 32UL );
+  long now = fd_clock_tile_now( ctx.clock );
+  for( ulong i=0UL; i<n; i++ ) fd_gossip_ping_tracker_track( ctx.gossip, ctx.keyswitch->bytes, (fd_ip4_port_t){ .addr=(uint)(i+1UL), .port=1 }, now );
+  FD_TEST( fd_gossip_ping_tracker_metrics( ctx.gossip )->unpinged_cnt==n );
+
+  ctx.is_halting_signing      = 1;
+  ctx.is_pending_set_identity = 1;
+  for( ulong r=0UL; r<3UL; r++ ) {
+    FD_TEST( ctx.is_pending_set_identity );
+    int poll_in = 1, busy = 0;
+    after_credit( &ctx, NULL, &poll_in, &busy );
+    FD_TEST( busy );
+  }
+  FD_TEST( !ctx.is_pending_set_identity && !ctx.is_halting_signing );
+  FD_TEST( fd_keyswitch_state_query( ctx.keyswitch )==FD_KEYSWITCH_STATE_COMPLETED );
+  FD_TEST( !fd_gossip_ping_tracker_metrics( ctx.gossip )->unpinged_cnt );
+  FD_TEST( fd_gossip_ping_tracker_metrics( ctx.gossip )->removed[ FD_METRICS_ENUM_PING_PEER_REMOVE_REASON_V_IDENTITY_IDX ]==n );
+
+  free( ks_mem );
+  free( mem );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -244,6 +296,7 @@ main( int     argc,
 
   test_wfs_state_transitions();
   test_wfs_stake_list();
+  test_set_identity_budget();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

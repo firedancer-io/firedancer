@@ -19,6 +19,12 @@ typedef struct fd_crds_private fd_crds_t;
 
 #define FD_CRDS_MAGIC (0xf17eda2c37c7d50UL) /* firedancer crds version 0*/
 
+/* Max entries one fd_crds_advance call expires.  Each expired contact
+   info publishes an update, so this (not the table size) bounds the
+   gossip tile's STEM_BURST.  Leftovers expire on later calls. */
+
+#define FD_CRDS_SWEEP_MAX (512UL)
+
 struct fd_crds_metrics {
   ulong count[ FD_METRICS_ENUM_CRDS_VALUE_TYPE_CNT ];
   ulong expired_cnt;
@@ -77,7 +83,7 @@ fd_crds_metrics( fd_crds_t const * crds );
      CRDS values from staked nodes expire roughly an epoch after they
      are created, and values from non-staked nodes expire after 15
      seconds. Removed contact info entries are also published as gossip
-     updates via stem.
+     updates via stem.  At most FD_CRDS_SWEEP_MAX expire per call.
    - re-weigh: peers are downsampled in the peer sampler if they have
      not been refreshed in <60s.
 
