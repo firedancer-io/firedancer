@@ -107,7 +107,9 @@ bench_setup( int * out_fd,
   FD_TEST( accdb_fp );
   void * accdb_mem = aligned_alloc( fd_accdb_align(), accdb_fp );
   FD_TEST( accdb_mem );
-  fd_accdb_t * accdb = fd_accdb_join( fd_accdb_new( accdb_mem, shmem, fd, -1, 0UL, NULL, NULL, 0UL, 1, -1, NULL ) );
+  int scratch_fd = memfd_create( "accdb_bench_scratch", 0 );
+  FD_TEST( scratch_fd>=0 && !ftruncate( scratch_fd, (long)fd_accdb_scratch_sz( max_live_slots, max_account_writes_per_slot, max_accounts, 0UL ) ) );
+  fd_accdb_t * accdb = fd_accdb_join( fd_accdb_new( accdb_mem, shmem, fd, scratch_fd, 0UL, NULL, NULL, 0UL, 1, -1, NULL ) );
   FD_TEST( accdb );
   return accdb;
 }
