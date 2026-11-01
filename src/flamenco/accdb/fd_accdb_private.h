@@ -276,7 +276,8 @@ struct fd_accdb_idx_fork {
 
 typedef struct fd_accdb_idx_fork fd_accdb_idx_fork_t;
 
-/* tier[pool] (T2 only): where T2 last put a slot. */
+/* Index tier (T2 only, accmeta executable_size bits 25..24): where T2
+   last put a slot. */
 #define FD_ACCDB_TIER_NONE    (0)
 #define FD_ACCDB_TIER_ROOTED  (1)  /* rooted acc_map, in demote FIFO */
 #define FD_ACCDB_TIER_HOT     (2)
@@ -362,12 +363,22 @@ FD_STATIC_ASSERT( offsetof(fd_accdb_accmeta_t, data)==offsetof(fd_accdb_accmeta_
      bit  30     cache_valid flag, in-memory only      (FD_ACCDB_SIZE_CACHE_VALID_BIT)
      bit  28     pd_write flag,    in-memory only      (FD_ACCDB_SIZE_PD_WRITE_BIT)
      bit  27     unlinked flag,    in-memory only      (FD_ACCDB_SIZE_UNLINKED_BIT)
-     bits 26..0  data length in bytes                  (FD_ACCDB_SIZE_MASK)
+     bit  26     spare
+     bits 25..24 index tier,       in-memory only      (FD_ACCDB_SIZE_TIER_MASK)
+     bits 23..0  data length in bytes                  (FD_ACCDB_SIZE_MASK)
 
-   The data length is therefore 27 bits, max 128 MiB, still well above
+   (bit 29 is spare too: the CACHE_CLAIM lock it held is gone.)
+
+   The data length is therefore 24 bits, max 16 MiB, still above
    FD_RUNTIME_ACC_SZ_MAX of 10 MiB (enforced by the static assert below).
 
-   The cache_valid, pd_write and unlinked bits exist only in the
+   The tier (index mode, FD_ACCDB_TIER_*) is read and written only by
+   T2, with atomic RMWs of the whole data word (fd_accdb_acc_es_or /
+   _and) on any accmeta FG can reach, so they compose with the binders'
+   and evictors' CAS of the word.  Fresh slot inits store NONE; the
+   in-place overwrite preserves it.
+
+   The cache_valid, pd_write, unlinked and tier bits exist only in the
    in-memory index, never on disk:
      - cache_valid (bit 30): when set, cache_idx holds a valid
        (class, idx) pair; when clear, cache_idx must not be dereferenced
@@ -397,7 +408,9 @@ FD_STATIC_ASSERT( offsetof(fd_accdb_accmeta_t, data)==offsetof(fd_accdb_accmeta_
 #define FD_ACCDB_SIZE_CACHE_VALID_BIT (1U<<30)
 #define FD_ACCDB_SIZE_PD_WRITE_BIT    (1U<<28)
 #define FD_ACCDB_SIZE_UNLINKED_BIT    (1U<<27)
-#define FD_ACCDB_SIZE_MASK            ((1U<<27)-1U)
+#define FD_ACCDB_SIZE_TIER_SHIFT      (24)
+#define FD_ACCDB_SIZE_TIER_MASK       (3U<<FD_ACCDB_SIZE_TIER_SHIFT)
+#define FD_ACCDB_SIZE_MASK            ((1U<<24)-1U)
 #define FD_ACCDB_SIZE_PACK(sz,exec)   ((uint)(sz) | ((exec) ? FD_ACCDB_SIZE_EXEC_BIT : 0U))
 #define FD_ACCDB_SIZE_DATA(packed)    ((packed) & FD_ACCDB_SIZE_MASK)
 #define FD_ACCDB_SIZE_EXEC(packed)    (!!((packed) & FD_ACCDB_SIZE_EXEC_BIT))
@@ -405,7 +418,10 @@ FD_STATIC_ASSERT( offsetof(fd_accdb_accmeta_t, data)==offsetof(fd_accdb_accmeta_
 #define FD_ACCDB_SIZE_PD_WRITE(p)     (!!((p) & FD_ACCDB_SIZE_PD_WRITE_BIT))
 #define FD_ACCDB_SIZE_UNLINKED(p)     (!!((p) & FD_ACCDB_SIZE_UNLINKED_BIT))
 
-FD_STATIC_ASSERT( (10UL<<20) < (1UL<<27), unlinked_bit_collides_with_len );
+#define FD_ACCDB_SIZE_TIER(p)         (((p) & FD_ACCDB_SIZE_TIER_MASK)>>FD_ACCDB_SIZE_TIER_SHIFT)
+
+FD_STATIC_ASSERT( (10UL<<20) <= FD_ACCDB_SIZE_MASK, tier_bits_collide_with_len );
+FD_STATIC_ASSERT( !( FD_ACCDB_SIZE_TIER_MASK & (FD_ACCDB_SIZE_UNLINKED_BIT|FD_ACCDB_SIZE_PD_WRITE_BIT|FD_ACCDB_SIZE_CACHE_VALID_BIT|FD_ACCDB_SIZE_EXEC_BIT|FD_ACCDB_SIZE_MASK) ), tier_bits_overlap );
 
 /* fd_accdb_acc_unlinked returns 1 if acc was unlinked from its hash
    chain after the caller loaded its map.next (see the unlinked bit
@@ -418,6 +434,32 @@ fd_accdb_acc_unlinked( fd_accdb_accmeta_t const * acc ) {
   FD_COMPILER_MFENCE();
   return FD_ACCDB_SIZE_UNLINKED( FD_VOLATILE_CONST( acc->executable_size ) );
 }
+/* fd_accdb_acc_es_or / _and atomically OR / AND bits into acc's size
+   word, as one RMW of the whole data word (the word is changed only by
+   whole-word stores, CAS and RMWs, see fd_accdb.c "Data word"). */
+
+static inline void
+fd_accdb_acc_es_or( fd_accdb_accmeta_t * acc,
+                    uint                 bits ) {
+  FD_ATOMIC_FETCH_AND_OR( &acc->data, (ulong)bits<<32 );
+}
+
+static inline void
+fd_accdb_acc_es_and( fd_accdb_accmeta_t * acc,
+                     uint                 mask ) {
+  FD_ATOMIC_FETCH_AND_AND( &acc->data, ((ulong)mask<<32) | (ulong)UINT_MAX );
+}
+
+/* fd_accdb_acc_tier_set sets acc's tier (only T2 writes tier bits, so
+   one RMW from the loaded value suffices). */
+
+static inline void
+fd_accdb_acc_tier_set( fd_accdb_accmeta_t * acc,
+                       uint                 tier ) {
+  uint cur = FD_ACCDB_DATA_ES( FD_VOLATILE_CONST( acc->data ) ) & FD_ACCDB_SIZE_TIER_MASK;
+  FD_ATOMIC_FETCH_AND_XOR( &acc->data, (ulong)( cur ^ (tier<<FD_ACCDB_SIZE_TIER_SHIFT) )<<32 );
+}
+
 
 static inline ulong
 fd_accdb_acc_offset( fd_accdb_accmeta_t const * acc ) {
@@ -838,7 +880,6 @@ struct fd_accdb_shmem_private {
   ulong idx_file_sz;        /* bytes fallocated at boot            */
 
   ulong idx_bg_defer_off;   /* FD_ACCDB_BG_DEFER_MAX uints         */
-  ulong idx_tier_off;       /* acc_pool_max uchars                 */
   ulong idx_hot_ref_off;    /* acc_pool_max uchars, FG sets on hit */
   ulong idx_fifo_off;       /* acc_pool_max ulongs: idx<<32 | gen  */
   ulong fifo_head;          /* T2 only                             */
