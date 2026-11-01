@@ -98,8 +98,13 @@ test_setup_idx_part( int * out_fd,
   test_idx_fd = memfd_create( "accdb_idx", 0 );
   FD_TEST( test_idx_fd>=0 );
   FD_TEST( !ftruncate( test_idx_fd, (long)fd_accdb_idx_file_sz( max_accounts, index_ram_entries, max_live_slots, max_account_writes_per_slot ) ) );
+  int scratch_fd = -1;
+  if( shmem->fifo_chunk ) { /* large pools tier the demote FIFO */
+    scratch_fd = memfd_create( "accdb_scratch", 0 );
+    FD_TEST( scratch_fd>=0 && !ftruncate( scratch_fd, (long)fd_accdb_scratch_sz( max_live_slots, max_account_writes_per_slot, max_accounts, index_ram_entries ) ) );
+  }
   void * accdb_mem = aligned_alloc( fd_accdb_align(), fd_accdb_footprint( max_live_slots, 1 ) );
-  fd_accdb_t * accdb = fd_accdb_join( fd_accdb_new( accdb_mem, shmem, fd, -1, 0UL, NULL, NULL, 0UL, 1, test_idx_fd, NULL ) );
+  fd_accdb_t * accdb = fd_accdb_join( fd_accdb_new( accdb_mem, shmem, fd, scratch_fd, 0UL, NULL, NULL, 0UL, 1, test_idx_fd, NULL ) );
   FD_TEST( accdb );
   return accdb;
 }
@@ -2552,13 +2557,24 @@ test_root_n( fd_accdb_t *       accdb,
   return tip;
 }
 
+static int
+test_is_hot( uchar const key[ 32 ] ) {
+  fd_accdb_shmem_t * s = test_shmem_mem;
+  uint const *               hot  = (uint const *)( (uchar *)s + s->idx_hot_map_off );
+  fd_accdb_accmeta_t const * pool = (fd_accdb_accmeta_t const *)( (uchar *)s + s->acc_pool_off );
+  uint cur = hot[ fd_hash32( key, s->seed )&(s->idx_hot_chain_cnt-1UL) ];
+  while( cur!=UINT_MAX ) { if( !memcmp( pool[ cur ].key.pubkey, key, 32 ) ) return 1; cur = pool[ cur ].map.next; }
+  return 0;
+}
+
 /* Demotion moves aged rooted versions to the bucket, keeps a hot copy
    and hands over the data line: reads after demotion cost no pread. */
 
 static void
-test_idx_demote_keeps_lines( void ) {
+test_idx_demote_keeps_lines( ulong max_accounts,
+                             ulong ram ) {
   int fd;
-  fd_accdb_t * accdb = test_setup_idx( &fd, 4096UL, 1024UL, 256UL, 64UL );
+  fd_accdb_t * accdb = test_setup_idx( &fd, max_accounts, ram, 256UL, 64UL );
   uchar d[ 64 ]; ulong lamports, data_len; uchar owner[ 32 ];
   fd_accdb_fork_id_t root = fd_accdb_attach_child( accdb, SENTINEL );
   fd_accdb_fork_id_t a    = fd_accdb_attach_child( accdb, root );
@@ -2572,6 +2588,8 @@ test_idx_demote_keeps_lines( void ) {
   drain_background( accdb );
   fd_accdb_fork_id_t tip = test_root_n( accdb, a, FD_ACCDB_DEMOTE_AGE+2UL );
   FD_TEST( fd_accdb_metrics( accdb )->accounts_demoted==16UL );
+  FD_TEST( ram<(1UL<<20) || test_shmem_mem->chain_cnt<test_shmem_mem->idx_hot_chain_cnt );
+  for( ulong i=0UL; i<16UL; i++ ) { memset( key, 0, 32 ); key[ 0 ] = (uchar)(i+1UL); FD_TEST( test_is_hot( key ) ); }
 
   fd_accdb_idx_region_t bkt = test_bkt_region();
   ulong reads0 = fd_accdb_metrics( accdb )->read_ops;
@@ -2667,16 +2685,6 @@ test_idx_compact_bucket_only( void ) {
   }
   close( test_idx_fd );
   test_teardown( accdb, fd );
-}
-
-static int
-test_is_hot( uchar const key[ 32 ] ) {
-  fd_accdb_shmem_t * s = test_shmem_mem;
-  uint const *               hot  = (uint const *)( (uchar *)s + s->idx_hot_map_off );
-  fd_accdb_accmeta_t const * pool = (fd_accdb_accmeta_t const *)( (uchar *)s + s->acc_pool_off );
-  uint cur = hot[ fd_hash32( key, s->seed )&(s->chain_cnt-1UL) ];
-  while( cur!=UINT_MAX ) { if( !memcmp( pool[ cur ].key.pubkey, key, 32 ) ) return 1; cur = pool[ cur ].map.next; }
-  return 0;
 }
 
 /* Bucket-only accounts: an FG joiner (no index fd) reaches them by
@@ -3121,7 +3129,9 @@ main( int     argc,
   test_idx_primitives();
 
   FD_LOG_NOTICE(( "test_idx_demote_keeps_lines ..." ));
-  test_idx_demote_keeps_lines();
+  test_idx_demote_keeps_lines( 4096UL, 1024UL );
+  /* acc_map sized by the in-flight floor, below the hot_map chains */
+  test_idx_demote_keeps_lines( 8UL<<20, (4UL<<20)+(64UL<<10) );
 
   FD_LOG_NOTICE(( "test_idx_fifo_rewrite ..." ));
   test_idx_fifo_rewrite();
