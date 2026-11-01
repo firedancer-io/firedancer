@@ -2350,6 +2350,14 @@ telemetry = true
         # development purposes.
         report_transactions = false
 
+        # Include one seven-timestamp record per transaction in block_completed
+        # events. Traffic grows with TPS times validator count. Keep disabled
+        # for normal telemetry; enable only for bounded diagnostic captures.
+        # Block summaries, transaction counts and aggregate metrics remain
+        # available when this is false. An empty txn_timing array does not mean
+        # that the block was empty.
+        report_transaction_timings = false
+
         # Whether to emit the runtime events during replay
         # Primarily useful for development and debugging mismatches
         # between validator clients.  This generates a very high

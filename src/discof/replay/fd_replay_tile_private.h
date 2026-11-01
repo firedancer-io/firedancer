@@ -482,6 +482,7 @@ struct fd_replay_tile {
   fd_multi_epoch_leaders_t * mleaders;
 
   ulong max_txn_per_slot;
+  int   report_transaction_timings;
   ulong max_shreds_per_block;
 
   /* When we transition to becoming leader, we can only unbecome leader
