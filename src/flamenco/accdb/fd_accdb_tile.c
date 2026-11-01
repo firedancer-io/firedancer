@@ -181,7 +181,7 @@ unprivileged_init( fd_topo_t const *      topo,
     external_epoch_slots[ external_epoch_cnt++ ] = fseq;
   }
 
-  ctx->accdb = fd_accdb_join( fd_accdb_new( _accdb, accdb_shmem, FD_ACCDB_FD_RW, FD_ACCDB_SCRATCH_FD, external_epoch_cnt, external_epoch_slots, NULL, 0UL, 1, FD_ACCDB_IDX_FD_RW ) );
+  ctx->accdb = fd_accdb_join( fd_accdb_new( _accdb, accdb_shmem, FD_ACCDB_FD_RW, FD_ACCDB_SCRATCH_FD, external_epoch_cnt, external_epoch_slots, NULL, 0UL, 1, FD_ACCDB_IDX_FD_RW, NULL ) );
   FD_TEST( ctx->accdb );
 
   ulong progcache_obj_id = fd_pod_query_ulong( topo->props, "progcache", ULONG_MAX );
