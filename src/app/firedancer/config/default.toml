@@ -104,12 +104,12 @@ telemetry = true
     # place it in this path.  If no path is provided, it is defaulted
     # to inside the base directory, under path `identity.json`.
     #
-    # The validator boots under this identity.  For failover, a standby
-    # machine that waits to take over another validator's identity
-    # should boot under an unstaked randomized key, created using
-    # `firedancer keys new`, or set [failover.boot_to_standby] to boot
-    # under an ephemeral junk key generated in memory, with the keypair
-    # here as the identity it can take over via hand-off.
+    # The validator boots under this identity.  For failover, setting
+    # [failover.boot_to_standby] is highly encouraged. The validator
+    # then boots under an ephemeral junk key generated in memory, and
+    # the keypair here is the identity it takes over with
+    # `failover promote`.  A standby can also boot under an unstaked
+    # randomized key created with `firedancer keys new`.
     identity_key = ""
 
     # Absolute path to a `keypair.json` containing the voting account
@@ -2054,11 +2054,14 @@ telemetry = true
     # memory at each start, instead of under [paths.identity_key].  The
     # junk private key is never written out to a file.  The keypair in
     # [paths.identity_key] is then the identity this machine takes with
-    # `failover promote`.  Set it on a standby machine that should take
-    # over a staked identity another machine runs. This prevents a
-    # restarted standby from double-voting under the same staked identity
-    # while the other active machine is already voting with it.
-    # Requires [failover.enabled].
+    # `failover promote`.
+    #
+    # Setting this to true is highly encouraged on every validator that
+    # uses failover.  Such a validator never boots under the staked
+    # identity, so a restart cannot make it vote alongside the validator
+    # running the identity, or make gossip's duplicate instance check
+    # stop that validator.  It comes back without the identity and takes
+    # it with `failover promote`.  Requires [failover.enabled].
     boot_to_standby = false
 
     # The address to listen on.  If enabled, by default the listener is

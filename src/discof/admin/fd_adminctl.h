@@ -68,10 +68,11 @@
 #define FD_SET_IDENTITY_RESULT_SAME_IDENTITY                (0x3003UL)
 #define FD_SET_IDENTITY_RESULT_AUTHORIZED_VOTER             (0x3004UL)
 
+/* Failover command results. */
 #define FD_FAILOVER_CONTROL_RESULT_BUSY              (0x4001UL)
-#define FD_FAILOVER_CONTROL_RESULT_WRONG_HOLDER      (0x4002UL)
+#define FD_FAILOVER_CONTROL_RESULT_NOT_HOLDER        (0x4002UL)
 #define FD_FAILOVER_CONTROL_RESULT_IN_PROGRESS       (0x4003UL)
-#define FD_FAILOVER_CONTROL_RESULT_PEER_UNREADY      (0x4004UL)
+#define FD_FAILOVER_CONTROL_RESULT_HANDOFF_ABORTED   (0x4004UL)
 #define FD_FAILOVER_CONTROL_RESULT_PEER_HOLDS        (0x4005UL)
 #define FD_FAILOVER_CONTROL_RESULT_NO_FINAL_HISTORY  (0x4006UL)
 #define FD_FAILOVER_CONTROL_RESULT_NO_HOLDER_ADDRESS (0x4007UL)
@@ -83,6 +84,7 @@
 #define FD_FAILOVER_CONTROL_RESULT_HOLDS_OTHER       (0x400DUL)
 #define FD_FAILOVER_CONTROL_RESULT_IDENTITY_CHANGED  (0x400EUL)
 #define FD_FAILOVER_CONTROL_RESULT_HOLDER_LIVE       (0x400FUL)
+#define FD_FAILOVER_CONTROL_RESULT_ALREADY_HOLDS     (0x4011UL)
 
 struct fd_adminctl_add_auth_voter_v1 {
   ulong version; /* ==FD_ADMINCTL_ADD_AUTH_VOTER_PAYLOAD_VERSION */
@@ -139,36 +141,9 @@ fd_adminctl_failover_cmd_typed( ulong cmd ) {
   return cmd<FD_ADMINCTL_FAILOVER_CMD_CNT ? "failover promote" : "unknown";
 }
 
-#define FD_ADMINCTL_FAILOVER_FLAG_YES   (1UL) /* confirmation only, does not authorize peer or history overrides */
-#define FD_ADMINCTL_FAILOVER_FLAG_FORCE (2UL) /* --force, take the identity even from a live machine */
-#define FD_ADMINCTL_FAILOVER_FLAG_ADOPT (4UL) /* --adopt, take the identity only from a machine that shows no sign of life */
-
-static inline char const *
-fd_adminctl_failover_result_cstr( ulong result ) {
-  switch( result ) {
-    case FD_ADMINCTL_RESULT_SUCCESS:                   return "success";
-    case FD_ADMINCTL_RESULT_UNKNOWN_COMMAND:           return "the failover tile does not know this command";
-    case FD_ADMINCTL_RESULT_UNSUPPORTED:               return "the failover tile does not support this command";
-    case FD_FAILOVER_CONTROL_RESULT_BUSY:              return "another failover command is running on this validator, wait for it";
-    case FD_FAILOVER_CONTROL_RESULT_WRONG_HOLDER:      return "this machine already runs the identity, or the machine it asked does not";
-    case FD_FAILOVER_CONTROL_RESULT_IN_PROGRESS:       return "a transition or key switch is running, wait for it";
-    case FD_FAILOVER_CONTROL_RESULT_PEER_UNREADY:      return "the other machine could not finish this handoff and may have given up the identity";
-    case FD_FAILOVER_CONTROL_RESULT_PEER_HOLDS:        return "another machine runs the identity";
-    case FD_FAILOVER_CONTROL_RESULT_NO_FINAL_HISTORY:  return "the machine running the identity has no eligible final vote state to hand over, its log says why";
-    case FD_FAILOVER_CONTROL_RESULT_NO_HOLDER_ADDRESS: return "gossip has no address for the machine running the identity, wait or pass --address";
-    case FD_FAILOVER_CONTROL_RESULT_REPLAY_BEHIND:     return "this machine's replay is too far behind the last vote of the machine running the identity, retry once caught up";
-    case FD_FAILOVER_CONTROL_RESULT_TIMEOUT:           return "the machine running the identity did not answer before the deadline";
-    case FD_FAILOVER_CONTROL_RESULT_PEER_RESTARTED:    return "the machine running the identity restarted before it answered";
-    case FD_FAILOVER_CONTROL_RESULT_ADOPTION_FAILED:   return "this machine did not adopt the vote history";
-    case FD_FAILOVER_CONTROL_RESULT_SWITCH_FAILED:     return "the identity switch failed";
-    case FD_FAILOVER_CONTROL_RESULT_HOLDS_OTHER:       return "this machine votes as the identity failover manages, hand that identity off first";
-    case FD_FAILOVER_CONTROL_RESULT_IDENTITY_CHANGED:  return "set-identity changed the identity while the command ran";
-    case FD_FAILOVER_CONTROL_RESULT_HOLDER_LIVE:       return "the machine running the identity may still be live";
-    case FD_SET_IDENTITY_RESULT_KEYPAIR_MISMATCH:      return "the public key in the keypair file does not match its private key";
-    case FD_SET_IDENTITY_RESULT_AUTHORIZED_VOTER:      return "the keypair is an authorized voter on this validator";
-    default:                                           return "unknown result";
-  }
-}
+#define FD_ADMINCTL_FAILOVER_FLAG_YES   (1UL)
+#define FD_ADMINCTL_FAILOVER_FLAG_FORCE (2UL)
+#define FD_ADMINCTL_FAILOVER_FLAG_ADOPT (4UL)
 
 struct fd_adminctl_failover_req_v1 {
   ulong  version;      /* ==FD_ADMINCTL_FAILOVER_PAYLOAD_VERSION */

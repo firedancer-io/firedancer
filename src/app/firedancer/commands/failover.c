@@ -153,11 +153,46 @@ failover_request( fd_adminctl_t *                    adminctl,
 
 /* Exit codes. */
 
-#define FAILOVER_EXIT_REFUSED (2)
-#define FAILOVER_EXIT_RETRY   (3)
-#define FAILOVER_EXIT_UNKNOWN (4)
-#define FAILOVER_EXIT_NOBODY  (5)
-#define FAILOVER_EXIT_CHANGED (6)
+#define FAILOVER_EXIT_REFUSED (2) /* refused, no validator changed identity */
+#define FAILOVER_EXIT_UNKNOWN (3) /* the outcome is unknown */
+#define FAILOVER_EXIT_NOBODY  (4) /* nobody runs the identity */
+
+struct failover_result {
+  ulong        result;
+  char const * name;
+  char const * meaning;
+  int          exit_code;
+  int          takeover;
+};
+typedef struct failover_result failover_result_t;
+
+static failover_result_t const failover_results[] = {
+  { FD_FAILOVER_CONTROL_RESULT_BUSY,              "busy",              "another failover command is running on the local validator",                                      FAILOVER_EXIT_REFUSED, 0 },
+  { FD_FAILOVER_CONTROL_RESULT_IN_PROGRESS,       "in_progress",       "a handoff or identity switch is running on the local or the remote validator",                    FAILOVER_EXIT_REFUSED, 0 },
+  { FD_FAILOVER_CONTROL_RESULT_NO_HOLDER_ADDRESS, "no_holder_address", "gossip did not show a validator running the identity",                                             FAILOVER_EXIT_REFUSED, 1 },
+  { FD_FAILOVER_CONTROL_RESULT_NOT_HOLDER,        "not_holder",        "the validator at the address does not run the identity",                                          FAILOVER_EXIT_REFUSED, 1 },
+  { FD_FAILOVER_CONTROL_RESULT_NO_FINAL_HISTORY,  "no_final_history",  "the remote validator has no vote history for its last vote yet",                                   FAILOVER_EXIT_REFUSED, 1 },
+  { FD_FAILOVER_CONTROL_RESULT_REPLAY_BEHIND,     "replay_behind",     "the local validator's replay is too far behind the finality anchor of the vote history to adopt", FAILOVER_EXIT_REFUSED, 1 },
+  { FD_FAILOVER_CONTROL_RESULT_HOLDS_OTHER,       "holds_other",       "the local validator runs and has voted as an identity other than the one in the keypair",         FAILOVER_EXIT_REFUSED, 0 },
+  { FD_FAILOVER_CONTROL_RESULT_HOLDER_LIVE,       "holder_live",       "the remote validator may still be live",                                                          FAILOVER_EXIT_REFUSED, 0 },
+  { FD_SET_IDENTITY_RESULT_KEYPAIR_MISMATCH,      "keypair_mismatch",  "the public key in the keypair file does not match its private key",                               FAILOVER_EXIT_REFUSED, 0 },
+  { FD_SET_IDENTITY_RESULT_AUTHORIZED_VOTER,      "authorized_voter",  "the keypair is an authorized voter on the local validator",                                       FAILOVER_EXIT_REFUSED, 0 },
+  { FD_FAILOVER_CONTROL_RESULT_TIMEOUT,           "timeout",           "the remote validator did not answer before the deadline",                                         FAILOVER_EXIT_UNKNOWN, 1 },
+  { FD_FAILOVER_CONTROL_RESULT_PEER_RESTARTED,    "peer_restarted",    "the remote validator restarted before it answered",                                               FAILOVER_EXIT_UNKNOWN, 1 },
+  { FD_FAILOVER_CONTROL_RESULT_HANDOFF_ABORTED,   "handoff_aborted",   "the remote validator aborted the handoff and may have given up the identity",                     FAILOVER_EXIT_UNKNOWN, 1 },
+  { FD_FAILOVER_CONTROL_RESULT_PEER_HOLDS,        "peer_holds",        "another validator runs the identity",                                                             FAILOVER_EXIT_UNKNOWN, 1 },
+  { FD_FAILOVER_CONTROL_RESULT_IDENTITY_CHANGED,  "identity_changed",  "set-identity changed the local validator's identity while the command ran",                       FAILOVER_EXIT_UNKNOWN, 0 },
+  { FD_FAILOVER_CONTROL_RESULT_ADOPTION_FAILED,   "adoption_failed",   "the local validator did not adopt the vote history",                                              FAILOVER_EXIT_NOBODY,  1 },
+  { FD_FAILOVER_CONTROL_RESULT_SWITCH_FAILED,     "switch_failed",     "the local validator's identity switch failed",                                                    FAILOVER_EXIT_NOBODY,  1 },
+};
+
+static failover_result_t const *
+failover_result_find( ulong result ) {
+  for( ulong i=0UL; i<sizeof(failover_results)/sizeof(failover_results[0]); i++ ) {
+    if( failover_results[ i ].result==result ) return &failover_results[ i ];
+  }
+  return NULL;
+}
 
 #define FD_LOG_ERR_NOEXIT(a) do {                                       \
     long _fd_log_msg_now = fd_log_wallclock();                          \
@@ -171,8 +206,8 @@ fail_disabled( void ) {
 }
 
 static void __attribute__((noreturn))
-fail_result( ulong result ) {
-  int code;
+fail_result( ulong result,
+             ulong handoff ) {
   switch( result ) {
     case FD_ADMINCTL_RESULT_UNKNOWN_COMMAND:
     case FD_ADMINCTL_RESULT_UNSUPPORTED:
@@ -180,57 +215,21 @@ fail_result( ulong result ) {
     case FD_ADMINCTL_RESULT_ABI_VERSION_MISMATCH:
     case FD_ADMINCTL_RESULT_ABI_SIZE_MISMATCH:
       FD_LOG_ERR(( "failover is incompatible with the running validator, use the same firedancer version this validator runs" ));
-    case FD_FAILOVER_CONTROL_RESULT_WRONG_HOLDER:
-    case FD_FAILOVER_CONTROL_RESULT_PEER_HOLDS:
-    case FD_FAILOVER_CONTROL_RESULT_HOLDS_OTHER:
-    case FD_SET_IDENTITY_RESULT_KEYPAIR_MISMATCH:
-    case FD_SET_IDENTITY_RESULT_AUTHORIZED_VOTER:
-      code = FAILOVER_EXIT_REFUSED;
-      break;
-    case FD_FAILOVER_CONTROL_RESULT_BUSY:
-    case FD_FAILOVER_CONTROL_RESULT_IN_PROGRESS:
-    case FD_FAILOVER_CONTROL_RESULT_NO_HOLDER_ADDRESS:
-    case FD_FAILOVER_CONTROL_RESULT_REPLAY_BEHIND:
-    case FD_FAILOVER_CONTROL_RESULT_NO_FINAL_HISTORY:
-    case FD_FAILOVER_CONTROL_RESULT_HOLDER_LIVE:
-      code = FAILOVER_EXIT_RETRY;
-      break;
-    case FD_FAILOVER_CONTROL_RESULT_TIMEOUT:
-    case FD_FAILOVER_CONTROL_RESULT_PEER_RESTARTED:
-    case FD_FAILOVER_CONTROL_RESULT_PEER_UNREADY:
-      code = FAILOVER_EXIT_UNKNOWN;
-      break;
-    case FD_FAILOVER_CONTROL_RESULT_ADOPTION_FAILED:
-    case FD_FAILOVER_CONTROL_RESULT_SWITCH_FAILED:
-      code = FAILOVER_EXIT_NOBODY;
-      break;
-    case FD_FAILOVER_CONTROL_RESULT_IDENTITY_CHANGED:
-      code = FAILOVER_EXIT_CHANGED;
-      break;
     default:
-      FD_LOG_ERR(( "unexpected failover result %lu, use the same firedancer version this validator runs", result ));
+      break;
   }
-  FD_LOG_ERR_NOEXIT(( "`failover promote` failed, %s", fd_adminctl_failover_result_cstr( result ) ));
+  failover_result_t const * row = failover_result_find( result );
+  if( FD_UNLIKELY( !row ) ) {
+    FD_LOG_ERR_NOEXIT(( "`failover promote` failed with result %#lx, check both validators with `firedancer get-identity`", result ));
+    exit( FAILOVER_EXIT_UNKNOWN );
+  }
+  int code = row->exit_code;
+  if( handoff!=FD_ADMINCTL_RESULT_SUCCESS && result!=FD_FAILOVER_CONTROL_RESULT_IDENTITY_CHANGED ) code = failover_result_find( handoff )->exit_code;
+  char const * state = code==FAILOVER_EXIT_REFUSED ? "no validator changed identity" :
+                       code==FAILOVER_EXIT_NOBODY  ? "nobody runs the identity" :
+                                                     "the outcome is unknown, check both validators with `firedancer get-identity`";
+  FD_LOG_ERR_NOEXIT(( "`failover promote` failed (%s), %s, %s", row->name, row->meaning, state ));
   exit( code );
-}
-
-static int
-is_handoff_failure( ulong result ) {
-  switch( result ) {
-    case FD_FAILOVER_CONTROL_RESULT_WRONG_HOLDER:
-    case FD_FAILOVER_CONTROL_RESULT_PEER_UNREADY:
-    case FD_FAILOVER_CONTROL_RESULT_PEER_HOLDS:
-    case FD_FAILOVER_CONTROL_RESULT_NO_FINAL_HISTORY:
-    case FD_FAILOVER_CONTROL_RESULT_NO_HOLDER_ADDRESS:
-    case FD_FAILOVER_CONTROL_RESULT_REPLAY_BEHIND:
-    case FD_FAILOVER_CONTROL_RESULT_TIMEOUT:
-    case FD_FAILOVER_CONTROL_RESULT_PEER_RESTARTED:
-    case FD_FAILOVER_CONTROL_RESULT_ADOPTION_FAILED:
-    case FD_FAILOVER_CONTROL_RESULT_SWITCH_FAILED:
-      return 1;
-    default:
-      return 0;
-  }
 }
 
 /* Run sanity checks before invoking failover. */
@@ -246,7 +245,7 @@ failover_preflight( fd_adminctl_t * adminctl,
   fd_ed25519_public_from_private( req.target, keypair, sha512 );
   fd_adminctl_failover_resp_t resp;
   ulong result = failover_request( adminctl, &req, NULL, &resp );
-  if( FD_UNLIKELY( result!=FD_ADMINCTL_RESULT_SUCCESS ) ) fail_result( result );
+  if( FD_UNLIKELY( result!=FD_ADMINCTL_RESULT_SUCCESS ) ) fail_result( result, FD_ADMINCTL_RESULT_SUCCESS );
 }
 
 /* Asks the failover tile for the handoff and waits for its outcome. */
@@ -278,10 +277,13 @@ failover_cmd_fn( args_t *   args,
   }
 
   fd_adminctl_failover_resp_t resp;
-  ulong result = failover_request( adminctl, &req, keypair, &resp );
+  ulong result  = failover_request( adminctl, &req, keypair, &resp );
+  ulong handoff = FD_ADMINCTL_RESULT_SUCCESS;
 
-  if( FD_UNLIKELY( result!=FD_ADMINCTL_RESULT_SUCCESS && ( args->failover.adopt || args->failover.force ) && is_handoff_failure( result ) ) ) {
-    FD_LOG_WARNING(( "the handoff failed, %s", fd_adminctl_failover_result_cstr( result ) ));
+  failover_result_t const * failed = failover_result_find( result );
+  if( FD_UNLIKELY( failed && failed->takeover && ( args->failover.adopt || args->failover.force ) ) ) {
+    FD_LOG_WARNING(( "the handoff failed (%s), %s", failed->name, failed->meaning ));
+    handoff = result;
     if( args->failover.force ) FD_LOG_NOTICE(( "requesting forced promotion, this machine takes the identity without the other machine" ));
     else                       FD_LOG_NOTICE(( "requesting promotion, this machine takes the identity if the other machine shows no sign of life" ));
 
@@ -292,9 +294,18 @@ failover_cmd_fn( args_t *   args,
     result    = failover_request( adminctl, &req, NULL, &resp );
   }
   if( keypair ) fd_keyload_unload( keypair, 0 );
-  if( FD_UNLIKELY( result!=FD_ADMINCTL_RESULT_SUCCESS ) ) fail_result( result );
-  if( FD_UNLIKELY( !resp.version ) ) FD_LOG_ERR(( "running validator returned an incompatible failover response, use the firedancer binary the validator runs" ));
+
+  int already = result==FD_FAILOVER_CONTROL_RESULT_ALREADY_HOLDS;
+  if( FD_UNLIKELY( result!=FD_ADMINCTL_RESULT_SUCCESS && !already ) ) fail_result( result, handoff );
+  if( FD_UNLIKELY( !resp.version ) ) {
+    FD_LOG_ERR_NOEXIT(( "`failover promote` returned an incompatible response" ));
+    exit( FAILOVER_EXIT_UNKNOWN );
+  }
   FD_BASE58_ENCODE_32_BYTES( resp.identity, identity_b58 );
+  if( FD_UNLIKELY( already ) ) {
+    FD_LOG_NOTICE(( "the local validator already runs the identity %s%s%s", bold, identity_b58, normal ));
+    return;
+  }
   if( resp.slot==ULONG_MAX ) FD_LOG_NOTICE(( "promotion success (identity now %s%s%s, no earlier vote)", bold, identity_b58, normal ));
   else                       FD_LOG_NOTICE(( "promotion success (identity now %s%s%s at slot %lu)", bold, identity_b58, normal, resp.slot ));
 }

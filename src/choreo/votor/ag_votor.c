@@ -695,6 +695,9 @@ ag_votor_hist_export( ag_votor_t * self,
 ulong
 ag_votor_hist_adopt( ag_votor_t *      self,
                      ag_hist_t const * hist ) {
+
+  /* Dry-run: */
+
   slot_state_map_t * map   = self->slot_states->map;
   slot_state_ele_t * pool  = self->slot_states->pool;
   ulong              first = ag_hist_first_slot( fd_ulong_max( self->highest_final_cert_slot, hist->anchor ) );
@@ -730,6 +733,8 @@ ag_votor_hist_adopt( ag_votor_t *      self,
       free--;
     }
   }
+
+  /* Mutation: */
 
   advance_root( self, hist->anchor );
   if( set_anchor_timeouts ) set_timeouts( self, ag_first_slot_in_window( hist->anchor ) );

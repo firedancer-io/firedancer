@@ -382,15 +382,19 @@ identity through gossip. Use `--address` to give its IPv4 address or host
 name instead, and `--port` if its failover listener does not use the
 default port 8010.
 
+The command waits for the outcome and exits with a code for the state
+it leaves the validators in. A failure prints the result name and what
+it means. The [failover guide](/guide/failover#if-a-handoff-fails)
+lists every result with its exit code.
+
 | Exit code | Meaning |
 |-----------|---------|
 | `0` | Success, the local validator now runs the identity |
-| `1` | Nothing changed due to initial checks failing |
-| `2` | No handoff, a fix is needed |
-| `3` | No handoff, retry again. With `--adopt`, also when the remote validator may still be live |
-| `4` | The outcome is unknown, check both machines with [`get-identity`](#get-identity) |
-| `5` | The remote validator gave the identity up but the local one did not take it. Use `--adopt` on the local machine to recover |
-| `6` | `set-identity` was run and took precedence over this handoff |
+| `1` | Any other failure, no validator changed identity |
+| `2` | Rejected, no validator changed identity |
+| `3` | The outcome is unknown, check both validators with [`get-identity`](#get-identity) before anything else |
+| `4` | Nobody runs the identity, see [taking the identity without the remote](#taking-the-identity-without-the-remote) |
+| `128+sig` | Interrupted by a signal, as a shell reports it. A handoff already started keeps running |
 
 <<< @/snippets/commands/failover-promote.ansi
 
@@ -401,8 +405,8 @@ With `--adopt` or `--force`, the command asks for the handoff first. If
 that fails, it prints the reason as a warning and the local validator
 takes the identity without the machine running it. `--adopt` does so
 only while that machine shows no sign of life, neither in gossip for 15
-seconds nor on the failover channel, and otherwise exits with code `3`
-and nothing changed. `--force` does so even if that machine may be live.
+seconds nor on the failover channel, and otherwise fails with
+`holder_live`. `--force` does so even if that machine may be live.
 
 ::: warning WARNING
 

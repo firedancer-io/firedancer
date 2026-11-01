@@ -218,7 +218,6 @@ test_no_final_state( void ) {
   FD_TEST( result.handoff_id==43UL && result.result==FD_FAILOVER_CONTROL_RESULT_NO_FINAL_HISTORY );
   FD_TEST( holds_identity( ctx ) && ctx->action==FD_FAILOVER_ACTION_IDLE );
   FD_TEST( ctx->id_switch.pending_key==FD_FAILOVER_SWITCH_KEY_CNT && !ctx->id_switch.request_id && !ctx->promotion.adopt_id );
-  FD_TEST( strstr( fd_adminctl_failover_result_cstr( result.result ), "no eligible final vote state" ) );
   ctx->tx.valid                 = 0;
   ctx->session.close_after_send = 0;
   /* A frame whose history is empty is not a final history. */
@@ -625,7 +624,7 @@ test_abort_answers_requester( void ) {
   fd_failover_handoff_result_t result;
   FD_TEST( ctx->tx.valid && ctx->tx.type==FD_FAILOVER_MSG_HANDOFF_RESULT && ctx->tx.to.boot_id==77UL && ctx->session.close_after_send );
   FD_TEST( fd_failover_handoff_result_decode( &result, ctx->tx.payload, ctx->tx.sz ) );
-  FD_TEST( result.handoff_id==47UL && result.result==FD_FAILOVER_CONTROL_RESULT_PEER_UNREADY );
+  FD_TEST( result.handoff_id==47UL && result.result==FD_FAILOVER_CONTROL_RESULT_HANDOFF_ABORTED );
   controller_fini( ctx );
 }
 

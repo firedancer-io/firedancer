@@ -63,6 +63,17 @@ default) and that each machine can reach the other's failover port.
     listen_port = 8010
 ```
 
+::: tip RECOMMENDED
+
+Setting `[failover.boot_to_standby]` to `true` on every validator that
+uses failover is highly encouraged. Such a validator never boots under
+the staked identity, so a restart cannot make it vote alongside the
+validator running the identity, or make the duplicate instance check
+stop that validator. It comes back without the identity and takes it
+with `failover promote`.
+
+:::
+
 There are two ways to designate a spare validator that should boot as
 a stand-by, instead of actively voting:
 
@@ -93,12 +104,11 @@ a stand-by, instead of actively voting:
 
 <<< @/snippets/commands/keys-new-junk.ansi
 
-`[failover.boot_to_standby]` is the recommendation for a dedicated
-standby. Such a validator can be restarted at any time while the other
-machine runs the identity, since it never boots under the identity
-itself. Otherwise, you are responsible for not restarting a machine
-under the staked identity while the other machine runs it, see
-[Restarts](#restarts).
+`[failover.boot_to_standby]` is the recommended setup. A validator
+with it can be restarted at any time while the other machine runs the
+identity, since it never boots under the identity itself. Otherwise,
+you are responsible for not restarting a machine under the staked
+identity while the other machine runs it, see [Restarts](#restarts).
 
 ## Handing the identity over
 
@@ -128,13 +138,44 @@ not on port `8010`, `--port`:
 
 ## If a handoff fails
 
-The command prints the reason and exits with a code for the state the
-machines are in. The codes, the reasons and what to do next are listed
-under [`failover promote`](/api/cli#failover-promote). Most failures
-happen before the remote validator gives anything up, leaving both
-machines as they were:
+The command prints the result and exits with a
+code for the state the validators are in. The validator logs show the
+result as a number, as shown in the table below:
 
 <<< @/snippets/commands/failover-promote-failed.ansi
+
+| Exit code | State | What to do |
+|-----------|-------|------------|
+| `2` | Rejected, no validator changed identity | Fix the cause in the table below, or wait for it to clear, then run `failover promote` again |
+| `3` | The outcome is unknown | Run [`get-identity`](/api/cli#get-identity) on both validators before anything else |
+| `4` | Nobody runs the identity | Read the local log for the cause, then run `failover promote --adopt`, see [forced promotion](#forced-promotion) |
+
+When the outcome is unknown and `get-identity` shows that neither
+validator runs the identity, use `failover promote --adopt`.
+
+| Result | Code | Exit | Meaning | What to do |
+|--------|------|------|---------|------------|
+| `busy` | `0x4001` | 2 | Another failover command is running on the local validator | Wait for it to finish |
+| `in_progress` | `0x4003` | 2 | A handoff or identity switch is running on the local or the remote validator | Wait for it to finish |
+| `no_holder_address` | `0x4007` | 2 | Gossip did not show a validator running the identity | Wait for gossip, or pass `--address` |
+| `not_holder` | `0x4002` | 2 | The validator at the address does not run the identity | Check `--address`, or wait for gossip to show the validator that runs the identity |
+| `no_final_history` | `0x4006` | 2 | The remote validator has no vote history for its last vote yet | Wait for the remote validator to vote |
+| `replay_behind` | `0x4008` | 2 | The local validator's replay is too far behind the finality anchor of the vote history to adopt | Wait for the local validator to catch up |
+| `holds_other` | `0x400d` | 2 | The local validator runs and has voted as an identity other than the one in the keypair | Hand that identity off first |
+| `holder_live` | `0x400f` | 2 | `--adopt` only. The remote validator may still be live | Wait 15 seconds and retry, or use `--force` once the remote validator cannot sign |
+| `keypair_mismatch` | `0x3001` | 2 | The public key in the keypair file does not match its private key | Use a valid keypair file |
+| `authorized_voter` | `0x3004` | 2 | The keypair is an authorized voter on the local validator | Remove it with [`remove-all-authorized-voters`](/api/cli#remove-all-authorized-voters) |
+| `timeout` | `0x4009` | 3 | The remote validator did not answer before the deadline | Check both validators |
+| `peer_restarted` | `0x400a` | 3 | The remote validator restarted before it answered | Check both validators |
+| `handoff_aborted` | `0x4004` | 3 | The remote validator aborted the handoff and may have given up the identity | Check both validators. The remote validator's log says why |
+| `peer_holds` | `0x4005` | 3 | Another validator runs the identity | Check both validators |
+| `identity_changed` | `0x400e` | 3 | `set-identity` changed the local validator's identity while the command ran | Check both validators |
+| `adoption_failed` | `0x400b` | 4 | The local validator did not adopt the vote history | Read the local log, then run `failover promote --adopt` |
+| `switch_failed` | `0x400c` | 4 | The local validator's identity switch failed | Read the local log, then run `failover promote --adopt` |
+
+With `--adopt` or `--force`, a failed handoff is a warning, and the
+local validator then tries to take the identity without the remote one.
+If that also fails, the command prints why and exits with a failure code.
 
 ## Restarts
 

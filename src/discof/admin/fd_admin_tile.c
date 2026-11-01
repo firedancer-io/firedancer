@@ -1351,33 +1351,6 @@ failover_event_args( fd_admin_tile_ctx_t const * ctx,
   return event;
 }
 
-/* failover_result_name is the event's custom result for a failover
-   command that did not succeed. */
-static char const *
-failover_result_name( ulong result ) {
-  switch( result ) {
-    case FD_FAILOVER_CONTROL_RESULT_BUSY:              return "busy";
-    case FD_FAILOVER_CONTROL_RESULT_WRONG_HOLDER:      return "wrong_holder";
-    case FD_FAILOVER_CONTROL_RESULT_IN_PROGRESS:       return "in_progress";
-    case FD_FAILOVER_CONTROL_RESULT_PEER_UNREADY:      return "peer_unready";
-    case FD_FAILOVER_CONTROL_RESULT_PEER_HOLDS:        return "peer_holds";
-    case FD_FAILOVER_CONTROL_RESULT_NO_FINAL_HISTORY:  return "no_final_history";
-    case FD_FAILOVER_CONTROL_RESULT_REPLAY_BEHIND:     return "replay_behind";
-    case FD_FAILOVER_CONTROL_RESULT_NO_HOLDER_ADDRESS: return "no_holder_address";
-    case FD_FAILOVER_CONTROL_RESULT_TIMEOUT:           return "timeout";
-    case FD_FAILOVER_CONTROL_RESULT_PEER_RESTARTED:    return "peer_restarted";
-    case FD_FAILOVER_CONTROL_RESULT_ADOPTION_FAILED:   return "adoption_failed";
-    case FD_FAILOVER_CONTROL_RESULT_SWITCH_FAILED:     return "switch_failed";
-    case FD_FAILOVER_CONTROL_RESULT_HOLDS_OTHER:       return "holds_other";
-    case FD_FAILOVER_CONTROL_RESULT_IDENTITY_CHANGED:  return "identity_changed";
-    case FD_FAILOVER_CONTROL_RESULT_HOLDER_LIVE:       return "holder_live";
-    case FD_SET_IDENTITY_RESULT_KEYPAIR_MISMATCH:      return "keypair_mismatch";
-    case FD_SET_IDENTITY_RESULT_SAME_IDENTITY:         return "same_identity";
-    case FD_SET_IDENTITY_RESULT_AUTHORIZED_VOTER:      return "authorized_voter";
-    default:                                           return "refused";
-  }
-}
-
 static void
 failover_complete( fd_admin_tile_ctx_t * ctx,
                    ulong                 result,
@@ -1396,7 +1369,9 @@ failover_complete( fd_admin_tile_ctx_t * ctx,
     if( FD_LIKELY( result==FD_ADMINCTL_RESULT_SUCCESS ) ) {
       report_admin_command( failover_event_args( ctx, &event ), FD_EVENT_ADMIN_COMMAND_RESULT_SUCCESS );
     } else {
-      report_admin_command_custom_result( failover_event_args( ctx, &event ), failover_result_name( result ) );
+      char custom[ 24 ];
+      FD_TEST( fd_cstr_printf_check( custom, sizeof(custom), NULL, "%#lx", result ) );
+      report_admin_command_custom_result( failover_event_args( ctx, &event ), custom );
     }
   }
   fd_adminctl_failover_resp_t resp = {
@@ -1408,15 +1383,17 @@ failover_complete( fd_admin_tile_ctx_t * ctx,
   FD_BASE58_ENCODE_32_BYTES( ctx->identity_pubkey, identity );
   if( FD_UNLIKELY( preflight ) ) {
     if( FD_UNLIKELY( result!=FD_ADMINCTL_RESULT_SUCCESS ) ) {
-      FD_LOG_WARNING(( "`%s` refused before it changed the failover identity (%s), nothing was done", ctx->failover_cmd_cstr, failover_result_name( result ) ));
+      FD_LOG_WARNING(( "`%s` refused before it changed the failover identity (result %#lx), nothing was done", ctx->failover_cmd_cstr, result ));
     }
   } else if( FD_LIKELY( result==FD_ADMINCTL_RESULT_SUCCESS ) ) {
     FD_LOG_NOTICE(( "`%s` done, this machine runs `%s`", ctx->failover_cmd_cstr, identity ));
+  } else if( FD_UNLIKELY( result==FD_FAILOVER_CONTROL_RESULT_ALREADY_HOLDS ) ) {
+    FD_LOG_NOTICE(( "`%s` done, this machine already runs `%s`", ctx->failover_cmd_cstr, identity ));
   } else if( FD_UNLIKELY( ctx->failover_retargeted ) ) {
     FD_BASE58_ENCODE_32_BYTES( ctx->failover_pubkey, target );
-    FD_LOG_WARNING(( "`%s` failed (%s), this machine runs `%s` and the failover target is now `%s`", ctx->failover_cmd_cstr, failover_result_name( result ), identity, target ));
+    FD_LOG_WARNING(( "`%s` failed (result %#lx), this machine runs `%s` and the failover target is now `%s`", ctx->failover_cmd_cstr, result, identity, target ));
   } else {
-    FD_LOG_WARNING(( "`%s` failed (%s), this machine runs `%s`", ctx->failover_cmd_cstr, failover_result_name( result ), identity ));
+    FD_LOG_WARNING(( "`%s` failed (result %#lx), this machine runs `%s`", ctx->failover_cmd_cstr, result, identity ));
   }
   ctx->failover_retargeted    = 0;
   ctx->failover_slot_idx      = ULONG_MAX;
@@ -1544,7 +1521,7 @@ failover_request( fd_admin_tile_ctx_t * ctx,
     ulong result = failover_prepare( ctx, payload->keypair );
     fd_memzero_explicit( payload->keypair, sizeof(payload->keypair) );
     if( FD_UNLIKELY( result!=FD_ADMINCTL_RESULT_SUCCESS ) ) {
-      FD_LOG_WARNING(( "`%s` refused before it reached the failover tile (%s), nothing was done", cmd_cstr, failover_result_name( result ) ));
+      FD_LOG_WARNING(( "`%s` refused before it reached the failover tile (result %#lx), nothing was done", cmd_cstr, result ));
       report_admin_command_custom_result( &event, "target_refused" );
       fd_adminctl_complete( adminctl, slot_idx, result );
       return;

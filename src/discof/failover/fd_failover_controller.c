@@ -145,7 +145,7 @@ finish_cmd( fd_failover_tile_ctx_t * ctx,
             ulong                    result ) {
   if( FD_LIKELY( !ctx->cmd_nonce || ctx->cmd_done ) ) return;
   if( FD_LIKELY( result==FD_ADMINCTL_RESULT_SUCCESS ) ) FD_LOG_NOTICE (( "`failover promote` done, this machine runs the identity" ));
-  else                                                  FD_LOG_WARNING(( "`failover promote` failed, %s", fd_adminctl_failover_result_cstr( result ) ));
+  else                                                  FD_LOG_WARNING(( "`failover promote` failed (result %#lx)", result ));
   ctx->cmd_result = result;
   ctx->cmd_done   = 1;
 }
@@ -287,7 +287,7 @@ flush_pending( fd_failover_tile_ctx_t * ctx,
   if( ctx->tx.type==(ushort)FD_FAILOVER_MSG_HANDOFF_RESULT ) {
     fd_failover_handoff_result_t result;
     fd_memcpy( &result, ctx->tx.payload, sizeof(result) );
-    FD_LOG_NOTICE(( "handoff %lu: sent HANDOFF_RESULT to peer boot %016lx, %s", result.handoff_id, ctx->tx.to.boot_id, fd_adminctl_failover_result_cstr( result.result ) ));
+    FD_LOG_NOTICE(( "handoff %lu: sent HANDOFF_RESULT to peer boot %016lx (result %#lx)", result.handoff_id, ctx->tx.to.boot_id, result.result ));
   } else {
     ulong id = ctx->tx.type==(ushort)FD_FAILOVER_MSG_DEMOTED ? ctx->handoff.id : ctx->reply.handoff_id;
     FD_LOG_NOTICE(( "handoff %lu: sent %s to peer boot %016lx", id, get_msg_name( ctx->tx.type ), ctx->tx.to.boot_id ));
@@ -526,7 +526,7 @@ static void
 abort_demotion( fd_failover_tile_ctx_t * ctx,
                 char const *             why ) {
   FD_LOG_WARNING(( "handoff %lu: %s, %s", ctx->handoff.id, why, holds_identity( ctx ) ? "this machine keeps the identity" : "nobody runs the identity" ));
-  if( FD_UNLIKELY( ctx->handoff.delivery!=FD_FAILOVER_DELIVERY_NONE ) ) queue_handoff_result( ctx, &ctx->handoff.target, ctx->handoff.id, FD_FAILOVER_CONTROL_RESULT_PEER_UNREADY );
+  if( FD_UNLIKELY( ctx->handoff.delivery!=FD_FAILOVER_DELIVERY_NONE ) ) queue_handoff_result( ctx, &ctx->handoff.target, ctx->handoff.id, FD_FAILOVER_CONTROL_RESULT_HANDOFF_ABORTED );
   ctx->handoff.delivery = FD_FAILOVER_DELIVERY_NONE;
   ctx->stuck            = 1;
   set_action( ctx, FD_FAILOVER_ACTION_IDLE );
@@ -701,7 +701,7 @@ get_promote_source( fd_failover_tile_ctx_t const * ctx ) {
    FD_ADMINCTL_RESULT_SUCCESS or the refusal. */
 static ulong
 check_promotion( fd_failover_tile_ctx_t const * ctx ) {
-  if( FD_UNLIKELY( holds_identity( ctx ) ) ) return FD_FAILOVER_CONTROL_RESULT_WRONG_HOLDER;
+  if( FD_UNLIKELY( holds_identity( ctx ) ) ) return FD_FAILOVER_CONTROL_RESULT_ALREADY_HOLDS;
   int cancellable = ctx->action==FD_FAILOVER_ACTION_DEMOTE_WAIT_ACK || ( ctx->request.id && is_requesting( ctx ) );
   if( FD_UNLIKELY( ( ctx->action!=FD_FAILOVER_ACTION_IDLE && !cancellable ) || is_switch_pending( ctx ) ) ) return FD_FAILOVER_CONTROL_RESULT_IN_PROGRESS;
   return FD_ADMINCTL_RESULT_SUCCESS;
@@ -963,7 +963,9 @@ on_handoff_request_msg( fd_failover_tile_ctx_t * ctx,
   if( FD_UNLIKELY( !fd_failover_handoff_request_decode( &request, ctx->rx, payload_sz ) ) ) return 0;
   ulong result = FD_ADMINCTL_RESULT_SUCCESS;
   if( FD_UNLIKELY( request.target_boot_id!=ctx->hello.boot_id ) ) {
-    result = FD_FAILOVER_CONTROL_RESULT_PEER_UNREADY;
+    /* The request is for an earlier boot of this machine, which to the
+       requester is a restart. */
+    result = FD_FAILOVER_CONTROL_RESULT_PEER_RESTARTED;
   } else if( FD_UNLIKELY( request.handoff_id==ctx->handoff.id && is_bound_peer( ctx, &ctx->handoff.target ) ) ) {
     /* The same request again keeps the demotion and gets its answer again. */
     if( is_switching_out( ctx ) ) return 1;
@@ -971,26 +973,22 @@ on_handoff_request_msg( fd_failover_tile_ctx_t * ctx,
       if( !ctx->tx.valid ) (void)queue_demoted( ctx );
       return 1;
     }
-    result = ctx->handoff.result==FD_FAILOVER_HANDOFF_TAKEN ? FD_ADMINCTL_RESULT_SUCCESS : FD_FAILOVER_CONTROL_RESULT_PEER_UNREADY;
+    result = ctx->handoff.result==FD_FAILOVER_HANDOFF_TAKEN ? FD_ADMINCTL_RESULT_SUCCESS : FD_FAILOVER_CONTROL_RESULT_HANDOFF_ABORTED;
   } else if( ctx->action!=FD_FAILOVER_ACTION_IDLE || is_switch_pending( ctx ) || ctx->tx.valid || ctx->session.close_after_send ) {
     result = FD_FAILOVER_CONTROL_RESULT_IN_PROGRESS;
-  } else if( !holds_identity( ctx ) || fd_failover_channel_peer_hello( ctx->channel )->holds ) {
-    result = FD_FAILOVER_CONTROL_RESULT_WRONG_HOLDER;
+  } else if( !holds_identity( ctx ) ) {
+    result = FD_FAILOVER_CONTROL_RESULT_NOT_HOLDER;
+  } else if( fd_failover_channel_peer_hello( ctx->channel )->holds ) {
+    result = FD_FAILOVER_CONTROL_RESULT_ALREADY_HOLDS;
   } else {
     result = check_handoff( ctx, request.replay_slot );
     if( FD_LIKELY( result==FD_ADMINCTL_RESULT_SUCCESS ) ) { accept_handoff( ctx, request.handoff_id ); return 1; }
   }
-  FD_LOG_WARNING(( "handoff %lu refused, %s", request.handoff_id, fd_adminctl_failover_result_cstr( result ) ));
+  FD_LOG_WARNING(( "handoff %lu refused (result %#lx)", request.handoff_id, result ));
   queue_handoff_result( ctx, NULL, request.handoff_id, result );
   return 1;
 }
 
-static int
-is_peer_result( ulong result ) {
-  return result==FD_FAILOVER_CONTROL_RESULT_NO_FINAL_HISTORY || result==FD_FAILOVER_CONTROL_RESULT_REPLAY_BEHIND ||
-         result==FD_FAILOVER_CONTROL_RESULT_IN_PROGRESS      || result==FD_FAILOVER_CONTROL_RESULT_WRONG_HOLDER  ||
-         result==FD_FAILOVER_CONTROL_RESULT_PEER_UNREADY;
-}
 
 /* HANDOFF_RESULT, the peer recorded how our request ended. */
 static int
@@ -1007,8 +1005,13 @@ on_handoff_result_msg( fd_failover_tile_ctx_t * ctx,
     return 1;
   }
   if( FD_UNLIKELY( failed ) ) {
-    FD_LOG_WARNING(( "handoff %lu ended, %s, %s", result.handoff_id, fd_adminctl_failover_result_cstr( result.result ), holds_identity( ctx ) ? "this machine runs the identity and the other may run it too" : "this machine does not run the identity" ));
-    finish_cmd( ctx, is_peer_result( result.result ) ? result.result : FD_FAILOVER_CONTROL_RESULT_PEER_UNREADY );
+    FD_LOG_WARNING(( "handoff %lu ended (result %#lx), %s", result.handoff_id, result.result, holds_identity( ctx ) ? "this machine runs the identity and the other may run it too" : "this machine does not run the identity" ));
+    /* The peer refused ALREADY_HOLDS from our HELLO, which may predate
+       our last identity switch: both of us run the identity, or it
+       refused before anything changed. */
+    ulong cmd_result = result.result;
+    if( FD_UNLIKELY( cmd_result==FD_FAILOVER_CONTROL_RESULT_ALREADY_HOLDS ) ) cmd_result = holds_identity( ctx ) ? FD_FAILOVER_CONTROL_RESULT_PEER_HOLDS : FD_FAILOVER_CONTROL_RESULT_IN_PROGRESS;
+    finish_cmd( ctx, cmd_result );
   }
   end_request( ctx, now, failed ? FD_FAILOVER_HANDOFF_DECLINED : FD_FAILOVER_HANDOFF_TAKEN );
   return 1;
@@ -1059,7 +1062,7 @@ on_demoted_answer_msg( fd_failover_tile_ctx_t * ctx,
   ctx->peer_history.valid = 0; /* the peer votes past it, or either machine may now recover without the other */
   ctx->stuck              = !taken;
   resolve_handoff( ctx, taken ? FD_FAILOVER_HANDOFF_TAKEN : FD_FAILOVER_HANDOFF_DECLINED );
-  queue_handoff_result( ctx, NULL, handoff_id, taken ? FD_ADMINCTL_RESULT_SUCCESS : FD_FAILOVER_CONTROL_RESULT_PEER_UNREADY );
+  queue_handoff_result( ctx, NULL, handoff_id, taken ? FD_ADMINCTL_RESULT_SUCCESS : FD_FAILOVER_CONTROL_RESULT_HANDOFF_ABORTED );
   return 1;
 }
 
@@ -1164,7 +1167,7 @@ poll_peer( fd_failover_tile_ctx_t * ctx,
   if( FD_UNLIKELY( !ctx->request.peer.boot_id ) ) {
     if( FD_UNLIKELY( !peer->holds ) ) {
       FD_LOG_WARNING(( "handoff %lu: dialed `" FD_IP4_ADDR_FMT ":%hu`, which does not run the identity", ctx->request.id, FD_IP4_ADDR_FMT_ARGS( ctx->request.addr ), get_dial_port( ctx ) ));
-      finish_cmd( ctx, FD_FAILOVER_CONTROL_RESULT_WRONG_HOLDER );
+      finish_cmd( ctx, FD_FAILOVER_CONTROL_RESULT_NOT_HOLDER );
       end_request( ctx, now, FD_FAILOVER_HANDOFF_NOT_HOLDER );
       return;
     }
@@ -1183,7 +1186,7 @@ poll_peer( fd_failover_tile_ctx_t * ctx,
 static ulong
 get_settled_result( fd_failover_tile_ctx_t const * ctx ) {
   if( FD_LIKELY( holds_identity( ctx ) ) ) return FD_ADMINCTL_RESULT_SUCCESS;
-  return ctx->reply.type==(ushort)FD_FAILOVER_MSG_PROMOTE_REJECTED ? get_reject_result( ctx->reply.reason ) : FD_FAILOVER_CONTROL_RESULT_PEER_UNREADY;
+  return ctx->reply.type==(ushort)FD_FAILOVER_MSG_PROMOTE_REJECTED ? get_reject_result( ctx->reply.reason ) : FD_FAILOVER_CONTROL_RESULT_HANDOFF_ABORTED;
 }
 
 /* `failover promote`: asks the machine running the identity for it, or
@@ -1224,7 +1227,7 @@ run_handoff_cmd( fd_failover_tile_ctx_t *           ctx,
     return ctx->action==FD_FAILOVER_ACTION_HANDOFF_WAIT_RESULT ? get_settled_result( ctx ) : FD_FAILOVER_CMD_PENDING;
   }
   if( FD_UNLIKELY( ctx->action!=FD_FAILOVER_ACTION_IDLE || is_switch_pending( ctx ) ) ) return FD_FAILOVER_CONTROL_RESULT_IN_PROGRESS;
-  if( FD_UNLIKELY( holds_identity( ctx ) ) ) return FD_FAILOVER_CONTROL_RESULT_WRONG_HOLDER;
+  if( FD_UNLIKELY( holds_identity( ctx ) ) ) return FD_FAILOVER_CONTROL_RESULT_ALREADY_HOLDS;
   uint addr = req->addr ? req->addr : ctx->staked_addr;
   if( FD_UNLIKELY( !addr ) ) return FD_FAILOVER_CONTROL_RESULT_NO_HOLDER_ADDRESS;
   ctx->cmd_addr = req->addr;
@@ -1354,6 +1357,7 @@ serve_bus_request( fd_failover_tile_ctx_t * ctx,
     return;
   }
   char const * flag = ( req.flags & FD_ADMINCTL_FAILOVER_FLAG_FORCE ) ? " --force" : ( req.flags & FD_ADMINCTL_FAILOVER_FLAG_ADOPT ) ? " --adopt" : "";
-  if( FD_UNLIKELY( result!=FD_ADMINCTL_RESULT_SUCCESS ) ) FD_LOG_WARNING(( "`%s%s` refused, %s", cmd_name, flag, fd_adminctl_failover_result_cstr( result ) ));
+  if( FD_UNLIKELY( result==FD_FAILOVER_CONTROL_RESULT_ALREADY_HOLDS ) ) FD_LOG_NOTICE(( "`%s%s` done, this machine already runs the identity", cmd_name, flag ));
+  else if( FD_UNLIKELY( result!=FD_ADMINCTL_RESULT_SUCCESS ) ) FD_LOG_WARNING(( "`%s%s` refused (result %#lx)", cmd_name, flag, result ));
   publish_bus_result( ctx, stem, ctx->bus_req.nonce, result );
 }

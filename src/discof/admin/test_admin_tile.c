@@ -276,7 +276,7 @@ test_failover_command( ulong cmd_id,
       fd_adminctl_failover_req_t forwarded;
       fd_memcpy( &forwarded, ((fd_failover_bus_msg_t const *)bus_out)->payload, sizeof(forwarded) );
       FD_TEST( forwarded.cmd==payload_cmd && forwarded.flags==flags );
-      result       = i ? FD_FAILOVER_CONTROL_RESULT_WRONG_HOLDER : FD_ADMINCTL_RESULT_SUCCESS;
+      result       = i ? FD_FAILOVER_CONTROL_RESULT_NOT_HOLDER : FD_ADMINCTL_RESULT_SUCCESS;
       event_result = i ? FD_EVENT_ADMIN_COMMAND_RESULT_CUSTOM : FD_EVENT_ADMIN_COMMAND_RESULT_SUCCESS;
       ctx.failov_in.nonce  = ctx.failover_nonce;
       ctx.failov_in.result = result;
