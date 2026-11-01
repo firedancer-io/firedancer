@@ -663,7 +663,9 @@ handle_votor( fd_repair_tile_t * ctx,
     if( FD_UNLIKELY( certed->slot<=ctx->rotor->root || certed->slot>=ctx->rotor->root+ctx->rotor->slot_max ) ) return; /* outside the window */
     if( FD_UNLIKELY( ctx->staked && !ctx->cert_slot0 ) ) {
       ctx->cert_slot0 = certed->slot;
-      fd_repair_slot_catchup( ctx->rotor, certed->slot );
+      /* catchup's endpoint is exclusive.  Include the certificate slot
+         before finalization can suppress its positional repair seed. */
+      fd_repair_slot_catchup( ctx->rotor, certed->slot+1UL );
     }
     switch( certed->kind ) {
     case AG_CERT_KIND_FINAL:
