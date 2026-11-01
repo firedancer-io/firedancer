@@ -1270,7 +1270,8 @@ initialize_accdb_fd( config_t const * config ) {
   int spill_fd = open( spill_path, O_RDWR|O_CREAT|O_TRUNC|O_NOATIME|O_CLOEXEC, S_IRUSR|S_IWUSR );
   if( FD_UNLIKELY( -1==spill_fd ) ) FD_LOG_ERR(( "failed to open %s (%i-%s)", spill_path, errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( -1==unlink( spill_path ) ) ) FD_LOG_ERR(( "unlink(%s) failed (%i-%s)", spill_path, errno, fd_io_strerror( errno ) ));
-  ulong scratch_sz = fd_accdb_scratch_sz( config->firedancer.runtime.max_live_slots, FD_RUNTIME_MAX_ACC_WRITES_PER_SLOT );
+  ulong scratch_sz = fd_accdb_scratch_sz( config->firedancer.runtime.max_live_slots, FD_RUNTIME_MAX_ACC_WRITES_PER_SLOT,
+                                          config->firedancer.accounts.max_accounts, config->firedancer.accounts.index_ram_entries );
   if( FD_UNLIKELY( -1==fallocate( spill_fd, 0, 0L, (long)scratch_sz ) ) ) {
     if( FD_LIKELY( errno==ENOSPC ) ) FD_LOG_ERR(( "fallocate() failed (%d-%s). The accounts database scratch file needs "
                                                   "%lu GiB of disk space at `%s`. Free up disk space to continue.",
