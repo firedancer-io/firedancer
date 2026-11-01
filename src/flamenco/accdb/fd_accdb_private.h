@@ -404,6 +404,10 @@ struct fd_accdb_shmem_private {
      background pre-eviction loop to decide when to refill. */
   struct __attribute__((aligned(64))) { ulong val; } cache_free_cnt[ FD_ACCDB_CACHE_CLASS_CNT ];
 
+  /* Monotonic across quiescent resets while joins survive.  Local free
+     indices must be discarded when this changes; never reset to one. */
+  ulong cache_reset_cookie;
+
   fd_accdb_fork_id_t root_fork_id;
 
   ulong seed;

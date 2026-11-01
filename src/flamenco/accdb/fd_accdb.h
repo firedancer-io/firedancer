@@ -102,6 +102,15 @@ fd_accdb_new( void *                    ljoin,
 fd_accdb_t *
 fd_accdb_join( void * shaccdb );
 
+/* Return this join's clean local free slots to the shared allocator.
+   Call only on the join's owning thread, with no outstanding acquire,
+   before retiring/reusing its storage.  Does not deregister an epoch
+   slot.  Joins otherwise live until shared teardown.  Stale indices
+   after a quiescent fd_accdb_reset are discarded, never re-published.
+   Idle/crashed joins retain only a capacity-proved, bounded magazine. */
+void
+fd_accdb_cache_flush( fd_accdb_t * accdb );
+
 /* fd_accdb_join_readonly is the read-only counterpart of fd_accdb_new +
    fd_accdb_join.  shmem_ro may point into a read-only mapping of the
    shmem region; the function will not write to it.  my_epoch_slot_rw

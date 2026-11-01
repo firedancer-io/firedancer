@@ -50,6 +50,20 @@ struct fd_accdb_fork {
 
 typedef struct fd_accdb_fork fd_accdb_fork_t;
 
+/* Return-only magazines never hide scarce 1/10 MiB slots.  The bound
+   also covers pre-eviction's pending batch plus one incoming claim. */
+#define CACHE_LOCAL_MAX       (16UL)
+#define CACHE_LOCAL_CLASS_CNT (6UL)
+#define PREEVICT_TICK_BUDGET   (256UL)
+
+static inline ulong
+cache_local_capacity( ulong capacity, ulong joiners, ulong reserved ) {
+  ulong worst = fd_ulong_max( reserved, PREEVICT_TICK_BUDGET+1UL );
+  if( FD_UNLIKELY( !joiners ) ) return 0UL;
+  ulong per_join = capacity / joiners;
+  return per_join>=worst && per_join-worst>=CACHE_LOCAL_MAX ? CACHE_LOCAL_MAX : 0UL;
+}
+
 #define FD_ACCDB_ACQUIRE_STATE_IDLE    (0)
 #define FD_ACCDB_ACQUIRE_STATE_PHASE_A (1)
 #define FD_ACCDB_ACQUIRE_STATE_OPEN    (2)
@@ -73,6 +87,14 @@ struct __attribute__((aligned(FD_ACCDB_ALIGN))) fd_accdb_private {
   uint * acc_map;
 
   uchar * cache [ FD_ACCDB_CACHE_CLASS_CNT ];
+
+  /* Owned by this join's single caller, including cross-worker frees.
+     Slots contain only invalidated, persisted lines.  Global free counts
+     exclude them; CLOCK skips their empty sentinels. */
+  uint  cache_local_idx[ FD_ACCDB_CACHE_CLASS_CNT ][ CACHE_LOCAL_MAX ];
+  uint  cache_local_cnt[ FD_ACCDB_CACHE_CLASS_CNT ];
+  uchar cache_local_cap[ FD_ACCDB_CACHE_CLASS_CNT ];
+  ulong cache_local_cookie;
 
   fd_accdb_partition_t * partition_pool;
   compaction_dlist_t * compaction_dlist[ FD_ACCDB_COMPACTION_LAYER_CNT ];
@@ -318,6 +340,13 @@ fd_accdb_new( void *              ljoin,
   accdb->sleep_tile_id = sleep_tile_id;
 
   accdb->shmem = (fd_accdb_shmem_t *)shmem;
+  memset( accdb->cache_local_cnt, 0, sizeof(accdb->cache_local_cnt) );
+  for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) {
+    accdb->cache_local_cap[ c ] = (uchar)( !compaction && c<CACHE_LOCAL_CLASS_CNT &&
+        shmem->cache_class_used[ c ].val==ULONG_MAX
+        ? cache_local_capacity( shmem->cache_class_max[ c ], shmem->joiner_cnt_max, shmem->cache_min_reserved ) : 0UL );
+  }
+  accdb->cache_local_cookie = shmem->cache_reset_cookie;
   FD_TEST( acc_pool_join( accdb->acc_pool_join, shmem->acc_pool, _acc_pool_ele, max_accounts ) );
   accdb->acc_pool = accdb->acc_pool_join->ele;
   accdb->acc_map = _acc_map;
@@ -471,6 +500,13 @@ fd_accdb_reset( fd_accdb_t * accdb ) {
 
   shmem->snapshot_loading = 0;
 
+  FD_COMPILER_MFENCE();
+
+  /* Reset is externally quiescent.  Surviving joins discard stale local
+     indices before their next pop/push/flush, without publishing them.
+     Do not reuse the epoch or fork generation, both reset to constants. */
+  FD_TEST( shmem->cache_reset_cookie!=ULONG_MAX );
+  shmem->cache_reset_cookie++;
   FD_COMPILER_MFENCE();
 
   /* Tell the accdb tile to clear its stale deferred fork chain.
@@ -748,6 +784,9 @@ fd_accdb_join_readonly( void *             ljoin,
   accdb->fd    = fd_ro;
   accdb->acquire_state = FD_ACCDB_ACQUIRE_STATE_IDLE;
   accdb->shmem = shmem;
+  memset( accdb->cache_local_cnt, 0, sizeof(accdb->cache_local_cnt) );
+  memset( accdb->cache_local_cap, 0, sizeof(accdb->cache_local_cap) );
+  accdb->cache_local_cookie = shmem->cache_reset_cookie;
   FD_TEST( acc_pool_join( accdb->acc_pool_join, shmem->acc_pool, _acc_pool_ele, max_accounts ) );
   accdb->acc_pool = accdb->acc_pool_join->ele;
   accdb->acc_map  = _acc_map;
@@ -963,7 +1002,7 @@ evict_clear_acc_cache_ref( fd_accdb_accmeta_t * accmeta,
    ordered before the store that releases refcnt to 0. */
 
 static inline void
-cache_free_push( fd_accdb_t * accdb,
+cache_free_push_global( fd_accdb_t * accdb,
                  ulong        size_class,
                  fd_accdb_cache_line_t * line ) {
   ulong line_idx = cache_line_idx( accdb, size_class, line );
@@ -986,7 +1025,7 @@ cache_free_push( fd_accdb_t * accdb,
    NULL if the list is empty. */
 
 static inline fd_accdb_cache_line_t *
-cache_free_pop( fd_accdb_t * accdb,
+cache_free_pop_global( fd_accdb_t * accdb,
                 ulong        size_class ) {
   for(;;) {
     ulong old_vt  = FD_VOLATILE_CONST( accdb->shmem->cache_free[ size_class ].ver_top );
@@ -1008,6 +1047,70 @@ cache_free_pop( fd_accdb_t * accdb,
     }
     FD_SPIN_PAUSE();
   }
+}
+
+/* Every magazine operation checks before dereferencing any cached index.
+   Reset's caller has already excluded all concurrent accdb operations. */
+static inline void
+cache_local_sync( fd_accdb_t * accdb ) {
+  ulong cookie = FD_VOLATILE_CONST( accdb->shmem->cache_reset_cookie );
+  if( FD_UNLIKELY( cookie!=accdb->cache_local_cookie ) ) {
+    memset( accdb->cache_local_cnt, 0, sizeof(accdb->cache_local_cnt) );
+    accdb->cache_local_cookie = cookie;
+  }
+}
+
+static inline void
+cache_free_push( fd_accdb_t * accdb,
+                 ulong size_class,
+                 fd_accdb_cache_line_t * line ) {
+  cache_local_sync( accdb );
+  uint cnt = accdb->cache_local_cnt[ size_class ];
+  if( FD_LIKELY( cnt<accdb->cache_local_cap[ size_class ] ) ) {
+    /* Keep the same invalidation/refcnt ordering as a global push.
+       A stale speculative pin can briefly raise refcnt; reuse must CAS. */
+    FD_COMPILER_MFENCE();
+    accdb->cache_local_idx[ size_class ][ cnt ] = (uint)cache_line_idx( accdb, size_class, line );
+    accdb->cache_local_cnt[ size_class ] = cnt+1U;
+    return;
+  }
+  cache_free_push_global( accdb, size_class, line );
+}
+
+static inline fd_accdb_cache_line_t *
+cache_free_pop( fd_accdb_t * accdb, ulong size_class ) {
+  cache_local_sync( accdb );
+  uint cnt = accdb->cache_local_cnt[ size_class ];
+  if( FD_LIKELY( cnt ) ) {
+    accdb->cache_local_cnt[ size_class ] = cnt-1U;
+    return cache_line( accdb, size_class, accdb->cache_local_idx[ size_class ][ cnt-1U ] );
+  }
+  return cache_free_pop_global( accdb, size_class );
+}
+
+void
+fd_accdb_cache_flush( fd_accdb_t * accdb ) {
+  FD_TEST( accdb->acquire_state==FD_ACCDB_ACQUIRE_STATE_IDLE );
+  cache_local_sync( accdb );
+  for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) {
+    while( accdb->cache_local_cnt[ c ] ) {
+      uint idx = accdb->cache_local_idx[ c ][ --accdb->cache_local_cnt[ c ] ];
+      cache_free_push_global( accdb, c, cache_line( accdb, c, idx ) );
+    }
+  }
+}
+
+static inline fd_accdb_cache_line_t *
+cache_reuse_line( fd_accdb_cache_line_t * line, uint * out_evicted_acc_idx ) {
+  while( FD_UNLIKELY( FD_ATOMIC_CAS( &line->refcnt, 0U, 1U )!=0U ) ) {
+    fd_racesan_hook( "accdb_freepop:refcnt_wait" );
+    FD_SPIN_PAUSE();
+  }
+  line->referenced = 0;
+  FD_VOLATILE( line->seq ) = line->seq+1U;
+  FD_COMPILER_MFENCE();
+  *out_evicted_acc_idx = UINT_MAX;
+  return line;
 }
 
 /* cache_try_pin attempts a lock-free pin of a cache-hit line.  Returns
@@ -1743,20 +1846,9 @@ static inline fd_accdb_cache_line_t *
 acquire_cache_line( fd_accdb_t * accdb,
                     ulong        size_class,
                     uint *       out_evicted_acc_idx ) {
-  /* Priority 1: CAS free list — already invalidated,
-     persisted==1, generation==UINT_MAX.  Cheapest path. */
+  /* Priority 1: local return-only magazine, then global free list. */
   fd_accdb_cache_line_t * result = cache_free_pop( accdb, size_class );
-  if( FD_LIKELY( result ) ) {
-    while( FD_UNLIKELY( FD_ATOMIC_CAS( &result->refcnt, 0U, 1U )!=0U ) ) {
-      fd_racesan_hook( "accdb_freepop:refcnt_wait" );
-      FD_SPIN_PAUSE();
-    }
-    result->referenced = 0;
-    FD_VOLATILE( result->seq ) = result->seq+1U;
-    FD_COMPILER_MFENCE();
-    *out_evicted_acc_idx = UINT_MAX;
-    return result;
-  }
+  if( FD_LIKELY( result ) ) return cache_reuse_line( result, out_evicted_acc_idx );
 
   /* Priority 2: Lazy initial allocation — atomic FAA with undo on
      overflow.  Safe for concurrent callers. */
@@ -1773,8 +1865,16 @@ acquire_cache_line( fd_accdb_t * accdb,
   }
   FD_ATOMIC_FETCH_AND_SUB( &accdb->shmem->cache_class_init[ size_class ].val, 1UL );
 
-  /* Priority 3: CLOCK sweep ... scan forward giving second chances. */
+  /* Priority 3: CLOCK sweep ... scan forward giving second chances.
+     A return can arrive after the initial free-pop.  CLOCK skips free
+     sentinels, so periodically retry the global list for progress. */
+  ulong probes = 0UL;
   for(;;) {
+    if( FD_UNLIKELY( !(probes++ & 63UL) ) ) {
+      fd_racesan_hook( "accdb_clock:free_recheck" );
+      result = cache_free_pop_global( accdb, size_class );
+      if( result ) return cache_reuse_line( result, out_evicted_acc_idx );
+    }
     ulong hand = FD_ATOMIC_FETCH_AND_ADD( &accdb->shmem->clock_hand[ size_class ].val, 1UL ) % accdb->shmem->cache_class_max[ size_class ];
     fd_accdb_cache_line_t * line = cache_line( accdb, size_class, hand );
 
@@ -4098,7 +4198,6 @@ fd_accdb_data_len( fd_accdb_t *       accdb,
    can be read neither from the cache nor from disk, so a reader waits
    for the batch write to finish. */
 
-#define PREEVICT_TICK_BUDGET (256UL)
 
 /* cache_line_free invalidates a claimed line and returns it to its
    class free list. */
