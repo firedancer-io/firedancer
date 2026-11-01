@@ -395,6 +395,10 @@ int  fd_bls_sig_de_compressed( fd_bls_sig_t * sig, uchar const buf[ static FD_BL
    fd_bls.fd_bls_sig_de_unchecked.call_value (Api/SigDeAll.lean).
    Status: end to end. */
 int  fd_bls_sig_de_unchecked ( fd_bls_sig_t * sig, uchar const buf[ static FD_BLS_SIG_SZ ] );
+/* fd_bls_sig_de_compressed_unchecked is _de_unchecked for a compressed
+   encoding, for sigs that already passed the subgroup check. */
+int  fd_bls_sig_de_compressed_unchecked( fd_bls_sig_t * sig, uchar const buf[ static FD_BLS_SIG_COMPRESSED_SZ ] );
+
 /* fd_bls_sig_add: a, b are readable fd_bls_sig_t (all 768 bytes
    initialized) whose z.c0, z.c1 lanes are Below2.  out is 768 writable
    bytes, either equal to a or disjoint from it, and likewise for b.  a
