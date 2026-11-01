@@ -11,6 +11,9 @@
 
 extern fd_topo_run_tile_t fd_tile_quic;
 
+/* Largest quic_net frame: Ethernet header + fd_quic crypt_scratch. */
+#define FD_QUIC_NET_MTU ( sizeof(fd_eth_hdr_t)+FD_QUIC_MTU )
+
 typedef struct {
   fd_tpu_reasm_t * reasm;
   ulong            reasm_seed;

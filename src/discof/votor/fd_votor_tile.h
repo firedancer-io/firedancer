@@ -15,6 +15,9 @@
 
 #define FD_VOTOR_NET_BURST (2UL*(1UL+FD_QUIC_TLS_HS_DATA_CNT+3UL)) /* 1 ACK + 1 TLS + 3 1-RTT pkts * 2 for both client and server. EXCLUDES DATAGRAMS. */
 
+/* Largest votor_net frame (quic_aio_tx drops larger ones). */
+#define FD_VOTOR_NET_MTU FD_ETH_PAYLOAD_MAX
+
 /* QUIC_DGRAM_BURST bounds the number of QUIC DATAGRAME frames that can
    fit in a single net packet.  This can result in a burst of up to 9
    quic_server_datagram_rx calls in a single tile loop.
