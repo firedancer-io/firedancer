@@ -311,7 +311,7 @@ test_kv_index_footprint( void ) {
     .base_regions = 2UL,
   };
   ulong fp = fd_gui_store_footprint( 512UL<<20, 1UL, &kv_desc );
-  FD_TEST( fp && fp<(7UL<<20) ); /* 4 B links + 4 B chains */
+  FD_TEST( fp && fp<(6UL<<20) ); /* 4 B links + 4 B chains at load ~4 */
 
   fd_gui_store_desc_t big = kv_desc;
   big.max_records = UINT_MAX;
