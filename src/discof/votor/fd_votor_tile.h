@@ -33,7 +33,7 @@
 
 #define QUIC_DGRAM_BURST (9UL)
 
-/* RAM vote sig pages (12 KiB) per live slot: notar|skip and final
+/* RAM vote sig pages (6 KiB) per live slot: notar|skip and final
    pages for 768 ranks (mainnet ~665) plus 2 for fallback votes (mainnet
    <1.4/slot).  Pool-wide, so every slot the pool holds, catch-up
    included, keeps its sigs in RAM. */
