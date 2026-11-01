@@ -6,6 +6,7 @@
 #include "../../flamenco/gossip/fd_crds.h"
 #include "../../flamenco/gossip/fd_gossip_out.h"
 #include "../../flamenco/gossip/fd_active_set.h"
+#include "../../flamenco/gossip/fd_gossip_txbuild.h"
 #include "../../flamenco/features/fd_features.h"
 #include "../../disco/keyguard/fd_keyload.h"
 #include "../../disco/shred/fd_stake_ci.h"
@@ -44,6 +45,12 @@ gui_bw_flush( fd_gossip_tile_ctx_t * ctx,
   fd_stem_publish( stem, ctx->gui_out->idx, cnt, ctx->gui_out->chunk, sz, 0UL, 0UL, 0UL );
   ctx->gui_out->chunk = fd_dcache_compact_next( ctx->gui_out->chunk, sz, ctx->gui_out->chunk0, ctx->gui_out->wmark );
 }
+
+/* payload is a txbuild, a pull request (FD_GOSSIP_MTU buffer) or a
+   sign_pend packet (prune, ping, pong). */
+FD_STATIC_ASSERT( sizeof(((fd_gossip_txbuild_t *)0)->bytes)<=FD_GOSSIP_MTU, gossip_net_mtu );
+FD_STATIC_ASSERT( FD_GOSSIP_VALUE_MAX_SZ<=FD_GOSSIP_MTU,                    gossip_net_mtu );
+FD_STATIC_ASSERT( FD_GOSSIP_NET_MTU<=FD_NET_MTU,                            gossip_net_mtu );
 
 static void
 gossip_send_fn( void *                ctx,
@@ -646,6 +653,7 @@ unprivileged_init( fd_topo_t const *      topo,
     FD_LOG_ERR(( "tile %s:%lu had no input link named sign_gossip", tile->name, tile->kind_id ));
 
   *ctx->net_out    = out1( topo, tile, "gossip_net"    );
+  FD_TEST( topo->links[ tile->out_link_id[ ctx->net_out->idx ] ].mtu>=FD_GOSSIP_NET_MTU );
   *ctx->sign_out   = out1( topo, tile, "gossip_sign"   );
   ctx->update_out[ FD_GOSSIP_UPDATE_LINK_CI_ADDR ] = out1( topo, tile, "gossip_ciaddr" );
   ctx->update_out[ FD_GOSSIP_UPDATE_LINK_CI_SEEN ] = fd_topo_find_tile_out_link( topo, tile, "gossip_ciseen", 0UL )!=ULONG_MAX

@@ -27,6 +27,9 @@ typedef struct {
 #define FD_GOSSIP_GOSSVF_MTU    (FD_GOSSIP_MESSAGE_COMPACT_MAX + FD_GOSSIP_MESSAGE_MAX_CRDS + FD_GOSSIP_MTU)
 #define FD_GOSSIP_GOSSVF_EXPAND (sizeof(fd_gossip_message_t)   + FD_GOSSIP_MESSAGE_MAX_CRDS + FD_GOSSIP_MTU)
 
+/* Largest gossip_net frame (gossip_send_fn). */
+#define FD_GOSSIP_NET_MTU (sizeof(fd_ip4_udp_hdrs_t) + FD_GOSSIP_MTU)
+
 struct fd_gossip_tile_ctx {
   fd_gossip_t * gossip;
 
