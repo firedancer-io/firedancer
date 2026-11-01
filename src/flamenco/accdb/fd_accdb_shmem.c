@@ -350,6 +350,7 @@ fd_accdb_shmem_new( void * shmem,
   accdb->seed = seed;
   accdb->root_fork_id = (fd_accdb_fork_id_t){ .val = USHORT_MAX };
   accdb->generation = 0U;
+  accdb->cache_reset_cookie = 1UL;
 
   accdb->partition_lock   = 0;
   accdb->grow_lock        = 0;
