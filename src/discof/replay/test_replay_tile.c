@@ -27,7 +27,7 @@
 #include "fd_execrp.h"
 
 #define TEST_BANKS_MAX 16UL
-#define TEST_OUT_CNT   5UL
+#define TEST_OUT_CNT  12UL
 #define TEST_REPAIR_IN_IDX 0UL
 #define TEST_EXECRP_IN_IDX 1UL
 
@@ -126,7 +126,14 @@ void  mock_sched_metrics_fn     ( fd_sched_t * s FD_PARAM_UNUSED, fd_clock_tile_
 void  mock_sched_poh_fn         ( fd_sched_t * s FD_PARAM_UNUSED, ulong a FD_PARAM_UNUSED, ulong b FD_PARAM_UNUSED, ulong c FD_PARAM_UNUSED, fd_hash_t const * d FD_PARAM_UNUSED ) {}
 static int mock_sched_ready;
 static fd_sched_task_t mock_sched_ready_task;
+static ulong mock_sched_queue_cnt;
+static ulong mock_sched_queue_pos;
+static fd_sched_task_t mock_sched_queue[16];
 ulong mock_sched_task_next_fn( fd_sched_t * s FD_PARAM_UNUSED, fd_sched_task_t * t ) {
+  if( mock_sched_queue_pos<mock_sched_queue_cnt ) {
+    *t = mock_sched_queue[ mock_sched_queue_pos++ ];
+    return 1UL;
+  }
   if( !mock_sched_ready ) return 0UL;
   mock_sched_ready = 0;
   *t = mock_sched_ready_task;
@@ -404,7 +411,8 @@ setup_stem( fd_replay_tile_t * ctx, fd_wksp_t * wksp ) {
     else if( i==1UL ) { ctx->exec_out[ 0 ] = out; ctx->exec_cnt = 1UL; }
     else if( i==2UL ) *ctx->epoch_out  = out;
     else if( i==3UL ) *ctx->slot_out   = out;
-    else              *ctx->rotor_out  = out;
+    else if( i==4UL ) *ctx->rotor_out  = out;
+    else { ctx->exec_out[ i-4UL ] = out; ctx->exec_cnt = i-3UL; }
   }
 
   *test_stem_min_cr_avail = ULONG_MAX;
@@ -569,6 +577,8 @@ setup_ctx( fd_replay_tile_t * ctx,
   mock_sched_capacity         = ULONG_MAX;
   mock_sched_batch_cnt        = 0UL;
   mock_sched_ready            = 0;
+  mock_sched_queue_cnt        = 0UL;
+  mock_sched_queue_pos        = 0UL;
   mock_sched_lane_wait        = 0;
   mock_sched_drained          = 1;
   mock_epoch_boundary_enabled = 0;
@@ -3709,6 +3719,87 @@ test_ag_leader_fec_not_gated( fd_wksp_t * wksp ) {
   FD_LOG_NOTICE(( "pass: test_ag_leader_fec_not_gated" ));
 }
 
+static void
+test_worker_dispatch_burst( fd_wksp_t * wksp ) {
+  static fd_replay_tile_t ctx[1];
+  setup_ctx( ctx, wksp );
+  ctx->shred_version = 1U;
+  fd_bank_t * bank = fd_banks_root( ctx->banks );
+  ulong refs = bank->refcnt;
+  mock_sched_queue_cnt = 9UL;
+  for( ulong i=0UL; i<8UL; i++ ) {
+    fd_sched_task_t * task = mock_sched_queue+i;
+    *task = (fd_sched_task_t){ .task_type=FD_SCHED_TT_POH_HASH };
+    task->poh_hash->bank_idx = bank->idx;
+    task->poh_hash->exec_idx = i;
+    task->poh_hash->cnt = 1UL;
+    task->poh_hash->hash[0].ul[0] = i+1UL;
+  }
+  mock_sched_queue[8] = mock_sched_queue[0];
+  int poll_in=1, busy=0;
+  after_credit( ctx, test_stem, &poll_in, &busy );
+  FD_TEST( busy && !poll_in && mock_sched_queue_pos==8UL );
+  FD_TEST( bank->refcnt==refs+8UL );
+  FD_TEST( !test_stem_seqs[ctx->replay_out->idx] );
+  for( ulong i=0UL; i<8UL; i++ ) {
+    ulong out_idx = ctx->exec_out[i].idx;
+    FD_TEST( test_stem_seqs[out_idx]==1UL );
+    fd_frag_meta_t const * meta = test_stem_mcaches[out_idx];
+    FD_TEST( meta->sig==((FD_EXECRP_TT_POH_HASH<<32)|i) );
+    fd_execrp_poh_hash_msg_t const * msg = fd_chunk_to_laddr_const( ctx->exec_out[i].mem, meta->chunk );
+    FD_TEST( msg->bank_idx==bank->idx && msg->hash[0].ul[0]==i+1UL );
+    fd_execrp_task_done_msg_t done = { .bank_idx=bank->idx };
+    process_exec_task_done( ctx, test_stem, &done, sizeof(done), (FD_EXECRP_TT_POH_HASH<<32)|i );
+  }
+  FD_TEST( bank->refcnt==refs );
+  poll_in=1; busy=0;
+  after_credit( ctx, test_stem, &poll_in, &busy );
+  FD_TEST( busy && !poll_in && mock_sched_queue_pos==9UL );
+  FD_TEST( test_stem_seqs[ctx->exec_out[0].idx]==2UL && bank->refcnt==refs+1UL );
+  fd_execrp_task_done_msg_t done = { .bank_idx=bank->idx };
+  process_exec_task_done( ctx, test_stem, &done, sizeof(done), FD_EXECRP_TT_POH_HASH<<32 );
+  FD_TEST( bank->refcnt==refs );
+  poll_in=1; busy=0;
+  after_credit( ctx, test_stem, &poll_in, &busy );
+  FD_TEST( !busy && poll_in );
+  FD_LOG_NOTICE(( "pass: worker burst cap, routing, references and idle polling" ));
+}
+
+static void
+test_worker_burst_stops_on_local_work( fd_wksp_t * wksp ) {
+  static fd_replay_tile_t ctx[1];
+  setup_ctx( ctx, wksp );
+  ctx->shred_version = 1U;
+  fd_bank_t * bank = fd_banks_root( ctx->banks );
+  bank->state = FD_BANK_STATE_FROZEN;
+  ulong refs = bank->refcnt;
+  ulong done_cnt = mock_sched_task_done_cnt;
+  mock_sched_queue_cnt = 3UL;
+  mock_sched_queue[0] = (fd_sched_task_t){ .task_type=FD_SCHED_TT_POH_HASH };
+  mock_sched_queue[0].poh_hash->bank_idx = bank->idx;
+  mock_sched_queue[0].poh_hash->exec_idx = 0UL;
+  mock_sched_queue[0].poh_hash->cnt = 1UL;
+  mock_sched_queue[1] = (fd_sched_task_t){ .task_type=FD_SCHED_TT_BLOCK_END };
+  mock_sched_queue[1].block_end->bank_idx = bank->idx;
+  mock_sched_queue[2] = mock_sched_queue[0];
+  mock_sched_queue[2].poh_hash->exec_idx = 1UL;
+  int poll_in=1, busy=0;
+  after_credit( ctx, test_stem, &poll_in, &busy );
+  FD_TEST( busy && !poll_in && mock_sched_queue_pos==2UL );
+  FD_TEST( mock_sched_task_done_cnt==done_cnt+1UL && mock_sched_task_done_type==FD_SCHED_TT_BLOCK_END );
+  FD_TEST( test_stem_seqs[ctx->exec_out[0].idx]==1UL && !test_stem_seqs[ctx->exec_out[1].idx] );
+  FD_TEST( bank->refcnt==refs+1UL );
+  fd_execrp_task_done_msg_t done = { .bank_idx=bank->idx };
+  process_exec_task_done( ctx, test_stem, &done, sizeof(done), FD_EXECRP_TT_POH_HASH<<32 );
+  poll_in=1; busy=0;
+  after_credit( ctx, test_stem, &poll_in, &busy );
+  FD_TEST( busy && !poll_in && mock_sched_queue_pos==3UL );
+  FD_TEST( test_stem_seqs[ctx->exec_out[1].idx]==1UL && bank->refcnt==refs+1UL );
+  process_exec_task_done( ctx, test_stem, &done, sizeof(done), (FD_EXECRP_TT_POH_HASH<<32)|1UL );
+  FD_TEST( bank->refcnt==refs );
+  FD_LOG_NOTICE(( "pass: local scheduler work terminates worker burst and preserves references" ));
+}
+
 /* Ready follower work must keep dispatching, but once our PoH result
    and footer are done it must not suppress polling the own-FEC return
    needed to freeze the leader bank and start the next slot. */
@@ -4265,6 +4356,8 @@ main( int     argc,
   test_sigverify_batch_completion( wksp, 0 ); fd_wksp_reset( wksp, 42U );
   test_sigverify_batch_completion( wksp, 1 ); fd_wksp_reset( wksp, 42U );
   test_txn_completion_publish( wksp );              fd_wksp_reset( wksp, 42U );
+  test_worker_dispatch_burst( wksp );                fd_wksp_reset( wksp, 42U );
+  test_worker_burst_stops_on_local_work( wksp );      fd_wksp_reset( wksp, 42U );
   test_lthash_oob_routing( wksp );                  fd_wksp_reset( wksp, 42U );
   test_reward_cert_signer_count( wksp );            fd_wksp_reset( wksp, 42U );
   test_snapshot_intervals_use_block_height();

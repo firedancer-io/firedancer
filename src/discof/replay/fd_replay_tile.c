@@ -3503,8 +3503,21 @@ after_credit( fd_replay_tile_t *  ctx,
     return;
   }
 
-  int worker_dispatched;
-  if( FD_LIKELY( try_replay( ctx, stem, &worker_dispatched ) ) ) {
+  /* Fill several idle workers before repeating the root/leader checks.
+     Local scheduler work ends the burst, preserving its skip-poll and
+     output-credit contract.  A leader waiting on its own FEC still
+     polls after every dispatch. */
+  ulong worker_burst = ctx->is_leader && ctx->recv_poh ? 1UL : 8UL;
+  int replayed = 0;
+  int worker_dispatched = 0;
+  for( ulong i=0UL; i<worker_burst; i++ ) {
+    int dispatched;
+    if( FD_UNLIKELY( !try_replay( ctx, stem, &dispatched ) ) ) break;
+    replayed = 1;
+    worker_dispatched = dispatched;
+    if( FD_UNLIKELY( !dispatched ) ) break;
+  }
+  if( FD_LIKELY( replayed ) ) {
     *charge_busy = 1;
     /* PoH and our footer are done, but freezing still awaits our final
        FEC / block id.  Continue dispatching follower work while polling
@@ -4961,7 +4974,9 @@ during_housekeeping( fd_replay_tile_t * ctx ) {
    which adds one.  While a leader awaits its block id after PoH, an
    exec_out-only worker dispatch also permits input polling: the largest
    input callback publishes 9 on replay_out, plus at most one slot-state
-   message (10 total), and at most one on any exec_out. */
+   message (10 total).  A worker burst publishes at most 8 on any
+   exec_out, and stops on local scheduler work; it adds no replay_out
+   messages.  Leader-wait bursts retain a single worker dispatch. */
 #define STEM_BURST (10UL)
 
 /* Housekeeping interval in ticks, tuned independently of output-link
