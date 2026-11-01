@@ -23,8 +23,8 @@ static fd_mr32_t block_ids[TEST_SLOTS];
 static fd_mr32_t
 mr( ulong slot ) {
   fd_mr32_t h = {0};
-  h.ul[0] = slot;
-  h.ul[1] = 0xC0FFEEUL;
+  FD_STORE( ulong, h.uc+0UL, slot );
+  FD_STORE( ulong, h.uc+8UL, 0xC0FFEEUL );
   return h;
 }
 
@@ -41,14 +41,14 @@ feed( fd_repair_t * r, ulong slot, fd_mr32_t const * fec_mr ) {
   uchar buf[FD_SHRED_MIN_SZ] __attribute__((aligned(8UL))) = {0};
   fd_block_marker_t marker = { .kind=FD_BLOCK_MARKER_KIND_HEADER };
   marker.header.parent_slot = slot-1UL;
-  marker.header.parent_block_id = block_ids[slot-TEST_ROOT-1UL];
+  marker.header.parent_block_id = FD_LOAD( fd_hash_t, block_ids[slot-TEST_ROOT-1UL].uc );
   ulong sz = fd_block_marker_ser( &marker, buf+FD_SHRED_DATA_HEADER_SZ );
   fd_shred_t * shred = (fd_shred_t *)buf;
   shred->variant = fd_shred_variant( FD_SHRED_TYPE_MERKLE_DATA, 6 );
   shred->slot = slot;
   shred->data.parent_off = 1U;
   shred->data.size = (ushort)(FD_SHRED_DATA_HEADER_SZ+sz);
-  fd_repair_shred_insert( r, shred, fec_mr, 0, 0L );
+  fd_repair_shred_insert( r, shred, fec_mr, 0L );
   shred->idx = FD_FEC_SHRED_CNT-1U;
   shred->data.flags = FD_SHRED_DATA_FLAG_SLOT_COMPLETE;
   fd_repair_fec_complete( r, shred, fec_mr, 0, 0U, 0U, 0U, 0U, 0U, 0U, 0L );
@@ -84,7 +84,7 @@ cert( ulong slot, uint kind ) {
   fd_votor_msg_t msg = {0};
   msg.certed.kind = kind;
   msg.certed.slot = slot;
-  if( slot>=TEST_ROOT && slot<TEST_ROOT+TEST_SLOTS ) msg.certed.block_id = block_ids[slot-TEST_ROOT];
+  if( slot>=TEST_ROOT && slot<TEST_ROOT+TEST_SLOTS ) msg.certed.block_id = FD_LOAD( fd_hash_t, block_ids[slot-TEST_ROOT].uc );
   handle_votor( ctx, FD_VOTOR_SIG_CERTED, (uchar const *)&msg );
 }
 
@@ -92,13 +92,13 @@ static void
 repair_event( ulong slot ) {
   fd_votor_msg_t msg = {0};
   msg.repair.slot = slot;
-  if( slot>=TEST_ROOT && slot<TEST_ROOT+TEST_SLOTS ) msg.repair.block_id = block_ids[slot-TEST_ROOT];
+  if( slot>=TEST_ROOT && slot<TEST_ROOT+TEST_SLOTS ) msg.repair.block_id = FD_LOAD( fd_hash_t, block_ids[slot-TEST_ROOT].uc );
   handle_votor( ctx, FD_VOTOR_SIG_REPAIR, (uchar const *)&msg );
 }
 
 static fd_repair_blk_t *
 eager( ulong slot ) {
-  return fd_repair_blk_pool_ele( ctx->repair->blk_pool, fd_repair_slot_meta( ctx->repair, slot )->eager );
+  return fd_repair_blk_pool_ele( ctx->repair->blk_pool, fd_repair_slot_meta( ctx->repair, slot )->eager_blk_idx );
 }
 
 static void
@@ -117,7 +117,6 @@ discover_all( long now ) {
   for( ulong c=0UL; c<3UL; c++ ) while( fd_repair_treap_ele_cnt( treaps[c] ) ) {
     fd_repair_blk_t * b = fd_repair_treap_fwd_iter_ele( fd_repair_treap_fwd_iter_init( treaps[c], ctx->repair->blk_pool ), ctx->repair->blk_pool );
     fd_repair_treap_ele_remove( treaps[c], b, ctx->repair->blk_pool );
-    b->in_blk_treap = 0;
     discover( ctx, b, now );
   }
 }
@@ -140,12 +139,12 @@ test_boundary( uint kind ) {
   fd_mr32_t fec = mr( TEST_CERT );
   fd_repair_blk_parented( ctx->repair, TEST_CERT, block_ids+TEST_CERT-TEST_ROOT,
                           TEST_CERT-1UL, block_ids+TEST_CERT-TEST_ROOT-1UL, 1U, 0L );
-  fd_mr20_t key; memcpy( key.uc, fec.uc, sizeof(key) );
+  fd_mr_t key = {0}; memcpy( key.mr20.uc, fec.uc, sizeof(key.mr20) );
   fd_repair_fec_notarized( ctx->repair, TEST_CERT, block_ids+TEST_CERT-TEST_ROOT, 0U, &key, 0L );
   discover_all( 1000000000L );
   ulong positional = 0UL, named = 0UL;
   timeout_t req; fd_repair_blk_t * b;
-  while( (b=poll_timeout( ctx, 2000000000L, &req )) ) {
+  while( (b=poll_timeout( ctx, 2000000000L, &req, NULL )) ) {
     if( req.slot!=TEST_CERT ) continue;
     positional += (ulong)(b->eager && req.tag==FD_REPAIR_SERDE_TAG_HIGHEST_WINDOW_INDEX);
     named += (ulong)(!b->eager && req.tag==FD_REPAIR_SERDE_TAG_WINDOW_INDEX);
@@ -194,7 +193,7 @@ test_final_conflict( void ) {
      finality/dedup rejects it; an inclusive seed is not certification. */
   FD_TEST( fd_repair_deque_empty( ctx->repair->reasm_deque ) && !eager(TEST_CERT) );
   fd_repair_slot_meta_t * meta = fd_repair_slot_meta( ctx->repair, TEST_CERT );
-  fd_repair_blk_t const * final = fd_repair_blk_pool_ele_const( ctx->repair->blk_pool, meta->final );
+  fd_repair_blk_t const * final = fd_repair_blk_pool_ele_const( ctx->repair->blk_pool, meta->final_blk_idx );
   FD_TEST( final && !memcmp( &final->dmr,block_ids+TEST_CERT-TEST_ROOT,sizeof(final->dmr) ) );
   FD_LOG_NOTICE(( "inclusive seed does not deliver a completed fork conflicting with final certificate" ));
 }
@@ -239,7 +238,7 @@ make_ids( void ) {
   fd_repair_t * pre=rotor_new( pre_mem );
   for( ulong s=TEST_ROOT+1UL; s<TEST_ROOT+TEST_SLOTS; s++ ) {
     fd_mr32_t fec=mr(s); feed(pre,s,&fec);
-    fd_repair_blk_t * b=fd_repair_blk_pool_ele(pre->blk_pool,fd_repair_slot_meta(pre,s)->eager);
+    fd_repair_blk_t * b=fd_repair_blk_pool_ele(pre->blk_pool,fd_repair_slot_meta(pre,s)->eager_blk_idx);
     FD_TEST( b && b->cmpl_fec_cnt==1U );
     block_ids[s-TEST_ROOT]=b->dmr;
   }
@@ -263,7 +262,7 @@ test_saved_gap( ulong root_slot, ulong delivered_slot, ulong first_cert ) {
   uint available = 0U;
   timeout_t req;
   fd_repair_blk_t * b;
-  while( (b=poll_timeout( ctx, 2000000000L, &req )) ) {
+  while( (b=poll_timeout( ctx, 2000000000L, &req, NULL )) ) {
     if( b->eager && req.tag==FD_REPAIR_SERDE_TAG_HIGHEST_WINDOW_INDEX && req.slot>delivered_slot && req.slot<=TEST_CERT )
       available |= 1U<<(req.slot-delivered_slot-1UL);
   }
@@ -275,7 +274,7 @@ test_saved_gap( ulong root_slot, ulong delivered_slot, ulong first_cert ) {
     FD_TEST( drain( ctx->repair )==s );
   }
   fd_repair_blk_t const * end = eager( TEST_CERT );
-  FD_TEST( end && end->cons_fec_cnt==1U && fd_hash_eq( &end->dmr, block_ids+TEST_CERT-TEST_ROOT ) );
+  FD_TEST( end && end->cons_fec_cnt==1U && !memcmp( &end->dmr, block_ids+TEST_CERT-TEST_ROOT, sizeof(fd_mr32_t) ) );
   FD_LOG_NOTICE(( "saved gap root=%lu delivered=%lu firstcert=%lu: positional seed crosses %lu slots", TEST_ROOT, delivered_slot, TEST_CERT, missing ));
 }
 
