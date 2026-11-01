@@ -83,6 +83,7 @@ struct __attribute__((aligned(FD_ACCDB_ALIGN))) fd_accdb_private {
   deferred_free_dlist_t * deferred_free_dlist;
 
   txn_pool_t txn_pool[1];
+  uint *     fork_next;  /* index mode: fork list link per accmeta, else NULL */
 
   /* Pointer into shmem->joiner_epochs[ my_slot ].val for writer
      joiners, or into a private per-tile fseq for read-only joiners.
@@ -404,6 +405,7 @@ fd_accdb_new( void *              ljoin,
 
   ulong chain_cnt = shmem->chain_cnt;
   ulong txn_max   = shmem->txn_pool_max;
+  ulong fork_next_sz = shmem->index_ram_entries ? pool_max*sizeof(uint) : 0UL;
 
   FD_SCRATCH_ALLOC_INIT( l, shmem );
                              FD_SCRATCH_ALLOC_APPEND( l, FD_ACCDB_SHMEM_ALIGN,           sizeof(fd_accdb_shmem_t)                                );
@@ -411,7 +413,7 @@ fd_accdb_new( void *              ljoin,
   void * _descends_sets    = FD_SCRATCH_ALLOC_APPEND( l, descends_set_align(),           max_live_slots*descends_set_footprint( max_live_slots ) );
   void * _acc_map          = FD_SCRATCH_ALLOC_APPEND( l, alignof(uint),                  chain_cnt*sizeof(uint)                                  );
   void * _acc_pool_ele     = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_accdb_accmeta_t),    pool_max*sizeof(fd_accdb_accmeta_t)                     );
-  void * _txn_pool_ele     = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_accdb_txn_t),        txn_max*sizeof(fd_accdb_txn_t)                          );
+  void * _txn_pool_ele     = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_accdb_txn_t),        txn_max*sizeof(fd_accdb_txn_t)+fork_next_sz             );
   void * _partition_pool   = FD_SCRATCH_ALLOC_APPEND( l, partition_pool_align(),         partition_pool_footprint( partition_cnt )               );
   void * _compaction_dlists[ FD_ACCDB_COMPACTION_LAYER_CNT ];
   for( ulong k=0UL; k<FD_ACCDB_COMPACTION_LAYER_CNT; k++ ) {
@@ -436,6 +438,7 @@ fd_accdb_new( void *              ljoin,
   accdb->acc_pool = accdb->acc_pool_join->ele;
   accdb->acc_map = _acc_map;
   FD_TEST( txn_pool_join( accdb->txn_pool, shmem->txn_pool, _txn_pool_ele, txn_max ) );
+  accdb->fork_next = fork_next_sz ? (uint *)_txn_pool_ele : NULL;
   idx_join( accdb, idx_fd );
   for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) accdb->cache[ c ] = (uchar *)shmem + shmem->cache_region_off[ c ];
   accdb->partition_pool = partition_pool_join( _partition_pool );
@@ -732,6 +735,54 @@ delta_insert( fd_accdb_t * accdb,
   return 1;
 }
 
+/* Fork lists name accmetas through records: in index mode a record is
+   its accmeta index and fork_next[] links them (an accmeta is on at
+   most one fork list), else a txn_pool element. */
+
+static inline uint
+rec_acc( fd_accdb_t * accdb,
+         uint         r ) {
+  return accdb->fork_next ? r : txn_pool_ele( accdb->txn_pool, (ulong)r )->acc_pool_idx;
+}
+
+static inline uint
+rec_next( fd_accdb_t * accdb,
+          uint         r ) {
+  return accdb->fork_next ? FD_VOLATILE_CONST( accdb->fork_next[ r ] ) : txn_pool_ele( accdb->txn_pool, (ulong)r )->fork.next;
+}
+
+static inline void
+rec_release( fd_accdb_t * accdb,
+             uint         head,
+             uint         tail ) {
+  if( accdb->fork_next || head==UINT_MAX ) return;
+  txn_pool_release_chain( accdb->txn_pool, txn_pool_ele( accdb->txn_pool, (ulong)head ), txn_pool_ele( accdb->txn_pool, (ulong)tail ) );
+}
+
+/* rec_push prepends acc_idx to the fork list at *head (lock-free).
+   Returns 0 if the RAM-mode txn_pool is exhausted. */
+
+static inline int
+rec_push( fd_accdb_t * accdb,
+          uint *       head,
+          uint         acc_idx ) {
+  uint   r    = acc_idx;
+  uint * next = accdb->fork_next ? &accdb->fork_next[ acc_idx ] : NULL;
+  if( !next ) {
+    fd_accdb_txn_t * txn = txn_pool_acquire( accdb->txn_pool );
+    if( FD_UNLIKELY( !txn ) ) return 0;
+    txn->acc_pool_idx = acc_idx;
+    r    = (uint)txn_pool_idx( accdb->txn_pool, txn );
+    next = &txn->fork.next;
+  }
+  for(;;) {
+    uint old = FD_VOLATILE_CONST( *head );
+    *next = old;
+    if( FD_LIKELY( FD_ATOMIC_CAS( head, old, r )==old ) ) return 1;
+    FD_SPIN_PAUSE();
+  }
+}
+
 int
 fd_accdb_snapshot_recover_delta( fd_accdb_t *       accdb,
                                  fd_accdb_fork_id_t fork_id ) {
@@ -742,10 +793,9 @@ fd_accdb_snapshot_recover_delta( fd_accdb_t *       accdb,
 
   uint txn_idx = accdb->fork_pool[ fork_id.val ].shmem->txn_head;
   while( txn_idx!=UINT_MAX ) {
-    fd_accdb_txn_t const * txn = txn_pool_ele( accdb->txn_pool, (ulong)txn_idx );
-    fd_accdb_accmeta_t const * acc = &accdb->acc_pool[ txn->acc_pool_idx ];
+    fd_accdb_accmeta_t const * acc = &accdb->acc_pool[ rec_acc( accdb, txn_idx ) ];
     if( FD_UNLIKELY( !delta_insert( accdb, acc->key.pubkey ) ) ) return -1;
-    txn_idx = txn->fork.next;
+    txn_idx = rec_next( accdb, txn_idx );
   }
   return 0;
 }
@@ -899,6 +949,7 @@ fd_accdb_join_readonly( void *             ljoin,
 
   ulong chain_cnt = shmem->chain_cnt;
   ulong txn_max   = shmem->txn_pool_max;
+  ulong fork_next_sz = shmem->index_ram_entries ? pool_max*sizeof(uint) : 0UL;
 
   /* Recompute the same shmem scratch layout that fd_accdb_shmem_new
      used.  All FD_SCRATCH_ALLOC_APPEND calls here only compute pointer
@@ -909,7 +960,7 @@ fd_accdb_join_readonly( void *             ljoin,
   void * _descends_sets    = FD_SCRATCH_ALLOC_APPEND( l, descends_set_align(),           max_live_slots*descends_set_footprint( max_live_slots ) );
   void * _acc_map          = FD_SCRATCH_ALLOC_APPEND( l, alignof(uint),                  chain_cnt*sizeof(uint)                                  );
   void * _acc_pool_ele     = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_accdb_accmeta_t),    pool_max*sizeof(fd_accdb_accmeta_t)                     );
-                             FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_accdb_txn_t),        txn_max*sizeof(fd_accdb_txn_t)                          );
+                             FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_accdb_txn_t),        txn_max*sizeof(fd_accdb_txn_t)+fork_next_sz             );
                              FD_SCRATCH_ALLOC_APPEND( l, partition_pool_align(),         partition_pool_footprint( partition_cnt )               );
   for( ulong k=0UL; k<FD_ACCDB_COMPACTION_LAYER_CNT; k++ ) {
                              FD_SCRATCH_ALLOC_APPEND( l, compaction_dlist_align(),       compaction_dlist_footprint()                            );
@@ -1841,8 +1892,8 @@ fork_slot_defer( fd_accdb_t *              accdb,
 }
 
 /* chain_prewalk prefetches the hash chain walks of up to CHAIN_PREWALK_W
-   txn records from txn in lock-step, over the span the caller will walk.
-   Read only.  Fills txns[] and map_idxs[] and returns the count. */
+   records from txn in lock-step, over the span the caller will walk.
+   Read only.  Fills recs[] and map_idxs[] and returns the count. */
 
 #define CHAIN_PREWALK_W (16UL)
 
@@ -1850,7 +1901,7 @@ static ulong
 chain_prewalk( fd_accdb_t *      accdb,
                uint              txn,
                int               purge,
-               fd_accdb_txn_t ** txns,
+               uint *            recs,
                uint *            map_idxs ) {
   uint acc_idx  [ CHAIN_PREWALK_W ];
   uint cur      [ CHAIN_PREWALK_W ];
@@ -1858,11 +1909,10 @@ chain_prewalk( fd_accdb_t *      accdb,
 
   ulong cnt = 0UL;
   for( ; cnt<CHAIN_PREWALK_W && txn!=UINT_MAX; cnt++ ) {
-    fd_accdb_txn_t * txne = txn_pool_ele( accdb->txn_pool, (ulong)txn );
-    txns   [ cnt ] = txne;
-    acc_idx[ cnt ] = txne->acc_pool_idx;
-    __builtin_prefetch( &accdb->acc_pool[ txne->acc_pool_idx ], 0, 3 );
-    txn = txne->fork.next;
+    recs   [ cnt ] = txn;
+    acc_idx[ cnt ] = rec_acc( accdb, txn );
+    __builtin_prefetch( &accdb->acc_pool[ acc_idx[ cnt ] ], 0, 3 );
+    txn = rec_next( accdb, txn );
   }
   for( ulong i=0UL; i<cnt; i++ ) {
     fd_accdb_accmeta_t const * acc = &accdb->acc_pool[ acc_idx[ i ] ];
@@ -1905,16 +1955,14 @@ purge_inner( fd_accdb_t *              accdb,
 
   uint txn = fork->shmem->txn_head;
   if( txn!=UINT_MAX ) {
-    fd_accdb_txn_t * txn_head = txn_pool_ele( accdb->txn_pool, (ulong)txn );
-    fd_accdb_txn_t * txn_tail = NULL;
+    uint txn_head = txn;
+    uint txn_tail = UINT_MAX;
     while( txn!=UINT_MAX ) {
-      fd_accdb_txn_t * txns    [ CHAIN_PREWALK_W ];
-      uint             map_idxs[ CHAIN_PREWALK_W ];
-      ulong cnt = chain_prewalk( accdb, txn, 1, txns, map_idxs );
+      uint recs    [ CHAIN_PREWALK_W ];
+      uint map_idxs[ CHAIN_PREWALK_W ];
+      ulong cnt = chain_prewalk( accdb, txn, 1, recs, map_idxs );
       for( ulong w=0UL; w<cnt; w++ ) {
-        fd_accdb_txn_t * txne = txns[ w ];
-
-        uint acc_idx     = txne->acc_pool_idx;
+        uint acc_idx     = rec_acc( accdb, recs[ w ] );
         uint acc_map_idx = map_idxs[ w ];
 
         uint prev = UINT_MAX;
@@ -1925,14 +1973,13 @@ purge_inner( fd_accdb_t *              accdb,
         }
 
         fd_racesan_hook( "accdb_purge:pre_unlink" );
+        txn_tail = recs[ w ];
+        txn = rec_next( accdb, txn_tail ); /* before the unlink can free acc_idx */
         acc_unlink( accdb, acc_map_idx, prev, acc_idx );
         deferred_acc_append( accdb, acc_idx );
-
-        txn_tail = txne;
-        txn = txne->fork.next;
       }
     }
-    txn_pool_release_chain( accdb->txn_pool, txn_head, txn_tail );
+    rec_release( accdb, txn_head, txn_tail );
   }
 
   fork_slot_defer( accdb, fork_id, fork_head, fork_tail );
@@ -2058,16 +2105,18 @@ background_advance_root( fd_accdb_t *       accdb,
      discard any slots earlier than the one we are rooting. */
   uint txn = fork->shmem->txn_head;
   if( txn!=UINT_MAX ) {
-    fd_accdb_txn_t * txn_head = txn_pool_ele( accdb->txn_pool, (ulong)txn );
-    fd_accdb_txn_t * txn_tail = NULL;
+    uint txn_head = txn;
+    uint txn_tail = UINT_MAX;
     while( txn!=UINT_MAX ) {
-      fd_accdb_txn_t * txns    [ CHAIN_PREWALK_W ];
-      uint             map_idxs[ CHAIN_PREWALK_W ];
-      ulong cnt = chain_prewalk( accdb, txn, 0, txns, map_idxs );
+      uint recs    [ CHAIN_PREWALK_W ];
+      uint map_idxs[ CHAIN_PREWALK_W ];
+      ulong cnt = chain_prewalk( accdb, txn, 0, recs, map_idxs );
       for( ulong w=0UL; w<cnt; w++ ) {
-        fd_accdb_txn_t * txne = txns[ w ];
+        uint new_acc_idx_ = rec_acc( accdb, recs[ w ] );
+        txn_tail = recs[ w ];
+        txn      = rec_next( accdb, txn_tail );
 
-        fd_accdb_accmeta_t const * new_acc = &accdb->acc_pool[ txne->acc_pool_idx ];
+        fd_accdb_accmeta_t const * new_acc = &accdb->acc_pool[ new_acc_idx_ ];
         uint acc_map_idx = map_idxs[ w ];
 
         delta_insert( accdb, new_acc->key.pubkey );
@@ -2083,22 +2132,22 @@ background_advance_root( fd_accdb_t *       accdb,
         if( FD_LIKELY( new_acc->lamports ) ) {
 #if FD_TMPL_USE_HANDHOLDING
           uint chk = FD_VOLATILE_CONST( accdb->acc_map[ acc_map_idx ] );
-          while( chk!=UINT_MAX && chk!=txne->acc_pool_idx ) {
+          while( chk!=UINT_MAX && chk!=new_acc_idx_ ) {
             fd_accdb_accmeta_t const * ahead = &accdb->acc_pool[ chk ];
             FD_TEST( !( (ahead->key.generation<=parent_fork->shmem->generation || descends_set_test( fork->descends, fd_accdb_acc_fork_id(ahead) ) ) && !memcmp( new_acc->key.pubkey, ahead->key.pubkey, 32UL ) ) );
             chk = FD_VOLATILE_CONST( ahead->map.next );
           }
-          FD_TEST( chk==txne->acc_pool_idx );
+          FD_TEST( chk==new_acc_idx_ );
 #endif
           new_acc_seen = 1;
-          prev = txne->acc_pool_idx;
+          prev = new_acc_idx_;
           acc  = FD_VOLATILE_CONST( new_acc->map.next );
         } else {
           acc = FD_VOLATILE_CONST( accdb->acc_map[ acc_map_idx ] );
           FD_TEST( acc!=UINT_MAX );
         }
         while( acc!=UINT_MAX ) {
-          if( FD_UNLIKELY( acc==txne->acc_pool_idx ) ) {
+          if( FD_UNLIKELY( acc==new_acc_idx_ ) ) {
             new_acc_prev = prev;
             new_acc_seen = 1;
             prev = acc;
@@ -2127,31 +2176,23 @@ background_advance_root( fd_accdb_t *       accdb,
            reach it anymore, and keeping it around just wastes a hash
            slot and the disk bytes it occupies. */
         if( FD_UNLIKELY( new_acc_seen && new_acc->lamports==0UL ) ) {
-          uint new_acc_idx = (uint)txne->acc_pool_idx;
+          uint new_acc_idx = (uint)new_acc_idx_;
           if( accdb->fifo ) idx_root_tomb( accdb, new_acc->key.pubkey, new_acc->key.generation );
           acc_unlink( accdb, acc_map_idx, new_acc_prev, new_acc_idx );
           deferred_acc_append( accdb, new_acc_idx );
         } else if( accdb->fifo && new_acc_seen ) {
-          fifo_push( accdb, txne->acc_pool_idx, new_acc->key.generation );
+          fifo_push( accdb, new_acc_idx_, new_acc->key.generation );
         }
-
-        txn_tail = txne;
-        txn = txne->fork.next;
       }
     }
-    txn_pool_release_chain( accdb->txn_pool, txn_head, txn_tail );
+    rec_release( accdb, txn_head, txn_tail );
   }
 
   uint parent_txn = parent_fork->shmem->txn_head;
-  if( parent_txn!=UINT_MAX ) {
-    fd_accdb_txn_t * parent_head = txn_pool_ele( accdb->txn_pool, (ulong)parent_txn );
-    fd_accdb_txn_t * parent_tail = NULL;
-    while( parent_txn!=UINT_MAX ) {
-      fd_accdb_txn_t * t = txn_pool_ele( accdb->txn_pool, (ulong)parent_txn );
-      parent_tail = t;
-      parent_txn = t->fork.next;
-    }
-    txn_pool_release_chain( accdb->txn_pool, parent_head, parent_tail );
+  if( parent_txn!=UINT_MAX && !accdb->fork_next ) {
+    uint parent_tail = parent_txn;
+    while( rec_next( accdb, parent_tail )!=UINT_MAX ) parent_tail = rec_next( accdb, parent_tail );
+    rec_release( accdb, parent_txn, parent_tail );
   }
 
   /* Remove the parent from all descends_sets and chain it for deferred
@@ -4539,16 +4580,7 @@ release_inner( fd_accdb_t * accdb,
              head away between our load and CAS here.  The CAS retry
              loop handles this. */
 
-      fd_accdb_txn_t * txn = txn_pool_acquire( accdb->txn_pool );
-      FD_TEST( txn ); /* Sized so it always succeeds */
-      txn->acc_pool_idx = (uint)acc_idx;
-      uint txn_idx = (uint)txn_pool_idx( accdb->txn_pool, txn );
-      for(;;) {
-        uint old_head = FD_VOLATILE_CONST( accdb->fork_pool[ accs[ i ]._fork_id ].shmem->txn_head );
-        txn->fork.next = old_head;
-        if( FD_LIKELY( FD_ATOMIC_CAS( &accdb->fork_pool[ accs[ i ]._fork_id ].shmem->txn_head, old_head, txn_idx )==old_head ) ) break;
-        FD_SPIN_PAUSE();
-      }
+      FD_TEST( rec_push( accdb, &accdb->fork_pool[ accs[ i ]._fork_id ].shmem->txn_head, (uint)acc_idx ) ); /* Sized so it always succeeds */
 
       FD_ATOMIC_FETCH_AND_ADD( &accdb->shmem->shmetrics->accounts_total, 1UL );
     }
@@ -5766,16 +5798,7 @@ fd_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
       new_head = acc_idx;
 
       if( FD_UNLIKELY( incremental ) ) {
-        fd_accdb_txn_t * txn = txn_pool_acquire( accdb->txn_pool );
-        if( FD_UNLIKELY( !txn ) ) FD_LOG_ERR(( "txn pool exhausted during incremental snapshot loading" ));
-        txn->acc_pool_idx = acc_idx;
-        uint txn_idx      = (uint)txn_pool_idx( accdb->txn_pool, txn );
-        for(;;) {
-          uint old_head  = FD_VOLATILE_CONST( fork->shmem->txn_head );
-          txn->fork.next = old_head;
-          if( FD_LIKELY( FD_ATOMIC_CAS( &fork->shmem->txn_head, old_head, txn_idx )==old_head ) ) break;
-          FD_SPIN_PAUSE();
-        }
+        if( FD_UNLIKELY( !rec_push( accdb, &fork->shmem->txn_head, acc_idx ) ) ) FD_LOG_ERR(( "txn pool exhausted during incremental snapshot loading" ));
       }
 
       if( FD_UNLIKELY( cross_existing ) ) {
@@ -6220,7 +6243,7 @@ spill_pick( fd_accdb_t * accdb ) {
     if( FD_VOLATILE_CONST( xf->frozen )!=1U || xf->spilled || f==accdb->shmem->root_fork_id.val ) continue;
     if( accdb->fork_pool[ f ].shmem->txn_head==UINT_MAX ) continue;
     ulong n = 0UL;
-    for( uint t=accdb->fork_pool[ f ].shmem->txn_head; t!=UINT_MAX && n<=best_n; t=txn_pool_ele( accdb->txn_pool, t )->fork.next ) n++;
+    for( uint t=accdb->fork_pool[ f ].shmem->txn_head; t!=UINT_MAX && n<=best_n; t=rec_next( accdb, t ) ) n++;
     if( n>best_n ) { best = (ushort)f; best_n = n; }
   }
   return best;
@@ -6247,8 +6270,7 @@ background_spill( fd_accdb_t * accdb ) {
   fd_accdb_fork_t *     fk = &accdb->fork_pool[ f ];
   ulong work = 0UL;
   while( shmem->spill_txn!=UINT_MAX && work<FD_ACCDB_SPILL_SLICE ) {
-    fd_accdb_txn_t *     t = txn_pool_ele( accdb->txn_pool, shmem->spill_txn );
-    fd_accdb_accmeta_t * a = &accdb->acc_pool[ t->acc_pool_idx ];
+    fd_accdb_accmeta_t * a = &accdb->acc_pool[ rec_acc( accdb, shmem->spill_txn ) ];
     if( fd_accdb_acc_offset( a )==FD_ACCDB_OFF_INVAL && a->lamports && !idx_writeback( accdb, a ) ) return work+1UL; /* retry */
     fd_accdb_idx_slot_t rec = {0}, old;
     memcpy( rec.pubkey, a->key.pubkey, 32UL );
@@ -6261,7 +6283,7 @@ background_spill( fd_accdb_t * accdb ) {
     FD_TEST( !fd_accdb_idx_upsert( accdb->ovl, shmem->seed, &rec, &old ) );
     olog_append( accdb, xf, a->key.pubkey );
     ovl_bloom_op( accdb, f, a->key.pubkey, 1 );
-    shmem->spill_txn = t->fork.next;
+    shmem->spill_txn = rec_next( accdb, shmem->spill_txn );
     work++;
   }
   if( shmem->spill_txn!=UINT_MAX ) return work;
@@ -6276,11 +6298,12 @@ background_spill( fd_accdb_t * accdb ) {
   FD_COMPILER_MFENCE();
 
   uint txn = fk->shmem->txn_head;
-  fd_accdb_txn_t * th = txn==UINT_MAX ? NULL : txn_pool_ele( accdb->txn_pool, txn );
-  fd_accdb_txn_t * tt = NULL;
+  uint th  = txn;
+  uint tt  = UINT_MAX;
   while( txn!=UINT_MAX ) {
-    fd_accdb_txn_t * t = txn_pool_ele( accdb->txn_pool, txn );
-    uint idx = t->acc_pool_idx;
+    uint idx = rec_acc( accdb, txn );
+    tt  = txn;
+    txn = rec_next( accdb, txn );
     fd_accdb_accmeta_t * a = &accdb->acc_pool[ idx ];
     ulong chain = idx_chain_of( accdb, a->key.pubkey );
     uint prev = UINT_MAX, cur = FD_VOLATILE_CONST( accdb->acc_map[ chain ] );
@@ -6288,10 +6311,8 @@ background_spill( fd_accdb_t * accdb ) {
     acc_chain_splice( accdb, (uint)chain, prev, idx );
     acc_cache_teardown( accdb, a, 0 );
     FD_TEST( bg_defer_append( accdb, idx | FD_ACCDB_DEFER_MIGRATED ) );
-    tt  = t;
-    txn = t->fork.next;
   }
-  if( th ) txn_pool_release_chain( accdb->txn_pool, th, tt );
+  rec_release( accdb, th, tt );
   fk->shmem->txn_head = UINT_MAX;
   shmem->spill_fork = USHORT_MAX;
   accdb->metrics->forks_spilled++;
@@ -7040,11 +7061,7 @@ background_thaw( fd_accdb_t * accdb ) {
         accdb->hot_ref[ idx ] = 0;
         fd_accdb_accmeta_t * a = &accdb->acc_pool[ idx ];
         if( !a->lamports && fd_accdb_acc_offset( a )==FD_ACCDB_OFF_INVAL ) idx_write_tomb( accdb, a );
-        fd_accdb_txn_t * t = txn_pool_acquire( accdb->txn_pool );
-        FD_TEST( t ); /* records <= RAM versions <= pool */
-        t->acc_pool_idx = idx;
-        t->fork.next    = fk->shmem->txn_head;
-        FD_VOLATILE( fk->shmem->txn_head ) = (uint)txn_pool_idx( accdb->txn_pool, t );
+        FD_TEST( rec_push( accdb, &fk->shmem->txn_head, idx ) );
         fd_accdb_idx_delete( accdb->ovl, shmem->seed, rec->pubkey, f, UINT_MAX, &old ); /* bytes now owned by idx */
         work++;
       }
