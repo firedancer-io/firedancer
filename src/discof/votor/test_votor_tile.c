@@ -3133,6 +3133,33 @@ test_export_leaves_consensus_alone( void ) {
   FD_LOG_NOTICE(( "pass: test_export_leaves_consensus_alone" ));
 }
 
+/* quic_aio_tx drops frames over FD_VOTOR_NET_MTU and strides the
+   dcache by it, so a votor_net link of that mtu never overruns. */
+
+static void
+test_quic_aio_tx_mtu( void ) {
+  static fd_votor_tile_t ctx;
+  static uchar           net_mem[ 4UL*FD_VOTOR_NET_MTU ] __attribute__((aligned(FD_CHUNK_ALIGN)));
+  static uchar           pkt[ FD_NET_MTU ];
+  ctx.net_out_mem    = net_mem;
+  ctx.net_out_chunk0 = 0UL;
+  ctx.net_out_wmark  = sizeof(net_mem)/FD_CHUNK_SZ - 2UL*FD_VOTOR_NET_MTU/FD_CHUNK_SZ;
+  ctx.net_out_chunk  = 0UL;
+  ctx.net_tx_cnt     = 0UL;
+
+  ulong max_l3 = FD_VOTOR_NET_MTU-sizeof(fd_eth_hdr_t);
+  fd_aio_pkt_info_t batch[ 3 ] = {
+    { .buf = pkt, .buf_sz = (ushort)( max_l3+1UL ) },
+    { .buf = pkt, .buf_sz = (ushort)max_l3         },
+    { .buf = pkt, .buf_sz = (ushort)max_l3         } };
+  ulong batch_idx;
+  FD_TEST( quic_aio_tx( &ctx, batch, 3UL, &batch_idx, 1 )==FD_AIO_SUCCESS && batch_idx==3UL );
+  FD_TEST( ctx.net_tx_cnt==2UL );
+  FD_TEST( ctx.net_tx[ 0 ].sz==FD_VOTOR_NET_MTU && ctx.net_tx[ 1 ].sz==FD_VOTOR_NET_MTU );
+  FD_TEST( ctx.net_tx[ 1 ].chunk-ctx.net_tx[ 0 ].chunk==fd_ulong_align_up( FD_VOTOR_NET_MTU, 2UL*FD_CHUNK_SZ )/FD_CHUNK_SZ );
+  FD_LOG_NOTICE(( "pass: test_quic_aio_tx_mtu" ));
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -3185,6 +3212,7 @@ main( int     argc,
   test_operator_switch_votes();
   test_adopt_refused_while_voting();
   test_export_leaves_consensus_alone();
+  test_quic_aio_tx_mtu();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
