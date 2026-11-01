@@ -1507,9 +1507,7 @@ fd_gui_microblock_execution_end( fd_gui_t *     gui,
                                  ulong          txn_cnt,
                                  fd_txn_p_t *   txns,
                                  ulong          pack_txn_idx,
-                                 fd_txn_ns_dt_t txn_ns_dt,
-                                 long           exec_end_ticks,
-                                 ulong          tips,
+                                 fd_microblock_txn_t const * txn_meta,
                                  ulong          bank_seq,
                                  long           now );
 

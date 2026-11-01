@@ -301,7 +301,8 @@ handle_microblock( fd_execle_tile_t *  ctx,
   fd_runtime_lthash_batch_begin( ctx->runtime, bank );
 
   fd_microblock_trailer_t * trailer = (fd_microblock_trailer_t *)( dst + txn_cnt*sizeof(fd_txn_p_t) );
-  trailer->txn_ns_dt        = (fd_txn_ns_dt_t){0};
+  fd_memset( trailer, 0, sizeof(*trailer) );
+  for( ulong i=0UL; i<MAX_TXN_PER_MICROBLOCK; i++ ) trailer->txn[i].exec_end_ticks = LONG_MAX;
   trailer->bank_seq         = bank->bank_seq;
   trailer->exec_end_ticks   = LONG_MAX;
 
@@ -424,11 +425,14 @@ handle_microblock( fd_execle_tile_t *  ctx,
     ctx->metrics.txn_exec_cum_ticks   += exec_ticks_dt;
     ctx->metrics.txn_commit_cum_ticks += commit_ticks_dt;
 
-    trailer->txn_ns_dt.load_start   = fd_float_if( txn_out->details.load_start_ticks==LONG_MAX,   0.,                              (float)fd_long_max( 0L, txn_out->details.load_start_ticks   - microblock_start_ticks ) * ctx->ns_per_tick );
-    trailer->txn_ns_dt.check_start  = fd_float_if( txn_out->details.check_start_ticks==LONG_MAX,  trailer->txn_ns_dt.load_start,   (float)fd_long_max( 0L, txn_out->details.check_start_ticks  - microblock_start_ticks ) * ctx->ns_per_tick );
-    trailer->txn_ns_dt.exec_start   = fd_float_if( txn_out->details.exec_start_ticks==LONG_MAX,   trailer->txn_ns_dt.check_start,  (float)fd_long_max( 0L, txn_out->details.exec_start_ticks   - microblock_start_ticks ) * ctx->ns_per_tick );
-    trailer->txn_ns_dt.commit_start = fd_float_if( txn_out->details.commit_start_ticks==LONG_MAX, trailer->txn_ns_dt.exec_start,   (float)fd_long_max( 0L, txn_out->details.commit_start_ticks - microblock_start_ticks ) * ctx->ns_per_tick );
-    trailer->txn_ns_dt.commit_end   = fd_float_if( txn_end_ticks==LONG_MAX,                       trailer->txn_ns_dt.commit_start, (float)fd_long_max( 0L, txn_end_ticks                       - microblock_start_ticks ) * ctx->ns_per_tick );
+    fd_microblock_txn_t * meta = trailer->txn+i;
+    meta->txn_ns_dt.load_start   = fd_float_if( txn_out->details.load_start_ticks==LONG_MAX,   0.,                              (float)fd_long_max( 0L, txn_out->details.load_start_ticks   - microblock_start_ticks ) * ctx->ns_per_tick );
+    meta->txn_ns_dt.check_start  = fd_float_if( txn_out->details.check_start_ticks==LONG_MAX,  meta->txn_ns_dt.load_start,   (float)fd_long_max( 0L, txn_out->details.check_start_ticks  - microblock_start_ticks ) * ctx->ns_per_tick );
+    meta->txn_ns_dt.exec_start   = fd_float_if( txn_out->details.exec_start_ticks==LONG_MAX,   meta->txn_ns_dt.check_start,  (float)fd_long_max( 0L, txn_out->details.exec_start_ticks   - microblock_start_ticks ) * ctx->ns_per_tick );
+    meta->txn_ns_dt.commit_start = fd_float_if( txn_out->details.commit_start_ticks==LONG_MAX, meta->txn_ns_dt.exec_start,   (float)fd_long_max( 0L, txn_out->details.commit_start_ticks - microblock_start_ticks ) * ctx->ns_per_tick );
+    meta->txn_ns_dt.commit_end   = fd_float_if( txn_end_ticks==LONG_MAX,                       meta->txn_ns_dt.commit_start, (float)fd_long_max( 0L, txn_end_ticks                       - microblock_start_ticks ) * ctx->ns_per_tick );
+    meta->tips                      = txn_out->details.tips;
+    meta->exec_end_ticks            = txn_end_ticks;
     trailer->exec_end_ticks         = txn_end_ticks;
 
     if( FD_UNLIKELY( !txn_out->err.is_committable ) ) {
@@ -490,7 +494,6 @@ handle_microblock( fd_execle_tile_t *  ctx,
      it shards / scales horizontally here, while PoH does not. */
   hash_transactions( ctx->bmtree, (fd_txn_p_t*)dst, txn_cnt, trailer->hash );
   trailer->pack_txn_idx     = ctx->_txn_idx;
-  trailer->tips             = ctx->txn_out[ 0 ].details.tips;
   trailer->exec_start_ticks = exec_start_ticks;
 
   /* When sending MAX_TXN_PER_MICROBLOCK transactions as fd_txn_p_t to PoH,
@@ -697,20 +700,23 @@ handle_bundle( fd_execle_tile_t *  ctx,
     fd_memcpy( dst, bundle_txn_temp+i, sizeof(fd_txn_p_t) );
 
     fd_microblock_trailer_t * trailer = (fd_microblock_trailer_t *)( dst+sizeof(fd_txn_p_t) );
+    fd_memset( trailer, 0, sizeof(*trailer) );
+    for( ulong j=0UL; j<MAX_TXN_PER_MICROBLOCK; j++ ) trailer->txn[j].exec_end_ticks = LONG_MAX;
     hash_transactions( ctx->bmtree, (fd_txn_p_t*)dst, 1UL, trailer->hash );
     trailer->pack_txn_idx     = ctx->_txn_idx + i;
-    trailer->tips             = tips[ i ];
+    trailer->txn[0].tips      = tips[ i ];
+    trailer->txn[0].exec_end_ticks = txn_end_ticks[ i ];
     trailer->bank_seq         = bank->bank_seq;
     trailer->exec_start_ticks = bundle_start_ticks;
     trailer->exec_end_ticks   = txn_end_ticks[ i ];
 
     ulong execle_sig = fd_disco_execle_sig( slot, ctx->_pack_idx+i );
 
-    trailer->txn_ns_dt.load_start   = fd_float_if( txn_out->details.load_start_ticks==LONG_MAX,   0.,                              (float)fd_long_max( 0L, txn_out->details.load_start_ticks   - microblock_start_ticks ) * ctx->ns_per_tick );
-    trailer->txn_ns_dt.check_start  = fd_float_if( txn_out->details.check_start_ticks==LONG_MAX,  trailer->txn_ns_dt.load_start,   (float)fd_long_max( 0L, txn_out->details.check_start_ticks  - microblock_start_ticks ) * ctx->ns_per_tick );
-    trailer->txn_ns_dt.exec_start   = fd_float_if( txn_out->details.exec_start_ticks==LONG_MAX,   trailer->txn_ns_dt.check_start,  (float)fd_long_max( 0L, txn_out->details.exec_start_ticks   - microblock_start_ticks ) * ctx->ns_per_tick );
-    trailer->txn_ns_dt.commit_start = fd_float_if( txn_out->details.commit_start_ticks==LONG_MAX, trailer->txn_ns_dt.exec_start,   (float)fd_long_max( 0L, txn_out->details.commit_start_ticks - microblock_start_ticks ) * ctx->ns_per_tick );
-    trailer->txn_ns_dt.commit_end   = fd_float_if( txn_end_ticks[ i ]==LONG_MAX,                  trailer->txn_ns_dt.commit_start, (float)fd_long_max( 0L, txn_end_ticks[ i ]                  - microblock_start_ticks ) * ctx->ns_per_tick );
+    trailer->txn[0].txn_ns_dt.load_start   = fd_float_if( txn_out->details.load_start_ticks==LONG_MAX,   0.,                              (float)fd_long_max( 0L, txn_out->details.load_start_ticks   - microblock_start_ticks ) * ctx->ns_per_tick );
+    trailer->txn[0].txn_ns_dt.check_start  = fd_float_if( txn_out->details.check_start_ticks==LONG_MAX,  trailer->txn[0].txn_ns_dt.load_start,   (float)fd_long_max( 0L, txn_out->details.check_start_ticks  - microblock_start_ticks ) * ctx->ns_per_tick );
+    trailer->txn[0].txn_ns_dt.exec_start   = fd_float_if( txn_out->details.exec_start_ticks==LONG_MAX,   trailer->txn[0].txn_ns_dt.check_start,  (float)fd_long_max( 0L, txn_out->details.exec_start_ticks   - microblock_start_ticks ) * ctx->ns_per_tick );
+    trailer->txn[0].txn_ns_dt.commit_start = fd_float_if( txn_out->details.commit_start_ticks==LONG_MAX, trailer->txn[0].txn_ns_dt.exec_start,   (float)fd_long_max( 0L, txn_out->details.commit_start_ticks - microblock_start_ticks ) * ctx->ns_per_tick );
+    trailer->txn[0].txn_ns_dt.commit_end   = fd_float_if( txn_end_ticks[ i ]==LONG_MAX,                  trailer->txn[0].txn_ns_dt.commit_start, (float)fd_long_max( 0L, txn_end_ticks[ i ]                  - microblock_start_ticks ) * ctx->ns_per_tick );
 
     ulong new_sz = sizeof(fd_txn_p_t) + sizeof(fd_microblock_trailer_t);
     fd_stem_publish( stem, ctx->out_poh->idx, execle_sig, ctx->out_poh->chunk, new_sz, 0UL, (ulong)fd_frag_meta_ts_comp( microblock_start_ticks ), (ulong)fd_frag_meta_ts_comp( fd_tickcount() ) );

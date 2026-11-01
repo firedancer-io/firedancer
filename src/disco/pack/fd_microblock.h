@@ -66,7 +66,7 @@ struct fd_entry_batch_header {
 };
 typedef struct fd_entry_batch_header fd_entry_batch_header_t;
 
-/* Pack emits one transaction per ordinary microblock, but bundles may
+/* Pack emits up to four transactions per ordinary microblock; bundles may
    contain up to five transactions. */
 #define MAX_TXN_PER_MICROBLOCK (5UL)
 

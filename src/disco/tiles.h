@@ -94,6 +94,17 @@ struct __attribute__((packed)) fd_txn_ns_dt {
 
 typedef struct fd_txn_ns_dt fd_txn_ns_dt_t;
 
+/* One record per input transaction, including dropped transactions.  These
+   bounded link-local summaries are copied before txn_out is reused; they
+   do not enable per-transaction telemetry export.  Uncommitted records
+   have zero tips/timing and exec_end_ticks==LONG_MAX. */
+struct fd_microblock_txn {
+  ulong          tips;
+  fd_txn_ns_dt_t txn_ns_dt;
+  long           exec_end_ticks;
+};
+typedef struct fd_microblock_txn fd_microblock_txn_t;
+
 struct fd_microblock_trailer {
   /* The hash of the transactions in the microblock, ready to be
      mixed into PoH. */
@@ -105,19 +116,15 @@ struct fd_microblock_trailer {
      transactions. */
   ulong pack_txn_idx;
 
-  /* The tips included in the transaction, in lamports. 0 for non-bundle
-     transactions */
-  ulong tips;
-
   /* The app-wide bank sequence number of the bank this microblock was
      executed against (the durable fork discriminator).  Used by
      monitoring (the GUI) to key per-fork transaction history. */
   ulong bank_seq;
 
-  fd_txn_ns_dt_t txn_ns_dt;
+  fd_microblock_txn_t txn[ MAX_TXN_PER_MICROBLOCK ];
 
   /* When the exec tile began executing this microblock (for a bundle,
-     the bundle start) and when its transaction finished committing
+     the bundle start) and the last commit time
      (LONG_MAX if nothing committed). */
   long exec_start_ticks;
   long exec_end_ticks;
