@@ -2589,6 +2589,35 @@ test_idx_demote_keeps_lines( ulong max_accounts,
   FD_TEST( !fd_accdb_exists( accdb, tip, key ) );
   FD_TEST( fd_accdb_shmetrics( accdb )->accounts_total==15UL );
 
+  /* Hot hits set REF in the accmeta; under pressure one CLOCK sweep
+     clears it, the next drops entries not hit in between (key 2 is
+     closed, key 1 was re-demoted and read). */
+  fd_accdb_shmem_t * sm = test_shmem_mem;
+  if( ram<(1UL<<20) ) { /* sweeps cost chain_cnt/HOT_SWEEP drains */
+    uint const *               hot  = (uint const *)( (uchar *)sm + sm->idx_hot_map_off );
+    fd_accdb_accmeta_t const * pool = (fd_accdb_accmeta_t const *)( (uchar *)sm + sm->acc_pool_off );
+    for( ulong i=2UL; i<16UL; i++ ) {
+      memset( key, 0, 32 ); key[ 0 ] = (uchar)(i+1UL);
+      uint cur = hot[ fd_hash32( key, sm->seed )&(sm->idx_hot_chain_cnt-1UL) ];
+      while( memcmp( pool[ cur ].key.pubkey, key, 32 ) ) cur = pool[ cur ].map.next;
+      uint es = pool[ cur ].executable_size;
+      FD_TEST( (es & FD_ACCDB_SIZE_REF_BIT) && !(es & FD_ACCDB_SIZE_PROT_BIT) && FD_ACCDB_SIZE_DATA( es )==sizeof(d) );
+    }
+    FD_TEST( !(sm->idx_hot_chain_cnt%FD_ACCDB_HOT_SWEEP) );
+    ulong sweep = sm->idx_hot_chain_cnt/FD_ACCDB_HOT_SWEEP; /* each chain once */
+    ulong avail0 = sm->pool_avail;
+    sm->pool_avail = sm->promote_reserve;
+    for( ulong i=0UL; i<sweep; i++ ) drain_background( accdb );
+    for( ulong i=2UL; i<16UL; i++ ) { memset( key, 0, 32 ); key[ 0 ] = (uchar)(i+1UL); FD_TEST( test_is_hot( key ) ); }
+    memset( key, 0, 32 ); key[ 0 ] = 3;
+    FD_TEST( fd_accdb_lamports( accdb, tip, key )==102UL );
+    for( ulong i=0UL; i<sweep; i++ ) drain_background( accdb );
+    for( ulong i=1UL; i<16UL; i++ ) { memset( key, 0, 32 ); key[ 0 ] = (uchar)(i+1UL); FD_TEST( test_is_hot( key )==(i==2UL) ); }
+    memset( key, 0, 32 ); key[ 0 ] = 3;
+    FD_TEST( fd_accdb_lamports( accdb, tip, key )==102UL );
+    sm->pool_avail = avail0;
+  }
+
   close( test_idx_fd );
   test_teardown( accdb, fd );
 }
@@ -2851,12 +2880,35 @@ test_idx_overflow_worst_case( void ) {
   while( sl2<leaves && ( sl2==sl || !idx_fork_spilled( leaf[ sl2 ] ) ) ) sl2++;
   FD_TEST( sl2<leaves );
   fd_accdb_fork_id_t g3 = fd_accdb_attach_child( fg, leaf[ sl2 ] );
+  /* pad the unspill FIFO to its max with duplicates of the live copies,
+     so the next unspill runs the REF-marked dedupe */
+  FD_VOLATILE( bg.stop ) = 1;
+  FD_TEST( !pthread_join( thr, NULL ) );
+  ulong *                    ufifo = (ulong *)( (uchar *)test_shmem_mem + test_shmem_mem->unspill_off );
+  fd_accdb_accmeta_t const * upool = (fd_accdb_accmeta_t const *)( (uchar *)test_shmem_mem + test_shmem_mem->acc_pool_off );
+  ulong ulive = test_shmem_mem->unspill_head-test_shmem_mem->unspill_tail;
+  FD_TEST( ulive>0UL && ulive<FD_ACCDB_UNSPILL_MAX );
+  for( ulong k=0UL; test_shmem_mem->unspill_head-test_shmem_mem->unspill_tail<FD_ACCDB_UNSPILL_MAX; k++ ) {
+    ufifo[ test_shmem_mem->unspill_head % FD_ACCDB_UNSPILL_MAX ] = ufifo[ ( test_shmem_mem->unspill_tail+k%ulive ) % FD_ACCDB_UNSPILL_MAX ];
+    test_shmem_mem->unspill_head++;
+  }
+  bg.stop = 0;
+  FD_TEST( !pthread_create( &thr, NULL, run_background, &bg ) );
   for( ulong k=0UL; k<writes; k++ ) {
     memset( key, 0, 32 ); FD_STORE( ulong, key, k+1UL ); key[ 30 ] = 0x77;
     FD_TEST( accdb_read( fg, g3, key, &lamports, d, &data_len, owner ) && lamports==1000UL*(sl2+1UL)+k && d[ 0 ]==(uchar)sl2 );
     FD_TEST( test_shmem_mem->unspill_cnt<=test_shmem_mem->unspill_cap );
   }
   FD_TEST( fd_accdb_metrics( t2 )->unspill_evicted>0UL );
+  FD_VOLATILE( bg.stop ) = 1;
+  FD_TEST( !pthread_join( thr, NULL ) );
+  FD_TEST( test_shmem_mem->unspill_head-test_shmem_mem->unspill_tail<FD_ACCDB_UNSPILL_MAX/2UL ); /* compacted */
+  for( ulong r=test_shmem_mem->unspill_tail; r<test_shmem_mem->unspill_head; r++ ) {
+    uint es = upool[ ufifo[ r % FD_ACCDB_UNSPILL_MAX ]>>32 ].executable_size;
+    FD_TEST( FD_ACCDB_SIZE_TIER( es )!=FD_ACCDB_TIER_UNSPILL || !(es & FD_ACCDB_SIZE_REF_BIT) ); /* mark cleared */
+  }
+  bg.stop = 0;
+  FD_TEST( !pthread_create( &thr, NULL, run_background, &bg ) );
   fd_accdb_fork_freeze( fg, g3 );
 
   /* a parked fork T2 spilled comes back on thaw and takes writes again
