@@ -24,6 +24,7 @@
 #include "../../flamenco/runtime/fd_txncache.h"
 #include "../../flamenco/rewards/fd_stake_rewards.h"
 #include "fd_sched.h"
+#include "fd_execrp.h"
 
 #define TEST_BANKS_MAX 16UL
 #define TEST_OUT_CNT   5UL
@@ -92,6 +93,9 @@ static ulong          mock_sched_capacity;
 static int            mock_sched_lane_wait; /* fd_sched_fec_waits_for_lane's answer while the sched is mocked */
 static int            mock_sched_drained;
 static fd_sched_txn_info_t mock_sched_txn_info;
+static ulong mock_sched_batch_cnt;
+static fd_sched_txn_info_t mock_sched_batch_info[ FD_EXECRP_SIGVERIFY_SIG_PARA ];
+static fd_txn_p_t mock_sched_batch_txn[ FD_EXECRP_SIGVERIFY_SIG_PARA ];
 static fd_txn_p_t     mock_sched_txn;
 static ulong          mock_sched_txn_idx;
 static ulong          mock_sched_task_done_cnt;
@@ -151,6 +155,10 @@ mock_sched_task_done_fn( fd_sched_t * s FD_PARAM_UNUSED,
 fd_txn_p_t *
 mock_sched_get_txn_fn( fd_sched_t * s FD_PARAM_UNUSED,
                        ulong        txn_idx ) {
+  if( mock_sched_batch_cnt ) {
+    FD_TEST( txn_idx>=100UL && txn_idx<100UL+mock_sched_batch_cnt );
+    return mock_sched_batch_txn+(txn_idx-100UL);
+  }
   FD_TEST( txn_idx==mock_sched_txn_idx );
   return &mock_sched_txn;
 }
@@ -158,6 +166,10 @@ mock_sched_get_txn_fn( fd_sched_t * s FD_PARAM_UNUSED,
 fd_sched_txn_info_t *
 mock_sched_get_txn_info_fn( fd_sched_t * s FD_PARAM_UNUSED,
                             ulong        txn_idx ) {
+  if( mock_sched_batch_cnt ) {
+    FD_TEST( txn_idx>=100UL && txn_idx<100UL+mock_sched_batch_cnt );
+    return mock_sched_batch_info+(txn_idx-100UL);
+  }
   FD_TEST( txn_idx==mock_sched_txn_idx );
   return &mock_sched_txn_info;
 }
@@ -548,6 +560,7 @@ setup_ctx( fd_replay_tile_t * ctx,
   mock_sched_root_notify_cnt  = 0UL;
   mock_sched_root_notify_idx  = ULONG_MAX;
   mock_sched_capacity         = ULONG_MAX;
+  mock_sched_batch_cnt        = 0UL;
   mock_sched_lane_wait        = 0;
   mock_sched_drained          = 1;
   mock_epoch_boundary_enabled = 0;
@@ -716,6 +729,66 @@ test_txn_completion_publish( fd_wksp_t * wksp ) {
   bank->cost_tracker_fork_id = USHORT_MAX;
 
   FD_LOG_NOTICE(( "pass: test_txn_completion_publish" ));
+}
+
+/* A full-width result releases one bank pin/task and publishes the
+   right per-transaction verdicts.  Failed lanes invalidate the bank once;
+   lanes whose execution has not completed wait for TXN_EXEC. */
+static void
+test_sigverify_batch_completion( fd_wksp_t * wksp, int mixed ) {
+  static fd_replay_tile_t ctx[1];
+  setup_ctx( ctx, wksp );
+  fd_bank_t * root = fd_banks_root( ctx->banks );
+  fd_bank_t * bank = fd_banks_new_bank( ctx->banks, root->idx, 0L, 0 );
+  FD_TEST( bank );
+  bank->f.slot = 1UL;
+  bank->state = FD_BANK_STATE_REPLAYABLE;
+  bank->refcnt = 1UL;
+  mock_sched_batch_cnt = FD_EXECRP_SIGVERIFY_SIG_PARA;
+  mock_sched_task_done_cnt = 0UL;
+  fd_execrp_task_done_msg_t msg[1] = {{ .bank_idx=bank->idx }};
+  msg->txn_sigverify->cnt = mock_sched_batch_cnt;
+  ulong expected_publish = 0UL;
+  for( ulong i=0UL; i<mock_sched_batch_cnt; i++ ) {
+    mock_sched_batch_info[i] = (fd_sched_txn_info_t){
+      .flags=FD_SCHED_TXN_IS_COMMITTABLE | FD_SCHED_TXN_IS_FEES_ONLY | FD_SCHED_TXN_IS_NOOP,
+      .slot=bank->f.slot, .bank_seq=bank->bank_seq, .index_in_slot=i,
+    };
+    if( !mixed || i%2UL==0UL ) {
+      mock_sched_batch_info[i].flags |= FD_SCHED_TXN_EXEC_DONE;
+      expected_publish++;
+    }
+    fd_memset( mock_sched_batch_txn+i, (int)i+1, sizeof(fd_txn_p_t) );
+    msg->txn_sigverify->txn_idx[i] = 100UL+i;
+    msg->txn_sigverify->err[i] = mixed && (i==2UL || i==5UL);
+  }
+  process_exec_task_done( ctx, test_stem, msg, sizeof(*msg), FD_EXECRP_TT_TXN_SIGVERIFY<<32 );
+  FD_TEST( bank->refcnt==0UL );
+  FD_TEST( mock_sched_task_done_cnt==1UL && mock_sched_task_done_type==FD_SCHED_TT_TXN_SIGVERIFY );
+  FD_TEST( mock_sched_task_done_txn_idx==ULONG_MAX && mock_sched_task_done_exec_idx==0UL );
+  FD_TEST( mock_sched_abandon_cnt==(ulong)mixed );
+  if( mixed ) FD_TEST( bank->state==FD_BANK_STATE_DEAD && mock_sched_abandon_idx==bank->idx );
+  ulong published = 0UL;
+  for( ulong i=0UL; i<test_stem_seqs[ ctx->replay_out->idx ]; i++ ) {
+    fd_frag_meta_t const * meta = test_stem_mcaches[ ctx->replay_out->idx ]+fd_mcache_line_idx( i, 128UL );
+    if( meta->sig!=REPLAY_SIG_TXN_EXECUTED ) continue;
+    fd_replay_txn_executed_t const * out = fd_chunk_to_laddr_const( ctx->replay_out->mem, meta->chunk );
+    ulong lane = out->index_in_slot;
+    FD_TEST( lane<mock_sched_batch_cnt );
+    FD_TEST( !mixed || lane%2UL==0UL );
+    FD_TEST( !memcmp( out->txn, mock_sched_batch_txn+lane, sizeof(fd_txn_p_t) ) );
+    if( msg->txn_sigverify->err[lane] ) FD_TEST( out->txn_err==FD_RUNTIME_TXN_ERR_SIGNATURE_FAILURE && !out->is_committable && !out->is_fees_only && !out->is_noop );
+    else FD_TEST( out->txn_err==FD_RUNTIME_EXECUTE_SUCCESS && out->is_committable );
+    published++;
+  }
+  FD_TEST( published==expected_publish );
+  FD_TEST( test_stem_seqs[ ctx->replay_out->idx ]<=10UL );
+  for( ulong i=0UL; i<mock_sched_batch_cnt; i++ ) {
+    FD_TEST( mock_sched_batch_info[i].flags & FD_SCHED_TXN_SIGVERIFY_DONE );
+    if( msg->txn_sigverify->err[i] ) FD_TEST( mock_sched_batch_info[i].txn_err==FD_RUNTIME_TXN_ERR_SIGNATURE_FAILURE );
+  }
+  mock_sched_batch_cnt = 0UL;
+  FD_LOG_NOTICE(( "pass: test_sigverify_batch_completion mixed=%d", mixed ));
 }
 
 /* Out-of-band LtHash routing.  dispatch_task publishes LTHASH_SUB and
@@ -4087,6 +4160,8 @@ main( int     argc,
   static uchar metrics_scratch[ FD_METRICS_FOOTPRINT( 0UL ) ] __attribute__((aligned(FD_METRICS_ALIGN)));
   fd_metrics_register( (ulong *)fd_metrics_new( metrics_scratch, 0UL ) ); /* leader paths run metrics_write */
 
+  test_sigverify_batch_completion( wksp, 0 ); fd_wksp_reset( wksp, 42U );
+  test_sigverify_batch_completion( wksp, 1 ); fd_wksp_reset( wksp, 42U );
   test_txn_completion_publish( wksp );              fd_wksp_reset( wksp, 42U );
   test_lthash_oob_routing( wksp );                  fd_wksp_reset( wksp, 42U );
   test_reward_cert_signer_count( wksp );            fd_wksp_reset( wksp, 42U );
