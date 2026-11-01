@@ -93,6 +93,7 @@ test_setup_idx_part( int * out_fd,
                                                                       partition_sz, TEST_CACHE_FOOTPRINT, TEST_CACHE_MIN_RESERVED, 0, 42UL, 4UL, 0UL, index_ram_entries ) );
   FD_TEST( shmem );
   FD_TEST( shmem->index_ram_entries==index_ram_entries );
+  FD_TEST( !shmem->txn_pool_max ); /* fork lists link accmetas through fork_next */
   test_shmem_mem = shmem_mem;
   test_idx_fd = memfd_create( "accdb_idx", 0 );
   FD_TEST( test_idx_fd>=0 );
