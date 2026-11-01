@@ -601,6 +601,18 @@ init_root( fd_replay_tile_t * ctx,
 }
 
 static void
+expect_published_txn( fd_txn_p_t const * actual,
+                      fd_txn_p_t const * expected ) {
+  FD_TEST( actual->payload_sz==expected->payload_sz );
+  FD_TEST( !memcmp( actual->payload, expected->payload, expected->payload_sz ) );
+  ulong meta_off = offsetof(fd_txn_p_t, payload_sz);
+  FD_TEST( !memcmp( (uchar const *)actual+meta_off, (uchar const *)expected+meta_off,
+                    offsetof(fd_txn_p_t, _)-meta_off ) );
+  fd_txn_t const * txn = TXN( expected );
+  FD_TEST( !memcmp( actual->_, expected->_, fd_txn_footprint( txn->instr_cnt, txn->addr_table_lookup_cnt ) ) );
+}
+
+static void
 test_txn_completion_publish( fd_wksp_t * wksp ) {
   static fd_replay_tile_t ctx[ 1 ];
   setup_ctx( ctx, wksp );
@@ -633,6 +645,9 @@ test_txn_completion_publish( fd_wksp_t * wksp ) {
   mock_sched_txn_idx = 37UL;
   fd_memset( &mock_sched_txn, 0x5a, sizeof(mock_sched_txn) );
   mock_sched_txn.payload_sz = 321UL;
+  TXN( &mock_sched_txn )->transaction_version = FD_TXN_V0;
+  TXN( &mock_sched_txn )->instr_cnt = 2U;
+  TXN( &mock_sched_txn )->addr_table_lookup_cnt = 1U;
 
   mock_sched_txn_info = (fd_sched_txn_info_t) {
     .flags                    = FD_SCHED_TXN_SIGVERIFY_DONE,
@@ -686,6 +701,10 @@ test_txn_completion_publish( fd_wksp_t * wksp ) {
   msg->txn_exec->bank_seq               = 4321UL;
 
   ulong out_chunk = ctx->replay_out->chunk;
+  /* Unused packet/descriptor capacity belongs to the reusable output
+     buffer.  Publishing must not read/copy the scheduler's unused tails. */
+  fd_replay_txn_executed_t * poisoned = fd_chunk_to_laddr( ctx->replay_out->mem, out_chunk );
+  fd_memset( poisoned->txn, 0xa7, sizeof(fd_txn_p_t) );
   ulong sig = (FD_EXECRP_TT_TXN_EXEC<<32) | mock_sched_txn_info.exec_tile_idx;
   FD_TEST( !returnable_frag( ctx, TEST_EXECRP_IN_IDX, 0UL, sig, in_chunk,
                              sizeof(*msg), 0UL, 0UL, 0UL, test_stem ) );
@@ -706,7 +725,9 @@ test_txn_completion_publish( fd_wksp_t * wksp ) {
   FD_TEST( meta->sz==sizeof(fd_replay_txn_executed_t) );
 
   fd_replay_txn_executed_t const * out = fd_chunk_to_laddr_const( ctx->replay_out->mem, meta->chunk );
-  FD_TEST( !memcmp( out->txn, &mock_sched_txn, sizeof(mock_sched_txn) ) );
+  expect_published_txn( out->txn, &mock_sched_txn );
+  FD_TEST( out->txn->payload[ mock_sched_txn.payload_sz ]==0xa7U );
+  FD_TEST( out->txn->_[ fd_txn_footprint( 2UL, 1UL ) ]==0xa7U );
   FD_TEST( out->txn_err==msg->txn_exec->txn_err );
   FD_TEST( out->is_committable==msg->txn_exec->is_committable );
   FD_TEST( out->is_fees_only==msg->txn_exec->is_fees_only );
@@ -767,6 +788,10 @@ test_sigverify_batch_completion( fd_wksp_t * wksp, int mixed ) {
       expected_publish++;
     }
     fd_memset( mock_sched_batch_txn+i, (int)i+1, sizeof(fd_txn_p_t) );
+    mock_sched_batch_txn[i].payload_sz = (ushort)(263UL+64UL*i);
+    TXN( mock_sched_batch_txn+i )->transaction_version = i%2UL ? FD_TXN_V0 : FD_TXN_VLEGACY;
+    TXN( mock_sched_batch_txn+i )->instr_cnt = (ushort)(i+1UL);
+    TXN( mock_sched_batch_txn+i )->addr_table_lookup_cnt = (uchar)(i%2UL);
     msg->txn_sigverify->txn_idx[i] = 100UL+i;
     msg->txn_sigverify->err[i] = mixed && (i==2UL || i==5UL);
   }
@@ -784,7 +809,7 @@ test_sigverify_batch_completion( fd_wksp_t * wksp, int mixed ) {
     ulong lane = out->index_in_slot;
     FD_TEST( lane<mock_sched_batch_cnt );
     FD_TEST( !mixed || lane%2UL==0UL );
-    FD_TEST( !memcmp( out->txn, mock_sched_batch_txn+lane, sizeof(fd_txn_p_t) ) );
+    expect_published_txn( out->txn, mock_sched_batch_txn+lane );
     if( msg->txn_sigverify->err[lane] ) FD_TEST( out->txn_err==FD_RUNTIME_TXN_ERR_SIGNATURE_FAILURE && !out->is_committable && !out->is_fees_only && !out->is_noop );
     else FD_TEST( out->txn_err==FD_RUNTIME_EXECUTE_SUCCESS && out->is_committable );
     published++;
