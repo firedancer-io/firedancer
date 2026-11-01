@@ -405,6 +405,10 @@ quic_stream_rx( fd_quic_conn_t * conn,
   return FD_QUIC_SUCCESS;
 }
 
+/* fd_quic sends only from crypt_scratch. */
+FD_STATIC_ASSERT( sizeof(fd_eth_hdr_t)+sizeof(((fd_quic_state_t *)0)->crypt_scratch)<=FD_QUIC_NET_MTU, quic_net_mtu );
+FD_STATIC_ASSERT( FD_QUIC_NET_MTU<=FD_NET_MTU,                                                           quic_net_mtu );
+
 static int
 quic_tx_aio_send( void *                    _ctx,
                   fd_aio_pkt_info_t const * batch,
@@ -434,7 +438,7 @@ quic_tx_aio_send( void *                    _ctx,
     ulong ctl   = fd_frag_meta_ctl( 0UL, 1, 1, 0 );
     fd_stem_publish( ctx->stem, OUT_IDX_NET, sig, chunk, sz_l2, ctl, 0L, 0L );
 
-    ctx->net_out_chunk = fd_dcache_compact_next( chunk, FD_NET_MTU, ctx->net_out_chunk0, ctx->net_out_wmark );
+    ctx->net_out_chunk = fd_dcache_compact_next( chunk, FD_QUIC_NET_MTU, ctx->net_out_chunk0, ctx->net_out_wmark );
   }
 
   if( FD_LIKELY( opt_batch_idx ) ) {
@@ -620,6 +624,7 @@ unprivileged_init( fd_topo_t const *      topo,
   if( FD_UNLIKELY( !fd_quic_init( quic ) ) ) FD_LOG_ERR(( "fd_quic_init failed" ));
 
   fd_topo_link_t const * net_out = &topo->links[ tile->out_link_id[ 1 ] ];
+  FD_TEST( net_out->mtu>=FD_QUIC_NET_MTU );
 
   ctx->net_out_mem    = topo->workspaces[ topo->objs[ net_out->dcache_obj_id ].wksp_id ].wksp;
   ctx->net_out_chunk0 = fd_dcache_compact_chunk0( ctx->net_out_mem, net_out->dcache );
