@@ -286,6 +286,148 @@ test_set_identity_budget( void ) {
   free( mem );
 }
 
+/* gossvf_gossip frames: worst-case decode stays within the compact
+   MTU and expand restores what gossip reads. */
+
+static ulong
+wire_push( uchar * buf,
+           ulong   values_len ) {
+  memset( buf, 0, 44UL );
+  FD_STORE( uint,  buf,     FD_GOSSIP_MESSAGE_PUSH );
+  FD_STORE( ulong, buf+36UL, values_len );
+  return 44UL;
+}
+
+static ulong
+wire_value_hdr( uchar * p,
+                uint    tag,
+                uchar   seed ) {
+  memset( p, seed, 64UL );
+  FD_STORE( uint, p+64UL, tag );
+  memset( p+68UL, seed, 32UL ); /* origin (first field of every kind used here) */
+  return 100UL;
+}
+
+static void
+check_frame( uchar const * wire,
+             ulong         wire_sz,
+             ulong         expect_compact_sz ) {
+  static fd_gossip_message_t msg[1];
+  static uchar frame[ FD_GOSSIP_GOSSVF_MTU ];
+  static uchar staged[ FD_GOSSIP_GOSSVF_EXPAND ] __attribute__((aligned(128)));
+  memset( msg, 0xA5, sizeof(msg) );
+  FD_TEST( fd_gossip_message_deserialize( msg, wire, wire_sz ) );
+
+  ulong csz = fd_gossip_message_compact( msg, frame );
+  FD_TEST( csz<=FD_GOSSIP_MESSAGE_COMPACT_MAX );
+  if( expect_compact_sz ) FD_TEST( csz==expect_compact_sz );
+  for( ulong i=0UL; i<FD_GOSSIP_MESSAGE_MAX_CRDS; i++ ) frame[ csz+i ] = (uchar)i;
+  fd_memcpy( frame+csz+FD_GOSSIP_MESSAGE_MAX_CRDS, wire, wire_sz );
+  ulong fsz = csz+FD_GOSSIP_MESSAGE_MAX_CRDS+wire_sz;
+  FD_TEST( fsz<=FD_GOSSIP_GOSSVF_MTU );
+
+  memset( staged, 0x5A, sizeof(staged) );
+  ulong ssz = fd_gossip_message_expand( staged, sizeof(staged), frame, fsz );
+  ulong msz = fd_gossip_message_used_sz( msg );
+  FD_TEST( ssz==msz+FD_GOSSIP_MESSAGE_MAX_CRDS+wire_sz );
+  fd_gossip_message_t const * out = (fd_gossip_message_t const *)staged;
+  FD_TEST( fd_gossip_message_used_sz( out )==msz );
+  for( ulong i=0UL; i<FD_GOSSIP_MESSAGE_MAX_CRDS; i++ ) FD_TEST( staged[ msz+i ]==(uchar)i );
+  FD_TEST( !memcmp( staged+msz+FD_GOSSIP_MESSAGE_MAX_CRDS, wire, wire_sz ) );
+
+  if( msg->tag==FD_GOSSIP_MESSAGE_PUSH ) {
+    FD_TEST( out->push->values_len==msg->push->values_len );
+    for( ulong i=0UL; i<msg->push->values_len; i++ ) {
+      fd_gossip_value_t const * a = msg->push->values+i;
+      fd_gossip_value_t const * b = out->push->values+i;
+      FD_TEST( !memcmp( a, b, FD_GOSSIP_VALUE_HDR_SZ ) );
+      switch( a->tag ) {
+        case FD_GOSSIP_VALUE_CONTACT_INFO:    FD_TEST( !memcmp( a->contact_info, b->contact_info, sizeof(fd_gossip_contact_info_t) ) ); break;
+        case FD_GOSSIP_VALUE_EPOCH_SLOTS:     FD_TEST( a->epoch_slots->index==b->epoch_slots->index ); break;
+        case FD_GOSSIP_VALUE_DUPLICATE_SHRED: FD_TEST( a->duplicate_shred->chunk_len==b->duplicate_shred->chunk_len && a->duplicate_shred->index==b->duplicate_shred->index &&
+                                                       !memcmp( a->duplicate_shred->chunk, b->duplicate_shred->chunk, a->duplicate_shred->chunk_len ) ); break;
+        case FD_GOSSIP_VALUE_SNAPSHOT_HASHES: FD_TEST( a->snapshot_hashes->incremental_len==b->snapshot_hashes->incremental_len &&
+                                                       !memcmp( a->snapshot_hashes, b->snapshot_hashes, offsetof(fd_gossip_snapshot_hashes_t, incremental)+a->snapshot_hashes->incremental_len*40UL ) ); break;
+        default: FD_LOG_ERR(( "unexpected tag %u", a->tag ));
+      }
+    }
+    /* Truncated compact part is rejected */
+    FD_TEST( !fd_gossip_message_expand( staged, sizeof(staged), frame, csz-1UL ) );
+    FD_TEST( !fd_gossip_message_expand( staged, msz-1UL, frame, fsz ) );
+  } else {
+    FD_TEST( !memcmp( staged, msg, msz ) );
+  }
+}
+
+static void
+test_gossvf_frame( void ) {
+  static uchar wire[ FD_GOSSIP_MTU ];
+
+  /* 9 minimum-size contact infos: the decode bound. */
+  ulong sz = wire_push( wire, 9UL );
+  for( ulong i=0UL; i<9UL; i++ ) {
+    uchar * p = wire+sz;
+    ulong   o = wire_value_hdr( p, FD_GOSSIP_VALUE_CONTACT_INFO, (uchar)(i+1UL) );
+    memset( p+o, 0, FD_GOSSIP_CONTACT_INFO_WIRE_MIN-o );
+    p[ o ] = 5; /* wallclock varint */
+    sz += FD_GOSSIP_CONTACT_INFO_WIRE_MIN;
+  }
+  FD_TEST( sz==44UL+9UL*FD_GOSSIP_CONTACT_INFO_WIRE_MIN );
+  check_frame( wire, sz, 48UL+9UL*(FD_GOSSIP_VALUE_HDR_SZ+sizeof(fd_gossip_contact_info_t)) );
+
+  /* 10 minimum-size epoch slots */
+  sz = wire_push( wire, 10UL );
+  for( ulong i=0UL; i<10UL; i++ ) {
+    uchar * p = wire+sz;
+    memset( p, (int)i, 64UL );
+    FD_STORE( uint, p+64UL, FD_GOSSIP_VALUE_EPOCH_SLOTS );
+    p[ 68 ] = (uchar)i;               /* index */
+    memset( p+69UL, (int)i, 32UL );   /* origin */
+    FD_STORE( ulong, p+101UL, 0UL );  /* slots_len */
+    FD_STORE( ulong, p+109UL, 7UL );  /* wallclock */
+    sz += 117UL;
+  }
+  check_frame( wire, sz, 48UL+10UL*(FD_GOSSIP_VALUE_HDR_SZ+sizeof(fd_gossip_epoch_slots_t)) );
+
+  /* Duplicate shred with a full 1055 B chunk */
+  sz = wire_push( wire, 1UL );
+  {
+    uchar * p = wire+sz;
+    memset( p, 3, 64UL );
+    FD_STORE( uint,   p+64UL,  FD_GOSSIP_VALUE_DUPLICATE_SHRED );
+    FD_STORE( ushort, p+68UL,  7 );           /* index */
+    memset( p+70UL, 3, 32UL );                /* origin */
+    FD_STORE( ulong,  p+102UL, 9UL );         /* wallclock */
+    FD_STORE( ulong,  p+110UL, 100UL );       /* slot */
+    memset( p+118UL, 0, 5UL );
+    p[ 123 ] = 2; p[ 124 ] = 1;               /* num_chunks, chunk_index */
+    FD_STORE( ulong,  p+125UL, 1055UL );
+    for( ulong i=0UL; i<1055UL; i++ ) p[ 133UL+i ] = (uchar)(i*7UL);
+    sz += 133UL+1055UL;
+  }
+  FD_TEST( sz==FD_GOSSIP_MTU );
+  check_frame( wire, sz, 0UL );
+
+  /* Snapshot hashes with 25 incremental entries */
+  sz = wire_push( wire, 1UL );
+  {
+    uchar * p = wire+sz;
+    ulong   o = wire_value_hdr( p, FD_GOSSIP_VALUE_SNAPSHOT_HASHES, 4 );
+    FD_STORE( ulong, p+o, 10UL ); o += 8UL;
+    memset( p+o, 4, 32UL ); o += 32UL;
+    FD_STORE( ulong, p+o, 25UL ); o += 8UL;
+    for( ulong i=0UL; i<25UL; i++ ) { FD_STORE( ulong, p+o, 11UL+i ); memset( p+o+8UL, (int)i, 32UL ); o += 40UL; }
+    FD_STORE( ulong, p+o, 9UL ); o += 8UL;
+    sz += o;
+  }
+  check_frame( wire, sz, 48UL+FD_GOSSIP_VALUE_HDR_SZ+offsetof(fd_gossip_snapshot_hashes_t, incremental)+25UL*40UL );
+
+  /* Ping is copied whole */
+  memset( wire, 6, 132UL );
+  FD_STORE( uint, wire, FD_GOSSIP_MESSAGE_PING );
+  check_frame( wire, 132UL, offsetof(fd_gossip_message_t, ping)+sizeof(fd_gossip_ping_t) );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -297,6 +439,7 @@ main( int     argc,
   test_wfs_state_transitions();
   test_wfs_stake_list();
   test_set_identity_budget();
+  test_gossvf_frame();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
