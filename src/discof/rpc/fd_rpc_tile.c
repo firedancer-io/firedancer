@@ -42,7 +42,7 @@
 #include <linux/futex.h>
 #include "generated/fd_rpc_tile_seccomp.h"
 
-#define FD_RPC_AGAVE_API_VERSION "4.3.0-rc.0"
+#define FD_RPC_AGAVE_API_VERSION "4.4.0"
 
 #define FD_HTTP_SERVER_RPC_MAX_REQUEST_LEN       8192UL
 
@@ -1694,7 +1694,7 @@ getAccountInfo( fd_rpc_tile_t *         ctx,
                              &acct_lamports, &acct_executable, acct_owner,
                              ctx->scratch.accdb_data_buf, &acct_data_len );
   if( FD_UNLIKELY( !acct_lamports ) ) {
-    return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"slot\":%lu},\"value\":null},\"id\":%s}\n", info->slot, id_cstr );
+    return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"%s\",\"slot\":%lu},\"value\":null},\"id\":%s}\n", FD_RPC_AGAVE_API_VERSION, info->slot, id_cstr );
   }
 
   fd_http_server_printf( ctx->http, "{\"jsonrpc\":\"2.0\",\"id\":%s,\"result\":{\"context\":{\"apiVersion\":\"%s\",\"slot\":%lu},\"value\":", id_cstr, FD_RPC_AGAVE_API_VERSION, info->slot );
