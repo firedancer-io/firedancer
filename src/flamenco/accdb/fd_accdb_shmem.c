@@ -55,6 +55,19 @@ fd_accdb_shmem_join( void * shtc ) {
   return accdb;
 }
 
+/* acc_map chains.  Index mode: acc_map holds only unrooted, young
+   rooted and unspill versions (rooted hot copies live on hot_map, which
+   keeps pool-sized chains), so size by the in-flight floor.  Chained:
+   any pow2 count is correct, entries stay pool-bound. */
+
+static inline ulong
+acc_chain_cnt( ulong pool_max,
+               ulong index_ram_entries,
+               ulong max_account_writes_per_slot ) {
+  ulong n = index_ram_entries ? fd_ulong_min( pool_max, fd_accdb_idx_ram_min( max_account_writes_per_slot, 0UL ) ) : pool_max;
+  return fd_ulong_pow2_up( (n>>1) + (n&1UL) );
+}
+
 static inline ulong
 fifo_ele( ulong max_accounts,
           ulong index_ram_entries ) {
@@ -127,6 +140,7 @@ fd_accdb_shmem_footprint( ulong max_accounts,
 
   ulong pool_max  = index_ram_entries ? index_ram_entries : max_accounts;
   ulong chain_cnt = fd_ulong_pow2_up( (pool_max>>1) + (pool_max&1UL) );
+  ulong acc_chain = acc_chain_cnt( pool_max, index_ram_entries, max_account_writes_per_slot );
 
   if( FD_UNLIKELY( chain_cnt>ULONG_MAX/sizeof(uint) ) ) return 0UL;
 
@@ -142,7 +156,7 @@ fd_accdb_shmem_footprint( ulong max_accounts,
   l = FD_LAYOUT_APPEND( l, FD_ACCDB_SHMEM_ALIGN,     sizeof(fd_accdb_shmem_t)                                );
   l = FD_LAYOUT_APPEND( l, alignof(fd_accdb_fork_shmem_t), max_live_slots*sizeof(fd_accdb_fork_shmem_t)      );
   l = FD_LAYOUT_APPEND( l, descends_set_align(),     max_live_slots*descends_set_footprint( max_live_slots ) );
-  l = FD_LAYOUT_APPEND( l, alignof(uint),            chain_cnt*sizeof(uint)                                  );
+  l = FD_LAYOUT_APPEND( l, alignof(uint),            acc_chain*sizeof(uint)                                  );
   l = FD_LAYOUT_APPEND( l, alignof(fd_accdb_accmeta_t), pool_max*sizeof(fd_accdb_accmeta_t)                  );
   l = FD_LAYOUT_APPEND( l, alignof(fd_accdb_txn_t),  index_ram_entries ? pool_max*sizeof(uint) : txn_max*sizeof(fd_accdb_txn_t) );
   l = FD_LAYOUT_APPEND( l, partition_pool_align(),   partition_pool_footprint( partition_cnt )               );
@@ -310,6 +324,7 @@ fd_accdb_shmem_new( void * shmem,
   if( FD_UNLIKELY( index_ram_entries>=max_accounts ) ) index_ram_entries = 0UL;
   ulong pool_max  = index_ram_entries ? index_ram_entries : max_accounts;
   ulong chain_cnt = fd_ulong_pow2_up( (pool_max>>1) + (pool_max&1UL) );
+  ulong acc_chain = acc_chain_cnt( pool_max, index_ram_entries, max_account_writes_per_slot );
 
   if( FD_UNLIKELY( chain_cnt>ULONG_MAX/sizeof(uint) ) ) {
     FD_LOG_WARNING(( "chain_cnt*sizeof(uint) overflows" ));
@@ -348,7 +363,7 @@ fd_accdb_shmem_new( void * shmem,
   fd_accdb_shmem_t * accdb = FD_SCRATCH_ALLOC_APPEND( l, FD_ACCDB_SHMEM_ALIGN,     sizeof(fd_accdb_shmem_t)                                );
   void * _fork_pool_ele    = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_accdb_fork_shmem_t), max_live_slots*sizeof(fd_accdb_fork_shmem_t)      );
   void * _descends_sets    = FD_SCRATCH_ALLOC_APPEND( l, descends_set_align(),     max_live_slots*descends_set_footprint( max_live_slots ) );
-  void * _acc_map          = FD_SCRATCH_ALLOC_APPEND( l, alignof(uint),            chain_cnt*sizeof(uint)                                  );
+  void * _acc_map          = FD_SCRATCH_ALLOC_APPEND( l, alignof(uint),            acc_chain*sizeof(uint)                                  );
   void * _acc_pool_ele     = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_accdb_accmeta_t), pool_max*sizeof(fd_accdb_accmeta_t)                         );
   ulong  txn_pool_max      = index_ram_entries ? 0UL : txn_max; /* index mode: uint fork_next[ pool_max ] instead */
   void * _txn_pool_ele     = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_accdb_txn_t),  index_ram_entries ? pool_max*sizeof(uint) : txn_max*sizeof(fd_accdb_txn_t) );
@@ -402,7 +417,7 @@ fd_accdb_shmem_new( void * shmem,
     memset( _hot_map,  0xFF, hot_cnt*sizeof(uint) );
   }
 
-  fd_memset( _acc_map, 0xFF, chain_cnt*sizeof(uint) );
+  fd_memset( _acc_map, 0xFF, acc_chain*sizeof(uint) );
 
   FD_TEST( acc_pool_new( accdb->acc_pool ) );
   acc_pool_t _acc_pool_join[1];
@@ -481,7 +496,7 @@ fd_accdb_shmem_new( void * shmem,
     accdb->has_partition[ k ] = 0;
   }
 
-  accdb->chain_cnt        = chain_cnt;
+  accdb->chain_cnt        = acc_chain;
   accdb->max_live_slots   = max_live_slots;
   accdb->max_accounts     = max_accounts;
 
