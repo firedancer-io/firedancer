@@ -140,7 +140,14 @@ ulong mock_sched_states_fn      ( fd_sched_t * s FD_PARAM_UNUSED, fd_sched_slot_
 void  mock_sched_metrics_fn     ( fd_sched_t * s FD_PARAM_UNUSED, fd_clock_tile_t const * c FD_PARAM_UNUSED ) {}
 void  mock_sched_poh_fn         ( fd_sched_t * s FD_PARAM_UNUSED, ulong a FD_PARAM_UNUSED, ulong b FD_PARAM_UNUSED, ulong c FD_PARAM_UNUSED, fd_hash_t const * d FD_PARAM_UNUSED ) {}
 void  mock_sched_flh_fn         ( fd_sched_t * s FD_PARAM_UNUSED, ulong a FD_PARAM_UNUSED, int b FD_PARAM_UNUSED ) {}
-ulong mock_sched_task_next_fn   ( fd_sched_t * s FD_PARAM_UNUSED, fd_sched_task_t * t FD_PARAM_UNUSED ) { return 0UL; }
+static int mock_sched_ready;
+static fd_sched_task_t mock_sched_ready_task;
+ulong mock_sched_task_next_fn( fd_sched_t * s FD_PARAM_UNUSED, fd_sched_task_t * t ) {
+  if( !mock_sched_ready ) return 0UL;
+  mock_sched_ready = 0;
+  *t = mock_sched_ready_task;
+  return 1UL;
+}
 void  mock_sched_root_notify_fn ( fd_sched_t * s FD_PARAM_UNUSED, ulong i ) {
   mock_sched_root_notify_cnt++;
   mock_sched_root_notify_idx = i;
@@ -589,6 +596,7 @@ setup_ctx( fd_replay_tile_t * ctx,
   mock_sched_root_notify_idx  = ULONG_MAX;
   mock_sched_capacity         = ULONG_MAX;
   mock_sched_batch_cnt        = 0UL;
+  mock_sched_ready            = 0;
   mock_sched_lane_wait        = 0;
   mock_sched_drained          = 1;
   mock_epoch_boundary_enabled = 0;
@@ -4256,6 +4264,66 @@ test_ag_leader_fec_not_gated( fd_wksp_t * wksp ) {
   FD_LOG_NOTICE(( "pass: test_ag_leader_fec_not_gated" ));
 }
 
+/* Ready follower work must keep dispatching, but once our PoH result
+   and footer are done it must not suppress polling the own-FEC return
+   needed to freeze the leader bank and start the next slot. */
+static void
+test_leader_completion_polls_with_ready_work( fd_wksp_t * wksp,
+                                             int         poh_done ) {
+  static fd_replay_tile_t ctx[1];
+  fd_hash_t root_id = { .ul = { 0xBEEFUL } };
+  fd_hash_t id1 = { .ul = {201UL} }, id2 = { .ul = {202UL} };
+  fd_bank_t * follower = setup_ag_leader_ctx( ctx, wksp, &root_id, &id1 );
+  FD_TEST( try_become_leader( ctx, test_stem, FD_METRICS_SAMPLE_REASON_LEADER_START, 0UL ) );
+  fd_bank_t * leader = ctx->leader_bank;
+  ulong leader_idx = leader->idx;
+  ctx->shred_version = 1U;
+  if( poh_done ) end_leader_slot( ctx, 2UL );
+  FD_TEST( ctx->recv_poh==poh_done && !ctx->block_id_arr[leader_idx].block_id_seen );
+
+  ulong refs = follower->refcnt;
+  ulong exec_seq = test_stem_seqs[ctx->exec_out[0].idx];
+  mock_sched_ready_task = (fd_sched_task_t){ .task_type = FD_SCHED_TT_POH_HASH };
+  mock_sched_ready_task.poh_hash->bank_idx = follower->idx;
+  mock_sched_ready_task.poh_hash->exec_idx = 0UL;
+  mock_sched_ready_task.poh_hash->cnt = 1UL;
+  mock_sched_ready_task.poh_hash->hash[0].ul[0] = 123UL;
+  mock_sched_ready = 1;
+  int poll_in = 1, busy = 0;
+  after_credit( ctx, test_stem, &poll_in, &busy );
+  FD_TEST( busy && !mock_sched_ready && follower->refcnt==refs+1UL );
+  FD_TEST( test_stem_seqs[ctx->exec_out[0].idx]==exec_seq+1UL );
+  FD_LOG_NOTICE(( "leader waiting for FEC: poh_done=%d, ready worker task dispatched, poll_in=%d", poh_done, poll_in ));
+  FD_TEST( poll_in==poh_done );
+  fd_execrp_task_done_msg_t done = { .bank_idx = follower->idx };
+  process_exec_task_done( ctx, test_stem, &done, sizeof(done), FD_EXECRP_TT_POH_HASH<<32 );
+  FD_TEST( follower->refcnt==refs );
+
+  /* Polling brings our own FECs through the production frag callback,
+     preserving bank binding, FEC order, and final block identity. */
+  fd_hash_t zero = {0}, mr0 = { .ul = {2001UL} }, mr32 = { .ul = {2002UL} };
+  FD_TEST( !deliver_leader_fec( ctx, 2UL, 0U, 1UL, &id1, &zero, &mr0, 0 ) );
+  FD_TEST( !deliver_leader_fec( ctx, 2UL, FD_FEC_SHRED_CNT, 1UL, &id1, &id2, &mr32, 1 ) );
+  FD_TEST( ctx->block_id_arr[leader_idx].block_id_seen );
+  FD_TEST( fd_hash_eq( &ctx->block_id_arr[leader_idx].dmr, &id2 ) );
+  if( !poh_done ) end_leader_slot( ctx, 2UL );
+  mock_footer_finalize = 1;
+  FD_TEST( try_fini_leader( ctx, test_stem ) );
+  mock_footer_finalize = 0;
+  FD_TEST( leader->state==FD_BANK_STATE_FROZEN && fd_hash_eq( &leader->f.block_id, &id2 ) );
+  FD_TEST( ctx->leader_bank!=leader && ctx->leader_bank->f.slot==3UL );
+  /* Before PoH completion the next slot retains normal dispatch/poll
+     priority.  Work and references are never dropped or paused. */
+  FD_TEST( !ctx->recv_poh );
+  mock_sched_ready = 1;
+  poll_in = 1; busy = 0;
+  after_credit( ctx, test_stem, &poll_in, &busy );
+  FD_TEST( busy && !poll_in && !mock_sched_ready );
+  process_exec_task_done( ctx, test_stem, &done, sizeof(done), FD_EXECRP_TT_POH_HASH<<32 );
+  FD_TEST( follower->refcnt==refs );
+  FD_LOG_NOTICE(( "pass: leader FEC input polling with follower work; bank freeze/hash, next slot and reference conservation" ));
+}
+
 /* Minimal context setup for on_snapshot_message with mock_snapshot_boot=1.
    Returns the root bank (at snapshot_slot). */
 static fd_bank_t *
@@ -4731,6 +4799,7 @@ int
 main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
+  int leader_poll_only = fd_env_strip_cmdline_contains( &argc, &argv, "--leader-poll-only" );
 
   char const * _page_sz = fd_env_strip_cmdline_cstr ( &argc, &argv, "--page-sz",  NULL, "gigantic"               );
   ulong        page_cnt = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt", NULL, 2UL                      );
@@ -4740,6 +4809,13 @@ main( int     argc,
 
   static uchar metrics_scratch[ FD_METRICS_FOOTPRINT( 0UL ) ] __attribute__((aligned(FD_METRICS_ALIGN)));
   fd_metrics_register( (ulong *)fd_metrics_new( metrics_scratch, 0UL ) ); /* leader paths run metrics_write */
+
+  if( leader_poll_only ) {
+    test_leader_completion_polls_with_ready_work( wksp, 0 ); fd_wksp_reset( wksp, 42U );
+    test_leader_completion_polls_with_ready_work( wksp, 1 ); fd_wksp_reset( wksp, 42U );
+    fd_halt();
+    return 0;
+  }
 
   test_sigverify_batch_completion( wksp, 0 ); fd_wksp_reset( wksp, 42U );
   test_sigverify_batch_completion( wksp, 1 ); fd_wksp_reset( wksp, 42U );
@@ -4794,6 +4870,8 @@ main( int     argc,
   test_identity_switch_quiesces_replay( wksp );     fd_wksp_reset( wksp, 42U );
   test_ag_leader_abandon_on_root_past_leader_slot( wksp ); fd_wksp_reset( wksp, 42U );
   test_ag_become_leader_refuses_settled_slot( wksp ); fd_wksp_reset( wksp, 42U );
+  test_leader_completion_polls_with_ready_work( wksp, 0 ); fd_wksp_reset( wksp, 42U );
+  test_leader_completion_polls_with_ready_work( wksp, 1 ); fd_wksp_reset( wksp, 42U );
   test_ag_leader_fec_not_gated( wksp );
   fd_wksp_reset( wksp, 42U );
   test_snapmk_start_leader_after_epoch_rollover( wksp );

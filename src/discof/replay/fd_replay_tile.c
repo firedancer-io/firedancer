@@ -2974,7 +2974,9 @@ mark_bank_dead( fd_replay_tile_t *        ctx,
 
 static int
 try_replay( fd_replay_tile_t *  ctx,
-            fd_stem_context_t * stem ) {
+            fd_stem_context_t * stem,
+            int *               worker_dispatched ) {
+  *worker_dispatched = 0;
 
   if( FD_UNLIKELY( !ctx->is_booted ) ) return 0;
 
@@ -3021,6 +3023,7 @@ try_replay( fd_replay_tile_t *  ctx,
     case FD_SCHED_TT_LTHASH_ADD:
     case FD_SCHED_TT_CERT_VERIFY: {
       dispatch_task( ctx, stem, task );
+      *worker_dispatched = 1;
       break;
     }
     case FD_SCHED_TT_MARK_DEAD: {
@@ -3593,9 +3596,17 @@ after_credit( fd_replay_tile_t *  ctx,
     return;
   }
 
-  if( FD_LIKELY( try_replay( ctx, stem ) ) ) {
+  int worker_dispatched;
+  if( FD_LIKELY( try_replay( ctx, stem, &worker_dispatched ) ) ) {
     *charge_busy = 1;
-    *opt_poll_in = 0;
+    /* PoH and our footer are done, but freezing still awaits our final
+       FEC / block id.  Continue dispatching follower work while polling
+       inputs between worker dispatches, so a ready backlog cannot keep
+       the own-FEC return behind it and expire the next leader slots.
+       Local scheduler work keeps the existing skip-poll contract: it
+       can publish on replay_out.  A worker dispatch publishes only on
+       exec_out, leaving the input callback's replay_out burst intact. */
+    *opt_poll_in = ctx->is_leader && ctx->recv_poh && worker_dispatched;
     return;
   }
 
@@ -5098,7 +5109,10 @@ during_housekeeping( fd_replay_tile_t * ctx ) {
    sigverify batch: slot dead plus FD_EXECRP_SIGVERIFY_SIG_PARA
    txn_executed.  Every after_credit path that publishes returns
    nonzero, which skips the input poll, except REPLAY_SIG_SLOT_STATES,
-   which adds one. */
+   which adds one.  While a leader awaits its block id after PoH, an
+   exec_out-only worker dispatch also permits input polling: the largest
+   input callback publishes 9 on replay_out, plus at most one slot-state
+   message (10 total), and at most one on any exec_out. */
 #define STEM_BURST (10UL)
 
 /* Housekeeping interval in ticks, tuned independently of output-link
