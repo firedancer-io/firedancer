@@ -81,10 +81,14 @@ typedef struct fd_execrp_cert_verify_msg fd_execrp_cert_verify_msg_t;
    the task union below. */
 
 #define FD_EXECRP_LTHASH_BATCH_MAX (128UL)
+/* Speculative additions need individual hashes for independent stale
+   rejection and later undo.  Bound both task duration and result space. */
+#define FD_EXECRP_LTHASH_SPEC_MAX (8UL)
 
 struct fd_execrp_lthash_msg {
   ulong          bank_idx;
   ulong          cnt; /* In [1, FD_EXECRP_LTHASH_BATCH_MAX] */
+  int            individual; /* ADD only, cnt<=FD_EXECRP_LTHASH_SPEC_MAX. */
   fd_acct_addr_t acct[ FD_EXECRP_LTHASH_BATCH_MAX ];
 };
 typedef struct fd_execrp_lthash_msg fd_execrp_lthash_msg_t;
@@ -223,12 +227,13 @@ typedef struct fd_execrp_task_done_msg fd_execrp_task_done_msg_t;
 struct fd_execrp_result {
   union {
     fd_lthash_value_t lthash;                                   /* LTHASH_SUB, LTHASH_ADD, REWARDS. */
+    fd_lthash_value_t lthash_spec[ FD_EXECRP_LTHASH_SPEC_MAX ];  /* Individual speculative ADD hashes. */
     fd_pubkey_t       alt_writable[ FD_TXN_ACCT_ADDR_MAX-1UL ]; /* TXN_EXEC.  alt_writable_cnt of these are valid. */
   };
 };
 typedef struct fd_execrp_result fd_execrp_result_t;
 
-FD_STATIC_ASSERT( sizeof(fd_execrp_result_t)==sizeof(fd_lthash_value_t), execrp_result_sz );
+FD_STATIC_ASSERT( sizeof(fd_execrp_result_t)==FD_EXECRP_LTHASH_SPEC_MAX*sizeof(fd_lthash_value_t), execrp_result_sz );
 
 FD_PROTOTYPES_BEGIN
 
