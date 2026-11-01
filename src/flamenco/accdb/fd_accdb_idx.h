@@ -89,7 +89,7 @@ FD_STATIC_ASSERT( FD_ACCDB_PLACE_PG_MAX*FD_ACCDB_IDX_PAGE_SZ+(32UL<<20)+3UL*FD_A
 
 /* Overflow log: per-fork chains of OLOG_CHUNK records. */
 #define FD_ACCDB_OLOG_CHUNK   (4096UL)
-#define FD_ACCDB_OVL_BLOOM_SZ (64UL<<20)  /* all forks, mainnet */
+#define FD_ACCDB_OVL_BLOOM_SZ (32UL<<20)  /* all forks, mainnet */
 
 struct fd_accdb_olog_rec {
   uchar pubkey[ 32 ];
