@@ -176,6 +176,17 @@ main( int     argc,
   FD_TEST( fd_toml_parse( firedancer_default_config, firedancer_default_config_sz, pod, scratch, sizeof(scratch), NULL ) == FD_TOML_SUCCESS );
   FD_TEST( fd_config_extract_pod( pod, config ) == config );
   fd_config_validate( config );  /* exits process with code 1 on failure */
+  FD_TEST( !config->development.event.report_transaction_timings );
+  for( int enabled=1; enabled>=0; enabled-- ) {
+    char const * timing_cfg = enabled ?
+      "[development.event]\nreport_transaction_timings = true\n" :
+      "[development.event]\nreport_transaction_timings = false\n";
+    pod = fd_pod_join( fd_pod_new( pod_mem, sizeof(pod_mem) ) );
+    FD_TEST( fd_toml_parse( timing_cfg, strlen( timing_cfg ), pod, scratch, sizeof(scratch), NULL )==FD_TOML_SUCCESS );
+    FD_TEST( fd_config_extract_pod( pod, config )==config );
+    FD_TEST( config->development.event.report_transaction_timings==enabled );
+  }
+
 
   strcpy( config->net.provider, "auto" );
   fd_config_validate( config );

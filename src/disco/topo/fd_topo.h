@@ -506,6 +506,7 @@ struct fd_topo_tile {
 
       ulong max_txn_per_slot;     /* config->limits */
       ulong max_shreds_per_block;
+      int   report_transaction_timings;
 
       ulong capture_start_slot;
       char  solcap_capture[ PATH_MAX ];

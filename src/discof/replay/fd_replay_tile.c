@@ -922,14 +922,14 @@ block_completed_event_fill_leader_txn_timing( fd_replay_tile_t *           ctx,
   for( ulong i=0UL; i<cnt; i++ ) {
     fd_leader_txn_timing_rec_t const * rec = &table->rec[ i ];
     first_dispatch = fd_long_min( first_dispatch, rec->dispatched_ticks );
-    ev->txn_timing[ i ] = (fd_event_block_completed_txn_timing_t){
+    if( FD_UNLIKELY( ctx->report_transaction_timings ) ) ev->txn_timing[ i ] = (fd_event_block_completed_txn_timing_t){
       .received_time   = (ulong)rec->received_ns,
       .dispatched_time = rec->dispatched_ticks==LONG_MAX ? 0UL : (ulong)fd_clock_epoch_y( ctx->clock->epoch, rec->dispatched_ticks ),
       .replayed_time   = rec->replayed_ticks  ==LONG_MAX ? 0UL : (ulong)fd_clock_epoch_y( ctx->clock->epoch, rec->replayed_ticks   ),
       .poh_mixed_time  = rec->poh_mixed_ticks ==LONG_MAX ? 0UL : (ulong)fd_clock_epoch_y( ctx->clock->epoch, rec->poh_mixed_ticks  ),
     };
   }
-  ev->txn_timing_cnt = cnt;
+  ev->txn_timing_cnt = ctx->report_transaction_timings ? cnt : 0UL;
 
   ev->first_transaction_scheduled_time = first_dispatch==LONG_MAX ? 0UL : (ulong)fd_clock_epoch_y( ctx->clock->epoch, first_dispatch );
 }
@@ -975,7 +975,7 @@ report_block_completed( fd_replay_tile_t *                 ctx,
 
   if( FD_UNLIKELY( is_leader ) ) {
     block_completed_event_fill_leader_txn_timing( ctx, ev, bank );
-  } else {
+  } else if( FD_UNLIKELY( ctx->report_transaction_timings ) ) {
     ulong tslot = ctx->timing_slot_of_bank[ bank->idx ];
     if( FD_LIKELY( tslot!=fd_timing_slot_pool_idx_null( ctx->timing_slot_pool ) ) ) {
       fd_replay_txn_timing_slot_t const * slot = fd_timing_slot_pool_ele( ctx->timing_slot_pool, tslot );
@@ -4636,6 +4636,7 @@ unprivileged_init( fd_topo_t const *      topo,
   fd_clock_tile_init( ctx->clock );
 
   ctx->max_txn_per_slot     = tile->replay.max_txn_per_slot;
+  ctx->report_transaction_timings = tile->replay.report_transaction_timings;
   ctx->max_shreds_per_block = tile->replay.max_shreds_per_block;
 
   FD_TEST( fd_rng_new( ctx->rng, ctx->rng_seed, 0UL ) );

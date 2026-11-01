@@ -67,6 +67,43 @@ test_admin_command_fields( fd_circq_t *        circq,
   FD_TEST( !fd_pb_inbuf_sz( command ) );
 }
 
+/* Empty transaction timing is a supported wire representation, even for a
+   full block. Only scalar summary widths may grow with block contents. */
+static void
+test_block_summary_without_timings( fd_circq_t *        circq,
+                                    fd_event_client_t * client ) {
+  static fd_event_block_completed_t event;
+  ulong counts[] = { 1UL, FD_EVENT_BLOCK_COMPLETED_TXN_TIMING_MAX };
+  for( ulong i=0UL; i<2UL; i++ ) {
+    memset( &event, 0, FD_EVENT_BLOCK_COMPLETED_PREFIX_SZ );
+    event.pack_data_bytes = counts[i]*263UL;
+    event.first_transaction_scheduled_time = 123UL;
+    event.last_transaction_finished_time = 456UL;
+    fd_event_block_completed_serialize( circq, client, 789L, 0UL, &event );
+    ulong sz = 0UL;
+    uchar const * msg = fd_circq_cursor_advance( circq, &sz );
+    FD_TEST( msg && sz<4096UL );
+    fd_pb_inbuf_t envelope[1];
+    fd_pb_inbuf_init( envelope, msg, sz );
+    fd_pb_tlv_t tlv[1];
+    for( uint id=1U; id<=4U; id++ ) FD_TEST( fd_pb_read_tlv( envelope, tlv ) && tlv->field_id==id );
+    FD_TEST( fd_pb_read_tlv( envelope, tlv ) && tlv->field_id==5U );
+    fd_pb_inbuf_t event_msg[1];
+    fd_pb_inbuf_init( event_msg, envelope->cur, tlv->len );
+    FD_TEST( fd_pb_read_tlv( event_msg, tlv ) && tlv->field_id==9U );
+    fd_pb_inbuf_t block[1];
+    fd_pb_inbuf_init( block, event_msg->cur, tlv->len );
+    int saw_summary = 0;
+    while( fd_pb_inbuf_sz( block ) ) {
+      FD_TEST( fd_pb_read_tlv( block, tlv ) );
+      FD_TEST( tlv->field_id!=74U ); /* txn_timing omitted */
+      if( tlv->field_id==71U ) { FD_TEST( tlv->varint==event.pack_data_bytes ); saw_summary=1; }
+      if( tlv->wire_type==FD_PB_WIRE_TYPE_LEN ) fd_pb_inbuf_skip( block, tlv->len );
+    }
+    FD_TEST( saw_summary );
+  }
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -108,6 +145,7 @@ main( int     argc,
 
   FD_TEST( have_admin_command );
   test_admin_command_fields( circq, client );
+  test_block_summary_without_timings( circq, client );
 
   free( fd_circq_delete( fd_circq_leave( circq ) ) );
 

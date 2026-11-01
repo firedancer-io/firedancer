@@ -1616,6 +1616,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
 
     tile->replay.max_txn_per_slot     = config->limits.max_txn_per_slot;
     tile->replay.max_shreds_per_block = config->limits.max_shreds_per_block;
+    tile->replay.report_transaction_timings = config->development.event.report_transaction_timings;
 
     /* not specified by [tiles.replay] */
 
