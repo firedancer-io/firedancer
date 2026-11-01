@@ -393,6 +393,11 @@ fd_accdb_new( void *              ljoin,
     return NULL;
   }
 
+  if( FD_UNLIKELY( compaction && idx_fd>=0 && shmem->fifo_chunk && scratch_fd<0 ) ) {
+    FD_LOG_WARNING(( "scratch_fd required: demote FIFO exceeds its RAM window" ));
+    return NULL;
+  }
+
   ulong max_live_slots = shmem->max_live_slots;
   ulong pool_max       = shmem->acc_pool_max;
   ulong partition_cnt  = shmem->partition_cnt;
@@ -513,6 +518,7 @@ fd_accdb_reset( fd_accdb_t * accdb ) {
   shmem->bg_defer_sealed = 0UL;
   shmem->fifo_head     = 0UL;
   shmem->fifo_tail     = 0UL;
+  for( ulong i=0UL; i<FD_ACCDB_FIFO_SLOTS; i++ ) shmem->fifo_tag[ i ] = ULONG_MAX;
   if( accdb->tier ) {
     /* Index state never survives a reset: the next full placement
        rewrites every bucket page, and the RAM side starts empty. */
@@ -1952,6 +1958,38 @@ remove_children( fd_accdb_t *              accdb,
 
 /* (definition of idx_root_tomb follows the bucket helpers) */
 
+/* fifo_at (T2): FIFO entry at position pos.  Chunk mode faults the
+   chunk into a RAM slot, never evicting the tail chunk, the last
+   occupied chunk or chunk keep; a live victim is pwritten first. */
+
+static ulong *
+fifo_at( fd_accdb_t * accdb,
+         ulong        pos,
+         ulong        keep ) {
+  fd_accdb_shmem_t * shmem = accdb->shmem;
+  ulong C = shmem->fifo_chunk;
+  if( FD_LIKELY( !C ) ) return &accdb->fifo[ pos % shmem->acc_pool_max ];
+  ulong c    = pos/C;
+  ulong busy = shmem->fifo_head>shmem->fifo_tail;
+  ulong lo   = shmem->fifo_tail/C;
+  ulong hi   = busy ? (shmem->fifo_head-1UL)/C : 0UL;
+  ulong v    = ULONG_MAX;
+  for( ulong s=0UL; s<FD_ACCDB_FIFO_SLOTS; s++ ) {
+    ulong t = shmem->fifo_tag[ s ];
+    if( t==c ) return &accdb->fifo[ s*C + pos%C ];
+    int live = busy && t!=ULONG_MAX && t>=lo && t<=hi;
+    if( !live ) v = s;
+    else if( v==ULONG_MAX && t!=lo && t!=hi && t!=keep ) v = s;
+  }
+  FD_TEST( v!=ULONG_MAX );
+  ulong nfile = shmem->acc_pool_max/C+2UL;
+  ulong t     = shmem->fifo_tag[ v ];
+  if( busy && t!=ULONG_MAX && t>=lo && t<=hi ) scratch_io( accdb, 1, accdb->fifo+v*C, C*sizeof(ulong), shmem->fifo_file_off+(t%nfile)*C*sizeof(ulong) );
+  if( busy && c>=lo && c<=hi )                 scratch_io( accdb, 0, accdb->fifo+v*C, C*sizeof(ulong), shmem->fifo_file_off+(c%nfile)*C*sizeof(ulong) );
+  shmem->fifo_tag[ v ] = c;
+  return &accdb->fifo[ v*C + pos%C ];
+}
+
 /* fifo_push (T2, advance_root): a newly rooted live version. */
 
 static inline void
@@ -1963,15 +2001,16 @@ fifo_push( fd_accdb_t * accdb,
   if( FD_UNLIKELY( shmem->fifo_head-shmem->fifo_tail>=max ) ) {
     /* Full: drop superseded entries, order kept.  Each pool slot has at
        most one live entry and idx is not live yet, so room remains. */
+    ulong C = fd_ulong_if( !!shmem->fifo_chunk, shmem->fifo_chunk, 1UL );
     ulong w = shmem->fifo_tail;
     for( ulong r=shmem->fifo_tail; r<shmem->fifo_head; r++ ) {
-      ulong e = accdb->fifo[ r % max ];
-      if( accdb->tier[ e>>32 ]==FD_ACCDB_TIER_ROOTED && accdb->acc_pool[ e>>32 ].key.generation==(uint)e ) accdb->fifo[ (w++) % max ] = e;
+      ulong e = *fifo_at( accdb, r, w/C );
+      if( accdb->tier[ e>>32 ]==FD_ACCDB_TIER_ROOTED && accdb->acc_pool[ e>>32 ].key.generation==(uint)e ) { *fifo_at( accdb, w, r/C ) = e; w++; }
     }
     shmem->fifo_head = w;
     FD_TEST( shmem->fifo_head-shmem->fifo_tail<max );
   }
-  accdb->fifo[ shmem->fifo_head % max ] = ((ulong)idx<<32) | gen;
+  *fifo_at( accdb, shmem->fifo_head, ULONG_MAX ) = ((ulong)idx<<32) | gen;
   shmem->fifo_head++;
   accdb->tier[ idx ] = FD_ACCDB_TIER_ROOTED;
 }
@@ -6059,13 +6098,12 @@ static ulong
 background_demote( fd_accdb_t * accdb ) {
   fd_accdb_shmem_t * shmem = accdb->shmem;
   if( FD_UNLIKELY( shmem->root_fork_id.val==USHORT_MAX ) ) return 0UL; /* no root before snapshot load */
-  ulong max  = shmem->acc_pool_max;
   uint  root = accdb->fork_pool[ shmem->root_fork_id.val ].shmem->generation;
   int   pressure = idx_pool_free( accdb )<2UL*shmem->promote_reserve;
   ulong done = 0UL;
   ulong n    = fd_ulong_min( FD_ACCDB_DEMOTE_BATCH, shmem->fifo_head-shmem->fifo_tail );
   for( ulong k=0UL; k<n; k++ ) {
-    ulong e   = accdb->fifo[ shmem->fifo_tail % max ];
+    ulong e   = *fifo_at( accdb, shmem->fifo_tail, ULONG_MAX );
     uint  idx = (uint)(e>>32);
     uint  gen = (uint)e;
     if( !pressure && root-gen<FD_ACCDB_DEMOTE_AGE ) break;
@@ -6078,7 +6116,7 @@ background_demote( fd_accdb_t * accdb ) {
     while( cur!=UINT_MAX && cur!=idx ) { prev = cur; cur = FD_VOLATILE_CONST( accdb->acc_pool[ cur ].map.next ); }
     FD_TEST( cur==idx );
     if( FD_UNLIKELY( !demote_one( accdb, idx, chain, prev ) ) ) {
-      accdb->fifo[ shmem->fifo_head % max ] = e;
+      *fifo_at( accdb, shmem->fifo_head, ULONG_MAX ) = e;
       shmem->fifo_head++;
       continue;
     }

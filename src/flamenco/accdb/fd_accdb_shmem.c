@@ -55,10 +55,22 @@ fd_accdb_shmem_join( void * shtc ) {
   return accdb;
 }
 
+static inline ulong
+fifo_ele( ulong max_accounts,
+          ulong index_ram_entries ) {
+  if( !index_ram_entries || index_ram_entries>=max_accounts ) return 0UL;
+  return fd_ulong_min( index_ram_entries, FD_ACCDB_FIFO_WINDOW );
+}
+
 ulong
 fd_accdb_scratch_sz( ulong max_live_slots,
-                     ulong max_account_writes_per_slot ) {
-  return max_live_slots*max_account_writes_per_slot*sizeof(uint);
+                     ulong max_account_writes_per_slot,
+                     ulong max_accounts,
+                     ulong index_ram_entries ) {
+  ulong sz = fd_ulong_align_up( max_live_slots*max_account_writes_per_slot*sizeof(uint), 4096UL );
+  if( fifo_ele( max_accounts, index_ram_entries )<index_ram_entries )
+    sz += ( index_ram_entries/FD_ACCDB_FIFO_CHUNK+2UL )*FD_ACCDB_FIFO_CHUNK*sizeof(ulong);
+  return sz;
 }
 
 ulong
@@ -153,7 +165,7 @@ fd_accdb_shmem_footprint( ulong max_accounts,
     l = FD_LAYOUT_APPEND( l, alignof(uint),            FD_ACCDB_BG_DEFER_MAX*sizeof(uint)                      );
     l = FD_LAYOUT_APPEND( l, alignof(uchar),           pool_max                                                );
     l = FD_LAYOUT_APPEND( l, alignof(uchar),           pool_max                                                );
-    l = FD_LAYOUT_APPEND( l, alignof(ulong),           pool_max*sizeof(ulong)                                  );
+    l = FD_LAYOUT_APPEND( l, alignof(ulong),           fifo_ele( max_accounts, index_ram_entries )*sizeof(ulong) );
     l = FD_LAYOUT_APPEND( l, alignof(fd_accdb_req_t),  (FD_ACCDB_RING_RES_CAP+FD_ACCDB_RING_HINT_CAP)*sizeof(fd_accdb_req_t) );
     l = FD_LAYOUT_APPEND( l, alignof(fd_accdb_prot_t), FD_ACCDB_PROT_MAX*sizeof(fd_accdb_prot_t)               );
     l = FD_LAYOUT_APPEND( l, alignof(ulong),           FD_ACCDB_UNSPILL_MAX*sizeof(ulong)                      );
@@ -366,7 +378,7 @@ fd_accdb_shmem_new( void * shmem,
   void * _bg_defer   = FD_SCRATCH_ALLOC_APPEND( l, alignof(uint), FD_ACCDB_BG_DEFER_MAX*sizeof(uint)*!!index_ram_entries );
   void * _tier       = FD_SCRATCH_ALLOC_APPEND( l, alignof(uchar), pool_max*!!index_ram_entries                     );
   void * _hot_ref    = FD_SCRATCH_ALLOC_APPEND( l, alignof(uchar), pool_max*!!index_ram_entries                     );
-  void * _fifo       = FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong), pool_max*sizeof(ulong)*!!index_ram_entries       );
+  void * _fifo       = FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong), fifo_ele( max_accounts, index_ram_entries )*sizeof(ulong) );
   void * _ring       = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_accdb_req_t),  (FD_ACCDB_RING_RES_CAP+FD_ACCDB_RING_HINT_CAP)*sizeof(fd_accdb_req_t)*!!index_ram_entries );
   void * _prot       = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_accdb_prot_t), FD_ACCDB_PROT_MAX*sizeof(fd_accdb_prot_t)*!!index_ram_entries );
   void * _unspill    = FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong), FD_ACCDB_UNSPILL_MAX*sizeof(ulong)*!!index_ram_entries );
@@ -503,6 +515,9 @@ fd_accdb_shmem_new( void * shmem,
   accdb->idx_fifo_off      = (ulong)_fifo - (ulong)shmem;
   accdb->fifo_head         = 0UL;
   accdb->fifo_tail         = 0UL;
+  accdb->fifo_chunk        = fifo_ele( max_accounts, index_ram_entries )<index_ram_entries ? FD_ACCDB_FIFO_CHUNK : 0UL;
+  accdb->fifo_file_off     = fd_ulong_align_up( txn_max*sizeof(uint), 4096UL );
+  for( ulong i=0UL; i<FD_ACCDB_FIFO_SLOTS; i++ ) accdb->fifo_tag[ i ] = ULONG_MAX;
   accdb->hot_cursor        = 0UL;
   /* Headroom T2 promotes leave for releases. */
   ulong reserve = fd_ulong_max( 1UL<<20, 5UL*max_account_writes_per_slot );
