@@ -2521,7 +2521,7 @@ test_idx_primitives( void ) {
     FD_TEST( fd_accdb_idx_lookup( &narrow, 9UL, key, 0, &got )==(i!=4UL) );
   }
 
-  /* cuckoo at the 0.9 design load: no false negatives, deletes exact */
+  /* cuckoo at the 0.95 design load: no false negatives, deletes exact */
   ulong n = (nb*FD_ACCDB_CF_LANES*FD_ACCDB_CF_LOAD_PCT)/100UL;
   for( ulong i=0UL; i<n; i++ ) { memset( key, 0, 32 ); FD_STORE( ulong, key+8, i ); fd_accdb_cf_insert( &cf, key, &rng ); }
   FD_TEST( !disabled );
@@ -2529,9 +2529,20 @@ test_idx_primitives( void ) {
   for( ulong i=0UL; i<n; i++ ) { memset( key, 0, 32 ); FD_STORE( ulong, key+8, i ); FD_TEST( fd_accdb_cf_probe( &cf, key ) ); }
   ulong fp_hits = 0UL;
   for( ulong i=0UL; i<100000UL; i++ ) { memset( key, 0, 32 ); FD_STORE( ulong, key+8, i ); key[ 31 ] = 1; fp_hits += (ulong)fd_accdb_cf_probe( &cf, key ); }
-  FD_TEST( fp_hits<100000UL*4UL/1000UL ); /* 2*5*0.9/2^12 = 2.2e-3 */
+  FD_TEST( fp_hits<100000UL*4UL/1000UL ); /* 2*5*0.95/2^12 = 2.3e-3 */
   for( ulong i=0UL; i<n; i+=2UL ) { memset( key, 0, 32 ); FD_STORE( ulong, key+8, i ); fd_accdb_cf_delete( &cf, key ); }
   for( ulong i=1UL; i<n; i+=2UL ) { memset( key, 0, 32 ); FD_STORE( ulong, key+8, i ); FD_TEST( fd_accdb_cf_probe( &cf, key ) ); }
+
+  /* 2M keys at the design load: kicks never overflow the stash */
+  ulong big_nb = fd_accdb_cf_nb( 2000000UL );
+  ulong * big_cfw = calloc( big_nb, sizeof(ulong) );
+  cf_seq = 0UL; stash_cnt = 0UL; disabled = 0UL;
+  cf.cf = big_cfw; cf.nb = big_nb;
+  ulong big_n = (big_nb*FD_ACCDB_CF_LANES*FD_ACCDB_CF_LOAD_PCT)/100UL;
+  for( ulong i=0UL; i<big_n; i++ ) { memset( key, 0, 32 ); FD_STORE( ulong, key+8, i ); fd_accdb_cf_insert( &cf, key, &rng ); }
+  FD_TEST( !disabled && stash_cnt<FD_ACCDB_CF_STASH_MAX/2UL );
+  for( ulong i=0UL; i<big_n; i+=97UL ) { memset( key, 0, 32 ); FD_STORE( ulong, key+8, i ); FD_TEST( fd_accdb_cf_probe( &cf, key ) ); }
+  free( big_cfw );
 
   free( stash ); free( cfw ); free( seq );
   close( fd );
