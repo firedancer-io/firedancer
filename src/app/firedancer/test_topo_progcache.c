@@ -1,17 +1,21 @@
+#define _GNU_SOURCE /* fd_accdb_idx.h */
 #include "topology.h"
 #include "../../disco/topo/fd_topob.h"
 #include "../../flamenco/progcache/fd_progcache.h"
+#include "../../flamenco/accdb/fd_accdb_idx.h"
 #include "../../util/pod/fd_pod_format.h"
 #include "../shared/fd_action.h"
 
 extern fd_topo_obj_callbacks_t fd_obj_cb_progcache;
 extern fd_topo_obj_callbacks_t fd_obj_cb_metrics;
 extern fd_topo_obj_callbacks_t fd_obj_cb_tile;
+extern fd_topo_obj_callbacks_t fd_obj_cb_accdb_window;
 
 fd_topo_obj_callbacks_t * CALLBACKS[] = {
   &fd_obj_cb_progcache,
   &fd_obj_cb_metrics,
   &fd_obj_cb_tile,
+  &fd_obj_cb_accdb_window,
   NULL,
 };
 
@@ -111,6 +115,8 @@ check_overlay( ulong txn_max,
   fd_topo_tile_t * snapin = fd_topob_tile( topo, "snapin", "progcache", "tile", 1UL, 0, 0, 0 );
   fd_topo_obj_t *  so     = &topo->objs[ snapin->tile_obj_id ];
   fd_topob_obj_overlay( topo, so, host );
+  fd_topo_obj_t *  win    = fd_topob_obj( topo, "accdb_window", "progcache" );
+  fd_topob_obj_overlay( topo, win, host );
 
   fd_topob_finish( topo, CALLBACKS );
 
@@ -122,6 +128,10 @@ check_overlay( ulong txn_max,
   } else {
     FD_TEST( so->offset>=host->offset+host->footprint );
   }
+  /* the place window packs after the scratch, disjoint from it */
+  FD_TEST( win->overlay && win->footprint==FD_ACCDB_PLACE_WINDOW );
+  FD_TEST( win->offset>=host->offset+lo && win->offset+win->footprint<=host->offset+hi );
+  FD_TEST( win->offset>=so->offset+so->footprint || so->offset>=win->offset+win->footprint );
 }
 
 int

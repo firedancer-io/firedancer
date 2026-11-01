@@ -60,7 +60,7 @@ test_sysvar_cache_env_create( test_sysvar_cache_env_t * env,
   FD_TEST( join_fp );
   void * join_mem = aligned_alloc( fd_accdb_align(), join_fp );
   FD_TEST( join_mem );
-  fd_accdb_t * accdb = fd_accdb_join( fd_accdb_new( join_mem, shmem, accdb_fd, -1, 0UL, NULL, NULL, 0UL, 0, -1 ) );
+  fd_accdb_t * accdb = fd_accdb_join( fd_accdb_new( join_mem, shmem, accdb_fd, -1, 0UL, NULL, NULL, 0UL, 0, -1, NULL ) );
   FD_TEST( accdb );
 
   /* Allocate a single bank in the test wksp. */
