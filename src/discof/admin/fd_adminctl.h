@@ -58,6 +58,7 @@
 #define FD_ADD_AUTHORIZED_VOTER_RESULT_KEYPAIR_MISMATCH     (0x1001UL)
 #define FD_ADD_AUTHORIZED_VOTER_RESULT_MAX_AUTH_VOTERS      (0x1002UL)
 #define FD_ADD_AUTHORIZED_VOTER_RESULT_DUPLICATE_AUTH_VOTER (0x1003UL)
+#define FD_ADD_AUTHORIZED_VOTER_RESULT_FAILOVER_IDENTITY    (0x1004UL)
 
 #define FD_SNAPSHOT_CREATE_RESULT_BUSY                      (0x2001UL)
 #define FD_SNAPSHOT_CREATE_RESULT_NOT_READY                 (0x2003UL)
@@ -84,7 +85,9 @@
 #define FD_FAILOVER_CONTROL_RESULT_HOLDS_OTHER       (0x400DUL)
 #define FD_FAILOVER_CONTROL_RESULT_IDENTITY_CHANGED  (0x400EUL)
 #define FD_FAILOVER_CONTROL_RESULT_HOLDER_LIVE       (0x400FUL)
+#define FD_FAILOVER_CONTROL_RESULT_NO_PEER           (0x4010UL)
 #define FD_FAILOVER_CONTROL_RESULT_ALREADY_HOLDS     (0x4011UL)
+#define FD_FAILOVER_CONTROL_RESULT_HANDED_OFF        (0x4012UL)
 
 struct fd_adminctl_add_auth_voter_v1 {
   ulong version; /* ==FD_ADMINCTL_ADD_AUTH_VOTER_PAYLOAD_VERSION */
@@ -151,12 +154,11 @@ struct fd_adminctl_failover_req_v1 {
   ulong  flags;        /* FD_ADMINCTL_FAILOVER_FLAG_* */
   uint   addr;         /* HANDOFF only, the machine running the identity to dial in network byte order, 0 to find it in gossip */
   ushort port;         /* HANDOFF only, the port to dial it on in host byte order, 0 for the default port */
-  uchar  target[ 32 ]; /* PREFLIGHT only, the identity the keypair names */
+  uchar  target[ 32 ]; /* PREFLIGHT: the identity the keypair names.  PROMOTE: the identity the command's handoff was for, zero for whatever the target is; another is refused IDENTITY_CHANGED */
 };
 typedef struct fd_adminctl_failover_req_v1 fd_adminctl_failover_req_t;
 
-/* Optional promote payload.  Admin consumes and wipes the keypair.
-   Only req may be forwarded to the failover tile. */
+/* Optional promote payload. */
 struct fd_adminctl_failover_prepare_v1 {
   fd_adminctl_failover_req_t req;
   uchar                      keypair[ 64 ];

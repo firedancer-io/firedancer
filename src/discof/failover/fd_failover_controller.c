@@ -33,6 +33,7 @@
 
 /* The state */
 
+/* FSM state list */
 static char const * const action_names[ FD_FAILOVER_ACTION_CNT ] = {
   [ FD_FAILOVER_ACTION_IDLE                ] = "idle",
   [ FD_FAILOVER_ACTION_DEMOTE_SWITCH       ] = "demote_switch",
@@ -50,7 +51,7 @@ get_action_name( ulong action ) {
   return action<FD_FAILOVER_ACTION_CNT ? action_names[ action ] : "unknown";
 }
 
-/* Our handoff request is open, before or after its promotion. */
+/* Phase helpers */
 static inline int
 is_requesting( fd_failover_tile_ctx_t const * ctx ) {
   return ctx->action==FD_FAILOVER_ACTION_HANDOFF_WAIT_PEER || ctx->action==FD_FAILOVER_ACTION_HANDOFF_WAIT_RESULT;
@@ -62,8 +63,6 @@ is_promoting( fd_failover_tile_ctx_t const * ctx ) {
          ctx->action==FD_FAILOVER_ACTION_PROMOTE_SWITCH;
 }
 
-/* Only an identity switch leaves DEMOTE_SWITCH and DEMOTE_DRAIN, a peer
-   message cannot. */
 static inline int
 is_switching_out( fd_failover_tile_ctx_t const * ctx ) {
   return ctx->action==FD_FAILOVER_ACTION_DEMOTE_SWITCH || ctx->action==FD_FAILOVER_ACTION_DEMOTE_DRAIN;
@@ -74,10 +73,7 @@ is_switch_pending( fd_failover_tile_ctx_t const * ctx ) {
   return ctx->id_switch.pending_key!=FD_FAILOVER_SWITCH_KEY_CNT;
 }
 
-/* Moves to action and arms its deadline, FD_FAILOVER_DEADLINE_SLOTS of
-   replay and as many seconds of our clock, so a stalled replay still
-   times out.  A state entered again, as a forced promotion does when it
-   falls back, is logged but keeps its deadline. */
+/* Change the controller state: the only thing that should ever write to ctx->action! */
 static void
 set_action( fd_failover_tile_ctx_t * ctx,
             ulong                    action ) {
@@ -96,9 +92,7 @@ is_overdue( fd_failover_tile_ctx_t const * ctx ) {
   return slots || fd_failover_clock()>=ctx->deadline_at;
 }
 
-/* Returns the controller to IDLE with nothing in flight.  The caller
-   takes a new boot id, so the other machine treats anything bound to the
-   old one as from a restarted peer. */
+/* Returns the controller to IDLE with nothing in flight. */
 static void
 reset_controller( fd_failover_tile_ctx_t * ctx ) {
   fd_memset( &ctx->request,   0, sizeof(ctx->request)   );
@@ -114,10 +108,12 @@ reset_controller( fd_failover_tile_ctx_t * ctx ) {
   ctx->current_history.valid    = 0;
   ctx->last_vote_slot           = FD_FAILOVER_SLOT_NULL;
   ctx->stuck                    = 0;
+
+  /* reset to idle */
   set_action( ctx, FD_FAILOVER_ACTION_IDLE );
 }
 
-/* Shared helpers: the session, the control queue and the log */
+/* Shared helpers: the session, control queue, and log */
 
 static inline ushort
 get_dial_port( fd_failover_tile_ctx_t const * ctx ) {
@@ -131,15 +127,6 @@ is_bound_peer( fd_failover_tile_ctx_t const * ctx,
   return is_same_peer( bound, fd_failover_channel_peer_hello( ctx->channel )->boot_id );
 }
 
-/* Sets the installed identity this machine currently signs with. */
-static void
-set_installed( fd_failover_tile_ctx_t * ctx,
-               uchar const *            pubkey ) {
-  fd_memcpy( ctx->installed, pubkey, 32UL );
-  ctx->hello.holds = (uchar)holds_identity( ctx );
-  fd_failover_channel_set_holds( ctx->channel, ctx->hello.holds );
-}
-
 static void
 finish_cmd( fd_failover_tile_ctx_t * ctx,
             ulong                    result ) {
@@ -150,31 +137,25 @@ finish_cmd( fd_failover_tile_ctx_t * ctx,
   ctx->cmd_done   = 1;
 }
 
-/* Logs a step of a command at NOTICE. */
-#define LOG_CMD_STEP( ctx, ... ) do {                                                                           \
-    FD_LOG_NOTICE(( __VA_ARGS__ ));                                                                              \
-    fd_cstr_printf( (ctx)->cmd_step[ (ctx)->cmd_step_head%FD_FAILOVER_STEP_CNT ], FD_FAILOVER_BUS_STEP_MAX, NULL, __VA_ARGS__ ); \
-    (ctx)->cmd_step_head++;                                                                                      \
-    if( (ctx)->cmd_step_head-(ctx)->cmd_step_tail>FD_FAILOVER_STEP_CNT ) (ctx)->cmd_step_tail++;                  \
-  } while(0)
-
 /* Updates our session state when the channel's session changes. */
 static void
 sync_session( fd_failover_tile_ctx_t * ctx ) {
   ulong state      = fd_failover_channel_state( ctx->channel );
   ulong generation = fd_failover_channel_generation( ctx->channel );
   if( FD_LIKELY( state==ctx->session.state && generation==ctx->session.generation ) ) return;
+
+  /* new generation */
   ctx->session.state            = state;
   ctx->session.generation       = generation;
   ctx->request.sent             = 0;
   ctx->session.close_after_send = 0;
+  /* invalidate the previous session's FD_FAILOVER_MSG_HANDOFF_RESULT */
   if( ctx->tx.valid && ctx->tx.type==(ushort)FD_FAILOVER_MSG_HANDOFF_RESULT ) ctx->tx.valid = 0;
   if( FD_LIKELY( state!=FD_FAILOVER_SESSION_PAIRED ) ) return;
   fd_failover_hello_t const * peer = fd_failover_channel_peer_hello( ctx->channel );
   ctx->session.peer_boot_id = peer->boot_id;
   if( ctx->handoff.delivery==FD_FAILOVER_DELIVERY_SENT ) ctx->handoff.delivery = FD_FAILOVER_DELIVERY_PENDING;
   if( FD_UNLIKELY( peer->holds ) ) {
-    /* A peer running the identity voted past any final state we saved. */
     if( is_promoting( ctx ) ) ctx->promotion.holder_seen = 1;
     if( ctx->peer_history.valid ) FD_LOG_NOTICE(( "peer boot %016lx runs the identity, discarding the saved final state, keeping the coverage floors", peer->boot_id ));
     ctx->peer_history.valid = 0;
@@ -190,8 +171,8 @@ hang_up( fd_failover_tile_ctx_t * ctx,
   sync_session( ctx );
 }
 
-/* Only one control message can be outstanding at a time.  Its recipient
-   is fixed even if the connection changes before it is sent. */
+/* One-message controller outbox (queue_control is the primitive) */
+
 static int
 queue_control( fd_failover_tile_ctx_t *   ctx,
                ushort                     type,
@@ -207,18 +188,21 @@ queue_control( fd_failover_tile_ctx_t *   ctx,
   return 0;
 }
 
+/* The holder's hand-over message (consensus-critical payload). */
 static int
 queue_demoted( fd_failover_tile_ctx_t * ctx ) {
+  /* => DEMOTED */
   return queue_control( ctx, (ushort)FD_FAILOVER_MSG_DEMOTED, &ctx->handoff.target, ctx->handoff.payload, ctx->handoff.payload_sz );
 }
 
 /* Tells the requester how its handoff ended and closes the session once
-   that has drained.  A NULL to means the peer on the current session. */
+   that has drained. */
 static void
 queue_handoff_result( fd_failover_tile_ctx_t *   ctx,
                       fd_failover_peer_t const * to,
                       ulong                      id,
                       ulong                      result ) {
+  /* => HANDOFF_RESULT */
   fd_failover_peer_t peer;
   if( !to ) {
     peer.boot_id = fd_failover_channel_peer_hello( ctx->channel )->boot_id;
@@ -230,19 +214,20 @@ queue_handoff_result( fd_failover_tile_ctx_t *   ctx,
   }
 }
 
-/* Queues our last response to a DEMOTED.  If the control slot is busy it
-   stays pending and step_controller retries once the slot drains. */
+/* Queues our last response to a DEMOTED.  */
 static void
 queue_reply( fd_failover_tile_ctx_t * ctx ) {
+  /* => PROMOTED_ACK or PROMOTE_REJECTED */
   uchar payload[ sizeof(fd_failover_promote_rejected_t) ];
   ulong payload_sz = ctx->reply.type==(ushort)FD_FAILOVER_MSG_PROMOTE_ACK
                      ? fd_failover_promote_ack_encode( payload, ctx->reply.handoff_id )
                      : fd_failover_promote_rejected_encode( payload, ctx->reply.handoff_id, ctx->reply.reason );
-  ctx->reply.state = queue_control( ctx, ctx->reply.type, &ctx->reply.peer, payload, payload_sz ) ? FD_FAILOVER_REPLY_PENDING : FD_FAILOVER_REPLY_KEPT;
+  ctx->reply.state = queue_control( ctx, ctx->reply.type, &ctx->reply.peer, payload, payload_sz )
+    ? FD_FAILOVER_REPLY_PENDING
+    : FD_FAILOVER_REPLY_KEPT;
 }
 
-/* Remembers our response to the DEMOTED with handoff_id from peer and
-   queues it.  The same DEMOTED again gets the same response. */
+/* The taker answers the DEMOTED */
 static void
 finish_reply( fd_failover_tile_ctx_t *   ctx,
               fd_failover_peer_t const * peer,
@@ -321,92 +306,19 @@ get_source_name( ulong source ) {
   return source==FD_FAILOVER_SOURCE_PEER ? "the vote history the peer gave us" : "an empty history";
 }
 
-/* Inputs: vote history, gossip and the identity switch */
+/* Identity switching: the admin tile installs the junk key or the identity */
 
+/* Sets the installed identity this machine currently signs with. */
 static void
-prepare_history( fd_failover_tile_ctx_t *    ctx,
-                 fd_votor_hist_msg_t const * hist ) {
-  uchar state[ FD_FAILOVER_ALPENGLOW_STATE_MAX ];
-  ulong state_sz = 0UL;
-  if( FD_UNLIKELY( ag_hist_ser( &hist->hist, state, FD_FAILOVER_ALPENGLOW_STATE_MAX, &state_sz ) || ag_hist_tip( &hist->hist )!=hist->vote_slot ) ) {
-    if( FD_UNLIKELY( !ctx->hist_warned ) ) FD_LOG_WARNING(( "votor produced a vote history that does not match its slot metadata" ));
-    ctx->hist_warned = 1;
-    return;
-  }
-  ctx->hist_warned = 0;
-  fd_memcpy( ctx->current_history.state, state, state_sz );
-  ctx->current_history.valid = 1;
-  ctx->current_history.tip   = hist->vote_slot;
-  ctx->current_history.sz    = state_sz;
+set_installed( fd_failover_tile_ctx_t * ctx,
+               uchar const *            pubkey ) {
+  fd_memcpy( ctx->installed, pubkey, 32UL );
+  ctx->hello.holds = (uchar)holds_identity( ctx );
+  fd_failover_channel_set_holds( ctx->channel, ctx->hello.holds );
 }
 
-/* Takes in a votor_hist frame: replay and root slots, and the history
-   of the identity we hand off once the votor streams it in full. */
-static void
-on_votor_hist_msg( fd_failover_tile_ctx_t *    ctx,
-                   fd_votor_hist_msg_t const * hist ) {
-  if( FD_LIKELY( hist->replay_slot!=FD_FAILOVER_SLOT_NULL && ( ctx->replay_slot==FD_FAILOVER_SLOT_NULL || hist->replay_slot>ctx->replay_slot ) ) ) ctx->replay_slot = hist->replay_slot;
-  if( FD_LIKELY( hist->root_slot!=FD_FAILOVER_SLOT_NULL ) ) ctx->root_slot = hist->root_slot;
-  /* Histories of another key can arrive during preparation or after the switch. */
-  if( FD_UNLIKELY( !fd_memeq( hist->identity.uc, ctx->hello.staked_pubkey, 32UL ) || hist->vote_slot==FD_FAILOVER_SLOT_NULL ) ) return;
-  /* The drain still takes the history of our last votes after the
-     switch to the junk key. */
-  int producing = holds_identity( ctx ) || ctx->action==FD_FAILOVER_ACTION_PROMOTE_SWITCH || ctx->action==FD_FAILOVER_ACTION_DEMOTE_DRAIN;
-  /* A vote we signed, or the first history with a vote in it while we
-     run the identity, cast before we tracked our votes. */
-  int voted     = hist->has_vote || ( producing && ctx->last_vote_slot==FD_FAILOVER_SLOT_NULL );
-  /* A frame with no new vote can still change the history, after a
-     LEADER or a vote marked unsent. */
-  int changed   = producing && ctx->current_history.valid && hist->vote_slot>=ctx->last_vote_slot;
-  if( FD_LIKELY( !voted && !changed ) ) return;
-  ctx->last_vote_slot = hist->vote_slot;
-  if( voted && ( ctx->own_floor==FD_FAILOVER_SLOT_NULL || hist->vote_slot>ctx->own_floor ) ) ctx->own_floor = hist->vote_slot;
-  /* The tip of a history always counts toward the floor. */
-  if( hist->has_vote ) ctx->own_voted = 1;
-  prepare_history( ctx, hist );
-}
-
-/* The address of the machine running the identity comes from gossip. */
-static void
-on_contact_info_msg( fd_failover_tile_ctx_t * ctx,
-                     long                     now ) {
-  uint addr = ctx->gossip_socket.addr;
-  if( FD_UNLIKELY( !addr || !fd_memeq( ctx->gossip_origin, ctx->hello.staked_pubkey, 32UL ) ) ) return;
-  if( FD_UNLIKELY( addr==ctx->own_gossip.addr && ctx->gossip_socket.port==ctx->own_gossip.port ) ) return;
-  ctx->staked_seen_at = now;
-  if( FD_UNLIKELY( ctx->peer_history.valid ) ) {
-    /* Another host votes as the identity past any final state we saved. */
-    FD_LOG_NOTICE(( "gossip shows the identity at `" FD_IP4_ADDR_FMT "`, discarding the saved final state, keeping the coverage floors", FD_IP4_ADDR_FMT_ARGS( addr ) ));
-    ctx->peer_history.valid = 0;
-  }
-  if( FD_LIKELY( addr==ctx->staked_addr ) ) return;
-  FD_LOG_NOTICE(( "gossip shows the identity at `" FD_IP4_ADDR_FMT "`, a handoff from this machine dials it", FD_IP4_ADDR_FMT_ARGS( addr ) ));
-  ctx->staked_addr = addr;
-}
-
-/* Sends the promotion's history or empty bound to the votor for the
-   target identity.  Returns the request id, which the response echoes,
-   or ULONG_MAX if there was nothing to send. */
-static ulong
-publish_adopt_state( fd_failover_tile_ctx_t * ctx,
-                     fd_stem_context_t *      stem ) {
-  if( FD_UNLIKELY( ctx->adopt_out_idx==ULONG_MAX || !ctx->promotion.adopt.sz ) ) return ULONG_MAX;
-  if( FD_UNLIKELY( !++ctx->adopt_request_id ) ) ctx->adopt_request_id++;
-  uchar * req = fd_chunk_to_laddr( ctx->adopt_out_mem, ctx->adopt_out_chunk );
-  ulong   sz  = FD_VOTOR_ADOPT_REQ_HDR_SZ+ctx->promotion.adopt.sz;
-  fd_memcpy( req,                           ctx->hello.staked_pubkey,   FD_VOTOR_ADOPT_REQ_HDR_SZ );
-  fd_memcpy( req+FD_VOTOR_ADOPT_REQ_HDR_SZ, ctx->promotion.adopt.state, ctx->promotion.adopt.sz  );
-  ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
-  fd_stem_publish( stem, ctx->adopt_out_idx, ctx->adopt_request_id, ctx->adopt_out_chunk, sz, 0UL, tspub, tspub );
-  ctx->adopt_out_chunk    = fd_dcache_compact_next( ctx->adopt_out_chunk, sz, ctx->adopt_out_chunk0, ctx->adopt_out_wmark );
-  ctx->adopt_result_fresh = 0;
-  return ctx->adopt_request_id;
-}
-
-/* Asks the admin tile to switch to the given key.  Only the public key
-   goes out, the sign tile preloaded both keypairs.  One request can be
-   in flight, and the reply echoes its id so a late reply can be told
-   apart.  Returns the id, or ULONG_MAX if nothing was sent. */
+/* Asks the admin tile to switch to the given key.
+   Returns the id, or ULONG_MAX if nothing was sent. */
 static ulong
 request_switch( fd_failover_tile_ctx_t * ctx,
                 fd_stem_context_t *      stem,
@@ -427,9 +339,7 @@ request_switch( fd_failover_tile_ctx_t * ctx,
   return ctx->id_switch.request_id;
 }
 
-/* Ends the switch in flight when nonce answers it and returns 1 if the
-   caller should take the result.  We drop a reply to another request,
-   and the reply to a switch that set-identity overtook. */
+/* Ends the switch in flight and returns 1 if the caller should take the result. */
 static int
 on_switch_resp_msg( fd_failover_tile_ctx_t * ctx,
                     ulong                    nonce ) {
@@ -446,7 +356,6 @@ on_switch_resp_msg( fd_failover_tile_ctx_t * ctx,
   return 1;
 }
 
-/* Takes the answer to our identity switch, once. */
 static ulong
 take_switch_result( fd_failover_tile_ctx_t * ctx ) {
   ctx->id_switch.fresh   = 0;
@@ -454,8 +363,7 @@ take_switch_result( fd_failover_tile_ctx_t * ctx ) {
   return ctx->id_switch.result.result;
 }
 
-/* The identity switch in flight passed its deadline.  Its outcome is
-   unknown, so we keep waiting and refuse another switch. */
+/* The identity switch in flight passed its deadline. */
 static void
 mark_switch_overdue( fd_failover_tile_ctx_t * ctx ) {
   ctx->stuck = 1;
@@ -465,12 +373,75 @@ mark_switch_overdue( fd_failover_tile_ctx_t * ctx ) {
                    ctx->id_switch.request_id, ctx->id_switch.pending_key==FD_FAILOVER_SWITCH_KEY_STAKED ? "the identity" : "the junk key" ));
 }
 
-/* set-identity installed a key, or failover promote <keypair> picked a
-   target, so we start over as if this machine had rebooted, with a new
-   boot id and nothing in flight.  A peer with another target fails
-   HELLO. */
+/* Inputs: the vote history, gossip and the operator */
+
 static void
-on_operator_action_msg( fd_failover_tile_ctx_t *       ctx,
+prepare_history( fd_failover_tile_ctx_t *    ctx,
+                 fd_votor_hist_msg_t const * hist ) {
+  uchar state[ FD_FAILOVER_ALPENGLOW_STATE_MAX ];
+  ulong state_sz = 0UL;
+  if( FD_UNLIKELY( ag_hist_ser( &hist->hist, state, FD_FAILOVER_ALPENGLOW_STATE_MAX, &state_sz ) || ag_hist_tip( &hist->hist )!=hist->vote_slot ) ) {
+    if( FD_UNLIKELY( !ctx->hist_warned ) ) FD_LOG_WARNING(( "votor produced a vote history that does not match its slot metadata" ));
+    ctx->hist_warned = 1;
+    return;
+  }
+  ctx->hist_warned = 0;
+  fd_memcpy( ctx->current_history.state, state, state_sz );
+  ctx->current_history.valid = 1;
+  ctx->current_history.tip   = hist->vote_slot;
+  ctx->current_history.sz    = state_sz;
+}
+
+static void
+on_votor_hist_msg( fd_failover_tile_ctx_t *    ctx,
+                   fd_votor_hist_msg_t const * hist ) {
+  if( FD_LIKELY( hist->replay_slot!=FD_FAILOVER_SLOT_NULL && ( ctx->replay_slot==FD_FAILOVER_SLOT_NULL || hist->replay_slot>ctx->replay_slot ) ) ) ctx->replay_slot = hist->replay_slot;
+  if( FD_LIKELY( hist->root_slot!=FD_FAILOVER_SLOT_NULL ) ) ctx->root_slot = hist->root_slot;
+  ctx->installed_ranked = hist->ranked;
+  if( FD_UNLIKELY( !fd_memeq( hist->identity.uc, ctx->hello.staked_pubkey, 32UL ) || hist->vote_slot==FD_FAILOVER_SLOT_NULL ) ) return;
+  int producing = holds_identity( ctx ) || ctx->action==FD_FAILOVER_ACTION_PROMOTE_SWITCH || ctx->action==FD_FAILOVER_ACTION_DEMOTE_DRAIN;
+  int voted     = hist->has_vote || ( producing && ctx->last_vote_slot==FD_FAILOVER_SLOT_NULL );
+  int changed   = producing && ctx->current_history.valid && hist->vote_slot>=ctx->last_vote_slot;
+  if( FD_LIKELY( !voted && !changed ) ) return;
+  ctx->last_vote_slot = hist->vote_slot;
+  if( voted && ( ctx->own_floor==FD_FAILOVER_SLOT_NULL || hist->vote_slot>ctx->own_floor ) ) ctx->own_floor = hist->vote_slot;
+  if( hist->has_vote ) ctx->own_voted = 1;
+  prepare_history( ctx, hist );
+}
+
+/* Logs a step of a command at NOTICE. */
+#define LOG_CMD_STEP( ctx, ... ) do {                                                                           \
+    FD_LOG_NOTICE(( __VA_ARGS__ ));                                                                              \
+    fd_cstr_printf( (ctx)->cmd_step[ (ctx)->cmd_step_head%FD_FAILOVER_STEP_CNT ], FD_FAILOVER_BUS_STEP_MAX, NULL, __VA_ARGS__ ); \
+    (ctx)->cmd_step_head++;                                                                                      \
+    if( (ctx)->cmd_step_head-(ctx)->cmd_step_tail>FD_FAILOVER_STEP_CNT ) (ctx)->cmd_step_tail++;                  \
+  } while(0)
+
+static void
+on_gossip_contact_info_msg( fd_failover_tile_ctx_t * ctx,
+                     long                     now ) {
+  uint addr = ctx->gossip_socket.addr;
+  if( FD_UNLIKELY( !addr || !fd_memeq( ctx->gossip_origin, ctx->hello.staked_pubkey, 32UL ) ) ) return;
+  if( FD_UNLIKELY( addr==ctx->own_gossip.addr && ctx->gossip_socket.port==ctx->own_gossip.port ) ) return;
+  ctx->staked_seen_at = now;
+  if( FD_UNLIKELY( ctx->peer_history.valid ) ) {
+    FD_LOG_NOTICE(( "gossip shows the identity at `" FD_IP4_ADDR_FMT "`, discarding the saved final state, keeping the coverage floors", FD_IP4_ADDR_FMT_ARGS( addr ) ));
+    ctx->peer_history.valid = 0;
+  }
+  if( FD_LIKELY( addr==ctx->staked_addr ) ) return;
+  FD_LOG_NOTICE(( "gossip shows the identity at `" FD_IP4_ADDR_FMT "`, a handoff from this machine dials it", FD_IP4_ADDR_FMT_ARGS( addr ) ));
+  ctx->staked_addr = addr;
+  if( FD_UNLIKELY( ctx->request.id && ctx->request.until && !ctx->request.addr && !ctx->cmd_addr && is_requesting( ctx ) ) ) {
+    ctx->request.addr  = addr;
+    ctx->request.until = fd_long_sat_add( now, ctx->request.quick ? FD_FAILOVER_FORCE_WAIT_NANOS : FD_FAILOVER_DEADLINE_NANOS );
+    fd_failover_channel_init_dialer( ctx->channel, addr, get_dial_port( ctx ) );
+    LOG_CMD_STEP( ctx, "handoff %lu: requesting handoff from the machine running the identity at `" FD_IP4_ADDR_FMT ":%hu` using gossip",
+                  ctx->request.id, FD_IP4_ADDR_FMT_ARGS( addr ), get_dial_port( ctx ) );
+  }
+}
+
+static void
+on_admin_operator_action_msg( fd_failover_tile_ctx_t *       ctx,
                         fd_failover_operator_t const * operator ) {
   if( FD_UNLIKELY( operator->epoch<=ctx->id_switch.epoch ) ) return;
   ctx->id_switch.epoch   = operator->epoch;
@@ -484,10 +455,10 @@ on_operator_action_msg( fd_failover_tile_ctx_t *       ctx,
   finish_cmd( ctx, FD_FAILOVER_CONTROL_RESULT_IDENTITY_CHANGED );
   hang_up( ctx, fd_failover_clock() );
   reset_controller( ctx );
-  /* What gossip told us is about the old failover identity. */
   if( FD_UNLIKELY( !fd_memeq( operator->failover_identity, ctx->hello.staked_pubkey, 32UL ) ) ) {
     ctx->staked_addr    = 0U;
     ctx->staked_seen_at = 0L;
+    ctx->holder_seen_at = 0L;
     ctx->peer_floor     = FD_FAILOVER_SLOT_NULL;
     ctx->own_floor      = FD_FAILOVER_SLOT_NULL;
     ctx->own_voted      = 0;
@@ -509,19 +480,19 @@ on_operator_action_msg( fd_failover_tile_ctx_t *       ctx,
 
 /* Demotion: the holder gives up the identity */
 
-/* Our DEMOTED got its answer or cannot get one any more.  This machine
-   keeps its junk key either way. */
+/* Our DEMOTED has been taken to logical completion. */
 static void
 resolve_handoff( fd_failover_tile_ctx_t * ctx,
                  ulong                    result ) {
   if( FD_UNLIKELY( ctx->tx.valid && ctx->tx.type==(ushort)FD_FAILOVER_MSG_DEMOTED ) ) ctx->tx.valid = 0;
-  if( FD_LIKELY( ctx->action==FD_FAILOVER_ACTION_DEMOTE_WAIT_ACK ) ) set_action( ctx, FD_FAILOVER_ACTION_IDLE );
+  if( FD_LIKELY( ctx->action==FD_FAILOVER_ACTION_DEMOTE_WAIT_ACK ) ) {
+    /* reset to idle */
+    set_action( ctx, FD_FAILOVER_ACTION_IDLE );
+  }
   ctx->handoff.delivery = FD_FAILOVER_DELIVERY_NONE;
   ctx->handoff.result   = result;
 }
 
-/* Ends the demotion without final state.  Nobody can promote on it, and
-   the machine that asked is told at once rather than at its deadline. */
 static void
 abort_demotion( fd_failover_tile_ctx_t * ctx,
                 char const *             why ) {
@@ -529,6 +500,8 @@ abort_demotion( fd_failover_tile_ctx_t * ctx,
   if( FD_UNLIKELY( ctx->handoff.delivery!=FD_FAILOVER_DELIVERY_NONE ) ) queue_handoff_result( ctx, &ctx->handoff.target, ctx->handoff.id, FD_FAILOVER_CONTROL_RESULT_HANDOFF_ABORTED );
   ctx->handoff.delivery = FD_FAILOVER_DELIVERY_NONE;
   ctx->stuck            = 1;
+
+  /* reset to idle */
   set_action( ctx, FD_FAILOVER_ACTION_IDLE );
 }
 
@@ -539,9 +512,8 @@ is_final_history_ok( fd_failover_tile_ctx_t const * ctx ) {
 }
 
 /* Whether we can hand off now to a machine whose replay is at
-   replay_slot.  One more than FD_FAILOVER_DEADLINE_SLOTS behind our
-   history's finality anchor could not reach it before its promotion's
-   deadline.  Returns FD_ADMINCTL_RESULT_SUCCESS or the refusal. */
+   replay_slot.
+   Returns FD_ADMINCTL_RESULT_SUCCESS or an error code. */
 static ulong
 check_handoff( fd_failover_tile_ctx_t const * ctx,
                ulong                          replay_slot ) {
@@ -552,8 +524,7 @@ check_handoff( fd_failover_tile_ctx_t const * ctx,
   return FD_ADMINCTL_RESULT_SUCCESS;
 }
 
-/* Gives up the identity for the peer that asked, on the session it asked
-   on.  step_demote_switch asks for the junk key. */
+/* Gives up the identity for the peer that asked (triggers the demotion flow). */
 static void
 accept_handoff( fd_failover_tile_ctx_t * ctx,
                 ulong                    handoff_id ) {
@@ -563,12 +534,11 @@ accept_handoff( fd_failover_tile_ctx_t * ctx,
   ctx->handoff.target.boot_id = ctx->session.peer_boot_id;
   ctx->stuck                  = 0;
   FD_LOG_NOTICE(( "handoff %lu: accepted the request from peer boot %016lx, giving up the identity", handoff_id, ctx->handoff.target.boot_id ));
+
   set_action( ctx, FD_FAILOVER_ACTION_DEMOTE_SWITCH );
 }
 
-/* The junk key is installed.  Waits for the votor's last votes, up to
-   the output sequence it stopped signing at, then hands the final
-   history to the peer. */
+/* Drain vote-history stream up to the key switching watermark, then enqueue the DEMOTED message. */
 static void
 step_demote_drain( fd_failover_tile_ctx_t * ctx ) {
   if( FD_UNLIKELY( !fd_seq_ge( fd_seq_inc( ctx->hist_seen_seq, 1UL ), ctx->id_switch.result.history_watermark ) ) ) {
@@ -581,10 +551,11 @@ step_demote_drain( fd_failover_tile_ctx_t * ctx ) {
   ctx->handoff.result = FD_FAILOVER_HANDOFF_PENDING;
   FD_LOG_NOTICE(( "handoff %lu: this machine runs its junk key now, sending the final vote history ending at slot %lu", ctx->handoff.id, ctx->last_vote_slot ));
   (void)queue_demoted( ctx );
+
   set_action( ctx, FD_FAILOVER_ACTION_DEMOTE_WAIT_ACK );
 }
 
-/* Asks the admin tile for the junk key and waits for its answer. */
+/* Asks the admin tile to switch to the junk key. */
 static void
 step_demote_switch( fd_failover_tile_ctx_t * ctx,
                     fd_stem_context_t *      stem ) {
@@ -602,24 +573,15 @@ step_demote_switch( fd_failover_tile_ctx_t * ctx,
     abort_demotion( ctx, result==FD_FAILOVER_SWITCH_ERR_DISABLED ? "failover is disabled" : result==FD_FAILOVER_SWITCH_ERR_AUTHORIZED_VOTER ? "the identity is an authorized voter" : "the identity switch failed" );
     return;
   }
+
   set_installed( ctx, ctx->spare_pubkey );
   set_action( ctx, FD_FAILOVER_ACTION_DEMOTE_DRAIN );
   step_demote_drain( ctx );
 }
 
-/* DEMOTED is out and the peer answers with PROMOTE_ACK or
-   PROMOTE_REJECTED.  If it goes quiet we only raise stuck, the identity
-   is already gone from this machine.  A new peer boot cannot answer this
-   DEMOTED, and its earlier boot may have taken the identity and voted
-   before losing its ACK. */
+/* DEMOTED is sent out and the peer answers with either PROMOTE_ACK or PROMOTE_REJECTED. */
 static void
 step_demote_wait_ack( fd_failover_tile_ctx_t * ctx ) {
-  if( FD_UNLIKELY( fd_failover_channel_state( ctx->channel )==FD_FAILOVER_SESSION_PAIRED && ctx->session.peer_boot_id!=ctx->handoff.target.boot_id ) ) {
-    FD_LOG_WARNING(( "handoff %lu: the peer restarted before it answered and may have voted, nobody runs the identity", ctx->handoff.id ));
-    ctx->peer_history.valid = 0;
-    resolve_handoff( ctx, FD_FAILOVER_HANDOFF_RESTARTED );
-    return;
-  }
   if( FD_UNLIKELY( ctx->handoff.delivery==FD_FAILOVER_DELIVERY_PENDING && !ctx->tx.valid ) ) (void)queue_demoted( ctx );
   if( FD_UNLIKELY( is_overdue( ctx ) && !ctx->stuck ) ) {
     FD_LOG_WARNING(( "handoff %lu: the peer has not answered, this machine runs the junk key", ctx->handoff.id ));
@@ -629,14 +591,13 @@ step_demote_wait_ack( fd_failover_tile_ctx_t * ctx ) {
 
 /* Handoff request: the taker asks the holder for the identity */
 
-/* Our request is paused at its deadline, `failover promote` resumes it. */
+/* Our request is paused at its deadline. */
 static inline int
 is_request_paused( fd_failover_tile_ctx_t const * ctx ) {
   return ctx->request.id && !ctx->request.until && is_requesting( ctx );
 }
 
-/* Stops dialing without ending the request, which keeps its binding to
-   the peer boot that may still answer it. */
+/* Stops dialing without ending the request. */
 static void
 pause_request( fd_failover_tile_ctx_t * ctx,
                long                     now,
@@ -662,23 +623,24 @@ end_request( fd_failover_tile_ctx_t * ctx,
   ctx->session.close_after_send = 0;
   ctx->stuck                    = result!=FD_FAILOVER_HANDOFF_TAKEN;
   if( ctx->reply.state==FD_FAILOVER_REPLY_PENDING ) ctx->reply.state = FD_FAILOVER_REPLY_KEPT;
+
+  /* reset to idle */
   set_action( ctx, FD_FAILOVER_ACTION_IDLE );
   hang_up( ctx, now );
 }
 
-/* Our promotion answered the peer's DEMOTED.  Waits for the peer to
-   record that answer, dialing again if the request paused meanwhile. */
 static void
 await_request_result( fd_failover_tile_ctx_t * ctx ) {
   if( FD_UNLIKELY( !ctx->request.until ) ) fd_failover_channel_init_dialer( ctx->channel, ctx->request.addr, get_dial_port( ctx ) );
   ctx->request.until = fd_long_sat_add( fd_failover_clock(), FD_FAILOVER_DEADLINE_NANOS );
+
   set_action( ctx, FD_FAILOVER_ACTION_HANDOFF_WAIT_RESULT );
 }
 
-/* Promotion: the taker adopts the identity */
+/* Votor adoption: the taker adopts a vote history */
 
 /* The coverage floor is the higher of the peer's reported last vote and
-   our highest signed vote, which the adopted history has to reach. */
+   our highest signed vote. */
 static ulong
 get_coverage_floor( fd_failover_tile_ctx_t const * ctx ) {
   if( FD_UNLIKELY( ctx->peer_floor==FD_FAILOVER_SLOT_NULL ) ) return ctx->own_floor;
@@ -686,30 +648,18 @@ get_coverage_floor( fd_failover_tile_ctx_t const * ctx ) {
   return fd_ulong_max( ctx->peer_floor, ctx->own_floor );
 }
 
-/* The history source a promotion would adopt now. */
-static ulong
-get_promote_source( fd_failover_tile_ctx_t const * ctx ) {
-  /* The peer may already vote past our unanswered DEMOTED. */
-  if( FD_UNLIKELY( ctx->action==FD_FAILOVER_ACTION_DEMOTE_WAIT_ACK ) ) return FD_FAILOVER_SOURCE_EMPTY;
-  ulong floor   = get_coverage_floor( ctx );
-  int   peer_ok = ctx->peer_history.valid && ( floor==FD_FAILOVER_SLOT_NULL || ctx->peer_history.tip>=floor ) &&
-                  ( ctx->root_slot==FD_FAILOVER_SLOT_NULL || ctx->peer_history.tip>ctx->root_slot );
-  return peer_ok ? FD_FAILOVER_SOURCE_PEER : FD_FAILOVER_SOURCE_EMPTY;
-}
-
 /* Checks whether a forced promotion may go ahead now.  Returns
-   FD_ADMINCTL_RESULT_SUCCESS or the refusal. */
+   FD_ADMINCTL_RESULT_SUCCESS or the refusal code. */
 static ulong
 check_promotion( fd_failover_tile_ctx_t const * ctx ) {
   if( FD_UNLIKELY( holds_identity( ctx ) ) ) return FD_FAILOVER_CONTROL_RESULT_ALREADY_HOLDS;
+  if( FD_UNLIKELY( ctx->installed_ranked ) ) return FD_FAILOVER_CONTROL_RESULT_HOLDS_OTHER;
   int cancellable = ctx->action==FD_FAILOVER_ACTION_DEMOTE_WAIT_ACK || ( ctx->request.id && is_requesting( ctx ) );
   if( FD_UNLIKELY( ( ctx->action!=FD_FAILOVER_ACTION_IDLE && !cancellable ) || is_switch_pending( ctx ) ) ) return FD_FAILOVER_CONTROL_RESULT_IN_PROGRESS;
   return FD_ADMINCTL_RESULT_SUCCESS;
 }
 
-/* Records the finality anchor of the saved history the promotion adopts,
-   which replay has to reach first.  An empty history has none, its bound
-   is set when replay is ready. */
+/* Sets the finality anchor of the vote history that will be adopted via promotion. */
 static void
 set_adopt_anchor( fd_failover_tile_ctx_t * ctx ) {
   ctx->adopt_anchor     = FD_FAILOVER_SLOT_NULL;
@@ -719,9 +669,7 @@ set_adopt_anchor( fd_failover_tile_ctx_t * ctx ) {
   if( FD_LIKELY( !ag_hist_de( ctx->promotion.adopt.state, ctx->promotion.adopt.sz, hist ) ) ) ctx->adopt_anchor = hist->anchor;
 }
 
-/* Whether replay reached the saved history's finality anchor.  An empty
-   history is ready at once, with its vote bound at the higher of the
-   replay slot and the coverage floor. */
+/* Whether replay reached the saved history's finality anchor. */
 static int
 is_replay_ready( fd_failover_tile_ctx_t * ctx ) {
   if( FD_LIKELY( ctx->promotion.source!=FD_FAILOVER_SOURCE_EMPTY ) ) {
@@ -734,6 +682,26 @@ is_replay_ready( fd_failover_tile_ctx_t * ctx ) {
   return 1;
 }
 
+/* Sends the promotion's history or empty bound to the votor for the
+   target identity to the votor tile (which then runs failover_adopt_hist).
+   
+   Returns the request id or ULONG_MAX if nothing to send. */
+static ulong
+publish_adopt_state( fd_failover_tile_ctx_t * ctx,
+                     fd_stem_context_t *      stem ) {
+  if( FD_UNLIKELY( ctx->adopt_out_idx==ULONG_MAX || !ctx->promotion.adopt.sz ) ) return ULONG_MAX;
+  if( FD_UNLIKELY( !++ctx->adopt_request_id ) ) ctx->adopt_request_id++;
+  uchar * req = fd_chunk_to_laddr( ctx->adopt_out_mem, ctx->adopt_out_chunk );
+  ulong   sz  = FD_VOTOR_ADOPT_REQ_HDR_SZ+ctx->promotion.adopt.sz;
+  fd_memcpy( req,                           ctx->hello.staked_pubkey,   FD_VOTOR_ADOPT_REQ_HDR_SZ );
+  fd_memcpy( req+FD_VOTOR_ADOPT_REQ_HDR_SZ, ctx->promotion.adopt.state, ctx->promotion.adopt.sz  );
+  ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
+  fd_stem_publish( stem, ctx->adopt_out_idx, ctx->adopt_request_id, ctx->adopt_out_chunk, sz, 0UL, tspub, tspub );
+  ctx->adopt_out_chunk    = fd_dcache_compact_next( ctx->adopt_out_chunk, sz, ctx->adopt_out_chunk0, ctx->adopt_out_wmark );
+  ctx->adopt_result_fresh = 0;
+  return ctx->adopt_request_id;
+}
+
 static ulong
 get_reject_result( uchar reason ) {
   switch( reason ) {
@@ -744,8 +712,25 @@ get_reject_result( uchar reason ) {
   }
 }
 
-/* Ends the promotion without the identity.  A peer's handoff gets our
-   refusal and waits for the peer to record it. */
+/* Ends an operator promotion at IDLE, or answers the peer and waits for
+   its result on a cooperative handoff.  Returns 1 if it was from a peer. */
+static int
+end_promotion( fd_failover_tile_ctx_t * ctx,
+               ushort                   type,
+               uchar                    reason ) {
+  if( FD_LIKELY( !ctx->promotion.from_peer ) ) {
+    /* reset to idle */
+    set_action( ctx, FD_FAILOVER_ACTION_IDLE );
+    return 0;
+  }
+  ctx->peer_history.valid  = 0;
+  ctx->promotion.from_peer = 0;
+  await_request_result( ctx );
+  finish_reply( ctx, &ctx->promotion.peer, ctx->promotion.handoff_id, type, reason );
+  return 1;
+}
+
+/* Ends the promotion without switching to the identity.. */
 static void
 reject_promotion( fd_failover_tile_ctx_t * ctx,
                   uchar                    reason,
@@ -754,18 +739,11 @@ reject_promotion( fd_failover_tile_ctx_t * ctx,
   ctx->stuck = 1;
   FD_LOG_WARNING(( "%s failed (%s), this machine does not take the identity", ctx->promotion.label, get_reject_name( reason ) ));
   finish_cmd( ctx, get_reject_result( reason ) );
-  if( FD_LIKELY( !ctx->promotion.from_peer ) ) { set_action( ctx, FD_FAILOVER_ACTION_IDLE ); return; }
-  ctx->peer_history.valid  = 0;
-  ctx->promotion.from_peer = 0;
-  await_request_result( ctx );
-  finish_reply( ctx, &ctx->promotion.peer, ctx->promotion.handoff_id, (ushort)FD_FAILOVER_MSG_PROMOTE_REJECTED, reason );
+  end_promotion( ctx, (ushort)FD_FAILOVER_MSG_PROMOTE_REJECTED, reason );
 }
 
-/* Takes the identity with the history from source.  peer is the member
-   boot whose DEMOTED with handoff_id asked for it and gets our answer,
-   NULL for an operator promotion.  flags is whether the promotion uses
-   FD_ADMINCTL_FAILOVER_FLAG_ADOPT or _FORCE, which also accept an empty
-   history, and 0 for a handoff. */
+/* Promotion: the taker installs the identity it adopted */
+
 static void
 start_promotion( fd_failover_tile_ctx_t *   ctx,
                  ulong                      source,
@@ -787,7 +765,6 @@ start_promotion( fd_failover_tile_ctx_t *   ctx,
   ctx->promotion.force  = !!( flags & (FD_ADMINCTL_FAILOVER_FLAG_ADOPT|FD_ADMINCTL_FAILOVER_FLAG_FORCE) );
   ctx->promotion.soft   = !!( flags & FD_ADMINCTL_FAILOVER_FLAG_ADOPT );
   ctx->promotion.floor  = get_coverage_floor( ctx );
-  /* Until this tenure votes, its final history is exactly the adopted one. */
   ctx->current_history = ctx->promotion.adopt;
   ctx->last_vote_slot  = ctx->promotion.adopt.tip;
   ctx->stuck           = 0;
@@ -795,41 +772,11 @@ start_promotion( fd_failover_tile_ctx_t *   ctx,
   LOG_CMD_STEP( ctx, "%s: adopting %s%s", ctx->promotion.label, get_source_name( source ),
                 ( flags & FD_ADMINCTL_FAILOVER_FLAG_FORCE ) ? ", --force skips the checks on the other machine" :
                 ( flags & FD_ADMINCTL_FAILOVER_FLAG_ADOPT ) ? ", --adopt found no sign of life on the other machine" : "" );
+
   set_action( ctx, FD_FAILOVER_ACTION_PROMOTE_WAIT_REPLAY );
 }
 
-/* A forced operator promotion whose saved history is not eligible falls
-   back to an empty history.  Returns whether it did. */
-static int
-try_promote_fallback( fd_failover_tile_ctx_t * ctx,
-                      char const *             reason ) {
-  if( FD_UNLIKELY( ctx->promotion.from_peer || !ctx->promotion.force || ctx->promotion.source==FD_FAILOVER_SOURCE_EMPTY ) ) return 0;
-  LOG_CMD_STEP( ctx, "%s: %s is not eligible (%s), trying %s", ctx->promotion.label, get_source_name( ctx->promotion.source ), reason, get_source_name( FD_FAILOVER_SOURCE_EMPTY ) );
-  ctx->peer_history.valid    = 0;
-  ctx->promotion.source      = FD_FAILOVER_SOURCE_EMPTY;
-  ctx->promotion.adopt.valid = 0;
-  ctx->promotion.adopt.tip   = FD_FAILOVER_SLOT_NULL;
-  ctx->promotion.adopt.sz    = 0UL;
-  ctx->promotion.retry       = 0;
-  ctx->current_history       = ctx->promotion.adopt;
-  ctx->last_vote_slot        = FD_FAILOVER_SLOT_NULL;
-  ctx->adopt_result_fresh    = 0;
-  set_adopt_anchor( ctx );
-  set_action( ctx, FD_FAILOVER_ACTION_PROMOTE_WAIT_REPLAY );
-  return 1;
-}
-
-/* The adoption failed for reason.  Tries the fallback first. */
-static void
-fail_adoption( fd_failover_tile_ctx_t * ctx,
-               uchar                    reason,
-               char const *             why,
-               int                      bad_history ) {
-  if( try_promote_fallback( ctx, why ) ) return;
-  reject_promotion( ctx, reason, bad_history );
-}
-
-/* Asks the votor to adopt the history.  Returns whether it did. */
+/* Requests votor to adopt the history. */
 static int
 publish_adoption( fd_failover_tile_ctx_t * ctx,
                   fd_stem_context_t *      stem ) {
@@ -841,22 +788,24 @@ publish_adoption( fd_failover_tile_ctx_t * ctx,
   return 1;
 }
 
-/* Waits for replay to reach the history's finality anchor, then asks the
-   votor to adopt it. */
+/* Waits for replay to reach the history's finality anchor, then asks the votor to adopt it. */
 static void
 step_promote_wait_replay( fd_failover_tile_ctx_t * ctx,
                           fd_stem_context_t *      stem ) {
-  if( FD_UNLIKELY( is_overdue( ctx ) ) ) { reject_promotion( ctx, FD_FAILOVER_REJECT_REPLAY_BEHIND, 0 ); return; }
+  if( FD_UNLIKELY( is_overdue( ctx ) ) ) {
+    if( ctx->replay_slot==FD_FAILOVER_SLOT_NULL ) LOG_CMD_STEP( ctx, "%s: replay reported no slot before the deadline", ctx->promotion.label );
+    else LOG_CMD_STEP( ctx, "%s: replay at slot %lu did not reach the vote history's finality anchor %lu before the deadline", ctx->promotion.label, ctx->replay_slot, ctx->adopt_anchor );
+    reject_promotion( ctx, ctx->promotion.from_peer || ctx->promotion.gave_up ? FD_FAILOVER_REJECT_ADOPTION_FAILED : FD_FAILOVER_REJECT_REPLAY_BEHIND, 0 );
+    return;
+  }
   if( FD_UNLIKELY( ctx->replay_slot==FD_FAILOVER_SLOT_NULL ) ) return;
-  if( FD_UNLIKELY( !is_replay_ready( ctx ) ) ) { (void)try_promote_fallback( ctx, "replay has not reached its finality anchor" ); return; }
+  if( FD_UNLIKELY( !is_replay_ready( ctx ) ) ) return; /* empty-history case */
   if( FD_UNLIKELY( !publish_adoption( ctx, stem ) ) ) return;
+
   set_action( ctx, FD_FAILOVER_ACTION_PROMOTE_WAIT_ADOPT );
 }
 
-/* Waits for the votor's answer.  A votor that is not ready yet is asked
-   again as replay moves, a history short of the coverage floor waits for
-   the deadline, and a good adoption asks the admin tile for the
-   identity. */
+/* Waits for the votor's response and then handles it. */
 static void
 step_promote_wait_adopt( fd_failover_tile_ctx_t * ctx,
                          fd_stem_context_t *      stem ) {
@@ -872,27 +821,31 @@ step_promote_wait_adopt( fd_failover_tile_ctx_t * ctx,
   ulong        result = ctx->adopt_result.result;
   char const * err    = get_adopt_err_name( result );
   if( FD_UNLIKELY( result==FD_VOTOR_ADOPT_ERR_UNREPLAYED || result==FD_VOTOR_ADOPT_ERR_CAPACITY ) ) {
-    if( FD_UNLIKELY( !ctx->promotion.from_peer ) ) { fail_adoption( ctx, FD_FAILOVER_REJECT_ADOPTION_FAILED, err, 0 ); return; }
+    /* retry once replay advances */
+    if( FD_UNLIKELY( !ctx->promotion.from_peer && !ctx->promotion.gave_up ) ) {
+      LOG_CMD_STEP( ctx, "%s: the votor is not ready to adopt (%s), retry once consensus is up", ctx->promotion.label, err );
+      reject_promotion( ctx, FD_FAILOVER_REJECT_REPLAY_BEHIND, 0 );
+      return;
+    }
     LOG_CMD_STEP( ctx, "%s: the votor is not ready to adopt the vote history (%s), asking again as replay moves", ctx->promotion.label, err );
     ctx->promotion.retry      = 1;
     ctx->promotion.retry_slot = ctx->replay_slot;
     return;
   }
   if( FD_UNLIKELY( result!=FD_VOTOR_ADOPT_SUCCESS ) ) {
-    fail_adoption( ctx, FD_FAILOVER_REJECT_ADOPTION_FAILED, err, result==FD_VOTOR_ADOPT_ERR_DECODE || result==FD_VOTOR_ADOPT_ERR_INVALID || result==FD_VOTOR_ADOPT_ERR_STALE );
+    reject_promotion( ctx, FD_FAILOVER_REJECT_ADOPTION_FAILED, result==FD_VOTOR_ADOPT_ERR_DECODE || result==FD_VOTOR_ADOPT_ERR_INVALID || result==FD_VOTOR_ADOPT_ERR_STALE );
     return;
   }
+
+  /* check tip and coverage floor */
   ulong tip = ctx->promotion.adopt.tip;
-  if( FD_UNLIKELY( tip!=FD_FAILOVER_SLOT_NULL && ctx->adopt_result.vote_slot!=tip ) ) { fail_adoption( ctx, FD_FAILOVER_REJECT_ADOPTION_MISMATCH, "adoption did not retain its final vote", 1 ); return; }
+  if( FD_UNLIKELY( tip!=FD_FAILOVER_SLOT_NULL && ctx->adopt_result.vote_slot!=tip ) ) { reject_promotion( ctx, FD_FAILOVER_REJECT_ADOPTION_MISMATCH, 1 ); return; }
   ulong floor   = ctx->promotion.floor;
   ulong reached = ctx->promotion.source==FD_FAILOVER_SOURCE_EMPTY ? ctx->adopt_result.vote_bound : ctx->adopt_result.vote_slot;
   int   covered = floor==FD_FAILOVER_SLOT_NULL || ( reached!=FD_FAILOVER_SLOT_NULL && reached>=floor );
   if( ctx->adopt_result.vote_slot==FD_FAILOVER_SLOT_NULL ) LOG_CMD_STEP( ctx, "%s: the votor adopted %s, no last vote, no vote at or below slot %lu", ctx->promotion.label, get_source_name( ctx->promotion.source ), ctx->adopt_result.vote_bound );
   else LOG_CMD_STEP( ctx, "%s: the votor adopted %s, last vote at slot %lu, no vote at or below slot %lu", ctx->promotion.label, get_source_name( ctx->promotion.source ), ctx->adopt_result.vote_slot, ctx->adopt_result.vote_bound );
   if( FD_UNLIKELY( !covered && !ctx->promotion.force ) ) {
-    /* Only a handoff gets here, and the peer's history does not change,
-       so we wait for the deadline rather than ask again. */
-    if( try_promote_fallback( ctx, "its votes do not cover the known signing history" ) ) return;
     ctx->promotion.retry      = 1;
     ctx->promotion.retry_slot = FD_FAILOVER_SLOT_NULL;
     return;
@@ -901,12 +854,12 @@ step_promote_wait_adopt( fd_failover_tile_ctx_t * ctx,
   if( FD_UNLIKELY( tip==FD_FAILOVER_SLOT_NULL ) ) ctx->last_vote_slot = ctx->adopt_result.vote_slot;
   if( FD_UNLIKELY( request_switch( ctx, stem, FD_FAILOVER_SWITCH_KEY_STAKED )==ULONG_MAX ) ) { reject_promotion( ctx, FD_FAILOVER_REJECT_ADOPTION_FAILED, 0 ); return; }
   LOG_CMD_STEP( ctx, "%s: asked the admin tile to install the identity", ctx->promotion.label );
+
+  /* success, ask the admin tile to install the real identity! */
   set_action( ctx, FD_FAILOVER_ACTION_PROMOTE_SWITCH );
 }
 
-/* Waits for the admin tile to install the identity.  Standing down
-   before its answer would tell the peer nobody promoted while the
-   identity may well be installed, so a late answer still counts. */
+/* Waits for the admin tile to install the identity. */
 static void
 step_promote_switch( fd_failover_tile_ctx_t * ctx ) {
   if( FD_LIKELY( !ctx->id_switch.fresh ) ) {
@@ -914,24 +867,23 @@ step_promote_switch( fd_failover_tile_ctx_t * ctx ) {
     return;
   }
   if( FD_UNLIKELY( take_switch_result( ctx )!=FD_FAILOVER_SWITCH_OK ) ) { reject_promotion( ctx, FD_FAILOVER_REJECT_SWITCH_FAILED, 0 ); return; }
-  /* An operator promotion installed the identity outside a handoff, so
-     a background session must not keep our old HELLO. */
   if( !ctx->promotion.from_peer ) hang_up( ctx, fd_failover_clock() );
+
+  /* look at me, I'm the holder now */
   set_installed( ctx, ctx->hello.staked_pubkey );
-  ctx->peer_history.valid = 0; /* a new tenure starts, the saved history is older than its votes */
-  ctx->own_voted          = 1; /* this machine votes as the identity from here, before its first vote goes out */
+  ctx->peer_history.valid = 0;
+  ctx->own_voted          = 1;
   ctx->stuck              = 0;
   FD_LOG_NOTICE(( "%s: this machine runs the identity now, last vote at slot %lu", ctx->promotion.label, ctx->last_vote_slot ));
   finish_cmd( ctx, FD_ADMINCTL_RESULT_SUCCESS );
-  if( FD_LIKELY( !ctx->promotion.from_peer ) ) { set_action( ctx, FD_FAILOVER_ACTION_IDLE ); return; }
-  /* The ACK tells the other machine its handoff is done, and we keep the
-     identity while it records that. */
-  ctx->promotion.from_peer = 0;
-  await_request_result( ctx );
-  finish_reply( ctx, &ctx->promotion.peer, ctx->promotion.handoff_id, (ushort)FD_FAILOVER_MSG_PROMOTE_ACK, (uchar)FD_FAILOVER_REJECT_NONE );
+
+  /* send PROMOTE_ACK back to the peer for cooperative handoffs */
+  end_promotion( ctx, (ushort)FD_FAILOVER_MSG_PROMOTE_ACK, (uchar)FD_FAILOVER_REJECT_NONE );
 }
 
-/* Advances the state that replay slots and the clock drive. */
+/* The controller step dispatcher */
+
+/* Advances the controller state (main dispatcher). */
 static void
 step_controller( fd_failover_tile_ctx_t * ctx,
                  fd_stem_context_t *      stem ) {
@@ -939,7 +891,7 @@ step_controller( fd_failover_tile_ctx_t * ctx,
   switch( ctx->action ) {
   case FD_FAILOVER_ACTION_IDLE:
   case FD_FAILOVER_ACTION_HANDOFF_WAIT_PEER:
-  case FD_FAILOVER_ACTION_HANDOFF_WAIT_RESULT: return; /* poll_peer drives the request on session events */
+  case FD_FAILOVER_ACTION_HANDOFF_WAIT_RESULT: return;
   case FD_FAILOVER_ACTION_DEMOTE_SWITCH:       step_demote_switch( ctx, stem );       return;
   case FD_FAILOVER_ACTION_DEMOTE_DRAIN:        step_demote_drain( ctx );              return;
   case FD_FAILOVER_ACTION_DEMOTE_WAIT_ACK:     step_demote_wait_ack( ctx );           return;
@@ -952,8 +904,7 @@ step_controller( fd_failover_tile_ctx_t * ctx,
 
 /* Peer messages and polling.  Each handler returns 1 when the message
    was handled, including one it ignored on purpose, and 0 when it was
-   malformed, which drops the session: these messages hand off the
-   identity so we do not guess at them. */
+   malformed, which drops the session. */
 
 /* HANDOFF_REQUEST, the peer asks us to give up the identity. */
 static int
@@ -963,11 +914,8 @@ on_handoff_request_msg( fd_failover_tile_ctx_t * ctx,
   if( FD_UNLIKELY( !fd_failover_handoff_request_decode( &request, ctx->rx, payload_sz ) ) ) return 0;
   ulong result = FD_ADMINCTL_RESULT_SUCCESS;
   if( FD_UNLIKELY( request.target_boot_id!=ctx->hello.boot_id ) ) {
-    /* The request is for an earlier boot of this machine, which to the
-       requester is a restart. */
     result = FD_FAILOVER_CONTROL_RESULT_PEER_RESTARTED;
   } else if( FD_UNLIKELY( request.handoff_id==ctx->handoff.id && is_bound_peer( ctx, &ctx->handoff.target ) ) ) {
-    /* The same request again keeps the demotion and gets its answer again. */
     if( is_switching_out( ctx ) ) return 1;
     if( ctx->handoff.delivery!=FD_FAILOVER_DELIVERY_NONE ) {
       if( !ctx->tx.valid ) (void)queue_demoted( ctx );
@@ -982,13 +930,13 @@ on_handoff_request_msg( fd_failover_tile_ctx_t * ctx,
     result = FD_FAILOVER_CONTROL_RESULT_ALREADY_HOLDS;
   } else {
     result = check_handoff( ctx, request.replay_slot );
+    /* trigger the demotion flow */
     if( FD_LIKELY( result==FD_ADMINCTL_RESULT_SUCCESS ) ) { accept_handoff( ctx, request.handoff_id ); return 1; }
   }
   FD_LOG_WARNING(( "handoff %lu refused (result %#lx)", request.handoff_id, result ));
   queue_handoff_result( ctx, NULL, request.handoff_id, result );
   return 1;
 }
-
 
 /* HANDOFF_RESULT, the peer recorded how our request ended. */
 static int
@@ -1006,30 +954,27 @@ on_handoff_result_msg( fd_failover_tile_ctx_t * ctx,
   }
   if( FD_UNLIKELY( failed ) ) {
     FD_LOG_WARNING(( "handoff %lu ended (result %#lx), %s", result.handoff_id, result.result, holds_identity( ctx ) ? "this machine runs the identity and the other may run it too" : "this machine does not run the identity" ));
-    /* The peer refused ALREADY_HOLDS from our HELLO, which may predate
-       our last identity switch: both of us run the identity, or it
-       refused before anything changed. */
     ulong cmd_result = result.result;
     if( FD_UNLIKELY( cmd_result==FD_FAILOVER_CONTROL_RESULT_ALREADY_HOLDS ) ) cmd_result = holds_identity( ctx ) ? FD_FAILOVER_CONTROL_RESULT_PEER_HOLDS : FD_FAILOVER_CONTROL_RESULT_IN_PROGRESS;
+    if( FD_UNLIKELY( cmd_result==FD_ADMINCTL_RESULT_SUCCESS ) ) cmd_result = FD_FAILOVER_CONTROL_RESULT_HANDOFF_ABORTED;
     finish_cmd( ctx, cmd_result );
   }
   end_request( ctx, now, failed ? FD_FAILOVER_HANDOFF_DECLINED : FD_FAILOVER_HANDOFF_TAKEN );
   return 1;
 }
 
-/* DEMOTED, the peer gave up the identity and hands us its final history. */
+/* DEMOTED, the peer gave up the identity and hands us its final history.
+   We call start_promotion to kick off promotion. */
 static int
 on_demoted_msg( fd_failover_tile_ctx_t * ctx,
                 ulong                    payload_sz ) {
   fd_failover_demoted_t demoted;
   if( FD_UNLIKELY( !fd_failover_demoted_decode( &demoted, ctx->rx, payload_sz ) || demoted.mode!=(uchar)FD_FAILOVER_MODE_ALPENGLOW ) ) return 0;
-  /* An unsolicited DEMOTED cannot change our request or its answer. */
   if( FD_UNLIKELY( !ctx->request.id || ctx->request.id!=demoted.handoff_id || !is_bound_peer( ctx, &ctx->request.peer ) ) ) return 1;
   if( FD_UNLIKELY( demoted.target_boot_id!=ctx->hello.boot_id ) ) return 0;
-  /* The same DEMOTED again.  Once we are done with it we repeat our answer. */
   if( FD_UNLIKELY( ctx->promotion.from_peer && ctx->promotion.handoff_id==demoted.handoff_id ) ) return 1;
   if( FD_UNLIKELY( ctx->reply.state!=FD_FAILOVER_REPLY_NONE && ctx->reply.handoff_id==demoted.handoff_id && is_bound_peer( ctx, &ctx->reply.peer ) ) ) { queue_reply( ctx ); return 1; }
-  uchar reason = holds_identity( ctx )                                                      ? FD_FAILOVER_REJECT_HOLDS_IDENTITY :
+  uchar reason = holds_identity( ctx )                                                         ? FD_FAILOVER_REJECT_HOLDS_IDENTITY :
                  ctx->action!=FD_FAILOVER_ACTION_HANDOFF_WAIT_PEER || is_switch_pending( ctx ) ? FD_FAILOVER_REJECT_BUSY           : FD_FAILOVER_REJECT_NONE;
   if( FD_UNLIKELY( reason!=FD_FAILOVER_REJECT_NONE ) ) {
     FD_LOG_WARNING(( "handoff %lu: refusing the peer's final state (%s)", demoted.handoff_id, get_reject_name( reason ) ));
@@ -1044,9 +989,7 @@ on_demoted_msg( fd_failover_tile_ctx_t * ctx,
   return 1;
 }
 
-/* PROMOTE_ACK or PROMOTE_REJECTED, the peer's answer to our DEMOTED.  It
-   counts only from the member boot the DEMOTED went to, and one after
-   the deadline still counts. */
+/* PROMOTE_ACK or PROMOTE_REJECTED, the peer's response to our DEMOTED. */
 static int
 on_demoted_answer_msg( fd_failover_tile_ctx_t * ctx,
                        ushort                   type,
@@ -1059,7 +1002,8 @@ on_demoted_answer_msg( fd_failover_tile_ctx_t * ctx,
   if( FD_UNLIKELY( ctx->handoff.delivery==FD_FAILOVER_DELIVERY_NONE || handoff_id!=ctx->handoff.id || !is_bound_peer( ctx, &ctx->handoff.target ) || is_switching_out( ctx ) ) ) return 1;
   if( taken ) FD_LOG_NOTICE (( "handoff %lu: the peer took the identity, this machine keeps the junk key", handoff_id ));
   else        FD_LOG_WARNING(( "handoff %lu: the peer declined the identity (%s), nobody runs it", handoff_id, get_reject_name( rej.reason ) ));
-  ctx->peer_history.valid = 0; /* the peer votes past it, or either machine may now recover without the other */
+  if( taken ) ctx->holder_seen_at = fd_long_max( ctx->holder_seen_at, fd_failover_clock() );
+  ctx->peer_history.valid = 0;
   ctx->stuck              = !taken;
   resolve_handoff( ctx, taken ? FD_FAILOVER_HANDOFF_TAKEN : FD_FAILOVER_HANDOFF_DECLINED );
   queue_handoff_result( ctx, NULL, handoff_id, taken ? FD_ADMINCTL_RESULT_SUCCESS : FD_FAILOVER_CONTROL_RESULT_HANDOFF_ABORTED );
@@ -1086,53 +1030,47 @@ handle_control( fd_failover_tile_ctx_t * ctx,
   sync_session( ctx );
 }
 
+/* Whether at, our clock or 0 for never, is within FD_FAILOVER_GOSSIP_FRESH_NANOS. */
+static inline int
+is_recent( long at,
+           long now ) {
+  return at && now>=at && now-at<FD_FAILOVER_GOSSIP_FRESH_NANOS;
+}
+
 /* The machine running the identity refreshed its contact info in gossip
    within FD_FAILOVER_GOSSIP_FRESH_NANOS. */
 static inline int
 is_holder_fresh( fd_failover_tile_ctx_t const * ctx,
                  long                           now ) {
-  return ctx->staked_seen_at && now>=ctx->staked_seen_at && now-ctx->staked_seen_at<FD_FAILOVER_GOSSIP_FRESH_NANOS;
+  return is_recent( ctx->staked_seen_at, now );
 }
 
-/* Whether the machine running the identity showed a sign of life
-   recently. */
+static void
+note_holder_heard( fd_failover_tile_ctx_t * ctx ) {
+  if( fd_failover_channel_state( ctx->channel )!=FD_FAILOVER_SESSION_PAIRED || !fd_failover_channel_peer_hello( ctx->channel )->holds ) return;
+  ctx->holder_seen_at = fd_long_max( ctx->holder_seen_at, fd_failover_channel_peer_heard_at( ctx->channel ) );
+}
+
 static int
 is_holder_live( fd_failover_tile_ctx_t const * ctx,
                 long                           now ) {
-  if( is_holder_fresh( ctx, now ) ) return 1;
+  if( fd_failover_channel_state( ctx->channel )==FD_FAILOVER_SESSION_PAIRED && fd_failover_channel_peer_hello( ctx->channel )->holds ) return 1;
+  if( ctx->action==FD_FAILOVER_ACTION_DEMOTE_WAIT_ACK ) return 1;
   if( now>=ctx->target_since && now-ctx->target_since<FD_FAILOVER_GOSSIP_FRESH_NANOS ) return 1;
-  if( fd_failover_channel_state( ctx->channel )!=FD_FAILOVER_SESSION_PAIRED || !fd_failover_channel_peer_hello( ctx->channel )->holds ) return 0;
-  return !( ctx->reply.state!=FD_FAILOVER_REPLY_NONE && is_bound_peer( ctx, &ctx->reply.peer ) );
+  return is_holder_fresh( ctx, now ) || is_recent( ctx->holder_seen_at, now );
 }
 
-/* An idle machine that does not run the identity authenticates to the
-   one that does ahead of an operator command.  Merely pairing never
-   creates a request or changes the installed identity. */
-static void
-preconnect( fd_failover_tile_ctx_t * ctx,
-            long                     now ) {
-  if( ctx->request.id || ctx->stuck || ctx->tx.valid || ctx->session.close_after_send || ctx->action!=FD_FAILOVER_ACTION_IDLE || is_switch_pending( ctx ) ) return;
-  /* A stale gossip address may name a validator that does not run the identity any more. */
-  if( !holds_identity( ctx ) && fd_failover_channel_state( ctx->channel )==FD_FAILOVER_SESSION_PAIRED && !fd_failover_channel_peer_hello( ctx->channel )->holds ) fd_failover_channel_hangup( ctx->channel, now );
-  int ready = !holds_identity( ctx ) && ctx->staked_addr && is_holder_fresh( ctx, now );
-  if( !ready )                                                                   fd_failover_channel_init_dialer( ctx->channel, 0U, 0 );
-  else if( fd_failover_channel_state( ctx->channel )!=FD_FAILOVER_SESSION_PAIRED ) fd_failover_channel_init_dialer( ctx->channel, ctx->staked_addr, FD_FAILOVER_DEFAULT_PORT );
-}
-
-/* Services the channel and drives our handoff request on it: the
-   deadline pauses it, the first peer running the identity binds it, a
-   restarted peer pauses or ends it, and a bound session gets the
-   HANDOFF_REQUEST once. */
+/* Pumps the TCP+TLS peer channel and drives our handoff request on it. */
 static void
 poll_peer( fd_failover_tile_ctx_t * ctx,
            long                     now,
            int *                    charge_busy ) {
-  preconnect( ctx, now );
   sync_session( ctx );
   if( FD_UNLIKELY( ctx->request.id && ctx->request.until && now>=ctx->request.until && is_requesting( ctx ) ) ) {
-    pause_request( ctx, now, FD_FAILOVER_CONTROL_RESULT_TIMEOUT,
-                   !ctx->request.peer.boot_id ? "no peer authenticated before the deadline" :
-                   !ctx->request.send_cnt     ? "no handoff request sent before the deadline" : "no answer before the deadline" );
+    if( ctx->request.send_cnt )           pause_request( ctx, now, FD_FAILOVER_CONTROL_RESULT_TIMEOUT,           "no answer before the deadline" );
+    else if( !ctx->request.addr )         pause_request( ctx, now, FD_FAILOVER_CONTROL_RESULT_NO_HOLDER_ADDRESS, "gossip did not show the identity before the deadline" );
+    else if( !ctx->request.peer.boot_id ) pause_request( ctx, now, FD_FAILOVER_CONTROL_RESULT_NO_PEER,           "no peer authenticated before the deadline" );
+    else                                  pause_request( ctx, now, FD_FAILOVER_CONTROL_RESULT_TIMEOUT,           "no handoff request sent before the deadline" );
     return;
   }
   if( FD_UNLIKELY( ctx->session.close_after_send && !ctx->tx.valid && !fd_failover_channel_tx_pending( ctx->channel ) ) ) {
@@ -1143,17 +1081,16 @@ poll_peer( fd_failover_tile_ctx_t * ctx,
   }
   ushort type;
   ulong  payload_sz;
-  if( FD_UNLIKELY( fd_failover_channel_poll( ctx->channel, now, charge_busy, &type, ctx->rx, &payload_sz ) ) ) {
-    sync_session( ctx );
-    handle_control( ctx, type, payload_sz, now );
-  }
+  int delivered = fd_failover_channel_poll( ctx->channel, now, charge_busy, &type, ctx->rx, &payload_sz );
   sync_session( ctx );
+  note_holder_heard( ctx );
+  if( FD_UNLIKELY( delivered ) ) {
+    handle_control( ctx, type, payload_sz, now );
+    sync_session( ctx );
+  }
   if( FD_LIKELY( !ctx->request.id || fd_failover_channel_state( ctx->channel )!=FD_FAILOVER_SESSION_PAIRED ) ) return;
   fd_failover_hello_t const * peer = fd_failover_channel_peer_hello( ctx->channel );
   if( FD_UNLIKELY( ctx->request.peer.boot_id && !is_bound_peer( ctx, &ctx->request.peer ) ) ) {
-    /* The peer restarted.  Its new boot cannot confirm our answer, so
-       that wait ends, and it cannot answer the old request either, which
-       keeps its binding until the operator ends it. */
     if( ctx->action==FD_FAILOVER_ACTION_HANDOFF_WAIT_RESULT && !is_switch_pending( ctx ) ) {
       FD_LOG_WARNING(( "handoff %lu: the peer restarted before it confirmed our answer, ending the request", ctx->request.id ));
       end_request( ctx, now, holds_identity( ctx ) ? FD_FAILOVER_HANDOFF_TAKEN : FD_FAILOVER_HANDOFF_DECLINED );
@@ -1166,6 +1103,7 @@ poll_peer( fd_failover_tile_ctx_t * ctx,
   if( FD_LIKELY( !ctx->request.until || ctx->request.sent ) ) return;
   if( FD_UNLIKELY( !ctx->request.peer.boot_id ) ) {
     if( FD_UNLIKELY( !peer->holds ) ) {
+      if( FD_UNLIKELY( !ctx->request.addr ) ) return;
       FD_LOG_WARNING(( "handoff %lu: dialed `" FD_IP4_ADDR_FMT ":%hu`, which does not run the identity", ctx->request.id, FD_IP4_ADDR_FMT_ARGS( ctx->request.addr ), get_dial_port( ctx ) ));
       finish_cmd( ctx, FD_FAILOVER_CONTROL_RESULT_NOT_HOLDER );
       end_request( ctx, now, FD_FAILOVER_HANDOFF_NOT_HOLDER );
@@ -1173,10 +1111,13 @@ poll_peer( fd_failover_tile_ctx_t * ctx,
     }
     ctx->request.peer.boot_id = peer->boot_id;
   }
+
+  /* send the HANDOFF_REQUEST over the channel */
   fd_failover_handoff_request_t request = { .handoff_id=ctx->request.id, .target_boot_id=ctx->request.peer.boot_id, .replay_slot=ctx->replay_slot };
   if( FD_UNLIKELY( fd_failover_channel_send( ctx->channel, now, FD_FAILOVER_MSG_HANDOFF_REQUEST, (uchar const *)&request, sizeof(request) ) ) ) return;
   ctx->request.sent     = 1;
   ctx->request.send_cnt = fd_ulong_sat_add( ctx->request.send_cnt, 1UL );
+  if( FD_UNLIKELY( ctx->request.quick ) ) ctx->request.until = fd_long_max( ctx->request.until, fd_long_sat_add( now, FD_FAILOVER_DEADLINE_NANOS ) );
   LOG_CMD_STEP( ctx, "handoff %lu: asked peer boot %016lx for the identity (send %lu)", ctx->request.id, ctx->request.peer.boot_id, ctx->request.send_cnt );
   *charge_busy = 1;
 }
@@ -1189,9 +1130,30 @@ get_settled_result( fd_failover_tile_ctx_t const * ctx ) {
   return ctx->reply.type==(ushort)FD_FAILOVER_MSG_PROMOTE_REJECTED ? get_reject_result( ctx->reply.reason ) : FD_FAILOVER_CONTROL_RESULT_HANDOFF_ABORTED;
 }
 
-/* `failover promote`: asks the machine running the identity for it, or
-   resumes a paused request.  A request whose peer restarted is ended
-   and replaced.  Returns SUCCESS when the command is settled and
+/* Stages the current request with this run's address, flags and
+   deadline, and starts dialing.
+
+   Returns the address it will dial, zero when none is known yet. */
+static uint
+stage_request( fd_failover_tile_ctx_t *           ctx,
+               fd_adminctl_failover_req_t const * req,
+               long                               now ) {
+  uint addr = req->addr ? req->addr : ctx->staked_addr;
+  ctx->cmd_addr      = req->addr;
+  ctx->cmd_port      = req->port;
+  ctx->request.addr  = addr;
+  ctx->request.quick = !!( req->flags & (FD_ADMINCTL_FAILOVER_FLAG_ADOPT|FD_ADMINCTL_FAILOVER_FLAG_FORCE) );
+  ctx->request.until = fd_long_sat_add( now, ctx->request.quick && !ctx->request.send_cnt ? FD_FAILOVER_FORCE_WAIT_NANOS : FD_FAILOVER_DEADLINE_NANOS );
+  ctx->request.sent  = 0;
+  ctx->stuck         = 0;
+  fd_failover_channel_init_dialer( ctx->channel, addr, get_dial_port( ctx ) );
+  return addr;
+}
+
+/* `failover promote` asks the machine running the identity for it.
+   Opens a handoff request, to be driven by poll_peer().
+
+   Returns SUCCESS when the command is settled and
    FD_FAILOVER_CMD_PENDING when it waits for the outcome. */
 static ulong
 run_handoff_cmd( fd_failover_tile_ctx_t *           ctx,
@@ -1200,8 +1162,6 @@ run_handoff_cmd( fd_failover_tile_ctx_t *           ctx,
   int paused = is_request_paused( ctx ) && !is_switch_pending( ctx );
   if( FD_UNLIKELY( paused && ctx->request.peer_restarted ) ) {
     if( ctx->action==FD_FAILOVER_ACTION_HANDOFF_WAIT_RESULT ) {
-      /* Local adoption is settled, this only ends our wait for the old
-         peer's confirmation, which its new boot cannot give. */
       FD_LOG_WARNING(( "handoff %lu: the authenticated peer changed before it confirmed our answer, ending the confirmation wait", ctx->request.id ));
       ulong result = get_settled_result( ctx );
       end_request( ctx, now, holds_identity( ctx ) ? FD_FAILOVER_HANDOFF_TAKEN : FD_FAILOVER_HANDOFF_DECLINED );
@@ -1212,64 +1172,57 @@ run_handoff_cmd( fd_failover_tile_ctx_t *           ctx,
     paused = 0;
   }
   if( FD_UNLIKELY( paused ) ) {
-    uint addr = req->addr ? req->addr : ctx->staked_addr;
-    if( FD_UNLIKELY( !addr ) ) return FD_FAILOVER_CONTROL_RESULT_NO_HOLDER_ADDRESS;
-    ctx->cmd_addr      = req->addr;
-    ctx->cmd_port      = req->port;
-    ctx->request.addr  = addr;
-    ctx->request.quick = !!( req->flags & (FD_ADMINCTL_FAILOVER_FLAG_ADOPT|FD_ADMINCTL_FAILOVER_FLAG_FORCE) );
-    ctx->request.until = fd_long_sat_add( now, ctx->request.quick ? FD_FAILOVER_FORCE_WAIT_NANOS : FD_FAILOVER_DEADLINE_NANOS );
-    ctx->request.sent  = 0;
-    ctx->stuck         = 0;
-    fd_failover_channel_init_dialer( ctx->channel, ctx->request.addr, get_dial_port( ctx ) );
-    LOG_CMD_STEP( ctx, "handoff %lu: resuming at `" FD_IP4_ADDR_FMT ":%hu` using %s", ctx->request.id, FD_IP4_ADDR_FMT_ARGS( ctx->request.addr ), get_dial_port( ctx ),
-                  ctx->cmd_addr ? "`failover promote --address`" : "gossip" );
+    uint addr = stage_request( ctx, req, now );
+    if( FD_LIKELY( addr ) ) {
+      LOG_CMD_STEP( ctx, "handoff %lu: resuming at `" FD_IP4_ADDR_FMT ":%hu` using %s", ctx->request.id, FD_IP4_ADDR_FMT_ARGS( ctx->request.addr ), get_dial_port( ctx ),
+                    ctx->cmd_addr ? "`failover promote --address`" : "gossip" );
+    } else {
+      LOG_CMD_STEP( ctx, "handoff %lu: resuming once gossip shows the machine running the identity, pass --address to dial one now", ctx->request.id );
+    }
     return ctx->action==FD_FAILOVER_ACTION_HANDOFF_WAIT_RESULT ? get_settled_result( ctx ) : FD_FAILOVER_CMD_PENDING;
   }
+  if( FD_UNLIKELY( ctx->action==FD_FAILOVER_ACTION_DEMOTE_WAIT_ACK && !is_switch_pending( ctx ) ) ) return FD_FAILOVER_CONTROL_RESULT_HANDED_OFF;
   if( FD_UNLIKELY( ctx->action!=FD_FAILOVER_ACTION_IDLE || is_switch_pending( ctx ) ) ) return FD_FAILOVER_CONTROL_RESULT_IN_PROGRESS;
   if( FD_UNLIKELY( holds_identity( ctx ) ) ) return FD_FAILOVER_CONTROL_RESULT_ALREADY_HOLDS;
-  uint addr = req->addr ? req->addr : ctx->staked_addr;
-  if( FD_UNLIKELY( !addr ) ) return FD_FAILOVER_CONTROL_RESULT_NO_HOLDER_ADDRESS;
-  ctx->cmd_addr = req->addr;
-  ctx->cmd_port = req->port;
+  if( FD_UNLIKELY( ctx->installed_ranked ) ) return FD_FAILOVER_CONTROL_RESULT_HOLDS_OTHER;
   fd_memset( &ctx->request, 0, sizeof(ctx->request) );
   ctx->request.id = ctx->handoff_base+(++ctx->handoff_cnt);
   if( FD_UNLIKELY( !ctx->request.id ) ) ctx->request.id = ++ctx->handoff_cnt;
-  ctx->request.addr             = addr;
-  ctx->request.quick            = !!( req->flags & (FD_ADMINCTL_FAILOVER_FLAG_ADOPT|FD_ADMINCTL_FAILOVER_FLAG_FORCE) );
-  ctx->request.until            = fd_long_sat_add( now, ctx->request.quick ? FD_FAILOVER_FORCE_WAIT_NANOS : FD_FAILOVER_DEADLINE_NANOS );
-  ctx->stuck                    = 0;
   ctx->session.close_after_send = 0;
-  fd_failover_channel_init_dialer( ctx->channel, addr, get_dial_port( ctx ) );
-  LOG_CMD_STEP( ctx, "handoff %lu: requesting handoff from the machine running the identity at `" FD_IP4_ADDR_FMT ":%hu` using %s",
-                ctx->request.id, FD_IP4_ADDR_FMT_ARGS( addr ), get_dial_port( ctx ), ctx->cmd_addr ? "`failover promote --address`" : "gossip" );
+  uint addr = stage_request( ctx, req, now );
+  if( FD_LIKELY( addr ) ) {
+    LOG_CMD_STEP( ctx, "handoff %lu: requesting handoff from the machine running the identity at `" FD_IP4_ADDR_FMT ":%hu` using %s",
+                  ctx->request.id, FD_IP4_ADDR_FMT_ARGS( addr ), get_dial_port( ctx ), ctx->cmd_addr ? "`failover promote --address`" : "gossip" );
+  } else {
+    LOG_CMD_STEP( ctx, "handoff %lu: waiting for gossip to show the machine running the identity, or for `failover promote --address` once this command returns", ctx->request.id );
+  }
+
   set_action( ctx, FD_FAILOVER_ACTION_HANDOFF_WAIT_PEER );
   return FD_FAILOVER_CMD_PENDING;
 }
 
 /* `failover promote --adopt` or `--force` (after the handoff failed)
-   take the identity without coordination.  --adopt refuses while the
-   machine running the identity shows a sign of life, --force takes it
-   on the operator's word that it cannot sign.  It cancels our request or
-   the wait for the peer's answer to our DEMOTED first. */
+   take the identity without coordination. */
 static ulong
 run_promote_cmd( fd_failover_tile_ctx_t *           ctx,
                  fd_adminctl_failover_req_t const * req,
                  long                               now ) {
   int force = !!( req->flags & FD_ADMINCTL_FAILOVER_FLAG_FORCE );
   int adopt = !!( req->flags & FD_ADMINCTL_FAILOVER_FLAG_ADOPT );
-  /* The admin tile sends a promote with neither flag as a handoff. */
   if( FD_UNLIKELY( force==adopt ) ) return FD_ADMINCTL_RESULT_UNKNOWN_COMMAND;
+  static uchar const no_target[ 32 ] = { 0 };
+  if( FD_UNLIKELY( !fd_memeq( req->target, no_target, 32UL ) && !fd_memeq( req->target, ctx->hello.staked_pubkey, 32UL ) ) ) return FD_FAILOVER_CONTROL_RESULT_IDENTITY_CHANGED;
   ulong result = check_promotion( ctx );
   if( FD_UNLIKELY( result!=FD_ADMINCTL_RESULT_SUCCESS ) ) return result;
   if( FD_UNLIKELY( adopt && is_holder_live( ctx, now ) ) ) return FD_FAILOVER_CONTROL_RESULT_HOLDER_LIVE;
-  ulong source = get_promote_source( ctx );
   if( ctx->request.id && is_requesting( ctx ) ) end_request( ctx, now, FD_FAILOVER_HANDOFF_CANCELLED );
-  if( ctx->action==FD_FAILOVER_ACTION_DEMOTE_WAIT_ACK ) {
-    ctx->peer_history.valid = 0; /* the peer may have voted */
+  int gave_up = ctx->action==FD_FAILOVER_ACTION_DEMOTE_WAIT_ACK;
+  if( gave_up ) {
+    ctx->peer_history.valid = 0;
     resolve_handoff( ctx, FD_FAILOVER_HANDOFF_CANCELLED );
   }
-  start_promotion( ctx, source, NULL, 0UL, req->flags & (FD_ADMINCTL_FAILOVER_FLAG_ADOPT|FD_ADMINCTL_FAILOVER_FLAG_FORCE) );
+  start_promotion( ctx, FD_FAILOVER_SOURCE_EMPTY, NULL, 0UL, req->flags & (FD_ADMINCTL_FAILOVER_FLAG_ADOPT|FD_ADMINCTL_FAILOVER_FLAG_FORCE) );
+  ctx->promotion.gave_up = gave_up;
   return FD_FAILOVER_CMD_PENDING;
 }
 
@@ -1339,9 +1292,7 @@ publish_cmd_step( fd_failover_tile_ctx_t * ctx,
   ctx->cmd_step_tail++;
 }
 
-/* Runs one operator command.  A refused or settled command is answered
-   now, an accepted one when the controller decides its outcome.  The
-   admin tile validated the ABI already. */
+/* Runs one operator command.  The admin tile validated the ABI already. */
 static void
 serve_bus_request( fd_failover_tile_ctx_t * ctx,
                    fd_stem_context_t *      stem,
@@ -1353,7 +1304,7 @@ serve_bus_request( fd_failover_tile_ctx_t * ctx,
   ulong        result    = apply_control( ctx, &req, now );
   if( FD_UNLIKELY( result==FD_FAILOVER_CMD_PENDING ) ) {
     ctx->cmd_nonce     = ctx->bus_req.nonce;
-    ctx->cmd_step_tail = step_head; /* the steps it took are sent, older ones are not */
+    ctx->cmd_step_tail = step_head;
     return;
   }
   char const * flag = ( req.flags & FD_ADMINCTL_FAILOVER_FLAG_FORCE ) ? " --force" : ( req.flags & FD_ADMINCTL_FAILOVER_FLAG_ADOPT ) ? " --adopt" : "";

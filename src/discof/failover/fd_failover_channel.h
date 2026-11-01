@@ -128,6 +128,9 @@ FD_FN_PURE fd_failover_hello_t const * fd_failover_channel_peer_hello( fd_failov
 /* Changes whenever a new authenticated session replaces the previous one. */
 FD_FN_PURE ulong fd_failover_channel_generation( fd_failover_channel_t const * channel );
 
+/* When the paired peer last sent a frame.  Zero without a paired session. */
+FD_FN_PURE long fd_failover_channel_peer_heard_at( fd_failover_channel_t const * channel );
+
 /* Gets the bound port from the listen socket. */
 ushort
 fd_failover_channel_listen_port( fd_failover_channel_t const * channel );

@@ -342,7 +342,8 @@ messages to `stderr`. Reasons for failure include the validator being
 unable to load or verify the provided authorized voter key, if the
 provided key is a duplicate that the validator is already using, or if
 there are too many authorized voters for the running validator (more
-than 16).
+than 16). With failover enabled, the key also cannot be the identity
+failover hands off.
 
 | Arguments         | Description |
 |-------------------|-------------|
@@ -375,7 +376,7 @@ validator started.
 The command discovers the running validator on the host automatically.
 If more than one is running, pass `--name <name>` to select one (see
 [`ps`](#ps)). In a terminal it asks for confirmation unless `--yes` is
-given. Outside a terminal it never prompts.
+given.
 
 The local validator finds the address of the machine running the
 identity through gossip. Use `--address` to give its IPv4 address or host
@@ -394,7 +395,7 @@ lists every result with its exit code.
 | `2` | Rejected, no validator changed identity |
 | `3` | The outcome is unknown, check both validators with [`get-identity`](#get-identity) before anything else |
 | `4` | Nobody runs the identity, see [taking the identity without the remote](#taking-the-identity-without-the-remote) |
-| `128+sig` | Interrupted by a signal, as a shell reports it. A handoff already started keeps running |
+| `128+sig` | Interrupted by a signal. An already-started handoff keeps running |
 
 <<< @/snippets/commands/failover-promote.ansi
 
@@ -406,12 +407,12 @@ that fails, it prints the reason as a warning and the local validator
 takes the identity without the machine running it. `--adopt` does so
 only while that machine shows no sign of life, neither in gossip for 15
 seconds nor on the failover channel, and otherwise fails with
-`holder_live`. `--force` does so even if that machine may be live.
+`holder_live`. `--force` does so even if that machine may still be alive.
 
 ::: warning WARNING
 
 Both skip the checks on the other machine and can leave votes and leader
-windows unaccounted for by accepting incomplete or empty history. Use
+windows unaccounted for by starting from an empty history. Use
 `--adopt` when the other machine is down, and `--force` only after
 ensuring every other machine with the identity cannot sign. Never do
 this on both machines at once.
@@ -427,8 +428,8 @@ this on both machines at once.
 | `<keypair>`           | Path to the `identity.json` keypair file of the identity to take, or `-` to read the JSON formatted key from `stdin`. Defaults to `[paths.identity_key]`, or the last keypair given to `failover promote` or `set-identity` |
 | `--name <name>`       | Name of the validator instance to attach to, if more than one is running on this host |
 | `--yes`               | Skip the confirmation prompt |
-| `--adopt`             | If the handoff fails and the machine running the identity shows no sign of life, take the identity without it, accepting incomplete or empty vote history |
-| `--force`             | If the handoff fails, take the identity without the machine running it even if it may be live, accepting incomplete or empty vote history |
+| `--adopt`             | If the handoff fails and the machine running the identity shows no sign of life, take the identity without it, from an empty vote history |
+| `--force`             | If the handoff fails, take the identity without the machine running it even if it may be live, from an empty vote history |
 | `--address <address>` | IPv4 address or host name of the machine running the identity, instead of the address found through gossip. |
 | `--port <port>`       | Failover TCP port of the machine running the identity, 8010 as default |
 

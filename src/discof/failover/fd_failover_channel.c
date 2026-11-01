@@ -106,6 +106,8 @@ struct fd_failover_channel {
   fd_token_bucket_t              accept_bucket;      /* accept syscalls */
   fd_token_bucket_t              verify_bucket;      /* Ed25519 proof checks and signs, at most one per poll */
   int                            verify_budget;      /* proof checks left this poll */
+  long                           refused_log_at;     /* when a refusal of an unproven peer is logged next */
+  ulong                          refused_cnt;        /* refusals of unproven peers not logged since */
 
   /* Timers */
   fd_keepalive_t                 keepalive[ 1 ];     /* when the paired session last heard from the peer / pings it next */
@@ -320,6 +322,7 @@ fd_failover_channel_tx_pending( fd_failover_channel_t const * ch ) {
 
 FD_FN_PURE fd_failover_hello_t const *           fd_failover_channel_peer_hello( fd_failover_channel_t const * ch ) { return &ch->peer_hello; }
 FD_FN_PURE ulong fd_failover_channel_generation( fd_failover_channel_t const * ch ) { return ch->generation; }
+FD_FN_PURE long  fd_failover_channel_peer_heard_at( fd_failover_channel_t const * ch ) { return ch->paired_idx<0 ? 0L : ch->keepalive->ts_last_rx; }
 
 ushort
 fd_failover_channel_listen_port( fd_failover_channel_t const * ch ) {
@@ -526,9 +529,19 @@ hello_err_cstr( int err ) {
 }
 
 static void
-refuse_hello( uint address, int err ) {
-  FD_LOG_WARNING(( "rejected the failover peer at `" FD_IP4_ADDR_FMT "`, %s",
-                   FD_IP4_ADDR_FMT_ARGS( address ), hello_err_cstr( err ) ));
+refuse_hello( fd_failover_channel_t * ch,
+              struct candidate *      c,
+              int                     err,
+              long                    now ) {
+  int proven = c->dialed || c->phase>=PHASE_TLS_START;
+  if( !proven && now<ch->refused_log_at ) { ch->refused_cnt++; return; }
+  FD_LOG_WARNING(( "rejected the failover peer at `" FD_IP4_ADDR_FMT "`, %s%s%lu%s",
+                   FD_IP4_ADDR_FMT_ARGS( c->address ), hello_err_cstr( err ),
+                   ch->refused_cnt ? ", and " : "", ch->refused_cnt, ch->refused_cnt ? " more unproven peers since the last such line" : "" ));
+  if( !proven ) {
+    ch->refused_cnt    = 0UL;
+    ch->refused_log_at = fd_long_sat_add( now, FD_FAILOVER_LOG_INTERVAL_NANOS );
+  }
 }
 
 static int
@@ -560,6 +573,11 @@ read_frame( fd_failover_channel_t * ch,
       fd_cstr_printf( why, sizeof(why), NULL, "TLS record rejected (%s)",
                       fd_tls_reason_cstr( s->tls.conn.hs.base.reason ) );
       lose( ch, idx, now, why );
+    } else if( s->tls.peer_closed ) {
+      if( ch->paired_idx==(int)idx ) {
+        FD_LOG_NOTICE(( "the failover peer at `" FD_IP4_ADDR_FMT "` closed the session", FD_IP4_ADDR_FMT_ARGS( c->address ) ));
+      }
+      drop( ch, idx, now );
     } else {
       lose( ch, idx, now, "the connection closed" );
     }
@@ -665,7 +683,7 @@ read_candidate_hello( fd_failover_channel_t * ch,
             fd_memeq( c->hello.staked_pubkey, ch->sessions[ c->session ].tls.peer_pubkey, 32UL )
           ? fd_failover_hello_check( &c->local_hello, &c->hello ) : HELLO_ERR_TLS_KEY;
   if( err!=FD_FAILOVER_HELLO_OK ) {
-    refuse_hello( c->address, err );
+    refuse_hello( ch, c, err, now );
     drop( ch, idx, now );
     return 0;
   }
@@ -799,7 +817,7 @@ service_admission( fd_failover_channel_t * ch, ulong idx, long now, int * busy )
           c->start.client_hello_sz<=sizeof(fd_tlsrec_hdr_t) ||
           c->start.client_hello_sz>sizeof(c->client_hello) ) break;
       int err = fd_failover_hello_check( &c->local_hello, &c->start.hello );
-      if( err ) { refuse_hello( c->address, err ); break; }
+      if( err ) { refuse_hello( ch, c, err, now ); break; }
       return;
     }
     fd_memcpy( c->client_hello, c->rx+sizeof(c->start), c->start.client_hello_sz );
@@ -826,7 +844,7 @@ service_admission( fd_failover_channel_t * ch, ulong idx, long now, int * busy )
     fd_memcpy( &c->challenge, c->rx, sizeof(c->challenge) );
     if( c->challenge.magic!=FD_FAILOVER_ADMISSION_MAGIC ) break;
     int err = fd_failover_hello_check( &c->local_hello, &c->challenge.hello );
-    if( err ) { refuse_hello( c->address, err ); break; }
+    if( err ) { refuse_hello( ch, c, err, now ); break; }
     c->hello = c->challenge.hello;
     fd_failover_admission_hash( &c->start, c->client_hello, &c->challenge, c->transcript );
     c->rx_used = 0UL;
@@ -857,7 +875,7 @@ service_admission( fd_failover_channel_t * ch, ulong idx, long now, int * busy )
     fd_failover_response_hash( c->transcript, c->client_proof, c->rx+sizeof(response),
                                response.server_flight_sz, c->transcript );
     if( !verify_admission_proof( ch, c, 1, response.proof ) ) {
-      refuse_hello( c->address, FD_FAILOVER_HELLO_ERR_PROOF );
+      refuse_hello( ch, c, FD_FAILOVER_HELLO_ERR_PROOF, now );
       break;
     }
     if( fd_failover_tls_accept_flight( &ch->sessions[ c->session ].tls, c->rx+sizeof(response), response.server_flight_sz ) ) break;
@@ -871,7 +889,7 @@ service_admission( fd_failover_channel_t * ch, ulong idx, long now, int * busy )
     if( rc<0 ) break;
     if( !rc || !verify_credit( ch, now ) ) return;
     if( !verify_admission_proof( ch, c, 0, c->rx ) ) {
-      refuse_hello( c->address, FD_FAILOVER_HELLO_ERR_PROOF );
+      refuse_hello( ch, c, FD_FAILOVER_HELLO_ERR_PROOF, now );
       break;
     }
     fd_memcpy( c->client_proof, c->rx, sizeof(c->client_proof) );

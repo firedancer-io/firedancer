@@ -139,6 +139,7 @@ struct fd_votor_hist_msg {
   ulong       vote_slot;   /* the history's tip, ULONG_MAX while it is empty */
   int         has_vote;    /* we sent a vote just before this frame, so vote_slot is a vote we signed */
   int         truncated;   /* the export dropped old windows and lifted the anchor */
+  int         ranked;      /* the installed identity votes and is ranked in an epoch we hold */
   ag_hist_t   hist;
 };
 typedef struct fd_votor_hist_msg fd_votor_hist_msg_t;

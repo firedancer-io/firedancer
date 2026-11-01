@@ -103,13 +103,6 @@ telemetry = true
     # if one is not provided (or has not already been generated) and
     # place it in this path.  If no path is provided, it is defaulted
     # to inside the base directory, under path `identity.json`.
-    #
-    # The validator boots under this identity.  For failover, setting
-    # [failover.boot_to_standby] is highly encouraged. The validator
-    # then boots under an ephemeral junk key generated in memory, and
-    # the keypair here is the identity it takes over with
-    # `failover promote`.  A standby can also boot under an unstaked
-    # randomized key created with `firedancer keys new`.
     identity_key = ""
 
     # Absolute path to a `keypair.json` containing the voting account
@@ -2060,8 +2053,7 @@ telemetry = true
     # uses failover.  Such a validator never boots under the staked
     # identity, so a restart cannot make it vote alongside the validator
     # running the identity, or make gossip's duplicate instance check
-    # stop that validator.  It comes back without the identity and takes
-    # it with `failover promote`.  Requires [failover.enabled].
+    # stop that validator.  Requires [failover.enabled].
     boot_to_standby = false
 
     # The address to listen on.  If enabled, by default the listener is

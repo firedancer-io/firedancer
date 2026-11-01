@@ -1763,6 +1763,8 @@ static ag_epoch_info_t *
 hist_setup( fd_votor_tile_t * ctx ) {
   memset( ctx, 0, sizeof(fd_votor_tile_t) );
   ctx->vote_history_fd_dir = -1;
+  ctx->id_keyswitch        = fd_keyswitch_join( fd_keyswitch_new( id_keyswitch_mem, FD_KEYSWITCH_STATE_UNLOCKED ) );
+  FD_TEST( ctx->id_keyswitch );
   fd_vote_stake_weight_t stakes[ TEST_VOTER_MAX ];
   build_stakes( stakes, 3UL, 10UL );
   ag_epoch_info_t * epoch_info = rank_voters( &epoch_info_mem, stakes, 3UL, NULL, NULL );
@@ -2944,8 +2946,36 @@ test_adopt_refused_while_voting( void ) {
   FD_TEST( reply->result==FD_VOTOR_ADOPT_ERR_INVALID && !ctx.failover_hist_adopted );
   FD_TEST( ag_votor_get_vote_bound( ctx.votor )==ULONG_MAX );
 
-  /* A client retains its old authority if the imported slots cannot fit. */
+  /* An identity the operator installed that is ranked is refused the
+     same way: adopting would unrank it. */
   ctx.installed_by_failover = 0;
+  FD_STORE( ulong, ctx.adopt_req+FD_VOTOR_ADOPT_REQ_HDR_SZ, 9UL );
+  ctx.adopt_req_sz = FD_VOTOR_ADOPT_REQ_HDR_SZ+FD_VOTOR_ADOPT_EMPTY_SZ;
+  after_frag( &ctx, 0UL, 1UL, 904UL, ctx.adopt_req_sz, 0UL, 0UL, stem );
+  reply = fd_chunk_to_laddr_const( reply_mem, mcache[1].chunk );
+  FD_TEST( seqs[0]==2UL && mcache[1].sig==904UL );
+  FD_TEST( reply->result==FD_VOTOR_ADOPT_ERR_INVALID && !ctx.failover_hist_adopted && ctx.vote_authority );
+  FD_TEST( ag_votor_get_vote_bound( ctx.votor )==ULONG_MAX );
+  /* And one is refused while an identity switch is in progress. */
+  ctx.vote_authority  = 0;
+  ctx.keyswitch_state = FD_KEYSWITCH_STATE_SWITCH_PENDING;
+  after_frag( &ctx, 0UL, 1UL, 905UL, ctx.adopt_req_sz, 0UL, 0UL, stem );
+  reply = fd_chunk_to_laddr_const( reply_mem, mcache[2].chunk );
+  FD_TEST( seqs[0]==3UL && mcache[2].sig==905UL );
+  FD_TEST( reply->result==FD_VOTOR_ADOPT_ERR_INVALID && !ctx.failover_hist_adopted );
+  ctx.keyswitch_state = FD_KEYSWITCH_STATE_UNLOCKED;
+  /* Also while the admin tile's switch request waits for replay to catch
+     up, before this tile halted for it. */
+  fd_keyswitch_state( ctx.id_keyswitch, FD_KEYSWITCH_STATE_SWITCH_PENDING );
+  after_frag( &ctx, 0UL, 1UL, 906UL, ctx.adopt_req_sz, 0UL, 0UL, stem );
+  reply = fd_chunk_to_laddr_const( reply_mem, mcache[3].chunk );
+  FD_TEST( seqs[0]==4UL && mcache[3].sig==906UL );
+  FD_TEST( reply->result==FD_VOTOR_ADOPT_ERR_INVALID && !ctx.failover_hist_adopted );
+  fd_keyswitch_state( ctx.id_keyswitch, FD_KEYSWITCH_STATE_UNLOCKED );
+  seqs[0] = 1UL; /* the capacity and success steps below keep their frame slots */
+
+  /* A client that stands by keeps the rank it would get back if the
+     imported slots cannot fit. */
   ag_hist_t hist = { .anchor = 12UL, .last_leader_slot = 80UL, .vote_bound = 83UL, .rec_cnt = AG_HIST_MAX };
   for( ulong i=0UL; i<hist.rec_cnt; i++ ) {
     hist.rec[ i ].slot  = 32UL+i;
@@ -2954,11 +2984,12 @@ test_adopt_refused_while_voting( void ) {
   FD_TEST( !ag_hist_ser( &hist, ctx.adopt_req+FD_VOTOR_ADOPT_REQ_HDR_SZ, AG_HIST_SER_MAX, &ctx.adopt_req_sz ) );
   ctx.adopt_req_sz += FD_VOTOR_ADOPT_REQ_HDR_SZ;
   ulong free = ag_votor_metrics( ctx.votor ).slot_state_pool_free;
+  ctx.vote_authority = 0; /* no authority, so the guard above stays out of the way and the capacity error is what is tested */
   after_frag( &ctx, 0UL, 1UL, 902UL, ctx.adopt_req_sz, 0UL, 0UL, stem );
   reply = fd_chunk_to_laddr_const( reply_mem, mcache[1].chunk );
   FD_TEST( seqs[0]==2UL && mcache[1].sig==902UL );
   FD_TEST( reply->result==FD_VOTOR_ADOPT_ERR_CAPACITY && !ctx.failover_hist_adopted );
-  FD_TEST( ctx.vote_authority );
+  FD_TEST( !ctx.vote_authority );
   FD_TEST( ctx.adopted_last_leader_slot==ULONG_MAX );
   FD_TEST( ag_votor_get_vote_bound( ctx.votor )==ULONG_MAX );
   FD_TEST( ag_votor_metrics( ctx.votor ).highest_final_cert_slot==0UL );
@@ -2978,8 +3009,7 @@ test_adopt_refused_while_voting( void ) {
 
 /* Test that the exporter's floors and dropped votes reach the adopter
    as the history's vote bound without changing the exporter's own
-   consensus state, so a validator that never adopts votes as one
-   without failover. */
+   consensus state. */
 
 static void
 test_export_leaves_consensus_alone( void ) {

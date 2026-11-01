@@ -195,10 +195,8 @@ test_set_identity( void ) {
 
 static uchar adminctl_mem[ 1UL<<18 ] __attribute__((aligned(FD_ADMINCTL_ALIGN)));
 
-/* With failover, set-identity changes the failover identity.  OPERATOR
-   waits while the link has no room and failover commands are busy until
-   it goes out.  A switch request from before set-identity gets STALE
-   with the failover identity. */
+/* With failover, set-identity changes the failover identity.  A switch
+   request from before it gets STALE. */
 
 static fd_frag_meta_t    bus_mcache[ 8 ];
 static ulong             bus_seq;
@@ -232,6 +230,54 @@ bus_operator( void ) {
   return operator;
 }
 
+/* The identity failover hands off cannot be added as an authorized
+   voter. */
+
+static void
+test_add_authorized_voter_failover_identity( void ) {
+  setup();
+  ctx.adminctl = fd_adminctl_join( fd_adminctl_new( adminctl_mem ) );
+  FD_TEST( ctx.adminctl );
+  FD_TEST( fd_sha512_join( fd_sha512_new( ctx.sha512 ) ) );
+  ctx.failover_enabled = 1;
+  uchar keypair[ 64 ]; memset( keypair, 0x37, 32UL );
+  fd_ed25519_public_from_private( keypair+32UL, keypair, ctx.sha512 );
+  fd_memcpy( ctx.failover_pubkey, keypair+32UL, 32UL );
+
+  static fd_frag_meta_t event_mcache[ 128 ] __attribute__((aligned(128)));
+  static uchar event_mem[ 1024 ] __attribute__((aligned(128)));
+  ulong               event_seq = 0UL;
+  fd_event_reporter_t reporter  = { .mcache=event_mcache, .depth=128UL, .seq_store=&event_seq,
+                                   .mem=(fd_wksp_t *)event_mem, .mtu=sizeof(event_mem) };
+  fd_event_tl = &reporter;
+
+  void * payload;
+  ulong  payload_max;
+  ulong  slot_idx = fd_adminctl_reserve( ctx.adminctl, &payload, &payload_max );
+  FD_TEST( slot_idx!=ULONG_MAX && payload_max>=sizeof(fd_adminctl_add_auth_voter_t) );
+  fd_adminctl_add_auth_voter_t req = { .version=FD_ADMINCTL_ADD_AUTH_VOTER_PAYLOAD_VERSION };
+  fd_memcpy( req.keypair, keypair, 64UL );
+  fd_memcpy( payload, &req, sizeof(req) );
+  fd_adminctl_publish( ctx.adminctl, slot_idx, FD_ADMINCTL_CMD_ADD_AUTH_VOTER, sizeof(req) );
+
+  ulong  cmd_id = FD_ADMINCTL_CMD_IDLE;
+  ulong  polled_slot = ULONG_MAX;
+  void * polled      = NULL;
+  ulong  polled_sz   = 0UL;
+  for( ulong i=0UL; i<FD_ADMINCTL_SLOT_CNT && cmd_id==FD_ADMINCTL_CMD_IDLE; i++ ) cmd_id = fd_adminctl_poll( ctx.adminctl, &polled_slot, &polled, &polled_sz );
+  FD_TEST( cmd_id==FD_ADMINCTL_CMD_ADD_AUTH_VOTER && polled_slot==slot_idx && polled_sz==sizeof(req) );
+  add_authorized_voter( &ctx, slot_idx, polled, polled_sz );
+  FD_TEST( fd_adminctl_wait( ctx.adminctl, slot_idx )==FD_ADD_AUTHORIZED_VOTER_RESULT_FAILOVER_IDENTITY );
+  FD_TEST( voter->state==FD_KEYSWITCH_STATE_UNLOCKED );
+  sign_expect( FD_KEYSWITCH_STATE_UNLOCKED, 0UL );
+
+  fd_event_admin_command_t event;
+  fd_memcpy( &event, event_mem, sizeof(event) );
+  FD_TEST( event_seq==1UL && event.type==FD_EVENT_ADMIN_COMMAND_TYPE_ADD_AUTHORIZED_VOTER && event.result==FD_EVENT_ADMIN_COMMAND_RESULT_CUSTOM );
+  FD_TEST( event.custom_result_len==strlen( "failover_identity" ) && !memcmp( event.custom_result, "failover_identity", event.custom_result_len ) );
+  fd_event_tl = NULL;
+}
+
 /* Events identify the public command on completion and on rejection,
    including requests whose payload cannot be decoded. */
 static void
@@ -241,6 +287,10 @@ test_failover_command( ulong cmd_id,
                        int   event_type ) {
   setup();
   bus_setup( 8UL );
+  /* A topology without sign tiles */
+  FD_TEST( fd_topob_new( test_topo, "admin-test" ) );
+  fd_topob_wksp( test_topo, "wksp" )->wksp = NULL;
+  ctx.topo              = test_topo;
   ctx.adminctl          = fd_adminctl_join( fd_adminctl_new( adminctl_mem ) );
   ctx.failover_enabled  = 1;
   ctx.failover_slot_idx = ULONG_MAX;
@@ -399,6 +449,7 @@ main( int     argc,
   fd_boot( &argc, &argv );
 
   test_add_authorized_voter();
+  test_add_authorized_voter_failover_identity();
   test_remove_all_authorized_voters();
   test_set_identity();
   test_failover_command( FD_ADMINCTL_CMD_FAILOVER_PROMOTE, FD_ADMINCTL_FAILOVER_CMD_HANDOFF, 0UL, FD_EVENT_ADMIN_COMMAND_TYPE_FAILOVER_PROMOTE );

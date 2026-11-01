@@ -1040,6 +1040,14 @@ add_authorized_voter( fd_admin_tile_ctx_t *     ctx,
     return;
   }
 
+  /* The identity failover hands off cannot also be an authorized voter. */
+  if( FD_UNLIKELY( ctx->failover_enabled && !memcmp( public_key, ctx->failover_pubkey, 32UL ) ) ) {
+    FD_LOG_WARNING(( "add-authorized-voter failed: the key is the identity failover hands off on this validator" ));
+    report_admin_command_custom_result( &event, "failover_identity" );
+    fd_adminctl_complete( adminctl, slot_idx, FD_ADD_AUTHORIZED_VOTER_RESULT_FAILOVER_IDENTITY );
+    return;
+  }
+
   ulong result = FD_ADMINCTL_RESULT_SUCCESS;
   ulong state  = FD_ADD_AUTH_VOTER_STATE_UNLOCKED;
   for(;;) {
@@ -1409,9 +1417,9 @@ failover_prepare( fd_admin_tile_ctx_t * ctx,
   uchar pubkey[ 32 ];
   fd_ed25519_public_from_private( pubkey, keypair, ctx->sha512 );
   if( FD_UNLIKELY( !fd_memeq( pubkey, keypair+32UL, 32UL ) ) ) return FD_SET_IDENTITY_RESULT_KEYPAIR_MISMATCH;
-  if( fd_memeq( pubkey, ctx->failover_pubkey, 32UL ) ) return FD_ADMINCTL_RESULT_SUCCESS;
   ulong result = failover_identity_check( ctx, pubkey );
   if( FD_UNLIKELY( result!=FD_ADMINCTL_RESULT_SUCCESS ) ) return result;
+  if( fd_memeq( pubkey, ctx->failover_pubkey, 32UL ) ) return FD_ADMINCTL_RESULT_SUCCESS;
 
   for( ulong i=0UL; i<ctx->topo->tile_cnt; i++ ) {
     fd_topo_tile_t const * tile = &ctx->topo->tiles[ i ];
@@ -1508,6 +1516,19 @@ failover_request( fd_admin_tile_ctx_t * ctx,
     report_admin_command_custom_result( &event, "busy" );
     fd_adminctl_complete( adminctl, slot_idx, FD_FAILOVER_CONTROL_RESULT_BUSY );
     return;
+  }
+
+  /* The sign tiles cannot install an authorized voter as the identity. */
+  if( FD_LIKELY( !prepare ) ) {
+    ulong result = failover_identity_check( ctx, preflight ? req.target : ctx->failover_pubkey );
+    if( FD_UNLIKELY( result!=FD_ADMINCTL_RESULT_SUCCESS ) ) {
+      char custom[ 24 ];
+      FD_TEST( fd_cstr_printf_check( custom, sizeof(custom), NULL, "%#lx", result ) );
+      FD_LOG_WARNING(( "`%s` refused before it reached the failover tile (result %s), nothing was done", cmd_cstr, custom ));
+      report_admin_command_custom_result( &event, custom );
+      fd_adminctl_complete( adminctl, slot_idx, result );
+      return;
+    }
   }
 
   if( prepare ) {

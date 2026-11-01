@@ -94,6 +94,9 @@ add_authorized_voter( args_t *   args,
     case FD_ADD_AUTHORIZED_VOTER_RESULT_DUPLICATE_AUTH_VOTER:
       FD_LOG_ERR(( "Failed to add authorized voter key: the authorized voter key exists in "
                    "the validator's authorized voter list" ));
+    case FD_ADD_AUTHORIZED_VOTER_RESULT_FAILOVER_IDENTITY:
+      FD_LOG_ERR(( "Failed to add authorized voter key: the key is the identity failover hands "
+                   "off on this validator, which cannot be an authorized voter" ));
     default:
       FD_LOG_ERR(( "Unexpected add-authorized-voter result %lu.  This can be a result "
                    "of a version mismatch between the command and the running Firedancer "
@@ -129,8 +132,9 @@ action_t fd_action_add_authorized_voter = {
                     "validator so it can sign votes with that key, in addition to the identity\n"
                     "key and any voters already configured.  On success it prints `Authorized\n"
                     "voter key added successfully` and exits 0.  It fails (non-zero, with no change)\n"
-                    "if the key is already an authorized voter, or if the validator already has\n"
-                    "the maximum of 16 authorized voters.\n"
+                    "if the key is already an authorized voter, if it is the identity failover hands\n"
+                    "off on this validator, or if the validator already has the maximum of 16\n"
+                    "authorized voters.\n"
                     "\n"
                     "This command does not start a validator; it attaches to one that is already\n"
                     "running.  With no arguments it discovers the running validator automatically.\n"

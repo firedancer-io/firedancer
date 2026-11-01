@@ -27,8 +27,7 @@ safe-guards described here.
 
 Validators with `[failover.enabled]` set run a failover tile, which
 listens on `[failover.listen_address]:[failover.listen_port]` (TCP port
-`8010` by default) and dials the same port on the remote validator when
-you ask for a handoff. The coordinated handoff works as follows:
+`8010` by default). The coordinated handoff works as follows:
 
 1. **Discovery.** The local validator looks the identity up in gossip and
    dials the gossip address of the validator advertising it. Pass
@@ -120,7 +119,7 @@ instead.
 <<< @/snippets/commands/failover-promote.ansi
 
 In a terminal the command asks for confirmation first, pass `--yes` to
-skip the prompt. Ctrl-C may not successfully stop a hand- off in progress.
+skip the prompt. Ctrl-C may not successfully stop a handoff in progress.
 
 After a successful handoff, the remote validator runs its junk key and
 the local validator now runs the identity. Check both machines with
@@ -159,12 +158,14 @@ validator runs the identity, use `failover promote --adopt`.
 | `in_progress` | `0x4003` | 2 | A handoff or identity switch is running on the local or the remote validator | Wait for it to finish |
 | `no_holder_address` | `0x4007` | 2 | Gossip did not show a validator running the identity | Wait for gossip, or pass `--address` |
 | `not_holder` | `0x4002` | 2 | The validator at the address does not run the identity | Check `--address`, or wait for gossip to show the validator that runs the identity |
+| `no_peer` | `0x4010` | 2 | No validator running the identity answered at the address before the deadline | Check the address, port and firewall, that failover is enabled there |
+| `handed_off` | `0x4012` | 2 | The local validator handed the identity off and waits for the remote validator's answer | Wait. A remote validator that is alive takes the identity or declines it once its adoption is done, which can take up to three 64-second stages (replay to the finality anchor, the adoption, the switch) plus a reconnect, and this validator's log says which (`the peer took the identity`, `the peer declined the identity`); its warning `the peer has not answered` after 64 seconds does not mean the remote is dead, and `get-identity` on the remote shows its junk key while it is adopting. Take the identity back with `--force` only once the remote validator is stopped; `--adopt` refuses with `holder_live` while the answer is pending |
 | `no_final_history` | `0x4006` | 2 | The remote validator has no vote history for its last vote yet | Wait for the remote validator to vote |
 | `replay_behind` | `0x4008` | 2 | The local validator's replay is too far behind the finality anchor of the vote history to adopt | Wait for the local validator to catch up |
-| `holds_other` | `0x400d` | 2 | The local validator runs and has voted as an identity other than the one in the keypair | Hand that identity off first |
-| `holder_live` | `0x400f` | 2 | `--adopt` only. The remote validator may still be live | Wait 15 seconds and retry, or use `--force` once the remote validator cannot sign |
+| `holds_other` | `0x400d` | 2 | The local validator runs a staked identity other than the one in the keypair | Hand that identity off first, or `set-identity` to an unstaked key |
+| `holder_live` | `0x400f` | 2 | `--adopt` only. The remote validator may still be live: it was in gossip within the last 15 seconds, a validator that says it runs the identity is connected on the failover channel or was within the last 15 seconds, the keypair was given less than 15 seconds ago, or this validator handed the identity to it and waits for its answer | Wait and retry, or use `--force` once the remote validator cannot sign |
 | `keypair_mismatch` | `0x3001` | 2 | The public key in the keypair file does not match its private key | Use a valid keypair file |
-| `authorized_voter` | `0x3004` | 2 | The keypair is an authorized voter on the local validator | Remove it with [`remove-all-authorized-voters`](/api/cli#remove-all-authorized-voters) |
+| `authorized_voter` | `0x3004` | 2 | The identity is an authorized voter on the local validator | Remove it with [`remove-all-authorized-voters`](/api/cli#remove-all-authorized-voters) |
 | `timeout` | `0x4009` | 3 | The remote validator did not answer before the deadline | Check both validators |
 | `peer_restarted` | `0x400a` | 3 | The remote validator restarted before it answered | Check both validators |
 | `handoff_aborted` | `0x4004` | 3 | The remote validator aborted the handoff and may have given up the identity | Check both validators. The remote validator's log says why |

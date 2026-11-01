@@ -130,14 +130,8 @@ failover_identity_allowed( fd_sign_ctx_t const * ctx,
   return 1;
 }
 
-/* failover_keyswitch runs the keyswitches the failover way before the
-   normal keyswitch code sees them.  A failover switch selects the junk
-   key or the failover identity.  A prepare loads a new failover identity
-   without installing it, and set-identity makes its key the failover
-   identity before the normal switch installs it.  Return 0 only when
-   the normal switch must install this request.  Once acknowledged, the
-   keyswitch belongs to Admin and must not be read again in this
-   housekeeping call. */
+/* Handles the failover keyswitch params (prepare, check, pubkey select)
+   and returns 1 if fully handled.  Returns 0 for a normal keypair switch. */
 
 static int FD_FN_SENSITIVE
 failover_keyswitch( fd_sign_ctx_t * ctx ) {

@@ -300,8 +300,7 @@ test_bls_request_rejected( void ) {
 }
 
 /* With failover, the sign tile switches by public key between the junk
-   key and the failover identity, the staked key from boot or a key a
-   prepare or set-identity installed. */
+   key and the failover identity. */
 
 static uchar junk_key    [ 64 ];
 static uchar staked_key  [ 64 ];
@@ -409,9 +408,8 @@ test_failover_keys( void ) {
   fd_keyguard_bls_key_derive( junk_bls,   junk_key  +32UL, junk_key,   ctx.sha512 );
   fd_keyguard_bls_key_derive( staked_bls, staked_key+32UL, staked_key, ctx.sha512 );
 
-  /* Junk, staked, then junk again.  Whichever is installed, the staked
-     key signs the proof and the handshake, and BLS key 0 follows the
-     installed identity. */
+  /* Junk, staked, then junk again.  The staked key always signs the
+     proof and the handshake,. */
   for( ulong i=0UL; i<3UL; i++ ) {
     uchar const *                 installed = i==1UL ? staked_key : junk_key;
     fd_keyguard_bls_key_t const * bls       = i==1UL ? staked_bls : junk_bls;
@@ -437,9 +435,8 @@ test_failover_keys( void ) {
   FD_LOG_NOTICE(( "pass: failover keys" ));
 }
 
-/* A set-identity keypair becomes the failover identity, it signs the
-   admission proof and the handshake, and a failover switch selects it
-   or the junk key. */
+/* A set-identity keypair becomes the failover identity and signs the
+   proof and the handshake. */
 
 static void
 operator_switch( fd_keyswitch_t * ks,
@@ -550,9 +547,8 @@ child_exit_status( void (*fn)( void ) ) {
   return WEXITSTATUS( status );
 }
 
-/* A switch to a key that is neither the junk key nor the failover
-   identity, and a failov signing request outside its domains, stop the
-   validator. */
+/* Stop the validator if we switch to an unknown key or a signing request arrives outside its
+   domains. */
 
 static void
 test_failover_refusals( void ) {

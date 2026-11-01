@@ -15,8 +15,8 @@
 
 #include <string.h>
 #include <sys/socket.h>
-#include <netinet/in.h>  /* IPPROTO_TCP (seccomp) */
-#include <netinet/tcp.h> /* TCP_NODELAY (seccomp) */
+#include <netinet/in.h>  /* IPPROTO_TCP */
+#include <netinet/tcp.h> /* TCP_NODELAY */
 
 #include "generated/fd_failover_tile_seccomp.h"
 
@@ -28,59 +28,57 @@
 
 #define FD_FAILOVER_TILE_POLL_NANOS (50000L) /* 50us */
 
-/* A state gives up this many replay slots after it was entered, or as
-   many seconds of our clock if replay stalls. */
 #define FD_FAILOVER_DEADLINE_SLOTS (64UL)
 #define FD_FAILOVER_DEADLINE_NANOS ((long)FD_FAILOVER_DEADLINE_SLOTS*(long)FD_FAILOVER_NANOS_PER_SECOND)
 
 #define FD_FAILOVER_GOSSIP_FRESH_NANOS (15000000000L)
 #define FD_FAILOVER_REQUEST_RETRIES    (3UL)
-#define FD_FAILOVER_FORCE_WAIT_NANOS   (10L*(long)FD_FAILOVER_NANOS_PER_SECOND)
-#define FD_FAILOVER_STEP_CNT           (8UL)  /* steps kept for the admin tile */
+#define FD_FAILOVER_FORCE_WAIT_NANOS   FD_FAILOVER_GOSSIP_FRESH_NANOS
+#define FD_FAILOVER_STEP_CNT           (8UL)
 
 /* apply_control's result for a pending command */
 #define FD_FAILOVER_CMD_PENDING (ULONG_MAX)
 
-/* What the controller is doing right now */
-#define FD_FAILOVER_ACTION_IDLE                (0UL) /* no local transition is running */
-#define FD_FAILOVER_ACTION_DEMOTE_SWITCH       (1UL) /* waiting for the junk key to be installed */
-#define FD_FAILOVER_ACTION_DEMOTE_WAIT_ACK     (2UL) /* DEMOTED sent, waiting for the peer */
-#define FD_FAILOVER_ACTION_PROMOTE_WAIT_REPLAY (3UL) /* waiting for replay to reach the finality anchor */
-#define FD_FAILOVER_ACTION_PROMOTE_WAIT_ADOPT  (4UL) /* waiting for votor to adopt */
-#define FD_FAILOVER_ACTION_PROMOTE_SWITCH      (5UL) /* waiting for the staked key to be installed */
-#define FD_FAILOVER_ACTION_HANDOFF_WAIT_PEER   (6UL) /* requesting the final history from the machine running the identity */
-#define FD_FAILOVER_ACTION_HANDOFF_WAIT_RESULT (7UL) /* waiting for the machine that handed it over to record our response */
-#define FD_FAILOVER_ACTION_DEMOTE_DRAIN        (8UL) /* junk key installed, waiting for votor history to drain */
+/* The current action/state of the controller */
+#define FD_FAILOVER_ACTION_IDLE                (0UL)
+#define FD_FAILOVER_ACTION_DEMOTE_SWITCH       (1UL)
+#define FD_FAILOVER_ACTION_DEMOTE_WAIT_ACK     (2UL)
+#define FD_FAILOVER_ACTION_PROMOTE_WAIT_REPLAY (3UL)
+#define FD_FAILOVER_ACTION_PROMOTE_WAIT_ADOPT  (4UL)
+#define FD_FAILOVER_ACTION_PROMOTE_SWITCH      (5UL)
+#define FD_FAILOVER_ACTION_HANDOFF_WAIT_PEER   (6UL)
+#define FD_FAILOVER_ACTION_HANDOFF_WAIT_RESULT (7UL)
+#define FD_FAILOVER_ACTION_DEMOTE_DRAIN        (8UL)
 #define FD_FAILOVER_ACTION_CNT                 (9UL)
 
-/* The history sources a promotion can adopt */
-#define FD_FAILOVER_SOURCE_PEER  (0UL) /* the history the peer's DEMOTED gave us */
-#define FD_FAILOVER_SOURCE_EMPTY (1UL) /* forced empty history with a vote bound */
+/* Adopted vote history's source */
+#define FD_FAILOVER_SOURCE_PEER  (0UL)
+#define FD_FAILOVER_SOURCE_EMPTY (1UL)
 
-/* How a handoff this machine requested or gave ended */
-#define FD_FAILOVER_HANDOFF_NONE       (0UL) /* nothing requested or sent */
-#define FD_FAILOVER_HANDOFF_PENDING    (1UL) /* requested or sent, no answer yet */
-#define FD_FAILOVER_HANDOFF_TAKEN      (2UL) /* the requesting machine took the identity */
-#define FD_FAILOVER_HANDOFF_DECLINED   (3UL) /* it did not take the identity, or the machine that handed it over did not record that it did */
-#define FD_FAILOVER_HANDOFF_RESTARTED  (4UL) /* the peer came back with a new boot_id */
-#define FD_FAILOVER_HANDOFF_CANCELLED  (5UL) /* `failover promote --adopt` or `--force` stopped waiting for the peer */
-#define FD_FAILOVER_HANDOFF_NOT_HOLDER (6UL) /* the machine we dialed does not run the identity */
+/* Handoff result */
+#define FD_FAILOVER_HANDOFF_NONE       (0UL)
+#define FD_FAILOVER_HANDOFF_PENDING    (1UL)
+#define FD_FAILOVER_HANDOFF_TAKEN      (2UL)
+#define FD_FAILOVER_HANDOFF_DECLINED   (3UL)
+#define FD_FAILOVER_HANDOFF_RESTARTED  (4UL)
+#define FD_FAILOVER_HANDOFF_CANCELLED  (5UL)
+#define FD_FAILOVER_HANDOFF_NOT_HOLDER (6UL)
 #define FD_FAILOVER_HANDOFF_CNT        (7UL)
 
-/* Which key a switch installs, CNT if no switch is in flight */
-#define FD_FAILOVER_SWITCH_KEY_JUNK   (0UL) /* The junk identity. */
-#define FD_FAILOVER_SWITCH_KEY_STAKED (1UL) /* The staked identity. */
-#define FD_FAILOVER_SWITCH_KEY_CNT    (2UL) /* No identity switch is pending. */
+/* Which key we will switch to, CNT if not switching */
+#define FD_FAILOVER_SWITCH_KEY_JUNK   (0UL)
+#define FD_FAILOVER_SWITCH_KEY_STAKED (1UL)
+#define FD_FAILOVER_SWITCH_KEY_CNT    (2UL)
 
-/* Our DEMOTED to the handoff target */
-#define FD_FAILOVER_DELIVERY_NONE    (0UL) /* Nothing to send. */
-#define FD_FAILOVER_DELIVERY_PENDING (1UL) /* Not sent on this session yet. */
-#define FD_FAILOVER_DELIVERY_SENT    (2UL) /* Sent on this session, a new session sends it again. */
+/* The status of our DEMOTED to the handoff target */
+#define FD_FAILOVER_DELIVERY_NONE    (0UL)
+#define FD_FAILOVER_DELIVERY_PENDING (1UL)
+#define FD_FAILOVER_DELIVERY_SENT    (2UL)
 
 /* Our last response to a DEMOTED */
-#define FD_FAILOVER_REPLY_NONE    (0UL) /* No response yet. */
-#define FD_FAILOVER_REPLY_KEPT    (1UL) /* Kept, the same DEMOTED again gets it again. */
-#define FD_FAILOVER_REPLY_PENDING (2UL) /* Kept, not queued yet (pending) because the control slot was busy. */
+#define FD_FAILOVER_REPLY_NONE    (0UL)
+#define FD_FAILOVER_REPLY_KEPT    (1UL)
+#define FD_FAILOVER_REPLY_PENDING (2UL)
 
 /* A serialized Alpenglow vote history. */
 struct fd_failover_history {
@@ -115,7 +113,7 @@ struct fd_failover_session {
 
 typedef struct fd_failover_session fd_failover_session_t;
 
-/* A handoff request sent by the machine that wants the identity. */
+/* A handoff request to take over another machine for failover. */
 struct fd_failover_request {
   ulong              id;             /* zero when none is open */
   fd_failover_peer_t peer;           /* the boot we authenticated for it, which runs the identity */
@@ -124,7 +122,7 @@ struct fd_failover_request {
   int                sent;           /* sent on this session */
   int                peer_restarted; /* paused because the authenticated member or boot changed */
   ulong              send_cnt;       /* how many times we sent it */
-  int                quick;          /* use a quicker wait time for the peer's history, not the full deadline */
+  int                quick;          /* --adopt or --force: use quicker timeouts */
 };
 
 typedef struct fd_failover_request fd_failover_request_t;
@@ -152,6 +150,7 @@ struct fd_failover_promotion {
   int                   force;        /* for adopt/force, we skip the peer checks and accept incomplete or empty history */
   int                   soft;         /* we still demote ourselves if a peer running the identity authenticates */
   int                   holder_seen;  /* a peer running the identity authenticated after promotion started */
+  int                   gave_up;      /* the identity was already given up */
   fd_failover_history_t adopt;        /* history or the bound sent to votor */
   ulong                 adopt_id;     /* id of the adoption we asked the votor for */
   int                   retry;        /* ask the votor again once replay passes retry_slot */
@@ -160,8 +159,7 @@ struct fd_failover_promotion {
 
 typedef struct fd_failover_promotion fd_failover_promotion_t;
 
-/* Our last response to a DEMOTED.  The same DEMOTED again gets the same
-   response, so a peer that missed it is not left waiting. */
+/* Our reply to a DEMOTED. */
 struct fd_failover_reply {
   ulong              state;      /* FD_FAILOVER_REPLY_* */
   fd_failover_peer_t peer;       /* the member boot it goes to */
@@ -182,9 +180,7 @@ struct fd_failover_tx {
 
 typedef struct fd_failover_tx fd_failover_tx_t;
 
-/* State of the identity switch we asked the admin tile for.  It
-   selects a key preloaded by the signing tile by its public key, and
-   success means the old key is gone from every tile's installed identity. */
+/* State of the identity switch during failover. */
 struct fd_failover_id_switch {
   ulong                     request_id;     /* nonce of our latest switch request */
   ulong                     pending_key;    /* FD_FAILOVER_SWITCH_KEY_*, or CNT when idle */
@@ -192,9 +188,9 @@ struct fd_failover_id_switch {
   fd_failover_switch_resp_t response;       /* uncommitted input frame */
   ulong                     response_nonce; /* nonce of the frame being consumed */
   int                       fresh;          /* a response frame arrived and is not handled yet */
-  int                       overdue;        /* the switch in flight passed its deadline, we still wait for it */
-  int                       discard;        /* set-identity ran while it was in flight, its answer is dropped */
-  ulong                     epoch;          /* failover epoch we last saw, sent with every request */
+  int                       overdue;        /* the switch in flight passed its deadline */
+  int                       discard;        /* set-identity ran while it was in flight, discard */
+  ulong                     epoch;          /* failover epoch */
 };
 
 typedef struct fd_failover_id_switch fd_failover_id_switch_t;
@@ -202,21 +198,22 @@ typedef struct fd_failover_id_switch fd_failover_id_switch_t;
 struct fd_failover_tile_ctx {
   /* Networking */
   fd_keyguard_client_t    keyguard_client[ 1 ]; /* signs admission proofs and TLS */
-  fd_failover_hello_t     hello;       /* the HELLO we send */
+  fd_failover_hello_t     hello;        /* the pre-built HELLO we will send */
   uchar                   installed[ 32 ];    /* the identity this machine signs with now */
   uchar                   spare_pubkey[ 32 ]; /* the junk key generated at boot, a handoff installs it */
-  uint                    cmd_addr;    /* from `failover promote --address`, 0 when gossip finds the identity */
-  ushort                  cmd_port;    /* from `failover promote --port`, 0 for the default port */
-  fd_failover_channel_t * channel;     /* the TLS channel to the peer */
-  fd_failover_session_t   session;     /* the session we last saw on the channel */
-  long                    poll_at;     /* next idle socket poll */
+  uint                    cmd_addr;     /* failover address, 0 if from gossip */
+  ushort                  cmd_port;     /* failover port, 0 if from gossip */
+  fd_failover_channel_t * channel;      /* the TLS channel to the peer */
+  fd_failover_session_t   session;      /* the session we last saw on the channel */
+  long                    poll_at;      /* next idle socket poll */
   long                    target_since; /* our clock since we started watching gossip for the target */
 
   fd_failover_request_t request;               /* our handoff request */
 
-  ulong peer_floor; /* highest last vote the peer reported for the target, kept across sessions */
-  ulong own_floor;  /* highest vote this machine signed as the target */
-  int   own_voted;  /* this machine votes as the target: it signed a vote as it, or a promotion installed it, since boot or since the target changed */
+  ulong peer_floor;
+  ulong own_floor;
+  int   own_voted;
+  int   installed_ranked;
 
   /* Gossip */
   ulong       gossip_in_idx;
@@ -230,6 +227,7 @@ struct fd_failover_tile_ctx {
   fd_ip4_port_t gossip_socket;       /* copied in during_frag, zero for a remove or IPv6 */
   uint          staked_addr;         /* from a staked contact info that is not ours, 0 none */
   long          staked_seen_at;      /* our clock when that one arrived, 0 never */
+  long          holder_seen_at;      /* our clock when a machine running the identity was last heard, 0 never */
 
   /* Controller */
   ulong action;        /* FD_FAILOVER_ACTION_* */
@@ -627,11 +625,13 @@ after_frag( fd_failover_tile_ctx_t * ctx,
       /* The drain still reads the last switch result, so we copy a
          response into it only after the stem and nonce checks pass. */
       if( FD_LIKELY( on_switch_resp_msg( ctx, ctx->id_switch.response_nonce ) ) ) ctx->id_switch.result = ctx->id_switch.response;
-      if( FD_UNLIKELY( ctx->id_switch.response.result==FD_FAILOVER_SWITCH_ERR_STALE ) ) on_operator_action_msg( ctx, &ctx->id_switch.response.operator );
+      if( FD_UNLIKELY( ctx->id_switch.response.result==FD_FAILOVER_SWITCH_ERR_STALE ) ) {
+        on_admin_operator_action_msg( ctx, &ctx->id_switch.response.operator );
+      }
       return;
     }
     if( FD_UNLIKELY( sig==FD_FAILOVER_BUS_OPERATOR_ACTION ) ) {
-      on_operator_action_msg( ctx, &ctx->bus_operator );
+      on_admin_operator_action_msg( ctx, &ctx->bus_operator );
       return;
     }
     /* Send the response from after_credit, where a publish credit is available. */
@@ -644,7 +644,7 @@ after_frag( fd_failover_tile_ctx_t * ctx,
     return;
   }
   if( FD_UNLIKELY( in_idx!=ctx->gossip_in_idx ) ) return;
-  on_contact_info_msg( ctx, fd_failover_clock() );
+  on_gossip_contact_info_msg( ctx, fd_failover_clock() );
 }
 
 static inline void

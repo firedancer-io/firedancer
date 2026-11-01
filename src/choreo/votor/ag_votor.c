@@ -718,10 +718,7 @@ ag_votor_hist_adopt( ag_votor_t *      self,
     free--;
   }
 
-  /* A newer anchor prunes the skip timeouts of the windows below it.
-     If any timeout was set, the anchor's window gets its timeouts, as
-     it would from a final certificate there.  Its slot states need
-     room too. */
+  /* A newer anchor prunes the skip timeouts of the windows below it. */
   int set_anchor_timeouts = hist->anchor>self->highest_final_cert_slot && next_timeout( self );
   if( set_anchor_timeouts ) {
     for( ulong s=ag_first_slot_in_window( hist->anchor ); s<ag_first_slot_in_window( hist->anchor )+AG_SLOTS_PER_WINDOW; s++ ) {

@@ -114,8 +114,6 @@ fd_failover_demoted_decode( fd_failover_demoted_t * out,
   fd_memcpy( &demoted, payload, sizeof(demoted) );
 
   ulong state_sz = payload_sz-sizeof(fd_failover_demoted_t);
-  /* The history itself is votor's to decode, the controller checks that
-     the adopted history ends at last_vote_slot. */
   if( FD_UNLIKELY( (ulong)demoted.state_len!=state_sz ||
                    !state_sz || state_sz>FD_FAILOVER_ALPENGLOW_STATE_MAX ||
                    demoted.mode!=(uchar)FD_FAILOVER_MODE_ALPENGLOW ||

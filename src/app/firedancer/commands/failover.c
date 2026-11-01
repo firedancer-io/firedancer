@@ -84,9 +84,7 @@ failover_confirm( args_t const * args ) {
                     "reason, this machine takes the identity anyway.\n"
                     "WARNING: --force skips every check on the other machine, which may still run the\n"
                     "identity.  Use it only when that machine is not signing votes, or both machines\n"
-                    "may double-vote.  A Firedancer validator that still runs the identity stops on\n"
-                    "its duplicate instance check once it sees this machine in gossip.  Never promote\n"
-                    "both machines at once.\n" ));
+                    "may double-vote.  Never promote both machines at once.\n" ));
   } else if( args->failover.adopt ) {
     FD_LOG_STDOUT(( "This asks the machine running the identity to hand it over.  If that fails and\n"
                     "the other machine shows no sign of life, neither in gossip for 15 seconds nor on\n"
@@ -169,14 +167,16 @@ typedef struct failover_result failover_result_t;
 static failover_result_t const failover_results[] = {
   { FD_FAILOVER_CONTROL_RESULT_BUSY,              "busy",              "another failover command is running on the local validator",                                      FAILOVER_EXIT_REFUSED, 0 },
   { FD_FAILOVER_CONTROL_RESULT_IN_PROGRESS,       "in_progress",       "a handoff or identity switch is running on the local or the remote validator",                    FAILOVER_EXIT_REFUSED, 0 },
-  { FD_FAILOVER_CONTROL_RESULT_NO_HOLDER_ADDRESS, "no_holder_address", "gossip did not show a validator running the identity",                                             FAILOVER_EXIT_REFUSED, 1 },
+  { FD_FAILOVER_CONTROL_RESULT_NO_HOLDER_ADDRESS, "no_holder_address", "gossip did not show a validator running the identity",                                            FAILOVER_EXIT_REFUSED, 1 },
   { FD_FAILOVER_CONTROL_RESULT_NOT_HOLDER,        "not_holder",        "the validator at the address does not run the identity",                                          FAILOVER_EXIT_REFUSED, 1 },
-  { FD_FAILOVER_CONTROL_RESULT_NO_FINAL_HISTORY,  "no_final_history",  "the remote validator has no vote history for its last vote yet",                                   FAILOVER_EXIT_REFUSED, 1 },
+  { FD_FAILOVER_CONTROL_RESULT_NO_PEER,           "no_peer",           "no validator running the identity answered at the address before the deadline",                   FAILOVER_EXIT_REFUSED, 1 },
+  { FD_FAILOVER_CONTROL_RESULT_HANDED_OFF,        "handed_off",        "the local validator handed the identity off and waits for the remote validator's answer",         FAILOVER_EXIT_REFUSED, 1 },
+  { FD_FAILOVER_CONTROL_RESULT_NO_FINAL_HISTORY,  "no_final_history",  "the remote validator has no vote history for its last vote yet",                                  FAILOVER_EXIT_REFUSED, 1 },
   { FD_FAILOVER_CONTROL_RESULT_REPLAY_BEHIND,     "replay_behind",     "the local validator's replay is too far behind the finality anchor of the vote history to adopt", FAILOVER_EXIT_REFUSED, 1 },
-  { FD_FAILOVER_CONTROL_RESULT_HOLDS_OTHER,       "holds_other",       "the local validator runs and has voted as an identity other than the one in the keypair",         FAILOVER_EXIT_REFUSED, 0 },
+  { FD_FAILOVER_CONTROL_RESULT_HOLDS_OTHER,       "holds_other",       "the local validator runs a staked identity other than the one in the keypair",                    FAILOVER_EXIT_REFUSED, 0 },
   { FD_FAILOVER_CONTROL_RESULT_HOLDER_LIVE,       "holder_live",       "the remote validator may still be live",                                                          FAILOVER_EXIT_REFUSED, 0 },
   { FD_SET_IDENTITY_RESULT_KEYPAIR_MISMATCH,      "keypair_mismatch",  "the public key in the keypair file does not match its private key",                               FAILOVER_EXIT_REFUSED, 0 },
-  { FD_SET_IDENTITY_RESULT_AUTHORIZED_VOTER,      "authorized_voter",  "the keypair is an authorized voter on the local validator",                                       FAILOVER_EXIT_REFUSED, 0 },
+  { FD_SET_IDENTITY_RESULT_AUTHORIZED_VOTER,      "authorized_voter",  "the identity is an authorized voter on the local validator",                                      FAILOVER_EXIT_REFUSED, 0 },
   { FD_FAILOVER_CONTROL_RESULT_TIMEOUT,           "timeout",           "the remote validator did not answer before the deadline",                                         FAILOVER_EXIT_UNKNOWN, 1 },
   { FD_FAILOVER_CONTROL_RESULT_PEER_RESTARTED,    "peer_restarted",    "the remote validator restarted before it answered",                                               FAILOVER_EXIT_UNKNOWN, 1 },
   { FD_FAILOVER_CONTROL_RESULT_HANDOFF_ABORTED,   "handoff_aborted",   "the remote validator aborted the handoff and may have given up the identity",                     FAILOVER_EXIT_UNKNOWN, 1 },
@@ -224,7 +224,9 @@ fail_result( ulong result,
     exit( FAILOVER_EXIT_UNKNOWN );
   }
   int code = row->exit_code;
-  if( handoff!=FD_ADMINCTL_RESULT_SUCCESS && result!=FD_FAILOVER_CONTROL_RESULT_IDENTITY_CHANGED ) code = failover_result_find( handoff )->exit_code;
+  if( handoff!=FD_ADMINCTL_RESULT_SUCCESS && handoff!=FD_FAILOVER_CONTROL_RESULT_HANDED_OFF && result!=FD_FAILOVER_CONTROL_RESULT_IDENTITY_CHANGED ) {
+    code = failover_result_find( handoff )->exit_code;
+  }
   char const * state = code==FAILOVER_EXIT_REFUSED ? "no validator changed identity" :
                        code==FAILOVER_EXIT_NOBODY  ? "nobody runs the identity" :
                                                      "the outcome is unknown, check both validators with `firedancer get-identity`";
@@ -291,6 +293,7 @@ failover_cmd_fn( args_t *   args,
     req.flags = ( req.flags & FD_ADMINCTL_FAILOVER_FLAG_YES ) | ( args->failover.force ? FD_ADMINCTL_FAILOVER_FLAG_FORCE : FD_ADMINCTL_FAILOVER_FLAG_ADOPT );
     req.addr  = 0U;
     req.port  = (ushort)0;
+    if( keypair ) fd_memcpy( req.target, keypair+32UL, 32UL );
     result    = failover_request( adminctl, &req, NULL, &resp );
   }
   if( keypair ) fd_keyload_unload( keypair, 0 );

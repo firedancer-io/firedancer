@@ -111,9 +111,20 @@ pair( fd_failover_tile_ctx_t * ctx,
   ch->paired_idx         = (int)ADMITTED_IDX;
   ch->peer_hello.boot_id = boot_id;
   ch->peer_hello.holds   = (uchar)peer_holds;
+  ch->generation++;
   fd_keepalive_init( ch->keepalive, ch->rng, FD_FAILOVER_CHANNEL_KEEPALIVE_NANOS, FD_FAILOVER_CHANNEL_IDLE_NANOS, now );
   fd_keepalive_rx( ch->keepalive, now );
   ch->paired_at = now;
+  sync_session( ctx );
+}
+
+/* Ends the paired session; the next pair() is a new session. */
+static void
+unpair_session( fd_failover_tile_ctx_t * ctx ) {
+  fd_failover_channel_t * ch = ctx->channel;
+  ch->paired_idx = -1;
+  fd_memset( &ch->peer_hello, 0, sizeof(ch->peer_hello) );
+  ch->generation++;
   sync_session( ctx );
 }
 
@@ -182,6 +193,17 @@ pending_demoted( fd_failover_tile_ctx_t const * ctx ) {
   return demoted;
 }
 
+static ulong
+operator_cmd( fd_failover_tile_ctx_t * ctx,
+              ulong                    cmd,
+              uint                     addr,
+              ushort                   port );
+
+static ulong
+operator_promote( fd_failover_tile_ctx_t * ctx,
+                  ulong                    flags,
+                  long                     now );
+
 static void
 test_handoff( void ) {
   fd_failover_tile_ctx_t * ctx = controller_init( 1 );
@@ -199,8 +221,53 @@ test_handoff( void ) {
   FD_TEST( demoted.handoff_id==42UL && demoted.mode==FD_FAILOVER_MODE_ALPENGLOW && demoted.last_vote_slot==99UL );
   ctx->tx.valid         = 0;
   ctx->handoff.delivery = FD_FAILOVER_DELIVERY_SENT;
+/* Until the taker responds, this machine has handed the identity off */
+  FD_TEST( ctx->action==FD_FAILOVER_ACTION_DEMOTE_WAIT_ACK );
+  FD_TEST( operator_cmd( ctx, FD_ADMINCTL_FAILOVER_CMD_HANDOFF, 0U, 0 )==FD_FAILOVER_CONTROL_RESULT_HANDED_OFF );
+  FD_TEST( ctx->action==FD_FAILOVER_ACTION_DEMOTE_WAIT_ACK && ctx->handoff.delivery==FD_FAILOVER_DELIVERY_SENT );
+  ctx->holder_seen_at = 0L;
   deliver_ack( ctx, 42UL );
   FD_TEST( ctx->handoff.result==FD_FAILOVER_HANDOFF_TAKEN );
+  /* The taker's ACK is a sign of life: --adopt right after it is refused. */
+  FD_TEST( ctx->holder_seen_at>0L );
+  ctx->target_since = 0L;
+  FD_TEST( operator_promote( ctx, FD_ADMINCTL_FAILOVER_FLAG_ADOPT, ctx->holder_seen_at+1L )==FD_FAILOVER_CONTROL_RESULT_HOLDER_LIVE );
+  controller_fini( ctx );
+
+  ctx = controller_init( 1 );
+  pair( ctx, 77UL, 0, 1000L );
+  make_history( &ctx->current_history, 99UL );
+  deliver( ctx, FD_FAILOVER_MSG_HANDOFF_REQUEST, &req, sizeof(req) );
+  step_controller( ctx, stem );
+  switch_ok( ctx, 0UL );
+  step_controller( ctx, stem );
+  ctx->tx.valid         = 0;
+  ctx->handoff.delivery = FD_FAILOVER_DELIVERY_SENT;
+  FD_TEST( ctx->action==FD_FAILOVER_ACTION_DEMOTE_WAIT_ACK && !holds_identity( ctx ) );
+  /* The taker may be adopting still: --adopt sees a live holder, --force
+     takes the identity back on the operator's word. */
+  ctx->target_since = 1000L-FD_FAILOVER_GOSSIP_FRESH_NANOS;
+  FD_TEST( operator_promote( ctx, FD_ADMINCTL_FAILOVER_FLAG_ADOPT, 1000L+FD_FAILOVER_GOSSIP_FRESH_NANOS )==FD_FAILOVER_CONTROL_RESULT_HOLDER_LIVE );
+  FD_TEST( ctx->action==FD_FAILOVER_ACTION_DEMOTE_WAIT_ACK );
+  FD_TEST( operator_promote( ctx, FD_ADMINCTL_FAILOVER_FLAG_FORCE, 1000L )==FD_FAILOVER_CMD_PENDING );
+  FD_TEST( ctx->action==FD_FAILOVER_ACTION_PROMOTE_WAIT_REPLAY && ctx->handoff.result==FD_FAILOVER_HANDOFF_CANCELLED && ctx->promotion.gave_up );
+  /* The identity was already given up: a votor not ready now is a failed
+     adoption with nobody running it, not a retry before anything changed. */
+  ctx->cmd_nonce = 1UL;
+  ctx->replay_slot = 100UL;
+  step_promote_wait_replay( ctx, stem );
+  FD_TEST( ctx->action==FD_FAILOVER_ACTION_PROMOTE_WAIT_ADOPT );
+  ctx->adopt_in_idx = 0UL;
+  ctx->adopt_result = (fd_votor_adopt_result_t){ .result=FD_VOTOR_ADOPT_ERR_UNREPLAYED, .root=ULONG_MAX, .vote_slot=ULONG_MAX, .vote_bound=ULONG_MAX };
+  after_frag( ctx, 0UL, 0UL, ctx->promotion.adopt_id, sizeof(ctx->adopt_result), 0UL, 0UL, stem );
+  step_promote_wait_adopt( ctx, stem );
+  /* Like a handoff's promotion it asks again as replay moves, until the
+     deadline, then fails with nobody running the identity. */
+  FD_TEST( !ctx->cmd_done && ctx->promotion.retry && ctx->action==FD_FAILOVER_ACTION_PROMOTE_WAIT_ADOPT );
+  ctx->deadline_at = fd_failover_clock()-1L;
+  step_promote_wait_adopt( ctx, stem );
+  FD_TEST( ctx->cmd_done && ctx->cmd_result==FD_FAILOVER_CONTROL_RESULT_ADOPTION_FAILED );
+  FD_TEST( ctx->action==FD_FAILOVER_ACTION_IDLE && !holds_identity( ctx ) );
   controller_fini( ctx );
 }
 
@@ -246,9 +313,8 @@ test_no_final_state( void ) {
   controller_fini( ctx );
 }
 
-/* test_request_replay_behind: a peer more than 64 slots behind our
-   last vote, or one with no replay slot yet, gets REPLAY_BEHIND and we
-   keep the identity, one exactly 64 behind is served. */
+/* test_request_replay_behind: a peer more than 64 slots behind our last
+   vote gets REPLAY_BEHIND. */
 static void
 test_request_replay_behind( void ) {
   fd_failover_tile_ctx_t * ctx = controller_init( 1 );
@@ -275,8 +341,7 @@ test_request_replay_behind( void ) {
 }
 
 /* test_demote_drain: after the junk switch the drain is its own action,
-   HELLO already says we do not run the identity, and an ACK or the
-   same request during it is ignored. */
+   and an ACK or a repeated request during it is ignored. */
 static void
 test_demote_drain( void ) {
   fd_failover_tile_ctx_t * ctx = controller_init( 1 );
@@ -321,10 +386,8 @@ operator_frame( fd_failover_tile_ctx_t * ctx,
   after_frag( ctx, 1UL, 0UL, FD_FAILOVER_BUS_OPERATOR_ACTION, sizeof(*msg), 0UL, 0UL, stem );
 }
 
-/* test_operator_switch: set-identity during a demotion.  We restart on
-   the new key with a new boot and nothing in flight, the answer to the
-   switch we asked for before is dropped, the next request has the new
-   failover epoch, and a request bound to our old boot cannot demote us. */
+/* test_operator_switch: set-identity during a demotion restarts us on
+   the new key with a new boot and nothing in flight. */
 static void
 test_operator_switch( void ) {
   fd_failover_tile_ctx_t * ctx = controller_init( 1 );
@@ -390,8 +453,7 @@ test_operator_switch( void ) {
 }
 
 /* test_operator_failover_identity: HELLO has the failover identity
-   OPERATOR gives, and we run it when the installed key is that
-   identity. */
+   OPERATOR gives. */
 static void
 test_operator_failover_identity( void ) {
   fd_failover_tile_ctx_t * ctx = controller_init( 0 );
@@ -427,8 +489,7 @@ test_operator_failover_identity( void ) {
 }
 
 /* test_standby_vote_counts: a vote our history published counts toward
-   the floor whatever our role, set-identity can install the staked key
-   before we hear of it. */
+   the floor. */
 static void
 test_standby_vote_counts( void ) {
   fd_failover_tile_ctx_t * ctx = controller_init( 0 );
@@ -456,12 +517,8 @@ open_request( fd_failover_tile_ctx_t * ctx,
   ctx->action               = action;
 }
 
-/* test_result_wait_peer_restart: the peer that ran the identity
-   restarts before it confirms our ACK.  Its new boot cannot, so the wait
-   ends and we keep the identity.  A request waiting to have its refusal
-   confirmed ends the same way, without the identity.  A request paused
-   at its deadline ends the same way when the new boot pairs, so the old
-   holder's next request is not refused as in progress forever. */
+/* test_result_wait_peer_restart: the peer restarts before it confirms
+   our answer. */
 static void
 test_result_wait_peer_restart( void ) {
   for( int paused=0; paused<2; paused++ ) {
@@ -525,9 +582,8 @@ test_result_wait_peer_restart( void ) {
   controller_fini( ctx );
 }
 
-/* test_session_change_drops_result: a queued HANDOFF_RESULT belongs to
-   its session, a new one drops it and the requester asks again.  A
-   queued DEMOTED stays for the handoff target. */
+/* test_session_change_drops_result: a new session drops a queued
+   HANDOFF_RESULT but keeps a queued DEMOTED. */
 static void
 test_session_change_drops_result( void ) {
   fd_failover_tile_ctx_t * ctx = controller_init( 1 );
@@ -572,8 +628,8 @@ operator_promote( fd_failover_tile_ctx_t * ctx,
   return apply_control( ctx, &req, now );
 }
 
-/* test_request_address: the open request dials the gossip address fixed
-   when it opened. */
+/* test_request_address: a resume dials the address the command gives,
+   otherwise gossip's current one. */
 static void
 test_request_address( void ) {
   fd_failover_tile_ctx_t * ctx = controller_init( 0 );
@@ -597,8 +653,23 @@ test_request_address( void ) {
   pause_request( ctx, 1000L, FD_FAILOVER_CONTROL_RESULT_TIMEOUT, "test" );
   ctx->staked_addr = 0U;
   ulong id = ctx->request.id;
-  FD_TEST( operator_cmd( ctx, FD_ADMINCTL_FAILOVER_CMD_HANDOFF, 0U, 0 )==FD_FAILOVER_CONTROL_RESULT_NO_HOLDER_ADDRESS );
-  FD_TEST( is_request_paused( ctx ) && ctx->request.id==id && ctx->request.addr==FD_IP4_ADDR(10,0,0,3) && ctx->stuck );
+  FD_TEST( operator_cmd( ctx, FD_ADMINCTL_FAILOVER_CMD_HANDOFF, 0U, 0 )==FD_FAILOVER_CMD_PENDING );
+  FD_TEST( ctx->request.id==id && !ctx->request.addr && ctx->request.until && !ctx->stuck && !ctx->channel->peer_addr );
+  /* Gossip shows the identity: the waiting request dials it. */
+  ctx->gossip_socket.addr = FD_IP4_ADDR(10,0,0,7);
+  ctx->gossip_socket.port = (ushort)8001;
+  fd_memcpy( ctx->gossip_origin, ctx->hello.staked_pubkey, 32UL );
+  on_gossip_contact_info_msg( ctx, 1000L );
+  FD_TEST( ctx->request.addr==FD_IP4_ADDR(10,0,0,7) && ctx->channel->peer_addr==FD_IP4_ADDR(10,0,0,7) && get_dial_port( ctx )==8010 );
+  /* The deadline passes with no address at all: no address, not a timeout. */
+  pause_request( ctx, 1000L, FD_FAILOVER_CONTROL_RESULT_TIMEOUT, "test" );
+  ctx->staked_addr = 0U;
+  FD_TEST( operator_cmd( ctx, FD_ADMINCTL_FAILOVER_CMD_HANDOFF, 0U, 0 )==FD_FAILOVER_CMD_PENDING && !ctx->request.addr );
+  ctx->cmd_nonce = 9UL;
+  int busy = 0;
+  poll_peer( ctx, ctx->request.until, &busy );
+  FD_TEST( ctx->cmd_done && ctx->cmd_result==FD_FAILOVER_CONTROL_RESULT_NO_HOLDER_ADDRESS && is_request_paused( ctx ) && ctx->request.id==id );
+  ctx->cmd_nonce = 0UL; ctx->cmd_done = 0;
   ctx->request.peer.boot_id = 77UL;
   FD_TEST( operator_cmd( ctx, FD_ADMINCTL_FAILOVER_CMD_HANDOFF, FD_IP4_ADDR(10,0,0,6), 0 )==FD_FAILOVER_CMD_PENDING );
   FD_TEST( ctx->request.addr==FD_IP4_ADDR(10,0,0,6) && ctx->request.peer.boot_id==77UL && ctx->request.id==id );
@@ -628,9 +699,8 @@ test_abort_answers_requester( void ) {
   controller_fini( ctx );
 }
 
-/* test_wait_result_redials: a request that paused while its promotion
-   ran dials again once the promotion ends, so the bound peer can confirm
-   and a restarted one ends the request. */
+/* test_wait_result_redials: a request that paused during its promotion
+   dials again once the promotion ends. */
 static void
 test_wait_result_redials( void ) {
   fd_failover_tile_ctx_t * ctx = controller_init( 0 );
@@ -652,9 +722,10 @@ test_wait_result_redials( void ) {
    stuck. */
 static void
 test_refused_command_keeps_stuck( void ) {
-  fd_failover_tile_ctx_t * ctx = controller_init( 0 );
+  fd_failover_tile_ctx_t * ctx = controller_init( 1 );
   ctx->stuck = 1;
-  FD_TEST( operator_cmd( ctx, FD_ADMINCTL_FAILOVER_CMD_HANDOFF, 0U, 0 )==FD_FAILOVER_CONTROL_RESULT_NO_HOLDER_ADDRESS && ctx->stuck );
+  FD_TEST( operator_cmd( ctx, FD_ADMINCTL_FAILOVER_CMD_HANDOFF, 0U, 0 )==FD_FAILOVER_CONTROL_RESULT_ALREADY_HOLDS && ctx->stuck );
+  set_installed( ctx, ctx->spare_pubkey );
   ctx->staked_addr = FD_IP4_ADDR(10,0,0,2);
   FD_TEST( operator_cmd( ctx, FD_ADMINCTL_FAILOVER_CMD_HANDOFF, 0U, 0 )==FD_FAILOVER_CMD_PENDING && !ctx->stuck );
   end_request( ctx, 1000L, FD_FAILOVER_HANDOFF_DECLINED );
@@ -675,9 +746,8 @@ test_dialed_non_holder( void ) {
   controller_fini( ctx );
 }
 
-/* test_restarted_peer_new_request: once the peer boot a request is
-   bound to restarted, `failover promote` starts a new request instead of
-   resuming one that can never finish. */
+/* test_restarted_peer_new_request: once the peer restarted,
+   `failover promote` starts a new request. */
 static void
 test_restarted_peer_new_request( void ) {
   fd_failover_tile_ctx_t * ctx = controller_init( 0 );
@@ -697,9 +767,8 @@ test_restarted_peer_new_request( void ) {
   controller_fini( ctx );
 }
 
-/* test_force_empty_bound: a forced promotion with no saved history sets
-   its vote bound at the replay slot or the coverage floor, whichever is
-   higher. */
+/* test_force_empty_bound: a forced promotion sets its vote bound at the
+   replay slot or the coverage floor, whichever is higher. */
 static void
 test_force_empty_bound( void ) {
   fd_failover_tile_ctx_t * ctx = controller_init( 0 );
@@ -717,10 +786,61 @@ test_force_empty_bound( void ) {
   controller_fini( ctx );
 }
 
+/* test_ranked_installed_refuses: a ranked installed key refuses a
+   handoff and a forced promotion. */
+static void
+test_ranked_installed_refuses( void ) {
+  fd_failover_tile_ctx_t * ctx = controller_init( 0 );
+  ctx->staked_addr = FD_IP4_ADDR(10,0,0,2);
+  fd_votor_hist_msg_t hist;
+  fd_memset( &hist, 0, sizeof(hist) );
+  fd_memset( hist.identity.uc, 0x11, 32UL ); /* the junk key's frame, ranked says what the votor runs */
+  hist.replay_slot = 100UL;
+  hist.root_slot   = 90UL;
+  hist.vote_slot   = FD_FAILOVER_SLOT_NULL;
+  hist.ranked      = 1;
+  on_votor_hist_msg( ctx, &hist );
+  FD_TEST( ctx->installed_ranked );
+  FD_TEST( operator_cmd( ctx, FD_ADMINCTL_FAILOVER_CMD_HANDOFF, 0U, 0 )==FD_FAILOVER_CONTROL_RESULT_HOLDS_OTHER );
+  fd_adminctl_failover_req_t force = { .version=FD_ADMINCTL_FAILOVER_PAYLOAD_VERSION, .cmd=FD_ADMINCTL_FAILOVER_CMD_PROMOTE, .flags=FD_ADMINCTL_FAILOVER_FLAG_FORCE };
+  FD_TEST( apply_control( ctx, &force, 1000L )==FD_FAILOVER_CONTROL_RESULT_HOLDS_OTHER );
+  fd_adminctl_failover_req_t pre = { .version=FD_ADMINCTL_FAILOVER_PAYLOAD_VERSION, .cmd=FD_ADMINCTL_FAILOVER_CMD_PREFLIGHT };
+  fd_memset( pre.target, 0x77, 32UL );
+  FD_TEST( apply_control( ctx, &pre, 1000L )==FD_ADMINCTL_RESULT_SUCCESS );
+  fd_memcpy( pre.target, ctx->installed, 32UL );
+  FD_TEST( apply_control( ctx, &pre, 1000L )==FD_ADMINCTL_RESULT_SUCCESS );
+  fd_memset( pre.target, 0x77, 32UL );
+  FD_TEST( ctx->action==FD_FAILOVER_ACTION_IDLE && !ctx->request.id );
+  hist.ranked = 0;
+  on_votor_hist_msg( ctx, &hist );
+  FD_TEST( !ctx->installed_ranked );
+  FD_TEST( apply_control( ctx, &pre, 1000L )==FD_ADMINCTL_RESULT_SUCCESS );
+  FD_TEST( operator_cmd( ctx, FD_ADMINCTL_FAILOVER_CMD_HANDOFF, 0U, 0 )==FD_FAILOVER_CMD_PENDING );
+  end_request( ctx, 1000L, FD_FAILOVER_HANDOFF_DECLINED );
+  controller_fini( ctx );
+}
+
 static void
 test_promote_flags( void ) {
   long fresh = 1000L+FD_FAILOVER_GOSSIP_FRESH_NANOS-1L;
   long stale = 1000L+FD_FAILOVER_GOSSIP_FRESH_NANOS;
+
+  /* The quick wait outlives a fresh target's grace, so a first --adopt
+     goes ahead once a dead holder's wait ends. */
+  FD_STATIC_ASSERT( FD_FAILOVER_FORCE_WAIT_NANOS>=FD_FAILOVER_GOSSIP_FRESH_NANOS, quick_wait_outlives_grace );
+  fd_failover_tile_ctx_t * fresh_target = controller_init( 0 );
+  fresh_target->target_since = 1000L;
+  fresh_target->staked_addr  = FD_IP4_ADDR(10,0,0,2); /* an address, nobody answers at it */
+  fd_adminctl_failover_req_t adopt_req = { .version=FD_ADMINCTL_FAILOVER_PAYLOAD_VERSION, .cmd=FD_ADMINCTL_FAILOVER_CMD_HANDOFF, .flags=FD_ADMINCTL_FAILOVER_FLAG_ADOPT };
+  FD_TEST( apply_control( fresh_target, &adopt_req, 1000L )==FD_FAILOVER_CMD_PENDING );
+  fresh_target->cmd_nonce = 1UL;
+  int quick_busy = 0;
+  poll_peer( fresh_target, fresh_target->request.until, &quick_busy );
+  FD_TEST( fresh_target->cmd_done && fresh_target->cmd_result==FD_FAILOVER_CONTROL_RESULT_NO_PEER );
+  fresh_target->cmd_nonce = 0UL; fresh_target->cmd_done = 0;
+  FD_TEST( operator_promote( fresh_target, FD_ADMINCTL_FAILOVER_FLAG_ADOPT, fresh_target->request.until ? fresh_target->request.until : 1000L+FD_FAILOVER_FORCE_WAIT_NANOS )==FD_FAILOVER_CMD_PENDING );
+  FD_TEST( fresh_target->action==FD_FAILOVER_ACTION_PROMOTE_WAIT_REPLAY );
+  controller_fini( fresh_target );
 
   fd_failover_tile_ctx_t * ctx = controller_init( 0 );
   FD_TEST( operator_promote( ctx, 0UL, 1000L )==FD_ADMINCTL_RESULT_UNKNOWN_COMMAND );
@@ -764,6 +884,60 @@ test_promote_flags( void ) {
   FD_TEST( operator_promote( ctx, FD_ADMINCTL_FAILOVER_FLAG_ADOPT, 1000L )==FD_FAILOVER_CMD_PENDING );
   FD_TEST( ctx->action==FD_FAILOVER_ACTION_PROMOTE_WAIT_REPLAY );
   controller_fini( ctx );
+
+  /* A holder that refused us on the channel was alive: --adopt respects
+     it for the window, --force does not. */
+  ctx = controller_init( 0 );
+  ctx->target_since = 1000L-FD_FAILOVER_GOSSIP_FRESH_NANOS;
+  open_request( ctx, FD_FAILOVER_ACTION_HANDOFF_WAIT_PEER );
+  pair( ctx, 77UL, 1, 1000L );
+  ctx->cmd_nonce = 1UL;
+  fd_failover_handoff_result_t refused = { .handoff_id=900UL, .result=FD_FAILOVER_CONTROL_RESULT_REPLAY_BEHIND };
+  int busy = 0;
+  poll_peer( ctx, 1000L, &busy ); /* hears the holder: its pairing frame */
+  FD_TEST( ctx->holder_seen_at==1000L );
+  deliver( ctx, FD_FAILOVER_MSG_HANDOFF_RESULT, &refused, sizeof(refused) );
+  FD_TEST( ctx->cmd_done && ctx->cmd_result==FD_FAILOVER_CONTROL_RESULT_REPLAY_BEHIND && !ctx->request.id );
+  FD_TEST( fd_failover_channel_state( ctx->channel )!=FD_FAILOVER_SESSION_PAIRED && ctx->holder_seen_at==1000L );
+  ctx->cmd_nonce = 0UL; ctx->cmd_done = 0;
+  FD_TEST( operator_promote( ctx, FD_ADMINCTL_FAILOVER_FLAG_ADOPT, fresh )==FD_FAILOVER_CONTROL_RESULT_HOLDER_LIVE );
+  FD_TEST( ctx->action==FD_FAILOVER_ACTION_IDLE );
+  FD_TEST( operator_promote( ctx, FD_ADMINCTL_FAILOVER_FLAG_ADOPT, stale )==FD_FAILOVER_CMD_PENDING ); /* a channel sighting lasts as long as a gossip one */
+  FD_TEST( ctx->action==FD_FAILOVER_ACTION_PROMOTE_WAIT_REPLAY );
+  controller_fini( ctx );
+  ctx = controller_init( 0 );
+  ctx->target_since = 1000L-FD_FAILOVER_GOSSIP_FRESH_NANOS;
+  ctx->holder_seen_at = 1000L;
+  FD_TEST( operator_promote( ctx, FD_ADMINCTL_FAILOVER_FLAG_FORCE, fresh )==FD_FAILOVER_CMD_PENDING );
+  controller_fini( ctx );
+
+  /* An operator promotion the votor is not ready for is a retry, not a
+     failed adoption. */
+  ctx = controller_init( 0 );
+  FD_TEST( operator_promote( ctx, FD_ADMINCTL_FAILOVER_FLAG_FORCE, 1000L )==FD_FAILOVER_CMD_PENDING );
+  ctx->cmd_nonce = 1UL;
+  ctx->replay_slot = 100UL;
+  step_promote_wait_replay( ctx, stem );
+  FD_TEST( ctx->action==FD_FAILOVER_ACTION_PROMOTE_WAIT_ADOPT );
+  ctx->adopt_in_idx        = 0UL;
+  ctx->adopt_result        = (fd_votor_adopt_result_t){ .result=FD_VOTOR_ADOPT_ERR_UNREPLAYED, .root=ULONG_MAX, .vote_slot=ULONG_MAX, .vote_bound=ULONG_MAX };
+  after_frag( ctx, 0UL, 0UL, ctx->promotion.adopt_id, sizeof(ctx->adopt_result), 0UL, 0UL, stem );
+  step_promote_wait_adopt( ctx, stem );
+  FD_TEST( ctx->cmd_done && ctx->cmd_result==FD_FAILOVER_CONTROL_RESULT_REPLAY_BEHIND );
+  FD_TEST( ctx->action==FD_FAILOVER_ACTION_IDLE && !holds_identity( ctx ) && !ctx->tx.valid );
+  controller_fini( ctx );
+
+  /* The promotion names the identity its handoff was for: another
+     identity is refused, no target means the current one. */
+  ctx = controller_init( 0 );
+  fd_adminctl_failover_req_t named = { .version=FD_ADMINCTL_FAILOVER_PAYLOAD_VERSION, .cmd=FD_ADMINCTL_FAILOVER_CMD_PROMOTE, .flags=FD_ADMINCTL_FAILOVER_FLAG_FORCE };
+  fd_memset( named.target, 0x77, 32UL );
+  FD_TEST( apply_control( ctx, &named, 1000L )==FD_FAILOVER_CONTROL_RESULT_IDENTITY_CHANGED );
+  FD_TEST( ctx->action==FD_FAILOVER_ACTION_IDLE );
+  fd_memcpy( named.target, ctx->hello.staked_pubkey, 32UL );
+  FD_TEST( apply_control( ctx, &named, 1000L )==FD_FAILOVER_CMD_PENDING );
+  FD_TEST( ctx->action==FD_FAILOVER_ACTION_PROMOTE_WAIT_REPLAY );
+  controller_fini( ctx );
 }
 
 static void
@@ -797,9 +971,7 @@ test_adopt_capacity_retry( void ) {
   controller_fini( ctx );
 }
 
-/* A full pool refuses new candidates.  The outbound and admitted slots
-   are never handed to an unknown address, the known address gets the
-   admitted slot and nothing else. */
+/* A full pool refuses new candidates. */
 static void
 fill( fd_failover_channel_t * ch,
       ulong                   idx,
@@ -816,11 +988,8 @@ fill( fd_failover_channel_t * ch,
   c->deadline = deadline;
 }
 
-/* Session OUTBOUND_IDX is reserved for our own dial; inbound verified
-   peers share the rest.  When the shared sessions are all busy an inbound
-   candidate keeps its small slot and waits rather than being dropped, and
-   it cannot take the reserved dial session.  The fixture has no real TLS
-   context, so this fakes session ownership (as pair() does). */
+/* Session OUTBOUND_IDX is reserved for our own dial, inbound peers
+   share the rest.  The fixture fakes session ownership like pair(). */
 static void
 test_session_wait( void ) {
   fd_failover_tile_ctx_t * ctx = controller_init( 1 );
@@ -872,6 +1041,119 @@ test_session_wait( void ) {
   controller_fini( ctx );
 }
 
+/* test_demoter_is_a_sighting: the peer that handed the identity to us
+   counts as a sign of life like any peer that says it runs it. */
+static void
+test_demoter_is_a_sighting( void ) {
+  int busy = 0;
+  fd_failover_tile_ctx_t * ctx = controller_init( 0 );
+  ctx->target_since = 1000L-FD_FAILOVER_GOSSIP_FRESH_NANOS;
+  open_request( ctx, FD_FAILOVER_ACTION_HANDOFF_WAIT_PEER );
+  pair( ctx, 77UL, 1, 1000L );
+  poll_peer( ctx, 1000L, &busy );
+  FD_TEST( ctx->holder_seen_at==1000L );
+  /* Its DEMOTED: a history whose adoption we refuse (replay stalls). */
+  static uchar payload[ FD_FAILOVER_DEMOTED_PAYLOAD_MAX ];
+  fd_failover_history_t history; make_history( &history, 300UL );
+  ulong sz = fd_failover_demoted_encode( payload, 900UL, OUR_BOOT_ID, 300UL, history.state, history.sz );
+  FD_TEST( sz );
+  ctx->replay_slot = 100UL;
+  deliver( ctx, FD_FAILOVER_MSG_DEMOTED, payload, sz );
+  FD_TEST( ctx->action==FD_FAILOVER_ACTION_PROMOTE_WAIT_REPLAY && ctx->promotion.from_peer );
+  ctx->cmd_nonce   = 1UL;
+  ctx->deadline_at = fd_failover_clock()-1L;
+  step_controller( ctx, stem );
+  FD_TEST( ctx->cmd_done && ctx->cmd_result==FD_FAILOVER_CONTROL_RESULT_ADOPTION_FAILED );
+  FD_TEST( ctx->reply.state!=FD_FAILOVER_REPLY_NONE );
+  /* Still paired with it: live, whatever it did on this session. */
+  fd_keepalive_rx( ctx->channel->keepalive, 1001L );
+  poll_peer( ctx, 1001L, &busy );
+  FD_TEST( ctx->holder_seen_at==1001L );
+  ctx->cmd_nonce = 0UL; ctx->cmd_done = 0;
+  long later = 1001L+FD_FAILOVER_GOSSIP_FRESH_NANOS;
+  FD_TEST( operator_promote( ctx, FD_ADMINCTL_FAILOVER_FLAG_ADOPT, later )==FD_FAILOVER_CONTROL_RESULT_HOLDER_LIVE );
+  /* Its session ended (it hangs up after its HANDOFF_RESULT): a sign of
+     life for the window after its last frame, then --adopt goes ahead. */
+  unpair_session( ctx );
+  FD_TEST( operator_promote( ctx, FD_ADMINCTL_FAILOVER_FLAG_ADOPT, later-1L )==FD_FAILOVER_CONTROL_RESULT_HOLDER_LIVE );
+  FD_TEST( operator_promote( ctx, FD_ADMINCTL_FAILOVER_FLAG_FORCE, later-1L )==FD_FAILOVER_CMD_PENDING );
+  reset_controller( ctx );
+  ctx->holder_seen_at = 1001L;
+  FD_TEST( operator_promote( ctx, FD_ADMINCTL_FAILOVER_FLAG_ADOPT, later )==FD_FAILOVER_CMD_PENDING );
+  FD_TEST( ctx->action==FD_FAILOVER_ACTION_PROMOTE_WAIT_REPLAY && !ctx->promotion.from_peer );
+  controller_fini( ctx );
+}
+
+/* test_restarted_holder_heard: the holder's new boot pairing is a
+   sighting, so --adopt right after is refused. */
+static void
+test_restarted_holder_heard( void ) {
+  int busy = 0;
+  fd_failover_tile_ctx_t * ctx = controller_init( 0 );
+  ctx->target_since = 1000L-FD_FAILOVER_GOSSIP_FRESH_NANOS;
+  open_request( ctx, FD_FAILOVER_ACTION_HANDOFF_WAIT_PEER );
+  ctx->request.until = 1000L+FD_FAILOVER_DEADLINE_NANOS;
+  ctx->cmd_nonce = 1UL;
+  pair( ctx, 78UL, 1, 1000L ); /* a new boot of the holder, the request is bound to 77 */
+  poll_peer( ctx, 1000L, &busy );
+  FD_TEST( ctx->cmd_done && ctx->cmd_result==FD_FAILOVER_CONTROL_RESULT_PEER_RESTARTED );
+  FD_TEST( fd_failover_channel_state( ctx->channel )!=FD_FAILOVER_SESSION_PAIRED && ctx->holder_seen_at==1000L );
+  ctx->cmd_nonce = 0UL; ctx->cmd_done = 0;
+  FD_TEST( operator_promote( ctx, FD_ADMINCTL_FAILOVER_FLAG_ADOPT, 1001L )==FD_FAILOVER_CONTROL_RESULT_HOLDER_LIVE );
+  controller_fini( ctx );
+}
+
+/* test_quick_wait_reaches_holder: the quick wait covers a dial nobody
+   answers, a demotion under way gets the full deadline. */
+static void
+test_quick_wait_reaches_holder( void ) {
+  int busy = 0;
+  fd_failover_tile_ctx_t * ctx = controller_init( 0 );
+  ctx->staked_addr = FD_IP4_ADDR(10,0,0,2);
+  fd_adminctl_failover_req_t req = { .version=FD_ADMINCTL_FAILOVER_PAYLOAD_VERSION, .cmd=FD_ADMINCTL_FAILOVER_CMD_HANDOFF, .flags=FD_ADMINCTL_FAILOVER_FLAG_FORCE };
+  FD_TEST( apply_control( ctx, &req, 1000L )==FD_FAILOVER_CMD_PENDING );
+  FD_TEST( ctx->request.quick && ctx->request.until==1000L+FD_FAILOVER_FORCE_WAIT_NANOS );
+  pair( ctx, 77UL, 1, 2000L );
+  poll_peer( ctx, 2000L, &busy );
+  FD_TEST( ctx->request.send_cnt==1UL && ctx->request.peer.boot_id==77UL );
+  FD_TEST( ctx->request.until==2000L+FD_FAILOVER_DEADLINE_NANOS );
+  /* Not yet overdue at what was the quick deadline. */
+  ctx->cmd_nonce = 1UL;
+  poll_peer( ctx, 1000L+FD_FAILOVER_FORCE_WAIT_NANOS+1L, &busy );
+  FD_TEST( !ctx->cmd_done && ctx->request.id );
+  /* The sighting is the holder's last frame, not the poll. */
+  long late = 2000L+FD_FAILOVER_DEADLINE_NANOS-1L;
+  poll_peer( ctx, late, &busy );
+  FD_TEST( ctx->holder_seen_at==2000L );
+  fd_keepalive_rx( ctx->channel->keepalive, late-1L ); /* a KEEPALIVE from the holder */
+  poll_peer( ctx, late, &busy );
+  FD_TEST( ctx->holder_seen_at==late-1L );
+  end_request( ctx, late, FD_FAILOVER_HANDOFF_DECLINED );
+  ctx->cmd_nonce = 0UL; ctx->cmd_done = 0;
+  ctx->target_since = 0L;
+  FD_TEST( operator_promote( ctx, FD_ADMINCTL_FAILOVER_FLAG_ADOPT, late+1L )==FD_FAILOVER_CONTROL_RESULT_HOLDER_LIVE );
+  FD_TEST( operator_promote( ctx, FD_ADMINCTL_FAILOVER_FLAG_ADOPT, late-1L+FD_FAILOVER_GOSSIP_FRESH_NANOS )==FD_FAILOVER_CMD_PENDING );
+  controller_fini( ctx );
+
+  /* A request a holder already has, paused at its deadline and resumed
+     with --force, keeps the holder's full budget, not the quick wait. */
+  ctx = controller_init( 0 );
+  ctx->staked_addr = FD_IP4_ADDR(10,0,0,2);
+  FD_TEST( operator_cmd( ctx, FD_ADMINCTL_FAILOVER_CMD_HANDOFF, 0U, 0 )==FD_FAILOVER_CMD_PENDING );
+  pair( ctx, 77UL, 1, 2000L );
+  poll_peer( ctx, 2000L, &busy );
+  FD_TEST( ctx->request.send_cnt==1UL );
+  ctx->cmd_nonce = 1UL;
+  poll_peer( ctx, ctx->request.until, &busy );
+  FD_TEST( ctx->cmd_done && ctx->cmd_result==FD_FAILOVER_CONTROL_RESULT_TIMEOUT && is_request_paused( ctx ) );
+  ctx->cmd_nonce = 0UL; ctx->cmd_done = 0;
+  FD_TEST( apply_control( ctx, &req, 5000L )==FD_FAILOVER_CMD_PENDING );
+  FD_TEST( ctx->request.send_cnt==1UL && ctx->request.until==5000L+FD_FAILOVER_DEADLINE_NANOS );
+  end_request( ctx, 5000L, FD_FAILOVER_HANDOFF_DECLINED );
+  controller_fini( ctx );
+}
+
+
 static void
 test_listen_slot( void ) {
   fd_failover_tile_ctx_t * ctx = controller_init( 1 );
@@ -919,8 +1201,12 @@ main( int argc, char ** argv ) {
   test_restarted_peer_new_request();
   test_force_empty_bound();
   test_promote_flags();
+  test_ranked_installed_refuses();
   test_adopt_capacity_retry();
   test_session_wait();
+  test_demoter_is_a_sighting();
+  test_restarted_holder_heard();
+  test_quick_wait_reaches_holder();
   test_listen_slot();
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
