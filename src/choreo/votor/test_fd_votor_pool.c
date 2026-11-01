@@ -18,7 +18,7 @@
 static slot_state_t  slot_state_mem;
 static slot_states_t g_states;
 
-static fd_bls_sig_t g_sig_pg[ SLOT_SIG_PG_MAX*SIG_PG_RANKS ];
+static uchar        g_sig_pg[ SLOT_SIG_PG_MAX*SIG_PG_SZ ];
 static uint         g_sig_pg_free[ SLOT_SIG_PG_MAX ];
 static int          g_disk; /* 0 all sig pages in RAM, 1 all in the spill file, 2 one RAM page then spill */
 static fd_bls_sec_t        g_state_sk  [ VAT_MAX ];
@@ -113,6 +113,29 @@ state_notar_agg( slot_state_t const *    state,
   return fd_bls_agg_construct( agg, g_states.curr_epoch_info->pubkeys, sigs, set );
 }
 
+/* Every inline running sig sum equals the sum of its votes' stored
+   sigs, bad ones subtracted. */
+
+static void
+check_sig_sums( slot_state_t const * ss ) {
+  for( int nf=0; nf<2; nf++ ) {
+    hash_stakes_t const * tbl = nf ? &ss->votes.notar_fallback_hash_stake : &ss->votes.notar_hash_stake;
+    for( uint m=tbl->used; m; m=fd_uint_pop_lsb( m ) ) {
+      ulong id = (ulong)fd_uint_find_lsb( m );
+      fd_bls_set_t set[ fd_bls_set_word_cnt ]; fd_bls_set_null( set );
+      for( ulong rank=0UL; rank<FD_VOTOR_VAT_MAX; rank++ ) {
+        if( !nf ) { if( fd_bls_set_test( ss->votes.notar_set, rank ) && ss->votes.notar_hash_stake_idx[ rank ]==id ) fd_bls_set_insert( set, rank ); continue; }
+        for( ulong j=0UL; j<ss->votes.notar_fallback_sig_cnt[ rank ]; j++ ) if( ss->votes.notar_fallback_hash_stake_idx[ rank ][ j ]==id ) fd_bls_set_insert( set, rank );
+      }
+      fd_bls_sig_t sigs[ FD_VOTOR_VAT_MAX ];
+      slot_state_sigs( ss, &g_states, nf ? FD_VOTE_KIND_NOTAR_FALLBACK : FD_VOTE_KIND_NOTAR, &tbl->ele[ id ].hash, set, sigs );
+      fd_bls_agg_t agg[1]; fd_bls_agg_null( agg );
+      fd_bls_agg_construct( agg, g_states.curr_epoch_info->pubkeys, sigs, set );
+      FD_TEST( fd_bls_sig_eq( &agg->sig, &tbl->sig_sum[ id ] ) );
+    }
+  }
+}
+
 typedef struct {
   struct {
     fd_cert_t     certs          [ SLOT_STATE_OUT_CERT_MAX   ]; ulong certs_cnt;
@@ -131,6 +154,7 @@ add_vote_helper( slot_state_t *       ss,
                  out_t *                 t ) {
   ulong stake = fd_epoch_info_validator( epoch_info, fd_vote_rank( vote ) )->stake;
   t->ok = slot_state_add_vote( ss, &g_states, vote, stake, t->o.certs, &t->o.certs_cnt, t->o.safe_to_notar, &t->o.safe_to_notar_cnt, t->o.safe_to_skip, &t->o.safe_to_skip_cnt, t->o.block_to_repair, &t->o.block_to_repair_cnt, t->o.bad );
+  check_sig_sums( ss );
   ulong ram = 0UL, disk = 0UL;
   for( ulong ks=0UL; ks<FD_VOTOR_VOTES_PER_SLOT_MAX; ks++ ) for( ulong w=0UL; w<fd_bls_set_word_cnt; w++ ) { uint pg = ss->sig_pg[ ks ][ w ]; ram += pg && pg!=SIG_PG_DISK; disk += pg==SIG_PG_DISK; }
   switch( g_disk ) {

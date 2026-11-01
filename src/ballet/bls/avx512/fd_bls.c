@@ -564,6 +564,15 @@ fd_bls_sig_de_compressed( fd_bls_sig_t * sig,
   return rc;
 }
 
+int
+fd_bls_sig_de_compressed_unchecked( fd_bls_sig_t * sig,
+                                    uchar const    buf[ static FD_BLS_SIG_COMPRESSED_SZ ] ) {
+  fd_bls_sig_t s[1];
+  int rc = sig_decode_finish( s, sig_decode_compressed( s, buf ), 0 );
+  if( FD_LIKELY( !rc ) ) *sig = *s;
+  return rc;
+}
+
 void
 fd_bls_sig_add( fd_bls_sig_t *       out,
                 fd_bls_sig_t const * a,
