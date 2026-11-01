@@ -1,8 +1,14 @@
-$(call add-hdrs,fd_xsk.h fd_xdp_redirect_user.h)
+$(call add-hdrs,fd_xsk.h fd_xsk_prebind.h fd_xdp_redirect_user.h)
 
 ifdef FD_HAS_HOSTED
 ifdef FD_HAS_LINUX
 $(call add-objs,fd_xsk fd_xdp1 fd_xdp_redirect_user,fd_waltz)
+
+$(call make-unit-test,test_xsk_init_prebind,test_xsk_init_prebind,)
+$(call run-unit-test,test_xsk_init_prebind)
+
+$(call make-unit-test,test_xsk_prebind,test_xsk_prebind,)
+$(call run-unit-test,test_xsk_prebind)
 
 $(call make-unit-test,test_xsk,test_xsk,fd_waltz fd_util)
 $(call run-unit-test,test_xsk)

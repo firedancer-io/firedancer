@@ -26,6 +26,7 @@ struct fd_auto_info {
   char driver[ NAME_SZ ];
   uint is_virtual_if:1;
   uint is_bonded_if:1;
+  uint is_enslaved_if:1;
   uint is_lacp_if:1;
   uint bonded_if_slave_count;
   int  is_using_gre;
@@ -411,13 +412,25 @@ scrape_is_using_gre( void ) {
 
 static void
 scrape_networking( fd_auto_info_t * info,
-                   char const     * if_name ) {
+                   char const     * if_name,
+                   int              check_prebind ) {
   info->is_using_gre = scrape_is_using_gre();
 
   /* Check for virtual interface */
   char path[ PATH_MAX ];
   FD_TEST( fd_cstr_printf_check( path, PATH_MAX, NULL, "/sys/class/net/%s/device", if_name ) );
   info->is_virtual_if = ( -1==access( path, F_OK ) );
+
+  /* A physical port may still belong to a bond or bridge.  Only probe
+     this for the experimental path, preserving default behavior. */
+  if( check_prebind ) {
+    FD_TEST( fd_cstr_printf_check( path, PATH_MAX, NULL, "/sys/class/net/%s/master", if_name ) );
+    int rc = access( path, F_OK );
+    if( FD_UNLIKELY( rc && errno!=ENOENT ) )
+      FD_LOG_ERR(( "net.xdp.experimental_prebind_fill cannot verify standalone interface %s: access(%s) failed (%i-%s)",
+                   if_name, path, errno, fd_io_strerror( errno ) ));
+    info->is_enslaved_if = !rc;
+  }
 
   /* Check for bond */
   info->is_bonded_if = !!fd_bonding_is_master( if_name );
@@ -441,7 +454,7 @@ fd_auto_scrape_info( fd_config_t const * config ) {
   fd_auto_info_t info = {0};
 
   scrape_system    ( &info                        );
-  scrape_networking( &info, config->net.interface );
+  scrape_networking( &info, config->net.interface, config->net.xdp.experimental_prebind_fill );
 
   if( !strcmp( config->net.provider, "auto" ) &&
       info.has_mlx5_rdma_port                 &&
@@ -458,6 +471,10 @@ but won't always maximally optimize, this is to reduce risk of failures. */
 static void
 fd_auto_net_apply( fd_config_t          * config,
                    fd_auto_info_t const * info ) {
+  if( FD_UNLIKELY( config->net.xdp.experimental_prebind_fill &&
+                   (info->is_virtual_if || info->is_bonded_if || info->is_enslaved_if) ) )
+    FD_LOG_ERR(( "net.xdp.experimental_prebind_fill requires a standalone physical interface; net.interface=%s is virtual, a bond master, or attached to another interface", config->net.interface ));
+
   /* Providers are in order of priority with first being the highest */
   int const is_provider_auto = !strcmp( config->net.provider, "auto" );
   int is_provider_set = 0;

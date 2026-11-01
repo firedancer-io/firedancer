@@ -1,5 +1,7 @@
 #include "fd_auto_net.c" /* fd_auto_net_apply is static */
 
+#include <sys/wait.h>
+
 /* Test the auto config resolution policy with hand built system
    info.  The scrape functions (uname, sysfs, bonding) are not
    covered here. */
@@ -23,6 +25,30 @@ static void
 reset_provider_auto( uint net_tile_cnt ) {
   reset_auto( net_tile_cnt );
   strcpy( config->net.provider, "auto" );
+}
+
+/* Interface classification must reject unsafe prebind use even when
+   native_bond is explicitly false.  The disabled path stays unchanged. */
+static int
+prebind_interface_is_valid( fd_auto_info_t const * info,
+                           int                    enabled ) {
+  int pid = fork();
+  FD_TEST( pid>=0 );
+  if( FD_UNLIKELY( !pid ) ) {
+    reset_auto( 1U );
+    config->net.xdp.experimental_prebind_fill = enabled;
+    strcpy( config->net.xdp.xdp_mode, "drv" );
+    strcpy( config->net.xdp.rss_queue_mode, "dedicated" );
+    config->net.xdp.xdp_zero_copy = 1;
+    config->net.xdp.native_bond   = 0;
+    config->net.xdp.xdp_rx_queue_size = 1024U;
+    fd_auto_net_apply( config, info );
+    FD_TEST( config->net.xdp.native_bond==0 );
+    _exit( 0 );
+  }
+  int status = 0;
+  FD_TEST( waitpid( pid, &status, 0 )==pid );
+  return WIFEXITED( status ) && !WEXITSTATUS( status );
 }
 
 int
@@ -183,6 +209,18 @@ main( int     argc,
   FD_TEST( config->net.xdp.xdp_zero_copy==0 );
   FD_TEST( config->net.xdp.native_bond  ==0 );
   FD_TEST( config->net.xdp.listen_gre   ==0 );
+
+  fd_auto_info_t physical = { .linux_major=6, .linux_minor=8, .driver="bnxt_en" };
+  FD_TEST( prebind_interface_is_valid( &physical, 1 ) );
+  FD_TEST( prebind_interface_is_valid( &physical, 0 ) );
+  for( uint i=1U; i<8U; i++ ) {
+    fd_auto_info_t attached = physical;
+    attached.is_virtual_if  = !!(i & 1U);
+    attached.is_bonded_if   = !!(i & 2U);
+    attached.is_enslaved_if = !!(i & 4U);
+    FD_TEST( !prebind_interface_is_valid( &attached, 1 ) );
+    FD_TEST(  prebind_interface_is_valid( &attached, 0 ) );
+  }
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

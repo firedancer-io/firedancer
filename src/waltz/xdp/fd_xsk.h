@@ -216,6 +216,11 @@ struct fd_xsk_params {
   /* sockaddr_xdp.sxdp_flags additional params, e.g. XDP_ZEROCOPY */
   uint bind_flags;
 
+  /* Optional fresh FILL span published before bind. Zero count preserves
+     the normal path. Nonzero requires explicit zero-copy and 2048B frames. */
+  ulong initial_fill_off;
+  ulong initial_fill_cnt;
+
   /* Whether to use softirqs to poll napi or prefbusy poll */
   char poll_mode[ 16 ];
 

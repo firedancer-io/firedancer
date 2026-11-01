@@ -1343,6 +1343,14 @@ telemetry = true
         #  "true", "false" or "auto" (default)
         xdp_zero_copy = "auto"
 
+        # Experimental: publish the physical socket's receive buffers to
+        # its FILL ring before binding.  Disabled unless explicitly set.
+        # Requires provider="xdp", xdp_mode="drv", xdp_zero_copy=true,
+        # native_bond=false, rss_queue_mode="dedicated",
+        # layout.net_tile_count=1, and xdp_rx_queue_size=1024.
+        # Use only with a driver and kernel validated for this ordering.
+        experimental_prebind_fill = false
+
         # The poll_mode option determines how Firedancer polls NAPI (Linux's
         # high perf networking mechanisms).  Its possible values are:
         #
