@@ -134,7 +134,7 @@ typedef struct sign sign_t;
 #define PING_TTL  (500L*1000000L)   /* a ping is answered this long after we sent its peer a request, Agave's 2*DELTA */
 #define BAN_TTL   (10L*1000000000L) /* a peer whose response fails to verify is not picked for this long */
 #define STUCK_MAX (3U)              /* attempts with no new shred before a retry leaves the bucket order */
-#define NO_PEER   (10L*1000000L)    /* a req with no peer to pick waits this long */
+#define NO_PEER   (10L*1000000L)    /* a role with no eligible peer waits this long */
 
 static fd_ed25519_sig_t const sig_null = {0};
 
@@ -198,6 +198,8 @@ struct fd_repair_tile {
   timeout_t *       eager_prq;
   timeout_t *       notar_prq;
   timeout_t *       final_prq;
+  long              peer_retry_ns[3];     /* physical queues: final, notar, eager */
+  int               peer_retry_staked[3]; /* whether the failed pick required stake */
   pending_t *       pending_pool;
   pending_map_t *   pending_map;
   pending_dlist_t * pending_dlist;
@@ -291,6 +293,21 @@ struct fd_repair_tile {
 };
 typedef struct fd_repair_tile fd_repair_tile_t;
 
+/* Wake only roles for which this peer can actually be picked.  In
+   particular, late replies from banned peers must not restart scanning
+   the entire overdue backlog.  Time alone retries within NO_PEER. */
+static void
+peer_available( fd_repair_tile_t * ctx,
+                fd_pubkey_t const * id,
+                long                now ) {
+  fd_repair_strat_peer_t const * peer = fd_repair_strat_query( ctx->strat, id );
+  if( FD_UNLIKELY( !peer || !peer->ip4 || peer->out_cnt>=FD_REPAIR_STRAT_INFLIGHT_MAX || peer->ban_ts>now ) ) return;
+  int staked = (ulong)( peer-ctx->strat->cur.peers )<ctx->strat->staked_cnt;
+  for( ulong c=0UL; c<3UL; c++ ) {
+    if( !ctx->peer_retry_staked[c] || staked ) ctx->peer_retry_ns[c] = 0L;
+  }
+}
+
 /* push_timeout inserts req into its blk's role's timeout_prq.  A full
    timeout_prq drops it and rewinds the blk, back into its blk_treap,
    so the work is discovered again. */
@@ -321,10 +338,12 @@ push_timeout( fd_repair_tile_t * ctx,
 static fd_repair_blk_t *
 poll_timeout( fd_repair_tile_t * ctx,
               long               now,
-              timeout_t *        out ) {
+              timeout_t *        out,
+              ulong *            opt_prq_idx ) {
   timeout_t * prqs[3] = { ctx->final_prq, ctx->notar_prq, ctx->eager_prq };
   for( ulong c=0UL; c<3; c++ ) {
     timeout_t * prq = prqs[ c ];
+    if( FD_UNLIKELY( now<ctx->peer_retry_ns[c] ) ) continue;
     while( timeout_prq_cnt( prq ) && prq[ 0 ].timeout<=now ) {
       timeout_t req = prq[ 0 ];
       timeout_prq_remove_min( prq );
@@ -351,6 +370,7 @@ poll_timeout( fd_repair_tile_t * ctx,
         continue;
       }
       *out = req;
+      if( opt_prq_idx ) *opt_prq_idx = c;
       return blk;
     }
   }
@@ -596,6 +616,7 @@ handle_shred( fd_repair_tile_t * ctx,
       if( FD_LIKELY( !pending->answered ) ) { /* rtt to the shred tile's network rx, not to this tile's turn at the frag */
         long rtt = fd_long_max( rx_ts-pending->ts, 1L );
         fd_repair_strat_request_done( ctx->strat, &pending->peer, rtt, pending->tag==FD_REPAIR_SERDE_TAG_WINDOW_INDEX_FOR_BLOCK_ID );
+        peer_available( ctx, &pending->peer, now );
         fd_histf_sample( ctx->metrics->response_latency, (ulong)rtt );
       }
       pending->mask &= ~bit;
@@ -714,6 +735,7 @@ handle_replay( fd_repair_tile_t * ctx,
     ctx->metrics->replay_root_advanced++;
     if( FD_UNLIKELY( root->slot<=ctx->rotor->root ) ) return;
     fd_repair_root_advanced( ctx->rotor, root->slot, &root->block_id );
+    memset( ctx->peer_retry_ns, 0, sizeof(ctx->peer_retry_ns) );
     if( FD_UNLIKELY( ctx->catchup_slot>ctx->rotor->root ) ) fd_repair_slot_catchup( ctx->rotor, fd_ulong_min( ctx->catchup_slot+1UL, ctx->rotor->root+ctx->rotor->slot_max ) );
     break;
   }
@@ -750,6 +772,7 @@ handle_gossip( fd_repair_tile_t *                 ctx,
     }
 
     fd_repair_strat_contact_info_updated( ctx->strat, &id_key, ip4, port );
+    peer_available( ctx, &id_key, fd_clock_tile_now( ctx->clock ) );
     fd_repair_strat_peer_t const * peer = fd_repair_strat_query( ctx->strat, &id_key );
     if( FD_UNLIKELY( peer && !peer->ping_ts && !ping_deque_full( ctx->ping_deque ) ) ) ping_deque_push_tail( ctx->ping_deque, id_key ); /* new address */
     break;
@@ -841,6 +864,7 @@ handle_parent_and_fec_set_count_res( fd_repair_tile_t *   ctx,
     return;
   }
   fd_repair_strat_request_done( ctx->strat, &sent.peer, now-sent.ts, 0 );
+  peer_available( ctx, &sent.peer, now );
   fd_histf_sample( ctx->metrics->response_latency, (ulong)( now-sent.ts ) );
   ctx->metrics->parent_fec_count_ok++;
 
@@ -885,6 +909,7 @@ handle_fec_set_root_res( fd_repair_tile_t *   ctx,
     return;
   }
   fd_repair_strat_request_done( ctx->strat, &sent.peer, now-sent.ts, 0 );
+  peer_available( ctx, &sent.peer, now );
   fd_histf_sample( ctx->metrics->response_latency, (ulong)( now-sent.ts ) );
   ctx->metrics->fec_root_ok++;
 
@@ -1130,6 +1155,7 @@ after_credit( fd_repair_tile_t *  ctx,
     else if( FD_LIKELY  ( answerable        ) ) ban = fd_repair_strat_request_expired( ctx->strat, &pending->peer, now+BAN_TTL, byid );
     else                                        fd_repair_strat_request_failed ( ctx->strat, &pending->peer, 0           );
     ctx->metrics->peer_byid_banned += (ulong)( ban==1 );
+    if( !pending->answered ) peer_available( ctx, &pending->peer, now );
     fd_repair_blk_t const * blk        = answerable || !ctx->report_repair_requests || !fd_event_tl ? NULL : fd_repair_blk_map_ele_query_const( ctx->rotor->blk_map, &pending->slot, NULL, ctx->rotor->blk_pool );
     while( blk && fd_repair_blk_pool_idx( ctx->rotor->blk_pool, blk )!=pending->blk ) blk = fd_repair_blk_map_ele_next_const( blk, NULL, ctx->rotor->blk_pool );
     fd_repair_blk_t const * parent     = blk ? fd_repair_blk_pool_ele_const( ctx->rotor->blk_pool, blk->parent ) : NULL;
@@ -1191,7 +1217,8 @@ after_credit( fd_repair_tile_t *  ctx,
 
   while( sign_pool_free( ctx->sign_pool )>=SIGN_RESERVE+FD_FEC_SHRED_CNT ) {
     timeout_t         req;
-    fd_repair_blk_t * blk = poll_timeout( ctx, now, &req );
+    ulong              prq_idx;
+    fd_repair_blk_t * blk = poll_timeout( ctx, now, &req, &prq_idx );
     if( FD_UNLIKELY(  !blk ) ) break;
 
     fd_repair_fec_t const * fec   = fd_repair_fec_pool_ele_const( ctx->rotor->fec_pool, fd_ulong_if( req.tag==FD_REPAIR_SERDE_TAG_WINDOW_INDEX, blk->fecs[ req.fec_idx ], fd_repair_fec_pool_idx_null( ctx->rotor->fec_pool ) ) );
@@ -1223,9 +1250,18 @@ after_credit( fd_repair_tile_t *  ctx,
     if( FD_UNLIKELY( !peer ) ) {
       ctx->metrics->req_no_peer++;
       ctx->metrics->req_no_staked_peer += (ulong)( !blk->eager && req.attempt );
-      req.timeout = now+NO_PEER;
-      push_timeout( ctx, blk, &req );
-      break;
+      /* No request was sent.  Keep the original deadline and physical
+         queue so the oldest missing work is still first when a peer
+         returns.  The pop above guarantees space, even across promotion.
+         Cool down the role, not just this one request: other overdue
+         entries would otherwise cause the same failed scan immediately.
+         Other roles remain serviceable.  This role resumes at NO_PEER
+         or when an eligible peer becomes available. */
+      timeout_t * prqs[3] = { ctx->final_prq, ctx->notar_prq, ctx->eager_prq };
+      timeout_prq_insert( prqs[prq_idx], &req );
+      ctx->peer_retry_ns[prq_idx]     = now+NO_PEER;
+      ctx->peer_retry_staked[prq_idx] = !blk->eager && req.attempt;
+      continue;
     }
     peer->ping_ts = now;
     req.stuck     = stuck;
@@ -1236,7 +1272,10 @@ after_credit( fd_repair_tile_t *  ctx,
 
     if( FD_UNLIKELY( !pending_pool_free( ctx->pending_pool ) ) ) { /* evict the oldest, a reply to it no longer matches */
       pending_t * oldest = pending_dlist_ele_pop_head( ctx->pending_dlist, ctx->pending_pool );
-      if( FD_LIKELY( !oldest->answered ) ) fd_repair_strat_request_failed( ctx->strat, &oldest->peer, 0 );
+      if( FD_LIKELY( !oldest->answered ) ) {
+        fd_repair_strat_request_failed( ctx->strat, &oldest->peer, 0 );
+        peer_available( ctx, &oldest->peer, now );
+      }
       for( uint m=oldest->mask; m; m=fd_uint_pop_lsb( m ) ) report_repair_request( ctx, oldest, (uint)fd_uint_find_lsb( m ), 0L, FD_EVENT_REPAIR_REQUEST_OUTCOME_EVICTED, FD_EVENT_REPAIR_REQUEST_BAN_NONE );
       pending_map_ele_remove_fast( ctx->pending_map, oldest, ctx->pending_pool );
       pending_pool_ele_release   ( ctx->pending_pool, oldest );
@@ -1430,6 +1469,7 @@ after_frag( fd_repair_tile_t *  ctx,
   case IN_KIND_EPOCH: {
     fd_epoch_info_msg_t const * msg = (fd_epoch_info_msg_t const *)fd_type_pun_const( src );
     fd_repair_strat_epoch_advanced( ctx->strat, fd_epoch_info_msg_id_weights( msg ), msg->staked_id_cnt );
+    memset( ctx->peer_retry_ns, 0, sizeof(ctx->peer_retry_ns) );
     timeout_t * prqs[3] = { ctx->final_prq, ctx->notar_prq, ctx->eager_prq };
     for( ulong c=0UL; c<3UL; c++ ) { /* the re-sort moved peers, keep retries avoiding the same one */
       for( ulong i=0UL; i<timeout_prq_cnt( prqs[ c ] ); i++ ) {
@@ -1457,9 +1497,10 @@ after_frag( fd_repair_tile_t *  ctx,
 static long
 next_deadline( fd_repair_tile_t * ctx ) {
   long due = LONG_MAX;
-  due = fd_long_if( !!timeout_prq_cnt( ctx->eager_prq ), fd_long_min( due, ctx->eager_prq[ 0 ].timeout ), due );
-  due = fd_long_if( !!timeout_prq_cnt( ctx->notar_prq ), fd_long_min( due, ctx->notar_prq[ 0 ].timeout ), due );
-  due = fd_long_if( !!timeout_prq_cnt( ctx->final_prq ), fd_long_min( due, ctx->final_prq[ 0 ].timeout ), due );
+  timeout_t * prqs[3] = { ctx->final_prq, ctx->notar_prq, ctx->eager_prq };
+  for( ulong c=0UL; c<3UL; c++ ) {
+    if( timeout_prq_cnt( prqs[c] ) ) due = fd_long_min( due, fd_long_max( prqs[c][0].timeout, ctx->peer_retry_ns[c] ) );
+  }
   if( FD_LIKELY( !pending_dlist_is_empty( ctx->pending_dlist, ctx->pending_pool ) ) ) due = fd_long_min( due, pending_dlist_ele_peek_head( ctx->pending_dlist, ctx->pending_pool )->ts+PENDING_TTL );
   if( FD_UNLIKELY( due==LONG_MAX ) ) return LONG_MAX;
   return fd_clock_tile_wallclock_to_tickcount( ctx->clock, due );

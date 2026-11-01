@@ -145,7 +145,7 @@ test_boundary( uint kind ) {
   discover_all( 1000000000L );
   ulong positional = 0UL, named = 0UL;
   timeout_t req; fd_repair_blk_t * b;
-  while( (b=poll_timeout( ctx, 2000000000L, &req )) ) {
+  while( (b=poll_timeout( ctx, 2000000000L, &req, NULL )) ) {
     if( req.slot!=TEST_CERT ) continue;
     positional += (ulong)(b->eager && req.tag==FD_REPAIR_SERDE_TAG_HIGHEST_WINDOW_INDEX);
     named += (ulong)(!b->eager && req.tag==FD_REPAIR_SERDE_TAG_WINDOW_INDEX);
@@ -263,7 +263,7 @@ test_saved_gap( ulong root_slot, ulong delivered_slot, ulong first_cert ) {
   uint available = 0U;
   timeout_t req;
   fd_repair_blk_t * b;
-  while( (b=poll_timeout( ctx, 2000000000L, &req )) ) {
+  while( (b=poll_timeout( ctx, 2000000000L, &req, NULL )) ) {
     if( b->eager && req.tag==FD_REPAIR_SERDE_TAG_HIGHEST_WINDOW_INDEX && req.slot>delivered_slot && req.slot<=TEST_CERT )
       available |= 1U<<(req.slot-delivered_slot-1UL);
   }
