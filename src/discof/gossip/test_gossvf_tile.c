@@ -359,7 +359,8 @@ test_sigok( void ) {
     /* The published copy carries the value marked failed, as before. */
     fd_frag_meta_t const * meta = out_mcache + fd_mcache_line_idx( seq0+1UL, TEST_OUT_DEPTH );
     FD_TEST( fd_gossvf_sig_kind( meta->sig )==0U );
-    uchar const * out = fd_chunk_to_laddr_const( ctx->out->mem, meta->chunk );
+    static uchar out[ 65536 ] __attribute__((aligned(8)));
+    FD_TEST( fd_gossip_message_expand( out, sizeof(out), fd_chunk_to_laddr_const( ctx->out->mem, meta->chunk ), meta->sz ) ); /* compact frame */
     fd_gossip_message_t const * msg = (fd_gossip_message_t const *)out;
     FD_TEST( msg->tag==FD_GOSSIP_MESSAGE_PUSH && msg->push->values_len==1UL );
     FD_TEST( out[ fd_gossip_message_used_sz( msg ) ]==FD_GOSSIP_FAILED_NO_CONTACT_INFO );
@@ -395,7 +396,8 @@ test_sigok( void ) {
   FD_TEST( stem_seq[0]==seq0+1UL ); /* no ping request */
   {
     fd_frag_meta_t const * meta = out_mcache + fd_mcache_line_idx( seq0, TEST_OUT_DEPTH );
-    uchar const * out = fd_chunk_to_laddr_const( ctx->out->mem, meta->chunk );
+    static uchar out[ 65536 ] __attribute__((aligned(8)));
+    FD_TEST( fd_gossip_message_expand( out, sizeof(out), fd_chunk_to_laddr_const( ctx->out->mem, meta->chunk ), meta->sz ) );
     fd_gossip_message_t const * msg = (fd_gossip_message_t const *)out;
     FD_TEST( out[ fd_gossip_message_used_sz( msg ) ]==0 );
   }

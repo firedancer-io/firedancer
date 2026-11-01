@@ -440,6 +440,45 @@ fd_gossip_message_deserialize( fd_gossip_message_t * message,
                                uchar const *         payload,
                                ulong                 payload_sz );
 
+/* Compact link encoding of a decoded message.  Push/pull response
+   values are packed as header + active union member, other kinds are
+   copied whole.
+
+   Bound: a decoded value is at most 35 B larger than its wire bytes
+   (vote; epoch slots +12, snapshot hashes +20, duplicate shred +27),
+   except a contact info: 496 B from as few as 126 wire bytes (+370).
+   Values share 1188 wire bytes, so at most 9 contact infos fit and the
+   54 B left beside 9 cannot hold another value (min 117 B, epoch
+   slots); fewer contact infos only lower the excess.  Pull request
+   (3856 B) and prune (1336 B) are below the push bound. */
+
+#define FD_GOSSIP_VALUE_HDR_SZ          (offsetof(fd_gossip_value_t, lowest_slot))
+#define FD_GOSSIP_CONTACT_INFO_WIRE_MIN (126UL)
+#define FD_GOSSIP_MESSAGE_COMPACT_MAX                                              \
+  (offsetof(fd_gossip_message_t, push)+offsetof(fd_gossip_push_t, values) +        \
+   FD_GOSSIP_VALUE_MAX_SZ +                                                        \
+   (FD_GOSSIP_VALUE_MAX_SZ/FD_GOSSIP_CONTACT_INFO_WIRE_MIN) *                      \
+   (FD_GOSSIP_VALUE_HDR_SZ+sizeof(fd_gossip_contact_info_t)-FD_GOSSIP_CONTACT_INFO_WIRE_MIN))
+
+/* fd_gossip_message_compact writes message to out in compact encoding
+   and returns the size written (<=FD_GOSSIP_MESSAGE_COMPACT_MAX). */
+
+ulong
+fd_gossip_message_compact( fd_gossip_message_t const * message,
+                           uchar *                     out );
+
+/* fd_gossip_message_expand expands a compact message followed by an
+   opaque trailer of in_sz-compact bytes into out (8-aligned, out_max
+   bytes) as a full fd_gossip_message_t (fd_gossip_message_used_sz
+   bytes) followed by the trailer.  Returns the expanded size, or 0 if
+   in is malformed or out_max is too small. */
+
+ulong
+fd_gossip_message_expand( uchar *       out,
+                          ulong         out_max,
+                          uchar const * in,
+                          ulong         in_sz );
+
 long
 fd_gossip_value_serialize( fd_gossip_value_t const * value,
                            uchar *                   out,

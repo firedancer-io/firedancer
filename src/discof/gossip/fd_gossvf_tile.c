@@ -1170,8 +1170,7 @@ publish_message( fd_gossvf_tile_ctx_t * ctx,
 
   uchar * dst = fd_chunk_to_laddr( ctx->out->mem, ctx->out->chunk );
 
-  ulong copy_sz = fd_gossip_message_used_sz( message );
-  fd_memcpy( dst, message, copy_sz );
+  ulong copy_sz = fd_gossip_message_compact( message, dst );
   fd_memcpy( dst+copy_sz, failed, FD_GOSSIP_MESSAGE_MAX_CRDS );
   fd_memcpy( dst+copy_sz+FD_GOSSIP_MESSAGE_MAX_CRDS, payload, payload_sz );
 
