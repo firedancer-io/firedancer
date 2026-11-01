@@ -60,7 +60,7 @@ main( int     argc,
 
   static fd_config_t config[1];
   fd_config_load( 0, default_config, strlen( default_config ), NULL, NULL, 0UL, NULL, 0UL, NULL, config, 0 );
-  FD_TEST( config->firedancer.runtime.transaction_cache_size_mib==480UL );
+  FD_TEST( config->firedancer.runtime.transaction_cache_size_mib==240UL );
   char expected_stake_delegations[ PATH_MAX ];
   FD_TEST( fd_cstr_printf_check( expected_stake_delegations,
                                  sizeof(expected_stake_delegations),
