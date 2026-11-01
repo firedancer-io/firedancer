@@ -1366,7 +1366,7 @@ publish_txn_executed( fd_replay_tile_t *  ctx,
   }
 
   fd_replay_txn_executed_t * txn_executed = fd_type_pun( fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk ) );
-  *txn_executed->txn = *fd_sched_get_txn( ctx->sched, txn_idx );
+  fd_txn_p_copy( txn_executed->txn, fd_sched_get_txn( ctx->sched, txn_idx ) );
   txn_executed->txn_err = txn_info->txn_err;
   txn_executed->is_committable = !!(txn_info->flags&FD_SCHED_TXN_IS_COMMITTABLE);
   txn_executed->is_fees_only = !!(txn_info->flags&FD_SCHED_TXN_IS_FEES_ONLY);
