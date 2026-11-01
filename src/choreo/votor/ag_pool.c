@@ -147,7 +147,7 @@ ag_pool_footprint( ulong slot_max,
       alignof(slot_states_t),               sizeof(slot_states_t)                                   ),
       slot_state_pool_align(),              slot_state_pool_footprint( slot_max )                   ),
       slot_state_map_align(),               slot_state_map_footprint ( slot_chain_cnt )             ),
-      alignof(fd_bls_sig_t),                AG_SIG_PG_SZ * sig_pg_max                               ),
+      alignof(ulong),                       AG_SIG_PG_SZ * sig_pg_max                               ),
       alignof(uint),                        sizeof(uint) * sig_pg_max                               ),
       ag_parent_ready_tracker_align(),      ag_parent_ready_tracker_footprint( ready_max )          ),
       ag_finality_tracker_align(),          ag_finality_tracker_footprint( slot_max )               ),
@@ -197,7 +197,7 @@ ag_pool_new( void * mem,
   void *      slot_states                  = FD_SCRATCH_ALLOC_APPEND( l, alignof(slot_states_t),               sizeof(slot_states_t)                                   );
   void *      slot_state_pool              = FD_SCRATCH_ALLOC_APPEND( l, slot_state_pool_align(),              slot_state_pool_footprint( slot_max )                   );
   void *      slot_state_map               = FD_SCRATCH_ALLOC_APPEND( l, slot_state_map_align(),               slot_state_map_footprint ( slot_chain_cnt )             );
-  void *      sig_pg                       = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_bls_sig_t),                AG_SIG_PG_SZ * sig_pg_max                               );
+  void *      sig_pg                       = FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong),                       AG_SIG_PG_SZ * sig_pg_max                               );
   uint *      sig_pg_free                  = FD_SCRATCH_ALLOC_APPEND( l, alignof(uint),                        sizeof(uint) * sig_pg_max                               );
   void *      parent_ready_tracker         = FD_SCRATCH_ALLOC_APPEND( l, ag_parent_ready_tracker_align(),      ag_parent_ready_tracker_footprint( ready_max )          );
   void *      finality_tracker             = FD_SCRATCH_ALLOC_APPEND( l, ag_finality_tracker_align(),          ag_finality_tracker_footprint( slot_max )               );
@@ -214,7 +214,7 @@ ag_pool_new( void * mem,
   pool->slot_states                                        = (slot_states_t *)slot_states;
   pool->slot_states->pool                                  = slot_state_pool_join   ( slot_state_pool_new   ( slot_state_pool,       slot_max              ) );
   pool->slot_states->map                                   = slot_state_map_join    ( slot_state_map_new    ( slot_state_map,        slot_chain_cnt, seed  ) );
-  pool->slot_states->shared.sig_pg                         = (fd_bls_sig_t *)sig_pg;
+  pool->slot_states->shared.sig_pg                         = (uchar *)sig_pg;
   pool->slot_states->shared.sig_pg_free                    = sig_pg_free;
   pool->slot_states->shared.sig_pg_free_cnt                = sig_pg_max;
   for( ulong i=0UL; i<sig_pg_max; i++ ) sig_pg_free[ i ] = (uint)( sig_pg_max-1UL-i );

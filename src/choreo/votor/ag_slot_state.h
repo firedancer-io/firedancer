@@ -27,7 +27,8 @@
    staked voters) go to the slot's region of the spill file, read and
    written with pread/pwrite.  A free spill record has stake ULONG_MAX.
    Ids are stable: id<AG_HASH_STAKE_INLINE_MAX is inline, else spill
-   record id-AG_HASH_STAKE_INLINE_MAX. */
+   record id-AG_HASH_STAKE_INLINE_MAX.  Inline ids keep the sum of
+   their votes' sigs (unverified, like skip_agg). */
 
 #define AG_HASH_STAKE_INLINE_MAX (32UL)
 #define AG_NOTAR_SPILL_MAX       (AG_VAT_MAX                -AG_HASH_STAKE_INLINE_MAX)
@@ -44,18 +45,20 @@ typedef struct ag_hash_stake ag_hash_stake_t;
    kinds sharing a slot are exclusive per rank (check_slashable_offence,
    should_ignore_vote).  Each [ks][64 ranks] page takes one of the
    preallocated RAM pages on its first sig, else lives at its offset in
-   the slot's spill region after the hash stake records. */
+   the slot's spill region after the hash stake records.  Sigs are
+   stored compressed. */
 
 #define AG_SLOT_SIG_CNT        (AG_SLOT_VOTE_SIG_MAX*AG_VAT_MAX)
 #define AG_SIG_PG_RANKS        (64UL) /* one fd_bls_set word */
-#define AG_SIG_PG_SZ           (AG_SIG_PG_RANKS*sizeof(fd_bls_sig_t))
+#define AG_SIG_PG_SZ           (AG_SIG_PG_RANKS*FD_BLS_SIG_COMPRESSED_SZ)
 #define AG_SLOT_SIG_PG_MAX     (AG_SLOT_VOTE_SIG_MAX*fd_bls_set_word_cnt)
 #define AG_HS_SPILL_SZ         ((AG_NOTAR_SPILL_MAX+AG_NF_SPILL_MAX)*sizeof(ag_hash_stake_t))
-#define AG_SLOT_STATE_SPILL_SZ (AG_HS_SPILL_SZ+AG_SLOT_SIG_CNT*sizeof(fd_bls_sig_t))
+#define AG_SLOT_STATE_SPILL_SZ (AG_HS_SPILL_SZ+AG_SLOT_SIG_CNT*FD_BLS_SIG_COMPRESSED_SZ)
 #define AG_SIG_PG_DISK         (UINT_MAX)
 
 struct ag_hash_stakes {
-  ag_hash_stake_t ele[ AG_HASH_STAKE_INLINE_MAX ];
+  ag_hash_stake_t ele    [ AG_HASH_STAKE_INLINE_MAX ];
+  fd_bls_sig_t    sig_sum[ AG_HASH_STAKE_INLINE_MAX ];
   uint            used;      /* inline occupancy */
   ushort          spill_cnt; /* live spill records */
   ushort          spill_hwm; /* spill records [0,hwm) were written */
@@ -124,7 +127,7 @@ struct ag_slot_state {
 typedef struct ag_slot_state ag_slot_state_t;
 
 struct ag_slot_states {
-  fd_bls_sig_t *          sig_pg;      /* RAM pages of AG_SIG_PG_RANKS */
+  uchar *                 sig_pg;      /* RAM pages of AG_SIG_PG_RANKS */
   uint *                  sig_pg_free; /* free page stack */
   ulong                   sig_pg_free_cnt;
   int                     spill_fd;
@@ -264,6 +267,20 @@ ag_slot_state_sigs( ag_slot_state_t const *  self,
                     ag_block_hash_t const    block_hash,
                     fd_bls_set_t const *     set,
                     fd_bls_sig_t *           out );
+
+/* fd_bls_agg_verify_subtract of agg (kind votes of self, block_hash
+   as in ag_slot_state_sigs) on msg, reading the sigs only if the
+   aggregate fails. */
+
+int
+ag_slot_state_agg_verify( ag_slot_state_t const *  self,
+                          ag_slot_states_t const * states,
+                          uint                     kind,
+                          ag_block_hash_t const    block_hash,
+                          uchar const *            msg,
+                          ulong                    msg_sz,
+                          fd_bls_agg_t *           agg,
+                          fd_bls_set_t *           bad );
 
 FD_PROTOTYPES_END
 

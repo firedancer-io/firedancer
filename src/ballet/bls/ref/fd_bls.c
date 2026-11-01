@@ -192,6 +192,15 @@ fd_bls_sig_de_unchecked( fd_bls_sig_t * sig,
 }
 
 int
+fd_bls_sig_de_compressed_unchecked( fd_bls_sig_t * sig,
+                                    uchar const    buf[ static FD_BLS_SIG_COMPRESSED_SZ ] ) {
+  blst_p2_affine a[1];
+  if( FD_UNLIKELY( blst_p2_uncompress( a, buf )!=BLST_SUCCESS ) ) return -1;
+  blst_p2_from_affine( sig, a );
+  return 0;
+}
+
+int
 fd_bls_sig_de_compressed( fd_bls_sig_t * sig,
                           uchar const    buf[ static FD_BLS_SIG_COMPRESSED_SZ ] ) {
   blst_p2_affine a[1];

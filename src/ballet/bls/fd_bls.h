@@ -62,6 +62,9 @@ void fd_bls_sig_compress     ( fd_bls_sig_t const * sig, uchar buf[ static FD_BL
 int  fd_bls_sig_de           ( fd_bls_sig_t * sig, uchar const buf[ static FD_BLS_SIG_SZ ] );
 int  fd_bls_sig_de_compressed( fd_bls_sig_t * sig, uchar const buf[ static FD_BLS_SIG_COMPRESSED_SZ ] );
 int  fd_bls_sig_de_unchecked ( fd_bls_sig_t * sig, uchar const buf[ static FD_BLS_SIG_SZ ] );
+/* fd_bls_sig_de_compressed_unchecked is _de_unchecked for a compressed
+   encoding, for sigs that already passed the subgroup check. */
+int  fd_bls_sig_de_compressed_unchecked( fd_bls_sig_t * sig, uchar const buf[ static FD_BLS_SIG_COMPRESSED_SZ ] );
 void fd_bls_sig_add          ( fd_bls_sig_t * out, fd_bls_sig_t const * a, fd_bls_sig_t const * b );
 void fd_bls_sig_neg          ( fd_bls_sig_t * out, fd_bls_sig_t const * a );
 int  fd_bls_sig_validate     ( fd_bls_sig_t const * sig );

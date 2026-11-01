@@ -155,6 +155,7 @@ hash_stake_insert( ag_slot_state_t * self,
     tbl->used |= 1U<<i;
     memcpy( tbl->ele[ i ].hash, hash, sizeof(ag_block_hash_t) );
     tbl->ele[ i ].stake = 0UL;
+    fd_memset( &tbl->sig_sum[ i ], 0, sizeof(fd_bls_sig_t) );
     return i;
   }
   ulong rec = tbl->spill_hwm;
@@ -217,25 +218,26 @@ hash_stake_next( ag_slot_state_t const * self,
   return ULONG_MAX;
 }
 
-/* Vote sigs, see AG_SLOT_SIG_CNT.  [rank,rank+cnt) stays in one page. */
+/* Vote sigs, see AG_SLOT_SIG_CNT, compressed.  [rank,rank+cnt) stays
+   in one page. */
 
 static inline ulong
 sig_off( ag_slot_state_t const * self,
          ulong                   ks,
          ulong                   rank ) {
-  return self->spill_off + AG_HS_SPILL_SZ + (ks*AG_VAT_MAX+rank)*sizeof(fd_bls_sig_t);
+  return self->spill_off + AG_HS_SPILL_SZ + (ks*AG_VAT_MAX+rank)*FD_BLS_SIG_COMPRESSED_SZ;
 }
 
 static void
-sig_write( ag_slot_state_t *    self,
-           ag_slot_states_t *   states,
-           ulong                ks,
-           ulong                rank,
-           fd_bls_sig_t const * sig ) {
+sig_write( ag_slot_state_t *  self,
+           ag_slot_states_t * states,
+           ulong              ks,
+           ulong              rank,
+           uchar const *      sig ) {
   uint * pg = &self->sig_pg[ ks ][ rank/AG_SIG_PG_RANKS ];
   if( FD_UNLIKELY( !*pg ) ) *pg = FD_LIKELY( states->sig_pg_free_cnt ) ? states->sig_pg_free[ --states->sig_pg_free_cnt ]+1U : AG_SIG_PG_DISK;
-  if( FD_LIKELY( *pg!=AG_SIG_PG_DISK ) ) states->sig_pg[ (*pg-1UL)*AG_SIG_PG_RANKS+rank%AG_SIG_PG_RANKS ] = *sig;
-  else                                   spill_io( states->spill_fd, 1, (void *)sig, sizeof(fd_bls_sig_t), sig_off( self, ks, rank ) );
+  if( FD_LIKELY( *pg!=AG_SIG_PG_DISK ) ) fd_memcpy( states->sig_pg + ((*pg-1UL)*AG_SIG_PG_RANKS+rank%AG_SIG_PG_RANKS)*FD_BLS_SIG_COMPRESSED_SZ, sig, FD_BLS_SIG_COMPRESSED_SZ );
+  else                                   spill_io( states->spill_fd, 1, (void *)sig, FD_BLS_SIG_COMPRESSED_SZ, sig_off( self, ks, rank ) );
 }
 
 static void
@@ -244,10 +246,10 @@ sig_read( ag_slot_state_t const *  self,
           ulong                    ks,
           ulong                    rank,
           ulong                    cnt,
-          fd_bls_sig_t *           out ) {
+          uchar *                  out ) {
   uint pg = self->sig_pg[ ks ][ rank/AG_SIG_PG_RANKS ];
-  if( FD_LIKELY( pg!=AG_SIG_PG_DISK ) ) fd_memcpy( out, states->sig_pg + (pg-1UL)*AG_SIG_PG_RANKS+rank%AG_SIG_PG_RANKS, cnt*sizeof(fd_bls_sig_t) );
-  else                                  spill_io( states->spill_fd, 0, out, cnt*sizeof(fd_bls_sig_t), sig_off( self, ks, rank ) );
+  if( FD_LIKELY( pg!=AG_SIG_PG_DISK ) ) fd_memcpy( out, states->sig_pg + ((pg-1UL)*AG_SIG_PG_RANKS+rank%AG_SIG_PG_RANKS)*FD_BLS_SIG_COMPRESSED_SZ, cnt*FD_BLS_SIG_COMPRESSED_SZ );
+  else                                  spill_io( states->spill_fd, 0, out, cnt*FD_BLS_SIG_COMPRESSED_SZ, sig_off( self, ks, rank ) );
 }
 
 static inline ulong
@@ -263,6 +265,51 @@ sig_ks( uint  kind,
   }
 }
 
+/* Aggregate of the notar (nf: notar fallback) votes for id.  Inline
+   ids use their running sig sum. */
+
+static void
+hash_agg( ag_slot_state_t const *  self,
+          ag_slot_states_t const * states,
+          int                      nf,
+          ulong                    id,
+          fd_bls_agg_t *           agg ) {
+  ag_epoch_info_t const * epoch_info = fd_ptr_if( self->slot>=states->next_epoch_slot, states->next_epoch_info, fd_ptr_if( self->slot>=states->curr_epoch_slot, states->curr_epoch_info, states->prev_epoch_info ) );
+  ag_slot_votes_t const * votes      = &self->votes;
+
+  fd_bls_set_t set[ fd_bls_set_word_cnt ];
+  fd_bls_set_null( set );
+  if( FD_LIKELY( !nf ) ) {
+    for( ulong rank = fd_bls_set_const_iter_init( votes->notar_set );
+                     !fd_bls_set_const_iter_done( rank );
+               rank = fd_bls_set_const_iter_next( votes->notar_set, rank ) ) {
+      if( FD_LIKELY( votes->notar_hash_stake_idx[ rank ]==id ) ) fd_bls_set_insert( set, rank );
+    }
+  } else {
+    for( ulong rank=0UL; rank<epoch_info->validator_cnt; rank++ ) {
+      for( ulong j=0UL; j<votes->notar_fallback_sig_cnt[ rank ]; j++ ) {
+        if( FD_LIKELY( votes->notar_fallback_hash_stake_idx[ rank ][ j ]==id ) ) fd_bls_set_insert( set, rank );
+      }
+    }
+  }
+
+  fd_bls_agg_null( agg );
+  if( FD_UNLIKELY( id>=AG_HASH_STAKE_INLINE_MAX ) ) {
+    for( ulong rank = fd_bls_set_const_iter_init( set );
+                     !fd_bls_set_const_iter_done( rank );
+               rank = fd_bls_set_const_iter_next( set, rank ) ) {
+      ulong j = 0UL;
+      while( nf && votes->notar_fallback_hash_stake_idx[ rank ][ j ]!=id ) j++;
+      fd_bls_sig_t sig;
+      ag_slot_state_vote_sig( self, states, nf ? AG_VOTE_KIND_NOTAR_FALLBACK : AG_VOTE_KIND_NOTAR, rank, j, &sig );
+      fd_bls_sig_add( &agg->sig, &agg->sig, &sig );
+    }
+  }
+  fd_bls_set_copy( agg->set, set );
+  fd_bls_pub_sum( &agg->pub, epoch_info->pubkeys, set );
+  if( FD_LIKELY( id<AG_HASH_STAKE_INLINE_MAX ) ) agg->sig = ( nf ? &votes->notar_fallback_hash_stake : &votes->notar_hash_stake )->sig_sum[ id ];
+}
+
 static int
 verify_subtract_votes( ag_slot_state_t *     self,
                        ag_slot_states_t *    states,
@@ -270,54 +317,25 @@ verify_subtract_votes( ag_slot_state_t *     self,
                        ag_block_hash_t const block_hash,
                        fd_bls_agg_t *        agg,
                        fd_bls_set_t *        bad ) {
-  ag_epoch_info_t const * epoch_info                     = fd_ptr_if( self->slot>=states->next_epoch_slot, states->next_epoch_info, fd_ptr_if( self->slot>=states->curr_epoch_slot, states->curr_epoch_info, states->prev_epoch_info ) );
-  ag_slot_votes_t *       votes                          = &self->votes;
-  int                     fd                             = states->spill_fd;
-  int                     nf                             = kind==AG_VOTE_KIND_NOTAR_FALLBACK;
-  ulong                   id                             = ULONG_MAX;
+  ag_epoch_info_t const * epoch_info = fd_ptr_if( self->slot>=states->next_epoch_slot, states->next_epoch_info, fd_ptr_if( self->slot>=states->curr_epoch_slot, states->curr_epoch_info, states->prev_epoch_info ) );
+  ag_slot_votes_t *       votes      = &self->votes;
+  int                     fd         = states->spill_fd;
+  int                     nf         = kind==AG_VOTE_KIND_NOTAR_FALLBACK;
+  ag_hash_stakes_t *      tbl        = nf ? &votes->notar_fallback_hash_stake : &votes->notar_hash_stake;
+  ulong                   id         = ULONG_MAX;
 
-  fd_bls_sig_t sigs[ AG_VAT_MAX ];
-  fd_bls_set_t set [ fd_bls_set_word_cnt ];
-  switch( kind ) {
-  case AG_VOTE_KIND_SKIP:
-  case AG_VOTE_KIND_SKIP_FALLBACK:
-  case AG_VOTE_KIND_FINAL:
-    ag_slot_state_sigs( self, states, kind, NULL, agg->set, sigs );
-    break;
-  case AG_VOTE_KIND_NOTAR:
-    id = hash_stake_query( self, fd, 0, block_hash );
+  if( kind==AG_VOTE_KIND_NOTAR || nf ) {
+    id = hash_stake_query( self, fd, nf, block_hash );
     FD_CHECK_CRIT( id!=ULONG_MAX, "invariant violation" );
-    fd_bls_set_null( set );
-    for( ulong rank = fd_bls_set_const_iter_init( votes->notar_set );
-                     !fd_bls_set_const_iter_done( rank );
-               rank = fd_bls_set_const_iter_next( votes->notar_set, rank ) ) {
-      if( FD_LIKELY( votes->notar_hash_stake_idx[ rank ]==id ) ) fd_bls_set_insert( set, rank );
-    }
-    ag_slot_state_sigs( self, states, kind, block_hash, set, sigs );
-    fd_bls_agg_null( agg );
-    fd_bls_agg_construct( agg, epoch_info->pubkeys, sigs, set );
-    break;
-  case AG_VOTE_KIND_NOTAR_FALLBACK:
-    id = hash_stake_query( self, fd, 1, block_hash );
-    FD_CHECK_CRIT( id!=ULONG_MAX, "invariant violation" );
-    fd_bls_set_null( set );
-    for( ulong rank=0UL; rank<epoch_info->validator_cnt; rank++ ) {
-      for( ulong j=0UL; j<votes->notar_fallback_sig_cnt[ rank ]; j++ ) {
-        if( FD_LIKELY( votes->notar_fallback_hash_stake_idx[ rank ][ j ]==id ) ) fd_bls_set_insert( set, rank );
-      }
-    }
-    ag_slot_state_sigs( self, states, kind, block_hash, set, sigs );
-    fd_bls_agg_null( agg );
-    fd_bls_agg_construct( agg, epoch_info->pubkeys, sigs, set );
-    break;
-  default: FD_LOG_CRIT(( "unreachable" ));
+    hash_agg( self, states, nf, id, agg );
   }
 
   uchar msg[ AG_VOTE_SIGNING_SER_MAX ];
   ulong msg_sz = ag_vote_signing_ser( kind, self->slot, block_hash, self->shred_version, msg );
   states->bls_verify_cnt++;
-  int   err    = fd_bls_agg_verify_subtract( agg, msg, msg_sz, epoch_info->pubkeys, sigs, bad );
+  int   err    = ag_slot_state_agg_verify( self, states, kind, block_hash, msg, msg_sz, agg, bad );
   if( FD_LIKELY( !err && fd_bls_set_is_null( bad ) ) ) return 1;
+  if( FD_UNLIKELY( id<AG_HASH_STAKE_INLINE_MAX ) ) tbl->sig_sum[ id ] = agg->sig; /* bad sigs subtracted */
 
   for( ulong rank = fd_bls_set_const_iter_init( bad );
                    !fd_bls_set_const_iter_done( rank );
@@ -338,9 +356,9 @@ verify_subtract_votes( ag_slot_state_t *     self,
       hash_stake_set( self, fd, 1, id, hash_stake_get( self, fd, 1, id, NULL )-stake );
       ulong last = --votes->notar_fallback_sig_cnt[ rank ];
       if( FD_LIKELY( j!=last ) ) {
-        fd_bls_sig_t sig;
-        sig_read ( self, states, sig_ks( kind, last ), rank, 1UL, &sig );
-        sig_write( self, states, sig_ks( kind, j    ), rank, &sig );
+        uchar sig[ FD_BLS_SIG_COMPRESSED_SZ ];
+        sig_read ( self, states, sig_ks( kind, last ), rank, 1UL, sig );
+        sig_write( self, states, sig_ks( kind, j    ), rank, sig );
         votes->notar_fallback_hash_stake_idx[ rank ][ j ] = votes->notar_fallback_hash_stake_idx[ rank ][ last ];
       }
       break;
@@ -503,6 +521,7 @@ count_notar_stake( ag_slot_state_t *       self,
   ulong             notar = hash_stake_query( self, fd, 0, block_hash );
   if( FD_UNLIKELY( notar==ULONG_MAX ) ) notar = hash_stake_insert( self, fd, 0, block_hash );
   votes->notar_hash_stake_idx[ rank ] = (ushort)notar;
+  if( FD_LIKELY( notar<AG_HASH_STAKE_INLINE_MAX ) ) fd_bls_sig_add( &votes->notar_hash_stake.sig_sum[ notar ], &votes->notar_hash_stake.sig_sum[ notar ], &vote->sig );
 
   ulong notar_stake           = hash_stake_get( self, fd, 0, notar, NULL )+stake;
   hash_stake_set( self, fd, 0, notar, notar_stake );
@@ -608,6 +627,7 @@ count_notar_fallback_stake( ag_slot_state_t *                self,
   ulong             nf    = hash_stake_query( self, fd, 1, block_hash );
   if( FD_UNLIKELY( nf==ULONG_MAX ) ) nf = hash_stake_insert( self, fd, 1, block_hash );
   votes->notar_fallback_hash_stake_idx[ rank ][ votes->notar_fallback_sig_cnt[ rank ]-1UL ] = (ushort)nf;
+  if( FD_LIKELY( nf<AG_HASH_STAKE_INLINE_MAX ) ) fd_bls_sig_add( &votes->notar_fallback_hash_stake.sig_sum[ nf ], &votes->notar_fallback_hash_stake.sig_sum[ nf ], &vote->sig );
 
   ulong nf_stake    = hash_stake_get( self, fd, 1, nf, NULL )+stake;
   hash_stake_set( self, fd, 1, nf, nf_stake );
@@ -882,7 +902,9 @@ ag_slot_state_add_vote( ag_slot_state_t *  self,
   case AG_VOTE_KIND_FINAL:          FD_TEST( !fd_bls_set_test( votes->skip_fallback_agg.set, rank ) && !fd_bls_set_test( votes->finalize_agg.set, rank ) ); break;
   default:                          FD_LOG_CRIT(( "unreachable" ));
   }
-  sig_write( self, states, sig_ks( vote->kind, votes->notar_fallback_sig_cnt[ rank ] ), rank, ag_vote_sig( vote ) );
+  uchar sig[ FD_BLS_SIG_COMPRESSED_SZ ];
+  fd_bls_sig_compress( ag_vote_sig( vote ), sig );
+  sig_write( self, states, sig_ks( vote->kind, votes->notar_fallback_sig_cnt[ rank ] ), rank, sig );
 
   *out_cert_event_cnt = 0UL; *out_safe_to_notar_cnt = 0UL; *out_safe_to_skip_cnt = 0UL; *out_repair_event_cnt = 0UL; fd_bls_set_null( bad );
   self->shred_version = ag_vote_shred_version( vote );
@@ -1064,21 +1086,9 @@ fd_bls_agg_t *
 ag_slot_state_notar_reward_agg( ag_slot_state_t const *  self,
                                 ag_slot_states_t const * states,
                                 fd_bls_agg_t *           out ) {
-  ag_epoch_info_t const * epoch_info = fd_ptr_if( self->slot>=states->next_epoch_slot, states->next_epoch_info, fd_ptr_if( self->slot>=states->curr_epoch_slot, states->curr_epoch_info, states->prev_epoch_info ) );
-  ulong                   top        = hash_stake_query( self, states->spill_fd, 0, self->votes.top_notar_hash );
+  ulong top = hash_stake_query( self, states->spill_fd, 0, self->votes.top_notar_hash );
   if( FD_UNLIKELY( top==ULONG_MAX ) ) return NULL;
-
-  fd_bls_set_t set[ fd_bls_set_word_cnt ];
-  fd_bls_set_null( set );
-  for( ulong rank = fd_bls_set_const_iter_init( self->votes.notar_set );
-                   !fd_bls_set_const_iter_done( rank );
-             rank = fd_bls_set_const_iter_next( self->votes.notar_set, rank ) ) {
-    if( FD_LIKELY( self->votes.notar_hash_stake_idx[ rank ]==top ) ) fd_bls_set_insert( set, rank );
-  }
-  fd_bls_sig_t sigs[ AG_VAT_MAX ];
-  ag_slot_state_sigs( self, states, AG_VOTE_KIND_NOTAR, self->votes.top_notar_hash, set, sigs );
-  fd_bls_agg_null( out );
-  fd_bls_agg_construct( out, epoch_info->pubkeys, sigs, set );
+  hash_agg( self, states, 0, top, out );
   return out;
 }
 
@@ -1094,7 +1104,9 @@ ag_slot_state_vote_sig( ag_slot_state_t const *  self,
                         ulong                    rank,
                         ulong                    j,
                         fd_bls_sig_t *           out ) {
-  sig_read( self, states, sig_ks( kind, j ), rank, 1UL, out );
+  uchar sig[ FD_BLS_SIG_COMPRESSED_SZ ];
+  sig_read( self, states, sig_ks( kind, j ), rank, 1UL, sig );
+  FD_TEST( !fd_bls_sig_de_compressed_unchecked( out, sig ) );
   return out;
 }
 
@@ -1107,29 +1119,52 @@ ag_slot_state_sigs( ag_slot_state_t const *  self,
                     fd_bls_sig_t *           out ) {
   if( FD_LIKELY( kind!=AG_VOTE_KIND_NOTAR_FALLBACK ) ) { /* one copy per page */
     ulong ks = sig_ks( kind, 0UL );
+    uchar buf[ AG_SIG_PG_SZ ];
     for( ulong w=0UL; w<fd_bls_set_word_cnt; w++ ) {
       if( !set[ w ] ) continue;
       ulong lo = w*AG_SIG_PG_RANKS+(ulong)fd_ulong_find_lsb( set[ w ] );
       ulong hi = w*AG_SIG_PG_RANKS+(ulong)fd_ulong_find_msb( set[ w ] );
-      sig_read( self, states, ks, lo, hi-lo+1UL, out+lo );
+      sig_read( self, states, ks, lo, hi-lo+1UL, buf );
+      for( ulong m=set[ w ]; m; m=fd_ulong_pop_lsb( m ) ) {
+        ulong rank = w*AG_SIG_PG_RANKS+(ulong)fd_ulong_find_lsb( m );
+        FD_TEST( !fd_bls_sig_de_compressed_unchecked( out+rank, buf+(rank-lo)*FD_BLS_SIG_COMPRESSED_SZ ) );
+      }
     }
     return out;
   }
   ag_slot_votes_t const * votes = &self->votes;
-  ulong                   nf    = kind==AG_VOTE_KIND_NOTAR_FALLBACK ? hash_stake_query( self, states->spill_fd, 1, block_hash ) : ULONG_MAX;
+  ulong                   nf    = hash_stake_query( self, states->spill_fd, 1, block_hash );
   for( ulong rank = fd_bls_set_const_iter_init( set );
                    !fd_bls_set_const_iter_done( rank );
              rank = fd_bls_set_const_iter_next( set, rank ) ) {
     ulong j = 0UL;
-    if( FD_UNLIKELY( kind==AG_VOTE_KIND_NOTAR_FALLBACK ) ) {
-      for( ; j<votes->notar_fallback_sig_cnt[ rank ]; j++ ) {
-        if( FD_UNLIKELY( votes->notar_fallback_hash_stake_idx[ rank ][ j ]==nf ) ) break;
-      }
-      FD_CHECK_CRIT( j<votes->notar_fallback_sig_cnt[ rank ], "invariant violation" );
+    for( ; j<votes->notar_fallback_sig_cnt[ rank ]; j++ ) {
+      if( FD_UNLIKELY( votes->notar_fallback_hash_stake_idx[ rank ][ j ]==nf ) ) break;
     }
-    sig_read( self, states, sig_ks( kind, j ), rank, 1UL, out+rank );
+    FD_CHECK_CRIT( j<votes->notar_fallback_sig_cnt[ rank ], "invariant violation" );
+    uchar sig[ FD_BLS_SIG_COMPRESSED_SZ ];
+    sig_read( self, states, sig_ks( kind, j ), rank, 1UL, sig );
+    FD_TEST( !fd_bls_sig_de_compressed_unchecked( out+rank, sig ) );
   }
   return out;
+}
+
+int
+ag_slot_state_agg_verify( ag_slot_state_t const *  self,
+                          ag_slot_states_t const * states,
+                          uint                     kind,
+                          ag_block_hash_t const    block_hash,
+                          uchar const *            msg,
+                          ulong                    msg_sz,
+                          fd_bls_agg_t *           agg,
+                          fd_bls_set_t *           bad ) {
+  fd_bls_hash_t h[1];
+  fd_bls_hash_msg( msg, msg_sz, h );
+  if( FD_LIKELY( fd_bls_agg_verify_hashed( h, &agg->pub, &agg->sig ) ) ) { fd_bls_set_null( bad ); return 0; }
+  ag_epoch_info_t const * epoch_info = fd_ptr_if( self->slot>=states->next_epoch_slot, states->next_epoch_info, fd_ptr_if( self->slot>=states->curr_epoch_slot, states->curr_epoch_info, states->prev_epoch_info ) );
+  fd_bls_sig_t            sigs[ AG_VAT_MAX ];
+  ag_slot_state_sigs( self, states, kind, block_hash, agg->set, sigs );
+  return fd_bls_agg_verify_subtract( agg, msg, msg_sz, epoch_info->pubkeys, sigs, bad );
 }
 
 uchar *

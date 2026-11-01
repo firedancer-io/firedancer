@@ -645,9 +645,7 @@ publish_reward_cert( fd_votor_tile_t *   ctx,
     return;
   }
   ag_slot_states_t const * states     = ag_pool_slot_states( ctx->pool );
-  ag_epoch_info_t const *  epoch_info = fd_ptr_if( reward_slot>=states->next_epoch_slot, states->next_epoch_info, fd_ptr_if( reward_slot>=states->curr_epoch_slot, states->curr_epoch_info, states->prev_epoch_info ) );
   ag_slot_votes_t const *  votes      = &state->votes;
-  fd_bls_sig_t             sigs[ AG_VAT_MAX ];
 
   uchar msg[ AG_VOTE_SIGNING_SER_MAX ];
   ulong msg_sz;
@@ -656,10 +654,9 @@ publish_reward_cert( fd_votor_tile_t *   ctx,
   uchar const *        hash  = votes->top_notar_hash;
   fd_bls_agg_t const * notar = ag_slot_state_notar_reward_agg( state, states, &reward->agg_notar );
   if( FD_LIKELY( notar ) ) {
-    ag_slot_state_sigs( state, states, AG_VOTE_KIND_NOTAR, hash, reward->agg_notar.set, sigs );
     msg_sz = ag_vote_signing_ser( AG_VOTE_KIND_NOTAR, reward_slot, hash, ctx->shred_version, msg );
     ctx->metrics.bls_verify++;
-    err    = fd_bls_agg_verify_subtract( &reward->agg_notar, msg, msg_sz, epoch_info->pubkeys, sigs, ctx->scratch.bad );
+    err    = ag_slot_state_agg_verify( state, states, AG_VOTE_KIND_NOTAR, hash, msg, msg_sz, &reward->agg_notar, ctx->scratch.bad );
     ban_bad_ranks( ctx, ctx->scratch.bad, reward_slot );
     if( FD_UNLIKELY( err ) ) fd_bls_agg_null( &reward->agg_notar );
     else                     memcpy( reward->block_id.uc, hash, sizeof(fd_hash_t) );
@@ -668,10 +665,9 @@ publish_reward_cert( fd_votor_tile_t *   ctx,
   fd_bls_agg_t const * skip = ag_slot_state_skip_reward_agg( state );
   if( FD_LIKELY( skip ) ) {
     reward->agg_skip = *skip;
-    ag_slot_state_sigs( state, states, AG_VOTE_KIND_SKIP, NULL, reward->agg_skip.set, sigs );
     msg_sz = ag_vote_signing_ser( AG_VOTE_KIND_SKIP, reward_slot, NULL, ctx->shred_version, msg );
     ctx->metrics.bls_verify++;
-    err    = fd_bls_agg_verify_subtract( &reward->agg_skip, msg, msg_sz, epoch_info->pubkeys, sigs, ctx->scratch.bad );
+    err    = ag_slot_state_agg_verify( state, states, AG_VOTE_KIND_SKIP, NULL, msg, msg_sz, &reward->agg_skip, ctx->scratch.bad );
     ban_bad_ranks( ctx, ctx->scratch.bad, reward_slot );
     if( FD_UNLIKELY( err ) ) fd_bls_agg_null( &reward->agg_skip );
   }
