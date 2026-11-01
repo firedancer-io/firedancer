@@ -4893,6 +4893,56 @@ test_residual_wait_vs_epoch_drain( void ) {
   close( idx_fd ); close( fd );
 }
 
+/* Index tier bits share executable_size with CLAIM/VALID: T2 marks a
+   version ROOTED while an FG cold load holds its CLAIM, and neither
+   side's update may clobber the other's. */
+
+static void
+test_tier_vs_coldload_claim( void ) {
+  int fd = memfd_create( "accdb_rs_tier", 0 );
+  FD_TEST( fd>=0 );
+  ulong max_acc = 8192UL, ram = 1024UL, mls = 256UL, wps = 64UL, cache_fp = 32UL<<20;
+  ulong fp = fd_accdb_shmem_footprint( max_acc, mls, wps, 8192UL, cache_fp, 2UL, 3UL, 0UL, ram );
+  void * mem = aligned_alloc( fd_accdb_shmem_align(), fp );
+  fd_accdb_shmem_t * shmem = fd_accdb_shmem_join( fd_accdb_shmem_new( mem, max_acc, mls, wps, 8192UL, 1UL<<30, cache_fp, 2UL, 0, 42UL, 3UL, 0UL, ram ) );
+  FD_TEST( shmem );
+  int idx_fd = memfd_create( "accdb_rs_tier2", 0 );
+  FD_TEST( !ftruncate( idx_fd, (long)shmem->idx_file_sz ) );
+  ulong jfp = fd_accdb_footprint( mls, 1 );
+  fd_accdb_t * t2 = fd_accdb_join( fd_accdb_new( aligned_alloc( fd_accdb_align(), jfp ), shmem, fd, -1, 0UL, NULL, NULL, 0UL, 1, idx_fd, NULL ) );
+  fd_accdb_t * fg = fd_accdb_join( fd_accdb_new( aligned_alloc( fd_accdb_align(), jfp ), shmem, fd, -1, 0UL, NULL, NULL, 0UL, 1, -1, NULL ) );
+  FD_TEST( t2 && fg );
+
+  fd_accdb_fork_id_t root = fd_accdb_attach_child( t2, SENTINEL );
+  fd_accdb_fork_id_t a    = fd_accdb_attach_child( t2, root );
+  uchar key[ 32 ] = { 0x7E, 0x12 };
+  seq_write_data( t2, a, key, 77UL, NULL, 8UL, 0x11 );
+  ulong cls, idx;
+  FD_TEST( fd_accdb_debug_find_line( t2, key, &cls, &idx ) );
+  uint acc_idx = ((fd_accdb_cache_line_t *)fd_accdb_debug_line_addr( t2, cls, idx ))->acc_idx;
+  uint * es = fd_accdb_debug_acc_pool_next( t2, acc_idx )+1; /* executable_size follows the cache_idx/pool.next union */
+  FD_TEST( fd_accdb_debug_clock_evict_line( t2, cls, idx )!=UINT_MAX );
+  FD_TEST( FD_ACCDB_SIZE_TIER( *es )==FD_ACCDB_TIER_NONE );
+
+  fd_racesan_async_t * ar = fiber_acquire_expect( &g_fiber[0], fg, a, key, 77UL );
+  FD_TEST( fd_racesan_async_step_until( ar, "accdb_cold_load:pre_valid", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
+  FD_TEST( FD_ACCDB_SIZE_CACHE_CLAIM( *es ) );
+  fd_accdb_advance_root( t2, a );
+  drain_background( t2 );
+  FD_TEST( FD_ACCDB_SIZE_CACHE_CLAIM( *es ) && FD_ACCDB_SIZE_TIER( *es )==FD_ACCDB_TIER_ROOTED );
+  async_finish( ar );
+  fiber_done( &g_fiber[0] );
+  FD_TEST( FD_ACCDB_SIZE_CACHE_VALID( *es ) && !FD_ACCDB_SIZE_CACHE_CLAIM( *es ) );
+  FD_TEST( FD_ACCDB_SIZE_TIER( *es )==FD_ACCDB_TIER_ROOTED && FD_ACCDB_SIZE_DATA( *es )==8UL );
+
+  /* demotion finds it by its tier and hands the line to the hot copy */
+  fd_accdb_fork_id_t tip = a;
+  for( ulong i=0UL; i<FD_ACCDB_DEMOTE_AGE+2UL; i++ ) { fd_accdb_fork_id_t c = fd_accdb_attach_child( t2, tip ); fd_accdb_advance_root( t2, c ); drain_background( t2 ); tip = c; }
+  for( ulong i=0UL; i<64UL; i++ ) drain_background( t2 );
+  FD_TEST( fd_accdb_metrics( t2 )->accounts_demoted==1UL );
+  FD_TEST( fd_accdb_lamports( fg, tip, key )==77UL );
+  close( idx_fd ); close( fd );
+}
 
 int
 main( int     argc,
@@ -4945,6 +4995,7 @@ main( int     argc,
     TEST( test_hazard_parked_dirty_writeback ),
     TEST( test_cf_kick_vs_probe ),
     TEST( test_residual_wait_vs_epoch_drain ),
+    TEST( test_tier_vs_coldload_claim ),
     TEST( test_preevict_release_store_order ),
     TEST( test_preevict_batch_cap ),
     TEST( test_preevict_batch_reader_wait ),
