@@ -59,7 +59,10 @@ FD_STATIC_ASSERT( (ulong)LONG_MAX+TIME_OFFSET==ULONG_MAX, time_offset );
 /* 1.6 M cost units, enough for 1 max size transaction */
 const ulong CUS_PER_MICROBLOCK = 1600000UL;
 
-#define EFFECTIVE_TXN_PER_MICROBLOCK 1UL
+/* Amortize leader dispatch and PoH entry hashing over ordinary transactions.
+   Keep below the existing transport and execution-array capacity. */
+#define EFFECTIVE_TXN_PER_MICROBLOCK 4UL
+FD_STATIC_ASSERT( EFFECTIVE_TXN_PER_MICROBLOCK<=MAX_TXN_PER_MICROBLOCK, effective_microblock_fits );
 
 
 

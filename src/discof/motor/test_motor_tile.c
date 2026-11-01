@@ -24,6 +24,48 @@ test_mcache_new( fd_wksp_t * wksp,
   return mcache;
 }
 
+/* Maximum-size ordinary entries fit native shred transport; dropped
+   transactions contribute neither payload nor entry txn_cnt/PoH. */
+static void
+test_multi_entry( fd_motor_tile_t * ctx ) {
+  fd_txn_p_t txns[MAX_TXN_PER_MICROBLOCK] = {0};
+  fd_microblock_trailer_t trailer = {0};
+  for( ulong i=0UL; i<MAX_TXN_PER_MICROBLOCK; i++ ) {
+    txns[i].payload_sz = FD_TPU_MTU;
+    fd_memset( txns[i].payload, (int)(i+1UL), FD_TPU_MTU );
+  }
+  for( ulong width=4UL; width<=MAX_TXN_PER_MICROBLOCK; width++ ) {
+    for( ulong mode=0UL; mode<3UL; mode++ ) {
+      ulong landed = 0UL;
+      for( ulong i=0UL; i<width; i++ ) {
+        txns[i].flags = mode==2UL || (mode==1UL && i==1UL) ? 0U : FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
+        landed += !!txns[i].flags;
+      }
+      fd_hash_t before = ctx->poh_hash;
+      ulong sz = prepare_entry( ctx, &trailer, width, txns );
+      if( !landed ) {
+        FD_TEST( !sz && !memcmp( &before, &ctx->poh_hash, sizeof(before) ) );
+        continue;
+      }
+      FD_TEST( sz==sizeof(fd_entry_batch_header_t)+landed*FD_TPU_MTU );
+      FD_TEST( sz+sizeof(fd_entry_batch_meta_t)<=FD_POH_SHRED_MTU );
+      fd_entry_batch_header_t const * entry = (fd_entry_batch_header_t const *)
+        ((uchar const *)fd_chunk_to_laddr( ctx->shred_out->mem, ctx->shred_out->chunk )+sizeof(fd_entry_batch_meta_t));
+      FD_TEST( entry->txn_cnt==landed && entry->hashcnt_delta==1UL );
+      uchar input[64], expected[32];
+      fd_memcpy( input, before.uc, 32UL );
+      fd_memcpy( input+32UL, trailer.hash, 32UL );
+      fd_sha256_hash( input, sizeof(input), expected );
+      FD_TEST( !memcmp( entry->hash, expected, 32UL ) );
+      ulong j=0UL;
+      for( ulong i=0UL; i<width; i++ ) if( txns[i].flags ) {
+        FD_TEST( !memcmp( (uchar const *)(entry+1)+j*FD_TPU_MTU, txns[i].payload, FD_TPU_MTU ) );
+        j++;
+      }
+    }
+  }
+}
+
 /* Pack reads replay_out and Motor replay_slot, independently.
    Exercise work that reaches Motor before its leader notice, then
    retry after the notice. */
@@ -70,6 +112,8 @@ main( int     argc,
   ulong depths[2]           = { depth, depth };
   int out_reliable[2]       = { 0, 0 };
   fd_stem_context_t stem[1] = {{ .mcaches=mcaches, .seqs=seqs, .depths=depths, .out_reliable=out_reliable }};
+
+  test_multi_entry( ctx );
 
   ulong execle_chunk = ctx->in[0].chunk0;
   ulong pack_chunk   = ctx->in[1].chunk0;

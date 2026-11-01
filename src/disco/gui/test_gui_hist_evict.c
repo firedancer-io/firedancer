@@ -735,6 +735,96 @@ test_range_live_timestamp_bounds( fd_gui_t * gui ) {
   FD_LOG_NOTICE(( "test_range_live_timestamp_bounds: ok" ));
 }
 
+/* Ordinary batches share an entry, never transaction metadata.  Bundles
+   arrive in one pack message but retain their split completion messages. */
+static void
+test_ordinary_microblock( fd_gui_t * gui ) {
+  ulong const slot = 530UL, bank_seq = 17UL;
+  long const now = sec_ns( 10UL );
+  gui->tick_per_ns = 1e30;
+  fd_gui_became_leader( gui, slot, now, now+sec_ns( 1UL ), 60000000UL, 8UL, bank_seq );
+  fd_txn_e_t in[4] = {0};
+  fd_txn_p_t out[4];
+  fd_microblock_txn_t meta[4] = {0};
+  for( ulong i=0UL; i<4UL; i++ ) {
+    fd_txn_p_t * txn = in[i].txnp;
+    txn->payload[0] = 1U;
+    txn->payload[1] = (uchar)i; /* distinct signature */
+    txn->payload[65] = 1U;
+    txn->payload[68] = 1U;
+    txn->payload_sz = 134U;
+    FD_TEST( fd_txn_parse( txn->payload, txn->payload_sz, TXN(txn), NULL ) );
+    out[i] = *txn;
+    out[i].flags = i==3UL ? (5U<<24) : FD_TXN_P_FLAGS_EXECUTE_SUCCESS | (i ? 9U<<24 : 0U);
+    if( i==2UL ) out[i].flags |= FD_TXN_P_FLAGS_FEES_ONLY;
+    meta[i].tips = 7UL+i;
+    meta[i].txn_ns_dt = (fd_txn_ns_dt_t){ .load_start=(float)(10UL+i), .check_start=(float)(20UL+i),
+      .exec_start=(float)(30UL+i), .commit_start=(float)(40UL+i), .commit_end=(float)(100UL+i) };
+    meta[i].exec_end_ticks = i==3UL ? LONG_MAX : fd_tickcount();
+  }
+  fd_gui_microblock_execution_begin( gui, now, slot, in, 4UL, 17U, 100UL, bank_seq, now );
+  fd_gui_microblock_execution_end( gui, now+100L, 3UL, slot, 4UL, out, 100UL, meta, bank_seq, now );
+  fd_gui_leader_slot_t * lslot = fd_gui_slot_leader_get( gui, slot, bank_seq );
+  FD_TEST( lslot && lslot->begin_microblocks==1U && lslot->end_microblocks==1U );
+  FD_TEST( count_ts( gui, FD_GUI_HIST_TXN_START, ULONG_MAX )==4UL );
+  FD_TEST( count_ts( gui, FD_GUI_HIST_TXN_END, ULONG_MAX )==4UL );
+  FD_TEST( count_ts( gui, FD_GUI_HIST_REPLAY_TXN, ULONG_MAX )==3UL );
+  fd_gui_hist_iter_t it;
+  FD_TEST( !fd_gui_hist_range_begin( gui, &it, FD_GUI_HIST_TXN_END, now, now, NULL, NULL ) );
+  for( ulong i=0UL; i<4UL; i++ ) {
+    FD_TEST( fd_gui_hist_range_next( &it ) );
+    fd_gui_store_txn_end_t const * rec = it.rec;
+    FD_TEST( rec->txn_idx==100UL+i && rec->tips==7UL+i );
+    FD_TEST( !memcmp( &rec->txn_ns_dt, &meta[i].txn_ns_dt, sizeof(rec->txn_ns_dt) ) );
+    FD_TEST( !!(rec->flags & FD_GUI_TXN_FLAGS_LANDED_IN_BLOCK)==(i!=3UL) );
+  }
+  FD_TEST( !fd_gui_hist_range_next( &it ) );
+  fd_gui_hist_range_end( &it );
+  FD_TEST( !fd_gui_hist_range_begin( gui, &it, FD_GUI_HIST_REPLAY_TXN, now, now, NULL, NULL ) );
+  for( ulong i=0UL; i<3UL; i++ ) {
+    FD_TEST( fd_gui_hist_range_next( &it ) );
+    fd_gui_store_replay_txn_t const * rec = it.rec;
+    FD_TEST( rec->txn_idx==100UL+i && rec->tips==7UL+i );
+    FD_TEST( rec->transaction_fee==5000UL && !rec->priority_fee );
+    FD_TEST( rec->commit_end_ns==now && rec->commit_start_ns==now-60L );
+    FD_TEST( rec->is_fees_only==(i==2UL) && rec->error_code==(i ? 9U : 0U) );
+  }
+  FD_TEST( !fd_gui_hist_range_next( &it ) );
+  fd_gui_hist_range_end( &it );
+
+  /* An all-dropped ordinary entry still completes exactly once. */
+  for( ulong i=0UL; i<4UL; i++ ) {
+    out[i].flags = 5U<<24;
+    meta[i] = (fd_microblock_txn_t){ .exec_end_ticks=LONG_MAX };
+  }
+  fd_gui_microblock_execution_begin( gui, now, slot, in, 4UL, 18U, 104UL, bank_seq, now );
+  fd_gui_microblock_execution_end( gui, now, 3UL, slot, 4UL, out, 104UL, meta, bank_seq, now );
+  FD_TEST( lslot->begin_microblocks==2U && lslot->end_microblocks==2U );
+  FD_TEST( count_ts( gui, FD_GUI_HIST_REPLAY_TXN, ULONG_MAX )==3UL );
+
+  for( ulong i=0UL; i<4UL; i++ ) in[i].txnp->flags |= FD_TXN_P_FLAGS_BUNDLE;
+  fd_gui_microblock_execution_begin( gui, now, slot, in, 4UL, 19U, 108UL, bank_seq, now );
+  for( ulong i=0UL; i<4UL; i++ )
+    fd_gui_microblock_execution_end( gui, now, 3UL, slot, 1UL, out+i, 108UL+i, meta+i, bank_seq, now );
+  FD_TEST( lslot->begin_microblocks==6U && lslot->end_microblocks==6U );
+  FD_TEST( !fd_gui_hist_range_begin( gui, &it, FD_GUI_HIST_TXN_START, now, now, NULL, NULL ) );
+  for( ulong i=0UL; i<12UL; i++ ) {
+    FD_TEST( fd_gui_hist_range_next( &it ) );
+    fd_gui_store_txn_start_t const * rec = it.rec;
+    FD_TEST( rec->microblock_idx==(i<4UL ? 17U : i<8UL ? 18U : 19U+(uint)i-8U) );
+  }
+  fd_gui_hist_range_end( &it );
+
+  /* The same slot with a new bank sequence has independent counters. */
+  in[0].txnp->flags = 0U;
+  fd_gui_microblock_execution_begin( gui, now, slot, in, 1UL, 0U, 0UL, bank_seq+1UL, now );
+  fd_gui_microblock_execution_end( gui, now, 3UL, slot, 1UL, out, 0UL, meta, bank_seq+1UL, now );
+  FD_TEST( lslot->begin_microblocks==6U && lslot->end_microblocks==6U );
+  lslot = fd_gui_slot_leader_get( gui, slot, bank_seq+1UL );
+  FD_TEST( lslot && lslot->begin_microblocks==1U && lslot->end_microblocks==1U );
+  FD_LOG_NOTICE(( "test_ordinary_microblock: ok" ));
+}
+
 static void
 test_txn_insert_bounds( fd_gui_t * gui ) {
   fd_txn_e_t txn[ 1 ] = {0};
@@ -754,7 +844,7 @@ test_txn_insert_bounds( fd_gui_t * gui ) {
   for( ulong i=0UL; i<2UL; i++ ) {
     long start_ns = sec_ns( 11UL-i );
     fd_gui_microblock_execution_begin( gui, start_ns, slot_num, txn, 1UL, (uint)i, i, bank_seq, sec_ns( 100UL+i ) );
-    fd_gui_microblock_execution_end( gui, start_ns+100L, i, slot_num, 1UL, txn->txnp, i, dt, LONG_MAX, 0UL, bank_seq, sec_ns( 102UL+i ) );
+    fd_gui_microblock_execution_end( gui, start_ns+100L, i, slot_num, 1UL, txn->txnp, i, &(fd_microblock_txn_t){ .txn_ns_dt=dt, .exec_end_ticks=LONG_MAX }, bank_seq, sec_ns( 102UL+i ) );
   }
   lslot = fd_gui_slot_leader_get( gui, slot_num, bank_seq );
   FD_TEST( lslot && lslot->begin_microblocks==2U && lslot->end_microblocks==2U );
@@ -772,7 +862,7 @@ test_txn_insert_bounds( fd_gui_t * gui ) {
   fd_gui_leader_slot_t * other = fd_gui_slot_leader_get_or_create( gui, slot_num, bank_seq-1UL );
   FD_TEST( other );
   fd_gui_microblock_execution_begin( gui, sec_ns( 50UL ), slot_num, txn, 1UL, 0U, 0UL, bank_seq-1UL, sec_ns( 101UL ) );
-  fd_gui_microblock_execution_end( gui, sec_ns( 50UL )+1L, 0UL, slot_num, 1UL, txn->txnp, 0UL, dt, LONG_MAX, 0UL, bank_seq-1UL, sec_ns( 103UL ) );
+  fd_gui_microblock_execution_end( gui, sec_ns( 50UL )+1L, 0UL, slot_num, 1UL, txn->txnp, 0UL, &(fd_microblock_txn_t){ .txn_ns_dt=dt, .exec_end_ticks=LONG_MAX }, bank_seq-1UL, sec_ns( 103UL ) );
 
   fd_gui_slot_t slot = { .slot=slot_num, .bank_seq=bank_seq, .parent_slot=ULONG_MAX,
                          .completed_time=LONG_MAX, .level=FD_GUI_SLOT_LEVEL_COMPLETED,
@@ -828,7 +918,7 @@ test_txn_insert_bounds( fd_gui_t * gui ) {
   ulong start_appends = metrics->ts_appends[ FD_GUI_HIST_TXN_START ];
   ulong end_appends   = metrics->ts_appends[ FD_GUI_HIST_TXN_END ];
   fd_gui_microblock_execution_begin( gui, sec_ns( 20UL ), slot_num, txn, 1UL, 2U, 2UL, bank_seq, sec_ns( 99UL ) );
-  fd_gui_microblock_execution_end( gui, sec_ns( 20UL )+1L, 0UL, slot_num, 1UL, txn->txnp, 2UL, dt, LONG_MAX, 0UL, bank_seq, sec_ns( 99UL ) );
+  fd_gui_microblock_execution_end( gui, sec_ns( 20UL )+1L, 0UL, slot_num, 1UL, txn->txnp, 2UL, &(fd_microblock_txn_t){ .txn_ns_dt=dt, .exec_end_ticks=LONG_MAX }, bank_seq, sec_ns( 99UL ) );
   FD_TEST( metrics->ts_appends[ FD_GUI_HIST_TXN_START ]==start_appends );
   FD_TEST( metrics->ts_appends[ FD_GUI_HIST_TXN_END   ]==end_appends );
   lslot = fd_gui_slot_leader_get( gui, slot_num, bank_seq );
@@ -836,7 +926,7 @@ test_txn_insert_bounds( fd_gui_t * gui ) {
   FD_TEST( lslot->txn_insert_time_max_ns==sec_ns( 103UL ) );
 
   fd_gui_microblock_execution_begin( gui, sec_ns( 20UL ), slot_num, txn, 1UL, 2U, 2UL, bank_seq+1UL, sec_ns( 99UL ) );
-  fd_gui_microblock_execution_end( gui, sec_ns( 20UL )+1L, 0UL, slot_num, 1UL, txn->txnp, 2UL, dt, LONG_MAX, 0UL, bank_seq+1UL, sec_ns( 99UL ) );
+  fd_gui_microblock_execution_end( gui, sec_ns( 20UL )+1L, 0UL, slot_num, 1UL, txn->txnp, 2UL, &(fd_microblock_txn_t){ .txn_ns_dt=dt, .exec_end_ticks=LONG_MAX }, bank_seq+1UL, sec_ns( 99UL ) );
   other = fd_gui_slot_leader_get( gui, slot_num, bank_seq+1UL );
   FD_TEST( other && other->txn_insert_time_min_ns==LONG_MAX && other->txn_insert_time_max_ns==LONG_MIN );
 
@@ -1292,9 +1382,9 @@ test_timeline_agg( fd_gui_t * gui ) {
   fd_txn_ns_dt_t dt = { .load_start=10.4f, .check_start=20.6f, .exec_start=30.4f, .commit_start=60.6f, .commit_end=100.4f };
   txn.flags = FD_TXN_P_FLAGS_EXECUTE_SUCCESS | (200U<<24);
   txn.execle_cu.actual_consumed_cus = 42U;
-  fd_gui_microblock_execution_end( gui, now, 3UL, 500UL, 1UL, &txn, 17UL, dt, fd_tickcount(), 7UL, 7UL, now );
+  fd_gui_microblock_execution_end( gui, now, 3UL, 500UL, 1UL, &txn, 17UL, &(fd_microblock_txn_t){ .txn_ns_dt=dt, .exec_end_ticks=fd_tickcount(), .tips=7UL }, 7UL, now );
   txn.flags = 0U; /* a non-landed transaction is not recorded */
-  fd_gui_microblock_execution_end( gui, now, 3UL, 500UL, 1UL, &txn, 18UL, dt, fd_tickcount(), 7UL, 7UL, now );
+  fd_gui_microblock_execution_end( gui, now, 3UL, 500UL, 1UL, &txn, 18UL, &(fd_microblock_txn_t){ .txn_ns_dt=dt, .exec_end_ticks=fd_tickcount(), .tips=7UL }, 7UL, now );
   FD_TEST( count_ts( gui, FD_GUI_HIST_REPLAY_TXN, ULONG_MAX )==2UL );
 
   /* Error code, unknown shred indices and commit time come from the
@@ -1994,6 +2084,11 @@ main( int     argc,
   store_open( sr, TEST_STORE_BYTES, 13 );
   test_range_live_timestamp_bounds( sr->gui );
   store_close( sr );
+
+  test_store_t mb[ 1 ];
+  store_open( mb, TEST_STORE_BYTES, 33 );
+  test_ordinary_microblock( mb->gui );
+  store_close( mb );
 
   test_store_t tx[ 1 ];
   store_open( tx, TEST_STORE_BYTES, 14 );

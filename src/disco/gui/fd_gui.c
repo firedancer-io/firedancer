@@ -3780,7 +3780,7 @@ fd_gui_microblock_execution_begin( fd_gui_t *   gui,
       .timestamp_arrival_nanos = txn_payload->scheduler_arrival_time_nanos,
       .microblock_start_ns     = tspub_ns,
       .compute_units_requested = (uint)(cost_estimate & 0x1FFFFFU),
-      .microblock_idx          = microblock_idx,
+      .microblock_idx          = microblock_idx + (uint)fd_ulong_if( !!(txn_payload->flags & FD_TXN_P_FLAGS_BUNDLE), i, 0UL ),
       .source_ipv4             = txn_payload->source_ipv4,
       .source_tpu              = txn_payload->source_tpu,
       .flags                   = flags
@@ -3795,12 +3795,10 @@ fd_gui_microblock_execution_begin( fd_gui_t *   gui,
     }
   }
 
-  /* At the moment, bank publishes at most 1 transaction per microblock,
-     even if it received microblocks with multiple transactions
-     (i.e. a bundle). This means that we need to calculate microblock
-     count here based on the transaction count. */
+  /* Ordinary inputs publish one entry; bundles publish one per transaction. */
   lslot = fd_gui_slot_leader_get( gui, _slot, bank_seq );
-  if( FD_LIKELY( lslot ) ) lslot->begin_microblocks += (uint)txn_cnt;
+  uint entry_cnt = txn_cnt && (txns[0].txnp->flags & FD_TXN_P_FLAGS_BUNDLE) ? (uint)txn_cnt : 1U;
+  if( FD_LIKELY( lslot ) ) lslot->begin_microblocks += entry_cnt;
 }
 
 static inline long
@@ -3868,12 +3866,10 @@ fd_gui_microblock_execution_end( fd_gui_t *     gui,
                                  ulong          txn_cnt,
                                  fd_txn_p_t *   txns,
                                  ulong          pack_txn_idx,
-                                 fd_txn_ns_dt_t txn_ns_dt,
-                                 long           exec_end_ticks,
-                                 ulong          tips,
+                                 fd_microblock_txn_t const * txn_meta,
                                  ulong          bank_seq,
                                  long           now ) {
-  if( FD_UNLIKELY( 1UL!=txn_cnt ) ) FD_LOG_ERR(( "gui expects 1 txn per microblock from bank, found %lu", txn_cnt ));
+  FD_TEST( txn_cnt<=MAX_TXN_PER_MICROBLOCK );
 
   fd_gui_leader_slot_t * lslot = fd_gui_slot_leader_get_or_create( gui, _slot, bank_seq );
   if( FD_UNLIKELY( !lslot ) ) return;
@@ -3883,6 +3879,7 @@ fd_gui_microblock_execution_end( fd_gui_t *     gui,
   ulong block_compute_unit_limit = lslot->max_compute_units;
   for( ulong i=0UL; i<txn_cnt; i++ ) {
     fd_txn_p_t * txn_p = &txns[ i ];
+    fd_microblock_txn_t const * meta = txn_meta+i;
     ulong txn_idx = pack_txn_idx + i;
 
     uint  error_code = (txn_p->flags>>24) & 0xFFU;
@@ -3896,8 +3893,8 @@ fd_gui_microblock_execution_end( fd_gui_t *     gui,
       .txn_idx                 = txn_idx,
       .timestamp_arrival_nanos = txn_p->scheduler_arrival_time_nanos,
       .microblock_end_ns       = tspub_ns,
-      .txn_ns_dt               = txn_ns_dt,
-      .tips                    = tips,
+      .txn_ns_dt               = meta->txn_ns_dt,
+      .tips                    = meta->tips,
       .compute_units_consumed  = (uint)(txn_p->execle_cu.actual_consumed_cus & 0x1FFFFFU),
       .bank_idx                = (uint)(bank_idx & 0x3FU),
       .error_code              = error_code,
@@ -3911,11 +3908,11 @@ fd_gui_microblock_execution_end( fd_gui_t *     gui,
       }
     }
 
-    if( FD_LIKELY( gui->db && gui->hist && (txn_p->flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS) && exec_end_ticks!=LONG_MAX ) ) {
-      fd_gui_record_leader_txn( gui, txn_p, txn_idx, bank_idx, _slot, block_compute_unit_limit, txn_ns_dt, exec_end_ticks, tips, error_code, now );
+    if( FD_LIKELY( gui->db && gui->hist && (txn_p->flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS) && meta->exec_end_ticks!=LONG_MAX ) ) {
+      fd_gui_record_leader_txn( gui, txn_p, txn_idx, bank_idx, _slot, block_compute_unit_limit, meta->txn_ns_dt, meta->exec_end_ticks, meta->tips, error_code, now );
     }
   }
 
   lslot = fd_gui_slot_leader_get( gui, _slot, bank_seq );
-  if( FD_LIKELY( lslot ) ) lslot->end_microblocks += (uint)txn_cnt;
+  if( FD_LIKELY( lslot ) ) lslot->end_microblocks++;
 }

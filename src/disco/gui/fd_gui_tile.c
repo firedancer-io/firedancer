@@ -618,9 +618,7 @@ after_frag( fd_gui_ctx_t *      ctx,
                                       txn_cnt,
                                       (fd_txn_p_t *)src,
                                       trailer->pack_txn_idx,
-                                      trailer->txn_ns_dt,
-                                      trailer->exec_end_ticks,
-                                      trailer->tips,
+                                      trailer->txn,
                                       trailer->bank_seq,
                                       fd_clock_tile_now( ctx->clock ) );
       break;
