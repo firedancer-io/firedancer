@@ -41,8 +41,7 @@
 #define PAIR_PEER_CAP       (256UL)
 #define PAIR_PING_CAP       (256UL)
 #define PAIR_STAKE_CAP      (16UL)
-#define PAIR_GOSSVF_OUT_MTU \
-  (sizeof(fd_gossip_message_t) + FD_GOSSIP_MESSAGE_MAX_CRDS + FD_NET_MTU)
+#define PAIR_GOSSVF_OUT_MTU FD_GOSSIP_GOSSVF_MTU
 
 typedef struct pair_env pair_env_t;
 
@@ -696,12 +695,17 @@ pair_drain_vf_output( pair_node_t * node,
     };
 
     switch( fd_gossvf_sig_kind( meta->sig ) ) {
-      case 0U:
-        fd_gossip_rx( node->gossip, peer, payload, meta->sz, now, node->gossip_stem );
+      case 0U: {
+        FD_TEST( meta->sz<=PAIR_GOSSVF_OUT_MTU );
+        static uchar staged[ FD_GOSSIP_GOSSVF_EXPAND ] __attribute__((aligned(128)));
+        ulong staged_sz = fd_gossip_message_expand( staged, sizeof(staged), payload, meta->sz );
+        FD_TEST( staged_sz );
+        fd_gossip_rx( node->gossip, peer, staged, staged_sz, now, node->gossip_stem );
         fd_gossip_advance( node->gossip, now, node->gossip_stem, NULL );
         pair_drain_signs( node, now );
         pair_drain_gossip_updates( node );
         break;
+      }
       case 1U: {
         if( FD_UNLIKELY( meta->sz!=sizeof(fd_gossip_pingreq_t) ) ) break;
         fd_gossip_pingreq_t const * pingreq = (fd_gossip_pingreq_t const *)payload;

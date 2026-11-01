@@ -22,7 +22,10 @@ typedef struct {
 #define FD_GOSSIP_WFS_STATE_PUBLISH (3)
 #define FD_GOSSIP_WFS_STATE_DONE    (4)
 
-#define FD_GOSSIP_GOSSVF_MTU (sizeof(fd_gossip_message_t) + FD_GOSSIP_MESSAGE_MAX_CRDS + FD_NET_MTU)
+/* gossvf_gossip frame: compact message, failed[], raw payload.  The
+   gossip tile expands it to a full fd_gossip_message_t. */
+#define FD_GOSSIP_GOSSVF_MTU    (FD_GOSSIP_MESSAGE_COMPACT_MAX + FD_GOSSIP_MESSAGE_MAX_CRDS + FD_GOSSIP_MTU)
+#define FD_GOSSIP_GOSSVF_EXPAND (sizeof(fd_gossip_message_t)   + FD_GOSSIP_MESSAGE_MAX_CRDS + FD_GOSSIP_MTU)
 
 struct fd_gossip_tile_ctx {
   fd_gossip_t * gossip;
@@ -36,7 +39,8 @@ struct fd_gossip_tile_ctx {
 
   fd_stem_context_t * stem;
 
-  uchar gossvf_staged[ FD_GOSSIP_GOSSVF_MTU ] __attribute__((aligned(128)));
+  uchar gossvf_staged[ FD_GOSSIP_GOSSVF_EXPAND ] __attribute__((aligned(128)));
+  ulong gossvf_staged_sz;
 
   ulong gui_bw_seed;
   uint  rng_seed;

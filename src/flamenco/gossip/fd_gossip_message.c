@@ -672,6 +672,123 @@ fd_gossip_message_deserialize( fd_gossip_message_t * message,
   return !*payload_sz;
 }
 
+/* Fixed part of a value's active union member, ULONG_MAX if the tag
+   never decodes. */
+
+static ulong
+value_member_fixed_sz( uint tag ) {
+  switch( tag ) {
+    case FD_GOSSIP_VALUE_VOTE:                          return offsetof(fd_gossip_vote_t, transaction);
+    case FD_GOSSIP_VALUE_LOWEST_SLOT:                   return sizeof(fd_gossip_lowest_slot_t);
+    case FD_GOSSIP_VALUE_EPOCH_SLOTS:                   return sizeof(fd_gossip_epoch_slots_t);
+    case FD_GOSSIP_VALUE_NODE_INSTANCE:                 return sizeof(fd_gossip_node_instance_t);
+    case FD_GOSSIP_VALUE_DUPLICATE_SHRED:               return offsetof(fd_gossip_duplicate_shred_t, chunk);
+    case FD_GOSSIP_VALUE_SNAPSHOT_HASHES:               return offsetof(fd_gossip_snapshot_hashes_t, incremental);
+    case FD_GOSSIP_VALUE_CONTACT_INFO:                  return sizeof(fd_gossip_contact_info_t);
+    case FD_GOSSIP_VALUE_RESTART_LAST_VOTED_FORK_SLOTS: return 0UL;
+    case FD_GOSSIP_VALUE_RESTART_HEAVIEST_FORK:         return 0UL;
+    default:                                            return ULONG_MAX;
+  }
+}
+
+/* Variable tail after the fixed part, ULONG_MAX if out of bounds. */
+
+static ulong
+value_member_var_sz( fd_gossip_value_t const * v ) {
+  switch( v->tag ) {
+    case FD_GOSSIP_VALUE_VOTE:
+      return fd_ulong_if( v->vote->transaction_len<=sizeof(v->vote->transaction), v->vote->transaction_len, ULONG_MAX );
+    case FD_GOSSIP_VALUE_DUPLICATE_SHRED:
+      return fd_ulong_if( v->duplicate_shred->chunk_len<=sizeof(v->duplicate_shred->chunk), v->duplicate_shred->chunk_len, ULONG_MAX );
+    case FD_GOSSIP_VALUE_SNAPSHOT_HASHES:
+      return fd_ulong_if( v->snapshot_hashes->incremental_len<=sizeof(v->snapshot_hashes->incremental)/sizeof(v->snapshot_hashes->incremental[0]),
+                          v->snapshot_hashes->incremental_len*sizeof(v->snapshot_hashes->incremental[0]), ULONG_MAX );
+    default:
+      return 0UL;
+  }
+}
+
+#define MSG_VALUES_OFF (offsetof(fd_gossip_message_t, push)+offsetof(fd_gossip_push_t, values))
+
+FD_STATIC_ASSERT( offsetof(fd_gossip_message_t, pull_response)+offsetof(fd_gossip_pull_response_t, values)    ==MSG_VALUES_OFF,                                                         layout );
+FD_STATIC_ASSERT( offsetof(fd_gossip_message_t, pull_response)+offsetof(fd_gossip_pull_response_t, values_len)==offsetof(fd_gossip_message_t, push)+offsetof(fd_gossip_push_t, values_len), layout );
+
+/* Decoded minus wire size per value kind (see fd_gossip_message.h). */
+FD_STATIC_ASSERT( FD_GOSSIP_VALUE_HDR_SZ+offsetof(fd_gossip_vote_t, transaction)                 -(64UL+4UL+1UL+32UL+8UL)                        ==35UL, bound );
+FD_STATIC_ASSERT( FD_GOSSIP_VALUE_HDR_SZ+offsetof(fd_gossip_duplicate_shred_t, chunk)            -(64UL+4UL+2UL+32UL+8UL+8UL+5UL+1UL+1UL+8UL)    ==27UL, bound );
+FD_STATIC_ASSERT( FD_GOSSIP_VALUE_HDR_SZ+offsetof(fd_gossip_snapshot_hashes_t, incremental)      -(64UL+4UL+32UL+8UL+32UL+8UL+8UL)               ==20UL, bound );
+FD_STATIC_ASSERT( FD_GOSSIP_VALUE_HDR_SZ+sizeof(fd_gossip_epoch_slots_t)                         -(64UL+4UL+1UL+32UL+8UL+8UL)                    ==12UL, bound );
+FD_STATIC_ASSERT( FD_GOSSIP_CONTACT_INFO_WIRE_MIN==64UL+4UL+32UL+1UL+8UL+2UL+3UL+4UL+4UL+1UL+3UL,                                                         bound );
+FD_STATIC_ASSERT( FD_GOSSIP_VALUE_MAX_SZ-(FD_GOSSIP_VALUE_MAX_SZ/FD_GOSSIP_CONTACT_INFO_WIRE_MIN)*FD_GOSSIP_CONTACT_INFO_WIRE_MIN<117UL,                   bound );
+FD_STATIC_ASSERT( sizeof(fd_gossip_pull_request_t)+offsetof(fd_gossip_message_t, pull_request)<=FD_GOSSIP_MESSAGE_COMPACT_MAX,                            bound );
+FD_STATIC_ASSERT( sizeof(fd_gossip_prune_t)       +offsetof(fd_gossip_message_t, prune)       <=FD_GOSSIP_MESSAGE_COMPACT_MAX,                            bound );
+
+ulong
+fd_gossip_message_compact( fd_gossip_message_t const * message,
+                           uchar *                     out ) {
+  if( FD_UNLIKELY( message->tag!=FD_GOSSIP_MESSAGE_PUSH && message->tag!=FD_GOSSIP_MESSAGE_PULL_RESPONSE ) ) {
+    ulong sz = fd_gossip_message_used_sz( message );
+    fd_memcpy( out, message, sz );
+    return sz;
+  }
+
+  ulong sz = MSG_VALUES_OFF;
+  fd_memcpy( out, message, sz );
+  for( ulong i=0UL; i<message->push->values_len; i++ ) {
+    fd_gossip_value_t const * v = message->push->values+i;
+    ulong v_sz = FD_GOSSIP_VALUE_HDR_SZ+value_member_fixed_sz( v->tag )+value_member_var_sz( v );
+    fd_memcpy( out+sz, v, v_sz );
+    sz += v_sz;
+  }
+  return sz;
+}
+
+ulong
+fd_gossip_message_expand( uchar *       out,
+                          ulong         out_max,
+                          uchar const * in,
+                          ulong         in_sz ) {
+  if( FD_UNLIKELY( in_sz<MSG_VALUES_OFF || out_max<MSG_VALUES_OFF ) ) return 0UL;
+  fd_gossip_message_t * msg = (fd_gossip_message_t *)out;
+  fd_memcpy( out, in, MSG_VALUES_OFF );
+  if( FD_UNLIKELY( msg->tag>=FD_GOSSIP_MESSAGE_CNT ) ) return 0UL;
+
+  ulong in_off;
+  ulong msg_sz;
+  if( FD_UNLIKELY( msg->tag!=FD_GOSSIP_MESSAGE_PUSH && msg->tag!=FD_GOSSIP_MESSAGE_PULL_RESPONSE ) ) {
+    msg_sz = fd_gossip_message_used_sz( msg );
+    if( FD_UNLIKELY( msg_sz>in_sz || msg_sz>out_max ) ) return 0UL;
+    fd_memcpy( out+MSG_VALUES_OFF, in+MSG_VALUES_OFF, msg_sz-MSG_VALUES_OFF );
+    in_off = msg_sz;
+  } else {
+    if( FD_UNLIKELY( msg->push->values_len>FD_GOSSIP_MESSAGE_MAX_CRDS ) ) return 0UL;
+    msg_sz = fd_gossip_message_used_sz( msg );
+    if( FD_UNLIKELY( msg_sz>out_max ) ) return 0UL;
+    in_off = MSG_VALUES_OFF;
+    for( ulong i=0UL; i<msg->push->values_len; i++ ) {
+      uchar * v = (uchar *)( msg->push->values+i );
+      if( FD_UNLIKELY( in_sz-in_off<FD_GOSSIP_VALUE_HDR_SZ ) ) return 0UL;
+      fd_memcpy( v, in+in_off, FD_GOSSIP_VALUE_HDR_SZ );
+      in_off += FD_GOSSIP_VALUE_HDR_SZ;
+      ulong fixed = value_member_fixed_sz( ((fd_gossip_value_t *)v)->tag );
+      if( FD_UNLIKELY( fixed==ULONG_MAX || in_sz-in_off<fixed ) ) return 0UL;
+      fd_memcpy( v+FD_GOSSIP_VALUE_HDR_SZ, in+in_off, fixed );
+      in_off += fixed;
+      ulong var = value_member_var_sz( (fd_gossip_value_t *)v );
+      if( FD_UNLIKELY( var==ULONG_MAX || in_sz-in_off<var ) ) return 0UL;
+      fd_memcpy( v+FD_GOSSIP_VALUE_HDR_SZ+fixed, in+in_off, var );
+      in_off += var;
+    }
+  }
+
+  ulong trailer_sz = in_sz-in_off;
+  if( FD_UNLIKELY( trailer_sz>out_max-msg_sz ) ) return 0UL;
+  fd_memcpy( out+msg_sz, in+in_off, trailer_sz );
+  return msg_sz+trailer_sz;
+}
+
+#undef MSG_VALUES_OFF
+
 #define CHECK1( cond ) do {               \
   if( FD_UNLIKELY( !(cond) ) ) return -1; \
 } while( 0 )
