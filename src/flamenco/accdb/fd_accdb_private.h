@@ -255,8 +255,6 @@ struct fd_accdb_prot {
 
 typedef struct fd_accdb_prot fd_accdb_prot_t;
 
-#define FD_ACCDB_HOT_REF_PROT (2)
-
 #define FD_ACCDB_REQ_UNSPILL   (2U)     /* also look in spilled forks */
 #define FD_ACCDB_TIER_UNSPILL  (3)      /* acc_map copy of a spilled version */
 #define FD_ACCDB_SPILL_SLICE   (256UL)  /* versions per background call */
@@ -357,17 +355,16 @@ FD_STATIC_ASSERT( offsetof(fd_accdb_accmeta_t, data)==offsetof(fd_accdb_accmeta_
 #define FD_ACCDB_OFF_CLEAN(o)  ( !( (o) & FD_ACCDB_OFF_DIRTY_BIT ) )
 
 /* The in-memory executable_size field in fd_accdb_accmeta_t packs
-   five things into 32 bits:
+   eight things into 32 bits:
 
      bit  31     executable flag                       (FD_ACCDB_SIZE_EXEC_BIT)
      bit  30     cache_valid flag, in-memory only      (FD_ACCDB_SIZE_CACHE_VALID_BIT)
+     bit  29     hot prot flag,    in-memory only      (FD_ACCDB_SIZE_PROT_BIT)
      bit  28     pd_write flag,    in-memory only      (FD_ACCDB_SIZE_PD_WRITE_BIT)
      bit  27     unlinked flag,    in-memory only      (FD_ACCDB_SIZE_UNLINKED_BIT)
-     bit  26     spare
+     bit  26     hot ref flag,     in-memory only      (FD_ACCDB_SIZE_REF_BIT)
      bits 25..24 index tier,       in-memory only      (FD_ACCDB_SIZE_TIER_MASK)
      bits 23..0  data length in bytes                  (FD_ACCDB_SIZE_MASK)
-
-   (bit 29 is spare too: the CACHE_CLAIM lock it held is gone.)
 
    The data length is therefore 24 bits, max 16 MiB, still above
    FD_RUNTIME_ACC_SZ_MAX of 10 MiB (enforced by the static assert below).
@@ -378,8 +375,15 @@ FD_STATIC_ASSERT( offsetof(fd_accdb_accmeta_t, data)==offsetof(fd_accdb_accmeta_
    and evictors' CAS of the word.  Fresh slot inits store NONE; the
    in-place overwrite preserves it.
 
-   The cache_valid, pd_write, unlinked and tier bits exist only in the
-   in-memory index, never on disk:
+   PROT (bit 29, T2 only) pins a version for a residual waiter.  REF is
+   the hot CLOCK bit: FG atomic-ORs it on a hot hit with REF and PROT
+   clear, T2 clears it; T2 also uses it as a transient dedupe mark on
+   unspilled copies, which FG never references.  Fresh inits clear
+   both.  (PROT took bit 29, freed by the CACHE_CLAIM lock's removal;
+   bit 27 is main's unlinked flag.)
+
+   The cache_valid, pd_write, unlinked, tier, PROT and REF bits exist
+   only in the in-memory index, never on disk:
      - cache_valid (bit 30): when set, cache_idx holds a valid
        (class, idx) pair; when clear, cache_idx must not be dereferenced
        (it may hold a snapshot slot number or garbage).
@@ -407,7 +411,9 @@ FD_STATIC_ASSERT( offsetof(fd_accdb_accmeta_t, data)==offsetof(fd_accdb_accmeta_
 #define FD_ACCDB_SIZE_EXEC_BIT        (1U<<31)
 #define FD_ACCDB_SIZE_CACHE_VALID_BIT (1U<<30)
 #define FD_ACCDB_SIZE_PD_WRITE_BIT    (1U<<28)
+#define FD_ACCDB_SIZE_PROT_BIT        (1U<<29)
 #define FD_ACCDB_SIZE_UNLINKED_BIT    (1U<<27)
+#define FD_ACCDB_SIZE_REF_BIT         (1U<<26)
 #define FD_ACCDB_SIZE_TIER_SHIFT      (24)
 #define FD_ACCDB_SIZE_TIER_MASK       (3U<<FD_ACCDB_SIZE_TIER_SHIFT)
 #define FD_ACCDB_SIZE_MASK            ((1U<<24)-1U)
@@ -421,7 +427,11 @@ FD_STATIC_ASSERT( offsetof(fd_accdb_accmeta_t, data)==offsetof(fd_accdb_accmeta_
 #define FD_ACCDB_SIZE_TIER(p)         (((p) & FD_ACCDB_SIZE_TIER_MASK)>>FD_ACCDB_SIZE_TIER_SHIFT)
 
 FD_STATIC_ASSERT( (10UL<<20) <= FD_ACCDB_SIZE_MASK, tier_bits_collide_with_len );
-FD_STATIC_ASSERT( !( FD_ACCDB_SIZE_TIER_MASK & (FD_ACCDB_SIZE_UNLINKED_BIT|FD_ACCDB_SIZE_PD_WRITE_BIT|FD_ACCDB_SIZE_CACHE_VALID_BIT|FD_ACCDB_SIZE_EXEC_BIT|FD_ACCDB_SIZE_MASK) ), tier_bits_overlap );
+/* every size word field is its own bits */
+FD_STATIC_ASSERT( (FD_ACCDB_SIZE_EXEC_BIT^FD_ACCDB_SIZE_CACHE_VALID_BIT^FD_ACCDB_SIZE_PROT_BIT^FD_ACCDB_SIZE_PD_WRITE_BIT^
+                   FD_ACCDB_SIZE_UNLINKED_BIT^FD_ACCDB_SIZE_REF_BIT^FD_ACCDB_SIZE_TIER_MASK^FD_ACCDB_SIZE_MASK)==
+                  (FD_ACCDB_SIZE_EXEC_BIT|FD_ACCDB_SIZE_CACHE_VALID_BIT|FD_ACCDB_SIZE_PROT_BIT|FD_ACCDB_SIZE_PD_WRITE_BIT|
+                   FD_ACCDB_SIZE_UNLINKED_BIT|FD_ACCDB_SIZE_REF_BIT|FD_ACCDB_SIZE_TIER_MASK|FD_ACCDB_SIZE_MASK), size_word_bits_overlap );
 
 /* fd_accdb_acc_unlinked returns 1 if acc was unlinked from its hash
    chain after the caller loaded its map.next (see the unlinked bit
@@ -880,7 +890,6 @@ struct fd_accdb_shmem_private {
   ulong idx_file_sz;        /* bytes fallocated at boot            */
 
   ulong idx_bg_defer_off;   /* FD_ACCDB_BG_DEFER_MAX uints         */
-  ulong idx_hot_ref_off;    /* acc_pool_max uchars, FG sets on hit */
   ulong idx_fifo_off;       /* acc_pool_max ulongs: idx<<32 | gen  */
   ulong fifo_head;          /* T2 only                             */
   ulong fifo_tail;

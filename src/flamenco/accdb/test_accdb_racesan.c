@@ -4056,6 +4056,83 @@ test_tier_vs_coldload_claim( void ) {
   close( idx_fd ); close( fd );
 }
 
+/* Hot REF shares the data word with VALID, the line and the tier: FG B
+   is about to bind a lineless hot entry with a CAS of the word when FG
+   A, having seen REF clear after a CLOCK clear, ORs REF in.  B's CAS
+   fails on the change and retries, so neither update is lost, and T2's
+   CLOCK then clears REF once before evicting. */
+
+static void
+test_hot_ref_vs_coldload_claim( void ) {
+  int fd = memfd_create( "accdb_rs_ref", 0 );
+  FD_TEST( fd>=0 );
+  ulong max_acc = 8192UL, ram = 1024UL, mls = 256UL, wps = 64UL, cache_fp = 32UL<<20;
+  ulong fp = fd_accdb_shmem_footprint( max_acc, mls, wps, 8192UL, cache_fp, 2UL, 3UL, 0UL, ram );
+  void * mem = aligned_alloc( fd_accdb_shmem_align(), fp );
+  fd_accdb_shmem_t * shmem = fd_accdb_shmem_join( fd_accdb_shmem_new( mem, max_acc, mls, wps, 8192UL, 1UL<<30, cache_fp, 2UL, 0, 42UL, 3UL, 0UL, ram ) );
+  FD_TEST( shmem );
+  int idx_fd = memfd_create( "accdb_rs_ref2", 0 );
+  FD_TEST( !ftruncate( idx_fd, (long)shmem->idx_file_sz ) );
+  ulong jfp = fd_accdb_footprint( mls, 1 );
+  fd_accdb_t * t2  = fd_accdb_join( fd_accdb_new( aligned_alloc( fd_accdb_align(), jfp ), shmem, fd, -1, 0UL, NULL, NULL, 0UL, 1, idx_fd, NULL ) );
+  fd_accdb_t * fga = fd_accdb_join( fd_accdb_new( aligned_alloc( fd_accdb_align(), jfp ), shmem, fd, -1, 0UL, NULL, NULL, 0UL, 1, -1, NULL ) );
+  fd_accdb_t * fgb = fd_accdb_join( fd_accdb_new( aligned_alloc( fd_accdb_align(), jfp ), shmem, fd, -1, 0UL, NULL, NULL, 0UL, 1, -1, NULL ) );
+  FD_TEST( t2 && fga && fgb );
+
+  fd_accdb_fork_id_t tip = fd_accdb_attach_child( t2, SENTINEL );
+  fd_accdb_fork_id_t a   = fd_accdb_attach_child( t2, tip );
+  uchar key[ 32 ] = { 0x5E, 0x2F };
+  seq_write_data( t2, a, key, 77UL, NULL, 8UL, 0x11 );
+  fd_accdb_advance_root( t2, a ); drain_background( t2 );
+  tip = a;
+  for( ulong i=0UL; i<FD_ACCDB_DEMOTE_AGE+2UL; i++ ) { fd_accdb_fork_id_t c = fd_accdb_attach_child( t2, tip ); fd_accdb_advance_root( t2, c ); drain_background( t2 ); tip = c; }
+  for( ulong i=0UL; i<64UL; i++ ) drain_background( t2 );
+  FD_TEST( fd_accdb_metrics( t2 )->accounts_demoted==1UL );
+
+  /* the demoted hot copy took the line: drop it so B cold loads */
+  ulong cls, idx;
+  FD_TEST( fd_accdb_debug_find_line( t2, key, &cls, &idx ) );
+  uint h_idx = ((fd_accdb_cache_line_t *)fd_accdb_debug_line_addr( t2, cls, idx ))->acc_idx;
+  fd_accdb_accmeta_t * h = fd_accdb_debug_accmeta( t2, h_idx );
+# define ES() FD_ACCDB_DATA_ES( FD_VOLATILE_CONST( h->data ) )
+  FD_VOLATILE( shmem->cache_class_init[ cls ].val ) = shmem->cache_class_max[ cls ];  /* see evict_line */
+  FD_TEST( fd_accdb_debug_evict_line( t2, cls, idx ) );
+  fd_accdb_acc_es_and( h, ~FD_ACCDB_SIZE_REF_BIT );
+  FD_TEST( FD_ACCDB_SIZE_TIER( ES() )==FD_ACCDB_TIER_HOT && !FD_ACCDB_SIZE_CACHE_VALID( ES() ) && !(ES() & (FD_ACCDB_SIZE_REF_BIT|FD_ACCDB_SIZE_PROT_BIT)) );
+
+  /* B finds h (setting REF), loads the unbound word, parks before its bind */
+  fd_racesan_async_t * ab = fiber_acquire_expect( &g_fiber[1], fgb, tip, key, 77UL );
+  FD_TEST( fd_racesan_async_step_until( ab, "accdb_acquire:pre_publish", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
+  FD_TEST( ES() & FD_ACCDB_SIZE_REF_BIT );
+  fd_accdb_acc_es_and( h, ~FD_ACCDB_SIZE_REF_BIT ); /* a CLOCK clear */
+
+  /* A sees REF clear and ORs it in under B's loaded word */
+  fd_racesan_async_t * aa = fiber_acquire_expect( &g_fiber[0], fga, tip, key, 77UL );
+  FD_TEST( fd_racesan_async_step_until( aa, "accdb_acquire:pre_hot_ref", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
+  FD_TEST( !(ES() & FD_ACCDB_SIZE_REF_BIT) );
+  FD_TEST( fd_racesan_async_step( aa )==FD_RACESAN_ASYNC_RET_HOOK );  /* the OR, then A's next hook */
+  FD_TEST( ES() & FD_ACCDB_SIZE_REF_BIT );
+  async_finish( ab );   /* its first CAS fails on REF: it retries */
+  fiber_done( &g_fiber[1] );
+  FD_TEST( FD_ACCDB_SIZE_CACHE_VALID( ES() ) && (ES() & FD_ACCDB_SIZE_REF_BIT) );
+  FD_TEST( FD_ACCDB_SIZE_TIER( ES() )==FD_ACCDB_TIER_HOT && FD_ACCDB_SIZE_DATA( ES() )==8UL );
+  async_finish( aa );
+  fiber_done( &g_fiber[0] );
+
+  /* CLOCK under pressure: the first sweep only clears REF */
+  FD_TEST( !(shmem->idx_hot_chain_cnt%FD_ACCDB_HOT_SWEEP) );
+  ulong sweep  = shmem->idx_hot_chain_cnt/FD_ACCDB_HOT_SWEEP;
+  ulong avail0 = shmem->pool_avail;
+  shmem->pool_avail = shmem->promote_reserve;
+  for( ulong i=0UL; i<sweep; i++ ) drain_background( t2 );
+  FD_TEST( FD_ACCDB_SIZE_TIER( ES() )==FD_ACCDB_TIER_HOT && FD_ACCDB_SIZE_CACHE_VALID( ES() ) && !(ES() & FD_ACCDB_SIZE_REF_BIT) );
+  for( ulong i=0UL; i<sweep; i++ ) drain_background( t2 );
+  FD_TEST( FD_ACCDB_SIZE_TIER( ES() )==FD_ACCDB_TIER_NONE ); /* evicted, slot not yet reused */
+  shmem->pool_avail = avail0+( shmem->pool_avail-shmem->promote_reserve );
+# undef ES
+  close( idx_fd ); close( fd );
+}
+
 struct test_case { char const * name; void (*fn)( void ); };
 
 int
@@ -4107,6 +4184,7 @@ main( int     argc,
     TEST( test_cf_kick_vs_probe ),
     TEST( test_residual_wait_vs_epoch_drain ),
     TEST( test_tier_vs_coldload_claim ),
+    TEST( test_hot_ref_vs_coldload_claim ),
     TEST( test_probe_vs_pd_commit ),
     TEST( test_pd_parent_read_vs_child_write ),
     TEST( test_pd_parent_hold_vs_advance_root ),

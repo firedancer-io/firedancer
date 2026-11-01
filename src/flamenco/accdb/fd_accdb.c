@@ -198,7 +198,6 @@ struct __attribute__((aligned(FD_ACCDB_ALIGN))) fd_accdb_private {
   fd_accdb_idx_region_t ovl[1];
   fd_accdb_cf_t         cf[1];
   uint *                hot_map;
-  uchar *               hot_ref;
   ulong *               fifo;
   ulong                 idx_rng;
   int                   readonly;
@@ -336,11 +335,9 @@ idx_join( fd_accdb_t * accdb,
   memset( accdb->ovl_res, 0xFF, sizeof(accdb->ovl_res) );
   memset( accdb->cf,  0, sizeof(accdb->cf)  );
   accdb->hot_map = NULL;
-  accdb->hot_ref = NULL;
   accdb->fifo    = NULL;
   accdb->idx_rng = shmem->seed;
   if( !shmem->index_ram_entries ) return;
-  accdb->hot_ref = (uchar *)( (uchar *)shmem + shmem->idx_hot_ref_off );
   accdb->fifo    = (ulong *)( (uchar *)shmem + shmem->idx_fifo_off    );
   *accdb->bkt = (fd_accdb_idx_region_t){
     .fd    = idx_fd,
@@ -588,7 +585,6 @@ fd_accdb_reset( fd_accdb_t * accdb ) {
   if( accdb->fifo ) {
     /* Index state never survives a reset: the next full placement
        rewrites every bucket page, and the RAM side starts empty. */
-    memset( accdb->hot_ref, 0,    shmem->acc_pool_max );
     memset( accdb->hot_map, 0xFF, shmem->idx_hot_chain_cnt*sizeof(uint) );
     memset( accdb->cf->cf,  0,    shmem->idx_cf_nb*sizeof(ulong) );
     memset( accdb->cf->stash, 0,  FD_ACCDB_CF_STASH_MAX*sizeof(ulong) );
@@ -3065,7 +3061,13 @@ idx_resolve( fd_accdb_t *            accdb,
       if( FD_UNLIKELY( fd_accdb_acc_unlinked( h ) ) ) { acc = FD_VOLATILE_CONST( accdb->hot_map[ hash&(accdb->shmem->idx_hot_chain_cnt-1UL) ] ); continue; }
       acc = next;
     }
-    if( acc!=UINT_MAX && !accdb->readonly && !FD_VOLATILE_CONST( accdb->hot_ref[ acc ] ) ) FD_VOLATILE( accdb->hot_ref[ acc ] ) = 1;
+    if( acc!=UINT_MAX && !accdb->readonly ) {
+      fd_accdb_accmeta_t * hm = &accdb->acc_pool[ acc ];
+      if( !( FD_VOLATILE_CONST( hm->executable_size ) & (FD_ACCDB_SIZE_REF_BIT|FD_ACCDB_SIZE_PROT_BIT) ) ) {
+        fd_racesan_hook( "accdb_acquire:pre_hot_ref" );
+        fd_accdb_acc_es_or( hm, FD_ACCDB_SIZE_REF_BIT );
+      }
+    }
     if( acc!=UINT_MAX && !FD_VOLATILE_CONST( accdb->acc_pool[ acc ].lamports ) ) { /* NEG */
       *known = 1;
       return UINT_MAX;
@@ -4814,8 +4816,7 @@ hot_insert( fd_accdb_t * accdb,
   ulong chain = hot_chain_of( accdb, h->key.pubkey );
   hot_purge( accdb, h->key.pubkey, 0 );
   h->map.next = accdb->hot_map[ chain ];
-  fd_accdb_acc_es_or( h, FD_ACCDB_TIER_HOT<<FD_ACCDB_SIZE_TIER_SHIFT ); /* h inits with NONE; a transferred line exposes h */
-  accdb->hot_ref[ idx ] = 0;
+  fd_accdb_acc_es_or( h, FD_ACCDB_TIER_HOT<<FD_ACCDB_SIZE_TIER_SHIFT ); /* h inits with NONE, no REF/PROT; a transferred line exposes h */
   FD_COMPILER_MFENCE();
   FD_VOLATILE( accdb->hot_map[ chain ] ) = idx;
 }
@@ -5009,14 +5010,15 @@ background_hot_evict( fd_accdb_t * accdb ) {
     uint prev = UINT_MAX, cur = accdb->hot_map[ chain ];
     while( cur!=UINT_MAX && bg_defer_room( accdb, 1UL ) ) {
       uint next = accdb->acc_pool[ cur ].map.next;
-      int lineless = !FD_ACCDB_SIZE_CACHE_VALID( FD_VOLATILE_CONST( accdb->acc_pool[ cur ].executable_size ) );
-      if( accdb->hot_ref[ cur ]==FD_ACCDB_HOT_REF_PROT ) {
+      fd_accdb_accmeta_t * cm = &accdb->acc_pool[ cur ];
+      uint                 e  = FD_VOLATILE_CONST( cm->executable_size );
+      if( e & FD_ACCDB_SIZE_PROT_BIT ) {
         prev = cur;
-      } else if( lineless || !accdb->hot_ref[ cur ] ) {
+      } else if( !FD_ACCDB_SIZE_CACHE_VALID( e ) || !(e & FD_ACCDB_SIZE_REF_BIT) ) {
         hot_unlink( accdb, chain, prev, cur, 0 );
         evicted++;
       } else {
-        accdb->hot_ref[ cur ] = 0;
+        fd_accdb_acc_es_and( cm, ~FD_ACCDB_SIZE_REF_BIT );
         prev = cur;
       }
       cur = next;
@@ -5372,8 +5374,9 @@ unspill_evict_one( fd_accdb_t * accdb ) {
   for( ulong k=0UL; k<n; k++ ) {
     ulong e   = fifo[ (shmem->unspill_tail++) % FD_ACCDB_UNSPILL_MAX ];
     uint  idx = (uint)(e>>32);
-    if( FD_ACCDB_SIZE_TIER( accdb->acc_pool[ idx ].executable_size )!=FD_ACCDB_TIER_UNSPILL || accdb->acc_pool[ idx ].key.generation!=(uint)e ) continue; /* stale */
-    if( accdb->hot_ref[ idx ]==FD_ACCDB_HOT_REF_PROT ) { fifo[ (shmem->unspill_head++) % FD_ACCDB_UNSPILL_MAX ] = e; continue; }
+    uint es = accdb->acc_pool[ idx ].executable_size;
+    if( FD_ACCDB_SIZE_TIER( es )!=FD_ACCDB_TIER_UNSPILL || accdb->acc_pool[ idx ].key.generation!=(uint)e ) continue; /* stale */
+    if( es & FD_ACCDB_SIZE_PROT_BIT ) { fifo[ (shmem->unspill_head++) % FD_ACCDB_UNSPILL_MAX ] = e; continue; }
     fd_accdb_accmeta_t * a = &accdb->acc_pool[ idx ];
     ulong chain = idx_chain_of( accdb, a->key.pubkey );
     acc_chain_splice( accdb, (uint)chain, idx );
@@ -5419,22 +5422,22 @@ idx_unspill( fd_accdb_t * accdb,
   a->data            = FD_ACCDB_DATA( FD_ACCDB_ACC_CIDX_INVAL, s.exec_size | ( s.pd_write ? FD_ACCDB_SIZE_PD_WRITE_BIT : 0U ) | (FD_ACCDB_TIER_UNSPILL<<FD_ACCDB_SIZE_TIER_SHIFT) );
 
   acc_map_insert_ordered( accdb, chain, idx );
-  accdb->hot_ref[ idx ] = 0;
   fd_accdb_shmem_t * shmem = accdb->shmem;
   ulong * fifo = (ulong *)( (uchar *)shmem + shmem->unspill_off );
   if( FD_UNLIKELY( shmem->unspill_head-shmem->unspill_tail>=FD_ACCDB_UNSPILL_MAX ) ) {
-    /* drop stale and duplicate entries (mark bit 7 of hot_ref, which
-       FG never touches for acc_map nodes), order kept; distinct live
-       copies <= cap < MAX leaves room */
+    /* drop stale and duplicate entries (mark REF, which FG never sets
+       on acc_map nodes), order kept; distinct live copies <= cap < MAX
+       leaves room */
     ulong w = shmem->unspill_tail;
     for( ulong r=shmem->unspill_tail; r<shmem->unspill_head; r++ ) {
-      ulong e = fifo[ r % FD_ACCDB_UNSPILL_MAX ];
-      uint  i = (uint)(e>>32);
-      if( FD_ACCDB_SIZE_TIER( accdb->acc_pool[ i ].executable_size )!=FD_ACCDB_TIER_UNSPILL || accdb->acc_pool[ i ].key.generation!=(uint)e || (accdb->hot_ref[ i ] & 0x80) ) continue;
-      accdb->hot_ref[ i ] |= 0x80;
+      ulong                e  = fifo[ r % FD_ACCDB_UNSPILL_MAX ];
+      fd_accdb_accmeta_t * um = &accdb->acc_pool[ e>>32 ];
+      uint                 v  = FD_VOLATILE_CONST( um->executable_size );
+      if( FD_ACCDB_SIZE_TIER( v )!=FD_ACCDB_TIER_UNSPILL || um->key.generation!=(uint)e || (v & FD_ACCDB_SIZE_REF_BIT) ) continue;
+      fd_accdb_acc_es_or( um, FD_ACCDB_SIZE_REF_BIT );
       fifo[ (w++) % FD_ACCDB_UNSPILL_MAX ] = e;
     }
-    for( ulong r=shmem->unspill_tail; r<w; r++ ) accdb->hot_ref[ fifo[ r % FD_ACCDB_UNSPILL_MAX ]>>32 ] &= 0x7F;
+    for( ulong r=shmem->unspill_tail; r<w; r++ ) fd_accdb_acc_es_and( &accdb->acc_pool[ fifo[ r % FD_ACCDB_UNSPILL_MAX ]>>32 ], ~FD_ACCDB_SIZE_REF_BIT );
     shmem->unspill_head = w;
   }
   fifo[ (shmem->unspill_head++) % FD_ACCDB_UNSPILL_MAX ] = ((ulong)idx<<32) | s.generation;
@@ -5846,7 +5849,7 @@ ring_serve( fd_accdb_t *      accdb,
         fd_accdb_prot_t * prot = (fd_accdb_prot_t *)( (uchar *)accdb->shmem + accdb->shmem->prot_off );
         prot[ accdb->shmem->prot_head % FD_ACCDB_PROT_MAX ] = (fd_accdb_prot_t){ .idx=uidx, .joiner=joiner, .ticket=h };
         accdb->shmem->prot_head++;
-        accdb->hot_ref[ uidx ] = FD_ACCDB_HOT_REF_PROT;
+        fd_accdb_acc_es_or( &accdb->acc_pool[ uidx ], FD_ACCDB_SIZE_PROT_BIT );
       }
       FD_VOLATILE( ring->head ) = h+1UL;
       FD_COMPILER_MFENCE();
@@ -5860,7 +5863,7 @@ ring_serve( fd_accdb_t *      accdb,
       fd_accdb_prot_t * prot = (fd_accdb_prot_t *)( (uchar *)accdb->shmem + accdb->shmem->prot_off );
       prot[ accdb->shmem->prot_head % FD_ACCDB_PROT_MAX ] = (fd_accdb_prot_t){ .idx=idx, .joiner=joiner, .ticket=h };
       accdb->shmem->prot_head++;
-      accdb->hot_ref[ idx ] = FD_ACCDB_HOT_REF_PROT;
+      fd_accdb_acc_es_or( &accdb->acc_pool[ idx ], FD_ACCDB_SIZE_PROT_BIT );
     }
     FD_COMPILER_MFENCE();
     FD_VOLATILE( ring->done ) = h+1UL;
@@ -5889,8 +5892,13 @@ prot_release( fd_accdb_t * accdb ) {
   while( shmem->prot_tail<shmem->prot_head ) {
     fd_accdb_prot_t * p = &prot[ shmem->prot_tail % FD_ACCDB_PROT_MAX ];
     if( FD_VOLATILE_CONST( shmem->res_ack[ p->joiner ] )<=p->ticket ) break;
-    uint t = FD_ACCDB_SIZE_TIER( accdb->acc_pool[ p->idx ].executable_size );
-    if( ( t==FD_ACCDB_TIER_HOT || t==FD_ACCDB_TIER_UNSPILL ) && accdb->hot_ref[ p->idx ]==FD_ACCDB_HOT_REF_PROT ) accdb->hot_ref[ p->idx ] = t==FD_ACCDB_TIER_HOT;
+    fd_accdb_accmeta_t * pm = &accdb->acc_pool[ p->idx ];
+    uint                 v  = FD_VOLATILE_CONST( pm->executable_size );
+    uint                 t  = FD_ACCDB_SIZE_TIER( v );
+    if( ( t==FD_ACCDB_TIER_HOT || t==FD_ACCDB_TIER_UNSPILL ) && (v & FD_ACCDB_SIZE_PROT_BIT) ) {
+      if( t==FD_ACCDB_TIER_HOT ) fd_accdb_acc_es_or( pm, FD_ACCDB_SIZE_REF_BIT );
+      fd_accdb_acc_es_and( pm, ~FD_ACCDB_SIZE_PROT_BIT );
+    }
     shmem->prot_tail++;
   }
 }
@@ -5989,8 +5997,7 @@ background_thaw( fd_accdb_t * accdb ) {
           a->data            = FD_ACCDB_DATA( FD_ACCDB_ACC_CIDX_INVAL, s.exec_size | ( s.pd_write ? FD_ACCDB_SIZE_PD_WRITE_BIT : 0U ) );
           acc_map_insert_ordered( accdb, idx_chain_of( accdb, rec->pubkey ), idx );
         }
-        fd_accdb_acc_es_and( &accdb->acc_pool[ idx ], ~FD_ACCDB_SIZE_TIER_MASK );
-        accdb->hot_ref[ idx ] = 0;
+        fd_accdb_acc_es_and( &accdb->acc_pool[ idx ], ~(FD_ACCDB_SIZE_TIER_MASK|FD_ACCDB_SIZE_PROT_BIT|FD_ACCDB_SIZE_REF_BIT) );
         fd_accdb_accmeta_t * a = &accdb->acc_pool[ idx ];
         if( !a->lamports && fd_accdb_acc_offset( a )==FD_ACCDB_OFF_DEAD ) idx_write_tomb( accdb, a );
         FD_TEST( rec_push( accdb, &fk->shmem->txn_head, idx ) );
