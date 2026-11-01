@@ -1009,6 +1009,12 @@ slot_state_eval( fd_sched_t * sched, fd_sched_block_t * block ) {
   else if( !block->fec_eos )                     next = FD_SCHED_SLOT_STATE_BLOCKED_NETWORK;
   else                                           next = FD_SCHED_SLOT_STATE_FINISH;
 
+  /* A settled state has neither a transition to timestamp nor a
+     pending candidate to debounce.  In particular, keep reading the
+     clock when the candidate differs from the committed state, even
+     if next is unchanged or has reverted to the committed state. */
+  if( FD_LIKELY( next==block->state_cand && next==block->state ) ) return;
+
   long now = fd_tickcount();
   slot_state_maybe_commit( sched, block, now );
   if( next!=block->state_cand ) {

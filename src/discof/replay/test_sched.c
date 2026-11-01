@@ -10,12 +10,119 @@
 #include "../../flamenco/alpenglow/fd_block_marker_serde.h"
 #include "../../flamenco/runtime/fd_runtime_const.h"
 
+/* Exercise private state/debounce transitions with an exact clock.
+   All other scheduler tests use the native tick counter. */
+static int   test_state_clock_enabled;
+static long  test_state_now;
+static ulong test_state_clock_reads;
+
+static long
+test_sched_tickcount( void ) {
+  if( !test_state_clock_enabled ) return fd_tickcount();
+  test_state_clock_reads++;
+  return test_state_now;
+}
+
+#pragma push_macro("fd_tickcount")
+#undef fd_tickcount
+#define fd_tickcount test_sched_tickcount
+#include "fd_sched.c"
+#pragma pop_macro("fd_tickcount")
+
 #define TEST_EXEC_CNT         4UL
 #define TEST_ROOT_SLOT        1000UL
 #define TEST_ROOT_TICK_HEIGHT 5000UL
 #define TEST_WKSP_TAG         1UL
 
 static fd_wksp_t * test_wksp;
+
+static void
+test_slot_state_debounce( void ) {
+  static fd_sched_t sched[1];
+  static fd_sched_block_t block[1];
+  fd_memset( sched, 0, sizeof(*sched) );
+  fd_memset( block, 0, sizeof(*block) );
+  sched->state_debounce_ticks = 10L;
+  block->slot = 123UL;
+  block->state_open = 1;
+  block->state = block->state_cand = FD_SCHED_SLOT_STATE_BLOCKED_NETWORK;
+  block->state_start_tick = 5L;
+  block->state_cand_tick = 10L;
+  test_state_clock_enabled = 1;
+  test_state_clock_reads = 0UL;
+  test_state_now = 20L;
+  slot_state_eval( sched, block );
+  FD_TEST( !test_state_clock_reads && !sched->state_cnt );
+  FD_TEST( block->state_start_tick==5L && block->state_cand_tick==10L );
+
+  /* A new candidate starts now, but an unchanged pending candidate
+     must still commit at the inclusive debounce boundary. */
+  block->txn_parsed_cnt = 1U;
+  slot_state_eval( sched, block );
+  FD_TEST( test_state_clock_reads==1UL && block->state_cand==FD_SCHED_SLOT_STATE_BLOCKED_TILES );
+  FD_TEST( block->state_cand_tick==20L && block->state==FD_SCHED_SLOT_STATE_BLOCKED_NETWORK );
+  test_state_now = 29L; slot_state_eval( sched, block );
+  FD_TEST( test_state_clock_reads==2UL && !sched->state_cnt && block->state_cand_tick==20L );
+  test_state_now = 30L; slot_state_eval( sched, block );
+  FD_TEST( test_state_clock_reads==3UL && sched->state_cnt==1UL );
+  FD_TEST( block->state==FD_SCHED_SLOT_STATE_BLOCKED_TILES && block->state_start_tick==20L );
+  FD_TEST( sched->state_buf[0].state==FD_SCHED_SLOT_STATE_BLOCKED_NETWORK );
+  FD_TEST( sched->state_buf[0].start_tick==5L && sched->state_buf[0].end_tick==20L );
+  test_state_now = 39L; slot_state_eval( sched, block );
+  FD_TEST( test_state_clock_reads==3UL && sched->state_cnt==1UL && block->state_cand_tick==20L );
+
+  /* A short candidate reverts before its boundary and emits no row. */
+  sched->txn_exec_ready_bitset[0] = sched->sigverify_ready_bitset[0] = sched->poh_ready_bitset[0] =
+    sched->footer_ready_bitset[0] = sched->lthash_ready_bitset[0] = 1UL;
+  block->state_conflict = 1;
+  test_state_now = 40L; slot_state_eval( sched, block );
+  FD_TEST( block->state_cand==FD_SCHED_SLOT_STATE_BLOCKED_CONFLICTS && block->state_cand_tick==40L );
+  block->state_conflict = 0;
+  sched->txn_exec_ready_bitset[0] = 0UL;
+  test_state_now = 49L; slot_state_eval( sched, block );
+  FD_TEST( block->state_cand==block->state && block->state_cand_tick==49L && sched->state_cnt==1UL );
+
+  /* Reverting to the committed state after the old candidate's
+     deadline must commit that old candidate first, then timestamp
+     the reversion.  Merely checking next==state would lose a row. */
+  block->txn_parsed_cnt = 0U;
+  test_state_now = 50L; slot_state_eval( sched, block );
+  FD_TEST( block->state_cand==FD_SCHED_SLOT_STATE_BLOCKED_NETWORK && block->state_cand_tick==50L );
+  block->txn_parsed_cnt = 1U;
+  test_state_now = 60L; slot_state_eval( sched, block );
+  FD_TEST( block->state==FD_SCHED_SLOT_STATE_BLOCKED_NETWORK && block->state_start_tick==50L );
+  FD_TEST( block->state_cand==FD_SCHED_SLOT_STATE_BLOCKED_TILES && block->state_cand_tick==60L );
+  FD_TEST( sched->state_cnt==2UL && sched->state_buf[1].state==FD_SCHED_SLOT_STATE_BLOCKED_TILES );
+  FD_TEST( sched->state_buf[1].start_tick==20L && sched->state_buf[1].end_tick==50L );
+  test_state_now = 70L; slot_state_close( sched, block );
+  FD_TEST( !block->state_open && sched->state_cnt==4UL );
+  FD_TEST( sched->state_buf[2].state==FD_SCHED_SLOT_STATE_BLOCKED_NETWORK );
+  FD_TEST( sched->state_buf[2].start_tick==50L && sched->state_buf[2].end_tick==60L );
+  FD_TEST( sched->state_buf[3].state==FD_SCHED_SLOT_STATE_BLOCKED_TILES );
+  FD_TEST( sched->state_buf[3].start_tick==60L && sched->state_buf[3].end_tick==70L );
+
+  /* The first state covers the window start, including when closing
+     a window too short for any candidate to reach its boundary. */
+  for( int short_window=0; short_window<2; short_window++ ) {
+    sched->state_cnt = 0UL;
+    block->state_open = 1;
+    block->state = block->state_cand = FD_SCHED_SLOT_STATE_NONE;
+    block->state_start_tick = block->state_cand_tick = 80L;
+    block->block_end_signaled = 1;
+    test_state_now = 81L; slot_state_eval( sched, block );
+    FD_TEST( block->state_cand==FD_SCHED_SLOT_STATE_FINISH && block->state_cand_tick==81L );
+    test_state_now = short_window ? 89L : 91L;
+    if( !short_window ) {
+      slot_state_eval( sched, block );
+      FD_TEST( block->state==FD_SCHED_SLOT_STATE_FINISH && block->state_start_tick==80L && !sched->state_cnt );
+    }
+    slot_state_close( sched, block );
+    FD_TEST( sched->state_cnt==1UL && sched->state_buf[0].state==FD_SCHED_SLOT_STATE_FINISH );
+    FD_TEST( sched->state_buf[0].start_tick==80L && sched->state_buf[0].end_tick==test_state_now );
+  }
+  test_state_clock_enabled = 0;
+  FD_LOG_NOTICE(( "pass: stable state skips clock; candidate debounce, reversion and close timestamps preserved" ));
+}
 
 /* new_sched_ext returns a scheduler of the given dimensions with the
    root block, TEST_ROOT_SLOT at bank index 1, added as done.  Its
@@ -5177,6 +5284,7 @@ main( int     argc,
   FD_TEST( test_wksp );
 
   test_sched_footprint();
+  test_slot_state_debounce();
   run_sigverify_batch_case( 0 );
   run_sigverify_batch_case( 1 );
   run_sigverify_batch_case( 2 );
