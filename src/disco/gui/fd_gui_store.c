@@ -144,10 +144,10 @@ fd_gui_store_kv_idx_max( fd_gui_store_desc_t const * desc ) {
   return fd_ulong_max( desc->max_records, 1UL );
 }
 
-/* Average chain length in [1,2) at max_records. */
+/* Average chain length in [2,4) at max_records. */
 static inline ulong
 fd_gui_store_kv_chain_cnt( ulong max_records ) {
-  return fd_ulong_pow2_up( (max_records+1UL)>>1 );
+  return fd_ulong_pow2_up( (max_records+3UL)>>2 );
 }
 
 FD_FN_CONST ulong
