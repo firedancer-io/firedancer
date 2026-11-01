@@ -414,7 +414,7 @@ static inline void
 during_frag( fd_gossip_tile_ctx_t * ctx,
              ulong                  in_idx,
              ulong                  seq FD_PARAM_UNUSED,
-             ulong                  sig FD_PARAM_UNUSED,
+             ulong                  sig,
              ulong                  chunk,
              ulong                  sz,
              ulong                  ctl FD_PARAM_UNUSED ) {
@@ -423,7 +423,14 @@ during_frag( fd_gossip_tile_ctx_t * ctx,
       if( FD_UNLIKELY( sz!=0UL && (chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>ctx->in[ in_idx ].mtu ) ) )
         FD_LOG_ERR(( "chunk %lu %lu from in %d corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].kind, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
 
-      fd_memcpy( ctx->gossvf_staged, fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk ), sz );
+      uchar const * src = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
+      if( FD_LIKELY( !fd_gossvf_sig_kind( sig ) ) ) {
+        /* 0 only if overrun mid-read; stem then skips after_frag */
+        ctx->gossvf_staged_sz = fd_gossip_message_expand( ctx->gossvf_staged, sizeof(ctx->gossvf_staged), src, sz );
+      } else {
+        fd_memcpy( ctx->gossvf_staged, src, sz );
+        ctx->gossvf_staged_sz = sz;
+      }
       break;
     }
     case IN_KIND_SIGN: {
@@ -449,10 +456,8 @@ after_frag( fd_gossip_tile_ctx_t * ctx,
 
   switch( ctx->in[ in_idx ].kind ) {
     case IN_KIND_GOSSVF: {
-
-      FD_TEST( sz<=sizeof(ctx->gossvf_staged) );
-
-      handle_packet( ctx, sig, ctx->gossvf_staged, sz, stem );
+      if( FD_UNLIKELY( !ctx->gossvf_staged_sz ) ) FD_LOG_ERR(( "malformed gossvf frame sz %lu", sz ));
+      handle_packet( ctx, sig, ctx->gossvf_staged, ctx->gossvf_staged_sz, stem );
       break;
     }
     case IN_KIND_SIGN: {

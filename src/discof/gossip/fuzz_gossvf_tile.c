@@ -24,8 +24,7 @@
 #define FUZZ_TCACHE_DEPTH  (1UL<<14UL)
 #define FUZZ_SHRED_VERSION (42U)
 #define FUZZ_MAX_ACTIONS   (96UL)
-#define FUZZ_GOSSVF_OUT_MTU \
-  (sizeof(fd_gossip_message_t) + FD_GOSSIP_MESSAGE_MAX_CRDS + FD_NET_MTU)
+#define FUZZ_GOSSVF_OUT_MTU FD_GOSSIP_GOSSVF_MTU
 
 typedef struct {
   uchar       priv[ 32UL ]; /* Private key for this peer. */
@@ -571,9 +570,13 @@ send_udp_payload( fuzz_env_t * env,
   fd_frag_meta_t const * meta = env->out_mcache + fd_mcache_line_idx( old_seq, FUZZ_OUT_DEPTH );
   if( FD_UNLIKELY( meta->seq!=old_seq || fd_gossvf_sig_kind( meta->sig )!=0U ) ) return;
 
-  uchar const * out = fd_chunk_to_laddr_const( env->ctx->out->mem, old_chunk );
+  FD_TEST( meta->sz<=FUZZ_GOSSVF_OUT_MTU );
+  static uchar out[ FD_GOSSIP_GOSSVF_EXPAND ] __attribute__((aligned(128)));
+  ulong out_sz = fd_gossip_message_expand( out, sizeof(out), fd_chunk_to_laddr_const( env->ctx->out->mem, old_chunk ), meta->sz );
+  FD_TEST( out_sz );
   fd_gossip_message_t const * msg = (fd_gossip_message_t const *)out;
   uchar const * failed = out + fd_gossip_message_used_sz( msg );
+  FD_TEST( out_sz==fd_gossip_message_used_sz( msg )+FD_GOSSIP_MESSAGE_MAX_CRDS+payload_sz );
 
   fd_gossip_value_t const * values = NULL;
   ulong values_len = 0UL;
