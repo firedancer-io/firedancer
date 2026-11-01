@@ -94,7 +94,7 @@ typedef struct fd_sched fd_sched_t;
 /* Bounds on the writable accounts a block declares in its transactions
    and writes in start-of-block processing.  FIXME These should scale
    with CU and block time. */
-#define FD_SCHED_LTHASH_TXN_WRITERS_MAX  (200802UL)
+#define FD_SCHED_LTHASH_TXN_WRITERS_MAX  FD_RDISP_MAX_TXN_WRITERS_PER_BLOCK
 #define FD_SCHED_LTHASH_START_WRITES_MAX (FD_RDISP_MAX_WRITERS_PER_BLOCK-FD_SCHED_LTHASH_TXN_WRITERS_MAX)
 
 struct fd_sched_alut_ctx {
