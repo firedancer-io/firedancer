@@ -690,7 +690,7 @@ struct fd_accdb_shmem_private {
 
   ulong index_ram_entries;  /* 0 = RAM-only                        */
   ulong acc_pool_max;       /* acc_pool capacity                   */
-  ulong txn_pool_max;       /* txn_pool capacity                   */
+  ulong txn_pool_max;       /* txn_pool capacity, 0 in index mode  */
   ulong acc_map_off;        /* region offsets for layout mirrors   */
   ulong acc_pool_off;
 
@@ -733,7 +733,7 @@ struct fd_accdb_shmem_private {
   ulong idx_bloom_off;
   ulong idx_bloom_words;    /* per fork                            */
   ulong spill_fork;         /* USHORT_MAX = none in progress       */
-  uint  spill_txn;          /* next txn record to persist          */
+  uint  spill_txn;          /* next fork list record to persist    */
   ulong ovl_fork_cnt __attribute__((aligned(64)));
   ulong ovl_epoch;
   ulong thaw_fork;          /* replay: fork to restore, USHORT_MAX = none */
