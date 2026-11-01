@@ -970,6 +970,9 @@ test_purge_deep_subtree( void ) {
   FD_TEST( t2_mem );
   fd_accdb_t * t2 = fd_accdb_join( fd_accdb_new( t2_mem, test_shmem_mem, fd, scratch_fd, 0UL, NULL, NULL, 0UL, 1, -1, NULL ) );
   FD_TEST( t2 );
+  /* Mainnet window: resident holds >3x the ~0.7M unlinks one root of
+     FD_RUNTIME_MAX_ACC_WRITES_PER_SLOT (172,841) can append. */
+  FD_TEST( FD_ACCDB_DEFER_WINDOW_ELE-FD_ACCDB_DEFER_STAGE_ELE>=12UL*172841UL );
   test_shmem_mem->deferred_acc_resident = 8UL;
   test_shmem_mem->deferred_acc_stage    = 4UL;
 
