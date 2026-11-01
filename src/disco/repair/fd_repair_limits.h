@@ -7,7 +7,7 @@
    FD_SHRED_BLK_MAX / FD_FEC_BLK_MAX.  The existing bench shred override
    selects the runtime limit; topology rejects rserve configurations above
    this bounded capacity.  Per-FEC telemetry intentionally stays at 512. */
-#define FD_REPAIR_BENCH_SHRED_MAX (65536UL)
+#define FD_REPAIR_BENCH_SHRED_MAX (131072UL)
 #define FD_REPAIR_FEC_MAX (FD_REPAIR_BENCH_SHRED_MAX/FD_FEC_SHRED_CNT)
 
 FD_STATIC_ASSERT( FD_REPAIR_BENCH_SHRED_MAX%FD_FEC_SHRED_CNT==0UL, repair_fec_aligned );

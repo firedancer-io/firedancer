@@ -109,6 +109,9 @@ typedef struct ctx {
 
   uchar             net_buf[ FD_NET_MTU ];
   fd_repair_block_t rotor_buf[1];
+  fd_blockdb_blk_t   rotor_pending[1]; /* not visible in blockdb until both chunks arrive */
+  ulong             rotor_pending_seq;
+  int               rotor_pending_valid;
 
   struct {
     ulong received_request_count[FD_METRICS_ENUM_REPAIR_REQUEST_TYPE_CNT];
@@ -605,7 +608,7 @@ during_frag( ctx_t * ctx,
 static inline void
 after_frag( ctx_t *             ctx,
             ulong               in_idx,
-            ulong               seq    FD_PARAM_UNUSED,
+            ulong               seq,
             ulong               sig,
             ulong               sz,
             ulong               tsorig FD_PARAM_UNUSED,
@@ -615,10 +618,44 @@ after_frag( ctx_t *             ctx,
   if( FD_UNLIKELY( in_kind==IN_KIND_ROTOR ) ) {
     if( FD_UNLIKELY( sig!=ROTOR_SIG_BLOCK ) ) return;
     fd_repair_block_t const * msg = ctx->rotor_buf;
-    if( FD_UNLIKELY( sz!=FD_REPAIR_BLOCK_SZ( msg->fec_set_cnt ) ) )
-      FD_LOG_ERR(( "rotor_rserve frag sz %lu does not match fec_set_cnt %u", sz, msg->fec_set_cnt ));
-    FD_TEST( fd_blockdb_insert( ctx->blockdb, msg->slot, &msg->block_id, msg->parent_slot, &msg->parent_block_id,
-                                msg->fec_set_cnt, (uchar const *)msg->merkle_roots ) );
+    if( FD_UNLIKELY( !msg->fec_set_cnt || msg->fec_set_cnt>FD_REPAIR_FEC_MAX ||
+                    msg->fec_off>=msg->fec_set_cnt || msg->fec_off%FD_REPAIR_BLOCK_CHUNK_FEC_MAX ) )
+      FD_LOG_ERR(( "rotor_rserve invalid FEC range %u/%u", msg->fec_off, msg->fec_set_cnt ));
+    uint cnt = fd_uint_min( msg->fec_set_cnt-msg->fec_off, (uint)FD_REPAIR_BLOCK_CHUNK_FEC_MAX );
+    if( FD_UNLIKELY( sz!=FD_REPAIR_BLOCK_SZ( cnt ) ) )
+      FD_LOG_ERR(( "rotor_rserve frag sz %lu does not match FEC range %u/%u", sz, msg->fec_off, msg->fec_set_cnt ));
+
+    /* The link is unreliable.  Assemble only adjacent chunks with
+       identical metadata, after stem has checked the input sequence.
+       A missing/overwritten prefix must never expose partial roots or
+       combine two block versions.  Single-chunk blocks bypass staging. */
+    fd_blockdb_blk_t * pending = ctx->rotor_pending;
+    if( FD_LIKELY( !msg->fec_off ) ) {
+      ctx->rotor_pending_valid = 0;
+      if( FD_LIKELY( cnt==msg->fec_set_cnt ) ) {
+        FD_TEST( fd_blockdb_insert( ctx->blockdb, msg->slot, &msg->block_id, msg->parent_slot, &msg->parent_block_id,
+                                    msg->fec_set_cnt, (uchar const *)msg->merkle_roots ) );
+        return;
+      }
+      pending->key.slot        = msg->slot;
+      pending->key.block_id    = msg->block_id;
+      pending->parent_slot     = msg->parent_slot;
+      pending->parent_block_id = msg->parent_block_id;
+      pending->fec_set_cnt     = msg->fec_set_cnt;
+      memcpy( pending->merkle_roots, msg->merkle_roots, (ulong)cnt*FD_SHRED_MERKLE_NODE_SZ );
+      ctx->rotor_pending_seq   = seq+1UL;
+      ctx->rotor_pending_valid = 1;
+      return;
+    }
+    int matched = ctx->rotor_pending_valid && seq==ctx->rotor_pending_seq &&
+                  pending->key.slot==msg->slot && fd_hash_eq( &pending->key.block_id, &msg->block_id ) &&
+                  pending->parent_slot==msg->parent_slot && fd_hash_eq( &pending->parent_block_id, &msg->parent_block_id ) &&
+                  pending->fec_set_cnt==msg->fec_set_cnt;
+    ctx->rotor_pending_valid = 0;
+    if( FD_UNLIKELY( !matched ) ) return;
+    memcpy( pending->merkle_roots[msg->fec_off], msg->merkle_roots, (ulong)cnt*FD_SHRED_MERKLE_NODE_SZ );
+    FD_TEST( fd_blockdb_insert( ctx->blockdb, pending->key.slot, &pending->key.block_id, pending->parent_slot,
+                                &pending->parent_block_id, pending->fec_set_cnt, (uchar const *)pending->merkle_roots ) );
     return;
   }
   if( FD_LIKELY( in_kind!=IN_KIND_NET ) ) return; /* returnable_frag */
@@ -807,6 +844,7 @@ unprivileged_init( fd_topo_t      const * topo,
   FD_TEST( FD_SCRATCH_ALLOC_FINI( l, scratch_align() )==(ulong)scratch + scratch_footprint( tile ) );
 
   ctx->blockdb = NULL;
+  ctx->rotor_pending_valid = 0;
   if( FD_LIKELY( blockdb_mem ) ) {
     ctx->blockdb = fd_blockdb_join( fd_blockdb_new( blockdb_mem, tile->rserve.blockdb_max, ctx->seed ) );
     FD_TEST( ctx->blockdb );

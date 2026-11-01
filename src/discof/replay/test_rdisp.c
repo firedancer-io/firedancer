@@ -744,7 +744,7 @@ main( int     argc,
   FD_LOG_NOTICE(( "Using --random-iterations %lu", rand_iters ));
 
   FD_LOG_NOTICE(( "%lu", fd_rdisp_footprint( 65536UL, 2048UL, 0UL ) ));
-  FD_TEST( fd_rdisp_footprint( 65536UL, 2048UL, 0UL )==1164171776UL );
+  FD_TEST( fd_rdisp_footprint( 65536UL, 2048UL, 0UL )==1215577088UL );
 
   test_mainnet( block_file, exec_tiles, 20UL, 0UL, 1 );
 

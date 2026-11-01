@@ -497,11 +497,12 @@ struct pending_prq_ele {
 
      23 bits for txn_idx
      16 bit for linear_block_number
-     Then the integer part of the score needs 20 bits.  It is bounded by
+     Then the integer part of the score needs 23 bits.  It is bounded by
      a block's inserted_cnt, which counts pseudo-transactions as well as
      transactions and is budgeted for up to
-     FD_MAX_TXN_PER_SLOT+2*FD_RDISP_MAX_WRITERS_PER_BLOCK, just over
-     2^19.  But we can't use a custom floating point number. */
+     FD_MAX_TXN_PER_SLOT+2*FD_RDISP_MAX_WRITERS_PER_BLOCK, below
+     2^23 with the private 800M CU budget.  But we can't use a custom
+     floating point number. */
 };
 
 typedef struct pending_prq_ele pending_prq_ele_t;

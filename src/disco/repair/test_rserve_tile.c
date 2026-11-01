@@ -188,25 +188,87 @@ make_block( void ) {
 
 /* Exercise the actual rotor link copy/size check and blockdb insertion. */
 static void
-receive_block( ctx_t * ctx ) {
+receive_piece( ctx_t * ctx, ulong seq, uint off ) {
   static fd_repair_block_t msg[1] __attribute__((aligned(FD_CHUNK_ALIGN)));
   msg->slot = blk_slot;
   msg->block_id = blk_id;
   msg->parent_slot = blk_parent;
   msg->parent_block_id = blk_parent_id;
   msg->fec_set_cnt = fec_cnt;
-  memcpy( msg->merkle_roots, blk_roots, (ulong)fec_cnt*FD_SHRED_MERKLE_NODE_SZ );
-  ulong sz = FD_REPAIR_BLOCK_SZ( fec_cnt );
+  msg->fec_off = off;
+  uint cnt = fd_uint_min( fec_cnt-off, (uint)FD_REPAIR_BLOCK_CHUNK_FEC_MAX );
+  memcpy( msg->merkle_roots, blk_roots[off], (ulong)cnt*FD_SHRED_MERKLE_NODE_SZ );
+  ulong sz = FD_REPAIR_BLOCK_SZ( cnt );
   FD_TEST( sz<=sizeof(fd_repair_block_t) && sz<=USHRT_MAX );
   ctx->in_kind[0] = IN_KIND_ROTOR;
   ctx->in_links[0].mem = (fd_wksp_t *)msg;
   ctx->in_links[0].chunk0 = 0UL;
   ctx->in_links[0].wmark = 0UL;
-  during_frag( ctx, 0UL, 0UL, ROTOR_SIG_BLOCK, 0UL, sz, 0UL );
-  after_frag( ctx, 0UL, 0UL, ROTOR_SIG_BLOCK, sz, 0UL, 0UL, NULL );
+  during_frag( ctx, 0UL, seq, ROTOR_SIG_BLOCK, 0UL, sz, 0UL );
+  after_frag( ctx, 0UL, seq, ROTOR_SIG_BLOCK, sz, 0UL, 0UL, NULL );
+}
+
+static void
+receive_block( ctx_t * ctx ) {
+  for( uint off=0U; off<fec_cnt; off+=(uint)FD_REPAIR_BLOCK_CHUNK_FEC_MAX ) {
+    receive_piece( ctx, off/FD_REPAIR_BLOCK_CHUNK_FEC_MAX, off );
+    if( off+FD_REPAIR_BLOCK_CHUNK_FEC_MAX<fec_cnt ) FD_TEST( !fd_blockdb_query( ctx->blockdb, blk_slot, &blk_id ) );
+  }
   fd_blockdb_blk_t const * blk = fd_blockdb_query( ctx->blockdb, blk_slot, &blk_id );
   FD_TEST( blk && blk->fec_set_cnt==fec_cnt );
   FD_TEST( !memcmp( blk->merkle_roots, blk_roots, (ulong)fec_cnt*FD_SHRED_MERKLE_NODE_SZ ) );
+}
+
+static void
+test_chunk_loss( void ) {
+  static ctx_t ctx[1];
+  fec_cnt = (uint)FD_REPAIR_FEC_MAX;
+  make_block();
+  setup( ctx, 1 );
+  uint off = (uint)FD_REPAIR_BLOCK_CHUNK_FEC_MAX;
+  receive_piece( ctx, 1UL, off ); /* lost prefix */
+  FD_TEST( !fd_blockdb_query( ctx->blockdb, blk_slot, &blk_id ) );
+  receive_piece( ctx, 10UL, 0U );
+  receive_piece( ctx, 12UL, off ); /* gap/overrun */
+  FD_TEST( !ctx->rotor_pending_valid && !fd_blockdb_query( ctx->blockdb, blk_slot, &blk_id ) );
+
+  /* Adjacent pieces must agree on every identity/ancestry/count field. */
+  for( ulong field=0UL; field<5UL; field++ ) {
+    receive_piece( ctx, 20UL, 0U );
+    ulong old_slot=blk_slot, old_parent=blk_parent;
+    uint old_cnt=fec_cnt;
+    fd_hash_t old_id=blk_id, old_parent_id=blk_parent_id;
+    if( field==0UL ) blk_slot++;
+    if( field==1UL ) blk_id.uc[0]^=1U;
+    if( field==2UL ) blk_parent++;
+    if( field==3UL ) blk_parent_id.uc[0]^=1U;
+    if( field==4UL ) fec_cnt--;
+    receive_piece( ctx, 21UL, off );
+    FD_TEST( !ctx->rotor_pending_valid && !ctx->blockdb->seq );
+    blk_slot=old_slot; blk_parent=old_parent; fec_cnt=old_cnt; blk_id=old_id; blk_parent_id=old_parent_id;
+  }
+
+  /* A newer one-piece record replaces an incomplete assembly. */
+  receive_piece( ctx, 30UL, 0U );
+  fd_hash_t big_id=blk_id;
+  fec_cnt=3U; make_block();
+  receive_piece( ctx, 31UL, 0U );
+  FD_TEST( !ctx->rotor_pending_valid && fd_blockdb_query( ctx->blockdb, blk_slot, &blk_id ) );
+  fec_cnt=(uint)FD_REPAIR_FEC_MAX; make_block();
+  FD_TEST( fd_hash_eq( &blk_id, &big_id ) );
+  receive_piece( ctx, 32UL, off );
+  FD_TEST( !fd_blockdb_query( ctx->blockdb, blk_slot, &blk_id ) );
+
+  /* Fresh prefix restarts assembly; consecutive sequence wrap is valid. */
+  receive_piece( ctx, ULONG_MAX-1UL, 0U );
+  receive_piece( ctx, ULONG_MAX, 0U );
+  receive_piece( ctx, 0UL, off );
+  fd_blockdb_blk_t const * blk=fd_blockdb_query( ctx->blockdb, blk_slot, &blk_id );
+  FD_TEST( blk && !memcmp( blk->merkle_roots, blk_roots, (ulong)fec_cnt*FD_SHRED_MERKLE_NODE_SZ ) );
+  ulong inserts=ctx->blockdb->seq;
+  receive_piece( ctx, 1UL, off ); /* duplicate suffix cannot insert again */
+  FD_TEST( ctx->blockdb->seq==inserts && !ctx->rotor_pending_valid );
+  FD_LOG_NOTICE(( "pass: chunk loss/gap, identity mismatch, replacement, duplicate suffix and sequence wrap" ));
 }
 
 static ulong
@@ -467,7 +529,7 @@ main( int     argc,
   fd_wksp_t * wksp = fd_wksp_new_anonymous( fd_cstr_to_shmem_page_sz( _page_sz ), page_cnt, fd_shmem_cpu_idx( numa_idx ), "wksp", 0UL );
   FD_TEST( wksp );
 
-  uint const cnts[] = { 3U, 512U, 513U, 1916U, (uint)FD_REPAIR_FEC_MAX };
+  uint const cnts[] = { 3U, 512U, 513U, 1916U, 2048U, 2049U, 4095U, (uint)FD_REPAIR_FEC_MAX };
   for( ulong i=0UL; i<sizeof(cnts)/sizeof(cnts[0]); i++ ) {
     fec_cnt = cnts[i];
     make_block();
@@ -475,6 +537,7 @@ main( int     argc,
     test_shred_for_block_id( wksp );
     FD_LOG_NOTICE(( "pass: rotor link, metadata proofs and by-id shreds at %u FECs", fec_cnt ));
   }
+  test_chunk_loss();
   test_legacy_sigverify();
   test_no_blockdb();
 

@@ -10,6 +10,8 @@ static uchar * block_mem;
 static ulong replay_cnt;
 static ulong block_cnt;
 static ulong block_sz;
+static fd_repair_block_t received_header;
+static uchar received_roots[ FD_REPAIR_FEC_MAX ][ FD_SHRED_MERKLE_NODE_SZ ];
 
 static void
 capture( ulong out_idx, ulong chunk, ulong sz ) {
@@ -19,8 +21,15 @@ capture( ulong out_idx, ulong chunk, ulong sz ) {
     replay_cnt++;
   } else {
     FD_TEST( out_idx==1UL && !chunk );
+    fd_repair_block_t const * msg = (void const *)block_mem;
+    FD_TEST( msg->fec_off==block_cnt*FD_REPAIR_BLOCK_CHUNK_FEC_MAX );
+    uint cnt = fd_uint_min( msg->fec_set_cnt-msg->fec_off, (uint)FD_REPAIR_BLOCK_CHUNK_FEC_MAX );
+    FD_TEST( sz==FD_REPAIR_BLOCK_SZ( cnt ) && sz<=USHRT_MAX );
+    if( !block_cnt ) memcpy( &received_header, msg, offsetof(fd_repair_block_t,merkle_roots) );
+    else FD_TEST( fd_hash_eq( &received_header.block_id, &msg->block_id ) && received_header.fec_set_cnt==msg->fec_set_cnt );
+    memcpy( received_roots[msg->fec_off], msg->merkle_roots, (ulong)cnt*FD_SHRED_MERKLE_NODE_SZ );
     block_cnt++;
-    block_sz = sz;
+    block_sz += sz;
   }
 }
 
@@ -101,13 +110,13 @@ test_block( uint cnt ) {
     after_credit( ctx, NULL, &poll_in, &busy );
     FD_TEST( busy && !poll_in );
   }
-  FD_TEST( replay_cnt==cnt && block_cnt==1UL );
-  FD_TEST( block_sz==FD_REPAIR_BLOCK_SZ( cnt ) && block_sz<=USHRT_MAX );
-  fd_repair_block_t const * block = (void const *)block_mem;
+  FD_TEST( replay_cnt==cnt && block_cnt==((ulong)cnt+FD_REPAIR_BLOCK_CHUNK_FEC_MAX-1UL)/FD_REPAIR_BLOCK_CHUNK_FEC_MAX );
+  FD_TEST( block_sz==block_cnt*FD_REPAIR_BLOCK_SZ( 0UL )+(ulong)cnt*FD_SHRED_MERKLE_NODE_SZ );
+  fd_repair_block_t const * block = &received_header;
   FD_TEST( block->fec_set_cnt==cnt && block->slot==1UL && !block->parent_slot );
   for( uint k=0U; k<cnt; k++ ) {
     fd_mr32_t mr = root( k );
-    FD_TEST( !memcmp( block->merkle_roots[k], mr.uc, FD_SHRED_MERKLE_NODE_SZ ) );
+    FD_TEST( !memcmp( received_roots[k], mr.uc, FD_SHRED_MERKLE_NODE_SZ ) );
   }
 
   /* Missing FEC blocks ordered delivery, then by-id completion restores
@@ -121,7 +130,7 @@ test_block( uint cnt ) {
   fd_repair_blk_parented( r, 1UL, &block->block_id, 0UL, &hash_null, cnt, 0L );
   for( uint k=0U; k<cnt; k++ ) {
     fd_mr20_t mr;
-    memcpy( mr.uc, block->merkle_roots[k], sizeof(mr) );
+    memcpy( mr.uc, received_roots[k], sizeof(mr) );
     fd_repair_fec_notarized( r, 1UL, &block->block_id, k*FD_FEC_SHRED_CNT, &mr, 0L );
   }
   fd_repair_shred_insert( r, shred, &first, 0, 0L );
@@ -144,7 +153,7 @@ test_block( uint cnt ) {
 int
 main( int argc, char ** argv ) {
   fd_boot( &argc, &argv );
-  uint const cnts[] = { 512U, 513U, 1916U, (uint)FD_REPAIR_FEC_MAX };
+  uint const cnts[] = { 512U, 513U, 1916U, 2048U, 2049U, 4095U, (uint)FD_REPAIR_FEC_MAX };
   for( ulong i=0UL; i<sizeof(cnts)/sizeof(cnts[0]); i++ ) test_block( cnts[i] );
   fd_repair_t * r = rotor_new( FD_FEC_BLK_MAX );
   fd_mr32_t id = root( 42U );

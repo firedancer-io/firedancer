@@ -1296,14 +1296,14 @@ test_disk_collision_eviction( fd_wksp_t * wksp ) {
   fd_wksp_free_laddr( fd_store_delete( fd_store_leave( store ) ) );
 }
 
-/* max_shreds_per_block is a runtime value: a store sized for 4x
+/* max_shreds_per_block is a runtime value: a store sized for 8x
    FD_SHRED_BLK_MAX round-trips shred idxs above the production bound
    through the exact index and the per-slot highest hint, and rejects
    idxs at or beyond its own bound.  Also pins the key encoding. */
 
 void
 test_disk_max_shreds_per_block( fd_wksp_t * wksp ) {
-  ulong const shred_max = 4UL*FD_SHRED_BLK_MAX;
+  ulong const shred_max = 8UL*FD_SHRED_BLK_MAX;
   FD_TEST( fd_shredb_key_pack( 5UL, (uint)shred_max-1U )==((5UL<<32)|(shred_max-1UL)) );
   FD_TEST( fd_shredb_key_slot( fd_shredb_key_pack( FD_SHREDB_KEY_SLOT_MAX-1UL, 7U ) )==FD_SHREDB_KEY_SLOT_MAX-1UL );
   FD_TEST( fd_shredb_key_shred_idx( fd_shredb_key_pack( FD_SHREDB_KEY_SLOT_MAX-1UL, 7U ) )==7U );
@@ -1325,7 +1325,7 @@ test_disk_max_shreds_per_block( fd_wksp_t * wksp ) {
   uchar out[ FD_SHRED_MAX_SZ ];
   ulong const slot = 21UL;
   uint  const lo   = FD_SHRED_BLK_MAX-1U; /* highest production idx */
-  uint  const hi   = (uint)shred_max-1U;  /* highest bench idx, bit 15 set */
+  uint  const hi   = (uint)shred_max-1U;  /* highest bench idx, bit 16 set */
 
   FD_TEST( disk_insert( store, disk_fd, disk_make_shred( buf, slot, lo, 0x10U ) )==FD_STORE_DISK_INSERT_SUCCESS );
   FD_TEST( disk_insert( store, disk_fd, disk_make_shred( buf, slot, hi, 0x20U ) )==FD_STORE_DISK_INSERT_SUCCESS );
@@ -1337,7 +1337,7 @@ test_disk_max_shreds_per_block( fd_wksp_t * wksp ) {
   FD_TEST( fd_store_disk_query( store, disk_fd, slot, (uint)shred_max, out )==FD_STORE_DISK_QUERY_MISS );
   FD_TEST( fd_store_disk_query( store, disk_fd, FD_SHREDB_KEY_SLOT_MAX, 0U, out )==FD_STORE_DISK_QUERY_MISS );
 
-  /* The hint tracks hi, which a 15-bit hint field would have folded. */
+  /* The hint tracks hi, which a 16-bit index field would have folded. */
   FD_TEST( fd_store_disk_query_highest( store, disk_fd, slot, 0U, out )>0 );
   FD_TEST( ((fd_shred_t const *)fd_type_pun_const( out ))->idx==hi );
   FD_TEST( out[ FD_SHRED_DATA_HEADER_SZ ]==0x20U );

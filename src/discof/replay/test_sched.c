@@ -56,7 +56,7 @@ delete_sched( fd_sched_t * sched ) {
    sets, one lane map per lane, the hash pool, the deltas and the batch
    records, which scale with FD_SCHED_LTHASH_BATCH_MAX, so it is pinned
    at the default width only. */
-#define TEST_SCHED_FOOTPRINT (3607916800UL)
+#define TEST_SCHED_FOOTPRINT (5524006400UL)
 
 static void
 test_sched_footprint( void ) {
@@ -67,6 +67,7 @@ test_sched_footprint( void ) {
     FD_TEST( fd_sched_footprint( 65536UL, 2048UL, FD_SHRED_BLK_MAX, FD_MAX_TXN_PER_SLOT )==TEST_SCHED_FOOTPRINT );
     /* Only the shred length array scales with the shred limit. */
     FD_TEST( fd_sched_footprint( 65536UL, 2048UL, 4UL*FD_SHRED_BLK_MAX, FD_MAX_TXN_PER_SLOT )==TEST_SCHED_FOOTPRINT+2048UL*3UL*FD_SHRED_BLK_MAX*sizeof(ushort) );
+    FD_TEST( fd_sched_footprint( 65536UL, 2048UL, 8UL*FD_SHRED_BLK_MAX, FD_MAX_TXN_PER_SLOT )==TEST_SCHED_FOOTPRINT+2048UL*7UL*FD_SHRED_BLK_MAX*sizeof(ushort) );
     FD_TEST( fd_sched_footprint( 65536UL, 2048UL, FD_SHRED_BLK_MAX, 5UL*FD_MAX_TXN_PER_SLOT )==TEST_SCHED_FOOTPRINT );
   }
   FD_TEST( !fd_sched_footprint( 65536UL, 2048UL, 0UL, FD_MAX_TXN_PER_SLOT ) );
@@ -1273,6 +1274,31 @@ static void
 run_runtime_limit_case( void ) {
   ulong depth         = fd_ulong_max( FD_SCHED_MIN_DEPTH, 512UL );
   ulong block_cnt_max = 4UL;
+
+  /* The largest private block crosses the 16-bit index boundary.  Fill
+     the entire runtime shred slice, then check a sibling's shred count
+     does not alias it.  Empty data models verified shreds with no
+     payload yet; no synthetic large-FEC overflow shortcut is used. */
+  {
+    ulong shred_max = 8UL*FD_SHRED_BLK_MAX;
+    fd_sched_t * sched = new_sched_ext( depth, block_cnt_max, shred_max, FD_MAX_TXN_PER_SLOT );
+    fd_store_fec_t store_fec[1] __attribute__((aligned(alignof(fd_store_fec_t))));
+    fd_memset( store_fec, 0, sizeof(store_fec) );
+    fd_sched_fec_t fec[1] = {{ .bank_idx=2UL, .parent_bank_idx=1UL, .slot=TEST_ROOT_SLOT+1UL,
+                              .parent_slot=TEST_ROOT_SLOT, .fec=store_fec, .shred_cnt=FD_FEC_SHRED_CNT,
+                              .is_first_in_block=1U }};
+    for( ulong k=0UL; k<shred_max/FD_FEC_SHRED_CNT; k++ ) {
+      FD_TEST( fd_sched_fec_ingest( sched, fec ) );
+      fec->is_first_in_block = 0U;
+    }
+    FD_TEST( fd_sched_get_shred_cnt( sched, 2UL )==shred_max );
+    fec->bank_idx=3UL; fec->is_first_in_block=1U;
+    FD_TEST( fd_sched_fec_ingest( sched, fec ) );
+    FD_TEST( fd_sched_get_shred_cnt( sched, 3UL )==FD_FEC_SHRED_CNT );
+    FD_TEST( fd_sched_get_shred_cnt( sched, 2UL )==shred_max );
+    while( fd_sched_pruned_block_next( sched )!=ULONG_MAX ) {}
+    delete_sched( sched );
+  }
 
   /* Shred limit: a 3 shred block under a limit of 3 fits across two FEC
      sets, and a sibling block gets its own shred slice. */
@@ -4691,7 +4717,7 @@ run_lthash_writer_bound_full_case( void ) {
   /* Exercise the enlarged writer budget end to end, including crossing
      the original 200802-write boundary. Wide transactions need the
      corresponding private-cluster byte budget to reach the new bound. */
-  fd_sched_t * sched = new_sched_ext( fd_ulong_max( FD_SCHED_MIN_DEPTH, 2048UL ), 4UL, 4UL*FD_SHRED_BLK_MAX, 5UL*FD_MAX_TXN_PER_SLOT );
+  fd_sched_t * sched = new_sched_ext( fd_ulong_max( FD_SCHED_MIN_DEPTH, 2048UL ), 4UL, 8UL*FD_SHRED_BLK_MAX, 5UL*FD_MAX_TXN_PER_SLOT );
   fd_sched_set_bypass_poh_verify( sched, 1 );
   fd_hash_t start_poh[ 1 ]; hash_from_seed( start_poh, 0x7b2c3d4e5f607182UL );
 
@@ -4825,7 +4851,7 @@ main( int     argc,
   fd_boot( &argc, &argv );
 
   char const * _page_sz = fd_env_strip_cmdline_cstr ( &argc, &argv, "--page-sz",  NULL, "gigantic"               );
-  ulong        page_cnt = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt", NULL, 4UL                      );
+  ulong        page_cnt = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt", NULL, 8UL                      );
   ulong        numa_idx = fd_env_strip_cmdline_ulong( &argc, &argv, "--numa-idx", NULL, fd_shmem_numa_idx( 0UL ) );
   test_wksp = fd_wksp_new_anonymous( fd_cstr_to_shmem_page_sz( _page_sz ), page_cnt, fd_shmem_cpu_idx( numa_idx ), "wksp", 0UL );
   FD_TEST( test_wksp );

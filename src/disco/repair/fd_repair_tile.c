@@ -1087,16 +1087,20 @@ after_credit( fd_repair_tile_t *  ctx,
 
     if( FD_UNLIKELY( msg->slot_complete && ctx->rserve_out_idx!=ULONG_MAX ) ) {
       FD_TEST( blk->cmpl_fec_cnt<=FD_REPAIR_FEC_MAX ); /* topology bounds the runtime shred limit */
-      fd_repair_block_t * block = fd_chunk_to_laddr( ctx->rserve_out_mem, ctx->rserve_out_chunk );
-      block->slot            = blk->slot;
-      block->block_id        = blk->dmr;
-      block->parent_slot     = blk->parent_slot;
-      block->parent_block_id = blk->parent_blk_mr;
-      block->fec_set_cnt     = blk->cmpl_fec_cnt;
-      for( uint k=0U; k<blk->cmpl_fec_cnt; k++ ) memcpy( block->merkle_roots[ k ], fd_repair_fec_pool_ele_const( ctx->rotor->fec_pool, blk->fecs[ k ] )->key.uc, FD_SHRED_MERKLE_NODE_SZ );
-      ulong sz = FD_REPAIR_BLOCK_SZ( blk->cmpl_fec_cnt );
-      fd_stem_publish( stem, ctx->rserve_out_idx, ROTOR_SIG_BLOCK, ctx->rserve_out_chunk, sz, 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
-      ctx->rserve_out_chunk = fd_dcache_compact_next( ctx->rserve_out_chunk, sz, ctx->rserve_out_chunk0, ctx->rserve_out_wmark );
+      for( uint off=0U; off<blk->cmpl_fec_cnt; off+=(uint)FD_REPAIR_BLOCK_CHUNK_FEC_MAX ) {
+        uint cnt = fd_uint_min( blk->cmpl_fec_cnt-off, (uint)FD_REPAIR_BLOCK_CHUNK_FEC_MAX );
+        fd_repair_block_t * block = fd_chunk_to_laddr( ctx->rserve_out_mem, ctx->rserve_out_chunk );
+        block->slot            = blk->slot;
+        block->block_id        = blk->dmr;
+        block->parent_slot     = blk->parent_slot;
+        block->parent_block_id = blk->parent_blk_mr;
+        block->fec_set_cnt     = blk->cmpl_fec_cnt;
+        block->fec_off         = off;
+        for( uint k=0U; k<cnt; k++ ) memcpy( block->merkle_roots[ k ], fd_repair_fec_pool_ele_const( ctx->rotor->fec_pool, blk->fecs[ off+k ] )->key.uc, FD_SHRED_MERKLE_NODE_SZ );
+        ulong sz = FD_REPAIR_BLOCK_SZ( cnt );
+        fd_stem_publish( stem, ctx->rserve_out_idx, ROTOR_SIG_BLOCK, ctx->rserve_out_chunk, sz, 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+        ctx->rserve_out_chunk = fd_dcache_compact_next( ctx->rserve_out_chunk, sz, ctx->rserve_out_chunk0, ctx->rserve_out_wmark );
+      }
     }
     *charge_busy = 1;
   }
@@ -1654,7 +1658,7 @@ populate_allowed_fds( fd_topo_t const *      topo FD_PARAM_UNUSED,
   return out_cnt;
 }
 
-#define STEM_BURST (1UL)
+#define STEM_BURST (2UL) /* at most two rotor_rserve metadata chunks */
 #define STEM_LAZY  (128L*3000L)
 
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_repair_tile_t
