@@ -850,7 +850,7 @@ telemetry = true
     #
     # It is not recommended to change this value, except in development
     # or test environments to decrease memory usage to test edge cases.
-    transaction_cache_size_mib = 480
+    transaction_cache_size_mib = 240
 
 # CPU cores in Firedancer are carefully managed.  Where a typical
 # program lets the operating system scheduler determine which threads to

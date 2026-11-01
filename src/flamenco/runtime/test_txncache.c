@@ -90,7 +90,7 @@ test_spill( void ) {
   FD_TEST( lseek( fd, 0, SEEK_END )>0 );
   FD_TEST( !close( fd ) );
   FD_TEST( !munmap( mem, sz ) );
-  ulong cache_footprint = 640UL<<20; /* default runtime.transaction_cache_size_mib */
+  ulong cache_footprint = 240UL<<20; /* default runtime.transaction_cache_size_mib */
   ulong production_sz = fd_txncache_shmem_footprint( 2048UL, 196078UL, cache_footprint );
   FD_LOG_NOTICE(( "production txncache footprint %lu bytes", production_sz ));
   FD_TEST( production_sz<(1UL<<30) );
