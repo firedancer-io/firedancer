@@ -66,7 +66,7 @@ test_setup_ex( int * out_fd,
   FD_TEST( accdb_fp );
   void * accdb_mem = aligned_alloc( fd_accdb_align(), accdb_fp );
   FD_TEST( accdb_mem );
-  fd_accdb_t * accdb = fd_accdb_join( fd_accdb_new( accdb_mem, shmem, fd, -1, 0UL, NULL, NULL, 0UL, 1, -1 ) );
+  fd_accdb_t * accdb = fd_accdb_join( fd_accdb_new( accdb_mem, shmem, fd, -1, 0UL, NULL, NULL, 0UL, 1, -1, NULL ) );
   FD_TEST( accdb );
   fd_accdb_set_preevict_interval( accdb, 0L ); /* drain_background pre-evicts every call */
   return accdb;
@@ -99,7 +99,7 @@ test_setup_idx_part( int * out_fd,
   FD_TEST( test_idx_fd>=0 );
   FD_TEST( !ftruncate( test_idx_fd, (long)fd_accdb_idx_file_sz( max_accounts, index_ram_entries, max_live_slots, max_account_writes_per_slot ) ) );
   void * accdb_mem = aligned_alloc( fd_accdb_align(), fd_accdb_footprint( max_live_slots, 1 ) );
-  fd_accdb_t * accdb = fd_accdb_join( fd_accdb_new( accdb_mem, shmem, fd, -1, 0UL, NULL, NULL, 0UL, 1, test_idx_fd ) );
+  fd_accdb_t * accdb = fd_accdb_join( fd_accdb_new( accdb_mem, shmem, fd, -1, 0UL, NULL, NULL, 0UL, 1, test_idx_fd, NULL ) );
   FD_TEST( accdb );
   return accdb;
 }
@@ -129,7 +129,7 @@ test_join_writer( int fd ) {
   ulong fp = fd_accdb_footprint( test_shmem_mem->max_live_slots, 1 );
   void * mem = aligned_alloc( fd_accdb_align(), fp );
   FD_TEST( mem );
-  fd_accdb_t * accdb = fd_accdb_join( fd_accdb_new( mem, test_shmem_mem, fd, -1, 0UL, NULL, NULL, 0UL, 1, -1 ) );
+  fd_accdb_t * accdb = fd_accdb_join( fd_accdb_new( mem, test_shmem_mem, fd, -1, 0UL, NULL, NULL, 0UL, 1, -1, NULL ) );
   FD_TEST( accdb );
   fd_accdb_set_preevict_interval( accdb, 0L );
   return accdb;
@@ -3150,7 +3150,7 @@ test_idx_prefetch_and_residual( void ) {
   int fd;
   fd_accdb_t * t2 = test_setup_idx( &fd, 8192UL, 1024UL, 256UL, 64UL );
   void * fg_mem = aligned_alloc( fd_accdb_align(), fd_accdb_footprint( 256UL, 0 ) );
-  fd_accdb_t * fg = fd_accdb_join( fd_accdb_new( fg_mem, test_shmem_mem, fd, -1, 0UL, NULL, NULL, 0UL, 0, -1 ) );
+  fd_accdb_t * fg = fd_accdb_join( fd_accdb_new( fg_mem, test_shmem_mem, fd, -1, 0UL, NULL, NULL, 0UL, 0, -1, NULL ) );
   FD_TEST( fg );
 
   uchar d[ 40 ]; ulong lamports, data_len; uchar owner[ 32 ];
@@ -3488,7 +3488,7 @@ test_idx_overflow_worst_case( void ) {
   ulong writes = 64UL, leaves = 24UL;
   fd_accdb_t * t2 = test_setup_idx( &fd, 1UL<<16, 512UL, 64UL, writes );
   void * fg_mem = aligned_alloc( fd_accdb_align(), fd_accdb_footprint( 64UL, 0 ) );
-  fd_accdb_t * fg = fd_accdb_join( fd_accdb_new( fg_mem, test_shmem_mem, fd, -1, 0UL, NULL, NULL, 0UL, 0, -1 ) );
+  fd_accdb_t * fg = fd_accdb_join( fd_accdb_new( fg_mem, test_shmem_mem, fd, -1, 0UL, NULL, NULL, 0UL, 0, -1, NULL ) );
   test_background_ctx_t bg = { .accdb = t2, .stop = 0 };
   pthread_t thr;
   FD_TEST( !pthread_create( &thr, NULL, run_background, &bg ) );

@@ -181,7 +181,7 @@ unprivileged_init( fd_topo_t const *      topo,
     external_epoch_slots[ external_epoch_cnt++ ] = fseq;
   }
 
-  ctx->accdb = fd_accdb_join( fd_accdb_new( _accdb, accdb_shmem, FD_ACCDB_FD_RW, FD_ACCDB_SCRATCH_FD, external_epoch_cnt, external_epoch_slots, NULL, 0UL, 1, FD_ACCDB_IDX_FD_RW ) );
+  ctx->accdb = fd_accdb_join( fd_accdb_new( _accdb, accdb_shmem, FD_ACCDB_FD_RW, FD_ACCDB_SCRATCH_FD, external_epoch_cnt, external_epoch_slots, NULL, 0UL, 1, FD_ACCDB_IDX_FD_RW, NULL ) );
   FD_TEST( ctx->accdb );
   /* ring joiners parked on a residual index wait */
   if( FD_UNLIKELY( topo->sleep_obj_id!=ULONG_MAX ) ) fd_accdb_park_init( ctx->accdb, fd_sleep_join( fd_topo_obj_laddr( topo, topo->sleep_obj_id ) ), ULONG_MAX );

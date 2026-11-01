@@ -104,7 +104,11 @@ fd_accdb_footprint( ulong max_live_slots,
    compaction must match the value given to fd_accdb_footprint.
 
    idx_fd is the index file fd (FD_ACCDB_IDX_FD_RW) for joiners that do
-   index I/O in index mode (the accdb tile, snapin), else -1. */
+   index I/O in index mode (the accdb tile, snapin), else -1.
+
+   place_window is FD_ACCDB_PLACE_WINDOW bytes of 4 KiB aligned scratch
+   shared by all snapshot writers of this shmem (index-mode staging and
+   placement), else NULL. */
 
 struct fd_sleep_private;
 
@@ -118,7 +122,8 @@ fd_accdb_new( void *                    ljoin,
               struct fd_sleep_private * sleep,
               ulong                     sleep_tile_id,
               int                       compaction,
-              int                       idx_fd );
+              int                       idx_fd,
+              void *                    place_window );
 
 fd_accdb_t *
 fd_accdb_join( void * shaccdb );
