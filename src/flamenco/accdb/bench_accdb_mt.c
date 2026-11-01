@@ -327,7 +327,7 @@ main( int     argc,
 
   /* The background join's scratch spill file. */
   int scratch_fd = memfd_create( "accdb_mt_scratch", 0 );
-  FD_TEST( scratch_fd>=0 && !ftruncate( scratch_fd, (long)fd_accdb_scratch_sz( BENCH_MAX_LIVE_SLOTS, writes ) ) );
+  FD_TEST( scratch_fd>=0 && !ftruncate( scratch_fd, (long)fd_accdb_scratch_sz( BENCH_MAX_LIVE_SLOTS, writes, max_accounts, 0UL ) ) );
 
   /* One join per worker, plus the background join (compaction). */
   fd_accdb_t * joins[ BENCH_MAX_THREADS+1UL ];

@@ -160,12 +160,13 @@ fd_accdb_idx_file_sz( ulong max_accounts,
                       ulong max_account_writes_per_slot );
 
 /* fd_accdb_scratch_sz returns the size of the scratch spill file
-   (the full capacity of every tier that spills to it, fallocated at
-   boot). */
+   (in index mode the demote FIFO spill chunks; fallocated at boot). */
 
 ulong
 fd_accdb_scratch_sz( ulong max_live_slots,
-                     ulong max_account_writes_per_slot );
+                     ulong max_account_writes_per_slot,
+                     ulong max_accounts,
+                     ulong index_ram_entries );
 
 fd_accdb_shmem_t *
 fd_accdb_shmem_join( void * shtc );
