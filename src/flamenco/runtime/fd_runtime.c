@@ -1184,6 +1184,37 @@ fd_runtime_pre_execute_check( fd_runtime_t *      runtime,
   return err;
 }
 
+void
+fd_runtime_lthash_batch_begin( fd_runtime_t * runtime, fd_bank_t * bank ) {
+  FD_TEST( !runtime->lthash_batch.bank );
+  FD_TEST( bank && bank->bank_seq && bank->lthash_mode==FD_BANK_LTHASH_MODE_INBAND );
+  runtime->lthash_batch.bank = bank;
+  runtime->lthash_batch.bank_seq = bank->bank_seq;
+  runtime->lthash_batch.dirty = 0;
+  fd_lthash_zero( runtime->lthash_batch.delta );
+}
+
+static inline void
+lthash_batch_check( fd_runtime_t * runtime, fd_bank_t * bank ) {
+  FD_TEST( bank && runtime->lthash_batch.bank==bank );
+  FD_TEST( runtime->lthash_batch.bank_seq==bank->bank_seq );
+  FD_TEST( bank->lthash_mode==FD_BANK_LTHASH_MODE_INBAND );
+}
+
+void
+fd_runtime_lthash_batch_end( fd_runtime_t * runtime, fd_bank_t * bank ) {
+  lthash_batch_check( runtime, bank );
+  if( FD_LIKELY( runtime->lthash_batch.dirty ) ) {
+    fd_lthash_value_t * sum = fd_bank_lthash_locking_modify( bank );
+    fd_lthash_add( sum, runtime->lthash_batch.delta );
+    fd_bank_lthash_end_locking_modify( bank );
+  }
+  fd_lthash_zero( runtime->lthash_batch.delta );
+  runtime->lthash_batch.dirty = 0;
+  runtime->lthash_batch.bank_seq = 0UL;
+  runtime->lthash_batch.bank = NULL;
+}
+
 /* fd_runtime_lthash_account updates the running lthash of the bank
    given an account that might have been updated. */
 
@@ -1192,7 +1223,8 @@ fd_runtime_lthash_account( fd_runtime_t *      runtime,
                            fd_bank_t *         bank,
                            fd_pubkey_t const * pubkey,
                            fd_acc_t *          acc,
-                           fd_capture_ctx_t *  capture_ctx ) {
+                           fd_capture_ctx_t *  capture_ctx,
+                           fd_lthash_value_t * delta ) {
   if( FD_UNLIKELY( !acc->lamports ) ) {
     acc->data_len   = 0UL;
     acc->executable = 0;
@@ -1220,9 +1252,27 @@ fd_runtime_lthash_account( fd_runtime_t *      runtime,
 
   if( FD_LIKELY( acc->prior_lamports || acc->lamports ) ) {
     ulong prior_lamports = acc->prior_data ? acc->prior_lamports : 0UL;
-    fd_hashes_update_pair( pubkey->uc, acc->prior_owner, prior_lamports, acc->prior_executable, acc->prior_data, acc->prior_data_len,
-                                       acc->owner,       acc->lamports,  acc->executable,       acc->data,       acc->data_len,
-                           bank, capture_ctx );
+    if( FD_UNLIKELY( !delta ) ) {
+      fd_hashes_update_pair( pubkey->uc, acc->prior_owner, prior_lamports, acc->prior_executable, acc->prior_data, acc->prior_data_len,
+                                         acc->owner,       acc->lamports,  acc->executable,       acc->data,       acc->data_len,
+                             bank, capture_ctx );
+    } else {
+      /* Same immediate two-account hash and capture as update_pair;
+         only the shared bank reduction waits for the execle scope end. */
+      fd_lthash_value_t pre[1], post[1];
+      uchar const * pk[2] = { pubkey->uc, pubkey->uc };
+      uchar const * ow[2] = { acc->prior_owner, acc->owner };
+      ulong la[2] = { prior_lamports, acc->lamports };
+      int ex[2] = { acc->prior_executable, acc->executable };
+      uchar const * data[2] = { acc->prior_data, acc->data };
+      ulong len[2] = { acc->prior_data_len, acc->data_len };
+      fd_lthash_value_t * out[2] = { pre, post };
+      fd_hashes_account_lthash_xn( 2UL, pk, ow, la, ex, data, len, out );
+      fd_lthash_sub( delta, pre );
+      fd_lthash_add( delta, post );
+      runtime->lthash_batch.dirty = 1;
+      fd_hashes_capture_account( pubkey->uc, acc->owner, acc->lamports, acc->executable, acc->data, acc->data_len, bank, capture_ctx );
+    }
   }
 }
 
@@ -1231,11 +1281,12 @@ fd_runtime_lthash_account( fd_runtime_t *      runtime,
    txncache insertion and updates to the vote/stake cache.  TODO: This
    function should probably be moved to fd_executor.c. */
 
-void
-fd_runtime_commit_txn( fd_runtime_t *      runtime,
-                       fd_bank_t *         bank,
-                       fd_txn_in_t const * txn_in,
-                       fd_txn_out_t *      txn_out ) {
+static void
+commit_txn( fd_runtime_t *      runtime,
+            fd_bank_t *         bank,
+            fd_txn_in_t const * txn_in,
+            fd_txn_out_t *      txn_out,
+            fd_lthash_value_t * delta ) {
   FD_TEST( txn_out->err.is_committable );
 
   txn_out->details.commit_start_ticks = fd_tickcount();
@@ -1276,7 +1327,7 @@ fd_runtime_commit_txn( fd_runtime_t *      runtime,
         fd_vote_stakes_update_state( vote_stakes, bank->vote_stakes_fork_id, pubkey, is_valid );
       }
 
-      fd_runtime_lthash_account( runtime, bank, pubkey, account, runtime->log.capture_ctx );
+      fd_runtime_lthash_account( runtime, bank, pubkey, account, runtime->log.capture_ctx, delta );
     }
 
     /* Atomically add all accumulated tips to the bank once after
@@ -1338,7 +1389,7 @@ fd_runtime_commit_txn( fd_runtime_t *      runtime,
       }
       nonce_account->executable = nonce_account->prior_executable;
       nonce_account->commit = 1;
-      fd_runtime_lthash_account( runtime, bank, &txn_out->accounts.keys[ txn_out->accounts.nonce_idx_in_txn ], nonce_account, runtime->log.capture_ctx );
+      fd_runtime_lthash_account( runtime, bank, &txn_out->accounts.keys[ txn_out->accounts.nonce_idx_in_txn ], nonce_account, runtime->log.capture_ctx, delta );
     }
 
     /* Now, we must only save the fee payer if the nonce account was not
@@ -1352,7 +1403,7 @@ fd_runtime_commit_txn( fd_runtime_t *      runtime,
       fee_payer_account->executable = fee_payer_account->prior_executable;
 
       fee_payer_account->commit = 1;
-      fd_runtime_lthash_account( runtime, bank, &txn_out->accounts.keys[ FD_FEE_PAYER_TXN_IDX ], fee_payer_account, runtime->log.capture_ctx );
+      fd_runtime_lthash_account( runtime, bank, &txn_out->accounts.keys[ FD_FEE_PAYER_TXN_IDX ], fee_payer_account, runtime->log.capture_ctx, delta );
     }
   }
 
@@ -1364,6 +1415,23 @@ fd_runtime_commit_txn( fd_runtime_t *      runtime,
                          runtime->accounts.executable_cnt, runtime->accounts.executable );
     runtime->accounts.executable_cnt = 0UL;
   }
+}
+
+void
+fd_runtime_commit_txn( fd_runtime_t * runtime,
+                       fd_bank_t * bank,
+                       fd_txn_in_t const * txn_in,
+                       fd_txn_out_t * txn_out ) {
+  commit_txn( runtime, bank, txn_in, txn_out, NULL );
+}
+
+void
+fd_runtime_commit_txn_batched( fd_runtime_t * runtime,
+                               fd_bank_t * bank,
+                               fd_txn_in_t const * txn_in,
+                               fd_txn_out_t * txn_out ) {
+  lthash_batch_check( runtime, bank );
+  commit_txn( runtime, bank, txn_in, txn_out, runtime->lthash_batch.delta );
 }
 
 void

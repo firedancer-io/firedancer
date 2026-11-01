@@ -78,6 +78,16 @@ struct fd_runtime {
   fd_txncache_t *  status_cache;
   fd_progcache_t * progcache;
 
+  /* Execle's single-thread-owned microblock/bundle accumulator.  Only
+     the explicit batched commit API reads this state.  No account/data
+     pointers survive a commit.  bank==NULL means no open scope. */
+  struct {
+    fd_bank_t * bank;
+    ulong bank_seq;
+    int dirty;
+    fd_lthash_value_t delta[1];
+  } lthash_batch;
+
   /* Sysvars of the bank with sequence number sysvar_bank_seq (0 if
      none).  Refilled by fd_runtime_sysvar_cache_refresh. */
   ulong             sysvar_bank_seq;
@@ -440,6 +450,28 @@ fd_runtime_commit_txn( fd_runtime_t *      runtime,
                        fd_bank_t *         bank,
                        fd_txn_in_t const * txn_in,
                        fd_txn_out_t *      txn_out );
+
+/* Leader-only lock batching.  Initialize lthash_batch.bank to NULL once
+   before the first begin.  begin requires no open scope and an INBAND
+   bank; batched commits and end require the identical pointer+bank_seq.
+   Hashing/capture and account commits remain immediate.  end applies the
+   accumulated committed pre->post delta under at most one bank lock,
+   then clears the scope.  Call after bundle release and BEFORE publishing
+   completion/PoH, switching banks, resetting, or retiring the runtime.
+   There is no abort/discard API: committed effects must always be flushed.
+   Cancelled transactions/bundles never enter the accumulator.  The normal
+   commit API above remains immediate and does not read batch state. */
+void
+fd_runtime_lthash_batch_begin( fd_runtime_t * runtime, fd_bank_t * bank );
+
+void
+fd_runtime_commit_txn_batched( fd_runtime_t * runtime,
+                               fd_bank_t * bank,
+                               fd_txn_in_t const * txn_in,
+                               fd_txn_out_t * txn_out );
+
+void
+fd_runtime_lthash_batch_end( fd_runtime_t * runtime, fd_bank_t * bank );
 
 /* fd_runtime_cancel_txn cancels the result of a transaction execution
    and frees any resources that may have been acquired.  A transaction

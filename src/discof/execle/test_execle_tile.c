@@ -5,7 +5,19 @@
    bundle execution. */
 
 #define _GNU_SOURCE
+#include "../../tango/fseq/fd_fseq.h"
+/* Observe completion before its release-store, not merely after the
+   whole handler returns.  Other fseq updates pass through unchanged. */
+static void (*test_before_fseq_update)( ulong *, ulong );
+static void
+test_checked_fseq_update( ulong * fseq, ulong seq ) {
+  if( test_before_fseq_update ) test_before_fseq_update( fseq, seq );
+  fd_fseq_update( fseq, seq );
+}
+#define fd_fseq_update test_checked_fseq_update
 #include "fd_execle_tile.c"
+#undef fd_fseq_update
+#include "../../flamenco/runtime/fd_hashes.h"
 #include "../../ballet/txn/fd_txn_build.h"
 #include "../../disco/topo/fd_topob.h"
 #include "../../flamenco/accdb/fd_accdb.h"
@@ -682,6 +694,45 @@ test_execle_flush_rebate( test_env_t * env ) {
   FD_TEST( charge_busy );
 }
 
+typedef struct {
+  test_env_t * env;
+  fd_acct_addr_t keys[ MAX_TXN_PER_SLOT * FD_TXN_ACCT_ADDR_MAX ];
+  ulong key_cnt;
+  fd_lthash_value_t expected[1];
+  ulong checked;
+} test_lthash_check_t;
+
+static test_lthash_check_t * test_lthash_check;
+
+static void
+test_fold_account_hashes( test_lthash_check_t * check, int subtract ) {
+  fd_bank_t * bank = fd_svm_mini_bank( check->env->mini, check->env->bank_idx );
+  for( ulong i=0UL; i<check->key_cnt; i++ ) {
+    fd_acc_t acc = fd_accdb_read_one( check->env->mini->runtime->accdb, bank->accdb_fork_id, check->keys[ i ].b );
+    fd_lthash_value_t hash[1];
+    fd_hashes_account_lthash_simple( acc.pubkey, acc.owner, acc.lamports, acc.executable, acc.data, acc.data_len, hash );
+    if( subtract ) fd_lthash_sub( check->expected, hash );
+    else           fd_lthash_add( check->expected, hash );
+    fd_accdb_unread_one( check->env->mini->runtime->accdb, &acc );
+  }
+}
+
+static void
+test_lthash_before_completion( ulong * fseq, ulong seq ) {
+  (void)seq;
+  test_lthash_check_t * check = test_lthash_check;
+  if( fseq!=check->env->execle->busy_fseq ) return;
+  fd_runtime_t const * runtime = check->env->execle->runtime;
+  FD_TEST( !runtime->lthash_batch.bank && !runtime->lthash_batch.bank_seq && !runtime->lthash_batch.dirty );
+  FD_TEST( fd_lthash_is_zero( runtime->lthash_batch.delta ) );
+  test_fold_account_hashes( check, 0 );
+  fd_bank_t * bank = fd_svm_mini_bank( check->env->mini, check->env->bank_idx );
+  fd_lthash_value_t const * actual = fd_bank_lthash_locking_query( bank );
+  FD_TEST( fd_lthash_eq( actual, check->expected ) );
+  fd_bank_lthash_end_locking_query( bank );
+  check->checked++;
+}
+
 static void
 test_execle_run( test_env_t *     env,
                  fd_txn_p_t *     txns,
@@ -693,6 +744,24 @@ test_execle_run( test_env_t *     env,
 
   fd_bank_t * bank = fd_svm_mini_bank( env->mini, env->bank_idx );
   FD_TEST( bank );
+
+  /* Independent oracle: bank_before - unique input account hashes_before
+     + committed account hashes_after.  Covers success, fees/nonce-only,
+     failed instructions, noncommittable txns, and cancelled bundles. */
+  test_lthash_check_t check = { .env=env };
+  for( ulong i=0UL; i<txn_cnt; i++ ) {
+    fd_txn_t const * txn = TXN( txns+i );
+    FD_TEST( !txn->addr_table_adtl_cnt ); /* this fixture supplies no ALTs */
+    fd_acct_addr_t const * keys = fd_txn_get_acct_addrs( txn, txns[i].payload );
+    for( ulong j=0UL; j<txn->acct_addr_cnt; j++ ) {
+      ulong k=0UL;
+      for( ; k<check.key_cnt; k++ ) if( !memcmp( check.keys+k, keys+j, sizeof(fd_acct_addr_t) ) ) break;
+      if( k==check.key_cnt ) check.keys[ check.key_cnt++ ] = keys[j];
+    }
+  }
+  *check.expected = *fd_bank_lthash_locking_query( bank );
+  fd_bank_lthash_end_locking_query( bank );
+  test_fold_account_hashes( &check, 1 );
 
   ulong in_chunk = env->execle->pack_in_chunk0;
   fd_txn_e_t * in_txn = fd_chunk_to_laddr( env->execle->pack_in_mem, in_chunk );
@@ -719,7 +788,12 @@ test_execle_run( test_env_t *     env,
 
   fd_stem_context_t stem[1];
   env->begin_tspub = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
+  test_lthash_check = &check;
+  test_before_fseq_update = test_lthash_before_completion;
   after_frag( env->execle, 0UL, seq, sig, sz, 0UL, env->begin_tspub, test_stem( env->execle, stem ) );
+  test_before_fseq_update = NULL;
+  test_lthash_check = NULL;
+  FD_TEST( check.checked==1UL );
   /* Pack sees the microblock done and has its credit back */
   FD_TEST( fd_fseq_query( env->execle->busy_fseq )==seq );
   FD_TEST( fd_fseq_query( env->pack_in_fseq )==seq+1UL );
@@ -2167,6 +2241,128 @@ FD_UNIT_TEST( execle_cpi ) {
   FD_TEST( env->execle->runtime->metrics.cpi_cum==1UL );
 
   test_env_destroy( env );
+}
+
+FD_UNIT_TEST( execle_lthash_runtime_scope ) {
+  test_env_t * env = test_env_create();
+  fd_bank_t * bank = fd_svm_mini_bank( env->mini, env->bank_idx );
+  fd_runtime_t * runtime = env->execle->runtime;
+  fd_pubkey_t payer = { .ul={0xCA01UL} }, recipient = { .ul={0xCA02UL} };
+  test_fund_account( env, &payer, 1000000000UL );
+  test_fund_account( env, &recipient, 1000000UL );
+  test_lthash_check_t check = { .env=env, .key_cnt=2UL };
+  memcpy( check.keys[0].b, payer.uc, 32UL );
+  memcpy( check.keys[1].b, recipient.uc, 32UL );
+  fd_lthash_value_t before = *fd_bank_lthash_locking_query( bank );
+  fd_bank_lthash_end_locking_query( bank );
+  *check.expected = before;
+  test_fold_account_hashes( &check, 1 );
+
+  fd_runtime_lthash_batch_begin( runtime, bank );
+  for( ulong i=0UL; i<2UL; i++ ) {
+    fd_txn_p_t txn[1];
+    test_build_system_transfer_txn( txn, bank, payer, recipient, 10UL+i );
+    fd_txn_in_t in = { .txn=txn, .index_in_slot=i };
+    fd_txn_out_t * out = env->execle->txn_out;
+    fd_runtime_prepare_and_execute_txn( runtime, bank, &in, out );
+    FD_TEST( out->err.is_committable && !out->err.txn_err );
+    fd_runtime_commit_txn_batched( runtime, bank, &in, out );
+  }
+  FD_TEST( runtime->lthash_batch.bank==bank && runtime->lthash_batch.bank_seq==bank->bank_seq );
+  FD_TEST( runtime->lthash_batch.dirty && !fd_lthash_is_zero( runtime->lthash_batch.delta ) );
+  /* Account commits are already visible; only the bank reduction waits.
+     Repeated writes to the same account telescope across commits. */
+  FD_TEST( test_read_lamports( env, &recipient )==1000021UL );
+  FD_TEST( fd_lthash_eq( fd_bank_lthash_locking_query( bank ), &before ) );
+  fd_bank_lthash_end_locking_query( bank );
+  fd_runtime_lthash_batch_end( runtime, bank );
+  test_fold_account_hashes( &check, 0 );
+  FD_TEST( fd_lthash_eq( fd_bank_lthash_locking_query( bank ), check.expected ) );
+  fd_bank_lthash_end_locking_query( bank );
+  FD_TEST( !runtime->lthash_batch.bank && !runtime->lthash_batch.dirty && fd_lthash_is_zero( runtime->lthash_batch.delta ) );
+
+  /* The legacy entry point still reduces immediately outside a scope. */
+  test_fold_account_hashes( &check, 1 );
+  fd_txn_p_t txn[1];
+  test_build_system_transfer_txn( txn, bank, payer, recipient, 12UL );
+  fd_txn_in_t in = { .txn=txn, .index_in_slot=2UL };
+  fd_txn_out_t * out = env->execle->txn_out;
+  fd_runtime_prepare_and_execute_txn( runtime, bank, &in, out );
+  FD_TEST( out->err.is_committable && !out->err.txn_err );
+  fd_runtime_commit_txn( runtime, bank, &in, out );
+  test_fold_account_hashes( &check, 0 );
+  FD_TEST( fd_lthash_eq( fd_bank_lthash_locking_query( bank ), check.expected ) );
+  fd_bank_lthash_end_locking_query( bank );
+  test_env_destroy( env );
+}
+
+FD_UNIT_TEST( execle_lthash_successive_banks ) {
+  test_env_t * env = test_env_create();
+  fd_pubkey_t payer = { .ul={0xCB01UL} }, recipient = { .ul={0xCB02UL} };
+  test_fund_account( env, &payer, 1000000000UL );
+  test_fund_account( env, &recipient, 1000000UL );
+  ulong parent_idx = env->bank_idx;
+  fd_bank_t * parent = fd_svm_mini_bank( env->mini, parent_idx );
+  fd_txn_p_t txn[1];
+  for( ulong i=0UL; i<2UL; i++ ) {
+    test_build_system_transfer_txn( txn, parent, payer, recipient, 20UL+i );
+    test_execle_run( env, txn, 1UL, 1U, i, 0 );
+  }
+  fd_svm_mini_freeze( env->mini, parent_idx );
+  fd_lthash_value_t parent_sum = *fd_bank_lthash_locking_query( parent );
+  fd_bank_lthash_end_locking_query( parent );
+  env->bank_idx = fd_svm_mini_attach_child( env->mini, parent_idx, parent->f.slot+1UL );
+  fd_bank_t * child = fd_svm_mini_bank( env->mini, env->bank_idx );
+  FD_TEST( child!=parent && child->bank_seq!=parent->bank_seq );
+  test_build_system_transfer_txn( txn, child, payer, recipient, 22UL );
+  test_execle_run( env, txn, 1UL, 2U, 2UL, 0 );
+  FD_TEST( fd_lthash_eq( fd_bank_lthash_locking_query( parent ), &parent_sum ) );
+  fd_bank_lthash_end_locking_query( parent );
+  fd_svm_mini_freeze( env->mini, env->bank_idx );
+  fd_lthash_value_t child_sum = *fd_bank_lthash_locking_query( child );
+  fd_bank_lthash_end_locking_query( child );
+  env->bank_idx = fd_svm_mini_attach_child( env->mini, env->bank_idx, child->f.slot+1UL );
+  fd_bank_t * grandchild = fd_svm_mini_bank( env->mini, env->bank_idx );
+  FD_TEST( grandchild!=child && grandchild->bank_seq!=child->bank_seq );
+  test_build_system_transfer_txn( txn, grandchild, payer, recipient, 23UL );
+  test_execle_run( env, txn, 1UL, 3U, 3UL, 0 );
+  FD_TEST( fd_lthash_eq( fd_bank_lthash_locking_query( child ), &child_sum ) );
+  fd_bank_lthash_end_locking_query( child );
+  test_env_destroy( env );
+}
+
+FD_UNIT_TEST( execle_lthash_nonce_failure ) {
+  /* Both nonce rollback branches: distinct nonce and nonce==fee payer. */
+  for( int same_payer=0; same_payer<2; same_payer++ ) {
+    test_env_t * env = test_env_create();
+    fd_bank_t * bank = fd_svm_mini_bank( env->mini, env->bank_idx );
+    fd_pubkey_t payer = { .ul={0xCC01UL} }, nonce = { .ul={0xCC02UL} }, recipient = { .ul={0xCC03UL} };
+    if( same_payer ) nonce = payer;
+    else            test_fund_account( env, &payer, 1000000UL );
+    test_fund_account( env, &recipient, 100UL );
+    fd_hash_t stale = { .uc={0x42} }, durable;
+    test_durable_nonce_from_blockhash( &durable, &stale );
+    fd_nonce_state_versions_t state = {
+      .version=FD_NONCE_VERSION_CURRENT, .kind=FD_NONCE_STATE_INITIALIZED,
+      .authority=payer, .durable_nonce=durable, .lamports_per_signature=5000UL
+    };
+    uchar data[ FD_SYSTEM_PROGRAM_NONCE_DLEN ];
+    ulong written;
+    FD_TEST( !fd_nonce_state_versions_encode( &state, data, sizeof(data), &written ) );
+    test_put_account_rooted( env, &nonce, &fd_solana_system_program_id, 2000000UL, 0UL, 0, data, sizeof(data) );
+    fd_txn_p_t txn[1];
+    test_build_durable_nonce_transfer_txn( txn, payer, nonce, recipient, &durable, 3000000UL, 99UL );
+    test_execle_run( env, txn, 1UL, 1U, 0UL, 0 );
+    FD_TEST( env->execle->txn_out[0].err.is_committable );
+    FD_TEST( env->execle->txn_out[0].err.txn_err==FD_RUNTIME_TXN_ERR_INSTRUCTION_ERROR );
+    FD_TEST( test_read_lamports( env, &payer )==(same_payer ? 2000000UL : 1000000UL)-5000UL );
+    FD_TEST( test_read_lamports( env, &recipient )==100UL );
+    fd_acc_t acc = fd_accdb_read_one( env->mini->runtime->accdb, bank->accdb_fork_id, nonce.uc );
+    FD_TEST( !fd_nonce_state_versions_decode( &state, acc.data, acc.data_len ) );
+    FD_TEST( memcmp( state.durable_nonce.uc, durable.uc, 32UL ) );
+    fd_accdb_unread_one( env->mini->runtime->accdb, &acc );
+    test_env_destroy( env );
+  }
 }
 
 int

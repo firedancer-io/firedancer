@@ -298,6 +298,7 @@ handle_microblock( fd_execle_tile_t *  ctx,
   FD_TEST( bank );
   ulong bank_slot = bank->f.slot;
   FD_TEST( bank_slot==slot );
+  fd_runtime_lthash_batch_begin( ctx->runtime, bank );
 
   fd_microblock_trailer_t * trailer = (fd_microblock_trailer_t *)( dst + txn_cnt*sizeof(fd_txn_p_t) );
   trailer->txn_ns_dt        = (fd_txn_ns_dt_t){0};
@@ -408,7 +409,7 @@ handle_microblock( fd_execle_tile_t *  ctx,
        if that happens.  We cannot reject the transaction here as there
        would be no way to undo the partially applied changes to the bank
        in finalize anyway. */
-    fd_runtime_commit_txn( ctx->runtime, bank, txn_in, txn_out );
+    fd_runtime_commit_txn_batched( ctx->runtime, bank, txn_in, txn_out );
 
     long const txn_end_ticks = fd_tickcount();
     last_ticks = txn_end_ticks;
@@ -476,6 +477,10 @@ handle_microblock( fd_execle_tile_t *  ctx,
     if( FD_LIKELY( ctx->enable_rebates ) ) fd_pack_rebate_sum_add_txn( ctx->rebater, txn, &writable_alt, 1UL );
   }
 
+  /* All account commits precede this one
+     bank reduction; pack/PoH must never observe completion before it. */
+  fd_runtime_lthash_batch_end( ctx->runtime, bank );
+
   /* Indicate to pack tile we are done processing the transactions so
      it can pack new microblocks using these accounts. */
   fd_fseq_update( ctx->busy_fseq, seq );
@@ -523,6 +528,7 @@ handle_bundle( fd_execle_tile_t *  ctx,
   FD_TEST( bank );
   ulong bank_slot = bank->f.slot;
   FD_TEST( bank_slot==slot );
+  fd_runtime_lthash_batch_begin( ctx->runtime, bank );
 
   fd_acct_addr_t const * writable_alt [ MAX_TXN_PER_MICROBLOCK ];
   ulong                  tips         [ MAX_TXN_PER_MICROBLOCK ] = { 0U };
@@ -582,7 +588,7 @@ handle_bundle( fd_execle_tile_t *  ctx,
       fd_txn_out_t * txn_out   = &ctx->txn_out[ i ];
       uchar *        signature = (uchar *)txn_in->txn->payload + TXN( txn_in->txn )->signature_off;
 
-      fd_runtime_commit_txn( ctx->runtime, bank, txn_in, txn_out );
+      fd_runtime_commit_txn_batched( ctx->runtime, bank, txn_in, txn_out );
 
       txn_end_ticks[ i ] = fd_tickcount();
 
@@ -667,6 +673,10 @@ handle_bundle( fd_execle_tile_t *  ctx,
     ctx->metrics.txn_exec_cum_ticks   += fd_ulong_if( txn_out->details.commit_start_ticks==LONG_MAX || txn_out->details.exec_start_ticks==LONG_MAX,   0UL, (ulong)( txn_out->details.commit_start_ticks - txn_out->details.exec_start_ticks   ) );
     ctx->metrics.txn_commit_cum_ticks += fd_ulong_if( txn_end_ticks[ i ]==LONG_MAX                  || txn_out->details.commit_start_ticks==LONG_MAX, 0UL, (ulong)( txn_end_ticks[ i ]                  - txn_out->details.commit_start_ticks ) );
   }
+
+  /* All account commits (including bundle release) precede this one
+     bank reduction; pack/PoH must never observe completion before it. */
+  fd_runtime_lthash_batch_end( ctx->runtime, bank );
 
   /* Indicate to pack tile we are done processing the transactions so
      it can pack new microblocks using these accounts. */
@@ -834,6 +844,7 @@ unprivileged_init( fd_topo_t const *      topo,
 
   ctx->runtime->accdb                    = ctx->accdb;
   ctx->runtime->sysvar_bank_seq          = 0UL;
+  ctx->runtime->lthash_batch.bank         = NULL;
   ctx->runtime->progcache                = ctx->progcache;
   ctx->runtime->status_cache             = txncache;
   memset( &ctx->runtime->log, 0, sizeof(ctx->runtime->log) );
