@@ -245,8 +245,6 @@ struct fd_accdb_prot {
 
 typedef struct fd_accdb_prot fd_accdb_prot_t;
 
-#define FD_ACCDB_HOT_REF_PROT (2)
-
 #define FD_ACCDB_REQ_UNSPILL   (2U)     /* also look in spilled forks */
 #define FD_ACCDB_TIER_UNSPILL  (3)      /* acc_map copy of a spilled version */
 #define FD_ACCDB_SPILL_SLICE   (256UL)  /* versions per background call */
@@ -319,7 +317,8 @@ FD_STATIC_ASSERT( sizeof (fd_accdb_accmeta_t)==64, layout );
      bit  30     cache_valid flag, in-memory only      (FD_ACCDB_SIZE_CACHE_VALID_BIT)
      bit  29     cache_claim flag, in-memory only      (FD_ACCDB_SIZE_CACHE_CLAIM_BIT)
      bit  28     pd_write flag,    in-memory only      (FD_ACCDB_SIZE_PD_WRITE_BIT)
-     bits 27..26 spare
+     bit  27     hot prot flag,    in-memory only      (FD_ACCDB_SIZE_PROT_BIT)
+     bit  26     hot ref flag,     in-memory only      (FD_ACCDB_SIZE_REF_BIT)
      bits 25..24 index tier,       in-memory only      (FD_ACCDB_SIZE_TIER_MASK)
      bits 23..0  data length in bytes                  (FD_ACCDB_SIZE_MASK)
 
@@ -329,6 +328,12 @@ FD_STATIC_ASSERT( sizeof (fd_accdb_accmeta_t)==64, layout );
    The tier (index mode, FD_ACCDB_TIER_*) is read and written only by
    T2, with atomic RMWs on any accmeta FG can reach.  Fresh slot inits
    store NONE; the in-place overwrite CAS preserves it.
+
+   PROT (T2 only) pins a version for a residual waiter.  REF is the
+   hot CLOCK bit: FG atomic-ORs it on a hot hit with REF and PROT
+   clear, T2 clears it; T2 also uses it as a transient dedupe mark on
+   unspilled copies, which FG never references.  Fresh inits clear
+   both.
 
    The three upper flag bits exist only in the in-memory index, never on
    disk:
@@ -356,6 +361,8 @@ FD_STATIC_ASSERT( sizeof (fd_accdb_accmeta_t)==64, layout );
 #define FD_ACCDB_SIZE_CACHE_VALID_BIT (1U<<30)
 #define FD_ACCDB_SIZE_CACHE_CLAIM_BIT (1U<<29)
 #define FD_ACCDB_SIZE_PD_WRITE_BIT    (1U<<28)
+#define FD_ACCDB_SIZE_PROT_BIT        (1U<<27)
+#define FD_ACCDB_SIZE_REF_BIT         (1U<<26)
 #define FD_ACCDB_SIZE_TIER_SHIFT      (24)
 #define FD_ACCDB_SIZE_TIER_MASK       (3U<<FD_ACCDB_SIZE_TIER_SHIFT)
 #define FD_ACCDB_SIZE_MASK            ((1U<<24)-1U)
@@ -716,7 +723,6 @@ struct fd_accdb_shmem_private {
   ulong idx_file_sz;        /* bytes fallocated at boot            */
 
   ulong idx_bg_defer_off;   /* FD_ACCDB_BG_DEFER_MAX uints         */
-  ulong idx_hot_ref_off;    /* acc_pool_max uchars, FG sets on hit */
   ulong idx_fifo_off;       /* acc_pool_max ulongs: idx<<32 | gen  */
   ulong fifo_head;          /* T2 only                             */
   ulong fifo_tail;
