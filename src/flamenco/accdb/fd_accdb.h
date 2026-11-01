@@ -475,7 +475,7 @@ fd_accdb_probe_pd_this_fork( fd_accdb_t *       accdb,
    account data size; the function does not bound-check against the
    account's actual length.  On a cache hit the bytes are memcpy'd from
    the cache slot using a try-read-test (ABA) loop; on a miss the owner
-   and data are preadv2'd from the disk fd passed at join time, scattered
+   and data are read from the disk fd passed at join time, scattered
    into out_owner and out_data via iovec (looping on short reads).
 
    If the account does not exist, *out_lamports is set to zero and the
@@ -632,7 +632,7 @@ fd_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
    one is present it executes the command, sets *charge_busy to 1, and
    returns immediately without doing compaction. Otherwise, if every
    fallocated partition is in use, grows the file by one partition
-   (fallocate, can take seconds on slow filesystems), sets *charge_busy
+   (preallocation can take seconds on slow filesystems), sets *charge_busy
    and returns.  Otherwise, attempts one step of compaction at each
    layer, setting *charge_busy if work was done. */
 

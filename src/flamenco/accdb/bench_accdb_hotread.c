@@ -1,6 +1,7 @@
 #define _GNU_SOURCE
 
 #include "fd_accdb.h"
+#include "fd_accdb_test_util.h"
 #include "../../util/fd_util.h"
 
 #include <stdlib.h>
@@ -34,8 +35,7 @@ bench_setup( int * out_fd,
              ulong max_account_writes_per_slot,
              ulong partition_cnt,
              ulong partition_sz ) {
-  int fd = memfd_create( "accdb_hotread", 0 );
-  if( FD_UNLIKELY( fd<0 ) ) FD_LOG_ERR(( "memfd_create failed" ));
+  int fd = fd_accdb_test_file_create( "accdb_hotread" );
   *out_fd = fd;
 
   ulong cache_fp = BENCH_CACHE_FOOTPRINT;
