@@ -677,7 +677,7 @@ quic_client_datagram_tx( fd_votor_tile_t *   ctx,
   uchar * payload   = packet_l2 + sizeof(fd_ip4_udp_hdrs_t);
 
   ulong pkt_num;
-  ulong pkt_sz = fd_quic_conn_tx_dgram( conn, payload, FD_NET_MTU-sizeof(fd_ip4_udp_hdrs_t), buf, buf_sz, &pkt_num );
+  ulong pkt_sz = fd_quic_conn_tx_dgram( conn, payload, FD_VOTOR_NET_MTU-sizeof(fd_ip4_udp_hdrs_t), buf, buf_sz, &pkt_num );
   if( FD_UNLIKELY( !pkt_sz ) ) return ULONG_MAX;
 
   fd_ip4_udp_hdrs_t * hdr = (fd_ip4_udp_hdrs_t *)fd_type_pun( packet_l2 );
@@ -697,7 +697,7 @@ quic_client_datagram_tx( fd_votor_tile_t *   ctx,
   ulong sig    = fd_disco_netmux_sig( ip_dst, 0U, ip_dst, DST_PROTO_OUTGOING, FD_NETMUX_SIG_MIN_HDR_SZ );
   ulong sz_l2  = sizeof(fd_ip4_udp_hdrs_t) + pkt_sz;
   fd_stem_publish( stem, OUT_IDX_NET, sig, ctx->net_out_chunk, sz_l2, fd_frag_meta_ctl( 0UL, 1, 1, 0 ), 0L, 0L );
-  ctx->net_out_chunk = fd_dcache_compact_next( ctx->net_out_chunk, FD_NET_MTU, ctx->net_out_chunk0, ctx->net_out_wmark );
+  ctx->net_out_chunk = fd_dcache_compact_next( ctx->net_out_chunk, FD_VOTOR_NET_MTU, ctx->net_out_chunk0, ctx->net_out_wmark );
   ctx->quic_client->metrics.net_tx_pkt_cnt++; /* bypasses fd_quic's aio send, which counts the rest */
   ctx->quic_client->metrics.net_tx_byte_cnt += sz_l2-sizeof(fd_eth_hdr_t); /* IP bytes, as fd_quic counts */
   return pkt_num;
@@ -714,6 +714,8 @@ quic_sign( void *      signer_ctx,
 }
 
 /* QUIC callback */
+
+FD_STATIC_ASSERT( FD_VOTOR_NET_MTU<=FD_NET_MTU, votor_net_mtu );
 
 static int
 quic_aio_tx( void *                    _ctx,
@@ -733,7 +735,7 @@ quic_aio_tx( void *                    _ctx,
     if( FD_UNLIKELY( batch[ i ].buf_sz<FD_NETMUX_SIG_MIN_HDR_SZ ) ) continue;
 
     ulong const sz_l2 = sizeof(fd_eth_hdr_t) + batch[ i ].buf_sz;
-    if( FD_UNLIKELY( sz_l2>FD_ETH_PAYLOAD_MAX ) ) continue;
+    if( FD_UNLIKELY( sz_l2>FD_VOTOR_NET_MTU ) ) continue;
 
     uint const ip_dst = FD_LOAD( uint, batch[ i ].buf+offsetof( fd_ip4_hdr_t, daddr_c ) );
     uchar * packet_l2 = fd_chunk_to_laddr( ctx->net_out_mem, ctx->net_out_chunk );
@@ -747,7 +749,7 @@ quic_aio_tx( void *                    _ctx,
     ctx->net_tx[ ctx->net_tx_cnt ].sig   = fd_disco_netmux_sig( ip_dst, 0U, ip_dst, DST_PROTO_OUTGOING, FD_NETMUX_SIG_MIN_HDR_SZ );
     ctx->net_tx_cnt++;
 
-    ctx->net_out_chunk = fd_dcache_compact_next( ctx->net_out_chunk, FD_NET_MTU, ctx->net_out_chunk0, ctx->net_out_wmark );
+    ctx->net_out_chunk = fd_dcache_compact_next( ctx->net_out_chunk, FD_VOTOR_NET_MTU, ctx->net_out_chunk0, ctx->net_out_wmark );
   }
 
   if( FD_LIKELY( opt_batch_idx ) ) *opt_batch_idx = batch_cnt;
@@ -3046,6 +3048,7 @@ unprivileged_init( fd_topo_t const *      topo,
   fd_topo_link_t const * net_out = &topo->links[ tile->out_link_id[ OUT_IDX_NET ] ];
   FD_TEST( !strcmp( net_out->name, "votor_net" ) );
   FD_TEST( net_out->burst>=FD_VOTOR_NET_BURST );
+  FD_TEST( net_out->mtu>=FD_VOTOR_NET_MTU );
   ctx->net_out_mem    = topo->workspaces[ topo->objs[ net_out->dcache_obj_id ].wksp_id ].wksp;
   ctx->net_out_chunk0 = fd_dcache_compact_chunk0( ctx->net_out_mem, net_out->dcache );
   ctx->net_out_wmark  = fd_dcache_compact_wmark ( ctx->net_out_mem, net_out->dcache, net_out->mtu );

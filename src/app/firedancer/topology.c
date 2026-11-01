@@ -27,6 +27,7 @@
 #include "../../discof/restore/fd_snapct_tile.h"
 #include "../../disco/gui/fd_gui_config_parse.h"
 #include "../../disco/quic/fd_tpu.h"
+#include "../../disco/quic/fd_quic_tile.h"
 #include "../../disco/tiles.h"
 #include "../../disco/events/generated/fd_event_gen.h"
 #include "../../disco/topo/fd_topob.h"
@@ -549,10 +550,10 @@ fd_topo_initialize( config_t * config ) {
      high-stake nodes: 16384 keeps 80+ ms of absorption there.  Both
      are consumed unreliably, so overrun drops the packet and the
      protocol retries. */
-  /**/                 fd_topob_link( topo, "gossip_net",    "net_gossip",    8192UL,                                   FD_NET_MTU,                    1UL );
+  /**/                 fd_topob_link( topo, "gossip_net",    "net_gossip",    8192UL,                                   FD_GOSSIP_NET_MTU,             1UL );
   FOR(shred_tile_cnt)  fd_topob_link( topo, "shred_net",     "net_shred",     16384UL,                                  FD_SHRED_NET_MTU,              1UL );
   /**/                 fd_topob_link( topo, "repair_net",    "net_repair",    config->net.ingress_buffer_size,          FD_REPAIR_NET_MTU,             1UL );
-  FOR(quic_tile_cnt)   fd_topob_link( topo, "quic_net",      "net_quic",      config->net.ingress_buffer_size,          FD_NET_MTU,                    1UL );
+  FOR(quic_tile_cnt)   fd_topob_link( topo, "quic_net",      "net_quic",      config->net.ingress_buffer_size,          FD_QUIC_NET_MTU,               1UL );
 
   if( FD_LIKELY( rserve_enabled ) ) {
     /**/               fd_topob_link( topo, "rserve_net",    "net_rserve",    config->net.ingress_buffer_size,          FD_RSERVE_NET_MTU,             1UL );
@@ -1299,7 +1300,7 @@ fd_topo_initialize( config_t * config ) {
   /* Alpenglow links and tile connections.  The optional GUI tile has
      been created by this point. */
   /**/               fd_topob_link( topo, "votor_out",     "votor_out",     8192UL,                                   sizeof(fd_votor_msg_t),                        FD_VOTOR_OUT_BURST );
-  /**/               fd_topob_link( topo, "votor_net",     "net_votor",     32768UL,                                  FD_NET_MTU,                                    FD_VOTOR_NET_BURST ); /* as shred_net: fan-out publishes as it goes and rides depth, burst covers only the deferred aio flush */
+  /**/               fd_topob_link( topo, "votor_net",     "net_votor",     32768UL,                                  FD_VOTOR_NET_MTU,                              FD_VOTOR_NET_BURST ); /* as shred_net: fan-out publishes as it goes and rides depth, burst covers only the deferred aio flush */
   /**/               fd_topob_link( topo, "votor_sign",    "votor_sign",    128UL,                                    FD_KEYGUARD_SIGN_REQ_MTU,                      1UL ); /* TLS 1.3 CertificateVerify payload or vote history file body */
   /**/               fd_topob_link( topo, "sign_votor",    "sign_votor",    128UL,                                    FD_BLS_SIG_SZ,                                 1UL ); /* ed25519 sig (TLS) or BLS sig (vote) */
   FOR(net_tile_cnt)  fd_topos_net_rx_link( topo, "net_votor", i, config->net.ingress_buffer_size );
