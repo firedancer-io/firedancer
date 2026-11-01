@@ -171,8 +171,8 @@ typedef struct fd_accdb_partition fd_accdb_partition_t;
    pwrites sealed stage chunks to the scratch file and preads them back
    at drain.  Positions are pure f(cnt). */
 
-#define FD_ACCDB_DEFER_WINDOW_ELE (16UL<<20)  /* 64 MiB locked window  */
-#define FD_ACCDB_DEFER_STAGE_ELE  (2UL<<20)   /* 8 MiB spill I/O chunk */
+#define FD_ACCDB_DEFER_WINDOW_ELE (3UL<<20)   /* 12 MiB locked window: 2Mi resident >3x one root's worst case */
+#define FD_ACCDB_DEFER_STAGE_ELE  (1UL<<20)   /* 4 MiB spill I/O chunk */
 
 /* Deferred entry tag: pool slot moved between tiers, its bytes live
    on.  Drain skips the byte free, never the CLAIM fence. */
