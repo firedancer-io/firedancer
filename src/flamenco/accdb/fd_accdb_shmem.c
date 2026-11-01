@@ -144,7 +144,7 @@ fd_accdb_shmem_footprint( ulong max_accounts,
   l = FD_LAYOUT_APPEND( l, descends_set_align(),     max_live_slots*descends_set_footprint( max_live_slots ) );
   l = FD_LAYOUT_APPEND( l, alignof(uint),            chain_cnt*sizeof(uint)                                  );
   l = FD_LAYOUT_APPEND( l, alignof(fd_accdb_accmeta_t), pool_max*sizeof(fd_accdb_accmeta_t)                  );
-  l = FD_LAYOUT_APPEND( l, alignof(fd_accdb_txn_t),  (index_ram_entries ? pool_max : txn_max)*sizeof(fd_accdb_txn_t) );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_accdb_txn_t),  index_ram_entries ? pool_max*sizeof(uint) : txn_max*sizeof(fd_accdb_txn_t) );
   l = FD_LAYOUT_APPEND( l, partition_pool_align(),   partition_pool_footprint( partition_cnt )               );
   for( ulong k=0UL; k<FD_ACCDB_COMPACTION_LAYER_CNT; k++ ) {
     l = FD_LAYOUT_APPEND( l, compaction_dlist_align(), compaction_dlist_footprint()                          );
@@ -350,8 +350,8 @@ fd_accdb_shmem_new( void * shmem,
   void * _descends_sets    = FD_SCRATCH_ALLOC_APPEND( l, descends_set_align(),     max_live_slots*descends_set_footprint( max_live_slots ) );
   void * _acc_map          = FD_SCRATCH_ALLOC_APPEND( l, alignof(uint),            chain_cnt*sizeof(uint)                                  );
   void * _acc_pool_ele     = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_accdb_accmeta_t), pool_max*sizeof(fd_accdb_accmeta_t)                         );
-  ulong  txn_pool_max      = index_ram_entries ? pool_max : txn_max;
-  void * _txn_pool_ele     = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_accdb_txn_t),  txn_pool_max*sizeof(fd_accdb_txn_t)                     );
+  ulong  txn_pool_max      = index_ram_entries ? 0UL : txn_max; /* index mode: uint fork_next[ pool_max ] instead */
+  void * _txn_pool_ele     = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_accdb_txn_t),  index_ram_entries ? pool_max*sizeof(uint) : txn_max*sizeof(fd_accdb_txn_t) );
   void * _partition_pool   = FD_SCRATCH_ALLOC_APPEND( l, partition_pool_align(),   partition_pool_footprint( partition_cnt )               );
   void * _compaction_dlists[ FD_ACCDB_COMPACTION_LAYER_CNT ];
   for( ulong k=0UL; k<FD_ACCDB_COMPACTION_LAYER_CNT; k++ ) {
