@@ -340,7 +340,7 @@ fd_topo_initialize( config_t * config ) {
   int efficient_mode      = !strcmp( config->firedancer.layout.mode, "efficient" );
   int failover_enabled    = 1;
 
-  /* Keep rotor's runtime capacity within rserve's bounded metadata record.
+  /* Keep repair's runtime capacity within rserve's bounded metadata record.
      The protocol limit is unchanged; only private bench overrides grow it. */
   if( FD_UNLIKELY( rserve_enabled && config->limits.max_shreds_per_block>FD_REPAIR_BENCH_SHRED_MAX ) )
     FD_LOG_ERR(( "rserve supports at most %lu shreds per block (configured %lu)",
@@ -533,7 +533,7 @@ fd_topo_initialize( config_t * config ) {
     /**/               fd_topob_link( topo, "rserve_net",    "net_rserve",    config->net.ingress_buffer_size,          FD_NET_MTU,                    1UL );
     /**/               fd_topob_link( topo, "rserve_sign",   "rserve_sign",   128UL,                                    32UL,                          1UL );
     /**/               fd_topob_link( topo, "sign_rserve",   "sign_rserve",   128UL,                                    sizeof(fd_ed25519_sig_t),      1UL );
-    /**/               fd_topob_link( topo, "repair_rserve",  "repair_rserve", 2048UL,                                   sizeof(fd_repair_out_blk_t),   1UL );
+    /**/               fd_topob_link( topo, "repair_rserve", "repair_rserve", 2048UL,                                   sizeof(fd_repair_out_blk_t),   2UL );
   }
 
   if( FD_LIKELY( snapshots_enabled ) ) {
@@ -1718,7 +1718,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->rserve.repair_serve_listen_port = config->tiles.rserve.repair_serve_listen_port;
     tile->rserve.max_shreds_per_block = config->limits.max_shreds_per_block;
     tile->rserve.ping_cache_entries = 1UL<<16; /* TODO: Configure this from some global metric? */
-    tile->rserve.blockdb_max = 1UL<<15; /* ~40.1 KiB each. TODO: make configurable */
+    tile->rserve.blockdb_max = 1UL<<15; /* ~80.1 KiB each. TODO: make configurable */
     fd_cstr_ncpy( tile->rserve.identity_key_path, identity_key_path, sizeof(tile->rserve.identity_key_path) );
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "replay" ) )) {

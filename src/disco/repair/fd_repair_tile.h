@@ -31,13 +31,25 @@ struct fd_repair_out_fec {
 };
 typedef struct fd_repair_out_fec fd_repair_out_fec_t;
 
+/* fd_repair_out_blk is published to rserve when a block's slot-complete
+   FEC is delivered.  merkle_roots holds the first 20B of each FEC
+   root, starting at fec_off.  A block uses one or two consecutive frags
+   on repair_rserve; each carries min(CHUNK_FEC_MAX,fec_set_cnt-fec_off)
+   roots.  Offsets are 0 and, if needed, CHUNK_FEC_MAX.  This keeps each
+   frag within mcache's ushort size.  Rserve exposes only complete records.
+   The frag is variable length, see FD_REPAIR_BLOCK_SZ. */
+
+#define FD_REPAIR_BLOCK_CHUNK_FEC_MAX (2048UL)
+FD_STATIC_ASSERT( FD_REPAIR_FEC_MAX<=2UL*FD_REPAIR_BLOCK_CHUNK_FEC_MAX, repair_block_two_chunks );
+
 struct fd_repair_out_blk {
   ulong     slot;
   fd_hash_t block_id;
   ulong     parent_slot;
   fd_hash_t parent_block_id;
   uint      fec_set_cnt;
-  uchar     merkle_roots[ FD_REPAIR_FEC_MAX ][ FD_SHRED_MERKLE_NODE_SZ ];
+  uint      fec_off;
+  uchar     merkle_roots[ FD_REPAIR_BLOCK_CHUNK_FEC_MAX ][ FD_SHRED_MERKLE_NODE_SZ ];
 };
 typedef struct fd_repair_out_blk fd_repair_out_blk_t;
 

@@ -9,7 +9,7 @@ static ulong publications;
 
 #include "fd_repair_tile.c"
 
-#define TEST_FECS (2048U)
+#define TEST_FECS ((uint)FD_REPAIR_FEC_MAX)
 static uchar rotor_mem[64UL<<20] __attribute__((aligned(128)));
 static uchar strat_mem[16UL<<20] __attribute__((aligned(128)));
 static uchar timeout_mem[3][4096] __attribute__((aligned(128)));
@@ -132,7 +132,7 @@ test_saturation( ulong capacity ) {
     FD_TEST( b[role]->wait_fec_cnt==TEST_FECS && !b[role]->in_blk_treap );
     for( uint k=0U; k<TEST_FECS; k++ ) FD_TEST( seen[role][k]==1U );
   }
-  FD_LOG_NOTICE(( "pass: capacity=%lu, all roles progress, 6144 unique FEC requests, no full-queue rediscovery", capacity ));
+  FD_LOG_NOTICE(( "pass: capacity=%lu, all roles progress, %lu unique FEC requests, no full-queue rediscovery", capacity, count ));
 }
 
 static void

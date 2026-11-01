@@ -252,6 +252,25 @@ int main( int argc, char ** argv ) {
   test_cost_tracker_rejection_non_mutating( cost_tracker );
   test_cost_tracker_multiple_accounts( cost_tracker );
 
+  /* The private cost override floors either slot regime.  Cross the
+     old 400M budget, accept exactly 800M and reject the next CU without
+     changing accounting.  Transaction costs remain below account caps. */
+  FD_TEST( fd_cost_tracker_new( cost_tracker_mem, 800000000UL, 999UL ) );
+  cost_tracker = fd_cost_tracker_join( cost_tracker_mem );
+  fd_features_t features; fd_features_disable_all( &features );
+  static fd_txn_out_t txn = {0};
+  for( ulong regime=0UL; regime<2UL; regime++ ) {
+    fd_cost_tracker_init( cost_tracker, &features, regime ? &FD_SLOT_PARAMS_200MS : &FD_SLOT_PARAMS_400MS, 10UL );
+    FD_TEST( cost_tracker->block_cost_limit==800000000UL );
+    txn.details.txn_cost.transaction.programs_execution_cost = 8000000U;
+    for( ulong i=0UL; i<100UL; i++ ) FD_TEST( fd_cost_tracker_try_add_cost( cost_tracker, &txn )==FD_COST_TRACKER_SUCCESS );
+    FD_TEST( cost_tracker->block_cost==800000000UL );
+    txn.details.txn_cost.transaction.programs_execution_cost = 1U;
+    FD_TEST( fd_cost_tracker_try_add_cost( cost_tracker, &txn )==FD_COST_TRACKER_ERROR_WOULD_EXCEED_BLOCK_MAX_LIMIT );
+    FD_TEST( cost_tracker->block_cost==800000000UL );
+  }
+  FD_LOG_NOTICE(( "pass: 800M private cost floor in both slot regimes, exact boundary and rejection accounting" ));
+
   /* TODO: Add more sophisticated tests for the cost tracker. */
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

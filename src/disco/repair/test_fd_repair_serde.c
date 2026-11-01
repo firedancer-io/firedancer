@@ -222,7 +222,7 @@ commit( uint              cnt,
 
 static void
 test_parent_fec_set_count_verify( void ) {
-  uint const cnts[] = { 1U, 2U, 3U, 33U, 512U, 513U, 1916U, (uint)FD_REPAIR_FEC_MAX };
+  uint const cnts[] = { 1U, 2U, 3U, 33U, 512U, 513U, 1916U, 2048U, 2049U, 4095U, (uint)FD_REPAIR_FEC_MAX };
   for( ulong i=0UL; i<sizeof(cnts)/sizeof(cnts[0]); i++ ) {
     uint      cnt = cnts[ i ];
     fd_hash_t parent_block_id; fill( &parent_block_id, sizeof(fd_hash_t), 51 );
@@ -260,7 +260,7 @@ test_parent_fec_set_count_verify( void ) {
 
 static void
 test_fec_set_root_verify( void ) {
-  uint const cnts[] = { 1U, 2U, 3U, 33U, 512U, 513U, 1916U, (uint)FD_REPAIR_FEC_MAX };
+  uint const cnts[] = { 1U, 2U, 3U, 33U, 512U, 513U, 1916U, 2048U, 2049U, 4095U, (uint)FD_REPAIR_FEC_MAX };
   for( ulong i=0UL; i<sizeof(cnts)/sizeof(cnts[0]); i++ ) {
     uint      cnt = cnts[ i ];
     fd_hash_t parent_block_id; fill( &parent_block_id, sizeof(fd_hash_t), 51 );

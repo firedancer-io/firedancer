@@ -2,6 +2,7 @@
 #include "fd_shredder.h"
 #include "fd_fec_resolver.h"
 #include "fd_fec_set.h"
+#include "../repair/fd_repair_limits.h"
 #include "../../ballet/shred/fd_shred.h"
 #include "../../ballet/base58/fd_base58.h"
 #include "../../ballet/hex/fd_hex.h"
@@ -814,6 +815,50 @@ test_slot_old( void ) {
   for( ulong i=0UL; i<FD_FEC_SHRED_CNT-1UL; i++ ) { ADD_SHRED( resolver, set->parity_shreds[ i ], OKAY ); }
 }
 
+/* Generate the last FEC with the native shredder, then recover all data
+   from parity at the largest private index.  Both parser and resolver
+   must reject the first FEC beyond the runtime limit. */
+static void
+test_private_shred_boundary( void ) {
+  ulong limit = FD_REPAIR_BENCH_SHRED_MAX;
+  signer_ctx_t signer[1]; signer_ctx_init( signer, test_private_key );
+  fd_shredder_t * shredder = fd_shredder_join( fd_shredder_new( _shredder ) );
+  fd_shredder_set_shred_version( shredder, SHRED_VER );
+  FD_TEST( fd_shredder_skip_batch( shredder, (limit/FD_FEC_SHRED_CNT-1UL)*FD_SHREDDER_CHAINED_FEC_SET_PAYLOAD_SZ, 17UL, 0 ) );
+  FD_TEST( shredder->data_idx_offset==limit-FD_FEC_SHRED_CNT );
+  uchar byte=42U, chained_root[32]={0};
+  fd_entry_batch_meta_t meta[1]={{ .block_complete=1, .parent_offset=1UL }};
+  FD_TEST( fd_shredder_init_batch( shredder, &byte, 1UL, 17UL, meta ) );
+  fd_fec_set_t * set = next_fec_set_signed( shredder, _set, chained_root, signer );
+  FD_TEST( set && set->data_shreds[FD_FEC_SHRED_CNT-1UL].s->idx==limit-1UL );
+  FD_TEST( fd_shred_parse( set->data_shreds[FD_FEC_SHRED_CNT-1UL].b, FD_SHRED_MIN_SZ, limit ) );
+  FD_TEST( !fd_shred_parse( set->data_shreds[FD_FEC_SHRED_CNT-1UL].b, FD_SHRED_MIN_SZ, limit-1UL ) );
+  FD_TEST( !fd_shred_parse( set->data_shreds[0].b, FD_SHRED_MIN_SZ, limit/2UL ) );
+
+  fd_fec_resolver_t * r=fd_fec_resolver_join( fd_fec_resolver_new( res_mem, 2UL, 1UL, 1UL, 1UL, SLOT_MAX, out_sets, SEED ) );
+  fd_fec_resolver_set_shred_version( r, SHRED_VER );
+  fd_fec_set_t const * out_fec[1]; fd_shred_t const * out_shred[1]; fd_bmtree_node_t root[1];
+  for( ulong k=0UL; k<FD_FEC_SHRED_CNT; k++ ) {
+    fd_shred_t const * s=fd_shred_parse( set->parity_shreds[k].b, FD_SHRED_MAX_SZ, limit );
+    FD_TEST( s );
+    int ret=fd_fec_resolver_add_shred( r, s, FD_SHRED_MAX_SZ, limit, FD_FEC_RESOLVER_SHRED_SRC_REPAIR,
+                                       test_private_key+32UL, out_fec, out_shred, root, NULL );
+    FD_TEST( ret==(k==FD_FEC_SHRED_CNT-1UL ? FD_FEC_RESOLVER_SHRED_COMPLETES : FD_FEC_RESOLVER_SHRED_OKAY) );
+  }
+  FD_TEST( sets_eq( set, *out_fec ) );
+  FD_TEST( (*out_fec)->data_shreds[FD_FEC_SHRED_CNT-1UL].s->idx==limit-1UL );
+  fd_shredder_fini_batch( shredder );
+  FD_TEST( fd_shredder_init_batch( shredder, &byte, 1UL, 17UL, meta ) );
+  set=next_fec_set_signed( shredder, _set, chained_root, signer );
+  FD_TEST( set && set->data_shreds[0].s->idx==limit );
+  FD_TEST( !fd_shred_parse( set->data_shreds[0].b, FD_SHRED_MIN_SZ, limit ) );
+  FD_TEST( fd_fec_resolver_add_shred( r, set->data_shreds[0].s, FD_SHRED_MIN_SZ, limit, FD_FEC_RESOLVER_SHRED_SRC_REPAIR,
+                                     test_private_key+32UL, out_fec, out_shred, root, NULL )==FD_FEC_RESOLVER_SHRED_REJECTED );
+  fd_fec_resolver_delete( fd_fec_resolver_leave( r ) );
+  fd_shredder_delete( fd_shredder_leave( shredder ) );
+  FD_LOG_NOTICE(( "pass: native shredder/parser/parity recovery through index %lu; %lu rejected", limit-1UL, limit ));
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -831,6 +876,7 @@ main( int     argc,
   test_merkle_root();
   test_chained_merkle_shreds();
   test_slot_old();
+  test_private_shred_boundary();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

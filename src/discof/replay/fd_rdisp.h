@@ -185,11 +185,11 @@
    writers for a total of 200,802.  Then we add 8k for inflation
    rewards, 10 for sysvars, 4000 for vote accounts, and a bit of
    padding. */
-/* Sunburst private-cluster capacity: the campaign admits 400M CU per
-   block. Reserve transaction-writer capacity for 500M CU (8x 62.5M),
+/* Sunburst private-cluster capacity: the campaign admits 800M CU per
+   block. Reserve transaction-writer capacity for 1B CU (16x 62.5M),
    preserving the separate start-of-block allowance. This is a benchmark
    build bound, not a public-network protocol-limit change. */
-#define FD_RDISP_MAX_TXN_WRITERS_PER_BLOCK   (200802UL*8UL)
+#define FD_RDISP_MAX_TXN_WRITERS_PER_BLOCK   (200802UL*16UL)
 #define FD_RDISP_MAX_START_WRITERS_PER_BLOCK (16552UL)
 #define FD_RDISP_MAX_WRITERS_PER_BLOCK       (FD_RDISP_MAX_TXN_WRITERS_PER_BLOCK+FD_RDISP_MAX_START_WRITERS_PER_BLOCK)
 

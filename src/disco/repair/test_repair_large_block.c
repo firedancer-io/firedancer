@@ -1,4 +1,4 @@
-/* Drive rotor's production completion publication, then independently
+/* Drive repair's production completion publication, then independently
    reconstruct the same certified block with one missing FEC.  Inputs
    model verified shred-tile output; wire proofs are tested by blockdb
    and rserve tests. */
@@ -10,17 +10,26 @@ static uchar * block_mem;
 static ulong replay_cnt;
 static ulong block_cnt;
 static ulong block_sz;
+static fd_repair_out_blk_t received_header;
+static uchar received_roots[ FD_REPAIR_FEC_MAX ][ FD_SHRED_MERKLE_NODE_SZ ];
 
 static void
 capture( ulong out_idx, ulong chunk, ulong sz ) {
   if( out_idx==0UL ) {
-    fd_repair_replay_fec_t const * msg = (void const *)fd_chunk_to_laddr_const( replay_mem, chunk );
+    fd_repair_out_fec_t const * msg = (void const *)fd_chunk_to_laddr_const( replay_mem, chunk );
     FD_TEST( msg->fec_set_idx==replay_cnt*FD_FEC_SHRED_CNT );
     replay_cnt++;
   } else {
     FD_TEST( out_idx==1UL && !chunk );
+    fd_repair_out_blk_t const * msg = (void const *)block_mem;
+    FD_TEST( msg->fec_off==block_cnt*FD_REPAIR_BLOCK_CHUNK_FEC_MAX );
+    uint cnt = fd_uint_min( msg->fec_set_cnt-msg->fec_off, (uint)FD_REPAIR_BLOCK_CHUNK_FEC_MAX );
+    FD_TEST( sz==FD_REPAIR_BLOCK_SZ( cnt ) && sz<=USHRT_MAX );
+    if( !block_cnt ) memcpy( &received_header, msg, offsetof(fd_repair_out_blk_t,merkle_roots) );
+    else FD_TEST( fd_hash_eq( &received_header.block_id, &msg->block_id ) && received_header.fec_set_cnt==msg->fec_set_cnt );
+    memcpy( received_roots[msg->fec_off], msg->merkle_roots, (ulong)cnt*FD_SHRED_MERKLE_NODE_SZ );
     block_cnt++;
-    block_sz = sz;
+    block_sz += sz;
   }
 }
 
@@ -42,8 +51,8 @@ static fd_repair_tile_t ctx[1];
 static fd_mr32_t
 root( uint k ) {
   fd_mr32_t mr = {0};
-  mr.ul[0] = k+1UL;
-  mr.ul[1] = 0xA5A5A5A5UL;
+  FD_STORE( ulong, mr.uc+0UL, k+1UL );
+  FD_STORE( ulong, mr.uc+8UL, 0xA5A5A5A5UL );
   return mr;
 }
 
@@ -52,7 +61,7 @@ rotor_new( ulong fec_max ) {
   FD_TEST( fd_repair_footprint( 4UL, fec_max, fec_max )<=sizeof(rotor_mem) );
   fd_repair_t * rotor = fd_repair_join( fd_repair_new( rotor_mem, 4UL, fec_max, fec_max, 42UL ) );
   FD_TEST( rotor );
-  fd_repair_init( rotor, 0UL, &hash_null, NULL, NULL );
+  fd_repair_init( rotor, 0UL, fd_type_pun_const( &hash_null ), NULL, NULL );
   return rotor;
 }
 
@@ -70,7 +79,7 @@ complete( fd_repair_t * rotor, uint k, uint cnt ) {
 static void
 test_block( uint cnt ) {
   memset( ctx, 0, sizeof(*ctx) );
-  ctx->rotor = rotor_new( FD_REPAIR_FEC_MAX );
+  ctx->repair = rotor_new( FD_REPAIR_FEC_MAX );
   ctx->halt_signing = 1;
   ctx->pending_pool = pending_pool_join( pending_pool_new( pending_mem, 1UL ) );
   ctx->pending_dlist = pending_dlist_join( pending_dlist_new( dlist_mem ) );
@@ -94,44 +103,44 @@ test_block( uint cnt ) {
   shred->data.parent_off = 1U;
   shred->data.size = (ushort)(FD_SHRED_DATA_HEADER_SZ+sz);
   fd_mr32_t first = root( 0U );
-  fd_repair_shred_insert( ctx->rotor, shred, &first, 0, 0L );
-  for( uint k=0U; k<cnt; k++ ) complete( ctx->rotor, k, cnt );
+  fd_repair_shred_insert( ctx->repair, shred, &first, 0L );
+  for( uint k=0U; k<cnt; k++ ) complete( ctx->repair, k, cnt );
   for( uint k=0U; k<cnt; k++ ) {
     int poll_in = 1, busy = 0;
     after_credit( ctx, NULL, &poll_in, &busy );
     FD_TEST( busy && !poll_in );
   }
-  FD_TEST( replay_cnt==cnt && block_cnt==1UL );
-  FD_TEST( block_sz==FD_REPAIR_BLOCK_SZ( cnt ) && block_sz<=USHRT_MAX );
-  fd_repair_block_t const * block = (void const *)block_mem;
+  FD_TEST( replay_cnt==cnt && block_cnt==((ulong)cnt+FD_REPAIR_BLOCK_CHUNK_FEC_MAX-1UL)/FD_REPAIR_BLOCK_CHUNK_FEC_MAX );
+  FD_TEST( block_sz==block_cnt*FD_REPAIR_BLOCK_SZ( 0UL )+(ulong)cnt*FD_SHRED_MERKLE_NODE_SZ );
+  fd_repair_out_blk_t const * block = &received_header;
   FD_TEST( block->fec_set_cnt==cnt && block->slot==1UL && !block->parent_slot );
   for( uint k=0U; k<cnt; k++ ) {
     fd_mr32_t mr = root( k );
-    FD_TEST( !memcmp( block->merkle_roots[k], mr.uc, FD_SHRED_MERKLE_NODE_SZ ) );
+    FD_TEST( !memcmp( received_roots[k], mr.uc, FD_SHRED_MERKLE_NODE_SZ ) );
   }
 
   /* Missing FEC blocks ordered delivery, then by-id completion restores
      all FECs and computes exactly the eager block's double-Merkle id. */
   fd_repair_t * r = rotor_new( FD_REPAIR_FEC_MAX );
-  fd_repair_blk_t * b = fd_repair_blk_notarized( r, 1UL, &block->block_id );
+  fd_repair_blk_t * b = fd_repair_blk_notarized( r, 1UL, fd_type_pun_const( &block->block_id ) );
   FD_TEST( b );
-  FD_TEST( !fd_repair_blk_parented( r, 1UL, &block->block_id, 0UL, &hash_null, 0U, 0L ) );
-  FD_TEST( !fd_repair_blk_parented( r, 1UL, &block->block_id, 0UL, &hash_null, (uint)r->fec_blk_max+1U, 0L ) );
+  FD_TEST( !fd_repair_blk_parented( r, 1UL, fd_type_pun_const( &block->block_id ), 0UL, fd_type_pun_const( &hash_null ), 0U, 0L ) );
+  FD_TEST( !fd_repair_blk_parented( r, 1UL, fd_type_pun_const( &block->block_id ), 0UL, fd_type_pun_const( &hash_null ), (uint)r->fec_blk_max+1U, 0L ) );
   FD_TEST( b->parent_slot==ULONG_MAX && !b->cmpl_fec_cnt );
-  fd_repair_blk_parented( r, 1UL, &block->block_id, 0UL, &hash_null, cnt, 0L );
+  fd_repair_blk_parented( r, 1UL, fd_type_pun_const( &block->block_id ), 0UL, fd_type_pun_const( &hash_null ), cnt, 0L );
   for( uint k=0U; k<cnt; k++ ) {
-    fd_mr20_t mr;
-    memcpy( mr.uc, block->merkle_roots[k], sizeof(mr) );
-    fd_repair_fec_notarized( r, 1UL, &block->block_id, k*FD_FEC_SHRED_CNT, &mr, 0L );
+    fd_mr_t mr = {0};
+    memcpy( mr.mr20.uc, received_roots[k], sizeof(mr.mr20) );
+    fd_repair_fec_notarized( r, 1UL, fd_type_pun_const( &block->block_id ), k*FD_FEC_SHRED_CNT, &mr, 0L );
   }
-  fd_repair_shred_insert( r, shred, &first, 0, 0L );
+  fd_repair_shred_insert( r, shred, &first, 0L );
   for( uint k=1U; k<cnt; k++ ) complete( r, k, cnt );
   FD_TEST( !b->cons_fec_cnt && fd_repair_deque_empty( r->reasm_deque ) );
   complete( r, 0U, cnt );
   /* Completion can merge the named copy into the eager copy. */
   ulong slot = 1UL;
   b = fd_repair_blk_map_ele_query( r->blk_map, &slot, NULL, r->blk_pool );
-  FD_TEST( b && b->cons_fec_cnt==cnt && fd_hash_eq( &b->dmr, &block->block_id ) );
+  FD_TEST( b && b->cons_fec_cnt==cnt && !memcmp( &b->dmr, &block->block_id, sizeof(fd_mr32_t) ) );
   for( uint k=0U; k<cnt; k++ ) {
     FD_TEST( !fd_repair_deque_empty( r->reasm_deque ) );
     fd_repair_deque_t out = fd_repair_deque_pop_head( r->reasm_deque );
@@ -144,13 +153,13 @@ test_block( uint cnt ) {
 int
 main( int argc, char ** argv ) {
   fd_boot( &argc, &argv );
-  uint const cnts[] = { 512U, 513U, 1916U, (uint)FD_REPAIR_FEC_MAX };
+  uint const cnts[] = { 512U, 513U, 1916U, 2048U, 2049U, 4095U, (uint)FD_REPAIR_FEC_MAX };
   for( ulong i=0UL; i<sizeof(cnts)/sizeof(cnts[0]); i++ ) test_block( cnts[i] );
   fd_repair_t * r = rotor_new( FD_FEC_BLK_MAX );
   fd_mr32_t id = root( 42U );
   fd_repair_blk_t * b = fd_repair_blk_notarized( r, 1UL, &id );
   FD_TEST( b );
-  FD_TEST( !fd_repair_blk_parented( r, 1UL, &id, 0UL, &hash_null, (uint)FD_FEC_BLK_MAX+1U, 0L ) );
+  FD_TEST( !fd_repair_blk_parented( r, 1UL, &id, 0UL, fd_type_pun_const( &hash_null ), (uint)FD_FEC_BLK_MAX+1U, 0L ) );
   FD_TEST( b->parent_slot==ULONG_MAX && !b->cmpl_fec_cnt );
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

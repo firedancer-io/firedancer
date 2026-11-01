@@ -123,9 +123,9 @@ fd_rserve_maybe_rotate( fd_rserve_t * rserve,
 #define FD_BLOCKDB_ALIGN (128UL)
 
 /* The double-merkle tree has at most FD_REPAIR_FEC_MAX+1 leaves (FEC roots
-   plus the parent-info leaf), so at most 13 layers and 12 proof nodes. */
+   plus the parent-info leaf), so at most 14 layers and 13 proof nodes. */
 
-#define FD_BLOCKDB_TREE_LAYER_MAX (13UL)
+#define FD_BLOCKDB_TREE_LAYER_MAX (14UL)
 #define FD_BLOCKDB_PROOF_NODE_MAX (FD_BLOCKDB_TREE_LAYER_MAX-1UL)
 
 struct fd_blockdb_key {

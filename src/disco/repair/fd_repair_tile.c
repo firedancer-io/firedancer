@@ -1081,16 +1081,20 @@ after_credit( fd_repair_tile_t *  ctx,
 
     if( FD_UNLIKELY( out_fec->slot_complete && ctx->rserve_out_idx!=ULONG_MAX ) ) {
       FD_TEST( blk->cmpl_fec_cnt<=FD_REPAIR_FEC_MAX ); /* topology bounds the runtime shred limit */
-      fd_repair_out_blk_t * out_blk = fd_chunk_to_laddr( ctx->rserve_out_mem, ctx->rserve_out_chunk );
-      out_blk->slot                 = blk->slot;
-      out_blk->block_id             = FD_LOAD( fd_hash_t, blk->dmr.uc );
-      out_blk->parent_slot          = blk->parent_slot;
-      out_blk->parent_block_id      = FD_LOAD( fd_hash_t, blk->parent_dmr.uc );
-      out_blk->fec_set_cnt          = blk->cmpl_fec_cnt;
-      for( uint k=0U; k<blk->cmpl_fec_cnt; k++ ) memcpy( out_blk->merkle_roots[ k ], fd_repair_fec_pool_ele_const( ctx->repair->fec_pool, blk->fecs[ k ] )->mr.mr20.uc, FD_SHRED_MERKLE_NODE_SZ );
-      ulong sz = offsetof(fd_repair_out_blk_t, merkle_roots) + (ulong)blk->cmpl_fec_cnt*FD_SHRED_MERKLE_NODE_SZ;
-      fd_stem_publish( stem, ctx->rserve_out_idx, REPAIR_SIG_BLK, ctx->rserve_out_chunk, sz, 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
-      ctx->rserve_out_chunk = fd_dcache_compact_next( ctx->rserve_out_chunk, sz, ctx->rserve_out_chunk0, ctx->rserve_out_wmark );
+      for( uint off=0U; off<blk->cmpl_fec_cnt; off+=(uint)FD_REPAIR_BLOCK_CHUNK_FEC_MAX ) {
+        uint cnt = fd_uint_min( blk->cmpl_fec_cnt-off, (uint)FD_REPAIR_BLOCK_CHUNK_FEC_MAX );
+        fd_repair_out_blk_t * block = fd_chunk_to_laddr( ctx->rserve_out_mem, ctx->rserve_out_chunk );
+        block->slot            = blk->slot;
+        block->block_id        = FD_LOAD( fd_hash_t, blk->dmr.uc );
+        block->parent_slot     = blk->parent_slot;
+        block->parent_block_id = FD_LOAD( fd_hash_t, blk->parent_dmr.uc );
+        block->fec_set_cnt     = blk->cmpl_fec_cnt;
+        block->fec_off         = off;
+        for( uint k=0U; k<cnt; k++ ) memcpy( block->merkle_roots[ k ], fd_repair_fec_pool_ele_const( ctx->repair->fec_pool, blk->fecs[ off+k ] )->mr.mr20.uc, FD_SHRED_MERKLE_NODE_SZ );
+        ulong sz = FD_REPAIR_BLOCK_SZ( cnt );
+        fd_stem_publish( stem, ctx->rserve_out_idx, REPAIR_SIG_BLK, ctx->rserve_out_chunk, sz, 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+        ctx->rserve_out_chunk = fd_dcache_compact_next( ctx->rserve_out_chunk, sz, ctx->rserve_out_chunk0, ctx->rserve_out_wmark );
+      }
     }
     *charge_busy = 1;
   }
@@ -1654,7 +1658,7 @@ populate_allowed_fds( fd_topo_t const *      topo FD_PARAM_UNUSED,
   return out_cnt;
 }
 
-#define STEM_BURST (1UL)
+#define STEM_BURST (2UL) /* at most two repair_rserve metadata chunks */
 #define STEM_LAZY  (128L*3000L)
 
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_repair_tile_t
