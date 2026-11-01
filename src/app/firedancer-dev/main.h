@@ -25,6 +25,7 @@ extern fd_topo_obj_callbacks_t fd_obj_cb_store;
 extern fd_topo_obj_callbacks_t fd_obj_cb_fec_sets;
 extern fd_topo_obj_callbacks_t fd_obj_cb_txncache;
 extern fd_topo_obj_callbacks_t fd_obj_cb_accdb;
+extern fd_topo_obj_callbacks_t fd_obj_cb_accdb_window;
 extern fd_topo_obj_callbacks_t fd_obj_cb_backup;
 extern fd_topo_obj_callbacks_t fd_obj_cb_snapin_shmem;
 extern fd_topo_obj_callbacks_t fd_obj_cb_banks;
@@ -52,6 +53,7 @@ fd_topo_obj_callbacks_t * CALLBACKS[] = {
   &fd_obj_cb_fec_sets,
   &fd_obj_cb_txncache,
   &fd_obj_cb_accdb,
+  &fd_obj_cb_accdb_window,
   &fd_obj_cb_backup,
   &fd_obj_cb_snapin_shmem,
   &fd_obj_cb_banks,

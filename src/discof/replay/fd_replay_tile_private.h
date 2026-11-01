@@ -469,7 +469,7 @@ struct fd_replay_tile {
      or from genesis. */
   int is_booted;
 
-  /* STATE gauges of tiles whose scratch overlays the progcache arena;
+  /* STATE gauges of tiles using an object overlaid on the progcache arena;
      snapshot DONE is held until all read 2 (halted). */
   ulong                  overlay_tile_cnt;
   ulong volatile const * overlay_tile_state[ FD_TOPO_MAX_TILES ];

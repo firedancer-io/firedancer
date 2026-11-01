@@ -2493,7 +2493,8 @@ unprivileged_init( fd_topo_t const *      topo,
   FD_TEST( accdb_shmem );
 
   fd_sleep_t * accdb_sleep = topo->sleep_obj_id!=ULONG_MAX ? fd_sleep_join( fd_topo_obj_laddr( topo, topo->sleep_obj_id ) ) : NULL;
-  ctx->accdb = fd_accdb_join( fd_accdb_new( _accdb, accdb_shmem, FD_ACCDB_FD_RW, -1, 0UL, NULL, accdb_sleep, fd_topo_find_tile( topo, "accdb", 0UL ), 0, FD_ACCDB_IDX_FD_RW ) );
+  void * place_window = tile->snapin.accdb_window_obj_id!=ULONG_MAX ? fd_topo_obj_laddr( topo, tile->snapin.accdb_window_obj_id ) : NULL;
+  ctx->accdb = fd_accdb_join( fd_accdb_new( _accdb, accdb_shmem, FD_ACCDB_FD_RW, -1, 0UL, NULL, accdb_sleep, fd_topo_find_tile( topo, "accdb", 0UL ), 0, FD_ACCDB_IDX_FD_RW, place_window ) );
   FD_TEST( ctx->accdb );
 
   ctx->shmem = fd_topo_obj_laddr( topo, tile->snapin.shmem_obj_id );
