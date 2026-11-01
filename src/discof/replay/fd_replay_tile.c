@@ -4916,8 +4916,10 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->overlay_tile_cnt = 0UL;
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
     fd_topo_tile_t const * t = &topo->tiles[ i ];
-    if( FD_LIKELY( !topo->objs[ t->tile_obj_id ].overlay ) ) continue;
-    FD_TEST( topo->objs[ t->tile_obj_id ].host_obj_id==progcache_obj_id && t->allow_shutdown && t->metrics );
+    ulong ov = ULONG_MAX;
+    for( ulong j=0UL; j<t->uses_obj_cnt; j++ ) if( topo->objs[ t->uses_obj_id[ j ] ].overlay ) ov = t->uses_obj_id[ j ];
+    if( FD_LIKELY( ov==ULONG_MAX ) ) continue;
+    FD_TEST( topo->objs[ ov ].host_obj_id==progcache_obj_id && t->allow_shutdown && t->metrics );
     FD_TEST( ctx->overlay_tile_cnt<sizeof(ctx->overlay_tile_state)/sizeof(ctx->overlay_tile_state[0]) );
     ctx->overlay_tile_state[ ctx->overlay_tile_cnt++ ] = &fd_metrics_tile( t->metrics )[ FD_METRICS_GAUGE_TILE_STATE_OFF ];
   }
@@ -4932,7 +4934,7 @@ unprivileged_init( fd_topo_t const *      topo,
   fd_accdb_shmem_t * accdb_shmem = fd_accdb_shmem_join( _accdb_shmem );
   FD_TEST( accdb_shmem );
   fd_sleep_t * accdb_sleep = topo->sleep_obj_id!=ULONG_MAX ? fd_sleep_join( fd_topo_obj_laddr( topo, topo->sleep_obj_id ) ) : NULL;
-  ctx->accdb = fd_accdb_join( fd_accdb_new( _accdb, accdb_shmem, FD_ACCDB_FD_RW, -1, 0UL, NULL, accdb_sleep, fd_topo_find_tile( topo, "accdb", 0UL ), 0, -1 ) );
+  ctx->accdb = fd_accdb_join( fd_accdb_new( _accdb, accdb_shmem, FD_ACCDB_FD_RW, -1, 0UL, NULL, accdb_sleep, fd_topo_find_tile( topo, "accdb", 0UL ), 0, -1, NULL ) );
   FD_TEST( ctx->accdb );
 
   ctx->capture_ctx = NULL;
