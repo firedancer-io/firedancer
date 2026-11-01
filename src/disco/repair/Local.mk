@@ -1,4 +1,4 @@
-$(call add-hdrs,fd_repair.h fd_repair_serde.h fd_repair_strat.h)
+$(call add-hdrs,fd_repair.h fd_repair_limits.h fd_repair_serde.h fd_repair_strat.h)
 $(call add-objs,fd_repair fd_repair_serde fd_repair_strat,fd_disco)
 $(call add-hdrs,fd_repair_tile.h)
 ifdef FD_HAS_HOSTED
@@ -14,6 +14,8 @@ $(call make-unit-test,test_fd_repair_serde,test_fd_repair_serde,fd_disco fd_flam
 $(call run-unit-test,test_fd_repair_serde)
 $(call make-unit-test,test_fd_repair_strat,test_fd_repair_strat,fd_disco fd_flamenco fd_ballet fd_util)
 $(call run-unit-test,test_fd_repair_strat)
+$(call make-unit-test,test_repair_large_block,test_repair_large_block,fd_disco fd_flamenco fd_waltz fd_tango fd_ballet fd_util)
+$(call run-unit-test,test_repair_large_block)
 $(call make-unit-test,test_blockdb,test_blockdb,fd_disco fd_flamenco fd_tango fd_ballet fd_util)
 $(call make-unit-test,test_rserve_tile,test_rserve_tile,fd_disco fd_flamenco fd_waltz fd_tango fd_ballet fd_util)
 $(call make-fuzz-test,fuzz_repair_serde,fuzz_repair_serde,fd_disco fd_waltz fd_tango fd_ballet fd_util)

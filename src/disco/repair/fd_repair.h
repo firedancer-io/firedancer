@@ -52,6 +52,8 @@
    more of its FEC sets are queued unless it completed first, and the
    slot is only reachable by block id. */
 
+#include "fd_repair_limits.h"
+
 #include "../../disco/fd_disco_base.h"
 #include "../../disco/shred/fd_fec_set.h"
 #include "../../choreo/votor/fd_votor_base.h"

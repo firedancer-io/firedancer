@@ -1,6 +1,8 @@
 #ifndef HEADER_fd_src_disco_repair_fd_repair_serde_h
 #define HEADER_fd_src_disco_repair_fd_repair_serde_h
 
+#include "fd_repair_limits.h"
+
 #include "../../flamenco/fd_flamenco_base.h"
 #include "../../ballet/ed25519/fd_ed25519.h"
 #include "../../ballet/shred/fd_shred.h"

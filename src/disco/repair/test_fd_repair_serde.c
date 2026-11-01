@@ -222,7 +222,7 @@ commit( uint              cnt,
 
 static void
 test_parent_fec_set_count_verify( void ) {
-  uint const cnts[] = { 1U, 2U, 3U, 33U, (uint)FD_FEC_BLK_MAX };
+  uint const cnts[] = { 1U, 2U, 3U, 33U, 512U, 513U, 1916U, (uint)FD_REPAIR_FEC_MAX };
   for( ulong i=0UL; i<sizeof(cnts)/sizeof(cnts[0]); i++ ) {
     uint      cnt = cnts[ i ];
     fd_hash_t parent_block_id; fill( &parent_block_id, sizeof(fd_hash_t), 51 );
@@ -245,9 +245,9 @@ test_parent_fec_set_count_verify( void ) {
     FD_TEST(  fd_repair_res_parent_fec_set_count_verify( cnt,     SLOT,     &parent_block_id, proof, proof_sz,                         &block_id ) );
   }
 
-  /* a block has 1 to FD_FEC_BLK_MAX FEC sets, even with a valid proof */
+  /* a block has 1 to FD_REPAIR_FEC_MAX FEC sets, even with a valid proof */
 
-  uint const bad[] = { 0U, (uint)FD_FEC_BLK_MAX+1U };
+  uint const bad[] = { 0U, (uint)FD_REPAIR_FEC_MAX+1U };
   for( ulong i=0UL; i<sizeof(bad)/sizeof(bad[0]); i++ ) {
     fd_hash_t parent_block_id; fill( &parent_block_id, sizeof(fd_hash_t), 51 );
     fd_hash_t block_id;
@@ -260,7 +260,7 @@ test_parent_fec_set_count_verify( void ) {
 
 static void
 test_fec_set_root_verify( void ) {
-  uint const cnts[] = { 1U, 2U, 3U, 33U, (uint)FD_FEC_BLK_MAX };
+  uint const cnts[] = { 1U, 2U, 3U, 33U, 512U, 513U, 1916U, (uint)FD_REPAIR_FEC_MAX };
   for( ulong i=0UL; i<sizeof(cnts)/sizeof(cnts[0]); i++ ) {
     uint      cnt = cnts[ i ];
     fd_hash_t parent_block_id; fill( &parent_block_id, sizeof(fd_hash_t), 51 );
@@ -281,7 +281,7 @@ test_fec_set_root_verify( void ) {
       FD_TEST(  fd_repair_res_fec_set_root_verify( root, proof, proof_sz,                         &block_id, idx+1U,               cnt                     ) ); /* not a FEC set's first shred */
       FD_TEST(  fd_repair_res_fec_set_root_verify( root, proof, proof_sz,                         &block_id, cnt*FD_FEC_SHRED_CNT, cnt                     ) ); /* past the last FEC set */
       FD_TEST(  fd_repair_res_fec_set_root_verify( root, proof, proof_sz,                         &block_id, idx,                  0U                      ) );
-      FD_TEST(  fd_repair_res_fec_set_root_verify( root, proof, proof_sz,                         &block_id, idx,                  (uint)FD_FEC_BLK_MAX+1U ) );
+      FD_TEST(  fd_repair_res_fec_set_root_verify( root, proof, proof_sz,                         &block_id, idx,                  (uint)FD_REPAIR_FEC_MAX+1U ) );
       FD_TEST(  fd_repair_res_fec_set_root_verify( root, proof, proof_sz-FD_SHRED_MERKLE_NODE_SZ, &block_id, idx,                  cnt                     ) );
       FD_TEST(  fd_repair_res_fec_set_root_verify( root, proof, proof_sz+FD_SHRED_MERKLE_NODE_SZ, &block_id, idx,                  cnt                     ) );
       if( FD_LIKELY( cnt>1U ) ) FD_TEST( fd_repair_res_fec_set_root_verify( root, proof, proof_sz, &block_id, fd_uint_if( !k, FD_FEC_SHRED_CNT, 0U ), cnt ) ); /* another FEC set's index */

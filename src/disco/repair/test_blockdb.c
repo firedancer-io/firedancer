@@ -5,7 +5,7 @@
 #define ELE_MAX (4UL)
 
 static uchar mem[ 1UL<<20 ] __attribute__((aligned(FD_BLOCKDB_ALIGN)));
-static uchar roots[ FD_FEC_BLK_MAX ][ FD_SHRED_MERKLE_NODE_SZ ];
+static uchar roots[ FD_REPAIR_FEC_MAX ][ FD_SHRED_MERKLE_NODE_SZ ];
 
 static fd_hash_t
 hash( uchar b ) {
@@ -16,7 +16,7 @@ hash( uchar b ) {
 
 static void
 fill_roots( uchar b ) {
-  for( ulong i=0UL; i<FD_FEC_BLK_MAX; i++ ) memset( roots[ i ], (int)(uchar)(b+i), FD_SHRED_MERKLE_NODE_SZ );
+  for( ulong i=0UL; i<FD_REPAIR_FEC_MAX; i++ ) memset( roots[ i ], (int)(uchar)(b+i), FD_SHRED_MERKLE_NODE_SZ );
 }
 
 static void
@@ -94,7 +94,7 @@ block_id( fd_hash_t const * full_roots,
 /* Every proof served for a block must parse with the client's
    deserializer and verify against the independently computed block id. */
 
-static fd_hash_t full_roots[ FD_FEC_BLK_MAX ];
+static fd_hash_t full_roots[ FD_REPAIR_FEC_MAX ];
 
 static void
 test_proofs( fd_blockdb_t * db,
@@ -179,7 +179,7 @@ main( int     argc,
 
   /* Rejects bad fec_set_cnt */
   FD_TEST( !insert( db, 10UL, 1, 9UL, 9, 0U,                   0 ) );
-  FD_TEST( !insert( db, 10UL, 1, 9UL, 9, FD_FEC_BLK_MAX+1U,    0 ) );
+  FD_TEST( !insert( db, 10UL, 1, 9UL, 9, FD_REPAIR_FEC_MAX+1U,    0 ) );
   FD_TEST( !has( db, 10UL, 1 ) );
   FD_TEST( db->seq==0UL );
 
@@ -187,10 +187,10 @@ main( int     argc,
      FEC count */
   FD_TEST( insert( db, 10UL, 1, 9UL,  9, 3U,             10 ) );
   FD_TEST( insert( db, 10UL, 2, 8UL,  8, 5U,             20 ) );
-  FD_TEST( insert( db, 11UL, 3, 10UL, 1, FD_FEC_BLK_MAX, 30 ) );
+  FD_TEST( insert( db, 11UL, 3, 10UL, 1, FD_REPAIR_FEC_MAX, 30 ) );
   check_blk( db, 10UL, 1, 9UL,  9, 3U,             10 );
   check_blk( db, 10UL, 2, 8UL,  8, 5U,             20 );
-  check_blk( db, 11UL, 3, 10UL, 1, FD_FEC_BLK_MAX, 30 );
+  check_blk( db, 11UL, 3, 10UL, 1, FD_REPAIR_FEC_MAX, 30 );
   FD_TEST( !has( db, 11UL, 1 ) ); /* same block id, other slot */
   FD_TEST( !has( db, 12UL, 3 ) );
 
@@ -211,7 +211,7 @@ main( int     argc,
 
   FD_TEST( insert( db, 14UL, 6, 13UL, 5, 2U, 70 ) );
   FD_TEST( !has( db, 10UL, 2 ) );
-  check_blk( db, 11UL, 3, 10UL, 1, FD_FEC_BLK_MAX, 30 );
+  check_blk( db, 11UL, 3, 10UL, 1, FD_REPAIR_FEC_MAX, 30 );
   check_blk( db, 12UL, 4, 11UL, 3, 1U,             50 );
   check_blk( db, 13UL, 5, 12UL, 4, 2U,             60 );
   check_blk( db, 14UL, 6, 13UL, 5, 2U,             70 );
@@ -228,7 +228,7 @@ main( int     argc,
   /* Proofs, including odd leaf counts, powers of two, and the maximum */
   fd_rng_t _rng[1];
   fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 42U, 0UL ) );
-  uint const cnts[] = { 1U, 2U, 3U, 4U, 5U, 7U, 8U, 31U, 32U, 33U, 63U, 64U, 255U, 511U, FD_FEC_BLK_MAX };
+  uint const cnts[] = { 1U, 2U, 3U, 4U, 5U, 7U, 8U, 31U, 32U, 33U, 63U, 64U, 255U, 511U, 512U, 513U, 1916U, FD_REPAIR_FEC_MAX };
   for( ulong i=0UL; i<sizeof(cnts)/sizeof(cnts[0]); i++ ) test_proofs( db, rng, cnts[ i ] );
   fd_rng_delete( fd_rng_leave( rng ) );
 

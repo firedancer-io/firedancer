@@ -237,7 +237,7 @@ fd_blockdb_new( void * shmem,
   void *             map     = FD_SCRATCH_ALLOC_APPEND( l, fd_blockdb_map_align(),    fd_blockdb_map_footprint( chain_cnt ) );
   void *             tree    = FD_SCRATCH_ALLOC_APPEND( l, FD_BMTREE_COMMIT_ALIGN,    FD_BMTREE_COMMIT_FOOTPRINT( FD_BLOCKDB_TREE_LAYER_MAX ) );
   FD_TEST( FD_SCRATCH_ALLOC_FINI( l, fd_blockdb_align() )==(ulong)shmem + footprint );
-  FD_TEST( fd_bmtree_depth( FD_FEC_BLK_MAX+1UL )==FD_BLOCKDB_TREE_LAYER_MAX );
+  FD_TEST( fd_bmtree_depth( FD_REPAIR_FEC_MAX+1UL )==FD_BLOCKDB_TREE_LAYER_MAX );
 
   blockdb->ele_max = ele_max;
   blockdb->seq     = 0UL;
@@ -301,7 +301,7 @@ fd_blockdb_insert( fd_blockdb_t *    blockdb,
                    fd_hash_t const * parent_block_id,
                    uint              fec_set_cnt,
                    uchar const *     merkle_roots ) {
-  if( FD_UNLIKELY( !fec_set_cnt || fec_set_cnt>FD_FEC_BLK_MAX ) ) return NULL;
+  if( FD_UNLIKELY( !fec_set_cnt || fec_set_cnt>FD_REPAIR_FEC_MAX ) ) return NULL;
 
   fd_blockdb_map_t * map = (fd_blockdb_map_t *)blockdb->map;
   fd_blockdb_key_t   key = { .slot = slot, .block_id = *block_id };
