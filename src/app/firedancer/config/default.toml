@@ -792,7 +792,7 @@ telemetry = true
     # least 66 times the per-slot account write limit plus 2,129,920
     # plus the genesis account limit (13,725,934 with the defaults).
     # Not yet supported together with snapshot production.
-    index_ram_entries = 33_554_432
+    index_ram_entries = 25_165_824
 
 [runtime]
     # Certain slots are considered "live" in the validator if we must
