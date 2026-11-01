@@ -146,6 +146,7 @@ struct __attribute__((aligned(FD_ACCDB_ALIGN))) fd_accdb_private {
   ulong                 residual_ticket; /* ULONG_MAX = none to ack */
   struct { uchar pubkey[ 32 ]; uint fork_gen; uint gen; ulong epoch; } ovl_res[ 32 ]; /* R4: ovl resolved by T2 */
   ulong                 stage_cnt;       /* records in this joiner's share */
+  uchar *               place_window;    /* FD_ACCDB_PLACE_WINDOW B, snapin only */
   ulong                 pend_watch_cnt;
   uchar                 pend_watch[ FD_ACCDB_PEND_MAX ][ 32 ];
   fd_accdb_stage_rec_t  pend      [ FD_ACCDB_PEND_MAX ];
@@ -365,7 +366,8 @@ fd_accdb_new( void *              ljoin,
               fd_sleep_t *        sleep,
               ulong               sleep_tile_id,
               int                 compaction,
-              int                 idx_fd ) {
+              int                 idx_fd,
+              void *              place_window ) {
   if( FD_UNLIKELY( !ljoin ) ) {
     FD_LOG_WARNING(( "NULL ljoin" ));
     return NULL;
@@ -451,6 +453,7 @@ fd_accdb_new( void *              ljoin,
   accdb->joiner_idx      = (uint)epoch_idx;
   accdb->residual_ticket = ULONG_MAX;
   accdb->stage_cnt       = 0UL;
+  accdb->place_window    = place_window;
   accdb->pend_watch_cnt  = 0UL;
 
   accdb->external_epoch_slots = external_epoch_slots;
@@ -4968,9 +4971,8 @@ background_preevict( fd_accdb_t * accdb,
 
 static inline fd_accdb_stage_rec_t *
 stage_buf( fd_accdb_t * accdb ) {
-  fd_accdb_shmem_t * shmem = accdb->shmem;
-  ulong share = fd_ulong_align_dn( FD_ACCDB_PLACE_WINDOW/shmem->joiner_cnt_max, 64UL );
-  return (fd_accdb_stage_rec_t *)( (uchar *)shmem + shmem->window_off + accdb->joiner_idx*share );
+  ulong share = fd_ulong_align_dn( FD_ACCDB_PLACE_WINDOW/accdb->shmem->joiner_cnt_max, 64UL );
+  return (fd_accdb_stage_rec_t *)( accdb->place_window + accdb->joiner_idx*share );
 }
 
 static inline ulong
@@ -5015,6 +5017,7 @@ stage_append( fd_accdb_t *  accdb,
               uint          exec_size,
               ulong         slot,
               uint          flags ) {
+  FD_TEST( accdb->place_window );
   fd_accdb_stage_rec_t * r = &stage_buf( accdb )[ accdb->stage_cnt++ ];
   memcpy( r->pubkey, pubkey, 32UL );
   r->off_plus1 = off+1UL;
@@ -5200,7 +5203,8 @@ place_all( place_ctx_t * pc,
   ulong npage  = accdb->bkt->npage;
   ulong R      = ( npage + FD_ACCDB_PLACE_RANGE_PG-1UL )/FD_ACCDB_PLACE_RANGE_PG;
   ulong nrec   = ( s1-s0 )/sizeof(fd_accdb_stage_rec_t);
-  uchar * win  = (uchar *)shmem + shmem->window_off;
+  uchar * win  = accdb->place_window;
+  FD_TEST( win );
   ulong meta_sz = fd_ulong_align_up( 3UL*R*sizeof(ulong), FD_ACCDB_IDX_PAGE_SZ );
   FD_TEST( R<=FD_ACCDB_PLACE_RANGE_MAX );
   ulong * cnt  = (ulong *)( win+FD_ACCDB_PLACE_WINDOW-meta_sz );

@@ -1,3 +1,4 @@
+#define _GNU_SOURCE /* fd_accdb_idx.h */
 #include "../../util/pod/fd_pod_format.h"
 
 #include "../../disco/topo/fd_topo.h"
@@ -6,6 +7,7 @@
 #include "../../flamenco/runtime/fd_bpf_ser_arena.h"
 #include "../../flamenco/runtime/fd_txncache_shmem.h"
 #include "../../flamenco/progcache/fd_progcache.h"
+#include "../../flamenco/accdb/fd_accdb_idx.h"
 #include "../../flamenco/alpenglow/fd_footer_cache.h"
 #include "../../disco/shred/fd_rnonce_ss.h"
 #include "../../discof/backup/fd_backup_shmem.h"
@@ -178,6 +180,26 @@ fd_topo_obj_callbacks_t fd_obj_cb_accdb = {
   .footprint = accdb_footprint,
   .align     = accdb_align,
   .new       = accdb_new,
+};
+
+/* Snapshot staging/placement scratch, boot only, no init. */
+
+static ulong
+accdb_window_footprint( fd_topo_t const *     topo FD_FN_UNUSED,
+                        fd_topo_obj_t const * obj  FD_FN_UNUSED ) {
+  return FD_ACCDB_PLACE_WINDOW;
+}
+
+static ulong
+accdb_window_align( fd_topo_t const *     topo FD_FN_UNUSED,
+                    fd_topo_obj_t const * obj  FD_FN_UNUSED ) {
+  return 4096UL;
+}
+
+fd_topo_obj_callbacks_t fd_obj_cb_accdb_window = {
+  .name      = "accdb_window",
+  .footprint = accdb_window_footprint,
+  .align     = accdb_window_align,
 };
 
 static ulong

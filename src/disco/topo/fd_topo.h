@@ -732,6 +732,7 @@ struct fd_topo_tile {
       ulong     txncache_obj_id;
       ulong     banks_obj_id;
       ulong     shmem_obj_id; /* shared parallel snapin state */
+      ulong     accdb_window_obj_id; /* index-mode staging, else ULONG_MAX */
       ulong     max_txn_per_slot;
     } snapin;
 

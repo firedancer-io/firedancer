@@ -229,6 +229,12 @@ snapshot_load_topo( config_t * config ) {
     tile->snapin.shmem_obj_id    = shmem_obj->id;
     tile->snapin.max_live_slots  = config->firedancer.runtime.max_live_slots;
   }
+  ulong idx_ram = config->firedancer.accounts.index_ram_entries;
+  if( idx_ram && idx_ram<config->firedancer.accounts.max_accounts ) {
+    fd_topo_obj_t * win = fd_topob_obj( topo, "accdb_window", "snapin" );
+    FOR(snapin_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "snapin", i ) ], win, FD_SHMEM_JOIN_MODE_READ_WRITE );
+    FD_TEST( fd_pod_insert_ulong( topo->props, "accdb_window", win->id ) );
+  }
 
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
     fd_topo_tile_t * tile = &topo->tiles[ i ];

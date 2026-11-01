@@ -171,7 +171,7 @@ join_new( void ) {
   FD_TEST( accdb_fp );
   void * mem = aligned_alloc( fd_accdb_align(), accdb_fp );
   FD_TEST( mem );
-  fd_accdb_t * accdb = fd_accdb_join( fd_accdb_new( mem, g_shmem, g_fd, -1, 0UL, NULL, NULL, 0UL, 1, -1 ) );
+  fd_accdb_t * accdb = fd_accdb_join( fd_accdb_new( mem, g_shmem, g_fd, -1, 0UL, NULL, NULL, 0UL, 1, -1, NULL ) );
   FD_TEST( accdb );
   return accdb;
 }
@@ -2040,7 +2040,7 @@ test_setup( int * out_fd,
   FD_TEST( accdb_fp );
   void * accdb_mem = aligned_alloc( fd_accdb_align(), accdb_fp );
   FD_TEST( accdb_mem );
-  fd_accdb_t * accdb = fd_accdb_join( fd_accdb_new( accdb_mem, shmem, fd, -1, 0UL, NULL, NULL, 0UL, 1, -1 ) );
+  fd_accdb_t * accdb = fd_accdb_join( fd_accdb_new( accdb_mem, shmem, fd, -1, 0UL, NULL, NULL, 0UL, 1, -1, NULL ) );
   FD_TEST( accdb );
   return accdb;
 }
@@ -2055,7 +2055,7 @@ test_join_extra( void ) {
   ulong accdb_fp = fd_accdb_footprint( test_max_live_slots, 1 );
   void * accdb_mem = aligned_alloc( fd_accdb_align(), accdb_fp );
   FD_TEST( accdb_mem );
-  fd_accdb_t * accdb = fd_accdb_join( fd_accdb_new( accdb_mem, test_shmem, test_fd, -1, 0UL, NULL, NULL, 0UL, 1, -1 ) );
+  fd_accdb_t * accdb = fd_accdb_join( fd_accdb_new( accdb_mem, test_shmem, test_fd, -1, 0UL, NULL, NULL, 0UL, 1, -1, NULL ) );
   FD_TEST( accdb );
   return accdb;
 }
@@ -4204,8 +4204,8 @@ test_residual_wait_vs_epoch_drain( void ) {
   int idx_fd = memfd_create( "accdb_rs_idx2", 0 );
   FD_TEST( !ftruncate( idx_fd, (long)shmem->idx_file_sz ) );
   ulong jfp = fd_accdb_footprint( mls, 1 );
-  fd_accdb_t * t2 = fd_accdb_join( fd_accdb_new( aligned_alloc( fd_accdb_align(), jfp ), shmem, fd, -1, 0UL, NULL, NULL, 0UL, 1, idx_fd ) );
-  fd_accdb_t * fg = fd_accdb_join( fd_accdb_new( aligned_alloc( fd_accdb_align(), jfp ), shmem, fd, -1, 0UL, NULL, NULL, 0UL, 1, -1 ) );
+  fd_accdb_t * t2 = fd_accdb_join( fd_accdb_new( aligned_alloc( fd_accdb_align(), jfp ), shmem, fd, -1, 0UL, NULL, NULL, 0UL, 1, idx_fd, NULL ) );
+  fd_accdb_t * fg = fd_accdb_join( fd_accdb_new( aligned_alloc( fd_accdb_align(), jfp ), shmem, fd, -1, 0UL, NULL, NULL, 0UL, 1, -1, NULL ) );
   FD_TEST( t2 && fg );
 
   fd_accdb_fork_id_t tip = fd_accdb_attach_child( t2, SENTINEL );
