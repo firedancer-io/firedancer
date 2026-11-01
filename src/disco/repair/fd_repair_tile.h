@@ -1,6 +1,8 @@
 #ifndef HEADER_fd_src_disco_repair_fd_repair_tile_h
 #define HEADER_fd_src_disco_repair_fd_repair_tile_h
 
+#include "fd_repair_limits.h"
+
 #include "../../disco/tiles.h"
 #include "../../disco/shred/fd_shred_tile.h"
 
@@ -206,9 +208,11 @@ struct fd_repair_block {
   ulong     parent_slot;
   fd_hash_t parent_block_id;
   uint      fec_set_cnt;
-  uchar     merkle_roots[ FD_FEC_BLK_MAX ][ FD_SHRED_MERKLE_NODE_SZ ];
+  uchar     merkle_roots[ FD_REPAIR_FEC_MAX ][ FD_SHRED_MERKLE_NODE_SZ ];
 };
 typedef struct fd_repair_block fd_repair_block_t;
+
+FD_STATIC_ASSERT( sizeof(fd_repair_block_t)<=USHRT_MAX, repair_block_link_mtu );
 
 #define FD_REPAIR_BLOCK_SZ(fec_set_cnt) (offsetof(fd_repair_block_t, merkle_roots) + (ulong)(fec_set_cnt)*FD_SHRED_MERKLE_NODE_SZ)
 

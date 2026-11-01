@@ -629,6 +629,7 @@ fd_repair_blk_parented( fd_repair_t *     rotor,
                         fd_mr32_t const * parent_blk_mr,
                         uint              fec_set_cnt,
                         long              ts ) {
+  if( FD_UNLIKELY( !fec_set_cnt || fec_set_cnt>rotor->fec_blk_max ) ) return NULL;
   fd_repair_blk_t * blk = fd_repair_blk_map_ele_query( rotor->blk_map, &slot, NULL, rotor->blk_pool );
   while( FD_LIKELY( blk && memcmp( &blk->dmr, blk_mr, sizeof(fd_mr32_t) ) ) ) blk = (fd_repair_blk_t *)fd_repair_blk_map_ele_next_const( blk, NULL, rotor->blk_pool );
   if( FD_UNLIKELY( !blk                         ) ) return NULL; /* blk was pruned while the response was in flight */

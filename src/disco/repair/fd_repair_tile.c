@@ -1083,7 +1083,8 @@ after_credit( fd_repair_tile_t *  ctx,
     ctx->metrics->fec_delivered++;
     ctx->metrics->slot_highest_repaired = fd_ulong_if( msg->slot_complete, fd_ulong_max( ctx->metrics->slot_highest_repaired, blk->slot ), ctx->metrics->slot_highest_repaired );
 
-    if( FD_UNLIKELY( msg->slot_complete && ctx->rserve_out_idx!=ULONG_MAX && blk->cmpl_fec_cnt<=FD_FEC_BLK_MAX ) ) { /* rserve serves protocol sized blocks only */
+    if( FD_UNLIKELY( msg->slot_complete && ctx->rserve_out_idx!=ULONG_MAX ) ) {
+      FD_TEST( blk->cmpl_fec_cnt<=FD_REPAIR_FEC_MAX ); /* topology bounds the runtime shred limit */
       fd_repair_block_t * block = fd_chunk_to_laddr( ctx->rserve_out_mem, ctx->rserve_out_chunk );
       block->slot            = blk->slot;
       block->block_id        = blk->dmr;

@@ -296,6 +296,12 @@ fd_topo_initialize( config_t * config ) {
   int rserve_enabled      = config->tiles.rserve.enabled;
   int efficient_mode      = !strcmp( config->firedancer.layout.mode, "efficient" );
 
+  /* Keep rotor's runtime capacity within rserve's bounded metadata record.
+     The protocol limit is unchanged; only private bench overrides grow it. */
+  if( FD_UNLIKELY( rserve_enabled && config->limits.max_shreds_per_block>FD_REPAIR_BENCH_SHRED_MAX ) )
+    FD_LOG_ERR(( "rserve supports at most %lu shreds per block (configured %lu)",
+                 FD_REPAIR_BENCH_SHRED_MAX, config->limits.max_shreds_per_block ));
+
   if( FD_UNLIKELY( snapmk_enabled ) ) {
     FD_CHECK_ERR( config->firedancer.snapshots.max_full_snapshots_to_keep,
                   "[snapshots.max_full_snapshots_to_keep] must be nonzero when [layout.snapzp_tile_count] is nonzero" );
@@ -1583,7 +1589,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->rserve.repair_serve_listen_port = config->tiles.rserve.repair_serve_listen_port;
     tile->rserve.max_shreds_per_block = config->limits.max_shreds_per_block;
     tile->rserve.ping_cache_entries = 1UL<<16; /* TODO: Configure this from some global metric? */
-    tile->rserve.blockdb_max = 1UL<<15; /* ~20.6 KiB each. TODO: make configurable */
+    tile->rserve.blockdb_max = 1UL<<15; /* ~40.1 KiB each. TODO: make configurable */
     fd_cstr_ncpy( tile->rserve.identity_key_path, config->paths.identity_key, sizeof(tile->rserve.identity_key_path) );
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "replay" ) )) {

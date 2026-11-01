@@ -33,6 +33,11 @@
 
 #define FD_RSERVE_MAX_PACKET_SIZE 1232
 
+FD_STATIC_ASSERT( FD_BLOCKDB_PROOF_NODE_MAX*FD_SHRED_MERKLE_NODE_SZ<=FD_REPAIR_PROOF_MAX,
+                  blockdb_wire_proof_capacity );
+FD_STATIC_ASSERT( 60UL+FD_BLOCKDB_PROOF_NODE_MAX*FD_SHRED_MERKLE_NODE_SZ<=FD_REPAIR_RES_DE_MAX,
+                  blockdb_wire_response_capacity );
+
 /* The maximum number of parent slots to look for. */
 #define FD_RSERVE_MAX_ORPHAN_SLOTS 11
 

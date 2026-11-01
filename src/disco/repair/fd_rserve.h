@@ -1,6 +1,8 @@
 #ifndef HEADER_fd_src_disco_repair_fd_rserve_h
 #define HEADER_fd_src_disco_repair_fd_rserve_h
 
+#include "fd_repair_limits.h"
+
 #include "../../flamenco/fd_flamenco_base.h"
 #include "../shred/fd_fec_set.h"
 #include "../../ballet/bmtree/fd_bmtree.h"
@@ -120,10 +122,10 @@ fd_rserve_maybe_rotate( fd_rserve_t * rserve,
 
 #define FD_BLOCKDB_ALIGN (128UL)
 
-/* The double-merkle tree has at most FD_FEC_BLK_MAX+1 leaves (FEC roots
-   plus the parent-info leaf), so at most 11 layers and 10 proof nodes. */
+/* The double-merkle tree has at most FD_REPAIR_FEC_MAX+1 leaves (FEC roots
+   plus the parent-info leaf), so at most 13 layers and 12 proof nodes. */
 
-#define FD_BLOCKDB_TREE_LAYER_MAX (11UL)
+#define FD_BLOCKDB_TREE_LAYER_MAX (13UL)
 #define FD_BLOCKDB_PROOF_NODE_MAX (FD_BLOCKDB_TREE_LAYER_MAX-1UL)
 
 struct fd_blockdb_key {
@@ -145,7 +147,7 @@ struct fd_blockdb_blk {
   uint             fec_set_cnt;
   uint             next; /* map chain */
   uint             prev; /* map chain */
-  uchar            merkle_roots[ FD_FEC_BLK_MAX ][ FD_SHRED_MERKLE_NODE_SZ ];
+  uchar            merkle_roots[ FD_REPAIR_FEC_MAX ][ FD_SHRED_MERKLE_NODE_SZ ];
 };
 typedef struct fd_blockdb_blk fd_blockdb_blk_t;
 
@@ -188,7 +190,7 @@ fd_blockdb_delete( void * shblockdb );
 /* fd_blockdb_insert stores a block, overwriting the oldest entry when
    full.  Re-inserting an existing key updates it in place.
    merkle_roots points to fec_set_cnt 20B roots.  Returns NULL if
-   fec_set_cnt is 0 or exceeds FD_FEC_BLK_MAX. */
+   fec_set_cnt is 0 or exceeds FD_REPAIR_FEC_MAX. */
 
 fd_blockdb_blk_t *
 fd_blockdb_insert( fd_blockdb_t *    blockdb,

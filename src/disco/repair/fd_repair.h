@@ -1,6 +1,8 @@
 #ifndef HEADER_fd_src_disco_repair_fd_repair_h
 #define HEADER_fd_src_disco_repair_fd_repair_h
 
+#include "fd_repair_limits.h"
+
 #include "../../disco/fd_disco_base.h"
 #include "../../disco/shred/fd_fec_set.h"
 #include "../../choreo/votor/ag_votor_base.h"

@@ -427,7 +427,7 @@ fd_repair_res_parent_fec_set_count_verify( uint              fec_set_cnt,
                                            uchar const *     proof,
                                            ulong             proof_sz,
                                            fd_hash_t const * block_id ) {
-  if( FD_UNLIKELY( !fec_set_cnt || fec_set_cnt>FD_FEC_BLK_MAX                                     ) ) return -1;
+  if( FD_UNLIKELY( !fec_set_cnt || fec_set_cnt>FD_REPAIR_FEC_MAX                                     ) ) return -1;
   if( FD_UNLIKELY( proof_sz!=( fd_bmtree_depth( fec_set_cnt+1UL )-1UL )*FD_SHRED_MERKLE_NODE_SZ ) ) return -1;
 
   fd_bmtree_node_t leaf[1];
@@ -451,7 +451,7 @@ fd_repair_res_fec_set_root_verify( uchar const       fec_set_root[ static FD_SHR
                                    fd_hash_t const * block_id,
                                    uint              fec_set_idx,
                                    uint              fec_set_cnt ) {
-  if( FD_UNLIKELY( !fec_set_cnt || fec_set_cnt>FD_FEC_BLK_MAX                                     ) ) return -1;
+  if( FD_UNLIKELY( !fec_set_cnt || fec_set_cnt>FD_REPAIR_FEC_MAX                                     ) ) return -1;
   if( FD_UNLIKELY( fec_set_idx%FD_FEC_SHRED_CNT || fec_set_idx/FD_FEC_SHRED_CNT>=fec_set_cnt      ) ) return -1;
   if( FD_UNLIKELY( proof_sz!=( fd_bmtree_depth( fec_set_cnt+1UL )-1UL )*FD_SHRED_MERKLE_NODE_SZ ) ) return -1;
 

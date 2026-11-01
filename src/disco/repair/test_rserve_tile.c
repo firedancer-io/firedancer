@@ -58,7 +58,7 @@ setup( ctx_t * ctx,
   }
   ctx->store   = NULL; /* legacy lookups miss */
   ctx->disk_fd = -1;
-  ctx->max_shreds_per_block = FD_SHRED_BLK_MAX;
+  ctx->max_shreds_per_block = FD_REPAIR_BENCH_SHRED_MAX;
   ctx->identity_public_key  = server_pub;
   fd_sha512_new( ctx->sha512 );
 
@@ -154,14 +154,14 @@ response( void ) {
   return pub_data+sizeof(fd_ip4_udp_hdrs_t);
 }
 
-/* A 3 FEC set block whose block id is computed independently. */
+/* Independently compute block ids at protocol and private-bench sizes. */
 
-#define FEC_CNT (3U)
+static uint fec_cnt = 3U;
 static ulong     blk_slot   = 500UL;
 static ulong     blk_parent = 499UL;
 static fd_hash_t blk_parent_id;
 static fd_hash_t blk_id;
-static uchar     blk_roots[ FEC_CNT ][ FD_SHRED_MERKLE_NODE_SZ ];
+static uchar     blk_roots[ FD_REPAIR_FEC_MAX ][ FD_SHRED_MERKLE_NODE_SZ ];
 
 static void
 make_block( void ) {
@@ -169,12 +169,13 @@ make_block( void ) {
   static uchar tree_mem[ FD_BMTREE_COMMIT_FOOTPRINT( 0UL ) ] __attribute__((aligned(FD_BMTREE_COMMIT_ALIGN)));
   fd_bmtree_commit_t * tree = fd_bmtree_commit_init( tree_mem, FD_SHRED_MERKLE_NODE_SZ, FD_BMTREE_LONG_PREFIX_SZ, 0UL );
   fd_bmtree_node_t leaf[1];
-  for( uint k=0U; k<FEC_CNT; k++ ) {
-    memset( leaf->hash, (int)(0xA0+k), sizeof(leaf->hash) );
+  for( uint k=0U; k<fec_cnt; k++ ) {
+    memset( leaf->hash, (int)(uchar)(0xA0+k), sizeof(leaf->hash) );
+    FD_STORE( uint, leaf->hash, k );
     memcpy( blk_roots[ k ], leaf->hash, FD_SHRED_MERKLE_NODE_SZ );
     fd_bmtree_commit_append( tree, leaf, 1UL );
   }
-  uint cnt = FEC_CNT;
+  uint cnt = fec_cnt;
   fd_sha256_t s[1];
   fd_sha256_init  ( s );
   fd_sha256_append( s, &blk_parent,        sizeof(ulong)     );
@@ -183,6 +184,29 @@ make_block( void ) {
   fd_sha256_fini  ( s, leaf->hash );
   fd_bmtree_commit_append( tree, leaf, 1UL );
   memcpy( blk_id.uc, fd_bmtree_commit_fini( tree ), sizeof(fd_hash_t) );
+}
+
+/* Exercise the actual rotor link copy/size check and blockdb insertion. */
+static void
+receive_block( ctx_t * ctx ) {
+  static fd_repair_block_t msg[1] __attribute__((aligned(FD_CHUNK_ALIGN)));
+  msg->slot = blk_slot;
+  msg->block_id = blk_id;
+  msg->parent_slot = blk_parent;
+  msg->parent_block_id = blk_parent_id;
+  msg->fec_set_cnt = fec_cnt;
+  memcpy( msg->merkle_roots, blk_roots, (ulong)fec_cnt*FD_SHRED_MERKLE_NODE_SZ );
+  ulong sz = FD_REPAIR_BLOCK_SZ( fec_cnt );
+  FD_TEST( sz<=sizeof(fd_repair_block_t) && sz<=USHRT_MAX );
+  ctx->in_kind[0] = IN_KIND_ROTOR;
+  ctx->in_links[0].mem = (fd_wksp_t *)msg;
+  ctx->in_links[0].chunk0 = 0UL;
+  ctx->in_links[0].wmark = 0UL;
+  during_frag( ctx, 0UL, 0UL, ROTOR_SIG_BLOCK, 0UL, sz, 0UL );
+  after_frag( ctx, 0UL, 0UL, ROTOR_SIG_BLOCK, sz, 0UL, 0UL, NULL );
+  fd_blockdb_blk_t const * blk = fd_blockdb_query( ctx->blockdb, blk_slot, &blk_id );
+  FD_TEST( blk && blk->fec_set_cnt==fec_cnt );
+  FD_TEST( !memcmp( blk->merkle_roots, blk_roots, (ulong)fec_cnt*FD_SHRED_MERKLE_NODE_SZ ) );
 }
 
 static ulong
@@ -195,7 +219,7 @@ test_meta_requests( void ) {
   static ctx_t ctx[1];
   setup( ctx, 1 );
   ping_cache_add( ctx );
-  FD_TEST( fd_blockdb_insert( ctx->blockdb, blk_slot, &blk_id, blk_parent, &blk_parent_id, FEC_CNT, (uchar const *)blk_roots ) );
+  receive_block( ctx );
 
   uint      fec_set_cnt;
   ulong     parent_slot;
@@ -210,7 +234,7 @@ test_meta_requests( void ) {
   FD_TEST( sz );
   FD_TEST( fd_repair_res_parent_fec_set_count_de( response(), sz, &fec_set_cnt, &parent_slot, &parent_block_id, proof, &proof_sz, &nonce )==sz );
   FD_TEST( nonce==7U );
-  FD_TEST( fec_set_cnt==FEC_CNT );
+  FD_TEST( fec_set_cnt==fec_cnt );
   FD_TEST( parent_slot==blk_parent );
   FD_TEST( fd_hash_eq( &parent_block_id, &blk_parent_id ) );
   FD_TEST( !fd_repair_res_parent_fec_set_count_verify( fec_set_cnt, parent_slot, &parent_block_id, proof, proof_sz, &blk_id ) );
@@ -218,19 +242,19 @@ test_meta_requests( void ) {
   FD_TEST( ctx->metrics->received_request_count[ FD_METRICS_ENUM_REPAIR_REQUEST_TYPE_V_PARENT_FEC_SET_COUNT_IDX ]==1UL );
 
   /* FecSetRoot for every FEC set */
-  for( uint k=0U; k<FEC_CNT; k++ ) {
+  for( uint k=0U; k<fec_cnt; k++ ) {
     sz = request( ctx, req, fec_set_root( now_ms(), 100U+k, blk_slot, &blk_id, k*FD_FEC_SHRED_CNT ) );
     FD_TEST( sz );
     FD_TEST( fd_repair_res_fec_set_root_de( response(), sz, root, proof, &proof_sz, &nonce )==sz );
     FD_TEST( nonce==100U+k );
     FD_TEST( !memcmp( root, blk_roots[ k ], FD_SHRED_MERKLE_NODE_SZ ) );
-    FD_TEST( !fd_repair_res_fec_set_root_verify( root, proof, proof_sz, &blk_id, k*FD_FEC_SHRED_CNT, FEC_CNT ) );
+    FD_TEST( !fd_repair_res_fec_set_root_verify( root, proof, proof_sz, &blk_id, k*FD_FEC_SHRED_CNT, fec_cnt ) );
   }
-  FD_TEST( ctx->metrics->sent_pkt_types[ FD_METRICS_ENUM_REPAIR_RESPONSE_TYPE_V_FEC_SET_ROOT_IDX ]==FEC_CNT );
+  FD_TEST( ctx->metrics->sent_pkt_types[ FD_METRICS_ENUM_REPAIR_RESPONSE_TYPE_V_FEC_SET_ROOT_IDX ]==fec_cnt );
 
   /* Unaligned and out of range FEC set indices are rejected */
   FD_TEST( !request( ctx, req, fec_set_root( now_ms(), 1U, blk_slot, &blk_id, FD_FEC_SHRED_CNT+1U ) ) );
-  FD_TEST( !request( ctx, req, fec_set_root( now_ms(), 1U, blk_slot, &blk_id, FEC_CNT*FD_FEC_SHRED_CNT ) ) );
+  FD_TEST( !request( ctx, req, fec_set_root( now_ms(), 1U, blk_slot, &blk_id, fec_cnt*FD_FEC_SHRED_CNT ) ) );
   FD_TEST( ctx->metrics->dropped[ FD_METRICS_ENUM_REQUEST_DROP_REASON_V_FEC_SET_INDEX_INVALID_IDX ]==2UL );
 
   /* Unknown blocks miss: other block id, or right block id in another slot */
@@ -352,12 +376,12 @@ test_shred_for_block_id( fd_wksp_t * wksp ) {
   static ctx_t ctx[1];
   setup( ctx, 1 );
   ping_cache_add( ctx );
-  FD_TEST( fd_blockdb_insert( ctx->blockdb, blk_slot, &blk_id, blk_parent, &blk_parent_id, FEC_CNT, (uchar const *)blk_roots ) );
+  receive_block( ctx );
 
   ulong  footprint = fd_store_footprint( 8UL, 31840UL, 1UL, 0UL, 0UL, 1UL );
   void * store_mem = fd_wksp_alloc_laddr( wksp, fd_store_align(), footprint, 1UL );
   FD_TEST( store_mem );
-  ctx->store = fd_store_join( fd_store_new( store_mem, 8UL, 31840UL, 1UL, 0UL, 0UL, FD_SHRED_BLK_MAX, 42UL, 1UL ) );
+  ctx->store = fd_store_join( fd_store_new( store_mem, 8UL, 31840UL, 1UL, 0UL, 0UL, FD_REPAIR_BENCH_SHRED_MAX, 42UL, 1UL ) );
   FD_TEST( ctx->store );
   ctx->store->disk_max_shreds = 16UL;
   ctx->disk_fd = fd_store_file_create( TEST_STORE_PATH, ctx->store->wire_off, ctx->store->disk_max_shreds );
@@ -371,6 +395,15 @@ test_shred_for_block_id( fd_wksp_t * wksp ) {
   insert( ctx, make_shred( buf, blk_slot, 33U, 0x21U ), blk_roots[ 1 ] );
   insert( ctx, make_shred( buf, blk_slot, 95U, 0x5FU ), blk_roots[ 2 ] );
 
+  /* Highest shred proves by-id lookup/retention beyond the protocol cap. */
+  if( fec_cnt>3U ) {
+    uint last_idx = fec_cnt*FD_FEC_SHRED_CNT-1U;
+    insert( ctx, make_shred( buf, blk_slot, last_idx, 0x7BU ), blk_roots[ fec_cnt-1U ] );
+    ulong last_sz = request( ctx, req, window_index_for_block_id( now_ms(), 99U, blk_slot, &blk_id, last_idx ) );
+    FD_TEST( last_sz );
+    check_shred( last_sz, blk_slot, last_idx, 0x7BU, 99U );
+  }
+
   /* Each FEC set's shred is served by root */
   uint const idxs   [ 3 ] = { 0U, 33U, 95U };
   uchar const marks [ 3 ] = { 0x00U, 0x21U, 0x5FU };
@@ -379,8 +412,8 @@ test_shred_for_block_id( fd_wksp_t * wksp ) {
     FD_TEST( sz );
     check_shred( sz, blk_slot, idxs[ i ], marks[ i ], 200U+(uint)i );
   }
-  FD_TEST( ctx->metrics->sent_pkt_types        [ FD_METRICS_ENUM_REPAIR_RESPONSE_TYPE_V_WINDOW_INDEX_FOR_BLOCK_ID_IDX ]==3UL );
-  FD_TEST( ctx->metrics->received_request_count[ FD_METRICS_ENUM_REPAIR_REQUEST_TYPE_V_WINDOW_INDEX_FOR_BLOCK_ID_IDX  ]==3UL );
+  FD_TEST( ctx->metrics->sent_pkt_types        [ FD_METRICS_ENUM_REPAIR_RESPONSE_TYPE_V_WINDOW_INDEX_FOR_BLOCK_ID_IDX ]==3UL+(ulong)(fec_cnt>3U) );
+  FD_TEST( ctx->metrics->received_request_count[ FD_METRICS_ENUM_REPAIR_REQUEST_TYPE_V_WINDOW_INDEX_FOR_BLOCK_ID_IDX  ]==3UL+(ulong)(fec_cnt>3U) );
 
   /* The legacy request gets the alternate version */
   ulong sz = request( ctx, req, window_index( now_ms(), 9U, blk_slot, 33UL ) );
@@ -398,7 +431,7 @@ test_shred_for_block_id( fd_wksp_t * wksp ) {
   FD_TEST( ctx->metrics->unanswered[ FD_METRICS_ENUM_REPAIR_REQUEST_TYPE_V_WINDOW_INDEX_FOR_BLOCK_ID_IDX ]==2UL );
 
   /* Past the end of the block */
-  FD_TEST( !request( ctx, req, window_index_for_block_id( now_ms(), 1U, blk_slot, &blk_id, FEC_CNT*FD_FEC_SHRED_CNT ) ) );
+  FD_TEST( !request( ctx, req, window_index_for_block_id( now_ms(), 1U, blk_slot, &blk_id, fec_cnt*FD_FEC_SHRED_CNT ) ) );
   FD_TEST( ctx->metrics->dropped[ FD_METRICS_ENUM_REQUEST_DROP_REASON_V_SHRED_INDEX_INVALID_IDX ]==1UL );
 
   /* Tampered after signing */
@@ -434,11 +467,16 @@ main( int     argc,
   fd_wksp_t * wksp = fd_wksp_new_anonymous( fd_cstr_to_shmem_page_sz( _page_sz ), page_cnt, fd_shmem_cpu_idx( numa_idx ), "wksp", 0UL );
   FD_TEST( wksp );
 
-  make_block();
-  test_meta_requests     ();
-  test_legacy_sigverify  ();
-  test_no_blockdb        ();
-  test_shred_for_block_id( wksp );
+  uint const cnts[] = { 3U, 512U, 513U, 1916U, (uint)FD_REPAIR_FEC_MAX };
+  for( ulong i=0UL; i<sizeof(cnts)/sizeof(cnts[0]); i++ ) {
+    fec_cnt = cnts[i];
+    make_block();
+    test_meta_requests();
+    test_shred_for_block_id( wksp );
+    FD_LOG_NOTICE(( "pass: rotor link, metadata proofs and by-id shreds at %u FECs", fec_cnt ));
+  }
+  test_legacy_sigverify();
+  test_no_blockdb();
 
   fd_wksp_delete_anonymous( wksp );
 
