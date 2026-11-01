@@ -144,7 +144,6 @@ struct __attribute__((aligned(FD_ACCDB_ALIGN))) fd_accdb_private {
   fd_accdb_idx_region_t ovl[1];
   fd_accdb_cf_t         cf[1];
   uint *                hot_map;
-  uchar *               tier;
   uchar *               hot_ref;
   ulong *               fifo;
   ulong                 idx_rng;
@@ -309,12 +308,10 @@ idx_join( fd_accdb_t * accdb,
   memset( accdb->ovl_res, 0xFF, sizeof(accdb->ovl_res) );
   memset( accdb->cf,  0, sizeof(accdb->cf)  );
   accdb->hot_map = NULL;
-  accdb->tier    = NULL;
   accdb->hot_ref = NULL;
   accdb->fifo    = NULL;
   accdb->idx_rng = shmem->seed;
   if( !shmem->index_ram_entries ) return;
-  accdb->tier    = (uchar *)( (uchar *)shmem + shmem->idx_tier_off    );
   accdb->hot_ref = (uchar *)( (uchar *)shmem + shmem->idx_hot_ref_off );
   accdb->fifo    = (ulong *)( (uchar *)shmem + shmem->idx_fifo_off    );
   *accdb->bkt = (fd_accdb_idx_region_t){
@@ -522,10 +519,9 @@ fd_accdb_reset( fd_accdb_t * accdb ) {
   shmem->fifo_head     = 0UL;
   shmem->fifo_tail     = 0UL;
   for( ulong i=0UL; i<FD_ACCDB_FIFO_SLOTS; i++ ) shmem->fifo_tag[ i ] = ULONG_MAX;
-  if( accdb->tier ) {
+  if( accdb->fifo ) {
     /* Index state never survives a reset: the next full placement
        rewrites every bucket page, and the RAM side starts empty. */
-    memset( accdb->tier,    0,    shmem->acc_pool_max );
     memset( accdb->hot_ref, 0,    shmem->acc_pool_max );
     memset( accdb->hot_map, 0xFF, shmem->idx_hot_chain_cnt*sizeof(uint) );
     memset( accdb->cf->cf,  0,    shmem->idx_cf_nb*sizeof(ulong) );
@@ -1114,7 +1110,7 @@ fd_accdb_attach_child( fd_accdb_t *       accdb,
 
   fork->shmem->generation = accdb->shmem->generation++;
   fork->shmem->txn_head = UINT_MAX;
-  if( FD_UNLIKELY( accdb->tier ) ) idx_fork( accdb, idx )->frozen = 0U;
+  if( FD_UNLIKELY( accdb->fifo ) ) idx_fork( accdb, idx )->frozen = 0U;
 
   FD_TEST( !descends_set_test( fork->descends, fork_id.val ) );
 
@@ -1951,7 +1947,7 @@ purge_inner( fd_accdb_t *              accdb,
     child = next;
   }
 
-  if( FD_UNLIKELY( accdb->tier ) ) idx_spilled_purge( accdb, fork_id.val );
+  if( FD_UNLIKELY( accdb->fifo ) ) idx_spilled_purge( accdb, fork_id.val );
 
   uint txn = fork->shmem->txn_head;
   if( txn!=UINT_MAX ) {
@@ -2052,14 +2048,16 @@ fifo_push( fd_accdb_t * accdb,
     ulong w = shmem->fifo_tail;
     for( ulong r=shmem->fifo_tail; r<shmem->fifo_head; r++ ) {
       ulong e = *fifo_at( accdb, r, w/C );
-      if( accdb->tier[ e>>32 ]==FD_ACCDB_TIER_ROOTED && accdb->acc_pool[ e>>32 ].key.generation==(uint)e ) { *fifo_at( accdb, w, r/C ) = e; w++; }
+      fd_accdb_accmeta_t const * c = &accdb->acc_pool[ e>>32 ];
+      if( FD_ACCDB_SIZE_TIER( c->executable_size )==FD_ACCDB_TIER_ROOTED && c->key.generation==(uint)e ) { *fifo_at( accdb, w, r/C ) = e; w++; }
     }
     shmem->fifo_head = w;
     FD_TEST( shmem->fifo_head-shmem->fifo_tail<max );
   }
   *fifo_at( accdb, shmem->fifo_head, ULONG_MAX ) = ((ulong)idx<<32) | gen;
   shmem->fifo_head++;
-  accdb->tier[ idx ] = FD_ACCDB_TIER_ROOTED;
+  uint * es = &accdb->acc_pool[ idx ].executable_size; /* only T2 writes the tier bits */
+  FD_ATOMIC_FETCH_AND_XOR( es, ( FD_VOLATILE_CONST( *es ) & FD_ACCDB_SIZE_TIER_MASK ) ^ (FD_ACCDB_TIER_ROOTED<<FD_ACCDB_SIZE_TIER_SHIFT) );
 }
 
 /* idx_root_tomb (T2): a rooted tombstone for pubkey kills its bucket
@@ -2098,7 +2096,7 @@ background_advance_root( fd_accdb_t *       accdb,
      forks of the pruned siblings as well. */
   remove_children( accdb, parent_fork, fork, &fork_head, &fork_tail );
 
-  if( FD_UNLIKELY( accdb->tier ) ) idx_spilled_root( accdb, fork_id.val );
+  if( FD_UNLIKELY( accdb->fifo ) ) idx_spilled_root( accdb, fork_id.val );
 
   /* And for any accounts which were updated in the newly rooted slot,
      we will now never need to access any older version, so we can
@@ -2163,7 +2161,7 @@ background_advance_root( fd_accdb_t *       accdb,
             fd_racesan_hook( "accdb_advance:pre_unlink" );
             acc_unlink( accdb, acc_map_idx, prev, acc );
             deferred_acc_append( accdb, acc );
-            if( accdb->tier ) accdb->tier[ acc ] = FD_ACCDB_TIER_NONE;
+            if( accdb->fifo ) FD_ATOMIC_FETCH_AND_AND( &accdb->acc_pool[ acc ].executable_size, ~FD_ACCDB_SIZE_TIER_MASK );
             acc = next;
           } else {
             prev = acc;
@@ -2793,7 +2791,7 @@ background_compact( fd_accdb_t * accdb,
           fd_accdb_shmem_bytes_freed( accdb->shmem, live_dst[ i ], live_sz[ i ] );
       } else if( FD_UNLIKELY( FD_ATOMIC_CAS( &live_accmeta[ i ]->offset_fork, live_packed[ i ], new_packed )!=live_packed[ i ] ) ) {
         fd_accdb_shmem_bytes_freed( accdb->shmem, live_dst[ i ], live_sz[ i ] );
-      } else if( live_kind[ i ]==0 && accdb->tier && ( accdb->tier[ live_accmeta[ i ]-accdb->acc_pool ]==FD_ACCDB_TIER_UNSPILL ||
+      } else if( live_kind[ i ]==0 && accdb->fifo && ( FD_ACCDB_SIZE_TIER( FD_VOLATILE_CONST( live_accmeta[ i ]->executable_size ) )==FD_ACCDB_TIER_UNSPILL ||
                                                        ( accdb->shmem->spill_fork!=USHORT_MAX && fd_accdb_acc_fork_id( live_accmeta[ i ] )==accdb->shmem->spill_fork ) ) ) {
         /* unspilled copy, or a version logged by an unfinished spill */
         fd_accdb_idx_resync( accdb->ovl, accdb->shmem->seed, rmeta->pubkey, fd_accdb_acc_fork_id( live_accmeta[ i ] ),
@@ -4487,7 +4485,7 @@ release_inner( fd_accdb_t * accdb,
       uint pd = accs[ i ].pd_write ? FD_ACCDB_SIZE_PD_WRITE_BIT : 0U;
       for(;;) {
         uint cur = FD_VOLATILE_CONST( accmeta->executable_size );
-        uint nxt = (cur & (FD_ACCDB_SIZE_CACHE_CLAIM_BIT|FD_ACCDB_SIZE_PD_WRITE_BIT))
+        uint nxt = (cur & (FD_ACCDB_SIZE_CACHE_CLAIM_BIT|FD_ACCDB_SIZE_PD_WRITE_BIT|FD_ACCDB_SIZE_TIER_MASK))
                  | FD_ACCDB_SIZE_PACK( (uint)accs[ i ].data_len, accs[ i ].executable )
                  | pd;
         if( FD_LIKELY( FD_ATOMIC_CAS( &accmeta->executable_size, cur, nxt )==cur ) ) break;
@@ -5924,7 +5922,7 @@ hot_unlink( fd_accdb_t * accdb,
   if( prev==UINT_MAX ) FD_VOLATILE( accdb->hot_map[ chain ] )        = h->map.next;
   else                 FD_VOLATILE( accdb->acc_pool[ prev ].map.next ) = h->map.next;
   acc_cache_teardown( accdb, h, 0 );
-  accdb->tier[ idx ] = FD_ACCDB_TIER_NONE;
+  FD_ATOMIC_FETCH_AND_AND( &h->executable_size, ~FD_ACCDB_SIZE_TIER_MASK );
   if( in_cmd ) deferred_acc_append( accdb, idx | FD_ACCDB_DEFER_MIGRATED ); /* cmd epoch tags it */
   else         FD_TEST( bg_defer_append( accdb, idx | FD_ACCDB_DEFER_MIGRATED ) );
 }
@@ -5948,7 +5946,7 @@ hot_insert( fd_accdb_t * accdb,
   ulong chain = hot_chain_of( accdb, h->key.pubkey );
   hot_purge( accdb, h->key.pubkey, 0 );
   h->map.next = accdb->hot_map[ chain ];
-  accdb->tier   [ idx ] = FD_ACCDB_TIER_HOT;
+  FD_ATOMIC_FETCH_AND_OR( &h->executable_size, FD_ACCDB_TIER_HOT<<FD_ACCDB_SIZE_TIER_SHIFT ); /* h inits with NONE; a transferred line exposes h */
   accdb->hot_ref[ idx ] = 0;
   FD_COMPILER_MFENCE();
   FD_VOLATILE( accdb->hot_map[ chain ] ) = idx;
@@ -6114,7 +6112,7 @@ demote_one( fd_accdb_t * accdb,
 
   acc_chain_splice( accdb, (uint)chain, prev, a_idx );
   acc_cache_teardown( accdb, a, 0 );
-  accdb->tier[ a_idx ] = FD_ACCDB_TIER_NONE;
+  FD_ATOMIC_FETCH_AND_AND( &a->executable_size, ~FD_ACCDB_SIZE_TIER_MASK );
   FD_TEST( bg_defer_append( accdb, a_idx | FD_ACCDB_DEFER_MIGRATED ) );
   accdb->metrics->accounts_demoted++;
   return 1;
@@ -6139,7 +6137,7 @@ background_demote( fd_accdb_t * accdb ) {
     if( !pressure && root-gen<FD_ACCDB_DEMOTE_AGE ) break;
     shmem->fifo_tail++;
     fd_accdb_accmeta_t * a = &accdb->acc_pool[ idx ];
-    if( accdb->tier[ idx ]!=FD_ACCDB_TIER_ROOTED || a->key.generation!=gen ) continue; /* superseded and unlinked */
+    if( FD_ACCDB_SIZE_TIER( a->executable_size )!=FD_ACCDB_TIER_ROOTED || a->key.generation!=gen ) continue; /* superseded and unlinked */
 
     ulong chain = idx_chain_of( accdb, a->key.pubkey );
     uint prev = UINT_MAX, cur = FD_VOLATILE_CONST( accdb->acc_map[ chain ] );
@@ -6364,7 +6362,7 @@ unspill_live( fd_accdb_t const * accdb,
               ushort             f,
               uchar const        pubkey[ 32 ] ) {
   fd_accdb_accmeta_t const * a = &accdb->acc_pool[ idx ];
-  return accdb->tier[ idx ]==FD_ACCDB_TIER_UNSPILL && fd_accdb_acc_fork_id( a )==f && !memcmp( a->key.pubkey, pubkey, 32UL );
+  return FD_ACCDB_SIZE_TIER( a->executable_size )==FD_ACCDB_TIER_UNSPILL && fd_accdb_acc_fork_id( a )==f && !memcmp( a->key.pubkey, pubkey, 32UL );
 }
 
 static void
@@ -6380,7 +6378,7 @@ olog_drop_ram( fd_accdb_t *                accdb,
   while( cur!=idx ) { prev = cur; cur = FD_VOLATILE_CONST( accdb->acc_pool[ cur ].map.next ); }
   acc_chain_splice( accdb, (uint)chain, prev, idx );
   acc_cache_teardown( accdb, a, 0 );
-  accdb->tier[ idx ] = FD_ACCDB_TIER_NONE;
+  FD_ATOMIC_FETCH_AND_AND( &a->executable_size, ~FD_ACCDB_SIZE_TIER_MASK );
   deferred_acc_append( accdb, idx | FD_ACCDB_DEFER_MIGRATED );
 }
 
@@ -6434,7 +6432,7 @@ olog_root_one( fd_accdb_t *                accdb,
     if( !memcmp( c->key.pubkey, rec->pubkey, 32UL ) && c->key.generation<s.generation ) {
       acc_unlink( accdb, (uint)chain, prev, cur );
       deferred_acc_append( accdb, cur );
-      accdb->tier[ cur ] = FD_ACCDB_TIER_NONE;
+      FD_ATOMIC_FETCH_AND_AND( &c->executable_size, ~FD_ACCDB_SIZE_TIER_MASK );
     } else {
       prev = cur;
     }
@@ -6537,7 +6535,7 @@ unspill_evict_one( fd_accdb_t * accdb ) {
   for( ulong k=0UL; k<n; k++ ) {
     ulong e   = fifo[ (shmem->unspill_tail++) % FD_ACCDB_UNSPILL_MAX ];
     uint  idx = (uint)(e>>32);
-    if( accdb->tier[ idx ]!=FD_ACCDB_TIER_UNSPILL || accdb->acc_pool[ idx ].key.generation!=(uint)e ) continue; /* stale */
+    if( FD_ACCDB_SIZE_TIER( accdb->acc_pool[ idx ].executable_size )!=FD_ACCDB_TIER_UNSPILL || accdb->acc_pool[ idx ].key.generation!=(uint)e ) continue; /* stale */
     if( accdb->hot_ref[ idx ]==FD_ACCDB_HOT_REF_PROT ) { fifo[ (shmem->unspill_head++) % FD_ACCDB_UNSPILL_MAX ] = e; continue; }
     fd_accdb_accmeta_t * a = &accdb->acc_pool[ idx ];
     ulong chain = idx_chain_of( accdb, a->key.pubkey );
@@ -6545,7 +6543,7 @@ unspill_evict_one( fd_accdb_t * accdb ) {
     while( cur!=idx ) { prev = cur; cur = FD_VOLATILE_CONST( accdb->acc_pool[ cur ].map.next ); }
     acc_chain_splice( accdb, (uint)chain, prev, idx );
     acc_cache_teardown( accdb, a, 0 );
-    accdb->tier[ idx ] = FD_ACCDB_TIER_NONE;
+    FD_ATOMIC_FETCH_AND_AND( &a->executable_size, ~FD_ACCDB_SIZE_TIER_MASK );
     shmem->unspill_cnt--;
     FD_TEST( bg_defer_append( accdb, idx | FD_ACCDB_DEFER_MIGRATED ) );
     accdb->metrics->unspill_evicted++;
@@ -6570,7 +6568,7 @@ idx_unspill( fd_accdb_t * accdb,
   for( uint cur=FD_VOLATILE_CONST( accdb->acc_map[ chain ] ); cur!=UINT_MAX; cur=accdb->acc_pool[ cur ].map.next ) {
     fd_accdb_accmeta_t const * c = &accdb->acc_pool[ cur ];
     if( !memcmp( c->key.pubkey, pubkey, 32UL ) && c->key.generation==s.generation && fd_accdb_acc_fork_id( c )==f ) {
-      if( accdb->tier[ cur ]==FD_ACCDB_TIER_UNSPILL ) *out_idx = cur;
+      if( FD_ACCDB_SIZE_TIER( c->executable_size )==FD_ACCDB_TIER_UNSPILL ) *out_idx = cur;
       return 1;
     }
   }
@@ -6582,12 +6580,11 @@ idx_unspill( fd_accdb_t * accdb,
   memcpy( a->key.pubkey, pubkey, 32UL );
   a->key.generation  = s.generation;
   a->lamports        = s.lamports;
-  a->executable_size = s.exec_size | ( s.pd_write ? FD_ACCDB_SIZE_PD_WRITE_BIT : 0U );
+  a->executable_size = s.exec_size | ( s.pd_write ? FD_ACCDB_SIZE_PD_WRITE_BIT : 0U ) | (FD_ACCDB_TIER_UNSPILL<<FD_ACCDB_SIZE_TIER_SHIFT);
   a->offset_fork     = fd_accdb_acc_pack_offset_fork( s.lamports ? s.off_plus1-1UL : FD_ACCDB_OFF_INVAL, f );
   a->cache_idx       = FD_ACCDB_ACC_CIDX_INVAL;
 
   acc_map_insert_ordered( accdb, chain, idx );
-  accdb->tier[ idx ] = FD_ACCDB_TIER_UNSPILL;
   accdb->hot_ref[ idx ] = 0;
   fd_accdb_shmem_t * shmem = accdb->shmem;
   ulong * fifo = (ulong *)( (uchar *)shmem + shmem->unspill_off );
@@ -6599,7 +6596,7 @@ idx_unspill( fd_accdb_t * accdb,
     for( ulong r=shmem->unspill_tail; r<shmem->unspill_head; r++ ) {
       ulong e = fifo[ r % FD_ACCDB_UNSPILL_MAX ];
       uint  i = (uint)(e>>32);
-      if( accdb->tier[ i ]!=FD_ACCDB_TIER_UNSPILL || accdb->acc_pool[ i ].key.generation!=(uint)e || (accdb->hot_ref[ i ] & 0x80) ) continue;
+      if( FD_ACCDB_SIZE_TIER( accdb->acc_pool[ i ].executable_size )!=FD_ACCDB_TIER_UNSPILL || accdb->acc_pool[ i ].key.generation!=(uint)e || (accdb->hot_ref[ i ] & 0x80) ) continue;
       accdb->hot_ref[ i ] |= 0x80;
       fifo[ (w++) % FD_ACCDB_UNSPILL_MAX ] = e;
     }
@@ -6649,7 +6646,7 @@ idx_ovl_serve( fd_accdb_t * accdb,
     if( memcmp( c->key.pubkey, pubkey, 32UL ) ) continue;
     if( c->key.generation>root_gen && fd_accdb_acc_fork_id( c )!=fork_id && !descends_set_test( fork->descends, fd_accdb_acc_fork_id( c ) ) ) continue;
     floor = c->key.generation;
-    if( accdb->tier[ cur ]==FD_ACCDB_TIER_UNSPILL ) *out_idx = cur;
+    if( FD_ACCDB_SIZE_TIER( c->executable_size )==FD_ACCDB_TIER_UNSPILL ) *out_idx = cur;
     break;
   }
   fd_accdb_idx_slot_t s;
@@ -6974,7 +6971,7 @@ prot_release( fd_accdb_t * accdb ) {
   while( shmem->prot_tail<shmem->prot_head ) {
     fd_accdb_prot_t * p = &prot[ shmem->prot_tail % FD_ACCDB_PROT_MAX ];
     if( FD_VOLATILE_CONST( shmem->res_ack[ p->joiner ] )<=p->ticket ) break;
-    uchar t = accdb->tier[ p->idx ];
+    uint t = FD_ACCDB_SIZE_TIER( accdb->acc_pool[ p->idx ].executable_size );
     if( ( t==FD_ACCDB_TIER_HOT || t==FD_ACCDB_TIER_UNSPILL ) && accdb->hot_ref[ p->idx ]==FD_ACCDB_HOT_REF_PROT ) accdb->hot_ref[ p->idx ] = t==FD_ACCDB_TIER_HOT;
     shmem->prot_tail++;
   }
@@ -7063,7 +7060,7 @@ background_thaw( fd_accdb_t * accdb ) {
           a->cache_idx       = FD_ACCDB_ACC_CIDX_INVAL;
           acc_map_insert_ordered( accdb, idx_chain_of( accdb, rec->pubkey ), idx );
         }
-        accdb->tier   [ idx ] = FD_ACCDB_TIER_NONE;
+        FD_ATOMIC_FETCH_AND_AND( &accdb->acc_pool[ idx ].executable_size, ~FD_ACCDB_SIZE_TIER_MASK );
         accdb->hot_ref[ idx ] = 0;
         fd_accdb_accmeta_t * a = &accdb->acc_pool[ idx ];
         if( !a->lamports && fd_accdb_acc_offset( a )==FD_ACCDB_OFF_INVAL ) idx_write_tomb( accdb, a );

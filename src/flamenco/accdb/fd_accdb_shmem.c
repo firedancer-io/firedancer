@@ -178,7 +178,6 @@ fd_accdb_shmem_footprint( ulong max_accounts,
     l = FD_LAYOUT_APPEND( l, alignof(uint),            chain_cnt*sizeof(uint)                                  );
     l = FD_LAYOUT_APPEND( l, alignof(uint),            FD_ACCDB_BG_DEFER_MAX*sizeof(uint)                      );
     l = FD_LAYOUT_APPEND( l, alignof(uchar),           pool_max                                                );
-    l = FD_LAYOUT_APPEND( l, alignof(uchar),           pool_max                                                );
     l = FD_LAYOUT_APPEND( l, alignof(ulong),           fifo_ele( max_accounts, index_ram_entries )*sizeof(ulong) );
     l = FD_LAYOUT_APPEND( l, alignof(fd_accdb_req_t),  (FD_ACCDB_RING_RES_CAP+FD_ACCDB_RING_HINT_CAP)*sizeof(fd_accdb_req_t) );
     l = FD_LAYOUT_APPEND( l, alignof(fd_accdb_prot_t), FD_ACCDB_PROT_MAX*sizeof(fd_accdb_prot_t)               );
@@ -391,7 +390,6 @@ fd_accdb_shmem_new( void * shmem,
   void * _cf_stash   = FD_SCRATCH_ALLOC_APPEND( l, 64UL,          FD_ACCDB_CF_STASH_MAX*sizeof(ulong)*!!index_ram_entries );
   void * _hot_map    = FD_SCRATCH_ALLOC_APPEND( l, alignof(uint), hot_cnt*sizeof(uint)                              );
   void * _bg_defer   = FD_SCRATCH_ALLOC_APPEND( l, alignof(uint), FD_ACCDB_BG_DEFER_MAX*sizeof(uint)*!!index_ram_entries );
-  void * _tier       = FD_SCRATCH_ALLOC_APPEND( l, alignof(uchar), pool_max*!!index_ram_entries                     );
   void * _hot_ref    = FD_SCRATCH_ALLOC_APPEND( l, alignof(uchar), pool_max*!!index_ram_entries                     );
   void * _fifo       = FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong), fifo_ele( max_accounts, index_ram_entries )*sizeof(ulong) );
   void * _ring       = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_accdb_req_t),  (FD_ACCDB_RING_RES_CAP+FD_ACCDB_RING_HINT_CAP)*sizeof(fd_accdb_req_t)*!!index_ram_entries );
@@ -406,7 +404,6 @@ fd_accdb_shmem_new( void * shmem,
   void * _idx_fork   = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_accdb_idx_fork_t), max_live_slots*sizeof(fd_accdb_idx_fork_t)*!!index_ram_entries );
   void * _bloom      = FD_SCRATCH_ALLOC_APPEND( l, 64UL,          max_live_slots*bloom_words*sizeof(ulong) );
   if( index_ram_entries ) {
-    memset( _tier,    0, pool_max );
     memset( _hot_ref, 0, pool_max );
     memset( _ring,    0, (FD_ACCDB_RING_RES_CAP+FD_ACCDB_RING_HINT_CAP)*sizeof(fd_accdb_req_t) );
   }
@@ -525,7 +522,6 @@ fd_accdb_shmem_new( void * shmem,
   accdb->bg_defer_tail     = 0UL;
   accdb->bg_defer_sealed   = 0UL;
   accdb->pool_avail        = pool_max;
-  accdb->idx_tier_off      = (ulong)_tier - (ulong)shmem;
   accdb->idx_hot_ref_off   = (ulong)_hot_ref - (ulong)shmem;
   accdb->idx_fifo_off      = (ulong)_fifo - (ulong)shmem;
   accdb->fifo_head         = 0UL;

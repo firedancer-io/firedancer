@@ -266,7 +266,8 @@ struct fd_accdb_idx_fork {
 
 typedef struct fd_accdb_idx_fork fd_accdb_idx_fork_t;
 
-/* tier[pool] (T2 only): where T2 last put a slot. */
+/* Index tier (T2 only, accmeta executable_size bits 25..24): where T2
+   last put a slot. */
 #define FD_ACCDB_TIER_NONE    (0)
 #define FD_ACCDB_TIER_ROOTED  (1)  /* rooted acc_map, in demote FIFO */
 #define FD_ACCDB_TIER_HOT     (2)
@@ -318,10 +319,16 @@ FD_STATIC_ASSERT( sizeof (fd_accdb_accmeta_t)==64, layout );
      bit  30     cache_valid flag, in-memory only      (FD_ACCDB_SIZE_CACHE_VALID_BIT)
      bit  29     cache_claim flag, in-memory only      (FD_ACCDB_SIZE_CACHE_CLAIM_BIT)
      bit  28     pd_write flag,    in-memory only      (FD_ACCDB_SIZE_PD_WRITE_BIT)
-     bits 27..0  data length in bytes                  (FD_ACCDB_SIZE_MASK)
+     bits 27..26 spare
+     bits 25..24 index tier,       in-memory only      (FD_ACCDB_SIZE_TIER_MASK)
+     bits 23..0  data length in bytes                  (FD_ACCDB_SIZE_MASK)
 
-   The data length is therefore 28 bits, max 256 MiB, still well above
+   The data length is therefore 24 bits, max 16 MiB, still above
    FD_RUNTIME_ACC_SZ_MAX of 10 MiB (enforced by the static assert below).
+
+   The tier (index mode, FD_ACCDB_TIER_*) is read and written only by
+   T2, with atomic RMWs on any accmeta FG can reach.  Fresh slot inits
+   store NONE; the in-place overwrite CAS preserves it.
 
    The three upper flag bits exist only in the in-memory index, never on
    disk:
@@ -349,15 +356,18 @@ FD_STATIC_ASSERT( sizeof (fd_accdb_accmeta_t)==64, layout );
 #define FD_ACCDB_SIZE_CACHE_VALID_BIT (1U<<30)
 #define FD_ACCDB_SIZE_CACHE_CLAIM_BIT (1U<<29)
 #define FD_ACCDB_SIZE_PD_WRITE_BIT    (1U<<28)
-#define FD_ACCDB_SIZE_MASK            ((1U<<28)-1U)
+#define FD_ACCDB_SIZE_TIER_SHIFT      (24)
+#define FD_ACCDB_SIZE_TIER_MASK       (3U<<FD_ACCDB_SIZE_TIER_SHIFT)
+#define FD_ACCDB_SIZE_MASK            ((1U<<24)-1U)
 #define FD_ACCDB_SIZE_PACK(sz,exec)   ((uint)(sz) | ((exec) ? FD_ACCDB_SIZE_EXEC_BIT : 0U))
 #define FD_ACCDB_SIZE_DATA(packed)    ((packed) & FD_ACCDB_SIZE_MASK)
 #define FD_ACCDB_SIZE_EXEC(packed)    (!!((packed) & FD_ACCDB_SIZE_EXEC_BIT))
 #define FD_ACCDB_SIZE_CACHE_VALID(p)  (!!((p) & FD_ACCDB_SIZE_CACHE_VALID_BIT))
 #define FD_ACCDB_SIZE_CACHE_CLAIM(p)  (!!((p) & FD_ACCDB_SIZE_CACHE_CLAIM_BIT))
 #define FD_ACCDB_SIZE_PD_WRITE(p)     (!!((p) & FD_ACCDB_SIZE_PD_WRITE_BIT))
+#define FD_ACCDB_SIZE_TIER(p)         (((p) & FD_ACCDB_SIZE_TIER_MASK)>>FD_ACCDB_SIZE_TIER_SHIFT)
 
-FD_STATIC_ASSERT( (10UL<<20) < (1UL<<28), pd_write_bit_collides_with_len );
+FD_STATIC_ASSERT( (10UL<<20) <= FD_ACCDB_SIZE_MASK, tier_bits_collide_with_len );
 
 static inline ulong
 fd_accdb_acc_offset( fd_accdb_accmeta_t const * acc ) {
@@ -706,7 +716,6 @@ struct fd_accdb_shmem_private {
   ulong idx_file_sz;        /* bytes fallocated at boot            */
 
   ulong idx_bg_defer_off;   /* FD_ACCDB_BG_DEFER_MAX uints         */
-  ulong idx_tier_off;       /* acc_pool_max uchars                 */
   ulong idx_hot_ref_off;    /* acc_pool_max uchars, FG sets on hit */
   ulong idx_fifo_off;       /* acc_pool_max ulongs: idx<<32 | gen  */
   ulong fifo_head;          /* T2 only                             */
