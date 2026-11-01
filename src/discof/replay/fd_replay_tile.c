@@ -2843,6 +2843,7 @@ dispatch_task( fd_replay_tile_t *  ctx,
       fd_execrp_lthash_msg_t * exec_msg = fd_chunk_to_laddr( exec_out->mem, exec_out->chunk );
       exec_msg->bank_idx = task->lthash->bank_idx;
       exec_msg->cnt      = task->lthash->cnt;
+      exec_msg->individual = task->lthash->individual;
       fd_memcpy( exec_msg->acct, task->lthash->accts, task->lthash->cnt*sizeof(fd_acct_addr_t) );
       ulong kind = task->task_type==FD_SCHED_TT_LTHASH_SUB ? FD_EXECRP_TT_LTHASH_SUB : FD_EXECRP_TT_LTHASH_ADD;
       ulong sz   = fd_execrp_lthash_msg_sz( task->lthash->cnt );
@@ -3671,7 +3672,7 @@ process_exec_task_done( fd_replay_tile_t *          ctx,
     case FD_EXECRP_TT_LTHASH_SUB:
     case FD_EXECRP_TT_LTHASH_ADD: {
       ulong task_type = (sig>>32)==FD_EXECRP_TT_LTHASH_SUB ? FD_SCHED_TT_LTHASH_SUB : FD_SCHED_TT_LTHASH_ADD;
-      int res = fd_sched_task_done( ctx->sched, task_type, ULONG_MAX, exec_tile_idx, &ctx->execrp_result[ exec_tile_idx ].lthash );
+      int res = fd_sched_task_done( ctx->sched, task_type, ULONG_MAX, exec_tile_idx, ctx->execrp_result[ exec_tile_idx ].lthash_spec );
       FD_TEST( res==0 );
       break;
     }

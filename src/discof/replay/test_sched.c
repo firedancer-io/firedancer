@@ -255,7 +255,7 @@ run_interleaved_fec_tasks( fd_sched_t * sched, uint const * signature_tag, ulong
       }
       case FD_SCHED_TT_LTHASH_SUB:
       case FD_SCHED_TT_LTHASH_ADD: {
-        fd_lthash_value_t v[ 1 ]; fd_lthash_zero( v );
+        fd_lthash_value_t v[ FD_EXECRP_LTHASH_SPEC_MAX ]; fd_memset( v, 0, sizeof(v) );
         FD_TEST( !fd_sched_task_done( sched, task->task_type, ULONG_MAX, task->lthash->exec_idx, v ) );
         break;
       }
@@ -937,7 +937,7 @@ run_zero_hashcnt_mblk_case( void ) {
       }
       case FD_SCHED_TT_LTHASH_SUB:
       case FD_SCHED_TT_LTHASH_ADD: {
-        fd_lthash_value_t v[ 1 ]; fd_lthash_zero( v );
+        fd_lthash_value_t v[ FD_EXECRP_LTHASH_SPEC_MAX ]; fd_memset( v, 0, sizeof(v) );
         FD_TEST( !fd_sched_task_done( sched, task->task_type, ULONG_MAX, task->lthash->exec_idx, v ) );
         break;
       }
@@ -1074,7 +1074,7 @@ run_entry_hash_mismatch_case( void ) {
       }
       case FD_SCHED_TT_LTHASH_SUB:
       case FD_SCHED_TT_LTHASH_ADD: {
-        fd_lthash_value_t v[ 1 ]; fd_lthash_zero( v );
+        fd_lthash_value_t v[ FD_EXECRP_LTHASH_SPEC_MAX ]; fd_memset( v, 0, sizeof(v) );
         FD_TEST( !fd_sched_task_done( sched, task->task_type, ULONG_MAX, task->lthash->exec_idx, v ) );
         break;
       }
@@ -1247,7 +1247,7 @@ run_sigverify_batch_case( int abandon ) {
       }
       case FD_SCHED_TT_LTHASH_SUB:
       case FD_SCHED_TT_LTHASH_ADD: {
-        fd_lthash_value_t v[1]; fd_lthash_zero( v );
+        fd_lthash_value_t v[ FD_EXECRP_LTHASH_SPEC_MAX ]; fd_memset( v, 0, sizeof(v) );
         FD_TEST( !fd_sched_task_done( sched, task->task_type, ULONG_MAX, task->lthash->exec_idx, v ) );
         break;
       }
@@ -1567,7 +1567,8 @@ lthash_task_value( test_lthash_ctx_t *     ctx,
     test_lthash_acct_t *   a    = lthash_acct( ctx, acct );
     fd_lthash_value_t h[ 1 ];
     fake_hash( h, acct, is_add, is_add ? a->write_cnt[ bank_idx ] : 0UL );
-    fd_lthash_add( v, h );
+    if( task->lthash->individual ) v[ i ] = *h;
+    else fd_lthash_add( v, h );
   }
 }
 
@@ -1586,7 +1587,10 @@ lthash_complete( fd_sched_t *            sched,
     if( is_add ) { a->add_cnt[ bank_idx ]++; ctx->add_cnt++; }
     else         { a->sub_cnt[ bank_idx ]++; ctx->sub_cnt++; }
   }
-  if( is_add ) { ctx->add_task_cnt++; fd_lthash_add( ctx->handed, v ); }
+  if( is_add ) {
+    ctx->add_task_cnt++;
+    for( ulong i=0UL; i<(task->lthash->individual ? task->lthash->cnt : 1UL); i++ ) fd_lthash_add( ctx->handed, v+i );
+  }
   else         { ctx->sub_task_cnt++; fd_lthash_sub( ctx->handed, v ); }
   ctx->last_lthash_step[ bank_idx ] = ++ctx->step;
   FD_TEST( 0==fd_sched_task_done( sched, task->task_type, ULONG_MAX, task->lthash->exec_idx, v ) );
@@ -1662,7 +1666,7 @@ lthash_drive_task( fd_sched_t *        sched,
     }
     case FD_SCHED_TT_LTHASH_SUB:
     case FD_SCHED_TT_LTHASH_ADD: {
-      fd_lthash_value_t v[ 1 ];
+      fd_lthash_value_t v[ FD_EXECRP_LTHASH_SPEC_MAX ];
       lthash_task_value( ctx, task, v );
       lthash_complete( sched, task, ctx, v );
       break;
@@ -1738,7 +1742,7 @@ drive_untracked( fd_sched_t * sched,
       }
       case FD_SCHED_TT_LTHASH_SUB:
       case FD_SCHED_TT_LTHASH_ADD: {
-        fd_lthash_value_t v[ 1 ]; fd_lthash_zero( v );
+        fd_lthash_value_t v[ FD_EXECRP_LTHASH_SPEC_MAX ]; fd_memset( v, 0, sizeof(v) );
         FD_TEST( !fd_sched_task_done( sched, task->task_type, ULONG_MAX, task->lthash->exec_idx, v ) );
         break;
       }
@@ -2400,7 +2404,7 @@ run_lthash_block_start_writes_case( int mode ) {
      READY transactions first, so the block's additions go out in one
      batch after its last transaction and no batch is held. */
   test_lthash_metrics_t const expected_metrics[ 4 ] = {
-    { .parsed_writable=1UL, .start_reg=2UL, .first_write=2UL, .coalesced=1UL, .add_created=2UL, .spec=2UL, .entry=2UL, .sub_dispatched=2UL, .sub_task=1UL, .sub_applied=2UL, .add_surfaced=2UL, .add_dispatched=2UL, .add_task=2UL, .add_applied=2UL, .spec_applied=2UL, .frozen=2UL },
+    { .parsed_writable=1UL, .start_reg=2UL, .first_write=2UL, .coalesced=1UL, .add_created=2UL, .spec=2UL, .entry=2UL, .sub_dispatched=2UL, .sub_task=1UL, .sub_applied=2UL, .add_surfaced=2UL, .add_dispatched=2UL, .add_task=1UL, .add_applied=2UL, .spec_applied=2UL, .frozen=2UL },
     { .parsed_writable=1UL, .start_reg=2UL, .first_write=3UL, .add_created=3UL, .entry=2UL, .sub_dispatched=2UL, .sub_task=1UL, .sub_applied=2UL, .add_surfaced=3UL, .add_surfaced_stale=1UL, .add_dispatched=2UL, .add_task=1UL, .add_applied=2UL, .frozen=2UL },
     { .parsed_writable=2UL, .start_reg=2UL, .first_write=4UL, .add_created=4UL, .spec=1UL, .entry=3UL, .sub_dispatched=3UL, .sub_task=2UL, .sub_applied=3UL, .add_surfaced=4UL, .add_surfaced_stale=1UL, .add_dispatched=3UL, .add_task=2UL, .add_applied=3UL, .spec_applied=1UL, .frozen=2UL },
     { .parsed_writable=2UL, .start_reg=2UL, .first_write=2UL, .coalesced=2UL, .add_created=2UL, .entry=2UL, .sub_dispatched=2UL, .sub_task=1UL, .sub_applied=2UL, .add_surfaced=2UL, .add_dispatched=2UL, .add_task=1UL, .add_applied=2UL, .frozen=2UL },
@@ -2522,7 +2526,7 @@ run_lthash_pending_rewrite_case( int fec2_last ) {
   fd_sched_set_poh_params( sched, 2UL, TEST_ROOT_TICK_HEIGHT, TEST_ROOT_TICK_HEIGHT+1UL, start_poh );
 
   static test_lthash_ctx_t ctx[ 1 ]; fd_memset( ctx, 0, sizeof(test_lthash_ctx_t) );
-  fd_sched_task_t held[ 1 ]; fd_lthash_value_t unused[ 1 ];
+  fd_sched_task_t held[ 1 ]; fd_lthash_value_t unused[ FD_EXECRP_LTHASH_SPEC_MAX ];
   FD_TEST( lthash_drive_hold( sched, ctx, 100UL, FD_SCHED_TT_TXN_EXEC, held, unused ) );
   /* PoH, sigverify and the subtraction run around T1.  The speculative
      pop happens, but the guess is PENDING behind T1. */
@@ -2655,7 +2659,7 @@ run_lthash_speculate_case( int hold_writer ) {
 
   static test_lthash_ctx_t ctx[ 1 ]; fd_memset( ctx, 0, sizeof(test_lthash_ctx_t) );
   if( hold_writer ) {
-    fd_sched_task_t held[ 1 ]; fd_lthash_value_t unused[ 1 ];
+    fd_sched_task_t held[ 1 ]; fd_lthash_value_t unused[ FD_EXECRP_LTHASH_SPEC_MAX ];
     FD_TEST( lthash_drive_hold( sched, ctx, 100UL, FD_SCHED_TT_TXN_EXEC, held, unused ) );
     /* PoH, sigverify and the subtraction run around T1.  The
        speculative pop happens too, but its addition waits on T1. */
@@ -2719,7 +2723,7 @@ run_lthash_spec_result_dropped_case( void ) {
   fd_sched_set_poh_params( sched, 2UL, TEST_ROOT_TICK_HEIGHT, TEST_ROOT_TICK_HEIGHT+1UL, start_poh );
 
   static test_lthash_ctx_t ctx[ 1 ]; fd_memset( ctx, 0, sizeof(test_lthash_ctx_t) );
-  fd_sched_task_t held[ 1 ]; fd_lthash_value_t held_value[ 1 ];
+  fd_sched_task_t held[ 1 ]; fd_lthash_value_t held_value[ FD_EXECRP_LTHASH_SPEC_MAX ];
   FD_TEST( lthash_drive_hold( sched, ctx, 100UL, FD_SCHED_TT_LTHASH_ADD, held, held_value ) );
   /* A speculative addition is alone in its task. */
   FD_TEST( held->lthash->cnt==1UL && !memcmp( held->lthash->accts[ 0 ].b, acct[ 0 ].uc, sizeof(fd_acct_addr_t) ) );
@@ -2783,7 +2787,7 @@ run_lthash_spec_given_up_case( void ) {
   fd_sched_set_poh_params( sched, 2UL, TEST_ROOT_TICK_HEIGHT, TEST_ROOT_TICK_HEIGHT+1UL, start_poh );
 
   static test_lthash_ctx_t ctx[ 1 ]; fd_memset( ctx, 0, sizeof(test_lthash_ctx_t) );
-  fd_sched_task_t held_t1[ 1 ]; fd_sched_task_t held_t2[ 1 ]; fd_sched_task_t held[ 3 ]; fd_lthash_value_t unused[ 1 ];
+  fd_sched_task_t held_t1[ 1 ]; fd_sched_task_t held_t2[ 1 ]; fd_sched_task_t held[ 3 ]; fd_lthash_value_t unused[ FD_EXECRP_LTHASH_SPEC_MAX ];
   /* T1 on its tile and its PoH task on a second.  Sigverify and the
      subtraction run on the other two, and then the block speculates on
      A, whose pseudo transaction waits on T1. */
@@ -2865,7 +2869,7 @@ run_lthash_spec_given_up_complete_case( int child ) {
   /* T1 on its tile.  The rest of the first FEC set runs, and then the
      block speculates on A, behind T1. */
   static test_lthash_ctx_t ctx[ 1 ]; fd_memset( ctx, 0, sizeof(test_lthash_ctx_t) );
-  fd_sched_task_t held_t1[ 1 ]; fd_lthash_value_t unused[ 1 ];
+  fd_sched_task_t held_t1[ 1 ]; fd_lthash_value_t unused[ FD_EXECRP_LTHASH_SPEC_MAX ];
   FD_TEST( lthash_drive_hold( sched, ctx, 100UL, FD_SCHED_TT_TXN_EXEC, held_t1, unused ) );
   lthash_drive( sched, ctx, 100UL );
   FD_TEST( ctx->sub_cnt==1UL && !ctx->add_cnt && !ctx->txn_exec_cnt );
@@ -3671,7 +3675,7 @@ run_lthash_batch_held_behind_txn_case( void ) {
      completes and T0' is on its tile, and the speculative addition
      lands behind T0'. */
   static test_lthash_ctx_t ctx[ 1 ]; fd_memset( ctx, 0, sizeof(test_lthash_ctx_t) );
-  fd_sched_task_t t0_task[ 1 ]; fd_lthash_value_t unused[ 1 ];
+  fd_sched_task_t t0_task[ 1 ]; fd_lthash_value_t unused[ FD_EXECRP_LTHASH_SPEC_MAX ];
   FD_TEST( lthash_drive_hold( sched, ctx, 100UL, FD_SCHED_TT_TXN_EXEC, t0_task, unused ) );
   FD_TEST( txn_task_payer_is( sched, t0_task, acct ) );
   lthash_drive( sched, ctx, 100UL );
@@ -3986,7 +3990,7 @@ run_lthash_drain_switch_case( void ) {
      releases lane 0 and activates block 3, whose BLOCK_START is handed
      out in start. */
   static test_lthash_ctx_t ctx[ 1 ]; fd_memset( ctx, 0, sizeof(test_lthash_ctx_t) );
-  fd_sched_task_t start[ 1 ]; fd_lthash_value_t unused[ 1 ];
+  fd_sched_task_t start[ 1 ]; fd_lthash_value_t unused[ FD_EXECRP_LTHASH_SPEC_MAX ];
   FD_TEST( 1UL==fd_sched_task_next_ready( sched, start ) );
   FD_TEST( start->task_type==FD_SCHED_TT_BLOCK_START && start->block_start->bank_idx==2UL );
   lthash_drive_task( sched, start, ctx );
@@ -4068,7 +4072,7 @@ run_lthash_dying_parent_case( void ) {
   /* T0 stays on its tile while PoH, sigverify and its subtraction run;
      its addition is pending behind it. */
   static test_lthash_ctx_t ctx[ 1 ]; fd_memset( ctx, 0, sizeof(test_lthash_ctx_t) );
-  fd_sched_task_t t0_task[ 1 ]; fd_lthash_value_t unused[ 1 ];
+  fd_sched_task_t t0_task[ 1 ]; fd_lthash_value_t unused[ FD_EXECRP_LTHASH_SPEC_MAX ];
   FD_TEST( lthash_drive_hold( sched, ctx, 100UL, FD_SCHED_TT_TXN_EXEC, t0_task, unused ) );
   lthash_drive( sched, ctx, 100UL );
   FD_TEST( ctx->sub_cnt==1UL && !ctx->add_cnt && !ctx->txn_exec_cnt );
@@ -4641,7 +4645,7 @@ run_lthash_writer_bound_case( int site ) {
     FD_TEST( lthash_block_line_has( sched, 2UL, "lthash_writable_cnt %lu,", wide_cnt+1UL ) );
     /* S, serializing, is the first transaction handed out. */
     test_lthash_ctx_t ctx[ 1 ]; fd_memset( ctx, 0, sizeof(test_lthash_ctx_t) );
-    fd_sched_task_t held[ 1 ]; fd_lthash_value_t held_value[ 1 ];
+    fd_sched_task_t held[ 1 ]; fd_lthash_value_t held_value[ FD_EXECRP_LTHASH_SPEC_MAX ];
     FD_TEST( lthash_drive_hold( sched, ctx, 100UL, FD_SCHED_TT_TXN_EXEC, held, held_value ) );
     FD_TEST( held->txn_exec->bank_idx==2UL && TXN( fd_sched_get_txn( sched, held->txn_exec->txn_idx ) )->addr_table_lookup_cnt==1 );
     fd_sched_txn_alts_t alts[ 1 ] = {{ .cnt = site==2 ? 10UL : 5UL, .addrs = late }};
@@ -4736,6 +4740,85 @@ run_lthash_writer_bound_full_case( void ) {
   delete_sched( sched );
 }
 
+/* Full/tail speculative batches complete out of order.  A later FEC
+   invalidates two hashes still on the tile and undoes one already
+   applied peer.  Only the stale lanes are dropped.  Abandon variants
+   keep the old lane pinned while another bank reuses freed speculation
+   storage, then drain the old task without altering the new bank. */
+static void
+run_lthash_spec_batch_case( int abandon ) {
+  fd_sched_t * sched = new_sched( 5UL );
+  fd_sched_set_bypass_poh_verify( sched, 1 );
+  enum { ACCT_CNT = FD_EXECRP_LTHASH_SPEC_MAX+3UL };
+  fd_pubkey_t acct[ ACCT_CNT ];
+  for( ulong i=0UL; i<ACCT_CNT; i++ ) {
+    fd_memset( acct[ i ].uc, 0x80+(int)i, sizeof(fd_pubkey_t) );
+  }
+  uchar txn[ FD_TXN_MTU ];
+  ulong txn_sz = build_lthash_test_txn( txn, acct, acct+1, ACCT_CNT-1UL, 0x71 );
+  uchar const * txns[ 1 ] = { txn };
+  uchar encoded[ 8192 ];
+  ulong sz = encode_lthash_batch( encoded, txns, &txn_sz, 1UL );
+  fd_hash_t start_poh[ 1 ]; hash_from_seed( start_poh, 0x8192a3b4c5d6e7f8UL );
+  ingest_lthash_fec( sched, 2UL, 1UL, TEST_ROOT_SLOT+1UL, TEST_ROOT_SLOT, encoded, sz, 1, 0 );
+  fd_sched_set_poh_params( sched, 2UL, TEST_ROOT_TICK_HEIGHT, TEST_ROOT_TICK_HEIGHT+1UL, start_poh );
+
+  static test_lthash_ctx_t ctx[ 1 ]; fd_memset( ctx, 0, sizeof(*ctx) );
+  fd_sched_task_t full[ 1 ], tail[ 1 ];
+  fd_lthash_value_t full_value[ FD_EXECRP_LTHASH_SPEC_MAX ], tail_value[ FD_EXECRP_LTHASH_SPEC_MAX ];
+  FD_TEST( lthash_drive_hold( sched, ctx, 100UL, FD_SCHED_TT_LTHASH_ADD, full, full_value ) );
+  FD_TEST( full->lthash->individual && full->lthash->cnt==FD_EXECRP_LTHASH_SPEC_MAX );
+  FD_TEST( lthash_drive_hold( sched, ctx, 100UL, FD_SCHED_TT_LTHASH_ADD, tail, tail_value ) );
+  FD_TEST( tail->lthash->individual && tail->lthash->cnt==3UL );
+  FD_TEST( full->lthash->exec_idx!=tail->lthash->exec_idx );
+  FD_TEST( !fd_sched_is_drained( sched ) );
+  lthash_complete( sched, tail, ctx, tail_value );
+  FD_TEST( lthash_state_has( sched, "lthash_add_task_cnt 2," ) );
+
+  fd_pubkey_t rewrite[ 3 ];
+  fd_memcpy( rewrite,   full->lthash->accts,   sizeof(fd_pubkey_t) );
+  fd_memcpy( rewrite+1, full->lthash->accts+7, sizeof(fd_pubkey_t) );
+  fd_memcpy( rewrite+2, tail->lthash->accts,   sizeof(fd_pubkey_t) );
+  txn_sz = build_lthash_test_txn( txn, rewrite, rewrite+1, 2UL, 0x72 );
+  sz = encode_lthash_batch( encoded, txns, &txn_sz, 1UL );
+  ingest_lthash_fec( sched, 2UL, 1UL, TEST_ROOT_SLOT+1UL, TEST_ROOT_SLOT, encoded, sz, 0, !abandon );
+  lthash_drive( sched, ctx, 100UL );
+  FD_TEST( ctx->txn_exec_cnt==1UL && !ctx->block_end_cnt ); /* DAG waits on the full batch. */
+  FD_TEST( lthash_state_has( sched, "lthash_add_undone_cnt 1," ) );
+
+  if( abandon ) {
+    fd_sched_block_abandon( sched, 2UL, abandon==1 ? FD_SCHED_ABANDON_INVALID : FD_SCHED_ABANDON_DISCARDED );
+    FD_TEST( !fd_sched_is_drained( sched ) );
+    /* The rewritten slots are free even though the old result has not
+       landed.  A new bank can reuse them, but not the old lane/tile. */
+    txn_sz = build_lthash_test_txn( txn, acct, acct+1, 1UL, 0x73 );
+    sz = encode_lthash_batch( encoded, txns, &txn_sz, 1UL );
+    ingest_lthash_fec( sched, 3UL, 1UL, TEST_ROOT_SLOT+2UL, TEST_ROOT_SLOT, encoded, sz, 1, 0 );
+    fd_sched_set_poh_params( sched, 3UL, TEST_ROOT_TICK_HEIGHT, TEST_ROOT_TICK_HEIGHT+1UL, start_poh );
+    lthash_drive( sched, ctx, 100UL );
+    FD_TEST( ctx->txn_exec_cnt==2UL );
+    fd_lthash_value_t before[ 1 ] = { *fd_sched_lthash_delta( sched, 3UL ) };
+    lthash_complete( sched, full, ctx, full_value );
+    FD_TEST( fd_lthash_eq( before, fd_sched_lthash_delta( sched, 3UL ) ) );
+    ingest_lthash_fec( sched, 3UL, 1UL, TEST_ROOT_SLOT+2UL, TEST_ROOT_SLOT, NULL, 0UL, 0, 1 );
+    lthash_drive( sched, ctx, 100UL );
+    fd_lthash_value_t expected[ 1 ]; lthash_expected_delta( expected, ctx, 3UL, acct, 2UL );
+    FD_TEST( fd_lthash_eq( ctx->delta, expected ) && ctx->block_end_cnt==1UL );
+  } else {
+    lthash_complete( sched, full, ctx, full_value );
+    lthash_drive( sched, ctx, 100UL );
+    FD_TEST( ctx->txn_exec_cnt==2UL && ctx->block_end_cnt==1UL );
+    FD_TEST( lthash_state_has( sched, "lthash_add_dispatched_stale_cnt 2," ) );
+    fd_lthash_value_t expected[ 1 ]; lthash_expected_delta( expected, ctx, 2UL, acct, ACCT_CNT );
+    FD_TEST( fd_lthash_eq( ctx->delta, expected ) );
+    FD_TEST( ctx->block_end_step[ 2 ]>ctx->last_lthash_step[ 2 ] );
+  }
+  FD_TEST( fd_sched_is_drained( sched ) );
+  FD_TEST( lthash_state_has( sched, "lthash_ready_bitset[ 0 ] 0xf," ) );
+  delete_sched( sched );
+  FD_LOG_NOTICE(( "pass: speculative LtHash batch stale/undo/drain case %d", abandon ));
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -4775,6 +4858,9 @@ main( int     argc,
   run_lthash_block_start_writes_case( 1 );
   run_lthash_block_start_writes_case( 2 );
   run_lthash_block_start_writes_case( 3 );
+  run_lthash_spec_batch_case( 0 );
+  run_lthash_spec_batch_case( 1 );
+  run_lthash_spec_batch_case( 2 );
   run_lthash_speculate_case( 0 );
   run_lthash_speculate_case( 1 );
   run_lthash_spec_result_dropped_case();

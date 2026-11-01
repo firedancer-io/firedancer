@@ -273,6 +273,7 @@ struct fd_sched_lthash_task {
   ulong                  bank_idx;
   ulong                  exec_idx;
   ulong                  cnt;   /* In [1,FD_SCHED_LTHASH_BATCH_MAX] */
+  int                    individual; /* Speculative ADD hashes returned separately, at most 8. */
   fd_acct_addr_t const * accts; /* Points into sched memory that stays as it is until the task completes. */
 };
 typedef struct fd_sched_lthash_task fd_sched_lthash_task_t;
@@ -495,8 +496,10 @@ fd_sched_cert_dispatch( fd_sched_t * sched,
    This function may also return LtHash subtraction and addition tasks.
    Each carries up to FD_SCHED_LTHASH_BATCH_MAX accounts for the exec
    tile to hash, on the parent fork for a subtraction and on the block's
-   own fork for an addition, and sum.  The sum comes back through
-   fd_sched_task_done().  These tasks are lower priority than any other
+   own fork for an addition, and sum.  An individual task instead
+   returns cnt consecutive hash values for independent speculative
+   stale rejection and undo.  Results come back through fd_sched_task_done().
+   These tasks are lower priority than any other
    work and go out when exec tiles would otherwise sit idle. */
 ulong
 fd_sched_task_next_ready( fd_sched_t * sched, fd_sched_task_t * out );
@@ -518,6 +521,10 @@ fd_sched_task_next_ready( fd_sched_t * sched, fd_sched_task_t * out );
 
    A sigverify task retires every transaction dispatched to exec_idx;
    txn_idx and data are ignored for it.
+
+   LtHash data points to one summed value, or cnt consecutive values
+   for an individual task, in request order.  The tile result storage
+   must remain unchanged through this call.
 
    The transaction at the given index may be freed upon return from this
    function.  Nonetheless, as long as there is no intervening FEC

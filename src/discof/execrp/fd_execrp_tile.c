@@ -395,6 +395,7 @@ returnable_frag( fd_execrp_tile_t *  ctx,
         ulong kind = sig>>32;
         fd_execrp_lthash_msg_t * msg = fd_chunk_to_laddr( ctx->replay_in->mem, chunk );
         FD_CHECK_CRIT( msg->cnt && msg->cnt<=FD_EXECRP_LTHASH_BATCH_MAX, "invalid lthash batch" );
+        FD_CHECK_CRIT( !msg->individual || (kind==FD_EXECRP_TT_LTHASH_ADD && msg->cnt<=FD_EXECRP_LTHASH_SPEC_MAX), "invalid individual lthash batch" );
         fd_bank_t * bank = fd_banks_bank_query( ctx->banks, msg->bank_idx );
         FD_TEST( bank );
         fd_accdb_fork_id_t fork_id = kind==FD_EXECRP_TT_LTHASH_SUB ? bank->parent_accdb_fork_id : bank->accdb_fork_id;
@@ -403,7 +404,7 @@ returnable_frag( fd_execrp_tile_t *  ctx,
         out_msg->bank_idx    = msg->bank_idx;
         out_msg->lthash->cnt = msg->cnt;
         fd_lthash_value_t * sum = &ctx->result->lthash;
-        fd_lthash_zero( sum );
+        if( !msg->individual ) fd_lthash_zero( sum );
         for( ulong i=0UL; i<msg->cnt; i+=FD_BLAKE3_XN_MAX ) {
           ulong               acc_cnt = fd_ulong_min( msg->cnt-i, FD_BLAKE3_XN_MAX );
           fd_acc_t            acc       [ FD_BLAKE3_XN_MAX ];
@@ -428,7 +429,8 @@ returnable_frag( fd_execrp_tile_t *  ctx,
           }
           fd_hashes_account_lthash_xn( acc_cnt, pubkey, owner, lamports, executable, data, data_len, hash_out );
           fd_accdb_release( ctx->accdb, acc_cnt, acc );
-          for( ulong j=0UL; j<acc_cnt; j++ ) fd_lthash_add( sum, hash+j );
+          if( msg->individual ) fd_memcpy( ctx->result->lthash_spec+i, hash, acc_cnt*sizeof(fd_lthash_value_t) );
+          else for( ulong j=0UL; j<acc_cnt; j++ ) fd_lthash_add( sum, hash+j );
         }
         fd_stem_publish( stem, ctx->execrp_replay_out->idx, (kind<<32)|ctx->tile_idx, ctx->execrp_replay_out->chunk, sizeof(*out_msg), 0UL, 0UL, 0UL );
         ctx->execrp_replay_out->chunk = fd_dcache_compact_next( ctx->execrp_replay_out->chunk, sizeof(*out_msg), ctx->execrp_replay_out->chunk0, ctx->execrp_replay_out->wmark );

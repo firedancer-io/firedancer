@@ -853,6 +853,7 @@ test_lthash_oob_routing( fd_wksp_t * wksp ) {
 
   task->task_type   = FD_SCHED_TT_LTHASH_ADD;
   task->lthash->cnt = 2UL;
+  task->lthash->individual = 1;
   chunk = ctx->exec_out[ 0 ].chunk;
   dispatch_task( ctx, test_stem, task );
   FD_TEST( bank->refcnt==2UL );
@@ -863,7 +864,7 @@ test_lthash_oob_routing( fd_wksp_t * wksp ) {
   FD_TEST( meta->chunk==chunk );
   req = fd_chunk_to_laddr_const( wksp, meta->chunk );
   FD_TEST( req->bank_idx==bank->idx );
-  FD_TEST( req->cnt==2UL );
+  FD_TEST( req->cnt==2UL && req->individual );
   FD_TEST( !memcmp( req->acct, acct, 2UL*sizeof(fd_acct_addr_t) ) );
 
   /* want_alts is set iff the transaction is ALT_UNRESOLVED.  A

@@ -572,16 +572,18 @@ test_execrp_run( test_env_t * env,
    echoes the request.  The sum is in the tile's result entry. */
 
 static void
-test_lthash_run( test_env_t *        env,
+test_lthash_run_mode( test_env_t *        env,
                  ulong               task_type,
                  fd_pubkey_t const * acct,
-                 ulong               cnt ) {
+                 ulong               cnt,
+                 int                 individual ) {
   ulong in_chunk = env->execrp->replay_in->chunk0;
   ulong in_sz    = fd_execrp_lthash_msg_sz( cnt );
   fd_execrp_lthash_msg_t * in_msg = fd_chunk_to_laddr( env->execrp->replay_in->mem, in_chunk );
   fd_memset( in_msg, 0, in_sz );
   in_msg->bank_idx = env->bank_idx;
   in_msg->cnt      = cnt;
+  in_msg->individual = individual;
   for( ulong i=0UL; i<cnt; i++ ) memcpy( in_msg->acct[ i ].b, acct[ i ].uc, sizeof(fd_acct_addr_t) );
   test_poison_out( env );
 
@@ -591,6 +593,11 @@ test_lthash_run( test_env_t *        env,
 
   fd_execrp_task_done_msg_t const * out_msg = test_assert_out_msg( env, 0UL, task_type );
   FD_TEST( out_msg->lthash->cnt==cnt );
+}
+
+static void
+test_lthash_run( test_env_t * env, ulong task_type, fd_pubkey_t const * acct, ulong cnt ) {
+  test_lthash_run_mode( env, task_type, acct, cnt, 0 );
 }
 
 /* One version of an account on one accdb fork. */
@@ -970,6 +977,19 @@ FD_UNIT_TEST( execrp_lthash ) {
     test_lthash_run( env, FD_EXECRP_TT_LTHASH_ADD, key, cnt );
     FD_TEST( fd_lthash_eq( sum, add_sum ) );
   }
+
+  /* Independent speculative results, including missing and closed
+     accounts, match scalar hashing.  Every tail leaves unused lanes
+     poisoned, and a following task cannot inherit an old hash. */
+  for( ulong cnt=1UL; cnt<=FD_EXECRP_LTHASH_SPEC_MAX; cnt++ ) {
+    test_lthash_run_mode( env, FD_EXECRP_TT_LTHASH_ADD, key, cnt, 1 );
+    for( ulong i=0UL; i<cnt; i++ ) FD_TEST( fd_lthash_eq( env->execrp->result->lthash_spec+i, add_expected+i ) );
+    for( ulong i=cnt; i<FD_EXECRP_LTHASH_SPEC_MAX; i++ ) {
+      for( ulong j=0UL; j<FD_LTHASH_LEN_BYTES; j++ ) FD_TEST( env->execrp->result->lthash_spec[ i ].bytes[ j ]==0xA5 );
+    }
+  }
+  test_lthash_run_mode( env, FD_EXECRP_TT_LTHASH_ADD, key+8, 1UL, 1 );
+  FD_TEST( fd_lthash_is_zero( env->execrp->result->lthash_spec ) );
 
   /* The exec tile only hashes.  Folding the values in is replay's job. */
   FD_TEST( fd_lthash_eq( &bank->f.lthash, lthash_before ) );
