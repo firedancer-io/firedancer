@@ -189,6 +189,16 @@ typedef struct fd_accdb_partition fd_accdb_partition_t;
    generation is <= root, so the fork bits are never consulted. */
 #define FD_ACCDB_FORK_ID_ROOTED ((ushort)(USHORT_MAX-1U))
 
+/* Demote FIFO tiering (index mode).  Capacity stays acc_pool_max.
+   Past FIFO_WINDOW, RAM holds FIFO_SLOTS chunks of FIFO_CHUNK entries;
+   T2 pwrites an evicted live chunk to the scratch file tail and preads
+   it back when reached.  No I/O while the live span fits SLOTS-1
+   chunks (>=3Mi entries; mainnet ~0.3M). */
+
+#define FD_ACCDB_FIFO_CHUNK  (1UL<<19)  /* 4 MiB spill I/O chunk */
+#define FD_ACCDB_FIFO_SLOTS  (8UL)
+#define FD_ACCDB_FIFO_WINDOW (FD_ACCDB_FIFO_SLOTS*FD_ACCDB_FIFO_CHUNK)
+
 #define FD_ACCDB_DEMOTE_AGE   (64U)   /* generations before demotion */
 #define FD_ACCDB_DEMOTE_BATCH (64UL)  /* per background call         */
 #define FD_ACCDB_HOT_SWEEP    (256UL) /* hot chains per call         */
@@ -685,6 +695,9 @@ struct fd_accdb_shmem_private {
   ulong idx_fifo_off;       /* acc_pool_max ulongs: idx<<32 | gen  */
   ulong fifo_head;          /* T2 only                             */
   ulong fifo_tail;
+  ulong fifo_chunk;         /* 0: ring of acc_pool_max, else FIFO_CHUNK */
+  ulong fifo_file_off;      /* scratch file offset of spilled chunks */
+  ulong fifo_tag[ FD_ACCDB_FIFO_SLOTS ]; /* chunk id per RAM slot  */
   ulong hot_cursor;         /* T2 only                             */
   ulong promote_reserve;    /* free slots kept for releases        */
   ulong prot_off;           /* FD_ACCDB_PROT_MAX fd_accdb_prot_t   */

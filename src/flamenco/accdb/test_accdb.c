@@ -958,7 +958,7 @@ test_purge_deep_subtree( void ) {
   accdb = test_setup_ex( &fd, 1024UL, 64UL, 8192UL, 8192UL, 1UL<<30UL, TEST_CACHE_FOOTPRINT, TEST_CACHE_MIN_RESERVED, 2UL );
   int scratch_fd = memfd_create( "accdb_test_scratch", 0 );
   FD_TEST( scratch_fd>=0 );
-  FD_TEST( !ftruncate( scratch_fd, (long)fd_accdb_scratch_sz( 64UL, 8192UL ) ) );
+  FD_TEST( !ftruncate( scratch_fd, (long)fd_accdb_scratch_sz( 64UL, 8192UL, 1024UL, 0UL ) ) );
   void * t2_mem = aligned_alloc( fd_accdb_align(), fd_accdb_footprint( 64UL, 1 ) );
   FD_TEST( t2_mem );
   fd_accdb_t * t2 = fd_accdb_join( fd_accdb_new( t2_mem, test_shmem_mem, fd, scratch_fd, 0UL, NULL, NULL, 0UL, 1, -1, NULL ) );
@@ -2907,6 +2907,42 @@ test_idx_fifo_rewrite( void ) {
   }
   close( test_idx_fd );
   test_teardown( accdb, fd );
+
+  /* Same through the spill tier: 16-entry chunks, so the live span
+     (up to 4096) streams through the scratch file, compaction included,
+     and aged versions still demote in order. */
+  accdb = test_setup_idx( &fd, 16384UL, 4096UL, 256UL, 64UL );
+  int scratch_fd = memfd_create( "accdb_fifo_scratch", 0 );
+  FD_TEST( scratch_fd>=0 );
+  test_shmem_mem->fifo_chunk = 16UL;
+  FD_TEST( !ftruncate( scratch_fd, (long)( test_shmem_mem->fifo_file_off+(4096UL/16UL+2UL)*16UL*sizeof(ulong) ) ) );
+  fd_accdb_t * t2 = fd_accdb_join( fd_accdb_new( aligned_alloc( fd_accdb_align(), fd_accdb_footprint( 256UL, 1 ) ), test_shmem_mem, fd, scratch_fd, 0UL, NULL, NULL, 0UL, 1, test_idx_fd, NULL ) );
+  FD_TEST( t2 );
+  tip = fd_accdb_attach_child( t2, SENTINEL );
+  for( ulong r=0UL; r<FD_ACCDB_DEMOTE_AGE+16UL; r++ ) {
+    fd_accdb_fork_id_t c = fd_accdb_attach_child( t2, tip );
+    for( ulong k=0UL; k<64UL; k++ ) {
+      memset( key, 0, 32 ); FD_STORE( ulong, key, k+1UL ); key[ 31 ] = 0x3C;
+      accdb_write( t2, c, key, 100UL+r, d, sizeof(d), owner2 );
+    }
+    fd_accdb_advance_root( t2, c );
+    drain_background( t2 );
+    tip = c;
+  }
+  struct stat st[1]; FD_TEST( !fstat( scratch_fd, st ) );
+  FD_TEST( st->st_blocks>0L ); /* chunks reached the scratch file */
+  FD_TEST( test_shmem_mem->fifo_head-test_shmem_mem->fifo_tail<test_shmem_mem->acc_pool_max );
+  tip = test_root_n( t2, tip, FD_ACCDB_DEMOTE_AGE+2UL );
+  FD_TEST( fd_accdb_metrics( t2 )->accounts_demoted==64UL );
+  FD_TEST( test_shmem_mem->fifo_head==test_shmem_mem->fifo_tail );
+  for( ulong k=0UL; k<64UL; k++ ) {
+    memset( key, 0, 32 ); FD_STORE( ulong, key, k+1UL ); key[ 31 ] = 0x3C;
+    FD_TEST( fd_accdb_lamports( t2, tip, key )==100UL+FD_ACCDB_DEMOTE_AGE+15UL );
+  }
+  close( scratch_fd );
+  close( test_idx_fd );
+  free( accdb );
+  test_teardown( t2, fd );
 }
 
 int
