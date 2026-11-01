@@ -4823,7 +4823,10 @@ run_lthash_writer_bound_case( int site ) {
    account seen, within the capacity of the lane. */
 static void
 run_lthash_writer_bound_full_case( void ) {
-  fd_sched_t * sched = new_sched( 4UL );
+  /* Exercise the enlarged writer budget end to end, including crossing
+     the original 200802-write boundary. Wide transactions need the
+     corresponding private-cluster byte budget to reach the new bound. */
+  fd_sched_t * sched = new_sched_ext( fd_ulong_max( FD_SCHED_MIN_DEPTH, 2048UL ), 4UL, 4UL*FD_SHRED_BLK_MAX, 5UL*FD_MAX_TXN_PER_SLOT );
   fd_sched_set_bypass_poh_verify( sched, 1 );
   fd_hash_t start_poh[ 1 ]; hash_from_seed( start_poh, 0x7b2c3d4e5f607182UL );
 
