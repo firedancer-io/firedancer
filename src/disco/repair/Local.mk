@@ -16,6 +16,8 @@ $(call make-unit-test,test_fd_repair_strat,test_fd_repair_strat,fd_disco fd_flam
 $(call run-unit-test,test_fd_repair_strat)
 $(call make-unit-test,test_firstcert_recovery,test_firstcert_recovery,fd_disco fd_flamenco fd_waltz fd_tango fd_ballet fd_util)
 $(call run-unit-test,test_firstcert_recovery)
+$(call make-unit-test,test_repair_scheduling,test_repair_scheduling,fd_disco fd_flamenco fd_waltz fd_tango fd_ballet fd_util)
+$(call run-unit-test,test_repair_scheduling)
 $(call make-unit-test,test_repair_large_block,test_repair_large_block,fd_disco fd_flamenco fd_waltz fd_tango fd_ballet fd_util)
 $(call run-unit-test,test_repair_large_block)
 $(call make-unit-test,test_blockdb,test_blockdb,fd_disco fd_flamenco fd_tango fd_ballet fd_util)
