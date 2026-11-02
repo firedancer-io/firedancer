@@ -378,9 +378,11 @@ test_background_preevict_ignores_uninitialized_tail( void ) {
 static fd_accdb_cache_line_t *
 test_find_line( ulong         cls,
                 uchar const * pubkey ) {
+  /* Lines carry no pubkey; it is acc_pool[ line->acc_idx ]'s. */
+  fd_accdb_accmeta_t const * pool = (fd_accdb_accmeta_t const *)( (uchar const *)test_shmem_mem + test_shmem_mem->acc_pool_off );
   for( ulong idx=0UL; idx<test_shmem_mem->cache_class_max[ cls ]; idx++ ) {
     fd_accdb_cache_line_t * line = (fd_accdb_cache_line_t *)( (uchar *)test_shmem_mem + test_shmem_mem->cache_region_off[ cls ] + idx*fd_accdb_cache_slot_sz[ cls ] );
-    if( line->key.generation!=UINT_MAX && !memcmp( line->key.pubkey, pubkey, 32UL ) ) return line;
+    if( line->generation!=UINT_MAX && !memcmp( pool[ line->acc_idx ].key.pubkey, pubkey, 32UL ) ) return line;
   }
   return NULL;
 }
@@ -388,7 +390,7 @@ test_find_line( ulong         cls,
 void
 test_cache_line_seq_on_reuse( void ) {
   ulong cache_fp = 0UL;
-  for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) cache_fp += 2UL*fd_accdb_cache_slot_sz[ c ];
+  for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) cache_fp += 2UL*( fd_accdb_cache_slot_sz[ c ]-FD_ACCDB_CACHE_META_SZ+FD_ACCDB_CACHE_BUDGET_META_SZ );
 
   int fd;
   fd_accdb_t * accdb = test_setup_ex( &fd, 1024UL, 64UL, 8192UL, 8192UL, 1UL<<30UL, cache_fp, 2UL, 1UL );
@@ -400,6 +402,7 @@ test_cache_line_seq_on_reuse( void ) {
   fd_accdb_cache_line_t * line = test_find_line( 0UL, key );
   FD_TEST( line );
   uint seq0 = line->seq;
+  fd_accdb_accmeta_t const * pool = (fd_accdb_accmeta_t const *)( (uchar const *)test_shmem_mem + test_shmem_mem->acc_pool_off );
 
   int reused = 0;
   ulong i;
@@ -407,7 +410,7 @@ test_cache_line_seq_on_reuse( void ) {
     uchar other[ 32UL ] = { 'X' };
     FD_STORE( ulong, other+1, i );
     accdb_write( accdb, root, other, 1UL, NULL, 0UL, owner3 );
-    if( line->key.generation!=UINT_MAX && memcmp( line->key.pubkey, key, 32UL ) ) reused = 1;
+    if( line->generation!=UINT_MAX && memcmp( pool[ line->acc_idx ].key.pubkey, key, 32UL ) ) reused = 1;
 
     uchar owner[ 32UL ];
     FD_TEST( accdb_read( accdb, root, key, NULL, NULL, NULL, owner ) );
@@ -416,6 +419,41 @@ test_cache_line_seq_on_reuse( void ) {
   }
   FD_TEST( i<1024UL );
   FD_TEST( line->seq!=seq0 );
+
+  /* Lines are identified by (acc_idx, generation).  Supersede K so its
+     old accmeta is unlinked, drained after an epoch and recycled to
+     another key; no line may still name the old version. */
+  line = test_find_line( 0UL, key );
+  FD_TEST( line );
+  uint old_idx = line->acc_idx;
+  uint old_gen = line->generation;
+  fd_accdb_fork_id_t tip = root;
+  int recycled = 0;
+  for( i=0UL; i<64UL && !recycled; i++ ) {
+    fd_accdb_fork_id_t child = fd_accdb_attach_child( accdb, tip );
+    if( !i ) accdb_write( accdb, child, key, 2UL, NULL, 0UL, owner3 );
+    uchar other[ 32UL ] = { 'Y' };
+    FD_STORE( ulong, other+1, i );
+    accdb_write( accdb, child, other, 1UL, NULL, 0UL, owner2 );
+    fd_accdb_advance_root( accdb, child );
+    drain_background( accdb );
+    tip = child;
+    recycled = memcmp( pool[ old_idx ].key.pubkey, key, 32UL ) || pool[ old_idx ].key.generation!=old_gen;
+  }
+  FD_TEST( recycled );
+  for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) {
+    for( ulong idx=0UL; idx<test_shmem_mem->cache_class_max[ c ]; idx++ ) {
+      fd_accdb_cache_line_t const * l = (fd_accdb_cache_line_t const *)( (uchar *)test_shmem_mem + test_shmem_mem->cache_region_off[ c ] + idx*fd_accdb_cache_slot_sz[ c ] );
+      if( l->generation==UINT_MAX ) continue;
+      FD_TEST( !l->loading );
+      FD_TEST( l->acc_idx<test_shmem_mem->acc_pool_max );
+      FD_TEST( !( l->acc_idx==old_idx && l->generation==old_gen ) );
+    }
+  }
+  ulong lamports;
+  uchar owner[ 32UL ];
+  FD_TEST( accdb_read( accdb, tip, key, &lamports, NULL, NULL, owner ) );
+  FD_TEST( lamports==2UL && !memcmp( owner, owner3, 32UL ) );
 
   test_teardown( accdb, fd );
 }
