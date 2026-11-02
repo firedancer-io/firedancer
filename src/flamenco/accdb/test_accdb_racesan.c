@@ -129,8 +129,8 @@ test_shmem_new( void ) {
    left to top up — so class 0 has exactly cache_min_reserved slots.  With
    only a few class-0 slots, a handful of distinct class-0 accounts forces
    CLOCK eviction, and re-reading an evicted account cold-loads from the
-   backing memfd.  (Slot sizes mirror fd_accdb_cache_slot_sz in
-   fd_accdb_cache.c; META_SZ is FD_ACCDB_CACHE_META_SZ.) */
+   backing memfd.  (Counts are budgeted at data+FD_ACCDB_CACHE_BUDGET_META_SZ
+   per slot, see fd_accdb_cache.h.) */
 #define TEST_TINY_CACHE_MIN_RESERVED (8UL)
 
 static ulong
@@ -138,7 +138,7 @@ test_tiny_cache_footprint( void ) {
   ulong const data[ FD_ACCDB_CACHE_CLASS_CNT ] =
     { 128UL, 512UL, 2048UL, 8192UL, 32768UL, 131072UL, 1048576UL, 10485760UL };
   ulong sum = 0UL;
-  for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) sum += data[ c ] + FD_ACCDB_CACHE_META_SZ;
+  for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) sum += data[ c ] + FD_ACCDB_CACHE_BUDGET_META_SZ;
   return TEST_TINY_CACHE_MIN_RESERVED * sum;
 }
 
@@ -2102,6 +2102,15 @@ void * fd_accdb_debug_line_addr( fd_accdb_t * accdb, ulong size_class, ulong lin
    aliases accmeta->cache_idx. */
 uint * fd_accdb_debug_acc_pool_next( fd_accdb_t * accdb, uint acc_idx );
 
+/* accmeta_at returns the accmeta of an index entry (pool.next aliases
+   accmeta->cache_idx). */
+static fd_accdb_accmeta_t *
+accmeta_at( fd_accdb_t * accdb,
+            uint         acc_idx ) {
+  uchar * cidx = (uchar *)fd_accdb_debug_acc_pool_next( accdb, acc_idx );
+  return (fd_accdb_accmeta_t *)( cidx - offsetof( fd_accdb_accmeta_t, cache_idx ) );
+}
+
 static void
 write_acc( fd_accdb_t *       accdb,
            fd_accdb_fork_id_t fork_id,
@@ -2493,9 +2502,9 @@ read_fiber_exec( void * _ctx ) {
    does NOT strand a reader that pinned the line mid-acquire.
 
    Regression for the hang introduced when acc_unlink severed
-   line->acc_idx to UINT_MAX: that value is the cold-load "still loading"
-   sentinel, and acquire_inner STEP-14 spins `while(acc_idx==UINT_MAX)`
-   forever for a line nobody will ever re-publish.
+   line->acc_idx to UINT_MAX: that value was then the cold-load "still
+   loading" sentinel, and acquire_inner STEP-14 spun on it forever for a
+   line nobody would ever re-publish.
 
    Schedule (single thread, one fiber):
      1. P open on root, closed (tombstone) on F, line resident + dirty.
@@ -2505,7 +2514,7 @@ read_fiber_exec( void * _ctx ) {
      3. Main thread runs advance_root(F): acc_unlink(P)'s reclaim CAS
         fails under R's pin and takes the pinned-reader branch, which must
         neutralize the writeback WITHOUT severing acc_idx.
-     4. Fiber R resumes.  STEP 14 must observe acc_idx!=UINT_MAX and
+     4. Fiber R resumes.  STEP 14 must observe loading==0 and
         return promptly; the fiber EXITS.  With the buggy sever, STEP 14
         spins forever (no hook inside the spin) and this never returns —
         a hang, caught by the test timeout. */
@@ -2765,7 +2774,7 @@ test_stray_pin_vs_release_cleanup( void ) {
    CLOCK to reclaim later.
 
    Regression (external report, 2026-08-11): the line was abandoned
-   DIRTY (persisted==0) with acc_idx/key.generation intact, so the
+   DIRTY (persisted==0) with acc_idx/generation intact, so the
    eventual CLOCK/pre-eviction reclaim fired the dirty-writeback gate:
    it xchg'd the account's offset to INVAL (freeing the NEW committed
    version's disk record), synthesized a record from the PRE-overwrite
@@ -3246,7 +3255,7 @@ test_unlink_stray_pin_old_version( void ) {
     FD_TEST( a[0].lamports==100UL );
     fd_accdb_release( accdb, 1UL, a );
 
-    FD_TEST( !memcmp( L->key.pubkey, key_P, 32UL ) );
+    FD_TEST( !memcmp( accmeta_at( accdb, L->acc_idx )->key.pubkey, key_P, 32UL ) );
     FD_TEST( FD_VOLATILE_CONST( L->refcnt )==0U );
   }
 
@@ -3291,7 +3300,7 @@ test_unlink_stray_pin_old_version( void ) {
 /* test_overwrite_discard_vs_evictor proves the discard claim leaves no
    window for a concurrent evictor to steal the line.  Release converts
    its own pin into the claim (CAS refcnt 1->EVICT_SENTINEL); refcnt
-   never passes through 0 with acc_idx/key.generation valid.  With the
+   never passes through 0 with acc_idx/generation valid.  With the
    earlier unpin-then-claim (SUB to 0, then CAS 0->SENTINEL),
    background_preevict could claim the line in the gap and free-push it,
    and release's claim then succeeded on the FREE-LISTED line and pushed
@@ -3390,7 +3399,7 @@ test_overwrite_discard_vs_evictor( void ) {
 /* ------------------------------------------------------------------ */
 
 /* acquire_cache_line's CLOCK sweep infers free-list residency from
-   (key.generation, acc_idx) BEFORE the claiming CAS, and nothing
+   (generation, acc_idx) BEFORE the claiming CAS, and nothing
    re-tests it after.  The claim CAS proves only that the line was
    unpinned — and a freed line is unpinned too, refcnt==0 — so a line
    that a concurrent evictor frees and pushes in between is claimed
@@ -3454,7 +3463,7 @@ test_clock_claim_vs_freed( void ) {
 
   /* Free L out from under the parked sweeper. */
   fd_accdb_debug_clock_evict_line( ctl, 0UL, l_idx );
-  FD_TEST( l->acc_idx==UINT_MAX && l->key.generation==UINT_MAX );
+  FD_TEST( l->acc_idx==UINT_MAX && l->generation==UINT_MAX );
   FD_TEST( FD_VOLATILE_CONST( g_shmem->cache_free_cnt[ 0 ].val )==1UL );
 
   for(;;) {
@@ -3469,10 +3478,10 @@ test_clock_claim_vs_freed( void ) {
   for( ulong guard=0UL; top!=UINT_MAX; guard++ ) {
     FD_TEST( guard<=max0 ); /* a line pushed twice makes the list cyclic */
     fd_accdb_cache_line_t * n = fd_accdb_debug_line_addr( ctl, 0UL, (ulong)top );
-    if( FD_UNLIKELY( n->acc_idx!=UINT_MAX || n->key.generation!=UINT_MAX ) ) {
+    if( FD_UNLIKELY( n->acc_idx!=UINT_MAX || n->generation!=UINT_MAX ) ) {
       FD_LOG_ERR(( "class-0 free-list line %u holds a live account (acc_idx=0x%x generation=0x%x): "
                    "the CLOCK sweep claimed a line that had already been freed and pushed",
-                   top, n->acc_idx, n->key.generation ));
+                   top, n->acc_idx, n->generation ));
     }
     top = FD_VOLATILE_CONST( n->next );
   }
@@ -3487,7 +3496,7 @@ test_clock_claim_vs_freed( void ) {
 /* Store-ordering case: the markers must be published before refcnt=0  */
 /* ------------------------------------------------------------------ */
 
-/* Every site that frees a cache line clears key.generation/acc_idx, sets
+/* Every site that frees a cache line clears generation/acc_idx, sets
    persisted, then releases refcnt to 0 and pushes the line.  Sweepers
    (acquire_cache_line's CLOCK, background_preevict) infer free-list
    residency from the two markers and claim with CAS(refcnt,0,SENTINEL),
@@ -3496,8 +3505,8 @@ test_clock_claim_vs_freed( void ) {
    away owning a line that is about to become a free-list node.
 
    The stores are plain, so the compiler is free to reorder them, and GCC
-   does: it merges key.generation (offset 32) and acc_idx (offset 36)
-   into one 8-byte store and sinks it BELOW the refcnt store (offset 44).
+   does: it merges generation (offset 0) and acc_idx (offset 4) into one
+   8-byte store and sinks it BELOW the refcnt store (offset 12).
 
    This is a codegen defect, not an interleaving, so racesan cannot repro
    it: fd_racesan_hook is an out-of-line call, i.e. a compiler barrier,
@@ -3533,7 +3542,7 @@ wp_handler( int        sig,
      live by design and is not a push. */
   if( FD_UNLIKELY( prev==FD_ACCDB_EVICT_SENTINEL && rc==0U ) ) {
     uint a = line->acc_idx;
-    uint g = line->key.generation;
+    uint g = line->generation;
     if( FD_UNLIKELY( a!=UINT_MAX || g!=UINT_MAX ) ) {
       g_wp_violation   = 1;
       g_wp_bad_acc_idx = a;
@@ -3611,7 +3620,7 @@ test_preevict_release_store_order( void ) {
   /* The watchpoint must have seen the claim and the release, else the
      test proved nothing. */
   FD_TEST( g_wp_fired>=2 );
-  FD_TEST( line->acc_idx==UINT_MAX && line->key.generation==UINT_MAX );
+  FD_TEST( line->acc_idx==UINT_MAX && line->generation==UINT_MAX );
 
   if( FD_UNLIKELY( g_wp_violation ) ) {
     FD_LOG_ERR(( "refcnt released to 0 while the markers were still live "
@@ -4017,15 +4026,6 @@ covered( fd_accdb_shmem_t const * shmem,
   return off%part_sz < bound[ off/part_sz ];
 }
 
-/* accmeta_at returns the accmeta of an index entry (pool.next aliases
-   accmeta->cache_idx). */
-static fd_accdb_accmeta_t *
-accmeta_at( fd_accdb_t * accdb,
-            uint         acc_idx ) {
-  uchar * cidx = (uchar *)fd_accdb_debug_acc_pool_next( accdb, acc_idx );
-  return (fd_accdb_accmeta_t *)( cidx - offsetof( fd_accdb_accmeta_t, cache_idx ) );
-}
-
 static void
 test_coldload_evict_vs_snapshot_capture( void ) {
   test_shmem_new_tiny();
@@ -4070,8 +4070,8 @@ test_coldload_evict_vs_snapshot_capture( void ) {
 
   /* A cache scan now reads the loading sentinel under Z's key, the
      victim is on no line, and it has no disk offset */
-  FD_TEST( !memcmp( l->key.pubkey, key_Z, 32UL ) );
-  FD_TEST( l->acc_idx==UINT_MAX );
+  FD_TEST( !memcmp( accmeta_at( ctl, l->acc_idx )->key.pubkey, key_Z, 32UL ) );
+  FD_TEST( l->loading );
   for( ulong i=0UL; i<max0; i++ ) {
     fd_accdb_cache_line_t * li = fd_accdb_debug_line_addr( ctl, 0UL, i );
     FD_TEST( li->acc_idx!=victim );

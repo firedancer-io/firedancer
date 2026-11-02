@@ -578,11 +578,12 @@ fd_accdb_reset( fd_accdb_t * accdb ) {
     ulong slot_sz = fd_accdb_cache_slot_sz[ c ];
     for( ulong i=0UL; i<shmem->cache_class_max[ c ]; i++ ) {
       fd_accdb_cache_line_t * line = (fd_accdb_cache_line_t *)( accdb->cache[ c ] + i*slot_sz );
-      line->key.generation = UINT_MAX;
+      line->generation = UINT_MAX;
       line->acc_idx        = UINT_MAX;
       line->refcnt         = 0U;
       line->referenced     = 0;
       line->persisted      = 1;
+      line->loading        = 0;
       line->seq            = 0U;
     }
   }
@@ -1152,7 +1153,7 @@ evict_clear_acc_cache_ref( fd_accdb_accmeta_t * accmeta,
 
 /* cache_free_push pushes a fully-freed cache line onto the per-class
    CAS free list (Treiber stack).  The caller must have already
-   invalidated the line (key.generation==UINT_MAX, acc_idx==UINT_MAX)
+   invalidated the line (generation==UINT_MAX, acc_idx==UINT_MAX)
    and set persisted=1 before pushing.  Those stores must also be
    ordered before the store that releases refcnt to 0. */
 
@@ -1210,7 +1211,7 @@ cache_free_pop( fd_accdb_t * accdb,
 
 static inline fd_accdb_cache_line_t *
 cache_try_pin( fd_accdb_cache_line_t * line,
-               uchar const             pubkey[ 32 ],
+               uint                    acc_idx,
                uint                    generation ) {
   for(;;) {
     uint old_rc = FD_VOLATILE_CONST( line->refcnt );
@@ -1223,8 +1224,8 @@ cache_try_pin( fd_accdb_cache_line_t * line,
       /* Pinned.  ABA check: verify the key hasn't changed under us. */
       fd_racesan_hook( "accdb_try_pin:post_cas" );
       FD_COMPILER_MFENCE();
-      if( FD_UNLIKELY( line->key.generation!=generation ||
-                       memcmp( line->key.pubkey, pubkey, 32UL ) ) ) {
+      uint gen = FD_VOLATILE_CONST( line->generation ); /* gen before acc_idx, see cold_load_acc */
+      if( FD_UNLIKELY( gen!=generation || FD_VOLATILE_CONST( line->acc_idx )!=acc_idx ) ) {
         FD_ATOMIC_FETCH_AND_SUB( &line->refcnt, 1U );
         return NULL;
       }
@@ -1646,6 +1647,7 @@ acc_cache_teardown( fd_accdb_t *         accdb,
   FD_ATOMIC_FETCH_AND_AND( &accmeta->executable_size, ~FD_ACCDB_SIZE_CACHE_CLAIM_BIT );
 
   if( FD_UNLIKELY( had_valid ) ) {
+    uint self_idx = (uint)( accmeta - accdb->acc_pool );
     fd_accdb_cache_line_t * stale = cache_line( accdb, FD_ACCDB_ACC_CIDX_CLASS( cidx ), FD_ACCDB_ACC_CIDX_IDX( cidx ) );
     fd_racesan_hook( "acc_unlink:pre_reclaim_cas" );
     uint old_rc = FD_ATOMIC_CAS( &stale->refcnt, 0U, FD_ACCDB_EVICT_SENTINEL );
@@ -1653,10 +1655,9 @@ acc_cache_teardown( fd_accdb_t *         accdb,
     if( FD_LIKELY( !old_rc ) ) {
       /* Claimed.  Validate key (ABA, slot could have been recycled
          between our read of cache_idx and the CAS). */
-      if( FD_LIKELY( stale->key.generation==accmeta->key.generation &&
-                     !memcmp( stale->key.pubkey, accmeta->key.pubkey, 32UL ) ) ) {
+      if( FD_LIKELY( stale->generation==accmeta->key.generation && stale->acc_idx==self_idx ) ) {
         ulong sc = FD_ACCDB_ACC_CIDX_CLASS( cidx );
-        stale->key.generation = UINT_MAX;
+        stale->generation = UINT_MAX;
         stale->persisted = 1;
         stale->acc_idx   = UINT_MAX;
         FD_COMPILER_MFENCE();
@@ -1672,7 +1673,7 @@ acc_cache_teardown( fd_accdb_t *         accdb,
          `stale` is still our line.  Between capturing cidx and here we
          released the claim, so we could have evicted `stale` and
          recycled it to an unrelated account. */
-      fd_accdb_cache_line_t * mine = cache_try_pin( stale, accmeta->key.pubkey, accmeta->key.generation );
+      fd_accdb_cache_line_t * mine = cache_try_pin( stale, self_idx, accmeta->key.generation );
       if( FD_LIKELY( mine ) ) {
         /* Genuinely our line, still pinned by a reader.  The accmeta
            slot is about to be deferred-released and recycled; if a
@@ -2191,7 +2192,7 @@ acquire_cache_line( fd_accdb_t * accdb,
     result->persisted      = 1;
     result->referenced     = 0;
     result->acc_idx        = UINT_MAX;
-    result->key.generation = UINT_MAX;
+    result->generation = UINT_MAX;
     *out_evicted_acc_idx   = UINT_MAX;
     return result;
   }
@@ -2202,7 +2203,7 @@ acquire_cache_line( fd_accdb_t * accdb,
     ulong hand = FD_ATOMIC_FETCH_AND_ADD( &accdb->shmem->clock_hand[ size_class ].val, 1UL ) % accdb->shmem->cache_class_max[ size_class ];
     fd_accdb_cache_line_t * line = cache_line( accdb, size_class, hand );
 
-    if( FD_UNLIKELY( line->key.generation==UINT_MAX && line->acc_idx==UINT_MAX ) ) continue;
+    if( FD_UNLIKELY( line->generation==UINT_MAX && line->acc_idx==UINT_MAX ) ) continue;
 
     fd_racesan_hook( "accdb_clock:pre_refcnt" );
     uint rc = FD_VOLATILE_CONST( line->refcnt );
@@ -2215,7 +2216,7 @@ acquire_cache_line( fd_accdb_t * accdb,
 
     if( FD_UNLIKELY( FD_ATOMIC_CAS( &line->refcnt, 0U, FD_ACCDB_EVICT_SENTINEL )!=0U ) ) continue;
 
-    if( FD_UNLIKELY( line->acc_idx==UINT_MAX && line->key.generation==UINT_MAX ) ) {
+    if( FD_UNLIKELY( line->acc_idx==UINT_MAX && line->generation==UINT_MAX ) ) {
       FD_VOLATILE( line->refcnt ) = 0;
       continue;
     }
@@ -2230,7 +2231,7 @@ acquire_cache_line( fd_accdb_t * accdb,
       evict_clear_acc_cache_ref( &accdb->acc_pool[ line->acc_idx ], size_class, hand );
     }
     *out_evicted_acc_idx    = line->persisted ? UINT_MAX : line->acc_idx;
-    line->key.generation    = UINT_MAX;
+    line->generation    = UINT_MAX;
     FD_VOLATILE( line->seq ) = line->seq+1U;
     FD_COMPILER_MFENCE();
     line->refcnt            = 1;
@@ -2831,7 +2832,7 @@ background_compact( fd_accdb_t * accdb,
        exists_in_cache so the eviction-write phase skips the slot.
      - If claim is set, spin (another thread is mid-cold-load).
      - Otherwise CAS-set the claim bit.  Winner allocates a cache
-       line, populates the placeholder (acc_idx=UINT_MAX), publishes
+       line, populates the placeholder (loading=1), publishes
        cache_idx, then atomically (CAS-loop) sets cache_valid and
        clears claim.
 
@@ -2841,7 +2842,6 @@ background_compact( fd_accdb_t * accdb,
 static fd_accdb_cache_line_t *
 cold_load_acc( fd_accdb_t *     accdb,
                fd_accdb_accmeta_t * accmeta,
-               uchar const *    pubkey,
                int *            out_exists_in_cache,
                uint *           out_evicted_acc_idx ) {
   for(;;) {
@@ -2859,7 +2859,7 @@ cold_load_acc( fd_accdb_t *     accdb,
       if( FD_UNLIKELY( cidx==FD_ACCDB_ACC_CIDX_INVAL ) ) { FD_SPIN_PAUSE(); continue; }
       fd_accdb_cache_line_t * hit = cache_line( accdb, FD_ACCDB_ACC_CIDX_CLASS( cidx ), FD_ACCDB_ACC_CIDX_IDX( cidx ) );
       fd_racesan_hook( "accdb_cold_load:pre_try_pin" );
-      fd_accdb_cache_line_t * pinned = cache_try_pin( hit, pubkey, accmeta->key.generation );
+      fd_accdb_cache_line_t * pinned = cache_try_pin( hit, (uint)( accmeta - accdb->acc_pool ), accmeta->key.generation );
       if( FD_LIKELY( pinned ) ) {
         *out_exists_in_cache  = 1;
         *out_evicted_acc_idx  = UINT_MAX;
@@ -2883,12 +2883,15 @@ cold_load_acc( fd_accdb_t *     accdb,
     /* We hold the claim.  Allocate a cache line and publish. */
     ulong size_class = fd_accdb_cache_class( FD_ACCDB_SIZE_DATA( old_es ) );
     fd_accdb_cache_line_t * line = acquire_cache_line( accdb, size_class, out_evicted_acc_idx );
-    fd_memcpy( line->key.pubkey, accmeta->key.pubkey, 32UL );
-    line->key.generation = accmeta->key.generation;
-    /* Leave acc_idx at UINT_MAX (the "loading" sentinel) until step 12
-       publishes it after the preadv2 fence.  Concurrent threads that
-       pin via cache_idx will spin on this in step 13. */
-    line->acc_idx = UINT_MAX;
+    /* loading stays set until step 13 clears it after the preadv2
+       fence; pinners via cache_idx spin on it in step 14. */
+    line->loading = 1;
+    FD_COMPILER_MFENCE();
+    /* acc_idx before generation: a CLOCK line keeps its prior owner's
+       acc_idx with generation==UINT_MAX until here. */
+    line->acc_idx = (uint)( accmeta - accdb->acc_pool );
+    FD_COMPILER_MFENCE();
+    line->generation = accmeta->key.generation;
     FD_COMPILER_MFENCE();
     FD_VOLATILE( accmeta->cache_idx ) = FD_ACCDB_ACC_CIDX_PACK( (uint)size_class, (uint)cache_line_idx( accdb, size_class, line ) );
     FD_COMPILER_MFENCE();
@@ -3391,11 +3394,11 @@ step1:
         if( FD_LIKELY( cidx!=FD_ACCDB_ACC_CIDX_INVAL ) ) {
           fd_accdb_cache_line_t * hit = cache_line( accdb, FD_ACCDB_ACC_CIDX_CLASS( cidx ), FD_ACCDB_ACC_CIDX_IDX( cidx ) );
           fd_racesan_hook( "accdb_acquire:pre_try_pin" );
-          original_cache_line[ i ] = cache_try_pin( hit, pubkeys[ i ], accmetas[ i ]->key.generation );
+          original_cache_line[ i ] = cache_try_pin( hit, (uint)( accmetas[ i ] - accdb->acc_pool ), accmetas[ i ]->key.generation );
 #if FD_TMPL_USE_HANDHOLDING
           if( FD_LIKELY( original_cache_line[ i ] ) ) {
-            FD_TEST( original_cache_line[ i ]->key.generation==accmetas[ i ]->key.generation &&
-                     !memcmp( original_cache_line[ i ]->key.pubkey, pubkeys[ i ], 32UL ) );
+            FD_TEST( original_cache_line[ i ]->generation==accmetas[ i ]->key.generation &&
+                     !memcmp( accdb->acc_pool[ original_cache_line[ i ]->acc_idx ].key.pubkey, pubkeys[ i ], 32UL ) );
             uint rc = FD_VOLATILE_CONST( original_cache_line[ i ]->refcnt );
             FD_TEST( rc>0U && rc!=FD_ACCDB_EVICT_SENTINEL );
           }
@@ -3408,11 +3411,11 @@ step1:
     if( FD_UNLIKELY( writable[ i ] ) ) {
       for( ulong j=0UL; j<FD_ACCDB_CACHE_CLASS_CNT; j++ ) destination_cache_lines[ i ][ j ] = acquire_cache_line( accdb, j, &evicted_dest_acc[ i ][ j ] );
       if( FD_UNLIKELY( accmetas[ i ] && !original_cache_line[ i ] ) ) {
-        original_cache_line[ i ] = cold_load_acc( accdb, accmetas[ i ], pubkeys[ i ], &exists_in_cache[ i ], &evicted_orig_acc[ i ] );
+        original_cache_line[ i ] = cold_load_acc( accdb, accmetas[ i ], &exists_in_cache[ i ], &evicted_orig_acc[ i ] );
       }
     } else {
       if( FD_UNLIKELY( !original_cache_line[ i ] ) ) {
-        original_cache_line[ i ] = cold_load_acc( accdb, accmetas[ i ], pubkeys[ i ], &exists_in_cache[ i ], &evicted_orig_acc[ i ] );
+        original_cache_line[ i ] = cold_load_acc( accdb, accmetas[ i ], &exists_in_cache[ i ], &evicted_orig_acc[ i ] );
       }
     }
   }
@@ -3852,38 +3855,37 @@ step1:
   }
 
   // STEP 13.
-  //   Publish the real acc index for any cache lines we just loaded
-  //   from disk, so concurrent threads spinning on acc_idx==UINT_MAX
-  //   can proceed.  The fence ensures all preadv2 data is visible
-  //   before the sentinel is cleared.
+  //   Clear loading on any cache lines we just loaded from disk, so
+  //   concurrent threads spinning on it can proceed.  The fence
+  //   ensures all preadv2 data is visible before the flag is cleared.
   FD_COMPILER_MFENCE();
   for( ulong i=0UL; i<pubkeys_cnt; i++ ) {
     if( FD_UNLIKELY( !accmetas[ i ] || exists_in_cache[ i ] ) ) continue;
-    FD_VOLATILE( original_cache_line[ i ]->acc_idx ) = (uint)( accmetas[ i ] - accdb->acc_pool );
     FD_TEST( FD_VOLATILE_CONST( original_cache_line[ i ]->acc_idx )==(uint)( accmetas[ i ] - accdb->acc_pool ) );
+    FD_VOLATILE( original_cache_line[ i ]->loading ) = 0;
   }
 
   // STEP 14.
   //   Spin-wait for any cache lines found via acc->cache_idx that are
   //   still being loaded by another thread's preadv2.  The loading
-  //   thread sets acc_idx to UINT_MAX before publishing cache_idx
-  //   and publishes the real acc index after its read completes.
+  //   thread sets loading before publishing cache_idx and clears it
+  //   after its read completes.
   //   This step is placed as late as possible to give the loading
   //   thread maximum time to finish before we need to spin.
   for( ulong i=0UL; i<pubkeys_cnt; i++ ) {
     if( FD_UNLIKELY( !accmetas[ i ] && !writable[ i ] ) ) continue;
 
     if( FD_UNLIKELY( !original_cache_line[ i ] ) ) continue;
-    if( FD_LIKELY( FD_VOLATILE_CONST( original_cache_line[ i ]->acc_idx )!=UINT_MAX ) ) goto step13_check;
+    if( FD_LIKELY( !FD_VOLATILE_CONST( original_cache_line[ i ]->loading ) ) ) goto step13_check;
     accdb->metrics->accounts_waited++;
-    while( FD_UNLIKELY( FD_VOLATILE_CONST( original_cache_line[ i ]->acc_idx )==UINT_MAX ) ) {
+    while( FD_UNLIKELY( FD_VOLATILE_CONST( original_cache_line[ i ]->loading ) ) ) {
       fd_racesan_hook( "accdb_acquire:step14_load_wait" );
       FD_SPIN_PAUSE();
     }
   step13_check:;
 #if FD_TMPL_USE_HANDHOLDING
-    FD_TEST( original_cache_line[ i ]->key.generation==accmetas[ i ]->key.generation &&
-             !memcmp( original_cache_line[ i ]->key.pubkey, pubkeys[ i ], 32UL ) );
+    FD_TEST( original_cache_line[ i ]->generation==accmetas[ i ]->key.generation &&
+             original_cache_line[ i ]->acc_idx==(uint)( accmetas[ i ] - accdb->acc_pool ) );
 #endif
   }
 
@@ -4036,8 +4038,8 @@ release_inner( fd_accdb_t * accdb,
 #if FD_TMPL_USE_HANDHOLDING
     if( FD_UNLIKELY( original_size_class==new_size_class && accs[ i ]._overwrite ) ) {
       uint rc = FD_VOLATILE_CONST( target_cache_line->refcnt );
-      FD_TEST( target_cache_line->key.generation==accs[ i ]._generation &&
-               !memcmp( target_cache_line->key.pubkey, accs[ i ].pubkey, 32UL ) &&
+      FD_TEST( target_cache_line->generation==accs[ i ]._generation &&
+               !memcmp( accdb->acc_pool[ target_cache_line->acc_idx ].key.pubkey, accs[ i ].pubkey, 32UL ) &&
                rc>0U &&
               rc!=FD_ACCDB_EVICT_SENTINEL );
     }
@@ -4103,7 +4105,7 @@ release_inner( fd_accdb_t * accdb,
            CLOCK pick would call evict_clear_acc_cache_ref on the wrong acc
            and corrupt its cache_idx/valid. */
         destination_cache_lines[ j ]->acc_idx        = UINT_MAX;
-        destination_cache_lines[ j ]->key.generation = UINT_MAX;
+        destination_cache_lines[ j ]->generation = UINT_MAX;
         destination_cache_lines[ j ]->persisted = 1;
         while( FD_UNLIKELY( FD_ATOMIC_CAS( &destination_cache_lines[ j ]->refcnt, 1U, 0U )!=1U ) ) {
           fd_racesan_hook( "accdb_release:dest_refcnt_wait" );
@@ -4153,16 +4155,16 @@ release_inner( fd_accdb_t * accdb,
 
         /* Convert our own pin directly into the eviction claim
            (CAS refcnt 1 -> EVICT_SENTINEL) so refcnt never passes
-           through 0 while acc_idx/key.generation are still valid:
+           through 0 while acc_idx/generation are still valid:
            in such a window background_preevict could claim and free
            the line, and a claim of our own would then succeed on
            the free-listed line and push it a second time.  The CAS
            fails if a concurrent reader that pinned the line via
            cache_try_pin BEFORE evict_clear_acc_cache_ref completed
            still holds a reference (its ABA check on
-           line->key.generation is not synchronized with our writes
+           line->generation is not synchronized with our writes
            to that field); then just drop our pin and leave
-           acc_idx/key.generation intact so CLOCK reclaims the line
+           acc_idx/generation intact so CLOCK reclaims the line
            once the reader unpins.  That reclaim's
            evict_clear_acc_cache_ref is a no-op, but its dirty-
            writeback gate keys on persisted/acc_idx and would
@@ -4172,7 +4174,7 @@ release_inner( fd_accdb_t * accdb,
         fd_racesan_hook( "accdb_release:pre_discard_claim" );
         if( FD_LIKELY( FD_ATOMIC_CAS( &original_cache_line->refcnt, 1U, FD_ACCDB_EVICT_SENTINEL )==1U ) ) {
           original_cache_line->acc_idx   = UINT_MAX;
-          original_cache_line->key.generation = UINT_MAX;
+          original_cache_line->generation = UINT_MAX;
           FD_COMPILER_MFENCE();
           FD_VOLATILE( original_cache_line->refcnt ) = 0;
           cache_free_push( accdb, original_size_class, original_cache_line );
@@ -4198,7 +4200,7 @@ release_inner( fd_accdb_t * accdb,
              our own pin only bounds refcnt from below. */
           uint ow_rc = FD_VOLATILE_CONST( original_cache_line->refcnt );
           FD_TEST( ow_rc>0U && ow_rc!=FD_ACCDB_EVICT_SENTINEL );
-          original_cache_line->key.generation = UINT_MAX;
+          original_cache_line->generation = UINT_MAX;
           /* Keep refcnt>=1 through the reuse window so CLOCK cannot
              steal the line between invalidation and re-publish. The
              pin is released in the destination cleanup loop after
@@ -4223,7 +4225,7 @@ release_inner( fd_accdb_t * accdb,
           fd_racesan_hook( "accdb_release:pre_discard_claim" );
           if( FD_LIKELY( FD_ATOMIC_CAS( &original_cache_line->refcnt, 1U, FD_ACCDB_EVICT_SENTINEL )==1U ) ) {
             original_cache_line->acc_idx   = UINT_MAX;
-            original_cache_line->key.generation = UINT_MAX;
+            original_cache_line->generation = UINT_MAX;
             FD_COMPILER_MFENCE();
             FD_VOLATILE( original_cache_line->refcnt ) = 0;
             cache_free_push( accdb, original_size_class, original_cache_line );
@@ -4264,7 +4266,7 @@ release_inner( fd_accdb_t * accdb,
            stomp the prior owner's cache_idx/valid.  CAS on refcnt for
            the same stray-pin reason as the no-commit path. */
         destination_cache_lines[ j ]->acc_idx        = UINT_MAX;
-        destination_cache_lines[ j ]->key.generation = UINT_MAX;
+        destination_cache_lines[ j ]->generation = UINT_MAX;
         destination_cache_lines[ j ]->persisted = 1;
         while( FD_UNLIKELY( FD_ATOMIC_CAS( &destination_cache_lines[ j ]->refcnt, 1U, 0U )!=1U ) ) {
           fd_racesan_hook( "accdb_release:dest_refcnt_wait" );
@@ -4303,9 +4305,8 @@ release_inner( fd_accdb_t * accdb,
       fd_racesan_hook( "accdb_overwrite:mid_inplace" );
 
       fd_memcpy( committed_line->owner, accs[ i ].owner, 32UL );
-      fd_memcpy( committed_line->key.pubkey, accmeta->key.pubkey, 32UL );
-      committed_line->key.generation = accmeta->key.generation;
-      committed_line->acc_idx = original_acc_idx;
+      FD_COMPILER_MFENCE(); /* acc_idx before generation, see cold_load_acc */
+      committed_line->generation = accmeta->key.generation;
       FD_VOLATILE( accmeta->cache_idx ) = FD_ACCDB_ACC_CIDX_PACK( (uint)new_size_class, (uint)cache_line_idx( accdb, new_size_class, committed_line ) );
       /* Atomic OR so a concurrent evict_clear_acc_cache_ref's CLAIM
          clear (FETCH_AND_AND with ~CLAIM) cannot be lost by an RMW
@@ -4337,8 +4338,8 @@ release_inner( fd_accdb_t * accdb,
          placeholder cache acc. */
       committed_line->acc_idx = (uint)acc_idx;
       fd_memcpy( committed_line->owner, accs[ i ].owner, 32UL );
-      fd_memcpy( committed_line->key.pubkey, accmeta->key.pubkey, 32UL );
-      committed_line->key.generation = accmeta->key.generation;
+      FD_COMPILER_MFENCE();
+      committed_line->generation = accmeta->key.generation;
       FD_VOLATILE( accmeta->cache_idx ) = FD_ACCDB_ACC_CIDX_PACK( (uint)new_size_class, (uint)cache_line_idx( accdb, new_size_class, committed_line ) );
       /* Atomic OR so a concurrent evict_clear_acc_cache_ref's CLAIM
          clear (FETCH_AND_AND with ~CLAIM) cannot be lost by an RMW
@@ -4579,7 +4580,7 @@ fd_accdb_read_one_nocache( fd_accdb_t *       accdb,
 
   /// STEP 3.
   ///    Cache hit fast path with try-read-test (ABA) loop.  Same
-  ///    primitives as cache_try_pin: re-check key.generation + pubkey
+  ///    primitives as cache_try_pin: re-check generation + acc_idx
   ///    before and after the bulk copy, and bail to the disk path if the
   ///    line was claimed for eviction (refcnt ==
   ///    FD_ACCDB_EVICT_SENTINEL).  No CAS on refcnt, we never pin the
@@ -4592,18 +4593,19 @@ fd_accdb_read_one_nocache( fd_accdb_t *       accdb,
     for(;;) {
       uint seq0 = FD_VOLATILE_CONST( line->seq );
       FD_COMPILER_MFENCE();
-      uint gen0 = FD_VOLATILE_CONST( line->key.generation );
-      uint rc0  = FD_VOLATILE_CONST( line->refcnt );
-      uint ai0  = FD_VOLATILE_CONST( line->acc_idx );
+      uint  gen0 = FD_VOLATILE_CONST( line->generation );
+      uint  rc0  = FD_VOLATILE_CONST( line->refcnt );
+      uint  ai0  = FD_VOLATILE_CONST( line->acc_idx );
+      uchar ld0  = FD_VOLATILE_CONST( line->loading );
       if( FD_UNLIKELY( rc0==FD_ACCDB_EVICT_SENTINEL ) ) goto miss;
       if( FD_UNLIKELY( gen0!=snap_gen ) ) goto miss;
-      if( FD_UNLIKELY( memcmp( line->key.pubkey, pubkey, 32UL ) ) ) goto miss;
-      /* acc_idx==UINT_MAX is the "loading" sentinel set by cold_load_acc
-         before the preadv2 fills the line.  CACHE_VALID can be observed
-         set while the bytes are still stale, so fall to the disk path
-         (which spins on offset_fork and reads from the file) rather
-         than copying garbage. */
-      if( FD_UNLIKELY( ai0==UINT_MAX ) ) goto miss;
+      if( FD_UNLIKELY( ai0!=acc_idx ) ) goto miss;
+      /* loading is set by cold_load_acc before the preadv2 fills the
+         line.  CACHE_VALID can be observed set while the bytes are
+         still stale, so fall to the disk path (which spins on
+         offset_fork and reads from the file) rather than copying
+         garbage. */
+      if( FD_UNLIKELY( ld0 ) ) goto miss;
 
       FD_COMPILER_MFENCE();
       fd_racesan_hook( "accdb_nocache:pre_copy" );
@@ -4612,15 +4614,16 @@ fd_accdb_read_one_nocache( fd_accdb_t *       accdb,
       fd_racesan_hook( "accdb_nocache:post_copy" );
       FD_COMPILER_MFENCE();
 
-      uint gen1 = FD_VOLATILE_CONST( line->key.generation );
-      uint rc1  = FD_VOLATILE_CONST( line->refcnt );
-      uint ai1  = FD_VOLATILE_CONST( line->acc_idx );
-      uint seq1 = FD_VOLATILE_CONST( line->seq );
+      uint  gen1 = FD_VOLATILE_CONST( line->generation );
+      uint  rc1  = FD_VOLATILE_CONST( line->refcnt );
+      uint  ai1  = FD_VOLATILE_CONST( line->acc_idx );
+      uchar ld1  = FD_VOLATILE_CONST( line->loading );
+      uint  seq1 = FD_VOLATILE_CONST( line->seq );
       if( FD_UNLIKELY( seq1!=seq0 ) ) goto miss;
       if( FD_UNLIKELY( rc1==FD_ACCDB_EVICT_SENTINEL ) ) goto miss;
       if( FD_UNLIKELY( gen1!=snap_gen ) ) goto miss;
-      if( FD_UNLIKELY( memcmp( line->key.pubkey, pubkey, 32UL ) ) ) goto miss;
-      if( FD_UNLIKELY( ai1==UINT_MAX ) ) goto miss;
+      if( FD_UNLIKELY( ai1!=acc_idx ) ) goto miss;
+      if( FD_UNLIKELY( ld1 ) ) goto miss;
 
       *out_lamports   = snap_lamports;
       *out_executable = executable;
@@ -4837,7 +4840,7 @@ cache_line_free( fd_accdb_t *            accdb,
                  fd_accdb_cache_line_t * line ) {
   line->persisted      = 1;
   line->acc_idx        = UINT_MAX;
-  line->key.generation = UINT_MAX;
+  line->generation = UINT_MAX;
   FD_COMPILER_MFENCE();
   FD_VOLATILE( line->refcnt ) = 0;
   cache_free_push( accdb, size_class, line );
@@ -4968,7 +4971,7 @@ background_preevict( fd_accdb_t * accdb,
 
       fd_accdb_cache_line_t * line = cache_line( accdb, size_class, hand );
 
-      if( FD_UNLIKELY( line->key.generation==UINT_MAX && line->acc_idx==UINT_MAX ) ) continue;
+      if( FD_UNLIKELY( line->generation==UINT_MAX && line->acc_idx==UINT_MAX ) ) continue;
 
       uint rc = FD_VOLATILE_CONST( line->refcnt );
       if( FD_UNLIKELY( rc ) ) continue;
@@ -4980,19 +4983,19 @@ background_preevict( fd_accdb_t * accdb,
 
       if( FD_UNLIKELY( FD_ATOMIC_CAS( &line->refcnt, 0U, FD_ACCDB_EVICT_SENTINEL )!=0U ) ) continue;
 
-      if( FD_UNLIKELY( line->acc_idx==UINT_MAX && line->key.generation==UINT_MAX ) ) {
+      if( FD_UNLIKELY( line->acc_idx==UINT_MAX && line->generation==UINT_MAX ) ) {
         FD_VOLATILE( line->refcnt ) = 0;
         continue;
       }
 
       uint acc_idx = line->acc_idx;
 #if FD_TMPL_USE_HANDHOLDING
-      uint line_gen FD_FN_UNUSED = line->key.generation;
+      uint line_gen FD_FN_UNUSED = line->generation;
 #endif
       if( FD_LIKELY( acc_idx!=UINT_MAX ) ) {
         evict_clear_acc_cache_ref( &accdb->acc_pool[ acc_idx ], size_class, hand );
       }
-      line->key.generation = UINT_MAX;
+      line->generation = UINT_MAX;
       if( FD_UNLIKELY( line->persisted || acc_idx==UINT_MAX ) ) {
         cache_line_free( accdb, size_class, line );
         evicted++;
@@ -5001,8 +5004,7 @@ background_preevict( fd_accdb_t * accdb,
 
       fd_accdb_accmeta_t * accmeta = &accdb->acc_pool[ acc_idx ];
 #if FD_TMPL_USE_HANDHOLDING
-      FD_TEST( line_gen==accmeta->key.generation &&
-               !memcmp( line->key.pubkey, accmeta->key.pubkey, 32UL ) );
+      FD_TEST( line_gen==accmeta->key.generation );
 #endif
       uint  data_sz  = FD_ACCDB_SIZE_DATA( accmeta->executable_size );
       ulong entry_sz = sizeof(fd_accdb_disk_meta_t)+data_sz;
@@ -5801,9 +5803,9 @@ idx_writeback( fd_accdb_t *         accdb,
   uint cidx = FD_VOLATILE_CONST( a->cache_idx );
   if( FD_UNLIKELY( cidx==FD_ACCDB_ACC_CIDX_INVAL ) ) return 0;
   ulong cls = FD_ACCDB_ACC_CIDX_CLASS( cidx );
-  fd_accdb_cache_line_t * line = cache_try_pin( cache_line( accdb, cls, FD_ACCDB_ACC_CIDX_IDX( cidx ) ), a->key.pubkey, a->key.generation );
+  fd_accdb_cache_line_t * line = cache_try_pin( cache_line( accdb, cls, FD_ACCDB_ACC_CIDX_IDX( cidx ) ), (uint)( a - accdb->acc_pool ), a->key.generation );
   if( FD_UNLIKELY( !line ) ) return 0;
-  if( FD_UNLIKELY( FD_VOLATILE_CONST( line->acc_idx )==UINT_MAX ) ) { FD_ATOMIC_FETCH_AND_SUB( &line->refcnt, 1U ); return 0; }
+  if( FD_UNLIKELY( FD_VOLATILE_CONST( line->loading ) ) ) { FD_ATOMIC_FETCH_AND_SUB( &line->refcnt, 1U ); return 0; }
 
   FD_COMPILER_MFENCE();
   FD_VOLATILE( *accdb->my_epoch_slot ) = FD_VOLATILE_CONST( accdb->shmem->epoch );
@@ -5888,7 +5890,7 @@ demote_one( fd_accdb_t * accdb,
       uint cidx = FD_VOLATILE_CONST( a->cache_idx );
       fd_accdb_cache_line_t * l = cache_line( accdb, FD_ACCDB_ACC_CIDX_CLASS( cidx ), FD_ACCDB_ACC_CIDX_IDX( cidx ) );
       if( FD_ATOMIC_CAS( &l->refcnt, 0U, FD_ACCDB_EVICT_SENTINEL )==0U ) {
-        if( l->key.generation==a->key.generation && !memcmp( l->key.pubkey, a->key.pubkey, 32UL ) && l->acc_idx==a_idx ) {
+        if( l->generation==a->key.generation && l->acc_idx==a_idx ) {
           h->cache_idx        = cidx;
           h->executable_size |= FD_ACCDB_SIZE_CACHE_VALID_BIT;
           l->acc_idx          = h_idx;
@@ -6630,9 +6632,9 @@ idx_warm_line( fd_accdb_t *         accdb,
     /* evict_clear may clear VALID and store INVAL after our load */
     uint cidx = FD_VOLATILE_CONST( h->cache_idx );
     if( FD_UNLIKELY( cidx==FD_ACCDB_ACC_CIDX_INVAL ) ) return 0;
-    fd_accdb_cache_line_t * l = cache_try_pin( cache_line( accdb, FD_ACCDB_ACC_CIDX_CLASS( cidx ), FD_ACCDB_ACC_CIDX_IDX( cidx ) ), h->key.pubkey, h->key.generation );
+    fd_accdb_cache_line_t * l = cache_try_pin( cache_line( accdb, FD_ACCDB_ACC_CIDX_CLASS( cidx ), FD_ACCDB_ACC_CIDX_IDX( cidx ) ), (uint)( h - accdb->acc_pool ), h->key.generation );
     if( FD_UNLIKELY( !l ) ) return 0;
-    int ok = FD_VOLATILE_CONST( l->acc_idx )!=UINT_MAX; /* not mid cold load */
+    int ok = !FD_VOLATILE_CONST( l->loading ); /* not mid cold load */
     if( ok ) { memcpy( owner_out, l->owner, 32UL ); memcpy( head_out, l+1UL, head_sz ); }
     FD_ATOMIC_FETCH_AND_SUB( &l->refcnt, 1U );
     return ok;
@@ -6652,7 +6654,7 @@ idx_warm_line( fd_accdb_t *         accdb,
     l = cache_line( accdb, cls, old_init );
     l->refcnt         = 1U;
     l->acc_idx        = UINT_MAX;
-    l->key.generation = UINT_MAX;
+    l->generation = UINT_MAX;
   }
   FD_VOLATILE( l->seq ) = l->seq+1U;
 
@@ -6676,9 +6678,9 @@ idx_warm_line( fd_accdb_t *         accdb,
     }
     if( FD_LIKELY( FD_ATOMIC_CAS( &h->executable_size, cur, cur|FD_ACCDB_SIZE_CACHE_CLAIM_BIT )==cur ) ) break;
   }
-  memcpy( l->key.pubkey, h->key.pubkey, 32UL );
-  l->key.generation = h->key.generation;
   l->acc_idx        = (uint)acc_pool_idx( accdb->acc_pool_join, h );
+  FD_COMPILER_MFENCE();
+  l->generation     = h->key.generation;
   l->persisted      = 1;
   l->referenced     = 1;
   memcpy( owner_out, l->owner, 32UL );
@@ -7092,10 +7094,11 @@ fd_accdb_debug_find_line( fd_accdb_t *  accdb,
     if( init>max_c ) init = max_c;
     for( ulong idx=0UL; idx<init; idx++ ) {
       fd_accdb_cache_line_t * line = cache_line( accdb, c, idx );
-      if( line->key.generation==UINT_MAX ) continue;
-      if( memcmp( line->key.pubkey, pubkey, 32UL ) ) continue;
-      if( !found || line->key.generation>=best_gen ) {
-        best_gen   = line->key.generation;
+      if( line->generation==UINT_MAX ) continue;
+      if( line->acc_idx>=acc_pool_ele_max( accdb->acc_pool_join ) ) continue;
+      if( memcmp( accdb->acc_pool[ line->acc_idx ].key.pubkey, pubkey, 32UL ) ) continue;
+      if( !found || line->generation>=best_gen ) {
+        best_gen   = line->generation;
         *out_class = c;
         *out_idx   = idx;
         found      = 1;
@@ -7147,7 +7150,7 @@ fd_accdb_debug_clock_evict_line( fd_accdb_t * accdb,
   /* Claim for eviction, same as acquire_cache_line's CLOCK path. */
   if( FD_UNLIKELY( FD_ATOMIC_CAS( &line->refcnt, 0U, FD_ACCDB_EVICT_SENTINEL )!=0U ) ) return UINT_MAX;
 
-  if( FD_UNLIKELY( line->acc_idx==UINT_MAX && line->key.generation==UINT_MAX ) ) {
+  if( FD_UNLIKELY( line->acc_idx==UINT_MAX && line->generation==UINT_MAX ) ) {
     FD_VOLATILE( line->refcnt ) = 0;
     return UINT_MAX;
   }
@@ -7159,7 +7162,7 @@ fd_accdb_debug_clock_evict_line( fd_accdb_t * accdb,
     evict_clear_acc_cache_ref( &accdb->acc_pool[ acc_idx ], size_class, line_idx );
   }
   uint evicted_acc_idx = line->persisted ? UINT_MAX : acc_idx;
-  line->key.generation = UINT_MAX;
+  line->generation = UINT_MAX;
   fd_racesan_hook( "clock_evict:pre_synth" );
 
   /* Write back the dirty line, exactly like the production writeback
@@ -7207,7 +7210,7 @@ fd_accdb_debug_clock_evict_line( fd_accdb_t * accdb,
 
   line->persisted      = 1;
   line->acc_idx        = UINT_MAX;
-  line->key.generation = UINT_MAX;
+  line->generation = UINT_MAX;
   FD_COMPILER_MFENCE();
   FD_VOLATILE( line->refcnt ) = 0;
   cache_free_push( accdb, size_class, line );

@@ -610,11 +610,12 @@ fd_accdb_shmem_new( void * shmem,
     ulong slot_sz = fd_accdb_cache_slot_sz[ c ];
     for( ulong i=0UL; i<cache_class_max[ c ]; i++ ) {
       fd_accdb_cache_line_t * line = (fd_accdb_cache_line_t *)( (uchar *)_cache_regions[ c ] + i*slot_sz );
-      line->key.generation = UINT_MAX;
+      line->generation     = UINT_MAX;
       line->acc_idx        = UINT_MAX;
       line->refcnt         = 0U;
       line->referenced     = 0;
       line->persisted      = 1;
+      line->loading        = 0;
       line->seq            = 0U;
     }
   }

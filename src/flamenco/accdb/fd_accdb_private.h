@@ -433,15 +433,18 @@ fd_accdb_acc_xchg_offset( fd_accdb_accmeta_t * acc,
 
 #include "../../util/tmpl/fd_pool_para.c"
 
-struct fd_accdb_cache_line {
-  fd_accdb_cache_key_t key;
+/* A line is identified by (acc_idx, generation); its pubkey is
+   acc_pool[ acc_idx ].key.pubkey. */
 
+struct fd_accdb_cache_line {
+  uint generation;
   uint acc_idx;
   uint seq; /* incremented each time line is reused */
 
   uint  refcnt;
   uchar persisted;
   uchar referenced;
+  uchar loading; /* cold load in flight, data not yet valid */
 
   uint next;
 
