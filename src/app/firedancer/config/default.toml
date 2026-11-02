@@ -1771,7 +1771,8 @@ telemetry = true
         #
         #  "auction"
         #   Schedule transactions in 50ms batch auctions. Bundles are
-        #   not included in the auctions.
+        #   not included in the auctions but are scheduled as soon as
+        #   they arrive, without waiting for auctions to complete.
         #
         # In cases of network congestion, high volume, or if seeing poor
         # block packing performance for any reason, it is recommended to
