@@ -597,6 +597,7 @@ migrate_builtin_to_core_bpf1( fd_core_bpf_migration_config_t const * config,
   fd_memset( &runtime_stack->bpf_migration.empty,                   0, sizeof(runtime_stack->bpf_migration.empty                  ) );
   fd_memset( &runtime_stack->bpf_migration.progcache_validate,      0, sizeof(runtime_stack->bpf_migration.progcache_validate     ) );
 
+  /* https://github.com/anza-xyz/agave/blob/8da849e919e0762f6bfc9ca17ac2339c7a003a0e/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L232-L240 */
   fd_tmp_account_t * source = &runtime_stack->bpf_migration.source;
   if( FD_UNLIKELY( !source_buffer_new_checked(
       source,
@@ -605,6 +606,12 @@ migrate_builtin_to_core_bpf1( fd_core_bpf_migration_config_t const * config,
       config->source_buffer_address,
       config->verified_build_hash ) ) )
     return;
+  /* This should never happen after core_bpf_hash_validation is
+     activated, which is a pre-req for all future BPF program upgrades. */
+  if( FD_UNLIKELY( !config->verified_build_hash ) ) {
+    FD_BASE58_ENCODE_32_BYTES( config->source_buffer_address->uc, buffer_b58 );
+    FD_LOG_ERR(( "missing verified build hash for source buffer %s", buffer_b58 ));
+  }
 
   fd_rent_t const * rent = &bank->f.rent;
   ulong const       slot = bank->f.slot;
@@ -675,6 +682,7 @@ fd_upgrade_core_bpf_program( fd_bank_t *                            bank,
                              fd_runtime_stack_t *                   runtime_stack,
                              fd_pubkey_t const *                    builtin_program_id,
                              fd_pubkey_t const *                    source_buffer_address,
+                             fd_hash_t const *                      verified_build_hash,
                              fd_capture_ctx_t *                     capture_ctx ) {
   fd_memset( &runtime_stack->bpf_migration, 0, sizeof(runtime_stack->bpf_migration) );
 
@@ -684,9 +692,14 @@ fd_upgrade_core_bpf_program( fd_bank_t *                            bank,
     return;
   }
 
-  /* https://github.com/anza-xyz/agave/blob/v3.1.7/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L328 */
+  /* https://github.com/anza-xyz/agave/blob/8da849e919e0762f6bfc9ca17ac2339c7a003a0e/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L330-L338 */
   fd_tmp_account_t * source = &runtime_stack->bpf_migration.source;
-  if( FD_UNLIKELY( !source_buffer_new_checked( source, accdb, bank->accdb_fork_id, source_buffer_address, NULL ) ) ) {
+  if( FD_UNLIKELY( !source_buffer_new_checked(
+      source,
+      accdb,
+      bank->accdb_fork_id,
+      source_buffer_address,
+      verified_build_hash ) ) ) {
     return;
   }
 
@@ -776,6 +789,7 @@ fd_upgrade_loader_v2_program_with_loader_v3_program( fd_bank_t *               b
                                                      fd_runtime_stack_t *      runtime_stack,
                                                      fd_pubkey_t const *       loader_v2_program_address,
                                                      fd_pubkey_t const *       source_buffer_address,
+                                                     fd_hash_t const *         verified_build_hash,
                                                      int                       allow_prefunded,
                                                      fd_capture_ctx_t *        capture_ctx ) {
   fd_memset( &runtime_stack->bpf_migration, 0, sizeof(runtime_stack->bpf_migration) );
@@ -791,9 +805,14 @@ fd_upgrade_loader_v2_program_with_loader_v3_program( fd_bank_t *               b
       runtime_stack ) ) )
     return;
 
-  /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.2/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L413 */
+  /* https://github.com/anza-xyz/agave/blob/8da849e919e0762f6bfc9ca17ac2339c7a003a0e/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L420-L428 */
   fd_tmp_account_t * source = &runtime_stack->bpf_migration.source;
-  if( FD_UNLIKELY( !source_buffer_new_checked( source, accdb, bank->accdb_fork_id, source_buffer_address, NULL ) ) )
+  if( FD_UNLIKELY( !source_buffer_new_checked(
+      source,
+      accdb,
+      bank->accdb_fork_id,
+      source_buffer_address,
+      verified_build_hash ) ) )
     return;
 
   fd_rent_t const * rent = &bank->f.rent;

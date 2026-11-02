@@ -30,6 +30,11 @@
 
 FD_IMPORT_BINARY( test_elf, "src/ballet/sbpf/fixtures/hello_solana_program.so" );
 
+static fd_hash_t const test_elf_hash = { .uc = {
+  0x75U,0x96U,0xfeU,0xc1U,0xe0U,0xcaU,0xcdU,0x63U,0x4fU,0x06U,0xe5U,0xfaU,0x0cU,0x8bU,0x63U,0x3dU,
+  0xd1U,0x7cU,0x3dU,0xb1U,0xc1U,0x61U,0x1bU,0xb7U,0x4fU,0x5dU,0xd1U,0x4fU,0x75U,0x36U,0xb6U,0xf9U
+} };
+
 #define TEST_SLOTS_PER_EPOCH (32UL)
 #define TEST_PARENT_SLOT     (9UL)
 #define TEST_CHILD_SLOT      (10UL)
@@ -1173,7 +1178,7 @@ test_migration_upgrade_gates_invoke( fd_svm_mini_t * mini ) {
 
   /* Run the migration against the executing (child) fork, exactly as
      fd_compute_and_apply_new_feature_activations does at block start. */
-  fd_upgrade_core_bpf_program( env->bank, accdb, env->mini->runtime_stack, &prog, &buffer, NULL );
+  fd_upgrade_core_bpf_program( env->bank, accdb, env->mini->runtime_stack, &prog, &buffer, &test_elf_hash, NULL );
 
   int   pd = 0; ulong len = ULONG_MAX; ulong lamports = ULONG_MAX;
   FD_TEST( fd_accdb_probe_pd_this_fork( accdb, env->fork_id, pda.uc, &pd, &len, &lamports ) );
@@ -1266,7 +1271,7 @@ test_builtin_migration_prefunded_pd( fd_svm_mini_t * mini ) {
     .enable_feature_offset     = ULONG_MAX,
     .migration_target          = FD_CORE_BPF_MIGRATION_TARGET_BUILTIN,
     .builtin_program_id        = &prog,
-    .verified_build_hash       = NULL,
+    .verified_build_hash       = &test_elf_hash,
   };
   fd_migrate_builtin_to_core_bpf( env->bank, accdb, env->mini->runtime_stack, &config, NULL );
 

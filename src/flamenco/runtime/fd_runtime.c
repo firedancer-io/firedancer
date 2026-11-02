@@ -650,45 +650,20 @@ fd_compute_and_apply_new_feature_activations( fd_bank_t *          bank,
       https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank.rs#L6621-L6624 */
   fd_apply_builtin_program_feature_transitions( bank, accdb, runtime_stack, capture_ctx );
 
-  if( FD_UNLIKELY( FD_FEATURE_JUST_ACTIVATED_BANK( bank, vote_state_v4 ) ) ) {
-    fd_upgrade_core_bpf_program( bank, accdb, runtime_stack, &fd_solana_stake_program_id, &fd_solana_stake_program_vote_state_v4_buffer_address, capture_ctx );
-  }
-
   if( FD_UNLIKELY( FD_FEATURE_JUST_ACTIVATED_BANK( bank, validator_location_registration ) ) ) {
     /* TODO: upgrade the stake program to support vote state v5 */
   }
 
-  /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.2/runtime/src/bank.rs#L5703-L5716 */
-  if( FD_UNLIKELY( FD_FEATURE_JUST_ACTIVATED_BANK( bank, replace_spl_token_with_p_token ) ) ) {
+  /* https://github.com/anza-xyz/agave/blob/8da849e919e0762f6bfc9ca17ac2339c7a003a0e/runtime/src/bank.rs#L6389-L6402 */
+  if( FD_UNLIKELY( FD_FEATURE_JUST_ACTIVATED_BANK( bank, replace_ata_with_p_ata ) ) ) {
     fd_upgrade_loader_v2_program_with_loader_v3_program(
       bank,
       accdb,
       runtime_stack,
-      &fd_solana_spl_token_id,
-      &fd_solana_ptoken_program_buffer_address,
-      FD_FEATURE_ACTIVE_BANK( bank, relax_programdata_account_check_migration ),
-      capture_ctx );
-  }
-
-  /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.4/runtime/src/bank.rs#L5736-L5744 */
-  if( FD_UNLIKELY( FD_FEATURE_JUST_ACTIVATED_BANK( bank, upgrade_bpf_stake_program_to_v5 ) ) ) {
-    fd_upgrade_core_bpf_program(
-      bank,
-      accdb,
-      runtime_stack,
-      &fd_solana_stake_program_id,
-      &fd_solana_stake_program_v5_buffer_address,
-      capture_ctx );
-  }
-
-  /* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.1/runtime/src/bank.rs#L6182-L6190 */
-  if( FD_UNLIKELY( FD_FEATURE_JUST_ACTIVATED_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ) ) ) {
-    fd_upgrade_core_bpf_program(
-      bank,
-      accdb,
-      runtime_stack,
-      &fd_solana_stake_program_id,
-      &fd_solana_stake_program_v5_1_buffer_address,
+      &fd_solana_spl_associated_token_account_id,
+      &fd_solana_pata_program_buffer_address,
+      &fd_solana_pata_program_verified_build_hash,
+      1,
       capture_ctx );
   }
 }
