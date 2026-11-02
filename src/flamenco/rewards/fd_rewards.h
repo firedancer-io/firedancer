@@ -6,21 +6,10 @@
 #include "../stakes/fd_stake_delegations.h"
 #include "../runtime/sysvar/fd_sysvar_base.h"
 
-struct fd_prev_epoch_inflation_rewards {
-  ulong  validator_rewards;
-  double prev_epoch_duration_in_years;
-  double validator_rate;
-  double foundation_rate;
-};
-typedef struct fd_prev_epoch_inflation_rewards fd_prev_epoch_inflation_rewards_t;
-
 struct fd_partitioned_rewards_calculation {
-  ulong   old_vote_balance_and_staked;
-  ulong   validator_rewards;
-  double  validator_rate;
-  double  foundation_rate;
-  double  prev_epoch_duration_in_years;
-  ulong   capitalization;
+  ulong old_vote_balance_and_staked;
+  ulong validator_rewards;
+  ulong capitalization;
 };
 typedef struct fd_partitioned_rewards_calculation fd_partitioned_rewards_calculation_t;
 
@@ -34,6 +23,17 @@ FD_PROTOTYPES_BEGIN
 
 void
 fd_apply_double_disinflation_rate( fd_bank_t * bank );
+
+/* fd_apply_integer_inflation_initial_rate applies the
+   remove_runtime_float_ops feature gate to the given bank.  It sets the
+   given bank's inflation->initial to 8%.  This is not actually used
+   after remove_runtime_float_ops is activated, but we set it so that
+   our manifest is consistent with Agave's.
+
+   https://github.com/anza-xyz/agave/blob/9bcf93e368b5fb52c21677ed8c7f0360eb93b5b7/runtime/src/bank.rs#L6257-L6261 */
+
+void
+fd_apply_integer_inflation_initial_rate( fd_bank_t * bank );
 
 /* fd_begin_partitioned_rewards updates epoch bank stake and vote
    account reward calculations.  Updates vote accounts with payouts and
