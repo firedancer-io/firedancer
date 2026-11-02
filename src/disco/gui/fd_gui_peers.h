@@ -101,13 +101,13 @@ typedef struct fd_gui_wfs_peer fd_gui_wfs_peer_t;
 #define FD_GUI_PEERS_NODE_UPDATE (2)
 #define FD_GUI_PEERS_NODE_DELETE (3)
 
-#define FD_GUI_PEERS_CI_TABLE_SORT_KEY_CNT                 (96UL)  /* maximum number of maintained active sort keys; >= default max ws conns + default key, excess evicts round-robin and rebuilds on next viewport read */
+#define FD_GUI_PEERS_CI_TABLE_SORT_KEY_CNT                 (65UL)  /* maximum number of maintained active sort keys; >= default max ws conns + default key, excess evicts round-robin and rebuilds on next viewport read */
 #define FD_GUI_PEERS_WS_VIEWPORT_MAX_SZ                    (200UL) /* the maximum number of rows a client can request for a table viewport */
 #define FD_GUI_PEERS_WS_VIEWPORT_UPDATE_INTERVAL_MILLIS    ( 150L)
 #define FD_GUI_PEERS_METRIC_RATE_UPDATE_INTERVAL_MILLIS    ( 150L)
 #define FD_GUI_PEERS_GOSSIP_STATS_UPDATE_INTERVAL_MILLIS   ( 300L)
 
-FD_STATIC_ASSERT( FD_CONTACT_INFO_TABLE_SIZE < UINT_MAX, gui_peer_idx_fits_uint );
+FD_STATIC_ASSERT( FD_CONTACT_INFO_TABLE_SIZE < USHORT_MAX, gui_peer_idx_fits_ushort );
 
 #define FD_GUI_PEERS_GOSSIP_TOP_PEERS_CNT (64UL)
 
@@ -187,11 +187,11 @@ struct fd_gui_peers_node {
   } sock_map;
 
   struct {
-    uint parent;
-    uint left;
-    uint right;
+    ushort parent;
+    ushort left;
+    ushort right;
   } treaps_live_table[ FD_GUI_PEERS_CI_TABLE_SORT_KEY_CNT ];
-  uint prio_live_table;
+  ushort prio_live_table;
   struct {
     ulong next;
     ulong prev;
@@ -325,7 +325,7 @@ static int live_table_col_stake_lt ( void const * a, void const * b ) { return f
 #define LIVE_TABLE_SORT_KEYS sort_keys_live_table
 #define LIVE_TABLE_DLIST dlist_live_table
 #define LIVE_TABLE_COLUMN_CNT (9UL)
-#define LIVE_TABLE_IDX_T uint
+#define LIVE_TABLE_IDX_T ushort
 #define LIVE_TABLE_MAX_SORT_KEY_CNT FD_GUI_PEERS_CI_TABLE_SORT_KEY_CNT
 #define LIVE_TABLE_ROW_T fd_gui_peers_node_t
 #define LIVE_TABLE_COLUMNS LIVE_TABLE_COL_ARRAY( \
