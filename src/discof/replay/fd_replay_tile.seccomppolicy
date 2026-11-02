@@ -46,8 +46,12 @@ pwritev2: (eq (arg 0) accounts_fd)
 #
 # Users of the accounts database may need to read data into the cache.
 #
+# store disk layer: reads of spilled FEC payload records (header and
+# payload in one call)
+#
 # arg 0 is the file descriptor to read from
-preadv2: (eq (arg 0) accounts_fd)
+preadv2: (or (eq (arg 0) accounts_fd)
+             (eq (arg 0) store_fd))
 
 # accounts database: allocate more space from the disk
 #
@@ -78,8 +82,6 @@ futex: (or (and (eq (arg 1) FUTEX_WAKE)
 # when the tile next runs.
 restart_syscall
 
-# store disk layer: rare reads of spilled FEC payloads
-#
 # stake delegations, epoch credits, cost trackers and vote stakes:
 # records spilled beyond their in-memory caches.
 # transaction cache: read spilled pages

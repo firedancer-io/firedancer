@@ -178,7 +178,6 @@ struct fd_replay_tile {
   fd_accdb_t *    accdb;
   fd_txncache_t * txncache;
   fd_store_t *    store;
-  fd_store_map_t  map_join[1];
   int             store_disk_fd;
   fd_banks_t *    banks;
 
@@ -610,8 +609,12 @@ struct fd_replay_tile {
 
   struct {
     fd_histf_t store_query_work[1];
+    fd_histf_t store_spill_read_work[1];
+    fd_histf_t store_map_probe[1];
     ulong      store_query_cnt;
     ulong      store_query_missing_cnt;
+    ulong      store_query_hit_cnt[ FD_METRICS_ENUM_STORE_FEC_SOURCE_TYPE_CNT ];
+    ulong      store_publish_removed_cnt;
 
     ulong slots_total;
     ulong transactions_total;

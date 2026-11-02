@@ -827,7 +827,7 @@ deliberate exception with lint-allow="<rule id>")
         <summary>Duration of verifying and processing one shred received from the network</summary>
     </histogram>
     <histogram name="StoreFecSyncSpillDurationNanos" min="100" max="100000000" source="ticks">
-        <summary>Duration of synchronously spilling one FEC payload to the store</summary>
+        <summary>Duration of disk writes during one synchronous FEC insert, including cancelled spills</summary>
     </histogram>
     <counter name="Processed" enum="ShredProcessResult" summary="Shreds assigned to this tile that passed the initial parse and chained check, by processing result, plus received frags that failed the initial parse; InitialRejected and FecFatalRejected are subsets of Rejected" />
     <counter name="FecIncompleteEvicted" summary="Incomplete FEC sets evicted from the resolver to make room for new ones" />
@@ -845,6 +845,10 @@ deliberate exception with lint-allow="<rule id>")
     </histogram>
     <counter name="StoreFecSyncSpilled" summary="FEC payloads the shred tile spilled to the store synchronously because the store RAM cache was full" />
     <counter name="StoreFecSyncSpilledBytes" summary="FEC payload bytes the shred tile spilled to the store synchronously" />
+    <counter name="StoreFecInsertParked" summary="FEC inserts that waited for a store RAM cache slot because every slot was reserved, pinned or being spilled" />
+    <histogram name="StoreFecInsertParkDurationNanos" min="100" max="100000000" source="ticks">
+        <summary>Duration of one FEC insert waiting for a store RAM cache slot</summary>
+    </histogram>
 </tile>
 
 <tile name="accdb">
@@ -941,7 +945,20 @@ deliberate exception with lint-allow="<rule id>")
     <counter name="StoreFecSpillReadBytes" summary="Spilled FEC payload bytes read from disk" />
     <gauge name="StoreFecCacheUsed" summary="FEC payload slots in use in the store RAM cache" />
     <gauge name="StoreFecCacheCapacity" summary="FEC payload capacity of the store RAM cache" />
-    <gauge name="StoreFecCachePinned" ambiguous-kind="true" summary="FEC payload views currently pinned against eviction" />
+    <gauge name="StoreFecCachePinned" ambiguous-kind="true" deprecated="true" summary="FEC payload views currently pinned against eviction" />
+    <counter name="StoreFecQueryHit" enum="StoreFecSourceType" summary="FEC set store queries that found a payload, by its cache or disk location" />
+    <histogram name="StoreFecSpillReadDurationNanos" min="1000" max="100000000" source="ticks">
+        <summary>Duration of reading one spilled FEC payload from disk</summary>
+    </histogram>
+    <counter name="StoreFecPublishRemoved" summary="FEC sets removed from the store by root publishes" />
+    <counter name="StoreFecSpillCancelled" summary="FEC payload spills discarded because replay pinned the payload while it was being written" />
+    <gauge name="StoreFecUsed" summary="FEC sets with store metadata, including inserts in progress" />
+    <gauge name="StoreFecPeak" summary="Highest StoreFecUsed since the store was created" />
+    <gauge name="StoreFecCapacity" summary="FEC set metadata capacity of the store" />
+    <gauge name="StoreFecDiskCount" summary="Store spill file slots holding a FEC payload" />
+    <histogram name="StoreFecMapProbePerQuery" min="0" max="64">
+        <summary>FEC map chain entries examined by one replay store query</summary>
+    </histogram>
     <counter name="TxncachePageMiss" summary="Transaction cache lookups under the read lock that found their page not resident" />
     <counter name="TxncachePageSpilled" summary="Dirty transaction cache pages written to the spill file on eviction" />
     <counter name="TxncachePageSpillRead" summary="Transaction cache pages read back from the spill file" />
@@ -1007,7 +1024,8 @@ deliberate exception with lint-allow="<rule id>")
     <counter name="SchedMicroblockDone" summary="Microblocks that were fully replayed" />
     <counter name="SchedIngestedBytes" summary="Bytes the replay scheduler has ingested" />
     <counter name="SchedTrailingSkippedBytes" summary="Trailing bytes of a block the replay scheduler ingested but did not parse" />
-    <counter name="SchedDroppedBytes" summary="Bytes the replay scheduler refused to ingest because the block was abandoned" />
+    <counter name="SchedDroppedBytes" deprecated="true" summary="Bytes the replay scheduler refused to ingest because the block was abandoned" />
+    <counter name="SchedFecDropped" summary="FEC sets the replay scheduler refused to ingest because the block was dead or abandoned" />
     <counter name="SchedFecIngested" summary="FEC sets the replay scheduler has been given" />
 
     <counter name="BankFrozen" summary="Banks frozen, including our own leader blocks" />
@@ -1153,6 +1171,11 @@ deliberate exception with lint-allow="<rule id>")
     <int value="6" name="FecSetIndexInvalid" label="FEC set index unaligned or past the end of the block" />
 </enum>
 
+<enum name="StoreFecSourceType">
+    <int value="0" name="Cache" label="Read from the store RAM cache" />
+    <int value="1" name="Disk" label="Read from the store spill file" />
+</enum>
+
 <enum name="DiskReadResult">
     <int value="0" name="Success" label="Read served from the store" />
     <int value="1" name="Miss" label="Not in the store" />
@@ -1187,7 +1210,7 @@ deliberate exception with lint-allow="<rule id>")
     <counter name="DiskShredWrittenBytes" summary="Bytes written by persisted data shreds" />
 
     <histogram name="StoreFecPreevictDurationNanos" min="100" max="100000000" source="ticks">
-        <summary>Duration of preevicting one FEC payload from the store RAM cache</summary>
+        <summary>Disk write duration of one store FEC preeviction attempt, including cancelled spills</summary>
     </histogram>
     <counter name="StoreFecPreevicted" summary="FEC payloads preevicted from the store RAM cache to disk" />
     <counter name="StoreFecPreevictedBytes" summary="FEC payload bytes preevicted from the store RAM cache to disk" />

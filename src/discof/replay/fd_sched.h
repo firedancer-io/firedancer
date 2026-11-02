@@ -4,7 +4,7 @@
 #include "fd_rdisp.h"
 #include "../../flamenco/alpenglow/fd_block_marker.h"
 #include "../../disco/fd_txn_p.h"
-#include "../../disco/store/fd_store.h" /* for fd_store_fec_t */
+#include "../../disco/store/fd_store.h" /* for fd_store_view_t */
 #include "../../flamenco/accdb/fd_accdb.h"
 #include "../../disco/fd_clock_tile.h"
 
@@ -75,6 +75,15 @@ struct fd_sched_alut_ctx {
 };
 typedef struct fd_sched_alut_ctx fd_sched_alut_ctx_t;
 
+/* Handle to read a FEC set's payload from the store. */
+struct fd_sched_fec_read {
+  fd_store_t *    store;
+  int             disk_fd;              /* Store file, for spilled payloads. */
+  fd_store_view_t view;                 /* Pinned by the caller for the duration of the ingest. */
+  long            read_ticks;           /* Out: duration of the store read, 0 if not read. */
+};
+typedef struct fd_sched_fec_read fd_sched_fec_read_t;
+
 struct fd_sched_fec {
   ulong            bank_idx;            /* Index of the block.  Assumed to be in [0, block_cnt_max).  Caller
                                            is responsible for ensuring that bank idx is in bounds and unique
@@ -84,8 +93,8 @@ struct fd_sched_fec {
                                            bounds and unique across equivocated blocks. */
   ulong            slot;                /* Slot number of the block. */
   ulong            parent_slot;         /* Slot number of the parent block. */
-  fd_store_fec_t * fec;                 /* FEC set metadata. */
-  uchar          * data;                /* Resolved laddr of the FEC set data buffer. */
+  fd_sched_fec_read_t read;             /* Pinned store view of the FEC set payload.  Read on the caller's
+                                           (replay's) thread during ingest. */
   uint             shred_cnt;           /* Number of shreds in the FEC set. */
   uint             is_last_in_batch:1;  /* Set if this is the last FEC set in the batch; relevant because the
                                            parser should ignore trailing bytes at the end of a batch. */

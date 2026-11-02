@@ -6,6 +6,7 @@
 #include "../../../disco/metrics/fd_metrics.h"
 #include "../../../disco/repair/fd_repair.h"
 #include "../../../discof/replay/fd_sched.h"
+#include "../../../discof/replay/fd_sched_test_store.h"
 #include "../../alpenglow/fd_block_marker_serde.h"
 
 /* Resolver sizing.  Production sizing lives in the shred tile setup;
@@ -420,8 +421,7 @@ fd_solfuzz_pb_shred_run( fd_solfuzz_runner_t * runner,
       }
       uint bank_idx = blk_bank_idx[ out.blk_idx ];
 
-      fd_store_fec_t store_fec[1] = {0};
-      store_fec->key = popped_rec->mr;
+      fd_sched_test_fec_t store_fec[1] = {{0}};
       FD_TEST( popped_rec->payload_sz<=UINT_MAX );
       store_fec->data_sz = (uint)popped_rec->payload_sz;
       memcpy( store_fec->shred_sz, popped_rec->shred_sz, sizeof(store_fec->shred_sz) );
@@ -431,8 +431,7 @@ fd_solfuzz_pb_shred_run( fd_solfuzz_runner_t * runner,
         .parent_bank_idx   = parent_bank_idx,
         .slot              = blk->slot,
         .parent_slot       = blk->parent_slot,
-        .fec               = store_fec,
-        .data              = popped_rec->payload,
+        .read              = fd_sched_test_fec_pin( store_fec, popped_rec->payload ),
         .shred_cnt         = popped_rec->shred_cnt,
         .is_last_in_batch  = !!popped_rec->data_complete,
         .is_last_in_block  = out.fec_idx+1U==blk->cmpl_fec_cnt,
@@ -446,7 +445,7 @@ fd_solfuzz_pb_shred_run( fd_solfuzz_runner_t * runner,
 
       /* Final step: ingest the completed FEC set. */
       FD_TEST( fd_sched_fec_can_ingest( sched, &sched_fec ) );
-      if( !fd_sched_fec_ingest( sched, &sched_fec ) ) {
+      if( !fd_sched_test_fec_ingest( sched, &sched_fec ) ) {
         effects->block_parse_result = FD_EXEC_TEST_BLOCK_PARSE_RESULT_REJECTED_INVALID_HEADER;
       } else {
         /* Harness stops at FEC ingest, so verify this slot's tick
