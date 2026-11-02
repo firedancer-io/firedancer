@@ -45,9 +45,8 @@ Firedancer source tree
       │
       ├── choreo/      Consensus components (fork choice, voting)
       │
-      ├── disco/       Common tiles (network stack, block production)
-      │
-      ├── discof/      Full Firedancer tiles (consensus, runtime, RPC)
+      ├── disco/       Tiles (network stack, block production, consensus,
+      │                runtime, RPC)
       │
       ├── flamenco/    Solana SVM / runtime
       │

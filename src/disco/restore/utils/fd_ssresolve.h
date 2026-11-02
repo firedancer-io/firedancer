@@ -1,0 +1,77 @@
+#ifndef HEADER_fd_src_disco_restore_utils_fd_ssresolve_h
+#define HEADER_fd_src_disco_restore_utils_fd_ssresolve_h
+
+#include "../../../flamenco/fd_flamenco_base.h"
+#include "../../../util/net/fd_net_headers.h"
+#include "../../../waltz/tls/fd_tls.h"
+#include "../../../ballet/x509/fd_x509_ca_store.h"
+
+#define FD_SSRESOLVE_MAGIC (0xF17EDA2CE55E510) /* FIREDANCER HTTP RESOLVE V0 */
+#define FD_SSRESOLVE_ALIGN (128UL)
+
+struct fd_ssresolve_result {
+  ulong     slot;                      /* slot of the snapshot */
+  ulong     base_slot;                 /* base slot of incremental snapshot or ULONG_MAX */
+  uchar     hash[ FD_HASH_FOOTPRINT ]; /* hash of the snapshot */
+};
+
+typedef struct fd_ssresolve_result fd_ssresolve_result_t;
+
+struct fd_ssresolve_private;
+typedef struct fd_ssresolve_private fd_ssresolve_t;
+
+FD_PROTOTYPES_BEGIN
+
+FD_FN_CONST ulong
+fd_ssresolve_align( void );
+
+FD_FN_CONST ulong
+fd_ssresolve_footprint( void );
+
+void *
+fd_ssresolve_new( void * shmem );
+
+fd_ssresolve_t *
+fd_ssresolve_join( void * ssresolve );
+
+void
+fd_ssresolve_init( fd_ssresolve_t * ssresolve,
+                   fd_ip4_port_t    addr,
+                   int              sockfd,
+                   int              full,
+                   char const *     hostname );
+
+void
+fd_ssresolve_init_https( fd_ssresolve_t *           ssresolve,
+                         fd_ip4_port_t              addr,
+                         int                        sockfd,
+                         int                        full,
+                         char const *               hostname,
+                         fd_tls_t const *           tls,
+                         fd_x509_ca_store_t const * ca_store );
+
+#define FD_SSRESOLVE_ADVANCE_ERROR   (-1) /* fatal error */
+#define FD_SSRESOLVE_ADVANCE_AGAIN   ( 0) /* try again */
+#define FD_SSRESOLVE_ADVANCE_SUCCESS ( 1) /* successful advance */
+#define FD_SSRESOLVE_ADVANCE_RESULT  ( 2) /* successful advance with valid resolve result */
+#define FD_SSRESOLVE_ADVANCE_ABSENT  ( 3) /* resolved, but the server has no such snapshot */
+
+int
+fd_ssresolve_advance_poll_out( fd_ssresolve_t * ssresolve );
+
+int
+fd_ssresolve_advance_poll_in( fd_ssresolve_t *        ssresolve,
+                              fd_ssresolve_result_t * result );
+
+int
+fd_ssresolve_is_done( fd_ssresolve_t * ssresolve );
+
+int
+fd_ssresolve_wants_pollout( fd_ssresolve_t const * ssresolve );
+
+void
+fd_ssresolve_cancel( fd_ssresolve_t * ssresolve );
+
+FD_PROTOTYPES_END
+
+#endif /* HEADER_fd_src_disco_restore_utils_fd_ssresolve_h */

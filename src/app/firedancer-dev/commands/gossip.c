@@ -4,7 +4,7 @@
 #include "../../../disco/topo/fd_topob.h"
 #include "../../../disco/net/fd_net_tile.h" /* fd_topos_net_tiles */
 #include "../../../disco/fd_clock_tile.h"
-#include "../../../discof/gossip/fd_gossip_tile.h"
+#include "../../../disco/gossip/fd_gossip_tile.h"
 
 #include "../../firedancer/commands/monitor_gossip/gossip_diag.h"
 

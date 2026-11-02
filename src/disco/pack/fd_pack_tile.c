@@ -4,7 +4,7 @@
 #include "generated/fd_pack_tile_seccomp.h"
 
 #include "../../util/pod/fd_pod_format.h"
-#include "../../discof/replay/fd_replay_tile.h" // layering violation
+#include "../../disco/replay/fd_replay_tile.h" // layering violation
 #include "../fd_txn_m.h"
 #include "../keyguard/fd_keyload.h"
 #include "../keyguard/fd_keyswitch.h"

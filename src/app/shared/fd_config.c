@@ -8,14 +8,14 @@
 #include "../../util/tile/fd_tile_private.h"
 #include "../../ballet/toml/fd_toml.h"
 #include "../../disco/genesis/fd_genesis_cluster.h"
-#include "../../discof/genesis/fd_genesi_tile.h"
+#include "../../disco/genesis/fd_genesi_tile.h"
 #include "../../disco/net/fd_net_tile.h"
 #include "../../disco/pack/fd_pack_cost.h"
 #include "../../disco/pack/fd_microblock.h"
 #include "../../ballet/shred/fd_shred.h"
 #include "../../ballet/txn/fd_txn.h"
-#include "../../discof/restore/utils/fd_ssarchive.h"
-#include "../../discof/restore/utils/fd_wfs.h"
+#include "../../disco/restore/utils/fd_ssarchive.h"
+#include "../../disco/restore/utils/fd_wfs.h"
 #include "../../util/fd_boolau.h"
 
 #include <unistd.h>

@@ -3,7 +3,7 @@
 
 #include "../../../disco/topo/fd_topo.h"
 #include "../../../disco/topo/fd_dns_resolve.h"
-#include "../../../discof/ipecho/fd_ipecho_client.h"
+#include "../../../disco/ipecho/fd_ipecho_client.h"
 
 #include <errno.h>
 #include <stdlib.h>

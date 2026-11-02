@@ -2,7 +2,7 @@
 #define HEADER_fd_src_app_firedancer_commands_adminctl_client_h
 
 #include "../../shared/fd_config.h"
-#include "../../../discof/admin/fd_adminctl.h"
+#include "../../../disco/admin/fd_adminctl.h"
 
 FD_PROTOTYPES_BEGIN
 

@@ -5,7 +5,7 @@
 #include "../../../platform/fd_file_util.h"
 #include "../../../../disco/keyguard/fd_keyguard_bls.h"
 #include "../../../../disco/keyguard/fd_keyload.h"
-#include "../../../../discof/genesis/genesis_hash.h"
+#include "../../../../disco/genesis/genesis_hash.h"
 #include "../../../../flamenco/features/fd_features.h"
 #include "../../../../flamenco/genesis/fd_genesis_create.h"
 #include "../../../../flamenco/genesis/fd_genesis_parse.h"

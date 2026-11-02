@@ -8,7 +8,7 @@
 #include "../keyguard/fd_keyguard_bls.h"
 #include "../keyguard/fd_keyload.h"
 #include "../keyguard/fd_keyswitch.h"
-#include "../../discof/admin/fd_adminctl.h"
+#include "../../disco/admin/fd_adminctl.h"
 #include "../../ballet/base58/fd_base58.h"
 #include "../metrics/fd_metrics.h"
 #include "../../ballet/bls/fd_bls.h"

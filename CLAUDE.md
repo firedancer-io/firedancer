@@ -4,7 +4,7 @@ Firedancer only supports x86-64 on Linux, other targets are not correct
 for example ARM due to TSO assumptions.
 
 Topology: `src/app/firedancer/topology.c`.
-Tiles: `src/disco`, `src/discof`.
+Tiles: `src/disco`.
 
 ## Building
 

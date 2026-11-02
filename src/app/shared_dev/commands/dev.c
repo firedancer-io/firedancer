@@ -4,7 +4,7 @@
 #include "../../shared/commands/configure/configure.h"
 #include "../../shared/commands/run/run.h"
 #include "../../shared/commands/watch/watch.h"
-#include "../../../discof/genesis/genesis_hash.h"
+#include "../../../disco/genesis/genesis_hash.h"
 #include "../../../disco/net/fd_net_tile.h"
 #include "../../shared/boot/fd_boot.h"
 

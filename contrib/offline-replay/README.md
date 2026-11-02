@@ -145,7 +145,7 @@ If replay goes quiet (Slack stops, log stops advancing):
   `link_frag_consumed_total` show which tile stalled.
 - Map tile threads from log lines (`pid:tid ... fd1:[group]:tile:idx`),
   attach `gdb -p <tid>`, and break in the stuck tile's `during_credit`
-  (e.g. `src/discof/backtest/fd_backtest_tile.c`).
+  (e.g. `src/disco/backtest/fd_backtest_tile.c`).
 
 One known trap: `genesis.tar.bz2` bundles a slot-0-only `rocksdb/`
 directory. If it gets extracted, it defeats the harness's "rocksdb

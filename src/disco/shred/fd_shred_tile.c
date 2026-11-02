@@ -31,7 +31,7 @@
 #include "../../flamenco/gossip/fd_gossip_message.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"
 #include "../../flamenco/runtime/fd_slot_params.h"
-#include "../../discof/replay/fd_replay_tile.h"
+#include "../../disco/replay/fd_replay_tile.h"
 #include "../repair/fd_repair_serde.h"
 #if FD_HAS_AVX
 #include "../../util/simd/fd_nt_memcpy.h"

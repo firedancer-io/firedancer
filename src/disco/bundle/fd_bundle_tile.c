@@ -19,7 +19,7 @@
 #include <netinet/in.h> /* AF_INET */
 #include <netinet/tcp.h> /* TCP_FASTOPEN_CONNECT (seccomp) */
 #include "../../waltz/resolv/fd_netdb.h"
-#include "../../discof/replay/fd_replay_tile.h"
+#include "../../disco/replay/fd_replay_tile.h"
 
 #include <linux/futex.h>
 #include "generated/fd_bundle_tile_seccomp.h"

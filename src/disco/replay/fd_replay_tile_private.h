@@ -1,0 +1,651 @@
+#ifndef HEADER_fd_src_disco_replay_fd_replay_tile_private_h
+#define HEADER_fd_src_disco_replay_fd_replay_tile_private_h
+
+#include "fd_vote_tracker.h"
+#include "../../disco/fd_clock_tile.h"
+#include "../../disco/store/fd_store.h"
+#include "../../disco/bundle/fd_bundle_crank.h"
+#include "../../disco/keyguard/fd_keyswitch.h"
+#include "../../disco/node_info/fd_node_info.h"
+#include "../../disco/wait_info/fd_wait_info.h"
+#include "../../disco/poh/fd_poh.h"
+#include "../../disco/repair/fd_repair_tile.h"
+#include "../../disco/replay/fd_sched.h"
+#include "../../disco/votor/fd_votor_tile.h"
+#include "../../flamenco/capture/fd_capture_ctx.h"
+#include "../../flamenco/genesis/fd_genesis_parse.h"
+#include "../../flamenco/leaders/fd_multi_epoch_leaders.h"
+#include "../../flamenco/progcache/fd_progcache.h"
+#include "../../flamenco/alpenglow/fd_alpenglow.h"
+#include "../../flamenco/runtime/fd_bank.h"
+#include "../../flamenco/runtime/fd_txncache.h"
+#include "../../flamenco/runtime/tests/fd_dump_pb.h"
+#include "../../disco/events/generated/fd_event_gen.h"
+#include "../../util/fd_hash32.h"
+#include "../../ballet/bmtree/fd_bmtree.h"
+#include <stdio.h>
+
+struct fd_replay_in_link {
+  fd_wksp_t * mem;
+  ulong       chunk0;
+  ulong       wmark;
+  ulong       mtu;
+};
+
+typedef struct fd_replay_in_link fd_replay_in_link_t;
+
+struct fd_replay_out_link {
+  ulong       idx;
+  fd_wksp_t * mem;
+  ulong       chunk0;
+  ulong       wmark;
+  ulong       chunk;
+};
+
+typedef struct fd_replay_out_link fd_replay_out_link_t;
+
+struct fd_block_id_ele {
+  fd_hash_t     latest_mr;  /* merkle root of the latest observed FEC set.  This is NEVER the
+                               block id: on completion it holds the last FEC set's merkle root,
+                               which the next block's shreds chain off (the cmr). */
+  fd_hash_t     dmr;        /* block id (double merkle root).  Only valid once block_id_seen is
+                               set. */
+  ag_block_id_t block_info; /* key for the compound map */
+  uint          latest_fec_idx;
+  ulong         slot;
+  ulong         bank_seq;
+  ulong         next;
+  uint          fec_cnt;
+  uint          block_id_seen : 1;
+  uint          finalized     : 1; /* set only on slot_complete (block_id_seen) and finalized block.
+                                      Is not consensus critical and does not affect replay order.
+                                      It is only used to detect hard forks. */
+};
+typedef struct fd_block_id_ele fd_block_id_ele_t;
+
+struct fd_reception_stats {
+  ulong                     bank_seq; /* alpenglow guard: valid iff ==bank->bank_seq */
+  uint                      fec_set_idx;
+
+  union {
+    fd_repair_fec_metrics_t rotor;
+  } metrics;
+};
+typedef struct fd_reception_stats fd_reception_stats_t;
+
+#define FD_REPLAY_TXN_TIMING_SLOTS (16UL)
+
+struct fd_replay_txn_timing {
+  long received_ns;
+
+  long parsed_ticks;
+  long sigverify_disp_ticks;
+  long sigverify_done_ticks;
+  long exec_disp_ticks;
+  long exec_done_ticks;
+};
+
+typedef struct fd_replay_txn_timing fd_replay_txn_timing_t;
+
+struct fd_replay_txn_timing_slot {
+  struct {
+    ulong next;
+  } pool;
+
+  ulong cnt;
+};
+
+typedef struct fd_replay_txn_timing_slot fd_replay_txn_timing_slot_t;
+
+#define POOL_NAME fd_timing_slot_pool
+#define POOL_T    fd_replay_txn_timing_slot_t
+#define POOL_NEXT pool.next
+#include "../../util/tmpl/fd_pool.c"
+
+/* fd_ag_block_id_map indexes the same fd_block_id_ele_t array by the
+   compound {slot, block_id} key.  A block that is still being received
+   through turbing is keyed by {slot, 0}: the DMR is only known once the
+   slot-complete FEC arrives. FECs of a block thus resolve their bank
+   via {slot, 0} without any per-FEC re-keying; on slot complete the
+   entry is re-keyed once to the real {slot, block_id}.
+
+   For blocks that were repaired due to a votor block id event, the
+   block id is known at the slot start.  So the entry is keyed by {slot,
+   block_id} from the start and never rekeyed. */
+
+#define MAP_NAME               fd_block_id_map
+#define MAP_ELE_T              fd_block_id_ele_t
+#define MAP_KEY_T              ag_block_id_t
+#define MAP_KEY                block_info
+#define MAP_NEXT               next
+#define MAP_KEY_EQ(k0,k1)      (ag_block_id_eq( (k0), (k1) ))
+#define MAP_KEY_HASH(key,seed) (fd_hash( (seed), (key), sizeof(ag_block_id_t) ))
+#include "../../util/tmpl/fd_map_chain.c"
+
+/* fd_bhm_map (bank hash mismatch) remembers blocks that replay marked
+   dead because the executed bank hash did not match the one the footer
+   declared.  A finalization (explicit or implicit) for an entry in this
+   map means the cluster agreed on a bank hash we could not reproduce,
+   i.e. this validator has diverged.
+
+   The entries are FIFO evicted, so detection is best effort. On another
+   note, if we mark a slot dead due to diverging bank hash, but it is on
+   the finalized lineage but we do not receive a finalize for it (ex. it
+   only reached notar fallback threshold), we would also miss detecting
+   this bank hash mismatch. */
+
+struct fd_bhm_ele {
+  ag_block_id_t block_id;
+  ulong         next;
+  struct {
+    ulong       next;
+    ulong       prev;
+  } dlist;
+};
+typedef struct fd_bhm_ele fd_bhm_ele_t;
+
+#define POOL_NAME              fd_bhm_pool
+#define POOL_T                 fd_bhm_ele_t
+#include "../../util/tmpl/fd_pool.c"
+
+#define MAP_NAME               fd_bhm_map
+#define MAP_ELE_T              fd_bhm_ele_t
+#define MAP_KEY_T              ag_block_id_t
+#define MAP_KEY                block_id
+#define MAP_NEXT               next
+#define MAP_KEY_EQ(k0,k1)      (ag_block_id_eq( (k0), (k1) ))
+#define MAP_KEY_HASH(key,seed) (fd_hash( (seed), (key), sizeof(ag_block_id_t) ))
+#include "../../util/tmpl/fd_map_chain.c"
+
+#define DLIST_NAME             fd_bhm_dlist
+#define DLIST_ELE_T            fd_bhm_ele_t
+#define DLIST_PREV             dlist.prev
+#define DLIST_NEXT             dlist.next
+#include "../../util/tmpl/fd_dlist.c"
+
+FD_STATIC_ASSERT( FD_EVENT_BLOCK_COMPLETED_TXN_TIMING_MAX>=FD_MAX_TXN_PER_SLOT, txn_timing_ships_full_block );
+
+struct fd_replay_tile {
+  fd_wksp_t * wksp;
+
+  uint rng_seed;
+  fd_rng_t rng[ 1 ];
+
+  fd_clock_tile_t clock[1];
+
+  fd_progcache_join_t progcache[1];
+
+  fd_accdb_t *    accdb;
+  fd_txncache_t * txncache;
+  fd_store_t *    store;
+  fd_store_map_t  map_join[1];
+  int             store_disk_fd;
+  fd_banks_t *    banks;
+
+  /* This flag is 1 If we have seen a vote signature that our node has
+     sent out get rooted at least one time.  The value is 0 otherwise.
+     We can't become leader and pack blocks until this flag has been
+     set.  This parallels the Agave 'has_new_vote_been_rooted'. */
+  int identity_vote_rooted;
+  int wait_for_vote_to_start_leader; /* FD_BOOLAU_{FALSE,TRUE,AUTO} */
+
+  /* vote_account_staked is 1 if stake was delegated to our vote
+     account at boot.  vote_account_inadmissible is 1 while our staked
+     vote account fails the admission ticket filter, or passes it but
+     has not yet been admitted at an epoch boundary. */
+  int vote_account_staked;
+  int vote_account_inadmissible;
+
+  /* wfs_enabled is 1 if the validator is booted in
+     wait_for_supermajority mode. In this mode replay (and, by extension,
+     downstream consumers) is not allowed to make progress until 80% of
+     the cluster has published their ContactInfo in Gossip with a
+     shred version matching expected_shred_version. When this happens,
+     wfs_complete will be set to 1. */
+  int   wfs_enabled;
+  int   wfs_complete;
+
+  ulong     wait_for_supermajority_at_slot;
+  fd_hash_t expected_bank_hash;
+  int       wfs_hash_is_zero;
+
+  ulong            blockhash_seed;
+  fd_reception_stats_t * reception_stats;
+  ulong                  reception_stats_cnt;
+
+  /* When a bank is evicted, the replayable chain of FECs delivered from rotor is broken. i.e.
+     we lose context for a parent we needed to replay off of. When this happens,
+     on the first FEC we see we can't replay, we need to drain everything in the dcache
+     until there's something we can replay off of.  Set this flag to enter that state (i.e. ignore FECs
+     until there's one we can replay. )*/
+  int drain_rotor_fecs;
+
+  fd_sched_t * sched;
+  ulong        in_cnt;
+  ulong        execrp_idle_cnt;
+
+  ulong                vote_tracker_seed;
+  fd_vote_tracker_t *  vote_tracker;
+
+  uint has_genesis_hash:1;
+  uint has_cluster_type:1;
+  uint has_genesis_timestamp:1;
+  uint has_expected_genesis_timestamp:1;
+
+  char         genesis_path[ PATH_MAX ];
+  fd_hash_t    genesis_hash[1];
+  fd_genesis_t * genesis;
+  ulong        cluster_type;
+  ulong        genesis_timestamp;
+  ulong        expected_genesis_timestamp;
+
+  ulong          hard_fork_cnt;
+  fd_hard_fork_t hard_forks[ FD_HARD_FORKS_MAX ];
+
+  ushort expected_shred_version; /* from config, 0 if unset */
+  ushort ipecho_shred_version;   /* from the entrypoints via ipecho, 0 until it answers */
+  ushort shred_version;          /* 0 until computed. the two above only cross-check
+                                    it, and replay holds off executing until it is known. */
+
+  ulong enable_features_cnt;
+  char  enable_features[ 16 ][ FD_BASE58_ENCODED_32_SZ ];
+
+  /* A note on publishing ...
+
+     The watermarks are used to publish our fork-aware structures.  For
+     example, store, banks, and txncache need to be published to release
+     resources occupied by rooted or dead blocks.  In general,
+     publishing has the effect of pruning forks in those structures,
+     indicating that it is ok to release the memory being occupied by
+     the blocks on said forks.  Finalization determines the latest
+     block on the consensus rooted fork.  As soon as we can,
+     we should move the published root as close as possible to the
+     latest consensus root, publishing/pruning everything on the fork
+     tree along the way.  That is, all the blocks that directly descend
+     from the current published root (inclusive) to the new published
+     root (exclusive) on the rooted fork, as well as all the minority
+     forks that branch from said blocks.
+
+     Ideally, we'd move the published root to the consensus root
+     immediately upon receiving a new consensus root.  However, that's
+     not always safe to do.  One thing we need to be careful about is
+     making sure that there are no more users/consumers of
+     soon-to-be-pruned blocks, lest a use-after-free occurs.  This can
+     be done by using a reference counter for each block.  Any
+     concurrent activity, such as transaction execution in the exec
+     tiles, should retain a refcnt on the block for as
+     long as it needs access to the shared fork-aware structures related
+     to that block.  Eventually, refcnt on a given block will drop down
+     to 0 as the block either finishes replaying or gets marked as dead,
+     and any other tile that has retained a refcnt on the block releases
+     it.  At that point, it becomes a candidate for pruning.  The key to
+     safe publishing then becomes figuring out how far we could advance
+     the published root, such that every minority fork branching off of
+     blocks in between the current published root (inclusive) and the
+     new published root (exclusive) is safe to be pruned.  This is a
+     straightforward tree traversal, where if a block B on the rooted
+     fork has refcnt 0, and all minority forks branching off of B also
+     have refcnt 0, then B is safe to be pruned.  We advance the
+     published root to the farthest consecutively prunable block on the
+     rooted fork.  Note that rotor presents the replay tile with a clean
+     view of the world where every block is chained off of a parent
+     block.  So there are no orpahned/dangling tree nodes to worry
+     about.  The world is a nice single tree as far as replay is
+     concerned.
+
+     In the following fork tree, every node is a block and the number in
+     parentheses is the refcnt on the block.  The chain marked with
+     double slashes is the rooted fork.  Suppose the published root is
+     at block P, and consensus root is at block T.  We can't publish
+     past block P because Q has refcnt 1.
+
+
+          P(0)
+        /    \\
+      Q(1)    A(0)
+            / ||  \
+        X(0) B(0)  C(0)
+       /      || \
+      Y(0)   M(0) R(0)
+            / ||   /  \
+        D(2) T(0) J(0) L(0)
+              ||
+              ..
+              ..
+              ..
+              ||
+      blocks we might be actively replaying
+
+
+     When refcnt on Q drops to 0, we would be able to advance the
+     published root to block M, because blocks P, A, and B, as well as
+     all subtrees branching off of them, have refcnt 0, and therefore
+     can be pruned.  Block M itself cannot be pruned yet because its
+     child block D has refcnt 2.  After publishing/pruning, the fork
+     tree would be:
+
+
+             M(0)
+            / ||
+        D(2) T(0)
+              ||
+              ..
+              ..
+              ..
+              ||
+      blocks we might be actively replaying
+
+
+     As a result, the shared fork-aware structures can free resources
+     for blocks P, A, B, and all subtrees branching off of them.
+
+     For the reference counting part, the replay tile is the sole entity
+     that can update the refcnt.  This ensures that all refcnt increment
+     and decrement attempts are serialized at the replay tile, and that
+     there are no racy resurrection of a soon-to-be-pruned block.  If a
+     refcnt increment request arrives after a block has been pruned,
+     replay simply rejects the request.
+
+     A note on the implementation of the above ...
+
+     Upon receiving a new consensus root, we descend down the rooted
+     fork from the current published root to the new consensus root.  On
+     each node/block of the rooted fork, we do a summation of the refcnt
+     on the block and all the minority fork blocks branching from the
+     block.  If the summation is 0, the block is safe for pruning.  We
+     advance the published root to the far end of the consecutive run of
+     0 refcnt sums originating from the current published root.  On our
+     descent down the minority forks, we also mark any block that hasn't
+     finished replaying as dead, so we don't waste time executing them.
+     No more transactions shall be dispatched for execution from dead
+     blocks.
+
+     Blocks start out with a refcnt of 0.  Other tiles may send a
+     request to the replay tile for a reference on a block.  The
+     transaction dispatcher is another source of refcnt updates.  On
+     every dispatch of a transaction for block B, we increment the
+     refcnt for B.  And on every transaction finalization, we decrement
+     the refcnt for B.  This means that whenever the refcnt on a block
+     is 0, there is no more reference on that block from the execution
+     pipeline.  While it might be tempting to simply increment the
+     refcnt once when we start replaying a block, and decrement the
+     refcnt once when we finish a block, this more fine-grained refcnt
+     update strategy allows for aborting and potentially immediate
+     pruning of blocks under interleaved block replay.  Upon receiving a
+     new consensus root, we can simply look at the refcnt on minority
+     fork blocks, and a refcnt of 0 would imply that the block is safe
+     for pruning, even if we haven't finished replaying it.  Without the
+     fine-grained refcnt, we would need to first stop dispatching from
+     the aborted block, and then wait for a full drain of the execution
+     pipeline to know for sure that there are no more in-flight
+     transactions executing on the aborted block.  Note that this will
+     allow the refcnt on any block to transiently drop down to 0.  We
+     will not mistakenly prune an actively replaying block, aka a leaf
+     node, that is chaining off of the rooted fork, because the
+     consensus root is always an ancestor of the actively replaying tip.
+     */
+  fd_hash_t consensus_root;          /* finalized and replayed */
+  ulong     consensus_root_slot;     /* slot number of the above. */
+  fd_hash_t notified_root;           /* The most recent consensus root sent to sched, RPC, and resolv. */
+  ulong     notified_root_slot;      /* slot number of the above. */
+  fd_bank_t * notified_root_bank;    /* bank held by sched, RPC, and resolv for the notified root. */
+  ulong     published_root_slot;     /* slot number of the published root. */
+  ulong     published_root_bank_idx; /* bank index of the published root. */
+
+  /* Watermarks marking the finalized but unreplayed slots.  lo is the
+     oldest and held until replay reaches it.  hi is the newest and
+     continuously updated.  Finalizations between lo and hi are dropped
+     since rooting hi implies its ancestors. */
+  ag_block_id_t finalized_block_id_lo;
+  ag_block_id_t finalized_block_id_hi;
+
+  /* Randomly generated block id for the initial genesis/snapshot slot.
+     Used as a fallback when the snapshot manifest does not contain a
+     block_id (block_id will be populated in Agave 4.1 snapshots and
+     will be required in Agave 4.2). */
+
+  fd_hash_t initial_block_id;
+
+  /* The merkle root of the snapshot slot's block.
+     Only present in snapshots generated by Agave >=4.1. */
+
+  int       has_manifest_block_id;
+  fd_hash_t manifest_block_id;
+
+  /* We need to maintain a tile-local mapping of block-ids to bank index
+     and vice versa.  This translation layer is needed for conversion
+     since votor operates on block-ids and downstream consumers of FEC
+     sets operate on bank indices.  This mapping must happen both ways:
+     1. votor sends us block ids and we must map them to bank indices.
+     2. when a block is completed, we must map the bank index to a block
+        id to send a slot complete message. */
+  ulong               block_id_len;
+  ulong               max_live_slots;
+  fd_block_id_ele_t * block_id_arr;
+  ulong *             dead_idxs; /* max_live_slots scratch for mark_bank_dead */
+
+  fd_hash_t *         fec_chain;
+
+  ulong               block_id_map_seed;
+  fd_block_id_map_t * block_id_map;
+
+  ulong                  bhm_map_seed;
+  fd_bhm_map_t *         bhm_map;
+  fd_bhm_ele_t *         bhm_pool;
+  fd_bhm_dlist_t *       bhm_dlist;
+
+  /* Capture-related configs */
+  fd_capture_ctx_t *     capture_ctx;
+  FILE *                 capture_file;
+  fd_capture_link_buf_t  cap_repl_out[1];
+
+  /* Protobuf dumping context for debugging runtime execution and
+     collecting seed corpora. */
+  fd_dump_proto_ctx_t * dump_proto_ctx;
+
+  /* Per-txn lifecycle timing capture.  The scheduler's txn_info_pool
+     entries are recycled the moment a txn completes, so the ticks are
+     copied out at completion time into a leased capture slot, indexed by
+     the txn's position in the block.  A full-depth buffer per live bank
+     would be ~9.6 GiB, but only a handful of blocks replay concurrently,
+     so a small pool of full-depth slots is leased to banks as they start
+     replaying.  A block that cannot get a slot (more than
+     FD_REPLAY_TXN_TIMING_SLOTS blocks replaying at once) captures
+     nothing.  Slot depth is max_txn_per_slot, so the records sit in a
+     side array sized at footprint time. */
+  fd_replay_txn_timing_slot_t * timing_slot_pool;    /* fd_pool, FD_REPLAY_TXN_TIMING_SLOTS elements */
+  fd_replay_txn_timing_t *      timing_rec;          /* [FD_REPLAY_TXN_TIMING_SLOTS*max_txn_per_slot], slot i at i*max_txn_per_slot */
+  ulong *                       timing_slot_of_bank; /* [max_live_slots] bank_idx -> pool idx or idx_null */
+
+  /* Whether the runtime has been booted either from snapshot loading
+     or from genesis. */
+  int is_booted;
+
+  fd_multi_epoch_leaders_t * mleaders;
+
+  ulong max_txn_per_slot;
+  ulong max_shreds_per_block;
+
+  /* When we transition to becoming leader, we can only unbecome leader
+     if we have received a block id from the FEC reassembler, and a
+     message from PoH that the leader slot has ended.  After both of
+     these conditions are met, then we are free to unbecome leader.
+     Exception: a slot aborted by a reset unbecomes leader on the PoH
+     slot-ended message alone; no block id will ever arrive for it. */
+  uint        is_leader : 1;
+  uint        supports_leader : 1;
+  int         recv_poh;
+
+  ulong       leader_execution_fees;
+  ulong       leader_priority_fees;
+  ulong       leader_tips;
+  fd_block_footer_t leader_footer[ 1 ];
+
+  fd_votor_certed_t votor_final[ 1 ];                                                /* highest finalization, fast over slow at the same slot */
+  fd_votor_leader_t votor_leader[ 1 ];                                               /* ParentReady trigger behind next_leader_slot     */
+  ulong             votor_parent_ready_slot;                                         /* highest window start certs made ParentReady   */
+  long              leader_window_start_ns;                                          /* ParentReady time of the window we are leading   */
+  fd_votor_reward_t votor_reward[ FD_NUM_SLOTS_FOR_REWARD+AG_SLOTS_PER_WINDOW+1UL ];
+
+  ulong       next_leader_slot;
+
+
+  ulong next_leader_query_start;
+  ulong next_leader_query_slot;
+
+  ulong       highwater_leader_slot;
+  ulong       reset_slot;
+  ulong       epoch_end_slot;
+  ulong       slots_per_epoch;
+  ulong       ns_per_slot;
+
+  /* Caught up to the cluster: replay has completed a slot within a few
+     slots of the cluster tip.  Rotor tracks the tip and ships it on
+     each delivered FEC, because rotor delivers only
+     replayable FECs in order and their slots track replay itself. */
+  int         caught_up;
+  ulong       catch_up_max_fec_slot;
+  ulong       catch_up_tip_advance_cnt;
+  long        boot_timestamp_nanos;
+
+  fd_hash_t   reset_dmr; /* double merkle root of the reset block */
+  long        reset_timestamp_nanos;
+  fd_bank_t * leader_bank;
+
+  struct {
+    ulong slot;
+    long  became_leader_nanos;
+    long  leader_slot_start_nanos;
+    long  first_fec_returned_nanos;
+    ulong microblock_count;
+    ulong pack_block_cost;
+    ulong pack_data_bytes;
+    ulong bundle_txn_count;
+    int   pack_end_reason;
+    long  pack_start_nanos;
+    long  pack_end_nanos;
+    ulong timing_table_idx;
+  } leader_stats;
+
+  fd_pubkey_t      identity_pubkey[1];
+  ulong            identity_idx;
+  int              identity_dirty;
+
+  int              has_vote_account;
+  fd_pubkey_t      vote_account[ 1 ];
+
+  fd_node_info_box_t * node_info; /* shared */
+  fd_wait_info_box_t * wait_info; /* shared */
+
+  /* Delinquency, published through wait_info only; not a metric. */
+  int   delinquent_known;
+  ulong delinquent_sample_slot;
+  ulong delinquent_stake_lamports;
+  ulong cluster_active_stake_lamports;
+  /* Delinquency tracking, from the block footer reward certs since
+     last_vote_slot stalls without vote transactions. Indexed by
+     alpenglow rank, which is epoch-scoped. */
+  ulong ag_last_voted[ AG_VAT_MAX ];
+  ulong ag_last_voted_epoch; /* ULONG_MAX before the first reward cert */
+  ulong ag_last_settled;     /* highest settled slot observed */
+  ulong ag_stamp_since;      /* first slot stamped into an empty table */
+
+  /* Signing payload of each exec tile's footer cert verify task */
+  uchar cert_payload   [ FD_SCHED_MAX_EXEC_TILE_CNT ][ FD_ALPENGLOW_CERT_PAYLOAD_MAX ];
+  ulong cert_payload_sz[ FD_SCHED_MAX_EXEC_TILE_CNT ];
+
+  fd_keyswitch_t * keyswitch;
+  int              halt_replay;
+
+  ulong  resolv_tile_cnt;
+
+  int in_kind[ 128 ];
+  fd_replay_in_link_t in[ 128 ];
+
+  ulong                exec_cnt;
+  fd_replay_out_link_t exec_out[ FD_SCHED_MAX_EXEC_TILE_CNT ];
+
+  fd_replay_out_link_t replay_out[1];
+  fd_replay_out_link_t slot_out[1];
+  fd_replay_out_link_t rotor_out[1]; /* REPLAY_SIG_MISSING_FEC */
+  ulong const *        slot_out_seq;
+  fd_replay_out_link_t snapmk_out[1];
+  ulong admin_out_idx;
+
+  fd_replay_out_link_t epoch_out[1];
+
+  /* The rpc tile needs to occasionally own a reference to a live bank.
+     Replay needs to know if the rpc as a consumer is enabled so it can
+     increment the bank's refcnt before publishing bank_idx. */
+  int rpc_enabled;
+
+  /* For dumping blocks to protobuf. For backtest only. */
+  fd_block_dump_ctx_t * block_dump_ctx;
+
+  /* We need a few pieces of information to compute the right addresses
+     for bundle crank information that we need to send to pack. */
+  struct {
+    int                   enabled;
+    fd_pubkey_t           vote_account;
+    fd_bundle_crank_gen_t gen[1];
+  } bundle;
+
+  /* snapshot producer */
+  struct {
+    uint  supported:1;
+    uint  active:1;
+    uint  incremental:1;
+    ulong bank_idx;
+    ulong scheduled_at_slot;
+    ulong full_interval_blocks;
+    ulong next_full_block_height;
+    ulong incremental_interval_blocks;
+    ulong next_incremental_block_height;
+    ulong base_slot;
+    ulong snap_finished_full;
+    ulong snap_finished_incr;
+    ulong snap_produced_incr_cnt;
+    fd_epoch_credits_view_t epoch_credits_view[1];
+  } snapmk;
+
+  struct {
+    fd_histf_t store_query_work[1];
+    ulong      store_query_cnt;
+    ulong      store_query_missing_cnt;
+
+    ulong slots_total;
+    ulong transactions_total;
+
+    ulong reasm_latest_slot;
+    ulong reasm_latest_fec_idx;
+
+    ulong sched_full;
+    ulong leader_bid_wait;
+    ulong banks_full;
+    ulong parent_unavailable;
+    ulong leader_slot_already_produced;
+    ulong leader_window_superseded;
+    ulong fec_rooted_past;
+    ulong storage_root_behind;
+
+    ulong voted_slot; /* monotone, ULONG_MAX if none */
+  } metrics;
+
+  uchar __attribute__((aligned(FD_MULTI_EPOCH_LEADERS_ALIGN))) mleaders_mem[ FD_MULTI_EPOCH_LEADERS_FOOTPRINT ];
+
+  ulong                runtime_stack_seed;
+  fd_runtime_stack_t * runtime_stack;
+
+  fd_footer_cache_t * footer_cache;
+
+  fd_event_block_completed_t * block_completed_event;
+
+  fd_leader_txn_timing_table_t const * leader_txn_timing;
+
+  /* If non-zero, emit the runtime events during replay. */
+  int report_runtime_diffs;
+};
+
+typedef struct fd_replay_tile fd_replay_tile_t;
+
+#endif /* HEADER_fd_src_disco_replay_fd_replay_tile_private_h */

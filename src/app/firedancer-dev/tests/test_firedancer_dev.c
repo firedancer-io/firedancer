@@ -10,7 +10,7 @@
 #include "../../shared_dev/boot/fd_dev_boot.h"
 #include "../../shared_dev/commands/wksp.h"
 #include "../../shared_dev/commands/dev.h"
-#include "../../../discof/genesis/fd_genesi_tile.h"
+#include "../../../disco/genesis/fd_genesi_tile.h"
 #include "../../../disco/topo/fd_cpu_topo.h"
 
 #include <errno.h>

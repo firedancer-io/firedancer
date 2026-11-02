@@ -12,7 +12,7 @@
 #include "../../disco/node_info/fd_node_info.h"
 #include "../../disco/sleep/fd_sleep.h"
 #include "../../disco/wait_info/fd_wait_info.h"
-#include "../../discof/poh/fd_poh.h"
+#include "../../disco/poh/fd_poh.h"
 #include "boot/fd_boot.h"
 
 #define VAL(name) (__extension__({                                                             \
