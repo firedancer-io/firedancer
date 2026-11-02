@@ -11,3 +11,4 @@ src/flamenco/runtime/tests/run_ledger_backtest.sh -l alpenglow-leader-credits -m
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l alpenglow-alpenclock-lamports -m 2000000 -e 280
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l remove-runtime-float-ops-f65655af -m 2000000 -e 730
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l double-disinflation-rate-f65655af -m 2000000 -e 1640
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l replace-ata-with-p-ata-f7c913c6 -m 2000000 -e 316
