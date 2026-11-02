@@ -2403,6 +2403,13 @@ fd_feature_id_t const ids[] = {
     .implemented               = 1,
     .cleaned_up                = 0 },
 
+  { .index                     = offsetof(fd_features_t, core_bpf_hash_validation)>>3,
+    .id                        = {"\xd3\x0e\x01\x38\x54\x80\x23\x6b\x8b\xac\x3a\x04\xba\xb2\xfa\x29\xf3\x15\x74\x9e\x5e\x38\x89\x34\xc4\x9d\xf8\x1a\x50\x42\x2d\x98"},
+                                 /* FCsQnd4V52NESBhVURWYSWBbmLFzgxEZVC2WngzHzp1u */
+    .name                      = "core_bpf_hash_validation",
+    .implemented               = 1,
+    .cleaned_up                = 0 },
+
   { .index = ULONG_MAX }
 };
 
@@ -2726,6 +2733,7 @@ typedef struct fd_feature_id_lookup_entry fd_feature_id_lookup_entry_t;
 #define MAP_PERFECT_304 0x663c696babd69106UL, .val = &ids[304]
 #define MAP_PERFECT_305 0xcb2d7ae31276d40cUL, .val = &ids[305]
 #define MAP_PERFECT_306 0x30641c596cbeb55bUL, .val = &ids[306]
+#define MAP_PERFECT_307 0x6b23805438010ed3UL, .val = &ids[307]
 
 #include "../../util/tmpl/fd_map_perfect.c"
 
@@ -3043,4 +3051,5 @@ FD_STATIC_ASSERT( offsetof( fd_features_t, geo_aware_leader_schedule            
 FD_STATIC_ASSERT( offsetof( fd_features_t, secp256r1_syscall_enabled                               )>>3==304UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, stricter_shred_validation                               )>>3==305UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, remove_runtime_float_ops                                )>>3==306UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, core_bpf_hash_validation                                )>>3==307UL, layout );
 FD_STATIC_ASSERT( sizeof( fd_features_t )>>3==FD_FEATURE_ID_CNT, layout );
