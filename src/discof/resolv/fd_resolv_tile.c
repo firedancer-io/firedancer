@@ -84,8 +84,12 @@ durable_nonce_hash( blockhash_t const * blockhash,
 
 /* Txns referencing an unknown (typically future) blockhash wait here
    until it appears; LRU evicted when full.  16384 is ~1.4s of inflow
-   at 10x current mainnet non-vote TPS. */
+   at 10x current mainnet non-vote TPS.  Slots fit any legacy/V0 txn
+   (payload <= FD_TXN_MTU_V0); larger V1 bodies go to a separate LRU
+   of STASH_BIG_CNT full-MTU slots. */
 #define STASH_POOL_CNT (1UL<<14UL)
+#define STASH_BIG_CNT  (1UL<<10UL)
+#define STASH_MTU      FD_ULONG_ALIGN_UP( FD_ULONG_ALIGN_UP( sizeof(fd_txn_m_t)+FD_TXN_MTU_V0, alignof(fd_txn_t) )+FD_TXN_MAX_SZ, alignof(fd_txn_m_t) )
 #define BLOCKHASH_RING_LEN   (1UL<<BLOCKHASH_LG_RING_CNT)
 
 #define MAP_NAME               map
@@ -122,9 +126,20 @@ typedef struct {
   ulong map_next;
   ulong map_prev;
 
+  /* Points into _ or into the big slot holding the body */
   blockhash_t * blockhash;
-  uchar _[ FD_TPU_PARSED_MTU ] __attribute__((aligned(alignof(fd_txn_m_t))));
+  uchar _[ STASH_MTU ] __attribute__((aligned(alignof(fd_txn_m_t))));
 } fd_stashed_txn_m_t;
+
+typedef struct {
+  union {
+    ulong pool_next;
+    ulong lru_next;
+  };
+  ulong lru_prev;
+  ulong owner; /* pool idx of the fd_stashed_txn_m_t */
+  uchar _[ FD_TPU_PARSED_MTU ] __attribute__((aligned(alignof(fd_txn_m_t))));
+} fd_stashed_big_t;
 
 #define POOL_NAME      pool
 #define POOL_T         fd_stashed_txn_m_t
@@ -136,6 +151,20 @@ typedef struct {
 /* We'll push at the head, which means the tail is the oldest. */
 #define DLIST_NAME  lru_list
 #define DLIST_ELE_T fd_stashed_txn_m_t
+#define DLIST_PREV  lru_prev
+#define DLIST_NEXT  lru_next
+
+#include "../../util/tmpl/fd_dlist.c"
+
+#define POOL_NAME      big_pool
+#define POOL_T         fd_stashed_big_t
+#define POOL_NEXT      pool_next
+#define POOL_IDX_T     ulong
+
+#include "../../util/tmpl/fd_pool.c"
+
+#define DLIST_NAME  big_lru
+#define DLIST_ELE_T fd_stashed_big_t
 #define DLIST_PREV  lru_prev
 #define DLIST_NEXT  lru_next
 
@@ -201,6 +230,8 @@ typedef struct {
   fd_stashed_txn_m_t * pool;
   map_chain_t *        map_chain;
   lru_list_t           lru_list[1];
+  fd_stashed_big_t *   big_pool;
+  big_lru_t            big_lru[1];
 
   fd_startup_gate_t startup_gate[1];
 
@@ -243,7 +274,7 @@ typedef struct {
 
 FD_FN_CONST static inline ulong
 scratch_align( void ) {
-  return fd_ulong_max( fd_ulong_max( alignof( fd_resolv_ctx_t ), pool_align() ), fd_ulong_max( map_chain_align(), fd_ulong_max( map_align(), nmap_align() ) ) );
+  return fd_ulong_max( fd_ulong_max( fd_ulong_max( alignof( fd_resolv_ctx_t ), pool_align() ), big_pool_align() ), fd_ulong_max( map_chain_align(), fd_ulong_max( map_align(), nmap_align() ) ) );
 }
 
 FD_FN_PURE static inline ulong
@@ -253,11 +284,30 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof( fd_resolv_ctx_t ), sizeof( fd_resolv_ctx_t )                            );
   l = FD_LAYOUT_APPEND( l, pool_align(),               pool_footprint     ( STASH_POOL_CNT )                );
+  l = FD_LAYOUT_APPEND( l, big_pool_align(),           big_pool_footprint ( STASH_BIG_CNT  )                );
   l = FD_LAYOUT_APPEND( l, map_chain_align(),          map_chain_footprint( 8192UL    )                     );
   l = FD_LAYOUT_APPEND( l, map_align(),                map_footprint( map_chain_cnt   )                     );
   l = FD_LAYOUT_APPEND( l, nmap_align(),               nmap_footprint( map_chain_cnt  )                     );
   l = FD_LAYOUT_APPEND( l, fd_accdb_align(),           fd_accdb_footprint( tile->resolv.max_live_slots, 0 ) );
   return FD_LAYOUT_FINI( l, scratch_align() );
+}
+
+/* Big slot holding the stashed body, or ULONG_MAX if inline. */
+static inline ulong
+stash_big_idx( fd_resolv_ctx_t const *    ctx,
+               fd_stashed_txn_m_t const * stash ) {
+  ulong off = (ulong)stash->blockhash - (ulong)ctx->big_pool;
+  return off<STASH_BIG_CNT*sizeof(fd_stashed_big_t) ? off/sizeof(fd_stashed_big_t) : ULONG_MAX;
+}
+
+static inline void
+stash_big_release( fd_resolv_ctx_t * ctx,
+                   ulong             pool_idx ) {
+  ulong big_idx = stash_big_idx( ctx, pool_ele( ctx->pool, pool_idx ) );
+  if( FD_UNLIKELY( big_idx!=ULONG_MAX ) ) {
+    big_lru_idx_remove( ctx->big_lru, big_idx, ctx->big_pool );
+    big_pool_idx_release( ctx->big_pool, big_idx );
+  }
 }
 
 static inline void
@@ -412,8 +462,10 @@ static int
 publish_txn( fd_resolv_ctx_t *          ctx,
              fd_stem_context_t *        stem,
              fd_stashed_txn_m_t const * stashed ) {
+  ulong        big_idx = stash_big_idx( ctx, stashed );
+  uchar const * body   = big_idx==ULONG_MAX ? stashed->_ : ctx->big_pool[ big_idx ]._;
   fd_txn_m_t * txnm = fd_chunk_to_laddr( ctx->out_pack->mem, ctx->out_pack->chunk );
-  fd_memcpy( txnm, stashed->_, fd_txn_m_realized_footprint( (fd_txn_m_t *)stashed->_, 1, 0 ) );
+  fd_memcpy( txnm, body, fd_txn_m_realized_footprint( (fd_txn_m_t const *)body, 1, 0 ) );
 
   fd_txn_t const * txnt = fd_txn_m_txn_t( txnm );
 
@@ -456,6 +508,7 @@ after_credit( fd_resolv_ctx_t *   ctx,
     ctx->metrics.stash_removed[ FD_METRICS_ENUM_STASH_REMOVE_REASON_V_FAILED_IDX    ]++;
   }
   lru_list_idx_remove( ctx->lru_list, ctx->flush_pool_idx, ctx->pool );
+  stash_big_release( ctx, ctx->flush_pool_idx );
   pool_idx_release( ctx->pool, ctx->flush_pool_idx );
   ctx->flush_pool_idx = next;
 }
@@ -612,6 +665,7 @@ after_frag( fd_resolv_ctx_t *   ctx,
     if( FD_UNLIKELY( !pool_free( ctx->pool ) ) ) {
       pool_idx = lru_list_idx_pop_tail( ctx->lru_list, ctx->pool );
       map_chain_idx_remove_fast( ctx->map_chain, pool_idx, ctx->pool );
+      stash_big_release( ctx, pool_idx );
       ctx->metrics.stash_removed[ FD_METRICS_ENUM_STASH_REMOVE_REASON_V_EVICTED_IDX ]++;
     } else {
       pool_idx = pool_idx_acquire( ctx->pool );
@@ -627,8 +681,27 @@ after_frag( fd_resolv_ctx_t *   ctx,
        IDX_NULL; and if pool_free returns non-zero, then
        pool_idx_acquire won't return POOL_IDX_NULL. */
     FD_COMPILER_FORGET( stash_txn );
-    fd_memcpy( stash_txn->_, txnm, fd_txn_m_realized_footprint( txnm, 1, 0 ) );
-    stash_txn->blockhash = (blockhash_t *)(fd_txn_m_payload( (fd_txn_m_t *)(stash_txn->_) ) + txnt->recent_blockhash_off);
+
+    ulong   txn_sz = fd_txn_m_realized_footprint( txnm, 1, 0 );
+    uchar * body   = stash_txn->_;
+    if( FD_UNLIKELY( txn_sz>STASH_MTU ) ) {
+      ulong big_idx;
+      if( FD_UNLIKELY( !big_pool_free( ctx->big_pool ) ) ) {
+        big_idx = big_lru_idx_pop_tail( ctx->big_lru, ctx->big_pool );
+        ulong owner = ctx->big_pool[ big_idx ].owner;
+        map_chain_idx_remove_fast( ctx->map_chain, owner, ctx->pool );
+        lru_list_idx_remove( ctx->lru_list, owner, ctx->pool );
+        pool_idx_release( ctx->pool, owner );
+        ctx->metrics.stash_removed[ FD_METRICS_ENUM_STASH_REMOVE_REASON_V_EVICTED_IDX ]++;
+      } else {
+        big_idx = big_pool_idx_acquire( ctx->big_pool );
+      }
+      ctx->big_pool[ big_idx ].owner = pool_idx;
+      big_lru_idx_push_head( ctx->big_lru, big_idx, ctx->big_pool );
+      body = ctx->big_pool[ big_idx ]._;
+    }
+    fd_memcpy( body, txnm, txn_sz );
+    stash_txn->blockhash = (blockhash_t *)(fd_txn_m_payload( (fd_txn_m_t *)body ) + txnt->recent_blockhash_off);
     ctx->metrics.stash_inserted++;
 
     map_chain_ele_insert( ctx->map_chain, stash_txn, ctx->pool );
@@ -690,10 +763,14 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->pool = pool_join( pool_new( FD_SCRATCH_ALLOC_APPEND( l, pool_align(), pool_footprint( STASH_POOL_CNT ) ), STASH_POOL_CNT ) );
   FD_TEST( ctx->pool );
 
+  ctx->big_pool = big_pool_join( big_pool_new( FD_SCRATCH_ALLOC_APPEND( l, big_pool_align(), big_pool_footprint( STASH_BIG_CNT ) ), STASH_BIG_CNT ) );
+  FD_TEST( ctx->big_pool );
+
   ctx->map_chain = map_chain_join( map_chain_new( FD_SCRATCH_ALLOC_APPEND( l, map_chain_align(), map_chain_footprint( 8192ULL ) ), 8192UL, ctx->map_seed ) );
   FD_TEST( ctx->map_chain );
 
   FD_TEST( ctx->lru_list==lru_list_join( lru_list_new( ctx->lru_list ) ) );
+  FD_TEST( ctx->big_lru==big_lru_join( big_lru_new( ctx->big_lru ) ) );
 
   memset( ctx->blockhash_ring, 0, sizeof( ctx->blockhash_ring ) );
   memset( &ctx->metrics, 0, sizeof( ctx->metrics ) );

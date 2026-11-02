@@ -193,16 +193,19 @@ test_env_create( test_env_t * env ) {
   env->ctx->completed_slot         = 200UL;
   env->ctx->completed_block_height = 200UL;
   env->ctx->flush_pool_idx         = ULONG_MAX;
-  env->ctx->pool                   = pool_join( pool_new( FD_SCRATCH_ALLOC_APPEND( l, pool_align(), pool_footprint( 1UL<<16UL ) ), 1UL<<16UL ) );
+  env->ctx->pool                   = pool_join( pool_new( FD_SCRATCH_ALLOC_APPEND( l, pool_align(), pool_footprint( STASH_POOL_CNT ) ), STASH_POOL_CNT ) );
+  env->ctx->big_pool               = big_pool_join( big_pool_new( FD_SCRATCH_ALLOC_APPEND( l, big_pool_align(), big_pool_footprint( STASH_BIG_CNT ) ), STASH_BIG_CNT ) );
   env->ctx->map_chain              = map_chain_join( map_chain_new( FD_SCRATCH_ALLOC_APPEND( l, map_chain_align(), map_chain_footprint( 8192UL ) ), 8192UL, TEST_HASH_SEED ) );
   env->ctx->blockhash_map          = map_join( map_new( FD_SCRATCH_ALLOC_APPEND( l, map_align(), map_footprint( map_chain_cnt ) ), map_chain_cnt, TEST_HASH_SEED ) );
   env->ctx->nonce_blockhash_map    = nmap_join( nmap_new( FD_SCRATCH_ALLOC_APPEND( l, nmap_align(), nmap_footprint( map_chain_cnt ) ), map_chain_cnt, TEST_HASH_SEED ) );
   FD_TEST( env->ctx->pool );
+  FD_TEST( env->ctx->big_pool );
   FD_TEST( env->ctx->map_chain );
   FD_TEST( map_chain_seed( env->ctx->map_chain )==TEST_HASH_SEED );
   FD_TEST( env->ctx->blockhash_map );
   FD_TEST( map_seed( env->ctx->blockhash_map )==TEST_HASH_SEED );
   FD_TEST( env->ctx->lru_list==lru_list_join( lru_list_new( env->ctx->lru_list ) ) );
+  FD_TEST( env->ctx->big_lru==big_lru_join( big_lru_new( env->ctx->big_lru ) ) );
 
   env->ctx->in[0].kind = IN_KIND_DEDUP;
   env->ctx->in[1].kind = IN_KIND_REPLAY;
@@ -360,7 +363,7 @@ FD_UNIT_TEST( resolv_durable_nonce ) {
   test_ingest_txn( env, &durable_hash, 1 );
 
   FD_TEST( env->stem_seqs[0]==1UL );
-  FD_TEST( pool_free( env->ctx->pool )==(1UL<<16UL) );
+  FD_TEST( pool_free( env->ctx->pool )==STASH_POOL_CNT );
   FD_TEST( env->stem_seqs[0]>0UL );
   fd_frag_meta_t const * meta = env->out_mcache[0] + fd_mcache_line_idx( 0UL, env->stem_depths[0] );
   FD_TEST( meta->seq==0UL );
@@ -409,7 +412,7 @@ FD_UNIT_TEST( resolv_blockhash_unknown ) {
   test_ingest_txn( env, &hash, 0 );
 
   FD_TEST( env->stem_seqs[0]==0UL );
-  FD_TEST( pool_free( env->ctx->pool )==( (1UL<<16UL)-1UL ) );
+  FD_TEST( pool_free( env->ctx->pool )==STASH_POOL_CNT-1UL );
   FD_TEST( env->ctx->metrics.stash_inserted==1UL );
 
   env->ctx->_completed_slot_msg.slot         = 250UL;
@@ -422,7 +425,7 @@ FD_UNIT_TEST( resolv_blockhash_unknown ) {
   after_credit( env->ctx, env->stem, &opt_poll_in, &charge_busy );
 
   FD_TEST( env->stem_seqs[0]==1UL );
-  FD_TEST( pool_free( env->ctx->pool )==(1UL<<16UL) );
+  FD_TEST( pool_free( env->ctx->pool )==STASH_POOL_CNT );
   FD_TEST( env->ctx->metrics.stash_removed[ FD_METRICS_ENUM_STASH_REMOVE_REASON_V_PUBLISHED_IDX ]==1UL );
   FD_TEST( env->stem_seqs[0]>0UL );
   fd_frag_meta_t const * meta = env->out_mcache[0] + fd_mcache_line_idx( 0UL, env->stem_depths[0] );
@@ -431,6 +434,87 @@ FD_UNIT_TEST( resolv_blockhash_unknown ) {
 
   fd_txn_m_t const * published = fd_chunk_to_laddr_const( env->ctx->out_pack->mem, meta->chunk );
   FD_TEST( published->reference_block_height==250UL );
+
+  test_env_destroy( env );
+}
+
+/* V1 txn with one data_sz-byte instruction, payload 174+data_sz */
+static void
+test_ingest_v1_txn( test_env_t *      env,
+                    fd_hash_t const * recent_blockhash,
+                    ushort            data_sz ) {
+  fd_txn_m_t * txnm = fd_chunk_to_laddr( env->ctx->out_pack->mem, env->ctx->out_pack->chunk );
+  fd_memset( txnm, 0, FD_TPU_PARSED_MTU );
+  uchar * begin = fd_txn_m_payload( txnm );
+  uchar * cur   = begin;
+  uchar hdr[8] = { 0x80U|FD_TXN_V1, 1U, 0U, 1U, 0U, 0U, 0U, 0U }; /* version, sigs, ro_signed, ro_unsigned, config_mask */
+  test_add( begin, &cur, hdr, 8UL );
+  test_add( begin, &cur, (void *)recent_blockhash, 32UL );
+  uchar cnts[2] = { 1U, 2U }; /* instr_cnt, acct_addr_cnt */
+  test_add( begin, &cur, cnts, 2UL );
+  fd_pubkey_t keys[2] = { { .ul = { 0x1111UL } }, { .ul = { 0x4444UL } } };
+  test_add( begin, &cur, keys, sizeof(keys) );
+  uchar ix[4] = { 1U, 0U, (uchar)data_sz, (uchar)(data_sz>>8) };
+  test_add( begin, &cur, ix, 4UL );
+  fd_memset( cur, 0x5a, data_sz );                    cur += data_sz;
+  fd_memset( cur, 0,    FD_TXN_SIGNATURE_SZ );        cur += FD_TXN_SIGNATURE_SZ;
+  txnm->payload_sz = (ushort)( cur-begin );
+  txnm->txn_t_sz   = (ushort)fd_txn_parse( begin, txnm->payload_sz, fd_txn_m_txn_t( txnm ), NULL );
+  FD_TEST( txnm->txn_t_sz );
+  after_frag( env->ctx, 0UL, 0UL, 0UL, fd_txn_m_realized_footprint( txnm, 1, 0 ), 0UL, 0UL, env->stem );
+}
+
+/* Oversized V1 bodies live in the big LRU: filling it evicts only the
+   oldest V1, legacy entries survive, and main-LRU eviction of a V1
+   entry frees its big slot. */
+FD_UNIT_TEST( resolv_stash_v1_big ) {
+  test_env_t env[1];
+  test_env_create( env );
+
+  fd_hash_t legacy_hash = { .ul = { 0x1eUL } };
+  test_ingest_txn( env, &legacy_hash, 0 );
+  /* V1 at <= FD_TXN_MTU_V0 stays inline */
+  test_ingest_v1_txn( env, &legacy_hash, 1000U );
+  FD_TEST( big_pool_free( env->ctx->big_pool )==STASH_BIG_CNT );
+
+  for( ulong i=0UL; i<=STASH_BIG_CNT; i++ ) {
+    fd_hash_t h = { .ul = { 0xb16UL, i } };
+    test_ingest_v1_txn( env, &h, 3000U );
+  }
+  FD_TEST( env->stem_seqs[0]==0UL );
+  FD_TEST( !big_pool_free( env->ctx->big_pool ) );
+  FD_TEST( pool_free( env->ctx->pool )==STASH_POOL_CNT-2UL-STASH_BIG_CNT );
+  FD_TEST( env->ctx->metrics.stash_removed[ FD_METRICS_ENUM_STASH_REMOVE_REASON_V_EVICTED_IDX ]==1UL );
+  blockhash_t first[1]; fd_memset( first, 0, 32UL );
+  FD_STORE( ulong, first->b, 0xb16UL );
+  blockhash_t * first_ptr = first;
+  FD_TEST( map_chain_idx_query_const( env->ctx->map_chain, &first_ptr, ULONG_MAX, env->ctx->pool )==ULONG_MAX );
+  blockhash_t legacy[1]; fd_memcpy( legacy->b, legacy_hash.uc, 32UL );
+  blockhash_t * legacy_ptr = legacy;
+  FD_TEST( map_chain_idx_query_const( env->ctx->map_chain, &legacy_ptr, ULONG_MAX, env->ctx->pool )!=ULONG_MAX );
+
+  /* Flush the newest V1 from its big slot */
+  fd_hash_t last = { .ul = { 0xb16UL, STASH_BIG_CNT } };
+  env->ctx->_completed_slot_msg.slot         = 250UL;
+  env->ctx->_completed_slot_msg.block_height = 250UL;
+  env->ctx->_completed_slot_msg.block_hash   = last;
+  after_frag( env->ctx, 1UL, 0UL, REPLAY_SIG_SLOT_COMPLETED, sizeof(fd_replay_slot_completed_t), 0UL, 0UL, env->stem );
+  int opt_poll_in = 1;
+  int charge_busy = 0;
+  after_credit( env->ctx, env->stem, &opt_poll_in, &charge_busy );
+  FD_TEST( env->stem_seqs[0]==1UL );
+  FD_TEST( big_pool_free( env->ctx->big_pool )==1UL );
+  fd_frag_meta_t const * meta = env->out_mcache[0] + fd_mcache_line_idx( 0UL, env->stem_depths[0] );
+  fd_txn_m_t const * published = fd_chunk_to_laddr_const( env->ctx->out_pack->mem, meta->chunk );
+  FD_TEST( published->payload_sz==174U+3000U );
+  FD_TEST( !memcmp( fd_txn_m_payload_const( published )+fd_txn_m_txn_t_const( published )->recent_blockhash_off, last.uc, 32UL ) );
+  FD_TEST( fd_txn_m_payload_const( published )[ 174UL+3000UL-FD_TXN_SIGNATURE_SZ-1UL ]==0x5a );
+
+  /* Main LRU wraps: every V1 is evicted and releases its big slot */
+  for( ulong i=0UL; i<STASH_POOL_CNT; i++ ) test_ingest_txn( env, &legacy_hash, 0 );
+  FD_TEST( big_pool_free( env->ctx->big_pool )==STASH_BIG_CNT );
+  FD_TEST( big_lru_is_empty( env->ctx->big_lru, env->ctx->big_pool ) );
+  FD_TEST( !pool_free( env->ctx->pool ) );
 
   test_env_destroy( env );
 }
