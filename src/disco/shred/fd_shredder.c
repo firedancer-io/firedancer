@@ -79,8 +79,7 @@ fd_shredder_delete( void *          mem      ) {
 fd_shredder_t *
 fd_shredder_skip_batch( fd_shredder_t * shredder,
                         ulong           entry_batch_sz,
-                        ulong           slot,
-                        int             block_complete ) {
+                        ulong           slot ) {
 
   if( FD_UNLIKELY( entry_batch_sz==0UL ) ) return NULL;
 
@@ -89,8 +88,8 @@ fd_shredder_skip_batch( fd_shredder_t * shredder,
     shredder->parity_idx_offset = 0UL;
   }
 
-  ulong data_shred_cnt        =  fd_shredder_count_data_shreds(   entry_batch_sz, block_complete );
-  ulong parity_shred_cnt      =  fd_shredder_count_parity_shreds( entry_batch_sz, block_complete );
+  ulong data_shred_cnt        =  fd_shredder_count_data_shreds(   entry_batch_sz );
+  ulong parity_shred_cnt      =  fd_shredder_count_parity_shreds( entry_batch_sz );
 
   shredder->data_idx_offset   += data_shred_cnt;
   shredder->parity_idx_offset += parity_shred_cnt;
@@ -140,22 +139,12 @@ fd_shredder_next_fec_set( fd_shredder_t * shredder,
   /* Set the shred type */
   int block_complete = shredder->meta.block_complete==1;
   int is_chained     = 1;
-  int is_resigned    = block_complete & (entry_bytes_remaining<=FD_SHREDDER_RESIGNED_FEC_SET_PAYLOAD_SZ);
 
-  uchar data_type = fd_uchar_if( is_resigned, FD_SHRED_TYPE_MERKLE_DATA_CHAINED_RESIGNED, FD_SHRED_TYPE_MERKLE_DATA_CHAINED  );
-  uchar code_type = fd_uchar_if( is_resigned, FD_SHRED_TYPE_MERKLE_CODE_CHAINED_RESIGNED, FD_SHRED_TYPE_MERKLE_CODE_CHAINED  );
+  uchar data_type = FD_SHRED_TYPE_MERKLE_DATA_CHAINED;
+  uchar code_type = FD_SHRED_TYPE_MERKLE_CODE_CHAINED;
 
   /* how many total payload bytes in this FEC set? */
-  ulong chunk_size;
-  if( FD_LIKELY( !block_complete ) ) { /* the easy case */
-    chunk_size = fd_ulong_min( entry_bytes_remaining, FD_SHREDDER_CHAINED_FEC_SET_PAYLOAD_SZ  );
-  } else if( FD_UNLIKELY( is_resigned ) ) {
-    chunk_size = fd_ulong_min( entry_bytes_remaining, FD_SHREDDER_RESIGNED_FEC_SET_PAYLOAD_SZ );
-  } else {
-    /* Save room for the resigned batch.  The difference is > 0 because
-       if it weren't, we would have taken the is_resigned case. */
-    chunk_size = fd_ulong_min( entry_bytes_remaining-FD_SHREDDER_RESIGNED_FEC_SET_PAYLOAD_SZ, FD_SHREDDER_CHAINED_FEC_SET_PAYLOAD_SZ );
-  }
+  ulong chunk_size = fd_ulong_min( entry_bytes_remaining, FD_SHREDDER_CHAINED_FEC_SET_PAYLOAD_SZ  );
   ulong last_in_batch           = (chunk_size+offset==entry_sz);
   ulong adj_entry_sz            = offset+chunk_size;
 
@@ -164,7 +153,7 @@ fd_shredder_next_fec_set( fd_shredder_t * shredder,
   /* Our notion of tree depth counts the root, while the shred version
      doesn't. */
   ulong tree_depth              = fd_bmtree_depth( data_shred_cnt+parity_shred_cnt )-1UL;
-  ulong data_shred_payload_sz   = 1115UL - 20UL*tree_depth - 32UL*(ulong)is_chained - 64UL*(ulong)is_resigned;
+  ulong data_shred_payload_sz   = 1115UL - 20UL*tree_depth - 32UL*(ulong)is_chained;
   ulong parity_shred_payload_sz = data_shred_payload_sz + FD_SHRED_DATA_HEADER_SZ - FD_SHRED_SIGNATURE_SZ;
   ulong data_merkle_sz          = parity_shred_payload_sz + 32UL*(ulong)is_chained;
   ulong parity_merkle_sz        = data_merkle_sz + FD_SHRED_CODE_HEADER_SZ - FD_SHRED_SIGNATURE_SZ;
@@ -255,13 +244,6 @@ fd_shredder_next_fec_set( fd_shredder_t * shredder,
 
     uchar * merkle = result->data_shreds[ i ].b + fd_shred_merkle_off( shred );
     fd_bmtree_get_proof( bmtree, merkle, i );
-
-    /* Agave doesn't seem to set the rentransmitter signature when the shred is first created,
-       i.e. the leader sends shreds with rentransmitter signature set to 0.
-       https://github.com/anza-xyz/agave/blob/v2.2.10/ledger/src/shred/merkle.rs#L1417-L1418 */
-    if( FD_UNLIKELY( is_resigned ) ) {
-      memset( ((uchar*)shred) + fd_shred_retransmitter_sig_off( shred ), 0, 64UL );
-    }
   }
 
   for( ulong j=0UL; j<parity_shred_cnt; j++ ) {
@@ -269,10 +251,6 @@ fd_shredder_next_fec_set( fd_shredder_t * shredder,
 
     uchar * merkle = result->parity_shreds[ j ].b + fd_shred_merkle_off( shred );
     fd_bmtree_get_proof( bmtree, merkle, data_shred_cnt+j );
-
-    if( FD_UNLIKELY( is_resigned ) ) {
-      memset( ((uchar*)shred) + fd_shred_retransmitter_sig_off( shred ), 0, 64UL );
-    }
   }
 
   shredder->offset             = offset;
