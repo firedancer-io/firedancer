@@ -225,6 +225,13 @@ typedef struct fd_pack_wcost_ele fd_pack_wcost_ele_t;
 /* Returns 1 if x.rewards/x.compute < y.rewards/y.compute. Not robust. */
 #define COMPARE_WORSE(x,y) ( ((ulong)((x)->rewards)*(ulong)((y)->compute_est)) < ((ulong)((y)->rewards)*(ulong)((x)->compute_est)) )
 
+/* Same, but tie-breaking with arrival order. */
+#define COMPARE_WORSE_FIFO(x,y) (__extension__({                                  \
+    ulong _cwf_l = (ulong)((x)->rewards)*(ulong)((y)->compute_est);               \
+    ulong _cwf_r = (ulong)((y)->rewards)*(ulong)((x)->compute_est);               \
+    (_cwf_l<_cwf_r) | ( (_cwf_l==_cwf_r) &                                        \
+                        ((x)->txn->first_seen_nanos>(y)->txn->first_seen_nanos) ); }))
+
 /* Declare all the data structures */
 
 
@@ -245,7 +252,7 @@ typedef struct fd_pack_wcost_ele fd_pack_wcost_ele_t;
                                                                           implementation to cmp either */
 #define TREAP_IDX_T     ushort
 #define TREAP_OPTIMIZE_ITERATION 1
-#define TREAP_LT        COMPARE_WORSE
+#define TREAP_LT        COMPARE_WORSE_FIFO
 #include "../../util/tmpl/fd_treap.c"
 
 
@@ -2319,7 +2326,7 @@ fd_pack_microblock_complete( fd_pack_t * pack,
       fd_pack_penalty_treap_t * p_trp = penalty_map_query( pack->penalty_treaps, base[i].key, NULL );
       if( FD_UNLIKELY( p_trp ) ) {
         fd_pack_ord_txn_t * best_in_trp = treap_rev_iter_ele( treap_rev_iter_init( p_trp->penalty_treap, pack->pool ), pack->pool );
-        if( FD_UNLIKELY( !best || COMPARE_WORSE( best, best_in_trp ) ) ) {
+        if( FD_UNLIKELY( !best || COMPARE_WORSE_FIFO( best, best_in_trp ) ) ) {
           best         = best_in_trp;
           best_penalty = p_trp;
         }
@@ -3058,7 +3065,7 @@ delete_transaction( fd_pack_t         * pack,
       fd_pack_penalty_treap_t * p_trp = penalty_map_query( pack->penalty_treaps, *ACCT_ITER_TO_PTR( iter ), NULL );
       if( FD_UNLIKELY( p_trp ) ) {
         fd_pack_ord_txn_t * best_in_trp = treap_rev_iter_ele( treap_rev_iter_init( p_trp->penalty_treap, pack->pool ), pack->pool );
-        if( FD_UNLIKELY( !best || COMPARE_WORSE( best, best_in_trp ) ) ) {
+        if( FD_UNLIKELY( !best || COMPARE_WORSE_FIFO( best, best_in_trp ) ) ) {
           best         = best_in_trp;
           best_penalty = p_trp;
         }
