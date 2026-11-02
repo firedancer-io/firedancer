@@ -113,6 +113,8 @@ class Field:
                                         # fields are otherwise positional
     deprecated: bool = False  # kept in place so later positions never shift;
                               # never encoded, absent from the C struct
+    reserved: bool = False    # a removed deprecated field: holds its position
+                              # as `reserved <n>; reserved "<name>";`, no column
 
 @dataclass
 class Schema:
@@ -123,7 +125,7 @@ class Schema:
     local: bool = False       # rendered by the event tile, never sent over a frag
     deprecated: bool = False  # no longer sent; proto message and server table stay
 
-_FIELD_KEYS = {"type", "description", "variants", "fields", "element", "max_len", "dynamic", "compression", "field_number", "deprecated", "renamed_from", "aliases"}
+_FIELD_KEYS = {"type", "description", "variants", "fields", "element", "max_len", "dynamic", "compression", "field_number", "deprecated", "renamed_from", "aliases", "reserved"}
 
 # Event ids of frag-reported schemas fit the 8-bit type of FD_EVENT_SIG.
 # Local schemas use any protobuf field number; ids at or above
@@ -136,6 +138,11 @@ def parse_field(f: dict, shared_types: Dict[str, dict]) -> Field:
     unknown = set(f) - _FIELD_KEYS
     if unknown:
         raise ValueError(f"Unknown field keys (typo?): {sorted(unknown)}")
+    if f.get("reserved"):
+        # A removed field keeps its slot so later positions never shift
+        if set(f) - {"reserved", "field_number"}:
+            raise ValueError(f"A reserved field takes only field_number: {sorted(set(f) - {'reserved', 'field_number'})}")
+        return Field(ClickHouseType.UInt64, "", field_number=f.get("field_number"), deprecated=True, reserved=True)
     if f["type"].startswith("ref:"):
         field = parse_field(shared_types[f["type"][4:]], shared_types)
         field.shared_name  = f["type"][4:]
@@ -250,6 +257,9 @@ def generate_message_fields(fields: Dict[str, Field], prefix: str = "") -> List[
             proto_type = inner.shared_name or f"{prefix}{to_pascal_case(name)}"
         else:
             proto_type = inner.chtype.to_protobuf_type()
+        if f.reserved:
+            lines += [f"  reserved {n};", f'  reserved "{name}";']
+            continue
         label = "repeated " if f.chtype == ClickHouseType.Array else ""
         opt   = " [deprecated = true]" if f.deprecated else ""
         lines += [f"  // {f.description}", f"  {label}{proto_type} {name} = {n}{opt};"]

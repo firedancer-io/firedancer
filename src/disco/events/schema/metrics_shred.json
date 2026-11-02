@@ -85,30 +85,7 @@
         "device_irq":                   { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. Device IRQs on the tile's dedicated CPU, 0 unless it is the only live tile pinned there" },
         "tlb_shootdown":                { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. TLB shootdowns on the tile's dedicated CPU, 0 unless it is the only live tile pinned there" },
         "timer_irq":                    { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. Local timer interrupts (LOC) on the tile's dedicated CPU, 0 unless it is the only live tile pinned there" },
-        "dest_per_update": {
-            "type": "Tuple",
-            "description": "Shred destinations in each cluster contact info update (Frankendancer only; on Firedancer see the gossip tile peer count)",
-            "deprecated": true,
-            "fields": {
-                "b0":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[0, 1)" },
-                "b1":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[1, 2)" },
-                "b2":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[2, 4)" },
-                "b3":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[4, 9)" },
-                "b4":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[9, 19)" },
-                "b5":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[19, 41)" },
-                "b6":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[41, 88)" },
-                "b7":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[88, 189)" },
-                "b8":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[189, 406)" },
-                "b9":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[406, 873)" },
-                "b10": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[873, 1878)" },
-                "b11": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[1878, 4040)" },
-                "b12": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[4040, 8690)" },
-                "b13": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[8690, 18691)" },
-                "b14": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[18691, 40200)" },
-                "b15": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[40200, inf)" },
-                "sum": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Sum of samples" }
-            }
-        },
+        "dest_per_update":              { "reserved": true },
         "batch_abandoned":              { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Microblock batches abandoned because we switched slots without finishing the current slot" },
         "parent_block_id_zeroed":       { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Leader blocks whose parent block_id was unknown, so the chained merkle root was zeroed" },
         "batch_size_bytes": {

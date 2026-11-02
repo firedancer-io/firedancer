@@ -139,11 +139,11 @@ def _sample_fields(link: bool) -> dict:
     return f
 
 def _read(fields: dict) -> list:
-    """Committed message as [(name, field_number, subfields, variants, deprecated, type, renamed_from, aliases)];
+    """Committed message as [(name, field_number, subfields, variants, deprecated, type, renamed_from, aliases, reserved)];
     variants are [(name, deprecated, renamed_from)]."""
     return [ ( k, v.get('field_number'), _read(v['fields']) if 'fields' in v else None,
                [ ( n, bool(d.get('deprecated')), d.get('renamed_from', []) ) for n, d in v['variants'].items() ] if 'variants' in v else None,
-               bool(v.get('deprecated')), v['type'], v.get('renamed_from', []), list(v.get('aliases', {})) )
+               bool(v.get('deprecated')), v.get('type'), v.get('renamed_from', []), list(v.get('aliases', {})), bool(v.get('reserved')) )
              for k, v in fields.items() ]
 
 def _check_history(where: str, name: str, hist: list, chist: list, cname: str):
@@ -169,7 +169,9 @@ def _order(where: str, fields: dict, committed: Optional[list], assign: bool) ->
     """Orders fields: committed ones in committed order, then additions.
     committed is None when the message itself is new, so everything in it
     is positional.  An addition to a committed message gets a provisional
-    field_number unless assign."""
+    field_number unless assign.  A committed deprecated field deleted from
+    metrics.xml becomes a reserved placeholder: it keeps its position (so
+    its number) and its name, and neither is ever reused."""
     for v in fields.values():
         if v.pop('_positional', False): v['_keep'] = True
     if committed is None:
@@ -179,12 +181,18 @@ def _order(where: str, fields: dict, committed: Optional[list], assign: bool) ->
         by_from = { old: k for k, v in fields.items() for old in v.get('_from', []) }
         out, csubs = {}, {}
         pinned = {}
-        for cname, cnum, cfields, cvariants, cdep, ctype, chist, caliases in committed:
+        for cname, cnum, cfields, cvariants, cdep, ctype, chist, caliases, cres in committed:
             if cnum is not None and cnum>=EVENT_ID_PROVISIONAL: continue   # a provisional entry is an addition
             if cnum is not None: pinned[cname] = cnum
             k = cname if cname in fields else by_from.get(cname)
+            if cres and k is not None:
+                raise SystemExit(f'{where}.{k}: {cname} is a removed (reserved) field; its name and number are never reused, pick a new name')
+            if cres or ( k is None and cdep ):
+                out[cname] = { 'reserved': True }   # removed: keeps its slot, no column
+                if cname in pinned: out[cname]['field_number'] = pinned[cname]
+                continue
             if k is None:
-                raise SystemExit(f'{where}.{cname}: committed field is gone; removing it would shift every later field number.  Mark it deprecated="true" in metrics.xml (or rename with renamed_from)')
+                raise SystemExit(f'{where}.{cname}: committed field is gone; removing it would shift every later field number.  Mark it deprecated="true" in metrics.xml (or rename with renamed_from); once that lands, deleting it reserves its number')
             if fields[k]['type'] != ctype:
                 # buf breaking misses changes that keep the proto type (UInt64
                 # vs DateTime64(9)), and the server refuses a column type change
@@ -208,6 +216,7 @@ def _order(where: str, fields: dict, committed: Optional[list], assign: bool) ->
             elif pinned:    raise SystemExit(f'{where}.{k}: cannot be numbered by position after pinned fields; copy the field_number main gave it into the schema file, then rerun metrics-assign')
             out[k] = v
     for k, v in out.items():
+        if v.get('reserved'): continue
         v.pop('_from', None)
         cfields, cvariants = csubs.get(k, ( None, None ))
         if v.pop('_keep', False): continue
@@ -253,6 +262,7 @@ def _check_columns(name: str, fields: dict):
         if col in seen: raise SystemExit(f'{name}: column {col} ({what}) collides with {seen[col]}')
         seen[col] = what
     for k, v in fields.items():
+        if v.get('reserved'): continue   # no column
         add(k, k)
         for leaf in v.get('fields', {}): add(f'{k}_{leaf}', f'{k} value {leaf}')
         for a in v.get('aliases', {}):   add(f'{k}_{a}', f'{k} alias {a}')
