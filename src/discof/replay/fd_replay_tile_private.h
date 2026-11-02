@@ -166,6 +166,15 @@ typedef struct fd_bhm_ele fd_bhm_ele_t;
 
 FD_STATIC_ASSERT( FD_EVENT_BLOCK_COMPLETED_TXN_TIMING_MAX>=FD_MAX_TXN_PER_SLOT, txn_timing_ships_full_block );
 
+/* Per bank state of a block end whose footer tasks are out on exec
+   tiles. */
+
+struct fd_replay_footer_end {
+  fd_alpenglow_rewards_plan_t plan;
+  ulong                       leader_credits; /* Summed from the reward slices as they complete. */
+};
+typedef struct fd_replay_footer_end fd_replay_footer_end_t;
+
 struct fd_replay_tile {
   fd_wksp_t * wksp;
 
@@ -227,6 +236,13 @@ struct fd_replay_tile {
 
   fd_bank_lthash_rec_t lthash_rec[ 1 ];
   fd_execrp_result_t * execrp_result; /* One entry per exec tile. */
+
+  /* Signing payload of each exec tile's footer cert verify task */
+  uchar cert_payload   [ FD_SCHED_MAX_EXEC_TILE_CNT ][ FD_ALPENGLOW_CERT_PAYLOAD_MAX ];
+  ulong cert_payload_sz[ FD_SCHED_MAX_EXEC_TILE_CNT ];
+
+  fd_replay_footer_end_t * footer_end;            /* Indexed by bank idx. */
+  ulong                    rewards_in_flight_cnt; /* Reward slices out on exec tiles, over every bank. */
 
   ulong                vote_tracker_seed;
   fd_vote_tracker_t *  vote_tracker;
@@ -554,9 +570,12 @@ struct fd_replay_tile {
   ulong ag_last_settled;     /* highest settled slot observed */
   ulong ag_stamp_since;      /* first slot stamped into an empty table */
 
-  /* Signing payload of each exec tile's footer cert verify task */
-  uchar cert_payload   [ FD_SCHED_MAX_EXEC_TILE_CNT ][ FD_ALPENGLOW_CERT_PAYLOAD_MAX ];
-  ulong cert_payload_sz[ FD_SCHED_MAX_EXEC_TILE_CNT ];
+  /* Our identity's rank in the vote stakes snapshot of an epoch.
+     USHORT_MAX if unranked.  Cached since the snapshot is fixed for the
+     epoch. */
+  int    voter_rank_cached;
+  ulong  voter_rank_epoch;
+  ushort voter_rank;
 
   fd_keyswitch_t * keyswitch;
   int              halt_replay;

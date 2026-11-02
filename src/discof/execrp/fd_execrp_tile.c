@@ -49,6 +49,7 @@ struct fd_execrp_tile {
   fd_sha512_t           sha_mem[ FD_TXN_SIG_MAX ];
   fd_sha512_t *         sha_lj[  FD_TXN_SIG_MAX ];
   fd_ed25519_cache_t *  ed25519_cache;
+  fd_footer_cache_t *   footer_cache;
 
   /* Capture context for debugging runtime execution. */
   fd_capture_ctx_t *    capture_ctx;
@@ -358,6 +359,20 @@ returnable_frag( fd_execrp_tile_t *  ctx,
         ctx->execrp_replay_out->chunk = fd_dcache_compact_next( ctx->execrp_replay_out->chunk, sizeof(*out_msg), ctx->execrp_replay_out->chunk0, ctx->execrp_replay_out->wmark );
         break;
       }
+      case FD_EXECRP_TT_REWARDS: {
+        fd_execrp_rewards_msg_t const * msg  = fd_chunk_to_laddr_const( ctx->replay_in->mem, chunk );
+        fd_bank_t *                     bank = fd_banks_bank_query( ctx->banks, msg->bank_idx );
+        FD_TEST( bank );
+        FD_CHECK_CRIT( msg->slice_cnt && msg->slice_idx<msg->slice_cnt, "invalid rewards slice" );
+        fd_execrp_task_done_msg_t * out_msg = fd_chunk_to_laddr( ctx->execrp_replay_out->mem, ctx->execrp_replay_out->chunk );
+        out_msg->bank_idx                = msg->bank_idx;
+        out_msg->rewards->leader_credits = 0UL;
+        fd_lthash_zero( &ctx->result->lthash );
+        out_msg->rewards->err = !!fd_alpenglow_rewards_apply_slice( bank, ctx->accdb, NULL, ctx->footer_cache, &msg->plan, msg->slice_idx, msg->slice_cnt, &ctx->result->lthash, &out_msg->rewards->leader_credits );
+        fd_stem_publish( stem, ctx->execrp_replay_out->idx, (FD_EXECRP_TT_REWARDS<<32)|ctx->tile_idx, ctx->execrp_replay_out->chunk, sizeof(*out_msg), 0UL, 0UL, 0UL );
+        ctx->execrp_replay_out->chunk = fd_dcache_compact_next( ctx->execrp_replay_out->chunk, sizeof(*out_msg), ctx->execrp_replay_out->chunk0, ctx->execrp_replay_out->wmark );
+        break;
+      }
       case FD_EXECRP_TT_LTHASH_SUB:
       case FD_EXECRP_TT_LTHASH_ADD: {
         /* Hash and sum.  Replay will fold the sum into the bank. */
@@ -460,6 +475,10 @@ unprivileged_init( fd_topo_t const *      topo,
 
   ctx->ed25519_cache = fd_ed25519_cache_join( fd_ed25519_cache_new( _ed25519_cache, ED25519_CACHE_ENT_CNT, ctx->ed25519_cache_seed ) );
   FD_TEST( ctx->ed25519_cache );
+
+  ulong footer_cache_obj_id = fd_pod_query_ulong( topo->props, "footer_cache", ULONG_MAX );
+  ctx->footer_cache = footer_cache_obj_id!=ULONG_MAX ? fd_footer_cache_join( fd_topo_obj_laddr( topo, footer_cache_obj_id ) ) : NULL;
+  FD_TEST( footer_cache_obj_id==ULONG_MAX || ctx->footer_cache );
 
   ctx->txn_in.bundle.is_bundle = 0;
   ctx->tile_idx = tile->kind_id;

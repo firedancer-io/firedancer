@@ -173,6 +173,7 @@ typedef struct fd_sched_txn_info fd_sched_txn_info_t;
 #define FD_SCHED_TT_MARK_DEAD     (7UL) /* (i) Mark the block dead. */
 #define FD_SCHED_TT_CERT_VERIFY   (8UL) /* (e) Footer cert verify. */
 #define FD_SCHED_TT_LTHASH_ADD    (9UL) /* (e) Hash an account from this fork and add. */
+#define FD_SCHED_TT_REWARDS       (10UL) /* (e) Footer vote rewards slice. */
 
 /* Slot-level replay states.  States are tracked for one block at a
    time, the one the scheduler is working on.  A block's interval opens
@@ -428,16 +429,18 @@ fd_sched_is_drained( fd_sched_t * sched );
 int
 fd_sched_block_start_pending( fd_sched_t * sched );
 
-/* fd_sched_cert_dispatch claims up to cnt idle exec tiles for footer
-   cert verify tasks of the active block, whose BLOCK_END is signaled
-   and not done yet.  Returns the claimed tiles (bit i for tile i).
-   Each completes with fd_sched_task_done( FD_SCHED_TT_CERT_VERIFY,
-   ULONG_MAX, i, NULL ), and the block is not done until all have. */
+/* Claims up to cnt idle exec tiles for footer tasks of the active
+   block, whose BLOCK_END is signaled and not done yet.  Returns the
+   claimed tiles, bit i for tile i.  Each completes with
+
+   fd_sched_task_done( FD_SCHED_TT_CERT_VERIFY or FD_SCHED_TT_REWARDS, ULONG_MAX, i, NULL )
+
+   and the block is not done until all tasks have completed. */
 
 ulong
-fd_sched_cert_dispatch( fd_sched_t * sched,
-                        ulong        bank_idx,
-                        ulong        cnt );
+fd_sched_footer_dispatch( fd_sched_t * sched,
+                          ulong        bank_idx,
+                          ulong        cnt );
 
 /* Writes one dispatchable task to out and returns 1, or returns 0 if no
    task can be dispatched now.  Transaction tasks respect prior

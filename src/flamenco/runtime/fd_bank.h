@@ -288,7 +288,7 @@ struct fd_bank {
   long last_transaction_finished_nanos;
   long block_completed_nanos;
 
-  ulong cert_task_cnt; /* footer cert verify tasks out on exec tiles */
+  ulong footer_task_cnt;
   ulong execution_fees_pre_settle; /* for publish once those are done */
   ulong priority_fees_pre_settle;
 

@@ -5,6 +5,7 @@
 #include "../../tango/fd_tango_base.h"
 #include "../../flamenco/fd_flamenco_base.h"
 #include "../../flamenco/alpenglow/fd_block_marker.h"
+#include "../../flamenco/alpenglow/fd_alpenglow.h"
 #include "../../ballet/lthash/fd_lthash.h"
 
 /* Exec tile task types. */
@@ -14,6 +15,7 @@
 #define FD_EXECRP_TT_LTHASH_SUB    (4UL) /* Hash accounts as they are in the parent bank's fork. */
 #define FD_EXECRP_TT_LTHASH_ADD    (5UL) /* Hash accounts as they are in this bank's fork. */
 #define FD_EXECRP_TT_CERT_VERIFY   (6UL) /* Alpenglow footer cert verify. */
+#define FD_EXECRP_TT_REWARDS       (7UL) /* Alpenglow footer vote rewards, one slice of the signers. */
 
 /* Sent from the replay tile to the exec tiles.  These describe one of
    several types of tasks for an exec tile.  An idx to the bank in the
@@ -80,17 +82,27 @@ struct fd_execrp_lthash_msg {
 };
 typedef struct fd_execrp_lthash_msg fd_execrp_lthash_msg_t;
 
+struct fd_execrp_rewards_msg {
+  ulong                       bank_idx;
+  ulong                       slice_idx; /* in [0, slice_cnt) */
+  ulong                       slice_cnt;
+  fd_alpenglow_rewards_plan_t plan;
+};
+typedef struct fd_execrp_rewards_msg fd_execrp_rewards_msg_t;
+
 union fd_execrp_task_msg {
   fd_execrp_txn_exec_msg_t      txn_exec;
   fd_execrp_txn_sigverify_msg_t txn_sigverify;
   fd_execrp_poh_hash_msg_t      poh_hash;
   fd_execrp_cert_verify_msg_t   cert_verify;
   fd_execrp_lthash_msg_t        lthash;
+  fd_execrp_rewards_msg_t       rewards;
 };
 
 typedef union fd_execrp_task_msg fd_execrp_task_msg_t;
 
-FD_STATIC_ASSERT( sizeof(fd_execrp_lthash_msg_t)<=sizeof(fd_execrp_txn_exec_msg_t), execrp_lthash_msg_sz );
+FD_STATIC_ASSERT( sizeof(fd_execrp_lthash_msg_t) <=sizeof(fd_execrp_txn_exec_msg_t), execrp_lthash_msg_sz  );
+FD_STATIC_ASSERT( sizeof(fd_execrp_rewards_msg_t)<=sizeof(fd_execrp_txn_exec_msg_t), execrp_rewards_msg_sz );
 
 /* Sent from exec tiles to the replay tile, notifying the replay tile
    that a task has been completed.  That is, if the task has any
@@ -176,6 +188,12 @@ struct fd_execrp_lthash_done_msg {
 };
 typedef struct fd_execrp_lthash_done_msg fd_execrp_lthash_done_msg_t;
 
+struct fd_execrp_rewards_done_msg {
+  int   err;
+  ulong leader_credits; /* The slice's share of the leader's credits.  Its lthash delta is in the tile's result entry. */
+};
+typedef struct fd_execrp_rewards_done_msg fd_execrp_rewards_done_msg_t;
+
 struct fd_execrp_task_done_msg {
   ulong bank_idx;
   union {
@@ -184,6 +202,7 @@ struct fd_execrp_task_done_msg {
     fd_execrp_poh_hash_done_msg_t      poh_hash[ 1 ];
     fd_execrp_cert_verify_done_msg_t   cert_verify[ 1 ];
     fd_execrp_lthash_done_msg_t        lthash[ 1 ];
+    fd_execrp_rewards_done_msg_t       rewards[ 1 ];
   };
 };
 typedef struct fd_execrp_task_done_msg fd_execrp_task_done_msg_t;
@@ -195,7 +214,7 @@ typedef struct fd_execrp_task_done_msg fd_execrp_task_done_msg_t;
 
 struct fd_execrp_result {
   union {
-    fd_lthash_value_t lthash;                                   /* LTHASH_SUB, LTHASH_ADD. */
+    fd_lthash_value_t lthash;                                   /* LTHASH_SUB, LTHASH_ADD, REWARDS. */
     fd_pubkey_t       alt_writable[ FD_TXN_ACCT_ADDR_MAX-1UL ]; /* TXN_EXEC.  alt_writable_cnt of these are valid. */
   };
 };

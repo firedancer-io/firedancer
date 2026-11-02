@@ -494,8 +494,9 @@ fd_banks_init_bank( fd_banks_t * banks ) {
 
   bank->state     = FD_BANK_STATE_FROZEN;
   bank->refcnt        = 0UL;
-  bank->cert_task_cnt = 0UL;
   bank->is_leader     = 0;
+
+  bank->footer_task_cnt = 0UL;
 
   bank->lthash_mode = FD_BANK_LTHASH_MODE_INBAND;
   bank->lthash_rec  = NULL;
@@ -822,12 +823,12 @@ fd_banks_new_bank( fd_banks_t * banks,
   child_bank->next        = null_idx;
   child_bank->state       = FD_BANK_STATE_INIT;
   child_bank->refcnt      = 0UL;
-  child_bank->cert_task_cnt = 0UL;
   child_bank->is_leader   = is_leader;
   child_bank->lthash_mode = FD_BANK_LTHASH_MODE_INBAND;
   child_bank->lthash_rec  = NULL;
   fd_event_runtime_slot_diffs_reset( child_bank->idx );
   child_bank->f.block_id  = (fd_hash_t){0};
+  child_bank->footer_task_cnt = 0UL;
 
   child_bank->stake_rewards_fork_id       = USHORT_MAX;
   child_bank->epoch_credits_fork_id       = USHORT_MAX;

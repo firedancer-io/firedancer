@@ -111,11 +111,90 @@ fd_alpenglow_cert_verify( fd_bank_t const *              bank,
                           blst_p2_affine const *         hm,
                           blst_p2_affine *               hm_out );
 
-/* fd_alpenglow_rewards_apply applies the side effects of the footer's
-   certs to the bank's accounts.  Only the slot and signer bitmap of
-   each cert are read; the signatures are not verified here.  cache
-   must not be NULL.  Returns 0 on success and -1 if processing of the
-   bank should fail */
+/* This encodes a footer's vote reward work, including the certs' signer
+   sets, each indexed by rank in the vote stakes snapshot of its slot's
+   epoch, and the per-slot reward parameters.  A plan is derived once
+   and then applied to the signers in any number of slices, with the
+   leader's account last.  See the functions below. */
+
+struct fd_alpenglow_rewards_plan {
+  int          has_reward;  /* The footer carries a skip or notar reward cert. */
+  int          has_final;   /* The footer carries a finalization cert. */
+  int          reward_kind; /* Vote stakes iter kind of the reward slot's epoch. */
+  int          final_kind;  /* Vote stakes iter kind of the finalized slot's epoch. */
+  int          memo_kind;   /* Vote stakes iter kind of the bank's epoch, whose ranks index the footer cache memo. */
+  fd_bls_set_t reward_set[ fd_bls_set_word_cnt ];
+  fd_bls_set_t final_set [ fd_bls_set_word_cnt ];
+  ulong        reward_slot;
+  ulong        max_reward;  /* Max possible validator reward of the bank's epoch. */
+  ulong        slots_per_epoch;
+  ulong        total_stake; /* Total stake of the reward slot's epoch. */
+  long         reward_ts_ns;
+  ulong        migration_epoch;
+  ulong        current_epoch;
+  ulong        final_slot;
+  long         final_ts_ns;
+  fd_pubkey_t  leader_vote_pubkey;
+  ulong        slice_seed;  /* Salts the signer to slice assignment. */
+  int          use_memo;    /* 0 keeps the footer cache memo untouched. */
+};
+typedef struct fd_alpenglow_rewards_plan fd_alpenglow_rewards_plan_t;
+
+/* fd_alpenglow_rewards_plan derives the footer's vote reward plan.
+   Only the slot and signer bitmap of each cert are read.  The
+   signatures are not verified here.  The plan comes with use_memo set.
+   Returns 0 on success and -1 if the footer is invalid and processing
+   of the bank should fail. */
+
+int
+fd_alpenglow_rewards_plan( fd_bank_t *                   bank,
+                           fd_accdb_t *                  accdb,
+                           fd_block_footer_t const *     footer,
+                           fd_alpenglow_rewards_plan_t * plan );
+
+/* fd_alpenglow_rewards_apply_slice applies the plan to one slice of the
+   signers.  The signers are split into slice_cnt slices by pubkey and
+   slice_idx selects the one to apply, so the slices of one plan
+   partition the signers however many tiles apply them.  The leader's
+   own vote account belongs to no slice.  cache (NULL for none) must be
+   joined by the caller.  Its memo slots are read and written for the
+   slice's signers unless the plan's use_memo is 0.  The slice's change
+   to the accounts' lthash is added to delta and its share of the
+   leader's credits to leader_credits, both initialized by the caller.
+   Returns 0 on success and -1 if a cert's epoch has no ranked
+   validators, in which case processing of the bank should fail. */
+
+int
+fd_alpenglow_rewards_apply_slice( fd_bank_t *                         bank,
+                                  fd_accdb_t *                        accdb,
+                                  fd_capture_ctx_t *                  capture_ctx,
+                                  fd_footer_cache_t *                 cache,
+                                  fd_alpenglow_rewards_plan_t const * plan,
+                                  ulong                               slice_idx,
+                                  ulong                               slice_cnt,
+                                  fd_lthash_value_t *                 delta,
+                                  ulong *                             leader_credits );
+
+/* fd_alpenglow_rewards_apply_leader applies the plan to the leader's
+   vote account.  The account gets its own signer updates and then the
+   leader's credits, which are leader_credits as the slices summed them
+   plus the leader's share of its own reward.  Call it once every slice
+   has completed.  cache is used as for a slice.  The account's lthash
+   change is added to delta. */
+
+void
+fd_alpenglow_rewards_apply_leader( fd_bank_t *                         bank,
+                                   fd_accdb_t *                        accdb,
+                                   fd_capture_ctx_t *                  capture_ctx,
+                                   fd_footer_cache_t *                 cache,
+                                   fd_alpenglow_rewards_plan_t const * plan,
+                                   ulong                               leader_credits,
+                                   fd_lthash_value_t *                 delta );
+
+/* fd_alpenglow_rewards_apply plans and applies the footer's vote
+   rewards on the calling tile, folding the lthash change into the
+   bank.  Returns 0 on success and -1 if processing of the bank should
+   fail. */
 
 int
 fd_alpenglow_rewards_apply( fd_bank_t *               bank,
