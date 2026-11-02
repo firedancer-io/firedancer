@@ -1,8 +1,8 @@
 #!/bin/bash
-# PR perf rows.  bench.sh build|replay|snapshot|epoch|bench base|new
+# PR perf rows.  bench.sh build|replay|snapshot|snapshot-mainnet|epoch|bench base|new
 # Raw results land in $BENCH_DIR/<side>.<what>.*; benchmark_comment.py turns them into the comment.
 set -euo pipefail
-what=${1:?usage: bench.sh build|replay|snapshot|epoch|bench base|new} side=${2:?side}
+what=${1:?usage: bench.sh build|replay|snapshot|snapshot-mainnet|epoch|bench base|new} side=${2:?side}
 BENCH_DIR=${BENCH_DIR:-$(realpath ..)/bench}
 DUMP_DIR=${DUMP_DIR:-$(realpath ..)/dump}
 SHREDB=/dev/shm/fd-bench-shreds.db  # tmpfs: on disk, writeback holds its inode lock and stalls shred/rserve pwrite() for whole slots
@@ -36,9 +36,9 @@ inplace() { # binary into the one tmpfs file, rewritten in place: tmpfs keeps ea
   chmod 755 $BINDIR/bin/firedancer-dev
 }
 
-backtest() { # ledger, then run_ledger_backtest.sh args
+backtest() { # ledger, then run_ledger_backtest.sh args; COLD=1 reads the ledger from disk rather than page cache
   local ledger=$DUMP_DIR/$1
-  quiesce "$ledger"/shreds.pcapng.zst "$ledger"/snapshot-*.tar.zst "$ledger"/genesis.bin
+  if [[ -n ${COLD:-} ]]; then quiesce; else quiesce "$ledger"/shreds.pcapng.zst "$ledger"/snapshot-*.tar.zst "$ledger"/genesis.bin; fi
   inplace
   rm -f "$out.log"  # fd_log appends
   OBJDIR=$BINDIR CI=1 DUMP_DIR=$DUMP_DIR setarch -R \
@@ -76,6 +76,9 @@ case $what in
       ACCOUNTS_DB=$RAMDB/accounts.db out=$out.warmup backtest "${BENCH_SNAP_LEDGER:?}" -m 100000000
     fi
     ACCOUNTS_DB=$RAMDB/accounts.db backtest "${BENCH_SNAP_LEDGER:?}" -m 100000000 ;;
+  snapshot-mainnet) # accounts.db (~450 GiB) outgrows the RAM disk and the 125 GB snapshot outgrows page cache: both on NVMe, read cold
+    DUMP_DIR=$DUMP_DIR DOWNLOAD_ONLY=true ./src/flamenco/runtime/tests/run_ledger_backtest.sh -l "${BENCH_SNAP_MAINNET_LEDGER:?}" --zst  # untimed: a cold runner downloads before either side runs
+    COLD=1 backtest "${BENCH_SNAP_MAINNET_LEDGER:?}" --zst -m 1300000000 ;;
   epoch)    backtest "${BENCH_EPOCH_LEDGER:-mainnet-epoch-boundary-461376000}" -m 2000000 ;;  # whole ledger: crosses one epoch boundary
   bench)
     { cat "$BENCH_DIR/$side/bench.toml"; printf '[paths]\n    accounts = "%s"\n    shredb = "%s"\n' "$DUMP_DIR/accounts.db" "$SHREDB"; } > "$out.toml"
