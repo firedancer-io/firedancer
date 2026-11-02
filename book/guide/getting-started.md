@@ -53,8 +53,8 @@ source, but Firedancer releases are made available as tags. The
 following naming convention is used,
 
  * `main` This should not be used. The main branch is bleeding edge and
-includes all Firedancer development and changes that could break
-Frankendancer.
+includes all in-progress Firedancer development and may contain
+breaking changes.
  * `vYY.MM.PATCH` Full Firedancer releases.
  * `v0.xxx.yyyyy` Legacy Frankendancer releases.
 

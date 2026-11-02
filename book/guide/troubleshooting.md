@@ -1,7 +1,7 @@
 # Troubleshooting
 
 This page has a collection of common troubleshooting steps when operators
-encounter errors while building and running Frankendancer. If these do
+encounter errors while building and running Firedancer. If these do
 not address the problem, send a message in the `#firedancer-operators`
 channel on the Solana Tech Discord or file an issue on GitHub.
 
@@ -13,8 +13,9 @@ channel on the Solana Tech Discord or file an issue on GitHub.
 Do a fresh clone of the repository, following the instructions in the
 [Getting Started](./getting-started.md#prerequisites) guide. Remember to
 check if you're using a supported compiler and to run `./deps.sh`!
-* Frankendancer (`fdctl`) has reached end of life. Please switch to full
-  Firedancer (`firedancer`).
+* Frankendancer (`fdctl`) reached end of life and is no longer supported.
+  If you are still building or running `fdctl`, switch to full Firedancer
+  (`firedancer`).
 
 ## Configuring
 

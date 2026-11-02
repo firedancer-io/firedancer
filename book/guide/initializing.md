@@ -284,7 +284,7 @@ privileges, and cannot be performed with capabilities.
 ## ethtool-loopback
 XDP is incompatible with localhost UDP traffic using a feature called
 `tx-udp-segmentation`. This feature must be disabled when connecting Agave
-clients to Firedancer over loopback, or when using Frankendancer.
+clients to Firedancer over loopback.
 
 The command run by the stage is `ethtool --features lo tx-udp-segmentation
 off`. We can check that it worked:
