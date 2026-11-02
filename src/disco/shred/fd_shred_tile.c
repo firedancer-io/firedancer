@@ -638,12 +638,6 @@ during_frag( fd_shred_ctx_t * ctx,
 
     ulong   pending_batch_wmark = FD_SHRED_BATCH_WMARK_CHAINED;
     uchar * chained_merkle_root = ctx->chained_merkle_root;
-    /* All fec sets in the last batch of a block need to be resigned.
-       This needs to match Agave's behavior - as a reference, see:
-       https://github.com/anza-xyz/agave/blob/v2.3/ledger/src/shred/merkle.rs#L1040 */
-    if( FD_UNLIKELY( entry_meta->block_complete==1 ) ) {
-      pending_batch_wmark = FD_SHRED_BATCH_WMARK_RESIGNED;
-    }
 
     /* If this microblock completes the block, the batch is then
        finalized here.  Otherwise, we check whether the new entry
@@ -684,7 +678,7 @@ alpenglow_marker:
 
         fd_shredder_init_batch( ctx->shredder, ctx->pending_batch.raw, batch_sz, target_slot, entry_meta );
 
-        ulong fec_set_cnt = fd_shredder_count_fec_sets( batch_sz, entry_meta->block_complete==1 );
+        ulong fec_set_cnt = fd_shredder_count_fec_sets( batch_sz );
         ulong pend_idx    = ctx->send_fec_set_cnt;
         for( ulong j=0UL; j<fec_set_cnt; j++ ) {
 
@@ -717,7 +711,7 @@ alpenglow_marker:
       } else {
         if( FD_UNLIKELY( !writing_marker ) ) ctx->send_fec_set_cnt = 0UL; /* verbose */
 
-        fd_shredder_skip_batch( ctx->shredder, batch_sz, target_slot, entry_meta->block_complete==1 );
+        fd_shredder_skip_batch( ctx->shredder, batch_sz, target_slot );
       }
 
       ctx->pending_batch.slot           = 0UL;
