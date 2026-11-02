@@ -392,7 +392,7 @@ test_find_line( ulong         cls,
 void
 test_cache_line_seq_on_reuse( void ) {
   ulong cache_fp = 0UL;
-  for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) cache_fp += 2UL*fd_accdb_cache_slot_sz[ c ];
+  for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) cache_fp += 2UL*( fd_accdb_cache_slot_sz[ c ]-FD_ACCDB_CACHE_META_SZ+FD_ACCDB_CACHE_BUDGET_META_SZ );
 
   int fd;
   fd_accdb_t * accdb = test_setup_ex( &fd, 1024UL, 64UL, 8192UL, 8192UL, 1UL<<30UL, cache_fp, 2UL, 1UL, 0UL );

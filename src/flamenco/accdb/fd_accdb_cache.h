@@ -22,7 +22,9 @@
 
    Each slot has 64 bytes of fixed metadata overhead
    (sizeof(fd_accdb_cache_line_t)) on top of the max data capacity
-   for its class.  Slot sizes are 8-byte aligned.
+   for its class.  Slot sizes are 8-byte aligned.  Class counts are
+   budgeted at FD_ACCDB_CACHE_BUDGET_META_SZ per slot (the former 88 B
+   header), so a footprint yields the same counts in less memory.
 
    The allocation algorithm maximizes expected cache hit rate by
    distributing budget proportional to access density (observed accesses
@@ -31,7 +33,8 @@
    over-provisioning. */
 
 #define FD_ACCDB_CACHE_CLASS_CNT    (8UL)
-#define FD_ACCDB_CACHE_META_SZ     (64UL)
+#define FD_ACCDB_CACHE_META_SZ        (64UL)
+#define FD_ACCDB_CACHE_BUDGET_META_SZ (88UL)
 
 /* Per-class line count ceiling.  The acc cache index packs (class, line)
    into 32 bits as 3 bits of class and FD_ACCDB_CACHE_LINE_BITS bits of
@@ -127,7 +130,8 @@ static const ulong fd_accdb_cache_slot_sz[ FD_ACCDB_CACHE_CLASS_CNT ] = {
    cache_footprint is the total memory budget in bytes.
 
    class_cnt is populated with the slot count for each class on return.
-   The sum of class_cnt[c]*slot_sz[c] will not exceed cache_footprint.
+   The sum of class_cnt[c]*(data_sz[c]+FD_ACCDB_CACHE_BUDGET_META_SZ)
+   will not exceed cache_footprint.
 
    Every class gets at least min_reserved entries, guaranteeing a
    worst-case batch can execute fully in memory regardless of account

@@ -114,8 +114,8 @@ test_shmem_new( void ) {
    left to top up — so class 0 has exactly cache_min_reserved slots.  With
    only a few class-0 slots, a handful of distinct class-0 accounts forces
    CLOCK eviction, and re-reading an evicted account cold-loads from the
-   backing memfd.  (Slot sizes mirror fd_accdb_cache_slot_sz in
-   fd_accdb_cache.c; META_SZ is FD_ACCDB_CACHE_META_SZ.) */
+   backing memfd.  (Counts are budgeted at data+FD_ACCDB_CACHE_BUDGET_META_SZ
+   per slot, see fd_accdb_cache.h.) */
 #define TEST_TINY_CACHE_MIN_RESERVED (8UL)
 
 static ulong
@@ -123,7 +123,7 @@ test_tiny_cache_footprint( void ) {
   ulong const data[ FD_ACCDB_CACHE_CLASS_CNT ] =
     { 128UL, 512UL, 2048UL, 8192UL, 32768UL, 131072UL, 1048576UL, 10485760UL };
   ulong sum = 0UL;
-  for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) sum += data[ c ] + FD_ACCDB_CACHE_META_SZ;
+  for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) sum += data[ c ] + FD_ACCDB_CACHE_BUDGET_META_SZ;
   return TEST_TINY_CACHE_MIN_RESERVED * sum;
 }
 
