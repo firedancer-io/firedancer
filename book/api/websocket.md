@@ -285,9 +285,8 @@ the vote account ticket was not paid) is `non-voting`.
 A number showing the distance between the highest slot the validator has
 landed a vote for, and the current highest replayed slot on the
 validators fork choice. This value excludes skipped slots, unless the
-distance is larger than 2 epochs worth of slots (NOTE: skipped slots are
-not excluded on Frankendancer). A distance of more than 150 means the
-validator is considered delinquent.
+distance is larger than 2 epochs worth of slots. A distance of more
+than 150 means the validator is considered delinquent.
 
 This message is Tower-only and is not published by an Alpenglow
 validator. Alpenglow clients can compare `summary.completed_slot` and
@@ -313,9 +312,6 @@ shred can create an arbitrarily large slot on a new fork. All slot
 numbers received from shreds, including any malicious shreds, are
 forgotten after 4.8 seconds. This ensures our estimate self-corrects
 over time.
-
-NOTE: this message is only supported on the Firedancer client, the
-Frankendancer client will always publish `null` for this message
 
 #### `summary.repair_slot`
 | frequency       | type           | example |
@@ -368,9 +364,6 @@ seconds when the malicious slot is forgotten. Functionally, this means
 that `summary.slot_caught_up` could be arbitrarily larger than the true
 catchup slot. The likelihood of this is low, and decreases for larger
 errors.
-
-NOTE: this message is only supported on the Firedancer client, the
-Frankendancer client will always publish `null` for this message
 
 #### `summary.catch_up_history`
 | frequency | type             | example   |
@@ -687,7 +680,7 @@ the middle.
 Information about the tile topology of Firedancer. This is a list of
 tiles in the system.
 
-In Firedancer, available tiles are
+The available tiles are
 
 - netlnk: Helps the net tile perform network-stack related functions.
 Separated from the net tile for security/performance reasons.
@@ -749,7 +742,7 @@ genesis hash).
 **`Tile`**
 | Field    | Type     | Description |
 |----------|----------|-------------|
-| kind     | `string` | What kind of tile it is. In Firedancer, one of the above tiles. In Frankendancer, might be one of `net`, `sock`, `quic`, `verify`, `dedup`, `pack`, `bank`, `poh`, `shred`, `store`, `sign`, `plugin`, or `http` |
+| kind     | `string` | What kind of tile it is. One of the tiles listed above |
 | kind_id  | `number` | The index of the tile in its kind. For example, if there are four `verify` tiles they have `kind_id` values of 0, 1, 2, and 3 respectively |
 | pid      | `number` | The process id of the tile |
 | priority | `string` | The priority label of the tile. One of `"floating"`, `"startup"`, `"normal"`, or `"critical"`. This is also reported in `summary.live_tile_metrics.priority` for backwards compatibility |
@@ -1628,8 +1621,7 @@ are subsystem-specific and described below.
 | *Once* + *30s* | `SystemLive` | below   |
 
 CPU topology, configured Firedancer hugepage allocations, and live host
-memory and disk usage. This message is only emitted by full Firedancer;
-Frankendancer omits it. CPU topology and Firedancer allocations are
+memory and disk usage. CPU topology and Firedancer allocations are
 captured at startup, while host memory and disk values are sampled live.
 
 Host memory values are best-effort snapshots refreshed every ~30
@@ -2228,7 +2220,7 @@ once they are confirmed (the prior epoch has fully rooted).
 | end_time_nanos | `string` | A UNIX timestamp, in nanoseconds, of when the epoch ended. This is the time the last non-skipped block of the epoch finished replaying locally on this validator, if the validator was online when that happened, otherwise it is null |
 | start_slot | `number` | The first slot (inclusive) in the epoch |
 | end_slot   | `number` | The last slot (inclusive) in the epoch |
-| epoch_schedule | `EpochScheduleConfig\|null` | The cluster's epoch schedule parameters, which can be used to map any slot to its epoch. Always `null` on Frankendancer |
+| epoch_schedule | `EpochScheduleConfig` | The cluster's epoch schedule parameters, which can be used to map any slot to its epoch |
 | target_slot_duration_nanos | `number` | The cluster-wide target slot duration, in nanoseconds, for the epoch. This is typically `400000000` (400ms) on most clusters unless a `reduce_slot_time` feature gate is in effect |
 | excluded_stake_lamports | `string` | Always zero. Firedancer tracks the complete validator-admission-ticket stake set.
 | staked_pubkeys | `string[]` | All validator identity keys in the validator-admission-ticket stake set for this epoch, capped at 2,000 entries |
@@ -2677,7 +2669,7 @@ identity is no longer in these three data sources, it will be removed.
 |---------------|----------------|-------------|
 | wallclock     | `number`       | Not entirely sure yet TODO |
 | shred_version | `number`       | A `u16` representing the shred version the validator is configured to use. The shred version is changed when the cluster restarts, and is used to make sure the validator is talking to nodes that have participated in the same cluster restart |
-| client_id     | `number\|null` | The client id broadcast by the validator on Gossip. Refer to https://github.com/solana-foundation/solana-validator-client-ids/blob/main/client-ids.csv for an official mapping of id to name. Will be `null` on Frankendancer. |
+| client_id     | `number`       | The client id broadcast by the validator on Gossip. Refer to https://github.com/solana-foundation/solana-validator-client-ids/blob/main/client-ids.csv for an official mapping of id to name |
 | version       | `string\|null` | Software version being advertised by the validator. Might be `null` if the validator is not gossiping a version, or we have received the contact information but not the version yet. The version string, if not null, will always be formatted like `major`.`minor`.`patch` where `major`, `minor`, and `patch` are `u16`s |
 | feature_set   | `number\|null` | First four bytes of the `FeatureSet` hash interpreted as a little endian `u32`. Might be `null` if the validator is not gossiping a feature set, or we have received the contact information but not the feature set yet |
 | sockets       | `[key: string]: string` | A dictionary of sockets that are advertised by the validator. `key` will be one of gossip `serve_repair_quic`, `rpc`, `rpc_pubsub`, `serve_repair`, `tpu`, `tpu_forwards`, `tpu_forwards_quic`, `tpu_quic`, `tpu_vote`, `tvu`, `tvu_quic`, `tpu_vote_quic`, or `alpenglow`. The value is an address like `<addr>:<port>`: the location to send traffic to for this validator with the given protocol. Address might be either an IPv4 or an IPv6 address |
@@ -3237,7 +3229,7 @@ and the validator changes which block it associates with the slot.
 | level                        | `string`       | The mode-specific `SlotLevel` described above |
 | max_compute_units            | `number\|null` | The maximum number of compute units that can be packed into the slot.  This limit is one of many consensus-critical limits defined by the solana protocol, and helps keeps blocks small enough for validators consume them quickly.  It may grow occasionally via on-chain feature activations |
 | compute_units                | `number\|null` | Total number of compute units used by the slot.  Compute units are a synthetic metric that attempt to capture, based on the content of the block, the various costs that go into processing that block (i.e. cpu, memory, and disk utilization).  They are based on certain transaction features, like the number of included signatures, the number of included signature verification programs, the number of included writeable accounts, the size of the instruction data, the size of the on-chain loaded account data, and the number of computation steps.  NOTE: "compute units" is an overloaded term that is often used in misleading contexts to refer to only a single part of the whole consensus-critical cost formula. For example, the getBlock RPC call includes a "computeUnitsConsumed" which actually only refers only the execution compute units associated with a transaction, but excludes other costs like signature costs, data costs, etc.  This API will always use compute units in a way that includes ALL consensus-relevant costs, unless otherwise specified |
-| shreds                       | `number\|null` | Total number of shreds in the successfully replayed block. Note value is only available in the Firedancer client and will be 0 or null in the Frankendancer client |
+| shreds                       | `number\|null` | Total number of shreds in the successfully replayed block. `null` if the block has not finished replaying on this validator |
 | transaction_fee              | `string\|null` | Total amount of transaction fees that this slot collects in lamports after any burning |
 | priority_fee                 | `string\|null` | Total amount of priority fees that this slot collects in lamports after any burning |
 | tips                         | `string\|null` | Total amount of tips that this slot collects in lamports, across all block builders, after any commission to the block builder is subtracted |
@@ -3939,7 +3931,7 @@ explicitly mentioned, skipped slots are not included.
 | txn_arrival_timestamps_nanos       | `string[]`          | An array of UNIX timestamps, in nanoseconds. `txn_arrival_timestamps_nanos[i]` is the time when the `i`-th transaction in the slot arrived at the transaction scheduler (i.e. pack) |
 | txn_mb_start_timestamps_nanos      | `string[]`          | An array of UNIX timestamps, in nanoseconds. `txn_mb_start_timestamps_nanos[i]` is the time when the microblock for the `i`-th transaction in the slot was successfully scheduled for execution by pack.  At this point, the microblock was sent off to a bank tile for execution.  Since a microblock may contain multiple transactions (e.g. a bundle), all transactions from the same microblock will share the same start timestamp |
 | txn_load_start_timestamps_nanos    | `string[]`          | An array of UNIX timestamps, in nanoseconds. `txn_load_start_timestamps_nanos[i]` is the time when the `i`-th transaction in the slot started loading relevant on-chain account data |
-| txn_check_start_timestamps_nanos   | `string[]`          | An array of UNIX timestamps, in nanoseconds. `txn_check_start_timestamps_nanos[i]` is the time when the `i`-th transaction in the slot started validation checks, which include a final deduplication check as well as an expiration check.  In Firedancer, the load phase occurs before validation checks, but in Frankendancer the check phase occurs before loading |
+| txn_check_start_timestamps_nanos   | `string[]`          | An array of UNIX timestamps, in nanoseconds. `txn_check_start_timestamps_nanos[i]` is the time when the `i`-th transaction in the slot started validation checks, which include a final deduplication check as well as an expiration check.  The load phase occurs before validation checks |
 | txn_execute_start_timestamps_nanos | `string[]`          | An array of UNIX timestamps, in nanoseconds. `txn_execute_start_timestamps_nanos[i]` is the time when the `i`-th transaction in the slot started executing.  At this point, relevant on-chain data has been loaded for the transaction and it is ready to be fed into the Solana Virtual Machine (SVM) |
 | txn_commit_start_timestamps_nanos  | `string[]`          | An array of UNIX timestamps, in nanoseconds. `txn_commit_start_timestamps_nanos[i]` is the time when the `i`-th transaction in the slot started committing the transaction (or canceling it) |
 | txn_commit_end_timestamps_nanos    | `string[]`          | An array of UNIX timestamps, in nanoseconds. `txn_commit_end_timestamps_nanos[i]` is the time when the `i`-th transaction in the slot finished the commit/cancel phase |

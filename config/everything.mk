@@ -303,7 +303,7 @@ add-test-scripts = $(foreach script,$(1),$(eval $(call _add-script,unit-test,$(s
 
 # slowest objects first: make -j spawns in prerequisite order, so a slow TU
 # listed late runs alone in the tail; patterns under $(OBJDIR)/obj/, no .o
-SCHED_HOT_OBJS?=third_party/blst/% discof/replay/% discof/rpc/% disco/gui/% ballet/reedsol/% flamenco/vm/% third_party/zstd/lib/compress/% disco/pack/% waltz/quic/fd_quic app/firedancer/topology app/shared/commands/watch/% discof/forest/% discof/%_tile disco/%_tile flamenco/accdb/fd_accdb third_party/zstd/lib/decompress/% ballet/sha256/% ballet/sha512/% ballet/bn254/% flamenco/runtime/program/% ballet/ed25519/% third_party/bzip2/% flamenco/stakes/% util/math/fd_stat disco/events/% disco/topo/% ballet/blake3/% flamenco/rewards/% choreo/tower/% disco/shred/% \
+SCHED_HOT_OBJS?=third_party/blst/% disco/replay/% disco/rpc/% disco/gui/% ballet/reedsol/% flamenco/vm/% third_party/zstd/lib/compress/% disco/pack/% waltz/quic/fd_quic app/firedancer/topology app/shared/commands/watch/% disco/%_tile flamenco/accdb/fd_accdb third_party/zstd/lib/decompress/% ballet/sha256/% ballet/sha512/% ballet/bn254/% flamenco/runtime/program/% ballet/ed25519/% third_party/bzip2/% flamenco/stakes/% util/math/fd_stat disco/events/% disco/topo/% ballet/blake3/% flamenco/rewards/% choreo/tower/% disco/shred/% \
   waltz/http/fd_http_server flamenco/runtime/tests/fd_dump_pb ballet/x509/fd_x509 ballet/toml/fd_toml third_party/cjson/% ballet/zksdk/rangeproofs/% util/log/fd_log util/alloc/fd_alloc util/pod/fd_pod util/wksp/fd_wksp_restore_v2 util/shmem/fd_shmem_admin util/sandbox/fd_sandbox util/tpool/fd_tpool util/wksp/fd_wksp_helper util/wksp/fd_wksp_admin third_party/zstd/lib/common/%
 sched-hot-objs = $(filter $(foreach lib,$(VENDOR_LINK_LIBS) $(1),$(LIB_OBJS_$(lib))),$(SCHED_HOT_ALL))
 # make 4.3 second-expands every rule at parse: the exe-level hot edge stays on bins and
@@ -763,9 +763,8 @@ dist-cov-report: $(BASEDIR)/cov/html/index.html
 
 # Builds the frontend bundle and bakes it into the binary (src/disco/gui)
 #
-# Each client has a single bundle, stored under its dist/ directory; there
-# are no longer per-channel (stable/alpha/dev) variants.
-FRONTEND_CLIENT := Firedancer
+# There is a single bundle, stored under $(FRONTEND_DIR)/dist; there are
+# no longer per-channel (stable/alpha/dev) variants.
 FRONTEND_DIR := src/disco/gui
 
 # Regenerates generated/http_import_dist.c from the committed dist/ tree.
@@ -807,7 +806,6 @@ define frontend-generated-recipe
 endef
 
 frontend: frontend-clean
-	echo "VITE_VALIDATOR_CLIENT=$(FRONTEND_CLIENT)" > frontend/.env.production
 	cd frontend && npm ci && npm run build
 	rm -rf $(FRONTEND_DIR)/dist
 	mkdir -p $(FRONTEND_DIR)/dist

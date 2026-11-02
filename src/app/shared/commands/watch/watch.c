@@ -3,9 +3,9 @@
 
 #include "../../fd_bootinfo.h"
 
-#include "../../../../discof/backup/fd_snapmk_tile.h"
-#include "../../../../discof/restore/fd_snapct_tile.h"
-#include "../../../../discof/gossip/fd_gossip_tile.h"
+#include "../../../../disco/backup/fd_snapmk_tile.h"
+#include "../../../../disco/restore/fd_snapct_tile.h"
+#include "../../../../disco/gossip/fd_gossip_tile.h"
 #include "../../../../disco/events/fd_event_client.h"
 #include "../../../../disco/metrics/fd_metrics.h"
 #include "../../../../disco/node_info/fd_node_info.h"

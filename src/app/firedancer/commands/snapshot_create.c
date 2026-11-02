@@ -1,7 +1,7 @@
 #include "../../shared/fd_config.h"
 #include "../../shared/fd_action.h"
 #include "../../shared/fd_bootinfo.h"
-#include "../../../discof/admin/fd_adminctl.h"
+#include "../../../disco/admin/fd_adminctl.h"
 
 static ulong
 send_snapshot_create_cmd( fd_topo_t * topo,

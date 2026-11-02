@@ -5,3 +5,8 @@ $(call run-unit-test,test_disco_base)
 ifdef FD_HAS_DOUBLE
 $(call add-hdrs,fd_clock_tile.h)
 endif
+
+ifdef FD_HAS_HOSTED
+$(call add-hdrs,fd_startup.h)
+$(call add-objs,fd_startup,fd_disco)
+endif

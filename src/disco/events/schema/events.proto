@@ -3518,44 +3518,6 @@ message MetricsShredBatchSizeBytes {
   uint64 sum = 17;
 }
 
-// Shred destinations in each cluster contact info update (Frankendancer only; on Firedancer see the gossip tile peer count)
-message MetricsShredDestPerUpdate {
-  // [0, 1)
-  uint64 b0 = 1;
-  // [1, 2)
-  uint64 b1 = 2;
-  // [2, 4)
-  uint64 b2 = 3;
-  // [4, 9)
-  uint64 b3 = 4;
-  // [9, 19)
-  uint64 b4 = 5;
-  // [19, 41)
-  uint64 b5 = 6;
-  // [41, 88)
-  uint64 b6 = 7;
-  // [88, 189)
-  uint64 b7 = 8;
-  // [189, 406)
-  uint64 b8 = 9;
-  // [406, 873)
-  uint64 b9 = 10;
-  // [873, 1878)
-  uint64 b10 = 11;
-  // [1878, 4040)
-  uint64 b11 = 12;
-  // [4040, 8690)
-  uint64 b12 = 13;
-  // [8690, 18691)
-  uint64 b13 = 14;
-  // [18691, 40200)
-  uint64 b14 = 15;
-  // [40200, inf)
-  uint64 b15 = 16;
-  // Sum of samples
-  uint64 sum = 17;
-}
-
 // Times the tile tried to park while idle (efficient mode), by result
 message MetricsShredParkAttempted {
   // Woken by a doorbell ring
@@ -9468,8 +9430,8 @@ message MetricsVerify {
   uint64 timer_irq = 24;
   // Transactions processed, by result
   MetricsVerifyTxnProcessed txn_processed = 25;
-  // Gossip vote transactions handled by this verify tile
-  uint64 vote_gossip_rx = 26 [deprecated = true];
+  reserved 26;
+  reserved "vote_gossip_rx";
   // Our own vote transactions received from txsend
   uint64 own_vote_rx = 27 [deprecated = true];
 }
@@ -9526,8 +9488,8 @@ message MetricsDedup {
   uint64 timer_irq = 24;
   // Transactions processed, by result
   MetricsDedupTxnProcessed txn_processed = 25;
-  // Gossip vote transactions from pohh (Frankendancer only)
-  uint64 vote_gossip_rx = 26 [deprecated = true];
+  reserved 26;
+  reserved "vote_gossip_rx";
 }
 
 // Metrics of one resolv tile instance, one row per sweep
@@ -9888,8 +9850,8 @@ message MetricsShred {
   uint64 tlb_shootdown = 23;
   // counter: cumulative since tile start, query deltas. Local timer interrupts (LOC) on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
   uint64 timer_irq = 24;
-  // Shred destinations in each cluster contact info update (Frankendancer only; on Firedancer see the gossip tile peer count)
-  MetricsShredDestPerUpdate dest_per_update = 25 [deprecated = true];
+  reserved 25;
+  reserved "dest_per_update";
   // Microblock batches abandoned because we switched slots without finishing the current slot
   uint64 batch_abandoned = 26;
   // Leader blocks whose parent block_id was unknown, so the chained merkle root was zeroed

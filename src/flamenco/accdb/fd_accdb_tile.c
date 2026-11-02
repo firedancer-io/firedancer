@@ -2,7 +2,7 @@
 
 #include <linux/futex.h>
 
-#include "../../discof/fd_startup.h"
+#include "../../disco/fd_startup.h"
 
 #include <time.h>
 #include "generated/fd_accdb_tile_seccomp.h"

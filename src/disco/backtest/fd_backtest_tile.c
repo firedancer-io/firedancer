@@ -1,0 +1,710 @@
+#include "fd_backtest_src.h"
+#include "../../disco/store/fd_store.h"
+#include "../../disco/metrics/fd_metrics.h"
+#include "../../disco/events/fd_event_client.h"
+#include "../../disco/replay/fd_replay_tile.h"
+#include "../../disco/shred/fd_shred_tile.h"
+#include "../../disco/repair/fd_repair_tile.h"
+#include "../../disco/restore/utils/fd_ssmsg.h"
+#include "../../disco/votor/fd_votor_tile.h"
+#include "../../choreo/votor/ag_cert.h"
+#include "../../disco/genesis/fd_genesi_tile.h"
+#include "../../disco/genesis/genesis_hash.h"
+#include "../../util/pod/fd_pod.h"
+
+#include <stdlib.h> /* exit(2) */
+#include <errno.h>
+#include <fcntl.h>  /* open(2) */
+
+#define SHRED_BUFFER_LEN     (1048576UL)
+#define BANK_HASH_BUFFER_LEN (4096UL)
+#define OUT_FECS_BUFFER_LEN  (2048UL)
+
+#define IN_KIND_REPLAY (0)
+#define IN_KIND_SNAP   (1)
+#define IN_KIND_GENESI (2)
+
+#define DEQUE_NAME rooted_slots
+#define DEQUE_T    ulong
+#include "../../util/tmpl/fd_deque_dynamic.c"
+
+struct fd_backt_in {
+  fd_wksp_t * mem;
+  ulong       chunk0;
+  ulong       wmark;
+  ulong       mtu;
+};
+
+typedef struct fd_backt_in fd_backt_in_t;
+
+struct fd_backt_out {
+  ulong       idx;
+  fd_wksp_t * mem;
+  ulong       chunk0;
+  ulong       wmark;
+  ulong       chunk;
+};
+
+typedef struct fd_backt_out fd_backt_out_t;
+
+struct fd_backt_tile {
+  /* On boot, snapshot load happens and then when it completes, both
+     this tile and replay receive a signal to start processing.  If
+     replay receives it earlier, and manages to send us a frag quickly,
+     we could attempt to process it before the snapshot load complete
+     fragment which would be a race condition.  This flag indicates if
+     snapshot load is complete and if not we do not process replay
+     frags. */
+  int initialized;
+  int genesis;
+  int snapshot_done;
+  uint reasm_ready      : 1; /* reasm root is set, so we can start publishing FECs to replay */
+  uint source_exhausted : 1;
+
+  fd_backt_src_t * src;
+
+  ulong root_distance;
+
+  ulong prev_root;
+  ulong prev_slot;
+  ulong prev_fec_set_idx;
+  ulong out_fec_set_idx;
+
+  /* The FEC set in progress, inserted into store once complete. */
+  uchar * fec_data;
+  uint    fec_data_idx;
+  uint    fec_data_sz;
+  ushort  fec_shred_sz[ FD_FEC_SHRED_CNT ];
+
+  ulong start_slot;
+  ulong end_slot;
+
+  ulong reading_slot_cnt;
+  ulong reading_slot;
+
+  ulong idle_cnt;
+
+  long prior_completion_timestamp;
+
+  long  replay_time;
+  long  publish_time;
+  ulong slot_cnt;
+
+  long boot_time;
+  long snapshot_done_time;
+  long replay_ready_time;
+  long first_slot_begin_nanos;
+  ulong txn_cnt;
+
+  fd_store_t    * store;
+  fd_store_map_t  map_join[1];
+  int             store_disk_fd;
+
+  int in_kind[ 16UL ];
+  fd_backt_in_t in[ 16UL ];
+
+  fd_backt_out_t repair_out[ 1 ];
+  fd_backt_out_t votor_out[ 1 ];
+
+  ulong          ipecho_out_idx; /* ULONG if no event tile */
+  int            has_genesis_hash;
+  fd_hash_t      genesis_hash;
+  ulong          hard_fork_cnt;
+  fd_hard_fork_t hard_forks[ FD_HARD_FORKS_MAX ];
+
+  ulong shreds_idx;
+  ulong shreds_cnt;
+  uchar shreds[ SHRED_BUFFER_LEN ][ FD_SHRED_MAX_SZ ];
+
+  ulong fec_set_idxs[ OUT_FECS_BUFFER_LEN ];
+
+  ulong * rooted_slots;
+  fd_hash_t rooted_slots_block_id[ BANK_HASH_BUFFER_LEN ];
+
+  ulong pending_sz;
+  uchar pending[ FD_SHRED_MAX_SZ ];
+
+  volatile ulong const * event_metrics;
+
+  ulong         event_in_cnt;
+  ulong const * event_in_prod[ 64 ];
+  ulong const * event_in_cons[ 64 ];
+};
+
+typedef struct fd_backt_tile fd_backt_tile_t;
+
+FD_FN_CONST static inline ulong
+scratch_align( void ) {
+  return 128UL;
+}
+
+FD_FN_PURE static inline ulong
+scratch_footprint( fd_topo_tile_t const * tile ) {
+  (void)tile;
+  ulong l = FD_LAYOUT_INIT;
+  l = FD_LAYOUT_APPEND( l, alignof(fd_backt_tile_t),     sizeof(fd_backt_tile_t)                        );
+  l = FD_LAYOUT_APPEND( l, rooted_slots_align(),         rooted_slots_footprint( BANK_HASH_BUFFER_LEN ) );
+
+  return FD_LAYOUT_FINI( l, scratch_align() );
+}
+
+static void
+before_credit( fd_backt_tile_t *   ctx,
+               fd_stem_context_t * stem,
+               int *               charge_busy ) {
+  (void)stem;
+
+  if( FD_UNLIKELY( !ctx->initialized ) ) return;
+  if( FD_UNLIKELY( !ctx->snapshot_done ) ) return;
+
+  ctx->idle_cnt++;
+  if( FD_UNLIKELY( ctx->idle_cnt<=1UL ) ) return; /* publishing fragments in after credit takes priority */
+  if( FD_UNLIKELY( ctx->source_exhausted ) ) return; /* finished iterating */
+  if( FD_UNLIKELY( ctx->shreds_cnt==SHRED_BUFFER_LEN ) ) return; /* out of space */
+  if( FD_UNLIKELY( *stem->min_cr_avail<128UL ) ) return; /* reserve some credits so replay can always publish back */
+  if( FD_UNLIKELY( ctx->reading_slot_cnt-ctx->slot_cnt>=30UL ) ) return; /* too far ahead of replay */
+
+  *charge_busy = 1;
+
+  /* Read next shred from the source (or re-process a pending one) */
+
+  if( FD_UNLIKELY( ctx->pending_sz==ULONG_MAX ) ) {
+    ulong sz = fd_backtest_src_shred( ctx->src, ctx->pending, FD_SHRED_MAX_SZ );
+    if( FD_UNLIKELY( sz>=ULONG_MAX ) ) { /* source exhausted */
+      if( FD_UNLIKELY( !ctx->reading_slot_cnt ) )
+        FD_LOG_ERR(( "ledger has no slots to replay in (%lu, %lu] (no rooted slots after the snapshot slot?)", ctx->start_slot, ctx->end_slot ));
+      ctx->source_exhausted = 1;
+      return;
+    }
+    ctx->pending_sz = sz;
+    if( FD_UNLIKELY( !fd_shred_parse( ctx->pending, ctx->pending_sz, FD_SHRED_BLK_MAX ) ) ) {
+      FD_LOG_HEXDUMP_WARNING(( "invalid shred", ctx->pending, ctx->pending_sz ));
+      FD_LOG_ERR(( "invalid shred from backtest source (sz=%lu)", ctx->pending_sz ));
+    }
+  }
+
+  fd_shred_t const * shred = (fd_shred_t const *)ctx->pending;
+
+  /* Skip shreds before start_slot */
+  if( FD_UNLIKELY( shred->slot<=ctx->start_slot ) ) { ctx->pending_sz = ULONG_MAX; return; }
+
+  /* Skip shreds past end_slot */
+  if( FD_UNLIKELY( shred->slot>ctx->end_slot ) ) {
+    if( FD_UNLIKELY( !ctx->reading_slot_cnt ) )
+      FD_LOG_ERR(( "ledger has no slots to replay in (%lu, %lu] (no rooted slots after the snapshot slot?)", ctx->start_slot, ctx->end_slot ));
+    ctx->source_exhausted = 1;
+    ctx->pending_sz = ULONG_MAX;
+    return;
+  }
+
+  /* Handle slot transition */
+  if( FD_UNLIKELY( shred->slot!=ctx->reading_slot || !ctx->reading_slot_cnt ) ) {
+    ctx->reading_slot = shred->slot;
+    ctx->reading_slot_cnt++;
+  }
+
+  fd_memcpy( ctx->shreds[ (ctx->shreds_idx+ctx->shreds_cnt)%SHRED_BUFFER_LEN ], ctx->pending, ctx->pending_sz );
+  ctx->shreds_cnt++;
+  ctx->pending_sz = ULONG_MAX;
+}
+
+static void
+after_credit( fd_backt_tile_t *   ctx,
+              fd_stem_context_t * stem,
+              int *               opt_poll_in,
+              int *               charge_busy ) {
+  (void)opt_poll_in;
+
+  int process = ctx->shreds_cnt>=2UL || (ctx->source_exhausted && ctx->shreds_cnt );
+  if( FD_UNLIKELY( !process ) ) return; /* need to buffer two in ordinary processing for completes fec lookahead */
+  if( FD_UNLIKELY( !ctx->reasm_ready ) ) return;
+
+  *charge_busy = 1;
+  ctx->idle_cnt = 0UL;
+
+  fd_shred_t const * shred = (fd_shred_t const *)ctx->shreds[ ctx->shreds_idx ];
+  fd_shred_t const * next_shred = (fd_shred_t const *)ctx->shreds[ (ctx->shreds_idx+1UL)%SHRED_BUFFER_LEN ];
+
+  uchar completes_slot = !!(shred->data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE);
+  int completes_fec_set = completes_slot || next_shred->slot!=shred->slot || next_shred->fec_set_idx!=shred->fec_set_idx;
+  int begins_fec_set = ctx->prev_slot==ULONG_MAX || shred->slot!=ctx->prev_slot || shred->fec_set_idx!=ctx->prev_fec_set_idx;
+  if( FD_UNLIKELY( begins_fec_set ) ) {
+    ctx->out_fec_set_idx = (ctx->prev_slot==ULONG_MAX || shred->slot!=ctx->prev_slot) ? 0UL : ctx->out_fec_set_idx + FD_FEC_SHRED_CNT;
+  }
+
+  ulong out_shred_idx = ctx->out_fec_set_idx + (ulong)(shred->idx - shred->fec_set_idx);
+
+  /* FEC sets from the backtest tile will have their merkle root and
+     chained merkle root overwritten with their slot numbers and fec
+     set index. This is done in order to preserve behavior for older
+     ledgers which may not have merkle roots or chained merkle roots. */
+  fd_hash_t mr = { .ul[0] = shred->slot, .ul[1] = ctx->out_fec_set_idx };
+  if( FD_UNLIKELY( begins_fec_set ) ) {
+    ctx->fec_data    = fd_store_fec_data_reserve( ctx->store, ctx->store_disk_fd, &ctx->fec_data_idx, NULL );
+    ctx->fec_data_sz = 0U;
+    memset( ctx->fec_shred_sz, 0, sizeof(ctx->fec_shred_sz) );
+    FD_TEST( ctx->fec_data );
+  }
+
+  ulong payload_sz = fd_shred_payload_sz( shred );
+  if( FD_UNLIKELY( ctx->fec_data_sz+payload_sz>ctx->store->fec_data_max ) ) {
+    FD_LOG_ERR(( "backtest FEC payload exceeds store maximum (%lu>%lu)",
+                 ctx->fec_data_sz+payload_sz, ctx->store->fec_data_max ));
+  }
+  fd_memcpy( ctx->fec_data + ctx->fec_data_sz, fd_shred_data_payload( shred ), payload_sz );
+  ctx->fec_data_sz += (uint)payload_sz;
+  ulong shred_idx = out_shred_idx - ctx->out_fec_set_idx;
+  if( FD_LIKELY( shred_idx<FD_FEC_SHRED_CNT ) ) {
+    FD_TEST( payload_sz<=USHORT_MAX );
+    ctx->fec_shred_sz[ shred_idx ] = (ushort)payload_sz;
+  }
+  if( FD_UNLIKELY( completes_fec_set ) ) {
+    fd_store_fec_t * fec;
+    FD_TEST( !fd_store_insert( ctx->store, ctx->map_join, &mr, shred->slot, 0UL, ctx->fec_data_idx, ctx->fec_data_sz, ctx->fec_shred_sz, &fec ) && fec );
+  }
+
+  ctx->shreds_idx = (ctx->shreds_idx+1UL)%SHRED_BUFFER_LEN;
+  ctx->shreds_cnt--;
+
+  ctx->prev_slot = shred->slot;
+  ctx->prev_fec_set_idx = shred->fec_set_idx;
+
+  if( FD_LIKELY( !completes_fec_set ) ) return;
+
+  ulong parent_slot = shred->slot - shred->data.parent_off;
+
+  fd_repair_replay_fec_t * rotor_fec = fd_chunk_to_laddr( ctx->repair_out->mem, ctx->repair_out->chunk );
+  memset( rotor_fec, 0, sizeof(fd_repair_replay_fec_t) );
+  rotor_fec->slot          = shred->slot;
+  rotor_fec->fec_set_idx   = (uint)ctx->out_fec_set_idx;
+  rotor_fec->mr            = mr;
+  rotor_fec->parent_slot   = parent_slot;
+  rotor_fec->data_complete = !!(shred->data.flags & FD_SHRED_DATA_FLAG_DATA_COMPLETE);
+  rotor_fec->slot_complete = !!completes_slot;
+
+  rotor_fec->metrics.highest_fec_complete_slot = shred->slot;
+  if( FD_UNLIKELY( ctx->out_fec_set_idx==0UL ) ) {
+    if( FD_UNLIKELY( parent_slot==ctx->start_slot ) ) {
+      rotor_fec->parent_block_id = ctx->rooted_slots_block_id[ parent_slot % BANK_HASH_BUFFER_LEN ];
+    } else {
+      rotor_fec->parent_block_id.ul[ 0 ] = parent_slot;
+      rotor_fec->parent_block_id.ul[ 1 ] = ctx->fec_set_idxs[ parent_slot % OUT_FECS_BUFFER_LEN ];
+    }
+  }
+  if( FD_UNLIKELY( completes_slot ) ) rotor_fec->block_id = mr;
+
+  ctx->fec_set_idxs[ shred->slot % OUT_FECS_BUFFER_LEN ] = ctx->out_fec_set_idx;
+
+  fd_stem_publish( stem, ctx->repair_out->idx, ROTOR_SIG_FEC_REPLAY, ctx->repair_out->chunk, sizeof(fd_repair_replay_fec_t), 0, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+  ctx->repair_out->chunk = fd_dcache_compact_next( ctx->repair_out->chunk, sizeof(fd_repair_replay_fec_t), ctx->repair_out->chunk0, ctx->repair_out->wmark );
+
+  if( FD_UNLIKELY( ctx->source_exhausted && !ctx->shreds_cnt ) ) ctx->publish_time += fd_log_wallclock();
+}
+
+/* Publish the shred version to the event tile once the genesis hash
+   and snapshot hard forks are both known. */
+static void
+publish_shred_version( fd_backt_tile_t *   ctx,
+                       fd_stem_context_t * stem ) {
+  if( FD_LIKELY( ctx->ipecho_out_idx==ULONG_MAX ) ) return;
+  if( FD_UNLIKELY( !ctx->has_genesis_hash || !ctx->snapshot_done ) ) return;
+
+  ushort shred_version = compute_shred_version( ctx->genesis_hash.uc, ctx->hard_forks, ctx->hard_fork_cnt );
+  fd_stem_publish( stem, ctx->ipecho_out_idx, shred_version, 0UL, 0UL, 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+}
+
+/* Log the run summary, drain telemetry and exit the process. */
+
+static void
+finish( fd_backt_tile_t * ctx,
+        ulong             last_slot,
+        long              completion_nanos ) {
+  long now = fd_log_wallclock();
+  ctx->replay_time    += now;
+  double replay_time_s = (double)ctx->replay_time * 1e-9;
+  double publish_time_s = (double)ctx->publish_time * 1e-9;
+  double sec_per_slot  = ctx->slot_cnt ? replay_time_s / (double)ctx->slot_cnt : 0.0;
+  FD_LOG_NOTICE(( "Backtest playback done. replay completed - slots: %lu, published: %6.6f s, elapsed: %6.6f s, sec/slot: %6.6f", ctx->slot_cnt, publish_time_s, replay_time_s, sec_per_slot ));
+  double replay_s = (double)(now-ctx->replay_ready_time)/1e9;
+  FD_LOG_INFO(( "BACKTEST_SUMMARY snapshot_slot=%lu end_slot=%lu slots=%lu txns=%lu snap_bytes_s=%.3f replay_init_s=%.3f load_total_s=%.3f replay_s=%.3f slot_exec_s=%.3f sec_per_slot=%.6f tps=%.1f total_s=%.3f",
+                ctx->start_slot, last_slot, ctx->slot_cnt, ctx->txn_cnt,
+                (double)(ctx->snapshot_done_time-ctx->boot_time)/1e9,
+                (double)(ctx->replay_ready_time-ctx->snapshot_done_time)/1e9,
+                (double)(ctx->replay_ready_time-ctx->boot_time)/1e9,
+                replay_s,
+                ctx->slot_cnt ? (double)(completion_nanos-ctx->first_slot_begin_nanos)/1e9 : 0.0,
+                ctx->slot_cnt ? replay_s/(double)ctx->slot_cnt : 0.0,
+                replay_s>0.0 ? (double)ctx->txn_cnt/replay_s : 0.0,
+                (double)(now-ctx->boot_time)/1e9 ));
+  if( FD_LIKELY( ctx->src ) ) {
+    fd_backtest_src_destroy( ctx->src );
+    ctx->src = NULL;
+  }
+  if( FD_UNLIKELY( ctx->event_metrics ) ) {
+    long deadline = fd_log_wallclock() + (long)120e9;
+    for(;;) {
+      int drained = 1;
+      for( ulong i=0UL; i<ctx->event_in_cnt; i++ ) {
+        if( FD_UNLIKELY( fd_seq_lt( fd_fseq_query( ctx->event_in_cons[ i ] ), fd_mcache_seq_query( ctx->event_in_prod[ i ] ) ) ) ) { drained = 0; break; }
+      }
+      drained = drained && !ctx->event_metrics[ FD_METRICS_GAUGE_EVENT_QUEUE_UNSENT_COUNT_OFF ];
+      if( FD_LIKELY( drained ) ) break;
+      if( FD_UNLIKELY( ctx->event_metrics[ FD_METRICS_GAUGE_EVENT_CONN_STATE_OFF ]!=FD_EVENT_CLIENT_STATE_CONNECTED ) ) {
+        FD_LOG_WARNING(( "exiting with %lu events unsent (event collector not connected)", ctx->event_metrics[ FD_METRICS_GAUGE_EVENT_QUEUE_UNSENT_COUNT_OFF ] ));
+        break;
+      }
+      if( FD_UNLIKELY( fd_log_wallclock()>deadline ) ) {
+        FD_LOG_WARNING(( "exiting with %lu events unsent (drain timed out)", ctx->event_metrics[ FD_METRICS_GAUGE_EVENT_QUEUE_UNSENT_COUNT_OFF ] ));
+        break;
+      }
+      FD_SPIN_PAUSE();
+    }
+  }
+  exit(0);
+}
+
+static inline int
+returnable_frag( fd_backt_tile_t *   ctx,
+                 ulong               in_idx,
+                 ulong               seq,
+                 ulong               sig,
+                 ulong               chunk,
+                 ulong               sz,
+                 ulong               ctl,
+                 ulong               tsorig,
+                 ulong               tspub,
+                 fd_stem_context_t * stem ) {
+  (void)seq;
+  (void)sz;
+  (void)ctl;
+  (void)tsorig;
+
+  switch( ctx->in_kind[ in_idx ] ) {
+    case IN_KIND_SNAP: {
+      if( FD_LIKELY( fd_ssmsg_sig_message( sig )==FD_SSMSG_DONE ) ) {
+        uchar first_buf[ FD_SHRED_MAX_SZ ];
+        ulong first_sz = ctx->src ? ctx->src->vt->first_shred( ctx->src, first_buf, sizeof(first_buf) ) : 0UL;
+        if( FD_LIKELY( first_sz ) ) {
+          fd_shred_t const * first = fd_shred_parse( first_buf, first_sz, FD_SHRED_BLK_MAX );
+          if( FD_UNLIKELY( !first ) ) {
+            FD_LOG_HEXDUMP_WARNING(( "invalid shred", first_buf, first_sz ));
+            FD_LOG_ERR(( "invalid shred from backtest source (sz=%lu)", first_sz ));
+          }
+          if( FD_UNLIKELY( ctx->start_slot<first->slot ) ) {
+            FD_LOG_ERR(( "Snapshot too old for ledger! "
+                         "Snapshot slot: %lu is before ledger start slot: %lu",
+                         ctx->start_slot, first->slot ));
+          }
+        }
+        /* Skip past any shreds in the source for slots <=start_slot so we don't replay them */
+        if( FD_LIKELY( ctx->src ) ) fd_backtest_src_seek( ctx->src, ctx->start_slot+1UL );
+        ctx->snapshot_done_time = fd_log_wallclock();
+        ctx->replay_time = -fd_log_wallclock();
+        ctx->publish_time = -fd_log_wallclock();
+        ctx->snapshot_done = 1;
+        publish_shred_version( ctx, stem );
+        return 0;
+      }
+
+      fd_snapshot_manifest_t const * manifest = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
+
+      FD_TEST( manifest->hard_fork_cnt<=FD_HARD_FORKS_MAX );
+      ctx->hard_fork_cnt = manifest->hard_fork_cnt;
+      fd_memcpy( ctx->hard_forks, manifest->hard_forks, manifest->hard_fork_cnt*sizeof(fd_hard_fork_t) );
+
+      ctx->initialized = 1;
+      ctx->reading_slot = manifest->slot;
+      ctx->start_slot  = manifest->slot;
+      FD_MGAUGE_SET( BACKT, START_SLOT, ctx->start_slot );
+      FD_LOG_NOTICE(( "replaying from slot %lu to %lu", ctx->start_slot, ctx->end_slot ));
+      break;
+    }
+    case IN_KIND_GENESI: {
+      fd_genesis_meta_t const * meta = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
+      ctx->genesis_hash     = meta->genesis_hash;
+      ctx->has_genesis_hash = 1;
+      if( FD_UNLIKELY( ctx->genesis ) ) {
+        ctx->snapshot_done = 1;
+        ctx->initialized = 1;
+        ctx->reading_slot = 0UL;
+        ctx->start_slot  = 0UL;
+        FD_MGAUGE_SET( BACKT, START_SLOT, ctx->start_slot );
+        ctx->snapshot_done_time = fd_log_wallclock();
+        ctx->replay_time = -fd_log_wallclock();
+        ctx->publish_time = -fd_log_wallclock();
+        FD_LOG_NOTICE(( "replaying from slot %lu to %lu", ctx->start_slot, ctx->end_slot ));
+      }
+      publish_shred_version( ctx, stem );
+      break;
+    }
+    case IN_KIND_REPLAY: {
+      if( FD_UNLIKELY( sig==REPLAY_SIG_SLOT_DEAD ) ) {
+        fd_replay_slot_dead_t const * msg = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
+        /* In Alpenglow, dead blocks should never be in the ledger, so
+           if Firedancer's replay marked a block as dead this should be
+           fatal. */
+        if( FD_UNLIKELY( memcmp( msg->block_id.uc, ((fd_hash_t){0}).uc, sizeof(fd_hash_t) ) ) ) {
+          FD_LOG_ERR(( "replay marked slot=%lu as dead", msg->slot ));
+        }
+        FD_LOG_NOTICE(( "replay marked slot=%lu as dead", msg->slot ));
+        return 0;
+      }
+      if( FD_UNLIKELY( sig!=REPLAY_SIG_SLOT_COMPLETED ) ) return 0;
+      if( FD_UNLIKELY( !ctx->initialized ) ) return 1;
+      if( FD_UNLIKELY( !ctx->reasm_ready ) ) ctx->reasm_ready = 1;
+
+      fd_replay_slot_completed_t const * msg = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
+      ctx->rooted_slots_block_id[ msg->slot%BANK_HASH_BUFFER_LEN ] = msg->block_id;
+      if( FD_UNLIKELY( msg->slot==ctx->start_slot ) ) {
+        ctx->replay_ready_time     = fd_log_wallclock();
+        ctx->prev_root             = msg->slot;
+        if( FD_UNLIKELY( !ctx->src ) ) finish( ctx, msg->slot, msg->completion_time_nanos ); /* load-only: no ledger */
+        return 0;
+      }
+
+      long prior_completion_timestamp = ctx->prior_completion_timestamp ? ctx->prior_completion_timestamp : msg->preparation_begin_nanos;
+
+      fd_backt_slot_info_t slot_info;
+      memset( &slot_info, 0, sizeof(slot_info) );
+      FD_BASE58_ENCODE_32_BYTES( msg->bank_hash.uc, bh_got_b58 );
+      if( FD_UNLIKELY( !fd_backtest_src_slot_info( ctx->src, &slot_info, msg->slot ) || !slot_info.bank_hash_set ) ) {
+        FD_LOG_ERR(( "No bank hash available for slot %lu", msg->slot ));
+      }
+      if( FD_LIKELY( !memcmp( msg->bank_hash.uc, slot_info.bank_hash.uc, 32UL ) ) ) {
+        FD_LOG_NOTICE(( "Bank hash matches! slot=%lu, hash=%-44s (switch %.2f ms, begin %.2f ms, exec %6.2f ms, finish %.2f ms)", msg->slot, bh_got_b58,
+          (double)(msg->preparation_begin_nanos-prior_completion_timestamp)/1e6,
+          (double)(msg->first_transaction_scheduled_nanos-msg->preparation_begin_nanos)/1e6,
+          (double)(msg->last_transaction_finished_nanos-msg->first_transaction_scheduled_nanos)/1e6,
+          (double)(msg->completion_time_nanos-msg->last_transaction_finished_nanos)/1e6 ));
+      } else {
+        /* Do not change this log as it is used in offline replay */
+        FD_BASE58_ENCODE_32_BYTES( slot_info.bank_hash.uc, bh_exp_b58 );
+        FD_LOG_ERR(( "Bank hash mismatch! slot=%lu expected=%s, got=%s", msg->slot, bh_exp_b58, bh_got_b58 ));
+      }
+      if( slot_info.rooted ) {
+        FD_TEST( !rooted_slots_full( ctx->rooted_slots ) );
+        rooted_slots_push_tail( ctx->rooted_slots, msg->slot );
+      }
+
+      ulong root_slot;
+      if( FD_LIKELY( msg->slot >= ctx->root_distance + *rooted_slots_peek_head_const( ctx->rooted_slots ) ) ) {
+        root_slot = rooted_slots_pop_head( ctx->rooted_slots );
+      } else {
+        root_slot = ctx->prev_root;
+      }
+
+      if( FD_UNLIKELY( !ctx->slot_cnt ) ) ctx->first_slot_begin_nanos = msg->preparation_begin_nanos;
+      ctx->slot_cnt++;
+      ctx->txn_cnt += msg->vote_success+msg->vote_failed+msg->nonvote_success+msg->nonvote_failed;
+
+      ctx->prior_completion_timestamp = msg->completion_time_nanos;
+
+      int reached_end_slot  = msg->slot>=ctx->end_slot;
+      int drained_exhausted = ctx->source_exhausted && !ctx->shreds_cnt && msg->slot>=ctx->prev_slot;
+      if( FD_UNLIKELY( reached_end_slot || drained_exhausted ) ) finish( ctx, msg->slot, msg->completion_time_nanos );
+
+      int root_advanced = root_slot!=ctx->prev_root;
+      ctx->prev_root    = root_slot;
+
+      /* The backtest tile stands in for votor and certifies the root
+         slot fast finalized so replay roots it. */
+      if( FD_LIKELY( root_advanced ) ) {
+        fd_votor_certed_t * certed = fd_chunk_to_laddr( ctx->votor_out->mem, ctx->votor_out->chunk );
+        memset( certed, 0, sizeof(fd_votor_certed_t) );
+        certed->kind     = AG_CERT_KIND_FAST_FINAL;
+        certed->slot     = root_slot;
+        certed->block_id = ctx->rooted_slots_block_id[ root_slot%BANK_HASH_BUFFER_LEN ];
+        fd_stem_publish( stem, ctx->votor_out->idx, FD_VOTOR_SIG_CERTED, ctx->votor_out->chunk, sizeof(fd_votor_msg_t), 0UL, tspub, fd_frag_meta_ts_comp( fd_tickcount() ) );
+        ctx->votor_out->chunk = fd_dcache_compact_next( ctx->votor_out->chunk, sizeof(fd_votor_msg_t), ctx->votor_out->chunk0, ctx->votor_out->wmark );
+      }
+      break;
+    }
+    default: FD_LOG_ERR(( "unhandled in_kind: %d in_idx: %lu", ctx->in_kind[ in_idx ], in_idx ));
+  }
+
+  return 0;
+}
+
+static inline fd_backt_out_t
+out1( fd_topo_t const *      topo,
+      fd_topo_tile_t const * tile,
+      char const *           name ) {
+  ulong idx = ULONG_MAX;
+
+  for( ulong i=0UL; i<tile->out_cnt; i++ ) {
+    fd_topo_link_t const * link = &topo->links[ tile->out_link_id[ i ] ];
+    if( !strcmp( link->name, name ) ) {
+      if( FD_UNLIKELY( idx!=ULONG_MAX ) ) FD_LOG_ERR(( "tile %s:%lu had multiple output links named %s but expected one", tile->name, tile->kind_id, name ));
+      idx = i;
+    }
+  }
+
+  if( FD_UNLIKELY( idx==ULONG_MAX ) ) FD_LOG_ERR(( "tile %s:%lu had no output link named %s", tile->name, tile->kind_id, name ));
+
+  void * mem = topo->workspaces[ topo->objs[ topo->links[ tile->out_link_id[ idx ] ].dcache_obj_id ].wksp_id ].wksp;
+  ulong chunk0 = fd_dcache_compact_chunk0( mem, topo->links[ tile->out_link_id[ idx ] ].dcache );
+  ulong wmark  = fd_dcache_compact_wmark ( mem, topo->links[ tile->out_link_id[ idx ] ].dcache, topo->links[ tile->out_link_id[ idx ] ].mtu );
+
+  return (fd_backt_out_t){ .idx = idx, .mem = mem, .chunk0 = chunk0, .wmark = wmark, .chunk = chunk0 };
+}
+
+static void
+privileged_init( fd_topo_t const *      topo,
+                 fd_topo_tile_t const * tile ) {
+  void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+  FD_SCRATCH_ALLOC_INIT( l, scratch );
+  fd_backt_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_backt_tile_t), sizeof(fd_backt_tile_t) );
+
+  ulong store_obj_id = fd_pod_query_ulong( topo->props, "store", ULONG_MAX );
+  FD_TEST( store_obj_id!=ULONG_MAX );
+  fd_store_t * store = fd_store_join( fd_topo_obj_laddr( topo, store_obj_id ) );
+  FD_TEST( store );
+
+  ctx->store_disk_fd = FD_STORE_FD_RW;
+  if( FD_UNLIKELY( fcntl( ctx->store_disk_fd, F_GETFD )<0 ) )
+    FD_LOG_ERR(( "store file descriptor was not inherited (%i-%s)", errno, fd_io_strerror( errno ) ));
+}
+
+static void
+unprivileged_init( fd_topo_t const *      topo,
+                   fd_topo_tile_t const * tile ) {
+  void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+
+  FD_SCRATCH_ALLOC_INIT( l, scratch );
+  fd_backt_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_backt_tile_t), sizeof(fd_backt_tile_t)                        );
+  int store_disk_fd = ctx->store_disk_fd;
+  void * _rooted_slots  = FD_SCRATCH_ALLOC_APPEND( l, rooted_slots_align(),     rooted_slots_footprint( BANK_HASH_BUFFER_LEN ) );
+  memset( ctx, 0, sizeof(fd_backt_tile_t) );
+  ctx->store_disk_fd = store_disk_fd;
+
+  ctx->snapshot_done = 0;
+  ctx->initialized = 0;
+  ctx->reasm_ready = 0;
+  ctx->genesis = fd_topo_find_tile( topo, "snapct", 0UL )==ULONG_MAX;
+  ctx->idle_cnt = 0UL;
+
+  ctx->event_metrics = NULL;
+  ctx->event_in_cnt  = 0UL;
+  ulong event_tile_idx = fd_topo_find_tile( topo, "event", 0UL );
+  if( FD_UNLIKELY( event_tile_idx!=ULONG_MAX && topo->tiles[ event_tile_idx ].metrics ) ) {
+    fd_topo_tile_t const * event_tile = &topo->tiles[ event_tile_idx ];
+    ctx->event_metrics = fd_metrics_tile( event_tile->metrics );
+    for( ulong i=0UL; i<event_tile->in_cnt; i++ ) {
+      if( FD_UNLIKELY( !event_tile->in_link_poll[ i ] ) ) continue;
+      if( FD_UNLIKELY( !event_tile->in_link_fseq[ i ] ) ) continue;
+      FD_TEST( ctx->event_in_cnt<sizeof(ctx->event_in_prod)/sizeof(ctx->event_in_prod[0]) );
+      ctx->event_in_prod[ ctx->event_in_cnt ] = fd_mcache_seq_laddr_const( topo->links[ event_tile->in_link_id[ i ] ].mcache );
+      ctx->event_in_cons[ ctx->event_in_cnt ] = event_tile->in_link_fseq[ i ];
+      ctx->event_in_cnt++;
+    }
+  }
+
+  ctx->end_slot = tile->backtest.end_slot ? tile->backtest.end_slot : ULONG_MAX;
+  ctx->slot_cnt = 0UL;
+  ctx->txn_cnt  = 0UL;
+
+  ctx->shreds_idx = 0UL;
+  ctx->shreds_cnt = 0UL;
+
+  ctx->rooted_slots = rooted_slots_join( rooted_slots_new( _rooted_slots, BANK_HASH_BUFFER_LEN ) );
+  FD_TEST( ctx->rooted_slots );
+
+  ctx->reading_slot_cnt = 0UL;
+
+  ctx->prev_slot = ULONG_MAX;
+  ctx->out_fec_set_idx = 0UL;
+
+  ctx->prior_completion_timestamp = 0L;
+
+  ctx->pending_sz = ULONG_MAX;
+
+  memset( ctx->fec_set_idxs, 0UL, sizeof(ctx->fec_set_idxs) );
+
+  ctx->root_distance = tile->backtest.root_distance;
+  ctx->boot_time     = tile->backtest.boot_timestamp_nanos;
+
+  ctx->src = NULL;
+  if( FD_LIKELY( tile->backtest.ledger_path[ 0 ] ) ) { /* empty path: load the snapshot, then exit */
+    fd_backtest_src_opts_t opts = {
+      .format      = tile->backtest.ledger_format,
+      .path        = tile->backtest.ledger_path,
+      .rooted_only = 1,
+      .code_shreds = 0,
+    };
+    ctx->src = fd_backtest_src_create( &opts );
+    FD_TEST( ctx->src );
+  } else {
+    ctx->source_exhausted = 1;
+  }
+  FD_MGAUGE_SET( BACKT, START_SLOT, ctx->start_slot );
+  FD_MGAUGE_SET( BACKT, END_SLOT,   fd_ulong_if( ctx->end_slot==ULONG_MAX, 0UL, ctx->end_slot ) );
+
+  ulong store_obj_id = fd_pod_query_ulong( topo->props, "store", ULONG_MAX );
+  FD_TEST( store_obj_id!=ULONG_MAX );
+  ctx->store = fd_store_join( fd_topo_obj_laddr( topo, store_obj_id ) );
+  FD_TEST( ctx->store );
+  FD_TEST( fd_store_map_ljoin( ctx->store, ctx->map_join ) );
+
+  FD_TEST( tile->in_cnt<=sizeof(ctx->in)/sizeof(ctx->in[0]) );
+  for( uint i=0UL; i<tile->in_cnt; i++ ) {
+    fd_topo_link_t const * link = &topo->links[ tile->in_link_id[ i ] ];
+    fd_topo_wksp_t const * link_wksp = &topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ];
+
+    ctx->in[ i ].mem    = link_wksp->wksp;
+    ctx->in[ i ].chunk0 = fd_dcache_compact_chunk0( ctx->in[ i ].mem, link->dcache );
+    ctx->in[ i ].wmark  = fd_dcache_compact_wmark ( ctx->in[ i ].mem, link->dcache, link->mtu );
+    ctx->in[ i ].mtu    = link->mtu;
+
+    if(      !strcmp( link->name, "replay_slot"  ) ) ctx->in_kind[ i ] = IN_KIND_REPLAY;
+    else if( !strcmp( link->name, "snapin_manif" ) ) ctx->in_kind[ i ] = IN_KIND_SNAP;
+    else if( !strcmp( link->name, "genesi_out"   ) ) ctx->in_kind[ i ] = IN_KIND_GENESI;
+    else FD_LOG_ERR(( "backtest tile has unexpected input link %s", link->name ));
+  }
+
+  *ctx->repair_out = out1( topo, tile, "repair_out" );
+  *ctx->votor_out  = out1( topo, tile, "votor_out" );
+  ctx->ipecho_out_idx = fd_topo_find_tile_out_link( topo, tile, "ipecho_out", 0UL );
+
+  ctx->store = fd_store_join( fd_topo_obj_laddr( topo, fd_pod_query_ulong( topo->props, "store", ULONG_MAX ) ) );
+
+  ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
+  if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
+    FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
+}
+
+static ulong
+populate_allowed_fds( fd_topo_t const *      topo,
+                      fd_topo_tile_t const * tile,
+                      ulong                  out_fds_cnt,
+                      int *                  out_fds ) {
+  void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+  FD_SCRATCH_ALLOC_INIT( l, scratch );
+  fd_backt_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_backt_tile_t), sizeof(fd_backt_tile_t) );
+
+  if( FD_UNLIKELY( out_fds_cnt<3UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+  ulong out_cnt = 0UL;
+  out_fds[ out_cnt++ ] = 2; /* stderr */
+  if( FD_LIKELY( -1!=fd_log_private_logfile_fd() ) ) out_fds[ out_cnt++ ] = fd_log_private_logfile_fd();
+  out_fds[ out_cnt++ ] = ctx->store_disk_fd;
+  return out_cnt;
+}
+
+#define STEM_BURST                  (2UL) /* 1 after_credit + 1 returnable_frag */
+#define STEM_CALLBACK_CONTEXT_TYPE  fd_backt_tile_t
+#define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_backt_tile_t)
+
+#define STEM_CALLBACK_BEFORE_CREDIT   before_credit
+#define STEM_CALLBACK_AFTER_CREDIT    after_credit
+#define STEM_CALLBACK_RETURNABLE_FRAG returnable_frag
+
+#include "../../disco/stem/fd_stem.c"
+
+fd_topo_run_tile_t fd_tile_backtest = {
+  .name                     = "backt",
+  .populate_allowed_fds     = populate_allowed_fds,
+  .scratch_align            = scratch_align,
+  .scratch_footprint        = scratch_footprint,
+  .privileged_init          = privileged_init,
+  .unprivileged_init        = unprivileged_init,
+  .run                      = stem_run,
+};

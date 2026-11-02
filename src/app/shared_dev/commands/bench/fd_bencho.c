@@ -2,7 +2,7 @@
 #include "../../rpc_client/fd_rpc_client_private.h"
 #include "../../../../disco/topo/fd_topo.h"
 #include "../../../../util/net/fd_ip4.h"
-#include "../../../../discof/replay/fd_replay_tile.h"
+#include "../../../../disco/replay/fd_replay_tile.h"
 #include "../../../../flamenco/leaders/fd_leaders.h"
 
 #include <stdlib.h>

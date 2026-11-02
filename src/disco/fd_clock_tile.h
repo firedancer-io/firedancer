@@ -25,7 +25,7 @@ FD_PROTOTYPES_BEGIN
 
 static inline void
 fd_clock_tile_init( fd_clock_tile_t * clock ) {
-  /* fdctl calibrates tick_per_ns on startup, no need to calibrate here */
+  /* The app calibrates tick_per_ns on startup, no need to calibrate here */
   double init_w = (double)fd_tempo_tick_per_ns( NULL );
 
   long init_x0, init_y0;

@@ -78,7 +78,6 @@ fd_config_extract_podf( uchar *        pod,
   CFG_POP      ( ulong,  snapshots.server.send_timeout_millis                );
   CFG_POP      ( ulong,  snapshots.server.send_buffer_size_kib               );
 
-  CFG_POP      ( bool,   development.hard_fork_fatal                         );
   CFG_POP      ( bool,   development.fixed_fec_sets                          );
 
   CFG_POP      ( ushort, development.votor.quic_client_listen_port           );
@@ -271,8 +270,6 @@ fd_config_extract_pod( uchar *       pod,
   CFG_POP      ( cstr,   development.bench.transaction_mode               );
   CFG_POP      ( ulong,  development.bench.max_cost_per_block             );
   CFG_POP      ( ulong,  development.bench.max_shreds_per_block           );
-  CFG_POP      ( ulong,  development.bench.disable_blockstore_from_slot   );
-  CFG_POP      ( bool,   development.bench.disable_status_cache           );
 
   CFG_POP      ( cstr,   development.bundle.ssl_key_log_file              );
   CFG_POP      ( uint,   development.bundle.buffer_size_kib               );
@@ -345,7 +342,7 @@ fd_config_extract_pod( uchar *       pod,
 
 # undef CFG_DEPRECATED
 
-  if( FD_UNLIKELY( !fdctl_pod_find_leftover( pod ) ) ) return NULL;
+  if( FD_UNLIKELY( !fd_cfg_pod_find_leftover( pod ) ) ) return NULL;
   return config;
 }
 

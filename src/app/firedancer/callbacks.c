@@ -7,9 +7,9 @@
 #include "../../flamenco/progcache/fd_progcache.h"
 #include "../../flamenco/alpenglow/fd_footer_cache.h"
 #include "../../disco/shred/fd_rnonce_ss.h"
-#include "../../discof/backup/fd_backup_shmem.h"
+#include "../../disco/backup/fd_backup_shmem.h"
 
-#include "../../discof/admin/fd_adminctl.h"
+#include "../../disco/admin/fd_adminctl.h"
 
 #define VAL(name) (__extension__({                                                             \
   ulong __x = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "obj.%lu.%s", obj->id, name );      \

@@ -19,7 +19,9 @@ Exported as:
               their committed field order, additions at the end with
               provisional numbers until `make metrics-assign`.  Remove
               a landed metric or <int> with deprecated="true" (it stays
-              a schema tombstone); rename with renamed_from listing
+              a schema tombstone); once that lands, deleting a metric
+              tombstone reserves its field number and name for good.
+              Rename with renamed_from listing
               every earlier name, oldest first ("A B" after A, B, C).
               telemetry="false" keeps a metric out of ClickHouse.
 Durations are integer nanoseconds everywhere, so a name is the same in
@@ -482,7 +484,6 @@ deliberate exception with lint-allow="<rule id>")
 
 <tile name="verify">
     <counter name="TxnProcessed" enum="VerifyResult" summary="Transactions processed, by result" />
-    <counter name="VoteGossipRx" deprecated="true" summary="Gossip vote transactions handled by this verify tile" />
     <counter name="OwnVoteRx" deprecated="true" summary="Our own vote transactions received from txsend" />
 </tile>
 
@@ -494,7 +495,6 @@ deliberate exception with lint-allow="<rule id>")
 
 <tile name="dedup">
     <counter name="TxnProcessed" enum="DedupResult" summary="Transactions processed, by result" />
-    <counter name="VoteGossipRx" deprecated="true" summary="Gossip vote transactions from pohh (Frankendancer only)" />
 </tile>
 
 <enum name="LutResolveResult">
@@ -809,9 +809,6 @@ deliberate exception with lint-allow="<rule id>")
 </enum>
 
 <tile name="shred">
-    <histogram name="DestPerUpdate" min="0" max="40200" deprecated="true">
-        <summary>Shred destinations in each cluster contact info update (Frankendancer only; on Firedancer see the gossip tile peer count)</summary>
-    </histogram>
     <counter name="BatchAbandoned" summary="Microblock batches abandoned because we switched slots without finishing the current slot" />
     <counter name="ParentBlockIdZeroed" summary="Leader blocks whose parent block_id was unknown, so the chained merkle root was zeroed" />
     <histogram name="BatchSizeBytes" min="1024" max="65536">

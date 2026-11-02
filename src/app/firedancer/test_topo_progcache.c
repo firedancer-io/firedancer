@@ -31,7 +31,7 @@ fd_topo_run_tile_t * TILES[] = {
   NULL,
 };
 
-/* Referenced by fdctl_shared's help/action machinery, unused here. */
+/* Referenced by fd_app_shared's help/action machinery, unused here. */
 
 char const * FD_APP_NAME    = "Firedancer";
 char const * FD_BINARY_NAME = "firedancer";

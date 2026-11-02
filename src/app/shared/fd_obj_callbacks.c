@@ -12,7 +12,8 @@
 #include "../../disco/node_info/fd_node_info.h"
 #include "../../disco/sleep/fd_sleep.h"
 #include "../../disco/wait_info/fd_wait_info.h"
-#include "../../discof/poh/fd_poh.h"
+#include "../../disco/poh/fd_poh.h"
+#include "boot/fd_boot.h"
 
 #define VAL(name) (__extension__({                                                             \
   ulong __x = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "obj.%lu.%s", obj->id, name );      \
@@ -275,9 +276,6 @@ fd_topo_obj_callbacks_t fd_obj_cb_wait_info = {
   .new       = wait_info_new,
 };
 
-fd_topo_run_tile_t
-fdctl_tile_run( fd_topo_tile_t const * tile );
-
 static ulong
 tile_footprint( fd_topo_t const *     topo,
                 fd_topo_obj_t const * obj ) {
@@ -290,7 +288,7 @@ tile_footprint( fd_topo_t const *     topo,
   }
   FD_TEST( tile );
 
-  fd_topo_run_tile_t runner = fdctl_tile_run( tile );
+  fd_topo_run_tile_t runner = fd_app_tile_run( tile );
   if( FD_LIKELY( runner.scratch_footprint ) ) return runner.scratch_footprint( tile );
   else                                        return 0UL;
 }
@@ -307,7 +305,7 @@ tile_loose( fd_topo_t const *     topo,
   }
   FD_TEST( tile );
 
-  fd_topo_run_tile_t runner = fdctl_tile_run( tile );
+  fd_topo_run_tile_t runner = fd_app_tile_run( tile );
   if( FD_UNLIKELY( runner.loose_footprint ) ) return runner.loose_footprint( tile );
   else                                        return 0UL;
 }
@@ -324,7 +322,7 @@ tile_align( fd_topo_t const *     topo,
   }
   FD_TEST( tile );
 
-  fd_topo_run_tile_t runner = fdctl_tile_run( tile );
+  fd_topo_run_tile_t runner = fd_app_tile_run( tile );
   if( FD_LIKELY( runner.scratch_align ) ) return runner.scratch_align();
   else                                    return 1UL;
 }

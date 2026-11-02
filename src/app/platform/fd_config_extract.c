@@ -2,23 +2,23 @@
 
 /* Find leftover ******************************************************/
 
-/* fdctl_pod_find_leftover recursively searches for non-subpod keys in
+/* fd_cfg_pod_find_leftover recursively searches for non-subpod keys in
    pod.  Prints to the warning log if it finds any.  Used to detect
-   config keys that were not recognized by fdctl.  Returns 0 if no
-   leftover key was found.  Otherwise, returns a non-zero number of
-   segments of the leftover key.  The key can be reassembled by joining
+   config keys that were not recognized.  Returns 0 if no leftover key
+   was found.  Otherwise, returns a non-zero number of segments of the
+   leftover key.  The key can be reassembled by joining
    stack[0] .. stack[depth-1].
 
    Not thread safe (uses global buffer). */
 
-# define FDCTL_CFG_MAX_DEPTH (16)
+# define FD_CFG_MAX_DEPTH (16)
 
 static ulong
-fdctl_pod_find_leftover_recurse( uchar *       pod,
-                                 char const ** stack,
-                                 ulong         depth ) {
+fd_cfg_pod_find_leftover_recurse( uchar *       pod,
+                                  char const ** stack,
+                                  ulong         depth ) {
 
-  if( FD_UNLIKELY( depth+1 >= FDCTL_CFG_MAX_DEPTH ) ) {
+  if( FD_UNLIKELY( depth+1 >= FD_CFG_MAX_DEPTH ) ) {
     FD_LOG_WARNING(( "configuration file has too many nested keys" ));
     return depth;
   }
@@ -28,7 +28,7 @@ fdctl_pod_find_leftover_recurse( uchar *       pod,
     stack[ depth ] = info.key;
     depth++;
     if( FD_LIKELY( info.val_type == FD_POD_VAL_TYPE_SUBPOD ) ) {
-      ulong sub_depth = fdctl_pod_find_leftover_recurse( (uchar *)info.val, stack, depth );
+      ulong sub_depth = fd_cfg_pod_find_leftover_recurse( (uchar *)info.val, stack, depth );
       if( FD_UNLIKELY( sub_depth ) ) return sub_depth;
     } else {
       return depth;
@@ -40,15 +40,15 @@ fdctl_pod_find_leftover_recurse( uchar *       pod,
 }
 
 int
-fdctl_pod_find_leftover( uchar * pod ) {
+fd_cfg_pod_find_leftover( uchar * pod ) {
 
-  static char const * stack[ FDCTL_CFG_MAX_DEPTH ];
-  ulong depth = fdctl_pod_find_leftover_recurse( pod, stack, 0UL );
+  static char const * stack[ FD_CFG_MAX_DEPTH ];
+  ulong depth = fd_cfg_pod_find_leftover_recurse( pod, stack, 0UL );
   if( FD_LIKELY( !depth ) ) return 1;
 
-  static char path[ 64*FDCTL_CFG_MAX_DEPTH + 4 ];
+  static char path[ 64*FD_CFG_MAX_DEPTH + 4 ];
   char * c   = fd_cstr_init( path );
-  char * end = path + 64*FDCTL_CFG_MAX_DEPTH - 1;
+  char * end = path + 64*FD_CFG_MAX_DEPTH - 1;
   for( ulong j=0UL; j<depth; j++ ) {
     char const * key     = stack[j];
     ulong        key_len = strlen( key );

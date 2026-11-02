@@ -48,6 +48,13 @@ block.
 Renaming or removing an existing metric, or changing an enum value,
 breaks Prometheus dashboards and frozen ClickHouse columns.  Flag it
 and ask whether it is intended.  A removal must be deprecated="true"
-(the generator refuses an outright delete) and a rename must carry
-renamed_from listing every earlier name, oldest first ("A B"); both
-apply to <int> enum values too.
+(the generator refuses an outright delete of a live metric) and a
+rename must carry renamed_from listing every earlier name, oldest
+first ("A B"); both apply to <int> enum values too.  Only once a
+deprecated tombstone has landed may a later change delete it from
+metrics.xml: the generator then turns its schema entry into
+`{ "reserved": true }`, so events.proto gets `reserved <n>;` and
+`reserved "<name>";`, and refuses any later metric or renamed_from
+that reuses the name.  Deleting a tombstone drops its ClickHouse
+column, so ask whether the events server and release branches still
+expecting that column have been checked.

@@ -5,7 +5,7 @@
 #include "../../../disco/shred/fd_fec_resolver.h"
 #include "../../../disco/metrics/fd_metrics.h"
 #include "../../../disco/repair/fd_repair.h"
-#include "../../../discof/replay/fd_sched.h"
+#include "../../../disco/replay/fd_sched.h"
 #include "../../alpenglow/fd_block_marker_serde.h"
 
 /* Resolver sizing.  Production sizing lives in the shred tile setup;

@@ -12,7 +12,7 @@
    or knowingly skipped) before the constant is bumped.  String keys of
    the user's own file are separately forced through the classification
    lists below. */
-FD_STATIC_ASSERT( sizeof(fd_config_t)==24462488UL, update_fd_config_to_json_for_the_layout_change );
+FD_STATIC_ASSERT( sizeof(fd_config_t)==24462464UL, update_fd_config_to_json_for_the_layout_change );
 
 #define REDACTED "[redacted]"
 
@@ -462,7 +462,6 @@ fd_config_to_json( fd_config_t const * config,
     jw_bool( &w, "no_clone",  config->development.no_clone );
     jw_bool( &w, "bootstrap", config->development.bootstrap );
     jw_str ( &w, "core_dump", config->development.core_dump );
-    jw_bool( &w, "hard_fork_fatal", f->development.hard_fork_fatal );
     jw_bool( &w, "fixed_fec_sets",  f->development.fixed_fec_sets );
     jw_obj_open( &w, "votor" );
       jw_ulong( &w, "quic_client_listen_port", f->development.votor.quic_client_listen_port );
@@ -498,8 +497,6 @@ fd_config_to_json( fd_config_t const * config,
       jw_str  ( &w, "transaction_mode",             config->development.bench.transaction_mode );
       jw_ulong( &w, "max_cost_per_block",           config->development.bench.max_cost_per_block );
       jw_ulong( &w, "max_shreds_per_block",         config->development.bench.max_shreds_per_block );
-      jw_ulong( &w, "disable_blockstore_from_slot", config->development.bench.disable_blockstore_from_slot );
-      jw_bool ( &w, "disable_status_cache",         config->development.bench.disable_status_cache );
     jw_obj_close( &w );
     jw_obj_open( &w, "bundle" );
       jw_path ( &w, "ssl_key_log_file",  config->development.bundle.ssl_key_log_file );

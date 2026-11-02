@@ -6,6 +6,13 @@
 
 FD_PROTOTYPES_BEGIN
 
+/* fd_app_tile_run returns the run descriptor of the tile with the same
+   name as the given tile, looked up in the application's TILES list.
+   Logs an error and exits if no such tile exists. */
+
+fd_topo_run_tile_t
+fd_app_tile_run( fd_topo_tile_t const * tile );
+
 int
 fd_main( int                        argc,
          char **                    _argv,

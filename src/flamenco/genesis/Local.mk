@@ -1,6 +1,6 @@
 $(call add-hdrs,fd_genesis_create.h)
-# genesis/dev tooling only: linked by fddev_shared users and its test
-$(call add-objs,fd_genesis_create,fddev_shared)
+# genesis/dev tooling only: linked by fd_app_dev users and its test
+$(call add-objs,fd_genesis_create,fd_app_dev)
 
 $(call add-hdrs,fd_genesis_parse.h)
 $(call add-objs,fd_genesis_parse,fd_flamenco)

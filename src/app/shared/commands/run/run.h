@@ -15,7 +15,7 @@ clone_firedancer( config_t const * config,
                   int *            out_pipe );
 
 void
-fdctl_check_configure( config_t const * config );
+fd_check_configure( config_t const * config );
 
 void
 initialize_workspaces( config_t * config );

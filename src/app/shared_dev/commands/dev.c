@@ -4,8 +4,9 @@
 #include "../../shared/commands/configure/configure.h"
 #include "../../shared/commands/run/run.h"
 #include "../../shared/commands/watch/watch.h"
-#include "../../../discof/genesis/genesis_hash.h"
+#include "../../../disco/genesis/genesis_hash.h"
 #include "../../../disco/net/fd_net_tile.h"
+#include "../../shared/boot/fd_boot.h"
 
 #include <stdio.h>
 #include <stdlib.h> /* setenv */
@@ -14,9 +15,6 @@
 #include <fcntl.h>
 #include <pthread.h>
 #include <sys/wait.h>
-
-fd_topo_run_tile_t
-fdctl_tile_run( fd_topo_tile_t const * tile );
 
 void
 dev_cmd_args( int *    pargc,
@@ -137,7 +135,7 @@ run_firedancer_threaded( config_t * config,
   if( 0==strcmp( config->net.provider, "mlx5" ) ) {
     fd_topo_install_mlx5( &config->topo, NULL );
   }
-  fd_topo_run_single_process( &config->topo, config->uid, config->gid, fdctl_tile_run );
+  fd_topo_run_single_process( &config->topo, config->uid, config->gid, fd_app_tile_run );
 }
 
 void

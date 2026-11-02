@@ -12,7 +12,7 @@
 extern char const * FD_APP_NAME;
 extern char const * FD_BINARY_NAME;
 
-union fdctl_args {
+union fd_action_args {
   struct {
     char  tile_name[ 7UL ];
     ulong kind_id;
@@ -208,7 +208,7 @@ union fdctl_args {
   } wait;
 };
 
-typedef union fdctl_args args_t;
+typedef union fd_action_args args_t;
 
 struct fd_action_help;
 typedef struct fd_action_help fd_action_help_t;

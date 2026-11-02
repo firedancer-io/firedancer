@@ -314,7 +314,7 @@ fd_quic_udpsock_create( void *           _sock,
                         fd_wksp_t *      wksp,
                         fd_aio_t const * rx_aio ) {
 
-  /* FIXME simplify this / use fdctl tile architecture */
+  /* FIXME simplify this / use the topo tile architecture */
   fd_quic_udpsock_t * quic_sock = _sock;
 
   ulong        mtu           = fd_env_strip_cmdline_ulong ( pargc, pargv, "--mtu",          NULL,    2048UL );

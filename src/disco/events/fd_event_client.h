@@ -4,7 +4,7 @@
 #include "fd_circq.h"
 #include "../keyguard/fd_keyguard_client.h"
 #include "../../ballet/x509/fd_x509_ca_store.h"
-#include "../../discof/genesis/fd_genesi_tile.h"
+#include "../../disco/genesis/fd_genesi_tile.h"
 
 #include <zstd.h> /* ZSTD_COMPRESSBOUND */
 

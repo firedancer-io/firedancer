@@ -6,7 +6,7 @@
 #include "../topo/fd_topo.h"
 #include "../metrics/fd_metrics.h"
 
-#include "../../discof/replay/fd_replay_tile.h"
+#include "../../disco/replay/fd_replay_tile.h"
 
 /* fd_dedup provides services to deduplicate multiple streams of input
    fragments and present them to a mix of reliable and unreliable

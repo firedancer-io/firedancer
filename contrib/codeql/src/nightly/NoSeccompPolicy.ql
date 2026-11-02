@@ -38,8 +38,7 @@ predicate alwaysCalls(Function caller, Function callee) {
 predicate isRelevantTile(FdTopoRunTileVariable tileVar) {
   not tileVar.getLocation().getFile().getBaseName().matches("fd_bench%.c") and
   not tileVar.getLocation().getFile().getBaseName() = "fd_backtest_tile.c" and
-  not tileVar.getLocation().getFile().getAbsolutePath().matches("%/src/app/shared_dev/%") and
-  not tileVar.getLocation().getFile().getAbsolutePath().matches("%/src/discoh/%")
+  not tileVar.getLocation().getFile().getAbsolutePath().matches("%/src/app/shared_dev/%")
 }
 
 from FdTopoRunTileVariable tileVar

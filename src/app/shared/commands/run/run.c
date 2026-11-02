@@ -21,13 +21,13 @@
 #include "../../../platform/fd_file_util.h"
 #include "../../../platform/fd_net_util.h"
 #include "../../../../disco/net/fd_net_tile.h"
-#include "../../../../discof/backup/fd_backup.h"
-#include "../../../../discof/backup/fd_snap_pool.h"
-#include "../../../../discof/restore/utils/fd_ssarchive.h"
+#include "../../../../disco/backup/fd_backup.h"
+#include "../../../../disco/backup/fd_snap_pool.h"
+#include "../../../../disco/restore/utils/fd_ssarchive.h"
 #include "../../../../disco/waker/fd_waker.h"
 #include "../../../../disco/sleep/fd_sleep.h"
 #include "../../../../util/pod/fd_pod_format.h"
-#include "../../../../discof/restore/utils/fd_wfs.h"
+#include "../../../../disco/restore/utils/fd_wfs.h"
 
 #include "../configure/configure.h"
 #include "../configure/fd_cpu_isolation.h"
@@ -960,7 +960,7 @@ initialize_stacks( config_t const * config ) {
 }
 
 void
-fdctl_check_configure( config_t const * config ) {
+fd_check_configure( config_t const * config ) {
 # if defined(__x86_64__)
   uint eax, ebx, ecx, edx;
   if( FD_LIKELY( __get_cpuid_count( 7U, 0U, &eax, &ebx, &ecx, &edx ) ) ) {
@@ -1084,10 +1084,10 @@ run_firedancer_init( config_t * config,
   if( FD_UNLIKELY( -1==err && errno==ENOENT ) ) FD_LOG_ERR(( "[consensus.identity_path] key does not exist `%s`. You can generate an identity key at this path by running `%s keys new %s --config <toml>`", config->paths.identity_key, FD_BINARY_NAME, config->paths.identity_key ));
   else if( FD_UNLIKELY( -1==err ) )             FD_LOG_ERR(( "could not stat [consensus.identity_path] `%s` (%i-%s)", config->paths.identity_key, errno, fd_io_strerror( errno ) ));
 
-  /* FIXME: fdctl_check_configure unconditionally checks for network
+  /* FIXME: fd_check_configure unconditionally checks for network
             stack prerequisites even if the command being run does not
             require networking.  Hack around that here for now. */
-  if( check_configure ) fdctl_check_configure( config );
+  if( check_configure ) fd_check_configure( config );
   if( FD_LIKELY( init_workspaces ) ) initialize_workspaces( config );
   initialize_stacks( config );
   fd_bootinfo_write( config );
@@ -1542,8 +1542,8 @@ run_cmd_fn( args_t *   args FD_PARAM_UNUSED,
   if( FD_UNLIKELY( !config->gossip.entrypoints_cnt && !config->development.bootstrap ) )
     FD_LOG_ERR(( "No entrypoints specified in configuration file under [gossip.entrypoints], but "
                  "at least one is needed to determine how to connect to the Solana cluster. If "
-                 "you want to start a new cluster in a development environment, use `fddev` instead "
-                 "of `fdctl`. If you want to use an existing genesis, set [development.bootstrap] "
+                 "you want to start a new cluster in a development environment, use `firedancer-dev` instead "
+                 "of `firedancer`. If you want to use an existing genesis, set [development.bootstrap] "
                  "to \"true\" in the configuration file." ));
 
   for( ulong i=0; i<config->gossip.entrypoints_cnt; i++ ) {

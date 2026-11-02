@@ -1,0 +1,19 @@
+$(call add-hdrs,fd_execrp.h)
+$(call add-objs,fd_rdisp,fd_disco)
+$(call make-unit-test,test_rdisp,test_rdisp,fd_disco fd_ballet fd_tango fd_util_extra fd_util)
+$(call run-unit-test,test_rdisp)
+$(call make-unit-test,test_rdisp_mq,test_rdisp_mq, fd_util)
+$(call run-unit-test,test_rdisp_mq)
+$(call add-objs,fd_sched,fd_disco)
+ifdef FD_HAS_HOSTED
+$(call make-unit-test,test_sched,test_sched,fd_disco fd_choreo fd_flamenco fd_ballet fd_tango fd_util)
+$(call run-unit-test,test_sched)
+$(call make-fuzz-test,fuzz_sched_rdisp,fuzz_sched_rdisp,fd_disco fd_choreo fd_flamenco fd_ballet fd_tango fd_util)
+endif
+
+ifdef FD_HAS_HOSTED
+$(call add-objs,fd_replay_tile,fd_disco)
+$(call make-unit-test,test_replay_tile,test_replay_tile,fd_disco fd_choreo fd_flamenco fd_tango fd_ballet fd_util_extra fd_util)
+$(call add-hdrs,fd_vote_tracker.h)
+$(call add-objs,fd_vote_tracker,fd_disco)
+endif

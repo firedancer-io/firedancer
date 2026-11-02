@@ -4,7 +4,7 @@
 #include "fd_gui_hist.h"
 
 #include "../metrics/fd_metrics.h"
-#include "../../discof/gossip/fd_gossip_tile.h"
+#include "../../disco/gossip/fd_gossip_tile.h"
 #include "../bundle/fd_bundle_tile.h"
 
 #include "../../ballet/base58/fd_base58.h"

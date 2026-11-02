@@ -373,12 +373,6 @@ struct fd_topo_tile {
       ulong execle_cnt;
       char  identity_key_path[ PATH_MAX ];
       ulong max_txn_per_slot;
-    } poh;
-
-    struct {
-      ulong execle_cnt;
-      char  identity_key_path[ PATH_MAX ];
-      ulong max_txn_per_slot;
     } motor;
 
     struct {
@@ -395,10 +389,6 @@ struct fd_topo_tile {
       ulong adtl_dests_leader_cnt;
       char  adtl_dests_leader[ FD_TOPO_ADTL_DESTS_MAX ][ FD_HOSTPORT_BUF_MAX ];
     } shred;
-
-    struct {
-      ulong disable_blockstore_from_slot;
-    } store;
 
     struct {
       char  identity_key_path[ PATH_MAX ];

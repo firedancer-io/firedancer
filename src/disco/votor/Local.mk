@@ -1,0 +1,7 @@
+ifdef FD_HAS_HOSTED
+$(call add-hdrs,fd_votor_tile.h)
+$(call add-objs,fd_votor_tile,fd_disco)
+$(call make-unit-test,test_votor_tile,test_votor_tile,fd_disco fd_choreo fd_flamenco fd_quic fd_tls fd_reedsol fd_waltz fd_tango fd_ballet fd_util)
+$(call run-unit-test,test_votor_tile)
+$(call make-fuzz-test,fuzz_votor_quic,fuzz_votor_quic,fd_waltz_test fd_disco fd_choreo fd_flamenco fd_quic fd_tls fd_reedsol fd_waltz fd_tango fd_ballet fd_util_extra fd_util)
+endif

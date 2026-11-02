@@ -2,6 +2,7 @@
 #include "run.h"
 
 #include "../../../../util/tile/fd_tile_private.h"
+#include "../../boot/fd_boot.h"
 
 #include <sched.h>
 #include <stdlib.h> /* strtoul */
@@ -10,9 +11,6 @@
 #include <sys/wait.h>
 
 #define NAME "run1"
-
-fd_topo_run_tile_t
-fdctl_tile_run( fd_topo_tile_t const * tile );
 
 void
 run1_cmd_args( int *    pargc,
@@ -46,7 +44,7 @@ static int
 tile_main( void * _args ) {
   tile_main_args_t * args = (tile_main_args_t *)_args;
 
-  fd_topo_run_tile_t run_tile = fdctl_tile_run( args->tile );
+  fd_topo_run_tile_t run_tile = fd_app_tile_run( args->tile );
   fd_topo_run_tile( &args->config->topo, args->tile, args->config->development.sandbox, 0, args->config->development.core_dump_level, args->config->uid, args->config->gid, args->pipefd, &run_tile );
 
   /* If we get here, the tile run loop has requested to exit the tile,

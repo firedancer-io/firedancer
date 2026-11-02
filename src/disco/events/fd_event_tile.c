@@ -8,7 +8,7 @@
 #include "../metrics/fd_metrics.h"
 #include "../metrics/fd_metrics_sample.h"
 #include "../net/fd_net_tile.h"
-#include "../../discof/genesis/fd_genesi_tile.h"
+#include "../../disco/genesis/fd_genesi_tile.h"
 #include "../repair/fd_repair_serde.h"
 #include "generated/fd_event_gen.h"
 #include "../keyguard/fd_keyload.h"

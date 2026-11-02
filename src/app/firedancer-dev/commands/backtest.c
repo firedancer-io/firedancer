@@ -22,19 +22,20 @@
 #include "../../../util/pod/fd_pod_format.h"
 #include "../../../disco/gui/fd_gui_config_parse.h"
 #include "../../../disco/diag/fd_diag_tile.h"
-#include "../../../discof/genesis/fd_genesi_tile.h"
-#include "../../../discof/replay/fd_replay_tile.h"
-#include "../../../discof/replay/fd_sched.h"
-#include "../../../discof/restore/fd_snapct_tile.h"
-#include "../../../discof/restore/utils/fd_ssctrl.h"
-#include "../../../discof/restore/utils/fd_ssmsg.h"
+#include "../../../disco/genesis/fd_genesi_tile.h"
+#include "../../../disco/replay/fd_replay_tile.h"
+#include "../../../disco/replay/fd_sched.h"
+#include "../../../disco/restore/fd_snapct_tile.h"
+#include "../../../disco/restore/utils/fd_ssctrl.h"
+#include "../../../disco/restore/utils/fd_ssmsg.h"
 #include "../../../disco/repair/fd_repair_tile.h"
-#include "../../../discof/votor/fd_votor_tile.h"
-#include "../../../discof/replay/fd_execrp.h"
+#include "../../../disco/votor/fd_votor_tile.h"
+#include "../../../disco/replay/fd_execrp.h"
 #include "../../../disco/shred/fd_shred_tile.h"
 #include "../../../flamenco/capture/fd_capture_ctx.h"
 #include "../../../disco/pack/fd_pack_cost.h"
 #include "../../../flamenco/runtime/fd_cost_tracker.h"
+#include "../../shared/boot/fd_boot.h"
 
 #include <errno.h>
 #include <stdlib.h> /* getenv */
@@ -42,7 +43,6 @@
 #include <fcntl.h>
 
 extern fd_topo_obj_callbacks_t * CALLBACKS[];
-fd_topo_run_tile_t fdctl_tile_run( fd_topo_tile_t const * tile );
 
 void
 backtest_cmd_args( int *    pargc,
@@ -519,7 +519,7 @@ backtest_cmd_perm( args_t *         args FD_PARAM_UNUSED,
 static void
 fixup_config( config_t * config ) {
 
-  /* FIXME Unfortunately, the fdctl boot procedure constructs the
+  /* FIXME Unfortunately, the application boot procedure constructs the
            topology before parsing command-line arguments.  So, here,
            we construct the topology again (a third time ... sigh). */
   backtest_topo( config );
@@ -557,7 +557,7 @@ backtest_cmd_fn( args_t *   args,
     if( FD_UNLIKELY( -1==close( pipefd[1] ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
 
-  fd_topo_run_single_process( &config->topo, config->uid, config->gid, fdctl_tile_run );
+  fd_topo_run_single_process( &config->topo, config->uid, config->gid, fd_app_tile_run );
   if( args->backtest.no_watch ) {
     for(;;) pause();
   } else {

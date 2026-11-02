@@ -1,4 +1,4 @@
-/* This directory provides the 'fddev quic-trace' subcommand.
+/* This directory provides the 'firedancer-dev quic-trace' subcommand.
 
    The goal of quic-trace is to tap QUIC traffic on a live system, which
    requires encryption keys and other annoying connection state.

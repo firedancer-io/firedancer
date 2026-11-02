@@ -1,6 +1,6 @@
 #include "../../shared/fd_config.h"
 #include "../../shared/fd_action.h"
-#include "../../../discof/gossip/fd_gossip_tile.h"
+#include "../../../disco/gossip/fd_gossip_tile.h"
 #include "../../../flamenco/gossip/fd_gossip_message.h"
 #include "../../../util/net/fd_ip4.h"
 

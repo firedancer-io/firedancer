@@ -21,7 +21,7 @@ import os
 
 INDENT = "    "
 
-ATTRS = ( "type", "compression", "description", "max_len", "dynamic", "field_number", "deprecated", "renamed_from", "aliases" )
+ATTRS = ( "type", "compression", "description", "max_len", "dynamic", "field_number", "deprecated", "renamed_from", "aliases", "reserved" )
 NESTED = ( "element", "variants", "fields" )
 
 
@@ -41,6 +41,8 @@ def jstr( v ):
 
 def inline_body( obj, type_w, comp_w ):
     """The { ... } body of an inline entry, padded to the block's column widths."""
+    if obj.get( "reserved" ):
+        return '{ "reserved": true' + ( f', "field_number": {obj["field_number"]}' if "field_number" in obj else "" ) + " }"
     out = "{ "
     if "type" in obj:
         seg = f'"type": {jstr(obj["type"])},'
