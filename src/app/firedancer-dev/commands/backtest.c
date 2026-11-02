@@ -315,9 +315,7 @@ backtest_topo( config_t * config ) {
   }
 
   /**********************************************************************/
-  /* Setup exec->replay links in topo, to send solcap account updates
-     so that they are serialized, and to notify replay tile that a txn
-     has been finalized by the exec tile. */
+  /* Setup exec->replay task completion links in topo                    */
   /**********************************************************************/
   fd_topob_wksp( topo, "execrp_replay" );
 
@@ -401,6 +399,7 @@ backtest_topo( config_t * config ) {
   fd_topob_tile_uses( topo, replay_tile, banks_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FOR(execrp_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "execrp", i ) ], banks_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   setup_topo_footer_cache( topo, "banks" );
+  setup_topo_execrp_result( topo, "execrp_replay", execrp_tile_cnt );
   if( FD_LIKELY( !disable_snap_loader ) ) {
     FOR(snapin_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "snapin", i ) ], banks_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   }

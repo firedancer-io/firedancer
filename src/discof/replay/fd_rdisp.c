@@ -128,6 +128,7 @@ typedef uint edge_t;
 #define EDGE_IS_LAST(x)        (((x)&EDGE_SPECIAL_MASK)==EDGE_SPECIAL_LAST)
 #define EDGE_IS_PTXN(x)        (((x)&EDGE_SPECIAL_MASK)==EDGE_SPECIAL_PTXN)
 #define EDGE_SPECIAL_IDX(x)    ((x)&(~EDGE_SPECIAL_MASK))
+#define EDGE_SPECIAL_IDX_MAX   (~EDGE_SPECIAL_MASK)
 #define EDGE_MAKE_SPECIAL(k,x) ((x)|FD_CONCAT2(EDGE_SPECIAL_,k))
 
 FD_STATIC_ASSERT( MAX_ACCT_PER_TXN<=128UL, max_acct_per_txn );
@@ -496,8 +497,11 @@ struct pending_prq_ele {
 
      23 bits for txn_idx
      16 bit for linear_block_number
-     Then the integer part of the score needs to be at least 18 or 19
-     bits, but we can't use a custom floating point number. */
+     Then the integer part of the score needs 20 bits.  It is bounded by
+     a block's inserted_cnt, which counts pseudo-transactions as well as
+     transactions and is budgeted for up to
+     FD_MAX_TXN_PER_SLOT+2*FD_RDISP_MAX_WRITERS_PER_BLOCK, just over
+     2^19.  But we can't use a custom floating point number. */
 };
 
 typedef struct pending_prq_ele pending_prq_ele_t;
@@ -648,6 +652,7 @@ typedef struct {
 struct fd_rdisp {
   ulong depth;
   ulong block_depth;
+  ulong acct_extra;
 
   ulong global_insert_cnt;
   ulong unstaged_lblk_num;
@@ -687,27 +692,25 @@ typedef struct fd_rdisp fd_rdisp_t;
        fd_ptr_if( __idx<fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_IMM ), accts, alt_adj )+__idx; \
        }))
 
-/* 62,500,000 CUs gets 3137 transactions with 64 writers and one with 34
-   writers for a total of 200,802.  Then we add 8k for inflation
-   rewards, 10 for sysvars, 4000 for vote accounts, and a bit of
-   padding. */
-#define MAX_WRITERS_PER_BLOCK 217354UL
+#define MAX_WRITERS_PER_BLOCK FD_RDISP_MAX_WRITERS_PER_BLOCK
 
 ulong fd_rdisp_align( void ) { return 128UL; }
 
 ulong
 fd_rdisp_footprint( ulong depth,
-                    ulong block_depth ) {
+                    ulong block_depth,
+                    ulong acct_extra ) {
   if( FD_UNLIKELY( (depth>FD_RDISP_MAX_DEPTH)             | (depth<2UL) |
                    (block_depth>FD_RDISP_MAX_BLOCK_DEPTH) | (block_depth<4UL) ) ) return 0UL;
+  ulong acct_depth     = depth*FD_RDISP_MAX_ACCT_PER_TXN+acct_extra;
+  if( FD_UNLIKELY( acct_depth>EDGE_SPECIAL_IDX_MAX ) ) return 0UL; /* account indices are 30-bit special edges */
 
   ulong chain_cnt      = block_map_chain_cnt_est( block_depth );
-  ulong acct_depth     = depth*FD_RDISP_MAX_ACCT_PER_TXN;
   /* The map holds at most acct_depth entries, keep load factor at most
      0.5 to speed up chain operations. */
   ulong acct_chain_cnt = acct_map_chain_cnt_est( 2UL*acct_depth );
   ulong mq_footprint   = fd_rdisp_mq_footprint( acct_depth, MAX_WRITERS_PER_BLOCK );
-  ulong full_depth     = depth*(FD_RDISP_MAX_ACCT_PER_TXN+1UL); /* normal and pseudo transactions */
+  ulong full_depth     = depth+acct_depth; /* normal and pseudo transactions */
 
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, fd_rdisp_align(),             sizeof(fd_rdisp_t)                              );
@@ -729,15 +732,17 @@ void *
 fd_rdisp_new( void * mem,
               ulong  depth,
               ulong  block_depth,
+              ulong  acct_extra,
               ulong  seed ) {
   if( FD_UNLIKELY( (depth>FD_RDISP_MAX_DEPTH)             | (depth<2UL) |
                    (block_depth>FD_RDISP_MAX_BLOCK_DEPTH) | (block_depth<4UL) ) ) return NULL;
+  ulong acct_depth     = depth*FD_RDISP_MAX_ACCT_PER_TXN+acct_extra;
+  if( FD_UNLIKELY( acct_depth>EDGE_SPECIAL_IDX_MAX ) ) return NULL;
 
   ulong chain_cnt      = block_map_chain_cnt_est( block_depth );
-  ulong acct_depth     = depth*FD_RDISP_MAX_ACCT_PER_TXN;
   ulong acct_chain_cnt = acct_map_chain_cnt_est( 2UL*acct_depth ); /* see fd_rdisp_footprint */
   ulong mq_footprint   = fd_rdisp_mq_footprint( acct_depth, MAX_WRITERS_PER_BLOCK );
-  ulong full_depth     = depth*(FD_RDISP_MAX_ACCT_PER_TXN+1UL);
+  ulong full_depth     = depth+acct_depth;
 
   FD_SCRATCH_ALLOC_INIT( l, mem );
   fd_rdisp_t * disp   = FD_SCRATCH_ALLOC_APPEND( l, fd_rdisp_align(),             sizeof(fd_rdisp_t)                              );
@@ -756,6 +761,7 @@ fd_rdisp_new( void * mem,
 
   disp->depth             = depth;
   disp->block_depth       = block_depth;
+  disp->acct_extra        = acct_extra;
   disp->global_insert_cnt = 0UL;
   disp->unstaged_lblk_num = 0UL;
 
@@ -818,10 +824,10 @@ fd_rdisp_join( void * mem ) {
   ulong depth          = disp->depth;
   ulong block_depth    = disp->block_depth;
   ulong chain_cnt      = block_map_chain_cnt_est( block_depth );
-  ulong acct_depth     = depth*FD_RDISP_MAX_ACCT_PER_TXN;
+  ulong acct_depth     = depth*FD_RDISP_MAX_ACCT_PER_TXN+disp->acct_extra;
   ulong acct_chain_cnt = acct_map_chain_cnt_est( 2UL*acct_depth ); /* see fd_rdisp_footprint */
   ulong mq_footprint   = fd_rdisp_mq_footprint( acct_depth, MAX_WRITERS_PER_BLOCK );
-  ulong full_depth     = depth*(FD_RDISP_MAX_ACCT_PER_TXN+1UL);
+  ulong full_depth     = depth+acct_depth;
 
   FD_SCRATCH_ALLOC_INIT( l, mem );
   /*                 */ FD_SCRATCH_ALLOC_APPEND( l, fd_rdisp_align(),             sizeof(fd_rdisp_t)                              );
@@ -969,6 +975,7 @@ fd_rdisp_remove_block( fd_rdisp_t          * disp,
     if( FD_LIKELY( !block_slist_is_empty( sl, block_pool ) ) ) block_slist_ele_peek_head( sl, block_pool )->schedule_ready = 1;
     else                                                       free_lane( disp, staging_lane );
   } else {
+    FD_TEST( ustlt_dlist_is_empty( block->ustlt_needed, disp->ustlt_pool ) && ustlt_dlist_is_empty( block->ustlt_created, disp->ustlt_pool ) );
     unstaged_txn_ll_delete( unstaged_txn_ll_leave( block->ll            ) );
     ustlt_dlist_delete    ( ustlt_dlist_leave    ( block->ustlt_needed  ) );
     ustlt_dlist_delete    ( ustlt_dlist_leave    ( block->ustlt_created ) );
@@ -1079,6 +1086,25 @@ static inline ulong
 lookup_pubkey( fd_rdisp_t * disp,
                fd_acct_addr_t const * addr );
 
+static void
+untrack_writer( fd_rdisp_t * disp,
+                ulong        staging_lane,
+                ulong        acct_idx ) {
+  acct_info_t * ai = disp->acct_pool + acct_idx;
+  uint s = ai->states;
+  if( FD_UNLIKELY( ACCT_INFO_STATE_IS(s, staging_lane, NEEDS_PTXN) ) ) {
+    ai->states = (uchar)ACCT_INFO_STATE_SET(s, staging_lane, NO_WRITERS);
+
+    /* Potentially transition from ACTIVE -> CACHED */
+    if( FD_UNLIKELY( (ai->states==0)&
+          (ai->last_reference[ 0 ]==0U)&(ai->last_reference[ 1 ]==0U)&
+          (ai->last_reference[ 2 ]==0U)&(ai->last_reference[ 3 ]==0U) ) ) {
+      ai->cached = ACCT_INFO_CACHED;
+      free_dlist_idx_push_tail( disp->free_acct_dlist, acct_idx, disp->acct_pool );
+    }
+  }
+}
+
 int
 fd_rdisp_promote_block( fd_rdisp_t *          disp,
                         FD_RDISP_BLOCK_TAG_T  block_tag,
@@ -1132,18 +1158,10 @@ fd_rdisp_promote_block( fd_rdisp_t *          disp,
   }
   unstaged_txn_ll_delete( unstaged_txn_ll_leave( block->ll ) );
 
-  while( !ustlt_dlist_is_empty( block->ustlt_created, disp->ustlt_pool ) ) {
-    ustlt_t * ele = ustlt_dlist_ele_peek_head( block->ustlt_created, disp->ustlt_pool );
-
-    /* Free the created ones */
-    fd_rdisp_ptxn_t * ptxn = disp->ptxn_pool + EDGE_SPECIAL_IDX( ele->ptxn_idx );
-    ptxn->in_degree        = IN_DEGREE_FREE;
-    ptxn_pool_ele_release( disp->ptxn_pool, ptxn );
-
-    ustlt_dlist_ele_remove   ( block->ustlt_created, ele, disp->ustlt_pool );
-    ustlt_dlist_ele_push_tail( disp->ustlt_free,     ele, disp->ustlt_pool );
-    block->inserted_cnt--;
-  }
+  /* Any pseudo-transactions created while the block was unstaged must
+     have completed by now.  Freeing them here would invalidate indices
+     the caller still holds. */
+  FD_TEST( ustlt_dlist_is_empty( block->ustlt_created, disp->ustlt_pool ) );
 
   while( !ustlt_dlist_is_empty( block->ustlt_needed, disp->ustlt_pool ) ) {
     ustlt_t * ele = ustlt_dlist_ele_peek_head( block->ustlt_needed, disp->ustlt_pool );
@@ -1156,6 +1174,7 @@ fd_rdisp_promote_block( fd_rdisp_t *          disp,
     s = fd_uint_if( ACCT_INFO_STATE_IS(s, staging_lane, NO_WRITERS), ACCT_INFO_STATE_SET(s, staging_lane, NEEDS_PTXN), s );
     ai->states = (uchar)s;
 
+    if( FD_UNLIKELY( fd_rdisp_mq_cnt( disp->mq, staging_lane )>=MAX_WRITERS_PER_BLOCK ) ) FD_LOG_CRIT(( "rdisp lane %lu writable account set full", staging_lane ));
     fd_rdisp_mq_insert( disp->mq, acct_idx, staging_lane, disp->acct_pool[acct_idx].ema_refs );
 
     ustlt_dlist_ele_remove   ( block->ustlt_needed, ele, disp->ustlt_pool );
@@ -1211,27 +1230,29 @@ fd_rdisp_demote_block( fd_rdisp_t *          disp,
       ulong acct_idx = fd_rdisp_mq_pop( disp->mq, staging_lane );
       acct_info_t * ai = disp->acct_pool + acct_idx;
 
+      if( FD_UNLIKELY( ustlt_dlist_is_empty( disp->ustlt_free, disp->ustlt_pool ) ) ) FD_LOG_CRIT(( "rdisp unstaged LtHash entry pool exhausted" ));
       ulong ustlt_idx = ustlt_dlist_idx_pop_head( disp->ustlt_free, disp->ustlt_pool );
       disp->ustlt_pool[ ustlt_idx ].key.acct      = ai->key;
       disp->ustlt_pool[ ustlt_idx ].key.block_idx = (uint)(block-block_pool);
       ustlt_map_idx_insert( disp->ustlt_map, ustlt_idx, disp->ustlt_pool );
       ustlt_dlist_idx_push_tail( block->ustlt_needed, ustlt_idx, disp->ustlt_pool );
 
-      uint s = ai->states;
-      if( FD_UNLIKELY( ACCT_INFO_STATE_IS(s, staging_lane, NEEDS_PTXN) ) ) {
-        ai->states = (uchar)ACCT_INFO_STATE_SET(s, staging_lane, NO_WRITERS);
-
-        /* Potentially transition from ACTIVE -> CACHED */
-        if( FD_UNLIKELY( (ai->states==0)&
-              (ai->last_reference[ 0 ]==0U)&(ai->last_reference[ 1 ]==0U)&
-              (ai->last_reference[ 2 ]==0U)&(ai->last_reference[ 3 ]==0U) ) ) {
-          ai->cached = ACCT_INFO_CACHED;
-          free_dlist_idx_push_tail( disp->free_acct_dlist, acct_idx, disp->acct_pool );
-        }
-      }
+      untrack_writer( disp, staging_lane, acct_idx );
     }
     free_lane( disp, staging_lane );
   }
+  return 0;
+}
+
+int
+fd_rdisp_clear_writable_set( fd_rdisp_t *          disp,
+                             FD_RDISP_BLOCK_TAG_T  block_tag ) {
+  fd_rdisp_blockinfo_t * block = block_map_ele_query( disp->blockmap, &block_tag, NULL, disp->block_pool );
+  if( FD_UNLIKELY(  block==NULL           ) ) return -1;
+  if( FD_UNLIKELY( !block->staged         ) ) return -1;
+  if( FD_UNLIKELY( !block->schedule_ready ) ) return -1;
+  ulong staging_lane = block->staging_lane;
+  while( fd_rdisp_mq_cnt( disp->mq, staging_lane ) ) untrack_writer( disp, staging_lane, fd_rdisp_mq_pop( disp->mq, staging_lane ) );
   return 0;
 }
 
@@ -1316,6 +1337,7 @@ lookup_pubkey( fd_rdisp_t * disp,
     /* The acct pool is sized so that the list cannot be empty at this
        point.  However, the element at the head might be CACHED with
        a different pubkey. */
+    if( FD_UNLIKELY( free_dlist_is_empty( disp->free_acct_dlist, disp->acct_pool ) ) ) FD_LOG_CRIT(( "rdisp account pool exhausted" ));
     idx = free_dlist_idx_peek_head( disp->free_acct_dlist, disp->acct_pool );
     ai = disp->acct_pool+idx;
 
@@ -1462,6 +1484,7 @@ add_edges( fd_rdisp_t           * disp,
 
     /* Step 3: Update new_wr */
     if( ((!!writable) & FD_LIKELY( !!new_wr )) && !fd_rdisp_mq_test( disp->mq, idx, lane ) ) {
+      if( FD_UNLIKELY( fd_rdisp_mq_cnt( disp->mq, lane )>=MAX_WRITERS_PER_BLOCK ) ) FD_LOG_CRIT(( "rdisp lane %u writable account set full", lane ));
       fd_rdisp_mq_insert( disp->mq, idx, lane, ai->ema_refs );
       fd_rdisp_neww_insert( new_wr, new_wr_offset+i );
     }
@@ -1516,6 +1539,7 @@ add_unstaged_edges( fd_rdisp_t * disp,
       int new = (ustlt_map_idx_query( disp->ustlt_map, query, ULONG_MAX, disp->ustlt_pool )==ULONG_MAX);
       fd_rdisp_neww_insert_if( new_wr, new, new_wr_offset+i );
       if( FD_UNLIKELY( new ) ) {
+        if( FD_UNLIKELY( ustlt_dlist_is_empty( disp->ustlt_free, disp->ustlt_pool ) ) ) FD_LOG_CRIT(( "rdisp unstaged LtHash entry pool exhausted" ));
         ulong ustlt_idx = ustlt_dlist_idx_pop_head( disp->ustlt_free, disp->ustlt_pool );
         disp->ustlt_pool[ ustlt_idx ].key = *query;
         ustlt_map_idx_insert( disp->ustlt_map, ustlt_idx, disp->ustlt_pool );
@@ -1644,7 +1668,7 @@ fd_rdisp_add_txn( fd_rdisp_t          *  disp,
     block->last_serializing = block->inserted_cnt;
   }
   block->last_insert_was_serializing = (uint)!!serializing;
-  rtxn->score += (float)block->last_serializing;
+  rtxn->score = fd_rdisp_score( rtxn->score, block->last_serializing );
 
   block->inserted_cnt++;
   disp->global_insert_cnt++;
@@ -1934,6 +1958,17 @@ fd_rdisp_add_all_pseudo_txn( fd_rdisp_t          *  disp,
   while( fd_rdisp_add_pseudo_txn( disp, insert_block ) );
 }
 
+/* Score of a staged pseudo-transaction for the account.  It sequences
+   behind every real transaction of its serializing class.  Among
+   pseudo-transactions, a lower EMA, i.e. an account less likely to be
+   written again in the block, comes first. */
+static inline float
+ptxn_score( acct_info_t const * ai,
+            uint                last_serializing ) {
+  float ema = ai->ema_refs<FD_RDISP_MAX_SCORE ? ai->ema_refs : FD_RDISP_MAX_SCORE;
+  return fd_rdisp_score( FD_RDISP_PTXN_SCORE_MIN + 0.002f*ema, last_serializing );
+}
+
 ulong
 fd_rdisp_add_pseudo_txn( fd_rdisp_t          *  disp,
                          FD_RDISP_BLOCK_TAG_T   insert_block ) {
@@ -1947,6 +1982,7 @@ fd_rdisp_add_pseudo_txn( fd_rdisp_t          *  disp,
     uint lane = block->staging_lane;
     if( FD_UNLIKELY( !fd_rdisp_mq_cnt( disp->mq, lane ) ) ) return 0UL;
 
+    if( FD_UNLIKELY( !ptxn_pool_free( disp->ptxn_pool ) ) ) FD_LOG_CRIT(( "rdisp pseudo-transaction pool exhausted" ));
     ptxn = ptxn_pool_ele_acquire( disp->ptxn_pool );
     ptxn_idx = EDGE_MAKE_SPECIAL(PTXN, (uint)(ptxn - disp->ptxn_pool));
 
@@ -1954,15 +1990,11 @@ fd_rdisp_add_pseudo_txn( fd_rdisp_t          *  disp,
     acct_info_t * ai = disp->acct_pool + acct_idx;
 
     ptxn->in_degree = 0U;
-    /* lower txn score means higher priority, and we want pseudo-
-       transactions for less frequently accessed accounts, i.e. those
-       with lower EMA value to be higher priority, so we just use that
-       value directly, with the last_serializing addition. */
     if( FD_UNLIKELY( block->last_insert_was_serializing ) ) {
       block->last_serializing = block->inserted_cnt;
     }
     block->last_insert_was_serializing = 0U;
-    ptxn->score = (ai->ema_refs<FD_RDISP_MAX_SCORE ? ai->ema_refs : FD_RDISP_MAX_SCORE) + (float)block->last_serializing;
+    ptxn->score = ptxn_score( ai, block->last_serializing );
 
     /* see add_txn for this line */
     ptxn->edge_cnt_etc = ((block->linear_block_number<<16) | (lane<<14)) - 1U;
@@ -1992,6 +2024,7 @@ fd_rdisp_add_pseudo_txn( fd_rdisp_t          *  disp,
   } else {
     if( FD_UNLIKELY( ustlt_dlist_is_empty( block->ustlt_needed, disp->ustlt_pool ) ) ) return 0UL;
 
+    if( FD_UNLIKELY( !ptxn_pool_free( disp->ptxn_pool ) ) ) FD_LOG_CRIT(( "rdisp pseudo-transaction pool exhausted" ));
     ptxn = ptxn_pool_ele_acquire( disp->ptxn_pool );
     ptxn_idx = EDGE_MAKE_SPECIAL(PTXN, (uint)(ptxn - disp->ptxn_pool));
 
@@ -2027,6 +2060,7 @@ fd_rdisp_add_writable( fd_rdisp_t           * disp,
     uint states = ai->states;
     states = fd_uint_if( ACCT_INFO_STATE_IS( states, lane, NO_WRITERS ), ACCT_INFO_STATE_SET( states, lane, NEEDS_PTXN ), states );
     ai->states = (uchar)states;
+    if( FD_UNLIKELY( fd_rdisp_mq_cnt( disp->mq, lane )>=MAX_WRITERS_PER_BLOCK ) ) FD_LOG_CRIT(( "rdisp lane %lu writable account set full", lane ));
     fd_rdisp_mq_insert( disp->mq, idx, lane, 0.0f );
     return 1;
   } else {
@@ -2037,6 +2071,7 @@ fd_rdisp_add_writable( fd_rdisp_t           * disp,
     int new = (ustlt_map_idx_query( disp->ustlt_map, query, ULONG_MAX, disp->ustlt_pool )==ULONG_MAX);
     if( FD_LIKELY( !new ) ) return 0;
 
+    if( FD_UNLIKELY( ustlt_dlist_is_empty( disp->ustlt_free, disp->ustlt_pool ) ) ) FD_LOG_CRIT(( "rdisp unstaged LtHash entry pool exhausted" ));
     ulong ustlt_idx = ustlt_dlist_idx_pop_head( disp->ustlt_free, disp->ustlt_pool );
     disp->ustlt_pool[ ustlt_idx ].key = *query;
     ustlt_map_idx_insert( disp->ustlt_map, ustlt_idx, disp->ustlt_pool );
@@ -2089,13 +2124,14 @@ fd_rdisp_add_extra_pseudo_txn( fd_rdisp_t           * disp,
       block->inserted_extra_ptxn = 1;
     }
 
+    if( FD_UNLIKELY( !ptxn_pool_free( disp->ptxn_pool ) ) ) FD_LOG_CRIT(( "rdisp pseudo-transaction pool exhausted" ));
     fd_rdisp_ptxn_t * ptxn = ptxn_pool_ele_acquire( disp->ptxn_pool );
     ptxn_idx = EDGE_MAKE_SPECIAL(PTXN, (uint)(ptxn - disp->ptxn_pool));
     if( FD_LIKELY( insert_inline ) ) {
       /* What follows below is essentially the same as the normal
          add_pseudo_txn case */
       ptxn->in_degree = 0U;
-      ptxn->score = (ai->ema_refs<FD_RDISP_MAX_SCORE ? ai->ema_refs : FD_RDISP_MAX_SCORE) + (float)block->last_serializing;
+      ptxn->score = ptxn_score( ai, block->last_serializing );
       ptxn->edge_cnt_etc = ((block->linear_block_number<<16) | (lane<<14)) - 1U;
       add_edges( disp, (fd_rdisp_txn_t *)fd_type_pun( ptxn ), &(ai->key), 1UL, lane, 0, 0, NULL, 0UL );
       FD_COMPILER_MFENCE();
@@ -2120,7 +2156,7 @@ fd_rdisp_add_extra_pseudo_txn( fd_rdisp_t           * disp,
 
       ptxn->in_degree = 0U;
       ptxn->edge_cnt_etc = ((block->linear_block_number<<16) | (lane<<14)); /* r_cnt==0, w_cnt is ignored */
-      ptxn->score = (ai->ema_refs<FD_RDISP_MAX_SCORE ? ai->ema_refs : FD_RDISP_MAX_SCORE) + (float)block->last_serializing;
+      ptxn->score = ptxn_score( ai, block->last_serializing );
       ptxn->last = EDGE_MAKE_SPECIAL(LAST, (uint)idx);
       /* We know that there's a transaction that must execute after this
          one in the DAG, so the account info can't get freed until after
@@ -2130,10 +2166,12 @@ fd_rdisp_add_extra_pseudo_txn( fd_rdisp_t           * disp,
       pending_prq_insert( disp->lanes[ block->staging_lane ].pending, temp );
     }
   } else {
+    if( FD_UNLIKELY( ustlt_dlist_is_empty( disp->ustlt_free, disp->ustlt_pool ) ) ) FD_LOG_CRIT(( "rdisp unstaged LtHash entry pool exhausted" ));
     ulong ustlt_idx = ustlt_dlist_idx_pop_head( disp->ustlt_free, disp->ustlt_pool );
     disp->ustlt_pool[ ustlt_idx ].key.block_idx = (uint)(block-disp->block_pool);
     disp->ustlt_pool[ ustlt_idx ].key.acct      = *addr;
 
+    if( FD_UNLIKELY( !ptxn_pool_free( disp->ptxn_pool ) ) ) FD_LOG_CRIT(( "rdisp pseudo-transaction pool exhausted" ));
     fd_rdisp_ptxn_t * ptxn = ptxn_pool_ele_acquire( disp->ptxn_pool );
     ptxn_idx = EDGE_MAKE_SPECIAL(PTXN, (uint)(ptxn - disp->ptxn_pool));
 
@@ -2149,10 +2187,17 @@ fd_rdisp_add_extra_pseudo_txn( fd_rdisp_t           * disp,
   return ptxn_idx;
 }
 
+ulong
+fd_rdisp_lane_writable_cnt( fd_rdisp_t * disp,
+                            ulong        staging_lane ) {
+  FD_TEST( staging_lane<4UL );
+  return fd_rdisp_mq_cnt( disp->mq, staging_lane );
+}
+
 void
 fd_rdisp_verify( fd_rdisp_t const * disp,
                  uint             * scratch ) {
-  ulong acct_depth  = disp->depth*FD_RDISP_MAX_ACCT_PER_TXN;
+  ulong acct_depth  = disp->depth*FD_RDISP_MAX_ACCT_PER_TXN+disp->acct_extra;
   ulong block_depth = disp->block_depth;
   FD_TEST( 0==acct_map_verify ( disp->acct_map,  acct_depth +1UL, disp->acct_pool  ) );
   FD_TEST( 0==block_map_verify( disp->blockmap,  block_depth+1UL, disp->block_pool ) );
@@ -2182,11 +2227,34 @@ fd_rdisp_verify( fd_rdisp_t const * disp,
   }
   FD_TEST( cached_cnt==0UL );
 
+  /* Every unstaged LtHash entry is in the free list or in one list of
+     one unstaged block. */
+  ulong ustlt_cnt = 0UL;
+  for( ustlt_dlist_iter_t it=ustlt_dlist_iter_fwd_init( disp->ustlt_free, disp->ustlt_pool );
+       !ustlt_dlist_iter_done( it, disp->ustlt_free, disp->ustlt_pool );
+       it=ustlt_dlist_iter_fwd_next( it, disp->ustlt_free, disp->ustlt_pool ) ) ustlt_cnt++;
+  for( block_map_iter_t it=block_map_iter_init( disp->blockmap, disp->block_pool );
+       !block_map_iter_done( it, disp->blockmap, disp->block_pool );
+       it=block_map_iter_next( it, disp->blockmap, disp->block_pool ) ) {
+    fd_rdisp_blockinfo_t const * block = block_map_iter_ele_const( it, disp->blockmap, disp->block_pool );
+    if( block->staged ) continue;
+    ustlt_dlist_t const * lists[ 2 ] = { block->ustlt_needed, block->ustlt_created };
+    for( ulong l=0UL; l<2UL; l++ ) {
+      for( ustlt_dlist_iter_t jt=ustlt_dlist_iter_fwd_init( lists[ l ], disp->ustlt_pool );
+           !ustlt_dlist_iter_done( jt, lists[ l ], disp->ustlt_pool );
+           jt=ustlt_dlist_iter_fwd_next( jt, lists[ l ], disp->ustlt_pool ) ) {
+        FD_TEST( ustlt_dlist_iter_ele_const( jt, lists[ l ], disp->ustlt_pool )->key.block_idx==(uint)(block-disp->block_pool) );
+        ustlt_cnt++;
+      }
+    }
+  }
+  FD_TEST( ustlt_cnt==acct_depth );
+
   /* Check all the in degree counts are right */
-  memset( scratch, '\0', sizeof(uint)*(disp->depth*(FD_RDISP_MAX_ACCT_PER_TXN+1UL)+2UL) );
+  memset( scratch, '\0', sizeof(uint)*((disp->depth+acct_depth+2UL)) );
   scratch[ 0 ] = UINT_MAX;
 
-  for( ulong j=0UL; j<disp->depth*(FD_RDISP_MAX_ACCT_PER_TXN+1UL)+2UL; j++ ) {
+  for( ulong j=0UL; j<(disp->depth+acct_depth+2UL); j++ ) {
     int ptxn = j>disp->depth;
     fd_rdisp_txn_t const * rtxn = !ptxn ? disp->pool+j : (fd_rdisp_txn_t const *)(disp->ptxn_pool+(j-disp->depth-1UL));
     if( rtxn->in_degree==IN_DEGREE_FREE ) { scratch[ j ]=UINT_MAX; continue; }
@@ -2236,7 +2304,7 @@ fd_rdisp_verify( fd_rdisp_t const * disp,
       }
     }
   }
-  for( ulong i=0UL; i<disp->depth*(FD_RDISP_MAX_ACCT_PER_TXN+1UL)+2UL; i++ ) {
+  for( ulong i=0UL; i<(disp->depth+acct_depth+2UL); i++ ) {
     fd_rdisp_txn_t const * rtxn = i<=disp->depth ? disp->pool+i : (fd_rdisp_txn_t const *)(disp->ptxn_pool+(i-disp->depth-1UL));
     FD_TEST( scratch[ i ]==UINT_MAX ||
              rtxn->in_degree==IN_DEGREE_DISPATCHED ||

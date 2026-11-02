@@ -63,31 +63,14 @@ fd_hashes_account_lthash_xn( ulong                 n,
                              ulong const *         data_len,
                              fd_lthash_value_t **  lthash_out );
 
-/* fd_hashes_update_lthash updates the bank's incremental lthash when an
-   account is modified during transaction execution.  The bank lthash is
-   maintained incrementally by subtracting the old account hash and
-   adding the new account hash.
+/* fd_hashes_update_simple records an account write according to the
+   bank's LtHash mode and captures it when capture_ctx requests it.  In
+   INBAND mode, it computes lthash_post and replaces lthash_prev in the
+   bank's LtHash.  OOB_RECORD appends pubkey to the bank's record, while
+   OOB_SKIP does neither.
 
-   meta is a pointer to the modified account's metadata and data.
-   prev_hash contains the lthash of the account before modification (or
-   zero for newly created accounts).  bank is the bank whose lthash
-   should be updated.  capture_ctx is an optional capture context for
-   recording account changes (can be NULL).
-
-   This function:
-   - Acquires a write lock on the bank's lthash
-   - Subtracts prev_hash from the bank lthash
-   - Computes the new account hash
-   - Adds the new hash to the bank lthash
-   - Releases the lock
-   - If capture_ctx is provided, writes the account state to the capture
-
-   On capture write failure, the function will FD_LOG_ERR and terminate.
-   The function assumes all non-optional pointers are valid.
-
-   IMPORTANT: fd_hashes_update_simple must be called whenever an account
-   is modified during transaction execution. This includes sysvar
-   accounts. */
+   lthash_prev and lthash_post are used only in INBAND mode.  The caller
+   must call this for every account modification, including sysvars. */
 
 void
 fd_hashes_update_simple( fd_lthash_value_t *       lthash_post, /* out */

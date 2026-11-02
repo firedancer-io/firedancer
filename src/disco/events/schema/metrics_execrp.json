@@ -85,7 +85,7 @@
         "device_irq":                    { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. Device IRQs on the tile's dedicated CPU, 0 unless it is the only live tile pinned there" },
         "tlb_shootdown":                 { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. TLB shootdowns on the tile's dedicated CPU, 0 unless it is the only live tile pinned there" },
         "timer_irq":                     { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. Local timer interrupts (LOC) on the tile's dedicated CPU, 0 unless it is the only live tile pinned there" },
-        "is_processing":                 { "type": "Bool",                                                           "description": "Whether the tile is currently processing a task (executing, sigverifying, or PoH hashing)" },
+        "is_processing":                 { "type": "Bool",                                                           "description": "Whether the tile is processing a replay task" },
         "txn_processed": {
             "type": "Tuple",
             "description": "Transactions loaded and executed, by result",
@@ -140,7 +140,7 @@
         "poh_hash_computed":             { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "PoH SHA-256 iterations computed" },
         "instruction_executed":          { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Top-level instructions executed" },
         "cpi_executed":                  { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Cross-program invocations executed" },
-        "account_lthash_skipped":        { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Committed writable accounts left byte-identical by their transaction, so their lthash update was skipped" },
+        "account_lthash_skipped":        { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Committed writable accounts left byte-identical by their transaction, so their in-band lthash update was skipped" },
         "txn_regime_duration_nanos": {
             "type": "Tuple",
             "description": "Time per transaction, by phase; a phase counts only once the next phase starts, so dropped, fees-only and no-op transactions lose their trailing phases",
