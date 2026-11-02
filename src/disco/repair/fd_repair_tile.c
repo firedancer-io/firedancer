@@ -1138,10 +1138,14 @@ after_credit( fd_repair_tile_t *  ctx,
 
   for( ulong d=sign_pool_free(  ctx->sign_pool ); d; d-- ) {
     fd_repair_t *       rotor = ctx->rotor;
-    fd_repair_treap_t * treap = fd_repair_treap_ele_cnt( rotor->final_treap ) ? rotor->final_treap :
-                                fd_repair_treap_ele_cnt( rotor->notar_treap ) ? rotor->notar_treap :
-                                fd_repair_treap_ele_cnt( rotor->eager_treap ) ? rotor->eager_treap :
-                                                                                NULL;
+    /* Leave paused blocks in their treap until their role's queue has
+       room.  Otherwise discover reinserts the same block on every
+       iteration, wasting the entire discovery budget before servicing
+       timeouts or polling inputs.  Other roles can still make progress. */
+    fd_repair_treap_t * treap = timeout_prq_cnt( ctx->final_prq )<timeout_prq_max( ctx->final_prq ) && fd_repair_treap_ele_cnt( rotor->final_treap ) ? rotor->final_treap :
+                                timeout_prq_cnt( ctx->notar_prq )<timeout_prq_max( ctx->notar_prq ) && fd_repair_treap_ele_cnt( rotor->notar_treap ) ? rotor->notar_treap :
+                                timeout_prq_cnt( ctx->eager_prq )<timeout_prq_max( ctx->eager_prq ) && fd_repair_treap_ele_cnt( rotor->eager_treap ) ? rotor->eager_treap :
+                                                                                                                                                       NULL;
     if( FD_UNLIKELY( !treap ) ) break;
     fd_repair_blk_t * blk = fd_repair_treap_fwd_iter_ele( fd_repair_treap_fwd_iter_init( treap, rotor->blk_pool ), rotor->blk_pool );
     fd_repair_treap_ele_remove( treap, blk, rotor->blk_pool );
