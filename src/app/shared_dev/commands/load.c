@@ -4,12 +4,10 @@
 #include "../../shared/commands/run/run.h"
 #include "../../../disco/topo/fd_topob.h"
 #include "../../../util/net/fd_ip4.h"
+#include "../../shared/boot/fd_boot.h"
 
 #include <unistd.h>
 #include <sys/resource.h> /* RLIMIT_NOFILE */
-
-fd_topo_run_tile_t
-fdctl_tile_run( fd_topo_tile_t const * tile );
 
 void
 load_cmd_perm( args_t *         args FD_PARAM_UNUSED,
@@ -150,7 +148,7 @@ load_cmd_fn( args_t *   args,
   FD_LOG_NOTICE(( "  --cu-price-spread %g",      (double)args->load.cu_price_spread        ));
 
   /* FIXME allow running sandboxed/multiprocess */
-  fd_topo_run_single_process( &config->topo, config->uid, config->gid, fdctl_tile_run );
+  fd_topo_run_single_process( &config->topo, config->uid, config->gid, fd_app_tile_run );
 
   /* Sleep parent thread forever, Ctrl+C will terminate. */
   for(;;) pause();

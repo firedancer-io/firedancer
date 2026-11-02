@@ -18,8 +18,6 @@ extern fd_topo_run_tile_t fd_tile_netlnk;
 
 #define FD_NETLINK_ROUTE4_SYNC_SIG (1UL<<63)
 
-struct fdctl_config;
-
 FD_PROTOTYPES_BEGIN
 
 void

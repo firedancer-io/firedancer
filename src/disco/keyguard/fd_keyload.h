@@ -41,8 +41,8 @@ fd_keyload_read( int          key_fd,
    with an error message.
 
    The error messages assume that you are loading the identity key path
-   that has been specified in the user configuration file of fdctl so
-   that they are most helpful in production use.  This is a slight
+   that has been specified in the user configuration file of firedancer
+   so that they are most helpful in production use.  This is a slight
    layering violation, and the error messages might not be correct if
    a different key is being loaded, or it is not being loaded for use
    in the production binary. */

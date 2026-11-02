@@ -5,7 +5,7 @@
     char const * key = #cfg_path;                                      \
     fd_pod_info_t info[1];                                             \
     if( fd_pod_query( pod, key, info ) ) break;                        \
-    if( FD_UNLIKELY( !fdctl_cfg_get_##type( &config->cfg_path, sizeof(config->cfg_path), \
+    if( FD_UNLIKELY( !fd_cfg_get_##type( &config->cfg_path, sizeof(config->cfg_path), \
         info, key ) ) )                                                \
       return NULL;                                                     \
     fd_pod_remove( pod, key );                                         \
@@ -16,7 +16,7 @@
     char const * key = #toml_path;                                      \
     fd_pod_info_t info[1];                                             \
     if( fd_pod_query( pod, key, info ) ) break;                        \
-    if( FD_UNLIKELY( !fdctl_cfg_get_##type( &config->cfg_path, sizeof(config->cfg_path), \
+    if( FD_UNLIKELY( !fd_cfg_get_##type( &config->cfg_path, sizeof(config->cfg_path), \
         info, key ) ) )                                                \
       return NULL;                                                     \
     fd_pod_remove( pod, key );                                         \
@@ -39,7 +39,7 @@
         return NULL;                                                   \
       }                                                                \
       fd_pod_info_t sub_info = fd_pod_iter_info( iter );               \
-      if( FD_UNLIKELY( !fdctl_cfg_get_##type( &config->cfg_path[j], sizeof(config->cfg_path[j]), &sub_info, key ) ) ) \
+      if( FD_UNLIKELY( !fd_cfg_get_##type( &config->cfg_path[j], sizeof(config->cfg_path[j]), &sub_info, key ) ) ) \
         return NULL;                                                    \
       j++;                                                             \
     }                                                                  \
@@ -64,7 +64,7 @@
         return NULL;                                                   \
       }                                                                \
       fd_pod_info_t sub_info = fd_pod_iter_info( iter );               \
-      if( FD_UNLIKELY( !fdctl_cfg_get_##type( &config->cfg_path[j], sizeof(config->cfg_path[j]), &sub_info, key ) ) ) \
+      if( FD_UNLIKELY( !fd_cfg_get_##type( &config->cfg_path[j], sizeof(config->cfg_path[j]), &sub_info, key ) ) ) \
         return NULL;                                                    \
       j++;                                                             \
     }                                                                  \
@@ -102,7 +102,7 @@
       char table_toml_path[ PATH_MAX ];                                               \
       char const * cfg_field_str = #cfg_field;                                        \
       FD_TEST( fd_cstr_printf_check( table_toml_path, PATH_MAX, NULL, "%s.%lu.%s", key, j, cfg_field_str ) ); \
-      fdctl_cfg_get_##type( &config->cfg_path[j].cfg_field, sizeof(config->cfg_path[j].cfg_field), &field_info, table_toml_path ); \
+      fd_cfg_get_##type( &config->cfg_path[j].cfg_field, sizeof(config->cfg_path[j].cfg_field), &field_info, table_toml_path ); \
       j++;                                                                            \
     }                                                                                 \
     config->cfg_path ## _cnt = j;                                                     \

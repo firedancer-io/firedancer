@@ -1,11 +1,12 @@
 #include "../dev.h"
 #include "../../../shared/commands/configure/configure.h" /* CONFIGURE_CMD_INIT */
-#include "../../../shared/commands/run/run.h" /* fdctl_check_configure */
+#include "../../../shared/commands/run/run.h" /* fd_check_configure */
 #include "../../../../disco/net/fd_net_tile.h"
 #include "../../../../disco/metrics/fd_metrics.h"
 #include "../../../../disco/topo/fd_topob.h"
 #include "../../../../disco/topo/fd_cpu_topo.h"
 #include "../../../../util/net/fd_ip4.h"
+#include "../../../shared/boot/fd_boot.h"
 
 #include <stdio.h> /* printf */
 #include <unistd.h> /* isatty */
@@ -13,9 +14,6 @@
 #include <poll.h>
 
 extern fd_topo_obj_callbacks_t * CALLBACKS[];
-
-fd_topo_run_tile_t
-fdctl_tile_run( fd_topo_tile_t const * tile );
 
 static void
 pktgen_topo( config_t * config ) {
@@ -323,7 +321,7 @@ pktgen_cmd_fn( args_t *   args FD_PARAM_UNUSED,
   configure_stage( &fd_cfg_stage_ethtool_offloads, CONFIGURE_CMD_INIT, config );
   configure_stage( &fd_cfg_stage_sysfs_poll,       CONFIGURE_CMD_INIT, config );
 
-  fdctl_check_configure( config );
+  fd_check_configure( config );
   /* FIXME this allocates lots of memory unnecessarily */
   initialize_workspaces( config );
   initialize_stacks( config );
@@ -336,7 +334,7 @@ pktgen_cmd_fn( args_t *   args FD_PARAM_UNUSED,
   }
 
   /* FIXME allow running sandboxed/multiprocess */
-  fd_topo_run_single_process( topo, config->uid, config->gid, fdctl_tile_run );
+  fd_topo_run_single_process( topo, config->uid, config->gid, fd_app_tile_run );
 
   for( ulong kind_id=0UL; kind_id<net_tile_cnt; kind_id++ ) {
     net_metrics[ kind_id ] = fd_metrics_tile( net_tiles[ kind_id ]->metrics );

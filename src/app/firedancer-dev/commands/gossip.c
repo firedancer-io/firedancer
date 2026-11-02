@@ -10,6 +10,7 @@
 
 #include "core_subtopo.h"
 #include "gossip.h"
+#include "../../shared/boot/fd_boot.h"
 
 #include <stdio.h> /* printf */
 #include <stdlib.h>
@@ -17,9 +18,6 @@
 #include <sys/ioctl.h>
 
 extern fd_topo_obj_callbacks_t * CALLBACKS[];
-
-fd_topo_run_tile_t
-fdctl_tile_run( fd_topo_tile_t const * tile );
 
 static void
 gossip_cmd_topo( config_t * config ) {
@@ -227,7 +225,7 @@ gossip_cmd_fn( args_t *   args,
   fd_topo_fill( &config->topo );
 
   /* FIXME allow running sandboxed/multiprocess */
-  fd_topo_run_single_process( &config->topo, config->uid, config->gid, fdctl_tile_run );
+  fd_topo_run_single_process( &config->topo, config->uid, config->gid, fd_app_tile_run );
 
   fd_gossip_diag_ctx_t diag_ctx[1];
   if( FD_UNLIKELY( fd_gossip_diag_init( diag_ctx, &config->topo, config ) ) )

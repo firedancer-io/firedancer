@@ -8,6 +8,7 @@
 #include "../../../../disco/topo/fd_topob.h"
 #include "../../../../disco/topo/fd_cpu_topo.h"
 #include "../../../../disco/net/fd_net_tile.h"
+#include "../../../shared/boot/fd_boot.h"
 
 #include <errno.h>
 #include <unistd.h>
@@ -23,9 +24,6 @@
 #include <arpa/inet.h>
 
 extern fd_topo_obj_callbacks_t * CALLBACKS[];
-
-fd_topo_run_tile_t
-fdctl_tile_run( fd_topo_tile_t const * tile );
 
 void
 update_config_for_dev( config_t * config );
@@ -262,10 +260,10 @@ bench_cmd_fn( args_t *   args,
     if( FD_UNLIKELY( -1==dup2( pipefd[ 1 ], STDERR_FILENO ) ) ) FD_LOG_ERR(( "dup2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
     /* FIXME allow running sandboxed/multiprocess */
-    fd_topo_run_single_process( &config->topo, config->uid, config->gid, fdctl_tile_run );
+    fd_topo_run_single_process( &config->topo, config->uid, config->gid, fd_app_tile_run );
     watch_cmd_fn( &watch_args, config );
   } else {
     /* FIXME allow running sandboxed/multiprocess */
-    fd_topo_run_single_process( &config->topo, config->uid, config->gid, fdctl_tile_run );
+    fd_topo_run_single_process( &config->topo, config->uid, config->gid, fd_app_tile_run );
   }
 }

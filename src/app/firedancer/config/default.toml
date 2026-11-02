@@ -2330,7 +2330,7 @@ telemetry = true
         # out.
         fake_dst_ip = ""  # e.g. "192.0.2.64"
 
-    # The following options relate to the 'fddev udpecho' tool only.
+    # The following options relate to the 'firedancer-dev udpecho' tool only.
     # This testing feature echos back incoming UDP packets using the
     # production networking stack.
     [development.udpecho]

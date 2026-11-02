@@ -244,8 +244,8 @@ fini( config_t const * config,
 
   fd_bootinfo_unlink( config );
 
-  /* Not used by fdctl but might be created by other debugging tools
-     on the system. */
+  /* Not used by Firedancer but might be created by other debugging
+     tools on the system. */
 
   char normal_page_mount_path[ PATH_MAX ];
   FD_TEST( fd_cstr_printf_check( normal_page_mount_path, PATH_MAX, NULL, "%s/.normal", config->hugetlbfs.mount_path ) );

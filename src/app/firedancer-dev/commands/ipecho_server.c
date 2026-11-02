@@ -3,6 +3,7 @@
 #include "../../shared/commands/run/run.h"
 #include "../../../disco/metrics/fd_metrics.h"
 #include "../../../disco/topo/fd_topob.h"
+#include "../../shared/boot/fd_boot.h"
 
 #include <time.h>
 #include <stdio.h>
@@ -11,9 +12,6 @@
 #define NAME "ipecho-server"
 
 extern fd_topo_obj_callbacks_t * CALLBACKS[];
-
-fd_topo_run_tile_t
-fdctl_tile_run( fd_topo_tile_t const * tile );
 
 static void
 ipecho_topo( fd_topo_t *  topo,
@@ -81,7 +79,7 @@ ipecho_server_cmd_fn( args_t *   args,
   ulong volatile * const ipecho_metrics1 = fd_metrics_tile( ipecho_tile1->metrics );
   (void)ipecho_metrics1;
 
-  fd_topo_run_single_process( &config->topo, config->uid, config->gid, fdctl_tile_run );
+  fd_topo_run_single_process( &config->topo, config->uid, config->gid, fd_app_tile_run );
 
   ulong tile_idx = fd_topo_find_tile( &config->topo, "ipecho", 0UL );
   FD_TEST( tile_idx!=ULONG_MAX );

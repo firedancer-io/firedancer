@@ -763,9 +763,8 @@ dist-cov-report: $(BASEDIR)/cov/html/index.html
 
 # Builds the frontend bundle and bakes it into the binary (src/disco/gui)
 #
-# Each client has a single bundle, stored under its dist/ directory; there
-# are no longer per-channel (stable/alpha/dev) variants.
-FRONTEND_CLIENT := Firedancer
+# There is a single bundle, stored under $(FRONTEND_DIR)/dist; there are
+# no longer per-channel (stable/alpha/dev) variants.
 FRONTEND_DIR := src/disco/gui
 
 # Regenerates generated/http_import_dist.c from the committed dist/ tree.
@@ -807,7 +806,6 @@ define frontend-generated-recipe
 endef
 
 frontend: frontend-clean
-	echo "VITE_VALIDATOR_CLIENT=$(FRONTEND_CLIENT)" > frontend/.env.production
 	cd frontend && npm ci && npm run build
 	rm -rf $(FRONTEND_DIR)/dist
 	mkdir -p $(FRONTEND_DIR)/dist

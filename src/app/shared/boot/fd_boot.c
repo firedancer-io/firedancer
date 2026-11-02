@@ -15,7 +15,7 @@ extern action_t * ACTIONS[];
 extern fd_topo_run_tile_t * TILES[];
 
 fd_topo_run_tile_t
-fdctl_tile_run( fd_topo_tile_t const * tile ) {
+fd_app_tile_run( fd_topo_tile_t const * tile ) {
   for( ulong i=0UL; TILES[ i ]; i++ ) {
     if( !strcmp( tile->name, TILES[ i ]->name ) ) return *TILES[ i ];
   }

@@ -345,7 +345,7 @@ fd_config_extract_pod( uchar *       pod,
 
 # undef CFG_DEPRECATED
 
-  if( FD_UNLIKELY( !fdctl_pod_find_leftover( pod ) ) ) return NULL;
+  if( FD_UNLIKELY( !fd_cfg_pod_find_leftover( pod ) ) ) return NULL;
   return config;
 }
 

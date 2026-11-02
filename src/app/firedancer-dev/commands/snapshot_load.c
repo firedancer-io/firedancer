@@ -11,6 +11,7 @@
 #include "../../../discof/restore/utils/fd_ssmsg.h"
 #include "../../../flamenco/runtime/fd_cost_tracker.h"
 #include "../../../flamenco/accdb/fd_accdb_private.h"
+#include "../../shared/boot/fd_boot.h"
 
 #include <fcntl.h> /* open */
 #include <sys/resource.h>
@@ -67,9 +68,6 @@ phase_cstr( ulong state ) {
 }
 
 extern fd_topo_obj_callbacks_t * CALLBACKS[];
-
-fd_topo_run_tile_t
-fdctl_tile_run( fd_topo_tile_t const * tile );
 
 static void
 snapshot_load_layout( config_t *  config,
@@ -466,7 +464,7 @@ fixup_config( config_t *     config,
     config->firedancer.snapshots.sources.gossip.allow_list_cnt = 0;
   }
 
-  /* FIXME Unfortunately, the fdctl boot procedure constructs the
+  /* FIXME Unfortunately, the application boot procedure constructs the
            topology before parsing command-line arguments.  So, here,
            we construct the topology again (a third time ... sigh). */
   snapshot_load_topo( config );
@@ -513,7 +511,7 @@ snapshot_load_cmd_fn( args_t *   args,
   double ns_per_tick = 1.0/tick_per_ns;
 
   long start = fd_log_wallclock();
-  fd_topo_run_single_process( topo, config->uid, config->gid, fdctl_tile_run );
+  fd_topo_run_single_process( topo, config->uid, config->gid, fd_app_tile_run );
 
   ulong volatile * const snapct_metrics = fd_metrics_tile( snapct_tile->metrics );
   ulong volatile * const snapld_metrics = fd_metrics_tile( snapld_tile->metrics );
