@@ -72,14 +72,17 @@ fd_accdb_cache_class_cnt( ulong   cache_footprint,
                  retention = 1.4x p99 read set; was 544 */
   };
 
-  ulong slot_sz_sum = ( fd_accdb_cache_slot_sz[ 0UL ] +
-                        fd_accdb_cache_slot_sz[ 1UL ] +
-                        fd_accdb_cache_slot_sz[ 2UL ] +
-                        fd_accdb_cache_slot_sz[ 3UL ] +
-                        fd_accdb_cache_slot_sz[ 4UL ] +
-                        fd_accdb_cache_slot_sz[ 5UL ] +
-                        fd_accdb_cache_slot_sz[ 6UL ] +
-                        fd_accdb_cache_slot_sz[ 7UL ] );
+  ulong budget_sz[ FD_ACCDB_CACHE_CLASS_CNT ];
+  for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) budget_sz[ c ] = fd_accdb_cache_slot_sz[ c ]-FD_ACCDB_CACHE_META_SZ+FD_ACCDB_CACHE_BUDGET_META_SZ;
+
+  ulong slot_sz_sum = ( budget_sz[ 0UL ] +
+                        budget_sz[ 1UL ] +
+                        budget_sz[ 2UL ] +
+                        budget_sz[ 3UL ] +
+                        budget_sz[ 4UL ] +
+                        budget_sz[ 5UL ] +
+                        budget_sz[ 6UL ] +
+                        budget_sz[ 7UL ] );
 
   /* min_reserved is a runtime parameter; guard the Phase-1 cost
      multiplication against overflow before it wraps and makes the
@@ -109,7 +112,7 @@ fd_accdb_cache_class_cnt( ulong   cache_footprint,
   ulong remaining = cache_footprint;
   for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) {
     class_cnt[c] = min_reserved;
-    remaining   -= min_reserved * fd_accdb_cache_slot_sz[c];
+    remaining   -= min_reserved * budget_sz[c];
   }
 
   /* Phase 2: Reserve up to ws_target[c] slots per class as a floor.
@@ -123,9 +126,9 @@ fd_accdb_cache_class_cnt( ulong   cache_footprint,
     if( ws_target[c]<=class_cnt[c] ) continue;
     ulong want = ws_target[c] - class_cnt[c];
     want = fd_ulong_min( want, pop_max[c]>class_cnt[c] ? pop_max[c]-class_cnt[c] : 0UL );
-    ulong cost = want * fd_accdb_cache_slot_sz[c];
+    ulong cost = want * budget_sz[c];
     if( FD_UNLIKELY( cost>remaining ) ) {
-      class_cnt[c] += remaining / fd_accdb_cache_slot_sz[c];
+      class_cnt[c] += remaining / budget_sz[c];
       remaining     = 0UL;
     } else {
       class_cnt[c] += want;
@@ -150,11 +153,11 @@ fd_accdb_cache_class_cnt( ulong   cache_footprint,
     for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) {
       if( capped[c] ) continue;
       ulong budget = remaining * density[c] / total_w;
-      ulong extra  = budget / fd_accdb_cache_slot_sz[c];
+      ulong extra  = budget / budget_sz[c];
       if( class_cnt[c]+extra >= pop_max[c] ) {
         ulong added  = pop_max[c] - class_cnt[c];
         class_cnt[c] = pop_max[c];
-        remaining   -= added * fd_accdb_cache_slot_sz[c];
+        remaining   -= added * budget_sz[c];
         capped[c]    = 1;
         any_capped   = 1;
       }
@@ -169,7 +172,7 @@ fd_accdb_cache_class_cnt( ulong   cache_footprint,
       for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) {
         if( capped[c] ) continue;
         ulong budget = remaining * density[c] / total_w;
-        class_cnt[c] += budget / fd_accdb_cache_slot_sz[c];
+        class_cnt[c] += budget / budget_sz[c];
       }
       break;
     }
@@ -184,7 +187,7 @@ fd_accdb_cache_class_cnt( ulong   cache_footprint,
 
   remaining = cache_footprint;
   for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ )
-    remaining -= class_cnt[c] * fd_accdb_cache_slot_sz[c];
+    remaining -= class_cnt[c] * budget_sz[c];
 
   for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) capped[c] = class_cnt[c]>=FD_ACCDB_CACHE_LINE_MAX;
 
@@ -199,11 +202,11 @@ fd_accdb_cache_class_cnt( ulong   cache_footprint,
     for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) {
       if( capped[c] ) continue;
       ulong budget = remaining * density[c] / total_w;
-      ulong extra  = budget / fd_accdb_cache_slot_sz[c];
+      ulong extra  = budget / budget_sz[c];
       if( class_cnt[c]+extra >= FD_ACCDB_CACHE_LINE_MAX ) {
         ulong added  = FD_ACCDB_CACHE_LINE_MAX - class_cnt[c];
         class_cnt[c] = FD_ACCDB_CACHE_LINE_MAX;
-        remaining   -= added * fd_accdb_cache_slot_sz[c];
+        remaining   -= added * budget_sz[c];
         capped[c]    = 1;
         any_capped   = 1;
       }
@@ -218,10 +221,10 @@ fd_accdb_cache_class_cnt( ulong   cache_footprint,
       for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) {
         if( capped[c] ) continue;
         ulong budget = remaining * density[c] / total_w;
-        ulong extra  = budget / fd_accdb_cache_slot_sz[c];
+        ulong extra  = budget / budget_sz[c];
         extra        = fd_ulong_min( extra, FD_ACCDB_CACHE_LINE_MAX - class_cnt[c] );
         class_cnt[c] += extra;
-        remaining    -= extra * fd_accdb_cache_slot_sz[c];
+        remaining    -= extra * budget_sz[c];
       }
       break;
     }
@@ -236,9 +239,9 @@ fd_accdb_cache_class_cnt( ulong   cache_footprint,
   for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT && remaining; c++ ) {
     if( class_cnt[c]>=FD_ACCDB_CACHE_LINE_MAX ) continue;
     ulong room  = FD_ACCDB_CACHE_LINE_MAX - class_cnt[c];
-    ulong extra = fd_ulong_min( room, remaining / fd_accdb_cache_slot_sz[c] );
+    ulong extra = fd_ulong_min( room, remaining / budget_sz[c] );
     class_cnt[c] += extra;
-    remaining    -= extra * fd_accdb_cache_slot_sz[c];
+    remaining    -= extra * budget_sz[c];
   }
 
   /* Past FD_ACCDB_CACHE_LINE_MAX*slot_sz[c] (~6 TiB) the index space is
@@ -246,8 +249,8 @@ fd_accdb_cache_class_cnt( ulong   cache_footprint,
      lines.  Warn the operator so they can size down. */
   ulong unspent = cache_footprint;
   for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ )
-    unspent -= class_cnt[c] * fd_accdb_cache_slot_sz[c];
-  if( FD_UNLIKELY( unspent >= fd_accdb_cache_slot_sz[ 0UL ] ) ) {
+    unspent -= class_cnt[c] * budget_sz[c];
+  if( FD_UNLIKELY( unspent >= budget_sz[ 0UL ] ) ) {
     FD_LOG_WARNING(( "cache_footprint exceeds per-class index space; %lu GiB will be unused (raise FD_ACCDB_CACHE_LINE_BITS to use more)",
                      (unspent+(1UL<<30UL)-1UL)/(1UL<<30UL) ));
   }
