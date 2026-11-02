@@ -31,15 +31,17 @@ fd_progcache_join( fd_progcache_t *       cache,
     FD_LOG_WARNING(( "NULL cache" ));
     return NULL;
   }
-  if( FD_LIKELY( scratch_sz ) ) {
-    if( FD_UNLIKELY( !scratch ) ) {
-      FD_LOG_WARNING(( "NULL scratch" ));
-      return NULL;
-    }
-    if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)scratch, FD_PROGCACHE_SCRATCH_ALIGN ) ) ) {
-      FD_LOG_WARNING(( "misaligned scratch" ));
-      return NULL;
-    }
+  if( FD_UNLIKELY( !scratch ) ) {
+    FD_LOG_WARNING(( "NULL scratch" ));
+    return NULL;
+  }
+  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)scratch, FD_PROGCACHE_SCRATCH_ALIGN ) ) ) {
+    FD_LOG_WARNING(( "misaligned scratch" ));
+    return NULL;
+  }
+  if( FD_UNLIKELY( scratch_sz<FD_PROGCACHE_SCRATCH_MIN ) ) {
+    FD_LOG_WARNING(( "scratch_sz too small" ));
+    return NULL;
   }
   memset( cache, 0, sizeof(fd_progcache_t) );
   if( FD_UNLIKELY( !fd_progcache_shmem_join( cache->join, shmem ) ) ) return NULL;

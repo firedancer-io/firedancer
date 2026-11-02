@@ -189,9 +189,8 @@ deploy_program( fd_exec_instr_ctx_t *     instr_ctx,
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   }
 
-  /* Validate the program */
-  fd_vm_t _vm[ 1UL ];
-  fd_vm_t * vm = fd_vm_join( fd_vm_new( _vm ) );
+  /* Validate the program (no BPF VM is live at this builtin's depth) */
+  fd_vm_t * vm = fd_vm_join( fd_vm_new( &instr_ctx->runtime->vm[ instr_ctx->runtime->instr.stack_sz-1UL ] ) );
 
   vm = fd_vm_init(
     /* vm                                     */ vm,
@@ -491,8 +490,7 @@ bpf_execute( fd_exec_instr_ctx_t * instr_ctx,
   fd_sha256_t _sha[1];
   fd_sha256_t * sha = fd_sha256_join( fd_sha256_new( _sha ) );
 
-  fd_vm_t _vm[1];
-  fd_vm_t * vm = fd_vm_join( fd_vm_new( _vm ) );
+  fd_vm_t * vm = fd_vm_join( fd_vm_new( &instr_ctx->runtime->vm[ instr_ctx->runtime->instr.stack_sz-1UL ] ) );
 
   ulong pre_insn_cus = instr_ctx->txn_out->details.compute_budget.compute_meter;
   ulong heap_size    = instr_ctx->txn_out->details.compute_budget.heap_size;
