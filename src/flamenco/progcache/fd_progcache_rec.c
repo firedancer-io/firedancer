@@ -239,10 +239,11 @@ fd_progcache_rec_load( fd_progcache_rec_t *            rec,
   rec->entry_pc  = (uint)prog->entry_pc;
   rec->rodata_sz = (uint)prog->rodata_sz;
 
-  /* Run bytecode validator */
+  /* Run bytecode validator.  The VM lives in scratch, dead once the
+     load returns (validate reads only prog->rodata/text, in val). */
 
-  fd_vm_t _vm[1];
-  fd_vm_t * vm = fd_vm_join( fd_vm_new( _vm ) );
+  if( FD_UNLIKELY( !scratch || scratch_sz<FD_VM_FOOTPRINT ) ) FD_LOG_CRIT(( "scratch too small for the validate VM" ));
+  fd_vm_t * vm = fd_vm_join( fd_vm_new( scratch ) );
   if( FD_UNLIKELY( !vm ) ) FD_LOG_CRIT(( "fd_vm_new failed" ));
   vm = fd_vm_init( vm,
                    NULL, /* OK since unused in `fd_vm_validate()` */
