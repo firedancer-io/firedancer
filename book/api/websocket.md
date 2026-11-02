@@ -2882,22 +2882,27 @@ exceeded. Narrow the window and retry.
 |-------------|----------|-------------|
 | start_ns    | `string` | Inclusive lower bound, using the timestamp rules above |
 | end_ns      | `string` | Exclusive upper bound |
-| granularity | `string` | Must be `shred`. Required |
+| granularity | `string` | Either `shred` or `fec`. Required |
 
-Returns one row per recorded shred event as it arrives, including events
-in the active, unflushed batch. Empty results have empty arrays and
-`null` reference fields.
+At `shred` granularity, returns one row per recorded shred event as it
+arrives, including events in the active, unflushed batch.
+
+At `fec` granularity, returns one row per FEC set and event kind,
+available as shred events arrive. Each timestamp is the min over all of
+the shreds in the fec set, for that event.
+
+Empty results have empty arrays and `null` reference fields.
 
 **`TimelineShreds`**
 | field              | type               | description |
 |--------------------|--------------------|-------------|
-| granularity        | `string`           | Echoes `shred` |
-| available_start_ns | `string\|null`     | Inclusive backing lookup start |
-| available_end_ns   | `string\|null`     | Exclusive backing lookup end |
+| granularity        | `string`           | Echoes `shred` or `fec` |
+| available_start_ns | `string\|null`     | Inclusive backing lookup start for the requested granularity |
+| available_end_ns   | `string\|null`     | Exclusive backing lookup end for the requested granularity |
 | reference_slot     | `number\|null`     | Smallest slot in the response |
 | reference_ts       | `string\|null`     | Smallest event timestamp in the response |
 | slot_delta         | `number[]`         | Per row, `slot - reference_slot` |
-| idx                | `(number\|null)[]` | Shred index. `null` for a slot-complete marker |
+| idx                | `(number\|null)[]` | Shred or FEC index. `null` for a slot-complete marker |
 | event              | `number[]`         | Event kind, using the enum below |
 | event_ts_delta     | `string[]`         | Per row, nanoseconds since `reference_ts` |
 | skipped            | `number[]`         | Sparse slot deltas among returned rows classified as skipped; absence is not proof of known non-skipped coverage |
@@ -2957,9 +2962,10 @@ list. Clients should not assume timestamps are ordered.
 |-----------|---------------|---------|
 | *Request* | `TimelineAgg` | below   |
 
-Four methods share the following parameters and common response fields:
-`timeline.query_agg_compute`, `timeline.query_agg_revenue`,
-`timeline.query_agg_txn`, and `timeline.query_agg_cpu`.
+Five methods share the following parameters and common response fields:
+`timeline.query_agg_shreds`, `timeline.query_agg_compute`,
+`timeline.query_agg_revenue`, `timeline.query_agg_txn`, and
+`timeline.query_agg_cpu`.
 
 | param       | type     | description |
 |-------------|----------|-------------|
@@ -2977,6 +2983,7 @@ The granularities are `25ms`, `50ms`, `100ms`, `250ms`, `500ms`, `1s`,
 | `timeline.query_agg_compute` | `250ms` |
 | `timeline.query_agg_revenue` | `250ms` |
 | `timeline.query_agg_txn`     | `250ms` |
+| `timeline.query_agg_shreds`  | `250ms` |
 
 The request window is aligned to the request granularity bucket
 boundaries. At most 4,096 buckets may be requested, and the aligned
@@ -3000,6 +3007,28 @@ Each array has one entry per aligned bucket. Bucket `i` covers
 `[reference_ts_ns + i*duration, reference_ts_ns + (i+1)*duration)`.
 An entry is `null` when the field is unknown, distinct from a known
 zero. `null` values are ignored when computing rolled-up aggregates.
+
+##### `timeline.query_agg_shreds`
+| field         | type               | description |
+|---------------|--------------------|-------------|
+| turbine       | `(number\|null)[]` | Sum of turbine-received shreds |
+| repair        | `(number\|null)[]` | Sum of repair-received shreds |
+| reconstructed | `(number\|null)[]` | Sum of reconstructed shreds |
+| published     | `(number\|null)[]` | Sum of leader-published shreds |
+| slot_duration | `(number\|null)[]` | Wall time per slot advanced in nanoseconds, see below for details on the sampling method |
+
+Counts are assigned to time buckets based on the FEC-completion
+timestamp, not individual shred arrival times.
+
+`slot_duration` is independent of FEC counts. Every replayed block
+completion across all forks advances `slot - parent_slot` slots over the
+interval from its parent's completion to its own, and that progress is
+spread uniformly over the interval. Each bucket accumulates the wall
+time covered by intervals and the slots advanced within it, and
+`slot_duration` is their ratio rounded to the nearest nanosecond.
+
+A bucket is `null` when no interval covers it, e.g. before the first
+replayed block.
 
 ##### `timeline.query_agg_compute`
 | field             | type               | description |
