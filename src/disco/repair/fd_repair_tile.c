@@ -222,6 +222,7 @@ struct fd_repair_tile {
     ulong       sign_idx; /* IN_KIND_SIGN, its sign tile in sign */
   } in[ FD_TOPO_MAX_TILE_IN_LINKS ];
   ulong chunk; /* reliable ins, after_frag */
+  fd_replay_message_t replay_buf; /* replay_slot is unreliable */
 
   ulong       net_out_idx;
   fd_wksp_t * net_out_mem;
@@ -1362,6 +1363,13 @@ during_frag( fd_repair_tile_t * ctx,
     }
     memcpy( ctx->sign_buf, fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk ), FD_ED25519_SIG_SZ );
     break;
+  case IN_KIND_REPLAY:
+    if( FD_UNLIKELY( sz!=0UL && ( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>sizeof(ctx->replay_buf) ) ) ) { /* a missing FEC has no payload */
+      FD_LOG_ERR(( "chunk %lu sz %lu from in_kind %d out of bounds, chunk0 %lu wmark %lu",
+                   chunk, sz, ctx->in_kind[ in_idx ], ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
+    }
+    memcpy( &ctx->replay_buf, fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk ), sz );
+    break;
   default: /* reliable, read in place by after_frag */
     if( FD_UNLIKELY( sz!=0UL && ( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>ctx->in[ in_idx ].mtu ) ) ) { /* a snapshot DONE has no payload */
       FD_LOG_ERR(( "chunk %lu sz %lu from in_kind %d out of bounds, chunk0 %lu wmark %lu",
@@ -1414,7 +1422,7 @@ after_frag( fd_repair_tile_t *  ctx,
     handle_votor( ctx, sig, src );
     break;
   case IN_KIND_REPLAY:
-    handle_replay( ctx, sig, src );
+    handle_replay( ctx, sig, (uchar const *)&ctx->replay_buf );
     break;
   case IN_KIND_EPOCH: {
     fd_epoch_info_msg_t const * msg = (fd_epoch_info_msg_t const *)fd_type_pun_const( src );
