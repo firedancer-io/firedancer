@@ -646,7 +646,7 @@ deliberate exception with lint-allow="<rule id>")
 <enum name="PackAuctionEndReason">
     <int value="0" name="Limit" label="An auction ended because the block reached the auction's CU limit" />
     <int value="1" name="Restarted" label="An auction ended because a new auction was started" />
-    <int value="2" name="Final" label="An auction ended because the final 20ms of our leader rotation began" />
+    <int value="2" name="Final" label="An auction ended because the final 10ms of our leader rotation began" />
     <int value="3" name="SlotEnd" label="An auction ended because the leader slot ended" />
 </enum>
 

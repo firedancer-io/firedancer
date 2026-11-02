@@ -454,7 +454,7 @@
             "fields": {
                 "limit":     { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "An auction ended because the block reached the auction's CU limit" },
                 "restarted": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "An auction ended because a new auction was started" },
-                "final":     { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "An auction ended because the final 20ms of our leader rotation began" },
+                "final":     { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "An auction ended because the final 10ms of our leader rotation began" },
                 "slot_end":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "An auction ended because the leader slot ended" }
             }
         },

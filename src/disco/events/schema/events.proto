@@ -2339,7 +2339,7 @@ message MetricsPackAuctionEnded {
   uint64 limit = 1;
   // An auction ended because a new auction was started
   uint64 restarted = 2;
-  // An auction ended because the final 20ms of our leader rotation began
+  // An auction ended because the final 10ms of our leader rotation began
   uint64 final = 3;
   // An auction ended because the leader slot ended
   uint64 slot_end = 4;
