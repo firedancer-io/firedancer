@@ -712,6 +712,42 @@ test_safe_to_skip_removes_forged_notar( void ) {
   free( em );
 }
 
+/* Firedancer-only test.
+
+   Skip stake alone meeting the threshold is enough for SafeToSkip, so
+   the notar hashes, one verify each, are left unverified. */
+
+static void
+test_safe_to_skip_verifies_skip_first( void ) {
+  ulong n = 11UL;
+  generate_validators( n );
+  void * em; ag_epoch_info_t * epoch_info = make_epoch( n, &em );
+  ulong slot = 5UL;
+  out_t t;
+
+  ag_slot_state_t * ss = make_state( slot, epoch_info );
+  for( ulong rank=4UL; rank<9UL; rank++ ) {
+    ag_vote_t skip = ag_vote_construct_skip( sec_sign_fn, &g_sk[ rank ], test_bls_public_key, slot, (ushort)rank, TEST_SHRED_VERSION );
+    add_vote_helper( ss, &skip, epoch_info, &t );
+    FD_TEST( t.ok && t.o.safe_to_skip_cnt==0UL );
+  }
+  ag_block_hash_t x[ 3 ];
+  for( ulong rank=1UL; rank<4UL; rank++ ) {
+    random_hash( x[ rank-1UL ] );
+    ag_vote_t forged = ag_vote_construct_notar( sec_sign_fn, &g_sk[ rank+7UL ], test_bls_public_key, slot, x[ rank-1UL ], (ushort)rank, TEST_SHRED_VERSION );
+    add_vote_helper( ss, &forged, epoch_info, &t );
+    FD_TEST( t.ok && t.o.safe_to_skip_cnt==0UL );
+  }
+  ulong verify_cnt = g_states.bls_verify_cnt;
+  ag_block_hash_t y; random_hash( y );
+  ag_vote_t own_notar = ag_vote_construct_notar( sec_sign_fn, &g_sk[0], test_bls_public_key, slot, y, 0UL, TEST_SHRED_VERSION );
+  add_vote_helper( ss, &own_notar, epoch_info, &t );
+  FD_TEST( t.ok && t.o.safe_to_skip_cnt==1UL && ss->sent_safe_to_skip && fd_bls_set_is_null( t.o.bad ) );
+  FD_TEST( g_states.bls_verify_cnt==verify_cnt+1UL );
+  for( ulong i=0UL; i<3UL; i++ ) FD_TEST( notar_hash_stake_query( ss, x[i] )==1UL );
+  free( em );
+}
+
 static void
 test_map_capacity( void ) {
   ulong n = 11UL;
@@ -1369,6 +1405,7 @@ main( int     argc,
   test_identity_partition();
   test_safe_to_events_verify();
   test_safe_to_skip_removes_forged_notar();
+  test_safe_to_skip_verifies_skip_first();
   test_map_capacity();
   test_safe_to_skip_removes_chain_mate();
   test_safe_to_skip_removes_head_middle_tail();
