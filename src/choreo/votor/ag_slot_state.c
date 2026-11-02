@@ -257,6 +257,16 @@ check_safe_to_skip( ag_slot_state_t *  self,
                  || self->own_rank==USHORT_MAX /* must be staked */ ) ) return 0;
   if( FD_LIKELY( !fd_bls_set_test( votes->notar_set, self->own_rank ) ) ) return 0;
 
+  if( FD_LIKELY( !fd_bls_set_is_null( votes->skip_agg.set ) ) ) {
+    fd_bls_set_t bad_skip[ fd_bls_set_word_cnt ];
+    verify_subtract_votes( self, states, AG_VOTE_KIND_SKIP, NULL, &votes->skip_agg, bad_skip );
+    fd_bls_set_union( bad, bad, bad_skip );
+  }
+  if( FD_LIKELY( ag_epoch_info_is_weak_quorum( epoch_info, votes->skip_stake ) ) ) {
+    self->sent_safe_to_skip = 1;
+    return 1;
+  }
+
   ag_vote_stake_ele_t * notar_hash_stake_pool = states->notar_hash_stake_pool;
   ulong                 i                     = votes->notar_hash_stake_head;
   for( ulong j=votes->notar_hash_stake_cnt; j>0UL; j-- ) {
@@ -267,11 +277,6 @@ check_safe_to_skip( ag_slot_state_t *  self,
     verify_subtract_votes( self, states, AG_VOTE_KIND_NOTAR, key.hash, notar_agg, bad_notar );
     fd_bls_set_union( bad, bad, bad_notar );
     i = prev;
-  }
-  if( FD_LIKELY( !fd_bls_set_is_null( votes->skip_agg.set ) ) ) {
-    fd_bls_set_t bad_skip[ fd_bls_set_word_cnt ];
-    verify_subtract_votes( self, states, AG_VOTE_KIND_SKIP, NULL, &votes->skip_agg, bad_skip );
-    fd_bls_set_union( bad, bad, bad_skip );
   }
   if( FD_UNLIKELY( !ag_epoch_info_is_weak_quorum( epoch_info, votes->notar_or_skip_stake - votes->top_notar_stake ) || !fd_bls_set_test( votes->notar_set, self->own_rank ) ) ) return 0;
   self->sent_safe_to_skip = 1;
