@@ -1945,6 +1945,7 @@ test_pre_rotation_bundles( void ) {
   FD_TEST( schedule_bundle_id( pack )==30UL );
   FD_TEST( !fd_pack_verify( pack, pack_verify_scratch ) );
 
+  /* Pre-rotation bundle based on total tip */
   pack = init_all( 1024UL, 1UL, 8UL, &outcome );
   fd_pack_set_initializer_bundles_ready( pack );
   fd_pack_set_rotation_end_ns( pack, LONG_MIN );
@@ -1959,6 +1960,7 @@ test_pre_rotation_bundles( void ) {
   FD_TEST( schedule_bundle_id( pack )==40UL );
   FD_TEST( !fd_pack_verify( pack, pack_verify_scratch ) );
 
+  /* Pre-rotation bundles respect account conflicts */
   pack = init_all( 1024UL, 2UL, 8UL, &outcome );
   fd_pack_set_initializer_bundles_ready( pack );
   fd_pack_set_rotation_end_ns( pack, LONG_MIN );
@@ -1974,6 +1976,7 @@ test_pre_rotation_bundles( void ) {
   FD_TEST( schedule_bundle_id( pack )==50UL );
   FD_TEST( !fd_pack_verify( pack, pack_verify_scratch ) );
 
+  /* Ties broken by arrival time */
   pack = init_all( 1024UL, 1UL, 8UL, &outcome );
   fd_pack_set_initializer_bundles_ready( pack );
   fd_pack_set_rotation_end_ns( pack, 1000L );

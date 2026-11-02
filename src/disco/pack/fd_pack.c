@@ -638,7 +638,12 @@ struct fd_pack_private {
      last leader rotation, so that we can determine if a bundle arrived
      during the start of the leader rotation or not.
      pre_rotation_seq stores an incrementing sequence number, which we
-     use to track the order in which the pre-rotation bundles arrived. */
+     use to track the order in which the pre-rotation bundles arrived.
+
+     We could use a more complex data structure to track the best and
+     worse pre-rotation bundle, but since
+     FD_PACK_PRE_ROTATION_BUNDLE_CAPACITY is so small it's not worth
+     the added complexity. */
   fd_pack_pre_rotation_bundle_t pre_rotation_bundles[ FD_PACK_PRE_ROTATION_BUNDLE_CAPACITY ];
   ulong                         pre_rotation_bundle_cnt;
   ulong                         pre_rotation_seq;
