@@ -46,7 +46,7 @@ jobs:
           const num = v => v === null || (typeof v === 'number' && Number.isFinite(v) && v > 0);
           const valid = [];
           let base;
-          for (const job of ['replay', 'snapshot', 'bench']) {
+          for (const job of ['replay', 'snapshot', 'snapshot-mainnet', 'bench']) {
             const rowsFile = `${process.env.BENCH_DIR}/rows.${job}.json`;
             let r;
             try { r = JSON.parse(fs.readFileSync(rowsFile, 'utf8')); } catch (e) { core.info(`benchmark comment [${job}]: no usable rows (${e.message})`); continue; }
