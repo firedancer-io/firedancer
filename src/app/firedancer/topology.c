@@ -130,6 +130,8 @@ setup_topo_footer_cache( fd_topo_t *  topo,
                          char const * wksp_name ) {
   fd_topo_obj_t * obj = fd_topob_obj( topo, "footer_cache", wksp_name );
   fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "replay", 0UL ) ], obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  ulong execrp_tile_cnt = fd_topo_tile_name_cnt( topo, "execrp" );
+  for( ulong i=0UL; i<execrp_tile_cnt; i++ ) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "execrp", i ) ], obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FD_TEST( fd_pod_insertf_ulong( topo->props, obj->id, "footer_cache" ) );
   return obj;
 }

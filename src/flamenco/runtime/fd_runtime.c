@@ -382,12 +382,18 @@ fd_runtime_settle_fees( fd_bank_t *        bank,
                 priority_fees, execution_fees, fee_burn, fee_reward, fee_reward_burn ));
 }
 
-static void
-fd_runtime_freeze( fd_bank_t *        bank,
-                   fd_accdb_t *       accdb,
-                   fd_capture_ctx_t * capture_ctx ) {
+void
+fd_runtime_freeze_sysvars( fd_bank_t *        bank,
+                           fd_accdb_t *       accdb,
+                           fd_capture_ctx_t * capture_ctx ) {
   if( FD_LIKELY( bank->f.slot ) ) fd_sysvar_recent_hashes_update( bank, accdb, capture_ctx );
   fd_sysvar_slot_history_update( bank, accdb, capture_ctx );
+}
+
+void
+fd_runtime_freeze_fees( fd_bank_t *        bank,
+                        fd_accdb_t *       accdb,
+                        fd_capture_ctx_t * capture_ctx ) {
   fd_runtime_settle_fees( bank, accdb, capture_ctx );
 
   /* jito collects a 3% fee at the end of the block + 3% fee at
@@ -1743,7 +1749,8 @@ fd_runtime_process_genesis_block( fd_bank_t *          bank,
   fd_runtime_genesis_init_program( bank, accdb, capture_ctx );
   fd_sysvar_slot_history_update( bank, accdb, capture_ctx );
   fd_runtime_update_leaders( bank, runtime_stack );
-  fd_runtime_freeze( bank, accdb, capture_ctx );
+  fd_runtime_freeze_sysvars( bank, accdb, capture_ctx );
+  fd_runtime_freeze_fees( bank, accdb, capture_ctx );
 
   fd_hash_t const * prev_bank_hash = &bank->f.bank_hash;
 
@@ -1817,21 +1824,16 @@ valid_producer_time( fd_bank_t const * bank,
   return producer_time_nanos<=(ulong)LONG_MAX && (long)producer_time_nanos>=lo && (long)producer_time_nanos<=hi;
 }
 
+/* Rewrites the clock sysvar and the alpenclock account from the
+   footer's producer timestamp (Agave Bank::update_clock_from_footer).
+   The clock must be applied before the reward certs.  Returns -1 if the
+   producer time is invalid. */
+
 static int
-apply_footer( fd_bank_t *               bank,
-              fd_accdb_t *              accdb,
-              fd_capture_ctx_t *        capture_ctx,
-              fd_block_footer_t const * footer,
-              int                       verify,
-              ushort                    shred_version,
-              fd_footer_cache_t *       cache ) {
-
-  /* leader bank's certs were verified by votor */
-  if( FD_UNLIKELY( verify && !bank->is_leader && fd_alpenglow_footer_verify( bank, footer, shred_version, cache ) ) ) return -1;
-
-  /* Rewrite the clock sysvar and the alpenclock account from the
-     footer's producer timestamp (Agave Bank::update_clock_from_footer).
-     The clock must be applied before the reward certs. */
+apply_footer_clock( fd_bank_t *               bank,
+                    fd_accdb_t *              accdb,
+                    fd_capture_ctx_t *        capture_ctx,
+                    fd_block_footer_t const * footer ) {
 
   ulong producer_time_nanos = footer->block_producer_time_nanos;
   long  unix_timestamp = (long)(producer_time_nanos/1000000000UL);
@@ -1873,6 +1875,23 @@ apply_footer( fd_bank_t *               bank,
   fd_memcpy( acc.data, data, sizeof(data) );
   fd_accdb_svm_close_rw( bank, accdb, capture_ctx, &acc, update );
 
+  return 0;
+}
+
+static int
+apply_footer( fd_bank_t *               bank,
+              fd_accdb_t *              accdb,
+              fd_capture_ctx_t *        capture_ctx,
+              fd_block_footer_t const * footer,
+              int                       verify,
+              ushort                    shred_version,
+              fd_footer_cache_t *       cache ) {
+
+  /* leader bank's certs were verified by votor */
+  if( FD_UNLIKELY( verify && !bank->is_leader && fd_alpenglow_footer_verify( bank, footer, shred_version, cache ) ) ) return -1;
+
+  if( FD_UNLIKELY( apply_footer_clock( bank, accdb, capture_ctx, footer ) ) ) return -1;
+
   return fd_alpenglow_rewards_apply( bank, accdb, capture_ctx, cache, footer );
 }
 
@@ -1884,21 +1903,35 @@ fd_runtime_block_execute_finalize( fd_bank_t *               bank,
                                    ushort                    shred_version,
                                    fd_footer_cache_t *       cache ) {
   if( FD_UNLIKELY( footer && apply_footer( bank, accdb, capture_ctx, footer, 1, shred_version, cache ) ) ) return -1;
-  fd_runtime_freeze( bank, accdb, capture_ctx );
+  fd_runtime_freeze_sysvars( bank, accdb, capture_ctx );
+  fd_runtime_freeze_fees( bank, accdb, capture_ctx );
   fd_runtime_update_bank_hash( bank, capture_ctx );
   return 0;
 }
 
 int
-fd_runtime_block_execute_finalize_unverified( fd_bank_t *               bank,
-                                              fd_accdb_t *              accdb,
-                                              fd_block_footer_t const * footer,
-                                              fd_footer_cache_t *       cache ) {
+fd_runtime_block_footer_begin( fd_bank_t *                   bank,
+                               fd_accdb_t *                  accdb,
+                               fd_block_footer_t const *     footer,
+                               fd_alpenglow_rewards_plan_t * plan ) {
   FD_TEST( footer && !bank->is_leader && !fd_bank_report_runtime_diffs( bank ) );
-  if( FD_UNLIKELY( apply_footer( bank, accdb, NULL, footer, 0, 0, cache ) ) ) return -1;
-  fd_runtime_freeze( bank, accdb, NULL );
+  if( FD_UNLIKELY( apply_footer_clock( bank, accdb, NULL, footer ) ) ) return -1;
+  return fd_alpenglow_rewards_plan( bank, accdb, footer, plan );
+}
+
+void
+fd_runtime_block_footer_end( fd_bank_t *                         bank,
+                             fd_accdb_t *                        accdb,
+                             fd_footer_cache_t *                 cache,
+                             fd_alpenglow_rewards_plan_t const * plan,
+                             ulong                               leader_credits ) {
+  fd_lthash_value_t delta[1];
+  fd_lthash_zero( delta );
+  fd_alpenglow_rewards_apply_leader( bank, accdb, NULL, cache, plan, leader_credits, delta );
+  fd_lthash_add( fd_bank_lthash_locking_modify( bank ), delta );
+  fd_bank_lthash_end_locking_modify( bank );
+  fd_runtime_freeze_fees( bank, accdb, NULL );
   fd_runtime_update_bank_hash( bank, NULL );
-  return 0;
 }
 
 /* Mirrors Agave function solana_sdk::transaction_context::find_index_of_account

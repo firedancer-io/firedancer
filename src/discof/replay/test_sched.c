@@ -4313,7 +4313,7 @@ run_cert_verify_case( int abandon ) {
   }
   FD_TEST( fd_sched_pruned_block_next( sched )==2UL );
 
-  ulong tiles = fd_sched_cert_dispatch( sched, 2UL, 2UL );
+  ulong tiles = fd_sched_footer_dispatch( sched, 2UL, 2UL );
   FD_TEST( fd_ulong_popcnt( tiles )==2 );
   FD_TEST( !fd_sched_task_done( sched, FD_SCHED_TT_BLOCK_END, ULONG_MAX, ULONG_MAX, NULL ) );
   ingest_lthash_fec( sched, 3UL, 2UL, TEST_ROOT_SLOT+2UL, TEST_ROOT_SLOT+1UL, NULL, 0UL, 1, 0 );
@@ -4330,7 +4330,7 @@ run_cert_verify_case( int abandon ) {
   FD_TEST( !fd_sched_task_done( sched, FD_SCHED_TT_CERT_VERIFY, ULONG_MAX, (ulong)t0, NULL ) );
   FD_TEST( !fd_sched_task_next_ready( sched, task ) );
   FD_TEST( fd_sched_pruned_block_next( sched )==ULONG_MAX );
-  FD_TEST( !fd_sched_task_done( sched, FD_SCHED_TT_CERT_VERIFY, ULONG_MAX, (ulong)t1, NULL ) );
+  FD_TEST( !fd_sched_task_done( sched, FD_SCHED_TT_REWARDS, ULONG_MAX, (ulong)t1, NULL ) ); /* a reward slice completes like a cert */
   if( abandon ) {
     FD_TEST( fd_sched_pruned_block_next( sched )==ULONG_MAX );
     FD_TEST( !fd_sched_task_next_ready( sched, task ) );
@@ -4388,7 +4388,7 @@ run_cert_dying_dispatch_case( int root_notify ) {
   }
   FD_TEST( task->block_end->bank_idx==2UL );
   FD_TEST( fd_sched_pruned_block_next( sched )==2UL );
-  ulong tiles = fd_sched_cert_dispatch( sched, 2UL, 2UL );
+  ulong tiles = fd_sched_footer_dispatch( sched, 2UL, 2UL );
   FD_TEST( fd_ulong_popcnt( tiles )==2 );
   FD_TEST( !fd_sched_task_done( sched, FD_SCHED_TT_BLOCK_END, ULONG_MAX, ULONG_MAX, NULL ) );
   int t0 = fd_ulong_find_lsb( tiles );

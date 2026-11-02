@@ -90,6 +90,19 @@ put_vote_account( fd_svm_mini_t *     mini,
 }
 
 static void
+modify_vote_account( fd_bank_t *           bank,
+                     fd_accdb_t *          accdb,
+                     fd_pubkey_t const *   pk,
+                     vote_update_t const * upd,
+                     fd_vote_queue_t *     q ) {
+  static fd_vote_state_versioned_t vs[1];
+  fd_acc_t acc;
+  if( !vote_account_open( bank, accdb, pk, vs, &acc ) ) return;
+  vote_update_apply( vs, &acc, upd );
+  vote_account_store( bank, accdb, NULL, &acc, vs, NULL, q );
+}
+
+static void
 test_v5_in_place( fd_svm_mini_t * mini,
                   fd_rng_t *      rng ) {
   static fd_vote_state_versioned_t v4[1], scratch[1];
@@ -129,9 +142,9 @@ test_v5_in_place( fd_svm_mini_t * mini,
     .current_epoch   = 90UL,
   };
   fd_vote_queue_t * q = fd_vote_queue_init( q_mem );
-  vote_account_modify( bank, accdb, NULL, &key4,   &upd, NULL, q );
-  vote_account_modify( bank, accdb, NULL, &key5,   &upd, NULL, q );
-  vote_account_modify( bank, accdb, NULL, &keybad, &upd, NULL, q );
+  modify_vote_account( bank, accdb, &key4,   &upd, q );
+  modify_vote_account( bank, accdb, &key5,   &upd, q );
+  modify_vote_account( bank, accdb, &keybad, &upd, q );
   fd_vote_queue_fini( q );
 
   fd_acc_t acc = fd_accdb_read_one( accdb, bank->accdb_fork_id, key4.uc );
@@ -151,6 +164,126 @@ test_v5_in_place( fd_svm_mini_t * mini,
   fd_accdb_unread_one( accdb, &acc );
 }
 
+/* test_rewards_slices applies one plan to the same accounts in one
+   slice on one fork and in several slices on another, and expects the
+   same lthash change, leader credits and account images.  The leader
+   is a signer of both certs, so its own share and its signer updates
+   go through the leader path. */
+
+#define SLICE_TEST_VAL_CNT (9UL)
+
+static void
+test_rewards_slices( fd_svm_mini_t * mini,
+                     fd_rng_t *      rng ) {
+  static fd_vote_state_versioned_t v4[1], v5[1];
+  static uchar                     tmp [ FD_VOTE_STATE_V4_SZ ];
+  static uchar                     data[ SLICE_TEST_VAL_CNT ][ FD_VOTE_STATE_V5_SZ ];
+
+  fd_svm_mini_params_t params[1];
+  fd_svm_mini_params_default( params );
+  ulong root_idx = fd_svm_mini_reset( mini, params );
+
+  /* ranked validators with V4 and V5 images, in the rooted state */
+  fd_pubkey_t vote[ SLICE_TEST_VAL_CNT ];
+  for( ulong i=0UL; i<SLICE_TEST_VAL_CNT; i++ ) {
+    vote[ i ] = (fd_pubkey_t){ .ul = { 0x5000UL+i, 7UL } };
+    memset( data[ i ], 0, FD_VOTE_STATE_V5_SZ );
+    random_v4( v4, rng );
+    if( i&1UL ) { convert_copy( v4, v5, tmp ); FD_TEST( !fd_vote_state_versioned_serialize( v5, data[ i ], FD_VOTE_STATE_V5_SZ ) ); }
+    else        {                              FD_TEST( !fd_vote_state_versioned_serialize( v4, data[ i ], FD_VOTE_STATE_V4_SZ ) ); }
+    put_vote_account( mini, vote+i, data[ i ] );
+  }
+
+  fd_bank_t *        bank_a      = fd_svm_mini_bank( mini, fd_svm_mini_attach_child( mini, root_idx, params->root_slot+1UL ) );
+  fd_accdb_t *       accdb       = mini->runtime->accdb;
+  fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank_a );
+  ushort             fork_id     = bank_a->vote_stakes_fork_id;
+  ulong              total_stake = 0UL;
+  for( ulong i=0UL; i<SLICE_TEST_VAL_CNT; i++ ) {
+    fd_pubkey_t node = { .ul = { 0x6000UL+i } };
+    uchar ikm[ 32 ] = { 0 };
+    FD_STORE( ulong, ikm, 0x700UL+i );
+    fd_bls_sec_t sk; fd_bls_sec_derive( &sk, ikm, sizeof(ikm) );
+    fd_bls_pub_t pub[1]; fd_bls_sec_to_pub( &sk, pub );
+    uchar bls[ FD_BLS_PUBKEY_COMPRESSED_SZ ]; blst_p1_affine_compress( bls, pub );
+    fd_vote_stakes_snap_insert_t_2( vote_stakes, fork_id, vote+i, &node, 100UL*(i+1UL), 0U, bls, FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS, 0UL, NULL, NULL, &LOC_FRA );
+    total_stake += 100UL*(i+1UL);
+  }
+  fd_vote_stakes_finalize( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_2 );
+
+  /* every validator signs both certs but 2 (reward) and 5 (final), and
+     7 signs neither.  3 leads */
+  fd_alpenglow_rewards_plan_t plan[1];
+  memset( plan, 0, sizeof(fd_alpenglow_rewards_plan_t) );
+  plan->has_reward  = 1;
+  plan->has_final   = 1;
+  plan->reward_kind = plan->final_kind = plan->memo_kind = FD_VOTE_STAKES_ITER_T_2;
+  fd_bls_set_null( plan->reward_set );
+  fd_bls_set_null( plan->final_set );
+  for( ulong i=0UL; i<SLICE_TEST_VAL_CNT; i++ ) {
+    fd_vote_stakes_ele_t ele[1];
+    FD_TEST( fd_vote_stakes_query_t_2( vote_stakes, fork_id, vote+i, ele ) && ele->rank!=FD_VOTE_STAKES_ALPENGLOW_RANK_NULL );
+    if( i!=2UL && i!=7UL ) fd_bls_set_insert( plan->reward_set, ele->rank );
+    if( i!=5UL && i!=7UL ) fd_bls_set_insert( plan->final_set,  ele->rank );
+  }
+  plan->reward_slot        = 1000UL;
+  plan->max_reward         = 1000000000UL;
+  plan->slots_per_epoch    = 432000UL;
+  plan->total_stake        = total_stake;
+  plan->reward_ts_ns       = 1700000000L*1000000000L;
+  plan->migration_epoch    = ULONG_MAX;
+  plan->current_epoch      = fd_slot_to_epoch( &bank_a->f.epoch_schedule, bank_a->f.slot, NULL );
+  plan->final_slot         = 1007UL;
+  plan->final_ts_ns        = plan->reward_ts_ns+400000000L;
+  plan->leader_vote_pubkey = vote[ 3 ];
+  plan->slice_seed         = fd_rng_ulong( rng );
+
+  /* one slice on the first fork */
+  fd_lthash_value_t delta_a[1];
+  fd_lthash_zero( delta_a );
+  ulong credits_a = 0UL;
+  FD_TEST( !fd_alpenglow_rewards_apply_slice( bank_a, accdb, NULL, NULL, plan, 0UL, 1UL, delta_a, &credits_a ) );
+  FD_TEST( credits_a );
+  fd_alpenglow_rewards_apply_leader( bank_a, accdb, NULL, NULL, plan, credits_a, delta_a );
+  for( ulong i=0UL; i<SLICE_TEST_VAL_CNT; i++ ) {
+    fd_acc_t acc = fd_accdb_read_one( accdb, bank_a->accdb_fork_id, vote[ i ].uc );
+    FD_TEST( acc.data_len==FD_VOTE_STATE_V5_SZ && fd_memeq( acc.data, data[ i ], FD_VOTE_STATE_V5_SZ )==( i==7UL ) );
+    fd_accdb_unread_one( accdb, &acc );
+  }
+
+  /* 2 to 5 slices on sibling forks.  The two-slice run has a footer
+     cache with memo use off and must leave it empty.  The three-slice
+     run has memo use on and must fill a slot per signer stored. */
+  static fd_footer_cache_t cache_mem[ 1 ];
+  fd_footer_cache_t * cache = fd_footer_cache_join( fd_footer_cache_new( cache_mem ) );
+  for( ulong slice_cnt=2UL; slice_cnt<=5UL; slice_cnt++ ) {
+    fd_bank_t * bank_b = fd_svm_mini_bank( mini, fd_svm_mini_attach_child( mini, root_idx, params->root_slot+slice_cnt ) );
+    fd_footer_cache_t * run_cache = slice_cnt<=3UL ? cache : NULL;
+    plan->use_memo = slice_cnt!=2UL;
+    fd_lthash_value_t delta_b[1];
+    fd_lthash_zero( delta_b );
+    ulong credits_b = 0UL;
+    for( ulong i=0UL; i<slice_cnt; i++ ) FD_TEST( !fd_alpenglow_rewards_apply_slice( bank_b, accdb, NULL, run_cache, plan, i, slice_cnt, delta_b, &credits_b ) );
+    FD_TEST( credits_b==credits_a );
+    fd_alpenglow_rewards_apply_leader( bank_b, accdb, NULL, run_cache, plan, credits_b, delta_b );
+    ulong memo_cnt = 0UL;
+    for( ulong r=0UL; r<AG_VAT_MAX; r++ ) memo_cnt += !!cache->memo[ r ].lamports;
+    FD_TEST( memo_cnt==( slice_cnt==2UL ? 0UL : SLICE_TEST_VAL_CNT-1UL ) );
+    FD_TEST( fd_lthash_eq( delta_a, delta_b ) );
+    for( ulong i=0UL; i<SLICE_TEST_VAL_CNT; i++ ) {
+      static uchar image_a[ FD_VOTE_STATE_V5_SZ ];
+      fd_acc_t acc = fd_accdb_read_one( accdb, bank_a->accdb_fork_id, vote[ i ].uc );
+      ulong lamports_a = acc.lamports;
+      FD_TEST( acc.data_len==FD_VOTE_STATE_V5_SZ );
+      fd_memcpy( image_a, acc.data, FD_VOTE_STATE_V5_SZ );
+      fd_accdb_unread_one( accdb, &acc );
+      acc = fd_accdb_read_one( accdb, bank_b->accdb_fork_id, vote[ i ].uc );
+      FD_TEST( acc.lamports==lamports_a && acc.data_len==FD_VOTE_STATE_V5_SZ && fd_memeq( acc.data, image_a, FD_VOTE_STATE_V5_SZ ) );
+      fd_accdb_unread_one( accdb, &acc );
+    }
+  }
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -164,6 +297,7 @@ main( int     argc,
 
   test_v5_update_matches_v4( rng );
   for( ulong iter=0UL; iter<16UL; iter++ ) test_v5_in_place( mini, rng );
+  for( ulong iter=0UL; iter<4UL;  iter++ ) test_rewards_slices( mini, rng );
 
   fd_rng_delete( fd_rng_leave( rng ) );
   FD_LOG_NOTICE(( "pass" ));
