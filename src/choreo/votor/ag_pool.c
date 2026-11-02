@@ -529,6 +529,7 @@ int
 ag_pool_add_cert( ag_pool_t *       self,
                   ag_cert_t const * cert,
                   int               verified,
+                  ushort            relayer,
                   fd_bls_set_t *    bad ) {
   ulong slot = ag_cert_slot( cert );
   fd_bls_set_null( bad );
@@ -551,7 +552,10 @@ ag_pool_add_cert( ag_pool_t *       self,
   case AG_CERT_KIND_SKIP:           duplicate = state->certs.skip.slot!=ULONG_MAX;                                    break;
   default:                          FD_LOG_CRIT(( "unreachable" ));
   }
-  if( FD_UNLIKELY( duplicate ) ) return AG_POOL_ERR_DUPLICATE;
+  if( FD_UNLIKELY( duplicate ) ) {
+    int kept = ( cert->kind==AG_CERT_KIND_NOTAR || cert->kind==AG_CERT_KIND_FAST_FINAL || cert->kind==AG_CERT_KIND_SKIP ) && ag_slot_state_add_reward_cand( state, cert, verified, relayer );
+    return fd_int_if( kept, AG_POOL_ERR_DUPLICATE_KEPT, AG_POOL_ERR_DUPLICATE );
+  }
 
   int err = AG_CERT_VERIFY_SUCCESS;
   if( FD_LIKELY( !verified ) ) err = ag_cert_verify( cert, epoch_info );
@@ -622,6 +626,31 @@ ag_pool_slot_state( ag_pool_t const * self,
                     ulong             slot ) {
   slot_state_ele_t const * ele = slot_state_map_ele_query_const( self->slot_states->map, &slot, NULL, self->slot_states->pool );
   return ele ? &ele->slot_state : NULL;
+}
+
+fd_bls_agg_t *
+ag_pool_skip_reward_agg( ag_pool_t *    self,
+                         ulong          slot,
+                         fd_bls_agg_t * out,
+                         fd_bls_agg_t * out_base,
+                         fd_bls_set_t * bad,
+                         fd_bls_set_t * bad_relayer ) {
+  fd_bls_set_null( bad ); fd_bls_set_null( bad_relayer );
+  slot_state_ele_t * ele = slot_state_map_ele_query( self->slot_states->map, &slot, NULL, self->slot_states->pool );
+  return ele ? ag_slot_state_skip_reward_agg( &ele->slot_state, &self->slot_states->shared, out, out_base, bad, bad_relayer ) : NULL;
+}
+
+fd_bls_agg_t *
+ag_pool_notar_reward_agg( ag_pool_t *    self,
+                          ulong          slot,
+                          fd_bls_agg_t * out,
+                          fd_bls_agg_t * out_base,
+                          uchar *        out_hash,
+                          fd_bls_set_t * bad,
+                          fd_bls_set_t * bad_relayer ) {
+  fd_bls_set_null( bad ); fd_bls_set_null( bad_relayer );
+  slot_state_ele_t * ele = slot_state_map_ele_query( self->slot_states->map, &slot, NULL, self->slot_states->pool );
+  return ele ? ag_slot_state_notar_reward_agg( &ele->slot_state, &self->slot_states->shared, out, out_base, out_hash, bad, bad_relayer ) : NULL;
 }
 
 ag_slot_states_t const *

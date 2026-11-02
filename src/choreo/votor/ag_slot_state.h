@@ -21,6 +21,8 @@
 #define AG_SLOT_STATE_OUT_REPAIR_MAX (3UL)
 
 #define AG_NOTAR_FALLBACK_HASH_MAX (AG_VAT_MAX*AG_NOTAR_FALLBACK_VOTE_MAX)
+#define AG_REWARD_CAND_MAX         (8UL) /* duplicate notar, fast finalize and skip certs kept per slot for reward certs */
+#define AG_REWARD_CAND_VERIFY_MAX  (2UL) /* kept candidates verified per reward cert build */
 
 struct ag_vote_stake_ele {
   ag_block_id_t block_id;
@@ -94,6 +96,23 @@ struct ag_slot_votes {
 };
 typedef struct ag_slot_votes ag_slot_votes_t;
 
+/* A notar, fast finalize or skip-only cert that arrived after the slot
+   had one, kept unverified because it names signers the verified certs
+   and held votes do not: reward certs can include them.  A notar or
+   fast finalize one names the verified cert's block. */
+
+struct ag_reward_cand {
+  blst_p2      sig;
+  fd_bls_set_t set[ fd_bls_set_word_cnt ];
+  ulong        signer_cnt;    /* signers beyond the certs and votes when kept, for eviction */
+  uint         kind;          /* AG_CERT_KIND_{NOTAR,FAST_FINAL,SKIP} */
+  ushort       shred_version;
+  ushort       relayer;       /* rank of the peer that sent it, banned if it fails, USHORT_MAX if none */
+  int          bad;           /* failed verification, skip */
+  int          ok;            /* verified, do not again */
+};
+typedef struct ag_reward_cand ag_reward_cand_t;
+
 struct ag_slot_certs {
   ag_cert_notar_t          notar;
   ag_cert_notar_fallback_t notar_fallback[ AG_NOTAR_FALLBACK_CERT_MAX ];
@@ -101,6 +120,8 @@ struct ag_slot_certs {
   ag_cert_skip_t           skip;
   ag_cert_fast_final_t     fast_finalize;
   ag_cert_final_t          finalize;
+  ag_reward_cand_t         reward_cand[ AG_REWARD_CAND_MAX ];
+  ulong                    reward_cand_cnt;
 };
 typedef struct ag_slot_certs ag_slot_certs_t;
 
@@ -220,13 +241,37 @@ ag_slot_state_is_notar_fallback_or_stronger( ag_slot_state_t const * self,
 
 /* Accessors for reward certs */
 
-fd_bls_agg_t *
-ag_slot_state_notar_reward_agg( ag_slot_state_t const *  self,
-                                ag_slot_states_t const * states,
-                                fd_bls_agg_t *           out );
+/* Keeps cert, a duplicate, as a reward candidate; returns 1 if kept.
+   verified as for ag_pool_add_cert. */
 
-FD_FN_PURE fd_bls_agg_t const *
-ag_slot_state_skip_reward_agg( ag_slot_state_t const * self );
+int
+ag_slot_state_add_reward_cand( ag_slot_state_t * self,
+                               ag_cert_t const * cert,
+                               int               verified,
+                               ushort            relayer );
+
+/* Build the reward aggregate: out_base, verified certs and candidates
+   folded together, and out, the held votes outside it, to be verified
+   by the caller.  Held votes found bad are evicted and returned in bad;
+   relayers of candidates that failed verification in bad_relayer.  The
+   notar one returns the block hash in out_hash. */
+
+fd_bls_agg_t *
+ag_slot_state_notar_reward_agg( ag_slot_state_t *  self,
+                                ag_slot_states_t * states,
+                                fd_bls_agg_t *     out,
+                                fd_bls_agg_t *     out_base,
+                                uchar *            out_hash,
+                                fd_bls_set_t *     bad,
+                                fd_bls_set_t *     bad_relayer );
+
+fd_bls_agg_t *
+ag_slot_state_skip_reward_agg( ag_slot_state_t *  self,
+                               ag_slot_states_t * states,
+                               fd_bls_agg_t *     out,
+                               fd_bls_agg_t *     out_base,
+                               fd_bls_set_t *     bad,
+                               fd_bls_set_t *     bad_relayer );
 
 /* Copies the kind vote sigs of the ranks in set into out[ rank ].
    block_hash selects the sig for notar fallback; for notar the caller

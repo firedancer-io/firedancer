@@ -13,6 +13,7 @@
 #define AG_POOL_ERR_DUPLICATE          (-3)
 #define AG_POOL_ERR_SLASHABLE          (-4)
 #define AG_POOL_ERR_CERT_VERIFY        (-5)
+#define AG_POOL_ERR_DUPLICATE_KEPT     (-6) /* a duplicate kept as a reward cert candidate */
 
 #define AG_POOL_QUORUM_REACHED_FINAL          (AG_CERT_KIND_FINAL)
 #define AG_POOL_QUORUM_REACHED_FAST_FINAL     (AG_CERT_KIND_FAST_FINAL)
@@ -136,12 +137,14 @@ ag_pool_set_rank( ag_pool_t * self,
 
    verified is non-zero for a cert whose signature and stake were already
    verified, e.g. by replay.  The bounds, duplicate and safety checks
-   still run. */
+   still run.  relayer is the rank of the peer that sent it, banned if a
+   kept duplicate later fails verification, or USHORT_MAX. */
 
 int
 ag_pool_add_cert( ag_pool_t *       self,
                   ag_cert_t const * cert,
                   int               verified,
+                  ushort            relayer,
                   fd_bls_set_t *    bad );
 
 /* Definition 12. Pool::add_vote
@@ -163,6 +166,26 @@ ag_pool_add_block( ag_pool_t *           self,
                    ag_block_id_t const * block_id,
                    ag_block_id_t const * parent_id,
                    fd_bls_set_t *        bad );
+
+/* See ag_slot_state_{skip,notar}_reward_agg.  NULL if the slot has no
+   state or nothing to reward. */
+
+fd_bls_agg_t *
+ag_pool_skip_reward_agg( ag_pool_t *    self,
+                         ulong          slot,
+                         fd_bls_agg_t * out,
+                         fd_bls_agg_t * out_base,
+                         fd_bls_set_t * bad,
+                         fd_bls_set_t * bad_relayer );
+
+fd_bls_agg_t *
+ag_pool_notar_reward_agg( ag_pool_t *    self,
+                          ulong          slot,
+                          fd_bls_agg_t * out,
+                          fd_bls_agg_t * out_base,
+                          uchar *        out_hash,
+                          fd_bls_set_t * bad,
+                          fd_bls_set_t * bad_relayer );
 
 /* PoolImpl::slot_state, read-only */
 
