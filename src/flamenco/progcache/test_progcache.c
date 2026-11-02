@@ -1069,8 +1069,9 @@ FD_UNIT_TEST( shmem_delete_fast ) {
   fd_progcache_shmem_t * progcache_mem = fd_wksp_alloc_laddr( wksp, fd_progcache_shmem_align(), fd_progcache_shmem_footprint( txn_max, 512UL<<20 ), wksp_tag );
   FD_TEST( fd_progcache_shmem_new( progcache_mem, wksp_tag, 1UL, txn_max, 512UL<<20 ) );
 
-  uchar scratch[ 65536 ] __attribute__((aligned(FD_PROGCACHE_SCRATCH_ALIGN)));
+  uchar scratch[ FD_PROGCACHE_SCRATCH_MIN ] __attribute__((aligned(FD_PROGCACHE_SCRATCH_ALIGN)));
   fd_progcache_t cache[1];
+  FD_TEST( !fd_progcache_join( cache, progcache_mem, scratch, sizeof(scratch)-1UL ) ); /* holds the validate VM */
   FD_TEST( fd_progcache_join( cache, progcache_mem, scratch, sizeof(scratch) ) );
 
   fd_progcache_fork_id_t fork = fd_progcache_attach_child( cache->join, fd_progcache_fork_id_initial() );

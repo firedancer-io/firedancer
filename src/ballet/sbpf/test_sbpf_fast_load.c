@@ -156,6 +156,48 @@ test_legacy_tail_reloc( char const * name, uchar const * bin, ulong bin_sz ) {
   FD_LOG_NOTICE(( "%-34s legacy-lenient fallback (load err=%d) OK", name, err ));
 }
 
+/* hello with pad_cnt SHT_NOBITS headers inserted after .text, so the
+   read-only slices sit at high section indices (up to e_shnum==USHORT_MAX).
+   Loads must match the unpadded program byte for byte. */
+static void
+test_ro_high_shidx( ulong pad_cnt ) {
+  uchar const * src    = fix_hello;
+  ulong         src_sz = fix_hello_sz;
+  ulong  shoff  = FD_LOAD( ulong,  src+40 );
+  ulong  shnum  = FD_LOAD( ushort, src+60 );
+  ulong  strndx = FD_LOAD( ushort, src+62 );
+  FD_TEST( shoff+shnum*sizeof(fd_elf64_shdr)==src_sz && strndx>1UL && shnum+pad_cnt<=USHORT_MAX );
+
+  ulong   bin_sz = src_sz + pad_cnt*sizeof(fd_elf64_shdr);
+  uchar * bin    = malloc( bin_sz );
+  FD_TEST( bin );
+  fd_memcpy( bin, src, shoff+2UL*sizeof(fd_elf64_shdr) ); /* through .text */
+  fd_elf64_shdr pad = { .sh_type=FD_ELF_SHT_NOBITS };
+  for( ulong i=0UL; i<pad_cnt; i++ ) fd_memcpy( bin+shoff+(2UL+i)*sizeof(fd_elf64_shdr), &pad, sizeof(pad) );
+  fd_memcpy( bin+shoff+(2UL+pad_cnt)*sizeof(fd_elf64_shdr), src+shoff+2UL*sizeof(fd_elf64_shdr), (shnum-2UL)*sizeof(fd_elf64_shdr) );
+  FD_STORE( ushort, bin+60, (ushort)(shnum+pad_cnt)  );
+  FD_STORE( ushort, bin+62, (ushort)(strndx+pad_cnt) );
+
+  fd_sbpf_loader_config_t config = { 0 };
+  config.sbpf_min_version = FD_SBPF_V0;
+  config.sbpf_max_version = FD_SBPF_V3;
+  fd_sbpf_elf_info_t info, ref_info;
+  FD_TEST( fd_sbpf_elf_peek( &info,     bin, bin_sz, &config )==0 );
+  FD_TEST( fd_sbpf_elf_peek( &ref_info, src, src_sz, &config )==0 );
+  FD_TEST( info.load_buf_sz==ref_info.load_buf_sz );
+
+  loaded_t ref, fast, slow;
+  FD_TEST( 0==do_load( src, src_sz, &ref_info, 1, &ref  ) );
+  FD_TEST( 0==do_load( bin, bin_sz, &info,     1, &fast ) );
+  FD_TEST( 0==do_load( bin, bin_sz, &info,     0, &slow ) );
+  FD_TEST( fast.prog->rodata_sz==ref.prog->rodata_sz && slow.prog->rodata_sz==ref.prog->rodata_sz );
+  FD_TEST( 0==memcmp( fast.rodata, ref.rodata, ref.prog->rodata_sz ) );
+  FD_TEST( 0==memcmp( slow.rodata, ref.rodata, ref.prog->rodata_sz ) );
+  free_loaded( &ref ); free_loaded( &fast ); free_loaded( &slow );
+  free( bin );
+  FD_LOG_NOTICE(( "ro slices at shidx>=%lu (e_shnum=%lu) OK", 2UL+pad_cnt, shnum+pad_cnt ));
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -167,6 +209,9 @@ main( int     argc,
   test_fast_equiv( "clock_sysvar_program",         fix_clock,    fix_clock_sz    );
 
   test_legacy_tail_reloc( "vm_program_tail_reloc", fix_tail_reloc, fix_tail_reloc_sz );
+
+  test_ro_high_shidx( 70UL );
+  test_ro_high_shidx( USHORT_MAX-9UL );
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

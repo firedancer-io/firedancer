@@ -217,6 +217,15 @@ test_deploy_v3_succeeds( fd_wksp_t * wksp ) {
                            /* disable_sbpf_v0_v1_v2_deployment */ 1 );
   FD_TEST( err==FD_EXECUTOR_INSTR_SUCCESS );
 
+  /* A deploy at depth d (e.g. inside CPI) validates in vm[d-1] only,
+     leaving the callers' VMs (vm[0..d-2]) untouched. */
+  for( uchar d=1; d<=FD_MAX_INSTRUCTION_STACK_DEPTH; d++ ) {
+    for( ulong i=0UL; i<FD_MAX_INSTRUCTION_STACK_DEPTH; i++ ) env->runtime->vm[ i ].magic = 0UL;
+    env->runtime->instr.stack_sz = d;
+    FD_TEST( fd_deploy_program( env->ctx, elf, elf_sz, 0 )==FD_EXECUTOR_INSTR_SUCCESS );
+    for( ulong i=0UL; i<FD_MAX_INSTRUCTION_STACK_DEPTH; i++ ) FD_TEST( (env->runtime->vm[ i ].magic==FD_VM_MAGIC)==(i==d-1UL) );
+  }
+
   deploy_env_destroy( env );
 }
 

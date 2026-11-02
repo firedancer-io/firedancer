@@ -10,6 +10,7 @@
 #include "program/vote/fd_vote_codec.h"
 #include "program/fd_system_program.h"
 #include "context/fd_exec_instr_ctx.h"
+#include "../vm/fd_vm.h"
 #include "../fd_flamenco_base.h"
 #include "../accdb/fd_accdb.h"
 #include "../alpenglow/fd_alpenglow.h"
@@ -185,6 +186,10 @@ struct fd_runtime {
     fd_bpf_ser_arena_t * deploy_pool;
     uchar *              programdata;
   } bpf_loader_program;
+
+  /* vm[d-1] hosts the VM of the BPF program at depth d, or the
+     validate VM of a deploy (a builtin) at depth d. */
+  fd_vm_t vm[ FD_MAX_INSTRUCTION_STACK_DEPTH ];
 
   union {
     struct {

@@ -1561,15 +1561,16 @@ wfs_decode_bank_hash( fd_config_t const * config,
 
 /* Stack sizes from the GCC -O3 static call graph plus indirect
    callbacks, VLAs and the signal handler (>=2.4x headroom).  exec*
-   nest the VM through CPI so keep the default, as do unlisted tiles
-   and builds the analysis does not cover. */
+   keep per-depth VMs in fd_runtime_t, so CPI nesting fits in 2 MiB.
+   Unlisted tiles and builds the analysis does not cover keep the
+   default. */
 static ulong
 fd_topo_tile_stack_sz( char const * name ) {
 #if defined(FD_HAS_OPTIMIZATION) && defined(FD_USING_GCC) && !FD_HAS_ASAN && !FD_HAS_MSAN && !FD_HAS_UBSAN
   static char const * const deep[] = { "replay", "votor", "genesi", "gui", "snapct", "snapld", "snapin" };
   static char const * const shallow[] = { "netlnk", "mlx5", "metric", "diag", "snapdc", "ipecho", "gossvf", "gossip", "rotor",
                                           "shred", "rserve", "accdb", "quic", "verify", "dedup", "resolv", "pack",
-                                          "motor", "sign", "rpc", "admin", "event", "sock", "waker" };
+                                          "motor", "sign", "rpc", "admin", "event", "sock", "waker", "execrp", "execle" };
   for( ulong i=0UL; i<sizeof(deep)/sizeof(deep[0]); i++ )       if( !strcmp( name, deep[ i ]    ) ) return 4UL<<20;
   for( ulong i=0UL; i<sizeof(shallow)/sizeof(shallow[0]); i++ ) if( !strcmp( name, shallow[ i ] ) ) return 2UL<<20;
 #else
