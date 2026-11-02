@@ -91,6 +91,16 @@ fd_execute_txn( fd_runtime_t *      runtime,
                 fd_txn_in_t const * txn_in,
                 fd_txn_out_t *      txn_out );
 
+/* fd_executor_calculate_fee computes the execution (signature) and
+   priority fees.  Compute unit limits must already be sanitized. */
+
+void
+fd_executor_calculate_fee( fd_txn_out_t const * txn_out,
+                           fd_txn_t const *     txn_descriptor,
+                           uchar const *        payload,
+                           ulong *              ret_execution_fee,
+                           ulong *              ret_priority_fee );
+
 int
 fd_executor_validate_transaction_fee_payer( fd_bank_t *         bank,
                                             fd_txn_in_t const * txn_in,

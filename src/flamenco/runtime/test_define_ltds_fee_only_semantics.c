@@ -8,6 +8,7 @@
 #include "../features/fd_features.h"
 #include "../../disco/fd_txn_p.h"
 #include "../../ballet/sha256/fd_sha256.h"
+#include "program/fd_bpf_loader_program.h"
 #include "program/fd_compute_budget_program.h"
 #include "program/fd_system_program.h"
 
@@ -517,6 +518,40 @@ test_on_separate_nonce_limit_exceeded( fd_svm_mini_t * mini ) {
   FD_TEST( txn_out->details.loaded_accounts_data_size==(ulong)limit );
 }
 
+/* CASE 8 — feature ON, the program's implicit programdata exceeds the
+   limit: expects the requested limit, with the programdata size charged
+   but the programdata not loaded. */
+static void
+test_on_programdata_limit_exceeded( fd_svm_mini_t * mini ) {
+  fd_bank_t * bank; fd_accdb_fork_id_t fork_id; fd_pubkey_t fee_payer;
+  setup_env( mini, /*feature_on=*/1, &bank, &fork_id, &fee_payer );
+
+  fd_pubkey_t program;     fd_memset( &program,     0x44, sizeof(fd_pubkey_t) );
+  fd_pubkey_t programdata; fd_memset( &programdata, 0x55, sizeof(fd_pubkey_t) );
+
+  uchar program_data[ 36 ] = { FD_BPF_STATE_PROGRAM };
+  fd_memcpy( program_data+4, &programdata, sizeof(fd_pubkey_t) );
+  put_account( mini, &program, 1000000UL, 36U, program_data,
+               &fd_solana_bpf_loader_upgradeable_program_id, 1 );
+
+  uchar programdata_data[ 5000 ] = {0};
+  put_account( mini, &programdata, 1000000UL, 5000U, programdata_data,
+               &fd_solana_bpf_loader_upgradeable_program_id, 0 );
+
+  fd_txn_p_t   txn_p[1];
+  fd_txn_in_t  txn_in[1];
+  uint const limit = 1000U;
+  build_limit_exceeded_txn( bank, &fee_payer, &program, limit, txn_p, txn_in, txn_out );
+
+  fd_runtime_prepare_and_execute_txn( mini->runtime, bank, txn_in, txn_out );
+
+  FD_TEST( txn_out->err.is_fees_only );
+  FD_TEST( txn_out->err.txn_err==FD_RUNTIME_TXN_ERR_MAX_LOADED_ACCOUNTS_DATA_SIZE_EXCEEDED );
+  FD_TEST( txn_out->details.loaded_accounts_data_size==(ulong)limit );
+  FD_TEST( txn_out->accounts.executable_cnt==0UL );
+  FD_TEST( txn_out->accounts.executable_skipped_cnt==1 );
+}
+
 int
 main( int argc, char ** argv ) {
   fd_svm_mini_limits_t limits[1];
@@ -530,6 +565,7 @@ main( int argc, char ** argv ) {
   test_off_separate_nonce_bad_program  ( mini );
   test_off_same_nonce_bad_program      ( mini );
   test_on_separate_nonce_limit_exceeded( mini );
+  test_on_programdata_limit_exceeded   ( mini );
 
   FD_LOG_NOTICE(( "pass" ));
   fd_svm_test_halt( mini );
