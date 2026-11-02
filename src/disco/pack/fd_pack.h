@@ -641,6 +641,12 @@ void const * fd_pack_peek_bundle_meta( fd_pack_t const * pack );
    bundles.  pack must be a valid local join. */
 void fd_pack_set_initializer_bundles_ready( fd_pack_t * pack );
 
+/* fd_pack_set_rotation_end_ns informs pack of the wallclock time when
+   the current leader rotation ends, in ns.  Bundles that arrive later
+   than this are treated as pre-rotation bundles for the subsequent
+   rotation. */
+void fd_pack_set_rotation_end_ns( fd_pack_t * pack, long end_ns );
+
 
 /* FD_PACK_SCHEDULE_{BUNDLE,TXN} form a set of bitflags used in
    fd_pack_schedule_next_microblock below.  They control what types of
