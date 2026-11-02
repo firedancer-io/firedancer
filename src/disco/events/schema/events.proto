@@ -1446,7 +1446,7 @@ message MetricsNetPktTxDropped {
 
 // Received packets dropped, by reason
 message MetricsNetPktRxDropped {
-  // Undersized, oversized, or malformed Ethernet, IPv4 or UDP headers
+  // Undersized, oversized, or malformed Ethernet, IPv4 or UDP headers, or IPv4 options present
   uint64 malformed = 1;
   // Destination IP does not match the bind address
   uint64 dst_ip_mismatch = 2;
@@ -1530,7 +1530,7 @@ message MetricsMlx5PktTxDropped {
 
 // Received packets dropped, by reason
 message MetricsMlx5PktRxDropped {
-  // Undersized, oversized, or malformed Ethernet, IPv4 or UDP headers
+  // Undersized, oversized, or malformed Ethernet, IPv4 or UDP headers, or IPv4 options present
   uint64 malformed = 1;
   // Destination IP does not match the bind address
   uint64 dst_ip_mismatch = 2;
@@ -8118,7 +8118,7 @@ message MetricsIavfPktTxDropped {
 
 // Received packets dropped, by reason
 message MetricsIavfPktRxDropped {
-  // Undersized, oversized, or malformed Ethernet, IPv4 or UDP headers
+  // Undersized, oversized, or malformed Ethernet, IPv4 or UDP headers, or IPv4 options present
   uint64 malformed = 1;
   // Destination IP does not match the bind address
   uint64 dst_ip_mismatch = 2;

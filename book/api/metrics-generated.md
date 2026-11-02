@@ -191,7 +191,7 @@
 |--------|------|-------------|
 | <span class="metrics-name">net_&#8203;pkt_&#8203;rx</span> | counter | Packets successfully published to output links |
 | <span class="metrics-name">net_&#8203;pkt_&#8203;rx_&#8203;bytes</span> | counter | Bytes of packets successfully published to output links |
-| <span class="metrics-name">net_&#8203;pkt_&#8203;rx_&#8203;dropped</span><br/>{pkt_&#8203;rx_&#8203;drop_&#8203;reason="<span class="metrics-enum">malformed</span>"} | counter | Received packets dropped, by reason (Undersized, oversized, or malformed Ethernet, IPv4 or UDP headers) |
+| <span class="metrics-name">net_&#8203;pkt_&#8203;rx_&#8203;dropped</span><br/>{pkt_&#8203;rx_&#8203;drop_&#8203;reason="<span class="metrics-enum">malformed</span>"} | counter | Received packets dropped, by reason (Undersized, oversized, or malformed Ethernet, IPv4 or UDP headers, or IPv4 options present) |
 | <span class="metrics-name">net_&#8203;pkt_&#8203;rx_&#8203;dropped</span><br/>{pkt_&#8203;rx_&#8203;drop_&#8203;reason="<span class="metrics-enum">dst_&#8203;ip_&#8203;mismatch</span>"} | counter | Received packets dropped, by reason (Destination IP does not match the bind address) |
 | <span class="metrics-name">net_&#8203;pkt_&#8203;rx_&#8203;dropped</span><br/>{pkt_&#8203;rx_&#8203;drop_&#8203;reason="<span class="metrics-enum">dst_&#8203;port_&#8203;unbound</span>"} | counter | Received packets dropped, by reason (No output link for the destination UDP port) |
 | <span class="metrics-name">net_&#8203;pkt_&#8203;rx_&#8203;dropped</span><br/>{pkt_&#8203;rx_&#8203;drop_&#8203;reason="<span class="metrics-enum">gre_&#8203;invalid</span>"} | counter | Received packets dropped, by reason (GRE tunnel peer or headers invalid) |
@@ -1896,7 +1896,7 @@
 |--------|------|-------------|
 | <span class="metrics-name">mlx5_&#8203;pkt_&#8203;rx</span> | counter | Packets successfully published to output links |
 | <span class="metrics-name">mlx5_&#8203;pkt_&#8203;rx_&#8203;bytes</span> | counter | Bytes of packets successfully published to output links |
-| <span class="metrics-name">mlx5_&#8203;pkt_&#8203;rx_&#8203;dropped</span><br/>{pkt_&#8203;rx_&#8203;drop_&#8203;reason="<span class="metrics-enum">malformed</span>"} | counter | Received packets dropped, by reason (Undersized, oversized, or malformed Ethernet, IPv4 or UDP headers) |
+| <span class="metrics-name">mlx5_&#8203;pkt_&#8203;rx_&#8203;dropped</span><br/>{pkt_&#8203;rx_&#8203;drop_&#8203;reason="<span class="metrics-enum">malformed</span>"} | counter | Received packets dropped, by reason (Undersized, oversized, or malformed Ethernet, IPv4 or UDP headers, or IPv4 options present) |
 | <span class="metrics-name">mlx5_&#8203;pkt_&#8203;rx_&#8203;dropped</span><br/>{pkt_&#8203;rx_&#8203;drop_&#8203;reason="<span class="metrics-enum">dst_&#8203;ip_&#8203;mismatch</span>"} | counter | Received packets dropped, by reason (Destination IP does not match the bind address) |
 | <span class="metrics-name">mlx5_&#8203;pkt_&#8203;rx_&#8203;dropped</span><br/>{pkt_&#8203;rx_&#8203;drop_&#8203;reason="<span class="metrics-enum">dst_&#8203;port_&#8203;unbound</span>"} | counter | Received packets dropped, by reason (No output link for the destination UDP port) |
 | <span class="metrics-name">mlx5_&#8203;pkt_&#8203;rx_&#8203;dropped</span><br/>{pkt_&#8203;rx_&#8203;drop_&#8203;reason="<span class="metrics-enum">gre_&#8203;invalid</span>"} | counter | Received packets dropped, by reason (GRE tunnel peer or headers invalid) |
@@ -1953,7 +1953,7 @@
 |--------|------|-------------|
 | <span class="metrics-name">iavf_&#8203;pkt_&#8203;rx</span> | counter | Packets successfully published to output links |
 | <span class="metrics-name">iavf_&#8203;pkt_&#8203;rx_&#8203;bytes</span> | counter | Bytes of packets successfully published to output links |
-| <span class="metrics-name">iavf_&#8203;pkt_&#8203;rx_&#8203;dropped</span><br/>{pkt_&#8203;rx_&#8203;drop_&#8203;reason="<span class="metrics-enum">malformed</span>"} | counter | Received packets dropped, by reason (Undersized, oversized, or malformed Ethernet, IPv4 or UDP headers) |
+| <span class="metrics-name">iavf_&#8203;pkt_&#8203;rx_&#8203;dropped</span><br/>{pkt_&#8203;rx_&#8203;drop_&#8203;reason="<span class="metrics-enum">malformed</span>"} | counter | Received packets dropped, by reason (Undersized, oversized, or malformed Ethernet, IPv4 or UDP headers, or IPv4 options present) |
 | <span class="metrics-name">iavf_&#8203;pkt_&#8203;rx_&#8203;dropped</span><br/>{pkt_&#8203;rx_&#8203;drop_&#8203;reason="<span class="metrics-enum">dst_&#8203;ip_&#8203;mismatch</span>"} | counter | Received packets dropped, by reason (Destination IP does not match the bind address) |
 | <span class="metrics-name">iavf_&#8203;pkt_&#8203;rx_&#8203;dropped</span><br/>{pkt_&#8203;rx_&#8203;drop_&#8203;reason="<span class="metrics-enum">dst_&#8203;port_&#8203;unbound</span>"} | counter | Received packets dropped, by reason (No output link for the destination UDP port) |
 | <span class="metrics-name">iavf_&#8203;pkt_&#8203;rx_&#8203;dropped</span><br/>{pkt_&#8203;rx_&#8203;drop_&#8203;reason="<span class="metrics-enum">gre_&#8203;invalid</span>"} | counter | Received packets dropped, by reason (GRE tunnel peer or headers invalid) |

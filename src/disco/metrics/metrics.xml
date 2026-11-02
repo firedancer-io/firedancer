@@ -202,7 +202,7 @@ deliberate exception with lint-allow="<rule id>")
 </common>
 
 <enum name="PktRxDropReason">
-    <int value="0" name="Malformed" label="Undersized, oversized, or malformed Ethernet, IPv4 or UDP headers" />
+    <int value="0" name="Malformed" label="Undersized, oversized, or malformed Ethernet, IPv4 or UDP headers, or IPv4 options present" />
     <int value="1" name="DstIpMismatch" label="Destination IP does not match the bind address" />
     <int value="2" name="DstPortUnbound" label="No output link for the destination UDP port" />
     <int value="3" name="GreInvalid" label="GRE tunnel peer or headers invalid" />
