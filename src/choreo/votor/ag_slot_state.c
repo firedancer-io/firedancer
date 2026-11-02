@@ -203,8 +203,7 @@ check_safe_to_notar( ag_slot_state_t *     self,
   for( ulong i=0UL; i<self->parents_cnt; i++ ) {
     if( FD_LIKELY( !memcmp( self->parents[i].hash, block_hash, sizeof(ag_block_hash_t) ) ) ) { parent = &self->parents[i]; break; }
   }
-  if( FD_UNLIKELY( !parent                                  ) ) return AG_SAFE_TO_NOTAR_STATUS_MISSING_BLOCK;
-  if( FD_UNLIKELY( parent->kind!=AG_PARENT_STATUS_CERTIFIED ) ) return AG_SAFE_TO_NOTAR_STATUS_AWAITING_VOTES;
+  if( FD_UNLIKELY( !parent ) ) return AG_SAFE_TO_NOTAR_STATUS_MISSING_BLOCK;
 
   ulong own = self->own_rank;
 
@@ -221,22 +220,26 @@ check_safe_to_notar( ag_slot_state_t *     self,
     return AG_SAFE_TO_NOTAR_STATUS_AWAITING_VOTES;
   }
 
-  fd_bls_agg_t notar_agg[1];
-  fd_bls_set_t bad_notar[ fd_bls_set_word_cnt ];
-  verify_subtract_votes( self, states, AG_VOTE_KIND_NOTAR, block_hash, notar_agg, bad_notar );
-  fd_bls_set_union( bad, bad, bad_notar );
-  if( FD_LIKELY( !fd_bls_set_is_null( votes->skip_agg.set ) ) ) {
-    fd_bls_set_t bad_skip[ fd_bls_set_word_cnt ];
-    verify_subtract_votes( self, states, AG_VOTE_KIND_SKIP, NULL, &votes->skip_agg, bad_skip );
-    fd_bls_set_union( bad, bad, bad_skip );
+  if( FD_LIKELY( !block_hash_set_contains( &self->verified_safe_to_notar, block_hash ) ) ) {
+    fd_bls_agg_t notar_agg[1];
+    fd_bls_set_t bad_notar[ fd_bls_set_word_cnt ];
+    verify_subtract_votes( self, states, AG_VOTE_KIND_NOTAR, block_hash, notar_agg, bad_notar );
+    fd_bls_set_union( bad, bad, bad_notar );
+    if( FD_LIKELY( !fd_bls_set_is_null( votes->skip_agg.set ) ) ) {
+      fd_bls_set_t bad_skip[ fd_bls_set_word_cnt ];
+      verify_subtract_votes( self, states, AG_VOTE_KIND_SKIP, NULL, &votes->skip_agg, bad_skip );
+      fd_bls_set_union( bad, bad, bad_skip );
+    }
+    notar       = ag_vote_stake_map_idx_query_const( notar_hash_stake_map, &key, ULONG_MAX, notar_hash_stake_pool );
+    notar_stake = notar!=ULONG_MAX ? ag_vote_stake_pool_ele( notar_hash_stake_pool, notar )->stake : 0UL;
+    skip_stake  = votes->skip_stake;
+    if( FD_UNLIKELY( !ag_epoch_info_is_weakest_quorum( epoch_info, notar_stake ) || ( !ag_epoch_info_is_weak_quorum( epoch_info, notar_stake ) && !ag_epoch_info_is_quorum( epoch_info, notar_stake + skip_stake ) ) ) ) {
+      block_hash_set_insert( &self->pending_safe_to_notar, block_hash );
+      return AG_SAFE_TO_NOTAR_STATUS_AWAITING_VOTES;
+    }
+    block_hash_set_insert( &self->verified_safe_to_notar, block_hash );
   }
-  notar       = ag_vote_stake_map_idx_query_const( notar_hash_stake_map, &key, ULONG_MAX, notar_hash_stake_pool );
-  notar_stake = notar!=ULONG_MAX ? ag_vote_stake_pool_ele( notar_hash_stake_pool, notar )->stake : 0UL;
-  skip_stake  = votes->skip_stake;
-  if( FD_UNLIKELY( !ag_epoch_info_is_weakest_quorum( epoch_info, notar_stake ) || ( !ag_epoch_info_is_weak_quorum( epoch_info, notar_stake ) && !ag_epoch_info_is_quorum( epoch_info, notar_stake + skip_stake ) ) ) ) {
-    block_hash_set_insert( &self->pending_safe_to_notar, block_hash );
-    return AG_SAFE_TO_NOTAR_STATUS_AWAITING_VOTES;
-  }
+  if( FD_UNLIKELY( parent->kind!=AG_PARENT_STATUS_CERTIFIED ) ) return AG_SAFE_TO_NOTAR_STATUS_AWAITING_VOTES;
 
   block_hash_set_remove( &self->pending_safe_to_notar, block_hash );
   block_hash_set_insert( &self->sent_safe_to_notar,    block_hash );
@@ -629,10 +632,11 @@ ag_slot_state_null( ag_slot_state_t *  self,
   self->certs.fast_finalize.slot = ULONG_MAX;
   self->certs.finalize.slot      = ULONG_MAX;
 
-  self->parents_cnt               = 0UL;
-  self->pending_safe_to_notar.cnt = 0UL;
-  self->sent_safe_to_notar.cnt    = 0UL;
-  self->sent_safe_to_skip         = 0;
+  self->parents_cnt                = 0UL;
+  self->pending_safe_to_notar.cnt  = 0UL;
+  self->verified_safe_to_notar.cnt = 0UL;
+  self->sent_safe_to_notar.cnt     = 0UL;
+  self->sent_safe_to_skip          = 0;
 }
 
 void
@@ -768,7 +772,10 @@ ag_slot_state_add_vote( ag_slot_state_t *  self,
 
 void
 ag_slot_state_notify_parent_known( ag_slot_state_t *     self,
-                                   ag_block_hash_t const block_hash ) {
+                                   ag_slot_states_t *    states,
+                                   ag_block_hash_t const block_hash,
+                                   fd_bls_set_t *        bad ) {
+  fd_bls_set_null( bad );
   for( ulong i=0UL; i<self->parents_cnt; i++ ) {
     if( FD_UNLIKELY( !memcmp( self->parents[i].hash, block_hash, sizeof(ag_block_hash_t) ) ) ) return;
   }
@@ -776,6 +783,8 @@ ag_slot_state_notify_parent_known( ag_slot_state_t *     self,
   ag_parent_status_t * e = &self->parents[ self->parents_cnt++ ];
   memcpy( e->hash, block_hash, sizeof(ag_block_hash_t) );
   e->kind = AG_PARENT_STATUS_KNOWN;
+
+  check_safe_to_notar( self, states, block_hash, bad );
 }
 
 int

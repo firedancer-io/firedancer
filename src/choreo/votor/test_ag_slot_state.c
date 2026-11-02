@@ -233,7 +233,7 @@ test_safe_to_notar( void ) {
   ag_slot_state_t * ss = make_state( slot, epoch_info );
   out_t t;
 
-  ag_slot_state_notify_parent_known( ss, hash );
+  ag_slot_state_notify_parent_known( ss, &g_states, hash, t.o.bad );
   ag_slot_state_notify_parent_certified( ss, &g_states, hash, t.o.bad );
 
   ag_vote_t notar_vote = ag_vote_construct_notar( sec_sign_fn, &g_sk[1], test_bls_public_key, slot, hash, 1UL, TEST_SHRED_VERSION );
@@ -660,7 +660,7 @@ test_safe_to_events_verify( void ) {
   FD_TEST( t.ok && t.o.safe_to_notar_cnt==0UL && t.o.safe_to_skip_cnt==1UL && ss->sent_safe_to_skip );
 
   ss = make_state( slot, epoch_info );
-  ag_slot_state_notify_parent_known( ss, hash );
+  ag_slot_state_notify_parent_known( ss, &g_states, hash, t.o.bad );
   ag_slot_state_notify_parent_certified( ss, &g_states, hash, t.o.bad );
   ag_vote_t own_skip = ag_vote_construct_skip( sec_sign_fn, &g_sk[0], test_bls_public_key, slot, 0UL, TEST_SHRED_VERSION );
   add_vote_helper( ss, &own_skip, epoch_info, &t ); FD_TEST( t.ok );

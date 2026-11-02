@@ -112,6 +112,7 @@ struct ag_slot_state {
   ulong              parents_cnt;
 
   ag_block_hash_set_t pending_safe_to_notar;
+  ag_block_hash_set_t verified_safe_to_notar; /* verified votes alone meet its safe-to-notar threshold */
   ag_block_hash_set_t sent_safe_to_notar;
   int                 sent_safe_to_skip;
 
@@ -182,7 +183,9 @@ ag_slot_state_add_vote( ag_slot_state_t *  self,
 
 void
 ag_slot_state_notify_parent_known( ag_slot_state_t *     self,
-                                   ag_block_hash_t const block_hash );
+                                   ag_slot_states_t *    states,
+                                   ag_block_hash_t const block_hash,
+                                   fd_bls_set_t *        bad );
 
 /* Definition 16. SlotState::notify_parent_certified */
 

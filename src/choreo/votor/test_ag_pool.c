@@ -1433,6 +1433,56 @@ test_safe_to_notar_fast_final_cert_only( void ) {
   teardown_pool( pool );
 }
 
+/* Firedancer-only test.
+
+   Votes for a block are verified once they reach the safe-to-notar
+   threshold, before its parent is certified, so a forged vote is
+   reported by the vote that reaches it.  Votes after that, and the
+   parent cert releasing the block, verify nothing. */
+
+static void
+test_safe_to_notar_verifies_before_parent_cert( void ) {
+  ag_pool_t * pool = setup_pool();
+
+  ulong     slot1 = 1UL;
+  ulong     slot2 = 2UL;
+  ag_block_hash_t hash1; random_hash( hash1 );
+  ag_block_hash_t hash2; random_hash( hash2 );
+
+  ag_block_id_t child  = ag_block_id( slot2, hash2 );
+  ag_block_id_t parent = ag_block_id( slot1, hash1 );
+  ag_pool_add_block( pool, &child, &parent, bad );
+  drain_events( pool );
+
+  ag_vote_t skip = ag_vote_construct_skip( sec_sign_fn, &g_sk[0], test_bls_public_key, slot2, 0, TEST_SHRED_VERSION );
+  FD_TEST( ag_pool_add_vote( pool, &skip, 0, bad, &quorum_reached )==AG_POOL_SUCCESS );
+  int forged_reported = 0;
+  for( ulong v=1UL; v<7UL; v++ ) {
+    ag_vote_t vote = ag_vote_construct_notar( sec_sign_fn, &g_sk[ v==3UL ? 4UL : v ], test_bls_public_key, slot2, hash2, (ushort)v, TEST_SHRED_VERSION );
+    FD_TEST( ag_pool_add_vote( pool, &vote, 0, bad, &quorum_reached )==AG_POOL_SUCCESS );
+    forged_reported |= fd_bls_set_test( bad, 3UL );
+  }
+  FD_TEST( forged_reported );
+  FD_TEST( !drained_safe_to_notar( pool, slot2, hash2 ) );
+
+  ulong parked_cnt = ag_pool_metrics( pool ).bls_verify_cnt;
+  for( ulong v=7UL; v<9UL; v++ ) {
+    ag_vote_t late = ag_vote_construct_skip( sec_sign_fn, &g_sk[v], test_bls_public_key, slot2, (ushort)v, TEST_SHRED_VERSION );
+    FD_TEST( ag_pool_add_vote( pool, &late, 0, bad, &quorum_reached )==AG_POOL_SUCCESS );
+  }
+  FD_TEST( ag_pool_metrics( pool ).bls_verify_cnt==parked_cnt );
+
+  ag_vote_notar_t nv[ NV ];
+  for( ulong v=0UL; v<NV; v++ ) nv[v] = ag_vote_construct_notar( sec_sign_fn, &g_sk[v], test_bls_public_key, slot1, hash1, (ushort)v, TEST_SHRED_VERSION ).notar;
+  ag_cert_t c = cert_build_fast_final( nv, NV, g_epoch_info );
+  ulong verify_cnt = ag_pool_metrics( pool ).bls_verify_cnt;
+  FD_TEST( ag_pool_add_cert( pool, &c, 1, bad )==AG_POOL_SUCCESS );
+  FD_TEST( fd_bls_set_is_null( bad ) && ag_pool_metrics( pool ).bls_verify_cnt==verify_cnt );
+  FD_TEST( drained_safe_to_notar( pool, slot2, hash2 ) );
+
+  teardown_pool( pool );
+}
+
 /* Firedancer-only test */
 
 static void
@@ -1523,6 +1573,7 @@ test_s2n_waiting_every_child( void ) {
   add_notar_votes( pool, slot2, hash2, 1UL, 6UL );
   add_notar_votes( pool, slot5, hash5, 1UL, 6UL );
 
+  ulong verify_cnt = ag_pool_metrics( pool ).bls_verify_cnt;
   ag_pool_add_block( pool, &child_2, &parent, bad );
   ag_pool_add_block( pool, &child_5, &parent, bad );
   ag_pool_add_block( pool, &child_2, &parent, bad );
@@ -1530,11 +1581,14 @@ test_s2n_waiting_every_child( void ) {
   FD_TEST( s2n_waiting_cnt( pool )==2UL );
   FD_TEST( s2n_waiting( pool, &parent, &child_2 ) );
   FD_TEST( s2n_waiting( pool, &parent, &child_5 ) );
+  FD_TEST( ag_pool_metrics( pool ).bls_verify_cnt>verify_cnt );
 
   ag_vote_notar_t nv[ NV ];
   for( ulong v=0UL; v<7UL; v++ ) nv[v] = ag_vote_construct_notar( sec_sign_fn, &g_sk[v], test_bls_public_key, slot1, hash1, (ushort)v, TEST_SHRED_VERSION ).notar;
   ag_cert_t c = cert_build_notar( nv, 7UL, g_epoch_info );
-  FD_TEST( ag_pool_add_cert( pool, &c, 0, bad )==AG_POOL_SUCCESS );
+  verify_cnt = ag_pool_metrics( pool ).bls_verify_cnt;
+  FD_TEST( ag_pool_add_cert( pool, &c, 1, bad )==AG_POOL_SUCCESS );
+  FD_TEST( ag_pool_metrics( pool ).bls_verify_cnt==verify_cnt );
 
   int   got_2 = 0;
   int   got_5 = 0;
@@ -2251,6 +2305,7 @@ main( int     argc,
   test_add_block_root_jump();
   test_safe_to_notar_notar_cert_only();
   test_safe_to_notar_fast_final_cert_only();
+  test_safe_to_notar_verifies_before_parent_cert();
   test_safe_to_notar_awaiting_votes();
   test_safe_to_notar_not_queued_for_parent_cert();
   test_s2n_waiting_every_child();

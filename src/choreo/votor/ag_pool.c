@@ -652,11 +652,13 @@ ag_pool_add_block( ag_pool_t *           self,
   handle_finalization( self, &finalization_event );
   if( FD_UNLIKELY( slot<fd_ulong_sat_sub( ag_finality_tracker_first_unpruned_slot( self->finality_tracker ), AG_REWARD_SLOT_DELTA ) ) ) return AG_POOL_SUCCESS; /* pruned by the parent link */
 
-  ag_slot_state_notify_parent_known( slot_state( self, slot ), block_hash );
+  ag_slot_state_notify_parent_known( slot_state( self, slot ), states, block_hash, bad );
   slot_state_ele_t * parent_state_ = slot_state_map_ele_query( self->slot_states->map, &parent_slot, NULL, self->slot_states->pool );
   ag_slot_state_t *  parent_state  = parent_state_ ? &parent_state_->slot_state : NULL;
   if( FD_LIKELY( parent_state && ag_slot_state_is_notar_fallback_or_stronger( parent_state, parent_hash ) ) ) {
-    int output = ag_slot_state_notify_parent_certified( slot_state( self, slot ), states, block_hash, bad );
+    fd_bls_set_t bad_certified[ fd_bls_set_word_cnt ];
+    int output = ag_slot_state_notify_parent_certified( slot_state( self, slot ), states, block_hash, bad_certified );
+    fd_bls_set_union( bad, bad, bad_certified );
     switch( output ) {
     case -1: repair_events_push( self->repair_events, *block_id ); return AG_POOL_SUCCESS;
     case  0: return AG_POOL_SUCCESS;
