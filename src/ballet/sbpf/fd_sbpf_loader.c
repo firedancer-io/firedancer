@@ -1460,9 +1460,8 @@ fd_sbpf_lenient_elf_validate( fd_sbpf_elf_info_t * info,
        buffer size), i.e. the highest section_addr + file length.
      - *out_invalid_offsets (nullable): 1 if any read-only section's address
        differs from its file offset.
-     - slices (nullable, must hold up to e_shnum entries) / *out_slice_cnt
-       (nullable): the section-header indices of the read-only sections, in
-       section-header order (excluding SHT_NOBITS).
+     - slice_set (nullable, (e_shnum+63)/64 zeroed words): bit i set iff
+       section header i is a read-only slice (excluding SHT_NOBITS).
    Applies the bounds and reject_broken_elfs checks that the read-only
    assembly relies on.  Returns FD_SBPF_ELF_SUCCESS or an ElfError.  Both
    fd_sbpf_elf_peek_lenient (to size the buffer) and fd_sbpf_parse_ro_sections
@@ -1473,8 +1472,7 @@ fd_sbpf_lenient_ro_layout( void const *                    bin,
                            fd_sbpf_loader_config_t const * config,
                            ulong *                         out_highest_addr,
                            uchar *                         out_invalid_offsets,
-                           ulong *                         slices,
-                           ulong *                         out_slice_cnt ) {
+                           ulong *                         slice_set ) {
   fd_sbpf_elf_t const * elf                = (fd_sbpf_elf_t const *)bin;
   fd_elf64_shdr const * shdrs              = (fd_elf64_shdr const *)( elf->bin + elf->ehdr.e_shoff );
   fd_elf64_shdr const * section_names_shdr = &shdrs[ elf->ehdr.e_shstrndx ];
@@ -1483,7 +1481,6 @@ fd_sbpf_lenient_ro_layout( void const *                    bin,
   ulong highest_addr    = 0UL;
   ulong ro_fill_length  = 0UL; /* aggregated section length, excluding gaps */
   uchar invalid_offsets = 0;
-  ulong slice_cnt       = 0UL;
 
   for( uint i=0U; i<elf->ehdr.e_shnum; i++ ) {
     fd_elf64_shdr const * section_header = &shdrs[ i ];
@@ -1533,8 +1530,7 @@ fd_sbpf_lenient_ro_layout( void const *                    bin,
     /* skip empty ranges, e.g. SHT_NOBITS */
     if( !range_res ) continue;
 
-    if( slices ) slices[ slice_cnt ] = i;
-    slice_cnt++;
+    if( slice_set ) slice_set[ i>>6 ] |= 1UL<<(i&63U);
   }
 
   /* Checks that the read-only sections are not overlapping.  This check is
@@ -1549,7 +1545,6 @@ fd_sbpf_lenient_ro_layout( void const *                    bin,
 
   *out_highest_addr = highest_addr;
   if( out_invalid_offsets ) *out_invalid_offsets = invalid_offsets;
-  if( out_slice_cnt       ) *out_slice_cnt       = slice_cnt;
   return FD_SBPF_ELF_SUCCESS;
 }
 
@@ -1651,7 +1646,7 @@ fd_sbpf_elf_peek_lenient( fd_sbpf_elf_info_t *            info,
      path over the full ELF. */
   ulong highest_addr    = 0UL;
   uchar invalid_offsets = 0;
-  int   fast = ( fd_sbpf_lenient_ro_layout( bin, bin_sz, config, &highest_addr, &invalid_offsets, NULL, NULL )==FD_SBPF_ELF_SUCCESS ) &&
+  int   fast = ( fd_sbpf_lenient_ro_layout( bin, bin_sz, config, &highest_addr, &invalid_offsets, NULL )==FD_SBPF_ELF_SUCCESS ) &&
                ( invalid_offsets==0 ) &&
                fd_sbpf_lenient_relocs_fast_ok( (fd_sbpf_elf_t const *)bin, highest_addr, info ) &&
                fd_sbpf_lenient_text_fast_ok( (fd_sbpf_elf_t const *)bin, highest_addr, info );
@@ -1747,12 +1742,13 @@ fd_sbpf_parse_ro_sections( fd_sbpf_program_t *             prog,
   fd_elf64_shdr const * shdrs              = (fd_elf64_shdr const *)( elf->bin + elf->ehdr.e_shoff );
   uchar *               rodata             = prog->rodata;
 
-  /* Compute the read-only segment layout and the section-header indices of
-     the read-only slices. */
+  /* Compute the read-only segment layout and the set of read-only slice
+     section headers (walked in ascending section-header order below). */
   ulong highest_addr = 0UL;
-  ulong ro_slices_shidxs[ elf->ehdr.e_shnum ];
-  ulong ro_slices_cnt = 0UL;
-  int   layout_err    = fd_sbpf_lenient_ro_layout( bin, bin_sz, config, &highest_addr, NULL, ro_slices_shidxs, &ro_slices_cnt );
+  ulong ro_set[ (USHORT_MAX+64UL)/64UL ];
+  ulong ro_set_cnt = ((ulong)elf->ehdr.e_shnum+63UL)/64UL;
+  fd_memset( ro_set, 0, ro_set_cnt*sizeof(ulong) );
+  int   layout_err    = fd_sbpf_lenient_ro_layout( bin, bin_sz, config, &highest_addr, NULL, ro_set );
   if( FD_UNLIKELY( layout_err ) ) return layout_err;
 
   /* Note that optimize_rodata is always false.
@@ -1777,8 +1773,8 @@ fd_sbpf_parse_ro_sections( fd_sbpf_program_t *             prog,
     uchar * ro_section = scratch;
     fd_memset( ro_section, 0, buf_len );
 
-    for( ulong i=0UL; i<ro_slices_cnt; i++ ) {
-      ulong sh_idx                       = ro_slices_shidxs[ i ];
+    for( ulong w=0UL; w<ro_set_cnt; w++ ) for( ulong m=ro_set[ w ]; m; m=fd_ulong_pop_lsb( m ) ) {
+      ulong sh_idx                       = (w<<6) + (ulong)fd_ulong_find_lsb( m );
       fd_elf64_shdr const * shdr         = &shdrs[ sh_idx ];
       ulong                 section_addr = shdr->sh_addr;
 
@@ -1816,9 +1812,9 @@ fd_sbpf_parse_ro_sections( fd_sbpf_program_t *             prog,
 
     /* Zero the complement of the union of the ro slices within [0,buf_len). */
     ulong cursor = 0UL;
-    for( ulong i=0UL; i<ro_slices_cnt; i++ ) {
+    for( ulong w=0UL; w<ro_set_cnt; w++ ) for( ulong m=ro_set[ w ]; m; m=fd_ulong_pop_lsb( m ) ) {
       fd_sbpf_range_t slice_range;
-      fd_shdr_get_file_range( &shdrs[ ro_slices_shidxs[ i ] ], &slice_range );
+      fd_shdr_get_file_range( &shdrs[ (w<<6) + (ulong)fd_ulong_find_lsb( m ) ], &slice_range );
       if( FD_UNLIKELY( slice_range.hi>bin_sz ) ) {
         return FD_SBPF_ELF_ERR_VALUE_OUT_OF_BOUNDS;
       }
