@@ -54,6 +54,7 @@
 #include "fd_prog_load.h"
 #include "fd_progcache_lineage.h"
 #include "../runtime/fd_runtime_const.h"
+#include "../vm/fd_vm.h"
 
 struct fd_progcache_metrics {
   ulong lookup_cnt;
@@ -131,7 +132,10 @@ extern FD_TL fd_progcache_metrics_t fd_progcache_metrics_default;
 /* fd_progcache_join joins the caller to a program cache shmem instance.
    scratch points to a FD_PROGCACHE_SCRATCH_ALIGN aligned scratch buffer
    and scratch_sz is the size of the largest program/ELF binary that is
-   going to be loaded (typically max account data sz). */
+   going to be loaded (typically max account data sz).  scratch is only
+   accessed inside fd_progcache_pull (rec_load on cache miss) and holds
+   no state across calls.  It also hosts the bytecode-validate VM, so
+   scratch_sz is at least FD_PROGCACHE_SCRATCH_MIN. */
 
 fd_progcache_t *
 fd_progcache_join( fd_progcache_t *       ljoin,
@@ -141,6 +145,7 @@ fd_progcache_join( fd_progcache_t *       ljoin,
 
 #define FD_PROGCACHE_SCRATCH_ALIGN     (64UL)
 #define FD_PROGCACHE_SCRATCH_FOOTPRINT FD_RUNTIME_ACC_SZ_MAX
+#define FD_PROGCACHE_SCRATCH_MIN       FD_VM_FOOTPRINT
 
 /* fd_progcache_leave detaches the caller from a program cache. */
 
