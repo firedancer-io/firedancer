@@ -52,6 +52,8 @@ extern const fd_pubkey_t fd_solana_feature_program_buffer_address;
 extern const fd_pubkey_t fd_solana_slashing_program_buffer_address;
 extern const fd_pubkey_t fd_solana_pata_program_buffer_address;
 
+extern const fd_hash_t fd_solana_feature_program_verified_build_hash;
+
 /* https://github.com/anza-xyz/agave/blob/8da849e919e0762f6bfc9ca17ac2339c7a003a0e/feature-set/src/lib.rs#L1596-L1601 */
 extern const fd_hash_t fd_solana_pata_program_verified_build_hash;
 

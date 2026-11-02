@@ -42,6 +42,7 @@ const fd_pubkey_t fd_solana_slashing_program_id               = { .uc = { SLASHI
 const fd_pubkey_t fd_solana_feature_program_buffer_address             = { .uc = { FEATURE_PROG_BUFFER_ID } };
 const fd_pubkey_t fd_solana_slashing_program_buffer_address            = { .uc = { SLASHING_PROG_BUFFER_ID } };
 const fd_pubkey_t fd_solana_pata_program_buffer_address                = { .uc = { PATA_PROG_BUFFER_ID } };
+const fd_hash_t   fd_solana_feature_program_verified_build_hash        = { .uc = { FEATURE_PROG_VERIFIED_BUILD_HASH } };
 const fd_hash_t   fd_solana_pata_program_verified_build_hash           = { .uc = { PATA_PROG_VERIFIED_BUILD_HASH } };
 const fd_pubkey_t fd_solana_migration_authority                        = { .uc = { MIGRATION_AUTHORITY_ID } };
 
