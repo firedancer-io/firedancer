@@ -2057,19 +2057,6 @@ telemetry = true
     #   from the running validator.
     core_dump = "disabled"
 
-    # A hard fork occurs when our validator has some implementation
-    # difference in consensus rules and gets a different blockhash for
-    # a given slot than the rest of the cluster.
-    #
-    # Typically, we should assume that our validator is correct and keep
-    # running, but during development it can be useful to detect if we
-    # are on the minority hard fork and immediately exit or abort.
-    #
-    # If this option is true, the validator will immediately exit with
-    # an error if it detects a hard fork.  If false, the validator will
-    # log the hard fork event and continue running.
-    hard_fork_fatal = false
-
     # fixed_fec_sets controls the maximum data payload size for FEC sets
     # in the store.  Shreds per FEC set used to be variable-length, but
     # were changed to always be a fixed size of 32.  When true the data

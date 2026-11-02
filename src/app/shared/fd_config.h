@@ -93,7 +93,6 @@ struct fd_configf {
   } snapshots;
 
   struct {
-    int hard_fork_fatal;
     int fixed_fec_sets;
 
     struct {
@@ -314,8 +313,6 @@ struct fd_config {
       char  transaction_mode[ 32 ];
       ulong max_cost_per_block;
       ulong max_shreds_per_block;
-      ulong disable_blockstore_from_slot;
-      int   disable_status_cache;
     } bench;
 
     struct {
