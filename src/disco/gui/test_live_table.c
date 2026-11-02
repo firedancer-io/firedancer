@@ -202,6 +202,112 @@ test_wide( void ) {
 #undef WIDE_KEY_CNT
 }
 
+/* Mirrors fd_gui_peers: ushort links, 32768 rows, 65 sort keys. */
+#define TEST_LIVE_TABLE16_ROW_CNT          (32768UL)
+#define TEST_LIVE_TABLE16_MAX_SORT_KEY_CNT (   65UL)
+struct test_live_table16_row {
+  struct {
+    ushort parent;
+    ushort left;
+    ushort right;
+  } treaps[ TEST_LIVE_TABLE16_MAX_SORT_KEY_CNT ];
+  ushort prio;
+  ulong sort_keys;
+  struct {
+    ulong prev;
+    ulong next;
+  } dlist;
+
+  uint v[ 3 ];
+};
+typedef struct test_live_table16_row test_live_table16_row_t;
+
+static int live_table16_col_lt( void const * a, void const * b ) { return *(uint *)a < *(uint *)b; }
+
+#define LIVE_TABLE_NAME test_live_table16
+#define LIVE_TABLE_COLUMN_CNT (3UL)
+#define LIVE_TABLE_IDX_T ushort
+#define LIVE_TABLE_SORT_KEYS sort_keys
+#define LIVE_TABLE_DLIST dlist
+#define LIVE_TABLE_MAX_SORT_KEY_CNT TEST_LIVE_TABLE16_MAX_SORT_KEY_CNT
+#define LIVE_TABLE_COLUMNS LIVE_TABLE_COL_ARRAY( LIVE_TABLE_COL_ENTRY("V0", v[0], live_table16_col_lt), LIVE_TABLE_COL_ENTRY("V1", v[1], live_table16_col_lt), LIVE_TABLE_COL_ENTRY("V2", v[2], live_table16_col_lt) )
+#define LIVE_TABLE_ROW_T test_live_table16_row_t
+#include "fd_gui_live_table_tmpl.c"
+#ifdef LIVE_TABLE_IDX_T
+#undef LIVE_TABLE_IDX_T
+#endif
+
+static test_live_table16_row_t pool16[ TEST_LIVE_TABLE16_ROW_CNT ];
+static uchar scratch16[ 1UL<<20 ] __attribute__((aligned(128UL)));
+
+/* Iterates key, checks order and row count. */
+static void
+test_live_table16_key( test_live_table16_t * table, test_live_table16_sort_key_t const * key, ulong expected_cnt ) {
+  ulong cnt = 0UL;
+  test_live_table16_row_t const * prev = NULL;
+  for( test_live_table16_fwd_iter_t iter = test_live_table16_fwd_iter_init( table, key, pool16 );
+       !test_live_table16_fwd_iter_done( iter );
+       iter = test_live_table16_fwd_iter_next( iter, pool16 ) ) {
+    test_live_table16_row_t const * cur = test_live_table16_fwd_iter_ele_const( iter, pool16 );
+    FD_TEST( !prev || !test_live_table16_lt( key, cur, prev ) );
+    prev = cur;
+    cnt++;
+  }
+  FD_TEST( cnt==expected_cnt );
+}
+
+static void
+test_live_table16( void ) {
+  FD_TEST( test_live_table16_idx_null()==(ulong)USHORT_MAX );
+  FD_TEST( test_live_table16_footprint( TEST_LIVE_TABLE16_ROW_CNT )<=sizeof(scratch16) );
+  test_live_table16_t * table = test_live_table16_join( test_live_table16_new( scratch16, TEST_LIVE_TABLE16_ROW_CNT ) );
+
+  /* 512 rows ending at the max index 32767 */
+  for( ulong i=0UL; i<TEST_LIVE_TABLE16_ROW_CNT; i++ ) pool16[ i ].v[0] = (uint)(i%7UL), pool16[ i ].v[1] = (uint)(i%13UL), pool16[ i ].v[2] = (uint)i;
+  test_live_table16_seed( pool16, TEST_LIVE_TABLE16_ROW_CNT, 45UL );
+  for( ulong i=0UL; i<512UL; i++ ) test_live_table16_idx_insert( table, i*64UL+63UL, pool16 );
+  FD_TEST( test_live_table16_ele_cnt( table )==512UL );
+
+  test_live_table16_sort_key_t by_idx = { .col = { 2, 0, 1 }, .dir = { -1, 0, 0 } };
+  test_live_table16_fwd_iter_t iter = test_live_table16_fwd_iter_init( table, &by_idx, pool16 );
+  FD_TEST( test_live_table16_fwd_iter_idx( iter )==TEST_LIVE_TABLE16_ROW_CNT-1UL );
+
+  /* 72 distinct keys (48 with 3 sorted cols, 24 with 2) > 65 slots */
+  static ulong const perm[ 6 ][ 3 ] = { {0,1,2}, {0,2,1}, {1,0,2}, {1,2,0}, {2,0,1}, {2,1,0} };
+  test_live_table16_sort_key_t keys[ 72 ];
+  ulong key_cnt = 0UL;
+  for( ulong p=0UL; p<6UL; p++ ) {
+    for( ulong d=0UL; d<8UL; d++ ) {
+      for( ulong c=0UL; c<3UL; c++ ) { keys[ key_cnt ].col[ c ] = perm[ p ][ c ]; keys[ key_cnt ].dir[ c ] = (d>>c)&1UL ? 1 : -1; }
+      key_cnt++;
+      if( d<4UL ) {
+        keys[ key_cnt ] = keys[ key_cnt-1UL ];
+        keys[ key_cnt ].dir[ 2 ] = 0;
+        key_cnt++;
+      }
+    }
+  }
+  FD_TEST( key_cnt==72UL );
+
+  test_live_table16_sort_key_remove( table, &by_idx );
+  for( ulong k=0UL; k<key_cnt; k++ ) {
+    FD_TEST( test_live_table16_verify_sort_key( &keys[ k ] ) );
+    test_live_table16_key( table, &keys[ k ], 512UL );
+    FD_TEST( test_live_table16_active_sort_key_cnt( table )==fd_ulong_min( k+1UL, TEST_LIVE_TABLE16_MAX_SORT_KEY_CNT ) );
+  }
+
+  /* updates touch all 65 treaps, evicted keys rebuild on query */
+  test_live_table16_idx_remove( table, TEST_LIVE_TABLE16_ROW_CNT-1UL, pool16 );
+  pool16[ TEST_LIVE_TABLE16_ROW_CNT-1UL ].v[0] = 0U;
+  test_live_table16_idx_insert( table, TEST_LIVE_TABLE16_ROW_CNT-1UL, pool16 );
+  test_live_table16_idx_remove( table, 63UL, pool16 );
+  for( ulong k=0UL; k<key_cnt; k++ ) test_live_table16_key( table, &keys[ k ], 511UL );
+  FD_TEST( test_live_table16_active_sort_key_cnt( table )==TEST_LIVE_TABLE16_MAX_SORT_KEY_CNT );
+
+  FD_TEST( !test_live_table16_verify( table, pool16 ) );
+  FD_TEST( test_live_table16_delete( test_live_table16_leave( table ) ) );
+}
+
 static inline int
 test_live_table_key( test_live_table_t * table, test_live_table_sort_key_t const * key,  test_live_table_row_t * pool, ulong const * expected, ulong const expected_sz ) {
   for( test_live_table_fwd_iter_t iter = test_live_table_fwd_iter_init( table, key, pool ), i = 0; !test_live_table_fwd_iter_done( iter ); iter = test_live_table_fwd_iter_next( iter, pool ), i++ ) {
@@ -220,6 +326,8 @@ test_live_table_key( test_live_table_t * table, test_live_table_sort_key_t const
 int
 main( int argc, char ** argv ) {
   (void)argc; (void)argv;
+
+  test_live_table16();
 
   FD_TEST( test_live_table32_idx_null()==(ulong)UINT_MAX );
 
