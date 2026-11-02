@@ -11,6 +11,7 @@
 #include "../genesis/fd_genesis_parse.h"
 #include "fd_txncache.h"
 #include "fd_compute_budget_details.h"
+#include "program/fd_compute_budget_program.h"
 #include "tests/fd_dump_pb.h"
 
 #include "fd_system_ids.h"
@@ -1067,6 +1068,13 @@ fd_runtime_pre_execute_check( fd_runtime_t *      runtime,
     return err;
   }
 
+  /* Setup needs the fee to skip loading accounts for transactions with
+     an invalid fee payer, so compute unit limits are sanitized here.
+     Any sanitization error is reported as part of check_transactions.
+     https://github.com/anza-xyz/agave/blob/v4.4.0-beta.0/runtime/src/bank/check_transactions.rs#L148-L184 */
+  int sanitize_err = fd_sanitize_compute_unit_limits( txn_out );
+  fd_executor_calculate_fee( txn_out, TXN( txn_in->txn ), txn_in->txn->payload, &txn_out->details.execution_fee, &txn_out->details.priority_fee );
+
   /* Set up the transaction accounts and other txn ctx metadata. This
      also resolves ALUT-referenced account keys and validates account
      locks before accounts are acquired.  Bundle transactions bind to
@@ -1092,7 +1100,8 @@ fd_runtime_pre_execute_check( fd_runtime_t *      runtime,
 
   /* load_and_execute_transactions() -> check_transactions()
      https://github.com/anza-xyz/agave/blob/ced98f1ebe73f7e9691308afa757323003ff744f/runtime/src/bank.rs#L3667-L3672 */
-  err = fd_executor_check_transactions( runtime, bank, txn_in, txn_out );
+  err = sanitize_err;
+  if( FD_LIKELY( !err ) ) err = fd_executor_check_transactions( runtime, bank, txn_in, txn_out );
   if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
     txn_out->err.is_committable = 0;
     return err;
@@ -1130,8 +1139,15 @@ fd_runtime_pre_execute_check( fd_runtime_t *      runtime,
     return err;
   }
 
-  /* https://github.com/anza-xyz/agave/blob/ced98f1ebe73f7e9691308afa757323003ff744f/svm/src/transaction_processor.rs#L284-L296 */
-  err = fd_executor_load_transaction_accounts( bank, txn_in, txn_out );
+  /* With a valid fee payer, setup only skips acquiring accounts if they
+     are known to exceed the loaded accounts data size limit.
+     https://github.com/anza-xyz/agave/blob/ced98f1ebe73f7e9691308afa757323003ff744f/svm/src/transaction_processor.rs#L284-L296 */
+  if( FD_UNLIKELY( runtime->accounts.account_cnt<txn_out->accounts.cnt ) ) {
+    txn_out->details.loaded_accounts_data_size = txn_out->details.compute_budget.loaded_accounts_data_size_limit;
+    err = FD_RUNTIME_TXN_ERR_MAX_LOADED_ACCOUNTS_DATA_SIZE_EXCEEDED;
+  } else {
+    err = fd_executor_load_transaction_accounts( bank, txn_in, txn_out );
+  }
   if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
     /* Regardless of whether transaction accounts were loaded successfully, the transaction is
        included in the block and transaction fees are collected.
@@ -1365,7 +1381,7 @@ fd_runtime_commit_txn( fd_runtime_t *      runtime,
 
   if( FD_LIKELY( !txn_out->accounts.is_bundle ) ) {
     fd_accdb_release_ab( runtime->accdb,
-                         txn_out->accounts.cnt, runtime->accounts.account,
+                         runtime->accounts.account_cnt, runtime->accounts.account,
                          runtime->accounts.executable_cnt, runtime->accounts.executable );
     runtime->accounts.executable_cnt = 0UL;
   }
@@ -1383,7 +1399,7 @@ fd_runtime_cancel_txn( fd_runtime_t *      runtime,
   if( FD_UNLIKELY( !txn_out->accounts.is_setup ) ) return;
 
   fd_accdb_release_ab( runtime->accdb,
-                       txn_out->accounts.cnt, runtime->accounts.account,
+                       runtime->accounts.account_cnt, runtime->accounts.account,
                        runtime->accounts.executable_cnt, runtime->accounts.executable );
   runtime->accounts.executable_cnt = 0UL;
 }
@@ -1502,6 +1518,11 @@ fd_runtime_prepare_and_execute_txn( fd_runtime_t *      runtime,
   /* Transaction sanitization.  If a transaction can't be committed, is
      fees-only, or a no-op, we return early. */
   txn_out->err.txn_err = fd_runtime_pre_execute_check( runtime, bank, txn_in, txn_out );
+  if( FD_UNLIKELY( !txn_out->err.is_committable || txn_out->err.is_noop ) ) {
+    /* No fees are collected from these transactions. */
+    txn_out->details.execution_fee = 0UL;
+    txn_out->details.priority_fee  = 0UL;
+  }
   ulong cu_before = txn_out->details.compute_budget.compute_meter;
 
   /* Execute the transaction if eligible to do so. */
