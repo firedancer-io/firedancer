@@ -301,6 +301,18 @@ fd_config_validate_consensus( fd_config_t const * config ) {
 }
 
 void
+fd_config_fill_limits( fd_config_t * config ) {
+  /* Size for the largest slot-params regime, not just 200ms slots.
+     The shred tile parses against this ceiling before the resolver
+     enforces the slot's live limit.  Benchmark limits are floors. */
+  config->limits.max_cost_per_block   = fd_ulong_if( !!config->development.bench.max_cost_per_block,   config->development.bench.max_cost_per_block,   FD_PACK_MAX_COST_PER_BLOCK_UPPER_BOUND );
+  config->limits.max_shreds_per_block = fd_ulong_max( FD_SHRED_PROTOCOL_BLK_MAX, config->development.bench.max_shreds_per_block );
+  config->limits.max_txn_per_slot     = fd_ulong_min( config->limits.max_cost_per_block/FD_PACK_MIN_TXN_COST,
+                                                      (config->limits.max_shreds_per_block*FD_SHRED_DATA_PAYLOAD_MAX - 65UL*sizeof(fd_entry_batch_header_t))/FD_TXN_MIN_SERIALIZED_SZ ); /* 64 ticks + one giant microblock */
+  if( FD_LIKELY( !config->development.bench.max_cost_per_block && !config->development.bench.max_shreds_per_block ) ) FD_TEST( config->limits.max_txn_per_slot==FD_MAX_TXN_PER_SLOT );
+}
+
+void
 fd_config_fill( fd_config_t * config,
                 int           is_local_cluster,
                 int           dev ) {
@@ -425,11 +437,7 @@ fd_config_fill( fd_config_t * config,
   }
   fd_config_validate( config );
 
-  config->limits.max_cost_per_block   = fd_ulong_if( !!config->development.bench.max_cost_per_block,   config->development.bench.max_cost_per_block,   FD_PACK_MAX_COST_PER_BLOCK_UPPER_BOUND );
-  config->limits.max_shreds_per_block = fd_ulong_if( !!config->development.bench.max_shreds_per_block, config->development.bench.max_shreds_per_block, FD_SHRED_BLK_MAX );
-  config->limits.max_txn_per_slot     = fd_ulong_min( config->limits.max_cost_per_block/FD_PACK_MIN_TXN_COST,
-                                                      (config->limits.max_shreds_per_block*FD_SHRED_DATA_PAYLOAD_MAX - 65UL*sizeof(fd_entry_batch_header_t))/FD_TXN_MIN_SERIALIZED_SZ ); /* 64 ticks + one giant microblock */
-  if( FD_LIKELY( !config->development.bench.max_cost_per_block && !config->development.bench.max_shreds_per_block ) ) FD_TEST( config->limits.max_txn_per_slot==FD_MAX_TXN_PER_SLOT );
+  fd_config_fill_limits( config );
 
   if( FD_LIKELY( config->is_live_cluster) ) {
     if( FD_UNLIKELY( !config->development.sandbox ) )                            FD_LOG_ERR(( "trying to join a live cluster, but configuration disables the sandbox which is a development only feature" ));

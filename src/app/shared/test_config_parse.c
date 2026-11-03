@@ -1,5 +1,7 @@
 #include "fd_config_private.h"
 #include "../../ballet/toml/fd_toml.h"
+#include "../../ballet/shred/fd_shred.h"
+#include "../../flamenco/runtime/fd_slot_params.h"
 #include "../../util/fd_boolau.h"
 
 #include <sys/wait.h>
@@ -294,6 +296,60 @@ main( int     argc,
   FD_TEST( !consensus_is_valid( ULONG_MAX, HASH, 1234, FD_BOOLAU_AUTO ) );
 
 # undef HASH
+
+  /* Topology must accept every slot-params regime, including fresh
+     400ms genesis, before the resolver applies the slot's live limit.
+     A benchmark override is a floor, so it cannot shrink capacity. */
+
+  ulong const bench_shreds[] = { 0UL, 16384UL, 32768UL, 65536UL };
+  ulong const capacities[]   = { 32768UL, 32768UL, 32768UL, 65536UL };
+  fd_slot_params_t const params[] = { FD_SLOT_PARAMS_400MS, FD_SLOT_PARAMS_350MS,
+                                     FD_SLOT_PARAMS_300MS, FD_SLOT_PARAMS_250MS,
+                                     FD_SLOT_PARAMS_200MS };
+  config->development.bench.max_cost_per_block = 0UL;
+  for( ulong i=0UL; i<4UL; i++ ) {
+    config->development.bench.max_shreds_per_block = bench_shreds[ i ];
+    fd_config_fill_limits( config );
+    FD_TEST( config->limits.max_shreds_per_block==capacities[ i ] );
+    FD_TEST( config->limits.max_txn_per_slot==FD_MAX_TXN_PER_SLOT );
+
+    uchar bytes[ FD_SHRED_MAX_SZ ] = {0};
+    fd_shred_t * shred = (fd_shred_t *)bytes;
+    shred->slot            = 10UL;
+    shred->data.parent_off = 1U;
+    shred->data.size       = FD_SHRED_DATA_HEADER_SZ+1U;
+    shred->variant        = fd_shred_variant( FD_SHRED_TYPE_MERKLE_DATA_CHAINED, 6 );
+
+    /* The first shred previously rejected on a 400ms cluster. */
+    shred->idx = shred->fec_set_idx = (uint)FD_SHRED_BLK_MAX;
+    FD_TEST( fd_shred_parse( bytes, sizeof(bytes), config->limits.max_shreds_per_block ) );
+
+    for( ulong j=0UL; j<5UL; j++ ) {
+      ulong live_limit = fd_ulong_max( params[ j ].max_shred_idx, bench_shreds[ i ] );
+      FD_TEST( config->limits.max_shreds_per_block>=live_limit );
+      shred->idx         = (uint)(live_limit-1UL);
+      shred->fec_set_idx = shred->idx & ~31U;
+      FD_TEST(  fd_shred_parse( bytes, sizeof(bytes), config->limits.max_shreds_per_block ) );
+      FD_TEST(  fd_shred_parse( bytes, sizeof(bytes), live_limit ) );
+      shred->idx++;
+      FD_TEST( !fd_shred_parse( bytes, sizeof(bytes), live_limit ) );
+      if( live_limit<config->limits.max_shreds_per_block )
+        FD_TEST( fd_shred_parse( bytes, sizeof(bytes), config->limits.max_shreds_per_block ) );
+    }
+
+    shred->idx = shred->fec_set_idx = (uint)config->limits.max_shreds_per_block;
+    FD_TEST( !fd_shred_parse( bytes, sizeof(bytes), config->limits.max_shreds_per_block ) );
+
+    shred->variant       = fd_shred_variant( FD_SHRED_TYPE_MERKLE_CODE_CHAINED, 6 );
+    shred->idx           = (uint)(config->limits.max_shreds_per_block-1UL);
+    shred->fec_set_idx   = shred->idx & ~31U;
+    shred->code.data_cnt = 32U;
+    shred->code.code_cnt = 32U;
+    shred->code.idx      = 31U;
+    FD_TEST(  fd_shred_parse( bytes, sizeof(bytes), config->limits.max_shreds_per_block ) );
+    shred->idx++;
+    FD_TEST( !fd_shred_parse( bytes, sizeof(bytes), config->limits.max_shreds_per_block ) );
+  }
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

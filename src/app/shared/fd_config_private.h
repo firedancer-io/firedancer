@@ -36,6 +36,12 @@ fd_config_fill( fd_config_t * config,
                 int           is_local_cluster,
                 int           dev );
 
+/* Derive topology sizing ceilings without interface discovery or other
+   host-dependent configuration.  Call after fd_config_validate(). */
+
+void
+fd_config_fill_limits( fd_config_t * config );
+
 /* fd_config_validate() checks that the configuration object provided is
    valid.  On any error, the function will print an error message and
    exit the process, the function will not return.

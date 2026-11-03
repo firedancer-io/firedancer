@@ -154,8 +154,9 @@ FD_STATIC_ASSERT( sizeof(fd_bmtree_node_t) == FD_SHRED_MERKLE_ROOT_SZ, update FD
 
 /* Maximum number of data shreds in a slot, also maximum number of
    parity shreds in a slot, at the 200ms slot params (SIMD-525).
-   Clusters with a larger per-slot shred limit (slower slots) are not
-   supported: shreds past this index are dropped. */
+   This is the reference for static bounds and benchmark increments,
+   not the topology sizing ceiling.  Topology must cover at least
+   FD_SHRED_PROTOCOL_BLK_MAX; live limits depend on the slot params. */
 #define FD_SHRED_BLK_MAX (1 << 14UL) /* 16,384 shreds */
 
 /* Many static bounds are specified around the assumption that this is a

@@ -761,9 +761,10 @@ alpenglow_marker:
       }
       return;
     }
-    /* ctx->shred_limit is the smallest per-slot max_shred_idx, so no
-       later parse is stricter.  The result may be garbage if the frag
-       is overrun meanwhile, which the stem detects before after_frag. */
+    /* ctx->shred_limit covers every per-slot max_shred_idx.  The
+       resolver enforces the slot's live limit in after_frag.  The
+       result may be garbage if the frag is overrun meanwhile, which
+       the stem detects before after_frag. */
     fd_shred_t const * shred = fd_shred_parse( dcache_entry+hdr_sz, sz-hdr_sz, ctx->shred_limit );
     if( FD_UNLIKELY( !shred ) ) {
       ulong owner = sz-hdr_sz>=sizeof(ulong) ? fd_ulong_load_8( dcache_entry+hdr_sz )%ctx->round_robin_cnt : 0UL; /* round-robin key, the signature */
