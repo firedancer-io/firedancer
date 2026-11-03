@@ -391,7 +391,7 @@ after_frag( fd_verify_ctx_t *   ctx,
     ulong dedup_tag = fd_hash( ctx->hashmap_seed, fd_txn_m_payload( txnm )+txnt->signature_off, 64UL );
     int   ha_dup;
     FD_FN_UNUSED ulong tcache_map_idx = 0;
-    FD_TCACHE_QUERY( ha_dup, tcache_map_idx, ctx->tcache_map, ctx->tcache_map_cnt, dedup_tag );
+    FD_TCACHE_QUERY( ha_dup, tcache_map_idx, ctx->tcache_ring, ctx->tcache_depth, ctx->tcache_map, ctx->tcache_map_cnt, dedup_tag );
     if( FD_UNLIKELY( ha_dup ) ) {
       ctx->metrics.verify_tile_result[ FD_METRICS_ENUM_VERIFY_RESULT_V_DUPLICATE_IDX ]++;
       return;
