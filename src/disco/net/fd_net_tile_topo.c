@@ -681,7 +681,7 @@ fd_topos_mlx5_setup_mem( fd_topo_t *      topo,
   FD_TEST( mlx5_tile->net.umem_dcache_obj_id > 0 );
   fd_pod_insertf_ulong( topo->props, cum_frame_cnt, "obj.%lu.depth", umem_obj_id );
   fd_pod_insertf_ulong( topo->props, 2UL,           "obj.%lu.burst", umem_obj_id ); /* 4096 byte padding */
-  fd_pod_insertf_ulong( topo->props, FD_NET_MTU,    "obj.%lu.mtu",   umem_obj_id );
+  fd_pod_insertf_ulong( topo->props, FD_MLX5_FRAME_SZ, "obj.%lu.mtu", umem_obj_id );
 }
 
 static void
