@@ -429,7 +429,7 @@ fd_solfuzz_pb_shred_run( fd_solfuzz_runner_t * runner,
       uint bank_idx = blk_bank_idx[ out.blk_idx ];
 
       fd_store_fec_t store_fec[1] = {0};
-      store_fec->key = popped_rec->mr;
+      memcpy( store_fec->key.uc, popped_rec->mr.uc, sizeof(fd_mr20_t) );
       FD_TEST( popped_rec->payload_sz<=UINT_MAX );
       store_fec->data_sz = (uint)popped_rec->payload_sz;
 
