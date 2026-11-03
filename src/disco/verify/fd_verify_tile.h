@@ -122,7 +122,7 @@ typedef struct {
   ulong   tcache_map_cnt;
   ulong * tcache_sync;
   ulong * tcache_ring;
-  ulong * tcache_map;
+  uint *  tcache_map;
 
   ulong              in_kind[ 32 ];
   fd_verify_in_ctx_t in[ 32 ];
