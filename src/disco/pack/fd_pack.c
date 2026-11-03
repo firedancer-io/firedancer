@@ -3068,18 +3068,11 @@ fd_pack_auction_end( fd_pack_t * pack ) {
      Note that these won't be executed until the start of the next
      auction. */
   fd_pack_ord_txn_t * pool = pack->pool;
-  treap_rev_iter_t    cur  = treap_rev_iter_init( pack->next_auction, pool );
-
-  /* Clear the next_auction treap first, as a transaction must not be in
-     a treap when it is inserted into another.  We can still walk the
-     transactions, since each one's prev link is read before it is
-     moved. */
-  treap_new( (void*)pack->next_auction, treap_ele_max( pack->next_auction ) );
-
-  while( !treap_rev_iter_done( cur ) ) {
-    treap_rev_iter_t next = treap_rev_iter_next( cur, pool );
+  treap_rev_iter_t    next;
+  for( treap_rev_iter_t cur=treap_rev_iter_init( pack->next_auction, pool ); !treap_rev_iter_done( cur ); cur=next ) {
+    next = treap_rev_iter_next( cur, pool );
+    treap_idx_remove( pack->next_auction, treap_rev_iter_idx( cur ), pool );
     insert_txn( pack, treap_rev_iter_ele( cur, pool ) );
-    cur = next;
   }
 }
 
