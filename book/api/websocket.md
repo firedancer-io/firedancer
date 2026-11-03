@@ -659,13 +659,13 @@ scheduler. The following modes are possible:
 
 - "perf"
 - "balanced"
-- "revenue"
+- "auction"
 
 The scheduler mode determines how eager / greedy the scheduler is when
 filling a block.  "perf" means the scheduler tries to fill the block as
-quickly as possible while "revenue" means the scheduler will wait as
-long as possible before filling the block. "balanced" is somewhere in
-the middle.
+quickly as possible, "balanced" paces the block fill over the slot, and
+"auction" schedules non-bundle transactions in 50ms batch auctions
+while bundles are scheduled as soon as they arrive.
 
 ::: details Example
 
