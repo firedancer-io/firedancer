@@ -47,7 +47,7 @@ fd_sysvar_epoch_rewards_read( fd_accdb_t *                accdb,
     fd_accdb_unread_one( accdb, &acc );
     return NULL;
   }
-  if( FD_UNLIKELY( acc.data_len!=FD_SYSVAR_EPOCH_REWARDS_BINCODE_SZ ) ) {
+  if( FD_UNLIKELY( acc.data_len<FD_SYSVAR_EPOCH_REWARDS_BINCODE_SZ ) ) {
     fd_accdb_unread_one( accdb, &acc );
     return NULL;
   }
