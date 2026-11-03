@@ -856,10 +856,6 @@ before_frag( fd_mlx5_tile_t * ctx,
     uint const outer_src_ip = route->gre_outer_src_ip;
     uint const outer_dst_ip = route->gre_outer_dst_ip;
 
-    if( FD_UNLIKELY( !inner_src_ip || !outer_dst_ip ) ) {
-      ctx->net.metrics.tx_drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_GRE_NO_ROUTE_IDX ]++;
-      return 1;
-    }
     /* fd_net_tx_route counts its own routing failure.  An unroutable
        outer endpoint is encapsulated here and sent on net.sock, so the
        kernel routes the outer packet. */
@@ -983,7 +979,7 @@ after_frag( fd_mlx5_tile_t *    ctx,
     }
 
     int owned = 0;
-    if( !ctx->router.bind_address || ctx->router.bind_address==ip4->daddr ) {
+    if( !ctx->net.bind_address || ctx->net.bind_address==ip4->daddr ) {
       ushort const dst_port = fd_ushort_bswap( udp->net_dport );
       for( ulong i=0UL; i<ctx->net.rx_dest_cnt; i++ ) owned |= ctx->net.rx_listen_ports[ i ]==dst_port;
     }
@@ -1037,7 +1033,6 @@ metrics_write( fd_mlx5_tile_t * ctx ) {
 
   FD_MCNT_SET(   MLX5, PKT_TX_COMPLETED,       ctx->net.metrics.tx_pkt_cnt            );
   FD_MCNT_SET(   MLX5, PKT_TX_COMPLETED_BYTES, ctx->net.metrics.tx_bytes_total        );
-  ctx->net.metrics.tx_slow_path_reason_cnt[ FD_METRICS_ENUM_PKT_TX_SLOW_PATH_REASON_V_NO_NEIGHBOR_IDX ] = ctx->router.metrics.tx_neigh_fail_cnt;
   ctx->net.metrics.tx_drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_RING_FULL_IDX ] = ctx->metrics.tx_no_buffer_cnt;
   FD_MCNT_ENUM_COPY( MLX5, PKT_TX_DROPPED,          ctx->net.metrics.tx_drop_cnt             );
   FD_MCNT_ENUM_COPY( MLX5, PKT_TX_ROUTED,           ctx->net.metrics.tx_route_result_cnt     );
@@ -1444,8 +1439,7 @@ unprivileged_init( fd_topo_t const *      topo,
 
   ctx->netdev_seq = fd_netdev_tbl_copy( &ctx->router.netdev_tbl, &ctx->router.netdev_shared );
   fd_net_gre_tunnels_refresh( &ctx->net, &ctx->router.netdev_tbl );
-  ctx->router.bind_address = tile->mlx5.net.bind_address;
-  ctx->net.bind_address    = tile->mlx5.net.bind_address;
+  ctx->net.bind_address = tile->mlx5.net.bind_address;
 
   ulong neigh4_obj_id = tile->mlx5.neigh4_obj_id;
   ulong ele_max   = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "obj.%lu.ele_max",   neigh4_obj_id );

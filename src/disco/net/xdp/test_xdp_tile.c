@@ -88,8 +88,8 @@ setup_routing_table( fd_net_ctx_t * ctx,
                      void * fib4_local_mem,
                      void * fib4_main_mem ) {
   /* Basic routing tables */
-  fd_fib4_t * fib_local = ctx->fib_local;
-  fd_fib4_t * fib_main = ctx->fib_main;
+  fd_fib4_t * fib_local = ctx->router.fib_local;
+  fd_fib4_t * fib_main  = ctx->router.fib_main;
   FD_TEST( fd_fib4_join( fib_local, fib4_local_mem ) );
   FD_TEST( fd_fib4_join( fib_main, fib4_main_mem ) );
 
@@ -141,10 +141,10 @@ setup_routing_table( fd_net_ctx_t * ctx,
 static void
 append_netdev( fd_net_ctx_t * ctx,
                fd_netdev_t     netdev ) {
-  ushort idx = ctx->netdev_tbl.hdr->dev_cnt;
-  FD_TEST( idx < ctx->netdev_tbl.hdr->dev_max );
-  ctx->netdev_tbl.dev_tbl[ idx ] = netdev;
-  ctx->netdev_tbl.hdr->dev_cnt   = (ushort)(idx + (ushort)1);
+  ushort idx = ctx->router.netdev_tbl.hdr->dev_cnt;
+  FD_TEST( idx < ctx->router.netdev_tbl.hdr->dev_max );
+  ctx->router.netdev_tbl.dev_tbl[ idx ] = netdev;
+  ctx->router.netdev_tbl.hdr->dev_cnt   = (ushort)(idx + (ushort)1);
 }
 
 /* Test net_tx_ready for all code paths */
@@ -232,7 +232,7 @@ test_net_tx_ready( void ) {
 
 static void
 setup_netdev_table( fd_net_ctx_t * ctx ) {
-  ctx->netdev_tbl.hdr->dev_cnt = 0;
+  ctx->router.netdev_tbl.hdr->dev_cnt = 0;
 
   append_netdev( ctx, (fd_netdev_t) {
     .if_idx = IF_IDX_GRE0,
@@ -263,8 +263,8 @@ setup_netdev_table( fd_net_ctx_t * ctx ) {
     .if_idx = IF_IDX_LO,
     .dev_type = ARPHRD_LOOPBACK,
   } );
-  fd_netdev_t * eth0 = fd_netdev_tbl_query( &ctx->netdev_tbl, IF_IDX_ETH0 );
-  fd_netdev_t * eth1 = fd_netdev_tbl_query( &ctx->netdev_tbl, IF_IDX_ETH1 );
+  fd_netdev_t * eth0 = fd_netdev_tbl_query( &ctx->router.netdev_tbl, IF_IDX_ETH0 );
+  fd_netdev_t * eth1 = fd_netdev_tbl_query( &ctx->router.netdev_tbl, IF_IDX_ETH1 );
   FD_TEST( eth0 && eth1 );
   fd_memcpy( eth0->mac_addr, eth0_src_mac_addr, 6 );
   fd_memcpy( eth1->mac_addr, eth1_src_mac_addr, 6 );
@@ -721,10 +721,9 @@ main( int     argc,
   setup_routing_table( ctx, fib4_local_mem, fib4_main_mem );
 
   /* Ensure initial (fake) device table is valid */
-  fd_net_gre_tunnels_refresh( &ctx->net, &ctx->netdev_tbl );
+  fd_net_gre_tunnels_refresh( &ctx->net, &ctx->router.netdev_tbl );
   for( ulong i=0UL; i<FD_NET_GRE_MAX; i++ ) FD_TEST( ctx->net.gre_tunnel_ip[i]==0U );
-  uint is_gre_inf = 0U;
-  FD_TEST( net_tx_route( ctx, FD_IP4_ADDR( 1,1,1,1 ), &is_gre_inf )==0 );
+  FD_TEST( fd_net_tx_route( &ctx->router, &ctx->net, FD_IP4_ADDR( 1,1,1,1 ), &ctx->net.tx_route )==0 );
   FD_TEST( ctx->net.tx_route.routing_failure );
   ctx->net.tx_route = (fd_net_tx_route_t){0};
 
@@ -732,14 +731,37 @@ main( int     argc,
   add_neighbor( neigh4_hmap, gre0_outer_dst_ip, eth0_dst_mac_addr[0], eth0_dst_mac_addr[1], eth0_dst_mac_addr[2], eth0_dst_mac_addr[3], eth0_dst_mac_addr[4], eth0_dst_mac_addr[5] );
   add_neighbor( neigh4_hmap, gre1_outer_dst_ip, eth1_dst_mac_addr[0], eth1_dst_mac_addr[1], eth1_dst_mac_addr[2], eth1_dst_mac_addr[3], eth1_dst_mac_addr[4], eth1_dst_mac_addr[5] );
   add_neighbor( neigh4_hmap, gw_ip,     eth1_dst_mac_addr[0], eth1_dst_mac_addr[1], eth1_dst_mac_addr[2], eth1_dst_mac_addr[3], eth1_dst_mac_addr[4], eth1_dst_mac_addr[5] );
-  FD_TEST( fd_neigh4_hmap_join( ctx->neigh4, fd_topo_obj_laddr( topo, topo_tile->xdp.neigh4_obj_id ), neigh4_ele_max, neigh4_probe_max, 123456UL ) );
+  FD_TEST( fd_neigh4_hmap_join( ctx->router.neigh4, fd_topo_obj_laddr( topo, topo_tile->xdp.neigh4_obj_id ), neigh4_ele_max, neigh4_probe_max, 123456UL ) );
 
   /* Netdev table */
   setup_netdev_table( ctx );
-  fd_net_gre_tunnels_refresh( &ctx->net, &ctx->netdev_tbl );
+  fd_net_gre_tunnels_refresh( &ctx->net, &ctx->router.netdev_tbl );
   FD_TEST( ctx->net.gre_tunnel_ip[0]==gre0_outer_dst_ip );
   FD_TEST( ctx->net.gre_tunnel_ip[1]==gre1_outer_dst_ip );
   for( ulong i=2UL; i<FD_NET_GRE_MAX; i++ ) FD_TEST( ctx->net.gre_tunnel_ip[i]==0U );
+
+  /* GRE routes require an inner source IP and a remote tunnel endpoint. */
+  {
+    fd_netdev_t * gre0 = fd_netdev_tbl_query( &ctx->router.netdev_tbl, IF_IDX_GRE0 );
+    FD_TEST( gre0 );
+    ulong * fail_cnt = &ctx->net.metrics.tx_drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_GRE_NO_ROUTE_IDX ];
+    ulong   before   = *fail_cnt;
+
+    gre0->gre_dst_ip = 0U;
+    FD_TEST( fd_net_tx_route( &ctx->router, &ctx->net, gre0_dst_ip, &ctx->net.tx_route )==0 );
+    FD_TEST( *fail_cnt==before+1UL );
+    gre0->gre_dst_ip = gre0_outer_dst_ip;
+
+    fd_fib4_hop_t hop = { .if_idx=IF_IDX_GRE0, .rtype=FD_FIB4_RTYPE_UNICAST };
+    FD_TEST( fd_fib4_insert( ctx->router.fib_main, gre0_dst_ip, 32, 0U, &hop ) );
+    FD_TEST( fd_net_tx_route( &ctx->router, &ctx->net, gre0_dst_ip, &ctx->net.tx_route )==0 );
+    FD_TEST( *fail_cnt==before+2UL );
+
+    hop.ip4_src = gre0_src_ip;
+    FD_TEST( fd_fib4_insert( ctx->router.fib_main, gre0_dst_ip, 32, 0U, &hop ) );
+    FD_TEST( fd_net_tx_route( &ctx->router, &ctx->net, gre0_dst_ip, &ctx->net.tx_route )==1 );
+    FD_TEST( *fail_cnt==before+2UL );
+  }
 
   /* TX routes to non-XDP or non-Ethernet interfaces count as
      unsupported_interface */
@@ -747,22 +769,30 @@ main( int     argc,
     ulong * fail_cnt = ctx->net.metrics.tx_slow_path_reason_cnt;
     ulong   before   = fail_cnt[ FD_METRICS_ENUM_PKT_TX_SLOW_PATH_REASON_V_UNSUPPORTED_INTERFACE_IDX ];
 
-    ctx->if_virt = IF_IDX_ETH0;
-    FD_TEST( net_tx_route( ctx, random_ip, &is_gre_inf )==0 );
+    ctx->router.if_virt = IF_IDX_ETH0;
+    FD_TEST( fd_net_tx_route( &ctx->router, &ctx->net, random_ip, &ctx->net.tx_route )==0 );
     FD_TEST( fail_cnt[ FD_METRICS_ENUM_PKT_TX_SLOW_PATH_REASON_V_UNSUPPORTED_INTERFACE_IDX ]==before+1UL );
     FD_TEST( ctx->net.tx_route.routing_failure );
     FD_TEST( ctx->net.tx_route.src_ip==default_src_ip );
     ctx->net.tx_route = (fd_net_tx_route_t){0};
 
-    ctx->if_virt = IF_IDX_ETH1;
-    fd_netdev_t * eth1 = fd_netdev_tbl_query( &ctx->netdev_tbl, IF_IDX_ETH1 );
+    ctx->router.if_virt = IF_IDX_ETH1;
+    fd_netdev_t * eth1 = fd_netdev_tbl_query( &ctx->router.netdev_tbl, IF_IDX_ETH1 );
     eth1->dev_type = ARPHRD_NONE;
-    FD_TEST( net_tx_route( ctx, random_ip, &is_gre_inf )==0 );
+    FD_TEST( fd_net_tx_route( &ctx->router, &ctx->net, random_ip, &ctx->net.tx_route )==0 );
     FD_TEST( fail_cnt[ FD_METRICS_ENUM_PKT_TX_SLOW_PATH_REASON_V_UNSUPPORTED_INTERFACE_IDX ]==before+2UL );
     FD_TEST( ctx->net.tx_route.routing_failure );
     FD_TEST( ctx->net.tx_route.src_ip==default_src_ip );
     ctx->net.tx_route = (fd_net_tx_route_t){0};
     eth1->dev_type = ARPHRD_ETHER;
+
+    /* TX binding overrides the preferred source address from the route. */
+    ctx->net.bind_address = FD_IP4_ADDR( 192,0,2,1 );
+    FD_TEST( fd_net_tx_route( &ctx->router, &ctx->net, random_ip, &ctx->net.tx_route )==1 );
+    FD_TEST( ctx->net.tx_route.src_ip==ctx->net.bind_address );
+    ctx->net.bind_address = 0U;
+    FD_TEST( fd_net_tx_route( &ctx->router, &ctx->net, random_ip, &ctx->net.tx_route )==1 );
+    FD_TEST( ctx->net.tx_route.src_ip==default_src_ip );
 
     ulong metrics[ FD_METRICS_TOTAL_SZ/sizeof(ulong) ] = {0};
     volatile ulong * saved_metrics = fd_metrics_tl;
@@ -1036,7 +1066,7 @@ main( int     argc,
         fd_memcpy( eth_mac_addrs_before_frag_gre,     eth0_dst_mac_addr, 6 );
         fd_memcpy( eth_mac_addrs_before_frag_gre + 6, eth0_src_mac_addr, 6 );
 
-        xsk->if_idx = ctx->if_virt = IF_IDX_ETH0;
+        xsk->if_idx = ctx->router.if_virt = IF_IDX_ETH0;
         rx_pkt_gre.outer_ip4.saddr = gre0_outer_dst_ip;
         rx_pkt_gre.outer_ip4.daddr = gre0_outer_src_ip;
         before_credit_input       = &rx_pkt_gre;
@@ -1075,7 +1105,7 @@ main( int     argc,
         fd_memcpy( eth_mac_addrs_before_frag_gre,     eth1_dst_mac_addr, 6 );
         fd_memcpy( eth_mac_addrs_before_frag_gre + 6, eth1_src_mac_addr, 6 );
 
-        xsk->if_idx = ctx->if_virt = IF_IDX_ETH1;
+        xsk->if_idx = ctx->router.if_virt = IF_IDX_ETH1;
         rx_pkt_gre.outer_ip4.saddr = gre1_outer_dst_ip;
         rx_pkt_gre.outer_ip4.daddr = gre1_outer_src_ip;
 
@@ -1112,7 +1142,7 @@ main( int     argc,
         break;
       }
       case 2: { // non-gre
-        xsk->if_idx = ctx->if_virt = IF_IDX_ETH1;
+        xsk->if_idx = ctx->router.if_virt = IF_IDX_ETH1;
 
         before_credit_input       = &rx_pkt;
         before_credit_input_sz    = sizeof(rx_pkt);
@@ -1238,13 +1268,13 @@ main( int     argc,
     uint const fb_no_route_ip   = FD_IP4_ADDR( 7,30,0,1 );     /* explicitly has no matching route */
     uint const fb_missing_if_ip = FD_IP4_ADDR( 7,40,0,1 );     /* route names an absent interface */
     uint const fb_neigh_miss_ip = FD_IP4_ADDR( 7,50,0,1 );     /* missing a neighbor table entry */
-    ctx->default_address = fb_default_ip;
+    ctx->router.default_address = fb_default_ip;
     fd_fib4_hop_t hop = { .rtype=FD_FIB4_RTYPE_THROW };
-    FD_TEST( fd_fib4_insert( ctx->fib_main, fb_no_route_ip, 32, 0U, &hop ) );
+    FD_TEST( fd_fib4_insert( ctx->router.fib_main, fb_no_route_ip, 32, 0U, &hop ) );
     hop = (fd_fib4_hop_t) { .if_idx=999U, .rtype=FD_FIB4_RTYPE_UNICAST };
-    FD_TEST( fd_fib4_insert( ctx->fib_main, fb_missing_if_ip, 32, 0U, &hop ) );
+    FD_TEST( fd_fib4_insert( ctx->router.fib_main, fb_missing_if_ip, 32, 0U, &hop ) );
     hop = (fd_fib4_hop_t) { .if_idx=IF_IDX_ETH1, .rtype=FD_FIB4_RTYPE_UNICAST, .ip4_src=default_src_ip };
-    FD_TEST( fd_fib4_insert( ctx->fib_main, fb_neigh_miss_ip, 32, 0U, &hop ) );
+    FD_TEST( fd_fib4_insert( ctx->router.fib_main, fb_neigh_miss_ip, 32, 0U, &hop ) );
 
     /* Packets that fail userland routing are sent on net.sock and
        counted as submitted.  Each case exercises a different failure
@@ -1259,7 +1289,7 @@ main( int     argc,
         { FD_IP4_ADDR( 127,0,0,1 ), FD_IP4_ADDR( 127,0,0,1 ), IF_IDX_ETH1 }, /* no loopback XSK  */
       };
       for( ulong i=0UL; i<sizeof(cases)/sizeof(cases[0]); i++ ) {
-        xsk->if_idx = ctx->if_virt = cases[ i ].if_virt;
+        xsk->if_idx = ctx->router.if_virt = cases[ i ].if_virt;
         ulong * drop_cnt         = ctx->net.metrics.tx_drop_cnt;
         ulong * result_cnt       = ctx->net.metrics.tx_route_result_cnt;
         ulong   submit_before    = ctx->metrics.tx_submit_cnt;
@@ -1282,9 +1312,9 @@ main( int     argc,
         FD_TEST( result_cnt[ FD_METRICS_ENUM_PKT_TX_ROUTE_RESULT_V_SLOW_PATH_IDX ]==slow_before+1UL );
       }
       /* The neighbor miss still requests a solicitation */
-      FD_TEST( ctx->solicit_ip==fb_neigh_miss_ip );
-      ctx->solicit_ip = 0U;
-      xsk->if_idx = ctx->if_virt = IF_IDX_ETH1;
+      FD_TEST( ctx->router.solicit_ip==fb_neigh_miss_ip );
+      ctx->router.solicit_ip = 0U;
+      xsk->if_idx = ctx->router.if_virt = IF_IDX_ETH1;
     }
 
     /* A failed socket send is counted as a SocketSendFailure drop, and
@@ -1348,22 +1378,22 @@ main( int     argc,
 
       ulong route_fail_before[ FD_METRICS_ENUM_PKT_TX_SLOW_PATH_REASON_CNT ];
       fd_memcpy( route_fail_before, ctx->net.metrics.tx_slow_path_reason_cnt, sizeof(route_fail_before) );
-      ulong const neigh_fail_before = ctx->metrics.tx_neigh_fail_cnt;
-      uint  const solicit_before    = ctx->solicit_ip;
+      ulong const neigh_fail_before = ctx->net.metrics.tx_slow_path_reason_cnt[ FD_METRICS_ENUM_PKT_TX_SLOW_PATH_REASON_V_NO_NEIGHBOR_IDX ];
+      uint  const solicit_before    = ctx->router.solicit_ip;
 
       ctx->net.tile_cnt = 2UL;
       ctx->net.kind_id  = 0UL;
       FD_TEST( 1==before_frag( ctx, 0UL, tx_seq, fb_sig ) );
       FD_TEST( 0==memcmp( route_fail_before, ctx->net.metrics.tx_slow_path_reason_cnt, sizeof(route_fail_before) ) );
-      FD_TEST( ctx->metrics.tx_neigh_fail_cnt==neigh_fail_before );
-      FD_TEST( ctx->solicit_ip==solicit_before );
+      FD_TEST( ctx->net.metrics.tx_slow_path_reason_cnt[ FD_METRICS_ENUM_PKT_TX_SLOW_PATH_REASON_V_NO_NEIGHBOR_IDX ]==neigh_fail_before );
+      FD_TEST( ctx->router.solicit_ip==solicit_before );
 
       ctx->net.kind_id  = 1UL;
       FD_TEST( 0==before_frag( ctx, 0UL, tx_seq, fb_sig ) );
       release_tx_frame( ctx );
       route_fail_before[ FD_METRICS_ENUM_PKT_TX_SLOW_PATH_REASON_V_NO_ROUTE_IDX ]++;
       FD_TEST( 0==memcmp( route_fail_before, ctx->net.metrics.tx_slow_path_reason_cnt, sizeof(route_fail_before) ) );
-      FD_TEST( ctx->metrics.tx_neigh_fail_cnt==neigh_fail_before );
+      FD_TEST( ctx->net.metrics.tx_slow_path_reason_cnt[ FD_METRICS_ENUM_PKT_TX_SLOW_PATH_REASON_V_NO_NEIGHBOR_IDX ]==neigh_fail_before );
 
       ctx->net.kind_id  = 0UL;
       ctx->net.tile_cnt = 1UL;
@@ -1384,7 +1414,7 @@ main( int     argc,
         { gre1_dst_ip, gre1_src_ip, gre1_outer_dst_ip, gre1_outer_src_ip, IF_IDX_ETH0 }, /* route source  */
       };
       for( ulong i=0UL; i<sizeof(cases)/sizeof(cases[0]); i++ ) {
-        xsk->if_idx = ctx->if_virt = cases[ i ].if_virt;
+        xsk->if_idx = ctx->router.if_virt = cases[ i ].if_virt;
 
         struct __attribute__((packed)) {
           fd_eth_hdr_t eth;
@@ -1456,8 +1486,8 @@ main( int     argc,
       }
 
       /* A nested tunnel (outer route is itself GRE) is still dropped. */
-      xsk->if_idx = ctx->if_virt = IF_IDX_ETH1;
-      fd_netdev_t * gre0 = fd_netdev_tbl_query( &ctx->netdev_tbl, IF_IDX_GRE0 );
+      xsk->if_idx = ctx->router.if_virt = IF_IDX_ETH1;
+      fd_netdev_t * gre0 = fd_netdev_tbl_query( &ctx->router.netdev_tbl, IF_IDX_GRE0 );
       FD_TEST( gre0 );
       ulong const nested_before = ctx->net.metrics.tx_drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_GRE_NO_ROUTE_IDX ];
       gre0->gre_dst_ip = gre1_dst_ip;
@@ -1482,7 +1512,7 @@ main( int     argc,
              ctx->net.metrics.tx_drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_SOCKET_SEND_FAILURE_IDX ] );
     fd_metrics_tl = saved_metrics;
 
-    ctx->default_address = 0U;
+    ctx->router.default_address = 0U;
   }
 
   /* GRE packets from invalid source dropped before decapsulation */
@@ -1633,32 +1663,32 @@ main( int     argc,
     .op=FD_IPROUTE_OP_UPSERT, .prefix=32U
   };
   after_frag( ctx, 7UL, 0UL, 0UL, sizeof(fd_iproute_msg_t), 0UL, 0UL, NULL );
-  FD_TEST( fd_fib4_lookup( ctx->fib_main, FD_IP4_ADDR( 203,0,113,7 ), 0UL ).if_idx==77U );
-  ulong route_cnt = fd_fib4_cnt( ctx->fib_main );
+  FD_TEST( fd_fib4_lookup( ctx->router.fib_main, FD_IP4_ADDR( 203,0,113,7 ), 0UL ).if_idx==77U );
+  ulong route_cnt = fd_fib4_cnt( ctx->router.fib_main );
 
   /* UPSERT mirrors NLM_F_REPLACE semantics.  A different metric creates a
      second route, while the same metric updates the existing route. */
   ctx->net.iproute_msg.prio       = 100U;
   ctx->net.iproute_msg.hop.if_idx = 88U;
   after_frag( ctx, 7UL, 0UL, 0UL, sizeof(fd_iproute_msg_t), 0UL, 0UL, NULL );
-  FD_TEST( fd_fib4_lookup( ctx->fib_main, FD_IP4_ADDR( 203,0,113,7 ), 0UL ).if_idx==77U );
-  FD_TEST( fd_fib4_cnt( ctx->fib_main )==route_cnt+1UL );
+  FD_TEST( fd_fib4_lookup( ctx->router.fib_main, FD_IP4_ADDR( 203,0,113,7 ), 0UL ).if_idx==77U );
+  FD_TEST( fd_fib4_cnt( ctx->router.fib_main )==route_cnt+1UL );
   ctx->net.iproute_msg.prio       = 0U;
   ctx->net.iproute_msg.hop.if_idx = 99U;
   after_frag( ctx, 7UL, 0UL, 0UL, sizeof(fd_iproute_msg_t), 0UL, 0UL, NULL );
-  FD_TEST( fd_fib4_lookup( ctx->fib_main, FD_IP4_ADDR( 203,0,113,7 ), 0UL ).if_idx==99U );
-  FD_TEST( fd_fib4_cnt( ctx->fib_main )==route_cnt+1UL );
+  FD_TEST( fd_fib4_lookup( ctx->router.fib_main, FD_IP4_ADDR( 203,0,113,7 ), 0UL ).if_idx==99U );
+  FD_TEST( fd_fib4_cnt( ctx->router.fib_main )==route_cnt+1UL );
 
   ctx->net.iproute_msg = (fd_iproute_msg_t){ .op=FD_IPROUTE_OP_FLUSH };
   after_frag( ctx, 7UL, 0UL, 0UL, sizeof(fd_iproute_msg_t), 0UL, 0UL, NULL );
-  FD_TEST( fd_fib4_lookup( ctx->fib_main, FD_IP4_ADDR( 203,0,113,7 ), 0UL ).if_idx!=77U );
+  FD_TEST( fd_fib4_lookup( ctx->router.fib_main, FD_IP4_ADDR( 203,0,113,7 ), 0UL ).if_idx!=77U );
   ctx->net.iproute_msg = (fd_iproute_msg_t) {
     .hop={ .rtype=FD_FIB4_RTYPE_UNICAST, .if_idx=88U },
     .dst_addr=FD_IP4_ADDR( 198,51,100,8 ), .table_id=RT_TABLE_MAIN,
     .op=FD_IPROUTE_OP_UPSERT, .prefix=32U
   };
   after_frag( ctx, 7UL, 0UL, 0UL, sizeof(fd_iproute_msg_t), 0UL, 0UL, NULL );
-  FD_TEST( fd_fib4_lookup( ctx->fib_main, FD_IP4_ADDR( 198,51,100,8 ), 0UL ).if_idx==88U );
+  FD_TEST( fd_fib4_lookup( ctx->router.fib_main, FD_IP4_ADDR( 198,51,100,8 ), 0UL ).if_idx==88U );
 
   ulong netlink_req_depth = 8UL;
   void * netlink_req_mem = fd_wksp_alloc_laddr( wksp, fd_mcache_align(), fd_mcache_footprint( netlink_req_depth, 0UL ), WKSP_TAG );
@@ -1676,7 +1706,7 @@ main( int     argc,
     .out_reliable        = &netlink_out_reliable,
     .cr_decrement_amount = 0UL
   }};
-  ctx->netlnk_out_idx = 0UL;
+  ctx->router.netlnk_out_idx = 0UL;
 
   ctx->net.iproute_msg = (fd_iproute_msg_t){ .op=FD_IPROUTE_OP_FLUSH };
   after_frag( ctx, 7UL, 0UL, 0UL, sizeof(fd_iproute_msg_t), 0UL, 0UL, netlink_stem );

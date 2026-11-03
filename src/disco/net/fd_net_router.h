@@ -13,41 +13,37 @@
 
 #include <linux/if_arp.h> /* ARPHRD_LOOPBACK */
 
+/* fd_net_router_t stores userland route and neighbor state. */
 struct fd_net_router {
   ulong netlnk_out_idx;
   uint  solicit_ip;
   uint  solicit_if_idx;
 
   /* Route and neighbor tables */
-  fd_fib4_t fib_local[1];
-  fd_fib4_t fib_main[1];
-  fd_neigh4_hmap_t  neigh4[1];
+  fd_fib4_t        fib_local[1];
+  fd_fib4_t        fib_main[1];
+  fd_neigh4_hmap_t neigh4[1];
 
   /* Netdev table */
   fd_netdev_tbl_join_t netdev_tbl;    /* local copy in scratch */
   fd_netdev_tbl_join_t netdev_shared; /* shared seqlock-protected table */
 
   uint if_virt;
-  uint bind_address;
   uint default_address;
-
-  struct {
-    ulong tx_neigh_fail_cnt;
-  } metrics;
 };
 typedef struct fd_net_router fd_net_router_t;
 
 FD_PROTOTYPES_BEGIN
 
-/* fd_net_tx_route resolves the destination interface index, src MAC
-   address, and dst MAC address.  Returns 1 on success, 0 on failure.
-   On success, writes the complete route result to out.  On failure,
-   out->routing_failure is set if the packet may be sent on a kernel
-   socket instead, and out->src_ip holds the source address to use:
-   the bind address, else the route's preferred source, else the
-   default address. */
-
-static int
+/* fd_net_tx_route returns 1 on success, 0 on failure.  On success, sets
+   out->src_ip, out->if_idx, and out->mtu.  For GRE, sets out->use_gre and
+   loads out->gre_outer_src_ip and out->gre_outer_dst_ip from the netdev
+   table, leaving MAC resolution to the caller's outer route lookup.
+   Otherwise, clears out->use_gre and sets out->mac_addrs.  On failure,
+   out->routing_failure indicates kernel socket fallback, and out->src_ip
+   is the bind address, route's preferred source or default address, in
+   that order. */
+static inline int
 fd_net_tx_route( fd_net_router_t *   ctx,
                  fd_net_tile_t *     net,
                  uint                dst_ip,
@@ -65,7 +61,7 @@ fd_net_tx_route( fd_net_router_t *   ctx,
 
   uint rtype   = next_hop->rtype;
   uint if_idx  = next_hop->if_idx;
-  uint ip4_src = fd_uint_if( !!ctx->bind_address, ctx->bind_address, next_hop->ip4_src );
+  uint ip4_src = fd_uint_if( !!net->bind_address, net->bind_address, next_hop->ip4_src );
   /* if the provider uses a socket fallback it'll need the src ip.
      Success paths below overwrite it. */
   out->src_ip  = fd_uint_if( !ip4_src, ctx->default_address, ip4_src );
@@ -100,12 +96,15 @@ fd_net_tx_route( fd_net_router_t *   ctx,
     out->use_loopback = 1U;
     return 1;
   } else if( netdev->dev_type==ARPHRD_IPGRE ) {
-    /* skip MAC addrs lookup for GRE inner dst ip.  The caller drops the
-       packet if there is no inner source, so don't apply the default. */
-    out->src_ip           = ip4_src;
+    out->src_ip = ip4_src;
+    if( FD_UNLIKELY( !ip4_src || !netdev->gre_dst_ip ) ) {
+      net->metrics.tx_drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_GRE_NO_ROUTE_IDX ]++;
+      return 0;
+    }
+    /* skip MAC addrs lookup for GRE inner dst ip */
     out->gre_outer_src_ip = netdev->gre_src_ip;
     out->gre_outer_dst_ip = netdev->gre_dst_ip;
-    out->use_gre = 1U;
+    out->use_gre          = 1U;
     return 1;
   }
 
@@ -131,12 +130,12 @@ fd_net_tx_route( fd_net_router_t *   ctx,
     /* Neighbor not found */
     ctx->solicit_ip     = neigh_ip;
     ctx->solicit_if_idx = if_idx;
-    ctx->metrics.tx_neigh_fail_cnt++;
+    net->metrics.tx_slow_path_reason_cnt[ FD_METRICS_ENUM_PKT_TX_SLOW_PATH_REASON_V_NO_NEIGHBOR_IDX ]++;
     out->routing_failure = 1;
     return 0;
   }
   if( FD_UNLIKELY( neigh->state != FD_NEIGH4_STATE_ACTIVE ) ) {
-    ctx->metrics.tx_neigh_fail_cnt++;
+    net->metrics.tx_slow_path_reason_cnt[ FD_METRICS_ENUM_PKT_TX_SLOW_PATH_REASON_V_NO_NEIGHBOR_IDX ]++;
     out->routing_failure = 1;
     return 0;
   }
