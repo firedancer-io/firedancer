@@ -48,7 +48,8 @@ void
 initialize_event_spool_fd( config_t const * config );
 
 /* initialize_gui_geoip_fd opens the unlinked gui geoip segment table
-   at FD_GUI_GEOIP_FD. */
+   at FD_GUI_GEOIP_FD and the preallocated validator info text file at
+   FD_GUI_PEERS_INFO_FD. */
 
 void
 initialize_gui_geoip_fd( config_t const * config );
