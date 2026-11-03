@@ -905,6 +905,24 @@ test_best_incremental_peer( fd_ssping_t * ssping ) {
     if( incr==150UL ) FD_TEST( best.addr.l==remembered_addr.l );
   }
 
+  /* While waiting for peers, a remembered server on our full ends the
+     wait once it is usable again. */
+  fd_memset( ctx, 0, sizeof(*ctx) );
+  test_ctx_wake_init( ctx );
+  ctx->ssping   = ssping;
+  ctx->selector = fd_sspeer_selector_join( fd_sspeer_selector_new( sel, TOTAL_PEERS_MAX, TEST_SELECTOR_SEED ) );
+  ctx->state                                = FD_SNAPCT_STATE_WAITING_FOR_PEERS_INCREMENTAL;
+  ctx->deadline_nanos                       = LONG_MAX;
+  ctx->download_enabled                     = 1;
+  ctx->load_incremental                     = 1;
+  ctx->predicted_incremental.full_slot      = 100UL;
+  ctx->predicted_incremental.peer.addr      = remembered_addr;
+  ctx->predicted_incremental.peer.full_slot = 100UL;
+  ctx->predicted_incremental.peer.incr_slot = 150UL;
+  int busy = 0;
+  after_credit( ctx, NULL, NULL, &busy );
+  FD_TEST( ctx->state==FD_SNAPCT_STATE_COLLECTING_PEERS_INCREMENTAL );
+
   /* A remembered server whose ping timed out is not asked either. */
   fd_memset( ctx, 0, sizeof(*ctx) );
   test_ctx_wake_init( ctx );

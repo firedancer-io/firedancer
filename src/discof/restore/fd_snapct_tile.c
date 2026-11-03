@@ -1075,7 +1075,7 @@ after_credit( fd_snapct_tile_t *  ctx,
       }
 
       FD_TEST( ctx->predicted_incremental.full_slot!=FD_SSPEER_SLOT_UNKNOWN );
-      fd_sspeer_t best = fd_sspeer_selector_best( ctx->selector, 1, ctx->predicted_incremental.full_slot, wfs_floor( ctx ) );
+      fd_sspeer_t best = best_incremental_peer( ctx );
       if( FD_LIKELY( best.addr.l ) ) {
         set_state( ctx, FD_SNAPCT_STATE_COLLECTING_PEERS_INCREMENTAL );
         ctx->deadline_nanos = now;
