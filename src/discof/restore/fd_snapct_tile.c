@@ -207,10 +207,11 @@ struct fd_snapct_tile {
   uchar        in_kind[ FD_TOPO_MAX_TILE_IN_LINKS ];
 
   struct {
-    ulong full_slot;
-    ulong slot;
-    int   pending;
-    int   committed;
+    ulong       full_slot;
+    ulong       slot;
+    int         pending;
+    int         committed;
+    fd_sspeer_t peer; /* peer last picked for an incremental on full_slot */
   } predicted_incremental;
 
   struct {
@@ -408,11 +409,29 @@ predict_incremental( fd_snapct_tile_t * ctx ) {
   fd_sspeer_t best = fd_sspeer_selector_best( ctx->selector, 1, ctx->predicted_incremental.full_slot, wfs_floor( ctx ) );
 
   if( FD_LIKELY( best.addr.l ) ) {
+    ctx->predicted_incremental.peer = best;
     if( FD_UNLIKELY( ctx->predicted_incremental.slot!=best.incr_slot ) ) {
       ctx->predicted_incremental.slot    = best.incr_slot;
       ctx->predicted_incremental.pending = 1;
     }
   }
+}
+
+/* best_incremental_peer picks the peer to download the incremental
+   from.  A server that made a new full while our full loaded no
+   longer offers an incremental on ours, but the newest one we saw is
+   still on its disk. */
+
+static fd_sspeer_t
+best_incremental_peer( fd_snapct_tile_t * ctx ) {
+  fd_sspeer_t best = fd_sspeer_selector_best( ctx->selector, 1, ctx->predicted_incremental.full_slot, wfs_floor( ctx ) );
+  if( FD_UNLIKELY( !best.addr.l &&
+                   ctx->predicted_incremental.peer.addr.l &&
+                   ctx->predicted_incremental.peer.full_slot==ctx->predicted_incremental.full_slot &&
+                   !fd_ssping_is_invalidated( ctx->ssping, ctx->predicted_incremental.peer.addr ) ) ) {
+    best = ctx->predicted_incremental.peer;
+  }
+  return best;
 }
 
 static void
@@ -701,7 +720,7 @@ init_load( fd_snapct_tile_t *  ctx,
     else       fd_memcpy( out->snapshot_hash, ctx->peer.incr_hash, FD_HASH_FOOTPRINT );
   }
 
-  out->is_redirect = !file; /* always use redirect for HTTP downloads */
+  out->is_redirect = !file && full;
 
   if( file ) out->file_sz = full ? ctx->local_in.full_snapshot_size : ctx->local_in.incremental_snapshot_size;
   else       out->file_sz = 0UL;
@@ -712,18 +731,14 @@ init_load( fd_snapct_tile_t *  ctx,
   ctx->start_sent = 0;
   ctx->load_complete = 0;
 
-  if( !file ) {
-    FD_TEST( fd_cstr_printf_check( full ? ctx->http_full_snapshot_name : ctx->http_incr_snapshot_name,
-                                 PATH_MAX, NULL, full ? "snapshot.tar.bz2" : "incremental-snapshot.tar.bz2" ) );
-    snapshot_output_prepare( ctx, full );
-  }
+  /* The full learns its name from the redirect, the incremental gets
+     its name at START, and a local file has none.  Clear stale names
+     before the rename functions run. */
+  if( !full )     fd_cstr_fini( ctx->http_incr_snapshot_name );
+  else if( file ) fd_cstr_fini( ctx->http_full_snapshot_name );
+  else            FD_TEST( fd_cstr_printf_check( ctx->http_full_snapshot_name, PATH_MAX, NULL, "snapshot.tar.bz2" ) );
 
-  /* Clear stale http_*_snapshot_name for file loads before rename
-     functions run.  GUI publish is deferred to the META handler. */
-  if( file ) {
-    if( full ) fd_cstr_fini( ctx->http_full_snapshot_name );
-    else       fd_cstr_fini( ctx->http_incr_snapshot_name );
-  }
+  if( !file ) snapshot_output_prepare( ctx, full );
 
   if( !full ) {
     if( file ) ctx->predicted_incremental.slot = ctx->local_in.incremental_snapshot_slot;
@@ -788,6 +803,12 @@ blacklist_peer( fd_snapct_tile_t * ctx ) {
   fd_ssping_invalidate( ctx->ssping, ctx->peer.addr, fd_clock_tile_now( ctx->clock ) );
   fd_sspeer_selector_remove_by_addr( ctx->selector, ctx->peer.addr );
   fd_sspeer_selector_process_cluster_slot( ctx->selector );
+
+  if( ctx->predicted_incremental.peer.addr.l==ctx->peer.addr.l ||
+      fd_sspeer_key_eq( &ctx->predicted_incremental.peer.key, &ctx->peer.key ) ) {
+    ctx->predicted_incremental.peer.addr.l = 0UL;
+  }
+
   if( FD_UNLIKELY( blacklist_map_ele_query( ctx->blacklist_map, &ctx->peer.key, NULL, ctx->blacklist_pool ) ) ) return;
   if( FD_LIKELY( blacklist_pool_free( ctx->blacklist_pool ) ) ) {
     fd_sspeer_blacklist_entry_t * bl = blacklist_pool_ele_acquire( ctx->blacklist_pool );
@@ -948,7 +969,11 @@ after_credit( fd_snapct_tile_t *  ctx,
       if( full ) {
         FD_TEST( fd_cstr_printf_check( out->path, PATH_MAX, &out->path_len, "/snapshot.tar.bz2" ) );
       } else {
-        FD_TEST( fd_cstr_printf_check( out->path, PATH_MAX, &out->path_len, "/incremental-snapshot.tar.bz2" ) );
+        char hash_b58[ FD_BASE58_ENCODED_32_SZ ];
+        fd_base58_encode_32( ctx->peer.incr_hash, NULL, hash_b58 );
+        FD_TEST( fd_cstr_printf_check( ctx->http_incr_snapshot_name, PATH_MAX, NULL, "incremental-snapshot-%lu-%lu-%s.tar.zst",
+                                       ctx->predicted_incremental.full_slot, ctx->predicted_incremental.slot, hash_b58 ) );
+        FD_TEST( fd_cstr_printf_check( out->path, PATH_MAX, &out->path_len, "/%s", ctx->http_incr_snapshot_name ) );
       }
 
       /* Peers outside the config list use HTTP without a hostname. */
@@ -1046,7 +1071,7 @@ after_credit( fd_snapct_tile_t *  ctx,
       }
 
       FD_TEST( ctx->predicted_incremental.full_slot!=FD_SSPEER_SLOT_UNKNOWN );
-      fd_sspeer_t best = fd_sspeer_selector_best( ctx->selector, 1, ctx->predicted_incremental.full_slot, wfs_floor( ctx ) );
+      fd_sspeer_t best = best_incremental_peer( ctx );
       if( FD_LIKELY( best.addr.l ) ) {
         set_state( ctx, FD_SNAPCT_STATE_COLLECTING_PEERS_INCREMENTAL );
         ctx->deadline_nanos = now;
@@ -1188,6 +1213,7 @@ after_credit( fd_snapct_tile_t *  ctx,
         FD_LOG_INFO(( "reading full snapshot at slot %lu (cluster full %lu incremental %lu) from local file `%s`",
                       ctx->local_in.full_snapshot_slot, cluster.full, cluster.incremental, ctx->local_in.full_snapshot_path ));
         ctx->predicted_incremental.full_slot = ctx->local_in.full_snapshot_slot;
+        if( !local_incr_on_disk ) predict_incremental( ctx );
         set_state( ctx, FD_SNAPCT_STATE_READING_FULL_FILE );
         init_load( ctx, stem, 1, 1 );
       } else {
@@ -1227,6 +1253,7 @@ after_credit( fd_snapct_tile_t *  ctx,
         ctx->peer                            = best;
         set_state( ctx, FD_SNAPCT_STATE_READING_FULL_HTTP );
         ctx->predicted_incremental.full_slot = best.full_slot;
+        predict_incremental( ctx );
         init_load( ctx, stem, 1, 0 );
       }
       break;
@@ -1236,7 +1263,7 @@ after_credit( fd_snapct_tile_t *  ctx,
     case FD_SNAPCT_STATE_COLLECTING_PEERS_INCREMENTAL: {
       if( FD_UNLIKELY( now<ctx->deadline_nanos ) ) break;
 
-      fd_sspeer_t best = fd_sspeer_selector_best( ctx->selector, 1, ctx->predicted_incremental.full_slot, wfs_floor( ctx ) );
+      fd_sspeer_t best = best_incremental_peer( ctx );
       if( FD_UNLIKELY( !best.addr.l ) ) {
         if( !ctx->download_enabled ) {
           if( FD_UNLIKELY( wfs_short_of_target( ctx, ctx->predicted_incremental.full_slot ) ) ) {
@@ -1402,7 +1429,7 @@ after_credit( fd_snapct_tile_t *  ctx,
 
       ulong fetch_incr = ULONG_MAX;
       if( FD_LIKELY( ctx->download_enabled ) ) {
-        fd_sspeer_t best_incr = fd_sspeer_selector_best( ctx->selector, 1, ctx->predicted_incremental.full_slot, wfs_floor( ctx ) );
+        fd_sspeer_t best_incr = best_incremental_peer( ctx );
         if( FD_LIKELY( best_incr.addr.l ) ) fetch_incr = best_incr.incr_slot;
       }
 
@@ -1471,7 +1498,7 @@ after_credit( fd_snapct_tile_t *  ctx,
       }
 
       /* Get the best incremental peer to download from */
-      fd_sspeer_t best = fd_sspeer_selector_best( ctx->selector, 1, ctx->predicted_incremental.full_slot, wfs_floor( ctx ) );
+      fd_sspeer_t best = best_incremental_peer( ctx );
       if( FD_UNLIKELY( !best.addr.l ) ) {
         ctx->deadline_nanos = now;
         set_state( ctx, FD_SNAPCT_STATE_COLLECTING_PEERS_INCREMENTAL );
@@ -1933,7 +1960,17 @@ snapld_frag( fd_snapct_tile_t *  ctx,
       }
     } else {
       if( full ) fd_cstr_ncpy( ctx->http_full_snapshot_name, meta->resolved_name, PATH_MAX );
-      else       fd_cstr_ncpy( ctx->http_incr_snapshot_name, meta->resolved_name, PATH_MAX );
+
+      /* The server sent a newer full than the one we picked.  The
+         incremental has to be built on the full we actually load. */
+      if( FD_UNLIKELY( full && meta->resolved_slot!=ULONG_MAX && meta->resolved_slot!=ctx->predicted_incremental.full_slot ) ) {
+        FD_LOG_NOTICE(( "full snapshot resolved to slot %lu instead of %lu, pairing the incremental snapshot with it",
+                        meta->resolved_slot, ctx->predicted_incremental.full_slot ));
+        ctx->predicted_incremental.full_slot = meta->resolved_slot;
+        ctx->predicted_incremental.slot      = FD_SSPEER_SLOT_UNKNOWN;
+        predict_incremental( ctx );
+        if( ctx->predicted_incremental.slot==FD_SSPEER_SLOT_UNKNOWN ) send_expected_slot( ctx, stem, meta->resolved_slot );
+      }
 
       if( FD_LIKELY( !!ctx->out_gui.mem ) ) {
         char snapshot_path[ PATH_MAX+30UL ]; /* 30 is fd_cstr_nlen( "https://255.255.255.255:65536/", ULONG_MAX ) */
@@ -2495,6 +2532,7 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->predicted_incremental.slot      = FD_SSPEER_SLOT_UNKNOWN;
   ctx->predicted_incremental.pending   = 0;
   ctx->predicted_incremental.committed = 0;
+  fd_memset( &ctx->predicted_incremental.peer, 0, sizeof(fd_sspeer_t) );
 
   fd_memset( &ctx->metrics, 0, sizeof(ctx->metrics) );
 
