@@ -242,6 +242,12 @@ FD_PROTOTYPES_BEGIN
        domain this thread group will use.  Defaults to "/mnt/.fd" if not
        specified.  Ignored if not a hosted x86 implementation.
 
+     --shmem-mpol-strict [0|1] / FD_SHMEM_MPOL_STRICT=[0|1]
+
+       0 binds shared memory without MPOL_MF_STRICT, so kernel memory
+       compaction migrating a normal page cannot fail it with EIO (e.g.
+       parallel unit tests).  Defaults to 1.
+
      --tile-cpus [cpu-list] / FD_TILE_CPUS=[cpu-list]
 
        For a thread group of an application on a hosted target, this
