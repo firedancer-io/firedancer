@@ -40,32 +40,34 @@ struct fd_gui_store_super {
 typedef struct fd_gui_store_super fd_gui_store_super_t;
 
 struct fd_gui_store_kv_idx_node {
-  ulong key;       /* MAP_KEY: ring->key_hash of the record's key */
-  ulong cur;       /* generation cursor of the ring slot */
-  ulong next;      /* MAP_NEXT (chain link) */
+  uint key;        /* MAP_KEY: low 32 bits of ring->key_hash of the record's key */
+  uint cur;        /* low 32 bits of the ring slot's generation cursor */
+  uint next;       /* MAP_NEXT (chain link) */
   union {
-    ulong prev;      /* MAP_PREV while acquired */
-    ulong pool_next; /* POOL_NEXT while free    */
+    uint prev;       /* MAP_PREV while acquired */
+    uint pool_next;  /* POOL_NEXT while free    */
   };
 };
 typedef struct fd_gui_store_kv_idx_node fd_gui_store_kv_idx_node_t;
-FD_STATIC_ASSERT( sizeof(fd_gui_store_kv_idx_node_t)==32UL, fd_gui_store_kv_idx_node );
+FD_STATIC_ASSERT( sizeof(fd_gui_store_kv_idx_node_t)==16UL, fd_gui_store_kv_idx_node );
 
 #define MAP_NAME              fd_gui_store_kv_idx
 #define MAP_KEY               key
-#define MAP_KEY_T             ulong
+#define MAP_KEY_T             uint
+#define MAP_IDX_T             uint
 #define MAP_ELE_T             fd_gui_store_kv_idx_node_t
 #define MAP_NEXT              next
 #define MAP_PREV              prev
 #define MAP_KEY_EQ(k0,k1)     ( *(k0)==*(k1) )
-#define MAP_KEY_HASH(k,s)     fd_ulong_hash( *(k) ^ (s) )
+#define MAP_KEY_HASH(k,s)     fd_ulong_hash( (ulong)*(k) ^ (s) )
 #define MAP_MULTI             1
 #define MAP_OPTIMIZE_RANDOM_ACCESS_REMOVAL 1
 #include "../../util/tmpl/fd_map_chain.c"
 
-#define POOL_NAME fd_gui_store_kv_pool
-#define POOL_T    fd_gui_store_kv_idx_node_t
-#define POOL_NEXT pool_next
+#define POOL_NAME  fd_gui_store_kv_pool
+#define POOL_T     fd_gui_store_kv_idx_node_t
+#define POOL_NEXT  pool_next
+#define POOL_IDX_T uint
 #include "../../util/tmpl/fd_pool.c"
 
 #define STACK_NAME fd_gui_store_freelist
@@ -552,21 +554,31 @@ fd_gui_store_kv_slot_key( fd_gui_store_t *            db,
   return (uchar const *)fd_gui_store_slot( db, ring_idx, p, cur ) + p->key_off;
 }
 
+/* fd_gui_store_kv_node_cur returns the full cursor of node.  Indexed
+   records lie in [evict_cur,head_cur) and head_cur-evict_cur is bounded
+   by max_records, which the uint pool index keeps below 2^32. */
+static inline ulong
+fd_gui_store_kv_node_cur( fd_gui_store_ring_t const *        p,
+                          fd_gui_store_kv_idx_node_t const * node ) {
+  return p->head_cur - (ulong)(uint)( (uint)p->head_cur - node->cur );
+}
+
 static fd_gui_store_kv_idx_node_t *
 fd_gui_store_kv_find_node( fd_gui_store_t *            db,
                            fd_gui_store_ring_t const * p,
                            ulong                       ring_idx,
                            void const *                key ) {
-  ulong ik = db->kv_key_hash[ ring_idx ]( key );
+  uint ik = (uint)db->kv_key_hash[ ring_idx ]( key );
   fd_gui_store_kv_idx_node_t * node = fd_gui_store_kv_idx_ele_query( db->kv_idx[ ring_idx ], &ik, NULL, db->kv_pool );
   while( node ) {
     fd_gui_store_kv_idx_node_t * next = (fd_gui_store_kv_idx_node_t *)fd_gui_store_kv_idx_ele_next_const( node, NULL, db->kv_pool );
-    if( FD_UNLIKELY( node->cur<p->evict_cur ) ) {
+    ulong cur = fd_gui_store_kv_node_cur( p, node );
+    if( FD_UNLIKELY( cur<p->evict_cur ) ) {
       /* stale: the slot was evicted; lazily drop the dead index node */
       fd_gui_store_kv_idx_ele_remove_fast( db->kv_idx[ ring_idx ], node, db->kv_pool );
       fd_gui_store_kv_pool_ele_release( db->kv_pool, node );
     } else {
-      uchar const * slot_key = fd_gui_store_kv_slot_key( db, ring_idx, p, node->cur );
+      uchar const * slot_key = fd_gui_store_kv_slot_key( db, ring_idx, p, cur );
       if( FD_LIKELY( 0==db->kv_key_cmp[ ring_idx ]( slot_key, key ) ) ) return node;
     }
     node = next;
@@ -586,7 +598,7 @@ fd_gui_store_kv_get_or_create( fd_gui_store_t * db,
   /* Existing key: hand back the live value region for in-place population. */
   fd_gui_store_kv_idx_node_t * node = fd_gui_store_kv_find_node( db, p, ring_idx, key );
   if( FD_LIKELY( node ) ) {
-    uchar * slot = fd_gui_store_slot( db, ring_idx, p, node->cur );
+    uchar * slot = fd_gui_store_slot( db, ring_idx, p, fd_gui_store_kv_node_cur( p, node ) );
     if( val_out ) *val_out = slot;
     return FD_GUI_STORE_SUCCESS;
   }
@@ -606,8 +618,8 @@ fd_gui_store_kv_get_or_create( fd_gui_store_t * db,
   fd_memcpy( slot + p->key_off, key, p->key_sz );
 
   fd_gui_store_kv_idx_node_t * n = fd_gui_store_kv_pool_ele_acquire( db->kv_pool );
-  n->key = db->kv_key_hash[ ring_idx ]( key );
-  n->cur = cur;
+  n->key = (uint)db->kv_key_hash[ ring_idx ]( key );
+  n->cur = (uint)cur;
   fd_gui_store_kv_idx_ele_insert( db->kv_idx[ ring_idx ], n, db->kv_pool );
 
   p->head_cur = cur + 1UL;
@@ -626,7 +638,7 @@ fd_gui_store_kv_get( fd_gui_store_t * db,
   fd_gui_store_kv_idx_node_t * node = fd_gui_store_kv_find_node( db, p, ring_idx, key );
   db->metrics->kv_lookups[ ring_idx ]++;
   if( FD_UNLIKELY( !node ) ) return NULL;
-  return (uchar *)fd_gui_store_slot( db, ring_idx, p, node->cur );
+  return (uchar *)fd_gui_store_slot( db, ring_idx, p, fd_gui_store_kv_node_cur( p, node ) );
 }
 
 static uchar const *
@@ -643,15 +655,16 @@ fd_gui_store_kv_lowest_gt( fd_gui_store_t *         db,
     /* Fast path: walk the query key's index bucket (records sharing its
        hashed leading field), tracking the lowest full key still > gt that
        matches `key`. */
-    ulong ik = db->kv_key_hash[ ring_idx ]( key );
+    uint ik = (uint)db->kv_key_hash[ ring_idx ]( key );
     fd_gui_store_kv_idx_node_t * node = fd_gui_store_kv_idx_ele_query( db->kv_idx[ ring_idx ], &ik, NULL, db->kv_pool );
     while( node ) {
       fd_gui_store_kv_idx_node_t * next = (fd_gui_store_kv_idx_node_t *)fd_gui_store_kv_idx_ele_next_const( node, NULL, db->kv_pool );
-      if( FD_UNLIKELY( node->cur<p->evict_cur ) ) {
+      ulong cur = fd_gui_store_kv_node_cur( p, node );
+      if( FD_UNLIKELY( cur<p->evict_cur ) ) {
         fd_gui_store_kv_idx_ele_remove_fast( db->kv_idx[ ring_idx ], node, db->kv_pool );
         fd_gui_store_kv_pool_ele_release( db->kv_pool, node );
       } else {
-        uchar const * val = (uchar const *)fd_gui_store_slot( db, ring_idx, p, node->cur );
+        uchar const * val = (uchar const *)fd_gui_store_slot( db, ring_idx, p, cur );
         uchar const * k   = val + p->key_off;
         if( FD_LIKELY( 0==key_cmp( k, key ) ) ) {
           if( ( !gt   || key_cmp( k, gt       )>0 ) &&
