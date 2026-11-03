@@ -70,8 +70,88 @@ const ulong CUS_PER_MICROBLOCK = 1600000UL;
 
 static char const * const schedule_strategy_strings[3] = { "PRF", "BAL", "AUC" };
 
+/* Overview of how the "auction" strategy works:
+
+   In the perf and balanced strategies, as soon as a transaction
+   arrives it becomes eligible for scheduling. The auction strategy
+   runs periodic batch "auctions". Transactions that arrive during the
+   period when the auction is running are not immediately eligible for
+   scheduling. These become eligible for scheduling when the auction
+   ends. The exception is bundles, which are immediately eligible for
+   scheduling regardless of whether an auction is running or not.
+
+   Therefore, pack can be in one of 3 states:
+   - 1) No auction running. New transactions that arrive are added to
+        the pending/penalty treaps, but are not eligible for scheduling
+        until the start of the next auction.
+   - 2) Auction running. New transactions that arrive are added to the
+        next_auction treap, which means they are not eligible for
+        scheduling. Transactions in the pending/penalty treaps at the
+        time of the auction starting are eligible for scheduling
+        throughout the auction.
+   - 3) The final 10ms of the leader rotation. All transactions are
+        eligible for scheduling immediately.
+
+   Each auction is limited to its proportional fraction of the blocks
+   total CU limit. auction_cu_limit is the total block CU limit cost
+   that the current auction cannot exceed. This is the fraction of the
+   slot time (leader_slot_end_tick-leader_slot_start_tick) that will
+   have elapsed when the auction ends (now+auction_interval_tick)
+   multiplied by the total block CU limit (slot_max_cost).
+
+   Auctions are run back to back, every 50ms (auction_interval_tick).
+   auction_next_tick is the tick at which the next auction is due to
+   start. This is set to start of the current auction +
+   auction_interval_tick. Note that bundles adjust this value, to
+   try and synchronize the start of the auction with a "burst" of
+   bundles. This is because bundles typically arrive in bursts, and we
+   want the pack auctions to coincide with the auctions held in the
+   bundle engine. Therefore, each bundle arrival sets
+   auction_next_tick to 5ms after that bundle arrived, so that the
+   auction starts once the current bundle burst has ended. The
+   following limits apply:
+   - auction_next_tick can't be less than 40ms after the previous
+     attempt (auction_last_attempt_tick + auction_spacing_tick). This
+     is so that a short pause within a bundle burst does not trigger
+     a new auction.
+   - auction_next_tick can't be later than 50ms after the previous
+     attempt (auction_last_attempt_tick + auction_interval_tick).
+
+   Pack moves between the states as such:
+   - An auction begins when we are leader, and all of the following are
+     true:
+     - The current tick (now) >= auction_next_tick
+     - The current tick (now)  < auction_final_start_tick
+     - The current block cost is less than the auction CU limit
+       (auction_cu_limit). If the auction has exceeded the limit the
+       attempt is cancelled, and tried again at the next
+       auction_next_tick.
+     Starting an auction means:
+     - New transactions are held in next_auction and are not eligible
+       for scheduling until the start of the next auction.
+     - Transactions already in the pending/penalty treaps become
+       eligible for scheduling.
+   - An auction ends when we are leader, and one of the following is
+     true:
+     - The next auction is due (now>=auction_next_tick)
+     - The current block cost has exceeded the auction CU limit
+       (auction_cu_limit)
+     - We are in the last 10ms of the leader rotation
+       (now>=auction_final_start_tick)
+     - The block ends for any other reason
+     Ending an auction means:
+     - Every transaction held in next_auction is moved into the
+       penalty/pending treaps. New transactions are added to the
+       penalty/pending treaps.
+     - Transactions in the pending/penalty treaps are no longer eligible
+       for scheduling, until the start of the next auction - unless
+       we are in the final 10ms of the rotation.
+
+   Note that none of the above applies to bundles, which are eligible
+   for scheduling as soon as they arrive, on all execle tiles. */
+
 /* FD_PACK_AUCTION_BUNDLE_END_GAP_NS is the amount of time for which,
-   if receive no bundles, we consider the bundle burst to be over. We
+   if we receive no bundles, we consider the bundle burst to be over. We
    start auctions after not observing any bundles for
    FD_PACK_AUCTION_BUNDLE_END_GAP_NS. This synchronizes the start of
    the auction with the end of the bundle burst. */
@@ -82,8 +162,9 @@ static char const * const schedule_strategy_strings[3] = { "PRF", "BAL", "AUC" }
    middle doesn't start two auctions. */
 #define FD_PACK_AUCTION_SPACING_NS        (40000000L)
 
-/* FD_PACK_AUCTION_INTERVAL_NS is the maximum time between auctions,
-   so that no transaction is held for longer than 50ms. */
+/* FD_PACK_AUCTION_INTERVAL_NS is the maximum time between auctions.
+   This was chosen so that no transaction is ineligible for scheduling
+   for more than 50ms. */
 #define FD_PACK_AUCTION_INTERVAL_NS       (50000000L)
 
 /* FD_PACK_AUCTION_FINAL_NS is the length of time before the end of the
