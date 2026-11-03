@@ -86,6 +86,11 @@ setup_topo_txncache( fd_topo_t *  topo,
                      ulong        max_txn_per_slot,
                      ulong        cache_footprint );
 
+fd_topo_obj_t *
+setup_topo_ed25519_cache( fd_topo_t *  topo,
+                          char const * wksp_name,
+                          ulong        ent_cnt );
+
 void
 fd_topo_configure_tile( fd_topo_tile_t * tile,
                         fd_config_t *    config );

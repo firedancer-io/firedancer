@@ -31,6 +31,7 @@ extern fd_topo_obj_callbacks_t fd_obj_cb_progcache;
 extern fd_topo_obj_callbacks_t fd_obj_cb_bpf_frames;
 extern fd_topo_obj_callbacks_t fd_obj_cb_rnonce_ss;
 extern fd_topo_obj_callbacks_t fd_obj_cb_footer_cache;
+extern fd_topo_obj_callbacks_t fd_obj_cb_ed25519_cache;
 extern fd_topo_obj_callbacks_t fd_obj_cb_adminctl;
 extern fd_topo_obj_callbacks_t fd_obj_cb_sleep;
 
@@ -59,6 +60,7 @@ fd_topo_obj_callbacks_t * CALLBACKS[] = {
   &fd_obj_cb_bpf_frames,
   &fd_obj_cb_rnonce_ss,
   &fd_obj_cb_footer_cache,
+  &fd_obj_cb_ed25519_cache,
   &fd_obj_cb_adminctl,
   &fd_obj_cb_sleep,
   NULL,

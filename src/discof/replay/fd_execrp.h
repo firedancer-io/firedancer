@@ -8,6 +8,10 @@
 #include "../../flamenco/alpenglow/fd_alpenglow.h"
 #include "../../ballet/lthash/fd_lthash.h"
 
+/* Entries of the signer cache shared by all execrp tiles (vote
+   authorities and frequent fee payers) */
+#define FD_EXECRP_ED25519_CACHE_ENT_CNT (4096UL)
+
 /* Exec tile task types. */
 #define FD_EXECRP_TT_TXN_EXEC      (1UL) /* Transaction execution. */
 #define FD_EXECRP_TT_TXN_SIGVERIFY (2UL) /* Transaction sigverify. */

@@ -5,6 +5,9 @@
 #include <stdlib.h>
 #include "test_ed25519_wycheproof.c"
 #include "test_ed25519_cctv.c"
+#if FD_HAS_RACESAN
+#include "../../util/racesan/fd_racesan_weave.h"
+#endif
 
 #define FD_ED25519_UNIT_TESTS
 #include "fd_curve25519_secure.c"
@@ -1693,6 +1696,217 @@ static char const * const small_order_hex[] = {
   NULL
 };
 
+/* Shared cache: users share keys and tables through one shmem.  A
+   reader racing an insert into its set must give the uncached result.
+   SH_KEY_CNT keys share one set (ent_cnt 4), so inserts keep evicting
+   the reader's key. */
+
+#define SH_KEY_CNT (8UL)
+#define SH_OP_CNT  (16UL)
+
+struct sh_ops {
+  fd_ed25519_cache_t * cache;
+  fd_sha512_t          sha[1];
+  ulong                op_cnt;
+  uchar                msg[ SH_OP_CNT ][ 32 ];
+  uchar                sig[ SH_OP_CNT ][ 64 ];
+  uchar                pub[ SH_OP_CNT ][ 32 ];
+  int                  expected[ SH_OP_CNT ];
+  ulong                rep;
+};
+typedef struct sh_ops sh_ops_t;
+
+static void
+sh_ops_gen( sh_ops_t *    ops,
+            fd_rng_t *    rng,
+            uchar         prv[][ 32 ],
+            uchar         pubk[][ 32 ],
+            ulong         key_lo,
+            ulong         key_cnt,
+            fd_sha512_t * sha ) {
+  ops->op_cnt = SH_OP_CNT;
+  for( ulong j=0UL; j<SH_OP_CNT; j++ ) {
+    ulong i = key_lo + fd_rng_ulong_roll( rng, key_cnt );
+    fd_rng_b256( rng, ops->msg[j] );
+    memcpy( ops->pub[j], pubk[i], 32 );
+    fd_ed25519_sign( ops->sig[j], ops->msg[j], 32UL, ops->pub[j], prv[i], sha );
+    switch( fd_rng_uint_roll( rng, 4U ) ) {
+    case 0: ops->sig[j][40] ^= 1; break;                                                         /* group equation fails */
+    case 1: ops->sig[j][ fd_rng_uint_roll( rng, 32U ) ] ^= (uchar)(1U<<fd_rng_uint_roll( rng, 8U )); break; /* bad R */
+    default: break;
+    }
+    ops->expected[j] = fd_ed25519_verify( ops->msg[j], 32UL, ops->sig[j], ops->pub[j], sha );
+  }
+}
+
+static void
+sh_ops_run( sh_ops_t * ops ) {
+  for( ulong r=0UL; r<ops->rep; r++ ) {
+    for( ulong j=0UL; j<ops->op_cnt; j++ ) {
+      FD_TEST( fd_ed25519_verify_cached( ops->msg[j], 32UL, ops->sig[j], ops->pub[j], ops->sha, ops->cache )==ops->expected[j] );
+    }
+  }
+}
+
+static int
+sh_ops_task( int     argc,
+             char ** argv ) {
+  (void)argc;
+  sh_ops_run( (sh_ops_t *)argv );
+  return 0;
+}
+
+#if FD_HAS_RACESAN
+#define SH_FIBER_STACK_MAX (1UL<<20)
+static void sh_ops_fiber( void * ctx ) { sh_ops_run( (sh_ops_t *)ctx ); }
+#endif
+
+static void
+test_verify_cached_shared( fd_rng_t *    rng,
+                           fd_sha512_t * sha ) {
+  uchar prv[ SH_KEY_CNT ][ 32 ], pubk[ SH_KEY_CNT ][ 32 ];
+  for( ulong i=0UL; i<SH_KEY_CNT; i++ ) fd_ed25519_public_from_private( pubk[i], fd_rng_b256( rng, prv[i] ), sha );
+
+  ulong user_cnt = fd_ulong_max( fd_tile_cnt(), 2UL );
+  ulong ent_cnt  = 4UL;
+  void * shmem = aligned_alloc( fd_ed25519_cache_align(), fd_ed25519_cache_shmem_footprint( ent_cnt ) );
+  FD_TEST( shmem && fd_ed25519_cache_shmem_new( shmem, ent_cnt, fd_rng_ulong( rng ) )==shmem );
+  FD_TEST( fd_ed25519_cache_footprint( ent_cnt )==fd_ed25519_cache_user_footprint( ent_cnt )+fd_ed25519_cache_shmem_footprint( ent_cnt ) );
+  FD_TEST( !fd_ed25519_cache_shmem_footprint( 3UL ) && !fd_ed25519_cache_user_footprint( 3UL ) );
+
+  sh_ops_t * ops = aligned_alloc( 128UL, user_cnt*sizeof(sh_ops_t) );
+  FD_TEST( ops );
+  for( ulong u=0UL; u<user_cnt; u++ ) {
+    void * mem = aligned_alloc( fd_ed25519_cache_align(), fd_ed25519_cache_user_footprint( 64UL ) );
+    ops[u].cache = fd_ed25519_cache_join( fd_ed25519_cache_user_new( mem, 64UL, shmem ) );
+    FD_TEST( ops[u].cache );
+    FD_TEST( fd_sha512_join( fd_sha512_new( ops[u].sha ) ) );
+  }
+
+  /* A key inserted by one user hits for another */
+
+  {
+    uchar msg[32], sig[64];
+    fd_rng_b256( rng, msg );
+    fd_ed25519_sign( sig, msg, 32UL, pubk[0], prv[0], sha );
+    for( ulong r=0UL; r<2UL; r++ ) FD_TEST( !fd_ed25519_verify_cached( msg, 32UL, sig, pubk[0], sha, ops[0].cache ) );
+    FD_TEST( fd_ed25519_cache_insert_cnt( ops[0].cache )==1UL );
+    FD_TEST( !fd_ed25519_verify_cached( msg, 32UL, sig, pubk[0], sha, ops[1].cache ) );
+    FD_TEST( fd_ed25519_cache_hit_cnt( ops[1].cache )==1UL && !fd_ed25519_cache_insert_cnt( ops[1].cache ) );
+  }
+
+#if FD_HAS_RACESAN
+  /* Random interleavings of a reader of keys 0-1 against a writer that
+     cycles keys 2-7 through the reader's set */
+
+  {
+    static uchar stack[2][ SH_FIBER_STACK_MAX ] __attribute__((aligned(4096)));
+    fd_racesan_async_t async[2];
+    ulong conflict = 0UL, insert = 0UL;
+    for( ulong iter=0UL; iter<4096UL; iter++ ) {
+      for( ulong u=0UL; u<2UL; u++ ) {
+        ops[u].cache = fd_ed25519_cache_join( fd_ed25519_cache_user_new( ops[u].cache, 64UL, shmem ) );
+        ops[u].rep   = 2UL;
+      }
+      sh_ops_gen( &ops[0], rng, prv, pubk, 0UL, 2UL,            sha ); ops[0].op_cnt = 4UL;
+      sh_ops_gen( &ops[1], rng, prv, pubk, 2UL, SH_KEY_CNT-2UL, sha ); ops[1].op_cnt = 6UL;
+      fd_racesan_weave_t w[1];
+      fd_racesan_weave_new( w );
+      fd_racesan_async_new( &async[0], stack[0], SH_FIBER_STACK_MAX, sh_ops_fiber, &ops[0] );
+      fd_racesan_async_new( &async[1], stack[1], SH_FIBER_STACK_MAX, sh_ops_fiber, &ops[1] );
+      fd_racesan_weave_add( w, &async[0] );
+      fd_racesan_weave_add( w, &async[1] );
+      fd_racesan_weave_exec_rand( w, iter, 100000UL );
+      FD_TEST( !w->rem_cnt );
+      fd_racesan_weave_delete( w );
+      fd_racesan_async_delete( &async[0] );
+      fd_racesan_async_delete( &async[1] );
+      conflict += fd_ed25519_cache_conflict_cnt( ops[0].cache ) + fd_ed25519_cache_conflict_cnt( ops[1].cache );
+      insert   += fd_ed25519_cache_insert_cnt  ( ops[0].cache ) + fd_ed25519_cache_insert_cnt  ( ops[1].cache );
+    }
+    FD_LOG_NOTICE(( "shared cache racesan: %lu conflicts redone uncached, %lu inserts", conflict, insert ));
+    FD_TEST( conflict && insert );
+
+    /* Deterministic: (a) reader suspended at its hit while a writer
+       evicts every way: the mul uses another key's table, so the
+       result is only right if redone uncached.  (b) reader suspended
+       after loading seq while a writer replaces the set.  (c) writer
+       suspended after overwriting key 0's table but not its key (seq
+       odd): reader must miss. */
+
+    for( ulong c=0UL; c<3UL; c++ ) {
+      for( ulong u=0UL; u<2UL; u++ ) ops[u].cache = fd_ed25519_cache_join( fd_ed25519_cache_user_new( ops[u].cache, 64UL, shmem ) );
+      FD_TEST( fd_ed25519_cache_shmem_new( shmem, ent_cnt, fd_rng_ulong( rng ) ) );
+      fd_rng_b256( rng, ops[0].msg[0] );
+      memcpy( ops[0].pub[0], pubk[0], 32 );
+      fd_ed25519_sign( ops[0].sig[0], ops[0].msg[0], 32UL, ops[0].pub[0], prv[0], sha );
+      ops[0].expected[0] = FD_ED25519_SUCCESS;
+      ops[0].op_cnt = 1UL; ops[0].rep = 1UL;
+      for( ulong r=0UL; r<2UL; r++ ) FD_TEST( !fd_ed25519_verify_cached( ops[0].msg[0], 32UL, ops[0].sig[0], ops[0].pub[0], sha, ops[0].cache ) );
+      FD_TEST( fd_ed25519_cache_insert_cnt( ops[0].cache )==1UL );
+      ulong hit0 = fd_ed25519_cache_hit_cnt( ops[0].cache );
+
+      /* writer: keys 2-5, each twice, valid */
+      for( ulong j=0UL; j<4UL; j++ ) {
+        fd_rng_b256( rng, ops[1].msg[j] );
+        memcpy( ops[1].pub[j], pubk[2UL+j], 32 );
+        fd_ed25519_sign( ops[1].sig[j], ops[1].msg[j], 32UL, ops[1].pub[j], prv[2UL+j], sha );
+        ops[1].expected[j] = FD_ED25519_SUCCESS;
+      }
+      ops[1].op_cnt = 4UL; ops[1].rep = 2UL;
+
+      fd_racesan_async_new( &async[0], stack[0], SH_FIBER_STACK_MAX, sh_ops_fiber, &ops[0] );
+      fd_racesan_async_new( &async[1], stack[1], SH_FIBER_STACK_MAX, sh_ops_fiber, &ops[1] );
+      fd_racesan_async_reset( &async[0] );
+      fd_racesan_async_reset( &async[1] );
+      if( c<2UL ) {
+        FD_TEST( fd_racesan_async_step_until( &async[0], c==0UL ? "ed25519_cache:hit" : "ed25519_cache:query", 1000UL )==FD_RACESAN_ASYNC_RET_HOOK );
+        while( fd_racesan_async_step( &async[1] )==FD_RACESAN_ASYNC_RET_HOOK );
+        FD_TEST( fd_ed25519_cache_insert_cnt( ops[1].cache )==4UL ); /* every way replaced */
+        while( fd_racesan_async_step( &async[0] )==FD_RACESAN_ASYNC_RET_HOOK );
+        FD_TEST( fd_ed25519_cache_conflict_cnt( ops[0].cache )==(c==0UL) );
+        FD_TEST( fd_ed25519_cache_hit_cnt( ops[0].cache )==hit0+(c==0UL) );
+      } else {
+        /* 3 inserts fill the free ways, the 4th overwrites key 0's table */
+        for( ulong k=0UL; k<4UL; k++ ) FD_TEST( fd_racesan_async_step_until( &async[1], "ed25519_cache:insert_tbl", 1000UL )==FD_RACESAN_ASYNC_RET_HOOK );
+        while( fd_racesan_async_step( &async[0] )==FD_RACESAN_ASYNC_RET_HOOK );
+        FD_TEST( fd_ed25519_cache_hit_cnt( ops[0].cache )==hit0 );
+        while( fd_racesan_async_step( &async[1] )==FD_RACESAN_ASYNC_RET_HOOK );
+      }
+      fd_racesan_async_delete( &async[0] );
+      fd_racesan_async_delete( &async[1] );
+    }
+  }
+#endif
+
+  /* Real threads (run with --tile-cpus for more than one) */
+
+  for( ulong round=0UL; round<8UL; round++ ) {
+    for( ulong u=0UL; u<user_cnt; u++ ) {
+      sh_ops_gen( &ops[u], rng, prv, pubk, 0UL, SH_KEY_CNT, sha );
+      ops[u].rep = 64UL;
+    }
+    fd_tile_exec_t * exec[ FD_TILE_MAX ];
+    for( ulong u=1UL; u<fd_tile_cnt(); u++ ) {
+      exec[u] = fd_tile_exec_new( u, sh_ops_task, 0, (char **)&ops[u] );
+      FD_TEST( exec[u] );
+    }
+    sh_ops_run( &ops[0] );
+    for( ulong u=fd_tile_cnt(); u<user_cnt; u++ ) sh_ops_run( &ops[u] );
+    for( ulong u=1UL; u<fd_tile_cnt(); u++ ) FD_TEST( !fd_tile_exec_delete( exec[u], NULL ) );
+  }
+  ulong hit = 0UL, conflict = 0UL;
+  for( ulong u=0UL; u<user_cnt; u++ ) {
+    hit      += fd_ed25519_cache_hit_cnt     ( ops[u].cache );
+    conflict += fd_ed25519_cache_conflict_cnt( ops[u].cache );
+    free( fd_ed25519_cache_delete( fd_ed25519_cache_leave( ops[u].cache ) ) );
+  }
+  FD_LOG_NOTICE(( "shared cache %lu threads: hit %lu conflict %lu", fd_tile_cnt(), hit, conflict ));
+  FD_TEST( hit );
+  free( ops );
+  free( shmem );
+}
+
 static void
 test_verify_cached( fd_rng_t *    rng,
                     fd_sha512_t * sha ) {
@@ -2116,6 +2330,7 @@ main( int     argc,
   test_cctv_batch ( rng, sha );
 
   test_verify_cached( rng, sha );
+  test_verify_cached_shared( rng, sha );
 
   fd_sha512_delete( fd_sha512_leave( sha ) );
   fd_rng_delete( fd_rng_leave( rng ) );
