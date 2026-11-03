@@ -48,6 +48,8 @@ test_ctx_wake_init( fd_snapct_tile_t * ctx ) {
   FD_TEST( ctx->waker_fseq );
 }
 
+static fd_topo_tile_t test_tile; /* no servers */
+
 #define TEST_SSPING_SEED    (0x0123456789abcdefUL)
 #define TEST_GOSSIP_CI_SEED (0x123456789abcdef0UL)
 #define TEST_SELECTOR_SEED  (0x23456789abcdef01UL)
@@ -218,7 +220,7 @@ setup_full_snapct( void *                       scratch,
 
 static void
 test_allow_any_contact_info_insert_and_update( void ) {
-  void * scratch = aligned_alloc( scratch_align(), scratch_footprint( NULL ) ); FD_TEST( scratch );
+  void * scratch = aligned_alloc( scratch_align(), scratch_footprint( &test_tile ) ); FD_TEST( scratch );
 
   fd_gossip_update_message_t msg[1] __attribute__((aligned(FD_CHUNK_ALIGN)));
   fd_snapct_tile_t * ctx;
@@ -248,7 +250,7 @@ test_allow_any_contact_info_insert_and_update( void ) {
 
 static void
 test_allow_any_contact_info_remove( void ) {
-  void * scratch = aligned_alloc( scratch_align(), scratch_footprint( NULL ) ); FD_TEST( scratch );
+  void * scratch = aligned_alloc( scratch_align(), scratch_footprint( &test_tile ) ); FD_TEST( scratch );
 
   fd_gossip_update_message_t msg[1] __attribute__((aligned(FD_CHUNK_ALIGN)));
   fd_snapct_tile_t * ctx;
@@ -274,7 +276,7 @@ test_allow_any_contact_info_remove( void ) {
 
 static void
 test_allow_list_contact_info_insert( void ) {
-  void * scratch = aligned_alloc( scratch_align(), scratch_footprint( NULL ) ); FD_TEST( scratch );
+  void * scratch = aligned_alloc( scratch_align(), scratch_footprint( &test_tile ) ); FD_TEST( scratch );
 
   fd_gossip_update_message_t msg[1] __attribute__((aligned(FD_CHUNK_ALIGN)));
   fd_snapct_tile_t * ctx;
@@ -299,7 +301,7 @@ test_allow_list_contact_info_insert( void ) {
 
 static void
 test_block_list_contact_info_insert( void ) {
-  void * scratch = aligned_alloc( scratch_align(), scratch_footprint( NULL ) ); FD_TEST( scratch );
+  void * scratch = aligned_alloc( scratch_align(), scratch_footprint( &test_tile ) ); FD_TEST( scratch );
 
   fd_gossip_update_message_t msg[1] __attribute__((aligned(FD_CHUNK_ALIGN)));
   fd_snapct_tile_t * ctx;
@@ -366,7 +368,7 @@ test_load_complete_signal( void ) {
 
 static void
 test_contact_info_slot_reuse_after_unallowed_peer_expires( void ) {
-  void * scratch = aligned_alloc( scratch_align(), scratch_footprint( NULL ) ); FD_TEST( scratch );
+  void * scratch = aligned_alloc( scratch_align(), scratch_footprint( &test_tile ) ); FD_TEST( scratch );
 
   fd_gossip_update_message_t msg[1] __attribute__((aligned(FD_CHUNK_ALIGN)));
   fd_snapct_tile_t * ctx;
@@ -404,7 +406,7 @@ test_contact_info_slot_reuse_after_unallowed_peer_expires( void ) {
 
 static void
 test_blacklist_peer_basic( fd_ssping_t * ssping ) {
-  void * scratch = aligned_alloc( scratch_align(), scratch_footprint( NULL ) ); FD_TEST( scratch );
+  void * scratch = aligned_alloc( scratch_align(), scratch_footprint( &test_tile ) ); FD_TEST( scratch );
 
   fd_snapct_tile_t * ctx;
   setup_blacklist_snapct( scratch, ssping, TOTAL_PEERS_MAX, &ctx );
@@ -444,7 +446,7 @@ test_blacklist_peer_basic( fd_ssping_t * ssping ) {
 
 static void
 test_blacklist_forgets_remembered_peer( fd_ssping_t * ssping ) {
-  void * scratch = aligned_alloc( scratch_align(), scratch_footprint( NULL ) ); FD_TEST( scratch );
+  void * scratch = aligned_alloc( scratch_align(), scratch_footprint( &test_tile ) ); FD_TEST( scratch );
 
   fd_snapct_tile_t * ctx;
   setup_blacklist_snapct( scratch, ssping, TOTAL_PEERS_MAX, &ctx );
@@ -481,7 +483,7 @@ test_blacklist_forgets_remembered_peer( fd_ssping_t * ssping ) {
 
 static void
 test_blacklist_peer_dedup( fd_ssping_t * ssping ) {
-  void * scratch = aligned_alloc( scratch_align(), scratch_footprint( NULL ) ); FD_TEST( scratch );
+  void * scratch = aligned_alloc( scratch_align(), scratch_footprint( &test_tile ) ); FD_TEST( scratch );
 
   fd_snapct_tile_t * ctx;
   setup_blacklist_snapct( scratch, ssping, TOTAL_PEERS_MAX, &ctx );
@@ -509,7 +511,7 @@ test_blacklist_peer_dedup( fd_ssping_t * ssping ) {
 
 static void
 test_blacklist_peer_cluster_slot_regression( fd_ssping_t * ssping ) {
-  void * scratch = aligned_alloc( scratch_align(), scratch_footprint( NULL ) ); FD_TEST( scratch );
+  void * scratch = aligned_alloc( scratch_align(), scratch_footprint( &test_tile ) ); FD_TEST( scratch );
 
   fd_snapct_tile_t * ctx;
   setup_blacklist_snapct( scratch, ssping, TOTAL_PEERS_MAX, &ctx );
@@ -554,7 +556,7 @@ test_blacklist_peer_cluster_slot_regression( fd_ssping_t * ssping ) {
 
 static void
 test_blacklist_peer_readd_blocked( fd_ssping_t * ssping ) {
-  void * scratch = aligned_alloc( scratch_align(), scratch_footprint( NULL ) ); FD_TEST( scratch );
+  void * scratch = aligned_alloc( scratch_align(), scratch_footprint( &test_tile ) ); FD_TEST( scratch );
 
   fd_snapct_tile_t * ctx;
   setup_blacklist_snapct( scratch, ssping, TOTAL_PEERS_MAX, &ctx );
@@ -589,7 +591,7 @@ test_blacklist_peer_readd_blocked( fd_ssping_t * ssping ) {
 
 static void
 test_blacklist_pool_exhaustion( fd_ssping_t * ssping ) {
-  void * scratch = aligned_alloc( scratch_align(), scratch_footprint( NULL ) ); FD_TEST( scratch );
+  void * scratch = aligned_alloc( scratch_align(), scratch_footprint( &test_tile ) ); FD_TEST( scratch );
 
   fd_snapct_tile_t * ctx;
   /* Create a blacklist pool with capacity 2. */
@@ -648,7 +650,7 @@ test_blacklist_pool_exhaustion( fd_ssping_t * ssping ) {
 
 static void
 test_contact_info_public_rpc_address( fd_ssping_t * ssping ) {
-  void * scratch = aligned_alloc( scratch_align(), scratch_footprint( NULL ) ); FD_TEST( scratch );
+  void * scratch = aligned_alloc( scratch_align(), scratch_footprint( &test_tile ) ); FD_TEST( scratch );
 
   fd_gossip_update_message_t msg[1] __attribute__((aligned(FD_CHUNK_ALIGN)));
   fd_snapct_tile_t * ctx;
@@ -672,7 +674,7 @@ test_contact_info_public_rpc_address( fd_ssping_t * ssping ) {
 
 static void
 test_contact_info_invalid_rpc_address_cleared( fd_ssping_t * ssping ) {
-  void * scratch = aligned_alloc( scratch_align(), scratch_footprint( NULL ) ); FD_TEST( scratch );
+  void * scratch = aligned_alloc( scratch_align(), scratch_footprint( &test_tile ) ); FD_TEST( scratch );
 
   fd_gossip_update_message_t msg[1] __attribute__((aligned(FD_CHUNK_ALIGN)));
   fd_snapct_tile_t * ctx;
@@ -695,7 +697,7 @@ test_contact_info_invalid_rpc_address_cleared( fd_ssping_t * ssping ) {
 
 static void
 test_rpc_flap_to_invalidated_addr_evicts_selector( fd_ssping_t * ssping ) {
-  void * scratch = aligned_alloc( scratch_align(), scratch_footprint( NULL ) ); FD_TEST( scratch );
+  void * scratch = aligned_alloc( scratch_align(), scratch_footprint( &test_tile ) ); FD_TEST( scratch );
 
   fd_gossip_update_message_t msg[1] __attribute__((aligned(FD_CHUNK_ALIGN)));
   fd_snapct_tile_t * ctx;
@@ -744,7 +746,7 @@ test_rpc_flap_to_invalidated_addr_evicts_selector( fd_ssping_t * ssping ) {
 
 static void
 test_contact_info_public_to_invalid_update( fd_ssping_t * ssping ) {
-  void * scratch = aligned_alloc( scratch_align(), scratch_footprint( NULL ) ); FD_TEST( scratch );
+  void * scratch = aligned_alloc( scratch_align(), scratch_footprint( &test_tile ) ); FD_TEST( scratch );
 
   fd_gossip_update_message_t msg[1] __attribute__((aligned(FD_CHUNK_ALIGN)));
   fd_snapct_tile_t * ctx;
@@ -773,7 +775,7 @@ test_contact_info_public_to_invalid_update( fd_ssping_t * ssping ) {
 
 static void
 test_start_after_init_acks( void ) {
-  void *            scratch = aligned_alloc( scratch_align(), scratch_footprint( NULL ) ); FD_TEST( scratch );
+  void *            scratch = aligned_alloc( scratch_align(), scratch_footprint( &test_tile ) ); FD_TEST( scratch );
   fd_snapct_tile_t * ctx     = scratch;
   static uchar output[ 16384UL ] __attribute__((aligned(FD_CHUNK_ALIGN)));
   void * sel = aligned_alloc( fd_sspeer_selector_align(), fd_sspeer_selector_footprint( TOTAL_PEERS_MAX ) ); FD_TEST( sel );
@@ -1045,7 +1047,7 @@ test_full_fini_full_only( void ) {
     { "file, incremental on disk",    0, 0, 0, 0, 0UL,   120UL,     1 },
   };
 
-  void * scratch = aligned_alloc( scratch_align(), scratch_footprint( NULL ) ); FD_TEST( scratch );
+  void * scratch = aligned_alloc( scratch_align(), scratch_footprint( &test_tile ) ); FD_TEST( scratch );
   fd_snapct_tile_t * ctx = scratch;
   static uchar output[ 16384UL ] __attribute__((aligned(FD_CHUNK_ALIGN)));
   void * sel = aligned_alloc( fd_sspeer_selector_align(), fd_sspeer_selector_footprint( TOTAL_PEERS_MAX ) ); FD_TEST( sel );
@@ -1194,6 +1196,17 @@ test_wfs_short_of_target( void ) {
 }
 
 static void
+test_scratch_footprint_servers( void ) {
+  fd_topo_tile_t tile[1];
+  memset( tile, 0, sizeof(fd_topo_tile_t) );
+  ulong base = scratch_footprint( tile );
+  for( ulong cnt=1UL; cnt<=FD_TOPO_SNAPSHOTS_SERVERS_MAX; cnt++ ) {
+    tile->snapct.sources.servers_cnt = cnt;
+    FD_TEST( scratch_footprint( tile )>=base+fd_http_resolver_footprint( cnt*FD_TOPO_MAX_RESOLVED_ADDRS ) );
+  }
+}
+
+static void
 test_snapct_needs_incr( void ) {
   fd_topo_tile_t tile[1];
   memset( tile, 0, sizeof(fd_topo_tile_t) );
@@ -1273,7 +1286,7 @@ test_wfs_init_no_download( void ) {
     { "short with no way to lift it",      1, 200UL, 0, 100UL,     ULONG_MAX, 0, 1 },
   };
 
-  void * scratch = aligned_alloc( scratch_align(), scratch_footprint( NULL ) ); FD_TEST( scratch );
+  void * scratch = aligned_alloc( scratch_align(), scratch_footprint( &test_tile ) ); FD_TEST( scratch );
   fd_snapct_tile_t * ctx = scratch;
   static uchar output[ 16384UL ] __attribute__((aligned(FD_CHUNK_ALIGN)));
   void * sel = aligned_alloc( fd_sspeer_selector_align(), fd_sspeer_selector_footprint( TOTAL_PEERS_MAX ) ); FD_TEST( sel );
@@ -1345,7 +1358,7 @@ test_flushing_full_file_done_incremental_source( void ) {
     { "no local on disk",             1, 210UL,     ULONG_MAX, 50U, FD_SNAPCT_STATE_COLLECTING_PEERS_INCREMENTAL  },
   };
 
-  void * scratch = aligned_alloc( scratch_align(), scratch_footprint( NULL ) ); FD_TEST( scratch );
+  void * scratch = aligned_alloc( scratch_align(), scratch_footprint( &test_tile ) ); FD_TEST( scratch );
   fd_snapct_tile_t * ctx = scratch;
   static uchar output[ 16384UL ] __attribute__((aligned(FD_CHUNK_ALIGN)));
   void * sel = aligned_alloc( fd_sspeer_selector_align(), fd_sspeer_selector_footprint( TOTAL_PEERS_MAX ) ); FD_TEST( sel );
@@ -1390,7 +1403,7 @@ test_flushing_full_file_done_incremental_source( void ) {
 
 static void
 test_flushing_full_file_done_wfs_floor( void ) {
-  void * scratch = aligned_alloc( scratch_align(), scratch_footprint( NULL ) ); FD_TEST( scratch );
+  void * scratch = aligned_alloc( scratch_align(), scratch_footprint( &test_tile ) ); FD_TEST( scratch );
   fd_snapct_tile_t * ctx = scratch;
   static uchar output[ 16384UL ] __attribute__((aligned(FD_CHUNK_ALIGN)));
   void * sel = aligned_alloc( fd_sspeer_selector_align(), fd_sspeer_selector_footprint( TOTAL_PEERS_MAX ) ); FD_TEST( sel );
@@ -1448,7 +1461,7 @@ test_incremental_selection_wfs_floor( void ) {
     { "http done refuses a short incr",  FD_SNAPCT_STATE_FLUSHING_FULL_HTTP_DONE,       0L,       FD_SNAPCT_STATE_COLLECTING_PEERS_INCREMENTAL  },
   };
 
-  void * scratch = aligned_alloc( scratch_align(), scratch_footprint( NULL ) ); FD_TEST( scratch );
+  void * scratch = aligned_alloc( scratch_align(), scratch_footprint( &test_tile ) ); FD_TEST( scratch );
   fd_snapct_tile_t * ctx = scratch;
   static uchar output[ 16384UL ] __attribute__((aligned(FD_CHUNK_ALIGN)));
   void * sel = aligned_alloc( fd_sspeer_selector_align(), fd_sspeer_selector_footprint( TOTAL_PEERS_MAX ) ); FD_TEST( sel );
@@ -1533,7 +1546,7 @@ test_collecting_peers_wfs_selection( void ) {
     { "wfs prefers a reaching peer",          1, 300UL, 300UL, 290UL, ULONG_MAX, 300UL,     400UL,       20U, 0, FD_SNAPCT_STATE_READING_FULL_FILE, FD_SSPEER_SLOT_UNKNOWN },
   };
 
-  void * scratch = aligned_alloc( scratch_align(), scratch_footprint( NULL ) ); FD_TEST( scratch );
+  void * scratch = aligned_alloc( scratch_align(), scratch_footprint( &test_tile ) ); FD_TEST( scratch );
   fd_snapct_tile_t * ctx = scratch;
   static uchar output[ 16384UL ] __attribute__((aligned(FD_CHUNK_ALIGN)));
   void * sel = aligned_alloc( fd_sspeer_selector_align(), fd_sspeer_selector_footprint( TOTAL_PEERS_MAX ) ); FD_TEST( sel );
@@ -1603,7 +1616,7 @@ test_collecting_peers_wfs_selection( void ) {
 
 static void
 test_predict_incremental_wfs_gate( fd_ssping_t * ssping ) {
-  void * scratch = aligned_alloc( scratch_align(), scratch_footprint( NULL ) ); FD_TEST( scratch );
+  void * scratch = aligned_alloc( scratch_align(), scratch_footprint( &test_tile ) ); FD_TEST( scratch );
 
   fd_snapct_tile_t * ctx;
   setup_blacklist_snapct( scratch, ssping, TOTAL_PEERS_MAX, &ctx );
@@ -1680,7 +1693,7 @@ test_predict_incremental_wfs_gate( fd_ssping_t * ssping ) {
 
 static void
 test_log_download_peer_churn( fd_ssping_t * ssping ) {
-  void * scratch = aligned_alloc( scratch_align(), scratch_footprint( NULL ) ); FD_TEST( scratch );
+  void * scratch = aligned_alloc( scratch_align(), scratch_footprint( &test_tile ) ); FD_TEST( scratch );
   static uchar output[ 16384UL ] __attribute__((aligned(FD_CHUNK_ALIGN)));
   fd_gossip_update_message_t msg[1] __attribute__((aligned(FD_CHUNK_ALIGN)));
   for( int remove=0; remove<2; remove++ ) {
@@ -1744,6 +1757,7 @@ main( int     argc,
   test_full_fini_full_only();
   test_meta_repins_full();
   test_snapct_needs_incr();
+  test_scratch_footprint_servers();
   test_incr_use_local();
   test_wfs_short_of_target();
 
