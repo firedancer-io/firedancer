@@ -425,6 +425,10 @@ backtest_topo( config_t * config ) {
   }
   FD_TEST( fd_pod_insertf_ulong( topo->props, txncache_obj->id, "txncache" ) );
 
+  fd_topo_obj_t * execrp_ed_obj = setup_topo_ed25519_cache( topo, "execrp", FD_EXECRP_ED25519_CACHE_ENT_CNT );
+  FOR(execrp_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "execrp", i ) ], execrp_ed_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, execrp_ed_obj->id, "ed25519_cache.execrp" ) );
+
   /* snapin (snapshot mode) and genesi (genesis mode) are mutually
      exclusive accdb writers */
   if( FD_LIKELY( !disable_snap_loader ) ) {

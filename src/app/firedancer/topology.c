@@ -291,6 +291,19 @@ setup_topo_txncache( fd_topo_t *  topo,
 }
 
 fd_topo_obj_t *
+setup_topo_ed25519_cache( fd_topo_t *  topo,
+                          char const * wksp_name,
+                          ulong        ent_cnt ) {
+  ulong seed;
+  FD_TEST( fd_rng_secure( &seed, sizeof( ulong ) ) );
+
+  fd_topo_obj_t * obj = fd_topob_obj( topo, "ed_cache", wksp_name );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, ent_cnt, "obj.%lu.ent_cnt", obj->id ) );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, seed,    "obj.%lu.seed",    obj->id ) );
+  return obj;
+}
+
+fd_topo_obj_t *
 setup_topo_accdb( fd_topo_t *  topo,
                   char const * wksp_name,
                   ulong        max_accounts,
@@ -1419,6 +1432,10 @@ fd_topo_initialize( config_t * config ) {
   FOR(execrp_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "execrp", i ) ], txncache_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FD_TEST( fd_pod_insertf_ulong( topo->props, txncache_obj->id, "txncache" ) );
 
+  fd_topo_obj_t * execrp_ed_obj = setup_topo_ed25519_cache( topo, "execrp", FD_EXECRP_ED25519_CACHE_ENT_CNT );
+  FOR(execrp_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "execrp", i ) ], execrp_ed_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, execrp_ed_obj->id, "ed25519_cache.execrp" ) );
+
   /* Snapin and genesi are mutually exclusive accdb writers. */
   ulong accdb_joiners = 3UL+execle_tile_cnt+execrp_tile_cnt+resolv_tile_cnt
                       + fd_ulong_if( snapshots_enabled, snapin_tile_cnt, 1UL );
@@ -1906,6 +1923,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->execrp.progcache_obj_id = fd_pod_query_ulong( config->topo.props, "progcache", ULONG_MAX ); FD_TEST( tile->execrp.progcache_obj_id!=ULONG_MAX );
     tile->execrp.accdb_obj_id     = fd_pod_query_ulong( config->topo.props, "accdb",     ULONG_MAX ); FD_TEST( tile->execrp.accdb_obj_id    !=ULONG_MAX );
     tile->execrp.bpf_frames_obj_id = fd_pod_query_ulong( config->topo.props, "bpf_frames", ULONG_MAX ); FD_TEST( tile->execrp.bpf_frames_obj_id!=ULONG_MAX );
+    tile->execrp.ed25519_cache_obj_id = fd_pod_query_ulong( config->topo.props, "ed25519_cache.execrp", ULONG_MAX ); FD_TEST( tile->execrp.ed25519_cache_obj_id!=ULONG_MAX );
 
     tile->execrp.max_live_slots  = config->firedancer.runtime.max_live_slots;
     tile->execrp.jit_arena_sz    = config->firedancer.runtime.jit ? config->firedancer.runtime.jit_arena_size_mib<<20 : 0UL;
