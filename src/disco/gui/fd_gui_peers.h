@@ -349,13 +349,28 @@ static int live_table_col_stake_lt ( void const * a, void const * b ) { return f
 
 #define FD_GUI_PEERS_LIVE_TABLE_DEFAULT_SORT_KEY ((fd_gui_peers_live_table_sort_key_t){ .col = { 0, 1, 2, 3, 4, 5, 6, 7, 8 }, .dir = { -1, -1, -1, -1, -1, -1, -1, -1, -1 } })
 
+/* fd_gui_peers_vrow_t is the part of a row a viewport shows and diffs.
+   ip4 is 0 for ipv6, rates are bytes/sec indexed by FD_GUI_PEERS_RATE_*. */
+struct fd_gui_peers_vrow {
+  ulong       stake;
+  long        rx[ FD_GUI_PEERS_RATE_CNT ];
+  long        tx[ FD_GUI_PEERS_RATE_CNT ];
+  fd_pubkey_t pubkey;
+  uint        ip4;
+  uchar       valid;
+  uchar       country_code_idx;
+  char        name[ FD_GUI_CONFIG_PARSE_VALIDATOR_INFO_NAME_SZ + 1UL ];
+};
+typedef struct fd_gui_peers_vrow fd_gui_peers_vrow_t;
+FD_STATIC_ASSERT( sizeof(fd_gui_peers_vrow_t)==160UL, gui_peers_vrow_sz );
+
 struct fd_gui_peers_ws_conn {
   int connected;
   long connected_time;
 
   ulong start_row;
   ulong row_cnt;
-  fd_gui_peers_row_t viewport[ FD_GUI_PEERS_WS_VIEWPORT_MAX_SZ ];
+  fd_gui_peers_vrow_t viewport[ FD_GUI_PEERS_WS_VIEWPORT_MAX_SZ ];
   fd_gui_peers_live_table_sort_key_t sort_key;
 };
 
@@ -426,8 +441,8 @@ struct fd_gui_peers_ctx {
       ulong wfs_peers[ MAX_STAKE_WEIGHTS ];
     };
     struct {
-      fd_gui_peers_row_t viewport    [ FD_GUI_PEERS_WS_VIEWPORT_MAX_SZ ]; /* new rows snapshotted from live_table */
-      fd_gui_peers_row_t viewport_ref[ FD_GUI_PEERS_WS_VIEWPORT_MAX_SZ ]; /* old baseline, diff reference */
+      fd_gui_peers_vrow_t viewport    [ FD_GUI_PEERS_WS_VIEWPORT_MAX_SZ ]; /* new rows snapshotted from live_table */
+      fd_gui_peers_vrow_t viewport_ref[ FD_GUI_PEERS_WS_VIEWPORT_MAX_SZ ]; /* old baseline, diff reference */
       ulong viewport_cnt;
     };
   } scratch;
