@@ -561,6 +561,7 @@ struct fd_topo_tile {
       ulong accdb_obj_id;
       ulong bpfser_arena_obj_id;
       ulong deploy_pool_obj_id;
+      ulong ed25519_cache_obj_id;
 
       ulong max_live_slots;
 

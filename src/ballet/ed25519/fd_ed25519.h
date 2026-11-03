@@ -181,9 +181,15 @@ fd_ed25519_verify_batch_single_msg( uchar const   msg[], /* msg_sz */
 
    The results (including error codes) of the cached verify APIs are
    identical to the uncached ones for all inputs and cache states; the
-   cache only changes how long a verify takes.  A cache is not thread
-   safe and is typically owned by a single tile.  The footprint is
-   ~6.2 KiB per entry (AVX-512 build) plus ~170 KiB of fixed tables. */
+   cache only changes how long a verify takes.  The footprint is
+   ~6.2 KiB per entry (AVX-512 build) plus ~170 KiB of fixed tables.
+
+   The keys and tables (shmem) can be shared by several threads, each
+   with its own user part (admission filter, credits, counters).
+   Lookups are lock free and validated by a per set sequence number;
+   a lookup that races an insert into its set verifies uncached.  An
+   insert into a set another thread is writing is skipped.  A user
+   part is not thread safe. */
 
 struct fd_ed25519_cache;
 typedef struct fd_ed25519_cache fd_ed25519_cache_t;
@@ -201,6 +207,15 @@ fd_ed25519_cache_align( void );
 FD_FN_CONST ulong
 fd_ed25519_cache_footprint( ulong ent_cnt );
 
+/* fd_ed25519_cache_{shmem,user}_footprint split footprint into the
+   shared keys and tables and the per user part. */
+
+FD_FN_CONST ulong
+fd_ed25519_cache_shmem_footprint( ulong ent_cnt );
+
+FD_FN_CONST ulong
+fd_ed25519_cache_user_footprint( ulong ent_cnt );
+
 /* fd_ed25519_cache_new formats mem as a cache with ent_cnt entries,
    seeded with seed (the seed randomizes set placement).  Returns mem on
    success and NULL on failure (logs details).  fd_ed25519_cache_join
@@ -212,6 +227,21 @@ fd_ed25519_cache_new( void * mem,
                       ulong  ent_cnt,
                       ulong  seed );
 
+/* fd_ed25519_cache_shmem_new formats shmem as shared keys and tables
+   for ent_cnt entries.  fd_ed25519_cache_user_new formats mem as a
+   user part of the formatted shmem (ent_cnt sizes its admission
+   filter), joinable with fd_ed25519_cache_join. */
+
+void *
+fd_ed25519_cache_shmem_new( void * shmem,
+                            ulong  ent_cnt,
+                            ulong  seed );
+
+void *
+fd_ed25519_cache_user_new( void * mem,
+                           ulong  ent_cnt,
+                           void * shmem );
+
 fd_ed25519_cache_t *
 fd_ed25519_cache_join( void * shcache );
 
@@ -221,13 +251,14 @@ fd_ed25519_cache_leave( fd_ed25519_cache_t * cache );
 void *
 fd_ed25519_cache_delete( void * shcache );
 
-/* fd_ed25519_cache_{hit,miss,insert}_cnt return the number of public
-   key lookups that hit, the number that missed and the number of
-   entries inserted, since the cache was created. */
+/* fd_ed25519_cache_{hit,miss,insert,conflict}_cnt return this user's
+   number of public key lookups that hit, that missed, entries
+   inserted and hits redone uncached due to a racing insert. */
 
-ulong fd_ed25519_cache_hit_cnt   ( fd_ed25519_cache_t const * cache );
-ulong fd_ed25519_cache_miss_cnt  ( fd_ed25519_cache_t const * cache );
-ulong fd_ed25519_cache_insert_cnt( fd_ed25519_cache_t const * cache );
+ulong fd_ed25519_cache_hit_cnt     ( fd_ed25519_cache_t const * cache );
+ulong fd_ed25519_cache_miss_cnt    ( fd_ed25519_cache_t const * cache );
+ulong fd_ed25519_cache_insert_cnt  ( fd_ed25519_cache_t const * cache );
+ulong fd_ed25519_cache_conflict_cnt( fd_ed25519_cache_t const * cache );
 
 /* fd_ed25519_verify_cached is fd_ed25519_verify using cache.  Returns
    exactly what fd_ed25519_verify returns for the same msg, sig and

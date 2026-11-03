@@ -141,7 +141,10 @@ test_env_create( void ) {
   topo_tile->execrp.bpfser_arena_obj_id = bpfser_obj->id;
   topo_tile->execrp.deploy_pool_obj_id  = deployscr_obj->id;
 
-  privileged_init( topo, topo_tile );
+  void * ed_mem = fd_wksp_alloc_laddr( env->mini->wksp, fd_ed25519_cache_align(), fd_ed25519_cache_shmem_footprint( 16UL ), TOPO_TAG );
+  FD_TEST( fd_ed25519_cache_shmem_new( ed_mem, 16UL, 0UL ) );
+  topo_tile->execrp.ed25519_cache_obj_id = test_topo_obj_laddr( topo, "ed_cache", "execrp", ed_mem )->id;
+
   unprivileged_init( topo, topo_tile );
 
   env->execrp = tile_mem;

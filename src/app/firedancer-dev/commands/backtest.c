@@ -420,6 +420,10 @@ backtest_topo( config_t * config ) {
   }
   FD_TEST( fd_pod_insertf_ulong( topo->props, txncache_obj->id, "txncache" ) );
 
+  fd_topo_obj_t * execrp_ed_obj = setup_topo_ed25519_cache( topo, "execrp", FD_EXECRP_ED25519_CACHE_ENT_CNT );
+  FOR(execrp_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "execrp", i ) ], execrp_ed_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, execrp_ed_obj->id, "ed25519_cache.execrp" ) );
+
   fd_topob_wksp( topo, "bpfser_arena" );
   fd_topo_obj_t * bpfser_rp_obj = setup_topo_bpfser_arena( topo, "bpfser_arena", 2UL, FD_BPF_SER_ARENA_BUNDLE_FOOTPRINT( FD_MAX_INSTRUCTION_STACK_DEPTH ) );
   FOR(execrp_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "execrp", i ) ], bpfser_rp_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
