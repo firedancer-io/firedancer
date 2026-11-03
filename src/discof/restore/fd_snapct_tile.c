@@ -211,7 +211,7 @@ struct fd_snapct_tile {
     ulong       slot;
     int         pending;
     int         committed;
-    fd_sspeer_t peer; /* newest peer seen with an incremental on full_slot */
+    fd_sspeer_t peer; /* peer last picked for an incremental on full_slot */
   } predicted_incremental;
 
   struct {
@@ -731,18 +731,14 @@ init_load( fd_snapct_tile_t *  ctx,
   ctx->start_sent = 0;
   ctx->load_complete = 0;
 
-  if( !file ) {
-    if( full ) FD_TEST( fd_cstr_printf_check( ctx->http_full_snapshot_name, PATH_MAX, NULL, "snapshot.tar.bz2" ) );
-    else       fd_cstr_fini( ctx->http_incr_snapshot_name );
-    snapshot_output_prepare( ctx, full );
-  }
+  /* The full learns its name from the redirect, the incremental gets
+     its name at START, and a local file has none.  Clear stale names
+     before the rename functions run. */
+  if( !full )     fd_cstr_fini( ctx->http_incr_snapshot_name );
+  else if( file ) fd_cstr_fini( ctx->http_full_snapshot_name );
+  else            FD_TEST( fd_cstr_printf_check( ctx->http_full_snapshot_name, PATH_MAX, NULL, "snapshot.tar.bz2" ) );
 
-  /* Clear stale http_*_snapshot_name for file loads before rename
-     functions run.  GUI publish is deferred to the META handler. */
-  if( file ) {
-    if( full ) fd_cstr_fini( ctx->http_full_snapshot_name );
-    else       fd_cstr_fini( ctx->http_incr_snapshot_name );
-  }
+  if( !file ) snapshot_output_prepare( ctx, full );
 
   if( !full ) {
     if( file ) ctx->predicted_incremental.slot = ctx->local_in.incremental_snapshot_slot;
@@ -1217,7 +1213,7 @@ after_credit( fd_snapct_tile_t *  ctx,
         FD_LOG_INFO(( "reading full snapshot at slot %lu (cluster full %lu incremental %lu) from local file `%s`",
                       ctx->local_in.full_snapshot_slot, cluster.full, cluster.incremental, ctx->local_in.full_snapshot_path ));
         ctx->predicted_incremental.full_slot = ctx->local_in.full_snapshot_slot;
-        predict_incremental( ctx );
+        if( !local_incr_on_disk ) predict_incremental( ctx );
         set_state( ctx, FD_SNAPCT_STATE_READING_FULL_FILE );
         init_load( ctx, stem, 1, 1 );
       } else {
@@ -1973,6 +1969,9 @@ snapld_frag( fd_snapct_tile_t *  ctx,
         ctx->predicted_incremental.full_slot = meta->resolved_slot;
         ctx->predicted_incremental.slot      = FD_SSPEER_SLOT_UNKNOWN;
         predict_incremental( ctx );
+        /* Until a peer offers an incremental on it, the full itself is
+           the slot to expect. */
+        if( ctx->predicted_incremental.slot==FD_SSPEER_SLOT_UNKNOWN ) send_expected_slot( ctx, stem, meta->resolved_slot );
       }
 
       if( FD_LIKELY( !!ctx->out_gui.mem ) ) {

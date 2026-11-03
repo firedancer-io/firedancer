@@ -994,8 +994,10 @@ test_meta_repins_full( void ) {
   FD_TEST( !strcmp( ctx->http_full_snapshot_name, "snapshot-300-b.tar.zst" ) );
 
   /* A full nobody offers an incremental on yet: no stale prediction
-     is kept, and the remembered peer no longer qualifies. */
+     is kept, the remembered peer no longer qualifies, and the full's
+     own slot is sent as the one to expect. */
   ctx->predicted_incremental.pending = 0;
+  test_publish_cnt = 0UL;
   meta->resolved_slot = 500UL;
   fd_cstr_ncpy( meta->resolved_name, "snapshot-500-e.tar.zst", PATH_MAX );
   snapld_frag( ctx, FD_SNAPSHOT_MSG_META, sizeof(*meta), 0UL, NULL );
@@ -1003,6 +1005,7 @@ test_meta_repins_full( void ) {
   FD_TEST( ctx->predicted_incremental.slot==FD_SSPEER_SLOT_UNKNOWN );
   FD_TEST( ctx->predicted_incremental.pending==0 );
   FD_TEST( !best_incremental_peer( ctx ).addr.l );
+  FD_TEST( test_publish_cnt==1UL && test_publish_sig==FD_SSMSG_EXPECTED_SLOT );
 
   /* The incremental was asked for by name; META does not rename it. */
   ctx->state = FD_SNAPCT_STATE_READING_INCREMENTAL_HTTP;
