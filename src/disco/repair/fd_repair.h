@@ -101,6 +101,8 @@ struct fd_repair_blk {
   uchar highest_req  : 1; /* tile: a HIGHEST req was made */
   uchar orphan_req   : 1; /* tile: an ORPHAN req was made */
 
+  uchar dead         : 1; /* replay rejected it or an ancestor: never delivered again, nor anything under it */
+
   ulong * fecs; /* fec_pool idx of each FEC set, null if none, fec_blk_max of them */
 
   long rcvd_fec_ts; /* when rcvd_fec_cnt last grew */
@@ -277,11 +279,11 @@ fd_repair_fini( fd_repair_t * rotor );
 
 /* replay_slot   REPLAY_SIG_SLOT_DEAD
 
-   replay rejected the blk.  If it was the eager blk the slot is
-   invalidated so turbine can't rebuild it.  We do not prune the blk. If
-   this blk gets finalized, we want to keep the block data so that if it
-   gets re-delivered, we can notify replay that it is a finalized block
-   so replay can detect a hard fork.  */
+   replay rejected the blk.  It and every blk under it are marked dead:
+   never delivered or repaired again.  The blk is held, not pruned, so a
+   cert naming it finds it instead of creating a fresh copy whose
+   children would go out ahead of it.  If it was the eager blk the slot
+   is invalidated so turbine can't rebuild it.  */
 
 void
 fd_repair_blk_dead( fd_repair_t *     rotor,
