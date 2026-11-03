@@ -31,6 +31,13 @@
    are keyed by stake pubkey.  Delta records are keyed by fork index
    and stake pubkey, so sibling forks retain independent versions.
 
+   Records name their vote account by a refcounted vote_id.  Ids in
+   [1,vote_ram_max] index a deduplicated in-memory key table of
+   min(2^16,max_stake_accounts) entries.  When it is full, each write
+   of a missing key takes a fresh overflow id (no dedupe) whose key and
+   refcount live in the spill file, sized for every record the tiers
+   can hold.
+
    There are some important invariants wrt fd_stake_delegations_t:
    1. After execution has started, there will be no invalid stake
       accounts in the stake delegations struct.
@@ -70,6 +77,10 @@
 #define FD_STAKE_DELEGATIONS_ALIGN              (128UL)
 #define FD_STAKE_DELEGATIONS_FORK_MAX           (65534UL)
 #define FD_STAKE_DELEGATIONS_DELTA_POOL_DIVISOR (2UL)
+#define FD_STAKE_DELEGATIONS_VOTE_RAM_MAX       (65536UL)
+
+/* vote_id of tombstones and placeholder roots */
+#define FD_STAKE_DELEGATIONS_VOTE_NONE (0U)
 
 /* 123454 is vote stakes, 123455 is cost tracker, 123456 is epoch
    credits, 123458/123459 are store, 123460/123461 are accdb, and
@@ -164,7 +175,7 @@ struct fd_stake_delegation {
                              delta pool.  Set to 1 if this element holds a live delegation
                              present in the root map, 0 if the element has been reclaimed. */
   uchar       state  : 3; /* Can only be non-UNKNOWN in a root record. */
-  fd_pubkey_t vote_account;
+  uint        vote_id;   /* see fd_stake_delegations_vote_key */
   ulong       stake;
   ulong       lamports;
   ulong       credits_observed;
@@ -179,7 +190,14 @@ struct fd_stake_delegation {
 };
 typedef struct fd_stake_delegation fd_stake_delegation_t;
 
-FD_STATIC_ASSERT( sizeof(fd_stake_delegation_t)==112UL, fd_stake_delegation );
+FD_STATIC_ASSERT( sizeof(fd_stake_delegation_t)==88UL, fd_stake_delegation );
+
+struct fd_stake_delegation_vote {
+  fd_pubkey_t key;
+  uint        next_;
+  uint        refcnt;
+};
+typedef struct fd_stake_delegation_vote fd_stake_delegation_vote_t;
 
 typedef struct fd_stake_delegations fd_stake_delegations_t;
 
@@ -194,6 +212,9 @@ struct fd_stake_delegations_iter {
   ulong                          wmk;      /* in-memory root watermark */
   ulong                          root_max; /* in-memory root capacity */
   ulong                          disk_idx; /* dense disk-root cursor */
+  fd_stake_delegation_vote_t const * vote_pool;
+  ulong                          vote_ram_max;
+  fd_pubkey_t                    vote_key; /* overflow key buffer */
   fd_stake_delegation_t          disk_ele;
   fd_stake_delegation_t          disk_batch[ FD_STAKE_DELEGATIONS_ITER_BATCH_CNT ];
 };
@@ -514,7 +535,7 @@ fd_stake_delegations_view_end( fd_stake_delegations_t *   stake_delegations,
    Under the hood, the iterator walks in-memory roots followed by dense
    disk roots, redirecting through tagged in-memory/disk delta references
    for entries a marked fork has changed.  Disk roots are read in batches
-   of up to 128 records (14 KiB per iterator).  Disk records are returned
+   of up to 128 records (11 KiB per iterator).  Disk records are returned
    through iterator-owned storage, so that pointer remains valid only
    until the next call to fd_stake_delegations_iter_next.  Reinitialize
    the iterator after modifying the store or changing the marked forks.
@@ -557,6 +578,25 @@ fd_stake_delegations_iter_next( fd_stake_delegations_iter_t * iter ) {
 static inline int
 fd_stake_delegations_iter_done( fd_stake_delegations_iter_t * iter ) {
   return !iter->ele;
+}
+
+/* fd_stake_delegations_vote_key returns the vote account of vote_id,
+   either in the in-memory table or read from the spill file into buf
+   (zero key for FD_STAKE_DELEGATIONS_VOTE_NONE).  Valid while a record
+   holding vote_id is live and buf is unchanged. */
+
+fd_pubkey_t const *
+fd_stake_delegations_vote_key( fd_stake_delegations_t const * stake_delegations,
+                               uint                           vote_id,
+                               fd_pubkey_t *                  buf );
+
+/* Vote account of the current element, valid until the next call. */
+
+static inline fd_pubkey_t const *
+fd_stake_delegations_iter_vote_key( fd_stake_delegations_iter_t * iter ) {
+  ulong slot = (ulong)iter->ele->vote_id-1UL;
+  if( FD_LIKELY( slot<iter->vote_ram_max ) ) return &iter->vote_pool[ slot ].key;
+  return fd_stake_delegations_vote_key( iter->stake_delegations, iter->ele->vote_id, &iter->vote_key );
 }
 
 /* Invalidates WARMED tags in the in-memory and disk roots, skipping the
