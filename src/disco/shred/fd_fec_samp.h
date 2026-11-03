@@ -41,6 +41,15 @@ fd_fec_samp_derive( fd_fec_samp_t *            s,
                     fd_bmtree_node_t   const * root,
                     fd_bmtree_commit_t const * bmtree );
 
+/* fd_fec_samp_derive_p20 is fd_fec_samp_derive for a fd_bmtree_commitp20
+   tree (same proofs, so the same digest). */
+static inline void
+fd_fec_samp_derive_p20( fd_fec_samp_t *               s,
+                        ulong                         seed,
+                        ulong                         slot,
+                        uint                          fec_set_idx,
+                        fd_bmtree_commitp20_t const * bmtree );
+
 /* fd_fec_samp_set_force_match modifies the digest s to match any and
    all shreds.  This is useful for cases where you have already detected
    equivocation and do not want to spend any more computation on the FEC
@@ -225,9 +234,10 @@ fd_fec_samp_extract_cor_bits( ulong input,
 }
 
 static inline ushort
-fd_fec_samp_extract( fd_bmtree_commit_t const * bmtree,
-                     fd_fec_samp_dec_t const *  entropy,
-                     ulong                      leaf_off ) {
+fd_fec_samp_extract( fd_bmtree_commit_t    const * bmtree,
+                     fd_bmtree_commitp20_t const * bmtree20,
+                     fd_fec_samp_dec_t     const * entropy,
+                     ulong                         leaf_off ) {
   union {
     uchar p[6][20];
     uchar raw[120 + 8]; /* allow tail reading */
@@ -235,7 +245,8 @@ fd_fec_samp_extract( fd_bmtree_commit_t const * bmtree,
   } proof;
 
   /* We can get the hash of shred n by getting the proof of shred n^1 */
-  FD_TEST( -1!=fd_bmtree_get_proof( bmtree, proof.raw, leaf_off + (entropy->shred0 ^ 1UL) ) );
+  FD_TEST( -1!=( bmtree ? fd_bmtree_get_proof          ( bmtree,   proof.raw, leaf_off + (entropy->shred0 ^ 1UL) )
+                        : fd_bmtree_commitp20_get_proof( bmtree20, proof.raw, leaf_off + (entropy->shred0 ^ 1UL) ) ) );
 
   /* Extract ~14 bits from the child of the root */
   ulong cor_bits = fd_fec_samp_extract_cor_bits( fd_ulong_load_5_fast( proof.p[5] + entropy->offset ), entropy->mask );
@@ -244,7 +255,8 @@ fd_fec_samp_extract( fd_bmtree_commit_t const * bmtree,
      other randomly selected leaf. */
   ulong shred0_bit = 1UL & (proof.uints[0][entropy->shred0_off]>>entropy->shred_bit);
 
-  FD_TEST( -1!=fd_bmtree_get_proof( bmtree, proof.raw, leaf_off + (entropy->shred1 ^ 1UL) ) );
+  FD_TEST( -1!=( bmtree ? fd_bmtree_get_proof          ( bmtree,   proof.raw, leaf_off + (entropy->shred1 ^ 1UL) )
+                        : fd_bmtree_commitp20_get_proof( bmtree20, proof.raw, leaf_off + (entropy->shred1 ^ 1UL) ) ) );
   ulong shred1_bit = 1UL & (proof.uints[0][entropy->shred1_off]>>entropy->shred_bit);
 
   return (ushort)( (shred0_bit<<15) | (shred1_bit<<14) | cor_bits );
@@ -253,18 +265,12 @@ fd_fec_samp_extract( fd_bmtree_commit_t const * bmtree,
 /* end of private helpers */
 
 static inline void
-fd_fec_samp_derive( fd_fec_samp_t *            s,
-                    ulong                      seed,
-                    ulong                      slot,
-                    uint                       fec_set_idx,
-                    void const *               signature,
-                    fd_bmtree_node_t   const * root,
-                    fd_bmtree_commit_t const * bmtree ) {
-  /* We don't use either the signature (since it's not a trustworthy
-     key) or the root (since it's not available in the shred) */
-  (void)signature;
-  (void)root;
-
+fd_fec_samp_derive_private( fd_fec_samp_t *               s,
+                            ulong                         seed,
+                            ulong                         slot,
+                            uint                          fec_set_idx,
+                            fd_bmtree_commit_t    const * bmtree,
+                            fd_bmtree_commitp20_t const * bmtree20 ) {
   /* For the probabilities to be right above, it doesn't matter what
      bits we choose.  However, an adversary could grind hashes to make
      it collide if we were using well-known bits, and if all validators
@@ -289,8 +295,8 @@ fd_fec_samp_derive( fd_fec_samp_t *            s,
 
   /* The data shreds are the first 32 shreds in the FEC set/Merkle tree,
      and the parity shreds are the last 32. */
-  s->data   = fd_fec_samp_extract( bmtree, data,    0UL );
-  s->parity = fd_fec_samp_extract( bmtree, parity, 32UL );
+  s->data   = fd_fec_samp_extract( bmtree, bmtree20, data,    0UL );
+  s->parity = fd_fec_samp_extract( bmtree, bmtree20, parity, 32UL );
 
   /* It's possible, but extremely unlikely that s->val could be UINT_MAX
      at this point.  However, an attacker could bias the probabilities
@@ -299,6 +305,30 @@ fd_fec_samp_derive( fd_fec_samp_t *            s,
   s->val ^= (uint)seed;
 
   fd_rng_delete( fd_rng_leave( rng ) );
+}
+
+static inline void
+fd_fec_samp_derive( fd_fec_samp_t *            s,
+                    ulong                      seed,
+                    ulong                      slot,
+                    uint                       fec_set_idx,
+                    void const *               signature,
+                    fd_bmtree_node_t   const * root,
+                    fd_bmtree_commit_t const * bmtree ) {
+  /* We don't use either the signature (since it's not a trustworthy
+     key) or the root (since it's not available in the shred) */
+  (void)signature;
+  (void)root;
+  fd_fec_samp_derive_private( s, seed, slot, fec_set_idx, bmtree, NULL );
+}
+
+static inline void
+fd_fec_samp_derive_p20( fd_fec_samp_t *               s,
+                        ulong                         seed,
+                        ulong                         slot,
+                        uint                          fec_set_idx,
+                        fd_bmtree_commitp20_t const * bmtree ) {
+  fd_fec_samp_derive_private( s, seed, slot, fec_set_idx, NULL, bmtree );
 }
 
 static inline int
