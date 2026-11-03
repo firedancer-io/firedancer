@@ -38,14 +38,16 @@
 #define STANDSTILL_SKIP_FALLBACK_VOTE  (STANDSTILL_NOTAR_FALLBACK_VOTE+FD_VOTOR_NOTAR_FALLBACK_VOTE_MAX)
 
 /* Stake per block hash.  The first HASH_STAKE_INLINE_MAX hashes of
-   a slot live inline; the rest (only reachable with garbage hashes from
-   staked voters) go to the slot's region of the spill file, read and
+   a slot live inline (honest votes give at most FD_VOTOR_EQVOC_MAX);
+   the rest (equivocating leader or garbage hashes from staked voters)
+   go to the slot's region of the spill file, read and
    written with pread/pwrite.  A free spill record has stake ULONG_MAX.
    Ids are stable: id<HASH_STAKE_INLINE_MAX is inline, else spill
    record id-HASH_STAKE_INLINE_MAX.  Inline ids keep the sum of
    their votes' sigs (unverified, like skip_agg). */
 
-#define HASH_STAKE_INLINE_MAX (32UL)
+#define HASH_STAKE_INLINE_MAX (8UL)
+FD_STATIC_ASSERT( HASH_STAKE_INLINE_MAX>FD_VOTOR_EQVOC_MAX && HASH_STAKE_INLINE_MAX<32UL, inline );
 #define NOTAR_SPILL_MAX       (FD_VOTOR_VAT_MAX                -HASH_STAKE_INLINE_MAX)
 #define NF_SPILL_MAX          (NOTAR_FALLBACK_HASH_MAX-HASH_STAKE_INLINE_MAX)
 
@@ -318,7 +320,7 @@ hash_stake_insert( slot_state_t * self,
                    int               nf,
                    fd_block_hash_t const *     hash ) {
   hash_stakes_t * tbl = fd_ptr_if( nf, &self->votes.notar_fallback_hash_stake, &self->votes.notar_hash_stake );
-  if( FD_LIKELY( tbl->used!=UINT_MAX ) ) {
+  if( FD_LIKELY( tbl->used!=(1U<<HASH_STAKE_INLINE_MAX)-1U ) ) {
     ulong i = (ulong)fd_uint_find_lsb( ~tbl->used );
     tbl->used |= 1U<<i;
     memcpy( &tbl->ele[ i ].hash, hash, sizeof(fd_block_hash_t) );
