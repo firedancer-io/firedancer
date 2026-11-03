@@ -1969,8 +1969,6 @@ snapld_frag( fd_snapct_tile_t *  ctx,
         ctx->predicted_incremental.full_slot = meta->resolved_slot;
         ctx->predicted_incremental.slot      = FD_SSPEER_SLOT_UNKNOWN;
         predict_incremental( ctx );
-        /* Until a peer offers an incremental on it, the full itself is
-           the slot to expect. */
         if( ctx->predicted_incremental.slot==FD_SSPEER_SLOT_UNKNOWN ) send_expected_slot( ctx, stem, meta->resolved_slot );
       }
 
