@@ -2831,8 +2831,9 @@ Value is a flat array of base58-encoded identity pubkeys that have gone
 offline (activity timeout expired) since the last message.
 
 ### timeline
-Historical shred and aggregate data recorded by the validator,
-queryable over UNIX nanosecond timestamp windows.
+Historical shred, slot, event, and aggregate data
+recorded by the validator, queryable over UNIX nanosecond timestamp
+windows.
 
 All methods require `start_ns` and `end_ns` as non-negative UNIX
 nanosecond timestamps, encoded as decimal strings without leading zeros
@@ -2854,10 +2855,12 @@ query.
 The GUI's database is wiped on boot. When it reaches capacity, data is
 evicted approximately oldest-first.
 
-| query              | maximum result | outcome if exceeded |
-|--------------------|----------------|---------------------|
-| `query_shreds`     | 262,144 rows   | error message       |
-| Each `query_agg_*` | 4,096 buckets  | connection closed   |
+| query                  | maximum result | outcome if exceeded |
+|------------------------|----------------|---------------------|
+| `query_shreds`         | 262,144 rows   | error message       |
+| `query_slots`          | 65,536 rows    | error message       |
+| `query_events`         | 65,536 rows    | error message       |
+| Each `query_agg_*`     | 4,096 buckets  | connection closed   |
 
 The server returns the following error message when response limits are
 exceeded. Narrow the window and retry.
@@ -2957,15 +2960,135 @@ list. Clients should not assume timestamps are ordered.
 
 :::
 
+#### `timeline.query_slots`
+| frequency | type            | example |
+|-----------|-----------------|---------|
+| *Request* | `TimelineSlots` | below   |
+
+| param    | type     | description |
+|----------|----------|-------------|
+| start_ns | `string` | Inclusive lower bound, using the timestamp rules above |
+| end_ns   | `string` | Exclusive upper bound |
+
+Returns one row per classified numeric slot whose interval overlaps the
+request window, ordered by slot.
+
+**`TimelineSlots`**
+| field              | type           | description |
+|--------------------|----------------|-------------|
+| available_start_ns | `string\|null` | Inclusive beginning of retained cached slot intervals |
+| available_end_ns   | `string\|null` | Exclusive end of retained cached slot intervals |
+| reference_slot     | `number\|null` | First slot in the response |
+| reference_ts       | `string\|null` | Minimum start timestamp across returned rows |
+| slot_delta         | `number[]`     | Per row, `slot - reference_slot` |
+| start_ts_delta     | `string[]`     | Per row, interval start minus `reference_ts`, in nanoseconds |
+| end_ts_delta       | `string[]`     | Per row, exclusive interval end minus `reference_ts`, in nanoseconds |
+| shred_cnt          | `(number\|null)[]` | Per row, the number of data shreds in the replayed block whose completion ends the interval. `null` for interpolated skipped slots or when unknown. The last FEC set index is `shred_cnt/32 - 1` |
+| skipped            | `number[]`     | Sparse slot deltas for skipped rows |
+| mine               | `number[]`     | Sparse slot deltas for locally produced rows |
+
+::: details Example
+
+```json
+{
+    "topic": "timeline",
+    "key": "query_slots",
+    "id": 49,
+    "params": {
+        "start_ns": "1739657040000000000",
+        "end_ns": "1739657041000000000"
+    }
+}
+```
+
+```json
+{
+    "topic": "timeline",
+    "key": "query_slots",
+    "id": 49,
+    "value": {
+        "available_start_ns": "1739577600000000000",
+        "available_end_ns": "1739657100000000000",
+        "reference_slot": 289245044,
+        "reference_ts": "1739657040120000000",
+        "slot_delta": [0, 1, 2],
+        "start_ts_delta": ["0", "412000000", "380000000"],
+        "end_ts_delta": ["412000000", "812000000", "1212000000"],
+        "shred_cnt": [1536, null, 1408],
+        "skipped": [1],
+        "mine": [0]
+    }
+}
+```
+
+:::
+
+#### `timeline.query_events`
+| frequency | type             | example |
+|-----------|------------------|---------|
+| *Request* | `TimelineEvents` | below   |
+
+| param    | type     | description |
+|----------|----------|-------------|
+| start_ns | `string` | Inclusive lower bound, using the timestamp rules above |
+| end_ns   | `string` | Exclusive upper bound |
+
+Returns a sparse list of `(event, slot, ts)` tuples whose `ts` lies in
+the request window, ordered by slot. Empty results have empty arrays.
+
+| event | name          | meaning |
+|-------|---------------|---------|
+| 0     | `leader_skip` | A slot scheduled to this validator's current identity that was classified skipped, as described for `query_slots`. `ts` is the midpoint of the slot's `query_slots` interval |
+
+**`TimelineEvents`**
+| field              | type           | description |
+|--------------------|----------------|-------------|
+| available_start_ns | `string\|null` | Same as `TimelineSlots` |
+| available_end_ns   | `string\|null` | Same as `TimelineSlots` |
+| event              | `number[]`     | Per row, event kind from the table above |
+| slot               | `number[]`     | Per row, slot number |
+| ts                 | `string[]`     | Per row, UNIX nanosecond event timestamp |
+
+::: details Example
+
+```json
+{
+    "topic": "timeline",
+    "key": "query_events",
+    "id": 50,
+    "params": {
+        "start_ns": "1739657000000000000",
+        "end_ns": "1739660600000000000"
+    }
+}
+```
+
+```json
+{
+    "topic": "timeline",
+    "key": "query_events",
+    "id": 50,
+    "value": {
+        "available_start_ns": "1739650000000000000",
+        "available_end_ns": "1739660000000000000",
+        "event": [0, 0],
+        "slot": [289245044, 289245448],
+        "ts": ["1739657041588242791", "1739657203188242791"]
+    }
+}
+```
+
+:::
+
 #### `timeline.query_agg_*`
 | frequency | type          | example |
 |-----------|---------------|---------|
 | *Request* | `TimelineAgg` | below   |
 
-Five methods share the following parameters and common response fields:
-`timeline.query_agg_shreds`, `timeline.query_agg_compute`,
-`timeline.query_agg_revenue`, `timeline.query_agg_txn`, and
-`timeline.query_agg_cpu`.
+Six methods share the following parameters and common response fields:
+`timeline.query_agg_slots`, `timeline.query_agg_shreds`,
+`timeline.query_agg_compute`, `timeline.query_agg_revenue`,
+`timeline.query_agg_txn`, and `timeline.query_agg_cpu`.
 
 | param       | type     | description |
 |-------------|----------|-------------|
@@ -2984,6 +3107,7 @@ The granularities are `25ms`, `50ms`, `100ms`, `250ms`, `500ms`, `1s`,
 | `timeline.query_agg_revenue` | `250ms` |
 | `timeline.query_agg_txn`     | `250ms` |
 | `timeline.query_agg_shreds`  | `250ms` |
+| `timeline.query_agg_slots`   | `250ms` |
 
 The request window is aligned to the request granularity bucket
 boundaries. At most 4,096 buckets may be requested, and the aligned
@@ -3008,6 +3132,58 @@ Each array has one entry per aligned bucket. Bucket `i` covers
 An entry is `null` when the field is unknown, distinct from a known
 zero. `null` values are ignored when computing rolled-up aggregates.
 
+##### `timeline.query_agg_slots`
+| field        | type               | description |
+|--------------|--------------------|-------------|
+| start_slot   | `(number\|null)[]` | Smallest observed slot per bucket, not an interval boundary |
+| end_slot     | `(number\|null)[]` | Largest observed slot per bucket, inclusive |
+| skipped      | `(number\|null)[]` | Count of classified skipped numeric slots, attributed to interpolated slot midpoints |
+| mine         | `(number\|null)[]` | Count of completed blocks produced by this validator, attributed to replay completion time |
+| mine_skipped | `(number\|null)[]` | Count of completed local blocks whose numeric slot is classified as skipped, attributed to their replay completion time; never exceeds `mine` |
+
+Skip classification uses rooted ancestry, as described for
+`query_slots`. Skipped slots do not extend `start_slot` or `end_slot`.
+`skipped`, `mine`, and `mine_skipped` are `0` in any bucket with
+retained calendar-day aggregates, so a bucket before the first root
+after boot can read `0` even though its skips were never classified.
+They are `null` only outside the retained aggregates.
+
+::: details Example
+
+```json
+{
+    "topic": "timeline",
+    "key": "query_agg_slots",
+    "id": 50,
+    "params": {
+        "start_ns": "1739657040000000000",
+        "end_ns": "1739657100000000000",
+        "granularity": "15s"
+    }
+}
+```
+
+```json
+{
+    "topic": "timeline",
+    "key": "query_agg_slots",
+    "id": 50,
+    "value": {
+        "granularity": "15s",
+        "reference_ts_ns": "1739657040000000000",
+        "available_start_ns": "1739577600000000000",
+        "available_end_ns": "1739664000000000000",
+        "start_slot": [289245044, 289245082, null, 289245157],
+        "end_slot": [289245081, 289245119, null, 289245194],
+        "skipped": [2, 0, 0, 1],
+        "mine": [4, 0, 0, 0],
+        "mine_skipped": [1, 0, 0, 0]
+    }
+}
+```
+
+:::
+
 ##### `timeline.query_agg_shreds`
 | field         | type               | description |
 |---------------|--------------------|-------------|
@@ -3030,6 +3206,42 @@ time covered by intervals and the slots advanced within it, and
 A bucket is `null` when no interval covers it, e.g. before the first
 replayed block.
 
+::: details Example
+
+```json
+{
+    "topic": "timeline",
+    "key": "query_agg_shreds",
+    "id": 50,
+    "params": {
+        "start_ns": "1739657040000000000",
+        "end_ns": "1739657100000000000",
+        "granularity": "15s"
+    }
+}
+```
+
+```json
+{
+    "topic": "timeline",
+    "key": "query_agg_shreds",
+    "id": 50,
+    "value": {
+        "granularity": "15s",
+        "reference_ts_ns": "1739657040000000000",
+        "available_start_ns": "1739577600000000000",
+        "available_end_ns": "1739664000000000000",
+        "turbine": [41520, 39874, null, 42110],
+        "repair": [312, 96, null, 140],
+        "reconstructed": [1840, 1702, null, 1915],
+        "published": [5376, 0, null, 0],
+        "slot_duration": [401234567, 398765432, null, 402000000]
+    }
+}
+```
+
+:::
+
 ##### `timeline.query_agg_compute`
 | field             | type               | description |
 |-------------------|--------------------|-------------|
@@ -3038,6 +3250,39 @@ replayed block.
 
 `max_compute_units` is a block limit, not the largest requested
 transaction budget.
+
+::: details Example
+
+```json
+{
+    "topic": "timeline",
+    "key": "query_agg_compute",
+    "id": 50,
+    "params": {
+        "start_ns": "1739657040000000000",
+        "end_ns": "1739657100000000000",
+        "granularity": "15s"
+    }
+}
+```
+
+```json
+{
+    "topic": "timeline",
+    "key": "query_agg_compute",
+    "id": 50,
+    "value": {
+        "granularity": "15s",
+        "reference_ts_ns": "1739657040000000000",
+        "available_start_ns": "1739577600000000000",
+        "available_end_ns": "1739664000000000000",
+        "compute_units": [1123400000, 1087650000, null, 1150200000],
+        "max_compute_units": 60000000
+    }
+}
+```
+
+:::
 
 ##### `timeline.query_agg_revenue`
 | field     | type               | description |
