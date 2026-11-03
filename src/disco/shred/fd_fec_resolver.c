@@ -13,7 +13,7 @@ typedef struct __attribute__((packed)) {
   uint fec_idx;
 } slot_fec_pair_t;
 
-struct __attribute__((aligned(32UL))) set_ctx {
+struct set_ctx {
   /* The Merkle root.  This is the only unique unforgeable identifier of
      the FEC set. */
   fd_bmtree_node_t      root;
@@ -57,8 +57,8 @@ struct __attribute__((aligned(32UL))) set_ctx {
   ulong                 held; /* slab slots held: data bit i, parity bit 32+i */
 
   union {
-    fd_bmtree_commit_t  tree[1];
-    uchar               _footprint[ FD_BMTREE_COMMIT_FOOTPRINT( FD_SHRED_MERKLE_LAYER_CNT ) ] __attribute__((aligned(FD_BMTREE_COMMIT_ALIGN)));
+    fd_bmtree_commitp20_t tree[1];
+    uchar                 _footprint[ FD_BMTREE_COMMITP20_FOOTPRINT( FD_SHRED_MERKLE_LAYER_CNT ) ] __attribute__((aligned(FD_BMTREE_COMMITP20_ALIGN)));
   };
 };
 typedef struct set_ctx set_ctx_t;
@@ -786,14 +786,14 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
        signature to prevent a DOS attack just by sending lots of invalid
        shreds.  If this shred came from repair, we're redoing
        computation, but the code is gross otherwise. */
-    fd_bmtree_commit_t * tree;
-    tree = fd_bmtree_commit_init( ctx->_footprint, FD_SHRED_MERKLE_NODE_SZ, FD_BMTREE_LONG_PREFIX_SZ, FD_SHRED_MERKLE_LAYER_CNT );
+    fd_bmtree_commitp20_t * tree;
+    tree = fd_bmtree_commitp20_init( ctx->_footprint, FD_BMTREE_LONG_PREFIX_SZ, FD_SHRED_MERKLE_LAYER_CNT );
     FD_TEST( tree==ctx->tree );
 
     fd_bmtree_node_t _root[1] = {0};
 
     fd_shred_merkle_t const * proof = fd_shred_merkle_nodes( shred );
-    int rv = fd_bmtree_commitp_insert_with_proof( tree, shred_idx, leaf, (uchar const *)proof, tree_depth, _root );
+    int rv = fd_bmtree_commitp20_insert_with_proof( tree, shred_idx, leaf, (uchar const *)proof, tree_depth, _root );
     if( FD_UNLIKELY( !rv ) ) {
       ctx_list_ele_push_head( free_list, ctx, ctx_pool );
       resolver->free_list_cnt++;
@@ -900,7 +900,7 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
       matching_sig = 1;
     } else {
       fd_shred_merkle_t const * proof = fd_shred_merkle_nodes( shred );
-      int rv = fd_bmtree_commitp_insert_with_proof( ctx->tree, shred_idx, leaf, (uchar const *)proof, tree_depth, _root );
+      int rv = fd_bmtree_commitp20_insert_with_proof( ctx->tree, shred_idx, leaf, (uchar const *)proof, tree_depth, _root );
       if( FD_UNLIKELY( !rv ) ) {
         /* This means we've gotten a shred with a different Merkle root
            than ctx.  This can only happen in the Turbine case, because
@@ -1043,7 +1043,7 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
      to be sure to add it to one of the lists before exiting. */
 
   fd_fec_view_t      * set  = ctx->set;
-  fd_bmtree_commit_t * tree = ctx->tree;
+  fd_bmtree_commitp20_t * tree = ctx->tree;
 
   /* Recovered shreds take the remaining slab slots */
   for( ulong i=0UL; i<2UL*FD_FEC_SHRED_CNT; i++ ) if( !(ctx->held&(1UL<<i)) ) slot_acquire( resolver, ctx, i );
@@ -1123,7 +1123,7 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
     if( !(set->data_shred_rcvd&(1U<<i)) ) {
       fd_memcpy( set->data_shreds[i].b, shred, sizeof(fd_ed25519_sig_t) );
       if( FD_LIKELY( !resolver->bypass_verify ) ) {
-        if( FD_UNLIKELY( !fd_bmtree_commitp_insert_with_proof( tree, i, leaves+i, NULL, 0, NULL ) ) ) {
+        if( FD_UNLIKELY( !fd_bmtree_commitp20_insert_with_proof( tree, i, leaves+i, NULL, 0, NULL ) ) ) {
           set_release_shreds( resolver, ctx );
           ctx_list_ele_push_tail( free_list, ctx, ctx_pool );
           resolver->free_list_cnt++;
@@ -1138,7 +1138,7 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
     if( !(set->parity_shred_rcvd&(1U<<i)) ) {
       fd_memcpy( set->parity_shreds[i].s->signature, shred->signature, sizeof(fd_ed25519_sig_t) );
       if( FD_LIKELY( !resolver->bypass_verify ) ) {
-        if( FD_UNLIKELY( !fd_bmtree_commitp_insert_with_proof( tree, FD_FEC_SHRED_CNT + i, leaves+FD_FEC_SHRED_CNT+i, NULL, 0, NULL ) ) ) {
+        if( FD_UNLIKELY( !fd_bmtree_commitp20_insert_with_proof( tree, FD_FEC_SHRED_CNT + i, leaves+FD_FEC_SHRED_CNT+i, NULL, 0, NULL ) ) ) {
           set_release_shreds( resolver, ctx );
           ctx_list_ele_push_tail( free_list, ctx, ctx_pool );
           resolver->free_list_cnt++;
@@ -1150,7 +1150,7 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
   }
 
   /* Check that the whole Merkle tree is consistent. */
-  if( FD_UNLIKELY( !resolver->bypass_verify && !fd_bmtree_commitp_fini( tree, FD_FEC_SHRED_CNT + FD_FEC_SHRED_CNT ) ) ) {
+  if( FD_UNLIKELY( !resolver->bypass_verify && !fd_bmtree_commitp20_fini( tree, FD_FEC_SHRED_CNT + FD_FEC_SHRED_CNT ) ) ) {
     set_release_shreds( resolver, ctx );
     ctx_list_ele_push_tail( free_list, ctx, ctx_pool );
     resolver->free_list_cnt++;
@@ -1160,7 +1160,7 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
 
   /* We now have fully populated the bmtree, so we can derive the
      fec_sample. */
-  if( FD_LIKELY( done && !resolver->bypass_verify ) ) fd_fec_samp_derive( done->fec_sample, resolver->seed, ctx->slot, ctx->fec_set_idx, ctx->sig, &ctx->root, tree );
+  if( FD_LIKELY( done && !resolver->bypass_verify ) ) fd_fec_samp_derive_p20( done->fec_sample, resolver->seed, ctx->slot, ctx->fec_set_idx, tree );
 
   /* Check that all the fields that are supposed to be consistent across
      an FEC set actually are. */
@@ -1219,10 +1219,10 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
 
   /* Populate missing Merkle proofs */
   for( ulong i=0UL; i<FD_FEC_SHRED_CNT; i++   ) if( !( set->data_shred_rcvd&(1U<<i) ) )
-    fd_bmtree_get_proof( tree, set->data_shreds[i].b   + fd_shred_merkle_off( set->data_shreds[i].s   ), i );
+    fd_bmtree_commitp20_get_proof( tree, set->data_shreds[i].b   + fd_shred_merkle_off( set->data_shreds[i].s   ), i );
 
   for( ulong i=0UL; i<FD_FEC_SHRED_CNT; i++ ) if( !( set->parity_shred_rcvd&(1U<<i) ) )
-    fd_bmtree_get_proof( tree, set->parity_shreds[i].b + fd_shred_merkle_off( set->parity_shreds[i].s ), FD_FEC_SHRED_CNT+i );
+    fd_bmtree_commitp20_get_proof( tree, set->parity_shreds[i].b + fd_shred_merkle_off( set->parity_shreds[i].s ), FD_FEC_SHRED_CNT+i );
 
   /* Zero retransmitter signature on the recovered shreds too */
   if( FD_UNLIKELY( fd_shred_is_resigned( shred_type ) ) ) {
