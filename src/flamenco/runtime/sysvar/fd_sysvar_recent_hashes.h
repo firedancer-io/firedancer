@@ -23,8 +23,9 @@ fd_sysvar_recent_hashes_init( fd_bank_t *        bank,
                               fd_accdb_t *       accdb,
                               fd_capture_ctx_t * capture_ctx );
 
-/* Update the recent hashes sysvar account. This should be called at the
-   start of every slot, before execution commences. */
+/* Register the block's PoH hash and rewrite the recent hashes sysvar
+   account.  Called once per block when the bank is frozen, after all
+   transactions have executed. */
 
 void
 fd_sysvar_recent_hashes_update( fd_bank_t *        bank,
