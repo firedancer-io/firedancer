@@ -717,7 +717,7 @@ fd_topo_run_tile_t fd_tile_snapld = {
   .run                      = stem_run,
   .keep_host_networking     = 1,
   .allow_connect            = 1,
-  .rlimit_file_cnt          = 5UL, /* stderr, log, http, full/incr local files */
+  .rlimit_file_cnt          = 7UL, /* stderr, log, http, full/incr buffered and direct files */
 };
 
 #undef NAME

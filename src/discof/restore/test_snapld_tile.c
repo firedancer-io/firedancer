@@ -6,6 +6,8 @@
 
 #include <netinet/in.h>
 #include <sys/epoll.h>
+#include <sys/resource.h>
+#include <sys/wait.h>
 
 static ulong publish_cnt;
 static ulong publish_sig;
@@ -173,10 +175,43 @@ test_start( int file,
   if( ctx->local_full_dfd>=0 ) FD_TEST( !close( ctx->local_full_dfd ) );
 }
 
+/* Stale local snapshots stay open while a newer snapshot downloads.
+   Reserve low descriptors for stderr, the log, and buffered/direct
+   handles for both local snapshots, then apply the tile's file limit.
+   Keep the limit and descriptor changes confined to a child process. */
+
+static void
+test_socket_rlimit( void ) {
+  pid_t pid = fork();
+  FD_TEST( pid>=0 );
+  if( !pid ) {
+    int fd = open( "/dev/null", O_RDWR );
+    if( fd<0 ) _exit( 1 );
+    int src = fcntl( fd, F_DUPFD_CLOEXEC, 16 );
+    if( src<0 ) _exit( 2 );
+    for( int i=0; i<6; i++ ) if( dup2( src, i )!=i ) _exit( 3 );
+    close( 6 );
+    close( src );
+
+    struct rlimit limit;
+    if( getrlimit( RLIMIT_NOFILE, &limit ) ) _exit( 4 );
+    limit.rlim_cur = fd_tile_snapld.rlimit_file_cnt;
+    if( setrlimit( RLIMIT_NOFILE, &limit ) ) _exit( 5 );
+    int sock = socket( AF_INET, SOCK_STREAM|SOCK_NONBLOCK, 0 );
+    if( sock<0 ) _exit( 6 );
+    close( sock );
+    _exit( 0 );
+  }
+  int status;
+  FD_TEST( waitpid( pid, &status, 0 )==pid );
+  FD_TEST( WIFEXITED( status ) && !WEXITSTATUS( status ) );
+}
+
 int
 main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
+  test_socket_rlimit();
   test_epoll_fd = epoll_create1( 0 );
   FD_TEST( test_epoll_fd!=-1 );
   test_start( 0, 0 );
