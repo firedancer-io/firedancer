@@ -570,6 +570,7 @@ Some interesting transitions are,
         "boot_target_slot_duration_nanos": 400000000,
         "accounts_database_path": "/path/to/accounts.db",
         "gui_database_path": "/path/to/gui.db",
+        "fast_boot_stream_tile_count": 0,
         "joining_gossip_elapsed_seconds": 5,
         "loading_full_snapshot_elapsed_seconds": 7.8,
         "loading_full_snapshot_reset_count": 0,
@@ -615,6 +616,7 @@ Some interesting transitions are,
 | boot_target_slot_duration_nanos                                       | `number\|null`  | Target slot duration in nanoseconds for the epoch containing the boot snapshot slot, preferring the incremental snapshot over the full snapshot. `null` at startup until known |
 | accounts_database_path                                                | `string`        | Absolute path to the on-disk accounts database file that this validator loads accounts into |
 | gui_database_path                                                     | `string`        | Absolute path to the on-disk gui database file that this validator saves historical monitoring info into |
+| fast_boot_stream_tile_count                                           | `number`        | Number of leading snapct, snapld, snapdc and snapin tiles, by kind id, that serve the fast boot stream instead of loading the snapshots. 1 when a fast boot stream is configured, otherwise 0 |
 | joining_gossip_elapsed_seconds                                        | `number`        | If the phase is `joining_gossip`, this is the duration, in seconds, spent joining the gossip network |
 | loading_{full\|incremental}_snapshot_elapsed_seconds                  | `number`        | If the phase is at least `loading_{full\|incremental}_snapshot`, this is the elapsed time, in seconds, spent reading (either downloading or reading from disk) the snapshot since the last reset |
 | loading_{full\|incremental}_snapshot_reset_count                      | `number\|null`  | If the phase is at least `loading_{full\|incremental}_snapshot` or later, this is the number of times the load for the snapshot failed and the phase was restarted from scratch. A snapshot load may fail due to an unreliable or underperforming network connection. Otherwise, `null` |

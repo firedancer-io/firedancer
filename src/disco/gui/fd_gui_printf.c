@@ -2808,6 +2808,7 @@ fd_gui_printf_boot_progress( fd_gui_t * gui ) {
 
       jsonp_string( gui->http, "accounts_database_path", gui->summary.accounts_database_path );
       jsonp_string( gui->http, "gui_database_path", gui->summary.gui_database_path );
+      jsonp_ulong( gui->http, "fast_boot_stream_tile_count", gui->summary.boot_progress.fast_boot_stream_tile_cnt );
 
       jsonp_double( gui->http, "joining_gossip_elapsed_seconds", (double)(gui->summary.boot_progress.joining_gossip_time_nanos - gui->summary.startup_time_nanos) / 1e9 );
 

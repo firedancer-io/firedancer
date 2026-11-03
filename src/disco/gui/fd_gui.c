@@ -1479,6 +1479,7 @@ static void
 fd_gui_run_boot_progress( fd_gui_t * gui, long now ) {
   fd_topo_tile_t const * stream = &gui->topo->tiles[ fd_topo_find_tile( gui->topo, "snapct", 0UL ) ];
   ulong stream_tile_cnt = (ulong)!!stream->snapct.fast_boot_stream;
+  gui->summary.boot_progress.fast_boot_stream_tile_cnt = stream_tile_cnt;
   fd_topo_tile_t const * snapct = &gui->topo->tiles[ fd_topo_find_tile( gui->topo, "snapct", stream_tile_cnt ) ];
   volatile ulong * snapct_metrics = fd_metrics_tile( snapct->metrics );
 

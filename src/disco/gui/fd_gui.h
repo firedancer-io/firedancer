@@ -942,6 +942,7 @@ struct fd_gui_boot_progress {
 
   long  catching_up_time_nanos;
   ulong catching_up_first_replay_slot;
+  ulong fast_boot_stream_tile_cnt;
 };
 
 typedef struct fd_gui_boot_progress fd_gui_boot_progress_t;
