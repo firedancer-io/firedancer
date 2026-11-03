@@ -1047,8 +1047,7 @@ main( int     argc,
 
   /* RX bind address accepts only its configured IPv4 destination. */
   ulong const rx_bind_route_fail_before = tile->net.metrics.rx_drop_cnt[ FD_METRICS_ENUM_PKT_RX_DROP_REASON_V_DST_IP_MISMATCH_IDX ];
-  tile->router.bind_address = public_ip4_addr;
-  tile->net.bind_address    = public_ip4_addr;
+  tile->net.bind_address = public_ip4_addr;
   rx_chunk  = rx_comp_one( mock, tile, FD_MLX5_CQE_OP_RX_OK, sizeof(rx_pkt_templ) );
   rx_packet = fd_chunk_to_laddr( tile->net.pkt_buf_wksp_base, rx_chunk );
   fd_memcpy( rx_packet, &rx_pkt_templ, sizeof(rx_pkt_templ) );
@@ -1064,8 +1063,7 @@ main( int     argc,
   after_credit( tile, stem, &poll_in, &charge_busy );
   FD_TEST( fd_seq_eq( fd_frag_meta_seq_query( rx_link->mcache+rx_seq ), rx_seq ) );
   FD_TEST( tile->net.metrics.rx_drop_cnt[ FD_METRICS_ENUM_PKT_RX_DROP_REASON_V_DST_IP_MISMATCH_IDX ]==rx_bind_route_fail_before+1UL );
-  tile->router.bind_address = 0U;
-  tile->net.bind_address    = 0U;
+  tile->net.bind_address = 0U;
   rx_seq++;
 
   /* A second port rule can share an output without changing its protocol */
@@ -1111,9 +1109,8 @@ main( int     argc,
     }
   };
   tile->net.gre_tunnel_ip[0] = gre_outer_dst_ip;
-  tile->router.bind_address = gre_inner_src_ip;
   tile->net.bind_address    = gre_inner_src_ip;
-  FD_TEST( rx_gre_pkt_templ.outer_ip4.daddr!=tile->router.bind_address );
+  FD_TEST( rx_gre_pkt_templ.outer_ip4.daddr!=tile->net.bind_address );
   rx_chunk  = rx_comp_one( mock, tile, FD_MLX5_CQE_OP_RX_OK, sizeof(rx_gre_pkt_templ) );
   rx_packet = fd_chunk_to_laddr( tile->net.pkt_buf_wksp_base, rx_chunk );
   fd_memcpy( rx_packet, &rx_gre_pkt_templ, sizeof(rx_gre_pkt_templ) );
@@ -1143,8 +1140,7 @@ main( int     argc,
   after_credit( tile, stem, &poll_in, &charge_busy );
   FD_TEST( fd_seq_ne( fd_frag_meta_seq_query( rx_link->mcache+rx_seq ), rx_seq ) );
   FD_TEST( tile->net.metrics.rx_drop_cnt[ FD_METRICS_ENUM_PKT_RX_DROP_REASON_V_DST_IP_MISMATCH_IDX ]==rx_gre_route_fail_before+1UL );
-  tile->router.bind_address = 0U;
-  tile->net.bind_address    = 0U;
+  tile->net.bind_address = 0U;
 
   /* GRE RX rejects an unknown tunnel peer. */
   ulong const rx_gre_invalid_before = tile->net.metrics.rx_drop_cnt[ FD_METRICS_ENUM_PKT_RX_DROP_REASON_V_GRE_INVALID_IDX ];
@@ -1339,7 +1335,7 @@ main( int     argc,
   fd_memcpy( tx_drop_before, tile->net.metrics.tx_drop_cnt, sizeof(tx_drop_before) );
   ulong tx_route_fail_before[ FD_METRICS_ENUM_PKT_TX_SLOW_PATH_REASON_CNT ];
   fd_memcpy( tx_route_fail_before, tile->net.metrics.tx_slow_path_reason_cnt, sizeof(tx_route_fail_before) );
-  ulong const tx_neigh_fail_before = tile->router.metrics.tx_neigh_fail_cnt;
+  ulong const tx_neigh_fail_before = tile->net.metrics.tx_slow_path_reason_cnt[ FD_METRICS_ENUM_PKT_TX_SLOW_PATH_REASON_V_NO_NEIGHBOR_IDX ];
 
   /* TX packet with invalid sig */
   FD_TEST( 1==before_frag( tile, 0UL, tx_seq,
@@ -1397,7 +1393,7 @@ main( int     argc,
            tx_route_fail_before[ FD_METRICS_ENUM_PKT_TX_SLOW_PATH_REASON_V_INTERFACE_MISSING_IDX ]+1UL );
   FD_TEST( tile->net.metrics.tx_slow_path_reason_cnt[ FD_METRICS_ENUM_PKT_TX_SLOW_PATH_REASON_V_UNSUPPORTED_INTERFACE_IDX ]==
            tx_route_fail_before[ FD_METRICS_ENUM_PKT_TX_SLOW_PATH_REASON_V_UNSUPPORTED_INTERFACE_IDX ]+1UL );
-  FD_TEST( tile->router.metrics.tx_neigh_fail_cnt==tx_neigh_fail_before+1UL );
+  FD_TEST( tile->net.metrics.tx_slow_path_reason_cnt[ FD_METRICS_ENUM_PKT_TX_SLOW_PATH_REASON_V_NO_NEIGHBOR_IDX ]==tx_neigh_fail_before+1UL );
 
   /* An unroutable outer endpoint is counted once, as NoRoute, and the
      packet is accepted for the socket fallback. */
@@ -1640,8 +1636,7 @@ main( int     argc,
 
   /* Another local bind address uses the kernel without submitting a WQE. */
   ulong const loopback_sig = fd_disco_netmux_sig( 0U, 0U, FD_IP4_ADDR( 127,0,0,1 ), DST_PROTO_OUTGOING, 0UL );
-  tile->router.bind_address = public_ip4_addr;
-  tile->net.bind_address    = public_ip4_addr;
+  tile->net.bind_address = public_ip4_addr;
   FD_TEST( before_frag( tile, 0UL, tx_seq, loopback_sig )==0 );
   FD_TEST( tile->net.tx_route.use_loopback );
   fd_memcpy( tx_packet, &tx_pkt_templ, sizeof(tx_pkt_templ) );
@@ -1667,8 +1662,7 @@ main( int     argc,
   FD_TEST( fd_seq_ne( fd_frag_meta_seq_query( loopback_mline ), rx_seq ) );
   FD_TEST( tile->sq_wqe_buf_chunk[ loopback_sq_idx ]==loopback_tx_chunk );
 
-  tile->router.bind_address = FD_IP4_ADDR( 127,0,0,1 );
-  tile->net.bind_address    = FD_IP4_ADDR( 127,0,0,1 );
+  tile->net.bind_address = FD_IP4_ADDR( 127,0,0,1 );
   FD_TEST( before_frag( tile, 0UL, tx_seq, loopback_sig )==0 );
   uint const loopback_freed_chunk = loopback_mline->chunk;
   during_frag( tile, 0UL, tx_seq, loopback_sig, tx_chunk, sizeof(tx_pkt_templ), 0UL );
@@ -1684,8 +1678,7 @@ main( int     argc,
   uchar const * loopback_frame = fd_chunk_to_laddr_const( tile->net.pkt_buf_wksp_base, loopback_mline->chunk );
   FD_TEST( !memcmp( loopback_frame, "\0\0\0\0\0\0\0\0\0\0\0\0", 12UL ) );
   FD_TEST( ((fd_ip4_hdr_t const *)(loopback_frame+sizeof(fd_eth_hdr_t)))->saddr==FD_IP4_ADDR( 127,0,0,1 ) );
-  tile->router.bind_address = 0U;
-  tile->net.bind_address    = 0U;
+  tile->net.bind_address = 0U;
   rx_seq++;
 
   /* Packets that fail userland routing are sent on net.sock and counted
@@ -1779,19 +1772,19 @@ main( int     argc,
 
     ulong route_fail_before[ FD_METRICS_ENUM_PKT_TX_SLOW_PATH_REASON_CNT ];
     fd_memcpy( route_fail_before, tile->net.metrics.tx_slow_path_reason_cnt, sizeof(route_fail_before) );
-    ulong const neigh_fail_before = tile->router.metrics.tx_neigh_fail_cnt;
+    ulong const neigh_fail_before = tile->net.metrics.tx_slow_path_reason_cnt[ FD_METRICS_ENUM_PKT_TX_SLOW_PATH_REASON_V_NO_NEIGHBOR_IDX ];
 
     tile->net.tile_cnt = 2UL;
     tile->net.kind_id  = 0UL;
     FD_TEST( 1==before_frag( tile, 0UL, tx_seq, fb_sig ) );
     FD_TEST( 0==memcmp( route_fail_before, tile->net.metrics.tx_slow_path_reason_cnt, sizeof(route_fail_before) ) );
-    FD_TEST( tile->router.metrics.tx_neigh_fail_cnt==neigh_fail_before );
+    FD_TEST( tile->net.metrics.tx_slow_path_reason_cnt[ FD_METRICS_ENUM_PKT_TX_SLOW_PATH_REASON_V_NO_NEIGHBOR_IDX ]==neigh_fail_before );
 
     tile->net.kind_id  = 1UL;
     FD_TEST( 0==before_frag( tile, 0UL, tx_seq, fb_sig ) );
     route_fail_before[ FD_METRICS_ENUM_PKT_TX_SLOW_PATH_REASON_V_NO_ROUTE_IDX ]++;
     FD_TEST( 0==memcmp( route_fail_before, tile->net.metrics.tx_slow_path_reason_cnt, sizeof(route_fail_before) ) );
-    FD_TEST( tile->router.metrics.tx_neigh_fail_cnt==neigh_fail_before );
+    FD_TEST( tile->net.metrics.tx_slow_path_reason_cnt[ FD_METRICS_ENUM_PKT_TX_SLOW_PATH_REASON_V_NO_NEIGHBOR_IDX ]==neigh_fail_before );
 
     tile->net.kind_id  = 0UL;
     tile->net.tile_cnt = 1UL;
