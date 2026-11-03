@@ -10,6 +10,7 @@
 #include "../../flamenco/accdb/fd_accdb_idx.h"
 #include "../../flamenco/alpenglow/fd_footer_cache.h"
 #include "../../disco/shred/fd_rnonce_ss.h"
+#include "../../ballet/ed25519/fd_ed25519.h"
 #include "../../discof/backup/fd_backup_shmem.h"
 
 #include "../../discof/admin/fd_adminctl.h"
@@ -251,6 +252,31 @@ fd_topo_obj_callbacks_t fd_obj_cb_txncache = {
   .footprint = txncache_footprint,
   .align     = txncache_align,
   .new       = txncache_new,
+};
+
+static ulong
+ed25519_cache_footprint( fd_topo_t const *     topo,
+                         fd_topo_obj_t const * obj ) {
+  return fd_ed25519_cache_shmem_footprint( VAL("ent_cnt") );
+}
+
+static ulong
+ed25519_cache_align( fd_topo_t const *     topo FD_FN_UNUSED,
+                     fd_topo_obj_t const * obj  FD_FN_UNUSED ) {
+  return fd_ed25519_cache_align();
+}
+
+static void
+ed25519_cache_new( fd_topo_t const *     topo,
+                   fd_topo_obj_t const * obj ) {
+  FD_TEST( fd_ed25519_cache_shmem_new( fd_topo_obj_laddr( topo, obj->id ), VAL("ent_cnt"), VAL("seed") ) );
+}
+
+fd_topo_obj_callbacks_t fd_obj_cb_ed25519_cache = {
+  .name      = "ed_cache",
+  .footprint = ed25519_cache_footprint,
+  .align     = ed25519_cache_align,
+  .new       = ed25519_cache_new,
 };
 
 static ulong
