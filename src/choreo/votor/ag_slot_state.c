@@ -138,7 +138,7 @@ verify_subtract_votes( ag_slot_state_t *     self,
   }
 
   if( FD_UNLIKELY( kind==AG_VOTE_KIND_NOTAR && fd_bls_set_is_null( agg->set ) ) ) {
-    ulong * link = &votes->notar_hash_stake_head;
+    uint *  link = &votes->notar_hash_stake_head;
     ulong   j;
     for( j=0UL; j<votes->notar_hash_stake_cnt; j++ ) {
       if( FD_UNLIKELY( *link==id ) ) break;
@@ -151,7 +151,7 @@ verify_subtract_votes( ag_slot_state_t *     self,
     ag_vote_stake_pool_idx_release( notar_hash_stake_pool, id );
   }
   if( FD_UNLIKELY( kind==AG_VOTE_KIND_NOTAR_FALLBACK && fd_bls_set_is_null( agg->set ) ) ) {
-    ulong * link = &votes->notar_fallback_hash_stake_head;
+    uint *  link = &votes->notar_fallback_hash_stake_head;
     ulong   j;
     for( j=0UL; j<votes->notar_fallback_hash_stake_cnt; j++ ) {
       if( FD_UNLIKELY( *link==id ) ) break;
@@ -315,9 +315,9 @@ count_notar_stake( ag_slot_state_t *       self,
     notar = ag_vote_stake_pool_idx_acquire( notar_hash_stake_pool );
     ag_vote_stake_pool_ele( notar_hash_stake_pool, notar )->block_id = key;
     ag_vote_stake_pool_ele( notar_hash_stake_pool, notar )->stake    = 0UL;
-    ag_vote_stake_pool_ele( notar_hash_stake_pool, notar )->prev     = votes->notar_hash_stake_cnt ? votes->notar_hash_stake_head : ag_vote_stake_pool_idx_null( notar_hash_stake_pool );
+    ag_vote_stake_pool_ele( notar_hash_stake_pool, notar )->prev     = (uint)( votes->notar_hash_stake_cnt ? votes->notar_hash_stake_head : ag_vote_stake_pool_idx_null( notar_hash_stake_pool ) );
     ag_vote_stake_map_idx_insert( notar_hash_stake_map, notar, notar_hash_stake_pool );
-    votes->notar_hash_stake_head = notar;
+    votes->notar_hash_stake_head = (uint)notar;
     votes->notar_hash_stake_cnt++;
   }
   votes->notar_hash_stake_idx[ rank ] = (uint)notar;
@@ -433,9 +433,9 @@ count_notar_fallback_stake( ag_slot_state_t *                self,
     nf_ele           = ag_vote_stake_pool_ele_acquire( notar_fallback_hash_stake_pool );
     nf_ele->block_id = key;
     nf_ele->stake    = 0UL;
-    nf_ele->prev     = votes->notar_fallback_hash_stake_cnt ? votes->notar_fallback_hash_stake_head : ag_vote_stake_pool_idx_null( notar_fallback_hash_stake_pool );
+    nf_ele->prev     = (uint)( votes->notar_fallback_hash_stake_cnt ? votes->notar_fallback_hash_stake_head : ag_vote_stake_pool_idx_null( notar_fallback_hash_stake_pool ) );
     ag_vote_stake_map_ele_insert( notar_fallback_hash_stake_map, nf_ele, notar_fallback_hash_stake_pool );
-    votes->notar_fallback_hash_stake_head = ag_vote_stake_pool_idx( notar_fallback_hash_stake_pool, nf_ele );
+    votes->notar_fallback_hash_stake_head = (uint)ag_vote_stake_pool_idx( notar_fallback_hash_stake_pool, nf_ele );
     votes->notar_fallback_hash_stake_cnt++;
   }
   votes->notar_fallback_hash_stake_idx[ rank ][ votes->notar_fallback_sig_cnt[ rank ]-1UL ] = (uint)ag_vote_stake_pool_idx( notar_fallback_hash_stake_pool, nf_ele );

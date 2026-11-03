@@ -69,16 +69,16 @@ hash_stake_idx( ag_vote_stake_map_t const * map,
 static ulong
 hash_stake_insert( ag_vote_stake_map_t * map,
                    ag_vote_stake_ele_t * pool,
-                   ulong *               head,
+                   uint *                head,
                    ulong *               cnt,
                    ag_block_id_t         key ) {
   FD_TEST( ag_vote_stake_pool_free( pool ) );
   ulong id = ag_vote_stake_pool_idx_acquire( pool );
   ag_vote_stake_pool_ele( pool, id )->block_id = key;
   ag_vote_stake_pool_ele( pool, id )->stake    = 0UL;
-  ag_vote_stake_pool_ele( pool, id )->prev     = *cnt ? *head : ag_vote_stake_pool_idx_null( pool );
+  ag_vote_stake_pool_ele( pool, id )->prev     = (uint)( *cnt ? *head : ag_vote_stake_pool_idx_null( pool ) );
   ag_vote_stake_map_idx_insert( map, id, pool );
-  *head = id;
+  *head = (uint)id;
   (*cnt)++;
   return id;
 }
@@ -86,10 +86,10 @@ hash_stake_insert( ag_vote_stake_map_t * map,
 static void
 hash_stake_remove( ag_vote_stake_map_t * map,
                    ag_vote_stake_ele_t * pool,
-                   ulong *               head,
+                   uint *                head,
                    ulong *               cnt,
                    ulong                 id ) {
-  ulong * link = head;
+  uint *  link = head;
   ulong   j;
   for( j=0UL; j<*cnt; j++ ) {
     if( FD_UNLIKELY( *link==id ) ) break;
@@ -1281,7 +1281,7 @@ collide_key( fd_rng_t *                  rng,
 static void
 hash_stake_step( ag_vote_stake_map_t * map,
                  ag_vote_stake_ele_t * pool,
-                 ulong *               head,
+                 uint *                head,
                  ulong *               cnt,
                  ulong                 pool_max,
                  ag_block_id_t *       key,

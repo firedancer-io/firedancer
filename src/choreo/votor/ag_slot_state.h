@@ -22,25 +22,27 @@
 
 #define AG_NOTAR_FALLBACK_HASH_MAX (AG_VAT_MAX*AG_NOTAR_FALLBACK_VOTE_MAX)
 
-struct ag_vote_stake_ele {
+struct __attribute__((aligned(64UL))) ag_vote_stake_ele {
   ag_block_id_t block_id;
+  uint          next;
+  uint          prev;
   ulong         stake;
-  ulong         next;
-  ulong         prev;
 };
 typedef struct ag_vote_stake_ele ag_vote_stake_ele_t;
 FD_STATIC_ASSERT( sizeof(ag_vote_stake_ele_t)==64UL, ag_vote_stake_ele );
 
-#define POOL_NAME ag_vote_stake_pool
-#define POOL_T    ag_vote_stake_ele_t
-#define POOL_NEXT next
-#define POOL_LAZY 1
+#define POOL_NAME  ag_vote_stake_pool
+#define POOL_T     ag_vote_stake_ele_t
+#define POOL_NEXT  next
+#define POOL_IDX_T uint
+#define POOL_LAZY  1
 #include "../../util/tmpl/fd_pool.c"
 
 #define MAP_NAME               ag_vote_stake_map
 #define MAP_ELE_T              ag_vote_stake_ele_t
 #define MAP_KEY                block_id
 #define MAP_KEY_T              ag_block_id_t
+#define MAP_IDX_T              uint
 #define MAP_NEXT               next
 #define MAP_KEY_EQ(k0,k1)      (ag_block_id_eq( (k0), (k1) ))
 #define MAP_KEY_HASH(key,seed) (fd_hash( (seed), (key), sizeof(ag_block_id_t) ))
@@ -58,11 +60,12 @@ struct ag_block_hash_set {
 };
 typedef struct ag_block_hash_set ag_block_hash_set_t;
 
-struct fd_bls_sig_ele {
+union fd_bls_sig_ele {
   fd_bls_sig_t sig;
   ulong        next;
 };
-typedef struct fd_bls_sig_ele fd_bls_sig_ele_t;
+typedef union fd_bls_sig_ele fd_bls_sig_ele_t;
+FD_STATIC_ASSERT( sizeof(fd_bls_sig_ele_t)==sizeof(fd_bls_sig_t), fd_bls_sig_ele );
 
 #define POOL_NAME fd_bls_sig_pool
 #define POOL_T    fd_bls_sig_ele_t
@@ -72,11 +75,11 @@ struct ag_slot_votes {
   fd_bls_set_t    notar_set                    [ fd_bls_set_word_cnt ];
   uint            notar_sig_idx                [ AG_VAT_MAX ];
   uint            notar_hash_stake_idx         [ AG_VAT_MAX ];
-  ulong           notar_hash_stake_head;
+  uint            notar_hash_stake_head;
   ulong           notar_hash_stake_cnt;
   uint            notar_fallback_sig_idx       [ AG_VAT_MAX ][ AG_NOTAR_FALLBACK_VOTE_MAX ];
   uint            notar_fallback_hash_stake_idx[ AG_VAT_MAX ][ AG_NOTAR_FALLBACK_VOTE_MAX ];
-  ulong           notar_fallback_hash_stake_head;
+  uint            notar_fallback_hash_stake_head;
   ulong           notar_fallback_hash_stake_cnt;
   uchar           notar_fallback_sig_cnt       [ AG_VAT_MAX ];
   ulong           skip_stake;
@@ -97,10 +100,10 @@ typedef struct ag_slot_votes ag_slot_votes_t;
 struct ag_slot_certs {
   ag_cert_notar_t          notar;
   ag_cert_notar_fallback_t notar_fallback[ AG_NOTAR_FALLBACK_CERT_MAX ];
-  ulong                    notar_fallback_cnt;
   ag_cert_skip_t           skip;
   ag_cert_fast_final_t     fast_finalize;
   ag_cert_final_t          finalize;
+  uchar                    notar_fallback_cnt;
 };
 typedef struct ag_slot_certs ag_slot_certs_t;
 
