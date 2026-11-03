@@ -128,8 +128,9 @@ snapshot_load_topo( config_t * config ) {
       1UL<<35UL,
       config->firedancer.accounts.cache_size_gib*(1UL<<30UL),
       config->tiles.bundle.enabled,
-      1UL+config->firedancer.layout.snapin_tile_count,
-      0UL );
+      1UL+config->firedancer.layout.snapin_tile_count+fd_ulong_if( !!config->firedancer.accounts.index_ram_max, config->firedancer.layout.snapdc_tile_count, 0UL ),
+      0UL,
+      config->firedancer.accounts.index_ram_max );
   FD_TEST( fd_pod_insertf_ulong( topo->props, accdb_obj->id, "accdb" ) );
 
   fd_topob_wksp( topo, "banks" );
@@ -215,6 +216,7 @@ snapshot_load_topo( config_t * config ) {
   fd_topo_tile_t * snapin_tile = &topo->tiles[ fd_topo_find_tile( topo, "snapin", 0UL ) ];
   fd_topob_tile_uses( topo, snapin_tile, txncache_obj,   FD_SHMEM_JOIN_MODE_READ_WRITE );
   fd_topob_tile_uses( topo, accdb_tile,  accdb_obj,      FD_SHMEM_JOIN_MODE_READ_WRITE );
+  if( config->firedancer.accounts.index_ram_max ) FOR(snapdc_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "snapdc", i ) ], accdb_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FOR(snapin_tile_cnt) {
     fd_topo_tile_t * tile = &topo->tiles[ fd_topo_find_tile( topo, "snapin", i ) ];
     fd_topob_tile_uses( topo, tile, accdb_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
@@ -408,7 +410,7 @@ accounts_hist( accounts_hist_t * hist,
      layout in fd_accdb_shmem_new and fd_accdb_join_readonly. */
 
   ulong max_live_slots              = shmem->max_live_slots;
-  ulong max_accounts                = shmem->max_accounts;
+  ulong max_accounts                = shmem->pool_max;
   ulong chain_cnt                   = shmem->chain_cnt;
 
   FD_SCRATCH_ALLOC_INIT( l, shmem );

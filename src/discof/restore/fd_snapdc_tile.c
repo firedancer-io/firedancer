@@ -4,6 +4,9 @@
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/metrics/fd_metrics.h"
 #include "../../tango/fseq/fd_fseq.h"
+#include "../../flamenco/accdb/fd_accdb.h"
+#include "../../flamenco/accdb/fd_accdb_shmem.h"
+#include "../../disco/sleep/fd_sleep.h"
 
 #include <linux/futex.h>
 #include "generated/fd_snapdc_tile_seccomp.h"
@@ -53,6 +56,12 @@ struct fd_snapdc_tile {
     ulong       mtu;
   } out;
 
+  /* With the disk index, snapdc helps the snapin tiles place the
+     index windows of a full snapshot once its data is in. */
+  fd_accdb_t * accdb;       /* NULL without the disk index */
+  void *       idx_scratch;
+  int          build_pending;
+
   struct {
     struct {
       ulong compressed_bytes_read;
@@ -67,17 +76,33 @@ struct fd_snapdc_tile {
 };
 typedef struct fd_snapdc_tile fd_snapdc_tile_t;
 
+/* builds_index returns 1 if the topology joins tile to accdb to help
+   build the disk index. */
+
+static int
+builds_index( fd_topo_tile_t const * tile ) {
+  if( !tile->snapdc.index_ram_max || tile->snapdc.accdb_obj_id==ULONG_MAX ) return 0;
+  for( ulong i=0UL; i<tile->uses_obj_cnt; i++ ) if( tile->uses_obj_id[ i ]==tile->snapdc.accdb_obj_id ) return 1;
+  return 0;
+}
+
 FD_FN_PURE static ulong
 scratch_align( void ) {
-  return fd_ulong_max( alignof(fd_snapdc_tile_t), 32UL );
+  ulong a = fd_ulong_max( alignof(fd_snapdc_tile_t), 32UL );
+  a = fd_ulong_max( a, fd_accdb_align() );
+  a = fd_ulong_max( a, fd_accdb_snapshot_index_build_scratch_align() );
+  return a;
 }
 
 FD_FN_PURE static ulong
 scratch_footprint( fd_topo_tile_t const * tile ) {
-  (void)tile;
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_snapdc_tile_t), sizeof(fd_snapdc_tile_t)                   );
   l = FD_LAYOUT_APPEND( l, 32UL,                      ZSTD_estimateDStreamSize( ZSTD_WINDOW_SZ ) );
+  if( builds_index( tile ) ) {
+    l = FD_LAYOUT_APPEND( l, fd_accdb_align(), fd_accdb_footprint( tile->snapdc.max_live_slots, 0 ) );
+    l = FD_LAYOUT_APPEND( l, fd_accdb_snapshot_index_build_scratch_align(), fd_accdb_snapshot_index_build_scratch_footprint( tile->snapdc.max_accounts, tile->snapdc.index_ram_max ) );
+  }
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -190,6 +215,7 @@ handle_control_frag( fd_snapdc_tile_t *  ctx,
     case FD_SNAPSHOT_MSG_CTRL_DONE: {
       FD_TEST( ctx->state==FD_SNAPSHOT_STATE_FINISHING );
       ctx->state = FD_SNAPSHOT_STATE_IDLE;
+      ctx->build_pending = ctx->full && !!ctx->accdb;
       break;
     }
 
@@ -402,6 +428,20 @@ handle_data_frag( fd_snapdc_tile_t *  ctx,
   return process_owned_frame( ctx, stem, data, sz );
 }
 
+/* after_credit places index windows once the message that starts the
+   build has been forwarded, so the snapin tiles start as well. */
+
+static inline void
+after_credit( fd_snapdc_tile_t *  ctx,
+              fd_stem_context_t * stem        FD_PARAM_UNUSED,
+              int *               opt_poll_in FD_PARAM_UNUSED,
+              int *               charge_busy ) {
+  if( FD_LIKELY( !ctx->build_pending ) ) return;
+  ctx->build_pending = 0;
+  fd_accdb_snapshot_index_build_work( ctx->accdb, ctx->idx_scratch );
+  *charge_busy = 1;
+}
+
 static inline int
 returnable_frag( fd_snapdc_tile_t *  ctx,
                  ulong               in_idx FD_PARAM_UNUSED,
@@ -423,15 +463,20 @@ returnable_frag( fd_snapdc_tile_t *  ctx,
 
 static ulong
 populate_allowed_fds( fd_topo_t      const * topo FD_PARAM_UNUSED,
-                      fd_topo_tile_t const * tile FD_PARAM_UNUSED,
+                      fd_topo_tile_t const * tile,
                       ulong                  out_fds_cnt,
                       int *                  out_fds ) {
-  if( FD_UNLIKELY( out_fds_cnt<2UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+  if( FD_UNLIKELY( out_fds_cnt<4UL+FD_ACCDB_IDX_SHARD_CNT ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
 
   ulong out_cnt = 0;
   out_fds[ out_cnt++ ] = 2UL; /* stderr */
   if( FD_LIKELY( -1!=fd_log_private_logfile_fd() ) ) {
     out_fds[ out_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
+  }
+  if( builds_index( tile ) ) {
+    out_fds[ out_cnt++ ] = FD_ACCDB_FD_RW; /* accounts db */
+    for( int fd=FD_ACCDB_IDX_FD_RW; fd<=FD_ACCDB_IDX_FD_RW_MAX; fd++ ) out_fds[ out_cnt++ ] = fd; /* accounts index shards */
+    out_fds[ out_cnt++ ] = FD_ACCDB_SPILL_FD; /* accounts index spill */
   }
 
   return out_cnt;
@@ -439,10 +484,14 @@ populate_allowed_fds( fd_topo_t      const * topo FD_PARAM_UNUSED,
 
 static ulong
 populate_allowed_seccomp( fd_topo_t const *      topo FD_PARAM_UNUSED,
-                          fd_topo_tile_t const * tile FD_PARAM_UNUSED,
+                          fd_topo_tile_t const * tile,
                           ulong                  out_cnt,
                           struct sock_filter *   out ) {
-  populate_sock_filter_policy_fd_snapdc_tile( out_cnt, out, (uint)fd_log_private_logfile_fd() );
+  int idx = builds_index( tile );
+  populate_sock_filter_policy_fd_snapdc_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(),
+                                              idx ? (uint)FD_ACCDB_IDX_FD_RW     : UINT_MAX,
+                                              idx ? (uint)FD_ACCDB_IDX_FD_RW_MAX : UINT_MAX,
+                                              idx ? (uint)FD_ACCDB_SPILL_FD      : UINT_MAX );
   return sock_filter_policy_fd_snapdc_tile_instr_cnt;
 }
 
@@ -469,6 +518,19 @@ unprivileged_init( fd_topo_t const *      topo,
 
   reset_stream( ctx );
   fd_memset( &ctx->metrics, 0, sizeof(ctx->metrics) );
+
+  ctx->accdb         = NULL;
+  ctx->idx_scratch   = NULL;
+  ctx->build_pending = 0;
+  if( builds_index( tile ) ) {
+    void * _accdb    = FD_SCRATCH_ALLOC_APPEND( l, fd_accdb_align(), fd_accdb_footprint( tile->snapdc.max_live_slots, 0 ) );
+    ctx->idx_scratch = FD_SCRATCH_ALLOC_APPEND( l, fd_accdb_snapshot_index_build_scratch_align(), fd_accdb_snapshot_index_build_scratch_footprint( tile->snapdc.max_accounts, tile->snapdc.index_ram_max ) );
+    fd_accdb_shmem_t * accdb_shmem = fd_accdb_shmem_join( fd_topo_obj_laddr( topo, tile->snapdc.accdb_obj_id ) );
+    FD_TEST( accdb_shmem );
+    fd_sleep_t * accdb_sleep = topo->sleep_obj_id!=ULONG_MAX ? fd_sleep_join( fd_topo_obj_laddr( topo, topo->sleep_obj_id ) ) : NULL;
+    ctx->accdb = fd_accdb_join( fd_accdb_new( _accdb, accdb_shmem, FD_ACCDB_FD_RW, 0UL, NULL, accdb_sleep, fd_topo_find_tile( topo, "accdb", 0UL ), 0 ) );
+    FD_TEST( ctx->accdb );
+  }
 
   if( FD_UNLIKELY( tile->in_cnt !=1UL ) ) FD_LOG_ERR(( "tile `" NAME "` has %lu ins, expected 1",  tile->in_cnt  ));
   if( FD_UNLIKELY( tile->out_cnt!=1UL ) ) FD_LOG_ERR(( "tile `" NAME "` has %lu outs, expected 1", tile->out_cnt ));
@@ -506,6 +568,7 @@ unprivileged_init( fd_topo_t const *      topo,
 #define STEM_CALLBACK_SHOULD_SHUTDOWN should_shutdown
 #define STEM_CALLBACK_METRICS_WRITE   metrics_write
 #define STEM_CALLBACK_RETURNABLE_FRAG returnable_frag
+#define STEM_CALLBACK_AFTER_CREDIT    after_credit
 
 #include "../../disco/stem/fd_stem.c"
 

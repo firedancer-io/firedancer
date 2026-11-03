@@ -92,7 +92,12 @@ fd_accdb_shmem_footprint( ulong max_accounts,
                           ulong cache_footprint,
                           ulong cache_min_reserved,
                           ulong joiner_cnt,
-                          ulong max_incremental_accounts );
+                          ulong max_incremental_accounts,
+                          ulong index_ram_max );
+
+/* index_ram_max==0 keeps the whole index in memory.  Otherwise the
+   in-memory index holds at most index_ram_max entries and rooted
+   accounts move to the disk index (see fd_accdb_private.h). */
 
 void *
 fd_accdb_shmem_new( void * shmem,
@@ -106,7 +111,8 @@ fd_accdb_shmem_new( void * shmem,
                     int    bundle_enabled,
                     ulong  seed,
                     ulong  joiner_cnt,
-                    ulong  max_incremental_accounts );
+                    ulong  max_incremental_accounts,
+                    ulong  index_ram_max );
 
 fd_accdb_shmem_t *
 fd_accdb_shmem_join( void * shtc );
