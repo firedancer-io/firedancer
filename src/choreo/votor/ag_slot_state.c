@@ -150,7 +150,7 @@ hash_stake_insert( ag_slot_state_t * self,
                    int               nf,
                    uchar const *     hash ) {
   ag_hash_stakes_t * tbl = fd_ptr_if( nf, &self->votes.notar_fallback_hash_stake, &self->votes.notar_hash_stake );
-  if( FD_LIKELY( tbl->used!=UINT_MAX ) ) {
+  if( FD_LIKELY( tbl->used!=(1U<<AG_HASH_STAKE_INLINE_MAX)-1U ) ) {
     ulong i = (ulong)fd_uint_find_lsb( ~tbl->used );
     tbl->used |= 1U<<i;
     memcpy( tbl->ele[ i ].hash, hash, sizeof(ag_block_hash_t) );

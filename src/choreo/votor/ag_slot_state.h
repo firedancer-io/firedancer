@@ -23,14 +23,16 @@
 #define AG_NOTAR_FALLBACK_HASH_MAX (AG_VAT_MAX*AG_NOTAR_FALLBACK_VOTE_MAX)
 
 /* Stake per block hash.  The first AG_HASH_STAKE_INLINE_MAX hashes of
-   a slot live inline; the rest (only reachable with garbage hashes from
-   staked voters) go to the slot's region of the spill file, read and
+   a slot live inline (honest votes give at most AG_EQVOC_BLOCK_HASH_MAX);
+   the rest (equivocating leader or garbage hashes from staked voters)
+   go to the slot's region of the spill file, read and
    written with pread/pwrite.  A free spill record has stake ULONG_MAX.
    Ids are stable: id<AG_HASH_STAKE_INLINE_MAX is inline, else spill
    record id-AG_HASH_STAKE_INLINE_MAX.  Inline ids keep the sum of
    their votes' sigs (unverified, like skip_agg). */
 
-#define AG_HASH_STAKE_INLINE_MAX (32UL)
+#define AG_HASH_STAKE_INLINE_MAX (8UL)
+FD_STATIC_ASSERT( AG_HASH_STAKE_INLINE_MAX>AG_EQVOC_BLOCK_HASH_MAX && AG_HASH_STAKE_INLINE_MAX<32UL, inline );
 #define AG_NOTAR_SPILL_MAX       (AG_VAT_MAX                -AG_HASH_STAKE_INLINE_MAX)
 #define AG_NF_SPILL_MAX          (AG_NOTAR_FALLBACK_HASH_MAX-AG_HASH_STAKE_INLINE_MAX)
 
