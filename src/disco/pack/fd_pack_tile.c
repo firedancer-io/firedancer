@@ -278,7 +278,8 @@ typedef struct {
      auction_start_tick:        the tick when the current auction started
      auction_last_attempt_tick: the tick when we last started or skipped an auction
      auction_next_tick:         the tick when the next auction is due to be attempted
-     auction_cu_limit:          the total number of CUs within a block at which the auction must stop (for pacing) */
+     auction_cu_limit:          the total number of CUs within a block at which the auction must stop (for pacing)
+     auction_final_start_tick:  the tick at which the last auction in the rotation should end, to give any held transactions a chance to execute */
   long  leader_slot_start_tick;
   long  leader_slot_end_tick;
   long  auction_start_tick;
