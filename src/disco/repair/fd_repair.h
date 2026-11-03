@@ -58,11 +58,6 @@
 #include "../../choreo/fd_choreo_base.h"
 #include "../../flamenco/alpenglow/fd_block_marker.h"
 
-struct fd_mr20 {
-  uchar uc[ 20 ];
-};
-typedef struct fd_mr20 fd_mr20_t;
-
 struct fd_mr32 {
   uchar uc[ 32 ];
 };
