@@ -9,6 +9,14 @@
 /* Maximum number of FECs in a slot is max number of shreds in a slot / 32 shreds per FEC */
 #define FD_FEC_BLK_MAX (FD_SHRED_BLK_MAX / FD_FEC_SHRED_CNT)
 
+/* First 20 B of a FEC set's merkle root, its identity in repair and
+   Store. */
+
+struct fd_mr20 {
+  uchar uc[ FD_SHRED_MERKLE_NODE_SZ ];
+};
+typedef struct fd_mr20 fd_mr20_t;
+
 /* When using Merkle shreds, an FEC set is essentially the transmission
    granularity.  Each FEC set has likely dozens of packets, but you have
    to construct the entire FEC set before you can send the first byte.

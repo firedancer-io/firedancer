@@ -78,6 +78,11 @@ cache_free_laddr( fd_store_t const * store ) {
   return fd_wksp_laddr_fast( fd_store_wksp( store ), store->cache_free_gaddr );
 }
 
+static inline fd_store_lru_t *
+cache_lru_laddr( fd_store_t const * store ) {
+  return fd_wksp_laddr_fast( fd_store_wksp( store ), store->cache_lru_gaddr );
+}
+
 static inline uint *
 spill_free_laddr( fd_store_t const * store ) {
   return fd_wksp_laddr_fast( fd_store_wksp( store ), store->spill_free_gaddr );
@@ -115,8 +120,6 @@ fd_store_fec_acquire( fd_store_t * store ) {
   if( FD_LIKELY( fec ) ) {
     fec->data_sz              = 0UL;
     fec->data_idx             = 0U;
-    fec->cache_prev           = UINT_MAX;
-    fec->cache_next           = UINT_MAX;
     fec->data_pin_cnt         = 0U;
     fec->data_state           = FD_STORE_FEC_DATA_EMPTY;
     fec->data_consume_pending = 0U;
@@ -142,44 +145,50 @@ cache_fec_idx( fd_store_t const *     store,
   return (uint)idx;
 }
 
+/* A FEC is on the LRU only while RAM_READY and unpinned, so it is
+   linked by its RAM cache slot data_idx. */
+
 static void
 cache_lru_remove_locked( fd_store_t *     store,
                          fd_store_fec_t * fec ) {
-  uint idx = cache_fec_idx( store, fec );
-  uint prev = fec->cache_prev;
-  uint next = fec->cache_next;
+  fd_store_lru_t * lru  = cache_lru_laddr( store );
+  uint             slot = fec->data_idx;
+  FD_TEST( slot<store->cache_slot_cnt && lru[ slot ].fec==cache_fec_idx( store, fec ) );
+  uint prev = lru[ slot ].prev;
+  uint next = lru[ slot ].next;
 
-  if( prev==UINT_MAX ) { FD_TEST( store->cache_lru_head==idx ); store->cache_lru_head = next; }
-  else                 pool_ele_laddr( store )[ prev ].cache_next = next;
-  if( next==UINT_MAX ) { FD_TEST( store->cache_lru_tail==idx ); store->cache_lru_tail = prev; }
-  else                 pool_ele_laddr( store )[ next ].cache_prev = prev;
+  if( prev==UINT_MAX ) { FD_TEST( store->cache_lru_head==slot ); store->cache_lru_head = next; }
+  else                 lru[ prev ].next = next;
+  if( next==UINT_MAX ) { FD_TEST( store->cache_lru_tail==slot ); store->cache_lru_tail = prev; }
+  else                 lru[ next ].prev = prev;
 
-  fec->cache_prev = UINT_MAX;
-  fec->cache_next = UINT_MAX;
+  lru[ slot ] = (fd_store_lru_t){ .prev = UINT_MAX, .next = UINT_MAX, .fec = UINT_MAX };
 }
 
 static void
 cache_lru_push_head_locked( fd_store_t *     store,
                             fd_store_fec_t * fec ) {
-  uint idx = cache_fec_idx( store, fec );
-  FD_TEST( fec->cache_prev==UINT_MAX && fec->cache_next==UINT_MAX );
+  fd_store_lru_t * lru  = cache_lru_laddr( store );
+  uint             slot = fec->data_idx;
+  FD_TEST( slot<store->cache_slot_cnt && lru[ slot ].fec==UINT_MAX );
 
-  fec->cache_next = store->cache_lru_head;
-  if( store->cache_lru_head==UINT_MAX ) store->cache_lru_tail = idx;
-  else pool_ele_laddr( store )[ store->cache_lru_head ].cache_prev = idx;
-  store->cache_lru_head = idx;
+  lru[ slot ] = (fd_store_lru_t){ .prev = UINT_MAX, .next = store->cache_lru_head, .fec = cache_fec_idx( store, fec ) };
+  if( store->cache_lru_head==UINT_MAX ) store->cache_lru_tail = slot;
+  else lru[ store->cache_lru_head ].prev = slot;
+  store->cache_lru_head = slot;
 }
 
 static void
 cache_lru_push_tail_locked( fd_store_t *     store,
                             fd_store_fec_t * fec ) {
-  uint idx = cache_fec_idx( store, fec );
-  FD_TEST( fec->cache_prev==UINT_MAX && fec->cache_next==UINT_MAX );
+  fd_store_lru_t * lru  = cache_lru_laddr( store );
+  uint             slot = fec->data_idx;
+  FD_TEST( slot<store->cache_slot_cnt && lru[ slot ].fec==UINT_MAX );
 
-  fec->cache_prev = store->cache_lru_tail;
-  if( store->cache_lru_tail==UINT_MAX ) store->cache_lru_head = idx;
-  else pool_ele_laddr( store )[ store->cache_lru_tail ].cache_next = idx;
-  store->cache_lru_tail = idx;
+  lru[ slot ] = (fd_store_lru_t){ .prev = store->cache_lru_tail, .next = UINT_MAX, .fec = cache_fec_idx( store, fec ) };
+  if( store->cache_lru_tail==UINT_MAX ) store->cache_lru_head = slot;
+  else lru[ store->cache_lru_tail ].next = slot;
+  store->cache_lru_tail = slot;
 }
 
 static void
@@ -207,8 +216,6 @@ cache_consume_locked( fd_store_t *     store,
   }
 
   fec->data_idx             = 0U;
-  fec->cache_prev           = UINT_MAX;
-  fec->cache_next           = UINT_MAX;
   fec->data_state           = FD_STORE_FEC_DATA_CONSUMED;
   fec->data_consume_pending = 0U;
 }
@@ -237,9 +244,9 @@ spill_one_locked( fd_store_t                 * store,
   if( FD_UNLIKELY( disk_fd<0 ) ) return FD_STORE_SPILL_NONE;
 
   fd_store_fec_t * fec0 = pool_ele_laddr( store );
-  uint victim_idx = store->cache_lru_head;
-  if( FD_UNLIKELY( victim_idx==UINT_MAX ) ) return FD_STORE_SPILL_NONE;
-  fd_store_fec_t * victim = fec0 + victim_idx;
+  uint victim_slot = store->cache_lru_head;
+  if( FD_UNLIKELY( victim_slot==UINT_MAX ) ) return FD_STORE_SPILL_NONE;
+  fd_store_fec_t * victim = fec0 + cache_lru_laddr( store )[ victim_slot ].fec;
   FD_TEST( victim->data_state==FD_STORE_FEC_DATA_RAM_READY && !victim->data_pin_cnt );
   FD_TEST( victim->data_sz<=store->fec_data_max );
 
@@ -345,6 +352,7 @@ fd_store_new( void       * shmem,
   uchar *        slot_to_fecs   = FD_SCRATCH_ALLOC_APPEND( l, fd_store_slot_to_fecs_align(), slot_to_fecs_sz*part_cnt );
   uchar *        cache_mem      = FD_SCRATCH_ALLOC_APPEND( l, FD_STORE_PAYLOAD_PAGE_SZ, payload_slot_sz*cache_slot_cnt      );
   ulong *        cache_free     = FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong),           sizeof(ulong)*cache_slot_cnt        );
+  fd_store_lru_t * cache_lru    = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_store_lru_t),  sizeof(fd_store_lru_t)*cache_slot_cnt );
   uint *         spill_free     = FD_SCRATCH_ALLOC_APPEND( l, alignof(uint),            sizeof(uint)*fec_max                );
   uchar *        spill_read_mem = FD_SCRATCH_ALLOC_APPEND( l, FD_STORE_PAYLOAD_PAGE_SZ, payload_slot_sz                      );
   fd_fec_set_t * fec_sets       = fec_set_cnt
@@ -400,6 +408,7 @@ fd_store_new( void       * shmem,
   store->cache_data_gaddr      = fd_wksp_gaddr_fast( wksp, cache_mem );
   store->cache_free_gaddr      = fd_wksp_gaddr_fast( wksp, cache_free );
   store->cache_free_cnt        = cache_slot_cnt;
+  store->cache_lru_gaddr       = fd_wksp_gaddr_fast( wksp, cache_lru );
   ulong free_cap               = fd_ulong_min( 8192UL, (64UL<<20) / payload_slot_sz );
   ulong burst_floor            = fd_ulong_min( 512UL, cache_slot_cnt/2UL );
   ulong free_target            = fd_ulong_max( cache_slot_cnt/10UL, burst_floor );
@@ -429,14 +438,15 @@ fd_store_new( void       * shmem,
   fd_store_pool_t pool_ljoin;
   fd_store_pool_reset( fd_store_pool_join( &pool_ljoin, shpool, shele, fec_max ) );
 
-  for( ulong i=0UL; i<cache_slot_cnt; i++ ) cache_free[ i ] = cache_slot_cnt - 1UL - i;
+  for( ulong i=0UL; i<cache_slot_cnt; i++ ) {
+    cache_free[ i ] = cache_slot_cnt - 1UL - i;
+    cache_lru [ i ] = (fd_store_lru_t){ .prev = UINT_MAX, .next = UINT_MAX, .fec = UINT_MAX };
+  }
 
   /* FEC metadata starts without a payload location. */
   fd_store_fec_t * fec0 = (fd_store_fec_t *)shele;
   for( ulong i=0UL; i<fec_max; i++ ) {
     fec0[ i ].data_idx     = 0U;
-    fec0[ i ].cache_prev   = UINT_MAX;
-    fec0[ i ].cache_next   = UINT_MAX;
     fec0[ i ].data_pin_cnt = 0U;
     fec0[ i ].data_state   = FD_STORE_FEC_DATA_EMPTY;
     fec0[ i ].data_consume_pending = 0U;
@@ -734,9 +744,10 @@ fd_store_fec_data_view_release( fd_store_t *               store,
 fd_store_fec_t *
 fd_store_query( fd_store_map_t *  map,
                 fd_hash_t const * merkle_root ) {
+  fd_mr20_t key; memcpy( key.uc, merkle_root->uc, sizeof(fd_mr20_t) );
   for(;;) {
     fd_store_map_query_t query[1];
-    int err = fd_store_map_query_try( map, merkle_root, NULL, query, 0 );
+    int err = fd_store_map_query_try( map, &key, NULL, query, 0 );
     if( FD_UNLIKELY( err==FD_MAP_ERR_AGAIN ) ) continue;
     if( FD_UNLIKELY( err ) ) return NULL;
 
@@ -760,6 +771,7 @@ fd_store_insert( fd_store_t *       store,
   FD_TEST( store && map && merkle_root && shred_sz && fec );
   FD_TEST( data_idx<store->cache_slot_cnt && data_sz<=store->fec_data_max );
   *fec = NULL;
+  fd_mr20_t key; memcpy( key.uc, merkle_root->uc, sizeof(fd_mr20_t) );
   fd_rwlock_read( &store->fec_lock );
 
   struct {
@@ -767,15 +779,15 @@ fd_store_insert( fd_store_t *       store,
     fd_store_map_txn_private_info_t info[1];
   } map_txn_mem;
   fd_store_map_txn_t * txn = fd_store_map_txn_init( map_txn_mem.txn, map, 1UL );
-  FD_TEST( !fd_store_map_txn_add( txn, merkle_root, 1 ) );
+  FD_TEST( !fd_store_map_txn_add( txn, &key, 1 ) );
   FD_TEST( !fd_store_map_txn_try( txn, FD_MAP_FLAG_BLOCKING ) );
 
   fd_store_map_query_t query[1];
-  int err = fd_store_map_txn_query( map, merkle_root, NULL, query, 0 );
+  int err = fd_store_map_txn_query( map, &key, NULL, query, 0 );
   if( FD_LIKELY( err==FD_MAP_ERR_KEY ) ) {
     fd_store_fec_t * new_fec = fd_store_fec_acquire( store );
     FD_TEST( new_fec );
-    new_fec->key     = *merkle_root;
+    new_fec->key     = key;
     new_fec->data_sz = data_sz;
     memcpy( cache_data_laddr( store ) + (ulong)data_idx*store->payload_slot_sz, shred_sz, FD_STORE_PAYLOAD_HDR_SZ );
 

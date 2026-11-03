@@ -10,8 +10,6 @@
 #include "../../util/shmem/fd_shmem.h"
 #include "../../util/tile/fd_tile.h"
 
-#define FD_STORE_ALIGN (64UL)
-
 /* The launcher creates the Store backing file before starting any tile
    and passes these descriptors through exec.  Keep them adjacent to the
    accdb descriptor range, but distinct from it. */
@@ -29,7 +27,7 @@ fd_store_payload_slot_sz( ulong fec_data_max ) {
   if( FD_UNLIKELY( __builtin_uaddl_overflow( fec_data_max, FD_STORE_PAYLOAD_HDR_SZ+FD_STORE_PAYLOAD_PAGE_SZ-1UL, &rounded ) ) ) return 0UL;
   return rounded & ~(FD_STORE_PAYLOAD_PAGE_SZ-1UL);
 }
-#define FD_STORE_MAGIC (0xf17eda2ce75702efUL) /* firedancer store version 15 */
+#define FD_STORE_MAGIC (0xf17eda2ce75702f0UL) /* firedancer store version 16 */
 
 #define FD_STORE_FEC_DATA_EMPTY       (0U)
 #define FD_STORE_FEC_DATA_RAM_WRITING (1U)
@@ -159,13 +157,11 @@ fd_shredb_disk_chain_cnt( ulong max_shreds ) {
   return fd_shredb_slot_map_chain_cnt_est( max_shreds/4UL );
 }
 
-struct __attribute__((aligned(FD_STORE_ALIGN))) fd_store_fec {
-  fd_hash_t key;
+struct fd_store_fec {
+  fd_mr20_t key;                            /* merkle root prefix */
   uint      data_idx;                       /* RAM cache slot when RAM_*, spill-file slot when DISK */
   uint      next;                           /* managed by fd_pool / fd_map_chain_para */
   uint      data_sz;                        /* sz of the FEC set payload, <= fec_data_max */
-  uint      cache_prev;                     /* RAM_READY LRU links, UINT_MAX when unlinked */
-  uint      cache_next;
   uint      slot;                           /* slot_to_fecs key, raised to the last published root */
   uint      slot_next;                      /* managed by slot_to_fecs */
   ushort    data_pin_cnt;                   /* active payload views */
@@ -174,7 +170,17 @@ struct __attribute__((aligned(FD_STORE_ALIGN))) fd_store_fec {
 };
 typedef struct fd_store_fec fd_store_fec_t;
 
-FD_STATIC_ASSERT( sizeof(fd_store_fec_t)==FD_STORE_ALIGN, fd_store_fec_footprint );
+FD_STATIC_ASSERT( sizeof(fd_store_fec_t)==44UL, fd_store_fec_footprint );
+
+/* RAM_READY LRU links, indexed by RAM cache slot.  fec is the linked
+   FEC, UINT_MAX when the slot is unlinked. */
+
+struct fd_store_lru {
+  uint prev;
+  uint next;
+  uint fec;
+};
+typedef struct fd_store_lru fd_store_lru_t;
 
 #define POOL_NAME  fd_store_pool
 #define POOL_ELE_T fd_store_fec_t
@@ -183,10 +189,10 @@ FD_STATIC_ASSERT( sizeof(fd_store_fec_t)==FD_STORE_ALIGN, fd_store_fec_footprint
 
 #define MAP_NAME               fd_store_map
 #define MAP_ELE_T              fd_store_fec_t
-#define MAP_KEY_T              fd_hash_t
+#define MAP_KEY_T              fd_mr20_t
 #define MAP_KEY                key
-#define MAP_KEY_EQ(k0,k1)      (!memcmp((k0),(k1), sizeof(fd_hash_t)))
-#define MAP_KEY_HASH(key,seed) fd_hash32( (key)->uc, (seed) )
+#define MAP_KEY_EQ(k0,k1)      (!memcmp((k0),(k1), sizeof(fd_mr20_t)))
+#define MAP_KEY_HASH(key,seed) fd_hash( (seed), (key)->uc, sizeof(fd_mr20_t) )
 #define MAP_IDX_T              uint
 #include "../../util/tmpl/fd_map_chain_para.c"
 
@@ -233,7 +239,8 @@ struct fd_store {
   ulong        cache_free_target;
   ulong        cache_free_low_water;
   uint         cache_preevict_active;
-  uint         cache_lru_head;
+  ulong        cache_lru_gaddr;              /* fd_store_lru_t[ cache_slot_cnt ] */
+  uint         cache_lru_head;               /* cache slots */
   uint         cache_lru_tail;
   ulong        cache_pinned_cnt;
   ulong        spill_free_gaddr;
@@ -279,8 +286,8 @@ typedef struct fd_store fd_store_t;
 
 FD_PROTOTYPES_BEGIN
 
-/* Store contains a Merkle-root keyed FEC map, a payload cache, and an
-   on-disk shred ring.
+/* Store contains a FEC map keyed by merkle root prefix (fd_mr20_t), a
+   payload cache, and an on-disk shred ring.
 
    Shred reserves a payload, fills it, inserts the FEC, and then notifies
    Replay.  The corresponding reassembly node owns the FEC until
@@ -348,6 +355,7 @@ fd_store_footprint( ulong fec_max,
                    fd_store_layout_append( &l, fd_store_slot_to_fecs_align(), shred_tile_cnt, slot_to_fecs_sz ) ||
                    fd_store_layout_append( &l, FD_STORE_PAYLOAD_PAGE_SZ, cache_slot_cnt, payload_slot_sz ) ||
                    fd_store_layout_append( &l, alignof(ulong),           cache_slot_cnt, sizeof(ulong) ) ||
+                   fd_store_layout_append( &l, alignof(fd_store_lru_t),  cache_slot_cnt, sizeof(fd_store_lru_t) ) ||
                    fd_store_layout_append( &l, alignof(uint),            fec_max,         sizeof(uint) ) ||
                    fd_store_layout_append( &l, FD_STORE_PAYLOAD_PAGE_SZ, 1UL,             payload_slot_sz ) ) ) return 0UL;
   if( FD_UNLIKELY( fec_set_cnt && fd_store_layout_append( &l, alignof(fd_fec_set_t), fec_set_cnt, sizeof(fd_fec_set_t) ) ) ) return 0UL;
@@ -489,8 +497,8 @@ fd_store_fec_data_view_release( fd_store_t *               store,
    the payload reserved by fd_store_fec_data_reserve at data_idx,
    data_sz bytes split by shred_sz, and is RAM_READY when linked.  Returns
    FD_MAP_SUCCESS with the new FEC, or FD_MAP_ERR_KEY with *fec==NULL if
-   present, in which case the cache slot is freed. Pool exhaustion is a
-   topology invariant violation. */
+   its fd_mr20_t prefix is present, in which case the cache slot is
+   freed. Pool exhaustion is a topology invariant violation. */
 
 int
 fd_store_insert( fd_store_t *       store,
@@ -503,9 +511,9 @@ fd_store_insert( fd_store_t *       store,
                  ushort const       shred_sz[ FD_FEC_SHRED_CNT ],
                  fd_store_fec_t **  fec );
 
-/* Lockless lookup; returns NULL if absent.  The returned pointer is
-   borrowed.  Retain the corresponding reassembly node or otherwise
-   exclude publish while using it. */
+/* Lockless lookup by merkle_root's fd_mr20_t prefix; returns NULL if
+   absent.  The returned pointer is borrowed.  Retain the corresponding
+   reassembly node or otherwise exclude publish while using it. */
 
 fd_store_fec_t *
 fd_store_query( fd_store_map_t *  map,
