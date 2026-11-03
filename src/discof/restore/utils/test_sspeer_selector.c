@@ -22,23 +22,6 @@ generate_rand_pubkey( fd_pubkey_t * pubkey,
 }
 
 static int
-generate_rand_url( char *     url,
-                   ulong      max_sz,
-                   fd_rng_t * rng ) {
-  ulong max_len = 5UL/*https*/ + 21UL/*fake_url*/ + 6UL/*:udp_port*/ + 1UL/*\0*/;
-  if( max_len > max_sz ) return 0;
-
-  char *p = fd_cstr_init( url );
-  int is_https = fd_rng_int( rng ) & 0x1;
-  p = fd_cstr_append_cstr( p, "http" );
-  if( is_https ) p = fd_cstr_append_cstr( p, "s" );
-  p = fd_cstr_append_printf( p, "://fake_url_%u.com", fd_rng_ushort( rng ) );
-  if( !is_https ) p = fd_cstr_append_printf( p, ":%u", fd_rng_ushort( rng ) );
-  fd_cstr_fini( p );
-  return 1;
-}
-
-static int
 generate_rand_addr_non_zero( fd_ip4_port_t * addr,
                              fd_rng_t *      rng ) {
   for(;;) {
@@ -57,7 +40,7 @@ generate_rand_sspeer_key( fd_sspeer_key_t * key,
   int ret = 0;
   if( is_url ) {
     ret = generate_rand_addr_non_zero( &key->url.resolved_addr, rng );
-    ret &= generate_rand_url( key->url.hostname, sizeof(key->url.hostname), rng );
+    key->url.host_idx = fd_rng_uint_roll( rng, 16U );
   } else {
     ret = generate_rand_pubkey( key->pubkey, rng );
   }
@@ -661,6 +644,14 @@ test_duplicate_hostnames( fd_sspeer_selector_t * selector,
 
   FD_TEST( 2UL==fd_sspeer_selector_peer_map_by_key_ele_cnt( selector ) );
   FD_TEST( 2UL==fd_sspeer_selector_peer_map_by_addr_ele_cnt( selector ) );
+
+  /* A different hostname (host_idx) at the same addr is a distinct peer. */
+  fd_sspeer_key_t key_url_C[1]; *key_url_C = *key_url_A; key_url_C->url.host_idx = (key_url_A->url.host_idx+1U)%16U;
+  FD_TEST( !fd_sspeer_key_eq( key_url_A, key_url_C ) );
+  FD_TEST( add_peer( selector, key_url_C, addr_A, cluster_full_slot, cluster_incr_slot, 4UL*1000UL*1000UL )==4UL*1000UL*1000UL );
+  FD_TEST( 3UL==fd_sspeer_selector_peer_map_by_key_ele_cnt( selector ) );
+  fd_sspeer_selector_remove( selector, key_url_C );
+  FD_TEST( 2UL==fd_sspeer_selector_peer_map_by_key_ele_cnt( selector ) );
 
   /* Cleanup */
   fd_sspeer_selector_remove( selector, key_url_A );

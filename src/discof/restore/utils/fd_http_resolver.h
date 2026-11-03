@@ -39,7 +39,8 @@ fd_http_resolver_new( void *                           shmem,
                       int                              epoll_fd );
 
 /* Add a peer to the resolver.  Peers are not de-duplicated and must
-   be unique.  The peer is inserted into the selector with unknown
+   be unique.  host_idx is the peer's fd_sspeer_key_t url.host_idx;
+   hostname is copied for SNI and the Host header.  The peer is inserted into the selector with unknown
    slots and default latency so that subsequent on_resolve updates
    can find it.  It becomes selectable by best() once resolved.
    Returns 0 on success, and -1 otherwise. */
@@ -47,6 +48,7 @@ int
 fd_http_resolver_add( fd_http_resolver_t *   resolver,
                       fd_ip4_port_t          addr,
                       char const *           hostname,
+                      uint                   host_idx,
                       int                    is_https,
                       fd_sspeer_selector_t * selector );
 
