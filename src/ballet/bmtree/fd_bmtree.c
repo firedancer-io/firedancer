@@ -621,3 +621,200 @@ fd_bmtree_commitp_fini( fd_bmtree_commit_t * state, ulong leaf_cnt ) {
   state->leaf_cnt = leaf_cnt;
   return state->inclusion_proofs[root_idx].hash;
 }
+
+/* 20-byte node cache variant of the proof-based calc above.  Same walk,
+   same merges; the top-layer node is also kept in full in root. */
+
+#define VALID20(s)  ((ulong *)((s)->inclusion_proofs + (s)->inclusion_proof_sz + 1UL))
+#define HAS20(i)    (ipfset_test( valid[(i)/64UL], (i)%64UL ))
+#define STORE20(i,n) do {                                                    \
+    ulong _i = (i);                                                          \
+    fd_memcpy( ip[ _i ], (n)->hash, 20UL );                                  \
+    if( FD_UNLIKELY( _i==top_idx ) ) state->root = *(n);                     \
+    valid[ _i/64UL ] |= ipfset_ele( _i%64UL );                               \
+  } while(0)
+
+fd_bmtree_commitp20_t *
+fd_bmtree_commitp20_init( void * mem,
+                          ulong  prefix_sz,
+                          ulong  inclusion_proof_layer_cnt ) {
+  if( FD_UNLIKELY( (inclusion_proof_layer_cnt-1UL)>=FD_BMTREE_COMMITP20_LAYER_MAX ) ) return NULL;
+  fd_bmtree_commitp20_t * state = (fd_bmtree_commitp20_t *)mem;
+  state->leaf_cnt           = 0UL;
+  state->prefix_sz          = prefix_sz;
+  state->inclusion_proof_sz = (1UL<<inclusion_proof_layer_cnt) - 1UL;
+  fd_memset( VALID20( state ), 0, ((1UL<<inclusion_proof_layer_cnt)+63UL)/64UL*sizeof(ulong) );
+  return state;
+}
+
+int
+fd_bmtree_commitp20_insert_with_proof( fd_bmtree_commitp20_t *  state,
+                                       ulong                    idx,
+                                       fd_bmtree_node_t const * new_leaf,
+                                       uchar            const * proof,
+                                       ulong                    proof_depth,
+                                       fd_bmtree_node_t       * opt_root ) {
+  ulong   inc_idx            = 2UL * idx;
+  ulong   inclusion_proof_sz = state->inclusion_proof_sz;
+  ulong   top_idx            = inclusion_proof_sz>>1;
+  ulong   prefix_sz          = state->prefix_sz;
+  uchar   (*ip)[ 20 ]        = state->inclusion_proofs;
+  ulong * valid              = VALID20( state );
+  fd_bmtree_node_t node_buf[ FD_BMTREE_COMMITP20_LAYER_MAX ];
+
+  if( FD_UNLIKELY( inc_idx >= inclusion_proof_sz ) ) return 0;
+  if( FD_UNLIKELY( (proof_depth>63UL) || (((1UL<<proof_depth)-1UL)>=inclusion_proof_sz) ) ) return 0;
+
+  node_buf[ 0 ] = *new_leaf;
+
+  ulong layer=0UL;
+  for( ; layer<proof_depth; layer++ ) {
+    ulong sibling_idx = inc_idx ^ (2UL<<layer);
+    if( FD_UNLIKELY( HAS20(sibling_idx) && !fd_memeq( proof+20UL*layer, ip[ sibling_idx ], 20UL ) ) ) return 0;
+    if( FD_UNLIKELY( HAS20(inc_idx)     && !fd_memeq( node_buf[layer].hash, ip[ inc_idx ], 20UL ) ) ) return 0;
+
+    ulong parent_idx = fd_ulong_insert_lsb( inc_idx, (int)layer+2, (2UL<<layer)-1UL );
+
+    if( HAS20(sibling_idx) & HAS20(inc_idx) ) {
+      if( parent_idx==top_idx ) node_buf[ layer+1UL ] = state->root;
+      else                      fd_memcpy( node_buf[ layer+1UL ].hash, ip[ parent_idx ], 20UL );
+    } else {
+      fd_bmtree_node_t sibling;
+      fd_memcpy( sibling.hash, proof+20UL*layer, 20UL );
+      fd_bmtree_node_t * tmp_l = fd_ptr_if( 0UL==(inc_idx & (2UL<<layer)), node_buf+layer, &sibling );
+      fd_bmtree_node_t * tmp_r = fd_ptr_if( 0UL==(inc_idx & (2UL<<layer)), &sibling, node_buf+layer );
+      fd_bmtree_private_merge( node_buf+layer+1UL, tmp_l, tmp_r, 20UL, prefix_sz );
+    }
+
+    inc_idx = parent_idx;
+  }
+
+  for( ; layer<63UL; layer++ ) {
+    if( (inc_idx|(2UL<<layer)) >= inclusion_proof_sz    ) break; /* At root */
+    if( HAS20( inc_idx ) | !HAS20( inc_idx ^ (2UL<<layer) ) ) break;
+
+    fd_bmtree_node_t sibling;
+    fd_memcpy( sibling.hash, ip[ inc_idx ^ (2UL<<layer) ], 20UL );
+    fd_bmtree_node_t * tmp_l = fd_ptr_if( 0UL==(inc_idx & (2UL<<layer)), node_buf+layer, &sibling );
+    fd_bmtree_node_t * tmp_r = fd_ptr_if( 0UL==(inc_idx & (2UL<<layer)), &sibling, node_buf+layer );
+    fd_bmtree_private_merge( node_buf+layer+1UL, tmp_l, tmp_r, 20UL, prefix_sz );
+
+    inc_idx = fd_ulong_insert_lsb( inc_idx, (int)layer+2, (2UL<<layer)-1UL );
+  }
+  if( FD_UNLIKELY( HAS20(inc_idx) && !fd_memeq( node_buf[layer].hash, ip[ inc_idx ], 20UL ) ) ) return 0;
+
+  inc_idx = 2UL * idx;
+  for( ulong i=0UL; i<=layer; i++ ) {
+    STORE20( inc_idx, node_buf+i );
+    inc_idx = fd_ulong_insert_lsb( inc_idx, (int)i+2, (2UL<<i)-1UL );
+  }
+
+  inc_idx = 2UL * idx;
+  for( ulong i=0UL; i<proof_depth; i++ ) {
+    ulong sibling_idx = inc_idx ^ (2UL<<i);
+    fd_memcpy( ip[ sibling_idx ], proof+20UL*i, 20UL );
+    valid[ sibling_idx/64UL ] |= ipfset_ele( sibling_idx%64UL );
+    inc_idx = fd_ulong_insert_lsb( inc_idx, (int)i+2, (2UL<<i)-1UL );
+  }
+
+  if( FD_UNLIKELY( opt_root != NULL ) ) *opt_root = node_buf[ layer ];
+
+  return 1;
+}
+
+uchar *
+fd_bmtree_commitp20_fini( fd_bmtree_commitp20_t * state,
+                          ulong                   leaf_cnt ) {
+  ulong   inclusion_proof_sz = state->inclusion_proof_sz;
+  ulong   top_idx            = inclusion_proof_sz>>1;
+  ulong   prefix_sz          = state->prefix_sz;
+  uchar   (*ip)[ 20 ]        = state->inclusion_proofs;
+  ulong * valid              = VALID20( state );
+  fd_bmtree_node_t node_buf[ FD_BMTREE_COMMITP20_LAYER_MAX ];
+
+  if( FD_UNLIKELY( leaf_cnt==0UL ) ) return NULL;
+
+  if( FD_LIKELY( !fd_ulong_is_pow2( leaf_cnt ) ) ) {
+    ulong layer     = (ulong)fd_ulong_find_lsb( leaf_cnt );
+    ulong layer_cnt = leaf_cnt >> layer;
+    ulong inc_idx   = (layer_cnt<<(layer+1UL)) - (1UL<<layer) - 1UL;
+
+    /* See fd_bmtree_commitp_fini */
+    if( FD_UNLIKELY( inc_idx >= inclusion_proof_sz ) ) return NULL;
+
+    if( FD_UNLIKELY( !HAS20(inc_idx) ) ) return NULL;
+    fd_memcpy( node_buf[ layer ].hash, ip[ inc_idx ], 20UL );
+
+    while( layer_cnt>1UL ) {
+      fd_bmtree_node_t sibling;
+      fd_bmtree_node_t const * tmp_l = node_buf+layer; /* 1 child */
+      if( !(layer_cnt&1UL) ) {
+        if( FD_UNLIKELY( !HAS20(inc_idx^(2UL<<layer)) ) ) return NULL;
+        fd_memcpy( sibling.hash, ip[ inc_idx^(2UL<<layer) ], 20UL );
+        tmp_l = &sibling;
+      }
+
+      fd_bmtree_private_merge( node_buf+layer+1UL, tmp_l, node_buf+layer, 20UL, prefix_sz );
+
+      layer++; layer_cnt = (layer_cnt+1UL) >> 1;
+
+      inc_idx   = (layer_cnt<<(layer+1UL)) - (1UL<<layer) - 1UL;
+
+      if( FD_UNLIKELY( HAS20( inc_idx ) && !fd_memeq( node_buf[layer].hash, ip[ inc_idx ], 20UL ) ) ) return NULL;
+    }
+
+    layer     = (ulong)fd_ulong_find_lsb( leaf_cnt );
+    layer_cnt = leaf_cnt >> layer;
+    while( layer_cnt>1UL ) {
+      layer++; layer_cnt = (layer_cnt+1UL) >> 1;
+      STORE20( (layer_cnt<<(layer+1UL)) - (1UL<<layer) - 1UL, node_buf+layer );
+    }
+  }
+
+  ulong root_idx = fd_ulong_pow2_up( leaf_cnt ) - 1UL;
+  ulong i=0UL;
+  for( ; i<(root_idx+1UL)/64UL; i++ ) if( FD_UNLIKELY( !ipfset_is_full( valid[i] ) ) ) return NULL;
+
+  for( ulong layer=0UL; (1UL<<layer)-1UL < root_idx; layer++ ) {
+    ulong min_idx_for_layer = fd_ulong_insert_lsb( 64UL*((root_idx+1UL)/64UL), 1+(int)layer, (1UL<<layer)-1UL );
+    ulong max_idx_for_layer = fd_ulong_insert_lsb( (leaf_cnt - 1UL)<<1,        1+(int)layer, (1UL<<layer)-1UL );
+    for( ulong inc_idx=min_idx_for_layer; inc_idx<=max_idx_for_layer; inc_idx += 2UL<<layer ) {
+      if( FD_UNLIKELY( !HAS20(inc_idx) ) ) return NULL;
+    }
+  }
+  if( !HAS20( root_idx ) ) return NULL;
+
+  state->leaf_cnt = leaf_cnt;
+  return root_idx==top_idx ? state->root.hash : ip[ root_idx ];
+}
+
+int
+fd_bmtree_commitp20_get_proof( fd_bmtree_commitp20_t const * state,
+                               uchar *                       dest,
+                               ulong                         leaf_idx ) {
+  ulong leaf_cnt = state->leaf_cnt;
+
+  if( FD_UNLIKELY( leaf_idx >= leaf_cnt ) ) return 0;
+
+  ulong inc_idx   = leaf_idx * 2UL;
+  ulong layer     = 0UL;
+  ulong layer_cnt = leaf_cnt;
+
+  while( layer_cnt>1UL ) {
+    ulong sibling_idx = inc_idx ^ (1UL<<(layer+1UL));
+    ulong max_idx_for_layer = fd_ulong_insert_lsb( (leaf_cnt - 1UL)<<1, 1+(int)layer, (1UL<<layer)-1UL );
+    sibling_idx = fd_ulong_if( sibling_idx>max_idx_for_layer, inc_idx /* Double link */, sibling_idx );
+
+    if( FD_UNLIKELY( sibling_idx>=state->inclusion_proof_sz ) ) return -1;
+    fd_memcpy( dest + layer*20UL, state->inclusion_proofs[ sibling_idx ], 20UL );
+
+    layer++; layer_cnt = (layer_cnt+1UL)>>1;
+    inc_idx = fd_ulong_insert_lsb( inc_idx, (int)layer+1, (1UL<<layer)-1UL );
+  }
+
+  return (int)layer;
+}
+
+#undef STORE20
+#undef HAS20
+#undef VALID20
