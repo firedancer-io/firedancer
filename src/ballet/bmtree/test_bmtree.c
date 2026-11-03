@@ -167,10 +167,86 @@ test_append_batch( ulong leaf_cnt,
   }
 }
 
+/* commitp20 must match commitp (hash_sz 20) on every insert, including
+   truncated and corrupted proofs, and return the full 32 B top node. */
+static void
+test_commitp20( ulong      leaf_cnt,
+                fd_rng_t * rng ) {
+  ulong const prefix_sz = FD_BMTREE_LONG_PREFIX_SZ;
+  ulong depth = fd_bmtree_depth( leaf_cnt );
+  static uchar _ref[ FD_BMTREE_COMMIT_FOOTPRINT( 7UL ) ] __attribute__((aligned(FD_BMTREE_COMMIT_ALIGN)));
+  static uchar _full[ FD_BMTREE_COMMIT_FOOTPRINT( 7UL ) ] __attribute__((aligned(FD_BMTREE_COMMIT_ALIGN)));
+  static uchar _c20[ FD_BMTREE_COMMITP20_FOOTPRINT( 7UL ) ] __attribute__((aligned(FD_BMTREE_COMMITP20_ALIGN)));
+  FD_TEST( depth<=7UL );
+
+  fd_bmtree_node_t leaf[ 64 ];
+  fd_bmtree_commit_t * ref = fd_bmtree_commit_init( _ref, 20UL, prefix_sz, 7UL );
+  for( ulong i=0UL; i<leaf_cnt; i++ ) {
+    for( ulong j=0UL; j<32UL; j++ ) leaf[ i ].hash[ j ] = fd_rng_uchar( rng );
+    fd_bmtree_commit_append( ref, leaf+i, 1UL );
+  }
+  uchar const * ref_root = fd_bmtree_commit_fini( ref );
+  ulong accepted_bad = 0UL;
+
+  for( ulong trial=0UL; trial<4UL; trial++ ) {
+    accepted_bad = 0UL;
+    fd_bmtree_commit_t    * full = fd_bmtree_commit_init( _full, 20UL, prefix_sz, depth );
+    fd_bmtree_commitp20_t * c20  = fd_bmtree_commitp20_init( _c20, prefix_sz, depth );
+    FD_TEST( c20 );
+
+    for( ulong k=0UL; k<3UL*leaf_cnt; k++ ) {
+      ulong i = fd_rng_ulong_roll( rng, leaf_cnt );
+      uchar proof[ 7*20 ];
+      FD_TEST( (int)depth-1==fd_bmtree_get_proof( ref, proof, i ) );
+      ulong proof_depth = fd_ulong_if( (int)fd_rng_uint_roll( rng, 2U ), depth-1UL, fd_rng_ulong_roll( rng, depth ) );
+      fd_bmtree_node_t l = leaf[ i ];
+      uint corrupt = fd_rng_uint_roll( rng, 8U );
+      if( corrupt==0U )                  l.hash[ fd_rng_uint_roll( rng, 20U ) ]++;
+      if( corrupt==1U && proof_depth )   proof[ fd_rng_ulong_roll( rng, 20UL*proof_depth ) ]++;
+
+      fd_bmtree_node_t r_full[1]; fd_bmtree_node_t r_c20[1];
+      int rv_full = fd_bmtree_commitp_insert_with_proof  ( full, i, &l, proof, proof_depth, r_full );
+      int rv_c20  = fd_bmtree_commitp20_insert_with_proof( c20,  i, &l, proof, proof_depth, r_c20  );
+      FD_TEST( rv_full==rv_c20 );
+      accepted_bad += (ulong)( rv_full & (corrupt<2U) & ( (corrupt==0U) | (proof_depth>0UL) ) );
+      if( rv_full ) {
+        /* A full proof reaches the top node, which must be all 32 B */
+        FD_TEST( fd_memeq( r_full, r_c20, fd_ulong_if( proof_depth==depth-1UL, 32UL, 20UL ) ) );
+      }
+    }
+
+    /* Fill in remaining leaves without proofs, odds first */
+    for( ulong k=0UL; k<leaf_cnt; k++ ) {
+      ulong j = fd_ulong_if( k<leaf_cnt/2UL, 2UL*k+1UL, 2UL*(k-leaf_cnt/2UL) );
+      FD_TEST( fd_bmtree_commitp_insert_with_proof( full, j, leaf+j, NULL, 0UL, NULL )==fd_bmtree_commitp20_insert_with_proof( c20, j, leaf+j, NULL, 0UL, NULL ) );
+    }
+
+    uchar * f_full = fd_bmtree_commitp_fini  ( full, leaf_cnt );
+    uchar * f_c20  = fd_bmtree_commitp20_fini( c20,  leaf_cnt );
+    FD_TEST( !f_full==!f_c20 );
+    if( f_full ) {
+      FD_TEST( fd_memeq( f_full, f_c20, 32UL ) );
+      if( !accepted_bad ) FD_TEST( fd_memeq( f_c20, ref_root, 32UL ) );
+      for( ulong i=0UL; i<leaf_cnt; i++ ) {
+        uchar pa[ 7*20 ]; uchar pb[ 7*20 ];
+        fd_memset( pa, 0xa5, sizeof(pa) ); fd_memset( pb, 0xa5, sizeof(pb) );
+        FD_TEST( fd_bmtree_get_proof( full, pa, i )==fd_bmtree_commitp20_get_proof( c20, pb, i ) );
+        FD_TEST( fd_memeq( pa, pb, sizeof(pa) ) );
+      }
+    }
+  }
+}
+
 int
 main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
+
+  fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 1234U, 0UL ) );
+  for( ulong leaf_cnt=1UL; leaf_cnt<=64UL; leaf_cnt++ ) test_commitp20( leaf_cnt, rng );
+  FD_TEST( !fd_bmtree_commitp20_init( memory, FD_BMTREE_LONG_PREFIX_SZ, 0UL ) );
+  FD_TEST( !fd_bmtree_commitp20_init( memory, FD_BMTREE_LONG_PREFIX_SZ, FD_BMTREE_COMMITP20_LAYER_MAX+1UL ) );
+  fd_rng_delete( fd_rng_leave( rng ) );
 
   for( ulong leaf_cnt=1UL; leaf_cnt<=64UL; leaf_cnt++ ) {
     test_append_batch( leaf_cnt, 20UL, 26UL );
