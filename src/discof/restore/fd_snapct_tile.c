@@ -151,6 +151,7 @@ struct fd_snapct_tile {
     ushort port; /* net order */
     int    is_https;
     int    resolved;
+    uint   host_idx;    /* first entry with the same hostname (url key) */
     long   retry_nanos; /* re-queue due time, 0 while in flight */
   } dns_servers[ FD_TOPO_SNAPSHOTS_SERVERS_MAX ];
   struct {
@@ -479,7 +480,7 @@ on_resolve( void *                  _ctx,
         FD_BASE58_ENCODE_32_BYTES( key->pubkey->key, pubkey_b58 );
         FD_LOG_DEBUG(( "selector add on resolve failed for peer with pubkey %s", pubkey_b58 ));
       } else {
-        FD_LOG_DEBUG(( "selector add on resolve failed for peer %s with addr " FD_IP4_ADDR_FMT ":%hu", key->url.hostname,
+        FD_LOG_DEBUG(( "selector add on resolve failed for peer %s with addr " FD_IP4_ADDR_FMT ":%hu", ctx->dns_servers[ key->url.host_idx ].hostname,
                        FD_IP4_ADDR_FMT_ARGS( key->url.resolved_addr.addr ), fd_ushort_bswap( key->url.resolved_addr.port ) ));
       }
     }
@@ -771,11 +772,12 @@ log_download( fd_snapct_tile_t * ctx,
 
   if( peer->key.is_url ) {
     char const * scheme = is_https ? "https" : "http";
-    if( peer->key.url.hostname[ 0 ] ) {
+    char const * hostname = ctx->dns_servers[ peer->key.url.host_idx ].hostname;
+    if( hostname[ 0 ] ) {
       FD_LOG_NOTICE(( "downloading %s snapshot from %s%s://%s:%hu%s",
-                      what, fd_log_style_bold(), scheme, peer->key.url.hostname, fd_ushort_bswap( peer->addr.port ), fd_log_style_normal() ));
+                      what, fd_log_style_bold(), scheme, hostname, fd_ushort_bswap( peer->addr.port ), fd_log_style_normal() ));
       FD_LOG_INFO(( "downloading %s snapshot at slot %lu from configured server %s://%s:%hu at " FD_IP4_ADDR_FMT,
-                    what, slot, scheme, peer->key.url.hostname, fd_ushort_bswap( peer->addr.port ), FD_IP4_ADDR_FMT_ARGS( peer->addr.addr ) ));
+                    what, slot, scheme, hostname, fd_ushort_bswap( peer->addr.port ), FD_IP4_ADDR_FMT_ARGS( peer->addr.addr ) ));
     } else {
       FD_LOG_NOTICE(( "downloading %s snapshot from %s%s://" FD_IP4_ADDR_FMT ":%hu%s",
                       what, fd_log_style_bold(), scheme, FD_IP4_ADDR_FMT_ARGS( peer->addr.addr ), fd_ushort_bswap( peer->addr.port ), fd_log_style_normal() ));
@@ -832,8 +834,8 @@ blacklist_peer( fd_snapct_tile_t * ctx ) {
       FD_BASE58_ENCODE_32_BYTES( ctx->peer.key.pubkey->uc, pubkey_b58 );
       FD_LOG_WARNING(( "permanently blacklisted peer identity %s", pubkey_b58 ));
     } else {
-      FD_LOG_WARNING(( "permanently blacklisted peer identity %s",
-                       ctx->peer.key.url.hostname[0] ? ctx->peer.key.url.hostname : "(none)" ));
+      char const * hostname = ctx->dns_servers[ ctx->peer.key.url.host_idx ].hostname;
+      FD_LOG_WARNING(( "permanently blacklisted peer identity %s", hostname[0] ? hostname : "(none)" ));
     }
   } else {
     FD_LOG_WARNING(( "blacklist pool full, peer banned via ssping only" ));
@@ -897,6 +899,7 @@ dns_advance( fd_snapct_tile_t * ctx,
       if( FD_LIKELY( !fd_http_resolver_add( ctx->ssresolver,
                                             ctx->resolved_servers[ k ].addr,
                                             ctx->resolved_servers[ k ].hostname,
+                                            ctx->dns_servers[ i ].host_idx,
                                             ctx->resolved_servers[ k ].is_https,
                                             ctx->selector ) ) ) {
         fd_ssping_add( ctx->ssping, ctx->resolved_servers[ k ].addr );
@@ -996,7 +999,7 @@ after_credit( fd_snapct_tile_t *  ctx,
       for( ulong i=0UL; i<ctx->resolved_servers_cnt; i++ ) {
         if( FD_UNLIKELY( ctx->peer.key.is_url &&
                          ctx->peer.key.url.resolved_addr.l==ctx->resolved_servers[ i ].addr.l &&
-                         !strcmp( ctx->peer.key.url.hostname, ctx->resolved_servers[ i ].hostname ) ) ) {
+                         !strcmp( ctx->dns_servers[ ctx->peer.key.url.host_idx ].hostname, ctx->resolved_servers[ i ].hostname ) ) ) {
           fd_cstr_ncpy( out->hostname, ctx->resolved_servers[ i ].hostname, sizeof(out->hostname) );
           out->is_https = ctx->resolved_servers[ i ].is_https;
           break;
@@ -2499,6 +2502,10 @@ unprivileged_init( fd_topo_t const *      topo,
     for( ulong i=0UL; i<ctx->config.sources.servers_cnt; i++ ) {
       fd_dns_peer_parse( ctx->config.sources.servers[ i ], "snapshots.sources.servers", ctx->dns_servers[ i ].hostname, &ctx->dns_servers[ i ].port, &ctx->dns_servers[ i ].is_https );
       ctx->dns_servers[ i ].resolved = 0;
+      ctx->dns_servers[ i ].host_idx = (uint)i;
+      for( ulong j=0UL; j<i; j++ ) {
+        if( !strcmp( ctx->dns_servers[ j ].hostname, ctx->dns_servers[ i ].hostname ) ) { ctx->dns_servers[ i ].host_idx = (uint)j; break; }
+      }
       FD_TEST( !fd_adns_resolve( ctx->adns, ctx->dns_servers[ i ].hostname, i ) );
       ctx->dns_servers[ i ].retry_nanos = 0L; /* in flight */
     }

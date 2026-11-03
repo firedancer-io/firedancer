@@ -821,7 +821,9 @@ test_start_after_init_acks( void ) {
       ctx->peer.key.is_url = source!=0;
       if( source ) {
         ctx->peer.key.url.resolved_addr = ctx->peer.addr;
-        fd_cstr_ncpy( ctx->peer.key.url.hostname, source==1 ? "alpha.example" : "beta.example", FD_FQDN_BUF_MAX );
+        fd_cstr_ncpy( ctx->dns_servers[ 0 ].hostname, "alpha.example", sizeof(ctx->dns_servers[ 0 ].hostname) );
+        fd_cstr_ncpy( ctx->dns_servers[ 1 ].hostname, "beta.example",  sizeof(ctx->dns_servers[ 1 ].hostname) );
+        ctx->peer.key.url.host_idx = source==1 ? 0U : 1U;
       }
       ulong sig  = full ? FD_SNAPSHOT_MSG_CTRL_INIT_FULL : FD_SNAPSHOT_MSG_CTRL_INIT_INCR;
       int   busy = 0;
