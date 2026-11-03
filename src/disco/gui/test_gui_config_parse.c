@@ -1,6 +1,7 @@
 #define _GNU_SOURCE
 #include "fd_gui_config_parse.h"
 #include "fd_gui_peers.h"
+#include "fd_gui_printf.h"
 #include "../../waltz/http/fd_http_server_private.h"
 
 #include "../../util/fd_util.h"
@@ -256,6 +257,35 @@ test_bw_rates( void ) {
       FD_TEST( rate[ 0 ].rate_ema.value==0.0 && rate[ 1 ].rate_ema.value==0.0 );
     }
   }
+
+  /* viewport rows carry exactly the displayed columns, and the diff
+     prints only a changed rate */
+  fd_gui_peers_ws_open( peers, 0UL, 0L );
+  peer->row.gossvf_rx[ FD_GUI_PEERS_RATE_PUSH          ].rate_ema.value = 1234.9;
+  peer->row.gossip_tx[ FD_GUI_PEERS_RATE_PULL_RESPONSE ].rate_ema.value = 5678.0;
+  peer->row.stake            = 77UL;
+  peer->row.country_code_idx = 3;
+  strcpy( peer->row.name, "bob" );
+  char const * scroll = "{\"topic\":\"gossip\",\"key\":\"query_scroll\",\"id\":1,\"params\":{\"start_row\":0,\"row_cnt\":1}}";
+  FD_TEST( !fd_gui_peers_ws_message( peers, 0UL, (uchar const *)scroll, strlen( scroll ) ) );
+  FD_TEST( peers->scratch.viewport_cnt==1UL );
+  fd_gui_peers_vrow_t const * v = &peers->client_viewports[ 0 ].viewport[ 0 ];
+  FD_TEST( v->valid && v->stake==77UL && v->ip4==0x0100007fU && v->country_code_idx==3 && !strcmp( v->name, "bob" ) );
+  FD_TEST( !memcmp( v->pubkey.uc, peer->row.pubkey.uc, 32UL ) );
+  FD_TEST( v->rx[ FD_GUI_PEERS_RATE_PUSH ]==1234L && v->rx[ FD_GUI_PEERS_RATE_PULL_RESPONSE ]==0L );
+  FD_TEST( v->tx[ FD_GUI_PEERS_RATE_PULL_RESPONSE ]==5678L && v->tx[ FD_GUI_PEERS_RATE_PUSH ]==0L );
+  peers->scratch.viewport_ref[ 0 ] = *v;
+  peers->scratch.viewport[ 0 ]     = *v;
+  peers->scratch.viewport[ 0 ].tx[ FD_GUI_PEERS_RATE_PUSH ] = 9L;
+  ulong off = http->stage_len;
+  fd_gui_printf_peers_viewport_update( peers, 0UL );
+  FD_TEST( !http->stage_err );
+  char const * out = (char const *)http->oring+http->stage_off%http->oring_sz+off;
+  ulong        out_len = http->stage_len-off;
+  FD_TEST( memmem( out, out_len, "\"Egress Push\"", 13UL ) && memmem( out, out_len, "\"new_value\":9", 13UL ) );
+  FD_TEST( !memmem( out, out_len, "Ingress", 7UL ) && !memmem( out, out_len, "Stake", 5UL ) && !memmem( out, out_len, "Egress Pull", 11UL ) );
+  fd_http_server_unstage( http );
+  fd_gui_peers_ws_close( peers, 0UL );
 
   free( peers_mem );
   free( fd_http_server_delete( fd_http_server_leave( http ) ) );
