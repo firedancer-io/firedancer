@@ -1364,8 +1364,10 @@ test_hash_stake_spill( void ) {
     fd_vote_t v = fd_vote_construct_notar( sec_sign_fn, &g_state_sk[ rank ], test_bls_public_key, slot, &hash[ rank ], (ushort)rank, STATE_SHRED_VERSION );
     add_vote_helper( ss, &v, epoch_info, &t );
     FD_TEST( t.ok && fd_bls_set_is_null( t.o.bad ) && !t.o.certs_cnt );
+    if( rank==HASH_STAKE_INLINE_MAX ) FD_TEST( !ss->votes.notar_hash_stake.spill_hwm ); /* 8 versions stay inline */
   }
-  FD_TEST( ss->votes.notar_hash_stake.used==UINT_MAX && ss->votes.notar_hash_stake.spill_cnt==7U && ss->votes.notar_hash_stake.spill_hwm==7U );
+  ulong sp = 39UL-HASH_STAKE_INLINE_MAX;
+  FD_TEST( ss->votes.notar_hash_stake.used==(1U<<HASH_STAKE_INLINE_MAX)-1U && ss->votes.notar_hash_stake.spill_cnt==sp && ss->votes.notar_hash_stake.spill_hwm==sp );
   for( ulong rank=1UL; rank<40UL; rank++ ) FD_TEST( hash_stake_query( ss, fd, 0, &hash[ rank ] )==rank-1UL && notar_hash_stake_query( ss, &hash[ rank ] )==1UL );
   struct stat st; FD_TEST( !fstat( fd, &st ) && st.st_size>0L );
 
@@ -1381,11 +1383,11 @@ test_hash_stake_spill( void ) {
   fd_vote_t forged = fd_vote_construct_notar( sec_sign_fn, &g_state_sk[ 41 ], test_bls_public_key, slot, &hash[ 40 ], 40UL, STATE_SHRED_VERSION );
   add_vote_helper( ss, &forged, epoch_info, &t );
   FD_TEST( !t.ok && fd_bls_set_cnt( t.o.bad )==1UL && fd_bls_set_test( t.o.bad, 40UL ) && !t.o.certs_cnt );
-  FD_TEST( hash_stake_query( ss, fd, 0, &hash[ 40 ] )==ULONG_MAX && ss->votes.notar_hash_stake.spill_cnt==7U && ss->votes.notar_hash_stake.spill_hwm==8U );
+  FD_TEST( hash_stake_query( ss, fd, 0, &hash[ 40 ] )==ULONG_MAX && ss->votes.notar_hash_stake.spill_cnt==sp && ss->votes.notar_hash_stake.spill_hwm==sp+1UL );
   FD_TEST( ss->votes.top_notar_stake==1UL && ss->votes.notar_or_skip_stake==39UL );
   fd_vote_t v41 = fd_vote_construct_notar( sec_sign_fn, &g_state_sk[ 41 ], test_bls_public_key, slot, &hash[ 41 ], 41UL, STATE_SHRED_VERSION );
   add_vote_helper( ss, &v41, epoch_info, &t );
-  FD_TEST( t.ok && hash_stake_query( ss, fd, 0, &hash[ 41 ] )==HASH_STAKE_INLINE_MAX+7UL && ss->votes.notar_hash_stake.spill_hwm==8U );
+  FD_TEST( t.ok && hash_stake_query( ss, fd, 0, &hash[ 41 ] )==HASH_STAKE_INLINE_MAX+sp && ss->votes.notar_hash_stake.spill_hwm==sp+1UL );
 
   /* an honest quorum on a spilled hash certifies it */
   fd_vote_t heavy = fd_vote_construct_notar( sec_sign_fn, &g_state_sk[ 40 ], test_bls_public_key, slot, &hash[ 39 ], 40UL, STATE_SHRED_VERSION );
@@ -1409,7 +1411,7 @@ test_hash_stake_spill( void ) {
       FD_TEST( !memcmp( &sigs[ rank ], &v.notar_fallback.sig, sizeof(fd_bls_sig_t) ) );
     }
   }
-  FD_TEST( hash_stake_cnt( ss, 1 )==36UL && ss->votes.notar_fallback_hash_stake.spill_cnt==4U );
+  FD_TEST( hash_stake_cnt( ss, 1 )==36UL && ss->votes.notar_fallback_hash_stake.spill_cnt==36UL-HASH_STAKE_INLINE_MAX );
 
   slot_state_null( ss, &g_states );
   assert_maps_empty( ss );
