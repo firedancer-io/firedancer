@@ -764,16 +764,19 @@ main( int     argc,
 
   /* UMEM */
   ulong const dcache_depth   = rxq_depth+txq_depth+2UL*link_depth;
-  ulong const dcache_data_sz = fd_dcache_req_data_sz( FD_NET_MTU, dcache_depth, 1UL, 1 );
+  ulong const dcache_data_sz = fd_dcache_req_data_sz( FD_MLX5_FRAME_SZ, dcache_depth, 1UL, 1 );
   FD_TEST( dcache_data_sz );
   void *  rx_dcache_mem = fd_wksp_alloc_laddr( wksp, fd_dcache_align(), fd_dcache_footprint( dcache_data_sz, 0UL ), WKSP_TAG );
   uchar * rx_dcache     = fd_dcache_join( fd_dcache_new( rx_dcache_mem, dcache_data_sz, 0UL ) );
   fd_topo_obj_t * dcache_obj = fd_topob_obj( topo, "dcache", "wksp" );
   topo->objs[ dcache_obj->id ].offset = (ulong)rx_dcache_mem - (ulong)wksp;
   topo_tile->net.umem_dcache_obj_id = dcache_obj->id;
-  tile->net.pkt_buf_wksp_base = (uchar *)rx_dcache_mem;
-  tile->net.pkt_buf_chunk0    = fd_laddr_to_chunk( wksp, rx_dcache );
-  tile->net.pkt_buf_wmark     = fd_dcache_compact_wmark( wksp, rx_dcache, FD_NET_MTU );
+  void * pkt_mem; ulong pkt_mem_sz; ulong pkt_iova;
+  fd_mlx5_tile_packet_memory( topo, topo_tile, tile, &pkt_mem, &pkt_mem_sz, &pkt_iova );
+  FD_TEST( pkt_mem==rx_dcache && pkt_iova==(ulong)rx_dcache-(ulong)wksp );
+  FD_TEST( pkt_mem_sz==(dcache_data_sz/FD_MLX5_FRAME_SZ)*FD_MLX5_FRAME_SZ && pkt_mem_sz<=dcache_data_sz );
+  FD_TEST( tile->net.pkt_buf_chunk0==fd_laddr_to_chunk( wksp, rx_dcache ) );
+  FD_TEST( tile->net.pkt_buf_wmark==tile->net.pkt_buf_chunk0+((pkt_mem_sz-FD_MLX5_FRAME_SZ)>>FD_CHUNK_LG_SZ) );
 
   /* Mock a TX input link */
   fd_topo_link_t * tx_link = fd_topob_link( topo, "shred_net", "wksp", link_depth, FD_NET_MTU, 1UL );
@@ -1077,6 +1080,22 @@ main( int     argc,
   FD_TEST( tile->net.metrics.rx_gre_cnt==1UL );
   rx_seq++;
 
+  /* A full 1500 B inner packet with GRE fits the RX frame. */
+  ulong const rx_gre_max_sz = sizeof(fd_eth_hdr_t)+sizeof(fd_ip4_hdr_t)+sizeof(fd_gre_hdr_t)+FD_ETH_PAYLOAD_MAX;
+  rx_chunk  = rx_comp_one( mock, tile, FD_MLX5_CQE_OP_RX_OK, rx_gre_max_sz );
+  rx_packet = fd_chunk_to_laddr( tile->net.pkt_buf_wksp_base, rx_chunk );
+  fd_memset( rx_packet, 0, FD_MLX5_FRAME_SZ );
+  fd_memcpy( rx_packet, &rx_gre_pkt_templ, sizeof(rx_gre_pkt_templ) );
+  ((fd_ip4_hdr_t *)(rx_packet+sizeof(fd_eth_hdr_t)))->net_tot_len = fd_ushort_bswap( (ushort)(rx_gre_max_sz-sizeof(fd_eth_hdr_t)) );
+  FD_STORE( ushort, rx_packet+offsetof( __typeof__(rx_gre_pkt_templ), inner_ip4.net_tot_len ), fd_ushort_bswap( (ushort)FD_ETH_PAYLOAD_MAX ) );
+  FD_STORE( ushort, rx_packet+offsetof( __typeof__(rx_gre_pkt_templ), udp.net_len ), fd_ushort_bswap( (ushort)(FD_ETH_PAYLOAD_MAX-sizeof(fd_ip4_hdr_t)) ) );
+  after_credit( tile, stem, &poll_in, &charge_busy );
+  gre_mline = rx_link->mcache+fd_mcache_line_idx( rx_seq, link_depth );
+  FD_TEST( fd_seq_eq( gre_mline->seq, rx_seq ) && gre_mline->chunk==rx_chunk );
+  FD_TEST( gre_mline->sz==sizeof(fd_eth_hdr_t)+FD_ETH_PAYLOAD_MAX );
+  FD_TEST( tile->net.metrics.rx_gre_cnt==2UL );
+  rx_seq++;
+
   /* GRE RX bind address rejects a different inner IPv4 destination. */
   ulong const rx_gre_route_fail_before = tile->net.metrics.rx_drop_cnt[ FD_METRICS_ENUM_PKT_RX_DROP_REASON_V_DST_IP_MISMATCH_IDX ];
   rx_chunk  = rx_comp_one( mock, tile, FD_MLX5_CQE_OP_RX_OK, sizeof(rx_gre_pkt_templ) );
@@ -1218,9 +1237,15 @@ main( int     argc,
 
   /* RX packet with invalid Ethertype */
   rx_packet = fd_chunk_to_laddr( tile->net.pkt_buf_wksp_base, rx_comp_one( mock, tile, FD_MLX5_CQE_OP_RX_OK, 64UL ) );
-  fd_memset( rx_packet, 0, FD_NET_MTU );
+  fd_memset( rx_packet, 0, FD_MLX5_FRAME_SZ );
   fd_eth_hdr_t eth_hdr = { .net_type = fd_ushort_bswap( FD_ETH_HDR_TYPE_ARP ) };
   FD_STORE( fd_eth_hdr_t, rx_packet, eth_hdr );
+  after_credit( tile, stem, &poll_in, &charge_busy );
+  FD_TEST( fd_seq_ne( fd_frag_meta_seq_query( rx_link->mcache+rx_seq ), rx_seq ) );
+  FD_TEST( tile->net.metrics.rx_drop_cnt[ FD_METRICS_ENUM_PKT_RX_DROP_REASON_V_MALFORMED_IDX ]==rx_malformed_before+9UL );
+
+  /* RX length beyond the frame size */
+  rx_comp_one( mock, tile, FD_MLX5_CQE_OP_RX_OK, FD_MLX5_FRAME_SZ+1UL );
   after_credit( tile, stem, &poll_in, &charge_busy );
   FD_TEST( fd_seq_ne( fd_frag_meta_seq_query( rx_link->mcache+rx_seq ), rx_seq ) );
   FD_TEST( tile->net.metrics.rx_drop_cnt[ FD_METRICS_ENUM_PKT_RX_DROP_REASON_V_MALFORMED_IDX ]==rx_malformed_before+9UL );

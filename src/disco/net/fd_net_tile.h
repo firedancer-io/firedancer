@@ -45,6 +45,12 @@ typedef struct fd_net_rx_bounds fd_net_rx_bounds_t;
 
 #define FD_MLX5_QUEUE_DEPTH_MAX 65536U
 
+/* FD_MLX5_FRAME_SZ is the mlx5 UMEM frame stride and RX buffer size.
+   Fits a 1500 B IP packet plus Ethernet, VLAN and a 60 B outer GRE IP
+   header (1578 B); a multiple of FD_DCACHE_SLOT_ALIGN. */
+
+#define FD_MLX5_FRAME_SZ (1664UL)
+
 FD_PROTOTYPES_BEGIN
 
 /* fd_net_rx_bounds_init initializes a bounds checker for RX packets
