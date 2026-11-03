@@ -105,6 +105,58 @@ test_verifier( fd_rng_t * rng,
   free( mem );
 }
 
+/* Two verifiers sharing one signer cache shmem (as the exec tiles do)
+   give fd_ed25519_verify's results, and one's inserts are hits for the
+   other. */
+
+static void
+test_verifier_shared( fd_rng_t * rng ) {
+  ulong   ent_cnt = 16UL;
+  void *  shmem   = aligned_alloc( fd_ed25519_cache_align(), fd_ed25519_cache_shmem_footprint( ent_cnt ) );
+  FD_TEST( shmem && fd_ed25519_cache_shmem_new( shmem, ent_cnt, fd_rng_ulong( rng ) ) );
+
+  FD_TEST( !fd_ed25519_verifier_shared_footprint( 3UL ) );
+  ulong fp = fd_ed25519_verifier_shared_footprint( ent_cnt );
+  FD_TEST( fp && fp<fd_ed25519_verifier_footprint( ent_cnt ) );
+  FD_TEST( !fd_ed25519_verifier_new_shared( aligned_alloc( fd_ed25519_verifier_align(), fp ), 3UL, shmem ) );
+
+  fd_ed25519_verifier_t * v[ 2 ];
+  void *                  mem[ 2 ];
+  for( ulong k=0UL; k<2UL; k++ ) {
+    mem[ k ] = aligned_alloc( fd_ed25519_verifier_align(), fp );
+    FD_TEST( mem[ k ] );
+    v[ k ] = fd_ed25519_verifier_join( fd_ed25519_verifier_new_shared( mem[ k ], ent_cnt, shmem ) );
+    FD_TEST( v[ k ] );
+  }
+
+  for( ulong rep=0UL; rep<64UL; rep++ ) {
+    fd_ed25519_verifier_t * w = v[ rep&1UL ];
+    ulong cnt = 1UL + fd_rng_ulong_roll( rng, FD_ED25519_VERIFIER_SIG_MAX );
+    uchar const * msgs[ FD_ED25519_VERIFIER_SIG_MAX ]; ulong msg_szs[ FD_ED25519_VERIFIER_SIG_MAX ];
+    uchar const * sigs[ FD_ED25519_VERIFIER_SIG_MAX ]; uchar const * pubs[ FD_ED25519_VERIFIER_SIG_MAX ];
+    int results[ FD_ED25519_VERIFIER_SIG_MAX ];
+    for( ulong j=0UL; j<cnt; j++ ) {
+      item_t * it = items + fd_rng_ulong_roll( rng, ITEM_CNT );
+      msgs[ j ] = it->msg; msg_szs[ j ] = it->msg_sz; sigs[ j ] = it->sig; pubs[ j ] = it->pub;
+      results[ j ] = 12345;
+    }
+    fd_ed25519_verifier_verify_sigs( w, msgs, msg_szs, sigs, pubs, results, cnt );
+    for( ulong j=0UL; j<cnt; j++ ) FD_TEST( results[ j ]==fd_ed25519_verify( msgs[ j ], msg_szs[ j ], sigs[ j ], pubs[ j ], sha ) );
+    for( ulong j=0UL; j<cnt; j++ ) FD_TEST( fd_ed25519_verifier_verify( w, msgs[ j ], msg_szs[ j ], sigs[ j ], pubs[ j ] )==results[ j ] );
+  }
+  FD_TEST( fd_ed25519_verifier_insert_cnt( v[ 0 ] )+fd_ed25519_verifier_insert_cnt( v[ 1 ] ) );
+  FD_TEST( fd_ed25519_verifier_hit_cnt( v[ 0 ] ) && fd_ed25519_verifier_hit_cnt( v[ 1 ] ) );
+  FD_LOG_NOTICE(( "shared: hit %lu+%lu insert %lu+%lu",
+                  fd_ed25519_verifier_hit_cnt( v[ 0 ] ), fd_ed25519_verifier_hit_cnt( v[ 1 ] ),
+                  fd_ed25519_verifier_insert_cnt( v[ 0 ] ), fd_ed25519_verifier_insert_cnt( v[ 1 ] ) ));
+
+  for( ulong k=0UL; k<2UL; k++ ) {
+    FD_TEST( fd_ed25519_verifier_delete( fd_ed25519_verifier_leave( v[ k ] ) )==mem[ k ] );
+    free( mem[ k ] );
+  }
+  free( shmem );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -125,6 +177,7 @@ main( int     argc,
   test_verifier( rng, FD_ED25519_VERIFIER_CACHE_DEFAULT );
   test_verifier( rng, FD_ED25519_VERIFIER_CACHE_OFF );
   test_verifier( rng, 16UL );
+  test_verifier_shared( rng );
 
   fd_sha512_delete( fd_sha512_leave( sha ) );
   fd_rng_delete( fd_rng_leave( rng ) );

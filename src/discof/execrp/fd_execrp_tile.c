@@ -100,11 +100,12 @@ struct fd_execrp_tile {
     ulong txn_result[ FD_METRICS_ENUM_TXN_RESULT_CNT ];
     ulong txn_version[ FD_METRICS_ENUM_TXN_VERSION_CNT ];
   } metrics;
-
-  ulong ed25519_cache_seed;
 };
 
 typedef struct fd_execrp_tile fd_execrp_tile_t;
+
+/* Admission filter of the shared signer cache (FD_EXECRP_ED25519_CACHE_ENT_CNT) */
+#define ED25519_FILTER_ENT_CNT (2048UL)
 
 FD_FN_CONST static inline ulong
 scratch_align( void ) {
@@ -118,7 +119,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND(   l, fd_txncache_align(),          fd_txncache_footprint( tile->execrp.max_live_slots ) );
   l = FD_LAYOUT_APPEND(   l, fd_accdb_align(),             fd_accdb_footprint( tile->execrp.max_live_slots, 0 )    );
   l = FD_LAYOUT_APPEND(   l, FD_PROGCACHE_SCRATCH_ALIGN,   FD_PROGCACHE_SCRATCH_FOOTPRINT                       );
-  l = FD_LAYOUT_APPEND(   l, fd_ed25519_verifier_align(),  fd_ed25519_verifier_footprint( FD_ED25519_VERIFIER_TXN_CACHE ) );
+  l = FD_LAYOUT_APPEND(   l, fd_ed25519_verifier_align(),  fd_ed25519_verifier_shared_footprint( ED25519_FILTER_ENT_CNT ) );
   l = FD_LAYOUT_APPEND(   l, fd_bpf_frames_align(),        fd_bpf_frames_footprint()                            );
 #if FD_VM_JIT_SUPPORTED
   if( tile->execrp.jit_arena_sz ) {
@@ -484,14 +485,13 @@ privileged_init( fd_topo_t const *      topo,
                  fd_topo_tile_t const * tile ) {
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   FD_SCRATCH_ALLOC_INIT( l, scratch );
-  fd_execrp_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_execrp_tile_t), sizeof(fd_execrp_tile_t) );
-  FD_TEST( fd_rng_secure( &ctx->ed25519_cache_seed, sizeof(ulong) ) );
+  FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_execrp_tile_t), sizeof(fd_execrp_tile_t) );
 #if FD_VM_JIT_SUPPORTED
   if( !tile->execrp.jit_arena_sz ) return;
   FD_SCRATCH_ALLOC_APPEND( l, fd_txncache_align(),          fd_txncache_footprint( tile->execrp.max_live_slots ) );
   FD_SCRATCH_ALLOC_APPEND( l, fd_accdb_align(),             fd_accdb_footprint( tile->execrp.max_live_slots, 0 )    );
   FD_SCRATCH_ALLOC_APPEND( l, FD_PROGCACHE_SCRATCH_ALIGN,   FD_PROGCACHE_SCRATCH_FOOTPRINT                       );
-  FD_SCRATCH_ALLOC_APPEND( l, fd_ed25519_verifier_align(),  fd_ed25519_verifier_footprint( FD_ED25519_VERIFIER_TXN_CACHE ) );
+  FD_SCRATCH_ALLOC_APPEND( l, fd_ed25519_verifier_align(),  fd_ed25519_verifier_shared_footprint( ED25519_FILTER_ENT_CNT ) );
   FD_SCRATCH_ALLOC_APPEND( l, fd_bpf_frames_align(),        fd_bpf_frames_footprint()                            );
   void * _jit = FD_SCRATCH_ALLOC_APPEND( l, fd_vm_jit_align(), fd_vm_jit_footprint() );
   if( FD_UNLIKELY( !fd_vm_jit_new( _jit, tile->execrp.jit_arena_sz ) ) ) FD_LOG_ERR(( "fd_vm_jit_new failed" ));
@@ -508,7 +508,7 @@ unprivileged_init( fd_topo_t const *      topo,
   void * _txncache          = FD_SCRATCH_ALLOC_APPEND( l, fd_txncache_align(),          fd_txncache_footprint( tile->execrp.max_live_slots ) );
   void * _accdb             = FD_SCRATCH_ALLOC_APPEND( l, fd_accdb_align(),             fd_accdb_footprint( tile->execrp.max_live_slots, 0 )    );
   uchar * pc_scratch        = FD_SCRATCH_ALLOC_APPEND( l, FD_PROGCACHE_SCRATCH_ALIGN,   FD_PROGCACHE_SCRATCH_FOOTPRINT                       );
-  void * _verifier          = FD_SCRATCH_ALLOC_APPEND( l, fd_ed25519_verifier_align(),  fd_ed25519_verifier_footprint( FD_ED25519_VERIFIER_TXN_CACHE ) );
+  void * _verifier          = FD_SCRATCH_ALLOC_APPEND( l, fd_ed25519_verifier_align(),  fd_ed25519_verifier_shared_footprint( ED25519_FILTER_ENT_CNT ) );
   void * _bpf_frames        = FD_SCRATCH_ALLOC_APPEND( l, fd_bpf_frames_align(),        fd_bpf_frames_footprint()                            );
   void * _jit = NULL;
 #if FD_VM_JIT_SUPPORTED
@@ -533,7 +533,7 @@ unprivileged_init( fd_topo_t const *      topo,
     }
   }
 
-  ctx->verifier = fd_ed25519_verifier_join( fd_ed25519_verifier_new( _verifier, FD_ED25519_VERIFIER_TXN_CACHE, ctx->ed25519_cache_seed ) );
+  ctx->verifier = fd_ed25519_verifier_join( fd_ed25519_verifier_new_shared( _verifier, ED25519_FILTER_ENT_CNT, fd_topo_obj_laddr( topo, tile->execrp.ed25519_cache_obj_id ) ) );
   FD_TEST( ctx->verifier );
 
   ulong footer_cache_obj_id = fd_pod_query_ulong( topo->props, "footer_cache", ULONG_MAX );

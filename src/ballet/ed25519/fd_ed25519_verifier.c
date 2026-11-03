@@ -42,8 +42,8 @@ cache_ent_cnt_resolve( ulong cache_ent_cnt ) {
 
 struct __attribute__((aligned(FD_ED25519_VERIFIER_ALIGN))) fd_ed25519_verifier {
   ulong                magic;
-  ulong                cache_ent_cnt; /* 0 without a cache */
-  fd_ed25519_cache_t * cache;         /* NULL without a cache, else the join of the region after sha */
+  ulong                cache_ent_cnt; /* 0 without a cache, else its entry count (filter entry count of a shared cache) */
+  fd_ed25519_cache_t * cache;         /* NULL without a cache, else the join of the region after sha (a private cache or a shared cache's user part) */
   fd_sha512_t *        sha_ptr[ FD_ED25519_VERIFIER_BATCH ]; /* scratch of one fd_ed25519_verify_batch8 call */
   fd_sha512_t          sha    [ FD_ED25519_VERIFIER_BATCH ];
 };
@@ -66,21 +66,52 @@ fd_ed25519_verifier_footprint( ulong cache_ent_cnt ) {
   return FD_LAYOUT_FINI( l, FD_ED25519_VERIFIER_ALIGN );
 }
 
+ulong
+fd_ed25519_verifier_shared_footprint( ulong filter_ent_cnt ) {
+  if( FD_UNLIKELY( !fd_ed25519_cache_footprint( filter_ent_cnt ) ) ) return 0UL;
+  ulong l = FD_LAYOUT_INIT;
+  l = FD_LAYOUT_APPEND( l, alignof(fd_ed25519_verifier_t), sizeof(fd_ed25519_verifier_t) );
+  l = FD_LAYOUT_APPEND( l, fd_ed25519_cache_align(), fd_ed25519_cache_user_footprint( filter_ent_cnt ) );
+  return FD_LAYOUT_FINI( l, FD_ED25519_VERIFIER_ALIGN );
+}
+
+static fd_ed25519_verifier_t *
+verifier_init_scratch( void * mem ) {
+  if( FD_UNLIKELY( !mem ) ) { FD_LOG_WARNING(( "NULL mem" )); return NULL; }
+  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)mem, FD_ED25519_VERIFIER_ALIGN ) ) ) { FD_LOG_WARNING(( "misaligned mem" )); return NULL; }
+  fd_ed25519_verifier_t * verifier = (fd_ed25519_verifier_t *)mem;
+  verifier->cache = NULL;
+  for( ulong j=0UL; j<FD_ED25519_VERIFIER_BATCH; j++ ) {
+    if( FD_UNLIKELY( !fd_sha512_new( verifier->sha+j ) ) ) { FD_LOG_WARNING(( "fd_sha512_new failed" )); return NULL; }
+  }
+  return verifier;
+}
+
+void *
+fd_ed25519_verifier_new_shared( void * mem,
+                                ulong  filter_ent_cnt,
+                                void * shcache ) {
+  if( FD_UNLIKELY( !fd_ed25519_cache_footprint( filter_ent_cnt ) ) ) { FD_LOG_WARNING(( "bad filter_ent_cnt" )); return NULL; }
+  fd_ed25519_verifier_t * verifier = verifier_init_scratch( mem );
+  if( FD_UNLIKELY( !verifier ) ) return NULL;
+  verifier->cache_ent_cnt = filter_ent_cnt;
+  if( FD_UNLIKELY( !fd_ed25519_cache_user_new( verifier+1, filter_ent_cnt, shcache ) ) ) { FD_LOG_WARNING(( "fd_ed25519_cache_user_new failed" )); return NULL; }
+
+  FD_COMPILER_MFENCE();
+  verifier->magic = FD_ED25519_VERIFIER_MAGIC;
+  FD_COMPILER_MFENCE();
+  return mem;
+}
+
 void *
 fd_ed25519_verifier_new( void * mem,
                          ulong  cache_ent_cnt,
                          ulong  seed ) {
-  if( FD_UNLIKELY( !mem ) ) { FD_LOG_WARNING(( "NULL mem" )); return NULL; }
-  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)mem, FD_ED25519_VERIFIER_ALIGN ) ) ) { FD_LOG_WARNING(( "misaligned mem" )); return NULL; }
   ulong ent_cnt = cache_ent_cnt_resolve( cache_ent_cnt );
   if( FD_UNLIKELY( ent_cnt==ULONG_MAX ) ) { FD_LOG_WARNING(( "bad cache_ent_cnt" )); return NULL; }
-
-  fd_ed25519_verifier_t * verifier = (fd_ed25519_verifier_t *)mem;
+  fd_ed25519_verifier_t * verifier = verifier_init_scratch( mem );
+  if( FD_UNLIKELY( !verifier ) ) return NULL;
   verifier->cache_ent_cnt = ent_cnt;
-  verifier->cache         = NULL;
-  for( ulong j=0UL; j<FD_ED25519_VERIFIER_BATCH; j++ ) {
-    if( FD_UNLIKELY( !fd_sha512_new( verifier->sha+j ) ) ) { FD_LOG_WARNING(( "fd_sha512_new failed" )); return NULL; }
-  }
   if( ent_cnt ) {
     if( FD_UNLIKELY( !fd_ed25519_cache_new( verifier+1, ent_cnt, seed ) ) ) { FD_LOG_WARNING(( "fd_ed25519_cache_new failed" )); return NULL; }
   }

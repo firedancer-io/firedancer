@@ -90,6 +90,25 @@ fd_ed25519_verifier_leave( fd_ed25519_verifier_t * verifier );
 void *
 fd_ed25519_verifier_delete( void * shverifier );
 
+/* fd_ed25519_verifier_{shared_footprint,new_shared} are footprint
+   and new for a verifier whose signer cache keys and tables live in
+   shcache, a region formatted by fd_ed25519_cache_shmem_new that
+   several verifiers (typically one per tile) share; the verifier's own
+   region holds only its scratch and its user part of the cache (an
+   admission filter of filter_ent_cnt entries, a power of 2 in
+   [4,2^20], plus counters).  Results are the same as with a private
+   cache (see fd_ed25519_cache_t).  shared_footprint returns 0 for an
+   invalid filter_ent_cnt, new_shared NULL for that or a bad shcache
+   (logs details).  The other verifier calls are the same. */
+
+FD_FN_CONST ulong
+fd_ed25519_verifier_shared_footprint( ulong filter_ent_cnt );
+
+void *
+fd_ed25519_verifier_new_shared( void * mem,
+                                ulong  filter_ent_cnt,
+                                void * shcache );
+
 /* fd_ed25519_verifier_verify returns what fd_ed25519_verify returns
    for msg, sig and public_key. */
 
