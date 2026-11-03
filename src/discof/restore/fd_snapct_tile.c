@@ -790,20 +790,18 @@ init_load( fd_snapct_tile_t *  ctx,
     if( by_name ) {
       FD_BASE58_ENCODE_32_BYTES( ctx->fast_boot.hash, hash_b58 );
       FD_TEST( fd_cstr_printf_check( ctx->http_incr_snapshot_name, PATH_MAX, NULL, "incremental-snapshot-%lu-%lu-%s.tar.zst", ctx->fast_boot.full_snapshot_slot, ctx->fast_boot.slot, hash_b58 ) );
+    } else if( full ) {
+      FD_TEST( fd_cstr_printf_check( ctx->http_full_snapshot_name, PATH_MAX, NULL, "snapshot.tar.bz2" ) );
     } else {
-      FD_TEST( fd_cstr_printf_check( full ? ctx->http_full_snapshot_name : ctx->http_incr_snapshot_name,
-                                   PATH_MAX, NULL, full ? "snapshot.tar.bz2" : "incremental-snapshot.tar.bz2" ) );
+      fd_cstr_fini( ctx->http_incr_snapshot_name ); /* named at START */
     }
     snapshot_output_prepare( ctx, full );
+  } else {
+    /* Clear stale http_*_snapshot_name for file loads before rename
+       functions run.  GUI publish is deferred to the META handler. */
+    if( full ) fd_cstr_fini( ctx->http_full_snapshot_name );
+    else       fd_cstr_fini( ctx->http_incr_snapshot_name );
   }
-  /* The full learns its name from the redirect, the incremental gets
-     its name at START, and a local file has none.  Clear stale names
-     before the rename functions run. */
-  else if( !full ) fd_cstr_fini( ctx->http_incr_snapshot_name );
-  else if( file )  fd_cstr_fini( ctx->http_full_snapshot_name );
-  else             FD_TEST( fd_cstr_printf_check( ctx->http_full_snapshot_name, PATH_MAX, NULL, "snapshot.tar.bz2" ) );
-
-  if( !file && !out->stream ) snapshot_output_prepare( ctx, full );
 
   if( !full ) {
     if( file ) ctx->predicted_incremental.slot = ctx->local_in.incremental_snapshot_slot;
@@ -2119,7 +2117,9 @@ snapld_frag( fd_snapct_tile_t *  ctx,
         snapshot_path_gui_publish( ctx, stem, full ? ctx->local_in.full_snapshot_path : ctx->local_in.incremental_snapshot_path, full );
       }
     } else {
-      if( FD_UNLIKELY( background_snapshot_loading( ctx ) ) ) {
+      /* Behind a fast boot the incremental is fixed by the stream, so
+         the full is never re-paired. */
+      if( FD_UNLIKELY( ctx->config.fast_boot ) ) {
         if( full ) fd_cstr_ncpy( ctx->http_full_snapshot_name, meta->resolved_name, PATH_MAX );
       } else {
         if( full ) fd_cstr_ncpy( ctx->http_full_snapshot_name, meta->resolved_name, PATH_MAX );

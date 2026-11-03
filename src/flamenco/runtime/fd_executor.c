@@ -1577,6 +1577,14 @@ fd_executor_read_keys( fd_txn_in_t const *  txn_in,
   memcpy( out_keys+cnt, txn_out->accounts.executable_missing_key, txn_out->accounts.executable_missing_cnt*sizeof(fd_pubkey_t) );
   cnt += txn_out->accounts.executable_missing_cnt;
 
+  /* Programdata skipped for the loaded accounts data size limit. */
+  for( ulong i=0UL; i<txn_out->accounts.executable_skipped_cnt; i++ ) {
+    fd_pubkey_t const * key = &txn_out->accounts.executable_skipped_key[ i ];
+    int dup = 0;
+    for( ulong j=0UL; j<txn_out->accounts.executable_missing_cnt; j++ ) dup |= fd_pubkey_eq( key, &txn_out->accounts.executable_missing_key[ j ] );
+    if( !dup ) out_keys[ cnt++ ] = *key;
+  }
+
   /* Lookup tables */
   fd_txn_t const *               txn  = TXN( txn_in->txn );
   fd_txn_acct_addr_lut_t const * luts = fd_txn_get_address_tables_const( txn );
