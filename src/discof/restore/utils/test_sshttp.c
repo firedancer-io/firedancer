@@ -211,6 +211,7 @@ test_plaintext_host( char const * hostname,
   fd_sshttp_cancel( http );
   FD_TEST( !close( server ) );
   FD_TEST( !close( listener ) );
+}
 
 /* run_request drives the state machine to a terminal result, copying
    any body bytes into body.  Returns the terminal result and leaves

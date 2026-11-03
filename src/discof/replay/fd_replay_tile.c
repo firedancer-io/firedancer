@@ -2308,6 +2308,7 @@ init_after_snapshot( fd_replay_tile_t *  ctx,
   fd_vote_stakes_refresh( fd_bank_vote_stakes( bank ), bank->vote_stakes_fork_id, ctx->accdb, bank->accdb_fork_id );
 
   ctx->snapshots_loading = 1;
+  fd_sched_set_lthash_inband_only( ctx->sched, 1 );
 
   /* After both snapshots have been loaded in, we can determine if we should
      start distributing rewards. */
@@ -3561,6 +3562,7 @@ finish_snapshot_load( fd_replay_tile_t * ctx ) {
 
   ctx->snapshots_loading   = 0;
   ctx->epoch_boundary_hold = 0;
+  fd_sched_set_lthash_inband_only( ctx->sched, 0 );
   FD_LOG_INFO(( "snapshots finished loading at root slot %lu", bank->f.slot ));
 }
 
@@ -3669,6 +3671,11 @@ process_exec_task_done( fd_replay_tile_t *          ctx,
   bank->refcnt--;
 
   switch( sig>>32 ) {
+    case FD_EXECRP_TT_TXN_DEFERRED: {
+      fd_cost_tracker_store_unpin( fd_bank_cost_tracker( bank ), bank->cost_tracker_fork_id );
+      FD_TEST( !fd_sched_task_done( ctx->sched, FD_SCHED_TT_TXN_DEFERRED, msg->txn_deferred->txn_idx, exec_tile_idx, NULL ) );
+      break;
+    }
     case FD_EXECRP_TT_TXN_EXEC: {
       ulong txn_idx           = msg->txn_exec->txn_idx;
       ulong max_compute_units = fd_cost_tracker_store_peek( fd_bank_cost_tracker( bank ), bank->cost_tracker_fork_id )->block_cost_limit;

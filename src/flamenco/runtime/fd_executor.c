@@ -934,6 +934,7 @@ fd_executor_setup_txn_alut_account_keys( fd_runtime_t *      runtime,
        needed here for loaded account data size on the ALT.  ALT size
        accounting is stateless. */
     FD_TEST( bank->parent_accdb_fork_id.val!=USHORT_MAX );
+    int loading = fd_accdb_snapshot_still_loading( runtime->accdb );
     fd_acct_addr_t * accts_alt = fd_type_pun( &txn_out->accounts.keys[txn_out->accounts.cnt] );
     int err = fd_runtime_load_txn_address_lookup_tables( TXN( txn_in->txn ),
                                                          txn_in->txn->payload,
@@ -942,7 +943,12 @@ fd_executor_setup_txn_alut_account_keys( fd_runtime_t *      runtime,
                                                          bank->f.slot,
                                                          slot_hashes_view,
                                                          accts_alt );
-    if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) return err;
+    if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
+      if( FD_UNLIKELY( loading && err==FD_RUNTIME_TXN_ERR_ADDRESS_LOOKUP_TABLE_NOT_FOUND ) ) {
+        txn_out->err.is_deferred = 1;
+      }
+      return err;
+    }
     txn_out->accounts.cnt += TXN( txn_in->txn )->addr_table_adtl_cnt;
 
   }
@@ -1395,6 +1401,7 @@ fd_executor_setup_accounts_for_txn( fd_runtime_t *      runtime,
 
   /* Resolve all transaction accounts and queue them for acquisition. */
 
+  int loading = fd_accdb_snapshot_still_loading( runtime->accdb );
   for( ushort i=0; i<txn_out->accounts.cnt; i++ ) {
     txn_out->accounts.is_writable[ i ]      = (uchar)fd_runtime_account_is_writable_idx( txn_in, txn_out, i );
     txn_out->accounts.account_acquired[ i ] = 0U;
@@ -1407,6 +1414,11 @@ fd_executor_setup_accounts_for_txn( fd_runtime_t *      runtime,
     acquire_pubkeys[ acquire_cnt ]  = txn_out->accounts.keys[ i ].uc;
     acquire_writable[ acquire_cnt ] = (int)txn_out->accounts.is_writable[ i ];
     acquire_cnt++;
+
+    if( FD_UNLIKELY( loading && !fd_accdb_has_record( runtime->accdb, bank->accdb_fork_id, txn_out->accounts.keys[ i ].uc ) ) ) {
+      txn_out->err.is_deferred = 1;
+      return FD_RUNTIME_EXECUTE_SUCCESS;
+    }
   }
 
   /* The hilariously poorly designed account loader semantics require a
@@ -1467,6 +1479,12 @@ fd_executor_setup_accounts_for_txn( fd_runtime_t *      runtime,
     if( FD_UNLIKELY( fd_runtime_find_index_of_account( txn_out, programdata_key )!=ULONG_MAX ) ) continue;
 
     FD_TEST( bank->parent_accdb_fork_id.val!=USHORT_MAX );
+
+    if( FD_UNLIKELY( loading && !fd_accdb_has_record( runtime->accdb, bank->accdb_fork_id, programdata_key->uc ) ) ) {
+      txn_out->err.is_deferred = 1;
+      continue;
+    }
+
     if( FD_UNLIKELY( !fd_accdb_exists( runtime->accdb, bank->parent_accdb_fork_id, programdata_key->uc ) ) ) {
       txn_out->accounts.executable_missing_key[ txn_out->accounts.executable_missing_cnt++ ] = *programdata_key;
       int   skip_pd  = 0;

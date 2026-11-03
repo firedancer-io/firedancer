@@ -290,6 +290,7 @@ static int   mock_accdb_still_loading;
 #define fd_accdb_metrics(a)                  ( (a) ? (fd_accdb_metrics)(a) : &mock_accdb_metrics )
 #define fd_progcache_cache_class_occupancy(c,u,m) do { if( (c)->shmem ) (fd_progcache_cache_class_occupancy)(c,u,m); else { memset( u, 0, FD_PROGCACHE_CACHE_CLASS_CNT*sizeof(ulong) ); memset( m, 0, FD_PROGCACHE_CACHE_CLASS_CNT*sizeof(ulong) ); } } while(0)
 #define fd_sched_block_start_pending(s)      ( (s) ? (fd_sched_block_start_pending)(s) : 0 )
+#define fd_sched_set_lthash_inband_only(s,v) do { if( (s) ) (fd_sched_set_lthash_inband_only)(s,v); } while(0)
 #define fd_sched_fec_waits_for_lane(s,p,f)  ( (s) ? (fd_sched_fec_waits_for_lane)(s,p,f) : mock_sched_lane_wait )
 #define fd_sched_block_start_writes(s,b,a,c) do { if( (s) ) (fd_sched_block_start_writes)(s,b,a,c); } while(0)
 /* Bypass unrelated boot dependencies while exercising snapshot DONE to completion. */
@@ -750,6 +751,28 @@ test_txn_completion_publish( fd_wksp_t * wksp ) {
   FD_TEST( out->transaction_fee==msg->txn_exec->transaction_fee );
   FD_TEST( out->priority_fee==msg->txn_exec->priority_fee );
   FD_TEST( out->tips==msg->txn_exec->tips );
+
+  /* A transaction the exec tile hands back goes to the scheduler as
+     deferred: the bank reference and the cost tracker pin come back,
+     nothing is published, the block is not ruled dead. */
+  bank->refcnt = 1UL;
+  fd_cost_tracker_store_pin( cost_tracker_store, bank->cost_tracker_fork_id );
+  mock_sched_task_done_cnt      = 0UL;
+  mock_sched_task_done_exec_idx = ULONG_MAX;
+  fd_memset( msg, 0, sizeof(*msg) );
+  msg->bank_idx              = bank->idx;
+  msg->txn_deferred->txn_idx = mock_sched_txn_idx;
+  sig = (FD_EXECRP_TT_TXN_DEFERRED<<32) | 7UL;
+  FD_TEST( !returnable_frag( ctx, TEST_EXECRP_IN_IDX, 1UL, sig, in_chunk,
+                             sizeof(*msg), 0UL, 0UL, 0UL, test_stem ) );
+  FD_TEST( bank->refcnt==0UL );
+  FD_TEST( mock_sched_task_done_cnt==1UL );
+  FD_TEST( mock_sched_task_done_type==FD_SCHED_TT_TXN_DEFERRED );
+  FD_TEST( mock_sched_task_done_txn_idx==mock_sched_txn_idx );
+  FD_TEST( mock_sched_task_done_exec_idx==7UL );
+  FD_TEST( mock_sched_abandon_cnt==0UL );
+  FD_TEST( bank->state!=FD_BANK_STATE_DEAD );
+  FD_TEST( test_stem_seqs[ out_idx ]==1UL );
 
   fd_cost_tracker_store_release( cost_tracker_store, bank->cost_tracker_fork_id );
   bank->cost_tracker_fork_id = USHORT_MAX;

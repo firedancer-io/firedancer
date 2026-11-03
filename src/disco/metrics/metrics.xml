@@ -816,8 +816,6 @@ deliberate exception with lint-allow="<rule id>")
     <counter name="AccdbAccountOverwriteCommitted" enum="AccdbCacheClass" summary="Account versions committed over an existing version of the same fork and generation, by destination cache size class" />
     <counter name="AccdbAccountCacheMissed" enum="AccdbCacheClass" summary="Accounts not found in the account database cache and read from disk, by cache size class" />
     <counter name="AccdbAccountWaited" summary="Accounts that had to wait for another reader to finish loading them into the cache" />
-    <counter name="AccdbFastBootWaited" summary="Account lookups that waited for the fast boot stream to deliver the account" />
-    <counter name="AccdbFastBootWaitDurationNanos" source="ticks" summary="Time spent waiting for the fast boot stream to deliver accounts" />
     <counter name="AccdbBatchAcquired" summary="Batch acquire calls made by this tile" />
     <counter name="AccdbCacheReserveRetried" summary="Spin retries while waiting to reserve cache lines for a transaction" />
     <counter name="AccdbDiskReadBytes" summary="Bytes read from the account database file" />
@@ -1071,7 +1069,7 @@ deliberate exception with lint-allow="<rule id>")
     <counter name="SchedBlockDemoted" summary="Blocks the replay scheduler demoted from a staging lane to unstaged" />
     <counter name="SchedTxnPromoted" summary="Transactions the replay scheduler moved into a staging lane when it promoted their block" />
     <counter name="SchedBlockDeactivated" enum="SchedDeactivateReason" summary="Times the replay scheduler stopped dispatching a block, by reason" />
-    <counter name="SchedBlockInbandPicked" summary="Blocks that fell back to in-band lthash because every demotion reservation was in use" />
+    <counter name="SchedBlockInbandPicked" summary="Blocks that hash lthash in band because every demotion reservation was in use or the snapshots were still loading" />
     <counter name="SchedLaneSwitched" summary="Times the replay scheduler activated a block on a different fork than the previously active block" />
     <counter name="SchedLanePromoted" summary="Times the replay scheduler promoted a block onto a staging lane" />
     <counter name="SchedLaneDemoted" summary="Times the replay scheduler demoted a block from a staging lane" />
@@ -1085,6 +1083,12 @@ deliberate exception with lint-allow="<rule id>")
     <counter name="SchedTxnIdleDurationNanos" source="ticks" summary="Time the replay scheduler had no transaction in flight" />
     <counter name="SchedTxnParsed" summary="Transactions the replay pipeline has parsed" />
     <counter name="SchedTxnExecuted" summary="Transactions the replay pipeline has executed" />
+    <counter name="SchedTxnReturned" summary="Transactions an exec tile returned unexecuted because an account the fast boot stream had not delivered yet; each is dispatched again" />
+    <counter name="SchedTxnDeferred" summary="Distinct transactions returned at least once" />
+    <counter name="SchedTxnDeferredExecuted" summary="Returned transactions that have since executed" />
+    <counter name="SchedTxnDeferredAbandoned" summary="Returned transactions whose block was abandoned before they executed" />
+    <counter name="SchedTxnDeferredDurationNanos" source="ticks" summary="Time from the first return of a transaction to its execution, summed over SchedTxnDeferredExecuted" />
+    <gauge name="SchedHighestTxnDeferredDurationNanos" summary="Longest time from the first return of a transaction to its execution" />
     <counter name="SchedTxnSignatureVerified" summary="Transactions the replay pipeline has sigverified" />
     <counter name="SchedTxnPohMixed" summary="Transactions the replay pipeline has performed PoH mixin on" />
     <counter name="SchedTxnDone" summary="Transactions that were fully replayed" />
@@ -1137,8 +1141,6 @@ deliberate exception with lint-allow="<rule id>")
     <counter name="AccdbAccountOverwriteCommitted" enum="AccdbCacheClass" summary="Account versions committed over an existing version of the same fork and generation, by destination cache size class" />
     <counter name="AccdbAccountCacheMissed" enum="AccdbCacheClass" summary="Accounts not found in the account database cache and read from disk, by cache size class" />
     <counter name="AccdbAccountWaited" summary="Accounts that had to wait for another reader to finish loading them into the cache" />
-    <counter name="AccdbFastBootWaited" summary="Account lookups that waited for the fast boot stream to deliver the account" />
-    <counter name="AccdbFastBootWaitDurationNanos" source="ticks" summary="Time spent waiting for the fast boot stream to deliver accounts" />
     <counter name="AccdbBatchAcquired" summary="Batch acquire calls made by this tile" />
     <counter name="AccdbCacheReserveRetried" summary="Spin retries while waiting to reserve cache lines for a transaction" />
     <counter name="AccdbDiskReadBytes" summary="Bytes read from the account database file" />
@@ -1851,6 +1853,7 @@ deliberate exception with lint-allow="<rule id>")
     <counter name="BankSwitched" summary="Cache invalidations due to transaction execution from a different block" />
 
     <counter name="TxnRegimeDurationNanos" enum="TxnRegime" source="ticks" summary="Time per transaction, by phase; a phase counts only once the next phase starts, so dropped, fees-only and no-op transactions lose their trailing phases" />
+    <counter name="TxnReturnedDurationNanos" source="ticks" summary="Time spent on transactions returned to replay unexecuted because an account the fast boot stream had not delivered yet" />
     <counter name="VmRegimeDurationNanos" enum="VmRegime" source="ticks" summary="Time in top-level BPF invocations, by phase, with CPI setup and commit split out; nested programs, including native CPIs, count as Interpreter; subset of TxnRegime Execute" />
 
     <counter name="CuConsumed" summary="Compute units consumed by executed transactions" />
@@ -1877,8 +1880,6 @@ deliberate exception with lint-allow="<rule id>")
     <counter name="AccdbAccountOverwriteCommitted" enum="AccdbCacheClass" summary="Account versions committed over an existing version of the same fork and generation, by destination cache size class" />
     <counter name="AccdbAccountCacheMissed" enum="AccdbCacheClass" summary="Accounts not found in the account database cache and read from disk, by cache size class" />
     <counter name="AccdbAccountWaited" summary="Accounts that had to wait for another reader to finish loading them into the cache" />
-    <counter name="AccdbFastBootWaited" summary="Account lookups that waited for the fast boot stream to deliver the account" />
-    <counter name="AccdbFastBootWaitDurationNanos" source="ticks" summary="Time spent waiting for the fast boot stream to deliver accounts" />
     <counter name="AccdbBatchAcquired" summary="Batch acquire calls made by this tile" />
     <counter name="AccdbCacheReserveRetried" summary="Spin retries while waiting to reserve cache lines for a transaction" />
     <counter name="AccdbDiskReadBytes" summary="Bytes read from the account database file" />

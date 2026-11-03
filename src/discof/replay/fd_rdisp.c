@@ -1719,6 +1719,21 @@ fd_rdisp_get_next_ready( fd_rdisp_t           * disp,
 }
 
 void
+fd_rdisp_undispatch_txn( fd_rdisp_t *         disp,
+                         FD_RDISP_BLOCK_TAG_T schedule_block,
+                         ulong                txn_idx ) {
+  fd_rdisp_blockinfo_t * block = block_map_ele_query( disp->blockmap, &schedule_block, NULL, disp->block_pool );
+  FD_TEST( block && block->staged );
+  FD_TEST( !(txn_idx & FD_RDISP_LTHASH_PSEUDO_TXN) );
+  fd_rdisp_txn_t * rtxn = disp->pool + txn_idx;
+  FD_TEST( rtxn->in_degree==IN_DEGREE_DISPATCHED );
+  pending_prq_ele_t temp[1] = {{ .score = rtxn->score, .linear_block_number = block->linear_block_number, .txn_idx = (uint)txn_idx }};
+  pending_prq_insert( disp->lanes[ block->staging_lane ].pending, temp );
+  rtxn->in_degree = 0U;
+  block->dispatched_cnt--;
+}
+
+void
 fd_rdisp_complete_txn( fd_rdisp_t * disp,
                        ulong        txn_idx,
                        int          reclaim ) {

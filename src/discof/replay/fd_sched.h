@@ -139,6 +139,7 @@ struct fd_sched_txn_info {
    long  tick_sigverify_done;
    long  tick_exec_disp;
    long  tick_exec_done;
+   long  tick_first_deferred; /* first hand back by an exec tile */
    long  tick_load_start;
    long  tick_check_start;
    long  tick_exec_start;
@@ -163,7 +164,8 @@ typedef struct fd_sched_txn_info fd_sched_txn_info_t;
 
    e - passed down to exec tiles.
    i - replay completes the task immediately.
-   q - replay may either do it immediately or queue the task up. */
+   q - replay may either do it immediately or queue the task up.
+   r - never returned, replay reports it to fd_sched_task_done. */
 #define FD_SCHED_TT_NULL          (0UL)
 #define FD_SCHED_TT_BLOCK_START   (1UL) /* (i) Start-of-block processing. */
 #define FD_SCHED_TT_BLOCK_END     (2UL) /* (q) End-of-block processing. */
@@ -175,6 +177,7 @@ typedef struct fd_sched_txn_info fd_sched_txn_info_t;
 #define FD_SCHED_TT_CERT_VERIFY   (8UL) /* (e) Footer cert verify. */
 #define FD_SCHED_TT_LTHASH_ADD    (9UL) /* (e) Hash an account from this fork and add. */
 #define FD_SCHED_TT_REWARDS       (10UL) /* (e) Footer vote rewards slice. */
+#define FD_SCHED_TT_TXN_DEFERRED  (11UL) /* (r) Exec handed a transaction back. */
 
 /* Slot-level replay states.  States are tracked for one block at a
    time, the one the scheduler is working on.  A block's interval opens
@@ -199,6 +202,10 @@ typedef struct fd_sched_txn_info fd_sched_txn_info_t;
 #define FD_SCHED_SLOT_STATE_FINISH            (4)
 
 #define FD_SCHED_SLOT_STATE_DEBOUNCE_NS (10000L)
+
+/* How long a block's transactions wait after the exec tile handed one
+   back before they are dispatched again. */
+#define FD_SCHED_DEFER_RETRY_NS (1000000L)
 
 /* Max state transitions between after_credit drains.  The real bound
    is ~3, but a tight bound needs an exhaustive proof tightly coupled
@@ -489,7 +496,13 @@ fd_sched_task_next_ready( fd_sched_t * sched, fd_sched_task_t * out );
    The transaction at the given index may be freed upon return from this
    function.  Nonetheless, as long as there is no intervening FEC
    ingestion, it would still be safe to query the transaction using
-   get_txn(). */
+   get_txn().
+
+   FD_SCHED_TT_TXN_DEFERRED reports a TXN_EXEC task the exec tile handed
+   back because an account has not been loaded in yet, with the same
+   txn_idx and exec_idx.  The transaction goes back to the queue and the
+   block's transactions are dispatched again once
+   FD_SCHED_DEFER_RETRY_NS have passed. */
 int
 fd_sched_task_done( fd_sched_t * sched, ulong task_type, ulong txn_idx, ulong exec_idx, void * data );
 
@@ -656,6 +669,13 @@ fd_sched_set_lthash_txn_writers_max( fd_sched_t * sched, ulong lthash_txn_writer
    should not use this. */
 void
 fd_sched_set_lthash_oob_block_max( fd_sched_t * sched, ulong lthash_oob_block_max );
+
+/* fd_sched_set_lthash_inband_only makes every block picked from now on
+   hash in band.  Replay sets it while the snapshots are still loading
+   in the background: an account the load has not written yet reads as
+   empty, which an out of band subtraction would hash. */
+void
+fd_sched_set_lthash_inband_only( fd_sched_t * sched, int lthash_inband_only );
 
 fd_txn_p_t *
 fd_sched_get_txn( fd_sched_t * sched, ulong txn_idx );

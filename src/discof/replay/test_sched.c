@@ -199,12 +199,14 @@ encode_ag_component( uchar *     out,
    TEST_ROOT_SLOT+1 under bank 1).  Returns fd_sched_fec_ingest's
    verdict. */
 static int
-ingest_ag_component( fd_sched_t * sched,
-                     ulong        bank_idx,
-                     int          comp,
-                     fd_hash_t *  prev_hash,
-                     int          first,
-                     int          last ) {
+ingest_ag_component_under( fd_sched_t * sched,
+                           ulong        bank_idx,
+                           ulong        parent_bank_idx,
+                           ulong        parent_slot,
+                           int          comp,
+                           fd_hash_t *  prev_hash,
+                           int          first,
+                           int          last ) {
   uchar buf[ FD_BLOCK_MARKER_SER_MAX ] __attribute__((aligned(64)));
   ulong sz = encode_ag_component( buf, comp, prev_hash );
   fd_store_fec_t store_fec[ 1 ] __attribute__((aligned(alignof(fd_store_fec_t))));
@@ -213,9 +215,9 @@ ingest_ag_component( fd_sched_t * sched,
   store_fec->shred_sz[ 0 ] = (ushort)sz;
   fd_sched_fec_t fec[ 1 ] = {{
     .bank_idx          = bank_idx,
-    .parent_bank_idx   = 1UL,
-    .slot              = TEST_ROOT_SLOT+1UL,
-    .parent_slot       = TEST_ROOT_SLOT,
+    .parent_bank_idx   = parent_bank_idx,
+    .slot              = parent_slot+1UL,
+    .parent_slot       = parent_slot,
     .fec               = store_fec,
     .data              = buf,
     .shred_cnt         = 1U,
@@ -225,6 +227,16 @@ ingest_ag_component( fd_sched_t * sched,
   }};
   FD_TEST( fd_sched_fec_can_ingest( sched, fec ) );
   return fd_sched_fec_ingest( sched, fec );
+}
+
+static int
+ingest_ag_component( fd_sched_t * sched,
+                     ulong        bank_idx,
+                     int          comp,
+                     fd_hash_t *  prev_hash,
+                     int          first,
+                     int          last ) {
+  return ingest_ag_component_under( sched, bank_idx, 1UL, TEST_ROOT_SLOT, comp, prev_hash, first, last );
 }
 
 static void
@@ -1228,6 +1240,260 @@ run_zero_hashcnt_mblk_case( void ) {
   FD_TEST( task->task_type==FD_SCHED_TT_TXN_EXEC );
   FD_TEST( !fd_sched_task_done( sched, FD_SCHED_TT_TXN_EXEC, task->txn_exec->txn_idx, task->txn_exec->exec_idx, NULL ) );
 
+  delete_sched( sched );
+}
+
+/* ingest_two_txn_block builds block bank_idx under the root: one entry
+   with two transactions on the same payer, so the second waits for
+   the first, then footer and tick.  PoH verification is bypassed; the
+   tick chains from the entry's claimed hash. */
+static void
+ingest_two_txn_block( fd_sched_t * sched,
+                      ulong        bank_idx,
+                      ulong        seed ) {
+  uchar txn_payload[ FD_TXN_MTU ];
+  ulong txn_sz = build_shred_test_txn( txn_payload );
+  fd_hash_t poh[ 1 ]; hash_from_seed( poh, seed );
+  FD_TEST( ingest_ag_component( sched, bank_idx, AG_COMP_HEADER, poh, 1, 0 ) );
+  fd_sched_set_poh_params( sched, bank_idx, TEST_ROOT_TICK_HEIGHT, TEST_ROOT_TICK_HEIGHT+1UL, poh );
+  hash_from_seed( poh, seed^0x5b8e2d7f3a1c6094UL );
+  uchar entry[ 4096 ];
+  ulong entry_sz = 0UL;
+  FD_STORE( ulong, entry, 1UL );                        entry_sz += sizeof(ulong);
+  fd_microblock_hdr_t hdr = { .hash_cnt = 1UL, .txn_cnt = 2UL };
+  fd_memcpy( hdr.hash, poh->hash, sizeof(fd_hash_t) );
+  fd_memcpy( entry+entry_sz, &hdr, sizeof(hdr) );       entry_sz += sizeof(hdr);
+  fd_memcpy( entry+entry_sz, txn_payload, txn_sz );     entry_sz += txn_sz;
+  fd_memcpy( entry+entry_sz, txn_payload, txn_sz );     entry_sz += txn_sz;
+  fd_store_fec_t store_fec[ 1 ] __attribute__((aligned(alignof(fd_store_fec_t))));
+  fd_memset( store_fec, 0, sizeof(fd_store_fec_t) );
+  store_fec->data_sz       = (uint)entry_sz;
+  store_fec->shred_sz[ 0 ] = (ushort)entry_sz;
+  fd_sched_fec_t fec[ 1 ] = {{
+    .bank_idx         = bank_idx,
+    .parent_bank_idx  = 1UL,
+    .slot             = TEST_ROOT_SLOT+1UL,
+    .parent_slot      = TEST_ROOT_SLOT,
+    .fec              = store_fec,
+    .data             = entry,
+    .shred_cnt        = 1U,
+    .is_last_in_batch = 1U,
+  }};
+  FD_TEST( fd_sched_fec_can_ingest( sched, fec ) );
+  FD_TEST( fd_sched_fec_ingest( sched, fec ) );
+  FD_TEST( ingest_ag_component( sched, bank_idx, AG_COMP_FOOTER, poh, 0, 0 ) );
+  FD_TEST( ingest_ag_component( sched, bank_idx, AG_COMP_TICK,   poh, 0, 1 ) );
+}
+
+/* complete_task retires a task that is not a transaction execution. */
+static void
+complete_task( fd_sched_t *      sched,
+               fd_sched_task_t * task ) {
+  switch( task->task_type ) {
+    case FD_SCHED_TT_BLOCK_START:
+      FD_TEST( !fd_sched_task_done( sched, FD_SCHED_TT_BLOCK_START, ULONG_MAX, ULONG_MAX, NULL ) );
+      break;
+    case FD_SCHED_TT_BLOCK_END:
+      FD_TEST( !fd_sched_task_done( sched, FD_SCHED_TT_BLOCK_END, ULONG_MAX, ULONG_MAX, NULL ) );
+      break;
+    case FD_SCHED_TT_TXN_SIGVERIFY:
+      FD_TEST( !fd_sched_task_done( sched, FD_SCHED_TT_TXN_SIGVERIFY, task->txn_sigverify->txn_idx, task->txn_sigverify->exec_idx, NULL ) );
+      break;
+    case FD_SCHED_TT_POH_HASH: {
+      fd_execrp_poh_hash_done_msg_t msg[ 1 ];
+      msg->cnt = task->poh_hash->cnt;
+      for( ulong i=0UL; i<task->poh_hash->cnt; i++ ) repeat_hash( msg->hash+i, task->poh_hash->hash+i, task->poh_hash->hashcnt );
+      FD_TEST( !fd_sched_task_done( sched, FD_SCHED_TT_POH_HASH, ULONG_MAX, task->poh_hash->exec_idx, msg ) );
+      break;
+    }
+    default:
+      FD_LOG_ERR(( "unexpected task type %lu", task->task_type ));
+  }
+}
+
+/* ingest_empty_ag_block adds an empty block bank_idx under the root:
+   header, footer, tick. */
+static void
+ingest_empty_ag_block( fd_sched_t * sched,
+                       ulong        bank_idx,
+                       ulong        seed ) {
+  fd_hash_t poh[ 1 ]; hash_from_seed( poh, seed );
+  FD_TEST( ingest_ag_component( sched, bank_idx, AG_COMP_HEADER, poh, 1, 0 ) );
+  fd_sched_set_poh_params( sched, bank_idx, TEST_ROOT_TICK_HEIGHT, TEST_ROOT_TICK_HEIGHT+1UL, poh );
+  FD_TEST( ingest_ag_component( sched, bank_idx, AG_COMP_FOOTER, poh, 0, 0 ) );
+  FD_TEST( ingest_ag_component( sched, bank_idx, AG_COMP_TICK,   poh, 0, 1 ) );
+}
+
+/* new_deferred_sched makes a scheduler with the root done and block 2
+   (two transactions, see ingest_two_txn_block) under it, hashing in
+   band as a fast boot does while the snapshots load. */
+static fd_sched_t *
+new_deferred_sched( void ) {
+  fd_sched_t * sched = new_sched( 8UL );
+  fd_sched_set_bypass_poh_verify( sched, 1 );
+  fd_sched_set_lthash_inband_only( sched, 1 );
+  ingest_two_txn_block( sched, 2UL, 0x7a1c3e5b9d2f4068UL );
+  return sched;
+}
+
+/* dispatch_first_txn runs until the first transaction of block
+   bank_idx is out and leaves it in flight. */
+static void
+dispatch_first_txn( fd_sched_t *      sched,
+                    fd_sched_task_t * task,
+                    ulong             bank_idx ) {
+  for( ulong step=0UL; step<100UL; step++ ) {
+    while( fd_sched_pruned_block_next( sched )!=ULONG_MAX ) {}
+    FD_TEST( fd_sched_task_next_ready( sched, task ) );
+    if( task->task_type==FD_SCHED_TT_TXN_EXEC ) { FD_TEST( task->txn_exec->bank_idx==bank_idx ); return; }
+    complete_task( sched, task );
+  }
+  FD_LOG_ERR(( "no transaction dispatched" ));
+}
+
+/* hand_back_first_txn also hands it back as deferred and returns its
+   index. */
+static ulong
+hand_back_first_txn( fd_sched_t * sched,
+                     ulong        bank_idx ) {
+  fd_sched_task_t task[ 1 ];
+  dispatch_first_txn( sched, task, bank_idx );
+  FD_TEST( !fd_sched_task_done( sched, FD_SCHED_TT_TXN_DEFERRED, task->txn_exec->txn_idx, task->txn_exec->exec_idx, NULL ) );
+  return task->txn_exec->txn_idx;
+}
+
+/* run_until_idle completes everything but transactions until nothing
+   is ready, insisting no transaction goes out, and returns the bank of
+   the last block started, ULONG_MAX if none. */
+static ulong
+run_until_idle( fd_sched_t * sched ) {
+  fd_sched_task_t task[ 1 ];
+  ulong started = ULONG_MAX;
+  for( ulong step=0UL; step<100UL; step++ ) {
+    while( fd_sched_pruned_block_next( sched )!=ULONG_MAX ) {}
+    if( !fd_sched_task_next_ready( sched, task ) ) break;
+    FD_TEST( task->task_type!=FD_SCHED_TT_TXN_EXEC );
+    if( task->task_type==FD_SCHED_TT_BLOCK_START ) started = task->block_start->bank_idx;
+    complete_task( sched, task );
+  }
+  while( fd_sched_pruned_block_next( sched )!=ULONG_MAX ) {}
+  return started;
+}
+
+/* A transaction the exec tile hands back goes back to the queue and
+   holds the block's execution for the retry delay.  Nothing else of
+   the block can run meanwhile (the second transaction waits on the
+   first), so the block gives up the active slot to another fork; once
+   the delay has passed the same transaction goes out again. */
+static void
+run_deferred_txn_case( void ) {
+  fd_sched_t * sched = new_deferred_sched();
+  ingest_empty_ag_block( sched, 3UL, 0x2d4f6a8c1e3b5079UL ); /* another fork, ready to run */
+
+  ulong held_txn_idx = hand_back_first_txn( sched, 2UL );
+
+  /* Block 3 runs to its end while block 2 is held. */
+  FD_TEST( run_until_idle( sched )==3UL );
+  char expect_active[ 64 ];
+  fd_cstr_printf( expect_active, sizeof(expect_active), NULL, "active_idx %lu,", ULONG_MAX );
+  FD_TEST( strstr( fd_sched_get_state_cstr( sched ), expect_active ) );
+  FD_TEST( !fd_sched_is_drained( sched ) );
+
+  /* After the retry delay the handed back transaction goes out again,
+     then the one behind it. */
+  fd_sched_task_t task[ 1 ];
+  for( ulong step=0UL; !fd_sched_task_next_ready( sched, task ); step++ ) {
+    FD_TEST( step<20000UL );
+    fd_log_sleep( 1000000L );
+  }
+  FD_TEST( task->task_type==FD_SCHED_TT_TXN_EXEC );
+  FD_TEST( task->txn_exec->bank_idx==2UL && task->txn_exec->txn_idx==held_txn_idx );
+  FD_TEST( !fd_sched_task_done( sched, FD_SCHED_TT_TXN_EXEC, task->txn_exec->txn_idx, task->txn_exec->exec_idx, NULL ) );
+  ulong exec_cnt = 0UL;
+  for( ulong step=0UL; step<100UL; step++ ) {
+    while( fd_sched_pruned_block_next( sched )!=ULONG_MAX ) {}
+    if( !fd_sched_task_next_ready( sched, task ) ) break;
+    if( task->task_type==FD_SCHED_TT_TXN_EXEC ) {
+      FD_TEST( task->txn_exec->txn_idx!=held_txn_idx );
+      exec_cnt++;
+      FD_TEST( !fd_sched_task_done( sched, FD_SCHED_TT_TXN_EXEC, task->txn_exec->txn_idx, task->txn_exec->exec_idx, NULL ) );
+    } else {
+      complete_task( sched, task );
+    }
+  }
+  FD_TEST( exec_cnt==1UL );
+  while( fd_sched_pruned_block_next( sched )!=ULONG_MAX ) {}
+  FD_TEST( fd_sched_is_drained( sched ) );
+  delete_sched( sched );
+}
+
+/* A block abandoned around a hand back is released cleanly.  With
+   in_flight the abandon comes first and the hand back after, replay's
+   order on a dead fork; otherwise the transaction is already back in
+   the queue when the block is abandoned. */
+static void
+run_deferred_abandon_case( int in_flight ) {
+  fd_sched_t * sched = new_deferred_sched();
+  fd_sched_task_t task[ 1 ];
+  if( in_flight ) {
+    dispatch_first_txn( sched, task, 2UL );
+    fd_sched_block_abandon( sched, 2UL, FD_SCHED_ABANDON_DISCARDED );
+    FD_TEST( fd_sched_pruned_block_next( sched )==ULONG_MAX );
+    FD_TEST( !fd_sched_is_drained( sched ) );
+    FD_TEST( !fd_sched_task_done( sched, FD_SCHED_TT_TXN_DEFERRED, task->txn_exec->txn_idx, task->txn_exec->exec_idx, NULL ) );
+  } else {
+    hand_back_first_txn( sched, 2UL );
+    FD_TEST( run_until_idle( sched )==ULONG_MAX );
+    FD_TEST( !fd_sched_is_drained( sched ) );
+    fd_sched_block_abandon( sched, 2UL, FD_SCHED_ABANDON_DISCARDED );
+  }
+  FD_TEST( fd_sched_pruned_block_next( sched )==2UL );
+  FD_TEST( fd_sched_pruned_block_next( sched )==ULONG_MAX );
+  FD_TEST( !fd_sched_task_next_ready( sched, task ) );
+  FD_TEST( fd_sched_is_drained( sched ) );
+  delete_sched( sched );
+}
+
+/* While block 2 is held nothing below it may run: its staged children
+   wait for it, and an unstaged child must not be promoted around it,
+   which would start a block whose parent is not done. */
+static void
+run_deferred_hold_fork_case( void ) {
+  fd_sched_t * sched = new_deferred_sched();
+  hand_back_first_txn( sched, 2UL );
+
+  /* Block 2 holds lane 0.  Its children enter unstaged while it is
+     held, so an empty block on another fork still gets a lane. */
+  fd_hash_t poh[ 1 ];
+  for( ulong b=3UL; b<6UL; b++ ) {
+    hash_from_seed( poh, 0x2a4c6e8f1d3b5079UL+b );
+    FD_TEST( ingest_ag_component_under( sched, b, 2UL, TEST_ROOT_SLOT+1UL, AG_COMP_HEADER, poh, 1, 0 ) );
+  }
+  ingest_empty_ag_block( sched, 6UL, 0x6d4f2a8c1e3b5097UL );
+  hash_from_seed( poh, 0x7b5d3f1e9c2a4086UL );
+  FD_TEST( ingest_ag_component_under( sched, 7UL, 2UL, TEST_ROOT_SLOT+1UL, AG_COMP_HEADER, poh, 1, 0 ) );
+
+  /* Block 6 runs to its end and frees its lane.  No child of block 2
+     starts. */
+  FD_TEST( run_until_idle( sched )==6UL );
+  FD_TEST( !fd_sched_is_drained( sched ) );
+  delete_sched( sched );
+}
+
+/* Every lane holds a block the exec tile handed back.  A block on a
+   new fork cannot get a lane: a held block is not demotable (it has
+   transactions queued), so nothing starts until a hold runs out. */
+static void
+run_deferred_lanes_full_case( void ) {
+  fd_sched_t * sched = new_deferred_sched();
+  hand_back_first_txn( sched, 2UL );
+  for( ulong b=3UL; b<6UL; b++ ) {
+    ingest_two_txn_block( sched, b, 0x3c5e7a9b1d2f4068UL+b );
+    hand_back_first_txn( sched, b );
+  }
+  ingest_empty_ag_block( sched, 6UL, 0x5a7c9e1b3d2f4086UL );
+  FD_TEST( run_until_idle( sched )==ULONG_MAX );
+  FD_TEST( !fd_sched_is_drained( sched ) );
   delete_sched( sched );
 }
 
@@ -4894,6 +5160,11 @@ main( int     argc,
   run_late_ancestor_discard_case();
   run_runtime_limit_case();
   run_zero_hashcnt_mblk_case();
+  run_deferred_txn_case();
+  run_deferred_abandon_case( 0 );
+  run_deferred_abandon_case( 1 );
+  run_deferred_hold_fork_case();
+  run_deferred_lanes_full_case();
   run_entry_hash_mismatch_case();
   run_cert_verify_case( 0 );
   run_cert_verify_case( 1 );

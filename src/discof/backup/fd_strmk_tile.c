@@ -274,11 +274,15 @@ static void
 strmk_status_cache( fd_strmk_t *     ctx,
                     strmk_stream_t * stream,
                     fd_bank_t *      bank ) {
-  ulong         slot_history_sz = 0UL;
-  uchar const * slot_history    = fd_sysvar_cache_data_query( &bank->f.sysvar_cache, fd_sysvar_slot_history_id.uc, &slot_history_sz );
-  if( FD_UNLIKELY( !fd_txncache_writer_init( ctx->txncache_writer, ctx->txncache, bank->txncache_fork_id, bank->f.slot, slot_history, slot_history_sz, ctx->txncache_arena, ctx->txncache_arena_sz ) ) ) {
-    FD_LOG_CRIT(( "cannot serialize txncache fork %hu of the stream bank at slot %lu because the root moved or SlotHistory lacks execution slots", bank->txncache_fork_id.val, bank->f.slot ));
-  }
+  ulong slot_history_lamports;
+  int   slot_history_exec;
+  uchar slot_history_owner[ 32UL ];
+  ulong slot_history_sz = 0UL;
+  fd_accdb_read_one_nocache( ctx->accdb, bank->accdb_fork_id, fd_sysvar_slot_history_id.uc,
+                             &slot_history_lamports, &slot_history_exec, slot_history_owner,
+                             ctx->raw, &slot_history_sz );
+  if( FD_UNLIKELY( !slot_history_lamports ) ) slot_history_sz = 0UL;
+  fd_txncache_writer_init( ctx->txncache_writer, ctx->txncache, bank->f.slot, ctx->raw, slot_history_sz, ctx->txncache_arena, ctx->txncache_arena_sz );
   ulong status_cache_sz = fd_txncache_writer_serialized_sz( ctx->txncache_writer );
 
   fd_tar_meta_t meta;
@@ -694,13 +698,14 @@ populate_allowed_fds( fd_topo_t const *      topo,
                       ulong                  out_fds_cnt,
                       int *                  out_fds ) {
   (void)topo;
-  if( FD_UNLIKELY( out_fds_cnt<4UL+tile->strmk.stream_max ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+  if( FD_UNLIKELY( out_fds_cnt<5UL+tile->strmk.stream_max ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
   ulong out_cnt = 0UL;
   out_fds[ out_cnt++ ] = 2; /* stderr */
   if( FD_LIKELY( -1!=fd_log_private_logfile_fd() ) )
     out_fds[ out_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
   out_fds[ out_cnt++ ] = FD_ACCDB_FD_RO;
   out_fds[ out_cnt++ ] = FD_VOTE_STAKES_FD; /* vote stakes disk spill */
+  out_fds[ out_cnt++ ] = FD_TXNCACHE_FD; /* txncache disk spill */
   for( ulong i=0UL; i<tile->strmk.stream_max; i++ ) out_fds[ out_cnt++ ] = FD_STRMK_FD( i );
   return out_cnt;
 }
@@ -716,7 +721,8 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
       (uint)fd_log_private_logfile_fd(),
       (uint)FD_STRMK_FD( 0 ), (uint)FD_STRMK_FD( tile->strmk.stream_max-1UL ),
       (uint)FD_ACCDB_FD_RO,
-      (uint)FD_VOTE_STAKES_FD );
+      (uint)FD_VOTE_STAKES_FD,
+      (uint)FD_TXNCACHE_FD );
   return sock_filter_policy_fd_strmk_tile_instr_cnt;
 }
 
@@ -774,7 +780,7 @@ unprivileged_init( fd_topo_t const *      topo,
 
   fd_txncache_shmem_t * tc_shmem = fd_txncache_shmem_join( fd_topo_obj_laddr( topo, tile->strmk.txncache_obj_id ) );
   FD_TEST( tc_shmem );
-  ctx->txncache = fd_txncache_join( fd_txncache_new( _txnc, tc_shmem ) );
+  ctx->txncache = fd_txncache_join( fd_txncache_new( _txnc, tc_shmem, FD_TXNCACHE_FD ) );
   FD_TEST( ctx->txncache );
   ctx->txncache_arena    = _arena;
   ctx->txncache_arena_sz = fd_txncache_writer_arena_sz( tile->strmk.max_txn_per_slot );

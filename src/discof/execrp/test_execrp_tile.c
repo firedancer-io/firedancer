@@ -520,19 +520,14 @@ test_poison_out( test_env_t * env ) {
   fd_memset( env->execrp->result, 0xA5, sizeof(fd_execrp_result_t) );
 }
 
-/* test_execrp_run_alts executes txn and checks that the done frag
-   reports exactly alt_writable_cnt lookup table accounts, which the
-   tile leaves in its result entry. */
+/* test_execrp_send hands txn to the tile as replay would and returns
+   once the tile has processed the frag. */
 
-static fd_execrp_task_done_msg_t const *
-test_execrp_run_alts( test_env_t * env,
-                      fd_txn_p_t * txn,
-                      ulong        txn_idx,
-                      int          want_alts,
-                      ulong        alt_writable_cnt ) {
-  fd_bank_t * bank = fd_svm_mini_bank( env->mini, env->bank_idx );
-  FD_TEST( bank );
-
+static void
+test_execrp_send( test_env_t * env,
+                  fd_txn_p_t * txn,
+                  ulong        txn_idx,
+                  int          want_alts ) {
   ulong in_chunk = env->execrp->replay_in->chunk0;
   fd_execrp_txn_exec_msg_t * in_msg = fd_chunk_to_laddr( env->execrp->replay_in->mem, in_chunk );
   fd_memset( in_msg, 0, sizeof(fd_execrp_txn_exec_msg_t) );
@@ -548,7 +543,22 @@ test_execrp_run_alts( test_env_t * env,
   FD_TEST( !returnable_frag( env->execrp, env->execrp->replay_in->idx, 0UL, sig, in_chunk,
                              sizeof(fd_execrp_txn_exec_msg_t), 0UL, 0UL,
                              fd_frag_meta_ts_comp( fd_tickcount() ), test_stem( env->execrp, stem ) ) );
+}
 
+/* test_execrp_run_alts executes txn and checks that the done frag
+   reports exactly alt_writable_cnt lookup table accounts, which the
+   tile leaves in its result entry. */
+
+static fd_execrp_task_done_msg_t const *
+test_execrp_run_alts( test_env_t * env,
+                      fd_txn_p_t * txn,
+                      ulong        txn_idx,
+                      int          want_alts,
+                      ulong        alt_writable_cnt ) {
+  fd_bank_t * bank = fd_svm_mini_bank( env->mini, env->bank_idx );
+  FD_TEST( bank );
+
+  test_execrp_send( env, txn, txn_idx, want_alts );
   fd_execrp_task_done_msg_t const * out_msg = test_assert_out_msg( env, 0UL, FD_EXECRP_TT_TXN_EXEC );
   FD_TEST( out_msg->txn_exec->txn_idx==txn_idx );
   FD_TEST( out_msg->txn_exec->slot==bank->f.slot );
@@ -952,6 +962,53 @@ FD_UNIT_TEST( execrp_simple_ok ) {
   FD_TEST( env->execrp->metrics.txn_version[ FD_METRICS_ENUM_TXN_VERSION_V_LEGACY_IDX ]==1UL );
   FD_TEST( env->execrp->runtime->metrics.instr_cum==1UL );
   FD_TEST( env->execrp->runtime->metrics.cpi_cum==0UL );
+
+  test_env_destroy( env );
+}
+
+/* While the snapshots behind a fast boot stream are loading, a
+   transaction that touches an account with no record yet is handed
+   back instead of being run against an empty account. */
+FD_UNIT_TEST( execrp_deferred_while_loading ) {
+  test_env_t * env = test_env_create();
+  fd_bank_t * bank = fd_svm_mini_bank( env->mini, env->bank_idx );
+
+  fd_pubkey_t fee_payer = { .ul = { 0x1111UL } };
+  fd_pubkey_t recipient = { .ul = { 0x2222UL } };
+  fd_pubkey_t unseen    = { .ul = { 0x3333UL } };
+  fd_blockhash_info_t * blockhash_info = (fd_blockhash_info_t *)fd_blockhashes_peek_last( &bank->f.block_hash_queue );
+  FD_TEST( blockhash_info );
+  blockhash_info->lamports_per_signature = 5000UL;
+  test_fund_account( env, &fee_payer, 1000000000UL );
+  test_fund_account( env, &recipient, 1UL );
+
+  fd_accdb_snapshot_load_begin( env->execrp->accdb );
+
+  /* Every account has a record: runs as usual. */
+  fd_txn_p_t txn[1];
+  test_build_system_transfer_txn( txn, bank, fee_payer, recipient, 1234567UL );
+  fd_execrp_task_done_msg_t const * out_msg = test_execrp_run( env, txn, 18UL );
+  FD_TEST( out_msg->txn_exec->is_committable );
+  FD_TEST( out_msg->txn_exec->txn_err==FD_RUNTIME_EXECUTE_SUCCESS );
+
+  /* No record for the recipient yet: handed back, nothing changed. */
+  test_build_system_transfer_txn( txn, bank, fee_payer, unseen, 1234567UL );
+  test_execrp_send( env, txn, 19UL, 0 );
+  out_msg = test_assert_out_msg( env, 0UL, FD_EXECRP_TT_TXN_DEFERRED );
+  FD_TEST( out_msg->txn_deferred->txn_idx==19UL );
+  FD_TEST( !env->execrp->txn_out.err.is_committable );
+  FD_TEST( test_read_lamports( env, &fee_payer )==1000000000UL-5000UL-1234567UL );
+  FD_TEST( !test_read_lamports( env, &unseen ) );
+
+  fd_accdb_snapshot_load_end( env->execrp->accdb );
+
+  /* Loading is done: the account is known to be missing, so the
+     transfer creates it. */
+  test_execrp_send( env, txn, 19UL, 0 );
+  out_msg = test_assert_out_msg( env, 0UL, FD_EXECRP_TT_TXN_EXEC );
+  FD_TEST( out_msg->txn_exec->is_committable );
+  FD_TEST( out_msg->txn_exec->txn_err==FD_RUNTIME_EXECUTE_SUCCESS );
+  FD_TEST( test_read_lamports( env, &unseen )==1234567UL );
 
   test_env_destroy( env );
 }

@@ -16,6 +16,7 @@
 #define FD_EXECRP_TT_LTHASH_ADD    (5UL) /* Hash accounts as they are in this bank's fork. */
 #define FD_EXECRP_TT_CERT_VERIFY   (6UL) /* Alpenglow footer cert verify. */
 #define FD_EXECRP_TT_REWARDS       (7UL) /* Alpenglow footer vote rewards, one slice of the signers. */
+#define FD_EXECRP_TT_TXN_DEFERRED  (8UL) /* Handed back: an account is not loaded in yet. */
 
 /* Sent from the replay tile to the exec tiles.  These describe one of
    several types of tasks for an exec tile.  An idx to the bank in the
@@ -170,6 +171,11 @@ struct fd_execrp_txn_sigverify_done_msg {
 };
 typedef struct fd_execrp_txn_sigverify_done_msg fd_execrp_txn_sigverify_done_msg_t;
 
+struct fd_execrp_txn_deferred_msg {
+  ulong txn_idx;
+};
+typedef struct fd_execrp_txn_deferred_msg fd_execrp_txn_deferred_msg_t;
+
 struct fd_execrp_poh_hash_done_msg {
   ulong     cnt;
   fd_hash_t hash[ FD_EXECRP_POH_PARA ];
@@ -199,6 +205,7 @@ struct fd_execrp_task_done_msg {
   union {
     fd_execrp_txn_exec_done_msg_t      txn_exec[ 1 ];
     fd_execrp_txn_sigverify_done_msg_t txn_sigverify[ 1 ];
+    fd_execrp_txn_deferred_msg_t       txn_deferred[ 1 ];
     fd_execrp_poh_hash_done_msg_t      poh_hash[ 1 ];
     fd_execrp_cert_verify_done_msg_t   cert_verify[ 1 ];
     fd_execrp_lthash_done_msg_t        lthash[ 1 ];

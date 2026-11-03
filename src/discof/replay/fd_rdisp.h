@@ -544,6 +544,14 @@ ulong
 fd_rdisp_get_next_ready( fd_rdisp_t           * disp,
                          FD_RDISP_BLOCK_TAG_T   schedule_block );
 
+/* fd_rdisp_undispatch_txn puts txn_idx, a DISPATCHED transaction of
+   the staged block schedule_block, back to READY, as if
+   fd_rdisp_get_next_ready had not returned it. */
+void
+fd_rdisp_undispatch_txn( fd_rdisp_t *         disp,
+                         FD_RDISP_BLOCK_TAG_T schedule_block,
+                         ulong                txn_idx );
+
 /* fd_rdisp_complete_txn notifies the dispatcher that the specified
    transaction or pseudo-transaction (which must have been in the
    DISPATCHED state) has completed.  Logs warning and returns on error

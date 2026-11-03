@@ -1405,6 +1405,25 @@ main( int     argc,
 
   fd_rdisp_delete( fd_rdisp_leave( disp ) );
 
+  /* A transaction put back after dispatch goes out again before the
+     one that waits on it. */
+  disp = fd_rdisp_join( fd_rdisp_new( footprint, depth, block_depth, 0UL, SEED ) );   FD_TEST( disp );
+  FD_TEST( 0==fd_rdisp_add_block( disp, tag( 0UL ), 0 ) );
+  ulong u0 = add_txn( disp, rng, tag( 0UL ), "A", "", 0 ); FD_TEST( u0 );
+  ulong u1 = add_txn( disp, rng, tag( 0UL ), "A", "", 0 ); FD_TEST( u1 );
+  FD_TEST( u0==fd_rdisp_get_next_ready( disp, tag( 0UL ) ) );
+  FD_TEST( 0UL==fd_rdisp_get_next_ready( disp, tag( 0UL ) ) );
+  fd_rdisp_undispatch_txn( disp, tag( 0UL ), u0 );
+  fd_rdisp_verify( disp, verify_scratch );
+  FD_TEST( u0==fd_rdisp_get_next_ready( disp, tag( 0UL ) ) );
+  FD_TEST( 0UL==fd_rdisp_get_next_ready( disp, tag( 0UL ) ) );
+  fd_rdisp_complete_txn( disp, u0, 1 );
+  FD_TEST( u1==fd_rdisp_get_next_ready( disp, tag( 0UL ) ) );
+  fd_rdisp_complete_txn( disp, u1, 1 );
+  FD_TEST( 0UL==fd_rdisp_get_next_ready( disp, tag( 0UL ) ) );
+  fd_rdisp_verify( disp, verify_scratch );
+  fd_rdisp_delete( fd_rdisp_leave( disp ) );
+
   random_test( rng, rand_iters );
 
   /* test fd_rdisp_score over every integer part a block can reach.
