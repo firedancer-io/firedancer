@@ -27,14 +27,14 @@
    map_cnt slots.  ALIGN is at least double cache line to mitigate
    various kinds of false sharing.  depth and map_cnt are assumed to be
    valid (i.e. depth is positive, map_cnt is an integer power of 2 of at
-   least depth+2 and the combination will not require a footprint larger
-   than ULONG_MAX).  These are provided to facilitate compile time
-   declarations. */
+   least depth+2, depth is at most UINT_MAX and the combination will not
+   require a footprint larger than ULONG_MAX).  These are provided to
+   facilitate compile time declarations. */
 
 #define FD_TCACHE_ALIGN (128UL)
-#define FD_TCACHE_FOOTPRINT( depth, map_cnt )                     \
-  FD_LAYOUT_FINI( FD_LAYOUT_APPEND( FD_LAYOUT_INIT,               \
-    FD_TCACHE_ALIGN, (4UL + (depth) + (map_cnt))*sizeof(ulong) ), \
+#define FD_TCACHE_FOOTPRINT( depth, map_cnt )                                  \
+  FD_LAYOUT_FINI( FD_LAYOUT_APPEND( FD_LAYOUT_INIT,                            \
+    FD_TCACHE_ALIGN, (4UL + (depth))*sizeof(ulong) + (map_cnt)*sizeof(uint) ), \
     FD_TCACHE_ALIGN )
 
 /* FD_TCACHE_TAG_NULL is a tag value that will never be inserted. */
@@ -60,7 +60,7 @@
    exposed here to facilitate usage of tcache in performance critical
    contexts. */
 
-#define FD_TCACHE_MAGIC (0xf17eda2c377ca540UL) /* firedancer tcash ver 0 */
+#define FD_TCACHE_MAGIC (0xf17eda2c377ca541UL) /* firedancer tcash ver 1 */
 
 struct __attribute((aligned(FD_TCACHE_ALIGN))) fd_tcache_private {
   ulong magic;   /* ==FD_TCACHE_MAGIC */
@@ -81,10 +81,19 @@ struct __attribute((aligned(FD_TCACHE_ALIGN))) fd_tcache_private {
      active use / occupy local cache and the access pattern will be
      highly sequential. */
 
-  /* map_cnt ulong (map):
+  /* map_cnt uint (map):
 
-     This is a sparse linear probed key-only map of tags currently in
-     the tcache.  Since it is sparse, probe collisions are rare (and thus
+     This is a sparse linear probed map of tags currently in the tcache.
+     A slot holds the tag's ring location, not the tag.  From the least
+     significant bit, a slot packs:
+
+       idx  (msb(depth)+1 bits):  ring index of the tag plus 1 (0 = empty)
+       disp (min(5,32-idx) bits): min(distance from home slot,2^disp-1)
+       fp   (remaining bits):     most significant bits of tag
+
+     Queries only read the ring (full tag compare) for slots whose disp
+     and fp match.  A saturated disp means the home must be recomputed
+     from the ring.  Since it is sparse, probe collisions are rare (and thus
      the branches involved in various cache operations are highly
      predictable.  While the sparsity makes the map reasonably
      inefficient from a memory footprint point of view, memory footprint
@@ -105,6 +114,16 @@ struct __attribute((aligned(FD_TCACHE_ALIGN))) fd_tcache_private {
 };
 
 typedef struct fd_tcache_private fd_tcache_t;
+
+/* FD_TCACHE_MAP_LAYOUT declares the map slot layout (see above) for a
+   tcache of the given depth: ib is the idx width, imask the idx mask,
+   dmax the saturated disp and fpsh the fp shift. */
+
+#define FD_TCACHE_MAP_LAYOUT( ib, imask, dmax, fpsh, depth ) \
+  int   ib    = fd_ulong_find_msb( (depth) ) + 1;            \
+  int   fpsh  = ib + fd_int_min( 5, 32-ib );                 \
+  ulong imask = (1UL<<ib)-1UL;                               \
+  ulong dmax  = (1UL<<(fpsh-ib))-1UL
 
 FD_PROTOTYPES_BEGIN
 
@@ -145,7 +164,7 @@ fd_tcache_map_cnt_default( ulong depth ) {
    footprint of a memory region suitable for use as a tcache.
    fd_tcache_align returns FD_TCACHE_ALIGN.  For fd_tcache_footprint, a
    map_cnt of 0 indicates to use fd_tcache_map_cnt_default above.  If
-   depth is not positive, map_cnt is not a power of 2 of at least
+   depth is not in [1,UINT_MAX], map_cnt is not a power of 2 of at least
    depth+2 and/or the required footprint would be larger than ULONG_MAX,
    footprint will silently return 0 (and thus can be used by the caller
    to validate the tcache configuration parameters).  Otherwise, it
@@ -222,7 +241,7 @@ FD_FN_PURE  static inline ulong   fd_tcache_map_cnt     ( fd_tcache_t const * tc
 
 FD_FN_CONST static inline ulong * fd_tcache_oldest_laddr( fd_tcache_t * tcache ) { return &tcache->oldest; }
 FD_FN_CONST static inline ulong * fd_tcache_ring_laddr  ( fd_tcache_t * tcache ) { return ((ulong *)tcache)+4UL; }
-FD_FN_PURE  static inline ulong * fd_tcache_map_laddr   ( fd_tcache_t * tcache ) { return ((ulong *)tcache)+4UL+tcache->depth; }
+FD_FN_PURE  static inline uint *  fd_tcache_map_laddr   ( fd_tcache_t * tcache ) { return (uint *)(((ulong *)tcache)+4UL+tcache->depth); }
 
 /* fd_tcache_tag_is_null returns non-zero if tag is FD_TCACHE_TAG_NULL
    and zero otherwise. */
@@ -237,10 +256,10 @@ FD_FN_CONST static inline int fd_tcache_tag_is_null( ulong tag ) { return tag==F
 static inline ulong
 fd_tcache_reset( ulong * ring,
                  ulong   depth,
-                 ulong * map,
+                 uint *  map,
                  ulong   map_cnt ) {
   for( ulong ring_idx=0UL; ring_idx<depth;   ring_idx++ ) ring[ ring_idx ] = FD_TCACHE_TAG_NULL;
-  for( ulong map_idx =0UL; map_idx <map_cnt; map_idx++  ) map [ map_idx  ] = FD_TCACHE_TAG_NULL;
+  for( ulong map_idx =0UL; map_idx <map_cnt; map_idx++  ) map [ map_idx  ] = 0U;
   return 0UL; /* ring_oldest */
 }
 
@@ -258,87 +277,98 @@ FD_FN_CONST static inline ulong fd_tcache_map_next ( ulong idx, ulong map_cnt ) 
 
 /* FD_TCACHE_QUERY searches for tag in a map with map_cnt slots.  On
    return, map_idx will be in [0,map_cnt) and found will be in [0,1].
-   If found is 0, map_idx is a suitable location where tag can be
-   inserted into the map, assuming the map has at most map_cnt-2 entries
-   currently in it.  If found is is 1, map_idx is the index into the map
-   where tag is currently located (this index will be valid until the
-   next map remove or map destruction).
+   If found is 0, map_idx is the first empty slot probed (the location
+   where tag would be inserted into the map, assuming the map has at
+   most map_cnt-2 entries currently in it).  If found is is 1, map_idx
+   is the index into the map where tag is currently located (this index
+   will be valid until the next map remove or map destruction).
 
-   For sparse fill ratios and properly randomized map_starts, this is a
-   fast O(1).
+   Only slots whose disp and fp fields match tag are confirmed against
+   the full tag in the ring, so a hit costs one ring access and a miss
+   rarely costs any.  For sparse fill ratios and properly randomized
+   map_starts, this is a fast O(1).
 
    This is implemented as a macro to support multiple return values
    (found and map_idx), especially as this is used in performance
    critical contexts.  Similarly, does no input argument checking and
-   uses the unpacked fields of a tcache.  Assumes map is non-NULL, map
-   is indexed [0,map_cnt), map_cnt is a positive integer power-of-two
-   and tag is not null.
+   uses the unpacked fields of a tcache.  Assumes ring is indexed
+   [0,depth), map is indexed [0,map_cnt), map_cnt is a positive integer
+   power-of-two and tag is not null.
 
    This macro is robust (e.g. evaluates its arguments a minimal number
    of times) and pure (i.e. found / map_idx will not change between
-   calls given the same map / map[*] / tag). */
+   calls given the same ring / map / map[*] / tag). */
 
-#define FD_TCACHE_QUERY( found, map_idx, map, map_cnt, tag ) do {                  \
-    ulong const * _ftq_map     = (map);                                            \
-    ulong         _ftq_map_cnt = (map_cnt);                                        \
-    ulong         _ftq_tag     = (tag);                                            \
-    int           _ftq_found;                                                      \
-    ulong         _ftq_map_idx = fd_tcache_map_start( _ftq_tag, _ftq_map_cnt );    \
-    for(;;) {                                                                      \
-      ulong _ftq_map_tag = _ftq_map[ _ftq_map_idx ];                               \
-      _ftq_found = (_ftq_tag==_ftq_map_tag);                                       \
-      if( FD_LIKELY( _ftq_found | fd_tcache_tag_is_null( _ftq_map_tag ) ) ) break; \
-      _ftq_map_idx = fd_tcache_map_next( _ftq_map_idx, _ftq_map_cnt );             \
-    }                                                                              \
-    (found)   = _ftq_found;                                                        \
-    (map_idx) = _ftq_map_idx;                                                      \
+#define FD_TCACHE_QUERY( found, map_idx, ring, depth, map, map_cnt, tag ) do {                  \
+    ulong const * _ftq_ring    = (ring);                                                         \
+    ulong         _ftq_depth   = (depth);                                                        \
+    uint const *  _ftq_map     = (map);                                                          \
+    ulong         _ftq_map_cnt = (map_cnt);                                                      \
+    ulong         _ftq_tag     = (tag);                                                          \
+    FD_TCACHE_MAP_LAYOUT( _ftq_ib, _ftq_imask, _ftq_dmax, _ftq_fpsh, _ftq_depth );               \
+    ulong         _ftq_fp      = (_ftq_tag>>32) & ((0xffffffffUL>>_ftq_fpsh)<<_ftq_fpsh);        \
+    int           _ftq_found   = 0;                                                              \
+    ulong         _ftq_map_idx = fd_tcache_map_start( _ftq_tag, _ftq_map_cnt );                  \
+    for( ulong _ftq_d=0UL;; _ftq_d++ ) {                                                         \
+      ulong _ftq_s = (ulong)_ftq_map[ _ftq_map_idx ];                                            \
+      if( FD_LIKELY( !_ftq_s ) ) break;                                                          \
+      if( FD_UNLIKELY( (_ftq_s & ~_ftq_imask)==(_ftq_fp | (fd_ulong_min( _ftq_d, _ftq_dmax )<<_ftq_ib)) ) && \
+          _ftq_ring[ (_ftq_s & _ftq_imask)-1UL ]==_ftq_tag ) {                                    \
+        _ftq_found = 1;                                                                          \
+        break;                                                                                   \
+      }                                                                                          \
+      _ftq_map_idx = fd_tcache_map_next( _ftq_map_idx, _ftq_map_cnt );                           \
+    }                                                                                            \
+    (found)   = _ftq_found;                                                                      \
+    (map_idx) = _ftq_map_idx;                                                                    \
   } while(0)
 
-/* fd_tcache_remove removes tag in a map with map_cnt slots.  For
-   sparsely populated maps and properly randomized tags, this is a fast
-   O(1).  This does not remove tag from the ring, so oldest may still
-   take a value that was removed.  As this is used in performance
-   critical contexts, does no input argument checking and uses the
-   unpacked fields of a tcache.  Assumes map is non-NULL, map is indexed
-   [0,map_cnt) and map_cnt is a positive integer power-of-two.  Does
-   nothing if tag is null or if tag is not currently in the map. */
+/* fd_tcache_remove removes the map entry of the tag at ring[ring_idx]
+   from a map with map_cnt slots.  For sparsely populated maps and
+   properly randomized tags, this is a fast O(1).  This does not remove
+   the tag from the ring (ring[ring_idx] must still hold the tag on
+   entry).  As this is used in performance critical contexts, does no
+   input argument checking and uses the unpacked fields of a tcache.
+   Assumes ring_idx is in [0,depth), map is indexed [0,map_cnt) and
+   map_cnt is a positive integer power-of-two.  Does nothing if
+   ring[ring_idx] is null or not currently in the map. */
 
 FD_FN_UNUSED static void /* Work around -Winline */
-fd_tcache_remove( ulong * map,
-                  ulong   map_cnt,
-                  ulong   tag ) {
+fd_tcache_remove( ulong const * ring,
+                  ulong         depth,
+                  uint *        map,
+                  ulong         map_cnt,
+                  ulong         ring_idx ) {
+  ulong tag = ring[ ring_idx ];
+  if( FD_UNLIKELY( fd_tcache_tag_is_null( tag ) ) ) return; /* startup */
 
-  /* If tag is a null tag (e.g. less than depth unique tags have been
-     inserted into the tcache), nothing to do. */
+  FD_TCACHE_MAP_LAYOUT( ib, imask, dmax, fpsh, depth ); (void)fpsh;
+  ulong mask = map_cnt-1UL;
 
-  if( FD_LIKELY( !fd_tcache_tag_is_null( tag ) ) ) {
+  /* ring_idx is unique in the map, no tag compare needed */
+  ulong hole = fd_tcache_map_start( tag, map_cnt );
+  for(;;) {
+    ulong s = (ulong)map[ hole ];
+    if( FD_UNLIKELY( !s ) ) return; /* paranoia */
+    if( (s & imask)==ring_idx+1UL ) break;
+    hole = fd_tcache_map_next( hole, map_cnt );
+  }
 
-    /* Look up tag in the tcache.  If not found, nothing to do.  (This
-       should always succeed at this point in typical tcache usage but we
-       keep the check for paranoia / minimize risk of silent corruption.) */
-
-    int   found;
-    ulong slot;
-    FD_TCACHE_QUERY( found, slot, map, map_cnt, tag );
-    if( FD_LIKELY( found ) ) {
-
-      /* slot contains the tag to remove.  Remove it.  See util/fd_map*
-         for details how this works. */
-
-      for(;;) {
-        map[ slot ] = FD_TCACHE_TAG_NULL;
-        ulong hole = slot;
-        for(;;) {
-          slot = fd_tcache_map_next( slot, map_cnt );
-          tag  = map[ slot ];
-          if( FD_LIKELY( fd_tcache_tag_is_null( tag ) ) ) return;
-          ulong start = fd_tcache_map_start( tag, map_cnt );
-          if( !(((hole<start) & (start<=slot)) | ((hole>slot) & ((hole<start) | (start<=slot)))) ) break;
-        }
-        map[ hole ] = tag;
-      }
+  /* Backward shift delete, see util/fd_map* */
+  ulong slot = hole;
+  for(;;) {
+    slot = fd_tcache_map_next( slot, map_cnt );
+    ulong s = (ulong)map[ slot ];
+    if( FD_LIKELY( !s ) ) break;
+    ulong d = (s>>ib) & dmax;
+    if( FD_UNLIKELY( d==dmax ) ) d = (slot - fd_tcache_map_start( ring[ (s & imask)-1UL ], map_cnt )) & mask;
+    ulong gap = (slot - hole) & mask;
+    if( d>=gap ) { /* home at or before hole */
+      map[ hole ] = (uint)( (s & ~(dmax<<ib)) | (fd_ulong_min( d-gap, dmax )<<ib) );
+      hole = slot;
     }
   }
+  map[ hole ] = 0U;
 }
 
 /* FD_TCACHE_INSERT inserts tag into the tcache in fast O(1) operations.
@@ -351,56 +381,51 @@ fd_tcache_remove( ulong * map,
    and oldest in particular), especially as this is used in performance
    critical contexts.  Similarly, does no input argument checking.
    Assumes oldest is in [0,depth), ring is non-NULL and indexed
-   [0,depth), depth is positive, map is non-NULL, map is indexed
+   [0,depth), depth is in [1,UINT_MAX], map is non-NULL, map is indexed
    [0,map_cnt), map_cnt is an integer power-of-two of at least depth+2,
    and tag is not null.
 
    Note that, given a duplicate tag, insertion is _not_ LRU-like (i.e.
    does not make the duplicate tag the most recently used tag in the
    tcache).  This is usually the desired behavior in deduplication and
-   it is cheaper as well.  LRU-like behavior is still possible with
-   fast-ish O(1) and more memory footprint.  Specifically, the map
-   entries would store the location in the ring structure and ring
-   structure would need to be made a doubly linked list.  On a duplicate
-   tag, insert would move the duplicate tag from its current location in
-   the ring (given from the query itself) to one immediately before the
-   oldest tag in the ring and update the map entry (and similar for
-   unique tag insert).
+   it is cheaper as well.
 
    This macro is robust (e.g. evaluates its arguments a minimal number
    of times). */
 
-#define FD_TCACHE_INSERT( dup, oldest, ring, depth, map, map_cnt, tag ) do {     \
-    ulong   _fti_oldest   = (oldest);                                            \
-    ulong * _fti_ring     = (ring);                                              \
-    ulong   _fti_depth    = (depth);                                             \
-    ulong * _fti_map      = (map);                                               \
-    ulong   _fti_map_cnt  = (map_cnt);                                           \
-    ulong   _fti_tag      = (tag);                                               \
-                                                                                 \
-    int   _fti_dup;                                                              \
-    ulong _fti_map_idx;                                                          \
-    FD_TCACHE_QUERY( _fti_dup, _fti_map_idx, _fti_map, _fti_map_cnt, _fti_tag ); \
-    if( !_fti_dup ) { /* application dependent branch probability */             \
-                                                                                 \
-      /* Insert tag into the map (assumes depth <= map_cnt-2) */                 \
-      /* map has at most map_cnt-2 entries here */                               \
-      _fti_map[ _fti_map_idx ] = _fti_tag;                                       \
-      /* map has at most map_cnt-1 entries here */                               \
-                                                                                 \
-      /* Evict oldest tag / insert tag into ring */                              \
-      ulong _fti_tag_oldest = _fti_ring[ _fti_oldest ];                          \
-      _fti_ring[ _fti_oldest ] = _fti_tag;                                       \
-      _fti_oldest++;                                                             \
-      if( _fti_oldest >= _fti_depth ) _fti_oldest = 0UL; /* cmov */              \
-                                                                                 \
-      /* Remove oldest tag from map */                                           \
-      /* _fti_tag_oldest will be null at startup but remove handles that case */ \
-      fd_tcache_remove( _fti_map, _fti_map_cnt, _fti_tag_oldest );               \
-      /* Map has at most map_cnt-2 entries here */                               \
-    }                                                                            \
-    (dup)    = _fti_dup;                                                         \
-    (oldest) = _fti_oldest;                                                      \
+#define FD_TCACHE_INSERT( dup, oldest, ring, depth, map, map_cnt, tag ) do {                    \
+    ulong   _fti_oldest   = (oldest);                                                           \
+    ulong * _fti_ring     = (ring);                                                             \
+    ulong   _fti_depth    = (depth);                                                            \
+    uint *  _fti_map      = (map);                                                              \
+    ulong   _fti_map_cnt  = (map_cnt);                                                          \
+    ulong   _fti_tag      = (tag);                                                              \
+                                                                                                \
+    int   _fti_dup;                                                                             \
+    ulong _fti_map_idx;                                                                         \
+    FD_TCACHE_QUERY( _fti_dup, _fti_map_idx, _fti_ring, _fti_depth, _fti_map, _fti_map_cnt, _fti_tag ); \
+    if( !_fti_dup ) { /* application dependent branch probability */                            \
+                                                                                                \
+      /* Evict first: the evicted and new tag share ring[oldest] */                             \
+      fd_tcache_remove( _fti_ring, _fti_depth, _fti_map, _fti_map_cnt, _fti_oldest );           \
+                                                                                                \
+      /* Re-probe, the delete may have shifted the cluster */                                   \
+      FD_TCACHE_MAP_LAYOUT( _fti_ib, _fti_imask, _fti_dmax, _fti_fpsh, _fti_depth );            \
+      (void)_fti_imask;                                                                         \
+      ulong _fti_home = fd_tcache_map_start( _fti_tag, _fti_map_cnt );                          \
+      _fti_map_idx = _fti_home;                                                                 \
+      while( _fti_map[ _fti_map_idx ] ) _fti_map_idx = fd_tcache_map_next( _fti_map_idx, _fti_map_cnt ); \
+      ulong _fti_d = (_fti_map_idx - _fti_home) & (_fti_map_cnt-1UL);                           \
+      _fti_map[ _fti_map_idx ] = (uint)( ((_fti_tag>>32) & ((0xffffffffUL>>_fti_fpsh)<<_fti_fpsh)) | \
+                                         (fd_ulong_min( _fti_d, _fti_dmax )<<_fti_ib)         | \
+                                         (_fti_oldest+1UL) );                                   \
+                                                                                                \
+      _fti_ring[ _fti_oldest ] = _fti_tag;                                                      \
+      _fti_oldest++;                                                                            \
+      if( _fti_oldest >= _fti_depth ) _fti_oldest = 0UL; /* cmov */                             \
+    }                                                                                           \
+    (dup)    = _fti_dup;                                                                        \
+    (oldest) = _fti_oldest;                                                                     \
   } while(0)
 
 FD_PROTOTYPES_END
