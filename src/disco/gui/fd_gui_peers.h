@@ -269,13 +269,38 @@ struct fd_gui_peers_gossip_stats {
 };
 typedef struct fd_gui_peers_gossip_stats fd_gui_peers_gossip_stats_t;
 
+/* On-chain validator info.  The free text is read only to format
+   peer JSON, so it lives in the FD_GUI_PEERS_INFO_FD file at
+   pool idx*sizeof(fd_gui_peers_info_text_t). */
+struct fd_gui_peers_node_info {
+  fd_pubkey_t pubkey;
+  ulong       slot;
+  int         cleared;
+  char        name[ FD_GUI_CONFIG_PARSE_VALIDATOR_INFO_NAME_SZ + 1UL ];
+
+  struct { ulong prev, next; } map;
+  struct { ulong next; } pool;
+};
+typedef struct fd_gui_peers_node_info fd_gui_peers_node_info_t;
+
+struct fd_gui_peers_info_text {
+  char details         [ FD_GUI_CONFIG_PARSE_VALIDATOR_INFO_DETAILS_SZ          + 1UL ];
+  char website         [ FD_GUI_CONFIG_PARSE_VALIDATOR_INFO_WEBSITE_SZ          + 1UL ];
+  char icon_uri        [ FD_GUI_CONFIG_PARSE_VALIDATOR_INFO_ICON_URI_SZ         + 1UL ];
+  char keybase_username[ FD_GUI_CONFIG_PARSE_VALIDATOR_INFO_KEYBASE_USERNAME_SZ + 1UL ];
+};
+typedef struct fd_gui_peers_info_text fd_gui_peers_info_text_t;
+
+#define FD_GUI_PEERS_INFO_FD      (123443)
+#define FD_GUI_PEERS_INFO_FILE_SZ (FD_CONTACT_INFO_TABLE_SIZE*sizeof(fd_gui_peers_info_text_t))
+
 #define POOL_NAME fd_gui_peers_node_info_pool
-#define POOL_T    fd_gui_config_parse_info_t
+#define POOL_T    fd_gui_peers_node_info_t
 #define POOL_NEXT pool.next
 #include "../../util/tmpl/fd_pool.c"
 
 #define MAP_NAME  fd_gui_peers_node_info_map
-#define MAP_ELE_T fd_gui_config_parse_info_t
+#define MAP_ELE_T fd_gui_peers_node_info_t
 #define MAP_KEY_T fd_pubkey_t
 #define MAP_KEY   pubkey
 #define MAP_IDX_T ulong
@@ -397,7 +422,8 @@ struct fd_gui_peers_ctx {
   long next_metric_rate_update_nanos; /* ns timestamp when we'll next update rate-of-change metrics */
   long next_gossip_stats_update_nanos; /* ns timestamp when we'll next broadcast out gossip stats message */
 
-  fd_gui_config_parse_info_t * node_info_pool;
+  fd_gui_peers_node_info_t * node_info_pool;
+  int                        info_fd;
   fd_gui_peers_node_info_map_t * node_info_map;
   fd_gui_peers_node_pubkey_map_t * node_pubkey_map;
   fd_gui_peers_node_sock_map_t  * node_sock_map;
@@ -474,6 +500,7 @@ fd_gui_peers_new( void *             shmem,
                   fd_topo_t const *  topo,
                   void *             dctx_scratch, /* geoip DCtx + bounce, only used inside new; fd_gui_shared_scratch_footprint */
                   int                geoip_fd,     /* written here, read by lookups */
+                  int                info_fd,      /* validator info text, FD_GUI_PEERS_INFO_FILE_SZ */
                   ulong              max_ws_conn_cnt,
                   char const *       wfs_expected_bank_hash_cstr,
                   ulong              seed,
@@ -481,6 +508,13 @@ fd_gui_peers_new( void *             shmem,
 
 fd_gui_peers_ctx_t *
 fd_gui_peers_join( void * shmem );
+
+/* fd_gui_peers_info_text_read reads info's free text into text. */
+
+void
+fd_gui_peers_info_text_read( fd_gui_peers_ctx_t const *       peers,
+                             fd_gui_peers_node_info_t const * info,
+                             fd_gui_peers_info_text_t *       text );
 
 /* fd_gui_peers_handle_gossip_bw adds rec_cnt per-socket gossip byte
    counts to the peers owning those gossip sockets.  is_rx is true for
