@@ -982,7 +982,7 @@ unprivileged_init( fd_topo_t const *      topo,
   fd_clock_tile_init( ctx->clock );
 
   ctx->topo = topo;
-  ctx->peers = fd_gui_peers_join( fd_gui_peers_new( _peers, ctx->gui_server, ctx->topo, _shared, FD_GUI_GEOIP_FD, http_param.max_ws_connection_cnt, tile->gui.wfs_bank_hash, ctx->seed, fd_clock_tile_now( ctx->clock ) ) );
+  ctx->peers = fd_gui_peers_join( fd_gui_peers_new( _peers, ctx->gui_server, ctx->topo, _shared, FD_GUI_GEOIP_FD, FD_GUI_PEERS_INFO_FD, http_param.max_ws_connection_cnt, tile->gui.wfs_bank_hash, ctx->seed, fd_clock_tile_now( ctx->clock ) ) );
   /* The gui only reads partition stats from the accdb shmem; it never
      reads account data from disk, so it does not join the accdb fd. */
   fd_accdb_shmem_t * accdb_shmem = NULL;
@@ -1064,7 +1064,7 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
   uint epoll_inner_fd = (uint)FD_WAKER_INNER_FD( tile->waker_client_idx );
   uint epoll_outer_fd = (uint)FD_WAKER_OUTER_FD;
 
-  populate_sock_filter_policy_fd_gui_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)fd_http_server_fd( ctx->gui_server ), (uint)fd_gui_store_fd( ctx->db ), epoll_inner_fd, epoll_outer_fd, (uint)FD_GUI_GEOIP_FD );
+  populate_sock_filter_policy_fd_gui_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)fd_http_server_fd( ctx->gui_server ), (uint)fd_gui_store_fd( ctx->db ), epoll_inner_fd, epoll_outer_fd, (uint)FD_GUI_GEOIP_FD, (uint)FD_GUI_PEERS_INFO_FD );
   return sock_filter_policy_fd_gui_tile_instr_cnt;
 }
 
@@ -1077,7 +1077,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_gui_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_gui_ctx_t ), sizeof( fd_gui_ctx_t ) );
 
-  if( FD_UNLIKELY( out_fds_cnt<7UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+  if( FD_UNLIKELY( out_fds_cnt<8UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
 
   ulong out_cnt = 0UL;
   out_fds[ out_cnt++ ] = 2; /* stderr */
@@ -1088,14 +1088,15 @@ populate_allowed_fds( fd_topo_t const *      topo,
   out_fds[ out_cnt++ ] = FD_WAKER_OUTER_FD;                             /* waker outer epoll fd (rearm) */
   out_fds[ out_cnt++ ] = FD_WAKER_INNER_FD( tile->waker_client_idx );   /* waker inner epoll fd */
   out_fds[ out_cnt++ ] = FD_GUI_GEOIP_FD;                               /* geoip segments */
+  out_fds[ out_cnt++ ] = FD_GUI_PEERS_INFO_FD;                          /* validator info text */
   return out_cnt;
 }
 
 static ulong
 rlimit_file_cnt( fd_topo_t const *      topo FD_PARAM_UNUSED,
                  fd_topo_tile_t const * tile ) {
-  /* pipefd, socket, stderr, logfile, guidb, geoip, and one spare for new accept() connections */
-  ulong base = 7UL;
+  /* pipefd, socket, stderr, logfile, guidb, geoip, info, and one spare for new accept() connections */
+  ulong base = 8UL;
   return base + tile->gui.max_http_connections + tile->gui.max_websocket_connections;
 }
 

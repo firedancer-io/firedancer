@@ -12,6 +12,7 @@
 
 static uchar dctx_scratch[ 10UL<<20 ] __attribute__((aligned(128)));
 static int   geoip_fd;
+static int   info_fd;
 
 extern uchar const dbip_f[]; /* fd_gui_peers.c */
 extern ulong const dbip_f_sz;
@@ -55,16 +56,16 @@ test_newest_copy( void ) {
   FD_TEST( peers_mem );
 
   uchar populated[ 1024UL ], cleared[ 1024UL ];
-  ulong psz = build_account( populated, sizeof(populated), 1, "{\"name\":\"alice\"}" );
+  ulong psz = build_account( populated, sizeof(populated), 1, "{\"name\":\"alice\",\"website\":\"https://example.com\"}" );
   ulong csz = build_account( cleared,   sizeof(cleared),   1, "{\"name\":\"\"}" );
   fd_pubkey_t id; memset( id.uc, 0x42, 32UL );
 
   for( int order=0; order<2; order++ ) {
-    fd_gui_peers_ctx_t * peers = fd_gui_peers_join( fd_gui_peers_new( peers_mem, http, NULL, dctx_scratch, geoip_fd, 1UL, "", 0UL, 0L ) );
+    fd_gui_peers_ctx_t * peers = fd_gui_peers_join( fd_gui_peers_new( peers_mem, http, NULL, dctx_scratch, geoip_fd, info_fd, 1UL, "", 0UL, 0L ) );
     FD_TEST( peers );
     if( order ) { fd_gui_peers_handle_config_account( peers, cleared,   csz, 200UL ); fd_gui_peers_handle_config_account( peers, populated, psz, 100UL ); }
     else        { fd_gui_peers_handle_config_account( peers, populated, psz, 100UL ); fd_gui_peers_handle_config_account( peers, cleared,   csz, 200UL ); }
-    fd_gui_config_parse_info_t const * info = fd_gui_peers_node_info_map_ele_query_const( peers->node_info_map, &id, NULL, peers->node_info_pool );
+    fd_gui_peers_node_info_t const * info = fd_gui_peers_node_info_map_ele_query_const( peers->node_info_map, &id, NULL, peers->node_info_pool );
     FD_TEST( info && info->slot==200UL && info->cleared );
 
     /* and a newer populated copy replaces the cleared one in place */
@@ -75,12 +76,25 @@ test_newest_copy( void ) {
   }
 
   /* a known peer: populated@100, cleared@200, populated@300 each broadcast */
-  fd_gui_peers_ctx_t * peers = fd_gui_peers_join( fd_gui_peers_new( peers_mem, http, NULL, dctx_scratch, geoip_fd, 1UL, "", 0UL, 0L ) );
+  fd_gui_peers_ctx_t * peers = fd_gui_peers_join( fd_gui_peers_new( peers_mem, http, NULL, dctx_scratch, geoip_fd, info_fd, 1UL, "", 0UL, 0L ) );
   fd_gui_peers_node_t * peer = &peers->contact_info_table[ 0 ];
   peer->row.valid  = 1;
   peer->row.pubkey = id;
   fd_gui_peers_node_pubkey_map_idx_insert( peers->node_pubkey_map, 0UL, peers->contact_info_table );
   fd_gui_peers_live_table_idx_insert( peers->live_table, 0UL, peers->contact_info_table );
+  /* free text round-trips through the info file at the pool slot */
+  uchar other[ 1024UL ];
+  ulong osz = build_account( other, sizeof(other), 1, "{\"name\":\"carol\",\"website\":\"https://c.example\",\"details\":\"hi\",\"iconUrl\":\"https://c.example/i.png\",\"keybaseUsername\":\"carolkb\"}" );
+  other[ 34 ] = 0x43; /* second identity */
+  fd_gui_peers_handle_config_account( peers, other, osz, 50UL );
+  fd_pubkey_t id2; memcpy( id2.uc, other+34, 32UL );
+  fd_gui_peers_node_info_t const * info2 = fd_gui_peers_node_info_map_ele_query_const( peers->node_info_map, &id2, NULL, peers->node_info_pool );
+  FD_TEST( info2 && !strcmp( info2->name, "carol" ) );
+  fd_gui_peers_info_text_t text;
+  fd_gui_peers_info_text_read( peers, info2, &text );
+  FD_TEST( !strcmp( text.website, "https://c.example" ) && !strcmp( text.details, "hi" ) );
+  FD_TEST( !strcmp( text.icon_uri, "https://c.example/i.png" ) && !strcmp( text.keybase_username, "carolkb" ) );
+
   ulong const * bufs[3] = { (ulong *)populated, (ulong *)cleared, (ulong *)populated };
   ulong         szs [3] = { psz, csz, psz };
   char const *  want[3] = { "alice", "", "alice" };
@@ -90,6 +104,14 @@ test_newest_copy( void ) {
     FD_TEST( http->stage_off>off );
     FD_TEST( !strcmp( peer->row.name, want[ k ] ) );
   }
+  fd_gui_peers_info_text_read( peers, info2, &text ); /* other slots don't clobber it */
+  FD_TEST( !strcmp( text.keybase_username, "carolkb" ) );
+  fd_gui_peers_printf_node_all( peers );
+  FD_TEST( !http->stage_err );
+  char const * all = (char const *)http->oring+http->stage_off%http->oring_sz;
+  char const * want_web = "\"website\":\"https://example.com\"";
+  FD_TEST( memmem( all, http->stage_len, want_web, strlen( want_web ) ) );
+  fd_http_server_unstage( http );
 
   /* geoip: tiered lookups match a binary search over the full image
      at block-edge and sampled segment starts, start-1 and random IPs */
@@ -141,7 +163,7 @@ test_delinquent( void ) {
   void * http_mem = aligned_alloc( fd_http_server_align(), fd_http_server_footprint( params ) );
   fd_http_server_t * http = fd_http_server_join( fd_http_server_new( http_mem, params, callbacks, NULL ) );
   void * peers_mem = aligned_alloc( fd_gui_peers_align(), fd_gui_peers_footprint( 1UL ) );
-  fd_gui_peers_ctx_t * peers = fd_gui_peers_join( fd_gui_peers_new( peers_mem, http, NULL, dctx_scratch, geoip_fd, 1UL, "", 0UL, 0L ) );
+  fd_gui_peers_ctx_t * peers = fd_gui_peers_join( fd_gui_peers_new( peers_mem, http, NULL, dctx_scratch, geoip_fd, info_fd, 1UL, "", 0UL, 0L ) );
 
   fd_pubkey_t id; memset( id.uc, 0x42, sizeof(fd_pubkey_t) );
   fd_gui_peers_node_t * peer = &peers->contact_info_table[ 0 ];
@@ -210,7 +232,7 @@ test_bw_rates( void ) {
   void * http_mem = aligned_alloc( fd_http_server_align(), fd_http_server_footprint( params ) );
   fd_http_server_t * http = fd_http_server_join( fd_http_server_new( http_mem, params, callbacks, NULL ) );
   void * peers_mem = aligned_alloc( fd_gui_peers_align(), fd_gui_peers_footprint( 1UL ) );
-  fd_gui_peers_ctx_t * peers = fd_gui_peers_join( fd_gui_peers_new( peers_mem, http, NULL, dctx_scratch, geoip_fd, 1UL, "", 0UL, 0L ) );
+  fd_gui_peers_ctx_t * peers = fd_gui_peers_join( fd_gui_peers_new( peers_mem, http, NULL, dctx_scratch, geoip_fd, info_fd, 1UL, "", 0UL, 0L ) );
 
   fd_gui_peers_node_t * peer = &peers->contact_info_table[ 0 ];
   memset( &peer->row, 0, sizeof(peer->row) );
@@ -296,7 +318,8 @@ main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
   geoip_fd = memfd_create( "test_gui_geoip", 0U );
-  FD_TEST( geoip_fd>=0 );
+  info_fd  = memfd_create( "test_gui_info",  0U );
+  FD_TEST( geoip_fd>=0 && info_fd>=0 );
 
   uchar account[ 1024UL ];
   fd_gui_config_parse_info_t info[1];

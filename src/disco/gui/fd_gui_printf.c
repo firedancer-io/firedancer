@@ -1918,16 +1918,18 @@ peers_printf_node( fd_gui_peers_ctx_t *  peers,
       jsonp_close_array( peers->http );
     }
 
-    fd_gui_config_parse_info_t * node_info = fd_gui_peers_node_info_map_ele_query( peers->node_info_map, &peer->row.pubkey, NULL, peers->node_info_pool );
+    fd_gui_peers_node_info_t * node_info = fd_gui_peers_node_info_map_ele_query( peers->node_info_map, &peer->row.pubkey, NULL, peers->node_info_pool );
     if( FD_UNLIKELY( !node_info || node_info->cleared ) ) {
       jsonp_string( peers->http, "info", NULL );
     } else {
+      fd_gui_peers_info_text_t text;
+      fd_gui_peers_info_text_read( peers, node_info, &text );
       jsonp_open_object( peers->http, "info" );
         jsonp_string( peers->http, "name", node_info->name );
-        jsonp_string( peers->http, "details", node_info->details );
-        jsonp_string( peers->http, "website", node_info->website );
-        jsonp_string( peers->http, "icon_url", node_info->icon_uri );
-        jsonp_string( peers->http, "keybase_username", node_info->keybase_username );
+        jsonp_string( peers->http, "details", text.details );
+        jsonp_string( peers->http, "website", text.website );
+        jsonp_string( peers->http, "icon_url", text.icon_uri );
+        jsonp_string( peers->http, "keybase_username", text.keybase_username );
       jsonp_close_object( peers->http );
     }
 
@@ -3973,16 +3975,18 @@ fd_gui_peers_printf_wfs_stakes( fd_gui_peers_ctx_t * peers ) {
 
       jsonp_open_array( peers->http, "infos" );
         for( ulong i=0UL; i<peers->wfs_peers_cnt; i++ ) {
-          fd_gui_config_parse_info_t * info =
+          fd_gui_peers_node_info_t * info =
               fd_gui_peers_node_info_map_ele_query(
                   peers->node_info_map, &peers->wfs_peers[ i ].identity_key, NULL, peers->node_info_pool );
           if( info && !info->cleared ) {
+            fd_gui_peers_info_text_t text;
+            fd_gui_peers_info_text_read( peers, info, &text );
             jsonp_open_object( peers->http, NULL );
               jsonp_string( peers->http, "name",             info->name );
-              jsonp_string( peers->http, "details",          info->details );
-              jsonp_string( peers->http, "website",          info->website );
-              jsonp_string( peers->http, "icon_url",         info->icon_uri );
-              jsonp_string( peers->http, "keybase_username", info->keybase_username );
+              jsonp_string( peers->http, "details",          text.details );
+              jsonp_string( peers->http, "website",          text.website );
+              jsonp_string( peers->http, "icon_url",         text.icon_uri );
+              jsonp_string( peers->http, "keybase_username", text.keybase_username );
             jsonp_close_object( peers->http );
           } else {
             jsonp_null( peers->http, NULL );
