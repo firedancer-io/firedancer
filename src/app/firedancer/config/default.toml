@@ -755,8 +755,17 @@ telemetry = true
     # memory (64 bytes per entry).  Otherwise rooted accounts that are
     # not in use move to index files next to the accounts database
     # (`accounts.db-index.N`) and only this many entries stay in memory.
-    # The default of 32 million entries is 2 GiB.
-    index_ram_max = 33_554_432
+    #
+    # The index is consulted on every account read and write, so the
+    # more of it is resident the less the validator reads and writes
+    # the index files: with a small value, every cold account costs a
+    # disk index page round trip.  The default of 600 million entries is
+    # about 40 GiB (the entries plus their hash chains) and keeps the
+    # index traffic of all but the coldest accounts in memory, which
+    # restores near all-RAM index performance on a host with 100 GiB
+    # for the accounts database.  Lower it on hosts with less memory,
+    # raise it towards max_accounts for a fully resident index.
+    index_ram_max = 600_000_000
 
     # The size of the in-memory cache for hit accounts, in GiB.  The
     # performance of the validator is surprisingly not sensitive to this

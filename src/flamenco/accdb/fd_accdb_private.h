@@ -217,13 +217,21 @@ typedef struct fd_accdb_idx_slot fd_accdb_idx_slot_t;
 
 FD_STATIC_ASSERT( sizeof(fd_accdb_idx_slot_t)==64UL, idx_slot_layout );
 
-struct fd_accdb_idx_range {
+/* One per placement window, taken by every tile spilling a record
+   of the window.  Padded to a full cache line: the lock, the stage
+   count and the chunk list head are written on every record, and
+   ranges packed tighter would share a line and serialize each
+   other. */
+
+struct __attribute__((aligned(64))) fd_accdb_idx_range {
   int   lock;
   uint  stage_cnt;
   ulong spill_tail; /* spill offset+1 of the newest chunk, 0 if none */
 };
 
 typedef struct fd_accdb_idx_range fd_accdb_idx_range_t;
+
+FD_STATIC_ASSERT( sizeof(fd_accdb_idx_range_t)==64UL, idx_range_layout );
 
 /* A spill chunk is FD_ACCDB_IDX_STAGE_CNT slots: this header, then up
    to FD_ACCDB_IDX_STAGE_CNT-1 records.  A range's chunks are linked

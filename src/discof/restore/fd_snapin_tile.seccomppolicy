@@ -45,9 +45,10 @@ preadv2: (or (eq (arg 0) accounts_fd)
 pwritev2: (or (and (>= (arg 0) accounts_idx_min_fd) (<= (arg 0) accounts_idx_max_fd))
               (eq (arg 0) accounts_spill_fd))
 
-# accounts index: start writeback of each index build window
-# (SYNC_FILE_RANGE_WRITE)
-sync_file_range: (and (and (>= (arg 0) accounts_idx_min_fd) (<= (arg 0) accounts_idx_max_fd))
+# accounts index: start writeback of each index build window and of
+# each spill chunk (SYNC_FILE_RANGE_WRITE)
+sync_file_range: (and (or (and (>= (arg 0) accounts_idx_min_fd) (<= (arg 0) accounts_idx_max_fd))
+                           (eq (arg 0) accounts_spill_fd))
                       (eq (arg 3) 2))
 
 # accounts database: allocate more space from the disk

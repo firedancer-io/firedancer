@@ -89,7 +89,7 @@ main( int     argc,
   ulong min_res      = 4UL;
 
   /* Mainnet-scale shmem footprint (the index part dominates). */
-  ulong mainnet_fp = fd_accdb_shmem_footprint( 1300000000UL, 2048UL, 321280UL, 8192UL, 12UL<<30, 640UL, 32UL, 0UL IDX_ARG( ram_max ? 33554432UL : 0UL ) );
+  ulong mainnet_fp = fd_accdb_shmem_footprint( 1300000000UL, 2048UL, 321280UL, 8192UL, 12UL<<30, 640UL, 32UL, 0UL IDX_ARG( ram_max ? 600000000UL : 0UL ) );
   FD_LOG_NOTICE(( "mainnet-scale accdb shmem footprint: %.2f GiB", (double)mainnet_fp/(double)(1UL<<30) ));
 
   char path[ 512 ];

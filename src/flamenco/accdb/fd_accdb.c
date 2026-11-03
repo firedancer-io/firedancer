@@ -146,6 +146,12 @@ struct __attribute__((aligned(FD_ACCDB_ALIGN))) fd_accdb_private {
   /* Preevict write staging, PREEVICT_STAGE_SZ bytes. */
   uchar * stage;
 
+  /* Bounce for one chunk of the disk index spill, copied out under the
+     range lock and written with no lock held (see idx_spill_capture),
+     so a write stalled on disk never blocks the tiles sharing the
+     range. */
+  fd_accdb_idx_slot_t idx_flush[ FD_ACCDB_IDX_STAGE_CNT ] __attribute__((aligned(64)));
+
   /* Track account addresses changed since a full snap.
      Used to determine which accounts should be packed into a full
      snapshot (including tombstones for accounts no longer present in
@@ -4756,21 +4762,62 @@ background_preevict( fd_accdb_t * accdb,
 /* Full snapshot spill.  Each placement window (range) has a stage
    buffer in shmem, flushed as one chunk to the spill.  Chunks are
    allocated in arrival order, so the spill holds every record however
-   unevenly the ranges fill or however many versions a pubkey has. */
+   unevenly the ranges fill or however many versions a pubkey has.
+
+   A flush links the chunk and copies it out under the range lock, then
+   writes it with no lock held: the tiles inserting records share the
+   range locks, and a write stalled on disk (dirty page throttling on a
+   slow drive) must not hold the lock the other tiles need.  Only the
+   tile that filled the stage waits for its own write. */
+
+/* idx_spill_capture, called with r->lock held, publishes the staged
+   records of range as one chunk of the spill: links the chunk into the
+   range's chunk list, rewinds the stage and copies the chunk to the
+   local bounce buffer. */
+
+static void
+idx_spill_capture( fd_accdb_t *          accdb,
+                   fd_accdb_idx_range_t * r,
+                   ulong                  range,
+                   ulong *                out_off ) {
+  fd_accdb_idx_slot_t *      stage = accdb->idx_stage+range*FD_ACCDB_IDX_STAGE_CNT;
+  fd_accdb_idx_chunk_hdr_t * hdr   = (fd_accdb_idx_chunk_hdr_t *)stage;
+  hdr->prev_plus1 = r->spill_tail;
+  hdr->cnt        = r->stage_cnt;
+  *out_off = FD_ATOMIC_FETCH_AND_ADD( &accdb->shmem->idx_spill_end, FD_ACCDB_IDX_CHUNK_SZ );
+  r->spill_tail = *out_off+1UL;
+  r->stage_cnt  = 0U;
+  fd_memcpy( accdb->idx_flush, stage, FD_ACCDB_IDX_CHUNK_SZ );
+}
+
+/* idx_spill_write, called with no lock held, writes one chunk of the
+   spill and starts its writeback.  Chunks left to the flusher pile up
+   as dirty pages and throttle the loader, like the index build
+   windows. */
+
+static void
+idx_spill_write( fd_accdb_t * accdb,
+                 ulong        off ) {
+  idx_io_fd( accdb->spill_fd, 1, accdb->idx_flush, FD_ACCDB_IDX_CHUNK_SZ, accdb->spill_base+off );
+  if( FD_UNLIKELY( -1==sync_file_range( accdb->spill_fd, (long)( accdb->spill_base+off ), (long)FD_ACCDB_IDX_CHUNK_SZ, SYNC_FILE_RANGE_WRITE ) ) ) {
+    FD_LOG_WARNING(( "sync_file_range of the accounts index spill failed (%d-%s)", errno, fd_io_strerror( errno ) ));
+  }
+}
+
+/* idx_spill_flush, called with no lock held, publishes whatever is
+   staged in a range as one chunk (the index build drains the leftover
+   records of each range it claims this way). */
 
 static void
 idx_spill_flush( fd_accdb_t * accdb,
                  ulong        range ) {
   fd_accdb_idx_range_t * r = &accdb->idx_range[ range ];
-  if( !r->stage_cnt ) return;
-  fd_accdb_idx_slot_t *      stage = accdb->idx_stage+range*FD_ACCDB_IDX_STAGE_CNT;
-  fd_accdb_idx_chunk_hdr_t * hdr   = (fd_accdb_idx_chunk_hdr_t *)stage;
-  hdr->prev_plus1 = r->spill_tail;
-  hdr->cnt        = r->stage_cnt;
-  ulong off = FD_ATOMIC_FETCH_AND_ADD( &accdb->shmem->idx_spill_end, FD_ACCDB_IDX_CHUNK_SZ );
-  idx_io_fd( accdb->spill_fd, 1, stage, FD_ACCDB_IDX_CHUNK_SZ, accdb->spill_base+off );
-  r->spill_tail = off+1UL;
-  r->stage_cnt  = 0U;
+  ulong off = 0UL;
+  int   flush = 0;
+  spin_lock_acquire( &r->lock );
+  if( FD_LIKELY( r->stage_cnt ) ) { idx_spill_capture( accdb, r, range, &off ); flush = 1; }
+  spin_lock_release( &r->lock );
+  if( FD_LIKELY( flush ) ) idx_spill_write( accdb, off );
 }
 
 static void
@@ -4778,10 +4825,13 @@ idx_spill( fd_accdb_t *                accdb,
            fd_accdb_idx_slot_t const * rec ) {
   ulong range = idx_home( accdb, idx_hash( accdb, rec->pubkey ) )/FD_ACCDB_IDX_WINDOW_PAGES;
   fd_accdb_idx_range_t * r = &accdb->idx_range[ range ];
+  ulong off = 0UL;
+  int   flush = 0;
   spin_lock_acquire( &r->lock );
   accdb->idx_stage[ range*FD_ACCDB_IDX_STAGE_CNT+1UL+r->stage_cnt++ ] = *rec;
-  if( r->stage_cnt==FD_ACCDB_IDX_STAGE_CNT-1UL ) idx_spill_flush( accdb, range );
+  if( FD_UNLIKELY( r->stage_cnt==FD_ACCDB_IDX_STAGE_CNT-1UL ) ) { idx_spill_capture( accdb, r, range, &off ); flush = 1; }
   spin_lock_release( &r->lock );
+  if( FD_UNLIKELY( flush ) ) idx_spill_write( accdb, off );
 }
 
 int
