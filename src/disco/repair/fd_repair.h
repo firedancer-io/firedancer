@@ -6,11 +6,6 @@
 #include "../../choreo/votor/ag_votor_base.h"
 #include "../../choreo/fd_choreo_base.h"
 
-struct fd_mr20 {
-  uchar uc[ FD_SHRED_MERKLE_NODE_SZ ];
-};
-typedef struct fd_mr20 fd_mr20_t;
-
 typedef fd_hash_t fd_mr32_t;
 
 /* FD_REPAIR_BLK_VERSION_{NUM,DEN} is the number of blk versions rotor
