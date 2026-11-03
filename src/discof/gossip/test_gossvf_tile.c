@@ -88,7 +88,7 @@ join_tcache( void *  mem,
              ulong * out_map_cnt,
              ulong ** out_sync,
              ulong ** out_ring,
-             ulong ** out_map ) {
+             uint **  out_map ) {
   fd_tcache_t * tcache = fd_tcache_join( fd_tcache_new( mem, depth, 0UL ) );
   FD_TEST( tcache );
   *out_depth   = fd_tcache_depth       ( tcache );

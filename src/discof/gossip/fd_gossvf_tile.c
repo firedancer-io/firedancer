@@ -252,7 +252,7 @@ struct fd_gossvf_tile_ctx {
     ulong   map_cnt;
     ulong * sync;
     ulong * ring;
-    ulong * map;
+    uint *  map;
   } tcache, sigok;
 
   uchar prune_unprefixed[ FD_GOSSVF_PRUNE_MEMO_CNT ];
@@ -527,14 +527,14 @@ mark_duplicate_crds( fd_gossvf_tile_ctx_t *    ctx,
     dedup_tag[ i ] = tag;
     int ha_dup = 0;
     FD_FN_UNUSED ulong tcache_map_idx = 0;
-    FD_TCACHE_QUERY( ha_dup, tcache_map_idx, ctx->tcache.map, ctx->tcache.map_cnt, tag );
+    FD_TCACHE_QUERY( ha_dup, tcache_map_idx, ctx->tcache.ring, ctx->tcache.depth, ctx->tcache.map, ctx->tcache.map_cnt, tag );
     if( FD_LIKELY( ha_dup ) ) {
       if( FD_LIKELY( !failed[ i ] ) ) failed[ i ] = FD_GOSSIP_FAILED_DUPLICATE;
       skip_mask |= 1U<<i;
       continue;
     }
     int sigok = 0;
-    FD_TCACHE_QUERY( sigok, tcache_map_idx, ctx->sigok.map, ctx->sigok.map_cnt, tag );
+    FD_TCACHE_QUERY( sigok, tcache_map_idx, ctx->sigok.ring, ctx->sigok.depth, ctx->sigok.map, ctx->sigok.map_cnt, tag );
     if( FD_UNLIKELY( sigok ) ) skip_mask |= 1U<<i;
   }
   return skip_mask;
