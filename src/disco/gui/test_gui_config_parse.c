@@ -197,6 +197,70 @@ test_delinquent( void ) {
   free( fd_http_server_delete( fd_http_server_leave( http ) ) );
 }
 
+/* Only PUSH/PULL_RESPONSE keep per-type rates; other types count only
+   toward the totals, which still mark the peer changed until they
+   settle, then the peer leaves the dirty list. */
+
+static void
+test_bw_rates( void ) {
+  fd_http_server_params_t params = { .max_connection_cnt = 1UL, .max_ws_connection_cnt = 1UL, .max_request_len = 1024UL,
+                                     .max_ws_recv_frame_len = 2048UL, .max_ws_send_frame_cnt = 100UL, .outgoing_buffer_sz = 1UL<<20 };
+  fd_http_server_callbacks_t callbacks = {0};
+  void * http_mem = aligned_alloc( fd_http_server_align(), fd_http_server_footprint( params ) );
+  fd_http_server_t * http = fd_http_server_join( fd_http_server_new( http_mem, params, callbacks, NULL ) );
+  void * peers_mem = aligned_alloc( fd_gui_peers_align(), fd_gui_peers_footprint( 1UL ) );
+  fd_gui_peers_ctx_t * peers = fd_gui_peers_join( fd_gui_peers_new( peers_mem, http, NULL, dctx_scratch, geoip_fd, 1UL, "", 0UL, 0L ) );
+
+  fd_gui_peers_node_t * peer = &peers->contact_info_table[ 0 ];
+  memset( &peer->row, 0, sizeof(peer->row) );
+  peer->row.valid = 1;
+  memset( peer->row.pubkey.uc, 0x42, 32UL );
+  peer->row.contact_info.sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ] = (fd_gossip_socket_t){ .is_ipv6 = 0, .ip4 = 0x0100007fU, .port = 0x2323 };
+  for( ulong i=0UL; i<FD_GUI_PEERS_RATE_CNT; i++ ) {
+    fd_gui_ema_init( &peer->row.gossvf_rx[ i ].rate_ema, 0L, FD_GUI_PEERS_EMA_HALF_LIFE_NS );
+    fd_gui_ema_init( &peer->row.gossip_tx[ i ].rate_ema, 0L, FD_GUI_PEERS_EMA_HALF_LIFE_NS );
+  }
+  fd_gui_ema_init( &peer->row.gossvf_rx_sum.rate_ema, 0L, FD_GUI_PEERS_EMA_HALF_LIFE_NS );
+  fd_gui_ema_init( &peer->row.gossip_tx_sum.rate_ema, 0L, FD_GUI_PEERS_EMA_HALF_LIFE_NS );
+  fd_gui_peers_node_pubkey_map_idx_insert( peers->node_pubkey_map, 0UL, peers->contact_info_table );
+  fd_gui_peers_node_sock_map_idx_insert( peers->node_sock_map, 0UL, peers->contact_info_table );
+  fd_gui_peers_live_table_idx_insert( peers->live_table, 0UL, peers->contact_info_table );
+
+  long const step = FD_GUI_PEERS_METRIC_RATE_UPDATE_INTERVAL_MILLIS*1000000L;
+  for( ulong tag=0UL; tag<FD_METRICS_ENUM_GOSSIP_MESSAGE_TYPE_CNT; tag++ ) {
+    int kept = tag==FD_METRICS_ENUM_GOSSIP_MESSAGE_TYPE_V_PUSH_IDX || tag==FD_METRICS_ENUM_GOSSIP_MESSAGE_TYPE_V_PULL_RESPONSE_IDX;
+    for( int is_rx=0; is_rx<2; is_rx++ ) {
+      fd_gui_peers_metric_rate_t * sum  = is_rx ? &peer->row.gossvf_rx_sum : &peer->row.gossip_tx_sum;
+      fd_gui_peers_metric_rate_t * rate = is_rx ? peer->row.gossvf_rx      : peer->row.gossip_tx;
+      ulong sum0 = sum->cur, push0 = rate[ FD_GUI_PEERS_RATE_PUSH ].cur, pull0 = rate[ FD_GUI_PEERS_RATE_PULL_RESPONSE ].cur;
+      fd_gui_gossip_bw_rec_t rec = { .ip4 = 0x0100007fU, .port = 0x2323, .tag = (ushort)tag, .sz = 100000UL };
+      fd_gui_peers_handle_gossip_bw( peers, &rec, 1UL, is_rx );
+      FD_TEST( peer->bw_dirty && sum->cur==sum0+100000UL );
+      FD_TEST( rate[ FD_GUI_PEERS_RATE_PUSH          ].cur==push0+100000UL*(tag==FD_METRICS_ENUM_GOSSIP_MESSAGE_TYPE_V_PUSH_IDX)          );
+      FD_TEST( rate[ FD_GUI_PEERS_RATE_PULL_RESPONSE ].cur==pull0+100000UL*(tag==FD_METRICS_ENUM_GOSSIP_MESSAGE_TYPE_V_PULL_RESPONSE_IDX) );
+
+      long now = peer->row.gossvf_rx[ 0 ].rate_ema.last_update_nanos+step;
+      peers->next_metric_rate_update_nanos = now;
+      fd_gui_peers_rate_update( peers, now );
+      FD_TEST( sum->ref==sum->cur && sum->rate_ema.value>0.0 ); /* advanced */
+      FD_TEST( kept==( rate[ FD_GUI_PEERS_RATE_PUSH ].rate_ema.value+rate[ FD_GUI_PEERS_RATE_PULL_RESPONSE ].rate_ema.value>0.0 ) );
+
+      ulong iter = 0UL;
+      while( peer->bw_dirty ) {
+        FD_TEST( iter++<1000UL );
+        now += step;
+        peers->next_metric_rate_update_nanos = now;
+        fd_gui_peers_rate_update( peers, now );
+      }
+      FD_TEST( iter>10UL && sum->rate_ema.value<100.0 );
+      FD_TEST( rate[ 0 ].rate_ema.value==0.0 && rate[ 1 ].rate_ema.value==0.0 );
+    }
+  }
+
+  free( peers_mem );
+  free( fd_http_server_delete( fd_http_server_leave( http ) ) );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -229,6 +293,7 @@ main( int     argc,
 
   test_newest_copy();
   test_delinquent();
+  test_bw_rates();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
