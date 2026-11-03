@@ -9,7 +9,6 @@
 #include "../fd_net_tile.h"
 #include "../fd_net_tile_private.h"
 #include "fd_iavf_private.h"
-#include "../fd_net_router.h"
 #include "../../topo/fd_topo.h"
 
 #include <errno.h>
