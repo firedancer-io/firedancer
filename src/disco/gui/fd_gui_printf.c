@@ -2935,8 +2935,8 @@ fd_gui_printf_peers_viewport_update( fd_gui_peers_ctx_t *  peers,
         ulong start_row = peers->client_viewports[ ws_conn_id ].start_row;
         for( ulong i=0UL; i<peers->scratch.viewport_cnt; i++ ) {
           ulong j = start_row + i;
-          fd_gui_peers_row_t const * cur = &peers->scratch.viewport[ i ];
-          fd_gui_peers_row_t const * ref = &peers->scratch.viewport_ref[ i ];
+          fd_gui_peers_vrow_t const * cur = &peers->scratch.viewport[ i ];
+          fd_gui_peers_vrow_t const * ref = &peers->scratch.viewport_ref[ i ];
 
           /* This code should be kept in sync with updates to
              fd_gui_peers_live_table */
@@ -2981,8 +2981,8 @@ fd_gui_printf_peers_viewport_update( fd_gui_peers_ctx_t *  peers,
             jsonp_close_object( peers->http );
           }
 
-          uint ip4_after  = cur->contact_info.sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].is_ipv6 ? 0U : cur->contact_info.sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].ip4;
-          uint ip4_before = ref->contact_info.sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].is_ipv6 ? 0U : ref->contact_info.sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].ip4;
+          uint ip4_after  = cur->ip4;
+          uint ip4_before = ref->ip4;
           if( FD_UNLIKELY( ip4_after!=ip4_before ) ) {
             jsonp_open_object( peers->http, NULL );
               jsonp_ulong ( peers->http, "row_index", j );
@@ -2994,14 +2994,14 @@ fd_gui_printf_peers_viewport_update( fd_gui_peers_ctx_t *  peers,
             jsonp_close_object( peers->http );
           }
 
-          long cur_egress_push_bps           = (long)cur->gossip_tx[ FD_GUI_PEERS_RATE_PUSH ].rate_ema.value;
-          long ref_egress_push_bps           = (long)ref->gossip_tx[ FD_GUI_PEERS_RATE_PUSH ].rate_ema.value;
-          long cur_ingress_push_bps          = (long)cur->gossvf_rx[ FD_GUI_PEERS_RATE_PUSH ].rate_ema.value;
-          long ref_ingress_push_bps          = (long)ref->gossvf_rx[ FD_GUI_PEERS_RATE_PUSH ].rate_ema.value;
-          long cur_egress_pull_response_bps  = (long)cur->gossip_tx[ FD_GUI_PEERS_RATE_PULL_RESPONSE ].rate_ema.value;
-          long ref_egress_pull_response_bps  = (long)ref->gossip_tx[ FD_GUI_PEERS_RATE_PULL_RESPONSE ].rate_ema.value;
-          long cur_ingress_pull_response_bps = (long)cur->gossvf_rx[ FD_GUI_PEERS_RATE_PULL_RESPONSE ].rate_ema.value;
-          long ref_ingress_pull_response_bps = (long)ref->gossvf_rx[ FD_GUI_PEERS_RATE_PULL_RESPONSE ].rate_ema.value;
+          long cur_egress_push_bps           = cur->tx[ FD_GUI_PEERS_RATE_PUSH ];
+          long ref_egress_push_bps           = ref->tx[ FD_GUI_PEERS_RATE_PUSH ];
+          long cur_ingress_push_bps          = cur->rx[ FD_GUI_PEERS_RATE_PUSH ];
+          long ref_ingress_push_bps          = ref->rx[ FD_GUI_PEERS_RATE_PUSH ];
+          long cur_egress_pull_response_bps  = cur->tx[ FD_GUI_PEERS_RATE_PULL_RESPONSE ];
+          long ref_egress_pull_response_bps  = ref->tx[ FD_GUI_PEERS_RATE_PULL_RESPONSE ];
+          long cur_ingress_pull_response_bps = cur->rx[ FD_GUI_PEERS_RATE_PULL_RESPONSE ];
+          long ref_ingress_pull_response_bps = ref->rx[ FD_GUI_PEERS_RATE_PULL_RESPONSE ];
 
           if( FD_UNLIKELY( ref->valid && cur_ingress_pull_response_bps!=ref_ingress_pull_response_bps ) ) {
             jsonp_open_object( peers->http, NULL );
@@ -3053,7 +3053,7 @@ fd_gui_printf_peers_viewport_request( fd_gui_peers_ctx_t *  peers,
       ulong start_row = peers->client_viewports[ ws_conn_id ].start_row;
       for( ulong i=0UL; i<peers->scratch.viewport_cnt; i++ ) {
         ulong j = start_row + i;
-        fd_gui_peers_row_t const * cur = &peers->scratch.viewport[ i ];
+        fd_gui_peers_vrow_t const * cur = &peers->scratch.viewport[ i ];
 
         char row_index_cstr[ 32 ];
         FD_TEST( fd_cstr_printf_check( row_index_cstr, sizeof(row_index_cstr), NULL, "%lu", + j ) );
@@ -3073,15 +3073,14 @@ fd_gui_printf_peers_viewport_request( fd_gui_peers_ctx_t *  peers,
             jsonp_null( peers->http, "Country" );
           }
 
-          uint ip4 = cur->contact_info.sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].is_ipv6 ? 0U : cur->contact_info.sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].ip4;
           char peer_addr[ 16 ]; /* 255.255.255.255 + '\0' */
-          FD_TEST( fd_cstr_printf_check( peer_addr, sizeof(peer_addr), NULL, FD_IP4_ADDR_FMT, FD_IP4_ADDR_FMT_ARGS( ip4 ) ) );
+          FD_TEST( fd_cstr_printf_check( peer_addr, sizeof(peer_addr), NULL, FD_IP4_ADDR_FMT, FD_IP4_ADDR_FMT_ARGS( cur->ip4 ) ) );
           jsonp_string( peers->http, "IP Addr", peer_addr );
 
-          long cur_egress_push_bps           = (long)cur->gossip_tx[ FD_GUI_PEERS_RATE_PUSH ].rate_ema.value;
-          long cur_ingress_push_bps          = (long)cur->gossvf_rx[ FD_GUI_PEERS_RATE_PUSH ].rate_ema.value;
-          long cur_egress_pull_response_bps  = (long)cur->gossip_tx[ FD_GUI_PEERS_RATE_PULL_RESPONSE ].rate_ema.value;
-          long cur_ingress_pull_response_bps = (long)cur->gossvf_rx[ FD_GUI_PEERS_RATE_PULL_RESPONSE ].rate_ema.value;
+          long cur_egress_push_bps           = cur->tx[ FD_GUI_PEERS_RATE_PUSH ];
+          long cur_ingress_push_bps          = cur->rx[ FD_GUI_PEERS_RATE_PUSH ];
+          long cur_egress_pull_response_bps  = cur->tx[ FD_GUI_PEERS_RATE_PULL_RESPONSE ];
+          long cur_ingress_pull_response_bps = cur->rx[ FD_GUI_PEERS_RATE_PULL_RESPONSE ];
 
           jsonp_long  ( peers->http, "Ingress Pull", cur_ingress_pull_response_bps );
           jsonp_long  ( peers->http, "Ingress Push", cur_ingress_push_bps );
