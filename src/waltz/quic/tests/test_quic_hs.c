@@ -1,6 +1,7 @@
 #include "../fd_quic.h"
 #include "../fd_quic_private.h"
 #include "fd_quic_test_helpers.h"
+#include "../../../disco/metrics/generated/fd_metrics_enums.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -377,6 +378,111 @@ test_quic_hs_with_client_appdata( fd_quic_t * server_quic,
   FD_LOG_NOTICE(( "test_quic_hs_with_server_appdata: pass" ));
 }
 
+static int
+test_drop_send( void *                    ctx,
+                fd_aio_pkt_info_t const * batch,
+                ulong                     batch_cnt,
+                ulong *                   opt_batch_idx,
+                int                       flush ) {
+  (void)ctx; (void)batch; (void)batch_cnt; (void)opt_batch_idx; (void)flush;
+  return FD_AIO_SUCCESS;
+}
+
+static ulong
+server_pkt_meta_max( fd_quic_t * quic ) {
+  fd_quic_state_t * state = fd_quic_get_state( quic );
+  ulong max = 0UL;
+  for( ulong j=0UL; j<quic->limits.conn_cnt; j++ ) {
+    fd_quic_conn_t * conn = fd_quic_conn_at_idx( state, j );
+    if( conn->state!=FD_QUIC_CONN_STATE_INVALID ) max = fd_ulong_max( max, conn->used_pkt_meta );
+  }
+  return max;
+}
+
+/* Handshake storm at the TPU tile's pkt_meta sizing (16/conn, reserve
+   8, conn_cnt = 4*handshake_cnt).  Server flights are dropped for
+   several PTOs so HS_DATA retransmits pile up; every handshake must still
+   complete without a pkt_meta alloc failure. */
+
+static void
+test_quic_hs_storm( fd_wksp_t * wksp,
+                    fd_rng_t *  rng ) {
+  FD_LOG_NOTICE(( "Testing handshake storm at TPU pkt_meta sizing" ));
+
+  ulong const hs_cnt   = 64UL;
+  ulong const conn_cnt = 4UL*hs_cnt;
+  fd_quic_limits_t const server_limits = {
+    .conn_cnt                    = conn_cnt,
+    .conn_id_cnt                 = FD_QUIC_MIN_CONN_ID_CNT,
+    .handshake_cnt               = hs_cnt,
+    .inflight_frame_cnt          = 16UL*conn_cnt,
+    .min_inflight_frame_cnt_conn = 8UL
+  };
+  fd_quic_limits_t const client_limits = {
+    .conn_cnt           = conn_cnt,
+    .conn_id_cnt        = FD_QUIC_MIN_CONN_ID_CNT,
+    .handshake_cnt      = hs_cnt,
+    .inflight_frame_cnt = 64UL*conn_cnt
+  };
+  fd_quic_t * server = fd_quic_new_anonymous( wksp, &server_limits, FD_QUIC_ROLE_SERVER, rng );
+  fd_quic_t * client = fd_quic_new_anonymous( wksp, &client_limits, FD_QUIC_ROLE_CLIENT, rng );
+  server->config.idle_timeout = client->config.idle_timeout = (long)30e9;
+
+  fd_quic_virtual_pair_t vp;
+  fd_quic_virtual_pair_init( &vp, server, client );
+  FD_TEST( fd_quic_init( server ) );
+  FD_TEST( fd_quic_init( client ) );
+
+  fd_aio_t drop_aio[1];
+  FD_TEST( fd_aio_join( fd_aio_new( drop_aio, NULL, test_drop_send ) ) );
+  fd_aio_t server_tx = server->aio_tx;
+
+  long  t   = 1000L;
+  ulong max = 0UL;
+  fd_quic_sync_clocks( server, client, t );
+  for( ulong wave=0UL; wave<conn_cnt/hs_cnt; wave++ ) {
+    fd_quic_set_aio_net_tx( server, drop_aio );
+    for( ulong j=0UL; j<hs_cnt; j++ ) {
+      FD_TEST( fd_quic_connect( client, FD_QUIC_TEST_SERVER_IP4, 0, FD_QUIC_TEST_CLIENT_IP4, 0, t ) );
+    }
+    for( ulong j=0UL; j<4UL*conn_cnt; j++ ) fd_quic_service( client, t );
+    for( ulong r=0UL; r<3UL; r++ ) {
+      for( ulong j=0UL; j<4UL*conn_cnt; j++ ) fd_quic_service( server, t );
+      max = fd_ulong_max( max, server_pkt_meta_max( server ) );
+      t += (long)600e6; /* > server PTO */
+    }
+    FD_TEST( server->metrics.conn_state_cnt[ FD_QUIC_CONN_STATE_HANDSHAKE ]==hs_cnt );
+
+    /* server retransmits first so clients learn its conn ID */
+    fd_quic_set_aio_net_tx( server, &server_tx );
+    for( ulong j=0UL; j<4UL*conn_cnt; j++ ) fd_quic_service( server, t );
+    ulong want = (wave+1UL)*hs_cnt;
+    for( ulong j=0UL; j<20000UL; j++ ) {
+      fd_quic_service( client, t );
+      fd_quic_service( server, t );
+      t += (long)1e6;
+      max = fd_ulong_max( max, server_pkt_meta_max( server ) );
+      if( server->metrics.conn_state_cnt[ FD_QUIC_CONN_STATE_ACTIVE ]==want &&
+          client->metrics.conn_state_cnt[ FD_QUIC_CONN_STATE_ACTIVE ]==want ) break;
+    }
+    FD_TEST( server->metrics.conn_state_cnt[ FD_QUIC_CONN_STATE_ACTIVE ]==want );
+    FD_TEST( client->metrics.conn_state_cnt[ FD_QUIC_CONN_STATE_ACTIVE ]==want );
+  }
+
+  FD_LOG_NOTICE(( "server pkt_meta max/conn %lu, retx %lu", max, server->metrics.pkt_retransmissions_cnt[ fd_quic_enc_level_handshake_id ] ));
+  FD_TEST( server->metrics.pkt_retransmissions_cnt[ fd_quic_enc_level_handshake_id ] );
+  FD_TEST( max<=8UL );
+  FD_TEST( !server->metrics.frame_tx_alloc_cnt[ FD_METRICS_ENUM_PKT_META_ACQUIRE_RESULT_V_POOL_EMPTY_IDX ] );
+  FD_TEST( !server->metrics.frame_tx_alloc_cnt[ FD_METRICS_ENUM_PKT_META_ACQUIRE_RESULT_V_CONN_LIMIT_IDX ] );
+  fd_quic_state_validate( server );
+
+  fd_quic_virtual_pair_fini( &vp );
+  fd_quic_fini( server );
+  fd_quic_fini( client );
+  fd_wksp_free_laddr( fd_quic_delete( fd_quic_leave( server ) ) );
+  fd_wksp_free_laddr( fd_quic_delete( fd_quic_leave( client ) ) );
+}
+
 int
 main( int argc, char ** argv ) {
   fd_boot          ( &argc, &argv );
@@ -438,6 +544,7 @@ main( int argc, char ** argv ) {
 
   FD_LOG_NOTICE(( "Cleaning up" ));
   fd_quic_virtual_pair_fini( &vp );
+  test_quic_hs_storm( wksp, rng );
   fd_wksp_free_laddr( fd_quic_delete( fd_quic_leave( server_quic ) ) );
   fd_wksp_free_laddr( fd_quic_delete( fd_quic_leave( client_quic ) ) );
   fd_wksp_delete_anonymous( wksp );
