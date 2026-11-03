@@ -175,6 +175,11 @@ typedef struct fd_gui_rate_entry fd_gui_rate_entry_t;
 #define FD_GUI_TIMELINE_STORED_GRANULARITY_CNT (8UL)
 #define FD_GUI_TIMELINE_GRANULARITY_CNT        (23UL)
 #define FD_GUI_TIMELINE_QUERY_SHRED_MAX        (262144UL)
+#define FD_GUI_TIMELINE_QUERY_SLOT_MAX         (65536UL)
+#define FD_GUI_TIMELINE_QUERY_EVENT_MAX        (65536UL)
+
+/* Event kinds returned by timeline.query_events. */
+#define FD_GUI_TIMELINE_EVENT_LEADER_SKIP      (0U)
 /* At least one bucket per pixel on a 4K display, and enough to cover
    the widest raw txn_batch view (1.5h) at 2s in a single request. */
 #define FD_GUI_TIMELINE_QUERY_MAX_BUCKETS      (4096UL)
@@ -252,6 +257,8 @@ fd_gui_timeline_tier( char const * key,
   X( VOTE_SUCCESS,    vote_success,     uint,   uint,   uint,   uint,   uint,   ulong,  ulong  ) \
   X( VOTE_FAILED,     vote_failed,      uint,   uint,   uint,   uint,   uint,   ulong,  ulong  ) \
   X( SKIPPED,         skipped,          ushort, ushort, ushort, ushort, ushort, ushort, uint   ) \
+  X( MINE,            mine,             uint,   uint,   uint,   uint,   uint,   uint,   uint   ) \
+  X( MINE_SKIPPED,    mine_skipped,     uint,   uint,   uint,   uint,   uint,   uint,   uint   ) \
   X( DURATION_WALL,   duration_wall,    ulong,  ulong,  ulong,  ulong,  ulong,  ulong,  ulong  ) \
   X( DURATION_SLOTS,  duration_slots,   ulong,  ulong,  ulong,  ulong,  ulong,  ulong,  ulong  )
 
@@ -618,6 +625,7 @@ struct __attribute__((packed)) fd_gui_slot {
   fd_hash_t block_hash;       /* block hash of the slot */
   uchar     mine:1;           /* 1 if this was our leader slot */
   uchar     is_voter:2;       /* one of FD_GUI_IS_VOTER_* */
+  uchar     timeline_mine_accounted:1;
   uint      vote_success;     /* successful vote txn count     (UINT_MAX if unknown) */
   uint      vote_failed;      /* failed vote txn count         (UINT_MAX if unknown) */
   uint      nonvote_success;  /* successful nonvote txn count  (UINT_MAX if unknown) */
@@ -694,8 +702,23 @@ typedef struct fd_gui_slot_rankings fd_gui_slot_rankings_t;
 #define FD_GUI_EPOCH_SCHED_CNT ((MAX_SLOTS_PER_EPOCH+FD_EPOCH_SLOTS_PER_ROTATION-1UL)/FD_EPOCH_SLOTS_PER_ROTATION)
 #define FD_GUI_EPOCH_PUB_CNT   (MAX_STAKE_WEIGHTS)
 
+#define FD_GUI_TIMELINE_SLOT_STATE_VALID     ((uchar)1U)  /* rooted; interval is set */
+#define FD_GUI_TIMELINE_SLOT_STATE_SKIPPED   ((uchar)2U)
+#define FD_GUI_TIMELINE_SLOT_STATE_MINE      ((uchar)4U)
+#define FD_GUI_TIMELINE_SLOT_STATE_STARTED   ((uchar)8U)  /* first_shred_ns is set */
+
 struct fd_gui_epoch {
   ulong epoch;
+  /* Per-slot timeline intervals; idx is slot-start_slot. */
+  ulong timeline_slot_lo_idx;                                  /* lowest idx written (ULONG_MAX if none) */
+  ulong timeline_slot_hi_idx;                                  /* highest idx written (ULONG_MAX if none) */
+  long  timeline_slot_min_start_ns;                            /* earliest start ever written (LONG_MAX if none) */
+  long  timeline_slot_max_end_ns;                              /* latest end ever written (LONG_MIN if none) */
+  long  timeline_slot_first_shred_ns[ MAX_SLOTS_PER_EPOCH ];   /* first shred arrival, valid if STARTED */
+  long  timeline_slot_start_ns      [ MAX_SLOTS_PER_EPOCH ];   /* interval start (LONG_MAX if unknown) */
+  long  timeline_slot_end_ns        [ MAX_SLOTS_PER_EPOCH ];   /* replay completion, or interpolated if skipped and never replayed */
+  uint  timeline_slot_shred_cnt     [ MAX_SLOTS_PER_EPOCH ];   /* data shreds of the block ending the interval (UINT_MAX if unknown) */
+  uchar timeline_slot_state         [ MAX_SLOTS_PER_EPOCH ];   /* FD_GUI_TIMELINE_SLOT_STATE_* flags */
   ulong start_slot;
   ulong slot_cnt;                        /* end_slot = start_slot + slot_cnt - 1 */
   long  start_time;                      /* epoch start wallclock ns (LONG_MAX if unknown) */
@@ -1211,9 +1234,27 @@ struct fd_gui_summary {
 
 typedef struct fd_gui_summary fd_gui_summary_t;
 
+struct fd_gui_timeline_query_slot {
+  ulong slot;
+  long  start_ns;
+  long  end_ns;
+  uint  shred_cnt; /* data shreds, UINT_MAX if unknown */
+  uchar skipped;
+  uchar mine;
+};
+typedef struct fd_gui_timeline_query_slot fd_gui_timeline_query_slot_t;
+
+struct fd_gui_timeline_query_event {
+  ulong slot;
+  long  ts;
+  uint  event; /* one of FD_GUI_TIMELINE_EVENT_* */
+};
+typedef struct fd_gui_timeline_query_event fd_gui_timeline_query_event_t;
+
 struct fd_gui_timeline_query_bucket {
   ulong fields[ FD_GUI_TIMELINE_FIELD_CNT ];
   ulong slot_duration;
+  int   has_day;
 };
 typedef struct fd_gui_timeline_query_bucket fd_gui_timeline_query_bucket_t;
 
@@ -1221,8 +1262,10 @@ typedef struct fd_gui_timeline_query_bucket fd_gui_timeline_query_bucket_t;
    each user runs to completion, so the members alias. */
 
 union fd_gui_timeline_scratch {
-  fd_gui_shred_event_t           events[ FD_GUI_TIMELINE_QUERY_SHRED_MAX ];
-  fd_gui_timeline_query_bucket_t buckets[ FD_GUI_TIMELINE_QUERY_MAX_BUCKETS ];
+  fd_gui_shred_event_t           events     [ FD_GUI_TIMELINE_QUERY_SHRED_MAX ];
+  fd_gui_timeline_query_slot_t   slots      [ FD_GUI_TIMELINE_QUERY_SLOT_MAX ];
+  fd_gui_timeline_query_event_t  slot_events[ FD_GUI_TIMELINE_QUERY_EVENT_MAX ];
+  fd_gui_timeline_query_bucket_t buckets    [ FD_GUI_TIMELINE_QUERY_MAX_BUCKETS ];
   struct { uint sum; uint cnt; } cpu[ FD_GUI_TIMELINE_QUERY_MAX_BUCKETS ];
 };
 typedef union fd_gui_timeline_scratch fd_gui_timeline_scratch_t;
@@ -1414,6 +1457,34 @@ void
 fd_gui_handle_replay_txn( fd_gui_t *                       gui,
                           fd_replay_txn_executed_t const * txn,
                           long                             now );
+
+/* fd_gui_timeline_slots_collect writes the rooted slot intervals that
+   overlap [start_ns,end_ns) into rows[0,max), in slot order, and the
+   number written into *cnt.  Returns 0 on success, 1 if more than max
+   intervals match, or -1 for invalid arguments. */
+
+int
+fd_gui_timeline_slots_collect( fd_gui_t *                     gui,
+                               long                           start_ns,
+                               long                           end_ns,
+                               fd_gui_timeline_query_slot_t * rows,
+                               ulong                          max,
+                               ulong *                        cnt );
+
+/* fd_gui_timeline_events_collect writes the events whose timestamp is
+   in [start_ns,end_ns) into rows[0,max), in slot order, and the number
+   written into *cnt.  Returns 0 on success, 1 if more than max events
+   match, or -1 for invalid arguments.  The only event is leader_skip: a
+   skipped slot scheduled to our current identity, stamped at the
+   midpoint of its interval. */
+
+int
+fd_gui_timeline_events_collect( fd_gui_t *                      gui,
+                                long                            start_ns,
+                                long                            end_ns,
+                                fd_gui_timeline_query_event_t * rows,
+                                ulong                           max,
+                                ulong *                         cnt );
 
 /* fd_gui_tile_timers_diff computes the compact, display-ready diff of a
    single tile's timers between two raw cumulative samples `prev` and
@@ -1809,6 +1880,7 @@ fd_gui_slot_get_canon( fd_gui_t * gui, ulong _slot ) {
     fd_gui_slot_t * n = fd_gui_slot_get( gui, slot, bank_seq );
     if( FD_UNLIKELY( !n ) ) return NULL; /* evicted / no record */
     if( FD_LIKELY( slot==_slot ) ) return n;
+    if( FD_UNLIKELY( n->parent_slot>=slot ) ) return NULL; /* corrupt ancestry */
     slot     = n->parent_slot;
     bank_seq = n->parent_bank_seq;
   }
@@ -1871,6 +1943,21 @@ fd_gui_slot_is_skipped( fd_gui_t * gui, ulong root, ulong des, ulong des_bank_se
 /* fd_gui_get_epoch_by_slot returns the mutable DB EPOCH record covering
    `_slot` (resolved via the epoch schedule), or NULL if no epoch
    schedule is known yet or no record for that epoch is present. */
+
+/* fd_gui_epoch_timeline_slot_note widens epoch's retained slot range
+   and interval hull to include the interval at idx. */
+
+static inline void
+fd_gui_epoch_timeline_slot_note( fd_gui_epoch_t * epoch,
+                                 ulong            idx ) {
+  epoch->timeline_slot_lo_idx = epoch->timeline_slot_lo_idx==ULONG_MAX ? idx : fd_ulong_min( epoch->timeline_slot_lo_idx, idx );
+  epoch->timeline_slot_hi_idx = epoch->timeline_slot_hi_idx==ULONG_MAX ? idx : fd_ulong_max( epoch->timeline_slot_hi_idx, idx );
+  long rs = epoch->timeline_slot_start_ns[ idx ];
+  long re = epoch->timeline_slot_end_ns[ idx ];
+  if( rs<0L || re<=rs ) return;
+  epoch->timeline_slot_min_start_ns = fd_long_min( epoch->timeline_slot_min_start_ns, rs );
+  epoch->timeline_slot_max_end_ns   = fd_long_max( epoch->timeline_slot_max_end_ns,   re );
+}
 
 static inline fd_gui_epoch_t *
 fd_gui_get_epoch_by_slot( fd_gui_t * gui, ulong _slot ) {
@@ -1958,6 +2045,7 @@ fd_gui_slot_get_or_create( fd_gui_t * gui,
   meta->completed_time    = LONG_MAX;
   meta->parent_completed_time = LONG_MAX;
   meta->mine              = (uchar)(mine & 1);
+  meta->timeline_mine_accounted = 0U;
   meta->is_voter          = FD_GUI_IS_VOTER_UNKNOWN;
   meta->skip              = FD_GUI_SKIP_STATUS_UNKNOWN;
   meta->level             = (uchar)( _slot ? FD_GUI_SLOT_LEVEL_INCOMPLETE : FD_GUI_SLOT_LEVEL_ROOTED ); /* slot 0 always rooted */

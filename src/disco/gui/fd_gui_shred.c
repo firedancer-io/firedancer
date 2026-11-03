@@ -251,11 +251,28 @@ fd_gui_shred_event_append( fd_gui_t * gui,
                            long       timestamp,
                            long       now ) {
   fd_gui_shred_builder_t * builder = &gui->shreds.builder;
+  int marker = event==FD_GUI_SLOT_SHRED_SHRED_SLOT_COMPLETE;
   if( FD_UNLIKELY( !gui->db || !gui->hist || slot>UINT_MAX || idx>USHORT_MAX ||
-                  (idx==USHORT_MAX && event!=FD_GUI_SLOT_SHRED_SHRED_SLOT_COMPLETE) ||
-                  now<builder->prev.insert_time_ns ) ) {
+                  (marker ? idx!=USHORT_MAX : idx==USHORT_MAX) ||
+                  (event>FD_GUI_SLOT_SHRED_SHRED_SLOT_COMPLETE && event!=FD_GUI_SLOT_SHRED_SHRED_PUBLISHED) ||
+                  (!marker && (timestamp<0L || timestamp==LONG_MAX || slot<fd_gui_event_closed_slot_wmark( gui ))) ||
+                  now<0L || now==LONG_MAX || now<builder->prev.insert_time_ns ) ) {
     gui->shreds.dropped_event_cnt++;
     return;
+  }
+  if( event==FD_GUI_SLOT_SHRED_SHRED_RECEIVED_TURBINE || event==FD_GUI_SLOT_SHRED_SHRED_RECEIVED_REPAIR ||
+      event==FD_GUI_SLOT_SHRED_SHRED_PUBLISHED ) {
+    /* Index the first arrival per slot for the timeline; the raw events
+       cannot be looked up by slot.  Producer timestamps need not arrive
+       in order. */
+    fd_gui_epoch_t * epoch = fd_gui_get_epoch_by_slot( gui, slot );
+    if( epoch && slot>=epoch->start_slot && slot-epoch->start_slot<fd_ulong_min( epoch->slot_cnt, MAX_SLOTS_PER_EPOCH ) ) {
+      ulong i     = slot-epoch->start_slot;
+      uchar state = epoch->timeline_slot_state[ i ];
+      epoch->timeline_slot_first_shred_ns[ i ] = (state & FD_GUI_TIMELINE_SLOT_STATE_STARTED)
+        ? fd_long_min( epoch->timeline_slot_first_shred_ns[ i ], timestamp ) : timestamp;
+      epoch->timeline_slot_state[ i ] = (uchar)(state | FD_GUI_TIMELINE_SLOT_STATE_STARTED);
+    }
   }
   fd_gui_shred_batch_t * batch = &builder->batch;
   long window_ns = (long)shred_window( now )*FD_GUI_HIST_RES_1S_NS;
@@ -357,6 +374,7 @@ fd_gui_shred_event_slot_complete( fd_gui_t * gui,
                                   ulong      slot,
                                   long       timestamp,
                                   long       now ) {
+  if( FD_UNLIKELY( slot>UINT_MAX ) ) return;
   fd_gui_shred_event_append( gui, slot, USHORT_MAX, FD_GUI_SLOT_SHRED_SHRED_SLOT_COMPLETE, timestamp, now );
   fd_gui_fec_event_append( gui, slot, USHORT_MAX, FD_GUI_SLOT_SHRED_SHRED_SLOT_COMPLETE, timestamp, now );
 }
