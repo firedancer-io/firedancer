@@ -1492,7 +1492,8 @@ main( int argc, char ** argv ) {
   fd_stake_delegation_t stake_delegation[1];
   FD_TEST( test_stake_delegations_find_copy( stake_delegations, &key_0, stake_delegation ) );
   FD_TEST( stake_delegation->stake == 100UL );
-  FD_TEST( !memcmp( &stake_delegation->vote_account, &key_9, sizeof(fd_pubkey_t) ) );
+  fd_pubkey_t vote_buf;
+  FD_TEST( fd_pubkey_eq( fd_stake_delegations_vote_key( stake_delegations, stake_delegation->vote_id, &vote_buf ), &key_9 ) );
   FD_TEST( !memcmp( &stake_delegation->stake_account, &key_0, sizeof(fd_pubkey_t) ) );
   FD_TEST( stake_delegation->activation_epoch == 100UL );
   FD_TEST( stake_delegation->deactivation_epoch == 100UL );

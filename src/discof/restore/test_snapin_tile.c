@@ -1606,7 +1606,8 @@ assert_stake_delegation( fd_stake_delegations_t const * stake_delegations,
                          fd_pubkey_t const *            vote_account ) {
   fd_stake_delegation_t delegation[1];
   FD_TEST( test_stake_delegations_find_copy( stake_delegations, stake_account, delegation ) );
-  FD_TEST( fd_pubkey_eq( &delegation->vote_account, vote_account ) );
+  fd_pubkey_t vote_buf;
+  FD_TEST( fd_pubkey_eq( fd_stake_delegations_vote_key( stake_delegations, delegation->vote_id, &vote_buf ), vote_account ) );
   FD_TEST( delegation->stake==1234UL );
   FD_TEST( delegation->activation_epoch==7UL );
   FD_TEST( delegation->deactivation_epoch==USHORT_MAX );
