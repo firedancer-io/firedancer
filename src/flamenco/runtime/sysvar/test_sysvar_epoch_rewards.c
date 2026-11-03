@@ -65,8 +65,39 @@ test_sysvar_epoch_rewards_invalid_active( fd_wksp_t * wksp ) {
   test_sysvar_cache_env_destroy( env );
 }
 
+/* Agave decodes the sysvar from the first 81 bytes and ignores the
+   rest, but rejects a short account. */
+static void
+test_sysvar_epoch_rewards_data_len( fd_wksp_t * wksp ) {
+  test_sysvar_cache_env_t env[1];
+  FD_TEST( test_sysvar_cache_env_create( env, wksp ) );
+
+  fd_sysvar_epoch_rewards_t const epoch_rewards = {
+    .distribution_starting_block_height = 123UL,
+    .num_partitions                     =   7UL,
+    .total_rewards                      = 100UL,
+    .distributed_rewards                =  40UL,
+    .active                             = 1
+  };
+  uchar data[ FD_SYSVAR_EPOCH_REWARDS_BINCODE_SZ+7UL ] = {0};
+  fd_memcpy( data, &epoch_rewards, FD_SYSVAR_EPOCH_REWARDS_BINCODE_SZ );
+
+  fd_sysvar_epoch_rewards_t restored[1];
+  fd_sysvar_account_update( env->bank, env->accdb, NULL,
+                            &fd_sysvar_epoch_rewards_id, data, sizeof(data) );
+  FD_TEST( fd_sysvar_epoch_rewards_read( env->accdb, env->bank->accdb_fork_id, restored ) );
+  FD_TEST( !memcmp( restored, &epoch_rewards, FD_SYSVAR_EPOCH_REWARDS_BINCODE_SZ ) );
+
+  fd_sysvar_account_update( env->bank, env->accdb, NULL,
+                            &fd_sysvar_epoch_rewards_id, data, FD_SYSVAR_EPOCH_REWARDS_BINCODE_SZ-1UL );
+  FD_TEST( !fd_sysvar_epoch_rewards_read( env->accdb, env->bank->accdb_fork_id, restored ) );
+
+  test_sysvar_cache_env_destroy( env );
+}
+
 static void
 test_sysvar_epoch_rewards( fd_wksp_t * wksp ) {
   test_sysvar_epoch_rewards_bounds();
   test_sysvar_epoch_rewards_invalid_active( wksp );
+  test_sysvar_epoch_rewards_data_len( wksp );
 }
