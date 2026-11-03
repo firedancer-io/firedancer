@@ -216,8 +216,9 @@ struct fd_sched_block_start {
   ulong bank_idx;        /* Same as in fd_sched_fec_t. */
   ulong parent_bank_idx; /* Same as in fd_sched_fec_t. */
   ulong slot;            /* Slot number of the block. */
-  int   lthash_inband;   /* 1 if the block hashes in band, 0 if out of band.  An in-band block reports no
-                            start-of-block writes and has no delta to fold at its end. */
+  int   lthash_inband;   /* 1 if the block hashes in band, 0 if out of band.  An in-band block
+                            reports no start-of-block writes and has no delta to fold from
+                            sched at its end. */
 };
 typedef struct fd_sched_block_start fd_sched_block_start_t;
 
@@ -492,7 +493,9 @@ fd_sched_task_done( fd_sched_t * sched, ulong task_type, ulong txn_idx, ulong ex
 /* Returns the block's LtHash delta accumulated so far.  The delta is
    final once the block's BLOCK_END task has been handed out.  The block
    must be tracked by the scheduler and its BLOCK_END must not have
-   completed. */
+   completed.  It must hash out of band, which its BLOCK_START task
+   reports in lthash_inband.  A block hashing in band has no delta from
+   sched. */
 fd_lthash_value_t const *
 fd_sched_lthash_delta( fd_sched_t * sched, ulong bank_idx );
 

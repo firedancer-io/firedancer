@@ -36,6 +36,16 @@ FD_STATIC_ASSERT( FD_SCHED_MAX_PAYLOAD_PER_FEC>=FD_SHREDDER_CHAINED_FEC_SET_PAYL
 FD_STATIC_ASSERT( FD_SCHED_MAX_RESIDUAL_SZ>=sizeof(fd_microblock_hdr_t), resize buffer for residual data );
 FD_STATIC_ASSERT( FD_SCHED_MAX_RESIDUAL_SZ>=sizeof(ulong),               resize buffer for residual data );
 
+/* Shred payload sizes are kept per block only for the shreds that the
+   parser's shred scan has not passed yet.  See shred_split().  The scan
+   trails the parse position by at most the residual, which fits in
+   FD_SCHED_MAX_RESIDUAL_SZ, and an ingest appends one FEC set.  So this
+   covers any FEC set made of sanely sized shreds.  Only a block of
+   absurdly small shreds has more of them outstanding at once.  Such a
+   block loses its shred attribution, which is monitoring only. */
+#define FD_SCHED_SHRED_SZ_WINDOW (256UL)
+FD_STATIC_ASSERT( (FD_SCHED_SHRED_SZ_WINDOW&(FD_SCHED_SHRED_SZ_WINDOW-1UL))==0UL, shred_sz_window );
+
 #define FD_SCHED_MAX_TXN_PER_FEC           ((FD_SCHED_MAX_PAYLOAD_PER_FEC-1UL)/FD_TXN_MIN_SERIALIZED_SZ+1UL) /* 478 */
 #define FD_SCHED_MAX_MBLK_PER_FEC          ((FD_SCHED_MAX_PAYLOAD_PER_FEC-1UL)/sizeof(fd_microblock_hdr_t)+1UL) /* 1334 */
 
@@ -43,7 +53,6 @@ FD_STATIC_ASSERT( FD_SCHED_MIN_DEPTH>=FD_SCHED_MAX_TXN_PER_FEC, limits );
 FD_STATIC_ASSERT( FD_SCHED_MAX_DEPTH<=FD_RDISP_MAX_DEPTH,       limits );
 FD_STATIC_ASSERT( FD_SCHED_MAX_DEPTH<=UINT_MAX,                 txn_idx_width );
 
-#define FD_SCHED_MAX_POH_HASHES_PER_TASK   (4096UL) /* This seems to be the sweet spot. */
 
 /* Out-of-band LtHash.
 
@@ -99,6 +108,7 @@ FD_STATIC_ASSERT( FD_SCHED_MAX_DEPTH<=UINT_MAX,                 txn_idx_width );
    tightly.  We don't bother because it's not likely to squeeze more
    blocks out of it. */
 #define FD_SCHED_LTHASH_OOB_BLOCK_MAX (FD_SCHED_LTHASH_ACCT_EXTRA/FD_RDISP_MAX_WRITERS_PER_BLOCK)
+FD_STATIC_ASSERT( FD_SCHED_LTHASH_OOB_BLOCK_MAX<=64UL, lthash_oob_reserved_bitmap );
 
 /* The speculation pool holds the values of speculative additions so a
    later intra-block rewrite can undo the addition.  Speculation stops
@@ -351,12 +361,11 @@ struct fd_sched_block {
   ulong max_tick_height;   /* Block should end with precisely this many ticks. */
 
   /* Parser state. */
-  uchar               txn[ FD_TXN_MAX_SZ ] __attribute__((aligned(alignof(fd_txn_t))));
   ulong               mblks_rem;    /* Number of microblocks remaining in the current batch. */
   ulong               txns_rem;     /* Number of transactions remaining in the current microblock. */
-  uint                fec_buf_sz;   /* Size of the fec_buf in bytes. */
-  uint                fec_buf_soff; /* Starting offset into fec_buf for unparsed transactions. */
-  uint                fec_buf_boff; /* Byte offset into raw block data of the first byte currently in fec_buf */
+  uint                residual_sz;  /* Bytes of residual data, at most FD_SCHED_MAX_RESIDUAL_SZ. */
+  uint                fec_buf_boff; /* Byte offset into raw block data of the first residual byte, which is the first byte in the parse buffer during ingest. */
+  ushort              shred_sz[ FD_SCHED_SHRED_SZ_WINDOW ]; /* Payload size of shred i at i%FD_SCHED_SHRED_SZ_WINDOW, for the shreds in [shred_scan_idx, shred_cnt). */
   uint                poison_cnt;   /* [0, FD_SCHED_POISON_MAX_ACCT_PER_SLOT) */
   fd_acct_addr_t      poison[ FD_SCHED_POISON_MAX_ACCT_PER_SLOT ]; /* Poison set to handle loader v3 implied programdata accounts.
 
@@ -393,6 +402,8 @@ struct fd_sched_block {
                                        ingested. */
   uint                fec_sob:1;    /* FEC start-of-batch: set if the parser expects to be parsing out a
                                        batch header. */
+  uint                shred_sz_overflow:1; /* Set once more shreds were outstanding than shred_sz holds.  The
+                                              shred attribution of the block's remaining transactions saturates. */
 
   /* Block state. */
   uint                fec_eos:1;                          /* FEC end-of-stream: set if the last FEC set in the block has been
@@ -428,6 +439,8 @@ struct fd_sched_block {
                                                              BLOCK_START, whichever comes first. */
   uint                lthash_inband:1;                    /* Set if the block hashes in band.  The dispatcher tracks no writers for it and the
                                                              block owes no out-of-band work. */
+  uchar               lthash_oob_reservation;             /* Which out-of-band reservation the block holds, meaningful when
+                                                             lthash_mode_picked && !lthash_inband. */
   ulong               staging_lane;                       /* Ignored if staged==0. */
 
   /* Slot state tracking */
@@ -441,8 +454,9 @@ struct fd_sched_block {
                                                              stageable unstaged descendants are counted. */
   int                 dead_reason;                        /* One of FD_SCHED_DEAD_REASON_*; records the first reason the block
                                                              was ruled invalid (set-once via record_dead_reason), NONE otherwise. */
-  uchar               fec_buf[ FD_SCHED_MAX_FEC_BUF_SZ ]; /* The previous FEC set could have some residual data that only becomes
-                                                             parseable after the next FEC set is ingested. */
+  uchar               residual[ FD_SCHED_MAX_RESIDUAL_SZ ]; /* Bytes of the previous FEC set that only become parseable once the
+                                                               next FEC set is ingested, at most a transaction, a block marker or
+                                                               a microblock or batch header. */
 
   /* Alpenglow block footer, deserialized out of the marker batch at
      parse time.  footer_seen is set if the block carries a footer
@@ -472,7 +486,7 @@ typedef struct fd_sched_block fd_sched_block_t;
 
 FD_STATIC_ASSERT( sizeof(fd_sched_mblk_t)==104UL, fd_sched_mblk );
 FD_STATIC_ASSERT( sizeof(fd_sched_txn_info_t)==184UL, fd_sched_txn_info );
-FD_STATIC_ASSERT( sizeof(fd_sched_block_t)==75840UL, fd_sched_block );
+FD_STATIC_ASSERT( sizeof(fd_sched_block_t)==11520UL, fd_sched_block );
 FD_STATIC_ASSERT( sizeof(fd_hash_t)==sizeof(((fd_microblock_hdr_t *)0)->hash), unexpected poh hash size );
 
 
@@ -628,12 +642,15 @@ struct fd_sched {
   fd_acct_addr_t        aluts[ 256 ]; /* Resolve ALUT accounts into this buffer for more parallelism. */
   char                  print_buf[ FD_SCHED_MAX_PRINT_BUF_SZ ];
   ulong                 print_buf_sz;
-  ushort *              shred_sz;             /* Payload size of each ingested data shred, max_shreds_per_block per block pool idx. */
+  uchar                 fec_buf[ FD_SCHED_MAX_FEC_BUF_SZ ]; /* Parse buffer.  It holds the residual followed by the new FEC set. */
+  uint                  fec_buf_sz;   /* Size of the fec_buf in bytes. */
+  uint                  fec_buf_soff; /* Starting offset into fec_buf for unparsed transactions. */
+  uchar                 txn[ FD_TXN_MAX_SZ ] __attribute__((aligned(alignof(fd_txn_t)))); /* The transaction being parsed out. */
   ulong                 max_shreds_per_block; /* Immutable. */
   ulong                 max_txn_per_slot;     /* Immutable. */
   ulong                 max_mblk_per_slot;    /* Immutable, FD_SCHED_MAX_MBLK_PER_SLOT scaled with max_shreds_per_block. */
   ulong                 lthash_txn_writers_max; /* FD_SCHED_LTHASH_TXN_WRITERS_MAX unless lowered by a test. */
-  ulong                 lthash_oob_block_cnt;   /* Blocks that picked out-of-band hashing and have not left yet. */
+  ulong                 lthash_oob_reserved;    /* Bit i set if out-of-band reservation i is held by a block. */
   ulong                 lthash_oob_block_max;   /* FD_SCHED_LTHASH_OOB_BLOCK_MAX unless lowered by a test. */
   fd_chkdup_t           chkdup[ 1 ];
   fd_sched_metrics_t    metrics[ 1 ];
@@ -676,7 +693,7 @@ struct fd_sched {
   fd_lthash_value_t *       lthash_spec_pool; /* FD_SCHED_LTHASH_SPEC_MAX values of speculative additions. */
   uint *                    lthash_spec_free; /* Stack of the free lthash_spec_pool indices, lthash_spec_free[ lthash_spec_free_cnt-1 ] on top. */
   ulong                     lthash_spec_free_cnt;
-  fd_lthash_value_t *       lthash_delta; /* Per-block delta, block_cnt_max entries indexed by bank_idx. */
+  fd_lthash_value_t         lthash_delta[ FD_SCHED_LTHASH_OOB_BLOCK_MAX ]; /* Delta of the block holding out-of-band reservation i. */
   uint                      lthash_draining_cnt;
   txn_bitset_t          exec_done_set[ txn_bitset_word_cnt ];      /* Indexed by txn_idx. */
   txn_bitset_t          sigverify_done_set[ txn_bitset_word_cnt ]; /* Indexed by txn_idx. */
@@ -720,8 +737,7 @@ static void
 dispatch_sigverify( fd_sched_t * sched, fd_sched_block_t * block, ulong bank_idx, int exec_tile_idx, fd_sched_task_t * out );
 
 static uint
-shred_split( fd_sched_t *       sched,
-             fd_sched_block_t * block,
+shred_split( fd_sched_block_t * block,
              uint               query );
 
 static void
@@ -1093,14 +1109,14 @@ print_histogram( fd_sched_t * sched, fd_histf_t * hist, ulong converter, char * 
 
 FD_FN_UNUSED static void
 print_block_metrics( fd_sched_t * sched, fd_sched_block_t * block ) {
-  fd_sched_printf( sched, "block idx %lu, block slot %lu, parent_slot %lu, txn_parsed_cnt %u, txn_exec_done_cnt %u, txn_sigverify_done_cnt %u, poh_hashing_done_cnt %u, poh_hash_cmp_done_cnt %u, txn_done_cnt %u, shred_cnt %u, mblk_cnt %u, mblk_tick_cnt %u, mblk_freed_cnt %u, mblk_unhashed_cnt %u, txn_pool_max_popcnt %lu/%lu, mblk_pool_max_popcnt %lu/%lu, block_pool_max_popcnt %lu/%lu, mblks_rem %lu, txns_rem %lu, fec_buf_sz %u, fec_buf_soff %u, fec_buf_boff %u, fec_eob %d, fec_sob %d, fec_eos %d, rooted %d\n",
-                   block_to_idx( sched, block ), block->slot, block->parent_slot, block->txn_parsed_cnt, block->txn_exec_done_cnt, block->txn_sigverify_done_cnt, block->poh_hashing_done_cnt, block->poh_hash_cmp_done_cnt, block->txn_done_cnt, block->shred_cnt, block->mblk_cnt, block->mblk_tick_cnt, block->mblk_freed_cnt, block->mblk_unhashed_cnt, block->txn_pool_max_popcnt, sched->depth, block->mblk_pool_max_popcnt, sched->depth, block->block_pool_max_popcnt, sched->block_cnt_max, block->mblks_rem, block->txns_rem, block->fec_buf_sz, block->fec_buf_soff, block->fec_buf_boff, block->fec_eob, block->fec_sob, block->fec_eos, block->rooted );
+  fd_sched_printf( sched, "block idx %lu, block slot %lu, parent_slot %lu, txn_parsed_cnt %u, txn_exec_done_cnt %u, txn_sigverify_done_cnt %u, poh_hashing_done_cnt %u, poh_hash_cmp_done_cnt %u, txn_done_cnt %u, shred_cnt %u, mblk_cnt %u, mblk_tick_cnt %u, mblk_freed_cnt %u, mblk_unhashed_cnt %u, txn_pool_max_popcnt %lu/%lu, mblk_pool_max_popcnt %lu/%lu, block_pool_max_popcnt %lu/%lu, mblks_rem %lu, txns_rem %lu, residual_sz %u, fec_buf_boff %u, fec_eob %d, fec_sob %d, shred_sz_overflow %d, fec_eos %d, rooted %d\n",
+                   block_to_idx( sched, block ), block->slot, block->parent_slot, block->txn_parsed_cnt, block->txn_exec_done_cnt, block->txn_sigverify_done_cnt, block->poh_hashing_done_cnt, block->poh_hash_cmp_done_cnt, block->txn_done_cnt, block->shred_cnt, block->mblk_cnt, block->mblk_tick_cnt, block->mblk_freed_cnt, block->mblk_unhashed_cnt, block->txn_pool_max_popcnt, sched->depth, block->mblk_pool_max_popcnt, sched->depth, block->block_pool_max_popcnt, sched->block_cnt_max, block->mblks_rem, block->txns_rem, block->residual_sz, block->fec_buf_boff, block->fec_eob, block->fec_sob, block->shred_sz_overflow, block->fec_eos, block->rooted );
 }
 
 FD_FN_UNUSED static void
 print_block_debug( fd_sched_t * sched, fd_sched_block_t * block ) {
-  fd_sched_printf( sched, "block idx %lu, block slot %lu, parent_slot %lu, txn_parsed_cnt %u, txn_exec_in_flight_cnt %u, txn_exec_done_cnt %u, txn_sigverify_in_flight_cnt %u, txn_sigverify_done_cnt %u, poh_hashing_in_flight_cnt %u, poh_mblk_in_flight_cnt %u, poh_hashing_done_cnt %u, poh_hash_cmp_done_cnt %u, footer_in_flight_cnt %u, txn_done_cnt %u, shred_cnt %u, mblk_cnt %u, mblk_tick_cnt %u, mblk_freed_cnt %u, mblk_unhashed_cnt %u, txn_pool_max_popcnt %lu/%lu, mblk_pool_max_popcnt %lu/%lu, block_pool_max_popcnt %lu/%lu, lthash_writable_cnt %u, lthash_in_flight_cnt %u, sub_queued_cnt %u, sub_in_flight_cnt %u, sub_applied_cnt %u, add_owed_cnt %u, add_created_cnt %u, add_surfaced_cnt %u, add_done_cnt %u, add_applied_cnt %u, add_undone_cnt %u, mblks_rem %lu, txns_rem %lu, fec_buf_sz %u, fec_buf_soff %u, fec_buf_boff %u, fec_eob %d, fec_sob %d, fec_eos %d, rooted %d, dying %d, in_rdisp %d, block_start_signaled %d, block_end_signaled %d, block_start_done %d, block_end_done %d, staged %d, lthash_drained %d, lthash_draining %d, lthash_mode_picked %d, lthash_inband %d, staging_lane %lu\n",
-                   block_to_idx( sched, block ), block->slot, block->parent_slot, block->txn_parsed_cnt, block->txn_exec_in_flight_cnt, block->txn_exec_done_cnt, block->txn_sigverify_in_flight_cnt, block->txn_sigverify_done_cnt, block->poh_hashing_in_flight_cnt, block->poh_mblk_in_flight_cnt, block->poh_hashing_done_cnt, block->poh_hash_cmp_done_cnt, block->footer_in_flight_cnt, block->txn_done_cnt, block->shred_cnt, block->mblk_cnt, block->mblk_tick_cnt, block->mblk_freed_cnt, block->mblk_unhashed_cnt, block->txn_pool_max_popcnt, sched->depth, block->mblk_pool_max_popcnt, sched->depth, block->block_pool_max_popcnt, sched->block_cnt_max, block->lthash_writable_cnt, block->lthash_in_flight_cnt, block->sub_queued_cnt, block->sub_in_flight_cnt, block->sub_applied_cnt, block->add_owed_cnt, block->add_created_cnt, block->add_surfaced_cnt, block->add_done_cnt, block->add_applied_cnt, block->add_undone_cnt, block->mblks_rem, block->txns_rem, block->fec_buf_sz, block->fec_buf_soff, block->fec_buf_boff, block->fec_eob, block->fec_sob, block->fec_eos, block->rooted, block->dying, block->in_rdisp, block->block_start_signaled, block->block_end_signaled, block->block_start_done, block->block_end_done, block->staged, block->lthash_drained, block->lthash_draining, block->lthash_mode_picked, block->lthash_inband, block->staging_lane );
+  fd_sched_printf( sched, "block idx %lu, block slot %lu, parent_slot %lu, txn_parsed_cnt %u, txn_exec_in_flight_cnt %u, txn_exec_done_cnt %u, txn_sigverify_in_flight_cnt %u, txn_sigverify_done_cnt %u, poh_hashing_in_flight_cnt %u, poh_mblk_in_flight_cnt %u, poh_hashing_done_cnt %u, poh_hash_cmp_done_cnt %u, footer_in_flight_cnt %u, txn_done_cnt %u, shred_cnt %u, mblk_cnt %u, mblk_tick_cnt %u, mblk_freed_cnt %u, mblk_unhashed_cnt %u, txn_pool_max_popcnt %lu/%lu, mblk_pool_max_popcnt %lu/%lu, block_pool_max_popcnt %lu/%lu, lthash_writable_cnt %u, lthash_in_flight_cnt %u, sub_queued_cnt %u, sub_in_flight_cnt %u, sub_applied_cnt %u, add_owed_cnt %u, add_created_cnt %u, add_surfaced_cnt %u, add_done_cnt %u, add_applied_cnt %u, add_undone_cnt %u, mblks_rem %lu, txns_rem %lu, residual_sz %u, fec_buf_boff %u, fec_eob %d, fec_sob %d, shred_sz_overflow %d, fec_eos %d, rooted %d, dying %d, in_rdisp %d, block_start_signaled %d, block_end_signaled %d, block_start_done %d, block_end_done %d, staged %d, lthash_drained %d, lthash_draining %d, lthash_mode_picked %d, lthash_inband %d, lthash_oob_reservation %u, staging_lane %lu\n",
+                   block_to_idx( sched, block ), block->slot, block->parent_slot, block->txn_parsed_cnt, block->txn_exec_in_flight_cnt, block->txn_exec_done_cnt, block->txn_sigverify_in_flight_cnt, block->txn_sigverify_done_cnt, block->poh_hashing_in_flight_cnt, block->poh_mblk_in_flight_cnt, block->poh_hashing_done_cnt, block->poh_hash_cmp_done_cnt, block->footer_in_flight_cnt, block->txn_done_cnt, block->shred_cnt, block->mblk_cnt, block->mblk_tick_cnt, block->mblk_freed_cnt, block->mblk_unhashed_cnt, block->txn_pool_max_popcnt, sched->depth, block->mblk_pool_max_popcnt, sched->depth, block->block_pool_max_popcnt, sched->block_cnt_max, block->lthash_writable_cnt, block->lthash_in_flight_cnt, block->sub_queued_cnt, block->sub_in_flight_cnt, block->sub_applied_cnt, block->add_owed_cnt, block->add_created_cnt, block->add_surfaced_cnt, block->add_done_cnt, block->add_applied_cnt, block->add_undone_cnt, block->mblks_rem, block->txns_rem, block->residual_sz, block->fec_buf_boff, block->fec_eob, block->fec_sob, block->shred_sz_overflow, block->fec_eos, block->rooted, block->dying, block->in_rdisp, block->block_start_signaled, block->block_end_signaled, block->block_start_done, block->block_end_done, block->staged, block->lthash_drained, block->lthash_draining, block->lthash_mode_picked, block->lthash_inband, (uint)block->lthash_oob_reservation, block->staging_lane );
 }
 
 FD_FN_UNUSED static void
@@ -1254,18 +1270,18 @@ handle_bad_block( fd_sched_t * sched, fd_sched_block_t * block, int dead_reason 
   check_or_set_active_block( sched );
 }
 
-/* Returns the number of shred boundaries strictly before query.
-   Transaction offsets are visited in nondecreasing order, so each
-   shred length is scanned at most once per block. */
+/* Returns the number of shred boundaries strictly before query, or
+   UINT_MAX once the block's shred sizes have overflowed their window.
+   Transaction offsets are visited in nondecreasing order, so each shred
+   length is scanned at most once per block. */
 static uint
-shred_split( fd_sched_t *       sched,
-             fd_sched_block_t * block,
+shred_split( fd_sched_block_t * block,
              uint               query ) {
+  if( FD_UNLIKELY( block->shred_sz_overflow ) ) return UINT_MAX;
   FD_TEST( block->shred_scan_idx<=block->shred_cnt );
   FD_TEST( block->shred_scan_off<=query );
-  ushort const * shred_sz = sched->shred_sz + block_to_idx( sched, block )*sched->max_shreds_per_block;
   while( block->shred_scan_idx<block->shred_cnt ) {
-    uint next_off = block->shred_scan_off + (uint)shred_sz[ block->shred_scan_idx ];
+    uint next_off = block->shred_scan_off + (uint)block->shred_sz[ block->shred_scan_idx&(uint)(FD_SCHED_SHRED_SZ_WINDOW-1UL) ];
     if( next_off>=query ) break;
     block->shred_scan_off = next_off;
     block->shred_scan_idx++;
@@ -1280,6 +1296,13 @@ static inline int
 block_owns_lane_map( fd_sched_t *       sched,
                      fd_sched_block_t * block ) {
   return block->staged && sched->lthash_lane[ block->staging_lane ].bank_idx==block_to_idx( sched, block );
+}
+
+static inline fd_lthash_value_t *
+block_lthash_delta( fd_sched_t *       sched,
+                    fd_sched_block_t * block ) {
+  FD_TEST( block->lthash_mode_picked && !block->lthash_inband );
+  return sched->lthash_delta+block->lthash_oob_reservation;
 }
 
 static inline fd_sched_lthash_entry_t *
@@ -1383,7 +1406,7 @@ lthash_entry_rewrite( fd_sched_t *              sched,
   sched->metrics->lthash_add_undone_cnt += (ulong)undone;
   sched->metrics->lthash_spec_stale_cnt += (ulong)(!undone && e->spec_idx!=UINT_MAX);
   block->add_undone_cnt                 += (uint)undone;
-  lthash_entry_clear_add( sched, e, sched->lthash_delta+block_to_idx( sched, block ) );
+  lthash_entry_clear_add( sched, e, block_lthash_delta( sched, block ) );
 }
 
 static void
@@ -1472,8 +1495,12 @@ lthash_pick_mode( fd_sched_t *       sched,
   FD_TEST( !block->lthash_mode_picked );
   FD_TEST( !block->lthash_in_flight_cnt && !block->sub_in_flight_cnt && !block->add_created_cnt );
   block->lthash_mode_picked = 1;
-  if( FD_LIKELY( sched->lthash_oob_block_cnt<sched->lthash_oob_block_max ) ) {
-    sched->lthash_oob_block_cnt++;
+  ulong free_reservations = (~sched->lthash_oob_reserved)&fd_ulong_mask_lsb( (int)sched->lthash_oob_block_max );
+  if( FD_LIKELY( free_reservations ) ) {
+    int reservation = fd_ulong_find_lsb( free_reservations );
+    FD_TEST( fd_lthash_is_zero( sched->lthash_delta+reservation ) );
+    sched->lthash_oob_reserved    = fd_ulong_set_bit( sched->lthash_oob_reserved, reservation );
+    block->lthash_oob_reservation = (uchar)reservation;
     return;
   }
   ulong bank_idx = block_to_idx( sched, block );
@@ -1492,7 +1519,7 @@ lthash_pick_mode( fd_sched_t *       sched,
 static void
 lthash_release_reservation( fd_sched_t *       sched,
                             fd_sched_block_t * block ) {
-  sched->lthash_oob_block_cnt -= (ulong)(block->lthash_mode_picked && !block->lthash_inband);
+  if( block->lthash_mode_picked && !block->lthash_inband ) sched->lthash_oob_reserved = fd_ulong_clear_bit( sched->lthash_oob_reserved, (int)block->lthash_oob_reservation );
   block->lthash_mode_picked = 0;
   block->lthash_inband      = 0;
 }
@@ -1734,7 +1761,9 @@ lthash_block_init( fd_sched_block_t * block ) {
 /* Forgets the block's LtHash progress when it leaves the pipeline:
    finished, abandoned, or demoted.  A demoted block re-derives
    everything if promoted.  An abandoned block may still be draining.
-   The dispatcher forgets what is left of its set when the lane empties. */
+   The dispatcher forgets what is left of its set when the lane empties.
+   The delta is found through the block's reservation, so this needs to
+   come before the reservation is released. */
 static void
 lthash_block_reset( fd_sched_t *       sched,
                     fd_sched_block_t * block ) {
@@ -1742,7 +1771,7 @@ lthash_block_reset( fd_sched_t *       sched,
   int owns = block_owns_lane_map( sched, block );
   lthash_block_init( block );
   if( FD_LIKELY( owns ) ) lthash_release_lane_map( sched, block->staging_lane );
-  fd_lthash_zero( sched->lthash_delta+block_to_idx( sched, block ) );
+  if( block->lthash_mode_picked && !block->lthash_inband ) fd_lthash_zero( sched->lthash_delta+block->lthash_oob_reservation );
 }
 
 static void
@@ -1960,7 +1989,7 @@ lthash_spec_give_up( fd_sched_t *              sched,
      new one. */
   block->add_done_cnt++;
   fd_rdisp_complete_txn( sched->rdisp, ptxn_idx, 1 );
-  lthash_entry_clear_add( sched, e, sched->lthash_delta+bank_idx );
+  lthash_entry_clear_add( sched, e, block_lthash_delta( sched, block ) );
   lthash_owe_addition( sched, block, fd_rdisp_add_writable( sched->rdisp, bank_idx, &e->acct ) );
 }
 
@@ -2112,11 +2141,6 @@ fd_sched_align( void ) {
 }
 
 static inline ulong
-sched_lthash_delta_sz( ulong block_cnt_max ) {
-  return block_cnt_max*sizeof(fd_lthash_value_t);
-}
-
-static inline ulong
 sched_lthash_batch_sz( void ) {
   /* One batch per exec tile, plus one staging area for the addition
      batch being assembled or held. */
@@ -2141,7 +2165,6 @@ fd_sched_footprint( ulong depth,
   l = FD_LAYOUT_APPEND( l, fd_sched_align(),             sizeof(fd_sched_t)                                 );
   l = FD_LAYOUT_APPEND( l, fd_rdisp_align(),             rdisp_footprint                                    ); /* dispatcher */
   l = FD_LAYOUT_APPEND( l, alignof(fd_sched_block_t),    block_cnt_max*sizeof(fd_sched_block_t)             ); /* block pool */
-  l = FD_LAYOUT_APPEND( l, alignof(ushort),              block_cnt_max*max_shreds_per_block*sizeof(ushort)  ); /* shred_sz */
   l = FD_LAYOUT_APPEND( l, ref_q_align(),                ref_q_footprint( block_cnt_max )                   );
   l = FD_LAYOUT_APPEND( l, alignof(fd_txn_p_t),          depth*sizeof(fd_txn_p_t)                           ); /* txn_pool */
   l = FD_LAYOUT_APPEND( l, alignof(fd_sched_txn_info_t), depth*sizeof(fd_sched_txn_info_t)                  ); /* txn_info_pool */
@@ -2152,7 +2175,6 @@ fd_sched_footprint( ulong depth,
   }
   l = FD_LAYOUT_APPEND( l, alignof(fd_lthash_value_t),   FD_SCHED_LTHASH_SPEC_MAX*sizeof(fd_lthash_value_t) ); /* lthash_spec_pool */
   l = FD_LAYOUT_APPEND( l, alignof(uint),                FD_SCHED_LTHASH_SPEC_MAX*sizeof(uint)              ); /* lthash_spec_free */
-  l = FD_LAYOUT_APPEND( l, alignof(fd_lthash_value_t),   sched_lthash_delta_sz( block_cnt_max )             );
   l = FD_LAYOUT_APPEND( l, alignof(ulong),               sched_lthash_batch_sz()                            ); /* lthash_inflight, lthash_add_batch */
   return FD_LAYOUT_FINI( l, fd_sched_align() );
 }
@@ -2215,7 +2237,6 @@ fd_sched_new( void *     mem,
   fd_sched_t *          sched          = FD_SCRATCH_ALLOC_APPEND( l, fd_sched_align(),             sizeof(fd_sched_t)                                 );
   void *                _rdisp         = FD_SCRATCH_ALLOC_APPEND( l, fd_rdisp_align(),             fd_rdisp_footprint( depth, block_cnt_max, FD_SCHED_LTHASH_ACCT_EXTRA ) );
   void *                _bpool         = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_sched_block_t),    block_cnt_max*sizeof(fd_sched_block_t)             );
-  /* */                                  FD_SCRATCH_ALLOC_APPEND( l, alignof(ushort),              block_cnt_max*max_shreds_per_block*sizeof(ushort)  );
   void *                _ref_q         = FD_SCRATCH_ALLOC_APPEND( l, ref_q_align(),                ref_q_footprint( block_cnt_max )                   );
   fd_txn_p_t *          _txn_pool      = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_txn_p_t),          depth*sizeof(fd_txn_p_t)                           );
   fd_sched_txn_info_t * _txn_info_pool = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_sched_txn_info_t), depth*sizeof(fd_sched_txn_info_t)                  );
@@ -2229,7 +2250,6 @@ fd_sched_new( void *     mem,
   }
   /* */                                  FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_lthash_value_t),   FD_SCHED_LTHASH_SPEC_MAX*sizeof(fd_lthash_value_t) );
   uint *                _spec_free     = FD_SCRATCH_ALLOC_APPEND( l, alignof(uint),                FD_SCHED_LTHASH_SPEC_MAX*sizeof(uint)              );
-  void *                _lthash_delta  = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_lthash_value_t),   sched_lthash_delta_sz( block_cnt_max )             );
   void *                _lthash_batch  = FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong),               sched_lthash_batch_sz()                            );
   FD_SCRATCH_ALLOC_FINI( l, fd_sched_align() );
 
@@ -2242,7 +2262,7 @@ fd_sched_new( void *     mem,
   /* Acquire is LIFO, so this hands out speculation entries 0, 1, 2, ... */
   for( ulong i=0UL; i<FD_SCHED_LTHASH_SPEC_MAX; i++ ) _spec_free[ i ] = (uint)(FD_SCHED_LTHASH_SPEC_MAX-1UL-i);
   sched->lthash_spec_free_cnt = FD_SCHED_LTHASH_SPEC_MAX;
-  fd_memset( _lthash_delta, 0, sched_lthash_delta_sz( block_cnt_max ) );
+  fd_memset( sched->lthash_delta, 0, sizeof(sched->lthash_delta) );
   fd_memset( _lthash_batch, 0, sched_lthash_batch_sz() );
 
   fd_sched_block_t * bpool = (fd_sched_block_t *)_bpool;
@@ -2275,7 +2295,7 @@ fd_sched_new( void *     mem,
   sched->bypass_poh_verify      = 0;
   sched->bypass_alut_resolution = 0;
   sched->lthash_txn_writers_max = FD_SCHED_LTHASH_TXN_WRITERS_MAX;
-  sched->lthash_oob_block_cnt   = 0UL;
+  sched->lthash_oob_reserved    = 0UL;
   sched->lthash_oob_block_max   = FD_SCHED_LTHASH_OOB_BLOCK_MAX;
   sched->root_idx               = ULONG_MAX;
   sched->active_bank_idx        = ULONG_MAX;
@@ -2320,13 +2340,11 @@ fd_sched_join( void * mem ) {
   FD_TEST( sched->canary==FD_SCHED_MAGIC );
   ulong        depth                = sched->depth;
   ulong        block_cnt_max        = sched->block_cnt_max;
-  ulong        max_shreds_per_block = sched->max_shreds_per_block;
 
   FD_SCRATCH_ALLOC_INIT( l, mem );
   /*                        */ FD_SCRATCH_ALLOC_APPEND( l, fd_sched_align(),             sizeof(fd_sched_t)                                 );
   void *           _rdisp    = FD_SCRATCH_ALLOC_APPEND( l, fd_rdisp_align(),             fd_rdisp_footprint( depth, block_cnt_max, FD_SCHED_LTHASH_ACCT_EXTRA ) );
   void *           _bpool    = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_sched_block_t),    block_cnt_max*sizeof(fd_sched_block_t)             );
-  void *           _shred_sz = FD_SCRATCH_ALLOC_APPEND( l, alignof(ushort),              block_cnt_max*max_shreds_per_block*sizeof(ushort)  );
   void *           _ref_q    = FD_SCRATCH_ALLOC_APPEND( l, ref_q_align(),                ref_q_footprint( block_cnt_max )                   );
   /*                        */ FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_txn_p_t),          depth*sizeof(fd_txn_p_t)                           );
   /*                        */ FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_sched_txn_info_t), depth*sizeof(fd_sched_txn_info_t)                  );
@@ -2340,15 +2358,12 @@ fd_sched_join( void * mem ) {
   }
   sched->lthash_spec_pool    = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_lthash_value_t),   FD_SCHED_LTHASH_SPEC_MAX*sizeof(fd_lthash_value_t) );
   sched->lthash_spec_free    = FD_SCRATCH_ALLOC_APPEND( l, alignof(uint),                FD_SCHED_LTHASH_SPEC_MAX*sizeof(uint)              );
-  void *           _delta    = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_lthash_value_t),   sched_lthash_delta_sz( block_cnt_max )             );
   void *           _batch    = FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong),               sched_lthash_batch_sz()                            );
   FD_SCRATCH_ALLOC_FINI( l, fd_sched_align() );
 
   sched->rdisp      = fd_rdisp_join( _rdisp );
   sched->ref_q      = ref_q_join( _ref_q );
   sched->block_pool = _bpool;
-  sched->shred_sz   = _shred_sz;
-  sched->lthash_delta     = (fd_lthash_value_t *)_delta;
   sched->lthash_inflight  = (fd_sched_lthash_batch_t *)_batch;
   sched->lthash_add_batch = sched->lthash_inflight+FD_SCHED_MAX_EXEC_TILE_CNT;
 
@@ -2381,7 +2396,7 @@ fd_sched_fec_can_ingest( fd_sched_t * sched, fd_sched_fec_t * fec ) {
   ulong fec_buf_sz = 0UL;
   fd_sched_block_t * block = block_pool_ele( sched, fec->bank_idx );
   if( FD_LIKELY( !fec->is_first_in_block ) ) {
-    fec_buf_sz += block->fec_buf_sz-block->fec_buf_soff;
+    fec_buf_sz += block->residual_sz;
   } else {
     /* No residual data as this is a fresh new block. */
   }
@@ -2588,43 +2603,19 @@ fd_sched_fec_ingest( fd_sched_t *     sched,
     FD_LOG_CRIT(( "invariant violation: block->child_idx %lu, slot %lu, parent slot %lu", block->child_idx, fec->slot, fec->parent_slot ));
   }
 
-  FD_TEST( block->fec_buf_sz>=block->fec_buf_soff );
-  if( FD_LIKELY( block->fec_buf_sz>block->fec_buf_soff ) ) {
-    /* If there is residual data from the previous FEC set within the
-       same batch, we move it to the beginning of the buffer and append
-       the new FEC set. */
-    memmove( block->fec_buf, block->fec_buf+block->fec_buf_soff, block->fec_buf_sz-block->fec_buf_soff );
-  }
-  block->fec_buf_boff += block->fec_buf_soff;
-  block->fec_buf_sz   -= block->fec_buf_soff;
-  block->fec_buf_soff  = 0;
-  /* Addition is safe and won't overflow because we checked the FEC
-     set size above. */
-  if( FD_UNLIKELY( block->fec_buf_sz+fec->fec->data_sz>FD_SCHED_MAX_FEC_BUF_SZ ) ) {
-    /* The residual carried over from the previous parse is bounded: it
-       can only be a partial transaction or a microblock/batch header
-       that straddles a FEC set boundary.  Any trailing bytes past the
-       last microblock within the same batch are discarded by the
-       parser, so they never contribute to the residual.  So residual <=
-       max(sizeof(ulong), sizeof(fd_microblock_hdr_t), FD_TXN_MTU), and
-       the buffer is sized to always fit the residual plus a single FEC
-       set.  Otherwise, it's a bad block.  Instead of crashing, we
-       should refuse to replay down the fork. */
-    FD_LOG_INFO(( "bad block: UNPARSEABLE_CONTENT, fec_buf_sz %u, fec->data_sz %u, slot %lu, parent slot %lu", block->fec_buf_sz, fec->fec->data_sz, fec->slot, fec->parent_slot ));
-    handle_bad_block( sched, block, FD_SCHED_DEAD_REASON_UNPARSEABLE_CONTENT );
-    sched->metrics->bytes_dropped_cnt += fec->fec->data_sz;
-    return 0;
-  }
-
-  /* Append the new FEC set to the end of the buffer. */
-  fd_memcpy( block->fec_buf+block->fec_buf_sz, fec->data, fec->fec->data_sz );
-  block->fec_buf_sz += (uint)fec->fec->data_sz;
+  /* The parse buffer takes the residual from the previous FEC set
+     within the same batch, followed by the new FEC set.  Both are
+     bounded, so this always fits. */
+  FD_TEST( block->residual_sz<=FD_SCHED_MAX_RESIDUAL_SZ );
+  fd_memcpy( sched->fec_buf, block->residual, block->residual_sz );
+  fd_memcpy( sched->fec_buf+block->residual_sz, fec->data, fec->fec->data_sz );
+  sched->fec_buf_sz   = block->residual_sz+(uint)fec->fec->data_sz;
+  sched->fec_buf_soff = 0U;
   sched->metrics->bytes_ingested_cnt += fec->fec->data_sz;
 
   block->fec_eob = fec->is_last_in_batch;
   block->fec_eos = fec->is_last_in_block;
 
-  ushort * shred_sz = sched->shred_sz + fec->bank_idx*sched->max_shreds_per_block;
   ulong tracked_shred_cnt = fd_ulong_min( fec->shred_cnt, FD_FEC_SHRED_CNT );
   uint  tracked_data_sz   = 0U;
   for( ulong i=0UL; i<tracked_shred_cnt; i++ ) tracked_data_sz += fec->fec->shred_sz[ i ];
@@ -2648,7 +2639,12 @@ fd_sched_fec_ingest( fd_sched_t *     sched,
       shred_off = (uint)fec->fec->data_sz;
     }
     FD_TEST( shred_off>=prev_shred_off && shred_off-prev_shred_off<=USHORT_MAX );
-    shred_sz[ block->shred_cnt++ ] = (ushort)(shred_off-prev_shred_off);
+    if( FD_LIKELY( block->shred_cnt-block->shred_scan_idx<FD_SCHED_SHRED_SZ_WINDOW ) ) {
+      block->shred_sz[ block->shred_cnt&(uint)(FD_SCHED_SHRED_SZ_WINDOW-1UL) ] = (ushort)(shred_off-prev_shred_off);
+    } else {
+      block->shred_sz_overflow = 1;
+    }
+    block->shred_cnt++;
     prev_shred_off = shred_off;
   }
 
@@ -2658,7 +2654,7 @@ fd_sched_fec_ingest( fd_sched_t *     sched,
 
   if( FD_UNLIKELY( err!=FD_SCHED_DEAD_REASON_NONE ) ) {
     handle_bad_block( sched, block, err );
-    sched->metrics->bytes_dropped_cnt += block->fec_buf_sz-block->fec_buf_soff;
+    sched->metrics->bytes_dropped_cnt += sched->fec_buf_sz-sched->fec_buf_soff;
     return 0;
   }
 
@@ -2669,7 +2665,7 @@ fd_sched_fec_ingest( fd_sched_t *     sched,
        Upon getting a last-in-batch FEC, everything in the ongoing batch
        should completely parse, and the eob flag should be reset.  There
        should be no go around for a last-in-batch FEC. */
-    FD_LOG_INFO(( "bad block: SHORT_BLOCK, bytes_rem %u, txns_rem %lu, mblks_rem %lu, fec_eob %d, slot %lu, parent slot %lu", block->fec_buf_sz-block->fec_buf_soff, block->txns_rem, block->mblks_rem, block->fec_eob, block->slot, block->parent_slot ));
+    FD_LOG_INFO(( "bad block: SHORT_BLOCK, bytes_rem %u, txns_rem %lu, mblks_rem %lu, fec_eob %d, slot %lu, parent slot %lu", sched->fec_buf_sz-sched->fec_buf_soff, block->txns_rem, block->mblks_rem, block->fec_eob, block->slot, block->parent_slot ));
     handle_bad_block( sched, block, FD_SCHED_DEAD_REASON_SHORT_BLOCK );
     return 0;
   }
@@ -2695,6 +2691,26 @@ fd_sched_fec_ingest( fd_sched_t *     sched,
       return 0;
     }
   }
+
+  /* Park the residual until the next FEC set.  The parser stops only on
+     a parseable unit it has not fully received.  A parseable unit
+     includes a transaction, a block marker, or a microblock or batch
+     header.  The parser drops the trailing bytes of a finished batch.
+     So a residual larger than any of those parseable units is malformed
+     content.  Instead of crashing, we consider the block invalid. */
+  uint residual_sz = sched->fec_buf_sz-sched->fec_buf_soff;
+  if( FD_UNLIKELY( residual_sz>FD_SCHED_MAX_RESIDUAL_SZ ) ) {
+    FD_LOG_INFO(( "bad block: UNPARSEABLE_CONTENT, residual_sz %u, slot %lu, parent slot %lu", residual_sz, fec->slot, fec->parent_slot ));
+    handle_bad_block( sched, block, FD_SCHED_DEAD_REASON_UNPARSEABLE_CONTENT );
+    sched->metrics->bytes_dropped_cnt += residual_sz;
+    return 0;
+  }
+  fd_memcpy( block->residual, sched->fec_buf+sched->fec_buf_soff, residual_sz );
+  block->fec_buf_boff += sched->fec_buf_soff;
+  block->residual_sz   = residual_sz;
+  /* Pass the shreds the next transaction cannot start in, so that few
+     shred sizes stay outstanding between FEC sets. */
+  shred_split( block, block->fec_buf_boff );
 
   /* We just received a FEC set, which may have made all transactions in
      a partially parsed microblock available.  If this were a malformed
@@ -3345,7 +3361,7 @@ fd_sched_task_done( fd_sched_t * sched, ulong task_type, ulong txn_idx, ulong ex
         FD_TEST( e->sub_state==FD_SCHED_LTHASH_SUB_DISPATCHED && e->bank_idx==(uint)bank_idx );
         e->sub_state = (uchar)FD_SCHED_LTHASH_SUB_DONE;
       }
-      fd_lthash_sub( sched->lthash_delta+bank_idx, fd_type_pun_const( data ) );
+      fd_lthash_sub( block_lthash_delta( sched, block ), fd_type_pun_const( data ) );
       block->sub_in_flight_cnt -= (uint)rec->cnt;
       block->sub_applied_cnt   += (uint)rec->cnt;
       block->lthash_in_flight_cnt--;
@@ -3387,7 +3403,7 @@ fd_sched_task_done( fd_sched_t * sched, ulong task_type, ulong txn_idx, ulong ex
         sched->metrics->lthash_add_dispatched_stale_cnt++;
       } else {
         /* Good hash.  Fold it in. */
-        fd_lthash_add( sched->lthash_delta+bank_idx, fd_type_pun_const( data ) );
+        fd_lthash_add( block_lthash_delta( sched, block ), fd_type_pun_const( data ) );
         for( ulong i=0UL; i<rec->cnt; i++ ) {
           fd_sched_lthash_entry_t * e = sched->lthash_lane[ rec->lane ].entry_pool+rec->entry_idx[ i ];
           FD_TEST( e->add_state==FD_SCHED_LTHASH_ADD_DISPATCHED );
@@ -3774,7 +3790,7 @@ fd_sched_lthash_delta( fd_sched_t * sched, ulong bank_idx ) {
   /* The delta accumulates from the block's first LtHash task on and is
      final once BLOCK_END is signaled.  Completing BLOCK_END zeroes it. */
   FD_TEST( block->in_sched && !block->block_end_done );
-  return sched->lthash_delta+bank_idx;
+  return block_lthash_delta( sched, block );
 }
 
 void
@@ -3947,6 +3963,7 @@ add_block( fd_sched_t * sched,
   block->shred_cnt                   = 0U;
   block->shred_scan_idx              = 0U;
   block->shred_scan_off              = 0U;
+  block->shred_sz_overflow           = 0;
   block->mblk_cnt                    = 0U;
   block->mblk_freed_cnt              = 0U;
   block->mblk_tick_cnt               = 0U;
@@ -3975,9 +3992,8 @@ add_block( fd_sched_t * sched,
 
   block->mblks_rem        = 0UL;
   block->txns_rem         = 0UL;
-  block->fec_buf_sz       = 0U;
+  block->residual_sz      = 0U;
   block->fec_buf_boff     = 0U;
-  block->fec_buf_soff     = 0U;
   block->poison_cnt       = 0U;
   block->poison_serialize = 0;
   block->fec_eob          = 0;
@@ -4199,7 +4215,7 @@ fd_sched_block_verify_ticks( fd_sched_t * sched,
 } while( 0 )
 
 /* CHECK that it is safe to read at least n more bytes. */
-#define CHECK_LEFT( n ) CHECK( (n)<=(block->fec_buf_sz-block->fec_buf_soff) )
+#define CHECK_LEFT( n ) CHECK( (n)<=(sched->fec_buf_sz-sched->fec_buf_soff) )
 
 /* Consume as much as possible from the buffer.  By the end of this
    function, there could be residual data left over in the buffer.  That
@@ -4232,8 +4248,8 @@ fd_sched_parse( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_ctx_
       }
 
       CHECK_LEFT( sizeof(fd_microblock_hdr_t) );
-      fd_microblock_hdr_t * hdr = (fd_microblock_hdr_t *)fd_type_pun( block->fec_buf+block->fec_buf_soff );
-      block->fec_buf_soff      += (uint)sizeof(fd_microblock_hdr_t);
+      fd_microblock_hdr_t * hdr = (fd_microblock_hdr_t *)fd_type_pun( sched->fec_buf+sched->fec_buf_soff );
+      sched->fec_buf_soff      += (uint)sizeof(fd_microblock_hdr_t);
 
       if( FD_UNLIKELY( hdr->txn_cnt>fd_ulong_sat_sub( sched->max_txn_per_slot, block->txn_parsed_cnt ) ) ) {
         FD_LOG_INFO(( "bad block: TOO_MANY_TXNS, microblock header declared too many transactions, slot %lu, parent slot %lu, txn_parsed_cnt %u, hdr->txn_cnt %lu", block->slot, block->parent_slot, block->txn_parsed_cnt, hdr->txn_cnt ));
@@ -4293,15 +4309,15 @@ fd_sched_parse( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_ctx_
     }
     if( block->txns_rem==0UL && block->mblks_rem==0UL && block->fec_sob ) {
       CHECK_LEFT( sizeof(ulong) );
-      FD_TEST( block->fec_buf_soff==0U );
-      if( FD_UNLIKELY( !FD_LOAD( ulong, block->fec_buf ) && !block->fec_eob ) ) {
+      FD_TEST( sched->fec_buf_soff==0U );
+      if( FD_UNLIKELY( !FD_LOAD( ulong, sched->fec_buf ) && !block->fec_eob ) ) {
         /* Block marker split across FEC sets */
         fd_block_marker_t peek[1];
-        if( FD_UNLIKELY( FD_BLOCK_MARKER_DE_ERR_SZ==fd_block_marker_de( peek, block->fec_buf, (ulong)block->fec_buf_sz ) &&
-                         block->fec_buf_sz<FD_BLOCK_MARKER_SER_MAX ) ) return FD_SCHED_DEAD_REASON_NONE;
+        if( FD_UNLIKELY( FD_BLOCK_MARKER_DE_ERR_SZ==fd_block_marker_de( peek, sched->fec_buf, (ulong)sched->fec_buf_sz ) &&
+                         sched->fec_buf_sz<FD_BLOCK_MARKER_SER_MAX ) ) return FD_SCHED_DEAD_REASON_NONE;
       }
-      block->mblks_rem     = FD_LOAD( ulong, block->fec_buf );
-      block->fec_buf_soff += (uint)sizeof(ulong);
+      block->mblks_rem     = FD_LOAD( ulong, sched->fec_buf );
+      sched->fec_buf_soff += (uint)sizeof(ulong);
 
       if( FD_UNLIKELY( block->mblks_rem>fd_ulong_sat_sub( sched->max_mblk_per_slot, block->mblk_cnt ) ) ) {
         FD_LOG_INFO(( "bad block: TOO_MANY_MICROBLOCKS, slot %lu, parent slot %lu, mblk_cnt %u (%u ticks) + hdr->mblk_cnt %lu >= %lu", block->slot, block->parent_slot, block->mblk_cnt, block->mblk_tick_cnt, block->mblks_rem, sched->max_mblk_per_slot ));
@@ -4313,14 +4329,14 @@ fd_sched_parse( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_ctx_
       if( FD_UNLIKELY( !block->mblks_rem ) ) {
         /* A zero-microblock batch is a block marker */
         fd_block_marker_t marker[1];
-        int err = fd_block_marker_de( marker, block->fec_buf, (ulong)block->fec_buf_sz );
+        int err = fd_block_marker_de( marker, sched->fec_buf, (ulong)sched->fec_buf_sz );
         if( FD_UNLIKELY( err ) ) {
           FD_LOG_INFO(( "bad block: slot %lu, unable to parse block marker (err %d)", block->slot, err ));
           return FD_SCHED_DEAD_REASON_BAD_BLOCK_MARKER;
         }
         int dead_reason = on_marker( sched, block, marker );
         if( FD_UNLIKELY( dead_reason!=FD_SCHED_DEAD_REASON_NONE ) ) return dead_reason;
-        block->fec_buf_soff = (uint)( FD_BLOCK_MARKER_PREAMBLE_SZ+FD_LOAD( ushort, block->fec_buf+FD_BLOCK_MARKER_PREAMBLE_SZ-sizeof(ushort) ) ); /* the marker is not trailing bytes */
+        sched->fec_buf_soff = (uint)( FD_BLOCK_MARKER_PREAMBLE_SZ+FD_LOAD( ushort, sched->fec_buf+FD_BLOCK_MARKER_PREAMBLE_SZ-sizeof(ushort) ) ); /* the marker is not trailing bytes */
       } else if( FD_UNLIKELY( block->mblks_rem ) ) {
         int dead_reason = on_entry_batch( block );
         if( FD_UNLIKELY( dead_reason!=FD_SCHED_DEAD_REASON_NONE ) ) return dead_reason;
@@ -4338,10 +4354,10 @@ fd_sched_parse( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_ctx_
        accumulating them would overflow the parse buffer.  Any followup
        FEC sets within the same batch will simply be discarded
        wholesale. */
-    sched->metrics->bytes_ingested_unparsed_cnt += block->fec_buf_sz-block->fec_buf_soff;
-    block->fec_buf_boff += block->fec_buf_sz;
-    block->fec_buf_soff  = 0U;
-    block->fec_buf_sz    = 0U;
+    sched->metrics->bytes_ingested_unparsed_cnt += sched->fec_buf_sz-sched->fec_buf_soff;
+    block->fec_buf_boff += sched->fec_buf_sz;
+    sched->fec_buf_soff  = 0U;
+    sched->fec_buf_sz    = 0U;
   }
   if( block->fec_eob ) {
     block->fec_sob = 1;
@@ -4456,10 +4472,10 @@ block_poison_add( fd_sched_t *           sched,
 
 FD_WARN_UNUSED static int
 fd_sched_parse_txn( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_ctx_t * alut_ctx ) {
-  fd_txn_t * txn = fd_type_pun( block->txn );
+  fd_txn_t * txn = fd_type_pun( sched->txn );
 
-  uchar * payload   = block->fec_buf+block->fec_buf_soff;
-  ulong   remaining = block->fec_buf_sz-block->fec_buf_soff;
+  uchar * payload   = sched->fec_buf+sched->fec_buf_soff;
+  ulong   remaining = sched->fec_buf_sz-sched->fec_buf_soff;
   ulong   pay_sz    = 0UL;
   ulong   txn_sz    = fd_txn_parse_core( payload,
                                          remaining,
@@ -4626,9 +4642,9 @@ fd_sched_parse_txn( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_
   fd_txn_p_t * txn_p = sched->txn_pool + txn_idx;
   txn_p->payload_sz  = (ushort)pay_sz;
 
-  txn_p->start_shred_idx = (ushort)fd_uint_min( shred_split( sched, block, block->fec_buf_boff+block->fec_buf_soff ), USHORT_MAX ); /* monitoring-only ushorts; saturate under bench shred counts */
+  txn_p->start_shred_idx = (ushort)fd_uint_min( shred_split( block, block->fec_buf_boff+sched->fec_buf_soff ), USHORT_MAX ); /* monitoring-only ushorts; saturate under bench shred counts */
   txn_p->start_shred_idx = fd_ushort_if( txn_p->start_shred_idx>0U, (ushort)(txn_p->start_shred_idx-1U), txn_p->start_shred_idx );
-  txn_p->end_shred_idx = (ushort)fd_uint_min( shred_split( sched, block, block->fec_buf_boff+block->fec_buf_soff+(uint)pay_sz ), USHORT_MAX );
+  txn_p->end_shred_idx = (ushort)fd_uint_min( shred_split( block, block->fec_buf_boff+sched->fec_buf_soff+(uint)pay_sz ), USHORT_MAX );
 
   fd_memcpy( txn_p->payload, payload, pay_sz );
   fd_memcpy( TXN(txn_p),     txn,     txn_sz );
@@ -4660,7 +4676,7 @@ fd_sched_parse_txn( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_
   sched->txn_info_pool[ txn_idx ].transaction_fee = 0UL;
   sched->txn_info_pool[ txn_idx ].priority_fee = 0UL;
   sched->txn_info_pool[ txn_idx ].tips = 0UL;
-  block->fec_buf_soff += (uint)pay_sz;
+  sched->fec_buf_soff += (uint)pay_sz;
   block->txn_parsed_cnt++;
 #if FD_SCHED_SKIP_SIGVERIFY
   txn_bitset_insert( sched->sigverify_done_set, txn_idx );
@@ -5163,13 +5179,13 @@ subtree_mark_and_maybe_prune_rdisp( fd_sched_t * sched, fd_sched_block_t * block
 
     if( abandon ) {
       block->in_rdisp = 0;
-      lthash_release_reservation( sched, block );
       sched->metrics->lthash_discarded_add_owed_cnt    += block->add_owed_cnt;
       sched->metrics->lthash_discarded_add_pending_cnt += block->add_created_cnt-block->add_surfaced_cnt;
       sched->metrics->lthash_discarded_sub_queued_cnt  += block->sub_queued_cnt;
       sched->metrics->lthash_discarded_sub_applied_cnt += block->sub_applied_cnt;
       sched->metrics->lthash_discarded_add_applied_cnt += block->add_applied_cnt-block->add_undone_cnt;
       lthash_block_reset( sched, block );
+      lthash_release_reservation( sched, block );
       fd_rdisp_abandon_block( sched->rdisp, (ulong)(block-sched->block_pool) );
       block->txn_idx_tail = 0U;
       sched->txn_pool_free_cnt += block->txn_parsed_cnt-block->txn_done_cnt; /* in_flight_cnt==0 */
@@ -5347,8 +5363,8 @@ maybe_switch_block( fd_sched_t * sched, ulong bank_idx ) {
        block, and a cheap way for us to check count invariants. */
     FD_TEST( block->sub_applied_cnt==block->add_applied_cnt-block->add_undone_cnt );
     sched->metrics->lthash_frozen_cnt += block->sub_applied_cnt;
-    lthash_release_reservation( sched, block );
     lthash_block_reset( sched, block );
+    lthash_release_reservation( sched, block );
     fd_rdisp_remove_block( sched->rdisp, bank_idx );
     FD_LOG_DEBUG(( "block %lu:%lu exited lane %lu: remove", block->slot, bank_idx, block->staging_lane ));
     block->in_rdisp = 0;

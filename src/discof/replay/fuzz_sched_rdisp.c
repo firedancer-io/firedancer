@@ -1524,11 +1524,12 @@ run_sched_rdisp_case( uchar const * data, ulong data_sz ) {
         /* The delta is read before completion, as the replay tile does,
            and holds exactly one subtraction and one addition at the
            final version per account the block wrote.  An in-band block
-           has an empty delta. */
-        fd_lthash_value_t expected[ 1 ];
-        block_expected_delta( block, expected );
-        if( block->inband ) FD_TEST( fd_lthash_is_zero( fd_sched_lthash_delta( tc->sched, bank_idx ) ) );
-        else                FD_TEST( fd_lthash_eq( fd_sched_lthash_delta( tc->sched, bank_idx ), expected ) );
+           has no delta to read. */
+        if( !block->inband ) {
+          fd_lthash_value_t expected[ 1 ];
+          block_expected_delta( block, expected );
+          FD_TEST( fd_lthash_eq( fd_sched_lthash_delta( tc->sched, bank_idx ), expected ) );
+        }
         FD_TEST( 0==fd_sched_task_done( tc->sched, FD_SCHED_TT_BLOCK_END, ULONG_MAX, ULONG_MAX, NULL ) );
         block->end_seen = 1;
         rdisp_mirror_drain_block( mirror, block );

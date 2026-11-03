@@ -52,22 +52,27 @@ delete_sched( fd_sched_t * sched ) {
   fd_wksp_free_laddr( fd_sched_delete( fd_sched_leave( sched ) ) );
 }
 
-/* The footprint covers the dispatcher's account budget for the lane
-   sets, one lane map per lane, the hash pool, the deltas and the batch
-   records, which scale with FD_SCHED_LTHASH_BATCH_MAX, so it is pinned
-   at the default width only. */
-#define TEST_SCHED_FOOTPRINT (1981664384UL)
+/* Each live slot costs the block struct, the dispatcher's block map
+   and pool entry, and the reference queue entry.  Doubling the
+   transaction depth from 32768 adds that many transaction, info and
+   microblock records and the dispatcher's depth-scaled structures.
+   Both are pinned as differences, since the absolute footprint moves
+   by a cache line or two with the machine target through the duplicate
+   account checker. */
+#define TEST_SCHED_PER_SLOT_FOOTPRINT   (11634UL)
+#define TEST_SCHED_DEPTH_STEP_FOOTPRINT (745799680UL)
 
 static void
 test_sched_footprint( void ) {
-  if( FD_SCHED_LTHASH_BATCH_MAX==32UL ) {
-    /* Retain the savings from compact shred lengths and 4992-byte
-       transactions under the default scheduler sizing. */
-    FD_TEST( fd_sched_footprint( 65536UL, 2048UL, FD_SHRED_BLK_MAX, FD_MAX_TXN_PER_SLOT )==TEST_SCHED_FOOTPRINT );
-    /* Only the shred length array scales with the shred limit. */
-    FD_TEST( fd_sched_footprint( 65536UL, 2048UL, 4UL*FD_SHRED_BLK_MAX, FD_MAX_TXN_PER_SLOT )==TEST_SCHED_FOOTPRINT+2048UL*3UL*FD_SHRED_BLK_MAX*sizeof(ushort) );
-    FD_TEST( fd_sched_footprint( 65536UL, 2048UL, FD_SHRED_BLK_MAX, 5UL*FD_MAX_TXN_PER_SLOT )==TEST_SCHED_FOOTPRINT );
-  }
+  ulong footprint = fd_sched_footprint( 65536UL, 2048UL, FD_SHRED_BLK_MAX, FD_MAX_TXN_PER_SLOT );
+  FD_TEST( footprint );
+  /* Retain the per-block savings and the 4992-byte transaction
+     records. */
+  FD_TEST( footprint-fd_sched_footprint( 65536UL, 1024UL, FD_SHRED_BLK_MAX, FD_MAX_TXN_PER_SLOT )==1024UL*TEST_SCHED_PER_SLOT_FOOTPRINT );
+  FD_TEST( footprint-fd_sched_footprint( 32768UL, 2048UL, FD_SHRED_BLK_MAX, FD_MAX_TXN_PER_SLOT )==TEST_SCHED_DEPTH_STEP_FOOTPRINT );
+  /* The shred limit bounds a counter and sizes nothing. */
+  FD_TEST( fd_sched_footprint( 65536UL, 2048UL, 4UL*FD_SHRED_BLK_MAX, FD_MAX_TXN_PER_SLOT )==footprint );
+  FD_TEST( fd_sched_footprint( 65536UL, 2048UL, FD_SHRED_BLK_MAX, 5UL*FD_MAX_TXN_PER_SLOT )==footprint );
   FD_TEST( !fd_sched_footprint( 65536UL, 2048UL, 0UL, FD_MAX_TXN_PER_SLOT ) );
   FD_TEST( !fd_sched_footprint( 65536UL, 2048UL, FD_SHRED_BLK_MAX, 0UL ) );
 }
@@ -398,6 +403,144 @@ run_interleaved_fec_residual_case( void ) {
   FD_TEST( network_ticks>=min_wait );
   FD_TEST( network_ticks<=states[ state_cnt-1UL ].end_tick-states[ 0 ].start_tick );
   FD_TEST( !fd_sched_slot_states_drain( sched, states ) );
+
+  delete_sched( sched );
+}
+
+/* Writes a one-transaction microblock batch header to out and returns
+   its size.  The transaction itself follows. */
+static ulong
+encode_txn_batch_header( uchar * out,
+                         ulong   seed ) {
+  ulong cursor = 0UL;
+  FD_STORE( ulong, out+cursor, 1UL );
+  cursor += sizeof(ulong);
+  fd_microblock_hdr_t hdr = {
+    .hash_cnt = 1UL,
+    .txn_cnt  = 1UL,
+  };
+  fd_hash_t mblk_hash[ 1 ];
+  hash_from_seed( mblk_hash, seed );
+  fd_memcpy( hdr.hash, mblk_hash->hash, sizeof(fd_hash_t) );
+  fd_memcpy( out+cursor, &hdr, sizeof(hdr) );
+  return cursor+sizeof(hdr);
+}
+
+/* A residual larger than any unit the parser could be waiting on is
+   malformed content.  The block dies on the FEC set that leaves it
+   behind rather than when its batch ends.  The microblock header
+   announces one transaction and is followed by bytes no transaction
+   parse accepts, one more of them than the largest unit. */
+static void
+run_unparseable_residual_case( void ) {
+  fd_sched_t * sched = new_sched_ext( FD_SCHED_MIN_DEPTH, 4UL, FD_SHRED_BLK_MAX, FD_MAX_TXN_PER_SLOT );
+
+  fd_hash_t start_poh[ 1 ];
+  hash_from_seed( start_poh, 0x6b1d4c9e2a7f3850UL );
+  fd_hash_t poh[ 1 ] = { start_poh[ 0 ] };
+  FD_TEST( ingest_ag_component( sched, 2UL, AG_COMP_HEADER, poh, 1, 0 ) );
+  fd_sched_set_poh_params( sched, 2UL, TEST_ROOT_TICK_HEIGHT, TEST_ROOT_TICK_HEIGHT+1UL, start_poh );
+
+  static uchar encoded[ 8192 ] __attribute__((aligned(64)));
+  ulong cursor     = encode_txn_batch_header( encoded, 0x2f7a0c6d9e4b1583UL );
+  ulong garbage_sz = fd_ulong_max( FD_TXN_MTU, FD_BLOCK_MARKER_SER_MAX )+1UL;
+  fd_memset( encoded+cursor, 0xff, garbage_sz );
+  cursor += garbage_sz;
+
+  fd_store_fec_t store_fec[ 1 ] __attribute__((aligned(alignof(fd_store_fec_t))));
+  fd_memset( store_fec, 0, sizeof(fd_store_fec_t) );
+  store_fec->data_sz       = (uint)cursor;
+  store_fec->shred_sz[ 0 ] = (ushort)cursor;
+  fd_sched_fec_t fec[ 1 ] = {{
+    .bank_idx        = 2UL,
+    .parent_bank_idx = 1UL,
+    .slot            = TEST_ROOT_SLOT+1UL,
+    .parent_slot     = TEST_ROOT_SLOT,
+    .fec             = store_fec,
+    .data            = encoded,
+    .shred_cnt       = 1U,
+  }};
+  FD_TEST( fd_sched_fec_can_ingest( sched, fec ) );
+  FD_TEST( !fd_sched_fec_ingest( sched, fec ) );
+  FD_TEST( fd_sched_get_dead_reason( sched, 2UL )==FD_SCHED_DEAD_REASON_UNPARSEABLE_CONTENT );
+
+  while( fd_sched_pruned_block_next( sched )!=ULONG_MAX ) {}
+  delete_sched( sched );
+}
+
+/* A FEC set of more shreds than a block keeps sizes for saturates the
+   shred attribution of the transactions parsed from then on.  Ingest
+   otherwise proceeds, with the shreds counted.  The 32 tracked shreds
+   are empty, so the batch sits in the untracked ones. */
+static void
+run_shred_window_overflow_case( void ) {
+  fd_sched_t * sched = new_sched_ext( FD_SCHED_MIN_DEPTH, 4UL, FD_SHRED_BLK_MAX, FD_MAX_TXN_PER_SLOT );
+  fd_sched_set_bypass_poh_verify( sched, 1 );
+
+  fd_hash_t start_poh[ 1 ];
+  hash_from_seed( start_poh, 0x0d58e3b7c4a19f26UL );
+  fd_hash_t poh[ 1 ] = { start_poh[ 0 ] };
+  FD_TEST( ingest_ag_component( sched, 2UL, AG_COMP_HEADER, poh, 1, 0 ) );
+  fd_sched_set_poh_params( sched, 2UL, TEST_ROOT_TICK_HEIGHT, TEST_ROOT_TICK_HEIGHT+1UL, start_poh );
+
+  static uchar encoded[ 8192 ] __attribute__((aligned(64)));
+  ulong cursor = encode_txn_batch_header( encoded, 0x91c6e24ab75d03f8UL );
+  cursor += build_shred_test_txn( encoded+cursor );
+
+  fd_store_fec_t store_fec[ 1 ] __attribute__((aligned(alignof(fd_store_fec_t))));
+  fd_memset( store_fec, 0, sizeof(fd_store_fec_t) );
+  store_fec->data_sz = (uint)cursor;
+  fd_sched_fec_t fec[ 1 ] = {{
+    .bank_idx         = 2UL,
+    .parent_bank_idx  = 1UL,
+    .slot             = TEST_ROOT_SLOT+1UL,
+    .parent_slot      = TEST_ROOT_SLOT,
+    .fec              = store_fec,
+    .data             = encoded,
+    .shred_cnt        = 300U,
+    .is_last_in_batch = 1U,
+  }};
+  FD_TEST( fd_sched_fec_can_ingest( sched, fec ) );
+  FD_TEST( fd_sched_fec_ingest( sched, fec ) );
+  FD_TEST( fd_sched_get_shred_cnt( sched, 2UL )==301U ); /* one from the header */
+
+  int seen = 0;
+  for( ulong step=0UL; step<100UL && !seen; step++ ) {
+    fd_sched_task_t task[ 1 ];
+    if( !fd_sched_task_next_ready( sched, task ) ) break;
+    switch( task->task_type ) {
+      case FD_SCHED_TT_BLOCK_START:
+        FD_TEST( !fd_sched_task_done( sched, FD_SCHED_TT_BLOCK_START, ULONG_MAX, ULONG_MAX, NULL ) );
+        break;
+      case FD_SCHED_TT_TXN_EXEC: {
+        fd_txn_p_t * txn = fd_sched_get_txn( sched, task->txn_exec->txn_idx );
+        FD_TEST( txn->start_shred_idx==USHORT_MAX-1U );
+        FD_TEST( txn->end_shred_idx==USHORT_MAX );
+        FD_TEST( !fd_sched_task_done( sched, FD_SCHED_TT_TXN_EXEC, task->txn_exec->txn_idx, task->txn_exec->exec_idx, NULL ) );
+        seen = 1;
+        break;
+      }
+      case FD_SCHED_TT_TXN_SIGVERIFY:
+        FD_TEST( !fd_sched_task_done( sched, FD_SCHED_TT_TXN_SIGVERIFY, task->txn_sigverify->txn_idx, task->txn_sigverify->exec_idx, NULL ) );
+        break;
+      case FD_SCHED_TT_POH_HASH: {
+        fd_execrp_poh_hash_done_msg_t msg[ 1 ];
+        msg->cnt = task->poh_hash->cnt;
+        for( ulong i=0UL; i<task->poh_hash->cnt; i++ ) repeat_hash( msg->hash+i, task->poh_hash->hash+i, task->poh_hash->hashcnt );
+        FD_TEST( !fd_sched_task_done( sched, FD_SCHED_TT_POH_HASH, ULONG_MAX, task->poh_hash->exec_idx, msg ) );
+        break;
+      }
+      case FD_SCHED_TT_LTHASH_SUB:
+      case FD_SCHED_TT_LTHASH_ADD: {
+        fd_lthash_value_t v[ 1 ]; fd_lthash_zero( v );
+        FD_TEST( !fd_sched_task_done( sched, task->task_type, ULONG_MAX, task->lthash->exec_idx, v ) );
+        break;
+      }
+      default:
+        FD_LOG_ERR(( "unexpected task type %lu in shred window overflow test", task->task_type ));
+    }
+  }
+  FD_TEST( seen );
 
   delete_sched( sched );
 }
@@ -1268,6 +1411,7 @@ struct test_lthash_ctx {
   ulong                  step;
   ulong                  last_lthash_step[ TEST_LTHASH_BANK_MAX ]; /* step of the bank's last LtHash completion */
   ulong                  block_end_step  [ TEST_LTHASH_BANK_MAX ]; /* step BLOCK_END was handed out for the bank */
+  int                    inband          [ TEST_LTHASH_BANK_MAX ]; /* BLOCK_START said the bank hashes in band */
   ulong                  sub_cnt;        /* accounts subtracted */
   ulong                  add_cnt;        /* accounts added */
   ulong                  sub_task_cnt;   /* subtraction tasks completed, each a batch of accounts */
@@ -1449,16 +1593,20 @@ lthash_drive_task( fd_sched_t *        sched,
   switch( task->task_type ) {
     case FD_SCHED_TT_BLOCK_START:
       ctx->step++;
+      FD_TEST( task->block_start->bank_idx<TEST_LTHASH_BANK_MAX );
+      ctx->inband[ task->block_start->bank_idx ] = task->block_start->lthash_inband;
       FD_TEST( !fd_sched_task_done( sched, FD_SCHED_TT_BLOCK_START, ULONG_MAX, ULONG_MAX, NULL ) );
       break;
     case FD_SCHED_TT_BLOCK_END: {
       /* The delta is read before BLOCK_END is completed, as the replay
          tile does, because completion frees it.  A block ends only once
-         its lane set is drained. */
+         its lane set is drained.  An in-band block has no delta to
+         read. */
       ulong bank_idx = task->block_end->bank_idx;
       FD_TEST( bank_idx<TEST_LTHASH_BANK_MAX );
       FD_TEST( lthash_block_line_has( sched, bank_idx, "lthash_drained 1," ) );
-      fd_memcpy( ctx->delta, fd_sched_lthash_delta( sched, bank_idx ), sizeof(fd_lthash_value_t) );
+      if( ctx->inband[ bank_idx ] ) fd_lthash_zero( ctx->delta );
+      else                          fd_memcpy( ctx->delta, fd_sched_lthash_delta( sched, bank_idx ), sizeof(fd_lthash_value_t) );
       ctx->block_end_step[ bank_idx ] = ++ctx->step;
       ctx->block_end_cnt++;
       FD_TEST( !fd_sched_task_done( sched, FD_SCHED_TT_BLOCK_END, ULONG_MAX, ULONG_MAX, NULL ) );
@@ -2063,7 +2211,7 @@ run_lthash_demote_promote_case( void ) {
    first drain or its BLOCK_START.  With room for one block, block 2
    takes it.  Block 3, a fork off the root, starts in band.  Its writer
    leaves the dispatcher's set, it owes no subtraction or addition, and
-   it ends with an empty delta.  Block 2's end frees the reservation
+   it ends with no delta to read.  Block 2's end frees the reservation
    and block 4 hashes out of band again. */
 static void
 run_lthash_inband_fallback_case( void ) {
@@ -2111,11 +2259,11 @@ run_lthash_inband_fallback_case( void ) {
   lthash_drive( sched, ctx, 100UL );
   FD_TEST( ctx->txn_exec_cnt==2UL && ctx->sub_cnt==1UL && ctx->add_cnt==1UL );
 
-  /* Block 3's last FEC set ends it with an empty delta.  Block 2's
-     ends it out of band and frees the reservation. */
+  /* Block 3's last FEC set ends it in band, with no delta to read.
+     Block 2's ends it out of band and frees the reservation. */
   ingest_lthash_fec( sched, 3UL, 1UL, TEST_ROOT_SLOT+2UL, TEST_ROOT_SLOT, NULL, 0UL, 0, 1 );
   lthash_drive( sched, ctx, 100UL );
-  FD_TEST( ctx->block_end_cnt==1UL && ctx->block_end_step[ 3 ] && fd_lthash_is_zero( ctx->delta ) );
+  FD_TEST( ctx->block_end_cnt==1UL && ctx->block_end_step[ 3 ] && ctx->inband[ 3 ] );
   ingest_lthash_fec( sched, 2UL, 1UL, TEST_ROOT_SLOT+1UL, TEST_ROOT_SLOT, NULL, 0UL, 0, 1 );
   lthash_drive( sched, ctx, 100UL );
   FD_TEST( ctx->block_end_cnt==2UL && ctx->sub_cnt==1UL && ctx->add_cnt==1UL );
@@ -4664,6 +4812,8 @@ main( int     argc,
   run_ag_structure_cases();
   run_many_entries_cases();
   run_interleaved_fec_residual_case();
+  run_unparseable_residual_case();
+  run_shred_window_overflow_case();
   run_abandon_flavor_case();
   run_root_notify_flavor_case();
   run_late_ancestor_discard_case();
