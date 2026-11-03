@@ -21,7 +21,6 @@
 #include <sys/socket.h>
 
 #include "../../metrics/fd_metrics.h"
-#include "../fd_net_router.h"
 #include "../../topo/fd_topo.h"
 #include "../../sleep/fd_sleep.h"
 

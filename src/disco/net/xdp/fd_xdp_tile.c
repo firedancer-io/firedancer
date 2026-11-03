@@ -4,7 +4,6 @@
 
 #include "../fd_net_tile.h"
 #include "../fd_net_tile_private.h"
-#include "../fd_net_router.h"
 
 #include <errno.h>
 #include <fcntl.h>
