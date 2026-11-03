@@ -425,6 +425,16 @@ fd_keyguard_payload_matches_vote_history( uchar const * data,
   return 1;
 }
 
+FD_FN_PURE static int
+fd_keyguard_payload_matches_failov( uchar const * data,
+                                    ulong         sz,
+                                    int           sign_type ) {
+  return sign_type==FD_KEYGUARD_SIGN_TYPE_ED25519 &&
+         sz==FD_KEYGUARD_FAILOVER_PROOF_SZ &&
+         ( fd_memeq( data, FD_KEYGUARD_FAILOVER_CLIENT_DOMAIN, FD_KEYGUARD_FAILOVER_DOMAIN_SZ ) ||
+           fd_memeq( data, FD_KEYGUARD_FAILOVER_SERVER_DOMAIN, FD_KEYGUARD_FAILOVER_DOMAIN_SZ ) );
+}
+
 FD_FN_PURE ulong
 fd_keyguard_payload_match( uchar const * data,
                            ulong         sz,
@@ -444,5 +454,6 @@ fd_keyguard_payload_match( uchar const * data,
   res |= fd_ulong_if( fd_keyguard_payload_matches_bls_pubkey  ( data, sz, sign_type ), FD_KEYGUARD_PAYLOAD_BLS_PUBKEY,   0 );
   res |= fd_ulong_if( fd_keyguard_payload_matches_tower       ( data, sz, sign_type ), FD_KEYGUARD_PAYLOAD_TOWER,        0 );
   res |= fd_ulong_if( fd_keyguard_payload_matches_vote_history( data, sz, sign_type ), FD_KEYGUARD_PAYLOAD_VOTE_HISTORY, 0 );
+  res |= fd_ulong_if( fd_keyguard_payload_matches_failov      ( data, sz, sign_type ), FD_KEYGUARD_PAYLOAD_FAILOV,       0 );
   return res;
 }

@@ -37,10 +37,13 @@
 #define FD_ADMINCTL_CMD_GET_IDENTITY           (3UL)
 #define FD_ADMINCTL_CMD_REMOVE_ALL_AUTH_VOTERS (4UL)
 #define FD_ADMINCTL_CMD_SNAP_CREATE            (5UL)
+#define FD_ADMINCTL_CMD_FAILOVER_PROMOTE       (6UL)
 
 #define FD_ADMINCTL_ALIGN       (8UL)
 #define FD_ADMINCTL_PAYLOAD_MAX (32768UL)
 #define FD_ADMINCTL_SLOT_CNT    (4UL)
+#define FD_ADMINCTL_STEP_MAX    (256UL) /* a step line, with its NUL */
+#define FD_ADMINCTL_STEP_CNT    (16UL)  /* step lines a slot keeps for its command process */
 
 /* Shared command result codes. */
 #define FD_ADMINCTL_RESULT_SUCCESS              (0UL)
@@ -55,6 +58,7 @@
 #define FD_ADD_AUTHORIZED_VOTER_RESULT_KEYPAIR_MISMATCH     (0x1001UL)
 #define FD_ADD_AUTHORIZED_VOTER_RESULT_MAX_AUTH_VOTERS      (0x1002UL)
 #define FD_ADD_AUTHORIZED_VOTER_RESULT_DUPLICATE_AUTH_VOTER (0x1003UL)
+#define FD_ADD_AUTHORIZED_VOTER_RESULT_FAILOVER_IDENTITY    (0x1004UL)
 
 #define FD_SNAPSHOT_CREATE_RESULT_BUSY                      (0x2001UL)
 #define FD_SNAPSHOT_CREATE_RESULT_NOT_READY                 (0x2003UL)
@@ -63,6 +67,27 @@
 #define FD_SET_IDENTITY_RESULT_KEYPAIR_MISMATCH             (0x3001UL)
 #define FD_SET_IDENTITY_RESULT_INVALID_VOTE_HISTORY         (0x3002UL)
 #define FD_SET_IDENTITY_RESULT_SAME_IDENTITY                (0x3003UL)
+#define FD_SET_IDENTITY_RESULT_AUTHORIZED_VOTER             (0x3004UL)
+
+/* Failover command results. */
+#define FD_FAILOVER_CONTROL_RESULT_BUSY              (0x4001UL)
+#define FD_FAILOVER_CONTROL_RESULT_NOT_HOLDER        (0x4002UL)
+#define FD_FAILOVER_CONTROL_RESULT_IN_PROGRESS       (0x4003UL)
+#define FD_FAILOVER_CONTROL_RESULT_HANDOFF_ABORTED   (0x4004UL)
+#define FD_FAILOVER_CONTROL_RESULT_PEER_HOLDS        (0x4005UL)
+#define FD_FAILOVER_CONTROL_RESULT_NO_FINAL_HISTORY  (0x4006UL)
+#define FD_FAILOVER_CONTROL_RESULT_NO_HOLDER_ADDRESS (0x4007UL)
+#define FD_FAILOVER_CONTROL_RESULT_REPLAY_BEHIND     (0x4008UL)
+#define FD_FAILOVER_CONTROL_RESULT_TIMEOUT           (0x4009UL)
+#define FD_FAILOVER_CONTROL_RESULT_PEER_RESTARTED    (0x400AUL)
+#define FD_FAILOVER_CONTROL_RESULT_ADOPTION_FAILED   (0x400BUL)
+#define FD_FAILOVER_CONTROL_RESULT_SWITCH_FAILED     (0x400CUL)
+#define FD_FAILOVER_CONTROL_RESULT_HOLDS_OTHER       (0x400DUL)
+#define FD_FAILOVER_CONTROL_RESULT_IDENTITY_CHANGED  (0x400EUL)
+#define FD_FAILOVER_CONTROL_RESULT_HOLDER_LIVE       (0x400FUL)
+#define FD_FAILOVER_CONTROL_RESULT_NO_PEER           (0x4010UL)
+#define FD_FAILOVER_CONTROL_RESULT_ALREADY_HOLDS     (0x4011UL)
+#define FD_FAILOVER_CONTROL_RESULT_HANDED_OFF        (0x4012UL)
 
 struct fd_adminctl_add_auth_voter_v1 {
   ulong version; /* ==FD_ADMINCTL_ADD_AUTH_VOTER_PAYLOAD_VERSION */
@@ -106,6 +131,53 @@ struct fd_adminctl_remove_all_auth_voters_v1 {
 };
 typedef struct fd_adminctl_remove_all_auth_voters_v1 fd_adminctl_remove_all_auth_voters_t;
 #define FD_ADMINCTL_REMOVE_ALL_AUTH_VOTERS_PAYLOAD_VERSION (1UL)
+
+/* Failover commands, forwarded to the failover tile. */
+#define FD_ADMINCTL_FAILOVER_CMD_HANDOFF   (0UL)
+#define FD_ADMINCTL_FAILOVER_CMD_PROMOTE   (1UL)
+#define FD_ADMINCTL_FAILOVER_CMD_PREFLIGHT (2UL)
+#define FD_ADMINCTL_FAILOVER_CMD_CNT       (3UL)
+
+#define FD_ADMINCTL_FAILOVER_FLAG_YES      (1UL)
+#define FD_ADMINCTL_FAILOVER_FLAG_FORCE    (2UL)
+#define FD_ADMINCTL_FAILOVER_FLAG_TAKEOVER (4UL)
+
+/* The command as the operator typed it. */
+static inline char const *
+fd_adminctl_failover_cmd_typed( ulong cmd,
+                                ulong flags ) {
+  if( FD_UNLIKELY( cmd>=FD_ADMINCTL_FAILOVER_CMD_CNT ) ) return "unknown";
+  if( FD_LIKELY( !( flags & FD_ADMINCTL_FAILOVER_FLAG_TAKEOVER ) ) ) return "failover promote";
+  return ( flags & FD_ADMINCTL_FAILOVER_FLAG_FORCE ) ? "failover takeover --force" : "failover takeover";
+}
+
+struct fd_adminctl_failover_req_v1 {
+  ulong  version;      /* ==FD_ADMINCTL_FAILOVER_PAYLOAD_VERSION */
+  ulong  cmd;          /* FD_ADMINCTL_FAILOVER_CMD_* */
+  ulong  flags;        /* FD_ADMINCTL_FAILOVER_FLAG_* */
+  uint   addr;         /* HANDOFF only, the machine running the identity to dial in network byte order, 0 to find it in gossip */
+  ushort port;         /* HANDOFF only, the port to dial it on in host byte order, 0 for the default port */
+  uchar  target[ 32 ]; /* PREFLIGHT: the identity the keypair names.  PROMOTE: the identity the command's handoff was for, zero for whatever the target is; another is refused IDENTITY_CHANGED */
+};
+typedef struct fd_adminctl_failover_req_v1 fd_adminctl_failover_req_t;
+
+/* Optional promote payload. */
+struct fd_adminctl_failover_prepare_v1 {
+  fd_adminctl_failover_req_t req;
+  uchar                      keypair[ 64 ];
+};
+typedef struct fd_adminctl_failover_prepare_v1 fd_adminctl_failover_prepare_t;
+
+struct fd_adminctl_failover_resp_v1 {
+  ulong version; /* ==FD_ADMINCTL_FAILOVER_PAYLOAD_VERSION */
+  uchar identity[ 32 ];
+  ulong slot;    /* on success the last vote cast before hand-over, ULONG_MAX for none */
+};
+typedef struct fd_adminctl_failover_resp_v1 fd_adminctl_failover_resp_t;
+#define FD_ADMINCTL_FAILOVER_PAYLOAD_VERSION (1UL)
+
+FD_STATIC_ASSERT( sizeof(fd_adminctl_failover_req_t )==64UL, failover_req_v1_layout  );
+FD_STATIC_ASSERT( sizeof(fd_adminctl_failover_resp_t)==48UL, failover_resp_v1_layout );
 
 typedef struct fd_adminctl_private fd_adminctl_t;
 
@@ -157,6 +229,21 @@ ulong
 fd_adminctl_wait( fd_adminctl_t * adminctl,
                   ulong           slot_id );
 
+/* fd_adminctl_wait_steps is fd_adminctl_wait_response that also calls
+   step_fn with each step line the admin tile adds while the command
+   runs, in order.  A command process that falls more than
+   FD_ADMINCTL_STEP_CNT-1 lines behind skips the oldest. */
+
+typedef void (* fd_adminctl_step_fn_t)( char const * step );
+
+ulong
+fd_adminctl_wait_steps( fd_adminctl_t *       adminctl,
+                        ulong                 slot_id,
+                        void *                resp,
+                        ulong                 resp_max,
+                        ulong *               resp_sz_out,
+                        fd_adminctl_step_fn_t step_fn );
+
 /* fd_adminctl_wait_response is fd_adminctl_wait for commands that also
    return a response payload.  Before the slot is reclaimed, up to
    resp_max bytes of the response payload are copied into resp and the
@@ -203,6 +290,16 @@ fd_adminctl_complete_response( fd_adminctl_t * adminctl,
                                ulong           result,
                                void const *    resp,
                                ulong           resp_sz );
+
+/* fd_adminctl_step adds a step line to the command being processed in
+   slot_id, for its command process to show.  Only the app process
+   calls it, between poll and complete.  The line is truncated to
+   FD_ADMINCTL_STEP_MAX-1 bytes. */
+
+void
+fd_adminctl_step( fd_adminctl_t * adminctl,
+                  ulong           slot_id,
+                  char const *    step );
 
 FD_PROTOTYPES_END
 

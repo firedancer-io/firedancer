@@ -1,4 +1,5 @@
 #include "fd_keyguard.h"
+#include "../../waltz/tls/fd_tls.h"
 
 #include <stdlib.h>
 
@@ -28,6 +29,19 @@ LLVMFuzzerTestOneInput( uchar const * data,
     for( int role=0; role<FD_KEYGUARD_ROLE_CNT; role++ ) {
       (void)fd_keyguard_payload_authorize( &authority, data, size, role, (int)i );
     }
+  }
+
+  /* The sign tile checks the failover signing domain, so the failov role
+     signs only the admission proof or a CertificateVerify. */
+  for( ulong i=0UL; i<FD_KEYGUARD_SIGN_TYPE_CNT; i++ ) {
+    if( !fd_keyguard_payload_authorize( &authority, data, size, FD_KEYGUARD_ROLE_FAILOV, (int)i ) ) continue;
+    int proof = size==FD_KEYGUARD_FAILOVER_PROOF_SZ &&
+                ( fd_memeq( data, FD_KEYGUARD_FAILOVER_CLIENT_DOMAIN, FD_KEYGUARD_FAILOVER_DOMAIN_SZ ) ||
+                  fd_memeq( data, FD_KEYGUARD_FAILOVER_SERVER_DOMAIN, FD_KEYGUARD_FAILOVER_DOMAIN_SZ ) );
+    int cv    = size==FD_TLS_CV_SIGN_SZ &&
+                ( fd_memeq( data, fd_tls13_cli_sign_prefix, sizeof(fd_tls13_cli_sign_prefix) ) ||
+                  fd_memeq( data, fd_tls13_srv_sign_prefix, sizeof(fd_tls13_srv_sign_prefix) ) );
+    FD_TEST( i==FD_KEYGUARD_SIGN_TYPE_ED25519 && ( proof || cv ) );
   }
   return 0;
 }

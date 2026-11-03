@@ -618,14 +618,23 @@ check_duplicate_instance( fd_gossvf_tile_ctx_t *      ctx,
       FD_LOG_CRIT(( "unexpected message tag %u", view->tag ));
   }
 
+  long our_creation_nanos = ctx->instance_creation_wallclock_nanos;
   for( ulong i=0UL; i<values_len; i++ ) {
     fd_gossip_value_t const * value = &values[ i ];
     if( FD_UNLIKELY( value->tag!=FD_GOSSIP_VALUE_CONTACT_INFO ) ) continue;
 
-    if( FD_LIKELY( ctx->instance_creation_wallclock_nanos>=FD_MICRO_TO_NANOSEC( value->contact_info->outset ) ) ) continue;
-    if( FD_LIKELY( memcmp( ctx->identity_pubkey->uc, value->origin, 32UL ) ) ) continue;
-
-    FD_LOG_ERR(( "duplicate running instances of the same validator node, our timestamp: %ldns their timestamp: %ldns", ctx->instance_creation_wallclock_nanos, FD_MICRO_TO_NANOSEC( value->contact_info->outset ) ));
+    long their_creation_nanos = FD_MICRO_TO_NANOSEC( value->contact_info->outset );
+    if( FD_UNLIKELY( their_creation_nanos>our_creation_nanos &&
+                     !memcmp( ctx->identity_pubkey->uc, value->origin, 32UL ) ) ) {
+      fd_gossip_socket_t const * socket = &value->contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ];
+      FD_LOG_ERR(( "duplicate running instances of the same validator node, our timestamp: %ldns their timestamp: %ldns. "
+                   "Another validator advertises this identity from gossip address " FD_IP4_ADDR_FMT ":%hu with a newer start time, so it keeps the "
+                   "identity and this validator exits.  If using failover, restart using  "
+                   "[failover.boot_to_standby] set or a junk [paths.identity_key], then use `firedancer failover promote`.  "
+                   "Check `firedancer get-identity` on both machines.",
+                   our_creation_nanos, their_creation_nanos,
+                   FD_IP4_ADDR_FMT_ARGS( socket->is_ipv6 ? 0U : socket->ip4 ), fd_ushort_bswap( socket->port ) ));
+    }
   }
 }
 
