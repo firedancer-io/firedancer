@@ -28,6 +28,7 @@ struct resolve_record {
   ulong                  full_slot;
   ulong                  incr_slot;
   int                    incr_hash_null;
+  uint                   host_idx;
 };
 
 typedef struct resolve_record resolve_record_t;
@@ -48,6 +49,8 @@ on_resolve( void *                  ctx,
   rec->full_slot      = full_slot;
   rec->incr_slot      = incr_slot;
   rec->incr_hash_null = !incr_hash;
+  FD_TEST( key->is_url );
+  rec->host_idx       = key->url.host_idx;
 
   FD_TEST( FD_SSPEER_SCORE_INVALID!=fd_sspeer_selector_add( rec->selector, key, addr, FD_SSPEER_LATENCY_UNKNOWN,
                                                             full_slot, incr_slot, full_hash, incr_hash ) );
@@ -160,7 +163,7 @@ run_resolve( char const *       full_resp,
 
   fd_ip4_port_t addr;
   int lfd = listen_loopback( &addr );
-  FD_TEST( 0==fd_http_resolver_add( resolver, addr, "localhost", 0, selector ) );
+  FD_TEST( 0==fd_http_resolver_add( resolver, addr, "localhost", 7U, 0, selector ) );
 
   conn_t conns[ 2UL*MAX_PEERS ];
   ulong  conns_len = 0UL;
@@ -221,7 +224,7 @@ test_full_and_incremental_peer( void ) {
   fd_sspeer_t      best_full, best_incr;
   run_resolve( FULL_303, INCR_303, 1, &rec, &best_full, &best_incr );
 
-  FD_TEST( rec.called==1 );
+  FD_TEST( rec.called==1 && rec.host_idx==7U );
   FD_TEST( rec.full_slot==100UL );
   FD_TEST( rec.incr_slot==200UL );
   FD_TEST( !rec.incr_hash_null );

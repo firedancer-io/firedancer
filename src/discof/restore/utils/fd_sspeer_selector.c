@@ -396,8 +396,8 @@ fd_sspeer_selector_update_on_ping( fd_sspeer_selector_t * selector,
       /* A warning is a tradeoff between crashing with FD_LOG_CRIT and
          potentially missing the log altogether with FD_LOG_DEBUG. */
       if( peer->key.is_url ) {
-        FD_LOG_WARNING(( "unexpected selector update returned %d for peer %s " FD_IP4_ADDR_FMT ":%hu",
-                         update_status, peer->key.url.hostname,
+        FD_LOG_WARNING(( "unexpected selector update returned %d for server peer #%u " FD_IP4_ADDR_FMT ":%hu",
+                         update_status, peer->key.url.host_idx,
                          FD_IP4_ADDR_FMT_ARGS( peer->key.url.resolved_addr.addr ), fd_ushort_bswap( peer->key.url.resolved_addr.port ) ));
       } else {
         FD_BASE58_ENCODE_32_BYTES( peer->key.pubkey->uc, peer_pubkey_b58 );
