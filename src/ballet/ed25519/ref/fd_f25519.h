@@ -5,6 +5,12 @@
 #include "../../fd_ballet_base.h"
 
 #define USE_FIAT_32 0
+#ifndef FD_F25519_AVX2
+#define FD_F25519_AVX2 FD_HAS_AVX
+#endif
+#if FD_F25519_AVX2 && (!FD_HAS_AVX || USE_FIAT_32)
+#error "FD_F25519_AVX2 requires AVX2 and the 64-bit Fiat field representation"
+#endif
 #if USE_FIAT_32
 #include "../../../third_party/fiat-crypto/curve25519_32.c"
 #else
@@ -23,6 +29,10 @@ struct fd_f25519 {
 typedef struct fd_f25519 fd_f25519_t;
 
 #include "../table/fd_f25519_table_ref.c"
+
+#if FD_F25519_AVX2
+#include "../avx2/fd_f25519_batch.h"
+#endif
 
 FD_PROTOTYPES_BEGIN
 
@@ -281,9 +291,13 @@ FD_25519_INLINE void
 fd_f25519_mul3( fd_f25519_t * r1, fd_f25519_t const * a1, fd_f25519_t const * b1,
                 fd_f25519_t * r2, fd_f25519_t const * a2, fd_f25519_t const * b2,
                 fd_f25519_t * r3, fd_f25519_t const * a3, fd_f25519_t const * b3 ) {
+#if FD_F25519_AVX2
+  fd_f25519_avx2_mul( r1, a1, b1, r2, a2, b2, r3, a3, b3, NULL, NULL, NULL );
+#else
   fd_f25519_mul( r1, a1, b1 );
   fd_f25519_mul( r2, a2, b2 );
   fd_f25519_mul( r3, a3, b3 );
+#endif
 }
 
 FD_25519_INLINE void
@@ -291,10 +305,14 @@ fd_f25519_mul4( fd_f25519_t * r1, fd_f25519_t const * a1, fd_f25519_t const * b1
                 fd_f25519_t * r2, fd_f25519_t const * a2, fd_f25519_t const * b2,
                 fd_f25519_t * r3, fd_f25519_t const * a3, fd_f25519_t const * b3,
                 fd_f25519_t * r4, fd_f25519_t const * a4, fd_f25519_t const * b4 ) {
+#if FD_F25519_AVX2
+  fd_f25519_avx2_mul( r1, a1, b1, r2, a2, b2, r3, a3, b3, r4, a4, b4 );
+#else
   fd_f25519_mul( r1, a1, b1 );
   fd_f25519_mul( r2, a2, b2 );
   fd_f25519_mul( r3, a3, b3 );
   fd_f25519_mul( r4, a4, b4 );
+#endif
 }
 
 /* fd_f25519_sqrn computes r_i = a_i^2 */
@@ -319,10 +337,14 @@ fd_f25519_sqr4( fd_f25519_t * r1, fd_f25519_t const * a1,
                 fd_f25519_t * r2, fd_f25519_t const * a2,
                 fd_f25519_t * r3, fd_f25519_t const * a3,
                 fd_f25519_t * r4, fd_f25519_t const * a4 ) {
+#if FD_F25519_AVX2
+  fd_f25519_avx2_sqr( r1, a1, r2, a2, r3, a3, r4, a4 );
+#else
   fd_f25519_sqr( r1, a1 );
   fd_f25519_sqr( r2, a2 );
   fd_f25519_sqr( r3, a3 );
   fd_f25519_sqr( r4, a4 );
+#endif
 }
 
 FD_PROTOTYPES_END
