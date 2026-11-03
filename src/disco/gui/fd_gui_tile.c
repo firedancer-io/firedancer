@@ -468,11 +468,11 @@ after_frag( fd_gui_ctx_t *      ctx,
         case FD_VOTOR_SIG_CERTED: {
           fd_votor_certed_t const * certed = &msg->certed;
           switch( certed->kind ) {
-            case AG_CERT_KIND_FINAL:          fd_gui_handle_ag_finalized( ctx->gui, certed->slot, &certed->block_id, FD_GUI_AG_FINAL_SLOW     ); break;
-            case AG_CERT_KIND_FAST_FINAL:     fd_gui_handle_ag_finalized( ctx->gui, certed->slot, &certed->block_id, FD_GUI_AG_FINAL_FAST     ); break;
-            case AG_CERT_KIND_NOTAR:          fd_gui_handle_ag_notarized( ctx->gui, certed->slot, &certed->block_id, FD_GUI_AG_NOTAR_REGULAR  ); break;
-            case AG_CERT_KIND_NOTAR_FALLBACK: fd_gui_handle_ag_notarized( ctx->gui, certed->slot, &certed->block_id, FD_GUI_AG_NOTAR_FALLBACK ); break;
-            case AG_CERT_KIND_SKIP:           fd_gui_handle_ag_skip_cert( ctx->gui, certed->slot );                                            break;
+            case FD_CERT_KIND_FINAL:          fd_gui_handle_ag_finalized( ctx->gui, certed->slot, &certed->block_id, FD_GUI_AG_FINAL_SLOW     ); break;
+            case FD_CERT_KIND_FAST_FINAL:     fd_gui_handle_ag_finalized( ctx->gui, certed->slot, &certed->block_id, FD_GUI_AG_FINAL_FAST     ); break;
+            case FD_CERT_KIND_NOTAR:          fd_gui_handle_ag_notarized( ctx->gui, certed->slot, &certed->block_id, FD_GUI_AG_NOTAR_REGULAR  ); break;
+            case FD_CERT_KIND_NOTAR_FALLBACK: fd_gui_handle_ag_notarized( ctx->gui, certed->slot, &certed->block_id, FD_GUI_AG_NOTAR_FALLBACK ); break;
+            case FD_CERT_KIND_SKIP:           fd_gui_handle_ag_skip_cert( ctx->gui, certed->slot );                                            break;
             default:                                                                                                                          break;
           }
           break;

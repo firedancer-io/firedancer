@@ -131,10 +131,10 @@ unpair_session( fd_failover_tile_ctx_t * ctx ) {
 static void
 make_history( fd_failover_history_t * history,
             ulong                 tip ) {
-  ag_hist_t hist = { .anchor=tip, .last_leader_slot=FD_FAILOVER_SLOT_NULL, .vote_bound=FD_FAILOVER_SLOT_NULL, .rec_cnt=1UL };
+  fd_votor_hist_t hist = { .anchor=tip, .last_leader_slot=FD_FAILOVER_SLOT_NULL, .vote_bound=FD_FAILOVER_SLOT_NULL, .rec_cnt=1UL };
   hist.rec[ 0 ].slot  = tip;
-  hist.rec[ 0 ].flags = AG_HIST_FLAG_VOTED;
-  FD_TEST( !ag_hist_ser( &hist, history->state, sizeof(history->state), &history->sz ) );
+  hist.rec[ 0 ].flags = FD_VOTOR_HIST_FLAG_VOTED;
+  FD_TEST( !fd_votor_hist_ser( &hist, history->state, sizeof(history->state), &history->sz ) );
   history->valid = 1;
   history->tip   = tip;
 }
@@ -146,17 +146,17 @@ make_peer_history( fd_failover_history_t * history,
                    ulong                   anchor,
                    ulong                   tip,
                    ulong                   rec_cnt ) {
-  static ag_hist_t hist;
+  static fd_votor_hist_t hist;
   fd_memset( &hist, 0, sizeof(hist) );
   hist.anchor           = anchor;
   hist.last_leader_slot = tip-3UL;
   hist.rec_cnt          = rec_cnt;
   for( ulong i=0UL; i<rec_cnt; i++ ) {
     hist.rec[ i ].slot  = tip-rec_cnt+1UL+i;
-    hist.rec[ i ].flags = AG_HIST_FLAG_VOTED|AG_HIST_FLAG_VOTED_NOTAR;
-    fd_memset( hist.rec[ i ].notar_hash, (int)(0x10UL+i), sizeof(ag_block_hash_t) );
+    hist.rec[ i ].flags = FD_VOTOR_HIST_FLAG_VOTED|FD_VOTOR_HIST_FLAG_VOTED_NOTAR;
+    fd_memset( &hist.rec[ i ].notar_hash, (int)(0x10UL+i), sizeof(fd_block_hash_t) );
   }
-  FD_TEST( !ag_hist_ser( &hist, history->state, sizeof(history->state), &history->sz ) );
+  FD_TEST( !fd_votor_hist_ser( &hist, history->state, sizeof(history->state), &history->sz ) );
   history->valid = 1;
   history->tip   = tip;
 }
@@ -303,7 +303,7 @@ test_no_final_state( void ) {
   hist.hist.anchor         = 99UL;
   hist.hist.rec_cnt        = 1UL;
   hist.hist.rec[ 0 ].slot  = 99UL;
-  hist.hist.rec[ 0 ].flags = AG_HIST_FLAG_VOTED;
+  hist.hist.rec[ 0 ].flags = FD_VOTOR_HIST_FLAG_VOTED;
   hist.vote_slot           = 99UL;
   on_votor_hist_msg( ctx, &hist );
   FD_TEST( ctx->last_vote_slot==99UL && ctx->own_floor==99UL && ctx->current_history.valid && ctx->current_history.tip==99UL );

@@ -343,7 +343,7 @@ fd_keyguard_payload_matches_ag_vote( uchar const * data,
                                      ulong         sz,
                                      int           sign_type ) {
 
-  /* Alpenglow vote payload produced by ag_vote_signing_ser:
+  /* Alpenglow vote payload produced by fd_vote_signing_ser:
 
      u8  tag            (1..5, WireConsensusMessageKind vote tags)
      u64 slot

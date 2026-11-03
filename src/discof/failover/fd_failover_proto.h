@@ -49,7 +49,7 @@
 #define FD_FAILOVER_HELLO_ERR_PROOF      (8)
 
 /* Upper bound on the vote history payload in alpenglow mode,
-   AG_HIST_SER_MAX is 5274 bytes. */
+   FD_VOTOR_HIST_SER_MAX is 5274 bytes. */
 #define FD_FAILOVER_ALPENGLOW_STATE_MAX (6144UL)
 #define FD_FAILOVER_STATE_MAX           (FD_FAILOVER_ALPENGLOW_STATE_MAX)
 

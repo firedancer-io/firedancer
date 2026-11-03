@@ -6,7 +6,7 @@
 #include "generated/fd_repair_tile_seccomp.h"
 #include "../../disco/shred/fd_shred_tile.h"
 #include "fd_repair.h"
-#include "../../choreo/votor/ag_cert.h"
+#include "../../choreo/votor/fd_cert.h"
 #include "../../discof/genesis/fd_genesi_tile.h"
 #include "../../discof/restore/utils/fd_ssmsg.h"
 #include "../../discof/votor/fd_votor_tile.h"
@@ -28,8 +28,8 @@
 #include "../../util/pod/fd_pod_format.h"
 #include "fd_repair_tile.h"
 
-/* timeout: tracks a repair request we've made that expires at the given
-   time.  If the repair request is not responded by timeout, retry. */
+/* timeout: tracks when a repair request has timed out and it's time to
+   try again. */
 
 struct timeout {
   long  timeout; /* ns */
@@ -104,8 +104,6 @@ typedef struct pending pending_t;
 #define DLIST_NEXT  dlist.next
 #include "../../util/tmpl/fd_dlist.c"
 
-/* Messages waiting for their signature, idx in the sig's high 32 bits. */
-
 #define SIGN_MAX     (16UL)
 #define SIGN_RESERVE (8UL)  /* sign slots only pongs may take */
 #define PING_MAX     (4UL)  /* pings per after_credit */
@@ -124,8 +122,6 @@ typedef struct sign sign_t;
 #define POOL_NAME sign_pool
 #define POOL_T    sign_t
 #include "../../util/tmpl/fd_pool.c"
-
-/* Peers with a new address get one signed request to elicit a ping. */
 
 #define DEQUE_NAME ping_deque
 #define DEQUE_T    fd_pubkey_t
@@ -184,10 +180,10 @@ struct fd_repair_tile {
 
   fd_multi_epoch_leaders_t * mleaders;
 
-  /* Rotor data structures */
+  /* Repair data structures */
 
   ulong               seed;
-  fd_repair_t *       rotor;
+  fd_repair_t *       repair;
   fd_repair_strat_t * strat;
 
   /* Requests */
@@ -300,8 +296,8 @@ static void
 push_timeout( fd_repair_tile_t * ctx,
               fd_repair_blk_t *  blk,
               timeout_t const *  req ) {
-  fd_repair_slot_meta_t const * meta = fd_repair_slot_meta( ctx->rotor, blk->slot );
-  ulong                         idx  = fd_repair_blk_pool_idx( ctx->rotor->blk_pool, blk );
+  fd_repair_slot_meta_t const * meta = fd_repair_slot_meta( ctx->repair, blk->slot );
+  ulong                         idx  = fd_repair_blk_pool_idx( ctx->repair->blk_pool, blk );
   timeout_t *                   prq  = meta->final==idx ? ctx->final_prq : meta->notar==idx ? ctx->notar_prq : ctx->eager_prq;
   if( FD_LIKELY( timeout_prq_cnt( prq )<timeout_prq_max( prq ) ) ) {
     timeout_prq_insert( prq, req );
@@ -313,7 +309,7 @@ push_timeout( fd_repair_tile_t * ctx,
   blk->highest_req = ( blk->highest_req && req->tag!=FD_REPAIR_SERDE_TAG_HIGHEST_WINDOW_INDEX      );
   blk->orphan_req  = ( blk->orphan_req  && req->tag!=FD_REPAIR_SERDE_TAG_ORPHAN                    );
   if( FD_UNLIKELY( blk->in_blk_treap ) ) return;
-  fd_repair_treap_ele_insert( meta->final==idx ? ctx->rotor->final_treap : meta->notar==idx ? ctx->rotor->notar_treap : ctx->rotor->eager_treap, blk, ctx->rotor->blk_pool );
+  fd_repair_treap_ele_insert( meta->final==idx ? ctx->repair->final_treap : meta->notar==idx ? ctx->repair->notar_treap : ctx->repair->eager_treap, blk, ctx->repair->blk_pool );
   blk->in_blk_treap = 1;
 }
 
@@ -330,20 +326,20 @@ poll_timeout( fd_repair_tile_t * ctx,
       timeout_t req = prq[ 0 ];
       timeout_prq_remove_min( prq );
 
-      if( FD_UNLIKELY( req.slot <= ctx->rotor->root ) ) continue;
-      fd_repair_blk_t * blk = fd_repair_blk_map_ele_query( ctx->rotor->blk_map, &req.slot, NULL, ctx->rotor->blk_pool );
-      while( blk && fd_repair_blk_pool_idx( ctx->rotor->blk_pool, blk )!=req.blk ) blk = (fd_repair_blk_t *)fd_repair_blk_map_ele_next_const( blk, NULL, ctx->rotor->blk_pool ); /* the req outlived its blk */
+      if( FD_UNLIKELY( req.slot <= ctx->repair->root ) ) continue;
+      fd_repair_blk_t * blk = fd_repair_blk_map_ele_query( ctx->repair->blk_map, &req.slot, NULL, ctx->repair->blk_pool );
+      while( blk && fd_repair_blk_pool_idx( ctx->repair->blk_pool, blk )!=req.blk ) blk = (fd_repair_blk_t *)fd_repair_blk_map_ele_next_const( blk, NULL, ctx->repair->blk_pool ); /* the req outlived its blk */
       if( FD_UNLIKELY( !blk ) ) { ctx->metrics->req_cancelled++; continue; }
 
-      fd_repair_slot_meta_t const * meta = fd_repair_slot_meta( ctx->rotor, blk->slot );
+      fd_repair_slot_meta_t const * meta = fd_repair_slot_meta( ctx->repair, blk->slot );
       if( FD_UNLIKELY( meta->final!=req.blk && meta->notar!=req.blk && meta->eager==req.blk && !blk->eager ) ) { ctx->metrics->req_cancelled++; continue; } /* the slot's eager blk, never repaired */
-      fd_repair_fec_t const * fec = fd_repair_fec_pool_ele_const( ctx->rotor->fec_pool, fd_ulong_if( req.tag==FD_REPAIR_SERDE_TAG_WINDOW_INDEX, blk->fecs[ req.fec_idx ], fd_repair_fec_pool_idx_null( ctx->rotor->fec_pool ) ) );
+      fd_repair_fec_t const * fec = fd_repair_fec_pool_ele_const( ctx->repair->fec_pool, fd_ulong_if( req.tag==FD_REPAIR_SERDE_TAG_WINDOW_INDEX, blk->fecs[ req.fec_idx ], fd_repair_fec_pool_idx_null( ctx->repair->fec_pool ) ) );
       if( FD_UNLIKELY( req.tag==FD_REPAIR_SERDE_TAG_PARENT_AND_FEC_SET_COUNT && blk->parent_slot!=ULONG_MAX                   ) ) { ctx->metrics->req_cancelled++; continue; }
       if( FD_UNLIKELY( req.tag==FD_REPAIR_SERDE_TAG_WINDOW_INDEX             && fec && fec->complete                          ) ) { ctx->metrics->req_cancelled++; continue; }
       if( FD_UNLIKELY( req.tag==FD_REPAIR_SERDE_TAG_WINDOW_INDEX             && !blk->eager && req.fec_idx>=blk->cmpl_fec_cnt ) ) { ctx->metrics->req_cancelled++; continue; } /* of a freed blk whose pool idx was reused */
       if( FD_UNLIKELY( req.tag==FD_REPAIR_SERDE_TAG_HIGHEST_WINDOW_INDEX     && blk->cmpl_fec_cnt                             ) ) { ctx->metrics->req_cancelled++; continue; }
-      fd_repair_blk_t const * parent = fd_repair_blk_pool_ele_const( ctx->rotor->blk_pool, blk->parent );
-      if( FD_UNLIKELY( req.tag==FD_REPAIR_SERDE_TAG_ORPHAN && ( blk->parent_slot<=ctx->rotor->root || ( parent && parent->parent_slot!=ULONG_MAX ) ) ) ) { blk->orphan_req = 0; ctx->metrics->req_cancelled++; continue; } /* its ancestry showed up, died with the root, or a lower blk asks */
+      fd_repair_blk_t const * parent = fd_repair_blk_pool_ele_const( ctx->repair->blk_pool, blk->parent );
+      if( FD_UNLIKELY( req.tag==FD_REPAIR_SERDE_TAG_ORPHAN && ( blk->parent_slot<=ctx->repair->root || ( parent && parent->parent_slot!=ULONG_MAX ) ) ) ) { blk->orphan_req = 0; ctx->metrics->req_cancelled++; continue; } /* its ancestry showed up, died with the root, or a lower blk asks */
       long t_eager = fd_repair_strat_eager_ns( ctx->strat, fd_multi_epoch_leaders_get_leader_for_slot( ctx->mleaders, blk->slot ) );
       if( FD_UNLIKELY( req.tag==FD_REPAIR_SERDE_TAG_HIGHEST_WINDOW_INDEX     && blk->rcvd_fec_ts+t_eager>now                  ) ) { /* turbine is not quiet yet */
         ctx->metrics->timeout_deferred[ FD_METRICS_ENUM_TIMEOUT_DEFER_REASON_V_TURBINE_ACTIVE_IDX ]++;
@@ -358,20 +354,20 @@ poll_timeout( fd_repair_tile_t * ctx,
   return NULL;
 }
 
-/* discover new requests translating rotor treaps => repair requests. */
+/* discover new requests translating repair treaps => repair requests. */
 
 static void
 discover( fd_repair_tile_t * ctx,
           fd_repair_blk_t *  blk,
           long               now ) {
-  fd_repair_slot_meta_t const * meta = fd_repair_slot_meta( ctx->rotor, blk->slot );
-  ulong                         idx  = fd_repair_blk_pool_idx( ctx->rotor->blk_pool, blk );
-  if( FD_UNLIKELY( blk->slot<=ctx->rotor->root ) ) return;
+  fd_repair_slot_meta_t const * meta = fd_repair_slot_meta( ctx->repair, blk->slot );
+  ulong                         idx  = fd_repair_blk_pool_idx( ctx->repair->blk_pool, blk );
+  if( FD_UNLIKELY( blk->slot<=ctx->repair->root ) ) return;
   if( FD_UNLIKELY( meta->final!=idx && meta->notar!=idx && meta->eager==idx && !blk->eager ) ) return; /* the slot's eager blk, never repaired */
 
   int       eager   = blk->eager;
   long      t_eager = fd_repair_strat_eager_ns( ctx->strat, fd_multi_epoch_leaders_get_leader_for_slot( ctx->mleaders, blk->slot ) );
-  timeout_t req     = { .slot = blk->slot, .blk = fd_repair_blk_pool_idx( ctx->rotor->blk_pool, blk ) };
+  timeout_t req     = { .slot = blk->slot, .blk = fd_repair_blk_pool_idx( ctx->repair->blk_pool, blk ) };
 
   if( FD_UNLIKELY( !eager && blk->parent_slot==ULONG_MAX && blk->meta_req ) ) return;
   if( FD_UNLIKELY( !eager && blk->parent_slot==ULONG_MAX ) ) {
@@ -382,9 +378,9 @@ discover( fd_repair_tile_t * ctx,
     return;
   }
 
-  fd_repair_blk_t const * parent      = fd_repair_blk_pool_ele_const( ctx->rotor->blk_pool, blk->parent );
+  fd_repair_blk_t const * parent      = fd_repair_blk_pool_ele_const( ctx->repair->blk_pool, blk->parent );
   int                     orphan_root = !parent || parent->parent_slot==ULONG_MAX; /* the root of its disconnected subtree, the blks under it wait on it */
-  int                     orphaned    = orphan_root && !blk->orphan_req && blk->parent_slot!=ULONG_MAX && blk->parent_slot>ctx->rotor->root && memcmp( &blk->parent_blk_mr, &hash_null, sizeof(fd_mr32_t) ) && !( eager && meta->invalidated );
+  int                     orphaned    = orphan_root && !blk->orphan_req && blk->parent_slot!=ULONG_MAX && blk->parent_slot>ctx->repair->root && memcmp( &blk->parent_blk_mr, &hash_null, sizeof(fd_mr32_t) ) && !( eager && meta->invalidated );
   if( FD_UNLIKELY( orphaned ) ) {
     blk->orphan_req = 1;
     req.tag         = FD_REPAIR_SERDE_TAG_ORPHAN; /* its ancestry is unknown, learn up to 11 of it in one reply */
@@ -403,7 +399,7 @@ discover( fd_repair_tile_t * ctx,
   uint        cmpl_fec_cnt = fd_uint_if( !!blk->cmpl_fec_cnt, blk->cmpl_fec_cnt, fd_uint_if( eager, blk->rcvd_fec_cnt, 0U ) );
   uint        fec_idx      = blk->wait_fec_cnt;
   for( ; fec_idx<cmpl_fec_cnt && timeout_prq_cnt( prq )<timeout_prq_max( prq ); fec_idx++ ) {
-    fd_repair_fec_t const * fec = fd_repair_fec_pool_ele_const( ctx->rotor->fec_pool, blk->fecs[ fec_idx ] );
+    fd_repair_fec_t const * fec = fd_repair_fec_pool_ele_const( ctx->repair->fec_pool, blk->fecs[ fec_idx ] );
     if( FD_LIKELY( fec && fec->complete ) ) continue;
     req.tag     = FD_REPAIR_SERDE_TAG_WINDOW_INDEX;
     req.fec_idx = fec_idx;
@@ -414,7 +410,7 @@ discover( fd_repair_tile_t * ctx,
   if( FD_LIKELY( timeout_prq_cnt( prq )<timeout_prq_max( prq ) ) ) return;
   if( FD_UNLIKELY( blk->in_blk_treap ) ) return;
   ctx->metrics->timeout_paused++;
-  fd_repair_treap_ele_insert( meta->final==idx ? ctx->rotor->final_treap : meta->notar==idx ? ctx->rotor->notar_treap : ctx->rotor->eager_treap, blk, ctx->rotor->blk_pool ); /* timeout_prq filled up, resume later */
+  fd_repair_treap_ele_insert( meta->final==idx ? ctx->repair->final_treap : meta->notar==idx ? ctx->repair->notar_treap : ctx->repair->eager_treap, blk, ctx->repair->blk_pool ); /* timeout_prq filled up, resume later */
   blk->in_blk_treap = 1;
 }
 
@@ -426,9 +422,9 @@ report_block_received( void *                  ctx_,
   if( FD_LIKELY( !fd_event_tl ) ) return;
   fd_repair_tile_t *      ctx       = (fd_repair_tile_t *)ctx_;
   uint                    fec_cnt   = fd_uint_if( !!blk->cmpl_fec_cnt, blk->cmpl_fec_cnt, blk->rcvd_fec_cnt ); /* an incomplete blk reports what it received */
-  fd_repair_fec_t const * last      = fd_repair_fec_pool_ele_const( ctx->rotor->fec_pool, fec_cnt ? blk->fecs[ fec_cnt-1U ] : fd_repair_fec_pool_idx_null( ctx->rotor->fec_pool ) );
+  fd_repair_fec_t const * last      = fd_repair_fec_pool_ele_const( ctx->repair->fec_pool, fec_cnt ? blk->fecs[ fec_cnt-1U ] : fd_repair_fec_pool_idx_null( ctx->repair->fec_pool ) );
   int                     is_leader = last && last->is_leader;
-  int                     known_id  = fd_repair_slot_meta( ctx->rotor, blk->slot )->eager!=fd_repair_blk_pool_idx( ctx->rotor->blk_pool, blk );
+  int                     known_id  = fd_repair_slot_meta( ctx->repair, blk->slot )->eager!=fd_repair_blk_pool_idx( ctx->repair->blk_pool, blk );
   fd_event_block_received_t * ev =  ctx->event;
   fd_memset( ev, 0, FD_EVENT_BLOCK_RECEIVED_PREFIX_SZ );
   ev->slot             = blk->slot;
@@ -465,7 +461,7 @@ report_block_received( void *                  ctx_,
   memcpy( ev->parent_block_id, blk->parent_blk_mr.uc, sizeof(fd_mr32_t) );
   ev->fec_sets_cnt = fd_ulong_min( fec_cnt, FD_EVENT_BLOCK_RECEIVED_FEC_SETS_MAX );
   for( ulong k=0UL; k<ev->fec_sets_cnt; k++ ) {
-    fd_repair_fec_t const *              fec = fd_repair_fec_pool_ele_const( ctx->rotor->fec_pool, blk->fecs[ k ] );
+    fd_repair_fec_t const *              fec = fd_repair_fec_pool_ele_const( ctx->repair->fec_pool, blk->fecs[ k ] );
     fd_event_block_received_fec_sets_t * f   = &ev->fec_sets[ k ];
     fd_memset( f, 0, sizeof(fd_event_block_received_fec_sets_t) );
     if( FD_UNLIKELY( !fec ) ) continue; /* an incomplete blk can miss FEC sets */
@@ -530,21 +526,21 @@ handle_shred( fd_repair_tile_t * ctx,
               long               rx_ts ) {
   if( FD_UNLIKELY( fd_shred_sig_src( sig )==SHRED_SIG_FEC_EVICTED ) ) {
     fd_fec_evicted_t const * evicted = (fd_fec_evicted_t const *)fd_type_pun_const( chunk );
-    if( FD_UNLIKELY( evicted->slot<=ctx->rotor->root || evicted->slot>=ctx->rotor->root+ctx->rotor->slot_max ) ) return; /* outside the window */
-    if( FD_UNLIKELY( evicted->fec_set_idx>=ctx->rotor->fec_blk_max*FD_FEC_SHRED_CNT ) ) return;
+    if( FD_UNLIKELY( evicted->slot<=ctx->repair->root || evicted->slot>=ctx->repair->root+ctx->repair->slot_max ) ) return; /* outside the window */
+    if( FD_UNLIKELY( evicted->fec_set_idx>=ctx->repair->fec_blk_max*FD_FEC_SHRED_CNT ) ) return;
     fd_mr20_t key; memcpy( key.uc, evicted->merkle_root.uc, sizeof(fd_mr20_t) );
-    fd_repair_fec_evicted( ctx->rotor, evicted->slot, evicted->fec_set_idx, &key );
+    fd_repair_fec_evicted( ctx->repair, evicted->slot, evicted->fec_set_idx, &key );
     return;
   }
 
   ulong slot = ((fd_shred_base_t const *)fd_type_pun_const( chunk ))->shred.slot; /* complete and shred messages share the header position */
-  ctx->metrics->shred_old          += (ulong)( slot<=ctx->rotor->root && fd_shred_sig_src( sig )<=SHRED_SIG_SRC_BAD_REPAIR );
-  ctx->metrics->slot_current        = fd_ulong_if( slot>ctx->rotor->root && fd_shred_sig_src( sig )<=SHRED_SIG_SRC_BAD_REPAIR, fd_ulong_max( ctx->metrics->slot_current, slot ), ctx->metrics->slot_current );
-  int turbine_first = slot>ctx->rotor->root && slot<ctx->rotor->root+ctx->rotor->slot_max && fd_shred_sig_src( sig )==SHRED_SIG_SRC_TURBINE && !ctx->turbine_slot0;
+  ctx->metrics->shred_old          += (ulong)( slot<=ctx->repair->root && fd_shred_sig_src( sig )<=SHRED_SIG_SRC_BAD_REPAIR );
+  ctx->metrics->slot_current        = fd_ulong_if( slot>ctx->repair->root && fd_shred_sig_src( sig )<=SHRED_SIG_SRC_BAD_REPAIR, fd_ulong_max( ctx->metrics->slot_current, slot ), ctx->metrics->slot_current );
+  int turbine_first = slot>ctx->repair->root && slot<ctx->repair->root+ctx->repair->slot_max && fd_shred_sig_src( sig )==SHRED_SIG_SRC_TURBINE && !ctx->turbine_slot0;
   ctx->turbine_slot0 = fd_ulong_if( turbine_first, slot, ctx->turbine_slot0 );
-  if( FD_UNLIKELY( slot<=ctx->rotor->root || slot>=ctx->rotor->root+ctx->rotor->slot_max ) ) return; /* outside the window */
+  if( FD_UNLIKELY( slot<=ctx->repair->root || slot>=ctx->repair->root+ctx->repair->slot_max ) ) return; /* outside the window */
 
-  if( FD_UNLIKELY( turbine_first && !ctx->staked ) ) fd_repair_slot_catchup( ctx->rotor, slot ); /* unstaked has no certs, turbine is untrusted so staked never does this */
+  if( FD_UNLIKELY( turbine_first && !ctx->staked ) ) fd_repair_slot_catchup( ctx->repair, slot ); /* unstaked has no certs, turbine is untrusted so staked never does this */
 
   switch( fd_shred_sig_src( sig ) ) {
   case SHRED_SIG_FEC_COMPLETE:
@@ -554,10 +550,10 @@ handle_shred( fd_repair_tile_t * ctx,
     fd_shred_t const *        shred    = &complete->last_shred_hdr;
 
     ctx->highest_fec_complete_slot = fd_ulong_max( ctx->highest_fec_complete_slot, shred->slot );
-    if( FD_UNLIKELY( shred->idx>=ctx->rotor->fec_blk_max*FD_FEC_SHRED_CNT                           ) ) return;
-    if( FD_UNLIKELY( !shred->data.parent_off || shred->data.parent_off>shred->slot-ctx->rotor->root ) ) return; /* parent is the slot itself, or below the root */
+    if( FD_UNLIKELY( shred->idx>=ctx->repair->fec_blk_max*FD_FEC_SHRED_CNT                           ) ) return;
+    if( FD_UNLIKELY( !shred->data.parent_off || shred->data.parent_off>shred->slot-ctx->repair->root ) ) return; /* parent is the slot itself, or below the root */
 
-    fd_repair_fec_t const * fec = fd_repair_fec_complete( ctx->rotor, shred, &complete->merkle_root, sig==SHRED_SIG_FEC_COMPLETE_LEADER, (uint)complete->turbine_shred_cnt, (uint)complete->repair_shred_cnt, (uint)complete->reconstructed_shred_cnt, complete->data_shred_rcvd, complete->parity_shred_rcvd, complete->repair_data_rcvd, rx_ts );
+    fd_repair_fec_t const * fec = fd_repair_fec_complete( ctx->repair, shred, &complete->merkle_root, sig==SHRED_SIG_FEC_COMPLETE_LEADER, (uint)complete->turbine_shred_cnt, (uint)complete->repair_shred_cnt, (uint)complete->reconstructed_shred_cnt, complete->data_shred_rcvd, complete->parity_shred_rcvd, complete->repair_data_rcvd, rx_ts );
     if( FD_UNLIKELY( sig!=SHRED_SIG_FEC_COMPLETE || !fec || !fec->first_ts ) ) break; /* a first completion from the network */
 
     fd_repair_strat_turbine_done( ctx->strat, fd_multi_epoch_leaders_get_leader_for_slot( ctx->mleaders, shred->slot ), rx_ts-fec->first_ts );
@@ -574,12 +570,12 @@ handle_shred( fd_repair_tile_t * ctx,
 
     if( FD_UNLIKELY( fd_shred_sig_res( sig )==SHRED_SIG_RESULT_EQVOC ) ) {
       ctx->metrics->shred_rx[ FD_METRICS_ENUM_SHRED_RESPONSE_MATCH_RESULT_V_EQVOC_IDX ] += (ulong)( fd_shred_sig_src( sig )==SHRED_SIG_SRC_REPAIR || fd_shred_sig_src( sig )==SHRED_SIG_SRC_BAD_REPAIR );
-      fd_repair_slot_invalidated( ctx->rotor, shred->slot, FD_EVENT_BLOCK_RECEIVED_CANCELLED_REASON_MERKLE_ROOT_MISMATCH, now );
+      fd_repair_slot_invalidated( ctx->repair, shred->slot, FD_EVENT_BLOCK_RECEIVED_CANCELLED_REASON_MERKLE_ROOT_MISMATCH, now );
       return;
     }
 
     if( FD_UNLIKELY( !fd_shred_is_data( fd_shred_type( shred->variant ) ) ) ) return;
-    if( FD_UNLIKELY( shred->idx>=ctx->rotor->fec_blk_max*FD_FEC_SHRED_CNT ) ) return;
+    if( FD_UNLIKELY( shred->idx>=ctx->repair->fec_blk_max*FD_FEC_SHRED_CNT ) ) return;
 
     /* A repair shred answers the request whose nonce it carries: the
        first one ends that request's pick, the last one ends the
@@ -588,7 +584,7 @@ handle_shred( fd_repair_tile_t * ctx,
 
     int         normal  = fd_rnonce_ss_normal_repair( msg->rnonce );
     int         reply   = fd_shred_sig_src( sig )==SHRED_SIG_SRC_REPAIR || fd_shred_sig_src( sig )==SHRED_SIG_SRC_BAD_REPAIR;
-    ulong       key     = (ulong)(uint)slot<<32 | fd_uint_if( normal, shred->idx/FD_FEC_SHRED_CNT, (uint)ctx->rotor->fec_blk_max );
+    ulong       key     = (ulong)(uint)slot<<32 | fd_uint_if( normal, shred->idx/FD_FEC_SHRED_CNT, (uint)ctx->repair->fec_blk_max );
     uint        bit     = fd_uint_if( normal, 1U<<( shred->idx%FD_FEC_SHRED_CNT ), 1U );
     pending_t * pending = reply ? pending_map_ele_query( ctx->pending_map, &key, NULL, ctx->pending_pool ) : NULL;
     for( ; pending; pending = (pending_t *)pending_map_ele_next_const( pending, NULL, ctx->pending_pool ) ) {
@@ -603,8 +599,8 @@ handle_shred( fd_repair_tile_t * ctx,
       pending->answered++;
       report_repair_request( ctx, pending, (uint)fd_uint_find_lsb( bit ), rx_ts, FD_EVENT_REPAIR_REQUEST_OUTCOME_ANSWERED, FD_EVENT_REPAIR_REQUEST_BAN_NONE );
       ctx->metrics->shred_rx[ fd_ulong_if( pending->tag==FD_REPAIR_SERDE_TAG_WINDOW_INDEX_FOR_BLOCK_ID, FD_METRICS_ENUM_SHRED_RESPONSE_MATCH_RESULT_V_FOR_BLOCK_ID_IDX, FD_METRICS_ENUM_SHRED_RESPONSE_MATCH_RESULT_V_SLOT_INDEX_IDX ) ]++;
-      fd_repair_blk_t * blk = fd_repair_blk_map_ele_query( ctx->rotor->blk_map, &pending->slot, NULL, ctx->rotor->blk_pool );
-      while( blk && memcmp( &blk->dmr, &pending->dmr, sizeof(fd_mr32_t) ) ) blk = (fd_repair_blk_t *)fd_repair_blk_map_ele_next_const( blk, NULL, ctx->rotor->blk_pool ); /* not by pending->blk, it may be freed or reused, and a notar blk lives on as eager after dedup */
+      fd_repair_blk_t * blk = fd_repair_blk_map_ele_query( ctx->repair->blk_map, &pending->slot, NULL, ctx->repair->blk_pool );
+      while( blk && memcmp( &blk->dmr, &pending->dmr, sizeof(fd_mr32_t) ) ) blk = (fd_repair_blk_t *)fd_repair_blk_map_ele_next_const( blk, NULL, ctx->repair->blk_pool ); /* not by pending->blk, it may be freed or reused, and a notar blk lives on as eager after dedup */
       if( FD_LIKELY( blk && ( pending->tag==FD_REPAIR_SERDE_TAG_WINDOW_INDEX || pending->tag==FD_REPAIR_SERDE_TAG_WINDOW_INDEX_FOR_BLOCK_ID ) ) ) {
         blk->telemetry.shred_res_cnt++;
         blk->telemetry.last_shred_res_ts = rx_ts;
@@ -618,13 +614,13 @@ handle_shred( fd_repair_tile_t * ctx,
     }
     ctx->metrics->shred_rx[ FD_METRICS_ENUM_SHRED_RESPONSE_MATCH_RESULT_V_UNMATCHED_IDX ] += (ulong)( reply && !pending );
 
-    if( FD_UNLIKELY( !shred->data.parent_off || shred->data.parent_off>shred->slot-ctx->rotor->root ) ) return; /* parent is the slot itself, or below the root */
+    if( FD_UNLIKELY( !shred->data.parent_off || shred->data.parent_off>shred->slot-ctx->repair->root ) ) return; /* parent is the slot itself, or below the root */
 
     int src = fd_shred_sig_src( sig )==SHRED_SIG_SRC_TURBINE ? FD_EVENT_BLOCK_RECEIVED_FEC_SETS_FINAL_SHRED_SOURCE_TURBINE :
               fd_shred_sig_src( sig )==SHRED_SIG_SRC_LEADER  ? FD_EVENT_BLOCK_RECEIVED_FEC_SETS_FINAL_SHRED_SOURCE_LEADER  :
               reply                                          ? FD_EVENT_BLOCK_RECEIVED_FEC_SETS_FINAL_SHRED_SOURCE_REPAIR  :
                                                                0; /* reconstructed, not received */
-    fd_repair_shred_insert( ctx->rotor, shred, &msg->merkle_root, src, rx_ts );
+    fd_repair_shred_insert( ctx->repair, shred, &msg->merkle_root, src, rx_ts );
     break;
   }
   default: FD_LOG_ERR(( "unhandled shred sig src %u", fd_shred_sig_src( sig ) ));
@@ -644,7 +640,7 @@ handle_snapshot( fd_repair_tile_t * ctx,
     break;
   }
   case FD_SSMSG_DONE:
-    fd_repair_init( ctx->rotor, ctx->snapshot_slot, &ctx->snapshot_blk_mr, report_block_received, ctx );
+    fd_repair_init( ctx->repair, ctx->snapshot_slot, &ctx->snapshot_blk_mr, report_block_received, ctx );
     break;
   default:
     FD_LOG_ERR(( "unexpected snapshot message %lu", fd_ssmsg_sig_message( sig ) ));
@@ -661,40 +657,40 @@ handle_votor( fd_repair_tile_t * ctx,
   switch( sig ) {
   case FD_VOTOR_SIG_CERTED: {
     fd_votor_certed_t const * certed = &msg->certed;
-    if( FD_UNLIKELY( certed->slot<=ctx->rotor->root || certed->slot>=ctx->rotor->root+ctx->rotor->slot_max ) ) return; /* outside the window */
+    if( FD_UNLIKELY( certed->slot<=ctx->repair->root || certed->slot>=ctx->repair->root+ctx->repair->slot_max ) ) return; /* outside the window */
     if( FD_UNLIKELY( ctx->staked && !ctx->cert_slot0 ) ) {
       ctx->cert_slot0 = certed->slot;
-      fd_repair_slot_catchup( ctx->rotor, certed->slot );
+      fd_repair_slot_catchup( ctx->repair, certed->slot );
     }
     switch( certed->kind ) {
-    case AG_CERT_KIND_FINAL:
-    case AG_CERT_KIND_FAST_FINAL:     fd_repair_blk_finalized( ctx->rotor, certed->slot, &certed->block_id, now ); break;
-    case AG_CERT_KIND_NOTAR:          fd_repair_blk_notarized( ctx->rotor, certed->slot, &certed->block_id ); break;
-    case AG_CERT_KIND_NOTAR_FALLBACK: break;
-    case AG_CERT_KIND_SKIP:           break; /* a skip cert alone is not final, see fd_repair_slot_skipped */
+    case FD_CERT_KIND_FINAL:
+    case FD_CERT_KIND_FAST_FINAL:     fd_repair_blk_finalized( ctx->repair, certed->slot, &certed->block_id, now ); break;
+    case FD_CERT_KIND_NOTAR:          fd_repair_blk_notarized( ctx->repair, certed->slot, &certed->block_id ); break;
+    case FD_CERT_KIND_NOTAR_FALLBACK: break;
+    case FD_CERT_KIND_SKIP:           break; /* a skip cert alone is not final, see fd_repair_slot_skipped */
     default: FD_LOG_ERR(( "unhandled cert kind %u", certed->kind ));
     }
     break;
   }
   case FD_VOTOR_SIG_REPAIR: {
     ulong slot = msg->repair.slot;
-    if( FD_UNLIKELY( slot<=ctx->rotor->root ) ) return;
-    if( FD_UNLIKELY( slot>=ctx->rotor->root+ctx->rotor->slot_max ) ) {
+    if( FD_UNLIKELY( slot<=ctx->repair->root ) ) return;
+    if( FD_UNLIKELY( slot>=ctx->repair->root+ctx->repair->slot_max ) ) {
       if( FD_UNLIKELY( !ctx->staked || slot<=ctx->catchup_slot ) ) return;
       ctx->catchup_slot = slot;
-      fd_repair_slot_catchup( ctx->rotor, ctx->rotor->root+ctx->rotor->slot_max );
+      fd_repair_slot_catchup( ctx->repair, ctx->repair->root+ctx->repair->slot_max );
       return;
     }
-    fd_repair_blk_notarized( ctx->rotor, slot, &msg->repair.block_id );
+    fd_repair_blk_notarized( ctx->repair, slot, &msg->repair.block_id );
     break;
   }
   case FD_VOTOR_SIG_QUORUM: {
     ulong slot = msg->quorum.slot;
-    if( FD_UNLIKELY( slot<=ctx->rotor->root || slot>=ctx->rotor->root+ctx->rotor->slot_max ) ) return; /* outside the window */
+    if( FD_UNLIKELY( slot<=ctx->repair->root || slot>=ctx->repair->root+ctx->repair->slot_max ) ) return; /* outside the window */
     switch( msg->quorum.kind ) {
     case FD_VOTOR_QUORUM_KIND_SAFE_TO_NOTAR:        break; /* replay already has the block */
-    case FD_VOTOR_QUORUM_KIND_IMPLICITLY_FINALIZED: fd_repair_blk_finalized( ctx->rotor, slot, &msg->quorum.block_id, now ); break;
-    case FD_VOTOR_QUORUM_KIND_IMPLICITLY_SKIPPED:   fd_repair_slot_skipped ( ctx->rotor, slot );                        break;
+    case FD_VOTOR_QUORUM_KIND_IMPLICITLY_FINALIZED: fd_repair_blk_finalized( ctx->repair, slot, &msg->quorum.block_id, now ); break;
+    case FD_VOTOR_QUORUM_KIND_IMPLICITLY_SKIPPED:   fd_repair_slot_skipped ( ctx->repair, slot );                        break;
     default: FD_LOG_ERR(( "unhandled quorum kind %u", msg->quorum.kind ));
     }
     break;
@@ -711,20 +707,20 @@ handle_replay( fd_repair_tile_t * ctx,
   case REPLAY_SIG_ROOT_ADVANCED: {
     fd_replay_root_advanced_t const * root = (fd_replay_root_advanced_t const *)fd_type_pun_const( chunk );
     ctx->metrics->replay_root_advanced++;
-    if( FD_UNLIKELY( root->slot<=ctx->rotor->root ) ) return;
-    fd_repair_root_advanced( ctx->rotor, root->slot, &root->block_id );
-    if( FD_UNLIKELY( ctx->catchup_slot>ctx->rotor->root ) ) fd_repair_slot_catchup( ctx->rotor, fd_ulong_min( ctx->catchup_slot+1UL, ctx->rotor->root+ctx->rotor->slot_max ) );
+    if( FD_UNLIKELY( root->slot<=ctx->repair->root ) ) return;
+    fd_repair_root_advanced( ctx->repair, root->slot, &root->block_id );
+    if( FD_UNLIKELY( ctx->catchup_slot>ctx->repair->root ) ) fd_repair_slot_catchup( ctx->repair, fd_ulong_min( ctx->catchup_slot+1UL, ctx->repair->root+ctx->repair->slot_max ) );
     break;
   }
   case REPLAY_SIG_SLOT_DEAD: {
     fd_replay_slot_dead_t const * dead = (fd_replay_slot_dead_t const *)fd_type_pun_const( chunk );
-    if( FD_UNLIKELY( dead->slot<=ctx->rotor->root ) ) return;
-    fd_repair_blk_dead( ctx->rotor, dead->slot, &dead->block_id );
+    if( FD_UNLIKELY( dead->slot<=ctx->repair->root ) ) return;
+    fd_repair_blk_dead( ctx->repair, dead->slot, &dead->block_id );
     break;
   }
   case REPLAY_SIG_MISSING_FEC:
     ctx->metrics->replay_missing_fec++;
-    ctx->rotor->reconsume = 1;
+    ctx->repair->reconsume = 1;
     break;
   default: FD_LOG_ERR(( "unhandled replay sig %lu", sig ));
   }
@@ -843,11 +839,11 @@ handle_parent_and_fec_set_count_res( fd_repair_tile_t *   ctx,
   fd_histf_sample( ctx->metrics->response_latency, (ulong)( now-sent.ts ) );
   ctx->metrics->parent_fec_count_ok++;
 
-  if( FD_UNLIKELY( sent.slot<=ctx->rotor->root  ) ) return; /* rooted while in flight */
-  if( FD_UNLIKELY( parent_slot<ctx->rotor->root ) ) return; /* on a fork below the root */
-  if( FD_UNLIKELY( parent_slot>=sent.slot       ) ) return; /* the leader signed a bad parent */
+  if( FD_UNLIKELY( sent.slot<=ctx->repair->root  ) ) return; /* rooted while in flight */
+  if( FD_UNLIKELY( parent_slot<ctx->repair->root ) ) return; /* on a fork below the root */
+  if( FD_UNLIKELY( parent_slot>=sent.slot        ) ) return; /* the leader signed a bad parent */
 
-  fd_repair_blk_parented( ctx->rotor, sent.slot, &sent.dmr, parent_slot, &parent_blk_mr, fec_set_cnt, now );
+  fd_repair_blk_parented( ctx->repair, sent.slot, &sent.dmr, parent_slot, &parent_blk_mr, fec_set_cnt, now );
 }
 
 static void
@@ -887,8 +883,8 @@ handle_fec_set_root_res( fd_repair_tile_t *   ctx,
   fd_histf_sample( ctx->metrics->response_latency, (ulong)( now-sent.ts ) );
   ctx->metrics->fec_root_ok++;
 
-  if( FD_UNLIKELY( sent.slot<=ctx->rotor->root ) ) return; /* rooted while in flight */
-  fd_repair_fec_notarized( ctx->rotor, sent.slot, &sent.dmr, sent.fec_idx*FD_FEC_SHRED_CNT, &fec_mr, now );
+  if( FD_UNLIKELY( sent.slot<=ctx->repair->root ) ) return; /* rooted while in flight */
+  fd_repair_fec_notarized( ctx->repair, sent.slot, &sent.dmr, sent.fec_idx*FD_FEC_SHRED_CNT, &fec_mr, now );
 }
 
 static void
@@ -953,7 +949,7 @@ metrics_write( fd_repair_tile_t * ctx ) {
   due = fd_long_if( !!timeout_prq_cnt( ctx->eager_prq ), fd_long_min( due, ctx->eager_prq[ 0 ].timeout ), due );
   due = fd_long_if( !!timeout_prq_cnt( ctx->notar_prq ), fd_long_min( due, ctx->notar_prq[ 0 ].timeout ), due );
   due = fd_long_if( !!timeout_prq_cnt( ctx->final_prq ), fd_long_min( due, ctx->final_prq[ 0 ].timeout ), due );
-  ulong queued  = fd_repair_treap_ele_cnt( ctx->rotor->eager_treap ) + fd_repair_treap_ele_cnt( ctx->rotor->notar_treap ) + fd_repair_treap_ele_cnt( ctx->rotor->final_treap );
+  ulong queued  = fd_repair_treap_ele_cnt( ctx->repair->eager_treap ) + fd_repair_treap_ele_cnt( ctx->repair->notar_treap ) + fd_repair_treap_ele_cnt( ctx->repair->final_treap );
   ulong waiting = timeout_prq_cnt( ctx->eager_prq ) + timeout_prq_cnt  ( ctx->notar_prq ) + timeout_prq_cnt( ctx->final_prq );
 
   FD_MCNT_SET( ROTOR, PKT_TX,                               ctx->metrics->pkt_tx                                                      );
@@ -1057,12 +1053,12 @@ after_credit( fd_repair_tile_t *  ctx,
   /* Send one reassembled FEC to replay, then repair, which publishes
      only on unreliable links. */
 
-  if( FD_LIKELY( !fd_repair_deque_empty( ctx->rotor->reasm_deque ) ) ) {
+  if( FD_LIKELY( !fd_repair_deque_empty( ctx->repair->reasm_deque ) ) ) {
     *opt_poll_in = 0;
 
-    fd_repair_deque_t        out = fd_repair_deque_pop_head( ctx->rotor->reasm_deque );
-    fd_repair_blk_t const *  blk = fd_repair_blk_pool_ele_const( ctx->rotor->blk_pool, out.blk_idx );
-    fd_repair_fec_t const *  fec = fd_repair_fec_pool_ele_const( ctx->rotor->fec_pool, blk->fecs[ out.fec_idx ] );
+    fd_repair_deque_t        out = fd_repair_deque_pop_head( ctx->repair->reasm_deque );
+    fd_repair_blk_t const *  blk = fd_repair_blk_pool_ele_const( ctx->repair->blk_pool, out.blk_idx );
+    fd_repair_fec_t const *  fec = fd_repair_fec_pool_ele_const( ctx->repair->fec_pool, blk->fecs[ out.fec_idx ] );
     fd_repair_replay_fec_t * msg = fd_chunk_to_laddr( ctx->replay_out_mem, ctx->replay_out_chunk );
     fd_memset( msg, 0, sizeof(fd_repair_replay_fec_t) );
     msg->slot            = blk->slot;
@@ -1073,13 +1069,13 @@ after_credit( fd_repair_tile_t *  ctx,
     msg->slot_complete   = out.fec_idx+1U==blk->cmpl_fec_cnt;
     msg->data_complete   = fec->data_complete;
     msg->is_leader       = fec->is_leader;
-    msg->known_id        = fd_repair_slot_meta( ctx->rotor, blk->slot )->eager!=out.blk_idx;
+    msg->known_id        = fd_repair_slot_meta( ctx->repair, blk->slot )->eager!=out.blk_idx;
     msg->block_id        = blk->dmr;
-    msg->finalized       = msg->slot_complete && fd_repair_slot_meta( ctx->rotor, blk->slot )->final==out.blk_idx;
+    msg->finalized       = msg->slot_complete && fd_repair_slot_meta( ctx->repair, blk->slot )->final==out.blk_idx;
     msg->metrics.highest_fec_complete_slot = fd_ulong_max( ctx->highest_fec_complete_slot, ctx->catchup_slot );
     msg->metrics.fec_completed_ts_nanos    = fec->cmpl_ts;       /* shred tile rx of the shred that completed it, 0 for our own */
     msg->metrics.votor_repaired            = (uchar)msg->known_id;
-    fd_stem_publish( stem, ctx->replay_out_idx, ROTOR_SIG_FEC_REPLAY, ctx->replay_out_chunk, sizeof(fd_repair_replay_fec_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+    fd_stem_publish( stem, ctx->replay_out_idx, REPAIR_SIG_FEC_REPLAY, ctx->replay_out_chunk, sizeof(fd_repair_replay_fec_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
     ctx->replay_out_chunk = fd_dcache_compact_next( ctx->replay_out_chunk, sizeof(fd_repair_replay_fec_t), ctx->replay_out_chunk0, ctx->replay_out_wmark );
     ctx->metrics->fec_delivered++;
     ctx->metrics->slot_highest_repaired = fd_ulong_if( msg->slot_complete, fd_ulong_max( ctx->metrics->slot_highest_repaired, blk->slot ), ctx->metrics->slot_highest_repaired );
@@ -1091,9 +1087,9 @@ after_credit( fd_repair_tile_t *  ctx,
       block->parent_slot     = blk->parent_slot;
       block->parent_block_id = blk->parent_blk_mr;
       block->fec_set_cnt     = blk->cmpl_fec_cnt;
-      for( uint k=0U; k<blk->cmpl_fec_cnt; k++ ) memcpy( block->merkle_roots[ k ], fd_repair_fec_pool_ele_const( ctx->rotor->fec_pool, blk->fecs[ k ] )->key.uc, FD_SHRED_MERKLE_NODE_SZ );
+      for( uint k=0U; k<blk->cmpl_fec_cnt; k++ ) memcpy( block->merkle_roots[ k ], fd_repair_fec_pool_ele_const( ctx->repair->fec_pool, blk->fecs[ k ] )->key.uc, FD_SHRED_MERKLE_NODE_SZ );
       ulong sz = FD_REPAIR_BLOCK_SZ( blk->cmpl_fec_cnt );
-      fd_stem_publish( stem, ctx->rserve_out_idx, ROTOR_SIG_BLOCK, ctx->rserve_out_chunk, sz, 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+      fd_stem_publish( stem, ctx->rserve_out_idx, REPAIR_SIG_BLOCK, ctx->rserve_out_chunk, sz, 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
       ctx->rserve_out_chunk = fd_dcache_compact_next( ctx->rserve_out_chunk, sz, ctx->rserve_out_chunk0, ctx->rserve_out_wmark );
     }
     *charge_busy = 1;
@@ -1116,7 +1112,7 @@ after_credit( fd_repair_tile_t *  ctx,
        and meta requests left unanswered bans the peer.  A request
        answered in part settled its pick on the first shred. */
 
-    int answerable = pending->slot>ctx->rotor->root && pending->tag!=FD_REPAIR_SERDE_TAG_HIGHEST_WINDOW_INDEX && pending->tag!=FD_REPAIR_SERDE_TAG_ORPHAN;
+    int answerable = pending->slot>ctx->repair->root && pending->tag!=FD_REPAIR_SERDE_TAG_HIGHEST_WINDOW_INDEX && pending->tag!=FD_REPAIR_SERDE_TAG_ORPHAN;
     int byid = pending->tag==FD_REPAIR_SERDE_TAG_WINDOW_INDEX_FOR_BLOCK_ID;
     ctx->metrics->byid_expired += (ulong)( answerable && byid && !pending->answered );
     int ban = 0;
@@ -1124,10 +1120,10 @@ after_credit( fd_repair_tile_t *  ctx,
     else if( FD_LIKELY  ( answerable        ) ) ban = fd_repair_strat_request_expired( ctx->strat, &pending->peer, now+BAN_TTL, byid );
     else                                        fd_repair_strat_request_failed ( ctx->strat, &pending->peer, 0           );
     ctx->metrics->peer_byid_banned += (ulong)( ban==1 );
-    fd_repair_blk_t const * blk        = answerable || !ctx->report_repair_requests || !fd_event_tl ? NULL : fd_repair_blk_map_ele_query_const( ctx->rotor->blk_map, &pending->slot, NULL, ctx->rotor->blk_pool );
-    while( blk && fd_repair_blk_pool_idx( ctx->rotor->blk_pool, blk )!=pending->blk ) blk = fd_repair_blk_map_ele_next_const( blk, NULL, ctx->rotor->blk_pool );
-    fd_repair_blk_t const * parent     = blk ? fd_repair_blk_pool_ele_const( ctx->rotor->blk_pool, blk->parent ) : NULL;
-    int                     superseded = pending->slot>ctx->rotor->root && blk && ( ( pending->tag==FD_REPAIR_SERDE_TAG_HIGHEST_WINDOW_INDEX && blk->cmpl_fec_cnt ) || ( pending->tag==FD_REPAIR_SERDE_TAG_ORPHAN && parent && parent->parent_slot!=ULONG_MAX ) );
+    fd_repair_blk_t const * blk        = answerable || !ctx->report_repair_requests || !fd_event_tl ? NULL : fd_repair_blk_map_ele_query_const( ctx->repair->blk_map, &pending->slot, NULL, ctx->repair->blk_pool );
+    while( blk && fd_repair_blk_pool_idx( ctx->repair->blk_pool, blk )!=pending->blk ) blk = fd_repair_blk_map_ele_next_const( blk, NULL, ctx->repair->blk_pool );
+    fd_repair_blk_t const * parent     = blk ? fd_repair_blk_pool_ele_const( ctx->repair->blk_pool, blk->parent ) : NULL;
+    int                     superseded = pending->slot>ctx->repair->root && blk && ( ( pending->tag==FD_REPAIR_SERDE_TAG_HIGHEST_WINDOW_INDEX && blk->cmpl_fec_cnt ) || ( pending->tag==FD_REPAIR_SERDE_TAG_ORPHAN && parent && parent->parent_slot!=ULONG_MAX ) );
     int                     outcome    = answerable ? FD_EVENT_REPAIR_REQUEST_OUTCOME_EXPIRED : superseded ? FD_EVENT_REPAIR_REQUEST_OUTCOME_SUPERSEDED : FD_EVENT_REPAIR_REQUEST_OUTCOME_UNANSWERABLE;
     int                     ban_kind   = fd_int_if( ban==1, FD_EVENT_REPAIR_REQUEST_BAN_BY_ID, fd_int_if( ban==-1, FD_EVENT_REPAIR_REQUEST_BAN_STREAK, FD_EVENT_REPAIR_REQUEST_BAN_NONE ) );
     for( uint m=pending->mask; m; m=fd_uint_pop_lsb( m ) ) report_repair_request( ctx, pending, (uint)fd_uint_find_lsb( m ), 0L, outcome, ban_kind );
@@ -1138,14 +1134,14 @@ after_credit( fd_repair_tile_t *  ctx,
   }
 
   for( ulong d=sign_pool_free(  ctx->sign_pool ); d; d-- ) {
-    fd_repair_t *       rotor = ctx->rotor;
-    fd_repair_treap_t * treap = fd_repair_treap_ele_cnt( rotor->final_treap ) ? rotor->final_treap :
-                                fd_repair_treap_ele_cnt( rotor->notar_treap ) ? rotor->notar_treap :
-                                fd_repair_treap_ele_cnt( rotor->eager_treap ) ? rotor->eager_treap :
-                                                                                NULL;
+    fd_repair_t *       repair = ctx->repair;
+    fd_repair_treap_t * treap  = fd_repair_treap_ele_cnt( repair->final_treap ) ? repair->final_treap :
+                                 fd_repair_treap_ele_cnt( repair->notar_treap ) ? repair->notar_treap :
+                                 fd_repair_treap_ele_cnt( repair->eager_treap ) ? repair->eager_treap :
+                                                                                  NULL;
     if( FD_UNLIKELY( !treap ) ) break;
-    fd_repair_blk_t * blk = fd_repair_treap_fwd_iter_ele( fd_repair_treap_fwd_iter_init( treap, rotor->blk_pool ), rotor->blk_pool );
-    fd_repair_treap_ele_remove( treap, blk, rotor->blk_pool );
+    fd_repair_blk_t * blk = fd_repair_treap_fwd_iter_ele( fd_repair_treap_fwd_iter_init( treap, repair->blk_pool ), repair->blk_pool );
+    fd_repair_treap_ele_remove( treap, blk, repair->blk_pool );
     blk->in_blk_treap = 0;
     discover( ctx, blk, now );
   }
@@ -1184,7 +1180,7 @@ after_credit( fd_repair_tile_t *  ctx,
     fd_repair_blk_t * blk = poll_timeout( ctx, now, &req );
     if( FD_UNLIKELY(  !blk ) ) break;
 
-    fd_repair_fec_t const * fec   = fd_repair_fec_pool_ele_const( ctx->rotor->fec_pool, fd_ulong_if( req.tag==FD_REPAIR_SERDE_TAG_WINDOW_INDEX, blk->fecs[ req.fec_idx ], fd_repair_fec_pool_idx_null( ctx->rotor->fec_pool ) ) );
+    fd_repair_fec_t const * fec   = fd_repair_fec_pool_ele_const( ctx->repair->fec_pool, fd_ulong_if( req.tag==FD_REPAIR_SERDE_TAG_WINDOW_INDEX, blk->fecs[ req.fec_idx ], fd_repair_fec_pool_idx_null( ctx->repair->fec_pool ) ) );
     int                     eager = blk->eager;
     uint                    tag   = req.tag!=FD_REPAIR_SERDE_TAG_WINDOW_INDEX ? req.tag                                      : /* a FEC set req becomes what its blk still lacks */
                                     eager                                     ? FD_REPAIR_SERDE_TAG_WINDOW_INDEX             :
@@ -1231,11 +1227,11 @@ after_credit( fd_repair_tile_t *  ctx,
       pending_map_ele_remove_fast( ctx->pending_map, oldest, ctx->pending_pool );
       pending_pool_ele_release   ( ctx->pending_pool, oldest );
     }
-    fd_repair_slot_meta_t const * slot_meta = fd_repair_slot_meta( ctx->rotor, blk->slot );
+    fd_repair_slot_meta_t const * slot_meta = fd_repair_slot_meta( ctx->repair, blk->slot );
     int                           role      = slot_meta->final==req.blk ? FD_EVENT_REPAIR_REQUEST_ROLE_FINAL : slot_meta->notar==req.blk ? FD_EVENT_REPAIR_REQUEST_ROLE_NOTAR : FD_EVENT_REPAIR_REQUEST_ROLE_EAGER;
     int                           pick      = escaped ? FD_EVENT_REPAIR_REQUEST_PICK_ESCAPE : !req.attempt ? FD_EVENT_REPAIR_REQUEST_PICK_FIRST : !blk->eager ? FD_EVENT_REPAIR_REQUEST_PICK_STAKED_HEDGE : FD_EVENT_REPAIR_REQUEST_PICK_HEDGE;
     pending_t * pending = pending_pool_ele_acquire( ctx->pending_pool );
-    pending->key         = fd_ulong_if( meta, (ulong)nonce, (ulong)(uint)blk->slot<<32 | fd_uint_if( req.tag==FD_REPAIR_SERDE_TAG_HIGHEST_WINDOW_INDEX || req.tag==FD_REPAIR_SERDE_TAG_ORPHAN, (uint)ctx->rotor->fec_blk_max, req.fec_idx ) ); /* an ORPHAN's first reply is of the slot itself, matched like a HIGHEST */
+    pending->key         = fd_ulong_if( meta, (ulong)nonce, (ulong)(uint)blk->slot<<32 | fd_uint_if( req.tag==FD_REPAIR_SERDE_TAG_HIGHEST_WINDOW_INDEX || req.tag==FD_REPAIR_SERDE_TAG_ORPHAN, (uint)ctx->repair->fec_blk_max, req.fec_idx ) ); /* an ORPHAN's first reply is of the slot itself, matched like a HIGHEST */
     pending->ts          = now;
     pending->slot        = blk->slot;
     pending->blk         = req.blk;
@@ -1310,12 +1306,12 @@ before_frag( fd_repair_tile_t * ctx,
   case IN_KIND_GENESIS:
     return 0;
   case IN_KIND_SHRED: {
-    if( FD_UNLIKELY( ctx->rotor->root==ULONG_MAX ) ) return -1; /* hold until the snapshot or genesis gives the root */
+    if( FD_UNLIKELY( ctx->repair->root==ULONG_MAX ) ) return -1; /* hold until the snapshot or genesis gives the root */
     if( FD_LIKELY( fd_shred_sig_src( sig )!=SHRED_SIG_FUTURE ) ) return 0;
     ulong slot = fd_shred_sig_future_slot( sig );
-    if( FD_LIKELY( ctx->staked || slot<ctx->rotor->root+ctx->rotor->slot_max || slot<=ctx->catchup_slot ) ) return 1;
+    if( FD_LIKELY( ctx->staked || slot<ctx->repair->root+ctx->repair->slot_max || slot<=ctx->catchup_slot ) ) return 1;
     ctx->catchup_slot = slot;
-    fd_repair_slot_catchup( ctx->rotor, ctx->rotor->root+ctx->rotor->slot_max );
+    fd_repair_slot_catchup( ctx->repair, ctx->repair->root+ctx->repair->slot_max );
     return 1;
   }
   case IN_KIND_SNAP: {
@@ -1323,7 +1319,7 @@ before_frag( fd_repair_tile_t * ctx,
     return msg!=FD_SSMSG_MANIFEST_FULL && msg!=FD_SSMSG_MANIFEST_INCREMENTAL && msg!=FD_SSMSG_DONE;
   }
   case IN_KIND_VOTOR:
-    if( FD_UNLIKELY( ctx->rotor->root==ULONG_MAX ) ) return -1; /* hold until the snapshot or genesis gives the root */
+    if( FD_UNLIKELY( ctx->repair->root==ULONG_MAX ) ) return -1; /* hold until the snapshot or genesis gives the root */
     return sig!=FD_VOTOR_SIG_CERTED && sig!=FD_VOTOR_SIG_REPAIR && sig!=FD_VOTOR_SIG_QUORUM;
   case IN_KIND_REPLAY:
     return sig!=REPLAY_SIG_ROOT_ADVANCED && sig!=REPLAY_SIG_SLOT_DEAD && sig!=REPLAY_SIG_MISSING_FEC;
@@ -1405,7 +1401,7 @@ after_frag( fd_repair_tile_t *  ctx,
   case IN_KIND_GENESIS: {
     fd_genesis_meta_t const * meta = (fd_genesis_meta_t const *)fd_type_pun_const( src );
     if( FD_UNLIKELY( !meta->bootstrap ) ) break; /* booting from a snapshot */
-    fd_repair_init( ctx->rotor, 0UL, &hash_null, report_block_received, ctx );
+    fd_repair_init( ctx->repair, 0UL, &hash_null, report_block_received, ctx );
     break;
   }
   case IN_KIND_SHRED: { /* tsorig is the shred tile's network rx of the shred, the completing one for a FEC set */
@@ -1523,7 +1519,7 @@ unprivileged_init( fd_topo_t const *      topo,
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_repair_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_repair_tile_t),          sizeof(fd_repair_tile_t)                         );
-  ctx->rotor             = FD_SCRATCH_ALLOC_APPEND( l, fd_repair_align(),                  fd_repair_footprint( tile->rotor.slot_max, tile->rotor.fec_max, tile->rotor.max_shreds_per_block/FD_FEC_SHRED_CNT ) );
+  ctx->repair            = FD_SCRATCH_ALLOC_APPEND( l, fd_repair_align(),                  fd_repair_footprint( tile->rotor.slot_max, tile->rotor.fec_max, tile->rotor.max_shreds_per_block/FD_FEC_SHRED_CNT ) );
   void * strat           = FD_SCRATCH_ALLOC_APPEND( l, fd_repair_strat_align(),            fd_repair_strat_footprint()                      );
   void * mleaders        = FD_SCRATCH_ALLOC_APPEND( l, fd_multi_epoch_leaders_align(),     fd_multi_epoch_leaders_footprint()               );
   void * ping_deque      = FD_SCRATCH_ALLOC_APPEND( l, ping_deque_align(),                 ping_deque_footprint( FD_REPAIR_STRAT_PEER_MAX ) );
@@ -1539,8 +1535,8 @@ unprivileged_init( fd_topo_t const *      topo,
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
 
-  ctx->rotor = fd_repair_join( fd_repair_new( ctx->rotor, tile->rotor.slot_max, tile->rotor.fec_max, tile->rotor.max_shreds_per_block/FD_FEC_SHRED_CNT, ctx->seed ) );
-  FD_TEST( ctx->rotor );
+  ctx->repair = fd_repair_join( fd_repair_new( ctx->repair, tile->rotor.slot_max, tile->rotor.fec_max, tile->rotor.max_shreds_per_block/FD_FEC_SHRED_CNT, ctx->seed ) );
+  FD_TEST( ctx->repair );
   ctx->mleaders = fd_multi_epoch_leaders_join( fd_multi_epoch_leaders_new( mleaders ) );
   FD_TEST( ctx->mleaders );
 

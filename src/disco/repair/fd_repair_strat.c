@@ -73,27 +73,27 @@ bucket( fd_repair_strat_peer_t const * peer ) {
    request, and in no bucket otherwise. */
 
 static void
-place( fd_repair_strat_t * strat,
+place( fd_repair_strat_t * self,
        ulong               idx ) {
-  fd_repair_strat_peer_t * peer = &strat->cur.peers[ idx ];
-  fd_repair_strat_set_remove( strat->buckets[ peer->bucket ], idx );
+  fd_repair_strat_peer_t * peer = &self->cur.peers[ idx ];
+  fd_repair_strat_set_remove( self->buckets[ peer->bucket ], idx );
   peer->bucket = bucket( peer );
-  if( FD_LIKELY( peer->ip4 && peer->out_cnt<FD_REPAIR_STRAT_INFLIGHT_MAX ) ) fd_repair_strat_set_insert( strat->buckets[ peer->bucket ], idx );
+  if( FD_LIKELY( peer->ip4 && peer->out_cnt<FD_REPAIR_STRAT_INFLIGHT_MAX ) ) fd_repair_strat_set_insert( self->buckets[ peer->bucket ], idx );
 }
 
 void
-fd_repair_strat_epoch_advanced( fd_repair_strat_t *       strat,
+fd_repair_strat_epoch_advanced( fd_repair_strat_t *       self,
                                 fd_stake_weight_t const * ids,
                                 ulong                     id_cnt ) {
-  fd_repair_strat_order_t old = strat->cur;
-  strat->cur = strat->old;
-  strat->old = old;
+  fd_repair_strat_order_t old = self->cur;
+  self->cur = self->old;
+  self->old = old;
 
-  fd_repair_strat_peer_map_reset( strat->cur.map );
-  strat->epoch_cnt++;
+  fd_repair_strat_peer_map_reset( self->cur.map );
+  self->epoch_cnt++;
   for( ulong b=0UL; b<FD_REPAIR_STRAT_BUCKET_CNT; b++ ) {
-    fd_repair_strat_set_null( strat->buckets[ b ] );
-    strat->cursor[ b ] = fd_ulong_hash( strat->seed^(strat->epoch_cnt<<8)^b ) % FD_REPAIR_STRAT_PEER_MAX;
+    fd_repair_strat_set_null( self->buckets[ b ] );
+    self->cursor[ b ] = fd_ulong_hash( self->seed^(self->epoch_cnt<<8)^b ) % FD_REPAIR_STRAT_PEER_MAX;
   }
 
   /* Staked identities take [0,staked_cnt) by stake rank, keeping what
@@ -101,49 +101,49 @@ fd_repair_strat_epoch_advanced( fd_repair_strat_t *       strat,
 
   ulong cnt = fd_ulong_min( id_cnt, FD_REPAIR_STRAT_PEER_MAX );
   for( ulong rank=0UL; rank<cnt; rank++ ) {
-    fd_repair_strat_peer_t *       peer = &strat->cur.peers[ rank ];
-    fd_repair_strat_peer_t const * prev = fd_repair_strat_peer_map_ele_query_const( strat->old.map, &ids[ rank ].key, NULL, strat->old.peers );
+    fd_repair_strat_peer_t *       peer = &self->cur.peers[ rank ];
+    fd_repair_strat_peer_t const * prev = fd_repair_strat_peer_map_ele_query_const( self->old.map, &ids[ rank ].key, NULL, self->old.peers );
     if( FD_LIKELY( prev ) ) *peer  = *prev;
     else {
       fd_memset( peer, 0, sizeof(fd_repair_strat_peer_t) );
       peer->id_key = ids[ rank ].key;
       peer->bucket = FD_REPAIR_STRAT_BUCKET_UNMEASURED;
     }
-    fd_repair_strat_peer_map_ele_insert( strat->cur.map, peer, strat->cur.peers );
-    place( strat, rank );
+    fd_repair_strat_peer_map_ele_insert( self->cur.map, peer, self->cur.peers );
+    place( self, rank );
   }
-  strat->staked_cnt = cnt;
+  self->staked_cnt = cnt;
 
   /* Unstaked peers with an address take the slots after. */
 
-  strat->free_cnt = 0UL;
-  for( ulong i=FD_REPAIR_STRAT_PEER_MAX; i>cnt; i-- ) strat->free[ strat->free_cnt++ ] = (uint)( i-1UL );
-  for( fd_repair_strat_peer_map_iter_t iter = fd_repair_strat_peer_map_iter_init( strat->old.map, strat->old.peers );
-                                              !fd_repair_strat_peer_map_iter_done( iter, strat->old.map, strat->old.peers );
-                                        iter = fd_repair_strat_peer_map_iter_next( iter, strat->old.map, strat->old.peers ) ) {
-    fd_repair_strat_peer_t const * prev = fd_repair_strat_peer_map_iter_ele_const( iter, strat->old.map, strat->old.peers );
-    if( FD_UNLIKELY( !prev->ip4 || !strat->free_cnt ) ) continue;
-    if( FD_LIKELY( fd_repair_strat_peer_map_ele_query_const( strat->cur.map, &prev->id_key, NULL, strat->cur.peers ) ) ) continue; /* staked now */
-    ulong idx = strat->free[ --strat->free_cnt ];
-    strat->cur.peers[ idx ] = *prev;
-    fd_repair_strat_peer_map_ele_insert( strat->cur.map, &strat->cur.peers[ idx ], strat->cur.peers );
-    place( strat, idx );
+  self->free_cnt = 0UL;
+  for( ulong i=FD_REPAIR_STRAT_PEER_MAX; i>cnt; i-- ) self->free[ self->free_cnt++ ] = (uint)( i-1UL );
+  for( fd_repair_strat_peer_map_iter_t iter = fd_repair_strat_peer_map_iter_init( self->old.map, self->old.peers );
+                                              !fd_repair_strat_peer_map_iter_done( iter, self->old.map, self->old.peers );
+                                        iter = fd_repair_strat_peer_map_iter_next( iter, self->old.map, self->old.peers ) ) {
+    fd_repair_strat_peer_t const * prev = fd_repair_strat_peer_map_iter_ele_const( iter, self->old.map, self->old.peers );
+    if( FD_UNLIKELY( !prev->ip4 || !self->free_cnt ) ) continue;
+    if( FD_LIKELY( fd_repair_strat_peer_map_ele_query_const( self->cur.map, &prev->id_key, NULL, self->cur.peers ) ) ) continue; /* staked now */
+    ulong idx = self->free[ --self->free_cnt ];
+    self->cur.peers[ idx ] = *prev;
+    fd_repair_strat_peer_map_ele_insert( self->cur.map, &self->cur.peers[ idx ], self->cur.peers );
+    place( self, idx );
   }
 }
 
 void
-fd_repair_strat_contact_info_updated( fd_repair_strat_t * strat,
+fd_repair_strat_contact_info_updated( fd_repair_strat_t * self,
                                       fd_pubkey_t const * id_key,
                                       uint                ip4,
                                       ushort              port ) {
-  fd_repair_strat_peer_t * peer = fd_repair_strat_peer_map_ele_query( strat->cur.map, id_key, NULL, strat->cur.peers );
-  if( FD_UNLIKELY( !peer && !strat->free_cnt ) ) return;
+  fd_repair_strat_peer_t * peer = fd_repair_strat_peer_map_ele_query( self->cur.map, id_key, NULL, self->cur.peers );
+  if( FD_UNLIKELY( !peer && !self->free_cnt ) ) return;
   if( FD_UNLIKELY( !peer ) ) {
-    peer = &strat->cur.peers[ strat->free[ --strat->free_cnt ] ];
+    peer = &self->cur.peers[ self->free[ --self->free_cnt ] ];
     fd_memset( peer, 0, sizeof(fd_repair_strat_peer_t) );
     peer->id_key = *id_key;
     peer->bucket = FD_REPAIR_STRAT_BUCKET_UNMEASURED;
-    fd_repair_strat_peer_map_ele_insert( strat->cur.map, peer, strat->cur.peers );
+    fd_repair_strat_peer_map_ele_insert( self->cur.map, peer, self->cur.peers );
   }
   if( FD_LIKELY( peer->ip4==ip4 && peer->port==port ) ) return;
 
@@ -152,36 +152,36 @@ fd_repair_strat_contact_info_updated( fd_repair_strat_t * strat,
   peer->srtt_ns   = 0L;
   peer->rttvar_ns = 0L;
   peer->ping_ts   = 0L;
-  place( strat, (ulong)( peer-strat->cur.peers ) );
+  place( self, (ulong)( peer-self->cur.peers ) );
 }
 
 void
-fd_repair_strat_contact_info_removed( fd_repair_strat_t * strat,
+fd_repair_strat_contact_info_removed( fd_repair_strat_t * self,
                                       fd_pubkey_t const * id_key ) {
-  fd_repair_strat_peer_t * peer = fd_repair_strat_peer_map_ele_query( strat->cur.map, id_key, NULL, strat->cur.peers );
+  fd_repair_strat_peer_t * peer = fd_repair_strat_peer_map_ele_query( self->cur.map, id_key, NULL, self->cur.peers );
   if( FD_UNLIKELY( !peer ) ) return;
 
-  ulong idx = (ulong)( peer-strat->cur.peers );
+  ulong idx = (ulong)( peer-self->cur.peers );
   peer->ip4 = 0U;
-  place( strat, idx );
-  if( FD_LIKELY( idx<strat->staked_cnt ) ) return; /* a staked peer keeps its slot */
+  place( self, idx );
+  if( FD_LIKELY( idx<self->staked_cnt ) ) return; /* a staked peer keeps its slot */
 
-  fd_repair_strat_peer_map_ele_remove( strat->cur.map, id_key, NULL, strat->cur.peers );
-  strat->free[ strat->free_cnt++ ] = (uint)idx;
+  fd_repair_strat_peer_map_ele_remove( self->cur.map, id_key, NULL, self->cur.peers );
+  self->free[ self->free_cnt++ ] = (uint)idx;
 }
 
 fd_repair_strat_peer_t *
-fd_repair_strat_pick( fd_repair_strat_t * strat,
+fd_repair_strat_pick( fd_repair_strat_t * self,
                       long                now,
                       int                 staked,
                       ulong               avoid ) {
-  ulong end      = fd_ulong_if( staked,   strat->staked_cnt, FD_REPAIR_STRAT_PEER_MAX );
-  int   explore  = !( ++strat->pick_cnt   % FD_REPAIR_STRAT_EXPLORE );
+  ulong end      = fd_ulong_if( staked,   self->staked_cnt, FD_REPAIR_STRAT_PEER_MAX );
+  int   explore  = !( ++self->pick_cnt   % FD_REPAIR_STRAT_EXPLORE );
   int   fallback = 0; /* avoid was available */
   for( ulong i=0UL; i<FD_REPAIR_STRAT_BUCKET_CNT; i++ ) {
     ulong                         b     = fd_ulong_if( explore, (i+FD_REPAIR_STRAT_BUCKET_UNMEASURED)%FD_REPAIR_STRAT_BUCKET_CNT, i ); /* unmeasured first when exploring */
-    fd_repair_strat_set_t const * set   = strat->buckets[ b ];
-    ulong                         start = strat->cursor[ b ];
+    fd_repair_strat_set_t const * set   = self->buckets[ b ];
+    ulong                         start = self->cursor[ b ];
 
     /* The next two peers after the cursor, walking to end and then
        from the start back to the cursor. */
@@ -199,7 +199,7 @@ fd_repair_strat_pick( fd_repair_strat_t * strat,
         continue;
       }
       if( FD_UNLIKELY( wrap && idx>start ) ) break;
-      if( FD_LIKELY( strat->cur.peers[ idx ].ban_ts<=now ) ) {
+      if( FD_LIKELY( self->cur.peers[ idx ].ban_ts<=now ) ) {
         first = fd_ulong_if( first==ULONG_MAX, idx, first );
         if( FD_LIKELY( idx!=avoid ) ) cand[ cand_cnt++ ] = idx;
         else                          fallback = 1;
@@ -208,53 +208,53 @@ fd_repair_strat_pick( fd_repair_strat_t * strat,
     }
     if( FD_UNLIKELY( !cand_cnt ) ) continue;
 
-    fd_repair_strat_peer_t const * c0  = &strat->cur.peers[ cand[ 0 ] ];
-    fd_repair_strat_peer_t const * c1  = &strat->cur.peers[ cand[ cand_cnt-1UL ] ];
+    fd_repair_strat_peer_t const * c0  = &self->cur.peers[ cand[ 0 ] ];
+    fd_repair_strat_peer_t const * c1  = &self->cur.peers[ cand[ cand_cnt-1UL ] ];
     ulong                          won = fd_ulong_if( (ulong)(c1->srtt_ns+1L)*(c1->out_cnt+1UL)<(ulong)(c0->srtt_ns+1L)*(c0->out_cnt+1UL), cand[ cand_cnt-1UL ], cand[ 0 ] );
-    strat->cursor[ b ] = first; /* one peer on, avoided or not, so pairs shift rather than repeat */
-    strat->cur.peers[ won ].out_cnt++;
-    place( strat, won );
-    return &strat->cur.peers[ won ];
+    self->cursor[ b ] = first; /* one peer on, avoided or not, so pairs shift rather than repeat */
+    self->cur.peers[ won ].out_cnt++;
+    place( self, won );
+    return &self->cur.peers[ won ];
   }
   if( FD_UNLIKELY( fallback ) ) {
-    strat->cur.peers[ avoid ].out_cnt++;
-    place( strat, avoid );
-    return &strat->cur.peers[ avoid ];
+    self->cur.peers[ avoid ].out_cnt++;
+    place( self, avoid );
+    return &self->cur.peers[ avoid ];
   }
   return NULL;
 }
 
 fd_repair_strat_peer_t *
-fd_repair_strat_pick_staked( fd_repair_strat_t * strat,
+fd_repair_strat_pick_staked( fd_repair_strat_t * self,
                              long                now,
                              ulong               avoid,
                              ulong               r ) {
-  ulong n = fd_ulong_min( strat->staked_cnt, FD_REPAIR_STRAT_ESCAPE_TOP );
+  ulong n = fd_ulong_min( self->staked_cnt, FD_REPAIR_STRAT_ESCAPE_TOP );
   ulong m = 0UL;
   for( ulong idx=0UL; idx<n; idx++ ) {
-    fd_repair_strat_peer_t const * peer = &strat->cur.peers[ idx ];
+    fd_repair_strat_peer_t const * peer = &self->cur.peers[ idx ];
     m += (ulong)( idx!=avoid && peer->ip4 && peer->out_cnt<FD_REPAIR_STRAT_INFLIGHT_MAX && peer->ban_ts<=now );
   }
   if( FD_UNLIKELY( !m ) ) return NULL;
 
   ulong k = fd_ulong_min( (r&UINT_MAX)%m, (r>>32)%m ); /* among the available peers, in stake order */
   for( ulong idx=0UL; idx<n; idx++ ) {
-    fd_repair_strat_peer_t * peer = &strat->cur.peers[ idx ];
+    fd_repair_strat_peer_t * peer = &self->cur.peers[ idx ];
     if( idx==avoid || !peer->ip4 || peer->out_cnt>=FD_REPAIR_STRAT_INFLIGHT_MAX || peer->ban_ts>now ) continue;
     if( k-- ) continue;
     peer->out_cnt++;
-    place( strat, idx );
+    place( self, idx );
     return peer;
   }
   return NULL;
 }
 
 void
-fd_repair_strat_request_done( fd_repair_strat_t * strat,
+fd_repair_strat_request_done( fd_repair_strat_t * self,
                               fd_pubkey_t const * id_key,
                               long                rtt,
                               int                 byid ) {
-  fd_repair_strat_peer_t * peer = fd_repair_strat_peer_map_ele_query( strat->cur.map, id_key, NULL, strat->cur.peers );
+  fd_repair_strat_peer_t * peer = fd_repair_strat_peer_map_ele_query( self->cur.map, id_key, NULL, self->cur.peers );
   if( FD_UNLIKELY( !peer ) ) return; /* forgotten while the request was in flight */
 
   peer->out_cnt    -= !!peer->out_cnt;
@@ -262,27 +262,27 @@ fd_repair_strat_request_done( fd_repair_strat_t * strat,
   peer->byid_expired_cnt = fd_uint_if( byid, 0U, peer->byid_expired_cnt ); /* a positional reply does not vouch for by-id */
   peer->rttvar_ns = fd_long_if( !!peer->srtt_ns, (3L*peer->rttvar_ns+(long)fd_long_abs( peer->srtt_ns-rtt ))/4L, rtt/2L ); /* RFC 6298 */
   peer->srtt_ns   = fd_long_if( !!peer->srtt_ns, (7L*peer->srtt_ns+rtt)/8L,                                   rtt     );
-  place( strat, (ulong)( peer-strat->cur.peers ) );
+  place( self, (ulong)( peer-self->cur.peers ) );
 }
 
 void
-fd_repair_strat_request_failed( fd_repair_strat_t * strat,
+fd_repair_strat_request_failed( fd_repair_strat_t * self,
                                 fd_pubkey_t const * id_key,
                                 long                ban_ts ) {
-  fd_repair_strat_peer_t * peer = fd_repair_strat_peer_map_ele_query( strat->cur.map, id_key, NULL, strat->cur.peers );
+  fd_repair_strat_peer_t * peer = fd_repair_strat_peer_map_ele_query( self->cur.map, id_key, NULL, self->cur.peers );
   if( FD_UNLIKELY( !peer ) ) return; /* forgotten while the request was in flight */
 
   peer->out_cnt  -= !!peer->out_cnt;
   peer->ban_ts    = fd_long_max( peer->ban_ts, ban_ts ); /* an expiry does not shorten a verify failure's ban */
-  place( strat, (ulong)( peer-strat->cur.peers ) );
+  place( self, (ulong)( peer-self->cur.peers ) );
 }
 
 int
-fd_repair_strat_request_expired( fd_repair_strat_t * strat,
+fd_repair_strat_request_expired( fd_repair_strat_t * self,
                                  fd_pubkey_t const * id_key,
                                  long                ban_ts,
                                  int                 byid ) {
-  fd_repair_strat_peer_t * peer = fd_repair_strat_peer_map_ele_query( strat->cur.map, id_key, NULL, strat->cur.peers );
+  fd_repair_strat_peer_t * peer = fd_repair_strat_peer_map_ele_query( self->cur.map, id_key, NULL, self->cur.peers );
   if( FD_UNLIKELY( !peer ) ) return 0; /* forgotten while the request was in flight */
 
   peer->out_cnt -= !!peer->out_cnt;
@@ -294,18 +294,18 @@ fd_repair_strat_request_expired( fd_repair_strat_t * strat,
     peer->expired_cnt      = 0U;
     peer->byid_expired_cnt = 0U;
   }
-  place( strat, (ulong)( peer-strat->cur.peers ) );
+  place( self, (ulong)( peer-self->cur.peers ) );
   return ban;
 }
 
 void
-fd_repair_strat_turbine_done( fd_repair_strat_t * strat,
+fd_repair_strat_turbine_done( fd_repair_strat_t * self,
                               fd_pubkey_t const * id_key,
                               long                t ) {
-  strat->turbine_rttvar = fd_long_if( !!strat->turbine_srtt, (3L*strat->turbine_rttvar+(long)fd_long_abs( strat->turbine_srtt-t ))/4L, t/2L );
-  strat->turbine_srtt   = fd_long_if( !!strat->turbine_srtt, (7L*strat->turbine_srtt+t)/8L,                                             t    );
+  self->turbine_rttvar = fd_long_if( !!self->turbine_srtt, (3L*self->turbine_rttvar+(long)fd_long_abs( self->turbine_srtt-t ))/4L, t/2L );
+  self->turbine_srtt   = fd_long_if( !!self->turbine_srtt, (7L*self->turbine_srtt+t)/8L,                                            t    );
 
-  fd_repair_strat_peer_t * peer = id_key ? fd_repair_strat_peer_map_ele_query( strat->cur.map, id_key, NULL, strat->cur.peers ) : NULL;
+  fd_repair_strat_peer_t * peer = id_key ? fd_repair_strat_peer_map_ele_query( self->cur.map, id_key, NULL, self->cur.peers ) : NULL;
   if( FD_UNLIKELY( !peer ) ) return;
   peer->turbine_rttvar = fd_long_if( !!peer->turbine_srtt, (3L*peer->turbine_rttvar+(long)fd_long_abs( peer->turbine_srtt-t ))/4L, t/2L );
   peer->turbine_srtt   = fd_long_if( !!peer->turbine_srtt, (7L*peer->turbine_srtt+t)/8L,                                            t    );
@@ -313,26 +313,26 @@ fd_repair_strat_turbine_done( fd_repair_strat_t * strat,
 }
 
 long
-fd_repair_strat_eager_ns( fd_repair_strat_t * strat,
+fd_repair_strat_eager_ns( fd_repair_strat_t * self,
                           fd_pubkey_t const * id_key ) {
-  fd_repair_strat_peer_t const * peer   = id_key ? fd_repair_strat_peer_map_ele_query_const( strat->cur.map, id_key, NULL, strat->cur.peers ) : NULL;
+  fd_repair_strat_peer_t const * peer   = id_key ? fd_repair_strat_peer_map_ele_query_const( self->cur.map, id_key, NULL, self->cur.peers ) : NULL;
   int                            own    = peer && peer->turbine_cnt>=FD_REPAIR_STRAT_TURBINE_MIN;
-  long                           srtt   = own ? peer->turbine_srtt   : strat->turbine_srtt;
-  long                           rttvar = own ? peer->turbine_rttvar : strat->turbine_rttvar;
+  long                           srtt   = own ? peer->turbine_srtt   : self->turbine_srtt;
+  long                           rttvar = own ? peer->turbine_rttvar : self->turbine_rttvar;
   if( FD_UNLIKELY( !srtt ) ) return FD_REPAIR_STRAT_EAGER_MAX_NS;
   return fd_long_min( fd_long_max( srtt+4L*rttvar, FD_REPAIR_STRAT_EAGER_MIN_NS ), FD_REPAIR_STRAT_EAGER_MAX_NS );
 }
 
 fd_repair_strat_peer_t *
-fd_repair_strat_query( fd_repair_strat_t * strat,
+fd_repair_strat_query( fd_repair_strat_t * self,
                        fd_pubkey_t const * id_key ) {
-  return fd_repair_strat_peer_map_ele_query( strat->cur.map, id_key, NULL, strat->cur.peers );
+  return fd_repair_strat_peer_map_ele_query( self->cur.map, id_key, NULL, self->cur.peers );
 }
 
 ulong
-fd_repair_strat_slot_remap( fd_repair_strat_t const * strat,
+fd_repair_strat_slot_remap( fd_repair_strat_t const * self,
                             ulong                     idx ) {
   if( FD_UNLIKELY( idx>=FD_REPAIR_STRAT_PEER_MAX ) )  return ULONG_MAX;
-  fd_repair_strat_peer_t const * peer = fd_repair_strat_peer_map_ele_query_const( strat->cur.map, &strat->old.peers[ idx ].id_key, NULL, strat->cur.peers );
-  return peer ? (ulong)( peer-strat->cur.peers ) : ULONG_MAX;
+  fd_repair_strat_peer_t const * peer = fd_repair_strat_peer_map_ele_query_const( self->cur.map, &self->old.peers[ idx ].id_key, NULL, self->cur.peers );
+  return peer ? (ulong)( peer-self->cur.peers ) : ULONG_MAX;
 }

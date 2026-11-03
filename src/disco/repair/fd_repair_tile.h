@@ -4,15 +4,14 @@
 #include "../../disco/tiles.h"
 #include "../../disco/shred/fd_shred_tile.h"
 
-/* Rotor OUTPUTS
+/* Repair OUTPUTS
 
-   Rotor tile forwards FECs in replay order to replay tile with sig
-   ROTOR_SIG_FEC_REPLAY.
+   Repair tile forwards FECs in replay order to replay tile with sig
+   REPAIR_SIG_FEC_REPLAY.
 
-   However since rotor is a direct drop in for repair tile, we have to make
-   sure the sigs do not clobber the repair tile's sigs.
+   It shares the sig space with the legacy repair sigs below, so it must
+   not clobber them:
 
-   See fd_repair_tile.h
    #define REPAIR_SIG_FEC_INVALID (2UL)
    #define REPAIR_SIG_FEC_LEADER  (1UL)
    #define REPAIR_SIG_FEC         (0UL)
@@ -39,7 +38,7 @@
 
    INPUTS: REPLAY
 
-   Rotor tile consumes from replay tile the sigs
+   Repair tile consumes from replay tile the sigs
    REPLAY_SIG_ROOT_ADVANCED, REPLAY_SIG_SLOT_DEAD and
    REPLAY_SIG_MISSING_FEC.  REPLAY_SIG_SLOT_DEAD frees the dead blk; if
    it was the turbine version, turbine does not rebuild it.
@@ -55,10 +54,10 @@
    finalization arrives for slot N.
 
    Replay tile updates its consensus root, but can't advance to it yet,
-   because the bank for it has not been executed.  Rotor never evicts a
+   because the bank for it has not been executed.  Repair never evicts a
    blk, and thus could root from the finalized message immediately.
    This is clearly a problem; replay needs the consensus root data
-   re-delivered for execution, so rotor cannot immediately prune based
+   re-delivered for execution, so repair cannot immediately prune based
    on the finalized message.
 
    Instead replay already does its own bookkeeping.  It has a highest
@@ -66,25 +65,25 @@
    maintained, and a notified root that is the highest consensus root
    that replay verifies is live and can't be evicted.
 
-   Rotor can safely assume anything below the notified root is no longer
-   needed.
+   Repair can safely assume anything below the notified root is no
+   longer needed.
 
    Eviction:
 
-   Replay can evict leaf banks at will, without rotor's knowledge.  This
-   means rotor may continue deliverying down a lineage that banks cannot
-   immediately replay, since it has evicted an ancestor.  When that
-   occurs, replay should drain the rotor in-link dcache and send a
-   REPLAY_SIG_MISSING_FEC to rotor.  Rotor then sends it's next FEC set
-   with the full lineage starting from the rotor root.  It does this
-   only for the next FEC set to deliver.  If repeated evictions occur,
-   rotor can expect repeated REPLAY_SIG_MISSING_FEC messages to arrive,
-   and many redundant FECs to be delivered.
+   Replay can evict leaf banks at will, without repair's knowledge.
+   This means repair may continue deliverying down a lineage that banks
+   cannot immediately replay, since it has evicted an ancestor.  When
+   that occurs, replay should drain the repair in-link dcache and send a
+   REPLAY_SIG_MISSING_FEC to repair.  Repair then sends it's next FEC
+   set with the full lineage starting from the repair root.  It does
+   this only for the next FEC set to deliver.  If repeated evictions
+   occur, repair can expect repeated REPLAY_SIG_MISSING_FEC messages to
+   arrive, and many redundant FECs to be delivered.
 
-   We assume currently that rotor will not require eviction.  The
+   We assume currently that repair will not require eviction.  The
    default size is bounded to the Agave cap on future certs it tracks.
-   We can bound rotor even tighter once dynamic vote timeouts are
-   implemented, and thus rotor should always have all the data replay
+   We can bound repair even tighter once dynamic vote timeouts are
+   implemented, and thus repair should always have all the data replay
    needs.
 
    INPUTS: NET
@@ -96,25 +95,25 @@
    verification.
 
    ParentAndFecCount and FecRoot response types are metadata, not
-   regular shreds. Thus the net tile routes them directly to the rotor
-   tile.  The routing is done entirely by packet size, so rotor tile
+   regular shreds. Thus the net tile routes them directly to the repair
+   tile.  The routing is done entirely by packet size, so repair tile
    filters and validates aggressively.  The responses are matches by
-   nonce and verified before being ingested by the rotor. */
+   nonce and verified before being ingested by repair. */
 
 /* keep in line with repair tile sigs */
 #define REPAIR_SIG_FEC         (0UL)
 #define REPAIR_SIG_FEC_LEADER  (1UL)
 #define REPAIR_SIG_FEC_INVALID (2UL)
 /* alpenglow type - replayable fec */
-#define ROTOR_SIG_FEC_REPLAY  (3UL)
+#define REPAIR_SIG_FEC_REPLAY  (3UL)
 /* alpenglow type - completed block metadata, on rotor_rserve */
-#define ROTOR_SIG_BLOCK       (4UL)
+#define REPAIR_SIG_BLOCK       (4UL)
 
 struct fd_repair_fec_metrics {
   uint  stats_valid;         /* 1 if the counters below are populated */
 
   /* 1 if the FEC was delivered under a votor-driven version of its slot
-     -- one the rotor created from a cert and filled by block id
+     -- one the repair created from a cert and filled by block id
      repair -- and 0 if it was delivered under the slot's turbine
      version, our own leader blocks included. */
   uchar votor_repaired;
@@ -143,7 +142,7 @@ struct fd_repair_fec_metrics {
 
   long  fec_completed_ts_nanos; /* this FEC: network arrival (wallclock ns) of the shred that completed it, 0 if unavailable */
 
-  /* Highest slot rotor has completed a FEC set for off the network, our
+  /* Highest slot repair has completed a FEC set for off the network, our
      own leader FEC sets excluded: the cluster tip.  Not a per-block
      figure like the rest of these metrics. */
   ulong highest_fec_complete_slot;

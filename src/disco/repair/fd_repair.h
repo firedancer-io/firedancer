@@ -3,7 +3,7 @@
 
 #include "../../disco/fd_disco_base.h"
 #include "../../disco/shred/fd_fec_set.h"
-#include "../../choreo/votor/ag_votor_base.h"
+#include "../../choreo/votor/fd_votor_base.h"
 #include "../../choreo/fd_choreo_base.h"
 
 struct fd_mr20 {
@@ -12,25 +12,6 @@ struct fd_mr20 {
 typedef struct fd_mr20 fd_mr20_t;
 
 typedef fd_hash_t fd_mr32_t;
-
-/* FD_REPAIR_BLK_VERSION_{NUM,DEN} is the number of blk versions rotor
-   holds per slot of its window, as the fraction NUM/DEN (2.5).  With
-   20% of stake malicious and equivocating AG_EQVOC_BLOCK_HASH_MAX
-   versions of each of its slots, the expected count is 2.2 per slot,
-   2.5 leaves headroom for the variance of the leader schedule (see
-   store_fec_max in src/app/firedancer/topology.c, which sizes Store
-   with the same factor). */
-
-#define FD_REPAIR_BLK_VERSION_NUM (5UL)
-#define FD_REPAIR_BLK_VERSION_DEN (2UL)
-
-/* fd_repair_blk_max returns the number of blks a rotor with a window of
-   slot_max slots holds, ie. ceil( slot_max*NUM/DEN ). */
-
-FD_FN_CONST static inline ulong
-fd_repair_blk_max( ulong slot_max ) {
-  return ( slot_max*FD_REPAIR_BLK_VERSION_NUM + FD_REPAIR_BLK_VERSION_DEN-1UL ) / FD_REPAIR_BLK_VERSION_DEN;
-}
 
 typedef struct fd_repair_blk fd_repair_blk_t;
 
@@ -257,23 +238,23 @@ fd_repair_new( void * shmem,
                ulong  seed );
 
 fd_repair_t *
-fd_repair_join( void * shrotor );
+fd_repair_join( void * shrepair );
 
 void *
-fd_repair_leave( fd_repair_t const * rotor );
+fd_repair_leave( fd_repair_t const * self );
 
 void *
-fd_repair_delete( void * shrotor );
+fd_repair_delete( void * shrepair );
 
 void
-fd_repair_init( fd_repair_t *          rotor,
+fd_repair_init( fd_repair_t *          self,
                 ulong                  root,
                 fd_mr32_t const *      root_blk_mr,
                 fd_repair_report_fn_t  report,
                 void *                 report_ctx );
 
 void
-fd_repair_fini( fd_repair_t * rotor );
+fd_repair_fini( fd_repair_t * self );
 
 /* replay_slot   REPLAY_SIG_SLOT_DEAD
 
@@ -284,7 +265,7 @@ fd_repair_fini( fd_repair_t * rotor );
    so replay can detect a hard fork.  */
 
 void
-fd_repair_blk_dead( fd_repair_t *     rotor,
+fd_repair_blk_dead( fd_repair_t *     self,
                     ulong             slot,
                     fd_mr32_t const * blk_mr );
 
@@ -295,7 +276,7 @@ fd_repair_blk_dead( fd_repair_t *     rotor,
    yet. */
 
 fd_repair_blk_t *
-fd_repair_blk_finalized( fd_repair_t *     rotor,
+fd_repair_blk_finalized( fd_repair_t *     self,
                          ulong             slot,
                          fd_mr32_t const * blk_mr,
                          long              ts );
@@ -307,7 +288,7 @@ fd_repair_blk_finalized( fd_repair_t *     rotor,
    settled. */
 
 fd_repair_blk_t *
-fd_repair_blk_notarized( fd_repair_t *     rotor,
+fd_repair_blk_notarized( fd_repair_t *     self,
                          ulong             slot,
                          fd_mr32_t const * blk_mr );
 
@@ -318,7 +299,7 @@ fd_repair_blk_notarized( fd_repair_t *     rotor,
    response, arriving at ts, in the blk's telemetry. */
 
 fd_repair_blk_t *
-fd_repair_blk_parented( fd_repair_t *     rotor,
+fd_repair_blk_parented( fd_repair_t *     self,
                         ulong             slot,
                         fd_mr32_t const * blk_mr,
                         ulong             parent_slot,
@@ -334,7 +315,7 @@ fd_repair_blk_parented( fd_repair_t *     rotor,
    skips, skipped slots are pruned by finality later. */
 
 void
-fd_repair_slot_catchup( fd_repair_t * rotor,
+fd_repair_slot_catchup( fd_repair_t * self,
                         ulong         slot );
 
 /* shred_out     SHRED_SIG_FEC_COMPLETE
@@ -350,7 +331,7 @@ fd_repair_slot_catchup( fd_repair_t * rotor,
    shred tile, kept on the FEC set from its first completion. */
 
 fd_repair_fec_t *
-fd_repair_fec_complete( fd_repair_t *      rotor,
+fd_repair_fec_complete( fd_repair_t *      self,
                         fd_shred_t const * last_shred,
                         fd_mr32_t const *  fec_mr,
                         int                is_leader,
@@ -368,7 +349,7 @@ fd_repair_fec_complete( fd_repair_t *      rotor,
    again. */
 
 void
-fd_repair_fec_evicted( fd_repair_t *     rotor,
+fd_repair_fec_evicted( fd_repair_t *     self,
                        ulong             slot,
                        uint              fec_set_idx,
                        fd_mr20_t const * fec_mr );
@@ -380,7 +361,7 @@ fd_repair_fec_evicted( fd_repair_t *     rotor,
    counts the response, arriving at ts, in the blk's telemetry. */
 
 fd_repair_fec_t *
-fd_repair_fec_notarized( fd_repair_t *     rotor,
+fd_repair_fec_notarized( fd_repair_t *     self,
                          ulong             slot,
                          fd_mr32_t const * blk_mr,
                          uint              fec_set_idx,
@@ -393,7 +374,7 @@ fd_repair_fec_notarized( fd_repair_t *     rotor,
    nonsense.  TODO remove this. */
 
 void
-fd_repair_root_advanced( fd_repair_t *     rotor,
+fd_repair_root_advanced( fd_repair_t *     self,
                          ulong             slot,
                          fd_mr32_t const * blk_mr );
 
@@ -406,7 +387,7 @@ fd_repair_root_advanced( fd_repair_t *     rotor,
    reconstructed shred). */
 
 void
-fd_repair_shred_insert( fd_repair_t *      rotor,
+fd_repair_shred_insert( fd_repair_t *      self,
                         fd_shred_t const * shred,
                         fd_mr32_t const *  fec_mr,
                         int                src,
@@ -420,7 +401,7 @@ fd_repair_shred_insert( fd_repair_t *      rotor,
    cancelled_reason, ts its cancelled_time. */
 
 void
-fd_repair_slot_invalidated( fd_repair_t * rotor,
+fd_repair_slot_invalidated( fd_repair_t * self,
                             ulong         slot,
                             int           reason,
                             long          ts );
@@ -429,7 +410,7 @@ fd_repair_slot_invalidated( fd_repair_t * rotor,
    slot_max share an entry, which is reset for slot first. */
 
 fd_repair_slot_meta_t *
-fd_repair_slot_meta( fd_repair_t * rotor,
+fd_repair_slot_meta( fd_repair_t * self,
                      ulong         slot );
 
 /* votor_out     FD_VOTOR_SIG_QUORUM IMPLICITLY_SKIPPED
@@ -438,7 +419,7 @@ fd_repair_slot_meta( fd_repair_t * rotor,
    the slot's blks, a skip cert alone is not final. */
 
 void
-fd_repair_slot_skipped( fd_repair_t * rotor,
+fd_repair_slot_skipped( fd_repair_t * self,
                         ulong         slot );
 
 FD_PROTOTYPES_END

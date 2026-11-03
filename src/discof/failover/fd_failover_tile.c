@@ -744,7 +744,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
 #include "../../disco/stem/fd_stem.c"
 
 /* A serialized history has to fit within the DEMOTED payload. */
-FD_STATIC_ASSERT( AG_HIST_SER_MAX<=FD_FAILOVER_ALPENGLOW_STATE_MAX, alpenglow_state_max );
+FD_STATIC_ASSERT( FD_VOTOR_HIST_SER_MAX<=FD_FAILOVER_ALPENGLOW_STATE_MAX, alpenglow_state_max );
 
 fd_topo_run_tile_t fd_tile_failov = {
   .name                     = "failov",

@@ -1272,10 +1272,10 @@ main( int     argc,
 
     FD_TEST( ctx->cluster_confirmed_slot==ULONG_MAX );
     ctx->banks[ 3 ].slot = 30UL;
-    DRIVE_CERT( AG_CERT_KIND_SKIP,        500UL );
+    DRIVE_CERT( FD_CERT_KIND_SKIP,        500UL );
     FD_TEST( ctx->cluster_confirmed_slot==ULONG_MAX );
-    DRIVE_CERT( AG_CERT_KIND_FAST_FINAL,  200UL );
-    DRIVE_CERT( AG_CERT_KIND_FINAL,       100UL );
+    DRIVE_CERT( FD_CERT_KIND_FAST_FINAL,  200UL );
+    DRIVE_CERT( FD_CERT_KIND_FINAL,       100UL );
     FD_TEST( ctx->cluster_confirmed_slot==200UL );
     EXPECT_HEALTH( HEALTH_BEHIND( "170" ) );
 
@@ -1284,7 +1284,7 @@ main( int     argc,
     FD_TEST( ctx->cluster_confirmed_slot==400UL );
     EXPECT_HEALTH( HEALTH_OK );
 
-    DRIVE_CERT( AG_CERT_KIND_FAST_FINAL, 600UL );
+    DRIVE_CERT( FD_CERT_KIND_FAST_FINAL, 600UL );
     ctx->banks[ 3 ].slot = 450UL;
     DRIVE_ROOT_ADVANCED( 3UL, 450UL );
     FD_TEST( ctx->cluster_confirmed_slot==600UL );
@@ -1297,7 +1297,7 @@ main( int     argc,
     ctx->banks[ 0 ].accdb_fork_id = test_fork_id;
 
 #define WRITE_AG_ACCT( _data, _data_sz ) do {                               \
-      uchar const * _pks[ 1 ] = { ctx->ag_genesis_cert_addr->uc };          \
+      uchar const * _pks[ 1 ] = { ctx->fd_genesis_cert_addr->uc };          \
       int           _wr [ 1 ] = { 1 };                                      \
       fd_acc_t      _acc[ 1 ]; memset( _acc, 0, sizeof(_acc) );             \
       fd_accdb_acquire( writer_accdb, test_fork_id, 1UL, _pks, _wr, _acc ); \

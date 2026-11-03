@@ -1226,9 +1226,9 @@ deser_vote_init_v2( fd_vote_init_v2_t * out,
 }
 
 static int
-deser_vote( fd_vote_t *     out,
-            uchar const **  data,
-            ulong *         sz ) {
+deser_vote( fd_legacy_vote_t * out,
+            uchar const **     data,
+            ulong *            sz ) {
   ulong slots_len;
   READ_U64( slots_len, data, sz );
   CHECK( slots_len<=FD_VOTE_INSTR_MAX_SLOT_NUMS_LEN );

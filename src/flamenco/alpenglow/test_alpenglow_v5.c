@@ -267,7 +267,7 @@ test_rewards_slices( fd_svm_mini_t * mini,
     FD_TEST( credits_b==credits_a );
     fd_alpenglow_rewards_apply_leader( bank_b, accdb, NULL, run_cache, plan, credits_b, delta_b );
     ulong memo_cnt = 0UL;
-    for( ulong r=0UL; r<AG_VAT_MAX; r++ ) memo_cnt += !!cache->memo[ r ].lamports;
+    for( ulong r=0UL; r<FD_VOTOR_VAT_MAX; r++ ) memo_cnt += !!cache->memo[ r ].lamports;
     FD_TEST( memo_cnt==( slice_cnt==2UL ? 0UL : SLICE_TEST_VAL_CNT-1UL ) );
     FD_TEST( fd_lthash_eq( delta_a, delta_b ) );
     for( ulong i=0UL; i<SLICE_TEST_VAL_CNT; i++ ) {

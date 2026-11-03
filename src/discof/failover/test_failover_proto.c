@@ -1,5 +1,5 @@
 #include "fd_failover_proto.h"
-#include "../../choreo/votor/ag_hist.h"
+#include "../../choreo/votor/fd_votor_hist.h"
 #include "../../util/fd_util.h"
 
 static void
@@ -43,12 +43,12 @@ test_hello( void ) {
 
 static void
 test_demoted_decode( void ) {
-  ag_hist_t hist = { .anchor=100UL, .last_leader_slot=ULONG_MAX, .vote_bound=ULONG_MAX, .rec_cnt=1UL };
+  fd_votor_hist_t hist = { .anchor=100UL, .last_leader_slot=ULONG_MAX, .vote_bound=ULONG_MAX, .rec_cnt=1UL };
   hist.rec[ 0 ].slot  = 101UL;
-  hist.rec[ 0 ].flags = AG_HIST_FLAG_VOTED;
+  hist.rec[ 0 ].flags = FD_VOTOR_HIST_FLAG_VOTED;
   uchar state[ FD_FAILOVER_STATE_MAX ];
   ulong state_sz;
-  FD_TEST( !ag_hist_ser( &hist, state, sizeof(state), &state_sz ) );
+  FD_TEST( !fd_votor_hist_ser( &hist, state, sizeof(state), &state_sz ) );
   uchar payload[ FD_FAILOVER_DEMOTED_PAYLOAD_MAX ];
   ulong sz = fd_failover_demoted_encode( payload, 1UL, 2UL, 101UL, state, state_sz );
   fd_failover_demoted_t decoded;

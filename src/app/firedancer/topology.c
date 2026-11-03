@@ -1230,16 +1230,16 @@ fd_topo_initialize( config_t * config ) {
       is bounded as follows.
 
       Assume 20% of stake is malicious, every malicious leader
-      equivocates AG_EQVOC_BLOCK_HASH_MAX (7) versions of each of its
+      equivocates FD_VOTOR_EQVOC_MAX (7) versions of each of its
       slots, and honest leaders produce one.  The expected number of
       versions is then (0.8 + 0.2*7)*N = 2.2*N.  In general, bounding
       P(V > budget) to z standard deviations needs a budget of
       ~N*(2.2 + 4.8*z/sqrt(N)).
 
-      We size for 2.5*N (FD_REPAIR_BLK_VERSION_NUM/DEN, the same factor
-      rotor sizes its blk pool with, see fd_repair_blk_max), which leaves
-      0.3*N of headroom, ie. ~0.0625*sqrt(N) standard deviations.  The
-      probability that a window holds more than 2.5*N versions is:
+      We size for 2.5*N (the same factor fd_repair_footprint sizes its
+      blk pool with), which leaves 0.3*N of headroom, ie.
+      ~0.0625*sqrt(N) standard deviations.  The probability that a
+      window holds more than 2.5*N versions is:
 
         N =  2048  ~2.5e-3
         N =  4096  ~4.2e-5
@@ -1254,7 +1254,7 @@ fd_topo_initialize( config_t * config ) {
 
   ulong fec_sets_per_slot = fd_ulong_if( config->firedancer.development.fixed_fec_sets,
                                          config->limits.max_shreds_per_block/FD_FEC_SHRED_CNT, config->limits.max_shreds_per_block );
-  ulong store_fec_max = fd_repair_blk_max( config->firedancer.runtime.max_live_slots ) * fec_sets_per_slot; /* every FEC set of every blk rotor holds */
+  ulong store_fec_max = ( 5UL*config->firedancer.runtime.max_live_slots+1UL )/2UL * fec_sets_per_slot; /* every FEC set of every blk rotor holds */
 
   /* 32 shreds * 995 payload bytes = 31840 bytes with fixed_fec_sets = true
      67 shreds * 955 payload bytes = 63985 bytes with fixed_fec_sets = false */

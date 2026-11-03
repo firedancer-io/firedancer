@@ -1279,7 +1279,8 @@ struct fd_gui {
   } ag;
 
   /* max_consecutive_skips is the longest run of skipped slots the gui
-     expects, based on slot_far_in_future in choreo/votor/ag_pool.c. */
+     expects, based on slot_far_in_future in
+     choreo/votor/fd_votor_pool.c. */
   ulong max_consecutive_skips;
 
   /* used for estimating slot duration */

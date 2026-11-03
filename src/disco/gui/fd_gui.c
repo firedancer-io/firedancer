@@ -263,7 +263,7 @@ fd_gui_new( void *                   shmem,
   gui->summary.active_fork_cnt               = 1UL;
 
   gui->ag.slot_cnt = max_live_slots;
-  gui->max_consecutive_skips = fd_ulong_if( max_live_slots>AG_REWARD_SLOT_DELTA, max_live_slots-AG_REWARD_SLOT_DELTA, 1UL );
+  gui->max_consecutive_skips = fd_ulong_if( max_live_slots>FD_VOTOR_REWARD_SLOT_DELTA, max_live_slots-FD_VOTOR_REWARD_SLOT_DELTA, 1UL );
   gui->ag.slot     = (fd_gui_ag_slot_t *)ag_slot_mem;
   memset( gui->ag.slot, 0, max_live_slots*sizeof(fd_gui_ag_slot_t) );
   for( ulong i=0UL; i<gui->ag.slot_cnt; i++ ) {

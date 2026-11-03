@@ -2,7 +2,7 @@
 #define HEADER_fd_src_disco_repair_fd_repair_strat_h
 
 /* fd_repair_strat picks the repair peer for each request.  It does no
-   I/O: the rotor tile feeds it contact infos, epoch stakes and request
+   I/O: the repair tile feeds it contact infos, epoch stakes and request
    outcomes.  Peers sit in slots by stake rank, unstaked last, and in
    latency buckets by srtt+rttvar/4.  A pick takes the fastest
    bucket's cheaper of the next two peers by srtt*(out_cnt+1), the
@@ -113,7 +113,7 @@ fd_repair_strat_join( void * shstrat );
    address, rtt and ping state.  Invalidates peer pointers. */
 
 void
-fd_repair_strat_epoch_advanced( fd_repair_strat_t *       strat,
+fd_repair_strat_epoch_advanced( fd_repair_strat_t *       self,
                                 fd_stake_weight_t const * ids,
                                 ulong                     id_cnt );
 
@@ -122,7 +122,7 @@ fd_repair_strat_epoch_advanced( fd_repair_strat_t *       strat,
    peer is dropped if every unstaked slot is in use. */
 
 void
-fd_repair_strat_contact_info_updated( fd_repair_strat_t * strat,
+fd_repair_strat_contact_info_updated( fd_repair_strat_t * self,
                                       fd_pubkey_t const * id_key,
                                       uint                ip4,
                                       ushort              port );
@@ -131,7 +131,7 @@ fd_repair_strat_contact_info_updated( fd_repair_strat_t * strat,
    staked peer keeps its slot. */
 
 void
-fd_repair_strat_contact_info_removed( fd_repair_strat_t * strat,
+fd_repair_strat_contact_info_removed( fd_repair_strat_t * self,
                                       fd_pubkey_t const * id_key );
 
 /* fd_repair_strat_pick returns the peer for a request and counts it in
@@ -142,7 +142,7 @@ fd_repair_strat_contact_info_removed( fd_repair_strat_t * strat,
    available (ULONG_MAX for none). */
 
 fd_repair_strat_peer_t *
-fd_repair_strat_pick( fd_repair_strat_t * strat,
+fd_repair_strat_pick( fd_repair_strat_t * self,
                       long                now,
                       int                 staked,
                       ulong               avoid );
@@ -154,7 +154,7 @@ fd_repair_strat_pick( fd_repair_strat_t * strat,
    NULL if none is available. */
 
 fd_repair_strat_peer_t *
-fd_repair_strat_pick_staked( fd_repair_strat_t * strat,
+fd_repair_strat_pick_staked( fd_repair_strat_t * self,
                              long                now,
                              ulong               avoid,
                              ulong               r );
@@ -164,7 +164,7 @@ fd_repair_strat_pick_staked( fd_repair_strat_t * strat,
    by-id request. */
 
 void
-fd_repair_strat_request_done( fd_repair_strat_t * strat,
+fd_repair_strat_request_done( fd_repair_strat_t * self,
                               fd_pubkey_t const * id_key,
                               long                rtt,
                               int                 byid );
@@ -174,7 +174,7 @@ fd_repair_strat_request_done( fd_repair_strat_t * strat,
    until ban_ts.  It takes no rtt sample. */
 
 void
-fd_repair_strat_request_failed( fd_repair_strat_t * strat,
+fd_repair_strat_request_failed( fd_repair_strat_t * self,
                                 fd_pubkey_t const * id_key,
                                 long                ban_ts );
 
@@ -186,7 +186,7 @@ fd_repair_strat_request_failed( fd_repair_strat_t * strat,
    -1 if the run of any kind did, 0 if not banned. */
 
 int
-fd_repair_strat_request_expired( fd_repair_strat_t * strat,
+fd_repair_strat_request_expired( fd_repair_strat_t * self,
                                  fd_pubkey_t const * id_key,
                                  long                ban_ts,
                                  int                 byid );
@@ -195,7 +195,7 @@ fd_repair_strat_request_expired( fd_repair_strat_t * strat,
    first shred to its completion, for the slot's leader id_key. */
 
 void
-fd_repair_strat_turbine_done( fd_repair_strat_t * strat,
+fd_repair_strat_turbine_done( fd_repair_strat_t * self,
                               fd_pubkey_t const * id_key,
                               long                t );
 
@@ -205,7 +205,7 @@ fd_repair_strat_turbine_done( fd_repair_strat_t * strat,
    FD_REPAIR_STRAT_TURBINE_MIN samples.  id_key may be NULL. */
 
 long
-fd_repair_strat_eager_ns( fd_repair_strat_t * strat,
+fd_repair_strat_eager_ns( fd_repair_strat_t * self,
                           fd_pubkey_t const * id_key );
 
 /* fd_repair_strat_hedge_ns returns how long a request to peer may be
@@ -217,7 +217,7 @@ fd_repair_strat_hedge_ns( fd_repair_strat_peer_t const * peer ) {
 }
 
 fd_repair_strat_peer_t *
-fd_repair_strat_query( fd_repair_strat_t * strat,
+fd_repair_strat_query( fd_repair_strat_t * self,
                        fd_pubkey_t const * id_key );
 
 /* fd_repair_strat_slot_remap returns the slot now held by the peer that
@@ -225,7 +225,7 @@ fd_repair_strat_query( fd_repair_strat_t * strat,
    gone or idx is ULONG_MAX. */
 
 ulong
-fd_repair_strat_slot_remap( fd_repair_strat_t const * strat,
+fd_repair_strat_slot_remap( fd_repair_strat_t const * self,
                             ulong                     idx );
 
 FD_PROTOTYPES_END

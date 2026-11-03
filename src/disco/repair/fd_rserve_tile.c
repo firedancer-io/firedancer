@@ -587,7 +587,7 @@ during_frag( ctx_t * ctx,
     break;
   }
   case IN_KIND_ROTOR: {
-    if( FD_UNLIKELY( sig!=ROTOR_SIG_BLOCK ) ) break;
+    if( FD_UNLIKELY( sig!=REPAIR_SIG_BLOCK ) ) break;
     if( FD_UNLIKELY( sz<FD_REPAIR_BLOCK_SZ( 0 ) || sz>sizeof(fd_repair_block_t) || chunk<in_ctx->chunk0 || chunk>in_ctx->wmark ) )
       FD_LOG_ERR(( "rotor_rserve chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, in_ctx->chunk0, in_ctx->wmark ));
     fd_memcpy( ctx->rotor_buf, fd_chunk_to_laddr_const( in_ctx->mem, chunk ), sz );
@@ -608,7 +608,7 @@ after_frag( ctx_t *             ctx,
             fd_stem_context_t * stem ) {
   uint in_kind = ctx->in_kind[ in_idx ];
   if( FD_UNLIKELY( in_kind==IN_KIND_ROTOR ) ) {
-    if( FD_UNLIKELY( sig!=ROTOR_SIG_BLOCK ) ) return;
+    if( FD_UNLIKELY( sig!=REPAIR_SIG_BLOCK ) ) return;
     fd_repair_block_t const * msg = ctx->rotor_buf;
     if( FD_UNLIKELY( sz!=FD_REPAIR_BLOCK_SZ( msg->fec_set_cnt ) ) )
       FD_LOG_ERR(( "rotor_rserve frag sz %lu does not match fec_set_cnt %u", sz, msg->fec_set_cnt ));

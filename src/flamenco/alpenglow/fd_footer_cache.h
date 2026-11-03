@@ -9,7 +9,7 @@
 #include "../fd_flamenco_base.h"
 #include "../../ballet/bls/fd_bls.h"
 #include "../../ballet/lthash/fd_lthash.h"
-#include "../../choreo/votor/ag_votor_base.h"
+#include "../../choreo/votor/fd_votor_base.h"
 #include "../runtime/program/vote/fd_vote_codec.h"
 
 #define FD_FOOTER_CACHE_ALIGN   (64UL)
@@ -41,7 +41,7 @@ struct __attribute__((aligned(FD_FOOTER_CACHE_ALIGN))) fd_footer_cache {
     fd_bls_hash_t h;
   } e[ FD_FOOTER_CACHE_MSG_CNT ];
 
-  fd_footer_cache_memo_t memo[ AG_VAT_MAX ];
+  fd_footer_cache_memo_t memo[ FD_VOTOR_VAT_MAX ];
 };
 typedef struct fd_footer_cache fd_footer_cache_t;
 
