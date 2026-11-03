@@ -1,6 +1,7 @@
 #define _GNU_SOURCE
 #include "fd_http_resolver.h"
 #include "fd_ssresolve.h"
+#include "../../../waltz/fd_fqdn.h"
 
 #include "../../../util/log/fd_log.h"
 #include "../../../util/fd_util.h"
@@ -32,6 +33,7 @@
 
 struct fd_ssresolve_peer {
   fd_sspeer_key_t key;
+  char          hostname[ FD_FQDN_BUF_MAX ];
   fd_ip4_port_t addr;
   int           is_https;
   ulong         full_slot;
@@ -258,6 +260,7 @@ int
 fd_http_resolver_add( fd_http_resolver_t *   resolver,
                       fd_ip4_port_t          addr,
                       char const *           hostname,
+                      uint                   host_idx,
                       int                    is_https,
                       fd_sspeer_selector_t * selector  ) {
   if( !peer_pool_free( resolver->pool ) ) {
@@ -265,13 +268,14 @@ fd_http_resolver_add( fd_http_resolver_t *   resolver,
     return -1;
   }
   fd_ssresolve_peer_t * peer = peer_pool_ele_acquire( resolver->pool );
-  memset( &peer->key.url, 0, sizeof(peer->key.url) );
+  memset( &peer->key, 0, sizeof(peer->key) );
   if( FD_LIKELY( hostname ) ) {
-    strncpy( peer->key.url.hostname, hostname, sizeof(peer->key.url.hostname) - 1UL );
-    peer->key.url.hostname[ sizeof(peer->key.url.hostname) - 1UL ] = '\0';
+    strncpy( peer->hostname, hostname, sizeof(peer->hostname) - 1UL );
+    peer->hostname[ sizeof(peer->hostname) - 1UL ] = '\0';
   } else {
-    peer->key.url.hostname[ 0 ] = '\0';
+    peer->hostname[ 0 ] = '\0';
   }
+  peer->key.url.host_idx      = host_idx;
   peer->key.url.resolved_addr = addr;
   peer->key.is_url            = 1;
   peer->state                 = PEER_STATE_UNRESOLVED;
@@ -289,7 +293,7 @@ fd_http_resolver_add( fd_http_resolver_t *   resolver,
   if( FD_UNLIKELY( score==FD_SSPEER_SCORE_INVALID ) ) {
     /* If unable to add, then release the element back to the pool. */
     FD_LOG_WARNING(( "failed to add peer to selector (hostname \"%s\" addr=" FD_IP4_ADDR_FMT ":%hu score=%lu)",
-                     peer->key.url.hostname[ 0 ] ? peer->key.url.hostname : "(none)",
+                     peer->hostname[ 0 ] ? peer->hostname : "(none)",
                      FD_IP4_ADDR_FMT_ARGS( peer->addr.addr ), fd_ushort_bswap( peer->addr.port ), score ));
     peer_pool_ele_release( resolver->pool, peer );
     return -1;
@@ -344,10 +348,10 @@ peer_connect( fd_http_resolver_t *  resolver,
   resolver->fds_len++;
 
   if( FD_UNLIKELY( peer->is_https ) ) {
-    fd_ssresolve_init_https( peer->full_ssresolve, peer->addr, resolver->fds[ peer->fd.idx ].fd, 1, peer->key.url.hostname, &resolver->tls,
+    fd_ssresolve_init_https( peer->full_ssresolve, peer->addr, resolver->fds[ peer->fd.idx ].fd, 1, peer->hostname, &resolver->tls,
                              &resolver->ca_store );
   } else {
-    fd_ssresolve_init( peer->full_ssresolve, peer->addr, resolver->fds[ peer->fd.idx ].fd, 1, peer->key.url.hostname );
+    fd_ssresolve_init( peer->full_ssresolve, peer->addr, resolver->fds[ peer->fd.idx ].fd, 1, peer->hostname );
   }
 
   if( FD_LIKELY( resolver->incremental_snapshot_fetch ) ) {
@@ -364,10 +368,10 @@ peer_connect( fd_http_resolver_t *  resolver,
     resolver->fds_idx[ resolver->fds_len ] = peer_pool_idx( resolver->pool, peer );
     resolver->fds_len++;
     if( FD_UNLIKELY( peer->is_https ) ) {
-      fd_ssresolve_init_https( peer->inc_ssresolve, peer->addr, resolver->fds[ peer->fd.idx+1UL ].fd, 0, peer->key.url.hostname, &resolver->tls,
+      fd_ssresolve_init_https( peer->inc_ssresolve, peer->addr, resolver->fds[ peer->fd.idx+1UL ].fd, 0, peer->hostname, &resolver->tls,
                                &resolver->ca_store );
     } else {
-      fd_ssresolve_init( peer->inc_ssresolve, peer->addr, resolver->fds[ peer->fd.idx+1UL ].fd, 0, peer->key.url.hostname );
+      fd_ssresolve_init( peer->inc_ssresolve, peer->addr, resolver->fds[ peer->fd.idx+1UL ].fd, 0, peer->hostname );
     }
   } else {
     resolver->fds[ resolver->fds_len ] = (struct pollfd) {
