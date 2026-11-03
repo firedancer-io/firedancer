@@ -1408,6 +1408,19 @@ test_pool_exhaustion( fd_sspeer_selector_t * selector,
   FD_TEST( best.addr.l==addr_A.l );
   FD_TEST( best.score==1UL*1000UL*1000UL );
 
+  /* Cluster rescore at full capacity rescores in place (pool==max_peers):
+     A is 100 slots behind -> 1ms + 200*100^2 = 3ms, B at 4ms. */
+  FD_TEST( add_peer( selector, key_B, addr_B, cluster_full, cluster_incr+100UL, 4UL*1000UL*1000UL )!=FD_SSPEER_SCORE_INVALID );
+  fd_sspeer_selector_process_cluster_slot( selector );
+  FD_TEST( fd_sspeer_selector_cluster_slot( selector ).incremental==cluster_incr+100UL );
+  FD_TEST( 2UL==fd_sspeer_selector_peer_map_by_key_ele_cnt( selector ) );
+  FD_TEST( 2UL==fd_sspeer_selector_peer_map_by_addr_ele_cnt( selector ) );
+  best = fd_sspeer_selector_best( selector, 0, FD_SSPEER_SLOT_UNKNOWN, 0UL );
+  FD_TEST( best.addr.l==addr_A.l && fd_sspeer_key_eq( &best.key, key_A ) );
+  FD_TEST( best.score==3UL*1000UL*1000UL );
+  best = fd_sspeer_selector_best( selector, 0, FD_SSPEER_SLOT_UNKNOWN, cluster_incr+100UL );
+  FD_TEST( best.addr.l==addr_B.l && best.score==4UL*1000UL*1000UL );
+
   /* Remove a peer, then adding the 3rd peer should succeed. */
   fd_sspeer_selector_remove( selector, key_B );
   FD_TEST( 1UL==fd_sspeer_selector_peer_map_by_key_ele_cnt( selector ) );
@@ -2551,9 +2564,9 @@ test_rescore_pool_span( fd_wksp_t * wksp,
                         fd_rng_t *  rng ) {
   FD_LOG_NOTICE(( "testing rescore pool span" ));
 
-  /* Rescoring clones every peer into the shared pool, so treap
-     elements span all 2*max_peers pool indices.  After the first fill
-     loop, the selector stays at capacity. */
+  /* Rescoring moves every peer between the two treaps over a
+     max_peers pool.  After the first fill loop, the selector stays at
+     capacity. */
 
   ulong const max_peers_list[] = { 1UL, 2UL, 3UL, 32UL };
   ulong const latency          = 1000UL*1000UL;
