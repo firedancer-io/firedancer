@@ -372,12 +372,13 @@ calculate_stake_points_for_reward( fd_runtime_stack_t *           runtime_stack,
                                    fd_epoch_credits_t const *     epoch_credits,
                                    fd_stake_history_t const *     stake_history,
                                    fd_stake_delegation_t const *  stake,
+                                   fd_pubkey_t const *            vote_key,
                                    ulong *                        new_rate_activation_epoch,
                                    ulong                          rewarded_epoch,
                                    fd_calculated_stake_points_t * result ) {
   ulong                    validator_reward_epoch_stake = 0UL;
   fd_stake_accum_t         scratch[1];
-  fd_stake_accum_t const * accumulated                  = fd_runtime_stack_stake_accum_query( runtime_stack, &stake->vote_account, scratch );
+  fd_stake_accum_t const * accumulated                  = fd_runtime_stack_stake_accum_query( runtime_stack, vote_key, scratch );
   if( accumulated ) validator_reward_epoch_stake = accumulated->reward_stake;
   calculate_alpenglow_points( epoch_credits,
                               stake_history,
@@ -410,6 +411,7 @@ calculate_reward_points_partitioned( fd_bank_t *                    bank,
        fd_stake_delegations_iter_next( iter ) ) {
     fd_stake_delegation_t const * stake_delegation     = fd_stake_delegations_iter_ele( iter );
     ulong                         stake_delegation_idx = fd_stake_delegations_iter_idx( iter );
+    fd_pubkey_t const *           vote_key             = fd_stake_delegations_iter_vote_key( iter );
     if( FD_UNLIKELY( stake_delegation_idx>=runtime_stack->max_stake_accounts ) ) continue;
     fd_calculated_stake_points_t * stake_points_result = &runtime_stack->stakes.stake_results[ stake_delegation_idx ].points;
 
@@ -425,7 +427,7 @@ calculate_reward_points_partitioned( fd_bank_t *                    bank,
        below the minimum delegation here. However we don't do this yet,
        to ensure that we audit the feature properly if this happens. */
 
-    uint idx = (uint)fd_vote_rewards_map_idx_query( vote_ele_map, &stake_delegation->vote_account, UINT_MAX, vote_ele );
+    uint idx = (uint)fd_vote_rewards_map_idx_query( vote_ele_map, vote_key, UINT_MAX, vote_ele );
     stake_points_result->vote_idx = idx;
     if( FD_UNLIKELY( idx==UINT_MAX ) ) continue;
 
@@ -433,6 +435,7 @@ calculate_reward_points_partitioned( fd_bank_t *                    bank,
                                        &epoch_credits_arr[ idx ],
                                        stake_history,
                                        stake_delegation,
+                                       vote_key,
                                        &bank->f.warmup_cooldown_rate_epoch,
                                        rewarded_epoch,
                                        stake_points_result );
@@ -476,8 +479,8 @@ calculate_block_reward( fd_bank_t *                   bank,
                         fd_runtime_stack_t *          runtime_stack,
                         fd_stake_history_t const *    stake_history,
                         fd_stake_delegation_t const * stake_delegation,
+                        fd_pubkey_t const *           vote_pubkey,
                         ulong                         rewarded_epoch ) {
-  fd_pubkey_t const * vote_pubkey = &stake_delegation->vote_account;
   fd_vote_stakes_ele_t ele[1];
   if( !fd_vote_stakes_query_t_1( fd_bank_vote_stakes( bank ), bank->vote_stakes_fork_id, vote_pubkey, ele ) ) {
     return 0UL;
@@ -543,6 +546,7 @@ calculate_stake_vote_rewards( fd_bank_t *                    bank,
        fd_stake_delegations_iter_next( iter ) ) {
     fd_stake_delegation_t const * stake_delegation     = fd_stake_delegations_iter_ele( iter );
     ulong                         stake_delegation_idx = fd_stake_delegations_iter_idx( iter );
+    fd_pubkey_t const *           vote_key             = fd_stake_delegations_iter_vote_key( iter );
 
     /* Note that we don't check minimum delegation here, as there are
        no plans to activate stake_minimum_delegation_for_rewards.
@@ -570,7 +574,7 @@ calculate_stake_vote_rewards( fd_bank_t *                    bank,
     }
 
     /* https://github.com/anza-xyz/agave/blob/v4.4.0-alpha.5/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L856-L867 */
-    ulong block_reward = block_revenue_sharing ? calculate_block_reward( bank, runtime_stack, stake_history, stake_delegation, rewarded_epoch ) : 0UL;
+    ulong block_reward = block_revenue_sharing ? calculate_block_reward( bank, runtime_stack, stake_history, stake_delegation, vote_key, rewarded_epoch ) : 0UL;
 
     uint idx;
     if( FD_LIKELY( cached ) ) {
@@ -578,7 +582,7 @@ calculate_stake_vote_rewards( fd_bank_t *                    bank,
     } else {
       fd_vote_rewards_t *     vote_ele     = runtime_stack->stakes.vote_ele;
       fd_vote_rewards_map_t * vote_ele_map = runtime_stack->stakes.vote_map;
-      idx = (uint)fd_vote_rewards_map_idx_query( vote_ele_map, &stake_delegation->vote_account, UINT_MAX, vote_ele );
+      idx = (uint)fd_vote_rewards_map_idx_query( vote_ele_map, vote_key, UINT_MAX, vote_ele );
     }
 
     /* Stake account may need to be adjusted to meet rent-exempt minimum
@@ -618,6 +622,7 @@ calculate_stake_vote_rewards( fd_bank_t *                    bank,
                                          &epoch_credits_arr[ idx ],
                                          stake_history,
                                          stake_delegation,
+                                         vote_key,
                                          &bank->f.warmup_cooldown_rate_epoch,
                                          rewarded_epoch,
                                          stake_points_result );
@@ -666,7 +671,7 @@ calculate_stake_vote_rewards( fd_bank_t *                    bank,
       fd_capture_link_write_stake_reward_event( capture_ctx,
                                                 bank->f.slot,
                                                 stake_delegation->stake_account,
-                                                stake_delegation->vote_account,
+                                                *vote_key,
                                                 runtime_stack->stakes.vote_ele[ idx ].commission,
                                                 (long)calculated_stake_rewards->voter_rewards,
                                                 (long)calculated_stake_rewards->staker_rewards,
@@ -706,6 +711,7 @@ setup_stake_partitions( fd_bank_t *                    bank,
        fd_stake_delegations_iter_next( iter ) ) {
     fd_stake_delegation_t const * stake_delegation     = fd_stake_delegations_iter_ele( iter );
     ulong                         stake_delegation_idx = fd_stake_delegations_iter_idx( iter );
+    fd_pubkey_t const *           vote_key             = fd_stake_delegations_iter_vote_key( iter );
 
     if( FD_UNLIKELY( FD_FEATURE_ACTIVE_BANK( bank, remove_inactive_stakes ) &&
                      fd_stake_delegation_is_inactive( stake_delegation, rewarded_epoch, stake_history, &bank->f.warmup_cooldown_rate_epoch ) ) ) {
@@ -720,11 +726,11 @@ setup_stake_partitions( fd_bank_t *                    bank,
       calculated_stake_rewards = calculated_stake_rewards_;
 
       /* https://github.com/anza-xyz/agave/blob/v4.4.0-alpha.5/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L856-L867 */
-      ulong block_reward = block_revenue_sharing ? calculate_block_reward( bank, runtime_stack, stake_history, stake_delegation, rewarded_epoch ) : 0UL;
+      ulong block_reward = block_revenue_sharing ? calculate_block_reward( bank, runtime_stack, stake_history, stake_delegation, vote_key, rewarded_epoch ) : 0UL;
 
       fd_vote_rewards_t * vote_ele = runtime_stack->stakes.vote_ele;
       fd_vote_rewards_map_t * vote_ele_map = runtime_stack->stakes.vote_map;
-      uint idx = (uint)fd_vote_rewards_map_idx_query( vote_ele_map, &stake_delegation->vote_account, UINT_MAX, vote_ele );
+      uint idx = (uint)fd_vote_rewards_map_idx_query( vote_ele_map, vote_key, UINT_MAX, vote_ele );
       if( FD_UNLIKELY( idx==UINT_MAX ) ) {
         /* If the stake account's resulting lamports would cause it to be
            below the rent exempt minimum balance, it needs to be queued
@@ -748,6 +754,7 @@ setup_stake_partitions( fd_bank_t *                    bank,
                                          &epoch_credits_arr[ idx ],
                                          stake_history,
                                          stake_delegation,
+                                         vote_key,
                                          &bank->f.warmup_cooldown_rate_epoch,
                                          rewarded_epoch,
                                          stake_points_result );
