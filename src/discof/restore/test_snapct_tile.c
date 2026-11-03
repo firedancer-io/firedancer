@@ -1019,6 +1019,84 @@ test_meta_repins_full( void ) {
   FD_LOG_NOTICE(( "pass: test_meta_repins_full" ));
 }
 
+/* When the full finishes and no configured server offers an incremental
+   on it any more, the load ends with the full alone.  A remembered
+   server, gossip, a WFS target still out of reach, or an incremental on
+   disk keep the incremental load. */
+
+static void
+test_full_fini_full_only( void ) {
+  static struct {
+    char const * name;
+    int          http;        /* HTTP full, else local file */
+    int          live;        /* a server offers (100, 200) now */
+    int          remembered;  /* the saved server has (100, 150) */
+    int          gossip;
+    ulong        wfs_slot;    /* 0: no target */
+    ulong        local_incr;  /* incremental on disk, ULONG_MAX: none */
+    int          expect_load_incremental;
+  } const cases[] = {
+    { "http, nobody offers one",      1, 0, 0, 0, 0UL,   ULONG_MAX, 0 },
+    { "file, nobody offers one",      0, 0, 0, 0, 0UL,   ULONG_MAX, 0 },
+    { "http, live server",            1, 1, 0, 0, 0UL,   ULONG_MAX, 1 },
+    { "http, remembered server",      1, 0, 1, 0, 0UL,   ULONG_MAX, 1 },
+    { "http, gossip may still bring", 1, 0, 0, 1, 0UL,   ULONG_MAX, 1 },
+    { "http, full short of WFS",      1, 0, 0, 0, 300UL, ULONG_MAX, 1 },
+    { "file, incremental on disk",    0, 0, 0, 0, 0UL,   120UL,     1 },
+  };
+
+  void * scratch = aligned_alloc( scratch_align(), scratch_footprint( NULL ) ); FD_TEST( scratch );
+  fd_snapct_tile_t * ctx = scratch;
+  static uchar output[ 16384UL ] __attribute__((aligned(FD_CHUNK_ALIGN)));
+  void * sel = aligned_alloc( fd_sspeer_selector_align(), fd_sspeer_selector_footprint( TOTAL_PEERS_MAX ) ); FD_TEST( sel );
+
+  for( ulong i=0UL; i<sizeof(cases)/sizeof(cases[0]); i++ ) {
+    fd_memset( ctx, 0, sizeof(*ctx) );
+    test_ctx_wake_init( ctx );
+    ctx->selector = fd_sspeer_selector_join( fd_sspeer_selector_new( sel, TOTAL_PEERS_MAX, TEST_SELECTOR_SEED ) );
+    FD_TEST( ctx->selector );
+    if( cases[ i ].live ) {
+      fd_sspeer_key_t key  = test_key( (uchar)(0xF0+i) );
+      fd_ip4_port_t   addr = test_addr( 0x0F0E0D00U+(uint)i, 9900 );
+      fd_sspeer_selector_add( ctx->selector, &key, addr, 5000UL, 100UL, 200UL, NULL, NULL );
+      fd_sspeer_selector_process_cluster_slot( ctx->selector );
+    }
+    if( cases[ i ].remembered ) {
+      ctx->predicted_incremental.peer.addr      = test_addr( 0x0A000001U, 8899 );
+      ctx->predicted_incremental.peer.full_slot = 100UL;
+      ctx->predicted_incremental.peer.incr_slot = 150UL;
+    }
+
+    ctx->state             = cases[ i ].http ? FD_SNAPCT_STATE_FLUSHING_FULL_HTTP_FINI : FD_SNAPCT_STATE_FLUSHING_FULL_FILE_FINI;
+    ctx->gossip_enabled    = cases[ i ].gossip;
+    ctx->download_enabled  = 1;
+    ctx->load_incremental  = 1;
+    ctx->wfs_is_configured = cases[ i ].wfs_slot!=0UL;
+    ctx->config.wfs_slot   = cases[ i ].wfs_slot;
+    ctx->predicted_incremental.full_slot    = 100UL;
+    ctx->predicted_incremental.slot         = FD_SSPEER_SLOT_UNKNOWN;
+    ctx->local_in.full_snapshot_slot        = cases[ i ].http ? ULONG_MAX : 100UL;
+    ctx->local_in.incremental_snapshot_slot = cases[ i ].local_incr;
+    ctx->out_ld.mem   = (fd_wksp_t *)output;
+    ctx->out_ld.wmark = 128UL;
+    test_output       = output;
+    test_publish_cnt  = 0UL;
+
+    int busy = 0;
+    after_credit( ctx, NULL, NULL, &busy );
+
+    if( FD_UNLIKELY( ctx->load_incremental!=cases[ i ].expect_load_incremental ) ) {
+      FD_LOG_ERR(( "case `%s`: load_incremental %i, expected %i", cases[ i ].name, ctx->load_incremental, cases[ i ].expect_load_incremental ));
+    }
+    FD_TEST( test_publish_sig==(ctx->load_incremental ? FD_SNAPSHOT_MSG_CTRL_NEXT : FD_SNAPSHOT_MSG_CTRL_DONE) );
+    FD_TEST( ctx->state==(cases[ i ].http ? FD_SNAPCT_STATE_FLUSHING_FULL_HTTP_DONE : FD_SNAPCT_STATE_FLUSHING_FULL_FILE_DONE) );
+  }
+
+  free( sel );
+  free( scratch );
+  FD_LOG_NOTICE(( "pass: test_full_fini_full_only" ));
+}
+
 static void
 test_incr_use_local( void ) {
   static struct {
@@ -1663,6 +1741,7 @@ main( int     argc,
   test_contact_info_slot_reuse_after_unallowed_peer_expires();
   test_load_complete_signal();
   test_start_after_init_acks();
+  test_full_fini_full_only();
   test_meta_repins_full();
   test_snapct_needs_incr();
   test_incr_use_local();

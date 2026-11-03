@@ -434,6 +434,19 @@ best_incremental_peer( fd_snapct_tile_t * ctx ) {
   return best;
 }
 
+/* No server has an incremental for the full we just loaded, and with
+   gossip off no other server will appear.  Boot from the full alone
+   and let replay catch up. */
+
+static int
+full_only( fd_snapct_tile_t * ctx ) {
+  if( !ctx->load_incremental || ctx->gossip_enabled ) return 0;
+  if( wfs_short_of_target( ctx, ctx->predicted_incremental.full_slot ) ) return 0;
+  if( ctx->local_in.full_snapshot_slot==ctx->predicted_incremental.full_slot &&
+      ctx->local_in.incremental_snapshot_slot!=ULONG_MAX ) return 0;
+  return !best_incremental_peer( ctx ).addr.l;
+}
+
 static void
 on_resolve( void *                  _ctx,
             fd_sspeer_key_t const * key,
@@ -1398,6 +1411,12 @@ after_credit( fd_snapct_tile_t *  ctx,
 
       if( ctx->flush_ack < ctx->flush_ack_cnt ) break;
 
+      if( FD_UNLIKELY( full_only( ctx ) ) ) {
+        FD_LOG_WARNING(( "no snapshot server offers an incremental snapshot for the full snapshot at slot %lu, loading the full snapshot only.",
+                         ctx->predicted_incremental.full_slot ));
+        ctx->load_incremental = 0;
+        send_expected_slot( ctx, stem, ctx->predicted_incremental.full_slot );
+      }
       set_state( ctx, FD_SNAPCT_STATE_FLUSHING_FULL_FILE_DONE );
       fd_stem_publish( stem, ctx->out_ld.idx, ctx->load_incremental ? FD_SNAPSHOT_MSG_CTRL_NEXT : FD_SNAPSHOT_MSG_CTRL_DONE, 0UL, 0UL, 0UL, 0UL, 0UL );
       ctx->flush_ack = 0;
@@ -1466,6 +1485,12 @@ after_credit( fd_snapct_tile_t *  ctx,
 
       if( ctx->flush_ack < ctx->flush_ack_cnt ) break;
 
+      if( FD_UNLIKELY( full_only( ctx ) ) ) {
+        FD_LOG_WARNING(( "no snapshot server offers an incremental snapshot for the full snapshot at slot %lu, loading the full snapshot only.",
+                         ctx->predicted_incremental.full_slot ));
+        ctx->load_incremental = 0;
+        send_expected_slot( ctx, stem, ctx->predicted_incremental.full_slot );
+      }
       set_state( ctx, FD_SNAPCT_STATE_FLUSHING_FULL_HTTP_DONE );
       fd_stem_publish( stem, ctx->out_ld.idx, ctx->load_incremental ? FD_SNAPSHOT_MSG_CTRL_NEXT : FD_SNAPSHOT_MSG_CTRL_DONE, 0UL, 0UL, 0UL, 0UL, 0UL );
       ctx->flush_ack = 0;
