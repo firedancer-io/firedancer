@@ -3175,9 +3175,9 @@ They are `null` only outside the retained aggregates.
         "available_end_ns": "1739664000000000000",
         "start_slot": [289245044, 289245082, null, 289245157],
         "end_slot": [289245081, 289245119, null, 289245194],
-        "skipped": [2, 0, 0, 1],
-        "mine": [4, 0, 0, 0],
-        "mine_skipped": [1, 0, 0, 0]
+        "skipped": [2, 0, null, 1],
+        "mine": [4, 0, null, 0],
+        "mine_skipped": [1, 0, null, 0]
     }
 }
 ```
