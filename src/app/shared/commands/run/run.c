@@ -517,6 +517,8 @@ main_pid_namespace( void * _args ) {
           FD_LOG_ERR(( "fcntl(FD_EVENT_SPOOL_FD,F_SETFD) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
         if( FD_UNLIKELY( fcntl( FD_GUI_GEOIP_FD, F_SETFD, !strcmp( tile->name, "gui" ) ? 0 : FD_CLOEXEC )<0 ) )
           FD_LOG_ERR(( "fcntl(FD_GUI_GEOIP_FD,F_SETFD) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+        if( FD_UNLIKELY( fcntl( FD_GUI_PEERS_INFO_FD, F_SETFD, !strcmp( tile->name, "gui" ) ? 0 : FD_CLOEXEC )<0 ) )
+          FD_LOG_ERR(( "fcntl(FD_GUI_PEERS_INFO_FD,F_SETFD) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
         if( FD_LIKELY( has_store ) ) {
           int tile_uses_store = 0;
@@ -633,6 +635,7 @@ main_pid_namespace( void * _args ) {
     if( FD_UNLIKELY( -1==close( FD_VOTOR_SPILL_FD ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     if( FD_UNLIKELY( -1==close( FD_EVENT_SPOOL_FD ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     if( FD_UNLIKELY( -1==close( FD_GUI_GEOIP_FD ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    if( FD_UNLIKELY( -1==close( FD_GUI_PEERS_INFO_FD ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     if( FD_LIKELY( has_store ) ) {
       if( FD_UNLIKELY( -1==close( FD_STORE_FD_RW ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
       if( FD_UNLIKELY( -1==close( FD_STORE_FD_RO ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
@@ -1444,6 +1447,19 @@ initialize_gui_geoip_fd( config_t const * config ) {
 
   if( FD_LIKELY( fd!=FD_GUI_GEOIP_FD ) ) {
     if( FD_UNLIKELY( -1==dup2( fd, FD_GUI_GEOIP_FD ) ) ) FD_LOG_ERR(( "dup2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    if( FD_UNLIKELY( -1==close( fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
+
+  /* validator info text, reserved so a pwrite cannot hit ENOSPC */
+  FD_TEST( fd_cstr_printf_check( path, PATH_MAX, NULL, "%s/guiinfo.db", config->paths.base ) );
+  fd = open( path, O_RDWR|O_CREAT|O_TRUNC|O_NOATIME, S_IRUSR|S_IWUSR );
+  if( FD_UNLIKELY( -1==fd ) ) FD_LOG_ERR(( "failed to open %s (%i-%s)", path, errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( -1==unlink( path ) ) ) FD_LOG_ERR(( "unlink(%s) failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
+  if( fd_topo_find_tile( &config->topo, "gui", 0UL )!=ULONG_MAX &&
+      FD_UNLIKELY( fallocate( fd, 0, 0L, (off_t)FD_GUI_PEERS_INFO_FILE_SZ ) && errno!=EOPNOTSUPP ) )
+    FD_LOG_ERR(( "fallocate(%s,%lu) failed (%i-%s)", path, FD_GUI_PEERS_INFO_FILE_SZ, errno, fd_io_strerror( errno ) ));
+  if( FD_LIKELY( fd!=FD_GUI_PEERS_INFO_FD ) ) {
+    if( FD_UNLIKELY( -1==dup2( fd, FD_GUI_PEERS_INFO_FD ) ) ) FD_LOG_ERR(( "dup2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     if( FD_UNLIKELY( -1==close( fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
 }
