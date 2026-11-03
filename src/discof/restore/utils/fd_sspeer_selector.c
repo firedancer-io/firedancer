@@ -123,11 +123,11 @@ fd_sspeer_selector_footprint( ulong max_peers ) {
   ulong l;
   l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_sspeer_selector_t), sizeof(fd_sspeer_selector_t) );
-  l = FD_LAYOUT_APPEND( l, peer_pool_align(),             peer_pool_footprint( 2UL*max_peers ) );
-  l = FD_LAYOUT_APPEND( l, peer_map_by_key_align(),       peer_map_by_key_footprint( peer_map_by_key_chain_cnt_est( 2UL*max_peers ) ) );
-  l = FD_LAYOUT_APPEND( l, peer_map_by_addr_align(),      peer_map_by_addr_footprint( peer_map_by_addr_chain_cnt_est( 2UL*max_peers ) ) );
-  l = FD_LAYOUT_APPEND( l, score_treap_align(),           score_treap_footprint( 2UL*max_peers ) );
-  l = FD_LAYOUT_APPEND( l, score_treap_align(),           score_treap_footprint( 2UL*max_peers ) );
+  l = FD_LAYOUT_APPEND( l, peer_pool_align(),             peer_pool_footprint( max_peers ) );
+  l = FD_LAYOUT_APPEND( l, peer_map_by_key_align(),       peer_map_by_key_footprint( peer_map_by_key_chain_cnt_est( max_peers ) ) );
+  l = FD_LAYOUT_APPEND( l, peer_map_by_addr_align(),      peer_map_by_addr_footprint( peer_map_by_addr_chain_cnt_est( max_peers ) ) );
+  l = FD_LAYOUT_APPEND( l, score_treap_align(),           score_treap_footprint( max_peers ) );
+  l = FD_LAYOUT_APPEND( l, score_treap_align(),           score_treap_footprint( max_peers ) );
   l = FD_LAYOUT_APPEND( l, alignof(ulong),                max_peers * sizeof(ulong) ); /* pool indices for shadow treap swap */
   return FD_LAYOUT_FINI( l, fd_sspeer_selector_align() );
 }
@@ -153,20 +153,20 @@ fd_sspeer_selector_new( void * shmem,
 
   FD_SCRATCH_ALLOC_INIT( l, shmem );
   fd_sspeer_selector_t * selector = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_sspeer_selector_t), sizeof(fd_sspeer_selector_t) );
-  void * _pool                    = FD_SCRATCH_ALLOC_APPEND( l, peer_pool_align(),        peer_pool_footprint( 2UL*max_peers ) );
-  void * _map                     = FD_SCRATCH_ALLOC_APPEND( l, peer_map_by_key_align(),  peer_map_by_key_footprint( peer_map_by_key_chain_cnt_est( 2UL*max_peers ) )  );
-  void * _multimap_by_addr        = FD_SCRATCH_ALLOC_APPEND( l, peer_map_by_addr_align(), peer_map_by_addr_footprint( peer_map_by_addr_chain_cnt_est( 2UL*max_peers ) )  );
-  void * _score_treap             = FD_SCRATCH_ALLOC_APPEND( l, score_treap_align(),      score_treap_footprint( 2UL*max_peers ) );
-  void * _shadow_score_treap      = FD_SCRATCH_ALLOC_APPEND( l, score_treap_align(),      score_treap_footprint( 2UL*max_peers ) );
+  void * _pool                    = FD_SCRATCH_ALLOC_APPEND( l, peer_pool_align(),        peer_pool_footprint( max_peers ) );
+  void * _map                     = FD_SCRATCH_ALLOC_APPEND( l, peer_map_by_key_align(),  peer_map_by_key_footprint( peer_map_by_key_chain_cnt_est( max_peers ) )  );
+  void * _multimap_by_addr        = FD_SCRATCH_ALLOC_APPEND( l, peer_map_by_addr_align(), peer_map_by_addr_footprint( peer_map_by_addr_chain_cnt_est( max_peers ) )  );
+  void * _score_treap             = FD_SCRATCH_ALLOC_APPEND( l, score_treap_align(),      score_treap_footprint( max_peers ) );
+  void * _shadow_score_treap      = FD_SCRATCH_ALLOC_APPEND( l, score_treap_align(),      score_treap_footprint( max_peers ) );
   void * _peer_idx_list           = FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong),           max_peers * sizeof(ulong) ); /* pool indices for shadow treap swap */
 
-  selector->pool               = peer_pool_join( peer_pool_new( _pool, 2UL*max_peers ) );
+  selector->pool               = peer_pool_join( peer_pool_new( _pool, max_peers ) );
   /* Seed treap priorities so the treap is balanced. */
-  score_treap_seed( selector->pool, 2UL*max_peers, seed );
-  selector->map_by_key         = peer_map_by_key_join( peer_map_by_key_new( _map, peer_map_by_key_chain_cnt_est( 2UL*max_peers ), seed ) );
-  selector->map_by_addr        = peer_map_by_addr_join( peer_map_by_addr_new( _multimap_by_addr, peer_map_by_addr_chain_cnt_est( 2UL*max_peers ), seed ) );
-  selector->score_treap        = score_treap_join( score_treap_new( _score_treap, 2UL*max_peers ) );
-  selector->shadow_score_treap = score_treap_join( score_treap_new( _shadow_score_treap, 2UL*max_peers ) );
+  score_treap_seed( selector->pool, max_peers, seed );
+  selector->map_by_key         = peer_map_by_key_join( peer_map_by_key_new( _map, peer_map_by_key_chain_cnt_est( max_peers ), seed ) );
+  selector->map_by_addr        = peer_map_by_addr_join( peer_map_by_addr_new( _multimap_by_addr, peer_map_by_addr_chain_cnt_est( max_peers ), seed ) );
+  selector->score_treap        = score_treap_join( score_treap_new( _score_treap, max_peers ) );
+  selector->shadow_score_treap = score_treap_join( score_treap_new( _shadow_score_treap, max_peers ) );
   selector->peer_idx_list      = (ulong *)_peer_idx_list;
   selector->max_peers          = max_peers;
 
@@ -618,35 +618,18 @@ fd_sspeer_selector_process_cluster_slot( fd_sspeer_selector_t * selector ) {
   if( FD_UNLIKELY( score_treap_ele_cnt( selector->score_treap )>selector->max_peers ) ) FD_LOG_CRIT(( "peer count exceeds max_peers" ));
 #endif
 
-  /* Rescore all peers using the shadow treap swap mechanism. */
-  ulong idx = 0UL;
+  /* Rescore in place: move every peer into the shadow treap, then swap. */
+  ulong cnt = 0UL;
   for( score_treap_fwd_iter_t iter = score_treap_fwd_iter_init( selector->score_treap, selector->pool );
         !score_treap_fwd_iter_done( iter );
         iter = score_treap_fwd_iter_next( iter, selector->pool ) ) {
-    fd_sspeer_private_t * peer = score_treap_fwd_iter_ele( iter, selector->pool );
-    fd_sspeer_private_t * shadow_peer = peer_pool_ele_acquire( selector->pool );
-    shadow_peer->latency   = peer->latency;
-    shadow_peer->full_slot = peer->full_slot;
-    shadow_peer->incr_slot = peer->incr_slot;
-    shadow_peer->addr      = peer->addr;
-    shadow_peer->key       = peer->key;
-    shadow_peer->score     = fd_sspeer_selector_score( selector, shadow_peer->latency, shadow_peer->full_slot, shadow_peer->incr_slot );
-    shadow_peer->valid     = peer->valid;
-    fd_memcpy( shadow_peer->full_hash, peer->full_hash, FD_HASH_FOOTPRINT );
-    fd_memcpy( shadow_peer->incr_hash, peer->incr_hash, FD_HASH_FOOTPRINT );
-    score_treap_ele_insert( selector->shadow_score_treap, shadow_peer, selector->pool );
-    selector->peer_idx_list[ idx++ ] = peer_pool_idx( selector->pool, peer );
-    peer_map_by_key_ele_remove_fast( selector->map_by_key, peer, selector->pool );
-    peer_map_by_addr_ele_remove_fast( selector->map_by_addr, peer, selector->pool );
-    peer_map_by_key_ele_insert( selector->map_by_key, shadow_peer, selector->pool );
-    peer_map_by_addr_ele_insert( selector->map_by_addr, shadow_peer, selector->pool );
+    selector->peer_idx_list[ cnt++ ] = score_treap_fwd_iter_idx( iter );
   }
-
-  /* clear score treap */
-  for( ulong i=0UL; i<idx; i++ ) {
+  for( ulong i=0UL; i<cnt; i++ ) {
     fd_sspeer_private_t * peer = peer_pool_ele( selector->pool, selector->peer_idx_list[ i ] );
     score_treap_ele_remove( selector->score_treap, peer, selector->pool );
-    peer_pool_ele_release( selector->pool, peer );
+    peer->score = fd_sspeer_selector_score( selector, peer->latency, peer->full_slot, peer->incr_slot );
+    score_treap_ele_insert( selector->shadow_score_treap, peer, selector->pool );
   }
 
   score_treap_t * tmp          = selector->score_treap;
