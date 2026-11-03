@@ -262,7 +262,8 @@ struct fd_topo_tile {
     struct {
       char   identity_key_path[ PATH_MAX ]; /* the key this machine boots under */
       char   target_key_path[ PATH_MAX ];   /* the identity failover hands off, [paths.identity_key] */
-      uint   listen_addr;          /* network byte order */
+      int    listen;      /* open the network listener so we can hand over our identity to another machine */
+      uint   listen_addr; /* network byte order */
       ushort port;
 
       char          gossip_host[ FD_FQDN_BUF_MAX ];

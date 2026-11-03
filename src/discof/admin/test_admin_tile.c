@@ -342,8 +342,8 @@ test_failover_command( ulong cmd_id,
     fd_memcpy( &event, event_mem, sizeof(event) );
     FD_TEST( event.type==event_type && event.result==event_result );
     if( i<2UL ) {
-      char const * args = flags & FD_ADMINCTL_FAILOVER_FLAG_FORCE ? "{\"yes\":true,\"force\":true,\"adopt\":false}" :
-                          flags & FD_ADMINCTL_FAILOVER_FLAG_ADOPT ? "{\"yes\":false,\"force\":false,\"adopt\":true}" : "{\"yes\":false,\"force\":false,\"adopt\":false}";
+      char const * args = flags & FD_ADMINCTL_FAILOVER_FLAG_FORCE    ? "{\"yes\":true,\"takeover\":true,\"force\":true}" :
+                          flags & FD_ADMINCTL_FAILOVER_FLAG_TAKEOVER ? "{\"yes\":false,\"takeover\":true,\"force\":false}" : "{\"yes\":false,\"takeover\":false,\"force\":false}";
       FD_TEST( event.args_json_len==strlen( args ) && !memcmp( event.args_json, args, event.args_json_len ) );
     }
   }
@@ -454,9 +454,9 @@ main( int     argc,
   test_set_identity();
   test_failover_command( FD_ADMINCTL_CMD_FAILOVER_PROMOTE, FD_ADMINCTL_FAILOVER_CMD_HANDOFF, 0UL, FD_EVENT_ADMIN_COMMAND_TYPE_FAILOVER_PROMOTE );
   test_failover_command( FD_ADMINCTL_CMD_FAILOVER_PROMOTE, FD_ADMINCTL_FAILOVER_CMD_PROMOTE,
-                         FD_ADMINCTL_FAILOVER_FLAG_YES|FD_ADMINCTL_FAILOVER_FLAG_FORCE, FD_EVENT_ADMIN_COMMAND_TYPE_FAILOVER_PROMOTE );
+                         FD_ADMINCTL_FAILOVER_FLAG_YES|FD_ADMINCTL_FAILOVER_FLAG_TAKEOVER|FD_ADMINCTL_FAILOVER_FLAG_FORCE, FD_EVENT_ADMIN_COMMAND_TYPE_FAILOVER_PROMOTE );
   test_failover_command( FD_ADMINCTL_CMD_FAILOVER_PROMOTE, FD_ADMINCTL_FAILOVER_CMD_PROMOTE,
-                         FD_ADMINCTL_FAILOVER_FLAG_ADOPT, FD_EVENT_ADMIN_COMMAND_TYPE_FAILOVER_PROMOTE );
+                         FD_ADMINCTL_FAILOVER_FLAG_TAKEOVER, FD_EVENT_ADMIN_COMMAND_TYPE_FAILOVER_PROMOTE );
   test_failover_identity();
 
   FD_LOG_NOTICE(( "pass" ));

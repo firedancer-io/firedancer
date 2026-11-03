@@ -138,15 +138,18 @@ typedef struct fd_adminctl_remove_all_auth_voters_v1 fd_adminctl_remove_all_auth
 #define FD_ADMINCTL_FAILOVER_CMD_PREFLIGHT (2UL)
 #define FD_ADMINCTL_FAILOVER_CMD_CNT       (3UL)
 
+#define FD_ADMINCTL_FAILOVER_FLAG_YES      (1UL)
+#define FD_ADMINCTL_FAILOVER_FLAG_FORCE    (2UL)
+#define FD_ADMINCTL_FAILOVER_FLAG_TAKEOVER (4UL)
+
 /* The command as the operator typed it. */
 static inline char const *
-fd_adminctl_failover_cmd_typed( ulong cmd ) {
-  return cmd<FD_ADMINCTL_FAILOVER_CMD_CNT ? "failover promote" : "unknown";
+fd_adminctl_failover_cmd_typed( ulong cmd,
+                                ulong flags ) {
+  if( FD_UNLIKELY( cmd>=FD_ADMINCTL_FAILOVER_CMD_CNT ) ) return "unknown";
+  if( FD_LIKELY( !( flags & FD_ADMINCTL_FAILOVER_FLAG_TAKEOVER ) ) ) return "failover promote";
+  return ( flags & FD_ADMINCTL_FAILOVER_FLAG_FORCE ) ? "failover takeover --force" : "failover takeover";
 }
-
-#define FD_ADMINCTL_FAILOVER_FLAG_YES   (1UL)
-#define FD_ADMINCTL_FAILOVER_FLAG_FORCE (2UL)
-#define FD_ADMINCTL_FAILOVER_FLAG_ADOPT (4UL)
 
 struct fd_adminctl_failover_req_v1 {
   ulong  version;      /* ==FD_ADMINCTL_FAILOVER_PAYLOAD_VERSION */

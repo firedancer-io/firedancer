@@ -25,9 +25,10 @@ safe-guards described here.
 
 ## How it works
 
-Validators with `[failover.enabled]` set run a failover tile, which
-listens on `[failover.listen_address]:[failover.listen_port]` (TCP port
-`8010` by default). The coordinated handoff works as follows:
+With `[failover.enabled]` set to `true`, validators
+listen on `[failover.listen_address]:[failover.listen_port]` (TCP port
+`8010` by default) for requests to hand over the identity. The
+coordinated handoff works as follows:
 
 1. **Discovery.** The local validator looks the identity up in gossip and
    dials the gossip address of the validator advertising it. Pass
@@ -44,16 +45,17 @@ listens on `[failover.listen_address]:[failover.listen_port]` (TCP port
 4. **Adoption.** The local validator waits until it has replayed up to
    that vote history's finality anchor, then adopts it.
 5. **Promotion.** The local validator adopts the new identity and starts
-   voting and producing blocks as it, and tells the remote validator the
-   handoff is done.
+   voting and producing blocks as it.
 
 A coordinated handoff avoids having both validators double-voting with the
-same identity. This may not hold true for a [forced promotion](#forced-promotion).
+same identity. This may not hold true for a [takeover](#takeover).
 
 ## Setup
 
-Make sure `[failover.enabled]` is `true` on both validators (it is the
-default) and that each machine can reach the other's failover port.
+Make sure `[failover.enabled]` is `true` (it is the default) and
+that the other machine can reach this one's failover port. A validator
+with it disabled can still adopt an identity from another host but
+cannot hand over its own identity to another requester.
 
 ```toml
 [failover]
@@ -116,8 +118,8 @@ On the local validator, the one that should take the identity, run
 with `[failover.boot_to_standby]` reads it from `[paths.identity_key]`
 instead. When no validator runs the identity yet, as on first setup with
 `[failover.boot_to_standby]` on both, there is nobody to hand it over:
-run `failover promote --adopt` on exactly one validator, once nothing
-else can sign as the identity.
+run `failover takeover` on exactly one validator, once nothing else can
+sign as the identity.
 
 <<< @/snippets/commands/failover-promote.ansi
 
@@ -141,46 +143,48 @@ not on port `8010`, `--port`:
 ## If a handoff fails
 
 The command prints the result and exits with a
-code for the state the validators are in. The validator logs show the
-result as a number, as shown in the table below:
+code for the state the validators are in:
 
 <<< @/snippets/commands/failover-promote-failed.ansi
 
 | Exit code | State | What to do |
 |-----------|-------|------------|
+| `1` or other | The command failed for another reason or was terminated by a signal, the outcome is likely unknown | Read the error, then run [`get-identity`](/api/cli#get-identity) on both validators before anything else |
 | `2` | Rejected, no validator changed identity | Fix the cause in the table below, or wait for it to clear, then run `failover promote` again |
 | `3` | The outcome is unknown | Run [`get-identity`](/api/cli#get-identity) on both validators before anything else |
-| `4` | Nobody runs the identity | Read the local log for the cause, then run `failover promote --adopt` on the machine that last ran the identity, see [forced promotion](#forced-promotion) |
+| `4` | Nobody runs the identity | Read the local log for the cause, then run `failover takeover` on the machine that last ran the identity, see [takeover](#takeover) |
 
 When the outcome is unknown and `get-identity` shows that neither
-validator runs the identity, use `failover promote --adopt` on the
-machine that last ran it.
+validator runs the identity, use `failover takeover` on the machine
+that last ran it.
 
-| Result | Code | Exit | Meaning | What to do |
-|--------|------|------|---------|------------|
-| `busy` | `0x4001` | 2 | Another failover command is running on the local validator | Wait for it to finish |
-| `in_progress` | `0x4003` | 2 | A handoff or identity switch is running on the local or the remote validator | Wait for it to finish |
-| `no_holder_address` | `0x4007` | 2 | Gossip did not show a validator running the identity | Wait for gossip, or pass `--address` |
-| `not_holder` | `0x4002` | 2 | The validator at the given address does not run the identity | Check `--address`, or wait for gossip to show the validator that runs the identity |
-| `no_peer` | `0x4010` | 2 | No validator running the identity responded at the given address | Check the address, port and firewall, that failover is enabled there |
-| `handed_off` | `0x4012` | 2 | The local validator handed the identity off and waits for the remote validator's answer | Wait |
-| `no_final_history` | `0x4006` | 2 | The remote validator has no vote history for its last vote yet | Wait for the remote validator to vote |
-| `replay_behind` | `0x4008` | 2 | The local validator's replay is too far behind the finality anchor of the vote history | Wait for the local validator to catch up |
-| `holds_other` | `0x400d` | 2 | The local validator runs a staked identity other than the one in the keypair | Hand that identity off first, or `set-identity` to an unstaked key |
-| `holder_live` | `0x400f` | 2 | `--adopt` only. The remote validator may still be alive | Wait and retry, or use `--force` if the remote validator cannot sign |
-| `keypair_mismatch` | `0x3001` | 2 | The public key in the keypair file does not match its private key | Use a valid keypair file |
-| `authorized_voter` | `0x3004` | 2 | The identity is an authorized voter on the local validator | Remove it with [`remove-all-authorized-voters`](/api/cli#remove-all-authorized-voters) |
-| `timeout` | `0x4009` | 3 | The remote validator did not respond in time | Check both validators |
-| `peer_restarted` | `0x400a` | 3 | The remote validator restarted before it responded | Check both validators |
-| `handoff_aborted` | `0x4004` | 3 | The remote validator aborted the handoff and may have given up the identity | Check both validators |
-| `peer_holds` | `0x4005` | 3 | Another validator runs the identity | Check both validators |
-| `identity_changed` | `0x400e` | 3 | `set-identity` interrupted and changed the local validator's identity | Check both validators |
-| `adoption_failed` | `0x400b` | 4 | The local validator did not adopt the vote history | Read the logs, then try `failover promote --adopt` on the machine that last ran the identity |
-| `switch_failed` | `0x400c` | 4 | The local validator's identity switch failed | Read the logs, then try `failover promote --adopt` on the machine that last ran the identity |
+| Result | Exit | Meaning | What to do |
+|--------|------|---------|------------|
+| Any other | 1 | A failure not listed in this table | Read the error, then check both validators |
+| `busy` | 2 | Another failover command is running on the local validator | Wait for it to finish |
+| `in_progress` | 2 | A handoff or identity switch is running on the local or the remote validator | Wait for it to finish |
+| `no_holder_address` | 2 | Gossip did not show a validator running the identity | Wait for gossip, or pass `--address` |
+| `not_holder` | 2 | The validator at the given address does not run the identity | Check `--address`, or wait for gossip to show the validator that runs the identity |
+| `no_peer` | 2 | No validator running the identity responded at the given address | Check the address, port and firewall, that failover is enabled there |
+| `handed_off` | 2 | The local validator handed the identity off and waits for the remote validator's answer | Wait |
+| `no_final_history` | 2 | The remote validator has no vote history for its last vote yet | Wait for the remote validator to vote |
+| `replay_behind` | 2 | The local validator's replay is too far behind the finality anchor of the vote history | Wait for the local validator to catch up |
+| `holds_other` | 2 | The local validator runs a staked identity other than the one in the keypair | Hand that identity off first, or `set-identity` to an unstaked key |
+| `holder_live` | 2 | `failover takeover` only. The remote validator may still be alive | Wait and retry, or use `--force` if the remote validator cannot sign |
+| `keypair_mismatch` | 2 | The public key in the keypair file does not match its private key | Use a valid keypair file |
+| `authorized_voter` | 2 | The identity is an authorized voter on the local validator | Remove it with [`remove-all-authorized-voters`](/api/cli#remove-all-authorized-voters) |
+| `timeout` | 3 | The remote validator did not respond in time | Check both validators |
+| `peer_restarted` | 3 | The remote validator restarted before it responded | Check both validators |
+| `handoff_aborted` | 3 | The remote validator aborted the handoff and may have given up the identity | Check both validators |
+| `peer_holds` | 3 | Another validator runs the identity | Check both validators |
+| `identity_changed` | 3 | `set-identity` interrupted and changed the local validator's identity | Check both validators |
+| `adoption_failed` | 4 | The local validator did not adopt the vote history | Read the logs, then try `failover takeover` on the machine that last ran the identity |
+| `switch_failed` | 4 | The local validator's identity switch failed | Read the logs, then try `failover takeover` on the machine that last ran the identity |
 
-With `--adopt` or `--force`, a failed handoff is a warning, and the
-local validator then tries to take the identity without the remote one.
-If that also fails, the command prints why and exits with a failure code.
+With `failover takeover`, a failed handoff logs a warning, and the local
+validator then tries to take the identity without coordinating with the remote
+validator. If that also fails, the command logs the reason and exits
+with a failure code.
 
 ## Restarts
 
@@ -207,41 +211,42 @@ this check and needs none of the steps below.
   first move the `vote_history-*` files out of `[paths.vote_history]`.
   The identity's vote history now lives on the other machine.
 
-## Forced promotion
+## Takeover
 
-`failover promote --adopt` first asks the remote validator for a handoff.
-If that fails, the local validator takes the identity anyway, but only if
-the remote shows no signs of life, neither in gossip nor on the failover
-channel.
+`failover takeover` is for when the remote validator may be dead or
+unreachable. It first asks the remote validator for a handoff. If that
+fails, the local validator takes the identity anyway, but only if the
+remote shows no signs of life (neither in gossip nor on the failover
+channel).
 
-`failover promote --force` forcibly takes the identity, no matter what,
-bypassing all checks. It first tries a cooperative handoff, then falls back
-to seizing the identity.
+`failover takeover --force` takes the identity no matter what, bypassing
+all checks. Use it when the remote still shows signs of life and
+you have confirmed that it cannot sign.
 
 ::: warning WARNING
 
-A forced promotion skips every check on the remote machine. If that
-machine is still signing as the identity, both machines vote and
-produce blocks as it. Only force a promotion once every other machine
-is stopped or cannot complete a promotion: a machine this validator
-handed the identity to shows its junk key while it is still adopting,
-see the `handed_off` result. Never force a promotion on both machines.
+A takeover skips every check on the remote machine. If that machine is
+still signing as the identity, both machines vote and produce blocks as
+it. Only take over once every other machine is stopped or cannot
+complete a promotion. Never take over on both machines simultaneously.
 
 :::
 
-A forced promotion starts from an empty vote history.
+A takeover starts from an empty vote history.
 
-After a forced promotion, the machine that was down still has the
-identity in its configuration. Set `[failover.boot_to_standby]` there or
-point its `[paths.identity_key]` at a junk keypair before it starts
-again, see [Restarts](#restarts).
+After a takeover, the machine that was down still has the identity in
+its configuration. Set `[failover.boot_to_standby]` there or point its
+`[paths.identity_key]` at a junk keypair before it starts again, see
+[Restarts](#restarts).
 
-<<< @/snippets/commands/failover-promote-force.ansi
+<<< @/snippets/commands/failover-takeover.ansi
+
+<<< @/snippets/commands/failover-takeover-force.ansi
 
 ## `set-identity` with failover
 
 `set-identity` keeps working on a failover-enabled validator, as a
 break-glass that does not need the other machine. It installs the given
-keypair and restarts failover on it. A handoff in progress is discarded.
-The new identity becomes the one `failover promote` on this machine
-hands off. The other machines view it as a reboot.
+keypair and restarts failover on it. The new identity becomes the one
+`failover promote` on this machine hands off. The other machines view
+it as a reboot.

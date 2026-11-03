@@ -131,8 +131,8 @@ static void
 finish_cmd( fd_failover_tile_ctx_t * ctx,
             ulong                    result ) {
   if( FD_LIKELY( !ctx->cmd_nonce || ctx->cmd_done ) ) return;
-  if( FD_LIKELY( result==FD_ADMINCTL_RESULT_SUCCESS ) ) FD_LOG_NOTICE (( "`failover promote` done, this machine runs the identity" ));
-  else                                                  FD_LOG_WARNING(( "`failover promote` failed (result %#lx)", result ));
+  if( FD_LIKELY( result==FD_ADMINCTL_RESULT_SUCCESS ) ) FD_LOG_NOTICE (( "the failover is done, this machine runs the identity" ));
+  else                                                  FD_LOG_WARNING(( "the failover failed (result %#lx)", result ));
   ctx->cmd_result = result;
   ctx->cmd_done   = 1;
 }
@@ -603,7 +603,7 @@ pause_request( fd_failover_tile_ctx_t * ctx,
                long                     now,
                ulong                    result,
                char const *             why ) {
-  FD_LOG_WARNING(( "handoff %lu paused in %s, %s, `failover promote` here resumes it", ctx->request.id, get_action_name( ctx->action ), why ));
+  FD_LOG_WARNING(( "handoff %lu paused in %s, %s, `failover promote` or `failover takeover` resumes it", ctx->request.id, get_action_name( ctx->action ), why ));
   ctx->request.until = 0L;
   ctx->stuck         = 1;
   if( ctx->action==FD_FAILOVER_ACTION_HANDOFF_WAIT_PEER ) finish_cmd( ctx, result );
@@ -762,16 +762,16 @@ start_promotion( fd_failover_tile_ctx_t *   ctx,
     fd_cstr_printf( ctx->promotion.label, sizeof(ctx->promotion.label), NULL, "operator promotion" );
   }
   ctx->promotion.source = source;
-  ctx->promotion.force  = !!( flags & (FD_ADMINCTL_FAILOVER_FLAG_ADOPT|FD_ADMINCTL_FAILOVER_FLAG_FORCE) );
-  ctx->promotion.soft   = !!( flags & FD_ADMINCTL_FAILOVER_FLAG_ADOPT );
+  ctx->promotion.force  = !!( flags & FD_ADMINCTL_FAILOVER_FLAG_TAKEOVER );
+  ctx->promotion.soft   = ctx->promotion.force && !( flags & FD_ADMINCTL_FAILOVER_FLAG_FORCE );
   ctx->promotion.floor  = get_coverage_floor( ctx );
   ctx->current_history = ctx->promotion.adopt;
   ctx->last_vote_slot  = ctx->promotion.adopt.tip;
   ctx->stuck           = 0;
   set_adopt_anchor( ctx );
   LOG_CMD_STEP( ctx, "%s: adopting %s%s", ctx->promotion.label, get_source_name( source ),
-                ( flags & FD_ADMINCTL_FAILOVER_FLAG_FORCE ) ? ", --force skips the checks on the other machine" :
-                ( flags & FD_ADMINCTL_FAILOVER_FLAG_ADOPT ) ? ", --adopt found no sign of life on the other machine" : "" );
+                ( flags & FD_ADMINCTL_FAILOVER_FLAG_FORCE )    ? ", --force skips the checks on the other machine" :
+                ( flags & FD_ADMINCTL_FAILOVER_FLAG_TAKEOVER ) ? ", the other machine showed no signs of life" : "" );
 
   set_action( ctx, FD_FAILOVER_ACTION_PROMOTE_WAIT_REPLAY );
 }
@@ -1142,7 +1142,7 @@ stage_request( fd_failover_tile_ctx_t *           ctx,
   ctx->cmd_addr      = req->addr;
   ctx->cmd_port      = req->port;
   ctx->request.addr  = addr;
-  ctx->request.quick = !!( req->flags & (FD_ADMINCTL_FAILOVER_FLAG_ADOPT|FD_ADMINCTL_FAILOVER_FLAG_FORCE) );
+  ctx->request.quick = !!( req->flags & FD_ADMINCTL_FAILOVER_FLAG_TAKEOVER );
   ctx->request.until = fd_long_sat_add( now, ctx->request.quick && !ctx->request.send_cnt ? FD_FAILOVER_FORCE_WAIT_NANOS : FD_FAILOVER_DEADLINE_NANOS );
   ctx->request.sent  = 0;
   ctx->stuck         = 0;
@@ -1175,7 +1175,7 @@ run_handoff_cmd( fd_failover_tile_ctx_t *           ctx,
     uint addr = stage_request( ctx, req, now );
     if( FD_LIKELY( addr ) ) {
       LOG_CMD_STEP( ctx, "handoff %lu: resuming at `" FD_IP4_ADDR_FMT ":%hu` using %s", ctx->request.id, FD_IP4_ADDR_FMT_ARGS( ctx->request.addr ), get_dial_port( ctx ),
-                    ctx->cmd_addr ? "`failover promote --address`" : "gossip" );
+                    ctx->cmd_addr ? "`--address`" : "gossip" );
     } else {
       LOG_CMD_STEP( ctx, "handoff %lu: resuming once gossip shows the machine running the identity, pass --address to dial one now", ctx->request.id );
     }
@@ -1192,36 +1192,36 @@ run_handoff_cmd( fd_failover_tile_ctx_t *           ctx,
   uint addr = stage_request( ctx, req, now );
   if( FD_LIKELY( addr ) ) {
     LOG_CMD_STEP( ctx, "handoff %lu: requesting handoff from the machine running the identity at `" FD_IP4_ADDR_FMT ":%hu` using %s",
-                  ctx->request.id, FD_IP4_ADDR_FMT_ARGS( addr ), get_dial_port( ctx ), ctx->cmd_addr ? "`failover promote --address`" : "gossip" );
+                  ctx->request.id, FD_IP4_ADDR_FMT_ARGS( addr ), get_dial_port( ctx ), ctx->cmd_addr ? "`--address`" : "gossip" );
   } else {
-    LOG_CMD_STEP( ctx, "handoff %lu: waiting for gossip to show the machine running the identity, or for `failover promote --address` once this command returns", ctx->request.id );
+    LOG_CMD_STEP( ctx, "handoff %lu: waiting for gossip to show the machine running the identity, or for `--address` once this command returns", ctx->request.id );
   }
 
   set_action( ctx, FD_FAILOVER_ACTION_HANDOFF_WAIT_PEER );
   return FD_FAILOVER_CMD_PENDING;
 }
 
-/* `failover promote --adopt` or `--force` (after the handoff failed)
-   take the identity without coordination. */
+/* `failover takeover` (after the handoff failed) takes the identity
+   without coordination, with --force even from a machine that may be
+   live. */
 static ulong
 run_promote_cmd( fd_failover_tile_ctx_t *           ctx,
                  fd_adminctl_failover_req_t const * req,
                  long                               now ) {
   int force = !!( req->flags & FD_ADMINCTL_FAILOVER_FLAG_FORCE );
-  int adopt = !!( req->flags & FD_ADMINCTL_FAILOVER_FLAG_ADOPT );
-  if( FD_UNLIKELY( force==adopt ) ) return FD_ADMINCTL_RESULT_UNKNOWN_COMMAND;
+  if( FD_UNLIKELY( !( req->flags & FD_ADMINCTL_FAILOVER_FLAG_TAKEOVER ) ) ) return FD_ADMINCTL_RESULT_UNKNOWN_COMMAND;
   static uchar const no_target[ 32 ] = { 0 };
   if( FD_UNLIKELY( !fd_memeq( req->target, no_target, 32UL ) && !fd_memeq( req->target, ctx->hello.staked_pubkey, 32UL ) ) ) return FD_FAILOVER_CONTROL_RESULT_IDENTITY_CHANGED;
   ulong result = check_promotion( ctx );
   if( FD_UNLIKELY( result!=FD_ADMINCTL_RESULT_SUCCESS ) ) return result;
-  if( FD_UNLIKELY( adopt && is_holder_live( ctx, now ) ) ) return FD_FAILOVER_CONTROL_RESULT_HOLDER_LIVE;
+  if( FD_UNLIKELY( !force && is_holder_live( ctx, now ) ) ) return FD_FAILOVER_CONTROL_RESULT_HOLDER_LIVE;
   if( ctx->request.id && is_requesting( ctx ) ) end_request( ctx, now, FD_FAILOVER_HANDOFF_CANCELLED );
   int gave_up = ctx->action==FD_FAILOVER_ACTION_DEMOTE_WAIT_ACK;
   if( gave_up ) {
     ctx->peer_history.valid = 0;
     resolve_handoff( ctx, FD_FAILOVER_HANDOFF_CANCELLED );
   }
-  start_promotion( ctx, FD_FAILOVER_SOURCE_EMPTY, NULL, 0UL, req->flags & (FD_ADMINCTL_FAILOVER_FLAG_ADOPT|FD_ADMINCTL_FAILOVER_FLAG_FORCE) );
+  start_promotion( ctx, FD_FAILOVER_SOURCE_EMPTY, NULL, 0UL, req->flags & (FD_ADMINCTL_FAILOVER_FLAG_TAKEOVER|FD_ADMINCTL_FAILOVER_FLAG_FORCE) );
   ctx->promotion.gave_up = gave_up;
   return FD_FAILOVER_CMD_PENDING;
 }
@@ -1299,7 +1299,7 @@ serve_bus_request( fd_failover_tile_ctx_t * ctx,
                    long                     now ) {
   fd_adminctl_failover_req_t req;
   fd_memcpy( &req, ctx->bus_req.payload, sizeof(req) );
-  char const * cmd_name  = fd_adminctl_failover_cmd_typed( req.cmd );
+  char const * cmd_name  = fd_adminctl_failover_cmd_typed( req.cmd, req.flags );
   ulong        step_head = ctx->cmd_step_head;
   ulong        result    = apply_control( ctx, &req, now );
   if( FD_UNLIKELY( result==FD_FAILOVER_CMD_PENDING ) ) {
@@ -1307,8 +1307,7 @@ serve_bus_request( fd_failover_tile_ctx_t * ctx,
     ctx->cmd_step_tail = step_head;
     return;
   }
-  char const * flag = ( req.flags & FD_ADMINCTL_FAILOVER_FLAG_FORCE ) ? " --force" : ( req.flags & FD_ADMINCTL_FAILOVER_FLAG_ADOPT ) ? " --adopt" : "";
-  if( FD_UNLIKELY( result==FD_FAILOVER_CONTROL_RESULT_ALREADY_HOLDS ) ) FD_LOG_NOTICE(( "`%s%s` done, this machine already runs the identity", cmd_name, flag ));
-  else if( FD_UNLIKELY( result!=FD_ADMINCTL_RESULT_SUCCESS ) ) FD_LOG_WARNING(( "`%s%s` refused (result %#lx)", cmd_name, flag, result ));
+  if( FD_UNLIKELY( result==FD_FAILOVER_CONTROL_RESULT_ALREADY_HOLDS ) ) FD_LOG_NOTICE(( "`%s` done, this machine already runs the identity", cmd_name ));
+  else if( FD_UNLIKELY( result!=FD_ADMINCTL_RESULT_SUCCESS ) ) FD_LOG_WARNING(( "`%s` refused (result %#lx)", cmd_name, result ));
   publish_bus_result( ctx, stem, ctx->bus_req.nonce, result );
 }

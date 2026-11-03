@@ -65,7 +65,7 @@ union fdctl_args {
     char   name[ 64UL ];
     char   keypair_path[ PATH_MAX ];
     int    yes;
-    int    adopt;
+    int    takeover;
     int    force;
     uint   addr;
     ushort port;

@@ -298,7 +298,7 @@ fd_topo_initialize( config_t * config ) {
   int leader_enabled      = !!config->firedancer.layout.enable_block_production;
   int rserve_enabled      = config->tiles.rserve.enabled;
   int efficient_mode      = !strcmp( config->firedancer.layout.mode, "efficient" );
-  int failover_enabled    = config->firedancer.failover.enabled;
+  int failover_enabled    = 1;
 
   if( FD_UNLIKELY( snapmk_enabled ) ) {
     FD_CHECK_ERR( config->firedancer.snapshots.max_full_snapshots_to_keep,
@@ -1449,8 +1449,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
      generated at boot, and [paths.identity_key] is only the identity
      failover hands off.  The sign and failov tiles get that path too,
      they load the failover identity from it. */
-  int          failover_enabled  = fd_topo_find_tile( &config->topo, "failov", 0UL )!=ULONG_MAX;
-  int          boot_to_standby   = config->firedancer.failover.boot_to_standby && failover_enabled;
+  int          boot_to_standby   = config->firedancer.failover.boot_to_standby;
   char const * identity_key_path = boot_to_standby ? FD_KEYLOAD_FAILOVER_JUNK : config->paths.identity_key;
 
   if( FD_UNLIKELY( !strcmp( tile->name, "metric" ) ) ) {
@@ -1532,7 +1531,8 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
 
     fd_cstr_ncpy( tile->failov.identity_key_path, identity_key_path,           sizeof(tile->failov.identity_key_path) );
     fd_cstr_ncpy( tile->failov.target_key_path,   config->paths.identity_key,  sizeof(tile->failov.target_key_path)   );
-    if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( config->firedancer.failover.listen_address, &tile->failov.listen_addr ) ) )
+    tile->failov.listen = config->firedancer.failover.enabled;
+    if( FD_UNLIKELY( tile->failov.listen && !fd_cstr_to_ip4_addr( config->firedancer.failover.listen_address, &tile->failov.listen_addr ) ) )
       FD_LOG_ERR(( "[failover.listen_address] `%s` must be an IPv4 address, host names are not accepted", config->firedancer.failover.listen_address ));
     tile->failov.port = config->firedancer.failover.listen_port;
     fd_cstr_ncpy( tile->failov.gossip_host, config->firedancer.gossip.host, sizeof(tile->failov.gossip_host) );
@@ -1871,7 +1871,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
 
     fd_cstr_ncpy( tile->sign.identity_key_path, identity_key_path, sizeof(tile->sign.identity_key_path) );
     tile->sign.failover_junk_fd = -1;
-    tile->sign.failover_enabled = failover_enabled;
+    tile->sign.failover_enabled = 1;
 
     tile->sign.authorized_voter_paths_cnt = config->firedancer.paths.authorized_voter_paths_cnt;
     for( ulong i=0UL; i<tile->sign.authorized_voter_paths_cnt; i++ ) {

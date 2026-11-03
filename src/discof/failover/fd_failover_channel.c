@@ -326,6 +326,7 @@ FD_FN_PURE long  fd_failover_channel_peer_heard_at( fd_failover_channel_t const 
 
 ushort
 fd_failover_channel_listen_port( fd_failover_channel_t const * ch ) {
+  if( FD_UNLIKELY( ch->listen_fd==-1 ) ) return (ushort)0;
   struct sockaddr_in addr;
   socklen_t          len = sizeof(addr);
   if( getsockname( ch->listen_fd, fd_type_pun( &addr ), &len ) ) FD_LOG_ERR(( "failover getsockname failed" ));

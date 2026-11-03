@@ -34,6 +34,8 @@ $(call make-bin,firedancer,main,fd_firedancer fdctl_shared fdctl_platform fd_dis
 
 $(call make-unit-test,test_topo_progcache,test_topo_progcache,fd_firedancer fdctl_shared fdctl_platform fd_discof fd_disco fd_choreo fd_flamenco fd_quic fd_tls fd_reedsol fd_waltz fd_tango fd_ballet fd_util)
 $(call run-unit-test,test_topo_progcache)
+$(call make-unit-test,test_failover,commands/test_failover,fd_firedancer fdctl_shared fdctl_platform fd_discof fd_disco fd_choreo fd_flamenco fd_quic fd_tls fd_reedsol fd_waltz fd_tango fd_ballet fd_util)
+$(call run-unit-test,test_failover)
 endif
 
 endif

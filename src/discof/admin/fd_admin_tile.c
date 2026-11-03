@@ -1477,13 +1477,13 @@ failover_request( fd_admin_tile_ctx_t * ctx,
   fd_adminctl_failover_req_t req;
   fd_memcpy( &req, data, sizeof(req) );
   int force     = !!(req.flags & FD_ADMINCTL_FAILOVER_FLAG_FORCE);
-  int adopt     = !!(req.flags & FD_ADMINCTL_FAILOVER_FLAG_ADOPT);
+  int takeover  = !!(req.flags & FD_ADMINCTL_FAILOVER_FLAG_TAKEOVER);
   int preflight = req.cmd==FD_ADMINCTL_FAILOVER_CMD_PREFLIGHT;
   char const * invalid = NULL;
   if(      req.cmd>=FD_ADMINCTL_FAILOVER_CMD_CNT )                                           invalid = "unknown command";
-  else if( req.flags & ~(FD_ADMINCTL_FAILOVER_FLAG_YES|FD_ADMINCTL_FAILOVER_FLAG_FORCE|FD_ADMINCTL_FAILOVER_FLAG_ADOPT) ) invalid = "unknown flags";
-  else if( force && adopt )                                                                  invalid = "--adopt and --force are mutually exclusive";
-  else if( req.cmd==FD_ADMINCTL_FAILOVER_CMD_PROMOTE && !force && !adopt )                   invalid = "a promote request needs --adopt or --force";
+  else if( req.flags & ~(FD_ADMINCTL_FAILOVER_FLAG_YES|FD_ADMINCTL_FAILOVER_FLAG_FORCE|FD_ADMINCTL_FAILOVER_FLAG_TAKEOVER) ) invalid = "unknown flags";
+  else if( force && !takeover )                                                              invalid = "--force goes with a takeover";
+  else if( req.cmd==FD_ADMINCTL_FAILOVER_CMD_PROMOTE && !takeover )                          invalid = "a promote request is only sent by a takeover";
   else if( req.cmd!=FD_ADMINCTL_FAILOVER_CMD_HANDOFF && (req.addr || req.port) )             invalid = "an address or port goes only with a handoff";
   else if( preflight && prepare )                                                            invalid = "a preflight carries no keypair";
   if( FD_UNLIKELY( invalid ) ) {
@@ -1493,15 +1493,13 @@ failover_request( fd_admin_tile_ctx_t * ctx,
     return;
   }
   FD_TEST( fd_cstr_printf_check( (char *)event.args_json, sizeof(event.args_json), &event.args_json_len,
-                                 "{\"yes\":%s,\"force\":%s,\"adopt\":%s}",
+                                 "{\"yes\":%s,\"takeover\":%s,\"force\":%s}",
                                  (req.flags & FD_ADMINCTL_FAILOVER_FLAG_YES) ? "true" : "false",
-                                 force                                       ? "true" : "false",
-                                 adopt                                       ? "true" : "false" ) );
+                                 takeover                                    ? "true" : "false",
+                                 force                                       ? "true" : "false" ) );
   char cmd_cstr[ 48 ];
-  FD_TEST( fd_cstr_printf_check( cmd_cstr, sizeof(cmd_cstr), NULL, "%s%s%s%s", fd_adminctl_failover_cmd_typed( req.cmd ),
-                                 (req.flags & FD_ADMINCTL_FAILOVER_FLAG_YES) ? " --yes"   : "",
-                                 force                                       ? " --force" : "",
-                                 adopt                                       ? " --adopt" : "" ) );
+  FD_TEST( fd_cstr_printf_check( cmd_cstr, sizeof(cmd_cstr), NULL, "%s%s", fd_adminctl_failover_cmd_typed( req.cmd, req.flags ),
+                                 (req.flags & FD_ADMINCTL_FAILOVER_FLAG_YES) ? " --yes" : "" ) );
 
   if( FD_UNLIKELY( ctx->failov_out_idx==ULONG_MAX ) ) {
     FD_LOG_WARNING(( "`%s` refused, the admin tile has no failover bus link", cmd_cstr ));
@@ -1705,12 +1703,6 @@ after_credit( fd_admin_tile_ctx_t * ctx,
       *opt_poll_in = 0;
       break;
     case FD_ADMINCTL_CMD_FAILOVER_PROMOTE:
-      if( FD_UNLIKELY( ctx->failov_out_idx==ULONG_MAX ) ) {
-        /* The command reads UNKNOWN_COMMAND as failover disabled. */
-        FD_LOG_NOTICE(( "`failover promote` requested but failover is not enabled on this validator" ));
-        fd_adminctl_complete( adminctl, slot_idx, FD_ADMINCTL_RESULT_UNKNOWN_COMMAND );
-        break;
-      }
       failover_request( ctx, stem, slot_idx, cmd_id, payload, payload_sz );
       *charge_busy = 1;
       *opt_poll_in = 0;

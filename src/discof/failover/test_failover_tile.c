@@ -228,10 +228,10 @@ test_handoff( void ) {
   ctx->holder_seen_at = 0L;
   deliver_ack( ctx, 42UL );
   FD_TEST( ctx->handoff.result==FD_FAILOVER_HANDOFF_TAKEN );
-  /* The taker's ACK is a sign of life: --adopt right after it is refused. */
+  /* The taker's ACK is a sign of life: a takeover right after it is refused. */
   FD_TEST( ctx->holder_seen_at>0L );
   ctx->target_since = 0L;
-  FD_TEST( operator_promote( ctx, FD_ADMINCTL_FAILOVER_FLAG_ADOPT, ctx->holder_seen_at+1L )==FD_FAILOVER_CONTROL_RESULT_HOLDER_LIVE );
+  FD_TEST( operator_promote( ctx, FD_ADMINCTL_FAILOVER_FLAG_TAKEOVER, ctx->holder_seen_at+1L )==FD_FAILOVER_CONTROL_RESULT_HOLDER_LIVE );
   controller_fini( ctx );
 
   ctx = controller_init( 1 );
@@ -244,12 +244,12 @@ test_handoff( void ) {
   ctx->tx.valid         = 0;
   ctx->handoff.delivery = FD_FAILOVER_DELIVERY_SENT;
   FD_TEST( ctx->action==FD_FAILOVER_ACTION_DEMOTE_WAIT_ACK && !holds_identity( ctx ) );
-  /* The taker may be adopting still: --adopt sees a live holder, --force
+  /* The taker may be adopting still: a takeover sees a live holder, --force
      takes the identity back on the operator's word. */
   ctx->target_since = 1000L-FD_FAILOVER_GOSSIP_FRESH_NANOS;
-  FD_TEST( operator_promote( ctx, FD_ADMINCTL_FAILOVER_FLAG_ADOPT, 1000L+FD_FAILOVER_GOSSIP_FRESH_NANOS )==FD_FAILOVER_CONTROL_RESULT_HOLDER_LIVE );
+  FD_TEST( operator_promote( ctx, FD_ADMINCTL_FAILOVER_FLAG_TAKEOVER, 1000L+FD_FAILOVER_GOSSIP_FRESH_NANOS )==FD_FAILOVER_CONTROL_RESULT_HOLDER_LIVE );
   FD_TEST( ctx->action==FD_FAILOVER_ACTION_DEMOTE_WAIT_ACK );
-  FD_TEST( operator_promote( ctx, FD_ADMINCTL_FAILOVER_FLAG_FORCE, 1000L )==FD_FAILOVER_CMD_PENDING );
+  FD_TEST( operator_promote( ctx, FD_ADMINCTL_FAILOVER_FLAG_TAKEOVER|FD_ADMINCTL_FAILOVER_FLAG_FORCE, 1000L )==FD_FAILOVER_CMD_PENDING );
   FD_TEST( ctx->action==FD_FAILOVER_ACTION_PROMOTE_WAIT_REPLAY && ctx->handoff.result==FD_FAILOVER_HANDOFF_CANCELLED && ctx->promotion.gave_up );
   /* The identity was already given up: a votor not ready now is a failed
      adoption with nobody running it, not a retry before anything changed. */
@@ -802,7 +802,7 @@ test_ranked_installed_refuses( void ) {
   on_votor_hist_msg( ctx, &hist );
   FD_TEST( ctx->installed_ranked );
   FD_TEST( operator_cmd( ctx, FD_ADMINCTL_FAILOVER_CMD_HANDOFF, 0U, 0 )==FD_FAILOVER_CONTROL_RESULT_HOLDS_OTHER );
-  fd_adminctl_failover_req_t force = { .version=FD_ADMINCTL_FAILOVER_PAYLOAD_VERSION, .cmd=FD_ADMINCTL_FAILOVER_CMD_PROMOTE, .flags=FD_ADMINCTL_FAILOVER_FLAG_FORCE };
+  fd_adminctl_failover_req_t force = { .version=FD_ADMINCTL_FAILOVER_PAYLOAD_VERSION, .cmd=FD_ADMINCTL_FAILOVER_CMD_PROMOTE, .flags=FD_ADMINCTL_FAILOVER_FLAG_TAKEOVER|FD_ADMINCTL_FAILOVER_FLAG_FORCE };
   FD_TEST( apply_control( ctx, &force, 1000L )==FD_FAILOVER_CONTROL_RESULT_HOLDS_OTHER );
   fd_adminctl_failover_req_t pre = { .version=FD_ADMINCTL_FAILOVER_PAYLOAD_VERSION, .cmd=FD_ADMINCTL_FAILOVER_CMD_PREFLIGHT };
   fd_memset( pre.target, 0x77, 32UL );
@@ -825,34 +825,34 @@ test_promote_flags( void ) {
   long fresh = 1000L+FD_FAILOVER_GOSSIP_FRESH_NANOS-1L;
   long stale = 1000L+FD_FAILOVER_GOSSIP_FRESH_NANOS;
 
-  /* The quick wait outlives a fresh target's grace, so a first --adopt
+  /* The quick wait outlives a fresh target's grace, so a first takeover
      goes ahead once a dead holder's wait ends. */
   FD_STATIC_ASSERT( FD_FAILOVER_FORCE_WAIT_NANOS>=FD_FAILOVER_GOSSIP_FRESH_NANOS, quick_wait_outlives_grace );
   fd_failover_tile_ctx_t * fresh_target = controller_init( 0 );
   fresh_target->target_since = 1000L;
   fresh_target->staked_addr  = FD_IP4_ADDR(10,0,0,2); /* an address, nobody answers at it */
-  fd_adminctl_failover_req_t adopt_req = { .version=FD_ADMINCTL_FAILOVER_PAYLOAD_VERSION, .cmd=FD_ADMINCTL_FAILOVER_CMD_HANDOFF, .flags=FD_ADMINCTL_FAILOVER_FLAG_ADOPT };
+  fd_adminctl_failover_req_t adopt_req = { .version=FD_ADMINCTL_FAILOVER_PAYLOAD_VERSION, .cmd=FD_ADMINCTL_FAILOVER_CMD_HANDOFF, .flags=FD_ADMINCTL_FAILOVER_FLAG_TAKEOVER };
   FD_TEST( apply_control( fresh_target, &adopt_req, 1000L )==FD_FAILOVER_CMD_PENDING );
   fresh_target->cmd_nonce = 1UL;
   int quick_busy = 0;
   poll_peer( fresh_target, fresh_target->request.until, &quick_busy );
   FD_TEST( fresh_target->cmd_done && fresh_target->cmd_result==FD_FAILOVER_CONTROL_RESULT_NO_PEER );
   fresh_target->cmd_nonce = 0UL; fresh_target->cmd_done = 0;
-  FD_TEST( operator_promote( fresh_target, FD_ADMINCTL_FAILOVER_FLAG_ADOPT, fresh_target->request.until ? fresh_target->request.until : 1000L+FD_FAILOVER_FORCE_WAIT_NANOS )==FD_FAILOVER_CMD_PENDING );
+  FD_TEST( operator_promote( fresh_target, FD_ADMINCTL_FAILOVER_FLAG_TAKEOVER, fresh_target->request.until ? fresh_target->request.until : 1000L+FD_FAILOVER_FORCE_WAIT_NANOS )==FD_FAILOVER_CMD_PENDING );
   FD_TEST( fresh_target->action==FD_FAILOVER_ACTION_PROMOTE_WAIT_REPLAY );
   controller_fini( fresh_target );
 
   fd_failover_tile_ctx_t * ctx = controller_init( 0 );
   FD_TEST( operator_promote( ctx, 0UL, 1000L )==FD_ADMINCTL_RESULT_UNKNOWN_COMMAND );
-  FD_TEST( operator_promote( ctx, FD_ADMINCTL_FAILOVER_FLAG_ADOPT|FD_ADMINCTL_FAILOVER_FLAG_FORCE, 1000L )==FD_ADMINCTL_RESULT_UNKNOWN_COMMAND );
+  FD_TEST( operator_promote( ctx, FD_ADMINCTL_FAILOVER_FLAG_FORCE, 1000L )==FD_ADMINCTL_RESULT_UNKNOWN_COMMAND );
   FD_TEST( ctx->action==FD_FAILOVER_ACTION_IDLE );
 
   /* Fresh in gossip. */
   ctx->staked_addr    = FD_IP4_ADDR(10,0,0,2);
   ctx->staked_seen_at = 1000L;
-  FD_TEST( operator_promote( ctx, FD_ADMINCTL_FAILOVER_FLAG_ADOPT, fresh )==FD_FAILOVER_CONTROL_RESULT_HOLDER_LIVE );
+  FD_TEST( operator_promote( ctx, FD_ADMINCTL_FAILOVER_FLAG_TAKEOVER, fresh )==FD_FAILOVER_CONTROL_RESULT_HOLDER_LIVE );
   FD_TEST( ctx->action==FD_FAILOVER_ACTION_IDLE && !ctx->promotion.force );
-  FD_TEST( operator_promote( ctx, FD_ADMINCTL_FAILOVER_FLAG_FORCE, fresh )==FD_FAILOVER_CMD_PENDING );
+  FD_TEST( operator_promote( ctx, FD_ADMINCTL_FAILOVER_FLAG_TAKEOVER|FD_ADMINCTL_FAILOVER_FLAG_FORCE, fresh )==FD_FAILOVER_CMD_PENDING );
   FD_TEST( ctx->action==FD_FAILOVER_ACTION_PROMOTE_WAIT_REPLAY && ctx->promotion.force && ctx->promotion.source==FD_FAILOVER_SOURCE_EMPTY );
   controller_fini( ctx );
 
@@ -860,7 +860,7 @@ test_promote_flags( void ) {
   ctx = controller_init( 0 );
   ctx->staked_addr    = FD_IP4_ADDR(10,0,0,2);
   ctx->staked_seen_at = 1000L;
-  FD_TEST( operator_promote( ctx, FD_ADMINCTL_FAILOVER_FLAG_ADOPT, stale )==FD_FAILOVER_CMD_PENDING );
+  FD_TEST( operator_promote( ctx, FD_ADMINCTL_FAILOVER_FLAG_TAKEOVER, stale )==FD_FAILOVER_CMD_PENDING );
   FD_TEST( ctx->action==FD_FAILOVER_ACTION_PROMOTE_WAIT_REPLAY && ctx->promotion.force && ctx->promotion.source==FD_FAILOVER_SOURCE_EMPTY );
   controller_fini( ctx );
 
@@ -869,23 +869,23 @@ test_promote_flags( void ) {
   open_request( ctx, FD_FAILOVER_ACTION_HANDOFF_WAIT_PEER );
   ctx->request.until = 0L;
   pair( ctx, 77UL, 1, 1000L );
-  FD_TEST( operator_promote( ctx, FD_ADMINCTL_FAILOVER_FLAG_ADOPT, 1000L )==FD_FAILOVER_CONTROL_RESULT_HOLDER_LIVE );
+  FD_TEST( operator_promote( ctx, FD_ADMINCTL_FAILOVER_FLAG_TAKEOVER, 1000L )==FD_FAILOVER_CONTROL_RESULT_HOLDER_LIVE );
   FD_TEST( ctx->request.id==900UL && ctx->action==FD_FAILOVER_ACTION_HANDOFF_WAIT_PEER );
-  FD_TEST( operator_promote( ctx, FD_ADMINCTL_FAILOVER_FLAG_FORCE, 1000L )==FD_FAILOVER_CMD_PENDING );
+  FD_TEST( operator_promote( ctx, FD_ADMINCTL_FAILOVER_FLAG_TAKEOVER|FD_ADMINCTL_FAILOVER_FLAG_FORCE, 1000L )==FD_FAILOVER_CMD_PENDING );
   FD_TEST( !ctx->request.id && ctx->action==FD_FAILOVER_ACTION_PROMOTE_WAIT_REPLAY );
   controller_fini( ctx );
 
   /* Paired with a peer that does not run it. */
   ctx = controller_init( 0 );
   pair( ctx, 77UL, 0, 1000L );
-  FD_TEST( operator_promote( ctx, FD_ADMINCTL_FAILOVER_FLAG_ADOPT, 1000L )==FD_FAILOVER_CONTROL_RESULT_HOLDER_LIVE );
+  FD_TEST( operator_promote( ctx, FD_ADMINCTL_FAILOVER_FLAG_TAKEOVER, 1000L )==FD_FAILOVER_CONTROL_RESULT_HOLDER_LIVE );
   FD_TEST( ctx->action==FD_FAILOVER_ACTION_IDLE );
   ctx->target_since = 1000L-FD_FAILOVER_GOSSIP_FRESH_NANOS;
-  FD_TEST( operator_promote( ctx, FD_ADMINCTL_FAILOVER_FLAG_ADOPT, 1000L )==FD_FAILOVER_CMD_PENDING );
+  FD_TEST( operator_promote( ctx, FD_ADMINCTL_FAILOVER_FLAG_TAKEOVER, 1000L )==FD_FAILOVER_CMD_PENDING );
   FD_TEST( ctx->action==FD_FAILOVER_ACTION_PROMOTE_WAIT_REPLAY );
   controller_fini( ctx );
 
-  /* A holder that refused us on the channel was alive: --adopt respects
+  /* A holder that refused us on the channel was alive: a takeover respects
      it for the window, --force does not. */
   ctx = controller_init( 0 );
   ctx->target_since = 1000L-FD_FAILOVER_GOSSIP_FRESH_NANOS;
@@ -900,21 +900,21 @@ test_promote_flags( void ) {
   FD_TEST( ctx->cmd_done && ctx->cmd_result==FD_FAILOVER_CONTROL_RESULT_REPLAY_BEHIND && !ctx->request.id );
   FD_TEST( fd_failover_channel_state( ctx->channel )!=FD_FAILOVER_SESSION_PAIRED && ctx->holder_seen_at==1000L );
   ctx->cmd_nonce = 0UL; ctx->cmd_done = 0;
-  FD_TEST( operator_promote( ctx, FD_ADMINCTL_FAILOVER_FLAG_ADOPT, fresh )==FD_FAILOVER_CONTROL_RESULT_HOLDER_LIVE );
+  FD_TEST( operator_promote( ctx, FD_ADMINCTL_FAILOVER_FLAG_TAKEOVER, fresh )==FD_FAILOVER_CONTROL_RESULT_HOLDER_LIVE );
   FD_TEST( ctx->action==FD_FAILOVER_ACTION_IDLE );
-  FD_TEST( operator_promote( ctx, FD_ADMINCTL_FAILOVER_FLAG_ADOPT, stale )==FD_FAILOVER_CMD_PENDING ); /* a channel sighting lasts as long as a gossip one */
+  FD_TEST( operator_promote( ctx, FD_ADMINCTL_FAILOVER_FLAG_TAKEOVER, stale )==FD_FAILOVER_CMD_PENDING ); /* a channel sighting lasts as long as a gossip one */
   FD_TEST( ctx->action==FD_FAILOVER_ACTION_PROMOTE_WAIT_REPLAY );
   controller_fini( ctx );
   ctx = controller_init( 0 );
   ctx->target_since = 1000L-FD_FAILOVER_GOSSIP_FRESH_NANOS;
   ctx->holder_seen_at = 1000L;
-  FD_TEST( operator_promote( ctx, FD_ADMINCTL_FAILOVER_FLAG_FORCE, fresh )==FD_FAILOVER_CMD_PENDING );
+  FD_TEST( operator_promote( ctx, FD_ADMINCTL_FAILOVER_FLAG_TAKEOVER|FD_ADMINCTL_FAILOVER_FLAG_FORCE, fresh )==FD_FAILOVER_CMD_PENDING );
   controller_fini( ctx );
 
   /* An operator promotion the votor is not ready for is a retry, not a
      failed adoption. */
   ctx = controller_init( 0 );
-  FD_TEST( operator_promote( ctx, FD_ADMINCTL_FAILOVER_FLAG_FORCE, 1000L )==FD_FAILOVER_CMD_PENDING );
+  FD_TEST( operator_promote( ctx, FD_ADMINCTL_FAILOVER_FLAG_TAKEOVER|FD_ADMINCTL_FAILOVER_FLAG_FORCE, 1000L )==FD_FAILOVER_CMD_PENDING );
   ctx->cmd_nonce = 1UL;
   ctx->replay_slot = 100UL;
   step_promote_wait_replay( ctx, stem );
@@ -930,7 +930,7 @@ test_promote_flags( void ) {
   /* The promotion names the identity its handoff was for: another
      identity is refused, no target means the current one. */
   ctx = controller_init( 0 );
-  fd_adminctl_failover_req_t named = { .version=FD_ADMINCTL_FAILOVER_PAYLOAD_VERSION, .cmd=FD_ADMINCTL_FAILOVER_CMD_PROMOTE, .flags=FD_ADMINCTL_FAILOVER_FLAG_FORCE };
+  fd_adminctl_failover_req_t named = { .version=FD_ADMINCTL_FAILOVER_PAYLOAD_VERSION, .cmd=FD_ADMINCTL_FAILOVER_CMD_PROMOTE, .flags=FD_ADMINCTL_FAILOVER_FLAG_TAKEOVER|FD_ADMINCTL_FAILOVER_FLAG_FORCE };
   fd_memset( named.target, 0x77, 32UL );
   FD_TEST( apply_control( ctx, &named, 1000L )==FD_FAILOVER_CONTROL_RESULT_IDENTITY_CHANGED );
   FD_TEST( ctx->action==FD_FAILOVER_ACTION_IDLE );
@@ -1071,21 +1071,21 @@ test_demoter_is_a_sighting( void ) {
   FD_TEST( ctx->holder_seen_at==1001L );
   ctx->cmd_nonce = 0UL; ctx->cmd_done = 0;
   long later = 1001L+FD_FAILOVER_GOSSIP_FRESH_NANOS;
-  FD_TEST( operator_promote( ctx, FD_ADMINCTL_FAILOVER_FLAG_ADOPT, later )==FD_FAILOVER_CONTROL_RESULT_HOLDER_LIVE );
+  FD_TEST( operator_promote( ctx, FD_ADMINCTL_FAILOVER_FLAG_TAKEOVER, later )==FD_FAILOVER_CONTROL_RESULT_HOLDER_LIVE );
   /* Its session ended (it hangs up after its HANDOFF_RESULT): a sign of
-     life for the window after its last frame, then --adopt goes ahead. */
+     life for the window after its last frame, then a takeover goes ahead. */
   unpair_session( ctx );
-  FD_TEST( operator_promote( ctx, FD_ADMINCTL_FAILOVER_FLAG_ADOPT, later-1L )==FD_FAILOVER_CONTROL_RESULT_HOLDER_LIVE );
-  FD_TEST( operator_promote( ctx, FD_ADMINCTL_FAILOVER_FLAG_FORCE, later-1L )==FD_FAILOVER_CMD_PENDING );
+  FD_TEST( operator_promote( ctx, FD_ADMINCTL_FAILOVER_FLAG_TAKEOVER, later-1L )==FD_FAILOVER_CONTROL_RESULT_HOLDER_LIVE );
+  FD_TEST( operator_promote( ctx, FD_ADMINCTL_FAILOVER_FLAG_TAKEOVER|FD_ADMINCTL_FAILOVER_FLAG_FORCE, later-1L )==FD_FAILOVER_CMD_PENDING );
   reset_controller( ctx );
   ctx->holder_seen_at = 1001L;
-  FD_TEST( operator_promote( ctx, FD_ADMINCTL_FAILOVER_FLAG_ADOPT, later )==FD_FAILOVER_CMD_PENDING );
+  FD_TEST( operator_promote( ctx, FD_ADMINCTL_FAILOVER_FLAG_TAKEOVER, later )==FD_FAILOVER_CMD_PENDING );
   FD_TEST( ctx->action==FD_FAILOVER_ACTION_PROMOTE_WAIT_REPLAY && !ctx->promotion.from_peer );
   controller_fini( ctx );
 }
 
 /* test_restarted_holder_heard: the holder's new boot pairing is a
-   sighting, so --adopt right after is refused. */
+   sighting, so a takeover right after is refused. */
 static void
 test_restarted_holder_heard( void ) {
   int busy = 0;
@@ -1099,7 +1099,7 @@ test_restarted_holder_heard( void ) {
   FD_TEST( ctx->cmd_done && ctx->cmd_result==FD_FAILOVER_CONTROL_RESULT_PEER_RESTARTED );
   FD_TEST( fd_failover_channel_state( ctx->channel )!=FD_FAILOVER_SESSION_PAIRED && ctx->holder_seen_at==1000L );
   ctx->cmd_nonce = 0UL; ctx->cmd_done = 0;
-  FD_TEST( operator_promote( ctx, FD_ADMINCTL_FAILOVER_FLAG_ADOPT, 1001L )==FD_FAILOVER_CONTROL_RESULT_HOLDER_LIVE );
+  FD_TEST( operator_promote( ctx, FD_ADMINCTL_FAILOVER_FLAG_TAKEOVER, 1001L )==FD_FAILOVER_CONTROL_RESULT_HOLDER_LIVE );
   controller_fini( ctx );
 }
 
@@ -1110,7 +1110,7 @@ test_quick_wait_reaches_holder( void ) {
   int busy = 0;
   fd_failover_tile_ctx_t * ctx = controller_init( 0 );
   ctx->staked_addr = FD_IP4_ADDR(10,0,0,2);
-  fd_adminctl_failover_req_t req = { .version=FD_ADMINCTL_FAILOVER_PAYLOAD_VERSION, .cmd=FD_ADMINCTL_FAILOVER_CMD_HANDOFF, .flags=FD_ADMINCTL_FAILOVER_FLAG_FORCE };
+  fd_adminctl_failover_req_t req = { .version=FD_ADMINCTL_FAILOVER_PAYLOAD_VERSION, .cmd=FD_ADMINCTL_FAILOVER_CMD_HANDOFF, .flags=FD_ADMINCTL_FAILOVER_FLAG_TAKEOVER|FD_ADMINCTL_FAILOVER_FLAG_FORCE };
   FD_TEST( apply_control( ctx, &req, 1000L )==FD_FAILOVER_CMD_PENDING );
   FD_TEST( ctx->request.quick && ctx->request.until==1000L+FD_FAILOVER_FORCE_WAIT_NANOS );
   pair( ctx, 77UL, 1, 2000L );
@@ -1131,8 +1131,8 @@ test_quick_wait_reaches_holder( void ) {
   end_request( ctx, late, FD_FAILOVER_HANDOFF_DECLINED );
   ctx->cmd_nonce = 0UL; ctx->cmd_done = 0;
   ctx->target_since = 0L;
-  FD_TEST( operator_promote( ctx, FD_ADMINCTL_FAILOVER_FLAG_ADOPT, late+1L )==FD_FAILOVER_CONTROL_RESULT_HOLDER_LIVE );
-  FD_TEST( operator_promote( ctx, FD_ADMINCTL_FAILOVER_FLAG_ADOPT, late-1L+FD_FAILOVER_GOSSIP_FRESH_NANOS )==FD_FAILOVER_CMD_PENDING );
+  FD_TEST( operator_promote( ctx, FD_ADMINCTL_FAILOVER_FLAG_TAKEOVER, late+1L )==FD_FAILOVER_CONTROL_RESULT_HOLDER_LIVE );
+  FD_TEST( operator_promote( ctx, FD_ADMINCTL_FAILOVER_FLAG_TAKEOVER, late-1L+FD_FAILOVER_GOSSIP_FRESH_NANOS )==FD_FAILOVER_CMD_PENDING );
   controller_fini( ctx );
 
   /* A request a holder already has, paused at its deadline and resumed

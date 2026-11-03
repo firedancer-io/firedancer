@@ -19,6 +19,7 @@ abbreviated log output to `stderr` and nothing will be written to
 | Arguments         | Description |
 |-------------------|-------------|
 | `--config <path>` | Path to a configuration TOML file to run the validator with |
+| `--standby`       | Boot as a failover standby using an unstaked identity, see the [failover guide](/guide/failover#setup) |
 
 ::: details Capabilities
 
@@ -200,7 +201,7 @@ will instead be read from `stdin`.
 ::: tip NOTE
 
 Between two Firedancer validators, Firedancer supports a native
-[failover](#failover-promote) mechanism that is faster and safer than
+[failover](#failover) mechanism that is faster and safer than
 `set-identity`, and using `set-identity` between them is heavily
 discouraged. Use `set-identity` primarily for failing over between Agave
 and Firedancer.
@@ -353,7 +354,7 @@ failover hands off.
 
 <<< @/snippets/commands/add-authorized-voter.ansi
 
-## `failover promote`
+## `failover`
 Failover takes over a remote identity (and its voting) from an
 already-running validator and hands it off to this locally-running
 validator. Run this command on the machine that should take over, with
@@ -363,14 +364,20 @@ to an unstaked junk key.
 See the [failover guide](/guide/failover) for more details.
 
 ```sh
-firedancer failover promote [<keypair>] [--name <name>] [--yes] [--adopt | --force] [--address <address>] [--port <port>]
+firedancer failover promote  [<keypair>] [--name <name>] [--yes] [--address <address>] [--port <port>]
+firedancer failover takeover [<keypair>] [--name <name>] [--yes] [--force] [--address <address>] [--port <port>]
 ```
+
+`failover promote` is for planned failover. The machine running the
+identity cooperatively hands it over. `failover takeover` is for
+when the other machine is dead or unreachable, see
+[taking the identity without the remote](#taking-the-identity-without-the-remote).
 
 The `<keypair>` argument is the path to an Agave style `identity.json`
 keypair file of the identity to take. If the path is specified as `-`
 the key will instead be read from `stdin`. Without `<keypair>`, the
 command takes the identity in `[paths.identity_key]`, or the last
-keypair passed into `failover promote` or `set-identity` since the
+keypair passed into `failover` or `set-identity` since the
 validator started.
 
 The command discovers the running validator on the host automatically.
@@ -391,7 +398,7 @@ lists every result with its exit code.
 | Exit code | Meaning |
 |-----------|---------|
 | `0` | Success, the local validator now runs the identity |
-| `1` | Any other failure, no validator changed identity |
+| `1` | Any other failure, the outcome is likely unknown, check both validators with [`get-identity`](#get-identity) |
 | `2` | Rejected, no validator changed identity |
 | `3` | The outcome is unknown, check both validators with [`get-identity`](#get-identity) before anything else |
 | `4` | Nobody runs the identity, see [taking the identity without the remote](#taking-the-identity-without-the-remote) |
@@ -402,34 +409,37 @@ lists every result with its exit code.
 <<< @/snippets/commands/failover-promote-failed.ansi
 ### Taking the identity without the remote
 
-With `--adopt` or `--force`, the command asks for the handoff first. If
-that fails, it prints the reason as a warning and the local validator
-takes the identity without the machine running it. `--adopt` does so
-only while that machine shows no sign of life, neither in gossip for 15
-seconds nor on the failover channel, and otherwise fails with
-`holder_live`. `--force` does so even if that machine may still be alive.
+With `failover takeover`, the validator asks nicely for a handoff first. If
+that handoff fails, the failure reason is logged and then the local validator
+takes over the identity anyway, without coordinating with the other machine.
+
+As a safeguard, takeover only proceeds if the other machine shows no signs of life
+(neither in gossip nor on the failover channel). With `--force`, takeover
+will still proceed even if the other machine appears to still be alive.
 
 ::: warning WARNING
 
-Both skip the checks on the other machine and can leave votes and leader
-windows unaccounted for by starting from an empty history. Use
-`--adopt` when the other machine is down, and `--force` only after
-ensuring every other machine with the identity cannot sign. Never do
-this on both machines at once.
+A takeover skips the checks on the other machine and can leave votes and
+leader windows unaccounted for by starting from an empty history. Use
+`failover takeover` when the other machine is down, and `--force` only
+after ensuring every other machine with the identity cannot sign. Never
+run this on both machines at the same time. Please note that `--force`
+can result in two validators double voting.
 
 :::
 
-<<< @/snippets/commands/failover-promote-adopt.ansi
+<<< @/snippets/commands/failover-takeover.ansi
 
-<<< @/snippets/commands/failover-promote-force.ansi
+<<< @/snippets/commands/failover-takeover-force.ansi
 
 | Arguments             | Description |
 |-----------------------|-------------|
-| `<keypair>`           | Path to the `identity.json` keypair file of the identity to take, or `-` to read the JSON formatted key from `stdin`. Defaults to `[paths.identity_key]`, or the last keypair given to `failover promote` or `set-identity` |
+| `promote`             | Ask the machine running the identity to cooperatively hand it over |
+| `takeover`            | Like `promote`, but if the handoff fails and the machine running the identity shows no signs of life, take the identity without coordinating with it |
+| `<keypair>`           | Path to the `identity.json` keypair file of the identity to take, or `-` to read the JSON formatted key from `stdin`. Defaults to `[paths.identity_key]`, or the last keypair given to `failover` or `set-identity` |
 | `--name <name>`       | Name of the validator instance to attach to, if more than one is running on this host |
 | `--yes`               | Skip the confirmation prompt |
-| `--adopt`             | If the handoff fails and the machine running the identity shows no sign of life, take the identity without it, from an empty vote history |
-| `--force`             | If the handoff fails, take the identity without the machine running it even if it may be live, from an empty vote history |
+| `--force`             | `takeover` only. Forcibly take the identity, even if the machine already running it may still be alive |
 | `--address <address>` | IPv4 address or host name of the machine running the identity, instead of the address found through gossip. |
 | `--port <port>`       | Failover TCP port of the machine running the identity, 8010 as default |
 

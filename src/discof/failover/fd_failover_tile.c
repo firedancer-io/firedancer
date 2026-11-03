@@ -122,7 +122,7 @@ struct fd_failover_request {
   int                sent;           /* sent on this session */
   int                peer_restarted; /* paused because the authenticated member or boot changed */
   ulong              send_cnt;       /* how many times we sent it */
-  int                quick;          /* --adopt or --force: use quicker timeouts */
+  int                quick;          /* use quicker timeouts for failover */
 };
 
 typedef struct fd_failover_request fd_failover_request_t;
@@ -147,8 +147,8 @@ struct fd_failover_promotion {
   fd_failover_peer_t    peer;         /* that DEMOTED's member boot, it gets our response */
   ulong                 handoff_id;   /* and its handoff id */
   ulong                 floor;        /* coverage floor when it started */
-  int                   force;        /* for adopt/force, we skip the peer checks and accept incomplete or empty history */
-  int                   soft;         /* we still demote ourselves if a peer running the identity authenticates */
+  int                   force;        /* skip peer checks and accept incomplete or empty history */
+  int                   soft;         /* demote ourselves if a peer running the identity authenticates */
   int                   holder_seen;  /* a peer running the identity authenticated after promotion started */
   int                   gave_up;      /* the identity was already given up */
   fd_failover_history_t adopt;        /* history or the bound sent to votor */
@@ -415,21 +415,27 @@ privileged_init( fd_topo_t const *      topo,
     FD_LOG_ERR(( "failover TLS setup failed" ));
   }
 
-  fd_failover_channel_init_listener( ctx->channel, tile->failov.listen_addr, tile->failov.port );
+  if( FD_LIKELY( tile->failov.listen ) ) fd_failover_channel_init_listener( ctx->channel, tile->failov.listen_addr, tile->failov.port );
   ctx->session.state = fd_failover_channel_state( ctx->channel );
 
   char junk_b58  [ FD_BASE58_ENCODED_32_SZ ];
   char staked_b58[ FD_BASE58_ENCODED_32_SZ ];
   fd_base58_encode_32( ctx->spare_pubkey,        NULL, junk_b58   );
   fd_base58_encode_32( ctx->hello.staked_pubkey, NULL, staked_b58 );
-  if( FD_UNLIKELY( !holds_identity( ctx ) ) ) {
-    FD_LOG_NOTICE(( "failover is on, booting as a standby under junk key `%s` for identity `%s`, listening on `" FD_IP4_ADDR_FMT ":%u`, "
-                    "this machine does not vote until `failover promote` here takes the identity from the machine running it.",
-                    junk_b58, staked_b58, FD_IP4_ADDR_FMT_ARGS( tile->failov.listen_addr ), (uint)tile->failov.port ));
+  char listen_desc[ 64 ];
+  if( FD_LIKELY( tile->failov.listen ) ) {
+    FD_TEST( fd_cstr_printf_check( listen_desc, sizeof(listen_desc), NULL, "listening on `" FD_IP4_ADDR_FMT ":%u`", FD_IP4_ADDR_FMT_ARGS( tile->failov.listen_addr ), (uint)tile->failov.port ) );
   } else {
-    FD_LOG_NOTICE(( "failover is on, listening on `" FD_IP4_ADDR_FMT ":%u` with junk key `%s`, a handoff from this machine gives up `%s` for the junk key, "
-                    "`failover promote <keypair>` here takes the identity in that keypair from the machine running it",
-                    FD_IP4_ADDR_FMT_ARGS( tile->failov.listen_addr ), (uint)tile->failov.port, junk_b58, staked_b58 ));
+    FD_TEST( fd_cstr_printf_check( listen_desc, sizeof(listen_desc), NULL, "not listening ([failover.enabled] is off)" ) );
+  }
+  if( FD_UNLIKELY( !holds_identity( ctx ) ) ) {
+    FD_LOG_NOTICE(( "failover is on, booting as a standby under junk key `%s` for identity `%s`, %s, "
+                    "this machine does not vote until `failover promote` takes the identity from the machine running it",
+                    junk_b58, staked_b58, listen_desc ));
+  } else {
+    FD_LOG_NOTICE(( "failover is on, %s, with junk key `%s`, a handoff from this machine gives up identity `%s`, "
+                    "`failover promote <keypair>` takes the identity in that keypair from the machine running it",
+                    listen_desc, junk_b58, staked_b58 ));
   }
 
   FD_TEST( FD_SCRATCH_ALLOC_FINI( l, scratch_align() )==(ulong)scratch+scratch_footprint( tile ) );
