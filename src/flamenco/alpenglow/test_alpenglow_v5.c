@@ -90,16 +90,16 @@ put_vote_account( fd_svm_mini_t *     mini,
 }
 
 static void
-modify_vote_account( fd_bank_t *           bank,
-                     fd_accdb_t *          accdb,
-                     fd_pubkey_t const *   pk,
-                     vote_update_t const * upd,
-                     fd_vote_queue_t *     q ) {
+modify_vote_account( fd_bank_t *         bank,
+                     fd_accdb_t *        accdb,
+                     fd_pubkey_t const * pk,
+                     vote_update_t *     upd,
+                     fd_vote_queue_t *   q ) {
   static fd_vote_state_versioned_t vs[1];
   fd_acc_t acc;
   if( !vote_account_open( bank, accdb, pk, vs, &acc ) ) return;
   vote_update_apply( vs, &acc, upd );
-  vote_account_store( bank, accdb, NULL, &acc, vs, NULL, q );
+  vote_account_store( bank, accdb, NULL, &acc, vs, upd, 1UL, NULL, q );
 }
 
 static void

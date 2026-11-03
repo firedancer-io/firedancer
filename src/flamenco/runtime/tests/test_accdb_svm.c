@@ -49,6 +49,20 @@ test_credit( fd_svm_mini_t * mini,
   FD_TEST( bank->f.capitalization==cap_before+1500UL );
   FD_TEST( fd_lthash_eq( &lthash, &bank->f.lthash ) );
 
+  /* A zero vote reward is a no-op too, with runtime events off or on:
+     it neither changes an existing account nor creates a missing one. */
+  int report_runtime_diffs = mini->banks->report_runtime_diffs;
+  for( int report=0; report<2; report++ ) {
+    mini->banks->report_runtime_diffs = report;
+    fd_accdb_svm_credit( bank, accdb, NULL, &acct_a, 0UL, 1 );
+    fd_accdb_svm_credit( bank, accdb, NULL, &acct_d, 0UL, 1 );
+    FD_TEST( fd_accdb_lamports( accdb, fork_id, acct_a.uc )==1500UL );
+    FD_TEST( fd_accdb_lamports( accdb, fork_id, acct_d.uc )==0UL );
+    FD_TEST( bank->f.capitalization==cap_before+1500UL );
+    FD_TEST( fd_lthash_eq( &lthash, &bank->f.lthash ) );
+  }
+  mini->banks->report_runtime_diffs = report_runtime_diffs;
+
   FD_LOG_NOTICE(( "test_credit passed" ));
 }
 
