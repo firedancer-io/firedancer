@@ -191,6 +191,7 @@ fd_gui_peers_new( void *             shmem,
                   fd_topo_t const *  topo,
                   void *             dctx_scratch,
                   int                geoip_fd,
+                  int                info_fd,
                   ulong              max_ws_conn_cnt,
                   char const *       wfs_expected_bank_hash_cstr,
                   ulong              seed,
@@ -260,6 +261,7 @@ fd_gui_peers_new( void *             shmem,
     fd_gui_peers_bw_dirty_dlist_join( fd_gui_peers_bw_dirty_dlist_new( ctx->bw_dirty_dlist ) );
 
     ctx->node_info_pool  = fd_gui_peers_node_info_pool_join ( fd_gui_peers_node_info_pool_new ( _info_pool,  FD_CONTACT_INFO_TABLE_SIZE ) );
+    ctx->info_fd         = info_fd;
     ctx->node_info_map   = fd_gui_peers_node_info_map_join  ( fd_gui_peers_node_info_map_new  ( _info_map,   info_chain_cnt,   seed ) );
     ctx->node_pubkey_map = fd_gui_peers_node_pubkey_map_join( fd_gui_peers_node_pubkey_map_new( _pubkey_map, pubkey_chain_cnt, seed ) );
     ctx->node_sock_map   = fd_gui_peers_node_sock_map_join  ( fd_gui_peers_node_sock_map_new  ( _sock_map,   sock_chain_cnt,   seed ) );
@@ -363,7 +365,7 @@ fd_gui_peers_gossip_stats_snap( fd_gui_peers_ctx_t *          peers,
   gossip_stats->network_ingress_peer_sz = rx_cnt;
   for( ulong j=0UL; j<rx_cnt; j++ ) {
     fd_gui_peers_node_t const * cur = &peers->contact_info_table[ rx_top[ j ] ];
-    fd_gui_config_parse_info_t * node_info = fd_gui_peers_node_info_map_ele_query( peers->node_info_map, &cur->row.pubkey, NULL, peers->node_info_pool );
+    fd_gui_peers_node_info_t * node_info = fd_gui_peers_node_info_map_ele_query( peers->node_info_map, &cur->row.pubkey, NULL, peers->node_info_pool );
     if( FD_LIKELY( node_info && !node_info->cleared ) ) FD_TEST( fd_cstr_printf_check( gossip_stats->network_ingress_peer_names[ j ], FD_GUI_CONFIG_PARSE_VALIDATOR_INFO_NAME_SZ+1UL, NULL, "%s", node_info->name ) );
     else                         gossip_stats->network_ingress_peer_names[ j ][ 0 ] = '\0';
     gossip_stats->network_ingress_peer_bytes_per_sec[ j ] = (long)rx_val[ j ];
@@ -375,7 +377,7 @@ fd_gui_peers_gossip_stats_snap( fd_gui_peers_ctx_t *          peers,
   gossip_stats->network_egress_peer_sz = tx_cnt;
   for( ulong j=0UL; j<tx_cnt; j++ ) {
     fd_gui_peers_node_t const * cur = &peers->contact_info_table[ tx_top[ j ] ];
-    fd_gui_config_parse_info_t * node_info = fd_gui_peers_node_info_map_ele_query( peers->node_info_map, &cur->row.pubkey, NULL, peers->node_info_pool );
+    fd_gui_peers_node_info_t * node_info = fd_gui_peers_node_info_map_ele_query( peers->node_info_map, &cur->row.pubkey, NULL, peers->node_info_pool );
     if( FD_LIKELY( node_info && !node_info->cleared ) ) FD_TEST( fd_cstr_printf_check( gossip_stats->network_egress_peer_names[ j ], FD_GUI_CONFIG_PARSE_VALIDATOR_INFO_NAME_SZ+1UL, NULL, "%s", node_info->name ) );
     else                         gossip_stats->network_egress_peer_names[ j ][ 0 ] = '\0';
     gossip_stats->network_egress_peer_bytes_per_sec[ j ] = (long)tx_val[ j ];
@@ -787,7 +789,7 @@ fd_gui_peers_handle_gossip_update( fd_gui_peers_ctx_t *               peers,
             peers->delinquency.reconcile = 1;
           }
 
-          fd_gui_config_parse_info_t * info =  fd_gui_peers_node_info_map_ele_query( peers->node_info_map, fd_type_pun_const(update->origin ), NULL, peers->node_info_pool );
+          fd_gui_peers_node_info_t * info =  fd_gui_peers_node_info_map_ele_query( peers->node_info_map, fd_type_pun_const(update->origin ), NULL, peers->node_info_pool );
           if( FD_LIKELY( info && !info->cleared ) ) fd_memcpy( peer->row.name, info->name, sizeof(info->name) );
           else                    peer->row.name[ 0 ] = '\0';
 
@@ -1022,6 +1024,15 @@ fd_gui_peers_handle_slot_completed( fd_gui_peers_ctx_t *      peers,
 }
 
 void
+fd_gui_peers_info_text_read( fd_gui_peers_ctx_t const *       peers,
+                             fd_gui_peers_node_info_t const * info,
+                             fd_gui_peers_info_text_t *       text ) {
+  ulong off = fd_gui_peers_node_info_pool_idx( peers->node_info_pool, info )*sizeof(fd_gui_peers_info_text_t);
+  if( FD_UNLIKELY( (long)sizeof(fd_gui_peers_info_text_t)!=pread( peers->info_fd, text, sizeof(fd_gui_peers_info_text_t), (off_t)off ) ) )
+    FD_LOG_ERR(( "pread(gui info,%lu) failed (%i-%s)", off, errno, fd_io_strerror( errno ) ));
+}
+
+void
 fd_gui_peers_handle_config_account( fd_gui_peers_ctx_t *  peers,
                                     uchar const *         data,
                                     ulong                 sz,
@@ -1036,7 +1047,7 @@ fd_gui_peers_handle_config_account( fd_gui_peers_ctx_t *  peers,
      kept too, so its slot still outranks older ones, but reads as no
      info. */
   parsed->cleared = parsed->name[ 0 ]=='\0' && parsed->details[ 0 ]=='\0' && parsed->website[ 0 ]=='\0' && parsed->icon_uri[ 0 ]=='\0' && parsed->keybase_username[ 0 ]=='\0';
-  fd_gui_config_parse_info_t * info = fd_gui_peers_node_info_map_ele_query( peers->node_info_map, &parsed->pubkey, NULL, peers->node_info_pool );
+  fd_gui_peers_node_info_t * info = fd_gui_peers_node_info_map_ele_query( peers->node_info_map, &parsed->pubkey, NULL, peers->node_info_pool );
   if( FD_UNLIKELY( info && info->slot>slot ) ) return;
   int had_info = info && !info->cleared;
   if( FD_UNLIKELY( !info ) ) {
@@ -1050,11 +1061,15 @@ fd_gui_peers_handle_config_account( fd_gui_peers_ctx_t *  peers,
   }
   info->slot    = parsed->slot;
   info->cleared = parsed->cleared;
-  fd_memcpy( info->name,             parsed->name,             sizeof(info->name)             );
-  fd_memcpy( info->website,          parsed->website,          sizeof(info->website)          );
-  fd_memcpy( info->details,          parsed->details,          sizeof(info->details)          );
-  fd_memcpy( info->icon_uri,         parsed->icon_uri,         sizeof(info->icon_uri)         );
-  fd_memcpy( info->keybase_username, parsed->keybase_username, sizeof(info->keybase_username) );
+  fd_memcpy( info->name, parsed->name, sizeof(info->name) );
+  fd_gui_peers_info_text_t text;
+  fd_memcpy( text.website,          parsed->website,          sizeof(text.website)          );
+  fd_memcpy( text.details,          parsed->details,          sizeof(text.details)          );
+  fd_memcpy( text.icon_uri,         parsed->icon_uri,         sizeof(text.icon_uri)         );
+  fd_memcpy( text.keybase_username, parsed->keybase_username, sizeof(text.keybase_username) );
+  ulong off = fd_gui_peers_node_info_pool_idx( peers->node_info_pool, info )*sizeof(text);
+  if( FD_UNLIKELY( (long)sizeof(text)!=pwrite( peers->info_fd, &text, sizeof(text), (off_t)off ) ) )
+    FD_LOG_ERR(( "pwrite(gui info,%lu) failed (%i-%s)", off, errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( info->cleared && !had_info ) ) return;
 
   fd_gui_peers_node_t * peer = fd_gui_peers_node_pubkey_map_ele_query( peers->node_pubkey_map, &info->pubkey, NULL, peers->contact_info_table );
