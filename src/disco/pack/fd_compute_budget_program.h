@@ -109,9 +109,10 @@ fd_compute_budget_program_parse( uchar const * instr_data,
       /* Parse a RequestHeapFrame instruction */
       if( FD_UNLIKELY( data_sz<5 ) ) return 0;
       if( FD_UNLIKELY( (state->flags & FD_COMPUTE_BUDGET_PROGRAM_FLAG_SET_HEAP)!=0 ) ) return 0;
-      state->heap_size = FD_LOAD( uint, instr_data+1 );
-      if( FD_UNLIKELY( state->heap_size%FD_COMPUTE_BUDGET_HEAP_FRAME_GRANULARITY ) ) return 0;
-      if( FD_UNLIKELY( state->heap_size<FD_COMPUTE_BUDGET_MIN_HEAP_FRAME_BYTES || state->heap_size>FD_COMPUTE_BUDGET_MAX_HEAP_FRAME_BYTES ) ) return 0;
+      uint heap_size = FD_LOAD( uint, instr_data+1 );
+      if( FD_UNLIKELY( heap_size%FD_COMPUTE_BUDGET_HEAP_FRAME_GRANULARITY ) ) return 0;
+      if( FD_UNLIKELY( heap_size<FD_COMPUTE_BUDGET_MIN_HEAP_FRAME_BYTES || heap_size>FD_COMPUTE_BUDGET_MAX_HEAP_FRAME_BYTES ) ) return 0;
+      state->heap_size = heap_size;
       state->flags |= FD_COMPUTE_BUDGET_PROGRAM_FLAG_SET_HEAP;
       state->compute_budget_instr_cnt++;
       return 1;
@@ -158,12 +159,14 @@ fd_compute_budget_program_parse( uchar const * instr_data,
    dependent on both the agave codebase and active feature flags.  This
    codebase uses a hardcoded list of instructions that should be updated
    to exclude instructions as they are migrated to non-builtin status.
-   out_rewards and out_compute must be non-null.  The total priority
-   rewards for the transaction (i.e. not counting the per-signature fee)
-   is stored in out_rewards.  The maximum number of compute units this
-   transaction can consume is stored in out_compute.  If the transaction
-   execution has not completed by this limit, it is terminated and
-   considered failed. */
+   out_rewards, out_compute and out_loaded_account_data_cost must be
+   non-null.  The total priority rewards for the transaction (i.e. not
+   counting the per-signature fee) is stored in out_rewards.  The
+   maximum number of compute units this transaction can consume is
+   stored in out_compute.  If the transaction execution has not
+   completed by this limit, it is terminated and considered failed.  The
+   compute unit cost of loading the transaction's account data is
+   stored in out_loaded_account_data_cost. */
 static inline void
 fd_compute_budget_program_finalize( fd_compute_budget_program_state_t const * state,
                                     ulong                                     instr_cnt,
