@@ -560,6 +560,7 @@ struct fd_topo_tile {
       ulong progcache_obj_id;
       ulong accdb_obj_id;
       ulong bpf_frames_obj_id;
+      ulong ed25519_cache_obj_id;
 
       ulong max_live_slots;
 
