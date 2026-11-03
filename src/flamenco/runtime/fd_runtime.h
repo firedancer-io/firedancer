@@ -171,11 +171,8 @@ struct fd_runtime {
   } bpf_loader_serialization;
 
   struct {
-    /* rodata doubles as the progcache rec_load scratch in the exec
-       tiles (hence the 64B align): both are live only inside a single
-       call, fd_deploy_program never calls fd_progcache_pull, and
-       rec_load never calls fd_deploy_program. */
-    uchar rodata        [ FD_RUNTIME_ACC_SZ_MAX     ] __attribute__((aligned(64UL)));
+    /* Deploy rodata and progcache rec_load scratch come from
+       fd_runtime_bpf_ser_scratch. */
     uchar sbpf_footprint[ FD_SBPF_PROGRAM_FOOTPRINT ] __attribute__((aligned(alignof(fd_sbpf_program_t))));
 
     /* Deploy ELF-load scratch (FD_RUNTIME_ACC_SZ_MAX bytes), live only
@@ -350,6 +347,27 @@ fd_runtime_bpf_ser_frame_promote( fd_runtime_t * runtime,
     runtime->bpf_loader_serialization.promote_cnt++;
   }
   return runtime->bpf_loader_serialization.bundle + (depth-runtime->bpf_loader_serialization.bundle_first_depth)*BPF_LOADER_SERIALIZATION_FOOTPRINT;
+}
+
+/* fd_runtime_bpf_ser_scratch returns a 64B aligned scratch of at
+   least need bytes (size in *sz) that stays dead until depth
+   serializes: the free window top (where depth's frame goes), else
+   depth's not yet serialized bundle frame. */
+
+static inline uchar *
+fd_runtime_bpf_ser_scratch( fd_runtime_t * runtime,
+                            ulong          depth,
+                            ulong          need,
+                            ulong *        sz ) {
+  ulong lo = fd_ulong_align_up( (ulong)runtime->bpf_loader_serialization.window + runtime->bpf_loader_serialization.window_top, 64UL );
+  ulong hi = (ulong)runtime->bpf_loader_serialization.window + runtime->bpf_loader_serialization.window_cap;
+  if( FD_UNLIKELY( !runtime->bpf_loader_serialization.window || lo>hi || hi-lo<need ) ) {
+    ulong frame = (ulong)fd_runtime_bpf_ser_frame_promote( runtime, depth );
+    lo = fd_ulong_align_up( frame, 64UL );
+    hi = frame + BPF_LOADER_SERIALIZATION_FOOTPRINT;
+  }
+  *sz = hi-lo;
+  return (uchar *)lo;
 }
 
 /* fd_runtime_bpf_ser_frame_commit records a successful sz byte window

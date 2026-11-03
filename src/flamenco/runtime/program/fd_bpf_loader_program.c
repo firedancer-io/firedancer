@@ -172,11 +172,9 @@ fd_deploy_program( fd_exec_instr_ctx_t * instr_ctx,
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   }
 
-  /* Allocate rodata segment */
-  void * rodata = instr_ctx->runtime->bpf_loader_program.rodata;
-  if( FD_UNLIKELY( !rodata ) ) {
-    return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
-  }
+  /* Allocate rodata segment (a builtin never serializes its depth) */
+  ulong  rodata_sz;
+  void * rodata = fd_runtime_bpf_ser_scratch( instr_ctx->runtime, instr_ctx->runtime->instr.stack_sz, programdata_size, &rodata_sz );
 
   /* Allocate program buffer */
   fd_sbpf_program_t * prog = fd_sbpf_program_new( instr_ctx->runtime->bpf_loader_program.sbpf_footprint, elf_info, rodata );
@@ -2366,8 +2364,14 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
 
   fd_prog_load_env_t load_env[1]; fd_prog_load_env_from_bank( load_env, ctx->bank );
   fd_progcache_t * progcache = ctx->runtime->progcache;
+  /* rec_load scratch: dead until fd_bpf_execute serializes this depth */
+  FD_STATIC_ASSERT( FD_PROGCACHE_SCRATCH_ALIGN<=64UL, pc_scratch_align );
+  ulong window_top = ctx->runtime->bpf_loader_serialization.window_top;
+  progcache->scratch = fd_runtime_bpf_ser_scratch( ctx->runtime, ctx->runtime->instr.stack_sz,
+                                                   fd_ulong_max( progdata_ro->data_len, FD_PROGCACHE_SCRATCH_MIN ), &progcache->scratch_sz );
   fd_progcache_rec_t * cache_entry =
       fd_progcache_pull( progcache, ctx->bank->progcache_fork_id, program_id, load_env, progdata_ro );
+  if( FD_UNLIKELY( ctx->runtime->bpf_loader_serialization.window_top!=window_top ) ) FD_LOG_CRIT(( "window written under progcache scratch" ));
   if( FD_UNLIKELY( !cache_entry ) ) {
     fd_log_collector_msg_literal( ctx, "Program is not deployed" );
     return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;

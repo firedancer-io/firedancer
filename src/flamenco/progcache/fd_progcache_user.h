@@ -127,9 +127,10 @@ extern FD_TL fd_progcache_metrics_t fd_progcache_metrics_default;
    going to be loaded (typically max account data sz).  scratch is only
    accessed inside fd_progcache_pull (rec_load on cache miss) and holds
    no state across calls, so callers may alias it with other buffers
-   that are dead during pulls (the exec tiles pass the deploy rodata
-   buffer).  It also hosts the bytecode-validate VM, so scratch_sz is
-   at least FD_PROGCACHE_SCRATCH_MIN. */
+   that are dead during pulls.  It also hosts the bytecode-validate VM,
+   so scratch_sz is at least FD_PROGCACHE_SCRATCH_MIN.  scratch may be
+   NULL if the caller sets ljoin->scratch/scratch_sz before every pull
+   (the exec tiles point it at free serialization window space). */
 
 fd_progcache_t *
 fd_progcache_join( fd_progcache_t *       ljoin,

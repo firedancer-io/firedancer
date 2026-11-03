@@ -862,7 +862,9 @@ FD_UNIT_TEST( join_null_scratch ) {
   fd_progcache_shmem_t * mem = fd_wksp_alloc_laddr( wksp, fd_progcache_shmem_align(), fd_progcache_shmem_footprint( 16UL, 512UL<<20 ), 1UL );
   FD_TEST( fd_progcache_shmem_new( mem, 1UL, 1UL, 16UL, 512UL<<20 ) );
   fd_progcache_t cache[1];
-  FD_TEST( !fd_progcache_join( cache, mem, NULL, 4096UL ) );
+  FD_TEST( fd_progcache_join( cache, mem, NULL, 4096UL ) ); /* set per pull */
+  FD_TEST( !cache->scratch && !cache->scratch_sz );
+  FD_TEST( fd_progcache_leave( cache, NULL ) );
   fd_wksp_free_laddr( fd_progcache_shmem_delete( mem ) );
 }
 

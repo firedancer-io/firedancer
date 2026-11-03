@@ -494,11 +494,8 @@ unprivileged_init( fd_topo_t const *      topo,
   FD_TEST( result_obj_id!=ULONG_MAX );
   ctx->result = (fd_execrp_result_t *)fd_topo_obj_laddr( topo, result_obj_id )+tile->kind_id;
 
-  /* rec_load scratch aliases the deploy rodata buffer (disjoint live
-     ranges, see fd_runtime.h) */
-  FD_STATIC_ASSERT( FD_PROGCACHE_SCRATCH_ALIGN<=64UL, pc_scratch_align );
-  FD_STATIC_ASSERT( FD_PROGCACHE_SCRATCH_FOOTPRINT<=FD_RUNTIME_ACC_SZ_MAX, pc_scratch_sz );
-  FD_TEST( fd_progcache_join( ctx->progcache, fd_topo_obj_laddr( topo, tile->execrp.progcache_obj_id ), ctx->runtime->bpf_loader_program.rodata, FD_PROGCACHE_SCRATCH_FOOTPRINT ) );
+  /* rec_load scratch is set per pull (fd_runtime_bpf_ser_scratch) */
+  FD_TEST( fd_progcache_join( ctx->progcache, fd_topo_obj_laddr( topo, tile->execrp.progcache_obj_id ), NULL, 0UL ) );
 
   void * _txncache_shmem = fd_topo_obj_laddr( topo, tile->execrp.txncache_obj_id );
   fd_txncache_shmem_t * txncache_shmem = fd_txncache_shmem_join( _txncache_shmem );

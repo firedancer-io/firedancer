@@ -259,6 +259,49 @@ test_shared_bundle( void ) {
 }
 
 static void
+test_ser_scratch( void ) {
+  /* Replay-tile shape; window base deliberately not 64B aligned */
+  fd_runtime_t * runtime = (fd_runtime_t *)alloc_aligned( 4096UL, sizeof(fd_runtime_t) );
+  ulong   window_cap = FD_BPF_SER_WINDOW_FOOTPRINT( FD_BPF_SER_WINDOW_CU_MAX_RP );
+  uchar * window_mem = alloc_aligned( 64UL, window_cap+64UL );
+  uchar * window     = window_mem+16UL;
+  void *  frame1     = alloc_aligned( FD_RUNTIME_EBPF_HOST_ALIGN, FD_BPF_SER_FRAME1_WINDOW_FOOTPRINT );
+  ulong   slot_sz    = FD_BPF_SER_ARENA_BUNDLE_FOOTPRINT( FD_MAX_INSTRUCTION_STACK_DEPTH );
+  void *  mem        = alloc_aligned( fd_bpf_ser_arena_align(), fd_bpf_ser_arena_footprint( 1UL, slot_sz ) );
+  fd_bpf_ser_arena_t * arena = fd_bpf_ser_arena_join( fd_bpf_ser_arena_new( mem, 1UL, slot_sz ) );
+  fd_runtime_bpf_ser_init( runtime, arena, frame1, FD_BPF_SER_FRAME1_WINDOW_FOOTPRINT, window, window_cap );
+
+  uchar * buf; ulong cap; ulong sz;
+
+  /* Depth 1: the whole (empty) window, address aligned */
+  uchar * s = fd_runtime_bpf_ser_scratch( runtime, 1UL, FD_RUNTIME_ACC_SZ_MAX, &sz );
+  FD_TEST( s==window+48UL && sz==window_cap-48UL && sz>=FD_RUNTIME_ACC_SZ_MAX );
+  FD_TEST( !runtime->bpf_loader_serialization.bundle );
+
+  /* Depth 3 under a live depth-2 frame: starts past it, at or after
+     where depth 3's frame will go */
+  fd_runtime_bpf_ser_frame_begin( runtime, 2UL, &buf, &cap );
+  fd_runtime_bpf_ser_frame_commit( runtime, 2UL, 1000UL );
+  s = fd_runtime_bpf_ser_scratch( runtime, 3UL, FD_RUNTIME_ACC_SZ_MAX, &sz );
+  fd_runtime_bpf_ser_frame_begin( runtime, 3UL, &buf, &cap );
+  FD_TEST( fd_ulong_is_aligned( (ulong)s, 64UL ) && s>=buf && s<buf+64UL && s+sz==window+window_cap );
+  FD_TEST( !runtime->bpf_loader_serialization.bundle );
+
+  /* Window short of need: depth 4's (not yet serialized) bundle frame,
+     which frame_begin then reuses for depth 4 */
+  fd_runtime_bpf_ser_frame_commit( runtime, 3UL, cap-FD_RUNTIME_ACC_SZ_MAX+16UL );
+  s = fd_runtime_bpf_ser_scratch( runtime, 4UL, FD_RUNTIME_ACC_SZ_MAX, &sz );
+  FD_TEST( runtime->bpf_loader_serialization.bundle && runtime->bpf_loader_serialization.promote_cnt==1UL );
+  fd_runtime_bpf_ser_frame_begin( runtime, 4UL, &buf, &cap );
+  FD_TEST( buf==runtime->bpf_loader_serialization.bundle+3UL*BPF_LOADER_SERIALIZATION_FOOTPRINT );
+  FD_TEST( fd_ulong_is_aligned( (ulong)s, 64UL ) && s>=buf && s+sz==buf+cap && sz>=FD_RUNTIME_ACC_SZ_MAX );
+  fd_runtime_bpf_ser_reset( runtime );
+
+  free( mem ); free( frame1 ); free( window_mem ); free( runtime );
+  FD_LOG_NOTICE(( "test_ser_scratch: pass" ));
+}
+
+static void
 test_serialize_full( void ) {
   /* Minimal 0-account instruction: serializer writes acct_cnt,
      instr_data_len, data, program id only.  An undersized frame must
@@ -318,6 +361,7 @@ main( int     argc,
   test_window_promotion();
   test_depth1_promote();
   test_shared_bundle();
+  test_ser_scratch();
   test_serialize_full();
 
   FD_LOG_NOTICE(( "pass" ));

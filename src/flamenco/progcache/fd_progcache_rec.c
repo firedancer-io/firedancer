@@ -228,6 +228,7 @@ fd_progcache_rec_load( fd_progcache_rec_t *            rec,
      passing NULL both selects the loader's fast/no-scratch path and faults
      loudly if it ever starts relying on scratch. */
 
+  if( FD_UNLIKELY( !scratch || scratch_sz<FD_VM_FOOTPRINT ) ) FD_LOG_CRIT(( "scratch too small for the validate VM" ));
   int    use_scratch     = fd_sbpf_loader_is_legacy_lenient( elf_info );
   void * load_scratch    = use_scratch ? scratch    : NULL;
   ulong  load_scratch_sz = use_scratch ? scratch_sz : 0UL;
@@ -242,7 +243,6 @@ fd_progcache_rec_load( fd_progcache_rec_t *            rec,
   /* Run bytecode validator.  The VM lives in scratch, dead once the
      load returns (validate reads only prog->rodata/text, in val). */
 
-  if( FD_UNLIKELY( !scratch || scratch_sz<FD_VM_FOOTPRINT ) ) FD_LOG_CRIT(( "scratch too small for the validate VM" ));
   fd_vm_t * vm = fd_vm_join( fd_vm_new( scratch ) );
   if( FD_UNLIKELY( !vm ) ) FD_LOG_CRIT(( "fd_vm_new failed" ));
   vm = fd_vm_init( vm,
