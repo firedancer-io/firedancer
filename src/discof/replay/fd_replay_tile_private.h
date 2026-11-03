@@ -166,12 +166,13 @@ typedef struct fd_bhm_ele fd_bhm_ele_t;
 
 FD_STATIC_ASSERT( FD_EVENT_BLOCK_COMPLETED_TXN_TIMING_MAX>=FD_MAX_TXN_PER_SLOT, txn_timing_ships_full_block );
 
-/* Per bank state of a block end whose footer tasks are out on exec
-   tiles. */
+/* Per bank state of a block's footer tasks on exec tiles. */
 
 struct fd_replay_footer_end {
   fd_alpenglow_rewards_plan_t plan;
   ulong                       leader_credits; /* Summed from the reward slices as they complete. */
+  ulong                       cert_next;      /* Footer certs sent to tiles so far, in fd_alpenglow_footer_certs order. */
+  int                         finalized;      /* Set once BLOCK_END is processed.  The block then fully completes on its last footer task. */
 };
 typedef struct fd_replay_footer_end fd_replay_footer_end_t;
 

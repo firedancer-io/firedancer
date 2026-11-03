@@ -298,7 +298,7 @@ static fd_hash_t         mock_footer_poh;
 
 #define fd_sched_get_poh(s,b)        (mock_footer_finalize ? &mock_footer_poh : (fd_sched_get_poh)(s,b))
 #define fd_sched_get_shred_cnt(s,b)  (mock_footer_finalize ? 0U : (fd_sched_get_shred_cnt)(s,b))
-#define fd_sched_get_footer(s,b)     (mock_footer_finalize ? mock_footer : mock_snapshot_boot ? NULL : (fd_sched_get_footer)(s,b))
+#define fd_sched_get_footer(s,b)     (mock_footer_finalize ? mock_footer : ( mock_snapshot_boot || !(s) ) ? NULL : (fd_sched_get_footer)(s,b))
 static fd_lthash_value_t mock_sched_lthash_delta[ 1 ];
 #define fd_sched_lthash_delta(s,b)   ((mock_footer_finalize || !(s)) ? mock_sched_lthash_delta : (fd_sched_lthash_delta)(s,b))
 static int mock_footer_verify; /* mocked finalize still verifies certs */
@@ -1441,6 +1441,7 @@ test_consensus_root_notification_handoff( fd_wksp_t * wksp ) {
   FD_TEST( ctx->dead_idxs );
   ctx->footer_end = fd_wksp_alloc_laddr( wksp, alignof(fd_replay_footer_end_t), sizeof(fd_replay_footer_end_t)*bank_cnt, 1UL );
   FD_TEST( ctx->footer_end );
+  memset( ctx->footer_end, 0, sizeof(fd_replay_footer_end_t)*bank_cnt );
   void * map_mem = fd_wksp_alloc_laddr( wksp, fd_block_id_map_align(), fd_block_id_map_footprint( chain_cnt ), 1UL );
   FD_TEST( map_mem );
   ctx->block_id_map = fd_block_id_map_join( fd_block_id_map_new( map_mem, chain_cnt, 44UL ) );
@@ -1629,6 +1630,7 @@ setup_rooting_ctx( fd_replay_tile_t * ctx,
   FD_TEST( ctx->dead_idxs );
   ctx->footer_end = fd_wksp_alloc_laddr( wksp, alignof(fd_replay_footer_end_t), sizeof(fd_replay_footer_end_t)*bank_cnt, 1UL );
   FD_TEST( ctx->footer_end );
+  memset( ctx->footer_end, 0, sizeof(fd_replay_footer_end_t)*bank_cnt );
   ulong  chain_cnt  = fd_block_id_map_chain_cnt_est( bank_cnt );
   void * ag_map_mem = fd_wksp_alloc_laddr( wksp, fd_block_id_map_align(), fd_block_id_map_footprint( chain_cnt ), 1UL );
   FD_TEST( ag_map_mem );
@@ -2300,6 +2302,7 @@ test_footer_cert_tasks( fd_wksp_t * wksp ) {
       int hash_bad = mode==4UL;
 
       fd_bank_t * b = add_replayable_block( ctx, parent, slot, ids+slot );
+      memset( ctx->footer_end+b->idx, 0, sizeof(fd_replay_footer_end_t) ); /* as BLOCK_START leaves it */
       mock_footer->bank_hash = b->f.bank_hash; /* the mocked finalize keeps it */
       if( hash_bad ) mock_footer->bank_hash.ul[ 0 ] ^= 1UL;
       static fd_capture_ctx_t cap[1];
