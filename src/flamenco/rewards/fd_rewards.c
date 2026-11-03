@@ -418,7 +418,7 @@ calculate_reward_points_partitioned( fd_bank_t *                    bank,
     fd_stake_delegation_t const * stake_delegation     = fd_stake_delegations_iter_ele( iter );
     ulong                         stake_delegation_idx = fd_stake_delegations_iter_idx( iter );
     if( FD_UNLIKELY( stake_delegation_idx>=runtime_stack->max_stake_accounts ) ) continue;
-    fd_calculated_stake_points_t * stake_points_result = &runtime_stack->stakes.stake_points_result[ stake_delegation_idx ];
+    fd_calculated_stake_points_t * stake_points_result = &runtime_stack->stakes.stake_results[ stake_delegation_idx ].points;
 
     if( FD_UNLIKELY( FD_FEATURE_ACTIVE_BANK( bank, remove_inactive_stakes ) &&
                      fd_stake_delegation_is_inactive( stake_delegation, rewarded_epoch, stake_history, &bank->f.warmup_cooldown_rate_epoch,
@@ -561,11 +561,16 @@ calculate_stake_vote_rewards( fd_bank_t *                    bank,
        below the minimum delegation here. However we don't do this yet,
        to ensure that we audit the feature properly if this happens. */
 
+    /* The rewards overwrite the cached points, so copy them out first. */
+    int                          cached = !is_recalculation && stake_delegation_idx<runtime_stack->max_stake_accounts;
+    fd_calculated_stake_points_t stake_points_result[1];
+    if( FD_LIKELY( cached ) ) *stake_points_result = runtime_stack->stakes.stake_results[ stake_delegation_idx ].points;
+
     fd_calculated_stake_rewards_t * calculated_stake_rewards = NULL;
     if( stake_delegation_idx>=runtime_stack->max_stake_accounts ) {
       calculated_stake_rewards = calculated_stake_rewards_;
     } else {
-      calculated_stake_rewards = &runtime_stack->stakes.stake_rewards_result[ stake_delegation_idx ];
+      calculated_stake_rewards = &runtime_stack->stakes.stake_results[ stake_delegation_idx ].rewards;
     }
     calculated_stake_rewards->success = 0;
 
@@ -579,10 +584,9 @@ calculate_stake_vote_rewards( fd_bank_t *                    bank,
     /* https://github.com/anza-xyz/agave/blob/v4.4.0-alpha.5/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L856-L867 */
     ulong block_reward = block_revenue_sharing ? calculate_block_reward( bank, runtime_stack, stake_history, stake_delegation, rewarded_epoch ) : 0UL;
 
-    int cached = !is_recalculation && stake_delegation_idx<runtime_stack->max_stake_accounts;
     uint idx;
     if( FD_LIKELY( cached ) ) {
-      idx = runtime_stack->stakes.stake_points_result[ stake_delegation_idx ].vote_idx;
+      idx = stake_points_result->vote_idx;
     } else {
       fd_vote_rewards_t *     vote_ele     = runtime_stack->stakes.vote_ele;
       fd_vote_rewards_map_t * vote_ele_map = runtime_stack->stakes.vote_map;
@@ -619,11 +623,7 @@ calculate_stake_vote_rewards( fd_bank_t *                    bank,
       continue;
     }
 
-    fd_calculated_stake_points_t   stake_points_result_[1];
-    fd_calculated_stake_points_t * stake_points_result;
-    if( FD_LIKELY( cached ) ) {
-      stake_points_result = &runtime_stack->stakes.stake_points_result[ stake_delegation_idx ];
-    } else {
+    if( FD_UNLIKELY( !cached ) ) {
       /* We have not cached the stake points yet if we are recalculating
          stake rewards so we need to recalculate them. */
       calculate_stake_points_for_reward( runtime_stack,
@@ -633,8 +633,7 @@ calculate_stake_vote_rewards( fd_bank_t *                    bank,
                                          &bank->f.warmup_cooldown_rate_epoch,
                                          FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ),
                                          rewarded_epoch,
-                                         stake_points_result_ );
-      stake_points_result = stake_points_result_;
+                                         stake_points_result );
     }
 
     /* redeem_rewards is actually just responsible for calculating the
@@ -802,7 +801,7 @@ setup_stake_partitions( fd_bank_t *                    bank,
         calculated_stake_rewards->block_reward = block_reward;
       }
     } else {
-      calculated_stake_rewards = &runtime_stack->stakes.stake_rewards_result[ stake_delegation_idx ];
+      calculated_stake_rewards = &runtime_stack->stakes.stake_results[ stake_delegation_idx ].rewards;
     }
 
     if( FD_UNLIKELY( !calculated_stake_rewards->success ) ) continue;

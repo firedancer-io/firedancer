@@ -118,7 +118,7 @@ target_builtin_new_checked( target_builtin_t *        target_builtin,
 
   /* https://github.com/anza-xyz/agave/blob/v3.1.8/runtime/src/bank/builtins/core_bpf_migration/target_builtin.rs#L31-L53 */
 
-  fd_tmp_account_t * program_account = &runtime_stack->bpf_migration.program_account;
+  fd_tmp_account_t * program_account = &runtime_stack->bpf_migration->program_account;
   switch( migration_target ) {
   case FD_CORE_BPF_MIGRATION_TARGET_BUILTIN:
     if( FD_UNLIKELY( !tmp_account_read( program_account, accdb, fork_id, program_address ) ) ) {
@@ -198,7 +198,7 @@ target_core_bpf_new_checked( target_core_bpf_t *  target_core_bpf,
   fd_pubkey_t program_data_address = get_program_data_address( program_address );
 
   /* The program account should exist */
-  fd_tmp_account_t * program_account = &runtime_stack->bpf_migration.program_account;
+  fd_tmp_account_t * program_account = &runtime_stack->bpf_migration->program_account;
   if( FD_UNLIKELY( !tmp_account_read( program_account, accdb, fork_id, program_address ) ) ) {
     return NULL;
   }
@@ -226,7 +226,7 @@ target_core_bpf_new_checked( target_core_bpf_t *  target_core_bpf,
   }
 
   /* The program data account should exist */
-  fd_tmp_account_t * program_data_account = &runtime_stack->bpf_migration.new_target_program;
+  fd_tmp_account_t * program_data_account = &runtime_stack->bpf_migration->new_target_program;
   if( FD_UNLIKELY( !tmp_account_read( program_data_account, accdb, fork_id, &program_data_address ) ) ) {
     return NULL;
   }
@@ -275,7 +275,7 @@ target_bpf_v2_new_checked( target_builtin_t *        target_bpf_v2,
                            fd_runtime_stack_t *      runtime_stack ) {
 
   /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.2/runtime/src/bank/builtins/core_bpf_migration/target_bpf_v2.rs#L30-L33 */
-  fd_tmp_account_t * program_account = &runtime_stack->bpf_migration.program_account;
+  fd_tmp_account_t * program_account = &runtime_stack->bpf_migration->program_account;
   if( FD_UNLIKELY( !tmp_account_read( program_account, accdb, fork_id, program_address ) ) ) {
     /* CoreBpfMigrationError::AccountNotFound(*program_address) */
     return NULL;
@@ -371,9 +371,9 @@ fd_directly_invoke_loader_v3_deploy_checks( fd_bank_t const *    bank,
 
   /* Setup program (includes calldests) */
   fd_sbpf_program_t * prog = fd_sbpf_program_new(
-    runtime_stack->bpf_migration.progcache_validate.sbpf_footprint,
+    runtime_stack->bpf_migration->progcache_validate.sbpf_footprint,
     elf_info,
-    runtime_stack->bpf_migration.progcache_validate.rodata );
+    runtime_stack->bpf_migration->progcache_validate.rodata );
   if( FD_UNLIKELY( !prog ) ) return 1;
 
   fd_sbpf_syscalls_t _syscalls[ FD_SBPF_SYSCALLS_SLOT_CNT ];
@@ -388,8 +388,8 @@ fd_directly_invoke_loader_v3_deploy_checks( fd_bank_t const *    bank,
     elf_sz,
     syscalls,
     &loader_config,
-    runtime_stack->bpf_migration.progcache_validate.programdata,
-    sizeof(runtime_stack->bpf_migration.progcache_validate.programdata) ) ) ) return 1;
+    runtime_stack->bpf_migration->progcache_validate.programdata,
+    sizeof(runtime_stack->bpf_migration->progcache_validate.programdata) ) ) ) return 1;
 
   /* fd_vm_validate checks */
   fd_vm_t _vm[1];
@@ -578,7 +578,7 @@ migrate_builtin_to_core_bpf1( fd_core_bpf_migration_config_t const * config,
                               fd_pubkey_t const *                    builtin_program_id,
                               fd_capture_ctx_t *                     capture_ctx ) {
 
-  tmp_account_new( &runtime_stack->bpf_migration.program_account, 0UL );
+  tmp_account_new( &runtime_stack->bpf_migration->program_account, 0UL );
 
   target_builtin_t target[1];
   if( FD_UNLIKELY( !target_builtin_new_checked(
@@ -591,14 +591,14 @@ migrate_builtin_to_core_bpf1( fd_core_bpf_migration_config_t const * config,
       runtime_stack ) ) )
     return;
 
-  fd_memset( &runtime_stack->bpf_migration.source,                  0, sizeof(runtime_stack->bpf_migration.source                 ) );
-  fd_memset( &runtime_stack->bpf_migration.new_target_program,      0, sizeof(runtime_stack->bpf_migration.new_target_program     ) );
-  fd_memset( &runtime_stack->bpf_migration.new_target_program_data, 0, sizeof(runtime_stack->bpf_migration.new_target_program_data) );
-  fd_memset( &runtime_stack->bpf_migration.empty,                   0, sizeof(runtime_stack->bpf_migration.empty                  ) );
-  fd_memset( &runtime_stack->bpf_migration.progcache_validate,      0, sizeof(runtime_stack->bpf_migration.progcache_validate     ) );
+  fd_memset( &runtime_stack->bpf_migration->source,                  0, sizeof(runtime_stack->bpf_migration->source                 ) );
+  fd_memset( &runtime_stack->bpf_migration->new_target_program,      0, sizeof(runtime_stack->bpf_migration->new_target_program     ) );
+  fd_memset( &runtime_stack->bpf_migration->new_target_program_data, 0, sizeof(runtime_stack->bpf_migration->new_target_program_data) );
+  fd_memset( &runtime_stack->bpf_migration->empty,                   0, sizeof(runtime_stack->bpf_migration->empty                  ) );
+  fd_memset( &runtime_stack->bpf_migration->progcache_validate,      0, sizeof(runtime_stack->bpf_migration->progcache_validate     ) );
 
   /* https://github.com/anza-xyz/agave/blob/8da849e919e0762f6bfc9ca17ac2339c7a003a0e/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L232-L240 */
-  fd_tmp_account_t * source = &runtime_stack->bpf_migration.source;
+  fd_tmp_account_t * source = &runtime_stack->bpf_migration->source;
   if( FD_UNLIKELY( !source_buffer_new_checked(
       source,
       accdb,
@@ -616,7 +616,7 @@ migrate_builtin_to_core_bpf1( fd_core_bpf_migration_config_t const * config,
   fd_rent_t const * rent = &bank->f.rent;
   ulong const       slot = bank->f.slot;
 
-  fd_tmp_account_t * new_target_program = &runtime_stack->bpf_migration.new_target_program;
+  fd_tmp_account_t * new_target_program = &runtime_stack->bpf_migration->new_target_program;
   if( FD_UNLIKELY( !new_target_program_account(
       new_target_program,
       target,
@@ -624,7 +624,7 @@ migrate_builtin_to_core_bpf1( fd_core_bpf_migration_config_t const * config,
     return;
   new_target_program->pubkey = *builtin_program_id;
 
-  fd_tmp_account_t * new_target_program_data = &runtime_stack->bpf_migration.new_target_program_data;
+  fd_tmp_account_t * new_target_program_data = &runtime_stack->bpf_migration->new_target_program_data;
   if( FD_UNLIKELY( !new_target_program_data_account(
       new_target_program_data,
       source,
@@ -654,7 +654,7 @@ migrate_builtin_to_core_bpf1( fd_core_bpf_migration_config_t const * config,
   /* Write back accounts */
   tmp_account_store( bank, accdb, new_target_program,      capture_ctx, 0 );
   tmp_account_store( bank, accdb, new_target_program_data, capture_ctx, 1 );
-  fd_tmp_account_t * empty = &runtime_stack->bpf_migration.empty;
+  fd_tmp_account_t * empty = &runtime_stack->bpf_migration->empty;
   tmp_account_new( empty, 0UL );
   empty->pubkey = source->pubkey;
   tmp_account_store( bank, accdb, empty, capture_ctx, 0 );
@@ -684,7 +684,7 @@ fd_upgrade_core_bpf_program( fd_bank_t *                            bank,
                              fd_pubkey_t const *                    source_buffer_address,
                              fd_hash_t const *                      verified_build_hash,
                              fd_capture_ctx_t *                     capture_ctx ) {
-  fd_memset( &runtime_stack->bpf_migration, 0, sizeof(runtime_stack->bpf_migration) );
+  fd_memset( runtime_stack->bpf_migration, 0, sizeof(fd_runtime_stack_bpf_migration_t) );
 
   /* https://github.com/anza-xyz/agave/blob/v3.1.7/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L327 */
   target_core_bpf_t target[1];
@@ -693,7 +693,7 @@ fd_upgrade_core_bpf_program( fd_bank_t *                            bank,
   }
 
   /* https://github.com/anza-xyz/agave/blob/8da849e919e0762f6bfc9ca17ac2339c7a003a0e/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L330-L338 */
-  fd_tmp_account_t * source = &runtime_stack->bpf_migration.source;
+  fd_tmp_account_t * source = &runtime_stack->bpf_migration->source;
   if( FD_UNLIKELY( !source_buffer_new_checked(
       source,
       accdb,
@@ -718,7 +718,7 @@ fd_upgrade_core_bpf_program( fd_bank_t *                            bank,
   }
 
   /* https://github.com/anza-xyz/agave/blob/v3.1.7/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L331-L332  */
-  fd_tmp_account_t * new_target_program_data = &runtime_stack->bpf_migration.new_target_program_data;
+  fd_tmp_account_t * new_target_program_data = &runtime_stack->bpf_migration->new_target_program_data;
   fd_pubkey_t program_data_address = get_program_data_address( builtin_program_id );
 
   ulong program_data_len = source->data_sz - BUFFER_METADATA_SIZE;
@@ -768,7 +768,7 @@ fd_upgrade_core_bpf_program( fd_bank_t *                            bank,
   fd_pubkey_t source_addr = source->pubkey;
   tmp_account_store( bank, accdb, new_target_program_data, capture_ctx, 1 );
 
-  fd_tmp_account_t * empty = &runtime_stack->bpf_migration.empty;
+  fd_tmp_account_t * empty = &runtime_stack->bpf_migration->empty;
   tmp_account_new( empty, 0UL );
   empty->pubkey = source_addr;
   tmp_account_store( bank, accdb, empty, capture_ctx, 0 );
@@ -778,7 +778,7 @@ fd_upgrade_core_bpf_program( fd_bank_t *                            bank,
   (void)old_data_sz;
   (void)new_data_sz;
 
-  fd_memset( &runtime_stack->bpf_migration, 0, sizeof(runtime_stack->bpf_migration) );
+  fd_memset( runtime_stack->bpf_migration, 0, sizeof(fd_runtime_stack_bpf_migration_t) );
 }
 
 /* Mimics upgrade_loader_v2_program_with_loader_v3_program().
@@ -792,7 +792,7 @@ fd_upgrade_loader_v2_program_with_loader_v3_program( fd_bank_t *               b
                                                      fd_hash_t const *         verified_build_hash,
                                                      int                       allow_prefunded,
                                                      fd_capture_ctx_t *        capture_ctx ) {
-  fd_memset( &runtime_stack->bpf_migration, 0, sizeof(runtime_stack->bpf_migration) );
+  fd_memset( runtime_stack->bpf_migration, 0, sizeof(fd_runtime_stack_bpf_migration_t) );
 
   /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.2/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L411-L412 */
   target_builtin_t target[1];
@@ -806,7 +806,7 @@ fd_upgrade_loader_v2_program_with_loader_v3_program( fd_bank_t *               b
     return;
 
   /* https://github.com/anza-xyz/agave/blob/8da849e919e0762f6bfc9ca17ac2339c7a003a0e/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L420-L428 */
-  fd_tmp_account_t * source = &runtime_stack->bpf_migration.source;
+  fd_tmp_account_t * source = &runtime_stack->bpf_migration->source;
   if( FD_UNLIKELY( !source_buffer_new_checked(
       source,
       accdb,
@@ -819,13 +819,13 @@ fd_upgrade_loader_v2_program_with_loader_v3_program( fd_bank_t *               b
   ulong             slot = bank->f.slot;
 
   /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.2/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L416-L417 */
-  fd_tmp_account_t * new_target_program = &runtime_stack->bpf_migration.new_target_program;
+  fd_tmp_account_t * new_target_program = &runtime_stack->bpf_migration->new_target_program;
   if( FD_UNLIKELY( !new_target_program_account( new_target_program, target, rent ) ) )
     return;
   new_target_program->pubkey = *loader_v2_program_address;
 
   /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.2/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L419-L421 */
-  fd_tmp_account_t * new_target_program_data = &runtime_stack->bpf_migration.new_target_program_data;
+  fd_tmp_account_t * new_target_program_data = &runtime_stack->bpf_migration->new_target_program_data;
   if( FD_UNLIKELY( !new_target_program_data_account( new_target_program_data, source, NULL, rent, slot ) ) ) {
     return;
   }
@@ -873,7 +873,7 @@ fd_upgrade_loader_v2_program_with_loader_v3_program( fd_bank_t *               b
   tmp_account_store( bank, accdb, new_target_program,      capture_ctx, 0 );
   tmp_account_store( bank, accdb, new_target_program_data, capture_ctx, 1 );
 
-  fd_tmp_account_t * empty = &runtime_stack->bpf_migration.empty;
+  fd_tmp_account_t * empty = &runtime_stack->bpf_migration->empty;
   tmp_account_new( empty, 0UL );
   empty->pubkey = source->pubkey;
   tmp_account_store( bank, accdb, empty, capture_ctx, 0 );
@@ -885,5 +885,5 @@ fd_upgrade_loader_v2_program_with_loader_v3_program( fd_bank_t *               b
   (void)old_data_sz;
   (void)new_data_sz;
 
-  fd_memset( &runtime_stack->bpf_migration, 0, sizeof(runtime_stack->bpf_migration) );
+  fd_memset( runtime_stack->bpf_migration, 0, sizeof(fd_runtime_stack_bpf_migration_t) );
 }
