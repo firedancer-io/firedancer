@@ -650,6 +650,17 @@ test_merkle_root( void ) {
   fd_bmtree_node_t expected = { 0 }; FD_TEST( fd_shred_merkle_root( shred, bmtree_mem, &expected ) );
   FD_TEST( 0==memcmp( &actual, &expected, sizeof(fd_bmtree_node_t) ) );
 
+  /* Later shreds resolve the root from the cache: still all 32 B. */
+
+  shred = set->data_shreds[ 2 ].s;
+  memset( &actual, 0, sizeof(fd_bmtree_node_t) );
+  FD_TEST( FD_FEC_RESOLVER_SHRED_OKAY==fd_fec_resolver_add_shred( r, shred, 2048UL, MAX, FD_FEC_RESOLVER_SHRED_SRC_TURBINE, pubkey, out_fec, out_shred, &actual, NULL ) );
+  FD_TEST( 0==memcmp( &actual, &expected, sizeof(fd_bmtree_node_t) ) );
+  shred = set->parity_shreds[ 5 ].s;
+  memset( &actual, 0, sizeof(fd_bmtree_node_t) );
+  FD_TEST( FD_FEC_RESOLVER_SHRED_OKAY==fd_fec_resolver_add_shred( r, shred, 2048UL, MAX, FD_FEC_RESOLVER_SHRED_SRC_TURBINE, pubkey, out_fec, out_shred, &actual, NULL ) );
+  FD_TEST( 0==memcmp( &actual, &expected, sizeof(fd_bmtree_node_t) ) );
+
   /* Test merkle root is not written on REJECTED. */
 
   shred = set->data_shreds[ 1 ].s;

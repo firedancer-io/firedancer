@@ -464,5 +464,53 @@ fd_bmtree_commitp_insert_with_proof( fd_bmtree_commit_t *     state,
    otherwise. */
 uchar * fd_bmtree_commitp_fini( fd_bmtree_commit_t * state, ulong leaf_cnt );
 
+/* fd_bmtree_commitp20_t is a proof-based commit (as above) for 20 byte
+   trees that caches 20 byte nodes and keeps node_buf on the stack.  The
+   node at the top layer (index inclusion_proof_sz>>1) is also kept in
+   full in root.  Accept/reject results and returned nodes match
+   fd_bmtree_commitp_* with hash_sz 20, except that only the first 20
+   bytes of opt_root and of fini's return are meaningful when the node
+   is below the top layer.  inclusion_proof_layer_cnt in
+   [1,FD_BMTREE_COMMITP20_LAYER_MAX]. */
+
+#define FD_BMTREE_COMMITP20_LAYER_MAX (16UL)
+
+struct fd_bmtree_commitp20_private {
+  ulong            leaf_cnt;
+  ulong            prefix_sz;
+  ulong            inclusion_proof_sz;
+  fd_bmtree_node_t root;
+  /* Indexed [0, inclusion_proof_sz], followed by the valid bit set */
+  uchar            inclusion_proofs[ 1 ][ 20 ];
+};
+typedef struct fd_bmtree_commitp20_private fd_bmtree_commitp20_t;
+
+#define FD_BMTREE_COMMITP20_ALIGN (8UL)
+#define FD_BMTREE_COMMITP20_FOOTPRINT( inclusion_proof_layer_cnt )                                     \
+  ( __builtin_offsetof( fd_bmtree_commitp20_t, inclusion_proofs ) + (1UL<<(inclusion_proof_layer_cnt))*20UL + \
+    ((1UL<<(inclusion_proof_layer_cnt))+63UL)/64UL*sizeof(ulong) )
+
+FD_FN_CONST static inline ulong fd_bmtree_commitp20_align    ( void )            { return FD_BMTREE_COMMITP20_ALIGN; }
+FD_FN_CONST static inline ulong fd_bmtree_commitp20_footprint( ulong layer_cnt ) { return FD_BMTREE_COMMITP20_FOOTPRINT( layer_cnt ); }
+
+/* Returns NULL if inclusion_proof_layer_cnt is out of range. */
+fd_bmtree_commitp20_t *
+fd_bmtree_commitp20_init( void * mem, ulong prefix_sz, ulong inclusion_proof_layer_cnt );
+
+int
+fd_bmtree_commitp20_insert_with_proof( fd_bmtree_commitp20_t *  state,
+                                       ulong                    idx,
+                                       fd_bmtree_node_t const * new_leaf,
+                                       uchar            const * proof,
+                                       ulong                    proof_depth,
+                                       fd_bmtree_node_t       * opt_root );
+
+uchar * fd_bmtree_commitp20_fini( fd_bmtree_commitp20_t * state, ulong leaf_cnt );
+
+int
+fd_bmtree_commitp20_get_proof( fd_bmtree_commitp20_t const * state,
+                               uchar *                       dest,
+                               ulong                         leaf_idx );
+
 FD_PROTOTYPES_END
 #endif /* HEADER_fd_src_ballet_bmtree_fd_bmtree_h */
