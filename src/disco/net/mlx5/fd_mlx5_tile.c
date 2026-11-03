@@ -74,7 +74,12 @@
 #define FD_MLX5_CQE_OP_INVALID (15U)
 #define FD_MLX5_CQE_OWNER_MASK ( 1U) /* MLX5_CQE_OWNER_MASK */
 
-#define FD_MLX5_CQE_SYNDROME_LOCAL_LENGTH_ERR (0x01U) /* received packet's length exceeded FD_NET_MTU */
+#define FD_MLX5_CQE_SYNDROME_LOCAL_LENGTH_ERR (0x01U) /* received packet's length exceeded FD_MLX5_FRAME_SZ */
+
+/* TX frames are <=FD_ETH_PAYLOAD_MAX (fd_net_in_frag_validate) before
+   GRE encapsulation; RX frames beyond the frame size hit LOCAL_LENGTH_ERR. */
+FD_STATIC_ASSERT( FD_ETH_PAYLOAD_MAX+sizeof(fd_ip4_hdr_t)+sizeof(fd_gre_hdr_t)<=FD_MLX5_FRAME_SZ, mlx5_frame_sz );
+FD_STATIC_ASSERT( FD_MLX5_FRAME_SZ<=FD_NET_MTU && !(FD_MLX5_FRAME_SZ%FD_DCACHE_SLOT_ALIGN), mlx5_frame_align );
 
 /* FD_MLX5_ASYNC_EVENT_* are Linux enum ib_event_type values delivered
    in ib_uverbs_async_event_desc.event_type. */
@@ -400,7 +405,7 @@ fd_mlx5_hw_rq_enqueue( fd_mlx5_tile_t * ctx,
     uint const chunk  = ctx->rq_pending_chunk[ i ];
     uint const rq_idx = rq_prod+i;
     fd_mlx5_hw_init_rx_wqe( rx_wq->rq+(rq_idx & (rx_wq->rx_depth-1U)),
-                            (ulong)chunk<<FD_CHUNK_LG_SZ, FD_NET_MTU, ctx->lkey );
+                            (ulong)chunk<<FD_CHUNK_LG_SZ, FD_MLX5_FRAME_SZ, ctx->lkey );
     rx_wq->rq_wqe_buf_chunk[ rq_idx & (rx_wq->rx_depth-1U) ] = chunk;
   }
   rx_wq->rq_prod += recv_cnt;
@@ -586,7 +591,7 @@ fd_mlx5_tile_poll_rx( fd_mlx5_tile_t *    ctx,
 
   for( uint i=0U; i<(uint)comp_cnt; i++ ) {
     ulong freed_chunk;
-    if( FD_UNLIKELY( comp[ i ].opcode==FD_MLX5_CQE_OP_RX_ERR ) ) {
+    if( FD_UNLIKELY( comp[ i ].opcode==FD_MLX5_CQE_OP_RX_ERR || comp[ i ].byte_len>FD_MLX5_FRAME_SZ ) ) {
       ctx->net.metrics.rx_drop_cnt[ FD_METRICS_ENUM_PKT_RX_DROP_REASON_V_MALFORMED_IDX ]++;
       freed_chunk = comp[ i ].chunk;
     } else {
@@ -1117,8 +1122,8 @@ fd_mlx5_tile_packet_memory( fd_topo_t const *      topo,
   void * const packet_dcache        = fd_dcache_join( packet_dcache_memory );
   if( FD_UNLIKELY( !packet_dcache ) ) FD_LOG_ERR(( "Failed to join packet dcache" ));
   ulong const packet_dcache_data_sz = fd_dcache_data_sz( packet_dcache );
-  ulong const frame_sz              = FD_NET_MTU;
-  ulong const frame_region_sz       = fd_ulong_align_dn( packet_dcache_data_sz, frame_sz );
+  ulong const frame_sz              = FD_MLX5_FRAME_SZ;
+  ulong const frame_region_sz       = (packet_dcache_data_sz/frame_sz)*frame_sz; /* frame_sz not a power of 2 */
 
   void * const workspace_base = fd_wksp_containing( packet_dcache_memory );
   if( FD_UNLIKELY( !workspace_base ) ) FD_LOG_ERR(( "Packet dcache is not in a workspace" ));
@@ -1360,7 +1365,7 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->rq_pending_cnt = 0U;
 
   /* Post RQ WQEs */
-  ulong frame_chunks = FD_NET_MTU>>FD_CHUNK_LG_SZ;
+  ulong frame_chunks = FD_MLX5_FRAME_SZ>>FD_CHUNK_LG_SZ;
   ulong next_chunk   = ctx->net.pkt_buf_chunk0;
 
   FD_TEST( tile->mlx5.rx_queue_size>ctx->batch_size );
