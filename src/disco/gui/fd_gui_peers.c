@@ -560,7 +560,8 @@ fd_gui_peers_handle_gossip_bw( fd_gui_peers_ctx_t *           peers,
 
     ulong tag = rec[ i ].tag;
     if( FD_UNLIKELY( tag>=FD_METRICS_ENUM_GOSSIP_MESSAGE_TYPE_CNT ) ) continue; /* NOP, unknown message kind */
-    fd_ptr_if( is_rx, &peer->row.gossvf_rx[ tag ], &peer->row.gossip_tx[ tag ] )->cur += rec[ i ].sz;
+    ulong rate_idx = tag-FD_METRICS_ENUM_GOSSIP_MESSAGE_TYPE_V_PULL_RESPONSE_IDX;
+    if( FD_LIKELY( rate_idx<FD_GUI_PEERS_RATE_CNT ) ) fd_ptr_if( is_rx, &peer->row.gossvf_rx[ rate_idx ], &peer->row.gossip_tx[ rate_idx ] )->cur += rec[ i ].sz;
     fd_ptr_if( is_rx, (fd_gui_peers_metric_rate_t *)&peer->row.gossvf_rx_sum, (fd_gui_peers_metric_rate_t *)&peer->row.gossip_tx_sum )->cur += rec[ i ].sz;
     if( FD_UNLIKELY( !peer->bw_dirty ) ) {
       peer->bw_dirty = 1;
@@ -748,7 +749,7 @@ fd_gui_peers_handle_gossip_update( fd_gui_peers_ctx_t *               peers,
           memset( &peer->row.gossip_tx,     0, sizeof(peer->row.gossip_tx) );
           memset( &peer->row.gossvf_rx_sum, 0, sizeof(peer->row.gossvf_rx_sum) );
           memset( &peer->row.gossip_tx_sum, 0, sizeof(peer->row.gossip_tx_sum) );
-          for( ulong i=0UL; i<FD_METRICS_ENUM_GOSSIP_MESSAGE_TYPE_CNT; i++ ) {
+          for( ulong i=0UL; i<FD_GUI_PEERS_RATE_CNT; i++ ) {
             fd_gui_ema_init( &peer->row.gossvf_rx[ i ].rate_ema, now, FD_GUI_PEERS_EMA_HALF_LIFE_NS );
             fd_gui_ema_init( &peer->row.gossip_tx[ i ].rate_ema, now, FD_GUI_PEERS_EMA_HALF_LIFE_NS );
           }
@@ -1317,10 +1318,10 @@ fd_gui_peers_viewport_log( fd_gui_peers_ctx_t *  peers,
     FD_TEST(fd_cstr_printf_check( peer_addr, sizeof(peer_addr), NULL, FD_IP4_ADDR_FMT,
                                   FD_IP4_ADDR_FMT_ARGS( ip4 ) ) );
 
-    long cur_egress_push_bps           = (long)cur->gossip_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_TYPE_V_PUSH_IDX ].rate_ema.value;
-    long cur_ingress_push_bps          = (long)cur->gossvf_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_TYPE_V_PUSH_IDX ].rate_ema.value;
-    long cur_egress_pull_response_bps  = (long)cur->gossip_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_TYPE_V_PULL_RESPONSE_IDX ].rate_ema.value;
-    long cur_ingress_pull_response_bps = (long)cur->gossvf_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_TYPE_V_PULL_RESPONSE_IDX ].rate_ema.value;
+    long cur_egress_push_bps           = (long)cur->gossip_tx[ FD_GUI_PEERS_RATE_PUSH ].rate_ema.value;
+    long cur_ingress_push_bps          = (long)cur->gossvf_rx[ FD_GUI_PEERS_RATE_PUSH ].rate_ema.value;
+    long cur_egress_pull_response_bps  = (long)cur->gossip_tx[ FD_GUI_PEERS_RATE_PULL_RESPONSE ].rate_ema.value;
+    long cur_ingress_pull_response_bps = (long)cur->gossvf_rx[ FD_GUI_PEERS_RATE_PULL_RESPONSE ].rate_ema.value;
 
     p = fd_cstr_append_printf( p,
                                "| %5lu | %14ld | %14ld | %14ld | %14ld | %-50s | %-15s |\n",
@@ -1431,12 +1432,14 @@ fd_gui_peers_rate_update( fd_gui_peers_ctx_t * peers,
 
     /* optimization: no need to remove / re-insert if the rates haven't
        changed */
-    int change  = 0;
-    int pending = 0; /* bytes counted since the last rate update */
-    for( ulong i=0UL; !change && i<2UL*FD_METRICS_ENUM_GOSSIP_MESSAGE_TYPE_CNT; i++ ) {
-      fd_gui_peers_metric_rate_t * metric = i<FD_METRICS_ENUM_GOSSIP_MESSAGE_TYPE_CNT ? &peer->row.gossvf_rx[ i ] : &peer->row.gossip_tx[ i-FD_METRICS_ENUM_GOSSIP_MESSAGE_TYPE_CNT ];
+    fd_gui_peers_metric_rate_t const * sum[ 2 ] = { &peer->row.gossvf_rx_sum, &peer->row.gossip_tx_sum };
+    long other[ 2 ] = { (long)sum[ 0 ]->cur - (long)sum[ 0 ]->ref, (long)sum[ 1 ]->cur - (long)sum[ 1 ]->ref }; /* untracked types after the loop */
+    int  change  = 0;
+    int  pending = other[ 0 ] || other[ 1 ]; /* bytes counted since the last rate update */
+    for( ulong i=0UL; !change && i<2UL*FD_GUI_PEERS_RATE_CNT; i++ ) {
+      fd_gui_peers_metric_rate_t * metric = i<FD_GUI_PEERS_RATE_CNT ? &peer->row.gossvf_rx[ i ] : &peer->row.gossip_tx[ i-FD_GUI_PEERS_RATE_CNT ];
+      other[ i/FD_GUI_PEERS_RATE_CNT ] -= (long)metric->cur - (long)metric->ref;
       int has_bytes = metric->cur!=metric->ref;
-      pending |= has_bytes;
       if( FD_LIKELY( !has_bytes && metric->rate_ema.value==0.0 ) ) continue; /* don't update zero-bandwith peers */
       if( FD_UNLIKELY( metric->rate_ema.value!=0.0 ) ) { change = 1; break; }
       long new_rate = (long)(((double)((long)metric->cur - (long)metric->ref) * 1e9 / window));
@@ -1444,6 +1447,14 @@ fd_gui_peers_rate_update( fd_gui_peers_ctx_t * peers,
       long new_rate_ema = (long)peer_ema_advance( &cpy, now, (double)new_rate, dt, alpha, weight, new_weight );
       if( FD_LIKELY( new_rate_ema==0L ) ) continue;
       change = 1;
+    }
+    /* untracked types: new bytes as a zero ema sees them, then settle
+       while the total is above the snap threshold */
+    for( ulong d=0UL; !change && d<2UL; d++ ) {
+      if( FD_UNLIKELY( sum[ d ]->rate_ema.value>=100.0 ) ) { change = 1; break; }
+      if( FD_LIKELY( !other[ d ] ) ) continue;
+      fd_gui_ema_t zero = {0};
+      change = 0L!=(long)peer_ema_advance( &zero, now, (double)(long)((double)other[ d ] * 1e9 / window), dt, alpha, weight, new_weight );
     }
 
     if( !change ) {
@@ -1457,7 +1468,7 @@ fd_gui_peers_rate_update( fd_gui_peers_ctx_t * peers,
 
     /* live_table */
     fd_gui_peers_live_table_ele_remove( peers->live_table, peer, peers->contact_info_table );
-    for( ulong i=0UL; i<FD_METRICS_ENUM_GOSSIP_MESSAGE_TYPE_CNT; i++ ) {
+    for( ulong i=0UL; i<FD_GUI_PEERS_RATE_CNT; i++ ) {
       fd_gui_peers_metric_rate_t * metric = &peer->row.gossvf_rx[ i ];
       long new_rate = (long)(((double)((long)metric->cur - (long)metric->ref) * 1e9 / window));
       double new_rate_ema = peer_ema_advance( &metric->rate_ema, now, (double)new_rate, dt, alpha, weight, new_weight );
@@ -1466,7 +1477,7 @@ fd_gui_peers_rate_update( fd_gui_peers_ctx_t * peers,
       metric->update_timestamp_ns = now;
     }
 
-    for( ulong i=0UL; i<FD_METRICS_ENUM_GOSSIP_MESSAGE_TYPE_CNT; i++ ) {
+    for( ulong i=0UL; i<FD_GUI_PEERS_RATE_CNT; i++ ) {
       fd_gui_peers_metric_rate_t * metric = &peer->row.gossip_tx[ i ];
       long new_rate = (long)(((double)((long)metric->cur - (long)metric->ref) * 1e9 / window));
       double new_rate_ema = peer_ema_advance( &metric->rate_ema, now, (double)new_rate, dt, alpha, weight, new_weight );
