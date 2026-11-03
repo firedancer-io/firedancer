@@ -2414,7 +2414,7 @@ init_after_snapshot( fd_replay_tile_t *  ctx,
       ulong ae = d->activation_epoch  ==(ushort)USHORT_MAX ? ULONG_MAX : (ulong)d->activation_epoch;
       ulong de = d->deactivation_epoch==(ushort)USHORT_MAX ? ULONG_MAX : (ulong)d->deactivation_epoch;
       fd_event_runtime_stake_delegation_bootup_emit( bank->f.slot, bank->f.epoch, d->stake_account.uc,
-                                                     d->vote_account.uc, d->stake, ae, de, d->credits_observed );
+                                                     fd_stake_delegations_iter_vote_key( iter )->uc, d->stake, ae, de, d->credits_observed );
     }
   }
 

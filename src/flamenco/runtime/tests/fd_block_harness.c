@@ -602,7 +602,7 @@ fd_solfuzz_pb_collect_stake_delegations( fd_solfuzz_runner_t *             runne
     fd_stake_delegation_t const *     d = fd_stake_delegations_iter_ele( iter );
     fd_exec_test_stake_delegation_t * o = &out[ cnt++ ];
     fd_memcpy( o->stake_account, d->stake_account.uc, sizeof(fd_pubkey_t) );
-    fd_memcpy( o->vote_account,  d->vote_account.uc,  sizeof(fd_pubkey_t) );
+    fd_memcpy( o->vote_account,  fd_stake_delegations_iter_vote_key( iter )->uc, sizeof(fd_pubkey_t) );
     o->stake              = d->stake;
     o->activation_epoch   = d->activation_epoch  ==USHORT_MAX ? ULONG_MAX : (ulong)d->activation_epoch;
     o->deactivation_epoch = d->deactivation_epoch==USHORT_MAX ? ULONG_MAX : (ulong)d->deactivation_epoch;
