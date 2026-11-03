@@ -605,8 +605,11 @@ next_deadline( fd_pack_ctx_t * ctx ) {
   if( FD_LIKELY( ctx->leader_slot==ULONG_MAX ) ) return LONG_MAX;
   long now      = fd_tickcount();
   long deadline = fd_clock_tile_wallclock_to_tickcount( ctx->clock, ctx->slot_end_ns );
-  if( ctx->strategy==FD_PACK_STRATEGY_AUCTION && now<ctx->auction_final_start_tick ) {
-    deadline = fd_long_min( deadline, fd_long_min( ctx->auction_next_tick, ctx->auction_final_start_tick ) );
+  if( ctx->strategy==FD_PACK_STRATEGY_AUCTION ) {
+    if( now<ctx->auction_final_start_tick ) {
+      deadline = fd_long_min( deadline, fd_long_min( ctx->auction_next_tick, ctx->auction_final_start_tick ) );
+    }
+    return deadline;
   }
   ulong enabled = fd_ulong_min( fd_pack_pacing_enabled_bank_cnt( ctx->pacer, now ), ctx->execle_cnt );
   if( FD_UNLIKELY( enabled>=ctx->execle_cnt ) ) return deadline;
@@ -844,8 +847,7 @@ after_credit( fd_pack_ctx_t *     ctx,
         break;
       case FD_PACK_STRATEGY_AUCTION: {
         int allow = fd_pack_auction_running( ctx->pack ) | (now>=ctx->auction_final_start_tick);
-        flags     = FD_PACK_SCHEDULE_BUNDLE
-                  | fd_int_if( allow & (i<pacing_execle_cnt), FD_PACK_SCHEDULE_TXN, 0 );
+        flags     = FD_PACK_SCHEDULE_BUNDLE | fd_int_if( allow, FD_PACK_SCHEDULE_TXN, 0 );
         break;
       }
     }
