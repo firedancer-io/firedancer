@@ -15,8 +15,8 @@
 #define FD_TXN_VERIFY_FAILED  -1
 #define FD_TXN_VERIFY_DEDUP   -2
 
-/* Signer precomputation cache entries per verify tile (gossip votes
-   are signed by ~1.5k vote authorities) */
+/* Signer precomputation cache entries shared by the verify tiles
+   (gossip votes are signed by ~1.5k vote authorities) */
 #define FD_VERIFY_ED25519_CACHE_ENT_CNT (2048UL)
 
 extern fd_topo_run_tile_t fd_tile_verify;

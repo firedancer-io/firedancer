@@ -62,6 +62,12 @@ mock_topo_create( void ) {
   fd_topo_tile_t * verify = fd_topob_tile( topo, "verify", "wksp", "wksp", 0UL, 0, 0, 0 );
   verify->verify.tcache_depth = TCACHE_DEPTH;
 
+  fd_topo_obj_t * ed_obj = fd_topob_obj( topo, "ed_cache", "wksp" );
+  void * ed_mem = test_malloc( fd_ed25519_cache_align(), fd_ed25519_cache_shmem_footprint( 16UL ) );
+  FD_TEST( fd_ed25519_cache_shmem_new( ed_mem, 16UL, 0UL ) );
+  ed_obj->offset = (ulong)ed_mem;
+  verify->verify.ed25519_cache_obj_id = ed_obj->id;
+
   fd_verify_ctx_t * ctx = test_malloc( scratch_align(), scratch_footprint( verify ) );
   topo->objs[ verify->tile_obj_id ].offset = (ulong)ctx;
 

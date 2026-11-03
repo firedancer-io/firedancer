@@ -29,6 +29,7 @@
 #include "../../disco/quic/fd_tpu.h"
 #include "../../disco/quic/fd_quic_tile.h"
 #include "../../disco/tiles.h"
+#include "../../disco/verify/fd_verify_tile.h"
 #include "../../disco/events/generated/fd_event_gen.h"
 #include "../../disco/topo/fd_topob.h"
 #include "../../disco/topo/fd_cpu_topo.h"
@@ -1379,6 +1380,12 @@ fd_topo_initialize( config_t * config ) {
   FOR(execrp_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "execrp", i ) ], execrp_ed_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FD_TEST( fd_pod_insertf_ulong( topo->props, execrp_ed_obj->id, "ed25519_cache.execrp" ) );
 
+  if( verify_tile_cnt ) {
+    fd_topo_obj_t * verify_ed_obj = setup_topo_ed25519_cache( topo, "verify", FD_VERIFY_ED25519_CACHE_ENT_CNT );
+    FOR(verify_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "verify", i ) ], verify_ed_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+    FD_TEST( fd_pod_insertf_ulong( topo->props, verify_ed_obj->id, "ed25519_cache.verify" ) );
+  }
+
   /* Shared overflow arena for BPF CPI serialization frames: exec
      tiles keep small CU-bounded per-tile windows and promote rare
      deep-CPI whale txns to the single full-size bundle here.  execle
@@ -1954,6 +1961,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
   } else if( FD_UNLIKELY( !strcmp( tile->name, "verify" ) ) ) {
 
     tile->verify.tcache_depth = config->tiles.verify.signature_cache_size;
+    tile->verify.ed25519_cache_obj_id = fd_pod_query_ulong( config->topo.props, "ed25519_cache.verify", ULONG_MAX ); FD_TEST( tile->verify.ed25519_cache_obj_id!=ULONG_MAX );
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "dedup" ) ) ) {
 

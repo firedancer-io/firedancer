@@ -22,7 +22,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   for( ulong i=0; i<FD_TXN_SIG_MAX; i++ ) {
     l = FD_LAYOUT_APPEND( l, fd_sha512_align(), fd_sha512_footprint() );
   }
-  l = FD_LAYOUT_APPEND( l, fd_ed25519_cache_align(), fd_ed25519_cache_footprint( FD_VERIFY_ED25519_CACHE_ENT_CNT ) );
+  l = FD_LAYOUT_APPEND( l, fd_ed25519_cache_align(), fd_ed25519_cache_user_footprint( FD_VERIFY_ED25519_CACHE_ENT_CNT ) );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -169,8 +169,8 @@ unprivileged_init( fd_topo_t const *      topo,
     ctx->sha[i] = sha;
   }
 
-  void * _ed25519_cache = FD_SCRATCH_ALLOC_APPEND( l, fd_ed25519_cache_align(), fd_ed25519_cache_footprint( FD_VERIFY_ED25519_CACHE_ENT_CNT ) );
-  ctx->ed25519_cache = fd_ed25519_cache_join( fd_ed25519_cache_new( _ed25519_cache, FD_VERIFY_ED25519_CACHE_ENT_CNT, ctx->hashmap_seed ) );
+  void * _ed25519_cache = FD_SCRATCH_ALLOC_APPEND( l, fd_ed25519_cache_align(), fd_ed25519_cache_user_footprint( FD_VERIFY_ED25519_CACHE_ENT_CNT ) );
+  ctx->ed25519_cache = fd_ed25519_cache_join( fd_ed25519_cache_user_new( _ed25519_cache, FD_VERIFY_ED25519_CACHE_ENT_CNT, fd_topo_obj_laddr( topo, tile->verify.ed25519_cache_obj_id ) ) );
   FD_TEST( ctx->ed25519_cache );
 
   ctx->bundle_failed = 0;

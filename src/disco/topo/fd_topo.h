@@ -341,6 +341,7 @@ struct fd_topo_tile {
 
     struct {
       ulong tcache_depth;
+      ulong ed25519_cache_obj_id;
     } verify;
 
     struct {
