@@ -33,7 +33,7 @@ static const fd_core_bpf_migration_config_t STATELESS_TO_CORE_BPF_FEATURE_GATE_P
     offsetof(fd_features_t, migrate_feature_gate_program_to_core_bpf),
     FD_CORE_BPF_MIGRATION_TARGET_STATELESS,
     &fd_solana_feature_program_id,
-    NULL
+    &fd_solana_feature_program_verified_build_hash
 };
 static const fd_core_bpf_migration_config_t * const MIGRATE_STATELESS_TO_CORE_BPF_FEATURE_GATE_PROGRAM_CONFIG = &STATELESS_TO_CORE_BPF_FEATURE_GATE_PROGRAM_CONFIG;
 

@@ -266,10 +266,10 @@
   {"name":"validator_admission_ticket","implemented":1,"pubkey":"VAT9huvhPjRN9cyrPytq9rwvEJ3J4ADtjdncgZRyANJ","cleaned_up":1,"hardcode_for_fuzzing":1},
   {"name":"discard_unexpected_data_complete_shreds","implemented":1,"pubkey":"disCA4efguFL6Wqa4pGdG7jpjC7C5uiKzKnhEBqchBe","old":"dcomRRWHXP1FVWPqi9Mm4oxJhF4ehC795SvAtUdA9os","cleaned_up":1,"hardcode_for_fuzzing":1},
   {"name":"create_account_allow_prefund","implemented":1,"pubkey":"6sPDzwyARRExKH52LECxcGoqziH8G7SZofwuxi8Ja331"},
-  {"name":"replace_spl_token_with_p_token","implemented":1,"pubkey":"ptokFjwyJtrwCa9Kgo9xoDS59V4QccBGEaRFnRPnSdP"},
+  {"name":"replace_spl_token_with_p_token","implemented":1,"pubkey":"ptokFjwyJtrwCa9Kgo9xoDS59V4QccBGEaRFnRPnSdP","cleaned_up":1,"hardcode_for_fuzzing":1},
   {"name":"delay_commission_updates","implemented":1,"pubkey":"76dHtohc2s5dR3ahJyBxs7eJJVipFkaPdih9CLgTTb4B","hardcode_for_fuzzing":1},
   {"name":"validate_chained_block_id","implemented":1,"pubkey":"vcmrbYbiMVKaq1snKP6eCacNDcr6qZvpCNUjmk6gxvZ","cleaned_up":1,"hardcode_for_fuzzing":1},
-  {"name":"upgrade_bpf_stake_program_to_v5","implemented":1,"pubkey":"STk5Xj8hdAx3sTzmtJ3QysKkq6X2A3yj73JtxttiRyk"},
+  {"name":"upgrade_bpf_stake_program_to_v5","implemented":1,"pubkey":"STk5Xj8hdAx3sTzmtJ3QysKkq6X2A3yj73JtxttiRyk","cleaned_up":1,"hardcode_for_fuzzing":1},
   {"name":"enable_sha512_syscall","implemented":1,"pubkey":"s512oDwgx8hjMnaQjXfqqrZroVj4HvC6TkN3iSSWXCh","hardcode_for_fuzzing":1},
   {"name":"disable_sbpf_v0_v1_v2_deployment","implemented":1,"pubkey":"B8JJXCy5amZyWG9r7EnUYLwzXSXTxG7GZ1qZ1qggo83g"},
   {"name":"commission_rate_in_basis_points","implemented":1,"pubkey":"Eg7tXEwMZzS98xaZ1YHUbdRHsaYZiCsSaR6sKgxreoaj","hardcode_for_fuzzing":1},
@@ -287,7 +287,7 @@
   {"name":"set_lamports_per_byte_to_696","implemented":1,"pubkey":"rntTjNZ9boq8owDxjGVFHPfWNQPDaKiM5JcjxmDGg47","old":"mZdnRh9T2EbDNvqKjkCR3bvo5c816tJaojtE9Xs7iuY"},
   {"name":"set_lamports_per_byte_to_6960","implemented":1,"pubkey":"rnt8ZQpz2HYhX3DkYBDGjJS1a36mYq69oXka7JrhEdi","old":"5AqsUgSb6cgLizSaNiFn3o9XB7VUtKDtDZfcKEjEDmni"},
   {"name":"relax_post_exec_min_balance_check","implemented":1,"pubkey":"BY4JhHLahVzS9ynfDz4exzGPbVXhFmJvEyMWsXbDBqME"},
-  {"name":"upgrade_bpf_stake_program_to_v5_1","implemented":1,"pubkey":"s51VGwCAgebo2745DSUris72RavoLkXGUmVJosESCXr"},
+  {"name":"upgrade_bpf_stake_program_to_v5_1","implemented":1,"pubkey":"s51VGwCAgebo2745DSUris72RavoLkXGUmVJosESCXr","cleaned_up":1,"hardcode_for_fuzzing":1},
   {"name":"custom_commission_collector","implemented":1,"pubkey":"3HcSrCTGXTUnrTueHi4DAwNuMxZSsm5xui2Ax3mgxHqf"},
   {"name":"enable_tx_v1","implemented":1,"pubkey":"txv1aq4pp281K9um3tnPgkfX8UqtFT6wcVW3hNezGLL"},
   {"name":"double_disinflation_rate","implemented":1,"pubkey":"ddibiks7RHZR69QXYMCmk4EZNt6WckspTqEEWv6cS38","old":"55oikhjJ2LUi1xdgJ17ueRyHFURZEw32asT3iAKfh7gg"},
@@ -306,5 +306,6 @@
   {"name":"secp256r1_syscall_enabled","implemented":1,"pubkey":"SeRjtX7Abiq5hQYbzdCny266oveDseHZh9tnrs2cdVC"},
   {"name":"stricter_shred_validation","implemented":1,"pubkey":"s5o4YoA9zUrw9j4v335ncdG5PpznDBsrgM6CvUGrasA","hardcode_for_fuzzing":1,"comment":"no-op for firedancer"},
   {"name":"remove_runtime_float_ops","implemented":1,"pubkey":"7AzqUCKQjoCKhWDDHgEYkTY8iRwWtuuxHogcmx1UJzR8"},
-  {"name":"core_bpf_hash_validation","implemented":1,"pubkey":"FCsQnd4V52NESBhVURWYSWBbmLFzgxEZVC2WngzHzp1u","comment":"no-op feature gate"}
+  {"name":"core_bpf_hash_validation","implemented":1,"pubkey":"FCsQnd4V52NESBhVURWYSWBbmLFzgxEZVC2WngzHzp1u","comment":"firedancer assumes this feature gate is activated for all migrations, which is safe because of the feature-gate schedule ordering"},
+  {"name":"replace_ata_with_p_ata","implemented":1,"pubkey":"pata6uFabFDejC1U7rpmFj9s1FhmiPyWk6D51U1ksx3","comment":"core_bpf_hash_validation will be activated first"}
 ]

@@ -41,6 +41,7 @@ extern const fd_pubkey_t fd_solana_compute_budget_program_id;
 extern const fd_pubkey_t fd_solana_address_lookup_table_program_id;
 extern const fd_pubkey_t fd_solana_spl_native_mint_id;
 extern const fd_pubkey_t fd_solana_spl_token_id;
+extern const fd_pubkey_t fd_solana_spl_associated_token_account_id;
 extern const fd_pubkey_t fd_solana_zk_token_proof_program_id;
 extern const fd_pubkey_t fd_solana_zk_elgamal_proof_program_id;
 extern const fd_pubkey_t fd_solana_slashing_program_id;
@@ -48,11 +49,13 @@ extern const fd_pubkey_t fd_solana_slashing_program_id;
 /* Buffer accounts for BPF migrations
    https://github.com/anza-xyz/agave/blob/v2.1.6/runtime/src/bank/builtins/mod.rs#L151-L165 */
 extern const fd_pubkey_t fd_solana_feature_program_buffer_address;
-extern const fd_pubkey_t fd_solana_stake_program_vote_state_v4_buffer_address;
-extern const fd_pubkey_t fd_solana_stake_program_v5_buffer_address;
-extern const fd_pubkey_t fd_solana_stake_program_v5_1_buffer_address;
 extern const fd_pubkey_t fd_solana_slashing_program_buffer_address;
-extern const fd_pubkey_t fd_solana_ptoken_program_buffer_address;
+extern const fd_pubkey_t fd_solana_pata_program_buffer_address;
+
+extern const fd_hash_t fd_solana_feature_program_verified_build_hash;
+
+/* https://github.com/anza-xyz/agave/blob/8da849e919e0762f6bfc9ca17ac2339c7a003a0e/feature-set/src/lib.rs#L1596-L1601 */
+extern const fd_hash_t fd_solana_pata_program_verified_build_hash;
 
 /* BPF migration authority
    https://github.com/anza-xyz/agave/blob/v2.2.6/programs/bpf_loader/src/lib.rs#L399-L401 */
