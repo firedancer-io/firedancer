@@ -20,7 +20,11 @@
 #
 # geoip_fd: The geoip segment table is written at boot and read with
 #           pread(2) when a peer's gossip address changes.
-uint logfile_fd, uint gui_socket_fd, uint db_fd, uint epoll_inner_fd, uint epoll_outer_fd, uint geoip_fd
+#
+# info_fd: On-chain validator info text, written with pwrite(2) when a
+#          ConfigProgram account arrives and read with pread(2) when
+#          formatting peer JSON.
+uint logfile_fd, uint gui_socket_fd, uint db_fd, uint epoll_inner_fd, uint epoll_outer_fd, uint geoip_fd, uint info_fd
 
 # logging: all log messages are written to a file and/or pipe
 #
@@ -56,7 +60,8 @@ read: (not (or (eq (arg 0) 2)
                (eq (arg 0) logfile_fd)
                (eq (arg 0) gui_socket_fd)
                (eq (arg 0) db_fd)
-               (eq (arg 0) geoip_fd)))
+               (eq (arg 0) geoip_fd)
+               (eq (arg 0) info_fd)))
 
 
 # server: serving pages over HTTP requires writing to connections
@@ -70,7 +75,8 @@ sendto: (not (or (eq (arg 0) 2)
                  (eq (arg 0) logfile_fd)
                  (eq (arg 0) gui_socket_fd)
                  (eq (arg 0) db_fd)
-                 (eq (arg 0) geoip_fd)))
+                 (eq (arg 0) geoip_fd)
+               (eq (arg 0) info_fd)))
 
 # server: serving websockets quickly requires gathered IO writes
 #
@@ -83,7 +89,8 @@ sendmsg: (and (not (or (eq (arg 0) 2)
                        (eq (arg 0) logfile_fd)
                        (eq (arg 0) gui_socket_fd)
                        (eq (arg 0) db_fd)
-                       (eq (arg 0) geoip_fd)))
+                       (eq (arg 0) geoip_fd)
+               (eq (arg 0) info_fd)))
               (eq (arg 2) "MSG_NOSIGNAL"))
 
 # server: serving pages over HTTP requires closing connections
@@ -97,7 +104,8 @@ close: (not (or (eq (arg 0) 2)
                 (eq (arg 0) logfile_fd)
                 (eq (arg 0) gui_socket_fd)
                 (eq (arg 0) db_fd)
-                (eq (arg 0) geoip_fd)))
+                (eq (arg 0) geoip_fd)
+               (eq (arg 0) info_fd)))
 
 
 
@@ -116,9 +124,14 @@ fallocate: (and (eq (arg 0) db_fd)
 # geoip: the segment table is streamed into the geoip file once in
 # unprivileged_init, then a peer's country and city are looked up in it
 #
-# arg 0 is the file descriptor, always the geoip file.
-pwrite64: (eq (arg 0) geoip_fd)
-pread64: (eq (arg 0) geoip_fd)
+# info: validator info text is written per ConfigProgram account and
+# read when formatting peer JSON
+#
+# arg 0 is the file descriptor, the geoip or the info file.
+pwrite64: (or (eq (arg 0) geoip_fd)
+              (eq (arg 0) info_fd))
+pread64: (or (eq (arg 0) geoip_fd)
+             (eq (arg 0) info_fd))
 
 # waker: discover ready connections in the tile's inner epoll set
 #
