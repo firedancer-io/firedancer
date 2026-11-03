@@ -46,7 +46,7 @@ typedef struct {
   ulong   tcache_map_cnt;
   ulong * tcache_sync;
   ulong * tcache_ring;
-  ulong * tcache_map;
+  uint *  tcache_map;
 
   ulong              in_kind[ 32 ];
   fd_verify_in_ctx_t in[ 32 ];
@@ -89,7 +89,7 @@ fd_txn_verify( fd_verify_ctx_t * ctx,
   int ha_dup = 0;
   if( FD_LIKELY( dedup ) ) {
     FD_FN_UNUSED ulong tcache_map_idx = 0; /* ignored */
-    FD_TCACHE_QUERY( ha_dup, tcache_map_idx, ctx->tcache_map, ctx->tcache_map_cnt, ha_dedup_tag );
+    FD_TCACHE_QUERY( ha_dup, tcache_map_idx, ctx->tcache_ring, ctx->tcache_depth, ctx->tcache_map, ctx->tcache_map_cnt, ha_dedup_tag );
     if( FD_UNLIKELY( ha_dup ) ) {
       return FD_TXN_VERIFY_DEDUP;
     }

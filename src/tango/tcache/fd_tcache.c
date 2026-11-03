@@ -10,12 +10,11 @@ fd_tcache_footprint( ulong depth,
                      ulong map_cnt ) {
   if( !map_cnt ) map_cnt = fd_tcache_map_cnt_default( depth ); /* use default */
 
-  if( FD_UNLIKELY( (!depth) | (map_cnt<(depth+2UL)) | (!fd_ulong_is_pow2( map_cnt )) ) ) return 0UL; /* Invalid depth / max_cnt */
+  if( FD_UNLIKELY( (!depth) | (depth>UINT_MAX) | (map_cnt<(depth+2UL)) | (!fd_ulong_is_pow2( map_cnt )) ) ) return 0UL; /* Invalid depth / max_cnt */
 
-  ulong cnt = 4UL+depth; if( FD_UNLIKELY( cnt<depth   ) ) return 0UL; /* overflow */
-  cnt += map_cnt;        if( FD_UNLIKELY( cnt<map_cnt ) ) return 0UL; /* overflow */
-  if( FD_UNLIKELY( cnt>(ULONG_MAX/sizeof(ulong)) ) ) return 0UL; /* overflow */
-  cnt *= sizeof(ulong); /* no overflow */
+  if( FD_UNLIKELY( map_cnt>(ULONG_MAX/sizeof(uint)) ) ) return 0UL; /* overflow */
+  ulong cnt = (4UL+depth)*sizeof(ulong); /* depth<=UINT_MAX, no overflow */
+  cnt += map_cnt*sizeof(uint); if( FD_UNLIKELY( cnt<map_cnt*sizeof(uint) ) ) return 0UL; /* overflow */
   ulong footprint = fd_ulong_align_up( cnt, FD_TCACHE_ALIGN ); if( FD_UNLIKELY( footprint<cnt ) ) return 0UL; /* overflow */
   return footprint;
 }

@@ -190,7 +190,7 @@ struct fd_gossvf_tile_ctx {
     ulong   map_cnt;
     ulong * sync;
     ulong * ring;
-    ulong * map;
+    uint *  map;
   } tcache;
 
   struct {
@@ -440,7 +440,7 @@ verify_signatures( fd_gossvf_tile_ctx_t * ctx,
         dedup_tag = fd_ulong_if( dedup_tag==FD_TCACHE_TAG_NULL, 1UL, dedup_tag );
         int ha_dup = 0;
         FD_FN_UNUSED ulong tcache_map_idx = 0; /* ignored */
-        FD_TCACHE_QUERY( ha_dup, tcache_map_idx, ctx->tcache.map, ctx->tcache.map_cnt, dedup_tag );
+        FD_TCACHE_QUERY( ha_dup, tcache_map_idx, ctx->tcache.ring, ctx->tcache.depth, ctx->tcache.map, ctx->tcache.map_cnt, dedup_tag );
         if( FD_UNLIKELY( ha_dup ) ) {
           if( FD_LIKELY( !failed[ i ] ) ) failed[ i ] = FD_GOSSIP_FAILED_DUPLICATE;
           i++;
@@ -472,7 +472,7 @@ verify_signatures( fd_gossvf_tile_ctx_t * ctx,
         dedup_tag = fd_ulong_if( dedup_tag==FD_TCACHE_TAG_NULL, 1UL, dedup_tag );
         int ha_dup = 0;
         FD_FN_UNUSED ulong tcache_map_idx = 0;
-        FD_TCACHE_QUERY( ha_dup, tcache_map_idx, ctx->tcache.map, ctx->tcache.map_cnt, dedup_tag );
+        FD_TCACHE_QUERY( ha_dup, tcache_map_idx, ctx->tcache.ring, ctx->tcache.depth, ctx->tcache.map, ctx->tcache.map_cnt, dedup_tag );
         if( FD_LIKELY( ha_dup ) ) {
           if( FD_LIKELY( !failed[ i ] ) ) failed[ i ] = FD_GOSSIP_FAILED_DUPLICATE;
           i++;

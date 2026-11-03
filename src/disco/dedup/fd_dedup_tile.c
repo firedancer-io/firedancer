@@ -34,7 +34,7 @@ typedef struct {
   ulong   tcache_map_cnt; /* == fd_tcache_map_cnt( tcache ), number of slots to use for tcache map (const) */
   ulong * tcache_sync;    /* == fd_tcache_oldest_laddr( tcache ), local join to the oldest key in the tcache */
   ulong * tcache_ring;
-  ulong * tcache_map;
+  uint *  tcache_map;
 
   ulong             in_kind[ 64UL ];
   fd_dedup_in_ctx_t in[ 64UL ];
