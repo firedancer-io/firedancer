@@ -581,6 +581,7 @@ Some interesting transitions are,
         "loading_full_snapshot_decompress_bytes_compressed": "826495323",
         "loading_full_snapshot_insert_bytes_decompressed": "4864409599",
         "loading_full_snapshot_insert_accounts": 10634591,
+        "loading_full_snapshot_insert_bytes_written": "3519832064",
         "loading_incremental_snapshot_elapsed_seconds": null,
         "loading_incremental_snapshot_reset_count": null,
         "loading_incremental_snapshot_slot": null,
@@ -591,6 +592,7 @@ Some interesting transitions are,
         "loading_incremental_snapshot_decompress_bytes_compressed": null,
         "loading_incremental_snapshot_insert_bytes_decompressed": null,
         "loading_incremental_snapshot_insert_accounts": null,
+        "loading_incremental_snapshot_insert_bytes_written": null,
         "wait_for_supermajority_bank_hash": "2CeCyRoYmcctDmbXWrSUfTT4aQkGVCnArAmbdmQ5dGFi",
         "wait_for_supermajority_shred_version": "37500",
         "wait_for_supermajority_attempt": 1,
@@ -624,6 +626,7 @@ Some interesting transitions are,
 | loading_{full\|incremental}_snapshot_decompress_bytes_compressed      | `number\|null`  | If the phase is at least `loading_{full\|incremental}_snapshot`, this is the (compressed) number of bytes processed by decompress from the snapshot so far. Otherwise, `null` |
 | loading_{full\|incremental}_snapshot_insert_bytes_decompressed        | `number\|null`  | If the phase is at least `loading_{full\|incremental}_snapshot`, this is the (decompressed) number of bytes processed from the snapshot by the snapshot insert time so far. Otherwise, `null` |
 | loading_{full\|incremental}_snapshot_insert_accounts                  | `number\|null`  | If the phase is at least `loading_{full\|incremental}_snapshot`, this is the current number of accounts inserted into the validator's accounts database from this snapshot. Otherwise, `null` |
+| loading_{full\|incremental}_snapshot_insert_bytes_written             | `number\|null`  | If the phase is at least `loading_{full\|incremental}_snapshot`, this is the number of bytes written to the validator's accounts database from this snapshot so far. Otherwise, `null` |
 | wait_for_supermajority_bank_hash                                      | `string\|null`  | If the client was configured to include the `waiting_for_supermajority` phase at startup, this is the expected bank hash of the snapshot bank.  This ensures all validators join the cluster with the same starting state. `null` if wait for supermajority is not enabled |
 | wait_for_supermajority_shred_version                                  | `string\|null`  | If the client was configured to include the `waiting_for_supermajority` phase at startup, this is the expected shred version it was configured with.  Shred version is functionally a hash of (genesis_hash, cluster_restart_history) which ensures only nodes which explicitly agree on the restart slot and restart attempt count can communicate with each other. `null` if wait for supermajority is not configured |
 | wait_for_supermajority_attempt                                        | `number\|null`  | If the client was configured to include the `waiting_for_supermajority` phase at startup, this is the number of times this cluster has been restarted onto the snapshot slot, including the current attempt. `null` if wait for supermajority is not configured |

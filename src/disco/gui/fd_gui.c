@@ -1601,15 +1601,19 @@ fd_gui_run_boot_progress( fd_gui_t * gui, long now ) {
       ulong _insert_metric                 = fd_ulong_if( snapshot_idx==FD_GUI_BOOT_PROGRESS_FULL_SNAPSHOT_IDX, MIDX( GAUGE, SNAPIN, PARSE_PROGRESS_BYTES_FULL ), MIDX( GAUGE, SNAPIN, PARSE_PROGRESS_BYTES_INCREMENTAL ) );
       ulong _insert_bytes                  = ULONG_MAX;
       ulong _insert_accounts_total         = 0UL;
+      ulong _insert_bytes_written_total    = 0UL;
       for( ulong i=stream_tile_cnt; i<snapin_tile_cnt; i++ ) {
         fd_topo_tile_t const * snapin = &gui->topo->tiles[ fd_topo_find_tile( gui->topo, "snapin", i ) ];
         volatile ulong const * snapin_metrics = fd_metrics_tile( snapin->metrics );
         _insert_bytes           = fd_ulong_min( _insert_bytes, snapin_metrics[ _insert_metric ] );
         _insert_accounts_total += snapin_metrics[ MIDX( GAUGE, SNAPIN, ACCOUNT_PROGRESS_NEW ) ];
+        _insert_bytes_written_total += snapin_metrics[ MIDX( COUNTER, SNAPIN, DISK_WRITTEN_BYTES ) ];
       }
 
       ulong _insert_accounts_baseline      = fd_ulong_if( snapshot_idx==FD_GUI_BOOT_PROGRESS_FULL_SNAPSHOT_IDX, 0UL, gui->summary.boot_progress.loading_snapshot[ FD_GUI_BOOT_PROGRESS_FULL_SNAPSHOT_IDX ].insert_accounts_current );
       ulong _insert_accounts               = fd_ulong_sat_sub( _insert_accounts_total, _insert_accounts_baseline );
+      ulong _insert_bytes_written_baseline = fd_ulong_if( snapshot_idx==FD_GUI_BOOT_PROGRESS_FULL_SNAPSHOT_IDX, 0UL, gui->summary.boot_progress.loading_snapshot[ FD_GUI_BOOT_PROGRESS_FULL_SNAPSHOT_IDX ].insert_bytes_written );
+      ulong _insert_bytes_written          = fd_ulong_sat_sub( _insert_bytes_written_total, _insert_bytes_written_baseline );
 
       /* metadata */
       gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].total_bytes_compressed = _total_bytes;
@@ -1625,6 +1629,7 @@ fd_gui_run_boot_progress( fd_gui_t * gui, long now ) {
       /* insert stage */
       gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].insert_bytes_decompressed = _insert_bytes;
       gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].insert_accounts_current   = _insert_accounts;
+      gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].insert_bytes_written      = _insert_bytes_written;
 
       break;
     }
