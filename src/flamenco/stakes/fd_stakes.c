@@ -391,7 +391,6 @@ fd_delegation_is_inactive( fd_delegation_t const *    delegation,
 static fd_delegation_t
 fd_delegation_from_stake_delegation( fd_stake_delegation_t const * delegation ) {
   return (fd_delegation_t) {
-    .voter_pubkey       = delegation->vote_account,
     .stake              = delegation->stake,
     .deactivation_epoch = delegation->deactivation_epoch==USHORT_MAX ? ULONG_MAX : delegation->deactivation_epoch,
     .activation_epoch   = delegation->activation_epoch==USHORT_MAX ? ULONG_MAX : delegation->activation_epoch,
@@ -601,7 +600,7 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
     total_deactivating += new_acc.deactivating;
     if( FD_UNLIKELY( !new_acc.effective && !reward_stake ) ) continue;
 
-    fd_runtime_stack_stake_accum_add( runtime_stack, &stake_delegation->vote_account, new_acc.effective, reward_stake );
+    fd_runtime_stack_stake_accum_add( runtime_stack, fd_stake_delegations_iter_vote_key( iter ), new_acc.effective, reward_stake );
   }
   ulong staked_accounts = runtime_stack->stakes.stake_accum_cnt + runtime_stack->stakes.stake_accum_spill_cnt;
 
