@@ -1405,6 +1405,13 @@ def test_rpc_ws(tester: RPCTester, test_case: Dict[str, Any]):
     resp1 = tester.make_ws_call(SERVER1_WS_URL, payload)
     resp2 = tester.make_ws_call(SERVER2_WS_URL, payload)
 
+    assert isinstance(resp1["msg"], dict), (
+        f"Server 1 WebSocket request failed: {resp1['msg']}"
+    )
+    assert isinstance(resp2["msg"], dict), (
+        f"Server 2 WebSocket request failed: {resp2['msg']}"
+    )
+
     is_equal, diff = tester.compare_responses(
         resp1, resp2, test_case.get("exclude_paths")
     )
