@@ -135,6 +135,8 @@ build_shred_test_txn( uchar * payload ) {
    batch, the first holding the leading cut bytes. */
 #define AG_SPLIT( comp, cut ) ((comp) | (int)((cut)<<8))
 
+static int test_footer_fast_final; /* footers encoded with a fast-final cert */
+
 static ulong
 encode_ag_component( uchar *     out,
                      int         comp,
@@ -147,7 +149,9 @@ encode_ag_component( uchar *     out,
     marker->header.parent_slot = TEST_ROOT_SLOT;
     return fd_block_marker_ser( marker, out );
   case AG_COMP_FOOTER:
-    marker->kind = FD_BLOCK_MARKER_KIND_FOOTER;
+    marker->kind                             = FD_BLOCK_MARKER_KIND_FOOTER;
+    marker->footer.has_fast_final_cert       = test_footer_fast_final;
+    marker->footer.fast_final_cert.slot      = TEST_ROOT_SLOT;
     return fd_block_marker_ser( marker, out );
   case AG_COMP_UPDATE_PARENT: {
     /* fd_block_marker_ser only produces headers and footers (nothing
@@ -4342,6 +4346,50 @@ run_cert_verify_case( int abandon ) {
   delete_sched( sched );
 }
 
+/* A footer cert verify task comes from fd_sched_task_next_ready only
+   once no transaction is ready, on the highest idle tile and with the
+   hash batch reserve left idle.  The block then ends after the task
+   completes, with nothing left for the block end dispatch. */
+static void
+test_cert_dispatch( void ) {
+  fd_sched_t * sched = new_sched( 8UL );
+  fd_sched_set_bypass_poh_verify( sched, 1 );
+  fd_hash_t start_poh[ 1 ]; hash_from_seed( start_poh, 0x6a1c3e5f7b9d2048UL );
+  fd_pubkey_t acct[ 2 ]; lthash_test_keys( acct, acct+1 );
+  uchar t1[ FD_TXN_MTU ]; ulong t1_sz = build_lthash_test_txn( t1, acct, acct+1, 1UL, 0x01 );
+  uchar const * txns[ 1 ] = { t1 };
+  uchar encoded[ 8192 ]; ulong sz = encode_lthash_batch( encoded, txns, &t1_sz, 1UL );
+  test_footer_fast_final = 1;
+  ingest_lthash_fec( sched, 2UL, 1UL, TEST_ROOT_SLOT+1UL, TEST_ROOT_SLOT, encoded, sz, 1, 1 );
+  test_footer_fast_final = 0;
+  fd_sched_set_poh_params( sched, 2UL, TEST_ROOT_TICK_HEIGHT, TEST_ROOT_TICK_HEIGHT+1UL, start_poh );
+
+  fd_sched_task_t task[ 1 ];
+  static test_lthash_ctx_t ctx[ 1 ]; fd_memset( ctx, 0, sizeof(test_lthash_ctx_t) );
+  int   txn_seen = 0;
+  ulong cert_cnt = 0UL;
+  for(;;) {
+    while( fd_sched_pruned_block_next( sched )!=ULONG_MAX ) {}
+    FD_TEST( fd_sched_task_next_ready( sched, task ) );
+    if( task->task_type==FD_SCHED_TT_BLOCK_END ) break;
+    if( task->task_type==FD_SCHED_TT_CERT_VERIFY ) {
+      FD_TEST( txn_seen ); /* the ready transaction went first */
+      FD_TEST( task->cert_verify->bank_idx==2UL && task->cert_verify->cert_idx==cert_cnt && task->cert_verify->exec_idx==TEST_EXEC_CNT-1UL ); /* the highest idle tile */
+      cert_cnt++;
+      FD_TEST( !fd_sched_task_done( sched, FD_SCHED_TT_CERT_VERIFY, ULONG_MAX, task->cert_verify->exec_idx, NULL ) );
+      continue;
+    }
+    txn_seen |= task->task_type==FD_SCHED_TT_TXN_EXEC;
+    lthash_drive_task( sched, task, ctx );
+  }
+  FD_TEST( cert_cnt==1UL && txn_seen );
+  FD_TEST( task->block_end->bank_idx==2UL );
+  lthash_drive_task( sched, task, ctx );
+  while( fd_sched_pruned_block_next( sched )!=ULONG_MAX ) {}
+  FD_TEST( fd_sched_is_drained( sched ) );
+  delete_sched( sched );
+}
+
 /* Footer cert tasks of a block that is abandoned while they are on
    their tiles count as busy tiles in exec_busy_check, like any other
    task of a dying block.  Block 2, an empty block under the root,
@@ -4624,6 +4672,7 @@ main( int     argc,
   run_entry_hash_mismatch_case();
   run_cert_verify_case( 0 );
   run_cert_verify_case( 1 );
+  test_cert_dispatch();
   run_cert_dying_dispatch_case( 0 );
   run_cert_dying_dispatch_case( 1 );
   run_lane_wait_and_promotion_case();

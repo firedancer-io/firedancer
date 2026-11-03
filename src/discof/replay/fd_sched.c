@@ -464,6 +464,8 @@ struct fd_sched_block {
   uint genesis_cert_seen  : 1;
   uint update_parent_seen : 1;
   uint footer_seen        : 1;
+  uint cert_cnt           : 3; /* Footer certs to verify.  See fd_alpenglow_footer_certs. */
+  uint cert_next          : 3; /* Footer certs already sent out as tasks. */
   uint alpentick_seen     : 1;
 };
 typedef struct fd_sched_block fd_sched_block_t;
@@ -2724,6 +2726,32 @@ fd_sched_fec_ingest( fd_sched_t *     sched,
   return 1;
 }
 
+/* A cert holds a tile for about a millisecond.  So footer cert verify
+   tasks follow the LtHash batch policy.  They go out only when no
+   transaction is ready, leave the hash batch reserve idle, and are
+   offered from the footer's parse until BLOCK_END.  Like a hash batch
+   it takes the highest idle tile.  Returns 1 if a task was written to
+   out, 0 otherwise. */
+static int
+cert_dispatch( fd_sched_t *       sched,
+               fd_sched_block_t * block,
+               ulong              bank_idx,
+               ulong              ready_bitset,
+               int                reserve,
+               fd_sched_task_t *  out ) {
+  if( FD_LIKELY( !block->footer_seen || block->cert_next>=block->cert_cnt || block->block_end_signaled ) ) return 0;
+  if( FD_UNLIKELY( (ulong)fd_ulong_popcnt( ready_bitset )<=(ulong)reserve ) ) return 0;
+  int t = fd_ulong_find_msb( ready_bitset );
+  sched->footer_ready_bitset[ 0 ] = fd_ulong_clear_bit( sched->footer_ready_bitset[ 0 ], t );
+  sched->tile_to_bank_idx[ t ]    = bank_idx;
+  block->footer_in_flight_cnt++;
+  out->task_type             = FD_SCHED_TT_CERT_VERIFY;
+  out->cert_verify->bank_idx = bank_idx;
+  out->cert_verify->cert_idx = (ulong)block->cert_next++;
+  out->cert_verify->exec_idx = (ulong)t;
+  return 1;
+}
+
 /* If may_drain is set, allow one drain chunk once nothing else can be
    dispatched.  The re-entry the chunk earns passes 0, so a poll drains
    at most once. */
@@ -2921,7 +2949,13 @@ task_next_ready( fd_sched_t * sched, fd_sched_task_t * out, int may_drain ) {
         return 1UL;
       }
 
-      /* Next up are LtHash subtractions, under the hash batch reserve. */
+      /* Then footer certs and LtHash subtractions, under the hash batch
+         reserve. */
+      if( FD_UNLIKELY( cert_dispatch( sched, block, bank_idx, exec_fully_ready_bitset, lthash_reserve, out ) ) ) {
+        sched->next_ready_last_tick     = fd_tickcount();
+        sched->next_ready_last_bank_idx = bank_idx;
+        return 1UL;
+      }
       if( FD_UNLIKELY( lthash_dispatch_sub( sched, block, bank_idx, exec_fully_ready_bitset, lthash_reserve, lthash_cap, out ) ) ) {
         sched->next_ready_last_tick     = fd_tickcount();
         sched->next_ready_last_bank_idx = bank_idx;
@@ -2989,7 +3023,13 @@ task_next_ready( fd_sched_t * sched, fd_sched_task_t * out, int may_drain ) {
     return 1UL;
   }
 
-  /* Next up are LtHash subtractions, under the hash batch reserve. */
+  /* Then footer certs and LtHash subtractions, under the hash batch
+     reserve. */
+  if( FD_UNLIKELY( cert_dispatch( sched, block, bank_idx, exec_fully_ready_bitset, lthash_reserve, out ) ) ) {
+    sched->next_ready_last_tick     = fd_tickcount();
+    sched->next_ready_last_bank_idx = bank_idx;
+    return 1UL;
+  }
   if( FD_UNLIKELY( lthash_dispatch_sub( sched, block, bank_idx, exec_fully_ready_bitset, lthash_reserve, lthash_cap, out ) ) ) {
     sched->next_ready_last_tick     = fd_tickcount();
     sched->next_ready_last_bank_idx = bank_idx;
@@ -3929,6 +3969,8 @@ add_block( fd_sched_t * sched,
   block->genesis_cert_seen  = 0;
   block->update_parent_seen = 0;
   block->footer_seen        = 0;
+  block->cert_cnt           = 0U;
+  block->cert_next          = 0U;
   block->alpentick_seen     = 0;
 
   block->mblks_rem        = 0UL;
@@ -4043,6 +4085,12 @@ on_marker( fd_sched_t *              sched,
     }
     block->footer      = marker->footer;
     block->footer_seen = 1;
+    fd_block_footer_cert_t const * cert  [ FD_ALPENGLOW_FOOTER_CERT_MAX ];
+    uint                           tag   [ FD_ALPENGLOW_FOOTER_CERT_MAX ];
+    ulong                          quorum[ FD_ALPENGLOW_FOOTER_CERT_MAX ];
+    ulong cert_cnt = fd_alpenglow_footer_certs( &block->footer, cert, tag, quorum );
+    FD_TEST( cert_cnt<=FD_ALPENGLOW_FOOTER_CERT_MAX );
+    block->cert_cnt = (uint)cert_cnt & 7U; /* The test is the bound.  The mask only quiets the conversion warning. */
     return FD_SCHED_DEAD_REASON_NONE;
 
   case FD_BLOCK_MARKER_KIND_UPDATE_PARENT:

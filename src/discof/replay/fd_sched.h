@@ -265,6 +265,16 @@ struct fd_sched_lthash_task {
 };
 typedef struct fd_sched_lthash_task fd_sched_lthash_task_t;
 
+/* A footer cert verify task.  Between the footer's parse and BLOCK_END,
+   fd_sched_task_next_ready may return one when no transaction is ready,
+   one cert per task. */
+struct fd_sched_cert_task {
+  ulong bank_idx;
+  ulong cert_idx; /* The cert's index in fd_alpenglow_footer_certs order. */
+  ulong exec_idx; /* Target tile. */
+};
+typedef struct fd_sched_cert_task fd_sched_cert_task_t;
+
 /* The writable lookup table accounts of a completed TXN_EXEC task that
    was flagged FD_SCHED_TXN_ALT_UNRESOLVED. */
 struct fd_sched_txn_alts {
@@ -283,6 +293,7 @@ struct fd_sched_task {
     fd_sched_poh_hash_t      poh_hash[ 1 ];
     fd_sched_mark_dead_t     mark_dead[ 1 ];
     fd_sched_lthash_task_t   lthash[ 1 ];
+    fd_sched_cert_task_t     cert_verify[ 1 ];
   };
 };
 typedef struct fd_sched_task fd_sched_task_t;
@@ -430,8 +441,10 @@ int
 fd_sched_block_start_pending( fd_sched_t * sched );
 
 /* Claims up to cnt idle exec tiles for footer tasks of the active
-   block, whose BLOCK_END is signaled and not done yet.  Returns the
-   claimed tiles, bit i for tile i.  Each completes with
+   block, whose BLOCK_END is signaled and not done yet.  The tasks
+   include the cert verifies the scheduler has not sent out as tasks of
+   its own and the vote reward slices.  Returns the claimed tiles, bit i
+   for tile i.  Each completes with
 
    fd_sched_task_done( FD_SCHED_TT_CERT_VERIFY or FD_SCHED_TT_REWARDS, ULONG_MAX, i, NULL )
 
