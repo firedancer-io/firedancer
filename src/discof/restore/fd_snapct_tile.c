@@ -427,7 +427,8 @@ best_incremental_peer( fd_snapct_tile_t * ctx ) {
   fd_sspeer_t best = fd_sspeer_selector_best( ctx->selector, 1, ctx->predicted_incremental.full_slot, wfs_floor( ctx ) );
   if( FD_UNLIKELY( !best.addr.l &&
                    ctx->predicted_incremental.peer.addr.l &&
-                   ctx->predicted_incremental.peer.full_slot==ctx->predicted_incremental.full_slot ) ) {
+                   ctx->predicted_incremental.peer.full_slot==ctx->predicted_incremental.full_slot &&
+                   !fd_ssping_is_invalidated( ctx->ssping, ctx->predicted_incremental.peer.addr ) ) ) {
     best = ctx->predicted_incremental.peer;
   }
   return best;

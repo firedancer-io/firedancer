@@ -859,7 +859,7 @@ test_start_after_init_acks( void ) {
    is not. */
 
 static void
-test_best_incremental_peer( void ) {
+test_best_incremental_peer( fd_ssping_t * ssping ) {
   static struct {
     char const * name;
     int          live;            /* a peer offers (100, 200) now */
@@ -879,6 +879,7 @@ test_best_incremental_peer( void ) {
   for( ulong i=0UL; i<sizeof(cases)/sizeof(cases[0]); i++ ) {
     fd_memset( ctx, 0, sizeof(*ctx) );
     test_ctx_wake_init( ctx );
+    ctx->ssping   = ssping;
     ctx->selector = fd_sspeer_selector_join( fd_sspeer_selector_new( sel, TOTAL_PEERS_MAX, TEST_SELECTOR_SEED ) );
     FD_TEST( ctx->selector );
 
@@ -903,6 +904,20 @@ test_best_incremental_peer( void ) {
     }
     if( incr==150UL ) FD_TEST( best.addr.l==remembered_addr.l );
   }
+
+  /* A remembered server whose ping timed out is not asked either. */
+  fd_memset( ctx, 0, sizeof(*ctx) );
+  test_ctx_wake_init( ctx );
+  ctx->ssping   = ssping;
+  ctx->selector = fd_sspeer_selector_join( fd_sspeer_selector_new( sel, TOTAL_PEERS_MAX, TEST_SELECTOR_SEED ) );
+  ctx->predicted_incremental.full_slot      = 100UL;
+  ctx->predicted_incremental.peer.addr      = remembered_addr;
+  ctx->predicted_incremental.peer.full_slot = 100UL;
+  ctx->predicted_incremental.peer.incr_slot = 150UL;
+  fd_ssping_add( ssping, remembered_addr );
+  fd_ssping_invalidate( ssping, remembered_addr, fd_clock_tile_now( ctx->clock ) );
+  FD_TEST( !best_incremental_peer( ctx ).addr.l );
+  fd_ssping_remove( ssping, remembered_addr );
 
   free( sel );
   FD_LOG_NOTICE(( "pass: test_best_incremental_peer" ));
@@ -1627,7 +1642,6 @@ main( int     argc,
   test_contact_info_slot_reuse_after_unallowed_peer_expires();
   test_load_complete_signal();
   test_start_after_init_acks();
-  test_best_incremental_peer();
   test_meta_repins_full();
   test_snapct_needs_incr();
   test_incr_use_local();
@@ -1649,6 +1663,7 @@ main( int     argc,
 
   test_blacklist_peer_basic( ssping );
   test_blacklist_forgets_remembered_peer( ssping );
+  test_best_incremental_peer( ssping );
   test_blacklist_peer_dedup( ssping );
   test_blacklist_peer_cluster_slot_regression( ssping );
   test_blacklist_peer_readd_blocked( ssping );
