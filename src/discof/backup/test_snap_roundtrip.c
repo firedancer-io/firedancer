@@ -504,7 +504,7 @@ test_manifest_roundtrip( fd_svm_mini_t * mini,
   /* The primary delegation map is skipped and reconstructed from the
      account stream, so its declared length is not bounded by the
      in-memory delegation cache capacity. */
-  FD_STORE( ulong, buf+stake_delegations_len_off, FD_RUNTIME_MAX_STAKE_ACCOUNTS+1UL );
+  FD_STORE( ulong, buf+stake_delegations_len_off, FD_RUNTIME_STAKES_MEM_CNT+1UL );
   fd_ssmanifest_parser_init( parser, manifest );
   FD_TEST( fd_ssmanifest_parser_consume( parser, buf, stake_delegations_len_off+sizeof(ulong) )==
            FD_SSMANIFEST_PARSER_ADVANCE_AGAIN );
