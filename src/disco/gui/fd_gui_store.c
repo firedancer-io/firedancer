@@ -45,16 +45,19 @@ typedef struct fd_gui_store_super fd_gui_store_super_t;
 #include "../../util/tmpl/fd_stack.c"
 
 /* KV index: record at cursor cur owns link kv_next[ cur%max_records ]
-   (live cursors span < max_records).  Chains end at UINT_MAX. */
+   (live cursors span < max_records).  Heads and links are packed
+   kv_w-bit fields; chains end at kv_null (all ones). */
 struct fd_gui_store_ring_rt {
-  ulong  reg_base;    /* logical ordinal of oldest owned region */
-  ulong  reg_cnt;     /* number of regions owned */
-  ulong  max_records; /* private KV index allowance */
-  ulong  chain_mask;  /* KV chain count - 1 */
-  ulong  seed;        /* KV chain hash seed */
-  uint * kv_head;     /* KV chain heads (RAM) */
-  uint * kv_next;     /* KV chain links by position (RAM) */
-  ulong  base;        /* protected base region count */
+  ulong   reg_base;    /* logical ordinal of oldest owned region */
+  ulong   reg_cnt;     /* number of regions owned */
+  ulong   max_records; /* private KV index allowance */
+  ulong   chain_mask;  /* KV chain count - 1 */
+  ulong   seed;        /* KV chain hash seed */
+  ulong   kv_w;        /* bits per packed entry */
+  uint    kv_null;     /* chain terminator */
+  uchar * kv_head;     /* KV chain heads (RAM) */
+  uchar * kv_next;     /* KV chain links by position (RAM) */
+  ulong   base;        /* protected base region count */
 };
 typedef struct fd_gui_store_ring_rt fd_gui_store_ring_rt_t;
 
@@ -150,6 +153,32 @@ fd_gui_store_kv_chain_cnt( ulong max_records ) {
   return fd_ulong_pow2_up( (max_records+3UL)>>2 );
 }
 
+/* Positions [0,max) and the all-ones null fit in w bits. */
+static inline ulong
+fd_gui_store_kv_w( ulong max_records ) {
+  return (ulong)fd_ulong_find_msb( max_records )+1UL;
+}
+
+/* 8 B tail pad for the unaligned 8 B access of the last entry. */
+static inline ulong
+fd_gui_store_kv_packed_sz( ulong cnt, ulong w ) {
+  return ((cnt*w+7UL)>>3)+8UL;
+}
+
+static inline uint
+fd_gui_store_kv_ld( uchar const * a, ulong w, ulong i ) {
+  ulong b = i*w;
+  return (uint)( ( fd_ulong_load_8( a+(b>>3) )>>(b&7UL) ) & fd_ulong_mask_lsb( (int)w ) );
+}
+
+static inline void
+fd_gui_store_kv_st( uchar * a, ulong w, ulong i, uint v ) {
+  ulong b = i*w;
+  ulong m = fd_ulong_mask_lsb( (int)w )<<(b&7UL);
+  ulong x = fd_ulong_load_8( a+(b>>3) );
+  FD_STORE( ulong, a+(b>>3), (x&~m) | ((ulong)v<<(b&7UL)) );
+}
+
 FD_FN_CONST ulong
 fd_gui_store_footprint( ulong                       size_bytes,
                         ulong                       ring_cnt,
@@ -162,15 +191,16 @@ fd_gui_store_footprint( ulong                       size_bytes,
   ulong pool_max = 0UL;
   for( ulong i=0UL; i<ring_cnt; i++ ) pool_max += fd_gui_store_kv_idx_max( &descs[ i ] );
   pool_max = fd_ulong_max( pool_max, 1UL );
-  if( FD_UNLIKELY( pool_max>=UINT_MAX ) ) return 0UL; /* 32-bit links, UINT_MAX null */
+  if( FD_UNLIKELY( pool_max>=UINT_MAX ) ) return 0UL; /* <=32-bit links */
 
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, fd_gui_store_align(),               sizeof(fd_gui_store_t) );
   for( ulong i=0UL; i<ring_cnt; i++ ) {
     ulong max = fd_gui_store_kv_idx_max( &descs[ i ] );
     if( !max ) continue;
-    l = FD_LAYOUT_APPEND( l, alignof(uint), fd_gui_store_kv_chain_cnt( max )*sizeof(uint) );
-    l = FD_LAYOUT_APPEND( l, alignof(uint), max*sizeof(uint) );
+    ulong w = fd_gui_store_kv_w( max );
+    l = FD_LAYOUT_APPEND( l, 8UL, fd_gui_store_kv_packed_sz( fd_gui_store_kv_chain_cnt( max ), w ) );
+    l = FD_LAYOUT_APPEND( l, 8UL, fd_gui_store_kv_packed_sz( max, w ) );
   }
   l = FD_LAYOUT_APPEND( l, fd_gui_store_freelist_align(),      fd_gui_store_freelist_footprint( region_cnt ) );
   l = FD_LAYOUT_APPEND( l, alignof(fd_gui_store_ring_rt_t),    fd_ulong_max( ring_cnt, 1UL )*sizeof(fd_gui_store_ring_rt_t) );
@@ -230,13 +260,14 @@ fd_gui_store_new( void *                      mem,
   fd_memset( mem, 0, sizeof(fd_gui_store_t) );
   FD_SCRATCH_ALLOC_INIT( l, mem );
   fd_gui_store_t * db          = FD_SCRATCH_ALLOC_APPEND( l, fd_gui_store_align(),          sizeof(fd_gui_store_t) );
-  uint * kv_head_mem[ FD_GUI_STORE_MAX_RINGS ];
-  uint * kv_next_mem[ FD_GUI_STORE_MAX_RINGS ];
+  uchar * kv_head_mem[ FD_GUI_STORE_MAX_RINGS ];
+  uchar * kv_next_mem[ FD_GUI_STORE_MAX_RINGS ];
   for( ulong i=0UL; i<ring_cnt; i++ ) {
     ulong max = fd_gui_store_kv_idx_max( &descs[ i ] );
     if( !max ) { kv_head_mem[ i ] = NULL; kv_next_mem[ i ] = NULL; continue; }
-    kv_head_mem[ i ] = FD_SCRATCH_ALLOC_APPEND( l, alignof(uint), fd_gui_store_kv_chain_cnt( max )*sizeof(uint) );
-    kv_next_mem[ i ] = FD_SCRATCH_ALLOC_APPEND( l, alignof(uint), max*sizeof(uint) );
+    ulong w = fd_gui_store_kv_w( max );
+    kv_head_mem[ i ] = FD_SCRATCH_ALLOC_APPEND( l, 8UL, fd_gui_store_kv_packed_sz( fd_gui_store_kv_chain_cnt( max ), w ) );
+    kv_next_mem[ i ] = FD_SCRATCH_ALLOC_APPEND( l, 8UL, fd_gui_store_kv_packed_sz( max, w ) );
   }
   void *        freelist_mem= FD_SCRATCH_ALLOC_APPEND( l, fd_gui_store_freelist_align(), fd_gui_store_freelist_footprint( region_cnt ) );
   fd_gui_store_ring_rt_t * ring_rt_mem = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_gui_store_ring_rt_t), ring_cnt*sizeof(fd_gui_store_ring_rt_t) );
@@ -263,10 +294,16 @@ fd_gui_store_new( void *                      mem,
     ring_rt_mem[ i ].kv_head     = kv_head_mem[ i ];
     ring_rt_mem[ i ].kv_next     = kv_next_mem[ i ];
     ring_rt_mem[ i ].chain_mask  = 0UL;
+    ring_rt_mem[ i ].kv_w        = 0UL;
+    ring_rt_mem[ i ].kv_null     = 0U;
     if( kv_head_mem[ i ] ) {
-      ulong chain_cnt = fd_gui_store_kv_chain_cnt( ring_rt_mem[ i ].max_records );
+      ulong max       = ring_rt_mem[ i ].max_records;
+      ulong w         = fd_gui_store_kv_w( max );
+      ulong chain_cnt = fd_gui_store_kv_chain_cnt( max );
       ring_rt_mem[ i ].chain_mask = chain_cnt-1UL;
-      for( ulong j=0UL; j<chain_cnt; j++ ) kv_head_mem[ i ][ j ] = UINT_MAX;
+      ring_rt_mem[ i ].kv_w       = w;
+      ring_rt_mem[ i ].kv_null    = (uint)fd_ulong_mask_lsb( (int)w );
+      fd_memset( kv_head_mem[ i ], 0xff, fd_gui_store_kv_packed_sz( chain_cnt, w ) );
     }
   }
 
@@ -556,7 +593,8 @@ fd_gui_store_kv_find( fd_gui_store_t *            db,
                       ulong                       ring_idx,
                       void const *                key ) {
   fd_gui_store_ring_rt_t const * rt = &db->ring_rt[ ring_idx ];
-  for( uint pos=rt->kv_head[ fd_gui_store_kv_bucket( db, ring_idx, key ) ]; pos!=UINT_MAX; pos=rt->kv_next[ pos ] ) {
+  ulong w = rt->kv_w;
+  for( uint pos=fd_gui_store_kv_ld( rt->kv_head, w, fd_gui_store_kv_bucket( db, ring_idx, key ) ); pos!=rt->kv_null; pos=fd_gui_store_kv_ld( rt->kv_next, w, pos ) ) {
     ulong cur = fd_gui_store_kv_pos_cur( p, rt, pos );
     if( 0==db->kv_key_cmp[ ring_idx ]( fd_gui_store_kv_slot_key( db, ring_idx, p, cur ), key ) ) return cur;
   }
@@ -571,10 +609,17 @@ fd_gui_store_kv_unlink_evict( fd_gui_store_t *            db,
                               ulong                       ring_idx,
                               uchar const *               rec ) {
   fd_gui_store_ring_rt_t const * rt = &db->ring_rt[ ring_idx ];
-  uint   pos  = (uint)( p->evict_cur % rt->max_records );
-  uint * link = &rt->kv_head[ fd_gui_store_kv_bucket( db, ring_idx, rec+p->key_off ) ];
-  while( *link!=pos ) { FD_TEST( *link!=UINT_MAX ); link = &rt->kv_next[ *link ]; }
-  *link = rt->kv_next[ pos ];
+  ulong   w   = rt->kv_w;
+  uint    pos = (uint)( p->evict_cur % rt->max_records );
+  uchar * a   = rt->kv_head; /* link = field i of a */
+  ulong   i   = fd_gui_store_kv_bucket( db, ring_idx, rec+p->key_off );
+  for(;;) {
+    uint v = fd_gui_store_kv_ld( a, w, i );
+    if( v==pos ) break;
+    FD_TEST( v!=rt->kv_null );
+    a = rt->kv_next; i = v;
+  }
+  fd_gui_store_kv_st( a, w, i, fd_gui_store_kv_ld( rt->kv_next, w, pos ) );
 }
 
 int
@@ -608,8 +653,8 @@ fd_gui_store_kv_get_or_create( fd_gui_store_t * db,
 
   uint  pos = (uint)( cur % rt->max_records );
   ulong b   = fd_gui_store_kv_bucket( db, ring_idx, key );
-  rt->kv_next[ pos ] = rt->kv_head[ b ];
-  rt->kv_head[ b ]   = pos;
+  fd_gui_store_kv_st( rt->kv_next, rt->kv_w, pos, fd_gui_store_kv_ld( rt->kv_head, rt->kv_w, b ) );
+  fd_gui_store_kv_st( rt->kv_head, rt->kv_w, b,   pos );
 
   p->head_cur = cur + 1UL;
   if( val_out ) *val_out = slot;
@@ -645,7 +690,8 @@ fd_gui_store_kv_lowest_gt( fd_gui_store_t *         db,
        hashed leading field), tracking the lowest full key still > gt that
        matches `key`. */
     fd_gui_store_ring_rt_t const * rt = &db->ring_rt[ ring_idx ];
-    for( uint pos=rt->kv_head[ fd_gui_store_kv_bucket( db, ring_idx, key ) ]; pos!=UINT_MAX; pos=rt->kv_next[ pos ] ) {
+    ulong w = rt->kv_w;
+    for( uint pos=fd_gui_store_kv_ld( rt->kv_head, w, fd_gui_store_kv_bucket( db, ring_idx, key ) ); pos!=rt->kv_null; pos=fd_gui_store_kv_ld( rt->kv_next, w, pos ) ) {
       uchar const * val = (uchar const *)fd_gui_store_slot( db, ring_idx, p, fd_gui_store_kv_pos_cur( p, rt, pos ) );
       uchar const * k   = val + p->key_off;
       if( FD_LIKELY( 0==key_cmp( k, key ) ) ) {
