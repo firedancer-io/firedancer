@@ -3606,7 +3606,10 @@ process_exec_task_done( fd_replay_tile_t *          ctx,
         fd_sched_block_abandon( ctx->sched, bank->idx, FD_SCHED_ABANDON_INVALID );
       }
       fd_sched_txn_alts_t alts[ 1 ] = { { .cnt = msg->txn_exec->alt_writable_cnt, .addrs = fd_type_pun_const( ctx->execrp_result[ exec_tile_idx ].alt_writable ) } };
-      int res = fd_sched_task_done( ctx->sched, FD_SCHED_TT_TXN_EXEC, txn_idx, exec_tile_idx, alts->cnt ? alts : NULL );
+      FD_TEST( msg->txn_exec->committed_writable_cnt<=MAX_TX_ACCOUNT_LOCKS );
+      alts->committed_cnt = msg->txn_exec->committed_writable_cnt;
+      alts->committed = fd_type_pun_const( ctx->execrp_result[ exec_tile_idx ].committed_writable );
+      int res = fd_sched_task_done( ctx->sched, FD_SCHED_TT_TXN_EXEC, txn_idx, exec_tile_idx, alts );
       if( FD_UNLIKELY( res && bank->state!=FD_BANK_STATE_DEAD ) ) {
         mark_bank_dead( ctx, stem, bank->idx, sched_dead_reason_to_event( res ), FD_EVENT_BLOCK_COMPLETED_ABANDONED_REASON_NOT_ABANDONED, NULL );
       }

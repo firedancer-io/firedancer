@@ -410,7 +410,7 @@
             "fields": {
                 "parsed":        { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Declared writable accounts of parsed transactions, as handed to the dispatcher" },
                 "start_reg":     { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Accounts registered by start-of-block processing" },
-                "late_reg":      { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Writable lookup table accounts registered at transaction completion" },
+                "late_reg":      { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Committed account writes registered at transaction completion (legacy: unresolved writable lookup table accounts)" },
                 "demote_reg":    { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Accounts re-registered when their block was demoted" },
                 "spec_given_up": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Accounts re-registered when a speculative addition was given up" }
             }

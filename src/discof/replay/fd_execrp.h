@@ -142,6 +142,7 @@ struct fd_execrp_txn_exec_done_msg {
      order.  0 unless the request had want_alts set and the expansion
      succeeded. */
   uchar alt_writable_cnt;
+  uchar committed_writable_cnt; /* Actual committed account keys in tile result. */
 
   /* LONG_MAX if stage was not reached */
   long tick_load_start;
@@ -209,7 +210,10 @@ struct fd_execrp_result {
   union {
     fd_lthash_value_t lthash;                                   /* LTHASH_SUB, LTHASH_ADD. */
     fd_lthash_value_t lthash_spec[ FD_EXECRP_LTHASH_SPEC_MAX ];  /* Individual speculative ADD hashes. */
-    fd_pubkey_t       alt_writable[ FD_TXN_ACCT_ADDR_MAX-1UL ]; /* TXN_EXEC.  alt_writable_cnt of these are valid. */
+    struct {
+      fd_pubkey_t alt_writable[ FD_TXN_ACCT_ADDR_MAX-1UL ];
+      fd_pubkey_t committed_writable[ MAX_TX_ACCOUNT_LOCKS ];
+    }; /* TXN_EXEC. Counts in done message; both arrays valid concurrently. */
   };
 };
 typedef struct fd_execrp_result fd_execrp_result_t;

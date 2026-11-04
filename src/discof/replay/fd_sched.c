@@ -568,7 +568,7 @@ struct fd_sched_metrics {
      come from either abandon or demotion. */
   ulong lthash_parsed_writable_cnt;       /* Declared writable accounts of parsed transactions.  ALT accounts of a transaction whose tables could not be expanded are not counted here, and instead count as late registrations. */
   uint  lthash_start_reg_cnt;             /* Accounts registered by start-of-block processing. */
-  uint  lthash_late_reg_cnt;              /* Declared writable lookup table accounts registered at transaction completion. */
+  uint  lthash_late_reg_cnt;              /* Committed writes, or legacy unresolved ALT writes, registered at execution completion. */
   uint  lthash_demote_reg_cnt;            /* Accounts put back into rdisp when their block was demoted.  A later promotion will drain these back out of rdisp.  Not really new writes. */
   ulong lthash_first_write_cnt;           /* Writes rdisp reported as the account's first since its last addition pseudo transaction. */
   ulong lthash_coalesced_cnt;             /* Writes to an account the block already owed an addition for. */
@@ -635,6 +635,7 @@ struct fd_sched {
   ulong                 max_shreds_per_block; /* Immutable. */
   ulong                 max_txn_per_slot;     /* Immutable. */
   ulong                 max_mblk_per_slot;    /* Immutable, FD_SCHED_MAX_MBLK_PER_SLOT scaled with max_shreds_per_block. */
+  int                   lthash_committed_writes; /* Runtime reports actual commits. */
   ulong                 lthash_txn_writers_max; /* FD_SCHED_LTHASH_TXN_WRITERS_MAX unless lowered by a test. */
   ulong                 lthash_oob_block_cnt;   /* Blocks that picked out-of-band hashing and have not left yet. */
   ulong                 lthash_oob_block_max;   /* FD_SCHED_LTHASH_OOB_BLOCK_MAX unless lowered by a test. */
@@ -916,7 +917,7 @@ block_is_lane_tail( fd_sched_t * sched, fd_sched_block_t * block ) {
    not bounce blocks in and out of the active state. */
 static inline int
 block_may_speculate( fd_sched_t * sched, fd_sched_block_t * block, ulong spec_free_min ) {
-  if( block->fec_eos || !block->add_owed_cnt ) return 0;
+  if( sched->lthash_committed_writes || block->fec_eos || !block->add_owed_cnt ) return 0;
   if( sched->lthash_spec_free_cnt<spec_free_min ) return 0;
   /* No need to check for tail because we have one block per lane. */
   return block_is_lane_head( sched, block );
@@ -1519,6 +1520,9 @@ lthash_maybe_drain( fd_sched_t *       sched,
                     fd_sched_block_t * block,
                     ulong              max ) {
   if( !block->staged || !block->fec_eos || block->lthash_drained ) return;
+  /* Until every execution result has registered its actual writes, a
+     final addition could miss a later commit (including unresolved ALTs). */
+  if( sched->lthash_committed_writes && block->txn_exec_done_cnt!=block->txn_parsed_cnt ) return;
   if( FD_UNLIKELY( !block->lthash_mode_picked ) ) lthash_pick_mode( sched, block );
   if( FD_UNLIKELY( block->lthash_inband ) ) {
     block->lthash_drained = 1;
@@ -2285,6 +2289,7 @@ fd_sched_new( void *     mem,
   sched->exec_cnt               = exec_cnt;
   sched->bypass_poh_verify      = 0;
   sched->bypass_alut_resolution = 0;
+  sched->lthash_committed_writes = 1;
   sched->lthash_txn_writers_max = FD_SCHED_LTHASH_TXN_WRITERS_MAX;
   sched->lthash_oob_block_cnt   = 0UL;
   sched->lthash_oob_block_max   = FD_SCHED_LTHASH_OOB_BLOCK_MAX;
@@ -3017,7 +3022,7 @@ task_next_ready( fd_sched_t * sched, fd_sched_task_t * out ) {
      on speculative additions.  Speculation is the lowest priority work
      there is, though.  So if nothing of the block is in flight and
      another lane head is ready with must-do work, yield. */
-  int may_speculate = block_may_speculate( sched, block, 1UL );
+  int may_speculate = !sched->lthash_committed_writes && block_may_speculate( sched, block, 1UL );
   if( FD_LIKELY( may_speculate ) ) {
     if( FD_UNLIKELY( !block_is_in_flight( block ) && other_lane_has_real_work( sched, block ) ) ) {
       FD_LOG_DEBUG(( "reset active_bank_idx %lu: speculation yields", sched->active_bank_idx ));
@@ -3224,9 +3229,21 @@ fd_sched_task_done( fd_sched_t * sched, ulong task_type, ulong txn_idx, ulong ex
         } else {
           block->lthash_writable_cnt += (uint)alts->cnt;
           if( FD_LIKELY( !block->lthash_inband ) ) {
-            for( ulong i=0UL; i<alts->cnt; i++ ) lthash_register( sched, block, alts->addrs+i );
-            sched->metrics->lthash_late_reg_cnt += (uint)alts->cnt;
+            if( !sched->lthash_committed_writes )
+              for( ulong i=0UL; i<alts->cnt; i++ ) lthash_register( sched, block, alts->addrs+i );
+            if( !sched->lthash_committed_writes ) sched->metrics->lthash_late_reg_cnt += (uint)alts->cnt;
           }
+        }
+      }
+      if( FD_UNLIKELY( sched->lthash_committed_writes && !block->dying && dead_reason==FD_SCHED_DEAD_REASON_NONE ) ) {
+        fd_sched_txn_alts_t const * done = fd_type_pun_const( data );
+        FD_TEST( done && done->committed_cnt<=MAX_TX_ACCOUNT_LOCKS );
+        FD_TEST( !done->committed_cnt || done->committed );
+        if( !block->lthash_inband ) {
+          for( ulong i=0UL; i<done->committed_cnt; i++ ) lthash_register( sched, block, done->committed+i );
+          /* Separate committed registrations from declared writer-limit
+             accounting. The conservation checker counts all registrations. */
+          sched->metrics->lthash_late_reg_cnt += (uint)done->committed_cnt;
         }
       }
       if( txn_bitset_test( sched->sigverify_done_set, txn_idx ) && txn_bitset_test( sched->poh_mixin_done_set, txn_idx ) ) {
@@ -3241,6 +3258,8 @@ fd_sched_task_done( fd_sched_t * sched, ulong task_type, ulong txn_idx, ulong ex
       } else {
         fd_rdisp_complete_txn( sched->rdisp, txn_idx, 0 );
       }
+      if( sched->lthash_committed_writes && !block->dying && dead_reason==FD_SCHED_DEAD_REASON_NONE )
+        lthash_maybe_drain( sched, block, FD_SCHED_LTHASH_DRAIN_CHUNK );
       if( FD_UNLIKELY( dead_reason!=FD_SCHED_DEAD_REASON_NONE && !block->dying ) ) {
         handle_bad_block( sched, block, dead_reason );
         return dead_reason;
@@ -4575,17 +4594,18 @@ fd_sched_parse_txn( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_
 
   ulong bank_idx = (ulong)(block-sched->block_pool);
   fd_rdisp_neww_t neww[ fd_rdisp_neww_word_cnt ];
-  ulong txn_idx  = fd_rdisp_add_txn( sched->rdisp, bank_idx, txn, payload, alts, serializing, block->lthash_inband ? NULL : neww );
+  int track_declared = !block->lthash_inband && !sched->lthash_committed_writes;
+  ulong txn_idx  = fd_rdisp_add_txn( sched->rdisp, bank_idx, txn, payload, alts, serializing, track_declared ? neww : NULL );
   FD_TEST( txn_idx && txn_idx<sched->depth );
   block->lthash_writable_cnt += (uint)writable_cnt;
-  if( FD_LIKELY( !block->lthash_inband ) ) {
+  if( FD_LIKELY( track_declared ) ) {
     ulong first_write_cnt = fd_rdisp_neww_cnt( neww );
     sched->metrics->lthash_parsed_writable_cnt += writable_cnt;
     sched->metrics->lthash_first_write_cnt     += first_write_cnt;
     sched->metrics->lthash_coalesced_cnt       += writable_cnt-first_write_cnt;
     block->add_owed_cnt                        += (uint)first_write_cnt;
   }
-  if( FD_LIKELY( block_owns_lane_map( sched, block ) ) ) {
+  if( FD_LIKELY( track_declared && block_owns_lane_map( sched, block ) ) ) {
     for( ulong iter = fd_rdisp_neww_iter_init( neww ); !fd_rdisp_neww_iter_done( iter ); iter=fd_rdisp_neww_iter_next( neww, iter ) ) {
       fd_acct_addr_t const * acct = get_acct( txn, imms, alts, (ushort)iter );
       FD_TEST( acct );
@@ -4971,7 +4991,7 @@ try_activate_block( fd_sched_t * sched ) {
     ulong              head_idx     = sched->staged_head_bank_idx[ lane_idx ];
     fd_sched_block_t * head_block   = block_pool_ele( sched, head_idx );
     fd_sched_block_t * parent_block = block_pool_ele( sched, head_block->parent_idx );
-    if( block_is_done( parent_block ) && block_is_stageable( head_block ) && block_may_speculate( sched, head_block, FD_SCHED_LTHASH_SPEC_THRESHOLD_PER_TILE*sched->exec_cnt ) ) {
+    if( !sched->lthash_committed_writes && block_is_done( parent_block ) && block_is_stageable( head_block ) && block_may_speculate( sched, head_block, FD_SCHED_LTHASH_SPEC_THRESHOLD_PER_TILE*sched->exec_cnt ) ) {
       FD_LOG_DEBUG(( "activating block %lu:%lu: speculation on lane %d", head_block->slot, head_idx, lane_idx ));
       sched->metrics->lane_switch_cnt += (uint)is_fork_switch( sched, head_idx );
       active_bank_set( sched, head_idx );

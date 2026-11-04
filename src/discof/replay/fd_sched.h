@@ -278,11 +278,14 @@ struct fd_sched_lthash_task {
 };
 typedef struct fd_sched_lthash_task fd_sched_lthash_task_t;
 
-/* The writable lookup table accounts of a completed TXN_EXEC task that
-   was flagged FD_SCHED_TXN_ALT_UNRESOLVED. */
+/* TXN_EXEC completion: declared writable ALT keys (for the writer limit),
+   plus the actual committed keys captured before account release. Every
+   production completion supplies this, including an explicit empty set. */
 struct fd_sched_txn_alts {
   ulong                  cnt;
   fd_acct_addr_t const * addrs;
+  ulong                  committed_cnt;
+  fd_acct_addr_t const * committed;
 };
 typedef struct fd_sched_txn_alts fd_sched_txn_alts_t;
 

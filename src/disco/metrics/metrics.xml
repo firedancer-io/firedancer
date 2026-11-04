@@ -927,7 +927,7 @@ deliberate exception with lint-allow="<rule id>")
 <enum name="SchedLthashWriteType">
     <int value="0" name="Parsed" label="Declared writable accounts of parsed transactions, as handed to the dispatcher" />
     <int value="1" name="StartReg" label="Accounts registered by start-of-block processing" />
-    <int value="2" name="LateReg" label="Writable lookup table accounts registered at transaction completion" />
+    <int value="2" name="LateReg" label="Committed account writes registered at transaction completion (legacy: unresolved writable lookup table accounts)" />
     <int value="3" name="DemoteReg" label="Accounts re-registered when their block was demoted" />
     <int value="4" name="SpecGivenUp" label="Accounts re-registered when a speculative addition was given up" />
 </enum>

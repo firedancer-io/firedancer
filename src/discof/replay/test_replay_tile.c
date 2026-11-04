@@ -106,6 +106,8 @@ static long           mock_sched_task_done_tick;
 static void *         mock_sched_task_done_data;
 static ulong          mock_sched_task_done_alts_cnt;   /* copied out of the fd_sched_txn_alts_t a TXN_EXEC passes as data, a local of the caller */
 static fd_acct_addr_t const * mock_sched_task_done_alts_addrs;
+static ulong mock_sched_task_done_committed_cnt;
+static fd_acct_addr_t const * mock_sched_task_done_committed;
 
 int mock_sched_fec_ingest_fn( fd_sched_t * s, fd_sched_fec_t * f ) {
   (void)s; (void)f;
@@ -157,10 +159,14 @@ mock_sched_task_done_fn( fd_sched_t * s FD_PARAM_UNUSED,
   mock_sched_task_done_data     = data;
   mock_sched_task_done_alts_cnt   = 0UL;
   mock_sched_task_done_alts_addrs = NULL;
+  mock_sched_task_done_committed_cnt = 0UL;
+  mock_sched_task_done_committed = NULL;
   if( task_type==FD_SCHED_TT_TXN_EXEC && data ) {
     fd_sched_txn_alts_t const * alts = data;
     mock_sched_task_done_alts_cnt   = alts->cnt;
     mock_sched_task_done_alts_addrs = alts->addrs;
+    mock_sched_task_done_committed_cnt = alts->committed_cnt;
+    mock_sched_task_done_committed = alts->committed;
   }
   if( task_type==FD_SCHED_TT_TXN_EXEC ) mock_sched_txn_info.tick_exec_done = mock_sched_task_done_tick;
   return 0;
@@ -975,7 +981,8 @@ test_lthash_oob_routing( fd_wksp_t * wksp ) {
 
   /* The lookup table accounts a TXN_EXEC frag reports, left in the
      tile's result entry, reach the scheduler as an fd_sched_txn_alts_t.
-     A frag without them passes NULL. */
+     Actual committed keys travel alongside ALTs, including an empty
+     completion when neither set has any entries. */
 
   mock_sched_txn_info.flags = FD_SCHED_TXN_ALT_UNRESOLVED;
   fd_execrp_task_done_msg_t * msg = fd_chunk_to_laddr( wksp, in_chunk );
@@ -984,6 +991,8 @@ test_lthash_oob_routing( fd_wksp_t * wksp ) {
   msg->txn_exec->txn_idx          = mock_sched_txn_idx;
   msg->txn_exec->is_committable   = 1;
   msg->txn_exec->alt_writable_cnt = 2;
+  msg->txn_exec->committed_writable_cnt = 1;
+  memset( result->committed_writable[0].uc, 0x33, sizeof(fd_pubkey_t) );
   fd_pubkey_t * keys = result->alt_writable;
   memset( keys[ 0 ].uc, 0x11, sizeof(fd_pubkey_t) );
   memset( keys[ 1 ].uc, 0x22, sizeof(fd_pubkey_t) );
@@ -997,13 +1006,18 @@ test_lthash_oob_routing( fd_wksp_t * wksp ) {
   FD_TEST( mock_sched_task_done_alts_cnt==2UL );
   FD_TEST( mock_sched_task_done_alts_addrs==fd_type_pun_const( keys ) );
   FD_TEST( !memcmp( mock_sched_task_done_alts_addrs+1, keys+1, sizeof(fd_pubkey_t) ) );
+  FD_TEST( mock_sched_task_done_committed_cnt==1UL );
+  FD_TEST( mock_sched_task_done_committed==fd_type_pun_const( result->committed_writable ) );
+  FD_TEST( mock_sched_task_done_committed[0].b[0]==0x33U );
 
   msg->txn_exec->alt_writable_cnt = 0;
+  msg->txn_exec->committed_writable_cnt = 0;
   FD_TEST( !returnable_frag( ctx, TEST_EXECRP_IN_IDX, 3UL, sig, in_chunk, sizeof(*msg), 0UL, 0UL, 0UL, test_stem ) );
   FD_TEST( bank->refcnt==0UL );
   FD_TEST( mock_sched_task_done_cnt==4UL );
   FD_TEST( mock_sched_task_done_type==FD_SCHED_TT_TXN_EXEC );
-  FD_TEST( mock_sched_task_done_data==NULL );
+  FD_TEST( mock_sched_task_done_data!=NULL );
+  FD_TEST( !mock_sched_task_done_alts_cnt && !mock_sched_task_done_committed_cnt );
 
   fd_cost_tracker_store_release( cost_tracker_store, bank->cost_tracker_fork_id );
   bank->cost_tracker_fork_id = USHORT_MAX;

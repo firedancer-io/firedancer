@@ -562,6 +562,7 @@ test_on_separate_nonce_limit_exceeded( fd_svm_mini_t * mini ) {
   fd_runtime_commit_txn( mini->runtime, bank, txn_in, txn_out );
   FD_TEST( txn_out->err.is_committable );
   FD_TEST( !nonce->private_deferred && nonce->data!=nonce->prior_data );
+  FD_TEST( txn_out->accounts.committed_write_mask==3UL );
   FD_TEST( fd_lthash_eq( &expected, &bank->f.lthash ) );
   /* One materialization copy and one right-sized release copy. */
   FD_TEST( fd_accdb_metrics( mini->runtime->accdb )->bytes_copied==copied_before+2UL*FD_SYSTEM_PROGRAM_NONCE_DLEN );

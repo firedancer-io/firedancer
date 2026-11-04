@@ -1325,6 +1325,7 @@ commit_txn( fd_runtime_t *      runtime,
 
       fd_acc_t * account = txn_out->accounts.account[ i ];
       account->commit = 1;
+      txn_out->accounts.committed_write_mask |= 1UL<<i;
 
       if( FD_UNLIKELY( txn_out->accounts.stake_update[ i ] ) ) {
         fd_stake_history_t stake_history[1];
@@ -1403,6 +1404,7 @@ commit_txn( fd_runtime_t *      runtime,
       }
       nonce_account->executable = nonce_account->prior_executable;
       nonce_account->commit = 1;
+      txn_out->accounts.committed_write_mask |= 1UL<<txn_out->accounts.nonce_idx_in_txn;
       fd_runtime_lthash_account( runtime, bank, &txn_out->accounts.keys[ txn_out->accounts.nonce_idx_in_txn ], nonce_account, runtime->log.capture_ctx, delta );
     }
 
@@ -1417,6 +1419,7 @@ commit_txn( fd_runtime_t *      runtime,
       fee_payer_account->executable = fee_payer_account->prior_executable;
 
       fee_payer_account->commit = 1;
+      txn_out->accounts.committed_write_mask |= 1UL<<FD_FEE_PAYER_TXN_IDX;
       fd_runtime_lthash_account( runtime, bank, &txn_out->accounts.keys[ FD_FEE_PAYER_TXN_IDX ], fee_payer_account, runtime->log.capture_ctx, delta );
     }
   }
@@ -1513,6 +1516,8 @@ fd_runtime_new_txn_out( fd_txn_in_t const * txn_in,
   memcpy( txn_out->details.blockhash.uc, blockhash->hash, sizeof(fd_hash_t) );
   memset( txn_out->details.blake_txn_msg_hash.uc, 0, sizeof(fd_hash_t) );
 
+  FD_STATIC_ASSERT( MAX_TX_ACCOUNT_LOCKS<=64UL, committed_write_mask_width );
+  txn_out->accounts.committed_write_mask = 0UL;
   txn_out->accounts.is_setup           = 0;
   txn_out->accounts.is_bundle          = txn_in->bundle.is_bundle;
   if( FD_LIKELY( !txn_in->bundle.is_bundle ) ) txn_out->accounts.cnt= 0UL;

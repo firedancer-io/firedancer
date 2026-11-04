@@ -315,6 +315,9 @@ struct fd_txn_out {
        fd_runtime_fini_bundle, so commit/cancel must NOT release
        per-txn. */
     int         is_bundle;
+    /* Account indices actually committed by this transaction, captured
+       before accdb release. Conservative: a committed image may be unchanged. */
+    ulong       committed_write_mask;
     ulong       cnt;
     fd_pubkey_t keys[ MAX_TX_ACCOUNT_LOCKS ];
     fd_acc_t *  account[ MAX_TX_ACCOUNT_LOCKS ];

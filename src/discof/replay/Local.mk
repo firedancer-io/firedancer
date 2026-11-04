@@ -6,7 +6,7 @@ $(call make-unit-test,test_rdisp_mq,test_rdisp_mq, fd_util)
 $(call run-unit-test,test_rdisp_mq)
 $(call add-objs,fd_sched,fd_discof)
 ifdef FD_HAS_HOSTED
-$(call make-unit-test,test_sched,test_sched,fd_discof fd_choreo fd_disco fd_flamenco fd_ballet fd_tango fd_util)
+$(call make-unit-test,test_sched,test_sched,fd_discof fd_choreo fd_disco fd_flamenco_test fd_flamenco fd_ballet fd_tango fd_util)
 $(call run-unit-test,test_sched)
 $(call make-fuzz-test,fuzz_sched_rdisp,fuzz_sched_rdisp,fd_discof fd_choreo fd_disco fd_flamenco fd_ballet fd_tango fd_util)
 endif

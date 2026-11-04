@@ -233,6 +233,17 @@ publish_txn_finalized_msg( fd_execrp_tile_t *  ctx,
       alt_writable_cnt = adtl_writable_cnt;
     }
   }
+  /* The bitmap was captured at the actual save/rollback points before
+     release. Never inspect released account data or infer writes from errors. */
+  ulong committed_cnt = 0UL;
+  if( ctx->txn_out.err.is_committable ) {
+    for( ulong bits=ctx->txn_out.accounts.committed_write_mask; bits; bits=fd_ulong_pop_lsb( bits ) ) {
+      ulong i = (ulong)fd_ulong_find_lsb( bits );
+      FD_TEST( i<ctx->txn_out.accounts.cnt );
+      ctx->result->committed_writable[ committed_cnt++ ] = ctx->txn_out.accounts.keys[ i ];
+    }
+  }
+  msg->txn_exec->committed_writable_cnt = (uchar)committed_cnt;
   msg->txn_exec->alt_writable_cnt = (uchar)alt_writable_cnt;
   ctx->want_alts = 0;
 

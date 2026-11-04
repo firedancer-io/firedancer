@@ -9,6 +9,10 @@
 #include "../../flamenco/txn/fd_txn_generate.h"
 #include "../../flamenco/alpenglow/fd_block_marker_serde.h"
 #include "../../flamenco/runtime/fd_runtime_const.h"
+#include "../../flamenco/runtime/tests/fd_svm_mini.h"
+#include "../../flamenco/runtime/fd_hashes.h"
+#include "../../flamenco/runtime/program/fd_compute_budget_program.h"
+#include "../../flamenco/runtime/program/fd_system_program.h"
 
 /* Exercise private state/debounce transitions with an exact clock.
    All other scheduler tests use the native tick counter. */
@@ -141,6 +145,10 @@ new_sched_ext( ulong depth,
   FD_TEST( mem );
   fd_sched_t * sched = fd_sched_join( fd_sched_new( mem, rng, depth, block_cnt_max, max_shreds_per_block, max_txn_per_slot, TEST_EXEC_CNT ) );
   FD_TEST( sched );
+  /* Preserve the declared-write reference engine for its existing exhaustive
+     speculation tests. Production defaults to committed writes; new committed
+     regressions below explicitly exercise that mode against this reference. */
+  sched->lthash_committed_writes = 0;
   fd_sched_block_add_done( sched, 1UL, ULONG_MAX, TEST_ROOT_SLOT );
   return sched;
 }
@@ -1742,13 +1750,27 @@ lthash_complete_txn( fd_sched_t *            sched,
   FD_TEST( txn_p );
   fd_txn_t const *       txn   = TXN( txn_p );
   fd_acct_addr_t const * addrs = fd_txn_get_acct_addrs( txn, txn_p->payload );
+  fd_acct_addr_t committed[ MAX_TX_ACCOUNT_LOCKS ];
+  ulong committed_cnt = 0UL;
   for( ushort i=0; i<txn->acct_addr_cnt; i++ ) {
-    if( fd_txn_is_writable( txn, i ) ) lthash_write( ctx, bank_idx, addrs+i );
+    if( !fd_txn_is_writable( txn, i ) ) continue;
+    lthash_write( ctx, bank_idx, addrs+i );
+    FD_TEST( committed_cnt<MAX_TX_ACCOUNT_LOCKS );
+    committed[ committed_cnt++ ] = addrs[i];
   }
   fd_sched_txn_alts_t alts[ 1 ] = {{ .cnt = ctx->late_alt_cnt, .addrs = ctx->late_alts }};
   void * data = NULL;
   if( txn->addr_table_lookup_cnt ) {
-    for( ulong i=0UL; i<alts->cnt; i++ ) lthash_write( ctx, bank_idx, alts->addrs+i );
+    for( ulong i=0UL; i<alts->cnt; i++ ) {
+      lthash_write( ctx, bank_idx, alts->addrs+i );
+      FD_TEST( committed_cnt<MAX_TX_ACCOUNT_LOCKS );
+      committed[ committed_cnt++ ] = alts->addrs[i];
+    }
+    data = alts;
+  }
+  if( sched->lthash_committed_writes ) {
+    alts->committed_cnt = committed_cnt;
+    alts->committed = committed;
     data = alts;
   }
   ctx->txn_exec_cnt++;
@@ -4952,6 +4974,340 @@ run_lthash_spec_batch_case( int abandon ) {
   FD_LOG_NOTICE(( "pass: speculative LtHash batch stale/undo/drain case %d", abandon ));
 }
 
+
+/* Real bank/runtime/accdb plus the production scheduler. Compare committed
+   OOB against in-band hashing, using the same parsed transaction bytes. No
+   signatures or network are generated. The signature-verification task is
+   acknowledged here, as in the other scheduler tests. */
+#define COMMIT_LARGE_SZ (10UL<<20)
+static uchar commit_large[ COMMIT_LARGE_SZ ];
+
+static void
+commit_put( fd_svm_mini_t * mini, fd_pubkey_t const * key,
+            ulong lamports, uchar * data, ulong len ) {
+  fd_acc_t a = { .lamports=lamports, .data=data, .data_len=len };
+  memcpy( a.pubkey, key->uc, 32UL );
+  memcpy( a.owner, fd_solana_system_program_id.uc, 32UL );
+  fd_svm_mini_put_account_rooted( mini, &a );
+}
+
+static void
+commit_hash( fd_svm_mini_t * mini, fd_accdb_fork_id_t fork,
+             fd_pubkey_t const * key, fd_lthash_value_t * out ) {
+  fd_acc_t a = fd_accdb_read_one( mini->runtime->accdb, fork, key->uc );
+  fd_hashes_account_lthash_simple( key->uc, a.owner, a.lamports,
+                                 a.executable, a.data, a.data_len, out );
+  fd_accdb_unread_one( mini->runtime->accdb, &a );
+}
+
+static ulong
+commit_wire( uchar * payload, fd_bank_t * bank, fd_pubkey_t const * payer,
+             fd_pubkey_t const * large, fd_pubkey_t const * nonce,
+             fd_hash_t const * durable, int fail, uchar tag ) {
+  fd_pubkey_t writable[2] = { *large, *nonce };
+  fd_pubkey_t readonly[3] = { fd_solana_system_program_id,
+                             fd_solana_compute_budget_program_id,
+                             fd_sysvar_recent_block_hashes_id };
+  fd_txn_accounts_t a = { .signature_cnt=1U, .readonly_unsigned_cnt=3U,
+    .acct_cnt=6U, .signers_w=payer, .non_signers_w=writable, .non_signers_r=readonly };
+  uchar meta[ FD_TXN_MAX_SZ ] __attribute__((aligned(alignof(fd_txn_t))));
+  fd_memset( meta, 0, sizeof(meta) );
+  fd_hash_t const * hash = durable ? durable : fd_blockhashes_peek_last_hash( &bank->f.block_hash_queue );
+  fd_txn_base_generate( meta, payload, 1UL, &a, hash->uc );
+  if( durable ) {
+    uchar accts[3] = {2U,5U,0U};
+    uint op = FD_SYSTEM_PROGRAM_INSTR_ADVANCE_NONCE_ACCOUNT;
+    fd_txn_add_instr( meta, payload, 3U, accts, 3UL, (uchar *)&op, 4UL );
+  }
+  uchar budget[5] = { FD_COMPUTE_BUDGET_INSTR_DISC_SET_LOADED_ACCOUNTS_DATA_SIZE_LIMIT };
+  FD_STORE( uint, budget+1, fail ? 1024U : (uint)(20UL<<20) );
+  fd_txn_add_instr( meta, payload, 4U, NULL, 0UL, budget, 5UL );
+  uchar transfer[12]; FD_STORE( uint, transfer, FD_SYSTEM_PROGRAM_INSTR_TRANSFER );
+  FD_STORE( ulong, transfer+4, 1UL );
+  uchar accts[2] = {0U,1U};
+  ulong n = fd_txn_add_instr( meta, payload, 3U, accts, 2UL, transfer, sizeof(transfer) );
+  payload[1] = tag;
+  return n;
+}
+
+struct commit_observation {
+  fd_lthash_value_t bank;
+  fd_lthash_value_t state[4];
+  int err[2]; ulong fee[2]; ulong meter[2]; ulong mask[2];
+  ulong large_hashed;
+};
+typedef struct commit_observation commit_observation_t;
+
+/* case 0: load failure; 1: absent payer; 2: success then failure;
+   3: failure then success; 4: nonce load failure; 5: successful write;
+   6: success, demotion/promotion, then failure. */
+static void
+run_committed_bank_arm( fd_svm_mini_t * mini, int kind, int oob,
+                        commit_observation_t * observed ) {
+  memset( observed, 0, sizeof(*observed) );
+  fd_svm_mini_params_t params[1]; fd_svm_mini_params_default( params );
+  params->root_slot = TEST_ROOT_SLOT;
+  ulong root = fd_svm_mini_reset( mini, params );
+  fd_pubkey_t keys[4];
+  for( ulong i=0UL; i<4UL; i++ ) memset( keys[i].uc, (int)(0x11UL+i*0x22UL), 32UL );
+  fd_memset( commit_large, 0x5a, sizeof(commit_large) );
+  commit_put( mini, keys,   1000000000000UL, NULL, 0UL );
+  commit_put( mini, keys+1, 1000000000000UL, commit_large, sizeof(commit_large) );
+  fd_hash_t durable[1]; uchar stale[45];
+  memcpy( stale, "DURABLE_NONCE", 13UL ); memset( stale+13, 0x42, 32UL );
+  fd_sha256_hash( stale, sizeof(stale), durable );
+  fd_nonce_state_versions_t nonce_state = { .version=FD_NONCE_VERSION_CURRENT,
+    .kind=FD_NONCE_STATE_INITIALIZED, .authority=keys[0], .durable_nonce=*durable };
+  uchar nonce_data[ FD_SYSTEM_PROGRAM_NONCE_DLEN ]; ulong written=0UL;
+  FD_TEST( !fd_nonce_state_versions_encode( &nonce_state, nonce_data, sizeof(nonce_data), &written ) );
+  commit_put( mini, keys+2, 1000000000UL, nonce_data, sizeof(nonce_data) );
+  /* keys[3] is deliberately absent. */
+  fd_accdb_fork_id_t parent_fork = fd_svm_mini_fork_id( mini, root );
+  fd_lthash_value_t pre[4];
+  for( ulong i=0UL; i<4UL; i++ ) commit_hash( mini, parent_fork, keys+i, pre+i );
+  ulong child = fd_svm_mini_attach_child( mini, root, TEST_ROOT_SLOT+1UL );
+  fd_bank_t * bank = fd_svm_mini_bank( mini, child );
+  bank->f.features.define_ltds_fee_only_semantics = 0UL;
+  bank->f.features.relax_fee_payer_constraint = FD_FEATURE_DISABLED;
+  fd_lthash_value_t initial = bank->f.lthash;
+  fd_sched_t * sched = new_sched( 4UL );
+  sched->lthash_committed_writes = 1;
+  if( !oob ) fd_sched_set_lthash_oob_block_max( sched, 0UL );
+  fd_sched_set_bypass_poh_verify( sched, 1 );
+  uchar wire[2][ FD_TXN_MTU ]; ulong sizes[2];
+  ulong txn_cnt = kind==2 || kind==3 || kind==6 ? 2UL : 1UL;
+  for( ulong i=0UL; i<txn_cnt; i++ ) {
+    int fail = kind==0 || kind==1 || kind==4 || ((kind==2 || kind==6) && i==1UL) || (kind==3 && i==0UL);
+    sizes[i] = commit_wire( wire[i], bank, keys+(kind==1 ? 3 : 0), keys+1, keys+2,
+                            kind==4 ? durable : NULL, fail, (uchar)(i+1UL) );
+  }
+  uchar const * wires[2] = {wire[0],wire[1]}; uchar encoded[8192];
+  ulong sz = encode_lthash_batch( encoded, wires, sizes, kind==6 ? 1UL : txn_cnt );
+  ingest_lthash_fec( sched, 2UL, 1UL, TEST_ROOT_SLOT+1UL, TEST_ROOT_SLOT, encoded, sz, 1, kind!=6 );
+  fd_hash_t poh[1]; hash_from_seed( poh, 123UL );
+  fd_sched_set_poh_params( sched, 2UL, TEST_ROOT_TICK_HEIGHT, TEST_ROOT_TICK_HEIGHT+1UL, poh );
+  ulong executed=0UL, ended=0UL; int demoted=0;
+  for( ulong polls=0UL; polls<1000UL; polls++ ) {
+    while( fd_sched_pruned_block_next( sched )!=ULONG_MAX ) {}
+    fd_sched_task_t task[1];
+    if( !fd_sched_task_next_ready( sched, task ) ) {
+      if( kind==6 && executed==1UL && !demoted ) {
+        fd_sched_block_t * block=block_pool_ele( sched, 2UL );
+        FD_TEST( block_is_demotable( block ) );
+        demote_lane( sched, (int)block->staging_lane );
+        demoted=1;
+        sz=encode_lthash_batch( encoded, wires+1, sizes+1, 1UL );
+        ingest_lthash_fec( sched, 2UL, 1UL, TEST_ROOT_SLOT+1UL, TEST_ROOT_SLOT, encoded, sz, 0, 1 );
+        continue;
+      }
+      if( fd_sched_is_drained( sched ) ) break;
+      continue;
+    }
+    switch( task->task_type ) {
+    case FD_SCHED_TT_BLOCK_START:
+      bank->lthash_mode = task->block_start->lthash_inband ? FD_BANK_LTHASH_MODE_INBAND : FD_BANK_LTHASH_MODE_OOB_SKIP;
+      FD_TEST( !fd_sched_task_done( sched, task->task_type, ULONG_MAX, ULONG_MAX, NULL ) ); break;
+    case FD_SCHED_TT_TXN_EXEC: {
+      fd_txn_in_t in[1] = {{ .txn=fd_sched_get_txn( sched, task->txn_exec->txn_idx ) }};
+      static fd_txn_out_t out[1]; memset( out, 0, sizeof(out) );
+      fd_runtime_prepare_and_execute_txn( mini->runtime, bank, in, out );
+      observed->err[executed] = out->err.txn_err;
+      observed->fee[executed] = out->details.execution_fee;
+      observed->meter[executed] = out->details.compute_budget.compute_meter;
+      if( out->err.is_committable ) fd_runtime_commit_txn( mini->runtime, bank, in, out );
+      else fd_runtime_cancel_txn( mini->runtime, bank, in, out );
+      observed->mask[executed] = out->accounts.committed_write_mask;
+      fd_acct_addr_t committed[ MAX_TX_ACCOUNT_LOCKS ]; ulong count=0UL;
+      for( ulong bits=out->accounts.committed_write_mask; bits; bits=fd_ulong_pop_lsb( bits ) )
+        committed[count++] = *(fd_acct_addr_t const *)(out->accounts.keys+fd_ulong_find_lsb( bits ));
+      fd_sched_txn_alts_t done = { .committed_cnt=count, .committed=committed };
+      if( !out->err.is_committable ) done.committed_cnt=0UL;
+      /* The absent payer rules the block dead in production. Test the
+         same drain/abandon boundary instead of accepting its block. */
+      if( kind==1 ) fd_sched_block_abandon( sched, 2UL, FD_SCHED_ABANDON_INVALID );
+      FD_TEST( !fd_sched_task_done( sched, task->task_type, task->txn_exec->txn_idx, task->txn_exec->exec_idx, &done ) );
+      executed++; break;
+    }
+    case FD_SCHED_TT_TXN_SIGVERIFY:
+      FD_TEST( !fd_sched_task_done( sched, task->task_type, ULONG_MAX, task->txn_sigverify->exec_idx, NULL ) ); break;
+    case FD_SCHED_TT_POH_HASH: {
+      fd_execrp_poh_hash_done_msg_t msg = {.cnt=task->poh_hash->cnt};
+      for( ulong i=0UL; i<msg.cnt; i++ ) repeat_hash( msg.hash+i, task->poh_hash->hash+i, task->poh_hash->hashcnt );
+      FD_TEST( !fd_sched_task_done( sched, task->task_type, ULONG_MAX, task->poh_hash->exec_idx, &msg ) ); break;
+    }
+    case FD_SCHED_TT_LTHASH_SUB:
+    case FD_SCHED_TT_LTHASH_ADD: {
+      FD_TEST( oob && !task->lthash->individual );
+      if( task->task_type==FD_SCHED_TT_LTHASH_ADD ) FD_TEST( executed==txn_cnt );
+      fd_accdb_fork_id_t fork = task->task_type==FD_SCHED_TT_LTHASH_SUB ? parent_fork : bank->accdb_fork_id;
+      fd_lthash_value_t sum; fd_lthash_zero( &sum );
+      for( ulong i=0UL; i<task->lthash->cnt; i++ ) {
+        fd_pubkey_t const * key = fd_type_pun_const( task->lthash->accts+i );
+        if( !memcmp( key->uc, keys[1].uc, 32UL ) ) observed->large_hashed += COMMIT_LARGE_SZ;
+        fd_lthash_value_t hash; commit_hash( mini, fork, key, &hash ); fd_lthash_add( &sum, &hash );
+      }
+      FD_TEST( !fd_sched_task_done( sched, task->task_type, ULONG_MAX, task->lthash->exec_idx, &sum ) ); break;
+    }
+    case FD_SCHED_TT_BLOCK_END:
+      fd_lthash_add( &bank->f.lthash, fd_sched_lthash_delta( sched, 2UL ) );
+      FD_TEST( !fd_sched_task_done( sched, task->task_type, ULONG_MAX, ULONG_MAX, NULL ) ); ended++; break;
+    default: FD_LOG_ERR(( "unexpected committed regression task %lu", task->task_type ));
+    }
+  }
+  FD_TEST( executed==txn_cnt && ended==(ulong)(kind!=1) && fd_sched_is_drained( sched ) );
+  fd_lthash_value_t expected=initial;
+  for( ulong i=0UL; i<4UL; i++ ) {
+    commit_hash( mini, bank->accdb_fork_id, keys+i, observed->state+i );
+    fd_lthash_sub( &expected, pre+i ); fd_lthash_add( &expected, observed->state+i );
+  }
+  FD_TEST( fd_lthash_eq( &expected, &bank->f.lthash ) );
+  observed->bank=bank->f.lthash;
+  if( kind==0 || kind==4 ) FD_TEST( observed->err[0]==FD_RUNTIME_TXN_ERR_MAX_LOADED_ACCOUNTS_DATA_SIZE_EXCEEDED );
+  if( kind==1 ) FD_TEST( observed->err[0]==FD_RUNTIME_TXN_ERR_ACCOUNT_NOT_FOUND );
+  if( kind==5 ) FD_TEST( observed->err[0]==0 );
+  if( kind==2 || kind==6 ) {
+    FD_TEST( observed->err[0]==0 && observed->mask[0]==3UL );
+    FD_TEST( observed->err[1]==FD_RUNTIME_TXN_ERR_MAX_LOADED_ACCOUNTS_DATA_SIZE_EXCEEDED && observed->mask[1]==1UL );
+  }
+  if( kind==3 ) {
+    FD_TEST( observed->err[0]==FD_RUNTIME_TXN_ERR_MAX_LOADED_ACCOUNTS_DATA_SIZE_EXCEEDED && observed->mask[0]==1UL );
+    FD_TEST( observed->err[1]==0 && observed->mask[1]==3UL );
+  }
+  if( kind==0 ) FD_TEST( observed->mask[0]==1UL );
+  if( kind==1 ) FD_TEST( !observed->mask[0] );
+  if( kind==4 ) FD_TEST( observed->mask[0]==5UL ); /* payer + separate nonce */
+  if( oob ) FD_TEST( observed->large_hashed==((kind==2 || kind==3 || kind==5) ? 2UL*COMMIT_LARGE_SZ : kind==6 ? 3UL*COMMIT_LARGE_SZ : 0UL) );
+  if( kind==6 ) FD_TEST( demoted );
+  while( fd_sched_pruned_block_next( sched )!=ULONG_MAX ) {}
+  delete_sched( sched );
+}
+
+static void
+run_committed_bank_cases( void ) {
+  fd_svm_mini_limits_t limits[1]; fd_svm_mini_limits_default( limits );
+  /* Keep the runtime fixture outside the scheduler's normal 8 GiB
+     workspace without reserving any additional huge pages. */
+  ulong data_max = fd_svm_mini_wksp_data_max( limits );
+  ulong part_max = fd_wksp_part_max_est( data_max, 64UL<<10 );
+  ulong pages = fd_ulong_align_up( fd_wksp_footprint( part_max, data_max ), FD_SHMEM_NORMAL_PAGE_SZ )/FD_SHMEM_NORMAL_PAGE_SZ;
+  fd_wksp_t * mini_wksp = fd_wksp_new_anonymous( FD_SHMEM_NORMAL_PAGE_SZ, pages,
+                                               fd_log_cpu_id(), "commit-mini", 0UL );
+  FD_TEST( mini_wksp );
+  fd_svm_mini_t * mini = fd_svm_mini_create( mini_wksp, limits );
+  for( int kind=0; kind<7; kind++ ) {
+    commit_observation_t a,b;
+    run_committed_bank_arm( mini, kind, 0, &a );
+    run_committed_bank_arm( mini, kind, 1, &b );
+    FD_TEST( fd_lthash_eq( &a.bank, &b.bank ) );
+    FD_TEST( !memcmp( a.state, b.state, sizeof(a.state) ) );
+    FD_TEST( !memcmp( a.err, b.err, sizeof(a.err) ) && !memcmp( a.fee, b.fee, sizeof(a.fee) ) );
+    FD_TEST( !memcmp( a.meter, b.meter, sizeof(a.meter) ) && !memcmp( a.mask, b.mask, sizeof(a.mask) ) );
+    FD_LOG_NOTICE(( "pass: committed real-bank case %d, large hash bytes %lu", kind, b.large_hashed ));
+  }
+  fd_svm_mini_destroy( mini );
+  fd_wksp_delete_anonymous( mini_wksp );
+}
+
+/* Exercise the production completion protocol for unresolved ALTs. Both
+   transactions are parsed before either result, but only the actual
+   committed set is hashed. The declared ALT writer cap remains binding
+   even when the execution result reports no commits. */
+static void
+run_committed_alt_case( int kind ) {
+  fd_sched_t * sched = new_sched( 4UL );
+  sched->lthash_committed_writes = 1;
+  fd_sched_set_bypass_poh_verify( sched, 1 );
+  fd_sched_set_bypass_alut_resolution( sched, 1 );
+  if( kind==1 ) fd_sched_set_lthash_txn_writers_max( sched, 3UL );
+  fd_pubkey_t acct[3];
+  for( ulong i=0UL; i<3UL; i++ ) memset( acct[i].uc, (int)(0xa0UL+i), 32UL );
+  fd_acct_addr_t late[2];
+  memcpy( late, acct, 32UL ); memcpy( late+1, acct+2, 32UL );
+  uchar wire[2][FD_TXN_MTU];
+  ulong sizes[2] = { build_lthash_v0_txn( wire[0], acct+1, 2UL, 1U ),
+                     build_lthash_test_txn( wire[1], acct, NULL, 0UL, 2U ) };
+  uchar const * wires[2] = {wire[0],wire[1]}; uchar encoded[8192];
+  ulong sz = encode_lthash_batch( encoded, wires, sizes, 2UL );
+  ingest_lthash_fec( sched, 2UL, 1UL, TEST_ROOT_SLOT+1UL, TEST_ROOT_SLOT, encoded, sz, 1, 1 );
+  fd_hash_t poh[1]; hash_from_seed( poh, 234UL );
+  fd_sched_set_poh_params( sched, 2UL, TEST_ROOT_TICK_HEIGHT, TEST_ROOT_TICK_HEIGHT+1UL, poh );
+  static test_lthash_ctx_t ctx[1]; memset( ctx, 0, sizeof(*ctx) );
+  ctx->late_alts=late; ctx->late_alt_cnt=2UL;
+  fd_sched_task_t held[1]; fd_lthash_value_t ignored[FD_EXECRP_LTHASH_SPEC_MAX];
+  FD_TEST( lthash_drive_hold( sched, ctx, 100UL, FD_SCHED_TT_TXN_EXEC, held, ignored ) );
+  FD_TEST( TXN( fd_sched_get_txn( sched, held->txn_exec->txn_idx ) )->addr_table_lookup_cnt );
+  FD_TEST( !ctx->sub_cnt && !ctx->add_cnt ); /* no declared-account hashing */
+  if( !kind ) {
+    lthash_complete_txn( sched, held, ctx );
+  } else {
+    fd_acct_addr_t payer; memcpy( &payer, acct+1, 32UL );
+    fd_sched_txn_alts_t done = { .cnt=2UL, .addrs=late,
+      .committed_cnt=kind==1 ? 0UL : 1UL, .committed=&payer };
+    int rc = fd_sched_task_done( sched, FD_SCHED_TT_TXN_EXEC,
+                                held->txn_exec->txn_idx, held->txn_exec->exec_idx, &done );
+    FD_TEST( rc==(kind==1 ? FD_SCHED_DEAD_REASON_TOO_MANY_WRITABLE_ACCOUNTS : 0) );
+    if( kind==2 ) lthash_write( ctx, 2UL, &payer );
+    ctx->txn_exec_cnt++;
+  }
+  lthash_drive( sched, ctx, 1000UL );
+  FD_TEST( fd_sched_is_drained( sched ) );
+  if( kind==1 ) {
+    FD_TEST( !ctx->block_end_cnt && !ctx->sub_cnt && !ctx->add_cnt );
+    FD_TEST( sched->metrics->lthash_late_reg_cnt==0U );
+  } else {
+    FD_TEST( ctx->block_end_cnt==1UL && ctx->txn_exec_cnt==2UL );
+    ulong n = kind==2 ? 2UL : 3UL;
+    FD_TEST( ctx->sub_cnt==n && ctx->add_cnt==n );
+    fd_lthash_value_t expected[1]; lthash_expected_delta( expected, ctx, 2UL, acct, n );
+    FD_TEST( fd_lthash_eq( ctx->delta, expected ) );
+    FD_TEST( !sched->metrics->lthash_spec_cnt );
+  }
+  delete_sched( sched );
+  FD_LOG_NOTICE(( "pass: committed unresolved ALT case %d", kind ));
+}
+
+/* After an actual commit is reported, hold both parent SUB and final
+   ADD in flight, abandon the bank, and deliver the results in either
+   order. No BLOCK_END is published and the lane/tile references drain. */
+static void
+run_committed_dead_case( int last_is_add ) {
+  fd_sched_t * sched = new_sched( 4UL );
+  sched->lthash_committed_writes = 1;
+  fd_sched_set_bypass_poh_verify( sched, 1 );
+  fd_pubkey_t acct; memset( acct.uc, 0xa1, sizeof(acct) );
+  uchar wire[FD_TXN_MTU]; ulong size=build_lthash_test_txn( wire, &acct, NULL, 0UL, 1U );
+  uchar const * wires[1]={wire}; uchar encoded[8192];
+  ulong sz=encode_lthash_batch( encoded, wires, &size, 1UL );
+  ingest_lthash_fec( sched, 2UL, 1UL, TEST_ROOT_SLOT+1UL, TEST_ROOT_SLOT, encoded, sz, 1, 1 );
+  fd_hash_t poh[1]; hash_from_seed( poh, 345UL );
+  fd_sched_set_poh_params( sched, 2UL, TEST_ROOT_TICK_HEIGHT, TEST_ROOT_TICK_HEIGHT+1UL, poh );
+  static test_lthash_ctx_t ctx[1]; memset( ctx, 0, sizeof(*ctx) );
+  fd_sched_task_t pending[2]; ulong pending_cnt=0UL;
+  for( ulong i=0UL; i<100UL; i++ ) {
+    while( fd_sched_pruned_block_next( sched )!=ULONG_MAX ) {}
+    fd_sched_task_t task[1];
+    if( !fd_sched_task_next_ready( sched, task ) ) break;
+    if( task->task_type==FD_SCHED_TT_LTHASH_SUB || task->task_type==FD_SCHED_TT_LTHASH_ADD ) {
+      FD_TEST( pending_cnt<2UL && !task->lthash->individual );
+      pending[pending_cnt++]=*task;
+    } else lthash_drive_task( sched, task, ctx );
+  }
+  FD_TEST( pending_cnt==2UL && ctx->txn_exec_cnt==1UL && !ctx->block_end_cnt );
+  FD_TEST( pending[0].task_type!=pending[1].task_type );
+  fd_sched_block_abandon( sched, 2UL, FD_SCHED_ABANDON_INVALID );
+  FD_TEST( fd_sched_pruned_block_next( sched )==ULONG_MAX );
+  ulong add = pending[0].task_type==FD_SCHED_TT_LTHASH_ADD ? 0UL : 1UL;
+  lthash_drive_task( sched, pending+(last_is_add ? 1UL-add : add), ctx );
+  FD_TEST( fd_sched_pruned_block_next( sched )==ULONG_MAX );
+  lthash_drive_task( sched, pending+(last_is_add ? add : 1UL-add), ctx );
+  FD_TEST( fd_sched_pruned_block_next( sched )==2UL );
+  FD_TEST( fd_sched_pruned_block_next( sched )==ULONG_MAX );
+  FD_TEST( fd_sched_is_drained( sched ) && !ctx->block_end_cnt );
+  FD_TEST( sched->lthash_ready_bitset[0]==15UL );
+  delete_sched( sched );
+  FD_LOG_NOTICE(( "pass: committed dead bank, last is ADD %d", last_is_add ));
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -4962,6 +5318,13 @@ main( int     argc,
   ulong        numa_idx = fd_env_strip_cmdline_ulong( &argc, &argv, "--numa-idx", NULL, fd_shmem_numa_idx( 0UL ) );
   test_wksp = fd_wksp_new_anonymous( fd_cstr_to_shmem_page_sz( _page_sz ), page_cnt, fd_shmem_cpu_idx( numa_idx ), "wksp", 0UL );
   FD_TEST( test_wksp );
+
+  int committed_only = fd_env_strip_cmdline_int( &argc, &argv, "--committed-only", NULL, 0 );
+  run_committed_bank_cases();
+  for( int i=0; i<3; i++ ) run_committed_alt_case( i );
+  run_committed_dead_case( 0 );
+  run_committed_dead_case( 1 );
+  if( committed_only ) { fd_wksp_delete_anonymous( test_wksp ); fd_halt(); return 0; }
 
   test_sched_footprint();
   test_slot_state_debounce();

@@ -1176,7 +1176,21 @@ complete_task( case_t *     tc,
       fd_sched_txn_alts_t alts[ 1 ] = {{ .cnt = txn->alt_cnt, .addrs = alt_addr }};
       for( ulong i=0UL; i<txn->alt_cnt; i++ ) pubkey_from_id( fd_type_pun( alt_addr+i ), txn->alt_id[ i ] );
       int over = txn->is_alt && block->writable_declared+txn->alt_cnt>tc->writers_max;
-      int rc   = fd_sched_task_done( tc->sched, FD_SCHED_TT_TXN_EXEC, task->txn_idx, task->exec_idx, txn->is_alt ? alts : NULL );
+      fd_acct_addr_t committed[ MAX_TX_ACCOUNT_LOCKS ];
+      fd_txn_p_t const * wire = fd_sched_get_txn( tc->sched, task->txn_idx );
+      fd_txn_t const * parsed = TXN( wire );
+      fd_acct_addr_t const * keys = fd_txn_get_acct_addrs( parsed, wire->payload );
+      for( ulong i=0UL; i<parsed->acct_addr_cnt; i++ ) {
+        if( !fd_txn_is_writable( parsed, (ushort)i ) ) continue;
+        FD_TEST( alts->committed_cnt<MAX_TX_ACCOUNT_LOCKS );
+        committed[ alts->committed_cnt++ ] = keys[ i ];
+      }
+      for( ulong i=0UL; i<txn->alt_cnt; i++ ) {
+        FD_TEST( alts->committed_cnt<MAX_TX_ACCOUNT_LOCKS );
+        committed[ alts->committed_cnt++ ] = alt_addr[ i ];
+      }
+      alts->committed = committed;
+      int rc   = fd_sched_task_done( tc->sched, FD_SCHED_TT_TXN_EXEC, task->txn_idx, task->exec_idx, alts );
       if( FD_UNLIKELY( over && !dying ) ) {
         FD_TEST( rc==FD_SCHED_DEAD_REASON_TOO_MANY_WRITABLE_ACCOUNTS );
         block->dead_seen = 1;

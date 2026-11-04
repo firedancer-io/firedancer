@@ -1040,6 +1040,10 @@ FD_UNIT_TEST( execrp_simple_ok ) {
   FD_TEST( env->execrp->runtime->metrics.instr_cum==1UL );
   FD_TEST( env->execrp->runtime->metrics.cpi_cum==0UL );
 
+  FD_TEST( out_msg->txn_exec->committed_writable_cnt==2U );
+  FD_TEST( !memcmp( env->execrp->result->committed_writable, &fee_payer, 32UL ) );
+  FD_TEST( !memcmp( env->execrp->result->committed_writable+1, &recipient, 32UL ) );
+
   test_env_destroy( env );
 }
 
@@ -1066,6 +1070,8 @@ FD_UNIT_TEST( execrp_simple_fee_payer_fail ) {
   FD_TEST( out_msg->txn_exec->tick_commit_end  ==LONG_MAX );
   FD_TEST( !out_msg->txn_exec->compute_units_consumed );
   FD_TEST( test_read_lamports( env, &data_acct )==data_acct_start );
+
+  FD_TEST( !out_msg->txn_exec->committed_writable_cnt );
 
   test_env_destroy( env );
 }
@@ -1108,6 +1114,8 @@ FD_UNIT_TEST( execrp_simple_fee_payer_fail_relaxed ) {
   /* It does count towards the bank hash signature count */
   FD_TEST( bank->f.txn_count==1UL       );
   FD_TEST( bank->f.signature_count==1UL );
+
+  FD_TEST( !out_msg->txn_exec->committed_writable_cnt );
 
   test_env_destroy( env );
 }
@@ -1178,6 +1186,9 @@ FD_UNIT_TEST( execrp_simple_fees_only ) {
   FD_TEST( out_msg->txn_exec->transaction_fee==fee );
   FD_TEST( test_read_lamports( env, &fee_payer )==payer_start-fee );
 
+  FD_TEST( out_msg->txn_exec->committed_writable_cnt==1U );
+  FD_TEST( !memcmp( env->execrp->result->committed_writable, &fee_payer, 32UL ) );
+
   test_env_destroy( env );
 }
 
@@ -1199,6 +1210,7 @@ FD_UNIT_TEST( execrp_cost_rejection_telemetry ) {
 
   FD_TEST( !out_msg->txn_exec->is_committable );
   FD_TEST( out_msg->txn_exec->txn_err==FD_RUNTIME_TXN_ERR_WOULD_EXCEED_MAX_BLOCK_COST_LIMIT );
+  FD_TEST( !out_msg->txn_exec->committed_writable_cnt );
   FD_TEST( !out_msg->txn_exec->compute_units_consumed );
   FD_TEST( out_msg->txn_exec->tick_commit_start!=LONG_MAX );
   FD_TEST( out_msg->txn_exec->tick_commit_end>=out_msg->txn_exec->tick_commit_start );
@@ -1240,6 +1252,10 @@ FD_UNIT_TEST( execrp_want_alts ) {
     FD_TEST( writable_idx[ j ]<2 );
     FD_TEST( fd_pubkey_eq( &alt_writable[ j ], &alt_addrs[ writable_idx[ j ] ] ) );
   }
+  FD_TEST( out_msg->txn_exec->committed_writable_cnt==3U );
+  FD_TEST( fd_pubkey_eq( env->execrp->result->committed_writable, &fee_payer ) );
+  for( ulong j=0UL; j<2UL; j++ )
+    FD_TEST( fd_pubkey_eq( env->execrp->result->committed_writable+1UL+j, alt_writable+j ) );
 
   /* Replay did not ask, so no lookup table accounts come back. */
   test_build_alt_transfer_txn( txn, bank, fee_payer, alt, alt_addrs, 2UL );
