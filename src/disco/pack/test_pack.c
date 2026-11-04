@@ -1232,7 +1232,7 @@ test_penalty_readonly_deletion( void ) {
   /* No execution is needed to strand a penalized writer: its pending
      readers can expire first.  Cover explicit deletion, the strict64/65
      threshold, writer-first expiry, active read/write locks, and moving
-     only one best writer per deletion across one or two hot accounts. */
+     one best writer per distinct conflicting account on deletion. */
   for( ulong scenario=0UL; scenario<8UL; scenario++ ) {
     FD_LOG_NOTICE(( "penalty readonly deletion scenario %lu", scenario ));
     fd_pack_t * pack = init_all( 256UL, 20UL, 4UL, &outcome );
@@ -1261,7 +1261,8 @@ test_penalty_readonly_deletion( void ) {
       }
       if( two_writers ) {
         FD_TEST( fd_pack_delete_transaction( pack, txnp_get_signatures( &txnp_scratch[0] ) )==1UL );
-        check_penalty_pending( pack, 65UL, 1UL ); /* one best moved; the other remains */
+        /* Distinct X/Y trees both wake; two writers sharing X wake one. */
+        check_penalty_pending( pack, scenario==7UL ? 66UL : 65UL, scenario==7UL ? 0UL : 1UL );
       }
       if( scenario==1UL ) {
         for( ulong i=0UL; i<readers; i++ ) {

@@ -99,7 +99,12 @@ static void cp_relocation( int empty_owner ) {
     cp_put(p,200UL,100UL,12.0,"K",""); /* H map entry first. */
     for(ulong i=0UL;i<65UL;i++)cp_put(p,300UL+i,100UL,1.0,"J","");
     cp_put(p,400UL,100UL,2.0,"J",""); /* Retained collision-chain witness. */
-  } else cp_put(p,181UL,100UL,2.0,"H","");
+  } else {
+    cp_put(p,181UL,100UL,2.0,"H","");
+    /* One H candidate now wakes before K removal. Keep another H entry
+       so that K removal must still relocate the live owner map entry. */
+    cp_put(p,182UL,100UL,1.0,"H","");
+  }
   ulong owner_before=(ulong)penalty_map_query(p->penalty_treaps,H,NULL);
   ulong witness_before=(ulong)penalty_map_query(p->penalty_treaps,empty_owner ? J : H,NULL);
   FD_TEST(owner_before && witness_before);cp_verify(p);

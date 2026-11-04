@@ -23,6 +23,8 @@ $(call make-unit-test,test_pack,test_pack,fd_disco fd_ballet fd_util)
 $(call run-unit-test,test_pack)
 $(call make-unit-test,test_pack_cross_penalty,test_pack_cross_penalty,fd_disco fd_ballet fd_util)
 $(call run-unit-test,test_pack_cross_penalty)
+$(call make-unit-test,test_pack_multi_account,test_pack_multi_account,fd_disco fd_ballet fd_util)
+$(call run-unit-test,test_pack_multi_account)
 endif
 ifdef FD_HAS_AVX
 # Disabled in CI as it's just a benchmarking program and takes too long

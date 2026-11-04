@@ -3013,9 +3013,9 @@ fd_pack_clear_all( fd_pack_t * pack ) {
 /* If delete_full_bundle is non-zero and the transaction to delete is
    part of a bundle, the rest of the bundle it is part of will be
    deleted as well.
-   If move_from_penalty_treap is non-zero, move at most one best
-   conflicting penalized transaction to pending per deleted transaction,
-   irrespective of the deleted transaction's original treap. */
+   If move_from_penalty_treap is non-zero, move the best transaction
+   from each conflicting account's penalty treap to pending, irrespective
+   of the deleted transaction's original treap. */
 static ulong
 delete_transaction( fd_pack_t         * pack,
                     fd_pack_ord_txn_t * containing,
@@ -3091,35 +3091,29 @@ delete_transaction( fd_pack_t         * pack,
 
   if( FD_UNLIKELY( move_from_penalty_treap ) ) {
 
-    fd_pack_ord_txn_t       * best         = NULL;
-    fd_pack_penalty_treap_t * best_penalty = NULL;
-
-    /* Reads contribute references too, including reads by transactions
-       rooted in a different account's penalty treap or in a bundle. */
+    /* Every distinct conflicting account needs a wakeup: choosing one
+       global best can leave another idle account's writer penalized even
+       after all higher-priority work drains.  Validated transactions have
+       unique account addresses, including ALT expansions. */
     for( fd_txn_acct_iter_t iter=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_ALL );
         iter!=fd_txn_acct_iter_end(); iter=fd_txn_acct_iter_next( iter ) ) {
+      /* Removing an empty map entry can relocate any following entry.
+         Query afresh and retain no map/embedded-treap pointer across this
+         iteration. The excluded victim's accounts remain alive below. */
       fd_pack_penalty_treap_t * p_trp = penalty_map_query( pack->penalty_treaps, *ACCT_ITER_TO_PTR( iter ), NULL );
       if( FD_UNLIKELY( p_trp ) ) {
-        fd_pack_ord_txn_t * best_in_trp = treap_rev_iter_ele( treap_rev_iter_init( p_trp->penalty_treap, pack->pool ), pack->pool );
-        if( FD_UNLIKELY( !best || COMPARE_WORSE( best, best_in_trp ) ) ) {
-          best         = best_in_trp;
-          best_penalty = p_trp;
+        fd_pack_ord_txn_t * best = treap_rev_iter_ele( treap_rev_iter_init( p_trp->penalty_treap, pack->pool ), pack->pool );
+        treap_ele_remove( p_trp->penalty_treap, best, pack->pool );
+        best->root = FD_ORD_TXN_ROOT_PENDING;
+        treap_ele_insert( pack->pending, best, pack->pool );
+
+        pack->pending_smallest->cus   = fd_ulong_min( pack->pending_smallest->cus,   best->compute_est );
+        pack->pending_smallest->bytes = fd_ulong_min( pack->pending_smallest->bytes, best->txn_e->txnp->payload_sz );
+
+        if( FD_UNLIKELY( !treap_ele_cnt( p_trp->penalty_treap ) ) ) {
+          treap_delete( treap_leave( p_trp->penalty_treap ) );
+          penalty_map_remove( pack->penalty_treaps, p_trp );
         }
-      }
-    }
-
-    if( FD_LIKELY( best ) ) {
-      /* move best to the main treap */
-      treap_ele_remove( best_penalty->penalty_treap, best, pack->pool );
-      best->root = FD_ORD_TXN_ROOT_PENDING;
-      treap_ele_insert( pack->pending,               best, pack->pool );
-
-      pack->pending_smallest->cus   = fd_ulong_min( pack->pending_smallest->cus,   best->compute_est             );
-      pack->pending_smallest->bytes = fd_ulong_min( pack->pending_smallest->bytes, best->txn_e->txnp->payload_sz );
-
-      if( FD_UNLIKELY( !treap_ele_cnt( best_penalty->penalty_treap ) ) ) {
-        treap_delete( treap_leave( best_penalty->penalty_treap ) );
-        penalty_map_remove( pack->penalty_treaps, best_penalty );
       }
     }
   }
