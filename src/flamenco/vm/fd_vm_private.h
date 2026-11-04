@@ -229,17 +229,6 @@ fd_vm_mem_cfg( fd_vm_t * vm ) {
   vm->region_haddr[FD_VM_STACK_REGION]   = (ulong)vm->stack;  vm->region_ld_sz[FD_VM_STACK_REGION] = (uint)vm->stack_clean; vm->region_st_sz[FD_VM_STACK_REGION] = (uint)vm->stack_clean;
   vm->region_haddr[FD_VM_HEAP_REGION]    = (ulong)vm->heap;   vm->region_ld_sz[FD_VM_HEAP_REGION]  = (uint)vm->heap_clean;  vm->region_st_sz[FD_VM_HEAP_REGION]  = (uint)vm->heap_clean;
   vm->region_haddr[5]                    = 0UL;               vm->region_ld_sz[5]                  = (uint)0UL;             vm->region_st_sz[5]                  = (uint)0UL;
-  if( vm->direct_mapping || !vm->input_mem_regions_cnt ) {
-    /* When direct mapping is enabled, we don't use these fields because
-       the load and stores are fragmented. */
-    vm->region_haddr[FD_VM_INPUT_REGION] = 0UL;
-    vm->region_ld_sz[FD_VM_INPUT_REGION] = 0U;
-    vm->region_st_sz[FD_VM_INPUT_REGION] = 0U;
-  } else {
-    vm->region_haddr[FD_VM_INPUT_REGION] = vm->input_mem_regions[0].haddr;
-    vm->region_ld_sz[FD_VM_INPUT_REGION] = vm->input_mem_regions[0].region_sz;
-    vm->region_st_sz[FD_VM_INPUT_REGION] = vm->input_mem_regions[0].region_sz;
-  }
   return vm;
 }
 
@@ -518,9 +507,6 @@ fd_vm_mem_haddr( fd_vm_t *       vm,
     offset = ( ( offset & gap_mask ) >> 1 ) | ( offset & ~gap_mask );
   }
 
-  ulong region_sz = (ulong)vm_region_sz[ region ];
-  ulong sz_max    = region_sz - fd_ulong_min( offset, region_sz );
-
   /* If the region is an account, handle the resizing logic. This logic corresponds to
      solana_transaction_context::TransactionContext::access_violation_handler
 
@@ -528,6 +514,9 @@ fd_vm_mem_haddr( fd_vm_t *       vm,
   if( region==FD_VM_INPUT_REGION ) {
     return fd_vm_find_input_mem_region( vm, offset, sz, write, sentinel );
   }
+
+  ulong region_sz = (ulong)vm_region_sz[ region ];
+  ulong sz_max    = region_sz - fd_ulong_min( offset, region_sz );
 
   if( FD_UNLIKELY( sz>sz_max && (region==FD_VM_STACK_REGION || region==FD_VM_HEAP_REGION) ) ) {
     /* {stack,heap} are lazily initialized.  faults here mean that we
