@@ -99,6 +99,9 @@
 
 #define FD_MLX5_WQ_ATTR_STATE     (1U)    /* IB_WQ_STATE */
 #define FD_MLX5_WQ_ATTR_CUR_STATE (1U<<1) /* IB_WQ_CUR_STATE */
+#define FD_MLX5_WQ_ATTR_FLAGS     (1U<<2) /* IB_WQ_FLAGS */
+
+#define FD_MLX5_WQ_FLAGS_CVLAN_STRIPPING (1U) /* IB_WQ_FLAGS_CVLAN_STRIPPING */
 
 #define FD_MLX5_RX_HASH_FUNC_TOEPLITZ (1U)  /* MLX5_RX_HASH_FUNC_TOEPLITZ */
 #define FD_MLX5_RX_HASH_KEY_SZ        (40U) /* MLX5_FLD_SZ_BYTES(tirc, rx_hash_toeplitz_key) */
@@ -1307,6 +1310,23 @@ fd_uverbs_start_rx_wq( fd_uverbs_ctx_t * uverbs,
   FD_TEST( !fd_uverbs_init_ex_hdr( &req->hdr, IB_USER_VERBS_EX_CMD_MODIFY_WQ,
                                    core_req_sz, sizeof(req), NULL, 0UL, 0UL ) );
   if( FD_UNLIKELY( fd_uverbs_write_cmd( uverbs->cmd_fd, req, sizeof(req) ) ) ) return NULL;
+
+  /* Explicitly disable CVLAN stripping. Some kernel configurations will
+    still strip it anyway so we explicitly disable it so all providers
+    follow the same software path. */
+  fd_memset( req, 0, sizeof(req) );
+  req->core.attr_mask     = FD_MLX5_WQ_ATTR_STATE | FD_MLX5_WQ_ATTR_CUR_STATE | FD_MLX5_WQ_ATTR_FLAGS;
+  req->core.wq_handle     = rx_wq->handle;
+  req->core.wq_state      = FD_MLX5_WQS_RDY;
+  req->core.curr_wq_state = FD_MLX5_WQS_RDY;
+  req->core.flags         = 0U;
+  req->core.flags_mask    = FD_MLX5_WQ_FLAGS_CVLAN_STRIPPING;
+  FD_TEST( !fd_uverbs_init_ex_hdr( &req->hdr, IB_USER_VERBS_EX_CMD_MODIFY_WQ,
+                                   core_req_sz, sizeof(req), NULL, 0UL, 0UL ) );
+  if( FD_UNLIKELY( fd_uverbs_write_cmd( uverbs->cmd_fd, req, sizeof(req) ) ) ) {
+    FD_LOG_WARNING(( "failed to disable mlx5 CVLAN stripping on WQ %u (%i-%s)",
+                     rx_wq->wqn, errno, fd_io_strerror( errno ) ));
+  }
   return rx_wq;
 }
 

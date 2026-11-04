@@ -225,6 +225,7 @@
 | <span class="metrics-name">net_&#8203;gre_&#8203;pkt_&#8203;tx_&#8203;submitted</span> | counter | GRE packet transmit jobs submitted; subset of PktTxSubmitted |
 | <span class="metrics-name">net_&#8203;route_&#8203;count</span><br/>{route_&#8203;table_&#8203;type="<span class="metrics-enum">local</span>"} | gauge | IPv4 routes installed in the forwarding table (Local) |
 | <span class="metrics-name">net_&#8203;route_&#8203;count</span><br/>{route_&#8203;table_&#8203;type="<span class="metrics-enum">main</span>"} | gauge | IPv4 routes installed in the forwarding table (Main) |
+| <span class="metrics-name">net_&#8203;vlan_&#8203;pkt_&#8203;rx</span> | counter | VLAN-tagged packets with the tag stripped in software and published; subset of PktRx |
 
 </div>
 
@@ -1981,6 +1982,7 @@
 | <span class="metrics-name">mlx5_&#8203;pkt_&#8203;rx_&#8203;dropped</span><br/>{pkt_&#8203;rx_&#8203;drop_&#8203;reason="<span class="metrics-enum">gre_&#8203;invalid</span>"} | counter | Received packets dropped, by reason (GRE tunnel peer or headers invalid) |
 | <span class="metrics-name">mlx5_&#8203;pkt_&#8203;rx_&#8203;dropped</span><br/>{pkt_&#8203;rx_&#8203;drop_&#8203;reason="<span class="metrics-enum">gre_&#8203;unconfigured</span>"} | counter | Received packets dropped, by reason (GRE packet with no GRE tunnel configured) |
 | <span class="metrics-name">mlx5_&#8203;gre_&#8203;pkt_&#8203;rx</span> | counter | GRE packets decapsulated and published; subset of PktRx |
+| <span class="metrics-name">mlx5_&#8203;vlan_&#8203;pkt_&#8203;rx</span> | counter | VLAN-tagged packets with the tag stripped in software and published; subset of PktRx |
 | <span class="metrics-name">mlx5_&#8203;rx_&#8203;buffer_&#8203;used</span> | gauge | RX buffers not currently posted to the NIC |
 | <span class="metrics-name">mlx5_&#8203;rx_&#8203;buffer_&#8203;free</span> | gauge | RX buffers currently posted to the NIC |
 | <span class="metrics-name">mlx5_&#8203;pkt_&#8203;tx_&#8203;completed</span> | counter | Packets completed by the NIC for transmission |
@@ -2039,6 +2041,7 @@
 | <span class="metrics-name">iavf_&#8203;pkt_&#8203;rx_&#8203;dropped</span><br/>{pkt_&#8203;rx_&#8203;drop_&#8203;reason="<span class="metrics-enum">gre_&#8203;unconfigured</span>"} | counter | Received packets dropped, by reason (GRE packet with no GRE tunnel configured) |
 | <span class="metrics-name">iavf_&#8203;pkt_&#8203;rx_&#8203;no_&#8203;link_&#8203;dropped</span> | counter | Packets dropped because the configured VF or bond member is not accepting traffic |
 | <span class="metrics-name">iavf_&#8203;gre_&#8203;pkt_&#8203;rx</span> | counter | GRE packets decapsulated and published; subset of PktRx |
+| <span class="metrics-name">iavf_&#8203;vlan_&#8203;pkt_&#8203;rx</span> | counter | VLAN-tagged packets with the tag stripped in software and published; subset of PktRx |
 | <span class="metrics-name">iavf_&#8203;rx_&#8203;buffer_&#8203;used</span> | gauge | RX buffers not currently posted to the NIC |
 | <span class="metrics-name">iavf_&#8203;rx_&#8203;buffer_&#8203;free</span> | gauge | RX buffers currently posted to the NIC |
 | <span class="metrics-name">iavf_&#8203;pkt_&#8203;tx_&#8203;completed</span> | counter | Packets completed by the NIC for transmission |

@@ -645,6 +645,7 @@ metrics_write( fd_iavf_tile_t * ctx ) {
   FD_MCNT_SET(   IAVF, PKT_RX_NO_LINK_DROPPED, ctx->metrics.rx_no_link_cnt           );
   FD_MCNT_SET(   IAVF, NON_FD_PKT_RX,          ctx->metrics.non_fd_pkt_cnt           );
   FD_MCNT_SET(   IAVF, GRE_PKT_RX,             ctx->net.metrics.rx_gre_cnt           );
+  FD_MCNT_SET(   IAVF, VLAN_PKT_RX,            ctx->net.metrics.rx_vlan_cnt          );
   FD_MGAUGE_SET( IAVF, RX_BUFFER_USED,         rx_buffer_busy_cnt                    );
   FD_MGAUGE_SET( IAVF, RX_BUFFER_FREE,         rx_buffer_idle_cnt                    );
 

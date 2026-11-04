@@ -130,6 +130,7 @@
         "gre_pkt_tx_submitted":       { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "GRE transmit jobs submitted to the NIC" },
         "tx_buffer_used":             { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "TX buffers pending or submitted to the NIC" },
         "tx_buffer_free":             { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "TX buffers available for a new transmit job" },
-        "non_fd_pkt_rx":              { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Packets received by IAVF VFs that are not intended for Firedancer" }
+        "non_fd_pkt_rx":              { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Packets received by IAVF VFs that are not intended for Firedancer" },
+        "vlan_pkt_rx":                { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "VLAN-tagged packets with the tag stripped in software and published; subset of PktRx" }
     }
 }

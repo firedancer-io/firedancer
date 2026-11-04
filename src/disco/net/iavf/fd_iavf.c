@@ -1382,7 +1382,7 @@ fd_iavf_adminq_init( fd_iavf_vfio_t *   vfio,
 static char const *
 fd_iavf_virtchnl_op_name( uint op ) {
   switch( op ) {
-  case FD_IAVF_VIRTCHNL_VERSION:         return "version exchange";
+  case FD_IAVF_VIRTCHNL_VERSION:          return "version exchange";
   case FD_IAVF_VIRTCHNL_GET_VF_RESOURCES: return "VF resource discovery";
   case FD_IAVF_VIRTCHNL_CONFIG_QUEUES:    return "queue configuration";
   case FD_IAVF_VIRTCHNL_CONFIG_IRQ_MAP:   return "IRQ mapping";
@@ -1390,7 +1390,7 @@ fd_iavf_virtchnl_op_name( uint op ) {
   case FD_IAVF_VIRTCHNL_ADD_ETH_ADDR:     return "MAC registration";
   case FD_IAVF_VIRTCHNL_CONFIG_RSS_KEY:   return "RSS key configuration";
   case FD_IAVF_VIRTCHNL_CONFIG_RSS_LUT:   return "RSS table configuration";
-  default:                              return "virtchnl request";
+  default:                                return "virtchnl request";
   }
 }
 
@@ -2079,7 +2079,6 @@ fd_iavf_init( fd_iavf_vfio_t *            vfio,
                                                           queue_iova, rx_buffer_sz, max_frame_sz ) ) ) return -1;
   if( FD_UNLIKELY( -1==fd_iavf_virtchnl_add_mac( vfio, adminq, info ) ) ) return -1;
   if( FD_UNLIKELY( -1==fd_iavf_virtchnl_configure_rss( vfio, adminq, info, tile_cnt ) ) ) return -1;
-
   /* Map packet buffers before the caller posts RX buffers and enables queues */
   for( uint tile_idx=0U; tile_idx<tile_cnt; tile_idx++ ) {
     fd_iavf_vfio_tile_t const * tile = &tiles[tile_idx];
