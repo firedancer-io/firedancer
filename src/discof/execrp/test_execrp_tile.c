@@ -588,8 +588,12 @@ test_lthash_run( test_env_t *        env,
   ulong const sig = (task_type<<32) | env->execrp->tile_idx;
   FD_TEST( !returnable_frag( env->execrp, env->execrp->replay_in->idx, 0UL, sig, in_chunk, in_sz, 0UL, 0UL, 0UL, test_stem( env->execrp, stem ) ) );
 
+  fd_bank_t * bank = fd_svm_mini_bank( env->mini, env->bank_idx );
+  FD_TEST( bank );
   fd_execrp_task_done_msg_t const * out_msg = test_assert_out_msg( env, 0UL, task_type );
   FD_TEST( out_msg->lthash->cnt==cnt );
+  FD_TEST( out_msg->lthash->slot==bank->f.slot );
+  FD_TEST( out_msg->lthash->tick_start<=out_msg->lthash->tick_end );
 }
 
 /* One version of an account on one accdb fork. */

@@ -170,13 +170,26 @@ typedef struct fd_gui_rate_entry fd_gui_rate_entry_t;
 #define FD_GUI_VOTE_STATE_VOTING     (1)
 #define FD_GUI_VOTE_STATE_DELINQUENT (2)
 
+#define FD_GUI_TXN_BATCH_MAX_TXN              (128UL)
+#define FD_GUI_TXN_BATCH_GAP_NS               (5000000L)
+#define FD_GUI_TXN_BATCH_SCAN_MARGIN_NS       (2000000000L)
+/* Batches are inserted when their slot completes.  Queries find a
+   batch if its slot completed within this long of the batch. */
+#define FD_GUI_TXN_BATCH_QUERY_MARGIN_NS      (10000000000L)
 #define FD_GUI_HTTP_MIN_SEND_BUFFER_SZ        (256UL<<20)
 
-#define FD_GUI_TIMELINE_STORED_GRANULARITY_CNT (8UL)
+#define FD_GUI_TIMELINE_STORED_GRANULARITY_CNT (9UL)
 #define FD_GUI_TIMELINE_GRANULARITY_CNT        (23UL)
 #define FD_GUI_TIMELINE_QUERY_SHRED_MAX        (262144UL)
+#define FD_GUI_TIMELINE_QUERY_TXN_MAX          (65536UL)
 #define FD_GUI_TIMELINE_QUERY_SLOT_MAX         (65536UL)
 #define FD_GUI_TIMELINE_QUERY_EVENT_MAX        (65536UL)
+/* query_tile_states: slot state and lthash rows, and intervals (up to
+   four stages and a sigverify per txn, one per slot state or lthash
+   task). */
+#define FD_GUI_TIMELINE_QUERY_SLOT_STATE_MAX   (65536UL)
+#define FD_GUI_TIMELINE_QUERY_LTHASH_MAX       (65536UL)
+#define FD_GUI_TIMELINE_QUERY_STATE_ENTRY_MAX  (5UL*FD_GUI_TIMELINE_QUERY_TXN_MAX+FD_GUI_TIMELINE_QUERY_SLOT_STATE_MAX+FD_GUI_TIMELINE_QUERY_LTHASH_MAX)
 
 /* Event kinds returned by timeline.query_events. */
 #define FD_GUI_TIMELINE_EVENT_LEADER_SKIP      (0U)
@@ -204,20 +217,25 @@ fd_gui_timeline_granularity_ns( ulong g ) {
 }
 
 /* Stored timeline tiers, in ascending order.  The 25ms tier only exists
-   in the per-tile CPU record (fd_gui_timeline_tile_day_t); the day
-   record (fd_gui_timeline_day_t) holds the 250ms to 12h tiers. */
+   in the per-tile CPU record (fd_gui_timeline_tile_day_t) and the 100ms
+   tier only holds the compute and revenue fields of the day record.
+   The day record (fd_gui_timeline_day_t) is about 38.5 MiB for the
+   250ms to 12h tiers plus about 26.4 MiB for the 100ms tier, or
+   about 65 MiB in total. */
 #define FD_GUI_TIMELINE_DAY_NS                 (86400000000000L)
 
 #define FD_GUI_TIMELINE_GRANULARITY_25MS  (0)
-#define FD_GUI_TIMELINE_GRANULARITY_250MS (1)
-#define FD_GUI_TIMELINE_GRANULARITY_2S    (2)
-#define FD_GUI_TIMELINE_GRANULARITY_15S   (3)
-#define FD_GUI_TIMELINE_GRANULARITY_2M    (4)
-#define FD_GUI_TIMELINE_GRANULARITY_15M   (5)
-#define FD_GUI_TIMELINE_GRANULARITY_2H    (6)
-#define FD_GUI_TIMELINE_GRANULARITY_12H   (7)
+#define FD_GUI_TIMELINE_GRANULARITY_100MS (1)
+#define FD_GUI_TIMELINE_GRANULARITY_250MS (2)
+#define FD_GUI_TIMELINE_GRANULARITY_2S    (3)
+#define FD_GUI_TIMELINE_GRANULARITY_15S   (4)
+#define FD_GUI_TIMELINE_GRANULARITY_2M    (5)
+#define FD_GUI_TIMELINE_GRANULARITY_15M   (6)
+#define FD_GUI_TIMELINE_GRANULARITY_2H    (7)
+#define FD_GUI_TIMELINE_GRANULARITY_12H   (8)
 
 #define FD_GUI_TIMELINE_25MS_CNT  (FD_GUI_TIMELINE_DAY_NS / (              25L*1000L*1000L))
+#define FD_GUI_TIMELINE_100MS_CNT (FD_GUI_TIMELINE_DAY_NS / (             100L*1000L*1000L))
 #define FD_GUI_TIMELINE_250MS_CNT (FD_GUI_TIMELINE_DAY_NS / (             250L*1000L*1000L))
 #define FD_GUI_TIMELINE_2S_CNT    (FD_GUI_TIMELINE_DAY_NS / (         2L*1000L*1000L*1000L))
 #define FD_GUI_TIMELINE_15S_CNT   (FD_GUI_TIMELINE_DAY_NS / (        15L*1000L*1000L*1000L))
@@ -293,9 +311,21 @@ typedef struct fd_gui_timeline_12h   { FD_GUI_TIMELINE_FIELD_MAP( FD_GUI_TIMELIN
 #undef FD_GUI_TIMELINE_DECL_2H
 #undef FD_GUI_TIMELINE_DECL_12H
 
+/* The 100ms tier only holds the compute and revenue fields. */
+
+struct fd_gui_timeline_100ms {
+  uint  compute_units[ FD_GUI_TIMELINE_100MS_CNT ];
+  uint  max_compute  [ FD_GUI_TIMELINE_100MS_CNT ];
+  ulong txn_fees     [ FD_GUI_TIMELINE_100MS_CNT ];
+  ulong prio_fees    [ FD_GUI_TIMELINE_100MS_CNT ];
+  ulong tips         [ FD_GUI_TIMELINE_100MS_CNT ];
+};
+typedef struct fd_gui_timeline_100ms fd_gui_timeline_100ms_t;
+
 struct fd_gui_timeline_day {
   long insert_time_ns;
   long end_time_ns; /* exclusive UTC day end (the following midnight) */
+  fd_gui_timeline_100ms_t bucket_100ms;
   fd_gui_timeline_250ms_t bucket_250ms;
   fd_gui_timeline_2s_t    bucket_2s;
   fd_gui_timeline_15s_t   bucket_15s;
@@ -306,10 +336,157 @@ struct fd_gui_timeline_day {
 };
 typedef struct fd_gui_timeline_day fd_gui_timeline_day_t;
 
+/* Tile states reported by query_tile_states and query_agg_tile_states.
+   Execrp tiles run transaction stages and account LtHash tasks, the
+   replay tile runs scheduler slot states.  Idle is whatever remains, it is never stored.  The
+   batch states only appear in txn_batch responses: each is the
+   transaction state 10 below it, rolled up over a batch, and a batch's
+   execution stages split its span in proportion to its members' time
+   in each stage. */
+
+#define FD_GUI_TILE_STATE_IDLE                 (0UL)
+#define FD_GUI_TILE_STATE_SIGVERIFY            (1UL)
+#define FD_GUI_TILE_STATE_LOADING              (2UL)
+#define FD_GUI_TILE_STATE_VALIDATE             (3UL)
+#define FD_GUI_TILE_STATE_EXECUTE              (4UL)
+#define FD_GUI_TILE_STATE_POST_EXECUTE         (5UL)
+#define FD_GUI_TILE_STATE_BLOCKED_ON_TILES     (6UL)
+#define FD_GUI_TILE_STATE_BLOCKED_ON_CONFLICTS (7UL)
+#define FD_GUI_TILE_STATE_BLOCKED_ON_NETWORK   (8UL)
+#define FD_GUI_TILE_STATE_SLOT_FINISH          (9UL)
+#define FD_GUI_TILE_STATE_LTHASH               (10UL)
+#define FD_GUI_TILE_STATE_CNT                  (11UL)
+#define FD_GUI_TILE_STATE_SIGVERIFY_BATCH      (11UL)
+#define FD_GUI_TILE_STATE_LOAD_BATCH           (12UL)
+#define FD_GUI_TILE_STATE_VALID_BATCH          (13UL)
+#define FD_GUI_TILE_STATE_EXEC_BATCH           (14UL)
+#define FD_GUI_TILE_STATE_POST_EXEC_BATCH      (15UL)
+#define FD_GUI_TILE_STATE_LTHASH_BATCH         (16UL)
+#define FD_GUI_TILE_STATE_BATCH_OFF            (10UL) /* batch state - txn state */
+
+FD_STATIC_ASSERT( FD_GUI_TILE_STATE_SIGVERIFY_BATCH==FD_GUI_TILE_STATE_SIGVERIFY   +FD_GUI_TILE_STATE_BATCH_OFF, batch_state_map );
+FD_STATIC_ASSERT( FD_GUI_TILE_STATE_LOAD_BATCH     ==FD_GUI_TILE_STATE_LOADING     +FD_GUI_TILE_STATE_BATCH_OFF, batch_state_map );
+FD_STATIC_ASSERT( FD_GUI_TILE_STATE_POST_EXEC_BATCH==FD_GUI_TILE_STATE_POST_EXECUTE+FD_GUI_TILE_STATE_BATCH_OFF, batch_state_map );
+FD_STATIC_ASSERT( FD_GUI_TILE_STATE_LTHASH_BATCH<=UCHAR_MAX, batch_state_fits );
+
+/* Tile state positions: execrp tiles by kind id, then the replay tile. */
+#define FD_GUI_TILE_STATE_POS_CNT (FD_SCHED_MAX_EXEC_TILE_CNT+1UL)
+
+FD_STATIC_ASSERT( FD_GUI_TILE_STATE_BLOCKED_ON_TILES-FD_SCHED_SLOT_STATE_BLOCKED_TILES==
+                  FD_GUI_TILE_STATE_SLOT_FINISH     -FD_SCHED_SLOT_STATE_FINISH, slot_state_map );
+FD_STATIC_ASSERT( FD_GUI_TILE_STATE_BLOCKED_ON_TILES-FD_SCHED_SLOT_STATE_BLOCKED_TILES==
+                  FD_GUI_TILE_STATE_BLOCKED_ON_NETWORK-FD_SCHED_SLOT_STATE_BLOCKED_NETWORK, slot_state_map );
+
+/* A replay scheduler slot state interval [start_ns,end_ns). */
+
+struct fd_gui_store_replay_slot_state {
+  long  insert_time_ns;
+  long  start_ns;
+  long  end_ns;
+  ulong slot;
+  ulong state; /* FD_GUI_TILE_STATE_{BLOCKED_ON_TILES,...,SLOT_FINISH} */
+};
+typedef struct fd_gui_store_replay_slot_state fd_gui_store_replay_slot_state_t;
+
+/* An execrp account LtHash task interval [start_ns,end_ns) on exec
+   tile exec_idx.  kind is 0 for removing the accounts' previous
+   versions and 1 for adding their new versions, cnt is the number of
+   accounts hashed. */
+
+#define FD_GUI_LTHASH_KIND_SUB (0)
+#define FD_GUI_LTHASH_KIND_ADD (1)
+
+struct fd_gui_store_replay_lthash {
+  long   insert_time_ns;
+  long   start_ns;
+  long   end_ns;
+  ulong  slot;
+  ushort exec_idx;
+  uchar  kind;
+  uchar  cnt;
+  uint   _pad;
+};
+typedef struct fd_gui_store_replay_lthash fd_gui_store_replay_lthash_t;
+
+/* LtHash tasks merged with the txn batching rule: a task joins its exec
+   tile's open batch if it is for the same slot, starts at most
+   FD_GUI_TXN_BATCH_GAP_NS after the batch's previous task ended, and
+   the batch has fewer than FD_GUI_TXN_BATCH_MAX_TXN tasks.  [start_ns,
+   end_ns) spans the members, which hashed acct_cnt accounts in total.
+   A batch is written when the tile's next task does not join it, or by
+   fd_gui_lthash_batch_flush once it has been idle for
+   FD_GUI_LTHASH_BATCH_IDLE_NS. */
+
+#define FD_GUI_LTHASH_BATCH_IDLE_NS (2L*FD_GUI_TXN_BATCH_GAP_NS)
+
+struct fd_gui_store_replay_lthash_batch {
+  long   insert_time_ns;
+  long   start_ns;
+  long   end_ns;
+  ulong  slot;
+  uint   acct_cnt;
+  ushort exec_idx;
+  uchar  task_cnt; /* 0 for a tile with no open batch */
+  uchar  _pad;
+};
+typedef struct fd_gui_store_replay_lthash_batch fd_gui_store_replay_lthash_batch_t;
+
+/* fd_gui_timeline_tile_state_day holds one tile's time per stored
+   state, bucketed per tier like the CPU records.  The 2s tier is exact
+   ns.  Coarser tiers are in us, accumulated from the 2s buckets so
+   rounding error stays below 1us per 2s bucket.  [first_ns,last_ns)
+   spans the recorded intervals, time outside it is unknown. */
+
+#define FD_GUI_TIMELINE_TILE_STATE_MAP( X ) \
+  X( 2S,  uint,  1L    )                     \
+  X( 15S, uint,  1000L )                     \
+  X( 2M,  uint,  1000L )                     \
+  X( 15M, uint,  1000L )                     \
+  X( 2H,  ulong, 1000L )                     \
+  X( 12H, ulong, 1000L )
+
+#define FD_GUI_TIMELINE_TILE_STATE_DECL( g, T, unit ) T dur_##g[ FD_GUI_TIMELINE_##g##_CNT ][ FD_GUI_TILE_STATE_CNT-1UL ];
+struct fd_gui_timeline_tile_state_day {
+  ulong day_idx;
+  ulong tile_idx;
+  long  insert_time_ns;
+  long  first_ns;
+  long  last_ns;
+  FD_GUI_TIMELINE_TILE_STATE_MAP( FD_GUI_TIMELINE_TILE_STATE_DECL )
+};
+typedef struct fd_gui_timeline_tile_state_day fd_gui_timeline_tile_state_day_t;
+#undef FD_GUI_TIMELINE_TILE_STATE_DECL
+
+/* fd_gui_txn_exec_states writes the execution stages present in t,
+   state[i] covering [ts[i],ts[i+1]).  An absent stage is skipped, so
+   the stage before it ends where the next present one starts.  Returns
+   the stage count. */
+
+static inline ulong
+fd_gui_txn_exec_states( long  load_start_ns,
+                        long  check_start_ns,
+                        long  exec_start_ns,
+                        long  commit_start_ns,
+                        long  commit_end_ns,
+                        uchar state[ 4 ],
+                        long  ts[ 5 ] ) {
+  long const start[ 4 ] = { load_start_ns, check_start_ns, exec_start_ns, commit_start_ns };
+  ulong n = 0UL;
+  for( ulong i=0UL; i<4UL; i++ ) {
+    if( start[ i ]==LONG_MAX ) continue;
+    state[ n ] = (uchar)(FD_GUI_TILE_STATE_LOADING+i);
+    ts   [ n ] = start[ i ];
+    n++;
+  }
+  ts[ n ] = commit_end_ns;
+  return n;
+}
+
 static inline ulong
 fd_gui_timeline_bucket_cnt( int granularity ) {
   switch( granularity ) {
     case FD_GUI_TIMELINE_GRANULARITY_25MS:  return FD_GUI_TIMELINE_25MS_CNT;
+    case FD_GUI_TIMELINE_GRANULARITY_100MS: return FD_GUI_TIMELINE_100MS_CNT;
     case FD_GUI_TIMELINE_GRANULARITY_250MS: return FD_GUI_TIMELINE_250MS_CNT;
     case FD_GUI_TIMELINE_GRANULARITY_2S:    return FD_GUI_TIMELINE_2S_CNT;
     case FD_GUI_TIMELINE_GRANULARITY_15S:   return FD_GUI_TIMELINE_15S_CNT;
@@ -321,6 +498,23 @@ fd_gui_timeline_bucket_cnt( int granularity ) {
   }
 }
 
+/* fd_gui_timeline_tier_has_field returns 1 if stored tier granularity
+   of the day record holds field, 0 otherwise.  The 25ms tier holds no
+   day record field and the 100ms tier only the compute and revenue
+   fields. */
+
+static inline int
+fd_gui_timeline_tier_has_field( int granularity,
+                                int field ) {
+  if( granularity==FD_GUI_TIMELINE_GRANULARITY_25MS ) return 0;
+  if( granularity==FD_GUI_TIMELINE_GRANULARITY_100MS ) {
+    return field==FD_GUI_TIMELINE_FIELD_COMPUTE_UNITS || field==FD_GUI_TIMELINE_FIELD_MAX_COMPUTE ||
+           field==FD_GUI_TIMELINE_FIELD_TXN_FEES      || field==FD_GUI_TIMELINE_FIELD_PRIO_FEES   ||
+           field==FD_GUI_TIMELINE_FIELD_TIPS;
+  }
+  return 1;
+}
+
 static inline void *
 fd_gui_timeline_field_ptr( fd_gui_timeline_day_t * day,
                            int                     granularity,
@@ -330,6 +524,16 @@ fd_gui_timeline_field_ptr( fd_gui_timeline_day_t * day,
   if( FD_UNLIKELY( !day ) ) FD_LOG_ERR(( "NULL timeline day" ));
   ulong bucket_cnt = fd_gui_timeline_bucket_cnt( granularity );
   if( FD_UNLIKELY( idx>=bucket_cnt ) ) FD_LOG_ERR(( "timeline bucket index %lu out of range [0,%lu)", idx, bucket_cnt ));
+  if( granularity==FD_GUI_TIMELINE_GRANULARITY_100MS ) {
+    switch( field ) {
+      case FD_GUI_TIMELINE_FIELD_COMPUTE_UNITS: *sz=sizeof(uint ); return &day->bucket_100ms.compute_units[ idx ];
+      case FD_GUI_TIMELINE_FIELD_MAX_COMPUTE:   *sz=sizeof(uint ); return &day->bucket_100ms.max_compute  [ idx ];
+      case FD_GUI_TIMELINE_FIELD_TXN_FEES:      *sz=sizeof(ulong); return &day->bucket_100ms.txn_fees     [ idx ];
+      case FD_GUI_TIMELINE_FIELD_PRIO_FEES:     *sz=sizeof(ulong); return &day->bucket_100ms.prio_fees    [ idx ];
+      case FD_GUI_TIMELINE_FIELD_TIPS:          *sz=sizeof(ulong); return &day->bucket_100ms.tips         [ idx ];
+      default: FD_LOG_ERR(( "timeline field %d has no 100ms tier", field ));
+    }
+  }
 #define FD_GUI_TIMELINE_FIELD_CASE( id, name, t0, t1, t2, t3, t4, t5, t6 ) \
   case FD_GUI_TIMELINE_FIELD_##id: \
     switch( granularity ) { \
@@ -791,6 +995,7 @@ struct fd_gui_store_replay_txn {
   long  completion_time_ns;
   ulong block_compute_unit_limit;
   ulong slot;
+  ulong bank_seq;
   ulong txn_idx;
   ulong txn_exec_idx;
   ulong txn_sigverify_exec_idx;
@@ -816,6 +1021,56 @@ struct fd_gui_store_replay_txn {
   uchar is_fees_only;
 };
 typedef struct fd_gui_store_replay_txn fd_gui_store_replay_txn_t;
+
+/* fd_gui_store_replay_txn_revenue returns the fees and tips a replayed
+   transaction actually paid.  Transactions that did not land pay
+   nothing, errors 5 and 6 (invalid fee payer) pay no fees or tips, and
+   failed transactions pay no tips.  The day writers use this so the
+   revenue aggregates agree with the per-transaction data. */
+
+static inline void
+fd_gui_store_replay_txn_revenue( fd_gui_store_replay_txn_t const * rec,
+                                 ulong *                           txn_fee,
+                                 ulong *                           prio_fee,
+                                 ulong *                           tips ) {
+  int landed    = !!rec->is_committable;
+  int fees_paid = landed && rec->error_code!=5U && rec->error_code!=6U;
+  int tips_paid = landed && !rec->error_code;
+  *txn_fee  = fees_paid ? rec->transaction_fee : 0UL;
+  *prio_fee = fees_paid ? rec->priority_fee    : 0UL;
+  *tips     = tips_paid ? rec->tips            : 0UL;
+}
+
+struct fd_gui_store_replay_txn_batch {
+  long  insert_time_ns;
+  long  completion_time_ns;
+  ulong slot;
+  ulong batch_idx;
+  ulong txn_idx;
+  ulong txn_exec_idx;
+  ulong txn_sigverify_exec_idx;
+  long  sigverify_start_ns;
+  long  sigverify_end_ns;
+  long  load_start_ns;
+  long  check_start_ns;
+  long  exec_start_ns;
+  long  commit_start_ns;
+  long  commit_end_ns;
+  /* Most frequent error code among execution-lane members; ties choose
+     the smallest code, so success wins a tie. */
+  uint  error_code;
+  uchar exec_txn_cnt;
+  uchar sigverify_txn_cnt;
+  /* txn_idx of the first sigverify-lane member, ULONG_MAX if none. */
+  ulong sigverify_txn_idx;
+  /* Sums over the execution-lane members of what they paid, per
+     fd_gui_store_replay_txn_revenue. */
+  ulong txn_fees;
+  ulong prio_fees;
+  ulong tips;
+};
+typedef struct fd_gui_store_replay_txn_batch fd_gui_store_replay_txn_batch_t;
+FD_STATIC_ASSERT( FD_GUI_TXN_BATCH_MAX_TXN<=UCHAR_MAX, txn_batch_cnt_fits );
 
 struct fd_gui_slot_txn_join {
   fd_gui_store_txn_start_t const * start;
@@ -1242,6 +1497,7 @@ struct fd_gui_timeline_query_slot {
   uint  shred_cnt; /* data shreds, UINT_MAX if unknown */
   uchar skipped;
   uchar mine;
+  ulong fees[ 3 ];  /* txn, prio, tips; set by query_slots, ULONG_MAX if unknown */
 };
 typedef struct fd_gui_timeline_query_slot fd_gui_timeline_query_slot_t;
 
@@ -1259,15 +1515,57 @@ struct fd_gui_timeline_query_bucket {
 };
 typedef struct fd_gui_timeline_query_bucket fd_gui_timeline_query_bucket_t;
 
-/* Workspace for timeline queries.  The GUI tile is single threaded and
-   each user runs to completion, so the members alias. */
+typedef fd_gui_store_replay_txn_t const * fd_gui_batch_txn_ptr_t;
+struct fd_gui_txn_batch_work {
+  ulong first;
+  ulong cnt;
+  ulong tile_idx;
+  ulong representative_txn_idx;
+  long  start_ns;
+  long  end_ns;
+};
+typedef struct fd_gui_txn_batch_work fd_gui_txn_batch_work_t;
+
+/* A query_tile_states interval [lo,hi) of state on tile position pos.
+   row indexes the query's txn (lane 0 exec, 1 sigverify), slot state
+   (lane 2) or lthash (lane 3) rows. */
+
+struct fd_gui_timeline_state_entry {
+  long   lo;
+  long   hi;
+  uint   row;
+  ushort pos;
+  uchar  state;
+  uchar  lane;
+};
+typedef struct fd_gui_timeline_state_entry fd_gui_timeline_state_entry_t;
+
+/* Workspace for timeline queries and batch materialization.  The GUI
+   tile is single threaded and each user runs to completion, so the
+   members alias. */
 
 union fd_gui_timeline_scratch {
-  fd_gui_shred_event_t           events     [ FD_GUI_TIMELINE_QUERY_SHRED_MAX ];
-  fd_gui_timeline_query_slot_t   slots      [ FD_GUI_TIMELINE_QUERY_SLOT_MAX ];
-  fd_gui_timeline_query_event_t  slot_events[ FD_GUI_TIMELINE_QUERY_EVENT_MAX ];
-  fd_gui_timeline_query_bucket_t buckets    [ FD_GUI_TIMELINE_QUERY_MAX_BUCKETS ];
-  struct { uint sum; uint cnt; } cpu[ FD_GUI_TIMELINE_QUERY_MAX_BUCKETS ];
+  fd_gui_shred_event_t                    events     [ FD_GUI_TIMELINE_QUERY_SHRED_MAX ];
+  fd_gui_store_replay_txn_t const *       txns       [ FD_GUI_TIMELINE_QUERY_TXN_MAX ];
+  fd_gui_store_replay_txn_batch_t const * txn_batches[ FD_GUI_TIMELINE_QUERY_TXN_MAX ];
+  fd_gui_timeline_query_slot_t            slots      [ FD_GUI_TIMELINE_QUERY_SLOT_MAX ];
+  fd_gui_timeline_query_event_t           slot_events[ FD_GUI_TIMELINE_QUERY_EVENT_MAX ];
+  fd_gui_timeline_query_bucket_t          buckets    [ FD_GUI_TIMELINE_QUERY_MAX_BUCKETS ];
+  struct { uint sum; uint cnt; }          cpu        [ FD_GUI_TIMELINE_QUERY_MAX_BUCKETS ];
+  struct { ulong ns[ FD_GUI_TILE_STATE_CNT ]; int have; } agg_tile_states[ FD_GUI_TIMELINE_QUERY_MAX_BUCKETS ];
+  struct {
+    void const *                  rows[ FD_GUI_TIMELINE_QUERY_TXN_MAX+FD_GUI_TIMELINE_QUERY_SLOT_STATE_MAX+FD_GUI_TIMELINE_QUERY_LTHASH_MAX ];
+    fd_gui_timeline_state_entry_t entries[ FD_GUI_TIMELINE_QUERY_STATE_ENTRY_MAX ];
+  } tile_states;
+  struct {
+    fd_gui_batch_txn_ptr_t          exec_txns[ FD_MAX_TXN_PER_SLOT ];
+    fd_gui_batch_txn_ptr_t          sig_txns[ FD_MAX_TXN_PER_SLOT ];
+    fd_gui_txn_batch_work_t         exec_batches[ FD_MAX_TXN_PER_SLOT ];
+    fd_gui_txn_batch_work_t         sig_batches[ FD_MAX_TXN_PER_SLOT ];
+    ulong                           heap[ FD_MAX_TXN_PER_SLOT ];
+    ulong                           normalize_work;
+    fd_gui_store_replay_txn_batch_t records[ FD_MAX_TXN_PER_SLOT ];
+  } materialize;
 };
 typedef union fd_gui_timeline_scratch fd_gui_timeline_scratch_t;
 
@@ -1300,6 +1598,19 @@ struct fd_gui {
     ulong last_slot; /* absolute 25ms slot of the last sample, ULONG_MAX if none */
     ulong cur_day;   /* newest day with a tile-day record, ULONG_MAX if unknown */
   } cpu_util;
+
+  /* Tile state positions (see FD_GUI_TILE_STATE_POS_CNT).  Positions
+     below exec_cnt are execrp tiles, exec_cnt is the replay tile if
+     pos_cnt>exec_cnt.  Records are only kept for positions below
+     pos_cnt. */
+  struct {
+    ulong exec_cnt;
+    ulong pos_cnt;
+    ulong topo_idx[ FD_GUI_TILE_STATE_POS_CNT ];
+    ulong cur_day;   /* newest day with a tile state record, ULONG_MAX if unknown */
+    /* Open lthash batch per execrp tile, task_cnt 0 if none. */
+    fd_gui_store_replay_lthash_batch_t lthash_open[ FD_SCHED_MAX_EXEC_TILE_CNT ];
+  } tile_state;
 
   ulong leader_begin_slot;
   ulong leader_end_slot;
@@ -1431,6 +1742,22 @@ fd_gui_timeline_tile_day_get( fd_gui_t * gui,
                               ulong      day_idx,
                               ulong      tile_idx );
 
+/* fd_gui_timeline_tile_state_day_get returns the retained tile state
+   record of tile_idx for calendar day day_idx, or NULL if not found. */
+
+fd_gui_timeline_tile_state_day_t *
+fd_gui_timeline_tile_state_day_get( fd_gui_t * gui,
+                                    ulong      day_idx,
+                                    ulong      tile_idx );
+
+/* fd_gui_timeline_tile_state_day_bounds is fd_gui_timeline_tile_day_bounds
+   for the per-tile state day records. */
+
+int
+fd_gui_timeline_tile_state_day_bounds( fd_gui_t * gui,
+                                       ulong *    lo_day,
+                                       ulong *    hi_day );
+
 /* fd_gui_timeline_tile_day_bounds scans the retained per-tile CPU day
    records.  Returns 1 and sets *lo_day / *hi_day to the oldest / newest
    day covered by any of them, or returns 0 if there are none. */
@@ -1439,6 +1766,56 @@ int
 fd_gui_timeline_tile_day_bounds( fd_gui_t * gui,
                                  ulong *    lo_day,
                                  ulong *    hi_day );
+
+/* fd_gui_handle_replay_txn records replay transaction metadata and adds
+   its stages to the tile state records. */
+
+void
+fd_gui_handle_replay_txn( fd_gui_t *                       gui,
+                          fd_replay_txn_executed_t const * txn,
+                          long                             now );
+
+/* fd_gui_handle_replay_slot_states records replay scheduler slot state
+   intervals and adds them to the replay tile's state records. */
+
+void
+fd_gui_handle_replay_slot_states( fd_gui_t *                      gui,
+                                  fd_replay_slot_states_t const * msg,
+                                  long                            now );
+
+/* fd_gui_handle_lthash_done records an execrp account LtHash task of
+   kind FD_GUI_LTHASH_KIND_{SUB,ADD} over cnt accounts, run by exec tile
+   exec_idx for slot from tickcount tick_start to tick_end, adds it to
+   the tile's state records and to the tile's open lthash batch.
+   fd_gui_lthash_record does the same for a task given as wallclock
+   [start_ns,end_ns). */
+
+void
+fd_gui_handle_lthash_done( fd_gui_t * gui,
+                           ulong      exec_idx,
+                           int        kind,
+                           ulong      slot,
+                           ulong      cnt,
+                           long       tick_start,
+                           long       tick_end,
+                           long       now );
+
+void
+fd_gui_lthash_record( fd_gui_t * gui,
+                      ulong      exec_idx,
+                      int        kind,
+                      ulong      slot,
+                      ulong      cnt,
+                      long       start_ns,
+                      long       end_ns,
+                      long       now );
+
+/* fd_gui_lthash_batch_flush writes open lthash batches idle for at
+   least FD_GUI_LTHASH_BATCH_IDLE_NS as of now. */
+
+void
+fd_gui_lthash_batch_flush( fd_gui_t * gui,
+                           long       now );
 
 /* fd_gui_timeline_handle_fec adds the shred counts of one completed FEC
    set to the calendar-day aggregates.  It ignores invalid input. */
@@ -1453,12 +1830,33 @@ fd_gui_timeline_handle_fec( fd_gui_t * gui,
                             ulong      reconstructed,
                             long       now );
 
-/* fd_gui_handle_replay_txn records replay transaction metadata. */
+/* fd_gui_timeline_handle_txn adds transaction costs and outcome to the
+   retained calendar-day aggregates. */
 
 void
-fd_gui_handle_replay_txn( fd_gui_t *                       gui,
-                          fd_replay_txn_executed_t const * txn,
-                          long                             now );
+fd_gui_timeline_handle_txn( fd_gui_t * gui,
+                            ulong      slot,
+                            long       timestamp_ns,
+                            ulong      compute_units,
+                            ulong      max_compute_units,
+                            ulong      transaction_fee,
+                            ulong      priority_fee,
+                            ulong      tips,
+                            int        txn_succeeded,
+                            long       now );
+
+/* fd_gui_materialize_replay_txn_batches rolls up retained transactions
+   for (slot, bank_seq) with completion times in [lo,hi).  Returns zero
+   on success. */
+
+int
+fd_gui_materialize_replay_txn_batches( fd_gui_t * gui,
+                                       ulong      slot,
+                                       ulong      bank_seq,
+                                       long       lo,
+                                       long       hi,
+                                       ulong      expected,
+                                       long       now );
 
 /* fd_gui_timeline_slots_collect writes the rooted slot intervals that
    overlap [start_ns,end_ns) into rows[0,max), in slot order, and the

@@ -58,9 +58,14 @@ static ulong const gui_db_type_idx[ FD_GUI_HIST_CNT ] = {
   [ FD_GUI_HIST_TXN_WATERFALL    ] = FD_METRICS_ENUM_GUI_DB_TYPE_V_TXN_WATERFALL_IDX,
   [ FD_GUI_HIST_TIMELINE_DAY     ] = FD_METRICS_ENUM_GUI_DB_TYPE_V_TIMELINE_DAY_IDX,
   [ FD_GUI_HIST_REPLAY_TXN       ] = FD_METRICS_ENUM_GUI_DB_TYPE_V_REPLAY_TXN_IDX,
+  [ FD_GUI_HIST_REPLAY_TXN_BATCH ] = FD_METRICS_ENUM_GUI_DB_TYPE_V_REPLAY_TXN_BATCH_IDX,
+  [ FD_GUI_HIST_FEC_EVENTS       ] = FD_METRICS_ENUM_GUI_DB_TYPE_V_FEC_EVENTS_IDX,
   [ FD_GUI_HIST_TIMELINE_TILE_DAY ] = FD_METRICS_ENUM_GUI_DB_TYPE_V_TIMELINE_TILE_DAY_IDX,
-  [ FD_GUI_HIST_FEC_EVENTS ]        = FD_METRICS_ENUM_GUI_DB_TYPE_V_FEC_EVENTS_IDX,
   [ FD_GUI_HIST_FEC_EVENT_ARCHIVE ] = FD_METRICS_ENUM_GUI_DB_TYPE_V_FEC_EVENT_ARCHIVE_IDX,
+  [ FD_GUI_HIST_REPLAY_SLOT_STATE ] = FD_METRICS_ENUM_GUI_DB_TYPE_V_REPLAY_SLOT_STATE_IDX,
+  [ FD_GUI_HIST_TIMELINE_TILE_STATE_DAY ] = FD_METRICS_ENUM_GUI_DB_TYPE_V_TIMELINE_TILE_STATE_DAY_IDX,
+  [ FD_GUI_HIST_REPLAY_LTHASH           ] = FD_METRICS_ENUM_GUI_DB_TYPE_V_REPLAY_LTHASH_IDX,
+  [ FD_GUI_HIST_REPLAY_LTHASH_BATCH     ] = FD_METRICS_ENUM_GUI_DB_TYPE_V_REPLAY_LTHASH_BATCH_IDX,
 };
 
 #define IN_KIND_PACK_EXECLE   ( 2UL)
@@ -89,17 +94,38 @@ FD_IMPORT_BINARY( firedancer_svg, "book/public/fire.svg" );
 #define FD_HTTP_SERVER_GUI_MAX_WS_RECV_FRAME_LEN 65536
 #define FD_HTTP_SERVER_GUI_MAX_WS_SEND_FRAME_CNT 8192
 
-#define FD_GUI_TIMELINE_RAW_RESPONSE_MAX (32UL<<20)
+#define FD_GUI_TIMELINE_RAW_RESPONSE_MAX (40UL<<20)
+/* Per-row bounds including commas: ulong 21, uint 11, nonnegative delta
+   string 22, ulong string 23, signature string 91, bool 6 (nulls shorter).
+   Timestamps (txn and txn_batch): 4*21 + 1*11 + 7*22 = 249 bytes.
+   Meta: 4*21 + 5*11 + 2*22 + 3*23 + 91 + 2*6 = 355 bytes, including
+   full uint shred indices.  Revenue (txn and txn_batch): 3*21 +
+   2*22 + 3*23 = 176 bytes.  Keys and envelope fit in 4096. */
+FD_STATIC_ASSERT( FD_GUI_TIMELINE_QUERY_TXN_MAX*480UL+4096UL<=FD_GUI_TIMELINE_RAW_RESPONSE_MAX, txn_response_bound );
+/* query_tile_states: each interval adds itself and at most one Idle gap,
+   plus one trailing Idle per tile, each state 3+21 bytes.  At most 2
+   txn segments per txn row (21+2+21+21+11 bytes), one slot segment per
+   slot state row (21+2+21 bytes) and one lthash segment per lthash row
+   (21+21+2+4 bytes) are reported. */
+FD_STATIC_ASSERT( (2UL*FD_GUI_TIMELINE_QUERY_STATE_ENTRY_MAX+FD_GUI_TILE_STATE_POS_CNT)*24UL +
+                  2UL*FD_GUI_TIMELINE_QUERY_TXN_MAX*76UL + FD_GUI_TIMELINE_QUERY_SLOT_STATE_MAX*44UL +
+                  FD_GUI_TIMELINE_QUERY_LTHASH_MAX*48UL +
+                  4096UL<=FD_GUI_TIMELINE_RAW_RESPONSE_MAX, tile_states_response_bound );
 FD_STATIC_ASSERT( FD_GUI_TIMELINE_QUERY_SHRED_MAX*56UL+4096UL<=FD_GUI_TIMELINE_RAW_RESPONSE_MAX, shred_response_bound );
+/* query_slots: slot_delta 21, two ts delta strings 22, shred_cnt 11,
+   skipped and mine 21 each, three fee strings 23 = 187 bytes. */
+FD_STATIC_ASSERT( FD_GUI_TIMELINE_QUERY_SLOT_MAX*192UL+4096UL<=FD_GUI_TIMELINE_RAW_RESPONSE_MAX, slot_response_bound );
 /* Agg shreds has five numeric arrays: four counts and slot_duration.
    Agg txn has four numeric arrays.  Agg revenue has three ulong-string
    arrays.  With commas, these use at most 5*21=105, 4*21=84 and
    3*23=69 bytes for each bucket.  All are in the shared 512-byte
-   budget. */
+   budget.  Agg cpu and tile states are per tile: cpu at most 256 tiles
+   of 4 bytes per bucket, tile states 11 us values of at most 12 bytes
+   (a 12h bucket is 11 digits) per cell, plus brackets. */
 FD_STATIC_ASSERT( FD_GUI_TIMELINE_QUERY_MAX_BUCKETS*512UL+4096UL<=FD_GUI_TIMELINE_RAW_RESPONSE_MAX, agg_response_bound );
-/* Agg cpu is per tile: at most FD_TOPO_MAX_TILES arrays of 5 bytes
-   ("null," or "250,") per bucket, plus brackets. */
-FD_STATIC_ASSERT( FD_TOPO_MAX_TILES*(FD_GUI_TIMELINE_QUERY_MAX_BUCKETS*5UL+4UL)+4096UL<=FD_GUI_TIMELINE_RAW_RESPONSE_MAX, agg_cpu_response_bound );
+FD_STATIC_ASSERT( FD_GUI_TILE_STATE_POS_CNT*FD_GUI_TIMELINE_QUERY_MAX_BUCKETS*(FD_GUI_TILE_STATE_CNT*12UL+3UL)+FD_GUI_TILE_STATE_POS_CNT*64UL+4096UL<=
+                  FD_GUI_TIMELINE_RAW_RESPONSE_MAX, agg_tile_states_response_bound );
+FD_STATIC_ASSERT( FD_EXECRP_LTHASH_BATCH_MAX<=UCHAR_MAX, lthash_cnt_fits );
 FD_STATIC_ASSERT( 2UL*FD_GUI_TIMELINE_RAW_RESPONSE_MAX+(FD_GUI_TIMELINE_RAW_RESPONSE_MAX>>8)<FD_GUI_HTTP_MIN_SEND_BUFFER_SZ,
                   compressed_response_bound );
 
@@ -348,7 +374,8 @@ before_frag( fd_gui_ctx_t * ctx,
   (void)seq;
 
   if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_PACK_POH && sig==FD_PACK_MSG_REDUCE_MB_BOUND ) ) return 1;
-  if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_EXECRP_REPLAY && sig>>32!=FD_EXECRP_TT_TXN_EXEC ) ) return 1;
+  if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_EXECRP_REPLAY && sig>>32!=FD_EXECRP_TT_TXN_EXEC &&
+                 sig>>32!=FD_EXECRP_TT_LTHASH_SUB && sig>>32!=FD_EXECRP_TT_LTHASH_ADD ) ) return 1;
 
   if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_GOSSIP_OUT &&
                  (sig==FD_GOSSIP_UPDATE_TAG_WFS_DONE || sig==FD_GOSSIP_UPDATE_TAG_PEER_SATURATED) ) ) return 1;
@@ -384,7 +411,8 @@ during_frag( fd_gui_ctx_t * ctx,
     if( FD_LIKELY( sig!=REPLAY_SIG_SLOT_COMPLETED &&
                    sig!=REPLAY_SIG_BECAME_LEADER  &&
                    sig!=REPLAY_SIG_ROOT_ADVANCED  &&
-                   sig!=REPLAY_SIG_TXN_EXECUTED ) ) return;
+                   sig!=REPLAY_SIG_TXN_EXECUTED &&
+                   sig!=REPLAY_SIG_SLOT_STATES ) ) return;
   }
 
   if( FD_UNLIKELY( (sz>0UL && (chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark)) || sz>ctx->in[ in_idx ].mtu ) )
@@ -455,6 +483,11 @@ after_frag( fd_gui_ctx_t *      ctx,
         long tsorig_ns = fd_clock_tile_tickcomp_to_wallclock( ctx->clock, tsorig );
         long tspub_ns  = fd_clock_tile_tickcomp_to_wallclock( ctx->clock, tspub  );
         fd_gui_handle_exec_txn_done( ctx->gui, msg->txn_exec->slot, msg->txn_exec->start_shred_idx, msg->txn_exec->end_shred_idx, tsorig_ns, tspub_ns, fd_clock_tile_now( ctx->clock ) );
+      } else {
+        fd_execrp_task_done_msg_t const * msg = (fd_execrp_task_done_msg_t const *)src;
+        int kind = sig>>32==FD_EXECRP_TT_LTHASH_SUB ? FD_GUI_LTHASH_KIND_SUB : FD_GUI_LTHASH_KIND_ADD;
+        fd_gui_handle_lthash_done( ctx->gui, sig&0xFFFFFFFFUL, kind, msg->lthash->slot, msg->lthash->cnt,
+                                   msg->lthash->tick_start, msg->lthash->tick_end, fd_clock_tile_now( ctx->clock ) );
       }
 
       break;
@@ -497,6 +530,9 @@ after_frag( fd_gui_ctx_t *      ctx,
       } else if( FD_LIKELY( sig==REPLAY_SIG_TXN_EXECUTED ) ) {
         if( FD_UNLIKELY( sz!=sizeof(fd_replay_txn_executed_t) ) ) FD_LOG_ERR(( "invalid replay transaction message size %lu", sz ));
         fd_gui_handle_replay_txn( ctx->gui, (fd_replay_txn_executed_t const *)src, fd_clock_tile_now( ctx->clock ) );
+      } else if( FD_LIKELY( sig==REPLAY_SIG_SLOT_STATES ) ) {
+        if( FD_UNLIKELY( sz!=sizeof(fd_replay_slot_states_t) ) ) FD_LOG_ERR(( "invalid replay slot states message size %lu", sz ));
+        fd_gui_handle_replay_slot_states( ctx->gui, (fd_replay_slot_states_t const *)src, fd_clock_tile_now( ctx->clock ) );
       } else {
         return;
       }
@@ -682,11 +718,13 @@ gui_http_request( fd_http_server_request_t const * request ) {
                      !strcmp( request->path, "/leaderSchedule" ) ||
                      !strcmp( request->path, "/gossip") ||
                      !strcmp( request->path, "/accounts") ||
+                     !strcmp( request->path, "/replay") ||
                      !strncmp( request->path, "/?", strlen("/?") ) ||
                      !strncmp( request->path, "/slotDetails?", strlen("/slotDetails?") ) ||
                      !strncmp( request->path, "/leaderSchedule?", strlen("/leaderSchedule?") ) ||
                      !strncmp( request->path, "/gossip?", strlen("/gossip?") ) ||
-                     !strncmp( request->path, "/accounts?", strlen("/accounts?") );
+                     !strncmp( request->path, "/accounts?", strlen("/accounts?") ) ||
+                     !strncmp( request->path, "/replay?", strlen("/replay?") );
 
   for( fd_http_static_file_t const * f = STATIC_FILES; f->name; f++ ) {
     if( !strcmp( request->path, f->name ) ||
