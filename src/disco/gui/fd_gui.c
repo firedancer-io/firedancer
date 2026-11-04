@@ -2409,7 +2409,7 @@ fd_gui_handle_epoch_info( fd_gui_t *                  gui,
   fd_vote_stake_weight_t const * stake_weights = fd_epoch_info_msg_stake_weights( epoch_info );
   fd_memcpy( gui->epoch.stakes_scratch, stake_weights, epoch_info->staked_vote_cnt*sizeof(fd_vote_stake_weight_t) );
 
-  fd_epoch_leaders_t * lsched = fd_epoch_leaders_join( fd_epoch_leaders_new( gui->epoch.lsched_scratch,
+  fd_epoch_leaders_t * lsched = fd_epoch_leaders_join( fd_epoch_leaders_new( gui->scratch.lsched,
                                                                              epoch_info->epoch,
                                                                              epoch_info->start_slot,
                                                                              epoch_info->slot_cnt,

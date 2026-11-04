@@ -1217,18 +1217,20 @@ struct fd_gui_timeline_query_bucket {
 };
 typedef struct fd_gui_timeline_query_bucket fd_gui_timeline_query_bucket_t;
 
-/* Workspace for timeline queries.  The GUI tile is single threaded and
-   each user runs to completion, so the members alias. */
+/* Workspace for timeline queries and leader schedule derivation.  The
+   GUI tile is single threaded and each user runs to completion, so the
+   members alias. */
 
-union fd_gui_timeline_scratch {
+union fd_gui_scratch {
   fd_gui_shred_event_t           events[ FD_GUI_TIMELINE_QUERY_SHRED_MAX ];
   fd_gui_timeline_query_bucket_t buckets[ FD_GUI_TIMELINE_QUERY_MAX_BUCKETS ];
   struct { uint sum; uint cnt; } cpu[ FD_GUI_TIMELINE_QUERY_MAX_BUCKETS ];
+  uchar __attribute__((aligned(FD_EPOCH_LEADERS_ALIGN))) lsched[ FD_EPOCH_LEADERS_FOOTPRINT(MAX_STAKE_WEIGHTS, MAX_SLOTS_PER_EPOCH) ];
 };
-typedef union fd_gui_timeline_scratch fd_gui_timeline_scratch_t;
+typedef union fd_gui_scratch fd_gui_scratch_t;
 
 struct fd_gui {
-  fd_gui_timeline_scratch_t timeline_scratch;
+  fd_gui_scratch_t scratch;
 
   fd_http_server_t * http;
   fd_topo_t const * topo;
@@ -1312,7 +1314,6 @@ struct fd_gui {
 
     ulong missed_vote_history_dirty; /* epoch whose missed vote history changed since the last broadcast, ULONG_MAX if none */
 
-    uchar __attribute__((aligned(FD_EPOCH_LEADERS_ALIGN))) lsched_scratch[ FD_EPOCH_LEADERS_FOOTPRINT(MAX_STAKE_WEIGHTS, MAX_SLOTS_PER_EPOCH) ];
     fd_vote_stake_weight_t stakes_scratch[ MAX_STAKE_WEIGHTS ];
   } epoch;
 
