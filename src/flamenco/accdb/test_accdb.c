@@ -2576,6 +2576,97 @@ test_idx_parallel_build( void ) {
   close( spill_fd );
 }
 
+/* Spill ring.  With the pool holding two ring chunks, a load of many
+   more chunks exercises publication into the ring, the accdb tile's
+   background drain to the spill file and the build reading chunks
+   from either location. */
+
+static void
+test_idx_spill_ring( void ) {
+  int idx_fd = memfd_create( "accdb_idx_ring", 0 );
+  int spill_fd = memfd_create( "accdb_spill_ring", 0 );
+  FD_TEST( idx_fd>=0 && spill_fd>=0 );
+
+  ulong max_accounts = 8192UL, index_ram_max = 1024UL; /* ring of 2 chunks */
+  ulong shmem_fp = fd_accdb_shmem_footprint( max_accounts, 8UL, 1024UL, 64UL, TEST_CACHE_FOOTPRINT, TEST_CACHE_MIN_RESERVED, 3UL, 0UL, index_ram_max );
+  void * shmem_mem = aligned_alloc( fd_accdb_shmem_align(), shmem_fp );
+  FD_TEST( shmem_mem );
+  test_shmem_mem = fd_accdb_shmem_join( fd_accdb_shmem_new( shmem_mem, max_accounts, 8UL, 1024UL, 64UL, 11UL<<20UL, TEST_CACHE_FOOTPRINT,
+                                                            TEST_CACHE_MIN_RESERVED, 0, 42UL, 3UL, 0UL, index_ram_max ) );
+  FD_TEST( test_shmem_mem );
+  FD_TEST( test_shmem_mem->pool_max==index_ram_max );
+  FD_TEST( test_shmem_mem->idx_ring_cap==2UL );
+
+  int fd = memfd_create( "accdb_test", 0 );
+  FD_TEST( fd>=0 );
+  fd_accdb_t * accdb = fd_accdb_join( fd_accdb_new( aligned_alloc( fd_accdb_align(), fd_accdb_footprint( 8UL, 1 ) ), test_shmem_mem, fd, 0UL, NULL, NULL, 0UL, 1 ) );
+  FD_TEST( accdb );
+  fd_accdb_set_index_fd( accdb, idx_fd );
+  fd_accdb_set_spill_fd( accdb, spill_fd );
+  fd_accdb_fork_id_t root = fd_accdb_attach_child( accdb, SENTINEL );
+
+  /* The accdb tile, draining the ring in the background. */
+  fd_accdb_t * t2 = test_join_writer( fd );
+  fd_accdb_set_index_fd( t2, idx_fd );
+  fd_accdb_set_spill_fd( t2, spill_fd );
+  test_background_ctx_t bg_ctx = { .accdb = t2, .stop = 0 };
+  pthread_t bg_thread;
+  FD_TEST( !pthread_create( &bg_thread, NULL, run_background, &bg_ctx ) );
+
+  /* Accounts i%7 have an older version, so the load spills more
+     records than accounts.  Well over the two ring chunks. */
+  ulong const n = 6000UL;
+  static uchar pk[ 6000 ][ 32 ];
+  ulong seed = 1UL;
+  for( ulong i=0UL; i<n; i++ ) {
+    fd_memset( pk[ i ], 0, 32UL );
+    FD_STORE( ulong, pk[ i ],   fd_ulong_hash( seed++ ) );
+    FD_STORE( ulong, pk[ i ]+8, i );
+  }
+
+  uchar r;
+  ulong want_dups = 0UL;
+  fd_accdb_snapshot_load_begin( accdb );
+  for( ulong i=0UL; i<n; i++ ) {
+    if( !(i%7UL) ) { idx_snap_write( accdb, fd, SENTINEL, pk[ i ], 1UL, 5UL, 8UL, 0x01, &r, NULL ); want_dups++; }
+    idx_snap_write( accdb, fd, SENTINEL, pk[ i ], 2UL, 100UL+i, 8UL, (uchar)i, &r, NULL );
+  }
+
+  void * build_scratch = aligned_alloc( fd_accdb_snapshot_index_build_scratch_align(), fd_accdb_snapshot_index_build_scratch_footprint( max_accounts, index_ram_max ) );
+  FD_TEST( build_scratch );
+  ulong dup_cnt, dup_lamports_hi, dup_lamports;
+  FD_TEST( !fd_accdb_snapshot_index_build( accdb, build_scratch, &dup_cnt, &dup_lamports_hi, &dup_lamports ) );
+  FD_TEST( dup_cnt==want_dups && !dup_lamports_hi && dup_lamports==5UL*want_dups );
+
+  /* The ring was armed for the load and disarmed by the build.  The
+     load could not fit in two chunks, so the drainer must have run. */
+  FD_TEST( test_shmem_mem->idx_ring_state==FD_ACCDB_IDX_RING_IDLE );
+  FD_TEST( test_shmem_mem->idx_ring_head.val>2UL );
+  FD_TEST( test_shmem_mem->idx_ring_tail.val>=1UL );
+  FD_TEST( test_shmem_mem->idx_ring_tail.val<=test_shmem_mem->idx_ring_head.val );
+
+  for( ulong i=0UL; i<n; i++ ) FD_TEST( idx_lamports( accdb, pk[ i ] )==100UL+i );
+
+  /* The background punches out the spill, ring resident or not. */
+  FD_TEST( test_shmem_mem->idx_spill_state==FD_ACCDB_IDX_SPILL_PENDING );
+  for( ulong i=0UL; i<64UL && test_shmem_mem->idx_spill_state!=FD_ACCDB_IDX_SPILL_IDLE; i++ ) drain_background( t2 );
+  FD_TEST( test_shmem_mem->idx_spill_state==FD_ACCDB_IDX_SPILL_IDLE );
+  FD_TEST( lseek( spill_fd, 0L, SEEK_DATA )==-1L && errno==ENXIO );
+
+  FD_VOLATILE( bg_ctx.stop ) = 1;
+  FD_TEST( !pthread_join( bg_thread, NULL ) );
+
+  /* The pool memory is back: promoted copies of disk accounts work. */
+  FD_TEST( fd_accdb_lamports( accdb, root, pk[ 0 ] )==100UL );
+
+  fd_accdb_snapshot_load_end( accdb );
+  free( t2 );
+  free( build_scratch );
+  test_teardown( accdb, fd );
+  close( idx_fd );
+  close( spill_fd );
+}
+
 /* Verify a retry reuses entries moved to the free stack after lazy
    allocation is exhausted. */
 static void
@@ -2868,6 +2959,7 @@ main( int     argc,
   test_idx_compaction();
   FD_LOG_NOTICE(( "test_idx_parallel_build ..." ));
   test_idx_parallel_build();
+  test_idx_spill_ring();
 
   FD_LOG_NOTICE(( "success" ));
 

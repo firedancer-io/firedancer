@@ -37,11 +37,14 @@ pread64: (eq (arg 0) accounts_fd)
 # accdb: write to the accounts database
 #
 # Users of the accounts database may need to write data to persistent
-# storage if the cache is full (to complete an eviction).
+# storage if the cache is full (to complete an eviction).  The accdb
+# tile also drains runs of spill-ring chunks to the index spill file
+# while a full snapshot loads.
 #
 # arg 0 is the file descriptor to write to.
 pwritev2: (or (eq (arg 0) accounts_fd)
-              (and (>= (arg 0) accounts_idx_min_fd) (<= (arg 0) accounts_idx_max_fd)))
+              (and (>= (arg 0) accounts_idx_min_fd) (<= (arg 0) accounts_idx_max_fd))
+              (eq (arg 0) accounts_spill_fd))
 
 # accounts index: read pages to demote and compact
 preadv2: (and (>= (arg 0) accounts_idx_min_fd) (<= (arg 0) accounts_idx_max_fd))

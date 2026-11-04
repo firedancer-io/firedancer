@@ -33,11 +33,11 @@
 #define FD_SECCOMP_ARG_LO(x) ((uint)(((ulong)(uint)(int)(x)      ) & 0xffffffffUL))
 #define FD_SECCOMP_ARG_HI(x) ((uint)(((ulong)(x) >> 32) & 0xffffffffUL))
 
-static const uint sock_filter_policy_fd_accdb_tile_instr_cnt = 62;
+static const uint sock_filter_policy_fd_accdb_tile_instr_cnt = 64;
 
-static void populate_sock_filter_policy_fd_accdb_tile( ulong out_cnt, struct sock_filter out[ static 62 ], uint logfile_fd, uint accounts_fd, uint accounts_idx_min_fd, uint accounts_idx_max_fd, uint accounts_spill_fd ) {
-  FD_TEST( out_cnt >= 62 );
-  struct sock_filter filter[62] = {
+static void populate_sock_filter_policy_fd_accdb_tile( ulong out_cnt, struct sock_filter out[ static 64 ], uint logfile_fd, uint accounts_fd, uint accounts_idx_min_fd, uint accounts_idx_max_fd, uint accounts_spill_fd ) {
+  FD_TEST( out_cnt >= 64 );
+  struct sock_filter filter[64] = {
     /* validate architecture */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, ( offsetof( struct seccomp_data, arch ) )),
     BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, ARCH_NR, 0, /* RET_KILL_PROCESS */ 10 ),
@@ -52,13 +52,13 @@ static void populate_sock_filter_policy_fd_accdb_tile( ulong out_cnt, struct soc
     /* check pwritev2 */
     BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_pwritev2, /* check_pwritev2 */ 21, 0 ),
     /* check preadv2 */
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_preadv2, /* check_preadv2 */ 28, 0 ),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_preadv2, /* check_preadv2 */ 30, 0 ),
     /* check fallocate */
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_fallocate, /* check_fallocate */ 33, 0 ),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_fallocate, /* check_fallocate */ 35, 0 ),
     /* check clock_nanosleep */
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_clock_nanosleep, /* check_clock_nanosleep */ 42, 0 ),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_clock_nanosleep, /* check_clock_nanosleep */ 44, 0 ),
     /* check futex */
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_futex, /* check_futex */ 45, 0 ),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_futex, /* check_futex */ 47, 0 ),
     /* allow restart_syscall */
     BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_restart_syscall, /* RET_ALLOW */ 1, 0 ),
 //  RET_KILL_PROCESS:
@@ -98,15 +98,19 @@ static void populate_sock_filter_policy_fd_accdb_tile( ulong out_cnt, struct soc
 //  check_pwritev2:
     /* arg 0 low 32 bits */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, FD_SECCOMP_ARG_LO_OFFSET(0)),
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, ((uint)(accounts_fd)), /* pwritev2_ALLOW */ 5, /* or_2 */ 0 ),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, ((uint)(accounts_fd)), /* pwritev2_ALLOW */ 7, /* or_2 */ 0 ),
 //  or_2:
     /* arg 0 low 32 bits */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, FD_SECCOMP_ARG_LO_OFFSET(0)),
-    BPF_JUMP( BPF_JMP | BPF_JGE | BPF_K, ((uint)(accounts_idx_min_fd)), /* and_3 */ 0, /* pwritev2_KILL */ 2 ),
-//  and_3:
+    BPF_JUMP( BPF_JMP | BPF_JGE | BPF_K, ((uint)(accounts_idx_min_fd)), /* and_4 */ 0, /* or_3 */ 2 ),
+//  and_4:
     /* arg 0 low 32 bits */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, FD_SECCOMP_ARG_LO_OFFSET(0)),
-    BPF_JUMP( BPF_JMP | BPF_JGT | BPF_K, ((uint)(accounts_idx_max_fd)), /* pwritev2_KILL */ 0, /* pwritev2_ALLOW */ 1 ),
+    BPF_JUMP( BPF_JMP | BPF_JGT | BPF_K, ((uint)(accounts_idx_max_fd)), /* or_3 */ 0, /* pwritev2_ALLOW */ 3 ),
+//  or_3:
+    /* arg 0 low 32 bits */
+    BPF_STMT( BPF_LD | BPF_W | BPF_ABS, FD_SECCOMP_ARG_LO_OFFSET(0)),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, ((uint)(accounts_spill_fd)), /* pwritev2_ALLOW */ 1, /* pwritev2_KILL */ 0 ),
 //  pwritev2_KILL:
     BPF_STMT( BPF_RET | BPF_K, SECCOMP_RET_KILL_PROCESS ),
 //  pwritev2_ALLOW:
@@ -114,8 +118,8 @@ static void populate_sock_filter_policy_fd_accdb_tile( ulong out_cnt, struct soc
 //  check_preadv2:
     /* arg 0 low 32 bits */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, FD_SECCOMP_ARG_LO_OFFSET(0)),
-    BPF_JUMP( BPF_JMP | BPF_JGE | BPF_K, ((uint)(accounts_idx_min_fd)), /* and_4 */ 0, /* preadv2_KILL */ 2 ),
-//  and_4:
+    BPF_JUMP( BPF_JMP | BPF_JGE | BPF_K, ((uint)(accounts_idx_min_fd)), /* and_5 */ 0, /* preadv2_KILL */ 2 ),
+//  and_5:
     /* arg 0 low 32 bits */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, FD_SECCOMP_ARG_LO_OFFSET(0)),
     BPF_JUMP( BPF_JMP | BPF_JGT | BPF_K, ((uint)(accounts_idx_max_fd)), /* preadv2_KILL */ 0, /* preadv2_ALLOW */ 1 ),
@@ -126,16 +130,16 @@ static void populate_sock_filter_policy_fd_accdb_tile( ulong out_cnt, struct soc
 //  check_fallocate:
     /* arg 0 low 32 bits */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, FD_SECCOMP_ARG_LO_OFFSET(0)),
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, ((uint)(accounts_fd)), /* and_6 */ 0, /* or_5 */ 2 ),
-//  and_6:
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, ((uint)(accounts_fd)), /* and_7 */ 0, /* or_6 */ 2 ),
+//  and_7:
     /* arg 1 low 32 bits */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, FD_SECCOMP_ARG_LO_OFFSET(1)),
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, 0x00000000U, /* fallocate_ALLOW */ 5, /* or_5 */ 0 ),
-//  or_5:
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, 0x00000000U, /* fallocate_ALLOW */ 5, /* or_6 */ 0 ),
+//  or_6:
     /* arg 0 low 32 bits */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, FD_SECCOMP_ARG_LO_OFFSET(0)),
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, ((uint)(accounts_spill_fd)), /* and_7 */ 0, /* fallocate_KILL */ 2 ),
-//  and_7:
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, ((uint)(accounts_spill_fd)), /* and_8 */ 0, /* fallocate_KILL */ 2 ),
+//  and_8:
     /* arg 1 low 32 bits */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, FD_SECCOMP_ARG_LO_OFFSET(1)),
     BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, 0x00000003U, /* fallocate_ALLOW */ 1, /* fallocate_KILL */ 0 ),
@@ -154,8 +158,8 @@ static void populate_sock_filter_policy_fd_accdb_tile( ulong out_cnt, struct soc
 //  check_futex:
     /* arg 1 low 32 bits */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, FD_SECCOMP_ARG_LO_OFFSET(1)),
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, FD_SECCOMP_ARG_LO(FUTEX_WAIT_BITSET), /* and_8 */ 0, /* futex_KILL */ 2 ),
-//  and_8:
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, FD_SECCOMP_ARG_LO(FUTEX_WAIT_BITSET), /* and_9 */ 0, /* futex_KILL */ 2 ),
+//  and_9:
     /* arg 2 low 32 bits */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, FD_SECCOMP_ARG_LO_OFFSET(2)),
     BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, 0x00000000U, /* futex_ALLOW */ 1, /* futex_KILL */ 0 ),

@@ -765,6 +765,10 @@ telemetry = true
     # restores near all-RAM index performance on a host with 100 GiB
     # for the accounts database.  Lower it on hosts with less memory,
     # raise it towards max_accounts for a fully resident index.
+    #
+    # The same memory is recycled while a full snapshot loads: index
+    # records spilled for the post-load index build are staged in it
+    # first, so a bigger value also speeds up the snapshot load itself.
     index_ram_max = 600_000_000
 
     # The size of the in-memory cache for hit accounts, in GiB.  The

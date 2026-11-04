@@ -199,6 +199,31 @@ typedef struct fd_accdb_partition fd_accdb_partition_t;
 #define FD_ACCDB_IDX_SPILL_IDLE     (0UL)
 #define FD_ACCDB_IDX_SPILL_PENDING  (1UL)
 #define FD_ACCDB_IDX_SPILL_PUNCHING (2UL)
+
+/* Spill ring.  While a full snapshot loads, no account is in the
+   acc_pool yet, so its memory is recycled as a ring of spill chunks:
+   a flushing tile claims the next chunk sequence number
+   (idx_ring_head) and copies its chunk into ring slot seq%cap, with no
+   I/O at all.  Once the ring is more than 3/4 full, the accdb tile's
+   background loop drains runs of ring chunks to the spill file
+   (idx_ring_tail counts the drained ones) so the ring never wraps on
+   an unpublished chunk.  A tile that finds its slot still busy waits
+   briefly for the drainer and then writes its chunk straight to the
+   file, so the load makes progress even without a drainer.  The build
+   reads a chunk from the ring while it is resident, else from the
+   file, and chunk headers hold seq+1 instead of byte offsets (the
+   file offset of chunk seq is seq*FD_ACCDB_IDX_CHUNK_SZ, so a ring of
+   capacity zero behaves exactly like a plain spill file). */
+
+#define FD_ACCDB_IDX_RING_IDLE  (0)
+#define FD_ACCDB_IDX_RING_ARMED (1)
+#define FD_ACCDB_IDX_PUB_FILE   (1UL<<63) /* publish stamp: chunk went to the file */
+
+/* Ring slots alias the acc_pool region and the drainer writes them
+   with direct I/O, so the region must be aligned for it.  Must match
+   the layouts in fd_accdb_shmem.c and fd_accdb_new. */
+#define FD_ACCDB_IDX_RING_ALIGN (4096UL)
+
 #define FD_ACCDB_IDX_BLOOM_BITS   (6UL)       /* bloom filter bits per account */
 #define FD_ACCDB_IDX_TOMB         (ULONG_MAX)
 #define FD_ACCDB_DEMOTE_AGE       (64U)
@@ -253,6 +278,15 @@ static inline ulong
 fd_accdb_pool_max( ulong max_accounts,
                    ulong index_ram_max ) {
   return index_ram_max ? fd_ulong_min( index_ram_max, max_accounts ) : max_accounts;
+}
+
+/* fd_accdb_idx_ring_cap returns how many spill chunks the ring holds:
+   one chunk per FD_ACCDB_IDX_STAGE_CNT acc_pool slots, i.e. the whole
+   pool recycled as staging while a full snapshot loads. */
+
+static inline ulong
+fd_accdb_idx_ring_cap( ulong pool_max ) {
+  return pool_max/FD_ACCDB_IDX_STAGE_CNT;
 }
 
 static inline ulong
@@ -692,6 +726,17 @@ struct fd_accdb_shmem_private {
   ulong idx_spill_punch_off;
   ulong idx_spill_end;
   struct __attribute__((aligned(64))) { ulong val; } acc_used;
+
+  /* Spill ring (see the FD_ACCDB_IDX_RING_* comment above).  The ring
+     slots are the acc_pool region; idx_ring_pub_off holds one publish
+     stamp per slot.  The counters and the state are single cache lines:
+     every spilled record's tile reads head and tail. */
+  ulong idx_ring_cap;       /* chunks the ring holds, 0 disables it */
+  ulong idx_ring_pub_off;   /* idx_ring_cap publish stamps */
+  struct __attribute__((aligned(64))) { ulong val; } idx_ring_head; /* next chunk seq to claim */
+  struct __attribute__((aligned(64))) { ulong val; } idx_ring_tail; /* chunk seqs drained to the file */
+  int    idx_ring_state __attribute__((aligned(64)));  /* FD_ACCDB_IDX_RING_* */
+  int    idx_ring_drain __attribute__((aligned(64)));   /* drainer batch in flight */
 
   acc_pool_shmem_t  acc_pool [1];
   fork_pool_shmem_t fork_pool[1];

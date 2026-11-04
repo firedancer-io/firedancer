@@ -1151,10 +1151,15 @@ initialize_accdb_fd( config_t const * config ) {
     if( FD_UNLIKELY( -1==close( idx_ro_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
 
-  /* The index spill is scratch for one boot: unlinked once open. */
+  /* The index spill is scratch for one boot: unlinked once open.
+     Direct I/O keeps its writes out of the page cache, where they
+     would pile up as dirty pages and throttle the snapshot loader; the
+     drain runs on the accdb tile and writes whole aligned runs. */
   char spill_path[ PATH_MAX ];
   FD_TEST( fd_cstr_printf_check( spill_path, sizeof(spill_path), NULL, "%s-spill", config->paths.accounts ) );
-  int spill_fd = open( spill_path, O_RDWR|O_CREAT|O_TRUNC|O_NOATIME, S_IRUSR|S_IWUSR );
+  int spill_fd = open( spill_path, O_RDWR|O_CREAT|O_TRUNC|O_NOATIME|O_DIRECT, S_IRUSR|S_IWUSR );
+  if( FD_UNLIKELY( -1==spill_fd && errno==EINVAL ) )
+    spill_fd = open( spill_path, O_RDWR|O_CREAT|O_TRUNC|O_NOATIME, S_IRUSR|S_IWUSR );
   if( FD_UNLIKELY( -1==spill_fd ) ) FD_LOG_ERR(( "failed to open %s (%i-%s)", spill_path, errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( -1==unlink( spill_path ) ) ) FD_LOG_ERR(( "unlink(%s) failed (%i-%s)", spill_path, errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( -1==dup2( spill_fd, FD_ACCDB_SPILL_FD ) ) ) FD_LOG_ERR(( "dup2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));

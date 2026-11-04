@@ -72,6 +72,12 @@ struct __attribute__((aligned(FD_ACCDB_ALIGN))) fd_accdb_private {
   ulong *                idx_bloom;
   ulong *                idx_dup;
 
+  /* Spill ring, aliases the acc_pool while a full snapshot loads
+     (NULL when the ring is disabled).  See the FD_ACCDB_IDX_RING_*. */
+  fd_accdb_idx_slot_t *  idx_ring;
+  ulong *                idx_ring_pub;
+  ulong                  idx_ring_cap;
+
   /* Disk index geometry, kept out of shmem lines other tiles write */
   ulong idx_seed;
   ulong idx_page_cnt;
@@ -149,8 +155,8 @@ struct __attribute__((aligned(FD_ACCDB_ALIGN))) fd_accdb_private {
   /* Bounce for one chunk of the disk index spill, copied out under the
      range lock and written with no lock held (see idx_spill_capture),
      so a write stalled on disk never blocks the tiles sharing the
-     range. */
-  fd_accdb_idx_slot_t idx_flush[ FD_ACCDB_IDX_STAGE_CNT ] __attribute__((aligned(64)));
+     range.  Direct-IO aligned for spills opened O_DIRECT. */
+  fd_accdb_idx_slot_t idx_flush[ FD_ACCDB_IDX_STAGE_CNT ] __attribute__((aligned(FD_ACCDB_IDX_RING_ALIGN)));
 
   /* Track account addresses changed since a full snap.
      Used to determine which accounts should be packed into a full
@@ -330,7 +336,7 @@ fd_accdb_new( void *              ljoin,
   void * _fork_pool_ele    = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_accdb_fork_shmem_t), max_live_slots*sizeof(fd_accdb_fork_shmem_t)            );
   void * _descends_sets    = FD_SCRATCH_ALLOC_APPEND( l, descends_set_align(),           max_live_slots*descends_set_footprint( max_live_slots ) );
   void * _acc_map          = FD_SCRATCH_ALLOC_APPEND( l, alignof(uint),                  chain_cnt*sizeof(uint)                                  );
-  void * _acc_pool_ele     = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_accdb_accmeta_t),        max_accounts*sizeof(fd_accdb_accmeta_t)             );
+  void * _acc_pool_ele     = FD_SCRATCH_ALLOC_APPEND( l, FD_ACCDB_IDX_RING_ALIGN,        max_accounts*sizeof(fd_accdb_accmeta_t)             );
   void * _txn_pool_ele     = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_accdb_txn_t),        txn_max*sizeof(fd_accdb_txn_t)                          );
   void * _partition_pool   = FD_SCRATCH_ALLOC_APPEND( l, partition_pool_align(),         partition_pool_footprint( partition_cnt )               );
   void * _compaction_dlists[ FD_ACCDB_COMPACTION_LAYER_CNT ];
@@ -359,11 +365,15 @@ fd_accdb_new( void *              ljoin,
   accdb->idx_stage  = idx ? (fd_accdb_idx_slot_t *) ( (uchar *)shmem+shmem->idx_stage_off  ) : NULL;
   accdb->idx_bloom  = idx ? (ulong *)               ( (uchar *)shmem+shmem->idx_bloom_off  ) : NULL;
   accdb->idx_dup    = idx ? (ulong *)               ( (uchar *)shmem+shmem->idx_dup_off    ) : NULL;
+  accdb->idx_ring_cap = idx ? shmem->idx_ring_cap : 0UL;
+  accdb->idx_ring     = NULL; /* set below, once acc_pool is known */
+  accdb->idx_ring_pub = idx && accdb->idx_ring_cap ? (ulong *)( (uchar *)shmem+shmem->idx_ring_pub_off ) : NULL;
   idx_geometry_init( accdb, shmem );
 
   accdb->shmem = (fd_accdb_shmem_t *)shmem;
   FD_TEST( acc_pool_join( accdb->acc_pool_join, shmem->acc_pool, _acc_pool_ele, max_accounts ) );
   accdb->acc_pool = accdb->acc_pool_join->ele;
+  if( accdb->idx_ring_cap ) accdb->idx_ring = (fd_accdb_idx_slot_t *)accdb->acc_pool; /* ring slots alias the pool */
   accdb->acc_map = _acc_map;
   FD_TEST( txn_pool_join( accdb->txn_pool, shmem->txn_pool, _txn_pool_ele, txn_max ) );
   for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) accdb->cache[ c ] = (uchar *)shmem + shmem->cache_region_off[ c ];
@@ -816,6 +826,9 @@ fd_accdb_join_readonly( void *             ljoin,
   accdb->idx_stage  = NULL;
   accdb->idx_bloom  = shmem->idx_page_cnt ? (ulong *)( (uchar *)shmem+shmem->idx_bloom_off ) : NULL;
   accdb->idx_dup    = shmem->idx_page_cnt ? (ulong *)( (uchar *)shmem+shmem->idx_dup_off   ) : NULL;
+  accdb->idx_ring_cap = 0UL;   /* a readonly join never spills */
+  accdb->idx_ring     = NULL;
+  accdb->idx_ring_pub = NULL;
   idx_geometry_init( accdb, shmem );
   FD_TEST( acc_pool_join( accdb->acc_pool_join, shmem->acc_pool, _acc_pool_ele, max_accounts ) );
   accdb->acc_pool = accdb->acc_pool_join->ele;
@@ -1404,7 +1417,11 @@ idx_spill_punch( fd_accdb_t * accdb,
 
 /* idx_spill_settle punches out what is left of the last spill, built
    or not, and rewinds it before another full snapshot load writes a
-   new one. */
+   new one.  It also disarms the ring (the chunks it still holds were
+   consumed by the last build or are being discarded) and waits out a
+   drainer in flight, so the counters below are stable.  Producers are
+   quiet: settle runs at snapshot-load begin and reset, behind the
+   load barrier. */
 
 static void
 idx_spill_settle( fd_accdb_t * accdb ) {
@@ -1416,9 +1433,16 @@ idx_spill_settle( fd_accdb_t * accdb ) {
         FD_ATOMIC_CAS( &shmem->idx_spill_state, FD_ACCDB_IDX_SPILL_PENDING, FD_ACCDB_IDX_SPILL_PUNCHING )==FD_ACCDB_IDX_SPILL_PENDING ) break;
     FD_SPIN_PAUSE();
   }
+  FD_COMPILER_MFENCE();
+  FD_VOLATILE( shmem->idx_ring_state ) = FD_ACCDB_IDX_RING_IDLE;
+  while( FD_VOLATILE_CONST( shmem->idx_ring_drain ) ) FD_SPIN_PAUSE();
+  /* Punch every chunk ever claimed, ring resident or not: holes cost
+     nothing.  Then mark the whole ring consumed. */
+  shmem->idx_spill_end = FD_VOLATILE_CONST( shmem->idx_ring_head.val )*FD_ACCDB_IDX_CHUNK_SZ;
   idx_spill_punch( accdb, ULONG_MAX );
   shmem->idx_spill_punch_off = 0UL;
   shmem->idx_spill_end       = 0UL;
+  shmem->idx_ring_tail.val   = shmem->idx_ring_head.val;
   FD_COMPILER_MFENCE();
   FD_VOLATILE( shmem->idx_spill_state ) = FD_ACCDB_IDX_SPILL_IDLE;
 }
@@ -4760,48 +4784,114 @@ background_preevict( fd_accdb_t * accdb,
 }
 
 /* Full snapshot spill.  Each placement window (range) has a stage
-   buffer in shmem, flushed as one chunk to the spill.  Chunks are
-   allocated in arrival order, so the spill holds every record however
-   unevenly the ranges fill or however many versions a pubkey has.
+   buffer in shmem, flushed as one chunk.  Chunks are numbered in
+   arrival order: the chunk header and the range's chunk list hold
+   chunk seq+1, and chunk seq lives in the spill ring while it is
+   resident (the ring aliases the acc_pool, which no account occupies
+   during a full snapshot load) and at offset seq*FD_ACCDB_IDX_CHUNK_SZ
+   of the spill file once resolved there.  See the FD_ACCDB_IDX_RING_*,
+   and the comment above idx_chunk_publish, for the protocol.
 
    A flush links the chunk and copies it out under the range lock, then
-   writes it with no lock held: the tiles inserting records share the
-   range locks, and a write stalled on disk (dirty page throttling on a
-   slow drive) must not hold the lock the other tiles need.  Only the
-   tile that filled the stage waits for its own write. */
+   publishes it with no lock held: the tiles inserting records share
+   the range locks, and a write stalled on disk must not hold the lock
+   the other tiles need.  Only the tile that filled the stage waits for
+   its own chunk. */
+
+/* idx_ring_arm, called before the first spill of a load, brings the
+   ring up (idx_spill_settle disarms it). */
+
+static void
+idx_ring_arm( fd_accdb_t * accdb ) {
+  for(;;) {
+    int state = FD_VOLATILE_CONST( accdb->shmem->idx_ring_state );
+    if( FD_LIKELY( state==FD_ACCDB_IDX_RING_ARMED ) ) return;
+    if( FD_UNLIKELY( state==FD_ACCDB_IDX_RING_IDLE ) &&
+        FD_ATOMIC_CAS( &accdb->shmem->idx_ring_state, FD_ACCDB_IDX_RING_IDLE, FD_ACCDB_IDX_RING_ARMED )==FD_ACCDB_IDX_RING_IDLE ) return;
+    FD_SPIN_PAUSE();
+  }
+}
+
+/* idx_ring_slot returns the ring slot of chunk seq. */
+
+static inline fd_accdb_idx_slot_t *
+idx_ring_slot( fd_accdb_t const * accdb,
+               ulong              seq ) {
+  return accdb->idx_ring+(seq%accdb->idx_ring_cap)*FD_ACCDB_IDX_STAGE_CNT;
+}
+
+/* idx_chunk_publish makes chunk seq readable.  It goes into the ring
+   slot (no I/O at all), or, when the slot is still busy with the chunk
+   seq-cap ahead of it and the drainer has not freed it in time,
+   straight to the spill file.  Either way the build can read the chunk
+   and the punch covers it, and forward progress never depends on
+   another tile: a load without a running drainer simply resolves
+   chunks past the ring capacity to the file. */
+
+static void
+idx_chunk_publish( fd_accdb_t * accdb,
+                  ulong        seq ) {
+  fd_accdb_shmem_t * shmem = accdb->shmem;
+  if( FD_UNLIKELY( !accdb->idx_ring_cap ) ) {
+    idx_io_fd( accdb->spill_fd, 1, accdb->idx_flush, FD_ACCDB_IDX_CHUNK_SZ, accdb->spill_base+seq*FD_ACCDB_IDX_CHUNK_SZ );
+    return;
+  }
+  ulong * pub = accdb->idx_ring_pub+seq%accdb->idx_ring_cap;
+  ulong  prev = seq-accdb->idx_ring_cap;
+  for( ulong spin=0UL;; spin++ ) {
+    if( FD_UNLIKELY( seq-FD_VOLATILE_CONST( shmem->idx_ring_tail.val )<accdb->idx_ring_cap ) ) break; /* slot free: the chunk ahead was drained */
+    ulong p = FD_VOLATILE_CONST( *pub );
+    if( FD_UNLIKELY( p==(prev|FD_ACCDB_IDX_PUB_FILE) ) ) break; /* slot free: the chunk ahead went to the file */
+    if( FD_UNLIKELY( spin>=(1UL<<14) && p==prev ) ) { /* no drainer is freeing the ring: resolve this chunk to the file */
+      idx_io_fd( accdb->spill_fd, 1, accdb->idx_flush, FD_ACCDB_IDX_CHUNK_SZ, accdb->spill_base+seq*FD_ACCDB_IDX_CHUNK_SZ );
+      __atomic_store_n( pub, seq|FD_ACCDB_IDX_PUB_FILE, __ATOMIC_RELEASE );
+      return;
+    }
+    FD_SPIN_PAUSE();
+  }
+  fd_memcpy( idx_ring_slot( accdb, seq ), accdb->idx_flush, FD_ACCDB_IDX_CHUNK_SZ );
+  __atomic_store_n( pub, seq, __ATOMIC_RELEASE );
+}
+
+/* idx_chunk_read reads chunk seq into buf, from the ring while it is
+   resident, else from the spill file.  Build workers only: the tiles
+   spilling records have finished by then, so the stamp always
+   resolves without waiting. */
+
+static void
+idx_chunk_read( fd_accdb_t *          accdb,
+               ulong                 seq,
+               fd_accdb_idx_slot_t * buf ) {
+  if( FD_LIKELY( accdb->idx_ring_cap ) ) {
+    ulong * pub = accdb->idx_ring_pub+seq%accdb->idx_ring_cap;
+    for(;;) {
+      if( FD_UNLIKELY( seq<FD_VOLATILE_CONST( accdb->shmem->idx_ring_tail.val ) ) ) break; /* drained to the file */
+      ulong p = FD_VOLATILE_CONST( *pub );
+      if( FD_LIKELY( p==seq ) ) { fd_memcpy( buf, idx_ring_slot( accdb, seq ), FD_ACCDB_IDX_CHUNK_SZ ); return; }
+      if( FD_UNLIKELY( p==(seq|FD_ACCDB_IDX_PUB_FILE) ) ) break; /* went to the file */
+      FD_SPIN_PAUSE(); /* the publishing tile is still copying */
+    }
+  }
+  idx_io_fd( accdb->spill_fd, 0, buf, FD_ACCDB_IDX_CHUNK_SZ, accdb->spill_base+seq*FD_ACCDB_IDX_CHUNK_SZ );
+}
 
 /* idx_spill_capture, called with r->lock held, publishes the staged
-   records of range as one chunk of the spill: links the chunk into the
-   range's chunk list, rewinds the stage and copies the chunk to the
-   local bounce buffer. */
+   records of range as chunk seq: links the chunk into the range's
+   chunk list, rewinds the stage and copies the chunk to the local
+   bounce buffer. */
 
 static void
 idx_spill_capture( fd_accdb_t *          accdb,
-                   fd_accdb_idx_range_t * r,
-                   ulong                  range,
-                   ulong *                out_off ) {
+                  fd_accdb_idx_range_t * r,
+                  ulong                  range,
+                  ulong                  seq ) {
   fd_accdb_idx_slot_t *      stage = accdb->idx_stage+range*FD_ACCDB_IDX_STAGE_CNT;
   fd_accdb_idx_chunk_hdr_t * hdr   = (fd_accdb_idx_chunk_hdr_t *)stage;
   hdr->prev_plus1 = r->spill_tail;
   hdr->cnt        = r->stage_cnt;
-  *out_off = FD_ATOMIC_FETCH_AND_ADD( &accdb->shmem->idx_spill_end, FD_ACCDB_IDX_CHUNK_SZ );
-  r->spill_tail = *out_off+1UL;
-  r->stage_cnt  = 0U;
+  r->spill_tail   = seq+1UL;
+  r->stage_cnt    = 0U;
   fd_memcpy( accdb->idx_flush, stage, FD_ACCDB_IDX_CHUNK_SZ );
-}
-
-/* idx_spill_write, called with no lock held, writes one chunk of the
-   spill and starts its writeback.  Chunks left to the flusher pile up
-   as dirty pages and throttle the loader, like the index build
-   windows. */
-
-static void
-idx_spill_write( fd_accdb_t * accdb,
-                 ulong        off ) {
-  idx_io_fd( accdb->spill_fd, 1, accdb->idx_flush, FD_ACCDB_IDX_CHUNK_SZ, accdb->spill_base+off );
-  if( FD_UNLIKELY( -1==sync_file_range( accdb->spill_fd, (long)( accdb->spill_base+off ), (long)FD_ACCDB_IDX_CHUNK_SZ, SYNC_FILE_RANGE_WRITE ) ) ) {
-    FD_LOG_WARNING(( "sync_file_range of the accounts index spill failed (%d-%s)", errno, fd_io_strerror( errno ) ));
-  }
 }
 
 /* idx_spill_flush, called with no lock held, publishes whatever is
@@ -4812,26 +4902,35 @@ static void
 idx_spill_flush( fd_accdb_t * accdb,
                  ulong        range ) {
   fd_accdb_idx_range_t * r = &accdb->idx_range[ range ];
-  ulong off = 0UL;
+  ulong seq = 0UL;
   int   flush = 0;
   spin_lock_acquire( &r->lock );
-  if( FD_LIKELY( r->stage_cnt ) ) { idx_spill_capture( accdb, r, range, &off ); flush = 1; }
+  if( FD_LIKELY( r->stage_cnt ) ) {
+    seq = FD_ATOMIC_FETCH_AND_ADD( &accdb->shmem->idx_ring_head.val, 1UL );
+    idx_spill_capture( accdb, r, range, seq );
+    flush = 1;
+  }
   spin_lock_release( &r->lock );
-  if( FD_LIKELY( flush ) ) idx_spill_write( accdb, off );
+  if( FD_LIKELY( flush ) ) idx_chunk_publish( accdb, seq );
 }
 
 static void
 idx_spill( fd_accdb_t *                accdb,
            fd_accdb_idx_slot_t const * rec ) {
+  if( FD_UNLIKELY( accdb->idx_ring_cap ) ) idx_ring_arm( accdb );
   ulong range = idx_home( accdb, idx_hash( accdb, rec->pubkey ) )/FD_ACCDB_IDX_WINDOW_PAGES;
   fd_accdb_idx_range_t * r = &accdb->idx_range[ range ];
-  ulong off = 0UL;
+  ulong seq = 0UL;
   int   flush = 0;
   spin_lock_acquire( &r->lock );
   accdb->idx_stage[ range*FD_ACCDB_IDX_STAGE_CNT+1UL+r->stage_cnt++ ] = *rec;
-  if( FD_UNLIKELY( r->stage_cnt==FD_ACCDB_IDX_STAGE_CNT-1UL ) ) { idx_spill_capture( accdb, r, range, &off ); flush = 1; }
+  if( FD_UNLIKELY( r->stage_cnt==FD_ACCDB_IDX_STAGE_CNT-1UL ) ) {
+    seq = FD_ATOMIC_FETCH_AND_ADD( &accdb->shmem->idx_ring_head.val, 1UL );
+    idx_spill_capture( accdb, r, range, seq );
+    flush = 1;
+  }
   spin_lock_release( &r->lock );
-  if( FD_UNLIKELY( flush ) ) idx_spill_write( accdb, off );
+  if( FD_UNLIKELY( flush ) ) idx_chunk_publish( accdb, seq );
 }
 
 int
@@ -5169,7 +5268,7 @@ idx_build_range( fd_accdb_t *          accdb,
 
   ulong winners = 0UL, dup_cnt = 0UL, dup_lamports_hi = 0UL, dup_lamports = 0UL, freed = 0UL;
   for( ulong tail=accdb->idx_range[ r ].spill_tail; tail; ) {
-    idx_io_fd( accdb->spill_fd, 0, stage, FD_ACCDB_IDX_CHUNK_SZ, accdb->spill_base+tail-1UL );
+    idx_chunk_read( accdb, tail-1UL, stage );
     fd_accdb_idx_chunk_hdr_t const * hdr = (fd_accdb_idx_chunk_hdr_t const *)stage;
     ulong cnt = hdr->cnt;
     tail = hdr->prev_plus1;
@@ -5300,6 +5399,13 @@ fd_accdb_snapshot_index_build_fini( fd_accdb_t * accdb,
   shmem->shmetrics->accounts_total   = winners;
   shmem->shmetrics->disk_used_bytes -= freed;
 
+  /* Disarm the ring: every chunk is consumed, so the acc_pool memory
+     goes back to the pool.  The punch covers every chunk ever
+     claimed, ring resident or not. */
+  FD_COMPILER_MFENCE();
+  FD_VOLATILE( shmem->idx_ring_state ) = FD_ACCDB_IDX_RING_IDLE;
+  shmem->idx_spill_end = FD_VOLATILE_CONST( shmem->idx_ring_head.val )*FD_ACCDB_IDX_CHUNK_SZ;
+
   /* The accdb tile punches out the spill in the background. */
   shmem->idx_spill_punch_off = 0UL;
   FD_COMPILER_MFENCE();
@@ -5414,6 +5520,51 @@ background_demote( fd_accdb_t * accdb,
 }
 
 
+/* background_spill_drain keeps the spill ring from filling while a
+   full snapshot loads.  Once more than 3/4 of the slots hold chunks,
+   it writes runs of consecutive ring chunks to the spill file in one
+   big write each and advances idx_ring_tail past them, so the tiles
+   spilling records keep finding free slots without any I/O of their
+   own.  It runs on the accdb tile, which has nothing else to do
+   during a load; a load without it still finishes, resolving chunks
+   past the ring capacity straight to the file. */
+
+#define FD_ACCDB_IDX_DRAIN_CHUNKS (128UL) /* chunks (4 MiB) per background call */
+
+static void
+background_spill_drain( fd_accdb_t * accdb,
+                        int *        charge_busy ) {
+  fd_accdb_shmem_t * shmem = accdb->shmem;
+  ulong cap = accdb->idx_ring_cap;
+  if( FD_LIKELY( !cap ) ) return;
+  if( FD_LIKELY( FD_VOLATILE_CONST( shmem->idx_ring_state )!=FD_ACCDB_IDX_RING_ARMED ) ) return;
+  ulong head = FD_VOLATILE_CONST( shmem->idx_ring_head.val );
+  ulong tail = FD_VOLATILE_CONST( shmem->idx_ring_tail.val );
+  if( FD_LIKELY( (head-tail)*4UL<cap*3UL ) ) return; /* below the high-water mark */
+
+  __atomic_store_n( &shmem->idx_ring_drain, 1, __ATOMIC_RELEASE );
+  if( FD_UNLIKELY( FD_VOLATILE_CONST( shmem->idx_ring_state )!=FD_ACCDB_IDX_RING_ARMED ) ) {
+    __atomic_store_n( &shmem->idx_ring_drain, 0, __ATOMIC_RELEASE );
+    return; /* settle disarmed the ring and is waiting */
+  }
+  head = FD_VOLATILE_CONST( shmem->idx_ring_head.val );
+  for( ulong n=0UL; n<FD_ACCDB_IDX_DRAIN_CHUNKS && tail<head; ) {
+    ulong p = __atomic_load_n( accdb->idx_ring_pub+tail%cap, __ATOMIC_ACQUIRE );
+    if( FD_UNLIKELY( p==(tail|FD_ACCDB_IDX_PUB_FILE) ) ) { tail++; n++; continue; } /* already in the file */
+    if( FD_UNLIKELY( p!=tail ) ) break; /* not published yet, leave it for a later pass */
+    ulong run = 1UL;
+    while( run<FD_ACCDB_IDX_DRAIN_CHUNKS-n && tail+run<head &&
+           ( tail+run )%cap==( tail%cap )+run &&  /* one memory run, no wrap */
+           __atomic_load_n( accdb->idx_ring_pub+( tail+run )%cap, __ATOMIC_ACQUIRE )==( tail+run ) ) run++;
+    idx_io_fd( accdb->spill_fd, 1, idx_ring_slot( accdb, tail ), run*FD_ACCDB_IDX_CHUNK_SZ, accdb->spill_base+tail*FD_ACCDB_IDX_CHUNK_SZ );
+    tail += run;
+    n    += run;
+  }
+  __atomic_store_n( &shmem->idx_ring_tail.val, tail, __ATOMIC_RELEASE );
+  __atomic_store_n( &shmem->idx_ring_drain, 0, __ATOMIC_RELEASE );
+  *charge_busy = 1;
+}
+
 static void
 delta_reset( fd_accdb_t * accdb ) {
   if( !accdb->shmem->delta.head ) return; /* clean */
@@ -5470,6 +5621,9 @@ fd_accdb_background( fd_accdb_t * accdb,
     *charge_busy = 1;
     return;
   }
+
+  /* Drain the spill ring of the load in progress, if any. */
+  background_spill_drain( accdb, charge_busy );
 
   /* Punch out the spill of a finished index build a chunk at a time,
      so commands are not held up behind it. */

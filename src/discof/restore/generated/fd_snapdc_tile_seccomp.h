@@ -33,11 +33,11 @@
 #define FD_SECCOMP_ARG_LO(x) ((uint)(((ulong)(uint)(int)(x)      ) & 0xffffffffUL))
 #define FD_SECCOMP_ARG_HI(x) ((uint)(((ulong)(x) >> 32) & 0xffffffffUL))
 
-static const uint sock_filter_policy_fd_snapdc_tile_instr_cnt = 55;
+static const uint sock_filter_policy_fd_snapdc_tile_instr_cnt = 53;
 
-static void populate_sock_filter_policy_fd_snapdc_tile( ulong out_cnt, struct sock_filter out[ static 55 ], uint logfile_fd, uint accounts_idx_min_fd, uint accounts_idx_max_fd, uint accounts_spill_fd ) {
-  FD_TEST( out_cnt >= 55 );
-  struct sock_filter filter[55] = {
+static void populate_sock_filter_policy_fd_snapdc_tile( ulong out_cnt, struct sock_filter out[ static 53 ], uint logfile_fd, uint accounts_idx_min_fd, uint accounts_idx_max_fd, uint accounts_spill_fd ) {
+  FD_TEST( out_cnt >= 53 );
+  struct sock_filter filter[53] = {
     /* validate architecture */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, ( offsetof( struct seccomp_data, arch ) )),
     BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, ARCH_NR, 0, /* RET_KILL_PROCESS */ 9 ),
@@ -54,9 +54,9 @@ static void populate_sock_filter_policy_fd_snapdc_tile( ulong out_cnt, struct so
     /* check sync_file_range */
     BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_sync_file_range, /* check_sync_file_range */ 27, 0 ),
     /* check exit */
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_exit, /* check_exit */ 36, 0 ),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_exit, /* check_exit */ 34, 0 ),
     /* check futex */
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_futex, /* check_futex */ 39, 0 ),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_futex, /* check_futex */ 37, 0 ),
     /* allow restart_syscall */
     BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_restart_syscall, /* RET_ALLOW */ 1, 0 ),
 //  RET_KILL_PROCESS:
@@ -112,15 +112,11 @@ static void populate_sock_filter_policy_fd_snapdc_tile( ulong out_cnt, struct so
 //  check_sync_file_range:
     /* arg 0 low 32 bits */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, FD_SECCOMP_ARG_LO_OFFSET(0)),
-    BPF_JUMP( BPF_JMP | BPF_JGE | BPF_K, ((uint)(accounts_idx_min_fd)), /* and_6 */ 0, /* or_5 */ 2 ),
-//  and_6:
+    BPF_JUMP( BPF_JMP | BPF_JGE | BPF_K, ((uint)(accounts_idx_min_fd)), /* and_5 */ 0, /* sync_file_range_KILL */ 4 ),
+//  and_5:
     /* arg 0 low 32 bits */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, FD_SECCOMP_ARG_LO_OFFSET(0)),
-    BPF_JUMP( BPF_JMP | BPF_JGT | BPF_K, ((uint)(accounts_idx_max_fd)), /* or_5 */ 0, /* and_4 */ 2 ),
-//  or_5:
-    /* arg 0 low 32 bits */
-    BPF_STMT( BPF_LD | BPF_W | BPF_ABS, FD_SECCOMP_ARG_LO_OFFSET(0)),
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, ((uint)(accounts_spill_fd)), /* and_4 */ 0, /* sync_file_range_KILL */ 2 ),
+    BPF_JUMP( BPF_JMP | BPF_JGT | BPF_K, ((uint)(accounts_idx_max_fd)), /* sync_file_range_KILL */ 2, /* and_4 */ 0 ),
 //  and_4:
     /* arg 3 low 32 bits */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, FD_SECCOMP_ARG_LO_OFFSET(3)),
@@ -140,8 +136,8 @@ static void populate_sock_filter_policy_fd_snapdc_tile( ulong out_cnt, struct so
 //  check_futex:
     /* arg 1 low 32 bits */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, FD_SECCOMP_ARG_LO_OFFSET(1)),
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, FD_SECCOMP_ARG_LO(FUTEX_WAIT_BITSET), /* and_7 */ 0, /* futex_KILL */ 2 ),
-//  and_7:
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, FD_SECCOMP_ARG_LO(FUTEX_WAIT_BITSET), /* and_6 */ 0, /* futex_KILL */ 2 ),
+//  and_6:
     /* arg 2 low 32 bits */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, FD_SECCOMP_ARG_LO_OFFSET(2)),
     BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, 0x00000000U, /* futex_ALLOW */ 1, /* futex_KILL */ 0 ),
