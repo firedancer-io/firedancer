@@ -226,6 +226,7 @@ typedef struct fd_sched_block_start fd_sched_block_start_t;
 
 struct fd_sched_block_end {
   ulong bank_idx;
+  ulong cert_disp_cnt;
 };
 typedef struct fd_sched_block_end fd_sched_block_end_t;
 
@@ -267,17 +268,37 @@ struct fd_sched_mark_dead {
 };
 typedef struct fd_sched_mark_dead fd_sched_mark_dead_t;
 
+/* An LtHash task names each account it hashes by a transaction that
+   wrote the account.  The transaction is the first writer the scheduler
+   saw while it tracked the block.  The reference is the transaction's
+   index in the slot shifted left by 8 and ORed with the account's
+   position in that transaction's account list.  That list is the static
+   accounts first and then the lookup table accounts, writable before
+   readonly.  FD_SCHED_LTHASH_REF_NONE names an account whose writer the
+   scheduler did not see, one written by start-of-block processing or by
+   a block that did not own its lane map while its transactions
+   parsed. */
+#define FD_SCHED_LTHASH_REF( index_in_slot, index_in_txn ) ((uint)((((ulong)(index_in_slot))<<8) | (((ulong)(index_in_txn))&0xFFUL)))
+#define FD_SCHED_LTHASH_REF_NONE (0xFFFFFFU)
+FD_STATIC_ASSERT( FD_TXN_ACCT_ADDR_MAX<=UCHAR_MAX, lthash_ref_index_in_txn_fits );
+
+FD_FN_CONST static inline ulong fd_sched_lthash_ref_index_in_slot( uint ref ) { return (ulong)(ref>>8);    }
+FD_FN_CONST static inline ulong fd_sched_lthash_ref_index_in_txn ( uint ref ) { return (ulong)(ref&0xFFU); }
+
 struct fd_sched_lthash_task {
   ulong                  bank_idx;
   ulong                  exec_idx;
   ulong                  cnt;   /* In [1,FD_SCHED_LTHASH_BATCH_MAX] */
   fd_acct_addr_t const * accts; /* Points into sched memory that stays as it is until the task completes. */
+  uint const *           refs;  /* One FD_SCHED_LTHASH_REF per account, with the same lifetime as accts. */
+  int                    spec;  /* 1 if the task is a speculative addition of one account, 0 otherwise. */
 };
 typedef struct fd_sched_lthash_task fd_sched_lthash_task_t;
 
 /* A footer cert verify task.  Between the footer's parse and BLOCK_END,
    fd_sched_task_next_ready may return one when no transaction is ready,
-   one cert per task. */
+   one cert per task, unless fd_sched_set_cert_dispatch turned them
+   off. */
 struct fd_sched_cert_task {
   ulong bank_idx;
   ulong cert_idx; /* The cert's index in fd_alpenglow_footer_certs order. */
@@ -646,6 +667,14 @@ fd_sched_set_bypass_poh_verify( fd_sched_t * sched, int bypass_poh_verify );
    Production call sites should leave this disabled. */
 void
 fd_sched_set_bypass_alut_resolution( fd_sched_t * sched, int bypass_alut_resolution );
+
+/* Sets whether footer certs go out as cert verify tasks ahead of
+   BLOCK_END, which they do by default.  With a cert_dispatch of 0, the
+   scheduler hands out no cert verify task and BLOCK_END reports none
+   dispatched, which leaves every cert to the caller.  Takes effect for
+   footers ingested afterwards. */
+void
+fd_sched_set_cert_dispatch( fd_sched_t * sched, int cert_dispatch );
 
 /* fd_sched_set_sigverify_group sets the signature count a sigverify
    task collects before it goes out, in [1,FD_SCHED_SIGVERIFY_SIG_PARA],

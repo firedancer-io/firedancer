@@ -170,6 +170,8 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, alignof(fd_event_block_completed_t), sizeof(fd_event_block_completed_t) );
   l = FD_LAYOUT_APPEND( l, fd_timing_slot_pool_align(),         fd_timing_slot_pool_footprint( FD_REPLAY_TXN_TIMING_SLOTS ) );
   l = FD_LAYOUT_APPEND( l, alignof(fd_replay_txn_timing_t),     FD_REPLAY_TXN_TIMING_SLOTS*tile->replay.max_txn_per_slot*sizeof(fd_replay_txn_timing_t) );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_replay_task_timing_t),    FD_REPLAY_TXN_TIMING_SLOTS*FD_REPLAY_TASK_TIMING_MAX*sizeof(fd_replay_task_timing_t) );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_replay_lthash_ref_t),     FD_REPLAY_TXN_TIMING_SLOTS*FD_REPLAY_LTHASH_REF_MAX*sizeof(fd_replay_lthash_ref_t) );
   l = FD_LAYOUT_APPEND( l, alignof(ulong),                      tile->replay.max_live_slots*sizeof(ulong) );
   l = FD_LAYOUT_APPEND( l, alignof(fd_replay_footer_end_t),     tile->replay.max_live_slots*sizeof(fd_replay_footer_end_t) );
 
@@ -651,6 +653,105 @@ timing_slot_release( fd_replay_tile_t * ctx,
   }
 }
 
+/* Leases a capture slot to the bank if one is free.  A bank without one
+   captures nothing. */
+static inline void
+timing_slot_acquire( fd_replay_tile_t * ctx,
+                     ulong              bank_idx ) {
+  FD_TEST( ctx->timing_slot_of_bank[ bank_idx ]==fd_timing_slot_pool_idx_null( ctx->timing_slot_pool ) );
+  if( FD_UNLIKELY( !fd_timing_slot_pool_free( ctx->timing_slot_pool ) ) ) return;
+  ulong tslot = fd_timing_slot_pool_idx_acquire( ctx->timing_slot_pool );
+  fd_replay_txn_timing_slot_t * slot = fd_timing_slot_pool_ele( ctx->timing_slot_pool, tslot );
+  slot->cnt      = 0UL;
+  slot->task_cnt = 0UL;
+  slot->ref_cnt  = 0UL;
+  ctx->timing_slot_of_bank[ bank_idx ] = tslot;
+}
+
+/* Copies a completed transaction's stamps and tiles into the bank's
+   capture slot, if it has one. */
+static inline void
+timing_record_txn( fd_replay_tile_t *          ctx,
+                   ulong                       bank_idx,
+                   fd_sched_txn_info_t const * txn_info ) {
+  FD_TEST( txn_info->index_in_slot<ctx->max_txn_per_slot );
+  ulong tslot = ctx->timing_slot_of_bank[ bank_idx ];
+  if( FD_UNLIKELY( tslot==fd_timing_slot_pool_idx_null( ctx->timing_slot_pool ) ) ) return;
+  fd_replay_txn_timing_slot_t * slot = fd_timing_slot_pool_ele( ctx->timing_slot_pool, tslot );
+  fd_replay_txn_timing_t * t = ctx->timing_rec + tslot*ctx->max_txn_per_slot + txn_info->index_in_slot;
+  t->received_ns             = txn_info->received_ns;
+  t->parsed_ticks            = txn_info->tick_parsed;
+  t->sigverify_disp_ticks    = txn_info->tick_sigverify_disp;
+  t->sigverify_done_ticks    = txn_info->tick_sigverify_done;
+  t->exec_disp_ticks         = txn_info->tick_exec_disp;
+  t->exec_done_ticks         = txn_info->tick_exec_done;
+  t->exec_tile_idx           = (uchar)txn_info->exec_tile_idx;
+  t->sigverify_exec_tile_idx = (uchar)txn_info->sigverify_exec_tile_idx;
+  slot->cnt = fd_ulong_max( slot->cnt, txn_info->index_in_slot+1UL );
+}
+
+/* Notes a task other than a transaction as it leaves for an exec tile,
+   if the node reports such tasks.  exec_idx selects the tile.  refs
+   holds the references of the accounts an LtHash task hashes.  A tile
+   runs one task at a time, so the note stays until the task's result
+   lands. */
+static inline void
+task_timing_start( fd_replay_tile_t * ctx,
+                   ulong              exec_idx,
+                   ulong              bank_idx,
+                   uchar              task_type,
+                   ulong              item_cnt,
+                   uint const *       refs,
+                   ulong              ref_cnt ) {
+  if( FD_LIKELY( !ctx->report_non_txn_tasks ) ) return;
+  FD_TEST( exec_idx<FD_SCHED_MAX_EXEC_TILE_CNT && ref_cnt<=FD_SCHED_LTHASH_BATCH_MAX && (!ref_cnt || refs) );
+  fd_replay_task_pending_t * pending = ctx->task_pending+exec_idx;
+  pending->disp_ticks = fd_tickcount();
+  pending->bank_idx   = bank_idx;
+  pending->item_cnt   = (uint)item_cnt;
+  pending->ref_cnt    = (uint)ref_cnt;
+  pending->task_type  = task_type;
+  if( FD_LIKELY( ref_cnt ) ) fd_memcpy( pending->ref, refs, ref_cnt*sizeof(uint) );
+}
+
+/* Records the task noted on an exec tile now that its result landed.
+   exec_idx selects the tile and bank_idx the bank the result came back
+   for.  The task's account references are appended with it.  So tasks
+   and references stay in the same order, which is what ties a reference
+   to its task.  A task or a reference that finds its array full is
+   dropped. */
+static void
+task_timing_done( fd_replay_tile_t * ctx,
+                  ulong              exec_idx,
+                  ulong              bank_idx ) {
+  if( FD_LIKELY( !ctx->report_non_txn_tasks ) ) return;
+  fd_replay_task_pending_t * pending = ctx->task_pending+exec_idx;
+  ulong pending_bank_idx = pending->bank_idx;
+  pending->bank_idx = ULONG_MAX;
+  if( FD_UNLIKELY( pending_bank_idx!=bank_idx ) ) return; /* The tile has no note for this result. */
+  ulong tslot = ctx->timing_slot_of_bank[ bank_idx ];
+  if( FD_UNLIKELY( tslot==fd_timing_slot_pool_idx_null( ctx->timing_slot_pool ) ) ) return;
+  fd_replay_txn_timing_slot_t * slot = fd_timing_slot_pool_ele( ctx->timing_slot_pool, tslot );
+
+  if( FD_UNLIKELY( slot->task_cnt==FD_REPLAY_TASK_TIMING_MAX ) ) return;
+  ctx->task_rec[ tslot*FD_REPLAY_TASK_TIMING_MAX+slot->task_cnt++ ] = (fd_replay_task_timing_t){
+    .disp_ticks    = pending->disp_ticks,
+    .done_ticks    = fd_tickcount(),
+    .item_cnt      = (ushort)fd_ulong_min( pending->item_cnt, USHORT_MAX ),
+    .task_type     = pending->task_type,
+    .exec_tile_idx = (uchar)exec_idx,
+  };
+
+  fd_replay_lthash_ref_t * ref = ctx->ref_rec+tslot*FD_REPLAY_LTHASH_REF_MAX;
+  for( ulong i=0UL; i<pending->ref_cnt; i++ ) {
+    if( FD_UNLIKELY( slot->ref_cnt==FD_REPLAY_LTHASH_REF_MAX ) ) break;
+    ref[ slot->ref_cnt++ ] = (fd_replay_lthash_ref_t){
+      .index_in_slot = (ushort)fd_sched_lthash_ref_index_in_slot( pending->ref[ i ] ),
+      .index_in_txn  = (uchar) fd_sched_lthash_ref_index_in_txn ( pending->ref[ i ] ),
+    };
+  }
+}
+
 static void
 replay_block_start( fd_replay_tile_t * ctx,
                     ulong              bank_idx,
@@ -665,12 +766,11 @@ replay_block_start( fd_replay_tile_t * ctx,
 
   bank->preparation_begin_nanos = before;
 
-  FD_TEST( ctx->timing_slot_of_bank[ bank_idx ]==fd_timing_slot_pool_idx_null( ctx->timing_slot_pool ) );
-  if( FD_LIKELY( fd_timing_slot_pool_free( ctx->timing_slot_pool ) ) ) {
-    ulong tslot = fd_timing_slot_pool_idx_acquire( ctx->timing_slot_pool );
-    fd_timing_slot_pool_ele( ctx->timing_slot_pool, tslot )->cnt = 0UL;
-    ctx->timing_slot_of_bank[ bank_idx ] = tslot;
-  }
+  fd_replay_footer_end_t * end = ctx->footer_end + bank_idx;
+  end->leader_credits = 0UL;
+  end->finalized      = 0;
+
+  timing_slot_acquire( ctx, bank_idx );
 
   fd_bank_t * parent_bank = fd_banks_bank_query( ctx->banks, parent_bank_idx );
   FD_CHECK_CRIT( parent_bank, "invariant violation: parent bank is NULL" );
@@ -929,6 +1029,53 @@ block_completed_event_fill_leader_txn_timing( fd_replay_tile_t *           ctx,
 }
 
 static void
+block_completed_event_fill_timing( fd_replay_tile_t *           ctx,
+                                   fd_event_block_completed_t * ev,
+                                   fd_bank_t *                  bank ) {
+  ulong tslot = ctx->timing_slot_of_bank[ bank->idx ];
+  if( FD_UNLIKELY( tslot==fd_timing_slot_pool_idx_null( ctx->timing_slot_pool ) ) ) return;
+  fd_replay_txn_timing_slot_t const * slot = fd_timing_slot_pool_ele( ctx->timing_slot_pool, tslot );
+
+  fd_replay_txn_timing_t const * rec = ctx->timing_rec + tslot*ctx->max_txn_per_slot;
+  ulong cnt = fd_ulong_min( slot->cnt, FD_EVENT_BLOCK_COMPLETED_TXN_TIMING_MAX );
+  for( ulong i=0UL; i<cnt; i++ ) {
+    fd_replay_txn_timing_t const * t = &rec[ i ];
+    ev->txn_timing[ i ] = (fd_event_block_completed_txn_timing_t){
+      .received_time             = (ulong)t->received_ns, /* already wallclock */
+      .parsed_time               = t->parsed_ticks        ==LONG_MAX ? 0UL : (ulong)fd_clock_epoch_y( ctx->clock->epoch, t->parsed_ticks         ),
+      .sigverify_dispatched_time = t->sigverify_disp_ticks==LONG_MAX ? 0UL : (ulong)fd_clock_epoch_y( ctx->clock->epoch, t->sigverify_disp_ticks ),
+      .sigverify_done_time       = t->sigverify_done_ticks==LONG_MAX ? 0UL : (ulong)fd_clock_epoch_y( ctx->clock->epoch, t->sigverify_done_ticks ),
+      .dispatched_time           = t->exec_disp_ticks     ==LONG_MAX ? 0UL : (ulong)fd_clock_epoch_y( ctx->clock->epoch, t->exec_disp_ticks      ),
+      .replayed_time             = t->exec_done_ticks     ==LONG_MAX ? 0UL : (ulong)fd_clock_epoch_y( ctx->clock->epoch, t->exec_done_ticks      ),
+      .exec_tile_idx             = t->exec_tile_idx,
+      .sigverify_exec_tile_idx   = t->sigverify_exec_tile_idx,
+    };
+  }
+  ev->txn_timing_cnt = cnt;
+
+  fd_replay_task_timing_t const * task = ctx->task_rec + tslot*FD_REPLAY_TASK_TIMING_MAX;
+  for( ulong i=0UL; i<slot->task_cnt; i++ ) {
+    ev->exec_task_timing[ i ] = (fd_event_block_completed_exec_task_timing_t){
+      .task_type       = task[ i ].task_type,
+      .exec_tile_idx   = task[ i ].exec_tile_idx,
+      .dispatched_time = (ulong)fd_clock_epoch_y( ctx->clock->epoch, task[ i ].disp_ticks ),
+      .done_time       = (ulong)fd_clock_epoch_y( ctx->clock->epoch, task[ i ].done_ticks ),
+      .item_count      = task[ i ].item_cnt,
+    };
+  }
+  ev->exec_task_timing_cnt = slot->task_cnt;
+
+  fd_replay_lthash_ref_t const * ref = ctx->ref_rec + tslot*FD_REPLAY_LTHASH_REF_MAX;
+  for( ulong i=0UL; i<slot->ref_cnt; i++ ) {
+    ev->lthash_account_ref[ i ] = (fd_event_block_completed_lthash_account_ref_t){
+      .index_in_slot = ref[ i ].index_in_slot,
+      .index_in_txn  = ref[ i ].index_in_txn,
+    };
+  }
+  ev->lthash_account_ref_cnt = slot->ref_cnt;
+}
+
+static void
 report_block_completed( fd_replay_tile_t *                 ctx,
                         fd_bank_t *                        bank,
                         int                                is_leader,
@@ -967,28 +1114,8 @@ report_block_completed( fd_replay_tile_t *                 ctx,
   ev->abandoned_reason = FD_EVENT_BLOCK_COMPLETED_ABANDONED_REASON_NOT_ABANDONED;
   ev->abandoned_time   = 0UL;
 
-  if( FD_UNLIKELY( is_leader ) ) {
-    block_completed_event_fill_leader_txn_timing( ctx, ev, bank );
-  } else {
-    ulong tslot = ctx->timing_slot_of_bank[ bank->idx ];
-    if( FD_LIKELY( tslot!=fd_timing_slot_pool_idx_null( ctx->timing_slot_pool ) ) ) {
-      fd_replay_txn_timing_slot_t const * slot = fd_timing_slot_pool_ele( ctx->timing_slot_pool, tslot );
-      fd_replay_txn_timing_t const *      rec  = ctx->timing_rec + tslot*ctx->max_txn_per_slot;
-      ulong cnt = fd_ulong_min( slot->cnt, FD_EVENT_BLOCK_COMPLETED_TXN_TIMING_MAX );
-      for( ulong i=0UL; i<cnt; i++ ) {
-        fd_replay_txn_timing_t const * t = &rec[ i ];
-        ev->txn_timing[ i ] = (fd_event_block_completed_txn_timing_t){
-          .received_time             = (ulong)t->received_ns, /* already wallclock */
-          .parsed_time               = t->parsed_ticks        ==LONG_MAX ? 0UL : (ulong)fd_clock_epoch_y( ctx->clock->epoch, t->parsed_ticks         ),
-          .sigverify_dispatched_time = t->sigverify_disp_ticks==LONG_MAX ? 0UL : (ulong)fd_clock_epoch_y( ctx->clock->epoch, t->sigverify_disp_ticks ),
-          .sigverify_done_time       = t->sigverify_done_ticks==LONG_MAX ? 0UL : (ulong)fd_clock_epoch_y( ctx->clock->epoch, t->sigverify_done_ticks ),
-          .dispatched_time           = t->exec_disp_ticks     ==LONG_MAX ? 0UL : (ulong)fd_clock_epoch_y( ctx->clock->epoch, t->exec_disp_ticks      ),
-          .replayed_time             = t->exec_done_ticks     ==LONG_MAX ? 0UL : (ulong)fd_clock_epoch_y( ctx->clock->epoch, t->exec_done_ticks      ),
-        };
-      }
-      ev->txn_timing_cnt = cnt;
-    }
-  }
+  if( FD_UNLIKELY( is_leader ) ) block_completed_event_fill_leader_txn_timing( ctx, ev, bank );
+  else                           block_completed_event_fill_timing( ctx, ev, bank );
 
   if( FD_UNLIKELY( !ev->first_transaction_scheduled_time ) ) ev->first_transaction_scheduled_time = ev->last_transaction_finished_time;
 
@@ -1364,20 +1491,7 @@ publish_txn_executed( fd_replay_tile_t *  ctx,
                       ulong               bank_idx,
                       ulong               txn_idx ) {
   fd_sched_txn_info_t * txn_info = fd_sched_get_txn_info( ctx->sched, txn_idx );
-
-  FD_TEST( txn_info->index_in_slot<ctx->max_txn_per_slot );
-  ulong tslot = ctx->timing_slot_of_bank[ bank_idx ];
-  if( FD_LIKELY( tslot!=fd_timing_slot_pool_idx_null( ctx->timing_slot_pool ) ) ) {
-    fd_replay_txn_timing_slot_t * slot = fd_timing_slot_pool_ele( ctx->timing_slot_pool, tslot );
-    fd_replay_txn_timing_t * t = ctx->timing_rec + tslot*ctx->max_txn_per_slot + txn_info->index_in_slot;
-    t->received_ns          = txn_info->received_ns;
-    t->parsed_ticks         = txn_info->tick_parsed;
-    t->sigverify_disp_ticks = txn_info->tick_sigverify_disp;
-    t->sigverify_done_ticks = txn_info->tick_sigverify_done;
-    t->exec_disp_ticks      = txn_info->tick_exec_disp;
-    t->exec_done_ticks      = txn_info->tick_exec_done;
-    slot->cnt = fd_ulong_max( slot->cnt, txn_info->index_in_slot+1UL );
-  }
+  timing_record_txn( ctx, bank_idx, txn_info );
 
   fd_replay_txn_executed_t * txn_executed = fd_type_pun( fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk ) );
   *txn_executed->txn = *fd_sched_get_txn( ctx->sched, txn_idx );
@@ -1880,6 +1994,19 @@ replay_block_end( fd_replay_tile_t *        ctx,
   return replay_block_complete( ctx, stem, bank, footer, execution_fees_pre_settle, priority_fees_pre_settle );
 }
 
+/* The last footer task back finishes and publishes the block, before
+   sched can start its child. */
+
+static void
+replay_footer_task_done( fd_replay_tile_t *  ctx,
+                         fd_stem_context_t * stem,
+                         fd_bank_t *         bank ) {
+  if( bank->footer_task_cnt || !ctx->footer_end[ bank->idx ].finalized || bank->state!=FD_BANK_STATE_REPLAYABLE || fd_sched_block_is_discarded( ctx->sched, bank->idx ) ) return;
+  if( FD_UNLIKELY( replay_block_end( ctx, stem, bank, fd_sched_get_footer( ctx->sched, bank->idx ), bank->execution_fees_pre_settle, bank->priority_fees_pre_settle ) ) ) {
+    fd_sched_block_abandon( ctx->sched, bank->idx, FD_SCHED_ABANDON_INVALID );
+  }
+}
+
 /* Sends one footer cert of the bank to an exec tile as a cert verify
    task.  The bank holds a reference and counts the footer task until
    the tile reports back. */
@@ -1891,13 +2018,13 @@ replay_cert_publish( fd_replay_tile_t *             ctx,
                      fd_block_footer_cert_t const * cert,
                      uint                           tag,
                      ulong                          quorum,
-                     ulong                          t ) {
-  FD_TEST( ctx->shred_version );
-  ctx->cert_payload_sz[ t ]  = fd_alpenglow_cert_payload( cert, tag, ctx->shred_version, ctx->cert_payload[ t ] );
+                     ulong                          exec_idx ) {
+  FD_TEST( ctx->shred_version && exec_idx<ctx->exec_cnt );
+  ctx->cert_payload_sz[ exec_idx ] = fd_alpenglow_cert_payload( cert, tag, ctx->shred_version, ctx->cert_payload[ exec_idx ] );
 
-  fd_bls_hash_t const * hm = fd_footer_cache_hash_query( ctx->footer_cache, ctx->cert_payload[ t ], ctx->cert_payload_sz[ t ]  );
+  fd_bls_hash_t const * hm = fd_footer_cache_hash_query( ctx->footer_cache, ctx->cert_payload[ exec_idx ], ctx->cert_payload_sz[ exec_idx ] );
 
-  fd_replay_out_link_t * exec_out = &ctx->exec_out[ t ];
+  fd_replay_out_link_t * exec_out = &ctx->exec_out[ exec_idx ];
   fd_execrp_cert_verify_msg_t * msg = fd_chunk_to_laddr( exec_out->mem, exec_out->chunk );
   msg->bank_idx      = bank->idx;
   msg->quorum        = quorum;
@@ -1910,14 +2037,20 @@ replay_cert_publish( fd_replay_tile_t *             ctx,
   bank->refcnt++;
   bank->footer_task_cnt++;
 
-  fd_stem_publish( stem, exec_out->idx, (FD_EXECRP_TT_CERT_VERIFY<<32) | t, exec_out->chunk, sizeof(fd_execrp_cert_verify_msg_t), 0UL, 0UL, 0UL );
+  task_timing_start( ctx, exec_idx, bank->idx, FD_EVENT_BLOCK_COMPLETED_EXEC_TASK_TIMING_TASK_TYPE_CERT_VERIFY, 1UL, NULL, 0UL );
+  fd_stem_publish( stem, exec_out->idx, (FD_EXECRP_TT_CERT_VERIFY<<32) | exec_idx, exec_out->chunk, sizeof(fd_execrp_cert_verify_msg_t), 0UL, 0UL, 0UL );
   exec_out->chunk = fd_dcache_compact_next( exec_out->chunk, sizeof(*msg), exec_out->chunk0, exec_out->wmark );
 }
+
+/* Finishes a block at its BLOCK_END.  cert_disp_cnt of the footer's
+   certs went out as cert verify tasks already.  Returns 1 if it marked
+   the bank dead. */
 
 static int
 replay_block_finalize( fd_replay_tile_t *  ctx,
                        fd_stem_context_t * stem,
-                       fd_bank_t *         bank ) {
+                       fd_bank_t *         bank,
+                       ulong               cert_disp_cnt ) {
   bank->last_transaction_finished_nanos = fd_clock_tile_now( ctx->clock );
 
   /* Set poh hash in bank. */
@@ -1948,6 +2081,17 @@ replay_block_finalize( fd_replay_tile_t *  ctx,
     FD_TEST( bank->lthash_mode==FD_BANK_LTHASH_MODE_INBAND );
   }
 
+  /* Capture and runtime diff runs verify every cert on this tile and
+     finish the block serially, footer and all.  A block with no footer
+     has nothing to fan out and finishes the same way.  The footer cache
+     stays out of it while another bank's slices may be writing its
+     memo. */
+  if( FD_UNLIKELY( !footer || ctx->capture_ctx || ctx->report_runtime_diffs ) ) {
+    if( FD_UNLIKELY( fd_runtime_block_execute_finalize( bank, ctx->accdb, ctx->capture_ctx, footer, ctx->shred_version, ctx->rewards_in_flight_cnt ? NULL : ctx->footer_cache ) ) ) goto bad_footer;
+    if( FD_UNLIKELY( ctx->report_runtime_diffs ) ) replay_runtime_block_emit( ctx, bank, execution_fees_pre_settle, priority_fees_pre_settle, tips_pre_settle );
+    return replay_block_complete( ctx, stem, bank, footer, execution_fees_pre_settle, priority_fees_pre_settle );
+  }
+
   /* Footer certs not already out on exec tiles go to idle ones now.
      The rest verify here.  The footer's vote rewards go to the tiles
      still idle as slices, while this tile freezes the sysvars.  The
@@ -1957,32 +2101,20 @@ replay_block_finalize( fd_replay_tile_t *  ctx,
   fd_block_footer_cert_t const * cert  [ FD_ALPENGLOW_FOOTER_CERT_MAX ];
   uint                           tag   [ FD_ALPENGLOW_FOOTER_CERT_MAX ];
   ulong                          quorum[ FD_ALPENGLOW_FOOTER_CERT_MAX ];
-
-  fd_replay_footer_end_t * end = ctx->footer_end + bank->idx;
-  ulong cnt = 0UL;
-  if( footer && !ctx->capture_ctx && !ctx->report_runtime_diffs ) {
-    cnt = fd_alpenglow_footer_certs( footer, cert, tag, quorum );
-    ulong tiles = fd_sched_footer_dispatch( ctx->sched, bank->idx, cnt-end->cert_next );
-    for( ; tiles; end->cert_next++, tiles=fd_ulong_pop_lsb( tiles ) ) {
-      replay_cert_publish( ctx, stem, bank, cert[ end->cert_next ], tag[ end->cert_next ], quorum[ end->cert_next ], (ulong)fd_ulong_find_lsb( tiles ) );
-    }
-  }
-
-  if( FD_UNLIKELY( !end->cert_next ) ) {
-    /* No cert went to a tile.  Finish the block serially right here,
-       footer and all.  The footer cache stays out of it while another
-       bank's slices may be writing its memo. */
-    if( FD_UNLIKELY( fd_runtime_block_execute_finalize( bank, ctx->accdb, ctx->capture_ctx, footer, ctx->shred_version, ctx->rewards_in_flight_cnt ? NULL : ctx->footer_cache ) ) ) goto bad_footer;
-    if( FD_UNLIKELY( ctx->report_runtime_diffs ) ) replay_runtime_block_emit( ctx, bank, execution_fees_pre_settle, priority_fees_pre_settle, tips_pre_settle );
-    return replay_block_complete( ctx, stem, bank, footer, execution_fees_pre_settle, priority_fees_pre_settle );
+  ulong cnt = fd_alpenglow_footer_certs( footer, cert, tag, quorum );
+  FD_TEST( cert_disp_cnt<=cnt );
+  ulong tiles = fd_sched_footer_dispatch( ctx->sched, bank->idx, cnt-cert_disp_cnt );
+  for( ; tiles; cert_disp_cnt++, tiles=fd_ulong_pop_lsb( tiles ) ) {
+    replay_cert_publish( ctx, stem, bank, cert[ cert_disp_cnt ], tag[ cert_disp_cnt ], quorum[ cert_disp_cnt ], (ulong)fd_ulong_find_lsb( tiles ) );
   }
 
   bank->execution_fees_pre_settle = execution_fees_pre_settle;
   bank->priority_fees_pre_settle  = priority_fees_pre_settle;
-  for( ulong i=end->cert_next; i<cnt; i++ ) {
+  for( ulong i=cert_disp_cnt; i<cnt; i++ ) {
     if( FD_UNLIKELY( fd_alpenglow_cert_verify( bank, cert[ i ], tag[ i ], quorum[ i ], ctx->shred_version, ctx->footer_cache, NULL, NULL ) ) ) goto bad_footer;
   }
 
+  fd_replay_footer_end_t * end = ctx->footer_end + bank->idx;
   if( FD_UNLIKELY( fd_runtime_block_footer_begin( bank, ctx->accdb, footer, &end->plan ) ) ) goto bad_footer;
   /* The footer cache memo has one slot per rank shared by every bank,
      and a slice keeps pointers into a slot until it has hashed the
@@ -2012,6 +2144,7 @@ replay_block_finalize( fd_replay_tile_t *  ctx,
 
       bank->refcnt++;
 
+      task_timing_start( ctx, t, bank->idx, FD_EVENT_BLOCK_COMPLETED_EXEC_TASK_TIMING_TASK_TYPE_VOTE_REWARDS, 1UL, NULL, 0UL );
       fd_stem_publish( stem, exec_out->idx, (FD_EXECRP_TT_REWARDS<<32) | t, exec_out->chunk, sizeof(fd_execrp_rewards_msg_t), 0UL, 0UL, 0UL );
       exec_out->chunk = fd_dcache_compact_next( exec_out->chunk, sizeof(*msg), exec_out->chunk0, exec_out->wmark );
     }
@@ -2797,14 +2930,11 @@ dispatch_task( fd_replay_tile_t *  ctx,
       break;
     }
     case FD_SCHED_TT_CERT_VERIFY: {
+      /* Capture and runtime diff runs turn cert dispatch off at
+         init. */
+      FD_TEST( !ctx->capture_ctx && !ctx->report_runtime_diffs );
       fd_bank_t * bank = fd_banks_bank_query( ctx->banks, task->cert_verify->bank_idx );
       FD_TEST( bank );
-      /* Capture and runtime diff runs verify every cert on this tile at
-         block end, so the task completes with nothing sent. */
-      if( FD_UNLIKELY( ctx->capture_ctx || ctx->report_runtime_diffs ) ) {
-        FD_TEST( !fd_sched_task_done( ctx->sched, FD_SCHED_TT_CERT_VERIFY, ULONG_MAX, task->cert_verify->exec_idx, NULL ) );
-        break;
-      }
       fd_block_footer_t const * footer = fd_sched_get_footer( ctx->sched, bank->idx );
       FD_TEST( footer );
       fd_block_footer_cert_t const * cert  [ FD_ALPENGLOW_FOOTER_CERT_MAX ];
@@ -2812,9 +2942,8 @@ dispatch_task( fd_replay_tile_t *  ctx,
       ulong                          quorum[ FD_ALPENGLOW_FOOTER_CERT_MAX ];
       ulong cnt = fd_alpenglow_footer_certs( footer, cert, tag, quorum );
       ulong k   = task->cert_verify->cert_idx;
-      FD_TEST( k<cnt && k==ctx->footer_end[ bank->idx ].cert_next );
+      FD_TEST( k<cnt );
       replay_cert_publish( ctx, stem, bank, cert[ k ], tag[ k ], quorum[ k ], task->cert_verify->exec_idx );
-      ctx->footer_end[ bank->idx ].cert_next = k+1UL;
       break;
     }
     case FD_SCHED_TT_TXN_SIGVERIFY: {
@@ -2851,6 +2980,7 @@ dispatch_task( fd_replay_tile_t *  ctx,
       exec_msg->hashcnt  = task->poh_hash->hashcnt;
       FD_STATIC_ASSERT( FD_SCHED_POH_PARA==FD_EXECRP_POH_PARA, poh batch width mismatch );
       memcpy( exec_msg->hash, task->poh_hash->hash, task->poh_hash->cnt*sizeof(fd_hash_t) );
+      task_timing_start( ctx, task->poh_hash->exec_idx, task->poh_hash->bank_idx, FD_EVENT_BLOCK_COMPLETED_EXEC_TASK_TIMING_TASK_TYPE_POH_HASH, task->poh_hash->cnt, NULL, 0UL );
       fd_stem_publish( stem, exec_out->idx, (FD_EXECRP_TT_POH_HASH<<32) | task->poh_hash->exec_idx, exec_out->chunk, sizeof(*exec_msg), 0UL, 0UL, 0UL );
       exec_out->chunk = fd_dcache_compact_next( exec_out->chunk, sizeof(*exec_msg), exec_out->chunk0, exec_out->wmark );
       break;
@@ -2870,6 +3000,10 @@ dispatch_task( fd_replay_tile_t *  ctx,
       fd_memcpy( exec_msg->acct, task->lthash->accts, task->lthash->cnt*sizeof(fd_acct_addr_t) );
       ulong kind = task->task_type==FD_SCHED_TT_LTHASH_SUB ? FD_EXECRP_TT_LTHASH_SUB : FD_EXECRP_TT_LTHASH_ADD;
       ulong sz   = fd_execrp_lthash_msg_sz( task->lthash->cnt );
+      ulong task_type = task->task_type==FD_SCHED_TT_LTHASH_SUB ? FD_EVENT_BLOCK_COMPLETED_EXEC_TASK_TIMING_TASK_TYPE_LTHASH_SUB
+                      : task->lthash->spec                      ? FD_EVENT_BLOCK_COMPLETED_EXEC_TASK_TIMING_TASK_TYPE_LTHASH_SPEC
+                      :                                           FD_EVENT_BLOCK_COMPLETED_EXEC_TASK_TIMING_TASK_TYPE_LTHASH_ADD;
+      task_timing_start( ctx, task->lthash->exec_idx, task->lthash->bank_idx, (uchar)task_type, task->lthash->cnt, task->lthash->refs, task->lthash->cnt );
       fd_stem_publish( stem, exec_out->idx, (kind<<32) | task->lthash->exec_idx, exec_out->chunk, sz, 0UL, 0UL, 0UL );
       exec_out->chunk = fd_dcache_compact_next( exec_out->chunk, sz, exec_out->chunk0, exec_out->wmark );
       break;
@@ -2947,11 +3081,6 @@ try_replay( fd_replay_tile_t *  ctx,
   switch( task->task_type ) {
     case FD_SCHED_TT_BLOCK_START: {
       replay_block_start( ctx, task->block_start->bank_idx, task->block_start->parent_bank_idx, task->block_start->slot, task->block_start->lthash_inband );
-      fd_bank_t * bank = fd_banks_bank_query( ctx->banks, task->block_start->bank_idx );
-      fd_replay_footer_end_t * end = ctx->footer_end + bank->idx;
-      end->leader_credits = 0UL;
-      end->cert_next      = 0UL;
-      end->finalized      = 0;
       int res = fd_sched_task_done( ctx->sched, FD_SCHED_TT_BLOCK_START, ULONG_MAX, ULONG_MAX, NULL );
       if( FD_UNLIKELY( res ) ) mark_bank_dead( ctx, stem, task->block_start->bank_idx, sched_dead_reason_to_event( res ), FD_EVENT_BLOCK_COMPLETED_ABANDONED_REASON_NOT_ABANDONED, NULL );
       break;
@@ -2959,7 +3088,7 @@ try_replay( fd_replay_tile_t *  ctx,
     case FD_SCHED_TT_BLOCK_END: {
       fd_bank_t * bank = fd_banks_bank_query( ctx->banks, task->block_end->bank_idx );
       int dead = 0;
-      if( FD_LIKELY( bank->state==FD_BANK_STATE_REPLAYABLE ) ) dead = replay_block_finalize( ctx, stem, bank );
+      if( FD_LIKELY( bank->state==FD_BANK_STATE_REPLAYABLE ) ) dead = replay_block_finalize( ctx, stem, bank, task->block_end->cert_disp_cnt );
       fd_sched_task_done( ctx->sched, FD_SCHED_TT_BLOCK_END, ULONG_MAX, ULONG_MAX, NULL );
       if( FD_UNLIKELY( dead ) ) fd_sched_block_abandon( ctx->sched, bank->idx, FD_SCHED_ABANDON_INVALID );
       break;
@@ -3677,6 +3806,7 @@ process_exec_task_done( fd_replay_tile_t *          ctx,
       break;
     }
     case FD_EXECRP_TT_POH_HASH: {
+      task_timing_done( ctx, exec_tile_idx, bank->idx );
       int res = fd_sched_task_done( ctx->sched, FD_SCHED_TT_POH_HASH, ULONG_MAX, exec_tile_idx, msg->poh_hash );
       if( FD_UNLIKELY( res && bank->state!=FD_BANK_STATE_DEAD ) ) {
         mark_bank_dead( ctx, stem, bank->idx, sched_dead_reason_to_event( res ), FD_EVENT_BLOCK_COMPLETED_ABANDONED_REASON_NOT_ABANDONED, NULL );
@@ -3684,6 +3814,7 @@ process_exec_task_done( fd_replay_tile_t *          ctx,
       break;
     }
     case FD_EXECRP_TT_CERT_VERIFY: {
+      task_timing_done( ctx, exec_tile_idx, bank->idx );
       FD_TEST( bank->footer_task_cnt );
       bank->footer_task_cnt--;
       if( msg->cert_verify->has_hm ) fd_footer_cache_hash_insert( ctx->footer_cache, ctx->cert_payload[ exec_tile_idx ], ctx->cert_payload_sz[ exec_tile_idx ], &msg->cert_verify->hm );
@@ -3691,17 +3822,12 @@ process_exec_task_done( fd_replay_tile_t *          ctx,
         mark_bank_dead( ctx, stem, bank->idx, FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_BAD_FOOTER, FD_EVENT_BLOCK_COMPLETED_ABANDONED_REASON_NOT_ABANDONED, NULL );
         fd_sched_block_abandon( ctx->sched, bank->idx, FD_SCHED_ABANDON_INVALID );
       }
-      /* The last footer task back finishes and publishes the block,
-         before sched can start its child. */
-      if( !bank->footer_task_cnt && ctx->footer_end[ bank->idx ].finalized && bank->state==FD_BANK_STATE_REPLAYABLE && !fd_sched_block_is_discarded( ctx->sched, bank->idx ) ) {
-        if( FD_UNLIKELY( replay_block_end( ctx, stem, bank, fd_sched_get_footer( ctx->sched, bank->idx ), bank->execution_fees_pre_settle, bank->priority_fees_pre_settle ) ) ) {
-          fd_sched_block_abandon( ctx->sched, bank->idx, FD_SCHED_ABANDON_INVALID );
-        }
-      }
+      replay_footer_task_done( ctx, stem, bank );
       FD_TEST( !fd_sched_task_done( ctx->sched, FD_SCHED_TT_CERT_VERIFY, ULONG_MAX, exec_tile_idx, NULL ) );
       break;
     }
     case FD_EXECRP_TT_REWARDS: {
+      task_timing_done( ctx, exec_tile_idx, bank->idx );
       FD_TEST( bank->footer_task_cnt && ctx->rewards_in_flight_cnt );
       bank->footer_task_cnt--;
       ctx->rewards_in_flight_cnt--;
@@ -3716,18 +3842,13 @@ process_exec_task_done( fd_replay_tile_t *          ctx,
         fd_lthash_add( fd_bank_lthash_locking_modify( bank ), &ctx->execrp_result[ exec_tile_idx ].lthash );
         fd_bank_lthash_end_locking_modify( bank );
       }
-      /* The last footer task back finishes and publishes the block,
-         before sched can start its child. */
-      if( !bank->footer_task_cnt && ctx->footer_end[ bank->idx ].finalized && bank->state==FD_BANK_STATE_REPLAYABLE && !fd_sched_block_is_discarded( ctx->sched, bank->idx ) ) {
-        if( FD_UNLIKELY( replay_block_end( ctx, stem, bank, fd_sched_get_footer( ctx->sched, bank->idx ), bank->execution_fees_pre_settle, bank->priority_fees_pre_settle ) ) ) {
-          fd_sched_block_abandon( ctx->sched, bank->idx, FD_SCHED_ABANDON_INVALID );
-        }
-      }
+      replay_footer_task_done( ctx, stem, bank );
       FD_TEST( !fd_sched_task_done( ctx->sched, FD_SCHED_TT_REWARDS, ULONG_MAX, exec_tile_idx, NULL ) );
       break;
     }
     case FD_EXECRP_TT_LTHASH_SUB:
     case FD_EXECRP_TT_LTHASH_ADD: {
+      task_timing_done( ctx, exec_tile_idx, bank->idx );
       ulong task_type = (sig>>32)==FD_EXECRP_TT_LTHASH_SUB ? FD_SCHED_TT_LTHASH_SUB : FD_SCHED_TT_LTHASH_ADD;
       int res = fd_sched_task_done( ctx->sched, task_type, ULONG_MAX, exec_tile_idx, &ctx->execrp_result[ exec_tile_idx ].lthash );
       FD_TEST( res==0 );
@@ -4547,6 +4668,8 @@ unprivileged_init( fd_topo_t const *      topo,
   void * block_completed_ev = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_event_block_completed_t), sizeof(fd_event_block_completed_t) );
   void * timing_pool_mem    = FD_SCRATCH_ALLOC_APPEND( l, fd_timing_slot_pool_align(),         fd_timing_slot_pool_footprint( FD_REPLAY_TXN_TIMING_SLOTS ) );
   void * timing_rec_mem     = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_replay_txn_timing_t),     FD_REPLAY_TXN_TIMING_SLOTS*tile->replay.max_txn_per_slot*sizeof(fd_replay_txn_timing_t) );
+  void * task_rec_mem       = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_replay_task_timing_t),    FD_REPLAY_TXN_TIMING_SLOTS*FD_REPLAY_TASK_TIMING_MAX*sizeof(fd_replay_task_timing_t) );
+  void * ref_rec_mem        = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_replay_lthash_ref_t),     FD_REPLAY_TXN_TIMING_SLOTS*FD_REPLAY_LTHASH_REF_MAX*sizeof(fd_replay_lthash_ref_t) );
   void * timing_of_bank_mem = FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong),                      tile->replay.max_live_slots*sizeof(ulong) );
   void * footer_end_mem     = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_replay_footer_end_t),     tile->replay.max_live_slots*sizeof(fd_replay_footer_end_t) );
   void * block_dump_ctx     = NULL;
@@ -4676,8 +4799,12 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->timing_slot_pool = fd_timing_slot_pool_join( fd_timing_slot_pool_new( timing_pool_mem, FD_REPLAY_TXN_TIMING_SLOTS ) );
   FD_TEST( ctx->timing_slot_pool );
   ctx->timing_rec          = timing_rec_mem;
+  ctx->task_rec            = task_rec_mem;
+  ctx->ref_rec             = ref_rec_mem;
   ctx->timing_slot_of_bank = timing_of_bank_mem;
   for( ulong i=0UL; i<tile->replay.max_live_slots; i++ ) ctx->timing_slot_of_bank[ i ] = fd_timing_slot_pool_idx_null( ctx->timing_slot_pool );
+  for( ulong i=0UL; i<FD_SCHED_MAX_EXEC_TILE_CNT; i++ ) ctx->task_pending[ i ].bank_idx = ULONG_MAX;
+  ctx->report_non_txn_tasks = tile->replay.report_non_txn_tasks;
 
   ctx->dump_proto_ctx = NULL;
   if( FD_UNLIKELY( strcmp( "", tile->replay.dump_proto_dir ) ) ) {
@@ -4920,6 +5047,9 @@ unprivileged_init( fd_topo_t const *      topo,
 
   ctx->report_runtime_diffs = tile->replay.report_runtime_diffs;
   ctx->banks->report_runtime_diffs = tile->replay.report_runtime_diffs;
+  /* Capture and runtime diff runs verify every footer cert on this tile
+     at block end. */
+  fd_sched_set_cert_dispatch( ctx->sched, !ctx->capture_ctx && !ctx->report_runtime_diffs );
 
   ulong diff_link_id = fd_topo_find_link( topo, "replay_diff", 0UL );
   if( FD_UNLIKELY( diff_link_id!=ULONG_MAX ) ) fd_event_runtime_diff_tl = fd_event_reporter_join( replay_diff_reporter, topo, diff_link_id );
@@ -5014,6 +5144,11 @@ during_housekeeping( fd_replay_tile_t * ctx ) {
 #define STEM_CALLBACK_DURING_HOUSEKEEPING during_housekeeping
 
 #include "../../disco/stem/fd_stem.c"
+
+/* An event link's depth is halved until its dcache fits in 64 MiB.  See
+   wire_event_links().  The block_completed event's dynamic arrays are
+   sized so the replay link keeps a depth of 8. */
+FD_STATIC_ASSERT( FD_DCACHE_REQ_DATA_SZ( sizeof(fd_event_block_completed_t), 8UL, 1UL, 1 )<=(64UL<<20), block_completed_event_link_depth );
 
 static ulong
 max_event_sz( fd_topo_tile_t const * tile ) {

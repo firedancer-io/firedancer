@@ -352,11 +352,19 @@ fd_event_block_completed_serialize( fd_circq_t *                       circq,
   ok &= !!fd_pb_push_uint64( encoder, 4U, (ulong)timestamp_nanos );
 
   FD_TEST( msg->txn_timing_cnt<=49019UL );
+  FD_TEST( msg->exec_task_timing_cnt<=32768UL );
+  FD_TEST( msg->lthash_account_ref_cnt<=65536UL );
 
   uchar const * _dyn = (uchar const *)msg + FD_EVENT_BLOCK_COMPLETED_PREFIX_SZ;
   fd_event_block_completed_txn_timing_t const * txn_timing = (fd_event_block_completed_txn_timing_t const *)_dyn;
   _dyn += msg->txn_timing_cnt*sizeof(txn_timing[0]);
   ulong txn_timing_cnt = msg->txn_timing_cnt;
+  fd_event_block_completed_exec_task_timing_t const * exec_task_timing = (fd_event_block_completed_exec_task_timing_t const *)_dyn;
+  _dyn += msg->exec_task_timing_cnt*sizeof(exec_task_timing[0]);
+  ulong exec_task_timing_cnt = msg->exec_task_timing_cnt;
+  fd_event_block_completed_lthash_account_ref_t const * lthash_account_ref = (fd_event_block_completed_lthash_account_ref_t const *)_dyn;
+  _dyn += msg->lthash_account_ref_cnt*sizeof(lthash_account_ref[0]);
+  ulong lthash_account_ref_cnt = msg->lthash_account_ref_cnt;
 
   ok &= !!fd_pb_submsg_open( encoder, 5U ); /* Event */
   ok &= !!fd_pb_submsg_open( encoder, 9U ); /* BlockCompleted */
@@ -442,12 +450,29 @@ fd_event_block_completed_serialize( fd_circq_t *                       circq,
     if( txn_timing[ k ].sigverify_dispatched_time ) ok &= !!fd_pb_push_uint64( encoder, 5U, (ulong)txn_timing[ k ].sigverify_dispatched_time );
     if( txn_timing[ k ].sigverify_done_time ) ok &= !!fd_pb_push_uint64( encoder, 6U, (ulong)txn_timing[ k ].sigverify_done_time );
     if( txn_timing[ k ].poh_mixed_time ) ok &= !!fd_pb_push_uint64( encoder, 7U, (ulong)txn_timing[ k ].poh_mixed_time );
+    if( txn_timing[ k ].exec_tile_idx ) ok &= !!fd_pb_push_uint32( encoder, 8U, (uint)txn_timing[ k ].exec_tile_idx );
+    if( txn_timing[ k ].sigverify_exec_tile_idx ) ok &= !!fd_pb_push_uint32( encoder, 9U, (uint)txn_timing[ k ].sigverify_exec_tile_idx );
     ok &= !!fd_pb_submsg_close( encoder );
   }
   if( msg->votor_repaired ) ok &= !!fd_pb_push_bool  ( encoder, 75U, msg->votor_repaired );
   if( msg->repair_request_shred_block_id_count ) ok &= !!fd_pb_push_uint32( encoder, 76U, (uint)msg->repair_request_shred_block_id_count );
   if( msg->repair_request_parent_count ) ok &= !!fd_pb_push_uint32( encoder, 77U, (uint)msg->repair_request_parent_count );
   if( msg->repair_request_fec_root_count ) ok &= !!fd_pb_push_uint32( encoder, 78U, (uint)msg->repair_request_fec_root_count );
+  for( ulong k=0UL; k<exec_task_timing_cnt; k++ ) {
+    ok &= !!fd_pb_submsg_open( encoder, 79U );
+    if( exec_task_timing[ k ].dispatched_time ) ok &= !!fd_pb_push_uint64( encoder, 1U, (ulong)exec_task_timing[ k ].dispatched_time );
+    if( exec_task_timing[ k ].done_time ) ok &= !!fd_pb_push_uint64( encoder, 2U, (ulong)exec_task_timing[ k ].done_time );
+    if( exec_task_timing[ k ].task_type ) ok &= !!fd_pb_push_int32 ( encoder, 3U, exec_task_timing[ k ].task_type );
+    if( exec_task_timing[ k ].exec_tile_idx ) ok &= !!fd_pb_push_uint32( encoder, 4U, (uint)exec_task_timing[ k ].exec_tile_idx );
+    if( exec_task_timing[ k ].item_count ) ok &= !!fd_pb_push_uint32( encoder, 5U, (uint)exec_task_timing[ k ].item_count );
+    ok &= !!fd_pb_submsg_close( encoder );
+  }
+  for( ulong k=0UL; k<lthash_account_ref_cnt; k++ ) {
+    ok &= !!fd_pb_submsg_open( encoder, 80U );
+    if( lthash_account_ref[ k ].index_in_slot ) ok &= !!fd_pb_push_uint32( encoder, 1U, (uint)lthash_account_ref[ k ].index_in_slot );
+    if( lthash_account_ref[ k ].index_in_txn ) ok &= !!fd_pb_push_uint32( encoder, 2U, (uint)lthash_account_ref[ k ].index_in_txn );
+    ok &= !!fd_pb_submsg_close( encoder );
+  }
   ok &= !!fd_pb_submsg_close( encoder );
   ok &= !!fd_pb_submsg_close( encoder );
   FD_TEST( ok );
@@ -1227,6 +1252,8 @@ fd_event_serialize_by_type( ulong               type,
     FD_TEST( ev_sz>=FD_EVENT_BLOCK_COMPLETED_PREFIX_SZ );
     fd_event_block_completed_t const * msg = (fd_event_block_completed_t const *)ev;
     FD_TEST( msg->txn_timing_cnt<=49019UL );
+    FD_TEST( msg->exec_task_timing_cnt<=32768UL );
+    FD_TEST( msg->lthash_account_ref_cnt<=65536UL );
     FD_TEST( ev_sz==fd_event_block_completed_footprint( msg ) );
     fd_event_block_completed_serialize( circq, client, timestamp_nanos, link_seq, msg );
     break;

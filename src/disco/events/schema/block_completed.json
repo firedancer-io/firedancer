@@ -155,13 +155,57 @@
                     "replayed_time":             { "type": "DateTime64(9)", "compression": "Delta, ZSTD", "description": "Replayed blocks: when the scheduler received the execution result, including the return hop and replay's polling delay, not only execution. Leader blocks: when execution finished and results were committed to the block's state." },
                     "sigverify_dispatched_time": { "type": "DateTime64(9)", "compression": "Delta, ZSTD", "description": "When the scheduler dispatched signature verification, which runs in parallel with execution. 0 for leader blocks (verified upstream of pack)." },
                     "sigverify_done_time":       { "type": "DateTime64(9)", "compression": "Delta, ZSTD", "description": "When the signature verification result returned to the scheduler. 0 for leader blocks." },
-                    "poh_mixed_time":            { "type": "DateTime64(9)", "compression": "Delta, ZSTD", "description": "When the transaction was mixed into the PoH stream, fixing its position in the block; transactions of one microblock share the stamp. 0 for blocks this validator did not produce." }
+                    "poh_mixed_time":            { "type": "DateTime64(9)", "compression": "Delta, ZSTD", "description": "When the transaction was mixed into the PoH stream, fixing its position in the block; transactions of one microblock share the stamp. 0 for blocks this validator did not produce." },
+                    "exec_tile_idx":             { "type": "UInt8",         "compression": "T64, ZSTD",   "description": "Execution tile that ran the transaction, as the tile's index among the execrp tiles. With dispatched_time and replayed_time this gives the tile's busy interval. 0 for leader blocks, which do not go through the replay scheduler and which is_leader tells apart." },
+                    "sigverify_exec_tile_idx":   { "type": "UInt8",         "compression": "T64, ZSTD",   "description": "Execution tile that verified the transaction's signatures, from sigverify_dispatched_time to sigverify_done_time, on a tile that may differ from exec_tile_idx. 0 for leader blocks." }
                 }
             }
         },
-        "votor_repaired":                             { "type": "Bool",                                             "description": "Whether the block reached replay after a votor event named that block and we repaired that version, rather than through the version received over turbine. Always false before alpenglow, and false for blocks this validator produced as leader. A slot can report both, on separate rows." },
-        "repair_request_shred_block_id_count":        { "type": "UInt32",       "compression": "T64, ZSTD",         "description": "Alpenglow ShredForBlockId requests, analogous to legacy window requests. Asks a peer for a specific missing shred, addressed by the block id it belongs to. Always 0 before alpenglow and for leader blocks." },
-        "repair_request_parent_count":                { "type": "UInt32",       "compression": "T64, ZSTD",         "description": "Alpenglow ParentAndFecCount requests, analogous to legacy orphan requests. Asks a peer for the block's parent and its FEC set count. Always 0 before alpenglow and for leader blocks." },
-        "repair_request_fec_root_count":              { "type": "UInt32",       "compression": "T64, ZSTD",         "description": "Alpenglow FecRoot requests: asks a peer for a FEC set's merkle root for a specified FEC set index. Always 0 before alpenglow and for leader blocks." }
+        "votor_repaired":                            { "type": "Bool",                                              "description": "Whether the block reached replay after a votor event named that block and we repaired that version, rather than through the version received over turbine. Always false before alpenglow, and false for blocks this validator produced as leader. A slot can report both, on separate rows." },
+        "repair_request_shred_block_id_count":       { "type": "UInt32",        "compression": "T64, ZSTD",         "description": "Alpenglow ShredForBlockId requests, analogous to legacy window requests. Asks a peer for a specific missing shred, addressed by the block id it belongs to. Always 0 before alpenglow and for leader blocks." },
+        "repair_request_parent_count":               { "type": "UInt32",        "compression": "T64, ZSTD",         "description": "Alpenglow ParentAndFecCount requests, analogous to legacy orphan requests. Asks a peer for the block's parent and its FEC set count. Always 0 before alpenglow and for leader blocks." },
+        "repair_request_fec_root_count":             { "type": "UInt32",        "compression": "T64, ZSTD",         "description": "Alpenglow FecRoot requests: asks a peer for a FEC set's merkle root for a specified FEC set index. Always 0 before alpenglow and for leader blocks." },
+        "exec_task_timing": {
+            "type": "Array",
+            "description": "The exec tile tasks other than transaction execution and signature verification, one entry per task in completion order. Together with the tile indices in txn_timing this accounts for every busy interval of every exec tile. Durations are as the scheduler sees them, from dispatch to the result landing, so they include the return hop and replay's polling delay. Only nodes with [development.event.report_non_txn_tasks] set fill this; empty otherwise, on leader blocks and on dead and abandoned rows, and best-effort like txn_timing when no capture slot was free. Truncated to the first 32768 tasks.",
+            "max_len": 32768,
+            "dynamic": true,
+            "element": {
+                "type": "Tuple",
+                "description": "One exec tile task.",
+                "fields": {
+                    "dispatched_time": { "type": "DateTime64(9)", "compression": "Delta, ZSTD", "description": "When the task left the scheduler." },
+                    "done_time":       { "type": "DateTime64(9)", "compression": "Delta, ZSTD", "description": "When the task's result reached the scheduler. The tile was busy from dispatched_time to here." },
+                    "task_type": {
+                        "type": "LowCardinality(String)",
+                        "description": "What the task did.",
+                        "variants": {
+                            "poh_hash":     { "description": "Hashed up to 16 microblocks of PoH entries." },
+                            "lthash_sub":   { "description": "Hashed accounts as they are on the parent fork and subtracted them, up to 32 accounts." },
+                            "lthash_add":   { "description": "Hashed the block's final versions of accounts and added them, a drain batch of up to 32 accounts handed out once the block has all its FEC sets." },
+                            "lthash_spec":  { "description": "A speculative addition of one account whose writers had all completed, hashed while the block was still receiving FEC sets." },
+                            "cert_verify":  { "description": "Verified one footer certificate." },
+                            "vote_rewards": { "description": "Applied one slice of the footer's vote rewards." }
+                        }
+                    },
+                    "exec_tile_idx":   { "type": "UInt8",         "compression": "T64, ZSTD",   "description": "Execution tile the task ran on, as the tile's index among the execrp tiles." },
+                    "item_count":      { "type": "UInt16",        "compression": "T64, ZSTD",   "description": "Items the task processed: microblocks for poh_hash, accounts for the LtHash types (also the task's entries in lthash_account_ref), 1 for cert_verify and vote_rewards." }
+                }
+            }
+        },
+        "lthash_account_ref": {
+            "type": "Array",
+            "description": "Which account each LtHash task in exec_task_timing hashed, one entry per account, in the order the tasks completed with each task's accounts in task order. Each LtHash task in exec_task_timing owns item_count consecutive entries, which is how an entry is matched to its task. Filled only alongside exec_task_timing. An account is identified by a transaction that wrote it and by the account's position in that transaction, which fd.blocks resolves to the pubkey. The transaction is the first the scheduler saw write the account while it tracked the block. index_in_slot is the transaction's position in the block, as in txn_timing. index_in_txn indexes the transaction's account list, the static accounts in message order followed by the lookup table accounts, writable before readonly. The sentinel 65535/255 marks an account whose writer the scheduler did not see: written by start-of-block processing, or by a block that did not own its scheduler lane while its transactions were parsed, including a block demoted and promoted again. Truncated to the first 65536 accounts, which leaves the last tasks short of their item_count.",
+            "max_len": 65536,
+            "dynamic": true,
+            "element": {
+                "type": "Tuple",
+                "description": "One account hashed by one task.",
+                "fields": {
+                    "index_in_slot": { "type": "UInt16", "compression": "T64, ZSTD", "description": "0-indexed position within its block of the transaction that wrote the account, the first the scheduler saw. 65535 if the scheduler did not see the account's writer." },
+                    "index_in_txn":  { "type": "UInt8",  "compression": "T64, ZSTD", "description": "0-indexed position of the account in that transaction's account list. 255 if the scheduler did not see the account's writer." }
+                }
+            }
+        }
     }
 }

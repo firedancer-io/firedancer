@@ -1749,6 +1749,8 @@ struct test_lthash_acct {
   ulong          sub_cnt  [ TEST_LTHASH_BANK_MAX ]; /* subtractions handed out for the account, per bank */
   ulong          add_cnt  [ TEST_LTHASH_BANK_MAX ]; /* additions handed out, per bank */
   ulong          write_cnt[ TEST_LTHASH_BANK_MAX ]; /* writes completed so far, per bank, the version of its next addition */
+  uint           ref;                               /* the reference every LtHash task is expected to carry for the account */
+  int            ref_checked;                       /* whether ref is checked */
 };
 typedef struct test_lthash_acct test_lthash_acct_t;
 
@@ -1770,6 +1772,9 @@ struct test_lthash_ctx {
   fd_acct_addr_t const * late_alts;       /* writable lookup table accounts handed back, as the exec tile would,
                                              with every lookup table transaction */
   ulong                  late_alt_cnt;
+  int                    spec_check;      /* whether every addition task is checked against spec_expected */
+  int                    spec_expected;   /* whether addition tasks are expected to be speculations */
+  ulong                  add_spec_cnt;    /* speculative addition tasks completed */
 };
 typedef struct test_lthash_ctx test_lthash_ctx_t;
 
@@ -1784,6 +1789,16 @@ lthash_acct( test_lthash_ctx_t *    ctx,
   fd_memset( a, 0, sizeof(test_lthash_acct_t) );
   a->acct = *acct;
   return a;
+}
+
+/* Every LtHash task hashing acct is expected to reference it as ref. */
+static void
+lthash_expect_ref( test_lthash_ctx_t * ctx,
+                   fd_pubkey_t const * acct,
+                   uint                ref ) {
+  test_lthash_acct_t * a = lthash_acct( ctx, fd_type_pun_const( acct ) );
+  a->ref         = ref;
+  a->ref_checked = 1;
 }
 
 __attribute__((format(printf,2,3)))
@@ -1896,12 +1911,16 @@ lthash_complete( fd_sched_t *            sched,
   int   is_add   = task->task_type==FD_SCHED_TT_LTHASH_ADD;
   ulong bank_idx = task->lthash->bank_idx;
   FD_TEST( bank_idx<TEST_LTHASH_BANK_MAX );
+  /* Only an addition of one account is a speculation. */
+  FD_TEST( !task->lthash->spec || (is_add && task->lthash->cnt==1UL) );
+  if( ctx->spec_check && is_add ) FD_TEST( task->lthash->spec==ctx->spec_expected );
   for( ulong i=0UL; i<task->lthash->cnt; i++ ) {
     test_lthash_acct_t * a = lthash_acct( ctx, task->lthash->accts+i );
+    if( a->ref_checked ) FD_TEST( task->lthash->refs[ i ]==a->ref );
     if( is_add ) { a->add_cnt[ bank_idx ]++; ctx->add_cnt++; }
     else         { a->sub_cnt[ bank_idx ]++; ctx->sub_cnt++; }
   }
-  if( is_add ) { ctx->add_task_cnt++; fd_lthash_add( ctx->handed, v ); }
+  if( is_add ) { ctx->add_task_cnt++; fd_lthash_add( ctx->handed, v ); ctx->add_spec_cnt += (ulong)!!task->lthash->spec; }
   else         { ctx->sub_task_cnt++; fd_lthash_sub( ctx->handed, v ); }
   ctx->last_lthash_step[ bank_idx ] = ++ctx->step;
   FD_TEST( 0==fd_sched_task_done( sched, task->task_type, ULONG_MAX, task->lthash->exec_idx, v ) );
@@ -2466,7 +2485,8 @@ run_lthash_abandon_in_flight_case( int last_is_add ) {
    and is promoted back when its last FEC set arrives.  Demotion
    rolls its LtHash progress back, so after promotion it re-derives.
    A is subtracted again, but the delta holds exactly one subtraction
-   and one addition per account, at the final version. */
+   and one addition per account, at the final version.  The tasks name
+   T1 as A's writer before the demotion and the sentinel after it. */
 static void
 run_lthash_demote_promote_case( void ) {
   fd_sched_t * sched = new_sched( 8UL );
@@ -2483,6 +2503,7 @@ run_lthash_demote_promote_case( void ) {
 
   fd_hash_t start_poh[ 1 ]; hash_from_seed( start_poh, 0x91b53d8a74f2c601UL );
   static test_lthash_ctx_t ctx[ 1 ]; fd_memset( ctx, 0, sizeof(test_lthash_ctx_t) );
+  lthash_expect_ref( ctx, acct, FD_SCHED_LTHASH_REF( 0UL, 0UL ) );
 
   /* Block 2 takes lane 0 with T1 and runs BLOCK_START, T1, PoH,
      sigverify and the early subtraction of A.  Then, alone in its lane
@@ -2519,7 +2540,12 @@ run_lthash_demote_promote_case( void ) {
   /* Block 2's last FEC set, with T2 writing A and B, lands unstaged.
      No lane is free and every head is idle, so the four squatters are
      demoted and block 2 is promoted onto lane 0.  It drains,
-     re-subtracts A, subtracts B, adds both and ends. */
+     re-subtracts A, subtracts B, adds both and ends.  The lane map
+     block 2 lost at demotion is rebuilt from the dispatcher's parked
+     set, which knows no writers, and T2 parsed unstaged, so every task
+     from here on carries the sentinel. */
+  lthash_expect_ref( ctx, acct,   FD_SCHED_LTHASH_REF_NONE );
+  lthash_expect_ref( ctx, acct+1, FD_SCHED_LTHASH_REF_NONE );
   ingest_lthash_fec( sched, 2UL, 1UL, TEST_ROOT_SLOT+1UL, TEST_ROOT_SLOT, encoded2, sz2, 0, 1 );
   state = fd_sched_get_state_cstr( sched );
   FD_TEST( strstr( state, "active_idx 2, staged_bitset 1," ) );
@@ -3506,6 +3532,69 @@ run_lthash_late_alt_case( int speculate ) {
   lthash_check_metrics( sched, speculate ? &(test_lthash_metrics_t){ .parsed_writable=2UL, .late_reg=2UL, .first_write=4UL, .add_created=4UL, .spec=1UL, .entry=3UL, .sub_dispatched=3UL, .sub_task=2UL, .sub_applied=3UL, .add_surfaced=4UL, .add_dispatched=4UL, .add_task=2UL, .add_applied=4UL, .add_undone=1UL, .spec_applied=1UL, .frozen=3UL }
                                         : &(test_lthash_metrics_t){ .parsed_writable=2UL, .late_reg=2UL, .first_write=4UL, .add_created=4UL, .entry=3UL, .sub_dispatched=3UL, .sub_task=2UL, .sub_applied=3UL, .add_surfaced=4UL, .add_surfaced_stale=1UL, .add_dispatched=3UL, .add_task=2UL, .add_applied=3UL, .frozen=3UL } );
   FD_TEST( strstr( state, "lthash_ready_bitset[ 0 ] 0xf," ) );
+
+  delete_sched( sched );
+}
+
+/* Every LtHash task names each account it hashes by the transaction
+   that first wrote the account.  T1 writes A and B at positions 0 and
+   1.  S writes P at position 0 and, through its unresolved lookup
+   table, X at position 2, registered when S completes.  Start-of-block
+   processing writes W, which no transaction references.  The additions
+   handed out before the last FEC set are speculations of one account,
+   and the drain batches after it are not. */
+static void
+run_lthash_ref_case( void ) {
+  fd_sched_t * sched = new_sched( 4UL );
+  fd_sched_set_bypass_poh_verify( sched, 1 );
+  fd_sched_set_bypass_alut_resolution( sched, 1 );
+
+  fd_pubkey_t acct[ 5 ]; /* A, B, P, X, W */
+  for( ulong i=0UL; i<5UL; i++ ) fd_memset( acct[ i ].uc, (int)(0xa1UL+0x11UL*i), sizeof(fd_pubkey_t) );
+  fd_acct_addr_t late[ 1 ]; fd_memcpy( late->b, acct[ 3 ].uc, sizeof(fd_acct_addr_t) );
+  uchar t1[ FD_TXN_MTU ]; ulong t1_sz = build_legacy_test_txn( t1, acct,   acct+1, 1UL, 0x01 );
+  uchar s [ FD_TXN_MTU ]; ulong s_sz  = build_lthash_v0_txn(   s,  acct+2, 1UL,         0x02 );
+  uchar const * txns1[ 1 ] = { t1 };
+  uchar const * txns2[ 1 ] = { s };
+  uchar encoded1[ 8192 ]; ulong sz1 = encode_lthash_batch( encoded1, txns1, &t1_sz, 1UL );
+  uchar encoded2[ 8192 ]; ulong sz2 = encode_lthash_batch( encoded2, txns2, &s_sz,  1UL );
+
+  static test_lthash_ctx_t ctx[ 1 ]; fd_memset( ctx, 0, sizeof(test_lthash_ctx_t) );
+  ctx->late_alts    = late;
+  ctx->late_alt_cnt = 1UL;
+  lthash_expect_ref( ctx, acct,   FD_SCHED_LTHASH_REF( 0UL, 0UL ) );
+  lthash_expect_ref( ctx, acct+1, FD_SCHED_LTHASH_REF( 0UL, 1UL ) );
+  lthash_expect_ref( ctx, acct+2, FD_SCHED_LTHASH_REF( 1UL, 0UL ) );
+  lthash_expect_ref( ctx, acct+3, FD_SCHED_LTHASH_REF( 1UL, 2UL ) );
+  lthash_expect_ref( ctx, acct+4, FD_SCHED_LTHASH_REF_NONE );
+
+  fd_hash_t start_poh[ 1 ]; hash_from_seed( start_poh, 0x5e6f708192a3b4c5UL );
+  ingest_lthash_fec( sched, 2UL, 1UL, TEST_ROOT_SLOT+1UL, TEST_ROOT_SLOT, encoded1, sz1, 1, 0 );
+  fd_sched_set_poh_params( sched, 2UL, TEST_ROOT_TICK_HEIGHT, TEST_ROOT_TICK_HEIGHT+1UL, start_poh );
+
+  fd_sched_task_t task[ 1 ];
+  FD_TEST( 1UL==fd_sched_task_next_ready( sched, task ) );
+  FD_TEST( task->task_type==FD_SCHED_TT_BLOCK_START && task->block_start->bank_idx==2UL );
+  fd_sched_block_start_writes( sched, 2UL, fd_type_pun_const( acct+4 ), 1UL );
+  lthash_write( ctx, 2UL, fd_type_pun_const( acct+4 ) );
+  lthash_drive_task( sched, task, ctx );
+
+  ctx->spec_check    = 1;
+  ctx->spec_expected = 1;
+  lthash_drive( sched, ctx, 100UL );
+  FD_TEST( ctx->txn_exec_cnt==1UL && !ctx->block_end_cnt );
+  FD_TEST( ctx->sub_cnt==3UL && ctx->add_cnt==3UL && ctx->add_spec_cnt==3UL );
+
+  ctx->spec_expected = 0;
+  ingest_lthash_fec( sched, 2UL, 1UL, TEST_ROOT_SLOT+1UL, TEST_ROOT_SLOT, encoded2, sz2, 0, 1 );
+  lthash_drive( sched, ctx, 100UL );
+  FD_TEST( fd_sched_is_drained( sched ) );
+  FD_TEST( ctx->txn_exec_cnt==2UL && ctx->block_end_cnt==1UL );
+  FD_TEST( ctx->acct_cnt==5UL && ctx->sub_cnt==5UL && ctx->add_cnt==5UL && ctx->add_spec_cnt==3UL );
+  for( ulong i=0UL; i<5UL; i++ ) lthash_check_acct( ctx, 2UL, acct+i, 1UL, 1UL, 1UL );
+  fd_lthash_value_t expected[ 1 ]; lthash_expected_delta( expected, ctx, 2UL, acct, 5UL );
+  FD_TEST( fd_lthash_eq( ctx->delta, expected ) );
+  FD_TEST( fd_lthash_eq( ctx->delta, ctx->handed ) );
 
   delete_sched( sched );
 }
@@ -5038,7 +5127,61 @@ test_cert_dispatch( void ) {
     lthash_drive_task( sched, task, ctx );
   }
   FD_TEST( cert_cnt==1UL && txn_seen );
-  FD_TEST( task->block_end->bank_idx==2UL );
+  FD_TEST( task->block_end->bank_idx==2UL && task->block_end->cert_disp_cnt==1UL );
+  lthash_drive_task( sched, task, ctx );
+  while( fd_sched_pruned_block_next( sched )!=ULONG_MAX ) {}
+  FD_TEST( fd_sched_is_drained( sched ) );
+  delete_sched( sched );
+}
+
+/* A block deactivated for want of FEC sets becomes activatable again
+   when its footer lands ahead of its alpentick.  It verifies its certs,
+   is deactivated again, and the alpentick then ends it with no cert
+   left for the block end.  With cert dispatch off the footer wakes
+   nothing and the block end reports no cert dispatched. */
+static void
+test_cert_wakes_deactivated_block( int cert_dispatch ) {
+  fd_sched_t * sched = new_sched( 8UL );
+  fd_sched_set_bypass_poh_verify( sched, 1 );
+  fd_sched_set_cert_dispatch( sched, cert_dispatch );
+  fd_hash_t start_poh[ 1 ]; hash_from_seed( start_poh, 0x6a1c3e5f7b9d2048UL );
+  fd_sched_task_t task[ 1 ];
+  static test_lthash_ctx_t ctx[ 1 ]; fd_memset( ctx, 0, sizeof(test_lthash_ctx_t) );
+
+  /* The header alone starts the block, which then has nothing to do. */
+  FD_TEST( try_ingest_lthash_header( sched, 2UL, 1UL, TEST_ROOT_SLOT+1UL, TEST_ROOT_SLOT ) );
+  fd_sched_set_poh_params( sched, 2UL, TEST_ROOT_TICK_HEIGHT, TEST_ROOT_TICK_HEIGHT+1UL, start_poh );
+  FD_TEST( fd_sched_task_next_ready( sched, task ) && task->task_type==FD_SCHED_TT_BLOCK_START );
+  lthash_drive_task( sched, task, ctx );
+  FD_TEST( !fd_sched_task_next_ready( sched, task ) && fd_sched_is_drained( sched ) );
+
+  /* The footer, with one cert. */
+  uchar footer[ FD_BLOCK_MARKER_SER_MAX ] __attribute__((aligned(64)));
+  test_footer_fast_final = 1;
+  ulong footer_sz = encode_ag_component( footer, AG_COMP_FOOTER, NULL );
+  test_footer_fast_final = 0;
+  FD_TEST( try_ingest_lthash_component( sched, 2UL, 1UL, TEST_ROOT_SLOT+1UL, TEST_ROOT_SLOT, footer, footer_sz, 0, 0 ) );
+  if( cert_dispatch ) {
+    FD_TEST( !fd_sched_is_drained( sched ) );
+    FD_TEST( fd_sched_task_next_ready( sched, task ) && task->task_type==FD_SCHED_TT_CERT_VERIFY );
+    FD_TEST( task->cert_verify->bank_idx==2UL && task->cert_verify->cert_idx==0UL && task->cert_verify->exec_idx==TEST_EXEC_CNT-1UL );
+    FD_TEST( !fd_sched_task_done( sched, FD_SCHED_TT_CERT_VERIFY, ULONG_MAX, task->cert_verify->exec_idx, NULL ) );
+  }
+  FD_TEST( !fd_sched_task_next_ready( sched, task ) && fd_sched_is_drained( sched ) );
+
+  /* The alpentick ends the block. */
+  uchar tick[ sizeof(ulong)+sizeof(fd_microblock_hdr_t) ];
+  fd_hash_t hash[ 1 ]; *hash = *start_poh;
+  ulong tick_sz = encode_ag_component( tick, AG_COMP_TICK, hash );
+  FD_TEST( try_ingest_lthash_component( sched, 2UL, 1UL, TEST_ROOT_SLOT+1UL, TEST_ROOT_SLOT, tick, tick_sz, 0, 1 ) );
+  for(;;) {
+    while( fd_sched_pruned_block_next( sched )!=ULONG_MAX ) {}
+    FD_TEST( fd_sched_task_next_ready( sched, task ) );
+    FD_TEST( task->task_type!=FD_SCHED_TT_CERT_VERIFY );
+    if( task->task_type==FD_SCHED_TT_BLOCK_END ) break;
+    lthash_drive_task( sched, task, ctx );
+  }
+  FD_TEST( task->block_end->bank_idx==2UL && task->block_end->cert_disp_cnt==(ulong)cert_dispatch );
   lthash_drive_task( sched, task, ctx );
   while( fd_sched_pruned_block_next( sched )!=ULONG_MAX ) {}
   FD_TEST( fd_sched_is_drained( sched ) );
@@ -5353,6 +5496,8 @@ main( int     argc,
   run_cert_verify_case( 0 );
   run_cert_verify_case( 1 );
   test_cert_dispatch();
+  test_cert_wakes_deactivated_block( 1 );
+  test_cert_wakes_deactivated_block( 0 );
   run_cert_dying_dispatch_case( 0 );
   run_cert_dying_dispatch_case( 1 );
   run_lane_wait_and_promotion_case();
@@ -5376,6 +5521,7 @@ main( int     argc,
   run_lthash_spec_given_up_complete_case( 1 );
   run_lthash_late_alt_case( 0 );
   run_lthash_late_alt_case( 1 );
+  run_lthash_ref_case();
   run_lthash_respeculate_case();
   run_lthash_pending_rewrite_case( 1 );
   run_lthash_pending_rewrite_case( 0 );

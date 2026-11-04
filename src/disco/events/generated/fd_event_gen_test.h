@@ -264,11 +264,26 @@ fd_event_block_completed_fill_max( fd_event_block_completed_t * msg ) {
     msg->txn_timing[ k ].sigverify_dispatched_time = ULONG_MAX;
     msg->txn_timing[ k ].sigverify_done_time = ULONG_MAX;
     msg->txn_timing[ k ].poh_mixed_time = ULONG_MAX;
+    msg->txn_timing[ k ].exec_tile_idx = UCHAR_MAX;
+    msg->txn_timing[ k ].sigverify_exec_tile_idx = UCHAR_MAX;
   }
   msg->votor_repaired = 1;
   msg->repair_request_shred_block_id_count = UINT_MAX;
   msg->repair_request_parent_count = UINT_MAX;
   msg->repair_request_fec_root_count = UINT_MAX;
+  msg->exec_task_timing_cnt = 32768UL;
+  for( ulong k=0UL; k<32768UL; k++ ) {
+    msg->exec_task_timing[ k ].dispatched_time = ULONG_MAX;
+    msg->exec_task_timing[ k ].done_time = ULONG_MAX;
+    msg->exec_task_timing[ k ].task_type = INT_MAX;
+    msg->exec_task_timing[ k ].exec_tile_idx = UCHAR_MAX;
+    msg->exec_task_timing[ k ].item_count = USHORT_MAX;
+  }
+  msg->lthash_account_ref_cnt = 65536UL;
+  for( ulong k=0UL; k<65536UL; k++ ) {
+    msg->lthash_account_ref[ k ].index_in_slot = USHORT_MAX;
+    msg->lthash_account_ref[ k ].index_in_txn = UCHAR_MAX;
+  }
 }
 
 static void
