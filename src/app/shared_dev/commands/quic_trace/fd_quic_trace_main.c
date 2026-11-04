@@ -139,7 +139,6 @@ dump_connection( fd_quic_conn_t const * conn ) {
   X( state,                  "%u",         ( (CONN).state                  ), __VA_ARGS__ ) \
   X( reason,                 "%u",         ( (CONN).reason                 ), __VA_ARGS__ ) \
   X( app_reason,             "%u",         ( (CONN).app_reason             ), __VA_ARGS__ ) \
-  X( tx_ptr,                 "%p",         ( ((void*)(CONN).tx_ptr)        ), __VA_ARGS__ ) \
   X( unacked_sz,             "%lu",        ( (CONN).unacked_sz             ), __VA_ARGS__ ) \
   X( flags,                  "%x",         ( (CONN).flags                  ), __VA_ARGS__ ) \
   X( conn_gen,               "%u",         ( (CONN).conn_gen               ), __VA_ARGS__ ) \
