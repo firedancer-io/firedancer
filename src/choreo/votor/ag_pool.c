@@ -599,10 +599,7 @@ ag_pool_add_vote( ag_pool_t *       self,
   } else if( FD_UNLIKELY( ag_slot_state_should_ignore_vote( slot_state_, states, vote ) ) ) {
     return AG_POOL_ERR_DUPLICATE;
   }
-  if( FD_UNLIKELY( !verified && !fd_bls_sig_validate( ag_vote_sig( vote ) ) ) ) {
-    fd_bls_set_insert( bad, voter );
-    return AG_POOL_SUCCESS;
-  }
+  if( FD_UNLIKELY( !verified && !fd_bls_sig_validate( ag_vote_sig( vote ) ) ) ) return AG_POOL_ERR_VOTE_VERIFY;
 
   ag_cert_t     cert_events  [ AG_SLOT_STATE_OUT_CERT_MAX   ]; ulong cert_event_cnt;
   ag_block_id_t safe_to_notar[ AG_SLOT_STATE_OUT_EVENT_MAX  ]; ulong safe_to_notar_cnt;

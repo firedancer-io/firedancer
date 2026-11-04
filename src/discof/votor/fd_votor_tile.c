@@ -1043,6 +1043,7 @@ quic_server_datagram_rx( fd_quic_conn_t * conn,
     case AG_POOL_ERR_SLOT_TOO_NEW:       ctx->metrics.vote_rx[ FD_METRICS_ENUM_VOTE_RX_RESULT_V_SLOT_OUT_OF_RANGE_IDX ]++; result = FD_EVENT_ALPENGLOW_VOTE_PROCESSING_RESULT_SLOT_TOO_NEW;                                                                                                                    break;
     case AG_POOL_ERR_DUPLICATE:          ctx->metrics.vote_rx[ FD_METRICS_ENUM_VOTE_RX_RESULT_V_DUPLICATE_IDX         ]++; result = FD_EVENT_ALPENGLOW_VOTE_PROCESSING_RESULT_DUPLICATE;                                                                                                                        break;
     case AG_POOL_ERR_SLASHABLE:          ctx->metrics.vote_rx[ FD_METRICS_ENUM_VOTE_RX_RESULT_V_SLASHABLE_IDX         ]++; result = FD_EVENT_ALPENGLOW_VOTE_PROCESSING_RESULT_SLASHABLE;                                                                                                                        break;
+    case AG_POOL_ERR_VOTE_VERIFY:        ctx->metrics.vote_rx[ FD_METRICS_ENUM_VOTE_RX_RESULT_V_SIGNATURE_FAILED_IDX  ]++; ban_peer( ctx, peer, fd_clock_tile_now( ctx->clock ) );                                                                                                                       return;
     default:
       FD_LOG_CRIT(( "unhandled kind" ));
     }

@@ -1032,7 +1032,7 @@ test_duplicate_votes( void ) {
 }
 
 /* auditor-internal#673: the subgroup check runs after the cheap
-   admission checks, and a failing signature marks the voter bad */
+   admission checks, and a failing signature is rejected */
 
 static void
 test_vote_subgroup_after_duplicate( void ) {
@@ -1044,8 +1044,8 @@ test_vote_subgroup_after_duplicate( void ) {
   ag_vote_t evil = good;
   test_bls_torsion( &evil.notar.sig );
 
-  FD_TEST( ag_pool_add_vote( pool, &evil, 0, bad, &quorum_reached )==AG_POOL_SUCCESS );
-  FD_TEST( fd_bls_set_cnt( bad )==1UL && fd_bls_set_test( bad, 0UL ) );
+  FD_TEST( ag_pool_add_vote( pool, &evil, 0, bad, &quorum_reached )==AG_POOL_ERR_VOTE_VERIFY );
+  FD_TEST( fd_bls_set_is_null( bad ) );
 
   FD_TEST( ag_pool_add_vote( pool, &good, 0, bad, &quorum_reached )==AG_POOL_SUCCESS );
   FD_TEST( fd_bls_set_is_null( bad ) );
