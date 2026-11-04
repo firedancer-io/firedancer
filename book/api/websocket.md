@@ -3728,14 +3728,16 @@ explicitly mentioned, skipped slots are not included.
                 "regular": 246,
                 "votes": 0,
                 "conflicting": 123,
-                "bundles": 123
+                "bundles": 123,
+                "next_auction": 0
             },
             {
                 "timestamp_nanos": "1739657041688342791",
                 "regular": 244,
                 "votes": 0,
                 "conflicting": 123,
-                "bundles": 123
+                "bundles": 123,
+                "next_auction": 0
             }
             // ... many more ...
         ]
@@ -3920,6 +3922,7 @@ explicitly mentioned, skipped slots are not included.
 | votes           | `number` | Deprecated, always `0` since Firedancer v26.11. Pack no longer keeps a separate buffer for vote transactions |
 | conflicting     | `number` | The number of transactions stored in the "conflicting" treap (i.e. the buffer for transactions with perceived account write conflicts, which receive slightly less priority) at `timestamp_nanos` |
 | bundles         | `number` | The number of transactions stored in the "bundles" treap (i.e. the buffer dedicated for bundle transactions) at `timestamp_nanos` |
+| next_auction    | `number` | The number of transactions stored in the "next auction" buffer at `timestamp_nanos`. These arrived while the current batch auction was running and are held back from scheduling until the next auction starts, which can be up to 50ms. This is always `0` if the scheduler strategy is not "auction" |
 
 **`TsTileTimers`**
 | Field             | Type          | Description |
