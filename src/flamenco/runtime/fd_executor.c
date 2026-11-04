@@ -1392,6 +1392,16 @@ fd_executor_setup_accounts_for_txn( fd_runtime_t *      runtime,
   err = fd_executor_validate_account_locks( txn_out );
   if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) return err;
 
+  int loading = fd_accdb_snapshot_still_loading( runtime->accdb );
+  if( FD_UNLIKELY( loading ) ) {
+    for( ushort i=0; i<txn_out->accounts.cnt; i++ ) {
+      if( FD_UNLIKELY( !fd_accdb_has_record( runtime->accdb, bank->accdb_fork_id, txn_out->accounts.keys[ i ].uc ) ) ) {
+        txn_out->err.is_deferred = 1;
+        return FD_RUNTIME_EXECUTE_SUCCESS;
+      }
+    }
+  }
+
   /* If the transaction will fail, only acquire the fee payer and the
      potential nonce account (first account of the first instruction). */
   fd_txn_t const * txn       = TXN( txn_in->txn );
@@ -1401,7 +1411,6 @@ fd_executor_setup_accounts_for_txn( fd_runtime_t *      runtime,
 
   /* Resolve all transaction accounts and queue them for acquisition. */
 
-  int loading = fd_accdb_snapshot_still_loading( runtime->accdb );
   for( ushort i=0; i<txn_out->accounts.cnt; i++ ) {
     txn_out->accounts.is_writable[ i ]      = (uchar)fd_runtime_account_is_writable_idx( txn_in, txn_out, i );
     txn_out->accounts.account_acquired[ i ] = 0U;
@@ -1414,11 +1423,6 @@ fd_executor_setup_accounts_for_txn( fd_runtime_t *      runtime,
     acquire_pubkeys[ acquire_cnt ]  = txn_out->accounts.keys[ i ].uc;
     acquire_writable[ acquire_cnt ] = (int)txn_out->accounts.is_writable[ i ];
     acquire_cnt++;
-
-    if( FD_UNLIKELY( loading && !fd_accdb_has_record( runtime->accdb, bank->accdb_fork_id, txn_out->accounts.keys[ i ].uc ) ) ) {
-      txn_out->err.is_deferred = 1;
-      return FD_RUNTIME_EXECUTE_SUCCESS;
-    }
   }
 
   /* The hilariously poorly designed account loader semantics require a
