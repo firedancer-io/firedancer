@@ -107,6 +107,12 @@ struct __attribute__((aligned(16UL))) fd_quic_state_private {
   /* Scratch space for packet protection */
   uchar                   crypt_scratch[FD_QUIC_MTU];
 
+  /* Datagram coalescing buffer shared by all conns.  Holds tx_owner's
+     data across calls only after the aio returned AGAIN. */
+  uchar                   tx_buf[2048];
+  uchar *                 tx_ptr;   /* free space in tx_buf */
+  fd_quic_conn_t *        tx_owner;
+
   /* the timer structs, large private fields / data follow */
   fd_quic_svc_timers_t  * svc_timers;
 };
