@@ -272,13 +272,12 @@ fd_topos_net_tiles( fd_topo_t *             topo,
     fd_topob_wksp( topo, "netbase" );
     /* net_netlnk: net->netlnk ARP requests */
     fd_topob_wksp( topo, "net_netlnk" );
-    fd_topob_wksp( topo, "iproute" );
 
     fd_topo_tile_t * netlink_tile = fd_topob_tile( topo, "netlnk", "netlnk", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0, 1 );
     /* A dump is emitted synchronously.  Keep room for one complete dump in
        addition to an already outstanding complete dump. */
     ulong iproute_depth = fd_ulong_pow2_up( 4UL*(netlnk_max_routes+netlnk_max_peer_routes)+8UL );
-    fd_topob_link( topo, "iproute_out", "iproute", iproute_depth, sizeof(fd_iproute_msg_t), 1UL );
+    fd_topob_link( topo, "iproute_out", "netbase", iproute_depth, sizeof(fd_iproute_msg_t), 1UL );
     fd_topob_tile_out( topo, "netlnk", 0UL, "iproute_out", 0UL );
     fd_netlink_topo_create( netlink_tile, topo, netlnk_max_routes, netlnk_max_peer_routes, netlnk_max_neighbors, net_cfg->interface );
 
@@ -347,11 +346,10 @@ fd_topos_net_tiles( fd_topo_t *             topo,
     fd_topob_wksp( topo, "netbase" );
     /* net_netlnk: net->netlnk ARP requests */
     fd_topob_wksp( topo, "net_netlnk" );
-    fd_topob_wksp( topo, "iproute" );
 
     fd_topo_tile_t * netlink_tile = fd_topob_tile( topo, "netlnk", "netlnk", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0, 1 );
     ulong iproute_depth = fd_ulong_pow2_up( 4UL*(netlnk_max_routes+netlnk_max_peer_routes)+8UL );
-    fd_topob_link( topo, "iproute_out", "iproute", iproute_depth, sizeof(fd_iproute_msg_t), 1UL );
+    fd_topob_link( topo, "iproute_out", "netbase", iproute_depth, sizeof(fd_iproute_msg_t), 1UL );
     fd_topob_tile_out( topo, "netlnk", 0UL, "iproute_out", 0UL );
     fd_netlink_topo_create( netlink_tile, topo, netlnk_max_routes, netlnk_max_peer_routes, netlnk_max_neighbors, net_cfg->interface );
 
