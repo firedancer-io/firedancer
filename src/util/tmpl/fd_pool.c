@@ -177,9 +177,7 @@
 #define POOL_MAGIC (0xF17EDA2CE7900100UL) /* Firedancer pool ver 0 */
 #endif
 
-#if FD_TMPL_USE_HANDHOLDING
 #include "../log/fd_log.h"
-#endif
 
 /* Implementation *****************************************************/
 
@@ -439,27 +437,21 @@ POOL_(ele_test)( POOL_T const * join,
 FD_FN_CONST static inline ulong
 POOL_(idx)( POOL_T const * join,
             POOL_T const * ele ) {
-# if FD_TMPL_USE_HANDHOLDING
-  if( FD_UNLIKELY( !POOL_(ele_test)( join, ele ) ) ) FD_LOG_CRIT(( "no such element" ));
-# endif
+  FD_DCHECK_CRIT( POOL_(ele_test)( join, ele ), "no such element" );
   return ele ? (ulong)(ele-join) : POOL_IDX_NULL;
 }
 
 FD_FN_CONST static inline POOL_T *
 POOL_(ele)( POOL_T *   join,
             ulong      idx ) {
-# if FD_TMPL_USE_HANDHOLDING
-  if( FD_UNLIKELY( !POOL_(idx_test)( join, idx ) ) ) FD_LOG_CRIT(( "no such index" ));
-# endif
+  FD_DCHECK_CRIT( POOL_(idx_test)( join, idx ), "no such index" );
   return (idx==POOL_IDX_NULL) ? NULL : (join + idx);
 }
 
 FD_FN_CONST static inline POOL_T const *
 POOL_(ele_const)( POOL_T const *   join,
                   ulong            idx ) {
-# if FD_TMPL_USE_HANDHOLDING
-  if( FD_UNLIKELY( !POOL_(idx_test)( join, idx ) ) ) FD_LOG_CRIT(( "no such index" ));
-# endif
+  FD_DCHECK_CRIT( POOL_(idx_test)( join, idx ), "no such index" );
   return (idx==POOL_IDX_NULL) ? NULL : (join + idx);
 }
 
@@ -479,9 +471,7 @@ POOL_(used)( POOL_T const * join ) {
 static inline ulong
 POOL_(idx_acquire)( POOL_T * join ) {
   POOL_(private_t) * meta = POOL_(private_meta)( join );
-# if FD_TMPL_USE_HANDHOLDING
-  if( FD_UNLIKELY( !meta->free ) ) FD_LOG_CRIT(( "pool is full" ));
-# endif
+  FD_DCHECK_CRIT( !!meta->free, "pool is full" );
   ulong idx = meta->free_top;
 # if POOL_LAZY
   if( FD_UNLIKELY( idx==POOL_IDX_NULL ) ) {
@@ -502,14 +492,12 @@ static inline void
 POOL_(idx_release)( POOL_T * join,
                     ulong    idx ) {
   POOL_(private_t) * meta = POOL_(private_meta)( join );
-# if FD_TMPL_USE_HANDHOLDING
-  if( FD_UNLIKELY( (meta->max<=idx) | (idx==POOL_IDX_NULL) ) ) FD_LOG_CRIT(( "invalid index" ));
+  FD_DCHECK_CRIT( (idx<meta->max) && (idx!=POOL_IDX_NULL), "invalid index" );
 # if POOL_SENTINEL
-  if( FD_UNLIKELY( POOL_(idx_sentinel)( join )==idx ) ) FD_LOG_CRIT(( "cannot releaes sentinel" ));
-  if( FD_UNLIKELY( meta->free>=meta->max-1 ) ) FD_LOG_CRIT(( "pool is empty" ));
+  FD_DCHECK_CRIT( POOL_(idx_sentinel)( join )!=idx, "cannot releaes sentinel" );
+  FD_DCHECK_CRIT( meta->free<meta->max-1,           "pool is empty"           );
 # else
-  if( FD_UNLIKELY( meta->free>=meta->max ) ) FD_LOG_CRIT(( "pool is empty" ));
-# endif
+  FD_DCHECK_CRIT( meta->free<meta->max, "pool is empty" );
 # endif
   join[ idx ].POOL_NEXT = (POOL_IDX_T)meta->free_top;
   meta->free_top = idx;

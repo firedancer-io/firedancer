@@ -180,9 +180,7 @@
 #error "Define SET_NAME"
 #endif
 
-#if FD_TMPL_USE_HANDHOLDING
 #include "../log/fd_log.h"
-#endif
 
 /* Implementation *****************************************************/
 
@@ -245,10 +243,8 @@ SET_(footprint)( ulong max ) {
 FD_FN_UNUSED static void * /* Work around -Winline */
 SET_(new)( void * shmem,
            ulong  max ) {
-# if FD_TMPL_USE_HANDHOLDING
-  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)shmem, SET_(align)() ) ) ) FD_LOG_CRIT(( "unaligned shmem" ));
-  if( FD_UNLIKELY( (max<1UL) | (max>ULONG_MAX-63UL)                    ) ) FD_LOG_CRIT(( "max out of bounds" ));
-# endif
+  FD_DCHECK_CRIT( fd_ulong_is_aligned( (ulong)shmem, SET_(align)() ), "unaligned shmem"   );
+  FD_DCHECK_CRIT( (max>=1UL) & (max<=ULONG_MAX-63UL),                 "max out of bounds" );
   SET_(private_t) * hdr = (SET_(private_t) *)shmem;
 
   ulong word_cnt = SET_(private_word_cnt)( max );
@@ -357,9 +353,7 @@ FD_FN_CONST static inline ulong SET_(const_iter_done)( ulong j ) { return !~j; }
 static inline SET_(t) *
 SET_(insert)( SET_(t) * set,
               ulong     idx ) {
-# if FD_TMPL_USE_HANDHOLDING
-  if( FD_UNLIKELY( !SET_(valid_idx)( set, idx ) ) ) FD_LOG_CRIT(( "idx out of bounds" ));
-# endif
+  FD_DCHECK_CRIT( SET_(valid_idx)( set, idx ), "idx out of bounds" );
   set[ idx >> 6 ] |= 1UL << (idx & 63UL);
   return set;
 }
@@ -367,9 +361,7 @@ SET_(insert)( SET_(t) * set,
 static inline SET_(t) *
 SET_(remove)( SET_(t) * set,
               ulong     idx ) {
-# if FD_TMPL_USE_HANDHOLDING
-  if( FD_UNLIKELY( !SET_(valid_idx)( set, idx ) ) ) FD_LOG_CRIT(( "idx out of bounds" ));
-# endif
+  FD_DCHECK_CRIT( SET_(valid_idx)( set, idx ), "idx out of bounds" );
   set[ idx >> 6 ] &= ~(1UL << (idx & 63UL));
   return set;
 }
@@ -378,9 +370,7 @@ static inline SET_(t) *
 SET_(insert_if)( SET_(t) * set,
                  int       c,
                  ulong     idx ) {
-# if FD_TMPL_USE_HANDHOLDING
-  if( FD_UNLIKELY( !SET_(valid_idx)( set, idx ) ) ) FD_LOG_CRIT(( "idx out of bounds" ));
-# endif
+  FD_DCHECK_CRIT( SET_(valid_idx)( set, idx ), "idx out of bounds" );
   set[ idx >> 6 ] |= ((ulong)!!c) << (idx & 63UL);
   return set;
 }
@@ -389,9 +379,7 @@ static inline SET_(t) *
 SET_(remove_if)( SET_(t) * set,
                  int       c,
                  ulong     idx ) {
-# if FD_TMPL_USE_HANDHOLDING
-  if( FD_UNLIKELY( !SET_(valid_idx)( set, idx ) ) ) FD_LOG_CRIT(( "idx out of bounds" ));
-# endif
+  FD_DCHECK_CRIT( SET_(valid_idx)( set, idx ), "idx out of bounds" );
   set[ idx >> 6 ] &= ~(((ulong)!!c) << (idx & 63UL));
   return set;
 }
@@ -399,9 +387,7 @@ SET_(remove_if)( SET_(t) * set,
 FD_FN_PURE static inline int
 SET_(test)( SET_(t) const * set,
             ulong           idx ) {
-# if FD_TMPL_USE_HANDHOLDING
-  if( FD_UNLIKELY( !SET_(valid_idx)( set, idx ) ) ) FD_LOG_CRIT(( "idx out of bounds" ));
-# endif
+  FD_DCHECK_CRIT( SET_(valid_idx)( set, idx ), "idx out of bounds" );
   return (int)((set[ idx >> 6 ] >> (idx & 63UL)) & 1UL);
 }
 
@@ -529,9 +515,7 @@ SET_(range)( SET_(t) * set,
              ulong     h ) {
   SET_(private_t) * hdr = SET_(private_hdr_from_set)( set );
 
-# if FD_TMPL_USE_HANDHOLDING
-  if( FD_UNLIKELY( !( (l<=h) & (h<=hdr->max) ) ) ) FD_LOG_CRIT(( "invalid range" ));
-# endif
+  FD_DCHECK_CRIT( (l<=h) & (h<=hdr->max), "invalid range" );
 
   ulong word_idx = 0UL;
 
@@ -569,10 +553,8 @@ SET_(insert_range)( SET_(t) * set,
                     ulong     l,
                     ulong     h ) {
 
-# if FD_TMPL_USE_HANDHOLDING
   SET_(private_t) * hdr = SET_(private_hdr_from_set)( set );
-  if( FD_UNLIKELY( !( (l<=h) & (h<=hdr->max) ) ) ) FD_LOG_CRIT(( "invalid range" ));
-# endif
+  FD_DCHECK_CRIT( (l<=h) & (h<=hdr->max), "invalid range" );
 
   /* Handle any complete leading zero words */
 
@@ -607,9 +589,7 @@ SET_(select_range)( SET_(t) * set,
                     ulong     h ) {
   SET_(private_t) * hdr = SET_(private_hdr_from_set)( set );
 
-# if FD_TMPL_USE_HANDHOLDING
-  if( FD_UNLIKELY( !( (l<=h) & (h<=hdr->max) ) ) ) FD_LOG_CRIT(( "invalid range" ));
-# endif
+  FD_DCHECK_CRIT( (l<=h) & (h<=hdr->max), "invalid range" );
 
   ulong word_idx = 0UL;
 
@@ -647,10 +627,8 @@ SET_(remove_range)( SET_(t) * set,
                     ulong     l,
                     ulong     h ) {
 
-# if FD_TMPL_USE_HANDHOLDING
   SET_(private_t) * hdr = SET_(private_hdr_from_set)( set );
-  if( FD_UNLIKELY( !( (l<=h) & (h<=hdr->max) ) ) ) FD_LOG_CRIT(( "invalid range" ));
-# endif
+  FD_DCHECK_CRIT( (l<=h) & (h<=hdr->max), "invalid range" );
 
   /* Handle any complete leading zero words */
 
@@ -684,10 +662,8 @@ SET_(range_cnt)( SET_(t) const * set,
                  ulong           l,
                  ulong           h ) {
 
-# if FD_TMPL_USE_HANDHOLDING
   SET_(private_t) const * hdr = SET_(private_hdr_from_set_const)( set );
-  if( FD_UNLIKELY( !( (l<=h) & (h<=hdr->max) ) ) ) FD_LOG_CRIT(( "invalid range" ));
-# endif
+  FD_DCHECK_CRIT( (l<=h) & (h<=hdr->max), "invalid range" );
 
   ulong cnt = 0UL;
 
