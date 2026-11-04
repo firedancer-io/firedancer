@@ -7,6 +7,7 @@
 #include "../../tango/dcache/fd_dcache.h"
 #include "../../waltz/xdp/fd_xdp1.h"
 #include "../../waltz/ip/fd_fib4.h"
+#include "iavf/fd_iavf.h"
 
 struct fd_topo;
 typedef struct fd_topo fd_topo_t;
@@ -30,6 +31,8 @@ typedef struct fd_net_rx_bounds fd_net_rx_bounds_t;
 /* FD_MLX5_BATCH_SIZE is the descriptor and completion batch size. */
 
 #define FD_MLX5_BATCH_SIZE 64U
+
+#define FD_IAVF_BATCH_SIZE 64U
 
 #define FD_MLX5_QUEUE_DEPTH_MAX 65536U
 
@@ -170,6 +173,12 @@ fd_mlx5_tile_fib4_join( fd_fib4_t *                 out,
                         struct fd_topo_tile const * net_tile,
                         int                         main_table );
 
+fd_fib4_t *
+fd_iavf_tile_fib4_join( fd_fib4_t *                 out,
+                        fd_topo_t const *           topo,
+                        struct fd_topo_tile const * tile,
+                        int                         main_table );
+
 #if defined(__linux__)
 
 #define FD_MLX5_TILE_MAX (8UL)
@@ -191,6 +200,21 @@ typedef struct fd_mlx5_fds fd_mlx5_fds_t;
 void
 fd_topo_install_mlx5( fd_topo_t *     topo,
                       fd_mlx5_fds_t * fds );
+
+/* fd_iavf_fds identifies the shared VFIO descriptors inherited by iavf tiles
+   from the supervisor.  Each PF member contributes one VF's container,
+   group and device descriptors. */
+struct fd_iavf_fds {
+  ulong member_cnt;
+  int   container_fd[ FD_IAVF_MEMBER_MAX ];
+  int   group_fd    [ FD_IAVF_MEMBER_MAX ];
+  int   device_fd   [ FD_IAVF_MEMBER_MAX ];
+};
+typedef struct fd_iavf_fds fd_iavf_fds_t;
+
+void
+fd_topo_install_iavf( fd_topo_t *     topo,
+                      fd_iavf_fds_t * fds );
 
 /* fd_topo_install_xdp installs XDP programs to all network devices used
    by the topology.  This creates a number of file descriptors which

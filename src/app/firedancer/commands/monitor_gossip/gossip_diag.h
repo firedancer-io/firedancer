@@ -23,6 +23,7 @@ typedef struct {
 typedef enum {
   FD_GOSSIP_DIAG_NET_XDP,
   FD_GOSSIP_DIAG_NET_MLX5,
+  FD_GOSSIP_DIAG_NET_IAVF,
   FD_GOSSIP_DIAG_NET_SOCKET
 } fd_gossip_diag_net_t;
 

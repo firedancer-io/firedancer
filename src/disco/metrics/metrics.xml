@@ -268,6 +268,25 @@ deliberate exception with lint-allow="<rule id>")
     <gauge name="TxBufferFree" summary="TX buffers available for a new transmit job" />
 </tile>
 
+<tile name="iavf">
+    <counter name="PktRx" summary="Packets successfully published to output links" />
+    <counter name="PktRxBytes" summary="Bytes of packets successfully published to output links" />
+    <counter name="PktRxDropped" enum="PktRxDropReason" summary="Received packets dropped, by reason" />
+    <counter name="PktRxNoLinkDropped" summary="Packets dropped because the configured VF or bond member is not accepting traffic" />
+    <counter name="GrePktRx" summary="GRE packets decapsulated and published; subset of PktRx" />
+    <gauge name="RxBufferUsed" summary="RX buffers not currently posted to the NIC" />
+    <gauge name="RxBufferFree" summary="RX buffers currently posted to the NIC" />
+    <counter name="PktTxCompleted" summary="Packets completed by the NIC for transmission" />
+    <counter name="PktTxCompletedBytes" summary="Bytes of packets completed by the NIC" />
+    <counter name="PktTxDropped" enum="PktTxDropReason" summary="Transmit jobs dropped, by reason" />
+    <counter name="PktTxNoLinkDropped" summary="Transmit jobs dropped because no configured VF or bond member can send traffic" />
+    <counter name="PktTxLoopbackFailed" summary="Loopback transmit jobs dropped because the socket send failed or accepted only part of a batch" />
+    <counter name="GrePktTxSubmitted" summary="GRE transmit jobs submitted to the NIC" />
+    <gauge name="TxBufferUsed" summary="TX buffers pending or submitted to the NIC" />
+    <gauge name="TxBufferFree" summary="TX buffers available for a new transmit job" />
+    <counter name="NonFdPktRx" summary="Packets received by IAVF VFs that are not intended for Firedancer" />
+</tile>
+
 <enum name="SendmmsgResult">
     <int value="0" name="Success" label="Success" />
     <int value="1" name="BufferFull" label="ENOBUFS, EAGAIN error" />
