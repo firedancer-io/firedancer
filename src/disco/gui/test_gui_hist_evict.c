@@ -960,6 +960,108 @@ assert_shreds( fd_gui_t *                   gui,
 }
 
 static void
+test_shred_closure_codec( fd_gui_t * gui ) {
+  ulong const cnt = 2048UL;
+  long const ts  = sec_ns( 100UL );
+  long const now = ts + 500000000L;
+  fd_gui_shred_event_t * events = malloc( cnt*sizeof(fd_gui_shred_event_t) );
+  FD_TEST( events );
+  for( ulong i=0UL; i<cnt; i++ ) {
+    events[ i ] = (fd_gui_shred_event_t){ .insert_time_ns=now, .event_time_ns=ts+(long)(i%17UL),
+      .slot=700U, .idx=(ushort)(i%512UL), .event=FD_GUI_SLOT_SHRED_SHRED_RECEIVED_TURBINE };
+    fd_gui_shred_event_append( gui, events[ i ].slot, events[ i ].idx, events[ i ].event, events[ i ].event_time_ns, now );
+  }
+  fd_gui_shred_event_append( gui, 701UL, 0UL, FD_GUI_SLOT_SHRED_REPAIR_REQUEST, ts+20L, now );
+  FD_TEST( count_ts( gui, FD_GUI_HIST_SHRED_EVENTS, ULONG_MAX )==cnt+1UL );
+  FD_TEST( fd_gui_store_metrics( gui->db )->ts_appends[ FD_GUI_HIST_SHRED_EVENTS ]>1UL );
+
+  fd_gui_shred_event_iter_t it[ 1 ];
+  fd_gui_shred_event_hist_iter_begin( gui, it, ts, ts+30L );
+  FD_TEST( fd_gui_shred_event_iter_next( it ) );
+  fd_gui_shred_event_iter_end( it );
+  fd_gui_shred_event_iter_begin( gui, it, now, now );
+  ulong live = 0UL;
+  while( fd_gui_shred_event_iter_next( it ) ) {
+    FD_TEST( it->event.insert_time_ns==now );
+    live++;
+  }
+  fd_gui_shred_event_iter_end( it );
+  FD_TEST( live==cnt+1UL );
+
+  fd_gui_shred_event_slot_complete( gui, 700UL, ts+30L, now );
+  FD_TEST( count_ts( gui, FD_GUI_HIST_SHRED_EVENTS, ULONG_MAX )==cnt+2UL );
+  FD_TEST( fd_gui_store_metrics( gui->db )->ts_appends[ FD_GUI_HIST_SHRED_EVENTS ]>1UL );
+  fd_gui_shred_event_hist_iter_begin( gui, it, ts, ts+31L );
+  for( ulong i=0UL; i<cnt; i++ ) {
+    FD_TEST( fd_gui_shred_event_iter_next( it ) );
+    FD_TEST( !memcmp( &it->event, events+i, sizeof(*events) ) );
+  }
+  FD_TEST( fd_gui_shred_event_iter_next( it ) );
+  FD_TEST( it->event.slot==701U && it->event.event_time_ns==ts+20L );
+  FD_TEST( fd_gui_shred_event_iter_next( it ) );
+  FD_TEST( it->event.slot==700U && it->event.idx==USHORT_MAX &&
+           it->event.event==FD_GUI_SLOT_SHRED_SHRED_SLOT_COMPLETE &&
+           it->event.event_time_ns==ts+30L && it->event.insert_time_ns==now );
+  FD_TEST( !fd_gui_shred_event_iter_next( it ) );
+  fd_gui_shred_event_iter_end( it );
+
+  fd_gui_hist_iter_t hi[ 1 ];
+  FD_TEST( !fd_gui_hist_range_begin( gui, hi, FD_GUI_HIST_SHRED_EVENTS, now, now, NULL, NULL ) );
+  ulong sealed = 0UL;
+  while( fd_gui_hist_range_next( hi ) ) {
+    fd_gui_shred_batch_t const * batch = hi->rec;
+    FD_TEST( hi->rec_sz==FD_GUI_SHRED_BATCH_SZ && batch->insert_time_ns==ts );
+    FD_TEST( batch->event_cnt && batch->data_sz<=sizeof(batch->data) );
+    sealed += batch->event_cnt;
+  }
+  fd_gui_hist_range_end( hi );
+  FD_TEST( sealed+gui->shreds.builder.batch.event_cnt==cnt+2UL );
+
+  fd_gui_shred_event_hist_iter_begin( gui, it, ts, ts+1L );
+  ulong at_start = 0UL;
+  while( fd_gui_shred_event_iter_next( it ) ) {
+    FD_TEST( it->event.event_time_ns==ts );
+    at_start++;
+  }
+  fd_gui_shred_event_iter_end( it );
+  FD_TEST( at_start==(cnt+16UL)/17UL );
+  fd_gui_shred_event_hist_iter_begin( gui, it, ts+17L, ts+20L );
+  FD_TEST( !fd_gui_shred_event_iter_next( it ) );
+  fd_gui_shred_event_iter_end( it );
+
+  /* Replay completion does not close the slot: an event the GUI reads
+     after the completion (on another link) is still recorded. */
+  fd_gui_shred_event_append( gui, 700UL, 1UL, FD_GUI_SLOT_SHRED_REPAIR_REQUEST, ts+31L, now );
+  FD_TEST( !gui->shreds.dropped_event_cnt );
+  fd_gui_shred_event_slot_complete( gui, 700UL, ts+32L, now+1L );
+  fd_gui_shred_event_hist_iter_begin( gui, it, ts+30L, ts+33L );
+  FD_TEST( fd_gui_shred_event_iter_next( it ) );
+  FD_TEST( it->event.event==FD_GUI_SLOT_SHRED_SHRED_SLOT_COMPLETE && it->event.event_time_ns==ts+30L );
+  FD_TEST( fd_gui_shred_event_iter_next( it ) );
+  FD_TEST( it->event.slot==700U && it->event.event==FD_GUI_SLOT_SHRED_REPAIR_REQUEST && it->event.event_time_ns==ts+31L );
+  FD_TEST( fd_gui_shred_event_iter_next( it ) );
+  FD_TEST( it->event.event==FD_GUI_SLOT_SHRED_SHRED_SLOT_COMPLETE && it->event.event_time_ns==ts+32L );
+  FD_TEST( !fd_gui_shred_event_iter_next( it ) );
+  fd_gui_shred_event_iter_end( it );
+
+  ulong active = gui->shreds.builder.batch.event_cnt;
+  fd_gui_event_closed_slot_wmark_advance( gui, 702UL );
+  FD_TEST( gui->shreds.builder.batch.event_cnt==active );
+  fd_gui_shred_event_append( gui, 700UL, 2UL, FD_GUI_SLOT_SHRED_REPAIR_REQUEST, ts+34L, now+2L );
+  FD_TEST( gui->shreds.dropped_event_cnt==1UL );
+  fd_gui_shred_event_hist_iter_begin( gui, it, ts+20L, ts+21L );
+  FD_TEST( fd_gui_shred_event_iter_next( it ) );
+  FD_TEST( it->event.slot==701U && it->event.event==FD_GUI_SLOT_SHRED_REPAIR_REQUEST &&
+           it->event.event_time_ns==ts+20L && it->event.insert_time_ns==now );
+  FD_TEST( !fd_gui_shred_event_iter_next( it ) );
+  fd_gui_shred_event_iter_end( it );
+  fd_gui_shred_event_append( gui, 701UL, 1UL, FD_GUI_SLOT_SHRED_REPAIR_REQUEST, ts+33L, now+2L );
+  FD_TEST( gui->shreds.dropped_event_cnt==2UL );
+  free( events );
+  FD_LOG_NOTICE(( "test_shred_closure_codec: ok" ));
+}
+
+static void
 test_shred_encoding( fd_gui_t * gui ) {
   long const base = sec_ns( 100UL );
   fd_gui_shred_event_t events[] = {
@@ -994,6 +1096,181 @@ test_shred_encoding( fd_gui_t * gui ) {
   assert_shreds( gui, events, cnt, LONG_MIN, LONG_MAX );
   FD_TEST( !gui->shreds.dropped_event_cnt );
   FD_LOG_NOTICE(( "test_shred_encoding: ok" ));
+}
+
+static void
+test_shred_event_batches( fd_gui_t * gui ) {
+  long split_base = sec_ns( 30UL );
+  fd_gui_shred_event_iter_t it[ 1 ];
+  ulong dropped_event_cnt = gui->shreds.dropped_event_cnt;
+  fd_gui_shred_event_append( gui, (ulong)UINT_MAX+1UL, 0UL, FD_GUI_SLOT_SHRED_SHRED_RECEIVED_TURBINE, split_base, split_base );
+  fd_gui_shred_event_append( gui, 704UL, USHORT_MAX, FD_GUI_SLOT_SHRED_SHRED_RECEIVED_TURBINE, split_base, split_base );
+  FD_TEST( gui->shreds.dropped_event_cnt==dropped_event_cnt+2UL );
+
+  fd_gui_shred_event_append( gui, 705UL, 0UL, FD_GUI_SLOT_SHRED_SHRED_RECEIVED_TURBINE, sec_ns( 30UL )-1L, split_base );
+  fd_gui_shred_event_slot_complete( gui, 705UL, sec_ns( 30UL )+1L, sec_ns( 30UL )+500000000L );
+  fd_gui_shred_event_hist_iter_begin( gui, it, sec_ns( 30UL )-1L, sec_ns( 30UL ) );
+  FD_TEST( fd_gui_shred_event_iter_next( it ) );
+  FD_TEST( it->event.event_time_ns==sec_ns( 30UL )-1L );
+  FD_TEST( !fd_gui_shred_event_iter_next( it ) );
+  fd_gui_shred_event_iter_end( it );
+  fd_gui_shred_event_hist_iter_begin( gui, it, sec_ns( 30UL )+1L, sec_ns( 30UL )+2L );
+  FD_TEST( fd_gui_shred_event_iter_next( it ) );
+  FD_TEST( it->event.event_time_ns==sec_ns( 30UL )+1L );
+  FD_TEST( !fd_gui_shred_event_iter_next( it ) );
+  fd_gui_shred_event_iter_end( it );
+
+  fd_gui_shred_event_append( gui, 706UL, 0UL, FD_GUI_SLOT_SHRED_SHRED_RECEIVED_TURBINE, sec_ns( 32UL ), sec_ns( 31UL )+999999999L );
+  fd_gui_shred_event_slot_complete( gui, 706UL, sec_ns( 32UL )+1L, sec_ns( 31UL )+999999999L );
+  fd_gui_shred_event_hist_iter_begin( gui, it, sec_ns( 32UL ), sec_ns( 32UL )+1L );
+  FD_TEST( fd_gui_shred_event_iter_next( it ) );
+  FD_TEST( it->event.slot==706UL && it->event.event_time_ns==sec_ns( 32UL ) );
+  FD_TEST( !fd_gui_shred_event_iter_next( it ) );
+  fd_gui_shred_event_iter_end( it );
+
+  fd_gui_shred_event_append( gui, 704UL, 1UL, FD_GUI_SLOT_SHRED_SHRED_RECEIVED_TURBINE, 0L, sec_ns( 40UL ) );
+  fd_gui_shred_event_slot_complete( gui, 704UL, 0L, sec_ns( 40UL ) );
+  fd_gui_shred_event_iter_begin( gui, it, 0L, 0L );
+  FD_TEST( !fd_gui_shred_event_iter_next( it ) );
+  fd_gui_shred_event_iter_end( it );
+  fd_gui_shred_event_iter_begin( gui, it, 0L, sec_ns( 40UL ) );
+  ulong found_704 = 0UL;
+  while( fd_gui_shred_event_iter_next( it ) ) {
+    if( it->event.slot!=704UL ) continue;
+    FD_TEST( it->event.event_time_ns==0L );
+    FD_TEST( it->event.idx==fd_ushort_if( found_704==0UL, 1U, USHORT_MAX ) );
+    found_704++;
+  }
+  FD_TEST( found_704==2UL );
+  fd_gui_shred_event_iter_end( it );
+
+  fd_gui_hist_iter_t range_it[ 1 ];
+  fd_gui_shred_flush( gui, sec_ns( 41UL ) );
+  FD_TEST( !fd_gui_hist_range_begin( gui, range_it, FD_GUI_HIST_SHRED_EVENTS, sec_ns( 40UL ), sec_ns( 40UL ), NULL, NULL ) );
+  FD_TEST( fd_gui_hist_range_next( range_it ) );
+  fd_gui_shred_batch_t const * batch = range_it->rec;
+  FD_TEST( batch->insert_time_ns==sec_ns( 40UL ) && batch->event_cnt==2U );
+  FD_TEST( !fd_gui_hist_range_next( range_it ) );
+  fd_gui_hist_range_end( range_it );
+
+  fd_gui_shred_event_iter_begin( gui, it, LONG_MIN+1L, LONG_MIN+1L );
+  FD_TEST( !fd_gui_shred_event_iter_next( it ) );
+  fd_gui_shred_event_iter_end( it );
+  fd_gui_shred_event_iter_begin( gui, it, LONG_MAX-1L, LONG_MAX-1L );
+  FD_TEST( !fd_gui_shred_event_iter_next( it ) );
+  fd_gui_shred_event_iter_end( it );
+  fd_gui_shred_event_iter_begin( gui, it, LONG_MIN+1L, LONG_MAX-1L );
+  FD_TEST( fd_gui_shred_event_iter_next( it ) );
+  fd_gui_shred_event_iter_end( it );
+
+  long const extreme_timestamps[] = { LONG_MIN, 0L, LONG_MIN+1L, LONG_MAX };
+  for( ulong i=0UL; i<4UL; i++ ) {
+    fd_gui_shred_event_append( gui, 707UL, i, FD_GUI_SLOT_SHRED_SHRED_RECEIVED_TURBINE, extreme_timestamps[ i ], sec_ns( 41UL ) );
+  }
+  fd_gui_shred_event_slot_complete( gui, 707UL, LONG_MAX, sec_ns( 41UL ) );
+  fd_gui_shred_flush( gui, sec_ns( 42UL ) );
+  FD_TEST( !fd_gui_hist_range_begin( gui, range_it, FD_GUI_HIST_SHRED_EVENTS, sec_ns( 41UL ), sec_ns( 41UL ), NULL, NULL ) );
+  FD_TEST( fd_gui_hist_range_next( range_it ) );
+  batch = range_it->rec;
+  FD_TEST( batch->insert_time_ns==sec_ns( 41UL ) && batch->event_cnt==2U );
+  FD_TEST( !fd_gui_hist_range_next( range_it ) );
+  fd_gui_hist_range_end( range_it );
+  fd_gui_shred_event_iter_begin( gui, it, LONG_MIN, LONG_MAX );
+  ulong extreme_cnt = 0UL;
+  while( fd_gui_shred_event_iter_next( it ) ) {
+    if( it->event.slot!=707UL ) continue;
+    FD_TEST( extreme_cnt<2UL );
+    FD_TEST( it->event.event_time_ns==(extreme_cnt ? LONG_MAX : 0L) );
+    extreme_cnt++;
+  }
+  FD_TEST( extreme_cnt==2UL );
+  fd_gui_shred_event_iter_end( it );
+
+  FD_LOG_NOTICE(( "test_shred_event_batches: ok" ));
+}
+
+static void
+test_shred_event_root_reclaim( fd_gui_t * gui ) {
+  fd_http_server_params_t params = {
+    .max_connection_cnt    = 1UL,
+    .max_ws_connection_cnt = 1UL,
+    .max_request_len       = 1024UL,
+    .max_ws_recv_frame_len = 1024UL,
+    .max_ws_send_frame_cnt = 4UL,
+    .outgoing_buffer_sz    = 1UL<<20
+  };
+  ulong http_footprint = fd_http_server_footprint( params );
+  void * http_mem = aligned_alloc( fd_http_server_align(), http_footprint );
+  FD_TEST( http_mem );
+  gui->http = fd_http_server_join( fd_http_server_new( http_mem, params, (fd_http_server_callbacks_t){0}, NULL ) );
+  FD_TEST( gui->http );
+  gui->summary.slot_rooted = ULONG_MAX;
+
+  fd_gui_shred_event_append( gui, 899UL, 1UL, FD_GUI_SLOT_SHRED_SHRED_RECEIVED_TURBINE, 1L, 1L );
+  fd_gui_shred_event_append( gui, 900UL, 2UL, FD_GUI_SLOT_SHRED_SHRED_RECEIVED_REPAIR,  2L, 2L );
+  fd_gui_shred_event_append( gui, 901UL, 3UL, FD_GUI_SLOT_SHRED_SHRED_PUBLISHED,        3L, 3L );
+  fd_gui_shred_event_append( gui, 898UL, 4UL, FD_GUI_SLOT_SHRED_SHRED_REPLAY_EXEC_DONE, 4L, 4L );
+  fd_gui_shred_event_append( gui, 902UL, 5UL, FD_GUI_SLOT_SHRED_REPAIR_REQUEST,          5L, 5L );
+
+  /* Rooting a slot closes the slots below its parent. */
+  put_slot( gui, 901UL, 6L );
+  fd_gui_slot_get( gui, 901UL, BANK_SEQ )->parent_slot = ULONG_MAX;
+  fd_gui_handle_root_advanced( gui, 901UL, BANK_SEQ, 6L );
+
+  FD_TEST( gui->shreds.closed_slot_wmark==900UL );
+  FD_TEST( gui->shreds.builder.batch.event_cnt==5UL );
+  FD_TEST( count_ts( gui, FD_GUI_HIST_SHRED_EVENTS, 898UL )==1UL );
+  FD_TEST( count_ts( gui, FD_GUI_HIST_SHRED_EVENTS, 899UL )==1UL );
+
+  fd_gui_shred_event_append( gui, 899UL, 6UL, FD_GUI_SLOT_SHRED_SHRED_RECEIVED_TURBINE, 7L, 7L );
+  FD_TEST( gui->shreds.dropped_event_cnt==1UL );
+  FD_TEST( gui->shreds.builder.batch.event_cnt==5UL );
+
+  put_slot( gui, 900UL, 8L );
+  fd_gui_slot_get( gui, 900UL, BANK_SEQ )->parent_slot = ULONG_MAX;
+  fd_gui_handle_root_advanced( gui, 901UL, BANK_SEQ, 8L );
+  FD_TEST( gui->shreds.closed_slot_wmark==900UL );
+  fd_gui_handle_root_advanced( gui, 900UL, BANK_SEQ, 8L );
+  FD_TEST( gui->shreds.closed_slot_wmark==900UL );
+
+  put_slot( gui, 902UL, 9L );
+  fd_gui_slot_get( gui, 902UL, BANK_SEQ )->parent_slot = ULONG_MAX;
+  fd_gui_handle_root_advanced( gui, 902UL, BANK_SEQ, 9L );
+
+  FD_TEST( gui->shreds.closed_slot_wmark==901UL );
+  FD_TEST( gui->shreds.builder.batch.event_cnt==5UL );
+  FD_TEST( count_ts( gui, FD_GUI_HIST_SHRED_EVENTS, 899UL )==1UL );
+  FD_TEST( count_ts( gui, FD_GUI_HIST_SHRED_EVENTS, 900UL )==1UL );
+  fd_gui_shred_event_iter_t it;
+  fd_gui_shred_event_iter_begin( gui, &it, 0L, 9L );
+  ulong flushed = 0UL;
+  while( fd_gui_shred_event_iter_next( &it ) ) {
+    FD_TEST( it.event.event!=FD_GUI_SLOT_SHRED_SHRED_SLOT_COMPLETE );
+    flushed += it.event.slot<901UL;
+  }
+  fd_gui_shred_event_iter_end( &it );
+  FD_TEST( flushed==3UL );
+
+  /* Completion alone closes nothing; only the root cutoff does. */
+  fd_gui_shred_event_slot_complete( gui, 901UL, 10L, 10L );
+  FD_TEST( (901UL>=fd_gui_event_closed_slot_wmark( gui )) );
+  FD_TEST( count_ts( gui, FD_GUI_HIST_SHRED_EVENTS, 901UL )==2UL );
+  fd_gui_shred_event_append( gui, 901UL, 7UL, FD_GUI_SLOT_SHRED_SHRED_RECEIVED_TURBINE, 11L, 11L );
+  FD_TEST( gui->shreds.dropped_event_cnt==1UL );
+  FD_TEST( count_ts( gui, FD_GUI_HIST_SHRED_EVENTS, 901UL )==3UL );
+
+  put_slot( gui, 903UL, 12L );
+  fd_gui_slot_get( gui, 903UL, BANK_SEQ )->parent_slot = ULONG_MAX;
+  fd_gui_handle_root_advanced( gui, 903UL, BANK_SEQ, 12L );
+  FD_TEST( (901UL<fd_gui_event_closed_slot_wmark( gui )) );
+  FD_TEST( (902UL>=fd_gui_event_closed_slot_wmark( gui )) );
+  FD_TEST( gui->shreds.builder.batch.event_cnt==7UL );
+
+  FD_TEST( fd_http_server_delete( fd_http_server_leave( gui->http ) )==http_mem );
+  free( http_mem );
+  gui->http = NULL;
+
+  FD_LOG_NOTICE(( "test_shred_event_root_reclaim: ok" ));
 }
 
 static void
@@ -1240,6 +1517,496 @@ static test_json_t
 timeline_value( test_json_t  json,
                 char const * field ) {
   return test_json_field( test_json_field( json, "value" ), field );
+}
+
+static void
+test_fec_event_index( fd_gui_t * gui ) {
+  long const ts = sec_ns( 10UL );
+  ulong const cnt = FD_GUI_FEC_RECORD_MAX;
+  /* The earliest event time a record admitted at ts+30 can hold.  Late
+     dedup updates before it are skewed and rejected
+     (FD_GUI_FEC_EVENT_LAG_MAX_NS). */
+  long const early = ts+30L-FD_GUI_FEC_EVENT_LAG_MAX_NS;
+  ulong const clamped0 = gui->shreds.clamped_fec_event_cnt;
+  for( ulong i=0UL; i<cnt; i++ ) {
+    fd_gui_fec_event_append( gui, 100UL+i/65535UL, i%65535UL, FD_GUI_SLOT_SHRED_REPAIR_REQUEST, ts+20L, ts+30L );
+  }
+  FD_TEST( !gui->shreds.dropped_fec_event_cnt );
+  fd_gui_store_kv_scan_t scan;
+  fd_gui_store_kv_scan_begin( gui->db, &scan, FD_GUI_HIST_FEC_EVENTS );
+  FD_TEST( scan.end-scan.cur==cnt );
+  fd_gui_fec_event_key_t key = { .slot=100U, .idx=0U, .event=FD_GUI_SLOT_SHRED_REPAIR_REQUEST };
+  fd_gui_fec_event_t * first = fd_gui_hist_kv_get( gui, FD_GUI_HIST_FEC_EVENTS, &key );
+  FD_TEST( first && first->insert_time_ns==ts+30L );
+  fd_gui_fec_event_append( gui, 100UL, 0UL, key.event, early-1L, ts+sec_ns( 5UL ) );
+  FD_TEST( first->event_time_ns==ts+20L );
+  fd_gui_fec_event_append( gui, 100UL, 0UL, key.event, early, ts+sec_ns( 5UL ) );
+  fd_gui_fec_event_append( gui, 100UL, 0UL, key.event, ts+40L, ts+sec_ns( 6UL ) );
+  FD_TEST( first->event_time_ns==early && first->insert_time_ns==ts+30L );
+  FD_TEST( gui->shreds.clamped_fec_event_cnt==clamped0+1UL );
+  /* A full open event head drops new admissions. */
+  fd_gui_event_closed_slot_wmark_advance( gui, 51UL );
+  fd_gui_fec_event_append( gui, 999UL, 0UL, key.event, ts, ts );
+  FD_TEST( gui->shreds.dropped_fec_event_cnt==1UL );
+  FD_TEST( !fd_gui_hist_evict_step( gui ) );
+  fd_gui_shred_event_iter_t it;
+  fd_gui_fec_event_iter_begin( gui, &it, early, early+1L );
+  FD_TEST( fd_gui_shred_event_iter_next( &it ) && it.event.event_time_ns==early && it.event.slot==100U );
+  FD_TEST( !fd_gui_shred_event_iter_next( &it ) );
+  fd_gui_shred_event_iter_end( &it );
+
+  long start = fd_log_wallclock();
+  for( ulong round=0UL; round<8UL; round++ ) {
+    fd_gui_fec_event_iter_begin( gui, &it, 0L, LONG_MAX );
+    for( ulong i=0UL; i<cnt; i++ ) {
+      FD_TEST( fd_gui_shred_event_iter_next( &it ) );
+      FD_TEST( it.event.slot==100UL+i/65535UL && it.event.idx==i%65535UL );
+      FD_TEST( it.event.event_time_ns==(i ? ts+20L : early) );
+    }
+    FD_TEST( !fd_gui_shred_event_iter_next( &it ) );
+    fd_gui_shred_event_iter_end( &it );
+  }
+  FD_LOG_NOTICE(( "FEC scan: %lu records, %.3f ms/scan", cnt, (double)(fd_log_wallclock()-start)/8e6 ));
+  void * http_mem = timeline_http_open( gui );
+  start = fd_log_wallclock();
+  FD_TEST( !fd_gui_printf_timeline_query_fec_events( gui, early, early+1L, 7UL ) );
+  long elapsed = fd_log_wallclock() - start;
+  test_json_t json = timeline_response( gui );
+  FD_TEST( test_json_count( timeline_value( json, "idx" ) )==1 );
+  FD_LOG_NOTICE(( "FEC narrow query including availability: %lu retained records, %.3f ms", cnt, (double)elapsed/1e6 ));
+  FD_TEST( fd_http_server_delete( fd_http_server_leave( gui->http ) )==http_mem );
+  free( http_mem );
+  gui->http = NULL;
+
+  fd_gui_event_closed_slot_wmark_advance( gui, 101UL );
+  for( ulong i=0UL; i<65535UL; i++ ) {
+    fd_gui_fec_event_append( gui, 1000UL, i, key.event, ts+50L, ts+50L );
+  }
+  FD_TEST( gui->shreds.dropped_fec_event_cnt==1UL );
+  FD_TEST( !fd_gui_hist_kv_get( gui, FD_GUI_HIST_FEC_EVENTS, &key ) );
+  fd_gui_fec_event_append( gui, 100UL, 0UL, key.event, 0L, ts+60L );
+  FD_TEST( gui->shreds.dropped_fec_event_cnt==2UL );
+  fd_gui_store_kv_scan_begin( gui->db, &scan, FD_GUI_HIST_FEC_EVENTS );
+  FD_TEST( scan.end-scan.cur<=cnt );
+  FD_TEST( fd_gui_store_kv_scan_next( &scan ) );
+  FD_TEST( ((fd_gui_fec_event_t const *)scan.rec)->key.slot==101U );
+  FD_TEST( !fd_gui_hist_evict_step( gui ) );
+  key.slot = 101U;
+  fd_gui_fec_event_append( gui, key.slot, key.idx, key.event, early+1L, ts+70L );
+  FD_TEST( ((fd_gui_fec_event_t *)fd_gui_hist_kv_get( gui, FD_GUI_HIST_FEC_EVENTS, &key ))->event_time_ns==early+1L );
+  FD_TEST( gui->shreds.dropped_fec_event_cnt==2UL );
+
+  fd_gui_event_closed_slot_wmark_advance( gui, 1001UL );
+  FD_TEST( !fd_gui_hist_evict_step( gui ) ); /* closed base retained until owner writes */
+  for( ulong i=0UL; i<cnt; i++ ) {
+    fd_gui_fec_event_append( gui, 1100UL+i/65535UL, i%65535UL, key.event, ts+90L, ts+90L );
+  }
+  ulong used;
+  ulong cap;
+  ulong free_bytes;
+  ulong used_slots;
+  ulong cap_slots;
+  ulong free_slots;
+  fd_gui_store_ring_stats( gui->db, FD_GUI_HIST_FEC_EVENTS, &used, &cap, &free_bytes, &used_slots, &cap_slots, &free_slots );
+  FD_TEST( used_slots<=cnt && used_slots>cnt-512UL && cap<=2UL*FD_GUI_STORE_REGION_SZ );
+  FD_TEST( cap_slots==cap/32UL );
+  /* Cycling staging must not destroy history.  This exceeds the old hard
+     retention ceiling and includes the timestamp updated into the past. */
+  FD_TEST( count_ts( gui, FD_GUI_HIST_FEC_EVENTS, ULONG_MAX )==2UL*cnt+65535UL );
+  fd_gui_fec_event_iter_begin( gui, &it, early, early+1L );
+  FD_TEST( fd_gui_shred_event_iter_next( &it ) && it.event.slot==100U );
+  FD_TEST( !fd_gui_shred_event_iter_next( &it ) );
+  fd_gui_shred_event_iter_end( &it );
+  FD_LOG_NOTICE(( "test_fec_event_index: quota %lu, stride %lu, regions %lu; ok", cnt, used/used_slots, cap/FD_GUI_STORE_REGION_SZ ));
+}
+
+/* A slot that never closes can only pin staging for slots within the
+   admission horizon of the cutoff.  Slots past it are dropped instead,
+   so an early future-leader slot or the tip during catch up cannot
+   stall archival of everything behind it. */
+static void
+test_fec_slot_horizon( fd_gui_t * gui ) {
+  long const ts = sec_ns( 10UL );
+  uchar const event = FD_GUI_SLOT_SHRED_SHRED_RECEIVED_TURBINE;
+  /* Before the first cutoff, nothing real is staged. */
+  fd_gui_fec_event_append( gui, 1000000UL, 0UL, event, ts, ts );
+  fd_gui_fec_event_append( gui, 1000000UL, USHORT_MAX, FD_GUI_SLOT_SHRED_SHRED_SLOT_COMPLETE, ts, ts );
+  FD_TEST( gui->shreds.dropped_fec_event_cnt==2UL );
+
+  ulong const cutoff = 1000000UL;
+  fd_gui_event_closed_slot_wmark_advance( gui, cutoff );
+  ulong const far = cutoff+FD_GUI_FEC_SLOT_WMARK_CNT;
+  fd_gui_fec_event_append( gui, far, 0UL, event, ts, ts );
+  FD_TEST( gui->shreds.dropped_fec_event_cnt==3UL );
+  fd_gui_fec_event_append( gui, far-1UL, 0UL, event, ts, ts );
+  FD_TEST( gui->shreds.dropped_fec_event_cnt==3UL );
+
+  /* far-1 stays open and pins later admissions until the cutoff moves
+     past it, which happens within the horizon of slots. */
+  for( ulong slot=cutoff; slot<cutoff+16UL; slot++ ) {
+    fd_gui_fec_event_append( gui, slot, 0UL, event, ts, ts );
+  }
+  fd_gui_event_closed_slot_wmark_advance( gui, cutoff+16UL );
+  FD_TEST( !fd_gui_fec_archive( gui, 512UL ) );
+  fd_gui_event_closed_slot_wmark_advance( gui, far );
+  FD_TEST( fd_gui_fec_archive( gui, 512UL )==17UL );
+  fd_gui_fec_event_append( gui, far+FD_GUI_FEC_SLOT_WMARK_CNT-1UL, 0UL, event, ts, ts );
+  FD_TEST( gui->shreds.dropped_fec_event_cnt==3UL );
+  FD_LOG_NOTICE(( "test_fec_slot_horizon: ok" ));
+}
+
+static void
+test_fec_archive( fd_gui_t * gui ) {
+  long ts = sec_ns( 100UL );
+  ulong clamped0 = gui->shreds.clamped_fec_event_cnt;
+  fd_gui_fec_event_append( gui, 100UL, 0UL, FD_GUI_SLOT_SHRED_REPAIR_REQUEST, ts, ts );
+  fd_gui_fec_event_append( gui, 100UL, 0UL, FD_GUI_SLOT_SHRED_REPAIR_REQUEST, 1L, ts+1L );
+  fd_gui_fec_event_append( gui, 101UL, 0UL, FD_GUI_SLOT_SHRED_REPAIR_REQUEST, ts+2L, ts+2L );
+  fd_gui_shred_event_slot_complete( gui, 101UL, ts+3L, ts+3L );
+  FD_TEST( !fd_gui_fec_archive( gui, 512UL ) ); /* completion closes nothing */
+  fd_gui_event_closed_slot_wmark_advance( gui, 101UL );
+  /* One event moves to the archive. */
+  FD_TEST( fd_gui_fec_archive( gui, 1UL )==1UL );
+  FD_TEST( count_ts( gui, FD_GUI_HIST_FEC_EVENTS, ULONG_MAX )==3UL );
+  FD_TEST( !fd_gui_fec_archive( gui, 512UL ) ); /* open 101 pins its marker */
+  fd_gui_event_closed_slot_wmark_advance( gui, 102UL );
+  FD_TEST( fd_gui_fec_archive( gui, 512UL )==2UL );
+  FD_TEST( !fd_gui_fec_archive( gui, 512UL ) );
+  fd_gui_fec_event_key_t key = { .slot=100U, .idx=0U, .event=FD_GUI_SLOT_SHRED_REPAIR_REQUEST };
+  FD_TEST( !fd_gui_hist_kv_get( gui, FD_GUI_HIST_FEC_EVENTS, &key ) );
+  fd_gui_fec_event_append( gui, 100UL, 0UL, key.event, 0L, ts+4L );
+  FD_TEST( gui->shreds.dropped_fec_event_cnt==1UL );
+  /* Late completion markers are distinct, even after the first marker has
+     already left staging and the slot has closed, and arrive more than 30
+     days later.  The late dedup update above (timestamp 1) was skewed
+     past the lag bound of its admission time and rejected. */
+  long const lag  = FD_GUI_FEC_EVENT_LAG_MAX_NS;
+  long const late = ts+sec_ns( 30UL*24UL*60UL*60UL+10UL );
+  FD_TEST( gui->shreds.clamped_fec_event_cnt==clamped0+1UL );
+  fd_gui_shred_event_slot_complete( gui, 101UL, late-2L, late );
+  FD_TEST( fd_gui_fec_archive( gui, 512UL )==1UL );
+  FD_TEST( count_ts( gui, FD_GUI_HIST_FEC_EVENTS, ULONG_MAX )==4UL );
+  long lo, hi;
+  FD_TEST( fd_gui_event_bounds( gui, FD_GUI_HIST_FEC_EVENTS, &lo, &hi ) );
+  FD_TEST( lo==ts-lag && hi==late+FD_GUI_FEC_BATCH_SPAN_NS+lag+1L );
+  fd_gui_shred_event_iter_t it;
+  fd_gui_fec_event_iter_begin( gui, &it, ts-lag, ts+1L );
+  FD_TEST( fd_gui_shred_event_iter_next( &it ) && it.event.event_time_ns==ts );
+  FD_TEST( !fd_gui_shred_event_iter_next( &it ) );
+  fd_gui_shred_event_iter_end( &it );
+  fd_gui_fec_event_iter_begin( gui, &it, late-2L, late-1L );
+  FD_TEST( fd_gui_shred_event_iter_next( &it ) && it.event.event_time_ns==late-2L && it.event.insert_time_ns==late );
+  FD_TEST( !fd_gui_shred_event_iter_next( &it ) );
+  fd_gui_shred_event_iter_end( &it );
+
+  /* An admission gap too large for the delta codec must remain exact. */
+  fd_gui_fec_event_append( gui, 102UL, 0UL, key.event, late+1L, late+1L );
+  fd_gui_fec_event_append( gui, 102UL, 1UL, key.event, late+(long)UINT_MAX+2L, late+(long)UINT_MAX+2L );
+  fd_gui_event_closed_slot_wmark_advance( gui, 103UL );
+  FD_TEST( fd_gui_fec_archive( gui, 512UL )==2UL );
+  fd_gui_fec_event_iter_begin( gui, &it, late+1L, late+(long)UINT_MAX+3L );
+  FD_TEST( fd_gui_shred_event_iter_next( &it ) && it.event.insert_time_ns==late+1L );
+  FD_TEST( fd_gui_shred_event_iter_next( &it ) && it.event.insert_time_ns==late+(long)UINT_MAX+2L );
+  FD_TEST( !fd_gui_shred_event_iter_next( &it ) );
+  fd_gui_shred_event_iter_end( &it );
+  FD_LOG_NOTICE(( "test_fec_archive: closed-prefix handoff, late timestamps/markers: ok" ));
+}
+
+static void
+test_fec_footprint( ulong bytes ) {
+  fd_gui_store_desc_t descs[ FD_GUI_HIST_CNT ];
+  fd_gui_hist_db_descs( descs, bytes );
+  /* The floor itself is checked by test_min_footprint. */
+  ulong current = fd_gui_store_footprint( bytes, FD_GUI_HIST_CNT, descs );
+  descs[ FD_GUI_HIST_FEC_EVENTS ].kind        = FD_GUI_STORE_KIND_TS;
+  descs[ FD_GUI_HIST_FEC_EVENTS ].key_sz      = 0UL;
+  descs[ FD_GUI_HIST_FEC_EVENTS ].key_hash    = NULL;
+  descs[ FD_GUI_HIST_FEC_EVENTS ].key_cmp     = NULL;
+  descs[ FD_GUI_HIST_FEC_EVENTS ].max_records = 0UL;
+  ulong old = fd_gui_store_footprint( bytes, FD_GUI_HIST_CNT, descs );
+  FD_TEST( current>old );
+  FD_TEST( current-old<73UL*1024UL*1024UL );
+  FD_TEST( sizeof(((fd_gui_timeline_scratch_t *)0)->events)<sizeof(fd_gui_timeline_scratch_t) );
+  FD_LOG_NOTICE(( "FEC RAM: store %lu, TS baseline %lu, added KV index %lu bytes",
+                   current, old, current-old ));
+  FD_LOG_NOTICE(( "GUI RAM: footprint %lu, query scratch %lu, event rows %lu; day %lu, epoch %lu bytes",
+    fd_gui_footprint( 1UL, 1UL, 1UL ), sizeof(fd_gui_timeline_scratch_t), sizeof(((fd_gui_timeline_scratch_t *)0)->events),
+    sizeof(fd_gui_timeline_day_t), sizeof(fd_gui_epoch_t) ));
+}
+
+static void
+test_fec_base_admission( fd_gui_t * gui ) {
+  long ts = sec_ns( 10UL );
+  fd_gui_fec_event_append( gui, 100UL, 0UL, FD_GUI_SLOT_SHRED_REPAIR_REQUEST, ts, ts );
+  FD_TEST( !gui->shreds.dropped_fec_event_cnt );
+  fd_gui_scheduler_counts_t counts = { .sample_time_ns=ts };
+  while( fd_gui_store_ts_append( gui->db, FD_GUI_HIST_SCHEDULER_COUNTS, &counts )==FD_GUI_STORE_SUCCESS ) {}
+  FD_TEST( !fd_gui_store_shared_free_region_cnt( gui->db ) );
+  fd_gui_timeline_handle_fec( gui, 100UL, 1, ts, 32UL, 16UL, 8UL, ts );
+  FD_TEST( fd_gui_timeline_day_get( gui, 0UL ) );
+  ulong evicts = fd_gui_store_metrics( gui->db )->evict_records[ FD_GUI_HIST_SCHEDULER_COUNTS ];
+  fd_gui_fec_event_append( gui, 100UL, 0UL, FD_GUI_SLOT_SHRED_REPAIR_REQUEST, 1L, ts+sec_ns( 9UL ) );
+  fd_gui_fec_event_append( gui, 101UL, 0UL, FD_GUI_SLOT_SHRED_REPAIR_REQUEST, 2L, ts );
+  fd_gui_timeline_handle_fec( gui, 100UL, 1, ts, 32UL, 16UL, 8UL, ts );
+  FD_TEST( !gui->shreds.dropped_fec_event_cnt );
+  FD_TEST( fd_gui_store_metrics( gui->db )->evict_records[ FD_GUI_HIST_SCHEDULER_COUNTS ]==evicts );
+  FD_TEST( count_ts( gui, FD_GUI_HIST_FEC_EVENTS, ULONG_MAX )==2UL );
+  for( ulong i=0UL; i<3UL*(FD_GUI_STORE_REGION_SZ/sizeof(counts)); i++ ) append_sched_counts( gui, ts );
+  FD_TEST( count_ts( gui, FD_GUI_HIST_FEC_EVENTS, ULONG_MAX )==2UL );
+  FD_LOG_NOTICE(( "test_fec_base_admission: late FEC admission and retention under sustained pressure: ok" ));
+}
+
+static void
+test_fec_minimum_store( fd_gui_t * gui ) {
+  ulong free_before = fd_gui_store_free_region_cnt( gui->db );
+  fd_gui_store_desc_t const * descs = test_descs();
+  ulong base_cnt = 0UL;
+  for( ulong i=0UL; i<FD_GUI_HIST_CNT; i++ ) base_cnt += descs[ i ].base_regions;
+  FD_TEST( free_before==base_cnt );
+  fd_gui_fec_event_append( gui, 100UL, 0UL, FD_GUI_SLOT_SHRED_REPAIR_REQUEST, 1L, 1L );
+  FD_TEST( !gui->shreds.dropped_fec_event_cnt );
+  FD_TEST( fd_gui_store_free_region_cnt( gui->db )==free_before-1UL );
+  append_sched_counts( gui, 1L );
+  FD_TEST( count_ts( gui, FD_GUI_HIST_SCHEDULER_COUNTS, ULONG_MAX )==1UL );
+  FD_TEST( !fd_gui_hist_evict_step( gui ) );
+  FD_LOG_NOTICE(( "test_fec_minimum_store: all bases fit: ok" ));
+}
+
+/* Explicit owner deletion for closure/query fixtures.  Production quota
+   pressure and the pinned-head retry are exercised by test_fec_event_index. */
+static int
+closed_fec( ulong dbi, void const * rec, void * gui ) {
+  (void)dbi;
+  return ((fd_gui_fec_event_t const *)rec)->key.slot<fd_gui_event_closed_slot_wmark( gui );
+}
+
+static ulong
+reclaim_closed_fec( fd_gui_t * gui ) {
+  return fd_gui_store_reclaim( gui->db, FD_GUI_HIST_FEC_EVENTS, ULONG_MAX, closed_fec, gui );
+}
+
+static void
+test_fec_prefix_guards( fd_gui_t * gui ) {
+  long ts = sec_ns( 10UL );
+  fd_gui_fec_event_append( gui, 100UL, 0UL, FD_GUI_SLOT_SHRED_REPAIR_REQUEST, ts, ts );
+  fd_gui_fec_event_append( gui, 101UL, 0UL, FD_GUI_SLOT_SHRED_REPAIR_REQUEST, ts, ts );
+  /* Replay completion and a completed slot record do not close a slot,
+     so its records are neither reclaimed nor locked out. */
+  fd_gui_shred_event_slot_complete( gui, 101UL, ts, ts );
+  fd_gui_shred_flush( gui, ts+sec_ns( 1UL ) );
+  FD_TEST( !fd_gui_hist_evict_step( gui ) );
+  FD_TEST( !reclaim_closed_fec( gui ) );
+  FD_TEST( count_ts( gui, FD_GUI_HIST_FEC_EVENTS, ULONG_MAX )==3UL );
+  put_slot( gui, 100UL, ts );
+  FD_TEST( (100UL>=fd_gui_event_closed_slot_wmark( gui )) );
+  fd_gui_shred_event_append( gui, 100UL, 1UL, FD_GUI_SLOT_SHRED_REPAIR_REQUEST, ts, ts );
+  FD_TEST( !gui->shreds.dropped_event_cnt );
+  FD_TEST( gui->shreds.builder.batch.event_cnt==1UL );
+  FD_TEST( !reclaim_closed_fec( gui ) );
+  fd_gui_event_closed_slot_wmark_advance( gui, 102UL );
+  FD_TEST( (100UL<fd_gui_event_closed_slot_wmark( gui )) && (101UL<fd_gui_event_closed_slot_wmark( gui )) );
+  FD_TEST( reclaim_closed_fec( gui ) );
+  FD_TEST( !count_ts( gui, FD_GUI_HIST_FEC_EVENTS, ULONG_MAX ) );
+  fd_gui_fec_event_append( gui, 100UL, 0UL, FD_GUI_SLOT_SHRED_REPAIR_REQUEST, 1L, ts );
+  FD_TEST( gui->shreds.dropped_fec_event_cnt==1UL );
+  FD_LOG_NOTICE(( "test_fec_prefix_guards: no selective eviction, permanent vs transient closure: ok" ));
+}
+
+static void
+test_timeline_live_events( test_store_t * s ) {
+  fd_gui_t * gui = s->gui;
+  long const ts = sec_ns( 10UL );
+  void * http_mem = timeline_http_open( gui );
+
+  fd_gui_fec_event_append( gui, 100UL, 1UL, FD_GUI_SLOT_SHRED_REPAIR_REQUEST, ts+20L, ts );
+  fd_gui_fec_event_append( gui, 101UL, 2UL, FD_GUI_SLOT_SHRED_SHRED_RECEIVED_TURBINE, ts+30L, ts );
+  fd_gui_fec_event_append( gui, 100UL, 1UL, FD_GUI_SLOT_SHRED_REPAIR_REQUEST, ts+10L, ts );
+  FD_TEST( !gui->shreds.dropped_fec_event_cnt );
+  fd_gui_shred_event_append( gui, 100UL, 32UL, FD_GUI_SLOT_SHRED_REPAIR_REQUEST, ts+10L, ts+10L );
+  FD_TEST( gui->shreds.builder.batch.event_cnt==1UL );
+
+  FD_TEST( !fd_gui_printf_timeline_query_fec_events( gui, ts+10L, ts+30L, 7UL ) );
+  test_json_t json = timeline_response( gui );
+  FD_TEST( test_json_count( timeline_value( json, "idx" ) )==1 );
+  /* FEC bounds are admission times (all ts here) widened by the lag
+     clamp, so they are conservative. */
+  FD_TEST( test_json_string_eq( timeline_value( json, "available_start_ns" ), "0" ) );
+  FD_TEST( test_json_string_eq( timeline_value( json, "available_end_ns" ), "20000000001" ) );
+  FD_TEST( !test_json_field( test_json_field( json, "value" ), "shred_idx" ).ptr );
+
+  FD_TEST( !fd_gui_printf_timeline_query_fec_events( gui, ts+11L, ts+30L, 7UL ) );
+  json = timeline_response( gui );
+  FD_TEST( !test_json_count( timeline_value( json, "idx" ) ) );
+
+
+  FD_TEST( !fd_gui_printf_timeline_query_shreds( gui, ts, ts+30L, 7UL ) );
+  json = timeline_response( gui );
+  FD_TEST( test_json_count( timeline_value( json, "idx" ) )==1 );
+  FD_TEST( test_json_kind( timeline_value( json, "available_start_ns" ) )==FD_JTOK_STR );
+  FD_TEST( test_json_string_eq( timeline_value( json, "available_end_ns" ), "12000000000" ) );
+  FD_TEST( !fd_gui_shred_window_is_empty( gui, ts, ts+30L ) );
+  fd_gui_printf_shred_updates( gui, ts, ts+9L );
+  json = timeline_response( gui );
+  FD_TEST( !test_json_count( timeline_value( json, "shred_idx" ) ) );
+  fd_gui_printf_shred_updates( gui, ts, ts+10L );
+  json = timeline_response( gui );
+  FD_TEST( test_json_string_eq( test_json_field( json, "key" ), "live_shreds" ) );
+  FD_TEST( test_json_count( timeline_value( json, "shred_idx" ) )==1 );
+  FD_TEST( test_json_ulong( test_json_index( timeline_value( json, "shred_idx" ), 0 ) )==32UL );
+  FD_TEST( test_json_string_eq( timeline_value( json, "reference_ts" ), "10000000010" ) );
+  FD_TEST( test_json_string_eq( test_json_index( timeline_value( json, "event_ts_delta" ), 0 ), "0" ) );
+  fd_gui_printf_shred_updates( gui, ts+11L, ts+30L );
+  json = timeline_response( gui );
+  FD_TEST( !test_json_count( timeline_value( json, "shred_idx" ) ) );
+
+  fd_gui_timeline_handle_fec( gui, 100UL, 1, ts+10L, 32UL, 16UL, 16UL, ts+40L );
+  fd_gui_timeline_handle_fec( gui, 100UL, 1, ts+10L, 32UL, 16UL, 16UL, ts+40L );
+  fd_gui_timeline_handle_fec( gui, 100UL, 1, ts+11L, 32UL, 16UL, 16UL, ts+40L );
+  fd_gui_timeline_day_t const * day = fd_gui_timeline_day_get( gui, 0UL );
+  FD_TEST( day );
+  FD_TEST( fd_gui_timeline_field_get( day, FD_GUI_TIMELINE_GRANULARITY_250MS, FD_GUI_TIMELINE_FIELD_PUBLISHED, 40UL )==192UL );
+  FD_TEST( fd_gui_timeline_field_get( day, FD_GUI_TIMELINE_GRANULARITY_250MS, FD_GUI_TIMELINE_FIELD_TURBINE, 40UL )==96UL );
+
+  FD_TEST( !fd_gui_printf_timeline_query_agg( gui, "query_agg_shreds", "250ms", 3UL, ts, 1UL, 7UL ) );
+  json = timeline_response( gui );
+  FD_TEST( test_json_ulong( test_json_index( timeline_value( json, "published" ), 0 ) )==192UL );
+  FD_TEST( test_json_ulong( test_json_index( timeline_value( json, "repair" ), 0 ) )==48UL );
+  FD_TEST( test_json_string_eq( timeline_value( json, "available_start_ns" ), "0" ) );
+  FD_TEST( test_json_string_eq( timeline_value( json, "available_end_ns" ), "86400000000000" ) );
+
+  /* Slot aggregates come from the same day record as the shreds. */
+  FD_TEST( !fd_gui_printf_timeline_query_agg( gui, "query_agg_slots", "250ms", 3UL, ts, 1UL, 7UL ) );
+  json = timeline_response( gui );
+  FD_TEST( test_json_string_eq( timeline_value( json, "available_start_ns" ), "0" ) );
+  FD_TEST( test_json_ulong( test_json_index( timeline_value( json, "start_slot" ), 0 ) )==100UL );
+  FD_TEST( test_json_ulong( test_json_index( timeline_value( json, "end_slot" ), 0 ) )==100UL );
+
+  fd_gui_event_closed_slot_wmark_advance( gui, 101UL );
+  /* One event is archived; queries now merge archive + open KV. */
+  FD_TEST( fd_gui_fec_archive( gui, 512UL )==1UL );
+  FD_TEST( !fd_gui_printf_timeline_query_agg( gui, "query_agg_shreds", "250ms", 3UL, ts, 1UL, 7UL ) );
+  json = timeline_response( gui );
+  FD_TEST( test_json_ulong( test_json_index( timeline_value( json, "published" ), 0 ) )==192UL );
+  FD_TEST( test_json_ulong( test_json_index( timeline_value( json, "repair" ), 0 ) )==48UL );
+  FD_TEST( test_json_kind( timeline_value( json, "available_start_ns" ) )==FD_JTOK_STR );
+
+  FD_TEST( !fd_gui_printf_timeline_query_shreds( gui, ts, ts+30L, 7UL ) );
+  json = timeline_response( gui );
+  FD_TEST( test_json_count( timeline_value( json, "idx" ) )==1 );
+  fd_gui_printf_shred_rebroadcast( gui, ts, ts+10L );
+  json = timeline_response( gui );
+  FD_TEST( test_json_count( timeline_value( json, "shred_idx" ) )==1 );
+  FD_TEST( test_json_ulong( test_json_index( timeline_value( json, "shred_idx" ), 0 ) )==32UL );
+  FD_TEST( test_json_string_eq( timeline_value( json, "reference_ts" ), "10000000010" ) );
+  fd_gui_printf_shred_updates( gui, ts+11L, ts+50L );
+  json = timeline_response( gui );
+  FD_TEST( !test_json_count( timeline_value( json, "shred_idx" ) ) );
+  FD_TEST( !fd_gui_printf_timeline_query_fec_events( gui, ts, ts+100L, 7UL ) );
+  json = timeline_response( gui );
+  FD_TEST( test_json_count( timeline_value( json, "idx" ) )==2 );
+  FD_TEST( test_json_ulong( test_json_index( timeline_value( json, "idx" ), 0 ) )==1UL );
+  FD_TEST( test_json_string_eq( timeline_value( json, "reference_ts" ), "10000000010" ) );
+
+  /* Slot aggregates are served from the day record whatever the
+     detailed transaction history holds. */
+  append_replay_txn( gui, sec_ns( 1UL ), sec_ns( 1UL ), 99UL );
+  FD_TEST( !fd_gui_printf_timeline_query_agg( gui, "query_agg_slots", "250ms", 3UL, ts, 1UL, 7UL ) );
+  json = timeline_response( gui );
+  FD_TEST( (test_json_kind( timeline_value( json, "available_start_ns" ) )==FD_JTOK_STR) );
+  FD_TEST( (test_json_kind( timeline_value( json, "available_end_ns" ) )==FD_JTOK_STR) );
+  FD_TEST( test_json_ulong( test_json_index( timeline_value( json, "start_slot" ), 0 ) )==100UL );
+
+
+  fd_gui_event_closed_slot_wmark_advance( gui, 101UL );
+  FD_TEST( gui->shreds.builder.batch.event_cnt==1UL );
+  FD_TEST( count_ts( gui, FD_GUI_HIST_FEC_EVENTS, ULONG_MAX )==2UL );
+  fd_gui_shred_event_iter_t ei;
+  fd_gui_fec_event_iter_begin( gui, &ei, ts, ts+100L );
+  FD_TEST( fd_gui_shred_event_iter_next( &ei ) && ei.event.slot==100UL && ei.event.idx==1U );
+  FD_TEST( fd_gui_shred_event_iter_next( &ei ) && ei.event.slot==101UL && ei.event.idx==2U );
+  FD_TEST( !fd_gui_shred_event_iter_next( &ei ) );
+  fd_gui_shred_event_iter_end( &ei );
+  fd_gui_event_closed_slot_wmark_advance( gui, 99UL );
+  fd_gui_shred_event_append( gui, 100UL, 33UL, FD_GUI_SLOT_SHRED_REPAIR_REQUEST, ts+60L, ts+60L );
+  FD_TEST( gui->shreds.closed_slot_wmark==101UL && gui->shreds.dropped_event_cnt==1UL );
+
+  fd_gui_shred_event_slot_complete( gui, 101UL, ts+70L, ts+70L );
+  fd_gui_shred_event_slot_complete( gui, 101UL, ts+80L, ts+80L );
+  fd_gui_fec_event_iter_begin( gui, &ei, ts+70L, ts+81L );
+  for( ulong i=0UL; i<2UL; i++ ) {
+    FD_TEST( fd_gui_shred_event_iter_next( &ei ) );
+    FD_TEST( ei.event.idx==USHORT_MAX && ei.event.event==FD_GUI_SLOT_SHRED_SHRED_SLOT_COMPLETE );
+    FD_TEST( ei.event.event_time_ns==ts+70L+10L*(long)i );
+  }
+  FD_TEST( !fd_gui_shred_event_iter_next( &ei ) );
+  fd_gui_shred_event_iter_end( &ei );
+  for( int earlier=0; earlier<2; earlier++ ) {
+    if( earlier ) fd_gui_shred_event_slot_complete( gui, 101UL, ts+60L, ts+90L );
+    FD_TEST( !fd_gui_printf_timeline_query_fec_events( gui, ts+60L, ts+81L, 7UL ) );
+    json = timeline_response( gui );
+    FD_TEST( test_json_count( timeline_value( json, "idx" ) )==2+earlier );
+    FD_TEST( (test_json_kind( test_json_index( timeline_value( json, "idx" ), 0 ) )==FD_JTOK_NULL) );
+    FD_TEST( test_json_string_eq( timeline_value( json, "reference_ts" ), earlier ? "10000000060" : "10000000070" ) );
+
+    FD_TEST( !fd_gui_printf_timeline_query_fec_events( gui, ts+71L, ts+81L, 7UL ) );
+    json = timeline_response( gui );
+    FD_TEST( test_json_count( timeline_value( json, "idx" ) )==1 );
+
+    FD_TEST( !fd_gui_printf_timeline_query_shreds( gui, ts+60L, ts+81L, 7UL ) );
+    json = timeline_response( gui );
+    FD_TEST( test_json_count( timeline_value( json, "idx" ) )==2+earlier );
+
+  }
+  /* A completed but unconfirmed slot still admits late events. */
+  put_slot( gui, 101UL, ts+80L );
+  fd_gui_fec_event_append( gui, 101UL, 3UL, FD_GUI_SLOT_SHRED_REPAIR_REQUEST, ts+90L, ts );
+  FD_TEST( !gui->shreds.dropped_fec_event_cnt );
+  FD_TEST( count_ts( gui, FD_GUI_HIST_FEC_EVENTS, ULONG_MAX )==6UL );
+  fd_gui_event_closed_slot_wmark_advance( gui, 102UL );
+  fd_gui_fec_event_append( gui, 101UL, 4UL, FD_GUI_SLOT_SHRED_REPAIR_REQUEST, ts+90L, ts );
+  FD_TEST( gui->shreds.dropped_fec_event_cnt==1UL );
+  FD_TEST( count_ts( gui, FD_GUI_HIST_FEC_EVENTS, ULONG_MAX )==6UL );
+  day = fd_gui_timeline_day_get( gui, 0UL );
+  FD_TEST( day && fd_gui_timeline_field_get( day, FD_GUI_TIMELINE_GRANULARITY_250MS, FD_GUI_TIMELINE_FIELD_PUBLISHED, 40UL )==192UL );
+
+  FD_TEST( fd_http_server_delete( fd_http_server_leave( gui->http ) )==http_mem );
+  free( http_mem );
+  gui->http = NULL;
+  FD_LOG_NOTICE(( "test_timeline_live_events: ok" ));
+}
+
+static void
+test_timeline_closure_cutoff( fd_gui_t * gui ) {
+  long ts = sec_ns( 10UL );
+  /* Any number of replay completions closes nothing. */
+  for( ulong slot=1UL; slot<=70000UL; slot++ ) fd_gui_shred_event_slot_complete( gui, slot, ts, ts );
+  ulong invalid[] = { (ulong)UINT_MAX+1UL, (ulong)LONG_MAX, ULONG_MAX };
+  ulong appends = fd_gui_store_metrics( gui->db )->ts_appends[ FD_GUI_HIST_SHRED_EVENTS ];
+  for( ulong i=0UL; i<3UL; i++ ) fd_gui_shred_event_slot_complete( gui, invalid[ i ], ts, ts );
+  FD_TEST( fd_gui_store_metrics( gui->db )->ts_appends[ FD_GUI_HIST_SHRED_EVENTS ]==appends );
+  FD_TEST( !gui->shreds.closed_slot_wmark );
+  ulong dropped = gui->shreds.dropped_event_cnt;
+  fd_gui_shred_event_append( gui, 1UL, 32UL, FD_GUI_SLOT_SHRED_REPAIR_REQUEST, ts, ts );
+  FD_TEST( gui->shreds.dropped_event_cnt==dropped );
+
+  /* The cutoff only moves forward and ignores ULONG_MAX. */
+  ulong cutoffs[] = { 70001UL, 60000UL, ULONG_MAX, 70002UL };
+  ulong expect[]  = { 70001UL, 70001UL, 70001UL, 70002UL };
+  for( ulong i=0UL; i<4UL; i++ ) {
+    fd_gui_event_closed_slot_wmark_advance( gui, cutoffs[ i ] );
+    FD_TEST( gui->shreds.closed_slot_wmark==expect[ i ] );
+  }
+  FD_TEST( (70001UL<fd_gui_event_closed_slot_wmark( gui )) );
+  FD_TEST( (70002UL>=fd_gui_event_closed_slot_wmark( gui )) );
+  ulong slots[] = { 1UL, 70001UL, 70002UL };
+  ulong fec_dropped = gui->shreds.dropped_fec_event_cnt;
+  for( ulong j=0UL; j<3UL; j++ ) {
+    fd_gui_shred_event_append( gui, slots[ j ], 32UL, FD_GUI_SLOT_SHRED_REPAIR_REQUEST, ts, ts );
+    fd_gui_fec_event_append( gui, slots[ j ], 1UL, FD_GUI_SLOT_SHRED_REPAIR_REQUEST, ts, ts );
+  }
+  FD_TEST( gui->shreds.dropped_event_cnt==dropped+2UL );
+  FD_TEST( gui->shreds.dropped_fec_event_cnt==fec_dropped+2UL );
+  FD_LOG_NOTICE(( "test_timeline_closure_cutoff: replay completions do not close, monotone cutoff: ok" ));
 }
 
 static void
@@ -1523,6 +2290,106 @@ test_timeline_replay_batches( fd_gui_t * gui ) {
 }
 
 static void
+test_timeline_marker_order( fd_gui_t * gui ) {
+  void * http_mem = timeline_http_open( gui );
+  long ts = sec_ns( 10UL );
+  fd_gui_shred_event_t input[] = {
+    { .slot=103U, .idx=USHORT_MAX, .event=FD_GUI_SLOT_SHRED_SHRED_SLOT_COMPLETE, .event_time_ns=ts+80L },
+    { .slot=100U, .idx=1U, .event=FD_GUI_SLOT_SHRED_REPAIR_REQUEST, .event_time_ns=ts+70L },
+    { .slot=105U, .idx=USHORT_MAX, .event=FD_GUI_SLOT_SHRED_SHRED_SLOT_COMPLETE, .event_time_ns=ts+75L },
+    { .slot=101U, .idx=2U, .event=FD_GUI_SLOT_SHRED_SHRED_RECEIVED_TURBINE, .event_time_ns=ts+90L },
+    { .slot=103U, .idx=USHORT_MAX, .event=FD_GUI_SLOT_SHRED_SHRED_SLOT_COMPLETE, .event_time_ns=ts+60L },
+    { .slot=104U, .idx=USHORT_MAX, .event=FD_GUI_SLOT_SHRED_SHRED_SLOT_COMPLETE, .event_time_ns=ts+85L },
+    { .slot=102U, .idx=3U, .event=FD_GUI_SLOT_SHRED_SHRED_REPLAY_EXEC_DONE, .event_time_ns=ts+65L },
+    { .slot=105U, .idx=USHORT_MAX, .event=FD_GUI_SLOT_SHRED_SHRED_SLOT_COMPLETE, .event_time_ns=ts+40L },
+    { .slot=104U, .idx=USHORT_MAX, .event=FD_GUI_SLOT_SHRED_SHRED_SLOT_COMPLETE, .event_time_ns=ts+45L },
+    { .slot=103U, .idx=USHORT_MAX, .event=FD_GUI_SLOT_SHRED_SHRED_SLOT_COMPLETE, .event_time_ns=ts+100L }
+  };
+  ulong appended = 0UL;
+  for( ulong fixture=0UL; fixture<2UL; fixture++ ) {
+    ulong count = fixture ? sizeof(input)/sizeof(input[ 0 ]) : 2UL;
+    for( ; appended<count; appended++ ) {
+      fd_gui_shred_event_t const * e = &input[ appended ];
+      if( e->event==FD_GUI_SLOT_SHRED_SHRED_SLOT_COMPLETE ) fd_gui_shred_event_slot_complete( gui, e->slot, e->event_time_ns, ts );
+      else fd_gui_fec_event_append( gui, e->slot, e->idx, e->event, e->event_time_ns, ts );
+    }
+    for( ulong query=0UL; query<(fixture ? 4UL : 1UL); query++ ) {
+      long starts[] = { ts+30L, ts+50L, ts+61L, ts+50L };
+      long start = starts[ query ];
+      long end   = query==3UL ? ts+76L : ts+101L;
+      fd_gui_shred_event_t oracle[ 10 ];
+      ulong n       = 0UL;
+      ulong refslot = ULONG_MAX;
+      long  refts   = LONG_MAX;
+      for( ulong i=0UL; i<count; i++ ) {
+        fd_gui_shred_event_t const * e = &input[ i ];
+        if( e->event_time_ns<start || e->event_time_ns>=end ) continue;
+        oracle[ n++ ] = *e;
+        refslot = fd_ulong_min( refslot, e->slot );
+        refts   = fd_long_min( refts, e->event_time_ns );
+      }
+      ulong expected[] = { 10UL, 8UL, 7UL, 4UL };
+      FD_TEST( n==(fixture ? expected[ query ] : 2UL) );
+      if( !fixture ) FD_TEST( oracle[ 0 ].slot==103U && oracle[ 1 ].slot==100U );
+      FD_TEST( !fd_gui_printf_timeline_query_fec_events( gui, start, end, 7UL ) );
+      test_json_t json = timeline_response( gui );
+      FD_TEST( !test_json_field( json, "error" ).ptr );
+      FD_TEST( test_json_count( timeline_value( json, "idx" ) )==(int)n );
+      FD_TEST( test_json_ulong( timeline_value( json, "reference_slot" ) )==refslot );
+      char expected_ts[ 32 ];
+      fd_cstr_printf_check( expected_ts, sizeof(expected_ts), NULL, "%ld", refts );
+      FD_TEST( test_json_string_eq( timeline_value( json, "reference_ts" ), expected_ts ) );
+      for( ulong i=0UL; i<n; i++ ) {
+        FD_TEST( test_json_ulong( test_json_index( timeline_value( json, "slot_delta" ), (int)i ) )==oracle[ i ].slot-refslot );
+        FD_TEST( test_json_ulong( test_json_index( timeline_value( json, "event" ), (int)i ) )==oracle[ i ].event );
+        test_json_t idx = test_json_index( timeline_value( json, "idx" ), (int)i );
+        FD_TEST( oracle[ i ].idx==USHORT_MAX ? (test_json_kind( idx )==FD_JTOK_NULL)
+                  : (test_json_kind( idx )==FD_JTOK_INT) && test_json_ulong( idx )==oracle[ i ].idx );
+        fd_cstr_printf_check( expected_ts, sizeof(expected_ts), NULL, "%ld", oracle[ i ].event_time_ns-refts );
+        FD_TEST( test_json_string_eq( test_json_index( timeline_value( json, "event_ts_delta" ), (int)i ), expected_ts ) );
+      }
+
+    }
+  }
+  FD_TEST( fd_http_server_delete( fd_http_server_leave( gui->http ) )==http_mem );
+  free( http_mem );
+  gui->http = NULL;
+  FD_LOG_NOTICE(( "test_timeline_marker_order: duplicate completions preserved, requested-window filtering: ok" ));
+}
+
+static void
+test_timeline_marker_limits( fd_gui_t * gui ) {
+  void * http_mem = timeline_http_open( gui );
+  long ts = sec_ns( 10UL );
+  for( ulong i=0UL; i<FD_GUI_TIMELINE_QUERY_SHRED_MAX; i++ ) {
+    /* Advance the cutoff with the slots so every marker stays within
+       the admission horizon. */
+    if( !(i%FD_GUI_FEC_SLOT_WMARK_CNT) ) fd_gui_event_closed_slot_wmark_advance( gui, i );
+    fd_gui_fec_event_append( gui, i, USHORT_MAX, FD_GUI_SLOT_SHRED_SHRED_SLOT_COMPLETE, ts+1L, ts );
+  }
+  FD_TEST( !gui->shreds.dropped_fec_event_cnt );
+  FD_TEST( !fd_gui_printf_timeline_query_fec_events( gui, ts+1L, ts+2L, 7UL ) );
+  test_json_t json = timeline_response( gui );
+  FD_TEST( test_json_count( timeline_value( json, "idx" ) )==(int)FD_GUI_TIMELINE_QUERY_SHRED_MAX );
+
+  /* A duplicate counts toward the same result limit as any other row. */
+  fd_gui_fec_event_append( gui, 0UL, USHORT_MAX, FD_GUI_SLOT_SHRED_SHRED_SLOT_COMPLETE, ts+1L, ts );
+  FD_TEST( !fd_gui_printf_timeline_query_fec_events( gui, ts+1L, ts+2L, 7UL ) );
+  json = timeline_response( gui );
+  FD_TEST( test_json_string_eq( test_json_field( test_json_field( json, "error" ), "code" ), "result_limit_exceeded" ) );
+
+  /* Earlier markers do not count toward the requested window's limit. */
+  FD_TEST( !fd_gui_printf_timeline_query_fec_events( gui, ts+2L, ts+3L, 7UL ) );
+  json = timeline_response( gui );
+  FD_TEST( !test_json_field( json, "error" ).ptr );
+  FD_TEST( !test_json_count( timeline_value( json, "idx" ) ) );
+  FD_TEST( fd_http_server_delete( fd_http_server_leave( gui->http ) )==http_mem );
+  free( http_mem );
+  gui->http = NULL;
+  FD_LOG_NOTICE(( "test_timeline_marker_limits: result limit includes duplicates and excludes earlier markers: ok" ));
+}
+
+static void
 test_timeline_limits( fd_gui_t * gui ) {
   void * http_mem = timeline_http_open( gui );
   long const ts = sec_ns( 10UL );
@@ -1752,6 +2619,39 @@ test_timeline_limits( fd_gui_t * gui ) {
   free( http_mem );
   gui->http = NULL;
   FD_LOG_NOTICE(( "test_timeline_limits: ok" ));
+}
+
+static void
+test_live_shred_receive_time( fd_gui_t * gui ) {
+  void * http_mem = timeline_http_open( gui );
+  long watermark = sec_ns( 10UL );
+  long now       = watermark + 100L;
+  fd_gui_shred_event_t event = { .insert_time_ns=now-1L, .event_time_ns=watermark-1000L,
+    .slot=100U, .idx=7U, .event=FD_GUI_SLOT_SHRED_REPAIR_REQUEST };
+  fd_gui_handle_repair_request( gui, event.slot, event.idx, event.event_time_ns, event.insert_time_ns );
+  FD_TEST( gui->shreds.builder.batch.event_cnt==1U );
+  FD_TEST( !fd_gui_store_metrics( gui->db )->ts_appends[ FD_GUI_HIST_SHRED_EVENTS ] );
+  for( int sealed=0; sealed<2; sealed++ ) {
+    assert_shreds( gui, &event, 1UL, watermark, now-1L );
+    FD_TEST( fd_gui_shred_window_is_empty( gui, watermark, now-2L ) );
+    FD_TEST( fd_gui_shred_window_is_empty( gui, now, now+1L ) );
+    fd_gui_printf_shred_updates( gui, watermark, now-1L );
+    test_json_t json = timeline_response( gui );
+    FD_TEST( test_json_count( timeline_value( json, "shred_idx" ) )==1 );
+    FD_TEST( test_json_ulong( test_json_index( timeline_value( json, "shred_idx" ), 0 ) )==7UL );
+    FD_TEST( test_json_string_eq( timeline_value( json, "reference_ts" ), "9999999000" ) );
+    FD_TEST( !fd_gui_printf_timeline_query_shreds( gui, event.event_time_ns, event.event_time_ns+1L, 7UL ) );
+    json = timeline_response( gui );
+    FD_TEST( test_json_count( timeline_value( json, "idx" ) )==1 );
+    FD_TEST( !fd_gui_printf_timeline_query_shreds( gui, event.event_time_ns-1L, event.event_time_ns, 7UL ) );
+    json = timeline_response( gui );
+    FD_TEST( !test_json_count( timeline_value( json, "idx" ) ) );
+    fd_gui_shred_flush( gui, watermark+sec_ns( 1UL ) );
+  }
+  FD_TEST( fd_http_server_delete( fd_http_server_leave( gui->http ) )==http_mem );
+  free( http_mem );
+  gui->http = NULL;
+  FD_LOG_NOTICE(( "test_live_shred_receive_time: late producer timestamps, inclusive receive bounds, active history: ok" ));
 }
 
 static void
@@ -3287,10 +4187,37 @@ main( int     argc,
   ulong min_bytes = fd_gui_store_min_size( FD_GUI_HIST_CNT, test_descs() );
   test_store_t s4_[ 1 ];
   test_min_footprint();
+  if( argc>1 && !strcmp( argv[ 1 ], "--footprint" ) ) {
+    test_fec_footprint( 100UL<<30 );
+    fd_halt();
+    return 0;
+  }
+  test_fec_footprint( TEST_STORE_BYTES );
   test_store_t fec[ 1 ];
+  store_open( fec, TEST_STORE_BYTES, 28 );
+  test_live_shred_receive_time( fec->gui );
+  store_close( fec );
   store_open( fec, TEST_STORE_BYTES, 28 );
   test_timeline_leader_txns( fec->gui );
   store_close( fec );
+  if( run_all ) {
+    store_open( fec, TEST_STORE_BYTES, 29 );
+    test_fec_base_admission( fec->gui );
+    store_close( fec );
+  }
+  store_open( fec, TEST_STORE_BYTES, 30 );
+  test_fec_prefix_guards( fec->gui );
+  store_close( fec );
+  store_open( fec, TEST_STORE_BYTES, 32 );
+  test_fec_archive( fec->gui );
+  store_close( fec );
+  store_open( fec, min_bytes, 31 );
+  test_fec_minimum_store( fec->gui );
+  store_close( fec );
+  test_store_t closure[ 1 ];
+  store_open( closure, TEST_STORE_BYTES, 28 );
+  test_shred_closure_codec( closure->gui );
+  store_close( closure );
 
   if( run_all ) {
     test_store_t s0[ 1 ];
@@ -3417,6 +4344,26 @@ main( int     argc,
     test_shred_flush_full( s10->gui, 2 );
     store_close( s10 );
   }
+  store_open( s7, TEST_STORE_BYTES, 10 );
+  test_shred_event_batches( s7->gui );
+  store_close( s7 );
+
+  store_open( s9, TEST_STORE_BYTES, 12 );
+  test_shred_event_root_reclaim( s9->gui );
+  store_close( s9 );
+
+  store_open( s10, TEST_STORE_BYTES, 15 );
+  test_fec_event_index( s10->gui );
+  store_close( s10 );
+
+  store_open( s10, TEST_STORE_BYTES, 15 );
+  test_fec_slot_horizon( s10->gui );
+  store_close( s10 );
+
+  store_open( s10, TEST_STORE_BYTES, 15 );
+  test_timeline_live_events( s10 );
+  store_close( s10 );
+
   test_store_t s11[ 1 ];
   store_open( s11, TEST_STORE_BYTES, 16 );
   test_timeline_queries( s11->gui );
@@ -3454,7 +4401,22 @@ main( int     argc,
   test_timeline_batch_parity( s17->gui );
   store_close( s17 );
 
-  if( !run_all ) FD_LOG_NOTICE(( "skipped 7 expensive tests; pass --run-all to run them" ));
+  test_store_t s18[ 1 ];
+  store_open( s18, TEST_STORE_BYTES, 23 );
+  test_timeline_closure_cutoff( s18->gui );
+  store_close( s18 );
+
+  test_store_t s20[ 1 ];
+  store_open( s20, TEST_STORE_BYTES, 25 );
+  test_timeline_marker_limits( s20->gui );
+  store_close( s20 );
+
+  test_store_t s21[ 1 ];
+  store_open( s21, TEST_STORE_BYTES, 26 );
+  test_timeline_marker_order( s21->gui );
+  store_close( s21 );
+
+  if( !run_all ) FD_LOG_NOTICE(( "skipped 8 expensive tests; pass --run-all to run them" ));
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
   return 0;
