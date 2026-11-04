@@ -83,9 +83,11 @@ query_batch( fd_gui_t *   gui,
              long         start,
              long         end,
              int          batch ) {
-  int states = !strcmp( key, "query_tile_states" );
-  FD_TEST( !(states ? fd_gui_printf_timeline_query_tile_states( gui, start, end, batch, 7UL )
-                    : fd_gui_printf_timeline_query_txn_meta( gui, start, end, 7UL )) );
+  int rc;
+  if(      !strcmp( key, "query_tile_states" ) ) rc = fd_gui_printf_timeline_query_tile_states( gui, start, end, batch, 7UL );
+  else if( !strcmp( key, "query_revenue"     ) ) rc = fd_gui_printf_timeline_query_revenue( gui, start, end, batch, 7UL );
+  else                                           rc = fd_gui_printf_timeline_query_txn_meta( gui, start, end, 7UL );
+  FD_TEST( !rc );
   FD_TEST( !gui->http->stage_err );
   ulong len = fd_http_server_stage_len( gui->http );
   FD_TEST( len && len<(40UL<<20) && gui->http->stage_off%gui->http->oring_sz+len<=gui->http->oring_sz );
@@ -131,7 +133,9 @@ test_requests( fd_gui_t * gui ) {
     "{\"id\":7,\"topic\":\"timeline\",\"key\":\"query_tile_states\",\"params\":{\"start_ns\":\"0\",\"end_ns\":\"1\",\"granularity\":\"txn\"}}",
     "{\"id\":7,\"topic\":\"timeline\",\"key\":\"query_tile_states\",\"params\":{\"start_ns\":\"0\",\"end_ns\":\"1\",\"granularity\":\"txn_batch\"}}",
     "{\"id\":7,\"topic\":\"timeline\",\"key\":\"query_txn_meta\",\"params\":{\"start_ns\":\"0\",\"end_ns\":\"1\"}}",
-    "{\"id\":7,\"topic\":\"timeline\",\"key\":\"query_slots\",\"params\":{\"start_ns\":\"0\",\"end_ns\":\"1\"}}"
+    "{\"id\":7,\"topic\":\"timeline\",\"key\":\"query_slots\",\"params\":{\"start_ns\":\"0\",\"end_ns\":\"1\"}}",
+    "{\"id\":7,\"topic\":\"timeline\",\"key\":\"query_revenue\",\"params\":{\"start_ns\":\"0\",\"end_ns\":\"1\",\"granularity\":\"txn\"}}",
+    "{\"id\":7,\"topic\":\"timeline\",\"key\":\"query_revenue\",\"params\":{\"start_ns\":\"0\",\"end_ns\":\"1\",\"granularity\":\"txn_batch\"}}"
   };
   for( ulong i=0UL; i<sizeof(valid)/sizeof(valid[0]); i++ ) {
     FD_TEST( !fd_gui_ws_message( gui, 0UL, (uchar const *)valid[i], strlen(valid[i]) ) );
@@ -139,7 +143,10 @@ test_requests( fd_gui_t * gui ) {
   /* query_txn_meta and query_slots validate their window like the rest. */
   char const * bad[] = {
     "{\"id\":7,\"topic\":\"timeline\",\"key\":\"query_txn_meta\",\"params\":{\"start_ns\":\"2\",\"end_ns\":\"2\"}}",
-    "{\"id\":7,\"topic\":\"timeline\",\"key\":\"query_slots\",\"params\":{\"start_ns\":\"0\",\"end_ns\":\"9223372036854775807\"}}"
+    "{\"id\":7,\"topic\":\"timeline\",\"key\":\"query_slots\",\"params\":{\"start_ns\":\"0\",\"end_ns\":\"9223372036854775807\"}}",
+    /* query_revenue requires a txn or txn_batch granularity. */
+    "{\"id\":7,\"topic\":\"timeline\",\"key\":\"query_revenue\",\"params\":{\"start_ns\":\"0\",\"end_ns\":\"1\"}}",
+    "{\"id\":7,\"topic\":\"timeline\",\"key\":\"query_revenue\",\"params\":{\"start_ns\":\"0\",\"end_ns\":\"1\",\"granularity\":\"1s\"}}"
   };
   for( ulong i=0UL; i<sizeof(bad)/sizeof(bad[0]); i++ ) {
     FD_TEST( fd_gui_ws_message( gui, 0UL, (uchar const *)bad[i], strlen(bad[i]) )==FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST );
@@ -420,6 +427,78 @@ test_lthash_batch( fd_gui_t * gui ) {
   gui->tile_state.pos_cnt  = 0UL;
 }
 
+/* query_revenue returns the rows completing in the window that paid
+   anything, with fees per fd_gui_store_replay_txn_revenue, and batch
+   rows whose sums match their members. */
+static void
+test_revenue( fd_gui_t * gui ) {
+  long const ts = 80000000000L;
+  struct { ulong fee, prio, tips; uint err; uchar committable; long load, end; } const in[ 6 ] = {
+    { 5000UL, 100UL, 7UL,  0U, 1, 0L,    100L  }, /* paid */
+    { 0UL,    0UL,   0UL,  0U, 1, 200L,  300L  }, /* paid nothing */
+    { 5000UL, 100UL, 7UL,  5U, 1, 400L,  500L  }, /* invalid fee payer pays nothing */
+    { 5000UL, 200UL, 50UL, 1U, 1, 1000L, 1100L }, /* failed: fees but no tips */
+    { 5000UL, 100UL, 7UL,  0U, 1, 2000L, 2000L }, /* no positive span */
+    { 5000UL, 100UL, 7UL,  0U, 0, 2100L, 2200L }  /* did not land */
+  };
+  for( ulong i=0UL; i<6UL; i++ ) {
+    fd_gui_store_replay_txn_t rec = {
+      .insert_time_ns=ts+in[ i ].end, .completion_time_ns=ts+in[ i ].end, .slot=300UL, .txn_idx=i,
+      .txn_exec_idx=2UL, .txn_sigverify_exec_idx=ULONG_MAX,
+      .sigverify_start_ns=LONG_MAX, .sigverify_end_ns=LONG_MAX, .load_start_ns=ts+in[ i ].load,
+      .check_start_ns=LONG_MAX, .exec_start_ns=LONG_MAX, .commit_start_ns=LONG_MAX, .commit_end_ns=ts+in[ i ].end,
+      .transaction_fee=in[ i ].fee, .priority_fee=in[ i ].prio, .tips=in[ i ].tips,
+      .error_code=in[ i ].err, .is_committable=in[ i ].committable
+    };
+    FD_TEST( !fd_gui_hist_ts_append( gui, FD_GUI_HIST_REPLAY_TXN, &rec ) );
+  }
+  json_t value = field( query( gui, "query_revenue", ts, ts+3000L ), "value" );
+  FD_TEST( string_eq( field( value, "granularity" ), "txn" ) );
+  FD_TEST( number( field( value, "reference_slot" ) )==300UL );
+  FD_TEST( string_eq( field( value, "reference_ts" ), "80000000000" ) );
+  FD_TEST( count( field( value, "slot_delta" ) )==2UL );
+  char const * starts[ 2 ] = { "0", "1000" };
+  char const * ends  [ 2 ] = { "100", "1100" };
+  char const * fees  [ 2 ][ 3 ] = { { "5000", "100", "7" }, { "5000", "200", "0" } };
+  for( ulong i=0UL; i<2UL; i++ ) {
+    FD_TEST( !number( element( field( value, "slot_delta" ), i ) ) );
+    FD_TEST( number( element( field( value, "exec_idx" ), i ) )==2UL );
+    FD_TEST( string_eq( element( field( value, "start_ts_delta" ), i ), starts[ i ] ) );
+    FD_TEST( string_eq( element( field( value, "end_ts_delta" ), i ), ends[ i ] ) );
+    FD_TEST( string_eq( element( field( value, "txn_fees" ), i ), fees[ i ][ 0 ] ) );
+    FD_TEST( string_eq( element( field( value, "prio_fees" ), i ), fees[ i ][ 1 ] ) );
+    FD_TEST( string_eq( element( field( value, "tips" ), i ), fees[ i ][ 2 ] ) );
+    FD_TEST( number( element( field( value, "txn_cnt" ), i ) )==1UL );
+  }
+  /* A row belongs to the window holding its end, so adjacent windows
+     split the rows without repeating any. */
+  value = field( query( gui, "query_revenue", ts, ts+1100L ), "value" );
+  FD_TEST( count( field( value, "slot_delta" ) )==1UL );
+  FD_TEST( string_eq( element( field( value, "end_ts_delta" ), 0UL ), "100" ) );
+  value = field( query( gui, "query_revenue", ts+1100L, ts+3000L ), "value" );
+  FD_TEST( count( field( value, "slot_delta" ) )==1UL );
+  FD_TEST( string_eq( field( value, "reference_ts" ), "80000001000" ) );
+  value = field( query( gui, "query_revenue", ts+101L, ts+1100L ), "value" );
+  FD_TEST( !count( field( value, "slot_delta" ) ) && is_null( field( value, "reference_ts" ) ) );
+
+  /* All six execute within the batch gap on one tile, so they form one
+     batch.  Its sums count what every member paid, including the
+     zero-span one the txn granularity omits. */
+  gui->slot_txn_scratch.max = 6UL;
+  FD_TEST( !fd_gui_materialize_replay_txn_batches( gui, 300UL, 0UL, ts, ts+3000L, 6UL, ts+3000L ) );
+  value = field( query_batch( gui, "query_revenue", ts, ts+3000L, 1 ), "value" );
+  FD_TEST( string_eq( field( value, "granularity" ), "txn_batch" ) );
+  FD_TEST( count( field( value, "slot_delta" ) )==1UL );
+  FD_TEST( string_eq( element( field( value, "start_ts_delta" ), 0UL ), "0" ) );
+  FD_TEST( string_eq( element( field( value, "end_ts_delta" ), 0UL ), "2200" ) );
+  FD_TEST( string_eq( element( field( value, "txn_fees" ), 0UL ), "15000" ) );
+  FD_TEST( string_eq( element( field( value, "prio_fees" ), 0UL ), "400" ) );
+  FD_TEST( string_eq( element( field( value, "tips" ), 0UL ), "14" ) );
+  FD_TEST( number( element( field( value, "txn_cnt" ), 0UL ) )==6UL );
+  value = field( query_batch( gui, "query_revenue", ts, ts+2200L, 1 ), "value" );
+  FD_TEST( !count( field( value, "slot_delta" ) ) );
+}
+
 static void
 test_limit( fd_gui_t * gui ) {
   long const ts = 40000000000L;
@@ -436,6 +515,18 @@ test_limit( fd_gui_t * gui ) {
     FD_TEST( !field( json, "value" ).ptr );
     FD_TEST( string_eq( field( field( json, "error" ), "code" ), "result_limit_exceeded" ) );
   }
+  /* The rows paid nothing, so query_revenue omits them; paying rows
+     count against the limit. */
+  json = query( gui, "query_revenue", ts, ts+1L );
+  FD_TEST( !count( field( field( json, "value" ), "slot_delta" ) ) );
+  txn.load_start_ns = ts-1L; txn.is_committable = 1; txn.transaction_fee = 5000UL;
+  for( ulong i=0UL; i<=FD_GUI_TIMELINE_QUERY_TXN_MAX; i++ ) {
+    txn.txn_idx = i;
+    FD_TEST( !fd_gui_hist_ts_append( gui, FD_GUI_HIST_REPLAY_TXN, &txn ) );
+  }
+  json = query( gui, "query_revenue", ts, ts+1L );
+  FD_TEST( !field( json, "value" ).ptr );
+  FD_TEST( string_eq( field( field( json, "error" ), "code" ), "result_limit_exceeded" ) );
 }
 
 int
@@ -468,6 +559,7 @@ main( int argc, char ** argv ) {
   test_limit( gui );
   test_lthash( gui ); /* after test_limit: time-series appends are in time order */
   test_lthash_batch( gui );
+  test_revenue( gui );
   fd_http_server_delete( fd_http_server_leave( gui->http ) );
   fd_gui_hist_delete( fd_gui_hist_leave( gui->hist ) );
   fd_gui_store_delete( fd_gui_store_leave( gui->db ) );

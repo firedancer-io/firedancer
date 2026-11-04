@@ -132,6 +132,18 @@ fd_gui_printf_timeline_query_txn_meta( fd_gui_t * gui,
                                        long       end_ns,
                                        ulong      id );
 
+/* fd_gui_printf_timeline_query_revenue stages one row per replay or
+   leader transaction (batch==0) or batch (batch==1) completing in
+   [start_ns,end_ns) that paid anything and has a positive span.
+   Returns -1 for invalid arguments. */
+
+int
+fd_gui_printf_timeline_query_revenue( fd_gui_t * gui,
+                                      long       start_ns,
+                                      long       end_ns,
+                                      int        batch,
+                                      ulong      id );
+
 /* fd_gui_printf_timeline_query_tile_states stages the execrp and replay
    tile states in [start_ns,end_ns), per transaction (batch==0) or per
    batch (batch==1).  Returns -1 for invalid arguments. */

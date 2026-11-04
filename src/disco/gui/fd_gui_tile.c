@@ -103,7 +103,8 @@ FD_IMPORT_BINARY( firedancer_svg, "book/public/fire.svg" );
    string 22, ulong string 23, signature string 91, bool 6 (nulls shorter).
    Timestamps (txn and txn_batch): 4*21 + 1*11 + 7*22 = 249 bytes.
    Meta: 4*21 + 5*11 + 2*22 + 3*23 + 91 + 2*6 = 355 bytes, including
-   full uint shred indices; keys and envelope fit in 4096. */
+   full uint shred indices.  Revenue (txn and txn_batch): 3*21 +
+   2*22 + 3*23 = 176 bytes.  Keys and envelope fit in 4096. */
 FD_STATIC_ASSERT( FD_GUI_TIMELINE_QUERY_TXN_MAX*480UL+4096UL<=FD_GUI_TIMELINE_RAW_RESPONSE_MAX, txn_response_bound );
 /* query_tile_states: each interval adds itself and at most one Idle gap,
    plus one trailing Idle per tile, each state 3+21 bytes.  At most 2
@@ -115,7 +116,9 @@ FD_STATIC_ASSERT( (2UL*FD_GUI_TIMELINE_QUERY_STATE_ENTRY_MAX+FD_GUI_TILE_STATE_P
                   FD_GUI_TIMELINE_QUERY_LTHASH_MAX*48UL +
                   4096UL<=FD_GUI_TIMELINE_RAW_RESPONSE_MAX, tile_states_response_bound );
 FD_STATIC_ASSERT( FD_GUI_TIMELINE_QUERY_SHRED_MAX*56UL+4096UL<=FD_GUI_TIMELINE_RAW_RESPONSE_MAX, shred_response_bound );
-FD_STATIC_ASSERT( FD_GUI_TIMELINE_QUERY_SLOT_MAX*128UL+4096UL<=FD_GUI_TIMELINE_RAW_RESPONSE_MAX, slot_response_bound );
+/* query_slots: slot_delta 21, two ts delta strings 22, shred_cnt 11,
+   skipped and mine 21 each, three fee strings 23 = 187 bytes. */
+FD_STATIC_ASSERT( FD_GUI_TIMELINE_QUERY_SLOT_MAX*192UL+4096UL<=FD_GUI_TIMELINE_RAW_RESPONSE_MAX, slot_response_bound );
 /* query_votes: per row slot_delta 21, event 3, event_ts_delta string 22,
    stake string 23 bytes including commas. */
 FD_STATIC_ASSERT( FD_GUI_TIMELINE_QUERY_VOTE_MAX*69UL+4096UL<=FD_GUI_TIMELINE_RAW_RESPONSE_MAX, vote_response_bound );

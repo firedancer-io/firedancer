@@ -3569,6 +3569,122 @@ fd_gui_printf_timeline_query_txn_meta( fd_gui_t * gui,
   return rc;
 }
 
+typedef fd_gui_store_replay_txn_batch_t const * fd_gui_timeline_batch_ptr_t;
+#define SORT_NAME fd_gui_timeline_batch_sort
+#define SORT_KEY_T fd_gui_timeline_batch_ptr_t
+#define SORT_BEFORE(a,b) (((a)->slot<(b)->slot) || (((a)->slot==(b)->slot) && ((a)->txn_idx<(b)->txn_idx)))
+#include "../../util/tmpl/fd_sort.c"
+
+/* fd_gui_timeline_revenue_row reads the revenue row of transaction or
+   batch record rec.  Returns 0 if it paid nothing or has no positive
+   span, which query_revenue omits. */
+
+static int
+fd_gui_timeline_revenue_row( void const * rec,
+                             int          batch,
+                             ulong *      slot,
+                             ulong *      exec_idx,
+                             long *       start,
+                             long *       end,
+                             ulong        fees[ 3 ],
+                             ulong *      txn_cnt ) {
+  if( batch ) {
+    fd_gui_store_replay_txn_batch_t const * b = rec;
+    *slot = b->slot; *exec_idx = b->txn_exec_idx; *start = b->load_start_ns; *end = b->completion_time_ns;
+    fees[ 0 ] = b->txn_fees; fees[ 1 ] = b->prio_fees; fees[ 2 ] = b->tips;
+    *txn_cnt = b->exec_txn_cnt;
+  } else {
+    fd_gui_store_replay_txn_t const * t = rec;
+    *slot = t->slot; *exec_idx = t->txn_exec_idx; *start = t->load_start_ns; *end = t->completion_time_ns;
+    fd_gui_store_replay_txn_revenue( t, &fees[ 0 ], &fees[ 1 ], &fees[ 2 ] );
+    *txn_cnt = 1UL;
+  }
+  return (fees[ 0 ] || fees[ 1 ] || fees[ 2 ]) && *end>*start;
+}
+
+int
+fd_gui_printf_timeline_query_revenue( fd_gui_t * gui,
+                                      long       start,
+                                      long       end,
+                                      int        batch,
+                                      ulong      id ) {
+  char const * key = "query_revenue";
+  if( FD_UNLIKELY( start<0L || end<=start || end==LONG_MAX ) ) return -1;
+  fd_gui_timeline_txn_ptr_t *   txns    = gui->timeline_scratch.txns;
+  fd_gui_timeline_batch_ptr_t * batches = gui->timeline_scratch.txn_batches;
+  int           dbi     = batch ? FD_GUI_HIST_REPLAY_TXN_BATCH : FD_GUI_HIST_REPLAY_TXN;
+  ulong         n       = 0UL;
+  ulong         refslot = ULONG_MAX;
+  long          refts   = LONG_MAX;
+  int           rc      = 0;
+  int           limit   = 0;
+  if( gui->db && gui->hist ) {
+    fd_gui_hist_iter_t it;
+    rc = fd_gui_timeline_scan( gui, &it, dbi, start, end );
+    if( FD_UNLIKELY( rc ) ) goto done;
+    while( fd_gui_hist_range_next( &it ) ) {
+      ulong slot, exec_idx, fees[ 3 ], txn_cnt;
+      long  lo, hi;
+      if( !fd_gui_timeline_revenue_row( it.rec, batch, &slot, &exec_idx, &lo, &hi, fees, &txn_cnt ) ) continue;
+      /* Each row belongs to the window holding its end, so adjacent
+         windows never repeat a row. */
+      if( hi<start || hi>=end ) continue;
+      if( FD_UNLIKELY( n==FD_GUI_TIMELINE_QUERY_TXN_MAX ) ) {
+        limit = 1;
+        break;
+      }
+      if( batch ) batches[ n++ ] = it.rec;
+      else        txns   [ n++ ] = it.rec;
+      refslot = fd_ulong_min( refslot, slot );
+      refts   = fd_long_min( refts, lo );
+    }
+    fd_gui_hist_range_end( &it );
+  }
+  if( FD_UNLIKELY( limit ) ) {
+    fd_gui_timeline_limit( gui, key, id );
+    goto done;
+  }
+  if( batch ) fd_gui_timeline_batch_sort_inplace( batches, n );
+  else        fd_gui_timeline_txn_sort_inplace( txns, n );
+  jsonp_open_envelope( gui->http, "timeline", key );
+  jsonp_ulong( gui->http, "id", id );
+  jsonp_open_object( gui->http, "value" );
+  jsonp_string( gui->http, "granularity", batch ? "txn_batch" : "txn" );
+  fd_gui_timeline_bounds( gui, dbi );
+  if( n ) {
+    jsonp_ulong( gui->http, "reference_slot", refslot );
+    jsonp_long_as_str( gui->http, "reference_ts", refts );
+  } else {
+    jsonp_null( gui->http, "reference_slot" );
+    jsonp_null( gui->http, "reference_ts" );
+  }
+  static char const * const names[ 8 ] = {
+    "slot_delta", "exec_idx", "start_ts_delta", "end_ts_delta", "txn_fees", "prio_fees", "tips", "txn_cnt"
+  };
+  for( ulong out=0UL; out<8UL; out++ ) {
+    jsonp_open_array( gui->http, names[ out ] );
+    for( ulong i=0UL; i<n; i++ ) {
+      ulong slot, exec_idx, fees[ 3 ], txn_cnt;
+      long  lo, hi;
+      void const * rec = batch ? (void const *)batches[ i ] : (void const *)txns[ i ];
+      fd_gui_timeline_revenue_row( rec, batch, &slot, &exec_idx, &lo, &hi, fees, &txn_cnt );
+      switch( out ) {
+        case 0UL: jsonp_ulong( gui->http, NULL, slot-refslot ); break;
+        case 1UL: jsonp_ulong( gui->http, NULL, exec_idx ); break;
+        case 2UL: jsonp_long_as_str( gui->http, NULL, lo-refts ); break;
+        case 3UL: jsonp_long_as_str( gui->http, NULL, hi-refts ); break;
+        case 4UL: case 5UL: case 6UL: jsonp_ulong_as_str( gui->http, NULL, fees[ out-4UL ] ); break;
+        default:  jsonp_ulong( gui->http, NULL, txn_cnt ); break;
+      }
+    }
+    jsonp_close_array( gui->http );
+  }
+  jsonp_close_object( gui->http );
+  jsonp_close_envelope( gui->http );
+ done:
+  return rc;
+}
+
 /* query_tile_states output arrays, one walk each.  The count walk only
    counts segments. */
 
@@ -4020,7 +4136,13 @@ fd_gui_printf_timeline_query_slots( fd_gui_t * gui,
     goto done;
   }
   long reference_ts = LONG_MAX;
-  for( ulong i=0UL; i<n; i++ ) reference_ts = fd_long_min( reference_ts, rows[ i ].start_ns );
+  for( ulong i=0UL; i<n; i++ ) {
+    reference_ts = fd_long_min( reference_ts, rows[ i ].start_ns );
+    fd_gui_slot_t const * slot = rows[ i ].skipped ? NULL : fd_gui_slot_get_canon( gui, rows[ i ].slot );
+    rows[ i ].fees[ 0 ] = slot ? slot->transaction_fee : ULONG_MAX;
+    rows[ i ].fees[ 1 ] = slot ? slot->priority_fee    : ULONG_MAX;
+    rows[ i ].fees[ 2 ] = slot ? slot->tips            : ULONG_MAX;
+  }
   jsonp_open_envelope( gui->http, "timeline", "query_slots" );
   jsonp_ulong( gui->http, "id", id );
   jsonp_open_object( gui->http, "value" );
@@ -4057,6 +4179,17 @@ fd_gui_printf_timeline_query_slots( fd_gui_t * gui,
     if( rows[ i ].mine ) jsonp_ulong( gui->http, NULL, rows[ i ].slot-rows[ 0 ].slot );
   }
   jsonp_close_array( gui->http );
+  /* Revenue of the slot's canonical block.  null for skipped slots and
+     slots whose block has no completed record. */
+  for( ulong f=0UL; f<3UL; f++ ) {
+    static char const * const fee_names[ 3 ] = { "txn_fees", "prio_fees", "tips" };
+    jsonp_open_array( gui->http, fee_names[ f ] );
+    for( ulong i=0UL; i<n; i++ ) {
+      if( rows[ i ].fees[ f ]==ULONG_MAX ) jsonp_null( gui->http, NULL );
+      else                                 jsonp_ulong_as_str( gui->http, NULL, rows[ i ].fees[ f ] );
+    }
+    jsonp_close_array( gui->http );
+  }
   jsonp_close_object( gui->http );
   jsonp_close_envelope( gui->http );
  done:

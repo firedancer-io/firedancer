@@ -2518,6 +2518,34 @@ test_timeline_limits( fd_gui_t * gui ) {
     FD_TEST( test_json_string_eq( test_json_index( timeline_value( json, "start_ts_delta" ), i ), starts[ i ] ) );
     FD_TEST( test_json_string_eq( test_json_index( timeline_value( json, "end_ts_delta" ), i ), ends[ i ] ) );
   }
+  /* Revenue columns come from the canonical block record: null without
+     one, and for skipped slots even with one. */
+  for( int i=0; i<3; i++ ) {
+    FD_TEST( test_json_kind( test_json_index( timeline_value( json, "txn_fees" ), i ) )==FD_JTOK_NULL );
+    FD_TEST( test_json_kind( test_json_index( timeline_value( json, "tips" ), i ) )==FD_JTOK_NULL );
+  }
+  ulong const rooted = gui->summary.slot_rooted;
+  gui->summary.slot_rooted = 100UL;
+  for( ulong s=10UL; s<=12UL; s++ ) {
+    put_slot( gui, s, 0L );
+    fd_gui_slot_t * rec = fd_gui_slot_get( gui, s, BANK_SEQ );
+    rec->skip            = FD_GUI_SKIP_STATUS_NOT_SKIPPED;
+    rec->transaction_fee = 5000UL*s;
+    rec->priority_fee    = s==11UL ? ULONG_MAX : 100UL*s;
+    rec->tips            = s;
+  }
+  epoch->timeline_slot_state[ 12 ] |= FD_GUI_TIMELINE_SLOT_STATE_SKIPPED;
+  FD_TEST( !fd_gui_printf_timeline_query_slots( gui, 0L, 50L, 7UL ) );
+  json = timeline_response( gui );
+  FD_TEST( test_json_string_eq( test_json_index( timeline_value( json, "txn_fees" ), 0 ), "50000" ) );
+  FD_TEST( test_json_string_eq( test_json_index( timeline_value( json, "prio_fees" ), 0 ), "1000" ) );
+  FD_TEST( test_json_string_eq( test_json_index( timeline_value( json, "tips" ), 0 ), "10" ) );
+  FD_TEST( test_json_string_eq( test_json_index( timeline_value( json, "txn_fees" ), 1 ), "55000" ) );
+  FD_TEST( test_json_kind( test_json_index( timeline_value( json, "prio_fees" ), 1 ) )==FD_JTOK_NULL );
+  FD_TEST( test_json_kind( test_json_index( timeline_value( json, "txn_fees" ), 2 ) )==FD_JTOK_NULL );
+  FD_TEST( test_json_kind( test_json_index( timeline_value( json, "tips" ), 2 ) )==FD_JTOK_NULL );
+  epoch->timeline_slot_state[ 12 ] &= (uchar)~FD_GUI_TIMELINE_SLOT_STATE_SKIPPED;
+  gui->summary.slot_rooted = rooted;
   FD_TEST( !fd_gui_printf_timeline_query_slots( gui, 20L, 40L, 7UL ) );
   json = timeline_response( gui );
   FD_TEST( test_json_string_eq( timeline_value( json, "reference_ts" ), "20" ) );
@@ -4072,7 +4100,8 @@ test_timeline_slot_intervals( fd_gui_t * gui ) {
   FD_TEST( !fd_gui_printf_timeline_query_slots( gui, ts+100L, ts+150L, 7UL ) );
   check_suffix( gui, "{\"available_start_ns\":\"10000000020\",\"available_end_ns\":\"10000000800\",\"reference_slot\":1022,"
                      "\"reference_ts\":\"10000000020\",\"slot_delta\":[0,1],\"start_ts_delta\":[\"30\",\"0\"],"
-                     "\"end_ts_delta\":[\"180\",\"280\"],\"shred_cnt\":[64,96],\"skipped\":[],\"mine\":[]}}" );
+                     "\"end_ts_delta\":[\"180\",\"280\"],\"shred_cnt\":[64,96],\"skipped\":[],\"mine\":[],"
+                     "\"txn_fees\":[\"0\",\"0\"],\"prio_fees\":[\"0\",\"0\"],\"tips\":[\"0\",\"0\"]}}" );
 
   fd_gui_timeline_query_slot_t rows[ 8 ];
   ulong cnt;

@@ -1234,6 +1234,11 @@ struct fd_gui_store_replay_txn_batch {
   uchar sigverify_txn_cnt;
   /* txn_idx of the first sigverify-lane member, ULONG_MAX if none. */
   ulong sigverify_txn_idx;
+  /* Sums over the execution-lane members of what they paid, per
+     fd_gui_store_replay_txn_revenue. */
+  ulong txn_fees;
+  ulong prio_fees;
+  ulong tips;
 };
 typedef struct fd_gui_store_replay_txn_batch fd_gui_store_replay_txn_batch_t;
 FD_STATIC_ASSERT( FD_GUI_TXN_BATCH_MAX_TXN<=UCHAR_MAX, txn_batch_cnt_fits );
@@ -1663,6 +1668,7 @@ struct fd_gui_timeline_query_slot {
   uint  shred_cnt; /* data shreds, UINT_MAX if unknown */
   uchar skipped;
   uchar mine;
+  ulong fees[ 3 ];  /* txn, prio, tips; set by query_slots, ULONG_MAX if unknown */
 };
 typedef struct fd_gui_timeline_query_slot fd_gui_timeline_query_slot_t;
 

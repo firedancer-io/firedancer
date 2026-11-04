@@ -2247,6 +2247,10 @@ fd_gui_request_timeline( fd_gui_t *   gui,
     if(      !strcmp( name, "shred" ) ) err = fd_gui_printf_timeline_query_shreds( gui, start_ns, end_ns, id );
     else if( !strcmp( name, "fec"   ) ) err = fd_gui_printf_timeline_query_fec_events( gui, start_ns, end_ns, id );
     else return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
+  } else if( !strcmp( key, "query_revenue" ) ) {
+    if(      !strcmp( name, "txn"       ) ) err = fd_gui_printf_timeline_query_revenue( gui, start_ns, end_ns, 0, id );
+    else if( !strcmp( name, "txn_batch" ) ) err = fd_gui_printf_timeline_query_revenue( gui, start_ns, end_ns, 1, id );
+    else return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
   } else if( !strcmp( key, "query_tile_states" ) ) {
     if(      !strcmp( name, "txn"       ) ) err = fd_gui_printf_timeline_query_tile_states( gui, start_ns, end_ns, 0, id );
     else if( !strcmp( name, "txn_batch" ) ) err = fd_gui_printf_timeline_query_tile_states( gui, start_ns, end_ns, 1, id );
@@ -2317,6 +2321,7 @@ fd_gui_ws_message( fd_gui_t *    gui,
        fd_jtok_str_eq( &key, "query_events" ) ||
        fd_jtok_str_eq( &key, "query_tile_states" ) ||
        fd_jtok_str_eq( &key, "query_txn_meta" ) ||
+       fd_jtok_str_eq( &key, "query_revenue" ) ||
        fd_jtok_str_eq( &key, "query_agg_slots" ) ||
        fd_jtok_str_eq( &key, "query_agg_shreds" ) ||
        fd_jtok_str_eq( &key, "query_agg_compute" ) ||
@@ -4571,6 +4576,13 @@ fd_gui_batch_record( fd_gui_store_replay_txn_batch_t * r,
     cumulative += duration[ j+1UL ];
   }
   r->sigverify_txn_idx = sg->cnt ? st[ sg->first ]->txn_idx : ULONG_MAX;
+  for( ulong i=0UL; i<ex->cnt; i++ ) {
+    ulong txn_fee, prio_fee, tips;
+    fd_gui_store_replay_txn_revenue( et[ ex->first+i ], &txn_fee, &prio_fee, &tips );
+    r->txn_fees  = fd_ulong_sat_add( r->txn_fees,  txn_fee  );
+    r->prio_fees = fd_ulong_sat_add( r->prio_fees, prio_fee );
+    r->tips      = fd_ulong_sat_add( r->tips,      tips     );
+  }
 }
 
 int

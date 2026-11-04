@@ -2841,6 +2841,13 @@ nanosecond timestamps, encoded as decimal strings without leading zeros
 must be greater than `start_ns`.
 Windows are half-open: `[start_ns, end_ns)`.
 
+Each method states which rows a window returns. Rows that carry one
+timestamp (shred and FEC events, votes, events, transactions and
+batches) are returned only by the window containing that timestamp, so
+adjacent windows never return the same row. State segments
+(`query_tile_states`) are clipped to the window instead, and slot
+intervals (`query_slots`) are returned by every window they overlap.
+
 Every successful response includes `available_start_ns` and
 `available_end_ns`. These are method-specific half-open lookup bounds,
 `[available_start_ns, available_end_ns)`, reflecting the data available
@@ -2866,6 +2873,7 @@ evicted approximately oldest-first.
 | `query_shreds`         | 262,144 rows   | error message       |
 | `query_tile_states`    | 65,536 rows of each kind | error message |
 | `query_txn_meta`       | 65,536 rows    | error message       |
+| `query_revenue`        | 65,536 rows    | error message       |
 | `query_slots`          | 65,536 rows    | error message       |
 | `query_events`         | 65,536 rows    | error message       |
 | `query_votes`          | 262,144 rows   | error message       |
@@ -3167,6 +3175,90 @@ leave gaps). Ordering by `(slot, txn_idx)` still applies.
 
 :::
 
+#### `timeline.query_revenue`
+| frequency | type              | example |
+|-----------|-------------------|---------|
+| *Request* | `TimelineRevenue` | below   |
+
+| param       | type     | description |
+|-------------|----------|-------------|
+| start_ns    | `string` | Inclusive lower bound, using the timestamp rules above |
+| end_ns      | `string` | Exclusive upper bound |
+| granularity | `string` | Either `txn` or `txn_batch`. Required |
+
+Returns what each transaction (`txn`) or transaction batch
+(`txn_batch`) paid, one row per transaction or batch whose completion
+timestamp is in `[start_ns, end_ns)`. The completion timestamp is the
+same one `query_txn_meta` selects by. Rows that paid nothing, and rows
+whose completion is not after their load start, are omitted. Fees count
+only what was actually paid: transactions that did not land pay
+nothing, invalid fee payers (errors 5 and 6) pay no fees or tips, and
+failed transactions pay no tips. A batch row sums its members, so it
+can include members the `txn` granularity omits. Rows are ordered by
+`(slot, txn_idx)` of the transaction or the batch's first member. Both
+granularities share one shape. Empty results have empty arrays and
+`null` reference fields.
+
+Batches are the ones `query_tile_states` reports at `txn_batch`
+granularity and are available once their slot completes replay.
+
+**`TimelineRevenue`**
+| field              | type           | description |
+|--------------------|----------------|-------------|
+| granularity        | `string`       | Echoes `txn` or `txn_batch` |
+| available_start_ns | `string\|null` | Inclusive approximate lookup start for the selected history |
+| available_end_ns   | `string\|null` | Exclusive approximate lookup end for the selected history |
+| reference_slot     | `number\|null` | Smallest slot in the response |
+| reference_ts       | `string\|null` | Smallest load start in the response |
+| slot_delta         | `number[]`     | Per row, `slot - reference_slot` |
+| exec_idx           | `number[]`     | Per row, the index of the execution tile (execrp for replay, execle for produced blocks) |
+| start_ts_delta     | `string[]`     | Per row, load start minus `reference_ts`, in nanoseconds |
+| end_ts_delta       | `string[]`     | Per row, completion minus `reference_ts`, in nanoseconds |
+| txn_fees           | `string[]`     | Per row, base transaction fees paid, in lamports |
+| prio_fees          | `string[]`     | Per row, priority fees paid, in lamports |
+| tips               | `string[]`     | Per row, tips paid, in lamports |
+| txn_cnt            | `number[]`     | Per row, the number of transactions; 1 at `txn` granularity |
+
+::: details Example
+
+```json
+{
+    "topic": "timeline",
+    "key": "query_revenue",
+    "id": 45,
+    "params": {
+        "start_ns": "1739657041588000000",
+        "end_ns": "1739657041589000000",
+        "granularity": "txn_batch"
+    }
+}
+```
+
+```json
+{
+    "topic": "timeline",
+    "key": "query_revenue",
+    "id": 45,
+    "value": {
+        "granularity": "txn_batch",
+        "available_start_ns": "1739657000000000000",
+        "available_end_ns": "1739657100000000000",
+        "reference_slot": 289245044,
+        "reference_ts": "1739657041587412000",
+        "slot_delta": [0, 0],
+        "exec_idx": [0, 3],
+        "start_ts_delta": ["0", "211000"],
+        "end_ts_delta": ["640000", "930000"],
+        "txn_fees": ["50000", "15000"],
+        "prio_fees": ["1204411", "88120"],
+        "tips": ["1000000", "0"],
+        "txn_cnt": [10, 3]
+    }
+}
+```
+
+:::
+
 #### `timeline.query_slots`
 | frequency | type            | example |
 |-----------|-----------------|---------|
@@ -3193,6 +3285,9 @@ request window, ordered by slot.
 | shred_cnt          | `(number\|null)[]` | Per row, the number of data shreds in the replayed block whose completion ends the interval. `null` for interpolated skipped slots or when unknown. The last FEC set index is `shred_cnt/32 - 1` |
 | skipped            | `number[]`     | Sparse slot deltas for skipped rows |
 | mine               | `number[]`     | Sparse slot deltas for locally produced rows |
+| txn_fees           | `(string\|null)[]` | Per row, base transaction fees in the slot's canonical block, in lamports. `null` for skipped slots or when unknown |
+| prio_fees          | `(string\|null)[]` | Per row, priority fees in the slot's canonical block, in lamports. `null` for skipped slots or when unknown |
+| tips               | `(string\|null)[]` | Per row, tips in the slot's canonical block, in lamports. `null` for skipped slots or when unknown |
 
 ::: details Example
 
@@ -3223,7 +3318,10 @@ request window, ordered by slot.
         "end_ts_delta": ["412000000", "812000000", "1212000000"],
         "shred_cnt": [1536, null, 1408],
         "skipped": [1],
-        "mine": [0]
+        "mine": [0],
+        "txn_fees": ["7520000", null, "6980000"],
+        "prio_fees": ["41200311", null, "38877102"],
+        "tips": ["120000000", null, "98000000"]
     }
 }
 ```
