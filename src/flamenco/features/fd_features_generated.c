@@ -2322,8 +2322,8 @@ fd_feature_id_t const ids[] = {
     .cleaned_up                = 0 },
 
   { .index                     = offsetof(fd_features_t, alpenglow_fast_leader_handover)>>3,
-    .id                        = {"\xd4\xf4\xa4\xc0\x39\x75\xd5\x77\xdd\xb8\x3a\x01\x0c\x3b\xa2\xd6\x22\xb5\x09\x29\xa3\x03\xa3\xad\xc1\xcc\x96\x94\xfa\xf1\x74\xa8"},
-                                 /* FLHoAWBDjNh6zwmJ5i1NKK4KyD8otAiv7XxvmnFnVnKH */
+    .id                        = {"\xd5\x0e\xea\x2c\xcd\x47\x3d\xc1\x80\x09\x8b\x58\xd5\x94\xc9\xf5\x95\xde\x93\xa9\x57\xd1\x2d\x6f\xfb\x37\x91\xfa\x96\x34\xe1\x96"},
+                                 /* FLh2kvwNhDNN6kkQrwdDQ4p5FrgdqxnwykgMUryABRwT */
     .name                      = "alpenglow_fast_leader_handover",
     .implemented               = 0,
     .cleaned_up                = 0 },
@@ -2738,7 +2738,7 @@ typedef struct fd_feature_id_lookup_entry fd_feature_id_lookup_entry_t;
 #define MAP_PERFECT_292 0x3d030a2e7e893d06UL, .val = &ids[292]
 #define MAP_PERFECT_293 0xb2513619e40fef85UL, .val = &ids[293]
 #define MAP_PERFECT_294 0x1e7f253e967667d3UL, .val = &ids[294]
-#define MAP_PERFECT_295 0x77d57539c0a4f4d4UL, .val = &ids[295]
+#define MAP_PERFECT_295 0xc13d47cd2cea0ed5UL, .val = &ids[295]
 #define MAP_PERFECT_296 0x76648e7186624c0dUL, .val = &ids[296]
 #define MAP_PERFECT_297 0x5b36f5cc4a5925b0UL, .val = &ids[297]
 #define MAP_PERFECT_298 0x351933dc20486107UL, .val = &ids[298]
