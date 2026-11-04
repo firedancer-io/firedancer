@@ -25,7 +25,6 @@
 #include "fd_strmk_tile.h"
 #include "fd_strmk_keys.h"
 #include "fd_backup_wake.h"
-#include "fd_snapmk_tile.h"
 #include "fd_ssmanifest_writer.h"
 #include "fd_txncache_writer.h"
 #include "../replay/fd_replay_tile.h"
@@ -76,13 +75,11 @@ typedef struct strmk_key strmk_key_t;
 #include "../../util/tmpl/fd_map_chain.c"
 
 #define IN_KIND_SNAP_START (0) /* replay_snapmk */
-#define IN_KIND_SNAPMK     (1) /* snapmk_out */
-#define IN_KIND_KEYS       (2) /* execrp_strmk, execle_strmk */
+#define IN_KIND_KEYS       (1) /* execrp_strmk, execle_strmk */
 
 /* One fast boot stream: a growing archive file. */
 
 struct strmk_stream {
-  int   announced;  /* OPEN sent to the file server? */
   ulong start_slot; /* the slot the stream starts at */
   uchar hash[ 32 ];
   int   fd;
@@ -97,7 +94,6 @@ struct fd_strmk {
   uint  cur;        /* the stream being written, UINT_MAX if none */
   uint  next;       /* the pool file the next stream goes in */
   uint  stream_max; /* pool files */
-  ulong snap_slot;  /* slot of the newest snapshot on disk */
 
   strmk_stream_t stream[ FD_STRMK_POOL_MAX ];
 
@@ -109,7 +105,6 @@ struct fd_strmk {
   ulong       in_mtu   [ FD_TOPO_MAX_TILE_IN_LINKS ];
   union {
     fd_replay_snap_start_t start;
-    fd_snapmk_msg_t        snapmk;
     fd_strmk_keys_msg_t    keys;
   } frag;
 
@@ -343,26 +338,7 @@ strmk_stream_close( fd_strmk_t *        ctx,
   FD_LOG_INFO(( "closing the fast boot stream at slot %lu (%lu bytes)", stream->start_slot, stream->file_sz ));
 
   strmk_announce( ctx, stem, ctx->cur, FD_STRMK_MSG_CLOSE );
-  stream->announced = 0;
-  ctx->cur          = UINT_MAX;
-}
-
-/* strmk_announce_open announces a stream once a peer can use it.  A
-   peer needs the snapshot the stream starts at as well, so the OPEN
-   waits until that snapshot is on disk, whichever of the two lands
-   second. */
-
-static void
-strmk_announce_open( fd_strmk_t *        ctx,
-                     fd_stem_context_t * stem ) {
-  if( FD_UNLIKELY( ctx->cur==UINT_MAX ) ) return;
-
-  strmk_stream_t * stream = &ctx->stream[ ctx->cur ];
-  if( FD_LIKELY( stream->announced || stream->start_slot!=ctx->snap_slot ) ) return;
-
-  stream->announced = 1;
-  strmk_announce( ctx, stem, ctx->cur, FD_STRMK_MSG_OPEN );
-  FD_LOG_NOTICE(( "serving the fast boot stream at slot %lu", stream->start_slot ));
+  ctx->cur = UINT_MAX;
 }
 
 /**********************************************************************/
@@ -583,7 +559,6 @@ strmk_stream_start( fd_strmk_t *                   ctx,
 
   long now = fd_log_wallclock();
   strmk_stream_t * stream = &ctx->stream[ idx ];
-  stream->announced  = 0;
   stream->start_slot = msg->slot;
   stream->file_sz    = 0UL;
   fd_blake3_hash( bank->f.lthash.bytes, FD_LTHASH_LEN_BYTES, stream->hash );
@@ -615,17 +590,7 @@ strmk_stream_start( fd_strmk_t *                   ctx,
   FD_LOG_NOTICE(( "fast boot stream at slot %lu opened in %ld millis (%lu bytes)",
                   stream->start_slot, ( fd_log_wallclock()-now )/(1000L*1000L), stream->file_sz ));
 
-  strmk_announce_open( ctx, stem );
-}
-
-/* strmk_snapshot_created notes that a snapshot landed on disk. */
-
-static void
-strmk_snapshot_created( fd_strmk_t *                    ctx,
-              fd_stem_context_t *             stem,
-              fd_snapmk_msg_created_t const * msg ) {
-  ctx->snap_slot = msg->slot;
-  strmk_announce_open( ctx, stem );
+  strmk_announce( ctx, stem, idx, FD_STRMK_MSG_OPEN );
 }
 
 static void
@@ -661,9 +626,6 @@ after_frag( fd_strmk_t *        ctx,
       strmk_stream_close( ctx, stem );
       strmk_done( ctx, stem );
     }
-    break;
-  case IN_KIND_SNAPMK:
-    if( FD_LIKELY( sig==FD_SNAPMK_MSG_CREATED ) ) strmk_snapshot_created( ctx, stem, &ctx->frag.snapmk.created );
     break;
   case IN_KIND_KEYS:
     FD_CHECK_CRIT( ctx->frag.keys.key_cnt<=FD_STRMK_READ_KEYS_MAX && sz==sizeof(fd_strmk_keys_msg_t), "bad key message" );
@@ -752,7 +714,6 @@ unprivileged_init( fd_topo_t const *      topo,
 
   ctx->cur       = UINT_MAX;
   ctx->next      = 0U;
-  ctx->snap_slot = ULONG_MAX;
   ctx->raw       = _raw;
 
   ctx->zstd = ZSTD_initStaticCStream( _zst, zst_sz );
@@ -793,11 +754,9 @@ unprivileged_init( fd_topo_t const *      topo,
   FD_TEST( ctx->accdb );
 
   FD_CHECK_ERR( fd_topo_find_tile_in_link( topo, tile, "replay_snapmk", 0UL )!=ULONG_MAX, "missing replay_snapmk link" );
-  FD_CHECK_ERR( fd_topo_find_tile_in_link( topo, tile, "snapmk_out",    0UL )!=ULONG_MAX, "missing snapmk_out link"    );
   for( ulong i=0UL; i<tile->in_cnt; i++ ) {
     fd_topo_link_t const * link = &topo->links[ tile->in_link_id[ i ] ];
     if(      !strcmp( link->name, "replay_snapmk" ) ) ctx->in_kind[ i ] = IN_KIND_SNAP_START;
-    else if( !strcmp( link->name, "snapmk_out"    ) ) ctx->in_kind[ i ] = IN_KIND_SNAPMK;
     else if( !strcmp( link->name, "execrp_strmk"  ) ) ctx->in_kind[ i ] = IN_KIND_KEYS;
     else if( !strcmp( link->name, "execle_strmk"  ) ) ctx->in_kind[ i ] = IN_KIND_KEYS;
     else FD_LOG_ERR(( "unexpected input link \"%s\"", link->name ));

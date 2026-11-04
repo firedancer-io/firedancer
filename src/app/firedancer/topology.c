@@ -892,7 +892,6 @@ fd_topo_initialize( config_t * config ) {
        gets, writes the fast boot stream from the same bank, and
        gives the bank back on strmk_replay. */
     /*               */fd_topob_tile_in (   topo, "strmk",   0UL,          "metric_in", "replay_snapmk", 0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
-    /*               */fd_topob_tile_in (   topo, "strmk",   0UL,          "metric_in", "snapmk_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
     /*               */fd_topob_tile_out(   topo, "strmk",   0UL,                       "strmk_replay",  0UL                                                );
     /*               */fd_topob_tile_in (   topo, "replay",  0UL,          "metric_in", "strmk_replay",  0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
     /*               */fd_topob_tile_out(   topo, "strmk",   0UL,                       "strmk_out",     0UL                                                );
