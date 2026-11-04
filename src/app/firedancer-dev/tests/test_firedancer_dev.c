@@ -212,6 +212,81 @@ test_efficient_l3_layout( config_t const * config ) {
   FD_TEST( mwaitx_cpu!=replay_cpu && mwaitx_cpu!=execrp_cpu && replay_cpu!=execrp_cpu );
 }
 
+/* Links folded into another wksp: the wksp is mapped by exactly the
+   endpoint tiles of its links, no tile gains a mapping or a higher join
+   mode (wksps are joined whole at the max mode), and a small fold still
+   fits its pages. */
+
+static int
+folded_obj( fd_topo_t const * topo,
+            char const *      link0,
+            char const *      link1,
+            ulong             obj_id ) {
+  for( ulong i=0UL; i<topo->link_cnt; i++ ) {
+    fd_topo_link_t const * l = &topo->links[ i ];
+    if( strcmp( l->name, link0 ) && ( !link1 || strcmp( l->name, link1 ) ) ) continue;
+    if( l->mcache_obj_id==obj_id || ( l->mtu && l->dcache_obj_id==obj_id ) ) return 1;
+  }
+  return 0;
+}
+
+static int
+link_endpoint( fd_topo_t const * topo,
+               char const *      name,
+               ulong             tile_idx ) {
+  int hit = 0;
+  for( ulong i=0UL; i<topo->link_cnt; i++ ) {
+    fd_topo_link_t const * l = &topo->links[ i ];
+    if( strcmp( l->name, name ) ) continue;
+    fd_topo_tile_t const * t = &topo->tiles[ tile_idx ];
+    for( ulong j=0UL; j<t->in_cnt;  j++ ) hit |= t->in_link_id [ j ]==l->id;
+    for( ulong j=0UL; j<t->out_cnt; j++ ) hit |= t->out_link_id[ j ]==l->id;
+  }
+  return hit;
+}
+
+static void
+test_folded_wksp( fd_topo_t const * topo,
+                  char const *      wksp_name,
+                  char const *      link0,
+                  char const *      link1,
+                  ulong             page_cnt ) {
+  ulong wksp_id = fd_topo_find_wksp( topo, wksp_name );
+  if( wksp_id==ULONG_MAX ) return;
+  ulong link_idx = fd_topo_find_link( topo, link0, 0UL );
+  if( link_idx==ULONG_MAX ) return;
+  FD_TEST( topo->objs[ topo->links[ link_idx ].mcache_obj_id ].wksp_id==wksp_id );
+  if( link1 ) {
+    link_idx = fd_topo_find_link( topo, link1, 0UL );
+    FD_TEST( link_idx!=ULONG_MAX && topo->objs[ topo->links[ link_idx ].mcache_obj_id ].wksp_id==wksp_id );
+  }
+  for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
+    fd_topo_tile_t const * t = &topo->tiles[ i ];
+    int mapped = 0;
+    int host_mode = -1;
+    int mode      = -1;
+    for( ulong j=0UL; j<t->uses_obj_cnt; j++ ) {
+      if( topo->objs[ t->uses_obj_id[ j ] ].wksp_id!=wksp_id ) continue;
+      mapped = 1;
+      mode   = fd_int_max( mode, t->uses_obj_mode[ j ] );
+      if( !folded_obj( topo, link0, link1, t->uses_obj_id[ j ] ) ) host_mode = fd_int_max( host_mode, t->uses_obj_mode[ j ] );
+    }
+    FD_TEST( mapped==( link_endpoint( topo, link0, i ) || ( link1 && link_endpoint( topo, link1, i ) ) ) );
+    FD_TEST( host_mode==mode );
+  }
+  fd_topo_wksp_t const * wksp = &topo->workspaces[ wksp_id ];
+  if( page_cnt ) FD_TEST( wksp->page_sz==FD_SHMEM_HUGE_PAGE_SZ && wksp->page_cnt==page_cnt && !wksp->tail_page_cnt );
+}
+
+static void
+test_folded_wksps( fd_topo_t const * topo ) {
+  test_folded_wksp( topo, "replay",        "admin_replay",  "replay_admin",  0UL );
+  test_folded_wksp( topo, "motor",         "poh_replay",    NULL,            0UL );
+  test_folded_wksp( topo, "execle_busy",   "execle_pack",   NULL,            0UL );
+  test_folded_wksp( topo, "snapct",        "snapct_repr",   NULL,            0UL );
+  test_folded_wksp( topo, "netbase",       "iproute_out",   NULL,            0UL );
+}
+
 /* test_efficient_layout checks the efficient mode topology for the
    same config with the gui enabled. */
 
@@ -222,6 +297,7 @@ test_efficient_layout( config_t const * config ) {
   strcpy( eff_config->firedancer.layout.mode, "efficient" );
   eff_config->tiles.gui.enabled = 1;
   fd_topo_initialize( eff_config );
+  test_folded_wksps( &eff_config->topo );
   test_efficient_l3_layout( eff_config );
 }
 
@@ -252,6 +328,7 @@ firedancer_dev_test_run( int     argc,
       config->has_user_config = 1;
 
       fd_topo_initialize( config );
+      test_folded_wksps( &config->topo );
       test_efficient_layout( config );
 
       ulong genesis_max_message_size = config->firedancer.development.genesis.max_file_size_mib<<20;
@@ -399,6 +476,7 @@ main( int     argc,
     static config_t config[ 1 ];
     fd_config_load( 1, (char const *)firedancer_default_config, firedancer_default_config_sz, NULL, NULL, 0UL, NULL, 0UL, NULL, config, 1 /* dev */ );
     fd_topo_initialize( config );
+    test_folded_wksps( &config->topo );
     test_efficient_layout( config );
     fd_halt();
     return 0;
