@@ -266,16 +266,28 @@ page_fetch( fd_txncache_t * tc,
   fd_txncache_page_meta_t * meta = &tc->page_meta[ page ];
   lock_write( tc );
 
-  /* page may have been freed, or is already resident. */
-  if( FD_UNLIKELY( tc->shmem->release_seq!=seq || meta->frame!=UINT_MAX ) ) {
+  /* page may have been freed. */
+  if( FD_UNLIKELY( tc->shmem->release_seq!=seq ) ) {
     fd_rwlock_unwrite( tc->shmem->lock );
     return;
   }
+
+  fd_racesan_hook( "txncache:fetch_pre_io_check" );
 
   /* Another fetch is moving page. */
   if( FD_UNLIKELY( meta->io ) ) {
     fd_rwlock_unwrite( tc->shmem->lock );
     while( FD_UNLIKELY( FD_VOLATILE_CONST( meta->io ) ) ) FD_SPIN_PAUSE();
+    return;
+  }
+
+  /* A fetch publishes frame before clearing io, without the lock.
+     Check residency after observing io clear: checking frame first can
+     miss a publication between the two checks and reserve a second
+     frame, overwriting inserts into the already published first one. */
+  FD_COMPILER_MFENCE();
+  if( FD_UNLIKELY( meta->frame!=UINT_MAX ) ) {
+    fd_rwlock_unwrite( tc->shmem->lock );
     return;
   }
 

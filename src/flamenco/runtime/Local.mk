@@ -71,6 +71,12 @@ endif
 ifdef FD_HAS_HOSTED
 $(call make-unit-test,test_txncache,test_txncache,fd_flamenco fd_ballet fd_util)
 $(call make-fuzz-test,fuzz_txncache_fork_graph,fuzz_txncache_fork_graph,fd_flamenco fd_ballet fd_util)
+ifdef FD_HAS_RACESAN
+ifdef FD_HAS_THREADS
+$(call make-unit-test,test_txncache_fetch_publish,test_txncache_fetch_publish,fd_flamenco fd_ballet fd_util)
+$(call run-unit-test,test_txncache_fetch_publish)
+endif
+endif
 endif
 
 $(call add-hdrs,fd_runtime.h fd_runtime_err.h fd_runtime_const.h fd_runtime_stack.h fd_runtime_stack_tmpl.h fd_runtime_helpers.h)
