@@ -526,11 +526,16 @@ struct fd_gui_store_replay_lthash_batch {
 };
 typedef struct fd_gui_store_replay_lthash_batch fd_gui_store_replay_lthash_batch_t;
 
-/* Votes track records.  Two time-series DBs share one row type:
+/* Votes track records.  Three time-series DBs share one row type:
 
    FD_GUI_HIST_VOTES        every vote the votor counted.
    FD_GUI_HIST_VOTE_EVENTS  per-slot markers (certs, our casts and acks,
                             ParentReady), first of each per slot.
+   FD_GUI_HIST_VOTE_BATCH   vote batches: breakpoints of each (slot,
+                            vote kind) cumulative stake curve, simplified
+                            with Douglas-Peucker.  stake is the stake
+                            added since the previous breakpoint, so
+                            batch rows sum like the votes they replace.
 
    ts_ns is the votor's wallclock at the vote or marker.  stake is the
    voter's stake and total_stake the votor's total stake for the slot's
@@ -548,7 +553,45 @@ typedef struct fd_gui_store_replay_lthash_batch fd_gui_store_replay_lthash_batch
 #define FD_GUI_VOTE_EVENT_CAST         (10U)
 #define FD_GUI_VOTE_EVENT_ACK          (15U)
 #define FD_GUI_VOTE_EVENT_PARENT_READY (20U)
-#define FD_GUI_VOTE_EVENT_CNT          (21U)
+#define FD_GUI_VOTE_EVENT_BATCH        (21U) /* +AG_VOTE_KIND_* */
+#define FD_GUI_VOTE_EVENT_CNT          (26U)
+
+/* fd_gui_vote_event_has_stake returns whether rows of event carry
+   stake (votes and vote batches, not markers). */
+
+static inline int
+fd_gui_vote_event_has_stake( uint event ) {
+  return event<FD_GUI_VOTE_EVENT_CERT || ( event>=FD_GUI_VOTE_EVENT_BATCH && event<FD_GUI_VOTE_EVENT_CNT );
+}
+
+/* Vote batching.  Votes of a recent slot are buffered (up to
+   FD_GUI_VOTE_BATCH_PTS_MAX), and flushed as batch rows when the slot
+   leaves the tracked slots, the buffer is full, the slot has had no
+   vote for FD_GUI_VOTE_BATCH_IDLE_NS or its oldest buffered vote is
+   FD_GUI_VOTE_BATCH_AGE_NS old.  A flush simplifies each kind's
+   cumulative stake curve (Douglas-Peucker) so that, with time scaled by
+   FD_GUI_VOTE_BATCH_EPS_TS_NS and stake by
+   FD_GUI_VOTE_BATCH_EPS_STAKE_BPS basis points of the total stake, no
+   vote is more than one unit from the polyline through the breakpoints.
+   Both ends of each flushed curve are kept.  A vote for a slot older
+   than the tracked one is recorded as a batch of itself.  Batch rows
+   are inserted at most about FD_GUI_VOTE_BATCH_AGE_NS after their
+   timestamp, queries widen their scan by
+   FD_GUI_VOTE_BATCH_QUERY_MARGIN_NS. */
+
+#define FD_GUI_VOTE_BATCH_PTS_MAX         (4096UL)
+#define FD_GUI_VOTE_BATCH_IDLE_NS         (5L*1000L*1000L*1000L)
+#define FD_GUI_VOTE_BATCH_AGE_NS          (20L*1000L*1000L*1000L)
+#define FD_GUI_VOTE_BATCH_QUERY_MARGIN_NS (30L*1000L*1000L*1000L)
+#define FD_GUI_VOTE_BATCH_EPS_TS_NS       (20L*1000L*1000L)
+#define FD_GUI_VOTE_BATCH_EPS_STAKE_BPS   (100UL)
+
+struct fd_gui_vote_batch_pt {
+  long  ts_ns;
+  ulong stake;
+  ulong kind; /* AG_VOTE_KIND_* */
+};
+typedef struct fd_gui_vote_batch_pt fd_gui_vote_batch_pt_t;
 
 struct fd_gui_store_vote {
   long  insert_time_ns;
@@ -1754,6 +1797,22 @@ struct fd_gui {
     } parent_ready[ FD_GUI_VOTE_SLOT_CNT ];
     ulong dropped_cnt;     /* malformed, or markers for a slot older than the tracked ones */
     ulong lat_missing_cnt; /* certs not sampled: no ParentReady or slot duration for the window, or arrival before the slot start */
+    /* Buffered votes per recent slot, indexed by slot%FD_GUI_VOTE_SLOT_CNT
+       (see FD_GUI_VOTE_BATCH_*). */
+    struct {
+      ulong                  slot;        /* ULONG_MAX if unused */
+      ulong                  total_stake; /* of the latest buffered vote */
+      long                   first_ns;    /* receive time of the oldest buffered vote */
+      long                   last_ns;     /* receive time of the newest buffered vote */
+      ulong                  pt_cnt;
+      fd_gui_vote_batch_pt_t pt[ FD_GUI_VOTE_BATCH_PTS_MAX ];
+    } batch[ FD_GUI_VOTE_SLOT_CNT ];
+    ulong batch_late_cnt; /* votes for a slot older than the tracked one, recorded alone */
+    /* Flush scratch */
+    ulong batch_cum  [ FD_GUI_VOTE_BATCH_PTS_MAX ];
+    ulong batch_stack[ 2UL*FD_GUI_VOTE_BATCH_PTS_MAX ];
+    uchar batch_keep [ FD_GUI_VOTE_BATCH_PTS_MAX ];
+    fd_gui_store_vote_t batch_rows[ FD_GUI_VOTE_BATCH_PTS_MAX ];
   } votes;
 
   ulong leader_begin_slot;
@@ -1977,6 +2036,27 @@ fd_gui_handle_vote_event( fd_gui_t * gui,
                           uint       event,
                           long       ts_ns,
                           long       now );
+
+/* fd_gui_vote_batch_collect_open appends to rows (n in use, at most
+   max) the batch rows with ts_ns in [start,end) that the buffered
+   votes would flush to now, without flushing them.  Returns -1 past
+   max rows. */
+
+int
+fd_gui_vote_batch_collect_open( fd_gui_t *            gui,
+                                fd_gui_store_vote_t * rows,
+                                ulong *               n,
+                                ulong                 max,
+                                long                  start,
+                                long                  end );
+
+/* fd_gui_vote_batch_flush records the buffered votes of slots that are
+   due (all if force) as vote batches (see FD_GUI_VOTE_BATCH_*). */
+
+void
+fd_gui_vote_batch_flush( fd_gui_t * gui,
+                         long       now,
+                         int        force );
 
 /* fd_gui_timeline_handle_fec adds the shred counts of one completed FEC
    set to the calendar-day aggregates.  It ignores invalid input. */

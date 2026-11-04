@@ -68,6 +68,7 @@ static ulong const gui_db_type_idx[ FD_GUI_HIST_CNT ] = {
   [ FD_GUI_HIST_VOTE_EVENTS             ] = FD_METRICS_ENUM_GUI_DB_TYPE_V_VOTE_EVENTS_IDX,
   [ FD_GUI_HIST_REPLAY_LTHASH           ] = FD_METRICS_ENUM_GUI_DB_TYPE_V_REPLAY_LTHASH_IDX,
   [ FD_GUI_HIST_REPLAY_LTHASH_BATCH     ] = FD_METRICS_ENUM_GUI_DB_TYPE_V_REPLAY_LTHASH_BATCH_IDX,
+  [ FD_GUI_HIST_VOTE_BATCH              ] = FD_METRICS_ENUM_GUI_DB_TYPE_V_VOTE_BATCH_IDX,
 };
 
 #define IN_KIND_PACK_EXECLE   ( 2UL)
@@ -283,6 +284,7 @@ metrics_write( fd_gui_ctx_t * ctx ) {
 
   FD_MGAUGE_SET( GUI, DISK_ALLOCATED_BYTES, fd_gui_store_file_sz( ctx->db ) );
   FD_MCNT_SET( GUI, VOTE_RECORD_DROPPED, ctx->gui->votes.dropped_cnt );
+  FD_MCNT_SET( GUI, VOTE_BATCH_LATE, ctx->gui->votes.batch_late_cnt );
 
   ulong db_cnt = fd_gui_store_cnt( ctx->db );
 

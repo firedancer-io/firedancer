@@ -3235,10 +3235,11 @@ request window, ordered by slot.
 |-----------|-----------------|---------|
 | *Request* | `TimelineVotes` | below   |
 
-| param    | type     | description |
-|----------|----------|-------------|
-| start_ns | `string` | Inclusive lower bound, using the timestamp rules above |
-| end_ns   | `string` | Exclusive upper bound |
+| param       | type     | description |
+|-------------|----------|-------------|
+| start_ns    | `string` | Inclusive lower bound, using the timestamp rules above |
+| end_ns      | `string` | Exclusive upper bound |
+| granularity | `string` | Either `vote` (every vote) or `vote_batch` (vote batches). Required |
 
 Returns the Alpenglow vote activity whose timestamp lies in the request
 window as flat rows ordered by timestamp, like `query_shreds`.
@@ -3251,11 +3252,28 @@ Timestamps are the votor's wall clock. Each row has an `event`:
 | 10 - 14 | This validator broadcast its vote of kind `event - 10` |
 | 15 - 19 | The reward leader acknowledged this validator's reward vote of kind `event - 15` (notar and skip only) |
 | 20      | The leader window starting at the slot became ParentReady |
+| 21 - 25 | A vote batch of kind `event - 21` (as for 0 - 4), with `stake` (`vote_batch` only) |
 
-Rows 5 and up are markers: only the first of each per slot is kept.
+Rows 5 - 20 are markers: only the first of each per slot is kept.
+
+With `vote_batch`, vote rows (0 - 4) are replaced by vote batch rows
+(21 - 25); markers are the same. A slot's votes of one kind, summed in
+timestamp order, form a cumulative stake curve. The vote batches are
+its breakpoints, simplified with Douglas-Peucker so that no vote is
+further than 20 ms or 1% of the total stake (in those units) from the
+straight lines through them; the first and last vote of each curve are
+kept. A batch's `stake` is the stake added since the previous
+breakpoint of its curve (the first carries its own vote's), so batch
+stakes sum like the votes they replace, and drawing straight lines
+between the cumulative sums approximates the stake-weighted vote curve.
+Votes of a slot are batched while the slot is among the 64 most recent
+voted ones, up to 5 s after its last vote or 20 s after its first,
+and recent slots are simplified at query time, so a later query may
+return different breakpoints for them. A vote arriving after its slot
+was batched is a batch of its own.
 
 Each vote row is one vote, counted once per voter and kind. If the
-response also has votes for slots of the next epoch,
+response also has votes (or vote batches) for slots of the next epoch,
 `next_epoch_start_slot` is that epoch's first slot and
 `next_total_stake` its total stake; otherwise both are `null`.
 So the total stake for a vote row is `next_total_stake` if its slot is
@@ -3267,14 +3285,15 @@ the first timestamp. Both are `null` when the arrays are empty.
 **`TimelineVotes`**
 | field              | type                | description |
 |--------------------|---------------------|-------------|
-| available_start_ns | `string\|null`      | Inclusive beginning of retained votes |
-| available_end_ns   | `string\|null`      | Exclusive end of retained votes |
+| granularity        | `string`            | Echoes `vote` or `vote_batch` |
+| available_start_ns | `string\|null`      | Inclusive beginning of retained votes (vote batches for `vote_batch`) |
+| available_end_ns   | `string\|null`      | Exclusive end of retained votes (vote batches for `vote_batch`) |
 | reference_slot     | `number\|null`      | Lowest slot in the response |
 | reference_ts       | `string\|null`      | First timestamp in the response |
 | slot_delta         | `number[]`          | Per row, `slot - reference_slot` |
 | event              | `number[]`          | Per row, the event above |
 | event_ts_delta     | `string[]`          | Per row, timestamp minus `reference_ts`, in nanoseconds |
-| stake              | `(string\|null)[]`  | Per vote row, the voter's stake in lamports; `null` for markers |
+| stake              | `(string\|null)[]`  | Per vote row, the voter's stake in lamports; per vote batch row, the stake added since the previous breakpoint; `null` for markers |
 | total_stake        | `string\|null`      | Total stake in lamports of the epoch of the lowest voted slot; `null` without votes |
 | next_epoch_start_slot | `number\|null`   | First slot of the next epoch, if the response has votes for it |
 | next_total_stake   | `string\|null`      | Total stake in lamports of the next epoch, if the response has votes for it |
@@ -3288,7 +3307,8 @@ the first timestamp. Both are `null` when the arrays are empty.
     "id": 50,
     "params": {
         "start_ns": "1739657040000000000",
-        "end_ns": "1739657041000000000"
+        "end_ns": "1739657041000000000",
+        "granularity": "vote"
     }
 }
 ```
@@ -3299,6 +3319,7 @@ the first timestamp. Both are `null` when the arrays are empty.
     "key": "query_votes",
     "id": 50,
     "value": {
+        "granularity": "vote",
         "available_start_ns": "1739656000000000000",
         "available_end_ns": "1739657100000000001",
         "reference_slot": 1000,

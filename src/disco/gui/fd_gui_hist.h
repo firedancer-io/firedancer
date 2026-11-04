@@ -62,7 +62,8 @@ typedef struct fd_gui fd_gui_t;
 #define FD_GUI_HIST_VOTE_EVENTS             (19) /* (ts, ...)            */
 #define FD_GUI_HIST_REPLAY_LTHASH           (20) /* (ts, ...)            */
 #define FD_GUI_HIST_REPLAY_LTHASH_BATCH     (21) /* (ts, ...)            */
-#define FD_GUI_HIST_CNT                     (22)
+#define FD_GUI_HIST_VOTE_BATCH              (22) /* (ts, ...)            */
+#define FD_GUI_HIST_CNT                     (23)
 
 struct fd_gui_hist_metrics {
   /* Writes dropped after exhausting region or KV index capacity. */

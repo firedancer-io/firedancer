@@ -118,7 +118,8 @@
                 "votes":                   { "type": "UInt64", "compression": "T64, ZSTD", "description": "votes", "field_number": 491205299 },
                 "vote_events":             { "type": "UInt64", "compression": "T64, ZSTD", "description": "vote_events", "field_number": 518497421 },
                 "replay_lthash":           { "type": "UInt64", "compression": "T64, ZSTD", "description": "replay_lthash", "field_number": 481722946 },
-                "replay_lthash_batch":     { "type": "UInt64", "compression": "T64, ZSTD", "description": "replay_lthash_batch", "field_number": 349518129 }
+                "replay_lthash_batch":     { "type": "UInt64", "compression": "T64, ZSTD", "description": "replay_lthash_batch", "field_number": 349518129 },
+                "vote_batch":              { "type": "UInt64", "compression": "T64, ZSTD", "description": "vote_batch", "field_number": 323581678 }
             }
         },
         "db_allocated_bytes": {
@@ -147,7 +148,8 @@
                 "votes":                   { "type": "UInt64", "compression": "T64, ZSTD", "description": "votes", "field_number": 305491293 },
                 "vote_events":             { "type": "UInt64", "compression": "T64, ZSTD", "description": "vote_events", "field_number": 382048343 },
                 "replay_lthash":           { "type": "UInt64", "compression": "T64, ZSTD", "description": "replay_lthash", "field_number": 286268776 },
-                "replay_lthash_batch":     { "type": "UInt64", "compression": "T64, ZSTD", "description": "replay_lthash_batch", "field_number": 286720977 }
+                "replay_lthash_batch":     { "type": "UInt64", "compression": "T64, ZSTD", "description": "replay_lthash_batch", "field_number": 286720977 },
+                "vote_batch":              { "type": "UInt64", "compression": "T64, ZSTD", "description": "vote_batch", "field_number": 508237481 }
             }
         },
         "db_free_bytes":              { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Bytes of free regions not owned by any database ring" },
@@ -177,7 +179,8 @@
                 "votes":                   { "type": "UInt64", "compression": "T64, ZSTD", "description": "votes", "field_number": 488511084 },
                 "vote_events":             { "type": "UInt64", "compression": "T64, ZSTD", "description": "vote_events", "field_number": 361623073 },
                 "replay_lthash":           { "type": "UInt64", "compression": "T64, ZSTD", "description": "replay_lthash", "field_number": 288339412 },
-                "replay_lthash_batch":     { "type": "UInt64", "compression": "T64, ZSTD", "description": "replay_lthash_batch", "field_number": 403944190 }
+                "replay_lthash_batch":     { "type": "UInt64", "compression": "T64, ZSTD", "description": "replay_lthash_batch", "field_number": 403944190 },
+                "vote_batch":              { "type": "UInt64", "compression": "T64, ZSTD", "description": "vote_batch", "field_number": 458877128 }
             }
         },
         "db_record_allocated": {
@@ -206,14 +209,15 @@
                 "votes":                   { "type": "UInt64", "compression": "T64, ZSTD", "description": "votes", "field_number": 318592996 },
                 "vote_events":             { "type": "UInt64", "compression": "T64, ZSTD", "description": "vote_events", "field_number": 357416988 },
                 "replay_lthash":           { "type": "UInt64", "compression": "T64, ZSTD", "description": "replay_lthash", "field_number": 482523114 },
-                "replay_lthash_batch":     { "type": "UInt64", "compression": "T64, ZSTD", "description": "replay_lthash_batch", "field_number": 287601043 }
+                "replay_lthash_batch":     { "type": "UInt64", "compression": "T64, ZSTD", "description": "replay_lthash_batch", "field_number": 287601043 },
+                "vote_batch":              { "type": "UInt64", "compression": "T64, ZSTD", "description": "vote_batch", "field_number": 418432222 }
             }
         },
         "db_kv_queried": {
             "type": "Tuple",
             "description": "Key-value lookups (kv_get, kv_get_any, kv_iter_begin), by database",
             "aliases": {
-                "all": ["scheduler_counts", "tile_timers", "shred_events", "txn_start", "txn_end", "tower", "slot", "leader_slot", "epoch", "tile_stats", "txn_waterfall", "timeline_day", "replay_txn", "replay_txn_batch", "fec_events", "timeline_tile_day", "fec_event_archive", "replay_slot_state", "timeline_tile_state_day", "votes", "vote_events", "replay_lthash", "replay_lthash_batch"]
+                "all": ["scheduler_counts", "tile_timers", "shred_events", "txn_start", "txn_end", "tower", "slot", "leader_slot", "epoch", "tile_stats", "txn_waterfall", "timeline_day", "replay_txn", "replay_txn_batch", "fec_events", "timeline_tile_day", "fec_event_archive", "replay_slot_state", "timeline_tile_state_day", "votes", "vote_events", "replay_lthash", "replay_lthash_batch", "vote_batch"]
             },
             "fields": {
                 "scheduler_counts":        { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "scheduler_counts" },
@@ -238,14 +242,15 @@
                 "votes":                   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "votes", "field_number": 442916806 },
                 "vote_events":             { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "vote_events", "field_number": 461793653 },
                 "replay_lthash":           { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "replay_lthash", "field_number": 418228228 },
-                "replay_lthash_batch":     { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "replay_lthash_batch", "field_number": 327464105 }
+                "replay_lthash_batch":     { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "replay_lthash_batch", "field_number": 327464105 },
+                "vote_batch":              { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "vote_batch", "field_number": 351930835 }
             }
         },
         "db_time_series_record_appended": {
             "type": "Tuple",
             "description": "Time-series records appended, by database",
             "aliases": {
-                "all": ["scheduler_counts", "tile_timers", "shred_events", "txn_start", "txn_end", "tower", "slot", "leader_slot", "epoch", "tile_stats", "txn_waterfall", "timeline_day", "replay_txn", "replay_txn_batch", "fec_events", "timeline_tile_day", "fec_event_archive", "replay_slot_state", "timeline_tile_state_day", "votes", "vote_events", "replay_lthash", "replay_lthash_batch"]
+                "all": ["scheduler_counts", "tile_timers", "shred_events", "txn_start", "txn_end", "tower", "slot", "leader_slot", "epoch", "tile_stats", "txn_waterfall", "timeline_day", "replay_txn", "replay_txn_batch", "fec_events", "timeline_tile_day", "fec_event_archive", "replay_slot_state", "timeline_tile_state_day", "votes", "vote_events", "replay_lthash", "replay_lthash_batch", "vote_batch"]
             },
             "fields": {
                 "scheduler_counts":        { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "scheduler_counts" },
@@ -270,14 +275,15 @@
                 "votes":                   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "votes", "field_number": 296016993 },
                 "vote_events":             { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "vote_events", "field_number": 510849452 },
                 "replay_lthash":           { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "replay_lthash", "field_number": 301721470 },
-                "replay_lthash_batch":     { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "replay_lthash_batch", "field_number": 273054565 }
+                "replay_lthash_batch":     { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "replay_lthash_batch", "field_number": 273054565 },
+                "vote_batch":              { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "vote_batch", "field_number": 310103869 }
             }
         },
         "db_time_series_scanned": {
             "type": "Tuple",
             "description": "Time-series scans, by database",
             "aliases": {
-                "all": ["scheduler_counts", "tile_timers", "shred_events", "txn_start", "txn_end", "tower", "slot", "leader_slot", "epoch", "tile_stats", "txn_waterfall", "timeline_day", "replay_txn", "replay_txn_batch", "fec_events", "timeline_tile_day", "fec_event_archive", "replay_slot_state", "timeline_tile_state_day", "votes", "vote_events", "replay_lthash", "replay_lthash_batch"]
+                "all": ["scheduler_counts", "tile_timers", "shred_events", "txn_start", "txn_end", "tower", "slot", "leader_slot", "epoch", "tile_stats", "txn_waterfall", "timeline_day", "replay_txn", "replay_txn_batch", "fec_events", "timeline_tile_day", "fec_event_archive", "replay_slot_state", "timeline_tile_state_day", "votes", "vote_events", "replay_lthash", "replay_lthash_batch", "vote_batch"]
             },
             "fields": {
                 "scheduler_counts":        { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "scheduler_counts" },
@@ -302,14 +308,15 @@
                 "votes":                   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "votes", "field_number": 460468680 },
                 "vote_events":             { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "vote_events", "field_number": 345979548 },
                 "replay_lthash":           { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "replay_lthash", "field_number": 335405114 },
-                "replay_lthash_batch":     { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "replay_lthash_batch", "field_number": 392413418 }
+                "replay_lthash_batch":     { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "replay_lthash_batch", "field_number": 392413418 },
+                "vote_batch":              { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "vote_batch", "field_number": 395569381 }
             }
         },
         "db_time_series_record_read": {
             "type": "Tuple",
             "description": "Time-series records returned by scans, by database",
             "aliases": {
-                "all": ["scheduler_counts", "tile_timers", "shred_events", "txn_start", "txn_end", "tower", "slot", "leader_slot", "epoch", "tile_stats", "txn_waterfall", "timeline_day", "replay_txn", "replay_txn_batch", "fec_events", "timeline_tile_day", "fec_event_archive", "replay_slot_state", "timeline_tile_state_day", "votes", "vote_events", "replay_lthash", "replay_lthash_batch"]
+                "all": ["scheduler_counts", "tile_timers", "shred_events", "txn_start", "txn_end", "tower", "slot", "leader_slot", "epoch", "tile_stats", "txn_waterfall", "timeline_day", "replay_txn", "replay_txn_batch", "fec_events", "timeline_tile_day", "fec_event_archive", "replay_slot_state", "timeline_tile_state_day", "votes", "vote_events", "replay_lthash", "replay_lthash_batch", "vote_batch"]
             },
             "fields": {
                 "scheduler_counts":        { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "scheduler_counts" },
@@ -334,14 +341,15 @@
                 "votes":                   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "votes", "field_number": 274489242 },
                 "vote_events":             { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "vote_events", "field_number": 491821582 },
                 "replay_lthash":           { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "replay_lthash", "field_number": 309888520 },
-                "replay_lthash_batch":     { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "replay_lthash_batch", "field_number": 317130065 }
+                "replay_lthash_batch":     { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "replay_lthash_batch", "field_number": 317130065 },
+                "vote_batch":              { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "vote_batch", "field_number": 278072243 }
             }
         },
         "db_record_evicted": {
             "type": "Tuple",
             "description": "Records evicted from the database, by database",
             "aliases": {
-                "all": ["scheduler_counts", "tile_timers", "shred_events", "txn_start", "txn_end", "tower", "slot", "leader_slot", "epoch", "tile_stats", "txn_waterfall", "timeline_day", "replay_txn", "replay_txn_batch", "fec_events", "timeline_tile_day", "fec_event_archive", "replay_slot_state", "timeline_tile_state_day", "votes", "vote_events", "replay_lthash", "replay_lthash_batch"]
+                "all": ["scheduler_counts", "tile_timers", "shred_events", "txn_start", "txn_end", "tower", "slot", "leader_slot", "epoch", "tile_stats", "txn_waterfall", "timeline_day", "replay_txn", "replay_txn_batch", "fec_events", "timeline_tile_day", "fec_event_archive", "replay_slot_state", "timeline_tile_state_day", "votes", "vote_events", "replay_lthash", "replay_lthash_batch", "vote_batch"]
             },
             "fields": {
                 "scheduler_counts":        { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "scheduler_counts" },
@@ -366,14 +374,15 @@
                 "votes":                   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "votes", "field_number": 272288949 },
                 "vote_events":             { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "vote_events", "field_number": 441815466 },
                 "replay_lthash":           { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "replay_lthash", "field_number": 345380246 },
-                "replay_lthash_batch":     { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "replay_lthash_batch", "field_number": 345234220 }
+                "replay_lthash_batch":     { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "replay_lthash_batch", "field_number": 345234220 },
+                "vote_batch":              { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "vote_batch", "field_number": 406752164 }
             }
         },
         "db_eviction_pass_completed": {
             "type": "Tuple",
             "description": "Eviction passes that removed at least one record, by database",
             "aliases": {
-                "all": ["scheduler_counts", "tile_timers", "shred_events", "txn_start", "txn_end", "tower", "slot", "leader_slot", "epoch", "tile_stats", "txn_waterfall", "timeline_day", "replay_txn", "replay_txn_batch", "fec_events", "timeline_tile_day", "fec_event_archive", "replay_slot_state", "timeline_tile_state_day", "votes", "vote_events", "replay_lthash", "replay_lthash_batch"]
+                "all": ["scheduler_counts", "tile_timers", "shred_events", "txn_start", "txn_end", "tower", "slot", "leader_slot", "epoch", "tile_stats", "txn_waterfall", "timeline_day", "replay_txn", "replay_txn_batch", "fec_events", "timeline_tile_day", "fec_event_archive", "replay_slot_state", "timeline_tile_state_day", "votes", "vote_events", "replay_lthash", "replay_lthash_batch", "vote_batch"]
             },
             "fields": {
                 "scheduler_counts":        { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "scheduler_counts" },
@@ -398,14 +407,15 @@
                 "votes":                   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "votes", "field_number": 293818360 },
                 "vote_events":             { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "vote_events", "field_number": 398020774 },
                 "replay_lthash":           { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "replay_lthash", "field_number": 283578596 },
-                "replay_lthash_batch":     { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "replay_lthash_batch", "field_number": 335515448 }
+                "replay_lthash_batch":     { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "replay_lthash_batch", "field_number": 335515448 },
+                "vote_batch":              { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "vote_batch", "field_number": 426215030 }
             }
         },
         "db_region_claimed": {
             "type": "Tuple",
             "description": "Regions claimed from the free list, by database",
             "aliases": {
-                "all": ["scheduler_counts", "tile_timers", "shred_events", "txn_start", "txn_end", "tower", "slot", "leader_slot", "epoch", "tile_stats", "txn_waterfall", "timeline_day", "replay_txn", "replay_txn_batch", "fec_events", "timeline_tile_day", "fec_event_archive", "replay_slot_state", "timeline_tile_state_day", "votes", "vote_events", "replay_lthash", "replay_lthash_batch"]
+                "all": ["scheduler_counts", "tile_timers", "shred_events", "txn_start", "txn_end", "tower", "slot", "leader_slot", "epoch", "tile_stats", "txn_waterfall", "timeline_day", "replay_txn", "replay_txn_batch", "fec_events", "timeline_tile_day", "fec_event_archive", "replay_slot_state", "timeline_tile_state_day", "votes", "vote_events", "replay_lthash", "replay_lthash_batch", "vote_batch"]
             },
             "fields": {
                 "scheduler_counts":        { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "scheduler_counts" },
@@ -430,14 +440,15 @@
                 "votes":                   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "votes", "field_number": 335226746 },
                 "vote_events":             { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "vote_events", "field_number": 301994052 },
                 "replay_lthash":           { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "replay_lthash", "field_number": 333868648 },
-                "replay_lthash_batch":     { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "replay_lthash_batch", "field_number": 310099986 }
+                "replay_lthash_batch":     { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "replay_lthash_batch", "field_number": 310099986 },
+                "vote_batch":              { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "vote_batch", "field_number": 306291356 }
             }
         },
         "db_region_released": {
             "type": "Tuple",
             "description": "Regions returned to the free list, by database",
             "aliases": {
-                "all": ["scheduler_counts", "tile_timers", "shred_events", "txn_start", "txn_end", "tower", "slot", "leader_slot", "epoch", "tile_stats", "txn_waterfall", "timeline_day", "replay_txn", "replay_txn_batch", "fec_events", "timeline_tile_day", "fec_event_archive", "replay_slot_state", "timeline_tile_state_day", "votes", "vote_events", "replay_lthash", "replay_lthash_batch"]
+                "all": ["scheduler_counts", "tile_timers", "shred_events", "txn_start", "txn_end", "tower", "slot", "leader_slot", "epoch", "tile_stats", "txn_waterfall", "timeline_day", "replay_txn", "replay_txn_batch", "fec_events", "timeline_tile_day", "fec_event_archive", "replay_slot_state", "timeline_tile_state_day", "votes", "vote_events", "replay_lthash", "replay_lthash_batch", "vote_batch"]
             },
             "fields": {
                 "scheduler_counts":        { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "scheduler_counts" },
@@ -462,14 +473,15 @@
                 "votes":                   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "votes", "field_number": 509591564 },
                 "vote_events":             { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "vote_events", "field_number": 400569843 },
                 "replay_lthash":           { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "replay_lthash", "field_number": 310783957 },
-                "replay_lthash_batch":     { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "replay_lthash_batch", "field_number": 369754800 }
+                "replay_lthash_batch":     { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "replay_lthash_batch", "field_number": 369754800 },
+                "vote_batch":              { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "vote_batch", "field_number": 315817753 }
             }
         },
         "db_record_dropped": {
             "type": "Tuple",
             "description": "Records dropped because the database was full (MAP_FULL) or the KV index budget was exhausted (RING_FULL), by database",
             "aliases": {
-                "all": ["scheduler_counts", "tile_timers", "shred_events", "txn_start", "txn_end", "tower", "slot", "leader_slot", "epoch", "tile_stats", "txn_waterfall", "timeline_day", "replay_txn", "replay_txn_batch", "fec_events", "timeline_tile_day", "fec_event_archive", "replay_slot_state", "timeline_tile_state_day", "votes", "vote_events", "replay_lthash", "replay_lthash_batch"]
+                "all": ["scheduler_counts", "tile_timers", "shred_events", "txn_start", "txn_end", "tower", "slot", "leader_slot", "epoch", "tile_stats", "txn_waterfall", "timeline_day", "replay_txn", "replay_txn_batch", "fec_events", "timeline_tile_day", "fec_event_archive", "replay_slot_state", "timeline_tile_state_day", "votes", "vote_events", "replay_lthash", "replay_lthash_batch", "vote_batch"]
             },
             "fields": {
                 "scheduler_counts":        { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "scheduler_counts" },
@@ -494,14 +506,15 @@
                 "votes":                   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "votes", "field_number": 395245798 },
                 "vote_events":             { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "vote_events", "field_number": 452389892 },
                 "replay_lthash":           { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "replay_lthash", "field_number": 445724576 },
-                "replay_lthash_batch":     { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "replay_lthash_batch", "field_number": 523937571 }
+                "replay_lthash_batch":     { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "replay_lthash_batch", "field_number": 523937571 },
+                "vote_batch":              { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "vote_batch", "field_number": 313864174 }
             }
         },
         "db_forced_evict_write_completed": {
             "type": "Tuple",
             "description": "Writes that evicted records before succeeding, by database",
             "aliases": {
-                "all": ["scheduler_counts", "tile_timers", "shred_events", "txn_start", "txn_end", "tower", "slot", "leader_slot", "epoch", "tile_stats", "txn_waterfall", "timeline_day", "replay_txn", "replay_txn_batch", "fec_events", "timeline_tile_day", "fec_event_archive", "replay_slot_state", "timeline_tile_state_day", "votes", "vote_events", "replay_lthash", "replay_lthash_batch"]
+                "all": ["scheduler_counts", "tile_timers", "shred_events", "txn_start", "txn_end", "tower", "slot", "leader_slot", "epoch", "tile_stats", "txn_waterfall", "timeline_day", "replay_txn", "replay_txn_batch", "fec_events", "timeline_tile_day", "fec_event_archive", "replay_slot_state", "timeline_tile_state_day", "votes", "vote_events", "replay_lthash", "replay_lthash_batch", "vote_batch"]
             },
             "fields": {
                 "scheduler_counts":        { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "scheduler_counts" },
@@ -526,9 +539,11 @@
                 "votes":                   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "votes", "field_number": 470569167 },
                 "vote_events":             { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "vote_events", "field_number": 456545346 },
                 "replay_lthash":           { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "replay_lthash", "field_number": 276547823 },
-                "replay_lthash_batch":     { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "replay_lthash_batch", "field_number": 316700139 }
+                "replay_lthash_batch":     { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "replay_lthash_batch", "field_number": 316700139 },
+                "vote_batch":              { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "vote_batch", "field_number": 281829997 }
             }
         },
-        "vote_record_dropped":        { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Votes track records dropped because they were malformed, or markers for a slot older than the recently tracked slots", "field_number": 286774468 }
+        "vote_record_dropped":        { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Votes track records dropped because they were malformed, or markers for a slot older than the recently tracked slots", "field_number": 286774468 },
+        "vote_batch_late":            { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Votes for a slot older than the recently tracked slots, recorded as a vote batch of their own", "field_number": 435935594 }
     }
 }

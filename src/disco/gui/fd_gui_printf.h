@@ -105,6 +105,7 @@ int
 fd_gui_printf_timeline_query_votes( fd_gui_t * gui,
                                     long       start,
                                     long       end,
+                                    int        batch, /* vote batches instead of votes */
                                     ulong      id );
 
 int

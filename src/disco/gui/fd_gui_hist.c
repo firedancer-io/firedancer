@@ -70,6 +70,7 @@ fd_gui_hist_dbi_ts_off( int dbi ) {
     case FD_GUI_HIST_REPLAY_LTHASH_BATCH: return offsetof( fd_gui_store_replay_lthash_batch_t, insert_time_ns );
     case FD_GUI_HIST_VOTES:            return offsetof( fd_gui_store_vote_t,       insert_time_ns    );
     case FD_GUI_HIST_VOTE_EVENTS:      return offsetof( fd_gui_store_vote_t,       insert_time_ns    );
+    case FD_GUI_HIST_VOTE_BATCH:       return offsetof( fd_gui_store_vote_t,       insert_time_ns    );
     default:                           return 0UL;
   }
 }
@@ -97,6 +98,7 @@ fd_gui_hist_keyshape( int dbi ) {
     case FD_GUI_HIST_REPLAY_LTHASH_BATCH:
     case FD_GUI_HIST_VOTES:
     case FD_GUI_HIST_VOTE_EVENTS:
+    case FD_GUI_HIST_VOTE_BATCH:
     case FD_GUI_HIST_TIMELINE_DAY:     return FD_GUI_HIST_KEYSHAPE_TIMESERIES;
     case FD_GUI_HIST_SLOT:
     case FD_GUI_HIST_LEADER_SLOT:      return FD_GUI_HIST_KEYSHAPE_SLOT_BANK;
@@ -218,7 +220,8 @@ fd_gui_hist_rec_sz( int dbi ) {
     case FD_GUI_HIST_REPLAY_LTHASH_BATCH: return sizeof(fd_gui_store_replay_lthash_batch_t);
     case FD_GUI_HIST_TIMELINE_TILE_STATE_DAY: return sizeof(fd_gui_timeline_tile_state_day_t);
     case FD_GUI_HIST_VOTES:
-    case FD_GUI_HIST_VOTE_EVENTS:      return sizeof(fd_gui_store_vote_t);
+    case FD_GUI_HIST_VOTE_EVENTS:
+    case FD_GUI_HIST_VOTE_BATCH:       return sizeof(fd_gui_store_vote_t);
     default:                           return 0UL;
   }
 }
@@ -352,7 +355,7 @@ fd_gui_hist_db_descs( fd_gui_store_desc_t descs[ static FD_GUI_HIST_CNT ],
     "txn_waterfall", "timeline_day", "replay_txn", "replay_txn_batch",
     "fec_events", "timeline_tile_day", "fec_event_archive",
     "replay_slot_state", "timeline_tile_state_day", "votes", "vote_events", "replay_lthash",
-    "replay_lthash_batch"
+    "replay_lthash_batch", "vote_batch"
   };
 
   for( int i=0; i<FD_GUI_HIST_CNT; i++ ) descs[ i ].base_regions = fd_gui_hist_base_regions( i );

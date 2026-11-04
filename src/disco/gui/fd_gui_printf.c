@@ -3471,12 +3471,14 @@ fd_gui_timeline_scan( fd_gui_t *           gui,
   /* Batches, slot states and lthash tasks are inserted after they end,
      so only the upper bound needs a margin.  shortcut: one ending more
      than the margin after the window is missed, widen if seen. */
-  int  votor = dbi==FD_GUI_HIST_VOTES || dbi==FD_GUI_HIST_VOTE_EVENTS;
+  int  votor = dbi==FD_GUI_HIST_VOTES || dbi==FD_GUI_HIST_VOTE_EVENTS || dbi==FD_GUI_HIST_VOTE_BATCH;
   int  late  = dbi==FD_GUI_HIST_REPLAY_TXN_BATCH || dbi==FD_GUI_HIST_REPLAY_SLOT_STATE ||
                dbi==FD_GUI_HIST_REPLAY_LTHASH || dbi==FD_GUI_HIST_REPLAY_LTHASH_BATCH || votor;
   /* Votes carry the votor's clock, so allow for skew below too. */
   long lo   = late && !votor ? start : fd_long_sat_sub( start, FD_GUI_HIST_RES_1S_NS );
-  long hi   = fd_long_sat_add( end-1L, late ? FD_GUI_TXN_BATCH_QUERY_MARGIN_NS : FD_GUI_HIST_RES_1S_NS );
+  long margin = dbi==FD_GUI_HIST_VOTE_BATCH ? FD_GUI_VOTE_BATCH_QUERY_MARGIN_NS :
+               ( late ? FD_GUI_TXN_BATCH_QUERY_MARGIN_NS : FD_GUI_HIST_RES_1S_NS );
+  long hi   = fd_long_sat_add( end-1L, margin );
   return fd_gui_hist_range_begin( gui, it, dbi, fd_long_max( LONG_MIN+1L, lo ), fd_long_min( LONG_MAX-1L, hi ), NULL, NULL );
 }
 
@@ -4091,6 +4093,7 @@ int
 fd_gui_printf_timeline_query_votes( fd_gui_t * gui,
                                     long       start,
                                     long       end,
+                                    int        batch,
                                     ulong      id ) {
   char const * key = "query_votes";
   if( FD_UNLIKELY( start<0L || end<=start || end==LONG_MAX ) ) return -1;
@@ -4098,12 +4101,14 @@ fd_gui_printf_timeline_query_votes( fd_gui_t * gui,
   ulong n     = 0UL;
   int   limit = 0;
   if( gui->db && gui->hist ) {
-    int dbs[ 2 ] = { FD_GUI_HIST_VOTE_EVENTS, FD_GUI_HIST_VOTES };
+    int dbs[ 2 ] = { FD_GUI_HIST_VOTE_EVENTS, batch ? FD_GUI_HIST_VOTE_BATCH : FD_GUI_HIST_VOTES };
     for( int i=0; i<2 && !limit; i++ ) {
       fd_gui_hist_iter_t it;
       if( FD_UNLIKELY( fd_gui_timeline_scan( gui, &it, dbs[ i ], start, end ) ) ) return -1;
       limit = fd_gui_timeline_votes_collect( &it, rows, &n, start, end );
     }
+    /* Votes not yet flushed, as the batches they will flush to. */
+    if( batch && !limit ) limit = fd_gui_vote_batch_collect_open( gui, rows, &n, FD_GUI_TIMELINE_QUERY_VOTE_MAX, start, end );
   }
   if( FD_UNLIKELY( limit ) ) {
     fd_gui_timeline_limit( gui, key, id );
@@ -4116,7 +4121,8 @@ fd_gui_printf_timeline_query_votes( fd_gui_t * gui,
   jsonp_open_envelope( gui->http, "timeline", key );
   jsonp_ulong( gui->http, "id", id );
   jsonp_open_object( gui->http, "value" );
-  fd_gui_timeline_bounds( gui, FD_GUI_HIST_VOTES );
+  jsonp_string( gui->http, "granularity", batch ? "vote_batch" : "vote" );
+  fd_gui_timeline_bounds( gui, batch ? FD_GUI_HIST_VOTE_BATCH : FD_GUI_HIST_VOTES );
   if( n ) {
     jsonp_ulong( gui->http, "reference_slot", refslot );
     jsonp_long_as_str( gui->http, "reference_ts", rows[ 0 ].ts_ns );
@@ -4135,8 +4141,8 @@ fd_gui_printf_timeline_query_votes( fd_gui_t * gui,
   jsonp_close_array( gui->http );
   jsonp_open_array( gui->http, "stake" );
   for( ulong i=0UL; i<n; i++ ) {
-    if( rows[ i ].event<FD_GUI_VOTE_EVENT_CERT ) jsonp_ulong_as_str( gui->http, NULL, rows[ i ].stake );
-    else                                         jsonp_null( gui->http, NULL );
+    if( fd_gui_vote_event_has_stake( rows[ i ].event ) ) jsonp_ulong_as_str( gui->http, NULL, rows[ i ].stake );
+    else                                                 jsonp_null( gui->http, NULL );
   }
   jsonp_close_array( gui->http );
   /* Total stake only changes at epoch boundaries, so it is reported
@@ -4145,7 +4151,7 @@ fd_gui_printf_timeline_query_votes( fd_gui_t * gui,
      next_epoch_start_slot on. */
   ulong lo_vote = ULONG_MAX; /* row of the lowest voted slot */
   for( ulong i=0UL; i<n; i++ ) {
-    if( rows[ i ].event>=FD_GUI_VOTE_EVENT_CERT ) continue;
+    if( !fd_gui_vote_event_has_stake( rows[ i ].event ) ) continue;
     if( lo_vote==ULONG_MAX || rows[ i ].slot<rows[ lo_vote ].slot ) lo_vote = i;
   }
   ulong next_slot0 = ULONG_MAX;
@@ -4154,7 +4160,7 @@ fd_gui_printf_timeline_query_votes( fd_gui_t * gui,
     ulong epoch = fd_slot_to_epoch( &gui->epoch.epoch_schedule, rows[ lo_vote ].slot, NULL );
     next_slot0  = fd_epoch_slot0( &gui->epoch.epoch_schedule, epoch+1UL );
     for( ulong i=0UL; i<n && next_vote==ULONG_MAX; i++ ) {
-      if( rows[ i ].event<FD_GUI_VOTE_EVENT_CERT && rows[ i ].slot>=next_slot0 ) next_vote = i;
+      if( fd_gui_vote_event_has_stake( rows[ i ].event ) && rows[ i ].slot>=next_slot0 ) next_vote = i;
     }
   }
   if( lo_vote!=ULONG_MAX ) jsonp_ulong_as_str( gui->http, "total_stake", rows[ lo_vote ].total_stake );
