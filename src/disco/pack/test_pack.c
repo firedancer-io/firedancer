@@ -1213,6 +1213,100 @@ test_penalty_end_block_bit_cleared( void ) {
 }
 
 static void
+insert_penalty_expiry_transaction( fd_pack_t * pack,
+                                  ulong       id,
+                                  ulong       expiry,
+                                  double      priority,
+                                  char const * writes,
+                                  char const * reads ) {
+  make_transaction( id, 1000U, 1024U, priority, writes, reads, NULL, NULL );
+  fd_txn_e_t * slot = fd_pack_insert_txn_init( pack );
+  memcpy( slot->txnp, &txnp_scratch[id], sizeof(fd_txn_p_t) );
+  ulong deleted;
+  FD_TEST( fd_pack_insert_txn_fini( pack, slot, expiry, &deleted )>=0 && !deleted );
+}
+
+static void
+test_penalty_readonly_deletion( void ) {
+  FD_LOG_NOTICE(( "TEST PENALTY READONLY DELETION" ));
+  /* No execution is needed to strand a penalized writer: its pending
+     readers can expire first.  Cover explicit deletion, the strict64/65
+     threshold, writer-first expiry, active read/write locks, and moving
+     only one best writer per deletion across one or two hot accounts. */
+  for( ulong scenario=0UL; scenario<8UL; scenario++ ) {
+    FD_LOG_NOTICE(( "penalty readonly deletion scenario %lu", scenario ));
+    fd_pack_t * pack = init_all( 256UL, 20UL, 4UL, &outcome );
+    ulong readers = scenario==2UL ? 64UL : 65UL;
+    int two_writers = scenario>=6UL;
+    for( ulong i=0UL; i<readers; i++ ) {
+      int active_writer = scenario==4UL && !i;
+      insert_penalty_expiry_transaction( pack, i, scenario==3UL || active_writer ? 100UL : 10UL,
+                                        active_writer ? 8.0 : 1.0, active_writer ? "X" : "",
+                                        active_writer ? "" : (scenario==7UL ? "XY" : "X") );
+    }
+    insert_penalty_expiry_transaction( pack, 100UL, scenario==3UL ? 50UL : 100UL, 12.0, "X", "" );
+    if( two_writers ) insert_penalty_expiry_transaction( pack, 101UL, 101UL, 10.0, scenario==7UL ? "Y" : "X", "" );
+    check_penalty_pending( pack, readers+(ulong)(readers==64UL), readers==64UL ? 0UL : 1UL+(ulong)two_writers );
+
+    if( scenario==3UL ) {
+      FD_TEST( fd_pack_expire_before( pack, 51UL )==1UL );
+      check_penalty_pending( pack, 65UL, 0UL );
+      FD_TEST( fd_pack_expire_before( pack, 101UL )==65UL );
+    } else {
+      ulong scheduled = 0UL;
+      if( scenario==4UL || scenario==5UL ) {
+        scheduled = fd_pack_schedule_next_microblock( pack, 1000000UL, 0UL, FD_PACK_SCHEDULE_TXN, outcome.results );
+        FD_TEST( scheduled==(scenario==4UL ? 1UL : 4UL) );
+        if( scenario==4UL ) FD_TEST( fd_ulong_load_8( outcome.results[0].txnp->payload+1UL )==0UL );
+      }
+      if( two_writers ) {
+        FD_TEST( fd_pack_delete_transaction( pack, txnp_get_signatures( &txnp_scratch[0] ) )==1UL );
+        check_penalty_pending( pack, 65UL, 1UL ); /* one best moved; the other remains */
+      }
+      if( scenario==1UL ) {
+        for( ulong i=0UL; i<readers; i++ ) {
+          FD_TEST( fd_pack_delete_transaction( pack, txnp_get_signatures( &txnp_scratch[i] ) )==1UL );
+          check_penalty_pending( pack, readers-i, 0UL );
+        }
+      } else {
+        FD_TEST( fd_pack_expire_before( pack, 11UL )==readers-scheduled-(ulong)two_writers );
+      }
+      check_penalty_pending( pack, 1UL+(ulong)two_writers, 0UL );
+      FD_TEST( !fd_pack_expire_before( pack, 100UL ) ); /* strict expiry; writer100 is still live */
+      if( scheduled ) {
+        /* Early promotion changes eligibility, never an actual bank lock. */
+        FD_TEST( !fd_pack_schedule_next_microblock( pack, 1000000UL, 1UL, FD_PACK_SCHEDULE_TXN, outcome.results ) );
+        check_penalty_pending( pack, 1UL, 0UL );
+        FD_TEST( fd_pack_microblock_complete( pack, 0UL )==1 );
+      } else {
+        /* Empty account-use lists: the prior reset fix cannot cause this
+           promotion.  A repeated reset must preserve the eligible writers. */
+        fd_pack_end_block( pack );
+        check_penalty_pending( pack, 1UL+(ulong)two_writers, 0UL );
+      }
+      ulong n = fd_pack_schedule_next_microblock( pack, 1000000UL, 0UL, FD_PACK_SCHEDULE_TXN, outcome.results );
+      FD_TEST( n==(scenario==7UL ? 2UL : 1UL) );
+      FD_TEST( fd_ulong_load_8( outcome.results[0].txnp->payload+1UL )==100UL );
+      if( scenario==7UL ) FD_TEST( fd_ulong_load_8( outcome.results[1].txnp->payload+1UL )==101UL );
+      if( scenario==6UL ) {
+        check_penalty_pending( pack, 1UL, 0UL );
+        FD_TEST( !fd_pack_schedule_next_microblock( pack, 1000000UL, 1UL, FD_PACK_SCHEDULE_TXN, outcome.results ) );
+      }
+      FD_TEST( fd_pack_microblock_complete( pack, 0UL )==1 );
+      if( scenario==6UL ) {
+        FD_TEST( fd_pack_schedule_next_microblock( pack, 1000000UL, 0UL, FD_PACK_SCHEDULE_TXN, outcome.results )==1UL );
+        FD_TEST( fd_ulong_load_8( outcome.results[0].txnp->payload+1UL )==101UL );
+        FD_TEST( fd_pack_microblock_complete( pack, 0UL )==1 );
+      }
+    }
+    check_penalty_pending( pack, 0UL, 0UL );
+    fd_pack_clear_all( pack );
+    FD_TEST( !fd_pack_verify( pack, pack_verify_scratch ) );
+    fd_pack_delete( fd_pack_leave( pack ) );
+  }
+}
+
+static void
 test_gap( void ) {
   FD_LOG_NOTICE(( "TEST GAP" ));
 
@@ -1925,6 +2019,7 @@ main( int     argc,
   test_expiration();
   test_penalty_end_block();
   test_penalty_end_block_bit_cleared();
+  test_penalty_readonly_deletion();
   test_gap();
   test_limits();
   test_reject_writes_to_sysvars();

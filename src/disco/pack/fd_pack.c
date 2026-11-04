@@ -3085,7 +3085,9 @@ delete_transaction( fd_pack_t         * pack,
     fd_pack_ord_txn_t       * best         = NULL;
     fd_pack_penalty_treap_t * best_penalty = NULL;
 
-    for( fd_txn_acct_iter_t iter=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_WRITABLE );
+    /* Pending readers also contribute to the penalty threshold.  Their
+       deletion must make a conflicting writer eligible for scheduling. */
+    for( fd_txn_acct_iter_t iter=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_ALL );
         iter!=fd_txn_acct_iter_end(); iter=fd_txn_acct_iter_next( iter ) ) {
       fd_pack_penalty_treap_t * p_trp = penalty_map_query( pack->penalty_treaps, *ACCT_ITER_TO_PTR( iter ), NULL );
       if( FD_UNLIKELY( p_trp ) ) {
