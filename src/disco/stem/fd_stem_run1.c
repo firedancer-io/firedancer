@@ -53,6 +53,14 @@ STEM_(STEM_RUN1_NAME)( ulong                        in_cnt,
   long   sleep_cap_ticks      = (long)((double)FD_SLEEP_PARK_CAP_NS*sleep_tick_per_ns);
   long   sleep_min_ticks      = (long)((double)FD_SLEEP_PARK_MIN_NS*sleep_tick_per_ns);
   ulong  sleep_idle_streak    = 0UL;
+  ulong  sleep_progress       = 0UL; /* bumped on progress or a park, either ends every blocked mark */
+#ifdef STEM_CALLBACK_RETURNABLE_FRAG
+  fd_stem_blocked_t   _sleep_blocked[ in_cnt ? in_cnt : 1UL ]; /* by in idx */
+  fd_stem_blocked_t * sleep_blocked = _sleep_blocked;
+  for( ulong i=0UL; i<in_cnt; i++ ) sleep_blocked[ i ] = (fd_stem_blocked_t){ .seq = ULONG_MAX, .progress = ULONG_MAX };
+#else
+  fd_stem_blocked_t * sleep_blocked = NULL; /* only a returnable_frag blocks */
+#endif
 #endif
 
   if( FD_UNLIKELY( !scratch ) ) FD_LOG_ERR(( "NULL scratch" ));
@@ -321,6 +329,9 @@ STEM_(STEM_RUN1_NAME)( ulong                        in_cnt,
     int charge_busy_before = 0;
 #ifdef STEM_CALLBACK_BEFORE_CREDIT
     STEM_CALLBACK_BEFORE_CREDIT( ctx, &stem, &charge_busy_before );
+#if STEM_SLEEP_PARKS
+    sleep_progress += (ulong)!!charge_busy_before;
+#endif
 #endif
 
   /* Check if we are backpressured.  If so, count any transition into
@@ -347,7 +358,7 @@ STEM_(STEM_RUN1_NAME)( ulong                        in_cnt,
       sleep_idle_streak++;
       if( FD_UNLIKELY( sleep_idle_streak>=in_cnt && (now-linger_start)>sleep_linger_ticks ) ) {
         sleep_idle_streak = 0UL;
-        STEM_(park_attempt)( ctx, sleep, in, in_cnt, out_mcache, out_cnt, out_depth, out_seq, out_seq_pub, cr_avail, &min_cr_avail, cr_max,
+        sleep_progress += (ulong)STEM_(park_attempt)( ctx, sleep, in, in_cnt, sleep_blocked, sleep_progress, out_mcache, out_cnt, out_depth, out_seq, out_seq_pub, cr_avail, &min_cr_avail, cr_max,
                              cons_cnt, cons_fseq, cons_seq, cons_out, cons_slow, event_cnt, event_map, &event_seq, async_min, hk_due,
                              sleep_cap_ticks, sleep_min_ticks, sleep_tick_per_ns, metric_regime_ticks, &now, &then,
                              FD_METRICS_ENUM_TILE_REGIME_V_BACKPRESSURE_SLEEPING_IDX, 1, then );
@@ -361,6 +372,9 @@ STEM_(STEM_RUN1_NAME)( ulong                        in_cnt,
 #ifdef STEM_CALLBACK_AFTER_CREDIT
     int poll_in = 1;
     STEM_CALLBACK_AFTER_CREDIT( ctx, &stem, &poll_in, &charge_busy_after );
+#if STEM_SLEEP_PARKS
+    sleep_progress += (ulong)( !!charge_busy_after | !poll_in );
+#endif
     if( FD_UNLIKELY( !poll_in ) ) {
       metric_regime_ticks[1] += housekeeping_ticks;
       long next = fd_tickcount();
@@ -390,7 +404,7 @@ STEM_(STEM_RUN1_NAME)( ulong                        in_cnt,
       } else {
         if( FD_UNLIKELY( (now-linger_start)>sleep_linger_ticks ) ) {
           sleep_idle_streak = 0UL;
-          STEM_(park_attempt)( ctx, sleep, in, in_cnt, out_mcache, out_cnt, out_depth, out_seq, out_seq_pub, cr_avail, &min_cr_avail, cr_max,
+          sleep_progress += (ulong)STEM_(park_attempt)( ctx, sleep, in, in_cnt, sleep_blocked, sleep_progress, out_mcache, out_cnt, out_depth, out_seq, out_seq_pub, cr_avail, &min_cr_avail, cr_max,
                                cons_cnt, cons_fseq, cons_seq, cons_out, cons_slow, event_cnt, event_map, &event_seq, async_min, hk_due,
                                sleep_cap_ticks, sleep_min_ticks, sleep_tick_per_ns, metric_regime_ticks, &now, &then,
                                FD_METRICS_ENUM_TILE_REGIME_V_CAUGHT_UP_SLEEPING_IDX, 0, LONG_MAX );
@@ -459,7 +473,12 @@ STEM_(STEM_RUN1_NAME)( ulong                        in_cnt,
     ulong sig       = FD_VOLATILE_CONST( this_in_mline->sig );
 #endif
     long diff = fd_seq_diff( this_in_seq, seq_found );
-    if( FD_UNLIKELY( diff ) ) { /* Caught up or overrun, optimize for new frag case */
+#if STEM_SLEEP_PARKS && defined(STEM_CALLBACK_RETURNABLE_FRAG)
+    int blocked = STEM_(in_blocked)( sleep_blocked, this_in, sleep_progress ); /* a blocked head counts as caught up */
+#else
+    int blocked = 0;
+#endif
+    if( FD_UNLIKELY( diff || blocked ) ) { /* Caught up or overrun, optimize for new frag case */
 #ifdef STEM_STICKY_POLL_MAX
       sticky_rem = 0UL;
 #endif
@@ -493,7 +512,7 @@ STEM_(STEM_RUN1_NAME)( ulong                        in_cnt,
         sleep_idle_streak++;
         if( FD_UNLIKELY( sleep_idle_streak>=in_cnt && (now-linger_start)>sleep_linger_ticks ) ) {
           sleep_idle_streak = 0UL;
-          STEM_(park_attempt)( ctx, sleep, in, in_cnt, out_mcache, out_cnt, out_depth, out_seq, out_seq_pub, cr_avail, &min_cr_avail, cr_max,
+          sleep_progress += (ulong)STEM_(park_attempt)( ctx, sleep, in, in_cnt, sleep_blocked, sleep_progress, out_mcache, out_cnt, out_depth, out_seq, out_seq_pub, cr_avail, &min_cr_avail, cr_max,
                                cons_cnt, cons_fseq, cons_seq, cons_out, cons_slow, event_cnt, event_map, &event_seq, async_min, hk_due,
                                sleep_cap_ticks, sleep_min_ticks, sleep_tick_per_ns, metric_regime_ticks, &now, &then,
                                FD_METRICS_ENUM_TILE_REGIME_V_CAUGHT_UP_SLEEPING_IDX, 0, LONG_MAX );
@@ -535,6 +554,7 @@ STEM_(STEM_RUN1_NAME)( ulong                        in_cnt,
     } else if( FD_UNLIKELY( filter>0 ) ) {
 #if STEM_SLEEP_PARKS
       linger_start = now;
+      sleep_progress++;
 #endif
       this_in->accum[ FD_METRICS_COUNTER_LINK_FRAG_FILTERED_OFF ]++;
       this_in->accum[ FD_METRICS_COUNTER_LINK_FRAG_FILTERED_BYTES_OFF ] += (uint)this_in_mline->sz; /* TODO: This might be overrun ... ? Not loaded atomically */
@@ -609,6 +629,9 @@ STEM_(STEM_RUN1_NAME)( ulong                        in_cnt,
 #ifdef STEM_CALLBACK_RETURNABLE_FRAG
     int return_frag = STEM_CALLBACK_RETURNABLE_FRAG( ctx, (ulong)this_in->idx, seq_found, sig, chunk, sz, ctl, tsorig, tspub, &stem );
     if( FD_UNLIKELY( return_frag ) ) {
+#if STEM_SLEEP_PARKS
+      if( FD_UNLIKELY( return_frag==FD_STEM_FRAG_BLOCKED ) ) sleep_blocked[ this_in->idx ] = (fd_stem_blocked_t){ .seq = this_in_seq, .progress = sleep_progress };
+#endif
       metric_regime_ticks[1] += housekeeping_ticks;
       metric_regime_ticks[4] += prefrag_ticks;
       long next = fd_tickcount();
@@ -630,6 +653,9 @@ STEM_(STEM_RUN1_NAME)( ulong                        in_cnt,
 
     this_in->accum[ FD_METRICS_COUNTER_LINK_FRAG_CONSUMED_OFF ]++;
     this_in->accum[ FD_METRICS_COUNTER_LINK_FRAG_CONSUMED_BYTES_OFF ] += (uint)sz;
+#if STEM_SLEEP_PARKS
+    sleep_progress++;
+#endif
 
 #ifdef STEM_STICKY_POLL_MAX
     sticky_in  = this_in_rr ? this_in : sticky_in; /* cmov */

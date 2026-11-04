@@ -234,6 +234,7 @@ struct fd_replay_tile {
   fd_sched_t * sched;
   ulong        in_cnt;
   ulong        execrp_idle_cnt;
+  int          sched_full;      /* last rotor FEC waited on sched capacity */
 
   fd_bank_lthash_rec_t lthash_rec[ 1 ];
   fd_execrp_result_t * execrp_result; /* One entry per exec tile. */

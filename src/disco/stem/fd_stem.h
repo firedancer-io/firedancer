@@ -58,6 +58,25 @@ struct __attribute__((aligned(64))) fd_stem_tile_in {
 
 typedef struct fd_stem_tile_in fd_stem_tile_in_t;
 
+/* FD_STEM_FRAG_BLOCKED is a RETURNABLE_FRAG return: keep the frag, and
+   the in is blocked on it.  A parking stem treats the in as caught up,
+   so it may park, and retries the frag only after it makes progress
+   elsewhere (a frag consumed or filtered on another in, a busy
+   before_credit or after_credit) or wakes from a park.  A spinning
+   stem retries it as for 1. */
+
+#define FD_STEM_FRAG_BLOCKED (2)
+
+/* A parking stem's mark of an in's blocked head frag.  It holds while
+   the in is still at seq and the stem made no progress since. */
+
+struct fd_stem_blocked {
+  ulong seq;      /* in seq of the blocked frag */
+  ulong progress; /* stem progress count when marked */
+};
+
+typedef struct fd_stem_blocked fd_stem_blocked_t;
+
 static inline ulong
 fd_stem_publish( fd_stem_context_t * stem,
                  ulong               out_idx,
