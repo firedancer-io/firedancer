@@ -1505,8 +1505,9 @@ fd_executor_setup_age_failure( fd_runtime_t *      runtime,
      is padded up to the account-size limit.  Retain this read-only handle
      for the ordinary age check on a guaranteed failure; never acquire the
      unrelated payer or implicit ProgramData in this path.  A matching
-     initialized current nonce releases the probe and uses ordinary setup,
-     including its authority, fee and rollback checks. */
+     initialized current nonce with an authority signer in the first
+     instruction releases the probe and uses ordinary setup, including
+     its fee and rollback checks. */
   fd_acc_t nonce;
   if( nonce_idx!=ULONG_MAX ) {
     nonce = fd_accdb_read_one( runtime->accdb, bank->accdb_fork_id, txn_out->accounts.keys[nonce_idx].uc );
@@ -1515,6 +1516,22 @@ fd_executor_setup_age_failure( fd_runtime_t *      runtime,
                       !fd_nonce_state_versions_decode( state, nonce.data, nonce.data_len ) &&
                       state->version==FD_NONCE_VERSION_CURRENT && state->kind==FD_NONCE_STATE_INITIALIZED &&
                       !memcmp( &state->durable_nonce, hash, sizeof(fd_hash_t) );
+    if( maybe_valid ) {
+      /* Match fd_check_transaction_age exactly: a transaction signer
+         authorizes this nonce only if it occurs in the first instruction
+         and equals the decoded authority.  A matching hash alone cannot
+         allow age checking to reach fee validation. */
+      maybe_valid = 0;
+      fd_txn_instr_t const * instr = &txn->instr[0];
+      uchar const * accts = fd_txn_get_instr_accts( instr, txn_in->txn->payload );
+      for( ushort i=0; i<instr->acct_cnt; i++ ) {
+        if( fd_txn_is_signer( txn, (int)accts[i] ) &&
+            fd_pubkey_eq( &txn_out->accounts.keys[accts[i]], &state->authority ) ) {
+          maybe_valid = 1;
+          break;
+        }
+      }
+    }
     if( maybe_valid ) {
       fd_accdb_unread_one( runtime->accdb, &nonce );
       return 0;
