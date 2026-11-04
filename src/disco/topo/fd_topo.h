@@ -622,6 +622,7 @@ struct fd_topo_tile {
       ulong  ping_cache_entries;
       ulong  max_shreds_per_block;
       ulong  blockdb_max; /* 0 disables the block metadata db */
+      ulong  sign_depth;
     } rserve;
 
     struct {
