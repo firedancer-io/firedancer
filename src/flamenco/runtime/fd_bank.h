@@ -386,7 +386,7 @@ struct fd_banks {
   int   report_runtime_diffs;        /* telemetry: emit the runtime events; report_runtime_diffs flag */
   ulong max_total_banks;             /* Maximum number of banks */
   ulong cache_cnt;                   /* In-memory entries of each disk backed per-fork store */
-  ulong max_stake_accounts;          /* Maximum number of stake accounts */
+  ulong max_stake_accounts;          /* In-memory stake delegation capacity */
   ulong max_vote_accounts;           /* Maximum number of vote accounts */
   ulong root_idx;                    /* root idx */
   ulong bank_seq;                    /* app-wide bank sequence number counter; starts at 1 (0 is reserved as an invalid bank_seq sentinel) */

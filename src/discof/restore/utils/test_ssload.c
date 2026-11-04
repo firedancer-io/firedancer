@@ -9,9 +9,9 @@
 
 /* Shorthand for the common validate call pattern using the production
    capacity limits.  fd_ssload_manifest_validate rejects calls where
-   the limits differ from FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS and
-   FD_RUNTIME_MAX_STAKE_ACCOUNTS. */
-#define VALIDATE_MANIFEST(m) fd_ssload_manifest_validate( (m), FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS, FD_RUNTIME_MAX_STAKE_ACCOUNTS )
+   max_vote_accounts differs from FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS or
+   max_stake_accounts is zero. */
+#define VALIDATE_MANIFEST(m) fd_ssload_manifest_validate( (m), FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS, FD_RUNTIME_STAKES_MEM_CNT )
 
 /* Set up the minimum valid manifest state so that all validation
    stages can be reached.  Adds 1 blockhash with hash_index=0 and
@@ -59,7 +59,7 @@ test_capacity_mismatch( fd_snapshot_manifest_t * manifest ) {
   /* Mismatched max_vote_accounts. */
   fd_memset( manifest, 0, sizeof(*manifest) );
   setup_valid_manifest_base( manifest );
-  FD_TEST( fd_ssload_manifest_validate( manifest, 100UL, FD_RUNTIME_MAX_STAKE_ACCOUNTS )==-1 );
+  FD_TEST( fd_ssload_manifest_validate( manifest, 100UL, FD_RUNTIME_STAKES_MEM_CNT )==-1 );
 
   /* Mismatched max_stake_accounts. */
   fd_memset( manifest, 0, sizeof(*manifest) );

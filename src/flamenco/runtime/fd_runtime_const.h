@@ -15,32 +15,24 @@ FD_PROTOTYPES_BEGIN
    amount of distinct accounts the transaction can access. */
 #define FD_INSTR_SIGNERS_MAX FD_TXN_ACCT_ADDR_MAX
 
-/* FD_RUNTIME_MAX_STAKE_ACCOUNTS is the maximum number of stake accounts
-   that the system supports: anything larger will result in a crash.
-   The bounds were set with the intention of making a dos vector to mint
-   stake accounts financially infeasible.  Similarly, the number of
-   stake accounts that the system supports is also the maximum number of
-   staked vote accounts that the system supports since in the worst case
-   we have one stake account per vote account.
+/* FD_RUNTIME_STAKES_MEM_CNT sizes the replay tile's per-delegation
+   rewards cache.  Rewards for delegations past it are recomputed rather
+   than cached.  (Unrelated to the stake delegation cache) */
 
-   Prior to the feature upgrade_bpf_stake_program_to_v5, which
-   introduced the minimum 1 SOL delegation amount, there were 1.6
-   million stake accounts on mainnet.  With a bound of 2.15 million
-   stake accounts, this means an attacker would need roughly 0.75
-   million SOL to attack the system which is a reasonable bound. */
-
-#define FD_RUNTIME_MAX_STAKE_ACCOUNTS (2150000UL)
+#define FD_RUNTIME_STAKES_MEM_CNT (2150000UL)
 
 /* FD_RUNTIME_MAX_STAKE_DELEGATION_DISK_RECORDS is the maximum number
    of records in each stake-delegation disk tier. */
 
 #define FD_RUNTIME_MAX_STAKE_DELEGATION_DISK_RECORDS (100000000UL)
 
-/* The runtime only supports post-validator_admission_ticket banks.  The
-   accumulator can still see one distinct voter per stake account before
-   the final eligible set is reduced to the VAT limit below. */
+/* FD_RUNTIME_MAX_STAKED_VOTE_ACCOUNTS bounds the distinct staked vote
+   accounts seen by the stake accumulator before the eligible set is
+   reduced to the VAT limit below.  Exceeding it is fatal.  Each staked
+   vote account needs its own delegation of at least 1 SOL, so reaching
+   it costs an attacker on the order of 2M SOL. */
 
-#define FD_RUNTIME_MAX_STAKED_VOTE_ACCOUNTS (FD_RUNTIME_MAX_STAKE_ACCOUNTS)
+#define FD_RUNTIME_MAX_STAKED_VOTE_ACCOUNTS (2150000UL)
 
 /* Maximum number of vote accounts eligible to receive rewards or
    meaningfully contribute to consensus after
