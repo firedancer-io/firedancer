@@ -1500,23 +1500,25 @@ fd_executor_setup_age_failure( fd_runtime_t *      runtime,
     }
   }
 
-  /* Scheduler locks protect the declared versions.  Inspect at most the
-     ordinary 80-byte nonce size, without changing the account or rollback
-     data.  A matching initialized current nonce always falls back, even if
-     its authority might fail later.  Larger/padded states also fall back.
-     The payer is bounded too: age rejection must not copy a large payer. */
-  if( fd_accdb_data_len( runtime->accdb, bank->accdb_fork_id, txn_out->accounts.keys[0].uc )>FD_SYSTEM_PROGRAM_NONCE_DLEN ) return 0;
+  /* Scheduler locks protect the declared versions.  The nonce decoder
+     permits trailing bytes, so inspect the actual candidate even when it
+     is padded up to the account-size limit.  Retain this read-only handle
+     for the ordinary age check on a guaranteed failure; never acquire the
+     unrelated payer or implicit ProgramData in this path.  A matching
+     initialized current nonce releases the probe and uses ordinary setup,
+     including its authority, fee and rollback checks. */
+  fd_acc_t nonce;
   if( nonce_idx!=ULONG_MAX ) {
-    if( fd_accdb_data_len( runtime->accdb, bank->accdb_fork_id, txn_out->accounts.keys[nonce_idx].uc )>FD_SYSTEM_PROGRAM_NONCE_DLEN ) return 0;
-    fd_acc_t nonce = fd_accdb_read_one( runtime->accdb, bank->accdb_fork_id, txn_out->accounts.keys[nonce_idx].uc );
+    nonce = fd_accdb_read_one( runtime->accdb, bank->accdb_fork_id, txn_out->accounts.keys[nonce_idx].uc );
     fd_nonce_state_versions_t state[1];
-    int maybe_valid = nonce.data_len>FD_SYSTEM_PROGRAM_NONCE_DLEN ||
-                      ( nonce.lamports && !memcmp( nonce.owner, fd_solana_system_program_id.uc, 32UL ) &&
-                        !fd_nonce_state_versions_decode( state, nonce.data, nonce.data_len ) &&
-                        state->version==FD_NONCE_VERSION_CURRENT && state->kind==FD_NONCE_STATE_INITIALIZED &&
-                        !memcmp( &state->durable_nonce, hash, sizeof(fd_hash_t) ) );
-    fd_accdb_unread_one( runtime->accdb, &nonce );
-    if( maybe_valid ) return 0;
+    int maybe_valid = nonce.lamports && !memcmp( nonce.owner, fd_solana_system_program_id.uc, 32UL ) &&
+                      !fd_nonce_state_versions_decode( state, nonce.data, nonce.data_len ) &&
+                      state->version==FD_NONCE_VERSION_CURRENT && state->kind==FD_NONCE_STATE_INITIALIZED &&
+                      !memcmp( &state->durable_nonce, hash, sizeof(fd_hash_t) );
+    if( maybe_valid ) {
+      fd_accdb_unread_one( runtime->accdb, &nonce );
+      return 0;
+    }
   }
 
   runtime->accounts.account_cnt = 0UL;
@@ -1528,28 +1530,23 @@ fd_executor_setup_age_failure( fd_runtime_t *      runtime,
     txn_out->accounts.account[i] = NULL;
     runtime->accounts.refcnt[i] = 0UL;
   }
-  ulong idx[2] = { FD_FEE_PAYER_TXN_IDX, nonce_idx };
-  ulong cnt = 1UL+(ulong)( nonce_idx!=ULONG_MAX && nonce_idx!=FD_FEE_PAYER_TXN_IDX );
-  uchar const * pubkeys[2];
-  int writable[2];
-  int deferred[2] = {0,0};
-  for( ulong i=0UL; i<cnt; i++ ) {
-    pubkeys[i] = txn_out->accounts.keys[idx[i]].uc;
-    writable[i] = txn_out->accounts.is_writable[idx[i]];
-  }
-  fd_acc_t * accs = runtime->accounts.account;
-  fd_accdb_acquire_a_deferred( runtime->accdb, bank->accdb_fork_id, cnt, pubkeys, writable, deferred, accs );
-  fd_accdb_acquire_b( runtime->accdb, bank->parent_accdb_fork_id, cnt, 0UL, pubkeys, runtime->accounts.executable );
-  runtime->accounts.account_cnt = cnt;
-  for( ulong i=0UL; i<cnt; i++ ) {
-    txn_out->accounts.account[idx[i]] = accs+i;
-    txn_out->accounts.account_acquired[idx[i]] = 1U;
-    txn_out->accounts.starting_lamports[idx[i]] = accs[i].prior_lamports;
-    txn_out->accounts.starting_data_len[idx[i]] = accs[i].prior_data_len;
-    fd_memcpy( &txn_out->accounts.starting_owner[idx[i]], accs[i].owner, 32UL );
+  /* Age failures never reach fee validation or instruction execution.
+     Keep declared writability for the age predicate, but retain only a
+     read-only accdb reference and no write reservations/copies.  With no
+     candidate the ordinary age check cannot dereference an account; leave
+     is_setup clear so cancellation does not release an unopened bracket. */
+  if( nonce_idx!=ULONG_MAX ) {
+    fd_acc_t * acc = runtime->accounts.account;
+    *acc = nonce;
+    runtime->accounts.account_cnt = 1UL;
+    txn_out->accounts.account[nonce_idx] = acc;
+    txn_out->accounts.account_acquired[nonce_idx] = 1U;
+    txn_out->accounts.starting_lamports[nonce_idx] = acc->prior_lamports;
+    txn_out->accounts.starting_data_len[nonce_idx] = acc->prior_data_len;
+    fd_memcpy( &txn_out->accounts.starting_owner[nonce_idx], acc->owner, 32UL );
   }
   txn_out->accounts.nonce_idx_in_txn = ULONG_MAX;
-  txn_out->accounts.is_setup = 1;
+  txn_out->accounts.is_setup = nonce_idx!=ULONG_MAX;
   return 1;
 }
 
