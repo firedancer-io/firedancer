@@ -115,20 +115,22 @@ FD_STATIC_ASSERT( sizeof(fd_iavf_aq_desc_t)==32UL, iavf_aq_desc_sz );
 
 /* Admin Queue opcodes select message transport, cookie_high carries the
    virtchnl operation and cookie_low carries the PF reply status */
-#define FD_IAVF_AQ_SEND_MSG_TO_PF         (0x0801U) /* iavf_aqc_opc_send_msg_to_pf */
-#define FD_IAVF_AQ_SEND_MSG_TO_VF         (0x0802U) /* iavf_aqc_opc_send_msg_to_vf */
-#define FD_IAVF_VIRTCHNL_VERSION          (1U)      /* VIRTCHNL_OP_VERSION */
-#define FD_IAVF_VIRTCHNL_GET_VF_RESOURCES (3U)      /* VIRTCHNL_OP_GET_VF_RESOURCES */
-#define FD_IAVF_VIRTCHNL_CONFIG_QUEUES    (6U)      /* VIRTCHNL_OP_CONFIG_VSI_QUEUES */
-#define FD_IAVF_VIRTCHNL_CONFIG_IRQ_MAP   (7U)      /* VIRTCHNL_OP_CONFIG_IRQ_MAP */
-#define FD_IAVF_VIRTCHNL_ENABLE_QUEUES    (8U)      /* VIRTCHNL_OP_ENABLE_QUEUES */
-#define FD_IAVF_VIRTCHNL_ADD_ETH_ADDR     (10U)     /* VIRTCHNL_OP_ADD_ETH_ADDR */
-#define FD_IAVF_VIRTCHNL_CONFIG_RSS_KEY   (23U)     /* VIRTCHNL_OP_CONFIG_RSS_KEY */
-#define FD_IAVF_VIRTCHNL_CONFIG_RSS_LUT   (24U)     /* VIRTCHNL_OP_CONFIG_RSS_LUT */
-#define FD_IAVF_VIRTCHNL_EVENT            (17U)     /* VIRTCHNL_OP_EVENT */
+#define FD_IAVF_AQ_SEND_MSG_TO_PF              (0x0801U) /* iavf_aqc_opc_send_msg_to_pf */
+#define FD_IAVF_AQ_SEND_MSG_TO_VF              (0x0802U) /* iavf_aqc_opc_send_msg_to_vf */
+#define FD_IAVF_VIRTCHNL_VERSION               (1U)      /* VIRTCHNL_OP_VERSION */
+#define FD_IAVF_VIRTCHNL_GET_VF_RESOURCES      (3U)      /* VIRTCHNL_OP_GET_VF_RESOURCES */
+#define FD_IAVF_VIRTCHNL_CONFIG_QUEUES         (6U)      /* VIRTCHNL_OP_CONFIG_VSI_QUEUES */
+#define FD_IAVF_VIRTCHNL_CONFIG_IRQ_MAP        (7U)      /* VIRTCHNL_OP_CONFIG_IRQ_MAP */
+#define FD_IAVF_VIRTCHNL_ENABLE_QUEUES         (8U)      /* VIRTCHNL_OP_ENABLE_QUEUES */
+#define FD_IAVF_VIRTCHNL_ADD_ETH_ADDR          (10U)     /* VIRTCHNL_OP_ADD_ETH_ADDR */
+#define FD_IAVF_VIRTCHNL_CONFIG_RSS_KEY        (23U)     /* VIRTCHNL_OP_CONFIG_RSS_KEY */
+#define FD_IAVF_VIRTCHNL_CONFIG_RSS_LUT        (24U)     /* VIRTCHNL_OP_CONFIG_RSS_LUT */
+#define FD_IAVF_VIRTCHNL_ENABLE_VLAN_STRIPPING (27U)     /* VIRTCHNL_OP_ENABLE_VLAN_STRIPPING */
+#define FD_IAVF_VIRTCHNL_EVENT                 (17U)     /* VIRTCHNL_OP_EVENT */
 
 #define FD_IAVF_VIRTCHNL_CAP_L2        (1U<<0)  /* VIRTCHNL_VF_OFFLOAD_L2 */
 #define FD_IAVF_VIRTCHNL_CAP_WB_ON_ITR (1U<<5)  /* VIRTCHNL_VF_OFFLOAD_WB_ON_ITR */
+#define FD_IAVF_VIRTCHNL_CAP_VLAN      (1U<<16) /* VIRTCHNL_VF_OFFLOAD_VLAN */
 #define FD_IAVF_VIRTCHNL_CAP_RSS_PF    (1U<<19) /* VIRTCHNL_VF_OFFLOAD_RSS_PF */
 #define FD_IAVF_VIRTCHNL_VSI_SRIOV   (6)      /* VIRTCHNL_VSI_SRIOV */
 #define FD_IAVF_VIRTCHNL_MAC_PRIMARY (1U)     /* VIRTCHNL_ETHER_ADDR_PRIMARY */
@@ -1382,15 +1384,16 @@ fd_iavf_adminq_init( fd_iavf_vfio_t *   vfio,
 static char const *
 fd_iavf_virtchnl_op_name( uint op ) {
   switch( op ) {
-  case FD_IAVF_VIRTCHNL_VERSION:         return "version exchange";
-  case FD_IAVF_VIRTCHNL_GET_VF_RESOURCES: return "VF resource discovery";
-  case FD_IAVF_VIRTCHNL_CONFIG_QUEUES:    return "queue configuration";
-  case FD_IAVF_VIRTCHNL_CONFIG_IRQ_MAP:   return "IRQ mapping";
-  case FD_IAVF_VIRTCHNL_ENABLE_QUEUES:    return "queue enable";
-  case FD_IAVF_VIRTCHNL_ADD_ETH_ADDR:     return "MAC registration";
-  case FD_IAVF_VIRTCHNL_CONFIG_RSS_KEY:   return "RSS key configuration";
-  case FD_IAVF_VIRTCHNL_CONFIG_RSS_LUT:   return "RSS table configuration";
-  default:                              return "virtchnl request";
+  case FD_IAVF_VIRTCHNL_VERSION:               return "version exchange";
+  case FD_IAVF_VIRTCHNL_GET_VF_RESOURCES:      return "VF resource discovery";
+  case FD_IAVF_VIRTCHNL_CONFIG_QUEUES:         return "queue configuration";
+  case FD_IAVF_VIRTCHNL_CONFIG_IRQ_MAP:        return "IRQ mapping";
+  case FD_IAVF_VIRTCHNL_ENABLE_QUEUES:         return "queue enable";
+  case FD_IAVF_VIRTCHNL_ADD_ETH_ADDR:          return "MAC registration";
+  case FD_IAVF_VIRTCHNL_CONFIG_RSS_KEY:        return "RSS key configuration";
+  case FD_IAVF_VIRTCHNL_CONFIG_RSS_LUT:        return "RSS table configuration";
+  case FD_IAVF_VIRTCHNL_ENABLE_VLAN_STRIPPING: return "VLAN stripping enable";
+  default:                                     return "virtchnl request";
   }
 }
 
@@ -1654,8 +1657,8 @@ fd_iavf_virtchnl_get_resources( fd_iavf_vfio_t *    vfio,
                                 fd_iavf_vf_info_t * info ) {
   fd_memset( info, 0, sizeof(*info) );
 
-  /* Request Ethernet, timed writeback and PF-managed RSS */
-  uint requested_caps = FD_IAVF_VIRTCHNL_CAP_L2 | FD_IAVF_VIRTCHNL_CAP_WB_ON_ITR | FD_IAVF_VIRTCHNL_CAP_RSS_PF;
+  /* Request Ethernet, timed writeback, PF-managed RSS, and VLAN offload. */
+  uint requested_caps = FD_IAVF_VIRTCHNL_CAP_L2 | FD_IAVF_VIRTCHNL_CAP_WB_ON_ITR | FD_IAVF_VIRTCHNL_CAP_RSS_PF | FD_IAVF_VIRTCHNL_CAP_VLAN;
   uchar response[ FD_IAVF_ADMINQ_BUF_SZ ];
   ulong response_sz = sizeof(response);
   if( FD_UNLIKELY( -1==fd_iavf_virtchnl_request( vfio, adminq, FD_IAVF_VIRTCHNL_GET_VF_RESOURCES,
@@ -1735,6 +1738,7 @@ fd_iavf_virtchnl_get_resources( fd_iavf_vfio_t *    vfio,
   info->rss_key_sz     = resources.rss_key_sz;
   info->rss_lut_sz     = resources.rss_lut_sz;
   info->wb_on_itr      = !!(resources.capability_flags & FD_IAVF_VIRTCHNL_CAP_WB_ON_ITR);
+  info->vlan_offload   = !!(resources.capability_flags & FD_IAVF_VIRTCHNL_CAP_VLAN);
   if( FD_UNLIKELY( 0==info->rss_key_sz || info->rss_key_sz>FD_IAVF_RSS_KEY_MAX_SZ ||
                    0==info->rss_lut_sz || info->rss_lut_sz>FD_IAVF_RSS_LUT_MAX_SZ ) ) {
     FD_LOG_WARNING(( "invalid RSS sizes, key %u must be in [1,%lu], LUT %u must be in [1,%lu] (%i-%s)",
@@ -2034,6 +2038,21 @@ fd_iavf_virtchnl_configure_rss( fd_iavf_vfio_t *          vfio,
 }
 
 int
+fd_iavf_virtchnl_enable_vlan_strip( fd_iavf_vfio_t *          vfio,
+                                    fd_iavf_adminq_t *        adminq,
+                                    fd_iavf_vf_info_t const * info ) {
+  if( !info->vlan_offload ) {
+    FD_LOG_INFO(( "iavf VLAN offload is not available, tags will be stripped in software" ));
+    return 0;
+  }
+
+  /* this particular request has payload size 0 */
+  ulong response_sz = 0UL;
+  return fd_iavf_virtchnl_request( vfio, adminq, FD_IAVF_VIRTCHNL_ENABLE_VLAN_STRIPPING,
+                                   NULL, 0UL, NULL, &response_sz );
+}
+
+int
 fd_iavf_init( fd_iavf_vfio_t *            vfio,
               fd_iavf_adminq_t *          adminq,
               fd_iavf_vf_info_t *         info,
@@ -2079,6 +2098,7 @@ fd_iavf_init( fd_iavf_vfio_t *            vfio,
                                                           queue_iova, rx_buffer_sz, max_frame_sz ) ) ) return -1;
   if( FD_UNLIKELY( -1==fd_iavf_virtchnl_add_mac( vfio, adminq, info ) ) ) return -1;
   if( FD_UNLIKELY( -1==fd_iavf_virtchnl_configure_rss( vfio, adminq, info, tile_cnt ) ) ) return -1;
+  if( FD_UNLIKELY( -1==fd_iavf_virtchnl_enable_vlan_strip( vfio, adminq, info ) ) ) return -1;
 
   /* Map packet buffers before the caller posts RX buffers and enables queues */
   for( uint tile_idx=0U; tile_idx<tile_cnt; tile_idx++ ) {

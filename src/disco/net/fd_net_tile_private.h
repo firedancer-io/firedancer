@@ -84,6 +84,7 @@ struct fd_net_tile {
     ulong rx_pkt_cnt;
     ulong rx_bytes_total;
     ulong rx_gre_cnt;
+    ulong rx_vlan_cnt;
     ulong rx_drop_cnt[ FD_METRICS_ENUM_PKT_RX_DROP_REASON_CNT ];
 
     ulong tx_pkt_cnt;
@@ -338,6 +339,28 @@ fd_net_rx_pkt( fd_net_tile_t *     ctx,
 
   uchar * frame = (uchar *)fd_chunk_to_laddr( ctx->pkt_buf_wksp_base, chunk ) + ctl;
   fd_eth_hdr_t * eth_hdr = (fd_eth_hdr_t *)frame;
+
+  /* Strip a single 802.1Q tag in place.  The Ethernet header is moved
+     forward so that it abuts the next header and takes its net_type
+     from the tag.  The regions overlap, so the header is staged in a
+     temporary.  Frames whose tag was already stripped by the NIC are
+     not counted in rx_vlan_cnt. */
+  int is_vlan = fd_ushort_bswap( eth_hdr->net_type )==FD_ETH_HDR_TYPE_VLAN;
+  if( FD_UNLIKELY( is_vlan ) ) {
+    if( FD_UNLIKELY( byte_len<sizeof(fd_eth_hdr_t)+sizeof(fd_vlan_tag_t) ) ) {
+      ctx->metrics.rx_drop_cnt[ FD_METRICS_ENUM_PKT_RX_DROP_REASON_V_MALFORMED_IDX ]++;
+      return 0;
+    }
+    fd_vlan_tag_t const * vlan_tag    = (fd_vlan_tag_t const *)(eth_hdr+1);
+    fd_eth_hdr_t          tmp_eth_hdr = *eth_hdr;
+    tmp_eth_hdr.net_type = vlan_tag->net_type;
+    FD_STORE( fd_eth_hdr_t, frame+sizeof(fd_vlan_tag_t), tmp_eth_hdr );
+    frame    += sizeof(fd_vlan_tag_t);
+    ctl      += sizeof(fd_vlan_tag_t);
+    byte_len -= sizeof(fd_vlan_tag_t);
+    eth_hdr   = (fd_eth_hdr_t *)frame;
+  }
+
   if( FD_UNLIKELY( fd_ushort_bswap( eth_hdr->net_type )!=FD_ETH_HDR_TYPE_IP ) ) {
     if( iavf_non_fd_pkts_rx_total ) goto iavf_non_fd_pkt;
     ctx->metrics.rx_drop_cnt[ FD_METRICS_ENUM_PKT_RX_DROP_REASON_V_MALFORMED_IDX ]++;
@@ -455,7 +478,8 @@ fd_net_rx_pkt( fd_net_tile_t *     ctx,
 
   fd_stem_publish( stem, out_idx, sig, chunk, byte_len, ctl, tsorig, tspub );
 
-  ctx->metrics.rx_gre_cnt += (ulong)is_gre;
+  ctx->metrics.rx_gre_cnt  += (ulong)is_gre;
+  ctx->metrics.rx_vlan_cnt += (ulong)is_vlan;
   ctx->metrics.rx_pkt_cnt++;
   ctx->metrics.rx_bytes_total += byte_len;
 
