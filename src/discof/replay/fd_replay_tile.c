@@ -3117,8 +3117,10 @@ can_process_rotor_fec( fd_replay_tile_t       * ctx,
     return PROCESS_FEC_SKIP;
   }
 
-  if( FD_UNLIKELY( !fec->is_leader && fd_sched_can_ingest_cnt( ctx->sched )==0UL ) ) {
-    ctx->metrics.sched_full++;
+  int sched_full = !fec->is_leader && fd_sched_can_ingest_cnt( ctx->sched )==0UL;
+  ctx->metrics.sched_full += (ulong)( sched_full & !ctx->sched_full ); /* once per stall */
+  ctx->sched_full = sched_full;
+  if( FD_UNLIKELY( sched_full ) ) {
     return PROCESS_FEC_WAIT;
   }
 
@@ -4450,7 +4452,12 @@ returnable_frag( fd_replay_tile_t *  ctx,
       /* process rotor incoming FECs. 1 to keep frag for retry, returning 0 consumes it. */
 
       fd_repair_out_fec_t * fec = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
-      if( FD_UNLIKELY( !( ctx->execrp_idle_cnt>=2UL*ctx->in_cnt || ctx->is_leader ) ) ) return 1; /* pace behind exec notifications, retry */
+      if( FD_UNLIKELY( !( ctx->execrp_idle_cnt>=2UL*ctx->in_cnt || ctx->is_leader ) ) ) {
+        /* Pace behind exec notifications, retry.  Idle after_credit
+           calls end the pacing, except before boot or supermajority,
+           which only a frag ends. */
+        return ( !ctx->is_booted || !ctx->wfs_complete ) ? FD_STEM_FRAG_BLOCKED : 1;
+      }
 
       /* Rare case where we replayed a slot completely, but on re-delivery
          we discover the FEC is finalized. */
@@ -4497,6 +4504,11 @@ returnable_frag( fd_replay_tile_t *  ctx,
         }
         case PROCESS_FEC_SKIP: { return 0; }
         case PROCESS_FEC_WAIT: {
+          /* Sched space frees only on an execrp completion frag or our
+             own busy work, so the stem may park until then.  A pending
+             accdb command rings no one when done, keep polling. */
+          if( FD_LIKELY( ctx->sched_full && !fd_accdb_cmd_pending( ctx->accdb ) ) ) return FD_STEM_FRAG_BLOCKED;
+
           /* queue an eviction, then retry the frag. */
           if( FD_UNLIKELY( evict_banks ) ) {
             ulong evictable_bank_idx = fd_banks_get_evictable_bank( ctx->banks, ctx->notified_root_bank );
