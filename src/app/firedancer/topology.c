@@ -1019,9 +1019,9 @@ fd_topo_initialize( config_t * config ) {
   FOR(sign_tile_cnt-1UL) fd_topob_tile_in ( topo, "repair",  0UL,          "metric_in", "sign_repair",  i,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   ); /* This link is polled because the signing requests are asynchronous */
 
   if( rserve_enabled ) {
-    /**/                 fd_topob_tile_in (   topo, "sign",    0UL,          "metric_in", "rserve_sign",  0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
+    /**/                 fd_topob_tile_in (   topo, "sign",    0UL,          "metric_in", "rserve_sign",  0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
     /**/                 fd_topob_tile_out(   topo, "rserve",  0UL,                       "rserve_sign",  0UL                                                  );
-    /**/                 fd_topob_tile_in (   topo, "rserve",  0UL,          "metric_in", "sign_rserve",  0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_UNPOLLED );
+    /**/                 fd_topob_tile_in (   topo, "rserve",  0UL,          "metric_in", "sign_rserve",  0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   ); /* Polled because the signing requests are asynchronous */
     /**/                 fd_topob_tile_out(   topo, "sign",    0UL,                       "sign_rserve",  0UL                                                  );
   }
 
@@ -1757,6 +1757,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->rserve.max_shreds_per_block = config->limits.max_shreds_per_block;
     tile->rserve.ping_cache_entries = 1UL<<16; /* TODO: Configure this from some global metric? */
     tile->rserve.blockdb_max = 1UL<<15; /* ~20.6 KiB each. TODO: make configurable */
+    tile->rserve.sign_depth = config->topo.links[ fd_topo_find_link( &config->topo, "sign_rserve", 0UL ) ].depth;
     fd_cstr_ncpy( tile->rserve.identity_key_path, identity_key_path, sizeof(tile->rserve.identity_key_path) );
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "replay" ) )) {
