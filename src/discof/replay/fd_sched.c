@@ -3455,7 +3455,7 @@ fd_sched_task_done( fd_sched_t * sched, ulong task_type, ulong txn_idx, ulong ex
 }
 
 void
-fd_sched_block_abandon( fd_sched_t * sched, ulong bank_idx, int cause ) {
+fd_sched_block_abandon( fd_sched_t * sched, ulong bank_idx ) {
   FD_TEST( sched->canary==FD_SCHED_MAGIC );
   FD_TEST( bank_idx<sched->block_cnt_max );
 
@@ -3464,8 +3464,6 @@ fd_sched_block_abandon( fd_sched_t * sched, ulong bank_idx, int cause ) {
     FD_LOG_CRIT(( "invariant violation: block->in_sched==0, block %lu:%lu, parent slot %lu",
                   block->slot, bank_idx, block->parent_slot ));
   }
-
-  if( FD_LIKELY( cause==FD_SCHED_ABANDON_DISCARDED && !block->dying ) ) block->discarded = 1;
 
   FD_LOG_INFO(( "abandoning block %lu:%lu", block->slot, bank_idx ));
   sched->print_buf_sz = 0UL;

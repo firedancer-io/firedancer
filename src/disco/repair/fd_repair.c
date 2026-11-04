@@ -92,9 +92,7 @@ compute_dmr( fd_repair_t *     rotor,
   memcpy( blk->dmr.uc, fd_bmtree_commit_fini( tree ), sizeof(fd_mr32_t) );
 }
 
-/* consume pushes buffered FECs onto the reasm queue.  The first push
-   after a reconsume first pushes blk's consumed FECs and its ancestors'
-   onto the head, so its chain goes out again from the root. */
+/* consume pushes buffered FECs onto the reasm queue. */
 
 static void
 consume( fd_repair_t *     rotor,
@@ -123,12 +121,6 @@ consume( fd_repair_t *     rotor,
     if( FD_LIKELY( dup ) ) {
       blk = eager;
       idx = meta->eager;
-    }
-  }
-  if( FD_UNLIKELY( rotor->reconsume && blk->cons_fec_cnt<blk->buff_fec_cnt ) ) {
-    rotor->reconsume = 0;
-    for( fd_repair_blk_t * anc = blk; anc && anc!=rotor->root_blk; anc = fd_repair_blk_pool_ele( rotor->blk_pool, anc->parent ) ) {
-      for( uint k=anc->cons_fec_cnt; k; k-- ) fd_repair_deque_push_head( rotor->reasm_deque, (fd_repair_deque_t){ .blk_idx = (uint)fd_repair_blk_pool_idx( rotor->blk_pool, anc ), .fec_idx = k-1U } );
     }
   }
   if( FD_UNLIKELY( meta->leader && meta->eager==idx ) ) { /* our leader blk goes first, in FEC order */
@@ -546,7 +538,6 @@ fd_repair_fini( fd_repair_t * rotor ) {
   rotor->root         = ULONG_MAX;
   rotor->root_blk     = NULL;
   rotor->catchup_slot = 0UL;
-  rotor->reconsume    = 0;
 }
 
 void

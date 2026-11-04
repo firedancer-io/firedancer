@@ -236,7 +236,7 @@
                 "lane_wait":          { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "A block's first FEC set waited for a staging lane" }
             }
         },
-        "fec_parent_missing_dropped":              { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "FEC sets dropped because replay could not resolve the block's parent (Alpenglow), which was dropped on a dead lineage, evicted with its tracking slot reused, or rooted past" },
+        "fec_parent_missing_dropped":              { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "FEC sets dropped because replay could not resolve the block's parent (Alpenglow), which was dropped on a dead lineage, pruned with its fork, or rooted past" },
         "root_advance_deferred":                   { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Times the storage root could not advance to the consensus root yet" },
         "progcache_rooted":                        { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Program cache entries rooted" },
         "progcache_class_used": {

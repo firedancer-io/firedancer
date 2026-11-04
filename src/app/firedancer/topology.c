@@ -39,6 +39,7 @@
 #include "../../flamenco/capture/fd_solcap_writer.h"
 #include "../../flamenco/events/fd_event_runtime.h"
 #include "../../flamenco/progcache/fd_progcache.h"
+#include "../../flamenco/runtime/fd_bpf_frames.h"
 #include "../../flamenco/runtime/fd_cost_tracker.h"
 
 #include <sys/random.h>
@@ -198,6 +199,27 @@ setup_topo_progcache( fd_topo_t *  topo,
 }
 
 fd_topo_obj_t *
+setup_topo_bpf_frames( fd_topo_t *  topo,
+                       char const * wksp_name,
+                       ulong        frame_cnt,
+                       ulong        local_cnt,
+                       ulong        join_cnt ) {
+  if( FD_UNLIKELY( local_cnt>FD_MAX_INSTRUCTION_STACK_DEPTH ) ) {
+    FD_LOG_ERR(( "Invalid [runtime]: bpf_local_frames must be at most %lu", FD_MAX_INSTRUCTION_STACK_DEPTH ));
+  }
+  ulong frame_max = FD_BPF_FRAMES_CNT_MAX-join_cnt*local_cnt;
+  if( FD_UNLIKELY( frame_cnt<FD_BPF_FRAMES_HELD_CNT( local_cnt ) || frame_cnt>frame_max ) ) {
+    FD_LOG_ERR(( "Invalid [runtime]: bpf_shared_frames must be in [%lu,%lu]", FD_BPF_FRAMES_HELD_CNT( local_cnt ), frame_max ));
+  }
+  fd_topo_obj_t * obj = fd_topob_obj( topo, "bpf_frames", wksp_name );
+  FD_TEST( fd_pod_insert_ulong(  topo->props, "bpf_frames", obj->id ) );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, frame_cnt, "obj.%lu.frame_cnt",      obj->id ) );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, join_cnt,  "obj.%lu.joiner_cnt_max", obj->id ) );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, local_cnt, "obj.%lu.local_cnt",      obj->id ) );
+  return obj;
+}
+
+fd_topo_obj_t *
 setup_topo_store( fd_topo_t *  topo,
                   char const * wksp_name,
                   ulong        fec_max,
@@ -221,16 +243,16 @@ setup_topo_store( fd_topo_t *  topo,
 
   fd_topo_obj_t * obj = fd_topob_obj( topo, "store", wksp_name );
   ulong shred_cache_bytes = shred_cache_mib << 20;
-  FD_TEST( fd_pod_insertf_ulong( topo->props, fec_max,           "obj.%lu.fec_max",           obj->id ) );
-  FD_TEST( fd_pod_insertf_ulong( topo->props, fec_data_max,      "obj.%lu.fec_data_max",      obj->id ) );
-  FD_TEST( fd_pod_insertf_ulong( topo->props, shred_storage_gib, "obj.%lu.shred_storage_gib", obj->id ) );
-  FD_TEST( fd_pod_insertf_ulong( topo->props, shred_cache_bytes, "obj.%lu.shred_cache_bytes", obj->id ) );
-  FD_TEST( fd_pod_insertf_ulong( topo->props, fec_set_cnt,       "obj.%lu.fec_set_cnt",       obj->id ) );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, fec_max,              "obj.%lu.fec_max",              obj->id ) );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, fec_data_max,         "obj.%lu.fec_data_max",         obj->id ) );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, shred_storage_gib,    "obj.%lu.shred_storage_gib",    obj->id ) );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, shred_cache_bytes,    "obj.%lu.shred_cache_bytes",    obj->id ) );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, fec_set_cnt,          "obj.%lu.fec_set_cnt",          obj->id ) );
   FD_TEST( fd_pod_insertf_ulong( topo->props, max_shreds_per_block, "obj.%lu.max_shreds_per_block", obj->id ) );
-  FD_TEST( fd_pod_insertf_ulong( topo->props, seed,              "obj.%lu.seed",              obj->id ) );
-  FD_TEST( fd_pod_insertf_ulong( topo->props, shred_tile_cnt,    "obj.%lu.shred_tile_cnt",    obj->id ) );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, seed,                 "obj.%lu.seed",                 obj->id ) );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, shred_tile_cnt,       "obj.%lu.shred_tile_cnt",       obj->id ) );
   if( db_path ) {
-    FD_TEST( fd_pod_insertf_cstr( topo->props, db_path,          "obj.%lu.disk_path",         obj->id ) );
+    FD_TEST( fd_pod_insertf_cstr( topo->props, db_path,             "obj.%lu.disk_path",            obj->id ) );
   }
   return obj;
 }
@@ -489,11 +511,11 @@ fd_topo_initialize( config_t * config ) {
 
   ulong shred_depth = 65536UL;
 
-  /* Under Alpenglow, rotor redelivers every FEC set replay can hold when
-     replay loses a parent bank, and polls nothing until that is
-     published, so repair_out holds all of it. */
+  /* Under Alpenglow, rotor can publish every FEC set in its window at
+     once (e.g. when an orphaned subtree connects), and polls nothing
+     until that is published, so repair_out holds all of it. */
 
-  ulong repair_out_depth = fd_ulong_pow2_up( config->firedancer.runtime.max_live_slots * (config->limits.max_shreds_per_block/FD_FEC_SHRED_CNT) );
+  ulong repair_out_depth = fd_ulong_pow2_up( config->tiles.repair.slot_max * (config->limits.max_shreds_per_block/FD_FEC_SHRED_CNT) );
 
   /*                                  topo, link_name,       wksp_name,       depth,                                    mtu,                           burst */
   /**/                 fd_topob_link( topo, "gossip_net",    "net_gossip",    32768UL,                                  FD_NET_MTU,                    1UL );
@@ -552,7 +574,6 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_link( topo, "replay_epoch",  "replay_epoch",  32UL,                                     FD_EPOCH_OUT_MTU,              1UL ); /* replay publishes two epochs at boot and must keep replay's STEM_BURST credits after */
   /**/                 fd_topob_link( topo, "replay_out",    "replay_out",    65536UL,                                  sizeof(fd_replay_message_t),   1UL )->permit_no_consumers = 1;
   /**/                 fd_topob_link( topo, "replay_slot",   "replay_slot",   4096UL,                                   sizeof(fd_replay_message_t),   1UL );
-  /**/                 fd_topob_link( topo, "replay_rotor",  "replay_slot",   16UL,                                     sizeof(fd_replay_message_t),   1UL ); /* REPLAY_SIG_MISSING_FEC; depth >= replay's STEM_BURST */
   FOR(execrp_tile_cnt) fd_topob_link( topo, "replay_execrp", "replay_execrp", 256UL,                                    sizeof(fd_execrp_task_msg_t),  1UL );
   /**/                 fd_topob_link( topo, "admin_replay",  "admin_replay",  32UL,                                     0UL,                           1UL );
   /**/                 fd_topob_link( topo, "replay_admin",  "admin_replay",  32UL,                                     0UL,                           1UL );
@@ -777,7 +798,6 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_tile_in(    topo, "rotor",   0UL,          "metric_in", "gossip_ciaddr", 0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   /**/                 fd_topob_tile_in(    topo, "rotor",   0UL,          "metric_in", "replay_epoch",  0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   /**/                 fd_topob_tile_in(    topo, "rotor",   0UL,          "metric_in", "replay_slot",   0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
-  /**/                 fd_topob_tile_in(    topo, "rotor",   0UL,          "metric_in", "replay_rotor",  0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   FOR(shred_tile_cnt)  fd_topob_tile_in(    topo, "rotor",   0UL,          "metric_in", "shred_out",     i,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   if( snapshots_enabled ) {
                        fd_topob_tile_in(    topo, "rotor",   0UL,          "metric_in", "snapin_manif",  0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
@@ -788,7 +808,6 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_tile_in (   topo, "replay",  0UL,          "metric_in", "genesi_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   /**/                 fd_topob_tile_out(   topo, "replay",  0UL,                       "replay_out",    0UL                                                );
   /**/                 fd_topob_tile_out(   topo, "replay",  0UL,                       "replay_slot",   0UL                                                );
-  /**/                 fd_topob_tile_out(   topo, "replay",  0UL,                       "replay_rotor",  0UL                                                );
   /**/                 fd_topob_tile_out(   topo, "replay",  0UL,                       "replay_epoch",  0UL                                                );
   FOR(execrp_tile_cnt) fd_topob_tile_out(   topo, "replay",  0UL,                       "replay_execrp", i                                                  );
   FOR(execrp_tile_cnt) fd_topob_tile_in (   topo, "replay",  0UL,          "metric_in", "execrp_replay", i,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
@@ -1073,6 +1092,10 @@ fd_topo_initialize( config_t * config ) {
   FD_TEST( fd_pod_insertf_ulong( topo->props, banks_obj->id, "banks" ) );
 
   if( FD_UNLIKELY( config->firedancer.runtime.max_live_slots<32UL ) ) FD_LOG_ERR(( "max_live_slots must be >= 32" ));
+  if( FD_UNLIKELY( config->firedancer.runtime.max_live_slots<fd_repair_blk_max( config->tiles.repair.slot_max ) ) ) {
+    FD_LOG_ERR(( "max_live_slots (%lu) must be >= %lu to hold every block that tiles.repair.slot_max (%lu) can deliver; lower tiles.repair.slot_max or raise max_live_slots",
+                 config->firedancer.runtime.max_live_slots, fd_repair_blk_max( config->tiles.repair.slot_max ), config->tiles.repair.slot_max ));
+  }
 
   setup_topo_progcache( topo, "progcache",
       config->firedancer.runtime.max_live_slots,
@@ -1084,6 +1107,11 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "accdb",  0UL ) ], progcache_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FOR(execrp_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "execrp", i   ) ], progcache_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FOR(execle_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "execle", i   ) ], progcache_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+
+  fd_topob_wksp( topo, "bpf_frames" );
+  fd_topo_obj_t * bpf_frames_obj = setup_topo_bpf_frames( topo, "bpf_frames", config->firedancer.runtime.bpf_shared_frames, config->firedancer.runtime.bpf_local_frames, execrp_tile_cnt+execle_tile_cnt );
+  FOR(execrp_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "execrp", i   ) ], bpf_frames_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  FOR(execle_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "execle", i   ) ], bpf_frames_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
 
   if( FD_LIKELY( config->tiles.gui.enabled ) ) {
     fd_topob_wksp( topo, "gui"        );
@@ -1225,7 +1253,7 @@ fd_topo_initialize( config_t * config ) {
   /* store_fec_max is the maximum number of FEC sets Store retains.
 
       With Alpenglow, Store is sized to rotor's window of
-      N = max_live_slots slots, each of which can hold up to
+      N = tiles.repair.slot_max slots, each of which can hold up to
       fec_sets_per_slot FEC sets per version of its block.  The number of versions in the window
       is bounded as follows.
 
@@ -1254,7 +1282,7 @@ fd_topo_initialize( config_t * config ) {
 
   ulong fec_sets_per_slot = fd_ulong_if( config->firedancer.development.fixed_fec_sets,
                                          config->limits.max_shreds_per_block/FD_FEC_SHRED_CNT, config->limits.max_shreds_per_block );
-  ulong store_fec_max = fd_repair_blk_max( config->firedancer.runtime.max_live_slots ) * fec_sets_per_slot; /* every FEC set of every blk rotor holds */
+  ulong store_fec_max = fd_repair_blk_max( config->tiles.repair.slot_max ) * fec_sets_per_slot; /* every FEC set of every blk rotor holds */
 
   /* 32 shreds * 995 payload bytes = 31840 bytes with fixed_fec_sets = true
      67 shreds * 955 payload bytes = 63985 bytes with fixed_fec_sets = false */
@@ -1666,7 +1694,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->snapin.shmem_obj_id = fd_pod_query_ulong( config->topo.props, "snapin_shmem", ULONG_MAX );
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "rotor" ) ) ) {
-    tile->rotor.slot_max = config->firedancer.runtime.max_live_slots;
+    tile->rotor.slot_max = config->tiles.repair.slot_max;
     tile->rotor.fec_max  = fd_pod_queryf_ulong( config->topo.props, ULONG_MAX, "obj.%lu.fec_max", fd_pod_query_ulong( config->topo.props, "store", ULONG_MAX ) ); /* as many FEC sets as Store */
     tile->rotor.max_shreds_per_block = config->limits.max_shreds_per_block;
     tile->rotor.repair_client_listen_port = config->tiles.repair.repair_client_listen_port;
@@ -1744,6 +1772,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->execrp.txncache_obj_id  = fd_pod_query_ulong( config->topo.props, "txncache",  ULONG_MAX ); FD_TEST( tile->execrp.txncache_obj_id !=ULONG_MAX );
     tile->execrp.progcache_obj_id = fd_pod_query_ulong( config->topo.props, "progcache", ULONG_MAX ); FD_TEST( tile->execrp.progcache_obj_id!=ULONG_MAX );
     tile->execrp.accdb_obj_id     = fd_pod_query_ulong( config->topo.props, "accdb",     ULONG_MAX ); FD_TEST( tile->execrp.accdb_obj_id    !=ULONG_MAX );
+    tile->execrp.bpf_frames_obj_id = fd_pod_query_ulong( config->topo.props, "bpf_frames", ULONG_MAX ); FD_TEST( tile->execrp.bpf_frames_obj_id!=ULONG_MAX );
 
     tile->execrp.max_live_slots  = config->firedancer.runtime.max_live_slots;
 
@@ -1762,7 +1791,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->votor.quic_client_listen_port = config->firedancer.development.votor.quic_client_listen_port;
     tile->votor.quic_server_listen_port = config->firedancer.development.votor.quic_server_listen_port;
     tile->votor.ip_addr                 = config->net.ip_addr;
-    tile->votor.max_live_slots          = config->firedancer.runtime.max_live_slots;
+    tile->votor.slot_max                = config->firedancer.consensus.max_unfinalized_slots;
     fd_cstr_ncpy( tile->votor.identity_key_path, identity_key_path, sizeof(tile->votor.identity_key_path) );
     fd_cstr_ncpy( tile->votor.vote_history_path, config->paths.vote_history, sizeof(tile->votor.vote_history_path) );
     tile->votor.target_gid = config->gid;
@@ -1859,6 +1888,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->execle.txncache_obj_id    = fd_pod_query_ulong( config->topo.props, "txncache",  ULONG_MAX ); FD_TEST( tile->execle.txncache_obj_id !=ULONG_MAX );
     tile->execle.progcache_obj_id   = fd_pod_query_ulong( config->topo.props, "progcache", ULONG_MAX ); FD_TEST( tile->execle.progcache_obj_id!=ULONG_MAX );
     tile->execle.accdb_obj_id       = fd_pod_query_ulong( config->topo.props, "accdb",     ULONG_MAX ); FD_TEST( tile->execle.accdb_obj_id    !=ULONG_MAX );
+    tile->execle.bpf_frames_obj_id  = fd_pod_query_ulong( config->topo.props, "bpf_frames", ULONG_MAX ); FD_TEST( tile->execle.bpf_frames_obj_id!=ULONG_MAX );
     tile->execle.max_live_slots     = config->firedancer.runtime.max_live_slots;
     tile->execle.report_runtime_diffs = config->development.event.report_runtime_diffs;
 
@@ -1874,7 +1904,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
 
     tile->shred.fec_exposure                  = FD_SHRED_FIREDANCER_FEC_EXPOSURE;
     tile->shred.fec_resolver_depth            = config->tiles.shred.max_pending_shred_sets;
-    tile->shred.slot_max                      = config->firedancer.runtime.max_live_slots;
+    tile->shred.slot_max                      = config->tiles.repair.slot_max;
     tile->shred.expected_shred_version        = config->consensus.expected_shred_version;
     tile->shred.shred_listen_port             = config->tiles.shred.shred_listen_port;
     tile->shred.max_shreds_per_block          = config->limits.max_shreds_per_block;

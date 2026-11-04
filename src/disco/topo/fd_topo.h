@@ -554,6 +554,7 @@ struct fd_topo_tile {
       ulong txncache_obj_id;
       ulong progcache_obj_id;
       ulong accdb_obj_id;
+      ulong bpf_frames_obj_id;
 
       ulong max_live_slots;
 
@@ -644,7 +645,7 @@ struct fd_topo_tile {
       ushort quic_client_listen_port;
       ushort quic_server_listen_port;
       uint   ip_addr;
-      ulong  max_live_slots;
+      ulong  slot_max;
       ulong  wait_for_supermajority_at_slot;
       int    wait_for_supermajority_hash_is_zero;
       ushort expected_shred_version;
@@ -742,6 +743,7 @@ struct fd_topo_tile {
       ulong txncache_obj_id;
       ulong progcache_obj_id;
       ulong accdb_obj_id;
+      ulong bpf_frames_obj_id;
       int   report_runtime_diffs;
     } execle;
 

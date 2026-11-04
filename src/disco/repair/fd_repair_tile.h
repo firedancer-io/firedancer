@@ -35,51 +35,32 @@
    version completes and its DMR matches a notar blk, the notar blk is
    merged into it and freed (see dedup in fd_repair.c).  So in time of
    network blips replay may allocate two banks for the same block; the
-   notar one never completes and is eventually evicted or pruned.
+   notar one never completes and is eventually pruned.
 
    INPUTS: REPLAY
 
    Rotor tile consumes from replay tile the sigs
-   REPLAY_SIG_ROOT_ADVANCED, REPLAY_SIG_SLOT_DEAD and
-   REPLAY_SIG_MISSING_FEC.  REPLAY_SIG_SLOT_DEAD frees the dead blk; if
-   it was the turbine version, turbine does not rebuild it.
+   REPLAY_SIG_ROOT_ADVANCED and REPLAY_SIG_SLOT_DEAD.
+   REPLAY_SIG_SLOT_DEAD frees the dead blk; if it was the turbine
+   version, turbine does not rebuild it.
 
    Pruning:
 
    Rooting is not done off of votor rooting messages, but by replay root
-   advance updates.  Consider the following case:
-
-   The cluster is having trouble rooting, and so we have a long chain of
-   unfinalized slots. Banks begins to evict arbitrarily. It evicts slot
-   N and begins executing down a different fork, but then soon after a
-   finalization arrives for slot N.
-
-   Replay tile updates its consensus root, but can't advance to it yet,
-   because the bank for it has not been executed.  Rotor never evicts a
-   blk, and thus could root from the finalized message immediately.
-   This is clearly a problem; replay needs the consensus root data
-   re-delivered for execution, so rotor cannot immediately prune based
-   on the finalized message.
+   advance updates.  A finalization can arrive for a block replay has
+   not executed yet, so replay's consensus root can run ahead of what it
+   has replayed.  Rotor must keep delivering that block's data, so it
+   cannot prune based on the finalized message.
 
    Instead replay already does its own bookkeeping.  It has a highest
    known consensus root, a storage root that is the earliest slot data
    maintained, and a notified root that is the highest consensus root
-   that replay verifies is live and can't be evicted.
+   that replay verifies is live.
 
    Rotor can safely assume anything below the notified root is no longer
    needed.
 
-   Eviction:
-
-   Replay can evict leaf banks at will, without rotor's knowledge.  This
-   means rotor may continue deliverying down a lineage that banks cannot
-   immediately replay, since it has evicted an ancestor.  When that
-   occurs, replay should drain the rotor in-link dcache and send a
-   REPLAY_SIG_MISSING_FEC to rotor.  Rotor then sends it's next FEC set
-   with the full lineage starting from the rotor root.  It does this
-   only for the next FEC set to deliver.  If repeated evictions occur,
-   rotor can expect repeated REPLAY_SIG_MISSING_FEC messages to arrive,
-   and many redundant FECs to be delivered.
+   Sizing:
 
    We assume currently that rotor will not require eviction.  The
    default size is bounded to the Agave cap on future certs it tracks.
@@ -175,7 +156,7 @@ struct fd_repair_replay_fec {
       In other words, known_id is a keying instruction, not a statement about whether the block id is known:
       - known_id set: Replay keys the block by {slot, block_id} starting at FEC 0 and looks up its parent element by that key for every later FEC.
       - known_id clear: the block is a turbine version. Replay keys it by {slot, 0} until it processes the slot-complete FEC, then re-keys it to {slot, dmr}.
-                        This holds for every FEC of the block, including redelivered copies, so all FECs of one block always resolve to the same element.
+                        This holds for every FEC of the block, so all FECs of one block always resolve to the same element.
 
       This exists currently because replay keys incoming FECs by {slot,
       block_id} to lookup its parent element. For blocks where known_id
@@ -183,13 +164,12 @@ struct fd_repair_replay_fec {
       block_id key. Otherwise, for a turbine block whose known_id is 0,
       it should always lookup by {slot, 0}.
 
-      Redelivery from root never changes known_id. It only affects
-      block_id. Neither does a merge: when a turbine copy completes as
+      A merge never changes known_id: when a turbine copy completes as
       a block whose repaired copy is also delivering, the surviving
       turbine copy keeps known_id 0, and replay keeps building its
       {slot, 0} bank, abandoning the notarized copy's bank. */
    uchar     known_id : 1;
-   fd_hash_t block_id; /* always populated if known_id is 1, or if slot_complete is 1.  Otherwise could be populated on redelivery or as soon as the block_id is computed.  */
+   fd_hash_t block_id; /* always populated if known_id is 1, or if slot_complete is 1.  Otherwise could be populated as soon as the block_id is computed.  */
    uchar     finalized : 1; /* Known pre-execution that this block is finalized. 1 iff slot_complete and block is finalized. */
 
    fd_repair_fec_metrics_t metrics;

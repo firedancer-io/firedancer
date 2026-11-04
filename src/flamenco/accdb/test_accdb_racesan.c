@@ -860,7 +860,7 @@ test_acquire_vs_advance( void ) {
     fd_accdb_fork_id_t a  = fd_accdb_attach_child( ctl, root );
     fd_accdb_fork_id_t a1 = fd_accdb_attach_child( ctl, a );
     /* Write a NEW version of key on A (the fork being rooted): this
-       creates a txn on A so background_advance_root(A) walks A's txns and
+       adds it to A's list so background_advance_root(A) walks it and
        UNLINKS the older rooted version on R's trunk (firing pre_unlink).
        The reader on A1 (descendant of A) must observe A's version, never
        the version being unlinked. */

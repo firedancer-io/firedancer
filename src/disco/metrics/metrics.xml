@@ -890,6 +890,8 @@ deliberate exception with lint-allow="<rule id>")
 <tile name="accdb">
     <gauge name="AccountUsed" summary="Account versions in the index; every unrooted fork version counts" />
     <gauge name="AccountCapacity" summary="Account versions the index can hold" />
+    <gauge name="ChunkUsed" summary="Fork list chunks in use, including chunks of deferred frees" />
+    <gauge name="ChunkCapacity" summary="Fork list chunks the pool can hold" />
     <counter name="AccountRelocated" summary="Accounts moved in the account database during compaction" />
     <gauge name="DiskAllocatedBytes" summary="Allocated size of the account database file" />
     <gauge name="DiskConsumedBytes" ambiguous-kind="true" summary="Bytes of the account database file written at least once, excluding never-written partition tail space" />
@@ -1107,7 +1109,7 @@ deliberate exception with lint-allow="<rule id>")
     <gauge name="ChainTxnHeight" ambiguous-kind="true" summary="Transactions from genesis through the last replayed block, 0 if none; drops on a fork switch" />
 
     <counter name="FecPollSkipped" enum="FecPollSkipReason" summary="Replay loop iterations that processed no FEC set, by reason" />
-    <counter name="FecParentMissingDropped" summary="FEC sets dropped because replay could not resolve the block's parent (Alpenglow), which was dropped on a dead lineage, evicted with its tracking slot reused, or rooted past" />
+    <counter name="FecParentMissingDropped" summary="FEC sets dropped because replay could not resolve the block's parent (Alpenglow), which was dropped on a dead lineage, pruned with its fork, or rooted past" />
     <counter name="FecRootedPastSkipped" summary="Rotor FEC sets of a slot at or below the published root, or of a block whose parent is below it, skipped rather than dropped: no redelivery can replay them" />
     <counter name="RootAdvanceDeferred" summary="Times the storage root could not advance to the consensus root yet" />
     <counter name="LeaderWindowAlreadyProduced" summary="Leader windows given up because the cluster already produced one of their slots, eg. our own past slots replayed after a restart (Alpenglow)" />
@@ -1196,7 +1198,7 @@ deliberate exception with lint-allow="<rule id>")
     <counter name="FecSetRootAccepted" summary="FecSetRoot responses accepted" />
     <counter name="FecSetRootFailed" summary="FecSetRoot responses that failed verification" />
     <counter name="ReplayRootAdvancedRx" summary="Root advanced messages received from replay" />
-    <counter name="ReplayMissingFecRx" summary="Missing FEC messages received from replay, each a from-root reconsume" />
+    <counter name="ReplayMissingFecRx" deprecated="true" summary="Missing FEC messages received from replay, each a from-root reconsume" />
     <counter name="PingRejected" enum="PingRejectReason" summary="Pings rejected, by reason" />
     <histogram name="ResponseLatencyNanos" min="10000000" max="1000000000">
         <summary>Time from sending a repair request to receiving its response</summary>

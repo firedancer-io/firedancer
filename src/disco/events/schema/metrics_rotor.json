@@ -130,7 +130,7 @@
         "fec_set_root_accepted":           { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "FecSetRoot responses accepted" },
         "fec_set_root_failed":             { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "FecSetRoot responses that failed verification" },
         "replay_root_advanced_rx":         { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Root advanced messages received from replay" },
-        "replay_missing_fec_rx":           { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Missing FEC messages received from replay, each a from-root reconsume" },
+        "replay_missing_fec_rx":           { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Missing FEC messages received from replay, each a from-root reconsume", "deprecated": true },
         "ping_rejected": {
             "type": "Tuple",
             "description": "Pings rejected, by reason",

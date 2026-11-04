@@ -247,6 +247,7 @@ firedancer_dev_test_run( int     argc,
 
       config->firedancer.accounts.max_accounts  = 30000000UL;
       config->firedancer.runtime.max_live_slots = 512UL;
+      config->tiles.repair.slot_max             = 128UL;
       config->development.hugetlbfs.min_size = 0;
       config->telemetry = 0;
       config->has_user_config = 1;

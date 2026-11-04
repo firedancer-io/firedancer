@@ -1169,7 +1169,7 @@
 | <span class="metrics-name">replay_&#8203;fec_&#8203;poll_&#8203;skipped</span><br/>{fec_&#8203;poll_&#8203;skip_&#8203;reason="<span class="metrics-enum">leader_&#8203;freeze_&#8203;wait</span>"} | counter | Replay loop iterations that processed no FEC set, by reason (Waiting for PoH to end our leader block) |
 | <span class="metrics-name">replay_&#8203;fec_&#8203;poll_&#8203;skipped</span><br/>{fec_&#8203;poll_&#8203;skip_&#8203;reason="<span class="metrics-enum">bank_&#8203;full</span>"} | counter | Replay loop iterations that processed no FEC set, by reason (The bank pool was full) |
 | <span class="metrics-name">replay_&#8203;fec_&#8203;poll_&#8203;skipped</span><br/>{fec_&#8203;poll_&#8203;skip_&#8203;reason="<span class="metrics-enum">lane_&#8203;wait</span>"} | counter | Replay loop iterations that processed no FEC set, by reason (A block's first FEC set waited for a staging lane) |
-| <span class="metrics-name">replay_&#8203;fec_&#8203;parent_&#8203;missing_&#8203;dropped</span> | counter | FEC sets dropped because replay could not resolve the block's parent (Alpenglow), which was dropped on a dead lineage, evicted with its tracking slot reused, or rooted past |
+| <span class="metrics-name">replay_&#8203;fec_&#8203;parent_&#8203;missing_&#8203;dropped</span> | counter | FEC sets dropped because replay could not resolve the block's parent (Alpenglow), which was dropped on a dead lineage, pruned with its fork, or rooted past |
 | <span class="metrics-name">replay_&#8203;fec_&#8203;rooted_&#8203;past_&#8203;skipped</span> | counter | Rotor FEC sets of a slot at or below the published root, or of a block whose parent is below it, skipped rather than dropped: no redelivery can replay them |
 | <span class="metrics-name">replay_&#8203;root_&#8203;advance_&#8203;deferred</span> | counter | Times the storage root could not advance to the consensus root yet |
 | <span class="metrics-name">replay_&#8203;leader_&#8203;window_&#8203;already_&#8203;produced</span> | counter | Leader windows given up because the cluster already produced one of their slots, eg. our own past slots replayed after a restart (Alpenglow) |
@@ -1406,6 +1406,8 @@
 |--------|------|-------------|
 | <span class="metrics-name">accdb_&#8203;account_&#8203;used</span> | gauge | Account versions in the index; every unrooted fork version counts |
 | <span class="metrics-name">accdb_&#8203;account_&#8203;capacity</span> | gauge | Account versions the index can hold |
+| <span class="metrics-name">accdb_&#8203;chunk_&#8203;used</span> | gauge | Fork list chunks in use, including chunks of deferred frees |
+| <span class="metrics-name">accdb_&#8203;chunk_&#8203;capacity</span> | gauge | Fork list chunks the pool can hold |
 | <span class="metrics-name">accdb_&#8203;account_&#8203;relocated</span> | counter | Accounts moved in the account database during compaction |
 | <span class="metrics-name">accdb_&#8203;disk_&#8203;allocated_&#8203;bytes</span> | gauge | Allocated size of the account database file |
 | <span class="metrics-name">accdb_&#8203;disk_&#8203;consumed_&#8203;bytes</span> | gauge | Bytes of the account database file written at least once, excluding never-written partition tail space |
@@ -2110,7 +2112,6 @@
 | <span class="metrics-name">rotor_&#8203;fec_&#8203;set_&#8203;root_&#8203;accepted</span> | counter | FecSetRoot responses accepted |
 | <span class="metrics-name">rotor_&#8203;fec_&#8203;set_&#8203;root_&#8203;failed</span> | counter | FecSetRoot responses that failed verification |
 | <span class="metrics-name">rotor_&#8203;replay_&#8203;root_&#8203;advanced_&#8203;rx</span> | counter | Root advanced messages received from replay |
-| <span class="metrics-name">rotor_&#8203;replay_&#8203;missing_&#8203;fec_&#8203;rx</span> | counter | Missing FEC messages received from replay, each a from-root reconsume |
 | <span class="metrics-name">rotor_&#8203;ping_&#8203;rejected</span><br/>{ping_&#8203;reject_&#8203;reason="<span class="metrics-enum">malformed</span>"} | counter | Pings rejected, by reason (Failed to decode) |
 | <span class="metrics-name">rotor_&#8203;ping_&#8203;rejected</span><br/>{ping_&#8203;reject_&#8203;reason="<span class="metrics-enum">unknown_&#8203;peer</span>"} | counter | Pings rejected, by reason (Sender is not a known peer) |
 | <span class="metrics-name">rotor_&#8203;ping_&#8203;rejected</span><br/>{ping_&#8203;reject_&#8203;reason="<span class="metrics-enum">signature_&#8203;failed</span>"} | counter | Pings rejected, by reason (Signature did not verify) |

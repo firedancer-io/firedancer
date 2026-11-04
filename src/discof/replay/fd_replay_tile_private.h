@@ -224,13 +224,6 @@ struct fd_replay_tile {
   fd_reception_stats_t * reception_stats;
   ulong                  reception_stats_cnt;
 
-  /* When a bank is evicted, the replayable chain of FECs delivered from rotor is broken. i.e.
-     we lose context for a parent we needed to replay off of. When this happens,
-     on the first FEC we see we can't replay, we need to drain everything in the dcache
-     until there's something we can replay off of.  Set this flag to enter that state (i.e. ignore FECs
-     until there's one we can replay. )*/
-  int drain_rotor_fecs;
-
   fd_sched_t * sched;
   ulong        in_cnt;
   ulong        execrp_idle_cnt;
@@ -591,7 +584,6 @@ struct fd_replay_tile {
 
   fd_replay_out_link_t replay_out[1];
   fd_replay_out_link_t slot_out[1];
-  fd_replay_out_link_t rotor_out[1]; /* REPLAY_SIG_MISSING_FEC */
   ulong const *        slot_out_seq;
   fd_replay_out_link_t snapmk_out[1];
   ulong admin_out_idx;

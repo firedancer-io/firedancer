@@ -201,7 +201,7 @@ force_mismatch_cmd_fn( args_t *   args,
     for( ulong i=0UL; i<bank_max; i++ ) {
       fd_bank_t * bank  = &pool[ i ];
       ulong       state = FD_VOLATILE_CONST( bank->state );
-      if( state!=FD_BANK_STATE_REPLAYABLE && state!=FD_BANK_STATE_FROZEN && state!=FD_BANK_STATE_PRUNABLE ) continue;
+      if( state!=FD_BANK_STATE_REPLAYABLE && state!=FD_BANK_STATE_FROZEN ) continue;
 
       ulong slot = FD_VOLATILE_CONST( bank->f.slot );
       if( slot<target ) {
@@ -209,10 +209,9 @@ force_mismatch_cmd_fn( args_t *   args,
         continue;
       }
 
-      /* A prunable bank may never have been replayable, and banks past
-         the first crossing are judged by their ancestor. */
+      /* Banks past the first crossing are judged by their ancestor. */
       ulong parent_slot = FD_VOLATILE_CONST( bank->f.parent_slot );
-      if( state==FD_BANK_STATE_PRUNABLE || parent_slot>=target ) continue;
+      if( parent_slot>=target ) continue;
 
       if( FD_UNLIKELY( !bank_has_fork( bank, target ) ) ) {
         if( state==FD_BANK_STATE_FROZEN ) {

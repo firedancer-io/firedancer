@@ -10308,6 +10308,10 @@ message MetricsAccdb {
   uint64 progcache_preevicted_bytes = 47;
   // Program cache slots reclaimed by the background preevict pass, by size class
   MetricsAccdbProgcachePreevicted progcache_preevicted = 48;
+  // Fork list chunks in use, including chunks of deferred frees
+  uint64 chunk_used = 49;
+  // Fork list chunks the pool can hold
+  uint64 chunk_capacity = 50;
 }
 
 // Metrics of one replay tile instance, one row per sweep
@@ -10504,7 +10508,7 @@ message MetricsReplay {
   uint64 chain_txn_height = 95;
   // Replay loop iterations that processed no FEC set, by reason
   MetricsReplayFecPollSkipped fec_poll_skipped = 96;
-  // FEC sets dropped because replay could not resolve the block's parent (Alpenglow), which was dropped on a dead lineage, evicted with its tracking slot reused, or rooted past
+  // FEC sets dropped because replay could not resolve the block's parent (Alpenglow), which was dropped on a dead lineage, pruned with its fork, or rooted past
   uint64 fec_parent_missing_dropped = 97;
   // Times the storage root could not advance to the consensus root yet
   uint64 root_advance_deferred = 98;
@@ -10705,7 +10709,7 @@ message MetricsRotor {
   // Root advanced messages received from replay
   uint64 replay_root_advanced_rx = 42;
   // Missing FEC messages received from replay, each a from-root reconsume
-  uint64 replay_missing_fec_rx = 43;
+  uint64 replay_missing_fec_rx = 43 [deprecated = true];
   // Pings rejected, by reason
   MetricsRotorPingRejected ping_rejected = 44;
   // Time from sending a repair request to receiving its response

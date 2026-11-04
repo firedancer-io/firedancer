@@ -110,7 +110,7 @@ int mock_sched_fec_ingest_fn( fd_sched_t * s, fd_sched_fec_t * f ) {
 }
 ulong mock_sched_can_ingest_fn  ( fd_sched_t * s FD_PARAM_UNUSED ) { return mock_sched_capacity; }
 int   mock_sched_is_drained_fn  ( fd_sched_t * s FD_PARAM_UNUSED ) { return mock_sched_drained; }
-void  mock_sched_abandon_fn     ( fd_sched_t * s FD_PARAM_UNUSED, ulong i, int invalid FD_PARAM_UNUSED ) {
+void  mock_sched_abandon_fn     ( fd_sched_t * s FD_PARAM_UNUSED, ulong i ) {
   mock_sched_abandon_cnt++;
   mock_sched_abandon_idx = i;
 }
@@ -394,7 +394,7 @@ setup_stem( fd_replay_tile_t * ctx, fd_wksp_t * wksp ) {
     else if( i==1UL ) { ctx->exec_out[ 0 ] = out; ctx->exec_cnt = 1UL; }
     else if( i==2UL ) *ctx->epoch_out  = out;
     else if( i==3UL ) *ctx->slot_out   = out;
-    else              *ctx->rotor_out  = out;
+    else              ctx->exec_out[ 1 ] = out; /* spare test link */
   }
 
   *test_stem_min_cr_avail = ULONG_MAX;
@@ -2266,7 +2266,6 @@ test_footer_cert_tasks( fd_wksp_t * wksp ) {
     fd_bls_sec_derive( cert_test_sk+rank, ikm, sizeof(ikm) );
   }
 
-  ctx->exec_out[ 1 ] = *ctx->rotor_out; /* spare test link */
   ctx->exec_cnt      = 2UL;
   ctx->is_booted     = 1;
   ctx->shred_version = CERT_TEST_SV;
@@ -2645,162 +2644,6 @@ test_process_rotor_fec_skip_replayed( fd_wksp_t * wksp ) {
   FD_LOG_NOTICE(( "pass: test_process_rotor_fec_skip_replayed" ));
 }
 
-/* Exercises the drain_rotor_fecs gate in the ROTOR_SIG_FEC_REPLAY
-   handler: a bank eviction breaks the replayable FEC chain, so on the
-   first un-replayable FEC (parent absent from block_id_map ->
-   PROCESS_FEC_DROP) replay enters drain, ignores subsequent FECs, and
-   resumes on the first replayable one (PROCESS_FEC_OK). */
-static void
-test_drain_rotor_fecs( fd_wksp_t * wksp ) {
-  static fd_replay_tile_t ctx[ 1 ];
-  setup_ctx( ctx, wksp );
-
-  fd_hash_t mr_root = { .ul = { 100 } };
-  init_root( ctx, &mr_root );
-
-  ulong out_idx = ctx->replay_out->idx;
-  ulong seq0    = test_stem_seqs[ out_idx ];
-
-  FD_TEST( ctx->drain_rotor_fecs==0 );
-
-  /* Step 1: FEC 0 whose parent is not in block_id_map -> DROP ->
-     enter drain, notify rotor once, consume the frag. */
-  fd_hash_t parent_bid = { .ul = { 0xBEEFUL } };
-  fd_hash_t mr1        = { .ul = { 201 } };
-  int r = deliver_rotor_fec( ctx, 1UL, 0U, 0UL, &parent_bid, &mr1, 0, 0 );
-  FD_TEST( r==0 );                                  /* consumed */
-  FD_TEST( ctx->drain_rotor_fecs==1 );              /* entered drain */
-  FD_TEST( test_stem_seqs[ out_idx ]==seq0+1UL );   /* one publish */
-  fd_frag_meta_t const * m = test_stem_mcaches[ out_idx ] + fd_mcache_line_idx( seq0, test_stem_depths[ out_idx ] );
-  FD_TEST( m->sig==REPLAY_SIG_MISSING_FEC );
-
-  /* Step 2: another un-replayable FEC while draining -> ignored, no
-     re-notify, still draining. */
-  fd_hash_t mr2 = { .ul = { 202 } };
-  r = deliver_rotor_fec( ctx, 2UL, 0U, 0UL, &parent_bid, &mr2, 0, 0 );
-  FD_TEST( r==0 );
-  FD_TEST( ctx->drain_rotor_fecs==1 );              /* still draining */
-  FD_TEST( test_stem_seqs[ out_idx ]==seq0+1UL );   /* no new publish */
-
-  /* Step 3: make a FEC replayable.  Insert the (non-prunable) root ele
-     into block_id_map keyed by {parent_slot, parent_bid}; a FEC 0
-     whose parent is that entry returns PROCESS_FEC_OK, so the drain gate
-     clears the flag before process_rotor_fec runs.  (process_rotor_fec
-     itself may then drop for lack of a store FEC -- the exit is the
-     flag clear, which happens first.) */
-  fd_bank_t * root_bank = fd_banks_root( ctx->banks );
-  root_bank->state = FD_BANK_STATE_FROZEN;          /* valid, non-prunable parent */
-  fd_block_id_ele_t * root_ele = &ctx->block_id_arr[ root_bank->idx ];
-  root_ele->block_info = ag_block_id( 3UL, parent_bid.uc );
-  FD_TEST( fd_block_id_map_ele_insert( ctx->block_id_map, root_ele, ctx->block_id_arr ) );
-  mock_sched_capacity = ULONG_MAX;                  /* sched has room */
-
-  fd_hash_t mr3 = { .ul = { 203 } };
-  deliver_rotor_fec( ctx, 4UL, 0U, 3UL, &parent_bid, &mr3, 0, 0 );
-  FD_TEST( ctx->drain_rotor_fecs==0 );              /* exited drain */
-  FD_TEST( test_stem_seqs[ out_idx ]==seq0+1UL );   /* exit does not notify */
-
-  FD_LOG_NOTICE(( "pass: test_drain_rotor_fecs" ));
-}
-
-/* Complements test_drain_rotor_fecs by exercising the SKIP and WAIT
-   gate results while already draining (neither must exit drain nor
-   crash), the OK exit + process, and re-entry into drain after a clean
-   exit (a second eviction must publish a fresh MISSING_FEC).  Together
-   with test_drain_rotor_fecs this pins down the full drain gate:
-
-     enter (DROP, notify once) -> ignore (SKIP/DROP, consumed, no
-       re-notify) -> retry (WAIT, frag kept, no re-notify) -> exit (OK,
-       process) -> re-enter (DROP, notify again).
-
-   Liveness note: while draining, SKIP and DROP return 0 (frag consumed,
-   no re-notify) but WAIT keeps its keep-and-retry contract.  Recovery
-   therefore hinges on the re-delivered path eventually presenting a FEC
-   whose parent is live, i.e. PROCESS_FEC_OK.  Rotor guarantees this by
-   re-delivering from the rotor root down; the root bank is the
-   (non-evictable) published root, so its direct child's FEC 0 is always
-   OK -- which is what the OK step below demonstrates. */
-static void
-test_drain_rotor_fecs_skip_wait_reentry( fd_wksp_t * wksp ) {
-  static fd_replay_tile_t ctx[ 1 ];
-  setup_ctx( ctx, wksp );
-
-  fd_hash_t mr_root = { .ul = { 100 } };
-  init_root( ctx, &mr_root );
-
-  fd_bank_t * root_bank = fd_banks_root( ctx->banks );
-  FD_TEST( root_bank );
-
-  /* Synthetic parent for the SKIP step: an ele keyed by {slot 5, 0}
-     (unverified/turbine style) with latest_fec_idx 0, so a mid-slot FEC
-     for slot 5 at fec_set_idx 64 has a present-but-mismatched parent ->
-     PROCESS_FEC_SKIP.  It lives at a block_id_arr slot no bank occupies;
-     SKIP returns before any bank is touched, so a synthetic ele is safe. */
-  ulong skip_idx = 12UL;
-  FD_TEST( root_bank->idx!=skip_idx );
-  fd_hash_t zero = {0};
-  fd_block_id_ele_t * skip_ele = &ctx->block_id_arr[ skip_idx ];
-  skip_ele->slot           = 5UL;
-  skip_ele->bank_seq       = 0UL;
-  skip_ele->latest_fec_idx = 0U;
-  skip_ele->block_info     = ag_block_id( 5UL, zero.uc );
-  FD_TEST( fd_block_id_map_ele_insert( ctx->block_id_map, skip_ele, ctx->block_id_arr ) );
-
-  ulong out_idx = ctx->replay_out->idx;
-  ulong seq0    = test_stem_seqs[ out_idx ];
-  FD_TEST( ctx->drain_rotor_fecs==0 );
-
-  /* Step 1: enter drain via DROP (fec 0 whose parent {0, parent_bid} is
-     absent from block_id_map).  One MISSING_FEC publish. */
-  fd_hash_t parent_bid = { .ul = { 0xBEEFUL } };
-  fd_hash_t mr1        = { .ul = { 201 } };
-  FD_TEST( deliver_rotor_fec( ctx, 1UL, 0U, 0UL, &parent_bid, &mr1, 0, 0 )==0 );
-  FD_TEST( ctx->drain_rotor_fecs==1 );
-  FD_TEST( test_stem_seqs[ out_idx ]==seq0+1UL );
-  fd_frag_meta_t const * m = test_stem_mcaches[ out_idx ] + fd_mcache_line_idx( seq0, test_stem_depths[ out_idx ] );
-  FD_TEST( m->sig==REPLAY_SIG_MISSING_FEC );
-
-  /* Step 2: a SKIP while draining (mid-slot fec, parent present but
-     latest_fec_idx mismatched) must NOT exit drain and must NOT crash. */
-  fd_hash_t mr2 = { .ul = { 202 } };
-  FD_TEST( deliver_rotor_fec( ctx, 5UL, 64U, 4UL, &parent_bid, &mr2, 0, 0 )==0 );
-  FD_TEST( ctx->drain_rotor_fecs==1 );              /* still draining */
-  FD_TEST( test_stem_seqs[ out_idx ]==seq0+1UL );   /* no re-notify */
-
-  /* Step 3: a WAIT while draining (parent bank present but PRUNABLE)
-     must NOT exit drain and must NOT crash.  Unlike SKIP/DROP it is
-     not swallowed. */
-  fd_block_id_ele_t * root_ele = &ctx->block_id_arr[ root_bank->idx ];
-  root_ele->block_info = ag_block_id( 0UL, parent_bid.uc );
-  FD_TEST( fd_block_id_map_ele_insert( ctx->block_id_map, root_ele, ctx->block_id_arr ) );
-  root_bank->state = FD_BANK_STATE_PRUNABLE;
-  fd_hash_t mr3 = { .ul = { 203 } };
-  FD_TEST( deliver_rotor_fec( ctx, 8UL, 0U, 0UL, &parent_bid, &mr3, 0, 0 )==1 ); /* kept for retry */
-  FD_TEST( ctx->drain_rotor_fecs==1 );              /* still draining */
-  FD_TEST( test_stem_seqs[ out_idx ]==seq0+1UL );   /* no re-notify */
-  root_bank->state = FD_BANK_STATE_FROZEN;          /* parent now replayable */
-
-  /* Step 4: the first OK clears drain and process_rotor_fec runs.  Exit
-     itself must NOT re-notify. */
-  mock_sched_capacity = ULONG_MAX;
-  fd_hash_t mr4 = { .ul = { 204 } };
-  deliver_rotor_fec( ctx, 7UL, 0U, 0UL, &parent_bid, &mr4, 0, 0 );
-  FD_TEST( ctx->drain_rotor_fecs==0 );              /* exited drain */
-  FD_TEST( test_stem_seqs[ out_idx ]==seq0+1UL );   /* exit does not notify */
-
-  /* Step 5: a second eviction (fresh DROP after a clean exit) must
-     re-enter drain and publish a fresh MISSING_FEC. */
-  fd_hash_t parent_bid2 = { .ul = { 0xF00DUL } };
-  fd_hash_t mr5         = { .ul = { 205 } };
-  FD_TEST( deliver_rotor_fec( ctx, 9UL, 0U, 999UL, &parent_bid2, &mr5, 0, 0 )==0 );
-  FD_TEST( ctx->drain_rotor_fecs==1 );              /* re-entered drain */
-  FD_TEST( test_stem_seqs[ out_idx ]==seq0+2UL );   /* exactly one more MISSING_FEC */
-  m = test_stem_mcaches[ out_idx ] + fd_mcache_line_idx( seq0+1UL, test_stem_depths[ out_idx ] );
-  FD_TEST( m->sig==REPLAY_SIG_MISSING_FEC );
-
-  FD_LOG_NOTICE(( "pass: test_drain_rotor_fecs_skip_wait_reentry" ));
-}
-
 /* setup_ag_root registers the root bank as a resolvable parent keyed
    {0, parent_bid}, frozen, so a FEC 0 naming that parent passes the
    parent checks. */
@@ -2838,9 +2681,8 @@ replay_out_sig( fd_replay_tile_t * ctx, ulong seq ) {
          (no block_id) finds it;
      (b) a duplicate FEC 32 is SKIPped by the {slot, 0} dedup;
      (c) a child's FEC 0 names its parent by id and cannot attach while
-         the parent is still keyed {slot, 0} (DROP, one MISSING_FEC), so
-         a child can never enter sched before its parent finished
-         delivering;
+         the parent is still keyed {slot, 0} (SKIPped), so a child can
+         never enter sched before its parent finished delivering;
      (d) the slot-complete FEC re-keys the parent by id and the child
          then attaches.
    The live failure this guards against keyed the redelivered FEC 0 by
@@ -2875,13 +2717,13 @@ test_rotor_fec_turbine_keying( fd_wksp_t * wksp ) {
   FD_TEST( ele5 );
   FD_TEST( !fd_block_id_map_ele_query( ctx->block_id_map, &key_id, NULL, ctx->block_id_arr ) );
   FD_TEST( ele5->latest_fec_idx==0U && !ele5->block_id_seen );
-  FD_TEST( ctx->drain_rotor_fecs==0 && test_stem_seqs[ out_idx ]==seq0 );
+  FD_TEST( test_stem_seqs[ out_idx ]==seq0 );
 
   /* The live turbine FEC 32 (no block_id) finds the block. */
   FD_TEST( deliver_rotor_fec( ctx, 5UL, FD_FEC_SHRED_CNT, 0UL, &parent_bid, &mr32, 0, 0 )==0 );
   FD_TEST( ele5->latest_fec_idx==FD_FEC_SHRED_CNT );
   FD_TEST( mock_sched_fec_ingest_cnt==ing0+2UL );
-  FD_TEST( ctx->drain_rotor_fecs==0 && test_stem_seqs[ out_idx ]==seq0 );
+  FD_TEST( test_stem_seqs[ out_idx ]==seq0 );
 
   /* (b) A redelivered duplicate of FEC 32 is SKIPped on {5, 0}: no store
      query, nothing ingested. */
@@ -2892,18 +2734,15 @@ test_rotor_fec_turbine_keying( fd_wksp_t * wksp ) {
   FD_TEST( ele5->latest_fec_idx==FD_FEC_SHRED_CNT );
 
   /* (c) The child's FEC 0 names parent {5, B}; while 5 is still keyed
-     {5, 0} it cannot attach: DROP, drain, exactly one MISSING_FEC. */
+     {5, 0} it cannot attach and is SKIPped, with nothing published. */
   fd_hash_t mr6 = { .ul = { 601 } };
   FD_TEST( deliver_rotor_fec( ctx, 6UL, 0U, 5UL, &B, &mr6, 0, 0 )==0 );
-  FD_TEST( ctx->drain_rotor_fecs==1 );
-  FD_TEST( test_stem_seqs[ out_idx ]==seq0+1UL );
-  FD_TEST( replay_out_sig( ctx, seq0 )==REPLAY_SIG_MISSING_FEC );
+  FD_TEST( test_stem_seqs[ out_idx ]==seq0 );
   FD_TEST( fd_banks_pool_used_cnt( ctx->banks )==used0+1UL );      /* no bank for the child */
 
-  /* (d) The slot-complete FEC re-keys 5 to {5, B} (and, being OK, exits
-     drain); the child now attaches on a fresh bank with no re-notify. */
+  /* (d) The slot-complete FEC re-keys 5 to {5, B}; the child now
+     attaches on a fresh bank. */
   FD_TEST( deliver_rotor_fec_bid( ctx, 5UL, 2U*FD_FEC_SHRED_CNT, 0UL, &parent_bid, &B, &mr64, 1, 0 )==0 );
-  FD_TEST( ctx->drain_rotor_fecs==0 );
   FD_TEST( ele5->block_id_seen );
   FD_TEST( fd_block_id_map_ele_query( ctx->block_id_map, &key_id,   NULL, ctx->block_id_arr )==ele5 );
   FD_TEST( !fd_block_id_map_ele_query( ctx->block_id_map, &key_slot, NULL, ctx->block_id_arr ) );
@@ -2912,17 +2751,15 @@ test_rotor_fec_turbine_keying( fd_wksp_t * wksp ) {
   FD_TEST( deliver_rotor_fec( ctx, 6UL, 0U, 5UL, &B, &mr6, 0, 0 )==0 );
   FD_TEST( fd_banks_pool_used_cnt( ctx->banks )==used0+2UL );
   FD_TEST( mock_sched_fec_ingest_cnt==ing0+4UL );
-  FD_TEST( ctx->drain_rotor_fecs==0 );
-  FD_TEST( test_stem_seqs[ out_idx ]==seq0+1UL );                  /* no further notify */
+  FD_TEST( test_stem_seqs[ out_idx ]==seq0 );
 
   FD_LOG_NOTICE(( "pass: test_rotor_fec_turbine_keying" ));
 }
 
-/* test_rotor_fec_rooted_past: a redelivered FEC of a slot at or below
-   the published root, or of a block whose parent is below it, is SKIPped:
-   no MISSING_FEC and no drain, so a redelivery that lands behind a
-   catch-up backlog cannot ask for another.  A FEC above the root whose
-   parent is missing still DROPs. */
+/* test_rotor_fec_rooted_past: a FEC of a slot at or below the published
+   root, or of a block whose parent is below it, is SKIPped and counted
+   as rooted past.  A FEC above the root whose parent is missing is
+   SKIPped too, counted as parent unavailable.  Nothing is published. */
 
 static void
 test_rotor_fec_rooted_past( fd_wksp_t * wksp ) {
@@ -2942,12 +2779,13 @@ test_rotor_fec_rooted_past( fd_wksp_t * wksp ) {
   FD_TEST( deliver_rotor_fec( ctx, 10UL, FD_FEC_SHRED_CNT, 9UL, &gone, &mr, 0, 0 )==0 ); /* the root, mid-slot */
   FD_TEST( deliver_rotor_fec( ctx, 12UL, 0U,               9UL, &gone, &mr, 0, 0 )==0 ); /* parent below the root */
   FD_TEST( deliver_rotor_fec( ctx, 12UL, FD_FEC_SHRED_CNT, 9UL, &gone, &mr, 0, 0 )==0 ); /* its next FEC, no bank */
-  FD_TEST( ctx->drain_rotor_fecs==0 && test_stem_seqs[ out_idx ]==seq0 );
+  FD_TEST( test_stem_seqs[ out_idx ]==seq0 );
   FD_TEST( ctx->metrics.fec_rooted_past==4UL && mock_sched_fec_ingest_cnt==ing0 );
 
+  ulong unavail0 = ctx->metrics.parent_unavailable;
   FD_TEST( deliver_rotor_fec( ctx, 12UL, 0U, 11UL, &gone, &mr, 0, 0 )==0 );              /* missing parent above it */
-  FD_TEST( ctx->drain_rotor_fecs==1 && test_stem_seqs[ out_idx ]==seq0+1UL );
-  FD_TEST( replay_out_sig( ctx, seq0 )==REPLAY_SIG_MISSING_FEC );
+  FD_TEST( test_stem_seqs[ out_idx ]==seq0 );
+  FD_TEST( ctx->metrics.parent_unavailable==unavail0+1UL && mock_sched_fec_ingest_cnt==ing0 );
 
   FD_LOG_NOTICE(( "pass: test_rotor_fec_rooted_past" ));
 }
@@ -2985,13 +2823,12 @@ rotor_fec_merged_copies( fd_wksp_t * wksp,
 
   fd_block_id_ele_t * ele = fd_block_id_map_ele_query( ctx->block_id_map, &key_id, NULL, ctx->block_id_arr );
   FD_TEST( ele && ele->block_id_seen && ele->latest_fec_idx==2U*FD_FEC_SHRED_CNT );
-  FD_TEST( ctx->drain_rotor_fecs==0 && test_stem_seqs[ out_idx ]==seq0 );
+  FD_TEST( test_stem_seqs[ out_idx ]==seq0 );
 
   fd_hash_t mr6  = { .ul = { 601 } };
   ulong     ing0 = mock_sched_fec_ingest_cnt;
   FD_TEST( deliver_rotor_fec( ctx, 6UL, 0U, 5UL, &B, &mr6, 0, 0 )==0 );
   FD_TEST( mock_sched_fec_ingest_cnt==ing0+1UL );
-  FD_TEST( ctx->drain_rotor_fecs==0 );
 }
 
 /* deliver_rotor_fec_final delivers a single FEC block {slot, block_id}
@@ -3102,13 +2939,9 @@ test_rotor_fec_merged_copies( fd_wksp_t * wksp ) {
    verification.  mark_bank_dead publishes SLOT_DEAD; the dead bank is
    then eagerly pruned (fd_banks_prune_one_bank drains the dead deque),
    after which its idx reads as no bank at all.  A child FEC 0 chained
-   off it therefore DROPs ("parent bank evicted"): frag consumed, drain
-   entered, exactly one MISSING_FEC.  Further FECs of the dead block or
-   its descendants are consumed silently while draining.  Finally the
-   CURRENT behavior: rotor's redelivery brings the dead block's FEC 0
-   back and replay, having no memory of the verdict, replays it again
-   on a fresh bank.  TODO that last step goes away once rotor consumes
-   SLOT_DEAD and stops delivering the dead lineage. */
+   off it is therefore SKIPped ("parent bank pruned"): frag consumed,
+   nothing published, no bank.  Further FECs of the dead block or its
+   descendants are SKIPped the same way. */
 
 static void
 test_dead_block_children_drop( fd_wksp_t * wksp ) {
@@ -3155,42 +2988,28 @@ test_dead_block_children_drop( fd_wksp_t * wksp ) {
   ulong ing_dead  = mock_sched_fec_ingest_cnt;
 
   /* The child's FEC 0 finds the stale {5, B} element but no live bank:
-     DROP, drain, one MISSING_FEC, no bank. */
+     SKIPped, nothing published, no bank. */
   fd_hash_t mr6 = { .ul = { 601 } };
   ulong seq1 = test_stem_seqs[ out_idx ];
-  FD_TEST( ctx->drain_rotor_fecs==0 );
   FD_TEST( deliver_rotor_fec( ctx, 6UL, 0U, 5UL, &B, &mr6, 0, 0 )==0 );
-  FD_TEST( ctx->drain_rotor_fecs==1 );
-  FD_TEST( test_stem_seqs[ out_idx ]==seq1+1UL );
-  FD_TEST( replay_out_sig( ctx, seq1 )==REPLAY_SIG_MISSING_FEC );
+  FD_TEST( test_stem_seqs[ out_idx ]==seq1 );
   FD_TEST( fd_banks_pool_used_cnt( ctx->banks )==used_dead );
   FD_TEST( mock_sched_fec_ingest_cnt==ing_dead );
 
-  /* While draining: a late FEC of the dead block itself and the child's
-     next FEC are consumed silently, no re-notify, nothing ingested. */
+  /* A late FEC of the dead block itself and the child's next FEC are
+     SKIPped too: nothing published, nothing ingested. */
   fd_hash_t mr6b = { .ul = { 602 } };
   FD_TEST( deliver_rotor_fec_bid( ctx, 5UL, FD_FEC_SHRED_CNT, 0UL, &parent_bid, &B, &mr32, 1, 0 )==0 );
   FD_TEST( deliver_rotor_fec    ( ctx, 6UL, FD_FEC_SHRED_CNT, 5UL, &B,              &mr6b, 0, 0 )==0 );
-  FD_TEST( ctx->drain_rotor_fecs==1 );
-  FD_TEST( test_stem_seqs[ out_idx ]==seq1+1UL );
+  FD_TEST( test_stem_seqs[ out_idx ]==seq1 );
   FD_TEST( fd_banks_pool_used_cnt( ctx->banks )==used_dead );
   FD_TEST( mock_sched_fec_ingest_cnt==ing_dead );
-
-  /* CURRENT behavior: the redelivered FEC 0 of the dead block is not
-     recognized as dead (the {5, B} element has no live bank, so the
-     dedup does not SKIP it) and is replayed again on a fresh bank,
-     exiting drain without a re-notify. */
-  FD_TEST( deliver_rotor_fec_bid( ctx, 5UL, 0U, 0UL, &parent_bid, &B, &mr0, 0, 0 )==0 );
-  FD_TEST( ctx->drain_rotor_fecs==0 );
-  FD_TEST( fd_banks_pool_used_cnt( ctx->banks )==used_dead+1UL );
-  FD_TEST( mock_sched_fec_ingest_cnt==ing_dead+1UL );
-  FD_TEST( test_stem_seqs[ out_idx ]==seq1+1UL );
 
   FD_LOG_NOTICE(( "pass: test_dead_block_children_drop" ));
 }
 
 /* A stale {slot, id} map entry (left behind when the block's bank was
-   evicted or pruned) must not shadow the {slot, 0} key of a rebuild in
+   pruned) must not shadow the {slot, 0} key of a rebuild in
    flight: a second redelivered FEC 0 has to SKIP against the live
    zero-key element instead of allocating a duplicate bank and stealing
    the mapping.  The stale entry only survives if the rebuild lands on a
@@ -3546,10 +3365,9 @@ test_ag_leader_abandon_on_root_past_leader_slot( fd_wksp_t * wksp ) {
   FD_TEST( !fd_banks_bank_query( ctx->banks, leader_idx ) );
 
   /* A late own FEC finds the stale {2, 0} entry of the pruned bank.  It
-     is skipped: no drain, no MISSING_FEC. */
+     is skipped and nothing is published. */
   ulong seq1 = test_stem_seqs[ out_idx ];
   FD_TEST( !deliver_leader_fec( ctx, 2UL, FD_FEC_SHRED_CNT, 1UL, &id1, &zero, &mr2_32, 0 ) );
-  FD_TEST( !ctx->drain_rotor_fecs );
   FD_TEST( test_stem_seqs[ out_idx ]==seq1 );
 
   /* The deferred identity switch now completes. */
@@ -3697,7 +3515,7 @@ test_ag_leader_fec_not_gated( fd_wksp_t * wksp ) {
   FD_TEST( ele->block_id_seen && fd_hash_eq( &ele->dmr, &id2 ) );
   ag_block_id_t key2 = ag_block_id( 2UL, id2.uc );
   FD_TEST( fd_block_id_map_ele_query( ctx->block_id_map, &key2, NULL, ctx->block_id_arr )==ele );
-  FD_TEST( !ctx->drain_rotor_fecs && test_stem_seqs[ ctx->replay_out->idx ]==seq0 );
+  FD_TEST( test_stem_seqs[ ctx->replay_out->idx ]==seq0 );
 
   mock_sched_capacity  = ULONG_MAX;
   mock_sched_drained   = 1;
@@ -4221,8 +4039,6 @@ main( int     argc,
   test_root_from_footer( wksp );                    fd_wksp_reset( wksp, 42U );
   test_footer_cert_tasks( wksp );                   fd_wksp_reset( wksp, 42U );
   test_slot_completed_keeps_leader_sentinel( wksp ); fd_wksp_reset( wksp, 42U );
-  test_drain_rotor_fecs( wksp );                    fd_wksp_reset( wksp, 42U );
-  test_drain_rotor_fecs_skip_wait_reentry( wksp );  fd_wksp_reset( wksp, 42U );
   test_process_rotor_fec_skip_replayed( wksp );     fd_wksp_reset( wksp, 42U );
   test_rotor_fec_turbine_keying( wksp );            fd_wksp_reset( wksp, 42U );
   test_rotor_fec_rooted_past( wksp );               fd_wksp_reset( wksp, 42U );
