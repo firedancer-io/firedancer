@@ -146,7 +146,9 @@
    The callback should return 1 if the fragment was not fully processed
    and should be returned to the stem for further processing, or 0 if
    the fragment was fully processed and the consumer link should be
-   advanced.
+   advanced.  FD_STEM_FRAG_BLOCKED also keeps the frag, and lets a
+   parking stem treat the in as idle until it makes progress elsewhere
+   (see fd_stem.h).
 
       AFTER_FRAG
    Is called immediately after the DURING_FRAG, along with an additional
@@ -270,11 +272,25 @@ STEM_(out_publish)( fd_stem_sleep_t const * sleep,
   if( sleep->shmem ) __atomic_store_n( &sleep->shmem->seq_mirror[ sleep->out_link_id[ out_idx ] ], seq, __ATOMIC_RELEASE );
 }
 
+/* STEM_(in_blocked) is 1 if in's head frag is marked blocked
+   (FD_STEM_FRAG_BLOCKED) and the stem made no progress since. */
+
+static inline int
+STEM_(in_blocked)( fd_stem_blocked_t const * blocked,
+                   fd_stem_tile_in_t const * in,
+                   ulong                     progress ) {
+  if( FD_LIKELY( !blocked ) ) return 0;
+  fd_stem_blocked_t const * b = &blocked[ in->idx ];
+  return (b->seq==in->seq) & (b->progress==progress);
+}
+
 static inline int
 STEM_(park)( STEM_CALLBACK_CONTEXT_TYPE * ctx,
              fd_stem_sleep_t const *      sleep,
              fd_stem_tile_in_t *          in,
              ulong                        in_cnt,
+             fd_stem_blocked_t const *    blocked,
+             ulong                        progress,
              fd_frag_meta_t **            out_mcache,
              ulong                        out_cnt,
              ulong const *                out_seq,
@@ -292,7 +308,9 @@ STEM_(park)( STEM_CALLBACK_CONTEXT_TYPE * ctx,
 
   if( FD_LIKELY( !backpressured ) ) {
     for( ulong i=0UL; i<in_cnt; i++ ) {
-      /* If there's a frag to read on some in, then we don't park. */
+      /* If there's a frag to read on some in, then we don't park.  A
+         blocked head is not one. */
+      if( FD_UNLIKELY( STEM_(in_blocked)( blocked, &in[ i ], progress ) ) ) continue;
       if( FD_UNLIKELY( fd_seq_diff( in[ i ].seq, fd_frag_meta_seq_query( in[ i ].mline ) )<=0L ) ) return 0;
     }
   }
@@ -360,6 +378,12 @@ STEM_(park)( STEM_CALLBACK_CONTEXT_TYPE * ctx,
     for( ulong i=0UL; i<in_cnt; i++ ) {
       ulong snap = in[ i ].seq;
       if( FD_UNLIKELY( backpressured ) ) snap = __atomic_load_n( &sleep->shmem->seq_mirror[ sleep->in_link_id[ in[ i ].idx ] ], __ATOMIC_ACQUIRE );
+      else if( FD_UNLIKELY( STEM_(in_blocked)( blocked, &in[ i ], progress ) ) ) {
+        /* The sweep must not wake us for the blocked frag or the
+           backlog already mirrored behind it */
+        ulong mirror = __atomic_load_n( &sleep->shmem->seq_mirror[ sleep->in_link_id[ in[ i ].idx ] ], __ATOMIC_ACQUIRE );
+        snap = fd_seq_gt( mirror, snap+1UL ) ? mirror : snap+1UL;
+      }
       sleep->shmem->seq_snap[ sleep->tile_id ][ in[ i ].idx ] = snap;
     }
     if( FD_UNLIKELY( backpressured ) ) __atomic_fetch_or( &sleep->shmem->credit_bits[ my_w ], my_bit, __ATOMIC_SEQ_CST );
@@ -385,7 +409,7 @@ STEM_(park)( STEM_CALLBACK_CONTEXT_TYPE * ctx,
   int pending = 0;
   if( FD_LIKELY( parked && !backpressured ) ) {
     for( ulong i=0UL; i<in_cnt; i++ ) {
-      pending |= fd_seq_diff( in[ i ].seq, fd_frag_meta_seq_query( in[ i ].mline ) )<=0L;
+      pending |= ( fd_seq_diff( in[ i ].seq, fd_frag_meta_seq_query( in[ i ].mline ) )<=0L ) & !STEM_(in_blocked)( blocked, &in[ i ], progress );
     }
   } else if( FD_LIKELY( parked ) ) {
     /* a credit return between the caller's snapshot and the credit
@@ -478,11 +502,13 @@ STEM_(cr_refresh)( ulong             out_cnt,
   }
 }
 
-static inline void
+static inline int
 STEM_(park_attempt)( STEM_CALLBACK_CONTEXT_TYPE * ctx,
                      fd_stem_sleep_t const *      cfg,
                      fd_stem_tile_in_t *          in,
                      ulong                        in_cnt,
+                     fd_stem_blocked_t const *    blocked,
+                     ulong                        progress,
                      fd_frag_meta_t **            out_mcache,
                      ulong                        out_cnt,
                      ulong const *                out_depth,
@@ -510,9 +536,9 @@ STEM_(park_attempt)( STEM_CALLBACK_CONTEXT_TYPE * ctx,
                      ulong                        regime,
                      int                          backpressured,
                      long                         deadline_hint ) {
-  int slept = STEM_(park)( ctx, cfg, in, in_cnt, out_mcache, out_cnt, out_seq, out_seq_pub, cons_cnt, cons_fseq, cons_seq,
+  int slept = STEM_(park)( ctx, cfg, in, in_cnt, blocked, progress, out_mcache, out_cnt, out_seq, out_seq_pub, cons_cnt, cons_fseq, cons_seq,
                            backpressured, deadline_hint, cap_ticks, min_ticks, tick_per_ns, *now );
-  if( FD_UNLIKELY( !slept ) ) return; /* found work */
+  if( FD_UNLIKELY( !slept ) ) return 0; /* found work */
 
   long next   = fd_tickcount();
   long waited = next - *now;
@@ -547,6 +573,7 @@ STEM_(park_attempt)( STEM_CALLBACK_CONTEXT_TYPE * ctx,
       *then = *now + (long)async_min;
     }
   }
+  return 1;
 }
 
 FD_FN_PURE static inline ulong

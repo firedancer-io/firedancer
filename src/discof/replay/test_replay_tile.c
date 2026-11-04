@@ -4333,9 +4333,9 @@ test_ag_leader_fec_not_gated( fd_wksp_t * wksp ) {
   mock_sched_drained   = 0;
   mock_sched_lane_wait = 1; /* and every lane is taken */
 
-  /* Another block's FEC 0 waits. */
+  /* Another block's FEC 0 waits, blocked on sched capacity. */
   fd_hash_t mr9 = { .ul = { 9001UL } };
-  FD_TEST( deliver_rotor_fec( ctx, 9UL, 0U, 1UL, &id1, &mr9, 0, 0 )==1 );
+  FD_TEST( deliver_rotor_fec( ctx, 9UL, 0U, 1UL, &id1, &mr9, 0, 0 )==FD_STEM_FRAG_BLOCKED );
   mock_sched_capacity = ULONG_MAX;
   FD_TEST( deliver_rotor_fec( ctx, 9UL, 0U, 1UL, &id1, &mr9, 0, 0 )==1 );
   mock_sched_capacity = 0UL;
@@ -4361,6 +4361,45 @@ test_ag_leader_fec_not_gated( fd_wksp_t * wksp ) {
   mock_sched_drained   = 1;
   mock_sched_lane_wait = 0;
   FD_LOG_NOTICE(( "pass: test_ag_leader_fec_not_gated" ));
+}
+
+/* test_rotor_fec_blocked: a FEC waiting on sched capacity reports its
+   in blocked so the stem can park, and counts sched_full once per
+   stall, not per retry.  Exec pacing still retries (idle after_credit
+   calls end it) once booted, and blocks before boot. */
+
+static void
+test_rotor_fec_blocked( fd_wksp_t * wksp ) {
+  static fd_replay_tile_t ctx[ 1 ];
+  setup_ctx( ctx, wksp );
+  fd_hash_t parent_bid = { .ul = { 0xBEEFUL } };
+  fd_hash_t mr         = { .ul = { 301UL } };
+
+  mock_sched_capacity = 0UL;
+  mock_sched_drained  = 0;
+  for( ulong i=0UL; i<3UL; i++ ) FD_TEST( deliver_rotor_fec( ctx, 1UL, 0U, 0UL, &parent_bid, &mr, 0, 0 )==FD_STEM_FRAG_BLOCKED );
+  FD_TEST( ctx->metrics.sched_full==1UL );
+
+  /* Space frees: the stall ends (a DROP here, the parent is unknown) */
+  mock_sched_capacity = ULONG_MAX;
+  FD_TEST( deliver_rotor_fec( ctx, 1UL, 0U, 0UL, &parent_bid, &mr, 0, 0 )==0 );
+  ctx->drain_rotor_fecs = 0;
+  mock_sched_capacity = 0UL;
+  FD_TEST( deliver_rotor_fec( ctx, 1UL, 0U, 0UL, &parent_bid, &mr, 0, 0 )==FD_STEM_FRAG_BLOCKED );
+  FD_TEST( ctx->metrics.sched_full==2UL );
+
+  /* Exec pacing */
+  ulong chunk = ctx->in[ TEST_REPAIR_IN_IDX ].chunk0;
+  ctx->execrp_idle_cnt = 0UL;
+  FD_TEST( returnable_frag( ctx, TEST_REPAIR_IN_IDX, 0UL, REPAIR_SIG_FEC, chunk, sizeof(fd_repair_out_fec_t), 0UL, 0UL, 0UL, test_stem )==1 );
+  ctx->is_booted = 0;
+  FD_TEST( returnable_frag( ctx, TEST_REPAIR_IN_IDX, 0UL, REPAIR_SIG_FEC, chunk, sizeof(fd_repair_out_fec_t), 0UL, 0UL, 0UL, test_stem )==FD_STEM_FRAG_BLOCKED );
+  ctx->is_booted = 1;
+  FD_TEST( ctx->metrics.sched_full==2UL );
+
+  mock_sched_capacity = ULONG_MAX;
+  mock_sched_drained  = 1;
+  FD_LOG_NOTICE(( "pass: test_rotor_fec_blocked" ));
 }
 
 /* Minimal context setup for on_snapshot_message with mock_snapshot_boot=1.
@@ -4901,6 +4940,7 @@ main( int     argc,
   test_ag_leader_abandon_on_root_past_leader_slot( wksp ); fd_wksp_reset( wksp, 42U );
   test_ag_become_leader_refuses_settled_slot( wksp ); fd_wksp_reset( wksp, 42U );
   test_ag_leader_fec_not_gated( wksp );
+  test_rotor_fec_blocked( wksp );
   fd_wksp_reset( wksp, 42U );
   test_snapmk_start_leader_after_epoch_rollover( wksp );
 
