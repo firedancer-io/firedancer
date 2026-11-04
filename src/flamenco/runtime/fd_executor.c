@@ -1493,13 +1493,15 @@ fd_executor_setup_age_failure( fd_runtime_t *      runtime,
         !memcmp( txn_out->accounts.keys[instr->program_id].uc, fd_solana_system_program_id.uc, 32UL ) &&
         FD_LOAD( uint, fd_txn_get_instr_data( instr, txn_in->txn->payload ) )==FD_SYSTEM_PROGRAM_INSTR_ADVANCE_NONCE_ACCOUNT ) {
       ushort idx = fd_txn_get_instr_accts( instr, txn_in->txn->payload )[0];
-      /* Keep the virtual nonce candidate on ordinary setup; its physical
-         accdb account need not match the synthesized Instructions data.
-         An unrelated Instructions key is safe to omit: a guaranteed age
-         failure returns before account loading can synthesize it. */
-      if( !memcmp( txn_out->accounts.keys[idx].uc, fd_sysvar_instructions_id.uc, 32UL ) ) return 0;
       if( fd_runtime_account_is_writable_idx( txn_in, txn_out, idx ) &&
-          ( !FD_FEATURE_ACTIVE_BANK( bank, require_static_nonce_account ) || idx<txn->acct_addr_cnt ) ) nonce_idx = idx;
+          ( !FD_FEATURE_ACTIVE_BANK( bank, require_static_nonce_account ) || idx<txn->acct_addr_cnt ) ) {
+        /* Only an eligible nonce can be dereferenced by ordinary age
+           checking.  Keep that virtual candidate on ordinary setup:
+           its physical account need not match synthesized Instructions
+           data.  Readonly or nonstatic candidates fail before any read. */
+        if( !memcmp( txn_out->accounts.keys[idx].uc, fd_sysvar_instructions_id.uc, 32UL ) ) return 0;
+        nonce_idx = idx;
+      }
     }
   }
 
