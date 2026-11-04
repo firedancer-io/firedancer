@@ -2528,6 +2528,49 @@ test_idx_primitives( void ) {
   fd_accdb_cf_t cf = { .cf=cfw, .nb=nb, .seed=7UL, .seq=&cf_seq, .stash=stash, .stash_cnt=&stash_cnt, .disabled=&disabled };
   ulong rng = 1UL;
 
+  /* semi-sorted word: every nibble multiset round-trips, ranks are a
+     bijection onto [0,RANK_MAX], free lane iff some fp is 0 */
+  uchar * seen = calloc( FD_ACCDB_CF_RANK_MAX+1UL, 1UL );
+  ulong   mcnt = 0UL;
+  ulong   nib[ FD_ACCDB_CF_LANES ];
+  for( nib[0]=0UL; nib[0]<16UL; nib[0]++ ) for( nib[1]=0UL; nib[1]<=nib[0]; nib[1]++ ) for( nib[2]=0UL; nib[2]<=nib[1]; nib[2]++ )
+  for( nib[3]=0UL; nib[3]<=nib[2]; nib[3]++ ) for( nib[4]=0UL; nib[4]<=nib[3]; nib[4]++ ) for( nib[5]=0UL; nib[5]<=nib[4]; nib[5]++ ) {
+    ulong want[ FD_ACCDB_CF_LANES ], got[ FD_ACCDB_CF_LANES ];
+    for( ulong l=0UL; l<FD_ACCDB_CF_LANES; l++ ) {
+      rng = fd_ulong_hash( rng+l );
+      ulong lo = ( !nib[ l ] && (rng&0x100UL) ) ? 0UL : rng&0xFFUL;
+      want[ l ] = (nib[ l ]<<8) | lo;
+    }
+    for( ulong i=1UL; i<FD_ACCDB_CF_LANES; i++ ) for( ulong j=i; j>0UL && want[ j-1UL ]<want[ j ]; j-- ) fd_swap( want[ j ], want[ j-1UL ] );
+    ulong w = fd_accdb_cf_encode( want );
+    FD_TEST( (w&0xFFFFUL)<=FD_ACCDB_CF_RANK_MAX && !seen[ w&0xFFFFUL ] );
+    seen[ w&0xFFFFUL ] = 1;
+    fd_accdb_cf_decode( w, got );
+    int has0 = 0;
+    for( ulong l=0UL; l<FD_ACCDB_CF_LANES; l++ ) {
+      FD_TEST( got[ l ]==want[ l ] );
+      FD_TEST( fd_accdb_cf_word_has( w, want[ l ] ) );
+      has0 |= !want[ l ];
+    }
+    FD_TEST( fd_accdb_cf_free_lane( w )==( has0 ? (int)FD_ACCDB_CF_LANES-1 : -1 ) );
+    for( ulong t=0UL; t<4UL; t++ ) {
+      rng = fd_ulong_hash( rng+t );
+      ulong q = (t&1UL) ? ( (rng&0xF00UL) | (want[ rng%FD_ACCDB_CF_LANES ]&0xFFUL) ) : rng&FD_ACCDB_CF_FP_MASK;
+      int in_w = 0;
+      for( ulong l=0UL; l<FD_ACCDB_CF_LANES; l++ ) in_w |= want[ l ]==q;
+      FD_TEST( fd_accdb_cf_word_has( w, q )==in_w );
+    }
+    ulong l = mcnt%FD_ACCDB_CF_LANES, nf = (mcnt&8UL) ? 0UL : 1UL+(rng%FD_ACCDB_CF_FP_MASK);
+    ulong w2 = fd_accdb_cf_set_lane( w, l, nf ), exp[ FD_ACCDB_CF_LANES ];
+    for( ulong k=0UL; k<FD_ACCDB_CF_LANES; k++ ) exp[ k ] = k==l ? nf : want[ k ];
+    for( ulong i=1UL; i<FD_ACCDB_CF_LANES; i++ ) for( ulong j=i; j>0UL && exp[ j-1UL ]<exp[ j ]; j-- ) fd_swap( exp[ j ], exp[ j-1UL ] );
+    FD_TEST( w2==fd_accdb_cf_encode( exp ) );
+    mcnt++;
+  }
+  FD_TEST( mcnt==FD_ACCDB_CF_RANK_MAX+1UL );
+  FD_TEST( !fd_accdb_cf_encode( (ulong[ FD_ACCDB_CF_LANES ]){0} ) );
+  free( seen );
+
   /* involution on a non-pow2 nb */
   for( ulong b=0UL; b<nb; b+=97UL ) for( ulong fp=1UL; fp<=FD_ACCDB_CF_FP_MASK; fp+=251UL ) FD_TEST( fd_accdb_cf_alt( &cf, fd_accdb_cf_alt( &cf, b, fp ), fp )==b );
 
@@ -2567,7 +2610,7 @@ test_idx_primitives( void ) {
   for( ulong i=0UL; i<n; i++ ) { memset( key, 0, 32 ); FD_STORE( ulong, key+8, i ); FD_TEST( fd_accdb_cf_probe( &cf, key ) ); }
   ulong fp_hits = 0UL;
   for( ulong i=0UL; i<100000UL; i++ ) { memset( key, 0, 32 ); FD_STORE( ulong, key+8, i ); key[ 31 ] = 1; fp_hits += (ulong)fd_accdb_cf_probe( &cf, key ); }
-  FD_TEST( fp_hits<100000UL*4UL/1000UL ); /* 2*5*0.97/2^12 = 2.4e-3 */
+  FD_TEST( fp_hits<100000UL*4UL/1000UL ); /* 2*6*0.97/2^12 = 2.8e-3 */
   for( ulong i=0UL; i<n; i+=2UL ) { memset( key, 0, 32 ); FD_STORE( ulong, key+8, i ); fd_accdb_cf_delete( &cf, key ); }
   for( ulong i=1UL; i<n; i+=2UL ) { memset( key, 0, 32 ); FD_STORE( ulong, key+8, i ); FD_TEST( fd_accdb_cf_probe( &cf, key ) ); }
 
