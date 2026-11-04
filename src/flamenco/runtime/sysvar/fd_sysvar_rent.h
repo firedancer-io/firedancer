@@ -18,9 +18,7 @@
 
 FD_PROTOTYPES_BEGIN
 
-/* fd_sysvar_rent_init copies the cached rent sysvar stored from the
-   bank to the corresponding account in the database.  Note that it does
-   NOT initialize global->bank.rent */
+/* fd_sysvar_rent_init writes bank->f.rent to the rent sysvar account. */
 
 void
 fd_sysvar_rent_init( fd_bank_t *        bank,

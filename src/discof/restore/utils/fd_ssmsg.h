@@ -3,6 +3,7 @@
 
 #include "../../../flamenco/runtime/fd_runtime_const.h"
 #include "../../../flamenco/runtime/fd_blockhashes.h"
+#include "../../../flamenco/runtime/program/vote/fd_validator_location.h"
 
 #define FD_SSMSG_MANIFEST_FULL        (0) /* A snapshot manifest message from the full snapshot */
 #define FD_SSMSG_MANIFEST_INCREMENTAL (1) /* A snapshot manifest message from the incremental snapshot */
@@ -49,21 +50,6 @@ fd_ssmsg_frag_to_slot( ulong low,
    *slot = (high << 32UL) | low;
 }
 
-struct fd_snapshot_manifest_vote_account {
-  /* The pubkey of the vote account */
-  uchar vote_account_pubkey[ 32UL ];
-
-  /* The pubkey of the node account */
-  uchar node_account_pubkey[ 32UL ];
-
-  ulong stake;
-};
-
-typedef struct fd_snapshot_manifest_vote_account fd_snapshot_manifest_vote_account_t;
-
-/* TODO: Consider combining this struct with
-   fd_snapshot_manifest_vote_account. */
-
 struct fd_snapshot_manifest_vote_stakes {
   /* The vote pubkey */
   uchar vote[ 32UL ];
@@ -82,6 +68,9 @@ struct fd_snapshot_manifest_vote_stakes {
 
   /* The validator BLS pubkey (used after SIMD-0326: Alpenglow) */
   uchar identity_bls[ 48UL ];
+
+  /* The validator's declared location (SIMD-0674) */
+  fd_validator_location_t location;
 
   /* The total amount of active stake for the vote account */
   ulong stake;
@@ -419,13 +408,6 @@ struct fd_snapshot_manifest {
 
   /* TODO: Why is this needed? */
   ulong signature_count;
-
-  /* Every staked vote account and its stake, taken from the stakes
-     cache rather than a single epoch's admitted set.  This field is only
-     used for wait for supermajority cluster restarts, which measures
-     what fraction of activated stake is visible in gossip. */
-  ulong                               vote_accounts_len;
-  fd_snapshot_manifest_vote_account_t vote_accounts[ FD_RUNTIME_MAX_SNAPSHOT_VOTE_ACCOUNTS ];
 
   /* Epoch stakes represent the exact amount staked to each vote
      account at the beginning of a previous epoch.  They are primarily

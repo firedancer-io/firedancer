@@ -174,13 +174,8 @@ struct __attribute__((aligned(FD_VM_HOST_REGION_ALIGN))) fd_vm {
      any positive sz range in this region will fail, making region 1
      unwritable.
 
-     When the direct mapping feature is enabled, the input region will
-     no longer be a contiguous buffer of host memory.  Instead
-     it will compose of several fragmented regions of memory each with
-     its own read/write privileges and size.  Address translation to the
-     input region will now have to rely on a binary search lookup of the
-     start of the appropriate area of physical memory. It also involves
-     doing a check against if the region can be written to. */
+     Input addresses are translated through input_mem_regions, not these
+     arrays.  The entries at FD_VM_INPUT_REGION are unused. */
 
    /* FIXME: If accessing memory beyond the end of the current heap
       region is not allowed, sol_alloc_free will need to update the tlb
@@ -371,13 +366,10 @@ fd_vm_is_check_size_enabled( fd_vm_t const * vm ) {
 
 /* fd_vm_exec runs vm from program start to program halt or program
    fault, appending an execution trace if vm is attached to a trace.
-   vm must be initialized with fd_vm_init before each call.
+   vm must be successfully initialized with fd_vm_init before each call.
 
    Returns FD_VM_SUCCESS (0) on success and an FD_VM_ERR code (negative)
    on failure.  Reasons for failure include:
-
-     INVAL     - NULL vm (or, for fd_vm_exec_trace, the vm is not
-                 attached to trace).  FIXME: ADD OTHER INPUT ARG CHECKS?
 
      SIGTEXT   - A jump/call set the program counter outside the text
                  region or the program counter incremented beyond the

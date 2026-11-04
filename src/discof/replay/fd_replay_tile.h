@@ -22,12 +22,12 @@
 
    PUBLISHING (ROOT ADVANCEMENT)
 
-   When tower sends a new consensus root, replay advances the
+   When a new consensus root is finalized, replay advances the
    published root along the rooted fork as far as possible.  A block
    on the rooted fork is safe to prune when it and all minority fork
    subtrees branching from it have refcnt 0.  Publishing calls
-   fd_reasm_publish to prune the reasm tree (and the store) of any
-   FEC sets that do not descend from the new root.
+   fd_store_publish to prune the store of any FEC sets below the new
+   root.
 
    REASM EVICTION (POOL-PRESSURE EVICTION)
 
@@ -100,6 +100,7 @@
 #include "../../disco/tiles.h"
 #include "../../choreo/votor/ag_cert.h"
 #include "../../flamenco/alpenglow/fd_block_marker.h"
+#include "fd_sched.h"
 
 #define REPLAY_SIG_SLOT_COMPLETED (0)
 #define REPLAY_SIG_SLOT_DEAD      (1)
@@ -115,6 +116,8 @@
 #define REPLAY_SIG_FINAL_CERT     (11)
 #define REPLAY_SIG_LEADER_FOOTER  (12)
 #define REPLAY_SIG_MISSING_FEC    (13)
+#define REPLAY_SIG_NEXT_LEADER    (14)
+#define REPLAY_SIG_SLOT_STATES    (15)
 
 /* replay_out mcache seq[i] slots */
 #define REPLAY_SYNC_SEQ  (0UL) /* mcache->seq[0]: recently published seq no */
@@ -167,7 +170,7 @@ struct fd_replay_slot_completed {
   long preparation_begin_nanos;           /* timestamp when replay began preparing the state to begin execution of the slot */
   long first_transaction_scheduled_nanos; /* timestamp when replay first sent a transaction to be executed */
   long last_transaction_finished_nanos;   /* timestamp when replay received the last execution completion */
-  long completion_time_nanos;             /* timestamp when replay completed finalizing the slot and notified tower */
+  long completion_time_nanos;             /* timestamp when replay completed finalizing the slot */
 
   int is_leader; /* whether we were leader for this slot */
   ulong identity_balance;
@@ -185,7 +188,7 @@ struct fd_replay_slot_completed {
 
   int    voted;           /* our vote was in the reward cert this block carried */
   ushort voted_rank;      /* our rank in the reward slot's epoch, USHORT_MAX if we are not a voter */
-  ushort vote_count;      /* distinct reward cert signers for slot-FD_NUM_SLOTS_FOR_REWARD, USHORT_MAX if unknown */
+  ushort vote_count;      /* distinct signers of the reward certs this block carried (votes for slot-FD_NUM_SLOTS_FOR_REWARD), USHORT_MAX if unknown */
   ulong  vote_balance;    /* ULONG_MAX if not sampled */
   ushort vote_commission; /* USHORT_MAX if not sampled */
 
@@ -237,7 +240,6 @@ struct fd_replay_txn_executed {
   int is_fees_only;
   int is_noop;
   int txn_err;
-  int is_simple_vote;
 
   /* LONG_MAX if stage was not reached */
   long  tick_parsed;
@@ -272,10 +274,9 @@ struct fd_replay_fec_evicted {
 };
 typedef struct fd_replay_fec_evicted fd_replay_fec_evicted_t;
 
-/* Only rpc needs to consume this message since tower holds refcnts
-   transiently and will drop them without a further trigger from the
-   replay tile and the resolv tile holds onto a bank reference based on
-   the root, which will never be forced to drop its bank reference. */
+/* Only rpc needs to consume this message since the resolv tile holds
+   onto a bank reference based on the root, which will never be forced
+   to drop its bank reference. */
 struct fd_replay_drop_bank_ref {
   ulong bank_idx;
 };
@@ -309,6 +310,18 @@ struct fd_replay_leader_footer {
 };
 typedef struct fd_replay_leader_footer fd_replay_leader_footer_t;
 
+struct fd_replay_next_leader {
+  ulong slot;
+  ulong next_leader_slot;
+};
+typedef struct fd_replay_next_leader fd_replay_next_leader_t;
+
+struct fd_replay_slot_states {
+  ulong                 cnt;
+  fd_sched_slot_state_t states[ FD_SCHED_SLOT_STATE_MAX ];
+};
+typedef struct fd_replay_slot_states fd_replay_slot_states_t;
+
 union fd_replay_message {
   fd_replay_slot_completed_t  slot_completed;
   fd_replay_slot_dead_t       slot_dead;
@@ -320,6 +333,8 @@ union fd_replay_message {
   fd_replay_fec_evicted_t     reasm_evicted;
   fd_replay_drop_bank_ref_t   drop_bank_ref;
   fd_replay_leader_footer_t   leader_footer;
+  fd_replay_next_leader_t     next_leader;
+  fd_replay_slot_states_t     slot_states;
 };
 
 typedef union fd_replay_message fd_replay_message_t;

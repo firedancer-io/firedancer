@@ -51,7 +51,7 @@ uchar rand_uchar(struct Unstructured *u) {
 
 uint rand_uint(struct Unstructured *u) {
     if (sizeof(uint) + u->used < u->size) {
-        uint v = *(uint *)(u->data + u->used);
+        uint v = FD_LOAD( uint, u->data + u->used );
         u->used += sizeof(uint);
         return v;
     }
@@ -60,7 +60,7 @@ uint rand_uint(struct Unstructured *u) {
 
 ulong rand_ulong(struct Unstructured *u) {
     if (sizeof(ulong) + u->used < u->size) {
-        ulong v = *(ulong *)(u->data + u->used);
+        ulong v = FD_LOAD( ulong, u->data + u->used );
         u->used += sizeof(ulong);
         return v;
     }
@@ -498,14 +498,14 @@ void build_ws_req(struct Unstructured *u, uchar *buf, int *len) {
 
     ++cur_pos;
     if (payload_len_choice == 126) {
-        *(ushort *)cur_pos = (ushort) payload_len;
+        FD_STORE( ushort, cur_pos, (ushort) payload_len );
         cur_pos += sizeof(ushort);
     } else if (payload_len_choice == 127) {
-        *(ulong *)cur_pos = (ulong) payload_len;
+        FD_STORE( ulong, cur_pos, (ulong) payload_len );
         cur_pos += sizeof(ulong);
     }
 
-    *(ulong *)cur_pos = 0;
+    FD_STORE( ulong, cur_pos, 0UL );
     cur_pos += sizeof(ulong);
 
     for (uint i = 0; i < payload_len; ++i) {

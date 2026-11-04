@@ -310,3 +310,35 @@ FD_UNIT_TEST( hpack ) {
   test_hpack_rd_varint();
   test_hpack_wr_varint();
 }
+
+/* Literal names are limited to USHORT_MAX bytes, both encoded and after
+   Huffman decoding.  The Huffman code for '0' is five zero bits, and
+   the last encoded octet is padded with ones (RFC 7541 5.2). */
+
+FD_UNIT_TEST( hpack_name_length_bounds ) {
+  static uchar block[ USHORT_MAX+32UL ];
+  static uchar scratch_buf[ 2UL*(USHORT_MAX+1UL) ];
+  for( uint huffman=0U; huffman<2U; huffman++ )
+  for( ulong name_len=USHORT_MAX; name_len<=USHORT_MAX+1UL; name_len++ ) {
+    ulong bits       = 5UL*name_len;
+    ulong encoded_sz = huffman ? (bits+7UL)/8UL : name_len;
+    block[0] = 0x00;
+    ulong off = 1UL + fd_hpack_wr_varint( block+1, huffman ? 0x80U : 0U, 0x7fU, encoded_sz );
+    fd_memset( block+off, huffman ? 0 : 'a', encoded_sz );
+    if( huffman && bits%8UL ) block[ off+encoded_sz-1UL ] |= (uchar)( (1U<<(8UL-bits%8UL))-1U );
+    off += encoded_sz;
+    block[ off++ ] = 0x00; /* empty value */
+
+    fd_hpack_rd_t rd[1];
+    fd_hpack_rd_init( rd, block, off );
+    fd_h2_hdr_t hdr[1];
+    uchar * scratch = scratch_buf;
+    uint err = fd_hpack_rd_next( rd, hdr, &scratch, scratch_buf+sizeof(scratch_buf) );
+    if( name_len>USHORT_MAX ) {
+      FD_TEST( err==FD_H2_ERR_COMPRESSION && scratch==scratch_buf );
+    } else {
+      FD_TEST( err==FD_H2_SUCCESS && fd_hpack_rd_done( rd ) && hdr->name_len==name_len && !hdr->value_len );
+      FD_TEST( scratch==scratch_buf+(huffman ? name_len : 0UL) );
+    }
+  }
+}

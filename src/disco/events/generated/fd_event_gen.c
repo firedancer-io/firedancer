@@ -268,7 +268,6 @@ fd_event_runtime_txn_serialize( fd_circq_t *                   circq,
   ok &= !!fd_pb_push_bytes ( encoder, 7U, msg->signature, 64UL );
   ok &= !!fd_pb_push_bytes ( encoder, 8U, msg->blockhash, 32UL );
   ok &= !!fd_pb_push_bytes ( encoder, 9U, msg->fee_payer, 32UL );
-  if( msg->is_simple_vote ) ok &= !!fd_pb_push_bool  ( encoder, 10U, msg->is_simple_vote );
   if( msg->is_bundle ) ok &= !!fd_pb_push_bool  ( encoder, 11U, msg->is_bundle );
   if( msg->is_committable ) ok &= !!fd_pb_push_bool  ( encoder, 12U, msg->is_committable );
   if( msg->is_fees_only ) ok &= !!fd_pb_push_bool  ( encoder, 13U, msg->is_fees_only );
@@ -352,7 +351,7 @@ fd_event_block_completed_serialize( fd_circq_t *                       circq,
   ok &= !!fd_pb_push_uint64( encoder, 3U, link_seq );
   ok &= !!fd_pb_push_uint64( encoder, 4U, (ulong)timestamp_nanos );
 
-  FD_TEST( msg->txn_timing_cnt<=98039UL );
+  FD_TEST( msg->txn_timing_cnt<=49019UL );
 
   uchar const * _dyn = (uchar const *)msg + FD_EVENT_BLOCK_COMPLETED_PREFIX_SZ;
   fd_event_block_completed_txn_timing_t const * txn_timing = (fd_event_block_completed_txn_timing_t const *)_dyn;
@@ -595,7 +594,7 @@ fd_event_runtime_block_serialize( fd_circq_t *                     circq,
   FD_TEST( msg->recent_blockhashes_sysvar_cnt<=150UL );
   FD_TEST( msg->sysvar_diffs_cnt<=16UL );
   FD_TEST( msg->other_diffs_cnt<=32UL );
-  FD_TEST( msg->fec_merkle_roots_cnt<=1024UL );
+  FD_TEST( msg->fec_merkle_roots_cnt<=512UL );
 
   ok &= !!fd_pb_submsg_open( encoder, 5U ); /* Event */
   ok &= !!fd_pb_submsg_open( encoder, 13U ); /* RuntimeBlock */
@@ -969,7 +968,6 @@ fd_event_alpenglow_vote_serialize( fd_circq_t *                      circq,
   if( msg->slot ) ok &= !!fd_pb_push_uint64( encoder, 1U, (ulong)msg->slot );
   ok &= !!fd_pb_push_bytes ( encoder, 2U, msg->block_id, 32UL );
   if( msg->voter_rank ) ok &= !!fd_pb_push_uint32( encoder, 3U, (uint)msg->voter_rank );
-  ok &= !!fd_pb_push_bytes ( encoder, 4U, msg->voter_identity, 32UL );
   if( msg->kind ) ok &= !!fd_pb_push_int32 ( encoder, 5U, msg->kind );
   ok &= !!fd_pb_push_bytes ( encoder, 6U, msg->received_from_ip, 16UL );
   ok &= !!fd_pb_push_bytes ( encoder, 7U, msg->received_from_identity, 32UL );
@@ -993,7 +991,6 @@ fd_event_alpenglow_vote_serialize( fd_circq_t *                      circq,
   if( msg->aggregation_start_time ) ok &= !!fd_pb_push_uint64( encoder, 19U, (ulong)msg->aggregation_start_time );
   if( msg->verify_start_time ) ok &= !!fd_pb_push_uint64( encoder, 20U, (ulong)msg->verify_start_time );
   if( msg->broadcast_start_time ) ok &= !!fd_pb_push_uint64( encoder, 21U, (ulong)msg->broadcast_start_time );
-  if( msg->done_time ) ok &= !!fd_pb_push_uint64( encoder, 22U, (ulong)msg->done_time );
   ok &= !!fd_pb_submsg_close( encoder );
   ok &= !!fd_pb_submsg_close( encoder );
   FD_TEST( ok );
@@ -1054,7 +1051,6 @@ fd_event_alpenglow_cert_serialize( fd_circq_t *                      circq,
   if( msg->processing_result ) ok &= !!fd_pb_push_int32 ( encoder, 10U, msg->processing_result );
   if( msg->verify_start_time ) ok &= !!fd_pb_push_uint64( encoder, 11U, (ulong)msg->verify_start_time );
   if( msg->broadcast_start_time ) ok &= !!fd_pb_push_uint64( encoder, 12U, (ulong)msg->broadcast_start_time );
-  if( msg->done_time ) ok &= !!fd_pb_push_uint64( encoder, 13U, (ulong)msg->done_time );
   ok &= !!fd_pb_submsg_close( encoder );
   ok &= !!fd_pb_submsg_close( encoder );
   FD_TEST( ok );
@@ -1086,7 +1082,7 @@ fd_event_block_received_serialize( fd_circq_t *                      circq,
   ok &= !!fd_pb_push_uint64( encoder, 3U, link_seq );
   ok &= !!fd_pb_push_uint64( encoder, 4U, (ulong)timestamp_nanos );
 
-  FD_TEST( msg->fec_sets_cnt<=1024UL );
+  FD_TEST( msg->fec_sets_cnt<=512UL );
 
   uchar const * _dyn = (uchar const *)msg + FD_EVENT_BLOCK_RECEIVED_PREFIX_SZ;
   fd_event_block_received_fec_sets_t const * fec_sets = (fd_event_block_received_fec_sets_t const *)_dyn;
@@ -1147,6 +1143,54 @@ fd_event_block_received_serialize( fd_circq_t *                      circq,
 }
 
 void
+fd_event_repair_request_serialize( fd_circq_t *                      circq,
+                                   fd_event_client_t *               client,
+                                   long                              timestamp_nanos,
+                                   ulong                             link_seq,
+                                   fd_event_repair_request_t const * msg ) {
+  uchar * buffer = fd_circq_push_back( circq, 1UL, FD_EVENT_REPAIR_REQUEST_BUF_MAX );
+  FD_TEST( buffer );
+
+  ulong event_id = fd_event_client_id_reserve( client );
+
+  fd_pb_encoder_t encoder[1];
+  fd_pb_encoder_init( encoder, buffer, FD_EVENT_REPAIR_REQUEST_BUF_MAX );
+
+  /* Pushes fail (returning NULL) rather than overflow; accumulate so
+     a FD_EVENT_REPAIR_REQUEST_BUF_MAX that under-models the encoder aborts loudly instead
+     of silently truncating fields off published rows. */
+  int ok = 1;
+
+  FD_TEST( circq->cursor_push_seq );
+  ok &= !!fd_pb_push_uint64( encoder, 1U, circq->cursor_push_seq-1UL );
+  ok &= !!fd_pb_push_uint64( encoder, 2U, event_id );
+  ok &= !!fd_pb_push_uint64( encoder, 3U, link_seq );
+  ok &= !!fd_pb_push_uint64( encoder, 4U, (ulong)timestamp_nanos );
+
+  ok &= !!fd_pb_submsg_open( encoder, 5U ); /* Event */
+  ok &= !!fd_pb_submsg_open( encoder, 63U ); /* RepairRequest */
+  ok &= !!fd_pb_push_bytes ( encoder, 1U, msg->peer_identity, 32UL );
+  ok &= !!fd_pb_push_bytes ( encoder, 2U, msg->peer_ip, 16UL );
+  if( msg->peer_port ) ok &= !!fd_pb_push_uint32( encoder, 3U, (uint)msg->peer_port );
+  if( msg->peer_rank ) ok &= !!fd_pb_push_uint32( encoder, 4U, (uint)msg->peer_rank );
+  if( msg->type ) ok &= !!fd_pb_push_int32 ( encoder, 5U, msg->type );
+  if( msg->slot ) ok &= !!fd_pb_push_uint64( encoder, 6U, (ulong)msg->slot );
+  ok &= !!fd_pb_push_bytes ( encoder, 7U, msg->block_id, 32UL );
+  if( msg->shred_idx ) ok &= !!fd_pb_push_uint32( encoder, 8U, (uint)msg->shred_idx );
+  if( msg->req_time ) ok &= !!fd_pb_push_uint64( encoder, 9U, (ulong)msg->req_time );
+  if( msg->res_time ) ok &= !!fd_pb_push_uint64( encoder, 10U, (ulong)msg->res_time );
+  if( msg->outcome ) ok &= !!fd_pb_push_int32 ( encoder, 11U, msg->outcome );
+  if( msg->ban ) ok &= !!fd_pb_push_int32 ( encoder, 12U, msg->ban );
+  if( msg->attempt ) ok &= !!fd_pb_push_uint32( encoder, 13U, (uint)msg->attempt );
+  if( msg->pick ) ok &= !!fd_pb_push_int32 ( encoder, 14U, msg->pick );
+  if( msg->role ) ok &= !!fd_pb_push_int32 ( encoder, 15U, msg->role );
+  ok &= !!fd_pb_submsg_close( encoder );
+  ok &= !!fd_pb_submsg_close( encoder );
+  FD_TEST( ok );
+  fd_circq_resize_back( circq, fd_pb_encoder_out_sz( encoder ) );
+}
+
+void
 fd_event_serialize_by_type( ulong               type,
                             fd_circq_t *        circq,
                             fd_event_client_t * client,
@@ -1182,7 +1226,7 @@ fd_event_serialize_by_type( ulong               type,
   case 9UL: {
     FD_TEST( ev_sz>=FD_EVENT_BLOCK_COMPLETED_PREFIX_SZ );
     fd_event_block_completed_t const * msg = (fd_event_block_completed_t const *)ev;
-    FD_TEST( msg->txn_timing_cnt<=98039UL );
+    FD_TEST( msg->txn_timing_cnt<=49019UL );
     FD_TEST( ev_sz==fd_event_block_completed_footprint( msg ) );
     fd_event_block_completed_serialize( circq, client, timestamp_nanos, link_seq, msg );
     break;
@@ -1238,11 +1282,15 @@ fd_event_serialize_by_type( ulong               type,
   case 21UL: {
     FD_TEST( ev_sz>=FD_EVENT_BLOCK_RECEIVED_PREFIX_SZ );
     fd_event_block_received_t const * msg = (fd_event_block_received_t const *)ev;
-    FD_TEST( msg->fec_sets_cnt<=1024UL );
+    FD_TEST( msg->fec_sets_cnt<=512UL );
     FD_TEST( ev_sz==fd_event_block_received_footprint( msg ) );
     fd_event_block_received_serialize( circq, client, timestamp_nanos, link_seq, msg );
     break;
   }
+  case 63UL:
+    FD_TEST( ev_sz==sizeof(fd_event_repair_request_t) );
+    fd_event_repair_request_serialize( circq, client, timestamp_nanos, link_seq, (fd_event_repair_request_t const *)ev );
+    break;
   default: FD_LOG_ERR(( "unexpected event type %lu", type ));
   }
 }

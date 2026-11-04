@@ -6,21 +6,13 @@
 #include "../../disco/fd_txn_p.h"
 #include "../../disco/store/fd_store.h" /* for fd_store_fec_t */
 #include "../../flamenco/accdb/fd_accdb.h"
-#include "../../discof/poh/fd_poh.h" /* for MAX_SKIPPED_TICKS */
+#include "../../disco/fd_clock_tile.h"
+#include "../../ballet/lthash/fd_lthash.h"
 
-/* Microblocks per slot at the production shred limit; scaled with
-   max_shreds_per_block at runtime. */
-#define FD_SCHED_MAX_MBLK_PER_SLOT (MAX_SKIPPED_TICKS)
-
-/* Most exec tiles a scheduler can dispatch to. */
-#define FD_SCHED_MAX_EXEC_TILE_CNT (64UL)
-
-/* fd_sched wraps all the smarts and mechanical chores around scheduling
-   transactions for replay execution.  It is built on top of the
-   dispatcher fd_rdisp.  The dispatcher is responsible for high
-   performance lane-based scheduling of transactions.  On top of that,
-   we add fork-aware management of lanes, and policies regarding which
-   lanes to prioritize for execution.
+/* fd_sched schedules replay work across a fork tree.  It uses fd_rdisp
+   to order conflicting transactions and adds fork-aware lane
+   management, out-of-band signature verification, out-of-band LtHash,
+   and various block validity checks as well as block boundary work.
 
    Conceptually, transactions in a block form a DAG.  We would like to
    make our way through a block with a sufficient degree of parallelism,
@@ -43,25 +35,58 @@
    policies for deciding which blocks get staged onto lanes, or evicted
    from lanes, as well as which lanes to prioritize for execution.
 
+   To further enhance performance, the scheduler has a policy of placing
+   one block per lane.  So rather than treating lanes as lanes, we treat
+   them as parking spots.  Callers are encouraged to check for lane
+   availability before inserting new blocks.  A new block inserted when
+   every lane is taken gets the lane of an idle block if there is one,
+   and is unstaged otherwise.  See fd_sched_fec_waits_for_lane().
 
-   The general order in which calls happen under the normal case is:
+   Callers ingest FEC sets, poll fd_sched_task_next_ready(), and return
+   each result through fd_sched_task_done().  BLOCK_START and BLOCK_END
+   tasks bracket the caller's block processing. */
 
-   fd_sched_fec_ingest()* ... fd_sched_txn_next_ready()* ... fd_sched_txn_done()* ...
-   more ingest, more ready, more done ...
-   ...
-   fd_sched_txn_next_ready() indicates that the last transaction in the block is being scheduled
-   fd_sched_txn_done()*
-   fd_sched_block_is_done()
-   end-of-block processing in caller
-   fd_sched_txn_next_ready() starts returning transactions from the next block
-   more ingest, more ready, more done ...
-   ... */
+struct fd_sched;
+typedef struct fd_sched fd_sched_t;
+
+/* Max microblocks (including ticks) that fit in a block's shreds;
+   scaled with max_shreds_per_block at runtime. */
+#define FD_SCHED_MAX_MBLK_PER_SLOT (FD_SHRED_DATA_PAYLOAD_MAX_PER_SLOT/sizeof(fd_microblock_hdr_t))
+
+#define FD_SCHED_MAX_STAGING_LANES_LOG (2)
+#define FD_SCHED_MAX_STAGING_LANES     (1UL<<FD_SCHED_MAX_STAGING_LANES_LOG)
 
 #define FD_SCHED_MIN_DEPTH 478
 #define FD_SCHED_MAX_DEPTH FD_RDISP_MAX_DEPTH
 
-struct fd_sched;
-typedef struct fd_sched fd_sched_t;
+#define FD_SCHED_MAX_EXEC_TILE_CNT (64UL)
+
+/* Out-of-band LtHash batch size, at most FD_EXECRP_LTHASH_BATCH_MAX.
+   This seems to be a sweet spot in scheduling overhead vs task
+   granularity. */
+#define FD_SCHED_LTHASH_BATCH_MAX (32UL)
+
+/* While a transaction of the block is in flight, a batch carries at
+   most this many accounts, so that the tile it takes is free again
+   soon.  Otherwise, a batch is allowed to carry up to
+   FD_SCHED_LTHASH_BATCH_MAX accounts. */
+#define FD_SCHED_LTHASH_BATCH_BUSY_MAX (8UL)
+
+/* A staged fec_eos block turns its owed additions into pseudo
+   transactions this many at a time. */
+#define FD_SCHED_LTHASH_DRAIN_CHUNK (64UL)
+
+/* Bounds on the writable accounts a block declares in its transactions
+   and writes in start-of-block processing.  The 8k for inflation
+   rewards is twice the per-block target of 4096.  A partition's size is
+   binomial with a mean of at most the target, and exceeding 8k is a
+   super high deviation event.  Only a warmup epoch, which pays every
+   stake account in a single partition, could potentially escape that
+   bound.
+
+   FIXME These should scale with CU and block time. */
+#define FD_SCHED_LTHASH_TXN_WRITERS_MAX  (200802UL)
+#define FD_SCHED_LTHASH_START_WRITES_MAX (FD_RDISP_MAX_WRITERS_PER_BLOCK-FD_SCHED_LTHASH_TXN_WRITERS_MAX)
 
 struct fd_sched_alut_ctx {
   fd_accdb_t *       accdb;
@@ -98,6 +123,7 @@ typedef struct fd_sched_fec fd_sched_fec_t;
 #define FD_SCHED_TXN_IS_COMMITTABLE (0x0004UL)
 #define FD_SCHED_TXN_IS_FEES_ONLY   (0x0008UL)
 #define FD_SCHED_TXN_IS_NOOP        (0x0010UL)
+#define FD_SCHED_TXN_ALT_UNRESOLVED (0x0020UL)
 #define FD_SCHED_TXN_REPLAY_DONE    (FD_SCHED_TXN_EXEC_DONE|FD_SCHED_TXN_SIGVERIFY_DONE)
 
 struct fd_sched_txn_info {
@@ -105,7 +131,6 @@ struct fd_sched_txn_info {
    int   txn_err;
    uint  next_idx;
    long  received_ns;
-   int   is_simple_vote;
 
    /* LONG_MAX if stage was not reached */
    long  tick_parsed;
@@ -143,14 +168,57 @@ typedef struct fd_sched_txn_info fd_sched_txn_info_t;
 #define FD_SCHED_TT_BLOCK_END     (2UL) /* (q) End-of-block processing. */
 #define FD_SCHED_TT_TXN_EXEC      (3UL) /* (e) Transaction execution. */
 #define FD_SCHED_TT_TXN_SIGVERIFY (4UL) /* (e) Transaction sigverify. */
-#define FD_SCHED_TT_LTHASH        (5UL) /* (e) Account lthash. */
+#define FD_SCHED_TT_LTHASH_SUB    (5UL) /* (e) Hash an account from the parent fork and subtract. */
 #define FD_SCHED_TT_POH_HASH      (6UL) /* (e) PoH hashing. */
 #define FD_SCHED_TT_MARK_DEAD     (7UL) /* (i) Mark the block dead. */
+#define FD_SCHED_TT_CERT_VERIFY   (8UL) /* (e) Footer cert verify. */
+#define FD_SCHED_TT_LTHASH_ADD    (9UL) /* (e) Hash an account from this fork and add. */
+#define FD_SCHED_TT_REWARDS       (10UL) /* (e) Footer vote rewards slice. */
+
+/* Slot-level replay states.  States are tracked for one block at a
+   time, the one the scheduler is working on.  A block's interval opens
+   at its first dispatch (BLOCK_START).  It closes when another block's
+   interval opens, or when end of block processing completes or the
+   block dies.  A block deactivated while waiting on the network stays
+   tracked until another block takes over.
+
+   BLOCKED_TILES     no exec tile is free
+   BLOCKED_CONFLICTS txns queued, but waiting on in-flight conflicting txns
+   BLOCKED_NETWORK   no txns queued, waiting for more to arrive
+   FINISH            end of the slot received, txns or PoH still in flight
+
+   States are only reevaluated on FEC ingest, task_next_ready and
+   task_done.  A new state is committed only once it has held for at
+   least FD_SCHED_SLOT_STATE_DEBOUNCE_NS. */
+
+#define FD_SCHED_SLOT_STATE_NONE              (0)
+#define FD_SCHED_SLOT_STATE_BLOCKED_TILES     (1)
+#define FD_SCHED_SLOT_STATE_BLOCKED_CONFLICTS (2)
+#define FD_SCHED_SLOT_STATE_BLOCKED_NETWORK   (3)
+#define FD_SCHED_SLOT_STATE_FINISH            (4)
+
+#define FD_SCHED_SLOT_STATE_DEBOUNCE_NS (10000L)
+
+/* Max state transitions between after_credit drains.  The real bound
+   is ~3, but a tight bound needs an exhaustive proof tightly coupled
+   to the sched state machine.  Filled buffer is handled gracefully. */
+#define FD_SCHED_SLOT_STATE_MAX (32UL)
+
+struct fd_sched_slot_state {
+  ulong slot;
+  long  start_tick;
+  long  end_tick;
+  ulong state; /* FD_SCHED_SLOT_STATE_* */
+};
+typedef struct fd_sched_slot_state fd_sched_slot_state_t;
 
 struct fd_sched_block_start {
   ulong bank_idx;        /* Same as in fd_sched_fec_t. */
   ulong parent_bank_idx; /* Same as in fd_sched_fec_t. */
   ulong slot;            /* Slot number of the block. */
+  int   lthash_inband;   /* 1 if the block hashes in band, 0 if out of band.  An in-band block
+                            reports no start-of-block writes and has no delta to fold from
+                            sched at its end. */
 };
 typedef struct fd_sched_block_start fd_sched_block_start_t;
 
@@ -179,7 +247,7 @@ struct fd_sched_poh_hash {
   ulong     bank_idx;
   ulong     exec_idx;
   ulong     cnt;     /* In [1,FD_SCHED_POH_PARA] */
-  ulong     hashcnt; /* Same for every element of the batch */
+  ulong     hashcnt; /* 0 or 1, same for every element of the batch */
   ulong     mblk_idx[ FD_SCHED_POH_PARA ];
   fd_hash_t hash    [ FD_SCHED_POH_PARA ];
 };
@@ -190,6 +258,32 @@ struct fd_sched_mark_dead {
 };
 typedef struct fd_sched_mark_dead fd_sched_mark_dead_t;
 
+struct fd_sched_lthash_task {
+  ulong                  bank_idx;
+  ulong                  exec_idx;
+  ulong                  cnt;   /* In [1,FD_SCHED_LTHASH_BATCH_MAX] */
+  fd_acct_addr_t const * accts; /* Points into sched memory that stays as it is until the task completes. */
+};
+typedef struct fd_sched_lthash_task fd_sched_lthash_task_t;
+
+/* A footer cert verify task.  Between the footer's parse and BLOCK_END,
+   fd_sched_task_next_ready may return one when no transaction is ready,
+   one cert per task. */
+struct fd_sched_cert_task {
+  ulong bank_idx;
+  ulong cert_idx; /* The cert's index in fd_alpenglow_footer_certs order. */
+  ulong exec_idx; /* Target tile. */
+};
+typedef struct fd_sched_cert_task fd_sched_cert_task_t;
+
+/* The writable lookup table accounts of a completed TXN_EXEC task that
+   was flagged FD_SCHED_TXN_ALT_UNRESOLVED. */
+struct fd_sched_txn_alts {
+  ulong                  cnt;
+  fd_acct_addr_t const * addrs;
+};
+typedef struct fd_sched_txn_alts fd_sched_txn_alts_t;
+
 struct fd_sched_task {
   ulong task_type; /* Set to one of the task types defined above. */
   union {
@@ -199,6 +293,8 @@ struct fd_sched_task {
     fd_sched_txn_sigverify_t txn_sigverify[ 1 ];
     fd_sched_poh_hash_t      poh_hash[ 1 ];
     fd_sched_mark_dead_t     mark_dead[ 1 ];
+    fd_sched_lthash_task_t   lthash[ 1 ];
+    fd_sched_cert_task_t     cert_verify[ 1 ];
   };
 };
 typedef struct fd_sched_task fd_sched_task_t;
@@ -213,13 +309,6 @@ typedef struct fd_sched_task fd_sched_task_t;
 #define FD_SCHED_DEAD_REASON_TRAILING_ENTRY              (6)  /* Block did not end on a tick. */
 #define FD_SCHED_DEAD_REASON_TOO_MANY_TICKS              (7)  /* More ticks than required. */
 #define FD_SCHED_DEAD_REASON_TOO_FEW_TICKS               (8)  /* Fewer ticks than required. */
-#define FD_SCHED_DEAD_REASON_ZERO_MICROBLOCKS            (9)  /* A batch header declared zero microblocks. */
-#define FD_SCHED_DEAD_REASON_WRONG_HASHES_PER_TICK       (10) /* Tick hash count did not advance the expected hashes per tick. */
-#define FD_SCHED_DEAD_REASON_INCONSISTENT_TICK_HASHES    (11) /* Tick hash count differs from the block's preceding ticks, detected at FEC ingest. */
-#define FD_SCHED_DEAD_REASON_TICK_HASHES_OVERFLOW        (12) /* More hashes since the last tick than hashes per tick allows. */
-#define FD_SCHED_DEAD_REASON_TICK_HASHES_OVERFLOW_INGEST (13) /* Tick header declared more hashes than can fit before the next tick, detected at FEC ingest. */
-#define FD_SCHED_DEAD_REASON_ZERO_HASH_TICK              (14) /* Tick advanced zero hashes; PoH params were unknown when the tick parsed. */
-#define FD_SCHED_DEAD_REASON_ZERO_HASH_TICK_INGEST       (15) /* Tick advanced zero hashes, detected at FEC ingest. */
 #define FD_SCHED_DEAD_REASON_TICK_HASH_MISMATCH          (16) /* PoH hash of a tick did not verify. */
 #define FD_SCHED_DEAD_REASON_ENTRY_HASH_MISMATCH         (17) /* PoH hash of a transaction entry did not verify, detected when the entry's PoH hashing task completed. */
 #define FD_SCHED_DEAD_REASON_ENTRY_HASH_MISMATCH_INGEST  (18) /* PoH hash of a transaction entry did not verify, detected at FEC ingest when a later FEC set completed the entry's transactions. */
@@ -236,6 +325,7 @@ typedef struct fd_sched_task fd_sched_task_t;
 #define FD_SCHED_DEAD_REASON_INVALID_ALPENTICK_POSITION  (27) /* An Alpenglow block ended without the alpentick directly after its footer. */
 #define FD_SCHED_DEAD_REASON_MISSING_BLOCK_FOOTER        (28) /* An Alpenglow block ended without a block footer. */
 #define FD_SCHED_DEAD_REASON_SPURIOUS_UPDATE_PARENT      (29) /* An Alpenglow block carried an UpdateParent marker where none is valid: before the header or after the footer. */
+#define FD_SCHED_DEAD_REASON_TOO_MANY_WRITABLE_ACCOUNTS  (30) /* The block's transactions declare more writable accounts than a valid block can afford. */
 /* Cause to pass to fd_sched_block_abandon().  A block is considered
    invalid when it violates the protocol, so validity is a function of
    the block's content.  A block may be discarded (temporarily) because
@@ -297,8 +387,7 @@ fd_sched_new( void *     mem,
               ulong      block_cnt_max,
               ulong      max_shreds_per_block,
               ulong      max_txn_per_slot,
-              ulong      exec_cnt,
-              int        is_alpenglow );
+              ulong      exec_cnt );
 
 fd_sched_t *
 fd_sched_join( void * mem );
@@ -321,7 +410,8 @@ fd_sched_fec_ingest( fd_sched_t * sched, fd_sched_fec_t * fec );
 
 /* Check if there is enough space in the scheduler to ingest the data in
    the FEC set.  Returns 1 if there is, 0 otherwise.  This is a cheap
-   and conservative check. */
+   and conservative check.  Staging lanes are a separate matter.  See
+   fd_sched_fec_waits_for_lane(). */
 int
 fd_sched_fec_can_ingest( fd_sched_t * sched, fd_sched_fec_t * fec );
 
@@ -330,9 +420,19 @@ fd_sched_fec_can_ingest( fd_sched_t * sched, fd_sched_fec_t * fec );
 ulong
 fd_sched_can_ingest_cnt( fd_sched_t * sched );
 
-/* Returns 1 if sched is drained, 0 otherwise.  A drained scheduler will
-   not return more work.  Otherwise, next_ready will return more work,
-   so long as there are exec tiles available. */
+/* Returns 1 if the caller is advised to delay the ingestion of the FEC
+   set due to hopefully transient lane shortage, 0 otherwise.  A
+   parent_bank_idx of ULONG_MAX stands for a parent the caller has not
+   resolved yet, in which case it will be assumed that a lane is needed.
+   Any other parent_bank_idx must be a block tracked by the scheduler.
+   A caller that ingests a FEC set anyway against the advice will get
+   the block unstaged. */
+int
+fd_sched_fec_waits_for_lane( fd_sched_t * sched, ulong parent_bank_idx, int is_first_in_block );
+
+/* Returns 1 if sched has no queued or in-flight work, 0 otherwise.  A
+   non-drained scheduler may still return no task while it waits for
+   in-flight work or advances an LtHash drain. */
 int
 fd_sched_is_drained( fd_sched_t * sched );
 
@@ -341,56 +441,41 @@ fd_sched_is_drained( fd_sched_t * sched );
 int
 fd_sched_block_start_pending( fd_sched_t * sched );
 
-/* Obtain a transaction eligible for execution.  This implies that all
-   prior transactions with w-r or w-w conflicts have completed.
-   Information regarding the scheduled transaction is written to the out
-   pointer.  Returns 1 on success, 0 on failure.  Failures are generally
-   transient and non-fatal, and are simply an indication that no
-   transaction is ready for execution yet.  When in-flight transactions
-   retire or when more FEC sets are ingested, more transactions may
-   become ready for execution.
+/* Claims up to cnt idle exec tiles for footer tasks of the active
+   block, whose BLOCK_END is signaled and not done yet.  The tasks
+   include the cert verifies the scheduler has not sent out as tasks of
+   its own and the vote reward slices.  Returns the claimed tiles, bit i
+   for tile i.  Each completes with
 
-   Transactions on the same fork will be returned in a way that
-   maintains the serial fiction.  That is, reordering can happen, but
-   only within the constraint that transactions appear to be ready in
-   the order in which they occur in the block.  Transactions from
-   different forks may interleave, and the caller should be prepared to
-   switch execution context in response to interleavings.  The scheduler
-   will barrier on block boundaries, in the sense that transactions from
-   a subsequent block will not be returned for execution until all
-   transactions from the previous block have completed.  This gives the
-   caller a chance to perform end-of-block processing before
-   transactions from a subsequent block start executing.  In general,
-   the caller should check if the last transaction in the current block
-   is done, and if so, do end-of-block processing before calling this
-   function to start the next block.
+   fd_sched_task_done( FD_SCHED_TT_CERT_VERIFY or FD_SCHED_TT_REWARDS, ULONG_MAX, i, NULL )
 
-   In addition to returning transactions for execution, this function
-   may also return a sigverify task.  Sigverify can be completed
-   asynchronously outside the critical path of transaction execution, as
-   long as every transaction in a block passes sigverify before we
-   commit the block.  The scheduler prioritizes actual execution of
-   transactions over sigverify, and in general sigverify tasks are only
-   returned when no real transaction can be dispatched.  In other words,
-   the scheduler tries to exploit idle cycles in the exec tiles during
-   times of low parallelism critical path progression.
+   and the block is not done until all tasks have completed. */
 
-   This function may also return a PoH hashing task.  These tasks are
-   lower priority than transaction execution, but higher priority than
-   sigverify.  This is because sigverify tasks are generally bite-sized,
-   whereas PoH hashing can be longer, so we would like to get started on
-   hashing sooner rather than later. */
+ulong
+fd_sched_footer_dispatch( fd_sched_t * sched,
+                          ulong        bank_idx,
+                          ulong        cnt );
+
+/* Writes one dispatchable task to out and returns 1, or returns 0 if no
+   task can be dispatched now.  Transaction tasks respect prior
+   read-write and write-write conflicts.  Tasks from different forks may
+   interleave, but a child does not start until its parent completes.
+
+   LtHash tasks carry up to FD_SCHED_LTHASH_BATCH_MAX accounts.  A
+   subtraction reads the parent fork and an addition reads the block's
+   fork.  The caller returns the account hash sum through
+   fd_sched_task_done(). */
 ulong
 fd_sched_task_next_ready( fd_sched_t * sched, fd_sched_task_t * out );
 
-/* Mark a task as complete.  For transaction execution, this means that
-   the effects of the execution are now visible on any core that could
-   execute a subsequent transaction.  Returns FD_SCHED_DEAD_REASON_NONE
-   (0) on success.  If, given the result of the task, the block turns
-   out to be bad, returns the nonzero FD_SCHED_DEAD_REASON_* it was
-   ruled bad for.  Only PoH tasks can rule a block bad, and not only
-   for a PoH hash mismatch: eager tick verification also runs on this
-   path.
+/* Marks a task complete.  Transaction effects must be visible to every
+   core that could execute a dependent transaction before this call.
+   data carries late writable lookup table accounts for a transaction,
+   hash results for PoH and LtHash tasks, and is NULL for the other task
+   types.
+
+   Returns FD_SCHED_DEAD_REASON_NONE on success or the reason the result
+   ruled the block invalid.
 
    If a block has been abandoned or marked dead for any reason, it'll be
    pruned the moment in-flight task count hits 0 due to the last task
@@ -405,14 +490,33 @@ fd_sched_task_next_ready( fd_sched_t * sched, fd_sched_task_t * out );
 int
 fd_sched_task_done( fd_sched_t * sched, ulong task_type, ulong txn_idx, ulong exec_idx, void * data );
 
+/* Returns the block's LtHash delta accumulated so far.  The delta is
+   final once the block's BLOCK_END task has been handed out.  The block
+   must be tracked by the scheduler and its BLOCK_END must not have
+   completed.  It must hash out of band, which its BLOCK_START task
+   reports in lthash_inband.  A block hashing in band has no delta from
+   sched. */
+fd_lthash_value_t const *
+fd_sched_lthash_delta( fd_sched_t * sched, ulong bank_idx );
+
+/* Inform the scheduler which accounts start-of-block processing wrote
+   (e.g. sysvars, rewards), so their LtHash can be done out of band.
+   Call between the block's BLOCK_START task being handed out and its
+   completion, and only for a block whose BLOCK_START said it hashes out
+   of band.  cnt must not exceed FD_SCHED_LTHASH_START_WRITES_MAX,
+   duplicates included. */
+void
+fd_sched_block_start_writes( fd_sched_t * sched, ulong bank_idx, fd_acct_addr_t const * addrs, ulong cnt );
+
 /* Abandon a block.  This means that we are no longer interested in
    executing the block.  This also implies that any block which chains
    off of the provided block shall be abandoned.  This is mainly used
    when a block is aborted because we decided that it would be a
    dead/invalid block, and so there's no point in spending resources
    executing it.  The scheduler will no longer return transactions from
-   abandoned blocks for execution.  This should only be invoked on an
-   actively replayed block, and should only be invoked once on it.
+   abandoned blocks for execution.  May be called on completed blocks
+   still tracked by the scheduler.  Repeated calls retain the original
+   abandonment cause.
 
    For the purposes of bank lifetime management, sched is a subsidiary
    of banks.  So while sched sets things in motion for a bad block to be
@@ -492,8 +596,14 @@ fd_sched_root_notify( fd_sched_t * sched, ulong root_idx );
 ulong
 fd_sched_pruned_block_next( fd_sched_t * sched );
 
+/* fd_sched_slot_states_drain copies the slot state intervals closed
+   since the last drain into out (room for FD_SCHED_SLOT_STATE_MAX) and
+   returns how many were copied.  Intervals are in tickcount units. */
+ulong
+fd_sched_slot_states_drain( fd_sched_t * sched, fd_sched_slot_state_t * out );
+
 void
-fd_sched_set_poh_params( fd_sched_t * sched, ulong bank_idx, ulong tick_height, ulong max_tick_height, ulong hashes_per_tick, fd_hash_t const * start_poh );
+fd_sched_set_poh_params( fd_sched_t * sched, ulong bank_idx, ulong tick_height, ulong max_tick_height, fd_hash_t const * start_poh );
 
 /* fd_sched_block_verify_ticks sets the tick window and verifies
    ticks on bank_idx (shred fuzz harness, no exec).  Returns
@@ -504,8 +614,7 @@ int
 fd_sched_block_verify_ticks( fd_sched_t * sched,
                              ulong        bank_idx,
                              ulong        tick_height,
-                             ulong        max_tick_height,
-                             ulong        hashes_per_tick );
+                             ulong        max_tick_height );
 
 /* fd_sched_set_bypass_poh_verify configures whether the per-microblock
    PoH end_hash comparison in maybe_mixin is bypassed.  This is intended
@@ -521,6 +630,22 @@ fd_sched_set_bypass_poh_verify( fd_sched_t * sched, int bypass_poh_verify );
    Production call sites should leave this disabled. */
 void
 fd_sched_set_bypass_alut_resolution( fd_sched_t * sched, int bypass_alut_resolution );
+
+/* fd_sched_set_lthash_txn_writers_max lowers the bound on writable
+   accounts declared by a block's transactions from
+   FD_SCHED_LTHASH_TXN_WRITERS_MAX.  This is intended for use by tests
+   to reach the bound with a few transactions.  Production code should
+   not use this. */
+void
+fd_sched_set_lthash_txn_writers_max( fd_sched_t * sched, ulong lthash_txn_writers_max );
+
+/* fd_sched_set_lthash_oob_block_max lowers the bound on blocks hashing
+   out of band at once from the number of demoted blocks' writable sets
+   the dispatcher has room to park.  This is intended for use by tests
+   to reach the in-band fallback with a few blocks.  Production code
+   should not use this. */
+void
+fd_sched_set_lthash_oob_block_max( fd_sched_t * sched, ulong lthash_oob_block_max );
 
 fd_txn_p_t *
 fd_sched_get_txn( fd_sched_t * sched, ulong txn_idx );
@@ -542,7 +667,8 @@ fd_block_footer_t const *
 fd_sched_get_footer( fd_sched_t * sched, ulong bank_idx );
 
 void
-fd_sched_metrics_write( fd_sched_t * sched );
+fd_sched_metrics_write( fd_sched_t *            sched,
+                        fd_clock_tile_t const * clock );
 
 /* Serialize the current state as a cstr to the returned buffer.  Caller
    may read from the buffer until the next invocation of any fd_sched

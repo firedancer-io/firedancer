@@ -22,17 +22,6 @@ If you are an operator looking to run the validator, see the [Releases
 Guide](https://docs.firedancer.io/guide/getting-started.html#releases)
 in the documentation.
 
-The Firedancer project is producing two validators,
-
-* **Frankendancer** A hybrid validator using parts of Firedancer and
-parts of Agave. Frankendancer uses the Firedancer networking stack and
-block production components to perform better while leader. Other
-functionality including execution and consensus is using the Agave
-validator code.
-* **Firedancer** A full from-scratch Firedancer with no Agave code.
-
-Both validators are built from this codebase.
-
 ## Developing
 Firedancer currently only supports Linux and requires a relatively new
 kernel, at least v4.18 to build.

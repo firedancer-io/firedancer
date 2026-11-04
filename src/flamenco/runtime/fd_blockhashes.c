@@ -51,33 +51,6 @@ fd_blockhashes_push_new( fd_blockhashes_t * blockhashes,
   return info;
 }
 
-fd_blockhash_info_t *
-fd_blockhashes_push_old( fd_blockhashes_t * blockhashes,
-                         fd_hash_t const *  hash ) {
-  if( FD_UNLIKELY( fd_blockhash_deq_full( blockhashes->d.deque ) ) ) {
-    return NULL;
-  }
-  if( FD_UNLIKELY( fd_blockhash_map_idx_query( blockhashes->map, hash, ULONG_MAX, blockhashes->d.deque )!=ULONG_MAX ) ) {
-    char bh_cstr[ FD_BASE58_ENCODED_32_SZ ]; fd_base58_encode_32( hash->uc, NULL, bh_cstr );
-    FD_LOG_CRIT(( "Attempted to register duplicate blockhash %s", bh_cstr ));
-  }
-
-  ulong hash_index = 0UL;
-  if( FD_LIKELY( !fd_blockhash_deq_empty( blockhashes->d.deque ) ) ) {
-    ulong head_index = fd_blockhash_deq_peek_head_const( blockhashes->d.deque )->hash_index;
-    if( FD_UNLIKELY( !head_index ) ) return NULL;
-    hash_index = head_index - 1UL;
-  }
-
-  fd_blockhash_info_t * info = fd_blockhash_deq_push_head_nocopy( blockhashes->d.deque );
-  *info = (fd_blockhash_info_t) { .hash = *hash, .hash_index = hash_index };
-
-  fd_blockhash_map_ele_insert( blockhashes->map, info, blockhashes->d.deque );
-
-  return info;
-}
-
-
 FD_FN_PURE int
 fd_blockhashes_check_age( fd_blockhashes_t const * blockhashes,
                           fd_hash_t const *        blockhash,

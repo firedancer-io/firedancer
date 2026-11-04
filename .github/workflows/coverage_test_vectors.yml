@@ -46,7 +46,6 @@ jobs:
         uses: actions/checkout@v7
         with:
           ref: ${{ github.event.pull_request.base.sha || 'main' }}
-          submodules: recursive
 
       - uses: ./.github/actions/cpusonline
       - uses: ./.github/actions/hugepages
@@ -82,7 +81,6 @@ jobs:
         uses: actions/checkout@v7
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
-          submodules: recursive
           clean: false
 
       - name: Clean coverage data for PR run

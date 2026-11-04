@@ -296,12 +296,6 @@ fd_vm_syscall_sol_alloc_free( /**/            void *  _vm,
 
   ulong align = fd_vm_is_check_align_enabled( vm ) ? 8UL : FD_VM_ALIGN_RUST_U8;
 
-  /* https://github.com/anza-xyz/agave/blob/v2.0.8/programs/bpf_loader/src/syscalls/mod.rs#L681-L683
-     Nothing to do. This section can't error, see:
-     https://doc.rust-lang.org/1.81.0/src/core/alloc/layout.rs.html#70
-     https://doc.rust-lang.org/1.81.0/src/core/alloc/layout.rs.html#100 */
-
-
   /* https://github.com/anza-xyz/agave/blob/v2.0.8/programs/bpf_loader/src/syscalls/mod.rs#L684
      Nothing to do.
      TODO: unclear if it throw InstructionError::CallDepth

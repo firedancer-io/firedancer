@@ -19,10 +19,11 @@
        tile's core.
 
    init disables the cursor blink and clamps the console loglevel to
-   ERR (4): oopses, panics, and hardware errors still render on the
-   console; WARNING-class no longer reaches it.  All messages still
-   land in the kernel ring buffer (dmesg/journal) regardless of the
-   console loglevel.
+   2: only EMERG and ALERT (panics) render on the console.  CRIT and
+   ERR must not, the kernel prints ratelimited CRIT bursts from inside
+   tile syscalls (e.g. AF_XDP skb-mode TX over a bond with a packet
+   tap).  All messages still land in the kernel ring buffer
+   (dmesg/journal) regardless of the console loglevel.
 
    fini restores the kernel defaults (blink on, loglevel 7), which may
    over-restore if the operator had their own settings before init;
@@ -40,7 +41,7 @@
 #define CURSOR_BLINK_PATH "/sys/class/graphics/fbcon/cursor_blink"
 #define PRINTK_PATH       "/proc/sys/kernel/printk"
 
-#define CONSOLE_LOGLEVEL_QUIET   (4UL) /* KERN_ERR and above render */
+#define CONSOLE_LOGLEVEL_QUIET   (2UL) /* KERN_ALERT and above render */
 #define CONSOLE_LOGLEVEL_DEFAULT (7UL)
 
 static ulong
@@ -116,7 +117,7 @@ init( config_t const * config ) {
   if( FD_LIKELY( has_fbcon() ) ) write_cstr( CURSOR_BLINK_PATH, "0" );
 
   ulong level = read_ulong_field( PRINTK_PATH, 0UL );
-  if( FD_LIKELY( level>CONSOLE_LOGLEVEL_QUIET ) ) write_cstr( PRINTK_PATH, "4" );
+  if( FD_LIKELY( level>CONSOLE_LOGLEVEL_QUIET ) ) write_cstr( PRINTK_PATH, "2" );
 }
 
 static int
@@ -144,7 +145,7 @@ check( config_t const * config,
 
   ulong level = read_ulong_field( PRINTK_PATH, 0UL );
   if( FD_UNLIKELY( level!=ULONG_MAX && level>CONSOLE_LOGLEVEL_QUIET ) )
-    NOT_CONFIGURED( "console loglevel is %lu; kernel warnings render console work on the printing CPU", level );
+    NOT_CONFIGURED( "console loglevel is %lu; kernel messages render console work on the printing CPU", level );
 
   CONFIGURE_OK();
 }

@@ -624,6 +624,25 @@ fd_quic_reconstruct_pkt_num( ulong pktnum_comp,
   return candidate_pn;
 }
 
+/* fd_quic_pkt_num_rx records receipt of pkt_number in pn_space.  Returns
+   1 if it was already received or is too old to tell (RFC 9000 s12.3). */
+static int
+fd_quic_pkt_num_rx( fd_quic_conn_t * conn,
+                    uint             pn_space,
+                    ulong            pkt_number ) {
+  ulong exp = conn->exp_pkt_number[ pn_space ];
+  if( FD_LIKELY( pkt_number>=exp ) ) {
+    ulong shift = pkt_number+1UL-exp;
+    conn->rx_pn_mask    [ pn_space ] = fd_ulong_if( shift<64UL, conn->rx_pn_mask[ pn_space ]<<( shift&63UL ), 0UL ) | 1UL;
+    conn->exp_pkt_number[ pn_space ] = pkt_number+1UL;
+    return 0;
+  }
+  ulong age = exp-1UL-pkt_number;
+  if( FD_UNLIKELY( age>=64UL || fd_ulong_extract_bit( conn->rx_pn_mask[ pn_space ], (int)age ) ) ) return 1;
+  conn->rx_pn_mask[ pn_space ] = fd_ulong_set_bit( conn->rx_pn_mask[ pn_space ], (int)age );
+  return 0;
+}
+
 /* fd_quic_svc_prep_schedule sets conn->svc_meta.next_timeout to
    min of current and provided expiry time. */
 static inline void
@@ -1366,6 +1385,65 @@ fd_quic_send_retry( fd_quic_t *               quic,
   return 0UL;
 }
 
+/* fd_quic_send_invalid_token answers a post-Retry Initial whose token
+   expired with a stateless Initial CONNECTION_CLOSE(INVALID_TOKEN), so
+   the client fails the dial at once and redials for a fresh Retry
+   (RFC 9000 8.1.2).  The keys come from the DCID the client used. */
+
+static void
+fd_quic_send_invalid_token( fd_quic_t *               quic,
+                            fd_quic_pkt_t *           pkt,
+                            fd_quic_conn_id_t const * dcid,
+                            fd_quic_conn_id_t const * peer_scid ) {
+  fd_quic_state_t * state = fd_quic_get_state( quic );
+
+  fd_quic_crypto_secrets_t secrets[1];
+  fd_quic_crypto_keys_t    keys[1];
+  fd_quic_gen_initial_secrets( secrets, dcid->conn_id, dcid->sz, /* is_server */ 1 );
+  fd_quic_gen_keys( keys, secrets->secret[ fd_quic_enc_level_initial_id ][ 1 ] );
+
+  uchar plain[ 64 ];
+  ulong our_cid = fd_quic_rng_ulong( state );
+  fd_quic_initial_t initial = {
+    .h0              = fd_quic_initial_h0( 3 ), /* 4 byte pkt num */
+    .version         = 1,
+    .dst_conn_id_len = peer_scid->sz,
+    .src_conn_id_len = FD_QUIC_CONN_ID_SZ,
+    .len             = 0x3fff, /* 2 byte varint, patched below */
+    .pkt_num         = 0UL
+  };
+  fd_memcpy( initial.dst_conn_id, peer_scid->conn_id, peer_scid->sz );
+  FD_STORE( ulong, initial.src_conn_id, our_cid );
+  ulong hdr_sz = fd_quic_encode_initial( plain, sizeof(plain), &initial );
+  if( FD_UNLIKELY( hdr_sz==FD_QUIC_PARSE_FAIL ) ) return;
+
+  /* CONNECTION_CLOSE, padded so the header protection sample exists */
+  fd_quic_conn_close_0_frame_t frame = { .error_code = FD_QUIC_CONN_REASON_INVALID_TOKEN };
+  ulong frame_sz = fd_quic_encode_conn_close_0_frame( plain+hdr_sz, sizeof(plain)-hdr_sz, &frame );
+  if( FD_UNLIKELY( frame_sz==FD_QUIC_PARSE_FAIL ) ) return;
+  ulong payload_sz = fd_ulong_max( frame_sz, FD_QUIC_CRYPTO_SAMPLE_SZ );
+  fd_memset( plain+hdr_sz+frame_sz, 0, payload_sz-frame_sz ); /* PADDING frames */
+  uint len = 4U + (uint)payload_sz + FD_QUIC_CRYPTO_TAG_SZ;
+  FD_STORE( ushort, plain+hdr_sz-6UL, fd_ushort_bswap( (ushort)( 0x4000U|len ) ) );
+
+  uchar out[ 128 ];
+  ulong out_sz = sizeof(out);
+#if FD_QUIC_DISABLE_CRYPTO
+  (void)keys;
+  out_sz = hdr_sz+payload_sz;
+  fd_memcpy( out, plain, out_sz );
+  memset( out+out_sz, 0, FD_QUIC_CRYPTO_TAG_SZ ); /* MAC tag */
+  out_sz += FD_QUIC_CRYPTO_TAG_SZ;
+#else
+  if( FD_UNLIKELY( fd_quic_crypto_encrypt( out, &out_sz, plain, hdr_sz, plain+hdr_sz, payload_sz, keys, keys, 0UL )!=FD_QUIC_SUCCESS ) ) return;
+#endif
+
+  uchar * tx_ptr = out + out_sz;
+  fd_quic_tx_buffered_raw( quic, &tx_ptr, out, &pkt->ip4->net_id,
+                           pkt->ip4->saddr, pkt->udp->net_sport,
+                           pkt->ip4->daddr, pkt->udp->net_dport );
+}
+
 /* fd_quic_tls_hs_cache_evict evicts the oldest tls_hs if it's exceeded its ttl
    Assumes cache is non-empty
    and returns 1 if evicted, otherwise returns 0. */
@@ -1530,7 +1608,13 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
         int retry_ok = fd_quic_retry_server_verify( pkt, initial, &odcid, &scid, state->retry_secret, state->retry_iv, state->now, quic->config.retry_ttl );
         if( FD_UNLIKELY( retry_ok!=FD_QUIC_SUCCESS ) ) {
           metrics->conn_err_retry_fail_cnt++;
-          /* No need to set conn error, no conn object exists */
+          /* No conn object exists.  A token we issued that expired gets a
+             stateless close, so the client redials instead of probing
+             with it until its handshake times out. */
+          if( retry_ok==FD_QUIC_RETRY_EXPIRED ) {
+            metrics->conn_err_retry_expired_cnt++;
+            fd_quic_send_invalid_token( quic, pkt, dcid, peer_scid );
+          }
           return FD_QUIC_PARSE_FAIL;
         };
       }
@@ -1575,7 +1659,7 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
 # if !FD_QUIC_DISABLE_CRYPTO
   /* this decrypts the header */
   if( FD_UNLIKELY(
-        fd_quic_crypto_decrypt_hdr( cur_ptr, cur_sz,
+        fd_quic_crypto_decrypt_hdr( cur_ptr, tot_sz,
                                     pn_offset,
                                     rx_keys ) != FD_QUIC_SUCCESS ) ) {
     /* As this is an INITIAL packet, change the status to DEAD, and allow
@@ -1612,6 +1696,12 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
   pkt->pkt_number = pkt_number;
 
   if( FD_UNLIKELY( body_sz < pkt_number_sz + FD_QUIC_CRYPTO_TAG_SZ ) ) {
+    return FD_QUIC_PARSE_FAIL;
+  }
+
+  /* Reject frame-less packets before allocating state (RFC 9000 §12.4). */
+  if( FD_UNLIKELY( body_sz == pkt_number_sz + FD_QUIC_CRYPTO_TAG_SZ ) ) {
+    if( conn ) fd_quic_conn_error( conn, FD_QUIC_CONN_REASON_PROTOCOL_VIOLATION, __LINE__ );
     return FD_QUIC_PARSE_FAIL;
   }
 
@@ -1776,6 +1866,11 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
     conn->established = 1;
   }
 
+  if( FD_UNLIKELY( fd_quic_pkt_num_rx( conn, 0U, pkt_number ) ) ) {
+    quic->metrics.pkt_dup_cnt++;
+    return FD_QUIC_PARSE_FAIL;
+  }
+
   /* handle frames */
   ulong         payload_off = pn_offset + pkt_number_sz;
   uchar const * frame_ptr   = cur_ptr + payload_off;
@@ -1806,9 +1901,6 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
   /* update last activity */
   conn->last_activity = state->now;
   conn->flags &= ~( FD_QUIC_CONN_FLAGS_PING_SENT | FD_QUIC_CONN_FLAGS_PING );
-
-  /* update expected packet number */
-  conn->exp_pkt_number[0] = fd_ulong_max( conn->exp_pkt_number[0], pkt_number+1UL );
 
   /* insert into service queue */
   fd_quic_svc_prep_schedule( conn, state->now );
@@ -1874,11 +1966,12 @@ fd_quic_handle_v1_handshake(
 
   ulong    body_sz          = handshake->len;  /* not a protected field */
                                                /* length of payload + num packet bytes */
+  ulong    tot_sz           = pn_offset + body_sz; /* total including header and payload */
 
 # if !FD_QUIC_DISABLE_CRYPTO
   /* this decrypts the header */
   if( FD_UNLIKELY(
-        fd_quic_crypto_decrypt_hdr( cur_ptr, cur_sz,
+        fd_quic_crypto_decrypt_hdr( cur_ptr, tot_sz,
                                     pn_offset,
                                     &conn->keys[2][0] ) != FD_QUIC_SUCCESS ) ) {
     FD_DEBUG( FD_LOG_DEBUG(( "fd_quic_crypto_decrypt_hdr failed" )) );
@@ -1889,7 +1982,6 @@ fd_quic_handle_v1_handshake(
 
   /* number of bytes in the packet header */
   ulong pkt_number_sz = fd_quic_h0_pkt_num_len( cur_ptr[0] ) + 1u;
-  ulong tot_sz        = pn_offset + body_sz; /* total including header and payload */
 
   /* now we have decrypted packet number */
   ulong pktnum_comp = fd_quic_pktnum_decode( cur_ptr+pn_offset, pkt_number_sz );
@@ -1923,10 +2015,22 @@ fd_quic_handle_v1_handshake(
     return FD_QUIC_PARSE_FAIL;
   }
 
+  if( FD_UNLIKELY( fd_quic_pkt_num_rx( conn, 1U, pkt_number ) ) ) {
+    quic->metrics.pkt_dup_cnt++;
+    return FD_QUIC_PARSE_FAIL;
+  }
+
   /* handle frames */
   ulong         payload_off = pn_offset + pkt_number_sz;
   uchar const * frame_ptr   = cur_ptr + payload_off;
   ulong         frame_sz    = body_sz - pkt_number_sz - FD_QUIC_CRYPTO_TAG_SZ; /* total size of all frames in packet */
+
+  /* Reject frame-less packets (RFC 9000 §12.4). */
+  if( FD_UNLIKELY( frame_sz==0UL ) ) {
+    fd_quic_conn_error( conn, FD_QUIC_CONN_REASON_PROTOCOL_VIOLATION, __LINE__ );
+    return FD_QUIC_PARSE_FAIL;
+  }
+
   while( frame_sz != 0UL ) {
     rc = fd_quic_handle_v1_frame( quic,
                                   conn,
@@ -1961,9 +2065,6 @@ fd_quic_handle_v1_handshake(
   /* update last activity */
   conn->last_activity = fd_quic_get_state( quic )->now;
   conn->flags &= ~( FD_QUIC_CONN_FLAGS_PING_SENT | FD_QUIC_CONN_FLAGS_PING );
-
-  /* update expected packet number */
-  conn->exp_pkt_number[1] = fd_ulong_max( conn->exp_pkt_number[1], pkt_number+1UL );
 
   /* return number of bytes consumed */
   return tot_sz;
@@ -2133,6 +2234,13 @@ fd_quic_handle_v1_one_rtt( fd_quic_t *      quic,
     return FD_QUIC_PARSE_FAIL;
   }
 
+  /* RFC 9001 Section 5.7: A server MUST NOT process incoming 1-RTT
+     protected packets before the TLS handshake is complete. */
+  if( FD_UNLIKELY( !conn->handshake_complete ) ) {
+    quic->metrics.pkt_no_key_cnt[ fd_quic_enc_level_appdata_id ]++;
+    return FD_QUIC_PARSE_FAIL;
+  }
+
   if( FD_UNLIKELY( tot_sz < (1+FD_QUIC_CONN_ID_SZ+1) ) ) {
     /* One-RTT header: 1 byte
        DCID:           FD_QUIC_CONN_ID_SZ
@@ -2189,6 +2297,11 @@ fd_quic_handle_v1_one_rtt( fd_quic_t *      quic,
   /* set packet number on the context */
   pkt->pkt_number = pkt_number;
 
+  if( FD_UNLIKELY( fd_quic_pkt_num_rx( conn, 2U, pkt_number ) ) ) {
+    quic->metrics.pkt_dup_cnt++;
+    return FD_QUIC_PARSE_FAIL;
+  }
+
   if( !current_key_phase ) {
     /* Decryption succeeded.  Commit the key phase update and throw
        away the old keys.  (May cause a few decryption failures if old
@@ -2202,6 +2315,13 @@ fd_quic_handle_v1_one_rtt( fd_quic_t *      quic,
   ulong         payload_sz  = tot_sz - pn_offset - pkt_number_sz; /* includes auth tag */
   if( FD_UNLIKELY( payload_sz<FD_QUIC_CRYPTO_TAG_SZ ) ) return FD_QUIC_PARSE_FAIL;
   ulong         frame_sz    = payload_sz - FD_QUIC_CRYPTO_TAG_SZ; /* total size of all frames in packet */
+
+  /* Reject frame-less packets (RFC 9000 §12.4). */
+  if( FD_UNLIKELY( frame_sz==0UL ) ) {
+    fd_quic_conn_error( conn, FD_QUIC_CONN_REASON_PROTOCOL_VIOLATION, __LINE__ );
+    return FD_QUIC_PARSE_FAIL;
+  }
+
   while( frame_sz != 0UL ) {
     ulong rc = fd_quic_handle_v1_frame(
         quic, conn, pkt, FD_QUIC_PKT_TYPE_ONE_RTT,
@@ -2225,9 +2345,6 @@ fd_quic_handle_v1_one_rtt( fd_quic_t *      quic,
 
   /* update last activity */
   conn->last_activity = state->now;
-
-  /* update expected packet number */
-  conn->exp_pkt_number[2] = fd_ulong_max( conn->exp_pkt_number[2], pkt_number+1UL );
 
   return tot_sz;
 }
@@ -2415,6 +2532,39 @@ is_version_invalid( fd_quic_t * quic, uint version ) {
   return 0;
 }
 
+static ulong
+fd_quic_long_pkt_varint( uchar const * cur_ptr,
+                         ulong         cur_sz,
+                         ulong *       off ) {
+  if( FD_UNLIKELY( *off>=cur_sz ) ) return ULONG_MAX;
+  uint  msb2 = (uint)cur_ptr[ *off ]>>6;
+  ulong vsz  = 1UL<<msb2;
+  if( FD_UNLIKELY( *off+vsz>cur_sz ) ) return ULONG_MAX;
+  ulong val = fd_quic_varint_decode( cur_ptr+*off, msb2 );
+  *off += vsz;
+  return val;
+}
+
+static ulong
+fd_quic_long_pkt_sz( uchar const * cur_ptr,
+                     ulong         cur_sz ) {
+  uchar type = fd_quic_h0_long_packet_type( *cur_ptr );
+  if( FD_UNLIKELY( type==FD_QUIC_PKT_TYPE_RETRY ) ) return FD_QUIC_PARSE_FAIL; /* no Length field */
+  ulong off = 5UL;                                             /* h0, version */
+  if( FD_UNLIKELY( off>=cur_sz ) ) return FD_QUIC_PARSE_FAIL;
+  off += 1UL+cur_ptr[ off ];                                   /* dcid */
+  if( FD_UNLIKELY( off>=cur_sz ) ) return FD_QUIC_PARSE_FAIL;
+  off += 1UL+cur_ptr[ off ];                                   /* scid */
+  if( type==FD_QUIC_PKT_TYPE_INITIAL ) {                       /* token */
+    ulong token_sz = fd_quic_long_pkt_varint( cur_ptr, cur_sz, &off );
+    if( FD_UNLIKELY( token_sz>cur_sz ) ) return FD_QUIC_PARSE_FAIL;
+    off += token_sz;
+  }
+  ulong len = fd_quic_long_pkt_varint( cur_ptr, cur_sz, &off );
+  if( FD_UNLIKELY( len>cur_sz || off+len>cur_sz ) ) return FD_QUIC_PARSE_FAIL;
+  return off+len;
+}
+
 static inline void
 fd_quic_process_packet_impl( fd_quic_t * quic,
                              uchar *     data,
@@ -2528,6 +2678,8 @@ fd_quic_process_packet_impl( fd_quic_t * quic,
 
     /* multiple QUIC packets in a UDP packet */
     /* shortest valid quic payload? */
+    uchar const * dcid0    = cur_ptr+6;
+    ulong         dcid0_sz = cur_ptr[5];
     ulong pkt_idx;
     for( pkt_idx=0UL; pkt_idx<FD_QUIC_PKT_COALESCE_LIMIT; pkt_idx++ ) {
       /* Are we done? Omit short packet handling that follows */
@@ -2555,8 +2707,20 @@ fd_quic_process_packet_impl( fd_quic_t * quic,
         return;
       }
 
+      /* RFC 9000 Section 12.2: ignore coalesced packets with a different DCID */
+      if( FD_UNLIKELY( cur_ptr[5]!=dcid0_sz || 6UL+dcid0_sz>cur_sz ||
+                       ( pkt_idx && memcmp( cur_ptr+6, dcid0, dcid0_sz ) ) ) ) {
+        quic->metrics.pkt_quic_hdr_err_cnt++;
+        return;
+      }
+
       rc = fd_quic_process_quic_packet_v1( quic, &pkt, cur_ptr, cur_sz );
       svc_cnt_eq_alloc_conn( state->svc_timers, quic );
+
+      /* RFC 9000 Section 12.2: a packet that fails (e.g. Handshake after
+         its keys are discarded) does not void the rest of the datagram.
+         Skip it by its Length field. */
+      if( FD_UNLIKELY( rc==FD_QUIC_PARSE_FAIL ) ) rc = fd_quic_long_pkt_sz( cur_ptr, cur_sz );
 
       /* 0UL means no progress, so fail */
       if( FD_UNLIKELY( ( rc == FD_QUIC_PARSE_FAIL ) |
@@ -3049,13 +3213,13 @@ fd_quic_conn_can_acquire_pkt_meta( fd_quic_conn_t             * conn,
   ulong pool_free = fd_quic_pkt_meta_pool_free( tracker->pool );
   if( !pool_free || conn->used_pkt_meta >= state->max_inflight_frame_cnt_conn ) {
     if( !pool_free ) {
-      metrics->frame_tx_alloc_cnt[FD_METRICS_ENUM_FRAME_TX_ALLOC_RESULT_V_FAIL_EMPTY_POOL_IDX]++;
+      metrics->frame_tx_alloc_cnt[FD_METRICS_ENUM_PKT_META_ACQUIRE_RESULT_V_POOL_EMPTY_IDX]++;
     } else {
-      metrics->frame_tx_alloc_cnt[FD_METRICS_ENUM_FRAME_TX_ALLOC_RESULT_V_FAIL_CONNECTION_MAX_IDX]++;
+      metrics->frame_tx_alloc_cnt[FD_METRICS_ENUM_PKT_META_ACQUIRE_RESULT_V_CONN_LIMIT_IDX]++;
     }
     return 0;
   }
-  metrics->frame_tx_alloc_cnt[FD_METRICS_ENUM_FRAME_TX_ALLOC_RESULT_V_SUCCESS_IDX]++;
+  metrics->frame_tx_alloc_cnt[FD_METRICS_ENUM_PKT_META_ACQUIRE_RESULT_V_SUCCESS_IDX]++;
 
   return 1;
 }
@@ -3124,25 +3288,38 @@ fd_quic_conn_tx_dgram( fd_quic_conn_t * conn,
   ulong const hdr_sz = fd_quic_encode_one_rtt( scratch, scratch_sz, &one_rtt );
   if( FD_UNLIKELY( hdr_sz==FD_QUIC_ENCODE_FAIL ) ) return 0UL;
 
+  /* Carry pending ACKs, even for ACK-only packets: this packet is
+     ack-eliciting, and a peer that only ever sends ACKs (Agave votor
+     server) otherwise never sees its ACKs acknowledged and keeps
+     re-sending every gap. */
+  uchar   ack_buf[ 128 ];
+  ulong   ack_room = fd_ulong_min( sizeof(ack_buf), fd_ulong_sat_sub( fd_ulong_min( pkt_sz, conn->tx_max_datagram_sz ), hdr_sz+frame_sz+FD_QUIC_CRYPTO_TAG_SZ ) );
+  uint    ack_tail     = conn->ack_gen->tail; /* restored if the send fails */
+  uchar   ack_elicited = conn->ack_gen->is_elicited;
+  ulong   ack_sz   = (ulong)( fd_quic_gen_ack_frames( conn->ack_gen, ack_buf, ack_buf+ack_room, fd_quic_enc_level_appdata_id, state->now, 1 )-ack_buf );
+
   ulong padding = 0UL;
-  ulong const protected_payload_sz = frame_sz + FD_QUIC_CRYPTO_TAG_SZ;
+  ulong const protected_payload_sz = ack_sz + frame_sz + FD_QUIC_CRYPTO_TAG_SZ;
   ulong const sample_min_sz = FD_QUIC_CRYPTO_SAMPLE_OFFSET_FROM_PKT_NUM_START +
                               FD_QUIC_CRYPTO_SAMPLE_SZ;
   if( protected_payload_sz+pn_sz < sample_min_sz ) {
     padding = sample_min_sz - pn_sz - protected_payload_sz;
   }
 
-  ulong const plain_sz = frame_sz + padding;
+  ulong const plain_sz = ack_sz + frame_sz + padding;
   ulong const out_sz   = hdr_sz + plain_sz + FD_QUIC_CRYPTO_TAG_SZ;
   if( FD_UNLIKELY(
       out_sz>pkt_sz ||
       out_sz>conn->tx_max_datagram_sz ||
       hdr_sz+plain_sz>scratch_sz
   ) ) {
+    conn->ack_gen->tail = ack_tail; conn->ack_gen->is_elicited = ack_elicited;
     return 0UL;
   }
 
   uchar * p = scratch + hdr_sz;
+  fd_memcpy( p, ack_buf, ack_sz );
+  p += ack_sz;
   *p++ = 0x31U; /* DATAGRAM with an explicit Length field */
   p += fd_quic_varint_encode( p, dgram_sz );
   if( dgram_sz ) fd_memcpy( p, dgram, dgram_sz );
@@ -3165,11 +3342,15 @@ fd_quic_conn_tx_dgram( fd_quic_conn_t * conn,
       pkt_keys, hp_keys,
       pkt_num
   );
-  if( FD_UNLIKELY( enc_res!=FD_QUIC_SUCCESS ) ) return 0UL;
-  if( FD_UNLIKELY( cipher_sz!=out_sz ) ) return 0UL;
+  if( FD_UNLIKELY( enc_res!=FD_QUIC_SUCCESS || cipher_sz!=out_sz ) ) {
+    conn->ack_gen->tail = ack_tail;
+    conn->ack_gen->is_elicited = ack_elicited;
+    return 0UL;
+  }
 #endif
 
   conn->pkt_number[ pn_space ] = pkt_num + 1UL;
+  if( conn->ack_gen->head==conn->ack_gen->tail ) conn->unacked_sz = 0UL;
 
   /* RFC 9221 Section 5.2: DATAGRAM frames are ack-eliciting, so track
      the packet for RTT samples and loss detection like any other */
@@ -3689,7 +3870,7 @@ fd_quic_gen_frames( fd_quic_conn_t           * conn,
 
   fd_quic_pkt_meta_tracker_t * tracker = &conn->pkt_meta_tracker;
 
-  payload_ptr = fd_quic_gen_ack_frames( conn->ack_gen, payload_ptr, payload_end, pkt_meta_tmpl->enc_level, now );
+  payload_ptr = fd_quic_gen_ack_frames( conn->ack_gen, payload_ptr, payload_end, pkt_meta_tmpl->enc_level, now, 0 );
   if( conn->ack_gen->head == conn->ack_gen->tail ) conn->unacked_sz = 0UL;
 
   if( FD_UNLIKELY( closing ) ) {
@@ -4496,6 +4677,7 @@ fd_quic_conn_create( fd_quic_t *               quic,
   rtt->min_rtt                   = FD_QUIC_INITIAL_RTT_US * 1e3f;
   rtt->var_rtt                   = FD_QUIC_INITIAL_RTT_US * 1e3f * 0.5f;
   conn->rtt_period_ns            = FD_QUIC_RTT_PERIOD_US  * 1e3f;
+  conn->last_ack                 = state->now;
 
   /* idle timeout */
   conn->idle_timeout_ns      = config->idle_timeout;
@@ -4861,7 +5043,7 @@ fd_quic_reclaim_pkt_meta( fd_quic_conn_t *     conn,
           /* did they ack the first unacked byte? */
           if( FD_LIKELY( range.offset_lo == tx_tail ) ) {
             /* move tail to first unacked byte */
-            tx_tail = range.offset_hi;
+            tx_tail = fd_ulong_max( range.offset_hi, tx_tail );
             while( tx_tail < tx_sent ) {
               /* TODO - optimize this for larger strides */
               /* can we skip a whole byte? */

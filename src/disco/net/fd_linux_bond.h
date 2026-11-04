@@ -31,6 +31,12 @@ fd_bonding_slave_cnt( char const * device );
 int
 fd_bonding_is_lacp( char const * device );
 
+/* fd_bonding_is_active_backup is like fd_bonding_is_lacp, but checks
+   for active-backup mode */
+
+int
+fd_bonding_is_active_backup( char const * device );
+
 /* fd_bonding_slave_iter provides an API to iterate over the slave
    devices of a network bond. */
 

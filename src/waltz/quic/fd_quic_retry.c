@@ -180,8 +180,8 @@ fd_quic_retry_server_verify(
   int   is_ip4        = 0==memcmp( retry_token->data.ip6_addr, "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xff\xff", 12 );
   uint  pkt_port      = fd_ushort_bswap( (ushort)pkt->udp->net_sport );
   uint  retry_port    = retry_token->data.udp_port;
-  long  expire_at     = (long)retry_token->data.expire_comp << FD_QUIC_RETRY_EXPIRE_SHIFT;
-  long  expire_before = now + ttl;
+  long  expire_at     = (long)( retry_token->data.expire_comp << FD_QUIC_RETRY_EXPIRE_SHIFT );
+  long  expire_before = (long)( (ulong)now + (ulong)ttl );
   ulong pkt_dcid      = FD_LOAD( ulong, initial->dst_conn_id );
 
   int is_match =
@@ -205,7 +205,15 @@ fd_quic_retry_server_verify(
   memcpy( orig_dst_conn_id->conn_id,  retry_token->data.odcid, FD_QUIC_MAX_CONN_ID_SZ ); /* oversz copy ok */
   *retry_src_conn_id = retry_token->data.rscid;
 
-  return is_match ? FD_QUIC_SUCCESS : FD_QUIC_FAILED;
+  if( FD_LIKELY( is_match ) ) return FD_QUIC_SUCCESS;
+  int is_expired =
+    vfy_res  == FD_QUIC_SUCCESS          &&
+    pkt_dcid == retry_token->data.rscid  &&
+    is_ip4                               &&
+    pkt_ip4  == retry_ip4                &&
+    pkt_port == retry_port               &&
+    now >= expire_at;
+  return is_expired ? FD_QUIC_RETRY_EXPIRED : FD_QUIC_FAILED;
 }
 
 int

@@ -10,6 +10,8 @@
 #include "../../flamenco/runtime/fd_runtime_const.h"
 #include "../../flamenco/runtime/fd_system_ids_pp.h"
 #include "../../flamenco/runtime/fd_bank.h"
+#include "../../flamenco/runtime/fd_system_ids.h"
+#include "../../flamenco/runtime/sysvar/fd_sysvar_slot_hashes.h"
 #include "../../tango/fseq/fd_fseq.h"
 #include "../../util/pod/fd_pod_format.h"
 #include "../../util/fd_hash32.h"
@@ -183,10 +185,10 @@ typedef struct {
   fd_replay_slot_completed_t _completed_slot_msg;
 
   struct {
-    ulong lut[ FD_METRICS_COUNTER_RESOLV_LUT_RESOLVED_CNT ];
-    ulong blockhash_expired;
-    ulong bundle_peer_failure;
-    ulong stash[ FD_METRICS_COUNTER_RESOLV_STASH_OPERATION_CNT ];
+    ulong lut[ FD_METRICS_COUNTER_RESOLV_TXN_LUT_RESOLVE_ATTEMPTED_CNT ];
+    ulong txn_dropped[ FD_METRICS_ENUM_RESOLV_TXN_DROP_REASON_CNT ];
+    ulong stash_inserted;
+    ulong stash_removed[ FD_METRICS_COUNTER_RESOLV_STASH_TXN_REMOVED_CNT ];
   } metrics;
 
   fd_resolv_in_ctx_t in[ 64UL ];
@@ -201,6 +203,10 @@ typedef struct {
      bytes synchronously inside fd_alut_interp_next. */
   uchar alut_owner[ 32UL ];
   uchar alut_data[ FD_RUNTIME_ACC_SZ_MAX ];
+
+  /* SlotHashes sysvar of bank, refreshed when bank changes */
+  ulong slot_hashes_sz;
+  uchar slot_hashes_data[ FD_SYSVAR_SLOT_HASHES_BINCODE_SZ ] __attribute__((aligned(8)));
 } fd_resolv_ctx_t;
 
 FD_FN_CONST static inline ulong
@@ -224,10 +230,10 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
 
 static inline void
 metrics_write( fd_resolv_ctx_t * ctx ) {
-  FD_MCNT_SET(       RESOLV, BLOCKHASH_EXPIRED,               ctx->metrics.blockhash_expired );
-  FD_MCNT_ENUM_COPY( RESOLV, LUT_RESOLVED,                    ctx->metrics.lut );
-  FD_MCNT_ENUM_COPY( RESOLV, STASH_OPERATION,                 ctx->metrics.stash );
-  FD_MCNT_SET(       RESOLV, TXN_BUNDLE_PEER_FAILED, ctx->metrics.bundle_peer_failure );
+  FD_MCNT_ENUM_COPY( RESOLV, TXN_DROPPED,                   ctx->metrics.txn_dropped         );
+  FD_MCNT_ENUM_COPY( RESOLV, TXN_LUT_RESOLVE_ATTEMPTED,     ctx->metrics.lut                 );
+  FD_MCNT_SET(       RESOLV, STASH_TXN_INSERTED,            ctx->metrics.stash_inserted      );
+  FD_MCNT_ENUM_COPY( RESOLV, STASH_TXN_REMOVED,             ctx->metrics.stash_removed       );
 
   FD_ACCDB_METRICS_WRITE_RO( RESOLV, fd_accdb_metrics( ctx->accdb ) );
 }
@@ -293,6 +299,15 @@ peek_alut( fd_resolv_ctx_t *  ctx,
   fd_txn_acct_addr_lut_t const * addr_lut = &fd_txn_get_address_tables_const( txn )[ alut_idx ];
   fd_pubkey_t addr_lut_acc = FD_LOAD( fd_pubkey_t, txn_payload+addr_lut->addr_off );
 
+  /* Valid ALUTs cannot be bigger than FD_LOOKUP_TABLE_SZ_MAX.
+
+     An account with wrong owner will return this error instead of
+     FD_RUNTIME_TXN_ERR_INVALID_ADDRESS_LOOKUP_TABLE_OWNER.
+     This is not consensus relevant. */
+  if( FD_UNLIKELY( fd_accdb_data_len( ctx->accdb, ctx->bank->accdb_fork_id, addr_lut_acc.uc )>FD_LOOKUP_TABLE_SZ_MAX ) ) {
+    return FD_RUNTIME_TXN_ERR_INVALID_ADDRESS_LOOKUP_TABLE_DATA;
+  }
+
   /* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/accounts-db/src/accounts.rs#L90-L94
 
      The resolv tile maps accdb read-only and so must use the nocache
@@ -307,6 +322,19 @@ peek_alut( fd_resolv_ctx_t *  ctx,
   return fd_alut_interp_next( interp, &addr_lut_acc, ctx->alut_owner, ctx->alut_data, data_len );
 }
 
+/* refresh_slot_hashes copies the SlotHashes sysvar of ctx->bank. */
+
+static void
+refresh_slot_hashes( fd_resolv_ctx_t * ctx ) {
+  ulong lamports;
+  int   executable;
+  ulong data_len;
+  fd_accdb_read_one_nocache( ctx->accdb, ctx->bank->accdb_fork_id, fd_sysvar_slot_hashes_id.uc,
+                             &lamports, &executable, ctx->alut_owner, ctx->alut_data, &data_len );
+  ctx->slot_hashes_sz = lamports ? fd_ulong_min( data_len, FD_SYSVAR_SLOT_HASHES_BINCODE_SZ ) : 0UL;
+  fd_memcpy( ctx->slot_hashes_data, ctx->alut_data, ctx->slot_hashes_sz );
+}
+
 /* peek_aluts reads address lookup tables from database cache.
    Gracefully recovers from data races and missing accounts. */
 
@@ -318,9 +346,8 @@ peek_aluts( fd_resolv_ctx_t * ctx,
   uchar const *             txn_payload  = fd_txn_m_payload_const( txnm );
   ulong const               alut_cnt     = txn->addr_table_lookup_cnt;
   ulong const               slot         = ctx->bank->f.slot;
-  fd_sysvar_cache_t const * sysvar_cache = &ctx->bank->f.sysvar_cache;
   fd_slot_hashes_t slot_hashes_view[1];
-  if( FD_UNLIKELY( !fd_sysvar_cache_slot_hashes_view( sysvar_cache, slot_hashes_view ) ) ) {
+  if( FD_UNLIKELY( !fd_sysvar_slot_hashes_view( slot_hashes_view, ctx->slot_hashes_data, ctx->slot_hashes_sz ) ) ) {
     ctx->metrics.lut[ FD_METRICS_ENUM_LUT_RESOLVE_RESULT_V_ACCOUNT_NOT_FOUND_IDX ]++;
     return FD_RUNTIME_TXN_ERR_ACCOUNT_NOT_FOUND;
   }
@@ -362,7 +389,7 @@ publish_txn( fd_resolv_ctx_t *          ctx,
 
   if( FD_UNLIKELY( txnt->addr_table_adtl_cnt ) ) {
     if( FD_UNLIKELY( !ctx->bank ) ) {
-      FD_MCNT_INC( RESOLV, TXN_NO_BANK, 1 );
+      ctx->metrics.txn_dropped[ FD_METRICS_ENUM_RESOLV_TXN_DROP_REASON_V_NO_BANK_IDX ]++;
       return 0;
     }
     int err = peek_aluts( ctx, txnm );
@@ -392,9 +419,9 @@ after_credit( fd_resolv_ctx_t *   ctx,
   ulong next = map_chain_idx_next_const( ctx->flush_pool_idx, ULONG_MAX, ctx->pool );
   map_chain_idx_remove_fast( ctx->map_chain, ctx->flush_pool_idx, ctx->pool );
   if( FD_LIKELY( publish_txn( ctx, stem, pool_ele( ctx->pool, ctx->flush_pool_idx ) ) ) ) {
-    ctx->metrics.stash[ FD_METRICS_ENUM_RESOLVE_STASH_OPERATION_V_PUBLISHED_IDX ]++;
+    ctx->metrics.stash_removed[ FD_METRICS_ENUM_STASH_REMOVE_REASON_V_PUBLISHED_IDX ]++;
   } else {
-    ctx->metrics.stash[ FD_METRICS_ENUM_RESOLVE_STASH_OPERATION_V_REMOVED_IDX ]++;
+    ctx->metrics.stash_removed[ FD_METRICS_ENUM_STASH_REMOVE_REASON_V_FAILED_IDX    ]++;
   }
   lru_list_idx_remove( ctx->lru_list, ctx->flush_pool_idx, ctx->pool );
   pool_idx_release( ctx->pool, ctx->flush_pool_idx );
@@ -465,6 +492,7 @@ after_frag( fd_resolv_ctx_t *   ctx,
 
         ctx->bank = fd_banks_bank_query( ctx->banks, msg->bank_idx );
         FD_TEST( ctx->bank );
+        refresh_slot_hashes( ctx );
 
         /* Send slot completed message back to replay, so it can
            decrement the reference count of the previous bank. */
@@ -519,7 +547,7 @@ after_frag( fd_resolv_ctx_t *   ctx,
   }
 
   if( FD_UNLIKELY( txnm->block_engine.bundle_id && ctx->bundle_failed ) ) {
-    ctx->metrics.bundle_peer_failure++;
+    ctx->metrics.txn_dropped[ FD_METRICS_ENUM_RESOLV_TXN_DROP_REASON_V_BUNDLE_PEER_FAILED_IDX ]++;
     return;
   }
 
@@ -536,7 +564,7 @@ after_frag( fd_resolv_ctx_t *   ctx,
     txnm->reference_block_height = blockhash->block_height;
     if( FD_UNLIKELY( (!is_durable_nonce) & (txnm->reference_block_height+151UL<ctx->completed_block_height) ) ) {
       if( FD_UNLIKELY( txnm->block_engine.bundle_id ) ) ctx->bundle_failed = 1;
-      ctx->metrics.blockhash_expired++;
+      ctx->metrics.txn_dropped[ FD_METRICS_ENUM_RESOLV_TXN_DROP_REASON_V_BLOCKHASH_EXPIRED_IDX ]++;
       return;
     }
   }
@@ -548,7 +576,7 @@ after_frag( fd_resolv_ctx_t *   ctx,
     if( FD_UNLIKELY( !pool_free( ctx->pool ) ) ) {
       pool_idx = lru_list_idx_pop_tail( ctx->lru_list, ctx->pool );
       map_chain_idx_remove_fast( ctx->map_chain, pool_idx, ctx->pool );
-      ctx->metrics.stash[ FD_METRICS_ENUM_RESOLVE_STASH_OPERATION_V_OVERRUN_IDX ]++;
+      ctx->metrics.stash_removed[ FD_METRICS_ENUM_STASH_REMOVE_REASON_V_EVICTED_IDX ]++;
     } else {
       pool_idx = pool_idx_acquire( ctx->pool );
     }
@@ -565,7 +593,7 @@ after_frag( fd_resolv_ctx_t *   ctx,
     FD_COMPILER_FORGET( stash_txn );
     fd_memcpy( stash_txn->_, txnm, fd_txn_m_realized_footprint( txnm, 1, 0 ) );
     stash_txn->blockhash = (blockhash_t *)(fd_txn_m_payload( (fd_txn_m_t *)(stash_txn->_) ) + txnt->recent_blockhash_off);
-    ctx->metrics.stash[ FD_METRICS_ENUM_RESOLVE_STASH_OPERATION_V_INSERTED_IDX ]++;
+    ctx->metrics.stash_inserted++;
 
     map_chain_ele_insert( ctx->map_chain, stash_txn, ctx->pool );
     lru_list_idx_push_head( ctx->lru_list, pool_idx, ctx->pool );
@@ -575,7 +603,7 @@ after_frag( fd_resolv_ctx_t *   ctx,
 
   if( FD_UNLIKELY( txnt->addr_table_adtl_cnt ) ) {
     if( FD_UNLIKELY( !ctx->bank ) ) {
-      FD_MCNT_INC( RESOLV, TXN_NO_BANK, 1 );
+      ctx->metrics.txn_dropped[ FD_METRICS_ENUM_RESOLV_TXN_DROP_REASON_V_NO_BANK_IDX ]++;
       if( FD_UNLIKELY( txnm->block_engine.bundle_id ) ) ctx->bundle_failed = 1;
       return;
     }

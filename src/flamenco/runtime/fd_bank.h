@@ -5,7 +5,6 @@
 #include "../features/fd_features.h"
 #include "../stakes/fd_stake_delegations.h"
 #include "../stakes/fd_vote_stakes.h"
-#include "../stakes/fd_collector_overrides.h"
 #include "../stakes/fd_epoch_credits.h"
 #include "../fd_rwlock.h"
 #include "fd_blockhashes.h"
@@ -19,7 +18,7 @@
 FD_PROTOTYPES_BEGIN
 
 #define FD_BANKS_MAGIC     (0XF17EDA2C7EBA2451) /* FIREDANCER BANKS V1 */
-#define FD_BANKS_MAX_BANKS (4096UL)
+#define FD_BANKS_MAX_BANKS (65534UL)
 #define FD_BANKS_ALIGN     (128UL)
 
 /* A fd_bank_t struct is the representation of the bank state on Solana
@@ -111,14 +110,11 @@ FD_PROTOTYPES_BEGIN
   is completely abstracted away from the caller as callers have to
   query/modify fields using specific APIs.
 
-  The memory for the banks is based off of two bounds:
-  1. the max number of unrooted blocks at any given time. Most fields
-     can be bounded by this value.
-  2. the max number of forks that execute through any 1 block.  We bound
-     fields that are only written to at the epoch boundary by
-     the max fork width that can execute through the boundary instead of
-     by the max number of banks.  See fd_banks_footprint() for more
-     details.
+  The memory for the banks is bounded by the max number of unrooted
+  blocks at any given time.  Large per-fork state (vote stakes t-1
+  sets, epoch credits, cost trackers) is backed by a file with an
+  in-memory cache of cache_cnt entries.  See fd_banks_footprint() for
+  more details.
 
   There are also some important states that a bank can be in:
   - Initialized: This bank has been created and linked to a parent bank
@@ -158,7 +154,7 @@ FD_PROTOTYPES_BEGIN
 
    To create a new bank.  This simply provisions the memory for the bank
    but it should not be used to execute transactions against.
-   ulong bank_index = fd_banks_new_bank( banks, parent_bank_index )->idx;
+   ulong bank_index = fd_banks_new_bank( banks, parent_bank_index, now, is_leader )->idx;
 
    To clone bank from parent banks.  This makes a bank replayable by
    copying over the state from the parent bank into the child.  It
@@ -174,20 +170,15 @@ FD_PROTOTYPES_BEGIN
    To advance the root bank.  This assumes that the bank index is "safe"
    to advance to.  This means that none of the ancestors of the bank
    index have a non-zero reference count.
-   fd_banks_advance_root( banks, bank_index );
+   fd_banks_advance_root( banks, bank_index, stake_history );
 
    To query some arbitrary bank:
    fd_bank_t * bank_query = fd_banks_bank_query( banks, bank_index );
 
-  To access the fields in the bank if they are templatized:
+  To access a simple field in the bank:
 
-  fd_struct_t const * field = fd_bank_field_query( bank );
-  OR
-  fd_struct field = fd_bank_field_get( bank );
-
-  fd_struct_t * field = fd_bank_field_modify( bank );
-  OR
-  fd_bank_field_set( bank, value );
+  ulong slot = bank->f.slot;
+  bank->f.slot = slot;
 
   If a bank is marked dead, the caller should call
   fd_banks_mark_bank_dead() to mark the bank and all of its descendants
@@ -244,6 +235,21 @@ FD_PROTOTYPES_BEGIN
 #define FD_BANK_STATE_DEAD       (4UL)
 #define FD_BANK_STATE_PRUNABLE   (5UL)
 
+#define FD_BANK_LTHASH_MODE_INBAND     (0) /* Hash every write into f.lthash. */
+#define FD_BANK_LTHASH_MODE_OOB_RECORD (1) /* Start of block.  Record the pubkey in lthash_rec instead of hashing. */
+#define FD_BANK_LTHASH_MODE_OOB_SKIP   (2) /* Transaction execution.  Neither hash nor record. */
+
+/* This is the list of pubkeys written while the bank was in OOB_RECORD
+   mode, one entry per write, in write order and not deduplicated.  keys
+   has room for max entries, cnt of which are used. */
+
+struct fd_bank_lthash_rec {
+  ulong         cnt;
+  ulong         max;
+  fd_pubkey_t * keys;
+};
+typedef struct fd_bank_lthash_rec fd_bank_lthash_rec_t;
+
 
 struct fd_bank {
 
@@ -258,13 +264,13 @@ struct fd_bank {
   ulong state;       /* keeps track of the state of the bank */
   ulong bank_seq;    /* app-wide bank sequence number */
   uchar is_leader;   /* whether the bank is the leader */
+  fd_pubkey_t leader; /* slot leader of this block */
 
   fd_txncache_fork_id_t  txncache_fork_id __attribute__((aligned(64UL)));
   fd_progcache_fork_id_t progcache_fork_id;
   fd_accdb_fork_id_t     accdb_fork_id;
   fd_accdb_fork_id_t     parent_accdb_fork_id;
-  ulong                  vote_stakes_fork_id;
-  ushort                 collector_overrides_fork_id;
+  ushort                 vote_stakes_fork_id;
   ushort                 stake_rewards_fork_id;
   ushort                 stake_delegations_fork_id;
   ushort                 epoch_credits_fork_id;
@@ -282,9 +288,19 @@ struct fd_bank {
   long last_transaction_finished_nanos;
   long block_completed_nanos;
 
-  /* This field should only be accessed by the replay and executor
-     tiles.  Taken per transaction, so on its own line. */
-  fd_rwlock_t lthash_lock __attribute__((aligned(64UL)));
+  ulong footer_task_cnt;
+  ulong execution_fees_pre_settle; /* for publish once those are done */
+  ulong priority_fees_pre_settle;
+
+  /* These fields should only be accessed by the replay and executor
+     tiles.  The lock is taken per transaction, so it sits on its own
+     line.  The mode fields share the line because they change only
+     while no exec tile is working on the bank.  lthash_rec points into
+     replay tile private memory and is valid only in OOB_RECORD mode,
+     which only the replay tile sets. */
+  fd_rwlock_t            lthash_lock __attribute__((aligned(64UL)));
+  uchar                  lthash_mode;
+  fd_bank_lthash_rec_t * lthash_rec;
 
   struct {
     fd_lthash_value_t      lthash;
@@ -319,7 +335,6 @@ struct fd_bank {
     fd_hash_t              prev_bank_hash;
     fd_epoch_schedule_t    epoch_schedule;
     fd_rent_t              rent;
-    fd_sysvar_cache_t      sysvar_cache;
     fd_features_t          features;
     ulong                  txn_count;
     ulong                  nonvote_txn_count;
@@ -370,7 +385,7 @@ struct fd_banks {
   ulong magic;                       /* ==FD_BANKS_MAGIC */
   int   report_runtime_diffs;        /* telemetry: emit the runtime events; report_runtime_diffs flag */
   ulong max_total_banks;             /* Maximum number of banks */
-  ulong max_fork_width;              /* Maximum fork width executing through any given slot. */
+  ulong cache_cnt;                   /* In-memory entries of each disk backed per-fork store */
   ulong max_stake_accounts;          /* Maximum number of stake accounts */
   ulong max_vote_accounts;           /* Maximum number of vote accounts */
   ulong root_idx;                    /* root idx */
@@ -383,8 +398,6 @@ struct fd_banks {
   ulong pool_offset; /* offset of pool from banks */
 
   ulong cost_tracker_offset; /* offset of cost tracker pool from banks */
-
-  ulong collector_overrides_offset;
 
   ulong stake_rewards_offset;
 
@@ -419,14 +432,19 @@ fd_bank_report_runtime_diffs( fd_bank_t const * bank ) {
   return banks_data->report_runtime_diffs;
 }
 
+/* fd_bank_lthash_record appends pubkey to bank->lthash_rec.  The bank
+   must be in OOB_RECORD mode, and there must be free space for the
+   pubkey. */
+
+void
+fd_bank_lthash_record( fd_bank_t * bank,
+                       uchar const pubkey[ static 32 ] );
+
 /* Bank accessors and mutators.  Different accessors are emitted for
    different types depending on if the field has a lock or not. */
 
 fd_epoch_credits_store_t *
 fd_bank_epoch_credits( fd_bank_t const * bank );
-
-fd_collector_overrides_t *
-fd_bank_collector_overrides( fd_bank_t const * bank );
 
 fd_stake_rewards_t const *
 fd_bank_stake_rewards_query( fd_bank_t * bank );
@@ -502,34 +520,27 @@ fd_banks_align( void );
 
    The footprint of fd_banks_t is determined by the total number
    of banks that the bank manages.  This is an analog for the max number
-   of unrooted blocks the bank can manage at any given time.
-
-   We can also further bound the memory footprint of the banks by the
-   max width of forks that can exist at any given time.  The reason for
-   this is that there are several large CoW structs that are only
-   written to during the epoch boundary (e.g. epoch_stakes, etc.).
-   These structs are read-only afterwards.  This
-   means if we also bound the max number of forks that can execute
-   through the epoch boundary, we can bound the memory footprint of
-   the banks. */
+   of unrooted blocks the bank can manage at any given time.  Large
+   per-fork structs (cost trackers, epoch credits and t-1 vote stakes)
+   keep cache_cnt entries in memory and spill the rest to disk.  Returns
+   0 if cache_cnt is 0. */
 
 ulong
 fd_banks_footprint( ulong max_total_banks,
-                    ulong max_fork_width,
+                    ulong cache_cnt,
                     ulong max_stake_accounts,
                     ulong max_vote_accounts );
 
 /* fd_banks_new() creates a new fd_banks_t struct.  This function
    lays out the memory for all of the constituent fd_bank_t structs
-   and pools depending on the max_total_banks and the max_fork_width for
-   a given block.  stake_delegations_fd identifies the backing file for
+   and pools depending on max_total_banks.  stake_delegations_fd identifies the backing file for
    this instance's stake delegation store. */
 
 void *
 fd_banks_new( void * mem,
               int    stake_delegations_fd,
               ulong  max_total_banks,
-              ulong  max_fork_width,
+              ulong  cache_cnt,
               ulong  max_stake_accounts,
               ulong  max_disk_records,
               ulong  max_vote_accounts,
@@ -551,7 +562,7 @@ fd_banks_join( void * banks_data_mem );
 fd_bank_t *
 fd_banks_init_bank( fd_banks_t * banks );
 
-/* fd_banks_get_bank_idx returns a bank for a given bank index. */
+/* fd_banks_bank_query returns a bank for a given bank index. */
 
 fd_bank_t *
 fd_banks_bank_query( fd_banks_t * banks,
@@ -585,11 +596,13 @@ fd_banks_clone_from_parent( fd_banks_t * banks,
    the new root bank should be a child of the current root bank.
 
    All banks that are ancestors or siblings of the new root bank will be
-   cancelled and their resources will be released back to the pool. */
+   cancelled and their resources will be released back to the pool.
+   stake_history is the new root's StakeHistory sysvar (or NULL). */
 
 void
-fd_banks_advance_root( fd_banks_t * banks,
-                       ulong        bank_idx );
+fd_banks_advance_root( fd_banks_t *               banks,
+                       ulong                      bank_idx,
+                       fd_stake_history_t const * stake_history );
 
 /* fd_banks_clear releases all banks back to the pool and resets the
    banks manager to its post-new state.  Assumes no active references to
@@ -701,14 +714,12 @@ fd_banks_get_evictable_bank( fd_banks_t *      banks,
                              fd_bank_t const * protected_bank );
 
 /* fd_banks_can_start_bank returns 1 if banks has capacity to start
-   preparing another child bank.  This check is currently conservative,
-   if the max fork width is reached, it will return 0 even if the new
-   bank doesn't exceed the max fork width. */
+   preparing another child bank. */
 
 int
 fd_banks_can_start_bank( fd_banks_t * banks );
 
-/* fd_bank_clear_bank() clears the contents of a bank. This should ONLY
+/* fd_banks_clear_bank() clears the contents of a bank. This should ONLY
    be used with banks that have no children and should only be used in
    testing and fuzzing.  WARNING: This should NOT be used in production.
 

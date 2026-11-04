@@ -151,7 +151,7 @@ fd_ed25519_verify( uchar const   msg[], /* msg_sz */
 
    pubkeys is assumed to point to first byte of a memory region
    that holds the public keys to use to verify these signatures.
-   Each public key is 64-byte long.
+   Each public key is 32 bytes long.
 
    shas is an array of handles of a local join to sha512 calculators.
 

@@ -27,7 +27,7 @@ main( int     argc,
   fd_clock_tile_init( clock );
 
   char const * _page_sz   = fd_env_strip_cmdline_cstr ( &argc, &argv, "--page-sz",  NULL, "gigantic"                   );
-  ulong        page_cnt   = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt", NULL, 2UL                          );
+  ulong        page_cnt   = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt", NULL, 1UL                          );
   ulong        numa_idx   = fd_env_strip_cmdline_ulong( &argc, &argv, "--numa-idx", NULL, fd_shmem_numa_idx( cpu_idx ) );
   ulong        conn_cnt   = fd_env_strip_cmdline_ulong( &argc, &argv, "--conn-cnt", NULL, 100000UL                     );
   float        duration   = fd_env_strip_cmdline_float( &argc, &argv, "--duration", NULL, 3.0f                         );

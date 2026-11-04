@@ -456,8 +456,8 @@ fd_stake_delegation_is_inactive( fd_stake_delegation_t const * delegation,
 }
 
 ulong
-fd_stake_weights_by_node( fd_vote_stakes_t const * vote_stakes,
-                          ulong                    fork_id,
+fd_stake_weights_by_node( fd_vote_stakes_t *       vote_stakes,
+                          ushort                   fork_id,
                           int                      iter_kind,
                           fd_vote_stake_weight_t * weights ) {
 
@@ -469,18 +469,16 @@ fd_stake_weights_by_node( fd_vote_stakes_t const * vote_stakes,
   for( fd_vote_stakes_iter_t * iter = fd_vote_stakes_iter_init( vote_stakes, fork_id, iter_kind, iter_mem );
        !fd_vote_stakes_iter_done( vote_stakes, fork_id, iter_kind, iter );
        fd_vote_stakes_iter_next( vote_stakes, fork_id, iter_kind, iter ) ) {
-    fd_pubkey_t pubkey;
-    ulong       stake;
-    fd_pubkey_t node_account;
-    uchar       bls_key[ FD_BLS_PUBKEY_COMPRESSED_SZ ];
-    fd_vote_stakes_iter_ele( vote_stakes, fork_id, iter_kind, iter, &pubkey, &node_account, &stake,
-                             NULL, NULL, NULL, NULL, NULL, bls_key, NULL );
+    fd_vote_stakes_ele_t ele[1];
+    fd_vote_stakes_iter_ele( vote_stakes, fork_id, iter_kind, iter, ele );
 
     FD_TEST( weights_cnt<MAX_STAKE_WEIGHTS );
-    fd_memcpy( weights[ weights_cnt ].vote_key.uc, &pubkey, sizeof(fd_pubkey_t) );
-    fd_memcpy( weights[ weights_cnt ].id_key.uc, &node_account, sizeof(fd_pubkey_t) );
-    fd_memcpy( weights[ weights_cnt ].bls_key, bls_key, sizeof(weights[ weights_cnt ].bls_key) );
-    weights[ weights_cnt ].stake = stake;
+    fd_memcpy( weights[ weights_cnt ].vote_key.uc, &ele->pubkey, sizeof(fd_pubkey_t) );
+    fd_memcpy( weights[ weights_cnt ].id_key.uc, &ele->node_account, sizeof(fd_pubkey_t) );
+    fd_memcpy( weights[ weights_cnt ].bls_key, ele->bls_key, sizeof(weights[ weights_cnt ].bls_key) );
+    weights[ weights_cnt ].location = ele->location;
+    weights[ weights_cnt ].stake = ele->stake;
+    weights[ weights_cnt ].rank  = ele->rank;
     weights_cnt++;
   }
 
@@ -506,16 +504,12 @@ get_vote_credits( uchar const *        account_data,
   FD_TEST( cnt<=FD_EPOCH_CREDITS_MAX );
   epoch_credits->commission = commission;
 
-  ulong n             = 0UL;
-  ulong base          = 0UL;
-  uchar has_ag_marker = 0;
+  ulong n    = 0UL;
+  ulong base = 0UL;
   for( ulong i=0UL; i<cnt; i++ ) {
     fd_vote_epoch_credits_t const * ele = &vote_epoch_credits[ i ];
 
-    if( fd_vote_epoch_credits_is_alpenglow_marker( ele ) ) {
-      has_ag_marker = 1;
-      continue;
-    }
+    if( fd_vote_epoch_credits_is_alpenglow_marker( ele ) ) continue;
     if( !n ) base = ele->prev_credits;
 
     FD_TEST( ele->epoch<=USHORT_MAX );           /* Epoch should fit. */
@@ -529,10 +523,8 @@ get_vote_credits( uchar const *        account_data,
     n++;
   }
 
-  epoch_credits->cnt                     = (uchar)n;
-  epoch_credits->base_credits            = base;
-  epoch_credits->has_ag_migration_marker = has_ag_marker;
-  epoch_credits->fast_path_ok            = fd_epoch_credits_fast_path_ok( epoch_credits );
+  epoch_credits->cnt          = (uchar)n;
+  epoch_credits->base_credits = base;
 }
 
 int
@@ -542,13 +534,14 @@ fd_stakes_vote_account_is_admissible( fd_bank_t const * bank,
                                       uchar const *     data,
                                       ulong             data_len ) {
   /* Agave's VAT filter also checks lamports against the VoteStateV4
-     rent-exempt minimum, plus one epoch's VAT burn once alpenglow is
-     active. */
-  ulong vat_to_burn_per_epoch = FD_FEATURE_ACTIVE_BANK( bank, alpenglow ) ? fd_slot_params_at_slot( bank, bank->f.slot ).vat_to_burn_per_epoch : 0UL;
+     rent-exempt minimum, plus one epoch's VAT burn. */
+  ulong vat_to_burn_per_epoch = fd_slot_params_at_slot( bank, bank->f.slot ).vat_to_burn_per_epoch;
   ulong minimum_balance       = fd_rent_exempt_minimum_balance( &bank->f.rent, FD_VOTE_STATE_V4_SZ ) + vat_to_burn_per_epoch;
   return lamports>=minimum_balance &&
          fd_vsv_is_correct_size_owner_and_init( owner, data, data_len ) &&
-         fd_vote_account_is_v4_with_bls_pubkey( data, data_len );
+         fd_vote_account_has_bls_pubkey( data, data_len ) &&
+         !( FD_FEATURE_ACTIVE_BANK( bank, enforce_validator_location_registration ) &&
+            !fd_vote_account_is_valid_v5( data, data_len ) );
 }
 
 void
@@ -562,7 +555,7 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
   bank->epoch_credits_fork_id = fd_epoch_credits_store_new_fork( fd_bank_epoch_credits( bank ), bank->epoch_credits_fork_id );
 
   fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
-  ulong              fork_id     = bank->vote_stakes_fork_id;
+  ushort             fork_id     = bank->vote_stakes_fork_id;
 
   fd_stake_accum_map_reset( runtime_stack->stakes.stake_accum_map );
   ulong epoch                      = bank->f.epoch;
@@ -571,9 +564,8 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
   ulong total_deactivating         = 0UL;
   ulong staked_accounts            = 0UL;
   int   use_fixed_point_stake_math = FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 );
-  int   alpenglow_enabled          = FD_FEATURE_ACTIVE_BANK( bank, alpenglow );
   int   block_revenue_sharing      = FD_FEATURE_ACTIVE_BANK( bank, block_revenue_sharing );
-  int   accumulate_reward_stakes   = alpenglow_enabled && rewarded_epoch!=ULONG_MAX;
+  int   accumulate_reward_stakes   = rewarded_epoch!=ULONG_MAX;
 
   fd_stake_accum_t *     stake_accum_pool = runtime_stack->stakes.stake_accum;
   fd_stake_accum_map_t * stake_accum_map  = runtime_stack->stakes.stake_accum_map;
@@ -636,12 +628,6 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
   /* Iterate over the valid delegated vote accounts and insert them into
      the top votes set for the t-1 epoch. */
 
-  /* Rotate the SIMD-0232 collector override fork for the new epoch. */
-  fd_collector_overrides_t * overrides = fd_bank_collector_overrides( bank );
-  ushort co_child = fd_collector_overrides_new_child( overrides );
-  fd_collector_overrides_inherit( overrides, bank->collector_overrides_fork_id, co_child, fd_ulong_sat_sub( bank->f.epoch, 1UL ) );
-  bank->collector_overrides_fork_id = co_child;
-
   ulong top_votes_eligible = 0UL;
   for( fd_stake_accum_map_iter_t iter = fd_stake_accum_map_iter_init( stake_accum_map, stake_accum_pool );
        !fd_stake_accum_map_iter_done( iter, stake_accum_map, stake_accum_pool );
@@ -654,6 +640,12 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
     uchar       bls_key_t_1[ FD_BLS_PUBKEY_COMPRESSED_SZ ];
 
     if( FD_UNLIKELY( !stake_t_1 ) ) continue;
+
+    /* Stake can be delegated to any address, so reject accounts that
+       can't be vote accounts before reading their data. */
+    ulong data_len = fd_accdb_data_len( accdb, bank->accdb_fork_id, stake_accum->pubkey.uc );
+    if( FD_UNLIKELY( data_len!=FD_VOTE_STATE_V2_SZ && data_len!=FD_VOTE_STATE_V3_SZ &&
+                     data_len!=FD_VOTE_STATE_V4_SZ && data_len!=FD_VOTE_STATE_V5_SZ ) ) continue;
 
     fd_acc_t acc = fd_accdb_read_one( accdb, bank->accdb_fork_id, stake_accum->pubkey.uc );
     if( FD_UNLIKELY( !acc.lamports ) ) {
@@ -677,21 +669,23 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
 
     FD_TEST( !fd_vote_account_commission_bps( acc.data, acc.data_len, FD_FEATURE_ACTIVE_BANK( bank, commission_rate_in_basis_points ), &commission_t_1 ) );
     FD_TEST( !fd_vote_account_node_pubkey( acc.data, acc.data_len, &node_account_t_1 ) );
-    if( FD_LIKELY( fd_vote_account_is_v4_with_bls_pubkey( acc.data, acc.data_len ) ) ) {
+    if( FD_LIKELY( fd_vote_account_has_bls_pubkey( acc.data, acc.data_len ) ) ) {
       FD_TEST( !fd_vote_account_bls_pubkey( acc.data, acc.data_len, bls_key_t_1 ) );
     }
 
-    fd_vote_stakes_insert( vote_stakes, fork_id, &stake_accum->pubkey, &node_account_t_1, stake_t_1, commission_t_1, bls_key_t_1 );
-    {
-      /* SIMD-0123 fields from the same account image as the inflation
-         commission. */
-      ushort block_revenue_commission_bps;
-      ulong  pending_delegator_rewards;
-      FD_TEST( !fd_vote_account_block_revenue_commission_bps( acc.data, acc.data_len, &block_revenue_commission_bps ) );
-      FD_TEST( !fd_vote_account_pending_delegator_rewards( acc.data, acc.data_len, &pending_delegator_rewards ) );
-      fd_vote_stakes_set_block_revenue_t_1( vote_stakes, fork_id, &stake_accum->pubkey,
-                                            block_revenue_commission_bps, pending_delegator_rewards );
-    }
+    /* SIMD-0123 fields and SIMD-0232 collectors from the same account
+       image as the inflation commission. */
+    ushort      block_revenue_commission_bps;
+    ulong       pending_delegator_rewards;
+    fd_pubkey_t inflation_collector;
+    fd_pubkey_t block_collector;
+    FD_TEST( !fd_vote_account_block_revenue_commission_bps( acc.data, acc.data_len, &block_revenue_commission_bps ) );
+    FD_TEST( !fd_vote_account_pending_delegator_rewards( acc.data, acc.data_len, &pending_delegator_rewards ) );
+    FD_TEST( !fd_vote_account_collectors( acc.data, acc.data_len, &stake_accum->pubkey, &node_account_t_1, &inflation_collector, &block_collector ) );
+
+    fd_validator_location_t location = fd_vote_account_location( acc.data, acc.data_len );
+    fd_vote_stakes_insert( vote_stakes, fork_id, &stake_accum->pubkey, &node_account_t_1, stake_t_1, commission_t_1, bls_key_t_1,
+                           block_revenue_commission_bps, pending_delegator_rewards, &inflation_collector, &block_collector, &location );
     top_votes_eligible++;
     fd_accdb_unread_one( accdb, &acc );
   }
@@ -699,37 +693,7 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
   /* The t-1 set is fixed from here on: rank it for Alpenglow. */
   fd_vote_stakes_finalize( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1 );
 
-  /* Capture SIMD-0232 collector overrides for the admitted t-1 set.
-     Only admitted vote accounts can be scheduled as leaders or earn
-     inflation rewards, so collectors of accounts outside the set are
-     never consulted.  Capturing after selection bounds the override
-     store by the admitted set size. */
-  {
-    uchar __attribute__((aligned(FD_VOTE_STAKES_ITER_ALIGN))) co_iter_mem[ FD_VOTE_STAKES_ITER_FOOTPRINT ];
-    for( fd_vote_stakes_iter_t * iter = fd_vote_stakes_iter_init( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1, co_iter_mem );
-         !fd_vote_stakes_iter_done( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1, iter );
-         fd_vote_stakes_iter_next( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1, iter ) ) {
-      fd_pubkey_t vote_pubkey;
-      fd_pubkey_t node_pubkey;
-      fd_vote_stakes_iter_ele( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1, iter,
-                               &vote_pubkey, &node_pubkey, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL );
-
-      fd_acc_t acc = fd_accdb_read_one( accdb, bank->accdb_fork_id, vote_pubkey.uc );
-      fd_pubkey_t inflation_collector;
-      fd_pubkey_t block_collector;
-      FD_TEST( !fd_vote_account_collectors( acc.data, acc.data_len, &vote_pubkey, &node_pubkey, &inflation_collector, &block_collector ) );
-      int has_inflation = !fd_pubkey_eq( &inflation_collector, &vote_pubkey );
-      int has_block     = !fd_pubkey_eq( &block_collector, &node_pubkey );
-      if( FD_UNLIKELY( has_inflation | has_block ) ) {
-        fd_collector_overrides_upsert( overrides, co_child, bank->f.epoch, &vote_pubkey,
-                                       has_inflation, &inflation_collector,
-                                       has_block, &block_collector );
-      }
-      fd_accdb_unread_one( accdb, &acc );
-    }
-  }
-
-  /* Seed status for the t-2 top votes set for clock calculation. */
+  /* Seed validity for the t-2 top votes set. */
   fd_vote_stakes_refresh( vote_stakes, fork_id, accdb, bank->accdb_fork_id );
 
   /* Populate the vote rewards map with the final set of filtered vote
@@ -748,48 +712,45 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
   for( fd_vote_stakes_iter_t * iter = fd_vote_stakes_iter_init( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1, t_1_iter_mem );
        !fd_vote_stakes_iter_done( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1, iter );
        fd_vote_stakes_iter_next( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1, iter ) ) {
-    fd_pubkey_t pubkey;
-    fd_pubkey_t node_account;
-    ulong       stake;
-    ushort      commission_t_1 = 0;
-    fd_vote_stakes_iter_ele( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1, iter, &pubkey, &node_account, &stake,
-                             NULL, NULL, &commission_t_1, NULL, NULL, NULL, NULL );
+    fd_vote_stakes_ele_t ele[1];
+    fd_vote_stakes_iter_ele( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1, iter, ele );
 
-    ushort commission_t_3 = 0;
-    int    exists_t_3     = fd_vote_stakes_query_t_3( vote_stakes, fork_id, &pubkey, NULL, NULL, &commission_t_3 );
-
-    ushort commission_t_2 = 0;
-    int    exists_t_2     = fd_vote_stakes_query_t_2( vote_stakes, fork_id, &pubkey, NULL, NULL, NULL, NULL, &commission_t_2, NULL );
+    fd_vote_stakes_ele_t ele_t_3[1];
+    fd_vote_stakes_ele_t ele_t_2[1];
+    int    exists_t_3     = fd_vote_stakes_query_t_3( vote_stakes, fork_id, &ele->pubkey, ele_t_3 );
+    int    exists_t_2     = fd_vote_stakes_query_t_2( vote_stakes, fork_id, &ele->pubkey, ele_t_2 );
+    ushort commission_t_3 = exists_t_3 ? ele_t_3->commission : 0;
+    ushort commission_t_2 = exists_t_2 ? ele_t_2->commission : 0;
 
     fd_vote_rewards_t * vote_ele = &runtime_stack->stakes.vote_ele[ vote_reward_cnt ];
-    vote_ele->pubkey             = pubkey;
+    vote_ele->pubkey             = ele->pubkey;
     vote_ele->vote_rewards       = 0UL;
     if( FD_FEATURE_ACTIVE_BANK( bank, delay_commission_updates ) ) {
-      vote_ele->commission = exists_t_3 ? commission_t_3 : (exists_t_2 ? commission_t_2 : commission_t_1);
+      vote_ele->commission = exists_t_3 ? commission_t_3 : (exists_t_2 ? commission_t_2 : ele->commission);
     } else {
-      vote_ele->commission = commission_t_1;
+      vote_ele->commission = ele->commission;
     }
 
-    fd_acc_t acc = fd_accdb_read_one( accdb, bank->accdb_fork_id, pubkey.uc );
+    fd_acc_t acc = fd_accdb_read_one( accdb, bank->accdb_fork_id, ele->pubkey.uc );
     FD_TEST( acc.lamports );
 
     if( FD_UNLIKELY( vote_reward_cnt>=FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS ) ) {
       FD_LOG_ERR(( "invariant violation: vote_reward_cnt >= epoch credits max" ));
     }
     fd_epoch_credits_t * epoch_credits = &epoch_credits_view->credits[ vote_reward_cnt ];
-    fd_memcpy( epoch_credits->pubkey, &pubkey, sizeof(fd_pubkey_t) );
+    fd_memcpy( epoch_credits->pubkey, &ele->pubkey, sizeof(fd_pubkey_t) );
     get_vote_credits( acc.data, acc.data_len, vote_ele->commission, epoch_credits );
     fd_accdb_unread_one( accdb, &acc );
 
     if( FD_UNLIKELY( fd_bank_report_runtime_diffs( bank ) ) ) {
-      fd_event_runtime_vote_account_emit( bank, pubkey.uc, node_account.uc, stake,
-                                          commission_t_1, exists_t_2, commission_t_2, exists_t_3, commission_t_3,
+      fd_event_runtime_vote_account_emit( bank, ele->pubkey.uc, ele->node_account.uc, ele->stake,
+                                          ele->commission, exists_t_2, commission_t_2, exists_t_3, commission_t_3,
                                           vote_ele->commission, epoch_credits );
     }
 
     fd_vote_rewards_map_ele_insert( vote_reward_map, vote_ele, runtime_stack->stakes.vote_ele );
     vote_reward_cnt++;
-    bank->f.total_epoch_stake += stake;
+    bank->f.total_epoch_stake += ele->stake;
   }
   epoch_credits_view->len = vote_reward_cnt;
   fd_epoch_credits_view_fini( epoch_credits_view );
@@ -801,10 +762,8 @@ static void
 fd_stakes_burn_vat( fd_bank_t *         bank,
                     fd_accdb_t *        accdb,
                     fd_capture_ctx_t *  capture_ctx ) {
-  if( !FD_FEATURE_ACTIVE_BANK( bank, alpenglow ) ) return;
-
   fd_vote_stakes_t * vote_stakes    = fd_bank_vote_stakes( bank );
-  ulong              fork_id        = bank->vote_stakes_fork_id;
+  ushort             fork_id        = bank->vote_stakes_fork_id;
   ulong              burn_per_epoch = fd_slot_params_at_slot( bank, bank->f.slot ).vat_to_burn_per_epoch;
   ulong              total_vat      = 0UL;
 
@@ -812,12 +771,11 @@ fd_stakes_burn_vat( fd_bank_t *         bank,
   for( fd_vote_stakes_iter_t * iter = fd_vote_stakes_iter_init( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1, iter_mem );
        !fd_vote_stakes_iter_done( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1, iter );
        fd_vote_stakes_iter_next( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1, iter ) ) {
-    fd_pubkey_t vote_pubkey;
-    fd_vote_stakes_iter_ele( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1, iter,
-                             &vote_pubkey, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL );
+    fd_vote_stakes_ele_t ele[1];
+    fd_vote_stakes_iter_ele( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1, iter, ele );
 
     fd_accdb_svm_update_t update[1];
-    fd_acc_t              acc = fd_accdb_svm_open_rw( bank, accdb, update, &vote_pubkey, 0 );
+    fd_acc_t              acc = fd_accdb_svm_open_rw( bank, accdb, update, &ele->pubkey, 0 );
     FD_TEST( acc.lamports>=burn_per_epoch );
     total_vat    += burn_per_epoch;
     acc.lamports -= burn_per_epoch;
@@ -855,8 +813,9 @@ fd_stakes_activate_epoch( fd_bank_t *                    bank,
      https://github.com/anza-xyz/agave/blob/v4.2.0-beta.1/runtime/src/stakes.rs#L444-L477
   */
   if( FD_UNLIKELY( FD_FEATURE_JUST_ACTIVATED_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ) ) ) {
+    uchar              history_data[ FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ ];
     fd_stake_history_t history[1];
-    if( FD_UNLIKELY( !fd_sysvar_cache_stake_history_view( &bank->f.sysvar_cache, history ) ) ) {
+    if( FD_UNLIKELY( !fd_sysvar_stake_history_read( accdb, bank->accdb_fork_id, history_data, history ) ) ) {
       FD_LOG_CRIT(( "invariant violation: StakeHistory sysvar missing or invalid" ));
     }
     ulong effective    = 0UL;
@@ -885,26 +844,10 @@ fd_stakes_activate_epoch( fd_bank_t *                    bank,
   fd_sysvar_stake_history_update( bank, accdb, capture_ctx, &elem );
   if( FD_UNLIKELY( fd_bank_report_runtime_diffs( bank ) ) ) fd_event_runtime_epoch_stake_history( &elem );
 
-  /* Snapshot the stake history sysvar into a local buffer and release
-     the accdb bracket before calling fd_refresh_vote_accounts, which
-     performs its own accdb acquires.  fd_sysvar_stake_history_view
-     aliases the source bytes, so the bracket cannot be held open across
-     an inner acquire. */
   uchar              stake_history_data[ FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ ];
   fd_stake_history_t stake_history[1];
-  {
-    fd_acc_t ro = fd_accdb_read_one( accdb, bank->accdb_fork_id, fd_sysvar_stake_history_id.uc );
-    if( FD_UNLIKELY( !ro.lamports ) ) FD_LOG_ERR(( "StakeHistory sysvar is missing" ));
-    ulong copy_sz = fd_ulong_min( ro.data_len, FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ );
-    fd_memcpy( stake_history_data, ro.data, copy_sz );
-    fd_accdb_unread_one( accdb, &ro );
-    if( FD_UNLIKELY( !fd_sysvar_stake_history_view( stake_history, stake_history_data, copy_sz ) ) ) {
-      FD_LOG_HEXDUMP_ERR(( "Invalid StakeHistory sysvar", stake_history_data, copy_sz ));
-    }
-  }
-
-  if( FD_UNLIKELY( !fd_sysvar_stake_history_is_contiguous( stake_history ) ) ) {
-    fd_stake_delegations_invalidate_warmed( stake_delegations, 1 );
+  if( FD_UNLIKELY( !fd_sysvar_stake_history_read( accdb, bank->accdb_fork_id, stake_history_data, stake_history ) ) ) {
+    FD_LOG_ERR(( "StakeHistory sysvar missing or invalid" ));
   }
 
   /* Now increment the epoch and recompute the stakes for the vote
@@ -926,10 +869,11 @@ fd_stakes_activate_epoch( fd_bank_t *                    bank,
 
 
 void
-fd_stakes_update_stake_delegation( fd_pubkey_t const * pubkey,
-                                   fd_acc_t const *    acc,
-                                   fd_bank_t *         bank,
-                                   fd_txn_in_t const * txn_in ) {
+fd_stakes_update_stake_delegation( fd_pubkey_t const *        pubkey,
+                                   fd_acc_t const *           acc,
+                                   fd_bank_t *                bank,
+                                   fd_stake_history_t const * stake_history,
+                                   fd_txn_in_t const *        txn_in ) {
 
   fd_stake_state_t const * stake_state       = fd_stakes_get_state( acc );
   fd_stake_state_t const * prior_stake_state = NULL;
@@ -965,8 +909,6 @@ fd_stakes_update_stake_delegation( fd_pubkey_t const * pubkey,
 
   fd_stake_delegations_t * stake_delegations = fd_bank_stake_delegations_modify( bank );
   if( FD_FEATURE_ACTIVE_BANK( bank, remove_inactive_stakes ) ) {
-    fd_stake_history_t         stake_history_[1];
-    fd_stake_history_t const * stake_history     = fd_sysvar_cache_stake_history_view( &bank->f.sysvar_cache, stake_history_ );
     int                        use_fp_stake_math = FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 );
     fd_delegation_t const *    delegation        = &stake_state->stake.stake.delegation;
     if( FD_UNLIKELY( fd_delegation_is_inactive( delegation, bank->f.epoch, stake_history, &bank->f.warmup_cooldown_rate_epoch, use_fp_stake_math ) &&

@@ -1,3 +1,4 @@
+#define _GNU_SOURCE /* O_DIRECT */
 #include "fd_ssmanifest_writer.h"
 #include "fd_txncache_writer.h"
 #include "../restore/utils/fd_ssmanifest_parser.h"
@@ -10,18 +11,21 @@
 #include "../../flamenco/runtime/fd_txncache.h"
 #include "../../flamenco/runtime/fd_txncache_shmem.h"
 #include "../../flamenco/runtime/fd_txncache_private.h"
-#include "../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_slot_history.h"
 #if FD_HAS_RACESAN
 #include "../../util/racesan/fd_racesan.h"
 #endif
 
+#include <fcntl.h>
 #include <pthread.h>
 #include <stdatomic.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/wait.h>
 #include <unistd.h>
+
+static int spill_test_fd = -1;
 
 #define MAX_LIVE_SLOTS      16UL
 #define MAX_TXN_PER_SLOT    4096UL
@@ -32,6 +36,15 @@
 #define TEST_WKSP_TAG           43UL
 #define TEST_WKSP_ADDL_SZ       (256UL<<20)
 #define TEST_WKSP_ADDL_PART_CNT (64UL)
+
+static fd_validator_location_t const LOC_FRA = { 4051542, 618526, 4870645 };
+static fd_validator_location_t const LOC_TYO = { -3955214, 3355452, 3699409 };
+
+static int
+loc_eq( fd_validator_location_t a,
+        fd_validator_location_t b ) {
+  return a.x==b.x && a.y==b.y && a.z==b.z;
+}
 
 /* The writer emits one slot delta per recent slot with a block, so the
    parser must accept at least that many. */
@@ -64,13 +77,11 @@ seed_epoch_credits( fd_bank_t * bank ) {
   FD_TEST( fd_epoch_credits_view_init( view, fd_bank_epoch_credits( bank ), bank->epoch_credits_fork_id ) );
   FD_TEST( view->len==VALIDATOR_CNT );
   FD_TEST( EPOCH_CREDITS_CNT<=FD_EPOCH_CREDITS_MAX );
-  bank->f.alpenglow_migration_slot = fd_epoch_slot0( &bank->f.epoch_schedule, EPOCH_CREDITS_CNT );
   for( ulong i=0UL; i<view->len; i++ ) {
-    fd_epoch_credits_t * ec     = &view->credits[ i ];
-    ec->cnt                     = EPOCH_CREDITS_CNT;
-    ec->commission              = (ushort)( 4321U + i );
-    ec->base_credits            = 10000UL + 1000UL*i;
-    ec->has_ag_migration_marker = i==1UL;
+    fd_epoch_credits_t * ec = &view->credits[ i ];
+    ec->cnt          = EPOCH_CREDITS_CNT;
+    ec->commission   = (ushort)( 4321U + i );
+    ec->base_credits = 10000UL + 1000UL*i;
     for( ulong j=0UL; j<EPOCH_CREDITS_CNT; j++ ) {
       ec->epoch[ j ]              = (ushort)( j+1UL );
       ec->prev_credits_delta[ j ] = (uint)( 100UL*j + 7UL*i );
@@ -92,19 +103,11 @@ check_epoch_credits( fd_bank_t *                                bank,
   }
   FD_TEST( ec );
   FD_TEST( ec->cnt==EPOCH_CREDITS_CNT );
-  ulong ag_marker_idx = ec->has_ag_migration_marker ? EPOCH_CREDITS_CNT-1UL : ULONG_MAX;
-  FD_TEST( vs->epoch_credits_history_len==ec->cnt+(ulong)ec->has_ag_migration_marker );
-  for( ulong k=0UL, j=0UL; k<vs->epoch_credits_history_len; k++ ) {
-    if( k==ag_marker_idx ) {
-      FD_TEST( vs->epoch_credits[k].epoch       ==ULONG_MAX );
-      FD_TEST( vs->epoch_credits[k].credits     ==ULONG_MAX );
-      FD_TEST( vs->epoch_credits[k].prev_credits==ULONG_MAX );
-      continue;
-    }
-    FD_TEST( vs->epoch_credits[k].epoch       ==(ulong)ec->epoch[j] );
-    FD_TEST( vs->epoch_credits[k].credits     ==ec->base_credits+(ulong)ec->credits_delta[j] );
-    FD_TEST( vs->epoch_credits[k].prev_credits==ec->base_credits+(ulong)ec->prev_credits_delta[j] );
-    j++;
+  FD_TEST( vs->epoch_credits_history_len==ec->cnt );
+  for( ulong j=0UL; j<ec->cnt; j++ ) {
+    FD_TEST( vs->epoch_credits[j].epoch       ==(ulong)ec->epoch[j] );
+    FD_TEST( vs->epoch_credits[j].credits     ==ec->base_credits+(ulong)ec->credits_delta[j] );
+    FD_TEST( vs->epoch_credits[j].prev_credits==ec->base_credits+(ulong)ec->prev_credits_delta[j] );
   }
   fd_epoch_credits_view_fini( view );
 }
@@ -118,14 +121,15 @@ static test_txncache_t
 create_txncache_sized( fd_wksp_t * wksp,
                        ulong       max_live_slots,
                        ulong       max_txn_per_slot ) {
-  ulong shmem_fp = fd_txncache_shmem_footprint( max_live_slots, max_txn_per_slot );
+  ulong cache_footprint = spill_test_fd>=0 ? sizeof(fd_txncache_txnpage_t) : ULONG_MAX;
+  ulong shmem_fp = fd_txncache_shmem_footprint( max_live_slots, max_txn_per_slot, cache_footprint );
   void * shmem_raw = test_alloc( wksp, fd_txncache_shmem_align(), shmem_fp );
-  fd_txncache_shmem_t * shmem = fd_txncache_shmem_join( fd_txncache_shmem_new( shmem_raw, max_live_slots, max_txn_per_slot, 1UL ) );
+  fd_txncache_shmem_t * shmem = fd_txncache_shmem_join( fd_txncache_shmem_new( shmem_raw, max_live_slots, max_txn_per_slot, cache_footprint, 1UL ) );
   FD_TEST( shmem );
 
   ulong ljoin_fp = fd_txncache_footprint( max_live_slots );
   void * ljoin_raw = test_alloc( wksp, fd_txncache_align(), ljoin_fp );
-  fd_txncache_t * tc = fd_txncache_join( fd_txncache_new( ljoin_raw, shmem ) );
+  fd_txncache_t * tc = fd_txncache_join( fd_txncache_new( ljoin_raw, shmem, spill_test_fd ) );
   FD_TEST( tc );
   return (test_txncache_t){ .tc = tc, .shmem = shmem };
 }
@@ -296,7 +300,7 @@ test_manifest_roundtrip( fd_svm_mini_t * mini,
      commission so each encoded key can be told apart. */
   FD_TEST( bank->f.epoch>3UL );
   fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
-  ulong              fork_id     = bank->vote_stakes_fork_id;
+  ushort             fork_id     = bank->vote_stakes_fork_id;
   fd_pubkey_t votes     [ VALIDATOR_CNT ];
   fd_pubkey_t identities[ VALIDATOR_CNT ];
   ulong       vote_cnt = 0UL;
@@ -305,8 +309,10 @@ test_manifest_roundtrip( fd_svm_mini_t * mini,
        !fd_vote_stakes_iter_done( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1, iter );
        fd_vote_stakes_iter_next( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1, iter ) ) {
     FD_TEST( vote_cnt<VALIDATOR_CNT );
-    fd_vote_stakes_iter_ele( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1, iter, &votes[ vote_cnt ], &identities[ vote_cnt ], NULL,
-                             NULL, NULL, NULL, NULL, NULL, NULL, NULL );
+    fd_vote_stakes_ele_t ele[1];
+    fd_vote_stakes_iter_ele( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1, iter, ele );
+    votes     [ vote_cnt ] = ele->pubkey;
+    identities[ vote_cnt ] = ele->node_account;
     vote_cnt++;
   }
   FD_TEST( vote_cnt==VALIDATOR_CNT );
@@ -315,11 +321,30 @@ test_manifest_roundtrip( fd_svm_mini_t * mini,
   bank->vote_stakes_fork_id = fd_vote_stakes_init( vote_stakes, bank->f.epoch );
   fork_id = bank->vote_stakes_fork_id;
   uchar const no_bls[ FD_BLS_PUBKEY_COMPRESSED_SZ ] = {0};
+  fd_validator_location_t const no_loc = {0};
+
+  /* Non-default SIMD-0123 fields and SIMD-0232 collectors: distinct
+     inflation and block collectors for vote0 in the t_1 set, a
+     block-only collector for vote1 in the t_2 set, and SIMD-0123 fields
+     for vote0 in the t_3 set. */
+  fd_pubkey_t vote0 = votes[0];
+  fd_pubkey_t vote1 = votes[1];
+  fd_pubkey_t infl0 = { .ul = { 0xAA, 1 } };
+  fd_pubkey_t blk0  = { .ul = { 0xBB, 2 } };
+  fd_pubkey_t blk1  = { .ul = { 0xCC, 3 } };
   for( ulong i=0UL; i<VALIDATOR_CNT; i++ ) {
-    fd_vote_stakes_snap_insert_t_1( vote_stakes, fork_id, &votes[i], &identities[i], 1000000000UL, 1234U, no_bls );
-    fd_vote_stakes_snap_insert_t_2( vote_stakes, fork_id, &votes[i], &identities[i], 1000000000UL, 1234U, no_bls );
+    int is0 = i==0UL;
+    int is1 = i==1UL;
+    fd_vote_stakes_snap_insert_t_1( vote_stakes, fork_id, &votes[i], &identities[i], 1000000000UL, 1234U, no_bls,
+                                    is0 ? 2500U : FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS, is0 ? 777UL : 0UL,
+                                    is0 ? &infl0 : NULL, is0 ? &blk0 : NULL, is0 ? &LOC_FRA : &no_loc );
+    fd_vote_stakes_snap_insert_t_2( vote_stakes, fork_id, &votes[i], &identities[i], 1000000000UL, 1234U, no_bls,
+                                    is1 ? 1234U : FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS, is1 ? 55UL : 0UL,
+                                    NULL, is1 ? &blk1 : NULL, is1 ? &LOC_TYO : &no_loc );
     for( ulong n=3UL; n<=5UL; n++ ) {
-      fd_vote_stakes_snap_insert_t_n( vote_stakes, fork_id, n, &votes[i], &identities[i], 1000000UL*n, (ushort)(100UL*n), no_bls );
+      int t3_0 = is0 && n==3UL;
+      fd_vote_stakes_snap_insert_t_n( vote_stakes, fork_id, n, &votes[i], &identities[i], 1000000UL*n, (ushort)(100UL*n), no_bls,
+                                      t3_0 ? 4321U : FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS, t3_0 ? 99UL : 0UL, NULL, NULL, t3_0 ? &LOC_TYO : &no_loc );
     }
   }
 
@@ -348,28 +373,9 @@ test_manifest_roundtrip( fd_svm_mini_t * mini,
   ulong const late_epoch = bank->f.epoch+1UL;
   put_vote_account( mini, &extra_vote, &identities[0], 1UL, voter_epochs, &extra_voter );
   put_vote_account( mini, &late_vote,  &late_node,     1UL, &late_epoch,  &late_voter  );
-  fd_vote_stakes_snap_insert_t_n( vote_stakes, fork_id, 3UL, &extra_vote,   &identities[0], 3000000UL, 300U, no_bls );
-  fd_vote_stakes_snap_insert_t_n( vote_stakes, fork_id, 3UL, &phantom_vote, &phantom_node,  3000000UL, 300U, no_bls );
-  fd_vote_stakes_snap_insert_t_n( vote_stakes, fork_id, 3UL, &late_vote,    &late_node,     3000000UL, 300U, no_bls );
-
-  /* Set non-default SIMD-0232 collectors: distinct inflation and block
-     collectors for vote0 on the t_1 tag (epoch), and a block-only
-     override for vote1 on the t_2 tag (epoch-1). */
-  fd_pubkey_t vote0 = votes[0];
-  fd_pubkey_t vote1 = votes[1];
-
-  fd_pubkey_t infl0 = { .ul = { 0xAA, 1 } };
-  fd_pubkey_t blk0  = { .ul = { 0xBB, 2 } };
-  fd_pubkey_t blk1  = { .ul = { 0xCC, 3 } };
-  fd_collector_overrides_t * co = fd_bank_collector_overrides( bank );
-  ushort co_root = fd_collector_overrides_get_root_idx( co );
-  fd_collector_overrides_upsert( co, co_root, bank->f.epoch,     &vote0, 1, &infl0, 1, &blk0 );
-  fd_collector_overrides_upsert( co, co_root, bank->f.epoch-1UL, &vote1, 0, NULL,   1, &blk1 );
-
-  /* SIMD-0123 fields: vote0 on the t_1 set, vote1 on the t_2 set. */
-  fd_vote_stakes_set_block_revenue_t_1( vote_stakes, fork_id, &vote0, 2500U, 777UL );
-  fd_vote_stakes_set_block_revenue_t_2( vote_stakes, fork_id, &vote1, 1234U, 55UL );
-  fd_vote_stakes_set_block_revenue_t_n( vote_stakes, fork_id, 3UL, &vote0, 4321U, 99UL );
+  fd_vote_stakes_snap_insert_t_n( vote_stakes, fork_id, 3UL, &extra_vote,   &identities[0], 3000000UL, 300U, no_bls, FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS, 0UL, NULL, NULL, &no_loc );
+  fd_vote_stakes_snap_insert_t_n( vote_stakes, fork_id, 3UL, &phantom_vote, &phantom_node,  3000000UL, 300U, no_bls, FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS, 0UL, NULL, NULL, &no_loc );
+  fd_vote_stakes_snap_insert_t_n( vote_stakes, fork_id, 3UL, &late_vote,    &late_node,     3000000UL, 300U, no_bls, FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS, 0UL, NULL, NULL, &no_loc );
 
   seed_epoch_credits( bank );
 
@@ -505,6 +511,9 @@ test_manifest_roundtrip( fd_svm_mini_t * mini,
 
   FD_STORE( ulong, buf+stake_delegations_len_off, 1UL );
   memset( manifest, 0, sizeof(fd_snapshot_manifest_t) );
+  for( ulong i=0UL; i<FD_RUNTIME_MANIFEST_EPOCH_STAKES_LEN; i++ ) {
+    for( ulong j=0UL; j<FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS; j++ ) manifest->epoch_stakes[ i ].vote_stakes[ j ].location = (fd_validator_location_t){ 1, 1, 1 };
+  }
   fd_ssmanifest_parser_init( parser, manifest );
 
   int result = fd_ssmanifest_parser_consume( parser, buf, total_written );
@@ -533,10 +542,9 @@ test_manifest_roundtrip( fd_svm_mini_t * mini,
   }
   FD_TEST( !found_stake_delegation );
 
-  /* Collector round-trip: the encoder tags t_1 entries (epoch_stakes
-     key epoch+1) with the epoch override tag and t_2 entries (key
-     epoch) with the epoch-1 tag; t_3..t_5 entries (keys epoch-1..
-     epoch-3) are encoded with zero collectors. */
+  /* Collector round-trip: the encoder writes the collectors of the t_1
+     set (epoch_stakes key epoch+1) and the t_2 set (key epoch); t_3..t_5
+     entries (keys epoch-1..epoch-3) are encoded with zero collectors. */
   {
     fd_snapshot_manifest_epoch_stakes_t const * t1 = NULL;
     fd_snapshot_manifest_epoch_stakes_t const * t2 = NULL;
@@ -555,6 +563,7 @@ test_manifest_roundtrip( fd_svm_mini_t * mini,
         FD_TEST( !memcmp( vs->commission_inflation, &infl0, 32UL ) );
         FD_TEST( !memcmp( vs->commission_block,     &blk0,  32UL ) );
         FD_TEST( vs->commission_block_bps==2500U && vs->pending_delegator_rewards==777UL );
+        FD_TEST( loc_eq( vs->location, LOC_FRA ) );
         seen_t1_vote0 = 1;
       } else {
         /* default collectors: inflation is the vote account, block is
@@ -563,6 +572,7 @@ test_manifest_roundtrip( fd_svm_mini_t * mini,
         FD_TEST( !memcmp( vs->commission_block,     vs->identity, 32UL ) );
         FD_TEST( vs->commission_block_bps==FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS );
         FD_TEST( vs->pending_delegator_rewards==0UL );
+        FD_TEST( loc_eq( vs->location, no_loc ) );
         if( !memcmp( vs->vote, &vote1, 32UL ) ) seen_t1_vote1 = 1;
       }
     }
@@ -577,12 +587,14 @@ test_manifest_roundtrip( fd_svm_mini_t * mini,
         FD_TEST( !memcmp( vs->commission_inflation, vs->vote, 32UL ) );
         FD_TEST( !memcmp( vs->commission_block,     &blk1,    32UL ) );
         FD_TEST( vs->commission_block_bps==1234U && vs->pending_delegator_rewards==55UL );
+        FD_TEST( loc_eq( vs->location, LOC_TYO ) );
         seen_t2_vote1 = 1;
       } else {
         FD_TEST( !memcmp( vs->commission_inflation, vs->vote,     32UL ) );
         FD_TEST( !memcmp( vs->commission_block,     vs->identity, 32UL ) );
         FD_TEST( vs->commission_block_bps==FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS );
         FD_TEST( vs->pending_delegator_rewards==0UL );
+        FD_TEST( loc_eq( vs->location, no_loc ) );
         if( !memcmp( vs->vote, &vote0, 32UL ) ) seen_t2_vote0 = 1;
       }
     }
@@ -607,9 +619,11 @@ test_manifest_roundtrip( fd_svm_mini_t * mini,
         FD_TEST( vs->stake==1000000UL*n && vs->commission==100UL*n );
         if( n==3UL && !memcmp( vs->vote, &vote0, 32UL ) ) {
           FD_TEST( vs->commission_block_bps==4321U && vs->pending_delegator_rewards==99UL );
+          FD_TEST( loc_eq( vs->location, LOC_TYO ) );
         } else {
           FD_TEST( vs->commission_block_bps==FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS );
           FD_TEST( vs->pending_delegator_rewards==0UL );
+          FD_TEST( loc_eq( vs->location, no_loc ) );
         }
 
         int found = 0;
@@ -677,6 +691,156 @@ serialize_all( fd_wksp_t *            wksp,
    Queue: hash_index base+0 .. base+5 with base+2 and base+3 skipped, so
    the entries are at ages 5, 4, 1 and 0.  A nonzero base checks that
    indices are written as stored, not rebased. */
+
+static ulong
+put_v5_vote_entry( uchar *             out,
+                   uchar const *       vote,
+                   ulong               stake,
+                   ulong               lamports,
+                   ulong               data_len,
+                   uchar const *       v5,
+                   uchar               executable,
+                   ulong               rent_epoch ) {
+  uchar * p = out;
+  memcpy( p, vote, 32UL );                                        p += 32UL;
+  FD_STORE( ulong, p, stake    );                                 p += 8UL;
+  FD_STORE( ulong, p, lamports );                                 p += 8UL;
+  FD_STORE( ulong, p, data_len );                                 p += 8UL;
+  memcpy( p, v5, fd_ulong_min( data_len, FD_VOTE_STATE_V5_SZ ) ); p += data_len;
+  memcpy( p, fd_solana_vote_program_id.uc, 32UL );                p += 32UL;
+  *p = executable;                                                p += 1UL;
+  FD_STORE( ulong, p, rent_epoch );                               p += 8UL;
+  return (ulong)( p-out );
+}
+
+static int
+parse_manifest( fd_wksp_t *              wksp,
+                uchar const *            buf,
+                ulong                    sz,
+                fd_snapshot_manifest_t * manifest ) {
+  memset( manifest, 0, sizeof(fd_snapshot_manifest_t) );
+  void * parser_mem = test_alloc( wksp, fd_ssmanifest_parser_align(), fd_ssmanifest_parser_footprint() );
+  fd_ssmanifest_parser_t * parser = fd_ssmanifest_parser_join( fd_ssmanifest_parser_new( parser_mem ) );
+  FD_TEST( parser );
+  fd_ssmanifest_parser_init( parser, manifest );
+  int result = fd_ssmanifest_parser_consume( parser, buf, sz );
+  int ok     = ( result==FD_SSMANIFEST_PARSER_ADVANCE_DONE || result==FD_SSMANIFEST_PARSER_ADVANCE_AGAIN ) &&
+               fd_ssmanifest_parser_fini( parser )==FD_SSMANIFEST_PARSER_ADVANCE_DONE;
+  fd_wksp_free_laddr( parser_mem );
+  return ok;
+}
+
+static void
+test_manifest_v5_vote_accounts( fd_svm_mini_t * mini,
+                                fd_bank_t *     bank ) {
+  FD_LOG_NOTICE(( "test_manifest_v5_vote_accounts" ));
+  fd_wksp_t * wksp = mini->wksp;
+
+  fd_epoch_credits_view_t epoch_credits_view[1];
+  FD_TEST( fd_epoch_credits_view_init( epoch_credits_view, fd_bank_epoch_credits( bank ), bank->epoch_credits_fork_id ) );
+
+  fd_ssmanifest_writer_t * writer   = test_alloc( wksp, alignof(fd_ssmanifest_writer_t), sizeof(fd_ssmanifest_writer_t) );
+  uchar *                  acc_data = test_alloc( wksp, 1UL, FD_RUNTIME_ACC_SZ_MAX );
+  fd_pubkey_t leader = {0};
+  fd_ssmanifest_writer_init( writer, bank, &leader, mini->runtime->accdb, bank->accdb_fork_id, acc_data );
+  ulong manifest_sz = writer->serialized_sz;
+  FD_TEST( manifest_sz>0UL );
+
+  static fd_vote_state_versioned_t vsv[1];
+  FD_TEST( fd_vote_state_versioned_new( vsv, fd_vote_state_versioned_enum_v5 ) );
+  fd_memset( vsv->v5.node_pubkey.uc,        0x5a, 32UL );
+  fd_memset( vsv->v5.bls_pubkey_compressed, 0x5b, FD_BLS_PUBKEY_COMPRESSED_SZ );
+  vsv->v5.location = LOC_FRA;
+  uchar stakes_v5[ FD_VOTE_STATE_V5_SZ ];
+  FD_TEST( !fd_vote_state_versioned_serialize( vsv, stakes_v5, sizeof(stakes_v5) ) );
+  uchar stakes_vote[ 32UL ];
+  fd_memset( stakes_vote, 0x5c, 32UL );
+
+  ulong   max_sz      = manifest_sz + ( manifest_sz/(56UL+186UL+41UL)+2UL )*FD_VOTE_STATE_V5_SZ;
+  uchar * v4_buf      = test_alloc( wksp, alignof(uchar), manifest_sz );
+  uchar * v5_buf      = test_alloc( wksp, alignof(uchar), max_sz );
+  uchar * bad_buf     = test_alloc( wksp, alignof(uchar), max_sz );
+  uchar * chunk_buf   = test_alloc( wksp, alignof(uchar), FD_SSMANIFEST_BUF_MIN );
+  ulong   v4_sz       = 0UL;
+  ulong   v5_sz       = 0UL;
+  ulong   bad_len_off = ULONG_MAX;
+  ulong   converted   = 0UL;
+  int     injected    = 0;
+  for(;;) {
+    ulong sz = fd_snap_manifest_serialize( writer, chunk_buf, FD_SSMANIFEST_BUF_MIN );
+    if( !sz ) break;
+    FD_TEST( v4_sz+sz<=manifest_sz );
+    memcpy( v4_buf+v4_sz, chunk_buf, sz );
+    v4_sz += sz;
+
+    if( FD_UNLIKELY( !injected &&
+                     sz==4UL*sizeof(ulong) &&
+                     FD_LOAD( ulong, chunk_buf      )==0UL &&
+                     FD_LOAD( ulong, chunk_buf+ 8UL )==0UL &&
+                     FD_LOAD( ulong, chunk_buf+16UL )==0UL &&
+                     FD_LOAD( ulong, chunk_buf+24UL )==bank->f.epoch ) ) {
+      FD_STORE( ulong, v5_buf+v5_sz, 1UL ); v5_sz += 8UL;
+      v5_sz += put_v5_vote_entry( v5_buf+v5_sz, stakes_vote, 777UL, 1000000000UL, FD_VOTE_STATE_V5_SZ, stakes_v5, 0, 0UL );
+      memcpy( v5_buf+v5_sz, chunk_buf+8UL, sz-8UL ); v5_sz += sz-8UL;
+      injected = 1;
+      continue;
+    }
+
+    ulong data_len = sz>=56UL ? FD_LOAD( ulong, chunk_buf+48UL ) : 0UL;
+    if( sz>=60UL && data_len<=sz && sz==56UL+data_len+41UL &&
+        FD_LOAD( uint, chunk_buf+56UL )==fd_vote_state_versioned_enum_v4 &&
+        fd_memeq( chunk_buf+56UL+data_len, fd_solana_vote_program_id.uc, 32UL ) &&
+        fd_vote_state_versioned_deserialize( vsv, chunk_buf+56UL, data_len ) ) {
+      vsv->v4.has_bls_pubkey_compressed = 1;
+      uchar v5[ FD_VOTE_STATE_V5_SZ ];
+      FD_TEST( !fd_vsv_try_convert_to_v5( vsv, 0UL ) );
+      vsv->v5.location = LOC_FRA;
+      FD_TEST( !fd_vote_state_versioned_serialize( vsv, v5, sizeof(v5) ) );
+      if( bad_len_off==ULONG_MAX ) bad_len_off = v5_sz+48UL;
+      v5_sz += put_v5_vote_entry( v5_buf+v5_sz, chunk_buf, FD_LOAD( ulong, chunk_buf+32UL ), FD_LOAD( ulong, chunk_buf+40UL ),
+                                  FD_VOTE_STATE_V5_SZ, v5, chunk_buf[ 56UL+data_len+32UL ], FD_LOAD( ulong, chunk_buf+56UL+data_len+33UL ) );
+      converted++;
+      continue;
+    }
+
+    memcpy( v5_buf+v5_sz, chunk_buf, sz );
+    v5_sz += sz;
+    FD_TEST( v5_sz<=max_sz );
+  }
+  FD_TEST( v4_sz==manifest_sz );
+  FD_TEST( injected && converted>0UL );
+  fd_epoch_credits_view_fini( epoch_credits_view );
+
+  fd_snapshot_manifest_t * a = test_alloc( wksp, alignof(fd_snapshot_manifest_t), sizeof(fd_snapshot_manifest_t) );
+  fd_snapshot_manifest_t * b = test_alloc( wksp, alignof(fd_snapshot_manifest_t), sizeof(fd_snapshot_manifest_t) );
+  FD_TEST( parse_manifest( wksp, v4_buf, v4_sz, a ) );
+  FD_TEST( parse_manifest( wksp, v5_buf, v5_sz, b ) );
+
+  for( ulong i=0UL; i<FD_RUNTIME_MANIFEST_EPOCH_STAKES_LEN; i++ ) {
+    FD_TEST( a->epoch_stakes[ i ].epoch==b->epoch_stakes[ i ].epoch );
+    FD_TEST( a->epoch_stakes[ i ].vote_stakes_len==b->epoch_stakes[ i ].vote_stakes_len );
+    for( ulong j=0UL; j<a->epoch_stakes[ i ].vote_stakes_len; j++ ) {
+      fd_snapshot_manifest_vote_stakes_t vs   = b->epoch_stakes[ i ].vote_stakes[ j ];
+      fd_snapshot_manifest_vote_stakes_t want = a->epoch_stakes[ i ].vote_stakes[ j ];
+      FD_TEST( vs.has_identity_bls==1 );
+      vs.has_identity_bls = want.has_identity_bls;
+      fd_validator_location_t const la = want.location;
+      if( la.x || la.y || la.z ) FD_TEST( loc_eq( vs.location, la      ) );
+      else                       FD_TEST( loc_eq( vs.location, LOC_FRA ) );
+      vs.location = la;
+      ulong skip = fd_ulong_sat_sub( want.epoch_credits_history_len, FD_VOTE_STATE_V5_ACCUMULATED_LAMPORTS_MAX );
+      want.epoch_credits_history_len -= skip;
+      memmove( want.epoch_credits, want.epoch_credits+skip, want.epoch_credits_history_len*sizeof(epoch_credits_t) );
+      memset( want.epoch_credits+want.epoch_credits_history_len, 0, (FD_EPOCH_CREDITS_MAX-want.epoch_credits_history_len)*sizeof(epoch_credits_t) );
+      memset( vs.epoch_credits+vs.epoch_credits_history_len,     0, (FD_EPOCH_CREDITS_MAX-vs.epoch_credits_history_len  )*sizeof(epoch_credits_t) );
+      FD_TEST( fd_memeq( &vs, &want, sizeof(fd_snapshot_manifest_vote_stakes_t) ) );
+    }
+  }
+
+  memcpy( bad_buf, v5_buf, v5_sz );
+  FD_STORE( ulong, bad_buf+bad_len_off, FD_VOTE_STATE_V5_PAD_OFF-1UL );
+  FD_TEST( !parse_manifest( wksp, bad_buf, v5_sz, b ) );
+}
 
 static void
 test_manifest_roundtrip_blockhash_holes( fd_svm_mini_t * mini,
@@ -885,8 +1049,7 @@ expect_chain( expect_t exp[ static 6 ],
 #define SINGLE_BUCKET_STALE_CNT (FD_TXNCACHE_TXNS_PER_PAGE-2UL)
 
 /* A full page in one bucket: two rooted transactions separated by stale
-   entries.  Walking it crosses the periodic generation check; inserting
-   another transaction triggers compaction. */
+   entries.  Inserting another transaction triggers compaction. */
 struct single_bucket {
   test_txncache_t        test_tc;
   fd_txncache_fork_id_t  winner;
@@ -946,7 +1109,7 @@ single_bucket_init( single_bucket_t * sb,
 
 static fd_txncache_writer_t *
 single_bucket_writer_init( single_bucket_t * sb ) {
-  FD_TEST( fd_txncache_writer_init( sb->writer, sb->test_tc.tc, sb->winner, 1UL, sb->slot_history, FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ, sb->arena, sb->arena_sz ) );
+  FD_TEST( fd_txncache_writer_init( sb->writer, sb->test_tc.tc, 1UL, sb->slot_history, FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ, sb->arena, sb->arena_sz ) );
   return sb->writer;
 }
 
@@ -1042,6 +1205,101 @@ test_txncache_writer_arena_sz( void ) {
   FD_TEST( fd_txncache_writer_arena_sz( 838861UL )==67108880UL );
 }
 
+/* One bucket spans two pages and one page is resident, so both walks
+   miss on the bucket and iterate it under the write lock. */
+struct cache_miss {
+  test_txncache_t        test_tc;
+  fd_txncache_fork_id_t  root;
+  fd_txncache_fork_id_t  winner;
+  uchar                  blockhash[ 32 ];
+  uchar                  txnhashes[ 2 ][ 32 ];
+  expect_t               exp[ 2 ];
+  uchar *                slot_history;
+  fd_txncache_writer_t * writer;
+  void *                 arena;
+  ulong                  arena_sz;
+};
+typedef struct cache_miss cache_miss_t;
+
+static void
+cache_miss_init( cache_miss_t * cm,
+                 fd_wksp_t *    wksp ) {
+  cm->test_tc = create_txncache_sized( wksp, 1UL, 64UL );
+  fd_txncache_t * tc = cm->test_tc.tc;
+  FD_TEST( tc->shmem->frames_max==1UL );
+  FD_TEST( tc->shmem->txnpages_per_blockhash_max==2UL );
+
+  memset( cm->blockhash, 0, 32UL );
+  cm->blockhash[ 0 ] = 1;
+  uchar loser_hash[ 32 ] = {2};
+  uchar winner_hash[ 32 ] = {3};
+  cm->root = fd_txncache_attach_child( tc, NULL_FORK );
+  fd_txncache_finalize_fork( tc, cm->root, 0UL, cm->blockhash );
+  fd_txncache_fork_id_t loser = fd_txncache_attach_child( tc, cm->root );
+  cm->winner = fd_txncache_attach_child( tc, cm->root );
+
+  for( ulong i=0UL; i<2UL; i++ ) {
+    memset( cm->txnhashes[ i ], 0, 32UL );
+    cm->txnhashes[ i ][ 0 ] = 1;
+    cm->txnhashes[ i ][ 8 ] = 0xA5;
+    cm->txnhashes[ i ][ 9 ] = (uchar)i;
+    memcpy( cm->exp[ i ].txnhash,   cm->txnhashes[ i ], 20UL );
+    memcpy( cm->exp[ i ].blockhash, cm->blockhash,      32UL );
+    cm->exp[ i ].exec_slot   = 1UL;
+    cm->exp[ i ].blockhash_i = 0UL;
+  }
+
+  fd_txncache_insert( tc, cm->winner, cm->blockhash, cm->txnhashes[ 0 ] );
+  for( ulong i=0UL; i<FD_TXNCACHE_TXNS_PER_PAGE-1UL; i++ ) {
+    uchar txnhash[ 32 ] = {1};
+    txnhash[ 8 ] = 0xC7;
+    FD_STORE( ulong, txnhash+9UL, i );
+    fd_txncache_insert( tc, loser, cm->blockhash, txnhash );
+  }
+  fd_txncache_insert( tc, cm->winner, cm->blockhash, cm->txnhashes[ 1 ] );
+  fd_txncache_finalize_fork( tc, loser,      0UL, loser_hash  );
+  fd_txncache_finalize_fork( tc, cm->winner, 0UL, winner_hash );
+  fd_txncache_advance_root( tc, cm->winner );
+
+  cm->slot_history = test_alloc( wksp, alignof(uchar), FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ );
+  mock_slot_history( cm->slot_history, 1UL, 1UL, NULL, 0UL );
+  cm->writer = new_writer( wksp );
+  cm->arena  = new_arena( wksp, 4UL, &cm->arena_sz );
+}
+
+static void
+cache_miss_writer_init( cache_miss_t * cm ) {
+  FD_TEST( fd_txncache_writer_init( cm->writer, cm->test_tc.tc, 1UL, cm->slot_history, FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ, cm->arena, cm->arena_sz ) );
+  FD_TEST( fd_txncache_writer_serialized_sz( cm->writer )==121UL );
+}
+
+/* Restores the head page before the fill walk. */
+static void
+cache_miss_restore_head( cache_miss_t * cm ) {
+  FD_TEST( fd_txncache_query( cm->test_tc.tc, cm->winner, cm->blockhash, cm->txnhashes[ 1 ] ) );
+}
+
+static void
+cache_miss_check( cache_miss_t * cm,
+                  fd_wksp_t *    wksp,
+                  uchar const *  buf,
+                  ulong          sz ) {
+  FD_TEST( sz==121UL );
+  FD_TEST( parse_and_check( wksp, buf, sz, cm->exp, 2UL, 1UL, 0UL, NULL )==1UL );
+}
+
+static void
+test_txncache_writer_cache_miss( fd_wksp_t * wksp ) {
+  FD_LOG_NOTICE(( "test_txncache_writer_cache_miss" ));
+  cache_miss_t cm[ 1 ];
+  cache_miss_init( cm, wksp );
+  cache_miss_writer_init( cm );
+  cache_miss_restore_head( cm );
+  ulong   sz;
+  uchar * buf = serialize_all( wksp, cm->writer, FD_TXNCACHE_WRITER_BUF_MIN, &sz );
+  cache_miss_check( cm, wksp, buf, sz );
+}
+
 static void
 test_txncache_roundtrip_empty( fd_wksp_t * wksp ) {
   FD_LOG_NOTICE(( "test_txncache_roundtrip_empty" ));
@@ -1059,7 +1317,7 @@ test_txncache_roundtrip_empty( fd_wksp_t * wksp ) {
   fd_txncache_writer_t * writer = new_writer( wksp );
   ulong arena_sz;
   void * arena = new_arena( wksp, 4UL, &arena_sz );
-  FD_TEST( fd_txncache_writer_init( writer, tc, root, ROOT_SLOT, slot_history, FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ, arena, arena_sz ) );
+  FD_TEST( fd_txncache_writer_init( writer, tc, ROOT_SLOT, slot_history, FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ, arena, arena_sz ) );
   FD_TEST( fd_txncache_writer_serialized_sz( writer )==25UL );
 
   ulong total_written;
@@ -1103,7 +1361,7 @@ test_txncache_roundtrip_genesis_blockhash( fd_wksp_t * wksp ) {
   fd_txncache_writer_t * writer = new_writer( wksp );
   ulong arena_sz;
   void * arena = new_arena( wksp, 4UL, &arena_sz );
-  FD_TEST( fd_txncache_writer_init( writer, tc, child, snapshot_slot, slot_history, FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ, arena, arena_sz ) );
+  FD_TEST( fd_txncache_writer_init( writer, tc, snapshot_slot, slot_history, FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ, arena, arena_sz ) );
   FD_TEST( fd_txncache_writer_serialized_sz( writer )==97UL );
 
   ulong total_written;
@@ -1133,7 +1391,7 @@ test_txncache_roundtrip( fd_wksp_t * wksp ) {
 
   uchar blockhashes[4][32];
   uchar txnhashes[6][20];
-  fd_txncache_fork_id_t root = populate_txncache( tc, blockhashes, txnhashes );
+  populate_txncache( tc, blockhashes, txnhashes );
   expect_t exp[ 6 ];
   expect_chain( exp, blockhashes, txnhashes );
 
@@ -1145,7 +1403,7 @@ test_txncache_roundtrip( fd_wksp_t * wksp ) {
   FD_TEST( arena_sz>=4UL*MAX_TXN_PER_SLOT*20UL );
   void * arena = test_alloc( wksp, fd_txncache_writer_arena_align(), arena_sz );
 
-  FD_TEST( fd_txncache_writer_init( writer, tc, root, ROOT_SLOT, slot_history, FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ, arena, arena_sz ) );
+  FD_TEST( fd_txncache_writer_init( writer, tc, ROOT_SLOT, slot_history, FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ, arena, arena_sz ) );
   /* 1 slot_deltas_len + 4 slot deltas + 3 groups + 6 txns */
   ulong expected_sz = 8UL + 4UL*17UL + 3UL*48UL + 6UL*24UL;
   FD_TEST( fd_txncache_writer_serialized_sz( writer )==expected_sz );
@@ -1157,7 +1415,7 @@ test_txncache_roundtrip( fd_wksp_t * wksp ) {
   FD_TEST( parse_and_check( wksp, buf, total_written, exp, 6UL, 4UL, 0UL, NULL )==3UL );
 
   /* The output does not depend on the chunking. */
-  FD_TEST( fd_txncache_writer_init( writer, tc, root, ROOT_SLOT, slot_history, FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ, arena, arena_sz ) );
+  FD_TEST( fd_txncache_writer_init( writer, tc, ROOT_SLOT, slot_history, FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ, arena, arena_sz ) );
   ulong   total2;
   uchar * buf2 = serialize_all( wksp, writer, 1UL<<20, &total2 );
   FD_TEST( total2==total_written && !memcmp( buf, buf2, total_written ) );
@@ -1179,7 +1437,7 @@ test_txncache_roundtrip_slot_history( fd_wksp_t * wksp ) {
 
   uchar blockhashes[4][32];
   uchar txnhashes[6][20];
-  fd_txncache_fork_id_t root = populate_txncache( tc, blockhashes, txnhashes );
+  populate_txncache( tc, blockhashes, txnhashes );
   expect_t exp[ 6 ];
   expect_chain( exp, blockhashes, txnhashes );
 
@@ -1197,7 +1455,7 @@ test_txncache_roundtrip_slot_history( fd_wksp_t * wksp ) {
   fd_txncache_writer_t * writer = new_writer( wksp );
   ulong  arena_sz = fd_txncache_writer_arena_sz( MAX_TXN_PER_SLOT );
   void * arena    = test_alloc( wksp, fd_txncache_writer_arena_align(), arena_sz );
-  FD_TEST( fd_txncache_writer_init( writer, tc, root, ROOT_SLOT, slot_history, FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ, arena, arena_sz ) );
+  FD_TEST( fd_txncache_writer_init( writer, tc, ROOT_SLOT, slot_history, FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ, arena, arena_sz ) );
   ulong   total_written;
   uchar * buf = serialize_all( wksp, writer, FD_TXNCACHE_WRITER_BUF_MIN, &total_written );
   FD_TEST( total_written==8UL + FD_TXNCACHE_WRITER_MAX_SLOT_DELTAS*17UL + 3UL*48UL + 6UL*24UL );
@@ -1211,7 +1469,7 @@ test_txncache_roundtrip_slot_history( fd_wksp_t * wksp ) {
      writer must force the snapshot slot back in. */
 
   mock_slot_history( slot_history, 0UL, ROOT_SLOT-1UL, skipped, skipped_cnt );
-  FD_TEST( fd_txncache_writer_init( writer, tc, root, ROOT_SLOT, slot_history, FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ, arena, arena_sz ) );
+  FD_TEST( fd_txncache_writer_init( writer, tc, ROOT_SLOT, slot_history, FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ, arena, arena_sz ) );
   ulong   stale_written;
   uchar * stale_buf = serialize_all( wksp, writer, FD_TXNCACHE_WRITER_BUF_MIN, &stale_written );
   FD_TEST( stale_written==total_written && !memcmp( stale_buf, buf, total_written ) );
@@ -1230,13 +1488,6 @@ test_txncache_roundtrip_slot_history( fd_wksp_t * wksp ) {
   FD_TEST( !slot_set_ele_query( slot_set.map, &skipped[ 0 ], NULL, slot_set.pool ) );
   FD_TEST( !slot_set_ele_query( slot_set.map, &skipped[ 1 ], NULL, slot_set.pool ) );
   FD_TEST( !slot_set_ele_query( slot_set.map, &before,       NULL, slot_set.pool ) );
-
-  /* Any fork but the newest root means replay moved on from the bank
-     being snapshotted, which the writer must refuse. */
-
-  fd_txncache_fork_id_t stale = { .val = (ushort)(root.val+1U) };
-  FD_TEST( !fd_txncache_writer_init( writer, tc, stale, ROOT_SLOT, slot_history, FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ, arena, arena_sz ) );
-  FD_TEST( !fd_txncache_writer_init( writer, tc, NULL_FORK, ROOT_SLOT, slot_history, FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ, arena, arena_sz ) );
 
   fd_wksp_free_laddr( fd_slot_delta_parser_delete( fd_slot_delta_parser_leave( parser ) ) );
 }
@@ -1295,7 +1546,7 @@ test_txncache_roundtrip_large( fd_wksp_t * wksp ) {
   fd_txncache_writer_t * writer = new_writer( wksp );
   ulong  arena_sz = fd_txncache_writer_arena_sz( MAX_TXN_PER_SLOT );
   void * arena    = test_alloc( wksp, fd_txncache_writer_arena_align(), arena_sz );
-  FD_TEST( fd_txncache_writer_init( writer, tc, fork, ROOT_SLOT, slot_history, FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ, arena, arena_sz ) );
+  FD_TEST( fd_txncache_writer_init( writer, tc, ROOT_SLOT, slot_history, FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ, arena, arena_sz ) );
   ulong expected_sz = 8UL + LARGE_SLOT_CNT*17UL + group_cnt*48UL + LARGE_EXP_CNT*24UL;
   FD_TEST( fd_txncache_writer_serialized_sz( writer )==expected_sz );
   ulong   total_written;
@@ -1305,14 +1556,14 @@ test_txncache_roundtrip_large( fd_wksp_t * wksp ) {
 
   ulong  small_sz;
   void * small = new_arena( wksp, LARGE_NEAR_CNT+LARGE_FAR_CNT, &small_sz );
-  FD_TEST( fd_txncache_writer_init( writer, tc, fork, ROOT_SLOT, slot_history, FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ, small, small_sz ) );
+  FD_TEST( fd_txncache_writer_init( writer, tc, ROOT_SLOT, slot_history, FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ, small, small_sz ) );
   ulong   total_small;
   uchar * buf_small = serialize_all( wksp, writer, 1UL<<20, &total_small );
   FD_TEST( total_small==total_written && !memcmp( buf, buf_small, total_written ) );
 
   ulong  exact_sz;
   void * exact = new_arena( wksp, LARGE_NEAR_CNT, &exact_sz );
-  FD_TEST( fd_txncache_writer_init( writer, tc, fork, ROOT_SLOT, slot_history, FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ, exact, exact_sz ) );
+  FD_TEST( fd_txncache_writer_init( writer, tc, ROOT_SLOT, slot_history, FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ, exact, exact_sz ) );
   ulong   total_exact;
   uchar * buf_exact = serialize_all( wksp, writer, FD_TXNCACHE_WRITER_BUF_MIN, &total_exact );
   FD_TEST( total_exact==total_written && !memcmp( buf, buf_exact, total_written ) );
@@ -1361,7 +1612,7 @@ test_txncache_roundtrip_many_roots( fd_wksp_t * wksp ) {
 
   /* Serialize the steady state with a large chunk and parse it back. */
   mock_slot_history( slot_history, 0UL, slot, NULL, 0UL );
-  FD_TEST( fd_txncache_writer_init( writer, tc, fork, slot, slot_history, FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ, arena, arena_sz ) );
+  FD_TEST( fd_txncache_writer_init( writer, tc, slot, slot_history, FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ, arena, arena_sz ) );
   ulong expected_sz = 8UL + 300UL*17UL + 48UL + hold_cnt*24UL;
   FD_TEST( fd_txncache_writer_serialized_sz( writer )==expected_sz );
   ulong   total_written;
@@ -1401,72 +1652,6 @@ test_txncache_roundtrip_many_roots( fd_wksp_t * wksp ) {
   FD_LOG_NOTICE(( "parsed %lu entries across %lu groups", entries_parsed, groups_parsed ));
 
   fd_wksp_free_laddr( fd_slot_delta_parser_delete( fd_slot_delta_parser_leave( parser ) ) );
-}
-
-static void
-test_txncache_writer_rejects_excess_descriptors( fd_wksp_t * wksp ) {
-  FD_LOG_NOTICE(( "test_txncache_writer_rejects_excess_descriptors" ));
-
-  test_txncache_t test_tc = create_txncache( wksp );
-  fd_txncache_t * tc = test_tc.tc;
-
-  uchar blockhashes[ 3UL ][ 32UL ] = {{0}};
-  for( ulong i=0UL; i<3UL; i++ ) blockhashes[ i ][ 0 ] = (uchar)( 0xA0UL+i );
-
-  fd_txncache_fork_id_t fork = fd_txncache_attach_child( tc, NULL_FORK );
-  fd_txncache_finalize_fork( tc, fork, 0UL, blockhashes[ 0UL ] );
-  for( ulong i=1UL; i<3UL; i++ ) {
-    fd_txncache_fork_id_t child = fd_txncache_attach_child( tc, fork );
-    fd_txncache_finalize_fork( tc, child, 0UL, blockhashes[ i ] );
-    fd_txncache_advance_root( tc, child );
-    fork = child;
-  }
-
-  static ulong const snapshot_slot = 2UL;
-  uchar * slot_history = test_alloc( wksp, alignof(uchar), FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ );
-  mock_slot_history( slot_history, snapshot_slot, snapshot_slot, NULL, 0UL );
-
-  fd_txncache_writer_t * writer = new_writer( wksp );
-  ulong arena_sz;
-  void * arena = new_arena( wksp, 4UL, &arena_sz );
-  FD_TEST( !fd_txncache_writer_init( writer, tc, fork, snapshot_slot, slot_history, FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ, arena, arena_sz ) );
-}
-
-static void
-test_txncache_writer_root_advance_is_fatal( fd_wksp_t * wksp ) {
-  FD_LOG_NOTICE(( "test_txncache_writer_root_advance_is_fatal" ));
-  single_bucket_t fixture[ 1 ];
-  single_bucket_init( fixture, wksp );
-  fd_txncache_t * tc = fixture->test_tc.tc;
-  fd_txncache_writer_t * writer = single_bucket_writer_init( fixture );
-  uchar next_hash[ 32 ] = {4};
-  fd_txncache_fork_id_t next = fd_txncache_attach_child( tc, fixture->winner );
-  fd_txncache_finalize_fork( tc, next, 0UL, next_hash );
-  fd_txncache_advance_root( tc, next );
-
-  FILE * diagnostic = tmpfile();
-  FD_TEST( diagnostic );
-  pid_t pid = fork();
-  FD_TEST( pid>=0 );
-  if( pid==0 ) {
-    FD_TEST( dup2( fileno( diagnostic ), STDERR_FILENO )==STDERR_FILENO );
-    fd_log_level_logfile_set( 5 );
-    fd_log_level_stderr_set( 5 );
-    fd_log_level_core_set( 6 );
-    uchar buf[ FD_TXNCACHE_WRITER_BUF_MIN ];
-    while( fd_txncache_writer_serialize( writer, buf, sizeof(buf) ) ) {}
-    _exit( 0 );
-  }
-  int status = 0;
-  FD_TEST( waitpid( pid, &status, 0 )==pid );
-  FD_TEST( WIFEXITED( status ) && WEXITSTATUS( status )==1 );
-  rewind( diagnostic );
-  char message[ 1024 ];
-  ulong message_sz = fread( message, 1UL, sizeof(message)-1UL, diagnostic );
-  FD_TEST( !ferror( diagnostic ) );
-  message[ message_sz ] = '\0';
-  FD_TEST( strstr( message, "txncache root advanced while snapshot of slot 1 was in progress" ) );
-  FD_TEST( !fclose( diagnostic ) );
 }
 
 #define STRESS_CANCEL_CYCLES (1024UL)
@@ -1516,7 +1701,7 @@ stress_txncache_writer_concurrent_cancels( fd_wksp_t * wksp ) {
   ulong  arena_sz;
   void * arena = new_arena( wksp, 64UL, &arena_sz );
 
-  FD_TEST( fd_txncache_writer_init( writer, tc, root, ROOT_SLOT, slot_history, FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ, arena, arena_sz ) );
+  FD_TEST( fd_txncache_writer_init( writer, tc, ROOT_SLOT, slot_history, FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ, arena, arena_sz ) );
   ulong   base_sz;
   uchar * base = serialize_all( wksp, writer, FD_TXNCACHE_WRITER_BUF_MIN, &base_sz );
   struct cancel_mutator m = { .tc = tc, .root = root, .cancel_cnt = 0UL };
@@ -1526,14 +1711,19 @@ stress_txncache_writer_concurrent_cancels( fd_wksp_t * wksp ) {
   while( !atomic_load_explicit( &m.cancel_cnt, memory_order_acquire ) ) FD_YIELD();
 
   ulong iter_cnt = 0UL;
+  ulong cancel_cnt;
   do {
-    FD_TEST( fd_txncache_writer_init( writer, tc, root, ROOT_SLOT, slot_history, FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ, arena, arena_sz ) );
+    ulong cancel_cnt0 = atomic_load_explicit( &m.cancel_cnt, memory_order_acquire );
+    FD_TEST( fd_txncache_writer_init( writer, tc, ROOT_SLOT, slot_history, FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ, arena, arena_sz ) );
     ulong   sz;
     uchar * buf = serialize_all( wksp, writer, FD_TXNCACHE_WRITER_BUF_MIN, &sz );
     FD_TEST( sz==base_sz && !memcmp( buf, base, sz ) );
     fd_wksp_free_laddr( buf );
     iter_cnt++;
-  } while( atomic_load_explicit( &m.cancel_cnt, memory_order_acquire )<STRESS_CANCEL_CYCLES );
+    /* The serializer holds the txncache lock almost continuously, so a
+       mutator sharing its CPU can starve unless we wait for it here. */
+    while( (cancel_cnt=atomic_load_explicit( &m.cancel_cnt, memory_order_acquire ))==cancel_cnt0 && cancel_cnt<STRESS_CANCEL_CYCLES ) FD_YIELD();
+  } while( cancel_cnt<STRESS_CANCEL_CYCLES );
   FD_TEST( !pthread_join( thread, NULL ) );
   FD_LOG_NOTICE(( "best-effort concurrency smoke test: %lu serializations overlapped %lu cancels", iter_cnt, STRESS_CANCEL_CYCLES ));
 }
@@ -1542,9 +1732,9 @@ stress_txncache_writer_concurrent_cancels( fd_wksp_t * wksp ) {
 
 /* Each cycle fills the rooted blockcache's only txnpage from a child
    fork and cancels the child, so the next cycle's first insert finds
-   the page full of stale entries and compacts it under the mutation
-   bracket, rewriting in place the chain the serializer may be
-   walking. */
+   the page full of stale entries and compacts it under the write lock,
+   rewriting in place the chain the serializer walks between its bucket
+   locks. */
 struct compact_mutator {
   fd_txncache_t *       tc;
   fd_txncache_fork_id_t root;
@@ -1577,8 +1767,6 @@ stress_txncache_writer_concurrent_compaction( fd_wksp_t * wksp ) {
   single_bucket_t sb[ 1 ];
   single_bucket_init( sb, wksp );
 
-  ulong mutation_gen = sb->test_tc.shmem->mutation_gen;
-
   struct compact_mutator mutator = { .tc = sb->test_tc.tc, .root = sb->winner, .cycle_cnt = 0UL };
   memcpy( mutator.blockhash, sb->blockhash, 32UL );
   int log_level_stderr = fd_log_level_stderr();
@@ -1598,7 +1786,6 @@ stress_txncache_writer_concurrent_compaction( fd_wksp_t * wksp ) {
   FD_TEST( !pthread_join( thread, NULL ) );
   fd_log_level_stderr_set( log_level_stderr );
 
-  FD_TEST( sb->test_tc.shmem->mutation_gen==mutation_gen+2UL*STRESS_COMPACT_CYCLES );
   FD_LOG_NOTICE(( "concurrency smoke test: %lu serializations, %lu compactions (overlap not guaranteed)", iter_cnt, STRESS_COMPACT_CYCLES ));
 }
 
@@ -1624,9 +1811,9 @@ inject_cancel( void * ctx,
   fd_txncache_cancel_fork( inject->tc, child );
 }
 
-/* Force an unrooted cancellation between a bucket's generation reads.
-   Since cancellation does not change the rooted transaction set, the
-   writer must finish even when this happens at every retry point. */
+/* Force an unrooted cancellation before every bucket walk.  Since
+   cancellation does not change the rooted transaction set, the output
+   must not change. */
 static void
 test_txncache_writer_ignores_unrooted_cancellation( fd_wksp_t * wksp ) {
   FD_LOG_NOTICE(( "test_txncache_writer_ignores_unrooted_cancellation" ));
@@ -1655,9 +1842,9 @@ test_txncache_writer_ignores_unrooted_cancellation( fd_wksp_t * wksp ) {
 
   fd_racesan_t racesan[ 1 ];
   FD_TEST( fd_racesan_new( racesan, &inject ) );
-  fd_racesan_inject( racesan, "txncache_writer:bucket_started", inject_cancel );
+  fd_racesan_inject( racesan, "txncache:bucket_started", inject_cancel );
   FD_RACESAN_INJECT_BEGIN( racesan ) {
-    FD_TEST( fd_txncache_writer_init( writer, tc, root, ROOT_SLOT, slot_history, FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ, arena, arena_sz ) );
+    FD_TEST( fd_txncache_writer_init( writer, tc, ROOT_SLOT, slot_history, FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ, arena, arena_sz ) );
   } FD_RACESAN_INJECT_END;
   FD_TEST( inject.cancel_cnt );
 
@@ -1668,294 +1855,58 @@ test_txncache_writer_ignores_unrooted_cancellation( fd_wksp_t * wksp ) {
   fd_racesan_delete( racesan );
 }
 
-struct spin_inject {
-  fd_txncache_shmem_t * shmem;
-  int                   begun;
-  int                   ended;
-};
-
-static void
-inject_spin_begin( void * ctx,
-                   ulong  name_hash ) {
-  (void)name_hash;
-  struct spin_inject * inject = ctx;
-  if( inject->begun ) return;
-  inject->begun = 1;
-  fd_txncache_mutation_begin( inject->shmem );
-}
-
-static void
-inject_spin_end( void * ctx,
-                 ulong  name_hash ) {
-  (void)name_hash;
-  struct spin_inject * inject = ctx;
-  FD_TEST( inject->begun && !inject->ended );
-  inject->ended = 1;
-  fd_txncache_mutation_end( inject->shmem );
-}
-
-/* A mutation begins right after a walk attempt read an even
-   generation.  That attempt must fail its final check, and the retry
-   must wait for the mutation to end (odd generation) instead of
-   reading the storage. */
-static void
-test_txncache_writer_waits_for_mutation_end( fd_wksp_t * wksp ) {
-  FD_LOG_NOTICE(( "test_txncache_writer_waits_for_mutation_end" ));
-  test_txncache_t test_tc = create_txncache( wksp );
-  fd_txncache_t * tc = test_tc.tc;
-
-  uchar blockhashes[ 4 ][ 32 ];
-  uchar txnhashes  [ 6 ][ 20 ];
-  fd_txncache_fork_id_t root = populate_txncache( tc, blockhashes, txnhashes );
-  expect_t exp[ 6 ];
-  expect_chain( exp, blockhashes, txnhashes );
-
-  uchar * slot_history = test_alloc( wksp, alignof(uchar), FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ );
-  mock_slot_history( slot_history, ROOT_SLOT-3UL, ROOT_SLOT, NULL, 0UL );
-  fd_txncache_writer_t * writer = new_writer( wksp );
-  ulong  arena_sz;
-  void * arena = new_arena( wksp, 64UL, &arena_sz );
-
-  struct spin_inject inject = { .shmem = test_tc.shmem };
-  fd_racesan_t racesan[ 1 ];
-  FD_TEST( fd_racesan_new( racesan, &inject ) );
-  fd_racesan_inject( racesan, "txncache_writer:bucket_started",       inject_spin_begin );
-  fd_racesan_inject( racesan, "txncache_writer:mutation_in_progress", inject_spin_end   );
-  ulong mutation_gen = test_tc.shmem->mutation_gen;
-  FD_RACESAN_INJECT_BEGIN( racesan ) {
-    FD_TEST( fd_txncache_writer_init( writer, tc, root, ROOT_SLOT, slot_history, FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ, arena, arena_sz ) );
-  } FD_RACESAN_INJECT_END;
-  FD_TEST( inject.begun && inject.ended );
-  FD_TEST( test_tc.shmem->mutation_gen==mutation_gen+2UL );
-
-  ulong   sz;
-  uchar * buf = serialize_all( wksp, writer, FD_TXNCACHE_WRITER_BUF_MIN, &sz );
-  FD_TEST( parse_and_check( wksp, buf, sz, exp, 6UL, 4UL, 0UL, NULL )==3UL );
-
-  fd_racesan_delete( racesan );
-}
-
-struct compact_inject {
+struct miss_compact_inject {
   fd_txncache_t *       tc;
   fd_txncache_fork_id_t fork;
   uchar                 blockhash[ 32 ];
-  uchar                 txnhash[ 32 ];
-  int                   fired;
+  ulong                 miss_cnt;
 };
 
+/* At the first miss, fills the rooted blockcache from an unrooted child
+   until the next insert compacts it, which moves the rooted
+   transactions. */
 static void
-inject_compaction( void * ctx,
-                   ulong  name_hash ) {
-  (void)name_hash;
-  struct compact_inject * inject = ctx;
-  if( inject->fired ) return;
-  inject->fired = 1;
-  fd_txncache_insert( inject->tc, inject->fork, inject->blockhash, inject->txnhash );
-}
-
-static void
-test_txncache_writer_retries_compaction( fd_wksp_t * wksp ) {
-  FD_LOG_NOTICE(( "test_txncache_writer_retries_compaction" ));
-  single_bucket_t sb[ 1 ];
-  single_bucket_init( sb, wksp );
-  fd_txncache_t * tc = sb->test_tc.tc;
-  fd_txncache_fork_id_t child = fd_txncache_attach_child( tc, sb->winner );
-  fd_txncache_writer_t * writer = single_bucket_writer_init( sb );
-
-  struct compact_inject inject = {
-    .tc    = tc,
-    .fork  = child,
-    .fired = 0
-  };
-  memcpy( inject.blockhash, sb->blockhash, 32UL );
-  memset( inject.txnhash, 0xEE, 32UL );
-
-  fd_racesan_t racesan[ 1 ];
-  FD_TEST( fd_racesan_new( racesan, &inject ) );
-  fd_racesan_inject( racesan, "txncache_writer:txnhash_staged", inject_compaction );
-  ulong   mutation_gen = sb->test_tc.shmem->mutation_gen;
-  ulong   sz           = 0UL;
-  uchar * buf          = NULL;
-  FD_RACESAN_INJECT_BEGIN( racesan ) {
-    buf = serialize_all( wksp, writer, FD_TXNCACHE_WRITER_BUF_MIN, &sz );
-  } FD_RACESAN_INJECT_END;
-  FD_TEST( inject.fired );
-  FD_TEST( sb->test_tc.shmem->mutation_gen==mutation_gen+2UL );
-  FD_TEST( parse_and_check( wksp, buf, sz, sb->exp, 2UL, 1UL, 0UL, NULL )==1UL );
-
-  fd_racesan_delete( racesan );
-}
-
-struct bracket_inject {
-  fd_txncache_shmem_t * shmem;
-  ulong                 attempt_cnt;
-  ulong                 staged_cnt;
-  ulong                 bracket_max;
-  int                   bracketed;
-};
-
-static void
-inject_bracket_attempt( void * ctx,
+inject_miss_compaction( void * ctx,
                         ulong  name_hash ) {
   (void)name_hash;
-  struct bracket_inject * inject = ctx;
-  inject->attempt_cnt++;
-  inject->bracketed = 0;
-}
-
-/* Brackets an empty mutation at the first staged transaction of each
-   of the first bracket_max walk attempts, as a compaction of some other
-   blockcache would. */
-static void
-inject_bracket_staged( void * ctx,
-                       ulong  name_hash ) {
-  (void)name_hash;
-  struct bracket_inject * inject = ctx;
-  inject->staged_cnt++;
-  if( inject->bracketed || inject->attempt_cnt>inject->bracket_max ) return;
-  inject->bracketed = 1;
-  fd_txncache_mutation_begin( inject->shmem );
-  fd_txncache_mutation_end  ( inject->shmem );
-}
-
-/* Each interrupted attempt stages only the head transaction before the
-   periodic check aborts the walk.  The successful retry stages both. */
-static void
-test_txncache_writer_retries_at_periodic_check( fd_wksp_t * wksp ) {
-  FD_LOG_NOTICE(( "test_txncache_writer_retries_at_periodic_check" ));
-  single_bucket_t sb[ 1 ];
-  single_bucket_init( sb, wksp );
-  fd_txncache_writer_t * writer = single_bucket_writer_init( sb );
-
-  ulong const bracket_max = 3UL;
-  struct bracket_inject inject = { .shmem = sb->test_tc.shmem, .bracket_max = bracket_max };
-  fd_racesan_t racesan[ 1 ];
-  FD_TEST( fd_racesan_new( racesan, &inject ) );
-  fd_racesan_inject( racesan, "txncache_writer:bucket_started", inject_bracket_attempt );
-  fd_racesan_inject( racesan, "txncache_writer:txnhash_staged", inject_bracket_staged  );
-  ulong   mutation_gen = sb->test_tc.shmem->mutation_gen;
-  ulong   sz           = 0UL;
-  uchar * buf          = NULL;
-  FD_RACESAN_INJECT_BEGIN( racesan ) {
-    buf = serialize_all( wksp, writer, FD_TXNCACHE_WRITER_BUF_MIN, &sz );
-  } FD_RACESAN_INJECT_END;
-
-  FD_TEST( inject.attempt_cnt==bracket_max+1UL );
-  FD_TEST( inject.staged_cnt ==bracket_max+2UL );
-  FD_TEST( sb->test_tc.shmem->mutation_gen==mutation_gen+2UL*bracket_max );
-  FD_TEST( parse_and_check( wksp, buf, sz, sb->exp, 2UL, 1UL, 0UL, NULL )==1UL );
-
-  fd_racesan_delete( racesan );
-}
-
-struct cycle_inject {
-  fd_txncache_shmem_t *      shmem;
-  fd_txncache_single_txn_t * txn;
-  uint                       head;
-  uint                       next;
-  int                        installed;
-  int                        repaired;
-  ulong                      staged_cnt;
-};
-
-static void
-inject_cycle( void * ctx,
-              ulong  name_hash ) {
-  (void)name_hash;
-  struct cycle_inject * inject = ctx;
-  if( inject->installed ) return;
-  inject->txn->blockcache_next = inject->head;
-  inject->installed = 1;
-}
-
-static void
-count_staged( void * ctx,
-              ulong  name_hash ) {
-  (void)name_hash;
-  struct cycle_inject * inject = ctx;
-  inject->staged_cnt++;
-}
-
-static void
-repair_cycle( void * ctx,
-              ulong  name_hash ) {
-  (void)name_hash;
-  struct cycle_inject * inject = ctx;
-  FD_TEST( inject->installed && !inject->repaired );
-  fd_txncache_mutation_begin( inject->shmem );
-  inject->txn->blockcache_next = inject->next;
-  fd_txncache_mutation_end( inject->shmem );
-  inject->repaired = 1;
-}
-
-/* Count detects the self-loop at the chain-length bound; fill detects it
-   at the group-size bound.  Both must retry when the generation changes. */
-static void
-test_txncache_writer_retries_transient_cycle( fd_wksp_t * wksp,
-                                              int         during_fill ) {
-  FD_LOG_NOTICE(( "test_txncache_writer_retries_transient_cycle (%s)", during_fill ? "fill" : "count" ));
-  test_txncache_t test_tc = create_txncache_sized( wksp, 1UL, 1UL );
-  fd_txncache_t * tc = test_tc.tc;
-
-  uchar blockhash[ 32 ] = {1};
-  uchar winner_hash[ 32 ] = {2};
-  uchar txnhash[ 32 ] = {0};
-  txnhash[ 0 ] = 7U;
-  txnhash[ 8 ] = 0xA7;
-  fd_txncache_fork_id_t root = fd_txncache_attach_child( tc, NULL_FORK );
-  fd_txncache_finalize_fork( tc, root, 0UL, blockhash );
-  fd_txncache_fork_id_t winner = fd_txncache_attach_child( tc, root );
-  fd_txncache_insert( tc, winner, blockhash, txnhash );
-  fd_txncache_finalize_fork( tc, winner, 0UL, winner_hash );
-  fd_txncache_advance_root( tc, winner );
-
-  uint head = tc->blockcache_pool[ root.val ].heads[ 0 ];
-  FD_TEST( head!=UINT_MAX );
-  fd_txncache_single_txn_t * txn = tc->txnpages[ head/FD_TXNCACHE_TXNS_PER_PAGE ].txns[ head%FD_TXNCACHE_TXNS_PER_PAGE ];
-
-  struct cycle_inject inject = {
-    .shmem = test_tc.shmem,
-    .txn   = txn,
-    .head  = head,
-    .next  = txn->blockcache_next
-  };
-
-  uchar * slot_history = test_alloc( wksp, alignof(uchar), FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ );
-  mock_slot_history( slot_history, 1UL, 1UL, NULL, 0UL );
-  fd_txncache_writer_t * writer = new_writer( wksp );
-  ulong  arena_sz;
-  void * arena = new_arena( wksp, 4UL, &arena_sz );
-
-  fd_racesan_t racesan[ 1 ];
-  FD_TEST( fd_racesan_new( racesan, &inject ) );
-  fd_racesan_inject( racesan, "txncache_writer:bucket_started",   inject_cycle );
-  fd_racesan_inject( racesan, "txncache_writer:txnhash_staged",   count_staged );
-  fd_racesan_inject( racesan, "txncache_writer:anomaly_detected", repair_cycle );
-  ulong   mutation_gen = test_tc.shmem->mutation_gen;
-  ulong   sz           = 0UL;
-  uchar * buf          = NULL;
-  if( !during_fill ) {
-    FD_RACESAN_INJECT_BEGIN( racesan ) {
-      FD_TEST( fd_txncache_writer_init( writer, tc, winner, 1UL, slot_history, FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ, arena, arena_sz ) );
-    } FD_RACESAN_INJECT_END;
-    buf = serialize_all( wksp, writer, FD_TXNCACHE_WRITER_BUF_MIN, &sz );
-  } else {
-    FD_TEST( fd_txncache_writer_init( writer, tc, winner, 1UL, slot_history, FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ, arena, arena_sz ) );
-    FD_RACESAN_INJECT_BEGIN( racesan ) {
-      buf = serialize_all( wksp, writer, FD_TXNCACHE_WRITER_BUF_MIN, &sz );
-    } FD_RACESAN_INJECT_END;
-    FD_TEST( inject.staged_cnt==2UL );
+  struct miss_compact_inject * inject = ctx;
+  if( inject->miss_cnt++ ) return;
+  for( ulong i=0UL; i<FD_TXNCACHE_TXNS_PER_PAGE; i++ ) {
+    uchar txnhash[ 32 ] = {1};
+    txnhash[ 8 ] = 0xD3;
+    FD_STORE( ulong, txnhash+9UL, i );
+    fd_txncache_insert( inject->tc, inject->fork, inject->blockhash, txnhash );
   }
-  FD_TEST( inject.installed && inject.repaired );
-  FD_TEST( test_tc.shmem->mutation_gen==mutation_gen+2UL );
+}
 
-  expect_t exp[ 1 ] = {{
-    .exec_slot   = 1UL,
-    .blockhash_i = 0UL
-  }};
-  memcpy( exp->txnhash,   txnhash,   20UL );
-  memcpy( exp->blockhash, blockhash, 32UL );
-  FD_TEST( parse_and_check( wksp, buf, sz, exp, 1UL, 1UL, 0UL, NULL )==1UL );
+/* The bucket is compacted between the two locks of the first miss, so
+   the iterator must reload the chain head under the write lock. */
+static void
+test_txncache_writer_cache_miss_compaction( fd_wksp_t * wksp ) {
+  FD_LOG_NOTICE(( "test_txncache_writer_cache_miss_compaction" ));
+  cache_miss_t cm[ 1 ];
+  cache_miss_init( cm, wksp );
+  fd_txncache_t * tc = cm->test_tc.tc;
+
+  struct miss_compact_inject inject = { .tc = tc, .fork = fd_txncache_attach_child( tc, cm->winner ) };
+  memcpy( inject.blockhash, cm->blockhash, 32UL );
+  fd_racesan_t racesan[ 1 ];
+  FD_TEST( fd_racesan_new( racesan, &inject ) );
+  fd_racesan_inject( racesan, "txncache:bucket_iter_miss", inject_miss_compaction );
+  FD_RACESAN_INJECT_BEGIN( racesan ) {
+    cache_miss_writer_init( cm );
+  } FD_RACESAN_INJECT_END;
+  FD_TEST( inject.miss_cnt==1UL );
+  FD_TEST( tc->blockcache_pool[ cm->root.val ].shmem->pages_cnt==2UL );
+
+  cache_miss_restore_head( cm );
+  ulong   sz  = 0UL;
+  uchar * buf = NULL;
+  FD_RACESAN_INJECT_BEGIN( racesan ) {
+    buf = serialize_all( wksp, cm->writer, FD_TXNCACHE_WRITER_BUF_MIN, &sz );
+  } FD_RACESAN_INJECT_END;
+  FD_TEST( inject.miss_cnt==2UL );
+  cache_miss_check( cm, wksp, buf, sz );
 
   fd_racesan_delete( racesan );
 }
@@ -1979,8 +1930,7 @@ main( int     argc,
   params->root_slot          = ROOT_SLOT;
   params->slots_per_epoch    = 432UL;
   /* Place the bank in epoch 4 so the manifest carries every key
-     E-3..E+1 and the t_1 (epoch) and t_2 (epoch-1) collector override
-     tags are distinct. */
+     E-3..E+1 and the t_1 and t_2 sets are distinct. */
   fd_sol_sysvar_clock_t clock = { .slot = ROOT_SLOT, .epoch = 4UL, .leader_schedule_epoch = 5UL };
   params->clock              = &clock;
   ulong bank_idx = fd_svm_mini_reset( mini, params );
@@ -1988,6 +1938,8 @@ main( int     argc,
   FD_TEST( bank );
 
   test_manifest_roundtrip( mini, bank );
+  test_allocs_reclaim( wksp );
+  test_manifest_v5_vote_accounts( mini, bank );
   test_allocs_reclaim( wksp );
   test_manifest_roundtrip_blockhash_holes( mini, bank );
   test_allocs_reclaim( wksp );
@@ -2013,21 +1965,41 @@ main( int     argc,
 #if FD_HAS_RACESAN
   test_txncache_writer_ignores_unrooted_cancellation( wksp );
   test_allocs_reclaim( wksp );
-  test_txncache_writer_waits_for_mutation_end( wksp );
+#endif
   test_allocs_reclaim( wksp );
-  test_txncache_writer_retries_compaction( wksp );
+
+  /* Repeat serialization/parse checks with a one-page cache and
+     direct I/O to the backing file. */
+  char spill_path[] = "/tmp/fd-txncache-roundtrip-XXXXXX";
+  spill_test_fd = mkstemp( spill_path );
+  FD_TEST( spill_test_fd>=0 );
+  FD_TEST( !unlink( spill_path ) );
+  int spill_flags = fcntl( spill_test_fd, F_GETFL );
+  FD_TEST( spill_flags>=0 );
+  FD_TEST( !fcntl( spill_test_fd, F_SETFL, spill_flags|O_DIRECT ) );
+  test_txncache_writer_cache_miss( wksp );
   test_allocs_reclaim( wksp );
-  test_txncache_writer_retries_at_periodic_check( wksp );
-  test_allocs_reclaim( wksp );
-  test_txncache_writer_retries_transient_cycle( wksp, 0 );
-  test_allocs_reclaim( wksp );
-  test_txncache_writer_retries_transient_cycle( wksp, 1 );
+#if FD_HAS_RACESAN
+  test_txncache_writer_cache_miss_compaction( wksp );
   test_allocs_reclaim( wksp );
 #endif
-  test_txncache_writer_rejects_excess_descriptors( wksp );
+  test_txncache_roundtrip_empty( wksp );
   test_allocs_reclaim( wksp );
-  test_txncache_writer_root_advance_is_fatal( wksp );
+  test_txncache_roundtrip_genesis_blockhash( wksp );
   test_allocs_reclaim( wksp );
+  test_txncache_roundtrip( wksp );
+  test_allocs_reclaim( wksp );
+  test_txncache_roundtrip_slot_history( wksp );
+  test_allocs_reclaim( wksp );
+  test_txncache_roundtrip_large( wksp );
+  test_allocs_reclaim( wksp );
+  test_txncache_roundtrip_many_roots( wksp );
+  test_allocs_reclaim( wksp );
+  stress_txncache_writer_concurrent_cancels( wksp );
+  test_allocs_reclaim( wksp );
+  stress_txncache_writer_concurrent_compaction( wksp );
+  test_allocs_reclaim( wksp );
+  FD_TEST( !close( spill_test_fd ) );
 
   FD_LOG_NOTICE(( "pass" ));
   fd_svm_test_halt( mini );

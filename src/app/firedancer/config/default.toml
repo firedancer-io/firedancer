@@ -80,6 +80,9 @@ telemetry = true
     #  +-- tower-1_9-8RDPvMTMSDASGQBvehBFkiFVi2UdLTSZQYuFsGh5JwWU.bin
     #  +-- tower-1_9-8RDPvMTMSDASGQBvehBFkiFVi2UdLTSZQYuFsGh5JwWU.bin.new
     #  +-- vote-account.json
+    #  +-- vote_history-8RDPvMTMSDASGQBvehBFkiFVi2UdLTSZQYuFsGh5JwWU.bin
+    #  +-- vote_history-8RDPvMTMSDASGQBvehBFkiFVi2UdLTSZQYuFsGh5JwWU.bin.swp
+    #  +-- vote_history-8RDPvMTMSDASGQBvehBFkiFVi2UdLTSZQYuFsGh5JwWU.bin.bak
     #
     # Two substitutions will be performed on this string.  If "{user}"
     # is present it will be replaced with the user running Firedancer,
@@ -235,6 +238,26 @@ telemetry = true
     # Firedancer instance.
     cost_tracker = ""
 
+    # File path used to create the temporary vote-stakes spill file.
+    # If no path is provided, it defaults to the `votestakes.db` path
+    # within the base directory above.
+    #
+    # Two substitutions will be performed on this string.  If "{user}"
+    # is present it will be replaced with the user running Firedancer,
+    # as above, and "{name}" will be replaced with the name of the
+    # Firedancer instance.
+    vote_stakes = ""
+
+    # File path used to create the temporary transaction-cache spill
+    # file.  If no path is provided, it defaults to the `txncache.db`
+    # path within the base directory above.
+    #
+    # Two substitutions will be performed on this string.  If "{user}"
+    # is present it will be replaced with the user running Firedancer,
+    # as above, and "{name}" will be replaced with the name of the
+    # Firedancer instance.
+    txncache = ""
+
     # File path to the shreds database file.
     #
     # The shreds database stores recorded and reconstructed shreds
@@ -264,29 +287,17 @@ telemetry = true
     # Firedancer instance.
     guidb = ""
 
-    # Absolute directory path for the tower/vote history file used for
-    # safe identity switching. If no path is provided, it defaults to
-    # the base directory above. File(s) will only be created here if the
-    # respective write_vote_history_file option is set to true.  The
-    # directory must exist, be writable by the Firedancer user.
-    #
-    # The files will be written differently based on if the validator is
-    # using Tower or Alpenglow consensus. In the former case, the
-    # validator saves its last vote to `tower-1_9-<identity>.bin` in
-    # this directory after each vote, which is the file name Agave
-    # uses. In the latter case, with Alpenglow, the validator saves the
-    # votes since the root to `vote_history-<identity>.bin`, also
-    # matching what Agave does. A vote history larger than 32688 bytes
-    # empties the file until the history fits again. This file is only
-    # ever read by the validator during set-identity and never at boot.
-    # Do not move or replace the files while the validator runs.
-    #
-    # After `set-identity` changes the identity, the validator renames
-    # the files to the new identity key before it saves the first vote
-    # of that identity, so the old identity's last vote keeps its name
-    # until then.  If a file with the new identity's name was placed in
-    # the directory, it is not replaced but renamed with an `.old`
-    # suffix.
+    # Absolute directory path for the vote history file used for safe
+    # identity switching.  If no path is provided, it defaults to the
+    # base directory above.  The directory must exist, be writable by
+    # the Firedancer user.
+
+    # The validator writes `vote_history-<identity>.bin` before each
+    # vote and each block it produces.  This is an Agave-compatible vote
+    # history file and it protects against equivocation (both
+    # double-voting and double-producing blocks) on set-identity or
+    # restart.  See the book for a sample runbook on how to safely
+    # use set-identity.
     #
     # Two substitutions will be performed on this string.  If "{user}"
     # is present it will be replaced with the user running Firedancer,
@@ -436,7 +447,9 @@ telemetry = true
     # but download a more recent incremental snapshot from the network.
     #
     # If set to false, the validator will only load from a full
-    # snapshot.
+    # snapshot.  Note that during wait for supermajority this option
+    # may be overridden: if a full snapshot falls short of the WFS
+    # slot, the validator may attempt to load an incremental.
     incremental_snapshots = true
 
     # Whether to allow downloading a new genesis file from a peer when
@@ -682,26 +695,35 @@ telemetry = true
     # same slot number but different blockhash) in cases where the
     # primary node may still be alive.
     #
-    # If `wait_for_supermajority_with_bank_hash` is set, then this
-    # option must be set to `false` otherwise the client will not boot.
-    # This prevents the chain from deadlocking on a hard restart if all
-    # nodes enable this option.
-    wait_for_vote_to_start_leader = true
-
-    # If set to a valid bank hash, the client will wait until 80% of
-    # stake-weighted nodes are visible on gossip before attempting to
-    # make progress.
+    # During wait-for-supermajority (WFS) this option must be disabled,
+    # in order to prevent the chain from deadlocking on a hard restart
+    # (explicitly enabling it during WFS is rejected).  However, if the
+    # validator is booting after the chain has already moved forward,
+    # this flag must be enabled.  Therefore, set it to "auto" (default)
+    # so that WFS logic handles it automatically (when WFS is not
+    # configured, "auto" resolves to enabled).
     #
-    # This parameter ensures that the correct slot and consensus fork
-    # are selected during a hard fork event.
+    # Allowed values are: "auto", true, "true", false or "false".
+    wait_for_vote_to_start_leader = "auto"
+
+    # Wait-for-supermajority (WFS) is used during a coordinated hard
+    # fork restart, so that all validators agree on the fork before
+    # resuming: the network waits until at least 80% of stake is
+    # visible on gossip before replaying.
+    #
+    # Slot and bank hash below must be set together, and also
+    # `expected_shred_version` must be nonzero.  Slot 0 means disabled.
+    #
+    # If the loaded snapshot is exactly at the WFS slot, the bank hash
+    # is verified against `wait_for_supermajority_with_bank_hash`.  If
+    # it is ahead (the network already moved on), WFS is a no-op: both
+    # the bank hash check and the wait are skipped.  If it cannot reach
+    # the WFS slot, the validator refuses to boot.
+    #
+    # Remove obsolete local snapshots before a coordinated restart, and
+    # restrict downloads to trusted sources.
+    wait_for_supermajority_at_slot = 0
     wait_for_supermajority_with_bank_hash = ""
-
-    # Whether to run Alpenglow consensus.  Firedancer runs exactly one
-    # consensus algorithm, so when this is enabled any Tower-related
-    # components will be replaced with Alpenglow.
-    #
-    # You can also enable Alpenglow with the `--alpenglow` argument.
-    alpenglow = false
 
 # The primary state a validator is required to maintain is the accounts
 # database, a current listing of all "public key" identifiers on the
@@ -778,26 +800,40 @@ telemetry = true
     # or test environments to decrease memory usage or test edge cases.
     max_live_slots = 2048
 
-    # Similar to max live slots, max fork width bounds the maximum
-    # number of live slots which can be simultaneously crossing an epoch
-    # boundary (a child of a slot in the prior epoch).  This bound
-    # exists separately because crossing an epoch boundary is expensive
-    # and requires large dedicated memory.
-    #
-    # On hitting this limit, the validator will begin evicting less
-    # important epoch-crossing slots from memory, meaning their state
-    # will be lost and may need to be re-requested and re-replayed again
-    # in future as needed.
+    # The maximum number of stake delegations held in memory.  Stake
+    # delegations beyond this limit spill to disk, which is slower.
     #
     # It is not recommended to change this value, except in development
     # or test environments to decrease memory usage or test edge cases.
-    max_fork_width = 32
+    stake_delegation_cache_cnt = 2150000
 
     # Total size of the program cache workspace in MiB.
     #
     # The program cache pre-loads frequently executed programs for
     # faster transaction execution.
     program_cache_size_mib = 2048
+
+    # Each executing slot has a large amount of state that the validator
+    # tracks per slot.  During standard operation, only a few slots use
+    # this state at one time, so rather than keeping all of the entries
+    # in-memory for every live slot, the validator will keep a portion
+    # of the state in-memory and will spill the rest to disk.
+    #
+    # This is the number of entries that is kept in-memory.  It must be
+    # at least 2 more than the smaller of layout.execrp_tile_count and
+    # 4, or the validator will not start.
+    #
+    # It is not recommended to change this value, except in development
+    # or test environments to decrease memory usage or test edge cases.
+    bank_cache_cnt = 16
+
+    # Memory budget for cached transactions in MiB, excluding metadata.
+    # When full, the cache spills to paths.txncache.  This value has
+    # been chosen and tuned around mainnet network behavior.
+    #
+    # It is not recommended to change this value, except in development
+    # or test environments to decrease memory usage to test edge cases.
+    transaction_cache_size_mib = 480
 
 # CPU cores in Firedancer are carefully managed.  Where a typical
 # program lets the operating system scheduler determine which threads to
@@ -893,8 +929,9 @@ telemetry = true
     # skipped due to hyperthreading.  You can also have a number
     # preceded by a 'f' like 'f5' which means the next five tiles are
     # not pinned and will float on the original core set that Firedancer
-    # was started with, or on the shared cores (below) if the layout
-    # names any.
+    # was started with, minus pinned cores and their hyperthread
+    # siblings, or on the shared cores (below) if the layout names any.
+    # If that leaves nothing, they float on the whole original set.
     #
     # A core preceded by an 's' like 's5' is shared.  The tile is homed
     # at core 5, so its memory is placed on that core's NUMA node, but
@@ -1115,11 +1152,10 @@ telemetry = true
     # How many snapshot server io_uring worker kernel threads to run.
     snapsv_io_worker_count = 1
 
-    # How many shred tiles to run.  Should be set to 1.  This is
+    # How many shred tiles to run.  Should be set to 2, however can be
+    # lowered to 1 if running an low staked or unstaked node.  This is
     # configurable and designed to scale out for future network
-    # conditions.  There is no need to run more than 1 shred tile given
-    # current `mainnet` conditions.  There is however a need to run
-    # 2 shred tiles under current `testnet` conditions.
+    # conditions.
     #
     # Shred tiles distribute block data to the network when we are
     # leader, and receive and retransmit it to other nodes when we are
@@ -1128,9 +1164,9 @@ telemetry = true
     # Shred tile performance heavily dependent on the number of peer
     # nodes in the cluster, as computing where data should go is an
     # expensive function with this list of peers as the input.  In
-    # development and benchmarking, 1 tile is also sufficient to hit
-    # very high TPS rates because the cluster size will be very small.
-    shred_tile_count = 1
+    # development and benchmarking, 1 tile is sufficient to hit very
+    # high TPS rates because the cluster size will be very small.
+    shred_tile_count = 2
 
     # How many sign tiles to run, should be at least two.  The signing
     # tiles exclusively hold the validator private key for security, and
@@ -1233,6 +1269,20 @@ telemetry = true
     #   NICs.  Requires Linux 5.8 or newer and uses a kernel-bypass
     #   packet data path.  Bonding is supported when every bond member
     #   is a port on the same NIC.
+    #
+    #  "iavf"
+    #   Very fast userspace networking for Intel ice and i40e driver
+    #   based NICs. Requires SR-IOV and IOMMU to be enabled in system
+    #   BIOS as well as Virtualization Mode set to SR-IOV within the
+    #   NIC's BIOS section, on some motherboards/NIC OEMs this isn't
+    #   always the default.
+    #
+    #   If "iavf" is selected and your BIOS has some of the BIOS
+    #   options disabled then some relevant help will be given in
+    #   the Firedancer iavf configure stage error message (please
+    #   follow at your own discretion, although SR-IOV has existed
+    #   for a long time there is always some risk with changing
+    #   BIOS settings).
     provider = "auto"
 
     # Which interface to bind to for network traffic.  Currently,
@@ -1441,6 +1491,19 @@ telemetry = true
         rx_queue_size = 32768
         tx_queue_size = 32768
 
+
+    # This section contains Intel i40e/ice specific network
+    # configuration. Only active if [net.provider] is set to "iavf".
+    [net.iavf]
+        # Controls the depths of receive (RX) and transmit (TX) queues.
+        # Queue depth values must be a power of two. The highest allowed
+        # rx/tx_queue_size is 4096 due to Intel queue limits.
+        #
+        # Smaller values use less memory.  Larger values reduce packet
+        # loss caused by excessive scheduling or inter-CPU latency.
+        rx_queue_size = 4096
+        tx_queue_size = 4096
+
 # Tiles are described in detail in the layout section above.  While the
 # layout configuration determines how many of each tile to place on
 # which CPU core to create a functioning system, below is the individual
@@ -1639,12 +1702,9 @@ telemetry = true
         # portion.
         commission_bps = 0
 
-        # The validator keeps the gRPC connection to the bundle server
-        # alive indefinitely, even outside of leader slots.  This is
-        # done using HTTP/2 PING frames.  This option roughly configures
-        # the time between keepalives.  The actual timing is randomized
-        # to reduce burst loads on the network.  Must be within range
-        # [3e3,3600e3]
+        # This option roughly configures the time between pings to keep
+        # the bundle connection live when idle.  The actual timing is
+        # randomized.  Must be within range [3e3,3600e3]
         keepalive_interval_millis = 5000
 
         # By default, the TLS certificate of the bundle server is
@@ -1688,7 +1748,7 @@ telemetry = true
         # Over time, as the network gets faster and compute unit limits
         # are raised, this trade-off will become less pronounced.
         #
-        # The Firedancer team supports two different strategies which
+        # The Firedancer team supports three different strategies which
         # are described below:
         #
         #  "perf"
@@ -1708,6 +1768,11 @@ telemetry = true
         #
         #   When using the balanced mode, there is no reason to increase
         #   execle tile count beyond the default of 2.
+        #
+        #  "auction"
+        #   Schedule transactions in 50ms batch auctions. Bundles are
+        #   not included in the auctions but are scheduled as soon as
+        #   they arrive, without waiting for auctions to complete.
         #
         # In cases of network congestion, high volume, or if seeing poor
         # block packing performance for any reason, it is recommended to
@@ -1835,29 +1900,6 @@ telemetry = true
         # FEC payload spills can consume additional space.
         shred_storage_limit_gib = 50
 
-    # The tower tile runs pre-Alpenglow consensus and decides what
-    # blocks to vote for. The tower file is optional, but used for safer
-    # identity switches that avoid consensus violations like double
-    # voting and vote lockout violations. If Alpenglow is enabled, this
-    # option will be ignored.
-    [tiles.tower]
-        write_vote_history_file = true
-
-    # The votor tile replaces the tower tile when Alpenglow is enabled.
-    # Its vote history file is optional, but used for safer identity
-    # switches that avoid consensus violations like double voting. If
-    # Alpenglow is not yet enabled, this option will be ignored.
-    [tiles.votor]
-        write_vote_history_file = true
-
-    # The txsend tile is responsible for sending transactions out to
-    # the network over QUIC.  In the default configuration, this is just
-    # used to send votes that our validator produces.
-    [tiles.txsend]
-        # The port the send tile uses to make outgoing QUIC connections,
-        # and also set as the src port on non-QUIC UDP packets.
-        txsend_src_port = 9006
-
     # The metric tile receives metrics updates published from the rest
     # of the tiles and serves them via. a Prometheus compatible HTTP
     # endpoint.
@@ -1927,13 +1969,14 @@ telemetry = true
         # runs out, the connections with the slowest recipients are
         # dropped.  Larger values make the GUI server more tolerant to
         # slow clients but also increase memory usage.
-        send_buffer_size_mb = 5120
+        send_buffer_size_mb = 512
 
         # The maximum size of the on disk event database.  This is an
         # upper bound on the disk space used.  The GUI tile will start
         # with an empty database and grow the storage file on disk up to
         # the limit as needed.  When the database is full, the oldest
-        # values are evicted to make space for new data.
+        # values are evicted to make space for new data.  Must be at
+        # least 4 GiB.
         db_size_gib = 100
 
     [tiles.rpc]
@@ -1980,6 +2023,52 @@ telemetry = true
         # RPC to serve a subset of calls even when snapshots are
         # loading.
         delay_startup = true
+
+# Firedancer validators support a coordinated failover protocol.  A
+# handoff transfers the final vote history after the active stops signing.
+# When the handoff fails, `failover takeover` takes the identity without
+# coordination and can discard earlier lockouts or allow both validators
+# to vote.
+#
+# The protocol works by hosting a TCP listener on your validator.  Any
+# peer in possession of the currently active identity private key can
+# demote this validator to the junk identity by sending a specially
+# signed packet proving that possession.
+#
+# Between two Firedancer validators, only hand off the identity with
+# `failover promote`.  Do not use `set-identity --vote-history-file`
+# for this.  The failover protocol passes the final vote history
+# directly and checks it against what this validator replayed.  Vote
+# history files are only for handing off an identity from a validator that
+# does not run failover, such as Agave.
+[failover]
+    # Whether to listen for handoff requests, so that another machine
+    # can take this validator's identity with `failover promote`.
+    enabled = true
+
+    # Whether to boot as a standby under a junk identity generated in
+    # memory at each start, instead of under [paths.identity_key].  The
+    # junk private key is never written out to a file.  The keypair in
+    # [paths.identity_key] is then the identity this machine takes with
+    # `failover promote`.
+    #
+    # Setting this to true is highly encouraged on every validator that
+    # uses failover.  Such a validator never boots under the staked
+    # identity, so a restart cannot make it vote alongside the validator
+    # running the identity, or make gossip's duplicate instance check
+    # stop that validator.
+    boot_to_standby = false
+
+    # The address to listen on.  If enabled, by default the listener is
+    # exposed to the network.  This is safe as possession of the private
+    # key is required to take over the identity, but could be a vector
+    # for a targeted denial of service.  For added reliability, restrict
+    # the listener to a private network.
+    listen_address = "0.0.0.0"
+
+    # The port to listen on for handoff requests.  The other validator
+    # dials 8010 unless `failover promote --port` gives another port.
+    listen_port = 8010
 
 # These options can be useful for development, but should not be used
 # when connecting to a live cluster, as they may cause the validator to
@@ -2217,15 +2306,15 @@ telemetry = true
         # validator and the rest of the network.
         max_cost_per_block = 0
 
-        # Solana has a consensus-agreed-upon limit of 32,768 data shreds
-        # (and as many parity shreds) per block.  This limit prevents a
-        # malicious (or mistaken) validator from slowing down the
-        # network by producing a huge block.  When benchmarking, this
-        # limit can be the bottleneck of the whole system, so this
-        # option is provided to raise the limit.  0 keeps the consensus
-        # limit; any other value is the raised number of data shreds per
-        # block, which must be a multiple of 32,768, and the block data
-        # byte limit scales with it.
+        # Solana has a consensus-agreed-upon limit of 16,384 data shreds
+        # (and as many parity shreds) per block with 200ms slots.  This
+        # limit prevents a malicious (or mistaken) validator from
+        # slowing down the network by producing a huge block.  When
+        # benchmarking, this limit can be the bottleneck of the whole
+        # system, so this option is provided to raise the limit.  0
+        # keeps the consensus limit; any other value is the raised
+        # number of data shreds per block, which must be a multiple of
+        # 16,384, and the block data byte limit scales with it.
         #
         # This option should not be used in a production network, since
         # it would cause consensus violations between the validator and
@@ -2274,6 +2363,22 @@ telemetry = true
         # development purposes.
         report_runtime_diffs = false
 
+        # Whether to report every repair request sent to a peer, one
+        # event per requested shred, to the remote server.  This
+        # generates a high volume of events, especially while catching
+        # up, and should only be used for debugging and development
+        # purposes.
+        report_repair_requests = false
+
+        # Maximum upload speed for telemetry data in megabits per second (Mbps).
+        # The steady state of collection sits well under the default here, and
+        # it is set higher to allow draining a backlog of data in the event of
+        # server outage.
+        #
+        # It is not recommended to change this value except in test or
+        # development environments.
+        max_upload_rate_mbps = 32
+
     # The following options relate to the 'firedance-dev pktgen' tool
     # only.  pktgen tests net tile transmit throughput by generating a
     # flood of non-routable Ethernet frames.  Only use 'firedancer-dev
@@ -2310,7 +2415,7 @@ telemetry = true
         affinity = "auto"
 
     # Inject shreds (block data) into the system to replay.
-    # Used by 'firedancer-dev {backtest,forktest}'.
+    # Used by 'firedancer-dev backtest'.
     [development.ledger_input]
         # The following input ledger formats are supported:
         #
@@ -2342,11 +2447,6 @@ telemetry = true
 
         # Delays rooting by the given number of slots.
         root_distance = 32
-
-    # 'firedancer-dev forktest' specific options
-    [development.forktest]
-        # See [layout.affinity]
-        affinity = "auto"
 
     # Tuning for the accounts database.  These options are for advanced
     # users and should not be changed in production.

@@ -218,7 +218,8 @@ fd_progcache_txn_publish_one( fd_progcache_join_t * cache,
   fd_racesan_hook( "prog_publish_one:pre_xid_store" );
   __atomic_store_n( &cache->shmem->txn.root, fork_id, memory_order_release );
 
-  /* Phase 2: Drain inserters from transaction */
+  /* Phase 2: Lock the record list for detachment.  The caller's
+     exclusive txn.rwlock has already drained inserters. */
 
   fd_rwlock_write( &txn->lock );
 

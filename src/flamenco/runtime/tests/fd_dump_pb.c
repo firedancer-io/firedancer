@@ -8,10 +8,10 @@
 #include "../fd_bank.h"
 #include "../fd_runtime.h"
 #include "../fd_alut.h"
-#include "../sysvar/fd_sysvar_epoch_schedule.h"
 #include "../program/fd_precompiles.h"
 #include "../../../third_party/nanopb/pb_encode.h"
 #include "../fd_runtime_stack_tmpl.h"
+#include "../sysvar/fd_sysvar_stake_history.h"
 #include "../../../util/fd_hash32.h"
 
 #include <stdio.h> /* fopen */
@@ -581,13 +581,14 @@ create_block_context_protobuf_from_block( fd_block_dump_ctx_t * dump_ctx,
 
   /* Get vote and stake delegation infos */
   fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( parent_bank );
-  ulong              fork_id     = parent_bank->vote_stakes_fork_id;
+  ushort             fork_id     = parent_bank->vote_stakes_fork_id;
   ulong vote_account_t_1_cnt = fd_vote_stakes_cnt_t_1( vote_stakes, fork_id );
   ulong vote_account_t_2_cnt = fd_vote_stakes_cnt_t_2( vote_stakes, fork_id );
   uchar vote_stakes_iter_mem[ FD_VOTE_STAKES_ITER_FOOTPRINT ] __attribute__((aligned(FD_VOTE_STAKES_ITER_ALIGN)));
 
+  uchar                stake_delegations_history_data[ FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ ];
   fd_stake_history_t   stake_delegations_history_[1];
-  fd_stake_history_t * stake_delegations_history = fd_sysvar_cache_stake_history_view( &parent_bank->f.sysvar_cache, stake_delegations_history_ );
+  fd_stake_history_t * stake_delegations_history = fd_sysvar_stake_history_read( accdb, parent_bank->accdb_fork_id, stake_delegations_history_data, stake_delegations_history_ );
 
   fd_stake_delegations_t * stake_delegations = fd_bank_stake_delegations_modify( parent_bank );
   fd_stake_delegations_view_begin( stake_delegations,
@@ -671,94 +672,64 @@ create_block_context_protobuf_from_block( fd_block_dump_ctx_t * dump_ctx,
   pb_size_t va_t1_cnt = 0U;
   pb_size_t va_t2_cnt = 0U;
 
-  /* SIMD-0232 collector overrides are tagged with the source epoch.
-     Empty protobuf fields represent the vote/node defaults. */
-  fd_collector_overrides_t * collector_overrides = fd_bank_collector_overrides( parent_bank );
-  ushort co_fork_idx  = parent_bank->collector_overrides_fork_id;
-  ulong  co_epoch_t_1 = parent_bank->f.epoch;
-  ulong  co_epoch_t_2 = fd_ulong_sat_sub( parent_bank->f.epoch, 1UL );
+  /* SIMD-0232 collectors: empty protobuf fields represent the vote/node
+     defaults. */
 
   for( fd_vote_stakes_iter_t * iter = fd_vote_stakes_iter_init( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1, vote_stakes_iter_mem );
        !fd_vote_stakes_iter_done( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1, iter );
        fd_vote_stakes_iter_next( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1, iter ) ) {
-    fd_pubkey_t pubkey;
-    ulong       stake;
-    fd_pubkey_t node;
-    ushort      commission;
-    fd_vote_stakes_iter_ele( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1, iter, &pubkey, &node, &stake,
-                             NULL, NULL, &commission, NULL, NULL, NULL, NULL );
-    add_account_to_dumped_accounts( dumped_accounts, &pubkey );
-
-    ushort block_revenue_commission_bps;
-    ulong  pending_delegator_rewards;
-    fd_vote_stakes_iter_block_revenue( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1, iter,
-                                       &block_revenue_commission_bps, &pending_delegator_rewards );
+    fd_vote_stakes_ele_t ele[1];
+    fd_vote_stakes_iter_ele( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1, iter, ele );
+    add_account_to_dumped_accounts( dumped_accounts, &ele->pubkey );
 
     fd_exec_test_prev_vote_account_t * acc = &va_t1[ va_t1_cnt++ ];
-    fd_memcpy( acc->address,     &pubkey, sizeof(fd_pubkey_t) );
-    fd_memcpy( acc->node_pubkey, &node,   sizeof(fd_pubkey_t) );
-    acc->stake                        = stake;
-    acc->commission_bps               = commission;
-    acc->block_revenue_commission_bps = block_revenue_commission_bps;
-    acc->pending_delegator_rewards    = pending_delegator_rewards;
+    fd_memcpy( acc->address,     &ele->pubkey,       sizeof(fd_pubkey_t) );
+    fd_memcpy( acc->node_pubkey, &ele->node_account, sizeof(fd_pubkey_t) );
+    acc->stake                        = ele->stake;
+    acc->commission_bps               = ele->commission;
+    acc->block_revenue_commission_bps = ele->block_revenue_commission_bps;
+    acc->pending_delegator_rewards    = ele->pending_delegator_rewards;
     acc->version                      = FD_EXEC_TEST_VOTE_ACCOUNT_VERSION_V4;
     acc->epoch_credits_count          = 0U;
     acc->inflation_rewards_collector.size = 0U;
     acc->block_revenue_collector.size     = 0U;
 
-    fd_pubkey_t inflation_collector;
-    fd_pubkey_t block_collector;
-    int co_flags = fd_collector_overrides_query( collector_overrides, co_fork_idx, co_epoch_t_1, &pubkey,
-                                                 &inflation_collector, &block_collector );
-    if( co_flags & FD_COLLECTOR_OVERRIDE_INFLATION ) {
+    if( !fd_pubkey_eq( &ele->inflation_collector, &ele->pubkey ) ) {
       acc->inflation_rewards_collector.size = 32U;
-      fd_memcpy( acc->inflation_rewards_collector.bytes, &inflation_collector, sizeof(fd_pubkey_t) );
+      fd_memcpy( acc->inflation_rewards_collector.bytes, &ele->inflation_collector, sizeof(fd_pubkey_t) );
     }
-    if( co_flags & FD_COLLECTOR_OVERRIDE_BLOCK ) {
+    if( !fd_pubkey_eq( &ele->block_collector, &ele->node_account ) ) {
       acc->block_revenue_collector.size = 32U;
-      fd_memcpy( acc->block_revenue_collector.bytes, &block_collector, sizeof(fd_pubkey_t) );
+      fd_memcpy( acc->block_revenue_collector.bytes, &ele->block_collector, sizeof(fd_pubkey_t) );
     }
   }
 
   for( fd_vote_stakes_iter_t * iter = fd_vote_stakes_iter_init( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_2, vote_stakes_iter_mem );
        !fd_vote_stakes_iter_done( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_2, iter );
        fd_vote_stakes_iter_next( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_2, iter ) ) {
-    fd_pubkey_t pubkey;
-    ulong       stake;
-    fd_pubkey_t node;
-    ushort      commission;
-    fd_vote_stakes_iter_ele( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_2, iter, &pubkey, &node, &stake,
-                             NULL, NULL, &commission, NULL, NULL, NULL, NULL );
-    add_account_to_dumped_accounts( dumped_accounts, &pubkey );
-
-    ushort block_revenue_commission_bps;
-    ulong  pending_delegator_rewards;
-    fd_vote_stakes_iter_block_revenue( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_2, iter,
-                                       &block_revenue_commission_bps, &pending_delegator_rewards );
+    fd_vote_stakes_ele_t ele[1];
+    fd_vote_stakes_iter_ele( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_2, iter, ele );
+    add_account_to_dumped_accounts( dumped_accounts, &ele->pubkey );
 
     fd_exec_test_prev_vote_account_t * acc = &va_t2[ va_t2_cnt++ ];
-    fd_memcpy( acc->address,     &pubkey, sizeof(fd_pubkey_t) );
-    fd_memcpy( acc->node_pubkey, &node,   sizeof(fd_pubkey_t) );
-    acc->stake                        = stake;
-    acc->commission_bps               = commission;
-    acc->block_revenue_commission_bps = block_revenue_commission_bps;
-    acc->pending_delegator_rewards    = pending_delegator_rewards;
+    fd_memcpy( acc->address,     &ele->pubkey,       sizeof(fd_pubkey_t) );
+    fd_memcpy( acc->node_pubkey, &ele->node_account, sizeof(fd_pubkey_t) );
+    acc->stake                        = ele->stake;
+    acc->commission_bps               = ele->commission;
+    acc->block_revenue_commission_bps = ele->block_revenue_commission_bps;
+    acc->pending_delegator_rewards    = ele->pending_delegator_rewards;
     acc->version                      = FD_EXEC_TEST_VOTE_ACCOUNT_VERSION_V4;
     acc->epoch_credits_count          = 0U;
     acc->inflation_rewards_collector.size = 0U;
     acc->block_revenue_collector.size     = 0U;
 
-    fd_pubkey_t inflation_collector;
-    fd_pubkey_t block_collector;
-    int co_flags = fd_collector_overrides_query( collector_overrides, co_fork_idx, co_epoch_t_2, &pubkey,
-                                                 &inflation_collector, &block_collector );
-    if( co_flags & FD_COLLECTOR_OVERRIDE_INFLATION ) {
+    if( !fd_pubkey_eq( &ele->inflation_collector, &ele->pubkey ) ) {
       acc->inflation_rewards_collector.size = 32U;
-      fd_memcpy( acc->inflation_rewards_collector.bytes, &inflation_collector, sizeof(fd_pubkey_t) );
+      fd_memcpy( acc->inflation_rewards_collector.bytes, &ele->inflation_collector, sizeof(fd_pubkey_t) );
     }
-    if( co_flags & FD_COLLECTOR_OVERRIDE_BLOCK ) {
+    if( !fd_pubkey_eq( &ele->block_collector, &ele->node_account ) ) {
       acc->block_revenue_collector.size = 32U;
-      fd_memcpy( acc->block_revenue_collector.bytes, &block_collector, sizeof(fd_pubkey_t) );
+      fd_memcpy( acc->block_revenue_collector.bytes, &ele->block_collector, sizeof(fd_pubkey_t) );
     }
   }
 
@@ -767,8 +738,6 @@ create_block_context_protobuf_from_block( fd_block_dump_ctx_t * dump_ctx,
      reward calculation).  Needed for the harness to correctly
      recalculate partitioned epoch rewards. */
   fd_vote_rewards_map_t * vote_ele_map = runtime_stack->stakes.vote_map;
-  ulong ag_migration_slot  = fd_alpenglow_migration_slot( parent_bank, accdb );
-  ulong ag_migration_epoch = fd_slot_to_epoch( &parent_bank->f.epoch_schedule, ag_migration_slot, NULL );
   fd_epoch_credits_view_t epoch_credits_view[1];
   FD_TEST( fd_epoch_credits_view_init( epoch_credits_view, fd_bank_epoch_credits( parent_bank ), parent_bank->epoch_credits_fork_id ) );
   for( pb_size_t i=0U; i<va_t1_cnt; i++ ) {
@@ -776,23 +745,14 @@ create_block_context_protobuf_from_block( fd_block_dump_ctx_t * dump_ctx,
     uint idx = (uint)fd_vote_rewards_map_idx_query( vote_ele_map, &va_pubkey, UINT_MAX, runtime_stack->stakes.vote_ele );
     if( idx==UINT_MAX ) continue;
     fd_epoch_credits_t const * ec = &epoch_credits_view->credits[idx];
-    ulong base               = ec->base_credits;
-    int   has_ag_marker      = ec->has_ag_migration_marker;
-    ulong ag_marker_idx      = fd_epoch_credits_ag_marker_idx( ec, ag_migration_epoch );
-    ulong cnt                = (ulong)ec->cnt + (ulong)has_ag_marker;
+    ulong cnt  = ec->cnt;
+    ulong base = ec->base_credits;
     va_t1[i].epoch_credits_count = (pb_size_t)cnt;
     va_t1[i].epoch_credits = fd_spad_alloc( spad, alignof(fd_exec_test_epoch_credit_t), cnt * sizeof(fd_exec_test_epoch_credit_t) );
-    for( ulong k=0UL, j=0UL; k<cnt; k++ ) {
-      if( FD_UNLIKELY( k==ag_marker_idx ) ) {
-        va_t1[i].epoch_credits[k].epoch        = ULONG_MAX;
-        va_t1[i].epoch_credits[k].credits      = ULONG_MAX;
-        va_t1[i].epoch_credits[k].prev_credits = ULONG_MAX;
-        continue;
-      }
-      va_t1[i].epoch_credits[k].epoch        = ec->epoch[j];
-      va_t1[i].epoch_credits[k].credits      = base + ec->credits_delta[j];
-      va_t1[i].epoch_credits[k].prev_credits = base + ec->prev_credits_delta[j];
-      j++;
+    for( ulong j=0; j<cnt; j++ ) {
+      va_t1[i].epoch_credits[j].epoch        = ec->epoch[j];
+      va_t1[i].epoch_credits[j].credits      = base + ec->credits_delta[j];
+      va_t1[i].epoch_credits[j].prev_credits = base + ec->prev_credits_delta[j];
     }
   }
   fd_epoch_credits_view_fini( epoch_credits_view );

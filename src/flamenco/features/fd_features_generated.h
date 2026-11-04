@@ -8,10 +8,10 @@
 #endif
 
 /* FEATURE_ID_CNT is the number of features in ids */
-#define FD_FEATURE_ID_CNT (301UL)
+#define FD_FEATURE_ID_CNT (309UL)
 
 /* Feature set ID calculated from all feature names */
-#define FD_FEATURE_SET_ID (1766517360U)
+#define FD_FEATURE_SET_ID (924229687U)
 
 union fd_features {
   ulong f[ FD_FEATURE_ID_CNT ];
@@ -154,7 +154,7 @@ union fd_features {
     /* 0x71eba1d288ba2bfc */ ulong keep_merkle_shreds;
     /* 0x823d14dd6235f859 */ ulong move_serialized_len_ptr_in_cpi;
     /* 0xb3f6cd09abba192b */ ulong update_hashes_per_tick;
-    /* 0xf67e481aac99b909 */ ulong enable_big_mod_exp_syscall;
+    /* 0x50b81707bc99b909 */ ulong enable_big_mod_exp_syscall;
     /* 0x500aab8a23ff8b33 */ ulong disable_builtin_loader_ownership_chains;
     /* 0xffe35ea7abb29bbb */ ulong cap_transaction_accounts_data_size;
     /* 0x8a22c4e80489c387 */ ulong remove_congestion_multiplier_from_fee_calculation;
@@ -307,7 +307,7 @@ union fd_features {
     /* 0xe8f8dc2ca192d30c */ ulong upgrade_bpf_stake_program_to_v5_1;
     /* 0x1dd8741ccebef821 */ ulong custom_commission_collector;
     /* 0x9c92e629e8d74f0d */ ulong enable_tx_v1;
-    /* 0x8ea2469cb4e5a93c */ ulong double_disinflation_rate;
+    /* 0xf52c7720e86c6209 */ ulong double_disinflation_rate;
     /* 0x3d030a2e7e893d06 */ ulong remove_inactive_stakes;
     /* 0xb2513619e40fef85 */ ulong alpenglow;
     /* 0x1e7f253e967667d3 */ ulong relax_fee_payer_constraint;
@@ -317,5 +317,13 @@ union fd_features {
     /* 0x351933dc20486107 */ ulong vote_account_initialize_v2;
     /* 0x7b717607817b2451 */ ulong raise_cpi_nesting_limit_to_8;
     /* 0x0aa7b29de47f96cb */ ulong loader_v3_set_program_data_to_elf_length;
+    /* 0xdbf2487401975107 */ ulong validator_location_registration;
+    /* 0xee06a6ef50308803 */ ulong enforce_validator_location_registration;
+    /* 0x363f3e34c2720204 */ ulong geo_aware_leader_schedule;
+    /* 0x663c696babd69106 */ ulong secp256r1_syscall_enabled;
+    /* 0xcb2d7ae31276d40c */ ulong stricter_shred_validation;
+    /* 0x30641c596cbeb55b */ ulong remove_runtime_float_ops;
+    /* 0x6b23805438010ed3 */ ulong core_bpf_hash_validation;
+    /* 0x539f8a37da9d300c */ ulong replace_ata_with_p_ata;
   };
 };

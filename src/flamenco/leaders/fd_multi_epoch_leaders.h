@@ -28,6 +28,7 @@ struct fd_multi_epoch_leaders_priv {
     ulong start_slot;
     ulong slot_cnt;
     ulong staked_cnt;
+    int   geo_aware_lsched;
   } scratch[1];
 
   _lsched_t _lsched[MULTI_EPOCH_LEADERS_EPOCH_CNT];
@@ -173,10 +174,10 @@ void
 fd_multi_epoch_leaders_stake_msg_fini( fd_multi_epoch_leaders_t * mleaders );
 
 
-/* fd_multi_epoch_leaders_epoch_msg_{init, fini} are the Firedancer
-   equivalents to the Frankendancer fd_multi_epoch_leaders_stake_msg_{init, fini}.
-   They take a different input message structure (fd_epoch_info_msg_t
-   vs fd_stake_weight_msg_t). */
+/* fd_multi_epoch_leaders_epoch_msg_{init, fini} are equivalents to
+   fd_multi_epoch_leaders_stake_msg_{init, fini} that take a different
+   input message structure (fd_epoch_info_msg_t vs
+   fd_stake_weight_msg_t). */
 
 void
 fd_multi_epoch_leaders_epoch_msg_init( fd_multi_epoch_leaders_t   * mleaders,

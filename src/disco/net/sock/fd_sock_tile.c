@@ -1,7 +1,6 @@
 #define _GNU_SOURCE /* dup3 */
 #include "fd_sock_tile_private.h"
 #include "../../fd_disco_base.h"
-#include "../../../discof/repair/fd_repair.h"
 #include "../../topo/fd_topo.h"
 #include "../../../util/net/fd_eth.h"
 #include "../../../util/net/fd_ip4.h"
@@ -100,6 +99,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, alignof(struct cmsghdr),     STEM_BURST*FD_SOCK_CMSG_MAX           );
   l = FD_LAYOUT_APPEND( l, alignof(struct sockaddr_in), STEM_BURST*sizeof(struct sockaddr_in) );
   l = FD_LAYOUT_APPEND( l, alignof(struct mmsghdr),     STEM_BURST*sizeof(struct mmsghdr)     );
+  l = FD_LAYOUT_APPEND( l, alignof(ulong),              STEM_BURST*sizeof(ulong)              );
   if( !tile->sock.only_recv_lo ) l = FD_LAYOUT_APPEND( l, FD_CHUNK_ALIGN, tx_scratch_footprint() );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
@@ -188,6 +188,7 @@ privileged_init( fd_topo_t const *      topo,
   void *               batch_cmsg = FD_SCRATCH_ALLOC_APPEND( l, alignof(struct cmsghdr),     STEM_BURST*FD_SOCK_CMSG_MAX           );
   struct sockaddr_in * batch_sa   = FD_SCRATCH_ALLOC_APPEND( l, alignof(struct sockaddr_in), STEM_BURST*sizeof(struct sockaddr_in) );
   struct mmsghdr *     batch_msg  = FD_SCRATCH_ALLOC_APPEND( l, alignof(struct mmsghdr),     STEM_BURST*sizeof(struct mmsghdr)     );
+  ulong *              batch_fsz  = FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong),              STEM_BURST*sizeof(ulong)              );
   ulong                tx_sz      = tile->sock.only_recv_lo ? 0UL : tx_scratch_footprint();
   uchar *              tx_scratch = FD_SCRATCH_ALLOC_APPEND( l, FD_CHUNK_ALIGN,              tx_sz );
   FD_DCHECK_CRIT( scratch==ctx, "invalid layout" );
@@ -202,12 +203,13 @@ privileged_init( fd_topo_t const *      topo,
   ctx->batch_cmsg  = batch_cmsg;
   ctx->batch_sa    = batch_sa;
   ctx->batch_msg   = batch_msg;
+  ctx->batch_frame_sz = batch_fsz;
   ctx->tx_scratch0 = tx_scratch;
   ctx->tx_scratch1 = tx_scratch + tx_sz;
   ctx->tx_ptr      = tx_scratch;
-  ctx->repair_shred_sock_idx = UINT_MAX;
   ctx->tx_sock = -1;
   ctx->bind_address = tile->sock.net.bind_address;
+  ctx->tick_per_ns  = fd_tempo_tick_per_ns( NULL );
   if( tile->sock.only_recv_lo ) {
     ctx->lo_ifindex = if_nametoindex( "lo" );
     if( FD_UNLIKELY( !ctx->lo_ifindex ) ) {
@@ -226,7 +228,6 @@ privileged_init( fd_topo_t const *      topo,
     (ushort)tile->sock.net.gossip_listen_port,
     (ushort)tile->sock.net.repair_client_listen_port,
     (ushort)tile->sock.net.repair_serve_listen_port,
-    (ushort)tile->sock.net.txsend_src_port,
     (ushort)tile->sock.net.votor_quic_client_listen_port,
     (ushort)tile->sock.net.votor_quic_server_listen_port
   };
@@ -237,7 +238,6 @@ privileged_init( fd_topo_t const *      topo,
     "net_gossvf", /* gossip_listen_port */
     "net_shred",  /* shred_listen_port (repair) */
     "net_rserve", /* repair_serve_listen_port */
-    "net_txsend", /* txsend_src_port */
     "net_votor",  /* votor_quic_client_listen_port */
     "net_votor"   /* votor_quic_server_listen_port */
   };
@@ -248,11 +248,10 @@ privileged_init( fd_topo_t const *      topo,
     DST_PROTO_GOSSIP,   /* gossip_listen_port */
     DST_PROTO_REPAIR,   /* shred_listen_port (repair) */
     DST_PROTO_RSERVE,   /* repair_serve_listen_port */
-    DST_PROTO_SEND,     /* send_src_port */
     DST_PROTO_VOTOR,    /* votor_quic_client_listen_port */
     DST_PROTO_VOTOR     /* votor_quic_server_listen_port */
   };
-  for( uint candidate_idx=0U; candidate_idx<9; candidate_idx++ ) {
+  for( uint candidate_idx=0U; candidate_idx<sizeof(udp_port_candidates)/sizeof(udp_port_candidates[0]); candidate_idx++ ) {
     if( !udp_port_candidates[ candidate_idx ] ) continue;
     uint sock_idx = ctx->sock_cnt;
     if( sock_idx>=FD_SOCK_TILE_MAX_SOCKETS ) FD_LOG_ERR(( "too many sockets" ));
@@ -273,12 +272,6 @@ privileged_init( fd_topo_t const *      topo,
          i.e. the repair server is disabled, then no net_rserve link. */
       continue;
     }
-
-    /* Record the socket index of the repair intake socket, so repair
-       ping packets can be routed to the repair tile at runtime. */
-    if( tile->sock.net.repair_client_listen_port &&
-        udp_port_candidates[ candidate_idx ]==tile->sock.net.repair_client_listen_port )
-      ctx->repair_shred_sock_idx = sock_idx;
 
     int sock_fd = sock_fd_min + (int)sock_idx;
     create_udp_socket( sock_fd, tile->sock.net.bind_address, port, tile->sock.so_rcvbuf, ctx->lo_ifindex );
@@ -319,14 +312,9 @@ unprivileged_init( fd_topo_t const *      topo,
   }
 
   ctx->link_rx_cnt = tile->out_cnt;
-  ctx->repair_rx = 0xFF;
   for( ulong i=0UL; i<(tile->out_cnt); i++ ) {
     if( 0!=strncmp( topo->links[ tile->out_link_id[ i ] ].name, "net_", 4 ) ) {
       FD_LOG_ERR(( "out link %lu is not a net RX link", i ));
-    }
-    if( 0==strcmp( topo->links[ tile->out_link_id[ i ] ].name, "net_repair" ) ) {
-      if( FD_UNLIKELY( ctx->repair_rx!=0xFF ) ) FD_LOG_ERR(( "multiple net_repair out links" ));
-      ctx->repair_rx = (uchar)i;
     }
     fd_topo_link_t const * link = &topo->links[ tile->out_link_id[ i ] ];
     ctx->link_rx[ i ].base   = topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ].wksp;
@@ -339,11 +327,18 @@ unprivileged_init( fd_topo_t const *      topo,
     }
   }
 
-  if( FD_UNLIKELY( ctx->repair_shred_sock_idx!=UINT_MAX && ctx->repair_rx==0xFF ) ) {
-    FD_LOG_ERR(( "repair intake socket configured but no net_repair out link was found" ));
-  }
-
   FD_CHECK_ERR( tile->in_cnt<=MAX_NET_INS, "too many input links" );
+
+  /* The loopback-only sock tile has no TX links and is not counted */
+  ctx->tx_tile_idx = 0UL;
+  ctx->tx_tile_cnt = 0UL;
+  for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
+    fd_topo_tile_t const * t = &topo->tiles[ i ];
+    if( strcmp( t->name, "sock" ) || t->sock.only_recv_lo ) continue;
+    if( t->id==tile->id ) ctx->tx_tile_idx = ctx->tx_tile_cnt;
+    ctx->tx_tile_cnt++;
+  }
+  ctx->tx_tile_cnt = fd_ulong_max( ctx->tx_tile_cnt, 1UL );
 
   for( ulong i=0UL; i<(tile->in_cnt); i++ ) {
     if( !strstr( topo->links[ tile->in_link_id[ i ] ].name, "_net" ) ) {
@@ -413,17 +408,16 @@ poll_rx_socket( fd_sock_tile_t *    ctx,
 
   if( FD_UNLIKELY( msg_cnt==0 ) ) return 0UL;
 
-  /* Track the chunk index of the last frag populated, so we can derive
-     the chunk indexes for the next poll_rx_socket call.
-     Guaranteed to be set since msg_cnt>0. */
-  ulong last_chunk;
+  /* Only frags published to rx_link may consume rx_link dcache space.
+     Packets that are dropped or redirected leave a hole, so subsequent
+     packets are compacted down to chunk_pub. */
+  ulong chunk_pub = link->chunk;
 
   for( ulong j=0; j<(ulong)msg_cnt; j++ ) {
     uchar * payload         = ctx->batch_iov[ j ].iov_base;
     ulong   payload_sz      = ctx->batch_msg[ j ].msg_len;
     struct sockaddr_in * sa = ctx->batch_msg[ j ].msg_hdr.msg_name;
     ulong frame_sz          = payload_sz + hdr_sz;
-    last_chunk = fd_laddr_to_chunk( base, payload-hdr_sz );
     if( FD_UNLIKELY( ctx->lo_ifindex &&
                      (ctx->batch_msg[ j ].msg_hdr.msg_flags & (MSG_TRUNC|MSG_CTRUNC)) ) ) continue;
     ctx->metrics.rx_bytes_total += frame_sz;
@@ -476,26 +470,15 @@ poll_rx_socket( fd_sock_tile_t *    ctx,
     ulong sig   = fd_disco_netmux_sig( sa->sin_addr.s_addr, fd_ushort_bswap( sa->sin_port ), sa->sin_addr.s_addr, proto, hdr_sz );
     ulong tspub = fd_frag_meta_ts_comp( ts );
 
-    /* When a message arrives on the repair intake port, it is sent to
-       the shred tile, unless it is a ping message or an alpenglow
-       repair response (identified by the frame size), then it is sent
-       to the repair tile.  The repair tile does not own any sockets, so
-       we look up the net_repair link directly. */
-    if( FD_UNLIKELY( sock_idx==ctx->repair_shred_sock_idx && payload_sz<=AG_REPAIR_RESPONSE_MAX_SZ ) ) {
-      fd_sock_link_rx_t * repair_link = ctx->link_rx + ctx->repair_rx;
-      uchar * repair_buf = fd_chunk_to_laddr( repair_link->base, repair_link->chunk );
-      memcpy( repair_buf, eth_hdr, frame_sz );
-      fd_stem_publish( stem, ctx->repair_rx, sig, repair_link->chunk, frame_sz, 0UL, 0UL, tspub );
-      repair_link->chunk = fd_dcache_compact_next( repair_link->chunk, FD_NET_MTU, repair_link->chunk0, repair_link->wmark );
-    } else {
-      fd_stem_publish( stem, rx_link, sig, chunk, frame_sz, 0UL, 0UL, tspub );
+    if( FD_UNLIKELY( chunk!=chunk_pub ) ) {
+      memcpy( fd_chunk_to_laddr( base, chunk_pub ), eth_hdr, frame_sz );
     }
-
-    last_chunk = chunk;
+    fd_stem_publish( stem, rx_link, sig, chunk_pub, frame_sz, 0UL, 0UL, tspub );
+    chunk_pub = fd_dcache_compact_next( chunk_pub, FD_NET_MTU, chunk0, wmark );
   }
 
   /* Rewind the chunk index to the first free index. */
-  link->chunk = fd_dcache_compact_next( last_chunk, FD_NET_MTU, chunk0, wmark );
+  link->chunk = chunk_pub;
   return (ulong)msg_cnt;
 }
 
@@ -507,9 +490,11 @@ poll_rx( fd_sock_tile_t *    ctx,
     FD_LOG_ERR(( "Batch is not clean" ));
   }
   ctx->tx_idle_cnt = 0; /* restart TX polling */
-  if( FD_UNLIKELY( fd_syscall_poll( ctx->pollfd, ctx->sock_cnt, ctx->lo_ifindex ? -1 : 0 )<0 ) ) {
+  long wait_ns = ctx->lo_ifindex ? (long)((double)fd_long_max( stem->then-fd_tickcount(), 0L )/ctx->tick_per_ns) : 0L;
+  struct timespec ts = { .tv_sec = wait_ns/1000000000L, .tv_nsec = wait_ns%1000000000L };
+  if( FD_UNLIKELY( ppoll( ctx->pollfd, ctx->sock_cnt, &ts, NULL )<0 ) ) {
     if( FD_UNLIKELY( errno==EINTR ) ) return 0UL;
-    FD_LOG_ERR(( "fd_syscall_poll failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    FD_LOG_ERR(( "ppoll failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
   for( uint j=0U; j<ctx->sock_cnt; j++ ) {
     if( ctx->pollfd[ j ].revents & (POLLIN|POLLERR) ) {
@@ -535,7 +520,7 @@ flush_tx_batch( fd_sock_tile_t * ctx ) {
     int remain   = (int)batch_cnt - j;
     int send_cnt = sendmmsg( ctx->tx_sock, ctx->batch_msg + j, (uint)remain, MSG_DONTWAIT );
     if( send_cnt>=0 ) {
-      ctx->metrics.sys_sendmmsg_cnt[ FD_METRICS_ENUM_SOCKET_ERROR_V_NO_ERROR_IDX ]++;
+      ctx->metrics.sys_sendmmsg_cnt[ FD_METRICS_ENUM_SENDMMSG_RESULT_V_SUCCESS_IDX ]++;
     }
     if( FD_UNLIKELY( send_cnt < remain ) ) {
       ctx->metrics.tx_drop_cnt++;
@@ -543,22 +528,22 @@ flush_tx_batch( fd_sock_tile_t * ctx ) {
         switch( errno ) {
         case EAGAIN:
         case ENOBUFS:
-          ctx->metrics.sys_sendmmsg_cnt[ FD_METRICS_ENUM_SOCKET_ERROR_V_SLOW_IDX ]++;
+          ctx->metrics.sys_sendmmsg_cnt[ FD_METRICS_ENUM_SENDMMSG_RESULT_V_BUFFER_FULL_IDX ]++;
           break;
         case EPERM:
-          ctx->metrics.sys_sendmmsg_cnt[ FD_METRICS_ENUM_SOCKET_ERROR_V_PERMISSION_IDX ]++;
+          ctx->metrics.sys_sendmmsg_cnt[ FD_METRICS_ENUM_SENDMMSG_RESULT_V_PERMISSION_IDX ]++;
           break;
         case ENETUNREACH:
         case EHOSTUNREACH:
-          ctx->metrics.sys_sendmmsg_cnt[ FD_METRICS_ENUM_SOCKET_ERROR_V_UNREACHABLE_IDX ]++;
+          ctx->metrics.sys_sendmmsg_cnt[ FD_METRICS_ENUM_SENDMMSG_RESULT_V_UNREACHABLE_IDX ]++;
           break;
         case ENONET:
         case ENETDOWN:
         case EHOSTDOWN:
-          ctx->metrics.sys_sendmmsg_cnt[ FD_METRICS_ENUM_SOCKET_ERROR_V_DOWN_IDX ]++;
+          ctx->metrics.sys_sendmmsg_cnt[ FD_METRICS_ENUM_SENDMMSG_RESULT_V_DOWN_IDX ]++;
           break;
         default:
-          ctx->metrics.sys_sendmmsg_cnt[ FD_METRICS_ENUM_SOCKET_ERROR_V_OTHER_IDX ]++;
+          ctx->metrics.sys_sendmmsg_cnt[ FD_METRICS_ENUM_SENDMMSG_RESULT_V_OTHER_IDX ]++;
           /* log with NOTICE, since flushing has a significant negative performance impact */
           FD_LOG_NOTICE(( "sendmmsg failed (%i-%s)", errno, fd_io_strerror( errno ) ));
         }
@@ -571,6 +556,7 @@ flush_tx_batch( fd_sock_tile_t * ctx ) {
 
         /* add the successful count */
         ctx->metrics.tx_pkt_cnt += (ulong)send_cnt;
+        for( int k=j-send_cnt-1; k<j-1; k++ ) ctx->metrics.tx_bytes_total += ctx->batch_frame_sz[ k ];
       }
 
       continue;
@@ -578,6 +564,7 @@ flush_tx_batch( fd_sock_tile_t * ctx ) {
 
     /* send_cnt == batch_cnt, so we sent everything */
     ctx->metrics.tx_pkt_cnt += (ulong)send_cnt;
+    for( int k=j; k<j+send_cnt; k++ ) ctx->metrics.tx_bytes_total += ctx->batch_frame_sz[ k ];
     break;
   }
 
@@ -585,18 +572,17 @@ flush_tx_batch( fd_sock_tile_t * ctx ) {
   ctx->batch_cnt = 0;
 }
 
-/* before_frag is called when a new frag has been detected.  The sock
-   tile can do early filtering here in the future.  For example, it may
-   want to install routing logic here to take turns with an XDP tile.
-   (Fast path with slow fallback) */
+/* before_frag is called when a new frag has been detected.  Every sock
+   tile reads every TX link, so each sends only its share of packets. */
 
 static inline int
-before_frag( fd_sock_tile_t * ctx    FD_PARAM_UNUSED,
+before_frag( fd_sock_tile_t * ctx,
              ulong            in_idx FD_PARAM_UNUSED,
              ulong            seq    FD_PARAM_UNUSED,
              ulong            sig ) {
   ulong proto = fd_disco_netmux_sig_proto( sig );
   if( FD_UNLIKELY( proto!=DST_PROTO_OUTGOING ) ) return 1;
+  if( fd_disco_netmux_sig_hash( sig )%ctx->tx_tile_cnt!=ctx->tx_tile_idx ) return 1;
   return 0; /* continue */
 }
 
@@ -687,7 +673,7 @@ during_frag( fd_sock_tile_t * ctx,
 
   memcpy( buf, udp_hdr, sizeof(fd_udp_hdr_t) );
   fd_memcpy( buf+sizeof(fd_udp_hdr_t), payload, payload_sz );
-  ctx->metrics.tx_bytes_total += sz;
+  ctx->batch_frame_sz[ batch_idx ] = sz;
 }
 
 /* after_frag is called when a frag was copied into a sendmmsg buffer. */
@@ -753,7 +739,7 @@ after_credit( fd_sock_tile_t *    ctx,
     /* Housekeeping cannot publish progress while the tile sleeps. */
     FD_COMPILER_MFENCE();
     metrics_write( ctx );
-    FD_MGAUGE_SET( TILE, HEARTBEAT_TIMESTAMP_NANOS, (ulong)fd_log_wallclock() );
+    FD_MGAUGE_SET( TILE, HEARTBEAT_TIME, (ulong)fd_log_wallclock() );
     for( ulong i=0UL; i<ctx->link_rx_cnt; i++ ) {
       fd_mcache_seq_update( fd_mcache_seq_laddr( stem->mcaches[ i ] ), stem->seqs[ i ] );
     }

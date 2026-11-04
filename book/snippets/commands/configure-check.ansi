@@ -1,7 +1,8 @@
-$ fdctl configure check all
-[33mWARNING[0m hugetlbfs ... not configured ... mounts `/mnt/.fd/.huge` and `/mnt/.fd/.gigantic` do not exist
-[33mWARNING[0m sysctl ... not configured ... kernel parameter `/proc/sys/vm/max_map_count` is too low (got 65536 but expected at least 1000000)
-[33mWARNING[0m ethtool-channels ... not configured ... device `ens3f0` missing ethtool-channels network configuration
-[33mWARNING[0m ethtool-offloads ... not configured ... device `ens3f0` has rx-udp-gro-forwarding enabled. Should be disabled
-[33mWARNING[0m ethtool-loopback ... not configured ... device `lo` has tx-udp-segmentation enabled. Should be disabled
+$ firedancer configure check all
+[93mWARNING[0m [1mhugetlbfs[0m ... not configured ... [2mmounts `/mnt/.fd/.huge` and `/mnt/.fd/.gigantic` do not exist[0m
+[93mWARNING[0m [1methtool-channels[0m ... not configured ... [2mdevice `bond0` missing ethtool-channels network configuration[0m
+[93mWARNING[0m [1mirq-affinity[0m ... not configured ... [2minsufficient permissions to write /proc/irq/0/smp_affinity[0m
+[93mWARNING[0m [1mkworkers[0m ... not configured ... [2mkernel workqueue cpumask includes Firedancer tile CPUs or their isolated siblings 94[0m
+[93mWARNING[0m [1mcpuset[0m ... not configured ... [2m`/sys/fs/cgroup/fd1` does not exist[0m
+[93mWARNING[0m [1mconsole[0m ... not configured ... [2mconsole loglevel is 4; kernel messages render console work on the printing CPU[0m
 [31mERR    [0m failed to configure some stages

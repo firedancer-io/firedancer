@@ -17,6 +17,9 @@
 
 struct fd_gui_config_parse_info {
   fd_pubkey_t pubkey;
+  ulong slot;
+  int   cleared;
+
   char name    [ FD_GUI_CONFIG_PARSE_VALIDATOR_INFO_NAME_SZ     + 1UL ]; /* +1UL for NULL */
   char website [ FD_GUI_CONFIG_PARSE_VALIDATOR_INFO_WEBSITE_SZ  + 1UL ];
   char details [ FD_GUI_CONFIG_PARSE_VALIDATOR_INFO_DETAILS_SZ  + 1UL ];

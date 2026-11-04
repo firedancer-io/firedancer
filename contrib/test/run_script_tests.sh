@@ -22,14 +22,12 @@ $UNIT_TEST/test_alloc_ctl   > $LOG_PATH/alloc_ctl   2>&1 || test_status=1
 $UNIT_TEST/test_pod_ctl     > $LOG_PATH/pod_ctl     2>&1 || test_status=1
 $UNIT_TEST/test_tango_ctl   > $LOG_PATH/tango_ctl   2>&1 || test_status=1
 $UNIT_TEST/test_wksp_helper > $LOG_PATH/wksp_helper 2>&1 || test_status=1 # allocates a gigantic page
-$UNIT_TEST/test_gdb_base58.sh > $LOG_PATH/gdb_base58 2>&1 || test_status=1
 
 # Multi-tile tests
 $UNIT_TEST/test_cnc   --tile-cpus 0,2   2> $LOG_PATH/cnc         || test_status=1
 $UNIT_TEST/test_tile  --tile-cpus 0-8/2 2> $LOG_PATH/tile_multi  || test_status=1
 $UNIT_TEST/test_tpool --tile-cpus 0-7   2> $LOG_PATH/tpool_large || test_status=1
 $UNIT_TEST/test_store --tile-cpus 0-3 --require-multitile 2> $LOG_PATH/store_multi || test_status=1
-$UNIT_TEST/test_reasm --tile-cpus 0-3 --require-multitile 2> $LOG_PATH/reasm_multi || test_status=1
 
 if $UNIT_TEST/test_ipc_init $OBJDIR && \
     $UNIT_TEST/test_ipc_meta 16     && \

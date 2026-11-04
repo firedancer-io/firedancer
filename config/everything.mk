@@ -175,7 +175,6 @@ help:
 	# "make lib" makes all libraries for the current platform
 	# "make unit-test" makes all unit-tests for the current platform
 	# "make integration-test" makes all integration-tests for the current platform
-	# "make rust" makes all binaries for the current platform that require the Rust toolchain
 	# "make run-unit-test" runs all unit-tests for the current platform. NOTE: this will not (re)build the test executables
 	# "make run-integration-test" runs all integration-tests for the current platform. NOTE: this will not (re)build the test executables
 	# "make help" prints this message
@@ -197,11 +196,10 @@ info: $(OBJDIR)/info
 
 clean: frontend-clean
 	$(RMDIR) $(CLEANDIR) && { [ ! -d $(BASEDIR) ] || $(FIND) $(BASEDIR)/ -maxdepth 1 -type f -perm -u+x -links 1 -delete; } && \
-$(RMDIR) target && $(RMDIR) agave/target && \
 $(SCRUB)
 
 distclean: frontend-clean
-	$(RMDIR) $(BASEDIR) && $(RMDIR) target && $(RMDIR) agave/target && \
+	$(RMDIR) $(BASEDIR) && \
 $(SCRUB)
 
 run-unit-test:
@@ -305,12 +303,12 @@ add-test-scripts = $(foreach script,$(1),$(eval $(call _add-script,unit-test,$(s
 
 # slowest objects first: make -j spawns in prerequisite order, so a slow TU
 # listed late runs alone in the tail; patterns under $(OBJDIR)/obj/, no .o
-SCHED_HOT_OBJS?=third_party/blst/% discof/replay/% discof/rpc/% disco/gui/% ballet/reedsol/% flamenco/vm/% third_party/zstd/lib/compress/% disco/pack/% waltz/quic/fd_quic app/firedancer/topology app/shared/commands/watch/% discof/forest/% discof/%_tile disco/%_tile flamenco/accdb/fd_accdb third_party/zstd/lib/decompress/% ballet/sha256/% ballet/sha512/% ballet/bn254/% flamenco/runtime/program/% ballet/ed25519/% third_party/bzip2/% flamenco/stakes/% util/math/fd_stat disco/events/% disco/topo/% ballet/blake3/% discof/rotor/% flamenco/rewards/% choreo/tower/% disco/shred/% \
+SCHED_HOT_OBJS?=third_party/blst/% discof/replay/% discof/rpc/% disco/gui/% ballet/reedsol/% flamenco/vm/% third_party/zstd/lib/compress/% disco/pack/% waltz/quic/fd_quic app/firedancer/topology app/shared/commands/watch/% discof/forest/% discof/%_tile disco/%_tile flamenco/accdb/fd_accdb third_party/zstd/lib/decompress/% ballet/sha256/% ballet/sha512/% ballet/bn254/% flamenco/runtime/program/% ballet/ed25519/% third_party/bzip2/% flamenco/stakes/% util/math/fd_stat disco/events/% disco/topo/% ballet/blake3/% flamenco/rewards/% choreo/tower/% disco/shred/% \
   waltz/http/fd_http_server flamenco/runtime/tests/fd_dump_pb ballet/x509/fd_x509 ballet/toml/fd_toml third_party/cjson/% ballet/zksdk/rangeproofs/% util/log/fd_log util/alloc/fd_alloc util/pod/fd_pod util/wksp/fd_wksp_restore_v2 util/shmem/fd_shmem_admin util/sandbox/fd_sandbox util/tpool/fd_tpool util/wksp/fd_wksp_helper util/wksp/fd_wksp_admin third_party/zstd/lib/common/%
 sched-hot-objs = $(filter $(foreach lib,$(VENDOR_LINK_LIBS) $(1),$(LIB_OBJS_$(lib))),$(SCHED_HOT_ALL))
 # make 4.3 second-expands every rule at parse: the exe-level hot edge stays on bins and
 # goal tests only; each meta gets one over its exes' lib union, declared first so it leads
-EXE_METAS:=bin rust lib unit-test integration-test fuzz-test
+EXE_METAS:=bin lib unit-test integration-test fuzz-test
 $(EXE_METAS): $$(if $$(META_LIBS_$$@),$$(call sched-hot-objs,$$(sort $$(META_LIBS_$$@))))
 
 # _make-exe usage:
@@ -335,7 +333,7 @@ $(if $(FD_PRUNE),EXE_KEEP+=$(call ldstamp,$(5),$(1),$(6)) $(if $(filter bin,$(5)
 ifeq ($(5),bin)
 # build info captured by its own early job; the link installs it
 $(OBJDIR)/bin/$(1).buildinfo.o.new: FORCE
-	@$(MKDIR) $$(dir $$@) && { echo 'char const fd_bin_build_info[] ='; printf '  "# date     %s\\n"\n' "$$$$(date +'%Y-%m-%d %H:%M:%S %z')"; [ "$$$$(git rev-parse --show-toplevel 2>/dev/null)" = "$$$$(pwd -P)" ] && git --no-optional-locks status --porcelain=2 2>/dev/null | grep -E '^[12u] ' | head -100 | sed 's/\\/\\\\/g; s/"/\\"/g; s/.*/  "&\\n"/'; echo ';'; } > $(OBJDIR)/bin/$(1).buildinfo.c && $$(CC) $$(CPPFLAGS) $$(CFLAGS) -c -o $$@ $(OBJDIR)/bin/$(1).buildinfo.c
+	@$(MKDIR) $$(dir $$@) && { echo '#pragma GCC diagnostic ignored "-Woverlength-strings"'; echo 'char const fd_bin_build_info[] ='; printf '  "# date     %s\\n"\n' "$$$$(date +'%Y-%m-%d %H:%M:%S %z')"; [ "$$$$(git rev-parse --show-toplevel 2>/dev/null)" = "$$$$(pwd -P)" ] && git --no-optional-locks status --porcelain=2 2>/dev/null | grep -E '^[12u] ' | head -100 | sed 's/\\/\\\\/g; s/"/\\"/g; s/.*/  "&\\n"/'; echo ';'; } > $(OBJDIR)/bin/$(1).buildinfo.c && $$(CC) $$(CPPFLAGS) $$(CFLAGS) -c -o $$@ $(OBJDIR)/bin/$(1).buildinfo.c
 $(1) buildinfo: $(OBJDIR)/bin/$(1).buildinfo.o.new $(OBJDIR)/info
 $(OBJDIR)/bin/$(1): | $(OBJDIR)/bin/$(1).buildinfo.o.new
 endif
@@ -420,7 +418,6 @@ $(2): publish-$(1)
 endef
 
 make-bin       = $(eval $(call _make-exe,$(1),$(2),$(3),bin,bin,$(4) $(LDFLAGS_EXE)))$(eval $(call _publish-bin,$(1),bin))
-make-bin-rust  = $(eval $(call _make-exe,$(1),$(2),$(3),rust,bin,$(4) $(LDFLAGS_EXE)))$(eval $(call _publish-bin,$(1),rust))
 make-shared    = $(eval $(call _make-exe,$(1),$(2),$(3),lib,lib,$(4) $(LDFLAGS_SO)))
 make-unit-test = $(eval $(call _make-exe,$(1),$(2),$(3),unit-test,unit-test,$(4) $(LDFLAGS_EXE)))
 run-unit-test  = $(eval $(call _run-unit-test,$(1)))
@@ -676,11 +673,6 @@ LLVM_PROFILE_FILE="$(OBJDIR)/cov/raw/test_vectors-%p.profraw" \
 LOG_PATH="$(OBJDIR)/log/fd-test-vectors-report" \
 contrib/test/run_test_vectors.sh
 
-run-solcap-tests: bin unit-test
-	OBJDIR=$(OBJDIR) \
-	MACHINE=$(MACHINE) \
-	contrib/test/run_solcap_tests.sh
-
 seccomp-policies:
 	$(FIND) . -name '*.seccomppolicy' -print0 | xargs -0 -n 1 $(PYTHON) contrib/codegen/generate_filters.py
 
@@ -769,22 +761,12 @@ cov-report: $(OBJDIR)/cov/html/index.html
 dist-cov-report: $(BASEDIR)/cov/html/index.html
 	$(LCOV) --summary $(BASEDIR)/cov/cov.lcov
 
-# Builds the frontend bundle and bakes it into the binary.  There are two
-# independent GUI binaries with their own frontend bundle:
-#
-#   FRONTEND_CLIENT=Firedancer -> src/disco/gui      (full client)
-#   FRONTEND_CLIENT=Frankendancer -> src/discoh/guih (frankendancer)
+# Builds the frontend bundle and bakes it into the binary (src/disco/gui)
 #
 # Each client has a single bundle, stored under its dist/ directory; there
 # are no longer per-channel (stable/alpha/dev) variants.
 FRONTEND_CLIENT := Firedancer
-ifeq ($(FRONTEND_CLIENT),Firedancer)
 FRONTEND_DIR := src/disco/gui
-else ifeq ($(FRONTEND_CLIENT),Frankendancer)
-FRONTEND_DIR := src/discoh/guih
-else
-$(error "unexpected FRONTEND_CLIENT (expected Firedancer or Frankendancer)")
-endif
 
 # Regenerates generated/http_import_dist.c from the committed dist/ tree.
 # Hermetic (no npm), so CI can diff it; C collation keeps the order
@@ -837,7 +819,6 @@ frontend-generated:
 	$(frontend-generated-recipe)
 
 frontend-clean:
-	rm -rf src/discoh/guih/dist_cmp
 	rm -rf src/disco/gui/dist_cmp
 
 objdir:

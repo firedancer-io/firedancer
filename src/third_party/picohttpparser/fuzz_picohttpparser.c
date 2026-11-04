@@ -30,7 +30,7 @@ LLVMFuzzerInitialize( int  *   argc,
 void fuzz_request(uchar const * data, ulong size) {
   if (size >= sizeof(size_t)) {
     size -= sizeof(size_t);
-    size_t last_len = *(size_t *)data;
+    size_t last_len = FD_LOAD( size_t, data );
     if (last_len > 0) {
       if (size == 0) {
         last_len = 0;
@@ -119,7 +119,7 @@ void fuzz_request(uchar const * data, ulong size) {
 void fuzz_response(uchar const * data, ulong size) {
   if (size >= sizeof(size_t)) {
     size -= sizeof(size_t);
-    size_t last_len = *(size_t *)data;
+    size_t last_len = FD_LOAD( size_t, data );
     if (last_len > 0) {
       if (size == 0) {
         last_len = 0;
@@ -151,7 +151,7 @@ void fuzz_response(uchar const * data, ulong size) {
 void fuzz_headers(uchar const * data, ulong size) {
   if (size >= sizeof(size_t)) {
     size -= sizeof(size_t);
-    size_t last_len = *(size_t *)data;
+    size_t last_len = FD_LOAD( size_t, data );
     if (last_len > 0) {
       if (size == 0) {
         last_len = 0;

@@ -58,20 +58,22 @@
 
    The concurrency model is: every mutating operation takes the struct's
    write lock for its whole duration, so mutators are safe to call
-   concurrently from any tile.  fd_stake_delegations_{mark,unmark}_delta
-   and the iterator are the exception: the caller holds the write lock
-   across the whole mark/iterate/unmark bracket.
+   concurrently from any tile.  fd_stake_delegations_view_{begin,end}
+   and the iterator are the exception: view_begin takes the write lock
+   and view_end releases it, so it is held across the whole
+   view_begin/iterate/view_end bracket.
 
    max_disk_records bounds the number of delta records that can spill
    to disk.  The disk root capacity is max_stake_accounts plus twice
    max_disk_records. */
 
 #define FD_STAKE_DELEGATIONS_ALIGN              (128UL)
-#define FD_STAKE_DELEGATIONS_FORK_MAX           (4096UL)
+#define FD_STAKE_DELEGATIONS_FORK_MAX           (65534UL)
 #define FD_STAKE_DELEGATIONS_DELTA_POOL_DIVISOR (2UL)
 
-/* 123458/123459 are store, 123460/123461 are accdb, and 123462+ are
-   reserved by XDP. */
+/* 123454 is vote stakes, 123455 is cost tracker, 123456 is epoch
+   credits, 123458/123459 are store, 123460/123461 are accdb, and
+   123462+ are reserved by XDP. */
 
 #define FD_STAKE_DELEGATIONS_FD (123457)
 
@@ -113,18 +115,12 @@
      upcoming epoch, which is naturally the largest epoch in the
      cluster.  Since tag_epoch was sometime in the past when a block
      rooted, tag_epoch<=target_epoch holds trivially.
-   - For the points calculation use case, recall that rewarded_epoch is
-     the just-ended epoch.  Since we are at the boundary of
-     rewarded_epoch=>rewarded_epoch+1, we know that
+   - For the reward stake accumulation in refresh_vote_accounts(),
+     recall that rewarded_epoch is the just-ended epoch.  Since we are
+     at the boundary of rewarded_epoch=>rewarded_epoch+1, we know that
      tag_epoch<=rewarded_epoch, because no slot has rooted for
      rewarded_epoch+1 yet.  So if we constrain the target_epoch to be
-     exactly rewarded_epoch, we get tag_epoch<=target_epoch.  It doesn't
-     hurt that most delegations are up to date on rewards payout, and
-     the only epoch for which they have eligible points is precisely the
-     rewarded_epoch.
-   - We disable the tag fast path for recalculation during boot, because
-     tags are computed fresh at the snapshot root, and so
-     rewarded_epoch<tag_epoch.
+     exactly rewarded_epoch, we get tag_epoch<=target_epoch.
 
    WARMED and COOLED are stable states and are the only tags that the
    fast paths act on.  The unstable state tags (WARMING/COOLING) are
@@ -280,8 +276,8 @@ fd_stake_delegations_align( void );
 
 /* fd_stake_delegations_footprint returns the footprint of the stake
    delegations struct for the given root pool capacity and max live
-   slots.  The in-memory delta pool holds one eighth as many elements,
-   with a minimum capacity of one; further deltas spill to disk. */
+   slots.  The in-memory delta pool holds half as many elements, with a
+   minimum capacity of one; further deltas spill to disk. */
 
 ulong
 fd_stake_delegations_footprint( ulong max_stake_accounts,
@@ -392,7 +388,7 @@ fd_stake_delegations_vote_account_status( fd_stake_delegations_t *   stake_deleg
                                           int                        use_fixed_point_stake_math );
 
 /* fd_stake_delegations_new_fork allocates a child of parent_fork_idx.
-   USHORT_MAX indicates that the parent is the fork. */
+   USHORT_MAX indicates that the parent is the root. */
 
 ushort
 fd_stake_delegations_new_fork( fd_stake_delegations_t * stake_delegations,
@@ -560,20 +556,17 @@ fd_stake_delegations_iter_done( fd_stake_delegations_iter_t * iter ) {
   return !iter->ele;
 }
 
-/* Invalidates WARMED tags in the in-memory and disk roots.  With
-   force==0, skip the scan if no tag was awarded under floating point
-   math.  Use this when upgrade_bpf_stake_program_to_v5_1 is active.
-   With force!=0, invalidate all WARMED tags regardless of how they were
-   calculated, for example when stake history is not contiguous.  The
-   next scan reevaluates each formerly WARMED delegation.
+/* Invalidates WARMED tags in the in-memory and disk roots, skipping the
+   scan if no tag was awarded under floating point math.  Use this when
+   upgrade_bpf_stake_program_to_v5_1 is active.  The next scan
+   reevaluates each formerly WARMED delegation.
 
    Unlike the other mutators, this one does not take the write lock
    itself: its only callers run inside the boundary's
-   mark/iterate/unmark bracket, which already holds it. */
+   view_begin/iterate/view_end bracket, which already holds it. */
 
 void
-fd_stake_delegations_invalidate_warmed( fd_stake_delegations_t * stake_delegations,
-                                        int                      force );
+fd_stake_delegations_invalidate_warmed( fd_stake_delegations_t * stake_delegations );
 
 FD_PROTOTYPES_END
 

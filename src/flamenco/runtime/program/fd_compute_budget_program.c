@@ -125,6 +125,17 @@ fd_sanitize_compute_unit_limits( fd_txn_out_t * txn_out ) {
   return FD_RUNTIME_EXECUTE_SUCCESS;
 }
 
+void
+fd_compute_budget_count_instrs( fd_bank_t const *             bank,
+                                fd_txn_in_t const *           txn_in,
+                                fd_compute_budget_details_t * details ) {
+  for( ushort i=0; i<TXN( txn_in->txn )->instr_cnt; i++ ) {
+    /* Only `FD_PROGRAM_KIND_BUILTIN` gets charged as a builtin instruction */
+    if( get_program_kind( bank, txn_in, &TXN( txn_in->txn )->instr[i] )==FD_PROGRAM_KIND_BUILTIN ) details->num_builtin_instrs++;
+    else                                                                                           details->num_non_builtin_instrs++;
+  }
+}
+
 /* Like Agave, this function is called during transaction verification
    and is responsible for simply reading and decoding the compute budget
    instruction data. Throws an error if any compute budget instruction
@@ -140,17 +151,10 @@ fd_executor_compute_budget_program_execute_instructions( fd_bank_t const *   ban
                                                          fd_txn_in_t const * txn_in,
                                                          fd_txn_out_t *      txn_out ) {
   fd_compute_budget_details_t * details = &txn_out->details.compute_budget;
+  fd_compute_budget_count_instrs( bank, txn_in, details );
 
   for( ushort i=0; i<TXN( txn_in->txn )->instr_cnt; i++ ) {
     fd_txn_instr_t const * instr = &TXN( txn_in->txn )->instr[i];
-
-    /* Only `FD_PROGRAM_KIND_BUILTIN` gets charged as a builtin instruction */
-    uchar program_kind = get_program_kind( bank, txn_in, instr );
-    if( program_kind==FD_PROGRAM_KIND_BUILTIN ) {
-      details->num_builtin_instrs++;
-    } else {
-      details->num_non_builtin_instrs++;
-    }
 
     if( !is_compute_budget_instruction( TXN( txn_in->txn ), txn_in->txn->payload, instr ) ) {
       continue;

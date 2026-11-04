@@ -71,8 +71,8 @@ fd_global_options_help( fd_action_help_t * help ) {
   fd_action_help_arg( help, "--no-sandbox",       NULL,      "Disable the security sandbox (development only)" );
   fd_action_help_arg( help, "--no-clone",         NULL,      "Run all tiles in a single process instead of one per tile (development only)" );
   fd_action_help_arg( help, "--max-live-slots",   "<count>", "Override the [runtime.max_live_slots] configuration (development only)" );
-  fd_action_help_arg( help, "--alpenglow",        NULL,      "Run Alpenglow consensus in lieu of Tower consensus" );
   fd_action_help_arg( help, "--efficient",        NULL,      "Override the layout mode to \"efficient\" so tiles sleep when idle" );
+  fd_action_help_arg( help, "--standby",          NULL,      "Boot as a failover standby under a junk identity, like [failover.boot_to_standby]" );
   fd_action_help_arg( help, "--version",          NULL,      "Show the current software version" );
   fd_action_help_arg( help, "--help/-h",          NULL,      "Print this help message" );
 }
@@ -80,7 +80,6 @@ fd_global_options_help( fd_action_help_t * help ) {
 int
 fd_dev_main( int                        argc,
              char **                    _argv,
-             int                        is_firedancer,
              fd_config_file_t * const * configs,
              void (* topo_init )( config_t * config ) ) {
   fd_version_private_boot( &argc, &_argv );
@@ -99,9 +98,8 @@ fd_dev_main( int                        argc,
   char const * log_path = fd_env_strip_cmdline_cstr( &argc, &argv, "--log-path", NULL, NULL );
 
   int no_sandbox = fd_env_strip_cmdline_contains( &argc, &argv, "--no-sandbox" );
-  int no_clone = fd_env_strip_cmdline_contains( &argc, &argv, "--no-clone" );
-  int alpenglow = fd_env_strip_cmdline_contains( &argc, &argv, "--alpenglow" );
-  int efficient = fd_env_strip_cmdline_contains( &argc, &argv, "--efficient" );
+  int no_clone   = fd_env_strip_cmdline_contains( &argc, &argv, "--no-clone" );
+  int efficient  = fd_env_strip_cmdline_contains( &argc, &argv, "--efficient" );
 
   ulong max_live_slots = fd_env_strip_cmdline_ulong( &argc, &argv, "--max-live-slots", NULL, 0UL );
 
@@ -151,25 +149,18 @@ fd_dev_main( int                        argc,
 # if !FD_HAS_ASAN && !FD_HAS_MSAN
   fd_log_enable_signal_handler();
 # endif
-  int load_topo = fd_main_init( &argc, &argv, &config, opt_user_config_path, is_firedancer, action->is_local_cluster, log_path, configs, 1 /* dev */ );
+  int load_topo = fd_main_init( &argc, &argv, &config, opt_user_config_path, action->is_local_cluster, log_path, configs, 1 /* dev */ );
   if( FD_LIKELY( load_topo ) ) fd_cstr_ncpy( config.action, action->name, sizeof( config.action ) );
+
+  if( FD_UNLIKELY( config.is_live_cluster && (no_clone || no_sandbox) ) )
+    FD_LOG_ERR(( "trying to join a live cluster, but %s is a development only flag", no_clone ? "--no-clone" : "--no-sandbox" ));
 
   config.development.no_clone = config.development.no_clone || no_clone;
   config.development.sandbox = config.development.sandbox && !no_sandbox && !config.development.no_clone;
 
-  /* Frankendancer has a separate production binary (fdctl); for
-     Firedancer running the dev binary against a live cluster is a
-     supported flow. */
-  int is_allowed_live = is_firedancer || action->is_diagnostic==1;
-  if( FD_UNLIKELY( config.is_live_cluster && !is_allowed_live ) )
-    FD_LOG_ERR(( "The `fddev` command is for development and test environments but your "
-                 "configuration targets a live cluster. Use `fdctl` if this is a "
-                 "production environment" ));
-
   if( FD_LIKELY( load_topo ) ) {
-    if( FD_UNLIKELY( max_live_slots && config.is_firedancer ) ) config.firedancer.runtime.max_live_slots = max_live_slots;
-    if( FD_UNLIKELY( alpenglow      && config.is_firedancer ) ) config.firedancer.consensus.alpenglow = 1;
-    if( FD_UNLIKELY( efficient      && config.is_firedancer ) ) fd_cstr_ncpy( config.firedancer.layout.mode, "efficient", sizeof(config.firedancer.layout.mode) );
+    if( FD_UNLIKELY( max_live_slots ) ) config.firedancer.runtime.max_live_slots = max_live_slots;
+    if( FD_UNLIKELY( efficient      ) ) fd_cstr_ncpy( config.firedancer.layout.mode, "efficient", sizeof(config.firedancer.layout.mode) );
     if( FD_LIKELY( action->topo ) ) action->topo( &config );
     else                            topo_init( &config );
   }
@@ -188,7 +179,7 @@ fd_dev_main( int                        argc,
       if( FD_UNLIKELY( !geteuid() ) ) {
         for( ulong i=0UL; i<err_cnt; i++ ) FD_LOG_WARNING(( "%s", fd_cap_chk_err( chk, i ) ));
         FD_LOG_ERR(( "insufficient permissions to execute command `%s` when running as root. "
-                     "fddev is likely being run with a reduced capability bounding set.", action_name ));
+                     "firedancer-dev is likely being run with a reduced capability bounding set.", action_name ));
       }
       FD_LOG_INFO(( "insufficient permissions to execute command `%s`, rerunning as root", action_name ));
       execve_as_root( orig_argc, orig_argv );

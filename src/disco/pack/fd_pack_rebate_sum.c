@@ -33,7 +33,6 @@ fd_pack_rebate_sum_new( void * mem,
   fd_pack_rebate_sum_t * s = (fd_pack_rebate_sum_t *)mem;
 
   s->total_cost_rebate        = 0UL;
-  s->vote_cost_rebate         = 0UL;
   s->data_bytes_rebate        = 0UL;
   s->microblock_cnt_rebate    = 0UL;
   s->alloc_rebate             = 0UL;
@@ -79,7 +78,6 @@ fd_pack_rebate_sum_add_txn( fd_pack_rebate_sum_t         * s,
     any_in_block          |= in_block;
 
     s->total_cost_rebate += rebated_cus;
-    s->vote_cost_rebate  += fd_ulong_if( txn->flags & FD_TXN_P_FLAGS_IS_SIMPLE_VOTE, rebated_cus,     0UL );
     s->data_bytes_rebate += fd_ulong_if( !in_block,                                  txn->payload_sz, 0UL );
     s->alloc_rebate      += fd_ulong_if( !in_block,                                  txn->pack_alloc, 0UL );
 
@@ -144,7 +142,6 @@ fd_pack_rebate_sum_report( fd_pack_rebate_sum_t * s,
                            fd_pack_rebate_t     * out ) {
   if( FD_UNLIKELY( (s->ib_result==0) & (s->total_cost_rebate==0UL) & (s->writer_cnt==0U) ) ) return 0UL;
   out->total_cost_rebate       = s->total_cost_rebate;          s->total_cost_rebate       = 0UL;
-  out->vote_cost_rebate        = s->vote_cost_rebate;           s->vote_cost_rebate        = 0UL;
   out->data_bytes_rebate       = s->data_bytes_rebate;          s->data_bytes_rebate       = 0UL;
   out->microblock_cnt_rebate   = s->microblock_cnt_rebate;      s->microblock_cnt_rebate   = 0UL;
   out->alloc_rebate            = s->alloc_rebate;               s->alloc_rebate            = 0UL;
@@ -164,7 +161,6 @@ fd_pack_rebate_sum_report( fd_pack_rebate_sum_t * s,
 void
 fd_pack_rebate_sum_clear( fd_pack_rebate_sum_t * s ) {
   s->total_cost_rebate       = 0UL;
-  s->vote_cost_rebate        = 0UL;
   s->data_bytes_rebate       = 0UL;
   s->microblock_cnt_rebate   = 0UL;
   s->alloc_rebate            = 0UL;

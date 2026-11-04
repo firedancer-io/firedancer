@@ -207,13 +207,23 @@ prepare_unstaked_sampling( fd_shred_dest_t  * sdest,
   ulong i=0UL;
   for( ; i<direct_index_up_to; i++ ) sdest->unstaked[i] = i+sdest->staked_cnt;
   for( ; i<unstaked_cnt;       i++ ) sdest->unstaked[i] = i+sdest->staked_cnt + 1UL;
+  sdest->rng_avail = fd_ulong_min( unstaked_cnt, 256UL );
+  sdest->rng_ptr   = 0UL;
+  fd_chacha_rng_ulong_roll_decreasing( sdest->rng, unstaked_cnt, sdest->rng_pregen, sdest->rng_avail );
+
 }
 
 static inline ulong
 sample_unstaked( fd_shred_dest_t * sdest ) {
   if( FD_UNLIKELY( sdest->unstaked_unremoved_cnt==0UL ) ) return FD_WSAMPLE_EMPTY;
 
-  ulong sample = fd_chacha_rng_ulong_roll( sdest->rng, sdest->unstaked_unremoved_cnt );
+  if( FD_UNLIKELY( sdest->rng_avail==0UL ) ) {
+    sdest->rng_avail = fd_ulong_min( sdest->unstaked_unremoved_cnt, 256UL );
+    sdest->rng_ptr   = 0UL;
+    fd_chacha_rng_ulong_roll_decreasing( sdest->rng, sdest->unstaked_unremoved_cnt, sdest->rng_pregen, sdest->rng_avail );
+  }
+  ulong sample = sdest->rng_pregen[ sdest->rng_ptr++ ];
+  sdest->rng_avail--;
   ulong to_return = sdest->unstaked[sample];
   sdest->unstaked[sample] = sdest->unstaked[--sdest->unstaked_unremoved_cnt];
   return to_return;
@@ -469,6 +479,19 @@ fd_shred_dest_pubkey_to_idx( fd_shred_dest_t   * sdest,
 
   pubkey_to_idx_t default_res[ 1 ] = {{ .idx = FD_SHRED_DEST_NO_DEST }};
   pubkey_to_idx_t * query = pubkey_to_idx_query( sdest->pubkey_to_idx_map, *pubkey, default_res );
+
+  return (fd_shred_dest_idx_t)query->idx;
+}
+
+fd_shred_dest_idx_t
+fd_shred_dest_leader_for_slot( fd_shred_dest_t const * sdest,
+                               ulong slot ) {
+  fd_pubkey_t const * leader = fd_epoch_leaders_get( sdest->lsched, slot );
+  if( FD_UNLIKELY( !leader ) ) return FD_SHRED_DEST_NO_DEST;
+
+  pubkey_to_idx_t default_res[ 1 ] = {{ .idx = FD_SHRED_DEST_NO_DEST }};
+  pubkey_to_idx_t const * query  = pubkey_to_idx_query( sdest->pubkey_to_idx_map, *leader, default_res );
+  if( FD_UNLIKELY( query->idx==sdest->source_validator_orig_idx ) ) return FD_SHRED_DEST_NO_DEST;
 
   return (fd_shred_dest_idx_t)query->idx;
 }

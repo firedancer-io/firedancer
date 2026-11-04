@@ -6,6 +6,7 @@
 #include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <ctype.h>
 
 #include "fd_tile_private.h"
 
@@ -34,6 +35,37 @@ fd_cpuset_setaffinity( ulong               pid,
 }
 
 ulong
+fd_tile_private_sibling_parse( char const * list,
+                               ulong        cpu_idx ) {
+  ulong cnt     = 0UL;
+  ulong other   = ULONG_MAX;
+  int   found   = 0;
+  char const * p = list;
+  for(;;) {
+    if( FD_UNLIKELY( !fd_isdigit( (int)p[0] ) ) ) return ULONG_MAX-1UL;
+    char * end;
+    ulong lo = strtoul( p, &end, 10 );
+    ulong hi = lo;
+    p = end;
+    if( p[0]=='-' ) {
+      p++;
+      if( FD_UNLIKELY( !fd_isdigit( (int)p[0] ) ) ) return ULONG_MAX-1UL;
+      hi = strtoul( p, &end, 10 );
+      p  = end;
+    }
+    if( FD_UNLIKELY( hi<lo || hi>=FD_TILE_MAX ) ) return ULONG_MAX-1UL;
+    cnt += hi-lo+1UL;
+    if( cpu_idx>=lo && cpu_idx<=hi ) found = 1;
+    if( lo!=cpu_idx )      other = lo;
+    else if( hi!=cpu_idx ) other = hi;
+    if( p[0]!=',' ) break;
+    p++;
+  }
+  if( FD_UNLIKELY( !( p[0]=='\0' || ( p[0]=='\n' && p[1]=='\0' ) ) || !found || cnt>2UL ) ) return ULONG_MAX-1UL;
+  return cnt==2UL ? other : ULONG_MAX;
+}
+
+ulong
 fd_tile_private_sibling_idx( ulong cpu_idx ) {
 # if defined(__linux__)
   char path[ PATH_MAX ];
@@ -49,21 +81,9 @@ fd_tile_private_sibling_idx( ulong cpu_idx ) {
 
   if( FD_UNLIKELY( close( fd ) ) ) FD_LOG_ERR(( "close( \"%s\" ) failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
 
-  char * sep = strchr( line, ',' );
-  if( FD_UNLIKELY( !sep ) ) return ULONG_MAX;
-
-  *sep = '\0';
-  errno = 0;
-  char * endptr;
-  ulong pair1 = strtoul( line, &endptr, 10 );
-  if( FD_UNLIKELY( *endptr!='\0' || errno==ERANGE || errno==EINVAL ) ) FD_LOG_ERR(( "failed to parse cpu siblings list of cpu%lu `%s`", cpu_idx, line ));
-
-  ulong pair2 = strtoul( sep+1UL, &endptr, 10 );
-  if( FD_UNLIKELY( *endptr!='\n' || errno==ERANGE || errno==EINVAL ) ) FD_LOG_ERR(( "failed to parse cpu siblings list of cpu%lu `%s`", pair1, sep+1UL ));
-
-  if( FD_LIKELY( pair1==cpu_idx ) )      return pair2;
-  else if( FD_LIKELY( pair2==cpu_idx ) ) return pair1;
-  else FD_LOG_ERR(( "failed to find sibling of cpu%lu", cpu_idx ));
+  ulong sibling = fd_tile_private_sibling_parse( line, cpu_idx );
+  if( FD_UNLIKELY( sibling==ULONG_MAX-1UL ) ) FD_LOG_ERR(( "failed to parse cpu siblings list of cpu%lu `%s`", cpu_idx, line ));
+  return sibling;
 # else
   (void)cpu_idx;
   return ULONG_MAX;

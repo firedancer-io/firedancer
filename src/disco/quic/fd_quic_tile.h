@@ -9,8 +9,6 @@
 #include "../../waltz/quic/fd_quic.h"
 #include "../../util/io/fd_io.h"
 
-#define FD_QUIC_TILE_IN_MAX (9UL)
-
 extern fd_topo_run_tile_t fd_tile_quic;
 
 typedef struct {
@@ -36,7 +34,7 @@ typedef struct {
   ulong round_robin_cnt;
   ulong round_robin_id;
 
-  fd_net_rx_bounds_t net_in_bounds[ FD_QUIC_TILE_IN_MAX ];
+  fd_net_rx_bounds_t net_in_bounds[ FD_TOPO_MAX_TILE_IN_LINKS ];
 
   fd_wksp_t * net_out_mem;
   ulong       net_out_chunk0;

@@ -8,6 +8,7 @@
 #include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 static uint
 read_uint_file( char const * path,
@@ -117,30 +118,6 @@ read_l3_id( ulong cpu_idx ) {
   return -1;
 }
 
-static ulong
-fd_topo_cpu_cnt( void ) {
-  char path[ PATH_MAX ];
-  fd_cstr_printf_check( path, PATH_MAX, NULL, "/sys/devices/system/cpu/present" );
-
-  char line[ 128 ];
-  int fd = open( path, O_RDONLY );
-  if( FD_UNLIKELY( -1==fd ) ) FD_LOG_ERR(( "open( \"%s\" ) failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
-
-  long bytes_read = read( fd, line, sizeof( line ) );
-  if( FD_UNLIKELY( -1==bytes_read ) ) FD_LOG_ERR(( "read( \"%s\" ) failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
-  else if ( FD_UNLIKELY( (ulong)bytes_read>=sizeof( line ) ) ) FD_LOG_ERR(( "read( \"%s\" ) failed: buffer too small", path ));
-
-  if( FD_UNLIKELY( close( fd ) ) ) FD_LOG_ERR(( "close( \"%s\" ) failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
-
-  line[ bytes_read ] = '\0';
-  char * saveptr;
-  char * token = strtok_r( line, "-", &saveptr );
-  token = strtok_r( NULL, "-", &saveptr );
-  ulong end = fd_cstr_to_ulong( token ? token : line );
-
-  return end+1UL;
-}
-
 static int
 fd_topo_cpus_online( ulong cpu_idx ) {
   if( FD_UNLIKELY( cpu_idx==0UL ) ) return 1; /* Cannot set cpu0 to offline */
@@ -150,10 +127,53 @@ fd_topo_cpus_online( ulong cpu_idx ) {
   return (int)read_uint_file( path, "error reading cpu online status" );
 }
 
+static int
+parse_cpulist( char const *  list,
+               fd_cpuset_t * cpuset ) {
+  fd_cpuset_new( cpuset );
+  char const * p = list;
+  while( *p==' ' ) p++;
+  if( !strncmp( p, "(null)", 6UL ) ) return 1;
+  while( *p && *p!='\n' ) {
+    char * end;
+    ulong lo = strtoul( p, &end, 10 );
+    if( end==p ) return 0;
+    ulong hi = lo;
+    p = end;
+    if( *p=='-' ) {
+      hi = strtoul( p+1, &end, 10 );
+      if( end==p+1 || hi<lo ) return 0;
+      p = end;
+    }
+    for( ulong cpu=lo; cpu<=hi && cpu<FD_TILE_MAX; cpu++ ) fd_cpuset_insert( cpuset, cpu );
+    if( *p==',' ) p++;
+    else if( *p && *p!='\n' ) return 0;
+  }
+  return 1;
+}
+
+static void
+read_cpulist( char const *  path,
+              fd_cpuset_t * cpuset ) {
+  fd_cpuset_new( cpuset );
+  int fd = open( path, O_RDONLY );
+  if( FD_UNLIKELY( fd<0 ) ) {
+    if( FD_UNLIKELY( errno!=ENOENT ) ) FD_LOG_WARNING(( "open `%s` failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
+    return;
+  }
+  char list[ 16384 ]; /* alternating cpulist over 1024 cpus */
+  long sz = read( fd, list, sizeof(list)-1UL );
+  if( FD_UNLIKELY( close( fd ) ) ) FD_LOG_ERR(( "close `%s` failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( sz<0L ) ) FD_LOG_ERR(( "read `%s` failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
+  list[ sz ] = '\0';
+  if( FD_UNLIKELY( !parse_cpulist( list, cpuset ) ) ) FD_LOG_ERR(( "failed to parse `%s` (\"%s\")", path, list ));
+}
+
 void
 fd_topo_cpus_init( fd_topo_cpus_t * cpus ) {
   cpus->numa_node_cnt = fd_numa_node_cnt();
-  cpus->cpu_cnt = fd_topo_cpu_cnt();
+  cpus->cpu_cnt = fd_numa_cpu_cnt();
+  if( FD_UNLIKELY( !cpus->cpu_cnt ) ) FD_LOG_ERR(( "could not determine the number of CPUs" ));
   if( FD_UNLIKELY( cpus->cpu_cnt > FD_TILE_MAX ) ) {
     FD_LOG_ERR(( "unsupported system: Firedancer supports up to %lu CPUs", FD_TILE_MAX ));
   }
@@ -171,9 +191,17 @@ fd_topo_cpus_init( fd_topo_cpus_t * cpus ) {
     char path[ PATH_MAX ];
     fd_cstr_printf_check( path, sizeof(path), NULL, "/sys/devices/system/cpu/cpu%lu/topology/physical_package_id", i );
     package_ids[ i ] = read_topology_id( path );
+    cpus->cpu[ i ].package_idx = package_ids[ i ]<0 ? ULONG_MAX : (ulong)package_ids[ i ];
     fd_cstr_printf_check( path, sizeof(path), NULL, "/sys/devices/system/cpu/cpu%lu/topology/die_id", i );
     die_ids[ i ] = read_topology_id( path );
     l3_ids[ i ] = cpus->cpu[ i ].online ? read_l3_id( i ) : -1;
+  }
+
+  FD_CPUSET_DECL( isolated  ); read_cpulist( "/sys/devices/system/cpu/isolated",  isolated  );
+  FD_CPUSET_DECL( nohz_full ); read_cpulist( "/sys/devices/system/cpu/nohz_full", nohz_full );
+  for( ulong i=0UL; i<cpus->cpu_cnt; i++ ) {
+    cpus->cpu[ i ].isolated  = fd_cpuset_test( isolated,  i );
+    cpus->cpu[ i ].nohz_full = fd_cpuset_test( nohz_full, i );
   }
   assign_die_indices( cpus, package_ids, die_ids );
   assign_l3_indices( cpus, package_ids, l3_ids );
@@ -191,6 +219,43 @@ fd_topo_cpus_l3_complete( fd_topo_cpus_t const * cpus ) {
 void
 fd_topo_cpus_printf( fd_topo_cpus_t * cpus ) {
   for( ulong i=0UL; i<cpus->cpu_cnt; i++ ) {
-    FD_LOG_NOTICE(( "cpu%lu: online=%i sibling=%lu numa_node=%lu die_idx=%lu l3_idx=%lu", i, cpus->cpu[ i ].online, cpus->cpu[ i ].sibling, cpus->cpu[ i ].numa_node, cpus->cpu[ i ].die_idx, cpus->cpu[ i ].l3_idx ));
+    FD_LOG_NOTICE(( "cpu%lu: online=%i sibling=%lu numa_node=%lu package_idx=%lu die_idx=%lu l3_idx=%lu isolated=%i nohz_full=%i", i, cpus->cpu[ i ].online, cpus->cpu[ i ].sibling, cpus->cpu[ i ].numa_node, cpus->cpu[ i ].package_idx, cpus->cpu[ i ].die_idx, cpus->cpu[ i ].l3_idx, cpus->cpu[ i ].isolated, cpus->cpu[ i ].nohz_full ));
   }
+}
+
+void
+fd_topo_cpus_floating( fd_topo_cpus_t const * cpus,
+                       fd_topo_t const *      topo,
+                       fd_cpuset_t const *    launch,
+                       fd_cpuset_t *          float_cpu_set,
+                       fd_cpuset_t *          cpuless_cpu_set ) {
+  FD_CPUSET_DECL( pinned );
+  fd_cpuset_new( float_cpu_set );
+  for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
+    fd_topo_tile_t const * tile = &topo->tiles[ i ];
+    if( FD_UNLIKELY( tile->cpu_idx>=FD_TILE_MAX ) ) continue;
+    fd_cpuset_insert( tile->floats ? float_cpu_set : pinned, tile->cpu_idx );
+  }
+
+  FD_CPUSET_DECL( claimed );
+  fd_cpuset_copy( claimed, pinned );
+  for( ulong cpu=0UL; cpu<fd_ulong_min( cpus->cpu_cnt, FD_TILE_MAX ); cpu++ ) {
+    ulong sibling = cpus->cpu[ cpu ].sibling;
+    if( fd_cpuset_test( pinned, cpu ) && sibling<FD_TILE_MAX ) fd_cpuset_insert( claimed, sibling );
+  }
+  fd_cpuset_subtract( float_cpu_set, float_cpu_set, claimed );
+
+  for( ulong cpu=0UL; cpu<fd_ulong_min( cpus->cpu_cnt, FD_TILE_MAX ); cpu++ ) {
+    if( cpus->cpu[ cpu ].isolated ) fd_cpuset_insert( claimed, cpu );
+  }
+  fd_cpuset_intersect( cpuless_cpu_set, float_cpu_set, launch );
+  fd_cpuset_subtract( cpuless_cpu_set, cpuless_cpu_set, claimed );
+  if( FD_LIKELY( !fd_cpuset_cnt( cpuless_cpu_set ) ) ) {
+    /* floats tiles are claimed too: they share their own pool */
+    for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
+      if( topo->tiles[ i ].cpu_idx<FD_TILE_MAX ) fd_cpuset_insert( claimed, topo->tiles[ i ].cpu_idx );
+    }
+    fd_cpuset_subtract( cpuless_cpu_set, launch, claimed );
+  }
+  if( FD_UNLIKELY( !fd_cpuset_cnt( cpuless_cpu_set ) ) ) fd_cpuset_copy( cpuless_cpu_set, launch );
 }

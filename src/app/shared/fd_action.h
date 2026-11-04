@@ -2,13 +2,12 @@
 #define HEADER_fd_src_app_shared_fd_action_h
 
 #include "../platform/fd_cap_chk.h"
-#include "../../choreo/votor/ag_vote_history_file.h"
 
 /* FD_APP_NAME and FD_BINARY_NAME identify the control binary at run time
-   (e.g. "Firedancer"/"firedancer", "Frankendancer"/"fddev").  They are
-   defined once per binary in its main translation unit.  Commands
-   shared across binaries should reference these instead of hard-coding
-   a binary name in help text or usage messages. */
+   (e.g. "Firedancer"/"firedancer").  They are defined once per binary
+   in its main translation unit.  Commands shared across binaries should
+   reference these instead of hard-coding a binary name in help text or
+   usage messages. */
 
 extern char const * FD_APP_NAME;
 extern char const * FD_BINARY_NAME;
@@ -42,13 +41,11 @@ union fdctl_args {
   } configure;
 
   struct {
-    int     require_tower;
     int     require_vote_history;
     int     force;
     uchar const * keypair;
     char    name[ 64UL ];
-    uchar   vote_history[ AG_VOTE_HISTORY_FILE_MAX+1UL ];
-    ulong   vote_history_sz;
+    ulong   vote_history_slot;
   } set_identity;
 
   struct {
@@ -65,6 +62,16 @@ union fdctl_args {
   } get_identity;
 
   struct {
+    char   name[ 64UL ];
+    char   keypair_path[ PATH_MAX ];
+    int    yes;
+    int    takeover;
+    int    force;
+    uint   addr;
+    ushort port;
+  } failover;
+
+  struct {
     int clean;
   } ps;
 
@@ -74,7 +81,6 @@ union fdctl_args {
     int  full_watch;
     int  no_configure;
     int  no_init_workspaces;
-    int  no_agave;
   } dev;
 
   struct {
@@ -82,8 +88,10 @@ union fdctl_args {
   } backtest;
 
   struct {
-    int no_watch;
-  } forktest;
+    char  topo[ 64 ];
+    ulong at_slot;
+    ulong after;
+  } force_mismatch;
 
   struct {
     char tile_name[ 7UL ];
@@ -114,18 +122,6 @@ union fdctl_args {
   } flame;
 
   struct {
-    char const * pos_arg;
-    int          help;
-
-    /* options */
-
-    char         manifest_path[256UL];
-    char         iptable_path[256UL];
-    ulong        slot;
-    int          sort_by_slot;
-  } repair;
-
-  struct {
     char    affinity[ AFFINITY_SZ ];
     uint    tpu_ip;
     uint    rpc_ip;
@@ -148,7 +144,6 @@ union fdctl_args {
     int dump; /* whether the user requested --dump */
     int dump_config; /* whether the user requested to dump the quic config */
     int dump_conns;  /* whether the user requested to dump the quic connections */
-    int trace_send;  /* whether the user requested tracing send tile (1) or quic tile (0) */
   } quic_trace;
 
   struct {
@@ -199,11 +194,6 @@ union fdctl_args {
     char topo[ 64 ];
     int  compact_mode;
   } monitor_gossip;
-
-  struct {
-    char const * pos_arg;
-    int          help;
-  } tower;
 
   struct {
     int once;

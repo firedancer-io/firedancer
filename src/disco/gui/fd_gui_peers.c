@@ -4,7 +4,6 @@
 #include "fd_gui_metrics.h"
 #include "../../disco/metrics/fd_metrics_base.h"
 #include "../../ballet/json/fd_jtok.h"
-#include "../../flamenco/stakes/fd_stake_weight_sort.h"
 
 FD_IMPORT_BINARY( dbip_f, "src/disco/gui/dbip.bin.zst" );
 
@@ -172,12 +171,12 @@ fd_gui_peers_new( void *             shmem,
     ctx->open_ws_conn_cnt  = 0UL;
     ctx->active_ws_conn_id = ULONG_MAX;
 
-    ctx->slot_voted = ULONG_MAX;
-
     for( ulong i=0UL; i<2UL; i++ ) {
       ctx->epochs[ i ].epoch      = ULONG_MAX;
       ctx->epochs[ i ].stakes_cnt = 0UL;
     }
+    ctx->delinquency.epoch     = ULONG_MAX;
+    ctx->delinquency.reconcile = 0;
 
     ctx->next_client_nanos              = now;
     ctx->next_metric_rate_update_nanos  = now;
@@ -245,36 +244,36 @@ fd_gui_peers_gossip_stats_snap( fd_gui_peers_ctx_t *          peers,
       fd_gui_metrics_sum_tiles_counter( peers->topo, "gossvf", gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, MESSAGE_RX_DROPPED_PUSH_LOOPBACK ) )
     + fd_gui_metrics_sum_tiles_counter( peers->topo, "gossvf", gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, MESSAGE_RX_DROPPED_PUSH_NO_VALID_CRDS ) );
   gossip_stats->network_health_push_crds_rx_success =
-      fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( COUNTER, GOSSIP, CRDS_RX_UPSERTED_PUSH ) );
+      fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( COUNTER, GOSSIP, CRDS_UPSERTED_INSERTED_PUSH ) );
   gossip_stats->network_health_push_crds_rx_failure =
-      fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( COUNTER, GOSSIP, CRDS_RX_DROPPED_PUSH_STALE ) )
-    + fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( COUNTER, GOSSIP, CRDS_RX_DROPPED_PUSH_DUPLICATE ) )
+      fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( COUNTER, GOSSIP, CRDS_UPSERTED_STALE_PUSH ) )
+    + fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( COUNTER, GOSSIP, CRDS_UPSERTED_DUPLICATE_PUSH ) )
     + fd_gui_metrics_sum_tiles_counter( peers->topo, "gossvf", gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, CRDS_RX_DROPPED_PUSH_SIGNATURE ) )
-    + fd_gui_metrics_sum_tiles_counter( peers->topo, "gossvf", gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, CRDS_RX_DROPPED_PUSH_ORIGIN_NO_CONTACT_INFO ) )
-    + fd_gui_metrics_sum_tiles_counter( peers->topo, "gossvf", gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, CRDS_RX_DROPPED_PUSH_ORIGIN_SHRED_VERSION ) )
+    + fd_gui_metrics_sum_tiles_counter( peers->topo, "gossvf", gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, CRDS_RX_DROPPED_PUSH_NO_CONTACT_INFO ) )
+    + fd_gui_metrics_sum_tiles_counter( peers->topo, "gossvf", gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, CRDS_RX_DROPPED_PUSH_SHRED_VERSION ) )
     + fd_gui_metrics_sum_tiles_counter( peers->topo, "gossvf", gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, CRDS_RX_DROPPED_PUSH_INACTIVE ) )
     + fd_gui_metrics_sum_tiles_counter( peers->topo, "gossvf", gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, CRDS_RX_DROPPED_PUSH_WALLCLOCK ) );
   gossip_stats->network_health_pull_response_crds_rx_success =
-      fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( COUNTER, GOSSIP, CRDS_RX_UPSERTED_PULL_RESPONSE ) );
+      fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( COUNTER, GOSSIP, CRDS_UPSERTED_INSERTED_PULL_RESPONSE ) );
   gossip_stats->network_health_pull_response_crds_rx_failure =
-      fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( COUNTER, GOSSIP, CRDS_RX_DROPPED_PULL_RESPONSE_STALE ) )
-    + fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( COUNTER, GOSSIP, CRDS_RX_DROPPED_PULL_RESPONSE_DUPLICATE ) )
+      fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( COUNTER, GOSSIP, CRDS_UPSERTED_STALE_PULL_RESPONSE ) )
+    + fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( COUNTER, GOSSIP, CRDS_UPSERTED_DUPLICATE_PULL_RESPONSE ) )
     + fd_gui_metrics_sum_tiles_counter( peers->topo, "gossvf", gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, CRDS_RX_DROPPED_PULL_RESPONSE_WALLCLOCK ) )
     + fd_gui_metrics_sum_tiles_counter( peers->topo, "gossvf", gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, CRDS_RX_DROPPED_PULL_RESPONSE_SIGNATURE ) )
-    + fd_gui_metrics_sum_tiles_counter( peers->topo, "gossvf", gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, CRDS_RX_DROPPED_PULL_RESPONSE_ORIGIN_NO_CONTACT_INFO ) )
-    + fd_gui_metrics_sum_tiles_counter( peers->topo, "gossvf", gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, CRDS_RX_DROPPED_PULL_RESPONSE_ORIGIN_SHRED_VERSION ) )
+    + fd_gui_metrics_sum_tiles_counter( peers->topo, "gossvf", gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, CRDS_RX_DROPPED_PULL_RESPONSE_NO_CONTACT_INFO ) )
+    + fd_gui_metrics_sum_tiles_counter( peers->topo, "gossvf", gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, CRDS_RX_DROPPED_PULL_RESPONSE_SHRED_VERSION ) )
     + fd_gui_metrics_sum_tiles_counter( peers->topo, "gossvf", gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, CRDS_RX_DROPPED_PULL_RESPONSE_INACTIVE ) );
   gossip_stats->network_health_push_crds_rx_duplicate =
-      fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( COUNTER, GOSSIP, CRDS_RX_DROPPED_PUSH_DUPLICATE ) );
+      fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( COUNTER, GOSSIP, CRDS_UPSERTED_DUPLICATE_PUSH ) );
   gossip_stats->network_health_pull_response_crds_rx_duplicate =
-      fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( COUNTER, GOSSIP, CRDS_RX_DROPPED_PULL_RESPONSE_DUPLICATE ) );
+      fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( COUNTER, GOSSIP, CRDS_UPSERTED_DUPLICATE_PULL_RESPONSE ) );
 
   gossip_stats->network_health_total_stake = 0UL; /* todo ... fetch from RPC */
   gossip_stats->network_health_total_peers = 0UL; /* todo ... fetch from RPC */
 
-  gossip_stats->network_health_connected_stake          = fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( GAUGE, GOSSIP, CRDS_PEER_STAKE ) );
-  gossip_stats->network_health_connected_staked_peers   = fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( GAUGE, GOSSIP, CRDS_PEER_STAKED ) );
-  gossip_stats->network_health_connected_unstaked_peers = fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( GAUGE, GOSSIP, CRDS_PEER_UNSTAKED ) );
+  gossip_stats->network_health_connected_stake          = fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( GAUGE, GOSSIP, CRDS_PEER_STAKE_LAMPORTS ) );
+  gossip_stats->network_health_connected_staked_peers   = fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( GAUGE, GOSSIP, CRDS_PEER_COUNT_STAKED ) );
+  gossip_stats->network_health_connected_unstaked_peers = fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( GAUGE, GOSSIP, CRDS_PEER_COUNT_UNSTAKED ) );
 
   ulong  peer_cnt = fd_ulong_min( fd_gui_peers_live_table_ele_cnt( peers->live_table ), FD_GUI_PEERS_GOSSIP_TOP_PEERS_CNT );
   ulong  rx_top[ FD_GUI_PEERS_GOSSIP_TOP_PEERS_CNT ]; double rx_val[ FD_GUI_PEERS_GOSSIP_TOP_PEERS_CNT ]; ulong rx_cnt = 0UL;
@@ -299,7 +298,7 @@ fd_gui_peers_gossip_stats_snap( fd_gui_peers_ctx_t *          peers,
   for( ulong j=0UL; j<rx_cnt; j++ ) {
     fd_gui_peers_node_t const * cur = &peers->contact_info_table[ rx_top[ j ] ];
     fd_gui_config_parse_info_t * node_info = fd_gui_peers_node_info_map_ele_query( peers->node_info_map, &cur->row.pubkey, NULL, peers->node_info_pool );
-    if( FD_LIKELY( node_info ) ) FD_TEST( fd_cstr_printf_check( gossip_stats->network_ingress_peer_names[ j ], FD_GUI_CONFIG_PARSE_VALIDATOR_INFO_NAME_SZ+1UL, NULL, "%s", node_info->name ) );
+    if( FD_LIKELY( node_info && !node_info->cleared ) ) FD_TEST( fd_cstr_printf_check( gossip_stats->network_ingress_peer_names[ j ], FD_GUI_CONFIG_PARSE_VALIDATOR_INFO_NAME_SZ+1UL, NULL, "%s", node_info->name ) );
     else                         gossip_stats->network_ingress_peer_names[ j ][ 0 ] = '\0';
     gossip_stats->network_ingress_peer_bytes_per_sec[ j ] = (long)rx_val[ j ];
     fd_memcpy( &gossip_stats->network_ingress_peer_identities[ j ], cur->row.pubkey.uc, 32UL );
@@ -311,7 +310,7 @@ fd_gui_peers_gossip_stats_snap( fd_gui_peers_ctx_t *          peers,
   for( ulong j=0UL; j<tx_cnt; j++ ) {
     fd_gui_peers_node_t const * cur = &peers->contact_info_table[ tx_top[ j ] ];
     fd_gui_config_parse_info_t * node_info = fd_gui_peers_node_info_map_ele_query( peers->node_info_map, &cur->row.pubkey, NULL, peers->node_info_pool );
-    if( FD_LIKELY( node_info ) ) FD_TEST( fd_cstr_printf_check( gossip_stats->network_egress_peer_names[ j ], FD_GUI_CONFIG_PARSE_VALIDATOR_INFO_NAME_SZ+1UL, NULL, "%s", node_info->name ) );
+    if( FD_LIKELY( node_info && !node_info->cleared ) ) FD_TEST( fd_cstr_printf_check( gossip_stats->network_egress_peer_names[ j ], FD_GUI_CONFIG_PARSE_VALIDATOR_INFO_NAME_SZ+1UL, NULL, "%s", node_info->name ) );
     else                         gossip_stats->network_egress_peer_names[ j ][ 0 ] = '\0';
     gossip_stats->network_egress_peer_bytes_per_sec[ j ] = (long)tx_val[ j ];
     fd_memcpy( &gossip_stats->network_egress_peer_identities[ j ], cur->row.pubkey.uc, 32UL );
@@ -323,156 +322,156 @@ fd_gui_peers_gossip_stats_snap( fd_gui_peers_ctx_t *          peers,
   gossip_stats->storage_expired_cnt = fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( COUNTER, GOSSIP, CRDS_EXPIRED ) );
   gossip_stats->storage_evicted_cnt = fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( COUNTER, GOSSIP, CRDS_EVICTED ) );
 
-  gossip_stats->storage_active_cnt[ FD_METRICS_ENUM_CRDS_VALUE_V_CONTACT_INFO_V1_IDX               ] = fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( GAUGE, GOSSIP, CRDS_OCCUPIED_CONTACT_INFO_V1 )               );
-  gossip_stats->storage_active_cnt[ FD_METRICS_ENUM_CRDS_VALUE_V_VOTE_IDX                          ] = fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( GAUGE, GOSSIP, CRDS_OCCUPIED_VOTE )                          );
-  gossip_stats->storage_active_cnt[ FD_METRICS_ENUM_CRDS_VALUE_V_LOWEST_SLOT_IDX                   ] = fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( GAUGE, GOSSIP, CRDS_OCCUPIED_LOWEST_SLOT )                   );
-  gossip_stats->storage_active_cnt[ FD_METRICS_ENUM_CRDS_VALUE_V_SNAPSHOT_HASHES_IDX               ] = fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( GAUGE, GOSSIP, CRDS_OCCUPIED_SNAPSHOT_HASHES )               );
-  gossip_stats->storage_active_cnt[ FD_METRICS_ENUM_CRDS_VALUE_V_ACCOUNTS_HASHES_IDX               ] = fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( GAUGE, GOSSIP, CRDS_OCCUPIED_ACCOUNTS_HASHES )               );
-  gossip_stats->storage_active_cnt[ FD_METRICS_ENUM_CRDS_VALUE_V_EPOCH_SLOTS_IDX                   ] = fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( GAUGE, GOSSIP, CRDS_OCCUPIED_EPOCH_SLOTS )                   );
-  gossip_stats->storage_active_cnt[ FD_METRICS_ENUM_CRDS_VALUE_V_VERSION_V1_IDX                    ] = fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( GAUGE, GOSSIP, CRDS_OCCUPIED_VERSION_V1 )                    );
-  gossip_stats->storage_active_cnt[ FD_METRICS_ENUM_CRDS_VALUE_V_VERSION_V2_IDX                    ] = fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( GAUGE, GOSSIP, CRDS_OCCUPIED_VERSION_V2 )                    );
-  gossip_stats->storage_active_cnt[ FD_METRICS_ENUM_CRDS_VALUE_V_NODE_INSTANCE_IDX                 ] = fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( GAUGE, GOSSIP, CRDS_OCCUPIED_NODE_INSTANCE )                 );
-  gossip_stats->storage_active_cnt[ FD_METRICS_ENUM_CRDS_VALUE_V_DUPLICATE_SHRED_IDX               ] = fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( GAUGE, GOSSIP, CRDS_OCCUPIED_DUPLICATE_SHRED )               );
-  gossip_stats->storage_active_cnt[ FD_METRICS_ENUM_CRDS_VALUE_V_INCREMENTAL_SNAPSHOT_HASHES_IDX   ] = fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( GAUGE, GOSSIP, CRDS_OCCUPIED_INCREMENTAL_SNAPSHOT_HASHES )   );
-  gossip_stats->storage_active_cnt[ FD_METRICS_ENUM_CRDS_VALUE_V_CONTACT_INFO_V2_IDX               ] = fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( GAUGE, GOSSIP, CRDS_OCCUPIED_CONTACT_INFO_V2 )               );
-  gossip_stats->storage_active_cnt[ FD_METRICS_ENUM_CRDS_VALUE_V_RESTART_LAST_VOTED_FORK_SLOTS_IDX ] = fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( GAUGE, GOSSIP, CRDS_OCCUPIED_RESTART_LAST_VOTED_FORK_SLOTS ) );
-  gossip_stats->storage_active_cnt[ FD_METRICS_ENUM_CRDS_VALUE_V_RESTART_HEAVIEST_FORK_IDX         ] = fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( GAUGE, GOSSIP, CRDS_OCCUPIED_RESTART_HEAVIEST_FORK )         );
+  gossip_stats->storage_active_cnt[ FD_METRICS_ENUM_CRDS_VALUE_TYPE_V_CONTACT_INFO_V1_IDX               ] = fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( GAUGE, GOSSIP, CRDS_USED_CONTACT_INFO_V1 )                   );
+  gossip_stats->storage_active_cnt[ FD_METRICS_ENUM_CRDS_VALUE_TYPE_V_VOTE_IDX                          ] = fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( GAUGE, GOSSIP, CRDS_USED_VOTE )                              );
+  gossip_stats->storage_active_cnt[ FD_METRICS_ENUM_CRDS_VALUE_TYPE_V_LOWEST_SLOT_IDX                   ] = fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( GAUGE, GOSSIP, CRDS_USED_LOWEST_SLOT )                       );
+  gossip_stats->storage_active_cnt[ FD_METRICS_ENUM_CRDS_VALUE_TYPE_V_SNAPSHOT_HASHES_IDX               ] = fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( GAUGE, GOSSIP, CRDS_USED_SNAPSHOT_HASHES )                   );
+  gossip_stats->storage_active_cnt[ FD_METRICS_ENUM_CRDS_VALUE_TYPE_V_ACCOUNTS_HASHES_IDX               ] = fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( GAUGE, GOSSIP, CRDS_USED_ACCOUNTS_HASHES )                   );
+  gossip_stats->storage_active_cnt[ FD_METRICS_ENUM_CRDS_VALUE_TYPE_V_EPOCH_SLOTS_IDX                   ] = fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( GAUGE, GOSSIP, CRDS_USED_EPOCH_SLOTS )                       );
+  gossip_stats->storage_active_cnt[ FD_METRICS_ENUM_CRDS_VALUE_TYPE_V_VERSION_V1_IDX                    ] = fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( GAUGE, GOSSIP, CRDS_USED_VERSION_V1 )                        );
+  gossip_stats->storage_active_cnt[ FD_METRICS_ENUM_CRDS_VALUE_TYPE_V_VERSION_V2_IDX                    ] = fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( GAUGE, GOSSIP, CRDS_USED_VERSION_V2 )                        );
+  gossip_stats->storage_active_cnt[ FD_METRICS_ENUM_CRDS_VALUE_TYPE_V_NODE_INSTANCE_IDX                 ] = fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( GAUGE, GOSSIP, CRDS_USED_NODE_INSTANCE )                     );
+  gossip_stats->storage_active_cnt[ FD_METRICS_ENUM_CRDS_VALUE_TYPE_V_DUPLICATE_SHRED_IDX               ] = fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( GAUGE, GOSSIP, CRDS_USED_DUPLICATE_SHRED )                   );
+  gossip_stats->storage_active_cnt[ FD_METRICS_ENUM_CRDS_VALUE_TYPE_V_INCREMENTAL_SNAPSHOT_HASHES_IDX   ] = fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( GAUGE, GOSSIP, CRDS_USED_INCREMENTAL_SNAPSHOT_HASHES )       );
+  gossip_stats->storage_active_cnt[ FD_METRICS_ENUM_CRDS_VALUE_TYPE_V_CONTACT_INFO_V2_IDX               ] = fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( GAUGE, GOSSIP, CRDS_USED_CONTACT_INFO_V2 )                   );
+  gossip_stats->storage_active_cnt[ FD_METRICS_ENUM_CRDS_VALUE_TYPE_V_RESTART_LAST_VOTED_FORK_SLOTS_IDX ] = fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( GAUGE, GOSSIP, CRDS_USED_RESTART_LAST_VOTED_FORK_SLOTS )     );
+  gossip_stats->storage_active_cnt[ FD_METRICS_ENUM_CRDS_VALUE_TYPE_V_RESTART_HEAVIEST_FORK_IDX         ] = fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( GAUGE, GOSSIP, CRDS_USED_RESTART_HEAVIEST_FORK )             );
 
-  gossip_stats->storage_cnt_tx[ FD_METRICS_ENUM_CRDS_VALUE_V_CONTACT_INFO_V1_IDX ] =
+  gossip_stats->storage_cnt_tx[ FD_METRICS_ENUM_CRDS_VALUE_TYPE_V_CONTACT_INFO_V1_IDX ] =
       fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( COUNTER, GOSSIP, CRDS_PUSH_TX_CONTACT_INFO_V1 ) )
     + fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( COUNTER, GOSSIP, CRDS_PULL_RESPONSE_TX_CONTACT_INFO_V1 ) );
-  gossip_stats->storage_cnt_tx[ FD_METRICS_ENUM_CRDS_VALUE_V_VOTE_IDX ] =
+  gossip_stats->storage_cnt_tx[ FD_METRICS_ENUM_CRDS_VALUE_TYPE_V_VOTE_IDX ] =
       fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( COUNTER, GOSSIP, CRDS_PUSH_TX_VOTE ) )
     + fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( COUNTER, GOSSIP, CRDS_PULL_RESPONSE_TX_VOTE ) );
-  gossip_stats->storage_cnt_tx[ FD_METRICS_ENUM_CRDS_VALUE_V_LOWEST_SLOT_IDX ] =
+  gossip_stats->storage_cnt_tx[ FD_METRICS_ENUM_CRDS_VALUE_TYPE_V_LOWEST_SLOT_IDX ] =
       fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( COUNTER, GOSSIP, CRDS_PUSH_TX_LOWEST_SLOT ) )
     + fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( COUNTER, GOSSIP, CRDS_PULL_RESPONSE_TX_LOWEST_SLOT ) );
-  gossip_stats->storage_cnt_tx[ FD_METRICS_ENUM_CRDS_VALUE_V_SNAPSHOT_HASHES_IDX ] =
+  gossip_stats->storage_cnt_tx[ FD_METRICS_ENUM_CRDS_VALUE_TYPE_V_SNAPSHOT_HASHES_IDX ] =
       fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( COUNTER, GOSSIP, CRDS_PUSH_TX_SNAPSHOT_HASHES ) )
     + fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( COUNTER, GOSSIP, CRDS_PULL_RESPONSE_TX_SNAPSHOT_HASHES ) );
-  gossip_stats->storage_cnt_tx[ FD_METRICS_ENUM_CRDS_VALUE_V_ACCOUNTS_HASHES_IDX ] =
+  gossip_stats->storage_cnt_tx[ FD_METRICS_ENUM_CRDS_VALUE_TYPE_V_ACCOUNTS_HASHES_IDX ] =
       fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( COUNTER, GOSSIP, CRDS_PUSH_TX_ACCOUNTS_HASHES ) )
     + fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( COUNTER, GOSSIP, CRDS_PULL_RESPONSE_TX_ACCOUNTS_HASHES ) );
-  gossip_stats->storage_cnt_tx[ FD_METRICS_ENUM_CRDS_VALUE_V_EPOCH_SLOTS_IDX ] =
+  gossip_stats->storage_cnt_tx[ FD_METRICS_ENUM_CRDS_VALUE_TYPE_V_EPOCH_SLOTS_IDX ] =
       fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( COUNTER, GOSSIP, CRDS_PUSH_TX_EPOCH_SLOTS ) )
     + fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( COUNTER, GOSSIP, CRDS_PULL_RESPONSE_TX_EPOCH_SLOTS ) );
-  gossip_stats->storage_cnt_tx[ FD_METRICS_ENUM_CRDS_VALUE_V_VERSION_V1_IDX ] =
+  gossip_stats->storage_cnt_tx[ FD_METRICS_ENUM_CRDS_VALUE_TYPE_V_VERSION_V1_IDX ] =
       fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( COUNTER, GOSSIP, CRDS_PUSH_TX_VERSION_V1 ) )
     + fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( COUNTER, GOSSIP, CRDS_PULL_RESPONSE_TX_VERSION_V1 ) );
-  gossip_stats->storage_cnt_tx[ FD_METRICS_ENUM_CRDS_VALUE_V_VERSION_V2_IDX ] =
+  gossip_stats->storage_cnt_tx[ FD_METRICS_ENUM_CRDS_VALUE_TYPE_V_VERSION_V2_IDX ] =
       fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( COUNTER, GOSSIP, CRDS_PUSH_TX_VERSION_V2 ) )
     + fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( COUNTER, GOSSIP, CRDS_PULL_RESPONSE_TX_VERSION_V2 ) );
-  gossip_stats->storage_cnt_tx[ FD_METRICS_ENUM_CRDS_VALUE_V_NODE_INSTANCE_IDX ] =
+  gossip_stats->storage_cnt_tx[ FD_METRICS_ENUM_CRDS_VALUE_TYPE_V_NODE_INSTANCE_IDX ] =
       fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( COUNTER, GOSSIP, CRDS_PUSH_TX_NODE_INSTANCE ) )
     + fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( COUNTER, GOSSIP, CRDS_PULL_RESPONSE_TX_NODE_INSTANCE ) );
-  gossip_stats->storage_cnt_tx[ FD_METRICS_ENUM_CRDS_VALUE_V_DUPLICATE_SHRED_IDX ] =
+  gossip_stats->storage_cnt_tx[ FD_METRICS_ENUM_CRDS_VALUE_TYPE_V_DUPLICATE_SHRED_IDX ] =
       fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( COUNTER, GOSSIP, CRDS_PUSH_TX_DUPLICATE_SHRED ) )
     + fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( COUNTER, GOSSIP, CRDS_PULL_RESPONSE_TX_DUPLICATE_SHRED ) );
-  gossip_stats->storage_cnt_tx[ FD_METRICS_ENUM_CRDS_VALUE_V_INCREMENTAL_SNAPSHOT_HASHES_IDX ] =
+  gossip_stats->storage_cnt_tx[ FD_METRICS_ENUM_CRDS_VALUE_TYPE_V_INCREMENTAL_SNAPSHOT_HASHES_IDX ] =
       fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( COUNTER, GOSSIP, CRDS_PUSH_TX_INCREMENTAL_SNAPSHOT_HASHES ) )
     + fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( COUNTER, GOSSIP, CRDS_PULL_RESPONSE_TX_INCREMENTAL_SNAPSHOT_HASHES ) );
-  gossip_stats->storage_cnt_tx[ FD_METRICS_ENUM_CRDS_VALUE_V_CONTACT_INFO_V2_IDX ] =
+  gossip_stats->storage_cnt_tx[ FD_METRICS_ENUM_CRDS_VALUE_TYPE_V_CONTACT_INFO_V2_IDX ] =
       fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( COUNTER, GOSSIP, CRDS_PUSH_TX_CONTACT_INFO_V2 ) )
     + fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( COUNTER, GOSSIP, CRDS_PULL_RESPONSE_TX_CONTACT_INFO_V2 ) );
-  gossip_stats->storage_cnt_tx[ FD_METRICS_ENUM_CRDS_VALUE_V_RESTART_LAST_VOTED_FORK_SLOTS_IDX ] =
+  gossip_stats->storage_cnt_tx[ FD_METRICS_ENUM_CRDS_VALUE_TYPE_V_RESTART_LAST_VOTED_FORK_SLOTS_IDX ] =
       fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( COUNTER, GOSSIP, CRDS_PUSH_TX_RESTART_LAST_VOTED_FORK_SLOTS ) )
     + fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( COUNTER, GOSSIP, CRDS_PULL_RESPONSE_TX_RESTART_LAST_VOTED_FORK_SLOTS ) );
-  gossip_stats->storage_cnt_tx[ FD_METRICS_ENUM_CRDS_VALUE_V_RESTART_HEAVIEST_FORK_IDX ] =
+  gossip_stats->storage_cnt_tx[ FD_METRICS_ENUM_CRDS_VALUE_TYPE_V_RESTART_HEAVIEST_FORK_IDX ] =
       fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( COUNTER, GOSSIP, CRDS_PUSH_TX_RESTART_HEAVIEST_FORK ) )
     + fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( COUNTER, GOSSIP, CRDS_PULL_RESPONSE_TX_RESTART_HEAVIEST_FORK ) );
 
-  gossip_stats->storage_bytes_tx[ FD_METRICS_ENUM_CRDS_VALUE_V_CONTACT_INFO_V1_IDX ] =
+  gossip_stats->storage_bytes_tx[ FD_METRICS_ENUM_CRDS_VALUE_TYPE_V_CONTACT_INFO_V1_IDX ] =
       fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( COUNTER, GOSSIP, CRDS_PUSH_TX_BYTES_CONTACT_INFO_V1 ) )
     + fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( COUNTER, GOSSIP, CRDS_PULL_RESPONSE_TX_BYTES_CONTACT_INFO_V1 ) );
-  gossip_stats->storage_bytes_tx[ FD_METRICS_ENUM_CRDS_VALUE_V_VOTE_IDX ] =
+  gossip_stats->storage_bytes_tx[ FD_METRICS_ENUM_CRDS_VALUE_TYPE_V_VOTE_IDX ] =
       fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( COUNTER, GOSSIP, CRDS_PUSH_TX_BYTES_VOTE ) )
     + fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( COUNTER, GOSSIP, CRDS_PULL_RESPONSE_TX_BYTES_VOTE ) );
-  gossip_stats->storage_bytes_tx[ FD_METRICS_ENUM_CRDS_VALUE_V_LOWEST_SLOT_IDX ] =
+  gossip_stats->storage_bytes_tx[ FD_METRICS_ENUM_CRDS_VALUE_TYPE_V_LOWEST_SLOT_IDX ] =
       fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( COUNTER, GOSSIP, CRDS_PUSH_TX_BYTES_LOWEST_SLOT ) )
     + fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( COUNTER, GOSSIP, CRDS_PULL_RESPONSE_TX_BYTES_LOWEST_SLOT ) );
-  gossip_stats->storage_bytes_tx[ FD_METRICS_ENUM_CRDS_VALUE_V_SNAPSHOT_HASHES_IDX ] =
+  gossip_stats->storage_bytes_tx[ FD_METRICS_ENUM_CRDS_VALUE_TYPE_V_SNAPSHOT_HASHES_IDX ] =
       fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( COUNTER, GOSSIP, CRDS_PUSH_TX_BYTES_SNAPSHOT_HASHES ) )
     + fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( COUNTER, GOSSIP, CRDS_PULL_RESPONSE_TX_BYTES_SNAPSHOT_HASHES ) );
-  gossip_stats->storage_bytes_tx[ FD_METRICS_ENUM_CRDS_VALUE_V_ACCOUNTS_HASHES_IDX ] =
+  gossip_stats->storage_bytes_tx[ FD_METRICS_ENUM_CRDS_VALUE_TYPE_V_ACCOUNTS_HASHES_IDX ] =
       fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( COUNTER, GOSSIP, CRDS_PUSH_TX_BYTES_ACCOUNTS_HASHES ) )
     + fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( COUNTER, GOSSIP, CRDS_PULL_RESPONSE_TX_BYTES_ACCOUNTS_HASHES ) );
-  gossip_stats->storage_bytes_tx[ FD_METRICS_ENUM_CRDS_VALUE_V_EPOCH_SLOTS_IDX ] =
+  gossip_stats->storage_bytes_tx[ FD_METRICS_ENUM_CRDS_VALUE_TYPE_V_EPOCH_SLOTS_IDX ] =
       fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( COUNTER, GOSSIP, CRDS_PUSH_TX_BYTES_EPOCH_SLOTS ) )
     + fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( COUNTER, GOSSIP, CRDS_PULL_RESPONSE_TX_BYTES_EPOCH_SLOTS ) );
-  gossip_stats->storage_bytes_tx[ FD_METRICS_ENUM_CRDS_VALUE_V_VERSION_V1_IDX ] =
+  gossip_stats->storage_bytes_tx[ FD_METRICS_ENUM_CRDS_VALUE_TYPE_V_VERSION_V1_IDX ] =
       fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( COUNTER, GOSSIP, CRDS_PUSH_TX_BYTES_VERSION_V1 ) )
     + fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( COUNTER, GOSSIP, CRDS_PULL_RESPONSE_TX_BYTES_VERSION_V1 ) );
-  gossip_stats->storage_bytes_tx[ FD_METRICS_ENUM_CRDS_VALUE_V_VERSION_V2_IDX ] =
+  gossip_stats->storage_bytes_tx[ FD_METRICS_ENUM_CRDS_VALUE_TYPE_V_VERSION_V2_IDX ] =
       fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( COUNTER, GOSSIP, CRDS_PUSH_TX_BYTES_VERSION_V2 ) )
     + fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( COUNTER, GOSSIP, CRDS_PULL_RESPONSE_TX_BYTES_VERSION_V2 ) );
-  gossip_stats->storage_bytes_tx[ FD_METRICS_ENUM_CRDS_VALUE_V_NODE_INSTANCE_IDX ] =
+  gossip_stats->storage_bytes_tx[ FD_METRICS_ENUM_CRDS_VALUE_TYPE_V_NODE_INSTANCE_IDX ] =
       fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( COUNTER, GOSSIP, CRDS_PUSH_TX_BYTES_NODE_INSTANCE ) )
     + fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( COUNTER, GOSSIP, CRDS_PULL_RESPONSE_TX_BYTES_NODE_INSTANCE ) );
-  gossip_stats->storage_bytes_tx[ FD_METRICS_ENUM_CRDS_VALUE_V_DUPLICATE_SHRED_IDX ] =
+  gossip_stats->storage_bytes_tx[ FD_METRICS_ENUM_CRDS_VALUE_TYPE_V_DUPLICATE_SHRED_IDX ] =
       fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( COUNTER, GOSSIP, CRDS_PUSH_TX_BYTES_DUPLICATE_SHRED ) )
     + fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( COUNTER, GOSSIP, CRDS_PULL_RESPONSE_TX_BYTES_DUPLICATE_SHRED ) );
-  gossip_stats->storage_bytes_tx[ FD_METRICS_ENUM_CRDS_VALUE_V_INCREMENTAL_SNAPSHOT_HASHES_IDX ] =
+  gossip_stats->storage_bytes_tx[ FD_METRICS_ENUM_CRDS_VALUE_TYPE_V_INCREMENTAL_SNAPSHOT_HASHES_IDX ] =
       fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( COUNTER, GOSSIP, CRDS_PUSH_TX_BYTES_INCREMENTAL_SNAPSHOT_HASHES ) )
     + fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( COUNTER, GOSSIP, CRDS_PULL_RESPONSE_TX_BYTES_INCREMENTAL_SNAPSHOT_HASHES ) );
-  gossip_stats->storage_bytes_tx[ FD_METRICS_ENUM_CRDS_VALUE_V_CONTACT_INFO_V2_IDX ] =
+  gossip_stats->storage_bytes_tx[ FD_METRICS_ENUM_CRDS_VALUE_TYPE_V_CONTACT_INFO_V2_IDX ] =
       fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( COUNTER, GOSSIP, CRDS_PUSH_TX_BYTES_CONTACT_INFO_V2 ) )
     + fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( COUNTER, GOSSIP, CRDS_PULL_RESPONSE_TX_BYTES_CONTACT_INFO_V2 ) );
-  gossip_stats->storage_bytes_tx[ FD_METRICS_ENUM_CRDS_VALUE_V_RESTART_LAST_VOTED_FORK_SLOTS_IDX ] =
+  gossip_stats->storage_bytes_tx[ FD_METRICS_ENUM_CRDS_VALUE_TYPE_V_RESTART_LAST_VOTED_FORK_SLOTS_IDX ] =
       fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( COUNTER, GOSSIP, CRDS_PUSH_TX_BYTES_RESTART_LAST_VOTED_FORK_SLOTS ) )
     + fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( COUNTER, GOSSIP, CRDS_PULL_RESPONSE_TX_BYTES_RESTART_LAST_VOTED_FORK_SLOTS ) );
-  gossip_stats->storage_bytes_tx[ FD_METRICS_ENUM_CRDS_VALUE_V_RESTART_HEAVIEST_FORK_IDX ] =
+  gossip_stats->storage_bytes_tx[ FD_METRICS_ENUM_CRDS_VALUE_TYPE_V_RESTART_HEAVIEST_FORK_IDX ] =
       fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( COUNTER, GOSSIP, CRDS_PUSH_TX_BYTES_RESTART_HEAVIEST_FORK ) )
     + fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( COUNTER, GOSSIP, CRDS_PULL_RESPONSE_TX_BYTES_RESTART_HEAVIEST_FORK ) );
 
-  gossip_stats->messages_bytes_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PULL_REQUEST_IDX  ] = fd_gui_metrics_sum_tiles_counter( peers->topo, "gossvf", gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, MESSAGE_RX_BYTES_SUCCESS_PULL_REQUEST ) );
-  gossip_stats->messages_bytes_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PULL_RESPONSE_IDX ] = fd_gui_metrics_sum_tiles_counter( peers->topo, "gossvf", gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, MESSAGE_RX_BYTES_SUCCESS_PULL_RESPONSE ) );
-  gossip_stats->messages_bytes_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PUSH_IDX          ] = fd_gui_metrics_sum_tiles_counter( peers->topo, "gossvf", gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, MESSAGE_RX_BYTES_SUCCESS_PUSH ) );
-  gossip_stats->messages_bytes_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PING_IDX          ] = fd_gui_metrics_sum_tiles_counter( peers->topo, "gossvf", gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, MESSAGE_RX_BYTES_SUCCESS_PING ) );
-  gossip_stats->messages_bytes_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PONG_IDX          ] = fd_gui_metrics_sum_tiles_counter( peers->topo, "gossvf", gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, MESSAGE_RX_BYTES_SUCCESS_PONG ) );
-  gossip_stats->messages_bytes_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PRUNE_IDX         ] = fd_gui_metrics_sum_tiles_counter( peers->topo, "gossvf", gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, MESSAGE_RX_BYTES_SUCCESS_PRUNE ) );
+  gossip_stats->messages_bytes_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_TYPE_V_PULL_REQUEST_IDX  ] = fd_gui_metrics_sum_tiles_counter( peers->topo, "gossvf", gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, MESSAGE_RX_BYTES_SUCCESS_PULL_REQUEST ) );
+  gossip_stats->messages_bytes_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_TYPE_V_PULL_RESPONSE_IDX ] = fd_gui_metrics_sum_tiles_counter( peers->topo, "gossvf", gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, MESSAGE_RX_BYTES_SUCCESS_PULL_RESPONSE ) );
+  gossip_stats->messages_bytes_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_TYPE_V_PUSH_IDX          ] = fd_gui_metrics_sum_tiles_counter( peers->topo, "gossvf", gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, MESSAGE_RX_BYTES_SUCCESS_PUSH ) );
+  gossip_stats->messages_bytes_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_TYPE_V_PING_IDX          ] = fd_gui_metrics_sum_tiles_counter( peers->topo, "gossvf", gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, MESSAGE_RX_BYTES_SUCCESS_PING ) );
+  gossip_stats->messages_bytes_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_TYPE_V_PONG_IDX          ] = fd_gui_metrics_sum_tiles_counter( peers->topo, "gossvf", gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, MESSAGE_RX_BYTES_SUCCESS_PONG ) );
+  gossip_stats->messages_bytes_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_TYPE_V_PRUNE_IDX         ] = fd_gui_metrics_sum_tiles_counter( peers->topo, "gossvf", gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, MESSAGE_RX_BYTES_SUCCESS_PRUNE ) );
 
-  gossip_stats->messages_count_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PULL_REQUEST_IDX  ] =
-      fd_gui_metrics_sum_tiles_counter( peers->topo, "gossvf", gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, MESSAGE_RX_SUCCESS_PULL_REQUEST ) )
-    + fd_gui_metrics_sum_tiles_counter( peers->topo, "gossvf", gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, MESSAGE_RX_DROPPED_PULL_REQUEST_NOT_CONTACT_INFO ) )
-    + fd_gui_metrics_sum_tiles_counter( peers->topo, "gossvf", gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, MESSAGE_RX_DROPPED_PULL_REQUEST_LOOPBACK ) )
-    + fd_gui_metrics_sum_tiles_counter( peers->topo, "gossvf", gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, MESSAGE_RX_DROPPED_PULL_REQUEST_INACTIVE ) )
-    + fd_gui_metrics_sum_tiles_counter( peers->topo, "gossvf", gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, MESSAGE_RX_DROPPED_PULL_REQUEST_WALLCLOCK ) )
-    + fd_gui_metrics_sum_tiles_counter( peers->topo, "gossvf", gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, MESSAGE_RX_DROPPED_PULL_REQUEST_SIGNATURE ) )
-    + fd_gui_metrics_sum_tiles_counter( peers->topo, "gossvf", gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, MESSAGE_RX_DROPPED_PULL_REQUEST_SHRED_VERSION ) )
-    + fd_gui_metrics_sum_tiles_counter( peers->topo, "gossvf", gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, MESSAGE_RX_DROPPED_PULL_REQUEST_MASK_BITS ) );
-  gossip_stats->messages_count_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PULL_RESPONSE_IDX ] =
-      fd_gui_metrics_sum_tiles_counter( peers->topo, "gossvf", gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, MESSAGE_RX_SUCCESS_PULL_RESPONSE ) )
-    + fd_gui_metrics_sum_tiles_counter( peers->topo, "gossvf", gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, MESSAGE_RX_DROPPED_PULL_RESPONSE_LOOPBACK ) )
-    + fd_gui_metrics_sum_tiles_counter( peers->topo, "gossvf", gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, MESSAGE_RX_DROPPED_PULL_RESPONSE_NO_VALID_CRDS ) );
-  gossip_stats->messages_count_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PUSH_IDX          ] =
-      fd_gui_metrics_sum_tiles_counter( peers->topo, "gossvf", gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, MESSAGE_RX_SUCCESS_PUSH ) )
-    + fd_gui_metrics_sum_tiles_counter( peers->topo, "gossvf", gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, MESSAGE_RX_DROPPED_PUSH_LOOPBACK ) )
-    + fd_gui_metrics_sum_tiles_counter( peers->topo, "gossvf", gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, MESSAGE_RX_DROPPED_PUSH_NO_VALID_CRDS ) );
-  gossip_stats->messages_count_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PING_IDX          ] =
-      fd_gui_metrics_sum_tiles_counter( peers->topo, "gossvf", gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, MESSAGE_RX_SUCCESS_PING ) )
-    + fd_gui_metrics_sum_tiles_counter( peers->topo, "gossvf", gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, MESSAGE_RX_DROPPED_PING_SIGNATURE ) );
-  gossip_stats->messages_count_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PONG_IDX          ] =
-      fd_gui_metrics_sum_tiles_counter( peers->topo, "gossvf", gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, MESSAGE_RX_SUCCESS_PONG ) )
-    + fd_gui_metrics_sum_tiles_counter( peers->topo, "gossvf", gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, MESSAGE_RX_DROPPED_PONG_SIGNATURE ) );
-  gossip_stats->messages_count_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PRUNE_IDX         ] =
-      fd_gui_metrics_sum_tiles_counter( peers->topo, "gossvf", gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, MESSAGE_RX_SUCCESS_PRUNE ) )
-    + fd_gui_metrics_sum_tiles_counter( peers->topo, "gossvf", gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, MESSAGE_RX_DROPPED_PRUNE_DESTINATION ) )
-    + fd_gui_metrics_sum_tiles_counter( peers->topo, "gossvf", gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, MESSAGE_RX_DROPPED_PRUNE_WALLCLOCK ) )
-    + fd_gui_metrics_sum_tiles_counter( peers->topo, "gossvf", gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, MESSAGE_RX_DROPPED_PRUNE_SIGNATURE ) );
+  gossip_stats->messages_count_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_TYPE_V_PULL_REQUEST_IDX  ] =
+      fd_gui_metrics_sum_tiles_counter( peers->topo, "gossvf", gossvf_tile_cnt, MIDX(      COUNTER, GOSSVF, MESSAGE_RX_SUCCESS_PULL_REQUEST ) )
+    + fd_gui_metrics_sum_tiles_counter( peers->topo, "gossvf", gossvf_tile_cnt, MIDX(      COUNTER, GOSSVF, MESSAGE_RX_DROPPED_PULL_REQUEST_NOT_CONTACT_INFO ) )
+    + fd_gui_metrics_sum_tiles_counter( peers->topo, "gossvf", gossvf_tile_cnt, MIDX(      COUNTER, GOSSVF, MESSAGE_RX_DROPPED_PULL_REQUEST_LOOPBACK ) )
+    + fd_gui_metrics_sum_tiles_counter( peers->topo, "gossvf", gossvf_tile_cnt, MIDX(      COUNTER, GOSSVF, MESSAGE_RX_DROPPED_PULL_REQUEST_INACTIVE ) )
+    + fd_gui_metrics_sum_tiles_counter( peers->topo, "gossvf", gossvf_tile_cnt, MIDX(      COUNTER, GOSSVF, MESSAGE_RX_DROPPED_PULL_REQUEST_WALLCLOCK ) )
+    + fd_gui_metrics_sum_tiles_counter( peers->topo, "gossvf", gossvf_tile_cnt, MIDX(      COUNTER, GOSSVF, MESSAGE_RX_DROPPED_PULL_REQUEST_SIGNATURE ) )
+    + fd_gui_metrics_sum_tiles_counter( peers->topo, "gossvf", gossvf_tile_cnt, MIDX(      COUNTER, GOSSVF, MESSAGE_RX_DROPPED_PULL_REQUEST_SHRED_VERSION ) )
+    + fd_gui_metrics_sum_tiles_counter( peers->topo, "gossvf", gossvf_tile_cnt, MIDX(      COUNTER, GOSSVF, MESSAGE_RX_DROPPED_PULL_REQUEST_MASK_BITS ) );
+  gossip_stats->messages_count_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_TYPE_V_PULL_RESPONSE_IDX ] =
+      fd_gui_metrics_sum_tiles_counter( peers->topo, "gossvf", gossvf_tile_cnt, MIDX(      COUNTER, GOSSVF, MESSAGE_RX_SUCCESS_PULL_RESPONSE ) )
+    + fd_gui_metrics_sum_tiles_counter( peers->topo, "gossvf", gossvf_tile_cnt, MIDX(      COUNTER, GOSSVF, MESSAGE_RX_DROPPED_PULL_RESPONSE_LOOPBACK ) )
+    + fd_gui_metrics_sum_tiles_counter( peers->topo, "gossvf", gossvf_tile_cnt, MIDX(      COUNTER, GOSSVF, MESSAGE_RX_DROPPED_PULL_RESPONSE_NO_VALID_CRDS ) );
+  gossip_stats->messages_count_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_TYPE_V_PUSH_IDX          ] =
+      fd_gui_metrics_sum_tiles_counter( peers->topo, "gossvf", gossvf_tile_cnt, MIDX(      COUNTER, GOSSVF, MESSAGE_RX_SUCCESS_PUSH ) )
+    + fd_gui_metrics_sum_tiles_counter( peers->topo, "gossvf", gossvf_tile_cnt, MIDX(      COUNTER, GOSSVF, MESSAGE_RX_DROPPED_PUSH_LOOPBACK ) )
+    + fd_gui_metrics_sum_tiles_counter( peers->topo, "gossvf", gossvf_tile_cnt, MIDX(      COUNTER, GOSSVF, MESSAGE_RX_DROPPED_PUSH_NO_VALID_CRDS ) );
+  gossip_stats->messages_count_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_TYPE_V_PING_IDX          ] =
+      fd_gui_metrics_sum_tiles_counter( peers->topo, "gossvf", gossvf_tile_cnt, MIDX(      COUNTER, GOSSVF, MESSAGE_RX_SUCCESS_PING ) )
+    + fd_gui_metrics_sum_tiles_counter( peers->topo, "gossvf", gossvf_tile_cnt, MIDX(      COUNTER, GOSSVF, MESSAGE_RX_DROPPED_PING_SIGNATURE ) );
+  gossip_stats->messages_count_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_TYPE_V_PONG_IDX          ] =
+      fd_gui_metrics_sum_tiles_counter( peers->topo, "gossvf", gossvf_tile_cnt, MIDX(      COUNTER, GOSSVF, MESSAGE_RX_SUCCESS_PONG ) )
+    + fd_gui_metrics_sum_tiles_counter( peers->topo, "gossvf", gossvf_tile_cnt, MIDX(      COUNTER, GOSSVF, MESSAGE_RX_DROPPED_PONG_SIGNATURE ) );
+  gossip_stats->messages_count_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_TYPE_V_PRUNE_IDX         ] =
+      fd_gui_metrics_sum_tiles_counter( peers->topo, "gossvf", gossvf_tile_cnt, MIDX(      COUNTER, GOSSVF, MESSAGE_RX_SUCCESS_PRUNE ) )
+    + fd_gui_metrics_sum_tiles_counter( peers->topo, "gossvf", gossvf_tile_cnt, MIDX(      COUNTER, GOSSVF, MESSAGE_RX_DROPPED_PRUNE_DESTINATION ) )
+    + fd_gui_metrics_sum_tiles_counter( peers->topo, "gossvf", gossvf_tile_cnt, MIDX(      COUNTER, GOSSVF, MESSAGE_RX_DROPPED_PRUNE_WALLCLOCK ) )
+    + fd_gui_metrics_sum_tiles_counter( peers->topo, "gossvf", gossvf_tile_cnt, MIDX(      COUNTER, GOSSVF, MESSAGE_RX_DROPPED_PRUNE_SIGNATURE ) );
 
-  gossip_stats->messages_bytes_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PULL_REQUEST_IDX  ] = fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( COUNTER, GOSSIP, MESSAGE_TX_BYTES_PULL_REQUEST ) );
-  gossip_stats->messages_bytes_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PULL_RESPONSE_IDX ] = fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( COUNTER, GOSSIP, MESSAGE_TX_BYTES_PULL_RESPONSE ) );
-  gossip_stats->messages_bytes_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PUSH_IDX          ] = fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( COUNTER, GOSSIP, MESSAGE_TX_BYTES_PUSH ) );
-  gossip_stats->messages_bytes_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PING_IDX          ] = fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( COUNTER, GOSSIP, MESSAGE_TX_BYTES_PING ) );
-  gossip_stats->messages_bytes_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PONG_IDX          ] = fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( COUNTER, GOSSIP, MESSAGE_TX_BYTES_PONG ) );
-  gossip_stats->messages_bytes_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PRUNE_IDX         ] = fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( COUNTER, GOSSIP, MESSAGE_TX_BYTES_PRUNE ) );
+  gossip_stats->messages_bytes_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_TYPE_V_PULL_REQUEST_IDX  ] = fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( COUNTER, GOSSIP, MESSAGE_TX_BYTES_PULL_REQUEST ) );
+  gossip_stats->messages_bytes_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_TYPE_V_PULL_RESPONSE_IDX ] = fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( COUNTER, GOSSIP, MESSAGE_TX_BYTES_PULL_RESPONSE ) );
+  gossip_stats->messages_bytes_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_TYPE_V_PUSH_IDX          ] = fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( COUNTER, GOSSIP, MESSAGE_TX_BYTES_PUSH ) );
+  gossip_stats->messages_bytes_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_TYPE_V_PING_IDX          ] = fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( COUNTER, GOSSIP, MESSAGE_TX_BYTES_PING ) );
+  gossip_stats->messages_bytes_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_TYPE_V_PONG_IDX          ] = fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( COUNTER, GOSSIP, MESSAGE_TX_BYTES_PONG ) );
+  gossip_stats->messages_bytes_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_TYPE_V_PRUNE_IDX         ] = fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( COUNTER, GOSSIP, MESSAGE_TX_BYTES_PRUNE ) );
 
-  gossip_stats->messages_count_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PULL_REQUEST_IDX  ] = fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( COUNTER, GOSSIP, MESSAGE_TX_PULL_REQUEST ) );
-  gossip_stats->messages_count_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PULL_RESPONSE_IDX ] = fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( COUNTER, GOSSIP, MESSAGE_TX_PULL_RESPONSE ) );
-  gossip_stats->messages_count_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PUSH_IDX          ] = fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( COUNTER, GOSSIP, MESSAGE_TX_PUSH ) );
-  gossip_stats->messages_count_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PING_IDX          ] = fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( COUNTER, GOSSIP, MESSAGE_TX_PING ) );
-  gossip_stats->messages_count_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PONG_IDX          ] = fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( COUNTER, GOSSIP, MESSAGE_TX_PONG ) );
-  gossip_stats->messages_count_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PRUNE_IDX         ] = fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( COUNTER, GOSSIP, MESSAGE_TX_PRUNE ) );
+  gossip_stats->messages_count_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_TYPE_V_PULL_REQUEST_IDX  ] = fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( COUNTER, GOSSIP, MESSAGE_TX_PULL_REQUEST ) );
+  gossip_stats->messages_count_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_TYPE_V_PULL_RESPONSE_IDX ] = fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( COUNTER, GOSSIP, MESSAGE_TX_PULL_RESPONSE ) );
+  gossip_stats->messages_count_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_TYPE_V_PUSH_IDX          ] = fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( COUNTER, GOSSIP, MESSAGE_TX_PUSH ) );
+  gossip_stats->messages_count_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_TYPE_V_PING_IDX          ] = fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( COUNTER, GOSSIP, MESSAGE_TX_PING ) );
+  gossip_stats->messages_count_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_TYPE_V_PONG_IDX          ] = fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( COUNTER, GOSSIP, MESSAGE_TX_PONG ) );
+  gossip_stats->messages_count_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_TYPE_V_PRUNE_IDX         ] = fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( COUNTER, GOSSIP, MESSAGE_TX_PRUNE ) );
 }
 
 void
@@ -494,7 +493,7 @@ fd_gui_peers_handle_gossip_bw( fd_gui_peers_ctx_t *           peers,
     if( FD_UNLIKELY( !peer ) ) continue; /* NOP, peer not known yet */
 
     ulong tag = rec[ i ].tag;
-    if( FD_UNLIKELY( tag>=FD_METRICS_ENUM_GOSSIP_MESSAGE_CNT ) ) continue; /* NOP, unknown message kind */
+    if( FD_UNLIKELY( tag>=FD_METRICS_ENUM_GOSSIP_MESSAGE_TYPE_CNT ) ) continue; /* NOP, unknown message kind */
     fd_ptr_if( is_rx, &peer->row.gossvf_rx[ tag ], &peer->row.gossip_tx[ tag ] )->cur += rec[ i ].sz;
     fd_ptr_if( is_rx, (fd_gui_peers_metric_rate_t *)&peer->row.gossvf_rx_sum, (fd_gui_peers_metric_rate_t *)&peer->row.gossip_tx_sum )->cur += rec[ i ].sz;
     if( FD_UNLIKELY( !peer->bw_dirty ) ) {
@@ -534,11 +533,6 @@ geoip_lookup( fd_gui_ip_db_t const * ip_db,
 #define SORT_NAME fd_gui_peers_voter_sort_iden_desc
 #define SORT_KEY_T fd_gui_peers_voter_t
 #define SORT_BEFORE(a,b) (memcmp( (a).weight.id_key.uc, (b).weight.id_key.uc, 32UL )>0)
-#include "../../util/tmpl/fd_sort.c"
-
-#define SORT_NAME fd_gui_peers_voter_idx_sort_vote_desc
-#define SORT_KEY_T fd_gui_peers_voter_idx_t
-#define SORT_BEFORE(a,b) (memcmp( (a).key.uc, (b).key.uc, 32UL )>0)
 #include "../../util/tmpl/fd_sort.c"
 
 static void
@@ -591,12 +585,7 @@ fd_gui_peers_voter_best_for_identity( fd_gui_peers_voter_t const * voters,
   ulong j = i + 1UL;
   fd_gui_peers_voter_t const * best = &voters[ i ];
   while( j<voter_cnt && !memcmp( voters[ j ].weight.id_key.uc, best->weight.id_key.uc, sizeof(fd_pubkey_t) ) ) {
-    fd_gui_peers_voter_t const * candidate  = &voters[ j ];
-    ulong                        slot_best  = fd_ulong_if( best->vote_slot==ULONG_MAX, 0UL, best->vote_slot );
-    ulong                        slot_cand  = fd_ulong_if( candidate->vote_slot==ULONG_MAX, 0UL, candidate->vote_slot );
-    if( (slot_cand>slot_best) || ((slot_cand==slot_best) && (candidate->weight.stake>best->weight.stake)) ) {
-      best = candidate;
-    }
+    if( voters[ j ].weight.stake>best->weight.stake ) best = &voters[ j ];
     j++;
   }
   *p_i = j;
@@ -681,15 +670,15 @@ fd_gui_peers_handle_gossip_update( fd_gui_peers_ctx_t *               peers,
           memset( &peer->row.gossip_tx,     0, sizeof(peer->row.gossip_tx) );
           memset( &peer->row.gossvf_rx_sum, 0, sizeof(peer->row.gossvf_rx_sum) );
           memset( &peer->row.gossip_tx_sum, 0, sizeof(peer->row.gossip_tx_sum) );
-          for( ulong i=0UL; i<FD_METRICS_ENUM_GOSSIP_MESSAGE_CNT; i++ ) {
+          for( ulong i=0UL; i<FD_METRICS_ENUM_GOSSIP_MESSAGE_TYPE_CNT; i++ ) {
             fd_gui_ema_init( &peer->row.gossvf_rx[ i ].rate_ema, now, FD_GUI_PEERS_EMA_HALF_LIFE_NS );
             fd_gui_ema_init( &peer->row.gossip_tx[ i ].rate_ema, now, FD_GUI_PEERS_EMA_HALF_LIFE_NS );
           }
           fd_gui_ema_init( &peer->row.gossvf_rx_sum.rate_ema, now, FD_GUI_PEERS_EMA_HALF_LIFE_NS );
           fd_gui_ema_init( &peer->row.gossip_tx_sum.rate_ema, now, FD_GUI_PEERS_EMA_HALF_LIFE_NS );
           peer->row.has_vote_info = 0;
-          peer->row.delinquent = 0;
           peer->row.stake = ULONG_MAX;
+          peer->row.delinquent = 0;
 
           /* Backfill stake from already-received epoch data.  This
              handles the case where epoch info arrived before this peer
@@ -716,10 +705,11 @@ fd_gui_peers_handle_gossip_update( fd_gui_peers_ctx_t *               peers,
             peer->row.has_vote_info = 1;
             peer->row.vote_account  = best_weight.vote_key;
             peer->row.stake         = best_weight.stake;
+            peers->delinquency.reconcile = 1;
           }
 
           fd_gui_config_parse_info_t * info =  fd_gui_peers_node_info_map_ele_query( peers->node_info_map, fd_type_pun_const(update->origin ), NULL, peers->node_info_pool );
-          if( FD_LIKELY( info ) ) fd_memcpy( peer->row.name, info->name, sizeof(info->name) );
+          if( FD_LIKELY( info && !info->cleared ) ) fd_memcpy( peer->row.name, info->name, sizeof(info->name) );
           else                    peer->row.name[ 0 ] = '\0';
 
           peer->row.wallclock_nanos   = FD_MILLI_TO_NANOSEC( update->wallclock );
@@ -802,35 +792,6 @@ fd_gui_peers_handle_gossip_update( fd_gui_peers_ctx_t *               peers,
 }
 
 void
-fd_gui_peers_handle_identity_change( fd_gui_peers_ctx_t * peers ) {
-  peers->slot_voted = ULONG_MAX;
-  fd_gui_peers_printf_vote_slot( peers );
-  fd_http_server_ws_broadcast( peers->http );
-}
-
-void
-fd_gui_peers_handle_vote( fd_gui_peers_ctx_t * peers,
-                          fd_pubkey_t const *  vote_account,
-                          ulong                vote_slot,
-                          int                  is_us ) {
-  if( FD_UNLIKELY( is_us && peers->slot_voted!=vote_slot ) ) {
-    peers->slot_voted = fd_ulong_if( vote_slot==0UL, ULONG_MAX, vote_slot );
-    fd_gui_peers_printf_vote_slot( peers );
-    fd_http_server_ws_broadcast( peers->http );
-  }
-
-  for( ulong i=0UL; i<2UL; i++ ) {
-    fd_gui_peers_voter_idx_t * vidx = peers->epochs[ i ].vote_idx;
-    ulong                      cnt  = peers->epochs[ i ].stakes_cnt;
-    ulong pos = fd_gui_peers_voter_idx_sort_vote_desc_split( vidx, cnt, (fd_gui_peers_voter_idx_t){ .key = *vote_account } );
-    if( FD_UNLIKELY( pos>=cnt || memcmp( vidx[ pos ].key.uc, vote_account->uc, sizeof(fd_pubkey_t) ) ) ) continue;
-
-    fd_gui_peers_voter_t * voter = &peers->epochs[ i ].stakes[ vidx[ pos ].idx ];
-    voter->vote_slot = fd_ulong_if( voter->vote_slot==ULONG_MAX, vote_slot, fd_ulong_max( voter->vote_slot, vote_slot ) );
-  }
-}
-
-void
 fd_gui_peers_handle_epoch_info( fd_gui_peers_ctx_t *        peers,
                                 fd_epoch_info_msg_t const * epoch_info,
                                 long                        now FD_PARAM_UNUSED ) {
@@ -847,13 +808,11 @@ fd_gui_peers_handle_epoch_info( fd_gui_peers_ctx_t *        peers,
   ulong stakes_cnt = 0UL;
   for( ulong i=0UL; i<epoch_info->staked_vote_cnt; i++ ) {
     if( FD_UNLIKELY( fd_pubkey_check_zero( &weights[ i ].id_key ) ) ) continue;
-    peers->epochs[ epoch_idx ].stakes[ stakes_cnt ] = (fd_gui_peers_voter_t){
-      .weight    = weights[ i ],
-      .vote_slot = ULONG_MAX,
-    };
+    peers->epochs[ epoch_idx ].stakes[ stakes_cnt ] = (fd_gui_peers_voter_t){ .weight = weights[ i ] };
     stakes_cnt++;
   }
   peers->epochs[ epoch_idx ].epoch      = epoch_info->epoch;
+  peers->epochs[ epoch_idx ].start_slot = epoch_info->start_slot;
   peers->epochs[ epoch_idx ].stakes_cnt = stakes_cnt;
 
   /* sort for deduplication */
@@ -888,86 +847,96 @@ fd_gui_peers_handle_epoch_info( fd_gui_peers_ctx_t *        peers,
     peers->scratch.idxs   [ updated_cnt ] = peer_idx;
     updated_cnt++;
   }
-
   if( FD_UNLIKELY( updated_cnt ) ) {
+    peers->delinquency.reconcile = 1;
     fd_gui_peers_printf_nodes( peers, peers->scratch.actions, peers->scratch.idxs, updated_cnt );
     fd_http_server_ws_broadcast( peers->http );
   }
-
-  /* Build vote account index for fd_gui_peers_handle_vote */
-  for( ulong j=0UL; j<stakes_cnt; j++ ) {
-    peers->epochs[ epoch_idx ].vote_idx[ j ] = (fd_gui_peers_voter_idx_t){
-      .key = peers->epochs[ epoch_idx ].stakes[ j ].weight.vote_key,
-      .idx = j,
-    };
-  }
-  fd_gui_peers_voter_idx_sort_vote_desc_inplace( peers->epochs[ epoch_idx ].vote_idx, stakes_cnt );
 }
 
-#define SORT_NAME        fd_gui_peers_voter_sort_slot_stake_desc
-#define SORT_KEY_T       fd_gui_peers_voter_t
-#define SORT_BEFORE(a,b) ((a).vote_slot>(b).vote_slot ? 1 : (a).vote_slot<(b).vote_slot ? 0 : (a).weight.stake>(b).weight.stake)
-#include "../../util/tmpl/fd_sort.c"
+/* https://github.com/anza-xyz/agave/blob/v4.2.1/rpc-client-types/src/request.rs#L166 */
+#define FD_GUI_PEERS_DELINQUENT_SLOT_DISTANCE 128UL
 
 void
-fd_gui_peers_update_delinquency( fd_gui_peers_ctx_t * peers,
-                                 long                 now FD_PARAM_UNUSED ) {
-  ulong epoch_t_1 = ULONG_MAX;
-  for( ulong i=0UL; i<2UL; i++ ) {
-    ulong epoch = peers->epochs[ i ].epoch;
-    if( FD_UNLIKELY( epoch==ULONG_MAX ) ) continue;
-    if( FD_LIKELY( epoch_t_1==ULONG_MAX || epoch>epoch_t_1 ) ) epoch_t_1 = epoch;
+fd_gui_peers_handle_slot_completed( fd_gui_peers_ctx_t *      peers,
+                                    ulong                     slot,
+                                    ulong                     epoch,
+                                    fd_block_footer_t const * footer ) {
+  if( FD_UNLIKELY( slot<FD_NUM_SLOTS_FOR_REWARD ) ) return;
+  ulong reward_slot = slot-FD_NUM_SLOTS_FOR_REWARD;
+
+  ulong epoch_idx = epoch % 2UL;
+  if( FD_UNLIKELY( peers->epochs[ epoch_idx ].epoch!=epoch || reward_slot<peers->epochs[ epoch_idx ].start_slot ) ) return;
+
+  /* Forks can complete an epoch E block after an epoch E+1 one. */
+  if( FD_UNLIKELY( peers->delinquency.epoch!=ULONG_MAX && epoch<peers->delinquency.epoch ) ) return;
+  if( FD_UNLIKELY( peers->delinquency.epoch!=epoch ) ) {
+    /* Ranks are remapped every epoch */
+    fd_memset( peers->delinquency.last_voted, 0, sizeof(peers->delinquency.last_voted) );
+    peers->delinquency.epoch        = epoch;
+    peers->delinquency.last_settled = 0UL;
+    peers->delinquency.stamp_since  = ULONG_MAX;
+    peers->delinquency.reconcile    = 1;
   }
-  ulong epoch_idx = epoch_t_1 % 2UL;
+  peers->delinquency.last_settled = fd_ulong_max( peers->delinquency.last_settled, reward_slot );
 
-  fd_gui_peers_voter_t * voters     = peers->epochs[ epoch_idx ].stakes;
-  ulong                  voters_cnt = peers->epochs[ epoch_idx ].stakes_cnt;
-
-  /* Copy to scratch and sort for p67 computation.  We use a scratch
-     copy to avoid clobbering the identity sort order of stakes. */
-  fd_gui_peers_voter_t * scratch = peers->scratch.voters_scratch;
-  fd_memcpy( scratch, voters, voters_cnt * sizeof(fd_gui_peers_voter_t) );
-  fd_gui_peers_voter_sort_slot_stake_desc_inplace( scratch, voters_cnt );
-
-  ulong total_stake = 0UL;
-  for( ulong i=0UL; i<voters_cnt; i++ ) total_stake += scratch[ i ].weight.stake;
-
-  ulong cumulative_stake   = 0UL;
-  ulong last_vote_slot_p33 = ULONG_MAX;
-  for( ulong i=0UL; i<voters_cnt; i++ ) {
-    if( FD_UNLIKELY( scratch[ i ].vote_slot==ULONG_MAX ) ) continue;
-    cumulative_stake += scratch[ i ].weight.stake;
-    if( FD_LIKELY( 3UL*cumulative_stake > 1UL*total_stake ) ) {
-      last_vote_slot_p33 = scratch[ i ].vote_slot;
-      break;
-    }
+  fd_bls_set_t reward_set[ fd_bls_set_word_cnt ];
+  fd_bls_set_null( reward_set );
+  if( FD_UNLIKELY( footer->has_skip_reward_cert  ) ) fd_bls_set_union( reward_set, reward_set, footer->skip_reward_cert.signer_set  );
+  if( FD_LIKELY  ( footer->has_notar_reward_cert ) ) fd_bls_set_union( reward_set, reward_set, footer->notar_reward_cert.signer_set );
+  if( FD_LIKELY( !fd_bls_set_is_null( reward_set ) && peers->delinquency.stamp_since==ULONG_MAX ) ) peers->delinquency.stamp_since = reward_slot;
+  for( ulong rank=fd_bls_set_const_iter_init( reward_set );
+       !fd_bls_set_const_iter_done( rank );
+       rank=fd_bls_set_const_iter_next( reward_set, rank ) ) {
+    peers->delinquency.last_voted[ rank ] = fd_ulong_max( peers->delinquency.last_voted[ rank ], reward_slot );
   }
-  if( FD_UNLIKELY( last_vote_slot_p33==ULONG_MAX ) ) {
-    return; /* not enough observed votes */
-  }
+
+  /* Until a full delinquency window has been watched this epoch, every
+     validator would read delinquent, so keep the previous values instead. */
+  if( FD_UNLIKELY( peers->delinquency.stamp_since==ULONG_MAX || peers->delinquency.last_settled<peers->delinquency.stamp_since+FD_GUI_PEERS_DELINQUENT_SLOT_DISTANCE ) ) return;
 
   ulong updated_cnt = 0UL;
-  for( ulong i=0UL; i<voters_cnt; i++ ) {
+  ulong i=0UL;
+  while( i<peers->epochs[ epoch_idx ].stakes_cnt ) {
+    fd_gui_peers_voter_t const * best = fd_gui_peers_voter_best_for_identity( peers->epochs[ epoch_idx ].stakes, peers->epochs[ epoch_idx ].stakes_cnt, &i );
+
     ulong peer_idx = fd_gui_peers_node_pubkey_map_idx_query(
-        peers->node_pubkey_map, &voters[ i ].weight.id_key, ULONG_MAX,
+        peers->node_pubkey_map, &best->weight.id_key, ULONG_MAX,
         peers->contact_info_table );
     if( FD_UNLIKELY( peer_idx==ULONG_MAX ) ) continue;
-
     fd_gui_peers_node_t * peer = &peers->contact_info_table[ peer_idx ];
 
-    /* Only update peers whose vote_account was already set by
-       handle_epoch_info and matches this voter */
-    if( FD_UNLIKELY( !peer->row.has_vote_info ) ) continue;
-    if( FD_UNLIKELY( memcmp( peer->row.vote_account.uc, voters[ i ].weight.vote_key.uc, sizeof(fd_pubkey_t) ) ) ) continue;
-
-    int is_delinquent = fd_int_if( voters[ i ].vote_slot==ULONG_MAX, 1, ((long)last_vote_slot_p33 - (long)voters[ i ].vote_slot) > 150L );
-    if( FD_LIKELY( peer->row.delinquent==is_delinquent ) ) continue;
-
-    peer->row.delinquent = is_delinquent;
+    ushort rank       = best->weight.rank;
+    int    delinquent = rank>=FD_BLS_SET_MAX || fd_ulong_sat_sub( peers->delinquency.last_settled, peers->delinquency.last_voted[ rank ] )>=FD_GUI_PEERS_DELINQUENT_SLOT_DISTANCE;
+    if( FD_LIKELY( peer->row.delinquent==delinquent ) ) continue;
+    peer->row.delinquent = delinquent;
 
     peers->scratch.actions[ updated_cnt ] = FD_GUI_PEERS_NODE_UPDATE;
     peers->scratch.idxs   [ updated_cnt ] = peer_idx;
     updated_cnt++;
+  }
+
+  /* Peers holding vote info from another epoch's stakes (e.g. dropped
+     from this epoch's set) cannot sign this epoch's reward certs.  The
+     loop above never visits them, so sweep the table whenever the set
+     of such peers may have grown. */
+  if( FD_UNLIKELY( peers->delinquency.reconcile ) ) {
+    peers->delinquency.reconcile = 0;
+    fd_gui_peers_voter_t const * stakes = peers->epochs[ epoch_idx ].stakes;
+    ulong                        cnt    = peers->epochs[ epoch_idx ].stakes_cnt;
+    for( ulong peer_idx=0UL; peer_idx<FD_CONTACT_INFO_TABLE_SIZE; peer_idx++ ) {
+      fd_gui_peers_node_t * peer = &peers->contact_info_table[ peer_idx ];
+      if( FD_LIKELY( !peer->row.valid || !peer->row.has_vote_info || peer->row.delinquent ) ) continue;
+
+      fd_gui_peers_voter_t query = { .weight = { .id_key = peer->row.pubkey } };
+      ulong idx = fd_gui_peers_voter_sort_iden_desc_split( stakes, cnt, query );
+      if( FD_LIKELY( idx<cnt && !memcmp( stakes[ idx ].weight.id_key.uc, peer->row.pubkey.uc, sizeof(fd_pubkey_t) ) ) ) continue;
+      peer->row.delinquent = 1;
+
+      peers->scratch.actions[ updated_cnt ] = FD_GUI_PEERS_NODE_UPDATE;
+      peers->scratch.idxs   [ updated_cnt ] = peer_idx;
+      updated_cnt++;
+    }
   }
 
   if( FD_UNLIKELY( updated_cnt ) ) {
@@ -979,69 +948,62 @@ fd_gui_peers_update_delinquency( fd_gui_peers_ctx_t * peers,
 void
 fd_gui_peers_handle_config_account( fd_gui_peers_ctx_t *  peers,
                                     uchar const *         data,
-                                    ulong                 sz ) {
-  /* optimistically acquire node_info */
-  if( FD_UNLIKELY( !fd_gui_peers_node_info_pool_free( peers->node_info_pool ) ) ) {
-    FD_LOG_WARNING(( "On-chain ConfigProgram accounts count exceeded %lu", FD_CONTACT_INFO_TABLE_SIZE ));
-    return;
+                                    ulong                 sz,
+                                    ulong                 slot ) {
+  fd_gui_config_parse_info_t parsed[1];
+  if( FD_UNLIKELY( !fd_gui_config_parse_validator_info( data, sz, parsed ) ) ) return;
+  parsed->slot = slot;
+
+  /* Snapshots can hold several copies of an identity's account, the
+     incremental after the full: keep the newest.  Some nodes clear all
+     the fields instead of deleting their on-chain account: that copy is
+     kept too, so its slot still outranks older ones, but reads as no
+     info. */
+  parsed->cleared = parsed->name[ 0 ]=='\0' && parsed->details[ 0 ]=='\0' && parsed->website[ 0 ]=='\0' && parsed->icon_uri[ 0 ]=='\0' && parsed->keybase_username[ 0 ]=='\0';
+  fd_gui_config_parse_info_t * info = fd_gui_peers_node_info_map_ele_query( peers->node_info_map, &parsed->pubkey, NULL, peers->node_info_pool );
+  if( FD_UNLIKELY( info && info->slot>slot ) ) return;
+  int had_info = info && !info->cleared;
+  if( FD_UNLIKELY( !info ) ) {
+    if( FD_UNLIKELY( !fd_gui_peers_node_info_pool_free( peers->node_info_pool ) ) ) {
+      FD_LOG_WARNING(( "On-chain ConfigProgram accounts count exceeded %lu", FD_CONTACT_INFO_TABLE_SIZE ));
+      return;
+    }
+    info = fd_gui_peers_node_info_pool_ele_acquire( peers->node_info_pool );
+    info->pubkey = parsed->pubkey;
+    fd_gui_peers_node_info_map_ele_insert( peers->node_info_map, info, peers->node_info_pool );
   }
-  fd_gui_config_parse_info_t * node_info = fd_gui_peers_node_info_pool_ele_acquire( peers->node_info_pool );
+  info->slot    = parsed->slot;
+  info->cleared = parsed->cleared;
+  fd_memcpy( info->name,             parsed->name,             sizeof(info->name)             );
+  fd_memcpy( info->website,          parsed->website,          sizeof(info->website)          );
+  fd_memcpy( info->details,          parsed->details,          sizeof(info->details)          );
+  fd_memcpy( info->icon_uri,         parsed->icon_uri,         sizeof(info->icon_uri)         );
+  fd_memcpy( info->keybase_username, parsed->keybase_username, sizeof(info->keybase_username) );
+  if( FD_UNLIKELY( info->cleared && !had_info ) ) return;
 
-  if( FD_UNLIKELY( !fd_gui_config_parse_validator_info( data, sz, node_info ) ) ) {
-    fd_gui_peers_node_info_pool_ele_release( peers->node_info_pool, node_info );
-    return;
-  }
-
-  if( FD_UNLIKELY( fd_gui_peers_node_info_map_ele_query( peers->node_info_map, &node_info->pubkey, NULL, peers->node_info_pool ) ) ) {
-    fd_gui_peers_node_info_pool_ele_release( peers->node_info_pool, node_info );
-    return; /* no duplicate entries */
-  }
-
-  /* Some nodes just clear all the fields instead of deleting their
-     on-chain account, we can ignore those entries */
-  if( FD_UNLIKELY( node_info->name[ 0 ]=='\0' && node_info->details[ 0 ]=='\0' && node_info->website[ 0 ]=='\0' && node_info->icon_uri[ 0 ]=='\0' && node_info->keybase_username[ 0 ]=='\0' ) ) {
-    fd_gui_peers_node_info_pool_ele_release( peers->node_info_pool, node_info );
-    return;
-  }
-
-  fd_gui_peers_node_info_map_ele_insert( peers->node_info_map, node_info, peers->node_info_pool );
-
-  fd_gui_peers_node_t * peer = fd_gui_peers_node_pubkey_map_ele_query( peers->node_pubkey_map, &node_info->pubkey, NULL, peers->contact_info_table );
+  fd_gui_peers_node_t * peer = fd_gui_peers_node_pubkey_map_ele_query( peers->node_pubkey_map, &info->pubkey, NULL, peers->contact_info_table );
   if( FD_UNLIKELY( peer ) ) {
     fd_gui_peers_live_table_ele_remove( peers->live_table, peer, peers->contact_info_table );
-    fd_cstr_ncpy( peer->row.name, node_info->name, sizeof(peer->row.name) );
+    fd_cstr_ncpy( peer->row.name, info->cleared ? "" : info->name, sizeof(peer->row.name) );
     fd_gui_peers_live_table_ele_insert( peers->live_table, peer, peers->contact_info_table );
+    fd_gui_peers_printf_nodes( peers, (int[]){ FD_GUI_PEERS_NODE_UPDATE }, (ulong[]){ (ulong)( peer-peers->contact_info_table ) }, 1UL );
+    fd_http_server_ws_broadcast( peers->http );
   }
 }
 
 void
-fd_gui_peers_stage_snapshot_manifest( fd_gui_peers_ctx_t *           peers,
-                                      fd_snapshot_manifest_t const * manifest,
-                                      long                           now ) {
+fd_gui_peers_start_wfs( fd_gui_peers_ctx_t *        peers,
+                        fd_epoch_info_msg_t const * epoch_info,
+                        long                        now ) {
 
   if( FD_LIKELY( !peers->wfs_enabled ) ) return;
+  if( FD_LIKELY( peers->wfs_peers_valid ) ) return;
 
-  fd_vote_stake_weight_t * vote_scratch = peers->scratch.manifest_vote_weights;
-  ulong vote_scratch_cnt = 0UL;
-  ulong vote_accounts_sz = manifest->vote_accounts_len;
-  if( FD_UNLIKELY( vote_accounts_sz>FD_RUNTIME_MAX_SNAPSHOT_VOTE_ACCOUNTS ) ) {
-    FD_LOG_WARNING(( "vote accounts %lu exceeds maximum %lu", vote_accounts_sz, FD_RUNTIME_MAX_SNAPSHOT_VOTE_ACCOUNTS ));
-    vote_accounts_sz = FD_RUNTIME_MAX_SNAPSHOT_VOTE_ACCOUNTS;
-  }
-  for( ulong i=0UL; i<vote_accounts_sz; i++ ) {
-    if( FD_UNLIKELY( manifest->vote_accounts[ i ].stake==0UL ) ) continue;
-    fd_memcpy( vote_scratch[ vote_scratch_cnt ].id_key.uc,   manifest->vote_accounts[ i ].node_account_pubkey, sizeof(fd_pubkey_t) );
-    fd_memcpy( vote_scratch[ vote_scratch_cnt ].vote_key.uc, manifest->vote_accounts[ i ].vote_account_pubkey, sizeof(fd_pubkey_t) );
-    vote_scratch[ vote_scratch_cnt ].stake = manifest->vote_accounts[ i ].stake;
-    vote_scratch_cnt++;
-  }
-
-  /* Mirrors gossip WFS logic */
-  fd_stake_weight_t * id_weights = peers->scratch.manifest_id_weights;
-  ulong id_cnt = compute_id_weights_from_vote_weights( id_weights, vote_scratch, vote_scratch_cnt );
-
-  /* Restore invariant: sorted by identity key */
-  fd_stake_weight_key_sort_inplace( id_weights, id_cnt );
+  /* Wait for supermajority uses the stakes of the epoch being
+     resumed, which is the first epoch message replay sends at boot,
+     the same list the gossip tile uses. */
+  fd_stake_weight_t const * id_weights = fd_epoch_info_msg_id_weights( epoch_info );
+  ulong id_cnt = epoch_info->staked_id_cnt;
 
   for( ulong i=0UL; i<id_cnt; i++ ) {
     peers->wfs_peers[ i ].identity_key = id_weights[ i ].key;
@@ -1051,19 +1013,17 @@ fd_gui_peers_stage_snapshot_manifest( fd_gui_peers_ctx_t *           peers,
 
     ulong peer_idx = fd_gui_peers_node_pubkey_map_idx_query( peers->node_pubkey_map, &id_weights[ i ].key, ULONG_MAX,peers->contact_info_table );
     if( peer_idx!=ULONG_MAX && peers->contact_info_table[ peer_idx ].row.update_time_nanos > now - FD_GUI_WFS_ACTIVITY_TIMEOUT_NANOS ) {
-      peers->wfs_peers[ i ].is_online       = 1;
+      peers->wfs_peers[ i ].is_online         = 1;
       peers->wfs_peers[ i ].update_time_nanos = peers->contact_info_table[ peer_idx ].row.update_time_nanos;
     } else {
-      peers->wfs_peers[ i ].is_online       = 0;
+      peers->wfs_peers[ i ].is_online         = 0;
       peers->wfs_peers[ i ].update_time_nanos = 0L;
     }
   }
   peers->wfs_peers_cnt = id_cnt;
-}
 
-void
-fd_gui_peers_commit_snapshot_manifest( fd_gui_peers_ctx_t * peers ) {
-  if( FD_UNLIKELY( !peers->wfs_enabled ) ) return;
+  /* Restore invariant: sorted by identity key */
+  wfs_peer_sort_inplace( peers->wfs_peers, peers->wfs_peers_cnt );
 
   wfs_fresh_dlist_join( wfs_fresh_dlist_new( peers->wfs_fresh_dlist ) );
 
@@ -1282,10 +1242,10 @@ fd_gui_peers_viewport_log( fd_gui_peers_ctx_t *  peers,
     FD_TEST(fd_cstr_printf_check( peer_addr, sizeof(peer_addr), NULL, FD_IP4_ADDR_FMT,
                                   FD_IP4_ADDR_FMT_ARGS( ip4 ) ) );
 
-    long cur_egress_push_bps           = (long)cur->gossip_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PUSH_IDX ].rate_ema.value;
-    long cur_ingress_push_bps          = (long)cur->gossvf_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PUSH_IDX ].rate_ema.value;
-    long cur_egress_pull_response_bps  = (long)cur->gossip_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PULL_RESPONSE_IDX ].rate_ema.value;
-    long cur_ingress_pull_response_bps = (long)cur->gossvf_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PULL_RESPONSE_IDX ].rate_ema.value;
+    long cur_egress_push_bps           = (long)cur->gossip_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_TYPE_V_PUSH_IDX ].rate_ema.value;
+    long cur_ingress_push_bps          = (long)cur->gossvf_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_TYPE_V_PUSH_IDX ].rate_ema.value;
+    long cur_egress_pull_response_bps  = (long)cur->gossip_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_TYPE_V_PULL_RESPONSE_IDX ].rate_ema.value;
+    long cur_ingress_pull_response_bps = (long)cur->gossvf_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_TYPE_V_PULL_RESPONSE_IDX ].rate_ema.value;
 
     p = fd_cstr_append_printf( p,
                                "| %5lu | %14ld | %14ld | %14ld | %14ld | %-50s | %-15s |\n",
@@ -1398,8 +1358,8 @@ fd_gui_peers_rate_update( fd_gui_peers_ctx_t * peers,
        changed */
     int change  = 0;
     int pending = 0; /* bytes counted since the last rate update */
-    for( ulong i=0UL; !change && i<2UL*FD_METRICS_ENUM_GOSSIP_MESSAGE_CNT; i++ ) {
-      fd_gui_peers_metric_rate_t * metric = i<FD_METRICS_ENUM_GOSSIP_MESSAGE_CNT ? &peer->row.gossvf_rx[ i ] : &peer->row.gossip_tx[ i-FD_METRICS_ENUM_GOSSIP_MESSAGE_CNT ];
+    for( ulong i=0UL; !change && i<2UL*FD_METRICS_ENUM_GOSSIP_MESSAGE_TYPE_CNT; i++ ) {
+      fd_gui_peers_metric_rate_t * metric = i<FD_METRICS_ENUM_GOSSIP_MESSAGE_TYPE_CNT ? &peer->row.gossvf_rx[ i ] : &peer->row.gossip_tx[ i-FD_METRICS_ENUM_GOSSIP_MESSAGE_TYPE_CNT ];
       int has_bytes = metric->cur!=metric->ref;
       pending |= has_bytes;
       if( FD_LIKELY( !has_bytes && metric->rate_ema.value==0.0 ) ) continue; /* don't update zero-bandwith peers */
@@ -1422,7 +1382,7 @@ fd_gui_peers_rate_update( fd_gui_peers_ctx_t * peers,
 
     /* live_table */
     fd_gui_peers_live_table_ele_remove( peers->live_table, peer, peers->contact_info_table );
-    for( ulong i=0UL; i<FD_METRICS_ENUM_GOSSIP_MESSAGE_CNT; i++ ) {
+    for( ulong i=0UL; i<FD_METRICS_ENUM_GOSSIP_MESSAGE_TYPE_CNT; i++ ) {
       fd_gui_peers_metric_rate_t * metric = &peer->row.gossvf_rx[ i ];
       long new_rate = (long)(((double)((long)metric->cur - (long)metric->ref) * 1e9 / window));
       double new_rate_ema = peer_ema_advance( &metric->rate_ema, now, (double)new_rate, dt, alpha, weight, new_weight );
@@ -1431,7 +1391,7 @@ fd_gui_peers_rate_update( fd_gui_peers_ctx_t * peers,
       metric->update_timestamp_ns = now;
     }
 
-    for( ulong i=0UL; i<FD_METRICS_ENUM_GOSSIP_MESSAGE_CNT; i++ ) {
+    for( ulong i=0UL; i<FD_METRICS_ENUM_GOSSIP_MESSAGE_TYPE_CNT; i++ ) {
       fd_gui_peers_metric_rate_t * metric = &peer->row.gossip_tx[ i ];
       long new_rate = (long)(((double)((long)metric->cur - (long)metric->ref) * 1e9 / window));
       double new_rate_ema = peer_ema_advance( &metric->rate_ema, now, (double)new_rate, dt, alpha, weight, new_weight );

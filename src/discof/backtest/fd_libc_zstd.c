@@ -13,7 +13,8 @@ struct fd_zstd_rstream {
   uchar *        in_buf;
   ulong          in_buf_max;
   ZSTD_inBuffer  input;
-  uint           eof : 1;
+  uint           eof       : 1;
+  uint           mid_frame : 1;
 };
 
 typedef struct fd_zstd_rstream fd_zstd_rstream_t;
@@ -30,8 +31,12 @@ rstream_read( void * cookie,
     if( zs->input.pos >= zs->input.size ) {
       size_t read_sz = fread( zs->in_buf, 1, zs->in_buf_max, zs->file );
       if( read_sz==0 ) {
-        if( feof( zs->file ) ) break;
-        return -1;
+        if( !feof( zs->file ) ) return -1;
+        if( FD_UNLIKELY( zs->mid_frame && !output.pos ) ) {
+          FD_LOG_WARNING(( "truncated Zstandard frame" ));
+          return -1;
+        }
+        break;
       }
       zs->input.src  = zs->in_buf;
       zs->input.size = read_sz;
@@ -43,11 +48,12 @@ rstream_read( void * cookie,
       FD_LOG_WARNING(( "ZSTD_decompressStream failed (%u-%s)", ZSTD_getErrorCode( ret ), ZSTD_getErrorName( ret ) ));
       return -1;
     }
+    zs->mid_frame = ret!=0;
 
     if( output.pos>0 && ret==0 ) break;
   }
 
-  zs->eof    = (!!feof( zs->file )) && (zs->input.pos >= zs->input.size);
+  zs->eof    = (!!feof( zs->file )) && (zs->input.pos >= zs->input.size) && !zs->mid_frame;
   zs->in_rd += output.pos;
   return (ssize_t)output.pos;
 }
@@ -70,6 +76,7 @@ rstream_seek( void * cookie,
     zs->input.pos  = 0;
     zs->in_rd      = 0UL;
     zs->eof        = 0;
+    zs->mid_frame  = 0;
     size_t const reset_ret = ZSTD_DCtx_reset( zs->dstream, ZSTD_reset_session_only );
     if( FD_UNLIKELY( ZSTD_isError( reset_ret ) ) ) return -1;
     *pos = 0L;
@@ -123,6 +130,7 @@ fd_zstd_rstream_open( FILE *         file,
   zs->input.size = 0;
   zs->input.pos  = 0;
   zs->eof        = 0;
+  zs->mid_frame  = 0;
 
   static cookie_io_functions_t const io_funcs = {
     .read  = rstream_read,

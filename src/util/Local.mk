@@ -4,6 +4,7 @@ $(call make-lib,fd_util_extra)
 # util only the ctl tools and tests link
 $(call make-lib,fd_util_test)
 $(call add-hdrs,fd_util_base.h fd_util.h)
+$(call add-hdrs,fd_boolau.h)
 $(call add-hdrs,fd_hash32.h)
 $(call add-objs,fd_hash fd_util,fd_util)
 $(call add-hdrs,fd_version.h)
@@ -26,7 +27,7 @@ endif
 
 include src/app/firedancer/version.mk
 define FD_VERSION_GENERATED_H
-#define FIREDANCER_COMMIT_REF_CSTR "$(shell git rev-parse HEAD)"
+#define FIREDANCER_COMMIT_REF_CSTR "$(shell git rev-parse --verify -q HEAD 2>/dev/null || echo 0000000000000000000000000000000000000000)"
 #define FD_VERSION_MAJOR $(FD_VERSION_MAJOR)
 #define FD_VERSION_MINOR $(FD_VERSION_MINOR)
 #define FD_VERSION_PATCH $(FD_VERSION_PATCH)

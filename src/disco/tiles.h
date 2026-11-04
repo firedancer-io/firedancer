@@ -20,16 +20,8 @@ struct fd_became_leader {
   long   slot_start_ns;
   long   slot_end_ns;
 
-  /* An opaque pointer to a Rust Arc<Bank> object, which should only
-     be used with fd_ext_* functions to execute transactions or drop
-     the bank.  The ownership is complicated, but basically any bank
-     tile that receives this frag has a strong refcnt to the bank and
-     should release it when done, other tiles should ignore and never
-     use the bank. */
-  void const * bank;
-
-  /* In Firedancer, we just pass around the bank_idx which has already
-     been refcounted by the replay tile, rather than a bank pointer. */
+  /* The bank_idx of the leader bank, which has already been
+     refcounted by the replay tile. */
   ulong bank_idx;
 
   /* The app-wide bank sequence number of the leader bank (the durable
@@ -70,7 +62,6 @@ struct fd_became_leader {
      activation. */
   struct {
     ulong slot_max_cost;
-    ulong slot_max_vote_cost;
     ulong slot_max_write_cost_per_acct;
     ulong slot_max_allocated_data_per_block;
     ulong slot_max_data_shreds;
@@ -89,27 +80,10 @@ struct fd_became_leader {
 };
 typedef struct fd_became_leader fd_became_leader_t;
 
-struct fd_rooted_bank {
-  void * bank;
-  ulong  slot;
-};
-
-typedef struct fd_rooted_bank fd_rooted_bank_t;
-
-struct fd_completed_bank {
-   ulong slot;
-   ulong block_height;
-   uchar hash[32];
-};
-
-typedef struct fd_completed_bank fd_completed_bank_t;
-
 /* fd_txn_ns_dt contains nanosecond offsets for an executed solana
    transaction relative to the publish event by pack for its
-   corresponding microblock.
-
-   In Firedancer, these states align with the struct declaration order,
-   but in Frankendancer the "check" phase happens before "load". */
+   corresponding microblock.  These states align with the struct
+   declaration order. */
 struct __attribute__((packed)) fd_txn_ns_dt {
   float load_start;
   float check_start;
@@ -165,11 +139,10 @@ struct fd_done_packing {
   fd_pack_limits_usage_t limits_usage[ 1 ];
   fd_pack_limits_t limits[ 1 ];
 
-  ulong block_results    [ FD_METRICS_COUNTER_PACK_TXN_SCHEDULED_CNT ];
-  ulong end_block_results[ FD_METRICS_COUNTER_PACK_TXN_SCHEDULED_CNT ];
+  ulong block_results    [ FD_METRICS_COUNTER_PACK_TXN_SCHEDULE_ATTEMPTED_CNT ];
+  ulong end_block_results[ FD_METRICS_COUNTER_PACK_TXN_SCHEDULE_ATTEMPTED_CNT ];
 
   fd_pack_smallest_t pending_smallest[ 1 ];
-  fd_pack_smallest_t pending_votes_smallest[ 1 ];
 
   int end_slot_reason;
 
@@ -180,16 +153,9 @@ struct fd_done_packing {
 typedef struct fd_done_packing fd_done_packing_t;
 
 struct fd_microblock_execle_trailer {
-  /* An opaque pointer to the bank to use when executing and committing
-     transactions.  The lifetime of the bank is owned by the PoH tile,
-     which guarantees it is valid while pack or bank tiles might be
-     using it. */
-  void const * bank;
-
-  /* In full Firedancer we just pass an index of the bank in a pool of
-     banks.  The lifetime is fully managed by the replay tile, which has
-     given us a refcount while we are leader for this bank.  bank value
-     above will be NULL. */
+  /* The index of the bank in a pool of banks.  The lifetime is fully
+     managed by the replay tile, which has given us a refcount while we
+     are leader for this bank. */
   ulong bank_idx;
 
   /* The app-wide bank sequence number of the leader bank (the durable

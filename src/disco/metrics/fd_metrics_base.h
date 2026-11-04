@@ -8,8 +8,7 @@
 #define FD_METRICS_TYPE_HISTOGRAM (2UL)
 
 #define FD_METRICS_CONVERTER_NONE        (0UL)
-#define FD_METRICS_CONVERTER_SECONDS     (1UL)
-#define FD_METRICS_CONVERTER_NANOSECONDS (2UL)
+#define FD_METRICS_CONVERTER_NANOSECONDS (2UL) /* stored as ticks, exported as nanoseconds */
 
 #define MIDX( type, group, measurement ) (FD_METRICS_##type##_##group##_##measurement##_OFF)
 
@@ -46,16 +45,15 @@
     },                                                     \
   }
 
-#define DECLARE_METRIC_HISTOGRAM_SECONDS( MEASUREMENT ) {  \
+#define DECLARE_METRIC_HISTOGRAM_TICKS( MEASUREMENT ) {    \
     .name = FD_METRICS_HISTOGRAM_##MEASUREMENT##_NAME,     \
     .type = FD_METRICS_TYPE_HISTOGRAM,                     \
     .desc = FD_METRICS_HISTOGRAM_##MEASUREMENT##_DESC,     \
     .offset = FD_METRICS_HISTOGRAM_##MEASUREMENT##_OFF,    \
     .converter = FD_METRICS_HISTOGRAM_##MEASUREMENT##_CVT, \
     .histogram = {                                         \
-      .seconds = {                                         \
-        .min = FD_METRICS_HISTOGRAM_##MEASUREMENT##_MIN,   \
-        .max = FD_METRICS_HISTOGRAM_##MEASUREMENT##_MAX,   \
+      .ticks = {                                           \
+        .edges_ns = (ulong const[])FD_METRICS_HISTOGRAM_##MEASUREMENT##_EDGES_NS, \
       },                                                   \
     },                                                     \
   }
@@ -80,9 +78,8 @@ typedef struct {
         } none;
 
         struct {
-          double min;
-          double max;
-        } seconds;
+          ulong const * edges_ns; /* FD_HISTF_BUCKET_CNT-1 right edges */
+        } ticks;
       };
     } histogram;
   };

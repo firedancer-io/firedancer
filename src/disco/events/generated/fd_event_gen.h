@@ -246,7 +246,6 @@ struct fd_event_runtime_txn {
   uchar                                signature[ 64UL ];                 /* First signature of the transaction (64 bytes) */
   uchar                                blockhash[ 32UL ];                 /* Blockhash referenced by the transaction */
   uchar                                fee_payer[ 32UL ];                 /* Fee-payer pubkey */
-  int                                  is_simple_vote;                    /* True if the transaction was classified as a simple vote, false otherwise */
   int                                  is_bundle;                         /* True if the transaction is part of a bundle, false otherwise */
   int                                  is_committable;                    /* True if the transaction was committable (landed on-chain) */
   int                                  is_fees_only;                      /* True if the transaction landed but only fees were charged (e.g. account loading failure) */
@@ -287,7 +286,7 @@ typedef struct fd_event_runtime_txn fd_event_runtime_txn_t;
 
 /* Worst-case encoded size of a runtime_txn event (envelope + Event
    submsg + inner submsg + all fields, padded for encoder slack). */
-#define FD_EVENT_RUNTIME_TXN_BUF_MAX (23249UL)
+#define FD_EVENT_RUNTIME_TXN_BUF_MAX (23243UL)
 
 /* Why the block was ruled invalid; not_dead otherwise. Blocks this validator produced are never dead: they do not go through replay's block checks. A block invalid for several independent reasons records the first one detected locally, which can differ across validators for the same block. */
 #define FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_NOT_DEAD                    (1) /* Not ruled invalid. */
@@ -327,6 +326,7 @@ typedef struct fd_event_runtime_txn fd_event_runtime_txn_t;
 #define FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_MISSING_BLOCK_FOOTER        (35) /* An Alpenglow block ended without a block footer. */
 #define FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_SPURIOUS_UPDATE_PARENT      (36) /* An Alpenglow block carried an UpdateParent marker where none is valid: before the header or after the footer. */
 #define FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_BAD_BLOCK_MARKER            (37) /* An Alpenglow block marker (header, footer, genesis certificate or update parent) failed to parse or had an unknown kind. */
+#define FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_TOO_MANY_WRITABLE_ACCOUNTS  (38) /* The block's transactions declare more writable accounts than a valid block can afford. */
 
 /* Why this validator gave up on the block before it completed; not_abandoned otherwise. Independent of dead. */
 #define FD_EVENT_BLOCK_COMPLETED_ABANDONED_REASON_NOT_ABANDONED (1) /* Not abandoned; the block completed or was ruled invalid. */
@@ -345,7 +345,7 @@ struct fd_event_block_completed_txn_timing {
   ulong received_time;             /* Earliest time attributable to the transaction. Replayed blocks: network arrival of the shred completing the FEC set carrying the transaction; gap to parsed_time is the internal latency to parse. Leader blocks: entry into this validator — TPU network arrival, block engine receipt (bundles), gossip receipt (votes), or creation time (self-originated). */
   ulong parsed_time;               /* When the scheduler parsed the transaction out of received data, including address lookup table resolution. Gap from received_time covers the pipeline hop, in-order delivery waits, and parse position within the FEC set. 0 for leader blocks. */
   ulong dispatched_time;           /* Replayed blocks: when the scheduler handed the transaction to an execution tile. Leader blocks: when an execution tile began executing it; transactions of one bundle share the stamp. */
-  ulong replayed_time;             /* When execution finished and results were committed to the block's state, on whichever path executed it. */
+  ulong replayed_time;             /* Replayed blocks: when the scheduler received the execution result, including the return hop and replay's polling delay, not only execution. Leader blocks: when execution finished and results were committed to the block's state. */
   ulong sigverify_dispatched_time; /* When the scheduler dispatched signature verification, which runs in parallel with execution. 0 for leader blocks (verified upstream of pack). */
   ulong sigverify_done_time;       /* When the signature verification result returned to the scheduler. 0 for leader blocks. */
   ulong poh_mixed_time;            /* When the transaction was mixed into the PoH stream, fixing its position in the block; transactions of one microblock share the stamp. 0 for blocks this validator did not produce. */
@@ -360,7 +360,7 @@ struct fd_event_block_completed {
   ulong                                 progcache_fork_id;                         /* Program cache fork handle held by the bank. See bank_idx for scope. */
   ushort                                accdb_fork_id;                             /* Account database fork handle held by the bank. See bank_idx for scope. */
   ulong                                 vote_stakes_fork_id;                       /* Vote stakes fork handle held by the bank. See bank_idx for scope. */
-  ushort                                collector_overrides_fork_id;               /* Collector overrides fork handle held by the bank. See bank_idx for scope. */
+  ushort                                collector_overrides_fork_id;               /* Deprecated collector overrides fork handle. Always 0. */
   ushort                                stake_rewards_fork_id;                     /* Stake rewards fork handle held by the bank. See bank_idx for scope. */
   ushort                                epoch_credits_fork_id;                     /* Epoch credits fork handle held by the bank. See bank_idx for scope. */
   ushort                                stake_delegations_fork_id;                 /* Stake delegations fork handle held by the bank. See bank_idx for scope. */
@@ -392,7 +392,7 @@ struct fd_event_block_completed {
   ulong                                 first_fec_set_received_time;               /* When the block's first complete FEC set reached replay, after verification and reassembly. Minus first_shred_received_time: internal pipeline latency from network to replay, valid only when both are nonzero. Leader blocks: when the block's own first FEC set returned to replay through reassembly; follows rather than precedes preparation_begin_time, since production shreds the block as it goes. 0 if no bank was ever allocated, and on abandoned leader blocks whose first FEC set had not returned through reassembly when production was abandoned. */
   ulong                                 preparation_begin_time;                    /* When replay began setting up the block's execution state: cloning from the parent and applying start-of-block updates (epoch boundary processing, fee and rent state). Follows first_fec_set_received_time on replayed blocks; leader blocks reverse that order (see that field). Gap to first_transaction_scheduled_time: setup cost, which for leader blocks includes waiting for pack to schedule the first transaction; valid only when first_transaction_scheduled_time is nonzero. 0 if the block was dropped before setup. */
   ulong                                 first_transaction_scheduled_time;          /* When replay dispatched the block's first transaction to an execution tile. Leader blocks: when an execution tile began the first packed transaction. Execution and verification run from here to last_transaction_finished_time; equal to it if the block executed no transactions or, for leader blocks, if production timing was unavailable (see txn_timing). 0 on dead and abandoned rows if no transaction was ever dispatched. */
-  ulong                                 last_transaction_finished_time;            /* When the block became fully executed and verified and end-of-block processing began: all execution and signature-verification results returned, the final FEC set received, PoH verified. At the live tip this trails the last execution result by trailing-tick reception and verification; per-transaction execution end is txn_timing.replayed_time. Leader blocks: when the block was fully produced (final PoH hash received, block id returned through reassembly), trailing the last execution result by the PoH tail and final-entry shredding, most visibly when a limit ended the block early. 0 if the block never finished executing (dead or abandoned). */
+  ulong                                 last_transaction_finished_time;            /* When the block became fully executed and verified and end-of-block processing began: all execution and signature-verification results returned, the final FEC set received, PoH verified. At the live tip this trails the last execution result by trailing-tick reception and verification; per-transaction results are txn_timing.replayed_time. Leader blocks: when the block was fully produced (final PoH hash received, block id returned through reassembly), trailing the last execution result by the PoH tail and final-entry shredding, most visibly when a limit ended the block early. 0 if the block never finished executing (dead or abandoned). */
   ulong                                 block_completed_time;                      /* When end-of-block processing finished and the block froze: state hashing complete, no further changes. Minus last_transaction_finished_time: finalization cost. 0 if the block never completed (dead or abandoned). */
   ulong                                 parent_block_completed_time;               /* The parent's block_completed_time, denormalized to avoid a self-join; for blocks chaining directly off the snapshot or genesis boot bank, when the boot bank finished loading. 0 if the parent's completion was never observed: parent untracked, or parent never froze (dead or abandoned lineage). Slot-time queries (block_completed_time minus this) should filter on caught_up, parent_slot = slot - 1, and a nonzero value here. */
   ulong                                 fec_set_count;                             /* Number of FEC sets in the block; for blocks that never completed reception, the number delivered to replay when the row was emitted. 0 if reassembly no longer tracked the block when the row was emitted. */
@@ -412,7 +412,7 @@ struct fd_event_block_completed {
   uint                                  repair_request_highest_window_count;       /* Repair requests for the highest-numbered shred a peer holds, used to learn the block's length. Highest-shred requests seeded at boot, before the block was tracked, bypass this counter. Always 0 for leader blocks. 0 if repair pruned the block before completion. */
   uint                                  repair_request_orphan_count;               /* Repair requests for the block's ancestry when its parent is unknown; a response carries shreds from up to 11 ancestor blocks. Always 0 for leader blocks. 0 if repair pruned the block before completion. */
   int                                   repair_failed_chain_verify;                /* Whether chain verification against the confirmed block identity found a mismatched (wrong-version) FEC held for this block; the piece was cleared and re-repaired, but may have arrived by any route, turbine included. Always false for leader blocks and under alpenglow. False if repair pruned the block before completion. */
-  ulong                                 cost_tracker_block_cost;                   /* Compute units used by all transactions, votes included; the vote/non-vote split is not part of this event (pack_vote_cost carries the producer-side vote reservation on leader rows). 0 if no cost tracker existed for the block (never prepared for replay, or no bank). */
+  ulong                                 cost_tracker_block_cost;                   /* Compute units used by all transactions, votes included; the vote/non-vote split is not part of this event. 0 if no cost tracker existed for the block (never prepared for replay, or no bank). */
   ulong                                 cost_tracker_allocated_accounts_data_size; /* New account data allocated, in bytes. 0 if no cost tracker existed for the block. */
   ulong                                 cost_tracker_block_cost_limit;             /* Block compute unit limit. 0 if no cost tracker existed for the block (never prepared for replay, or no bank). */
   ulong                                 cost_tracker_vote_cost_limit;              /* Deprecated runtime vote compute unit limit. Always 0. */
@@ -423,22 +423,22 @@ struct fd_event_block_completed {
   ulong                                 pack_end_time;                             /* When block production ended. 0 for blocks this validator did not produce. */
   ulong                                 microblock_count;                          /* Microblocks pack scheduled during production. A microblock whose transactions all failed execution is skipped at PoH mixin and absent from the block, so this can exceed block content. 0 for blocks this validator did not produce. */
   ulong                                 pack_block_cost;                           /* Compute units pack reserved while building the block, votes included. Reservations are refunded as transactions finish, so this can exceed cost_tracker_block_cost (the charged amount) by refunds unsettled at slot end. 0 for blocks this validator did not produce. */
-  ulong                                 pack_vote_cost;                            /* Vote compute units pack reserved while building the block, less refunds settled by slot end. This is not a runtime consensus limit but gets populated by pack. 0 for blocks this validator did not produce. */
+  ulong                                 pack_vote_cost;                            /* Deprecated (0) since Firedancer v26.11. */
   ulong                                 pack_data_bytes;                           /* Bytes pack's cost model reserved for block content: transaction payloads plus a 48-byte header per microblock, net of rebates settled by slot end. Excludes tick entries; can exceed the block's actual content by rebates unsettled at slot end. A size, not a compute measure. 0 for blocks this validator did not produce. */
   int                                   pack_end_reason;                           /* Why block production stopped; not_leader for blocks this validator did not produce. */
   ulong                                 bundle_txn_count;                          /* Bundled transactions pack scheduled during production, counted whether or not the bundle survived to the block (aborted bundles are skipped at PoH mixin). 0 for blocks this validator did not produce. */
-  ulong                                 txn_timing_cnt;                            /* Number of txn_timing entries (<= 98039) */
+  ulong                                 txn_timing_cnt;                            /* Number of txn_timing entries (<= 49019) */
   int                                   votor_repaired;                            /* Whether the block reached replay after a votor event named that block and we repaired that version, rather than through the version received over turbine. Always false before alpenglow, and false for blocks this validator produced as leader. A slot can report both, on separate rows. */
   uint                                  repair_request_shred_block_id_count;       /* Alpenglow ShredForBlockId requests, analogous to legacy window requests. Asks a peer for a specific missing shred, addressed by the block id it belongs to. Always 0 before alpenglow and for leader blocks. */
   uint                                  repair_request_parent_count;               /* Alpenglow ParentAndFecCount requests, analogous to legacy orphan requests. Asks a peer for the block's parent and its FEC set count. Always 0 before alpenglow and for leader blocks. */
   uint                                  repair_request_fec_root_count;             /* Alpenglow FecRoot requests: asks a peer for a FEC set's merkle root for a specified FEC set index. Always 0 before alpenglow and for leader blocks. */
-  fd_event_block_completed_txn_timing_t txn_timing[ 98039UL ];                     /* Per-transaction timestamps, one entry per transaction in block order. Replayed blocks: stamped by the replay scheduler. Leader blocks: stamped by the production pipeline. Columns exclusive to the other path are 0. Empty on dead and abandoned replay rows; an abandoned leader block reports the transactions mixed into the block before production was abandoned. Otherwise best-effort: empty when no capture slot was free (more than 16 blocks replaying at once) or the production timing table was unavailable. Empty does not mean the block had no transactions. (dynamic: stored at end, shipped at used length) */
+  fd_event_block_completed_txn_timing_t txn_timing[ 49019UL ];                     /* Per-transaction timestamps, one entry per transaction in block order. Replayed blocks: stamped by the replay scheduler. Leader blocks: stamped by the production pipeline. Columns exclusive to the other path are 0. Empty on dead and abandoned replay rows; an abandoned leader block reports the transactions mixed into the block before production was abandoned. Otherwise best-effort: empty when no capture slot was free (more than 16 blocks replaying at once) or the production timing table was unavailable. Empty does not mean the block had no transactions. (dynamic: stored at end, shipped at used length) */
 };
 typedef struct fd_event_block_completed fd_event_block_completed_t;
 
 #define FD_EVENT_BLOCK_COMPLETED_PREFIX_SZ (offsetof(fd_event_block_completed_t, txn_timing))
 
-#define FD_EVENT_BLOCK_COMPLETED_TXN_TIMING_MAX (98039UL)
+#define FD_EVENT_BLOCK_COMPLETED_TXN_TIMING_MAX (49019UL)
 
 FD_STATIC_ASSERT( sizeof(((fd_event_block_completed_t *)0)->txn_timing[0])%8UL==0UL, block_completed_txn_timing_align );
 
@@ -454,7 +454,7 @@ fd_event_block_completed_footprint( fd_event_block_completed_t const * msg ) {
 
 /* Worst-case encoded size of a block_completed event (envelope + Event
    submsg + inner submsg + all fields, padded for encoder slack). */
-#define FD_EVENT_BLOCK_COMPLETED_BUF_MAX (11275623UL)
+#define FD_EVENT_BLOCK_COMPLETED_BUF_MAX (5638323UL)
 
 /* Snapshot production result. */
 #define FD_EVENT_SNAPSHOT_CREATED_RESULT_SUCCESS                       (1) /* The snapshot was produced and published to the local snapshot directory. */
@@ -518,6 +518,7 @@ typedef struct fd_event_snapshot_created fd_event_snapshot_created_t;
 #define FD_EVENT_ADMIN_COMMAND_TYPE_ADD_AUTHORIZED_VOTER         (3) /* Add an authorized voter key. */
 #define FD_EVENT_ADMIN_COMMAND_TYPE_REMOVE_ALL_AUTHORIZED_VOTERS (4) /* Remove every authorized voter key. */
 #define FD_EVENT_ADMIN_COMMAND_TYPE_SNAPSHOT_CREATE              (5) /* Request creation of a snapshot. */
+#define FD_EVENT_ADMIN_COMMAND_TYPE_FAILOVER_PROMOTE             (6) /* Take over the identity specified by the given keypair from the machine currently running it. */
 
 /* The result of processing the admin command. */
 #define FD_EVENT_ADMIN_COMMAND_RESULT_SUCCESS              (1) /* The command completed successfully. */
@@ -632,14 +633,14 @@ struct fd_event_runtime_block {
   fd_event_runtime_block_other_diffs_t               other_diffs[ 32UL ];                 /* Final per-account diff of non-txn account updates that are not sysvar writes or epoch reward credits (both vote and stake epoch-reward credits are excluded here; see the runtime_reward table). Includes: the block fee credit at settlement (pubkey is the resolved fee collector: the leader identity unless custom_commission_collector routes it to the leader vote account's block-revenue collector; a zero-delta entry means collector validation failed and the reward burned), feature accounts at activation, core-BPF migration writes, and builtin program provisioning. Repeated writes to one account coalesce as in sysvar_diffs. Deliberately excluded as unbounded per-account floods: the per-account VAT-burn debits (see runtime_epoch.vat_burn_per_vote_account) and the per-block alpenglow cert-signer vote state rewrites. Steady state is one entry per block; 32 is an operational bound, not protocol-derived; overflow drops the entry with a validator log warning */
   ulong                                              other_diffs_cnt;                     /* Number of other_diffs entries (<= 32) */
   ulong                                              fec_count;                           /* Total number of FEC sets observed while assembling this block (not capped by fec_merkle_roots) */
-  uchar                                              fec_merkle_roots[ 1024UL ][ 32UL ];  /* Merkle roots of the FEC sets observed while assembling this block, in order. Truncated to the first 1024 roots — exact for fixed-size FECs (a block has at most 1024), a prefix for legacy variable-size FECs when fec_count exceeds 1024. Under Tower the last entry equals block_id; under Alpenglow block_id is the separate DMR and is not present in this list */
-  ulong                                              fec_merkle_roots_cnt;                /* Number of fec_merkle_roots entries (<= 1024) */
+  uchar                                              fec_merkle_roots[ 512UL ][ 32UL ];   /* Merkle roots of the FEC sets observed while assembling this block, in order. Truncated to the first 512 roots — exact for fixed-size FECs (a block has at most 512), a prefix for legacy variable-size FECs when fec_count exceeds 512. Under Tower the last entry equals block_id; under Alpenglow block_id is the separate DMR and is not present in this list */
+  ulong                                              fec_merkle_roots_cnt;                /* Number of fec_merkle_roots entries (<= 512) */
 };
 typedef struct fd_event_runtime_block fd_event_runtime_block_t;
 
 /* Worst-case encoded size of a runtime_block event (envelope + Event
    submsg + inner submsg + all fields, padded for encoder slack). */
-#define FD_EVENT_RUNTIME_BLOCK_BUF_MAX (69947UL)
+#define FD_EVENT_RUNTIME_BLOCK_BUF_MAX (48443UL)
 
 /* Type of reward credit */
 #define FD_EVENT_RUNTIME_REWARD_KIND_VOTE  (1) /* Vote commission credit in the first replayed bank that crosses the epoch boundary (not necessarily the epoch's nominal first slot when slots were skipped). Credited to the vote account itself, or, with custom_commission_collector active, to its inflation collector (possibly system-owned; one row per collector, rewards aggregated across the vote accounts routing to it) */
@@ -801,15 +802,16 @@ typedef struct fd_event_runtime_vote_account fd_event_runtime_vote_account_t;
 #define FD_EVENT_ALPENGLOW_VOTE_KIND_SKIP_FALLBACK  (5) /* Cast on SafeToSkip. Names only the slot. */
 
 /* Why we cast the vote, based on the Alpenglow voting algorithm (not_our_vote if it is not ours). References: Algorithms 1 and 2, Definitions 15, 16 and 17. */
-#define FD_EVENT_ALPENGLOW_VOTE_REASON_NOT_OUR_VOTE    (1) /* Not our vote; see our_vote. */
-#define FD_EVENT_ALPENGLOW_VOTE_REASON_BLOCK_REPLAYED  (2) /* Replay completed the block normally, so we vote notar for it. */
-#define FD_EVENT_ALPENGLOW_VOTE_REASON_PARENT_READY    (3) /* We hold the certs that make a block a valid parent for the leader window starting at this slot (a notar, notar-fallback or fast-final cert for it, or it is finalized, and skip certs for every slot in between), so we vote notar for the window's first block we held pending. */
-#define FD_EVENT_ALPENGLOW_VOTE_REASON_BLOCK_NOTARIZED (4) /* We hold a notar cert for the block we voted notar for and cast no skip or fallback vote in the slot, so we vote final for it. */
-#define FD_EVENT_ALPENGLOW_VOTE_REASON_TIMEOUT         (5) /* The slot's timeout fired with no vote cast in it, so we vote skip on the entire rest of the window containing this slot. */
-#define FD_EVENT_ALPENGLOW_VOTE_REASON_SAFE_TO_NOTAR   (6) /* No block but this one can be fast-finalized in the slot: notar votes for it reach 40% of stake, or 20% with skip votes bringing the total to 60%, and its parent is notar-fallback certified (Definition 16). Having voted skip or notar for another block in the slot, we vote notar-fallback for it and skip every unvoted slot of the window. */
-#define FD_EVENT_ALPENGLOW_VOTE_REASON_SAFE_TO_SKIP    (7) /* No block can be fast-finalized in the slot: skip votes plus notar votes for every block but the most-voted one reach 40% of stake (Definition 16). Having voted notar in the slot, we vote skip-fallback for it and skip every unvoted slot of the window. */
-#define FD_EVENT_ALPENGLOW_VOTE_REASON_REWARD          (8) /* Our notar or skip vote sent to the leader of slot+8, who packs the slot's reward cert, apart from the broadcast, and resent every probe timeout until that leader acknowledges it or we replay slot+8. */
-#define FD_EVENT_ALPENGLOW_VOTE_REASON_REWARD_ACKED    (9) /* The leader of slot+8 acknowledged a packet carrying our notar or skip vote, which ends its reward resends. The row timestamp is when the acknowledgement arrived; broadcast_to is empty. */
+#define FD_EVENT_ALPENGLOW_VOTE_REASON_NOT_OUR_VOTE         (1) /* Not our vote; see our_vote. */
+#define FD_EVENT_ALPENGLOW_VOTE_REASON_BLOCK_REPLAYED       (2) /* Replay completed the block normally, so we vote notar for it. */
+#define FD_EVENT_ALPENGLOW_VOTE_REASON_PARENT_READY         (3) /* We hold the certs that make a block a valid parent for the leader window starting at this slot (a notar, notar-fallback or fast-final cert for it, or it is finalized, and skip certs for every slot in between), so we vote notar for the window's first block we held pending. */
+#define FD_EVENT_ALPENGLOW_VOTE_REASON_BLOCK_NOTARIZED      (4) /* We hold a notar cert for the block we voted notar for and cast no skip or fallback vote in the slot, so we vote final for it. */
+#define FD_EVENT_ALPENGLOW_VOTE_REASON_TIMEOUT              (5) /* The slot's timeout fired with no vote cast in it, so we vote skip on the entire rest of the window containing this slot. */
+#define FD_EVENT_ALPENGLOW_VOTE_REASON_SAFE_TO_NOTAR        (6) /* No block but this one can be fast-finalized in the slot: notar votes for it reach 40% of stake, or 20% with skip votes bringing the total to 60%, and its parent is notar-fallback certified (Definition 16). Having voted skip or notar for another block in the slot, we vote notar-fallback for it and skip every unvoted slot of the window. */
+#define FD_EVENT_ALPENGLOW_VOTE_REASON_SAFE_TO_SKIP         (7) /* No block can be fast-finalized in the slot: skip votes plus notar votes for every block but the most-voted one reach 40% of stake (Definition 16). Having voted notar in the slot, we vote skip-fallback for it and skip every unvoted slot of the window. */
+#define FD_EVENT_ALPENGLOW_VOTE_REASON_REWARD               (8) /* Our notar or skip vote sent to the leader of slot+8, who packs the slot's reward cert, apart from the broadcast, and resent every probe timeout until that leader acknowledges it or we replay slot+8. */
+#define FD_EVENT_ALPENGLOW_VOTE_REASON_REWARD_ACKED         (9) /* The leader of slot+8 acknowledged a packet carrying our notar or skip vote, which ends its reward resends. The row timestamp is when the acknowledgement arrived; broadcast_to is empty. */
+#define FD_EVENT_ALPENGLOW_VOTE_REASON_REWARD_NO_CONNECTION (10) /* We are trying to cast a notar or skip vote whose reward (slot+8) leader we have no active connection to. The problematic gossip ip and port is in broadcast_to. */
 
 /* What we did with the vote. unknown_peer and banned_peer are decided on the connection before the vote is decoded, shred_version_mismatch and unranked_peer after decoding, in that order; the rest are Alpenglow-specific validation. */
 #define FD_EVENT_ALPENGLOW_VOTE_PROCESSING_RESULT_UNKNOWN_PEER           (1) /* The connection had no known peer: we cleared its identity while closing it, or accepted it before we knew the epoch's validators. */
@@ -831,15 +833,14 @@ struct fd_event_alpenglow_vote_broadcast_to {
 } __attribute__((aligned(8)));
 typedef struct fd_event_alpenglow_vote_broadcast_to fd_event_alpenglow_vote_broadcast_to_t;
 
-/* An Alpenglow consensus vote we received from a peer or cast ourselves (see our_vote). Unparseable votes are not included. The row timestamp is when we received the vote, or cast it if our_vote; the *_time columns are the phases that followed, each running until the next, ending at done_time. References: Table 6, Definition 12, Algorithm 1, Lemma 48 */
+/* An Alpenglow consensus vote we received from a peer or cast ourselves (see our_vote). Unparseable votes are not included. The row timestamp is when we finished processing the vote; the *_time columns are the phases before it, each running until the next. References: Table 6, Definition 12, Algorithm 1, Lemma 48 */
 struct fd_event_alpenglow_vote {
   ulong                                  slot;                               /* Which slot the vote is for. */
   uchar                                  block_id[ 32UL ];                   /* Which block the vote is for (only for notar and notar_fallback, all zeros otherwise). */
   ushort                                 voter_rank;                         /* Where the voter ranks in the slot's epoch (only if ranked, 65535 otherwise). Also marks their position in the Cert array */
-  uchar                                  voter_identity[ 32UL ];             /* Validator identity of the voter, looked up from voter_rank in the slot's epoch (all zeros if voter_rank is 65535). */
   int                                    kind;                               /* What kind of vote is this. */
   uchar                                  received_from_ip[ 16UL ];           /* IPv4 address of the peer we received the vote from; ourselves if our_vote, stored as an IPv4-mapped IPv6 address (all zeros if unknown). */
-  uchar                                  received_from_identity[ 32UL ];     /* Validator identity of the peer we received the vote from (determined from the QUIC client-side TLS certificate); ourselves if our_vote (all zeros if unknown_peer). Not necessarily the voter; see voter_identity. */
+  uchar                                  received_from_identity[ 32UL ];     /* Validator identity of the peer we received the vote from (determined from the QUIC client-side TLS certificate); ourselves if our_vote (all zeros if unknown_peer). This is the voter whenever voter_rank is set, since votes are only accepted from their voter. */
   int                                    our_vote;                           /* Whether this is our own vote, which we store like any other; received_from_identity is then our identity. */
   int                                    reason;                             /* Why we cast the vote, based on the Alpenglow voting algorithm (not_our_vote if it is not ours). References: Algorithms 1 and 2, Definitions 15, 16 and 17. */
   ulong                                  broadcast_to_cnt;                   /* Number of broadcast_to entries (<= 2000) */
@@ -854,7 +855,6 @@ struct fd_event_alpenglow_vote {
   ulong                                  aggregation_start_time;             /* When we started aggregating the vote into the running BLS aggregate for its slot, kind and block (only if processing_result is accepted, 0 otherwise). */
   ulong                                  verify_start_time;                  /* When we started BLS verifying the aggregate this vote completed (only if this vote brought a tally to a quorum of Table 6 or Definition 16, which is when we verify signatures, 0 otherwise). */
   ulong                                  broadcast_start_time;               /* When we started broadcasting the vote to our peers (only if our_vote, 0 otherwise). */
-  ulong                                  done_time;                          /* When we finished processing the vote, may be any of the above stages including short-circuiting at earlier stages. */
   fd_event_alpenglow_vote_broadcast_to_t broadcast_to[ 2000UL ];             /* Who we sent the vote to, by rank like voters: identity and address at each rank, all zeros where we did not send (only if our_vote, empty otherwise). (dynamic: stored at end, shipped at used length) */
 };
 typedef struct fd_event_alpenglow_vote fd_event_alpenglow_vote_t;
@@ -877,7 +877,7 @@ fd_event_alpenglow_vote_footprint( fd_event_alpenglow_vote_t const * msg ) {
 
 /* Worst-case encoded size of a alpenglow_vote event (envelope + Event
    submsg + inner submsg + all fields, padded for encoder slack). */
-#define FD_EVENT_ALPENGLOW_VOTE_BUF_MAX (176427UL)
+#define FD_EVENT_ALPENGLOW_VOTE_BUF_MAX (176370UL)
 
 /* What kind of cert is this. */
 #define FD_EVENT_ALPENGLOW_CERT_KIND_FINAL          (1) /* FinalVote aggregate that sums >= 60% of stake, for slot. There is guaranteed to be one unique notarized block_id Final corresponds to. */
@@ -906,7 +906,7 @@ struct fd_event_alpenglow_cert_broadcast_to {
 } __attribute__((aligned(8)));
 typedef struct fd_event_alpenglow_cert_broadcast_to fd_event_alpenglow_cert_broadcast_to_t;
 
-/* An Alpenglow consensus cert we received from a peer or constructed ourselves (see our_cert). Unparseable certs are not included. The row timestamp is when we received the cert, or constructed it if our_cert; the *_time columns are the phases that followed, each running until the next, ending at done_time. References: Table 6, Definition 12, Algorithm 1, Lemma 48 */
+/* An Alpenglow consensus cert we received from a peer or constructed ourselves (see our_cert). Unparseable certs are not included. The row timestamp is when we finished processing the cert; the *_time columns are the phases before it, each running until the next. References: Table 6, Definition 12, Algorithm 1, Lemma 48 */
 struct fd_event_alpenglow_cert {
   ulong                                  slot;                     /* Which slot the cert is for. */
   uchar                                  block_id[ 32UL ];         /* Which block the cert is for (only for fast_final, notar and notar_fallback, all zeros otherwise). */
@@ -922,7 +922,6 @@ struct fd_event_alpenglow_cert {
   int                                    processing_result;        /* What we did with the cert. unknown_peer and banned_peer are decided on the connection before the cert is decoded, shred_version_mismatch and unranked_peer after decoding, in that order; the rest are Alpenglow-specific. */
   ulong                                  verify_start_time;        /* When we started BLS verifying the cert (unset if our_cert). */
   ulong                                  broadcast_start_time;     /* When we started broadcasting the cert to our peers, BLS verification having finished (only if our_cert, 0 otherwise). */
-  ulong                                  done_time;                /* When we finished processing the cert, may be any of the above stages including short-circuiting at earlier stages. */
   fd_event_alpenglow_cert_broadcast_to_t broadcast_to[ 2000UL ];   /* Who we sent the cert to, indexed by rank like voters: identity and address at each rank, all zeros where we did not send (only if our_cert, empty otherwise). (dynamic: stored at end, shipped at used length) */
 };
 typedef struct fd_event_alpenglow_cert fd_event_alpenglow_cert_t;
@@ -945,7 +944,7 @@ fd_event_alpenglow_cert_footprint( fd_event_alpenglow_cert_t const * msg ) {
 
 /* Worst-case encoded size of a alpenglow_cert event (envelope + Event
    submsg + inner submsg + all fields, padded for encoder slack). */
-#define FD_EVENT_ALPENGLOW_CERT_BUF_MAX (176828UL)
+#define FD_EVENT_ALPENGLOW_CERT_BUF_MAX (176813UL)
 
 /* The reason the block was no longer attempted to be repaired. */
 #define FD_EVENT_BLOCK_RECEIVED_CANCELLED_REASON_NOT_CANCELLED          (1) /* Not cancelled. */
@@ -1009,14 +1008,14 @@ struct fd_event_block_received {
   uint                               repair_request_shred_for_block_id_count; /* Alpenglow ShredForBlockId requests, analogous to legacy window requests. Asks a peer for a specific missing shred, addressed by the block id it belongs to. Always 0 before Alpenglow and for leader blocks. */
   uint                               repair_request_parent_fec_count;         /* Alpenglow ParentAndFecCount requests, analogous to legacy orphan requests. Asks a peer for the block's parent and its FEC set count. Always 0 before Alpenglow and for leader blocks. */
   uint                               repair_request_fec_root_count;           /* Alpenglow FecRoot requests. Asks a peer for the merkle root of the FEC set at a given index. Always 0 before Alpenglow and for leader blocks. */
-  ulong                              fec_sets_cnt;                            /* Number of fec_sets entries (<= 1024) */
-  fd_event_block_received_fec_sets_t fec_sets[ 1024UL ];                      /* Per-FEC-set reception detail, one entry per FEC set in block order: which pieces made up the block, how each arrived, and when. Summed, the counts may reconcile with the block-level shred counts on this row, except in the case of equivocation where FEC sets may be shared between versions of the slot. Best-effort for pruned incomplete blocks: empty does not mean the block had no FEC sets, but that the FEC may have been pruned before it was able to be reported. (dynamic: stored at end, shipped at used length) */
+  ulong                              fec_sets_cnt;                            /* Number of fec_sets entries (<= 512) */
+  fd_event_block_received_fec_sets_t fec_sets[ 512UL ];                       /* Per-FEC-set reception detail, one entry per FEC set in block order: which pieces made up the block, how each arrived, and when. Summed, the counts may reconcile with the block-level shred counts on this row, except in the case of equivocation where FEC sets may be shared between versions of the slot. Best-effort for pruned incomplete blocks: empty does not mean the block had no FEC sets, but that the FEC may have been pruned before it was able to be reported. (dynamic: stored at end, shipped at used length) */
 };
 typedef struct fd_event_block_received fd_event_block_received_t;
 
 #define FD_EVENT_BLOCK_RECEIVED_PREFIX_SZ (offsetof(fd_event_block_received_t, fec_sets))
 
-#define FD_EVENT_BLOCK_RECEIVED_FEC_SETS_MAX (1024UL)
+#define FD_EVENT_BLOCK_RECEIVED_FEC_SETS_MAX (512UL)
 
 FD_STATIC_ASSERT( sizeof(((fd_event_block_received_t *)0)->fec_sets[0])%8UL==0UL, block_received_fec_sets_align );
 
@@ -1032,13 +1031,70 @@ fd_event_block_received_footprint( fd_event_block_received_t const * msg ) {
 
 /* Worst-case encoded size of a block_received event (envelope + Event
    submsg + inner submsg + all fields, padded for encoder slack). */
-#define FD_EVENT_BLOCK_RECEIVED_BUF_MAX (145925UL)
+#define FD_EVENT_BLOCK_RECEIVED_BUF_MAX (73221UL)
+
+/* Kind of request. */
+#define FD_EVENT_REPAIR_REQUEST_TYPE_WINDOW_INDEX              (1) /* Shreds of one FEC set, by slot and index. */
+#define FD_EVENT_REPAIR_REQUEST_TYPE_HIGHEST_WINDOW_INDEX      (2) /* The highest shred a peer holds of a slot, to learn the block's length. */
+#define FD_EVENT_REPAIR_REQUEST_TYPE_ORPHAN                    (3) /* The ancestry of a slot whose parent block is not held. */
+#define FD_EVENT_REPAIR_REQUEST_TYPE_PARENT_AND_FEC_SET_COUNT  (4) /* Alpenglow: a block's parent and FEC set count, with a proof against its block id. */
+#define FD_EVENT_REPAIR_REQUEST_TYPE_FEC_SET_ROOT              (5) /* Alpenglow: the merkle root of one FEC set, with a proof against its block id. */
+#define FD_EVENT_REPAIR_REQUEST_TYPE_WINDOW_INDEX_FOR_BLOCK_ID (6) /* Alpenglow: shreds of one FEC set of a specific block. */
+
+/* How the message settled. */
+#define FD_EVENT_REPAIR_REQUEST_OUTCOME_ANSWERED     (1) /* Its shred arrived, or its metadata reply passed its proof. A highest_window_index or orphan reply that does not complete the slot carries a nonce the shred tile cannot verify, and is dropped unmatched if its shred or FEC set is already held. */
+#define FD_EVENT_REPAIR_REQUEST_OUTCOME_EXPIRED      (2) /* The deadline (about 1 s after req_time) passed with no answer. Counts toward banning the peer only if no message of the same pick was answered, see ban. */
+#define FD_EVENT_REPAIR_REQUEST_OUTCOME_UNANSWERABLE (3) /* The deadline passed with no answer to a highest_window_index or orphan message, or to a message for a slot at or below the root, including one rooted while in flight; never bans. */
+#define FD_EVENT_REPAIR_REQUEST_OUTCOME_BAD          (4) /* A metadata reply from the peer's address failed its proof; the peer is banned for 10 s. */
+#define FD_EVENT_REPAIR_REQUEST_OUTCOME_EVICTED      (5) /* Dropped unsettled because the pending request table was full; ours, not the peer's; never bans. */
+#define FD_EVENT_REPAIR_REQUEST_OUTCOME_SUPERSEDED   (6) /* A highest_window_index or orphan message with no answer whose answer arrived another way before the deadline: the block's length, or its parent's ancestry, became known; a reply may have been a shred already held, dropped unmatched; never bans. */
+
+/* Whether and why settling this message's pick banned the peer for 10 s. A pick settles once at the deadline, so every message of a pick left unanswered then carries the same ban. */
+#define FD_EVENT_REPAIR_REQUEST_BAN_NONE      (1) /* Not banned. */
+#define FD_EVENT_REPAIR_REQUEST_BAN_BY_ID     (2) /* Its 4th window_index_for_block_id pick in a row expired with no by-id answer. */
+#define FD_EVENT_REPAIR_REQUEST_BAN_STREAK    (3) /* Its 32nd pick in a row expired with no answer of any kind. */
+#define FD_EVENT_REPAIR_REQUEST_BAN_BAD_PROOF (4) /* Its metadata reply failed its proof. */
+
+/* How the peer was picked. */
+#define FD_EVENT_REPAIR_REQUEST_PICK_FIRST        (1) /* First attempt: the fastest available peer, an unmeasured one every 16th pick. */
+#define FD_EVENT_REPAIR_REQUEST_PICK_HEDGE        (2) /* A later attempt, after the last peer's hedge time, preferring any peer but the last one asked. */
+#define FD_EVENT_REPAIR_REQUEST_PICK_STAKED_HEDGE (3) /* A later attempt for a block not known only from turbine, from staked peers only. */
+#define FD_EVENT_REPAIR_REQUEST_PICK_ESCAPE       (4) /* A later attempt after 3 in a row brought no new shred of the FEC set: a random peer among the top 100 stake ranks, higher ranks likelier. */
+
+/* Role of the block asked about in its slot when sent. */
+#define FD_EVENT_REPAIR_REQUEST_ROLE_EAGER (1) /* Neither the slot's notarized nor finalized block: turbine's block, or another block of the slot known by id. */
+#define FD_EVENT_REPAIR_REQUEST_ROLE_NOTAR (2) /* The slot's first notarized, or stronger, block. */
+#define FD_EVENT_REPAIR_REQUEST_ROLE_FINAL (3) /* The slot's finalized block. */
+
+/* One repair request message this validator sent to a peer, reported once when it settles: its answer arrived, its metadata reply was checked, the deadline passed (PENDING_TTL, about 1 s after req_time), or it was evicted. Each message asks for one thing: a window_index or window_index_for_block_id pick sends one message per missing shred of the FEC set, so one row each, sharing peer, req_time, attempt and pick; the other kinds are one message per pick. A hedge or retry to another peer is another pick. Messages never sent have no row; see the rotor tile's Timeout* and SigningHalted metrics, and TimeoutOverdueNanos for sign slot starvation. Emitted by the rotor tile. */
+struct fd_event_repair_request {
+  uchar  peer_identity[ 32UL ]; /* Validator identity of the peer asked. */
+  uchar  peer_ip[ 16UL ];       /* IPv4 address the request was sent to, stored as an IPv4-mapped IPv6 address. */
+  ushort peer_port;             /* UDP port the request was sent to: the peer's serve-repair port in gossip when sent. */
+  ushort peer_rank;             /* The peer's stake rank in the current epoch when the message settled, 0 for the most staked, as ranked by the repair strategy (65535 if unstaked or no longer known). */
+  int    type;                  /* Kind of request. */
+  ulong  slot;                  /* Slot of the block asked about. */
+  uchar  block_id[ 32UL ];      /* Block id of the block asked about; all zeros for turbine's block until it completes. */
+  uint   shred_idx;             /* For window_index and window_index_for_block_id, the index of the shred the message asked for. For fec_set_root, index of the first shred of the FEC set asked about. For highest_window_index, the shred index sent: the first index past the highest FEC set received; the peer answers only if it holds a shred at or past it, or the slot is complete. 0 for orphan and parent_and_fec_set_count. */
+  ulong  req_time;              /* When the message was queued for signing; it leaves once its signature returns, so res_time - req_time includes sign latency. */
+  ulong  res_time;              /* When this message's answer was received off the network (by the shred tile for shreds, the net tile for metadata replies); for bad, when the reply that failed its proof arrived; 0 if none. */
+  int    outcome;               /* How the message settled. */
+  int    ban;                   /* Whether and why settling this message's pick banned the peer for 10 s. A pick settles once at the deadline, so every message of a pick left unanswered then carries the same ban. */
+  uchar  attempt;               /* Earlier picks for the same request before this one, 0 for the first; at most 255. */
+  int    pick;                  /* How the peer was picked. */
+  int    role;                  /* Role of the block asked about in its slot when sent. */
+};
+typedef struct fd_event_repair_request fd_event_repair_request_t;
+
+/* Worst-case encoded size of a repair_request event (envelope + Event
+   submsg + inner submsg + all fields, padded for encoder slack). */
+#define FD_EVENT_REPAIR_REQUEST_BUF_MAX (357UL)
 
 /* Largest generated event struct; a consumer can stage any incoming
    event in a buffer of this size, aligned to
    FD_EVENT_GEN_STRUCT_ALIGN. */
-#define FD_EVENT_GEN_STRUCT_MAX   (sizeof (union { fd_event_signed_vote_t signed_vote_; fd_event_slot_confirmed_t slot_confirmed_; fd_event_accdb_compaction_completed_t accdb_compaction_completed_; fd_event_accdb_partition_added_t accdb_partition_added_; fd_event_block_equivocated_t block_equivocated_; fd_event_runtime_txn_t runtime_txn_; fd_event_block_completed_t block_completed_; fd_event_snapshot_created_t snapshot_created_; fd_event_admin_command_t admin_command_; fd_event_runtime_block_t runtime_block_; fd_event_runtime_reward_t runtime_reward_; fd_event_runtime_stake_delegation_t runtime_stake_delegation_; fd_event_runtime_rooted_t runtime_rooted_; fd_event_runtime_epoch_t runtime_epoch_; fd_event_runtime_vote_account_t runtime_vote_account_; fd_event_alpenglow_vote_t alpenglow_vote_; fd_event_alpenglow_cert_t alpenglow_cert_; fd_event_block_received_t block_received_; }))
-#define FD_EVENT_GEN_STRUCT_ALIGN (alignof(union { fd_event_signed_vote_t signed_vote_; fd_event_slot_confirmed_t slot_confirmed_; fd_event_accdb_compaction_completed_t accdb_compaction_completed_; fd_event_accdb_partition_added_t accdb_partition_added_; fd_event_block_equivocated_t block_equivocated_; fd_event_runtime_txn_t runtime_txn_; fd_event_block_completed_t block_completed_; fd_event_snapshot_created_t snapshot_created_; fd_event_admin_command_t admin_command_; fd_event_runtime_block_t runtime_block_; fd_event_runtime_reward_t runtime_reward_; fd_event_runtime_stake_delegation_t runtime_stake_delegation_; fd_event_runtime_rooted_t runtime_rooted_; fd_event_runtime_epoch_t runtime_epoch_; fd_event_runtime_vote_account_t runtime_vote_account_; fd_event_alpenglow_vote_t alpenglow_vote_; fd_event_alpenglow_cert_t alpenglow_cert_; fd_event_block_received_t block_received_; }))
+#define FD_EVENT_GEN_STRUCT_MAX   (sizeof (union { fd_event_signed_vote_t signed_vote_; fd_event_slot_confirmed_t slot_confirmed_; fd_event_accdb_compaction_completed_t accdb_compaction_completed_; fd_event_accdb_partition_added_t accdb_partition_added_; fd_event_block_equivocated_t block_equivocated_; fd_event_runtime_txn_t runtime_txn_; fd_event_block_completed_t block_completed_; fd_event_snapshot_created_t snapshot_created_; fd_event_admin_command_t admin_command_; fd_event_runtime_block_t runtime_block_; fd_event_runtime_reward_t runtime_reward_; fd_event_runtime_stake_delegation_t runtime_stake_delegation_; fd_event_runtime_rooted_t runtime_rooted_; fd_event_runtime_epoch_t runtime_epoch_; fd_event_runtime_vote_account_t runtime_vote_account_; fd_event_alpenglow_vote_t alpenglow_vote_; fd_event_alpenglow_cert_t alpenglow_cert_; fd_event_block_received_t block_received_; fd_event_repair_request_t repair_request_; }))
+#define FD_EVENT_GEN_STRUCT_ALIGN (alignof(union { fd_event_signed_vote_t signed_vote_; fd_event_slot_confirmed_t slot_confirmed_; fd_event_accdb_compaction_completed_t accdb_compaction_completed_; fd_event_accdb_partition_added_t accdb_partition_added_; fd_event_block_equivocated_t block_equivocated_; fd_event_runtime_txn_t runtime_txn_; fd_event_block_completed_t block_completed_; fd_event_snapshot_created_t snapshot_created_; fd_event_admin_command_t admin_command_; fd_event_runtime_block_t runtime_block_; fd_event_runtime_reward_t runtime_reward_; fd_event_runtime_stake_delegation_t runtime_stake_delegation_; fd_event_runtime_rooted_t runtime_rooted_; fd_event_runtime_epoch_t runtime_epoch_; fd_event_runtime_vote_account_t runtime_vote_account_; fd_event_alpenglow_vote_t alpenglow_vote_; fd_event_alpenglow_cert_t alpenglow_cert_; fd_event_block_received_t block_received_; fd_event_repair_request_t repair_request_; }))
 
 FD_PROTOTYPES_BEGIN
 
@@ -1222,6 +1278,16 @@ fd_event_block_received_serialize( fd_circq_t *                      circq,
                                    ulong                             link_seq,
                                    fd_event_block_received_t const * msg );
 
+/* Serialize a repair_request event into the circq, reserving an event id
+   from the client and writing the standard event envelope.  Mirrors
+   the hand-written fd_pb_* path. */
+void
+fd_event_repair_request_serialize( fd_circq_t *                      circq,
+                                   fd_event_client_t *               client,
+                                   long                              timestamp_nanos,
+                                   ulong                             link_seq,
+                                   fd_event_repair_request_t const * msg );
+
 /* Serialize an event of the given type id (the schema id carried in the
    report frag's sig) from a fully-formed fd_event_<name>_t at ev. */
 void
@@ -1281,7 +1347,7 @@ fd_event_report_runtime_txn( fd_event_runtime_txn_t const * msg ) {
    of each dynamic array. */
 static inline void
 fd_event_report_block_completed( fd_event_block_completed_t const * msg ) {
-  FD_TEST( msg->txn_timing_cnt<=98039UL );
+  FD_TEST( msg->txn_timing_cnt<=49019UL );
   fd_event_report_iov_t iov[] = {
     { (void const *)msg, FD_EVENT_BLOCK_COMPLETED_PREFIX_SZ },
     { (void const *)msg->txn_timing, msg->txn_timing_cnt*sizeof(msg->txn_timing[0]) },
@@ -1379,12 +1445,19 @@ fd_event_report_alpenglow_cert( fd_event_alpenglow_cert_t const * msg ) {
    of each dynamic array. */
 static inline void
 fd_event_report_block_received( fd_event_block_received_t const * msg ) {
-  FD_TEST( msg->fec_sets_cnt<=1024UL );
+  FD_TEST( msg->fec_sets_cnt<=512UL );
   fd_event_report_iov_t iov[] = {
     { (void const *)msg, FD_EVENT_BLOCK_RECEIVED_PREFIX_SZ },
     { (void const *)msg->fec_sets, msg->fec_sets_cnt*sizeof(msg->fec_sets[0]) },
   };
   fd_event_report_gather_( 21UL, iov, sizeof(iov)/sizeof(iov[0]) );
+}
+
+/* Report a repair_request event (RepairRequest, id 63) to the event tile via
+   the thread-local reporter (no-op when the tile has no event link). */
+static inline void
+fd_event_report_repair_request( fd_event_repair_request_t const * msg ) {
+  fd_event_report_( 63UL, msg, sizeof(fd_event_repair_request_t) );
 }
 
 FD_PROTOTYPES_END

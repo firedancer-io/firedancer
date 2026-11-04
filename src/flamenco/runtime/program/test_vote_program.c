@@ -4,10 +4,13 @@
 #include "../fd_bank.h"
 #include "../fd_system_ids.h"
 #include "fd_vote_program.h"
+#include "../sysvar/fd_sysvar.h"
+#include "../sysvar/fd_sysvar_clock.h"
 #include "../../features/fd_features.h"
 #include "../../../ballet/hex/fd_hex.h"
 #include "vote/fd_vote_codec_tmpl.h"
 #include "vote/fd_vote_state_versioned.h"
+#include "../sysvar/fd_sysvar_clock.h"
 #include "../../../disco/fd_txn_p.h"
 
 #define TEST_SLOTS_PER_EPOCH (32UL)
@@ -23,6 +26,8 @@ struct test_env {
   fd_txn_out_t    txn_out[1];
 };
 typedef struct test_env test_env_t;
+
+static test_env_t env[1];
 
 static void
 create_account_raw( fd_accdb_t *        accdb,
@@ -138,6 +143,8 @@ exec_txn_hex( test_env_t * env, char const * hex, int expect_ok, int expect_err 
 #define HEX_CLOCK     "06a7d51718c774c928566398691d5eb68b5eb8a39b4b6d5c73555b2100000000" /* clock sysvar */
 #define HEX_RENT      "06a7d517192c5c51218cc94c3d4af17f58daee089ba1fd44e3dbd98a00000000" /* rent sysvar */
 #define HEX_COLLECTOR "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc" /* system-owned collector */
+
+static fd_validator_location_t const LOC_FRA = { 4051542, 618526, 4870645 };
 
 /* Builds a single-payer UpdateCommissionCollector transaction over the
    fixed key list [payer, vote, collector, vote program]. */
@@ -401,7 +408,6 @@ setup_update_commission_collector_txn( test_env_t * env ) {
 
 static void
 test_account_initialize( fd_svm_mini_t * mini ) {
-  static test_env_t env[1];
   setup_test( env, mini );
   setup_account_initialize_txn( env );
 
@@ -421,7 +427,6 @@ test_account_initialize( fd_svm_mini_t * mini ) {
 
 static void
 test_account_initialize_simd_0387( fd_svm_mini_t * mini ) {
-  static test_env_t env[1];
   setup_test( env, mini );
   setup_account_initialize_txn( env );
 
@@ -438,7 +443,6 @@ test_account_initialize_simd_0387( fd_svm_mini_t * mini ) {
 
 static void
 test_account_initialize_v2_invalid_proof( fd_svm_mini_t * mini ) {
-  static test_env_t env[1];
   setup_test( env, mini );
   setup_account_initialize_v2_txn( env );
 
@@ -457,7 +461,6 @@ test_account_initialize_v2_invalid_proof( fd_svm_mini_t * mini ) {
 
 static void
 test_account_initialize_v2_no_simd_0387( fd_svm_mini_t * mini ) {
-  static test_env_t env[1];
   setup_test( env, mini );
   setup_account_initialize_v2_txn( env );
 
@@ -469,7 +472,6 @@ test_account_initialize_v2_no_simd_0387( fd_svm_mini_t * mini ) {
 
 static void
 test_update_commission_collector_feature_gate( fd_svm_mini_t * mini ) {
-  static test_env_t env[1];
   setup_test( env, mini );
   enable_mainnet_features( env );
   setup_account_initialize_txn( env );
@@ -495,7 +497,6 @@ test_update_commission_collector_feature_gate( fd_svm_mini_t * mini ) {
    identity before SIMD-0232 and leaves it untouched after. */
 static void
 test_update_validator_identity_collector_sync( fd_svm_mini_t * mini, int feature_active ) {
-  static test_env_t env[1];
   setup_test( env, mini );
   enable_mainnet_features( env );
   setup_account_initialize_txn( env );
@@ -565,7 +566,6 @@ test_update_validator_identity_collector_sync( fd_svm_mini_t * mini, int feature
    active. */
 static void
 test_update_commission_collector( fd_svm_mini_t * mini ) {
-  static test_env_t env[1];
   setup_test( env, mini );
   enable_mainnet_features( env );
   setup_account_initialize_txn( env );
@@ -728,7 +728,6 @@ test_update_commission_collector( fd_svm_mini_t * mini ) {
    long as the vote account signs. */
 static void
 test_update_commission_collector_self_withdrawer( fd_svm_mini_t * mini ) {
-  static test_env_t env[1];
   setup_test( env, mini );
   enable_mainnet_features( env );
   FD_FEATURE_SET_ACTIVE( &env->bank->f.features, custom_commission_collector, 0UL );
@@ -795,7 +794,6 @@ test_update_commission_collector_self_withdrawer( fd_svm_mini_t * mini ) {
    inflation bps). */
 static void
 test_update_commission_collector_v3_state( fd_svm_mini_t * mini ) {
-  static test_env_t env[1];
   setup_test( env, mini );
   enable_mainnet_features( env );
   FD_FEATURE_SET_ACTIVE( &env->bank->f.features, custom_commission_collector, 0UL );
@@ -835,7 +833,6 @@ test_update_commission_collector_v3_state( fd_svm_mini_t * mini ) {
    BLS pubkey and the untouched collector are preserved. */
 static void
 test_update_commission_collector_bls_state( fd_svm_mini_t * mini ) {
-  static test_env_t env[1];
   setup_test( env, mini );
   enable_mainnet_features( env );
   FD_FEATURE_SET_ACTIVE( &env->bank->f.features, custom_commission_collector, 0UL );
@@ -875,12 +872,533 @@ test_update_commission_collector_bls_state( fd_svm_mini_t * mini ) {
   FD_LOG_NOTICE(( "test_update_commission_collector_bls_state... ok" ));
 }
 
+static void
+test_update_commission_collector_v5_state( fd_svm_mini_t * mini ) {
+  static test_env_t env[1];
+  setup_test( env, mini );
+  enable_mainnet_features( env );
+  FD_FEATURE_SET_ACTIVE( &env->bank->f.features, custom_commission_collector, 0UL );
+  setup_account_initialize_txn( env );
+
+  #define HEX_VOTE5 "5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c"
+
+  fd_pubkey_t node[1];       fd_hex_decode( node,       HEX_NODE,      32 );
+  fd_pubkey_t withdrawer[1]; fd_hex_decode( withdrawer, HEX_PAYER,     32 );
+  fd_pubkey_t vote5[1];      fd_hex_decode( vote5,      HEX_VOTE5,     32 );
+  fd_pubkey_t collector[1];  fd_hex_decode( collector,  HEX_COLLECTOR, 32 );
+  create_simple_account( env, collector, 1000000000UL );
+
+  uchar bls_pubkey[ FD_BLS_PUBKEY_COMPRESSED_SZ ];
+  fd_memset( bls_pubkey, 0x5c, FD_BLS_PUBKEY_COMPRESSED_SZ );
+  uchar data[ 3762UL ] = { 0 };
+  build_v4_vote_state( data, node, withdrawer, vote5, node, bls_pubkey );
+  static fd_vote_state_versioned_t vsv[1];
+  FD_TEST( fd_vote_state_versioned_deserialize( vsv, data, sizeof(data) ) );
+  FD_TEST( !fd_vsv_try_convert_to_v5( vsv, 0UL ) );
+  vsv->v5.location    = LOC_FRA;
+  vsv->v5.latest_vote = 1234UL;
+  FD_TEST( !fd_vote_state_versioned_serialize( vsv, data, sizeof(data) ) );
+  create_account_raw( env->mini->runtime->accdb, env->bank->accdb_fork_id, vote5, 1000000000UL, 3762UL, data, &fd_solana_vote_program_id );
+
+  char hex[ 4096 ];
+  build_update_collector_hex( hex, '1', "010001", HEX_VOTE5, HEX_COLLECTOR,
+                              "010200", "1100000000000000" );
+  exec_txn_hex( env, hex, 1, 0 );
+
+  fd_acc_t const * acc = env->txn_out->accounts.account[ 1 ];
+  FD_TEST( acc->data_len==FD_VOTE_STATE_V5_SZ );
+  FD_TEST( fd_mem_iszero( acc->data+FD_VOTE_STATE_V5_PAD_OFF, FD_VOTE_STATE_V5_PAD_SZ ) );
+  FD_TEST( !fd_vsv_deserialize( acc, vsv ) );
+  FD_TEST( vsv->kind==fd_vote_state_versioned_enum_v5 );
+  FD_TEST( fd_pubkey_eq( &vsv->v5.inflation_rewards_collector, collector ) );
+  FD_TEST( vsv->v5.location.y==LOC_FRA.y && vsv->v5.latest_vote==1234UL );
+  FD_TEST( !memcmp( vsv->v5.bls_pubkey_compressed, bls_pubkey, FD_BLS_PUBKEY_COMPRESSED_SZ ) );
+
+  #undef HEX_VOTE5
+
+  FD_LOG_NOTICE(( "test_update_commission_collector_v5_state... ok" ));
+}
+
+static void
+hex_append_bytes( char *       hex,
+                  void const * src,
+                  ulong        sz ) {
+  static char const digits[] = "0123456789abcdef";
+  hex += strlen( hex );
+  for( ulong i=0UL; i<sz; i++ ) {
+    uchar b = ((uchar const *)src)[ i ];
+    *hex++ = digits[ b>>4 ];
+    *hex++ = digits[ b&15 ];
+  }
+  *hex = '\0';
+}
+
+static void
+build_vote_ix_hex( char *              hex,
+                   char                sig_byte,
+                   fd_pubkey_t const * payer,
+                   fd_pubkey_t const * vote,
+                   uchar const *       instr_accts,
+                   uchar               instr_accts_cnt,
+                   uchar const *       data,
+                   uchar               data_sz ) {
+  char sig[ 129 ]; for( ulong i=0UL; i<128UL; i++ ) sig[ i ] = sig_byte; sig[ 128 ]='\0';
+  hex[ 0 ] = '\0';
+  strcat( hex, "01" ); strcat( hex, sig ); strcat( hex, "010003" ); strcat( hex, "05" );
+  hex_append_bytes( hex, payer->key, 32UL );
+  hex_append_bytes( hex, vote->key, 32UL );
+  hex_append_bytes( hex, fd_sysvar_slot_hashes_id.key, 32UL );
+  hex_append_bytes( hex, fd_sysvar_clock_id.key, 32UL );
+  hex_append_bytes( hex, fd_solana_vote_program_id.key, 32UL );
+  strcat( hex, HEX_BLOCKHASH );
+  strcat( hex, "01" ); strcat( hex, "04" );
+  hex_append_bytes( hex, &instr_accts_cnt, 1UL );
+  hex_append_bytes( hex, instr_accts, instr_accts_cnt );
+  hex_append_bytes( hex, &data_sz, 1UL );
+  hex_append_bytes( hex, data, data_sz );
+}
+
+static void
+test_update_commission_bps_v5_state( fd_svm_mini_t * mini ) {
+  static test_env_t env[1];
+  setup_test( env, mini );
+  enable_mainnet_features( env );
+  setup_account_initialize_txn( env );
+
+  #define HEX_VOTE5 "5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d"
+
+  fd_pubkey_t node[1];       fd_hex_decode( node,       HEX_NODE,  32 );
+  fd_pubkey_t withdrawer[1]; fd_hex_decode( withdrawer, HEX_PAYER, 32 );
+  fd_pubkey_t vote5[1];      fd_hex_decode( vote5,      HEX_VOTE5, 32 );
+
+  uchar bls_pubkey[ FD_BLS_PUBKEY_COMPRESSED_SZ ];
+  fd_memset( bls_pubkey, 0x5d, FD_BLS_PUBKEY_COMPRESSED_SZ );
+  uchar data[ 3762UL ] = { 0 };
+  build_v4_vote_state( data, node, withdrawer, vote5, node, bls_pubkey );
+  static fd_vote_state_versioned_t vsv[1];
+  FD_TEST( fd_vote_state_versioned_deserialize( vsv, data, sizeof(data) ) );
+  FD_TEST( !fd_vsv_try_convert_to_v5( vsv, 0UL ) );
+  vsv->v5.location = LOC_FRA;
+  fd_vote_state_v5_commission_t block_before;
+  fd_vote_state_v5_commission_get( &vsv->v5, fd_commission_kind_enum_block_revenue, &block_before );
+  FD_TEST( !fd_vote_state_versioned_serialize( vsv, data, sizeof(data) ) );
+  create_account_raw( env->mini->runtime->accdb, env->bank->accdb_fork_id, vote5, 1000000000UL, 3762UL, data, &fd_solana_vote_program_id );
+
+  fd_sol_sysvar_clock_t clock[1];
+  FD_TEST( fd_sysvar_clock_read( env->mini->runtime->accdb, env->bank->accdb_fork_id, clock ) );
+
+  uchar const instr_accts[ 2 ] = { 1, 0 };
+  char        hex[ 4096 ];
+  ushort const bps[ 2 ] = { 100, 200 };
+  for( ulong i=0UL; i<2UL; i++ ) {
+    uchar ix[ 10 ] = { 0x12, 0, 0, 0, (uchar)bps[ i ], (uchar)( bps[ i ]>>8 ), 0, 0, 0, 0 };
+    build_vote_ix_hex( hex, (char)( '6'+i ), withdrawer, vote5, instr_accts, 2, ix, 10 );
+    exec_txn_hex( env, hex, 1, 0 );
+
+    FD_TEST( !fd_vsv_deserialize( env->txn_out->accounts.account[ 1 ], vsv ) );
+    FD_TEST( vsv->kind==fd_vote_state_versioned_enum_v5 );
+    fd_vote_state_v5_commission_t c;
+    fd_vote_state_v5_commission_get( &vsv->v5, fd_commission_kind_enum_inflation_rewards, &c );
+    FD_TEST( c.len==( clock->epoch==0UL ? 1UL : 2UL ) );
+    FD_TEST( c.epoch[ c.len-1UL ]==clock->epoch+2UL && c.bps[ c.len-1UL ]==bps[ i ] );
+    fd_vote_state_v5_commission_get( &vsv->v5, fd_commission_kind_enum_block_revenue, &c );
+    FD_TEST( fd_memeq( &c, &block_before, sizeof(c) ) );
+  }
+
+  #undef HEX_VOTE5
+
+  FD_LOG_NOTICE(( "test_update_commission_bps_v5_state... ok" ));
+}
+
+static void
+check_v5_tower_vote_rejected( test_env_t *        env,
+                              char                sig_byte,
+                              fd_pubkey_t const * payer,
+                              fd_pubkey_t const * vote5,
+                              fd_pubkey_t const * vote4,
+                              uchar const *       instr_accts,
+                              uchar               instr_accts_cnt,
+                              uchar const *       data,
+                              uchar               data_sz,
+                              uchar const *       v5_data ) {
+  char hex[ 4096 ];
+
+  build_vote_ix_hex( hex, sig_byte, payer, vote5, instr_accts, instr_accts_cnt, data, data_sz );
+  exec_txn_hex( env, hex, 0, FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA );
+  fd_acc_t acc = fd_accdb_read_one( env->mini->runtime->accdb, env->bank->accdb_fork_id, vote5->key );
+  FD_TEST( acc.data_len==FD_VOTE_STATE_V5_SZ );
+  FD_TEST( !memcmp( acc.data, v5_data, FD_VOTE_STATE_V5_SZ ) );
+  fd_accdb_unread_one( env->mini->runtime->accdb, &acc );
+
+  build_vote_ix_hex( hex, (char)(sig_byte+1), payer, vote4, instr_accts, instr_accts_cnt, data, data_sz );
+  ulong txn_sz = strlen( hex ) / 2;
+  env->txn_p->payload_sz = (ushort)txn_sz;
+  fd_hex_decode( env->txn_p->payload, hex, txn_sz );
+  FD_TEST( fd_txn_parse( env->txn_p->payload, txn_sz, TXN(env->txn_p), NULL )>0 );
+  env->txn_in->txn              = env->txn_p;
+  env->txn_in->bundle.is_bundle = 0;
+  fd_runtime_prepare_and_execute_txn( env->mini->runtime, env->bank, env->txn_in, env->txn_out );
+  FD_TEST( txn_succeeded( env ) || env->txn_out->err.exec_err!=FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA );
+  fd_runtime_commit_txn( env->mini->runtime, env->bank, NULL, env->txn_out );
+}
+
+static void
+test_tower_votes_rejected_on_v5_state( fd_svm_mini_t * mini ) {
+  static test_env_t env[1];
+  setup_test( env, mini );
+  enable_mainnet_features( env );
+  setup_account_initialize_txn( env );
+
+  fd_pubkey_t payer[1];  fd_hex_decode( payer, HEX_PAYER, 32 );
+  fd_pubkey_t vote5[1];  fd_memset( vote5, 0x5d, 32UL );
+  fd_pubkey_t vote4[1];  fd_memset( vote4, 0x4d, 32UL );
+  fd_pubkey_t other[1];  fd_hex_decode( other, HEX_COLLECTOR, 32 );
+
+  uchar bls_pubkey[ FD_BLS_PUBKEY_COMPRESSED_SZ ];
+  fd_memset( bls_pubkey, 0x5c, FD_BLS_PUBKEY_COMPRESSED_SZ );
+  uchar v4_data[ 3762UL ] = { 0 };
+  build_v4_vote_state( v4_data, payer, payer, other, other, bls_pubkey );
+  static fd_vote_state_versioned_t vsv[1];
+  FD_TEST( fd_vote_state_versioned_deserialize( vsv, v4_data, sizeof(v4_data) ) );
+  create_account_raw( env->mini->runtime->accdb, env->bank->accdb_fork_id, vote4, 1000000000UL, 3762UL, v4_data, &fd_solana_vote_program_id );
+  FD_TEST( !fd_vsv_try_convert_to_v5( vsv, 0UL ) );
+  vsv->v5.location = LOC_FRA;
+  uchar v5_data[ 3762UL ] = { 0 };
+  FD_TEST( !fd_vote_state_versioned_serialize( vsv, v5_data, sizeof(v5_data) ) );
+  create_account_raw( env->mini->runtime->accdb, env->bank->accdb_fork_id, vote5, 1000000000UL, 3762UL, v5_data, &fd_solana_vote_program_id );
+
+  uchar tower_sync[ 4+8+1+32+1+32 ] = { 0 };
+  tower_sync[ 0 ] = 14;
+  fd_memset( tower_sync+4, 0xff, 8UL );
+  uchar tower_sync_accts[ 2 ] = { 1, 0 };
+  check_v5_tower_vote_rejected( env, '1', payer, vote5, vote4, tower_sync_accts, 2, tower_sync, (uchar)sizeof(tower_sync), v5_data );
+
+  uchar vote_ix[ 4+8+8+32+1 ] = { 0 };
+  vote_ix[ 0 ] = 2;
+  vote_ix[ 4 ] = 1;
+  uchar vote_accts[ 4 ] = { 1, 2, 3, 0 };
+  check_v5_tower_vote_rejected( env, '3', payer, vote5, vote4, vote_accts, 4, vote_ix, (uchar)sizeof(vote_ix), v5_data );
+
+  uchar vsu_ix[ 4+8+1+32+1 ] = { 0 };
+  vsu_ix[ 0 ] = 8;
+  uchar vsu_accts[ 2 ] = { 1, 0 };
+  check_v5_tower_vote_rejected( env, '5', payer, vote5, vote4, vsu_accts, 2, vsu_ix, (uchar)sizeof(vsu_ix), v5_data );
+
+  FD_LOG_NOTICE(( "test_tower_votes_rejected_on_v5_state... ok" ));
+}
+
+static void
+test_authorize_voter_v5_state( fd_svm_mini_t * mini ) {
+  static test_env_t env[1];
+  setup_test( env, mini );
+  setup_account_initialize_txn( env );
+
+  fd_pubkey_t payer[1];     fd_hex_decode( payer,     HEX_PAYER,     32 );
+  fd_pubkey_t collector[1]; fd_hex_decode( collector, HEX_COLLECTOR, 32 );
+  fd_pubkey_t vote5[1];     fd_memset( vote5, 0x5e, 32UL );
+  fd_pubkey_t full5[1];     fd_memset( full5, 0x5f, 32UL );
+
+  uchar bls_pubkey[ FD_BLS_PUBKEY_COMPRESSED_SZ ];
+  fd_memset( bls_pubkey, 0x5c, FD_BLS_PUBKEY_COMPRESSED_SZ );
+  uchar data[ FD_VOTE_STATE_V5_SZ ] = { 0 };
+  build_v4_vote_state( data, payer, payer, collector, collector, bls_pubkey );
+  static fd_vote_state_versioned_t vsv[1];
+  FD_TEST( fd_vote_state_versioned_deserialize( vsv, data, sizeof(data) ) );
+  FD_TEST( !fd_vsv_try_convert_to_v5( vsv, 0UL ) );
+  vsv->v5.location = LOC_FRA;
+  FD_TEST( !fd_vote_state_versioned_serialize( vsv, data, sizeof(data) ) );
+  create_account_raw( env->mini->runtime->accdb, env->bank->accdb_fork_id, vote5, 1000000000UL, FD_VOTE_STATE_V5_SZ, data, &fd_solana_vote_program_id );
+
+  for( ulong i=1UL; i<MAX_AUTHORIZED_VOTERS; i++ ) {
+    vsv->v5.authorized_voters[ i ] = (fd_vote_state_v5_authorized_voter_t){ .epoch=999UL+i, .pubkey=*payer };
+  }
+  vsv->v5.authorized_voters_len = MAX_AUTHORIZED_VOTERS;
+  uchar full_data[ FD_VOTE_STATE_V5_SZ ] = { 0 };
+  FD_TEST( !fd_vote_state_versioned_serialize( vsv, full_data, sizeof(full_data) ) );
+  create_account_raw( env->mini->runtime->accdb, env->bank->accdb_fork_id, full5, 1000000000UL, FD_VOTE_STATE_V5_SZ, full_data, &fd_solana_vote_program_id );
+
+  uchar authorize_ix[ 4+32+4 ] = { 0 };
+  authorize_ix[ 0 ] = 1;
+  memcpy( authorize_ix+4, collector->key, 32UL );
+  uchar authorize_accts[ 3 ] = { 1, 3, 0 };
+  char  hex[ 4096 ];
+
+  build_vote_ix_hex( hex, '7', payer, vote5, authorize_accts, 3, authorize_ix, (uchar)sizeof(authorize_ix) );
+  exec_txn_hex( env, hex, 1, 0 );
+  FD_TEST( !fd_vsv_deserialize( env->txn_out->accounts.account[ 1 ], vsv ) );
+  FD_TEST( vsv->kind==fd_vote_state_versioned_enum_v5 );
+  FD_TEST( fd_pubkey_eq( &vsv->v5.authorized_voters[ vsv->v5.authorized_voters_len-1UL ].pubkey, collector ) );
+
+  build_vote_ix_hex( hex, '8', payer, full5, authorize_accts, 3, authorize_ix, (uchar)sizeof(authorize_ix) );
+  exec_txn_hex( env, hex, 0, FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA );
+  fd_acc_t acc = fd_accdb_read_one( env->mini->runtime->accdb, env->bank->accdb_fork_id, full5->key );
+  FD_TEST( acc.data_len==FD_VOTE_STATE_V5_SZ && !memcmp( acc.data, full_data, FD_VOTE_STATE_V5_SZ ) );
+  fd_accdb_unread_one( env->mini->runtime->accdb, &acc );
+
+  FD_LOG_NOTICE(( "test_authorize_voter_v5_state... ok" ));
+}
+
+static ulong
+update_location_ix( uchar *                         data,
+                    fd_validator_location_t const * loc ) {
+  FD_STORE( uint, data,      20U    );
+  FD_STORE( int,  data+4UL,  loc->x );
+  FD_STORE( int,  data+8UL,  loc->y );
+  FD_STORE( int,  data+12UL, loc->z );
+  return 16UL;
+}
+
+static void
+read_account( test_env_t *        env,
+              fd_pubkey_t const * key,
+              uchar *             out,
+              ulong *             out_sz ) {
+  fd_acc_t acc = fd_accdb_read_one( env->mini->runtime->accdb, env->bank->accdb_fork_id, key->key );
+  FD_TEST( acc.lamports && acc.data_len<=8192UL );
+  fd_memcpy( out, acc.data, acc.data_len );
+  *out_sz = acc.data_len;
+  fd_accdb_unread_one( env->mini->runtime->accdb, &acc );
+}
+
+static void
+build_update_location_hex( char *              hex,
+                           uchar               sig_id,
+                           fd_pubkey_t const * payer,
+                           fd_pubkey_t const * vote,
+                           uchar const *       data,
+                           uchar               data_sz ) {
+  static char const digits[] = "0123456789abcdef";
+  uchar accts[ 2 ] = { 1, 0 };
+  build_vote_ix_hex( hex, '1', payer, vote, accts, 2, data, data_sz );
+  hex[ 2 ] = digits[ sig_id>>4 ];
+  hex[ 3 ] = digits[ sig_id&15 ];
+}
+
+static void
+send_update_location( test_env_t *                    env,
+                      uchar                           sig_id,
+                      fd_pubkey_t const *             payer,
+                      fd_pubkey_t const *             vote,
+                      fd_validator_location_t const * loc,
+                      ulong                           extra_bytes,
+                      int                             expect_ok,
+                      int                             expect_err ) {
+  uchar data[ 32 ] = { 0 };
+  ulong data_sz = update_location_ix( data, loc ) + extra_bytes;
+  char  hex[ 4096 ];
+  build_update_location_hex( hex, sig_id, payer, vote, data, (uchar)data_sz );
+  exec_txn_hex( env, hex, expect_ok, expect_err );
+}
+
+static fd_validator_location_t const LOC_NYC = { 1333729, -4654333, 4138065 };
+
+static void
+test_update_location_success( fd_svm_mini_t * mini ) {
+  static test_env_t env[1];
+  setup_test( env, mini );
+  setup_account_initialize_txn( env );
+  FD_FEATURE_SET_ACTIVE( &env->bank->f.features, validator_location_registration, 0UL );
+
+  fd_pubkey_t payer[1];     fd_hex_decode( payer,     HEX_PAYER,     32 );
+  fd_pubkey_t collector[1]; fd_hex_decode( collector, HEX_COLLECTOR, 32 );
+  fd_pubkey_t vote[1];      fd_memset( vote, 0x71, 32UL );
+
+  uchar bls[ FD_BLS_PUBKEY_COMPRESSED_SZ ];
+  fd_memset( bls, 0x5c, FD_BLS_PUBKEY_COMPRESSED_SZ );
+  uchar data[ FD_VOTE_STATE_V4_SZ ] = { 0 };
+  build_v4_vote_state( data, payer, payer, collector, collector, bls );
+  create_account_raw( env->mini->runtime->accdb, env->bank->accdb_fork_id, vote, 1000000000UL, FD_VOTE_STATE_V4_SZ, data, &fd_solana_vote_program_id );
+
+  send_update_location( env, 0x01, payer, vote, &LOC_FRA, 0UL, 1, 0 );
+  uchar after1[ 8192 ]; ulong sz1;
+  read_account( env, vote, after1, &sz1 );
+  FD_TEST( sz1==FD_VOTE_STATE_V5_SZ && FD_LOAD( uint, after1 )==fd_vote_state_versioned_enum_v5 );
+  FD_TEST( fd_vote_account_is_valid_v5( after1, sz1 ) );
+  FD_TEST( FD_LOAD( int, after1+132 )==LOC_FRA.x && FD_LOAD( int, after1+136 )==LOC_FRA.y && FD_LOAD( int, after1+140 )==LOC_FRA.z );
+  FD_TEST( fd_memeq( after1+4,   payer->key, 32UL ) );
+  FD_TEST( fd_memeq( after1+36,  payer->key, 32UL ) );
+  FD_TEST( fd_memeq( after1+240, bls,        FD_BLS_PUBKEY_COMPRESSED_SZ ) );
+  fd_sol_sysvar_clock_t clock[1];
+  FD_TEST( fd_sysvar_clock_read( env->mini->runtime->accdb, env->bank->accdb_fork_id, clock ) );
+  FD_TEST( FD_LOAD( uint, after1+152 )==1U && FD_LOAD( ulong, after1+160 )==clock->epoch+2UL && FD_LOAD( ushort, after1+192 )==10000 );
+  FD_TEST( FD_LOAD( uint, after1+156 )==1U && FD_LOAD( ulong, after1+200 )==clock->epoch+2UL && FD_LOAD( ushort, after1+232 )==10000 );
+  fd_pubkey_t voter;
+  FD_TEST( !fd_vote_account_authorized_voter( after1, sz1, ULONG_MAX, &voter ) && fd_pubkey_eq( &voter, payer ) );
+
+  send_update_location( env, 0x02, payer, vote, &LOC_NYC, 0UL, 1, 0 );
+  uchar after2[ 8192 ]; ulong sz2;
+  read_account( env, vote, after2, &sz2 );
+  FD_TEST( sz2==sz1 );
+  FD_TEST( FD_LOAD( int, after2+132 )==LOC_NYC.x && FD_LOAD( int, after2+136 )==LOC_NYC.y && FD_LOAD( int, after2+140 )==LOC_NYC.z );
+  FD_TEST( fd_memeq( after1, after2, 132UL ) && fd_memeq( after1+144, after2+144, sz1-144UL ) );
+
+  send_update_location( env, 0x03, payer, vote, &LOC_NYC, 1UL, 1, 0 );
+  uchar after3[ 8192 ]; ulong sz3;
+  read_account( env, vote, after3, &sz3 );
+  FD_TEST( sz3==sz2 && fd_memeq( after2, after3, sz2 ) );
+
+  FD_LOG_NOTICE(( "test_update_location_success... ok" ));
+}
+
+static void
+test_update_location_errors( fd_svm_mini_t * mini ) {
+  static test_env_t env[1];
+  setup_test( env, mini );
+  setup_account_initialize_txn( env );
+
+  fd_pubkey_t payer[1];     fd_hex_decode( payer,     HEX_PAYER,     32 );
+  fd_pubkey_t collector[1]; fd_hex_decode( collector, HEX_COLLECTOR, 32 );
+  uchar bls[ FD_BLS_PUBKEY_COMPRESSED_SZ ];
+  fd_memset( bls, 0x5c, FD_BLS_PUBKEY_COMPRESSED_SZ );
+
+  fd_pubkey_t v4_bls[1];   fd_memset( v4_bls,   0x81, 32UL );
+  fd_pubkey_t v4_nobls[1]; fd_memset( v4_nobls, 0x82, 32UL );
+  fd_pubkey_t v3[1];       fd_memset( v3,       0x83, 32UL );
+  fd_pubkey_t v4_big[1];   fd_memset( v4_big,   0x84, 32UL );
+  fd_pubkey_t sys[1];      fd_memset( sys,      0x85, 32UL );
+  fd_pubkey_t other[1];    fd_memset( other,    0x86, 32UL );
+  fd_pubkey_t uninit[1];   fd_memset( uninit,   0x87, 32UL );
+
+  uchar data[ 4000 ];
+  fd_memset( data, 0, sizeof(data) ); build_v4_vote_state( data, payer, payer, collector, collector, bls );
+  create_account_raw( env->mini->runtime->accdb, env->bank->accdb_fork_id, v4_bls,   1000000000UL, FD_VOTE_STATE_V4_SZ, data, &fd_solana_vote_program_id );
+  create_account_raw( env->mini->runtime->accdb, env->bank->accdb_fork_id, sys,      1000000000UL, FD_VOTE_STATE_V4_SZ, data, &fd_solana_system_program_id );
+  create_account_raw( env->mini->runtime->accdb, env->bank->accdb_fork_id, v4_big,   1000000000UL, 4000UL,              data, &fd_solana_vote_program_id );
+  fd_memset( data, 0, sizeof(data) ); build_v4_vote_state( data, payer, payer, collector, collector, NULL );
+  create_account_raw( env->mini->runtime->accdb, env->bank->accdb_fork_id, v4_nobls, 1000000000UL, FD_VOTE_STATE_V4_SZ, data, &fd_solana_vote_program_id );
+  fd_memset( data, 0, sizeof(data) ); build_v3_vote_state( data, payer, payer, payer, 1UL, 10 );
+  create_account_raw( env->mini->runtime->accdb, env->bank->accdb_fork_id, v3,       1000000000UL, FD_VOTE_STATE_V3_SZ, data, &fd_solana_vote_program_id );
+  fd_memset( data, 0, sizeof(data) ); build_v4_vote_state( data, other, payer, collector, collector, bls );
+  create_account_raw( env->mini->runtime->accdb, env->bank->accdb_fork_id, other,    1000000000UL, FD_VOTE_STATE_V4_SZ, data, &fd_solana_vote_program_id );
+  fd_memset( data, 0, sizeof(data) );
+  create_account_raw( env->mini->runtime->accdb, env->bank->accdb_fork_id, uninit,   1000000000UL, FD_VOTE_STATE_V4_SZ, data, &fd_solana_vote_program_id );
+
+  uchar before[ 8192 ], after[ 8192 ]; ulong before_sz, after_sz;
+
+  read_account( env, v4_bls, before, &before_sz );
+  send_update_location( env, 0x10, payer, v4_bls, &LOC_FRA, 0UL, 0, FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA );
+  read_account( env, v4_bls, after, &after_sz );
+  FD_TEST( after_sz==before_sz && fd_memeq( before, after, before_sz ) );
+
+  FD_FEATURE_SET_ACTIVE( &env->bank->f.features, validator_location_registration, 0UL );
+
+  fd_validator_location_t const bad[] = {
+    { 0, 0, 0 }, { 0, 0, 6378138 }, { 6378139, 0, 0 },
+    { INT_MIN, 0, 0 }, { 0, INT_MAX, 0 }, { 0, 0, INT_MIN }
+  };
+  for( ulong i=0UL; i<sizeof(bad)/sizeof(bad[ 0 ]); i++ ) {
+    send_update_location( env, (uchar)( 0x20+i ), payer, v4_bls, &bad[ i ], 0UL, 0, FD_EXECUTOR_INSTR_ERR_INVALID_ARG );
+  }
+  read_account( env, v4_bls, after, &after_sz );
+  FD_TEST( after_sz==before_sz && fd_memeq( before, after, before_sz ) );
+
+  send_update_location( env, 0x30, payer, other,    &LOC_FRA,  0UL, 0, FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE );
+  send_update_location( env, 0x31, payer, other,    &bad[ 0 ], 0UL, 0, FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE );
+  send_update_location( env, 0x32, payer, v4_nobls, &LOC_FRA,  0UL, 0, FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA );
+  send_update_location( env, 0x33, payer, v4_nobls, &bad[ 0 ], 0UL, 0, FD_EXECUTOR_INSTR_ERR_INVALID_ARG );
+  send_update_location( env, 0x34, payer, v3,       &LOC_FRA,  0UL, 0, FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA );
+  send_update_location( env, 0x35, payer, v4_big,   &LOC_FRA,  0UL, 0, FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA );
+  send_update_location( env, 0x36, payer, sys,      &LOC_FRA,  0UL, 0, FD_EXECUTOR_INSTR_ERR_INVALID_ACC_OWNER );
+  send_update_location( env, 0x37, payer, uninit,   &LOC_FRA,  0UL, 0, FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA );
+
+  uchar ix[ 16 ];
+  update_location_ix( ix, &LOC_FRA );
+  char  hex[ 4096 ];
+  build_update_location_hex( hex, 0x40, payer, v4_bls, ix, 15 );
+  exec_txn_hex( env, hex, 0, FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA );
+
+  build_update_location_hex( hex, 0x41, payer, v4_bls, ix, 16 );
+  memcpy( hex+2UL+128UL, "010004", 6UL );
+  exec_txn_hex( env, hex, 0, FD_EXECUTOR_INSTR_ERR_READONLY_DATA_MODIFIED );
+
+  read_account( env, v4_bls, after, &after_sz );
+  FD_TEST( after_sz==before_sz && fd_memeq( before, after, before_sz ) );
+
+  FD_LOG_NOTICE(( "test_update_location_errors... ok" ));
+}
+
+static void
+set_clock_epoch( test_env_t * env,
+                 ulong        epoch ) {
+  fd_sol_sysvar_clock_t clock[1];
+  FD_TEST( fd_sysvar_clock_read( env->mini->runtime->accdb, env->bank->accdb_fork_id, clock ) );
+  clock->epoch = epoch;
+  fd_sysvar_account_update( env->bank, env->mini->runtime->accdb, NULL, &fd_sysvar_clock_id, clock, sizeof(fd_sol_sysvar_clock_t) );
+  env->mini->runtime->sysvar_bank_seq = 0UL;
+}
+
+static void
+add_second_voter( uchar *             data,
+                  ulong               epoch,
+                  fd_pubkey_t const * voter ) {
+  FD_STORE( ulong, data+202UL, 2UL   );
+  FD_STORE( ulong, data+250UL, epoch );
+  fd_memcpy( data+258UL, voter->key, 32UL );
+}
+
+static void
+test_update_location_authority( fd_svm_mini_t * mini ) {
+  static test_env_t env[1];
+  setup_test( env, mini );
+  setup_account_initialize_txn( env );
+  FD_FEATURE_SET_ACTIVE( &env->bank->f.features, validator_location_registration, 0UL );
+  set_clock_epoch( env, 5UL );
+
+  fd_pubkey_t payer[1];     fd_hex_decode( payer,     HEX_PAYER,     32 );
+  fd_pubkey_t collector[1]; fd_hex_decode( collector, HEX_COLLECTOR, 32 );
+  fd_pubkey_t node[1];      fd_memset( node,  0x91, 32UL );
+  fd_pubkey_t other[1];     fd_memset( other, 0x92, 32UL );
+  fd_pubkey_t va[1];        fd_memset( va,    0xa1, 32UL );
+  fd_pubkey_t vb[1];        fd_memset( vb,    0xa2, 32UL );
+  fd_pubkey_t vc[1];        fd_memset( vc,    0xa3, 32UL );
+  fd_pubkey_t vd[1];        fd_memset( vd,    0xa4, 32UL );
+  uchar bls[ FD_BLS_PUBKEY_COMPRESSED_SZ ];
+  fd_memset( bls, 0x5c, FD_BLS_PUBKEY_COMPRESSED_SZ );
+
+  uchar data[ FD_VOTE_STATE_V4_SZ ];
+  fd_memset( data, 0, sizeof(data) ); build_v4_vote_state( data, payer, payer, collector, collector, bls );
+  create_account_raw( env->mini->runtime->accdb, env->bank->accdb_fork_id, va, 1000000000UL, FD_VOTE_STATE_V4_SZ, data, &fd_solana_vote_program_id );
+  fd_memset( data, 0, sizeof(data) ); build_v4_vote_state( data, payer, payer, collector, collector, bls );
+  fd_memcpy( data+4UL, node->key, 32UL );
+  create_account_raw( env->mini->runtime->accdb, env->bank->accdb_fork_id, vb, 1000000000UL, FD_VOTE_STATE_V4_SZ, data, &fd_solana_vote_program_id );
+  fd_memset( data, 0, sizeof(data) ); build_v4_vote_state( data, payer, payer, collector, collector, bls );
+  add_second_voter( data, 6UL, other );
+  create_account_raw( env->mini->runtime->accdb, env->bank->accdb_fork_id, vc, 1000000000UL, FD_VOTE_STATE_V4_SZ, data, &fd_solana_vote_program_id );
+  fd_memset( data, 0, sizeof(data) ); build_v4_vote_state( data, payer, payer, collector, collector, bls );
+  add_second_voter( data, 4UL, other );
+  create_account_raw( env->mini->runtime->accdb, env->bank->accdb_fork_id, vd, 1000000000UL, FD_VOTE_STATE_V4_SZ, data, &fd_solana_vote_program_id );
+
+  uchar out[ 8192 ]; ulong out_sz;
+
+  send_update_location( env, 0x50, payer, va, &LOC_FRA, 0UL, 1, 0 );
+  read_account( env, va, out, &out_sz );
+  FD_TEST( FD_LOAD( uint, out+304 )==1U && FD_LOAD( ulong, out+312 )==5UL && fd_memeq( out+320, payer->key, 32UL ) );
+
+  send_update_location( env, 0x51, payer, vb, &LOC_FRA, 0UL, 1, 0 );
+  read_account( env, vb, out, &out_sz );
+  FD_TEST( fd_memeq( out+4, node->key, 32UL ) );
+  FD_TEST( FD_LOAD( uint, out+304 )==1U && FD_LOAD( ulong, out+312 )==5UL && fd_memeq( out+320, payer->key, 32UL ) );
+
+  send_update_location( env, 0x52, payer, vc, &LOC_FRA, 0UL, 1, 0 );
+  read_account( env, vc, out, &out_sz );
+  FD_TEST( FD_LOAD( uint, out+304 )==2U );
+  FD_TEST( FD_LOAD( ulong, out+312 )==5UL && fd_memeq( out+320, payer->key, 32UL ) );
+  FD_TEST( FD_LOAD( ulong, out+352 )==6UL && fd_memeq( out+360, other->key, 32UL ) );
+
+  uchar before[ 8192 ]; ulong before_sz;
+  read_account( env, vd, before, &before_sz );
+  send_update_location( env, 0x53, payer, vd, &LOC_FRA, 0UL, 0, FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE );
+  read_account( env, vd, out, &out_sz );
+  FD_TEST( out_sz==before_sz && fd_memeq( before, out, before_sz ) );
+
+  FD_LOG_NOTICE(( "test_update_location_authority... ok" ));
+}
+
 /* Malformed vote account states: wire discriminant 0, truncated
    payloads for every version, and a v3 state with no authorized
    voters. */
 static void
 test_update_commission_collector_bad_state( fd_svm_mini_t * mini ) {
-  static test_env_t env[1];
   setup_test( env, mini );
   enable_mainnet_features( env );
   FD_FEATURE_SET_ACTIVE( &env->bank->f.features, custom_commission_collector, 0UL );
@@ -944,7 +1462,6 @@ test_update_commission_collector_bad_state( fd_svm_mini_t * mini ) {
    UpdateCommissionBps) leave both collector fields untouched. */
 static void
 test_collectors_immutable( fd_svm_mini_t * mini ) {
-  static test_env_t env[1];
   setup_test( env, mini );
   enable_mainnet_features( env );
   FD_FEATURE_SET_ACTIVE( &env->bank->f.features, custom_commission_collector, 0UL );
@@ -1154,6 +1671,13 @@ main( int     argc,
   test_update_commission_collector_self_withdrawer( mini );
   test_update_commission_collector_v3_state( mini );
   test_update_commission_collector_bls_state( mini );
+  test_update_commission_collector_v5_state( mini );
+  test_update_commission_bps_v5_state( mini );
+  test_tower_votes_rejected_on_v5_state( mini );
+  test_authorize_voter_v5_state( mini );
+  test_update_location_success( mini );
+  test_update_location_errors( mini );
+  test_update_location_authority( mini );
   test_update_commission_collector_bad_state( mini );
   test_collectors_immutable( mini );
   test_update_validator_identity_collector_sync( mini, 0 );

@@ -59,6 +59,14 @@ void
 fd_event_register( fd_topo_t const *      topo,
                    fd_topo_tile_t const * tile );
 
+/* fd_event_reporter_join sets up r to publish on topo link link_id,
+   whose mcache/dcache the calling tile has joined.  Returns r. */
+
+fd_event_reporter_t *
+fd_event_reporter_join( fd_event_reporter_t * r,
+                        fd_topo_t const *     topo,
+                        ulong                 link_id );
+
 #define FD_EVENT_SIG( type, sz ) ( ((ulong)(sz)<<8) | ((ulong)(type)&0xFFUL) )
 #define FD_EVENT_SIG_TYPE( sig ) ( (ulong)(sig)&0xFFUL )
 #define FD_EVENT_SIG_SZ( sig )   ( (ulong)(sig)>>8 )
@@ -131,6 +139,24 @@ fd_event_report_gather_( ulong                         type,
   r->chunk = fd_dcache_compact_next( r->chunk, sz, r->chunk0, r->wmark );
   fd_mcache_seq_update( r->seq_store, r->seq );
   fd_event_report_ring_( r );
+}
+
+#define FD_EVENT_TYPE_METRICS_TRIGGER (255UL)
+
+struct fd_event_metrics_trigger {
+  uint  reason;
+  ulong slot;
+  ulong snapct_state;
+};
+
+typedef struct fd_event_metrics_trigger fd_event_metrics_trigger_t;
+
+static inline void
+fd_event_metrics_trigger( uint  reason,
+                          ulong slot,
+                          ulong snapct_state ) {
+  fd_event_metrics_trigger_t t = { .reason = reason, .slot = slot, .snapct_state = snapct_state };
+  fd_event_report_( FD_EVENT_TYPE_METRICS_TRIGGER, &t, sizeof(t) );
 }
 
 FD_PROTOTYPES_END

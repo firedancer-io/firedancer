@@ -494,6 +494,7 @@ fd_tile_private_cpus_parse( char const * cstr,
     ulong cpu0   = fd_cstr_to_ulong( p );
     ulong cpu1   = cpu0;
     ulong stride = 1UL;
+    int   rev    = 0; /* Nh lists N first */
     p++; while( fd_isdigit( (int)p[0] ) ) p++; /* FIXME: USE STRTOUL ENDPTR FOR CORRECT HANDLING OF NON-BASE-10 */
     while( fd_isspace( (int)p[0] ) ) p++;
     if( p[0]=='-' ) {
@@ -513,15 +514,18 @@ fd_tile_private_cpus_parse( char const * cstr,
     }
     else if( p[0]=='h' ) {
       /* `Nh` is a shorthand for "core N and its hyperthread sibling".
-         If M is the sibling id and S = N-M, it translates as "N,M" or
-         equivalently "N-M/S", i.e. a range from N to M with stride S.
+         With M the sibling id it translates as "N,M".
          If core N doesn't have a sibling, the `h` suffix is ignored.
          This way an expression like "0h" also works on systems where
          hyperthread is not available. */
       p++;
       ulong sibling = fd_tile_private_sibling_idx( cpu0 );
-      cpu1 =   fd_ulong_if( sibling==ULONG_MAX, cpu0, sibling );
-      stride = fd_ulong_if( sibling==ULONG_MAX, 1,    sibling-cpu0 );
+      if( sibling!=ULONG_MAX ) {
+        rev    = sibling<cpu0;
+        cpu1   = fd_ulong_max( cpu0, sibling );
+        cpu0   = fd_ulong_min( cpu0, sibling );
+        stride = cpu1-cpu0;
+      }
     }
     while( fd_isspace( (int)p[0] ) ) p++;
     if( FD_UNLIKELY( !( p[0]==',' || p[0]=='\0' ) ) ) FD_LOG_ERR(( "fd_tile: malformed --tile-cpus (bad range delimiter)" ));
@@ -536,6 +540,11 @@ fd_tile_private_cpus_parse( char const * cstr,
       if( FD_UNLIKELY( fd_cpuset_test( assigned_set, cpu ) ) ) FD_LOG_ERR(( "fd_tile: malformed --tile-cpus (repeated cpu)" ));
       tile_to_cpu[ cnt++ ] = (ushort)cpu;
       fd_cpuset_insert( assigned_set, cpu );
+    }
+    if( rev ) {
+      ushort t = tile_to_cpu[ cnt-2UL ];
+      tile_to_cpu[ cnt-2UL ] = tile_to_cpu[ cnt-1UL ];
+      tile_to_cpu[ cnt-1UL ] = t;
     }
   }
 

@@ -111,6 +111,7 @@ struct fd_grpc_client_private {
   ushort port; /* <=65535 */
   uchar  host_len; /* <FD_FQDN_BUF_MAX */
 
+  uint  https : 1;
   uint  h2_hs_done : 1;
   uint  window_update_pending : 1; /* SETTINGS window delta arrived mid-rx; continue tx after fd_h2_rx returns */
 

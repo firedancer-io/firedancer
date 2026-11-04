@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Regenerate the TEST_GIGANTIC_PAGES table embedded in run_unit_tests.sh.
 #
-# run_unit_tests.sh always invokes tests with `--page-sz gigantic`, so
-# every test's anonymous workspace is backed by 1 GiB gigantic pages
+# run_unit_tests.sh passes `--page-sz gigantic` by default (it converts
+# this table for other page sizes), so workspaces use 1 GiB pages
 # regardless of the test's own --page-sz default.  The number of gigantic
 # pages a test needs is therefore ceil(footprint / 1 GiB), where the
 # footprint is the test's own default workspace size:
@@ -53,16 +53,6 @@ grep -rln '"--page-cnt"' src/ | while read -r f; do
   pages=$(( (bytes + GIB - 1) / GIB ))
   if [[ "$pages" -gt 1 ]]; then
     printf '%s %s\n' "$(basename "$f" .c)" "$pages"
-  fi
-done
-# Groove tests size their shmem by --volume-cnt * FD_GROOVE_VOLUME_FOOTPRINT
-# (1 GiB per volume), not --page-cnt.
-grep -rln '"--volume-cnt"' src/ | while read -r f; do
-  cnt=$( { grep -oE '"--volume-cnt"[^;]*NULL,[[:space:]]*[0-9]+UL' "$f" || true; } \
-         | grep -oE '[0-9]+UL' | grep -oE '[0-9]+' | head -1 )
-  cnt=${cnt:-1}
-  if [[ "$cnt" -gt 1 ]]; then
-    printf '%s %s\n' "$(basename "$f" .c)" "$cnt"
   fi
 done
 } | sort -k2 -rn -k1 | awk '{ printf "  [%s]=%s\n", $1, $2 }'

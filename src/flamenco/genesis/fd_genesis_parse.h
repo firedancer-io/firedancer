@@ -152,8 +152,8 @@ fd_genesis_new( void * mem,
    https://github.com/anza-xyz/solana-sdk/blob/genesis-config%40v3.0.0/genesis-config/src/lib.rs#L59
 
    Decodes the message at bin of size bin_sz.  On success, populates
-   and returns the fd_genesis_t object.  On failure, logs warning and
-   returns NULL.  Reasons for failure include:
+   and returns the fd_genesis_t object.  On failure, returns NULL
+   (may log a warning).  Reasons for failure include:
    - Deserialize failed (invalid bincode?)
    - Hardcoded limit exceeded (builtin count, slots per epoch)
    - Account count exceeds the capacity genesis was created with (only

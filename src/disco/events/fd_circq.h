@@ -33,6 +33,7 @@
 struct __attribute__((aligned(FD_CIRCQ_ALIGN))) fd_circq_private {
   /* Current count of elements in the queue. */
   ulong cnt;
+  ulong bytes_used;
 
   /* These are offsets relative to the end of this struct of the
      metadata for the first, and last message in the queue,
@@ -104,6 +105,14 @@ uchar const *
 fd_circq_cursor_advance( fd_circq_t * circq,
                          ulong *      msg_sz );
 
+/* fd_circq_cursor_peek returns 1 and sets *msg_sz to the size of the
+   message the next fd_circq_cursor_advance would return, or returns 0
+   if there is none.  Does not move the cursor. */
+
+int
+fd_circq_cursor_peek( fd_circq_t const * circq,
+                      ulong *            msg_sz );
+
 /* fd_circq_pop_until removes messages from the front of the circular
    buffer up to and including the message with the given cursor value.
    Returns 0 on success, or -1 if the given cursor value is invalid
@@ -120,8 +129,9 @@ fd_circq_pop_until( fd_circq_t * circq,
 void
 fd_circq_reset_cursor( fd_circq_t * circq );
 
-/* fd_circq_bytes_used returns the total number of bytes currently used
-   in the circular buffer, including message metadata and padding. */
+/* fd_circq_bytes_used returns the bytes held by queued messages,
+   including their metadata and alignment padding.  The unused tail a
+   wrapping push skips over is not counted. */
 
 ulong
 fd_circq_bytes_used( fd_circq_t const * circq );

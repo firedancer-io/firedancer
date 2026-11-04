@@ -1,10 +1,9 @@
-$ sudo fdctl configure init bonding
-[32mNOTICE [0m bonding ... unconfigured ... /sys/class/net/bond0/bonding/miimon is 200ms, want at least 5000ms
-[32mNOTICE [0m bonding ... configuring
-[32mNOTICE [0m RUN: `echo 5000 | sudo tee /sys/class/net/bond0/bonding/miimon`
-[32mNOTICE [0m RUN: `echo 5000 | sudo tee /sys/class/net/bond0/bonding/downdelay`
-[32mNOTICE [0m RUN: `echo 5000 | sudo tee /sys/class/net/bond0/bonding/peer_notif_delay`
-[32mNOTICE [0m bonding ... done
+$ sudo firedancer configure init bonding
+[32mNOTICE [0m [1mbonding[0m ... unconfigured ... [2m/sys/class/net/bond0/bonding/miimon is 100ms, want at least 5000ms[0m
+[32mNOTICE [0m [1mbonding[0m ... configuring
+[32mNOTICE [0m [2mRUN: `echo 5000 | sudo tee /sys/class/net/bond0/bonding/miimon`[0m
+[32mNOTICE [0m [2mRUN: `echo 5000 | sudo tee /sys/class/net/bond0/bonding/downdelay`[0m
+[32mNOTICE [0m [2mRUN: `echo 5000 | sudo tee /sys/class/net/bond0/bonding/peer_notif_delay`[0m
 
 $ cat /sys/class/net/bond0/bonding/miimon
 5000

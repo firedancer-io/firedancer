@@ -101,8 +101,8 @@ fd_res_msend_rc( int                     nqueries,
   int fd;
   int servfail_retry = 0;
   union {
-    struct sockaddr_in sin;
     struct sockaddr_in6 sin6;
+    struct sockaddr_in sin;
   } sa = {0}, ns[MAXNS] = {0};
   socklen_t sl = sizeof sa.sin;
   int nns = 0;
@@ -115,6 +115,8 @@ fd_res_msend_rc( int                     nqueries,
 
   int timeout = 1000*conf->timeout;
   int attempts = conf->attempts;
+  /* upstream musl returns -1 here without setting errno */
+  if( !attempts ) { errno = EINVAL; return -1; }
 
   for( nns=0; nns<conf->nns; nns++ ) {
     const struct address *iplit = &conf->ns[nns];

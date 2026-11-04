@@ -264,7 +264,7 @@ counting for blocks published by this validator instance.
 One of `voting`, `non-voting`, or `delinquent`, indicating the current
 vote status of the validator.
 
-Under Tower, the validator considers itself delinquent if the last vote 
+Under Tower, the validator considers itself delinquent if the last vote
 it has landed on its own currently chosen fork is more than 150 slots
 behind that fork.
 
@@ -273,7 +273,9 @@ validator's vote was included in a reward certificate.  See
 `summary.vote_slot` for more
 details. Given the current processed slot `s`, a voting validator is
 current when `vote_slot > s - 128` for `s >= 128`, or when
-`vote_slot > 0` for `s < 128`, otherwise they are `delinquent`.
+`vote_slot > 0` for `s < 128`, otherwise they are `delinquent`. A validator whose vote account is not in the
+epoch's voter rank map (for example, it has no admitted stake because
+the vote account ticket was not paid) is `non-voting`.
 
 #### `summary.vote_distance`
 | frequency       | type     | example |
@@ -638,12 +640,11 @@ The `wait_for_supermajority_*` fields will be `null` if the
 client is not configured to wait for a cluster restart, which is the
 case for typical client usage.
 
-The `wait_for_supermajority_*_stake` stake fields are derived
-differently from the `gossip.network_stats.health` activated stake
-(which is from the start of the epoch). These fields account for any
-stake that is activating/deactivating in the current epoch and any stake
-that was explicitly undelegated prior to restart (e.g. inactive testnet
-participants or bad actors).
+The `wait_for_supermajority_*` stake and peer fields cover the
+identities of the vote accounts admitted for the epoch the cluster
+restarts into, the same set that drives that epoch's leader schedule.
+Stake that is not admitted for that epoch, for example vote accounts
+without a BLS key or below the admission balance, is not counted.
 
 During the `waiting_for_supermajority` phase, per-peer offline status
 is available via the `wait_for_supermajority.peer_{add|remove}` message.
@@ -658,13 +659,13 @@ scheduler. The following modes are possible:
 
 - "perf"
 - "balanced"
-- "revenue"
+- "auction"
 
 The scheduler mode determines how eager / greedy the scheduler is when
 filling a block.  "perf" means the scheduler tries to fill the block as
-quickly as possible while "revenue" means the scheduler will wait as
-long as possible before filling the block. "balanced" is somewhere in
-the middle.
+quickly as possible, "balanced" paces the block fill over the slot, and
+"auction" schedules non-bundle transactions in 50ms batch auctions
+while bundles are scheduled as soon as they arrive.
 
 ::: details Example
 
@@ -1581,7 +1582,7 @@ are subsystem-specific and described below.
 **`vote`** states:
 | State          | Description |
 |----------------|-------------|
-| `disabled`     | The validator is non-voting, or the active consensus tile (`tower` for Tower or `votor` for Alpenglow) is not present in the topology |
+| `disabled`     | The validator is non-voting, or the active consensus tile (`tower` for Tower or `votor` for Alpenglow) is not present in the topology. Also reported when the validator is not in the current epoch's voter rank map. |
 | `not_started`  | The active consensus tile exists but is not yet running, or the validator has not yet recorded a vote |
 | `delinquent`   | Under Tower, the vote distance exceeds 150 slots or the vote slot has not advanced for over 60 seconds. Under Alpenglow, the validator is delinquent according to the exact 128-slot on-chain vote-account lookback in `summary.vote_state`. Also reported when votes land but the vote account fails the validator admission ticket filter (not V4 with a BLS pubkey, or below the V4 rent-exempt minimum), so its stake is not admitted: no leader slots, no rewards |
 | `voting`       | The validator is voting and is not `delinquent` |
@@ -2830,26 +2831,94 @@ Value is a flat array of base58-encoded identity pubkeys that have gone
 offline (activity timeout expired) since the last message.
 
 ### timeline
-Historical event data recorded by the validator, queryable over a UNIX
-nanosecond timestamp window.
+Historical shred and aggregate data recorded by the validator,
+queryable over UNIX nanosecond timestamp windows.
+
+All methods require `start_ns` and `end_ns` as non-negative UNIX
+nanosecond timestamps, encoded as decimal strings without leading zeros
+(except `"0"`). Both must be less than `9223372036854775807`, and `end_ns`
+must be greater than `start_ns`.
+Windows are half-open: `[start_ns, end_ns)`.
+
+Every successful response includes `available_start_ns` and
+`available_end_ns`. These are method-specific half-open lookup bounds,
+`[available_start_ns, available_end_ns)`, reflecting the data available
+in the server's database. Both are `null` when the server is missing
+data needed for a non-empty response.
+
+Historical shred lookups use insertion-time indices with a one-second
+margin on either side, then filter by event time. An event inserted more
+than one second away from its event timestamp can be missed by a narrow
+query.
+
+The GUI's database is wiped on boot. When it reaches capacity, data is
+evicted approximately oldest-first.
+
+| query              | maximum result | outcome if exceeded |
+|--------------------|----------------|---------------------|
+| `query_shreds`     | 262,144 rows   | error message       |
+| Each `query_agg_*` | 4,096 buckets  | connection closed   |
+
+The server returns the following error message when response limits are
+exceeded. Narrow the window and retry.
+
+```json
+{
+    "topic": "timeline",
+    "key": "query_shreds",
+    "id": 33,
+    "error": {
+        "code": "result_limit_exceeded"
+    }
+}
+```
 
 #### `timeline.query_shreds`
-| frequency   | type          | example |
-|-------------|---------------|---------|
-| *Request*   | `SlotShreds`  | below   |
+| frequency | type             | example |
+|-----------|------------------|---------|
+| *Request* | `TimelineShreds` | below   |
 
-| param    | type     | description |
-|----------|----------|-------------|
-| start_ns | `string` | Inclusive lower bound of the GUI insertion-time window, as a UNIX timestamp in nanoseconds |
-| end_ns   | `string` | Inclusive upper bound of the GUI insertion-time window, as a UNIX timestamp in nanoseconds |
+| param       | type     | description |
+|-------------|----------|-------------|
+| start_ns    | `string` | Inclusive lower bound, using the timestamp rules above |
+| end_ns      | `string` | Exclusive upper bound |
+| granularity | `string` | Either `shred` or `fec`. Required |
 
-WebSocket clients may request historical shred metadata over a UNIX
-nanosecond timestamp window.  The requested window must not exceed 60
-seconds.  The response has the same shape as the live `slot.live_shreds`
-topic and includes retained events which were inserted into the server
-database during that window.  Events are available as they arrive,
-without waiting for replay completion. If no shred events fall in the
-window, the response arrays are empty.
+At `shred` granularity, returns one row per recorded shred event as it
+arrives, including events in the active, unflushed batch.
+
+At `fec` granularity, returns one row per FEC set and event kind,
+available as shred events arrive. Each timestamp is the min over all of
+the shreds in the fec set, for that event.
+
+Empty results have empty arrays and `null` reference fields.
+
+**`TimelineShreds`**
+| field              | type               | description |
+|--------------------|--------------------|-------------|
+| granularity        | `string`           | Echoes `shred` or `fec` |
+| available_start_ns | `string\|null`     | Inclusive backing lookup start for the requested granularity |
+| available_end_ns   | `string\|null`     | Exclusive backing lookup end for the requested granularity |
+| reference_slot     | `number\|null`     | Smallest slot in the response |
+| reference_ts       | `string\|null`     | Smallest event timestamp in the response |
+| slot_delta         | `number[]`         | Per row, `slot - reference_slot` |
+| idx                | `(number\|null)[]` | Shred or FEC index. `null` for a slot-complete marker |
+| event              | `number[]`         | Event kind, using the enum below |
+| event_ts_delta     | `string[]`         | Per row, nanoseconds since `reference_ts` |
+| skipped            | `number[]`         | Sparse slot deltas among returned rows classified as skipped; absence is not proof of known non-skipped coverage |
+
+The per-row arrays correspond by index; `skipped` is a separate sparse
+list. Clients should not assume timestamps are ordered.
+
+| event | meaning |
+|-------|---------|
+| 0     | Repair request |
+| 1     | Shred received from turbine |
+| 2     | Shred received from repair |
+| 3     | Replay execution done |
+| 4     | Slot complete |
+| 5     | Deprecated |
+| 6     | Shred published by this validator |
 
 ::: details Example
 
@@ -2860,7 +2929,8 @@ window, the response arrays are empty.
     "id": 32,
     "params": {
         "start_ns": "1739657041588000000",
-        "end_ns": "1739657041589000000"
+        "end_ns": "1739657041589000000",
+        "granularity": "shred"
     }
 }
 ```
@@ -2871,70 +2941,110 @@ window, the response arrays are empty.
     "key": "query_shreds",
     "id": 32,
     "value": {
+        "granularity": "shred",
+        "available_start_ns": "1739657040000000000",
+        "available_end_ns": "1739657043000000000",
         "reference_slot": 289245044,
         "reference_ts": "1739657041588242791",
         "slot_delta": [0, 0],
-        "shred_idx": [1234, null],
-        "event": [0, 1],
-        "event_ts_delta": ["1000000", "2000000"]
+        "idx": [1234, null],
+        "event": [0, 4],
+        "event_ts_delta": ["0", "100000"],
+        "skipped": []
     }
 }
 ```
 
 :::
 
-#### `timeline.query_agg_revenue`
-| frequency | type                 | example |
-|-----------|----------------------|---------|
-| *Request* | `TimelineAggRevenue` | below   |
+#### `timeline.query_agg_*`
+| frequency | type          | example |
+|-----------|---------------|---------|
+| *Request* | `TimelineAgg` | below   |
+
+Five methods share the following parameters and common response fields:
+`timeline.query_agg_shreds`, `timeline.query_agg_compute`,
+`timeline.query_agg_revenue`, `timeline.query_agg_txn`, and
+`timeline.query_agg_cpu`.
 
 | param       | type     | description |
 |-------------|----------|-------------|
-| start_ns    | `string` | Inclusive lower bound, as a UNIX timestamp in nanoseconds |
-| end_ns      | `string` | Exclusive upper bound, as a UNIX timestamp in nanoseconds |
+| start_ns    | `string` | Inclusive lower bound, using the timestamp rules above |
+| end_ns      | `string` | Exclusive upper bound |
 | granularity | `string` | Required; one of the granularities below |
 
-`start_ns` and `end_ns` are non-negative UNIX nanosecond timestamps,
-encoded as decimal strings without leading zeros (except `"0"`). Both
-must be less than `9223372036854775807`, and `end_ns` must be greater
-than `start_ns`. Windows are half-open: `[start_ns, end_ns)`.
+The granularities are `25ms`, `50ms`, `100ms`, `250ms`, `500ms`, `1s`,
+`2s`, `4s`, `8s`, `15s`, `30s`, `1m`, `2m`, `4m`, `8m`, `15m`, `30m`,
+`1h`, `2h`, `4h`, `8h`, `12h`, and `1d`. Each method has a minimum:
 
-| granularities |
-|---------------|
-| `250ms`, `500ms`, `1s`, `2s`, `4s`, `8s`, `15s`, `30s`, `1m`, `2m`, `4m`, `8m`, `15m`, `30m`, `1h`, `2h`, `4h`, `8h`, `12h`, `1d` |
+| method                       | minimum granularity |
+|------------------------------|---------------------|
+| `timeline.query_agg_cpu`     | `25ms`  |
+| `timeline.query_agg_compute` | `250ms` |
+| `timeline.query_agg_revenue` | `250ms` |
+| `timeline.query_agg_txn`     | `250ms` |
+| `timeline.query_agg_shreds`  | `250ms` |
 
 The request window is aligned to the request granularity bucket
-boundaries. At most 10,000 buckets may be requested, and the aligned
+boundaries. At most 4,096 buckets may be requested, and the aligned
 exclusive end must also be less than `9223372036854775807`. The
 connection is closed if either limit is exceeded.
 
-Revenue aggregates include locally produced blocks. Transactions are
-bucketed by commit time into cached calendar-day aggregates, retained
-independently of detailed transaction history.
+Compute, revenue, and transaction aggregates include locally produced
+blocks. Transactions are bucketed by commit time into cached
+calendar-day aggregates, retained independently of detailed transaction
+history.
 
-The GUI's database is wiped on boot. When it reaches capacity, data is
-evicted approximately oldest-first.
-
-**`TimelineAggRevenue`**
-| field              | type               | description |
-|--------------------|--------------------|-------------|
-| granularity        | `string`           | Echoes the requested granularity |
-| reference_ts_ns    | `string`           | Start of the first aligned response bucket |
-| available_start_ns | `string\|null`     | Inclusive start of the retained calendar-day aggregates |
-| available_end_ns   | `string\|null`     | Exclusive end of the retained calendar-day aggregates |
-| txn_fees           | `(string\|null)[]` | Sum of base transaction fees per bucket, in lamports |
-| prio_fees          | `(string\|null)[]` | Sum of priority fees per bucket, in lamports |
-| tips               | `(string\|null)[]` | Sum of tips per bucket, in lamports |
-
-`available_start_ns` and `available_end_ns` are half-open lookup bounds,
-`[available_start_ns, available_end_ns)`, reflecting the data available
-in the server's database. Both are `null` when the server is missing
-data needed for a non-empty response.
+**Common `TimelineAgg` fields**
+| field              | type           | description |
+|--------------------|----------------|-------------|
+| granularity        | `string`       | Echoes the requested granularity |
+| reference_ts_ns    | `string`       | Start of the first aligned response bucket |
+| available_start_ns | `string\|null` | Inclusive start of the retained calendar-day aggregates |
+| available_end_ns   | `string\|null` | Exclusive end of the retained calendar-day aggregates |
 
 Each array has one entry per aligned bucket. Bucket `i` covers
 `[reference_ts_ns + i*duration, reference_ts_ns + (i+1)*duration)`.
 An entry is `null` when the field is unknown, distinct from a known
 zero. `null` values are ignored when computing rolled-up aggregates.
+
+##### `timeline.query_agg_shreds`
+| field         | type               | description |
+|---------------|--------------------|-------------|
+| turbine       | `(number\|null)[]` | Sum of turbine-received shreds |
+| repair        | `(number\|null)[]` | Sum of repair-received shreds |
+| reconstructed | `(number\|null)[]` | Sum of reconstructed shreds |
+| published     | `(number\|null)[]` | Sum of leader-published shreds |
+| slot_duration | `(number\|null)[]` | Wall time per slot advanced in nanoseconds, see below for details on the sampling method |
+
+Counts are assigned to time buckets based on the FEC-completion
+timestamp, not individual shred arrival times.
+
+`slot_duration` is independent of FEC counts. Every replayed block
+completion across all forks advances `slot - parent_slot` slots over the
+interval from its parent's completion to its own, and that progress is
+spread uniformly over the interval. Each bucket accumulates the wall
+time covered by intervals and the slots advanced within it, and
+`slot_duration` is their ratio rounded to the nearest nanosecond.
+
+A bucket is `null` when no interval covers it, e.g. before the first
+replayed block.
+
+##### `timeline.query_agg_compute`
+| field             | type               | description |
+|-------------------|--------------------|-------------|
+| compute_units     | `(number\|null)[]` | Sum of actual transaction compute costs per bucket |
+| max_compute_units | `number\|null`     | Scalar maximum known block compute-unit limit among contributing records across all response buckets; `null` if unavailable |
+
+`max_compute_units` is a block limit, not the largest requested
+transaction budget.
+
+##### `timeline.query_agg_revenue`
+| field     | type               | description |
+|-----------|--------------------|-------------|
+| txn_fees  | `(string\|null)[]` | Sum of base transaction fees per bucket, in lamports |
+| prio_fees | `(string\|null)[]` | Sum of priority fees per bucket, in lamports |
+| tips      | `(string\|null)[]` | Sum of tips per bucket, in lamports |
 
 ::: details Example
 
@@ -2964,6 +3074,101 @@ zero. `null` values are ignored when computing rolled-up aggregates.
         "txn_fees": ["6015000", "5935000", null, "6200000"],
         "prio_fees": ["120400", "98200", null, "131000"],
         "tips": ["2500000", "0", null, "1000000"]
+    }
+}
+```
+
+:::
+
+##### `timeline.query_agg_txn`
+| field                        | type               | description |
+|------------------------------|--------------------|-------------|
+| success_nonvote_transactions | `(number\|null)[]` | Successful transactions |
+| failed_nonvote_transactions  | `(number\|null)[]` | Failed transactions |
+| success_vote_transactions    | `(number\|null)[]` | Deprecated, always `0` since Firedancer v26.11. |
+| failed_vote_transactions     | `(number\|null)[]` | Deprecated, always `0` since Firedancer v26.11. |
+
+Success means runtime error code 0. Alpenglow consensus votes are not
+transactions and are not counted here.
+
+::: details Example
+
+```json
+{
+    "topic": "timeline",
+    "key": "query_agg_txn",
+    "id": 50,
+    "params": {
+        "start_ns": "1739657040000000000",
+        "end_ns": "1739657100000000000",
+        "granularity": "15s"
+    }
+}
+```
+
+```json
+{
+    "topic": "timeline",
+    "key": "query_agg_txn",
+    "id": 50,
+    "value": {
+        "granularity": "15s",
+        "reference_ts_ns": "1739657040000000000",
+        "available_start_ns": "1739577600000000000",
+        "available_end_ns": "1739664000000000000",
+        "success_nonvote_transactions": [1203, 1187, null, 1240],
+        "failed_nonvote_transactions": [12, 9, null, 15],
+        "success_vote_transactions": [640, 655, null, 648],
+        "failed_vote_transactions": [0, 1, null, 0]
+    }
+}
+```
+
+:::
+
+##### `timeline.query_agg_cpu`
+| param | type       | description |
+|-------|------------|-------------|
+| tiles | `number[]` | Required; non-empty list of tile indices into `summary.tiles`, at most 256 |
+
+| field       | type                 | description |
+|-------------|----------------------|-------------|
+| utilization | `(number\|null)[][]` | One array per requested tile, in request order, of per-bucket utilization from `0` (idle) to `250` (busy) |
+
+Each tile is sampled every 25ms. Larger granularities are rolled-up
+averages of this sampled data; the bucket is `null` when `cnt` is 0. An
+unknown or repeated tile index closes the connection.
+
+::: details Example
+
+```json
+{
+    "topic": "timeline",
+    "key": "query_agg_cpu",
+    "id": 51,
+    "params": {
+        "start_ns": "1739657040000000000",
+        "end_ns": "1739657044000000000",
+        "granularity": "1s",
+        "tiles": [12, 3]
+    }
+}
+```
+
+```json
+{
+    "topic": "timeline",
+    "key": "query_agg_cpu",
+    "id": 51,
+    "value": {
+        "granularity": "1s",
+        "reference_ts_ns": "1739657040000000000",
+        "available_start_ns": "1739577600000000000",
+        "available_end_ns": "1739664000000000000",
+        "utilization": [
+            [212, 250, 198, null],
+            [3, 4, 2, null]
+        ]
     }
 }
 ```
@@ -3087,7 +3292,7 @@ and the validator changes which block it associates with the slot.
 | finalization_kind       | `string\|null`  | Strongest finality proof known for this slot: `fast`, `slow`, `implicit`, or `null`. `fast` supersedes `slow`, and either direct proof supersedes `implicit`. A terminal `rooted` or `skipped` level always has a non-null value; `skipped` uses `implicit` |
 | vote_slot               | `number\|null`  | Latest slot for which this validator's vote was included in a reward certificate, as of this slot's replay. It is the slot voted on, not the slot which carried the certificate. It is `null` when this validator has no recorded reward-certificate participation yet |
 | vote_rewarded           | `boolean\|null` | Whether this validator's ordinary notarize or skip vote for this slot was included in the reward certificate carried by `slot + 8`. It is `null` until the reward outcome is known, or when `is_voter` for this slot is false. Once resolved, the server republishes this slot with `true` or `false`. |
-| vote_count              | `number\|null`  | Number of distinct validators that voted for this slot, counting each signer once across the notarize and skip reward certificates carried by `slot + 8`. It is `null` before those certificates are replayed |
+| vote_count              | `number\|null`  | Number of distinct validators whose votes were included in the reward certificates carried by this slot's block, counting each signer once across the notarize and skip reward certificates. These certificates reward votes for `slot - 8`. It is `null` before this slot is replayed and for skipped slots |
 
 #### `slot.skipped_history`
 | frequency | type       | example |
@@ -3146,9 +3351,9 @@ This message is Tower-only and is not published by an Alpenglow validator.
 :::
 
 #### `slot.missed_vote_history`
-| frequency | type                | example |
-|-----------|---------------------|---------|
-| *Once*    | `MissedVoteHistory` | below   |
+| frequency        | type                | example |
+|------------------|---------------------|---------|
+| *Once* + *100ms* | `MissedVoteHistory` | below   |
 
 An Alpenglow-only collection of resolved slots from the current epoch
 for which this validator was an eligible voter for that slot but was not
@@ -3702,7 +3907,7 @@ explicitly mentioned, skipped slots are not included.
 | pack_already_executed | `number` | Transactions dropped from pack because they were already executed (in either the replay or leader pipeline) |
 | pack_retained         | `number` | Transactions were retained inside the validator memory because they were not high enough priority to make it into a prior block we produced, but have not yet expired. We might include the transactions in a future block |
 | pack_leader_slow      | `number` | Transactions were dropped while leader because the bank tiles could not execute them quickly enough, pack will drop the lowest priority transactions first |
-| pack_wait_full        | `number` | Transactions were dropped while we were waiting for our leader slot because we ran out of memory to store them. All incoming transactions are dropped without regard for the priority |
+| pack_wait_full        | `number` | Deprecated, always 0. Pack no longer drops every incoming transaction when full: a higher priority arrival evicts the lowest priority pending transaction (counted in pack_expired), and a lower priority arrival is rejected (counted in pack_leader_slow) |
 | bank_invalid          | `number` | Transactions were dropped because a bank tile could not execute them enough to charge fees. Failed transactions can still pay fees and be included in a block, but invalid transactions do not make it to a block. Reasons can include insufficient fee payer balance, or invalid address lookup tables |
 | block_success         | `number` | Transactions made it into a block, and execution succeeded |
 | block_fail            | `number` | Transactions made it into a block, but execution failed |
@@ -3711,8 +3916,8 @@ explicitly mentioned, skipped slots are not included.
 | Field           | Type     | Description |
 |-----------------|----------|-------------|
 | timestamp_nanos | `string` | A UNIX nanosecond timestamp representing the time when these counts were sampled by the gui tile. |
-| regular         | `number` | The number of transactions stored in the "regular" treap (i.e. the primary buffer) at `timestamp_nanos`. Under Alpenglow this includes transactions which would have been classified as vote transactions under Tower |
-| votes           | `number` | Under Tower, the number of transactions stored in the "votes" treap (i.e. the buffer dedicated to vote transactions) at `timestamp_nanos`. This fixed-shape field is deprecated and always `0` under Alpenglow |
+| regular         | `number` | The number of transactions stored in the "regular" treap (i.e. the primary buffer) at `timestamp_nanos`. Vote transactions are not treated specially by pack and are counted here like any other transaction |
+| votes           | `number` | Deprecated, always `0` since Firedancer v26.11. Pack no longer keeps a separate buffer for vote transactions |
 | conflicting     | `number` | The number of transactions stored in the "conflicting" treap (i.e. the buffer for transactions with perceived account write conflicts, which receive slightly less priority) at `timestamp_nanos` |
 | bundles         | `number` | The number of transactions stored in the "bundles" treap (i.e. the buffer dedicated for bundle transactions) at `timestamp_nanos` |
 
@@ -3732,12 +3937,12 @@ explicitly mentioned, skipped slots are not included.
 | Field                        | Type              | Description |
 |------------------------------|-------------------|-------------|
 | used_total_block_cost        | `number`          | The total block cost in compute units |
-| used_total_vote_cost         | `number`          | Under Tower, the compute units from vote transactions consumed for this block. This fixed-shape field is deprecated and always `0` under Alpenglow |
+| used_total_vote_cost         | `number`          | This fixed-shape field is deprecated and always `0` since Firedancer v26.11. |
 | used_account_write_costs     | `WriteAcctCost[]` | The top 5 writeable account costs for this block |
 | used_total_bytes             | `number`          | The number of bytes from transaction payloads and microblock headers consumed in total for this block |
 | used_total_microblocks       | `number`          | The total number of microblocks included in this block |
 | max_total_block_cost         | `number`          | The maximum possible value for `used_total_block_cost` |
-| max_total_vote_cost          | `number`          | Under Tower, the maximum possible value for `used_total_vote_cost`. This fixed-shape field is deprecated and always `0` under Alpenglow |
+| max_total_vote_cost          | `number`          | This fixed-shape field is deprecated and always `0` since Firedancer v26.11. |
 | max_account_write_cost       | `number`          | The maximum possible value for `used_account_write_cost` |
 | max_total_bytes              | `number`          | The maximum possible value for `used_total_bytes` |
 | max_total_microblocks        | `number`          | The maximum possible value for `used_total_microblocks` |
@@ -3749,10 +3954,10 @@ explicitly mentioned, skipped slots are not included.
 | end_slot_reason              | `string`          | The reason pack ended packing for this leader slot. One of `"timeout"`, `"microblock_limit"`, or `"leader_switch"` |
 | slot_schedule_counts         | `number[]`        | `slot_schedule_counts[i]` is the number of transactions across the leader slot that had `["success", "fail_cu_limit", "fail_fast_path", "fail_byte_limit", "fail_alloc_limit", "fail_write_cost", "fail_slow_path", "fail_defer_skip"][i]` as the outcome after being scheduled. "success" means the transaction was successfully scheduled to a bank. "fail_cu_limit" means Pack skipped the transaction because it would have exceeded the block CU limit. "fail_fast_path" means Pack skipped the transaction because of account conflicts using the fast bitvector check. "fail_byte_limit" means Pack skipped the transaction because it would have exceeded the block data size limit. "fail_alloc_limit" means Pack skipped the transaction because it would have exceeded the block account allocation limit. "fail_write_cost" means Pack skipped the transaction because it would have caused a writable account to exceed the per-account block write cost limit. "fail_slow_path" means Pack skipped the transaction because of account conflicts using the full slow check. "fail_defer_skip" means Pack skipped the transaction it previously exceeded the per-account block write cost limit too many times |
 | end_slot_schedule_counts     | `number[]`        | `end_slot_schedule_counts` has the same meaning as `slot_schedule_counts` except only transactions that occur after the last successfully scheduled transaction in the slot are counted |
-| pending_smallest_cost        | `number\|null`    | The cost in compute units of the smallest eligible non-vote transaction under Tower, or any eligible transaction under Alpenglow, in pack's transaction buffer at the end of the slot. If the buffer is empty, this is `null` |
-| pending_smallest_bytes       | `number\|null`    | The size in bytes of the smallest eligible non-vote transaction under Tower, or any eligible transaction under Alpenglow, in pack's transaction buffer at the end of the slot. If the buffer is empty, this is `null` |
-| pending_vote_smallest_cost   | `number\|null`    | Under Tower, the cost in compute units of the smallest eligible vote transaction in pack's transaction buffer at the end of the slot, or `null` if the buffer is empty. This fixed-shape field is deprecated and always `null` under Alpenglow |
-| pending_vote_smallest_bytes  | `number\|null`    | Under Tower, the size in bytes of the smallest eligible vote transaction in pack's transaction buffer at the end of the slot, or `null` if the buffer is empty. This fixed-shape field is deprecated and always `null` under Alpenglow |
+| pending_smallest_cost        | `number\|null`    | The cost in compute units of the smallest eligible transaction in pack's transaction buffer at the end of the slot. If the buffer is empty, this is `null` |
+| pending_smallest_bytes       | `number\|null`    | The size in bytes of the smallest eligible transaction in pack's transaction buffer at the end of the slot. If the buffer is empty, this is `null` |
+| pending_vote_smallest_cost   | `number\|null`    | Deprecated, always `null` since Firedancer v26.11. Pack no longer keeps a separate buffer for vote transactions |
+| pending_vote_smallest_bytes  | `number\|null`    | Deprecated, always `null` since Firedancer v26.11. Pack no longer keeps a separate buffer for vote transactions |
 
 
 **`Transactions`**
@@ -3775,7 +3980,6 @@ explicitly mentioned, skipped slots are not included.
 | txn_tips                           | `string[]`          | `txn_tips[i]` is the total tip in lamports for the `i`-th transaction in the slot. The tip is the increase (due to this transaction) in the total balance of all tip payment accounts across all block builders after any commission to the block builder is subtracted.  This implies that both the validator and staker portions of the tip are included in this value.  Non-bundle transactions may have a non-zero tip.  Tips for transactions in failed bundles are included up to the point of failure |
 | txn_error_code                     | `number[]`          | `txn_error_code[i]` is the error code that explains the failure for the `i`-th transaction in the slot. See below for more details |
 | txn_from_bundle                    | `boolean[]`         | `txn_from_bundle[i]` is `true` if the `i`-th transaction in the slot came from a bundle and `false` otherwise.  A bundle is a microblock with 1-5 transactions that atomically fail or succeed. It is sent to the validator from a compatible block engine (e.g. jito) that can additionally collect MEV rewards that are distributed to stakers (i.e. tips) |
-| txn_is_simple_vote                 | `boolean[]`         | Tower-only. `txn_is_simple_vote[i]` is `true` if the `i`-th transaction in the slot is a simple vote and `false` otherwise. This field is omitted under Alpenglow |
 | txn_landed                         | `boolean[]`         | `txn_landed[i]` is `true` if the `i`-th transaction in the slot was included in the produced block. A scheduled transaction may not be included in the block for any number of reasons (e.g. a failed bundle, a duplicate transaction, invalid fee-payer) |
 | txn_bank_idx                       | `number[]`          | `txn_bank_idx[i]` is the index of the bank tile that executed the `i`-th transaction in the slot |
 | txn_microblock_id                  | `string[]`          | `txn_microblock_id[i]` is the index of the microblock for the `i`-th transaction in the slot.  Microblocks are collections of 1+ transactions.  All of the transactions from a bundle share the same microblock. Microblock ids are monotonically increasing in the order they appear in the block and start at 0 for each slot |

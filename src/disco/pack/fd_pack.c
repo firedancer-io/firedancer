@@ -123,17 +123,22 @@ FD_STATIC_ASSERT( offsetof( fd_pack_ord_txn_t, txn_e->txnp  )==0UL, fd_pack_ord_
 
 /* FD_ORD_TXN_ROOT is essentially a small union packed into an int.  The low
    byte is the "tag".  The higher 3 bytes depend on the low byte. */
-#define FD_ORD_TXN_ROOT_TAG_MASK        0xFF
-#define FD_ORD_TXN_ROOT_FREE            0
-#define FD_ORD_TXN_ROOT_PENDING         1
-#define FD_ORD_TXN_ROOT_PENDING_VOTE    2
-#define FD_ORD_TXN_ROOT_PENDING_BUNDLE  3
-#define FD_ORD_TXN_ROOT_PENALTY( idx ) (4 | (idx)<<8)
+#define FD_ORD_TXN_ROOT_TAG_MASK                    0xFF
+#define FD_ORD_TXN_ROOT_FREE                        0
+#define FD_ORD_TXN_ROOT_PENDING                     1
+#define FD_ORD_TXN_ROOT_PENDING_BUNDLE              2
+#define FD_ORD_TXN_ROOT_PENALTY( idx )             (3 | (idx)<<8)
+#define FD_ORD_TXN_ROOT_PRE_ROTATION_BUNDLE( idx ) (4 | (idx)<<8)
+#define FD_ORD_TXN_ROOT_NEXT_AUCTION                5
 
 /* if root & TAG_MASK == PENALTY, then PENALTY_ACCT_IDX(root) gives the index
    in the transaction's list of account addresses of which penalty treap the
    transaction is in. */
-#define FD_ORD_TXN_ROOT_PENALTY_ACCT_IDX( root ) (((root) & 0xFF00)>>8)
+#define FD_ORD_TXN_ROOT_PENALTY_ACCT_IDX( root )      (((root) & 0xFF00)>>8)
+/* if root & TAG_MASK == PRE_ROTATION_BUNDLE, then
+   PRE_ROTATION_BUNDLE_IDX(root) gives the index in
+   pre_rotation_bundles of the bundle the transaction is in. */
+#define FD_ORD_TXN_ROOT_PRE_ROTATION_BUNDLE_IDX( root ) (((root) & 0xFF00)>>8)
 
 #define FD_PACK_IN_USE_WRITABLE    (0x8000000000000000UL)
 #define FD_PACK_IN_USE_BIT_CLEARED (0x4000000000000000UL)
@@ -563,6 +568,22 @@ typedef struct fd_pack_penalty_treap fd_pack_penalty_treap_t;
    on rebates. */
 #define FD_PACK_SKIP_CNT 50UL
 
+/* FD_PACK_PRE_ROTATION_BUNDLE_CAPACITY: the maximum number of the
+   bundles that arrived before our leader rotation which we execute
+   during our leader rotation.  Any extra pre-rotation bundles are
+   dropped, in order of their declared tip. */
+#define FD_PACK_PRE_ROTATION_BUNDLE_CAPACITY 16UL
+
+/* fd_pack_pre_rotation_bundle represents a single pre-rotation bundle:
+   its transactions, in bundle order, in treap, the declared tip, and
+   the sequence number representing the order of insertion. */
+struct fd_pack_pre_rotation_bundle {
+  treap_t treap[1];
+  ulong   tip;
+  ulong   seq;
+};
+typedef struct fd_pack_pre_rotation_bundle fd_pack_pre_rotation_bundle_t;
+
 /* Finally, we can now declare the main pack data structure */
 struct fd_pack_private {
   ulong      pack_depth;
@@ -581,12 +602,11 @@ struct fd_pack_private {
   ulong      alloc_consumed;
 
   /* counters / gauge for schedule outcome enums */
-  ulong      sched_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_CNT ];
+  ulong      sched_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_RESULT_CNT ];
 
   fd_rng_t * rng;
 
   ulong      cumulative_block_cost;
-  ulong      cumulative_vote_cost;
 
   /* expire_before: Any transactions with expires_at strictly less than
      the current expire_before are removed from the available pending
@@ -609,11 +629,33 @@ struct fd_pack_private {
   fd_pack_ord_txn_t * pool;
 
   /* Treaps (sorted by priority) of pending transactions.  We store the
-     pending simple votes and transactions that come from bundles
-     separately. */
+     transactions that come from bundles separately. */
   treap_t pending[1];
-  treap_t pending_votes[1];
   treap_t pending_bundles[1];
+
+  /* Bundles that arrived before our leader rotation has started are
+     stored in pre_rotation_bundles, one bundle per treap.
+     rotation_end_ns stores the timestamp, in ns, of the end of the
+     last leader rotation, so that we can determine if a bundle arrived
+     during the start of the leader rotation or not.
+     pre_rotation_seq stores an incrementing sequence number, which we
+     use to track the order in which the pre-rotation bundles arrived.
+
+     We could use a more complex data structure to track the best and
+     worse pre-rotation bundle, but since
+     FD_PACK_PRE_ROTATION_BUNDLE_CAPACITY is so small it's not worth
+     the added complexity. */
+  fd_pack_pre_rotation_bundle_t pre_rotation_bundles[ FD_PACK_PRE_ROTATION_BUNDLE_CAPACITY ];
+  ulong                         pre_rotation_bundle_cnt;
+  ulong                         pre_rotation_seq;
+  long                          rotation_end_ns;
+
+  /* If an auction is running, new transactions are held in
+     next_auction - they are not eligible to be scheduled. When the
+     auction ends, these are flushed into either the pending or penalty
+     treaps. */
+  treap_t next_auction[1];
+  int     auction_running;
 
   /* penalty_treaps: an fd_map_dynamic mapping hotly contended account
      addresses to treaps of transactions that write to them.  We try not
@@ -636,12 +678,11 @@ struct fd_pack_private {
      to 0 as frequently as possible. */
   ulong relative_bundle_idx;
 
-  /* pending{_votes}_smallest: keep a conservative estimate of the
-     smallest transaction (by cost units and by bytes) in each heap.
-     Both CUs and bytes should be set to ULONG_MAX is the treap is
-     empty. */
+  /* pending_smallest: keep a conservative estimate of the
+     smallest transaction (by cost units and by bytes) in the pending
+     treap.  Both CUs and bytes should be set to ULONG_MAX if the treap
+     is empty. */
   fd_pack_smallest_t pending_smallest[1];
-  fd_pack_smallest_t pending_votes_smallest[1];
 
   /* expiration_q: At the same time that a transaction is in exactly one
      of the above treaps, it is also in the expiration queue, sorted by
@@ -731,8 +772,7 @@ struct fd_pack_private {
   ulong                use_by_bank_cnt[ FD_PACK_MAX_EXECLE_TILES ];
   ulong *              use_by_bank_txn[ FD_PACK_MAX_EXECLE_TILES ];
 
-  fd_histf_t txn_per_microblock [ 1 ];
-  fd_histf_t vote_per_microblock[ 1 ];
+  fd_histf_t txn_per_microblock[ 1 ];
 
   fd_histf_t scheduled_cus_per_block[ 1 ];
   fd_histf_t rebated_cus_per_block  [ 1 ];
@@ -773,6 +813,7 @@ FD_STATIC_ASSERT( offsetof(fd_pack_t, pending_txn_cnt)==FD_PACK_PENDING_TXN_CNT_
 /* Forward-declare some helper functions */
 static ulong delete_transaction( fd_pack_t * pack, fd_pack_ord_txn_t * txn, int delete_full_bundle, int move_from_penalty_treap );
 static inline void insert_bundle_impl( fd_pack_t * pack, ulong bundle_idx, ulong txn_cnt, fd_pack_ord_txn_t * * bundle, ulong expires_at );
+static inline ulong insert_pre_rotation_bundle_impl( fd_pack_t * pack, ulong txn_cnt, fd_pack_ord_txn_t * * bundle, ulong expires_at, ulong pre_rotation_tip );
 
 FD_FN_PURE ulong
 fd_pack_footprint( ulong                    pack_depth,
@@ -882,10 +923,11 @@ fd_pack_new( void                   * mem,
   memset( pack->sched_results, 0, sizeof(pack->sched_results) );
   pack->rng                         = rng;
   pack->cumulative_block_cost       = 0UL;
-  pack->cumulative_vote_cost        = 0UL;
   pack->expire_before               = 0UL;
   pack->outstanding_microblock_mask = 0UL;
   pack->cumulative_rebated_cus      = 0UL;
+  pack->initializer_bundle_state    = FD_PACK_IB_STATE_NOT_INITIALIZED;
+  pack->relative_bundle_idx         = 1UL;
 
   acct_blocklist_new( pack->acct_blocklist );
   int ins_failed = acct_blocklist_cnt>FD_PACK_ACCT_BLOCKLIST_MAX;
@@ -912,13 +954,19 @@ fd_pack_new( void                   * mem,
   /* These treaps can have at most pack_depth elements at any moment,
      but they come from a pool of size pack_depth+extra_depth. */
   treap_new( (void*)pack->pending,         pack_depth+extra_depth );
-  treap_new( (void*)pack->pending_votes,   pack_depth+extra_depth );
   treap_new( (void*)pack->pending_bundles, pack_depth+extra_depth );
+  treap_new( (void*)pack->next_auction,    pack_depth+extra_depth );
+  for( ulong i=0UL; i<FD_PACK_PRE_ROTATION_BUNDLE_CAPACITY; i++ ) {
+    treap_new( (void*)pack->pre_rotation_bundles[ i ].treap, pack_depth+extra_depth );
+  }
+
+  pack->pre_rotation_bundle_cnt = 0UL;
+  pack->pre_rotation_seq        = 0UL;
+  pack->rotation_end_ns         = 0L;
+  pack->auction_running         = 0;
 
   pack->pending_smallest->cus         = ULONG_MAX;
   pack->pending_smallest->bytes       = ULONG_MAX;
-  pack->pending_votes_smallest->cus   = ULONG_MAX;
-  pack->pending_votes_smallest->bytes = ULONG_MAX;
 
   expq_new( _expq, pack_depth );
 
@@ -950,19 +998,17 @@ fd_pack_new( void                   * mem,
     pack->use_by_bank_txn[i] = NULL;
   }
 
-  fd_histf_new( pack->txn_per_microblock,  FD_MHIST_MIN( PACK, TXN_PER_MICROBLOCK ),
-                                           FD_MHIST_MAX( PACK, TXN_PER_MICROBLOCK ) );
-  fd_histf_new( pack->vote_per_microblock, FD_MHIST_MIN( PACK, VOTE_PER_MICROBLOCK ),
-                                           FD_MHIST_MAX( PACK, VOTE_PER_MICROBLOCK ) );
+  fd_histf_new( pack->txn_per_microblock, FD_MHIST_MIN( PACK, TXN_PER_MICROBLOCK ),
+                                          FD_MHIST_MAX( PACK, TXN_PER_MICROBLOCK ) );
 
-  fd_histf_new( pack->scheduled_cus_per_block, FD_MHIST_MIN( PACK, CU_SCHEDULED_PER_BLOCK ),
-                                               FD_MHIST_MAX( PACK, CU_SCHEDULED_PER_BLOCK ) );
-  fd_histf_new( pack->rebated_cus_per_block,   FD_MHIST_MIN( PACK, CU_REBATED_PER_BLOCK   ),
-                                               FD_MHIST_MAX( PACK, CU_REBATED_PER_BLOCK   ) );
-  fd_histf_new( pack->net_cus_per_block,       FD_MHIST_MIN( PACK, CU_NET_PER_BLOCK       ),
-                                               FD_MHIST_MAX( PACK, CU_NET_PER_BLOCK       ) );
-  fd_histf_new( pack->pct_cus_per_block,       FD_MHIST_MIN( PACK, CU_PCT       ),
-                                               FD_MHIST_MAX( PACK, CU_PCT       ) );
+  fd_histf_new( pack->scheduled_cus_per_block, FD_MHIST_MIN( PACK, COST_SCHEDULED_PER_BLOCK ),
+                                               FD_MHIST_MAX( PACK, COST_SCHEDULED_PER_BLOCK ) );
+  fd_histf_new( pack->rebated_cus_per_block,   FD_MHIST_MIN( PACK, CU_REBATED_PER_BLOCK     ),
+                                               FD_MHIST_MAX( PACK, CU_REBATED_PER_BLOCK     ) );
+  fd_histf_new( pack->net_cus_per_block,       FD_MHIST_MIN( PACK, COST_NET_PER_BLOCK       ),
+                                               FD_MHIST_MAX( PACK, COST_NET_PER_BLOCK       ) );
+  fd_histf_new( pack->pct_cus_per_block,       FD_MHIST_MIN( PACK, COST_PER_BLOCK_PCT       ),
+                                               FD_MHIST_MAX( PACK, COST_PER_BLOCK_PCT       ) );
 
   pack->compressed_slot_number = (ushort)(FD_PACK_SKIP_CNT+1);
 
@@ -1030,8 +1076,7 @@ fd_pack_join( void * mem ) {
 }
 
 
-/* Returns 0 on failure, 1 on success for a vote, 2 on success for a
-   non-vote. */
+/* Returns 0 on failure, 1 on success. */
 static int
 fd_pack_estimate_rewards_and_compute( fd_txn_e_t             * txne,
                                       fd_pack_ord_txn_t      * out,
@@ -1044,7 +1089,7 @@ fd_pack_estimate_rewards_and_compute( fd_txn_e_t             * txne,
   ulong precompile_sigs;
   ulong requested_loaded_accounts_data_cost;
   ulong allocated_data;
-  ulong cost_estimate = fd_pack_compute_cost( txn, txne->txnp->payload, &txne->txnp->flags, &requested_execution_cus, &priority_rewards, &precompile_sigs, &requested_loaded_accounts_data_cost, &allocated_data );
+  ulong cost_estimate = fd_pack_compute_cost( txn, txne->txnp->payload, &requested_execution_cus, &priority_rewards, &precompile_sigs, &requested_loaded_accounts_data_cost, &allocated_data );
 
   if( FD_UNLIKELY( !cost_estimate ) ) return 0;
 
@@ -1087,7 +1132,7 @@ fd_pack_estimate_rewards_and_compute( fd_txn_e_t             * txne,
   ulong divisor = 1UL + (allocated_data * lim->max_cost_per_block) / (cost_estimate * lim->max_allocated_data_per_block);
   out->rewards /= (uint)divisor;
 
-  return fd_int_if( txne->txnp->flags & FD_TXN_P_FLAGS_IS_SIMPLE_VOTE, 1, 2 );
+  return 1;
 }
 
 /* Returns 0 on failure, 1 if not a durable nonce transaction, and 2 if
@@ -1112,6 +1157,7 @@ fd_pack_validate_durable_nonce( fd_txn_e_t * txne ) {
   /* The program has to be a static account */
   fd_acct_addr_t const * accts = fd_txn_get_acct_addrs( txn, txne->txnp->payload );
   if( FD_UNLIKELY( !fd_memeq( accts[ txn->instr[ 0 ].program_id ].b, null_addr.b, 32UL       ) ) ) return 1;
+  if( FD_UNLIKELY( !fd_txn_is_writable( txn, txne->txnp->payload[ txn->instr[ 0 ].acct_off ] ) ) ) return 1;
   if( FD_UNLIKELY( !fd_txn_is_signer( txn, txne->txnp->payload[ txn->instr[ 0 ].acct_off+2 ] ) ) ) return 0;
   /* We could check recent blockhash, but it's not necessary */
   return 2;
@@ -1173,8 +1219,7 @@ void         fd_pack_insert_txn_cancel( fd_pack_t * pack, fd_txn_e_t * txn ) { t
    threshold_score. */
 static inline ulong
 delete_worst( fd_pack_t * pack,
-              float       threshold_score,
-              int         is_vote ) {
+              float       threshold_score ) {
   /* If the tree is full, we want to see if this is better than the
      worst element in the pool before inserting.  If the new transaction
      is better than that one, we'll delete it and insert the new
@@ -1182,10 +1227,10 @@ delete_worst( fd_pack_t * pack,
 
      We want to bias the definition of "worst" here to provide better
      quality of service.  For example, if the pool is filled with
-     transactions that all write to the same account or are all votes,
-     we want to bias towards treating one of those transactions as the
-     worst, even if they pay slightly higher fees per computer unit,
-     since we know we won't actually be able to schedule them all.
+     transactions that all write to the same account, we want to bias
+     towards treating one of those transactions as the worst, even if
+     they pay slightly higher fees per computer unit, since we know we
+     won't actually be able to schedule them all.
 
      This is a tricky task, however.  All our notions of priority and
      better/worse are based on static information about the transaction,
@@ -1216,8 +1261,8 @@ delete_worst( fd_pack_t * pack,
      this:
 
      Treap with N transactions        Scale Factor
-     Pending                      1.0 unless inserting a vote and votes < 25%
-     Pending votes                1.0 until 75% of depth, then 0
+     Pending                      1.0
+     Next auction                 same as pending
      Penalty treap                1.0 at <= 100 transactions, then sqrt(100/N)
      Pending bundles              inf (since the rewards value is fudged)
 
@@ -1252,14 +1297,12 @@ delete_worst( fd_pack_t * pack,
       }
       case FD_ORD_TXN_ROOT_PENDING: {
         treap = pack->pending;
-        ulong vote_cnt = treap_ele_cnt( pack->pending_votes );
-        if( FD_LIKELY( !is_vote || (vote_cnt>=pack->pack_depth/4UL ) ) ) multiplier = 1.0f;
+        multiplier = 1.0f;
         break;
       }
-      case FD_ORD_TXN_ROOT_PENDING_VOTE: {
-        treap = pack->pending_votes;
-        ulong vote_cnt = treap_ele_cnt( pack->pending_votes );
-        if( FD_LIKELY( is_vote || (vote_cnt<=3UL*pack->pack_depth/4UL ) ) ) multiplier = 1.0f;
+      case FD_ORD_TXN_ROOT_NEXT_AUCTION: {
+        treap = pack->next_auction;
+        multiplier = 1.0f;
         break;
       }
       case FD_ORD_TXN_ROOT_PENDING_BUNDLE: {
@@ -1273,6 +1316,11 @@ delete_worst( fd_pack_t * pack,
            overflow.  On the other hand, if rewards==1 lamport and
            compute is 2 million CUs, 1e20*1/2e6 is still higher than any
            normal transaction. */
+        multiplier = 1e20f;
+        break;
+      }
+      case FD_ORD_TXN_ROOT_PRE_ROTATION_BUNDLE( 0 ): {
+        treap      = pack->pre_rotation_bundles[ FD_ORD_TXN_ROOT_PRE_ROTATION_BUNDLE_IDX( root_idx ) ].treap;
         multiplier = 1e20f;
         break;
       }
@@ -1462,6 +1510,58 @@ populate_bitsets( fd_pack_t         * pack,
   return cumulative_penalty;
 }
 
+static void
+insert_txn( fd_pack_t         * pack,
+            fd_pack_ord_txn_t * ord ) {
+  /* If an auction is running, all incoming transactions should be
+       held in next_auction until the auction has ended. */
+  if( pack->auction_running ) {
+    ord->root = FD_ORD_TXN_ROOT_NEXT_AUCTION;
+    treap_ele_insert( pack->next_auction, ord, pack->pool );
+    return;
+  }
+
+  fd_txn_t *             txn     = TXN( ord->txn );
+  fd_acct_addr_t const * accts   = fd_txn_get_acct_addrs( txn, ord->txn->payload );
+  fd_acct_addr_t const * alt_adj = ord->txn_e->alt_accts - fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_IMM );
+
+  /* Since the pool uses ushorts, the size of the pool is < USHORT_MAX.
+     Each transaction can reference an account at most once, which means
+     that the total number of references for an account is < USHORT_MAX.
+     If these were ulongs, the array would be 512B, which is kind of a
+     lot to zero out.*/
+  ushort penalties[ FD_TXN_ACCT_ADDR_MAX ] = {0};
+  uchar  penalty_idx[ FD_TXN_ACCT_ADDR_MAX ];
+  ulong cumulative_penalty = populate_bitsets( pack, ord, penalties, penalty_idx );
+
+  treap_t * insert_into = pack->pending;
+
+  if( FD_UNLIKELY( cumulative_penalty ) ) { /* Optimize for high parallelism case */
+    /* Compute a weighted random choice */
+    ulong roll = (ulong)fd_rng_uint_roll( pack->rng, (uint)cumulative_penalty ); /* cumulative_penalty < USHORT_MAX*64 < UINT_MAX */
+    ulong i = 0UL;
+    /* Find the right one.  This can be done in O(log N), but I imagine
+       N is normally so small that doesn't matter. */
+    while( roll>=penalties[i] ) roll -= (ulong)penalties[i++];
+
+    fd_acct_addr_t penalty_acct = *ACCT_IDX_TO_PTR( penalty_idx[i] );
+    fd_pack_penalty_treap_t * q = penalty_map_query( pack->penalty_treaps, penalty_acct, NULL );
+    if( FD_UNLIKELY( q==NULL ) ) {
+      q = penalty_map_insert( pack->penalty_treaps, penalty_acct );
+      treap_new( q->penalty_treap, trp_pool_max( pack->pool ) );
+    }
+    insert_into = q->penalty_treap;
+    ord->root = FD_ORD_TXN_ROOT_PENALTY( penalty_idx[i] );
+  } else {
+    ord->root = FD_ORD_TXN_ROOT_PENDING;
+
+    pack->pending_smallest->cus   = fd_ulong_min( pack->pending_smallest->cus,   ord->compute_est      );
+    pack->pending_smallest->bytes = fd_ulong_min( pack->pending_smallest->bytes, ord->txn->payload_sz );
+  }
+
+  treap_ele_insert( insert_into, ord, pack->pool );
+}
+
 int
 fd_pack_insert_txn_fini( fd_pack_t  * pack,
                          fd_txn_e_t * txne,
@@ -1482,7 +1582,6 @@ fd_pack_insert_txn_fini( fd_pack_t  * pack,
 
   int est_result = fd_pack_estimate_rewards_and_compute( txne, ord, pack->lim );
   if( FD_UNLIKELY( !est_result ) ) REJECT( ESTIMATION_FAIL );
-  int is_vote          = est_result==1;
 
   int nonce_result = fd_pack_validate_durable_nonce( txne );
   if( FD_UNLIKELY( !nonce_result ) ) REJECT( INVALID_NONCE );
@@ -1507,7 +1606,8 @@ fd_pack_insert_txn_fini( fd_pack_t  * pack,
   if( FD_UNLIKELY( is_durable_nonce ) ) {
     fd_pack_ord_txn_t * same_nonce = noncemap_ele_query( pack->noncemap, txne, NULL, pack->pool );
     if( FD_LIKELY( same_nonce ) ) { /* Seems like most nonce transactions are effectively duplicates */
-      if( FD_LIKELY( same_nonce->root == FD_ORD_TXN_ROOT_PENDING_BUNDLE || same_nonce->nonce_expires_at>expires_at ||
+      if( FD_LIKELY( same_nonce->root == FD_ORD_TXN_ROOT_PENDING_BUNDLE || (same_nonce->root & FD_ORD_TXN_ROOT_TAG_MASK) == FD_ORD_TXN_ROOT_PRE_ROTATION_BUNDLE( 0 ) ||
+            same_nonce->nonce_expires_at>expires_at ||
             (same_nonce->nonce_expires_at==expires_at && COMPARE_WORSE( ord, same_nonce ) ) ) ) REJECT( NONCE_PRIORITY );
       ulong _delete_cnt = delete_transaction( pack, same_nonce, 0, 0 ); /* Not a bundle, so delete_full_bundle is 0 */
       *delete_cnt += _delete_cnt;
@@ -1522,7 +1622,7 @@ fd_pack_insert_txn_fini( fd_pack_t  * pack,
 
   if( FD_UNLIKELY( pack->pending_txn_cnt == pack->pack_depth ) ) {
     float threshold_score = (float)ord->rewards/(float)ord->compute_est;
-    ulong _delete_cnt = delete_worst( pack, threshold_score, is_vote );
+    ulong _delete_cnt = delete_worst( pack, threshold_score );
     *delete_cnt += _delete_cnt;
     if( FD_UNLIKELY( !_delete_cnt ) ) REJECT( PRIORITY );
     replaces = 1;
@@ -1534,40 +1634,7 @@ fd_pack_insert_txn_fini( fd_pack_t  * pack,
   /* At this point, we know we have space to insert the transaction and
      we've committed to insert it. */
 
-  /* Since the pool uses ushorts, the size of the pool is < USHORT_MAX.
-     Each transaction can reference an account at most once, which means
-     that the total number of references for an account is < USHORT_MAX.
-     If these were ulongs, the array would be 512B, which is kind of a
-     lot to zero out.*/
-  ushort penalties[ FD_TXN_ACCT_ADDR_MAX ] = {0};
-  uchar  penalty_idx[ FD_TXN_ACCT_ADDR_MAX ];
-  ulong cumulative_penalty = populate_bitsets( pack, ord, penalties, penalty_idx );
-
-  treap_t * insert_into = pack->pending;
-
-  if( FD_UNLIKELY( cumulative_penalty && !is_vote ) ) { /* Optimize for high parallelism case */
-    /* Compute a weighted random choice */
-    ulong roll = (ulong)fd_rng_uint_roll( pack->rng, (uint)cumulative_penalty ); /* cumulative_penalty < USHORT_MAX*64 < UINT_MAX */
-    ulong i = 0UL;
-    /* Find the right one.  This can be done in O(log N), but I imagine
-       N is normally so small that doesn't matter. */
-    while( roll>=penalties[i] ) roll -= (ulong)penalties[i++];
-
-    fd_acct_addr_t penalty_acct = *ACCT_IDX_TO_PTR( penalty_idx[i] );
-    fd_pack_penalty_treap_t * q = penalty_map_query( pack->penalty_treaps, penalty_acct, NULL );
-    if( FD_UNLIKELY( q==NULL ) ) {
-      q = penalty_map_insert( pack->penalty_treaps, penalty_acct );
-      treap_new( q->penalty_treap, trp_pool_max( pack->pool ) );
-    }
-    insert_into = q->penalty_treap;
-    ord->root = FD_ORD_TXN_ROOT_PENALTY( penalty_idx[i] );
-  } else {
-    ord->root = fd_int_if( is_vote, FD_ORD_TXN_ROOT_PENDING_VOTE, FD_ORD_TXN_ROOT_PENDING );
-
-    fd_pack_smallest_t * smallest = fd_ptr_if( is_vote, &pack->pending_votes_smallest[0], pack->pending_smallest );
-    smallest->cus   = fd_ulong_min( smallest->cus,   ord->compute_est       );
-    smallest->bytes = fd_ulong_min( smallest->bytes, txne->txnp->payload_sz );
-  }
+  insert_txn( pack, ord );
 
   pack->pending_txn_cnt++;
 
@@ -1578,10 +1645,7 @@ fd_pack_insert_txn_fini( fd_pack_t  * pack,
   fd_pack_expq_t temp[ 1 ] = {{ .expires_at = expires_at, .txn = ord }};
   expq_insert( pack->expiration_q, temp );
 
-  if( FD_LIKELY( is_vote ) ) insert_into = pack->pending_votes;
-
-  treap_ele_insert( insert_into, ord, pack->pool );
-  return (is_vote) | (replaces<<1) | (is_durable_nonce<<2);
+  return (replaces<<1) | (is_durable_nonce<<2);
 }
 #undef REJECT
 
@@ -1610,6 +1674,70 @@ fd_pack_insert_bundle_cancel( fd_pack_t          * pack,
 #define BUNDLE_N       313721UL
 #define RC_TO_REL_BUNDLE_IDX( r, c ) (BUNDLE_N - ((ulong)(r) * 1UL<<32)/((ulong)(c) * BUNDLE_L_PRIME))
 
+/* bundle_txn_declared_tip returns the tip that this transaction sends
+   to the tip accounts using top-level System program transfers.
+
+   This does not include tips paid during CPI calls. */
+static ulong
+bundle_txn_declared_tip( fd_pack_ord_txn_t const * ord ) {
+  fd_txn_t       const * txn     = TXN( ord->txn );
+  uchar          const * payload = ord->txn->payload;
+  fd_acct_addr_t const * accts   = fd_txn_get_acct_addrs( txn, payload );
+  fd_acct_addr_t const * alt_adj = ord->txn_e->alt_accts - fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_IMM );
+
+  ulong tip = 0UL;
+  for( ulong i=0UL; i<(ulong)txn->instr_cnt; i++ ) {
+    fd_txn_instr_t const * instr = txn->instr+i;
+    uchar          const * data  = payload + instr->data_off;
+    if( FD_LIKELY( (instr->data_sz<12) | (instr->acct_cnt<2) || FD_LOAD( uint, data )!=2U ) ) continue;
+    if( FD_LIKELY( memcmp( accts[ instr->program_id ].b, &(uchar[32]){ 0 }, FD_TXN_ACCT_ADDR_SZ ) ) ) continue;
+    if( fd_pack_tip_is_tip_account( ACCT_IDX_TO_PTR( payload[ instr->acct_off+1UL ] ) ) ) tip = fd_ulong_sat_add( tip, FD_LOAD( ulong, data+4UL ) );
+  }
+  return tip;
+}
+
+/* pre_rotation_bundle_worse returns 1 if bundle x has a smaller tip,
+   or the same tip but arrived later.  */
+static inline int
+pre_rotation_bundle_worse( fd_pack_pre_rotation_bundle_t const * x,
+                           fd_pack_pre_rotation_bundle_t const * y ) {
+  return (x->tip<y->tip) | ((x->tip==y->tip) & (x->seq>y->seq));
+}
+
+static inline ulong
+pre_rotation_best_bundle_idx( fd_pack_t const * pack ) {
+  ulong best = ULONG_MAX;
+  for( ulong i=0UL; i<FD_PACK_PRE_ROTATION_BUNDLE_CAPACITY; i++ ) {
+    if( !treap_ele_cnt( pack->pre_rotation_bundles[ i ].treap ) ) continue;
+    if( best==ULONG_MAX || pre_rotation_bundle_worse( pack->pre_rotation_bundles+best, pack->pre_rotation_bundles+i ) ) {
+      best = i;
+    }
+  }
+  return best;
+}
+
+static inline ulong
+pre_rotation_worst_bundle_idx( fd_pack_t const * pack ) {
+  ulong worst = ULONG_MAX;
+  for( ulong i=0UL; i<FD_PACK_PRE_ROTATION_BUNDLE_CAPACITY; i++ ) {
+    if( !treap_ele_cnt( pack->pre_rotation_bundles[ i ].treap ) ) continue;
+    if( worst==ULONG_MAX || pre_rotation_bundle_worse( pack->pre_rotation_bundles+i, pack->pre_rotation_bundles+worst ) ) {
+      worst = i;
+    }
+  }
+  return worst;
+}
+
+static inline void
+pre_rotation_bundle_remove( fd_pack_t                     * pack,
+                            fd_pack_pre_rotation_bundle_t * pre_rotation_bundle,
+                            ulong                           idx ) {
+  treap_idx_remove( pre_rotation_bundle->treap, idx, pack->pool );
+  if( !treap_ele_cnt( pre_rotation_bundle->treap ) ) {
+    pack->pre_rotation_bundle_cnt--;
+  }
+}
+
 int
 fd_pack_insert_bundle_fini( fd_pack_t          * pack,
                             fd_txn_e_t * const * bundle,
@@ -1623,6 +1751,7 @@ fd_pack_insert_bundle_fini( fd_pack_t          * pack,
   *delete_cnt = 0UL;
 
   ulong pending_b_txn_cnt = treap_ele_cnt( pack->pending_bundles );
+  int is_pre_rotation     = (bundle[ 0 ]->txnp->scheduler_arrival_time_nanos>=pack->rotation_end_ns) & (!initializer_bundle);
     /* We want to prevent bundles from consuming the whole treap, but in
        general, we assume bundles are lucrative.  We'll set the policy
        on capping bundles at half of the pack depth.  We assume that the
@@ -1633,6 +1762,32 @@ fd_pack_insert_bundle_fini( fd_pack_t          * pack,
 
   if( FD_UNLIKELY( expires_at<pack->expire_before                                         ) ) err = FD_PACK_INSERT_REJECT_EXPIRED;
 
+  /* Before evicting a transaction in favour of a pre-rotation
+     bundle, check that the bundle will actually be inserted into the
+     pre-rotation treap: it's valid and has a high enough tip.
+
+     Otherwise, we could end up discarding a transaction with a
+     duplicate nonce, but because the conflicting bundle didn't
+     actually make it into the pre-rotation treap we would have
+     discarded the transaction unnecessarily. */
+  ulong pre_rotation_tip = 0UL;
+  fd_pack_pre_rotation_bundle_t cand[ 1 ] = {{ .tip = 0UL, .seq = pack->pre_rotation_seq }};
+  if( FD_UNLIKELY( is_pre_rotation & !err ) ) {
+    for( ulong i=0UL; i<txn_cnt; i++ ) {
+      pre_rotation_tip = fd_ulong_sat_add( pre_rotation_tip, bundle_txn_declared_tip( (fd_pack_ord_txn_t *)bundle[ i ] ) );
+    }
+    cand->tip = pre_rotation_tip;
+    if( FD_UNLIKELY( pack->pre_rotation_bundle_cnt>=FD_PACK_PRE_ROTATION_BUNDLE_CAPACITY ) ) {
+      /* If we have to evict a pre-rotation bundle from the treap,
+         check that the new bundle we are inserting does in fact have a
+         higher tip than the lowest already in the treap. */
+      ulong worst = pre_rotation_worst_bundle_idx( pack );
+      if( FD_UNLIKELY( !pre_rotation_bundle_worse( pack->pre_rotation_bundles+worst, cand ) ) ) {
+        FD_MCNT_INC( PACK, PRE_ROTATION_BUNDLE_REJECTED, 1UL );
+        err = FD_PACK_INSERT_REJECT_PRIORITY;
+      }
+    }
+  }
 
   int   replaces      = 0;
   ulong nonce_txn_cnt = 0UL;
@@ -1657,8 +1812,6 @@ fd_pack_insert_bundle_fini( fd_pack_t          * pack,
 
     int est_result = fd_pack_estimate_rewards_and_compute( bundle[ i ], ord, pack->lim );
     if( FD_UNLIKELY( est_result==0 ) ) { err = FD_PACK_INSERT_REJECT_ESTIMATION_FAIL;  break; }
-    /* Votes not allowed in bundles */
-    if( FD_UNLIKELY( est_result==1 ) ) { err = FD_PACK_INSERT_REJECT_BUNDLE_BLACKLIST; break; }
     int nonce_result = fd_pack_validate_durable_nonce( ord->txn_e );
     if( FD_UNLIKELY( !nonce_result ) ) { err = FD_PACK_INSERT_REJECT_INVALID_NONCE;    break; }
     /* The expires_at field is interpreted differently for nonce vs.
@@ -1677,7 +1830,7 @@ fd_pack_insert_bundle_fini( fd_pack_t          * pack,
     bundle[ i ]->txnp->flags &= ~(FD_TXN_P_FLAGS_INITIALIZER_BUNDLE | FD_TXN_P_FLAGS_DURABLE_NONCE);
     bundle[ i ]->txnp->flags |= fd_uint_if( initializer_bundle, FD_TXN_P_FLAGS_INITIALIZER_BUNDLE, 0U );
     bundle[ i ]->txnp->flags |= fd_uint_if( is_durable_nonce,   FD_TXN_P_FLAGS_DURABLE_NONCE,      0U );
-    ord->skip = FD_PACK_SKIP_CNT;
+    ord->skip       = FD_PACK_SKIP_CNT;
     ord->expires_at = expires_at;
 
     if( FD_UNLIKELY( is_durable_nonce ) ) {
@@ -1685,13 +1838,21 @@ fd_pack_insert_bundle_fini( fd_pack_t          * pack,
       nonce_hash63[ i ] = noncemap_key_hash( ord->txn_e, pack->noncemap->seed ) & 0x7FFFFFFFFFFFFFFFUL;
       fd_pack_ord_txn_t * same_nonce = noncemap_ele_query( pack->noncemap, ord->txn_e, NULL, pack->pool );
       if( FD_LIKELY( same_nonce ) ) {
-        /* bundles take priority over non-bundles, and earlier bundles
-           take priority over later bundles. */
-        if( FD_UNLIKELY( same_nonce->txn->flags & FD_TXN_P_FLAGS_BUNDLE ) ) {
+        /* bundles take priority over non-bundles, and bundles that run
+           sooner take priority over bundles that run later.
+
+           Fresh bundles take priority over pre-rotation bundles, and
+           pre-rotation bundles with higher tips take priority over
+           pre-rotation bundles with lower tips. */
+        int holder_root     = same_nonce->root & FD_ORD_TXN_ROOT_TAG_MASK;
+        int holder_is_fresh = holder_root==FD_ORD_TXN_ROOT_PENDING_BUNDLE;
+        int holder_is_pre   = holder_root==FD_ORD_TXN_ROOT_PRE_ROTATION_BUNDLE( 0 );
+        int holder_out_tips = (is_pre_rotation & holder_is_pre) && !pre_rotation_bundle_worse( pack->pre_rotation_bundles + FD_ORD_TXN_ROOT_PRE_ROTATION_BUNDLE_IDX( same_nonce->root ), cand );
+        if( FD_UNLIKELY( holder_is_fresh | (holder_is_pre & holder_out_tips) ) ) {
           err = FD_PACK_INSERT_REJECT_NONCE_PRIORITY;
           break;
         } else {
-          ulong _delete_cnt = delete_transaction( pack, same_nonce, 0, 0 );
+          ulong _delete_cnt = delete_transaction( pack, same_nonce, 1, 0 );
           *delete_cnt += _delete_cnt;
           replaces = 1;
         }
@@ -1721,7 +1882,7 @@ fd_pack_insert_bundle_fini( fd_pack_t          * pack,
   }
 
   while( FD_UNLIKELY( pack->pending_txn_cnt+txn_cnt > pack->pack_depth ) ) {
-    ulong _delete_cnt = delete_worst( pack, FLT_MAX, 0 );
+    ulong _delete_cnt = delete_worst( pack, FLT_MAX );
     *delete_cnt += _delete_cnt;
     if( FD_UNLIKELY( !_delete_cnt ) ) {
       fd_pack_insert_bundle_cancel( pack, bundle, txn_cnt );
@@ -1753,6 +1914,15 @@ fd_pack_insert_bundle_fini( fd_pack_t          * pack,
       fd_pack_insert_bundle_cancel( pack, bundle, txn_cnt );
       return FD_PACK_INSERT_REJECT_NONCE_CONFLICT;
     }
+  }
+
+  /* If the bundle is a pre-rotation bundle, insert it into the
+     pre-rotation treap. */
+  if( FD_UNLIKELY( is_pre_rotation ) ) {
+    ulong evicted = insert_pre_rotation_bundle_impl( pack, txn_cnt, (fd_pack_ord_txn_t * *)bundle, expires_at, pre_rotation_tip );
+    *delete_cnt += evicted;
+    replaces    |= evicted>0UL;
+    return (0) | (replaces<<1) | ((!!nonce_txn_cnt)<<2);
   }
 
   /* We put bundles in a treap just like all the other transactions, but
@@ -1908,12 +2078,77 @@ insert_bundle_impl( fd_pack_t           * pack,
 
 }
 
+/* insert_pre_rotation_bundle_impl is like insert_bundle_impl, but puts
+   the bundle in a free entry of pre_rotation_bundles.  If none is
+   free, it first evicts the worst bundle.  Returns the number of txns
+   evicted. */
+static inline ulong
+insert_pre_rotation_bundle_impl( fd_pack_t           * pack,
+                                 ulong                 txn_cnt,
+                                 fd_pack_ord_txn_t * * bundle,
+                                 ulong                 expires_at,
+                                 ulong                 pre_rotation_tip ) {
+  /* Evict from the pre-rotation treap if we have reached the limit */
+  ulong evicted = 0UL;
+  if( FD_UNLIKELY( pack->pre_rotation_bundle_cnt>=FD_PACK_PRE_ROTATION_BUNDLE_CAPACITY ) ) {
+    treap_t           * worst_treap = pack->pre_rotation_bundles[ pre_rotation_worst_bundle_idx( pack ) ].treap;
+    fd_pack_ord_txn_t * worst       = treap_fwd_iter_ele( treap_fwd_iter_init( worst_treap, pack->pool ), pack->pool );
+    evicted = delete_transaction( pack, worst, 1, 0 );
+    FD_MCNT_INC( PACK, PRE_ROTATION_BUNDLE_EVICTED, 1UL );
+  }
+
+  ulong pre_rotation_bundle_idx = 0UL;
+  while( treap_ele_cnt( pack->pre_rotation_bundles[ pre_rotation_bundle_idx ].treap ) ) {
+    pre_rotation_bundle_idx++;
+  }
+  fd_pack_pre_rotation_bundle_t * pre_rotation_bundle = pack->pre_rotation_bundles + pre_rotation_bundle_idx;
+  pre_rotation_bundle->tip = pre_rotation_tip;
+  pre_rotation_bundle->seq = pack->pre_rotation_seq++;
+
+  ulong prev_reward = ((BUNDLE_L_PRIME * (BUNDLE_N - 1UL))) - 1UL;
+  ulong prev_cost   = 1UL<<32;
+
+  /* Assign last to first */
+  for( ulong i=0UL; i<txn_cnt; i++ ) {
+    fd_pack_ord_txn_t * ord = bundle[ txn_cnt-1UL - i ];
+    ord->rewards = (uint)(((ulong)ord->compute_est * (prev_reward + 1UL) + prev_cost-1UL)/prev_cost);
+    ord->root    = FD_ORD_TXN_ROOT_PRE_ROTATION_BUNDLE( (int)pre_rotation_bundle_idx );
+    prev_reward  = ord->rewards;
+    prev_cost    = ord->compute_est;
+
+    /* The penalty information isn't used for bundles. */
+    ushort penalties  [ FD_TXN_ACCT_ADDR_MAX ];
+    uchar  penalty_idx[ FD_TXN_ACCT_ADDR_MAX ];
+    populate_bitsets( pack, ord, penalties, penalty_idx );
+
+    treap_ele_insert( pre_rotation_bundle->treap, ord, pack->pool );
+    pack->pending_txn_cnt++;
+
+    if( FD_UNLIKELY( ord->txn->flags & FD_TXN_P_FLAGS_DURABLE_NONCE ) ) noncemap_ele_insert( pack->noncemap, ord, pack->pool );
+    sig2txn_ele_insert( pack->signature_map, ord, pack->pool );
+
+    fd_pack_expq_t temp[ 1 ] = {{ .expires_at = expires_at, .txn = ord }};
+    expq_insert( pack->expiration_q, temp );
+  }
+
+  pack->pre_rotation_bundle_cnt++;
+  FD_MCNT_INC( PACK, PRE_ROTATION_BUNDLE_INSERTED, 1UL );
+  return evicted;
+}
+
 void const *
 fd_pack_peek_bundle_meta( fd_pack_t const * pack ) {
   int ib_state = pack->initializer_bundle_state;
   if( FD_UNLIKELY( (ib_state==FD_PACK_IB_STATE_PENDING) | (ib_state==FD_PACK_IB_STATE_FAILED) ) ) return NULL;
 
   treap_rev_iter_t _cur=treap_rev_iter_init( pack->pending_bundles, pack->pool );
+  /* If there are no normal bundles, the pre-rotation bundles will
+     be scheduled. */
+  if( FD_UNLIKELY( treap_rev_iter_done( _cur ) ) ) {
+    ulong best = pre_rotation_best_bundle_idx( pack );
+    if( FD_UNLIKELY( best==ULONG_MAX ) ) return NULL;
+    _cur = treap_rev_iter_init( pack->pre_rotation_bundles[ best ].treap, pack->pool );
+  }
   if( FD_UNLIKELY( treap_rev_iter_done( _cur ) ) ) return NULL; /* empty */
 
   fd_pack_ord_txn_t * cur = treap_rev_iter_ele( _cur, pack->pool );
@@ -1929,20 +2164,32 @@ fd_pack_set_initializer_bundles_ready( fd_pack_t * pack ) {
 }
 
 void
-fd_pack_metrics_write( fd_pack_t const * pack ) {
-  ulong pending_regular = treap_ele_cnt( pack->pending        );
-  ulong pending_votes  = treap_ele_cnt( pack->pending_votes   );
-  ulong pending_bundle = treap_ele_cnt( pack->pending_bundles );
-  ulong conflicting    = pack->pending_txn_cnt - pending_votes - pending_bundle - treap_ele_cnt( pack->pending );
-  FD_MGAUGE_SET( PACK, TXN_AVAILABLE_ALL,         pack->pending_txn_cnt       );
-  FD_MGAUGE_SET( PACK, TXN_AVAILABLE_REGULAR,     pending_regular             );
-  FD_MGAUGE_SET( PACK, TXN_AVAILABLE_VOTES,       pending_votes               );
-  FD_MGAUGE_SET( PACK, TXN_AVAILABLE_CONFLICTING, conflicting                 );
-  FD_MGAUGE_SET( PACK, TXN_AVAILABLE_BUNDLES,     pending_bundle              );
-  FD_MGAUGE_SET( PACK, TXN_PENDING_SMALLEST_CU,   pack->pending_smallest->cus );
-  FD_MGAUGE_SET( PACK, BLOCK_CU_CONSUMED,         pack->cumulative_block_cost );
+fd_pack_set_rotation_end_ns( fd_pack_t * pack,
+                             long        end_ns ) {
+  pack->rotation_end_ns = end_ns;
+}
 
-  FD_MCNT_ENUM_COPY( PACK, TXN_SCHEDULED, pack->sched_results );
+void
+fd_pack_metrics_write( fd_pack_t const * pack ) {
+  ulong pending_regular      = treap_ele_cnt( pack->pending         );
+  ulong pending_bundle       = treap_ele_cnt( pack->pending_bundles );
+  for( ulong i=0UL; i<FD_PACK_PRE_ROTATION_BUNDLE_CAPACITY; i++ ) {
+    pending_bundle += treap_ele_cnt( pack->pre_rotation_bundles[ i ].treap );
+  }
+  ulong pending_pre_rotation = pack->pre_rotation_bundle_cnt;
+  ulong next_auction         = treap_ele_cnt( pack->next_auction    );
+  ulong conflicting          = pack->pending_txn_cnt - pending_regular - pending_bundle - next_auction;
+  ulong smallest_cost        = fd_ulong_if( pack->pending_smallest->cus==ULONG_MAX, 0UL, pack->pending_smallest->cus );
+  FD_MGAUGE_SET( PACK, TXN_PENDING_USED_REGULAR,      pending_regular             );
+  FD_MGAUGE_SET( PACK, TXN_PENDING_USED_VOTE,         0UL                         );
+  FD_MGAUGE_SET( PACK, TXN_PENDING_USED_CONFLICTING,  conflicting                 );
+  FD_MGAUGE_SET( PACK, TXN_PENDING_USED_BUNDLE,       pending_bundle              );
+  FD_MGAUGE_SET( PACK, TXN_PENDING_USED_NEXT_AUCTION, next_auction                );
+  FD_MGAUGE_SET( PACK, PRE_ROTATION_BUNDLE_PENDING,   pending_pre_rotation        );
+  FD_MGAUGE_SET( PACK, TXN_PENDING_SMALLEST_COST,     smallest_cost               );
+  FD_MGAUGE_SET( PACK, BLOCK_COST,                    pack->cumulative_block_cost );
+
+  FD_MCNT_ENUM_COPY( PACK, TXN_SCHEDULE_ATTEMPTED, pack->sched_results );
 }
 
 void
@@ -2251,14 +2498,14 @@ fd_pack_schedule_impl( fd_pack_t          * pack,
     if( FD_UNLIKELY( (cu_limit<smallest_in_treap->cus) | (txn_limit==0UL) | (byte_limit<smallest_in_treap->bytes) ) ) break;
   }
 
-  pack->sched_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_TAKEN_IDX       ] += txns_scheduled;
-  pack->sched_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_CU_LIMIT_IDX    ] += cu_limit_c;
-  pack->sched_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_FAST_PATH_IDX   ] += fast_path;
-  pack->sched_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_BYTE_LIMIT_IDX  ] += byte_limit_c;
-  pack->sched_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_ALLOC_LIMIT_IDX ] += alloc_limit_c;
-  pack->sched_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_WRITE_COST_IDX  ] += write_limit_c;
-  pack->sched_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_SLOW_PATH_IDX   ] += slow_path;
-  pack->sched_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_DEFER_SKIP_IDX  ] += skip_c;
+  pack->sched_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_RESULT_V_TAKEN_IDX               ] += txns_scheduled;
+  pack->sched_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_RESULT_V_CU_LIMIT_IDX            ] += cu_limit_c;
+  pack->sched_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_RESULT_V_CONFLICT_FAST_IDX       ] += fast_path;
+  pack->sched_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_RESULT_V_BYTE_LIMIT_IDX          ] += byte_limit_c;
+  pack->sched_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_RESULT_V_ALLOC_LIMIT_IDX         ] += alloc_limit_c;
+  pack->sched_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_RESULT_V_WRITE_COST_IDX          ] += write_limit_c;
+  pack->sched_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_RESULT_V_CONFLICT_SLOW_IDX       ] += slow_path;
+  pack->sched_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_RESULT_V_WRITE_COST_DEFERRED_IDX ] += skip_c;
 
   /* If we scanned the whole treap and didn't break early, we now have a
      better estimate of the smallest. */
@@ -2413,7 +2660,22 @@ fd_pack_try_schedule_bundle( fd_pack_t  * pack,
   /* Skip any that we've marked as won't fit in this block */
   while( FD_UNLIKELY( !treap_rev_iter_done( _cur ) && treap_rev_iter_ele( _cur, pool )->skip==pack->compressed_slot_number ) ) {
     _cur = treap_rev_iter_next( _cur, pool );
-    pack->sched_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_DEFER_SKIP_IDX ]++;
+    pack->sched_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_RESULT_V_WRITE_COST_DEFERRED_IDX ]++;
+  }
+
+  /* If there are no normal bundles to run, then fall back to the
+     pre-rotation treap. This is because fresh bundles usually don't
+     arrive exactly at the start of our leader rotation, so whilst we
+     are waiting for fresh bundles we should try the pre-rotation ones. */
+  int                             is_pre_rotation     = 0;
+  fd_pack_pre_rotation_bundle_t * pre_rotation_bundle = NULL;
+  if( FD_UNLIKELY( treap_rev_iter_done( _cur ) ) ) {
+    if( FD_UNLIKELY( require_ib ) ) return TRY_BUNDLE_NO_READY_BUNDLES;
+    is_pre_rotation = 1;
+    ulong best = pre_rotation_best_bundle_idx( pack );
+    if( FD_UNLIKELY( best==ULONG_MAX ) ) return TRY_BUNDLE_NO_READY_BUNDLES;
+    pre_rotation_bundle = pack->pre_rotation_bundles + best;
+    _cur                = treap_rev_iter_init( pre_rotation_bundle->treap, pool );
   }
 
   if( FD_UNLIKELY( treap_rev_iter_done( _cur ) ) ) return TRY_BUNDLE_NO_READY_BUNDLES;
@@ -2464,7 +2726,7 @@ fd_pack_try_schedule_bundle( fd_pack_t  * pack,
 
     if( FD_UNLIKELY( cur->compute_est>cu_limit ) ) {
       doesnt_fit = 1;
-      pack->sched_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_CU_LIMIT_IDX ]++;
+      pack->sched_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_RESULT_V_CU_LIMIT_IDX ]++;
       break;
     }
     cu_limit -= cur->compute_est;
@@ -2472,28 +2734,28 @@ fd_pack_try_schedule_bundle( fd_pack_t  * pack,
     /* Each transaction in a bundle turns into a microblock */
     if( FD_UNLIKELY( microblock_limit==0UL ) ) {
       doesnt_fit = 1;
-      FD_MCNT_INC( PACK, MICROBLOCK_PER_BLOCK_LIMIT_REACHED, 1UL );
+      FD_MCNT_INC( PACK, BLOCK_MICROBLOCK_LIMIT_REACHED, 1UL );
       break;
     }
     microblock_limit--;
 
     if( FD_UNLIKELY( cur->txn->payload_sz+MICROBLOCK_DATA_OVERHEAD>byte_limit ) ) {
       doesnt_fit = 1;
-      pack->sched_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_BYTE_LIMIT_IDX ]++;
+      pack->sched_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_RESULT_V_BYTE_LIMIT_IDX ]++;
       break;
     }
     byte_limit -= cur->txn->payload_sz + MICROBLOCK_DATA_OVERHEAD;
 
     if( FD_UNLIKELY( cur->txn->pack_alloc>alloc_limit ) ) {
       doesnt_fit = 1;
-      pack->sched_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_ALLOC_LIMIT_IDX ]++;
+      pack->sched_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_RESULT_V_ALLOC_LIMIT_IDX ]++;
       break;
     }
     alloc_limit -= cur->txn->pack_alloc;
 
     if( FD_UNLIKELY( !FD_PACK_BITSET_INTERSECT4_EMPTY( pack->bitset_rw_in_use, pack->bitset_w_in_use, cur->w_bitset, cur->rw_bitset ) ) ) {
       has_conflict = 1;
-      pack->sched_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_FAST_PATH_IDX ]++;
+      pack->sched_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_RESULT_V_CONFLICT_FAST_IDX ]++;
       break;
     }
 
@@ -2519,7 +2781,7 @@ fd_pack_try_schedule_bundle( fd_pack_t  * pack,
       ulong carried_cost                  = (ulong)in_bundle_temp->carried_cost;
       if( FD_UNLIKELY( current_cost + carried_cost + cur->compute_est > pack->lim->max_write_cost_per_acct ) ) {
         doesnt_fit = 1;
-        pack->sched_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_WRITE_COST_IDX ]++;
+        pack->sched_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_RESULT_V_WRITE_COST_IDX ]++;
         break;
       }
 
@@ -2536,7 +2798,7 @@ fd_pack_try_schedule_bundle( fd_pack_t  * pack,
 
       if( FD_UNLIKELY( acct_uses_query( pack->acct_in_use, acct, null_use )->in_use_by ) ) {
         has_conflict = 1;
-        pack->sched_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_SLOW_PATH_IDX ]++;
+        pack->sched_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_RESULT_V_CONFLICT_SLOW_IDX ]++;
         break;
       }
     }
@@ -2563,7 +2825,7 @@ fd_pack_try_schedule_bundle( fd_pack_t  * pack,
 
       if( FD_UNLIKELY( acct_uses_query( pack->acct_in_use,  *acct, null_use )->in_use_by & FD_PACK_IN_USE_WRITABLE ) ) {
         has_conflict = 1;
-        pack->sched_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_SLOW_PATH_IDX ]++;
+        pack->sched_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_RESULT_V_CONFLICT_SLOW_IDX ]++;
         break;
       }
     }
@@ -2600,6 +2862,7 @@ fd_pack_try_schedule_bundle( fd_pack_t  * pack,
 
   /* This bundle passed validation, so now we'll take it! */
   pack->outstanding_microblock_mask |= bank_tile_mask;
+  FD_MCNT_INC( PACK, PRE_ROTATION_BUNDLE_SCHEDULED, (ulong)is_pre_rotation );
 
   treap_rev_iter_t   _end  = _cur;
   treap_rev_iter_t   _next;
@@ -2647,7 +2910,8 @@ fd_pack_try_schedule_bundle( fd_pack_t  * pack,
 
     cur->root = FD_ORD_TXN_ROOT_FREE;
     expq_remove( pack->expiration_q, cur->expq_idx );
-    treap_idx_remove( pack->pending_bundles, _cur, pack->pool );
+    if( FD_UNLIKELY( is_pre_rotation ) ) pre_rotation_bundle_remove( pack, pre_rotation_bundle, _cur );
+    else                                 treap_idx_remove( pack->pending_bundles, _cur, pack->pool );
     trp_pool_idx_release( pack->pool, _cur );
     pack->pending_txn_cnt--;
   }
@@ -2703,25 +2967,19 @@ fd_pack_try_schedule_bundle( fd_pack_t  * pack,
 ulong
 fd_pack_schedule_next_microblock( fd_pack_t *  pack,
                                   ulong        total_cus,
-                                  float        vote_fraction,
                                   ulong        bank_tile,
                                   int          schedule_flags,
                                   fd_txn_e_t * out ) {
 
   /* TODO: Decide if these are exactly how we want to handle limits */
   total_cus = fd_ulong_min( total_cus, pack->lim->max_cost_per_block - pack->cumulative_block_cost );
-  ulong vote_cus = fd_ulong_min( (ulong)((float)total_cus * vote_fraction),
-                                 pack->lim->max_vote_cost_per_block - pack->cumulative_vote_cost );
-  ulong vote_reserved_txns = fd_ulong_min( vote_cus/FD_PACK_MAX_SIMPLE_VOTE_COST,
-                                           (ulong)((float)pack->lim->max_txn_per_microblock * vote_fraction) );
-
 
   if( FD_UNLIKELY( (pack->microblock_cnt>=pack->lim->max_microblocks_per_block) ) ) {
-    FD_MCNT_INC( PACK, MICROBLOCK_PER_BLOCK_LIMIT_REACHED, 1UL );
+    FD_MCNT_INC( PACK, BLOCK_MICROBLOCK_LIMIT_REACHED, 1UL );
     return 0UL;
   }
   if( FD_UNLIKELY( pack->data_bytes_consumed+MICROBLOCK_DATA_OVERHEAD+FD_TXN_MIN_SERIALIZED_SZ>pack->lim->max_data_bytes_per_block) ) {
-    FD_MCNT_INC( PACK, DATA_PER_BLOCK_LIMIT_REACHED, 1UL );
+    FD_MCNT_INC( PACK, BLOCK_BYTE_LIMIT_REACHED, 1UL );
     return 0UL;
   }
 
@@ -2736,35 +2994,15 @@ fd_pack_schedule_next_microblock( fd_pack_t *  pack,
   _mm_prefetch( (uchar *)out+FD_TPU_MTU+128UL, _MM_HINT_ET0 );
 #endif
 
-  ulong cu_limit    = total_cus - vote_cus;
-  ulong txn_limit   = pack->lim->max_txn_per_microblock - vote_reserved_txns;
+  ulong cu_limit    = total_cus;
+  ulong txn_limit   = pack->lim->max_txn_per_microblock;
   ulong scheduled   = 0UL;
   ulong byte_limit  = pack->lim->max_data_bytes_per_block - pack->data_bytes_consumed - MICROBLOCK_DATA_OVERHEAD;
   ulong alloc_limit = pack->lim->max_allocated_data_per_block - pack->alloc_consumed;
 
-  sched_return_t status = {0}, status1 = {0};
+  sched_return_t status = {0};
 
-  if( FD_LIKELY( schedule_flags & FD_PACK_SCHEDULE_VOTE ) ) {
-    /* Schedule vote transactions */
-    status1= fd_pack_schedule_impl( pack, pack->pending_votes, vote_cus, vote_reserved_txns, byte_limit, alloc_limit, bank_tile,
-        pack->pending_votes_smallest, use_by_bank_txn, out+scheduled );
-
-    scheduled                   += status1.txns_scheduled;
-    pack->cumulative_vote_cost  += status1.cus_scheduled;
-    pack->cumulative_block_cost += status1.cus_scheduled;
-    pack->data_bytes_consumed   += status1.bytes_scheduled;
-    byte_limit                  -= status1.bytes_scheduled;
-    pack->alloc_consumed        += status1.alloc_scheduled;
-    alloc_limit                 -= status1.alloc_scheduled;
-    use_by_bank_txn             += status1.txns_scheduled;
-    /* Add any remaining CUs/txns to the non-vote limits */
-    txn_limit += vote_reserved_txns - status1.txns_scheduled;
-    cu_limit  += vote_cus - status1.cus_scheduled;
-  }
-
-  /* Bundle can't mix with votes, so only try to schedule a bundle if we
-     didn't get any votes. */
-  if( FD_UNLIKELY( !!(schedule_flags & FD_PACK_SCHEDULE_BUNDLE) & (status1.txns_scheduled==0UL) ) ) {
+  if( FD_UNLIKELY( schedule_flags & FD_PACK_SCHEDULE_BUNDLE ) ) {
     int bundle_result = fd_pack_try_schedule_bundle( pack, bank_tile, out );
     if( FD_UNLIKELY( bundle_result>0                         ) ) return (ulong)bundle_result;
     if( FD_UNLIKELY( bundle_result==TRY_BUNDLE_HAS_CONFLICTS ) ) return 0UL;
@@ -2776,10 +3014,10 @@ fd_pack_schedule_next_microblock( fd_pack_t *  pack,
   }
 
 
-  /* Fill any remaining space with non-vote transactions */
+  /* Fill the microblock with transactions, votes included */
   if( FD_LIKELY( schedule_flags & FD_PACK_SCHEDULE_TXN ) ) {
-    status = fd_pack_schedule_impl( pack, pack->pending,       cu_limit, txn_limit,          byte_limit, alloc_limit, bank_tile,
-        pack->pending_smallest,       use_by_bank_txn, out+scheduled );
+    status = fd_pack_schedule_impl( pack, pack->pending, cu_limit, txn_limit, byte_limit, alloc_limit, bank_tile,
+        pack->pending_smallest, use_by_bank_txn, out+scheduled );
 
     scheduled                   += status.txns_scheduled;
     pack->cumulative_block_cost += status.cus_scheduled;
@@ -2792,27 +3030,61 @@ fd_pack_schedule_next_microblock( fd_pack_t *  pack,
   pack->outstanding_microblock_mask |= nonempty << bank_tile;
   pack->data_bytes_consumed         += nonempty * MICROBLOCK_DATA_OVERHEAD;
 
-  fd_histf_sample( pack->txn_per_microblock,  scheduled              );
-  fd_histf_sample( pack->vote_per_microblock, status1.txns_scheduled );
+  fd_histf_sample( pack->txn_per_microblock, scheduled );
 
   pack_memcpy_fini();
   return scheduled;
 }
 
-ulong fd_pack_bank_tile_cnt     ( fd_pack_t const * pack ) { return pack->bank_tile_cnt;         }
-ulong fd_pack_current_block_cost( fd_pack_t const * pack ) { return pack->cumulative_block_cost; }
+ulong fd_pack_bank_tile_cnt       ( fd_pack_t const * pack ) { return pack->bank_tile_cnt;         }
+ulong fd_pack_current_block_cost  ( fd_pack_t const * pack ) { return pack->cumulative_block_cost; }
+ulong fd_pack_next_auction_txn_cnt( fd_pack_t const * pack ) { return treap_ele_cnt( pack->next_auction ); }
+int   fd_pack_auction_running     ( fd_pack_t const * pack ) { return pack->auction_running;       }
+
+/* fd_pack_auction_begin doesn't actually move any transactions
+   between treaps.  It just sets the auction_running flag, which means
+   that new transactions enter the next_auction treap instead of the
+   pending/penalty treaps.  These are not eligible for scheduling until
+   the auction ends, at which point the transactions in the
+   next_auction treap are moved into the pending/penalty treaps.
+
+   Transactions already in the pending/penalty treaps, as well as all
+   new and already received bundles, are still elegible for scheduling
+   throughout the auction period. */
+void
+fd_pack_auction_begin( fd_pack_t * pack ) {
+  pack->auction_running = 1;
+}
+
+/* fd_pack_auction_end ends an auction, if there was one running.  It
+   moves every transaction that was held in next_auction to the
+   pending/penalty treaps, making them eligible for scheduling. */
+void
+fd_pack_auction_end( fd_pack_t * pack ) {
+  pack->auction_running = 0;
+
+  /* Flush the next_auction treap, as we now hold these transactions
+     in either the pending treap or the appropriate penalty treap.
+     Note that these won't be executed until the start of the next
+     auction. */
+  fd_pack_ord_txn_t * pool = pack->pool;
+  treap_rev_iter_t    next;
+  for( treap_rev_iter_t cur=treap_rev_iter_init( pack->next_auction, pool ); !treap_rev_iter_done( cur ); cur=next ) {
+    next = treap_rev_iter_next( cur, pool );
+    treap_idx_remove( pack->next_auction, treap_rev_iter_idx( cur ), pool );
+    insert_txn( pack, treap_rev_iter_ele( cur, pool ) );
+  }
+}
 
 
 void
 fd_pack_set_block_limits( fd_pack_t * pack, fd_pack_limits_t const * limits ) {
   FD_TEST( limits->max_cost_per_block      >= FD_PACK_MAX_COST_PER_BLOCK_LOWER_BOUND      );
-  FD_TEST( limits->max_vote_cost_per_block >= FD_PACK_MAX_VOTE_COST_PER_BLOCK_LOWER_BOUND );
   FD_TEST( limits->max_write_cost_per_acct >= FD_PACK_MAX_WRITE_COST_PER_ACCT_LOWER_BOUND );
 
   pack->lim->max_microblocks_per_block    = limits->max_microblocks_per_block;
   pack->lim->max_data_bytes_per_block     = limits->max_data_bytes_per_block;
   pack->lim->max_cost_per_block           = limits->max_cost_per_block;
-  pack->lim->max_vote_cost_per_block      = limits->max_vote_cost_per_block;
   pack->lim->max_write_cost_per_acct      = limits->max_write_cost_per_acct;
   pack->lim->max_allocated_data_per_block = limits->max_allocated_data_per_block;
 }
@@ -2821,7 +3093,6 @@ void
 fd_pack_get_block_limits( fd_pack_t * pack, fd_pack_limits_usage_t * opt_limits_usage, fd_pack_limits_t * opt_limits ) {
   if( FD_LIKELY( opt_limits_usage ) ) {
     opt_limits_usage->block_cost          = pack->cumulative_block_cost;
-    opt_limits_usage->vote_cost           = pack->cumulative_vote_cost;
     opt_limits_usage->block_data_bytes    = pack->data_bytes_consumed;
     opt_limits_usage->microblocks         = pack->microblock_cnt;
     opt_limits_usage->alloc               = pack->alloc_consumed;
@@ -2835,9 +3106,8 @@ fd_pack_get_top_writers( fd_pack_t const * pack, fd_pack_addr_use_t top_writers[
 }
 
 void
-fd_pack_get_pending_smallest( fd_pack_t * pack, fd_pack_smallest_t * opt_pending_smallest, fd_pack_smallest_t * opt_votes_smallest ) {
-  if( FD_LIKELY( opt_pending_smallest ) ) fd_memcpy( opt_pending_smallest, pack->pending_smallest,       sizeof(fd_pack_smallest_t) );
-  if( FD_LIKELY( opt_votes_smallest ) )   fd_memcpy( opt_votes_smallest,   pack->pending_votes_smallest, sizeof(fd_pack_smallest_t) );
+fd_pack_get_pending_smallest( fd_pack_t * pack, fd_pack_smallest_t * opt_pending_smallest ) {
+  if( FD_LIKELY( opt_pending_smallest ) ) fd_memcpy( opt_pending_smallest, pack->pending_smallest, sizeof(fd_pack_smallest_t) );
 }
 
 void
@@ -2848,7 +3118,6 @@ fd_pack_rebate_cus( fd_pack_t              * pack,
   }
 
   pack->cumulative_block_cost  -= rebate->total_cost_rebate;
-  pack->cumulative_vote_cost   -= rebate->vote_cost_rebate;
   pack->data_bytes_consumed    -= rebate->data_bytes_rebate;
   pack->alloc_consumed         -= rebate->alloc_rebate;
   pack->cumulative_rebated_cus += rebate->total_cost_rebate;
@@ -2914,7 +3183,6 @@ fd_pack_end_block( fd_pack_t * pack ) {
   pack->microblock_cnt              = 0UL;
   pack->data_bytes_consumed         = 0UL;
   pack->cumulative_block_cost       = 0UL;
-  pack->cumulative_vote_cost        = 0UL;
   pack->cumulative_rebated_cus      = 0UL;
   pack->outstanding_microblock_mask = 0UL;
   pack->alloc_consumed              = 0UL;
@@ -2954,14 +3222,13 @@ fd_pack_end_block( fd_pack_t * pack ) {
      infrequent to do anything related to metrics.  However, we only
      update the histograms when we are leader, so this is actually a
      good place to copy them. */
-  FD_MHIST_COPY( PACK, TXN_PER_MICROBLOCK,  pack->txn_per_microblock  );
-  FD_MHIST_COPY( PACK, VOTE_PER_MICROBLOCK, pack->vote_per_microblock );
+  FD_MHIST_COPY( PACK, TXN_PER_MICROBLOCK, pack->txn_per_microblock );
 
-  FD_MGAUGE_SET( PACK, BLOCK_CU_CONSUMED, 0UL                           );
-  FD_MHIST_COPY( PACK, CU_SCHEDULED_PER_BLOCK, pack->scheduled_cus_per_block );
-  FD_MHIST_COPY( PACK, CU_REBATED_PER_BLOCK,   pack->rebated_cus_per_block   );
-  FD_MHIST_COPY( PACK, CU_NET_PER_BLOCK,       pack->net_cus_per_block       );
-  FD_MHIST_COPY( PACK, CU_PCT,                 pack->pct_cus_per_block       );
+  FD_MGAUGE_SET( PACK, BLOCK_COST,               0UL                           );
+  FD_MHIST_COPY( PACK, COST_SCHEDULED_PER_BLOCK, pack->scheduled_cus_per_block );
+  FD_MHIST_COPY( PACK, CU_REBATED_PER_BLOCK,     pack->rebated_cus_per_block   );
+  FD_MHIST_COPY( PACK, COST_NET_PER_BLOCK,       pack->net_cus_per_block       );
+  FD_MHIST_COPY( PACK, COST_PER_BLOCK_PCT,       pack->pct_cus_per_block       );
 }
 
 static void
@@ -2988,19 +3255,20 @@ fd_pack_clear_all( fd_pack_t * pack ) {
   pack->pending_txn_cnt        = 0UL;
   pack->microblock_cnt         = 0UL;
   pack->cumulative_block_cost  = 0UL;
-  pack->cumulative_vote_cost   = 0UL;
   pack->cumulative_rebated_cus = 0UL;
   pack->data_bytes_consumed    = 0UL;
   pack->alloc_consumed         = 0UL;
 
   pack->pending_smallest->cus         = ULONG_MAX;
   pack->pending_smallest->bytes       = ULONG_MAX;
-  pack->pending_votes_smallest->cus   = ULONG_MAX;
-  pack->pending_votes_smallest->bytes = ULONG_MAX;
 
   release_tree( pack->pending,         pack->signature_map, pack->noncemap, pack->pool );
-  release_tree( pack->pending_votes,   pack->signature_map, pack->noncemap, pack->pool );
   release_tree( pack->pending_bundles, pack->signature_map, pack->noncemap, pack->pool );
+  release_tree( pack->next_auction,    pack->signature_map, pack->noncemap, pack->pool );
+  for( ulong i=0UL; i<FD_PACK_PRE_ROTATION_BUNDLE_CAPACITY; i++ ) {
+    release_tree( pack->pre_rotation_bundles[ i ].treap, pack->signature_map, pack->noncemap, pack->pool );
+  }
+  pack->pre_rotation_bundle_cnt = 0UL;
 
   ulong const pool_max = trp_pool_max( pack->pool );
   for( ulong i=0UL; i<pool_max; i++ ) {
@@ -3060,12 +3328,18 @@ delete_transaction( fd_pack_t         * pack,
 
   treap_t * root = NULL;
   int root_idx = containing->root;
-  fd_pack_penalty_treap_t * penalty_treap = NULL;
+  fd_pack_penalty_treap_t       * penalty_treap       = NULL;
+  fd_pack_pre_rotation_bundle_t * pre_rotation_bundle = NULL;
   switch( root_idx & FD_ORD_TXN_ROOT_TAG_MASK ) {
-    case FD_ORD_TXN_ROOT_FREE:           FD_LOG_CRIT(( "Double free detected" ));
-    case FD_ORD_TXN_ROOT_PENDING:        root = pack->pending;         break;
-    case FD_ORD_TXN_ROOT_PENDING_VOTE:   root = pack->pending_votes;   break;
-    case FD_ORD_TXN_ROOT_PENDING_BUNDLE: root = pack->pending_bundles; break;
+    case FD_ORD_TXN_ROOT_FREE:                FD_LOG_CRIT(( "Double free detected" ));
+    case FD_ORD_TXN_ROOT_PENDING:             root = pack->pending;              break;
+    case FD_ORD_TXN_ROOT_PENDING_BUNDLE:      root = pack->pending_bundles;      break;
+    case FD_ORD_TXN_ROOT_PRE_ROTATION_BUNDLE( 0 ): {
+      pre_rotation_bundle = pack->pre_rotation_bundles + FD_ORD_TXN_ROOT_PRE_ROTATION_BUNDLE_IDX( root_idx );
+      root                = pre_rotation_bundle->treap;
+      break;
+    }
+    case FD_ORD_TXN_ROOT_NEXT_AUCTION:        root = pack->next_auction;         break;
     case FD_ORD_TXN_ROOT_PENALTY( 0 ): {
       fd_acct_addr_t penalty_acct = *ACCT_IDX_TO_PTR( FD_ORD_TXN_ROOT_PENALTY_ACCT_IDX( root_idx ) );
       penalty_treap = penalty_map_query( pack->penalty_treaps, penalty_acct, NULL );
@@ -3076,7 +3350,7 @@ delete_transaction( fd_pack_t         * pack,
   }
 
   ulong delete_cnt = 0UL;
-  if( FD_UNLIKELY( delete_full_bundle & (root==pack->pending_bundles) ) ) {
+  if( FD_UNLIKELY( delete_full_bundle & ((root==pack->pending_bundles) | (!!pre_rotation_bundle)) ) ) {
     /* When we delete, the structure of the treap may move around, but
        pointers to inside the pool will remain valid */
     fd_pack_ord_txn_t * bundle_ptrs[ FD_PACK_MAX_TXN_PER_BUNDLE-1UL ];
@@ -3146,21 +3420,27 @@ delete_transaction( fd_pack_t         * pack,
     }
   }
 
-  for( fd_txn_acct_iter_t iter=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_ALL );
-      iter!=fd_txn_acct_iter_end(); iter=fd_txn_acct_iter_next( iter ) ) {
-    if( FD_UNLIKELY( fd_pack_unwritable_contains( ACCT_ITER_TO_PTR( iter ) ) ) ) continue;
+  /* Transactions which are being held in the next_auction treap never
+     acquired their bitset reference, so there is nothing to release
+     here. */
+  if( FD_LIKELY( root!=pack->next_auction ) ) {
+    for( fd_txn_acct_iter_t iter=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_ALL );
+        iter!=fd_txn_acct_iter_end(); iter=fd_txn_acct_iter_next( iter ) ) {
+      if( FD_UNLIKELY( fd_pack_unwritable_contains( ACCT_ITER_TO_PTR( iter ) ) ) ) continue;
 
-    release_result_t ret = release_bit_reference( pack, ACCT_ITER_TO_PTR( iter ) );
-    FD_PACK_BITSET_CLEARN( pack->bitset_rw_in_use, ret.clear_rw_bit );
-    FD_PACK_BITSET_CLEARN( pack->bitset_w_in_use,  ret.clear_w_bit  );
+      release_result_t ret = release_bit_reference( pack, ACCT_ITER_TO_PTR( iter ) );
+      FD_PACK_BITSET_CLEARN( pack->bitset_rw_in_use, ret.clear_rw_bit );
+      FD_PACK_BITSET_CLEARN( pack->bitset_w_in_use,  ret.clear_w_bit  );
+    }
   }
 
   if( FD_UNLIKELY( containing->txn->flags & FD_TXN_P_FLAGS_DURABLE_NONCE ) ) {
     noncemap_ele_remove_fast( pack->noncemap, containing, pack->pool );
   }
   expq_remove( pack->expiration_q, containing->expq_idx );
+  if( FD_UNLIKELY( pre_rotation_bundle ) ) pre_rotation_bundle_remove( pack, pre_rotation_bundle, (ulong)(containing-pack->pool) );
+  else                                     treap_ele_remove( root, containing, pack->pool );
   containing->root = FD_ORD_TXN_ROOT_FREE;
-  treap_ele_remove( root, containing, pack->pool );
   sig2txn_ele_remove_fast( pack->signature_map, containing, pack->pool );
   trp_pool_ele_release( pack->pool, containing );
 
@@ -3180,7 +3460,9 @@ fd_pack_delete_transaction( fd_pack_t              * pack,
   ulong cnt = 0;
   ulong next = ULONG_MAX;
 
-  fd_txn_e_t query_e = {0};
+  /* sig2txn reads only the signature offset and signature bytes. */
+  fd_txn_e_t query_e;
+  TXN(query_e.txnp)->signature_off = 0U;
   fd_memcpy( query_e.txnp[0].payload, sig0, FD_TXN_SIGNATURE_SZ );
   for( ulong idx = sig2txn_idx_query_const( pack->signature_map, &query_e, ULONG_MAX, pack->pool );
       idx!=ULONG_MAX; idx=next ) {
@@ -3270,16 +3552,32 @@ fd_pack_verify( fd_pack_t * pack,
 
 
   fd_pack_ord_txn_t  * pool = pack->pool;
-  treap_t * treaps[ 3 ] = { pack->pending, pack->pending_votes, pack->pending_bundles };
+  treap_t * treaps   [ 3 ] = { pack->pending, pack->pending_bundles, pack->next_auction };
+  int       root_tags[ 3 ] = { FD_ORD_TXN_ROOT_PENDING, FD_ORD_TXN_ROOT_PENDING_BUNDLE, FD_ORD_TXN_ROOT_NEXT_AUCTION };
   ulong txn_cnt = 0UL;
 
-  for( ulong k=0UL; k<3UL+penalty_map_slot_cnt( pack->penalty_treaps ); k++ ) {
+  ulong const pre_rotation_bundle_max = FD_PACK_PRE_ROTATION_BUNDLE_CAPACITY;
+  ulong pre_rotation_bundle_cnt = 0UL;
+  for( ulong i=0UL; i<pre_rotation_bundle_max; i++ ) {
+    ulong cnt = treap_ele_cnt( pack->pre_rotation_bundles[ i ].treap );
+    pre_rotation_bundle_cnt += (ulong)(cnt>0UL);
+    VERIFY_TEST( cnt<=FD_PACK_MAX_TXN_PER_BUNDLE, "pre-rotation bundle %lu holds %lu transactions", i, cnt );
+  }
+  VERIFY_TEST( pre_rotation_bundle_cnt==pack->pre_rotation_bundle_cnt, "pre_rotation_bundle_cnt %lu, found %lu bundles", pack->pre_rotation_bundle_cnt, pre_rotation_bundle_cnt );
+
+  VERIFY_TEST( pack->auction_running || !treap_ele_cnt( pack->next_auction ), "next_auction not empty outside an auction" );
+
+  for( ulong k=0UL; k<3UL+pre_rotation_bundle_max+penalty_map_slot_cnt( pack->penalty_treaps ); k++ ) {
     treap_t * treap = NULL;
 
     if( k<3UL ) treap = treaps[ k ];
-    else if( FD_LIKELY( penalty_map_key_inval( pack->penalty_treaps[ k-3UL ].key ) ) ) continue;
+    else if( k<3UL+pre_rotation_bundle_max ) {
+      treap = pack->pre_rotation_bundles[ k-3UL ].treap;
+      if( !treap_ele_cnt( treap ) ) continue;
+    }
+    else if( FD_LIKELY( penalty_map_key_inval( pack->penalty_treaps[ k-3UL-pre_rotation_bundle_max ].key ) ) ) continue;
     else {
-      treap = pack->penalty_treaps[ k-3UL ].penalty_treap;
+      treap = pack->penalty_treaps[ k-3UL-pre_rotation_bundle_max ].penalty_treap;
       VERIFY_TEST( treap_ele_cnt( treap )>0UL, "empty penalty treap in map" );
     }
 
@@ -3294,16 +3592,22 @@ fd_pack_verify( fd_pack_t * pack,
       fd_pack_ord_txn_t const * in_tbl = sig2txn_ele_query_const( pack->signature_map, &cur->_txn_e, NULL, pool );
       VERIFY_TEST( in_tbl, "signature missing from sig2txn" );
 
-      VERIFY_TEST( (ulong)(cur->root & FD_ORD_TXN_ROOT_TAG_MASK)==fd_ulong_min( k, 3UL )+1UL, "treap element had bad root" );
+      ulong expected_root = (k<3UL) ? (ulong)root_tags[ k ] : ((k<3UL+pre_rotation_bundle_max) ? (ulong)FD_ORD_TXN_ROOT_PRE_ROTATION_BUNDLE( 0 ) : (ulong)FD_ORD_TXN_ROOT_PENALTY( 0 ));
+      VERIFY_TEST( (ulong)(cur->root & FD_ORD_TXN_ROOT_TAG_MASK)==expected_root, "treap element had bad root" );
+      if( FD_UNLIKELY( (cur->root & FD_ORD_TXN_ROOT_TAG_MASK)==FD_ORD_TXN_ROOT_PRE_ROTATION_BUNDLE( 0 ) ) ) {
+        VERIFY_TEST( (ulong)FD_ORD_TXN_ROOT_PRE_ROTATION_BUNDLE_IDX( cur->root )==k-3UL, "transaction in wrong pre-rotation bundle" );
+      }
       if( FD_LIKELY( (cur->root & FD_ORD_TXN_ROOT_TAG_MASK)==FD_ORD_TXN_ROOT_PENALTY(0) ) ) {
         fd_acct_addr_t const * penalty_acct = ACCT_IDX_TO_PTR( FD_ORD_TXN_ROOT_PENALTY_ACCT_IDX( cur->root ) );
-        VERIFY_TEST( !memcmp( penalty_acct, pack->penalty_treaps[ k-3UL ].key.b, 32UL ), "transaction in wrong penalty treap" );
+        VERIFY_TEST( !memcmp( penalty_acct, pack->penalty_treaps[ k-3UL-pre_rotation_bundle_max ].key.b, 32UL ), "transaction in wrong penalty treap" );
       }
       VERIFY_TEST( cur->expires_at>=pack->expire_before, "treap element expired" );
 
       fd_pack_expq_t const * eq = pack->expiration_q + cur->expq_idx;
       VERIFY_TEST( eq->txn==cur, "expq inconsistent" );
       VERIFY_TEST( eq->expires_at==cur->expires_at, "expq expires_at inconsistent" );
+
+      if( FD_UNLIKELY( (cur->root & FD_ORD_TXN_ROOT_TAG_MASK)==FD_ORD_TXN_ROOT_NEXT_AUCTION ) ) continue;
 
       FD_PACK_BITSET_DECLARE( complement );
       FD_PACK_BITSET_COPY( complement, full );

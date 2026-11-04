@@ -43,9 +43,10 @@ fd_ulong_sub_borrow(
 # if FD_HAS_X86
   *b = (uchar)_subborrow_u64( (uchar)bi, a0, a1, (unsigned long long *)r );
 # else
-  a1 += !!bi;
-  *r = a0 - a1;
-  *b = a0 < a1;
+  ulong r0 = a0 - a1;
+  ulong r1 = r0 - !!bi;
+  *r = r1;
+  *b = (int)((a0 < a1) | (r0 < r1));
 # endif
 }
 

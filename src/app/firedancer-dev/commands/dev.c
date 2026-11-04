@@ -3,7 +3,7 @@
 void
 firedancer_dev_dev_cmd_fn( args_t *   args,
                            config_t * config ) {
-  dev_cmd_fn( args, config, NULL );
+  dev_cmd_fn( args, config );
 }
 
 action_t fd_action_dev = {

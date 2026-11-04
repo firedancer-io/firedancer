@@ -29,6 +29,12 @@
 #define STEM_BURST (5UL)
 FD_STATIC_ASSERT( FD_BUNDLE_CLIENT_MAX_TXN_PER_BUNDLE<=STEM_BURST, stem_burst );
 
+/* Raw state values exported by the metrics (states= enums) */
+FD_STATIC_ASSERT( FD_BUNDLE_STATE_DISCONNECTED==FD_METRICS_ENUM_BUNDLE_CONN_STATE_V_DISCONNECTED_IDX, metrics_state );
+FD_STATIC_ASSERT( FD_BUNDLE_STATE_CONNECTING==FD_METRICS_ENUM_BUNDLE_CONN_STATE_V_CONNECTING_IDX, metrics_state );
+FD_STATIC_ASSERT( FD_BUNDLE_STATE_CONNECTED==FD_METRICS_ENUM_BUNDLE_CONN_STATE_V_CONNECTED_IDX, metrics_state );
+FD_STATIC_ASSERT( FD_BUNDLE_STATE_SLEEPING==FD_METRICS_ENUM_BUNDLE_CONN_STATE_V_SLEEPING_IDX, metrics_state );
+
 /* hysteresis thresholds to avoid bouncing (e.g. during forks) */
 #define FD_BUNDLE_SLEEP_THRESHOLD_SLOTS   (450UL)
 #define FD_BUNDLE_WAKE_THRESHOLD_SLOTS    (400UL)
@@ -90,21 +96,20 @@ fd_bundle_tile_maybe_sleep( fd_bundle_tile_t * ctx, long now_ns ) {
 
 static inline void
 metrics_write( fd_bundle_tile_t * ctx ) {
-  FD_MCNT_SET( BUNDLE, TXN_RX,                 ctx->metrics.txn_received_cnt          );
-  FD_MCNT_SET( BUNDLE, BUNDLE_RX,              ctx->metrics.bundle_received_cnt       );
-  FD_MCNT_SET( BUNDLE, PKT_RX,                 ctx->metrics.packet_received_cnt       );
-  FD_MCNT_SET( BUNDLE, PROTOBUF_RX_BYTES,         ctx->metrics.proto_received_bytes      );
-  FD_MCNT_SET( BUNDLE, SHREDSTREAM_HEARTBEAT_SENT, ctx->metrics.shredstream_heartbeat_cnt );
-  FD_MCNT_SET( BUNDLE, PING_ACKED,        ctx->metrics.ping_ack_cnt              );
-  FD_MCNT_SET( BUNDLE, CONN_ERROR_PROTOBUF,         ctx->metrics.decode_fail_cnt           );
-  FD_MCNT_SET( BUNDLE, CONN_ERROR_TRANSPORT,        ctx->metrics.transport_fail_cnt        );
-  FD_MCNT_SET( BUNDLE, CONN_ERROR_NO_FEE_INFO,      ctx->metrics.missing_builder_info_fail_cnt );
-  FD_MGAUGE_SET( BUNDLE, TXN_PENDING,          pending_txn_cnt( ctx->pending_txns )   );
-  FD_MCNT_SET  ( BUNDLE, TXN_BUFFER_FULL,     ctx->metrics.backpressure_drop_cnt );
+  FD_MCNT_SET  ( BUNDLE, TXN_RX,                    ctx->metrics.txn_received_cnt              );
+  FD_MCNT_SET  ( BUNDLE, BUNDLE_RX,                 ctx->metrics.bundle_received_cnt           );
+  FD_MCNT_SET  ( BUNDLE, STANDALONE_TXN_RX,         ctx->metrics.packet_received_cnt           );
+  FD_MCNT_SET  ( BUNDLE, PROTOBUF_RX_BYTES,         ctx->metrics.proto_received_bytes          );
+  FD_MCNT_SET  ( BUNDLE, PING_ACKED,                ctx->metrics.ping_ack_cnt                  );
+  FD_MCNT_SET  ( BUNDLE, CLIENT_FAILED_DECODE,      ctx->metrics.decode_fail_cnt               );
+  FD_MCNT_SET  ( BUNDLE, CLIENT_FAILED_TRANSPORT,   ctx->metrics.transport_fail_cnt            );
+  FD_MCNT_SET  ( BUNDLE, CLIENT_FAILED_NO_FEE_INFO, ctx->metrics.missing_builder_info_fail_cnt );
+  FD_MGAUGE_SET( BUNDLE, TXN_PENDING,               pending_txn_cnt( ctx->pending_txns )       );
+  FD_MCNT_SET  ( BUNDLE, TXN_BUFFER_FULL_DROPPED,   ctx->metrics.backpressure_drop_cnt         );
 
-  FD_MGAUGE_SET( BUNDLE, RTT_SAMPLE_NANOS,   (ulong)ctx->rtt->latest_rtt   );
-  FD_MGAUGE_SET( BUNDLE, RTT_SMOOTHED_NANOS, (ulong)ctx->rtt->smoothed_rtt );
-  FD_MGAUGE_SET( BUNDLE, RTT_VARIANCE_NANOS, (ulong)ctx->rtt->var_rtt      );
+  FD_MGAUGE_SET( BUNDLE, LAST_RTT_NANOS,      (ulong)ctx->rtt->latest_rtt   );
+  FD_MGAUGE_SET( BUNDLE, RTT_SMOOTHED_NANOS,  (ulong)ctx->rtt->smoothed_rtt );
+  FD_MGAUGE_SET( BUNDLE, RTT_DEVIATION_NANOS, (ulong)ctx->rtt->var_rtt      );
 
   FD_MHIST_COPY( BUNDLE, MESSAGE_RX_DELAY_NANOS, ctx->metrics.msg_rx_delay );
 
@@ -114,14 +119,14 @@ metrics_write( fd_bundle_tile_t * ctx ) {
   if( FD_UNLIKELY( !fd_wksp_usage( wksp, &free_tag, 1UL, usage ) ) ) {
     FD_LOG_ERR(( "fd_wksp_usage failed" )); /* unreachable */
   }
-  FD_MGAUGE_SET( BUNDLE, HEAP_SIZE_BYTES, usage->total_sz );
-  FD_MGAUGE_SET( BUNDLE, HEAP_FREE_BYTES, usage->free_sz  );
+  FD_MGAUGE_SET( BUNDLE, HEAP_CAPACITY_BYTES, usage->total_sz );
+  FD_MGAUGE_SET( BUNDLE, HEAP_FREE_BYTES,     usage->free_sz  );
 
   int status = fd_bundle_client_status( ctx );
   ulong state = (ulong)status;
   if( FD_UNLIKELY( ctx->sleep_mode ) ) state = FD_BUNDLE_STATE_SLEEPING;
 
-  FD_MGAUGE_SET( BUNDLE, STATE, state );
+  FD_MGAUGE_SET( BUNDLE, CONN_STATE, state );
   ctx->bundle_status_recent = (uchar)state;
 }
 
@@ -202,13 +207,22 @@ during_frag( fd_bundle_tile_t * ctx,
              ulong              ctl    FD_PARAM_UNUSED ) {
 
   if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_REPLAY_OUT ) ) {
-    if( FD_LIKELY( sig!=REPLAY_SIG_RESET ) ) return;
-    if( FD_UNLIKELY( chunk<ctx->replay_in.chunk0 || chunk>ctx->replay_in.wmark || sz!=sizeof(fd_poh_reset_t) ) )
+    if( FD_LIKELY( sig!=REPLAY_SIG_RESET && sig!=REPLAY_SIG_NEXT_LEADER ) ) return;
+    ulong want_sz = sig==REPLAY_SIG_RESET ? sizeof(fd_poh_reset_t) : sizeof(fd_replay_next_leader_t);
+    if( FD_UNLIKELY( chunk<ctx->replay_in.chunk0 || chunk>ctx->replay_in.wmark || sz!=want_sz ) )
       FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->replay_in.chunk0, ctx->replay_in.wmark ));
 
-    fd_poh_reset_t const * reset = fd_chunk_to_laddr_const( ctx->replay_in.mem, chunk );
-    ctx->next_leader_slot_staged = reset->next_leader_slot;
-    ctx->reset_slot_staged       = reset->completed_slot;
+    if( sig==REPLAY_SIG_RESET ) {
+      /* An Alpenglow boot reset carries no next leader slot, keep the
+         one from the preceding next leader message. */
+      fd_poh_reset_t const * reset = fd_chunk_to_laddr_const( ctx->replay_in.mem, chunk );
+      ctx->next_leader_slot_staged = reset->next_leader_slot;
+      ctx->reset_slot_staged       = reset->completed_slot;
+    } else {
+      fd_replay_next_leader_t const * next_leader = fd_chunk_to_laddr_const( ctx->replay_in.mem, chunk );
+      ctx->next_leader_slot_staged = next_leader->next_leader_slot;
+      ctx->reset_slot_staged       = next_leader->slot;
+    }
   }
 }
 
@@ -223,7 +237,8 @@ after_frag( fd_bundle_tile_t *  ctx,
             fd_stem_context_t * stem   FD_PARAM_UNUSED ) {
 
   if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_REPLAY_OUT ) ) {
-    if( FD_LIKELY( sig!=REPLAY_SIG_RESET ) ) return;
+    if( FD_LIKELY( sig!=REPLAY_SIG_RESET && sig!=REPLAY_SIG_NEXT_LEADER ) ) return;
+    if( FD_UNLIKELY( sig==REPLAY_SIG_RESET && ctx->next_leader_slot_staged==ULONG_MAX ) ) return;
     ctx->next_leader_slot = ctx->next_leader_slot_staged;
     ctx->reset_slot       = ctx->reset_slot_staged;
   }
@@ -494,7 +509,7 @@ privileged_init( fd_topo_t const *      topo,
   ctx->keylog_fd = -1;
 
   if( FD_UNLIKELY( tile->bundle.key_log_path[0] ) ) {
-    ctx->keylog_fd = open( tile->bundle.key_log_path, O_WRONLY|O_APPEND|O_CREAT, 0644 );
+    ctx->keylog_fd = open( tile->bundle.key_log_path, O_WRONLY|O_APPEND|O_CREAT, 0600 );
     if( FD_UNLIKELY( ctx->keylog_fd < 0 ) ) {
       FD_LOG_ERR(( "open(%s) failed (%i-%s)", tile->bundle.key_log_path, errno, fd_io_strerror( errno ) ));
     }
@@ -639,6 +654,7 @@ unprivileged_init( fd_topo_t const *      topo,
   }
   fd_grpc_client_set_version( ctx->grpc_client, fd_version_cstr, strlen( fd_version_cstr ) );
   fd_grpc_client_set_authority( ctx->grpc_client, ctx->server_sni, ctx->server_sni_len, ctx->server_tcp_port );
+  fd_grpc_client_set_https( ctx->grpc_client, ctx->is_ssl );
 
   fd_histf_new( ctx->metrics.msg_rx_delay,
       FD_MHIST_MIN( BUNDLE, MESSAGE_RX_DELAY_NANOS ),

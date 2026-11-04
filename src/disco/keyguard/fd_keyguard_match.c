@@ -2,7 +2,7 @@
 #include "../../ballet/shred/fd_shred.h"
 #include "../../ballet/txn/fd_compact_u16.h"
 #include "../../flamenco/gossip/fd_gossip_value.h"
-#include "../../discof/repair/fd_repair.h"
+#include "../../disco/repair/fd_repair_serde.h"
 
 /* fd_keyguard_match fingerprints signing requests and checks them for
    ambiguity.
@@ -274,18 +274,18 @@ fd_keyguard_payload_matches_repair( uchar const * data,
 
   /* Every repair message contains a 4 byte enum variant tag (at the
      beginning of the message) and a 32 byte public key (at an arbitrary
-     location), and is at most FD_REPAIR_MAX_PREIMAGE_SZ bytes. */
+     location), and is at most FD_REPAIR_SIG_SER_MAX bytes. */
   if( sz<36UL                      ) return 0;
-  if( sz>FD_REPAIR_MAX_PREIMAGE_SZ ) return 0;
+  if( sz>FD_REPAIR_SIG_SER_MAX     ) return 0;
 
   /* Ensure that the kind matches a possible repair request. */
   uint kind = FD_LOAD( uint, data );
-  if( (kind==FD_REPAIR_KIND_SHRED)
-    | (kind==FD_REPAIR_KIND_HIGHEST_SHRED)
-    | (kind==FD_REPAIR_KIND_ORPHAN)
-    | (kind==AG_REPAIR_KIND_PARENT_FEC_COUNT)
-    | (kind==AG_REPAIR_KIND_FEC_ROOT)
-    | (kind==AG_REPAIR_KIND_SHRED_FOR_BLOCK_ID) )
+  if( (kind==FD_REPAIR_SERDE_TAG_WINDOW_INDEX)
+    | (kind==FD_REPAIR_SERDE_TAG_HIGHEST_WINDOW_INDEX)
+    | (kind==FD_REPAIR_SERDE_TAG_ORPHAN)
+    | (kind==FD_REPAIR_SERDE_TAG_PARENT_AND_FEC_SET_COUNT)
+    | (kind==FD_REPAIR_SERDE_TAG_FEC_SET_ROOT)
+    | (kind==FD_REPAIR_SERDE_TAG_WINDOW_INDEX_FOR_BLOCK_ID) )
     return 1;
 
   return 0;
@@ -412,23 +412,27 @@ fd_keyguard_payload_matches_tower( uchar const * data,
   return votes_cnt>=1UL && votes_cnt<=31UL;
 }
 
-/* VoteHistory: node_pubkey, voted, voted_notar, voted_notar_fallback */
+/* VoteHistory, as the votor writes it: node_pubkey, nine empty
+   collections, root */
 
 FD_FN_PURE static int
 fd_keyguard_payload_matches_vote_history( uchar const * data,
                                           ulong         sz,
                                           int           sign_type ) {
   if( sign_type!=FD_KEYGUARD_SIGN_TYPE_ED25519 ) return 0;
-  if( sz<32UL+9UL*8UL+8UL                      ) return 0;
-  ulong left      = sz-(32UL+9UL*8UL+8UL);
-  ulong voted_cnt = FD_LOAD( ulong, data+32UL );
-  if( voted_cnt>left/8UL                       ) return 0;
-  left -= voted_cnt*8UL;
-  ulong notar_cnt = FD_LOAD( ulong, data+40UL+voted_cnt*8UL );
-  if( notar_cnt>left/40UL                      ) return 0;
-  left -= notar_cnt*40UL;
-  ulong notar_fallback_cnt = FD_LOAD( ulong, data+48UL+voted_cnt*8UL+notar_cnt*40UL );
-  return notar_fallback_cnt<=left/16UL;
+  if( sz!=32UL+9UL*8UL+8UL                     ) return 0;
+  for( ulong i=0UL; i<9UL; i++ ) if( FD_LOAD( ulong, data+32UL+i*8UL ) ) return 0;
+  return 1;
+}
+
+FD_FN_PURE static int
+fd_keyguard_payload_matches_failov( uchar const * data,
+                                    ulong         sz,
+                                    int           sign_type ) {
+  return sign_type==FD_KEYGUARD_SIGN_TYPE_ED25519 &&
+         sz==FD_KEYGUARD_FAILOVER_PROOF_SZ &&
+         ( fd_memeq( data, FD_KEYGUARD_FAILOVER_CLIENT_DOMAIN, FD_KEYGUARD_FAILOVER_DOMAIN_SZ ) ||
+           fd_memeq( data, FD_KEYGUARD_FAILOVER_SERVER_DOMAIN, FD_KEYGUARD_FAILOVER_DOMAIN_SZ ) );
 }
 
 FD_FN_PURE ulong
@@ -450,5 +454,6 @@ fd_keyguard_payload_match( uchar const * data,
   res |= fd_ulong_if( fd_keyguard_payload_matches_bls_pubkey  ( data, sz, sign_type ), FD_KEYGUARD_PAYLOAD_BLS_PUBKEY,   0 );
   res |= fd_ulong_if( fd_keyguard_payload_matches_tower       ( data, sz, sign_type ), FD_KEYGUARD_PAYLOAD_TOWER,        0 );
   res |= fd_ulong_if( fd_keyguard_payload_matches_vote_history( data, sz, sign_type ), FD_KEYGUARD_PAYLOAD_VOTE_HISTORY, 0 );
+  res |= fd_ulong_if( fd_keyguard_payload_matches_failov      ( data, sz, sign_type ), FD_KEYGUARD_PAYLOAD_FAILOV,       0 );
   return res;
 }

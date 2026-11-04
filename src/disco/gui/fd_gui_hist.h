@@ -28,34 +28,37 @@ typedef struct fd_gui fd_gui_t;
 
 #define FD_GUI_HIST_RES_1S_NS (1000000000L)
 
-/* FD_GUI_HIST_MIN_EPOCHS is the minimum number of epochs the store must
-   hold, plus one more which can be evicted under space pressure. */
-
-#define FD_GUI_HIST_MIN_EPOCHS (3UL)
 #define FD_GUI_HIST_MAX_LEADER_SLOTS_PER_EPOCH (43200UL) /* 10% capacity should be enough for mainnet/testnet */
 
-/* FD_GUI_HIST_MAX_EPOCHS caps KV index provisioning at the number of
-   epochs reachable within the TS index horizon (30 days) +2 for partial
-   epochs at both ends of the horizon. */
+#define FD_GUI_HIST_MAX_EPOCHS (64UL) /* Comfortably above typical time between restarts */
 
-#define FD_GUI_HIST_MAX_EPOCHS ((FD_GUI_STORE_TS_IDX_DEPTH*(ulong)FD_GUI_HIST_RES_1S_NS)/(MAX_SLOTS_PER_EPOCH*((FD_SLOT_PARAMS_200MS).ns_per_slot))+2UL)
-#define FD_GUI_HIST_SCHEDULER_COUNTS (0)  /* (ts, type)            */
-#define FD_GUI_HIST_TILE_TIMERS      (1)  /* (ts, type)            */
-#define FD_GUI_HIST_SHRED_EVENTS     (2)
-#define FD_GUI_HIST_TXN_START        (3)  /* (ts, type, bank, txn) */
-#define FD_GUI_HIST_TXN_END          (4)  /* (ts, type, bank, txn) */
-#define FD_GUI_HIST_TOWER            (5)  /* (ts, type)            */
-#define FD_GUI_HIST_SLOT             (6)  /* (slot, bank_seq)      */
-#define FD_GUI_HIST_LEADER_SLOT      (7)  /* (slot, bank_seq)      */
-#define FD_GUI_HIST_EPOCH            (8)  /* (epoch)               */
-#define FD_GUI_HIST_TILE_STATS       (9)  /* (ts, type)            */
-#define FD_GUI_HIST_TXN_WATERFALL    (10) /* (ts, type)            */
-#define FD_GUI_HIST_TIMELINE_DAY     (11)
-#define FD_GUI_HIST_REPLAY_TXN       (12)
-#define FD_GUI_HIST_CNT              (13)
+/* Minimum number of epochs of slot, leader slot and epoch records the
+   store always retains, regardless of pressure from other DBs. */
+#define FD_GUI_HIST_MIN_EPOCHS (3UL)
+
+/* Bounds the per-tile CPU day records retained (per tile).  Two months
+   of calendar days, about the span of FD_GUI_HIST_MAX_EPOCHS epochs. */
+#define FD_GUI_HIST_MAX_TIMELINE_DAYS (64UL)
+
+#define FD_GUI_HIST_SCHEDULER_COUNTS  (0)  /* (ts, type)            */
+#define FD_GUI_HIST_TILE_TIMERS       (1)  /* (ts, type)            */
+#define FD_GUI_HIST_SHRED_EVENTS      (2)
+#define FD_GUI_HIST_TXN_START         (3)  /* (ts, type, bank, txn) */
+#define FD_GUI_HIST_TXN_END           (4)  /* (ts, type, bank, txn) */
+#define FD_GUI_HIST_SLOT              (5)  /* (slot, bank_seq)      */
+#define FD_GUI_HIST_LEADER_SLOT       (6)  /* (slot, bank_seq)      */
+#define FD_GUI_HIST_EPOCH             (7)  /* (epoch)               */
+#define FD_GUI_HIST_TILE_STATS        (8)  /* (ts, type)            */
+#define FD_GUI_HIST_TXN_WATERFALL     (9)  /* (ts, type)            */
+#define FD_GUI_HIST_TIMELINE_DAY      (10)
+#define FD_GUI_HIST_REPLAY_TXN        (11)
+#define FD_GUI_HIST_TIMELINE_TILE_DAY (12) /* (day_idx, tile_idx)  */
+#define FD_GUI_HIST_FEC_EVENTS        (13) /* (FEC event key)      */
+#define FD_GUI_HIST_FEC_EVENT_ARCHIVE (14) /* (ts, ...)            */
+#define FD_GUI_HIST_CNT               (15)
 
 struct fd_gui_hist_metrics {
-  /* Writes that hit MAP_FULL and were dropped. */
+  /* Writes dropped after exhausting region or KV index capacity. */
   ulong map_full[ FD_GUI_HIST_CNT ];
   /* Writes that evicted records before succeeding. */
   ulong reserves [ FD_GUI_HIST_CNT ];
@@ -65,9 +68,11 @@ typedef struct fd_gui_hist_metrics fd_gui_hist_metrics_t;
 struct fd_gui_hist_slot_key        { ulong slot; ulong bank_seq; };
 struct fd_gui_hist_leader_slot_key { ulong slot; ulong bank_seq; };
 struct fd_gui_hist_epoch_key       { ulong epoch; };
+struct fd_gui_hist_tile_day_key    { ulong day_idx; ulong tile_idx; };
 typedef struct fd_gui_hist_slot_key        fd_gui_hist_slot_key_t;
 typedef struct fd_gui_hist_leader_slot_key fd_gui_hist_leader_slot_key_t;
 typedef struct fd_gui_hist_epoch_key       fd_gui_hist_epoch_key_t;
+typedef struct fd_gui_hist_tile_day_key    fd_gui_hist_tile_day_key_t;
 
 struct fd_gui_hist_private;
 typedef struct fd_gui_hist_private fd_gui_hist_t;
@@ -138,14 +143,33 @@ fd_gui_hist_leave( fd_gui_hist_t * hist );
 void *
 fd_gui_hist_delete( void * mem );
 
-/* fd_gui_hist_db_descs returns a pointer to a static array to be passed
-   to fd_gui_store_new. */
+/* fd_gui_hist_db_descs fills descs with the FD_GUI_HIST_CNT DB
+   descriptors for a store of store_bytes, and returns descs. */
 
-fd_gui_store_desc_t const *
-fd_gui_hist_db_descs( ulong store_bytes );
+fd_gui_store_desc_t *
+fd_gui_hist_db_descs( fd_gui_store_desc_t descs[ static FD_GUI_HIST_CNT ],
+                      ulong               store_bytes );
 
 FD_FN_CONST static inline ulong
 fd_gui_hist_db_cnt( void ) { return FD_GUI_HIST_CNT; }
+
+/* fd_gui_hist_store_footprint returns the footprint of a store of
+   store_bytes holding the history DBs, or 0 if store_bytes is too
+   small. */
+
+ulong
+fd_gui_hist_store_footprint( ulong store_bytes );
+
+/* fd_gui_hist_store_new formats mem as a store of store_bytes backed
+   by path, holding the history DBs.  The result is ready to join and
+   pass to fd_gui_hist_new.  Returns mem on success or NULL on failure
+   (logged, see fd_gui_store_new). */
+
+void *
+fd_gui_hist_store_new( void *       mem,
+                       char const * path,
+                       ulong        store_bytes,
+                       ulong        seed );
 
 fd_gui_hist_metrics_t const *
 fd_gui_hist_metrics( fd_gui_t const * gui );
@@ -230,42 +254,17 @@ fd_gui_hist_kv_iter_next( fd_gui_hist_kv_slot_iter_t * iter );
 
 /* ---- Eviction ------------------------------------------------------- */
 
-/* fd_gui_hist_evict_step does at most one bounded unit of eviction
-   work.
-
-   The store is bounded by its configured map size.  When it grows near
-   full, the oldest epoch is evicted whole: its EPOCH record, every KV
-   row for the epoch's slots, and every time-series row in the wallclock
-   window the epoch spanned.  An epoch can hold a lot of data, so the
-   work is spread across many bounded batches.
-
-   If the store is below the high-water threshold and no eviction
-   is in progress, it does nothing and returns 0.  Otherwise it advances
-   the current epoch's cascade by one batch (or starts a new cascade on
-   the oldest epoch), returning 1.  No-op (returns 0) if the store is
-   unavailable. */
+/* fd_gui_hist_evict_step reclaims at most FD_GUI_HIST_EVICT_BATCH
+   records from an oldest excess region once at most one shared region
+   remains free.  Every DB's newest base_regions regions are protected
+   (see fd_gui_hist_db_descs).  FEC staging is never evicted; it only
+   drains through fd_gui_fec_archive.  Returns 1 for actual progress, 0
+   when idle or all candidates pinned.  Writes retry on pressure, then
+   recycle only their own eligible history if no excess candidate
+   remains. */
 
 int
 fd_gui_hist_evict_step( fd_gui_t * gui );
-
-/* fd_gui_hist_evict_oldest evicts the single oldest epoch in its
-   entirety, synchronously and unconditionally.
-
-   Unbounded, so never called on the write path.  Returns 1 if an epoch
-   was evicted, 0 if there was nothing to evict or the store is
-   unavailable. */
-
-int
-fd_gui_hist_evict_oldest( fd_gui_t * gui );
-
-/* fd_gui_hist_evict_ts_oldest sheds time-series data oldest-first.
-
-   It is the slow-path used when a write hits map-full. Returns 1 if it
-   evicted a window's worth of records, 0 if every time-series DB is
-   already empty or the store is unavailable. */
-
-int
-fd_gui_hist_evict_ts_oldest( fd_gui_t * gui );
 
 FD_PROTOTYPES_END
 

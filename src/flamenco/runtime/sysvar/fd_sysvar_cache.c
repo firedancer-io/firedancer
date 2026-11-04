@@ -2,7 +2,6 @@
 #include "fd_sysvar_cache_private.h"
 #include "fd_sysvar_recent_hashes.h"
 #include "fd_sysvar_slot_hashes.h"
-#include "fd_sysvar_slot_history.h"
 #include "fd_sysvar_stake_history.h"
 
 #include <errno.h>
@@ -111,8 +110,7 @@ fd_sysvar_cache_data_query(
     fd_sysvar_desc_t const * desc = &cache->desc[ idx ];               \
     fd_sysvar_pos_t const *  pos  = &fd_sysvar_pos_tbl[ idx ];         \
     if( FD_UNLIKELY( !( desc->flags & FD_SYSVAR_FLAG_VALID ) ) ) return NULL; \
-    if( !pos->obj_max ) memcpy( out, (uchar *)cache+pos->data_off, pos->data_max ); \
-    else                memcpy( out, (uchar *)cache+pos->obj_off,  pos->obj_max  ); \
+    memcpy( out, (uchar *)cache+pos->data_off, pos->data_max );        \
     return out;                                                        \
   }
 
@@ -157,10 +155,6 @@ fd_sysvar_obj_restore( fd_sysvar_cache_t *     cache,
   desc->flags |= FD_SYSVAR_FLAG_VALID;
   return 0;
 }
-
-#define TYPES_CALLBACKS( name, suf )                                   \
-  .decode_footprint = fd_##name##_decode_footprint,                    \
-  .decode           = (__typeof__(((fd_sysvar_pos_t *)NULL)->decode))(ulong)fd_##name##_decode##suf
 
 static int
 fd_sysvar_validate_clock( uchar const * data, ulong data_sz ) {
@@ -227,10 +221,6 @@ fd_sysvar_pos_t const fd_sysvar_pos_tbl[ FD_SYSVAR_CACHE_ENTRY_CNT ] = {
     { .name="slot hashes",
       .data_off=offsetof(fd_sysvar_cache_t, bin_slot_hashes      ), .data_max=FD_SYSVAR_SLOT_HASHES_BINCODE_SZ,
       .validate=fd_sysvar_slot_hashes_validate },
-  [FD_SYSVAR_slot_history_IDX] =
-    { .name="slot history",
-      .data_off=offsetof(fd_sysvar_cache_t, bin_slot_history     ), .data_max=FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ,
-      .validate=fd_sysvar_slot_history_validate },
   [FD_SYSVAR_stake_history_IDX] =
     { .name="stake history",
       .data_off=offsetof(fd_sysvar_cache_t, bin_stake_history    ), .data_max=FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ,
@@ -252,5 +242,3 @@ fd_sysvar_cache_stake_history_view( fd_sysvar_cache_t const * cache,
   if( FD_UNLIKELY( !( desc->flags & FD_SYSVAR_FLAG_VALID ) ) ) return NULL;
   return fd_sysvar_stake_history_view( view, cache->bin_stake_history, desc->data_sz );
 }
-
-#undef TYPES_CALLBACKS

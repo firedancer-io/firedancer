@@ -111,13 +111,6 @@ flame_cmd_fn( args_t *   args,
       tile_idxs[ tile_cnt ] = i;
       tile_cnt++;
     }
-  } else if( FD_UNLIKELY( !strcmp( "agave", args->flame.name ) ) ) {
-    /* Find the bank tile so we can get the Agave PID */
-    ulong bank_tile_idx = fd_topo_find_tile( &config->topo, "bank", 0UL );
-    if( FD_UNLIKELY( bank_tile_idx==ULONG_MAX ) ) FD_LOG_ERR(( "tile `bank` not found" ));
-    whole_process = 1;
-    tile_idxs[ 0 ] = bank_tile_idx;
-    tile_cnt = 1UL;
   } else {
     char * sep = strchr( args->flame.name, ':' );
 
@@ -270,7 +263,7 @@ action_t fd_action_flame = {
   .fn            = flame_cmd_fn,
   .perm          = flame_cmd_perm,
   .description   = "Capture a perf flamegraph",
-  .usage         = "flame [all|tile|tile:idx|agave] [--freq <hz>]",
+  .usage         = "flame [all|tile|tile:idx] [--freq <hz>]",
   .args_help     = flame_args_help,
   .is_diagnostic = 1
 };

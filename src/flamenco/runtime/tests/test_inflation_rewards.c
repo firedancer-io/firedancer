@@ -11,8 +11,10 @@
 #include "../program/vote/fd_vote_state_versioned.h"
 #include "../sysvar/fd_sysvar_epoch_rewards.h"
 #include "../fd_system_ids.h"
+#include "../fd_hashes.h"
 #include "../fd_pubkey_utils.h"
 #include "../sysvar/fd_sysvar_rent.h"
+#include "../sysvar/fd_sysvar_stake_history.h"
 #include "../../../ballet/hex/fd_hex.h"
 #include <stdlib.h>
 #include <sys/mman.h>
@@ -33,6 +35,8 @@ static fd_sol_sysvar_clock_t const test_ag_clock = {
   .epoch                 = 1UL,
   .leader_schedule_epoch = 2UL,
 };
+
+static fd_validator_location_t const no_loc = {0};
 
 static ulong
 read_lamports( fd_svm_mini_t *     mini,
@@ -103,7 +107,7 @@ patch_vote_account( fd_svm_mini_t *     mini,
 
   fd_vote_state_versioned_t versioned[1];
   FD_TEST( fd_vote_state_versioned_deserialize( versioned, data_copy, data_sz ) );
-  fd_vsv_set_commission( versioned, new_commission );
+  fd_vsv_set_commission( versioned, new_commission, 0UL );
   fd_vote_epoch_credits_t * epoch_credits = fd_vsv_get_epoch_credits_mutable( versioned );
   fd_vote_epoch_credits_t * ec = deq_fd_vote_epoch_credits_t_push_tail_nocopy( epoch_credits );
   *ec = (fd_vote_epoch_credits_t){ .epoch=epoch, .credits=credits, .prev_credits=prev_credits };
@@ -232,82 +236,6 @@ find_reward_partition( fd_stake_rewards_t *      stake_rewards,
   return UINT_MAX;
 }
 
-static void
-test_commission_split( void ) {
-  fd_commission_split_t r[1];
-
-  fd_vote_commission_split( 0, 1000UL, r );
-  FD_TEST( r->voter_portion  ==    0UL );
-  FD_TEST( r->staker_portion == 1000UL );
-  FD_TEST( r->is_split       ==    0U  );
-
-  fd_vote_commission_split( 10000, 1000UL, r );
-  FD_TEST( r->voter_portion  == 1000UL );
-  FD_TEST( r->staker_portion ==    0UL );
-  FD_TEST( r->is_split       ==    0U  );
-
-  fd_vote_commission_split( 20000, 1000UL, r );
-  FD_TEST( r->voter_portion  == 1000UL );
-  FD_TEST( r->staker_portion ==    0UL );
-  FD_TEST( r->is_split       ==    0U  );
-
-  fd_vote_commission_split( 5000, 1000UL, r );
-  FD_TEST( r->voter_portion  ==  500UL );
-  FD_TEST( r->staker_portion ==  500UL );
-  FD_TEST( r->is_split       ==    1U  );
-
-  fd_vote_commission_split( 1000, 1000UL, r );
-  FD_TEST( r->voter_portion  ==  100UL );
-  FD_TEST( r->staker_portion ==  900UL );
-  FD_TEST( r->is_split       ==    1U  );
-
-  fd_vote_commission_split( 100, 10UL, r );
-  FD_TEST( r->voter_portion  ==  0UL );
-  FD_TEST( r->staker_portion ==  9UL );
-  FD_TEST( r->is_split       ==  1U  );
-
-  fd_vote_commission_split( 3300, 100UL, r );
-  FD_TEST( r->voter_portion  == 33UL );
-  FD_TEST( r->staker_portion == 67UL );
-  FD_TEST( r->is_split       ==  1U  );
-
-  fd_vote_commission_split( 5000, 0UL, r );
-  FD_TEST( r->voter_portion  == 0UL );
-  FD_TEST( r->staker_portion == 0UL );
-
-  fd_vote_commission_split( 1, 10000UL, r );
-  FD_TEST( r->voter_portion  ==    1UL );
-  FD_TEST( r->staker_portion == 9999UL );
-  FD_TEST( r->is_split       ==    1U  );
-
-  fd_vote_commission_split( 99, 10000UL, r );
-  FD_TEST( r->voter_portion  ==   99UL );
-  FD_TEST( r->staker_portion == 9901UL );
-  FD_TEST( r->is_split       ==    1U  );
-
-  fd_vote_commission_split( 150, 10000UL, r );
-  FD_TEST( r->voter_portion  ==  150UL );
-  FD_TEST( r->staker_portion == 9850UL );
-  FD_TEST( r->is_split       ==    1U  );
-
-  fd_vote_commission_split( 3333, 10000UL, r );
-  FD_TEST( r->voter_portion  == 3333UL );
-  FD_TEST( r->staker_portion == 6667UL );
-  FD_TEST( r->is_split       ==    1U  );
-
-  fd_vote_commission_split( 7777, 1000UL, r );
-  FD_TEST( r->voter_portion  == 777UL );
-  FD_TEST( r->staker_portion == 222UL );
-  FD_TEST( r->is_split       ==   1U  );
-
-  fd_vote_commission_split( 9999, 10000UL, r );
-  FD_TEST( r->voter_portion  == 9999UL );
-  FD_TEST( r->staker_portion ==    1UL );
-  FD_TEST( r->is_split       ==    1U  );
-
-  FD_LOG_NOTICE(( "test_commission_split: PASSED" ));
-}
-
 static fd_pubkey_t
 alpenglow_feature_id( void ) {
   return ids[ offsetof( fd_features_t, alpenglow )>>3 ].id;
@@ -360,8 +288,7 @@ reward_epoch_stakes_account_id( void ) {
 }
 
 /* Writes the "carlgration" genesis certificate account, marking the
-   chain as migrated to alpenglow at migration_slot.  The reward gates
-   key on this (rewarded_epoch_is_alpenglow), not on the feature bit. */
+   chain as migrated to alpenglow at migration_slot. */
 static void
 set_alpenglow_migration( fd_svm_mini_t * mini,
                          ulong           migration_slot ) {
@@ -420,6 +347,23 @@ vote_last_voted_slot( fd_svm_mini_t *     mini,
   return result;
 }
 
+/* The cache under test, reset on every call. */
+
+static fd_footer_cache_t *
+new_cache( void ) {
+  static fd_footer_cache_t cache_mem[ 1 ];
+  return fd_footer_cache_join( fd_footer_cache_new( cache_mem ) );
+}
+
+/* The reference runs hash every image, so they get a cache of their own
+   that is empty on every call. */
+
+static fd_footer_cache_t *
+empty_cache( void ) {
+  static fd_footer_cache_t cache_mem[ 1 ];
+  return fd_footer_cache_join( fd_footer_cache_new( cache_mem ) );
+}
+
 static void
 test_footer_uses_vote_stakes_rank( fd_svm_mini_t * mini,
                                    int             use_t_3 ) {
@@ -453,16 +397,16 @@ test_footer_uses_vote_stakes_rank( fd_svm_mini_t * mini,
   bank->vote_stakes_fork_id = fd_vote_stakes_init( vote_stakes, bank->f.epoch );
 
   if( use_t_3 ) {
-    fd_vote_stakes_snap_insert_t_2( vote_stakes, bank->vote_stakes_fork_id, &vote_b, &identity_b, 200UL, 0U, valid_bls[1] );
-    fd_vote_stakes_snap_insert_t_2( vote_stakes, bank->vote_stakes_fork_id, &vote_a, &identity_a, 100UL, 0U, valid_bls[0] );
+    fd_vote_stakes_snap_insert_t_2( vote_stakes, bank->vote_stakes_fork_id, &vote_b, &identity_b, 200UL, 0U, valid_bls[1], FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS, 0UL, NULL, NULL, &no_loc );
+    fd_vote_stakes_snap_insert_t_2( vote_stakes, bank->vote_stakes_fork_id, &vote_a, &identity_a, 100UL, 0U, valid_bls[0], FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS, 0UL, NULL, NULL, &no_loc );
     fd_vote_stakes_finalize( vote_stakes, bank->vote_stakes_fork_id, FD_VOTE_STAKES_ITER_T_2 );
 
-    fd_vote_stakes_snap_insert_t_n( vote_stakes, bank->vote_stakes_fork_id, 3UL, &vote_a, &identity_a, 200UL, 0U, valid_bls[0] );
-    fd_vote_stakes_snap_insert_t_n( vote_stakes, bank->vote_stakes_fork_id, 3UL, &vote_b, &identity_b, 100UL, 0U, valid_bls[1] );
+    fd_vote_stakes_snap_insert_t_n( vote_stakes, bank->vote_stakes_fork_id, 3UL, &vote_a, &identity_a, 200UL, 0U, valid_bls[0], FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS, 0UL, NULL, NULL, &no_loc );
+    fd_vote_stakes_snap_insert_t_n( vote_stakes, bank->vote_stakes_fork_id, 3UL, &vote_b, &identity_b, 100UL, 0U, valid_bls[1], FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS, 0UL, NULL, NULL, &no_loc );
     fd_vote_stakes_finalize( vote_stakes, bank->vote_stakes_fork_id, FD_VOTE_STAKES_ITER_T_3 );
   } else {
-    fd_vote_stakes_snap_insert_t_2( vote_stakes, bank->vote_stakes_fork_id, &vote_a, &identity_a, 200UL, 0U, valid_bls[0] );
-    fd_vote_stakes_snap_insert_t_2( vote_stakes, bank->vote_stakes_fork_id, &vote_b, &identity_b, 100UL, 0U, valid_bls[1] );
+    fd_vote_stakes_snap_insert_t_2( vote_stakes, bank->vote_stakes_fork_id, &vote_a, &identity_a, 200UL, 0U, valid_bls[0], FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS, 0UL, NULL, NULL, &no_loc );
+    fd_vote_stakes_snap_insert_t_2( vote_stakes, bank->vote_stakes_fork_id, &vote_b, &identity_b, 100UL, 0U, valid_bls[1], FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS, 0UL, NULL, NULL, &no_loc );
     fd_vote_stakes_finalize( vote_stakes, bank->vote_stakes_fork_id, FD_VOTE_STAKES_ITER_T_2 );
   }
 
@@ -475,7 +419,7 @@ test_footer_uses_vote_stakes_rank( fd_svm_mini_t * mini,
 
   fd_accdb_fork_id_t fork_id = fd_svm_mini_fork_id( mini, bank_idx );
   FD_TEST( vote_last_voted_slot( mini, fork_id, &vote_a )!=reward_slot );
-  FD_TEST( !fd_alpenglow_rewards_apply( bank, mini->runtime->accdb, NULL, footer ) );
+  FD_TEST( !fd_alpenglow_rewards_apply( bank, mini->runtime->accdb, NULL, empty_cache(), footer ) );
   FD_TEST( vote_last_voted_slot( mini, fork_id, &vote_a )==reward_slot );
   FD_TEST( vote_last_voted_slot( mini, fork_id, &vote_b )!=reward_slot );
 
@@ -485,9 +429,466 @@ test_footer_uses_vote_stakes_rank( fd_svm_mini_t * mini,
   footer->has_fast_final_cert       = 1;
   footer->fast_final_cert.slot      = final_slot;
   fd_bls_set_insert( footer->fast_final_cert.signer_set, 0UL );
-  FD_TEST( !fd_alpenglow_rewards_apply( bank, mini->runtime->accdb, NULL, footer ) );
+  FD_TEST( !fd_alpenglow_rewards_apply( bank, mini->runtime->accdb, NULL, empty_cache(), footer ) );
   FD_TEST( vote_last_voted_slot( mini, fork_id, &vote_a )==final_slot );
   FD_TEST( vote_last_voted_slot( mini, fork_id, &vote_b )!=final_slot );
+}
+
+/* A reward+final footer must store the same vote accounts and lthash
+   as the two certs in separate footers, reward first.  Random signers,
+   vote states, cert kinds and epochs; one unreadable, one missing. */
+
+#define FUSED_VAL_CNT (10UL)
+#define FUSED_KEY_CNT (FUSED_VAL_CNT+2UL)
+
+static void
+fused_randomize_vote( fd_svm_mini_t *     mini,
+                      fd_rng_t *          rng,
+                      fd_pubkey_t const * vote_key ) {
+  fd_accdb_fork_id_t root_fk = fd_banks_root( mini->banks )->accdb_fork_id;
+  uchar data[ FD_VOTE_STATE_V4_SZ ];
+  fd_acc_t acc = fd_accdb_read_one( mini->runtime->accdb, root_fk, vote_key->uc );
+  FD_TEST( acc.lamports && acc.data_len==FD_VOTE_STATE_V4_SZ );
+  fd_memcpy( data, acc.data, FD_VOTE_STATE_V4_SZ );
+  ulong lamports = acc.lamports;
+  fd_accdb_unread_one( mini->runtime->accdb, &acc );
+
+  static fd_vote_state_versioned_t v4[1], v3[1];
+  FD_TEST( fd_vote_state_versioned_deserialize( v4, data, FD_VOTE_STATE_V4_SZ ) );
+  fd_vote_state_versioned_t * vs = v4;
+  if( !fd_rng_uint_roll( rng, 3U ) ) {
+    FD_TEST( fd_vote_state_versioned_new( v3, fd_vote_state_versioned_enum_v3 ) );
+    v3->v3.node_pubkey           = v4->v4.node_pubkey;
+    v3->v3.authorized_withdrawer = v4->v4.authorized_withdrawer;
+    v3->v3.commission            = 7;
+    fd_vote_authorized_voter_t * ele = fd_vote_authorized_voters_pool_ele_acquire( v3->v3.authorized_voters.pool );
+    *ele = (fd_vote_authorized_voter_t){ .epoch = 0UL, .pubkey = v4->v4.node_pubkey, .prio = v4->v4.node_pubkey.uc[0] };
+    fd_vote_authorized_voters_treap_ele_insert( v3->v3.authorized_voters.treap, ele, v3->v3.authorized_voters.pool );
+    vs = v3;
+  }
+
+  fd_vote_epoch_credits_t * ec = fd_vsv_get_epoch_credits_mutable( vs );
+  deq_fd_vote_epoch_credits_t_remove_all( ec );
+  ulong nec = fd_rng_ulong_roll( rng, 3UL ), credits = 0UL;
+  for( ulong k=0UL; k<nec; k++ ) {
+    ulong add = fd_rng_ulong_roll( rng, 1000UL );
+    deq_fd_vote_epoch_credits_t_push_tail( ec, (fd_vote_epoch_credits_t){ .epoch=k, .credits=credits+add, .prev_credits=credits } );
+    credits += add;
+  }
+  if( !fd_rng_uint_roll( rng, 4U ) ) deq_fd_vote_epoch_credits_t_push_tail( ec, (fd_vote_epoch_credits_t){ .epoch=ULONG_MAX, .credits=ULONG_MAX, .prev_credits=ULONG_MAX } );
+
+  if( fd_rng_uint_roll( rng, 2U ) ) { ulong root = fd_rng_ulong_roll( rng, 32UL ); fd_vsv_set_root_slot( vs, &root ); }
+  fd_landed_vote_t * votes = fd_vsv_get_votes_mutable( vs );
+  deq_fd_landed_vote_t_remove_all( votes );
+  ulong nv = fd_rng_ulong_roll( rng, 8UL ), slot = fd_rng_ulong_roll( rng, 16UL );
+  for( ulong k=0UL; k<nv; k++ ) {
+    slot += 1UL+fd_rng_ulong_roll( rng, 3UL );
+    deq_fd_landed_vote_t_push_tail( votes, (fd_landed_vote_t){ .latency=1, .lockout={ .slot=slot, .confirmation_count=(uint)(nv-k) } } );
+  }
+  fd_vsv_set_last_timestamp( vs, &(fd_vote_block_timestamp_t){ .slot=slot, .timestamp=995L+fd_rng_long_roll( rng, 10L ) } );
+
+  fd_memset( data, 0, sizeof(data) );
+  FD_TEST( !fd_vote_state_versioned_serialize( vs, data, sizeof(data) ) );
+  fd_acc_t out = {0};
+  fd_memcpy( out.pubkey, vote_key->uc, 32UL );
+  fd_memcpy( out.owner, fd_solana_vote_program_id.uc, 32UL );
+  out.lamports = lamports;
+  out.data_len = FD_VOTE_STATE_V4_SZ;
+  out.data     = data;
+  fd_svm_mini_put_account_rooted( mini, &out );
+}
+
+static int
+fused_accounts_eq( fd_svm_mini_t *     mini,
+                   fd_bank_t *         a,
+                   fd_bank_t *         b,
+                   fd_pubkey_t const * key ) {
+  static uchar data[ FD_VOTE_STATE_V4_SZ ];
+  fd_acc_t x = fd_accdb_read_one( mini->runtime->accdb, a->accdb_fork_id, key->uc );
+  ulong lamports = x.lamports, data_len = x.data_len;
+  FD_TEST( data_len<=sizeof(data) );
+  if( data_len ) fd_memcpy( data, x.data, data_len );
+  fd_accdb_unread_one( mini->runtime->accdb, &x );
+  fd_acc_t y = fd_accdb_read_one( mini->runtime->accdb, b->accdb_fork_id, key->uc );
+  int eq = lamports==y.lamports && data_len==y.data_len && ( !data_len || !memcmp( data, y.data, data_len ) );
+  fd_accdb_unread_one( mini->runtime->accdb, &y );
+  return eq;
+}
+
+static void
+test_footer_fused_matches_sequential( fd_svm_mini_t * mini ) {
+  fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 4242U, 0UL ) );
+
+  fd_svm_mini_params_t params[1];
+  fd_svm_mini_params_default( params );
+  params->slots_per_epoch    = TEST_SLOTS_PER_EPOCH;
+  params->root_slot          = TEST_AG_ROOT_SLOT;
+  params->clock              = &test_ag_clock;
+  params->mock_validator_cnt = FUSED_VAL_CNT;
+
+  static fd_pubkey_t vote[ FUSED_KEY_CNT ], identity[ FUSED_KEY_CNT ];
+  static uchar       bls [ FUSED_KEY_CNT ][ FD_BLS_PUBKEY_COMPRESSED_SZ ];
+  for( ulong i=0UL; i<FUSED_KEY_CNT; i++ ) {
+    if( i<FUSED_VAL_CNT ) {
+      fd_pubkey_t stake;
+      mock_validator_keys_idx( params->hash_seed, i, identity+i, vote+i, &stake );
+    } else {
+      fd_memset( vote+i,     (int)(0x50+i), sizeof(fd_pubkey_t) );
+      fd_memset( identity+i, (int)(0x70+i), sizeof(fd_pubkey_t) );
+    }
+    uchar ikm[ 32 ] = {0}; FD_STORE( ulong, ikm, i+1UL );
+    fd_bls_sec_t sk[1]; fd_bls_sec_derive( sk, ikm, sizeof(ikm) );
+    fd_bls_pub_t pub[1]; fd_bls_sec_to_pub( sk, pub );
+    blst_p1_affine_compress( bls[i], pub );
+  }
+
+  fd_footer_cache_t * cache = new_cache();
+  ulong fused_cnt = 0UL, split_cnt = 0UL, rev_diff_cnt = 0UL, memo_hit_cnt = 0UL;
+  for( ulong it=0UL; it<200UL; it++ ) {
+    ulong root_idx = fd_svm_mini_reset( mini, params );
+    activate_alpenglow( mini );
+    init_epoch_inflation_account( mini, 1UL );
+    for( ulong i=0UL; i<FUSED_VAL_CNT; i++ ) if( fd_rng_uint_roll( rng, 4U ) ) fused_randomize_vote( mini, rng, vote+i );
+    { uchar d[16]; fd_memset( d, 0x11, sizeof(d) );
+      fd_acc_t acc = {0};
+      fd_memcpy( acc.pubkey, vote[ FUSED_VAL_CNT ].uc, 32UL );
+      fd_memcpy( acc.owner, fd_solana_system_program_id.uc, 32UL );
+      acc.lamports = 1000000UL; acc.data_len = sizeof(d); acc.data = d;
+      fd_svm_mini_put_account_rooted( mini, &acc ); }
+
+    /* bank slot 20..31: reward slot 12..15 (epoch 0, t-3) or 16..23
+       (epoch 1, t-2); final slot near the reward slot or anywhere in
+       epochs 0-1 */
+    ulong bank_slot   = 20UL+fd_rng_ulong_roll( rng, 12UL );
+    ulong reward_slot = bank_slot-8UL;
+    ulong final_slot  = fd_rng_uint_roll( rng, 2U ) ? reward_slot+fd_rng_ulong_roll( rng, 8UL ) : 2UL+fd_rng_ulong_roll( rng, bank_slot-2UL );
+    set_alpenglow_migration( mini, ( reward_slot>17UL && fd_rng_uint_roll( rng, 2U ) ) ? 17UL : TEST_ROOT_SLOT );
+
+    fd_bank_t * bank[4];
+    for( ulong b=0UL; b<4UL; b++ ) bank[b] = fd_svm_mini_bank( mini, fd_svm_mini_attach_child( mini, root_idx, bank_slot ) );
+
+    fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank[0] );
+    fd_vote_stakes_reset( vote_stakes );
+    ushort vs_fork = fd_vote_stakes_init( vote_stakes, 1UL );
+    for( ulong i=0UL; i<FUSED_KEY_CNT; i++ ) {
+      double u = fd_rng_double_o( rng );
+      fd_vote_stakes_snap_insert_t_2( vote_stakes, vs_fork, vote+i, identity+i, 1000UL+(ulong)( 1e9*u*u*u ), 0U, bls[i], FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS, 0UL, NULL, NULL, &no_loc );
+      if( !fd_rng_uint_roll( rng, 8U ) ) continue;
+      u = fd_rng_double_o( rng );
+      fd_vote_stakes_snap_insert_t_n( vote_stakes, vs_fork, 3UL, vote+i, identity+i, 1000UL+(ulong)( 1e9*u*u*u ), 0U, bls[i], FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS, 0UL, NULL, NULL, &no_loc );
+    }
+    fd_vote_stakes_finalize( vote_stakes, vs_fork, FD_VOTE_STAKES_ITER_T_2 );
+    fd_vote_stakes_finalize( vote_stakes, vs_fork, FD_VOTE_STAKES_ITER_T_3 );
+    for( ulong b=0UL; b<4UL; b++ ) {
+      FD_FEATURE_SET_ACTIVE( &bank[b]->f.features, alpenglow, 0UL );
+      bank[b]->vote_stakes_fork_id = vs_fork;
+    }
+
+    fd_block_footer_t reward[1], final[1], both[1];
+    fd_memset( reward, 0, sizeof(fd_block_footer_t) );
+    fd_memset( final,  0, sizeof(fd_block_footer_t) );
+    reward->block_producer_time_nanos = 1000000000000UL+fd_rng_ulong_roll( rng, 1000000000UL );
+    final ->block_producer_time_nanos = reward->block_producer_time_nanos;
+    uint  rk = fd_rng_uint_roll( rng, 8U ); /* 0: no reward cert */
+    uint  fk = fd_rng_uint_roll( rng, 8U ); /* 0: no final cert, 1: final+notar */
+    uint  rp = 4U+fd_rng_uint_roll( rng, 5U ), fp = 4U+fd_rng_uint_roll( rng, 5U );
+    reward->has_skip_reward_cert  = rk && rk<=3U;
+    reward->has_notar_reward_cert = rk>=3U;
+    reward->skip_reward_cert.slot = reward->notar_reward_cert.slot = reward_slot;
+    final->has_fast_final_cert    = fk>=2U;
+    final->has_final_cert         = fk==1U;
+    final->fast_final_cert.slot   = final->final_cert.slot = final->notar_cert.slot = final_slot;
+    for( ulong r=0UL; r<FUSED_KEY_CNT; r++ ) {
+      if( fd_rng_uint_roll( rng, 8U )<rp ) fd_bls_set_insert( fd_rng_uint_roll( rng, 2U ) ? reward->skip_reward_cert.signer_set : reward->notar_reward_cert.signer_set, r );
+      if( fd_rng_uint_roll( rng, 8U )<fp ) fd_bls_set_insert( fd_rng_uint_roll( rng, 2U ) ? final->fast_final_cert.signer_set    : final->notar_cert.signer_set,        r );
+      if( fd_rng_uint_roll( rng, 8U )<fp ) fd_bls_set_insert( final->final_cert.signer_set, r );
+    }
+    *both = *reward;
+    both->has_fast_final_cert = final->has_fast_final_cert;
+    both->has_final_cert      = final->has_final_cert;
+    both->fast_final_cert     = final->fast_final_cert;
+    both->final_cert          = final->final_cert;
+    both->notar_cert          = final->notar_cert;
+
+    int has_reward = reward->has_skip_reward_cert || reward->has_notar_reward_cert;
+    int has_final  = final->has_fast_final_cert || final->has_final_cert;
+    if( has_reward && has_final ) {
+      if( reward_slot/TEST_SLOTS_PER_EPOCH==final_slot/TEST_SLOTS_PER_EPOCH ) fused_cnt++;
+      else                                                                    split_cnt++;
+    }
+
+    fd_accdb_t * accdb = mini->runtime->accdb;
+    FD_TEST( !fd_alpenglow_rewards_apply( bank[0], accdb, NULL, empty_cache(), both ) );
+    FD_TEST( !fd_alpenglow_rewards_apply( bank[1], accdb, NULL, empty_cache(), reward ) );
+    FD_TEST( !fd_alpenglow_rewards_apply( bank[1], accdb, NULL, empty_cache(), final ) );
+    FD_TEST( !fd_alpenglow_rewards_apply( bank[2], accdb, NULL, empty_cache(), final ) );
+    FD_TEST( !fd_alpenglow_rewards_apply( bank[2], accdb, NULL, empty_cache(), reward ) );
+
+    /* the same footers with the cache, kept across iterations so slots
+       hold other resets' images, must match bank 0 */
+    fd_block_footer_t const * seq[3] = { both, final, reward };
+    FD_TEST( !fd_alpenglow_rewards_apply( bank[3], accdb, NULL, cache, seq[0] ) );
+
+    fd_lthash_value_t lthash[4];
+    for( ulong b=0UL; b<4UL; b++ ) { lthash[b] = *fd_bank_lthash_locking_query( bank[b] ); fd_bank_lthash_end_locking_query( bank[b] ); }
+    FD_TEST( fd_lthash_eq( lthash+0, lthash+1 ) );
+    FD_TEST( fd_lthash_eq( lthash+0, lthash+3 ) );
+    for( ulong i=0UL; i<FUSED_KEY_CNT; i++ ) FD_TEST( fused_accounts_eq( mini, bank[0], bank[1], vote+i ) );
+    for( ulong i=0UL; i<FUSED_KEY_CNT; i++ ) FD_TEST( fused_accounts_eq( mini, bank[0], bank[3], vote+i ) );
+    rev_diff_cnt += !fd_lthash_eq( lthash+0, lthash+2 );
+
+    /* repeat footers: prior images are the ones the cache just stored */
+    for( ulong k=1UL; k<3UL; k++ ) {
+      FD_TEST( !fd_alpenglow_rewards_apply( bank[3], accdb, NULL, cache, seq[k] ) );
+      FD_TEST( !fd_alpenglow_rewards_apply( bank[0], accdb, NULL, empty_cache(), seq[k] ) );
+    }
+    for( ulong b=0UL; b<4UL; b+=3UL ) { lthash[b] = *fd_bank_lthash_locking_query( bank[b] ); fd_bank_lthash_end_locking_query( bank[b] ); }
+    FD_TEST( fd_lthash_eq( lthash+0, lthash+3 ) );
+    for( ulong i=0UL; i<FUSED_KEY_CNT; i++ ) FD_TEST( fused_accounts_eq( mini, bank[0], bank[3], vote+i ) );
+
+    /* a stored account's memo slot is its rank in the bank's epoch
+       (t-2) set and holds its latest image, whichever epoch's set
+       stored it, so the next footer hits */
+    fd_bank_t * root = fd_svm_mini_bank( mini, root_idx );
+    for( ulong i=0UL; i<FUSED_VAL_CNT; i++ ) {
+      fd_vote_stakes_ele_t ele[1];
+      if( !fd_vote_stakes_query_t_2( vote_stakes, vs_fork, vote+i, ele ) || ele->rank==FD_VOTE_STAKES_ALPENGLOW_RANK_NULL ) continue;
+      if( fused_accounts_eq( mini, root, bank[3], vote+i ) ) continue; /* not stored */
+      fd_footer_cache_memo_t const * memo = cache->memo+ele->rank;
+      fd_acc_t acc = fd_accdb_read_one( accdb, bank[3]->accdb_fork_id, vote[i].uc );
+      FD_TEST( !memcmp( memo->pubkey, vote[i].uc, 32UL ) && memo->lamports==acc.lamports && memo->data_len==acc.data_len && !memcmp( memo->data, acc.data, acc.data_len ) );
+      fd_accdb_unread_one( accdb, &acc );
+      memo_hit_cnt++;
+    }
+  }
+  FD_TEST( fused_cnt && split_cnt && rev_diff_cnt && memo_hit_cnt );
+  fd_rng_delete( fd_rng_leave( rng ) );
+  FD_LOG_NOTICE(( "test_footer_fused_matches_sequential: PASSED (fused %lu, split %lu, reverse order differs %lu)", fused_cnt, split_cnt, rev_diff_cnt ));
+}
+
+/* Footer vote accounts are acquired writable once.  An executable
+   vote account is stored with the bit cleared.  Accounts that are not
+   readable vote accounts (wrong owner, uninitialized, undecodable,
+   zero lamports, missing) are released uncommitted.  The bank lthash
+   moves by exactly lthash(post)-lthash(pre) of the touched accounts. */
+
+#define ACQ_KEY_CNT (7UL)
+
+static void
+acq_account_lthash( fd_svm_mini_t *     mini,
+                    fd_accdb_fork_id_t  fork_id,
+                    fd_pubkey_t const * key,
+                    fd_lthash_value_t * out ) {
+  fd_acc_t acc = fd_accdb_read_one( mini->runtime->accdb, fork_id, key->uc );
+  fd_hashes_account_lthash_simple( acc.pubkey, acc.owner, acc.lamports, acc.executable, acc.data, acc.data_len, out );
+  fd_accdb_unread_one( mini->runtime->accdb, &acc );
+}
+
+static void
+acq_put( fd_svm_mini_t *     mini,
+         fd_pubkey_t const * key,
+         uchar const *       owner,
+         ulong               lamports,
+         int                 executable,
+         uchar const *       data,
+         ulong               data_len ) {
+  fd_acc_t acc = {0};
+  fd_memcpy( acc.pubkey, key->uc, 32UL );
+  fd_memcpy( acc.owner,  owner,   32UL );
+  acc.lamports   = lamports;
+  acc.executable = executable;
+  acc.data_len   = data_len;
+  acc.data       = (uchar *)data;
+  fd_svm_mini_put_account_rooted( mini, &acc );
+}
+
+static void
+test_footer_vote_account_acquire( fd_svm_mini_t * mini ) {
+  fd_svm_mini_params_t params[1];
+  fd_svm_mini_params_default( params );
+  params->slots_per_epoch    = TEST_SLOTS_PER_EPOCH;
+  params->root_slot          = TEST_AG_ROOT_SLOT;
+  params->clock              = &test_ag_clock;
+  params->mock_validator_cnt = 2UL;
+  ulong root_idx = fd_svm_mini_reset( mini, params );
+  activate_alpenglow( mini );
+  set_alpenglow_migration( mini, TEST_ROOT_SLOT );
+  init_epoch_inflation_account( mini, 1UL );
+
+  /* 0: executable vote account, 1: vote account, 2: system owned,
+     3: uninitialized, 4: undecodable, 5: zero lamports, 6: missing */
+  fd_pubkey_t vote[ ACQ_KEY_CNT ], identity[ ACQ_KEY_CNT ];
+  uchar       bls [ ACQ_KEY_CNT ][ FD_BLS_PUBKEY_COMPRESSED_SZ ];
+  for( ulong i=0UL; i<ACQ_KEY_CNT; i++ ) {
+    if( i<2UL ) {
+      fd_pubkey_t stake;
+      mock_validator_keys_idx( params->hash_seed, i, identity+i, vote+i, &stake );
+    } else {
+      fd_memset( vote+i,     (int)(0x50+i), sizeof(fd_pubkey_t) );
+      fd_memset( identity+i, (int)(0x70+i), sizeof(fd_pubkey_t) );
+    }
+    uchar ikm[ 32 ] = {0}; FD_STORE( ulong, ikm, i+1UL );
+    fd_bls_sec_t sk[1]; fd_bls_sec_derive( sk, ikm, sizeof(ikm) );
+    fd_bls_pub_t pub[1]; fd_bls_sec_to_pub( sk, pub );
+    blst_p1_affine_compress( bls[i], pub );
+  }
+
+  fd_accdb_fork_id_t root_fk = fd_banks_root( mini->banks )->accdb_fork_id;
+  static uchar data[ FD_VOTE_STATE_V4_SZ ];
+  fd_acc_t acc = fd_accdb_read_one( mini->runtime->accdb, root_fk, vote[0].uc );
+  FD_TEST( acc.lamports && acc.data_len==FD_VOTE_STATE_V4_SZ && !acc.executable );
+  fd_memcpy( data, acc.data, FD_VOTE_STATE_V4_SZ );
+  ulong lamports0 = acc.lamports;
+  fd_accdb_unread_one( mini->runtime->accdb, &acc );
+  acq_put( mini, vote+0, fd_solana_vote_program_id.uc, lamports0, 1, data, FD_VOTE_STATE_V4_SZ );
+
+  uchar sys_data[ 16 ]; fd_memset( sys_data, 0x11, sizeof(sys_data) );
+  acq_put( mini, vote+2, fd_solana_system_program_id.uc, 1000000UL, 0, sys_data, sizeof(sys_data) );
+  fd_memset( data, 0, FD_VOTE_STATE_V4_SZ ); data[ 40 ] = 1; /* kind 0, passes the size check */
+  acq_put( mini, vote+3, fd_solana_vote_program_id.uc, 1000000UL, 0, data, FD_VOTE_STATE_V4_SZ );
+  fd_memset( data, 0xff, FD_VOTE_STATE_V4_SZ ); FD_STORE( uint, data, fd_vote_state_versioned_enum_v4 );
+  acq_put( mini, vote+4, fd_solana_vote_program_id.uc, 1000000UL, 0, data, FD_VOTE_STATE_V4_SZ );
+  acq_put( mini, vote+5, fd_solana_vote_program_id.uc, 0UL,       0, NULL, 0UL );
+
+  ulong bank_slot   = 24UL;
+  ulong reward_slot = bank_slot-8UL;
+  ulong final_slot  = reward_slot+1UL;
+  ulong bank_idx    = fd_svm_mini_attach_child( mini, root_idx, bank_slot );
+  fd_bank_t *        bank    = fd_svm_mini_bank( mini, bank_idx );
+  fd_accdb_fork_id_t fork_id = fd_svm_mini_fork_id( mini, bank_idx );
+
+  fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
+  fd_vote_stakes_reset( vote_stakes );
+  ushort vs_fork = fd_vote_stakes_init( vote_stakes, 1UL );
+  for( ulong i=0UL; i<ACQ_KEY_CNT; i++ ) fd_vote_stakes_snap_insert_t_2( vote_stakes, vs_fork, vote+i, identity+i, 1000UL*(i+1UL), 0U, bls[i], FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS, 0UL, NULL, NULL, &no_loc );
+  fd_vote_stakes_finalize( vote_stakes, vs_fork, FD_VOTE_STAKES_ITER_T_2 );
+  FD_FEATURE_SET_ACTIVE( &bank->f.features, alpenglow, 0UL );
+  bank->vote_stakes_fork_id = vs_fork;
+
+  fd_lthash_value_t pre[ ACQ_KEY_CNT ], bank_pre;
+  for( ulong i=0UL; i<ACQ_KEY_CNT; i++ ) acq_account_lthash( mini, fork_id, vote+i, pre+i );
+  bank_pre = *fd_bank_lthash_locking_query( bank ); fd_bank_lthash_end_locking_query( bank );
+
+  fd_block_footer_t footer[1];
+  fd_memset( footer, 0, sizeof(fd_block_footer_t) );
+  footer->block_producer_time_nanos = 1000000000000UL;
+  footer->has_skip_reward_cert      = 1;
+  footer->skip_reward_cert.slot     = reward_slot;
+  footer->has_fast_final_cert       = 1;
+  footer->fast_final_cert.slot      = final_slot;
+  for( ulong r=0UL; r<ACQ_KEY_CNT; r++ ) {
+    fd_bls_set_insert( footer->skip_reward_cert.signer_set, r );
+    fd_bls_set_insert( footer->fast_final_cert.signer_set,  r );
+  }
+  FD_TEST( !fd_alpenglow_rewards_apply( bank, mini->runtime->accdb, NULL, empty_cache(), footer ) );
+
+  for( ulong i=0UL; i<2UL; i++ ) {
+    acc = fd_accdb_read_one( mini->runtime->accdb, fork_id, vote[i].uc );
+    FD_TEST( !acc.executable && acc.data_len==FD_VOTE_STATE_V4_SZ );
+    FD_TEST( !memcmp( acc.owner, fd_solana_vote_program_id.uc, 32UL ) );
+    fd_accdb_unread_one( mini->runtime->accdb, &acc );
+    FD_TEST( vote_last_voted_slot( mini, fork_id, vote+i )==final_slot );
+  }
+  for( ulong i=2UL; i<ACQ_KEY_CNT; i++ ) {
+    int   pd_write;
+    ulong data_len = 0UL, lamports = 0UL;
+    FD_TEST( !fd_accdb_probe_pd_this_fork( mini->runtime->accdb, fork_id, vote[i].uc, &pd_write, &data_len, &lamports ) );
+  }
+
+  fd_lthash_value_t expect = bank_pre, bank_post;
+  for( ulong i=0UL; i<ACQ_KEY_CNT; i++ ) {
+    fd_lthash_value_t post[1];
+    acq_account_lthash( mini, fork_id, vote+i, post );
+    FD_TEST( (i<2UL) ^ fd_lthash_eq( post, pre+i ) );
+    fd_lthash_sub( &expect, pre+i );
+    fd_lthash_add( &expect, post );
+  }
+  bank_post = *fd_bank_lthash_locking_query( bank ); fd_bank_lthash_end_locking_query( bank );
+  FD_TEST( fd_lthash_eq( &expect, &bank_post ) );
+  FD_LOG_NOTICE(( "test_footer_vote_account_acquire: PASSED" ));
+}
+
+/* fd_runtime_block_execute_finalize is fail closed: a footer whose
+   certs do not verify (here unsigned, all-zero signatures) is rejected
+   before anything is written.  The unverified variant (replay, with the
+   certs verifying elsewhere) applies the same footer. */
+
+static void
+test_finalize_verifies_footer( fd_svm_mini_t * mini ) {
+  fd_svm_mini_params_t params[1];
+  fd_svm_mini_params_default( params );
+  params->slots_per_epoch    = TEST_SLOTS_PER_EPOCH;
+  params->root_slot          = TEST_AG_ROOT_SLOT;
+  params->clock              = &test_ag_clock;
+  params->mock_validator_cnt = 2UL;
+  ulong root_idx = fd_svm_mini_reset( mini, params );
+  activate_alpenglow( mini );
+  set_alpenglow_migration( mini, TEST_ROOT_SLOT );
+  init_epoch_inflation_account( mini, 1UL );
+
+  fd_pubkey_t vote[ 2 ], identity[ 2 ];
+  uchar       bls [ 2 ][ FD_BLS_PUBKEY_COMPRESSED_SZ ];
+  for( ulong i=0UL; i<2UL; i++ ) {
+    fd_pubkey_t stake;
+    mock_validator_keys_idx( params->hash_seed, i, identity+i, vote+i, &stake );
+    uchar ikm[ 32 ] = {0}; FD_STORE( ulong, ikm, i+1UL );
+    fd_bls_sec_t sk[1]; fd_bls_sec_derive( sk, ikm, sizeof(ikm) );
+    fd_bls_pub_t pub[1]; fd_bls_sec_to_pub( sk, pub );
+    blst_p1_affine_compress( bls[i], pub );
+  }
+
+  ulong bank_slot = 24UL;
+  fd_bank_t * bank[ 2 ];
+  ulong       idx [ 2 ];
+  for( ulong b=0UL; b<2UL; b++ ) {
+    idx [ b ] = fd_svm_mini_attach_child( mini, root_idx, bank_slot );
+    bank[ b ] = fd_svm_mini_bank( mini, idx[ b ] );
+  }
+  fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank[ 0 ] );
+  fd_vote_stakes_reset( vote_stakes );
+  ushort vs_fork = fd_vote_stakes_init( vote_stakes, 1UL );
+  for( ulong i=0UL; i<2UL; i++ ) fd_vote_stakes_snap_insert_t_2( vote_stakes, vs_fork, vote+i, identity+i, 1000UL*(i+1UL), 0U, bls[i], FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS, 0UL, NULL, NULL, &no_loc );
+  fd_vote_stakes_finalize( vote_stakes, vs_fork, FD_VOTE_STAKES_ITER_T_2 );
+
+  fd_sol_sysvar_clock_t clock_[1];
+  fd_sol_sysvar_clock_t * clock = fd_sysvar_clock_read( mini->runtime->accdb, bank[ 0 ]->accdb_fork_id, clock_ );
+  FD_TEST( clock );
+
+  fd_block_footer_t footer[1];
+  fd_memset( footer, 0, sizeof(fd_block_footer_t) );
+  footer->block_producer_time_nanos = (ulong)clock->unix_timestamp*1000000000UL+1000000UL; /* valid producer time */
+  footer->has_fast_final_cert       = 1;
+  footer->fast_final_cert.slot      = bank_slot-1UL;
+  for( ulong r=0UL; r<2UL; r++ ) fd_bls_set_insert( footer->fast_final_cert.signer_set, r );
+
+  for( ulong b=0UL; b<2UL; b++ ) {
+    FD_FEATURE_SET_ACTIVE( &bank[ b ]->f.features, alpenglow, 0UL );
+    bank[ b ]->vote_stakes_fork_id = vs_fork;
+    fd_sha256_hash( &b, sizeof(ulong), bank[ b ]->f.poh.hash ); /* distinct blockhash per sibling */
+  }
+  fd_lthash_value_t pre = *fd_bank_lthash_locking_query( bank[ 0 ] ); fd_bank_lthash_end_locking_query( bank[ 0 ] );
+  fd_footer_cache_t * cache = new_cache();
+  fd_accdb_t * accdb = mini->runtime->accdb;
+  FD_TEST( fd_runtime_block_execute_finalize( bank[ 0 ], accdb, NULL, footer, 4242, cache )==-1 );
+  fd_lthash_value_t post = *fd_bank_lthash_locking_query( bank[ 0 ] ); fd_bank_lthash_end_locking_query( bank[ 0 ] );
+  FD_TEST( fd_lthash_eq( &pre, &post ) );
+  FD_TEST( vote_last_voted_slot( mini, fd_svm_mini_fork_id( mini, idx[ 0 ] ), vote+0 )!=bank_slot-1UL );
+
+  /* Walk the unverified path by hand.  Plan the rewards, apply one
+     slice, freeze the sysvars, and then update the leader, settle the
+     fees and hash the bank. */
+  fd_alpenglow_rewards_plan_t plan[1];
+  FD_TEST( !fd_runtime_block_footer_begin( bank[ 1 ], accdb, footer, plan ) );
+  fd_lthash_value_t delta[1];
+  fd_lthash_zero( delta );
+  ulong leader_credits = 0UL;
+  FD_TEST( !fd_alpenglow_rewards_apply_slice( bank[ 1 ], accdb, NULL, cache, plan, 0UL, 1UL, delta, &leader_credits ) );
+  fd_lthash_add( fd_bank_lthash_locking_modify( bank[ 1 ] ), delta ); fd_bank_lthash_end_locking_modify( bank[ 1 ] );
+  fd_runtime_freeze_sysvars( bank[ 1 ], accdb, NULL );
+  fd_runtime_block_footer_end( bank[ 1 ], accdb, cache, plan, leader_credits );
+  FD_TEST( vote_last_voted_slot( mini, fd_svm_mini_fork_id( mini, idx[ 1 ] ), vote+0 )==bank_slot-1UL );
+  FD_TEST( bank[ 1 ]->f.slot==bank_slot );
+  FD_LOG_NOTICE(( "test_finalize_verifies_footer: PASSED" ));
 }
 
 /* Writes a VoteStateV4-serialized vote account with the given
@@ -538,6 +939,17 @@ patch_vote_account_v4( fd_svm_mini_t *     mini,
   new_acc.data_len = FD_VOTE_STATE_V4_SZ;
   new_acc.data     = data;
   fd_svm_mini_put_account_rooted( mini, &new_acc );
+}
+
+/* Returns the balance of vote_key at root_idx less the VAT it pays at
+   TEST_EPOCH_BOUNDARY. */
+static ulong
+vote_lamports_net_vat( fd_svm_mini_t *     mini,
+                       ulong               root_idx,
+                       fd_pubkey_t const * vote_key ) {
+  fd_bank_t * root_bank = fd_svm_mini_bank( mini, root_idx );
+  return read_lamports( mini, fd_svm_mini_fork_id( mini, root_idx ), vote_key ) -
+         fd_slot_params_at_slot( root_bank, TEST_EPOCH_BOUNDARY ).vat_to_burn_per_epoch;
 }
 
 static ulong
@@ -605,9 +1017,9 @@ test_alpenglow_reward_uses_vote_credits( fd_svm_mini_t * mini ) {
   fd_vote_stakes_reset( vote_stakes );
   epoch_bank->vote_stakes_fork_id = fd_vote_stakes_init( vote_stakes, epoch_bank->f.epoch );
   uchar no_bls[ FD_BLS_PUBKEY_COMPRESSED_SZ ] = {0};
-  fd_vote_stakes_snap_insert_t_1( vote_stakes, epoch_bank->vote_stakes_fork_id, &vote_key, &identity_key, 1000000000UL,    0U, no_bls );
-  fd_vote_stakes_snap_insert_t_2( vote_stakes, epoch_bank->vote_stakes_fork_id, &vote_key, &identity_key, 1000000000UL,    0U, no_bls );
-  fd_vote_stakes_snap_insert_t_n( vote_stakes, epoch_bank->vote_stakes_fork_id, 3UL, &vote_key, &identity_key, 1000000000UL, 1234U, no_bls );
+  fd_vote_stakes_snap_insert_t_1( vote_stakes, epoch_bank->vote_stakes_fork_id, &vote_key, &identity_key, 1000000000UL,    0U, no_bls, FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS, 0UL, NULL, NULL, &no_loc );
+  fd_vote_stakes_snap_insert_t_2( vote_stakes, epoch_bank->vote_stakes_fork_id, &vote_key, &identity_key, 1000000000UL,    0U, no_bls, FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS, 0UL, NULL, NULL, &no_loc );
+  fd_vote_stakes_snap_insert_t_n( vote_stakes, epoch_bank->vote_stakes_fork_id, 3UL, &vote_key, &identity_key, 1000000000UL, 1234U, no_bls, FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS, 0UL, NULL, NULL, &no_loc );
 
   FD_FEATURE_SET_ACTIVE( &epoch_bank->f.features, delay_commission_updates, 0UL );
   fd_stake_rewards_clear( fd_bank_stake_rewards_modify( epoch_bank ) );
@@ -673,190 +1085,6 @@ test_alpenglow_preserves_commission_remainder( fd_svm_mini_t * mini ) {
 }
 
 static void
-set_vote_epoch_credits( fd_svm_mini_t *                 mini,
-                        ulong                           root_idx,
-                        fd_pubkey_t const *             vote_key,
-                        uchar                           commission,
-                        fd_vote_epoch_credits_t const * entries,
-                        ulong                           entry_cnt ) {
-  fd_accdb_fork_id_t root_fk = fd_svm_mini_fork_id( mini, root_idx );
-
-  fd_acc_t acc = fd_accdb_read_one( mini->runtime->accdb, root_fk, vote_key->key );
-  FD_TEST( acc.lamports > 0UL );
-  ulong data_sz = acc.data_len;
-  FD_TEST( data_sz<=FD_VOTE_STATE_V4_SZ );
-  uchar data_copy[ FD_VOTE_STATE_V4_SZ ];
-  memcpy( data_copy, acc.data, data_sz );
-  uchar owner_copy[32]; memcpy( owner_copy, acc.owner, 32 );
-  ulong lamports_copy = acc.lamports;
-  int   exec_copy     = acc.executable;
-  fd_accdb_unread_one( mini->runtime->accdb, &acc );
-
-  fd_vote_state_versioned_t versioned[1];
-  FD_TEST( fd_vote_state_versioned_deserialize( versioned, data_copy, data_sz ) );
-  fd_vsv_set_commission( versioned, commission );
-  fd_vote_epoch_credits_t * epoch_credits = fd_vsv_get_epoch_credits_mutable( versioned );
-  deq_fd_vote_epoch_credits_t_remove_all( epoch_credits );
-  for( ulong i=0UL; i<entry_cnt; i++ ) {
-    *deq_fd_vote_epoch_credits_t_push_tail_nocopy( epoch_credits ) = entries[ i ];
-  }
-
-  uchar new_data[ FD_VOTE_STATE_V4_SZ ] = {0};
-  ulong new_data_sz = versioned->kind==fd_vote_state_versioned_enum_v4 ? FD_VOTE_STATE_V4_SZ : FD_VOTE_STATE_V3_SZ;
-  FD_TEST( !fd_vote_state_versioned_serialize( versioned, new_data, new_data_sz ) );
-
-  fd_acc_t new_acc = {0};
-  memcpy( new_acc.pubkey, vote_key->key, 32 );
-  memcpy( new_acc.owner, owner_copy, 32 );
-  new_acc.lamports   = lamports_copy;
-  new_acc.executable = exec_copy;
-  new_acc.data_len   = new_data_sz;
-  new_acc.data       = new_data;
-  fd_svm_mini_put_account_rooted( mini, &new_acc );
-}
-
-static void
-patch_stake_credits_observed( fd_svm_mini_t *     mini,
-                              ulong               root_idx,
-                              fd_pubkey_t const * stake_key,
-                              fd_pubkey_t const * vote_key,
-                              ulong               credits_observed );
-
-#define TEST_AG_MARKER ((fd_vote_epoch_credits_t){ .epoch=ULONG_MAX, .credits=ULONG_MAX, .prev_credits=ULONG_MAX })
-
-static void
-test_migration_epoch_prorates_tower_and_alpenglow( fd_svm_mini_t * mini ) {
-  fd_svm_mini_params_t params[1];
-  fd_svm_mini_params_default( params );
-  params->slots_per_epoch    = TEST_SLOTS_PER_EPOCH;
-  params->root_slot          = TEST_ROOT_SLOT;
-  params->mock_validator_cnt = 3UL;
-  ulong root_idx = fd_svm_mini_reset( mini, params );
-
-  activate_alpenglow( mini );
-  set_alpenglow_migration( mini, 4UL );
-  init_epoch_inflation_account( mini, 0UL );
-
-  fd_pubkey_t identity[3], vote[3], stake[3];
-  for( ulong i=0UL; i<3UL; i++ ) mock_validator_keys_idx( params->hash_seed, i, &identity[i], &vote[i], &stake[i] );
-
-  fd_vote_epoch_credits_t const credits_a[3] = {
-    { .epoch=0UL, .credits=1000UL, .prev_credits=   0UL },
-    TEST_AG_MARKER,
-    { .epoch=0UL, .credits=1500UL, .prev_credits=1000UL } };
-  set_vote_epoch_credits( mini, root_idx, &vote[0], 7U, credits_a, 3UL );
-
-  fd_vote_epoch_credits_t const credits_b[1] = {
-    { .epoch=0UL, .credits=2000UL, .prev_credits=0UL } };
-  set_vote_epoch_credits( mini, root_idx, &vote[1], 0U, credits_b, 1UL );
-
-  fd_vote_epoch_credits_t const credits_c[3] = {
-    { .epoch=0UL, .credits=1000UL, .prev_credits=   0UL },
-    TEST_AG_MARKER,
-    { .epoch=0UL, .credits=1800UL, .prev_credits=1000UL } };
-  set_vote_epoch_credits( mini, root_idx, &vote[2], 0U, credits_c, 3UL );
-  patch_stake_credits_observed( mini, root_idx, &stake[2], &vote[2], 1200UL );
-
-  fd_bank_t *        root_bank = fd_svm_mini_bank( mini, root_idx );
-  ulong              vat       = fd_slot_params_at_slot( root_bank, TEST_EPOCH_BOUNDARY ).vat_to_burn_per_epoch;
-  fd_accdb_fork_id_t root_fk   = fd_svm_mini_fork_id( mini, root_idx );
-  ulong vote_before [3];
-  ulong stake_before[3];
-  for( ulong i=0UL; i<3UL; i++ ) {
-    set_account_lamports( mini, root_idx, &vote[i], read_lamports( mini, root_fk, &vote[i] )+vat );
-    vote_before [i] = read_lamports( mini, root_fk, &vote[i]  );
-    stake_before[i] = read_lamports( mini, root_fk, &stake[i] );
-  }
-
-  ulong const staker_reward[3] = { 97339UL, 208333UL, 600UL };
-  ulong const voter_reward [3] = {  7327UL,      0UL,   0UL };
-  ulong const credits_after[3] = {  1500UL,   2000UL, 1800UL };
-
-  ulong              epoch_idx  = fd_svm_mini_attach_child( mini, root_idx, TEST_EPOCH_BOUNDARY );
-  fd_bank_t *        epoch_bank = fd_svm_mini_bank( mini, epoch_idx );
-  fd_accdb_fork_id_t epoch_fk   = fd_svm_mini_fork_id( mini, epoch_idx );
-
-  fd_sysvar_epoch_rewards_t er[1];
-  FD_TEST( fd_sysvar_epoch_rewards_read( mini->runtime->accdb, epoch_fk, er ) );
-  FD_TEST( er->active );
-  FD_TEST( er->total_points.ud==(uint128)3000000000000UL );
-
-  for( ulong i=0UL; i<3UL; i++ ) {
-    FD_TEST( read_lamports( mini, epoch_fk, &vote[i] )==vote_before[i]-vat+voter_reward[i] );
-  }
-
-  fd_stake_rewards_t * stake_rewards = fd_bank_stake_rewards_modify( epoch_bank );
-  ulong const total_staker_reward = staker_reward[0]+staker_reward[1]+staker_reward[2];
-  FD_TEST( fd_stake_rewards_total_rewards( stake_rewards, epoch_bank->stake_rewards_fork_id )==total_staker_reward );
-
-  fd_stake_rewards_clear( stake_rewards );
-  epoch_bank->stake_rewards_fork_id = USHORT_MAX;
-  fd_rewards_recalculate_partitioned_rewards( epoch_bank, mini->runtime->accdb, mini->runtime_stack, NULL );
-  FD_TEST( fd_stake_rewards_total_rewards( fd_bank_stake_rewards_modify( epoch_bank ),
-                                           epoch_bank->stake_rewards_fork_id )==total_staker_reward );
-
-  fd_svm_mini_freeze( mini, epoch_idx );
-  ulong              distrib_idx = fd_svm_mini_attach_child( mini, epoch_idx, TEST_DISTRIB_SLOT );
-  fd_accdb_fork_id_t distrib_fk  = fd_svm_mini_fork_id( mini, distrib_idx );
-
-  for( ulong i=0UL; i<3UL; i++ ) {
-    FD_TEST( read_lamports( mini, distrib_fk, &stake[i] )==stake_before[i]+staker_reward[i] );
-    FD_TEST( read_stake( mini, distrib_fk, &stake[i] ).credits_observed==credits_after[i] );
-  }
-
-  FD_LOG_NOTICE(( "test_migration_epoch_prorates_tower_and_alpenglow: PASSED" ));
-}
-
-static void
-test_migration_epoch_without_tower_points_skips_rewards( fd_svm_mini_t * mini ) {
-  fd_svm_mini_params_t params[1];
-  fd_svm_mini_params_default( params );
-  params->slots_per_epoch    = TEST_SLOTS_PER_EPOCH;
-  params->root_slot          = TEST_ROOT_SLOT;
-  params->mock_validator_cnt = 1UL;
-  ulong root_idx = fd_svm_mini_reset( mini, params );
-
-  activate_alpenglow( mini );
-  set_alpenglow_migration( mini, 0UL );
-  init_epoch_inflation_account( mini, 0UL );
-
-  fd_pubkey_t identity_key, vote_key, stake_key;
-  mock_validator_keys( params->hash_seed, &identity_key, &vote_key, &stake_key );
-  fd_vote_epoch_credits_t const credits[2] = {
-    TEST_AG_MARKER,
-    { .epoch=0UL, .credits=500UL, .prev_credits=0UL } };
-  set_vote_epoch_credits( mini, root_idx, &vote_key, 0U, credits, 2UL );
-
-  fd_bank_t *        root_bank = fd_svm_mini_bank( mini, root_idx );
-  ulong              vat       = fd_slot_params_at_slot( root_bank, TEST_EPOCH_BOUNDARY ).vat_to_burn_per_epoch;
-  fd_accdb_fork_id_t root_fk   = fd_svm_mini_fork_id( mini, root_idx );
-  set_account_lamports( mini, root_idx, &vote_key, read_lamports( mini, root_fk, &vote_key )+vat );
-  ulong vote_before  = read_lamports( mini, root_fk, &vote_key );
-  ulong stake_before = read_lamports( mini, root_fk, &stake_key );
-
-  ulong              epoch_idx  = fd_svm_mini_attach_child( mini, root_idx, TEST_EPOCH_BOUNDARY );
-  fd_bank_t *        epoch_bank = fd_svm_mini_bank( mini, epoch_idx );
-  fd_accdb_fork_id_t epoch_fk   = fd_svm_mini_fork_id( mini, epoch_idx );
-
-  FD_TEST( read_lamports( mini, epoch_fk, &vote_key )==vote_before-vat );
-  FD_TEST( fd_stake_rewards_total_rewards( fd_bank_stake_rewards_modify( epoch_bank ),
-                                           epoch_bank->stake_rewards_fork_id )==0UL );
-
-  fd_sysvar_epoch_rewards_t er[1];
-  FD_TEST( fd_sysvar_epoch_rewards_read( mini->runtime->accdb, epoch_fk, er ) );
-  FD_TEST( er->total_points.ud==0 );
-
-  fd_svm_mini_freeze( mini, epoch_idx );
-  ulong              distrib_idx = fd_svm_mini_attach_child( mini, epoch_idx, TEST_DISTRIB_SLOT );
-  fd_accdb_fork_id_t distrib_fk  = fd_svm_mini_fork_id( mini, distrib_idx );
-
-  FD_TEST( read_lamports( mini, distrib_fk, &stake_key )==stake_before );
-  FD_TEST( read_stake( mini, distrib_fk, &stake_key ).credits_observed==0UL );
-
-  FD_LOG_NOTICE(( "test_migration_epoch_without_tower_points_skips_rewards: PASSED" ));
-}
-
-static void
 test_no_credits_no_reward( fd_svm_mini_t * mini ) {
   fd_svm_mini_params_t params[1];
   fd_svm_mini_params_default( params );
@@ -873,6 +1101,7 @@ test_no_credits_no_reward( fd_svm_mini_t * mini ) {
     .foundation      = 0.05,
     .foundation_term = 7.0,
   };
+  init_epoch_inflation_account( mini, 0UL );
 
   fd_pubkey_t identity_key, vote_key, stake_key;
   mock_validator_keys( params->hash_seed, &identity_key, &vote_key, &stake_key );
@@ -911,6 +1140,7 @@ test_credits_staker_reward( fd_svm_mini_t * mini ) {
     .foundation      = 0.05,
     .foundation_term = 7.0,
   };
+  init_epoch_inflation_account( mini, 0UL );
 
   fd_pubkey_t identity_key, vote_key, stake_key;
   mock_validator_keys( params->hash_seed, &identity_key, &vote_key, &stake_key );
@@ -956,6 +1186,7 @@ test_evicted_reward_window_recalculated( fd_svm_mini_t * mini ) {
     .foundation      = 0.05,
     .foundation_term = 7.0,
   };
+  init_epoch_inflation_account( mini, 0UL );
 
   fd_pubkey_t identity_key, vote_key, stake_key;
   mock_validator_keys( params->hash_seed, &identity_key, &vote_key, &stake_key );
@@ -1108,6 +1339,7 @@ test_activation_epoch_skips_reward( fd_svm_mini_t * mini ) {
     .foundation      = 0.05,
     .foundation_term = 7.0,
   };
+  init_epoch_inflation_account( mini, 0UL );
 
   fd_pubkey_t identity_key, vote_key, stake_key;
   mock_validator_keys( params->hash_seed, &identity_key, &vote_key, &stake_key );
@@ -1161,6 +1393,7 @@ test_inert_delegation_not_partitioned( fd_svm_mini_t * mini ) {
     .foundation      = 0.05,
     .foundation_term = 7.0,
   };
+  init_epoch_inflation_account( mini, 0UL );
   FD_FEATURE_SET_ACTIVE( &root_bank->f.features, remove_inactive_stakes, 0UL );
   fd_pubkey_t feature_id[1];
   FD_TEST( fd_base58_decode_32(
@@ -1227,9 +1460,10 @@ test_snapshot_refresh_prunes_inactive_stakes( fd_svm_mini_t * mini ) {
     patch_stake_epochs( mini, root_idx, &stake_key, &vote_key, 0UL, 0UL );
 
     fd_bank_t * root_bank = fd_svm_mini_bank( mini, root_idx );
+    uchar              stake_history_data[ FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ ];
     fd_stake_history_t stake_history_[1];
     fd_stake_history_t const * stake_history =
-        fd_sysvar_cache_stake_history_view( &root_bank->f.sysvar_cache, stake_history_ );
+        fd_sysvar_stake_history_read( mini->runtime->accdb, root_bank->accdb_fork_id, stake_history_data, stake_history_ );
     fd_stake_delegations_t * stake_delegations =
         fd_banks_stake_delegations_root_query( mini->banks );
 
@@ -1293,9 +1527,10 @@ test_snapshot_refresh_prunes_inactive_stakes( fd_svm_mini_t * mini ) {
   FD_TEST( fd_stake_delegations_iter_idx( spill_iter )==1UL );
 
   fd_bank_t * root_bank = fd_svm_mini_bank( mini, root_idx );
+  uchar              stake_history_data[ FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ ];
   fd_stake_history_t stake_history_[1];
   fd_stake_history_t const * stake_history =
-      fd_sysvar_cache_stake_history_view( &root_bank->f.sysvar_cache, stake_history_ );
+      fd_sysvar_stake_history_read( mini->runtime->accdb, root_bank->accdb_fork_id, stake_history_data, stake_history_ );
   fd_stake_delegations_refresh(
       spill_delegations,
       root_bank->f.epoch,
@@ -1359,6 +1594,7 @@ test_full_commission_voter_reward( fd_svm_mini_t * mini ) {
     .foundation      = 0.05,
     .foundation_term = 7.0,
   };
+  init_epoch_inflation_account( mini, 0UL );
 
   fd_pubkey_t identity_key, vote_key, stake_key;
   mock_validator_keys( params->hash_seed, &identity_key, &vote_key, &stake_key );
@@ -1367,7 +1603,7 @@ test_full_commission_voter_reward( fd_svm_mini_t * mini ) {
 
   fd_accdb_fork_id_t root_fk = fd_svm_mini_fork_id( mini, root_idx );
   ulong stake_lam_before = read_lamports( mini, root_fk, &stake_key );
-  ulong vote_lam_before  = read_lamports( mini, root_fk, &vote_key );
+  ulong vote_lam_before  = vote_lamports_net_vat( mini, root_idx, &vote_key );
   FD_TEST( stake_lam_before > 0UL );
   FD_TEST( vote_lam_before  > 0UL );
 
@@ -1405,6 +1641,7 @@ test_split_commission_reward( fd_svm_mini_t * mini ) {
     .foundation      = 0.05,
     .foundation_term = 7.0,
   };
+  init_epoch_inflation_account( mini, 0UL );
 
   fd_pubkey_t identity_key, vote_key, stake_key;
   mock_validator_keys( params->hash_seed, &identity_key, &vote_key, &stake_key );
@@ -1413,7 +1650,7 @@ test_split_commission_reward( fd_svm_mini_t * mini ) {
 
   fd_accdb_fork_id_t root_fk = fd_svm_mini_fork_id( mini, root_idx );
   ulong stake_lam_before = read_lamports( mini, root_fk, &stake_key );
-  ulong vote_lam_before  = read_lamports( mini, root_fk, &vote_key );
+  ulong vote_lam_before  = vote_lamports_net_vat( mini, root_idx, &vote_key );
 
   ulong distrib_idx = advance_to_distribution( mini, root_idx );
   fd_accdb_fork_id_t distrib_fk = fd_svm_mini_fork_id( mini, distrib_idx );
@@ -1438,51 +1675,6 @@ test_split_commission_reward( fd_svm_mini_t * mini ) {
 
   FD_LOG_NOTICE(( "test_split_commission_reward: PASSED (staker=%lu, voter=%lu)",
                    staker_reward, voter_reward ));
-}
-
-static void
-test_commission_split_suppresses_reward( fd_svm_mini_t * mini ) {
-  fd_svm_mini_params_t params[1];
-  fd_svm_mini_params_default( params );
-  params->slots_per_epoch    = TEST_SLOTS_PER_EPOCH;
-  params->root_slot          = TEST_ROOT_SLOT;
-  params->mock_validator_cnt = 1UL;
-  ulong root_idx = fd_svm_mini_reset( mini, params );
-
-  fd_bank_t * root_bank = fd_svm_mini_bank( mini, root_idx );
-  root_bank->f.inflation = (fd_inflation_t){
-    .initial         = 0.0001,
-    .terminal        = 0.0001,
-    .taper           = 0.15,
-    .foundation      = 0.0,
-    .foundation_term = 0.0,
-  };
-
-  fd_pubkey_t identity_key, vote_key, stake_key;
-  mock_validator_keys( params->hash_seed, &identity_key, &vote_key, &stake_key );
-
-  patch_vote_account( mini, root_idx, &vote_key, 1, 0UL, 2UL, 0UL );
-
-  fd_accdb_fork_id_t root_fk = fd_svm_mini_fork_id( mini, root_idx );
-  ulong stake_lam_before = read_lamports( mini, root_fk, &stake_key );
-  ulong vote_lam_before  = read_lamports( mini, root_fk, &vote_key );
-
-  ulong distrib_idx = advance_to_distribution( mini, root_idx );
-  fd_accdb_fork_id_t distrib_fk = fd_svm_mini_fork_id( mini, distrib_idx );
-
-  ulong stake_lam_after = read_lamports( mini, distrib_fk, &stake_key );
-  ulong vote_lam_after  = read_lamports( mini, distrib_fk, &vote_key );
-
-  ulong staker_reward = stake_lam_after - stake_lam_before;
-  ulong voter_reward  = vote_lam_after  - vote_lam_before;
-
-  FD_TEST( staker_reward == 0UL );
-  FD_TEST( voter_reward  == 0UL );
-
-  fd_stake_t s_after = read_stake( mini, distrib_fk, &stake_key );
-  FD_TEST( s_after.credits_observed == 0UL );
-
-  FD_LOG_NOTICE(( "test_commission_split_suppresses_reward: PASSED" ));
 }
 
 /* Rewrites the stake account's credits_observed, keeping the stake
@@ -1533,10 +1725,7 @@ test_credit_rewind_force_update( fd_svm_mini_t * mini ) {
   fd_svm_mini_params_default( params );
   params->slots_per_epoch    = TEST_SLOTS_PER_EPOCH;
   params->root_slot          = TEST_ROOT_SLOT;
-  /* Two validators: the second one earns points, so the global points
-     denominator stays non-zero and the reward calculation is not
-     skipped.  The first one is the rewind case under test. */
-  params->mock_validator_cnt = 2UL;
+  params->mock_validator_cnt = 1UL;
   ulong root_idx = fd_svm_mini_reset( mini, params );
 
   fd_bank_t * root_bank = fd_svm_mini_bank( mini, root_idx );
@@ -1547,14 +1736,12 @@ test_credit_rewind_force_update( fd_svm_mini_t * mini ) {
     .foundation      = 0.05,
     .foundation_term = 7.0,
   };
+  init_epoch_inflation_account( mini, 0UL );
 
   fd_pubkey_t identity_key, vote_key, stake_key;
-  mock_validator_keys_idx( params->hash_seed, 0UL, &identity_key, &vote_key, &stake_key );
-  fd_pubkey_t other_identity_key, other_vote_key, other_stake_key;
-  mock_validator_keys_idx( params->hash_seed, 1UL, &other_identity_key, &other_vote_key, &other_stake_key );
+  mock_validator_keys( params->hash_seed, &identity_key, &vote_key, &stake_key );
 
-  patch_vote_account( mini, root_idx, &vote_key,       0, 0UL, 5UL, 0UL );
-  patch_vote_account( mini, root_idx, &other_vote_key, 0, 0UL, 5UL, 0UL );
+  patch_vote_account( mini, root_idx, &vote_key, 0, 0UL, 5UL, 0UL );
 
   patch_stake_credits_observed( mini, root_idx, &stake_key, &vote_key, 10UL );
 
@@ -1572,93 +1759,6 @@ test_credit_rewind_force_update( fd_svm_mini_t * mini ) {
   FD_TEST( s_after.delegation.stake == 1000000000UL );
 
   FD_LOG_NOTICE(( "test_credit_rewind_force_update: PASSED" ));
-}
-
-/* A Tower epoch whose global points denominator comes out zero is
-   skipped in its entirety: no stake account is touched at the epoch
-   boundary, and recalculating the rewards from the EpochRewards sysvar
-   -- what a bank restored from a snapshot taken during the distribution
-   interval does -- must not touch one either.  Otherwise the restored
-   bank would force credits_observed forward on stake accounts the nodes
-   that stayed up never rewrote, and diverge in the bank hash. */
-
-static void
-test_zero_points_skips_rewards( fd_svm_mini_t * mini ) {
-  fd_svm_mini_params_t params[1];
-  fd_svm_mini_params_default( params );
-  params->slots_per_epoch    = TEST_SLOTS_PER_EPOCH;
-  params->root_slot          = TEST_ROOT_SLOT;
-  params->mock_validator_cnt = 1UL;
-  ulong root_idx = fd_svm_mini_reset( mini, params );
-
-  fd_bank_t * root_bank = fd_svm_mini_bank( mini, root_idx );
-  root_bank->f.inflation = (fd_inflation_t){
-    .initial         = 0.08,
-    .terminal        = 0.015,
-    .taper           = 0.15,
-    .foundation      = 0.05,
-    .foundation_term = 7.0,
-  };
-
-  fd_pubkey_t identity_key, vote_key, stake_key;
-  mock_validator_keys( params->hash_seed, &identity_key, &vote_key, &stake_key );
-
-  /* The only staker has observed more credits than its vote account
-     holds, so it earns no points and the global denominator is zero. */
-  patch_vote_account( mini, root_idx, &vote_key, 0, 0UL, 5UL, 0UL );
-  patch_stake_credits_observed( mini, root_idx, &stake_key, &vote_key, 10UL );
-
-  fd_accdb_fork_id_t root_fk          = fd_svm_mini_fork_id( mini, root_idx );
-  ulong              stake_lam_before = read_lamports( mini, root_fk, &stake_key );
-  fd_stake_t         stake_before     = read_stake   ( mini, root_fk, &stake_key );
-  FD_TEST( stake_before.credits_observed==10UL );
-
-  ulong              epoch_idx  = fd_svm_mini_attach_child( mini, root_idx, TEST_EPOCH_BOUNDARY );
-  fd_bank_t *        epoch_bank = fd_svm_mini_bank( mini, epoch_idx );
-  fd_accdb_fork_id_t epoch_fk   = fd_svm_mini_fork_id( mini, epoch_idx );
-
-  /* The sysvar is active for the distribution interval, but records a
-     zero rewards budget and a zero points denominator. */
-  fd_sysvar_epoch_rewards_t er[1];
-  FD_TEST( fd_sysvar_epoch_rewards_read( mini->runtime->accdb, epoch_fk, er ) );
-  FD_TEST( er->active );
-  FD_TEST( er->total_rewards   ==0UL );
-  FD_TEST( er->total_points.ud ==0    );
-
-  fd_stake_rewards_t * stake_rewards = fd_bank_stake_rewards_modify( epoch_bank );
-  FD_TEST( epoch_bank->stake_rewards_fork_id!=USHORT_MAX );
-  uint partition_cnt = fd_stake_rewards_num_partitions(
-      stake_rewards, epoch_bank->stake_rewards_fork_id );
-  FD_TEST( fd_stake_rewards_total_rewards(
-      stake_rewards, epoch_bank->stake_rewards_fork_id )==0UL );
-  FD_TEST( find_reward_partition(
-      stake_rewards, epoch_bank->stake_rewards_fork_id, &stake_key, partition_cnt )==UINT_MAX );
-
-  /* Snapshot restart recalculation skips the same way. */
-  fd_stake_rewards_clear( stake_rewards );
-  epoch_bank->stake_rewards_fork_id = USHORT_MAX;
-  fd_rewards_recalculate_partitioned_rewards( epoch_bank, mini->runtime->accdb, mini->runtime_stack, NULL );
-
-  FD_TEST( epoch_bank->stake_rewards_fork_id!=USHORT_MAX );
-  partition_cnt = fd_stake_rewards_num_partitions(
-      stake_rewards, epoch_bank->stake_rewards_fork_id );
-  FD_TEST( fd_stake_rewards_total_rewards(
-      stake_rewards, epoch_bank->stake_rewards_fork_id )==0UL );
-  FD_TEST( find_reward_partition(
-      stake_rewards, epoch_bank->stake_rewards_fork_id, &stake_key, partition_cnt )==UINT_MAX );
-
-  /* Distribution over the recalculated partitions leaves the stake
-     account exactly as it was. */
-  fd_svm_mini_freeze( mini, epoch_idx );
-  ulong              distrib_idx = fd_svm_mini_attach_child( mini, epoch_idx, TEST_DISTRIB_SLOT );
-  fd_accdb_fork_id_t distrib_fk  = fd_svm_mini_fork_id( mini, distrib_idx );
-
-  FD_TEST( read_lamports( mini, distrib_fk, &stake_key )==stake_lam_before );
-  fd_stake_t stake_after = read_stake( mini, distrib_fk, &stake_key );
-  FD_TEST( stake_after.credits_observed  ==stake_before.credits_observed   );
-  FD_TEST( stake_after.delegation.stake  ==stake_before.delegation.stake   );
-
-  FD_LOG_NOTICE(( "test_zero_points_skips_rewards: PASSED" ));
 }
 
 static void
@@ -1679,6 +1779,7 @@ test_multi_validator_proportional( fd_svm_mini_t * mini ) {
     .foundation      = 0.05,
     .foundation_term = 7.0,
   };
+  init_epoch_inflation_account( mini, 0UL );
 
   fd_pubkey_t vote_a, stake_a;
   fd_pubkey_t vote_b, stake_b;
@@ -1723,46 +1824,6 @@ test_multi_validator_proportional( fd_svm_mini_t * mini ) {
 
   FD_LOG_NOTICE(( "test_multi_validator_proportional: PASSED (A=%lu, B=%lu, ratio=%.2f)",
                    reward_a, reward_b, (double)reward_a / (double)reward_b ));
-}
-
-static void
-test_calculate_points_typical_values( fd_svm_mini_t * mini ) {
-  fd_svm_mini_params_t params[1];
-  fd_svm_mini_params_default( params );
-  params->slots_per_epoch    = TEST_SLOTS_PER_EPOCH;
-  params->root_slot          = TEST_ROOT_SLOT;
-  params->mock_validator_cnt = 1UL;
-  ulong root_idx = fd_svm_mini_reset( mini, params );
-
-  fd_bank_t * root_bank = fd_svm_mini_bank( mini, root_idx );
-  root_bank->f.inflation = (fd_inflation_t){
-    .initial         = 0.08,
-    .terminal        = 0.015,
-    .taper           = 0.15,
-    .foundation      = 0.05,
-    .foundation_term = 7.0,
-  };
-
-  fd_pubkey_t identity_key, vote_key, stake_key;
-  mock_validator_keys( params->hash_seed, &identity_key, &vote_key, &stake_key );
-
-  patch_vote_account( mini, root_idx, &vote_key, 0, 0UL, 193000000UL, 0UL );
-
-  fd_accdb_fork_id_t root_fk = fd_svm_mini_fork_id( mini, root_idx );
-  ulong stake_lam_before = read_lamports( mini, root_fk, &stake_key );
-  FD_TEST( stake_lam_before > 0UL );
-
-  ulong distrib_idx = advance_to_distribution( mini, root_idx );
-  fd_accdb_fork_id_t distrib_fk = fd_svm_mini_fork_id( mini, distrib_idx );
-
-  ulong stake_lam_after = read_lamports( mini, distrib_fk, &stake_key );
-  FD_TEST( stake_lam_after > stake_lam_before );
-
-  fd_stake_t s_after = read_stake( mini, distrib_fk, &stake_key );
-  FD_TEST( s_after.credits_observed == 193000000UL );
-
-  FD_LOG_NOTICE(( "test_calculate_points_typical_values: PASSED (reward = %lu lamports)",
-                   stake_lam_after - stake_lam_before ));
 }
 
 static void
@@ -2691,6 +2752,7 @@ test_distribute_rewards_capitalization( fd_svm_mini_t * mini ) {
     .foundation      = 0.05,
     .foundation_term = 7.0,
   };
+  init_epoch_inflation_account( mini, 0UL );
 
   fd_pubkey_t identity_key, vote_key, stake_key;
   mock_validator_keys( params->hash_seed, &identity_key, &vote_key, &stake_key );
@@ -2867,6 +2929,7 @@ setup_simd0232_single( fd_svm_mini_t * mini,
     .foundation      = 0.05,
     .foundation_term = 7.0,
   };
+  init_epoch_inflation_account( mini, 0UL );
   FD_FEATURE_SET_ACTIVE( &root_bank->f.features, custom_commission_collector, 0UL );
   activate_custom_commission_collector( mini );
 
@@ -2893,8 +2956,7 @@ test_simd0232_collector_reward( fd_svm_mini_t * mini ) {
   ulong min_bal = fd_rent_exempt_minimum_balance( &root_bank->f.rent, 0UL );
   fd_svm_mini_add_lamports_rooted( mini, &collector, min_bal );
 
-  fd_accdb_fork_id_t root_fk = fd_svm_mini_fork_id( mini, root_idx );
-  ulong vote_lam_before      = read_lamports( mini, root_fk, &vote_key );
+  ulong vote_lam_before = vote_lamports_net_vat( mini, root_idx, &vote_key );
 
   ulong distrib_idx = advance_to_distribution( mini, root_idx );
   fd_accdb_fork_id_t distrib_fk = fd_svm_mini_fork_id( mini, distrib_idx );
@@ -2928,8 +2990,7 @@ test_simd0232_invalid_collector_burns( fd_svm_mini_t * mini ) {
   bad.data     = no_data;
   fd_svm_mini_put_account_rooted( mini, &bad );
 
-  fd_accdb_fork_id_t root_fk = fd_svm_mini_fork_id( mini, root_idx );
-  ulong vote_lam_before      = read_lamports( mini, root_fk, &vote_key );
+  ulong vote_lam_before = vote_lamports_net_vat( mini, root_idx, &vote_key );
 
   ulong distrib_idx = advance_to_distribution( mini, root_idx );
   fd_accdb_fork_id_t distrib_fk = fd_svm_mini_fork_id( mini, distrib_idx );
@@ -2996,6 +3057,7 @@ test_simd0232_repeated_collector( fd_svm_mini_t * mini ) {
     .foundation      = 0.05,
     .foundation_term = 7.0,
   };
+  init_epoch_inflation_account( mini, 0UL );
   FD_FEATURE_SET_ACTIVE( &root_bank->f.features, custom_commission_collector, 0UL );
   activate_custom_commission_collector( mini );
 
@@ -3019,9 +3081,8 @@ test_simd0232_repeated_collector( fd_svm_mini_t * mini ) {
   }
   fd_rng_delete( fd_rng_leave( rng ) );
 
-  fd_accdb_fork_id_t root_fk = fd_svm_mini_fork_id( mini, root_idx );
-  ulong vote0_before = read_lamports( mini, root_fk, &votes[0] );
-  ulong vote1_before = read_lamports( mini, root_fk, &votes[1] );
+  ulong vote0_before = vote_lamports_net_vat( mini, root_idx, &votes[0] );
+  ulong vote1_before = vote_lamports_net_vat( mini, root_idx, &votes[1] );
 
   ulong distrib_idx = advance_to_distribution( mini, root_idx );
   fd_accdb_fork_id_t distrib_fk = fd_svm_mini_fork_id( mini, distrib_idx );
@@ -3053,6 +3114,7 @@ test_simd0232_vote_account_collector_burns_external( fd_svm_mini_t * mini ) {
     .foundation      = 0.05,
     .foundation_term = 7.0,
   };
+  init_epoch_inflation_account( mini, 0UL );
   FD_FEATURE_SET_ACTIVE( &root_bank->f.features, custom_commission_collector, 0UL );
   activate_custom_commission_collector( mini );
 
@@ -3075,9 +3137,8 @@ test_simd0232_vote_account_collector_burns_external( fd_svm_mini_t * mini ) {
   patch_vote_account_v4( mini, &votes[0], &identities[0], &votes[1], &identities[0], 100, 0UL, 2UL, 0UL );
   patch_vote_account_v4( mini, &votes[1], &identities[1], &votes[1], &identities[1], 100, 0UL, 2UL, 0UL );
 
-  fd_accdb_fork_id_t root_fk = fd_svm_mini_fork_id( mini, root_idx );
-  ulong vote0_before = read_lamports( mini, root_fk, &votes[0] );
-  ulong vote1_before = read_lamports( mini, root_fk, &votes[1] );
+  ulong vote0_before = vote_lamports_net_vat( mini, root_idx, &votes[0] );
+  ulong vote1_before = vote_lamports_net_vat( mini, root_idx, &votes[1] );
 
   ulong distrib_idx = advance_to_distribution( mini, root_idx );
   fd_accdb_fork_id_t distrib_fk = fd_svm_mini_fork_id( mini, distrib_idx );
@@ -3111,6 +3172,7 @@ test_simd0232_zero_commission_vote_collector_burns( fd_svm_mini_t * mini ) {
     .foundation      = 0.05,
     .foundation_term = 7.0,
   };
+  init_epoch_inflation_account( mini, 0UL );
   FD_FEATURE_SET_ACTIVE( &root_bank->f.features, custom_commission_collector, 0UL );
   activate_custom_commission_collector( mini );
 
@@ -3133,9 +3195,8 @@ test_simd0232_zero_commission_vote_collector_burns( fd_svm_mini_t * mini ) {
   patch_vote_account_v4( mini, &votes[0], &identities[0], &votes[1], &identities[0], 100, 0UL, 2UL, 0UL );
   patch_vote_account_v4( mini, &votes[1], &identities[1], &votes[1], &identities[1], 0, 0UL, 2UL, 0UL );
 
-  fd_accdb_fork_id_t root_fk = fd_svm_mini_fork_id( mini, root_idx );
-  ulong vote0_before = read_lamports( mini, root_fk, &votes[0] );
-  ulong vote1_before = read_lamports( mini, root_fk, &votes[1] );
+  ulong vote0_before = vote_lamports_net_vat( mini, root_idx, &votes[0] );
+  ulong vote1_before = vote_lamports_net_vat( mini, root_idx, &votes[1] );
 
   ulong distrib_idx = advance_to_distribution( mini, root_idx );
   fd_accdb_fork_id_t distrib_fk = fd_svm_mini_fork_id( mini, distrib_idx );
@@ -3154,8 +3215,7 @@ test_simd0232_incinerator_collector( fd_svm_mini_t * mini ) {
   fd_pubkey_t incinerator = fd_sysvar_incinerator_id;
   setup_simd0232_single( mini, &vote_key, &incinerator, &root_idx );
 
-  fd_accdb_fork_id_t root_fk = fd_svm_mini_fork_id( mini, root_idx );
-  ulong vote_lam_before      = read_lamports( mini, root_fk, &vote_key );
+  ulong vote_lam_before = vote_lamports_net_vat( mini, root_idx, &vote_key );
 
   ulong distrib_idx = advance_to_distribution( mini, root_idx );
   fd_accdb_fork_id_t distrib_fk = fd_svm_mini_fork_id( mini, distrib_idx );
@@ -3169,8 +3229,8 @@ test_simd0232_incinerator_collector( fd_svm_mini_t * mini ) {
 
 /* Burned commission still counts into the EpochRewards sysvar's
    distributed_rewards: with a single 100%-commission validator whose
-   collector is invalid, everything burns yet distributed equals the
-   epoch total. */
+   collector is invalid, the whole reward burns yet is counted as
+   distributed. */
 static void
 test_simd0232_burn_counts_in_sysvar( fd_svm_mini_t * mini,
                                      ulong           reward ) {
@@ -3190,8 +3250,7 @@ test_simd0232_burn_counts_in_sysvar( fd_svm_mini_t * mini,
   bad.data     = no_data;
   fd_svm_mini_put_account_rooted( mini, &bad );
 
-  fd_accdb_fork_id_t root_fk = fd_svm_mini_fork_id( mini, root_idx );
-  ulong vote_lam_before      = read_lamports( mini, root_fk, &vote_key );
+  ulong vote_lam_before = vote_lamports_net_vat( mini, root_idx, &vote_key );
 
   ulong epoch_idx = fd_svm_mini_attach_child( mini, root_idx, TEST_EPOCH_BOUNDARY );
   fd_accdb_fork_id_t epoch_fk = fd_svm_mini_fork_id( mini, epoch_idx );
@@ -3199,15 +3258,11 @@ test_simd0232_burn_counts_in_sysvar( fd_svm_mini_t * mini,
   FD_TEST( read_lamports( mini, epoch_fk, &collector )==1000000000UL );
   FD_TEST( read_lamports( mini, epoch_fk, &vote_key )==vote_lam_before );
 
-  /* The commission (the full epoch total at 100% commission) burned,
-     but distributed_rewards still accounts for it.  The absolute value
-     is near the reference reward, scaled slightly by the extra
-     capitalization the collector account added. */
+  /* The commission (the whole reward at 100% commission) burned, but
+     distributed_rewards still accounts for it. */
   fd_sysvar_epoch_rewards_t er[1];
   FD_TEST( fd_sysvar_epoch_rewards_read( mini->runtime->accdb, epoch_fk, er ) );
-  FD_TEST( er->distributed_rewards>0UL );
-  FD_TEST( er->distributed_rewards==er->total_rewards );
-  FD_TEST( er->distributed_rewards>=reward );
+  FD_TEST( er->distributed_rewards==reward );
 
   FD_LOG_NOTICE(( "test_simd0232_burn_counts_in_sysvar: PASSED (burned = %lu)", er->distributed_rewards ));
 }
@@ -3215,8 +3270,7 @@ test_simd0232_burn_counts_in_sysvar( fd_svm_mini_t * mini,
 /* An absent collector is not created when the commission falls short
    of rent exemption, and is created system-owned when it reaches it. */
 static void
-test_simd0232_absent_collector( fd_svm_mini_t * mini,
-                                ulong           reward ) {
+test_simd0232_absent_collector( fd_svm_mini_t * mini ) {
   /* Below rent exemption: burned, account never created. */
   {
     fd_pubkey_t collector; memset( collector.uc, 0xC7, 32UL );
@@ -3228,7 +3282,7 @@ test_simd0232_absent_collector( fd_svm_mini_t * mini,
     FD_TEST( read_lamports( mini, distrib_fk, &collector )==0UL );
   }
 
-  /* Boosted inflation so the commission alone reaches rent exemption:
+  /* Enough credits that the commission alone reaches rent exemption:
      the account is created, owned by the system program. */
   {
     fd_pubkey_t collector; memset( collector.uc, 0xC8, 32UL );
@@ -3236,10 +3290,12 @@ test_simd0232_absent_collector( fd_svm_mini_t * mini,
     setup_simd0232_single( mini, &vote_key, &collector, &root_idx );
 
     fd_bank_t * root_bank = fd_svm_mini_bank( mini, root_idx );
-    ulong  min_bal = fd_rent_exempt_minimum_balance( &root_bank->f.rent, 0UL );
-    double boost   = (double)( 4UL*min_bal )/(double)reward + 1.0;
-    root_bank->f.inflation.initial  *= boost;
-    root_bank->f.inflation.terminal *= boost;
+    ulong       min_bal   = fd_rent_exempt_minimum_balance( &root_bank->f.rent, 0UL );
+    fd_svm_mini_params_t params[1];
+    fd_svm_mini_params_default( params );
+    fd_pubkey_t identity_key, stake_key;
+    mock_validator_keys( params->hash_seed, &identity_key, &vote_key, &stake_key );
+    patch_vote_account_v4( mini, &vote_key, &identity_key, &collector, &identity_key, 100, 0UL, min_bal, 0UL );
 
     ulong distrib_idx = advance_to_distribution( mini, root_idx );
     fd_accdb_fork_id_t distrib_fk = fd_svm_mini_fork_id( mini, distrib_idx );
@@ -3351,6 +3407,7 @@ test_simd0232_self_collector( fd_svm_mini_t * mini ) {
     .foundation      = 0.05,
     .foundation_term = 7.0,
   };
+  init_epoch_inflation_account( mini, 0UL );
   FD_FEATURE_SET_ACTIVE( &root_bank->f.features, custom_commission_collector, 0UL );
   activate_custom_commission_collector( mini );
 
@@ -3358,8 +3415,7 @@ test_simd0232_self_collector( fd_svm_mini_t * mini ) {
   mock_validator_keys( params->hash_seed, &identity_key, &vote_key, &stake_key );
   patch_vote_account_v4( mini, &vote_key, &identity_key, &vote_key, &identity_key, 100, 0UL, 2UL, 0UL );
 
-  fd_accdb_fork_id_t root_fk = fd_svm_mini_fork_id( mini, root_idx );
-  ulong vote_lam_before      = read_lamports( mini, root_fk, &vote_key );
+  ulong vote_lam_before = vote_lamports_net_vat( mini, root_idx, &vote_key );
 
   ulong distrib_idx = advance_to_distribution( mini, root_idx );
   fd_accdb_fork_id_t distrib_fk = fd_svm_mini_fork_id( mini, distrib_idx );
@@ -3598,9 +3654,9 @@ test_simd0123_sweep_and_distribute( fd_svm_mini_t * mini ) {
   FD_TEST( read_lamports( mini, epoch_fk, &fd_sysvar_epoch_rewards_id )==epoch_rewards_min_balance( epoch_bank )+pending );
 
   /* t-1 keeps the swept amount for the per-stake calculation. */
-  ulong t_1_pending = 0UL;
-  FD_TEST( fd_vote_stakes_query_block_revenue_t_1( fd_bank_vote_stakes( epoch_bank ), epoch_bank->vote_stakes_fork_id, &vote_key, NULL, &t_1_pending ) );
-  FD_TEST( t_1_pending==pending );
+  fd_vote_stakes_ele_t t_1_ele[1];
+  FD_TEST( fd_vote_stakes_query_t_1( fd_bank_vote_stakes( epoch_bank ), epoch_bank->vote_stakes_fork_id, &vote_key, t_1_ele ) );
+  FD_TEST( t_1_ele->pending_delegator_rewards==pending );
 
   fd_stake_rewards_t * stake_rewards   = fd_bank_stake_rewards_modify( epoch_bank );
   ulong                inflation_total = fd_stake_rewards_total_rewards( stake_rewards, epoch_bank->stake_rewards_fork_id );
@@ -3722,8 +3778,8 @@ test_simd0123_unadmitted_vote_account_burns( fd_svm_mini_t * mini ) {
   fd_accdb_fork_id_t epoch_fk   = fd_svm_mini_fork_id( mini, epoch_idx );
 
   fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( epoch_bank );
-  FD_TEST(  fd_vote_stakes_query_t_1( vote_stakes, epoch_bank->vote_stakes_fork_id, &vote_0, NULL, NULL, NULL ) );
-  FD_TEST( !fd_vote_stakes_query_t_1( vote_stakes, epoch_bank->vote_stakes_fork_id, &vote_1, NULL, NULL, NULL ) );
+  FD_TEST(  fd_vote_stakes_query_t_1( vote_stakes, epoch_bank->vote_stakes_fork_id, &vote_0, NULL ) );
+  FD_TEST( !fd_vote_stakes_query_t_1( vote_stakes, epoch_bank->vote_stakes_fork_id, &vote_1, NULL ) );
 
   FD_TEST( read_lamports( mini, epoch_fk, &vote_1 )==vote_1_before-pending );
   FD_TEST( read_vote_pending( mini, epoch_fk, &vote_1 )==0UL );
@@ -3773,9 +3829,9 @@ test_simd0123_zero_reward_stake_keeps_lamports( fd_svm_mini_t * mini ) {
   fd_bank_t *        epoch_bank = fd_svm_mini_bank( mini, epoch_idx );
   fd_accdb_fork_id_t epoch_fk   = fd_svm_mini_fork_id( mini, epoch_idx );
 
-  ulong stake_t_1 = 0UL;
-  FD_TEST( fd_vote_stakes_query_t_1( fd_bank_vote_stakes( epoch_bank ), epoch_bank->vote_stakes_fork_id, &vote_0, NULL, &stake_t_1, NULL ) );
-  FD_TEST( stake_t_1>0UL );
+  fd_vote_stakes_ele_t t_1_ele[1];
+  FD_TEST( fd_vote_stakes_query_t_1( fd_bank_vote_stakes( epoch_bank ), epoch_bank->vote_stakes_fork_id, &vote_0, t_1_ele ) );
+  FD_TEST( t_1_ele->stake>0UL );
 
   FD_TEST( read_lamports( mini, epoch_fk, &vote_0 )==vote_0_before-vat );
   FD_TEST( read_vote_pending( mini, epoch_fk, &vote_0 )==0UL );
@@ -3783,7 +3839,7 @@ test_simd0123_zero_reward_stake_keeps_lamports( fd_svm_mini_t * mini ) {
   fd_stake_rewards_t * stake_rewards = fd_bank_stake_rewards_modify( epoch_bank );
   FD_TEST( fd_stake_rewards_total_block_rewards( stake_rewards, epoch_bank->stake_rewards_fork_id )==0UL );
 
-  FD_LOG_NOTICE(( "test_simd0123_zero_reward_stake_keeps_lamports: PASSED (stake_t_1=%lu)", stake_t_1 ));
+  FD_LOG_NOTICE(( "test_simd0123_zero_reward_stake_keeps_lamports: PASSED (stake_t_1=%lu)", t_1_ele->stake ));
 }
 
 /* Without the feature the pending field and the balance are untouched
@@ -3843,6 +3899,7 @@ test_simd0232_recalc_ignores_commission( fd_svm_mini_t * mini ) {
     .foundation      = 0.05,
     .foundation_term = 7.0,
   };
+  init_epoch_inflation_account( mini, 0UL );
   FD_FEATURE_SET_ACTIVE( &root_bank->f.features, custom_commission_collector, 0UL );
   activate_custom_commission_collector( mini );
 
@@ -3903,13 +3960,13 @@ main( int     argc,
   fd_svm_mini_limits_default( limits );
   fd_svm_mini_t * mini = fd_svm_test_boot( &argc, &argv, limits );
 
-  test_commission_split();
   test_footer_uses_vote_stakes_rank( mini, 0 );
   test_footer_uses_vote_stakes_rank( mini, 1 );
+  test_footer_fused_matches_sequential( mini );
+  test_footer_vote_account_acquire( mini );
+  test_finalize_verifies_footer( mini );
   test_alpenglow_reward_uses_vote_credits( mini );
   test_alpenglow_preserves_commission_remainder( mini );
-  test_migration_epoch_prorates_tower_and_alpenglow( mini );
-  test_migration_epoch_without_tower_points_skips_rewards( mini );
   test_no_credits_no_reward( mini );
   test_credits_staker_reward( mini );
   test_evicted_reward_window_recalculated( mini );
@@ -3919,11 +3976,8 @@ main( int     argc,
   test_zero_inflation_credits_advance( mini );
   test_full_commission_voter_reward( mini );
   test_split_commission_reward( mini );
-  test_commission_split_suppresses_reward( mini );
   test_credit_rewind_force_update( mini );
-  test_zero_points_skips_rewards( mini );
   test_multi_validator_proportional( mini );
-  test_calculate_points_typical_values( mini );
   test_epoch_rewards_sysvar_lifecycle( mini );
   test_hash_rewards_into_partitions();
   test_hash_rewards_windowed();
@@ -3955,7 +4009,7 @@ main( int     argc,
   test_simd0232_zero_commission_vote_collector_burns( mini );
   test_simd0232_incinerator_collector( mini );
   test_simd0232_burn_counts_in_sysvar( mini, simd0232_reward );
-  test_simd0232_absent_collector( mini, simd0232_reward );
+  test_simd0232_absent_collector( mini );
   test_simd0232_relax_deposit( mini, simd0232_reward );
   test_simd0232_reserved_collector_burns( mini );
   test_simd0232_overflow_burns( mini );

@@ -25,11 +25,9 @@
    write to the same accounts. */
 
 #define IN_KIND_RESOLV       (0UL)
-#define IN_KIND_POH          (1UL)
 #define IN_KIND_EXECLE       (2UL)
 #define IN_KIND_SIGN         (3UL)
 #define IN_KIND_REPLAY       (4UL)
-#define IN_KIND_EXECUTED_TXN (5UL)
 
 /* Pace microblocks, but only slightly.  This helps keep performance
    more stable.  This limit is 2,000 microblocks/second/execle.  At
@@ -44,9 +42,10 @@
    become leader, so we snoop on the block heights of the recent
    blockhashes of transactions coming from resolv.  There's a small
    possibility that these are on a different fork than the one we become
-   leader for, so we aren't fully strict until becoming leader. */
+   leader for, so we might not want to be fully strict until becoming
+   leader, but having to delete a bunch of expired transactions lead to
+   a 100us delay in sending out the first shred. */
 #define TRANSACTION_LIFETIME_SLOTS 151UL
-#define TRANSACTION_LIFETIME_SLOTS_NOT_STRICT (151UL+8UL)
 
 /* Time is normally a long, but pack expects a ulong.  Add -LONG_MIN to
    the time values so that LONG_MIN maps to 0, LONG_MAX maps to
@@ -60,40 +59,119 @@ FD_STATIC_ASSERT( (ulong)LONG_MAX+TIME_OFFSET==ULONG_MAX, time_offset );
 /* 1.6 M cost units, enough for 1 max size transaction */
 const ulong CUS_PER_MICROBLOCK = 1600000UL;
 
-const float VOTE_FRACTION = 1.0f; /* schedule all available votes first */
 #define EFFECTIVE_TXN_PER_MICROBLOCK 1UL
 
 
 
-#if FD_PACK_USE_EXTRA_STORAGE
-/* When we are done being leader for a slot and we are leader in the
-   very next slot, it can still take some time to transition.  This is
-   because the bank has to be finalized, a hash calculated, and various
-   other things done in the replay stage to create the new child bank.
-
-   During that time, pack cannot send transactions to execles so it
-   needs to be able to buffer.  Typically, these so called "leader
-   transitions" are short (<15 millis), so a low value here would
-   suffice.  However, in some cases when there is memory pressure on the
-   NUMA node or when the operating system context switches relevant
-   threads out, it can take significantly longer.
-
-   To prevent drops in these cases and because we assume execles are
-   fast enough to drain this buffer once we do become leader, we set
-   this buffer size to be quite large. */
-
-#define DEQUE_NAME extra_txn_deq
-#define DEQUE_T    fd_txn_e_t
-#define DEQUE_MAX  (128UL*1024UL)
-#include "../../../../util/tmpl/fd_deque.c"
-
-#endif
-
 /* Sync with src/app/shared/fd_config.c */
 #define FD_PACK_STRATEGY_PERF     0
 #define FD_PACK_STRATEGY_BALANCED 1
+#define FD_PACK_STRATEGY_AUCTION  2
 
-static char const * const schedule_strategy_strings[2] = { "PRF", "BAL" };
+static char const * const schedule_strategy_strings[3] = { "PRF", "BAL", "AUC" };
+
+/* Overview of how the "auction" strategy works:
+
+   In the perf and balanced strategies, as soon as a transaction
+   arrives it becomes eligible for scheduling. The auction strategy
+   runs periodic batch "auctions". Transactions that arrive during the
+   period when the auction is running are not immediately eligible for
+   scheduling. These become eligible for scheduling when the auction
+   ends. The exception is bundles, which are immediately eligible for
+   scheduling regardless of whether an auction is running or not.
+
+   Therefore, pack can be in one of 3 states:
+   - 1) No auction running. New transactions that arrive are added to
+        the pending/penalty treaps, but are not eligible for scheduling
+        until the start of the next auction.
+   - 2) Auction running. New transactions that arrive are added to the
+        next_auction treap, which means they are not eligible for
+        scheduling. Transactions in the pending/penalty treaps at the
+        time of the auction starting are eligible for scheduling
+        throughout the auction.
+   - 3) The final 10ms of the leader rotation. All transactions are
+        eligible for scheduling immediately.
+
+   Each auction is limited to its proportional fraction of the blocks
+   total CU limit. auction_cu_limit is the total block CU limit cost
+   that the current auction cannot exceed. This is the fraction of the
+   slot time (leader_slot_end_tick-leader_slot_start_tick) that will
+   have elapsed when the auction ends (now+auction_interval_tick)
+   multiplied by the total block CU limit (slot_max_cost).
+
+   Auctions are run back to back, every 50ms (auction_interval_tick).
+   auction_next_tick is the tick at which the next auction is due to
+   start. This is set to start of the current auction +
+   auction_interval_tick. Note that bundles adjust this value, to
+   try and synchronize the start of the auction with a "burst" of
+   bundles. This is because bundles typically arrive in bursts, and we
+   want the pack auctions to coincide with the auctions held in the
+   bundle engine. Therefore, each bundle arrival sets
+   auction_next_tick to 5ms after that bundle arrived, so that the
+   auction starts once the current bundle burst has ended. The
+   following limits apply:
+   - auction_next_tick can't be less than 40ms after the previous
+     attempt (auction_last_attempt_tick + auction_spacing_tick). This
+     is so that a short pause within a bundle burst does not trigger
+     a new auction.
+   - auction_next_tick can't be later than 50ms after the previous
+     attempt (auction_last_attempt_tick + auction_interval_tick).
+
+   Pack moves between the states as such:
+   - An auction begins when we are leader, and all of the following are
+     true:
+     - The current tick (now) >= auction_next_tick
+     - The current tick (now)  < auction_final_start_tick
+     - The current block cost is less than the auction CU limit
+       (auction_cu_limit). If the auction has exceeded the limit the
+       attempt is cancelled, and tried again at the next
+       auction_next_tick.
+     Starting an auction means:
+     - New transactions are held in next_auction and are not eligible
+       for scheduling until the start of the next auction.
+     - Transactions already in the pending/penalty treaps become
+       eligible for scheduling.
+   - An auction ends when we are leader, and one of the following is
+     true:
+     - The next auction is due (now>=auction_next_tick)
+     - The current block cost has exceeded the auction CU limit
+       (auction_cu_limit)
+     - We are in the last 10ms of the leader rotation
+       (now>=auction_final_start_tick)
+     - The block ends for any other reason
+     Ending an auction means:
+     - Every transaction held in next_auction is moved into the
+       penalty/pending treaps. New transactions are added to the
+       penalty/pending treaps.
+     - Transactions in the pending/penalty treaps are no longer eligible
+       for scheduling, until the start of the next auction - unless
+       we are in the final 10ms of the rotation.
+
+   Note that none of the above applies to bundles, which are eligible
+   for scheduling as soon as they arrive, on all execle tiles. */
+
+/* FD_PACK_AUCTION_BUNDLE_END_GAP_NS is the amount of time for which,
+   if we receive no bundles, we consider the bundle burst to be over. We
+   start auctions after not observing any bundles for
+   FD_PACK_AUCTION_BUNDLE_END_GAP_NS. This synchronizes the start of
+   the auction with the end of the bundle burst. */
+#define FD_PACK_AUCTION_BUNDLE_END_GAP_NS ( 5000000L)
+
+/* FD_PACK_AUCTION_SPACING_NS is the minimum time gap between auctions.
+   40ms was chosen so that a bundle burst with a short pause in the
+   middle doesn't start two auctions. */
+#define FD_PACK_AUCTION_SPACING_NS        (40000000L)
+
+/* FD_PACK_AUCTION_INTERVAL_NS is the maximum time between auctions.
+   This was chosen so that no transaction is ineligible for scheduling
+   for more than 50ms. */
+#define FD_PACK_AUCTION_INTERVAL_NS       (50000000L)
+
+/* FD_PACK_AUCTION_FINAL_NS is the length of time before the end of the
+   last slot of the leader rotation that we do not hold incoming
+   transactions. This is so that all incoming transactions have a
+   chance of being scheduled. */
+#define FD_PACK_AUCTION_FINAL_NS          (10000000L)
 
 
 typedef struct {
@@ -103,7 +181,7 @@ typedef struct {
 
 typedef struct {
   long time;
-  ulong sched_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_CNT ];
+  ulong sched_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_RESULT_CNT ];
 } fd_pack_sched_results_snap_t;
 
 typedef struct {
@@ -137,7 +215,6 @@ typedef struct {
   /* The leader slot we are currently packing for, or ULONG_MAX if we
      are not the leader. */
   ulong  leader_slot;
-  void const * leader_bank;
   ulong        leader_bank_idx;
   ulong        leader_bank_seq;
 
@@ -172,7 +249,6 @@ typedef struct {
   /* Consensus critical slot cost limits. */
   struct {
     ulong slot_max_cost;
-    ulong slot_max_vote_cost;
     ulong slot_max_write_cost_per_acct;
     ulong slot_max_allocated_data_per_block;
     ulong slot_max_data_shreds;
@@ -195,6 +271,27 @@ typedef struct {
   /* The end wallclock time of the leader slot we are currently packing
      for, if we are currently packing for a slot.*/
   long slot_end_ns;
+
+  /* The batch auction bookkeeping state.
+     leader_slot_start_tick:    the start tick of the leader slot
+     leader_slot_end_tick:      the end tick of the leader slot
+     auction_start_tick:        the tick when the current auction started
+     auction_last_attempt_tick: the tick when we last started or skipped an auction
+     auction_next_tick:         the tick when the next auction is due to be attempted
+     auction_cu_limit:          the total number of CUs within a block at which the auction must stop (for pacing)
+     auction_final_start_tick:  the tick at which the last auction in the rotation should end, to give any held transactions a chance to execute */
+  long  leader_slot_start_tick;
+  long  leader_slot_end_tick;
+  long  auction_start_tick;
+  long  auction_last_attempt_tick;
+  long  auction_next_tick;
+  long  auction_final_start_tick;
+  ulong auction_cu_limit;
+
+  /* The FD_PACK_AUCTION_*_NS constants, in ticks */
+  long  auction_bundle_end_gap_tick;
+  long  auction_spacing_tick;
+  long  auction_interval_tick;
 
   /* The current dynamic upper bound on total microblocks for this slot.
      Monotonically decreasing over the slot lifetime. */
@@ -231,16 +328,8 @@ typedef struct {
   /* microblock_duration_ns scaled to be in ticks instead of nanoseconds */
   ulong microblock_duration_ticks;
 
-#if FD_PACK_USE_EXTRA_STORAGE
-  /* In addition to the available transactions that pack knows about, we
-     also store a larger ring buffer for handling cases when pack is
-     full.  This is an fd_deque. */
-  fd_txn_e_t * extra_txn_deq;
-  int          insert_to_extra; /* whether the last insert was into pack or the extra deq */
-#endif
-
-  fd_pack_in_ctx_t in[ 32 ];
-  int              in_kind[ 32 ];
+  fd_pack_in_ctx_t in[ FD_TOPO_MAX_TILE_IN_LINKS ];
+  int              in_kind[ FD_TOPO_MAX_TILE_IN_LINKS ];
 
   ulong    execle_cnt;
   ulong    execle_idle_bitset; /* bit i is 1 if we've observed *execle_current[i]==execle_expect[i] */
@@ -261,6 +350,11 @@ typedef struct {
   fd_histf_t no_sched_duration[ 1 ];
   fd_histf_t insert_duration  [ 1 ];
   fd_histf_t complete_duration[ 1 ];
+
+  ulong      auction_started;
+  ulong      auction_cancelled;
+  ulong      auction_ended    [ FD_METRICS_ENUM_PACK_AUCTION_END_REASON_CNT   ];
+  fd_histf_t auction_duration [ 1 ];
 
   struct {
     uint metric_state;
@@ -321,7 +415,8 @@ FD_STATIC_ASSERT( sizeof(block_builder_info_t)==BUNDLE_META_SZ, blk_engine_cfg )
 #define FD_PACK_METRIC_STATE_MICROBLOCKS  3
 
 /* Updates one component of the metric state.  If the state has changed,
-   records the change. */
+   records the change.  effective_as_of may be earlier than the last
+   update in the same callback, which credits nothing. */
 static inline void
 update_metric_state( fd_pack_ctx_t * ctx,
                      long            effective_as_of,
@@ -329,8 +424,8 @@ update_metric_state( fd_pack_ctx_t * ctx,
                      int             status ) {
   uint current_state = fd_uint_insert_bit( ctx->metric_state, type, status );
   if( FD_UNLIKELY( current_state!=ctx->metric_state ) ) {
-    ctx->metric_timing[ ctx->metric_state ] += effective_as_of - ctx->metric_state_begin;
-    ctx->metric_state_begin = effective_as_of;
+    ctx->metric_timing[ ctx->metric_state ] += fd_long_max( effective_as_of-ctx->metric_state_begin, 0L );
+    ctx->metric_state_begin = fd_long_max( effective_as_of, ctx->metric_state_begin );
     ctx->metric_state = current_state;
   }
 }
@@ -341,7 +436,7 @@ remove_ib( fd_pack_ctx_t * ctx ) {
      try deleting it just in case. */
   if( FD_UNLIKELY( ctx->crank->enabled & ctx->crank->ib_inserted ) ) {
     ulong deleted = fd_pack_delete_transaction( ctx->pack, (fd_ed25519_sig_t const *)ctx->crank->last_sig );
-    FD_MCNT_INC( PACK, TXN_DELETED, deleted );
+    FD_MCNT_INC( PACK, TXN_EVICTED, deleted );
   }
   ctx->crank->ib_inserted = 0;
 }
@@ -356,7 +451,6 @@ FD_FN_PURE static inline ulong
 scratch_footprint( fd_topo_tile_t const * tile ) {
   fd_pack_limits_t limits[1] = {{
     .max_cost_per_block           = tile->pack.max_cost_per_block,
-    .max_vote_cost_per_block      = FD_PACK_MAX_VOTE_COST_PER_BLOCK_UPPER_BOUND,
     .max_write_cost_per_acct      = FD_PACK_MAX_WRITE_COST_PER_ACCT_UPPER_BOUND,
     .max_data_bytes_per_block     = FD_PACK_MAX_DATA_PER_BLOCK*(tile->pack.max_shreds_per_block/FD_SHRED_BLK_MAX),
     .max_txn_per_microblock       = EFFECTIVE_TXN_PER_MICROBLOCK,
@@ -371,9 +465,6 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
                                                                         BUNDLE_META_SZ,
                                                                         tile->pack.execle_tile_count,
                                                                         limits                               ) );
-#if FD_PACK_USE_EXTRA_STORAGE
-  l = FD_LAYOUT_APPEND( l, extra_txn_deq_align(),    extra_txn_deq_footprint()                                 );
-#endif
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -382,15 +473,15 @@ log_end_block_metrics( fd_pack_ctx_t * ctx,
                        long            now,
                        char const    * reason,
                        ulong           cus_consumed_in_block ) {
-#define DELTA( m ) (fd_metrics_tl[ MIDX(COUNTER, PACK, TXN_SCHEDULED_##m) ] - ctx->last_sched_metrics->sched_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_##m##_IDX ])
-#define AVAIL( m ) (fd_metrics_tl[ MIDX(GAUGE, PACK, TXN_AVAILABLE_##m) ])
+#define DELTA( m ) (fd_metrics_tl[ MIDX(COUNTER, PACK, TXN_SCHEDULE_ATTEMPTED_##m) ] - ctx->last_sched_metrics->sched_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_RESULT_V_##m##_IDX ])
+#define AVAIL( m ) (fd_metrics_tl[ MIDX(GAUGE, PACK, TXN_PENDING_USED_##m) ])
     FD_LOG_INFO(( "pack_end_block(slot=%lu,%s,%lx,ticks_since_last_schedule=%ld,reasons=%lu,%lu,%lu,%lu,%lu,%lu,%lu,%lu;remaining=%lu+%lu+%lu+%lu;smallest=%lu;cus=%lu->%lu)",
           ctx->leader_slot, reason, ctx->execle_idle_bitset, now-ctx->last_sched_metrics->time,
-          DELTA( TAKEN ), DELTA( CU_LIMIT ), DELTA( FAST_PATH ), DELTA( BYTE_LIMIT ), DELTA( ALLOC_LIMIT ), DELTA( WRITE_COST ), DELTA( SLOW_PATH ), DELTA( DEFER_SKIP ),
-          AVAIL(REGULAR), AVAIL(VOTES), AVAIL(BUNDLES), AVAIL(CONFLICTING),
-          (fd_metrics_tl[ MIDX(GAUGE, PACK, TXN_PENDING_SMALLEST_CU) ]),
+          DELTA( TAKEN ), DELTA( CU_LIMIT ), DELTA( CONFLICT_FAST ), DELTA( BYTE_LIMIT ), DELTA( ALLOC_LIMIT ), DELTA( WRITE_COST ), DELTA( CONFLICT_SLOW ), DELTA( WRITE_COST_DEFERRED ),
+          AVAIL(REGULAR), AVAIL(VOTE), AVAIL(BUNDLE), AVAIL(CONFLICTING),
+          (fd_metrics_tl[ MIDX(GAUGE, PACK, TXN_PENDING_SMALLEST_COST) ]),
           (cus_consumed_in_block),
-          (fd_metrics_tl[ MIDX(GAUGE, PACK, BLOCK_CU_CONSUMED) ])
+          (fd_metrics_tl[ MIDX(GAUGE, PACK, BLOCK_COST) ])
     ));
 #undef AVAIL
 #undef DELTA
@@ -404,27 +495,27 @@ get_done_packing( fd_pack_ctx_t * ctx, fd_done_packing_t * done_packing, int rea
   done_packing->end_slot_reason = reason;
   fd_pack_get_block_limits( ctx->pack, done_packing->limits_usage, done_packing->limits );
 
-#define DELTA( mem, m ) (fd_metrics_tl[ MIDX(COUNTER, PACK, TXN_SCHEDULED_##m) ] - ctx->mem->sched_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_##m##_IDX ])
-    done_packing->block_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_TAKEN_IDX       ] = DELTA( start_block_sched_metrics, TAKEN       );
-    done_packing->block_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_CU_LIMIT_IDX    ] = DELTA( start_block_sched_metrics, CU_LIMIT    );
-    done_packing->block_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_FAST_PATH_IDX   ] = DELTA( start_block_sched_metrics, FAST_PATH   );
-    done_packing->block_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_BYTE_LIMIT_IDX  ] = DELTA( start_block_sched_metrics, BYTE_LIMIT  );
-    done_packing->block_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_ALLOC_LIMIT_IDX ] = DELTA( start_block_sched_metrics, ALLOC_LIMIT );
-    done_packing->block_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_WRITE_COST_IDX  ] = DELTA( start_block_sched_metrics, WRITE_COST  );
-    done_packing->block_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_SLOW_PATH_IDX   ] = DELTA( start_block_sched_metrics, SLOW_PATH   );
-    done_packing->block_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_DEFER_SKIP_IDX  ] = DELTA( start_block_sched_metrics, DEFER_SKIP  );
+#define DELTA( mem, m ) (fd_metrics_tl[ MIDX(COUNTER, PACK, TXN_SCHEDULE_ATTEMPTED_##m) ] - ctx->mem->sched_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_RESULT_V_##m##_IDX ])
+    done_packing->block_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_RESULT_V_TAKEN_IDX               ] = DELTA( start_block_sched_metrics, TAKEN               );
+    done_packing->block_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_RESULT_V_CU_LIMIT_IDX            ] = DELTA( start_block_sched_metrics, CU_LIMIT            );
+    done_packing->block_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_RESULT_V_CONFLICT_FAST_IDX       ] = DELTA( start_block_sched_metrics, CONFLICT_FAST       );
+    done_packing->block_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_RESULT_V_BYTE_LIMIT_IDX          ] = DELTA( start_block_sched_metrics, BYTE_LIMIT          );
+    done_packing->block_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_RESULT_V_ALLOC_LIMIT_IDX         ] = DELTA( start_block_sched_metrics, ALLOC_LIMIT         );
+    done_packing->block_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_RESULT_V_WRITE_COST_IDX          ] = DELTA( start_block_sched_metrics, WRITE_COST          );
+    done_packing->block_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_RESULT_V_CONFLICT_SLOW_IDX       ] = DELTA( start_block_sched_metrics, CONFLICT_SLOW       );
+    done_packing->block_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_RESULT_V_WRITE_COST_DEFERRED_IDX ] = DELTA( start_block_sched_metrics, WRITE_COST_DEFERRED );
 
-    done_packing->end_block_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_TAKEN_IDX       ] = DELTA( last_sched_metrics, TAKEN       );
-    done_packing->end_block_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_CU_LIMIT_IDX    ] = DELTA( last_sched_metrics, CU_LIMIT    );
-    done_packing->end_block_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_FAST_PATH_IDX   ] = DELTA( last_sched_metrics, FAST_PATH   );
-    done_packing->end_block_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_BYTE_LIMIT_IDX  ] = DELTA( last_sched_metrics, BYTE_LIMIT  );
-    done_packing->end_block_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_ALLOC_LIMIT_IDX ] = DELTA( last_sched_metrics, ALLOC_LIMIT );
-    done_packing->end_block_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_WRITE_COST_IDX  ] = DELTA( last_sched_metrics, WRITE_COST  );
-    done_packing->end_block_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_SLOW_PATH_IDX   ] = DELTA( last_sched_metrics, SLOW_PATH   );
-    done_packing->end_block_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_DEFER_SKIP_IDX  ] = DELTA( last_sched_metrics, DEFER_SKIP  );
+    done_packing->end_block_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_RESULT_V_TAKEN_IDX               ] = DELTA( last_sched_metrics, TAKEN               );
+    done_packing->end_block_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_RESULT_V_CU_LIMIT_IDX            ] = DELTA( last_sched_metrics, CU_LIMIT            );
+    done_packing->end_block_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_RESULT_V_CONFLICT_FAST_IDX       ] = DELTA( last_sched_metrics, CONFLICT_FAST       );
+    done_packing->end_block_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_RESULT_V_BYTE_LIMIT_IDX          ] = DELTA( last_sched_metrics, BYTE_LIMIT          );
+    done_packing->end_block_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_RESULT_V_ALLOC_LIMIT_IDX         ] = DELTA( last_sched_metrics, ALLOC_LIMIT         );
+    done_packing->end_block_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_RESULT_V_WRITE_COST_IDX          ] = DELTA( last_sched_metrics, WRITE_COST          );
+    done_packing->end_block_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_RESULT_V_CONFLICT_SLOW_IDX       ] = DELTA( last_sched_metrics, CONFLICT_SLOW       );
+    done_packing->end_block_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_RESULT_V_WRITE_COST_DEFERRED_IDX ] = DELTA( last_sched_metrics, WRITE_COST_DEFERRED );
 #undef DELTA
 
-  fd_pack_get_pending_smallest( ctx->pack, done_packing->pending_smallest, done_packing->pending_votes_smallest );
+  fd_pack_get_pending_smallest( ctx->pack, done_packing->pending_smallest );
 
   done_packing->bundle_txn_count = ctx->slot_bundle_txn_cnt;
   done_packing->pack_start_ns    = ctx->slot_pack_start_ns;
@@ -433,13 +524,21 @@ get_done_packing( fd_pack_ctx_t * ctx, fd_done_packing_t * done_packing, int rea
 
 static inline void
 metrics_write( fd_pack_ctx_t * ctx ) {
-  FD_MCNT_ENUM_COPY( PACK, TXN_INSERTED,          ctx->insert_result  );
-  FD_MCNT_ENUM_COPY( PACK, STATE_DURATION_NANOS,        ((ulong*)ctx->metric_timing) );
-  FD_MCNT_ENUM_COPY( PACK, BUNDLE_CRANK_RESULT,           ctx->crank->metrics );
-  FD_MHIST_COPY( PACK, SCHEDULE_MICROBLOCK_DURATION_SECONDS, ctx->schedule_duration );
-  FD_MHIST_COPY( PACK, NO_SCHEDULE_MICROBLOCK_DURATION_SECONDS, ctx->no_sched_duration );
-  FD_MHIST_COPY( PACK, INSERT_TRANSACTION_DURATION_SECONDS,  ctx->insert_duration   );
-  FD_MHIST_COPY( PACK, COMPLETE_MICROBLOCK_DURATION_SECONDS, ctx->complete_duration );
+  long now = fd_tickcount();
+  ctx->metric_timing[ ctx->metric_state ] += fd_long_max( now-ctx->metric_state_begin, 0L );
+  ctx->metric_state_begin = fd_long_max( now, ctx->metric_state_begin );
+
+  FD_MCNT_ENUM_COPY( PACK, TXN_INSERT_ATTEMPTED,          ctx->insert_result  );
+  FD_MCNT_ENUM_COPY( PACK, SCHEDULE_REGIME_DURATION_NANOS,        ((ulong*)ctx->metric_timing) );
+  FD_MCNT_ENUM_COPY( PACK, BUNDLE_CRANK_ATTEMPTED,           ctx->crank->metrics );
+  FD_MHIST_COPY( PACK, MICROBLOCK_SCHEDULE_DURATION_NANOS, ctx->schedule_duration );
+  FD_MHIST_COPY( PACK, MICROBLOCK_SCHEDULE_EMPTY_DURATION_NANOS, ctx->no_sched_duration );
+  FD_MHIST_COPY( PACK, TXN_INSERT_DURATION_NANOS,            ctx->insert_duration   );
+  FD_MHIST_COPY( PACK, MICROBLOCK_COMPLETE_DURATION_NANOS,   ctx->complete_duration );
+  FD_MCNT_SET      ( PACK, AUCTION_STARTED,        ctx->auction_started   );
+  FD_MCNT_SET      ( PACK, AUCTION_CANCELLED,      ctx->auction_cancelled );
+  FD_MCNT_ENUM_COPY( PACK, AUCTION_ENDED,          ctx->auction_ended     );
+  FD_MHIST_COPY    ( PACK, AUCTION_DURATION_NANOS, ctx->auction_duration  );
 
   fd_pack_metrics_write( ctx->pack );
 }
@@ -498,7 +597,7 @@ during_housekeeping( fd_pack_ctx_t * ctx ) {
     fd_keyswitch_state( ctx->crank->keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
   }
 
-  if( FD_LIKELY( ctx->leader_slot!=ULONG_MAX ) ) {
+  if( FD_LIKELY( ctx->leader_slot!=ULONG_MAX && ctx->slot_mixin_per_tick ) ) {
     ulong raw = compute_dynamic_max_microblocks( ctx );
     ulong prev = ctx->slot_dynamic_max_microblocks;
 
@@ -516,7 +615,6 @@ during_housekeeping( fd_pack_ctx_t * ctx ) {
       limits->max_cost_per_block           = ctx->limits.slot_max_cost;
       limits->max_data_bytes_per_block     = ctx->slot_max_data;
       limits->max_microblocks_per_block    = ctx->slot_dynamic_max_microblocks;
-      limits->max_vote_cost_per_block      = ctx->limits.slot_max_vote_cost;
       limits->max_write_cost_per_acct      = ctx->limits.slot_max_write_cost_per_acct;
       limits->max_txn_per_microblock       = ULONG_MAX; /* unused */
       limits->max_allocated_data_per_block = ctx->limits.slot_max_allocated_data_per_block;
@@ -543,50 +641,10 @@ before_credit( fd_pack_ctx_t *     ctx,
        we try to process the first transaction in the next bundle, we'll
        see we never got the full bundle and cancel the whole last
        bundle, returning all the storage to the pool. */
-#if FD_PACK_USE_EXTRA_STORAGE
-    if( FD_LIKELY( !ctx->insert_to_extra ) ) fd_pack_insert_txn_cancel( ctx->pack, ctx->cur_spot );
-    else                                     extra_txn_deq_remove_tail( ctx->extra_txn_deq       );
-#else
     fd_pack_insert_txn_cancel( ctx->pack, ctx->cur_spot );
-#endif
     ctx->cur_spot = NULL;
   }
 }
-
-#if FD_PACK_USE_EXTRA_STORAGE
-/* insert_from_extra: helper method to pop the transaction at the head
-   off the extra txn deque and insert it into pack.  Requires that
-   ctx->extra_txn_deq is non-empty, but it's okay to call it if pack is
-   full.  Returns the result of fd_pack_insert_txn_fini. */
-static inline int
-insert_from_extra( fd_pack_ctx_t * ctx ) {
-  fd_txn_e_t       * spot       = fd_pack_insert_txn_init( ctx->pack );
-  fd_txn_e_t const * insert     = extra_txn_deq_peek_head( ctx->extra_txn_deq );
-  fd_txn_t   const * insert_txn = TXN(insert->txnp);
-  fd_memcpy( spot->txnp->payload, insert->txnp->payload, insert->txnp->payload_sz                                                     );
-  fd_memcpy( TXN(spot->txnp),     insert_txn,            fd_txn_footprint( insert_txn->instr_cnt, insert_txn->addr_table_lookup_cnt ) );
-  fd_memcpy( spot->alt_accts,     insert->alt_accts,     insert_txn->addr_table_adtl_cnt*sizeof(fd_acct_addr_t)                       );
-  spot->txnp->payload_sz = insert->txnp->payload_sz;
-  spot->txnp->source_tpu  = insert->txnp->source_tpu;
-  spot->txnp->source_ipv4 = insert->txnp->source_ipv4;
-  spot->txnp->scheduler_arrival_time_nanos = insert->txnp->scheduler_arrival_time_nanos;
-  spot->txnp->first_seen_nanos = insert->txnp->first_seen_nanos;
-  extra_txn_deq_remove_head( ctx->extra_txn_deq );
-
-  ulong blockhash_height = insert->txnp->blockhash_height;
-
-  ulong deleted;
-  long insert_duration = -fd_tickcount();
-  int result = fd_pack_insert_txn_fini( ctx->pack, spot, blockhash_height, &deleted );
-  insert_duration      += fd_tickcount();
-
-  FD_MCNT_INC( PACK, TXN_DELETED, deleted );
-  ctx->insert_result[ result + FD_PACK_INSERT_RETVAL_OFF ]++;
-  fd_histf_sample( ctx->insert_duration, (ulong)insert_duration );
-  FD_MCNT_INC( PACK, TXN_EXTRA_RETRIEVED, 1UL );
-  return result;
-}
-#endif
 
 static inline int
 prevent_park( fd_pack_ctx_t * ctx ) {
@@ -594,14 +652,50 @@ prevent_park( fd_pack_ctx_t * ctx ) {
   return ctx->skip_cnt>0L;
 }
 
+static inline void
+auction_end( fd_pack_ctx_t * ctx,
+             long            now_tick,
+             ulong           reason ) {
+  if( !fd_pack_auction_running( ctx->pack ) ) return;
+  ctx->auction_ended[ reason ]++;
+  fd_histf_sample( ctx->auction_duration, (ulong)fd_long_max( now_tick-ctx->auction_start_tick, 0L ) );
+  fd_pack_auction_end( ctx->pack );
+}
+
+static inline void
+auction_begin( fd_pack_ctx_t * ctx,
+               long            now_tick ) {
+  ctx->auction_last_attempt_tick = now_tick;
+  ctx->auction_next_tick         = now_tick+ctx->auction_interval_tick;
+
+  long  span    = fd_long_max( ctx->leader_slot_end_tick-ctx->leader_slot_start_tick, 1L );
+  long  elapsed = fd_long_min( fd_long_max( now_tick+ctx->auction_interval_tick-ctx->leader_slot_start_tick, 0L ), span );
+  ulong limit   = (ulong)( (double)ctx->limits.slot_max_cost*(double)elapsed/(double)span );
+  if( FD_UNLIKELY( fd_pack_current_block_cost( ctx->pack )>=limit ) ) {
+    ctx->auction_cancelled++;
+    return;
+  }
+
+  ctx->auction_started++;
+  ctx->auction_start_tick = now_tick;
+  ctx->auction_cu_limit   = limit;
+  fd_pack_auction_begin( ctx->pack );
+}
+
 static inline long
 next_deadline( fd_pack_ctx_t * ctx ) {
   if( FD_LIKELY( ctx->leader_slot==ULONG_MAX ) ) return LONG_MAX;
   long now      = fd_tickcount();
-  long slot_end = fd_clock_tile_wallclock_to_tickcount( ctx->clock, ctx->slot_end_ns );
+  long deadline = fd_clock_tile_wallclock_to_tickcount( ctx->clock, ctx->slot_end_ns );
+  if( ctx->strategy==FD_PACK_STRATEGY_AUCTION ) {
+    if( now<ctx->auction_final_start_tick ) {
+      deadline = fd_long_min( deadline, fd_long_min( ctx->auction_next_tick, ctx->auction_final_start_tick ) );
+    }
+    return deadline;
+  }
   ulong enabled = fd_ulong_min( fd_pack_pacing_enabled_bank_cnt( ctx->pacer, now ), ctx->execle_cnt );
-  if( FD_UNLIKELY( enabled>=ctx->execle_cnt ) ) return slot_end;
-  return fd_long_min( slot_end, fd_pack_pacing_next_enable( ctx->pacer, enabled ) );
+  if( FD_UNLIKELY( enabled>=ctx->execle_cnt ) ) return deadline;
+  return fd_long_min( deadline, fd_pack_pacing_next_enable( ctx->pacer, enabled ) );
 }
 
 static inline void
@@ -675,10 +769,12 @@ after_credit( fd_pack_ctx_t *     ctx,
     fd_pack_end_block( ctx->pack );
     fd_pack_get_top_writers( ctx->pack, done_packing->limits_usage->top_writers ); /* needs to be called after fd_pack_end_block */
 
+    metrics_write( ctx );
     fd_stem_publish( stem, ctx->poh_out.out_idx, fd_disco_execle_sig( ctx->leader_slot, ctx->pack_idx ), ctx->poh_out.chunk, sizeof(fd_done_packing_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
     ctx->poh_out.chunk = fd_dcache_compact_next( ctx->poh_out.chunk, sizeof(fd_done_packing_t), ctx->poh_out.chunk0, ctx->poh_out.wmark );
     ctx->pack_idx++;
 
+    auction_end( ctx, now, FD_METRICS_ENUM_PACK_AUCTION_END_REASON_V_SLOT_END_IDX );
     ctx->drain_execle        = 1;
     ctx->leader_slot         = ULONG_MAX;
     ctx->slot_microblock_cnt = 0UL;
@@ -695,13 +791,8 @@ after_credit( fd_pack_ctx_t *     ctx,
     if( FD_LIKELY( ctx->execle_idle_bitset==fd_ulong_mask_lsb( (int)execle_cnt ) ) ) {
       ctx->drain_execle = 0;
 
-      /* Pack notifies poh when execle are drained so that poh can
-         relinquish pack's ownership over the slot execle (by decrementing
-         its Arc). We do this by sending a FD_PACK_MSG_DONE_DRAINING
-         sig over the pack_poh mcache.
-
-         TODO: This is only needed for Frankendancer, not Firedancer,
-         which manages bank lifetime different. */
+      /* Notify consumers of pack_poh (e.g. the GUI) that execle are
+         drained by sending a FD_PACK_MSG_DONE_DRAINING sig. */
       fd_stem_publish( stem, ctx->poh_out.out_idx, FD_PACK_MSG_DONE_DRAINING, 0UL, 0UL, 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
       *charge_busy = 1;
       return;
@@ -710,21 +801,22 @@ after_credit( fd_pack_ctx_t *     ctx,
     }
   }
 
-  /* Am I leader? If not, see about inserting at most one transaction
-     from extra storage.  It's important not to insert too many
-     transactions here, or we won't end up servicing dedup_pack enough.
-     If extra storage is empty or pack is full, do nothing. */
+  /* Am I leader? */
   if( FD_UNLIKELY( ctx->leader_slot==ULONG_MAX ) ) {
-#if FD_PACK_USE_EXTRA_STORAGE
-    if( FD_UNLIKELY( !extra_txn_deq_empty( ctx->extra_txn_deq ) &&
-         fd_pack_avail_txn_cnt( ctx->pack )<ctx->max_pending_transactions ) ) {
-      *charge_busy = 1;
-
-      int result = insert_from_extra( ctx );
-      if( FD_LIKELY( result>=0 ) ) ctx->last_successful_insert = now;
-    }
-#endif
     return;
+  }
+
+  if( ctx->strategy==FD_PACK_STRATEGY_AUCTION ) {
+    if( now>=ctx->auction_final_start_tick ) {
+      auction_end( ctx, now, FD_METRICS_ENUM_PACK_AUCTION_END_REASON_V_FINAL_IDX );
+    } else if( now>=ctx->auction_next_tick ) {
+      /* End the current auction, if one is running. This will flush
+         all transactions held in next_auction. */
+      auction_end( ctx, now, FD_METRICS_ENUM_PACK_AUCTION_END_REASON_V_RESTARTED_IDX );
+      /* Start the new auction, holding any new transactions in
+         next_auction. */
+      auction_begin( ctx, now );
+    }
   }
 
   if( FD_UNLIKELY( ctx->pending_reduce_mb_bound ) ) {
@@ -760,7 +852,7 @@ after_credit( fd_pack_ctx_t *     ctx,
       if( FD_LIKELY( txn_sz==0UL ) ) { /* Everything in good shape! */
         fd_pack_insert_bundle_cancel( ctx->pack, bundle, 1UL );
         fd_pack_set_initializer_bundles_ready( ctx->pack );
-        ctx->crank->metrics[ 0 ]++; /* BUNDLE_CRANK_RESULT_NOT_NEEDED */
+        ctx->crank->metrics[ 0 ]++; /* BUNDLE_CRANK_ATTEMPTED_UP_TO_DATE */
       }
       else if( FD_LIKELY( txn_sz<ULONG_MAX ) ) {
         bundle[0]->txnp->payload_sz  = (ushort)txn_sz;
@@ -778,10 +870,10 @@ after_credit( fd_pack_ctx_t *     ctx,
         ctx->crank->ib_inserted = 1;
         ulong deleted;
         int retval = fd_pack_insert_bundle_fini( ctx->pack, bundle, 1UL, ctx->block_height-1UL, 1, NULL, &deleted );
-        FD_MCNT_INC( PACK, TXN_DELETED, deleted );
+        FD_MCNT_INC( PACK, TXN_EVICTED, deleted );
         ctx->insert_result[ retval + FD_PACK_INSERT_RETVAL_OFF ]++;
         if( FD_UNLIKELY( retval<0 ) ) {
-          ctx->crank->metrics[ 3 ]++; /* BUNDLE_CRANK_RESULT_INSERTION_FAILED */
+          ctx->crank->metrics[ 3 ]++; /* BUNDLE_CRANK_ATTEMPTED_INSERTION_FAILED */
           FD_LOG_WARNING(( "inserting initializer bundle returned %i", retval ));
         } else {
           /* Update the cached copy of the on-chain state.  This seems a
@@ -803,12 +895,12 @@ after_credit( fd_pack_ctx_t *     ctx,
              that these are the right values to use. */
           fd_bundle_crank_apply( ctx->crank->gen, ctx->crank->prev_config, top_meta->commission_pubkey,
                                  ctx->crank->tip_receiver_owner, ctx->crank->epoch, top_meta->commission );
-          ctx->crank->metrics[ 1 ]++; /* BUNDLE_CRANK_RESULT_INSERTED */
+          ctx->crank->metrics[ 1 ]++; /* BUNDLE_CRANK_ATTEMPTED_INSERTED */
         }
       } else {
         /* Already logged a warning in this case */
         fd_pack_insert_bundle_cancel( ctx->pack, bundle, 1UL );
-        ctx->crank->metrics[ 2 ]++; /* BUNDLE_CRANK_RESULT_CREATION_FAILED' */
+        ctx->crank->metrics[ 2 ]++; /* BUNDLE_CRANK_ATTEMPTED_CREATION_FAILED */
       }
     }
   }
@@ -824,26 +916,37 @@ after_credit( fd_pack_ctx_t *     ctx,
     switch( ctx->strategy ) {
       default:
       case FD_PACK_STRATEGY_PERF:
-        flags = FD_PACK_SCHEDULE_VOTE | FD_PACK_SCHEDULE_BUNDLE | FD_PACK_SCHEDULE_TXN;
+        flags = FD_PACK_SCHEDULE_BUNDLE | FD_PACK_SCHEDULE_TXN;
         break;
       case FD_PACK_STRATEGY_BALANCED:
-        /* We want to exempt votes from pacing, so we always allow
-           scheduling votes.  It doesn't really make much sense to pace
-           bundles, because they get scheduled in FIFO order.  However,
-           we keep pacing for normal transactions.  For example, if
+        /* It doesn't really make much sense to pace bundles, because
+           they get scheduled in FIFO order.  However, we keep pacing
+           for normal transactions (votes included).  For example, if
            pacing_execle_cnt is 0, then pack won't schedule normal
            transactions to any execle tile. */
-        flags = FD_PACK_SCHEDULE_VOTE | fd_int_if( i==0,                FD_PACK_SCHEDULE_BUNDLE, 0 )
-                                      | fd_int_if( i<pacing_execle_cnt, FD_PACK_SCHEDULE_TXN,    0 );
+        flags = fd_int_if( i==0,                FD_PACK_SCHEDULE_BUNDLE, 0 )
+              | fd_int_if( i<pacing_execle_cnt, FD_PACK_SCHEDULE_TXN,    0 );
         break;
+      case FD_PACK_STRATEGY_AUCTION: {
+        int allow = fd_pack_auction_running( ctx->pack ) | (now>=ctx->auction_final_start_tick);
+        flags     = FD_PACK_SCHEDULE_BUNDLE | fd_int_if( allow, FD_PACK_SCHEDULE_TXN, 0 );
+        break;
+      }
     }
 
     fd_pack_out_ctx_t * execle_out = &ctx->execle_out[ i ];
     fd_txn_e_t * microblock_dst = fd_chunk_to_laddr( execle_out->mem, execle_out->chunk );
     long schedule_duration = -fd_tickcount();
-    ulong schedule_cnt = fd_pack_schedule_next_microblock( ctx->pack, CUS_PER_MICROBLOCK, VOTE_FRACTION, (ulong)i, flags, microblock_dst );
+    ulong schedule_cnt = fd_pack_schedule_next_microblock( ctx->pack, CUS_PER_MICROBLOCK, (ulong)i, flags, microblock_dst );
     schedule_duration      += fd_tickcount();
     fd_histf_sample( (schedule_cnt>0UL) ? ctx->schedule_duration : ctx->no_sched_duration, (ulong)schedule_duration );
+
+    if( fd_pack_auction_running( ctx->pack ) ) {
+      /* End the auction early if we have reached the CU limit. */
+      if( fd_pack_current_block_cost( ctx->pack )>=ctx->auction_cu_limit ) {
+        auction_end( ctx, now, FD_METRICS_ENUM_PACK_AUCTION_END_REASON_V_LIMIT_IDX );
+      }
+    }
 
     if( FD_LIKELY( schedule_cnt ) ) {
       any_scheduled = 1;
@@ -853,7 +956,6 @@ after_credit( fd_pack_ctx_t *     ctx,
       ulong chunk  = execle_out->chunk;
       ulong msg_sz = schedule_cnt*sizeof(fd_txn_e_t);
       fd_microblock_execle_trailer_t * trailer = (fd_microblock_execle_trailer_t*)(microblock_dst+schedule_cnt);
-      trailer->bank = ctx->leader_bank;
       trailer->bank_idx = ctx->leader_bank_idx;
       trailer->bank_seq = ctx->leader_bank_seq;
       trailer->microblock_idx = ctx->slot_microblock_cnt;
@@ -894,18 +996,6 @@ after_credit( fd_pack_ctx_t *     ctx,
   now = fd_tickcount();
   update_metric_state( ctx, now, FD_PACK_METRIC_STATE_TRANSACTIONS, fd_pack_avail_txn_cnt( ctx->pack )>0 );
 
-#if FD_PACK_USE_EXTRA_STORAGE
-  if( FD_UNLIKELY( !extra_txn_deq_empty( ctx->extra_txn_deq ) ) ) {
-    /* Don't start pulling from the extra storage until the available
-       transaction count drops below half. */
-    ulong avail_space   = (ulong)fd_long_max( 0L, (long)(ctx->max_pending_transactions>>1)-(long)fd_pack_avail_txn_cnt( ctx->pack ) );
-    ulong qty_to_insert = fd_ulong_min( 10UL, fd_ulong_min( extra_txn_deq_cnt( ctx->extra_txn_deq ), avail_space ) );
-    int any_successes = 0;
-    for( ulong i=0UL; i<qty_to_insert; i++ ) any_successes |= (0<=insert_from_extra( ctx ));
-    if( FD_LIKELY( any_successes ) ) ctx->last_successful_insert = now;
-  }
-#endif
-
   /* Did we send the maximum allowed microblocks? Then end the slot. */
   if( FD_UNLIKELY( ctx->slot_microblock_cnt==ctx->slot_dynamic_max_microblocks )) {
     *charge_busy = 1;
@@ -916,7 +1006,7 @@ after_credit( fd_pack_ctx_t *     ctx,
     /* The pack object also does this accounting and increases this
        metric, but we end the slot early so won't see it unless we also
        increment it here. */
-    FD_MCNT_INC( PACK, MICROBLOCK_PER_BLOCK_LIMIT_REACHED, 1UL );
+    FD_MCNT_INC( PACK, BLOCK_MICROBLOCK_LIMIT_REACHED, 1UL );
 
     fd_done_packing_t * done_packing = fd_chunk_to_laddr( ctx->poh_out.mem, ctx->poh_out.chunk );
     get_done_packing( ctx, done_packing, FD_PACK_END_SLOT_REASON_MICROBLOCK );
@@ -924,10 +1014,12 @@ after_credit( fd_pack_ctx_t *     ctx,
     fd_pack_end_block( ctx->pack );
     fd_pack_get_top_writers( ctx->pack, done_packing->limits_usage->top_writers );
 
+    metrics_write( ctx ); /* final for the slot before poh ends it */
     fd_stem_publish( stem, ctx->poh_out.out_idx, fd_disco_execle_sig( ctx->leader_slot, ctx->pack_idx ), ctx->poh_out.chunk, sizeof(fd_done_packing_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
     ctx->poh_out.chunk = fd_dcache_compact_next( ctx->poh_out.chunk, sizeof(fd_done_packing_t), ctx->poh_out.chunk0, ctx->poh_out.wmark );
     ctx->pack_idx++;
 
+    auction_end( ctx, now, FD_METRICS_ENUM_PACK_AUCTION_END_REASON_V_SLOT_END_IDX );
     ctx->drain_execle        = 1;
     ctx->leader_slot         = ULONG_MAX;
     ctx->slot_microblock_cnt = 0UL;
@@ -962,17 +1054,6 @@ during_frag( fd_pack_ctx_t * ctx,
       return;
     }
     if( FD_LIKELY( sig!=REPLAY_SIG_BECAME_LEADER ) ) return;
-
-    /* There was a leader transition.  Handle it. */
-    if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz!=sizeof(fd_became_leader_t) ) )
-      FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
-
-    fd_memcpy( ctx->_became_leader, dcache_entry, sizeof(fd_became_leader_t) );
-    return;
-  }
-  case IN_KIND_POH: {
-      /* Not interested in stamped microblocks, only leader updates. */
-    if( fd_disco_poh_sig_pkt_type( sig )!=POH_PKT_TYPE_BECAME_LEADER ) return;
 
     /* There was a leader transition.  Handle it. */
     if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz!=sizeof(fd_became_leader_t) ) )
@@ -1020,12 +1101,10 @@ during_frag( fd_pack_ctx_t * ctx,
          with expired but high-fee-paying transactions.  That can only
          happen if we are getting transactions.
 
-         We aren't as strict here, because there's the possibility we
-         could replay a transaction that landed in one fork, then end up
-         building off a different fork. */
+         FIXME: this should use rooted slots instead. */
       ctx->highest_observed_block_height = sig;
-      ulong exp_cnt = fd_pack_expire_before( ctx->pack, fd_ulong_max( ctx->highest_observed_block_height, TRANSACTION_LIFETIME_SLOTS_NOT_STRICT )-TRANSACTION_LIFETIME_SLOTS_NOT_STRICT );
-      FD_MCNT_INC( PACK, TXN_EXPIRED, exp_cnt );
+      ulong exp_cnt = fd_pack_expire_before( ctx->pack, fd_ulong_max( ctx->highest_observed_block_height, TRANSACTION_LIFETIME_SLOTS )-TRANSACTION_LIFETIME_SLOTS );
+      FD_MCNT_INC( PACK, TXN_DROPPED_EXPIRED, exp_cnt );
     }
 
 
@@ -1034,7 +1113,7 @@ during_frag( fd_pack_ctx_t * ctx,
       ctx->is_bundle = 1;
       if( FD_LIKELY( bundle_id!=ctx->current_bundle->id ) ) {
         if( FD_UNLIKELY( ctx->current_bundle->bundle ) ) {
-          FD_MCNT_INC( PACK, TXN_PARTIAL_BUNDLE, ctx->current_bundle->txn_received );
+          FD_MCNT_INC( PACK, TXN_DROPPED_PARTIAL_BUNDLE, ctx->current_bundle->txn_received );
           fd_pack_insert_bundle_cancel( ctx->pack, ctx->current_bundle->bundle, ctx->current_bundle->txn_cnt );
         }
         ctx->current_bundle->id                   = bundle_id;
@@ -1043,7 +1122,7 @@ during_frag( fd_pack_ctx_t * ctx,
         ctx->current_bundle->txn_received         = 0UL;
 
         if( FD_UNLIKELY( ctx->current_bundle->txn_cnt==0UL ) ) {
-          FD_MCNT_INC( PACK, TXN_PARTIAL_BUNDLE, 1UL );
+          FD_MCNT_INC( PACK, TXN_DROPPED_PARTIAL_BUNDLE, 1UL );
           ctx->current_bundle->id = 0UL;
           return;
         }
@@ -1062,31 +1141,12 @@ during_frag( fd_pack_ctx_t * ctx,
       ctx->current_bundle->min_blockhash_height = fd_ulong_min( ctx->current_bundle->min_blockhash_height, block_height_to_use );
     } else {
       ctx->is_bundle = 0;
-#if FD_PACK_USE_EXTRA_STORAGE
-      if( FD_LIKELY( ctx->leader_slot!=ULONG_MAX || fd_pack_avail_txn_cnt( ctx->pack )<ctx->max_pending_transactions ) ) {
-        ctx->cur_spot = fd_pack_insert_txn_init( ctx->pack );
-        ctx->insert_to_extra = 0;
-      } else {
-        if( FD_UNLIKELY( extra_txn_deq_full( ctx->extra_txn_deq ) ) ) {
-          extra_txn_deq_remove_head( ctx->extra_txn_deq );
-          FD_MCNT_INC( PACK, TXN_EXTRA_DROPPED, 1UL );
-        }
-        ctx->cur_spot = extra_txn_deq_peek_tail( extra_txn_deq_insert_tail( ctx->extra_txn_deq ) );
-        /* We want to store the current time in cur_spot so that we can
-           track its expiration better.  We just stash it in the CU
-           fields, since those aren't important right now. */
-        ctx->cur_spot->txnp->blockhash_height = sig;
-        ctx->insert_to_extra                  = 1;
-        FD_MCNT_INC( PACK, TXN_EXTRA_INSERTED, 1UL );
-      }
-#else
       ctx->cur_spot = fd_pack_insert_txn_init( ctx->pack );
-#endif
     }
 
     /* We get transactions from the resolv tile.
        The transactions should have been parsed and verified. */
-    FD_MCNT_INC( PACK, TXN_NORMAL_RX, 1UL );
+    FD_MCNT_INC( PACK, TXN_RX, 1UL );
 
     fd_memcpy( ctx->cur_spot->txnp->payload, fd_txn_m_payload( txnm ), payload_sz    );
     fd_memcpy( TXN(ctx->cur_spot->txnp),     txn,                      txn_t_sz      );
@@ -1097,11 +1157,6 @@ during_frag( fd_pack_ctx_t * ctx,
     ctx->cur_spot->txnp->source_ipv4 = source_ipv4;
     ctx->cur_spot->txnp->source_tpu  = source_tpu;
 
-    break;
-  }
-  case IN_KIND_EXECUTED_TXN: {
-    FD_TEST( sz==64UL );
-    fd_memcpy( ctx->executed_txn_sig, dcache_entry, sz );
     break;
   }
   }
@@ -1133,7 +1188,8 @@ after_frag( fd_pack_ctx_t *     ctx,
     case IN_KIND_REPLAY:
       if( FD_LIKELY( sig==REPLAY_SIG_TXN_EXECUTED && ctx->txn_committed ) ) {
         ulong deleted = fd_pack_delete_transaction( ctx->pack, fd_type_pun( ctx->executed_txn_sig ) );
-        FD_MCNT_INC( PACK, TXN_ALREADY_EXECUTED, deleted );
+        FD_MCNT_INC( PACK, TXN_DROPPED_ALREADY_EXECUTED, deleted );
+        update_metric_state( ctx, now, FD_PACK_METRIC_STATE_TRANSACTIONS, fd_pack_avail_txn_cnt( ctx->pack )>0 );
       }
       if( FD_UNLIKELY( sig==REPLAY_SIG_RESET && ctx->leader_slot!=ULONG_MAX ) ) {
         fd_done_packing_t * done_packing = fd_chunk_to_laddr( ctx->poh_out.mem, ctx->poh_out.chunk );
@@ -1142,11 +1198,13 @@ after_frag( fd_pack_ctx_t *     ctx,
         fd_pack_end_block( ctx->pack );
         fd_pack_get_top_writers( ctx->pack, done_packing->limits_usage->top_writers );
 
+        metrics_write( ctx ); /* final for the slot before poh ends it */
         fd_stem_publish( stem, ctx->poh_out.out_idx, fd_disco_execle_sig( ctx->leader_slot, ctx->pack_idx ), ctx->poh_out.chunk, sizeof(fd_done_packing_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
         ctx->poh_out.chunk = fd_dcache_compact_next( ctx->poh_out.chunk, sizeof(fd_done_packing_t), ctx->poh_out.chunk0, ctx->poh_out.wmark );
         ctx->pack_idx++;
 
         FD_LOG_WARNING(( "consensus reset while packing for slot %lu, ending block early", ctx->leader_slot ));
+        auction_end( ctx, now, FD_METRICS_ENUM_PACK_AUCTION_END_REASON_V_SLOT_END_IDX );
         ctx->drain_execle        = 1;
         ctx->leader_slot         = ULONG_MAX;
         ctx->slot_microblock_cnt = 0UL;
@@ -1163,17 +1221,12 @@ after_frag( fd_pack_ctx_t *     ctx,
       ctx->start_block_sched_metrics->time = now;
       fd_pack_get_sched_metrics( ctx->pack, ctx->start_block_sched_metrics->sched_results );
       break;
-    case IN_KIND_POH:
-      if( fd_disco_poh_sig_pkt_type( sig )!=POH_PKT_TYPE_BECAME_LEADER ) return;
-      leader_slot = fd_disco_poh_sig_slot( sig );
-      break;
     default:
       break;
   }
 
   switch( ctx->in_kind[ in_idx ] ) {
-  case IN_KIND_REPLAY:
-  case IN_KIND_POH: {
+  case IN_KIND_REPLAY: {
     long now_ticks = fd_tickcount();
     long now_ns    = fd_log_wallclock();
 
@@ -1184,6 +1237,7 @@ after_frag( fd_pack_ctx_t *     ctx,
       fd_pack_end_block( ctx->pack );
       fd_pack_get_top_writers( ctx->pack, done_packing->limits_usage->top_writers );
 
+      metrics_write( ctx ); /* final for the slot before poh ends it */
       fd_stem_publish( stem, ctx->poh_out.out_idx, fd_disco_execle_sig( ctx->leader_slot, ctx->pack_idx ), ctx->poh_out.chunk, sizeof(fd_done_packing_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
       ctx->poh_out.chunk = fd_dcache_compact_next( ctx->poh_out.chunk, sizeof(fd_done_packing_t), ctx->poh_out.chunk0, ctx->poh_out.wmark );
       ctx->pack_idx++;
@@ -1195,15 +1249,17 @@ after_frag( fd_pack_ctx_t *     ctx,
       remove_ib( ctx );
     }
     ctx->leader_slot = leader_slot;
+    ulong slots_left = 3UL - (leader_slot%4UL);
+    long  slot_ns    = (long)( ctx->_became_leader->ticks_per_slot*ctx->_became_leader->tick_duration_ns );
+    fd_pack_set_rotation_end_ns( ctx->pack, ctx->_became_leader->slot_end_ns + (long)slots_left*slot_ns );
     ctx->block_height = ctx->_became_leader->block_height;
 
     ctx->slot_pack_start_ns  = now_ns;
     ctx->slot_bundle_txn_cnt = 0UL;
 
     ulong exp_cnt = fd_pack_expire_before( ctx->pack, fd_ulong_max( ctx->block_height, TRANSACTION_LIFETIME_SLOTS )-TRANSACTION_LIFETIME_SLOTS );
-    FD_MCNT_INC( PACK, TXN_EXPIRED, exp_cnt );
+    FD_MCNT_INC( PACK, TXN_DROPPED_EXPIRED, exp_cnt );
 
-    ctx->leader_bank          = ctx->_became_leader->bank;
     ctx->leader_bank_idx      = ctx->_became_leader->bank_idx;
     ctx->leader_bank_seq      = ctx->_became_leader->bank_seq;
     ctx->slot_max_microblocks = ctx->_became_leader->max_microblocks_in_slot;
@@ -1221,7 +1277,6 @@ after_frag( fd_pack_ctx_t *     ctx,
                                       - 48UL*(ctx->_became_leader->ticks_per_slot+ctx->_became_leader->total_skipped_ticks);
 
     ctx->limits.slot_max_cost                     = ctx->_became_leader->limits.slot_max_cost;
-    ctx->limits.slot_max_vote_cost                = ctx->_became_leader->limits.slot_max_vote_cost;
     ctx->limits.slot_max_write_cost_per_acct      = ctx->_became_leader->limits.slot_max_write_cost_per_acct;
     ctx->limits.slot_max_allocated_data_per_block = ctx->_became_leader->limits.slot_max_allocated_data_per_block;
     ctx->limits.slot_max_data_shreds              = shreds;
@@ -1245,7 +1300,16 @@ after_frag( fd_pack_ctx_t *     ctx,
 
     update_metric_state( ctx, fd_tickcount(), FD_PACK_METRIC_STATE_LEADER, 1 );
 
-    ctx->slot_end_ns = ctx->_became_leader->slot_end_ns;
+    /* If there is currently an auction running from a previous slot, end it. */
+    auction_end( ctx, now_ticks, FD_METRICS_ENUM_PACK_AUCTION_END_REASON_V_SLOT_END_IDX );
+
+    ctx->slot_end_ns                   = ctx->_became_leader->slot_end_ns;
+    ctx->leader_slot_start_tick        = now_ticks + (long)((double)( ctx->_became_leader->slot_start_ns - now_ns )*tick_per_ns);
+    ctx->leader_slot_end_tick          = end_ticks;
+    ctx->auction_final_start_tick      = fd_long_if( ctx->leader_slot%4UL==3UL,
+                                                     end_ticks-(long)(tick_per_ns*(double)FD_PACK_AUCTION_FINAL_NS), LONG_MAX );
+    ctx->auction_last_attempt_tick     = now_ticks - ctx->auction_interval_tick;
+    ctx->auction_next_tick             = now_ticks;
     ctx->slot_dynamic_max_microblocks  = ctx->slot_max_microblocks;
     ctx->slot_mixin_per_tick           = fd_ulong_if( ctx->_became_leader->hashcnt_per_tick>1UL, ctx->_became_leader->hashcnt_per_tick-1UL, 0UL ); /* 0: low power / alpenglow, no hash budget */
     ctx->slot_tick_duration_ns         = ctx->_became_leader->tick_duration_ns;
@@ -1254,7 +1318,6 @@ after_frag( fd_pack_ctx_t *     ctx,
     limits->max_cost_per_block = ctx->limits.slot_max_cost;
     limits->max_data_bytes_per_block = ctx->slot_max_data;
     limits->max_microblocks_per_block = ctx->slot_max_microblocks;
-    limits->max_vote_cost_per_block = ctx->limits.slot_max_vote_cost;
     limits->max_write_cost_per_acct = ctx->limits.slot_max_write_cost_per_acct;
     limits->max_txn_per_microblock = ULONG_MAX; /* unused */
     limits->max_allocated_data_per_block = ctx->limits.slot_max_allocated_data_per_block;
@@ -1268,25 +1331,24 @@ after_frag( fd_pack_ctx_t *     ctx,
     if( FD_UNLIKELY( sig!=ctx->leader_slot ) ) return;
 
     fd_pack_rebate_cus( ctx->pack, ctx->rebate->rebate );
+    if( FD_UNLIKELY( ctx->rebate->rebate->ib_result<0 ) ) FD_LOG_WARNING(( "initializer bundle failed in leader slot %lu; no bundles until the slot ends", ctx->leader_slot ));
     ctx->pending_rebate_sz = 0UL;
     fd_pack_pacing_update_consumed_cus( ctx->pacer, fd_pack_current_block_cost( ctx->pack ), now );
     break;
   }
   case IN_KIND_RESOLV: {
     /* Normal transaction case */
-#if FD_PACK_USE_EXTRA_STORAGE
-    if( FD_LIKELY( !ctx->insert_to_extra ) ) {
-#else
-    if( 1 ) {
-#endif
     if( FD_UNLIKELY( ctx->is_bundle ) ) {
       if( FD_UNLIKELY( ctx->current_bundle->txn_cnt==0UL ) ) return;
       if( FD_UNLIKELY( ++(ctx->current_bundle->txn_received)==ctx->current_bundle->txn_cnt ) ) {
         ulong deleted;
         long insert_duration = -fd_tickcount();
         int result = fd_pack_insert_bundle_fini( ctx->pack, ctx->current_bundle->bundle, ctx->current_bundle->txn_cnt, ctx->current_bundle->min_blockhash_height, 0, ctx->blk_engine_cfg, &deleted );
-        insert_duration      += fd_tickcount();
-        FD_MCNT_INC( PACK, TXN_DELETED, deleted );
+        insert_duration       += fd_tickcount();
+        long burst             = fd_long_max( now+ctx->auction_bundle_end_gap_tick, ctx->auction_last_attempt_tick+ctx->auction_spacing_tick );
+        long fallback          = ctx->auction_last_attempt_tick+ctx->auction_interval_tick;
+        ctx->auction_next_tick = fd_long_min( burst, fallback );
+        FD_MCNT_INC( PACK, TXN_EVICTED, deleted );
         ctx->insert_result[ result + FD_PACK_INSERT_RETVAL_OFF ] += ctx->current_bundle->txn_received;
         fd_histf_sample( ctx->insert_duration, (ulong)insert_duration );
         ctx->current_bundle->bundle = NULL;
@@ -1297,19 +1359,13 @@ after_frag( fd_pack_ctx_t *     ctx,
       long insert_duration = -fd_tickcount();
       int result = fd_pack_insert_txn_fini( ctx->pack, ctx->cur_spot, blockhash_height, &deleted );
       insert_duration      += fd_tickcount();
-      FD_MCNT_INC( PACK, TXN_DELETED, deleted );
+      FD_MCNT_INC( PACK, TXN_EVICTED, deleted );
       ctx->insert_result[ result + FD_PACK_INSERT_RETVAL_OFF ]++;
       fd_histf_sample( ctx->insert_duration, (ulong)insert_duration );
       if( FD_LIKELY( result>=0 ) ) ctx->last_successful_insert = now;
     }
-    }
 
     ctx->cur_spot = NULL;
-    break;
-  }
-  case IN_KIND_EXECUTED_TXN: {
-    ulong deleted = fd_pack_delete_transaction( ctx->pack, fd_type_pun( ctx->executed_txn_sig ) );
-    FD_MCNT_INC( PACK, TXN_ALREADY_EXECUTED, deleted );
     break;
   }
   }
@@ -1359,7 +1415,6 @@ unprivileged_init( fd_topo_t const *      topo,
 
   fd_pack_limits_t limits_upper[1] = {{
     .max_cost_per_block           = tile->pack.max_cost_per_block,
-    .max_vote_cost_per_block      = FD_PACK_MAX_VOTE_COST_PER_BLOCK_UPPER_BOUND,
     .max_write_cost_per_acct      = FD_PACK_MAX_WRITE_COST_PER_ACCT_UPPER_BOUND,
     .max_data_bytes_per_block     = FD_PACK_MAX_DATA_PER_BLOCK*(tile->pack.max_shreds_per_block/FD_SHRED_BLK_MAX),
     .max_txn_per_microblock       = EFFECTIVE_TXN_PER_MICROBLOCK,
@@ -1376,7 +1431,6 @@ unprivileged_init( fd_topo_t const *      topo,
 
   fd_pack_limits_t limits_lower[1] = {{
     .max_cost_per_block           = FD_PACK_MAX_COST_PER_BLOCK_LOWER_BOUND, /* replaced by the chain's at become-leader */
-    .max_vote_cost_per_block      = FD_PACK_MAX_VOTE_COST_PER_BLOCK_LOWER_BOUND,
     .max_write_cost_per_acct      = FD_PACK_MAX_WRITE_COST_PER_ACCT_LOWER_BOUND,
     .max_data_bytes_per_block     = FD_PACK_MAX_DATA_PER_BLOCK*(tile->pack.max_shreds_per_block/FD_SHRED_BLK_MAX),
     .max_txn_per_microblock       = EFFECTIVE_TXN_PER_MICROBLOCK,
@@ -1401,20 +1455,15 @@ unprivileged_init( fd_topo_t const *      topo,
     fd_topo_link_t const * link = &topo->links[ tile->in_link_id[ i ] ];
 
     if( FD_LIKELY(      !strcmp( link->name, "resolv_pack"  ) ) ) ctx->in_kind[ i ] = IN_KIND_RESOLV;
-    else if( FD_LIKELY( !strcmp( link->name, "resolh_pack"  ) ) ) ctx->in_kind[ i ] = IN_KIND_RESOLV;
-    else if( FD_LIKELY( !strcmp( link->name, "poh_pack"     ) ) ) ctx->in_kind[ i ] = IN_KIND_POH;
-    else if( FD_LIKELY( !strcmp( link->name, "pohh_pack"    ) ) ) ctx->in_kind[ i ] = IN_KIND_POH;
-    else if( FD_LIKELY( !strcmp( link->name, "bank_pack"    ) ) ) ctx->in_kind[ i ] = IN_KIND_EXECLE;
     else if( FD_LIKELY( !strcmp( link->name, "execle_pack"  ) ) ) ctx->in_kind[ i ] = IN_KIND_EXECLE;
     else if( FD_LIKELY( !strcmp( link->name, "sign_pack"    ) ) ) ctx->in_kind[ i ] = IN_KIND_SIGN;
     else if( FD_LIKELY( !strcmp( link->name, "replay_out"   ) ) ) ctx->in_kind[ i ] = IN_KIND_REPLAY;
-    else if( FD_LIKELY( !strcmp( link->name, "executed_txn" ) ) ) ctx->in_kind[ i ] = IN_KIND_EXECUTED_TXN;
     else FD_LOG_ERR(( "pack tile has unexpected input link %lu %s", i, link->name ));
   }
 
   if( FD_UNLIKELY( tile->pack.execle_tile_count>FD_PACK_MAX_EXECLE_TILES ) ) FD_LOG_ERR(( "pack tile connects to too many execle tiles" ));
 
-  FD_TEST( (tile->pack.schedule_strategy>=0) & (tile->pack.schedule_strategy<=FD_PACK_STRATEGY_BALANCED) );
+  FD_TEST( (tile->pack.schedule_strategy>=0) & (tile->pack.schedule_strategy<=FD_PACK_STRATEGY_AUCTION) );
 
   ctx->crank->enabled = tile->pack.bundle.enabled;
   if( FD_UNLIKELY( tile->pack.bundle.enabled ) ) {
@@ -1469,18 +1518,15 @@ unprivileged_init( fd_topo_t const *      topo,
   }
 
 
-#if FD_PACK_USE_EXTRA_STORAGE
-  ctx->extra_txn_deq = extra_txn_deq_join( extra_txn_deq_new( FD_SCRATCH_ALLOC_APPEND( l, extra_txn_deq_align(),
-                                                                                          extra_txn_deq_footprint() ) ) );
-#endif
-
   ctx->cur_spot                      = NULL;
   ctx->is_bundle                     = 0;
   ctx->strategy                      = tile->pack.schedule_strategy;
   ctx->max_pending_transactions      = tile->pack.max_pending_transactions;
   ctx->leader_slot                   = ULONG_MAX;
   ctx->block_height                  = 0UL;
-  ctx->leader_bank                   = NULL;
+  ctx->auction_last_attempt_tick     = 0L;
+  ctx->auction_next_tick             = LONG_MAX;
+  ctx->auction_final_start_tick      = LONG_MAX;
   ctx->leader_bank_idx               = ULONG_MAX;
   ctx->leader_bank_seq               = ULONG_MAX;
   ctx->pack_idx                      = 0UL;
@@ -1497,15 +1543,14 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->last_successful_insert        = 0L;
   ctx->highest_observed_block_height = 0UL;
   ctx->microblock_duration_ticks     = (ulong)(tick_per_ns*(double)MICROBLOCK_DURATION_NS  + 0.5);
-#if FD_PACK_USE_EXTRA_STORAGE
-  ctx->insert_to_extra               = 0;
-#endif
+  ctx->auction_bundle_end_gap_tick   = (long)(tick_per_ns*(double)FD_PACK_AUCTION_BUNDLE_END_GAP_NS);
+  ctx->auction_spacing_tick          = (long)(tick_per_ns*(double)FD_PACK_AUCTION_SPACING_NS);
+  ctx->auction_interval_tick         = (long)(tick_per_ns*(double)FD_PACK_AUCTION_INTERVAL_NS);
   ctx->use_consumed_cus              = tile->pack.use_consumed_cus;
   ctx->bench_max_shreds_per_block    = tile->pack.bench_max_shreds_per_block;
   ctx->crank->enabled                = tile->pack.bundle.enabled;
 
   ctx->limits.slot_max_cost                = limits_lower->max_cost_per_block;
-  ctx->limits.slot_max_vote_cost           = limits_lower->max_vote_cost_per_block;
   ctx->limits.slot_max_write_cost_per_acct = limits_lower->max_write_cost_per_acct;
 
   ctx->execle_cnt       = tile->pack.execle_tile_count;
@@ -1544,7 +1589,6 @@ unprivileged_init( fd_topo_t const *      topo,
   }
 
   ctx->poh_out.out_idx = fd_topo_find_tile_out_link( topo, tile, "pack_poh", 0UL );
-  if( FD_UNLIKELY( ctx->poh_out.out_idx==ULONG_MAX ) ) ctx->poh_out.out_idx = fd_topo_find_tile_out_link( topo, tile, "pack_pohh", 0UL );
   FD_TEST( ctx->poh_out.out_idx!=ULONG_MAX );
   fd_topo_link_t const * poh_out_link = &topo->links[ tile->out_link_id[ ctx->poh_out.out_idx ] ];
   ctx->poh_out.mem    = topo->workspaces[ topo->objs[ poh_out_link->dcache_obj_id ].wksp_id ].wksp;
@@ -1554,14 +1598,14 @@ unprivileged_init( fd_topo_t const *      topo,
 
   /* Initialize metrics storage */
   memset( ctx->insert_result, '\0', FD_PACK_INSERT_RETVAL_CNT * sizeof(ulong) );
-  fd_histf_join( fd_histf_new( ctx->schedule_duration, FD_MHIST_SECONDS_MIN( PACK, SCHEDULE_MICROBLOCK_DURATION_SECONDS ),
-                                                       FD_MHIST_SECONDS_MAX( PACK, SCHEDULE_MICROBLOCK_DURATION_SECONDS ) ) );
-  fd_histf_join( fd_histf_new( ctx->no_sched_duration, FD_MHIST_SECONDS_MIN( PACK, NO_SCHEDULE_MICROBLOCK_DURATION_SECONDS ),
-                                                       FD_MHIST_SECONDS_MAX( PACK, NO_SCHEDULE_MICROBLOCK_DURATION_SECONDS ) ) );
-  fd_histf_join( fd_histf_new( ctx->insert_duration,   FD_MHIST_SECONDS_MIN( PACK, INSERT_TRANSACTION_DURATION_SECONDS  ),
-                                                       FD_MHIST_SECONDS_MAX( PACK, INSERT_TRANSACTION_DURATION_SECONDS  ) ) );
-  fd_histf_join( fd_histf_new( ctx->complete_duration, FD_MHIST_SECONDS_MIN( PACK, COMPLETE_MICROBLOCK_DURATION_SECONDS ),
-                                                       FD_MHIST_SECONDS_MAX( PACK, COMPLETE_MICROBLOCK_DURATION_SECONDS ) ) );
+  fd_histf_join( fd_metrics_histf_new_ns( ctx->schedule_duration, FD_MHIST_EDGES_NS( PACK, MICROBLOCK_SCHEDULE_DURATION_NANOS ) ) );
+  fd_histf_join( fd_metrics_histf_new_ns( ctx->no_sched_duration, FD_MHIST_EDGES_NS( PACK, MICROBLOCK_SCHEDULE_EMPTY_DURATION_NANOS ) ) );
+  fd_histf_join( fd_metrics_histf_new_ns( ctx->insert_duration,   FD_MHIST_EDGES_NS( PACK, TXN_INSERT_DURATION_NANOS ) ) );
+  fd_histf_join( fd_metrics_histf_new_ns( ctx->complete_duration, FD_MHIST_EDGES_NS( PACK, MICROBLOCK_COMPLETE_DURATION_NANOS ) ) );
+  ctx->auction_started   = 0UL;
+  ctx->auction_cancelled = 0UL;
+  memset( ctx->auction_ended,   0, sizeof(ctx->auction_ended)   );
+  fd_histf_join( fd_metrics_histf_new_ns( ctx->auction_duration,  FD_MHIST_EDGES_NS( PACK, AUCTION_DURATION_NANOS ) ) );
   ctx->metric_state = 0;
   ctx->metric_state_begin = fd_tickcount();
   memset( ctx->metric_timing,             '\0', 16*sizeof(long)                        );

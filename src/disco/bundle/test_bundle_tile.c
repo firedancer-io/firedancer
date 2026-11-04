@@ -12,37 +12,27 @@ fd_bundle_now( fd_bundle_tile_t const * ctx ) {
 
 static void *
 mock_replay_wksp_new( void ) {
-  ulong alloc_sz = fd_ulong_align_up( FD_CHUNK_FOOTPRINT + sizeof(fd_poh_reset_t), FD_CHUNK_ALIGN );
+  ulong alloc_sz = fd_ulong_align_up( 2UL*FD_CHUNK_FOOTPRINT + sizeof(fd_poh_reset_t), FD_CHUNK_ALIGN );
   void * mem = aligned_alloc( FD_CHUNK_ALIGN, alloc_sz );
   FD_TEST( mem );
   memset( mem, 0, alloc_sz );
   return mem;
 }
 
-static ulong
-mock_replay_write_reset( void * mem,
-                         ulong  chunk,
-                         ulong  completed_slot,
-                         ulong  next_leader_slot ) {
-  fd_poh_reset_t * reset = (fd_poh_reset_t *)fd_chunk_to_laddr( mem, chunk );
-  memset( reset, 0, sizeof(fd_poh_reset_t) );
-  reset->completed_slot   = completed_slot;
-  reset->next_leader_slot = next_leader_slot;
-  return chunk;
-}
-
 static fd_bundle_tile_t test_ctx[1];
 
 static void
-inject_replay_reset( fd_bundle_tile_t * ctx,
-                     ulong              in_idx,
-                     ulong              chunk,
-                     ulong              completed_slot,
-                     ulong              next_leader_slot ) {
-  mock_replay_write_reset( ctx->replay_in.mem, chunk, completed_slot, next_leader_slot );
+inject_replay_frag( fd_bundle_tile_t * ctx,
+                    ulong              in_idx,
+                    ulong              chunk,
+                    ulong              slot,
+                    ulong              next_leader_slot ) {
+  fd_replay_next_leader_t * next_leader = (fd_replay_next_leader_t *)fd_chunk_to_laddr( ctx->replay_in.mem, chunk );
+  next_leader->slot             = slot;
+  next_leader->next_leader_slot = next_leader_slot;
 
-  during_frag( ctx, in_idx, 0UL, REPLAY_SIG_RESET, chunk, sizeof(fd_poh_reset_t), 0UL );
-  after_frag( ctx, in_idx, 0UL, REPLAY_SIG_RESET, sizeof(fd_poh_reset_t), 0UL, 0UL, NULL );
+  during_frag( ctx, in_idx, 0UL, REPLAY_SIG_NEXT_LEADER, chunk, sizeof(fd_replay_next_leader_t), 0UL );
+  after_frag( ctx, in_idx, 0UL, REPLAY_SIG_NEXT_LEADER, sizeof(fd_replay_next_leader_t), 0UL, 0UL, NULL );
 }
 
 /* ---- test: during_frag + after_frag staging/commit ------------------- */
@@ -65,24 +55,44 @@ test_replay_frag_ingest( void ) {
   ctx->next_leader_slot = ULONG_MAX;
   ctx->reset_slot       = ULONG_MAX;
 
-  /* Inject a reset: completed_slot=100, next_leader_slot=500 */
-  inject_replay_reset( ctx, in_idx, 0UL, 100UL, 500UL );
+  inject_replay_frag( ctx, in_idx, 0UL, 100UL, 500UL );
 
   FD_TEST( ctx->next_leader_slot==500UL );
   FD_TEST( ctx->reset_slot==100UL );
 
-  /* A non-reset signal should be ignored */
+  /* Boot publishes next leader, then a reset that under Alpenglow
+     carries no next leader slot.  The reset must not clobber it. */
+  fd_poh_reset_t * reset = (fd_poh_reset_t *)fd_chunk_to_laddr( wksp, 1UL );
+  memset( reset, 0, sizeof(fd_poh_reset_t) );
+  reset->completed_slot   = 100UL;
+  reset->next_leader_slot = ULONG_MAX;
+  during_frag( ctx, in_idx, 0UL, REPLAY_SIG_RESET, 1UL, sizeof(fd_poh_reset_t), 0UL );
+  after_frag( ctx, in_idx, 0UL, REPLAY_SIG_RESET, sizeof(fd_poh_reset_t), 0UL, 0UL, NULL );
+  FD_TEST( ctx->next_leader_slot==500UL );
+  FD_TEST( ctx->reset_slot==100UL );
+
+  /* A Tower reset to an earlier fork carries its own schedule and
+     replaces one announced from a completed slot on another fork. */
+  inject_replay_frag( ctx, in_idx, 0UL, 1004UL, 2000UL );
+  reset->completed_slot   = 999UL;
+  reset->next_leader_slot = 1000UL;
+  during_frag( ctx, in_idx, 0UL, REPLAY_SIG_RESET, 1UL, sizeof(fd_poh_reset_t), 0UL );
+  after_frag( ctx, in_idx, 0UL, REPLAY_SIG_RESET, sizeof(fd_poh_reset_t), 0UL, 0UL, NULL );
+  FD_TEST( ctx->next_leader_slot==1000UL );
+  FD_TEST( ctx->reset_slot==999UL );
+
+  /* Other replay signals should be ignored */
   ulong prev_next = ctx->next_leader_slot;
   ulong prev_rst  = ctx->reset_slot;
-  during_frag( ctx, in_idx, 0UL, REPLAY_SIG_RESET+1, 0UL, sizeof(fd_poh_reset_t), 0UL );
-  after_frag( ctx, in_idx, 0UL, REPLAY_SIG_RESET+1, sizeof(fd_poh_reset_t), 0UL, 0UL, NULL );
+  during_frag( ctx, in_idx, 0UL, REPLAY_SIG_SLOT_COMPLETED, 0UL, sizeof(fd_replay_slot_completed_t), 0UL );
+  after_frag( ctx, in_idx, 0UL, REPLAY_SIG_SLOT_COMPLETED, sizeof(fd_replay_slot_completed_t), 0UL, 0UL, NULL );
   FD_TEST( ctx->next_leader_slot==prev_next );
   FD_TEST( ctx->reset_slot==prev_rst );
 
   /* A different in_idx (not replay) should be ignored */
   ctx->in_kind[ 1 ] = 0;
-  during_frag( ctx, 1UL, 0UL, REPLAY_SIG_RESET, 0UL, sizeof(fd_poh_reset_t), 0UL );
-  after_frag( ctx, 1UL, 0UL, REPLAY_SIG_RESET, sizeof(fd_poh_reset_t), 0UL, 0UL, NULL );
+  during_frag( ctx, 1UL, 0UL, REPLAY_SIG_NEXT_LEADER, 0UL, sizeof(fd_replay_next_leader_t), 0UL );
+  after_frag( ctx, 1UL, 0UL, REPLAY_SIG_NEXT_LEADER, sizeof(fd_replay_next_leader_t), 0UL, 0UL, NULL );
   FD_TEST( ctx->next_leader_slot==prev_next );
   FD_TEST( ctx->reset_slot==prev_rst );
 
@@ -294,27 +304,27 @@ test_replay_triggers_sleep_transition( void ) {
 
   /* 1. Replay says: completed_slot=0, next_leader_slot=1000.
         Leader is 1000 slots away (>450) → stay asleep */
-  inject_replay_reset( ctx, in_idx, 0UL, 0UL, 1000UL );
+  inject_replay_frag( ctx, in_idx, 0UL, 0UL, 1000UL );
   fd_bundle_tile_maybe_sleep( ctx, 1 );
   FD_TEST( ctx->sleep_mode==1 );
 
   /* 2. Replay says: completed_slot=700, next_leader_slot=1000.
         Leader is 300 slots away (<=400) → wake up */
-  inject_replay_reset( ctx, in_idx, 0UL, 700UL, 1000UL );
+  inject_replay_frag( ctx, in_idx, 0UL, 700UL, 1000UL );
   ctx->sleep_check_ns = 0;
   fd_bundle_tile_maybe_sleep( ctx, 2 );
   FD_TEST( ctx->sleep_mode==0 );
 
   /* 3. Replay says: completed_slot=1004, next_leader_slot=2000.
         Leader is 996 slots away (>450) → enter sleep again */
-  inject_replay_reset( ctx, in_idx, 0UL, 1004UL, 2000UL );
+  inject_replay_frag( ctx, in_idx, 0UL, 1004UL, 2000UL );
   ctx->sleep_check_ns = 0;
   fd_bundle_tile_maybe_sleep( ctx, 3 );
   FD_TEST( ctx->sleep_mode==1 );
 
   /* 4. Replay says: no upcoming leader (ULONG_MAX).
         Should stay asleep. */
-  inject_replay_reset( ctx, in_idx, 0UL, 2000UL, ULONG_MAX );
+  inject_replay_frag( ctx, in_idx, 0UL, 2000UL, ULONG_MAX );
   ctx->sleep_check_ns = 0;
   fd_bundle_tile_maybe_sleep( ctx, 4 );
   FD_TEST( ctx->sleep_mode==1 );

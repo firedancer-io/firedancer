@@ -1,4 +1,5 @@
 #include "fd_config_json.h"
+#include "../../util/fd_boolau.h"
 
 #include <string.h>
 
@@ -54,7 +55,8 @@ main( int     argc,
   fd_boot( &argc, &argv );
 
   static fd_config_t config[1];
-  fd_config_load( 1, 0, default_config, strlen( default_config ), NULL, NULL, 0UL, NULL, 0UL, NULL, config, 0 );
+  fd_config_load( 0, default_config, strlen( default_config ), NULL, NULL, 0UL, NULL, 0UL, NULL, config, 0 );
+  FD_TEST( config->firedancer.runtime.transaction_cache_size_mib==480UL );
   char expected_stake_delegations[ PATH_MAX ];
   FD_TEST( fd_cstr_printf_check( expected_stake_delegations,
                                  sizeof(expected_stake_delegations),
@@ -76,6 +78,20 @@ main( int     argc,
                                  "%s/costtracker.db",
                                  config->paths.base ) );
   FD_TEST( !strcmp( config->paths.cost_tracker, expected_cost_tracker ) );
+  char expected_vote_stakes[ PATH_MAX ];
+  FD_TEST( fd_cstr_printf_check( expected_vote_stakes,
+                                 sizeof(expected_vote_stakes),
+                                 NULL,
+                                 "%s/votestakes.db",
+                                 config->paths.base ) );
+  FD_TEST( !strcmp( config->paths.vote_stakes, expected_vote_stakes ) );
+  char expected_txncache[ PATH_MAX ];
+  FD_TEST( fd_cstr_printf_check( expected_txncache,
+                                 sizeof(expected_txncache),
+                                 NULL,
+                                 "%s/txncache.db",
+                                 config->paths.base ) );
+  FD_TEST( !strcmp( config->paths.txncache, expected_txncache ) );
 
   strcpy( config->tiles.bundle.url, "https://user:hunter2@mainnet.example.com:443/v1/txns?api-key=SECRET#frag" );
   strcpy( config->tiles.event.url,  "https://events.example.com/submit" );
@@ -108,10 +124,38 @@ main( int     argc,
   FD_TEST(  strstr( json, "\"max_live_slots\"" ) );
   FD_TEST(  strstr( json, "\"shred_listen_port\"" ) );
 
+  /* Only "auto" is a string.  true and false stay JSON booleans, so a
+     config not using "auto" serializes exactly as it did before the
+     tri-state. */
+  static struct { int val; char const * expected; } const boolau_cases[] = {
+    { FD_BOOLAU_FALSE, "\"wait_for_vote_to_start_leader\":false"  },
+    { FD_BOOLAU_TRUE,  "\"wait_for_vote_to_start_leader\":true"   },
+    { FD_BOOLAU_AUTO,  "\"wait_for_vote_to_start_leader\":\"auto\"" }
+  };
+  for( ulong i=0UL; i<sizeof(boolau_cases)/sizeof(boolau_cases[0]); i++ ) {
+    static char boolau_json[ 262144 ];
+    config->consensus.wait_for_vote_to_start_leader = boolau_cases[ i ].val;
+    FD_TEST( fd_config_to_json( config, boolau_json, sizeof(boolau_json) ) );
+    FD_TEST( strstr( boolau_json, boolau_cases[ i ].expected ) );
+    for( ulong j=0UL; j<sizeof(boolau_cases)/sizeof(boolau_cases[0]); j++ ) {
+      if( j!=i ) FD_TEST( !strstr( boolau_json, boolau_cases[ j ].expected ) );
+    }
+  }
+
   /* external service urls are fully redacted */
   FD_TEST( !strstr( json, "SECRET" ) );
   FD_TEST( !strstr( json, "hunter2" ) );
   FD_TEST( !strstr( json, "example.com" ) );
+
+  /* failover settings are reported, failover is on by default */
+  FD_TEST( strstr( json, "\"failover\":{\"enabled\":true,\"boot_to_standby\":false,\"listen_address\":\"[redacted]\",\"listen_port\":8010}" ) );
+
+  /* the listen address is redacted, the rest is reported */
+  config->firedancer.failover.enabled = 0;
+  strcpy( config->firedancer.failover.listen_address, "10.9.8.7" );
+  FD_TEST( fd_config_to_json( config, json, sizeof(json) ) );
+  FD_TEST( !strstr( json, "10.9.8.7" ) );
+  FD_TEST(  strstr( json, "\"failover\":{\"enabled\":false,\"boot_to_standby\":false,\"listen_address\":\"[redacted]\",\"listen_port\":8010}" ) );
 
   /* user override toml renders with keyword redaction */
   static char const user_toml[] =
@@ -123,6 +167,7 @@ main( int     argc,
     "  port = 8001\n"
     "[paths]\n"
     "  accounts = \"/data/accounts\"\n"
+    "  txncache = \"/data/txncache\"\n"
     "[tiles.pack]\n"
     "  account_blocklist = []\n";
   strcpy( config->user_config, user_toml );
@@ -133,6 +178,7 @@ main( int     argc,
   FD_TEST( user_len && user_len==strlen( user_json ) );
   FD_TEST( !strstr( user_json, "SECRET" ) );
   FD_TEST( !strstr( user_json, "/data/accounts" ) );
+  FD_TEST( !strstr( user_json, "/data/txncache" ) );
   FD_TEST(  strstr( user_json, "\"port\":8001" ) );
   FD_TEST( !strstr( user_json, "entrypoint.mainnet-beta.solana.com" ) );
   FD_TEST(  strstr( user_json, "\"name\":\"fd1\"" ) );
@@ -184,6 +230,22 @@ main( int     argc,
       p = q;
     }
   }
+
+  /* Custom spill paths use the same substitutions as the other paths. */
+  static char const spill_toml[] = "[paths]\n  txncache = \"/data/{user}/{name}/spill.db\"\n";
+  fd_config_load( 0, default_config, strlen( default_config ), NULL, NULL, 0UL, spill_toml, strlen( spill_toml ), "spill.toml", config, 0 );
+  FD_TEST( fd_cstr_printf_check( expected_txncache,
+                                 sizeof(expected_txncache),
+                                 NULL,
+                                 "/data/%s/%s/spill.db",
+                                 config->user, config->name ) );
+  FD_TEST( !strcmp( config->paths.txncache, expected_txncache ) );
+
+  static char const cache_toml[] = "[runtime]\n  transaction_cache_size_mib = 3072\n";
+  fd_config_load( 0, default_config, strlen( default_config ), NULL, NULL, 0UL, cache_toml, strlen( cache_toml ), "cache.toml", config, 0 );
+  FD_TEST( config->firedancer.runtime.transaction_cache_size_mib==3072UL );
+  FD_TEST( fd_config_to_json( config, json, sizeof(json) ) );
+  FD_TEST( strstr( json, "\"transaction_cache_size_mib\":3072" ) );
 
   FD_LOG_NOTICE(( "rendered %lu bytes", len ));
   FD_LOG_NOTICE(( "pass" ));

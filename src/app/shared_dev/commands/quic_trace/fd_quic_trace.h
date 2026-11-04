@@ -43,7 +43,6 @@ struct fd_quic_trace_ctx {
   int   dump;         /* whether the user requested --dump */
   int   dump_config;  /* whether the user requested --dump-config */
   int   dump_conns;   /* whether the user requested --dump-conns */
-  int   trace_send;   /* whether the user requested tracing send tile (1) or quic tile (0) */
   ulong net_out_base; /* base address of net-out chunks in local addr space */
 
   fd_quic_t * quic;  /* local join to remote quic */
@@ -68,9 +67,6 @@ typedef struct fd_quic_trace_frame_ctx fd_quic_trace_frame_ctx_t;
   ulong laddr = (ulong)fd_quic_trace_tile_ctx_remote + rel;  \
   (__typeof__(ptr))(laddr);                                  \
 })
-
-#define tile_member( ctx_ptr, field, is_send ) \
-*fd_ptr_if( is_send, &(((fd_txsend_tile_t*)(ctx_ptr))->field), &(((fd_quic_ctx_t*)(ctx_ptr))->field))
 
 
 FD_PROTOTYPES_BEGIN

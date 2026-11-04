@@ -1103,10 +1103,10 @@ fd_feature_id_t const ids[] = {
     .hardcode_for_fuzzing      = 1 },
 
   { .index                     = offsetof(fd_features_t, enable_big_mod_exp_syscall)>>3,
-    .id                        = {"\x09\xb9\x99\xac\x1a\x48\x7e\xf6\x04\xba\xb3\x87\x63\x5f\xf5\x37\xce\x0c\x3a\x39\xf1\xec\x62\x0c\xc1\xfc\xc1\x65\x30\xfc\x2e\x11"},
-                                 /* expH2ppKPW2ANEdEmAjfhSEcnBQJfmoX4FjuNpe9ttg */
+    .id                        = {"\x09\xb9\x99\xbc\x07\x17\xb8\x50\x4d\x5b\xed\x85\x47\x07\xf2\xb7\xbd\x58\x65\x20\x5b\xc6\x86\x8d\x10\xe5\xaa\x19\xfa\x3a\xae\x90"},
+                                 /* expHkkpN92z71GU7EwB7AXCy8Mz4kzDJFpGY1dZV9A7 */
     .name                      = "enable_big_mod_exp_syscall",
-    .implemented               = 0,
+    .implemented               = 1,
     .cleaned_up                = 0 },
 
   { .index                     = offsetof(fd_features_t, disable_builtin_loader_ownership_chains)>>3,
@@ -2043,7 +2043,7 @@ fd_feature_id_t const ids[] = {
                                  /* b1sgUiJ3qu7hYm3tNDyyqZNQd6gLGJmJppnLNa93PCQ */
     .name                      = "enable_bls12_381_syscall",
     .implemented               = 1,
-    .cleaned_up                = 0,
+    .cleaned_up                = 1,
     .hardcode_for_fuzzing      = 1 },
 
   { .index                     = offsetof(fd_features_t, enable_alt_bn128_g2_syscalls)>>3,
@@ -2067,7 +2067,8 @@ fd_feature_id_t const ids[] = {
                                  /* AnAP9zPV4KL7czAPQbFhpDKV2tx7g4UGNbK9wvXwjaRo */
     .name                      = "bls_pubkey_management_in_vote_account",
     .implemented               = 1,
-    .cleaned_up                = 0 },
+    .cleaned_up                = 0,
+    .hardcode_for_fuzzing      = 1 },
 
   { .index                     = offsetof(fd_features_t, relax_programdata_account_check_migration)>>3,
     .id                        = {"\x0c\xb8\x61\x19\x93\x8f\xce\xa5\xf4\x30\x8b\x2d\x20\xe5\xf6\xdf\xe7\x66\x90\x8a\x06\xb4\x57\xaa\xa9\x0d\x88\xb6\x2f\xd6\x4b\xa2"},
@@ -2120,7 +2121,8 @@ fd_feature_id_t const ids[] = {
                                  /* ptokFjwyJtrwCa9Kgo9xoDS59V4QccBGEaRFnRPnSdP */
     .name                      = "replace_spl_token_with_p_token",
     .implemented               = 1,
-    .cleaned_up                = 0 },
+    .cleaned_up                = 1,
+    .hardcode_for_fuzzing      = 1 },
 
   { .index                     = offsetof(fd_features_t, delay_commission_updates)>>3,
     .id                        = {"\x5a\x97\x0f\x6d\x79\x4d\x43\xf5\x93\x88\x4b\xb9\xe2\xf1\x18\x5f\xa3\x02\x70\xbe\x4c\xce\x7e\x21\x52\xc1\xb0\xad\x2f\xf6\xcc\xd0"},
@@ -2143,7 +2145,8 @@ fd_feature_id_t const ids[] = {
                                  /* STk5Xj8hdAx3sTzmtJ3QysKkq6X2A3yj73JtxttiRyk */
     .name                      = "upgrade_bpf_stake_program_to_v5",
     .implemented               = 1,
-    .cleaned_up                = 0 },
+    .cleaned_up                = 1,
+    .hardcode_for_fuzzing      = 1 },
 
   { .index                     = offsetof(fd_features_t, enable_sha512_syscall)>>3,
     .id                        = {"\x0c\xd3\x90\x59\xed\x06\x42\x15\x11\xe5\x76\x8c\x1e\x16\x42\xf4\x9c\xef\x1e\xab\xf4\xbe\x4e\xde\x46\x6f\x8a\x62\x12\x69\xee\xd6"},
@@ -2272,7 +2275,8 @@ fd_feature_id_t const ids[] = {
                                  /* s51VGwCAgebo2745DSUris72RavoLkXGUmVJosESCXr */
     .name                      = "upgrade_bpf_stake_program_to_v5_1",
     .implemented               = 1,
-    .cleaned_up                = 0 },
+    .cleaned_up                = 1,
+    .hardcode_for_fuzzing      = 1 },
 
   { .index                     = offsetof(fd_features_t, custom_commission_collector)>>3,
     .id                        = {"\x21\xf8\xbe\xce\x1c\x74\xd8\x1d\x21\xe8\x9b\xfb\x4c\xfb\xb5\x28\x83\x6b\xb6\x00\x94\x4d\x10\x21\x9e\x32\xf5\xf1\x3f\xa2\x95\xce"},
@@ -2289,8 +2293,8 @@ fd_feature_id_t const ids[] = {
     .cleaned_up                = 0 },
 
   { .index                     = offsetof(fd_features_t, double_disinflation_rate)>>3,
-    .id                        = {"\x3c\xa9\xe5\xb4\x9c\x46\xa2\x8e\xe8\xdc\x2c\x26\x19\xe0\x01\x09\x59\xaa\xaf\x28\x04\x8f\x3d\x5f\x9f\x4a\x96\x96\x6e\xad\xb0\x75"},
-                                 /* 55oikhjJ2LUi1xdgJ17ueRyHFURZEw32asT3iAKfh7gg */
+    .id                        = {"\x09\x62\x6c\xe8\x20\x77\x2c\xf5\x37\x7e\x00\x68\x91\x01\x6f\xcb\xfd\x0b\x53\x67\xeb\xfb\xaa\x01\xe2\xc3\x0e\x6f\xfe\x63\x42\xa7"},
+                                 /* ddibiks7RHZR69QXYMCmk4EZNt6WckspTqEEWv6cS38 */
     .name                      = "double_disinflation_rate",
     .implemented               = 1,
     .cleaned_up                = 0 },
@@ -2307,7 +2311,8 @@ fd_feature_id_t const ids[] = {
                                  /* A1pengvuM6JEcyNuTnMqepBKhwHE3N6PmUrdATGawhJS */
     .name                      = "alpenglow",
     .implemented               = 1,
-    .cleaned_up                = 0 },
+    .cleaned_up                = 0,
+    .hardcode_for_fuzzing      = 1 },
 
   { .index                     = offsetof(fd_features_t, relax_fee_payer_constraint)>>3,
     .id                        = {"\xd3\x67\x76\x96\x3e\x25\x7f\x1e\x4e\xa2\x79\xb4\x3b\xf4\xe5\xf1\x35\xea\xf4\xd9\xf9\xd7\xf1\xfa\x82\x59\x8a\xfb\xa8\xfb\x03\xab"},
@@ -2355,6 +2360,63 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\xcb\x96\x7f\xe4\x9d\xb2\xa7\x0a\xc5\xf7\x47\xe5\xe5\x0e\xd8\x60\x94\x83\xca\x6f\x84\x1f\xfd\x0d\x20\x7b\x2b\x9b\xe2\x61\x22\x36"},
                                  /* EhisBfVtGvEA8bVCVN5VMaYEaX6iTfoUrmcDi8LY7Kxy */
     .name                      = "loader_v3_set_program_data_to_elf_length",
+    .implemented               = 1,
+    .cleaned_up                = 0 },
+
+  { .index                     = offsetof(fd_features_t, validator_location_registration)>>3,
+    .id                        = {"\x07\x51\x97\x01\x74\x48\xf2\xdb\xa0\x39\x9c\x5b\xd8\x1a\xaf\x58\xd9\xbd\x19\x27\xab\xa5\xed\x80\xd2\x89\xe4\x3d\xea\x0e\x40\x00"},
+                                 /* Va1idatorLocat1onRegistrat1on11111111111111 */
+    .name                      = "validator_location_registration",
+    .implemented               = 1,
+    .cleaned_up                = 0 },
+
+  { .index                     = offsetof(fd_features_t, enforce_validator_location_registration)>>3,
+    .id                        = {"\x03\x88\x30\x50\xef\xa6\x06\xee\xcd\x5f\xba\x36\xf7\x57\xd7\xee\xb3\x71\x16\x40\xb2\x21\xc3\xc1\x29\x3e\x1e\x58\x55\x11\xaa\x80"},
+                                 /* EnforceVa1idatorLocat1onRegistrat1on1111111 */
+    .name                      = "enforce_validator_location_registration",
+    .implemented               = 1,
+    .cleaned_up                = 0 },
+
+  { .index                     = offsetof(fd_features_t, geo_aware_leader_schedule)>>3,
+    .id                        = {"\x04\x02\x72\xc2\x34\x3e\x3f\x36\x27\xcf\x7c\xb9\x8b\x16\x9a\x66\x26\x24\x3d\x8c\xd6\x5b\x15\x99\x7a\x8b\x7c\x56\x58\x20\x00\x00"},
+                                 /* GeoAwareLeaderSchedu1e111111111111111111111 */
+    .name                      = "geo_aware_leader_schedule",
+    .implemented               = 1,
+    .cleaned_up                = 0 },
+
+  { .index                     = offsetof(fd_features_t, secp256r1_syscall_enabled)>>3,
+    .id                        = {"\x06\x91\xd6\xab\x6b\x69\x3c\x66\x25\xb4\x47\x84\xe3\xc4\x2a\x27\xbb\x03\xc1\xeb\xac\xd9\xe0\xe0\xdf\x9d\xc9\x89\x30\x49\xa6\xfb"},
+                                 /* SeRjtX7Abiq5hQYbzdCny266oveDseHZh9tnrs2cdVC */
+    .name                      = "secp256r1_syscall_enabled",
+    .implemented               = 1,
+    .cleaned_up                = 0 },
+
+  { .index                     = offsetof(fd_features_t, stricter_shred_validation)>>3,
+    .id                        = {"\x0c\xd4\x76\x12\xe3\x7a\x2d\xcb\xa3\xb5\xf7\x67\x69\xf5\x4b\xd1\x11\x48\x4f\x7f\x64\x4c\xa4\x88\x90\x36\x11\x7e\x78\xa8\xda\x39"},
+                                 /* s5o4YoA9zUrw9j4v335ncdG5PpznDBsrgM6CvUGrasA */
+    .name                      = "stricter_shred_validation",
+    .implemented               = 1,
+    .cleaned_up                = 0,
+    .hardcode_for_fuzzing      = 1 },
+
+  { .index                     = offsetof(fd_features_t, remove_runtime_float_ops)>>3,
+    .id                        = {"\x5b\xb5\xbe\x6c\x59\x1c\x64\x30\xc9\x7c\x8a\xd9\xdf\x40\xb8\xaa\xd9\xe2\x2b\x23\x24\x34\x2d\x80\x27\xe1\x22\x4b\xe2\xa2\x56\x93"},
+                                 /* 7AzqUCKQjoCKhWDDHgEYkTY8iRwWtuuxHogcmx1UJzR8 */
+    .name                      = "remove_runtime_float_ops",
+    .implemented               = 1,
+    .cleaned_up                = 0 },
+
+  { .index                     = offsetof(fd_features_t, core_bpf_hash_validation)>>3,
+    .id                        = {"\xd3\x0e\x01\x38\x54\x80\x23\x6b\x8b\xac\x3a\x04\xba\xb2\xfa\x29\xf3\x15\x74\x9e\x5e\x38\x89\x34\xc4\x9d\xf8\x1a\x50\x42\x2d\x98"},
+                                 /* FCsQnd4V52NESBhVURWYSWBbmLFzgxEZVC2WngzHzp1u */
+    .name                      = "core_bpf_hash_validation",
+    .implemented               = 1,
+    .cleaned_up                = 0 },
+
+  { .index                     = offsetof(fd_features_t, replace_ata_with_p_ata)>>3,
+    .id                        = {"\x0c\x30\x9d\xda\x37\x8a\x9f\x53\x03\xe7\x87\xea\x4a\xf3\x90\xce\x9a\x0b\x48\xd6\xb7\xbf\x4b\xc5\x79\x4e\xef\x3e\x32\xfb\x76\x18"},
+                                 /* pata6uFabFDejC1U7rpmFj9s1FhmiPyWk6D51U1ksx3 */
+    .name                      = "replace_ata_with_p_ata",
     .implemented               = 1,
     .cleaned_up                = 0 },
 
@@ -2512,7 +2574,7 @@ typedef struct fd_feature_id_lookup_entry fd_feature_id_lookup_entry_t;
 #define MAP_PERFECT_135 0x71eba1d288ba2bfcUL, .val = &ids[135]
 #define MAP_PERFECT_136 0x823d14dd6235f859UL, .val = &ids[136]
 #define MAP_PERFECT_137 0xb3f6cd09abba192bUL, .val = &ids[137]
-#define MAP_PERFECT_138 0xf67e481aac99b909UL, .val = &ids[138]
+#define MAP_PERFECT_138 0x50b81707bc99b909UL, .val = &ids[138]
 #define MAP_PERFECT_139 0x500aab8a23ff8b33UL, .val = &ids[139]
 #define MAP_PERFECT_140 0xffe35ea7abb29bbbUL, .val = &ids[140]
 #define MAP_PERFECT_141 0x8a22c4e80489c387UL, .val = &ids[141]
@@ -2665,7 +2727,7 @@ typedef struct fd_feature_id_lookup_entry fd_feature_id_lookup_entry_t;
 #define MAP_PERFECT_288 0xe8f8dc2ca192d30cUL, .val = &ids[288]
 #define MAP_PERFECT_289 0x1dd8741ccebef821UL, .val = &ids[289]
 #define MAP_PERFECT_290 0x9c92e629e8d74f0dUL, .val = &ids[290]
-#define MAP_PERFECT_291 0x8ea2469cb4e5a93cUL, .val = &ids[291]
+#define MAP_PERFECT_291 0xf52c7720e86c6209UL, .val = &ids[291]
 #define MAP_PERFECT_292 0x3d030a2e7e893d06UL, .val = &ids[292]
 #define MAP_PERFECT_293 0xb2513619e40fef85UL, .val = &ids[293]
 #define MAP_PERFECT_294 0x1e7f253e967667d3UL, .val = &ids[294]
@@ -2675,6 +2737,14 @@ typedef struct fd_feature_id_lookup_entry fd_feature_id_lookup_entry_t;
 #define MAP_PERFECT_298 0x351933dc20486107UL, .val = &ids[298]
 #define MAP_PERFECT_299 0x7b717607817b2451UL, .val = &ids[299]
 #define MAP_PERFECT_300 0x0aa7b29de47f96cbUL, .val = &ids[300]
+#define MAP_PERFECT_301 0xdbf2487401975107UL, .val = &ids[301]
+#define MAP_PERFECT_302 0xee06a6ef50308803UL, .val = &ids[302]
+#define MAP_PERFECT_303 0x363f3e34c2720204UL, .val = &ids[303]
+#define MAP_PERFECT_304 0x663c696babd69106UL, .val = &ids[304]
+#define MAP_PERFECT_305 0xcb2d7ae31276d40cUL, .val = &ids[305]
+#define MAP_PERFECT_306 0x30641c596cbeb55bUL, .val = &ids[306]
+#define MAP_PERFECT_307 0x6b23805438010ed3UL, .val = &ids[307]
+#define MAP_PERFECT_308 0x539f8a37da9d300cUL, .val = &ids[308]
 
 #include "../../util/tmpl/fd_map_perfect.c"
 
@@ -2986,4 +3056,12 @@ FD_STATIC_ASSERT( offsetof( fd_features_t, block_revenue_sharing                
 FD_STATIC_ASSERT( offsetof( fd_features_t, vote_account_initialize_v2                              )>>3==298UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, raise_cpi_nesting_limit_to_8                            )>>3==299UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, loader_v3_set_program_data_to_elf_length                )>>3==300UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, validator_location_registration                         )>>3==301UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, enforce_validator_location_registration                 )>>3==302UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, geo_aware_leader_schedule                               )>>3==303UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, secp256r1_syscall_enabled                               )>>3==304UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, stricter_shred_validation                               )>>3==305UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, remove_runtime_float_ops                                )>>3==306UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, core_bpf_hash_validation                                )>>3==307UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, replace_ata_with_p_ata                                  )>>3==308UL, layout );
 FD_STATIC_ASSERT( sizeof( fd_features_t )>>3==FD_FEATURE_ID_CNT, layout );

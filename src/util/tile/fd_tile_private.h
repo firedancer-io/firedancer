@@ -59,6 +59,15 @@ fd_cpuset_setaffinity( ulong               tid,
 ulong
 fd_tile_private_sibling_idx( ulong cpu_idx );
 
+/* fd_tile_private_sibling_parse parses a kernel thread_siblings_list
+   cpulist ("0,48\n", "6-7\n", "5\n") for cpu_idx.  Returns the other
+   member of a pair, ULONG_MAX if cpu_idx is alone, or ULONG_MAX-1 if
+   the list is malformed, lacks cpu_idx or has more than two CPUs. */
+
+ulong
+fd_tile_private_sibling_parse( char const * list,
+                               ulong        cpu_idx );
+
 /* These functions are for fd_tile internal use only. */
 
 void *

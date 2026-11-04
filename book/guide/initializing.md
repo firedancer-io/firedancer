@@ -1,11 +1,13 @@
 # Initializing
 
 ## Overview
-The `fdctl configure` command is used to setup the host operator system
-so Firedancer can run correctly. It does the following:
+The `firedancer configure` command is used to setup the host operator
+system so Firedancer can run correctly. It does the following:
 
-* **uverbs** Loads the `ib_uverbs` kernel module required by the
-  mlx5 network provider.
+* **iavf** Configures VFs, clears and installs PF ntuple rules and loads the
+  `vfio-pci` kernel module required by the iavf network provider.
+* **mlx5** Loads the `ib_uverbs` kernel module required by the mlx5
+  network provider and clears network configuration left by XDP.
 * **hugetlbfs** Reserves huge and gigantic pages for use by Firedancer.
 * **sysctl** Sets required kernel parameters.
 * **hyperthreads** Checks hyperthreaded pair for critical CPU cores.
@@ -36,7 +38,7 @@ is rebooted, to remount the `hugetlbfs` filesystems, as do `sysctl`,
 device, `irq-affinity` and `irq-balance` configure IRQ affinities for
 CPUs.
 
-The configure command is run like `fdctl configure <mode> <stage>...`
+The configure command is run like `firedancer configure <mode> <stage>...`
 where `mode` is one of:
 
  - `init` Configures the provided stages if they are not already
@@ -46,7 +48,7 @@ where `mode` is one of:
    privileges and will not make any changes to the system.
  - `fini` Unconfigure (reverse) the stage if it is reversible.
 
-`stage` can be one or more of `uverbs`, `hugetlbfs`, `sysctl`,
+`stage` can be one or more of `iavf`, `mlx5`, `hugetlbfs`, `sysctl`,
 `hyperthreads`, `bonding`,  `ethtool-channels`, `ethtool-offloads`,
 `ethtool-loopback`,
 `irq-affinity`, `irq-balance`, `kworkers`, `cpuset`, `console`, and
@@ -59,24 +61,70 @@ trying to run the stage without privileges. The `check` mode never
 requires privileges, and the `init` mode will only require
 privileges if it needs to actually change something.
 
-## uverbs
+## iavf
+The iavf provider uses one SR-IOV Virtual Function (VF) per Physical
+Function (PF) on `[net.interface]`. This stage only runs when `[net.provider]`
+is `iavf`. The PFs must use Intel `ice` or `i40e` drivers, SR-IOV and IOMMU
+must be enabled in the system's BIOS, with Virtualization Mode set to SR-IOV
+in the NIC's BIOS section.
+
+`init` loads the `vfio-pci` kernel module if needed, then reuses the
+highest index VF bound to `vfio-pci`. If VFs exist but none are bound
+to `vfio-pci`, init fails. If no VFs exist, it creates VF 0 and binds it
+to `vfio-pci`.
+It assigns the MAC address of `[net.interface]`
+to each VF used (this leads to all RX being sent to both the PF and VF,
+Firedancer adds drop rules on the PF so it processes less unnecessary FD packets),
+disables spoof checking and trust, and sets automatic link state. Repeated
+init does not add excess VFs.
+
+The stage clears all existing PF ntuple rules and installs UDP port based
+drop rules for Firedancer's ports so unnecessary packets are not processed
+by the normal kernel (would otherwise waste CPU resources).
+
+Changing VFs or PF filters requires root privileges. `CAP_SYS_MODULE`
+is also required when loading `vfio-pci`. If already configured, `init`
+does nothing. The `check` mode requires no privileges and makes no changes.
+
+`fini` clears PF's ntuple rules and removes VF 0 if its PF has
+exactly one VF (PFs with multiple VFs retain all of them), it does not
+unload `vfio-pci`.
+
+## mlx5
 The mlx5 network provider sets up the network device through the
 `/dev/infiniband/uverbs*` devices, which are provided by the `ib_uverbs`
 kernel module. The module is not always loaded at boot. This stage only
-runs when the mlx5 network provider is in use.
+runs when `[net.provider]` is `mlx5`.
 
-The command run by the stage is `modprobe ib_uverbs`. If the uverbs
-devices are still unavailable after loading the module, the stage fails
-and `[net.provider]` should be set to `xdp`.
+If the uverbs interface is unavailable, the stage runs
+`modprobe ib_uverbs` to load the module. If the interface is still unavailable
+after loading the module, the stage fails and `[net.provider]` should
+be set to `xdp`.
 
-The stage only needs to be run a maximum of once after boot, if the
-`ib_uverbs` module is not already loaded. It has no dependencies on any
-other stage.
+The stage also clears network configuration left by XDP on
+`[net.interface]`. When leftover configuration is found, `init` automatically
+calls `fini` to reset the device before loading the module if needed.
+Cleanup deletes all ntuple rules, restores the default
+RSS indirection table, and restores the maximum channel count, capped
+by the number of online CPUs. For a bonded interface, it resets each
+bond member. Devices already at defaults are left unchanged.
 
-This stage requires root privileges, and cannot be performed with
-capabilities. If the `ib_uverbs` module is already loaded then the init
-mode does nothing and the check mode will return successfully without
-requiring privileges.
+Run this stage after boot if the uverbs interface is unavailable, or
+when switching from XDP to mlx5. If leftover XDP configuration is
+found during startup, Firedancer stops and recommends running
+`firedancer configure init mlx5` to restore the device defaults. The
+stage has no dependencies on any other stage.
+
+Changing device settings or loading the module requires root
+privileges. `CAP_SYS_MODULE` is also required when the module needs
+to be loaded. If the uverbs interface is available and the network
+devices are already at defaults, `init` does nothing and `check`
+succeeds without privileges. Otherwise, `check` fails without changing
+anything.
+
+The `fini` mode performs the network cleanup described above and requires
+root privileges only when device settings need changing. It does not unload
+the module or restore the deleted ntuple rules and previous network settings.
 
 ## hugetlbfs
 The `hugetlbfs` stage is used to reserve `huge` (2MiB) and `gigantic`
@@ -138,6 +186,7 @@ will not decrease them if the minimum is already met.
 | /proc/sys/net/ipv4/conf/lo/rp_filter    | 2           | Yes      | If sending QUIC transactions to Firedancer over loopback, this must be enabled to receive a response. Otherwise Linux will drop response packets due to limitations in the kernel eBPF networking stack. The sendTransaction RPC call will send over loopback.
 | /proc/sys/net/ipv4/conf/lo/accept_local | 1           | Yes      | If sending QUIC transactions to Firedancer over loopback, this must be enabled to receive a response. Otherwise Linux will drop response packets due to limitations in the kernel eBPF networking stack. The sendTransaction RPC call will send over loopback.
 | /proc/sys/net/core/bpf_jit_enable       | 1           | No       | Firedancer uses BPF for kernel bypass networking. BPF JIT makes this faster.
+| /proc/sys/net/core/wmem_max             | see desc.   | Yes      | With the XDP network stack in copy mode, every packet being transmitted is charged to the socket send buffer, which Firedancer sizes to the transmit ring: `net.xdp.xdp_tx_queue_size` times 2048 bytes (64 MiB by default). A lower maximum caps it and limits how many packets the kernel can transmit at once.
 | /proc/sys/kernel/numa_balancing         | 0           | No       | Firedancer assigns all memory to the right NUMA node, and rebalancing will make the system slower.
 
 Sysctls that are not required will produce a warning if they are not set
@@ -171,13 +220,15 @@ like this:
 
 <<< @/snippets/hyperthreads.ansi
 
-When using the `auto` layout, Firedancer will ensure no other tiles are
-assigned to run on the hyperthread pairs, but if using a manual layout,
-it is possible to assign another tile to the pair.
+When using the `auto` layout, Firedancer will avoid assigning tiles to
+run as hyperthread pairs, except when it is beneficial. But if using a
+manual layout, it is possible to assign another tile to the pair.
 
 This stage has no dependencies on any other stage, but it is dependent
 on the topology specified in your configuration. It is recommended that
-you turn off the CPUs specified in the warning for optimal performance.
+you either turn off the CPUs specified in the warning, or run
+`configure init cpuset` so they are kept idle in the isolated
+partition.
 
 ## bonding
 Validator hosts commonly use bonded network devices to increase
@@ -198,9 +249,10 @@ Changing device settings with `bonding` requires root privileges, and
 cannot be performed with capabilities.
 
 ## ethtool-channels
-In addition to XDP, Firedancer uses receive side scaling (RSS) to
-improve network performance. This uses functionality of modern NICs to
-steer packets to different queues to distribute processing among CPUs.
+This stage only runs when `[net.provider]` is `xdp`.
+Firedancer uses receive side scaling (RSS) to improve network
+performance. This uses functionality of modern NICs to steer packets
+to different queues to distribute processing among CPUs.
 See the [kernel
 documentation](https://docs.kernel.org/networking/scaling.html) for more
 information.
@@ -444,13 +496,15 @@ onto that tile's core. On a serial console this is worse: the UART
 write runs synchronously inside the system call itself.
 
 The `console` stage disables the framebuffer cursor blink and lowers
-the console loglevel to 4, so that only messages of error severity and
-above render on the console. Kernel oopses, panics, and hardware
-errors still appear on an attached screen or BMC KVM; warning-level
-messages no longer do. All messages continue to be recorded in the
-kernel ring buffer and are visible with `dmesg` or in the system
-journal regardless of the console loglevel. The console itself is
-never disabled or unbound, so a crash cart still shows a panic.
+the console loglevel to 2, so that only emergency and alert messages,
+such as panics, render on the console. Critical and error messages no
+longer do: the kernel prints rate-limited critical messages from inside
+system calls, for example on every AF_XDP transmit in skb mode over a
+bond while a packet capture is attached. All messages continue to be
+recorded in the kernel ring buffer and are visible with `dmesg` or in
+the system journal regardless of the console loglevel. The console
+itself is never disabled or unbound, so a crash cart still shows a
+panic.
 
 <<< @/snippets/console.ansi
 

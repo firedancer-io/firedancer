@@ -572,22 +572,22 @@ compress: (void)0;
     wu_transpose_8x8( hu[0], hu[1], hu[2], hu[3], hu[4], hu[5], hu[6], hu[7],
                       hu[0], hu[1], hu[2], hu[3], hu[4], hu[5], hu[6], hu[7] );
     switch( batch_cnt ) { /* application dependent prob */
-    case 8UL: wu_st( batch_hash[7],   h7    );
-              wu_st( batch_hash[7]+8, hu[7] ); __attribute__((fallthrough));
-    case 7UL: wu_st( batch_hash[6],   h6    );
-              wu_st( batch_hash[6]+8, hu[6] ); __attribute__((fallthrough));
-    case 6UL: wu_st( batch_hash[5],   h5    );
-              wu_st( batch_hash[5]+8, hu[5] ); __attribute__((fallthrough));
-    case 5UL: wu_st( batch_hash[4],   h4    );
-              wu_st( batch_hash[4]+8, hu[4] ); __attribute__((fallthrough));
-    case 4UL: wu_st( batch_hash[3],   h3    );
-              wu_st( batch_hash[3]+8, hu[3] ); __attribute__((fallthrough));
-    case 3UL: wu_st( batch_hash[2],   h2    );
-              wu_st( batch_hash[2]+8, hu[2] ); __attribute__((fallthrough));
-    case 2UL: wu_st( batch_hash[1],   h1    );
-              wu_st( batch_hash[1]+8, hu[1] ); __attribute__((fallthrough));
-    case 1UL: wu_st( batch_hash[0],   h0    );
-              wu_st( batch_hash[0]+8, hu[0] ); __attribute__((fallthrough));
+    case 8UL: wu_stu( batch_hash[7],   h7    );
+              wu_stu( batch_hash[7]+8, hu[7] ); __attribute__((fallthrough));
+    case 7UL: wu_stu( batch_hash[6],   h6    );
+              wu_stu( batch_hash[6]+8, hu[6] ); __attribute__((fallthrough));
+    case 6UL: wu_stu( batch_hash[5],   h5    );
+              wu_stu( batch_hash[5]+8, hu[5] ); __attribute__((fallthrough));
+    case 5UL: wu_stu( batch_hash[4],   h4    );
+              wu_stu( batch_hash[4]+8, hu[4] ); __attribute__((fallthrough));
+    case 4UL: wu_stu( batch_hash[3],   h3    );
+              wu_stu( batch_hash[3]+8, hu[3] ); __attribute__((fallthrough));
+    case 3UL: wu_stu( batch_hash[2],   h2    );
+              wu_stu( batch_hash[2]+8, hu[2] ); __attribute__((fallthrough));
+    case 2UL: wu_stu( batch_hash[1],   h1    );
+              wu_stu( batch_hash[1]+8, hu[1] ); __attribute__((fallthrough));
+    case 1UL: wu_stu( batch_hash[0],   h0    );
+              wu_stu( batch_hash[0]+8, hu[0] ); __attribute__((fallthrough));
     default: break;
     }
   } else {

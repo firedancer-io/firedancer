@@ -38,14 +38,13 @@ typedef struct sysvar_lut sysvar_tbl_t;
 #define MAP_PERFECT_HASH_R( ptr ) PERFECT_HASH( fd_uint_load_4( (uchar const *)ptr + 8UL ) )
 #define MAP_SYSVAR( id, desc ) ( id ), ( desc )
 #define MAP_PERFECT_0  MAP_SYSVAR( SYSVAR_CLOCK_ID,          FD_SYSVAR_clock_IDX               )
-#define MAP_PERFECT_1  MAP_SYSVAR( SYSVAR_SLOT_HIST_ID,      FD_SYSVAR_slot_history_IDX        )
-#define MAP_PERFECT_2  MAP_SYSVAR( SYSVAR_SLOT_HASHES_ID,    FD_SYSVAR_slot_hashes_IDX         )
-#define MAP_PERFECT_3  MAP_SYSVAR( SYSVAR_EPOCH_SCHED_ID,    FD_SYSVAR_epoch_schedule_IDX      )
-#define MAP_PERFECT_4  MAP_SYSVAR( SYSVAR_RECENT_BLKHASH_ID, FD_SYSVAR_recent_hashes_IDX       )
-#define MAP_PERFECT_5  MAP_SYSVAR( SYSVAR_RENT_ID,           FD_SYSVAR_rent_IDX                )
-#define MAP_PERFECT_6  MAP_SYSVAR( SYSVAR_EPOCH_REWARDS_ID,  FD_SYSVAR_epoch_rewards_IDX       )
-#define MAP_PERFECT_7  MAP_SYSVAR( SYSVAR_STAKE_HIST_ID,     FD_SYSVAR_stake_history_IDX       )
-#define MAP_PERFECT_8  MAP_SYSVAR( SYSVAR_LAST_RESTART_ID,   FD_SYSVAR_last_restart_slot_IDX   )
+#define MAP_PERFECT_1  MAP_SYSVAR( SYSVAR_SLOT_HASHES_ID,    FD_SYSVAR_slot_hashes_IDX         )
+#define MAP_PERFECT_2  MAP_SYSVAR( SYSVAR_EPOCH_SCHED_ID,    FD_SYSVAR_epoch_schedule_IDX      )
+#define MAP_PERFECT_3  MAP_SYSVAR( SYSVAR_RECENT_BLKHASH_ID, FD_SYSVAR_recent_hashes_IDX       )
+#define MAP_PERFECT_4  MAP_SYSVAR( SYSVAR_RENT_ID,           FD_SYSVAR_rent_IDX                )
+#define MAP_PERFECT_5  MAP_SYSVAR( SYSVAR_EPOCH_REWARDS_ID,  FD_SYSVAR_epoch_rewards_IDX       )
+#define MAP_PERFECT_6  MAP_SYSVAR( SYSVAR_STAKE_HIST_ID,     FD_SYSVAR_stake_history_IDX       )
+#define MAP_PERFECT_7  MAP_SYSVAR( SYSVAR_LAST_RESTART_ID,   FD_SYSVAR_last_restart_slot_IDX   )
 #include "../../../util/tmpl/fd_map_perfect.c"
 #undef PERFECT_HASH
 
@@ -55,9 +54,7 @@ typedef struct sysvar_lut sysvar_tbl_t;
 struct fd_sysvar_pos {
   /* Offsets relative to start of sysvar cache */
   uint data_off;  /* Raw data offset */
-  uint obj_off;   /* Typed object offset */
   uint data_max;
-  uint obj_max;
 
   char const * name;
 
@@ -75,12 +72,12 @@ static fd_pubkey_t const fd_sysvar_key_tbl[ FD_SYSVAR_CACHE_ENTRY_CNT ] = {
   [ FD_SYSVAR_recent_hashes_IDX     ] = {{ SYSVAR_RECENT_BLKHASH_ID }},
   [ FD_SYSVAR_rent_IDX              ] = {{ SYSVAR_RENT_ID           }},
   [ FD_SYSVAR_slot_hashes_IDX       ] = {{ SYSVAR_SLOT_HASHES_ID    }},
-  [ FD_SYSVAR_slot_history_IDX      ] = {{ SYSVAR_SLOT_HIST_ID      }},
   [ FD_SYSVAR_stake_history_IDX     ] = {{ SYSVAR_STAKE_HIST_ID     }},
 };
 
-/* fd_sysvar_obj_restore restores a typed representation of a sysvar
-   from serialized data.  This is called internally whenever sysvar
+/* fd_sysvar_obj_restore validates the serialized data of a sysvar and
+   updates its FD_SYSVAR_FLAG_VALID flag.  Returns 0 on success or
+   EINVAL if invalid.  This is called internally whenever sysvar
    serialized data is updated directly.  DO NOT USE DIRECTLY. */
 
 int

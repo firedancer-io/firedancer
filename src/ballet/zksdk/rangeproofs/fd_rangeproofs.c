@@ -311,7 +311,8 @@ fd_rangeproofs_verify(
     }
   }
 
-  // generators_H: (-b * s_{n-1-i} + z^{j+2} * 2^i) * y^{-(i+1)} + z
+  // generators_H: (-b * s_{n-1-i} + z^{m+2} * 2^j) * y^{-i} + z
+  // i is the global index, m the commitment index, j its bit index (all zero-based).
   uchar const *a = ipp_proof->a;
   uchar const *b = ipp_proof->b;
   uchar minus_b[ 32 ];

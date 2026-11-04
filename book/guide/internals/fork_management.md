@@ -33,7 +33,7 @@ The validator attaches an additional child fork. (`attach_child(E)`)
 
 ## Consensus Events
 
-The `tower` (consensus) and `replay` tiles originate the following
+The `votor` (consensus) and `replay` tiles originate the following
 consensus events:
 
 ### `slot_completed`

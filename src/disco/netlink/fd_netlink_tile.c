@@ -217,15 +217,14 @@ unprivileged_init( fd_topo_t const *      topo,
 
 static inline void
 metrics_write( fd_netlink_tile_ctx_t * ctx ) {
-  FD_MCNT_SET(       NETLNK, EVENT_DROPPED,           fd_netlink_enobufs_cnt            );
-  FD_MCNT_SET(       NETLNK, LINK_FULL_SYNC,          ctx->metrics.link_full_syncs      );
-  FD_MCNT_SET(       NETLNK, ROUTE_FULL_SYNC,         ctx->metrics.route_full_syncs     );
-  FD_MCNT_ENUM_COPY( NETLNK, UPDATE_PROCESSED,        ctx->metrics.update_cnt           );
-  FD_MGAUGE_SET(     NETLNK, INTERFACE_COUNT,         ctx->netdev_tbl->hdr->dev_cnt     );
-  FD_MCNT_SET(       NETLNK, NEIGHBOR_PROBE_SENT,     ctx->metrics.neigh_solicits_sent  );
-  FD_MCNT_SET(       NETLNK, NEIGHBOR_PROBE_FAILED,   ctx->metrics.neigh_solicits_fails );
-  FD_MCNT_SET(       NETLNK, NEIGHBOR_PROBE_RATE_LIMIT_HOST,   ctx->prober->local_rate_limited_cnt  );
-  FD_MCNT_SET(       NETLNK, NEIGHBOR_PROBE_RATE_LIMIT_GLOBAL, ctx->prober->global_rate_limited_cnt );
+  ctx->metrics.neigh_probe[ FD_METRICS_ENUM_NEIGHBOR_PROBE_RESULT_V_HOST_RATE_LIMITED_IDX   ] = ctx->prober->local_rate_limited_cnt;
+  ctx->metrics.neigh_probe[ FD_METRICS_ENUM_NEIGHBOR_PROBE_RESULT_V_GLOBAL_RATE_LIMITED_IDX ] = ctx->prober->global_rate_limited_cnt;
+  FD_MCNT_SET(       NETLNK, RX_BUFFER_OVERFLOWED,     fd_netlink_enobufs_cnt         );
+  FD_MCNT_SET(       NETLNK, LINK_TABLE_SYNCED,        ctx->metrics.link_full_syncs   );
+  FD_MCNT_SET(       NETLNK, ROUTE_TABLE_SYNCED,       ctx->metrics.route_full_syncs  );
+  FD_MCNT_ENUM_COPY( NETLNK, UPDATE_PROCESSED,         ctx->metrics.update_cnt        );
+  FD_MGAUGE_SET(     NETLNK, INTERFACE_COUNT,          ctx->netdev_tbl->hdr->dev_cnt  );
+  FD_MCNT_ENUM_COPY( NETLNK, NEIGHBOR_PROBE_REQUESTED, ctx->metrics.neigh_probe       );
 }
 
 /* netlink_monitor_read calls recvfrom to process a link, route, or
@@ -375,7 +374,7 @@ netlink_monitor_read( fd_netlink_tile_ctx_t * ctx,
     case RTM_NEWLINK:
     case RTM_DELLINK:
       ctx->action |= FD_NET_TILE_ACTION_LINK_UPDATE;
-      ctx->metrics.update_cnt[ FD_METRICS_ENUM_NETLINK_MESSAGE_V_LINK_IDX ]++;
+      ctx->metrics.update_cnt[ FD_METRICS_ENUM_NETLINK_MESSAGE_TYPE_V_LINK_IDX ]++;
       break;
     case RTM_NEWROUTE:
     case RTM_DELROUTE: {
@@ -383,16 +382,16 @@ netlink_monitor_read( fd_netlink_tile_ctx_t * ctx,
       if( fd_fib4_netlink_translate( nlh, RT_TABLE_LOCAL, &route ) ||
           fd_fib4_netlink_translate( nlh, RT_TABLE_MAIN,  &route ) ) {
         iproute_publish( ctx, stem, &route );
-        ctx->metrics.update_cnt[ FD_METRICS_ENUM_NETLINK_MESSAGE_V_IPV4_ROUTE_IDX ]++;
+        ctx->metrics.update_cnt[ FD_METRICS_ENUM_NETLINK_MESSAGE_TYPE_V_IPV4_ROUTE_IDX ]++;
         return 2;
       }
-      ctx->metrics.update_cnt[ FD_METRICS_ENUM_NETLINK_MESSAGE_V_IPV4_ROUTE_IDX ]++;
+      ctx->metrics.update_cnt[ FD_METRICS_ENUM_NETLINK_MESSAGE_TYPE_V_IPV4_ROUTE_IDX ]++;
       break;
     }
     case RTM_NEWNEIGH:
     case RTM_DELNEIGH: {
       fd_neigh4_netlink_ingest_message( ctx->neigh4, nlh, ctx->neigh4_ifidx );
-      ctx->metrics.update_cnt[ FD_METRICS_ENUM_NETLINK_MESSAGE_V_NEIGHBOR_IDX ]++;
+      ctx->metrics.update_cnt[ FD_METRICS_ENUM_NETLINK_MESSAGE_TYPE_V_NEIGHBOR_IDX ]++;
       break;
     }
     default:
@@ -554,14 +553,13 @@ after_frag( fd_netlink_tile_ctx_t * ctx,
   uint if_idx   = (uint)(sig>>32);
   uint ip4_addr = (uint)sig;
   if( FD_UNLIKELY( if_idx!=ctx->neigh4_ifidx ) ) {
-    ctx->metrics.neigh_solicits_fails++;
     FD_LOG_ERR(( "received neighbor solicit request for invalid interface index %u", if_idx ));
     return;
   }
 
   /* Drop if the kernel is already working on the request */
   if( fd_neigh4_hmap_query( ctx->neigh4, &ip4_addr ) ) {
-    ctx->metrics.neigh_solicits_fails++;
+    ctx->metrics.neigh_probe[ FD_METRICS_ENUM_NEIGHBOR_PROBE_RESULT_V_IN_FLIGHT_IDX ]++;
     return;
   }
 
@@ -569,7 +567,7 @@ after_frag( fd_netlink_tile_ctx_t * ctx,
 
   fd_neigh4_entry_t * ele = fd_neigh4_hmap_insert( ctx->neigh4, &ip4_addr );
   if( FD_UNLIKELY( !ele ) ) {
-    ctx->metrics.neigh_solicits_fails++;
+    ctx->metrics.neigh_probe[ FD_METRICS_ENUM_NEIGHBOR_PROBE_RESULT_V_TABLE_FULL_IDX ]++;
     return;
   }
   /* Atomically write the entry, initializing MAC and probe suppression timestamp to 0 */
@@ -583,10 +581,10 @@ after_frag( fd_netlink_tile_ctx_t * ctx,
 
   int probe_res = fd_neigh4_probe_rate_limited( ctx->prober, ele, ip4_addr, now );
   if( probe_res==0 ) {
-    ctx->metrics.neigh_solicits_sent++;
+    ctx->metrics.neigh_probe[ FD_METRICS_ENUM_NEIGHBOR_PROBE_RESULT_V_SENT_IDX ]++;
   } else {
     fd_neigh4_hmap_remove( ctx->neigh4, ele );
-    if( probe_res>0 ) ctx->metrics.neigh_solicits_fails++;
+    if( probe_res>0 ) ctx->metrics.neigh_probe[ FD_METRICS_ENUM_NEIGHBOR_PROBE_RESULT_V_SEND_FAILED_IDX ]++;
   }
 
 }

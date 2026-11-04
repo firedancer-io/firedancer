@@ -50,6 +50,7 @@ typedef struct ag_parent_ready_states ag_parent_ready_states_t;
 struct __attribute__((aligned(128UL))) ag_parent_ready_tracker {
   ag_parent_ready_states_t states;
   ulong                    root;
+  ulong                    highest_ready;
 };
 typedef struct ag_parent_ready_tracker ag_parent_ready_tracker_t;
 
@@ -75,28 +76,30 @@ ag_parent_ready_tracker_leave( ag_parent_ready_tracker_t const * tracker );
 void *
 ag_parent_ready_tracker_delete( void * shtracker );
 
+/* ag_parent_ready_tracker_mark_root marks root notarized-fallback and
+   makes root+1 ParentReady with root as its parent, even if root+1
+   does not start a window.  Only a window start emits an event.
+
+   https://github.com/anza-xyz/agave/blob/v4.3.0-beta.0/votor/src/consensus_pool/parent_ready_tracker.rs#L65-L108 */
+
+ulong
+ag_parent_ready_tracker_mark_root( ag_parent_ready_tracker_t * self,
+                                   ag_block_id_t const *       root,
+                                   ag_parent_ready_t *         newly_certified );
+
 /* Definition 15. ParentReadyTracker::mark_notar_fallback */
 
-void
+ulong
 ag_parent_ready_tracker_mark_notar_fallback( ag_parent_ready_tracker_t * self,
                                              ag_block_id_t const *       id,
-                                             ag_parent_ready_t *         newly_certified,
-                                             ulong *                     newly_certified_cnt );
+                                             ag_parent_ready_t *         newly_certified );
 
 /* Definition 15. ParentReadyTracker::mark_skipped */
 
-void
+ulong
 ag_parent_ready_tracker_mark_skipped( ag_parent_ready_tracker_t * self,
                                       ulong                       marked_slot,
-                                      ag_parent_ready_t *         newly_certified,
-                                      ulong *                     newly_certified_cnt );
-
-/* ag_parent_ready_tracker_delivered marks the ParentReady queued for
-   slot as delivered, so the next ready parent queues another. */
-
-void
-ag_parent_ready_tracker_delivered( ag_parent_ready_tracker_t * self,
-                                   ulong                       slot );
+                                      ag_parent_ready_t *         newly_certified );
 
 /* Definition 15. ParentReadyTracker::parents_ready.  Writes up to
    out_max ready parents of slot to out and returns how many are ready. */

@@ -7,6 +7,7 @@
 #define FD_ACTIVE_SET_STAKE_ENTRIES    (25UL)
 #define FD_ACTIVE_SET_PEERS_PER_ENTRY  (12UL)
 #define FD_ACTIVE_SET_MAX_PEERS        (FD_ACTIVE_SET_STAKE_ENTRIES*FD_ACTIVE_SET_PEERS_PER_ENTRY) /* 300 */
+#define FD_ACTIVE_SET_PUSH_FANOUT      (9UL)
 
 struct fd_active_set_peer {
   long         timestamp;
@@ -270,7 +271,8 @@ fd_active_set_push( fd_active_set_t *   active_set,
   for( ulong i=0UL; i<entry->nodes_len; i++ ) blooms[ i ] = active_set->peers[ stake_bucket*12UL+((entry->nodes_idx+i) % 12UL) ].bloom;
   uint hits = fd_bloom_contains_multi( blooms, entry->nodes_len, origin_pubkey, 32UL );
 
-  for( ulong i=0UL; i<entry->nodes_len; i++ ) {
+  ulong pushed = 0UL;
+  for( ulong i=0UL; i<entry->nodes_len && pushed<FD_ACTIVE_SET_PUSH_FANOUT; i++ ) {
     fd_active_set_peer_t * peer = &active_set->peers[ stake_bucket*12UL+((entry->nodes_idx+i) % 12UL) ];
 
     /* If the value originated from us, we should always push it, even
@@ -286,6 +288,7 @@ fd_active_set_push( fd_active_set_t *   active_set,
     }
     fd_gossip_txbuild_append( peer->txbuild, crds_sz, crds_val );
     if( FD_UNLIKELY( flush_immediately ) ) push_flush( active_set, peer, stem, now );
+    pushed++;
   }
 }
 
@@ -301,32 +304,35 @@ rotate_active_set( fd_active_set_t *   active_set,
 
   /* Sample a new peer BEFORE evicting the oldest.  This prevents the
      case where we evict a peer back into the sampler and then
-     immediately re-sample it, creating a duplicate. */
+     immediately re-sample it, creating a duplicate.  A full entry
+     swaps its oldest peer; a partial one fills up to 12 at once. */
 
-  ulong added_ci_idx = fd_gossip_wsample_sample_remove_bucket( active_set->wsample, bucket );
-  if( FD_UNLIKELY( added_ci_idx==ULONG_MAX ) ) return;
+  do {
+    ulong added_ci_idx = fd_gossip_wsample_sample_remove_bucket( active_set->wsample, bucket );
+    if( FD_UNLIKELY( added_ci_idx==ULONG_MAX ) ) return;
 
-  ulong replace_idx;
-  if( FD_LIKELY( entry->nodes_len==12UL ) ) {
-    replace_idx      = entry->nodes_idx;
-    entry->nodes_idx = (entry->nodes_idx+1UL) % 12UL;
+    ulong replace_idx;
+    if( FD_LIKELY( entry->nodes_len==12UL ) ) {
+      replace_idx      = entry->nodes_idx;
+      entry->nodes_idx = (entry->nodes_idx+1UL) % 12UL;
 
-    /* Add the replaced peer back to the sampler. */
-    ulong old_ci_idx = active_set->peers[ bucket*12UL+replace_idx ].ci_idx;
-    fd_gossip_wsample_add_bucket( active_set->wsample, bucket, old_ci_idx );
-    push_flush( active_set, &active_set->peers[ bucket*12UL+replace_idx ], stem, now );
-  } else {
-    replace_idx = (entry->nodes_idx+entry->nodes_len) % 12UL;
-  }
+      /* Add the replaced peer back to the sampler. */
+      ulong old_ci_idx = active_set->peers[ bucket*12UL+replace_idx ].ci_idx;
+      fd_gossip_wsample_add_bucket( active_set->wsample, bucket, old_ci_idx );
+      push_flush( active_set, &active_set->peers[ bucket*12UL+replace_idx ], stem, now );
+    } else {
+      replace_idx = (entry->nodes_idx+entry->nodes_len) % 12UL;
+      entry->nodes_len++;
+    }
 
-  fd_active_set_peer_t * replace = &active_set->peers[ bucket*12UL+replace_idx ];
-  replace->ci_idx = added_ci_idx;
-  uchar const * new_pubkey = fd_crds_ci_pubkey( active_set->crds, added_ci_idx );
+    fd_active_set_peer_t * replace = &active_set->peers[ bucket*12UL+replace_idx ];
+    replace->ci_idx = added_ci_idx;
+    uchar const * new_pubkey = fd_crds_ci_pubkey( active_set->crds, added_ci_idx );
 
-  fd_bloom_initialize( replace->bloom, num_bloom_filter_items );
-  fd_bloom_insert( replace->bloom, new_pubkey, 32UL );
-  entry->nodes_len = fd_ulong_min( entry->nodes_len+1UL, 12UL );
-  fd_gossip_txbuild_init( replace->txbuild, active_set->identity_pubkey, FD_GOSSIP_MESSAGE_PUSH );
+    fd_bloom_initialize( replace->bloom, num_bloom_filter_items );
+    fd_bloom_insert( replace->bloom, new_pubkey, 32UL );
+    fd_gossip_txbuild_init( replace->txbuild, active_set->identity_pubkey, FD_GOSSIP_MESSAGE_PUSH );
+  } while( entry->nodes_len<12UL );
 }
 
 
@@ -348,4 +354,14 @@ fd_active_set_advance( fd_active_set_t *   active_set,
     active_set->next_rotate_nanos = now+300L*1000L*1000L;
     if( charge_busy ) *charge_busy = 1;
   }
+}
+
+long
+fd_active_set_next_deadline( fd_active_set_t const * active_set ) {
+  long deadline = active_set->next_rotate_nanos;
+  if( FD_LIKELY( !push_dlist_is_empty( active_set->push_dlist, active_set->peers ) ) ) {
+    fd_active_set_peer_t const * head = push_dlist_ele_peek_head_const( active_set->push_dlist, active_set->peers );
+    deadline = fd_long_min( deadline, head->timestamp+1L*1000L*1000L+1L );
+  }
+  return deadline;
 }

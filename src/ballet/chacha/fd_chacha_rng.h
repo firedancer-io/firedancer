@@ -47,7 +47,9 @@ struct __attribute__((aligned(32UL))) fd_chacha_rng_private {
      Note: We currently assume all reads are 8 byte.  This means the
            cursor is always aligned by 8 and strictly increases in
            increments of 8.  Thus, we really only have to refill the
-           buffer if buf_off==buf_fill.  */
+           buffer if buf_off==buf_fill.  pre_buf is used for one
+           optimization where it's helpful to stage data before buf. */
+  uchar pre_buf[ 128 ] __attribute__((aligned(FD_CHACHA_BLOCK_SZ)));
   uchar buf[ FD_CHACHA_RNG_BUFSZ ] __attribute__((aligned(FD_CHACHA_BLOCK_SZ)));
   ulong buf_off;   /* Total number of bytes consumed */
   ulong buf_fill;  /* Total number of bytes produced
@@ -274,6 +276,17 @@ fd_chacha_rng_ulong_roll( fd_chacha_rng_t * rng,
     if( FD_LIKELY( lo<=zone ) ) return hi;
   }
 }
+
+/* fd_chacha_rng_ulong_roll_decreasing is an optimized version of
+   for( ulong i=0UL; i<cnt; i++ )
+     out[i] = fd_chacha_rng_ulong_roll( rng, n_initial-i );
+   cnt must be in [0, n_initial). rng==NULL is not allowed, even if
+   cnt==0. */
+void
+fd_chacha_rng_ulong_roll_decreasing( fd_chacha_rng_t * rng,
+                                     ulong             n_initial,
+                                     ulong *           out,
+                                     ulong             cnt );
 
 FD_PROTOTYPES_END
 

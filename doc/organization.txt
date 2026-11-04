@@ -33,8 +33,6 @@ Firedancer source tree
   └── src/             The main Firedancer source tree
       │
       ├── app/         Main binaries
-      │   ├── fdctl/            Frankendancer
-      │   ├── fddev/            Frankendancer (development)
       │   ├── firedancer/       Firedancer
       │   ├── firedancer-dev/   Firedancer (development)
       │   ├── shared/           Shared Frank/FD
@@ -51,8 +49,6 @@ Firedancer source tree
       │
       ├── discof/      Full Firedancer tiles (consensus, runtime, RPC)
       │
-      ├── discoh/      Frankendancer tiles (Agave FFI)
-      │
       ├── flamenco/    Solana SVM / runtime
       │
       ├── tango/       IPC messaging layer
@@ -60,9 +56,7 @@ Firedancer source tree
       ├── util/        C language environment, system runtime, common data
       │                structures and various utilities (math, bits, rng ...)
       │
-      ├── waltz/       Networking
-      │
-      └── wiredancer/  FPGA modules
+      └── waltz/       Networking
 
 Important files
 

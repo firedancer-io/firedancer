@@ -116,13 +116,9 @@ fd_cost_tracker_init( fd_cost_tracker_t *      cost_tracker,
 FD_FN_PURE uint
 fd_cost_tracker_calculate_loaded_accounts_data_size_cost( fd_txn_out_t const * txn_out );
 
-/* fd_cost_tracker_calculate_cost_and_add takes a transaction,
-   calculates the cost of the transaction in terms of various block
-   level limits and adds it to the cost tracker.  If the incremental
-   transaction fits in the block, then the cost tracking is updated and
-   FD_COST_TRACKER_SUCCESS is returned.  If the transaction does not
-   fit then FD_COST_TRACKER_ERROR_{*} is returned depending on what
-   limit is violated.
+/* fd_cost_tracker_calculate_cost calculates the transaction's block-level
+   costs into txn_out->details.txn_cost.  Call fd_cost_tracker_try_add_cost
+   separately to check limits and update the tracker.
 
    This function assumes that the caller is responsible for managing
    concurrent callers.

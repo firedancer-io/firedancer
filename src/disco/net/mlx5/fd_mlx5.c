@@ -1,4 +1,5 @@
 #define _GNU_SOURCE
+#include "../fd_net_tile.h"
 #include "fd_mlx5_private.h"
 #include "../../../util/log/fd_log.h"
 #include "../../../util/net/fd_eth.h"
@@ -19,7 +20,6 @@
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <sys/syscall.h>
-#include <sys/wait.h>
 #include <unistd.h>
 
 #include <rdma/ib_user_ioctl_cmds.h>
@@ -111,7 +111,7 @@
                                         FD_MLX5_RX_HASH_SRC_PORT_UDP | FD_MLX5_RX_HASH_DST_PORT_UDP )
 #define FD_MLX5_QP_TUNNEL_OFFLOADS    (1U<<2)   /* MLX5_QP_FLAG_TUNNEL_OFFLOADS */
 #define FD_MLX5_TUNNEL_OFFLOADS_GRE   (1U<<1)   /* MLX5_IB_TUNNELED_OFFLOADS_GRE */
-#define FD_MLX5_INDIRECTION_MAX       (1UL<<13) /* 1UL << IB_USER_VERBS_MAX_LOG_IND_TBL_SIZE */
+#define FD_MLX5_INDIRECTION_COUNT     (1UL<<8)  /* Spreads RSS more equally across non power of 2 tile counts */
 
 static int
 fd_mlx5_rdma_port_contains_if( char const * rdma_name,
@@ -289,47 +289,6 @@ int
 fd_mlx5_uverbs_avail( void ) {
   struct stat class_stat;
   return !stat( "/sys/class/infiniband_verbs", &class_stat ) && S_ISDIR( class_stat.st_mode );
-}
-
-int
-fd_mlx5_uverbs_modprobe( int is_dry_run ) {
-  pid_t pid = fork();
-  if( FD_UNLIKELY( pid<0 ) ) {
-    FD_LOG_WARNING(( "fork() for modprobe failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-    return -1;
-  }
-  if( !pid ) {
-    int null_fd = open( "/dev/null", O_RDWR );
-    if( FD_UNLIKELY( null_fd<0 ) ) {
-      FD_LOG_WARNING(( "open(/dev/null) for modprobe failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-      _exit( 1 );
-    }
-    if( FD_UNLIKELY( dup2( null_fd, STDIN_FILENO )<0 ||
-                     ( is_dry_run && dup2( null_fd, STDOUT_FILENO )<0 ) ) ) {
-      FD_LOG_WARNING(( "dup2() for modprobe failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-      _exit( 1 );
-    }
-    if( null_fd!=STDIN_FILENO &&
-        !( is_dry_run && null_fd==STDOUT_FILENO ) ) close( null_fd );
-
-    char * argv[] = { "modprobe", "--quiet", "ib_uverbs", NULL, NULL };
-    if( is_dry_run ) {
-      argv[2] = "--dry-run";
-      argv[3] = "ib_uverbs";
-    }
-    char * const envp[] = { NULL };
-    execve( "/sbin/modprobe", argv, envp );
-    FD_LOG_WARNING(( "execve(/sbin/modprobe) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-    _exit( 1 );
-  }
-
-  int status;
-  while( FD_UNLIKELY( waitpid( pid, &status, 0 )<0 ) ) {
-    if( errno==EINTR ) continue;
-    FD_LOG_WARNING(( "waitpid() for modprobe failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-    return -1;
-  }
-  return WIFEXITED( status ) && !WEXITSTATUS( status ) ? 0 : -1;
 }
 
 struct fd_mlx5_pd {
@@ -891,6 +850,21 @@ fd_uverbs_query_device( fd_uverbs_ctx_t * ctx,
     return -1;
   }
 
+  ulong const rss_caps_sz = offsetof( struct ib_uverbs_ex_query_device_resp, rss_caps )+
+                            sizeof(resp->core.rss_caps);
+  if( FD_UNLIKELY( resp->core.response_length<rss_caps_sz ) ) {
+    FD_LOG_WARNING(( "mlx5 device query did not return RSS capabilities (response length %u, required %lu)",
+                     resp->core.response_length, rss_caps_sz ));
+    errno = EPROTONOSUPPORT;
+    return -1;
+  }
+  if( FD_UNLIKELY( resp->core.rss_caps.max_rwq_indirection_table_size<FD_MLX5_INDIRECTION_COUNT ) ) {
+    FD_LOG_WARNING(( "mlx5 RSS indirection table requires %lu entries, device supports only %u",
+                     FD_MLX5_INDIRECTION_COUNT, resp->core.rss_caps.max_rwq_indirection_table_size ));
+    errno = EPROTONOSUPPORT;
+    return -1;
+  }
+
   ulong const tunnel_caps_sz = offsetof( struct mlx5_ib_query_device_resp, tunnel_offloads_caps )+
                                sizeof(resp->mlx5.tunnel_offloads_caps);
   ulong const required_hash_fields = FD_MLX5_RX_HASH_IPV4_UDP | FD_MLX5_RX_HASH_INNER;
@@ -1341,18 +1315,19 @@ fd_uverbs_create_rwq_ind_table( uint *                        handle,
                                 fd_uverbs_ctx_t *             uverbs,
                                 fd_mlx5_uverbs_tile_t const * tiles,
                                 ulong                         tile_cnt ) {
-  if( FD_UNLIKELY( !fd_ulong_is_pow2( tile_cnt ) || tile_cnt>FD_MLX5_INDIRECTION_MAX ) ) {
+  if( FD_UNLIKELY( 0==tile_cnt || tile_cnt>FD_MLX5_TILE_MAX ) ) {
     errno = EINVAL;
     return NULL;
   }
-  ulong const req_sz = fd_ulong_align_up( sizeof(fd_uverbs_create_rwq_ind_table_req_t)+tile_cnt*sizeof(uint), 8UL );
+
+  ulong const req_sz = fd_ulong_align_up( sizeof(fd_uverbs_create_rwq_ind_table_req_t)+FD_MLX5_INDIRECTION_COUNT*sizeof(uint), 8UL );
   fd_uverbs_create_rwq_ind_table_req_t * req = aligned_alloc( 8UL, req_sz );
   if( FD_UNLIKELY( !req ) ) return NULL;
   struct ib_uverbs_ex_create_rwq_ind_table_resp resp[1];
   fd_memset( req,  0, req_sz );
   fd_memset( resp, 0, sizeof(resp) );
-  req->log_ind_tbl_size = (uint)fd_ulong_find_lsb( tile_cnt );
-  for( ulong i=0UL; i<tile_cnt; i++ ) req->wq_handles[ i ] = tiles[ i ].rx_wq->handle;
+  req->log_ind_tbl_size = (uint)fd_ulong_find_lsb( FD_MLX5_INDIRECTION_COUNT );
+  for( ulong i=0UL; i<FD_MLX5_INDIRECTION_COUNT; i++ ) req->wq_handles[ i ] = tiles[ i%tile_cnt ].rx_wq->handle;
   FD_TEST( !fd_uverbs_init_ex_hdr( &req->hdr, IB_USER_VERBS_EX_CMD_CREATE_RWQ_IND_TBL,
                                    req_sz, req_sz, resp,
                                    sizeof(resp), sizeof(resp) ) );
@@ -1542,8 +1517,7 @@ fd_uverbs_init( fd_uverbs_ctx_t *       uverbs,
                 fd_mlx5_rss_qp_t *      gre_rss_qp,
                 char const *            rdma_name,
                 uint                    port_num ) {
-  if( FD_UNLIKELY( !uverbs || !tiles || !tile_cnt || !fd_ulong_is_pow2( tile_cnt ) ||
-                   tile_cnt>FD_MLX5_INDIRECTION_MAX || !outer_rss_qp || !gre_rss_qp ) ) {
+  if( FD_UNLIKELY( !uverbs || !tiles || 0==tile_cnt || tile_cnt>FD_MLX5_TILE_MAX || !outer_rss_qp || !gre_rss_qp ) ) {
     errno = EINVAL;
     return NULL;
   }

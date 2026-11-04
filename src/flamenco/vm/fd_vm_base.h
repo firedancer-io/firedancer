@@ -417,6 +417,39 @@ FD_PROTOTYPES_END
 #define FD_VM_CURVE_BLS12_381_PAIRING_BASE_COST    (           25445UL)
 #define FD_VM_CURVE_BLS12_381_PAIRING_INCR_COST    (           13023UL)
 
+/* FD_VM_CURVE_SECP256R1_ADD_COST is the number of compute units
+   consumed for addition in secp256r1. */
+
+#define FD_VM_CURVE_SECP256R1_ADD_COST             (             520UL)
+
+/* FD_VM_CURVE_SECP256R1_SUB_COST is the number of compute units
+   consumed for subtraction in secp256r1. */
+
+#define FD_VM_CURVE_SECP256R1_SUB_COST             (             520UL)
+
+/* FD_VM_CURVE_SECP256R1_MUL_COST is the number of compute units
+   consumed for scalar multiplication in secp256r1. */
+
+#define FD_VM_CURVE_SECP256R1_MUL_COST             (            9000UL)
+
+/* FD_VM_CURVE_SECP256R1_MSM_*_COST are the number of compute units
+   consumed for multiscalar multiplication in secp256r1.
+   The total cost is calculated as
+     `msm_base_cost + (length-1) * msm_incremental_cost` */
+
+#define FD_VM_CURVE_SECP256R1_MSM_BASE_COST        (            9000UL)
+#define FD_VM_CURVE_SECP256R1_MSM_INCREMENTAL_COST (            3800UL)
+
+/* FD_VM_CURVE_SECP256R1_VALIDATE_COST is the number of compute units
+   consumed for point validation in secp256r1. */
+
+#define FD_VM_CURVE_SECP256R1_VALIDATE_COST        (              20UL)
+
+/* FD_VM_CURVE_SECP256R1_DECOMPRESS_COST is the number of compute
+   units consumed for point decompression in secp256r1. */
+
+#define FD_VM_CURVE_SECP256R1_DECOMPRESS_COST      (             610UL)
+
 /* FD_VM_HEAP_SIZE is the program heap region size, default:
    solana_sdk::entrypoint::HEAP_LENGTH */
 

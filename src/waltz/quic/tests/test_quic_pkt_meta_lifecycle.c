@@ -235,6 +235,44 @@ test_ack_in_order( fd_quic_sandbox_t * sandbox,
 }
 
 static __attribute__((noinline)) void
+test_ack_stale_range( fd_quic_sandbox_t * sandbox,
+                      fd_rng_t *          rng ) {
+  fd_quic_conn_t * conn = setup_conn( sandbox, rng );
+
+  fd_quic_stream_t * stream = fd_quic_conn_new_stream( conn );
+  FD_TEST( stream );
+  ulong stream_id = stream->stream_id;
+
+  uchar data[32] = {0};
+  for( ulong j=0UL; j<2UL; j++ ) {
+    FD_TEST( fd_quic_stream_send( stream, data, sizeof(data), 0 )==FD_QUIC_SUCCESS );
+    ulong pkt = flush_conn( sandbox, conn );
+    inject_ack( sandbox, conn, pkt, pkt );
+    service_conn( sandbox, conn, (long)1e6 );
+    FD_TEST( stream->unacked_low==(j+1UL)*sizeof(data) );
+  }
+
+  /* An original transmission can remain tracked after a retransmission
+     has already acknowledged its range. */
+  fd_quic_pkt_meta_t stale_meta = {
+    .key = { .type = FD_QUIC_PKT_META_TYPE_STREAM, .stream_id = stream_id },
+    .val.range = { .offset_lo = 0UL, .offset_hi = sizeof(data) }
+  };
+  fd_quic_reclaim_pkt_meta( conn, &stale_meta, APP_ENC_LEVEL );
+  FD_TEST( stream->unacked_low==2UL*sizeof(data) );
+
+  FD_TEST( fd_quic_stream_send( stream, data, sizeof(data), 1 )==FD_QUIC_SUCCESS );
+  ulong pkt = flush_conn( sandbox, conn );
+  inject_ack( sandbox, conn, pkt, pkt );
+  service_conn( sandbox, conn, (long)1e6 );
+  FD_TEST( stream->stream_flags & FD_QUIC_STREAM_FLAGS_DEAD );
+  FD_TEST( !count_pkt_metas_for_stream( conn, APP_ENC_LEVEL, stream_id ) );
+
+  fd_quic_state_validate( sandbox->quic );
+  FD_LOG_NOTICE(( "PASS: test_ack_stale_range" ));
+}
+
+static __attribute__((noinline)) void
 test_ack_out_of_order( fd_quic_sandbox_t * sandbox,
                        fd_rng_t *          rng ) {
   fd_quic_conn_t * conn = setup_conn( sandbox, rng );
@@ -570,7 +608,7 @@ main( int     argc,
   if( cpu_idx>=fd_shmem_cpu_cnt() ) cpu_idx = 0UL;
 
   char const * _page_sz = fd_env_strip_cmdline_cstr ( &argc, &argv, "--page-sz",  NULL, "gigantic"                 );
-  ulong        page_cnt = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt", NULL, 2UL                        );
+  ulong        page_cnt = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt", NULL, 1UL                        );
   ulong        numa_idx = fd_env_strip_cmdline_ulong( &argc, &argv, "--numa-idx", NULL, fd_shmem_numa_idx(cpu_idx) );
 
   ulong page_sz = fd_cstr_to_shmem_page_sz( _page_sz );
@@ -604,6 +642,7 @@ main( int     argc,
   test_stream_fin_only           ( sandbox, rng );
 
   test_ack_in_order              ( sandbox, rng );
+  test_ack_stale_range           ( sandbox, rng );
   test_ack_out_of_order          ( sandbox, rng );
   test_ack_with_gap              ( sandbox, rng );
 

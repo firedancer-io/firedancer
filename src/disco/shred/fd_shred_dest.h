@@ -59,9 +59,12 @@ struct __attribute__((aligned(FD_SHRED_DEST_ALIGN))) fd_shred_dest_private {
 
   fd_wsample_t * staked;
   struct {
-    /* These two variables are maintained by the unstaked sampling functions. */
+    /* These five variables are maintained by the unstaked sampling functions. */
     ulong * unstaked;
     ulong   unstaked_unremoved_cnt;
+    ulong   rng_avail;
+    ulong   rng_ptr;
+    ulong   rng_pregen[ 256UL ];
   };
   ulong staked_cnt;
   ulong unstaked_cnt;
@@ -232,5 +235,11 @@ static inline void
 fd_shred_dest_update_source( fd_shred_dest_t * sdest, fd_shred_dest_idx_t idx ) {
   sdest->source_validator_orig_idx = idx;
 }
+
+/* fd_shred_dest_leader_for_slot gets the destination of the leader for
+   the provided slot.  If the leader is not known for whatever reason,
+   returns FD_SHRED_DEST_NO_DEST.  If the leader is the source
+   validator, also returns FD_SHRED_DEST_NO_DEST. */
+fd_shred_dest_idx_t fd_shred_dest_leader_for_slot( fd_shred_dest_t const * sdest, ulong slot );
 
 #endif /* HEADER_fd_src_disco_shred_fd_shred_dest_h */

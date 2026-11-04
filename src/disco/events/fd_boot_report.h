@@ -100,6 +100,7 @@ struct fd_boot_report_nvme {
   ulong media_errors;
   uchar numa_node;
   ulong namespace_size_bytes;
+  int   has_health;
 };
 typedef struct fd_boot_report_nvme fd_boot_report_nvme_t;
 
@@ -155,6 +156,8 @@ struct fd_boot_report {
   int    cpu_energy_perf_preference;
   int    cpu_idle_driver;
   char   cpu_max_enabled_cstate[ 17 ];
+  char   cpu_features[ 16 ][ 8 ];
+  ulong  cpu_features_cnt;
 
   ulong host_memory_bytes;
   ulong host_memory_available_bytes;
@@ -164,6 +167,14 @@ struct fd_boot_report {
   ulong  isolated_cpus_cnt;
   ushort l3_cpu_to_domain[ 1024 ];
   ulong  l3_cpu_to_domain_cnt;
+  ushort cpu_to_core[ 1024 ];
+  ulong  cpu_to_core_cnt;
+  ushort launch_cpus[ 1024 ];
+  ulong  launch_cpus_cnt;
+  int    cpuset_partition;
+  ushort cpuset_partition_cpus[ 1024 ];
+  ulong  cpuset_partition_cpus_cnt;
+  int    float_pool; /* not encoded; the launchers float floaters, else pin them */
 
   fd_boot_report_dimm_t dmi_dimms[ 64 ];
   ulong                 dmi_dimms_cnt;

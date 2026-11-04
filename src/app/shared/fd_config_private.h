@@ -48,6 +48,14 @@ fd_config_fill( fd_config_t * config,
 void
 fd_config_validate( fd_config_t const * config );
 
+/* fd_config_validate_consensus() checks the wait-for-supermajority
+   tuple and the leader gate.  Split out of fd_config_fill() so it can
+   be exercised directly: fill() also does uname and interface
+   discovery.  On any error it prints a message and exits. */
+
+void
+fd_config_validate_consensus( fd_config_t const * config );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_app_shared_fd_config_private_h */

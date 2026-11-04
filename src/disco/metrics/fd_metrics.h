@@ -91,9 +91,8 @@ extern FD_TL volatile ulong * fd_metrics_tl;
   } while(0)
 
 #define FD_MHIST_MIN( group, measurement ) (FD_METRICS_HISTOGRAM_##group##_##measurement##_MIN)
-#define FD_MHIST_SECONDS_MIN( group, measurement ) (fd_metrics_convert_seconds_to_ticks(FD_METRICS_HISTOGRAM_##group##_##measurement##_MIN))
 #define FD_MHIST_MAX( group, measurement ) (FD_METRICS_HISTOGRAM_##group##_##measurement##_MAX)
-#define FD_MHIST_SECONDS_MAX( group, measurement ) (fd_metrics_convert_seconds_to_ticks(FD_METRICS_HISTOGRAM_##group##_##measurement##_MAX))
+#define FD_MHIST_EDGES_NS( group, measurement ) ((ulong const[])FD_METRICS_HISTOGRAM_##group##_##measurement##_EDGES_NS)
 
 #define FD_MHIST_COPY( group, measurement, hist ) do {                   \
     ulong __fd_metrics_off = MIDX(HISTOGRAM, group, measurement);        \
@@ -158,25 +157,39 @@ fd_metrics_register( ulong * metrics ) {
   return metrics;
 }
 
-static inline ulong
-fd_metrics_convert_seconds_to_ticks( double seconds ) {
-  /* The tick_per_ns() value needs to be the same across the tile doing
-     the sampling and the tile doing the reporting so that they compute
-     the same bucket edges for histograms. */
-  double tick_per_ns = fd_tempo_tick_per_ns( NULL );
-  return (ulong)(seconds * tick_per_ns * 1e9);
-}
+/* fd_metrics_histf_new_ns formats mem as a histogram sampled in ticks
+   whose edges are the given nanosecond edges. */
 
-static inline double
-fd_metrics_convert_ticks_to_seconds( ulong ticks ) {
+static inline void *
+fd_metrics_histf_new_ns( void *      mem,
+                         ulong const edges_ns[ FD_HISTF_BUCKET_CNT-1UL ] ) {
   double tick_per_ns = fd_tempo_tick_per_ns( NULL );
-  return (double)ticks / (tick_per_ns * 1e9);
+  ulong edges[ FD_HISTF_BUCKET_CNT-1UL ];
+  ulong prev = 0UL;
+  for( ulong i=0UL; i<(FD_HISTF_BUCKET_CNT-1UL); i++ ) {
+    edges[ i ] = fd_ulong_max( (ulong)( 0.5 + (double)edges_ns[ i ]*tick_per_ns ), prev+1UL ); /* keep buckets nonempty on slow clocks */
+    prev = edges[ i ];
+  }
+  return fd_histf_new_edges( mem, edges );
 }
 
 static inline ulong
 fd_metrics_convert_ticks_to_nanoseconds( ulong ticks ) {
   double tick_per_ns = fd_tempo_tick_per_ns( NULL );
   return (ulong)((double)ticks / tick_per_ns);
+}
+
+/* fd_metrics_enum_group_sum sums the values of an enum metric whose
+   index bit is set in mask (FD_METRICS_ENUM_<E>_G_<GROUP>_MASK).
+   values points at the metric's first value, e.g.
+   metrics+MIDX(COUNTER,TILE,REGIME_DURATION_NANOS). */
+
+static inline ulong
+fd_metrics_enum_group_sum( volatile ulong const * values,
+                           ulong                  mask ) {
+  ulong sum = 0UL;
+  for( ; mask; mask=fd_ulong_pop_lsb( mask ) ) sum += values[ fd_ulong_find_lsb( mask ) ];
+  return sum;
 }
 
 static inline ulong * fd_metrics_join  ( void * mem ) { return mem; }

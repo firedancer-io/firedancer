@@ -94,7 +94,7 @@ main( int     argc,
 # define FRAG_SZ (1163UL) /* Usable QUIC stream data space FIXME increase IPv4 MTU */
 
   char const * _page_sz = fd_env_strip_cmdline_cstr  ( &argc, &argv, "--page-sz",   NULL, "gigantic"                   );
-  ulong        page_cnt = fd_env_strip_cmdline_ulong ( &argc, &argv, "--page-cnt",  NULL, 2UL                          );
+  ulong        page_cnt = fd_env_strip_cmdline_ulong ( &argc, &argv, "--page-cnt",  NULL, 1UL                          );
   ulong        numa_idx = fd_env_strip_cmdline_ulong ( &argc, &argv, "--numa-idx",  NULL, fd_shmem_numa_idx( cpu_idx ) );
   float        loss     = fd_env_strip_cmdline_float ( &argc, &argv, "--loss",      NULL, 0.0f                         );
   float        reorder  = fd_env_strip_cmdline_float ( &argc, &argv, "--reorder",   NULL, 0.0f                         );

@@ -1,5 +1,4 @@
 #include "../replay/fd_replay_tile.h"
-#include "../tower/fd_tower_tile.h"
 #include "../genesis/fd_genesi_tile.h"
 #include "../votor/fd_votor_tile.h"
 #include "../../choreo/votor/ag_cert.h"
@@ -24,7 +23,6 @@
 #include "../../flamenco/accdb/fd_accdb_shmem.h"
 #include "../../tango/fseq/fd_fseq.h"
 #include "../../flamenco/gossip/fd_gossip_message.h"
-#include "../../flamenco/runtime/program/vote/fd_vote_codec_tmpl.h"
 #include "../../util/net/fd_ip4.h"
 #include "../../waltz/http/fd_http_server.h"
 #include "../../waltz/http/fd_http_server_private.h"
@@ -44,7 +42,7 @@
 #include <linux/futex.h>
 #include "generated/fd_rpc_tile_seccomp.h"
 
-#define FD_RPC_AGAVE_API_VERSION "4.3.0-rc.0"
+#define FD_RPC_AGAVE_API_VERSION "4.4.0"
 
 #define FD_HTTP_SERVER_RPC_MAX_REQUEST_LEN       8192UL
 
@@ -56,7 +54,6 @@
 #define IN_KIND_REPLAY      (0)
 #define IN_KIND_GENESI      (1)
 #define IN_KIND_GOSSIP_OUT  (2)
-#define IN_KIND_TOWER       (3)
 #define IN_KIND_EPOCH       (5)
 #define IN_KIND_VOTOR       (6)
 
@@ -440,7 +437,6 @@ fd_rpc_mleaders_get_leader_for_slot( fd_multi_epoch_leaders_t const * mleaders,
 
 struct fd_rpc_tile {
   int delay_startup;
-  int alpenglow;
   int waker_rearm_pending;
 
   fd_http_server_t * http;
@@ -449,6 +445,13 @@ struct fd_rpc_tile {
   ulong   ws_subscribers_vote_cnt;
   ulong * ws_subscribers_slot;
   ulong   ws_subscribers_slot_cnt;
+
+  /* Identical subscriptions share one subscription id while any
+     subscriber remains, and new subscriptions draw ids from a single
+     incrementing counter. */
+  ulong   ws_sub_id_vote;
+  ulong   ws_sub_id_slot;
+  ulong   ws_sub_id_next;
 
   fd_rpc_cluster_node_dlist_t * cluster_nodes_dlist;
   fd_rpc_cluster_node_t cluster_nodes[ FD_CONTACT_INFO_TABLE_SIZE ];
@@ -534,6 +537,7 @@ fd_rpc_ws_subscriber_vote_add( fd_rpc_tile_t * ctx,
     if( FD_UNLIKELY( ctx->ws_subscribers_vote[ i ]==ws_conn_id ) ) return;
 
   FD_TEST( ctx->ws_subscribers_vote_cnt<ctx->http->max_ws_conns );
+  if( FD_UNLIKELY( !ctx->ws_subscribers_vote_cnt ) ) ctx->ws_sub_id_vote = ctx->ws_sub_id_next++;
   ctx->ws_subscribers_vote[ ctx->ws_subscribers_vote_cnt++ ] = ws_conn_id;
 }
 
@@ -558,6 +562,7 @@ fd_rpc_ws_subscriber_slot_add( fd_rpc_tile_t * ctx,
     if( FD_UNLIKELY( ctx->ws_subscribers_slot[ i ]==ws_conn_id ) ) return;
 
   FD_TEST( ctx->ws_subscribers_slot_cnt<ctx->http->max_ws_conns );
+  if( FD_UNLIKELY( !ctx->ws_subscribers_slot_cnt ) ) ctx->ws_sub_id_slot = ctx->ws_sub_id_next++;
   ctx->ws_subscribers_slot[ ctx->ws_subscribers_slot_cnt++ ] = ws_conn_id;
 }
 
@@ -708,11 +713,11 @@ during_housekeeping( fd_rpc_tile_t * ctx ) {
 
 static inline void
 metrics_write( fd_rpc_tile_t * ctx ) {
-  FD_MHIST_COPY( RPC, REQUEST_DURATION_SECONDS,           ctx->request_duration                );
-  FD_MGAUGE_SET( RPC, CONN_ACTIVE,                        ctx->http->metrics.connection_cnt    );
-  FD_MGAUGE_SET( RPC, WEBSOCKET_CONN_ACTIVE,              ctx->http->metrics.ws_connection_cnt );
-  FD_MGAUGE_SET( RPC, WEBSOCKET_SUBSCRIPTION_ACTIVE_VOTE, ctx->ws_subscribers_vote_cnt         );
-  FD_MGAUGE_SET( RPC, WEBSOCKET_SUBSCRIPTION_ACTIVE_SLOT, ctx->ws_subscribers_slot_cnt         );
+  FD_MHIST_COPY( RPC, REQUEST_DURATION_NANOS,             ctx->request_duration                );
+  FD_MGAUGE_SET( RPC, CONN_OPEN,                          ctx->http->metrics.connection_cnt    );
+  FD_MGAUGE_SET( RPC, WEBSOCKET_CONN_OPEN,                ctx->http->metrics.ws_connection_cnt );
+  FD_MGAUGE_SET( RPC, WEBSOCKET_SUBSCRIBER_COUNT_VOTE,    ctx->ws_subscribers_vote_cnt         );
+  FD_MGAUGE_SET( RPC, WEBSOCKET_SUBSCRIBER_COUNT_SLOT,    ctx->ws_subscribers_slot_cnt         );
   FD_ACCDB_METRICS_WRITE_RO( RPC, fd_accdb_metrics( ctx->accdb ) );
 }
 
@@ -756,8 +761,6 @@ before_frag( fd_rpc_tile_t *   ctx,
              ulong             seq FD_PARAM_UNUSED,
              ulong             sig ) {
   if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_GOSSIP_OUT ) ) {
-    /* To match Agave, voteSubscribe shouldn't work under Alpenglow. */
-    if( sig==FD_GOSSIP_UPDATE_TAG_VOTE ) return ctx->alpenglow || !ctx->ws_subscribers_vote_cnt;
     return sig!=FD_GOSSIP_UPDATE_TAG_CONTACT_INFO &&
            sig!=FD_GOSSIP_UPDATE_TAG_CONTACT_INFO_REMOVE;
   }
@@ -772,113 +775,6 @@ before_frag( fd_rpc_tile_t *   ctx,
   return 0;
 }
 
-static int
-fd_rpc_extract_vote_notification( fd_gossip_vote_t const * vote,
-                                  fd_pubkey_t *            vote_pubkey,
-                                  fd_hash_t *              hash,
-                                  long *                   timestamp,
-                                  uchar *                  has_timestamp,
-                                  fd_signature_t *         signature,
-                                  ulong *                  slots,
-                                  ulong *                  slots_cnt ) {
-  uchar txn_mem[ FD_TXN_MAX_SZ ] __attribute__((aligned(alignof(fd_txn_t))));
-  ulong txn_sz = fd_txn_parse( vote->transaction, vote->transaction_len, txn_mem, NULL );
-  if( FD_UNLIKELY( !txn_sz ) ) return 0;
-
-  fd_txn_t const * txn = (fd_txn_t const *)txn_mem;
-  if( FD_UNLIKELY( !fd_txn_is_simple_vote_transaction( txn, vote->transaction ) ) ) return 0;
-  if( FD_UNLIKELY( txn->instr_cnt!=1UL || txn->signature_cnt<1UL ) ) return 0;
-
-  fd_txn_instr_t const * instr = &txn->instr[ 0 ];
-  if( FD_UNLIKELY( !instr->acct_cnt ) ) return 0;
-  uchar const * instr_accts = fd_txn_get_instr_accts( instr, vote->transaction );
-  uchar vote_pubkey_idx = instr_accts[ 0 ];
-  if( FD_UNLIKELY( vote_pubkey_idx>=txn->acct_addr_cnt ) ) return 0;
-
-  fd_pubkey_t const * acct_addrs = (fd_pubkey_t const *)fd_type_pun_const( vote->transaction + txn->acct_addr_off );
-  *vote_pubkey = acct_addrs[ vote_pubkey_idx ];
-
-  fd_vote_instruction_t ix[1];
-  if( FD_UNLIKELY( !fd_vote_instruction_deserialize( ix, fd_txn_get_instr_data( instr, vote->transaction ), instr->data_sz ) ) ) return 0;
-
-  *slots_cnt = 0UL;
-  *has_timestamp = 0;
-  *timestamp = 0L;
-
-  switch( ix->discriminant ) {
-    case fd_vote_instruction_enum_tower_sync: {
-      fd_tower_sync_t const * v = &ix->tower_sync;
-      for( ulong i=0UL; i<v->lockouts_cnt; i++ ) slots[ (*slots_cnt)++ ] =
-          deq_fd_vote_lockout_t_peek_index_const( v->lockouts, i )->slot;
-      *hash = v->hash;
-      *has_timestamp = v->has_timestamp;
-      *timestamp = v->timestamp;
-      break;
-    }
-    case fd_vote_instruction_enum_tower_sync_switch: {
-      fd_tower_sync_t const * v = &ix->tower_sync_switch.tower_sync;
-      for( ulong i=0UL; i<v->lockouts_cnt; i++ ) slots[ (*slots_cnt)++ ] =
-          deq_fd_vote_lockout_t_peek_index_const( v->lockouts, i )->slot;
-      *hash = v->hash;
-      *has_timestamp = v->has_timestamp;
-      *timestamp = v->timestamp;
-      break;
-    }
-    default:
-      /* Legacy vote instructions not supported */
-      return 0;
-  }
-
-  *signature = FD_LOAD( fd_signature_t, fd_txn_get_signatures( txn, vote->transaction ) );
-  return *slots_cnt>0UL;
-}
-
-static void
-fd_rpc_publish_vote_event( fd_rpc_tile_t *          ctx,
-                           fd_gossip_vote_t const * vote ) {
-  if( FD_UNLIKELY( !ctx->ws_subscribers_vote_cnt ) ) return;
-
-  fd_pubkey_t vote_pubkey[1];
-  fd_hash_t hash[1];
-  long timestamp = 0L;
-  uchar has_timestamp = 0;
-  fd_signature_t signature[1];
-  ulong slots[ FD_VOTE_INSTR_MAX_LOCKOUT_OFFSETS_LEN ];
-  ulong slots_cnt = 0UL;
-
-  if( FD_UNLIKELY( !fd_rpc_extract_vote_notification( vote, vote_pubkey, hash, &timestamp, &has_timestamp, signature, slots, &slots_cnt ) ) ) return;
-
-  FD_BASE58_ENCODE_32_BYTES( vote_pubkey->uc, vote_pubkey_b58 );
-  FD_BASE58_ENCODE_32_BYTES( hash->uc, hash_b58 );
-  FD_BASE58_ENCODE_64_BYTES( signature->uc, signature_b58 );
-
-  char txn_base64[ FD_BASE64_ENC_SZ( sizeof(vote->transaction) ) ];
-  ulong txn_base64_len = fd_base64_encode( txn_base64, vote->transaction, vote->transaction_len );
-
-  ulong sent_cnt = 0UL;
-  for( ulong i=0UL; i<ctx->ws_subscribers_vote_cnt; ) {
-    ulong ws_conn_id = ctx->ws_subscribers_vote[ i ];
-    fd_http_server_printf( ctx->http, "{\"jsonrpc\":\"2.0\",\"method\":\"voteNotification\",\"params\":{\"subscription\":0,\"result\":{\"votePubkey\":\"%s\",\"slots\":[", vote_pubkey_b58 );
-    for( ulong j=0UL; j<slots_cnt; j++ ) fd_http_server_printf( ctx->http, "%s%lu", j ? "," : "", slots[ j ] );
-    fd_http_server_printf( ctx->http, "],\"hash\":\"%s\",", hash_b58 );
-    if( FD_LIKELY( has_timestamp ) ) fd_http_server_printf( ctx->http, "\"timestamp\":%ld,", timestamp );
-    else                             fd_http_server_printf( ctx->http, "\"timestamp\":null," );
-    fd_http_server_printf( ctx->http, "\"signature\":\"%s\",\"transaction\":[\"%.*s\",\"base64\"]}}}\n", signature_b58, (int)txn_base64_len, txn_base64 );
-
-    if( FD_UNLIKELY( fd_http_server_ws_send( ctx->http, ws_conn_id ) ) ) {
-      fd_rpc_ws_subscriber_vote_remove( ctx, ws_conn_id );
-      fd_http_server_ws_close( ctx->http, ws_conn_id, FD_HTTP_SERVER_CONNECTION_CLOSE_TOO_SLOW );
-      continue;
-    }
-    if( FD_UNLIKELY( i>=ctx->ws_subscribers_vote_cnt || ctx->ws_subscribers_vote[ i ]!=ws_conn_id ) ) continue;
-    sent_cnt++;
-    i++;
-  }
-
-  FD_MCNT_INC( RPC, WEBSOCKET_EVENT_UNIQUE_SENT_VOTE, !!sent_cnt );
-  FD_MCNT_INC( RPC, WEBSOCKET_EVENT_SENT_VOTE,          sent_cnt );
-}
-
 static void
 fd_rpc_publish_slot_event( fd_rpc_tile_t *                    ctx,
                            fd_replay_slot_completed_t const * slot_completed ) {
@@ -888,7 +784,8 @@ fd_rpc_publish_slot_event( fd_rpc_tile_t *                    ctx,
   for( ulong i=0UL; i<ctx->ws_subscribers_slot_cnt; ) {
     ulong ws_conn_id = ctx->ws_subscribers_slot[ i ];
     fd_http_server_printf( ctx->http,
-                           "{\"jsonrpc\":\"2.0\",\"method\":\"slotNotification\",\"params\":{\"subscription\":0,\"result\":{\"parent\":%lu,\"root\":%lu,\"slot\":%lu}}}\n",
+                           "{\"jsonrpc\":\"2.0\",\"method\":\"slotNotification\",\"params\":{\"subscription\":%lu,\"result\":{\"parent\":%lu,\"root\":%lu,\"slot\":%lu}}}\n",
+                           ctx->ws_sub_id_slot,
                            slot_completed->parent_slot,
                            slot_completed->root_slot,
                            slot_completed->slot );
@@ -903,8 +800,8 @@ fd_rpc_publish_slot_event( fd_rpc_tile_t *                    ctx,
     i++;
   }
 
-  FD_MCNT_INC( RPC, WEBSOCKET_EVENT_UNIQUE_SENT_SLOT, !!sent_cnt );
-  FD_MCNT_INC( RPC, WEBSOCKET_EVENT_SENT_SLOT,          sent_cnt );
+  FD_MCNT_INC( RPC, WEBSOCKET_NOTIFICATION_PUBLISHED_SLOT, !!sent_cnt );
+  FD_MCNT_INC( RPC, WEBSOCKET_NOTIFICATION_TX_SLOT,          sent_cnt );
 }
 
 static inline void
@@ -990,12 +887,10 @@ returnable_frag( fd_rpc_tile_t *     ctx,
         FD_TEST( msg->bank_idx<ctx->max_live_slots );
         ctx->finalized_idx = msg->bank_idx;
 
-        if( FD_UNLIKELY( ctx->alpenglow ) ) {
-          if( FD_LIKELY( ctx->confirmed_idx!=ULONG_MAX ) ) fd_stem_publish( stem, ctx->replay_out->idx, ctx->confirmed_idx, 0UL, 0UL, 0UL, 0UL, 0UL );
-          ctx->confirmed_idx = msg->bank_idx;
+        if( FD_LIKELY( ctx->confirmed_idx!=ULONG_MAX ) ) fd_stem_publish( stem, ctx->replay_out->idx, ctx->confirmed_idx, 0UL, 0UL, 0UL, 0UL, 0UL );
+        ctx->confirmed_idx = msg->bank_idx;
 
-          if( FD_LIKELY( ctx->cluster_confirmed_slot!=ULONG_MAX ) ) fd_rpc_cluster_finalized( ctx, msg->slot );
-        }
+        if( FD_LIKELY( ctx->cluster_confirmed_slot!=ULONG_MAX ) ) fd_rpc_cluster_finalized( ctx, msg->slot );
         break;
       }
       case REPLAY_SIG_DROP_BANK_REF: {
@@ -1041,19 +936,7 @@ returnable_frag( fd_rpc_tile_t *     ctx,
         fd_rpc_cluster_node_dlist_idx_remove( ctx->cluster_nodes_dlist, update->contact_info_remove->idx, ctx->cluster_nodes );
         break;
       }
-      case FD_GOSSIP_UPDATE_TAG_VOTE: {
-        fd_rpc_publish_vote_event( ctx, update->vote->value );
-        break;
-      }
       default: break;
-    }
-  } else if( ctx->in_kind[ in_idx ]==IN_KIND_TOWER ) {
-    if( FD_LIKELY( sig==FD_TOWER_SIG_SLOT_CONFIRMED ) ) {
-      fd_tower_slot_confirmed_t const * msg = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
-      if( FD_LIKELY( msg->level==FD_TOWER_SLOT_CONFIRMED_OPTIMISTIC ) ) {
-        if( FD_LIKELY( ctx->cluster_confirmed_slot==ULONG_MAX ) ) ctx->cluster_confirmed_slot = msg->slot;
-        else                                                      ctx->cluster_confirmed_slot = fd_ulong_max( ctx->cluster_confirmed_slot, msg->slot );
-      }
     }
   } else if( ctx->in_kind[ in_idx ]==IN_KIND_EPOCH ) {
     fd_epoch_info_msg_t const * msg = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
@@ -1678,8 +1561,9 @@ static fd_http_server_response_t                       \
 X( fd_rpc_tile_t *         ctx,                        \
    char const *            id_cstr,                    \
    fd_rpc_params_t const * params ) {                     \
-  (void)ctx; (void)id_cstr; (void)params;              \
-  return (fd_http_server_response_t){ .status = 501 }; \
+  (void)ctx; (void)id_cstr; (void)params;                 \
+  FD_MCNT_INC( RPC, REQUEST_HANDLED_UNIMPLEMENTED, 1UL ); \
+  return (fd_http_server_response_t){ .status = 501 };    \
 }
 
 UNIMPLEMENTED(getBlock)
@@ -1774,7 +1658,7 @@ static fd_http_server_response_t
 getAccountInfo( fd_rpc_tile_t *         ctx,
                 char const *            id_cstr,
                 fd_rpc_params_t const * params ) {
-  FD_MCNT_INC( RPC, REQUEST_SERVED_GET_ACCOUNT_INFO, 1UL );
+  FD_MCNT_INC( RPC, REQUEST_HANDLED_GET_ACCOUNT_INFO, 1UL );
 
   fd_http_server_response_t response;
   if( FD_UNLIKELY( !fd_rpc_validate_params( ctx, id_cstr, params, 1, 2, &response ) ) ) return response;
@@ -1810,7 +1694,7 @@ getAccountInfo( fd_rpc_tile_t *         ctx,
                              &acct_lamports, &acct_executable, acct_owner,
                              ctx->scratch.accdb_data_buf, &acct_data_len );
   if( FD_UNLIKELY( !acct_lamports ) ) {
-    return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"slot\":%lu},\"value\":null},\"id\":%s}\n", info->slot, id_cstr );
+    return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"%s\",\"slot\":%lu},\"value\":null},\"id\":%s}\n", FD_RPC_AGAVE_API_VERSION, info->slot, id_cstr );
   }
 
   fd_http_server_printf( ctx->http, "{\"jsonrpc\":\"2.0\",\"id\":%s,\"result\":{\"context\":{\"apiVersion\":\"%s\",\"slot\":%lu},\"value\":", id_cstr, FD_RPC_AGAVE_API_VERSION, info->slot );
@@ -1828,7 +1712,7 @@ static fd_http_server_response_t
 getBalance( fd_rpc_tile_t *         ctx,
             char const *            id_cstr,
             fd_rpc_params_t const * params ) {
-  FD_MCNT_INC( RPC, REQUEST_SERVED_GET_BALANCE, 1UL );
+  FD_MCNT_INC( RPC, REQUEST_HANDLED_GET_BALANCE, 1UL );
 
   fd_http_server_response_t response;
   if( FD_UNLIKELY( !fd_rpc_validate_params( ctx, id_cstr, params, 1, 2, &response ) ) ) return response;
@@ -1861,7 +1745,7 @@ static fd_http_server_response_t
 getBlockHeight( fd_rpc_tile_t *         ctx,
                 char const *            id_cstr,
                 fd_rpc_params_t const * params ) {
-  FD_MCNT_INC( RPC, REQUEST_SERVED_GET_BLOCK_HEIGHT, 1UL );
+  FD_MCNT_INC( RPC, REQUEST_HANDLED_GET_BLOCK_HEIGHT, 1UL );
 
   fd_http_server_response_t response;
   if( FD_UNLIKELY( !fd_rpc_validate_params( ctx, id_cstr, params, 0, 1, &response ) ) ) return response;
@@ -1893,7 +1777,7 @@ static fd_http_server_response_t
 getClusterNodes( fd_rpc_tile_t *         ctx,
                  char const *            id_cstr,
                  fd_rpc_params_t const * params ) {
-  FD_MCNT_INC( RPC, REQUEST_SERVED_GET_CLUSTER_NODES, 1UL );
+  FD_MCNT_INC( RPC, REQUEST_HANDLED_GET_CLUSTER_NODES, 1UL );
 
   fd_http_server_response_t response;
   if( FD_UNLIKELY( !fd_rpc_validate_params( ctx, id_cstr, params, 0, 0, &response ) ) ) return response;
@@ -1918,7 +1802,7 @@ getClusterNodes( fd_rpc_tile_t *         ctx,
         case FD_GOSSIP_CONTACT_INFO_SOCKET_RPC_PUBSUB:        name = "pubsub"; break;
         case FD_GOSSIP_CONTACT_INFO_SOCKET_SERVE_REPAIR:      name = "serveRepair"; break;
         /* Even though Agave does not support "tpu" and "tpuForwards"
-           (hardcoded null), frankendacer/firedancer still support
+           (hardcoded null), Firedancer still supports
            UDP-TPU. */
         case FD_GOSSIP_CONTACT_INFO_SOCKET_TPU:               name = "tpu"; break;
         case FD_GOSSIP_CONTACT_INFO_SOCKET_TPU_FORWARDS:      name = "tpuForwards"; break;
@@ -1977,7 +1861,7 @@ static fd_http_server_response_t
 getEpochInfo( fd_rpc_tile_t *         ctx,
               char const *            id_cstr,
               fd_rpc_params_t const * params ) {
-  FD_MCNT_INC( RPC, REQUEST_SERVED_GET_EPOCH_INFO, 1UL );
+  FD_MCNT_INC( RPC, REQUEST_HANDLED_GET_EPOCH_INFO, 1UL );
 
   fd_http_server_response_t response;
   if( FD_UNLIKELY( !fd_rpc_validate_params( ctx, id_cstr, params, 0, 1, &response ) ) ) return response;
@@ -2014,7 +1898,7 @@ static fd_http_server_response_t
 getGenesisHash( fd_rpc_tile_t *         ctx,
                 char const *            id_cstr,
                 fd_rpc_params_t const * params ) {
-  FD_MCNT_INC( RPC, REQUEST_SERVED_GET_GENESIS_HASH, 1UL );
+  FD_MCNT_INC( RPC, REQUEST_HANDLED_GET_GENESIS_HASH, 1UL );
 
   fd_http_server_response_t response;
   if( FD_UNLIKELY( !fd_rpc_validate_params( ctx, id_cstr, params, 0, 0, &response ) ) ) return response;
@@ -2048,7 +1932,7 @@ static fd_http_server_response_t
 getAgGenesisCert( fd_rpc_tile_t *         ctx,
                   char const *            id_cstr,
                   fd_rpc_params_t const * params ) {
-  FD_MCNT_INC( RPC, REQUEST_SERVED_GET_AG_GENESIS_CERT, 1UL );
+  FD_MCNT_INC( RPC, REQUEST_HANDLED_GET_AG_GENESIS_CERT, 1UL );
 
   fd_http_server_response_t response;
   if( FD_UNLIKELY( !fd_rpc_validate_params( ctx, id_cstr, params, 0, 0, &response ) ) ) return response;
@@ -2137,8 +2021,6 @@ getAgGenesisCert( fd_rpc_tile_t *         ctx,
 
 static inline int
 _getHealth( fd_rpc_tile_t * ctx ) {
-  FD_MCNT_INC( RPC, REQUEST_SERVED_GET_HEALTH, 1UL );
-
   /* Requests are not served until RPC has initialized banks */
   if( FD_UNLIKELY( ctx->confirmed_idx==ULONG_MAX ) ) return FD_RPC_HEALTH_STATUS_UNKNOWN;
   if( FD_UNLIKELY( ctx->cluster_confirmed_slot==ULONG_MAX ) ) return FD_RPC_HEALTH_STATUS_UNKNOWN;
@@ -2152,6 +2034,8 @@ static fd_http_server_response_t
 getHealth( fd_rpc_tile_t *         ctx,
            char const *            id_cstr,
            fd_rpc_params_t const * params ) {
+  FD_MCNT_INC( RPC, REQUEST_HANDLED_GET_HEALTH, 1UL );
+
   fd_http_server_response_t response;
   if( FD_UNLIKELY( !fd_rpc_validate_params( ctx, id_cstr, params, 0, 0, &response ) ) ) return response;
 
@@ -2174,7 +2058,7 @@ static fd_http_server_response_t
 getIdentity( fd_rpc_tile_t *         ctx,
              char const *            id_cstr,
              fd_rpc_params_t const * params ) {
-  FD_MCNT_INC( RPC, REQUEST_SERVED_GET_IDENTITY, 1UL );
+  FD_MCNT_INC( RPC, REQUEST_HANDLED_GET_IDENTITY, 1UL );
 
   fd_http_server_response_t response;
   if( FD_UNLIKELY( !fd_rpc_validate_params( ctx, id_cstr, params, 0, 0, &response ) ) ) return response;
@@ -2187,7 +2071,7 @@ static fd_http_server_response_t
 getInflationGovernor( fd_rpc_tile_t *         ctx,
                       char const *            id_cstr,
                       fd_rpc_params_t const * params ) {
-  FD_MCNT_INC( RPC, REQUEST_SERVED_GET_INFLATION_GOVERNOR, 1UL );
+  FD_MCNT_INC( RPC, REQUEST_HANDLED_GET_INFLATION_GOVERNOR, 1UL );
 
   fd_http_server_response_t response;
   if( FD_UNLIKELY( !fd_rpc_validate_params( ctx, id_cstr, params, 0, 1, &response ) ) ) return response;
@@ -2226,7 +2110,7 @@ static fd_http_server_response_t
 getLatestBlockhash( fd_rpc_tile_t *         ctx,
                     char const *            id_cstr,
                     fd_rpc_params_t const * params ) {
-  FD_MCNT_INC( RPC, REQUEST_SERVED_GET_LATEST_BLOCKHASH, 1UL );
+  FD_MCNT_INC( RPC, REQUEST_HANDLED_GET_LATEST_BLOCKHASH, 1UL );
 
   if( FD_UNLIKELY( ctx->processed_idx==ULONG_MAX ) ) {
     return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32065,\"message\":\"Firedancer Error: banks uninitialized\"},\"id\":%s}\n", id_cstr );
@@ -2270,7 +2154,7 @@ static fd_http_server_response_t
 getLeaderSchedule( fd_rpc_tile_t *         ctx,
                    char const *            id_cstr,
                    fd_rpc_params_t const * params ) {
-  FD_MCNT_INC( RPC, REQUEST_SERVED_GET_LEADER_SCHEDULE, 1UL );
+  FD_MCNT_INC( RPC, REQUEST_HANDLED_GET_LEADER_SCHEDULE, 1UL );
 
   fd_http_server_response_t response;
   if( FD_UNLIKELY( !fd_rpc_validate_params( ctx, id_cstr, params, 0, 2, &response ) ) ) return response;
@@ -2403,7 +2287,7 @@ static fd_http_server_response_t
 getMaxRetransmitSlot( fd_rpc_tile_t *         ctx,
                       char const *            id_cstr,
                       fd_rpc_params_t const * params ) {
-  FD_MCNT_INC( RPC, REQUEST_SERVED_GET_MAX_RETRANSMIT_SLOT, 1UL );
+  FD_MCNT_INC( RPC, REQUEST_HANDLED_GET_MAX_RETRANSMIT_SLOT, 1UL );
 
   fd_http_server_response_t response;
   if( FD_UNLIKELY( !fd_rpc_validate_params( ctx, id_cstr, params, 0, 0, &response ) ) ) return response;
@@ -2422,7 +2306,7 @@ static fd_http_server_response_t
 getMinimumBalanceForRentExemption( fd_rpc_tile_t *         ctx,
                                    char const *            id_cstr,
                                    fd_rpc_params_t const * params ) {
-  FD_MCNT_INC( RPC, REQUEST_SERVED_GET_MINIMUM_BALANCE_FOR_RENT_EXEMPTION, 1UL );
+  FD_MCNT_INC( RPC, REQUEST_HANDLED_GET_MINIMUM_BALANCE_FOR_RENT_EXEMPTION, 1UL );
 
   fd_http_server_response_t response;
   if( FD_UNLIKELY( !fd_rpc_validate_params( ctx, id_cstr, params, 1, 2, &response ) ) ) return response;
@@ -2465,7 +2349,7 @@ static fd_http_server_response_t
 getMultipleAccounts( fd_rpc_tile_t *         ctx,
                      char const *            id_cstr,
                      fd_rpc_params_t const * params ) {
-  FD_MCNT_INC( RPC, REQUEST_SERVED_GET_MULTIPLE_ACCOUNTS, 1UL );
+  FD_MCNT_INC( RPC, REQUEST_HANDLED_GET_MULTIPLE_ACCOUNTS, 1UL );
 
   fd_http_server_response_t response;
   if( FD_UNLIKELY( !fd_rpc_validate_params( ctx, id_cstr, params, 1, 2, &response ) ) ) return response;
@@ -2551,7 +2435,7 @@ static fd_http_server_response_t
 getSlot( fd_rpc_tile_t *         ctx,
          char const *            id_cstr,
          fd_rpc_params_t const * params ) {
-  FD_MCNT_INC( RPC, REQUEST_SERVED_GET_SLOT, 1UL );
+  FD_MCNT_INC( RPC, REQUEST_HANDLED_GET_SLOT, 1UL );
 
   fd_http_server_response_t response;
   if( FD_UNLIKELY( !fd_rpc_validate_params( ctx, id_cstr, params, 0, 1, &response ) ) ) return response;
@@ -2579,7 +2463,7 @@ static fd_http_server_response_t
 getSlotLeader( fd_rpc_tile_t *         ctx,
                char const *            id_cstr,
                fd_rpc_params_t const * params ) {
-  FD_MCNT_INC( RPC, REQUEST_SERVED_GET_SLOT_LEADER, 1UL );
+  FD_MCNT_INC( RPC, REQUEST_HANDLED_GET_SLOT_LEADER, 1UL );
 
   fd_http_server_response_t response;
   if( FD_UNLIKELY( !fd_rpc_validate_params( ctx, id_cstr, params, 0, 1, &response ) ) ) return response;
@@ -2614,7 +2498,7 @@ static fd_http_server_response_t
 getSlotLeaders( fd_rpc_tile_t *         ctx,
                 char const *            id_cstr,
                 fd_rpc_params_t const * params ) {
-  FD_MCNT_INC( RPC, REQUEST_SERVED_GET_SLOT_LEADERS, 1UL );
+  FD_MCNT_INC( RPC, REQUEST_HANDLED_GET_SLOT_LEADERS, 1UL );
 
   fd_http_server_response_t response;
   if( FD_UNLIKELY( params->kind==FD_RPC_VAL_NULL ) ) {
@@ -2671,7 +2555,7 @@ static fd_http_server_response_t
 getTransactionCount( fd_rpc_tile_t *         ctx,
                      char const *            id_cstr,
                      fd_rpc_params_t const * params ) {
-  FD_MCNT_INC( RPC, REQUEST_SERVED_GET_TRANSACTION_COUNT, 1UL );
+  FD_MCNT_INC( RPC, REQUEST_HANDLED_GET_TRANSACTION_COUNT, 1UL );
 
   fd_http_server_response_t response;
   if( FD_UNLIKELY( !fd_rpc_validate_params( ctx, id_cstr, params, 0, 1, &response ) ) ) return response;
@@ -2699,7 +2583,7 @@ static fd_http_server_response_t
 getVersion( fd_rpc_tile_t *         ctx,
             char const *            id_cstr,
             fd_rpc_params_t const * params ) {
-  FD_MCNT_INC( RPC, REQUEST_SERVED_GET_VERSION, 1UL );
+  FD_MCNT_INC( RPC, REQUEST_HANDLED_GET_VERSION, 1UL );
 
   fd_http_server_response_t response;
   if( FD_UNLIKELY( !fd_rpc_validate_params( ctx, id_cstr, params, 0, 0, &response ) ) ) return response;
@@ -2712,6 +2596,8 @@ voteSubscribe( fd_rpc_tile_t *         ctx,
                char const *            id_cstr,
                fd_rpc_params_t const * params,
                ulong                   ws_conn_id ) {
+  FD_MCNT_INC( RPC, REQUEST_HANDLED_VOTE_SUBSCRIBE, 1UL );
+
   fd_http_server_response_t response;
   if( FD_UNLIKELY( !fd_rpc_validate_params( ctx, id_cstr, params, 0, 0, &response ) ) ) return response;
 
@@ -2722,7 +2608,7 @@ voteSubscribe( fd_rpc_tile_t *         ctx,
 
   fd_rpc_ws_subscriber_vote_add( ctx, ws_conn_id );
 
-  return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"result\":0,\"id\":%s}\n", id_cstr );
+  return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"result\":%lu,\"id\":%s}\n", ctx->ws_sub_id_vote, id_cstr );
 }
 
 static fd_http_server_response_t
@@ -2730,6 +2616,8 @@ slotSubscribe( fd_rpc_tile_t *         ctx,
                char const *            id_cstr,
                fd_rpc_params_t const * params,
                ulong                   ws_conn_id ) {
+  FD_MCNT_INC( RPC, REQUEST_HANDLED_SLOT_SUBSCRIBE, 1UL );
+
   fd_http_server_response_t response;
   if( FD_UNLIKELY( !fd_rpc_validate_params( ctx, id_cstr, params, 0, 0, &response ) ) ) return response;
 
@@ -2740,7 +2628,7 @@ slotSubscribe( fd_rpc_tile_t *         ctx,
 
   fd_rpc_ws_subscriber_slot_add( ctx, ws_conn_id );
 
-  return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"result\":0,\"id\":%s}\n", id_cstr );
+  return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"result\":%lu,\"id\":%s}\n", ctx->ws_sub_id_slot, id_cstr );
 }
 
 static fd_http_server_response_t
@@ -2748,6 +2636,8 @@ voteUnsubscribe( fd_rpc_tile_t *         ctx,
                  char const *            id_cstr,
                  fd_rpc_params_t const * params,
                  ulong                   ws_conn_id ) {
+  FD_MCNT_INC( RPC, REQUEST_HANDLED_VOTE_UNSUBSCRIBE, 1UL );
+
   fd_http_server_response_t response;
   if( FD_UNLIKELY( !fd_rpc_validate_params( ctx, id_cstr, params, 1, 1, &response ) ) ) return response;
 
@@ -2762,7 +2652,7 @@ voteUnsubscribe( fd_rpc_tile_t *         ctx,
   }
 
   int unsubscribed = 0;
-  if( FD_LIKELY( subscription->u==0UL ) )
+  if( FD_LIKELY( subscription->u==ctx->ws_sub_id_vote ) )
     unsubscribed = fd_rpc_ws_subscriber_vote_remove( ctx, ws_conn_id );
 
   return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"result\":%s,\"id\":%s}\n", unsubscribed ? "true" : "false", id_cstr );
@@ -2773,6 +2663,8 @@ slotUnsubscribe( fd_rpc_tile_t *         ctx,
                  char const *            id_cstr,
                  fd_rpc_params_t const * params,
                  ulong                   ws_conn_id ) {
+  FD_MCNT_INC( RPC, REQUEST_HANDLED_SLOT_UNSUBSCRIBE, 1UL );
+
   fd_http_server_response_t response;
   if( FD_UNLIKELY( !fd_rpc_validate_params( ctx, id_cstr, params, 1, 1, &response ) ) ) return response;
 
@@ -2787,7 +2679,7 @@ slotUnsubscribe( fd_rpc_tile_t *         ctx,
   }
 
   int unsubscribed = 0;
-  if( FD_LIKELY( subscription->u==0UL ) )
+  if( FD_LIKELY( subscription->u==ctx->ws_sub_id_slot ) )
     unsubscribed = fd_rpc_ws_subscriber_slot_remove( ctx, ws_conn_id );
 
   return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"result\":%s,\"id\":%s}\n", unsubscribed ? "true" : "false", id_cstr );
@@ -2820,6 +2712,7 @@ rpc_http_request1( fd_rpc_tile_t *                  ctx,
   }
 
   if( FD_UNLIKELY( request->method==FD_HTTP_SERVER_METHOD_GET && !strcmp( request->path, "/health" ) ) ) {
+    FD_MCNT_INC( RPC, REQUEST_HANDLED_HEALTH, 1UL );
     int health_status = _getHealth( ctx );
 
     switch( health_status ) {
@@ -2831,7 +2724,7 @@ rpc_http_request1( fd_rpc_tile_t *                  ctx,
   }
 
   if( FD_UNLIKELY( request->method==FD_HTTP_SERVER_METHOD_GET && !strcmp( request->path, "/genesis.tar.bz2" ) ) ) {
-    FD_MCNT_INC( RPC, REQUEST_SERVED_GENESIS, 1UL );
+    FD_MCNT_INC( RPC, REQUEST_HANDLED_GENESIS, 1UL );
     if( FD_UNLIKELY( ctx->genesis_tar_bz_sz==ULONG_MAX ) ) return (fd_http_server_response_t){ .status = 404 };
 
     return (fd_http_server_response_t) {
@@ -2879,10 +2772,12 @@ rpc_json_request( fd_rpc_tile_t * ctx,
     /* A bug in Agave ¯\_(ツ)_/¯ */
     fd_jtok_arr_enter( j );
     if( FD_LIKELY( !fd_jtok_arr_next( j ) && !fd_jtok_fini( j ) ) ) return (fd_http_server_response_t){ .content_type = "application/json", .status = 200 };
+    FD_MCNT_INC( RPC, REQUEST_HANDLED_INVALID, 1UL );
     return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32700,\"message\":\"Parse error\"},\"id\":null}\n" );
   }
 
   if( FD_UNLIKELY( kind!=FD_JTOK_OBJ ) ) {
+    FD_MCNT_INC( RPC, REQUEST_HANDLED_INVALID, 1UL );
     return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32700,\"message\":\"Parse error\"},\"id\":null}\n" );
   }
 
@@ -2906,6 +2801,7 @@ rpc_json_request( fd_rpc_tile_t * ctx,
     if( member->kind==FD_RPC_VAL_NONE ) fd_rpc_val_read( j, member );
   }
   if( FD_UNLIKELY( fd_jtok_fini( j ) ) ) {
+    FD_MCNT_INC( RPC, REQUEST_HANDLED_INVALID, 1UL );
     return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32700,\"message\":\"Parse error\"},\"id\":null}\n" );
   }
 
@@ -2914,7 +2810,8 @@ rpc_json_request( fd_rpc_tile_t * ctx,
   char const * id_cstr = "null";
   if( id->kind!=FD_RPC_VAL_NONE ) {
     if( FD_UNLIKELY( id->raw_sz>FD_RPC_ID_MAX_SZ ) ) {
-      return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32700,\"message\":\"Parse error\"},\"id\":null}\n" );
+      FD_MCNT_INC( RPC, REQUEST_HANDLED_INVALID, 1UL );
+    return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32700,\"message\":\"Parse error\"},\"id\":null}\n" );
     }
     fd_memcpy( id_buf, id->raw, id->raw_sz );
     id_buf[ id->raw_sz ] = '\0';
@@ -2922,6 +2819,7 @@ rpc_json_request( fd_rpc_tile_t * ctx,
   }
 
   if( FD_UNLIKELY( unknown_member ) ) {
+    FD_MCNT_INC( RPC, REQUEST_HANDLED_INVALID, 1UL );
     return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32600,\"message\":\"Invalid request\"},\"id\":%s}\n", id_cstr );
   }
 
@@ -2931,28 +2829,34 @@ rpc_json_request( fd_rpc_tile_t * ctx,
   }
 
   if( FD_UNLIKELY( jsonrpc->kind==FD_RPC_VAL_NONE && _method->kind!=FD_RPC_VAL_NONE ) ) {
+    FD_MCNT_INC( RPC, REQUEST_HANDLED_INVALID, 1UL );
     return PRINTF_JSON( ctx, "{\"error\":{\"code\":-32600,\"message\":\"Unsupported JSON-RPC protocol version\"},\"id\":%s}\n", id_cstr );
   }
 
   if( FD_UNLIKELY( jsonrpc->kind==FD_RPC_VAL_NONE || _method->kind==FD_RPC_VAL_NONE ) ) {
+    FD_MCNT_INC( RPC, REQUEST_HANDLED_INVALID, 1UL );
     return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32600,\"message\":\"Invalid request\"},\"id\":%s}\n", id_cstr );
   }
 
   if( FD_UNLIKELY( !(id->kind==FD_RPC_VAL_INT && !id->neg) && id->kind!=FD_RPC_VAL_STR && id->kind!=FD_RPC_VAL_NULL ) ) {
+    FD_MCNT_INC( RPC, REQUEST_HANDLED_INVALID, 1UL );
     return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32700,\"message\":\"Parse error\"},\"id\":null}\n" );
   }
 
   if( FD_UNLIKELY( jsonrpc->kind==FD_RPC_VAL_NULL ) ) {
+    FD_MCNT_INC( RPC, REQUEST_HANDLED_INVALID, 1UL );
     return PRINTF_JSON( ctx, "{\"error\":{\"code\":-32600,\"message\":\"Unsupported JSON-RPC protocol version\"},\"id\":%s}\n", id_cstr );
   }
 
   if( FD_UNLIKELY( jsonrpc->kind!=FD_RPC_VAL_STR || !fd_jtok_str_eq( &jsonrpc->str, "2.0" ) ) ) {
+    FD_MCNT_INC( RPC, REQUEST_HANDLED_INVALID, 1UL );
     return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32600,\"message\":\"Invalid request\"},\"id\":%s}\n", id_cstr );
   }
 
   fd_http_server_response_t response;
 
   if( FD_UNLIKELY( _method->kind!=FD_RPC_VAL_STR ) ) {
+    FD_MCNT_INC( RPC, REQUEST_HANDLED_INVALID, 1UL );
     return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32600,\"message\":\"Invalid request\"},\"id\":%s}\n", id_cstr );
   }
   char method[ 64 ];
@@ -3019,7 +2923,7 @@ rpc_json_request( fd_rpc_tile_t * ctx,
   else if( FD_LIKELY( !strcmp( method, "simulateTransaction"               ) ) ) response = simulateTransaction( ctx, id_cstr, params );
   else if( FD_LIKELY( !strcmp( method, "getAgGenesisCert"                  ) ) ) response = getAgGenesisCert( ctx, id_cstr, params );
   else {
-    FD_MCNT_INC( RPC, REQUEST_SERVED_UNKNOWN, 1UL );
+    FD_MCNT_INC( RPC, REQUEST_HANDLED_UNKNOWN, 1UL );
     response = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32601,\"message\":\"Method not found\"},\"id\":%s}\n", id_cstr );
   }
 
@@ -3183,13 +3087,15 @@ unprivileged_init( fd_topo_t const *      topo,
   void * _zstd_wksp   = FD_SCRATCH_ALLOC_APPEND( l, 16UL,                     zstd_wksp_sz                                           );
 
   ctx->delay_startup       = tile->rpc.delay_startup;
-  ctx->alpenglow           = tile->rpc.alpenglow;
   fd_alpenglow_pda( "carlgration", ctx->ag_genesis_cert_addr );
   ctx->waker_rearm_pending = 0;
   ctx->ws_subscribers_vote = _ws_sub_vote;
   ctx->ws_subscribers_vote_cnt = 0UL;
   ctx->ws_subscribers_slot = _ws_sub_slot;
   ctx->ws_subscribers_slot_cnt = 0UL;
+  ctx->ws_sub_id_vote          = 0UL;
+  ctx->ws_sub_id_slot          = 0UL;
+  ctx->ws_sub_id_next          = 0UL;
 
   ctx->keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->id_keyswitch_obj_id ) );
   FD_TEST( ctx->keyswitch );
@@ -3241,8 +3147,6 @@ unprivileged_init( fd_topo_t const *      topo,
     if     ( FD_LIKELY( !strcmp( link->name, "replay_slot"  ) ) ) ctx->in_kind[ i ] = IN_KIND_REPLAY;
     else if( FD_LIKELY( !strcmp( link->name, "genesi_out"   ) ) ) ctx->in_kind[ i ] = IN_KIND_GENESI;
     else if( FD_LIKELY( !strcmp( link->name, "gossip_ciaddr" ) ) ) ctx->in_kind[ i ] = IN_KIND_GOSSIP_OUT;
-    else if( FD_LIKELY( !strcmp( link->name, "gossip_vote"  ) ) ) ctx->in_kind[ i ] = IN_KIND_GOSSIP_OUT;
-    else if( FD_LIKELY( !strcmp( link->name, "tower_out"    ) ) ) ctx->in_kind[ i ] = IN_KIND_TOWER;
     else if( FD_LIKELY( !strcmp( link->name, "replay_epoch" ) ) ) ctx->in_kind[ i ] = IN_KIND_EPOCH;
     else if( FD_UNLIKELY( !strcmp( link->name, "votor_out"  ) ) ) ctx->in_kind[ i ] = IN_KIND_VOTOR;
     else FD_LOG_ERR(( "unexpected link name %s", link->name ));
@@ -3269,8 +3173,7 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->accdb = fd_accdb_join_readonly( _accdb_join, accdb_shmem_ro, epoch_fseq, FD_ACCDB_FD_RO );
   FD_TEST( ctx->accdb );
 
-  fd_histf_join( fd_histf_new( ctx->request_duration, FD_MHIST_SECONDS_MIN( RPC, REQUEST_DURATION_SECONDS ),
-                                                      FD_MHIST_SECONDS_MAX( RPC, REQUEST_DURATION_SECONDS ) ) );
+  fd_histf_join( fd_metrics_histf_new_ns( ctx->request_duration, FD_MHIST_EDGES_NS( RPC, REQUEST_DURATION_NANOS ) ) );
 
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )

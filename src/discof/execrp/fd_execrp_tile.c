@@ -2,7 +2,6 @@
 #include "../../util/pod/fd_pod_format.h"
 #include "../../disco/metrics/fd_metrics.h"
 
-#include "../../choreo/tower/fd_tower_serdes.h"
 #include "../../discof/fd_startup.h"
 #include "../../discof/replay/fd_execrp.h"
 #include "../../flamenco/runtime/fd_bank.h"
@@ -10,10 +9,11 @@
 #include "../../flamenco/runtime/fd_runtime.h"
 #include "../../flamenco/runtime/fd_executor.h"
 #include "../../flamenco/runtime/fd_cost_tracker.h"
+#include "../../flamenco/runtime/fd_hashes.h"
+#include "../../ballet/blake3/fd_blake3.h" /* for FD_BLAKE3_XN_MAX */
 #include "../../flamenco/runtime/tests/fd_dump_pb.h"
 #include "../../flamenco/progcache/fd_progcache_user.h"
 #include "../../flamenco/log_collector/fd_log_collector_base.h"
-#include "../../disco/metrics/fd_metrics.h"
 #include "../../disco/events/generated/fd_event_gen.h"
 #include "../../flamenco/events/fd_event_runtime.h"
 
@@ -49,6 +49,7 @@ struct fd_execrp_tile {
   fd_sha512_t           sha_mem[ FD_TXN_SIG_MAX ];
   fd_sha512_t *         sha_lj[  FD_TXN_SIG_MAX ];
   fd_ed25519_cache_t *  ed25519_cache;
+  fd_footer_cache_t *   footer_cache;
 
   /* Capture context for debugging runtime execution. */
   fd_capture_ctx_t *    capture_ctx;
@@ -68,6 +69,9 @@ struct fd_execrp_tile {
   ulong txn_idx;
   ulong slot;
   ulong dispatch_time_comp;
+  int   want_alts;
+
+  fd_execrp_result_t * result;
 
   fd_log_collector_t log_collector;
 
@@ -92,7 +96,7 @@ struct fd_execrp_tile {
     /* Ticks spent committing a txn (database writes) */
     ulong txn_commit_cum_ticks;
 
-    ulong txn_result[ FD_METRICS_ENUM_TRANSACTION_RESULT_CNT ];
+    ulong txn_result[ FD_METRICS_ENUM_TXN_RESULT_CNT ];
     ulong txn_version[ FD_METRICS_ENUM_TXN_VERSION_CNT ];
   } metrics;
 
@@ -138,16 +142,16 @@ static void
 metrics_write( fd_execrp_tile_t * ctx ) {
   fd_accdb_flush_metrics( ctx->accdb );
 
-  FD_MCNT_SET      ( EXECRP, SIGNATURE_VERIFIED,    ctx->metrics.sigverify_cnt );
-  FD_MCNT_SET      ( EXECRP, POH_HASHED,     ctx->metrics.poh_hash_cnt  );
-  FD_MCNT_ENUM_COPY( EXECRP, TXN_RESULT,   ctx->metrics.txn_result    );
-  FD_MCNT_ENUM_COPY( EXECRP, TXN_VERSION,  ctx->metrics.txn_version   );
+  FD_MCNT_SET      ( EXECRP, SIGNATURE_CHECKED,    ctx->metrics.sigverify_cnt );
+  FD_MCNT_SET      ( EXECRP, POH_HASH_COMPUTED,     ctx->metrics.poh_hash_cnt  );
+  FD_MCNT_ENUM_COPY( EXECRP, TXN_PROCESSED,             ctx->metrics.txn_result    );
+  FD_MCNT_ENUM_COPY( EXECRP, TXN_PROCESSED_BY_VERSION,  ctx->metrics.txn_version   );
 
   FD_PROGCACHE_METRICS_WRITE( EXECRP, ctx->progcache->metrics );
 
-  FD_MCNT_SET( EXECRP, TXN_REGIME_DURATION_NANOS_SETUP,  ctx->metrics.txn_load_cum_ticks+ctx->metrics.txn_check_cum_ticks );
-  FD_MCNT_SET( EXECRP, TXN_REGIME_DURATION_NANOS_EXEC,   ctx->metrics.txn_exec_cum_ticks    );
-  FD_MCNT_SET( EXECRP, TXN_REGIME_DURATION_NANOS_COMMIT, ctx->metrics.txn_commit_cum_ticks  );
+  FD_MCNT_SET( EXECRP, TXN_REGIME_DURATION_NANOS_LOAD,    ctx->metrics.txn_load_cum_ticks+ctx->metrics.txn_check_cum_ticks );
+  FD_MCNT_SET( EXECRP, TXN_REGIME_DURATION_NANOS_EXECUTE, ctx->metrics.txn_exec_cum_ticks   );
+  FD_MCNT_SET( EXECRP, TXN_REGIME_DURATION_NANOS_COMMIT,  ctx->metrics.txn_commit_cum_ticks );
 
   fd_runtime_t const * runtime = ctx->runtime;
   ulong cpi_ticks  = runtime->metrics.cpi_setup_cum_ticks +
@@ -159,10 +163,18 @@ metrics_write( fd_execrp_tile_t * ctx ) {
   FD_MCNT_SET( EXECRP, VM_REGIME_DURATION_NANOS_COMMIT_CPI,  runtime->metrics.cpi_commit_cum_ticks );
   FD_MCNT_SET( EXECRP, VM_REGIME_DURATION_NANOS_INTERPRETER, exec_ticks                            );
 
-  FD_MCNT_SET( EXECRP, CU_EXECUTED, runtime->metrics.cu_cum );
-  FD_MCNT_SET( EXECRP, INSTRUCTION_EXECUTED, runtime->metrics.instr_cum );
-  FD_MCNT_SET( EXECRP, CPI_EXECUTED,         runtime->metrics.cpi_cum   );
-  FD_MCNT_SET( EXECRP, LTHASH_UNCHANGED,     runtime->metrics.lthash_unchanged_cnt );
+  FD_MCNT_SET( EXECRP, CU_CONSUMED, runtime->metrics.cu_cum );
+  FD_MCNT_SET( EXECRP, INSTRUCTION_EXECUTED,   runtime->metrics.instr_cum );
+  FD_MCNT_SET( EXECRP, CPI_EXECUTED,           runtime->metrics.cpi_cum   );
+  FD_MCNT_SET( EXECRP, ACCOUNT_LTHASH_SKIPPED, runtime->metrics.lthash_unchanged_cnt );
+  FD_MCNT_SET( EXECRP, BANK_SWITCHED, runtime->metrics.bank_switch_cnt );
+
+  fd_txncache_join_metrics_t const * txncache = fd_txncache_join_metrics( ctx->txncache );
+  FD_MCNT_SET  ( EXECRP, TXNCACHE_QUERY_MISS,             txncache->query_miss_cnt  );
+  FD_MCNT_SET  ( EXECRP, TXNCACHE_INSERT_MISS,            txncache->insert_miss_cnt );
+  FD_MCNT_SET  ( EXECRP, TXNCACHE_OPERATION_STALLED,      txncache->stalled_cnt     );
+  FD_MHIST_COPY( EXECRP, TXNCACHE_QUERY_DURATION_NANOS,   txncache->query_ticks     );
+  FD_MHIST_COPY( EXECRP, TXNCACHE_INSERT_DURATION_NANOS,  txncache->insert_ticks    );
 
   FD_ACCDB_METRICS_WRITE( EXECRP, fd_accdb_metrics( ctx->accdb ) );
 }
@@ -184,7 +196,6 @@ publish_txn_finalized_msg( fd_execrp_tile_t *  ctx,
   msg->txn_exec->is_fees_only    = ctx->txn_out.err.is_fees_only;
   msg->txn_exec->is_noop         = ctx->txn_out.err.is_noop;
   msg->txn_exec->txn_err         = ctx->txn_out.err.txn_err;
-  msg->txn_exec->is_simple_vote  = ctx->txn_out.details.is_simple_vote;
 
   msg->txn_exec->tick_load_start        = ctx->txn_out.details.load_start_ticks;
   msg->txn_exec->tick_check_start       = ctx->txn_out.details.check_start_ticks;
@@ -201,37 +212,23 @@ publish_txn_finalized_msg( fd_execrp_tile_t *  ctx,
   msg->txn_exec->start_shred_idx = ctx->txn_in.txn->start_shred_idx;
   msg->txn_exec->end_shred_idx   = ctx->txn_in.txn->end_shred_idx;
 
-  int is_vote = 0;
-  if( FD_LIKELY( ctx->txn_out.details.is_simple_vote ) ) {
-    fd_txn_t const * txn = TXN( ctx->txn_in.txn );
-    uchar const *    payload = ctx->txn_in.txn->payload;
-    fd_compact_tower_sync_serde_t tower_sync[ 1 ];
-    if( FD_LIKELY( fd_txn_parse_simple_vote( txn, payload, tower_sync ) ) ) {
-      fd_acct_addr_t const * accs = fd_txn_get_acct_addrs( txn, payload );
-      *msg->txn_exec->vote.identity  = *(fd_pubkey_t const *)fd_type_pun_const( &accs[ 0 ] );
-      *msg->txn_exec->vote.vote_acct = *(fd_pubkey_t const *)fd_type_pun_const( &accs[ txn->signature_cnt==1 ? 1 : 2 ] );
-
-      ulong cur       = fd_ulong_if( tower_sync->root==ULONG_MAX, 0UL, tower_sync->root );
-      ulong cnt       = 0UL;
-      int   overflow  = 0;
-      for( ulong i=0UL; i<tower_sync->lockouts_cnt; i++ ) {
-        if( FD_UNLIKELY( __builtin_uaddl_overflow( cur, tower_sync->lockouts[ i ].offset, &cur ) ) ) { overflow = 1; break; }
-        msg->txn_exec->vote.vote_slots[ cnt++ ] = cur;
-      }
-      if( FD_LIKELY( !overflow ) ) {
-        msg->txn_exec->vote.vote_slot_cnt = (uchar)cnt;
-        msg->txn_exec->vote.slot          = cnt ? msg->txn_exec->vote.vote_slots[ cnt-1UL ] : cur;
-        is_vote                           = 1;
-      }
+  /* Leave the writable ALT accounts in this tile's result buffer if
+     replay asked for them.  txn_out.accounts.cnt only exceeds
+     acct_addr_cnt once the ALTs expanded successfully, and the expanded
+     keys list the writable accounts before the read-only ones. */
+  ulong alt_writable_cnt = 0UL;
+  fd_txn_t const * txn = TXN( ctx->txn_in.txn );
+  if( FD_UNLIKELY( ctx->want_alts && txn->transaction_version==FD_TXN_V0 ) ) {
+    ulong acct_addr_cnt     = txn->acct_addr_cnt;
+    ulong adtl_writable_cnt = txn->addr_table_adtl_writable_cnt;
+    if( FD_LIKELY( ctx->txn_out.accounts.cnt>=acct_addr_cnt+adtl_writable_cnt ) ) {
+      FD_TEST( adtl_writable_cnt<=FD_TXN_ACCT_ADDR_MAX-1UL );
+      fd_memcpy( ctx->result->alt_writable, &ctx->txn_out.accounts.keys[ acct_addr_cnt ], adtl_writable_cnt*sizeof(fd_pubkey_t) );
+      alt_writable_cnt = adtl_writable_cnt;
     }
   }
-
-  if( FD_UNLIKELY( !is_vote ) ) {
-    msg->txn_exec->vote.slot          = ULONG_MAX;
-    msg->txn_exec->vote.vote_slot_cnt = (uchar)0;
-    *msg->txn_exec->vote.identity     = (fd_pubkey_t){ 0 };
-    *msg->txn_exec->vote.vote_acct    = (fd_pubkey_t){ 0 };
-  }
+  msg->txn_exec->alt_writable_cnt = (uchar)alt_writable_cnt;
+  ctx->want_alts = 0;
 
   if( FD_UNLIKELY( !msg->txn_exec->is_committable ) ) {
     uchar * signature = (uchar *)ctx->txn_in.txn->payload + TXN( ctx->txn_in.txn )->signature_off;
@@ -256,7 +253,7 @@ after_credit( fd_execrp_tile_t *  ctx,
 static inline int
 returnable_frag( fd_execrp_tile_t *  ctx,
                  ulong               in_idx,
-                 ulong               seq FD_PARAM_UNUSED,
+                 ulong               seq,
                  ulong               sig,
                  ulong               chunk,
                  ulong               sz,
@@ -268,7 +265,7 @@ returnable_frag( fd_execrp_tile_t *  ctx,
 
   FD_TEST( (sig&0xFFFFFFFFUL)==ctx->tile_idx );
 
-  FD_MGAUGE_SET( EXECRP, PROCESSING, 1UL );
+  FD_MGAUGE_SET( EXECRP, IS_PROCESSING, 1UL );
 
   if( FD_LIKELY( in_idx==ctx->replay_in->idx ) ) {
     if( FD_UNLIKELY( chunk < ctx->replay_in->chunk0 || chunk > ctx->replay_in->wmark ) ) {
@@ -281,6 +278,7 @@ returnable_frag( fd_execrp_tile_t *  ctx,
         ctx->bank = fd_banks_bank_query( ctx->banks, msg->bank_idx );
         FD_TEST( ctx->bank );
         ctx->txn_in.txn = msg->txn;
+        ctx->want_alts  = msg->want_alts;
         memcpy( ctx->txn_in.fec_merkle_root, msg->fec_merkle_root, 32UL );
         ctx->txn_in.index_in_slot = msg->index_in_slot;
 
@@ -337,12 +335,86 @@ returnable_frag( fd_execrp_tile_t *  ctx,
       case FD_EXECRP_TT_POH_HASH: {
         fd_execrp_poh_hash_msg_t * msg = fd_chunk_to_laddr( ctx->replay_in->mem, chunk );
         fd_execrp_task_done_msg_t * out_msg = fd_chunk_to_laddr( ctx->execrp_replay_out->mem, ctx->execrp_replay_out->chunk );
-        FD_CHECK_CRIT( msg->cnt && msg->cnt<=FD_EXECRP_POH_PARA, "invalid poh batch" );
+        FD_CHECK_CRIT( msg->cnt && msg->cnt<=FD_EXECRP_POH_PARA && msg->hashcnt<=1UL, "invalid poh batch" );
         out_msg->bank_idx      = msg->bank_idx;
         out_msg->poh_hash->cnt = msg->cnt;
         ctx->metrics.poh_hash_cnt += msg->hashcnt*msg->cnt;
-        fd_sha256_hash_32_repeated_batch( msg->hash, out_msg->poh_hash->hash, msg->hashcnt, msg->cnt );
+        for( ulong i=0UL; i<msg->cnt; i++ ) {
+          if( msg->hashcnt ) fd_sha256_hash( msg->hash+i, sizeof(fd_hash_t), out_msg->poh_hash->hash+i );
+          else               out_msg->poh_hash->hash[ i ] = msg->hash[ i ];
+        }
         fd_stem_publish( stem, ctx->execrp_replay_out->idx, (FD_EXECRP_TT_POH_HASH<<32)|ctx->tile_idx, ctx->execrp_replay_out->chunk, sizeof(*out_msg), 0UL, 0UL, 0UL );
+        ctx->execrp_replay_out->chunk = fd_dcache_compact_next( ctx->execrp_replay_out->chunk, sizeof(*out_msg), ctx->execrp_replay_out->chunk0, ctx->execrp_replay_out->wmark );
+        break;
+      }
+      case FD_EXECRP_TT_CERT_VERIFY: {
+        fd_execrp_cert_verify_msg_t * msg  = fd_chunk_to_laddr( ctx->replay_in->mem, chunk );
+        fd_bank_t const *             bank = fd_banks_bank_query( ctx->banks, msg->bank_idx );
+        FD_TEST( bank );
+        fd_execrp_task_done_msg_t * out_msg = fd_chunk_to_laddr( ctx->execrp_replay_out->mem, ctx->execrp_replay_out->chunk );
+        out_msg->bank_idx         = msg->bank_idx;
+        out_msg->cert_verify->err    = !!fd_alpenglow_cert_verify( bank, msg->cert, msg->tag, msg->quorum, msg->shred_version, NULL, msg->has_hm ? &msg->hm : NULL, &out_msg->cert_verify->hm );
+        out_msg->cert_verify->has_hm = !msg->has_hm && !out_msg->cert_verify->err; /* hashed here */
+        fd_stem_publish( stem, ctx->execrp_replay_out->idx, (FD_EXECRP_TT_CERT_VERIFY<<32)|ctx->tile_idx, ctx->execrp_replay_out->chunk, sizeof(*out_msg), 0UL, 0UL, 0UL );
+        ctx->execrp_replay_out->chunk = fd_dcache_compact_next( ctx->execrp_replay_out->chunk, sizeof(*out_msg), ctx->execrp_replay_out->chunk0, ctx->execrp_replay_out->wmark );
+        break;
+      }
+      case FD_EXECRP_TT_REWARDS: {
+        fd_execrp_rewards_msg_t const * msg  = fd_chunk_to_laddr_const( ctx->replay_in->mem, chunk );
+        fd_bank_t *                     bank = fd_banks_bank_query( ctx->banks, msg->bank_idx );
+        FD_TEST( bank );
+        FD_CHECK_CRIT( msg->slice_cnt && msg->slice_idx<msg->slice_cnt, "invalid rewards slice" );
+        fd_execrp_task_done_msg_t * out_msg = fd_chunk_to_laddr( ctx->execrp_replay_out->mem, ctx->execrp_replay_out->chunk );
+        out_msg->bank_idx                = msg->bank_idx;
+        out_msg->rewards->leader_credits = 0UL;
+        fd_lthash_zero( &ctx->result->lthash );
+        out_msg->rewards->err = !!fd_alpenglow_rewards_apply_slice( bank, ctx->accdb, NULL, ctx->footer_cache, &msg->plan, msg->slice_idx, msg->slice_cnt, &ctx->result->lthash, &out_msg->rewards->leader_credits );
+        fd_stem_publish( stem, ctx->execrp_replay_out->idx, (FD_EXECRP_TT_REWARDS<<32)|ctx->tile_idx, ctx->execrp_replay_out->chunk, sizeof(*out_msg), 0UL, 0UL, 0UL );
+        ctx->execrp_replay_out->chunk = fd_dcache_compact_next( ctx->execrp_replay_out->chunk, sizeof(*out_msg), ctx->execrp_replay_out->chunk0, ctx->execrp_replay_out->wmark );
+        break;
+      }
+      case FD_EXECRP_TT_LTHASH_SUB:
+      case FD_EXECRP_TT_LTHASH_ADD: {
+        /* Hash and sum.  Replay will fold the sum into the bank. */
+        ulong kind = sig>>32;
+        fd_execrp_lthash_msg_t * msg = fd_chunk_to_laddr( ctx->replay_in->mem, chunk );
+        FD_CHECK_CRIT( msg->cnt && msg->cnt<=FD_EXECRP_LTHASH_BATCH_MAX, "invalid lthash batch" );
+        fd_bank_t * bank = fd_banks_bank_query( ctx->banks, msg->bank_idx );
+        FD_TEST( bank );
+        fd_accdb_fork_id_t fork_id = kind==FD_EXECRP_TT_LTHASH_SUB ? bank->parent_accdb_fork_id : bank->accdb_fork_id;
+        FD_TEST( fork_id.val!=USHORT_MAX );
+        fd_execrp_task_done_msg_t * out_msg = fd_chunk_to_laddr( ctx->execrp_replay_out->mem, ctx->execrp_replay_out->chunk );
+        out_msg->bank_idx    = msg->bank_idx;
+        out_msg->lthash->cnt = msg->cnt;
+        fd_lthash_value_t * sum = &ctx->result->lthash;
+        fd_lthash_zero( sum );
+        for( ulong i=0UL; i<msg->cnt; i+=FD_BLAKE3_XN_MAX ) {
+          ulong               acc_cnt = fd_ulong_min( msg->cnt-i, FD_BLAKE3_XN_MAX );
+          fd_acc_t            acc       [ FD_BLAKE3_XN_MAX ];
+          uchar const *       pubkey    [ FD_BLAKE3_XN_MAX ];
+          int                 writable  [ FD_BLAKE3_XN_MAX ] = { 0 };
+          uchar const *       owner     [ FD_BLAKE3_XN_MAX ];
+          ulong               lamports  [ FD_BLAKE3_XN_MAX ];
+          int                 executable[ FD_BLAKE3_XN_MAX ];
+          uchar const *       data      [ FD_BLAKE3_XN_MAX ];
+          ulong               data_len  [ FD_BLAKE3_XN_MAX ];
+          fd_lthash_value_t   hash      [ FD_BLAKE3_XN_MAX ];
+          fd_lthash_value_t * hash_out  [ FD_BLAKE3_XN_MAX ];
+          for( ulong j=0UL; j<acc_cnt; j++ ) pubkey[ j ] = msg->acct[ i+j ].b;
+          fd_accdb_acquire( ctx->accdb, fork_id, acc_cnt, pubkey, writable, acc );
+          for( ulong j=0UL; j<acc_cnt; j++ ) {
+            owner     [ j ] = acc[ j ].owner;
+            lamports  [ j ] = acc[ j ].lamports;
+            executable[ j ] = acc[ j ].executable;
+            data      [ j ] = acc[ j ].data;
+            data_len  [ j ] = acc[ j ].data_len;
+            hash_out  [ j ] = hash+j;
+          }
+          fd_hashes_account_lthash_xn( acc_cnt, pubkey, owner, lamports, executable, data, data_len, hash_out );
+          fd_accdb_release( ctx->accdb, acc_cnt, acc );
+          for( ulong j=0UL; j<acc_cnt; j++ ) fd_lthash_add( sum, hash+j );
+        }
+        fd_stem_publish( stem, ctx->execrp_replay_out->idx, (kind<<32)|ctx->tile_idx, ctx->execrp_replay_out->chunk, sizeof(*out_msg), 0UL, 0UL, 0UL );
         ctx->execrp_replay_out->chunk = fd_dcache_compact_next( ctx->execrp_replay_out->chunk, sizeof(*out_msg), ctx->execrp_replay_out->chunk0, ctx->execrp_replay_out->wmark );
         break;
       }
@@ -350,8 +422,9 @@ returnable_frag( fd_execrp_tile_t *  ctx,
     }
   } else FD_LOG_CRIT(( "invalid in_idx %lu", in_idx ));
 
-  FD_MGAUGE_SET( EXECRP, PROCESSING, 0UL );
+  FD_MGAUGE_SET( EXECRP, IS_PROCESSING, 0UL );
 
+  fd_stem_credit_return( stem, in_idx, seq+1UL );
   return 0;
 }
 
@@ -403,6 +476,10 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->ed25519_cache = fd_ed25519_cache_join( fd_ed25519_cache_new( _ed25519_cache, ED25519_CACHE_ENT_CNT, ctx->ed25519_cache_seed ) );
   FD_TEST( ctx->ed25519_cache );
 
+  ulong footer_cache_obj_id = fd_pod_query_ulong( topo->props, "footer_cache", ULONG_MAX );
+  ctx->footer_cache = footer_cache_obj_id!=ULONG_MAX ? fd_footer_cache_join( fd_topo_obj_laddr( topo, footer_cache_obj_id ) ) : NULL;
+  FD_TEST( footer_cache_obj_id==ULONG_MAX || ctx->footer_cache );
+
   ctx->txn_in.bundle.is_bundle = 0;
   ctx->tile_idx = tile->kind_id;
 
@@ -412,13 +489,20 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->banks = fd_banks_join( fd_topo_obj_laddr( topo, banks_obj_id ) );
   FD_TEST( ctx->banks );
 
+  ulong result_obj_id = fd_pod_query_ulong( topo->props, "execrp_result", ULONG_MAX );
+  FD_TEST( result_obj_id!=ULONG_MAX );
+  ctx->result = (fd_execrp_result_t *)fd_topo_obj_laddr( topo, result_obj_id )+tile->kind_id;
+
   FD_TEST( fd_progcache_join( ctx->progcache, fd_topo_obj_laddr( topo, tile->execrp.progcache_obj_id ), pc_scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT ) );
 
   void * _txncache_shmem = fd_topo_obj_laddr( topo, tile->execrp.txncache_obj_id );
   fd_txncache_shmem_t * txncache_shmem = fd_txncache_shmem_join( _txncache_shmem );
   FD_TEST( txncache_shmem );
-  ctx->txncache = fd_txncache_join( fd_txncache_new( _txncache, txncache_shmem ) );
+  ctx->txncache = fd_txncache_join( fd_txncache_new( _txncache, txncache_shmem, FD_TXNCACHE_FD ) );
   FD_TEST( ctx->txncache );
+  fd_txncache_join_metrics_t * txncache_metrics = fd_txncache_join_metrics( ctx->txncache );
+  fd_histf_join( fd_metrics_histf_new_ns( txncache_metrics->query_ticks,  FD_MHIST_EDGES_NS( EXECRP, TXNCACHE_QUERY_DURATION_NANOS  ) ) );
+  fd_histf_join( fd_metrics_histf_new_ns( txncache_metrics->insert_ticks, FD_MHIST_EDGES_NS( EXECRP, TXNCACHE_INSERT_DURATION_NANOS ) ) );
 
   void * _accdb_shmem = fd_topo_obj_laddr( topo, tile->execrp.accdb_obj_id );
   fd_accdb_shmem_t * accdb_shmem = fd_accdb_shmem_join( _accdb_shmem );
@@ -518,6 +602,7 @@ unprivileged_init( fd_topo_t const *      topo,
   }
 
   ctx->runtime->accdb                    = ctx->accdb;
+  ctx->runtime->sysvar_bank_seq          = 0UL;
   ctx->runtime->progcache                = ctx->progcache;
   ctx->runtime->status_cache             = ctx->txncache;
   memset( &ctx->runtime->log, 0, sizeof(ctx->runtime->log) );
@@ -549,7 +634,7 @@ populate_allowed_seccomp( fd_topo_t const *      topo FD_PARAM_UNUSED,
                           fd_topo_tile_t const * tile FD_PARAM_UNUSED,
                           ulong                  out_cnt,
                           struct sock_filter *   out ) {
-  populate_sock_filter_policy_fd_execrp_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)FD_ACCDB_FD_RW, FD_STAKE_DELEGATIONS_FD );
+  populate_sock_filter_policy_fd_execrp_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)FD_ACCDB_FD_RW, FD_STAKE_DELEGATIONS_FD, FD_VOTE_STAKES_FD, (uint)FD_TXNCACHE_FD );
   return sock_filter_policy_fd_execrp_tile_instr_cnt;
 }
 
@@ -559,7 +644,7 @@ populate_allowed_fds( fd_topo_t const *      topo FD_PARAM_UNUSED,
                       ulong                  out_fds_cnt,
                       int *                  out_fds ) {
 
-  if( FD_UNLIKELY( out_fds_cnt<4UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+  if( FD_UNLIKELY( out_fds_cnt<6UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
 
   ulong out_cnt = 0UL;
   out_fds[ out_cnt++ ] = 2; /* stderr */
@@ -568,15 +653,16 @@ populate_allowed_fds( fd_topo_t const *      topo FD_PARAM_UNUSED,
   }
   out_fds[ out_cnt++ ] = FD_ACCDB_FD_RW; /* accounts db */
   out_fds[ out_cnt++ ] = FD_STAKE_DELEGATIONS_FD; /* stake delegation disk spill */
+  out_fds[ out_cnt++ ] = FD_VOTE_STAKES_FD; /* vote stakes disk spill */
+  out_fds[ out_cnt++ ] = FD_TXNCACHE_FD; /* transaction cache spill */
 
   return out_cnt;
 }
 
 #define STEM_BURST (1UL)
 
-/* Right now, depth of the replay_exec link and depth of the execrp_replay
-   links is 16K.  At 1M TPS, that's ~16ms to fill.  But we also want to
-   be conservative here, so we use 1ms. */
+/* replay_execrp credits are returned per frag, so housekeeping only
+   needs to keep up with the execrp_replay out link. */
 #define STEM_LAZY  (1000000UL)
 
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_execrp_tile_t

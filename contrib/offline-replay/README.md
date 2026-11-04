@@ -141,7 +141,7 @@ First download and extract
 
 If replay goes quiet (Slack stops, log stops advancing):
 
-- `http://localhost:7999/metrics` — `replay_slot_replayed_total` and
+- `http://localhost:7999/metrics` — `replay_bank_frozen_total` and
   `link_frag_consumed_total` show which tile stalled.
 - Map tile threads from log lines (`pid:tid ... fd1:[group]:tile:idx`),
   attach `gdb -p <tid>`, and break in the stuck tile's `during_credit`

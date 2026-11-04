@@ -73,9 +73,6 @@ venv
 *.pyc
 *.egg-info/
 
-# Fuchsia trace format
-*.fxt
-
 # LLMs
 .claude
 .codex

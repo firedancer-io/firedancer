@@ -206,7 +206,7 @@ struct __attribute__((packed)) fd_bundle_crank_3 {
   uchar acct_cnt; /* = 0 */
   uchar data_sz; /* = 5 */
   uchar set_cu_limit; /* = 2 */
-  uint cus; /* = 150+39195 + 38260 + 13696 + 2500 + 1500*(255-bump) approx 100k */
+  uint cus; /* = 130000; fixed crank3 compute budget, also checked by keyguard */
   } compute_budget_instruction;
 
   /* Initialize Tip Distribution Account */
@@ -286,7 +286,7 @@ struct __attribute__((packed)) fd_bundle_crank_2 {
   uchar acct_cnt; /* = 0 */
   uchar data_sz; /* = 5 */
   uchar set_cu_limit; /* = 2 */
-  uint cus; /* = 150+39195 + 38260 + 2500= 77,605 */
+  uint cus; /* = 83000; fixed crank2 compute budget, also checked by keyguard */
   } compute_budget_instruction;
 
   /* Change Tip Receiver */

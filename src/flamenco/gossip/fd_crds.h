@@ -20,9 +20,10 @@ typedef struct fd_crds_private fd_crds_t;
 #define FD_CRDS_MAGIC (0xf17eda2c37c7d50UL) /* firedancer crds version 0*/
 
 struct fd_crds_metrics {
-  ulong count[ FD_METRICS_ENUM_CRDS_VALUE_CNT ];
+  ulong count[ FD_METRICS_ENUM_CRDS_VALUE_TYPE_CNT ];
   ulong expired_cnt;
   ulong evicted_cnt;
+  ulong relay_coalesced_cnt;
 
   ulong peer_staked_cnt;
   ulong peer_unstaked_cnt;
@@ -106,14 +107,24 @@ fd_crds_len( fd_crds_t const * crds );
    sidetable of ContactInfo entries and the peer samplers if the entry
    is a ContactInfo.  is_from_me indicates the CRDS entry originates
    from this node.  We exclude our own entries from peer samplers.
-   origin_stake is used to weigh the peer in the samplers.
+   origin_stake is used to weigh the peer in the samplers.  is_push is
+   set if the value arrived in a push message.
 
    stem is used to publish updates to {ContactInfo, Vote, DuplicateShred,
    SnapshotHashes} entries.
 
    Returns 0L on successful upsert, -1L if the candidate was stale
-   (not inserted), or >0 if the candidate was a duplicate (the return
-   value is the running duplicate count). */
+   (not inserted), or >0 if the candidate was a duplicate.  For a push
+   duplicate the return is 1 plus the number of earlier pushes of the
+   value, counting the push that inserted it; a pull duplicate returns
+   1 and does not count.
+
+   If opt_relay is non-NULL, *opt_relay is set to 1 if the upserted
+   value should be pushed to peers now, else 0.  Versions of one key
+   arriving within 100 ms of its last relay are held, and
+   fd_crds_advance pushes the latest of them once that passes, so peers
+   see at most one version of a key per 100 ms.  Values outside the
+   +/-15 s wallclock window are never relayed. */
 
 long
 fd_crds_insert( fd_crds_t *               crds,
@@ -123,8 +134,10 @@ fd_crds_insert( fd_crds_t *               crds,
                 ulong                     origin_stake,
                 int                       origin_ping_tracked,
                 int                       is_me,
+                int                       is_push,
                 long                      now,
-                fd_stem_context_t *       stem );
+                fd_stem_context_t *       stem,
+                int *                     opt_relay );
 
 void
 fd_crds_entry_value( fd_crds_entry_t const * entry,
@@ -156,6 +169,9 @@ fd_crds_hset( fd_crds_t const * crds );
 
 ulong
 fd_crds_peer_count( fd_crds_t const * crds );
+
+ulong
+fd_crds_entrypoint_fresh_cnt( fd_crds_t const * crds );
 
 fd_gossip_contact_info_t const *
 fd_crds_ci( fd_crds_t const * crds,

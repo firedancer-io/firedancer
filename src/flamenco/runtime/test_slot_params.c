@@ -288,37 +288,6 @@ test_snapshot_baseline_select( void ) {
   FD_TEST( params_eq( &d3, &manifest_64 ) );
 }
 
-/* hashes_per_tick feeds the tick count -> last blockhash -> bank
-   hash, so it must switch to the table value at the effective slot.
-   Agave guards this on !alpenglow; FD has no alpenglow gate yet. */
-static void
-test_hashes_per_tick( void ) {
-  fd_epoch_schedule_t es = test_epoch_schedule();
-  fd_features_t       f  = no_features();
-  f.reduce_slot_time_to_350ms = 1UL;  /* effective 32 */
-  f.reduce_slot_time_to_300ms = 33UL; /* effective 64 */
-  f.reduce_slot_time_to_250ms = 65UL; /* effective 96 */
-  f.reduce_slot_time_to_200ms = 97UL; /* effective 128 */
-
-  /* hpt steps with the regime (Agave table values). */
-  FD_TEST( fd_slot_params_lookup( &FD_SLOT_PARAMS_400MS, &f, &es,  31UL ).hashes_per_tick==62500UL );
-  FD_TEST( fd_slot_params_lookup( &FD_SLOT_PARAMS_400MS, &f, &es,  32UL ).hashes_per_tick==54687UL );
-  FD_TEST( fd_slot_params_lookup( &FD_SLOT_PARAMS_400MS, &f, &es,  64UL ).hashes_per_tick==46875UL );
-  FD_TEST( fd_slot_params_lookup( &FD_SLOT_PARAMS_400MS, &f, &es,  96UL ).hashes_per_tick==39062UL );
-  FD_TEST( fd_slot_params_lookup( &FD_SLOT_PARAMS_400MS, &f, &es, 128UL ).hashes_per_tick==31250UL );
-
-  /* 400ms hpt is the exported LEGACY constant. */
-  FD_TEST( FD_LEGACY_HASHES_PER_TICK==62500UL );
-  FD_TEST( FD_SLOT_PARAMS_400MS.hashes_per_tick==FD_LEGACY_HASHES_PER_TICK );
-
-  /* No reduction: a non-standard restored hpt (57500) flows through
-     unchanged. */
-  fd_slot_params_t manifest = FD_SLOT_PARAMS_400MS;
-  manifest.hashes_per_tick  = 57500UL;
-  fd_features_t f0 = no_features();
-  FD_TEST( fd_slot_params_lookup( &manifest, &f0, &es, 10UL ).hashes_per_tick==57500UL );
-}
-
 /* Test that all the regimes have different ns_per_slot  */
 static void
 test_distinct_regimes( void ) {
@@ -345,7 +314,6 @@ main( int     argc,
   test_out_of_order_range();
   test_out_of_order_all_gates();
   test_snapshot_baseline_select();
-  test_hashes_per_tick();
   test_distinct_regimes();
 
   FD_LOG_NOTICE(( "pass" ));

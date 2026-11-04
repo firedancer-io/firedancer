@@ -8,26 +8,11 @@
 
 FD_PROTOTYPES_BEGIN
 
-/* https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v4.0.4/vote-interface/src/state/vote_state_v3.rs#L65-L73 */
-void
-fd_vote_program_v3_create_new( fd_vote_init_t * const        vote_init,
-                               fd_sol_sysvar_clock_t const * clock,
-                               fd_vote_state_versioned_t *   versioned /* out */ );
-
 /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/handler.rs#L414-L434 */
 int
 fd_vote_state_v3_set_vote_account_state( fd_exec_instr_ctx_t const * ctx,
                                          fd_borrowed_account_t *     vote_account,
                                          fd_vote_state_versioned_t * versioned );
-
-/* This is more than just a deserialization - this function attempts
-   to deserialize whatever vote state version the vote account has,
-   and then tries to convert it into a v3 vote account (unless its a
-   v4 account, where it fails automatically).
-   https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v4.0.4/vote-interface/src/state/vote_state_v3.rs#L119-L124 */
-int
-fd_vote_state_v3_deserialize( fd_borrowed_account_t const * vote_account,
-                              fd_vote_state_versioned_t *   versioned );
 
 /* https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L828 */
 int

@@ -4,6 +4,9 @@
 
 #include <ctype.h> /* For isalnum */
 #include <errno.h>
+#include <unistd.h>
+#include <sys/stat.h>
+#include "fd_shmem_private.h"
 
 FD_STATIC_ASSERT( FD_SHMEM_JOIN_MAX>0UL, unit_test );
 
@@ -32,11 +35,40 @@ main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
 
+  /* Unit test runner options; remaining args name regions to join */
+  fd_env_strip_cmdline_ulong( &argc, &argv, "--numa-idx", NULL, 0UL );
+  fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt", NULL, 0UL );
+  ulong max_page_sz = fd_cstr_to_shmem_page_sz( fd_env_strip_cmdline_cstr( &argc, &argv, "--page-sz", NULL, "gigantic" ) );
+
   fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
 
   ulong numa_cnt = fd_shmem_numa_cnt(); FD_TEST( (1UL<=numa_cnt) & (numa_cnt<=FD_SHMEM_NUMA_MAX) );
   ulong cpu_cnt  = fd_shmem_cpu_cnt (); FD_TEST( (1UL<=cpu_cnt ) & (cpu_cnt <=FD_SHMEM_CPU_MAX ) );
   FD_TEST( numa_cnt<=cpu_cnt );
+
+  /* cpu_cnt bounds the present CPU ids, offline ones included */
+  char cpu_path[ 64 ];
+  FD_TEST( !access( fd_cstr_printf( cpu_path, sizeof(cpu_path), NULL, "/sys/devices/system/cpu/cpu%lu", cpu_cnt-1UL ), F_OK ) );
+  FD_TEST(  access( fd_cstr_printf( cpu_path, sizeof(cpu_path), NULL, "/sys/devices/system/cpu/cpu%lu", cpu_cnt     ), F_OK ) );
+
+  /* Mock sysfs: cpu0..cpu47 with a hole at cpu13, plus non-cpu entries */
+  char mock[ 32 ];
+  FD_TEST( !mkdir( fd_cstr_printf( mock, sizeof(mock), NULL, "/tmp/test_shmem_cpu.%d", (int)getpid() ), 0700 ) );
+  FD_TEST( !fd_numa_private_cpu_cnt( mock ) );
+  char const * noise[] = { "cpufreq", "cpuidle", "online", "cpu", "cpu4x", "cpu-1", NULL };
+  for( char const ** n=noise; *n; n++ ) FD_TEST( !mkdir( fd_cstr_printf( cpu_path, sizeof(cpu_path), NULL, "%s/%s", mock, *n ), 0700 ) );
+  FD_TEST( !fd_numa_private_cpu_cnt( mock ) );
+  for( ulong i=0UL; i<48UL; i++ ) {
+    if( i==13UL ) continue;
+    FD_TEST( !mkdir( fd_cstr_printf( cpu_path, sizeof(cpu_path), NULL, "%s/cpu%lu", mock, i ), 0700 ) );
+  }
+  FD_TEST( fd_numa_private_cpu_cnt( mock )==48UL );
+  for( char const ** n=noise; *n; n++ ) FD_TEST( !rmdir( fd_cstr_printf( cpu_path, sizeof(cpu_path), NULL, "%s/%s", mock, *n ) ) );
+  for( ulong i=0UL; i<48UL; i++ ) {
+    if( i!=13UL ) FD_TEST( !rmdir( fd_cstr_printf( cpu_path, sizeof(cpu_path), NULL, "%s/cpu%lu", mock, i ) ) );
+  }
+  FD_TEST( !rmdir( mock ) );
+  FD_TEST( !fd_numa_private_cpu_cnt( mock ) );
 
   FD_TEST( fd_shmem_numa_idx( cpu_cnt )==ULONG_MAX );
   FD_TEST( fd_shmem_cpu_idx( numa_cnt )==ULONG_MAX );
@@ -316,14 +348,13 @@ main( int     argc,
 
   /* FIXME: DO MORE EXTENSIVE TESTS OF ACQUIRE / RELEASE */
 
-  ulong test_cnt = 3UL;
+  ulong test_cnt = 1UL + (ulong)(max_page_sz>=FD_SHMEM_HUGE_PAGE_SZ) + (ulong)(max_page_sz>=FD_SHMEM_GIGANTIC_PAGE_SZ); /* up to --page-sz */
   static ulong const test_psz [3] = { FD_SHMEM_NORMAL_PAGE_SZ, FD_SHMEM_HUGE_PAGE_SZ, FD_SHMEM_GIGANTIC_PAGE_SZ };
   static ulong const test_pcnt[3] = { 3UL,                     2UL,                   1UL                       };
-  static ulong const test_cpu [3] = { 0UL,                     0UL,                   0UL                       };
   for( ulong test_idx=0UL; test_idx<test_cnt; test_idx++ ) {
     ulong psz  = test_psz [ test_idx ];
     ulong pcnt = test_pcnt[ test_idx ];
-    ulong cpu  = test_cpu [ test_idx ];
+    ulong cpu  = fd_log_cpu_id();
 
     void * page = fd_shmem_acquire( psz, pcnt, cpu );
     FD_TEST( page );

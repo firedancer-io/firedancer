@@ -7,8 +7,7 @@
 
 #define IN_KIND_QUIC   (0UL)
 #define IN_KIND_BUNDLE (1UL)
-#define IN_KIND_GOSSIP (2UL)
-#define IN_KIND_TXSEND (3UL)
+#define IN_KIND_TXSEND (2UL)
 
 FD_FN_CONST static inline ulong
 scratch_align( void ) {
@@ -29,8 +28,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
 
 static inline void
 metrics_write( fd_verify_ctx_t * ctx ) {
-  FD_MCNT_ENUM_COPY( VERIFY, TXN_RESULT, ctx->metrics.verify_tile_result );
-  FD_MCNT_SET( VERIFY, VOTE_GOSSIP_RX,  ctx->metrics.gossiped_votes_cnt );
+  FD_MCNT_ENUM_COPY( VERIFY, TXN_PROCESSED, ctx->metrics.verify_tile_result );
 }
 
 static int
@@ -48,9 +46,6 @@ before_frag( fd_verify_ctx_t * ctx,
     return (seq % ctx->round_robin_cnt) != ctx->round_robin_idx;
   } else if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_BUNDLE ) ) {
     return ctx->round_robin_idx!=0UL;
-  } else if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_GOSSIP ) ) {
-      return (seq % ctx->round_robin_cnt) != ctx->round_robin_idx ||
-             sig!=FD_GOSSIP_UPDATE_TAG_VOTE;
   }
 
   return 0;
@@ -77,19 +72,6 @@ during_frag( fd_verify_ctx_t * ctx,
     uchar * src = fd_chunk_to_laddr( ctx->in[in_idx].mem, chunk );
     uchar * dst = fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
     fd_memcpy( dst, src, sz );
-  } else if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_GOSSIP ) ) {
-    if( FD_UNLIKELY( chunk<ctx->in[in_idx].chunk0 || chunk>ctx->in[in_idx].wmark || sz>2048UL ) )
-      FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[in_idx].chunk0, ctx->in[in_idx].wmark ));
-
-    fd_gossip_update_message_t const * msg = fd_chunk_to_laddr_const( ctx->in[in_idx].mem, chunk );
-    fd_txn_m_t * dst = fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
-
-    dst->payload_sz = (ushort)msg->vote->value->transaction_len;
-    dst->block_engine.bundle_id = 0UL;
-    dst->first_seen_nanos = msg->vote->first_seen_nanos;
-    dst->source_ipv4 = msg->vote->socket->is_ipv6 ? 0U : msg->vote->socket->ip4;
-    dst->source_tpu = FD_TXN_M_TPU_SOURCE_GOSSIP;
-    fd_memcpy( fd_txn_m_payload( dst ), msg->vote->value->transaction, msg->vote->value->transaction_len );
   }
 }
 
@@ -108,8 +90,6 @@ after_frag( fd_verify_ctx_t *   ctx,
   (void)sz;
   (void)_tspub;
 
-  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_GOSSIP || ctx->in_kind[ in_idx ]==IN_KIND_TXSEND ) ) ctx->metrics.gossiped_votes_cnt++;
-
   fd_txn_m_t * txnm = (fd_txn_m_t *)fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
   if( FD_UNLIKELY( txnm->payload_sz>FD_TPU_MTU ) ) {
     FD_LOG_ERR(( "verify: txn payload size %hu exceeds max %lu", txnm->payload_sz, FD_TPU_MTU ));
@@ -125,13 +105,13 @@ after_frag( fd_verify_ctx_t *   ctx,
   }
 
   if( FD_UNLIKELY( is_bundle & (!!ctx->bundle_failed) ) ) {
-    ctx->metrics.verify_tile_result[ FD_METRICS_ENUM_VERIFY_TILE_RESULT_V_BUNDLE_PEER_FAILURE_IDX ]++;
+    ctx->metrics.verify_tile_result[ FD_METRICS_ENUM_VERIFY_RESULT_V_BUNDLE_PEER_FAILED_IDX ]++;
     return;
   }
 
   if( FD_UNLIKELY( !txnm->txn_t_sz ) ) {
     if( FD_UNLIKELY( is_bundle ) ) ctx->bundle_failed = 1;
-    ctx->metrics.verify_tile_result[ FD_METRICS_ENUM_VERIFY_TILE_RESULT_V_PARSE_FAILURE_IDX ]++;
+    ctx->metrics.verify_tile_result[ FD_METRICS_ENUM_VERIFY_RESULT_V_PARSE_FAILED_IDX ]++;
     return;
   }
 
@@ -146,8 +126,8 @@ after_frag( fd_verify_ctx_t *   ctx,
   if( FD_UNLIKELY( res!=FD_TXN_VERIFY_SUCCESS ) ) {
     if( FD_UNLIKELY( is_bundle ) ) ctx->bundle_failed = 1;
 
-    if( FD_LIKELY( res==FD_TXN_VERIFY_DEDUP ) ) ctx->metrics.verify_tile_result[ FD_METRICS_ENUM_VERIFY_TILE_RESULT_V_DEDUP_FAILURE_IDX ]++;
-    else                                        ctx->metrics.verify_tile_result[ FD_METRICS_ENUM_VERIFY_TILE_RESULT_V_VERIFY_FAILURE_IDX ]++;
+    if( FD_LIKELY( res==FD_TXN_VERIFY_DEDUP ) ) ctx->metrics.verify_tile_result[ FD_METRICS_ENUM_VERIFY_RESULT_V_DUPLICATE_IDX ]++;
+    else                                        ctx->metrics.verify_tile_result[ FD_METRICS_ENUM_VERIFY_RESULT_V_SIGNATURE_FAILED_IDX ]++;
 
     return;
   }
@@ -157,7 +137,7 @@ after_frag( fd_verify_ctx_t *   ctx,
   fd_stem_publish( stem, 0UL, 0UL, ctx->out_chunk, realized_sz, 0UL, tsorig, tspub );
   ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, realized_sz, ctx->out_chunk0, ctx->out_wmark );
 
-  ctx->metrics.verify_tile_result[ FD_METRICS_ENUM_VERIFY_TILE_RESULT_V_SUCCESS_IDX ]++;
+  ctx->metrics.verify_tile_result[ FD_METRICS_ENUM_VERIFY_RESULT_V_SUCCESS_IDX ]++;
 }
 
 static void
@@ -216,8 +196,6 @@ unprivileged_init( fd_topo_t const *      topo,
 
     if(      !strcmp( link->name, "quic_verify"  ) ) ctx->in_kind[ i ] = IN_KIND_QUIC;
     else if( !strcmp( link->name, "bundle_verif" ) ) ctx->in_kind[ i ] = IN_KIND_BUNDLE;
-    else if( !strcmp( link->name, "txsend_out"   ) ) ctx->in_kind[ i ] = IN_KIND_TXSEND;
-    else if( !strcmp( link->name, "gossip_vote"  ) ) ctx->in_kind[ i ] = IN_KIND_GOSSIP;
     else FD_LOG_ERR(( "unexpected link name %s", link->name ));
   }
 

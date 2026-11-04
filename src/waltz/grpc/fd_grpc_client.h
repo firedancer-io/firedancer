@@ -243,6 +243,14 @@ fd_grpc_client_set_authority( fd_grpc_client_t * client,
                               ulong              host_len,
                               ushort             port );
 
+/* fd_grpc_client_set_https selects the request :scheme header.  Defaults
+   to HTTPS.  Set to zero before sending requests over plaintext HTTP.
+   Preserved by fd_grpc_client_reset. */
+
+void
+fd_grpc_client_set_https( fd_grpc_client_t * client,
+                          int                https );
+
 /* fd_grpc_client_rxtx_socket drives I/O against a TCP socket.
    (recvmsg(2) and sendmsg(2)).  Uses MSG_NOSIGNAL|MSG_DONTWAIT flags.
 
@@ -394,6 +402,15 @@ fd_grpc_client_stream_close(
     fd_grpc_client_t *    client,
     fd_grpc_h2_stream_t * stream
 );
+
+/* fd_grpc_client_stream_cancel aborts a request with RST_STREAM CANCEL
+   and frees the stream without calling back.  Must not be called from
+   a callback for the same stream.  Returns 1 on success, 0 if there is
+   no TX space (retry later). */
+
+int
+fd_grpc_client_stream_cancel( fd_grpc_client_t *    client,
+                              fd_grpc_h2_stream_t * stream );
 
 /* fd_grpc_client_deadline_set sets a request deadline (used to
    configure timeouts).  deadline_kind is FD_GRPC_DEADLINE_*.  Logs

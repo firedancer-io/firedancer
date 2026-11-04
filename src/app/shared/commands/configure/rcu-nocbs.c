@@ -75,7 +75,7 @@ read_cmdline_rcu_nocbs( fd_cpuset_t cpuset[ static fd_cpuset_word_cnt ] ) {
     *end = '\0';
 
     if( FD_UNLIKELY( !strcmp( param, "all" ) ) ) {
-      fd_cpu_isolation_host_cpus( cpuset );
+      fd_cpu_isolation_online_cpus( cpuset );
     } else {
       FD_CPUSET_DECL( occurrence );
       if( FD_UNLIKELY( !fd_cpu_isolation_parse_list( occurrence, param ) ) )

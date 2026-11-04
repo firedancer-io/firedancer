@@ -30,8 +30,8 @@ struct metrics_src {
   int              net_kind;                                 /* 0 xdp "net", 1 "mlx5", 2 "sock" */
   volatile ulong * net_shred [ ROTOR_METRICS_LINK_MAX ];     /* net->shred links, consumer side (shred tiles) */
   ulong            net_shred_cnt;
-  volatile ulong * net_repair[ ROTOR_METRICS_LINK_MAX ];     /* net->rotor links, consumer side (rotor) */
-  ulong            net_repair_cnt;
+  volatile ulong * shred_rotor[ ROTOR_METRICS_LINK_MAX ];    /* shred->rotor links, consumer side (rotor) */
+  ulong            shred_rotor_cnt;
   volatile ulong * repair_net[ ROTOR_METRICS_LINK_MAX ];     /* rotor->net link, consumer side (net tiles) */
   ulong            repair_net_cnt;
 };
@@ -42,7 +42,7 @@ typedef struct metrics_src metrics_src_t;
 struct metrics_snap {
   long  ts;
 
-  ulong req[ FD_METRICS_ENUM_ROTOR_REQUEST_TYPE_CNT ];
+  ulong req[ FD_METRICS_ENUM_REPAIR_REQUEST_TYPE_CNT ];
   ulong pkt_tx;
   ulong rerequest;
   ulong meta_failed;   /* shred_block_id + fec_root + parent_fec_count verify failures */
@@ -55,7 +55,7 @@ struct metrics_snap {
   ulong shred_repair_rx, shred_turbine_rx;
   ulong shred_okay, shred_dup, shred_bad_slot, shred_ignored, shred_completes;
 
-  struct { ulong overrun, consumed, filtered; } net_shred, net_repair, repair_net;
+  struct { ulong overrun, consumed, filtered; } net_shred, shred_rotor, repair_net;
   ulong net_rx, net_rx_drop, net_tx, net_tx_drop;
 
   /* tile regime nanos: [0] rotor, [1..] shred tiles.  Same idle
@@ -105,12 +105,12 @@ metrics_src_init( metrics_src_t * src,
   fd_topo_workspace_fill( topo, &topo->workspaces[ wksp_id ] );
 
   ulong rotor_id = fd_topo_find_tile( topo, "rotor", 0UL );
-  if( FD_UNLIKELY( rotor_id==ULONG_MAX ) ) FD_LOG_ERR(( "rotor tile not found (is the validator running with --alpenglow?)" ));
+  if( FD_UNLIKELY( rotor_id==ULONG_MAX ) ) FD_LOG_ERR(( "rotor tile not found" ));
   fd_topo_tile_t * rotor_tile = &topo->tiles[ rotor_id ];
   src->rotor = fd_metrics_tile( rotor_tile->metrics );
 
   char const * net_name = fd_net_tile_name( config->net.provider );
-  src->net_kind = !strcmp( net_name, "net" ) ? 0 : !strcmp( net_name, "mlx5" ) ? 1 : 2;
+  src->net_kind = !strcmp( net_name, "net" ) ? 0 : !strcmp( net_name, "mlx5" ) ? 1 : !strcmp( net_name, "iavf" ) ? 3 : 2;
 
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
     fd_topo_tile_t * tile = &topo->tiles[ i ];
@@ -130,9 +130,9 @@ metrics_src_init( metrics_src_t * src,
     }
   }
   for( ulong j=0UL; j<rotor_tile->in_cnt; j++ ) {
-    if( !strcmp( topo->links[ rotor_tile->in_link_id[ j ] ].name, "net_repair" ) ) {
-      if( FD_UNLIKELY( src->net_repair_cnt>=ROTOR_METRICS_LINK_MAX ) ) FD_LOG_ERR(( "too many net_repair links" ));
-      src->net_repair[ src->net_repair_cnt++ ] = fd_metrics_link_in( rotor_tile->metrics, j );
+    if( !strcmp( topo->links[ rotor_tile->in_link_id[ j ] ].name, "shred_rotor" ) ) {
+      if( FD_UNLIKELY( src->shred_rotor_cnt>=ROTOR_METRICS_LINK_MAX ) ) FD_LOG_ERR(( "too many shred_rotor links" ));
+      src->shred_rotor[ src->shred_rotor_cnt++ ] = fd_metrics_link_in( rotor_tile->metrics, j );
     }
   }
 }
@@ -153,39 +153,39 @@ metrics_snap_take( metrics_snap_t * s, metrics_src_t const * src ) {
   memset( s, 0, sizeof(*s) );
   s->ts = fd_log_wallclock();
 
-  for( ulong i=0UL; i<FD_METRICS_ENUM_ROTOR_REQUEST_TYPE_CNT; i++ ) s->req[ i ] = r[ MIDX( COUNTER, ROTOR, REQUEST_TX )+i ];
+  for( ulong i=0UL; i<FD_METRICS_ENUM_REPAIR_REQUEST_TYPE_CNT; i++ ) s->req[ i ] = r[ MIDX( COUNTER, ROTOR, REQUEST_TX )+i ];
   s->pkt_tx      = r[ MIDX( COUNTER, ROTOR, PKT_TX ) ];
   /* The rotor tile does not produce SHRED_REREQUESTED. */
   s->rerequest   = 0UL;
-  s->shred_old   = r[ MIDX( COUNTER, ROTOR, SHRED_OLD ) ];
-  s->meta_failed = r[ MIDX( COUNTER, ROTOR, SHRED_RX_UNMATCHED ) ] + r[ MIDX( COUNTER, ROTOR, FEC_SET_ROOT_FAILED ) ] + r[ MIDX( COUNTER, ROTOR, PARENT_AND_FEC_SET_COUNT_FAILED ) ];
+  s->shred_old   = r[ MIDX( COUNTER, ROTOR, SHRED_OLD_IGNORED ) ];
+  s->meta_failed = r[ MIDX( COUNTER, ROTOR, SHRED_RX_UNMATCHED ) ] + r[ MIDX( COUNTER, ROTOR, FEC_SET_ROOT_FAILED ) ] + r[ MIDX( COUNTER, ROTOR, PARENT_FEC_SET_COUNT_FAILED ) ];
   for( ulong k=0UL; k<FD_HISTF_BUCKET_CNT; k++ ) s->resp_cnt += r[ MIDX( HISTOGRAM, ROTOR, RESPONSE_LATENCY_NANOS )+k ];
   s->resp_sum_ns = r[ MIDX( HISTOGRAM, ROTOR, RESPONSE_LATENCY_NANOS )+FD_HISTF_BUCKET_CNT ];
 
-  s->inflight              = r[ MIDX( GAUGE, ROTOR, PENDING_CNT ) ];
-  s->slot_current          = r[ MIDX( GAUGE, ROTOR, SLOT_HIGHEST_RECEIVED ) ];
-  s->slot_highest_repaired = r[ MIDX( GAUGE, ROTOR, SLOT_HIGHEST_DELIVERED ) ];
-  /* Nor SLOT_LAST_REQUESTED, ORPHAN_LAST_REQUESTED, PEER_REQUESTED. */
+  s->inflight              = r[ MIDX( GAUGE, ROTOR, REQUEST_IN_FLIGHT ) ];
+  s->slot_current          = fd_ulong_max( r[ MIDX( GAUGE, ROTOR, HIGHEST_RECEIVED_SLOT ) ], r[ MIDX( GAUGE, ROTOR, CATCHUP_SLOT ) ] );
+  s->slot_highest_repaired = r[ MIDX( GAUGE, ROTOR, HIGHEST_DELIVERED_SLOT ) ];
+  /* Nor SLOT_LAST_REQUESTED, ORPHAN_LAST_REQUESTED, PEER_USED. */
   s->slot_last_requested   = 0UL;
   s->orphan_last_requested = 0UL;
   s->peers                 = 0UL;
 
   for( ulong i=0UL; i<src->shred_cnt; i++ ) {
     volatile ulong * m = src->shred[ i ];
-    s->shred_repair_rx  += m[ MIDX( COUNTER, SHRED, SHRED_REPAIR_RX ) ];
-    s->shred_turbine_rx += m[ MIDX( COUNTER, SHRED, SHRED_TURBINE_RX ) ];
-    s->shred_okay       += m[ MIDX( COUNTER, SHRED, SHRED_PROCESSED_OKAY ) ];
-    s->shred_dup        += m[ MIDX( COUNTER, SHRED, SHRED_PROCESSED_DUPLICATE ) ];
-    s->shred_bad_slot   += m[ MIDX( COUNTER, SHRED, SHRED_PROCESSED_BAD_SLOT ) ];
-    s->shred_ignored    += m[ MIDX( COUNTER, SHRED, SHRED_PROCESSED_IGNORED ) ];
-    s->shred_completes  += m[ MIDX( COUNTER, SHRED, SHRED_PROCESSED_COMPLETES ) ];
+    s->shred_repair_rx  += m[ MIDX( COUNTER, SHRED, REPAIR_RX ) ];
+    s->shred_turbine_rx += m[ MIDX( COUNTER, SHRED, TURBINE_RX ) ];
+    s->shred_okay       += m[ MIDX( COUNTER, SHRED, PROCESSED_ACCEPTED ) ];
+    s->shred_dup        += m[ MIDX( COUNTER, SHRED, PROCESSED_DUPLICATE ) ];
+    s->shred_bad_slot   += m[ MIDX( COUNTER, SHRED, PROCESSED_LEADER_UNKNOWN ) ];
+    s->shred_ignored    += m[ MIDX( COUNTER, SHRED, PROCESSED_IGNORED ) ];
+    s->shred_completes  += m[ MIDX( COUNTER, SHRED, PROCESSED_COMPLETED ) ];
   }
 
   metrics_snap_regime( src->rotor, &s->regime[ 0 ].total, &s->regime[ 0 ].busy, &s->regime[ 0 ].backp );
   for( ulong i=0UL; i<src->shred_cnt; i++ ) metrics_snap_regime( src->shred[ i ], &s->regime[ 1UL+i ].total, &s->regime[ 1UL+i ].busy, &s->regime[ 1UL+i ].backp );
 
   metrics_snap_links( (volatile ulong **)src->net_shred,  src->net_shred_cnt,  &s->net_shred.overrun,  &s->net_shred.consumed,  &s->net_shred.filtered  );
-  metrics_snap_links( (volatile ulong **)src->net_repair, src->net_repair_cnt, &s->net_repair.overrun, &s->net_repair.consumed, &s->net_repair.filtered );
+  metrics_snap_links( (volatile ulong **)src->shred_rotor, src->shred_rotor_cnt, &s->shred_rotor.overrun, &s->shred_rotor.consumed, &s->shred_rotor.filtered );
   metrics_snap_links( (volatile ulong **)src->repair_net, src->repair_net_cnt, &s->repair_net.overrun, &s->repair_net.consumed, &s->repair_net.filtered );
 
   for( ulong i=0UL; i<src->net_cnt; i++ ) {
@@ -194,18 +194,24 @@ metrics_snap_take( metrics_snap_t * s, metrics_src_t const * src ) {
     case 0: /* xdp */
       s->net_rx      += m[ MIDX( COUNTER, NET, PKT_RX ) ];
       s->net_tx      += m[ MIDX( COUNTER, NET, PKT_TX_SUBMITTED ) ];
-      s->net_rx_drop += m[ MIDX( COUNTER, NET, PKT_RX_FILL_RING_FULL ) ] + m[ MIDX( COUNTER, NET, PKT_RX_BACKPRESSURE ) ]
-                      + m[ MIDX( COUNTER, NET, XDP_RX_RING_FULL ) ]      + m[ MIDX( COUNTER, NET, XDP_RX_OTHER_DROPPED ) ]
-                      + m[ MIDX( COUNTER, NET, PKT_RX_MALFORMED ) ]      + m[ MIDX( COUNTER, NET, PKT_RX_ROUTE_FAIL ) ];
-      s->net_tx_drop += m[ MIDX( COUNTER, NET, PKT_TX_RING_FULL ) ]      + m[ MIDX( COUNTER, NET, PKT_TX_NO_NEIGHBOR ) ]
-                      + m[ MIDX( COUNTER, NET, PKT_TX_ROUTE_FAIL ) ]      + m[ MIDX( COUNTER, NET, PKT_TX_INVALID ) ];
+      s->net_rx_drop += m[ MIDX( COUNTER, NET, RX_FILL_RING_STALLED ) ]
+                      + m[ MIDX( COUNTER, NET, XDP_RX_RING_FULL_DROPPED ) ]      + m[ MIDX( COUNTER, NET, XDP_RX_OTHER_DROPPED ) ];
+      for( ulong r=0UL; r<FD_METRICS_ENUM_PKT_RX_DROP_REASON_CNT; r++ ) s->net_rx_drop += m[ MIDX( COUNTER, NET, PKT_RX_DROPPED )+r ];
+      for( ulong r=0UL; r<FD_METRICS_ENUM_PKT_TX_DROP_REASON_CNT; r++ ) s->net_tx_drop += m[ MIDX( COUNTER, NET, PKT_TX_DROPPED )+r ];
       break;
     case 1: /* mlx5 */
       s->net_rx      += m[ MIDX( COUNTER, MLX5, PKT_RX ) ];
       s->net_tx      += m[ MIDX( COUNTER, MLX5, PKT_TX_COMPLETED ) ];
-      s->net_rx_drop += m[ MIDX( COUNTER, MLX5, PKT_RX_MALFORMED ) ]     + m[ MIDX( COUNTER, MLX5, PKT_RX_ROUTE_FAIL ) ];
-      s->net_tx_drop += m[ MIDX( COUNTER, MLX5, PKT_TX_NO_BUFFER ) ]     + m[ MIDX( COUNTER, MLX5, PKT_TX_NO_NEIGHBOR ) ]
-                      + m[ MIDX( COUNTER, MLX5, PKT_TX_ROUTE_FAIL ) ]     + m[ MIDX( COUNTER, MLX5, PKT_TX_INVALID ) ];
+      for( ulong r=0UL; r<FD_METRICS_ENUM_PKT_RX_DROP_REASON_CNT; r++ ) s->net_rx_drop += m[ MIDX( COUNTER, MLX5, PKT_RX_DROPPED )+r ];
+      for( ulong r=0UL; r<FD_METRICS_ENUM_PKT_TX_DROP_REASON_CNT; r++ ) s->net_tx_drop += m[ MIDX( COUNTER, MLX5, PKT_TX_DROPPED )+r ];
+      break;
+    case 3: /* iavf */
+      s->net_rx      += m[ MIDX( COUNTER, IAVF, PKT_RX ) ];
+      s->net_tx      += m[ MIDX( COUNTER, IAVF, PKT_TX_COMPLETED ) ];
+      for( ulong r=0UL; r<FD_METRICS_ENUM_PKT_RX_DROP_REASON_CNT; r++ ) s->net_rx_drop += m[ MIDX( COUNTER, IAVF, PKT_RX_DROPPED )+r ];
+      for( ulong r=0UL; r<FD_METRICS_ENUM_PKT_TX_DROP_REASON_CNT; r++ ) s->net_tx_drop += m[ MIDX( COUNTER, IAVF, PKT_TX_DROPPED )+r ];
+      s->net_rx_drop += m[ MIDX( COUNTER, IAVF, PKT_RX_NO_LINK_DROPPED ) ];
+      s->net_tx_drop += m[ MIDX( COUNTER, IAVF, PKT_TX_NO_LINK_DROPPED ) ];
       break;
     default: /* sock */
       s->net_rx      += m[ MIDX( COUNTER, SOCK, PKT_RX ) ];
@@ -259,8 +265,8 @@ metrics_snap_print( metrics_snap_t const * s,
      hide what the tiles are doing right now. */
 
   ulong req_tot = 0UL;
-  for( ulong i=0UL; i<FD_METRICS_ENUM_ROTOR_REQUEST_TYPE_CNT; i++ ) {
-    if( i==FD_METRICS_ENUM_ROTOR_REQUEST_TYPE_V_PONG_IDX ) continue;
+  for( ulong i=0UL; i<FD_METRICS_ENUM_REPAIR_REQUEST_TYPE_CNT; i++ ) {
+    if( i==FD_METRICS_ENUM_REPAIR_REQUEST_TYPE_V_PONG_IDX ) continue;
     req_tot += s->req[ i ];
   }
   double resp_pct  = req_tot ? 100.0*(double)s->resp_cnt /(double)req_tot : 0.0;
@@ -286,14 +292,14 @@ metrics_snap_print( metrics_snap_t const * s,
   printf( "\n\n" );
 
   printf( "  requests     " );
-  col( "window",     Q( FD_METRICS_ENUM_ROTOR_REQUEST_TYPE_V_WINDOW_INDEX_IDX               ) );
-  col( "highest",    Q( FD_METRICS_ENUM_ROTOR_REQUEST_TYPE_V_HIGHEST_WINDOW_INDEX_IDX       ) );
-  col( "orphan",     Q( FD_METRICS_ENUM_ROTOR_REQUEST_TYPE_V_ORPHAN_IDX                     ) );
-  col( "parent_fec", Q( FD_METRICS_ENUM_ROTOR_REQUEST_TYPE_V_PARENT_AND_FEC_SET_COUNT_IDX   ) );
+  col( "window",     Q( FD_METRICS_ENUM_REPAIR_REQUEST_TYPE_V_WINDOW_INDEX_IDX              ) );
+  col( "highest",    Q( FD_METRICS_ENUM_REPAIR_REQUEST_TYPE_V_HIGHEST_WINDOW_INDEX_IDX      ) );
+  col( "orphan",     Q( FD_METRICS_ENUM_REPAIR_REQUEST_TYPE_V_ORPHAN_IDX                    ) );
+  col( "parent_fec", Q( FD_METRICS_ENUM_REPAIR_REQUEST_TYPE_V_PARENT_FEC_SET_COUNT_IDX      ) );
   printf( "\n               " );
-  col( "fec_root",   Q( FD_METRICS_ENUM_ROTOR_REQUEST_TYPE_V_FEC_SET_ROOT_IDX               ) );
-  col( "shred_bid",  Q( FD_METRICS_ENUM_ROTOR_REQUEST_TYPE_V_WINDOW_INDEX_FOR_BLOCK_ID_IDX  ) );
-  col( "pong",       Q( FD_METRICS_ENUM_ROTOR_REQUEST_TYPE_V_PONG_IDX                  ) );
+  col( "fec_root",   Q( FD_METRICS_ENUM_REPAIR_REQUEST_TYPE_V_FEC_SET_ROOT_IDX              ) );
+  col( "shred_bid",  Q( FD_METRICS_ENUM_REPAIR_REQUEST_TYPE_V_WINDOW_INDEX_FOR_BLOCK_ID_IDX ) );
+  col( "pong",       Q( FD_METRICS_ENUM_REPAIR_REQUEST_TYPE_V_PONG_IDX                  ) );
   printf( "\n               " );
   col( "total",      (double)req_tot );
   col_pct( "rerequest", T( rerequest ), rereq_pct ); printf( "   " );
@@ -324,8 +330,8 @@ metrics_snap_print( metrics_snap_t const * s,
   col( "filtered",   T( net_shred.filtered ) );
   printf( "(%lu links, overrun = frags skipped)", src->net_shred_cnt );
   printf( "\n               " );
-  col( "net_repair", T( net_repair.overrun  ) );
-  col( "consumed",   T( net_repair.consumed ) );
+  col( "shred_rotor", T( shred_rotor.overrun ) );
+  col( "consumed",    T( shred_rotor.consumed ) );
   printf( "\n               " );
   col( "repair_net", T( repair_net.overrun  ) );
   col( "consumed",   T( repair_net.consumed ) );
@@ -358,8 +364,8 @@ rotor_metrics_fn( args_t *   args,
                   config_t * config ) {
   metrics_src_t src[1];
   metrics_src_init( src, config );
-  FD_LOG_NOTICE(( "rotor metrics: %lu shred tiles, %lu %s tiles, %lu net_shred links, %lu net_repair links, %lu repair_net links",
-                  src->shred_cnt, src->net_cnt, fd_net_tile_name( config->net.provider ), src->net_shred_cnt, src->net_repair_cnt, src->repair_net_cnt ));
+  FD_LOG_NOTICE(( "rotor metrics: %lu shred tiles, %lu %s tiles, %lu net_shred links, %lu shred_rotor links, %lu repair_net links",
+                  src->shred_cnt, src->net_cnt, fd_net_tile_name( config->net.provider ), src->net_shred_cnt, src->shred_rotor_cnt, src->repair_net_cnt ));
 
   metrics_snap_t prev[1], cur[1];
   metrics_snap_take( prev, src );
@@ -388,7 +394,7 @@ action_t fd_action_rotor = {
   .detail      = "Attaches to a running validator's rotor tile and prints once a second\n"
                  "per-second repair request counters by type, matched responses and\n"
                  "mean latency, shred tile receive counters, and net / link drop\n"
-                 "counters (net_shred, net_repair, repair_net overruns, net tile rx/tx\n"
+                 "counters (net_shred, shred_rotor, repair_net overruns, net tile rx/tx\n"
                  "drops).\n"
                  "\n"
                  "  --once  print a single snapshot and exit",

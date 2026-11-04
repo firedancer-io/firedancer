@@ -13,91 +13,6 @@
 #define GOSSIP_TILE_ENTRYPOINTS_MAX ( 16UL)
 #define IP4_PORT_STR_MAX            ( 22UL)
 
-struct fd_configh {
-  char dynamic_port_range[ 32 ];
-
-  struct {
-    char  ledger[ PATH_MAX ];
-    char  accounts_path[ PATH_MAX ];
-    ulong authorized_voter_paths_cnt;
-    char  authorized_voter_paths[ 16 ][ PATH_MAX ];
-  } paths;
-
-  struct {
-    char solana_metrics_config[ 512 ];
-  } reporting;
-
-  struct {
-    uint  limit_size;
-    ulong account_indexes_cnt;
-    char  account_indexes[ 4 ][ 32 ];
-    ulong account_index_include_keys_cnt;
-    char  account_index_include_keys[ 32 ][ FD_BASE58_ENCODED_32_SZ ];
-    ulong account_index_exclude_keys_cnt;
-    char  account_index_exclude_keys[ 32 ][ FD_BASE58_ENCODED_32_SZ ];
-    int   enable_accounts_disk_index;
-    char  accounts_index_path[ PATH_MAX ];
-    char  accounts_hash_cache_path[ PATH_MAX ];
-    int   require_tower;
-    char  snapshot_archive_format[ 10 ];
-  } ledger;
-
-  struct {
-    int    port_check;
-  } gossip;
-
-  struct {
-    int    snapshot_fetch;
-    int    genesis_fetch;
-    int    poh_speed_test;
-    char   expected_genesis_hash[ FD_BASE58_ENCODED_32_SZ ];
-    uint   wait_for_supermajority_at_slot;
-    char   expected_bank_hash[ FD_BASE58_ENCODED_32_SZ ];
-    int    wait_for_vote_to_start_leader;
-    ulong  hard_fork_at_slots_cnt;
-    uint   hard_fork_at_slots[ 32 ];
-    ulong  known_validators_cnt;
-    char   known_validators[ 16 ][ 256 ];
-    int    os_network_limits_test;
-  } consensus;
-
-  struct {
-    ushort port;
-    int    extended_tx_metadata_storage;
-    int    full_api;
-    int    private;
-    char   bind_address[ 16 ];
-    char   public_address[ IP4_PORT_STR_MAX ];
-    int    transaction_history;
-    int    only_known;
-    int    pubsub_enable_block_subscription;
-    int    pubsub_enable_vote_subscription;
-    int    bigtable_ledger_storage;
-  } rpc;
-
-  struct {
-    int  enabled;
-    int  incremental_snapshots;
-    uint full_snapshot_interval_slots;
-    uint incremental_snapshot_interval_slots;
-    uint minimum_snapshot_download_speed;
-    uint maximum_snapshot_download_abort;
-    uint maximum_full_snapshots_to_retain;
-    uint maximum_incremental_snapshots_to_retain;
-    char path[ PATH_MAX ];
-    char incremental_path[ PATH_MAX ];
-  } snapshots;
-
-  struct {
-    uint bank_tile_count;
-    uint resolh_tile_count;
-    char agave_affinity[ AFFINITY_SZ ];
-    uint agave_unified_scheduler_handler_threads;
-  } layout;
-};
-
-typedef struct fd_configh fd_configh_t;
-
 struct fd_configf {
   struct {
     ulong max_accounts;
@@ -123,8 +38,10 @@ struct fd_configf {
 
   struct {
     ulong max_live_slots;
-    ulong max_fork_width;
+    ulong stake_delegation_cache_cnt;
     ulong program_cache_size_mib;
+    ulong bank_cache_cnt;
+    ulong transaction_cache_size_mib;
   } runtime;
 
   struct {
@@ -132,8 +49,8 @@ struct fd_configf {
   } gossip;
 
   struct {
-    char wait_for_supermajority_with_bank_hash[ FD_BASE58_ENCODED_32_SZ ];
-    int  alpenglow;
+    ulong wait_for_supermajority_at_slot;
+    char  wait_for_supermajority_with_bank_hash[ FD_BASE58_ENCODED_32_SZ ];
   } consensus;
 
   struct {
@@ -199,10 +116,6 @@ struct fd_configf {
       char  affinity[ AFFINITY_SZ ];
       ulong root_distance;
     } backtest;
-
-    struct {
-      char affinity[ AFFINITY_SZ ];
-    } forktest;
   } development;
 
   struct {
@@ -214,12 +127,19 @@ struct fd_configf {
     char  authorized_voter_paths[ FD_KEYGUARD_AUTH_VOTERS_MAX ][ PATH_MAX ];
   } paths;
 
+  struct {
+    int    enabled;
+    int    boot_to_standby;
+    char   listen_address[ 16 ];
+    ushort listen_port;
+  } failover;
+
 };
 
 typedef struct fd_configf fd_configf_t;
 
 struct fd_config_net {
-  char provider[ 8 ]; /* "auto", "xdp", "socket" or "mlx5" */
+  char provider[ 8 ]; /* "auto", "xdp", "socket", "mlx5" or "iavf" */
 
   char interface[ IF_NAMESIZE ];
   char bind_address[ 16 ];
@@ -247,6 +167,11 @@ struct fd_config_net {
   } mlx5;
 
   struct {
+    uint rx_queue_size;
+    uint tx_queue_size;
+  } iavf;
+
+  struct {
     uint receive_buffer_size;
     uint send_buffer_size;
   } socket;
@@ -264,6 +189,8 @@ struct fd_config {
   double tick_per_ns_sigma;
 
   long boot_timestamp_nanos;
+  ulong launch_cpus[ 1024UL/64UL ]; /* affinity inherited from the launcher */
+  char  launch_cgroup[ PATH_MAX ];  /* v2 cgroup path inherited from the launcher, empty if none */
 
   /* Sizing ceilings for every per-slot structure, derived at load: the
      largest values the consensus limits can take, or the raised
@@ -286,14 +213,12 @@ struct fd_config {
   uint uid;
   uint gid;
 
-  int is_firedancer;
   int is_dev;
   int has_user_config;
 
   ulong user_config_len;
   char  user_config[ 131072 ];
   union {
-    fd_configh_t frankendancer;
     fd_configf_t firedancer;
   };
 
@@ -311,6 +236,8 @@ struct fd_config {
     char stake_delegations[ PATH_MAX ];
     char epoch_credits[ PATH_MAX ];
     char cost_tracker[ PATH_MAX ];
+    char vote_stakes[ PATH_MAX ];
+    char txncache[ PATH_MAX ];
     char shredb[ PATH_MAX ];
     char guidb[ PATH_MAX ];
     char vote_history[ PATH_MAX ];
@@ -373,7 +300,6 @@ struct fd_config {
   struct {
     int sandbox;
     int no_clone;
-    int no_agave;
     int bootstrap;
 
     char core_dump[ 16 ];
@@ -410,9 +336,11 @@ struct fd_config {
     } bundle;
 
     struct {
-      int report_shreds;
-      int report_transactions;
-      int report_runtime_diffs;
+      int   report_shreds;
+      int   report_transactions;
+      int   report_runtime_diffs;
+      int   report_repair_requests;
+      ulong max_upload_rate_mbps;
     } event;
 
     struct {
@@ -467,10 +395,6 @@ struct fd_config {
     } quic;
 
     struct {
-      ushort txsend_src_port;
-    } txsend;
-
-    struct {
       uint signature_cache_size;
       uint receive_buffer_size;
       uint mtu;
@@ -500,10 +424,6 @@ struct fd_config {
       ulong account_blocklist_cnt;
       char  account_blocklist[ FD_PACK_ACCT_BLOCKLIST_MAX ][ FD_BASE58_ENCODED_32_SZ ];
     } pack;
-
-    struct {
-      int lagged_consecutive_leader_start;
-    } pohh;
 
     struct {
       uint   max_pending_shred_sets;
@@ -556,14 +476,6 @@ struct fd_config {
     } rserve;
 
     struct {
-      int write_vote_history_file;
-    } tower;
-
-    struct {
-      int write_vote_history_file;
-    } votor;
-
-    struct {
       ulong max_transaction_lookahead_buffer_size;
       ulong enable_features_cnt;
       char  enable_features[ 16 ][ FD_BASE58_ENCODED_32_SZ ];
@@ -606,8 +518,7 @@ FD_PROTOTYPES_BEGIN
    returned as a fully filled in, validated, and ready to use object. */
 
 void
-fd_config_load( int           is_firedancer,
-                int           is_local_cluster,
+fd_config_load( int           is_local_cluster,
                 char const *  default_config,
                 ulong         default_config_sz,
                 char const *  override_config,

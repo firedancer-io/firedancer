@@ -1,17 +1,15 @@
-$ fdctl run --config config.toml
-Log at "/tmp/fd-0.0.0_755725_fd_fd_2024_07_01_03_24_27_470038344_GMT+00"
-[32mNOTICE [0m 07-01 03:24:27.471949 755725 f0   main src/disco/topo/fd_topo.c(445): 
-SUMMARY
-              Total Tiles: 16
-      Total Memory Locked: 28145897472 bytes (26 GiB + 218 MiB + 20 KiB)
-  Required Gigantic Pages: 26
-      Required Huge Pages: 109
-    Required Normal Pages: 36
-  Required Gigantic Pages (NUMA node 0): 26
-      Required Huge Pages (NUMA node 0): 109
-
-[...]
-[32mNOTICE [0m 07-01 03:24:28.772209 755745 16   metric:0 src/disco/topo/fd_topo_run.c(30): booting tile metric:0 pid:755742 tid:755745
-[32mNOTICE [0m 07-01 03:24:28.773617 755747 13   shred:0 src/disco/topo/fd_topo_run.c(30): booting tile shred:0 pid:755740 tid:755747
-[32mNOTICE [0m 07-01 03:24:28.773798 755748 9    pack:0 src/disco/topo/fd_topo_run.c(30): booting tile pack:0 pid:755739 tid:755748
-[...]
+$ firedancer run --config config.toml
+[2mLog at "/tmp/fd-0.1.1_1987461_sun-ossdev-firedancer31_2026_10_20_16_32_23_068864834_GMT+00"[0m
+[93mWARNING[0m [2m10-20 16:32:23.089738[0m main      [2mnohz-full.c(71):[0m tile cpus 1-38 are not in the kernel nohz_full= set and will be interrupted by periodic timer ticks. For lower jitter, boot with [1mnohz_full=1-38[0m.
+[93mWARNING[0m [2m10-20 16:32:24.188608[0m main      [2mfd_topo.c(159):[0m fd_topo_wksp_new(store) took 165 ms
+[32mNOTICE [0m [2m10-20 16:32:24.306879[0m main      [2mfd_bootinfo.c(168):[0m booting validator [1mfd1[0m version 0.1.1 [2m(babe91c83ca)[0m pid 1987461 with [1m55[0m tiles and [1m87 GiB[0m memory at [2m/mnt/.fd[0m
+[32mNOTICE [0m [2m10-20 16:32:24.362519[0m metric:0  [2mfd_metric_tile.c(148):[0m prometheus server listening at [1mhttp://127.0.0.1:7999/metrics[0m
+[93mWARNING[0m [2m10-20 16:32:24.419250[0m votor:0   [2mfd_votor_tile.c(2508):[0m vote history file `/home/firedancer/.firedancer/fd1/vote_history-4Dm5AX6DruesFVJYK5ajk2Gyymqmscgx1PoXbYfQbGSY.bin` does not exist, creating it.  This identity is assumed to have never voted.
+[32mNOTICE [0m [2m10-20 16:32:24.438850[0m gui:0     [2mfd_gui_tile.c(857):[0m gui server listening at [1mhttp://127.0.0.1:80[0m
+[32mNOTICE [0m [2m10-20 16:32:24.442772[0m rpc:0     [2mfd_rpc_tile.c(3155):[0m rpc server listening at [1mhttp://127.0.0.1:8899[0m
+[32mNOTICE [0m [2m10-20 16:32:25.290178[0m genesi:0  [2mfd_genesi_tile.c(383):[0m retrieved genesis [2m/home/firedancer/.firedancer/fd1/genesis.bin[0m from peer at [2mhttp://109.94.99.177:8899/genesis.tar.bz2[0m
+[32mNOTICE [0m [2m10-20 16:32:25.454314[0m event:0   [2mfd_event_client.c(687):[0m connected to telemetry server [1mhttps://events-in.firedancer.io:443[0m
+[32mNOTICE [0m [2m10-20 16:32:27.370526[0m snapct:0  [2mfd_snapct_tile.c(756):[0m downloading full snapshot from untrusted gossip peer [1m141vSYKGRPNGieSrGJy8EeDVBcbjSr6aWkimNgrNZ6xN[0m
+[32mNOTICE [0m [2m10-20 16:32:38.820601[0m snapct:0  [2mfd_snapct_tile.c(756):[0m downloading incremental snapshot from untrusted gossip peer [1m141vSYKGRPNGieSrGJy8EeDVBcbjSr6aWkimNgrNZ6xN[0m
+[32mNOTICE [0m [2m10-20 16:32:38.858957[0m snapin:0  [2mfd_snapin_tile.c(389):[0m loaded 89.3M accounts [2m(9.2K dups)[0m from snapshot in 14.466 seconds
+[32mNOTICE [0m [2m10-20 16:32:41.805075[0m replay:0  [2mfd_replay_tile.c(1313):[0m caught up to cluster at slot [1m454774712[0m [2m(19.3 seconds since boot)[0m

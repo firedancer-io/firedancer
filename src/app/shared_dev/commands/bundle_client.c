@@ -24,13 +24,13 @@ bundle_client_topo( config_t *   config ) {
   /* Tiles */
 
   fd_topob_wksp( topo, "bundle" );
-  fd_topo_tile_t * bundle_tile = fd_topob_tile( topo, "bundle", "bundle", "metric_in", ULONG_MAX, 0, 1, 0, 1 );
+  fd_topo_tile_t * bundle_tile = fd_topob_tile( topo, "bundle", "bundle", "metric_in", ULONG_MAX, 1, 0, 1 );
 
   fd_topob_wksp( topo, "sign" );
-  fd_topo_tile_t * sign_tile = fd_topob_tile( topo, "sign", "sign", "metric_in", ULONG_MAX, 0, 1, 0, 0 );
+  fd_topo_tile_t * sign_tile = fd_topob_tile( topo, "sign", "sign", "metric_in", ULONG_MAX, 1, 0, 0 );
 
   fd_topob_wksp( topo, "metric" );
-  fd_topo_tile_t * metric_tile = fd_topob_tile( topo, "metric", "metric", "metric_in", ULONG_MAX, 0, 0, 0, 1 );
+  fd_topo_tile_t * metric_tile = fd_topob_tile( topo, "metric", "metric", "metric_in", ULONG_MAX, 0, 0, 1 );
 
   /* Links */
 
@@ -88,7 +88,7 @@ bundle_client_cmd_fn( args_t *   args,
   initialize_stacks( config );
   fd_topo_join_workspaces( topo, FD_SHMEM_JOIN_MODE_READ_WRITE, FD_TOPO_CORE_DUMP_LEVEL_DISABLED );
 
-  fd_topo_run_single_process( topo, 2, config->uid, config->gid, fdctl_tile_run );
+  fd_topo_run_single_process( topo, config->uid, config->gid, fdctl_tile_run );
 
   for(;;) pause();
 }

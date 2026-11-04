@@ -26,7 +26,10 @@ def _write_off_enum(f: TextIO, metrics: List[Metric], prefix: str, start_expr: s
 
         if isinstance(metric, (CounterEnumMetric, GaugeEnumMetric)):
             for idx, value in enumerate(metric.enum.values):
-                val_off_name = f'FD_METRICS_{metric.type.name.upper()}_{prefix.upper()}_{full_name}_{camel2snake(value.name)}_OFF'
+                # A deprecated value keeps its slot under a placeholder name
+                # so later offsets never shift
+                val = camel2snake(value.name) + ('_DEPRECATED' if value.deprecated else '')
+                val_off_name = f'FD_METRICS_{metric.type.name.upper()}_{prefix.upper()}_{full_name}_{val}_OFF'
                 if idx == 0:
                     f.write(f'  {val_off_name} = {off_name},\n')
                 else:
@@ -39,6 +42,18 @@ def _write_off_enum(f: TextIO, metrics: List[Metric], prefix: str, start_expr: s
         f.write(f'  {end_name},\n')
 
     f.write('};\n\n')
+
+def _histogram_edges(metric: HistogramMetric) -> List[int]:
+    """Bucket edges in the metric's unit, spaced like fd_histf_new.  Fixed
+    at build time so ticks histograms bucket the same on every node."""
+    lo = max(int(metric.min), 1)
+    hi = max(int(metric.max), lo + 14)
+    edges = [lo]
+    for i in range(2, 15):
+        e = int(0.5 + edges[-1] * pow(hi / edges[-1], 1.0 / (16 - i)))
+        edges.append(max(e, edges[-1] + 1))
+    edges.append(hi)
+    return edges
 
 def _write_metric(f: TextIO, metric: Metric, prefix: str):
     full_name = camel2snake(metric.name)
@@ -58,15 +73,12 @@ def _write_metric(f: TextIO, metric: Metric, prefix: str):
         f.write(f'#define FD_METRICS_{metric.type.name.upper()}_{prefix.upper()}_{full_name}_CNT  ({len(metric.enum.values)}UL)\n')
 
     if isinstance(metric, HistogramMetric):
-        if metric.converter == HistogramConverter.SECONDS:
-            min_str = str(float(metric.min))
-            max_str = str(float(metric.max))
+        if metric.converter == HistogramConverter.NANOSECONDS:
+            edges = ', '.join(f'{e}UL' for e in _histogram_edges(metric))
+            f.write(f'#define FD_METRICS_{metric.type.name.upper()}_{prefix.upper()}_{full_name}_EDGES_NS  {{ {edges} }}\n')
         else:
-            min_str = str(int(metric.min)) + "UL"
-            max_str = str(int(metric.max)) + "UL"
-
-        f.write(f'#define FD_METRICS_{metric.type.name.upper()}_{prefix.upper()}_{full_name}_MIN  ({min_str})\n')
-        f.write(f'#define FD_METRICS_{metric.type.name.upper()}_{prefix.upper()}_{full_name}_MAX  ({max_str})\n')
+            f.write(f'#define FD_METRICS_{metric.type.name.upper()}_{prefix.upper()}_{full_name}_MIN  ({int(metric.min)}UL)\n')
+            f.write(f'#define FD_METRICS_{metric.type.name.upper()}_{prefix.upper()}_{full_name}_MAX  ({int(metric.max)}UL)\n')
 
     f.write('\n')
 
@@ -76,14 +88,14 @@ def _write_metric_descriptor(f, full_name, metric: Metric):
     elif isinstance(metric, GaugeMetric):
         f.write(f'    DECLARE_METRIC( {full_name}, GAUGE ),\n')
     elif isinstance(metric, CounterEnumMetric):
-        for value in metric.enum.values:
+        for value in metric.enum.live():
             f.write(f'    DECLARE_METRIC_ENUM( {full_name}, COUNTER, {camel2snake(metric.enum.name)}, {camel2snake(value.name)} ),\n')
     elif isinstance(metric, GaugeEnumMetric):
-        for value in metric.enum.values:
+        for value in metric.enum.live():
             f.write(f'    DECLARE_METRIC_ENUM( {full_name}, GAUGE, {camel2snake(metric.enum.name)}, {camel2snake(value.name)} ),\n')
     elif isinstance(metric, HistogramMetric):
-        if metric.converter == HistogramConverter.SECONDS:
-            f.write(f'    DECLARE_METRIC_HISTOGRAM_SECONDS( {full_name} ),\n')
+        if metric.converter == HistogramConverter.NANOSECONDS:
+            f.write(f'    DECLARE_METRIC_HISTOGRAM_TICKS( {full_name} ),\n')
         elif metric.converter == HistogramConverter.NONE:
             f.write(f'    DECLARE_METRIC_HISTOGRAM_NONE( {full_name} ),\n')
         else:
@@ -117,8 +129,10 @@ def _write_common(metrics: Metrics):
         for metric in metrics.common:
             _write_metric(f, metric, "tile")
 
+        # _TOTAL counts descriptors (deprecated enum values have none); the
+        # storage width, with their slots, is FD_METRICS_TILE_OFF
         offset = sum([int(metric.footprint()/8) for metric in metrics.common])
-        f.write(f'\n#define FD_METRICS_ALL_TOTAL ({offset}UL)\n')
+        f.write(f'\n#define FD_METRICS_ALL_TOTAL ({sum(m.count() for m in metrics.common)}UL)\n')
         f.write(f'extern const fd_metrics_meta_t FD_METRICS_ALL[FD_METRICS_ALL_TOTAL];\n')
         f.write(f'\n#define FD_METRICS_ALL_LINK_IN_TOTAL ({len(metrics.link_in)}UL)\n')
         f.write(f'extern const fd_metrics_meta_t FD_METRICS_ALL_LINK_IN[FD_METRICS_ALL_LINK_IN_TOTAL];\n')
@@ -219,9 +233,14 @@ def _write_enums(enums: List[MetricEnum], common_offset: int):
             f.write(f'#define FD_METRICS_ENUM_{camel2snake(enum.name)}_NAME "{camel2snake(enum.name).lower()}"\n')
             f.write(f'#define FD_METRICS_ENUM_{camel2snake(enum.name)}_CNT ({len(enum.values)}UL)\n')
             for idx, enum_value in enumerate(enum.values):
+                if enum_value.deprecated: continue   # keeps its index, no name
                 f.write(f'#define FD_METRICS_ENUM_{camel2snake(enum.name)}_V_{camel2snake(enum_value.name)}_IDX  {idx}\n')
-                tag = camel2snake(enum_value.name).lower() if enum_value.normalize else enum_value.name
+                tag = camel2snake(enum_value.name).lower()
                 f.write(f'#define FD_METRICS_ENUM_{camel2snake(enum.name)}_V_{camel2snake(enum_value.name)}_NAME "{tag}"\n')
+            if len(enum.values) <= 64:
+                f.write(f'#define FD_METRICS_ENUM_{camel2snake(enum.name)}_G_ALL_MASK (0x{enum.group_mask(EnumGroup("All", enum.live())):x}UL)\n')
+            for group in enum.groups:
+                f.write(f'#define FD_METRICS_ENUM_{camel2snake(enum.name)}_G_{camel2snake(group.name)}_MASK (0x{enum.group_mask(group):x}UL)\n')
             f.write('\n')
         f.write('#endif /* HEADER_fd_src_disco_metrics_generated_fd_metrics_enums_h */\n')
 
@@ -232,6 +251,6 @@ def write_codegen(metrics: Metrics):
     common_offset = sum([int(metric.footprint()/8) for metric in metrics.common])
     for (tile, tile_metrics) in metrics.tiles.items():
         _write_tile(tile, tile_metrics)
-    _write_enums(metrics.enums.values(), common_offset)
+    _write_enums(list(metrics.enums.values()), common_offset)
 
     print(f'Generated {metrics.count()} metrics for {len(metrics.tiles)} tiles')

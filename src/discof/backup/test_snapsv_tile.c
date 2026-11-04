@@ -297,7 +297,7 @@ snapsv_env_create( void ) {
   out_link->dcache          = fd_dcache_join( fd_dcache_new( out_dcache_mem, out_dcache_data_sz, 0UL ) ); FD_TEST( out_link->dcache );
   out_dcache_obj->offset    = fd_wksp_gaddr_fast( wksp, out_dcache_mem );
 
-  fd_topo_tile_t * tile = fd_topob_tile( topo, "snapsv", "snapsv", "snapsv", 0UL, 0, 0, 0, 0 );
+  fd_topo_tile_t * tile = fd_topob_tile( topo, "snapsv", "snapsv", "snapsv", 0UL, 0, 0, 0 );
   fd_topob_tile_in( topo, "snapsv", 0UL, "snapsv", "snapmk_out", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
   fd_topob_tile_out( topo, "snapsv", 0UL, "snapsv_out", 0UL );
   tile->snapsv.snap_max             = SNAP_MAX;
@@ -572,11 +572,34 @@ FD_UNIT_TEST( redirect_full ) {
 FD_UNIT_TEST( redirect_incremental ) {
   snapsv_env_t * env = snapsv_env_create();
   uchar hash[ 32 ]; memset( hash, 0xb2, sizeof(hash) );
+  snapsv_env_add_snap( env, 100UL, ULONG_MAX, 4096UL, hash, 1 );
   snapsv_env_add_snap( env, 200UL, 100UL, 4096UL, hash, 1 );
 
   char name[ FD_SNAP_NAME_MAX ];
   snap_name( name, 200UL, 100UL, hash, 1 );
   expect_redirect( env, "GET /incremental-snapshot.tar.bz2 HTTP/1.1\r\n\r\n", name );
+  snapsv_env_destroy( env );
+}
+
+FD_UNIT_TEST( redirect_incremental_matches_newest_full ) {
+  snapsv_env_t * env = snapsv_env_create();
+  uchar hash[ 32 ]; memset( hash, 0xc3, sizeof(hash) );
+  snapsv_env_add_snap( env, 100UL, ULONG_MAX, 4096UL, hash, 1 );
+  snapsv_env_add_snap( env, 150UL, 100UL, 4096UL, hash, 1 );
+  char old_name[ FD_SNAP_NAME_MAX ];
+  snap_name( old_name, 150UL, 100UL, hash, 1 );
+  expect_redirect( env, "GET /incremental-snapshot.tar.zst HTTP/1.1\r\n\r\n", old_name );
+
+  snapsv_env_add_snap( env, 200UL, ULONG_MAX, 4096UL, hash, 1 );
+  expect_res_env( env, "GET /incremental-snapshot.tar.zst HTTP/1.1\r\n\r\n", RES_404_KEEPALIVE );
+
+  snapsv_env_add_snap( env, 250UL, 200UL, 4096UL, hash, 1 );
+  char name[ FD_SNAP_NAME_MAX ];
+  snap_name( name, 250UL, 200UL, hash, 1 );
+  expect_redirect( env, "GET /incremental-snapshot.tar.zst HTTP/1.1\r\n\r\n", name );
+
+  snapsv_env_del_snap( env, 200UL, ULONG_MAX );
+  expect_redirect( env, "GET /incremental-snapshot.tar.zst HTTP/1.1\r\n\r\n", old_name );
   snapsv_env_destroy( env );
 }
 
@@ -1272,6 +1295,44 @@ FD_UNIT_TEST( range_unsatisfiable ) {
   expect_range_err( "bytes=20-10", 1000UL, -2 );
   expect_range_err( "bytes=-0", 1000UL, -2 );
   expect_range_err( "bytes=0-9", 0UL, -2 );
+}
+
+FD_UNIT_TEST( delete_other_snapshot_during_download ) {
+  char name_a[ FD_SNAP_NAME_MAX ];
+  snapsv_env_t * env = snap_env( name_a, 1 );
+  fd_snapsv_t *  ctx = env->ctx;
+  uchar hash_b[ 32 ]; memset( hash_b, 0xb2, sizeof(hash_b) );
+  snapsv_env_add_snap( env, 148UL, ULONG_MAX, SNAP_FILE_SZ, hash_b, 1 );
+  char name_b[ FD_SNAP_NAME_MAX ];
+  snap_name( name_b, 148UL, ULONG_MAX, hash_b, 1 );
+  snap_key_t key_b = { 148UL, ULONG_MAX };
+  snap_entry_t const * before = snap_map_query( ctx->snap_map, &key_b );
+  FD_TEST( before );
+
+  char req[ 256 ];
+  fd_cstr_printf( req, sizeof(req), NULL, "GET /%s HTTP/1.1\r\n\r\n", name_b );
+  fake_client_t fake;
+  fake_client_req( &fake, req );
+  uint iter = 0U;
+  for( ; iter<64U && fake.res_sz<=4096U; iter++ ) snapsv_step( env, &fake, iter );
+  FD_TEST( fake.res_sz>4096U );
+
+  snapsv_env_del_snap( env, 100UL, ULONG_MAX );
+  FD_TEST( snap_map_query( ctx->snap_map, &key_b )!=before );
+  for( uint end=iter+256U; iter<end; iter++ ) snapsv_step( env, &fake, iter );
+
+  static char res[ SNAP_RES_MAX ];
+  ulong res_len = sizeof(res);
+  fake_client_res( &fake, res, &res_len );
+  ulong        body_len;
+  char const * body = res_body( res, res_len, &body_len );
+  FD_TEST( body_len==SNAP_FILE_SZ );
+  FD_TEST( !memcmp( body, snap_file, body_len ) );
+  snapsv_event_t event[ OUT_DEPTH ];
+  ulong event_cnt = snapsv_events( env, event, OUT_DEPTH );
+  FD_TEST( event_cnt>=2UL && event[ event_cnt-1UL ].eom );
+  FD_TEST( event[ event_cnt-1UL ].msg.close_kind==FD_SNAPSV_CLOSE_DONE );
+  snapsv_env_destroy( env );
 }
 
 int

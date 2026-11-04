@@ -154,6 +154,9 @@ fd_shmem_private_map_rand( ulong  size,
                            int    mode,  /* FD_SHMEM_JOIN_MODE_* */
                            void * mem ); /* non-NULL */
 
+ulong
+fd_numa_private_cpu_cnt( char const * path );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_util_shmem_fd_shmem_private_h */

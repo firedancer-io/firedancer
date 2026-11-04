@@ -151,7 +151,6 @@ struct snapsv_conn {
 
   struct {
     snap_key_t key;
-    snap_entry_t * slot;
     ulong file_sz; /* snapshot file size */
     ulong req_off0; /* file offset of request */
     ulong req_off1; /* [req_off,req_off1) give the requested file range */
@@ -589,8 +588,9 @@ static void
 iobuf_alloc( fd_snapsv_t * ctx,
              uint *        slot ) {
   if( FD_LIKELY( *slot!=UINT_MAX ) ) return;
-  /* Every conn holds at most one buffer and the pool has two per conn,
-     so a conn that needs one always finds one. */
+  /* Every conn holds at most two buffers (iobuf and rdbuf).  This
+     slot is empty, so this conn holds at most one; a pool sized for
+     two buffers per conn therefore has a free buffer for this slot. */
   FD_CHECK_CRIT( ctx->iobuf_free_cnt, "iobuf pool exhausted" );
   *slot = ctx->iobuf_free[ --ctx->iobuf_free_cnt ];
 }
@@ -985,16 +985,12 @@ handle_accept( fd_snapsv_t * ctx,
    after_credit returns. */
 
 static snap_entry_t *
-conn_snap_entry( snapsv_conn_t * conn ) {
-  snap_entry_t * slot = conn->snap.slot;
-  FD_CHECK_ERR( slot, "snapshot slot is NULL" );
-  if( FD_UNLIKELY( ( slot->key.base_slot != conn->snap.key.base_slot ) |
-                   ( slot->key.slot      != conn->snap.key.slot      ) |
-                   ( slot->sz            != conn->snap.file_sz       ) ) ) {
-    /* snapshot was deleted, or the slot now holds a different snapshot */
-    return NULL;
-  }
-  return slot;
+conn_snap_entry( fd_snapsv_t *   ctx,
+                 snapsv_conn_t * conn ) {
+  FD_CHECK_ERR( conn->snap.key.slot!=ULONG_MAX, "no snapshot selected" );
+  snap_entry_t * entry = snap_map_update( ctx->snap_map, &conn->snap.key );
+  if( FD_UNLIKELY( !entry || entry->sz!=conn->snap.file_sz ) ) return NULL;
+  return entry;
 }
 
 static int
@@ -1071,7 +1067,7 @@ shovel( fd_snapsv_t *       ctx,
   if( conn->rdbuf_idx==UINT_MAX &&
       !conn->disk_inflight      &&
       conn->snap.req_cur < conn->snap.req_off1 ) {
-    snap_entry_t const * snap = conn_snap_entry( conn );
+    snap_entry_t const * snap = conn_snap_entry( ctx, conn );
     if( FD_UNLIKELY( !snap ) ) {
       conn->res.close_kind = FD_SNAPSV_CLOSE_ABORT;
       conn->closing        = 1U;
@@ -1127,7 +1123,7 @@ shovel_comp_disk( fd_snapsv_t *       ctx,
   conn->disk_inflight = 0U;
 
   /* snapshot file recycled between submission and completion? */
-  if( FD_UNLIKELY( !conn_snap_entry( conn ) ) ) {
+  if( FD_UNLIKELY( !conn_snap_entry( ctx, conn ) ) ) {
     conn->res.close_kind = FD_SNAPSV_CLOSE_ABORT;
     conn->closing        = 1U;
     shovel( ctx, stem, conn_idx, now );
@@ -1184,7 +1180,7 @@ shovel_comp_net( fd_snapsv_t *       ctx,
   conn->res.sent      += (uint)res;
   conn->snap.req_sent += (ulong)res;
   conn->active_ts      = now;
-  FD_MCNT_INC( SNAPSV, BYTES_WRITTEN, (ulong)res );
+  FD_MCNT_INC( SNAPSV, HTTP_TX_BYTES, (ulong)res );
   shovel( ctx, stem, conn_idx, now );
 }
 
@@ -1260,7 +1256,7 @@ serve_http_err( fd_snapsv_t * ctx,
   FD_CHECK_ERR( conn->state==CONN_STATE_RES_WRITE_ERR, "state confusion" );
   iobuf_alloc( ctx, &conn->iobuf_idx );
   uchar * iobuf = conn_iobuf( ctx, conn );
-  snap_entry_t const * snap = conn->snap.slot ? conn_snap_entry( conn ) : NULL;
+  snap_entry_t const * snap = conn->snap.key.slot!=ULONG_MAX ? conn_snap_entry( ctx, conn ) : NULL;
   conn->res.sent = 0;
   conn->res.len  = (uint)build_err_hdr(
       (char *)iobuf,
@@ -1322,7 +1318,7 @@ serve_snap_res_hdr( fd_snapsv_t *       ctx,
   snapsv_conn_t * conn = &ctx->conn0[ conn_idx ];
   FD_CHECK_ERR( conn->state==CONN_STATE_RES_WRITE_HDR, "state confusion" );
 
-  snap_entry_t * snap = conn_snap_entry( conn );
+  snap_entry_t * snap = conn_snap_entry( ctx, conn );
   if( FD_UNLIKELY( !snap ) ) {
     /* rare edge case: snap was deleted by the snapmk tile just after
        the user requested it.  Don't bother returning an error, just
@@ -1361,12 +1357,15 @@ newest_snap( fd_snapsv_t * ctx,
   }
   snap_entry_t * entry = incremental ? ctx->newest_incr : ctx->newest_full;
   if( FD_UNLIKELY( !entry ) ) {
-    snap_entry_t * entry0   = snap_map_ele0( ctx->snap_map );
-    ulong          ele_max  = snap_map_ele_max( ctx->snap_map );
+    snap_entry_t * full = incremental ? newest_snap( ctx, 0 ) : NULL;
+    if( FD_UNLIKELY( incremental && !full ) ) return NULL;
+    ulong          base_slot = full ? full->key.slot : ULONG_MAX;
+    snap_entry_t * entry0    = snap_map_ele0( ctx->snap_map );
+    ulong          ele_max   = snap_map_ele_max( ctx->snap_map );
     for( ulong i=0UL; i<ele_max; i++ ) {
       snap_entry_t * e = &entry0[ i ];
       if( snap_map_ele_is_free( e ) ) continue;
-      if( (e->key.base_slot!=ULONG_MAX)!=!!incremental ) continue;
+      if( e->key.base_slot!=base_slot ) continue;
       if( entry && e->key.slot<=entry->key.slot ) continue;
       entry = e;
     }
@@ -1476,7 +1475,7 @@ handle_write_hdr_comp( fd_snapsv_t *       ctx,
     conn_req_done( ctx, stem, conn_idx, now );
     return;
   case CONN_STATE_RES_WRITE_HDR:
-    if( conn->req.head || !conn->snap.slot ) {
+    if( conn->req.head || conn->snap.key.slot==ULONG_MAX ) {
       conn_req_done( ctx, stem, conn_idx, now );
       return;
     }
@@ -1615,7 +1614,7 @@ handle_peek( fd_snapsv_t *       ctx,
   }
   uint peek_len = (uint)res;
 
-  FD_MCNT_INC( SNAPSV, BYTES_READ, (ulong)res );
+  FD_MCNT_INC( SNAPSV, HTTP_RX_BYTES, (ulong)res );
 
   char const * method;  ulong method_len;
   char const * path;    ulong path_len;
@@ -1728,7 +1727,6 @@ handle_peek( fd_snapsv_t *       ctx,
 
   conn->snap.range    = 0U;
   conn->snap.key      = (snap_key_t){ ULONG_MAX, ULONG_MAX };
-  conn->snap.slot     = NULL;
   conn->snap.req_off0 = 0UL;
   conn->snap.req_off1 = 0UL;
 
@@ -1766,7 +1764,6 @@ handle_peek( fd_snapsv_t *       ctx,
     if( FD_UNLIKELY( entry->is_zstd!=query_is_zstd ) ) goto not_found;
     conn->state           = CONN_STATE_RES_WRITE_HDR;
     conn->snap.key        = query;
-    conn->snap.slot       = entry;
     conn->snap.file_sz    = entry->sz;
     conn->snap.range      = 0U;
     conn->snap.req_off0   = 0UL;
@@ -2042,9 +2039,8 @@ after_credit( fd_snapsv_t *       ctx,
   if( waiting ) *charge_busy = 0; /* do not count sleep time as busy */
 }
 
-/* snap_open opens the given snapshot by pool index.  Silently ignores
-   ENOENT (rare race condition where the snapshot is immediately
-   deleted after being created.) */
+/* snap_open registers metadata from snapmk for the given pre-opened
+   snapshot pool file. */
 
 static void
 snap_open( fd_snapsv_t * ctx,
@@ -2071,12 +2067,12 @@ snap_open( fd_snapsv_t * ctx,
   entry->fd     = FD_SNAP_RO_FD( pool_idx );
   entry->locked = 0;
   entry->is_zstd = !!is_zstd;
+  ctx->newest_incr = NULL;
   if( base_slot==ULONG_MAX ) {
     ctx->snap_cnt_full++;
     ctx->newest_full = NULL;
   } else {
     ctx->snap_cnt_incr++;
-    ctx->newest_incr = NULL;
   }
 }
 
@@ -2202,9 +2198,9 @@ during_housekeeping( fd_snapsv_t * ctx ) {
 
 static void
 metrics_write( fd_snapsv_t * ctx ) {
-  FD_MGAUGE_SET( SNAPSV, SNAPSHOTS_AVAILABLE_FULL,        ctx->snap_cnt_full );
-  FD_MGAUGE_SET( SNAPSV, SNAPSHOTS_AVAILABLE_INCREMENTAL, ctx->snap_cnt_incr );
-  FD_MGAUGE_SET( SNAPSV, CONN_ACTIVE,                     ctx->conn_cnt      );
+  FD_MGAUGE_SET( SNAPSV, SNAPSHOT_AVAILABLE_FULL,         ctx->snap_cnt_full );
+  FD_MGAUGE_SET( SNAPSV, SNAPSHOT_AVAILABLE_INCREMENTAL,  ctx->snap_cnt_incr );
+  FD_MGAUGE_SET( SNAPSV, CONN_OPEN,                       ctx->conn_cnt      );
 }
 
 /* snapsv uses a custom sleep with io_uring_enter and doesn't currently

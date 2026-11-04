@@ -124,15 +124,16 @@ static inline void
 metrics_write( fd_execle_tile_t * ctx ) {
   fd_accdb_flush_metrics( ctx->accdb );
 
-  FD_MCNT_SET( EXECLE, INSTRUCTION_EXECUTED, ctx->runtime->metrics.instr_cum );
-  FD_MCNT_SET( EXECLE, CPI_EXECUTED,         ctx->runtime->metrics.cpi_cum   );
-  FD_MCNT_SET( EXECLE, LTHASH_UNCHANGED,     ctx->runtime->metrics.lthash_unchanged_cnt );
+  FD_MCNT_SET( EXECLE, INSTRUCTION_EXECUTED,   ctx->runtime->metrics.instr_cum );
+  FD_MCNT_SET( EXECLE, CPI_EXECUTED,           ctx->runtime->metrics.cpi_cum   );
+  FD_MCNT_SET( EXECLE, ACCOUNT_LTHASH_SKIPPED, ctx->runtime->metrics.lthash_unchanged_cnt );
+  FD_MCNT_SET( EXECLE, BANK_SWITCHED,          ctx->runtime->metrics.bank_switch_cnt );
 
-  FD_MCNT_SET( EXECLE, CU_EXECUTED, ctx->runtime->metrics.cu_cum );
+  FD_MCNT_SET( EXECLE, CU_CONSUMED, ctx->runtime->metrics.cu_cum );
 
-  FD_MCNT_SET( EXECLE, TXN_REGIME_DURATION_NANOS_SETUP,  ctx->metrics.txn_check_cum_ticks+ctx->metrics.txn_load_cum_ticks );
-  FD_MCNT_SET( EXECLE, TXN_REGIME_DURATION_NANOS_EXEC,   ctx->metrics.txn_exec_cum_ticks    );
-  FD_MCNT_SET( EXECLE, TXN_REGIME_DURATION_NANOS_COMMIT, ctx->metrics.txn_commit_cum_ticks  );
+  FD_MCNT_SET( EXECLE, TXN_REGIME_DURATION_NANOS_LOAD,    ctx->metrics.txn_check_cum_ticks+ctx->metrics.txn_load_cum_ticks );
+  FD_MCNT_SET( EXECLE, TXN_REGIME_DURATION_NANOS_EXECUTE, ctx->metrics.txn_exec_cum_ticks   );
+  FD_MCNT_SET( EXECLE, TXN_REGIME_DURATION_NANOS_COMMIT,  ctx->metrics.txn_commit_cum_ticks );
 
   fd_runtime_t const * runtime = ctx->runtime;
   ulong cpi_ticks  = runtime->metrics.cpi_setup_cum_ticks + runtime->metrics.cpi_commit_cum_ticks;
@@ -144,6 +145,13 @@ metrics_write( fd_execle_tile_t * ctx ) {
   FD_MCNT_SET( EXECLE, VM_REGIME_DURATION_NANOS_INTERPRETER, exec_ticks                            );
 
   FD_PROGCACHE_METRICS_WRITE( EXECLE, ctx->progcache->metrics );
+
+  fd_txncache_join_metrics_t const * txncache = fd_txncache_join_metrics( ctx->runtime->status_cache );
+  FD_MCNT_SET  ( EXECLE, TXNCACHE_QUERY_MISS,             txncache->query_miss_cnt  );
+  FD_MCNT_SET  ( EXECLE, TXNCACHE_INSERT_MISS,            txncache->insert_miss_cnt );
+  FD_MCNT_SET  ( EXECLE, TXNCACHE_OPERATION_STALLED,      txncache->stalled_cnt     );
+  FD_MHIST_COPY( EXECLE, TXNCACHE_QUERY_DURATION_NANOS,   txncache->query_ticks     );
+  FD_MHIST_COPY( EXECLE, TXNCACHE_INSERT_DURATION_NANOS,  txncache->insert_ticks    );
 
   FD_ACCDB_METRICS_WRITE( EXECLE, fd_accdb_metrics( ctx->accdb ) );
 }
@@ -339,7 +347,7 @@ handle_microblock( fd_execle_tile_t *  ctx,
       txn_out->err.is_committable = 0;
     }
 
-    fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_VERSION )+fd_execle_version_from_txn( TXN( txn ) ) ]++;
+    fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_PROCESSED_BY_VERSION )+fd_execle_version_from_txn( TXN( txn ) ) ]++;
 
     if( FD_UNLIKELY( !txn_out->err.is_committable ) ) {
       FD_TEST( !txn_out->err.is_fees_only );
@@ -347,8 +355,8 @@ handle_microblock( fd_execle_tile_t *  ctx,
       /* Use pre-resolved ALT accounts for rebates even for unlanded transactions */
       fd_acct_addr_t const * writable_alt = ctx->_alt_accts[i];
       if( FD_LIKELY( ctx->enable_rebates ) ) fd_pack_rebate_sum_add_txn( ctx->rebater, txn, &writable_alt, 1UL );
-      fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_LANDED )+FD_METRICS_ENUM_TRANSACTION_LANDED_V_UNLANDED_IDX ]++;
-      fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_RESULT )+(ulong)fd_execle_err_from_runtime_err( txn_out->err.txn_err ) ]++;
+      fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_PROCESSED_BY_LANDING )+FD_METRICS_ENUM_TXN_LANDING_RESULT_V_DROPPED_IDX ]++;
+      fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_PROCESSED )+(ulong)fd_execle_err_from_runtime_err( txn_out->err.txn_err ) ]++;
       last_ticks = fd_tickcount();
       continue;
     }
@@ -369,8 +377,8 @@ handle_microblock( fd_execle_tile_t *  ctx,
         /* txn->execle_cu already initialized to full rebate at top of loop */
         fd_acct_addr_t const * writable_alt = ctx->_alt_accts[i];
         if( FD_LIKELY( ctx->enable_rebates ) ) fd_pack_rebate_sum_add_txn( ctx->rebater, txn, &writable_alt, 1UL );
-        fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_LANDED )+FD_METRICS_ENUM_TRANSACTION_LANDED_V_UNLANDED_IDX ]++;
-        fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_RESULT )+(ulong)fd_execle_err_from_runtime_err( txn_out->err.txn_err ) ]++;
+        fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_PROCESSED_BY_LANDING )+FD_METRICS_ENUM_TXN_LANDING_RESULT_V_DROPPED_IDX ]++;
+        fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_PROCESSED )+(ulong)fd_execle_err_from_runtime_err( txn_out->err.txn_err ) ]++;
         /* FD_TXN_P_FLAGS_EXECUTE_SUCCESS = 0 ensures txn won't be
            mixed-in by POH */
         last_ticks = fd_tickcount();
@@ -378,15 +386,15 @@ handle_microblock( fd_execle_tile_t *  ctx,
       }
     }
 
-    if( FD_UNLIKELY( txn_out->err.is_fees_only ) ) fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_LANDED )+FD_METRICS_ENUM_TRANSACTION_LANDED_V_LANDED_FEES_ONLY_IDX ]++;
-    else if( FD_UNLIKELY( txn_out->err.txn_err ) ) fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_LANDED )+FD_METRICS_ENUM_TRANSACTION_LANDED_V_LANDED_FAILED_IDX ]++;
-    else                                           fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_LANDED )+FD_METRICS_ENUM_TRANSACTION_LANDED_V_LANDED_SUCCESS_IDX ]++;
+    if( FD_UNLIKELY( txn_out->err.is_fees_only ) ) fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_PROCESSED_BY_LANDING )+FD_METRICS_ENUM_TXN_LANDING_RESULT_V_FEES_ONLY_IDX ]++;
+    else if( FD_UNLIKELY( txn_out->err.txn_err ) ) fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_PROCESSED_BY_LANDING )+FD_METRICS_ENUM_TXN_LANDING_RESULT_V_FAILED_IDX ]++;
+    else                                           fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_PROCESSED_BY_LANDING )+FD_METRICS_ENUM_TXN_LANDING_RESULT_V_SUCCESS_IDX ]++;
 
     /* TXN_P_FLAGS_EXECUTE_SUCCESS means that it should be included in
        the block.  It's a bit of a misnomer now that there are fee-only
        transactions. */
     txn->flags |= FD_TXN_P_FLAGS_EXECUTE_SUCCESS | FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
-    fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_RESULT )+(ulong)fd_execle_err_from_runtime_err( txn_out->err.txn_err ) ]++;
+    fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_PROCESSED )+(ulong)fd_execle_err_from_runtime_err( txn_out->err.txn_err ) ]++;
 
     /* Commit must succeed so no failure path.  Once commit is called,
        the transactions MUST be mixed into the PoH otherwise we will
@@ -453,9 +461,8 @@ handle_microblock( fd_execle_tile_t *  ctx,
       fd_cost_tracker_t const * _ct = fd_cost_tracker_store_peek( fd_bank_cost_tracker( bank ), bank->cost_tracker_fork_id );
       FD_LOG_HEXDUMP_WARNING(( "txn", txn->payload, txn->payload_sz ));
       FD_LOG_ERR(( "transaction %s actual CUs (%u+%u) exceeded requested (%u) despite pack guaranteeing it would fit "
-                   "[is_simple_vote=%i, is_fees_only=%i, block_cost=%lu, block_cost_limit=%lu, account_cost_limit=%lu]",
+                   "[is_fees_only=%i, block_cost=%lu, block_cost_limit=%lu, account_cost_limit=%lu]",
                    _signature_b58, actual_execution_cus, actual_acct_data_cus, requested_exec_plus_acct_data_cus,
-                   fd_txn_is_simple_vote_transaction( TXN(txn), txn->payload ),
                    txn_out->err.is_fees_only, _ct->block_cost, _ct->block_cost_limit, _ct->account_cost_limit ));
     }
 
@@ -613,9 +620,9 @@ handle_bundle( fd_execle_tile_t *  ctx,
       txns[ i ].flags                        |= FD_TXN_P_FLAGS_EXECUTE_SUCCESS | FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
       tips[ i ]                               = txn_out->details.tips;
 
-      fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_LANDED )+FD_METRICS_ENUM_TRANSACTION_LANDED_V_LANDED_SUCCESS_IDX ]++;
-      fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_RESULT )+FD_METRICS_ENUM_TRANSACTION_RESULT_V_SUCCESS_IDX ]++;
-      fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_VERSION )+fd_execle_version_from_txn( TXN( &txns[ i ] ) ) ]++;
+      fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_PROCESSED_BY_LANDING )+FD_METRICS_ENUM_TXN_LANDING_RESULT_V_SUCCESS_IDX ]++;
+      fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_PROCESSED )+FD_METRICS_ENUM_TXN_RESULT_V_SUCCESS_IDX ]++;
+      fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_PROCESSED_BY_VERSION )+fd_execle_version_from_txn( TXN( &txns[ i ] ) ) ]++;
     }
   } else {
     /* A failed bundle is dropped in its entirety: every transaction is
@@ -641,10 +648,10 @@ handle_bundle( fd_execle_tile_t *  ctx,
       if( i!=failed_idx || txn_err==FD_RUNTIME_EXECUTE_SUCCESS ) txn_err = FD_RUNTIME_TXN_ERR_BUNDLE_PEER;
       txns[ i ].flags = (txns[ i ].flags & 0x00FFFFFFU) | ((uint)(-txn_err)<<24);
 
-      fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_LANDED )+FD_METRICS_ENUM_TRANSACTION_LANDED_V_UNLANDED_IDX ]++;
-      if( i==failed_idx ) fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_RESULT )+(ulong)fd_execle_err_from_runtime_err( ctx->txn_out[ i ].err.txn_err ) ]++;
-      else                fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_RESULT )+FD_METRICS_ENUM_TRANSACTION_RESULT_V_BUNDLE_PEER_IDX ]++;
-      fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_VERSION )+fd_execle_version_from_txn( TXN( &txns[ i ] ) ) ]++;
+      fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_PROCESSED_BY_LANDING )+FD_METRICS_ENUM_TXN_LANDING_RESULT_V_DROPPED_IDX ]++;
+      if( i==failed_idx ) fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_PROCESSED )+(ulong)fd_execle_err_from_runtime_err( ctx->txn_out[ i ].err.txn_err ) ]++;
+      else                fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_PROCESSED )+FD_METRICS_ENUM_TXN_RESULT_V_BUNDLE_PEER_IDX ]++;
+      fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_PROCESSED_BY_VERSION )+fd_execle_version_from_txn( TXN( &txns[ i ] ) ) ]++;
     }
   }
 
@@ -807,8 +814,11 @@ unprivileged_init( fd_topo_t const *      topo,
   void * _txncache_shmem = fd_topo_obj_laddr( topo, tile->execle.txncache_obj_id );
   fd_txncache_shmem_t * txncache_shmem = fd_txncache_shmem_join( _txncache_shmem );
   FD_TEST( txncache_shmem );
-  fd_txncache_t * txncache = fd_txncache_join( fd_txncache_new( _txncache, txncache_shmem ) );
+  fd_txncache_t * txncache = fd_txncache_join( fd_txncache_new( _txncache, txncache_shmem, FD_TXNCACHE_FD ) );
   FD_TEST( txncache );
+  fd_txncache_join_metrics_t * txncache_metrics = fd_txncache_join_metrics( txncache );
+  fd_histf_join( fd_metrics_histf_new_ns( txncache_metrics->query_ticks,  FD_MHIST_EDGES_NS( EXECLE, TXNCACHE_QUERY_DURATION_NANOS  ) ) );
+  fd_histf_join( fd_metrics_histf_new_ns( txncache_metrics->insert_ticks, FD_MHIST_EDGES_NS( EXECLE, TXNCACHE_INSERT_DURATION_NANOS ) ) );
 
   void * _accdb_shmem = fd_topo_obj_laddr( topo, tile->execle.accdb_obj_id );
   fd_accdb_shmem_t * accdb_shmem = fd_accdb_shmem_join( _accdb_shmem );
@@ -823,6 +833,7 @@ unprivileged_init( fd_topo_t const *      topo,
   }
 
   ctx->runtime->accdb                    = ctx->accdb;
+  ctx->runtime->sysvar_bank_seq          = 0UL;
   ctx->runtime->progcache                = ctx->progcache;
   ctx->runtime->status_cache             = txncache;
   memset( &ctx->runtime->log, 0, sizeof(ctx->runtime->log) );
@@ -871,7 +882,7 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
   (void)topo;
   (void)tile;
 
-  populate_sock_filter_policy_fd_execle_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), FD_ACCDB_FD_RW, FD_STAKE_DELEGATIONS_FD );
+  populate_sock_filter_policy_fd_execle_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), FD_ACCDB_FD_RW, FD_STAKE_DELEGATIONS_FD, FD_VOTE_STAKES_FD, (uint)FD_TXNCACHE_FD );
   return sock_filter_policy_fd_execle_tile_instr_cnt;
 }
 
@@ -883,7 +894,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
   (void)topo;
   (void)tile;
 
-  if( FD_UNLIKELY( out_fds_cnt<4UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+  if( FD_UNLIKELY( out_fds_cnt<6UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
 
   ulong out_cnt = 0UL;
   out_fds[ out_cnt++ ] = 2; /* stderr */
@@ -891,6 +902,8 @@ populate_allowed_fds( fd_topo_t const *      topo,
     out_fds[ out_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
   out_fds[ out_cnt++ ] = FD_ACCDB_FD_RW; /* accounts db */
   out_fds[ out_cnt++ ] = FD_STAKE_DELEGATIONS_FD; /* stake delegation disk spill */
+  out_fds[ out_cnt++ ] = FD_VOTE_STAKES_FD; /* vote stakes disk spill */
+  out_fds[ out_cnt++ ] = FD_TXNCACHE_FD; /* transaction cache spill */
 
   return out_cnt;
 }

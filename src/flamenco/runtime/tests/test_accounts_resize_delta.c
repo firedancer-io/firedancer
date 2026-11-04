@@ -23,6 +23,8 @@ struct test_env {
 };
 typedef struct test_env test_env_t;
 
+static test_env_t env[1];
+
 static void
 create_account_raw( fd_accdb_t *        accdb,
                     fd_accdb_fork_id_t  fork_id,
@@ -234,7 +236,6 @@ get_resize_delta( test_env_t * env ) {
 /* Empty txn has delta=0 */
 static void
 test_empty_txn_delta_is_zero( fd_svm_mini_t * mini ) {
-  static test_env_t env[1];
   setup_test( env, mini );
 
   fd_pubkey_t acct1 = { .ul[0] = 1UL };
@@ -254,7 +255,6 @@ test_empty_txn_delta_is_zero( fd_svm_mini_t * mini ) {
 /* 10+9=19 MiB under limit */
 static void
 test_allocate_19mib_succeeds( fd_svm_mini_t * mini ) {
-  static test_env_t env[1];
   setup_test( env, mini );
 
   fd_pubkey_t acct_a = { .ul[0] = 0xA0UL };
@@ -284,7 +284,6 @@ test_allocate_19mib_succeeds( fd_svm_mini_t * mini ) {
 /* 10+10=20 MiB at limit */
 static void
 test_allocate_20mib_succeeds( fd_svm_mini_t * mini ) {
-  static test_env_t env[1];
   setup_test( env, mini );
 
   fd_pubkey_t acct_a = { .ul[0] = 0xA2UL };
@@ -316,7 +315,6 @@ test_allocate_20mib_succeeds( fd_svm_mini_t * mini ) {
    exercises the MAX_PERMITTED_ACCOUNT_DATA_ALLOCS_PER_TXN branch. */
 static void
 test_allocate_21mib_fails( fd_svm_mini_t * mini ) {
-  static test_env_t env[1];
   setup_test( env, mini );
 
   fd_pubkey_t acct_a = { .ul[0] = 0xA1UL };
@@ -350,7 +348,6 @@ test_allocate_21mib_fails( fd_svm_mini_t * mini ) {
 /* Closing a loader-v3 buffer gives negative delta. */
 static void
 test_close_gives_negative_delta( fd_svm_mini_t * mini ) {
-  static test_env_t env[1];
   setup_test( env, mini );
 
   fd_pubkey_t authority  = { .ul[0] = 0xA3UL };
@@ -385,7 +382,6 @@ test_close_gives_negative_delta( fd_svm_mini_t * mini ) {
    With unsigned arithmetic this would fail. */
 static void
 test_close_enables_more_allocation( fd_svm_mini_t * mini ) {
-  static test_env_t env[1];
   setup_test( env, mini );
 
   fd_pubkey_t authority  = { .ul[0] = 0xA4UL };

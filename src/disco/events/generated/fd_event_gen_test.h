@@ -120,7 +120,6 @@ fd_event_runtime_txn_fill_max( fd_event_runtime_txn_t * msg ) {
   fd_memset( msg->signature, 0xFF, 64UL );
   fd_memset( msg->blockhash, 0xFF, 32UL );
   fd_memset( msg->fee_payer, 0xFF, 32UL );
-  msg->is_simple_vote = 1;
   msg->is_bundle = 1;
   msg->is_committable = 1;
   msg->is_fees_only = 1;
@@ -256,8 +255,8 @@ fd_event_block_completed_fill_max( fd_event_block_completed_t * msg ) {
   msg->pack_data_bytes = ULONG_MAX;
   msg->pack_end_reason = INT_MAX;
   msg->bundle_txn_count = ULONG_MAX;
-  msg->txn_timing_cnt = 98039UL;
-  for( ulong k=0UL; k<98039UL; k++ ) {
+  msg->txn_timing_cnt = 49019UL;
+  for( ulong k=0UL; k<49019UL; k++ ) {
     msg->txn_timing[ k ].received_time = ULONG_MAX;
     msg->txn_timing[ k ].parsed_time = ULONG_MAX;
     msg->txn_timing[ k ].dispatched_time = ULONG_MAX;
@@ -404,8 +403,8 @@ fd_event_runtime_block_fill_max( fd_event_runtime_block_t * msg ) {
     msg->other_diffs[ k ].is_executable = 1;
   }
   msg->fec_count = ULONG_MAX;
-  msg->fec_merkle_roots_cnt = 1024UL;
-  for( ulong k=0UL; k<1024UL; k++ ) {
+  msg->fec_merkle_roots_cnt = 512UL;
+  for( ulong k=0UL; k<512UL; k++ ) {
     fd_memset( msg->fec_merkle_roots[ k ], 0xFF, 32UL );
   }
 }
@@ -540,7 +539,6 @@ fd_event_alpenglow_vote_fill_max( fd_event_alpenglow_vote_t * msg ) {
   msg->slot = ULONG_MAX;
   fd_memset( msg->block_id, 0xFF, 32UL );
   msg->voter_rank = USHORT_MAX;
-  fd_memset( msg->voter_identity, 0xFF, 32UL );
   msg->kind = INT_MAX;
   fd_memset( msg->received_from_ip, 0xFF, 16UL );
   fd_memset( msg->received_from_identity, 0xFF, 32UL );
@@ -563,7 +561,6 @@ fd_event_alpenglow_vote_fill_max( fd_event_alpenglow_vote_t * msg ) {
   msg->aggregation_start_time = ULONG_MAX;
   msg->verify_start_time = ULONG_MAX;
   msg->broadcast_start_time = ULONG_MAX;
-  msg->done_time = ULONG_MAX;
 }
 
 static void
@@ -591,7 +588,6 @@ fd_event_alpenglow_cert_fill_max( fd_event_alpenglow_cert_t * msg ) {
   msg->processing_result = INT_MAX;
   msg->verify_start_time = ULONG_MAX;
   msg->broadcast_start_time = ULONG_MAX;
-  msg->done_time = ULONG_MAX;
 }
 
 static void
@@ -632,8 +628,8 @@ fd_event_block_received_fill_max( fd_event_block_received_t * msg ) {
   msg->repair_request_shred_for_block_id_count = UINT_MAX;
   msg->repair_request_parent_fec_count = UINT_MAX;
   msg->repair_request_fec_root_count = UINT_MAX;
-  msg->fec_sets_cnt = 1024UL;
-  for( ulong k=0UL; k<1024UL; k++ ) {
+  msg->fec_sets_cnt = 512UL;
+  for( ulong k=0UL; k<512UL; k++ ) {
     fd_memset( msg->fec_sets[ k ].merkle_root, 0xFF, 32UL );
     msg->fec_sets[ k ].index = UINT_MAX;
     msg->fec_sets[ k ].data_shreds_received_mask = UINT_MAX;
@@ -648,6 +644,29 @@ fd_event_block_received_fill_max( fd_event_block_received_t * msg ) {
 
 static void
 fd_event_block_received_fill_max_v( void * msg ) { fd_event_block_received_fill_max( (fd_event_block_received_t *)msg ); }
+
+static inline void
+fd_event_repair_request_fill_max( fd_event_repair_request_t * msg ) {
+  fd_memset( msg, 0, sizeof(*msg) );
+  fd_memset( msg->peer_identity, 0xFF, 32UL );
+  fd_memset( msg->peer_ip, 0xFF, 16UL );
+  msg->peer_port = USHORT_MAX;
+  msg->peer_rank = USHORT_MAX;
+  msg->type = INT_MAX;
+  msg->slot = ULONG_MAX;
+  fd_memset( msg->block_id, 0xFF, 32UL );
+  msg->shred_idx = UINT_MAX;
+  msg->req_time = ULONG_MAX;
+  msg->res_time = ULONG_MAX;
+  msg->outcome = INT_MAX;
+  msg->ban = INT_MAX;
+  msg->attempt = UCHAR_MAX;
+  msg->pick = INT_MAX;
+  msg->role = INT_MAX;
+}
+
+static void
+fd_event_repair_request_fill_max_v( void * msg ) { fd_event_repair_request_fill_max( (fd_event_repair_request_t *)msg ); }
 
 typedef struct {
   ulong        type;    /* event schema id */
@@ -676,9 +695,10 @@ static const fd_event_gen_test_case_t fd_event_gen_test_cases[] = {
   { 19UL, FD_EVENT_ALPENGLOW_VOTE_BUF_MAX, sizeof(fd_event_alpenglow_vote_t), "alpenglow_vote", fd_event_alpenglow_vote_fill_max_v },
   { 20UL, FD_EVENT_ALPENGLOW_CERT_BUF_MAX, sizeof(fd_event_alpenglow_cert_t), "alpenglow_cert", fd_event_alpenglow_cert_fill_max_v },
   { 21UL, FD_EVENT_BLOCK_RECEIVED_BUF_MAX, sizeof(fd_event_block_received_t), "block_received", fd_event_block_received_fill_max_v },
+  { 63UL, FD_EVENT_REPAIR_REQUEST_BUF_MAX, sizeof(fd_event_repair_request_t), "repair_request", fd_event_repair_request_fill_max_v },
 };
 
-#define FD_EVENT_GEN_TEST_CASE_CNT (18UL)
+#define FD_EVENT_GEN_TEST_CASE_CNT (19UL)
 
 FD_PROTOTYPES_END
 

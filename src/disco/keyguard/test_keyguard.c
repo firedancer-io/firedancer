@@ -1,10 +1,69 @@
 #include "fd_keyguard.h"
 #include "../../ballet/txn/fd_txn.h"
 #include "../../flamenco/gossip/fd_gossip_value.h"
-#include "../../discof/repair/fd_repair.h"
+#include "../../disco/repair/fd_repair_serde.h"
+#include "../../waltz/tls/fd_tls.h"
 
 static uchar v1_buf [ FD_TXN_MTU    ];
 static uchar v1_txn [ FD_TXN_MAX_SZ ];
+
+static ulong
+build_txn_v1( uchar * buf,
+              ulong   sig_cnt,
+              ulong   num_addr,
+              ulong   instr_cnt,
+              ulong * msg_sz );
+
+/* test_failov_message: the failov role gets the exact admission
+   proof message and a TLS CertificateVerify signed. */
+
+static void
+test_failov_message( void ) {
+  fd_keyguard_authority_t authority = {0};
+  uchar                   msg[ FD_KEYGUARD_FAILOVER_PROOF_SZ ];
+  fd_memcpy( msg, FD_KEYGUARD_FAILOVER_CLIENT_DOMAIN, FD_KEYGUARD_FAILOVER_DOMAIN_SZ );
+  fd_memset( msg+FD_KEYGUARD_FAILOVER_DOMAIN_SZ, 0x5a, sizeof(msg)-FD_KEYGUARD_FAILOVER_DOMAIN_SZ );
+  FD_TEST( fd_keyguard_payload_match( msg, sizeof(msg), FD_KEYGUARD_SIGN_TYPE_ED25519 )==FD_KEYGUARD_PAYLOAD_FAILOV );
+  FD_TEST( fd_keyguard_payload_authorize( &authority, msg, sizeof(msg), FD_KEYGUARD_ROLE_FAILOV, FD_KEYGUARD_SIGN_TYPE_ED25519 ) );
+  msg[0] ^= 1;
+  FD_TEST( !fd_keyguard_payload_authorize( &authority, msg, sizeof(msg), FD_KEYGUARD_ROLE_FAILOV, FD_KEYGUARD_SIGN_TYPE_ED25519 ) );
+
+  uchar cv[ FD_TLS_CV_SIGN_SZ ];
+  fd_memcpy( cv, fd_tls13_cli_sign_prefix, sizeof(fd_tls13_cli_sign_prefix) );
+  fd_memset( cv+sizeof(fd_tls13_cli_sign_prefix), 0x5a, 32UL );
+  FD_TEST( fd_keyguard_payload_authorize( &authority, cv, sizeof(cv), FD_KEYGUARD_ROLE_FAILOV, FD_KEYGUARD_SIGN_TYPE_ED25519 ) );
+  fd_memcpy( cv, fd_tls13_srv_sign_prefix, sizeof(fd_tls13_srv_sign_prefix) );
+  FD_TEST( fd_keyguard_payload_authorize( &authority, cv, sizeof(cv), FD_KEYGUARD_ROLE_FAILOV, FD_KEYGUARD_SIGN_TYPE_ED25519 ) );
+  FD_TEST( !fd_keyguard_payload_authorize( &authority, cv, sizeof(cv), FD_KEYGUARD_ROLE_FAILOV, FD_KEYGUARD_SIGN_TYPE_SHA256_ED25519 ) );
+  cv[0] ^= 1;
+  FD_TEST( !fd_keyguard_payload_authorize( &authority, cv, sizeof(cv), FD_KEYGUARD_ROLE_FAILOV, FD_KEYGUARD_SIGN_TYPE_ED25519 ) );
+
+  /* No other role signs an admission proof, and the failov role signs
+     it only as Ed25519. */
+  msg[0] ^= 1;
+  for( int role=0; role<FD_KEYGUARD_ROLE_CNT; role++ ) {
+    if( role==FD_KEYGUARD_ROLE_FAILOV ) continue;
+    FD_TEST( !fd_keyguard_payload_authorize( &authority, msg, sizeof(msg), role, FD_KEYGUARD_SIGN_TYPE_ED25519 ) );
+  }
+  FD_TEST( !fd_keyguard_payload_authorize( &authority, msg, sizeof(msg), FD_KEYGUARD_ROLE_FAILOV, FD_KEYGUARD_SIGN_TYPE_SHA256_ED25519 ) );
+
+  /* The failov role signs nothing else, not a ping, a pong, a shred
+     root, a transaction or a CertificateVerify of another size. */
+  uchar other[ 162 ];
+  fd_memset( other, 0x5a, sizeof(other) );
+  fd_memcpy( other, "SOLANA_PING_PONG", 16UL );
+  FD_TEST( !fd_keyguard_payload_authorize( &authority, other, 32UL, FD_KEYGUARD_ROLE_FAILOV, FD_KEYGUARD_SIGN_TYPE_ED25519        ) );
+  FD_TEST( !fd_keyguard_payload_authorize( &authority, other, 48UL, FD_KEYGUARD_ROLE_FAILOV, FD_KEYGUARD_SIGN_TYPE_SHA256_ED25519 ) );
+  fd_memset( other, 0x5a, 32UL );
+  FD_TEST( !fd_keyguard_payload_authorize( &authority, other, 32UL, FD_KEYGUARD_ROLE_FAILOV, FD_KEYGUARD_SIGN_TYPE_ED25519        ) );
+  ulong msg_sz;
+  build_txn_v1( v1_buf, 1UL, 1UL, 0UL, &msg_sz );
+  FD_TEST( fd_keyguard_payload_match( v1_buf, msg_sz, FD_KEYGUARD_SIGN_TYPE_ED25519 )==FD_KEYGUARD_PAYLOAD_TXN );
+  FD_TEST( !fd_keyguard_payload_authorize( &authority, v1_buf, msg_sz, FD_KEYGUARD_ROLE_FAILOV, FD_KEYGUARD_SIGN_TYPE_ED25519 ) );
+  fd_memcpy( other, fd_tls13_cli_sign_prefix, sizeof(fd_tls13_cli_sign_prefix) );
+  FD_TEST( !fd_keyguard_payload_authorize( &authority, other, 146UL, FD_KEYGUARD_ROLE_FAILOV, FD_KEYGUARD_SIGN_TYPE_ED25519 ) );
+  FD_TEST( !fd_keyguard_payload_authorize( &authority, other, 162UL, FD_KEYGUARD_ROLE_FAILOV, FD_KEYGUARD_SIGN_TYPE_ED25519 ) );
+}
 
 static ulong
 build_txn_v1( uchar * buf,
@@ -265,9 +324,9 @@ test_tower_match( void ) {
   FD_STORE( double, body+40UL,  2.0/3.0 ); /* threshold_size */
   FD_STORE( ulong,  body+113UL, 1UL     ); /* votes_cnt */
 
-  uint  const hdr [ 3 ] = { 0x01000001U /* legacy txn, 1 signer, 1 account */, FD_GOSSIP_VALUE_VOTE,       FD_REPAIR_KIND_SHRED       };
-  ulong const type[ 3 ] = { FD_KEYGUARD_PAYLOAD_TXN,                           FD_KEYGUARD_PAYLOAD_GOSSIP, FD_KEYGUARD_PAYLOAD_REPAIR };
-  ulong const max [ 3 ] = { FD_TXN_MTU_V0,                                     FD_GOSSIP_MTU,              FD_REPAIR_MAX_PREIMAGE_SZ  };
+  uint  const hdr [ 3 ] = { 0x01000001U /* legacy txn, 1 signer, 1 account */, FD_GOSSIP_VALUE_VOTE,       FD_REPAIR_SERDE_TAG_WINDOW_INDEX };
+  ulong const type[ 3 ] = { FD_KEYGUARD_PAYLOAD_TXN,                           FD_KEYGUARD_PAYLOAD_GOSSIP, FD_KEYGUARD_PAYLOAD_REPAIR       };
+  ulong const max [ 3 ] = { FD_TXN_MTU_V0,                                     FD_GOSSIP_MTU,              FD_REPAIR_SIG_SER_MAX            };
   for( ulong i=0UL; i<3UL; i++ ) {
     FD_STORE( uint, body, hdr[ i ] );
     FD_TEST(    fd_keyguard_payload_match( body, min_sz,       FD_KEYGUARD_SIGN_TYPE_ED25519 )==FD_KEYGUARD_PAYLOAD_TOWER );
@@ -288,35 +347,38 @@ test_tower_match( void ) {
 
 static void
 test_vote_history_authorize( void ) {
-  /* The smallest VoteHistory body: identity, nine empty collections and
-     root.  The largest the votor writes fills a 32688 byte file. */
-  ulong const min_sz = 32UL + 9UL*8UL + 8UL;
-  ulong const max_sz = 32688UL - (4UL+64UL+8UL);
+  /* The only VoteHistory body the votor writes: identity, nine empty
+     collections and root. */
+  ulong const sz = 32UL + 9UL*8UL + 8UL;
 
   static uchar body[ FD_KEYGUARD_SIGN_REQ_MTU ];
   fd_keyguard_authority_t authority;
   memset( &authority, 0xAA, sizeof(authority) );
   memcpy( body, authority.identity_pubkey, 32UL );
+  FD_STORE( ulong, body+sz-8UL, 1007UL ); /* root, any value */
 
-  FD_TEST(  fd_keyguard_payload_match( body, min_sz,     FD_KEYGUARD_SIGN_TYPE_ED25519 )==FD_KEYGUARD_PAYLOAD_VOTE_HISTORY );
-  FD_TEST( !fd_keyguard_payload_match( body, min_sz-1UL, FD_KEYGUARD_SIGN_TYPE_ED25519 ) );
-  /* a voted slot only fits with 8 more bytes */
-  FD_STORE( ulong, body+32UL, 1UL );
-  FD_TEST( !fd_keyguard_payload_match( body, min_sz,     FD_KEYGUARD_SIGN_TYPE_ED25519 ) );
-  FD_TEST(  fd_keyguard_payload_match( body, min_sz+8UL, FD_KEYGUARD_SIGN_TYPE_ED25519 )==FD_KEYGUARD_PAYLOAD_VOTE_HISTORY );
-  FD_STORE( ulong, body+32UL, 0UL );
-  FD_TEST(  fd_keyguard_payload_authorize( &authority, body, min_sz, FD_KEYGUARD_ROLE_VOTOR,  FD_KEYGUARD_SIGN_TYPE_ED25519        ) );
-  FD_TEST(  fd_keyguard_payload_authorize( &authority, body, max_sz, FD_KEYGUARD_ROLE_VOTOR,  FD_KEYGUARD_SIGN_TYPE_ED25519        ) );
+  FD_TEST(  fd_keyguard_payload_match( body, sz,     FD_KEYGUARD_SIGN_TYPE_ED25519 )==FD_KEYGUARD_PAYLOAD_VOTE_HISTORY );
+  FD_TEST( !fd_keyguard_payload_match( body, sz-1UL, FD_KEYGUARD_SIGN_TYPE_ED25519 ) );
+  FD_TEST( !fd_keyguard_payload_match( body, sz+1UL, FD_KEYGUARD_SIGN_TYPE_ED25519 ) );
+  /* a non-empty collection, even one that would fit */
+  for( ulong i=0UL; i<9UL; i++ ) {
+    FD_STORE( ulong, body+32UL+i*8UL, 1UL );
+    FD_TEST( !( fd_keyguard_payload_match( body, sz,     FD_KEYGUARD_SIGN_TYPE_ED25519 ) & FD_KEYGUARD_PAYLOAD_VOTE_HISTORY ) );
+    FD_TEST( !( fd_keyguard_payload_match( body, sz+8UL, FD_KEYGUARD_SIGN_TYPE_ED25519 ) & FD_KEYGUARD_PAYLOAD_VOTE_HISTORY ) );
+    FD_STORE( ulong, body+32UL+i*8UL, 0UL );
+  }
+  FD_TEST(  fd_keyguard_payload_authorize( &authority, body, sz, FD_KEYGUARD_ROLE_VOTOR,  FD_KEYGUARD_SIGN_TYPE_ED25519        ) );
   /* wrong sign type, wrong role, not our identity */
-  FD_TEST( !fd_keyguard_payload_authorize( &authority, body, min_sz, FD_KEYGUARD_ROLE_VOTOR,  FD_KEYGUARD_SIGN_TYPE_SHA256_ED25519 ) );
-  FD_TEST( !fd_keyguard_payload_authorize( &authority, body, min_sz, FD_KEYGUARD_ROLE_TOWER,  FD_KEYGUARD_SIGN_TYPE_ED25519        ) );
-  FD_TEST( !fd_keyguard_payload_authorize( &authority, body, min_sz, FD_KEYGUARD_ROLE_GOSSIP, FD_KEYGUARD_SIGN_TYPE_ED25519        ) );
+  FD_TEST( !fd_keyguard_payload_authorize( &authority, body, sz, FD_KEYGUARD_ROLE_VOTOR,  FD_KEYGUARD_SIGN_TYPE_SHA256_ED25519 ) );
+  FD_TEST( !fd_keyguard_payload_authorize( &authority, body, sz, FD_KEYGUARD_ROLE_TOWER,  FD_KEYGUARD_SIGN_TYPE_ED25519        ) );
+  FD_TEST( !fd_keyguard_payload_authorize( &authority, body, sz, FD_KEYGUARD_ROLE_GOSSIP, FD_KEYGUARD_SIGN_TYPE_ED25519        ) );
   body[ 31 ] ^= (uchar)1;
-  FD_TEST( !fd_keyguard_payload_authorize( &authority, body, min_sz, FD_KEYGUARD_ROLE_VOTOR,  FD_KEYGUARD_SIGN_TYPE_ED25519        ) );
+  FD_TEST( !fd_keyguard_payload_authorize( &authority, body, sz, FD_KEYGUARD_ROLE_VOTOR,  FD_KEYGUARD_SIGN_TYPE_ED25519        ) );
   body[ 31 ] ^= (uchar)1;
 
   /* A payload of another type is never a vote history, even with our
      identity in front, here a tower body */
+  memset( body+32UL, 0, 1807UL-32UL );
   FD_STORE( ulong,  body+32UL,  8UL     ); /* threshold_depth */
   FD_STORE( double, body+40UL,  2.0/3.0 ); /* threshold_size */
   FD_STORE( ulong,  body+113UL, 1UL     ); /* votes_cnt */
@@ -324,19 +386,17 @@ test_vote_history_authorize( void ) {
   FD_TEST( !fd_keyguard_payload_authorize( &authority, body, 1807UL, FD_KEYGUARD_ROLE_VOTOR, FD_KEYGUARD_SIGN_TYPE_ED25519 ) );
 
   /* An identity whose first bytes read as a legacy txn message header
-     (one signer, three accounts) makes a vote history body also match a
-     txn, or even be a whole txn message, like these 133 bytes: three
-     accounts, a blockhash and no instructions.  The votor role still
-     signs it, because the fee payer key of that txn starts with bytes 4
-     to 31 of our identity. */
+     (one signer, three accounts) still makes the vote history body also
+     match a txn, so the votor signs it.  The whole txn message of 133
+     bytes it used to also sign is no longer a vote history. */
   uchar const txn_hdr[ 4 ] = { 1, 0, 0, 3 };
   memcpy( authority.identity_pubkey, txn_hdr, 4UL );
   memcpy( body, authority.identity_pubkey, 32UL );
   memset( body+32UL, 0, 133UL-32UL );
-  FD_TEST(  fd_keyguard_payload_match( body, min_sz, FD_KEYGUARD_SIGN_TYPE_ED25519 )==(FD_KEYGUARD_PAYLOAD_TXN|FD_KEYGUARD_PAYLOAD_VOTE_HISTORY) );
-  FD_TEST(  fd_keyguard_payload_authorize( &authority, body, min_sz, FD_KEYGUARD_ROLE_VOTOR, FD_KEYGUARD_SIGN_TYPE_ED25519 ) );
-  FD_TEST(  fd_keyguard_payload_match( body, 133UL,  FD_KEYGUARD_SIGN_TYPE_ED25519 )==(FD_KEYGUARD_PAYLOAD_TXN|FD_KEYGUARD_PAYLOAD_VOTE_HISTORY) );
-  FD_TEST(  fd_keyguard_payload_authorize( &authority, body, 133UL,  FD_KEYGUARD_ROLE_VOTOR, FD_KEYGUARD_SIGN_TYPE_ED25519 ) );
+  FD_TEST(  fd_keyguard_payload_match( body, sz,    FD_KEYGUARD_SIGN_TYPE_ED25519 )==(FD_KEYGUARD_PAYLOAD_TXN|FD_KEYGUARD_PAYLOAD_VOTE_HISTORY) );
+  FD_TEST(  fd_keyguard_payload_authorize( &authority, body, sz,    FD_KEYGUARD_ROLE_VOTOR, FD_KEYGUARD_SIGN_TYPE_ED25519 ) );
+  FD_TEST(  fd_keyguard_payload_match( body, 133UL, FD_KEYGUARD_SIGN_TYPE_ED25519 )==FD_KEYGUARD_PAYLOAD_TXN );
+  FD_TEST( !fd_keyguard_payload_authorize( &authority, body, 133UL, FD_KEYGUARD_ROLE_VOTOR, FD_KEYGUARD_SIGN_TYPE_ED25519 ) );
 }
 
 int
@@ -350,6 +410,7 @@ main( int     argc,
   test_tower_authorize();
   test_tower_match();
   test_vote_history_authorize();
+  test_failov_message();
   FD_LOG_NOTICE(( "pass" ));
   return 0;
 }

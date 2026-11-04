@@ -111,7 +111,6 @@ struct fd_topo_net_tile {
   ushort gossip_listen_port;
   ushort repair_client_listen_port;
   ushort repair_serve_listen_port;
-  ushort txsend_src_port;
   ushort votor_quic_client_listen_port;
   ushort votor_quic_server_listen_port;
 };
@@ -134,7 +133,6 @@ struct fd_topo_tile {
   ulong kind_id;                /* The ID of this tile within its name.  If there are n tile of a particular name, they have IDs [0, N).  The pair (name, kind_id) uniquely identifies a tile, as does "id" on its own. */
 
   int   is_waker_client;        /* Tile has file descriptors which must be serviced by the external waker tile. */
-  int   is_agave;               /* If the tile needs to run in the Agave (Anza) address space or not. */
   int   allow_shutdown;         /* If the tile is allowed to shutdown gracefully.  If false, when the tile exits it will tear down the entire application. */
 
   ulong cpu_idx;                /* The CPU index to pin the tile on.  A value of ULONG_MAX or more indicates the tile should be floating and not pinned to a core. */
@@ -207,8 +205,6 @@ struct fd_topo_tile {
       ulong route_peer_max;
       ulong route_peer_seed;
       ulong neigh4_obj_id;         /* neigh4 hash map */
-
-      int xsk_core_dump;
     } xdp;
 
     struct {
@@ -225,6 +221,22 @@ struct fd_topo_tile {
       ulong route_peer_seed;
       ulong neigh4_obj_id;
     } mlx5;
+
+    struct {
+      fd_topo_net_tile_t net;
+
+      char  if_name[ 16 ];
+      char  members[ 16 ][ 16 ];
+      ulong member_cnt;
+      uint  rx_queue_size;
+      uint  tx_queue_size;
+
+      ulong netdev_tbl_obj_id;
+      ulong route_max;
+      ulong route_peer_max;
+      ulong route_peer_seed;
+      ulong neigh4_obj_id;
+    } iavf;
 
     struct {
       fd_topo_net_tile_t net;
@@ -246,6 +258,17 @@ struct fd_topo_tile {
     struct {
       char identity_key_path[ PATH_MAX ];
     } admin;
+
+    struct {
+      char   identity_key_path[ PATH_MAX ]; /* the key this machine boots under */
+      char   target_key_path[ PATH_MAX ];   /* the identity failover hands off, [paths.identity_key] */
+      int    listen;      /* open the network listener so we can hand over our identity to another machine */
+      uint   listen_addr; /* network byte order */
+      ushort port;
+
+      char          gossip_host[ FD_FQDN_BUF_MAX ];
+      fd_ip4_port_t gossip_addr; /* our own gossip socket, gossip_host overrides the address */
+    } failov;
 
 #define FD_TOPO_GOSSIP_ENTRYPOINTS_MAX 16UL
 
@@ -279,13 +302,14 @@ struct fd_topo_tile {
       uint   net_ip_addr; /* net.ip_addr fallback when gossip_host empty */
       uint   ip_addr;
       uint   bind_ip_addr;
-      ushort shred_version;
+      ushort expected_shred_version;
 
       ulong  max_entries;
       ulong  max_purged;
       ulong  max_failed;
 
-      fd_hash_t wait_for_supermajority_with_bank_hash;
+      ulong wait_for_supermajority_at_slot;
+      int   wait_for_supermajority_hash_is_zero;
 
       struct {
         ushort gossip;
@@ -346,6 +370,9 @@ struct fd_topo_tile {
       char   guidb_path    [ PATH_MAX ];
       char   net_interface [ 16 ];
       long   boot_timestamp_nanos;
+      ulong  launch_cpus[ 1024UL/64UL ];
+      char   launch_cgroup[ PATH_MAX ];
+      ulong  tx_rate_mbps;
     } event;
 
     struct {
@@ -368,19 +395,6 @@ struct fd_topo_tile {
       ulong acct_blocklist_cnt;
       fd_pubkey_t acct_blocklist[ FD_PACK_ACCT_BLOCKLIST_MAX ];
     } pack;
-
-    struct {
-      int   lagged_consecutive_leader_start;
-      int   plugins_enabled;
-      ulong execle_cnt;
-      char  identity_key_path[ PATH_MAX ];
-      struct {
-        int   enabled;
-        uchar tip_payment_program_addr[ 32 ];
-        uchar tip_distribution_program_addr[ 32 ];
-        char  vote_account_path[ PATH_MAX ];
-      } bundle;
-    } pohh;
 
     struct {
       ulong execle_cnt;
@@ -407,7 +421,6 @@ struct fd_topo_tile {
       char  adtl_dests_retransmit[ FD_TOPO_ADTL_DESTS_MAX ][ FD_HOSTPORT_BUF_MAX ];
       ulong adtl_dests_leader_cnt;
       char  adtl_dests_leader[ FD_TOPO_ADTL_DESTS_MAX ][ FD_HOSTPORT_BUF_MAX ];
-      int   alpenglow;
     } shred;
 
     struct {
@@ -416,6 +429,8 @@ struct fd_topo_tile {
 
     struct {
       char  identity_key_path[ PATH_MAX ];
+      int   failover_junk_fd; /* private startup pipe for the failover junk key, -1 without failover */
+      int   failover_enabled;
       ulong authorized_voter_paths_cnt;
       char  authorized_voter_paths[ FD_KEYGUARD_AUTH_VOTERS_MAX ][ PATH_MAX ];
       struct {
@@ -429,7 +444,6 @@ struct fd_topo_tile {
       ushort listen_port;
 
       int    is_voting;
-      int    is_alpenglow;
 
       char   cluster[ 32 ];
       char   identity_key_path[ PATH_MAX ];
@@ -448,6 +462,7 @@ struct fd_topo_tile {
       ulong max_live_slots;
 
       char   wfs_bank_hash[ FD_BASE58_ENCODED_32_SZ ];
+      ulong  wfs_slot;
       ushort expected_shred_version;
       ulong  cache_size_gib;
       ulong  accdb_obj_id;
@@ -470,7 +485,6 @@ struct fd_topo_tile {
 
       char identity_key_path[ PATH_MAX ];
       int  delay_startup;
-      int  alpenglow;
 
       int    snapshot_server_enabled;
       char   snapshot_server_host[ FD_FQDN_BUF_MAX ];
@@ -493,22 +507,17 @@ struct fd_topo_tile {
     } diag;
 
     struct {
-      ulong fec_max;
-
       ulong accdb_obj_id;
       ulong txncache_obj_id;
 
-      char  shred_cap[ PATH_MAX ];
-
       char  identity_key_path[ PATH_MAX ];
-      uint  ip_addr;
       char  vote_account_path[ PATH_MAX ];
 
       fd_hash_t wait_for_supermajority_with_bank_hash;
+      ulong     wait_for_supermajority_at_slot;
       ushort expected_shred_version;
       int    wait_for_vote_to_start_leader;
 
-      ulong heap_size_gib;
       ulong sched_depth;
       ulong max_live_slots;
       ulong genesis_max_message_size;
@@ -539,8 +548,6 @@ struct fd_topo_tile {
         uchar tip_distribution_program_addr[ 32 ];
         char  vote_account_path[ PATH_MAX ];
       } bundle;
-
-      int alpenglow;
     } replay;
 
     struct {
@@ -600,7 +607,9 @@ struct fd_topo_tile {
       char    identity_key_path[ PATH_MAX ];
       ulong   slot_max;
       ulong   fec_max;
+      ulong   max_shreds_per_block;
       int     allow_private_address;
+      int     report_repair_requests;
 
       ulong   repair_sign_depth;
       ulong   repair_sign_cnt;
@@ -615,15 +624,6 @@ struct fd_topo_tile {
     } rserve;
 
     struct {
-      ushort txsend_src_port;
-
-      /* non-config */
-
-      uint  ip_addr;
-      char  identity_key_path[ PATH_MAX ];
-    } txsend;
-
-    struct {
       uint fake_dst_ip;
     } pktgen;
 
@@ -632,39 +632,22 @@ struct fd_topo_tile {
       char  ledger_path[ PATH_MAX ];
       ulong end_slot;
       ulong root_distance;
-      int   alpenglow;
       long  boot_timestamp_nanos;
     } backtest;
 
     struct {
-      char   ledger_format[ 16 ];
-      char   ledger_path[ PATH_MAX ];
-      ulong  end_slot;
-      ushort shred_listen_port;
-    } forktest;
-
-    struct {
-      ulong accdb_obj_id;
-
-      ulong authorized_voter_paths_cnt;
-      char  authorized_voter_paths[ FD_KEYGUARD_AUTH_VOTERS_MAX ][ PATH_MAX ];
-      int   hard_fork_fatal;
-      int   wait_for_supermajority;
-      ulong max_live_slots;
-      char  identity_key[ PATH_MAX ];
-      char  vote_account[ PATH_MAX ];
-      char  tower_path[ PATH_MAX ];
-      ulong max_shreds_per_block;
-    } tower;
-
-    struct {
       char   identity_key_path[ PATH_MAX ];
       char   vote_history_path[ PATH_MAX ];
+      uint   target_gid;
+      uint   target_uid;
       ulong  authorized_voter_paths_cnt;
       ushort quic_client_listen_port;
       ushort quic_server_listen_port;
       uint   ip_addr;
       ulong  max_live_slots;
+      ulong  wait_for_supermajority_at_slot;
+      int    wait_for_supermajority_hash_is_zero;
+      ushort expected_shred_version;
     } votor;
 
     struct {
@@ -692,7 +675,7 @@ struct fd_topo_tile {
 #define FD_TOPO_SNAPSHOTS_SERVERS_MAX_RESOLVED (FD_TOPO_MAX_RESOLVED_ADDRS*FD_TOPO_SNAPSHOTS_SERVERS_MAX)
 
     struct fd_topo_tile_snapct {
-      char snapshots_path[ PATH_MAX ];
+      char  snapshots_path[ PATH_MAX ];
 
       ulong entrypoints_cnt;
       char  entrypoints[ FD_TOPO_GOSSIP_ENTRYPOINTS_MAX ][ FD_HOSTPORT_BUF_MAX ];
@@ -713,27 +696,35 @@ struct fd_topo_tile {
         char          servers[ FD_TOPO_SNAPSHOTS_SERVERS_MAX ][ FD_URL_MAX ];
       } sources;
 
-      int  incremental_snapshots;
-      uint max_full_snapshots_to_keep;
-      uint max_incremental_snapshots_to_keep;
-      uint max_retry_abort;
-      long wait_for_peers_timeout_nanos;
+      int    incremental_snapshots;
+      uint   max_full_snapshots_to_keep;
+      uint   max_incremental_snapshots_to_keep;
+      uint   max_retry_abort;
+      long   wait_for_peers_timeout_nanos;
+      ulong  wfs_slot;
+      int    wfs_hash_is_zero;
+      ushort wfs_shred_version;
     } snapct;
 
     struct {
-      char snapshots_path[ PATH_MAX ];
-      int  incremental_snapshots;
-      uint min_download_speed_mibs;
+      char   snapshots_path[ PATH_MAX ];
+      int    incremental_snapshots;
+      uint   min_download_speed_mibs;
+      ulong  wfs_slot;
+      int    wfs_hash_is_zero;
+      ushort wfs_shred_version;
     } snapld;
 
     struct {
-      ulong max_live_slots;
-      ulong accdb_obj_id;
-      ulong txncache_obj_id;
-      ulong banks_obj_id;
-      ulong shmem_obj_id; /* shared parallel snapin state */
-      ulong max_txn_per_slot;
-      int   alpenglow;
+      ulong     wait_for_supermajority_at_slot;
+      fd_hash_t wait_for_supermajority_with_bank_hash;
+      ushort    expected_shred_version;
+      ulong     max_live_slots;
+      ulong     accdb_obj_id;
+      ulong     txncache_obj_id;
+      ulong     banks_obj_id;
+      ulong     shmem_obj_id; /* shared parallel snapin state */
+      ulong     max_txn_per_slot;
     } snapin;
 
     struct {
@@ -827,7 +818,7 @@ typedef struct fd_topo_tile fd_topo_tile_t;
 
 typedef struct {
   ulong id;
-  char  name[ 13UL ];  /* object type */
+  char  name[ 14UL ];  /* object type */
   ulong wksp_id;
 
   /* Optional label for object */
@@ -843,6 +834,7 @@ typedef struct {
    between them. */
 struct fd_topo {
   char           app_name[ 256UL ];
+  uchar          failover_junk[ 32 ]; /* public half of the junk key generated at boot for failover, zero without failover */
   uchar          props[ 32768UL ];
 
   ulong          sleep_obj_id;
@@ -857,8 +849,6 @@ struct fd_topo {
   fd_topo_tile_t tiles[ FD_TOPO_MAX_TILES ];
   fd_topo_obj_t  objs[ FD_TOPO_MAX_OBJS ];
 
-  ulong          agave_affinity_cnt;
-  ulong          agave_affinity_cpu_idx[ FD_TILE_MAX ];
   ulong          blocklist_cores_cnt;
   ulong          blocklist_cores_cpu_idx[ FD_TILE_MAX ];
 
@@ -1286,21 +1276,13 @@ fd_topo_tile_stack_join( char const * app_name,
    calling thread will also switch to the provided UID and GID before
    it returns.
 
-   In production, when running with an Agave child process this is
-   used for spawning certain tiles inside the Agave address space.
-   It's also useful for tooling and debugging, but is not how the main
+   This is useful for tooling and debugging, but is not how the main
    production Firedancer process runs.  For production, each tile is run
    in its own address space with a separate process and full security
-   sandbox.
-
-   The agave argument determines which tiles are started.  If the
-   argument is 0 or 1, only non-agave (or only agave) tiles are started.
-   If the argument is any other value, all tiles in the topology are
-   started regardless of if they are Agave tiles or not. */
+   sandbox. */
 
 void
 fd_topo_run_single_process( fd_topo_t *       topo,
-                            int               agave,
                             uint              uid,
                             uint              gid,
                             fd_topo_run_tile_t (* tile_run )( fd_topo_tile_t const * tile ) );

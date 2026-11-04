@@ -148,15 +148,22 @@ FD_STATIC_ASSERT( sizeof(fd_bmtree_node_t) == FD_SHRED_MERKLE_ROOT_SZ, update FD
 /* Mask of the "data batch complete" bit in shred.data.flags */
 #define FD_SHRED_DATA_FLAG_DATA_COMPLETE ((uchar)0x40)
 
-/* Maximum number of data shreds in a slot, also maximum number of parity shreds in a slot */
-#define FD_SHRED_BLK_MAX (1 << 15UL) /* 32,768 shreds */
+/* FD_SHRED_PROTOCOL_BLK_MAX is Agave's MAX_DATA_SHREDS_PER_SLOT, the
+   largest per-slot shred limit of any slot params regime (400ms). */
+#define FD_SHRED_PROTOCOL_BLK_MAX (1UL<<15) /* 32,768 shreds */
+
+/* Maximum number of data shreds in a slot, also maximum number of
+   parity shreds in a slot, at the 200ms slot params (SIMD-525).
+   Clusters with a larger per-slot shred limit (slower slots) are not
+   supported: shreds past this index are dropped. */
+#define FD_SHRED_BLK_MAX (1 << 14UL) /* 16,384 shreds */
 
 /* Many static bounds are specified around the assumption that this is a
    protocol limit on the max number of shreds in a slot. If this limit
    changes, all the relevant usages in other areas of the Firedancer
    codebase should be updated before modifying this assertion. */
 
-FD_STATIC_ASSERT( FD_SHRED_BLK_MAX == 32768, check all usages before changing this limit! );
+FD_STATIC_ASSERT( FD_SHRED_BLK_MAX == 16384, check all usages before changing this limit! );
 
 /* Largest [development.bench.max_shreds_per_block] a benchmark cluster
    may raise the per-block shred limit to: the rotor's fec_set_idx is
@@ -164,7 +171,7 @@ FD_STATIC_ASSERT( FD_SHRED_BLK_MAX == 32768, check all usages before changing th
    depth). */
 #define FD_SHRED_BLK_MAX_RAISED (1UL<<28)
 
-/* 36,536,320 bytes per slot */
+/* 18,268,160 bytes per slot */
 #define FD_SHRED_DATA_PAYLOAD_MAX_PER_SLOT (FD_SHRED_DATA_PAYLOAD_MAX * FD_SHRED_BLK_MAX)
 
 /* Firedancer-specific internal error codes.

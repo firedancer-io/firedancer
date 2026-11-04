@@ -2,6 +2,7 @@
 #define HEADER_fd_src_app_platform_fd_config_extract_h
 
 #include "../../util/fd_util.h"
+#include "../../util/fd_boolau.h"
 #include "../../util/pod/fd_pod.h"
 
 FD_PROTOTYPES_BEGIN
@@ -120,13 +121,13 @@ fdctl_cfg_get_boolau( int *                 out,
   if( info->val_type==FD_POD_VAL_TYPE_CSTR ) {
     char const * info_val = (char const *)info->val;
     if( !strcmp( info_val, "auto"  ) ) {
-      *out = 2;
+      *out = FD_BOOLAU_AUTO;
       return 1;
     } else if( !strcmp( info_val, "true"  ) ) {
-      *out = 1;
+      *out = FD_BOOLAU_TRUE;
       return 1;
     } else if( !strcmp( info_val, "false" ) ) {
-      *out = 0;
+      *out = FD_BOOLAU_FALSE;
       return 1;
     }
     FD_LOG_WARNING(( "invalid value of `%s` entered for `%s`, must be true, false or auto. ",

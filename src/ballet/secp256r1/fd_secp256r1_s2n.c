@@ -101,6 +101,43 @@ fd_secp256r1_fp_neg( fd_secp256r1_fp_t *       r,
 }
 
 static inline fd_secp256r1_fp_t *
+fd_secp256r1_fp_mul( fd_secp256r1_fp_t *       r,
+                     fd_secp256r1_fp_t const * a,
+                     fd_secp256r1_fp_t const * b ) {
+  bignum_montmul_p256( r->limbs, a->limbs, b->limbs );
+  return r;
+}
+
+static inline fd_secp256r1_fp_t *
+fd_secp256r1_fp_sqr( fd_secp256r1_fp_t *       r,
+                     fd_secp256r1_fp_t const * a ) {
+  bignum_montsqr_p256( r->limbs, a->limbs );
+  return r;
+}
+
+/* r = 1/a, Montgomery domain.  a MUST not be 0. */
+static inline fd_secp256r1_fp_t *
+fd_secp256r1_fp_inv( fd_secp256r1_fp_t *       r,
+                     fd_secp256r1_fp_t const * a ) {
+  bignum_montinv_p256( r->limbs, a->limbs );
+  return r;
+}
+
+static inline fd_secp256r1_fp_t *
+fd_secp256r1_fp_tomont( fd_secp256r1_fp_t *       r,
+                        fd_secp256r1_fp_t const * a ) {
+  bignum_tomont_p256( r->limbs, a->limbs );
+  return r;
+}
+
+static inline fd_secp256r1_fp_t *
+fd_secp256r1_fp_demont( fd_secp256r1_fp_t *       r,
+                        fd_secp256r1_fp_t const * a ) {
+  bignum_demont_p256( r->limbs, a->limbs );
+  return r;
+}
+
+static inline fd_secp256r1_fp_t *
 fd_secp256r1_fp_frombytes( fd_secp256r1_fp_t * r,
                            uchar const             in[ 32 ] ) {
   memcpy( r->buf, in, 32 );
@@ -147,23 +184,41 @@ fd_secp256r1_fp_sqrt( fd_secp256r1_fp_t *       r,
 /* Points */
 
 static inline int
+fd_secp256r1_point_is_inf( fd_secp256r1_point_t const * a ) {
+  return fd_uint256_eq( a->z, fd_secp256r1_const_zero );
+}
+
+static inline void
+fd_secp256r1_point_set_inf( fd_secp256r1_point_t * r ) {
+  fd_secp256r1_fp_set( r->x, fd_secp256r1_const_zero );
+  fd_secp256r1_fp_set( r->y, fd_secp256r1_const_one_mont );
+  fd_secp256r1_fp_set( r->z, fd_secp256r1_const_zero );
+}
+
+/* Returns 1 if (x, y), Montgomery domain, satisfies y^2 = x^3 + ax + b. */
+static inline int
+fd_secp256r1_point_on_curve( fd_secp256r1_fp_t const * x,
+                             fd_secp256r1_fp_t const * y ) {
+  fd_secp256r1_fp_t lhs[1], rhs[1];
+  bignum_montsqr_p256( lhs->limbs, y->limbs );
+  bignum_montsqr_p256( rhs->limbs, x->limbs );
+  bignum_add_p256    ( rhs->limbs, rhs->limbs, fd_secp256r1_const_a_mont[0].limbs );
+  bignum_montmul_p256( rhs->limbs, rhs->limbs, x->limbs );
+  bignum_add_p256    ( rhs->limbs, rhs->limbs, fd_secp256r1_const_b_mont[0].limbs );
+  return fd_uint256_eq( lhs, rhs );
+}
+
+static inline int
 fd_secp256r1_point_validate_uncompressed( uchar const in[ 65 ] ) {
   if( FD_UNLIKELY( in[ 0 ]!=0x04U ) ) return FD_SECP256R1_FAILURE;
 
-  fd_secp256r1_fp_t x[1], y[1], lhs[1], rhs[1];
+  fd_secp256r1_fp_t x[1], y[1];
   if( FD_UNLIKELY( !fd_secp256r1_fp_frombytes( x, in+1  ) ) ) return FD_SECP256R1_FAILURE;
   if( FD_UNLIKELY( !fd_secp256r1_fp_frombytes( y, in+33 ) ) ) return FD_SECP256R1_FAILURE;
 
   bignum_tomont_p256( x->limbs, x->limbs );
   bignum_tomont_p256( y->limbs, y->limbs );
-
-  /* Validate y^2 = x^3 + ax + b. */
-  bignum_montsqr_p256( lhs->limbs, y->limbs );
-  bignum_montsqr_p256( rhs->limbs, x->limbs );
-  bignum_add_p256    ( rhs->limbs, rhs->limbs, (ulong *)fd_secp256r1_const_a_mont[0].limbs );
-  bignum_montmul_p256( rhs->limbs, rhs->limbs, x->limbs );
-  bignum_add_p256    ( rhs->limbs, rhs->limbs, (ulong *)fd_secp256r1_const_b_mont[0].limbs );
-  return fd_uint256_eq( lhs, rhs );
+  return fd_secp256r1_point_on_curve( x, y );
 }
 
 static inline fd_secp256r1_point_t *
@@ -267,7 +322,7 @@ fd_secp256r1_point_eq_mixed( fd_secp256r1_point_t const * a,
 static inline void
 fd_secp256r1_point_add_mixed( fd_secp256r1_point_t *       r,
                               fd_secp256r1_point_t const * a,
-                              ulong                        b[ 8 ] ) {
+                              ulong const                  b[ 8 ] ) {
   int b_is_zero = fd_uint256_eq( (fd_uint256_t const *)(b+0), fd_secp256r1_const_zero ) &
                   fd_uint256_eq( (fd_uint256_t const *)(b+4), fd_secp256r1_const_zero );
 
@@ -301,4 +356,46 @@ fd_secp256r1_double_scalar_mul_base( fd_secp256r1_point_t *        r,
 
   /* u1*G + u2*A */
   fd_secp256r1_point_add_mixed( r, r, rtmp );
+}
+
+/* r = 2a.  Maps infinity to infinity.  r may alias a. */
+static inline void
+fd_secp256r1_point_double( fd_secp256r1_point_t *       r,
+                           fd_secp256r1_point_t const * a ) {
+  p256_montjdouble( (ulong *)r, (ulong const *)a );
+}
+
+/* r = s*a. s is a plain LE integer of 4 limbs, reduced mod n internally. */
+static inline void
+fd_secp256r1_point_scalarmul( fd_secp256r1_point_t *       r,
+                              ulong const                  s[ 4 ],
+                              fd_secp256r1_point_t const * a ) {
+  p256_montjscalarmul( (ulong *)r, s, (ulong const *)a );
+}
+
+/* Converts the Jacobian point a to affine-Montgomery (x, y) laid out
+   as 8 limbs, (0, 0) for infinity. */
+static inline void
+fd_secp256r1_point_toaffine_mont( ulong                        r[ 8 ],
+                                  fd_secp256r1_point_t const * a ) {
+  if( FD_UNLIKELY( fd_secp256r1_point_is_inf( a ) ) ) {
+    memset( r, 0, 8*sizeof(ulong) );
+    return;
+  }
+  ulong zinv[ 4 ], zinv2[ 4 ];
+  bignum_montinv_p256( zinv, a->z->limbs );
+  bignum_montsqr_p256( zinv2, zinv );
+  bignum_montmul_p256( r,   a->x->limbs, zinv2 );
+  bignum_montmul_p256( r+4, zinv2, zinv );
+  bignum_montmul_p256( r+4, r+4, a->y->limbs );
+}
+
+/* r = a + b, Jacobian points. r may alias a. */
+static inline void
+fd_secp256r1_point_add( fd_secp256r1_point_t *       r,
+                        fd_secp256r1_point_t const * a,
+                        fd_secp256r1_point_t const * b ) {
+  ulong baff[ 8 ];
+  fd_secp256r1_point_toaffine_mont( baff, b );
+  fd_secp256r1_point_add_mixed( r, a, baff );
 }

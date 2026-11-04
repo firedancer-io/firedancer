@@ -685,12 +685,72 @@ test_fd_hashes_update_lthash( void ) {
   FD_LOG_NOTICE(( "test_fd_hashes_update_lthash passed" ));
 }
 
+static void
+rand_account( fd_rng_t * rng,
+              uchar      pubkey[ static 32 ],
+              uchar      owner [ static 32 ],
+              ulong *    lamports,
+              int *      executable,
+              uchar *    data,
+              ulong *    data_len ) {
+  for( ulong i=0UL; i<32UL; i++ ) pubkey[ i ] = fd_rng_uchar( rng );
+  for( ulong i=0UL; i<32UL; i++ ) owner [ i ] = fd_rng_uchar( rng );
+  *lamports   = fd_rng_uint_roll( rng, 8U ) ? fd_rng_ulong( rng ) : 0UL;
+  *executable = (int)fd_rng_uint_roll( rng, 3U ); /* any non-zero is set */
+  *data_len   = fd_rng_uint_roll( rng, 2U ) ? fd_rng_ulong_roll( rng, 10241UL ) : 3762UL+fd_rng_ulong_roll( rng, 3UL );
+  for( ulong i=0UL; i<*data_len; i++ ) data[ i ] = fd_rng_uchar( rng );
+}
+
+static void
+test_fd_hashes_account_lthash_xn( void ) {
+  fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 1234U, 0UL ) );
+
+  static uchar             data[ FD_BLAKE3_XN_MAX ][ 10240 ];
+  static fd_lthash_value_t ref [ FD_BLAKE3_XN_MAX ];
+  static fd_lthash_value_t out [ FD_BLAKE3_XN_MAX ];
+  for( ulong iter=0UL; iter<2000UL; iter++ ) {
+    ulong               n = 1UL+fd_rng_ulong_roll( rng, FD_BLAKE3_XN_MAX );
+    uchar               pk[ FD_BLAKE3_XN_MAX ][ 32 ];
+    uchar               ow[ FD_BLAKE3_XN_MAX ][ 32 ];
+    ulong               la[ FD_BLAKE3_XN_MAX ];
+    int                 ex[ FD_BLAKE3_XN_MAX ];
+    ulong               dl[ FD_BLAKE3_XN_MAX ];
+    uchar const *       pkp[ FD_BLAKE3_XN_MAX ];
+    uchar const *       owp[ FD_BLAKE3_XN_MAX ];
+    uchar const *       dap[ FD_BLAKE3_XN_MAX ];
+    fd_lthash_value_t * o  [ FD_BLAKE3_XN_MAX ];
+    for( ulong i=0UL; i<n; i++ ) {
+      rand_account( rng, pk[ i ], ow[ i ], la+i, ex+i, data[ i ], dl+i );
+      if( i && fd_rng_uint_roll( rng, 2U ) ) memcpy( pk[ i ], pk[ i-1UL ], 32UL ); /* pre/post of one account */
+      fd_hashes_account_lthash_simple( pk[ i ], ow[ i ], la[ i ], ex[ i ], data[ i ], dl[ i ], ref+i );
+      memset( out+i, 0xa5, sizeof(fd_lthash_value_t) ); /* zero outputs must be written */
+      pkp[ i ] = pk[ i ]; owp[ i ] = ow[ i ]; dap[ i ] = data[ i ]; o[ i ] = out+i;
+    }
+    fd_hashes_account_lthash_xn( n, pkp, owp, la, ex, dap, dl, o );
+    for( ulong i=0UL; i<n; i++ ) {
+      if( FD_UNLIKELY( !fd_lthash_equal( out+i, ref+i ) ) ) FD_LOG_ERR(( "fd_hashes_account_lthash_xn mismatch (n %lu i %lu len %lu)", n, i, dl[ i ] ));
+    }
+
+    /* Negative control: a one bit change in account 0 changes only
+       account 0's lthash */
+    if( FD_UNLIKELY( !la[ 0 ] ) ) continue;
+    ow[ 0 ][ fd_rng_ulong_roll( rng, 32UL ) ] ^= (uchar)( 1U<<fd_rng_uint_roll( rng, 8U ) );
+    fd_hashes_account_lthash_xn( n, pkp, owp, la, ex, dap, dl, o );
+    FD_TEST( !fd_lthash_equal( out, ref ) );
+    for( ulong i=1UL; i<n; i++ ) FD_TEST( fd_lthash_equal( out+i, ref+i ) );
+  }
+
+  fd_rng_delete( fd_rng_leave( rng ) );
+  FD_LOG_NOTICE(( "test_fd_hashes_account_lthash_xn passed" ));
+}
+
 int
 main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
 
   test_fd_hashes_account_lthash();
+  test_fd_hashes_account_lthash_xn();
   test_fd_hashes_hash_bank();
   test_fd_hashes_apply_hard_forks();
   test_fd_hashes_update_lthash();

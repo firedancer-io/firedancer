@@ -301,7 +301,7 @@ fd_sshttp_init( fd_sshttp_t * http,
   }
   http->request_sent = 0UL;
   int fmt_ok;
-  if( FD_LIKELY( is_https ) ) {
+  if( FD_LIKELY( hostname[0] ) ) {
     fmt_ok = fd_cstr_printf_check( http->request, sizeof(http->request), &http->request_len,
       "GET %.*s HTTP/1.1\r\n"
       "User-Agent: Firedancer\r\n"
@@ -545,7 +545,7 @@ follow_redirect( fd_sshttp_t *        http,
      during the redirect, but the format must match so that a path
      accepted here will not overflow in fd_sshttp_init. */
   int pre_check;
-  if( FD_LIKELY( http->is_https ) ) {
+  if( FD_LIKELY( http->hostname[0] ) ) {
     pre_check = fd_cstr_printf_check( http->request, sizeof(http->request), &http->request_len,
       "GET %.*s HTTP/1.1\r\n"
       "User-Agent: Firedancer\r\n"

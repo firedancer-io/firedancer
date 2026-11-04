@@ -75,7 +75,7 @@ static void
 snapshot_load_layout( config_t *  config,
                       fd_topo_t * topo ) {
   if( FD_LIKELY( !strcmp( config->layout.affinity, "auto" ) ) ) {
-    fd_topob_auto_layout( topo, 0 );
+    fd_topob_auto_layout( topo );
     return;
   }
 
@@ -116,7 +116,7 @@ snapshot_load_topo( config_t * config ) {
   fd_topob_wksp( topo, "txncache" );
   fd_topo_obj_t * txncache_obj = setup_topo_txncache( topo, "txncache",
       config->firedancer.runtime.max_live_slots,
-      2UL*config->limits.max_txn_per_slot );
+      2UL*config->limits.max_txn_per_slot, config->firedancer.runtime.transaction_cache_size_mib<<20 );
   FD_TEST( fd_pod_insertf_ulong( topo->props, txncache_obj->id, "txncache" ) );
 
   fd_topob_wksp( topo, "accdb" );
@@ -135,7 +135,8 @@ snapshot_load_topo( config_t * config ) {
   fd_topob_wksp( topo, "banks" );
   fd_topo_obj_t * banks_obj = setup_topo_banks( topo, "banks",
       config->firedancer.runtime.max_live_slots,
-      config->firedancer.runtime.max_fork_width,
+      config->firedancer.runtime.bank_cache_cnt,
+      config->firedancer.runtime.stake_delegation_cache_cnt,
       config->development.bench.max_cost_per_block );
   FD_TEST( fd_pod_insertf_ulong( topo->props, banks_obj->id, "banks" ) );
 
@@ -144,28 +145,28 @@ snapshot_load_topo( config_t * config ) {
   /* metrics tile *****************************************************/
   fd_topob_wksp( topo, "metric_in" );
   fd_topob_wksp( topo, "metric" );
-  fd_topob_tile( topo, "metric",  "metric", "metric_in", ULONG_MAX, 0, 0, 0, 1 );
+  fd_topob_tile( topo, "metric",  "metric", "metric_in", ULONG_MAX, 0, 0, 1 );
 
   /* read() tile */
   fd_topob_wksp( topo, "snapct" );
-  fd_topo_tile_t * snapct_tile = fd_topob_tile( topo, "snapct", "snapct", "metric_in", ULONG_MAX, 0, 0, 0, 1 );
+  fd_topo_tile_t * snapct_tile = fd_topob_tile( topo, "snapct", "snapct", "metric_in", ULONG_MAX, 0, 0, 1 );
   snapct_tile->allow_shutdown = 1;
 
   /* load tile */
   fd_topob_wksp( topo, "snapld" );
-  fd_topo_tile_t * snapld_tile = fd_topob_tile( topo, "snapld", "snapld", "metric_in", ULONG_MAX, 0, 0, 0, 1 );
+  fd_topo_tile_t * snapld_tile = fd_topob_tile( topo, "snapld", "snapld", "metric_in", ULONG_MAX, 0, 0, 1 );
   snapld_tile->allow_shutdown = 1;
 
   /* "snapdc": Zstandard decompress tile */
   fd_topob_wksp( topo, "snapdc" );
   ulong snapdc_tile_cnt = config->firedancer.layout.snapdc_tile_count;
-  FOR(snapdc_tile_cnt) fd_topob_tile( topo, "snapdc", "snapdc", "metric_in", ULONG_MAX, 0, 0, 0, 0 )->allow_shutdown = 1;
+  FOR(snapdc_tile_cnt) fd_topob_tile( topo, "snapdc", "snapdc", "metric_in", ULONG_MAX, 0, 0, 0 )->allow_shutdown = 1;
 
   /* Parallel snapshot loader tiles. */
   fd_topob_wksp( topo, "snapin" );
   ulong snapin_tile_cnt = config->firedancer.layout.snapin_tile_count;
   FOR(snapin_tile_cnt) {
-    fd_topo_tile_t * tile = fd_topob_tile( topo, "snapin", "snapin", "metric_in", ULONG_MAX, 0, 0, 0, 0 );
+    fd_topo_tile_t * tile = fd_topob_tile( topo, "snapin", "snapin", "metric_in", ULONG_MAX, 0, 0, 0 );
     tile->allow_shutdown = 1;
   }
 
@@ -177,8 +178,8 @@ snapshot_load_topo( config_t * config ) {
   FOR(snapdc_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "snapdc", i ) ], dc_ticket_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
 
   fd_topob_wksp( topo, "diag" );
-  fd_topob_tile( topo, "diag", "diag", "metric_in", ULONG_MAX, 0, 0, 0, 0 );
-  fd_topo_tile_t * accdb_tile = fd_topob_tile( topo, "accdb", "accdb", "metric_in", ULONG_MAX, 0, 0, 0, 0 );
+  fd_topob_tile( topo, "diag", "diag", "metric_in", ULONG_MAX, 0, 0, 0 );
+  fd_topo_tile_t * accdb_tile = fd_topob_tile( topo, "accdb", "accdb", "metric_in", ULONG_MAX, 0, 0, 0 );
 
   fd_topob_wksp( topo, "snapct_ld"    );
   fd_topob_wksp( topo, "snapld_dc"    );
@@ -493,7 +494,9 @@ snapshot_load_cmd_fn( args_t *   args,
   initialize_accdb_fd( config );
   initialize_epoch_credits_fd( config );
   initialize_cost_tracker_fd( config );
+  initialize_vote_stakes_fd( config );
   initialize_stake_delegations_fd( config );
+  initialize_txncache_fd( config );
   initialize_store_fds( config );
   initialize_snapshot_fds( config );
 
@@ -510,7 +513,7 @@ snapshot_load_cmd_fn( args_t *   args,
   double ns_per_tick = 1.0/tick_per_ns;
 
   long start = fd_log_wallclock();
-  fd_topo_run_single_process( topo, 2, config->uid, config->gid, fdctl_tile_run );
+  fd_topo_run_single_process( topo, config->uid, config->gid, fdctl_tile_run );
 
   ulong volatile * const snapct_metrics = fd_metrics_tile( snapct_tile->metrics );
   ulong volatile * const snapld_metrics = fd_metrics_tile( snapld_tile->metrics );
@@ -550,15 +553,15 @@ snapshot_load_cmd_fn( args_t *   args,
 
   long next = start+1000L*1000L*1000L;
   for(;;) {
-    ulong snapct_status = FD_VOLATILE_CONST( snapct_metrics[ MIDX( GAUGE, TILE, STATUS ) ] );
-    ulong snapld_status = FD_VOLATILE_CONST( snapld_metrics[ MIDX( GAUGE, TILE, STATUS ) ] );
+    ulong snapct_status = FD_VOLATILE_CONST( snapct_metrics[ MIDX( GAUGE, TILE, STATE ) ] );
+    ulong snapld_status = FD_VOLATILE_CONST( snapld_metrics[ MIDX( GAUGE, TILE, STATE ) ] );
     int snapin_shutdown = 1;
     for( ulong i=0UL; i<snapin_tile_cnt; i++ ) {
-      snapin_shutdown &= FD_VOLATILE_CONST( snapin_all_metrics[ i ][ MIDX( GAUGE, TILE, STATUS ) ] )==2UL;
+      snapin_shutdown &= FD_VOLATILE_CONST( snapin_all_metrics[ i ][ MIDX( GAUGE, TILE, STATE ) ] )==2UL;
     }
     int snapdc_shutdown = 1;
     for( ulong i=0UL; i<snapdc_tile_cnt; i++ ) {
-      snapdc_shutdown &= FD_VOLATILE_CONST( snapdc_metrics[ i ][ MIDX( GAUGE, TILE, STATUS ) ] )==2UL;
+      snapdc_shutdown &= FD_VOLATILE_CONST( snapdc_metrics[ i ][ MIDX( GAUGE, TILE, STATE ) ] )==2UL;
     }
 
     if( FD_UNLIKELY( snapct_status==2UL && snapld_status==2UL && snapdc_shutdown && snapin_shutdown ) ) break;
@@ -570,13 +573,13 @@ snapshot_load_cmd_fn( args_t *   args,
       continue;
     }
 
-    ulong total_off    = snapct_metrics[ MIDX( GAUGE, SNAPCT, FULL_BYTES_READ ) ] +
-                         snapct_metrics[ MIDX( GAUGE, SNAPCT, INCREMENTAL_BYTES_READ ) ];
+    ulong total_off    = snapct_metrics[ MIDX( GAUGE, SNAPCT, READ_PROGRESS_BYTES_FULL ) ] +
+                         snapct_metrics[ MIDX( GAUGE, SNAPCT, READ_PROGRESS_BYTES_INCREMENTAL ) ];
     ulong decomp_off   = 0UL;
     ulong snapdc_wait[ FD_TOPO_MAX_TILE_IN_LINKS ];
     for( ulong i=0UL; i<snapdc_tile_cnt; i++ ) {
-      decomp_off += snapdc_metrics[ i ][ MIDX( GAUGE, SNAPDC, FULL_DECOMPRESSED_BYTES_WRITTEN ) ] +
-                    snapdc_metrics[ i ][ MIDX( GAUGE, SNAPDC, INCREMENTAL_DECOMPRESSED_BYTES_WRITTEN ) ];
+      decomp_off += snapdc_metrics[ i ][ MIDX( GAUGE, SNAPDC, DECOMPRESSED_PROGRESS_BYTES_FULL ) ] +
+                    snapdc_metrics[ i ][ MIDX( GAUGE, SNAPDC, DECOMPRESSED_PROGRESS_BYTES_INCREMENTAL ) ];
       snapdc_wait[ i ] = snapdc_metrics[ i ][ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_CAUGHT_UP_POSTFRAG ) ]
                        + snapdc_metrics[ i ][ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_CAUGHT_UP_SLEEPING ) ]
                        + snapdc_metrics[ i ][ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_BACKPRESSURE_PREFRAG ) ]
@@ -595,31 +598,31 @@ snapshot_load_cmd_fn( args_t *   args,
                        + metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_CAUGHT_UP_SLEEPING ) ]
                        + metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_BACKPRESSURE_PREFRAG ) ]
                        + metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_BACKPRESSURE_SLEEPING ) ];
-      acc_cnt += metrics[ MIDX( GAUGE, SNAPIN, ACCOUNT_LOADED ) ];
+      acc_cnt += metrics[ MIDX( GAUGE, SNAPIN, ACCOUNT_PROGRESS_NEW ) ];
     }
 
-    char const * phase = phase_cstr( snapct_metrics[ MIDX( GAUGE, SNAPCT, STATE ) ] );
+    char const * phase = phase_cstr( snapct_metrics[ MIDX( GAUGE, SNAPCT, LOAD_STATE ) ] );
     ulong consumed, dc_in, dc_out, size_bytes;
     if( FD_UNLIKELY( !strcmp( phase, "incr" ) ) ) {
       consumed   = ULONG_MAX;
-      for( ulong i=0UL; i<snapin_tile_cnt; i++ ) consumed = fd_ulong_min( consumed, snapin_all_metrics[ i ][ MIDX( GAUGE, SNAPIN, INCREMENTAL_BYTES_READ ) ] );
+      for( ulong i=0UL; i<snapin_tile_cnt; i++ ) consumed = fd_ulong_min( consumed, snapin_all_metrics[ i ][ MIDX( GAUGE, SNAPIN, PARSE_PROGRESS_BYTES_INCREMENTAL ) ] );
       dc_in      = 0UL;
       dc_out     = 0UL;
       for( ulong i=0UL; i<snapdc_tile_cnt; i++ ) {
-        dc_in  += snapdc_metrics[ i ][ MIDX( GAUGE, SNAPDC, INCREMENTAL_COMPRESSED_BYTES_READ ) ];
-        dc_out += snapdc_metrics[ i ][ MIDX( GAUGE, SNAPDC, INCREMENTAL_DECOMPRESSED_BYTES_WRITTEN ) ];
+        dc_in  += snapdc_metrics[ i ][ MIDX( GAUGE, SNAPDC, COMPRESSED_PROGRESS_BYTES_INCREMENTAL ) ];
+        dc_out += snapdc_metrics[ i ][ MIDX( GAUGE, SNAPDC, DECOMPRESSED_PROGRESS_BYTES_INCREMENTAL ) ];
       }
-      size_bytes = snapct_metrics[ MIDX( GAUGE, SNAPCT, INCREMENTAL_SIZE_BYTES ) ];
+      size_bytes = snapct_metrics[ MIDX( GAUGE, SNAPCT, READ_EXPECTED_BYTES_INCREMENTAL ) ];
     } else {
       consumed   = ULONG_MAX;
-      for( ulong i=0UL; i<snapin_tile_cnt; i++ ) consumed = fd_ulong_min( consumed, snapin_all_metrics[ i ][ MIDX( GAUGE, SNAPIN, FULL_BYTES_READ ) ] );
+      for( ulong i=0UL; i<snapin_tile_cnt; i++ ) consumed = fd_ulong_min( consumed, snapin_all_metrics[ i ][ MIDX( GAUGE, SNAPIN, PARSE_PROGRESS_BYTES_FULL ) ] );
       dc_in      = 0UL;
       dc_out     = 0UL;
       for( ulong i=0UL; i<snapdc_tile_cnt; i++ ) {
-        dc_in  += snapdc_metrics[ i ][ MIDX( GAUGE, SNAPDC, FULL_COMPRESSED_BYTES_READ ) ];
-        dc_out += snapdc_metrics[ i ][ MIDX( GAUGE, SNAPDC, FULL_DECOMPRESSED_BYTES_WRITTEN ) ];
+        dc_in  += snapdc_metrics[ i ][ MIDX( GAUGE, SNAPDC, COMPRESSED_PROGRESS_BYTES_FULL ) ];
+        dc_out += snapdc_metrics[ i ][ MIDX( GAUGE, SNAPDC, DECOMPRESSED_PROGRESS_BYTES_FULL ) ];
       }
-      size_bytes = snapct_metrics[ MIDX( GAUGE, SNAPCT, FULL_SIZE_BYTES ) ];
+      size_bytes = snapct_metrics[ MIDX( GAUGE, SNAPCT, READ_EXPECTED_BYTES_FULL ) ];
     }
     double done_comp = dc_out ? (double)dc_in*( (double)consumed/(double)dc_out ) : 0.0;
     double progress  = size_bytes ? clamp_pct( 100.0*done_comp/(double)size_bytes ) : 0.0;

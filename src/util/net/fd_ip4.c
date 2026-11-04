@@ -18,8 +18,14 @@ fd_cstr_to_ip4_addr( char const * s,
                      uint *       out ) {
 
   char _s[ 16 ];
-  strncpy( _s, s, 15 );
-  _s[ 15 ] = '\0';
+  ulong len = strnlen( s, sizeof(_s) );
+  if( FD_UNLIKELY( len==sizeof(_s) ) ) return 0;
+
+  /* The tokenizer ignores a trailing delimiter. */
+  ulong dot_cnt = 0UL;
+  for( ulong i=0UL; i<len; i++ ) dot_cnt += (ulong)( s[i]=='.' );
+  if( FD_UNLIKELY( dot_cnt!=3UL ) ) return 0;
+  memcpy( _s, s, len+1UL );
 
   char *tok[ 5 ];
   if( FD_UNLIKELY( fd_cstr_tokenize( tok, 5UL, _s, '.' )!=4UL ) )

@@ -43,7 +43,7 @@ fd_zksdk_verify_proof_zero_ciphertext(
   fd_ristretto255_point_t res[1];
 
   /* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.1/zk-sdk/src/sigma_proofs/zero_ciphertext.rs#L104-L109
-     Reject identity pubkey and ciphertext.commitment. */
+     Reject identity pubkey, ciphertext.commitment and ciphertext.handle. */
   if( FD_UNLIKELY( fd_memeq( pubkey,          fd_ristretto255_compressed_zero, 32 )
                 || fd_memeq( &ciphertext[0],  fd_ristretto255_compressed_zero, 32 )
                 || fd_memeq( &ciphertext[32], fd_ristretto255_compressed_zero, 32 ) ) ) {

@@ -30,28 +30,6 @@ union fd_shred_features_activation_private {
 };
 typedef union fd_shred_features_activation_private fd_shred_features_activation_t;
 
-/* fd_shred_slot_limits_t contains the shred slot limits for the
-   current epoch. These change with the reduce_slot_time feature gates.
-   See the documentation in fd_shred_tile.c for an explanation of how
-   each field is used. */
-struct fd_shred_slot_limits {
-   ulong prev_max_shred_idx;
-   ulong current_max_shred_idx;
-   ulong next_max_shred_idx;
-   ulong current_start_slot;
-   ulong next_start_slot;
-};
-typedef struct fd_shred_slot_limits fd_shred_slot_limits_t;
-
-/* fd_shred_epoch_msg_t contains the information that the shred tile
-   needs that changes at an epoch boundary: the feature set and the
-   shred slot limits. */
-struct fd_shred_epoch_msg {
-   fd_shred_features_activation_t features_activation;
-   fd_shred_slot_limits_t         slot_limits;
-};
-typedef struct fd_shred_epoch_msg fd_shred_epoch_msg_t;
-
 
 struct __attribute__((aligned(FD_SHREDDER_ALIGN))) fd_shredder_private {
   ulong  magic;
@@ -94,50 +72,26 @@ static inline void fd_shredder_set_shred_version( fd_shredder_t * shredder, usho
 /* fd_shredder_count_{data_shreds, parity_shreds, fec_sets}: returns the
    number of data shreds, parity shreds, or FEC sets (respectively)
    required to send an entry batch of size `sz_bytes` bytes.  It uses
-   chained unsigned Merkle shreds except for that when block_complete is
-   non-zero, the last FEC set uses chained resigned Merkle shreds.
-   DATA_CHAINED, DATA_CHAINED_RESIGNED}.  For data and parity shred
-   counts, this is the total count across all FEC sets.
+   chained unsigned Merkle shreds.  For data and parity shred counts,
+   this is the total count across all FEC sets.
 
    We only produce FEC sets with 32 data and 32 parity shreds, so this
-   form of counting is much simpler than before.  The only strangeness
-   is with the last entry batch because resigned shreds hold less
-   payload than chained shreds. Thus, we might be in a situation where
-   an entry batch would fit in one chained FEC set but requires two
-   resigned FEC sets.  In this case, Agave produces a chained FEC set
-   with extra padding at the end followed by a full resigned FEC set.
-   We'll follow the same approach.
-
-   Let C=FD_SHREDDER_CHAINED_FEC_SET_PAYLOAD_SZ and
-   R=FD_SHREDDER_RESIGNED_FEC_SET_PAYLOAD_SZ.  Then when
-
-   sz_bytes <= R:     a single resigned FEC set, possibly with padding
-
-   sz_bytes >  R:     ceiling( (sz_bytes-R)/C ) chained FEC sets, with
-                      the last one possibly having padding, followed by
-                      one full resigned FEC set
-
-   The nice part is that the normal C way of computing ceiling division,
-   floor( (sz_bytes-R+C-1)/C ), gives 0 when sz_bytes<=R, which means we
-   can combine these two cases. */
+   form of counting is much simpler than before. */
 
 #define FD_SHREDDER_NORMAL_FEC_SET_PAYLOAD_SZ   (31840UL)
 #define FD_SHREDDER_CHAINED_FEC_SET_PAYLOAD_SZ  (30816UL) /* -32 bytes * 32 shreds */
-#define FD_SHREDDER_RESIGNED_FEC_SET_PAYLOAD_SZ (28768UL) /* -64 bytes * 32 shreds */
 
 FD_FN_CONST static inline ulong
-fd_shredder_count_fec_sets(      ulong sz_bytes, int block_complete ) {
-  return fd_ulong_if( block_complete,
-      1UL + (sz_bytes + FD_SHREDDER_CHAINED_FEC_SET_PAYLOAD_SZ - FD_SHREDDER_RESIGNED_FEC_SET_PAYLOAD_SZ - 1UL)/FD_SHREDDER_CHAINED_FEC_SET_PAYLOAD_SZ,
-      (sz_bytes + FD_SHREDDER_CHAINED_FEC_SET_PAYLOAD_SZ - 1UL )/FD_SHREDDER_CHAINED_FEC_SET_PAYLOAD_SZ );
+fd_shredder_count_fec_sets(      ulong sz_bytes ) {
+  return (sz_bytes + FD_SHREDDER_CHAINED_FEC_SET_PAYLOAD_SZ - 1UL )/FD_SHREDDER_CHAINED_FEC_SET_PAYLOAD_SZ;
 }
 FD_FN_CONST static inline ulong
-fd_shredder_count_data_shreds(   ulong sz_bytes, int block_complete ) {
-  return 32UL*fd_shredder_count_fec_sets( sz_bytes, block_complete );
+fd_shredder_count_data_shreds(   ulong sz_bytes ) {
+  return 32UL*fd_shredder_count_fec_sets( sz_bytes );
 }
 FD_FN_CONST static inline ulong
-fd_shredder_count_parity_shreds( ulong sz_bytes, int block_complete ) {
-  return 32UL*fd_shredder_count_fec_sets( sz_bytes, block_complete );
+fd_shredder_count_parity_shreds( ulong sz_bytes ) {
+  return 32UL*fd_shredder_count_fec_sets( sz_bytes );
 }
 
 /* fd_shredder_init_batch begins the computation of shreds for an entry
@@ -165,13 +119,11 @@ fd_shredder_t * fd_shredder_init_batch( fd_shredder_t               * shredder,
 
    Returns shredder, which will have data and parity shred indices
    updated as if the caller had called fd_shredder_init_batch with
-   a batch of the specified size and meta.block_complete set to
-   block_complete, followed by fd_shredder_next_fec_set exactly
-   fd_shredder_count_fec_sets( entry_batch_sz ) times. */
+   a batch of the specified size, followed by fd_shredder_next_fec_set
+   exactly fd_shredder_count_fec_sets( entry_batch_sz ) times. */
 fd_shredder_t * fd_shredder_skip_batch( fd_shredder_t * shredder,
                                         ulong           entry_batch_sz,
-                                        ulong           slot,
-                                        int             block_complete );
+                                        ulong           slot );
 
 /* fd_shredder_next_fec_set extracts the next FEC set from the in
    progress batch.  Computes the entirety of both data and parity

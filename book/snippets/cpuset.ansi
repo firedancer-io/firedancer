@@ -1,7 +1,7 @@
 $ sudo firedancer configure init cpuset
-[32mNOTICE [0m cpuset ... unconfigured ... `/sys/fs/cgroup/fd1` does not exist
-[32mNOTICE [0m cpuset ... configuring
-[32mNOTICE [0m RUN: `echo "+cpuset" > /sys/fs/cgroup/cgroup.subtree_control`
-[32mNOTICE [0m RUN: `mkdir /sys/fs/cgroup/fd1`
-[32mNOTICE [0m RUN: `echo "1-40,60,77" > /sys/fs/cgroup/fd1/cpuset.cpus`
-[32mNOTICE [0m RUN: `echo "isolated" > /sys/fs/cgroup/fd1/cpuset.cpus.partition`
+[32mNOTICE [0m [1mcpuset[0m ... unconfigured ... [2m`/sys/fs/cgroup/fd1` does not exist[0m
+[32mNOTICE [0m [1mcpuset[0m ... configuring
+[32mNOTICE [0m [2mRUN: `echo "+cpuset" > /sys/fs/cgroup/cgroup.subtree_control`[0m
+[32mNOTICE [0m [2mRUN: `mkdir /sys/fs/cgroup/fd1`[0m
+[32mNOTICE [0m [2mRUN: `echo "1-35,65-66,90-99" > /sys/fs/cgroup/fd1/cpuset.cpus`[0m
+[32mNOTICE [0m [2mRUN: `echo "isolated" > /sys/fs/cgroup/fd1/cpuset.cpus.partition`[0m

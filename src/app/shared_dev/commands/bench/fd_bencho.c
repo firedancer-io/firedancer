@@ -3,6 +3,7 @@
 #include "../../../../disco/topo/fd_topo.h"
 #include "../../../../util/net/fd_ip4.h"
 #include "../../../../discof/replay/fd_replay_tile.h"
+#include "../../../../flamenco/leaders/fd_leaders.h"
 
 #include <stdlib.h>
 
@@ -128,8 +129,11 @@ returnable_frag( fd_bencho_ctx_t *   ctx,
   long  nanos   = msg->completion_time_nanos;
   long  slot_ns = nanos-ctx->last_nanos;
   ctx->last_nanos = nanos;
+
+  /* Time whole leader windows: slot times cycle within a window */
+  int window_end = (msg->slot%FD_EPOCH_SLOTS_PER_ROTATION)==FD_EPOCH_SLOTS_PER_ROTATION-1UL;
   if( FD_UNLIKELY( !ctx->start_nanos ) ) {
-    if( FD_LIKELY( slot_txns>1UL ) ) ctx->start_nanos = nanos;
+    if( FD_LIKELY( slot_txns>1UL && window_end ) ) ctx->start_nanos = nanos;
     return 0;
   }
   ulong tps = slot_ns>0L ? (ulong)((double)slot_txns*1e9/(double)slot_ns) : 0UL;
@@ -137,7 +141,7 @@ returnable_frag( fd_bencho_ctx_t *   ctx,
   ctx->slots++;
   ctx->max_tps = fd_ulong_max( ctx->max_tps, tps );
   FD_LOG_INFO(( "bench slot=%lu txns=%lu dt=%.3f s tps=%lu", msg->slot, slot_txns, (double)slot_ns/1e9, tps ));
-  if( FD_UNLIKELY( ctx->duration_s && nanos-ctx->start_nanos>=(long)ctx->duration_s*1000L*1000L*1000L ) ) {
+  if( FD_UNLIKELY( ctx->duration_s && window_end && nanos-ctx->start_nanos>=(long)ctx->duration_s*1000L*1000L*1000L ) ) {
     double span = (double)(nanos-ctx->start_nanos)/1e9;
     FD_LOG_INFO(( "BENCH_SUMMARY slots=%lu span_s=%.3f txns=%lu tps=%.0f max_slot_tps=%lu",
                   ctx->slots, span, ctx->txns, (double)ctx->txns/span, ctx->max_tps ));

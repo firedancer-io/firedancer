@@ -6,22 +6,10 @@
 #include "../stakes/fd_stake_delegations.h"
 #include "../runtime/sysvar/fd_sysvar_base.h"
 
-struct fd_prev_epoch_inflation_rewards {
-  ulong  validator_rewards;
-  double prev_epoch_duration_in_years;
-  double validator_rate;
-  double foundation_rate;
-};
-typedef struct fd_prev_epoch_inflation_rewards fd_prev_epoch_inflation_rewards_t;
-
 struct fd_partitioned_rewards_calculation {
-  uint128 validator_points;
-  ulong   old_vote_balance_and_staked;
-  ulong   validator_rewards;
-  double  validator_rate;
-  double  foundation_rate;
-  double  prev_epoch_duration_in_years;
-  ulong   capitalization;
+  ulong old_vote_balance_and_staked;
+  ulong validator_rewards;
+  ulong capitalization;
 };
 typedef struct fd_partitioned_rewards_calculation fd_partitioned_rewards_calculation_t;
 
@@ -36,6 +24,17 @@ FD_PROTOTYPES_BEGIN
 void
 fd_apply_double_disinflation_rate( fd_bank_t * bank );
 
+/* fd_apply_integer_inflation_initial_rate applies the
+   remove_runtime_float_ops feature gate to the given bank.  It sets the
+   given bank's inflation->initial to 8%.  This is not actually used
+   after remove_runtime_float_ops is activated, but we set it so that
+   our manifest is consistent with Agave's.
+
+   https://github.com/anza-xyz/agave/blob/9bcf93e368b5fb52c21677ed8c7f0360eb93b5b7/runtime/src/bank.rs#L6257-L6261 */
+
+void
+fd_apply_integer_inflation_initial_rate( fd_bank_t * bank );
+
 /* fd_begin_partitioned_rewards updates epoch bank stake and vote
    account reward calculations.  Updates vote accounts with payouts and
    increases capitalization.  Called in the epoch boundary (start of
@@ -45,13 +44,10 @@ fd_apply_double_disinflation_rate( fd_bank_t * bank );
    - begin_partitioned_rewards
      - calculate_rewards_and_distribute_vote_rewards
        - calculate_rewards_for_partitioning
-         - calculate_reward_points_partitioned (calculates total points)
-           - calculate_points_all
+         - calculate_reward_points_partitioned (caches stake points)
+           - calculate_alpenglow_points
          - calculate_stake_vote_rewards (calculates reward list)
-           - calculate_stake_vote_rewards_account
-             - for each delegation: redeem_rewards
-               - calculate_stake_rewards
-                 - calculate_stake_points_and_credits
+           - for each delegation: redeem_rewards
        - ... update all vote accounts ...
      - ... update epoch rewards bank field ... */
 
@@ -71,10 +67,7 @@ fd_begin_partitioned_rewards( fd_bank_t *                    bank,
 
    Call stack is as follows:
    - calculate_stake_vote_rewards (calculates reward list)
-     - calculate_stake_vote_rewards_account
-       - for each delegation: redeem_rewards
-         - calculate_stake_rewards
-           - calculate_stake_points_and_credits */
+     - for each delegation: calculate_alpenglow_points, redeem_rewards */
 
 void
 fd_rewards_recalculate_partitioned_rewards( fd_bank_t *          bank,
@@ -113,11 +106,6 @@ struct fd_commission_split {
 };
 
 typedef struct fd_commission_split fd_commission_split_t;
-
-void
-fd_vote_commission_split( ushort                  commission,
-                          ulong                   on,
-                          fd_commission_split_t * result );
 
 FD_PROTOTYPES_END
 

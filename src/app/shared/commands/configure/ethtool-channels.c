@@ -8,8 +8,6 @@
 
 #define NAME "ethtool-channels"
 
-static int fini_device( char const * device );
-
 static int
 enabled( fd_config_t const * config ) {
 
@@ -29,41 +27,6 @@ static void
 fini_perm( fd_cap_chk_t *      chk,
            fd_config_t const * config FD_PARAM_UNUSED ) {
   fd_cap_chk_root( chk, NAME, "modify network device configuration with ethtool" );
-}
-
-/* FIXME: Centrally define listen port list to avoid this configure
-   stage from going out of sync with port mappings. */
-static uint
-get_ports( fd_config_t const * config,
-           ushort *            ports ) {
-  uint port_cnt = 0U;
-
-#define ADD_PORT( p ) do { \
-  ushort __port = ( p ); \
-  if( FD_UNLIKELY( __port==0U ) ) break; \
-  int __dupe = 0; \
-  for( uint __p=0U; !__dupe && __p<port_cnt; ++__p ) __dupe = (ports[ __p ]==__port); \
-  if( FD_UNLIKELY( __dupe ) ) break; \
-  ports[ port_cnt ] = __port; \
-  port_cnt++; \
-} while(0)
-
-  ADD_PORT( config->tiles.shred.shred_listen_port              );
-  ADD_PORT( config->tiles.quic.quic_transaction_listen_port    );
-  ADD_PORT( config->tiles.quic.regular_transaction_listen_port );
-  if( config->is_firedancer ) {
-    ADD_PORT( config->gossip.port                              );
-    ADD_PORT( config->tiles.repair.repair_client_listen_port   );
-    ADD_PORT( config->tiles.rserve.repair_serve_listen_port    );
-    ADD_PORT( config->tiles.txsend.txsend_src_port             );
-    if( config->firedancer.consensus.alpenglow ) {
-      ADD_PORT( config->firedancer.development.votor.quic_client_listen_port );
-      ADD_PORT( config->firedancer.development.votor.quic_server_listen_port );
-    }
-  }
-#undef ADD_PORT
-
-  return port_cnt;
 }
 
 /* Attempts to initialize the device in simple or dedicated mode.  If
@@ -151,7 +114,7 @@ init_device( char const *        device,
        are multiple net tiles, create a group of rules for each tile. */
     int ntuple_error = 0;
     ushort ports[ 32 ];
-    uint port_cnt = get_ports( config, ports );
+    uint port_cnt = configure_udp_ports( config, ports );
     uint rule_idx = 0;
     uint const rule_group_cnt = fd_uint_pow2_up( queue_cnt );
     for( uint r=0U; !ntuple_error && r<rule_group_cnt; r++ ) {
@@ -224,17 +187,7 @@ init( fd_config_t const * config ) {
     FD_LOG_WARNING(( "error configuring network device (%s), rss_queue_mode \"auto\" attempted"
                      " \"dedicated\" configuration but falling back to \"simple\".", config->net.interface ));
     /* Wipe partial dedicated configuration before simple init */
-    if( is_bonded ) {
-      fd_bonding_slave_iter_t iter_[1];
-      fd_bonding_slave_iter_t * iter = fd_bonding_slave_iter_init( iter_, config->net.interface );
-      for( ; !fd_bonding_slave_iter_done( iter );
-          fd_bonding_slave_iter_next( iter ) ) {
-        fini_device( fd_bonding_slave_iter_ele( iter ) );
-      }
-    }
-    else {
-      fini_device( config->net.interface );
-    }
+    fd_ethtool_ioctl_reset( config->net.interface );
   }
 
   /* Require success for simple mode, either configured or as fallback */
@@ -248,35 +201,6 @@ init( fd_config_t const * config ) {
   } else {
     init_device( config->net.interface, config, 0, listen_gre, 1, device_cnt );
   }
-}
-
-/* Returns whether anything is changed from the default (fini'd) state */
-static int
-check_device_is_modified( char const * device ) {
-  fd_ethtool_ioctl_t ioc __attribute__((cleanup(fd_ethtool_ioctl_fini)));
-  if( FD_UNLIKELY( &ioc!=fd_ethtool_ioctl_init( &ioc, device ) ) )
-    FD_LOG_ERR(( "error configuring network device (%s), unable to init ethtool ioctl", device ));
-
-  fd_ethtool_ioctl_channels_t channels;
-  FD_TEST( 0==fd_ethtool_ioctl_channels_get_num( &ioc, &channels ) );
-  if( channels.current!=channels.max ) return 1;
-
-  uint rxfh_queue_cnt;
-  FD_TEST( 0==fd_ethtool_ioctl_rxfh_get_queue_cnt( &ioc, &rxfh_queue_cnt ) );
-
-  uint rxfh_table[ FD_ETHTOOL_MAX_RXFH_TABLE_CNT ] = { 0 };
-  uint rxfh_table_ele_cnt;
-  FD_TEST( 0==fd_ethtool_ioctl_rxfh_get_table( &ioc, rxfh_table, &rxfh_table_ele_cnt ) );
-  for( uint j=0U, q=0U; j<rxfh_table_ele_cnt; j++) {
-    if( rxfh_table[ j ]!=q++ ) return 1;
-    if( q>=rxfh_queue_cnt ) q = 0;
-  }
-
-  int ntuple_rules_empty;
-  FD_TEST( 0==fd_ethtool_ioctl_ntuple_validate( &ioc, NULL, 0, 0, UINT_MAX, &ntuple_rules_empty ) );
-  if( !ntuple_rules_empty ) return 1;
-
-  return 0;
 }
 
 static int
@@ -326,7 +250,7 @@ check_device_is_configured( char const *        device,
   } else {
     int ports_valid;
     ushort ports[ 32 ];
-    uint port_cnt = get_ports( config, ports );
+    uint port_cnt = configure_udp_ports( config, ports );
     int listen_gre = config->net.xdp.listen_gre;
     FD_TEST( 0==fd_ethtool_ioctl_ntuple_validate( &ioc, ports, port_cnt, queue_cnt, listen_gre ? 0U : UINT_MAX, &ports_valid ));
     if( !ports_valid ) return 0;
@@ -379,17 +303,7 @@ check( fd_config_t const * config,
     if( is_configured ) CONFIGURE_OK();
   }
 
-  int is_modified = 0;
-  if( is_bonded ) {
-    fd_bonding_slave_iter_t iter_[1];
-    fd_bonding_slave_iter_t * iter = fd_bonding_slave_iter_init( iter_, config->net.interface );
-    for( ; !is_modified && !fd_bonding_slave_iter_done( iter );
-        fd_bonding_slave_iter_next( iter ) ) {
-      is_modified = check_device_is_modified( fd_bonding_slave_iter_ele( iter ) );
-    }
-  } else {
-    is_modified = check_device_is_modified( config->net.interface );
-  }
+  int is_modified = fd_ethtool_ioctl_is_modified( config->net.interface );
   if( is_modified )
     PARTIALLY_CONFIGURED( "device `%s` has partial ethtool-channels network configuration", config->net.interface );
 
@@ -397,87 +311,9 @@ check( fd_config_t const * config,
 }
 
 static int
-fini_device( char const * device ) {
-  int error = 0;
-
-  fd_ethtool_ioctl_t ioc;
-  if( FD_UNLIKELY( &ioc != fd_ethtool_ioctl_init( &ioc, device ) ) )
-    FD_LOG_ERR(( "error configuring network device (%s), unable to init ethtool ioctl", device ));
-
-  /* It may be the case for certain devices that the default state is
-     the same as the init'd state (in simple mode).  In this case the
-     following fini commands will all be noops, which is fine.  But we
-     need to return 0 so that the configure stage logic does not
-     consider this to be an error.  We compare the state before and
-     after to see if anything was changed by fini. */
-  fd_ethtool_ioctl_channels_t channels_orig;
-  error |= (0!=fd_ethtool_ioctl_channels_get_num( &ioc, &channels_orig ));
-  uint rxfh_table_orig[ FD_ETHTOOL_MAX_RXFH_TABLE_CNT ] = { 0 };
-  uint rxfh_table_orig_ele_cnt;
-  error |= (0!=fd_ethtool_ioctl_rxfh_get_table( &ioc, rxfh_table_orig, &rxfh_table_orig_ele_cnt ));
-  int ntuple_rules_empty_orig;
-  error |= (0!=fd_ethtool_ioctl_ntuple_validate( &ioc, NULL, 0, 0, UINT_MAX, &ntuple_rules_empty_orig ));
-  if( FD_UNLIKELY( error ) )
-    FD_LOG_ERR(( "error configuring network device (%s), unable to determine initial state", device ));
-
-  /* We leave the ntuple feature flag as-is in fini */
-  error |= (0!=fd_ethtool_ioctl_ntuple_clear( &ioc ));
-
-  /* This should happen first, otherwise changing the number of channels may fail */
-  error |= (0!=fd_ethtool_ioctl_rxfh_set_default( &ioc ));
-
-  int channels_error = fd_ethtool_ioctl_channels_set_num( &ioc, 0 /* max */ );
-  error |= (0!=channels_error);
-
-  /* Some drivers (i40e) do not always evenly redistribute the RXFH table
-     when increasing the channel count, so we run this again just in case. */
-  error |= (0!=fd_ethtool_ioctl_rxfh_set_default( &ioc ));
-
-  if( FD_UNLIKELY( error ) ) {
-    if( FD_LIKELY( channels_error==EBUSY ) )
-      FD_LOG_ERR(( "error configuring network device (%s), unable to set to default state. "
-                   "This is most commonly caused by an issue with the Intel ice driver on certain versions "
-                   "of Ubuntu.  If you are using the ice driver, `sudo dmesg | grep %s` contains "
-                   "messages about RDMA, and you do not need RDMA, try running `rmmod irdma` and/or "
-                   "blacklisting the irdma kernel module.", device, device ));
-    else
-      FD_LOG_ERR(( "error configuring network device (%s), unable to set to default state", device ));
-  }
-
-  fd_ethtool_ioctl_channels_t channels_new;
-  error |= (0!=fd_ethtool_ioctl_channels_get_num( &ioc, &channels_new ));
-  uint rxfh_table_new[ FD_ETHTOOL_MAX_RXFH_TABLE_CNT ] = { 0 };
-  uint rxfh_table_new_ele_cnt;
-  error |= (0!=fd_ethtool_ioctl_rxfh_get_table( &ioc, rxfh_table_new, &rxfh_table_new_ele_cnt ));
-  int ntuple_rules_empty_new;
-  error |= (0!=fd_ethtool_ioctl_ntuple_validate( &ioc, NULL, 0, 0, UINT_MAX, &ntuple_rules_empty_new ));
-  if( FD_UNLIKELY( error ) )
-    FD_LOG_ERR(( "error configuring network device (%s), unable to determine final state", device ));
-
-  fd_ethtool_ioctl_fini( &ioc );
-
-  int modified = (0!=memcmp( &channels_orig, &channels_new, sizeof(fd_ethtool_ioctl_channels_t) )) ||
-                 (rxfh_table_orig_ele_cnt != rxfh_table_new_ele_cnt) ||
-                 (0!=memcmp( rxfh_table_orig, rxfh_table_new, rxfh_table_orig_ele_cnt * sizeof(uint) )) ||
-                 (ntuple_rules_empty_orig!=ntuple_rules_empty_new);
-  return modified;
-}
-
-static int
 fini( fd_config_t const * config,
       int                 pre_init FD_PARAM_UNUSED ) {
-  int done = 0;
-  if( FD_UNLIKELY( fd_bonding_is_master( config->net.interface ) ) ) {
-    fd_bonding_slave_iter_t iter_[1];
-    fd_bonding_slave_iter_t * iter = fd_bonding_slave_iter_init( iter_, config->net.interface );
-    for( ; !fd_bonding_slave_iter_done( iter );
-         fd_bonding_slave_iter_next( iter ) ) {
-      done |= fini_device( fd_bonding_slave_iter_ele( iter ) );
-    }
-  } else {
-    done = fini_device( config->net.interface );
-  }
-  return done;
+  return fd_ethtool_ioctl_reset( config->net.interface );
 }
 
 configure_stage_t fd_cfg_stage_ethtool_channels = {

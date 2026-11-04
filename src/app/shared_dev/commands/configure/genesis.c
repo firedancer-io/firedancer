@@ -3,7 +3,7 @@
 #include "../bench/bench.h"
 
 #include "../../../platform/fd_file_util.h"
-#include "../../../../ballet/poh/fd_poh.h"
+#include "../../../../disco/keyguard/fd_keyguard_bls.h"
 #include "../../../../disco/keyguard/fd_keyload.h"
 #include "../../../../discof/genesis/genesis_hash.h"
 #include "../../../../flamenco/features/fd_features.h"
@@ -81,35 +81,6 @@ default_enable_features( fd_features_t * features ) {
   features->disable_fees_sysvar = 0UL;
 }
 
-/* estimate_hashes_per_tick approximates the PoH hashrate of the current
-   tile.  Spins PoH hashing for estimate_dur_ns nanoseconds.  Returns
-   the hashes per tick achieved, where tick_dur_us is the target tick
-   duration in microseconds.  Assumes that the estimate duration
-   is larger than the tick duration. */
-
-static ulong
-estimate_hashes_per_tick( ulong tick_dur_us,
-                          ulong estimate_dur_ns ) {
-  ulong const batch    = 1UL<<20;
-  long const  deadline = fd_log_wallclock() + (long)estimate_dur_ns;
-
-  uchar poh_hash[ 32 ] = {0};
-  ulong          hash_cnt = 0UL;
-  do {
-    fd_poh_append( poh_hash, batch );
-    hash_cnt += batch;
-  } while( fd_log_wallclock() < deadline );
-
-  double hash_cnt_dbl = (double)hash_cnt;
-  double tick_cnt_dbl = (double)estimate_dur_ns / ( (double)tick_dur_us * 1000.0 );
-  if( tick_cnt_dbl < 1.0 ) return 0UL;
-
-  /* Apply 50% factor to the maximum machine hash rate. */
-  double hashes_per_tick = hash_cnt_dbl / tick_cnt_dbl / 2.0;
-  return (ulong)hashes_per_tick;
-}
-
-
 /* Create a new genesis.bin file contents into the provided blob buffer
    and return the size of the buffer.  Will abort on error if the
    provided buffer is not large enough. */
@@ -123,10 +94,18 @@ create_genesis( config_t const * config,
 
   /* Read in keys */
 
-  uchar const * identity_pubkey_ = fd_keyload_load( config->paths.identity_key, 1 );
-  if( FD_UNLIKELY( !identity_pubkey_ ) ) FD_LOG_ERR(( "Failed to load identity key" ));
-  memcpy( options->identity_pubkey.key, identity_pubkey_, 32 );
-  fd_keyload_unload( identity_pubkey_, 1 );
+  uchar const * identity_key_ = fd_keyload_load( config->paths.identity_key, 0 );
+  if( FD_UNLIKELY( !identity_key_ ) ) FD_LOG_ERR(( "Failed to load identity key" ));
+  memcpy( options->identity_pubkey.key, identity_key_+32UL, 32 );
+
+  /* The identity is the authorized voter, so the vote account carries
+     the BLS key the sign tile derives from it. */
+  fd_keyguard_bls_key_t bls_key[1];
+  fd_sha512_t           sha[1];
+  fd_keyguard_bls_key_derive( bls_key, identity_key_+32UL, identity_key_, fd_sha512_join( fd_sha512_new( sha ) ) );
+  memcpy( options->bls_pubkey, bls_key->public_key, sizeof(options->bls_pubkey) );
+  fd_memzero_explicit( bls_key, sizeof(bls_key) );
+  fd_keyload_unload( identity_key_, 0 );
 
   char file_path[ PATH_MAX ];
   FD_TEST( fd_cstr_printf_check( file_path, PATH_MAX, NULL, "%s/faucet.json", config->paths.base ) );
@@ -156,35 +135,6 @@ create_genesis( config_t const * config,
   options->faucet_balance     = 500000000000000000UL;
   options->vote_account_stake = config->development.genesis.vote_account_stake_lamports;
 
-  /* Set up PoH config */
-
-  if( 0UL==config->development.genesis.hashes_per_tick ) {
-
-    /* set hashes_per_tick to whatever machine is capable of */
-    ulong hashes_per_tick =
-      estimate_hashes_per_tick( config->development.genesis.target_tick_duration_micros,
-                                (ulong)3e9 /* 3 seconds */ );
-
-    if( hashes_per_tick == 0UL ) {
-      FD_LOG_WARNING(( "PoH rate estimation failed.  Defaulting to %lu",
-                        FD_SYSVAR_CLOCK_DEFAULT_HASHES_PER_TICK ));
-      hashes_per_tick = FD_SYSVAR_CLOCK_DEFAULT_HASHES_PER_TICK;
-    }
-
-    options->hashes_per_tick = hashes_per_tick;
-
-  } else if( 1UL==config->development.genesis.hashes_per_tick ) {
-
-    /* set hashes_per_tick field to 0, which means sleep mode */
-    options->hashes_per_tick = 0UL;
-
-  } else {
-
-    /* set hashes_per_tick to the specified value */
-    options->hashes_per_tick = config->development.genesis.hashes_per_tick;
-
-  }
-
   options->ticks_per_slot               = config->development.genesis.ticks_per_slot;
   options->target_tick_duration_micros  = config->development.genesis.target_tick_duration_micros;
 
@@ -204,6 +154,7 @@ create_genesis( config_t const * config,
   fd_features_disable_all( features );
   fd_features_enable_cleaned_up( features );
   default_enable_features( features );
+  features->alpenglow = 0UL;
 
   options->features = features;
 
@@ -227,14 +178,7 @@ init( config_t const * config ) {
   int bootstrap = !config->gossip.entrypoints_cnt;
   if( FD_LIKELY( !bootstrap ) ) return;
 
-  char _genesis_path[ PATH_MAX ];
-  char const * genesis_path;
-  if( FD_LIKELY( config->is_firedancer ) ) genesis_path = config->paths.genesis;
-  else {
-    genesis_path = _genesis_path;
-    FD_TEST( fd_cstr_printf_check( _genesis_path, PATH_MAX, NULL, "%s/genesis.bin", config->frankendancer.paths.ledger ) );
-  }
-
+  char const * genesis_path = config->paths.genesis;
   if( FD_UNLIKELY( -1==fd_file_util_mkdir_all( genesis_path, config->uid, config->gid, 0 ) ) )
     FD_LOG_ERR(( "could not create ledger directory `%s` (%i-%s)", genesis_path, errno, fd_io_strerror( errno ) ));
 
@@ -284,14 +228,7 @@ fini( config_t const * config,
       int              pre_init ) {
   (void)pre_init;
 
-  char _genesis_path[ PATH_MAX ];
-  char const * genesis_path;
-  if( FD_LIKELY( config->is_firedancer ) ) genesis_path = config->paths.genesis;
-  else {
-    genesis_path = _genesis_path;
-    FD_TEST( fd_cstr_printf_check( _genesis_path, PATH_MAX, NULL, "%s/genesis.bin", config->frankendancer.paths.ledger ) );
-  }
-
+  char const * genesis_path = config->paths.genesis;
   if( FD_UNLIKELY( -1==unlink( genesis_path ) && errno!=ENOENT ) )
     FD_LOG_ERR(( "could not remove genesis.bin file `%s` (%i-%s)", genesis_path, errno, fd_io_strerror( errno ) ));
   return 0;
@@ -301,7 +238,7 @@ static configure_result_t
 check( config_t const * config,
        int              check_type FD_PARAM_UNUSED ) {
   if( FD_LIKELY( config->gossip.entrypoints_cnt ) ) {
-    if( FD_UNLIKELY( config->is_firedancer && strcmp( config->consensus.expected_genesis_hash, "" ) ) ) {
+    if( FD_UNLIKELY( strcmp( config->consensus.expected_genesis_hash, "" ) ) ) {
       uchar expected_genesis_hash[ 32 ];
       if( FD_UNLIKELY( !fd_base58_decode_32( config->consensus.expected_genesis_hash, expected_genesis_hash ) ) )
         FD_LOG_ERR(( "failed to decode [consensus.expected_genesis_hash] \"%s\" as base58", config->consensus.expected_genesis_hash ));
@@ -315,20 +252,12 @@ check( config_t const * config,
     CONFIGURE_OK();
   }
 
-  char _genesis_path[ PATH_MAX ];
-  char const * genesis_path;
-  if( FD_LIKELY( config->is_firedancer ) ) genesis_path = config->paths.genesis;
-  else {
-    genesis_path = _genesis_path;
-    FD_TEST( fd_cstr_printf_check( _genesis_path, PATH_MAX, NULL, "%s/genesis.bin", config->frankendancer.paths.ledger ) );
-  }
-
+  char const * genesis_path = config->paths.genesis;
   struct stat st;
   int err = stat( genesis_path, &st );
   if( FD_UNLIKELY( -1==err && errno!=ENOENT ) ) FD_LOG_ERR(( "could not stat genesis.bin file at `%s` (%i-%s)", genesis_path, errno, fd_io_strerror( errno ) ));
   else if( FD_UNLIKELY( -1==err ) ) NOT_CONFIGURED( "`%s` does not exist", genesis_path );
 
-  if( FD_UNLIKELY( !config->is_firedancer ) ) CHECK( check_dir( config->frankendancer.paths.ledger, config->uid, config->gid, S_IFDIR | S_IRUSR | S_IWUSR | S_IXUSR ) );
   CHECK( check_file( genesis_path, config->uid, config->gid, S_IFREG | S_IRUSR | S_IWUSR ) );
 
   static uchar disk_bin[ GENESIS_BUF_MAX ];

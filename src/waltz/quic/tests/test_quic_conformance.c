@@ -113,6 +113,32 @@ FD_UNIT_TEST( quic_stream_concurrency ) {
 
 /* RFC 9000 Section 19.2. PING Frames */
 
+FD_UNIT_TEST( quic_initial_rtt_probe ) {
+  for( int role=FD_QUIC_ROLE_CLIENT; role<=FD_QUIC_ROLE_SERVER; role++ ) {
+    fd_quic_sandbox_init( sandbox, role );
+    fd_quic_state_t * state = fd_quic_get_state( sandbox->quic );
+    long start = (long)1e12;
+    sandbox->wallclock = state->now = start;
+    fd_quic_conn_t * conn = fd_quic_sandbox_new_conn_established( sandbox, rng );
+    FD_TEST( conn );
+
+    fd_quic_conn_service( sandbox->quic, conn, start );
+    FD_TEST( !(conn->flags & (FD_QUIC_CONN_FLAGS_PING | FD_QUIC_CONN_FLAGS_PING_SENT)) );
+    FD_TEST( !fd_quic_sandbox_next_packet( sandbox ) );
+
+    long probe_time = start+(long)conn->rtt_period_ns;
+    sandbox->wallclock = state->now = probe_time;
+    fd_quic_conn_service( sandbox->quic, conn, probe_time );
+    FD_TEST( !(conn->flags & (FD_QUIC_CONN_FLAGS_PING | FD_QUIC_CONN_FLAGS_PING_SENT)) );
+
+    sandbox->wallclock = state->now = probe_time+1L;
+    fd_quic_conn_service( sandbox->quic, conn, probe_time+1L );
+    FD_TEST( conn->flags & FD_QUIC_CONN_FLAGS_PING_SENT );
+    FD_TEST( fd_quic_sandbox_next_packet( sandbox ) );
+    fd_quic_fini( sandbox->quic );
+  }
+}
+
 FD_UNIT_TEST( quic_ping_frame ) {
   fd_quic_sandbox_init( sandbox, FD_QUIC_ROLE_SERVER );
   fd_quic_conn_t * conn = fd_quic_sandbox_new_conn_established( sandbox, rng );
@@ -185,6 +211,171 @@ FD_UNIT_TEST( quic_sticky_peer_ip4_server ) {
 
 FD_UNIT_TEST( quic_sticky_peer_ip4_client ) {
   test_quic_sticky_peer_ip4_( FD_QUIC_ROLE_CLIENT );
+}
+
+/* Inject a protected packet at the given encryption level. */
+
+static ulong
+test_quic_send_protected_pkt( fd_quic_conn_t * conn,
+                              uint             enc_level,
+                              uchar const *    payload,
+                              ulong            payload_sz ) {
+  ulong pn_space = enc_level==fd_quic_enc_level_initial_id   ? 0UL :
+                   enc_level==fd_quic_enc_level_handshake_id ? 1UL : 2UL;
+  ulong pkt_num  = conn->exp_pkt_number[ pn_space ];
+
+  uchar hdr[ 64 ];
+  ulong hdr_sz = 0UL;
+  if( enc_level==fd_quic_enc_level_appdata_id ) {
+    hdr[ hdr_sz++ ] = (uchar)( 0x43 | ( conn->key_phase<<2 ) ); /* short header, 4 byte pkt num */
+    FD_STORE( ulong, hdr+hdr_sz, conn->our_conn_id ); hdr_sz += 8UL;
+  } else {
+    uint long_type = enc_level==fd_quic_enc_level_initial_id ? FD_QUIC_PKT_TYPE_INITIAL : FD_QUIC_PKT_TYPE_HANDSHAKE;
+    hdr[ hdr_sz++ ] = (uchar)( 0xc3 | ( long_type<<4 ) ); /* long header, 4 byte pkt num */
+    hdr[ hdr_sz++ ] = 0x00; hdr[ hdr_sz++ ] = 0x00; hdr[ hdr_sz++ ] = 0x00; hdr[ hdr_sz++ ] = 0x01;
+    hdr[ hdr_sz++ ] = 8;
+    FD_STORE( ulong, hdr+hdr_sz, conn->our_conn_id ); hdr_sz += 8UL;
+    hdr[ hdr_sz++ ] = (uchar)conn->peer_cids[0].sz;
+    fd_memcpy( hdr+hdr_sz, conn->peer_cids[0].conn_id, conn->peer_cids[0].sz ); hdr_sz += conn->peer_cids[0].sz;
+    if( enc_level==fd_quic_enc_level_initial_id ) hdr[ hdr_sz++ ] = 0x00; /* token length */
+    ulong len = 4UL + payload_sz + FD_QUIC_CRYPTO_TAG_SZ;
+    hdr[ hdr_sz++ ] = (uchar)( 0x40 | ( len>>8 ) );
+    hdr[ hdr_sz++ ] = (uchar)len;
+  }
+  hdr[ hdr_sz++ ] = (uchar)( pkt_num>>24 );
+  hdr[ hdr_sz++ ] = (uchar)( pkt_num>>16 );
+  hdr[ hdr_sz++ ] = (uchar)( pkt_num>> 8 );
+  hdr[ hdr_sz++ ] = (uchar)( pkt_num     );
+
+  uchar pkt_buf[ 256 ];
+  ulong pkt_sz = sizeof(pkt_buf);
+  fd_quic_crypto_keys_t const * keys = &conn->keys[ enc_level ][ 0 ];
+  FD_TEST( fd_quic_crypto_encrypt( pkt_buf, &pkt_sz, hdr, hdr_sz, payload, payload_sz, keys, keys, pkt_num )==FD_QUIC_SUCCESS );
+
+  fd_quic_pkt_t pkt = {
+    .ip4 = {{
+      .saddr = FD_QUIC_SANDBOX_PEER_IP4,
+      .daddr = FD_QUIC_SANDBOX_SELF_IP4,
+    }},
+    .udp = {{
+      .net_sport = FD_QUIC_SANDBOX_PEER_PORT,
+      .net_dport = FD_QUIC_SANDBOX_SELF_PORT,
+    }},
+    .rcv_time    = sandbox->wallclock,
+    .datagram_sz = (uint)pkt_sz,
+  };
+  return fd_quic_process_quic_packet_v1( sandbox->quic, &pkt, pkt_buf, pkt_sz );
+}
+
+static fd_quic_conn_t *
+test_quic_frameless_conn( uint enc_level ) {
+  fd_quic_sandbox_init( sandbox, FD_QUIC_ROLE_SERVER );
+  fd_quic_conn_t * conn = fd_quic_sandbox_new_conn_established( sandbox, rng );
+  conn->keys_avail |= 1U<<enc_level;
+  if( enc_level==fd_quic_enc_level_handshake_id ) {
+    fd_quic_state_t *          state = fd_quic_get_state( sandbox->quic );
+    fd_quic_transport_params_t tp[1] = {0};
+    conn->tls_hs = fd_quic_tls_hs_new(
+        fd_quic_tls_hs_pool_ele_acquire( state->hs_pool ),
+        state->tls, (void *)conn, 1 /*is_server*/, tp, state->now );
+    FD_TEST( conn->tls_hs );
+    fd_quic_tls_hs_cache_ele_push_tail( &state->hs_cache, conn->tls_hs, state->hs_pool );
+  }
+  return conn;
+}
+
+static ulong
+test_quic_ack_tx_cnt( void ) {
+  ulong cnt = 0UL;
+  for( ulong j=0UL; j<FD_QUIC_ACK_TX_CNT; j++ ) cnt += sandbox->quic->metrics.ack_tx[ j ];
+  return cnt;
+}
+
+static __attribute__((noinline)) void
+test_quic_frameless_pkt_( uint enc_level ) {
+  static uchar const ping[1] = { 0x01 };
+
+  /* A packet with a frame is accepted */
+  fd_quic_conn_t * conn = test_quic_frameless_conn( enc_level );
+  ulong before_ack = test_quic_ack_tx_cnt();
+  FD_TEST( test_quic_send_protected_pkt( conn, enc_level, ping, sizeof(ping) )!=FD_QUIC_PARSE_FAIL );
+  FD_TEST( conn->state==FD_QUIC_CONN_STATE_ACTIVE );
+  FD_TEST( test_quic_ack_tx_cnt()==before_ack+1UL );
+
+  /* No frames: PROTOCOL_VIOLATION (RFC 9000 §12.4). */
+  conn = test_quic_frameless_conn( enc_level );
+  before_ack = test_quic_ack_tx_cnt();
+  sandbox->wallclock += (long)1e6;
+  fd_quic_get_state( sandbox->quic )->now = sandbox->wallclock;
+  long last_activity = conn->last_activity;
+  FD_TEST( test_quic_send_protected_pkt( conn, enc_level, NULL, 0UL )==FD_QUIC_PARSE_FAIL );
+  FD_TEST( conn->state ==FD_QUIC_CONN_STATE_ABORT );
+  FD_TEST( conn->reason==FD_QUIC_CONN_REASON_PROTOCOL_VIOLATION );
+  FD_TEST( conn->last_activity==last_activity );
+  FD_TEST( test_quic_ack_tx_cnt()==before_ack );
+}
+
+FD_UNIT_TEST( quic_frameless_pkt_initial ) {
+  test_quic_frameless_pkt_( fd_quic_enc_level_initial_id );
+}
+
+FD_UNIT_TEST( quic_frameless_pkt_handshake ) {
+  test_quic_frameless_pkt_( fd_quic_enc_level_handshake_id );
+}
+
+FD_UNIT_TEST( quic_frameless_pkt_one_rtt ) {
+  test_quic_frameless_pkt_( fd_quic_enc_level_appdata_id );
+}
+
+/* RFC 9001 Section 5.7. Receiving Out-of-Order Protected Packets
+
+   > [...] a server MUST NOT process incoming 1-RTT protected packets
+   > before the TLS handshake is complete. */
+
+FD_UNIT_TEST( quic_one_rtt_before_handshake_complete ) {
+  fd_quic_sandbox_init( sandbox, FD_QUIC_ROLE_SERVER );
+  fd_quic_conn_t * conn = fd_quic_sandbox_new_conn_established( sandbox, rng );
+
+  /* Server has 1-RTT keys, but has not yet received client Finished */
+  conn->state              = FD_QUIC_CONN_STATE_HANDSHAKE;
+  conn->established        = 0;
+  conn->handshake_complete = 0;
+
+  uchar pkt_buf[ FD_QUIC_SHORTEST_PKT ];
+  memset( pkt_buf, 0, sizeof(pkt_buf) );
+  pkt_buf[0] = 0x40; /* short header */
+  FD_STORE( ulong, pkt_buf+1, conn->our_conn_id );
+
+  fd_quic_pkt_t pkt = {
+    .ip4 = {{
+      .saddr = FD_QUIC_SANDBOX_PEER_IP4,
+      .daddr = FD_QUIC_SANDBOX_SELF_IP4,
+    }},
+    .udp = {{
+      .net_sport = FD_QUIC_SANDBOX_PEER_PORT,
+      .net_dport = FD_QUIC_SANDBOX_SELF_PORT,
+    }},
+  };
+
+  fd_quic_metrics_t * metrics = &sandbox->quic->metrics;
+  ulong before_no_key      = metrics->pkt_no_key_cnt      [ fd_quic_enc_level_appdata_id ];
+  ulong before_decrypt     = metrics->pkt_decrypt_fail_cnt[ fd_quic_enc_level_appdata_id ];
+  ulong before_ack         = metrics->ack_tx[ FD_QUIC_ACK_TX_NEW ];
+  ulong rc                 = fd_quic_process_quic_packet_v1( sandbox->quic, &pkt, pkt_buf, sizeof(pkt_buf) );
+
+  FD_TEST( rc==FD_QUIC_PARSE_FAIL );
+  FD_TEST( metrics->pkt_no_key_cnt      [ fd_quic_enc_level_appdata_id ]==before_no_key+1UL );
+  FD_TEST( metrics->pkt_decrypt_fail_cnt[ fd_quic_enc_level_appdata_id ]==before_decrypt   );
+  FD_TEST( metrics->ack_tx[ FD_QUIC_ACK_TX_NEW ]==before_ack );
+  FD_TEST( conn->state==FD_QUIC_CONN_STATE_HANDSHAKE );
+
+  /* Once the handshake is complete, the packet reaches decryption */
+
+  conn->handshake_complete = 1;
+  rc = fd_quic_process_quic_packet_v1( sandbox->quic, &pkt, pkt_buf, sizeof(pkt_buf) );
+  FD_TEST( rc==FD_QUIC_PARSE_FAIL );
+  FD_TEST( metrics->pkt_no_key_cnt      [ fd_quic_enc_level_appdata_id ]==before_no_key+1UL  );
+  FD_TEST( metrics->pkt_decrypt_fail_cnt[ fd_quic_enc_level_appdata_id ]==before_decrypt+1UL );
 }
 
 /* Test an ALPN failure when acting as a server */
@@ -764,7 +955,7 @@ FD_UNIT_TEST( quic_pktmeta_pktnum_skip ) {
   }
 
   ulong * metrics_alloc_fail_cnt =
-      &metrics->frame_tx_alloc_cnt[FD_METRICS_ENUM_FRAME_TX_ALLOC_RESULT_V_FAIL_EMPTY_POOL_IDX];
+      &metrics->frame_tx_alloc_cnt[FD_METRICS_ENUM_PKT_META_ACQUIRE_RESULT_V_POOL_EMPTY_IDX];
   FD_TEST(( *metrics_alloc_fail_cnt == 0UL ));
 
   /* trigger a few pings
@@ -1185,6 +1376,7 @@ FD_UNIT_TEST( quic_datagram_express_tx ) {
     .rtt_ack_time   = 1L,
     .rtt_ack_delay  = ULONG_MAX,
   };
+  uchar pkt_copy[ 128 ]; fd_memcpy( pkt_copy, pkt, pkt_sz ); /* header protection is removed in place */
   FD_TEST( fd_quic_process_quic_packet_v1( quic, &pkt_meta, pkt, pkt_sz )==pkt_sz );
   FD_TEST( pkt_meta.ack_flag      ==ACK_FLAG_RQD );
   FD_TEST( pkt_meta.rtt_pkt_number==0UL          );
@@ -1194,9 +1386,27 @@ FD_UNIT_TEST( quic_datagram_express_tx ) {
   FD_TEST( datagram_rx_sz==sizeof(msg) );
   FD_TEST( !memcmp( datagram_rx_buf, msg, sizeof(msg) ) );
 
+  /* A duplicate packet number is dropped (RFC 9000 s12.3), a reordered
+     older one is not */
+  ulong dup_cnt = quic->metrics.pkt_dup_cnt;
+  fd_memcpy( pkt, pkt_copy, pkt_sz );
+  FD_TEST( fd_quic_process_quic_packet_v1( quic, &pkt_meta, pkt, pkt_sz )==FD_QUIC_PARSE_FAIL );
+  FD_TEST( datagram_rx_cnt==1UL );
+  FD_TEST( quic->metrics.pkt_dup_cnt==dup_cnt+1UL );
+
+  uchar pkt1[ 128 ]; ulong pkt1_sz = fd_quic_conn_tx_dgram( conn, pkt1, sizeof(pkt1), msg, sizeof(msg), NULL );
+  uchar pkt2[ 128 ]; ulong pkt2_sz = fd_quic_conn_tx_dgram( conn, pkt2, sizeof(pkt2), msg, sizeof(msg), NULL );
+  fd_memcpy( pkt_copy, pkt1, pkt1_sz );
+  FD_TEST( fd_quic_process_quic_packet_v1( quic, &pkt_meta, pkt2, pkt2_sz )==pkt2_sz );
+  FD_TEST( fd_quic_process_quic_packet_v1( quic, &pkt_meta, pkt1, pkt1_sz )==pkt1_sz );
+  FD_TEST( fd_quic_process_quic_packet_v1( quic, &pkt_meta, pkt_copy, pkt1_sz )==FD_QUIC_PARSE_FAIL );
+  FD_TEST( datagram_rx_cnt==3UL );
+  FD_TEST( quic->metrics.pkt_dup_cnt==dup_cnt+2UL );
+  FD_TEST( conn->state==FD_QUIC_CONN_STATE_ACTIVE );
+
   conn->tx_max_datagram_frame_sz = 1UL+1UL+sizeof(msg)-1UL;
   FD_TEST( !fd_quic_conn_tx_dgram( conn, pkt, sizeof(pkt), msg, sizeof(msg), NULL ) );
-  FD_TEST( conn->pkt_number[2]==pkt_num+1UL );
+  FD_TEST( conn->pkt_number[2]==pkt_num+3UL );
 }
 
 /* fd_quic_rng_ulong periodically rekeys the CSPRNG.  Verify that it only
@@ -1445,6 +1655,68 @@ FD_UNIT_TEST( quic_initial_scid_server ) {
   test_quic_initial_scid( FD_QUIC_ROLE_SERVER );
 }
 
+/* RFC 9000 Section 12.2: ignore coalesced packets with a different DCID. */
+
+FD_UNIT_TEST( quic_coalesced_dcid_mismatch ) {
+  FD_TEST( fd_quic_sandbox_init( sandbox, FD_QUIC_ROLE_CLIENT ) );
+  fd_quic_t * quic = sandbox->quic;
+
+  uchar dgram[ 1500 ];
+  ulong off = 28UL;
+  fd_quic_conn_t * conns[2];
+  for( ulong j=0UL; j<2UL; j++ ) {
+    ulong our_conn_id = fd_rng_ulong( rng );
+    fd_quic_conn_id_t dcid = fd_quic_conn_id_new( &our_conn_id, FD_QUIC_CONN_ID_SZ );
+    fd_quic_conn_t * conn = fd_quic_conn_create(
+        quic, our_conn_id, &dcid,
+        FD_QUIC_SANDBOX_PEER_IP4, FD_QUIC_SANDBOX_PEER_PORT,
+        FD_QUIC_SANDBOX_SELF_IP4, FD_QUIC_SANDBOX_SELF_PORT, 0 );
+    FD_TEST( conn );
+    conns[j] = conn;
+    fd_quic_svc_timers_schedule( fd_quic_get_state( quic )->svc_timers, conn, sandbox->wallclock );
+    fd_quic_gen_initial_secrets( &conn->secrets, dcid.conn_id, dcid.sz, 0 );
+    fd_quic_crypto_keys_t * keys = &conn->keys[ fd_quic_enc_level_initial_id ][0];
+    fd_quic_gen_keys( keys, conn->secrets.secret[ fd_quic_enc_level_initial_id ][0] );
+
+    uchar payload[ 64 ] = { 0x01 }; /* PING + padding */
+    fd_quic_initial_t initial = {
+      .h0              = fd_quic_initial_h0( 3 ),
+      .version         = 1,
+      .dst_conn_id_len = FD_QUIC_CONN_ID_SZ,
+      .src_conn_id_len = FD_QUIC_CONN_ID_SZ,
+      .len             = 4UL + sizeof(payload) + FD_QUIC_CRYPTO_TAG_SZ
+    };
+    memcpy( initial.dst_conn_id, dcid.conn_id, dcid.sz );
+    memcpy( initial.src_conn_id, dcid.conn_id, dcid.sz );
+    ulong hdr_sz = fd_quic_encode_initial( dgram+off, sizeof(dgram)-off, &initial );
+    FD_TEST( hdr_sz!=FD_QUIC_ENCODE_FAIL );
+    ulong pkt_sz = sizeof(dgram)-off;
+    FD_TEST( fd_quic_crypto_encrypt( dgram+off, &pkt_sz, dgram+off, hdr_sz, payload, sizeof(payload),
+                                     keys, keys, 0UL )==FD_QUIC_SUCCESS );
+    off += pkt_sz;
+  }
+
+  fd_ip4_hdr_t ip4 = {
+    .verihl      = FD_IP4_VERIHL(4,5),
+    .net_tot_len = (ushort)off,
+    .protocol    = FD_IP4_HDR_PROTOCOL_UDP,
+    .saddr       = FD_QUIC_SANDBOX_PEER_IP4,
+    .daddr       = FD_QUIC_SANDBOX_SELF_IP4
+  };
+  fd_udp_hdr_t udp = {
+    .net_sport = FD_QUIC_SANDBOX_PEER_PORT,
+    .net_dport = FD_QUIC_SANDBOX_SELF_PORT,
+    .net_len   = (ushort)( off-20UL )
+  };
+  FD_TEST( fd_quic_encode_ip4( dgram,     20UL, &ip4 )==20UL );
+  FD_TEST( fd_quic_encode_udp( dgram+20UL, 8UL, &udp )==8UL  );
+
+  fd_quic_process_packet( quic, dgram, off, sandbox->wallclock );
+  FD_TEST( conns[0]->exp_pkt_number[0]==1UL );
+  FD_TEST( conns[1]->exp_pkt_number[0]==0UL );
+  fd_quic_fini( quic );
+}
+
 FD_UNIT_TEST( quic_initial_datagram_size ) {
   uint const token_lengths[] = { 0U, 46U };
   for( ulong i=0UL; i<sizeof(token_lengths)/sizeof(token_lengths[0]); i++ ) {
@@ -1487,7 +1759,7 @@ main( int     argc,
   if( cpu_idx>=fd_shmem_cpu_cnt() ) cpu_idx = 0UL;
 
   char const * _page_sz = fd_env_strip_cmdline_cstr  ( &argc, &argv, "--page-sz",  NULL, "gigantic"                 );
-  ulong        page_cnt = fd_env_strip_cmdline_ulong ( &argc, &argv, "--page-cnt", NULL, 2UL                        );
+  ulong        page_cnt = fd_env_strip_cmdline_ulong ( &argc, &argv, "--page-cnt", NULL, 1UL                        );
   ulong        numa_idx = fd_env_strip_cmdline_ulong ( &argc, &argv, "--numa-idx", NULL, fd_shmem_numa_idx(cpu_idx) );
 
   ulong page_sz = fd_cstr_to_shmem_page_sz( _page_sz );

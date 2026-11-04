@@ -437,7 +437,7 @@ FD_VM_SYSCALL_DECL( sol_memmove );
 /* syscall(d56b5fe9) "sol_get_clock_sysvar"
    syscall(23a29a61) "sol_get_epoch_schedule_sysvar"
    syscall(bf7188f6) "sol_get_rent_sysvar"
-   syscall(77f9b9d0) "sol_get_last_restart_slot_sysvar"
+   syscall(188a0031) "sol_get_last_restart_slot"
    Get various sysvar values
 
    Inputs:
@@ -690,15 +690,15 @@ FD_VM_SYSCALL_DECL( sol_get_processed_sibling_instruction );
 
 /* syscall(9377323c) "sol_create_program_address"
 
-   Compute SHA-256 hash of <program ID> .. &[&[u8]] .. <PDA Marker>
+   Compute SHA-256 hash of &[&[u8]] .. <program ID> .. <PDA Marker>
    and check whether result is an Ed25519 curve point.
 
    Inputs:
 
      r1 - seeds, bytes VM pointer, indexed [0,seed_cnt),
      r2 - seed_cnt, may be 0,
-     r3 - program_id, byte VM pointer, indexed [0,32), 8 byte aligned
-     r4 - out, byte VM pointer, indexed [0,32), 8 byte aligned
+     r3 - program_id, byte VM pointer, indexed [0,32)
+     r4 - out, byte VM pointer, indexed [0,32)
      r5 - ignored
 
      seed[i] holds the ulong pair
@@ -710,14 +710,13 @@ FD_VM_SYSCALL_DECL( sol_get_processed_sibling_instruction );
      FD_VM_SYSCALL_ERR_COMPUTE_BUDGET_EXCEEDED: insufficient compute
      budget.  vm->reg[0] unchanged.  vm->cu==0.
 
-     FD_VM_SYSCALL_ERR_BAD_SEEDS: seed_cnt and/or seed[i].sz too large,
-     bad address range for program_id, seed,
-     seed[i].mem and/or out (including 8-byte alignment for seed if the
-     VM has check_align set). vm->reg[0] unchanged.  Compute budget
-     decremented.
+     FD_VM_SYSCALL_ERR_BAD_SEEDS: seed_cnt and/or seed[i].sz too large.
+     vm->reg[0] unchanged.  Compute budget decremented.
 
-     FD_VM_SYSCALL_ERR_SEGFAULT: bad address range.  vm->reg[0] unchanged.
-     vm->cu decremented and vm->cu>=0.
+     FD_VM_SYSCALL_ERR_SEGFAULT: bad address range for seed, seed[i].mem,
+     program_id and/or out (including 8-byte alignment for seed if the VM
+     has check_align set).  vm->reg[0] unchanged.  vm->cu decremented and
+     vm->cu>=0.
 
      FD_VM_SUCCESS: success.  If vm->reg[0]==0, a PDA was created and
      stored at out.  If vm->reg[0]==1, create failed and out was unchanged.
@@ -734,8 +733,8 @@ FD_VM_SYSCALL_DECL( sol_create_program_address );
 
      r1 - seed, ulong pair VM pointer, indexed [0,seed_cnt),
      r2 - seed_cnt, may be 0,
-     r3 - program_id, byte VM pointer, indexed [0,32), 8 byte aligned
-     r4 - out, byte VM pointer, indexed [0,32), 8 byte aligned
+     r3 - program_id, byte VM pointer, indexed [0,32)
+     r4 - out, byte VM pointer, indexed [0,32)
      r5 - bump_seed, byte VM pointer, indexed [0,1)
 
      seed[i] holds the ulong pair
@@ -747,14 +746,13 @@ FD_VM_SYSCALL_DECL( sol_create_program_address );
      FD_VM_SYSCALL_ERR_COMPUTE_BUDGET_EXCEEDED: insufficient compute
      budget.  vm->reg[0] unchanged.  vm->cu==0.
 
-     FD_VM_SYSCALL_ERR_BAD_SEEDS: seed_cnt and/or seed[i].sz too large,
-     bad address range for program_id, seed,
-     seed[i].mem, out and/or bump_seed (including 8-byte alignment for
-     seed if the VM has check_align set). vm->reg[0] unchanged.  Compute
-     budget decremented.
+     FD_VM_SYSCALL_ERR_BAD_SEEDS: seed_cnt and/or seed[i].sz too large.
+     vm->reg[0] unchanged.  Compute budget decremented.
 
-     FD_VM_SYSCALL_ERR_SEGFAULT: bad address range.  vm->reg[0] unchanged.
-     vm->cu decremented and vm->cu>=0.
+     FD_VM_SYSCALL_ERR_SEGFAULT: bad address range for seed, seed[i].mem,
+     program_id, out and/or bump_seed (including 8-byte alignment for
+     seed if the VM has check_align set).  vm->reg[0] unchanged.  vm->cu
+     decremented and vm->cu>=0.
 
      FD_VM_SUCCESS: success.  If vm->reg[0]==0, a PDA was found and stored at
      out and the suffix stored at bump_seed.  If vm->reg[0]==1, no PDA was
@@ -894,6 +892,15 @@ FD_VM_SYSCALL_DECL( sol_poseidon ); /* Light protocol flavor */
 
 FD_VM_SYSCALL_DECL( sol_secp256k1_recover );
 
+/* syscall "sol_big_mod_exp" (SIMD-0529)
+
+   result := (base ^ exponent) mod modulus, where all operands are
+   little-endian and the modulus is odd and > 1.  r1 is a vaddr to a
+   BigModExpParams record; r2 is a vaddr to the result buffer.  Gated
+   behind the enable_big_mod_exp_syscall feature. */
+
+FD_VM_SYSCALL_DECL( sol_big_mod_exp );
+
 /* fd_vm_syscall_curve ************************************************/
 
 /* FD_VM_SYSCALL_SOL_CURVE_CURVE25519_{...} specifies the curve ID */
@@ -906,6 +913,8 @@ FD_VM_SYSCALL_DECL( sol_secp256k1_recover );
 #define FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G1_LE      ( 5UL        ) /* bls12-381 G1 little endian */
 #define FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G2_BE      ( 6UL | 0x80 ) /* bls12-381 G2 big endian */
 #define FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G2_LE      ( 6UL        ) /* bls12-381 G2 little endian */
+#define FD_VM_SYSCALL_SOL_CURVE_SECP256R1_BE         ( 7UL | 0x80 ) /* secp256r1 big endian */
+#define FD_VM_SYSCALL_SOL_CURVE_SECP256R1_LE         ( 7UL        ) /* secp256r1 little endian */
 
 /* FD_VM_SYSCALL_SOL_CURVE_{...} specifies the curve operation */
 
@@ -922,6 +931,9 @@ FD_VM_SYSCALL_DECL( sol_secp256k1_recover );
 #define FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G2_COMPRESSED_SZ  (2*48UL)   /* G2 point (compressed) */
 #define FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G2_POINT_SZ       (2*96UL)   /* G2 point (uncompressed) */
 #define FD_VM_SYSCALL_SOL_CURVE_BLS12_381_GT_ELE_SZ        (12*48UL)   /* GT element */
+#define FD_VM_SYSCALL_SOL_CURVE_SECP256R1_COMPRESSED_SZ       (33UL)   /* point (compressed) */
+#define FD_VM_SYSCALL_SOL_CURVE_SECP256R1_POINT_SZ            (64UL)   /* point (uncompressed) */
+#define FD_VM_SYSCALL_SOL_CURVE_SECP256R1_SCALAR_SZ           (32UL)   /* scalar */
 
 /* syscall(aa2607ca) sol_curve_validate_point
 

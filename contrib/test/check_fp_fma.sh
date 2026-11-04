@@ -36,7 +36,7 @@ fi
 
 # Top-level object directories where FP FMA instructions are allowed:
 # non-consensus code (apps, tiles, networking, monitoring, utils).
-ALLOW_DIRS="app disco discof discoh util waltz tango wiredancer third_party"
+ALLOW_DIRS="app disco discof discoh util waltz tango third_party"
 
 # Specific objects in denied directories with reviewed, intentional
 # FMA use.

@@ -8,10 +8,13 @@
 #include "../../../disco/keyguard/fd_keyload.h"
 #include "../../../ballet/base58/fd_base58.h"
 #include "../../../ballet/ed25519/fd_ed25519.h"
+#include "../../../choreo/votor/ag_vote_history_serde.h"
 
 #include <errno.h>
 #include <fcntl.h>
 #include <strings.h>
+#include <sys/mman.h>
+#include <sys/stat.h>
 #include <unistd.h>
 #include <sys/resource.h>
 
@@ -41,29 +44,6 @@ set_identity_cmd_args( int *    pargc,
   (*pargc)--;
   (*pargv)++;
 
-  /* Copy in the contents of the vote history or tower file into a fixed
-     size buffer.*/
-  args->set_identity.vote_history_sz = 0UL;
-  if( vote_history_file ) {
-    int fd = open( vote_history_file, O_RDONLY );
-    if( FD_UNLIKELY( -1==fd ) ) FD_LOG_ERR(( "open(%s) failed (%i-%s)", vote_history_file, errno, fd_io_strerror( errno ) ));
-
-    int err = fd_io_read( fd, args->set_identity.vote_history,
-                         sizeof(args->set_identity.vote_history), sizeof(args->set_identity.vote_history),
-                         &args->set_identity.vote_history_sz );
-    if( FD_UNLIKELY( -1==close( fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-    if( FD_UNLIKELY( err>0 ) ) FD_LOG_ERR(( "read(%s) failed (%i-%s)", vote_history_file, err, fd_io_strerror( err ) ));
-    if( FD_UNLIKELY( !args->set_identity.vote_history_sz ) ) {
-      FD_LOG_ERR(( "vote history file %s is empty.  If you wish to change a running validator's identity without "
-                   "a vote history file, you can omit the --vote-history-file argument.", vote_history_file ));
-    }
-    if( FD_UNLIKELY( args->set_identity.vote_history_sz>AG_VOTE_HISTORY_FILE_MAX ) ) {
-      FD_LOG_ERR(( "vote history file %s exceeds %lu bytes.  The firedancer validator will not be able to process this file. "
-                   "Retry without the --vote-history-file argument.", vote_history_file, AG_VOTE_HISTORY_FILE_MAX ));
-
-    }
-  }
-
   if( FD_UNLIKELY( !strcmp( path, "-" ) ) ) {
     uchar * keypair_wr = fd_keyload_alloc_protected_pages( 1UL, 2UL );
     FD_LOG_STDOUT(( "Reading identity keypair from stdin.  Press Ctrl-D when done.\n" ));
@@ -73,6 +53,31 @@ set_identity_cmd_args( int *    pargc,
     args->set_identity.keypair = fd_keyload_load( path, 0 );
   }
 
+  /* Scan a vote history file for the slot to wait to vote past, which
+     is all the validator needs. */
+
+  args->set_identity.vote_history_slot = 0UL;
+  if( vote_history_file ) {
+    int fd = open( vote_history_file, O_RDONLY );
+    if( FD_UNLIKELY( -1==fd ) ) FD_LOG_ERR(( "open(%s) failed (%i-%s)", vote_history_file, errno, fd_io_strerror( errno ) ));
+    struct stat st;
+    if( FD_UNLIKELY( -1==fstat( fd, &st ) ) ) FD_LOG_ERR(( "fstat(%s) failed (%i-%s)", vote_history_file, errno, fd_io_strerror( errno ) ));
+    ulong sz = (ulong)st.st_size;
+    if( FD_UNLIKELY( !sz ) ) {
+      FD_LOG_ERR(( "vote history file %s is empty.  If you wish to change a running validator's identity without "
+                   "a vote history file, you can omit the --vote-history-file argument.", vote_history_file ));
+    }
+    uchar const * file = mmap( NULL, sz, PROT_READ, MAP_PRIVATE, fd, 0 );
+    if( FD_UNLIKELY( file==MAP_FAILED ) ) FD_LOG_ERR(( "mmap(%s) failed (%i-%s)", vote_history_file, errno, fd_io_strerror( errno ) ));
+    if( FD_UNLIKELY( -1==close( fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
+    int err = ag_vote_history_de( file, sz, args->set_identity.keypair+32UL, &args->set_identity.vote_history_slot );
+    if( FD_UNLIKELY( err ) ) {
+      FD_LOG_ERR(( "vote history file %s is invalid (%i) or does not belong to the new identity.  If you believe the "
+                   "vote history file is valid, please contact the Firedancer team for additional assistance.", vote_history_file, err ));
+    }
+    if( FD_UNLIKELY( munmap( (void *)file, sz ) ) ) FD_LOG_ERR(( "munmap(%s) failed (%i-%s)", vote_history_file, errno, fd_io_strerror( errno ) ));
+  }
   return;
 
 err:
@@ -107,10 +112,9 @@ set_identity( args_t *   args,
   if( FD_UNLIKELY( sizeof(fd_adminctl_set_identity_t)>payload_max ) ) FD_LOG_ERR(( "adminctl set-identity payload too large" ));
 
   fd_adminctl_set_identity_t * req = (fd_adminctl_set_identity_t *)payload;
-  req->version         = FD_ADMINCTL_SET_IDENTITY_PAYLOAD_VERSION;
-  req->vote_history_sz = args->set_identity.vote_history_sz;
+  req->version           = FD_ADMINCTL_SET_IDENTITY_PAYLOAD_VERSION;
+  req->vote_history_slot = args->set_identity.vote_history_slot;
   memcpy( req->keypair, args->set_identity.keypair, 64UL );
-  memcpy( req->vote_history, args->set_identity.vote_history, args->set_identity.vote_history_sz );
 
   uchar * keypair_wr = fd_keyload_mprotect_wr( args->set_identity.keypair, 0 );
   fd_memzero_explicit( keypair_wr, 64UL );
@@ -123,13 +127,18 @@ set_identity( args_t *   args,
     case FD_ADMINCTL_RESULT_SUCCESS:
       FD_LOG_NOTICE(( "validator identity key switched to %s%s%s", fd_log_style_bold(), identity_key_base58, fd_log_style_normal() ));
       break;
+    case FD_SET_IDENTITY_RESULT_SAME_IDENTITY:
+      FD_LOG_ERR(( "Failed to set identity: the validator is already running as %s.", identity_key_base58 ));
     case FD_SET_IDENTITY_RESULT_INVALID_VOTE_HISTORY:
       FD_LOG_ERR(( "Failed to set identity: the vote history file is invalid or does not belong to the new identity. "
                    "If you believe the vote history file is valid, please contact the Firedancer team for additional assistance." ));
+    case FD_SET_IDENTITY_RESULT_KEYPAIR_MISMATCH:
+      FD_LOG_ERR(( "Failed to set identity: the public key in the keypair does not match the public key derived "
+                   "from its private key." ));
     case FD_ADMINCTL_RESULT_UNKNOWN_COMMAND:
+    case FD_ADMINCTL_RESULT_UNSUPPORTED:
     case FD_ADMINCTL_RESULT_ABI_VERSION_MISMATCH:
     case FD_ADMINCTL_RESULT_ABI_SIZE_MISMATCH:
-    case FD_SET_IDENTITY_RESULT_KEYPAIR_MISMATCH:
       FD_LOG_ERR(( "Failed to set identity: the command was not able to successfully communicate "
                    "with the running Firedancer process. It is possible that you are running the "
                    "command from an older or newer version of Firedancer that is no longer compatible." ));
@@ -153,7 +162,7 @@ set_identity_args_help( fd_action_help_t * help ) {
                                                              "array from stdin instead of from a file" );
   fd_action_help_arg( help, "--name",              "<name>", "Name of the validator instance to attach to, if more than one is\n"
                                                              "running on this host" );
-  fd_action_help_arg( help, "--vote-history-file", "<path>", "Path to the vote history or tower file for the new identity" );
+  fd_action_help_arg( help, "--vote-history-file", "<path>", "Path to the vote history file for the new identity" );
 }
 
 action_t fd_action_set_identity = {
@@ -170,16 +179,8 @@ action_t fd_action_set_identity = {
                     "identity.  On success it prints `Validator identity key switched to <pubkey>`\n"
                     "and exits 0; a rejected request exits non-zero.\n"
                     "\n"
-                    "With --vote-history-file, the saved tower is verified before switching.  The\n"
-                    "validator takes its votes on blocks it has replayed, and does not vote until\n"
-                    "its votes on blocks it has not replayed, or on forks outside its rooted\n"
-                    "history, stop locking it out.  Agave instead stops if the tower file\n"
-                    "conflicts with the running validator's rooted history.  Without a file, or if\n"
-                    "the tower is behind the validator's root, voting history is reconstructed\n"
-                    "from on-chain state.\n"
-                    "\n"
-                    "With Alpenglow, pass the vote history file instead.  The validator does not\n"
-                    "vote until the leader window after the highest slot the file voted in.\n"
+                    "With --vote-history-file, the validator does not vote until the leader window\n"
+                    "after the highest slot the file voted in.\n"
                     "\n"
                     "This command does not start a validator; it attaches to one that is already\n"
                     "running.  With no arguments it discovers the running validator automatically.\n"

@@ -3,7 +3,7 @@
 
 #include "../../util/fd_util_base.h"
 
-#define FD_TXNCACHE_SHMEM_ALIGN (128UL)
+#define FD_TXNCACHE_SHMEM_ALIGN (4096UL)
 
 #define FD_TXNCACHE_SHMEM_MAGIC (0xF17EDA2CE58CC4E1UL) /* FIREDANCE SMCCHE V1 */
 
@@ -30,18 +30,24 @@ fd_txncache_shmem_align( void );
    2*config->limits.max_txn_per_slot, so a raised [development.bench]
    block cost limit sizes the pool up through that value.
 
-   footprint and new return 0 / NULL for zero max_live_slots or
-   max_txn_per_slot, and log an error and exit if the parameters need a
-   txnpage pool larger than the structure can address. */
+   cache_footprint is the in-memory transaction page budget in bytes
+   (ULONG_MAX for a fully in-memory cache).  Pages that do not fit spill
+   to disk.
+
+   footprint and new return 0 / NULL for zero max_live_slots,
+   max_txn_per_slot, or cache_footprint, and log an error and exit if the
+   parameters need more pages than can be addressed. */
 
 ulong
 fd_txncache_shmem_footprint( ulong max_live_slots,
-                             ulong max_txn_per_slot );
+                             ulong max_txn_per_slot,
+                             ulong cache_footprint );
 
 void *
 fd_txncache_shmem_new( void * shmem,
                        ulong  max_live_slots,
                        ulong  max_txn_per_slot,
+                       ulong  cache_footprint,
                        ulong  seed );
 
 fd_txncache_shmem_t *

@@ -1,13 +1,16 @@
 #include "fd_tlsrec.h"
-#include "fd_tlsrec_sock.h"
 #include "../tls/test_tls_helper.h"
 #include "../../ballet/aes/fd_aes_gcm.h"
 #include "../../ballet/ed25519/fd_x25519.h"
 #include "../../ballet/x509/fd_x509_mock.h"
 
 #include <string.h>
+
+#if FD_HAS_HOSTED
+#include "fd_tlsrec_sock.h"
 #include <unistd.h>
 #include <sys/socket.h>
+#endif
 
 /* Reimplement IV generation logic for testing.
    TLS 1.3 per-record nonce: base_iv XOR big-endian sequence number
@@ -1256,6 +1259,8 @@ test_tlsrec_close_notify( fd_rng_t * rng ) {
   FD_TEST( !srv->rx_closed );
 }
 
+#if FD_HAS_HOSTED
+
 /* fd_tlsrec_sock_rx reports a close_notify as EOF once the plaintext
    before it was consumed, even if the TCP connection stays open. */
 
@@ -1324,6 +1329,8 @@ test_tlsrec_sock_close_notify( fd_rng_t * rng ) {
   FD_TEST( !close( fds[0] ) );
   FD_TEST( !close( fds[1] ) );
 }
+
+#endif /* FD_HAS_HOSTED */
 
 /* RFC 8446 Sections 5.1-5.2: ignore the legacy version, but authenticate
    it as AAD.  Encrypted records must have outer type application_data. */
@@ -1843,7 +1850,9 @@ main( int     argc,
   test_tlsrec_alert_tx( rng );
   test_tlsrec_plaintext_alert( rng );
   test_tlsrec_close_notify( rng );
+#if FD_HAS_HOSTED
   test_tlsrec_sock_close_notify( rng );
+#endif
   test_tlsrec_rec_hdr( rng );
   test_tlsrec_inner_plaintext( rng );
   test_tlsrec_seq_and_closed_update( rng );

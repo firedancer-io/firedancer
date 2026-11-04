@@ -250,7 +250,7 @@ failed:
 
 ulong
 fd_proc_softirqs_sum( int   fd,
-                      ulong per_cpu[ FD_METRICS_ENUM_SOFTIRQ_CNT ][ FD_TILE_MAX ] ) {
+                      ulong per_cpu[ FD_METRICS_ENUM_SOFTIRQ_TYPE_CNT ][ FD_TILE_MAX ] ) {
   fd_io_buffered_istream_t is[1];
   char buf[ 4096 ];
   fd_io_buffered_istream_init( is, fd, buf, sizeof(buf) );
@@ -263,7 +263,7 @@ fd_proc_softirqs_sum( int   fd,
   int err = read_cpu_map( is, &col_cnt, &cpu_cnt, col_cpu );
   if( FD_UNLIKELY( err!=0 ) ) goto failed;
   if( FD_UNLIKELY( !col_cnt || !cpu_cnt ) ) return 0UL;
-  for( ulong i=0UL; i<FD_METRICS_ENUM_SOFTIRQ_CNT; i++ ) {
+  for( ulong i=0UL; i<FD_METRICS_ENUM_SOFTIRQ_TYPE_CNT; i++ ) {
     for( ulong c=0UL; c<cpu_cnt; c++ ) per_cpu[ i ][ c ] = 0UL;
   }
 
@@ -280,15 +280,15 @@ fd_proc_softirqs_sum( int   fd,
     if( fd_io_buffered_istream_peek_sz( is )==0 ) return cpu_cnt;
 
     /* Match prefix */
-    int          kind       = FD_METRICS_ENUM_SOFTIRQ_V_OTHER_IDX;
+    int          kind       = FD_METRICS_ENUM_SOFTIRQ_TYPE_V_OTHER_IDX;
     char const * prefix     = fd_io_buffered_istream_peek   ( is );
     ulong        prefix_max = fd_io_buffered_istream_peek_sz( is );
     if( prefix_max>=7 && fd_memeq( prefix, "NET_TX:", 7 ) ) {
-      kind = FD_METRICS_ENUM_SOFTIRQ_V_NET_IDX;
+      kind = FD_METRICS_ENUM_SOFTIRQ_TYPE_V_NET_IDX;
     } else if( prefix_max>=7 && fd_memeq( prefix, "NET_RX:", 7 ) ) {
-      kind = FD_METRICS_ENUM_SOFTIRQ_V_NET_IDX;
+      kind = FD_METRICS_ENUM_SOFTIRQ_TYPE_V_NET_IDX;
     } else if( prefix_max>=6 && fd_memeq( prefix, "BLOCK:", 6 ) ) {
-      kind = FD_METRICS_ENUM_SOFTIRQ_V_DISK_IDX;
+      kind = FD_METRICS_ENUM_SOFTIRQ_TYPE_V_DISK_IDX;
     }
     err = read_until( is, 0UL, skip_token );
     if( FD_UNLIKELY( err!=0 ) ) goto failed;

@@ -10,7 +10,6 @@
 #include "../stem/fd_stem.h"
 #include "../topo/fd_topo.h"
 #include "../../waltz/mib/fd_netdev_tbl.h"
-#include "../../discof/repair/fd_repair.h"
 
 #include "../../waltz/ip/fd_iproute.h"
 #include "../../util/net/fd_eth.h"
@@ -78,25 +77,19 @@ struct fd_net_tile {
   ushort dst_ports[ FD_NET_RX_PORT_MAX ];
   ulong  dst_protos[ FD_NET_RX_PORT_MAX ];
   ulong  dst_out_idx[ FD_NET_RX_PORT_MAX ];
-  ulong  repair_out_idx;
   ulong  rx_out_cnt;
   uint   gre_tunnel_ip[ FD_NET_GRE_MAX ];
 
   struct {
     ulong rx_pkt_cnt;
     ulong rx_bytes_total;
-    ulong rx_malformed_cnt;
-    ulong rx_route_fail_cnt;
     ulong rx_gre_cnt;
-    ulong rx_gre_invalid_cnt;
-    ulong rx_gre_ignored_cnt;
+    ulong rx_drop_cnt[ FD_METRICS_ENUM_PKT_RX_DROP_REASON_CNT ];
 
     ulong tx_pkt_cnt;
     ulong tx_bytes_total;
-    ulong tx_route_fail_cnt[ FD_METRICS_ENUM_ROUTE_FAIL_CNT ];
-    ulong tx_invalid_cnt;
+    ulong tx_drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_CNT ];
     ulong tx_gre_cnt;
-    ulong tx_gre_route_fail_cnt;
   } metrics;
 };
 typedef struct fd_net_tile fd_net_tile_t;
@@ -211,11 +204,11 @@ fd_net_tx_pkt_prep( fd_net_tile_t * ctx,
   if( FD_UNLIKELY( FD_IP4_GET_VERSION( *ip4_hdr )!=4U ||
                    ip4_hdr_sz<sizeof(fd_ip4_hdr_t)    ||
                    ip4_hdr_sz>ip4_sz ) ) {
-    ctx->metrics.tx_invalid_cnt++;
+    ctx->metrics.tx_drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_INVALID_IDX ]++;
     return 0;
   }
   if( FD_UNLIKELY( !ip4_hdr->saddr && !route->src_ip ) ) {
-    ctx->metrics.tx_route_fail_cnt[ FD_METRICS_ENUM_ROUTE_FAIL_V_SOURCE_IP_IDX ]++;
+    ctx->metrics.tx_drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_SOURCE_IP_MISSING_IDX ]++;
     return 0;
   }
 
@@ -224,17 +217,17 @@ fd_net_tx_pkt_prep( fd_net_tile_t * ctx,
   if( FD_LIKELY( !route->use_gre ) ) return 1;
 
   if( FD_UNLIKELY( fd_ushort_bswap( ip4_hdr->net_tot_len )!=ip4_sz ) ) {
-    ctx->metrics.tx_invalid_cnt++;
+    ctx->metrics.tx_drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_INVALID_IDX ]++;
     return 0;
   }
   if( FD_UNLIKELY( !route->gre_outer_src_ip || !route->gre_outer_dst_ip ) ) {
-    ctx->metrics.tx_gre_route_fail_cnt++;
+    ctx->metrics.tx_drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_GRE_NO_ROUTE_IDX ]++;
     return 0;
   }
 
   ulong const outer_ip_sz = sizeof(fd_ip4_hdr_t)+sizeof(fd_gre_hdr_t)+ip4_sz;
   if( FD_UNLIKELY( sizeof(fd_eth_hdr_t)+outer_ip_sz>FD_NET_MTU || (route->mtu && outer_ip_sz>route->mtu) ) ) {
-    ctx->metrics.tx_invalid_cnt++;
+    ctx->metrics.tx_drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_INVALID_IDX ]++;
     return 0;
   }
 
@@ -292,8 +285,7 @@ static inline void
 fd_net_rx_dst_ports_init( fd_net_tile_t *        ctx,
                           fd_topo_t const *      topo,
                           fd_topo_tile_t const * tile ) {
-  ctx->rx_out_cnt     = tile->out_cnt;
-  ctx->repair_out_idx = ULONG_MAX;
+  ctx->rx_out_cnt = tile->out_cnt;
 
   fd_net_rx_dst_port_add( ctx, topo, tile, DST_PROTO_TPU_UDP,  "net_quic",   tile->net.legacy_transaction_listen_port, 1 );
   fd_net_rx_dst_port_add( ctx, topo, tile, DST_PROTO_TPU_QUIC, "net_quic",   tile->net.quic_transaction_listen_port,   1 );
@@ -301,23 +293,13 @@ fd_net_rx_dst_ports_init( fd_net_tile_t *        ctx,
   fd_net_rx_dst_port_add( ctx, topo, tile, DST_PROTO_GOSSIP,   "net_gossvf", tile->net.gossip_listen_port,             1 );
   fd_net_rx_dst_port_add( ctx, topo, tile, DST_PROTO_REPAIR,   "net_shred",  tile->net.repair_client_listen_port,      1 );
   fd_net_rx_dst_port_add( ctx, topo, tile, DST_PROTO_RSERVE,   "net_rserve", tile->net.repair_serve_listen_port,       0 );
-  fd_net_rx_dst_port_add( ctx, topo, tile, DST_PROTO_SEND,     "net_txsend", tile->net.txsend_src_port,                1 );
   fd_net_rx_dst_port_add( ctx, topo, tile, DST_PROTO_VOTOR,    "net_votor",  tile->net.votor_quic_client_listen_port,  1 );
   fd_net_rx_dst_port_add( ctx, topo, tile, DST_PROTO_VOTOR,    "net_votor",  tile->net.votor_quic_server_listen_port,  1 );
-
-  if( tile->net.repair_client_listen_port ) {
-    ulong out_idx = fd_topo_find_tile_out_link( topo, tile, "net_repair", tile->kind_id );
-    if( FD_UNLIKELY( out_idx==ULONG_MAX ) ) {
-      FD_LOG_ERR(( "net output link `net_repair` is missing for repair pings" ));
-    }
-    ctx->repair_out_idx = out_idx;
-  }
 }
 
 static inline int
 fd_net_rx_dst_port_lookup( fd_net_tile_t const * ctx,
                            ushort                net_dport,
-                           ulong                 payload_sz,
                            ulong *               out_idx,
                            ulong *               dst_proto ) {
   ulong rule_idx = ULONG_MAX;
@@ -331,10 +313,6 @@ fd_net_rx_dst_port_lookup( fd_net_tile_t const * ctx,
 
   *out_idx   = ctx->dst_out_idx[ rule_idx ];
   *dst_proto = ctx->dst_protos [ rule_idx ];
-  if( FD_UNLIKELY( *dst_proto==DST_PROTO_REPAIR && payload_sz<=AG_REPAIR_RESPONSE_MAX_SZ ) ) {
-    if( FD_UNLIKELY( ctx->repair_out_idx==ULONG_MAX ) ) return 0;
-    *out_idx = ctx->repair_out_idx;
-  }
   return *out_idx<ctx->rx_out_cnt;
 }
 
@@ -343,22 +321,30 @@ fd_net_rx_dst_port_lookup( fd_net_tile_t const * ctx,
 static inline int
 fd_net_rx_pkt( fd_net_tile_t *     ctx,
                fd_stem_context_t * stem,
-               ulong               chunk,
+               ulong               chunk, /* offset high bits */
+               ulong               ctl,   /* offset low bits */
                ulong               byte_len,
                ulong               tspub,
-               ulong *             freed_chunk ) {
+               ulong *             freed_chunk,
+               ulong *             iavf_non_fd_pkts_rx_total ) {
   *freed_chunk = chunk;
 
   ulong const min_udp_frame_sz = sizeof(fd_eth_hdr_t)+sizeof(fd_ip4_hdr_t)+sizeof(fd_udp_hdr_t);
-  if( FD_UNLIKELY( byte_len<min_udp_frame_sz || byte_len>FD_NET_MTU ) ) {
-    ctx->metrics.rx_malformed_cnt++;
+  ulong const min_frame_sz = iavf_non_fd_pkts_rx_total ? sizeof(fd_eth_hdr_t) : min_udp_frame_sz;
+  if( FD_UNLIKELY( byte_len<min_frame_sz || byte_len>FD_NET_MTU ) ) {
+    ctx->metrics.rx_drop_cnt[ FD_METRICS_ENUM_PKT_RX_DROP_REASON_V_MALFORMED_IDX ]++;
     return 0;
   }
 
-  uchar * frame = fd_chunk_to_laddr( ctx->pkt_buf_wksp_base, chunk );
+  uchar * frame = (uchar *)fd_chunk_to_laddr( ctx->pkt_buf_wksp_base, chunk ) + ctl;
   fd_eth_hdr_t * eth_hdr = (fd_eth_hdr_t *)frame;
   if( FD_UNLIKELY( fd_ushort_bswap( eth_hdr->net_type )!=FD_ETH_HDR_TYPE_IP ) ) {
-    ctx->metrics.rx_malformed_cnt++;
+    if( iavf_non_fd_pkts_rx_total ) goto iavf_non_fd_pkt;
+    ctx->metrics.rx_drop_cnt[ FD_METRICS_ENUM_PKT_RX_DROP_REASON_V_MALFORMED_IDX ]++;
+    return 0;
+  }
+  if( FD_UNLIKELY( byte_len<sizeof(fd_eth_hdr_t)+sizeof(fd_ip4_hdr_t) ) ) {
+    ctx->metrics.rx_drop_cnt[ FD_METRICS_ENUM_PKT_RX_DROP_REASON_V_MALFORMED_IDX ]++;
     return 0;
   }
 
@@ -366,20 +352,20 @@ fd_net_rx_pkt( fd_net_tile_t *     ctx,
   ulong ip4_hdr_sz = FD_IP4_GET_LEN( *ip4_hdr );
   ulong ip4_total_sz = fd_ushort_bswap( ip4_hdr->net_tot_len );
   if( FD_UNLIKELY( FD_IP4_GET_VERSION( *ip4_hdr )!=4 || ip4_hdr_sz<sizeof(fd_ip4_hdr_t) ) ) {
-    ctx->metrics.rx_malformed_cnt++;
+    ctx->metrics.rx_drop_cnt[ FD_METRICS_ENUM_PKT_RX_DROP_REASON_V_MALFORMED_IDX ]++;
     return 0;
   }
   if( FD_UNLIKELY( ip4_total_sz<ip4_hdr_sz ||
                    sizeof(fd_eth_hdr_t)+ip4_total_sz>byte_len ) ) {
-    ctx->metrics.rx_malformed_cnt++;
+    ctx->metrics.rx_drop_cnt[ FD_METRICS_ENUM_PKT_RX_DROP_REASON_V_MALFORMED_IDX ]++;
     return 0;
   }
 
-  ulong ctl = 0UL;
   int is_gre = ip4_hdr->protocol==FD_IP4_HDR_PROTOCOL_GRE;
   if( FD_UNLIKELY( is_gre ) ) {
     if( FD_UNLIKELY( !ctx->gre_tunnel_ip[0] ) ) {
-      ctx->metrics.rx_gre_ignored_cnt++;
+      if( iavf_non_fd_pkts_rx_total ) goto iavf_non_fd_pkt;
+      ctx->metrics.rx_drop_cnt[ FD_METRICS_ENUM_PKT_RX_DROP_REASON_V_GRE_UNCONFIGURED_IDX ]++;
       return 0;
     }
 
@@ -388,14 +374,14 @@ fd_net_rx_pkt( fd_net_tile_t *     ctx,
     ulong const overhead = ip4_hdr_sz+sizeof(fd_gre_hdr_t);
     if( FD_UNLIKELY( !tunnel_found || !ip4_hdr->saddr ||
                      overhead+sizeof(fd_ip4_hdr_t)+sizeof(fd_udp_hdr_t)>ip4_total_sz ) ) {
-      ctx->metrics.rx_gre_invalid_cnt++;
+      ctx->metrics.rx_drop_cnt[ FD_METRICS_ENUM_PKT_RX_DROP_REASON_V_GRE_INVALID_IDX ]++;
       return 0;
     }
 
     fd_gre_hdr_t const * gre_hdr = (fd_gre_hdr_t const *)((uchar *)ip4_hdr+ip4_hdr_sz);
     if( FD_UNLIKELY( gre_hdr->flags_version!=FD_GRE_HDR_FLG_VER_BASIC ||
                      gre_hdr->protocol!=fd_ushort_bswap( FD_ETH_HDR_TYPE_IP ) ) ) {
-      ctx->metrics.rx_gre_invalid_cnt++;
+      ctx->metrics.rx_drop_cnt[ FD_METRICS_ENUM_PKT_RX_DROP_REASON_V_GRE_INVALID_IDX ]++;
       return 0;
     }
 
@@ -403,7 +389,7 @@ fd_net_rx_pkt( fd_net_tile_t *     ctx,
     fd_memcpy( frame, eth_hdr, sizeof(fd_eth_hdr_t) );
 
     byte_len    -= overhead;
-    ctl          = overhead;
+    ctl         += overhead;
     eth_hdr      = (fd_eth_hdr_t *)frame;
     ip4_hdr      = (fd_ip4_hdr_t *)(eth_hdr+1);
     ip4_hdr_sz   = FD_IP4_GET_LEN( *ip4_hdr );
@@ -411,21 +397,26 @@ fd_net_rx_pkt( fd_net_tile_t *     ctx,
   }
 
   if( FD_UNLIKELY( FD_IP4_GET_VERSION( *ip4_hdr )!=4 ||
-                   ip4_hdr->protocol!=FD_IP4_HDR_PROTOCOL_UDP ||
                    ip4_hdr_sz<sizeof(fd_ip4_hdr_t) || ip4_total_sz<ip4_hdr_sz ||
                    sizeof(fd_eth_hdr_t)+ip4_total_sz>byte_len ) ) {
-    ctx->metrics.rx_malformed_cnt++;
+    ctx->metrics.rx_drop_cnt[ FD_METRICS_ENUM_PKT_RX_DROP_REASON_V_MALFORMED_IDX ]++;
+    return 0;
+  }
+  if( FD_UNLIKELY( ip4_hdr->protocol!=FD_IP4_HDR_PROTOCOL_UDP ) ) {
+    if( iavf_non_fd_pkts_rx_total ) goto iavf_non_fd_pkt;
+    ctx->metrics.rx_drop_cnt[ FD_METRICS_ENUM_PKT_RX_DROP_REASON_V_MALFORMED_IDX ]++;
     return 0;
   }
   if( FD_UNLIKELY( ctx->bind_address && ip4_hdr->daddr!=ctx->bind_address ) ) {
-    ctx->metrics.rx_route_fail_cnt++;
+    if( iavf_non_fd_pkts_rx_total ) goto iavf_non_fd_pkt;
+    ctx->metrics.rx_drop_cnt[ FD_METRICS_ENUM_PKT_RX_DROP_REASON_V_DST_IP_MISMATCH_IDX ]++;
     return 0;
   }
 
   ulong const udp_off   = sizeof(fd_eth_hdr_t)+ip4_hdr_sz;
   ulong const dgram_off = udp_off+sizeof(fd_udp_hdr_t);
   if( FD_UNLIKELY( dgram_off>byte_len ) ) {
-    ctx->metrics.rx_malformed_cnt++;
+    ctx->metrics.rx_drop_cnt[ FD_METRICS_ENUM_PKT_RX_DROP_REASON_V_MALFORMED_IDX ]++;
     return 0;
   }
 
@@ -433,15 +424,23 @@ fd_net_rx_pkt( fd_net_tile_t *     ctx,
   ulong const          udp_sz  = fd_ushort_bswap( udp_hdr->net_len );
   if( FD_UNLIKELY( udp_sz<sizeof(fd_udp_hdr_t) || udp_sz>ip4_total_sz-ip4_hdr_sz ||
                    fd_ip4_addr_is_mcast( ip4_hdr->saddr ) ) ) {
-    ctx->metrics.rx_malformed_cnt++;
+    ctx->metrics.rx_drop_cnt[ FD_METRICS_ENUM_PKT_RX_DROP_REASON_V_MALFORMED_IDX ]++;
     return 0;
   }
 
   ushort const dst_port = fd_ushort_bswap( udp_hdr->net_dport );
   ulong out_idx;
   ulong dst_proto;
-  if( FD_UNLIKELY( !fd_net_rx_dst_port_lookup( ctx, dst_port, udp_sz-sizeof(fd_udp_hdr_t), &out_idx, &dst_proto ) ) ) {
-    ctx->metrics.rx_route_fail_cnt++;
+  if( FD_UNLIKELY( !fd_net_rx_dst_port_lookup( ctx, dst_port, &out_idx, &dst_proto ) ) ) {
+    /* Missing output links for configured ports still count as drops. */
+    if( iavf_non_fd_pkts_rx_total ) {
+      ulong port_idx = 0UL;
+      for( ; port_idx<ctx->dst_port_cnt; port_idx++ ) {
+        if( ctx->dst_ports[ port_idx ]==dst_port ) break;
+      }
+      if( port_idx==ctx->dst_port_cnt ) goto iavf_non_fd_pkt;
+    }
+    ctx->metrics.rx_drop_cnt[ FD_METRICS_ENUM_PKT_RX_DROP_REASON_V_DST_PORT_UNBOUND_IDX ]++;
     return 0;
   }
 
@@ -462,6 +461,10 @@ fd_net_rx_pkt( fd_net_tile_t *     ctx,
   ctx->metrics.rx_bytes_total += byte_len;
 
   return 1;
+
+iavf_non_fd_pkt:
+  (*iavf_non_fd_pkts_rx_total)++;
+  return 0;
 }
 
 FD_PROTOTYPES_END

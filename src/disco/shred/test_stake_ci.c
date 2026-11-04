@@ -1,4 +1,5 @@
 #include "fd_stake_ci.h"
+#include "../../flamenco/leaders/fd_multi_epoch_leaders.h"
 #define SLOTS_PER_EPOCH 1000 /* Just for testing */
 #define TEST_HASH_SEED  (0x9b6d1f47a2c583e0UL)
 
@@ -45,6 +46,7 @@ generate_epoch_msg( uchar *      _buf,
   buf->slot_cnt          = SLOTS_PER_EPOCH;
   buf->staked_vote_cnt   = strlen(stakers);
   memset( &buf->features, 0, sizeof(fd_features_t) );
+  buf->features.geo_aware_leader_schedule = FD_FEATURE_DISABLED;
 
   fd_vote_stake_weight_t * weights = fd_epoch_info_msg_stake_weights( buf );
   for( ulong i=0UL; i<buf->staked_vote_cnt; i++ ) {
@@ -937,6 +939,50 @@ test_dest_remove( void ) {
   fd_stake_ci_delete( fd_stake_ci_leave( info ) );
 }
 
+static uchar mleaders_mem[ FD_MULTI_EPOCH_LEADERS_FOOTPRINT ] __attribute__((aligned(FD_MULTI_EPOCH_LEADERS_ALIGN)));
+static uchar ref_mem     [ FD_EPOCH_LEADERS_FOOTPRINT( MAX_STAKE_WEIGHTS, SLOTS_PER_EPOCH ) ] __attribute__((aligned(FD_EPOCH_LEADERS_ALIGN)));
+static uchar base_mem    [ FD_EPOCH_LEADERS_FOOTPRINT( MAX_STAKE_WEIGHTS, SLOTS_PER_EPOCH ) ] __attribute__((aligned(FD_EPOCH_LEADERS_ALIGN)));
+
+static void
+test_geo_aware_consistency( void ) {
+  static fd_validator_location_t const city[ 4 ] = {
+    {  4051542,   618526, 4870645 }, {  1333729, -4654333, 4138065 },
+    { -3955214,  3355452, 3699409 }, { -4646017,  2553114, -3534483 }
+  };
+  fd_stake_ci_t *            info     = fd_stake_ci_join( fd_stake_ci_new( _info, identity_key, TEST_HASH_SEED ) );
+  fd_multi_epoch_leaders_t * mleaders = fd_multi_epoch_leaders_join( fd_multi_epoch_leaders_new( mleaders_mem ) );
+
+  fd_epoch_info_msg_t *    msg = generate_epoch_msg( epoch_msg, 1UL, "ABCDEFGH" );
+  fd_vote_stake_weight_t * w   = fd_epoch_info_msg_stake_weights( msg );
+  for( ulong i=0UL; i<msg->staked_vote_cnt; i++ ) w[ i ].location = city[ i%4UL ];
+  msg->features.geo_aware_leader_schedule = 0UL;
+  FD_TEST( fd_epoch_leaders_use_geo_aware( &msg->features, &msg->epoch_schedule, msg->epoch ) );
+
+  static fd_vote_stake_weight_t copy[ 8 ];
+  memcpy( copy, w, msg->staked_vote_cnt*sizeof(fd_vote_stake_weight_t) );
+  fd_epoch_leaders_t * ref  = fd_epoch_leaders_join( fd_epoch_leaders_new( ref_mem,  1UL, msg->start_slot, msg->slot_cnt, msg->staked_vote_cnt, copy, 1 ) );
+  fd_epoch_leaders_t * base = fd_epoch_leaders_join( fd_epoch_leaders_new( base_mem, 1UL, msg->start_slot, msg->slot_cnt, msg->staked_vote_cnt, copy, 0 ) );
+  FD_TEST( ref && base );
+  FD_TEST( memcmp( ref->sched, base->sched, ref->sched_cnt*sizeof(uint) ) );
+
+  fd_stake_ci_epoch_msg_init( info, msg );
+  fd_stake_ci_epoch_msg_fini( info );
+  fd_multi_epoch_leaders_epoch_msg_init( mleaders, msg );
+  fd_multi_epoch_leaders_epoch_msg_fini( mleaders );
+
+  fd_epoch_leaders_t const * ci = fd_stake_ci_get_lsched_for_slot( info, msg->start_slot );
+  fd_epoch_leaders_t const * ml = fd_multi_epoch_leaders_get_lsched_for_epoch( mleaders, 1UL );
+  FD_TEST( ci && ml );
+  FD_TEST( ci->sched_cnt==ref->sched_cnt && ml->sched_cnt==ref->sched_cnt );
+  FD_TEST( !memcmp( ci->sched,     ref->sched,     ref->sched_cnt*sizeof(uint)        ) );
+  FD_TEST( !memcmp( ml->sched,     ref->sched,     ref->sched_cnt*sizeof(uint)        ) );
+  FD_TEST( !memcmp( ci->vote_addr, ref->vote_addr, ref->sched_cnt*sizeof(fd_pubkey_t) ) );
+  FD_TEST( !memcmp( ml->vote_addr, ref->vote_addr, ref->sched_cnt*sizeof(fd_pubkey_t) ) );
+
+  fd_multi_epoch_leaders_delete( fd_multi_epoch_leaders_leave( mleaders ) );
+  fd_stake_ci_delete( fd_stake_ci_leave( info ) );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -954,6 +1000,7 @@ main( int     argc,
 
   test_stake_msg();
   test_epoch_msg();
+  test_geo_aware_consistency();
 
   test_changing_contact_info();
   test_limits();

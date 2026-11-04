@@ -30,6 +30,7 @@ endif
 
 $(call add-hdrs,fd_txncache_shmem.h fd_txncache.h)
 $(call add-objs,fd_txncache_shmem fd_txncache,fd_flamenco)
+
 $(call add-hdrs,fd_cost_tracker.h)
 $(call add-objs,fd_cost_tracker,fd_flamenco)
 $(call add-hdrs,fd_cost_tracker_store.h)
@@ -46,10 +47,11 @@ $(call add-objs,fd_compute_budget_details,fd_flamenco)
 
 $(call add-hdrs,fd_borrowed_account.h)
 $(call add-objs,fd_borrowed_account,fd_flamenco)
+
+ifdef FD_HAS_HOSTED
 $(call make-unit-test,test_borrowed_account,test_borrowed_account,fd_flamenco fd_ballet fd_util)
 $(call run-unit-test,test_borrowed_account)
 
-ifdef FD_HAS_HOSTED
 $(call make-unit-test,test_bundle_exec,test_bundle_exec,fd_flamenco_test fd_flamenco fd_ballet fd_util)
 $(call run-unit-test,test_bundle_exec)
 
@@ -76,6 +78,8 @@ $(call add-objs,fd_runtime,fd_flamenco)
 ifdef FD_HAS_HOSTED
 $(call make-unit-test,test_lamports_per_byte_feature_gates,test_lamports_per_byte_feature_gates,fd_flamenco_test fd_flamenco fd_ballet fd_util)
 $(call run-unit-test,test_lamports_per_byte_feature_gates)
+$(call make-unit-test,test_runtime_sysvar_cache,test_runtime_sysvar_cache,fd_flamenco_test fd_flamenco fd_ballet fd_util)
+$(call run-unit-test,test_runtime_sysvar_cache)
 $(call make-unit-test,test_vat_refresh_vote_accounts,test_vat_refresh_vote_accounts,fd_flamenco fd_ballet fd_util)
 $(call run-unit-test,test_vat_refresh_vote_accounts)
 $(call make-unit-test,test_define_ltds_fee_only_semantics,test_define_ltds_fee_only_semantics,fd_flamenco_test fd_flamenco fd_ballet fd_util)
@@ -102,6 +106,5 @@ $(call make-unit-test,test_system_ids,test_system_ids,fd_flamenco fd_util fd_bal
 $(call run-unit-test,test_system_ids)
 
 ifdef FD_HAS_HOSTED
-# TODO: Flakes
-# $(call run-unit-test,test_txncache)
+$(call run-unit-test,test_txncache)
 endif

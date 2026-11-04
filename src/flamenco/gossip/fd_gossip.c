@@ -12,11 +12,11 @@
 #include "../leaders/fd_leaders_base.h"
 #include "../../util/fd_hash32.h"
 
-FD_STATIC_ASSERT( FD_METRICS_ENUM_GOSSIP_MESSAGE_CNT==FD_GOSSIP_MESSAGE_CNT,
-                  "FD_METRICS_ENUM_GOSSIP_MESSAGE_CNT must match FD_GOSSIP_MESSAGE_CNT" );
+FD_STATIC_ASSERT( FD_METRICS_ENUM_GOSSIP_MESSAGE_TYPE_CNT==FD_GOSSIP_MESSAGE_CNT,
+                  "FD_METRICS_ENUM_GOSSIP_MESSAGE_TYPE_CNT must match FD_GOSSIP_MESSAGE_CNT" );
 
-FD_STATIC_ASSERT( FD_METRICS_ENUM_CRDS_VALUE_CNT==FD_GOSSIP_VALUE_CNT,
-                  "FD_METRICS_ENUM_CRDS_VALUE_CNT must match FD_GOSSIP_VALUE_CNT" );
+FD_STATIC_ASSERT( FD_METRICS_ENUM_CRDS_VALUE_TYPE_CNT==FD_GOSSIP_VALUE_CNT,
+                  "FD_METRICS_ENUM_CRDS_VALUE_TYPE_CNT must match FD_GOSSIP_VALUE_CNT" );
 
 #define BLOOM_FALSE_POSITIVE_RATE (0.1)
 #define BLOOM_NUM_KEYS            (8.0)
@@ -91,6 +91,7 @@ struct fd_gossip_private {
     long next_active_set_refresh;
     long next_contact_info_refresh;
     long next_flush_push_state;
+    long next_pull_contact_info;
   } timers;
 
   /* Token-bucket rate limiter for outbound pull response data.
@@ -119,7 +120,7 @@ struct fd_gossip_private {
     ushort            sig_off;
     uchar             data[ FD_GOSSIP_VALUE_MAX_SZ ];
     fd_gossip_value_t value[1]; /* SIGN_PEND_VALUE, SIGN_PEND_CONTACT_INFO */
-    ulong             gen;      /* SIGN_PEND_CONTACT_INFO: my_contact_info.gen when requested */
+    ulong             gen;      /* SIGN_PEND_*CONTACT_INFO: my_contact_info.gen when requested */
   } sign_pend[ FD_GOSSIP_SIGN_PEND_MAX ];
 
 
@@ -139,6 +140,10 @@ struct fd_gossip_private {
     ulong             gen;
     int               refresh_due;
     fd_gossip_value_t ci[1];
+
+    uchar             pull_val[ FD_GOSSIP_VALUE_MAX_SZ ];
+    ulong             pull_val_sz;
+    int               pull_pending;
   } my_contact_info;
 
   fd_gossip_out_ctx_t * gossip_net_out;
@@ -182,6 +187,14 @@ ping_tracker_change( void *        _ctx,
   }
 
   ulong ci_idx = fd_crds_ci_idx( ctx->crds, peer_pubkey );
+
+  if( FD_UNLIKELY( ci_idx!=ULONG_MAX ) ) {
+    fd_gossip_contact_info_t const * ci = fd_crds_ci( ctx->crds, ci_idx );
+    if( FD_UNLIKELY( ci->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].is_ipv6 ||
+                     ci->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].ip4!=peer_address.addr ||
+                     ci->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].port!=peer_address.port ) ) ci_idx = ULONG_MAX;
+  }
+
   if( FD_UNLIKELY( ci_idx!=ULONG_MAX ) ) {
     switch( change_type ) {
       case FD_PING_TRACKER_CHANGE_TYPE_ACTIVE:
@@ -199,9 +212,12 @@ ping_tracker_change( void *        _ctx,
   ctx->ping_tracker_change_fn( ctx->ping_tracker_change_fn_ctx, peer_pubkey, peer_address, now, change_type );
 }
 
-#define SIGN_PEND_SEND         (0) /* a packet for peer */
-#define SIGN_PEND_VALUE        (1) /* one of our CRDS values: insert and push */
-#define SIGN_PEND_CONTACT_INFO (2) /* our contact info: store, insert and push */
+#define SIGN_PEND_SEND              (0) /* a packet for peer */
+#define SIGN_PEND_VALUE             (1) /* one of our CRDS values: insert and push */
+#define SIGN_PEND_CONTACT_INFO      (2) /* our contact info: store, insert and push */
+#define SIGN_PEND_PULL_CONTACT_INFO (3) /* our contact info, for pull requests only */
+
+#define PULL_CONTACT_INFO_INTERVAL_NANOS (100L*1000L*1000L)
 
 static int
 sign_request( fd_gossip_t *             gossip,
@@ -260,7 +276,7 @@ fd_gossip_sign_response( fd_gossip_t *       gossip,
     fd_gossip_value_t * value = gossip->sign_pend[ idx ].value;
     fd_memcpy( value->signature, signature, 64UL );
     int origin_active = 0; /* Value doesn't matter, since is_me=1 it's never used. */
-    if( FD_UNLIKELY( fd_crds_insert( gossip->crds, value, data, sz, gossip->identity_stake, origin_active, 1, now, stem ) ) ) break;
+    if( FD_UNLIKELY( fd_crds_insert( gossip->crds, value, data, sz, gossip->identity_stake, origin_active, 1, 0, now, stem, NULL ) ) ) break;
     fd_active_set_push( gossip->active_set, data, sz, gossip->identity_pubkey, gossip->identity_stake, stem, now, 1 );
     break;
   }
@@ -272,9 +288,18 @@ fd_gossip_sign_response( fd_gossip_t *       gossip,
     fd_memcpy( value->signature, signature, 64UL );
     fd_memcpy( gossip->my_contact_info.crds_val, data, sz );
     gossip->my_contact_info.crds_val_sz = sz;
+    fd_memcpy( gossip->my_contact_info.pull_val, data, sz );
+    gossip->my_contact_info.pull_val_sz = sz;
     int origin_active = 0; /* Value doesn't matter, since is_me=1 it's never used. */
-    fd_crds_insert( gossip->crds, value, data, sz, gossip->identity_stake, origin_active, 1, now, stem );
+    fd_crds_insert( gossip->crds, value, data, sz, gossip->identity_stake, origin_active, 1, 0, now, stem, NULL );
     fd_active_set_push( gossip->active_set, data, sz, gossip->identity_pubkey, gossip->identity_stake, stem, now, 1 );
+    break;
+  }
+  case SIGN_PEND_PULL_CONTACT_INFO: {
+    gossip->my_contact_info.pull_pending = 0;
+    if( FD_UNLIKELY( gossip->sign_pend[ idx ].gen!=gossip->my_contact_info.gen ) ) break;
+    fd_memcpy( gossip->my_contact_info.pull_val, data, sz );
+    gossip->my_contact_info.pull_val_sz = sz;
     break;
   }
   default: FD_LOG_CRIT(( "unknown sign pend kind %u", gossip->sign_pend[ idx ].kind ));
@@ -307,6 +332,22 @@ request_contact_info( fd_gossip_t * gossip,
     return;
   }
   gossip->sign_pend[ idx ].gen = gossip->my_contact_info.gen;
+}
+
+static void
+request_pull_contact_info( fd_gossip_t * gossip,
+                           long          now ) {
+  fd_gossip_value_t ci[1] = { *gossip->my_contact_info.ci };
+  fd_memcpy( ci->origin, gossip->identity_pubkey, 32UL );
+  ci->wallclock = (ulong)FD_NANOSEC_TO_MILLI( now );
+  uchar serialized[ FD_GOSSIP_VALUE_MAX_SZ ];
+  long sz = fd_gossip_value_serialize( ci, serialized, FD_GOSSIP_VALUE_MAX_SZ );
+  FD_TEST( sz!=-1L );
+
+  ulong idx = (gossip->sign_pend_head+gossip->sign_pend_cnt)%FD_GOSSIP_SIGN_PEND_MAX;
+  if( FD_UNLIKELY( !sign_request( gossip, SIGN_PEND_PULL_CONTACT_INFO, NULL, NULL, serialized, (ulong)sz, 0UL, serialized+64UL, (ulong)sz-64UL, FD_KEYGUARD_SIGN_TYPE_ED25519 ) ) ) return;
+  gossip->sign_pend[ idx ].gen        = gossip->my_contact_info.gen;
+  gossip->my_contact_info.pull_pending = 1;
 }
 
 void *
@@ -399,6 +440,7 @@ fd_gossip_new( void *                           shmem,
   gossip->timers.next_active_set_refresh = 0L;
   gossip->timers.next_contact_info_refresh = 0L;
   gossip->timers.next_flush_push_state = 0L;
+  gossip->timers.next_pull_contact_info = 0L;
 
   gossip->outbound_budget.remaining            = 0UL;
   gossip->outbound_budget.last_replenish_nanos = now;
@@ -408,6 +450,8 @@ fd_gossip_new( void *                           shmem,
   gossip->my_contact_info.crds_val_sz = 0UL;
   gossip->my_contact_info.gen         = 0UL;
   gossip->my_contact_info.refresh_due = 0;
+  gossip->my_contact_info.pull_val_sz  = 0UL;
+  gossip->my_contact_info.pull_pending = 0;
 
   gossip->send_fn  = send_fn;
   gossip->send_ctx = send_ctx;
@@ -666,6 +710,8 @@ rx_pull_request( fd_gossip_t *                    gossip,
                  fd_ip4_port_t                    peer_addr,
                  fd_stem_context_t *              stem,
                  long                             now ) {
+  fd_gossip_ping_tracker_track( gossip, pr_view->contact_info->origin, peer_addr, now );
+
   /* Replenish and check outbound data budget.  If the budget is
      exhausted, skip generating pull responses entirely. */
   if( FD_UNLIKELY( !outbound_budget_replenish( gossip, now ) ) ) return;
@@ -760,6 +806,7 @@ rx_values( fd_gossip_t *             gossip,
            uchar const *             payload,
            uchar const *             failed,
            fd_stem_context_t *       stem,
+           int                       is_push,
            long                      now,
            long                      results[ static 17UL ] ) {
   for( ulong i=0UL; i<values_len; i++ ) {
@@ -778,19 +825,32 @@ rx_values( fd_gossip_t *             gossip,
 
     int origin_ping_tracker_active = 0;
     fd_ip4_port_t origin_addr = { 0 };
+    fd_ip4_port_t prev_addr   = { 0 };
     if( FD_UNLIKELY( value->tag==FD_GOSSIP_VALUE_CONTACT_INFO ) ) {
       origin_addr = (fd_ip4_port_t){
         .addr = value->contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].is_ipv6 ? 0U : value->contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].ip4,
         .port = value->contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].port
       };
       origin_ping_tracker_active = fd_ping_tracker_active( gossip->ping_tracker, value->origin, origin_addr );
+      ulong prev_ci_idx = fd_crds_ci_idx( gossip->crds, value->origin );
+      if( FD_UNLIKELY( prev_ci_idx!=ULONG_MAX ) ) {
+        fd_gossip_contact_info_t const * prev = fd_crds_ci( gossip->crds, prev_ci_idx );
+        prev_addr.addr = prev->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].is_ipv6 ? 0U : prev->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].ip4;
+        prev_addr.port = prev->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].port;
+      }
     }
 
-    results[ i ] = fd_crds_insert( gossip->crds, value, payload+value->offset, value->length, origin_stake, origin_ping_tracker_active, is_me, now, stem );
+    int relay;
+    results[ i ] = fd_crds_insert( gossip->crds, value, payload+value->offset, value->length, origin_stake, origin_ping_tracker_active, is_me, is_push, now, stem, &relay );
     if( FD_UNLIKELY( results[ i ] ) ) continue;
 
     if( FD_UNLIKELY( value->tag==FD_GOSSIP_VALUE_CONTACT_INFO ) ) {
       if( FD_LIKELY( !is_me ) ) fd_ping_tracker_track( gossip->ping_tracker, value->origin, origin_stake, origin_addr, now );
+
+      /* Moved to a socket that has not ponged: stop pushing to it. */
+      if( FD_UNLIKELY( prev_addr.addr && prev_addr.l!=origin_addr.l && !origin_ping_tracker_active && origin_stake<FD_GOSSIP_STAKED_THRESHOLD ) ) {
+        fd_active_set_remove_peer( gossip->active_set, fd_crds_ci_idx( gossip->crds, value->origin ) );
+      }
 
       /* We just learned this peer's contact info.  Drain any
          no_contact_info hashes associated with this origin from the
@@ -798,6 +858,7 @@ rx_values( fd_gossip_t *             gossip,
       if( FD_LIKELY( fd_ping_tracker_active( gossip->ping_tracker, value->origin, origin_addr ) ) ) fd_gossip_purged_drain_no_contact_info( gossip->purged, value->origin );
     }
 
+    if( FD_UNLIKELY( !relay ) ) continue;
     fd_active_set_push( gossip->active_set, payload+value->offset, value->length, value->origin, origin_stake, stem, now, 0 );
   }
 }
@@ -810,12 +871,12 @@ rx_pull_response( fd_gossip_t *                     gossip,
                   fd_stem_context_t *               stem,
                   long                              now ) {
   long results[ 17UL ];
-  rx_values( gossip, pull_response->values_len, pull_response->values, payload, failed, stem, now, results );
+  rx_values( gossip, pull_response->values_len, pull_response->values, payload, failed, stem, 0, now, results );
   for( ulong i=0UL; i<pull_response->values_len; i++ ) {
     if( FD_UNLIKELY( failed[ i ] && failed[ i ]!=FD_GOSSIP_FAILED_DUPLICATE ) ) continue;
-    if( FD_LIKELY( !results[ i ] ) ) gossip->metrics->crds_rx_count[ FD_METRICS_ENUM_GOSSIP_CRDS_OUTCOME_V_UPSERTED_PULL_RESPONSE_IDX ]++;
-    else if( results[ i ]<0L )       gossip->metrics->crds_rx_count[ FD_METRICS_ENUM_GOSSIP_CRDS_OUTCOME_V_DROPPED_PULL_RESPONSE_STALE_IDX ]++;
-    else                             gossip->metrics->crds_rx_count[ FD_METRICS_ENUM_GOSSIP_CRDS_OUTCOME_V_DROPPED_PULL_RESPONSE_DUPLICATE_IDX ]++;
+    if( FD_LIKELY( !results[ i ] ) ) gossip->metrics->crds_rx_count[ FD_METRICS_ENUM_GOSSIP_CRDS_RESULT_V_INSERTED_PULL_RESPONSE_IDX ]++;
+    else if( results[ i ]<0L )       gossip->metrics->crds_rx_count[ FD_METRICS_ENUM_GOSSIP_CRDS_RESULT_V_STALE_PULL_RESPONSE_IDX ]++;
+    else                             gossip->metrics->crds_rx_count[ FD_METRICS_ENUM_GOSSIP_CRDS_RESULT_V_DUPLICATE_PULL_RESPONSE_IDX ]++;
   }
 }
 
@@ -901,18 +962,18 @@ rx_push( fd_gossip_t *            gossip,
          long                     now,
          fd_stem_context_t *      stem ) {
   long results[ 17UL ];
-  rx_values( gossip, push->values_len, push->values, payload, failed, stem, now, results );
+  rx_values( gossip, push->values_len, push->values, payload, failed, stem, 1, now, results );
 
   for( ulong i=0UL; i<push->values_len; i++ ) {
     if( FD_UNLIKELY( failed[ i ] && failed[ i ]!=FD_GOSSIP_FAILED_DUPLICATE ) ) continue;
-    if( FD_LIKELY( !results[ i ] ) ) gossip->metrics->crds_rx_count[ FD_METRICS_ENUM_GOSSIP_CRDS_OUTCOME_V_UPSERTED_PUSH_IDX ]++;
-    else if( results[ i ]<0L )       gossip->metrics->crds_rx_count[ FD_METRICS_ENUM_GOSSIP_CRDS_OUTCOME_V_DROPPED_PUSH_STALE_IDX ]++;
-    else                             gossip->metrics->crds_rx_count[ FD_METRICS_ENUM_GOSSIP_CRDS_OUTCOME_V_DROPPED_PUSH_DUPLICATE_IDX ]++;
+    if( FD_LIKELY( !results[ i ] ) ) gossip->metrics->crds_rx_count[ FD_METRICS_ENUM_GOSSIP_CRDS_RESULT_V_INSERTED_PUSH_IDX ]++;
+    else if( results[ i ]<0L )       gossip->metrics->crds_rx_count[ FD_METRICS_ENUM_GOSSIP_CRDS_RESULT_V_STALE_PUSH_IDX ]++;
+    else                             gossip->metrics->crds_rx_count[ FD_METRICS_ENUM_GOSSIP_CRDS_RESULT_V_DUPLICATE_PUSH_IDX ]++;
 
     ulong num_dups;
     if( FD_LIKELY( !results[ i ] ) )          num_dups = 0UL;
     else if( FD_UNLIKELY( results[ i ]<0L ) ) num_dups = ULONG_MAX; /* stale => never timely */
-    else                                      num_dups = (ulong)results[ i ];
+    else                                      num_dups = (ulong)results[ i ]-1UL;
 
     ulong origin_stake = get_stake( gossip, push->values[ i ].origin );
     fd_prune_finder_record( gossip->prune_finder, push->values[ i ].origin, origin_stake, push->from, get_stake( gossip, push->from ), num_dups );
@@ -1117,7 +1178,7 @@ tx_pull_request( fd_gossip_t *       gossip,
                  long                now ) {
   ulong total_crds_vals = fd_crds_len( gossip->crds ) + fd_gossip_purged_len( gossip->purged );
   ulong num_items       = fd_ulong_max( 65536UL, total_crds_vals );
-  ulong crds_val_sz     = gossip->my_contact_info.crds_val_sz;
+  ulong crds_val_sz     = gossip->my_contact_info.pull_val_sz;
 
   /* Step 1: Compute num_keys from the pessimistic KEYS=8 overhead
      (same initial estimate Agave uses in CrdsFilterSet::new). */
@@ -1176,8 +1237,8 @@ tx_pull_request( fd_gossip_t *       gossip,
                                                  num_bits,
                                                  mask,
                                                  mask_bits,
-                                                 gossip->my_contact_info.crds_val,
-                                                 gossip->my_contact_info.crds_val_sz,
+                                                 gossip->my_contact_info.pull_val,
+                                                 gossip->my_contact_info.pull_val_sz,
                                                  &keys_ptr,
                                                  &bits_ptr,
                                                  &bits_set );
@@ -1220,7 +1281,10 @@ tx_pull_request( fd_gossip_t *       gossip,
   fd_memcpy( bits_ptr, bloom_bits, bloom_word_cnt*sizeof(ulong) );
   FD_STORE( ulong, bits_set, (ulong)num_bits_set );
 
+  /* While no entrypoint's contact info is fresh in the table, send
+     every other pull to an entrypoint. */
   ulong idx = fd_gossip_wsample_sample_pull_request( gossip->wsample );
+  if( FD_UNLIKELY( gossip->entrypoints_cnt && !fd_crds_entrypoint_fresh_cnt( gossip->crds ) && fd_rng_uint( gossip->rng )&1U ) ) idx = ULONG_MAX;
   fd_ip4_port_t peer_addr;
   if( FD_UNLIKELY( idx==ULONG_MAX ) ) {
     if( FD_UNLIKELY( !gossip->entrypoints_cnt ) ) {
@@ -1252,6 +1316,11 @@ fd_gossip_advance( fd_gossip_t *       gossip,
   fd_crds_advance( gossip->crds, now, stem, charge_busy );
 
   tx_ping( gossip, now, charge_busy );
+  if( FD_UNLIKELY( now>=gossip->timers.next_pull_contact_info && gossip->my_contact_info.crds_val_sz ) ) {
+    if( FD_LIKELY( !gossip->my_contact_info.pull_pending ) ) request_pull_contact_info( gossip, now );
+    gossip->timers.next_pull_contact_info = now+PULL_CONTACT_INFO_INTERVAL_NANOS;
+    if( charge_busy ) *charge_busy = 1;
+  }
   if( FD_UNLIKELY( now>=gossip->timers.next_pull_request && gossip->my_contact_info.crds_val_sz ) ) {
     tx_pull_request( gossip, stem, now );
     if( charge_busy ) *charge_busy = 1;
@@ -1289,6 +1358,15 @@ fd_gossip_advance( fd_gossip_t *       gossip,
     request_contact_info( gossip, now );
     if( charge_busy ) *charge_busy = 1;
   }
+}
+
+long
+fd_gossip_next_deadline( fd_gossip_t const * gossip ) {
+  if( FD_UNLIKELY( gossip->my_contact_info.refresh_due ) ) return 0L;
+  long deadline = fd_long_min( gossip->timers.next_contact_info_refresh, fd_active_set_next_deadline( gossip->active_set ) );
+  deadline = fd_long_min( deadline, fd_ping_tracker_next_deadline( gossip->ping_tracker ) );
+  if( FD_LIKELY( gossip->my_contact_info.crds_val_sz ) ) deadline = fd_long_min( deadline, gossip->timers.next_pull_request );
+  return deadline;
 }
 
 void

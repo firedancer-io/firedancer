@@ -62,9 +62,10 @@
 
    When a shred arrives for a new FEC set, we pull an entry from the
    head of the free FEC set queue.  If that would result in more than
-   depth sets in progress, we spill the oldest in progress set, and
-   insert it at the tail of the free set queue.  When we complete a set,
-   we remove it from the in progress set, add it to the tail of the
+   depth sets in progress, we spill the in-progress set with the highest
+   (slot, fec_set_idx), and insert it at the tail of the free set queue.
+   When we complete a set, we remove it from the in progress set, add
+   it to the tail of the
    completed FEC set queue, and move one element from the head of the
    completed queue to the tail of the free queue.
 
@@ -136,7 +137,7 @@ FD_FN_CONST ulong fd_fec_resolver_align    ( void );
 
    On success, the FEC resolver will be initialized with an expected
    shred version of 0, which causes it to reject all shreds, and a
-   slot_old of slot 0, which causes it to ignore no shreds.
+   slot_old of slot 0.  Shreds at or above slot_max are ignored.
 
    Returns shmem on success and NULL on failure (logs details). */
 void *

@@ -5,7 +5,7 @@ Firedancer is configured via a [TOML](https://toml.io/en/) file. Almost
 all options have a recommended default value that is set automatically
 by Firedancer, and an operator needs only to specify values for options
 they wish to change. The full list of options is as specified in the
-[`default.toml`](https://github.com/firedancer-io/firedancer/blob/main/src/app/fdctl/config/default.toml)
+[`default.toml`](https://github.com/firedancer-io/firedancer/blob/main/src/app/firedancer/config/default.toml)
 file is documented below.
 
 ::: tip MIGRATING
@@ -33,9 +33,16 @@ user = "firedancer"
         "entrypoint3.testnet.solana.com:8001",
     ]
 
+[paths]
+    identity_key = "/home/firedancer/validator-keypair.json"
+    vote_account = "/home/firedancer/vote-keypair.json"
+
 [consensus]
     expected_genesis_hash = "4uhcVJyU9pJkvQyS88uRDiswHXSCkY3zQawwpjk2NsNY"
-    known_validators = [
+
+[snapshots.sources.gossip]
+    allow_any = false
+    allow_list = [
         "5D1fNXzvv5NjV1ysLjirC4WY92RNsVH18vjmcszZd8on",
         "dDzy5SR3AXdYWVqbDEkVFdvSPCtS9ihF5kJkHCtXoFs",
         "Ft5fbkqNa76vnsjYNwjDZUXoTWpP7VYm3mtsaQckQADN",
@@ -43,14 +50,8 @@ user = "firedancer"
         "9QxCLckBiJc783jnMvXZubK4wH86Eqqvashtrwvcsgkv",
     ]
 
-[rpc]
-    port = 9099
-    full_api = true
-    private = true
-
-[consensus]
-    identity_path = "/home/firedancer/validator-keypair.json"
-    vote_account_path = "/home/firedancer/vote-keypair.json"
+[tiles.rpc]
+    rpc_listen_port = 9099
 ```
 
 :::
@@ -110,7 +111,7 @@ should be started.
 It is suggested to run as many tiles as possible and tune the tile
 counts for maximum system throughput so that the Solana network can run
 faster.  There are some example tuned configurations in the
-`src/app/fdctl/config/` folder to work from.
+`src/app/firedancer/config/` folder to work from.
 
 ::: tip TIP
 
@@ -141,6 +142,6 @@ change.
 
 ::: code-group
 
-<<< @/../src/app/fdctl/config/default.toml
+<<< @/../src/app/firedancer/config/default.toml
 
 :::

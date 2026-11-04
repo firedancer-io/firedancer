@@ -30,8 +30,8 @@ main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
 
-  /* Auto selects mlx5 only for a supported driver, kernel, RDMA port,
-     and tile count.  Otherwise it falls back to XDP. */
+  /* Auto selects mlx5 only for a supported driver, kernel and RDMA port.
+     Otherwise it falls back to XDP. */
 
   fd_auto_info_t info1 = { .linux_major=7, .linux_minor=0, .driver="mlx5_core",
                            .has_mlx5_rdma_port=1, .has_uverbs=1 };
@@ -42,7 +42,7 @@ main( int     argc,
 
   reset_provider_auto( 3U );
   fd_auto_net_apply( config, &info1 );
-  FD_TEST( 0==strcmp( config->net.provider, "xdp" ) );
+  FD_TEST( 0==strcmp( config->net.provider, "mlx5" ) );
 
   reset_provider_auto( 1U );
   fd_auto_info_t info_old_mlx5 = { .linux_major=5, .linux_minor=13, .driver="mlx5_core" };
@@ -74,6 +74,38 @@ main( int     argc,
   info_uverbs_module.has_uverbs_module = 1;
   fd_auto_net_apply( config, &info_uverbs_module );
   FD_TEST( 0==strcmp( config->net.provider, "mlx5" ) );
+
+  /* IAVF kernel, PF and VFIO requirements */
+  struct {
+    char const * driver;
+    ulong linux_major, linux_minor;
+    int iavf_pf_checks_passed, has_vfio, has_vfio_module;
+    uint net_tile_cnt;
+    uint is_bonded_if:1;
+    char const * provider;
+  } const iavf_cases[] = {
+    { "ice",  5, 14, 1, 1, 0, (uint)FD_IAVF_TILE_MAX,    0U, "iavf" },
+    { "i40e", 5, 13, 1, 1, 0, 1U,                       0U, "xdp"  },
+    { "i40e", 6,  0, 1, 1, 0, 1U,                       0U, "iavf" },
+    { "ice",  6,  0, 0, 1, 0, 1U,                       0U, "xdp"  },
+    { "ice",  6,  0, 1, 0, 0, 1U,                       0U, "xdp"  },
+    { "ice",  6,  0, 1, 0, 1, 1U,                       0U, "iavf" },
+    { "ice",  5, 14, 1, 1, 0, 1U,                       1U, "xdp"  },
+    { "ice",  6,  4, 1, 1, 0, 1U,                       1U, "xdp"  },
+    { "ice",  6,  5, 1, 1, 0, 1U,                       1U, "iavf" },
+    { "ice",  7,  0, 1, 1, 0, 1U,                       1U, "iavf" },
+    { "i40e", 5, 14, 1, 1, 0, 1U,                       1U, "iavf" }
+  };
+  for( ulong i=0UL; i<sizeof(iavf_cases)/sizeof(iavf_cases[0]); i++ ) {
+    fd_auto_info_t info = { .linux_major=iavf_cases[i].linux_major, .linux_minor=iavf_cases[i].linux_minor,
+                           .is_bonded_if=iavf_cases[i].is_bonded_if,
+                           .iavf_pf_checks_passed=iavf_cases[i].iavf_pf_checks_passed, .has_vfio=iavf_cases[i].has_vfio,
+                           .has_vfio_module=iavf_cases[i].has_vfio_module };
+    strcpy( info.driver, iavf_cases[i].driver );
+    reset_provider_auto( iavf_cases[i].net_tile_cnt );
+    fd_auto_net_apply( config, &info );
+    FD_TEST( 0==strcmp( config->net.provider, iavf_cases[i].provider ) );
+  }
 
   /* Explicit providers bypass automatic provider requirements. */
 

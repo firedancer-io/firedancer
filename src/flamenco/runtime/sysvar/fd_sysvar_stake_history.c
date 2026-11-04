@@ -20,7 +20,7 @@ fd_sysvar_stake_history_update( fd_bank_t *                      bank,
                                 fd_capture_ctx_t *               capture_ctx,
                                 fd_stake_history_entry_t const * entry ) {
   fd_accdb_svm_update_t update[1];
-  fd_acc_t rw = fd_accdb_svm_open_rw( bank, accdb, update, &fd_sysvar_stake_history_id, FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ );
+  fd_acc_t rw = fd_accdb_svm_open_rw( bank, accdb, update, &fd_sysvar_stake_history_id, 1 );
 
   if( FD_UNLIKELY( !rw.lamports ) ) {
     /* Initialize account if it did not exist */
@@ -133,6 +133,22 @@ fd_sysvar_stake_history_view( fd_stake_history_t * view,
   return view;
 }
 
+fd_stake_history_t *
+fd_sysvar_stake_history_read( fd_accdb_t *         accdb,
+                              fd_accdb_fork_id_t   fork_id,
+                              uchar                data[ static FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ ],
+                              fd_stake_history_t * view ) {
+  fd_acc_t ro = fd_accdb_read_one( accdb, fork_id, fd_sysvar_stake_history_id.uc );
+  ulong sz = 0UL;
+  if( FD_LIKELY( ro.lamports ) ) {
+    sz = fd_ulong_min( ro.data_len, FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ );
+    fd_memcpy( data, ro.data, sz );
+  }
+  fd_accdb_unread_one( accdb, &ro );
+  if( FD_UNLIKELY( !sz ) ) return NULL;
+  return fd_sysvar_stake_history_view( view, data, sz );
+}
+
 fd_stake_history_entry_t const *
 fd_sysvar_stake_history_query( fd_stake_history_t const * view,
                                ulong                      epoch ) {
@@ -140,15 +156,4 @@ fd_sysvar_stake_history_query( fd_stake_history_t const * view,
   ulong index = view->entries[0].epoch - epoch;
   if( FD_UNLIKELY( index>=view->len ) ) return NULL;
   return &view->entries[index];
-}
-
-int
-fd_sysvar_stake_history_is_contiguous( fd_stake_history_t const * view ) {
-  if( FD_UNLIKELY( !view || !view->len ) ) return 1;
-  ulong newest = view->entries[0].epoch;
-  if( FD_UNLIKELY( view->len-1UL>newest ) ) return 0;
-  for( ulong i=1UL; i<view->len; i++ ) {
-    if( FD_UNLIKELY( view->entries[i].epoch!=newest-i ) ) return 0;
-  }
-  return 1;
 }

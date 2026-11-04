@@ -3,32 +3,30 @@
 
 /* fd_sysvar_cache.h is a read-only cache of sysvar accounts.
 
-   Each block, the sysvar cache is used as follows:
+   Each block, sysvars are used as follows:
 
    - Sysvar accounts are written to DB pre-execution (Bank::new)
-   - Sysvar cache is restored from accounts (reads sysvar accounts)
-     (Recreated from scratch using account contents)
+   - Replay validates the sysvar accounts (fd_sysvar_cache_validate)
    - Parallel transaction execution (reads from sysvar cache)
    - Sysvar accounts are written to DB post-execution (Bank::freeze)
 
    In other words, sysvars backed by stored accounts are updated before
    and after transaction execution.  During transaction execution, they
-   are constant.  Firedancer stores a copy of these sysvars in the
-   sysvar cache for performance (raw and typed forms).
+   are constant.  Each executor (fd_runtime_t) keeps a local copy of
+   these sysvars for the bank it is executing (in serialized form).
 
    During the slot boundary (outside of transaction execution), sysvars
-   should be accessed using the accounts directly, and the sysvar cache
-   is considered non-existent. */
+   should be accessed using the accounts directly. */
 
 #include "fd_sysvar_base.h"
 #include "../../accdb/fd_accdb.h"
 
-#define FD_SYSVAR_CACHE_ENTRY_CNT 9
+#define FD_SYSVAR_CACHE_ENTRY_CNT 8
 
 /* fd_sysvar_cache_t is the header of a sysvar_cache object.
    A sysvar_cache object is position-independent and backed entirely by
    a single memory region.  Each sysvar is stored in serialized/raw form
-   and in a typed form.  fd_sysvar_cache_desc_t points either form.
+   only.  fd_sysvar_desc_t records the size and validity of each entry.
 
    It is safe to relocate a sysvar_cache object, or map it from multiple
    processes with different address spaces, or clone it via a shallow
@@ -55,15 +53,16 @@ struct fd_sysvar_cache {
   uchar bin_recent_hashes     [ FD_SYSVAR_RECENT_HASHES_BINCODE_SZ     ] __attribute__((aligned(FD_SYSVAR_ALIGN_MAX)));
   uchar bin_rent              [ FD_SYSVAR_RENT_BINCODE_SZ              ] __attribute__((aligned(FD_SYSVAR_ALIGN_MAX)));
   uchar bin_slot_hashes       [ FD_SYSVAR_SLOT_HASHES_BINCODE_SZ       ] __attribute__((aligned(FD_SYSVAR_ALIGN_MAX)));
-  uchar bin_slot_history      [ FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ      ] __attribute__((aligned(FD_SYSVAR_ALIGN_MAX)));
   uchar bin_stake_history     [ FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ     ] __attribute__((aligned(FD_SYSVAR_ALIGN_MAX)));
 
-  /* Note that two sysvars are (deliberately) missing:
+  /* Note that three sysvars are (deliberately) missing:
      - The 'fees' sysvar was deprecated/demoted.  It is not part of the
        sysvar cache in Agave.
      - The 'instructions' sysvar is a virtual account, not a stored
        account.  It is never written to a database, therefore it does
-       not make sense to cache it. */
+       not make sense to cache it.
+     - The 'slot history' sysvar is large and not readable by programs.
+       Its users read it from the account database directly. */
 };
 
 typedef struct fd_sysvar_cache fd_sysvar_cache_t;
@@ -75,8 +74,7 @@ typedef struct fd_sysvar_cache fd_sysvar_cache_t;
 #define FD_SYSVAR_recent_hashes_IDX       4
 #define FD_SYSVAR_rent_IDX                5
 #define FD_SYSVAR_slot_hashes_IDX         6
-#define FD_SYSVAR_slot_history_IDX        7
-#define FD_SYSVAR_stake_history_IDX       8
+#define FD_SYSVAR_stake_history_IDX       7
 
 FD_PROTOTYPES_BEGIN
 
@@ -112,22 +110,33 @@ void *
 fd_sysvar_cache_delete( void * mem );
 
 /* fd_sysvar_cache_restore rebuilds the sysvar cache from the account
-   database.  Does blocking account database queries.  Returns 1 on
-   success, or 0 on failure (logs warnings).  Reasons for failure
-   include unexpected database error or sysvar deserialize failure. */
+   database as of fork_id.  Does blocking account database queries.
+   Must not be called while an accdb acquire is open.  Returns 1 on
+   success (missing sysvars fine), or 0 if any present sysvar account
+   fails validation (logs details at DEBUG level). */
 
 int
-fd_sysvar_cache_restore( fd_bank_t *  bank,
-                         fd_accdb_t * accdb );
+fd_sysvar_cache_restore( fd_sysvar_cache_t * cache,
+                         fd_accdb_t *        accdb,
+                         fd_accdb_fork_id_t  fork_id );
 
 /* fd_sysvar_cache_restore_fuzz is a weaker version of the above for use
    with solfuzz/protosol conformance tooling.  This version works around
-   bugs in that tooling that create invalid sysvars and suppresses noisy
-   log warning. */
+   bugs in that tooling that create invalid sysvars and suppresses
+   missing-sysvar logs. */
 
 void
-fd_sysvar_cache_restore_fuzz( fd_bank_t *  bank,
-                              fd_accdb_t * accdb );
+fd_sysvar_cache_restore_fuzz( fd_sysvar_cache_t * cache,
+                              fd_accdb_t *        accdb,
+                              fd_accdb_fork_id_t  fork_id );
+
+/* fd_sysvar_cache_validate checks that every present sysvar account
+   of the bank decodes, without keeping a copy.  Same return value as
+   fd_sysvar_cache_restore. */
+
+int
+fd_sysvar_cache_validate( fd_bank_t const * bank,
+                          fd_accdb_t *      accdb );
 
 /* fd_sysvar_cache_restore_one restores a single sysvar cache entry from
    raw account fields (as opposed to a full fd_acc_t).  If pubkey is not
@@ -228,9 +237,6 @@ fd_sysvar_cache_epoch_schedule_read(
     fd_epoch_schedule_t *     out
 );
 
-#define fd_sysvar_cache_epoch_schedule_read_nofail( cache ) \
-  SIMPLE_SYSVAR_READ_NOFAIL( cache, epoch_schedule, fd_epoch_schedule_t )
-
 static inline int
 fd_sysvar_cache_last_restart_slot_is_valid( fd_sysvar_cache_t const * sysvar_cache ) {
   return FD_SYSVAR_IS_VALID( sysvar_cache, last_restart_slot );
@@ -270,15 +276,6 @@ fd_sysvar_cache_recent_hashes_is_empty( fd_sysvar_cache_t const * sysvar_cache )
 static inline int
 fd_sysvar_cache_slot_hashes_is_valid( fd_sysvar_cache_t const * sysvar_cache ) {
   return FD_SYSVAR_IS_VALID( sysvar_cache, slot_hashes );
-}
-
-/* fd_sysvar_cache_slot_history_{join,leave}_const {attach,detach} the
-   caller {from,to} the "slot history" sysvar.  Behavior analogous to
-   above accessors. */
-
-static inline int
-fd_sysvar_cache_slot_history_is_valid( fd_sysvar_cache_t const * sysvar_cache ) {
-  return FD_SYSVAR_IS_VALID( sysvar_cache, slot_history );
 }
 
 static inline int

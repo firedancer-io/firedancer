@@ -130,6 +130,11 @@ struct fd_tls_client_hello {
 
   fd_tls_ext_opaque_t session_id;
 
+  /* Presence is independent of whether a supported algorithm was found. */
+  uchar has_supported_groups     : 1;
+  uchar has_signature_algorithms : 1;
+  uchar has_key_share            : 1;
+
   fd_tls_ext_supported_versions_t   supported_versions;
   fd_tls_ext_server_name_t          server_name;
   fd_tls_ext_supported_groups_t     supported_groups;
@@ -292,19 +297,19 @@ typedef struct fd_tls_finished fd_tls_finished_t;
    Most deserializers follow the same prototype:
 
      long
-     fd_tls_decode_TYPE( TYPE_t * out,
-                         void *   wire,
-                         ulong    wire_sz );
+     fd_tls_decode_TYPE( TYPE_t *     out,
+                         void const * wire,
+                         ulong        wire_sz );
 
-   Consumes bytes of the provided and populates the data structure
-   pointed to by out.  out must be zero-initialized, as the decoder does
+   Reads bytes from wire and populates the data structure pointed to
+   by out.  out must be zero-initialized, as the decoder does not
    promise to fill in all fields.  wire points to the first byte of the
    encoded payload that may span up to wire_sz bytes.  Returns number of
    bytes read from wire on success.  On failure, returns a negated TLS
    error code.  (Typically DECODE_ERROR alert)
 
-   wire (input) may get mangled for endianness conversion.  Thus, decode
-   may not be called twice on the same input buffer.
+   wire is read-only.  Output fields may reference its bytes; retain
+   the input while those references are in use.
 
    ### Encode functions
 

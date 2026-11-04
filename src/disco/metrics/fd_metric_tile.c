@@ -98,12 +98,12 @@ metrics_http_request( fd_http_server_request_t const * request ) {
 
 static void
 metrics_write( fd_metric_ctx_t * ctx ) {
-  FD_MGAUGE_SET( METRIC, BOOT_TIMESTAMP_NANOS, (ulong)ctx->boot_ts );
+  FD_MGAUGE_SET( METRIC, BOOT_TIME, (ulong)ctx->boot_ts );
 
-  FD_MGAUGE_SET( METRIC, CONN_ACTIVE, ctx->metrics_server->metrics.connection_cnt );
+  FD_MGAUGE_SET( METRIC, CONN_OPEN, ctx->metrics_server->metrics.connection_cnt );
 
-  FD_MCNT_SET( METRIC, BYTES_WRITTEN, ctx->metrics_server->metrics.bytes_written );
-  FD_MCNT_SET( METRIC, BYTES_READ,    ctx->metrics_server->metrics.bytes_read );
+  FD_MCNT_SET( METRIC, CONN_TX_BYTES, ctx->metrics_server->metrics.bytes_written );
+  FD_MCNT_SET( METRIC, CONN_RX_BYTES, ctx->metrics_server->metrics.bytes_read );
 }
 
 static void

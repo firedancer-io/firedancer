@@ -27,7 +27,7 @@
 
 struct fd_sock_tile_metrics {
   ulong sys_recvmmsg_cnt;
-  ulong sys_sendmmsg_cnt[ FD_METRICS_ENUM_SOCKET_ERROR_CNT ];
+  ulong sys_sendmmsg_cnt[ FD_METRICS_ENUM_SENDMMSG_RESULT_CNT ];
   ulong rx_pkt_cnt;
   ulong tx_pkt_cnt;
   ulong tx_drop_cnt;
@@ -61,26 +61,28 @@ struct fd_sock_tile {
   struct pollfd pollfd[ FD_SOCK_TILE_MAX_SOCKETS ];
   uint          sock_cnt;
   uint          lo_ifindex;
+  double        tick_per_ns;
   uchar         proto_id[ FD_SOCK_TILE_MAX_SOCKETS ];
 
   /* TX SOCK_RAW socket */
-  int  tx_sock;
-  uint tx_idle_cnt;
-  uint bind_address;
+  int   tx_sock;
+  uint  tx_idle_cnt;
+  uint  bind_address;
+  ulong tx_tile_idx;
+  ulong tx_tile_cnt;
 
   /* RX/TX batches
      FIXME transpose arrays for better cache locality? */
   ulong                batch_cnt; /* <=STEM_BURST */
   struct iovec *       batch_iov;
   void *               batch_cmsg;
+  ulong *              batch_frame_sz; /* full frame size, for PktTxBytes */
   struct sockaddr_in * batch_sa;
   struct mmsghdr *     batch_msg;
 
   /* RX links */
   ushort            rx_sock_port[ FD_SOCK_TILE_MAX_SOCKETS ];
   uchar             link_rx_map [ FD_SOCK_TILE_MAX_SOCKETS ];
-  uchar             repair_rx;
-  uint              repair_shred_sock_idx;
   ulong             link_rx_cnt;
   fd_sock_link_rx_t link_rx[ MAX_NET_OUTS ];
 

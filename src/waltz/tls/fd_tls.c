@@ -480,6 +480,12 @@ fd_tls_server_hs_start( fd_tls_t const *      const server,
 
   if( FD_UNLIKELY( !ch.supported_versions.tls13 ) )
     return fd_tls_alert( &handshake->base, FD_TLS_ALERT_PROTOCOL_VERSION, FD_TLS_REASON_CH_NEG_VER );
+  /* RFC 8446 Section 9.2: these extensions are mandatory for our
+     certificate-based key exchange.  An empty key_share permits HRR. */
+  if( FD_UNLIKELY( !ch.has_supported_groups || !ch.has_key_share ) )
+    return fd_tls_alert( &handshake->base, FD_TLS_ALERT_MISSING_EXTENSION, FD_TLS_REASON_CH_NEG_KX );
+  if( FD_UNLIKELY( !ch.has_signature_algorithms ) )
+    return fd_tls_alert( &handshake->base, FD_TLS_ALERT_MISSING_EXTENSION, FD_TLS_REASON_CH_NEG_SIG );
   if( FD_UNLIKELY( !ch.supported_groups.x25519 ) )
     return fd_tls_alert( &handshake->base, FD_TLS_ALERT_HANDSHAKE_FAILURE, FD_TLS_REASON_CH_NEG_KX );
   if( FD_UNLIKELY( !ch.signature_algorithms.ed25519 ) )
@@ -1044,7 +1050,7 @@ fd_tls_server_hs_wait_cert( fd_tls_t const *      server,
 
     ulong msg_sz = fd_tls_u24_to_uint( msg_hdr.sz );
     if( FD_UNLIKELY( msg_sz > (ulong)(wire_end-wire) ) )
-      return fd_tls_alert( &handshake->base, FD_TLS_ALERT_DECODE_ERROR, FD_TLS_REASON_CERT_CR_PARSE );
+      return fd_tls_alert( &handshake->base, FD_TLS_ALERT_DECODE_ERROR, FD_TLS_REASON_CERT_PARSE );
 
     /* Decode Certificate */
 
@@ -1581,11 +1587,13 @@ fd_tls_client_hs_wait_ee( fd_tls_t const *      const client,
   if( client->alpn_sz && ee->alpn.bufsz ) {
     if( FD_UNLIKELY( ee->alpn.bufsz != client->alpn_sz ||
                      0!=memcmp( ee->alpn.buf, client->alpn, client->alpn_sz ) ) )
-      return fd_tls_alert( &handshake->base, FD_TLS_ALERT_HANDSHAKE_FAILURE, FD_TLS_REASON_ALPN_NEG );
+      return fd_tls_alert( &handshake->base,
+                           client->quic ? FD_TLS_ALERT_NO_APPLICATION_PROTOCOL : FD_TLS_ALERT_HANDSHAKE_FAILURE,
+                           FD_TLS_REASON_ALPN_NEG );
     handshake->alpn_negotiated = 1;
   }
   if( client->quic && client->alpn_sz && !ee->alpn.bufsz )
-    return fd_tls_alert( &handshake->base, FD_TLS_ALERT_MISSING_EXTENSION, FD_TLS_REASON_NO_ALPN );
+    return fd_tls_alert( &handshake->base, FD_TLS_ALERT_NO_APPLICATION_PROTOCOL, FD_TLS_REASON_NO_ALPN );
 
   /* Finish up ********************************************************/
 
@@ -1745,7 +1753,7 @@ fd_tls_client_hs_wait_cert( fd_tls_t const *      const client,
 
     ulong msg_sz = fd_tls_u24_to_uint( msg_hdr.sz );
     if( FD_UNLIKELY( msg_sz > (ulong)(wire_end-wire) ) )
-      return fd_tls_alert( &handshake->base, FD_TLS_ALERT_DECODE_ERROR, FD_TLS_REASON_CERT_CR_PARSE );
+      return fd_tls_alert( &handshake->base, FD_TLS_ALERT_DECODE_ERROR, FD_TLS_REASON_CERT_PARSE );
 
     /* Decode Certificate */
 

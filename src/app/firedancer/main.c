@@ -16,6 +16,7 @@ extern fd_topo_obj_callbacks_t fd_obj_cb_neigh4_hmap;
 extern fd_topo_obj_callbacks_t fd_obj_cb_keyswitch;
 extern fd_topo_obj_callbacks_t fd_obj_cb_node_info;
 extern fd_topo_obj_callbacks_t fd_obj_cb_wait_info;
+extern fd_topo_obj_callbacks_t fd_obj_cb_execrp_result;
 extern fd_topo_obj_callbacks_t fd_obj_cb_leader_txn_timing;
 extern fd_topo_obj_callbacks_t fd_obj_cb_tile;
 extern fd_topo_obj_callbacks_t fd_obj_cb_store;
@@ -27,6 +28,7 @@ extern fd_topo_obj_callbacks_t fd_obj_cb_snapin_shmem;
 extern fd_topo_obj_callbacks_t fd_obj_cb_banks;
 extern fd_topo_obj_callbacks_t fd_obj_cb_progcache;
 extern fd_topo_obj_callbacks_t fd_obj_cb_rnonce_ss;
+extern fd_topo_obj_callbacks_t fd_obj_cb_footer_cache;
 extern fd_topo_obj_callbacks_t fd_obj_cb_adminctl;
 extern fd_topo_obj_callbacks_t fd_obj_cb_sleep;
 
@@ -40,6 +42,7 @@ fd_topo_obj_callbacks_t * CALLBACKS[] = {
   &fd_obj_cb_keyswitch,
   &fd_obj_cb_node_info,
   &fd_obj_cb_wait_info,
+  &fd_obj_cb_execrp_result,
   &fd_obj_cb_leader_txn_timing,
   &fd_obj_cb_tile,
   &fd_obj_cb_store,
@@ -51,15 +54,18 @@ fd_topo_obj_callbacks_t * CALLBACKS[] = {
   &fd_obj_cb_banks,
   &fd_obj_cb_progcache,
   &fd_obj_cb_rnonce_ss,
+  &fd_obj_cb_footer_cache,
   &fd_obj_cb_adminctl,
   &fd_obj_cb_sleep,
   NULL,
 };
 
 configure_stage_t * STAGES[] = {
-  &fd_cfg_stage_uverbs,
+  &fd_cfg_stage_mlx5,
+  &fd_cfg_stage_iavf,
   &fd_cfg_stage_hugetlbfs,
   &fd_cfg_stage_sysctl,
+  &fd_cfg_stage_hyperthreads,
   &fd_cfg_stage_bonding,
   &fd_cfg_stage_ethtool_channels,
   &fd_cfg_stage_ethtool_offloads,
@@ -82,6 +88,7 @@ FD_STATIC_ASSERT( sizeof(STAGES)/sizeof(STAGES[0])<=CONFIGURE_STAGE_COUNT, stage
 extern fd_topo_run_tile_t fd_tile_net;
 extern fd_topo_run_tile_t fd_tile_netlnk;
 extern fd_topo_run_tile_t fd_tile_mlx5;
+extern fd_topo_run_tile_t fd_tile_iavf;
 extern fd_topo_run_tile_t fd_tile_sock;
 extern fd_topo_run_tile_t fd_tile_quic;
 extern fd_topo_run_tile_t fd_tile_verify;
@@ -89,7 +96,6 @@ extern fd_topo_run_tile_t fd_tile_dedup;
 extern fd_topo_run_tile_t fd_tile_resolv;
 extern fd_topo_run_tile_t fd_tile_pack;
 extern fd_topo_run_tile_t fd_tile_execle;
-extern fd_topo_run_tile_t fd_tile_poh;
 extern fd_topo_run_tile_t fd_tile_motor;
 extern fd_topo_run_tile_t fd_tile_shred;
 extern fd_topo_run_tile_t fd_tile_sign;
@@ -104,16 +110,14 @@ extern fd_topo_run_tile_t fd_tile_bundle;
 extern fd_topo_run_tile_t fd_tile_genesi;
 extern fd_topo_run_tile_t fd_tile_ipecho;
 extern fd_topo_run_tile_t fd_tile_admin;
+extern fd_topo_run_tile_t fd_tile_failov;
 
 extern fd_topo_run_tile_t fd_tile_gossvf;
 extern fd_topo_run_tile_t fd_tile_gossip;
-extern fd_topo_run_tile_t fd_tile_repair;
 extern fd_topo_run_tile_t fd_tile_rotor;
 extern fd_topo_run_tile_t fd_tile_rserve;
 extern fd_topo_run_tile_t fd_tile_replay;
 extern fd_topo_run_tile_t fd_tile_execrp;
-extern fd_topo_run_tile_t fd_tile_txsend;
-extern fd_topo_run_tile_t fd_tile_tower;
 extern fd_topo_run_tile_t fd_tile_votor;
 extern fd_topo_run_tile_t fd_tile_accdb;
 extern fd_topo_run_tile_t fd_tile_solcap;
@@ -131,6 +135,7 @@ fd_topo_run_tile_t * TILES[] = {
   &fd_tile_net,
   &fd_tile_netlnk,
   &fd_tile_mlx5,
+  &fd_tile_iavf,
   &fd_tile_sock,
   &fd_tile_quic,
   &fd_tile_verify,
@@ -150,15 +155,11 @@ fd_topo_run_tile_t * TILES[] = {
   &fd_tile_bundle,
   &fd_tile_gossvf,
   &fd_tile_gossip,
-  &fd_tile_repair,
   &fd_tile_rotor,
   &fd_tile_rserve,
   &fd_tile_replay,
   &fd_tile_execrp,
-  &fd_tile_poh,
   &fd_tile_motor,
-  &fd_tile_txsend,
-  &fd_tile_tower,
   &fd_tile_votor,
   &fd_tile_accdb,
   &fd_tile_snapct,
@@ -168,6 +169,7 @@ fd_topo_run_tile_t * TILES[] = {
   &fd_tile_genesi,
   &fd_tile_ipecho,
   &fd_tile_admin,
+  &fd_tile_failov,
   &fd_tile_solcap,
   &fd_tile_snapmk,
   &fd_tile_snapzp,
@@ -193,6 +195,7 @@ extern action_t fd_action_add_authorized_voter;
 extern action_t fd_action_remove_all_authorized_voters;
 extern action_t fd_action_set_identity;
 extern action_t fd_action_get_identity;
+extern action_t fd_action_failover;
 extern action_t fd_action_ps;
 extern action_t fd_action_monitor_gossip;
 extern action_t fd_action_snapshot_create;
@@ -217,6 +220,7 @@ action_t * ACTIONS[] = {
   &fd_action_monitor_gossip,
   &fd_action_set_identity,
   &fd_action_get_identity,
+  &fd_action_failover,
   &fd_action_ps,
   &fd_action_snapshot_create,
   &fd_action_wait,
@@ -239,7 +243,7 @@ main( int     argc,
     NULL
   };
 
-  return fd_main( argc, argv, 1, configs, fd_topo_initialize );
+  return fd_main( argc, argv, configs, fd_topo_initialize );
 }
 
 /* Kind of a hack for now, we sometimes want to view bench generation
@@ -258,8 +262,7 @@ add_bench_topo( fd_topo_t  * topo,
                 ushort       send_to_port,
                 uint         send_to_ip_addr,
                 ushort       rpc_port,
-                uint         rpc_ip_addr,
-                int          reserve_agave_cores ) {
+                uint         rpc_ip_addr ) {
   (void)topo;
   (void)affinity;
   (void)benchg_tile_cnt;
@@ -273,5 +276,4 @@ add_bench_topo( fd_topo_t  * topo,
   (void)send_to_ip_addr;
   (void)rpc_port;
   (void)rpc_ip_addr;
-  (void)reserve_agave_cores;
 }

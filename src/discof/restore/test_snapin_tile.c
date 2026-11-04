@@ -123,9 +123,12 @@ test_ssparse_appendvec_parse( fd_ssparse_t * parser );
 void
 mock_txncache_reset( fd_txncache_t * txncache );
 
-void *
-mock_txncache_snapin_scratch( fd_txncache_t * txncache,
-                              ulong *         out_sz );
+void
+mock_txncache_snapin_stage( fd_txncache_t * txncache,
+                            ulong           off,
+                            void *          buf,
+                            ulong           sz,
+                            int             write );
 
 void
 mock_slot_delta_parser_init( fd_slot_delta_parser_t * parser );
@@ -170,7 +173,7 @@ test_stem_publish( fd_stem_context_t * stem,
 #define fd_accdb_snapshot_write_batch                mock_accdb_snapshot_write_batch
 #define fd_accdb_read_one_nocache                    mock_accdb_read_one_nocache
 #define fd_txncache_reset                            mock_txncache_reset
-#define fd_txncache_snapin_scratch                   mock_txncache_snapin_scratch
+#define fd_txncache_snapin_stage                     mock_txncache_snapin_stage
 #define fd_ssmanifest_parser_init                    mock_ssmanifest_parser_init
 #define fd_slot_delta_parser_init                    mock_slot_delta_parser_init
 #define fd_stake_delegations_reset                   mock_stake_delegations_reset
@@ -178,6 +181,7 @@ test_stem_publish( fd_stem_context_t * stem,
 #define fd_stake_delegations_advance_root            mock_stake_delegations_advance_root
 #define fd_stake_delegations_evict_fork              mock_stake_delegations_evict_fork
 #define fd_features_restore_chunk                    mock_features_restore_chunk
+#define fd_ssload_manifest_validate                  mock_ssload_manifest_validate
 #define fd_stem_publish                              test_stem_publish
 #define fd_ssparse_advance                           test_ssparse_advance
 #define fd_ssparse_appendvec_parse                   test_ssparse_appendvec_parse
@@ -201,9 +205,10 @@ test_padded_sz( ulong used ) {
 #undef fd_stake_delegations_advance_root
 #undef fd_stake_delegations_new_fork
 #undef fd_stake_delegations_reset
+#undef fd_ssload_manifest_validate
 #undef fd_slot_delta_parser_init
 #undef fd_ssmanifest_parser_init
-#undef fd_txncache_snapin_scratch
+#undef fd_txncache_snapin_stage
 #undef fd_txncache_reset
 #undef fd_accdb_read_one_nocache
 #undef fd_accdb_snapshot_write_batch
@@ -220,6 +225,7 @@ test_padded_sz( ulong used ) {
 #undef fd_accdb_reset
 
 #include <stdlib.h>
+#include <sys/mman.h>
 #include "../../flamenco/stakes/test_stake_delegations_util.h"
 
 static fd_snapin_tile_t * test_ctx;
@@ -233,6 +239,7 @@ struct test_sysvar {
 };
 typedef struct test_sysvar test_sysvar_t;
 static test_sysvar_t test_sysvars[ FD_SYSVAR_CACHE_ENTRY_CNT ];
+static test_sysvar_t test_slot_history;
 
 /* Outcome mock_accdb_snapshot_write_batch reports for every account. */
 static uchar test_write_result = FD_ACCDB_SNAPSHOT_WRITE_LOADED;
@@ -246,7 +253,6 @@ void   fd_stake_delegations_evict_fork( fd_stake_delegations_t * stake_delegatio
    derived staging bounds). */
 #define TEST_MAX_GROUPS_PER_SLOT  (FD_MAX_TXN_PER_SLOT)
 #define TEST_MAX_ENTRIES_PER_SLOT (2UL*FD_MAX_TXN_PER_SLOT)
-#define TEST_MAX_STAGED_GROUPS    (FD_TXNCACHE_MAX_SLOT_DELTAS*TEST_MAX_GROUPS_PER_SLOT)
 #define TEST_MAX_ENTRIES          (FD_TXNCACHE_MAX_SLOT_DELTAS*TEST_MAX_ENTRIES_PER_SLOT)
 
 static fd_txncache_fork_id_t test_attached_fork_id[ FD_BLOCKHASHES_MAX ];
@@ -322,8 +328,9 @@ mock_accdb_snapshot_revert_whead( fd_accdb_t *                         accdb,
 
 ulong
 mock_accdb_snapshot_reserve_write( fd_accdb_t * accdb,
-                                   ulong        sz ) {
-  (void)accdb;
+                                   ulong        sz,
+                                   ulong        dead_tail_sz ) {
+  (void)accdb; (void)dead_tail_sz;
   return FD_ATOMIC_FETCH_AND_ADD( &test_file_off, sz );
 }
 
@@ -337,14 +344,17 @@ mock_accdb_read_one_nocache( fd_accdb_t *       accdb,
                              uchar *            out_data,
                              ulong *            out_data_len ) {
   (void)accdb;
-  ulong idx;
-  for( idx=0UL; idx<FD_SYSVAR_CACHE_ENTRY_CNT; idx++ ) {
-    if( !memcmp( pubkey, snapin_sysvar_tbl[ idx ].id->uc, 32UL ) ) break;
+  test_sysvar_t const * sv = &test_slot_history;
+  if( memcmp( pubkey, fd_sysvar_slot_history_id.uc, 32UL ) ) {
+    ulong idx;
+    for( idx=0UL; idx<FD_SYSVAR_CACHE_ENTRY_CNT; idx++ ) {
+      if( !memcmp( pubkey, snapin_sysvar_tbl[ idx ].id->uc, 32UL ) ) break;
+    }
+    FD_TEST( idx<FD_SYSVAR_CACHE_ENTRY_CNT );
+    sv = &test_sysvars[ idx ];
   }
-  FD_TEST( idx<FD_SYSVAR_CACHE_ENTRY_CNT );
   test_accdb_read_one_cnt++;
   test_accdb_read_one_fork = fork_id;
-  test_sysvar_t const * sv = &test_sysvars[ idx ];
   *out_lamports = sv->lamports;
   if( FD_UNLIKELY( !sv->lamports ) ) return FD_ACCDB_READ_ONE_NOCACHE_MISS;
   *out_executable = 0;
@@ -389,14 +399,22 @@ mock_accdb_snapshot_write_batch( fd_accdb_t *                         accdb,
 
 void mock_txncache_reset( fd_txncache_t * tc ) { (void)tc; }
 
-void *
-mock_txncache_snapin_scratch( fd_txncache_t * txncache,
-                              ulong *         out_sz ) {
-  if( FD_UNLIKELY( !txncache ) ) {
-    *out_sz = TEST_MAX_STAGED_GROUPS*sizeof(blockhash_group_t);
-    return (void *)4096UL;
+/* Staging area for tests that stage before attaching a txncache.  NULL
+   uses the txncache's staging area. */
+static uchar * test_stage_mem;
+
+void
+mock_txncache_snapin_stage( fd_txncache_t * txncache,
+                            ulong           off,
+                            void *          buf,
+                            ulong           sz,
+                            int             write ) {
+  if( FD_UNLIKELY( test_stage_mem ) ) {
+    if( write ) fd_memcpy( test_stage_mem+off, buf, sz );
+    else        fd_memcpy( buf, test_stage_mem+off, sz );
+    return;
   }
-  return fd_txncache_snapin_scratch( txncache, out_sz );
+  fd_txncache_snapin_stage( txncache, off, buf, sz, write );
 }
 
 void
@@ -466,6 +484,14 @@ static void
 test_ssparse_appendvec_parse( fd_ssparse_t * parser ) {
   (void)parser;
   test_appendvec_parse_cnt++;
+}
+
+int
+mock_ssload_manifest_validate( fd_snapshot_manifest_t const * manifest,
+                               ulong                          max_vote_accounts,
+                               ulong                          max_stake_accounts ) {
+  (void)manifest; (void)max_vote_accounts; (void)max_stake_accounts;
+  return 0;
 }
 
 static int
@@ -554,7 +580,8 @@ sync_ctx_init( fd_snapin_tile_t * ctx,
   ctx->tile_idx     = 0UL;
   ctx->lane_cnt     = lane_cnt;
   ctx->ct_out.idx   = 0UL;
-  test_file_off = 0UL;
+  test_file_off  = 0UL;
+  test_stage_mem = NULL;
   reset_attempt_state( ctx );
   clear_control_barrier( ctx );
 
@@ -620,6 +647,7 @@ test_counters_reset( void ) {
   test_write_result             = FD_ACCDB_SNAPSHOT_WRITE_LOADED;
   test_accdb_read_one_cnt       = 0UL;
   for( ulong i=0UL; i<FD_SYSVAR_CACHE_ENTRY_CNT; i++ ) test_sysvars[ i ].lamports = 0UL;
+  test_slot_history.lamports    = 0UL;
   test_appendvec_parse_cnt      = 0UL;
   test_parser_script            = 0;
   test_parser_call_cnt          = 0UL;
@@ -838,16 +866,22 @@ test_stream_init( ulong av_cnt ) {
 
 /* Install a sysvar account in the accdb mock (data NULL: zero-filled). */
 static void
-test_sysvar_set( ulong        idx,
-                 void const * data,
-                 ulong        data_len ) {
-  test_sysvar_t * sv = &test_sysvars[ idx ];
+test_sysvar_install( test_sysvar_t * sv,
+                     void const *    data,
+                     ulong           data_len ) {
   FD_TEST( data_len<=sizeof(sv->data) );
   sv->lamports = 1UL;
   sv->data_len = data_len;
   fd_memcpy( sv->owner, fd_sysvar_owner_id.uc, 32UL );
   if( data ) fd_memcpy( sv->data, data, data_len );
   else       fd_memset( sv->data, 0,    data_len );
+}
+
+static void
+test_sysvar_set( ulong        idx,
+                 void const * data,
+                 ulong        data_len ) {
+  test_sysvar_install( &test_sysvars[ idx ], data, data_len );
 }
 
 /* A SlotHistory sysvar returned by the accdb mock:
@@ -860,8 +894,8 @@ test_stamp_slot_history( ulong bank_slot ) {
   ulong blocks_len = FD_SLOT_HISTORY_MAX_ENTRIES/64UL;
   FD_TEST( 9UL+blocks_len*8UL+16UL==FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ );
 
-  test_sysvar_set( FD_SYSVAR_slot_history_IDX, NULL, FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ );
-  uchar * buf = test_sysvars[ FD_SYSVAR_slot_history_IDX ].data;
+  test_sysvar_install( &test_slot_history, NULL, FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ );
+  uchar * buf = test_slot_history.data;
   buf[ 0 ] = 1;
   FD_STORE( ulong, buf+1UL, blocks_len );
   uchar * footer = buf + 9UL + blocks_len*8UL;
@@ -1508,9 +1542,9 @@ test_nonempty_raw_data( void ) {
 
 static fd_banks_t *
 new_banks( fd_wksp_t * wksp ) {
-  void * mem = fd_wksp_alloc_laddr( wksp, fd_banks_align(), fd_banks_footprint( 16UL, 4UL, 16UL, 16UL ), 1UL );
+  void * mem = fd_wksp_alloc_laddr( wksp, fd_banks_align(), fd_banks_footprint( 16UL, 8UL, 16UL, 16UL ), 1UL );
   FD_TEST( mem );
-  fd_banks_t * banks = fd_banks_join( fd_banks_new( mem, FD_STAKE_DELEGATIONS_FD, 16UL, 4UL, 16UL, 64UL, 16UL, 0, 42UL ) );
+  fd_banks_t * banks = fd_banks_join( fd_banks_new( mem, FD_STAKE_DELEGATIONS_FD, 16UL, 8UL, 16UL, 64UL, 16UL, 0, 42UL ) );
   FD_TEST( banks );
   return banks;
 }
@@ -1738,8 +1772,11 @@ test_txncache_staging_ctx_init( fd_snapin_tile_t * ctx,
   ctx->lead.txncache_max_groups_per_slot  = TEST_MAX_GROUPS_PER_SLOT;
   ctx->lead.txncache_max_entries_per_slot = TEST_MAX_ENTRIES_PER_SLOT;
   txncache_staging_reset( ctx );
-  ctx->lead.blockhash_groups = fd_wksp_alloc_laddr( wksp, alignof(blockhash_group_t), TEST_MAX_STAGED_GROUPS*sizeof(blockhash_group_t), 1UL );
+  ulong row_sz = txncache_staging_row_sz( TEST_MAX_GROUPS_PER_SLOT );
+  ctx->lead.blockhash_groups = fd_wksp_alloc_laddr( wksp, FD_TXNCACHE_SNAPIN_STAGE_ALIGN, row_sz, 1UL );
   FD_TEST( ctx->lead.blockhash_groups );
+  test_stage_mem = fd_wksp_alloc_laddr( wksp, FD_TXNCACHE_SNAPIN_STAGE_ALIGN, FD_TXNCACHE_MAX_SLOT_DELTAS*row_sz, 1UL );
+  FD_TEST( test_stage_mem );
   test_txncache_staging_side_arrays_alloc( ctx, wksp );
 }
 
@@ -1747,37 +1784,40 @@ test_txncache_staging_ctx_init( fd_snapin_tile_t * ctx,
 static fd_txncache_t *
 new_txncache( fd_wksp_t * wksp,
               ulong       max_txn_per_slot ) {
-  void * shmem = fd_wksp_alloc_laddr( wksp, fd_txncache_shmem_align(), fd_txncache_shmem_footprint( 1UL, max_txn_per_slot ), 1UL );
+  ulong cache_footprint = FD_TXNCACHE_MAX_SLOT_DELTAS*txncache_staging_row_sz( (max_txn_per_slot+1UL)/2UL );
+  void * shmem = fd_wksp_alloc_laddr( wksp, fd_txncache_shmem_align(), fd_txncache_shmem_footprint( 1UL, max_txn_per_slot, cache_footprint ), 1UL );
   FD_TEST( shmem );
-  fd_txncache_shmem_t * txncache_shmem = fd_txncache_shmem_join( fd_txncache_shmem_new( shmem, 1UL, max_txn_per_slot, 0UL ) );
+  fd_txncache_shmem_t * txncache_shmem = fd_txncache_shmem_join( fd_txncache_shmem_new( shmem, 1UL, max_txn_per_slot, cache_footprint, 0UL ) );
   FD_TEST( txncache_shmem );
 
   void * local = fd_wksp_alloc_laddr( wksp, fd_txncache_align(), fd_txncache_footprint( 1UL ), 1UL );
   FD_TEST( local );
-  fd_txncache_t * txncache = fd_txncache_join( fd_txncache_new( local, txncache_shmem ) );
+  fd_txncache_t * txncache = fd_txncache_join( fd_txncache_new( local, txncache_shmem, -1 ) );
   FD_TEST( txncache );
   return txncache;
 }
 
-static void
-test_txncache_staging_groups_fit_txncache_scratch( fd_wksp_t * wksp ) {
-  fd_txncache_t * txncache = new_txncache( wksp, FD_PACK_MAX_TXNCACHE_TXN_PER_SLOT );
+/* Builds a txncache with one frame, so snapshot loading stages most
+   groups in a spill file. */
+static fd_txncache_t *
+new_spill_txncache( fd_wksp_t * wksp,
+                    ulong       max_txn_per_slot ) {
+  ulong cache_footprint = 1UL;
+  void * shmem = fd_wksp_alloc_laddr( wksp, fd_txncache_shmem_align(), fd_txncache_shmem_footprint( 1UL, max_txn_per_slot, cache_footprint ), 1UL );
+  FD_TEST( shmem );
+  fd_txncache_shmem_t * txncache_shmem = fd_txncache_shmem_join( fd_txncache_shmem_new( shmem, 1UL, max_txn_per_slot, cache_footprint, 0UL ) );
+  FD_TEST( txncache_shmem );
 
-  ulong scratch_sz = 0UL;
-  void * scratch = fd_txncache_snapin_scratch( txncache, &scratch_sz );
-  FD_TEST( scratch );
+  char path[] = "/tmp/fd-snapin-spill-XXXXXX";
+  int spill_fd = mkstemp( path );
+  FD_TEST( spill_fd>=0 );
+  FD_TEST( !unlink( path ) );
 
-  blockhash_group_t * groups = txncache_staging_groups_join( scratch, scratch_sz, TEST_MAX_STAGED_GROUPS );
-  FD_TEST( groups );
-  FD_TEST( fd_ulong_is_aligned( (ulong)groups, alignof(blockhash_group_t) ) );
-  FD_TEST( (uchar *)groups>=(uchar *)scratch );
-  FD_TEST( (uchar *)(groups+TEST_MAX_STAGED_GROUPS)<=(uchar *)scratch+scratch_sz );
-
-  ulong ring_sz = TEST_MAX_STAGED_GROUPS*sizeof(blockhash_group_t);
-  FD_TEST(  txncache_staging_groups_join( (void *)64UL, ring_sz,     TEST_MAX_STAGED_GROUPS ) );
-  FD_TEST( !txncache_staging_groups_join( (void *)64UL, ring_sz-1UL, TEST_MAX_STAGED_GROUPS ) );
-  FD_TEST( !txncache_staging_groups_join( (void *)66UL, ring_sz,     TEST_MAX_STAGED_GROUPS ) );
-  FD_TEST(  txncache_staging_groups_join( (void *)66UL, ring_sz+2UL, TEST_MAX_STAGED_GROUPS ) );
+  void * local = fd_wksp_alloc_laddr( wksp, fd_txncache_align(), fd_txncache_footprint( 1UL ), 1UL );
+  FD_TEST( local );
+  fd_txncache_t * txncache = fd_txncache_join( fd_txncache_new( local, txncache_shmem, spill_fd ) );
+  FD_TEST( txncache );
+  return txncache;
 }
 
 static void
@@ -1823,7 +1863,7 @@ test_txncache_staging_evicted_slot_drops_groups( fd_wksp_t * wksp ) {
   FD_TEST( ctx->lead.txncache_slots[ oldest_idx ].group_cnt==1UL );
   FD_TEST( ctx->lead.txncache_slots[ oldest_idx ].entry_cnt==2UL );
 
-  blockhash_group_t const * group = &ctx->lead.blockhash_groups[ oldest_idx*TEST_MAX_GROUPS_PER_SLOT ];
+  blockhash_group_t const * group = &ctx->lead.blockhash_groups[ 0 ];
   FD_TEST( !memcmp( group->blockhash, blockhash_x, 32UL ) );
   FD_TEST( group->txnhash_offset==3UL );
   FD_TEST( group->txncache_entry_cnt==2UL );
@@ -2004,13 +2044,14 @@ test_txncache_staging_fits_one_gigantic_page( void ) {
   ulong footprint = scratch_footprint( &tile );
   FD_TEST( footprint<(1UL<<30) );
 
-  /* The staged entries scale with the per-slot limit.  Both footprints
-     are rounded up to the scratch alignment, so the difference can land
-     on either side of the exact entries term by less than one
-     alignment. */
+  /* The staged entries and the group buffer scale with the per-slot
+     limit.  Both footprints are rounded up to the scratch alignment, so
+     the difference can land on either side of the exact term by less
+     than one alignment. */
   tile.snapin.max_txn_per_slot = 2UL*FD_MAX_TXN_PER_SLOT;
   ulong delta   = scratch_footprint( &tile )-footprint;
-  ulong entries = TEST_MAX_ENTRIES*sizeof(fd_sstxncache_hash_t);
+  ulong entries = TEST_MAX_ENTRIES*sizeof(fd_sstxncache_hash_t)
+                + txncache_staging_row_sz( 2UL*FD_MAX_TXN_PER_SLOT )-txncache_staging_row_sz( FD_MAX_TXN_PER_SLOT );
   FD_TEST( delta+scratch_align()>entries && delta<entries+scratch_align() );
 }
 
@@ -2034,12 +2075,14 @@ test_txncache_staging_runtime_limits( fd_wksp_t * wksp ) {
   }
   FD_TEST( txncache_staging_group_begin( ctx, blockhash, 0UL )==-1 );
 
-  /* Slot 1's groups start at the runtime stride, not the production one. */
+  /* Slot 0's groups are staged when slot 1 begins, and slot 1's groups
+     reuse the in-memory buffer. */
   FD_TEST( txncache_staging_slot_begin( ctx, 1001UL )==1UL );
+  FD_TEST( ((blockhash_group_t const *)test_stage_mem)[ 2UL ].blockhash[ 0 ]==2 );
   FD_STORE( ulong, blockhash, 7UL );
   FD_TEST( !txncache_staging_group_begin( ctx, blockhash, 0UL ) );
   FD_TEST( !txncache_staging_entry_add( ctx, 1001UL, txnhash ) );
-  FD_TEST( !memcmp( ctx->lead.blockhash_groups[ 3UL ].blockhash, blockhash, 32UL ) );
+  FD_TEST( !memcmp( ctx->lead.blockhash_groups[ 0UL ].blockhash, blockhash, 32UL ) );
   FD_TEST( ctx->lead.txncache_entries[ 6UL ].txnhash[ 0 ]==0x33 );
 
   uchar __attribute__((aligned(alignof(blockhash_map_t)))) _map[ blockhash_map_footprint( 1024UL ) ];
@@ -2097,12 +2140,14 @@ test_txncache_staging_ignores_evicted_group_offsets( fd_wksp_t * wksp ) {
 }
 
 static void
-test_populate_txncache_ctx_init( fd_snapin_tile_t * ctx,
-                                 fd_wksp_t *        wksp ) {
+test_populate_txncache_ctx_init_with( fd_snapin_tile_t * ctx,
+                                      fd_wksp_t *        wksp,
+                                      fd_txncache_t *    txncache ) {
   sync_ctx_init( ctx, 1UL, FD_SNAPSHOT_STATE_PROCESSING );
-  ctx->lead.txncache = new_txncache( wksp, FD_PACK_MAX_TXNCACHE_TXN_PER_SLOT );
+  ctx->lead.txncache = txncache;
   fd_txncache_reset( ctx->lead.txncache );
-  ctx->lead.blockhash_groups = txncache_staging_scratch( ctx );
+  ctx->lead.blockhash_groups = fd_wksp_alloc_laddr( wksp, FD_TXNCACHE_SNAPIN_STAGE_ALIGN, txncache_staging_row_sz( ctx->lead.txncache_max_groups_per_slot ), 1UL );
+  FD_TEST( ctx->lead.blockhash_groups );
   test_txncache_staging_side_arrays_alloc( ctx, wksp );
   txncache_staging_reset( ctx );
 
@@ -2113,6 +2158,12 @@ test_populate_txncache_ctx_init( fd_snapin_tile_t * ctx,
   fd_slot_delta_parser_init( ctx->lead.slot_delta_parser );
 
   test_attached_fork_cnt = 0UL;
+}
+
+static void
+test_populate_txncache_ctx_init( fd_snapin_tile_t * ctx,
+                                 fd_wksp_t *        wksp ) {
+  test_populate_txncache_ctx_init_with( ctx, wksp, new_txncache( wksp, FD_PACK_MAX_TXNCACHE_TXN_PER_SLOT ) );
 }
 
 static void
@@ -2234,10 +2285,7 @@ test_txnhash_init( uchar out[ static 32UL ],
 }
 
 static void
-test_populate_txncache_slot_attribution( fd_wksp_t * wksp ) {
-  fd_snapin_tile_t * ctx = test_ctx;
-  test_populate_txncache_ctx_init( ctx, wksp );
-
+test_populate_txncache_slot_attribution_run( fd_snapin_tile_t * ctx ) {
   fd_snapshot_manifest_blockhash_t blockhashes[ FD_BLOCKHASHES_MAX ] = {0};
   test_populate_blockhashes_init( blockhashes );
   uchar txn_1001_bh_1000[ 32UL ];
@@ -2273,6 +2321,22 @@ test_populate_txncache_slot_attribution( fd_wksp_t * wksp ) {
   FD_TEST( fd_txncache_query( ctx->lead.txncache, child_of_root, test_blockhash_1000, txn_1001_bh_1000 ) );
   FD_TEST( fd_txncache_query( ctx->lead.txncache, child_of_root, test_blockhash_1000, txn_1002_bh_1000 ) );
   FD_TEST( fd_txncache_query( ctx->lead.txncache, child_of_root, test_blockhash_1001, txn_1002_bh_1001 ) );
+}
+
+static void
+test_populate_txncache_slot_attribution( fd_wksp_t * wksp ) {
+  fd_snapin_tile_t * ctx = test_ctx;
+  test_populate_txncache_ctx_init( ctx, wksp );
+  test_populate_txncache_slot_attribution_run( ctx );
+}
+
+/* Same as above, but the frames hold one slot delta's groups, so the
+   others are staged in the spill file. */
+static void
+test_populate_txncache_slot_attribution_spill( fd_wksp_t * wksp ) {
+  fd_snapin_tile_t * ctx = test_ctx;
+  test_populate_txncache_ctx_init_with( ctx, wksp, new_spill_txncache( wksp, FD_PACK_MAX_TXNCACHE_TXN_PER_SLOT ) );
+  test_populate_txncache_slot_attribution_run( ctx );
 }
 
 static void
@@ -2672,7 +2736,7 @@ test_accumulator_fold( void ) {
   FD_TEST( t0->lead.account_counts.duplicates==exp_duplicates );
   /* The full snapshot's totals are saved for the incremental revert. */
   FD_TEST( t0->lead.recovery.capitalization==t0->lead.manifest_capitalization );
-  FD_TEST( test_accdb_read_one_cnt==FD_SYSVAR_CACHE_ENTRY_CNT );
+  FD_TEST( test_accdb_read_one_cnt==FD_SYSVAR_CACHE_ENTRY_CNT+1UL );
   FD_TEST( test_accdb_read_one_fork.val==t0->lead.accdb_root_fork_id.val );
 
   test_cluster_delete( cl );
@@ -2763,7 +2827,7 @@ test_verify_sysvars_accepts_valid( void ) {
   fd_snapin_tile_t * ctx = &cl->ctx[ 0 ];
 
   FD_TEST( !verify_sysvars( ctx ) );
-  FD_TEST( test_accdb_read_one_cnt==FD_SYSVAR_CACHE_ENTRY_CNT );
+  FD_TEST( test_accdb_read_one_cnt==FD_SYSVAR_CACHE_ENTRY_CNT+1UL );
   FD_TEST( test_accdb_read_one_fork.val==ctx->lead.accdb_root_fork_id.val );
 
   /* An incremental load reads from the incremental fork. */
@@ -2789,9 +2853,12 @@ test_verify_sysvars_presence( void ) {
   for( ulong idx=0UL; idx<FD_SYSVAR_CACHE_ENTRY_CNT; idx++ ) {
     test_stamp_sysvars( cl, TEST_SYSVAR_BANK_SLOT );
     test_sysvars[ idx ].lamports = 0UL;
-    int required = idx==FD_SYSVAR_clock_IDX || idx==FD_SYSVAR_rent_IDX || idx==FD_SYSVAR_slot_history_IDX;
+    int required = idx==FD_SYSVAR_clock_IDX || idx==FD_SYSVAR_rent_IDX;
     FD_TEST( verify_sysvars( &cl->ctx[ 0 ] )==(required ? -1 : 0) );
   }
+  test_stamp_sysvars( cl, TEST_SYSVAR_BANK_SLOT );
+  test_slot_history.lamports = 0UL;
+  FD_TEST( verify_sysvars( &cl->ctx[ 0 ] )==-1 );
   test_cluster_delete( cl );
 }
 
@@ -2803,6 +2870,9 @@ test_verify_sysvars_rejects_bad_owner( void ) {
     test_sysvars[ idx ].owner[ 0 ] ^= 1;
     FD_TEST( verify_sysvars( &cl->ctx[ 0 ] )==-1 );
   }
+  test_stamp_sysvars( cl, TEST_SYSVAR_BANK_SLOT );
+  test_slot_history.owner[ 0 ] ^= 1;
+  FD_TEST( verify_sysvars( &cl->ctx[ 0 ] )==-1 );
   test_cluster_delete( cl );
 }
 
@@ -2818,6 +2888,9 @@ test_verify_sysvars_rejects_undecodable( void ) {
     test_sysvars[ idx ].data_len = 0UL;
     FD_TEST( verify_sysvars( ctx )==-1 );
   }
+  test_stamp_sysvars( cl, TEST_SYSVAR_BANK_SLOT );
+  test_slot_history.data_len = 0UL;
+  FD_TEST( verify_sysvars( ctx )==-1 );
 
   /* Right size, bad content (the decoders themselves are covered by
      the sysvar unit tests). */
@@ -2828,11 +2901,11 @@ test_verify_sysvars_rejects_undecodable( void ) {
   /* SlotHistory must be exactly the serialized size, SlotHashes at
      least (the in-place updater rewrites the whole account). */
   test_stamp_sysvars( cl, TEST_SYSVAR_BANK_SLOT );
-  test_sysvars[ FD_SYSVAR_slot_history_IDX ].data_len = FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ+1UL;
+  test_slot_history.data_len = FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ+1UL;
   FD_TEST( verify_sysvars( ctx )==-1 );
-  test_sysvars[ FD_SYSVAR_slot_history_IDX ].data_len = FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ-1UL;
+  test_slot_history.data_len = FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ-1UL;
   FD_TEST( verify_sysvars( ctx )==-1 );
-  test_sysvars[ FD_SYSVAR_slot_history_IDX ].data_len = FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ;
+  test_slot_history.data_len = FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ;
   test_sysvars[ FD_SYSVAR_slot_hashes_IDX  ].data_len = FD_SYSVAR_SLOT_HASHES_BINCODE_SZ-1UL;
   FD_TEST( verify_sysvars( ctx )==-1 );
 
@@ -2918,9 +2991,9 @@ test_verify_sysvars_epoch_rewards( void ) {
   FD_TEST( verify_sysvars( ctx )==-1 );
   test_sysvars[ FD_SYSVAR_stake_history_IDX ].lamports = 1UL;
 
-  /* The reward reader requires the exact serialized size. */
+  /* Oversized accounts decode from their prefix, like at boot. */
   test_sysvars[ idx ].data_len = sz+1UL;
-  FD_TEST( verify_sysvars( ctx )==-1 );
+  FD_TEST( !verify_sysvars( ctx ) );
 
   /* None of this applies while rewards are inactive. */
   rewards.active              = 0;
@@ -3017,7 +3090,7 @@ test_full_lifecycle_9_tiles( void ) {
 
   test_stamp_sysvars( cl, bank_slot );
   cluster_barrier( cl, FD_SNAPSHOT_MSG_CTRL_NEXT );
-  FD_TEST( test_accdb_read_one_cnt==FD_SYSVAR_CACHE_ENTRY_CNT );
+  FD_TEST( test_accdb_read_one_cnt==FD_SYSVAR_CACHE_ENTRY_CNT+1UL );
   FD_TEST( test_accdb_read_one_fork.val==cl->ctx[ 0 ].lead.accdb_root_fork_id.val );
   FD_TEST( test_accdb_save_whead_cnt==1UL );
   for( ulong t=0UL; t<n; t++ ) FD_TEST( cl->ctx[ t ].state==FD_SNAPSHOT_STATE_IDLE );
@@ -3074,7 +3147,7 @@ test_full_lifecycle_9_tiles( void ) {
   FD_TEST( test_accdb_load_end_cnt==1UL );
   FD_TEST( test_feature_restore_cnt==1UL );
   FD_TEST( test_feature_restore_fork.val==7U );
-  FD_TEST( test_accdb_read_one_cnt==FD_SYSVAR_CACHE_ENTRY_CNT );
+  FD_TEST( test_accdb_read_one_cnt==FD_SYSVAR_CACHE_ENTRY_CNT+1UL );
   FD_TEST( test_accdb_read_one_fork.val==7U );
   FD_TEST( cl->ctx[ 0 ].lead.accdb_root_fork_id.val==7U );
   FD_TEST( cl->ctx[ 0 ].lead.accdb_incr_fork_id.val==USHORT_MAX );
@@ -3268,6 +3341,78 @@ test_max_account_staging( void ) {
   FD_TEST( test_pwrite_sz[ 0 ]==test_padded_sz( sizeof(fd_accdb_disk_meta_t)+FD_RUNTIME_ACC_SZ_MAX ) );
 }
 
+/* Set up a fd_snapshot_manifest_t that passes all preconditions before
+   the WFS block in process_manifest (advertised_slot, lthash, bank hash
+   verification, fd_ssload_manifest_validate).  Returns a pointer to the
+   manifest; the caller sets WFS fields on ctx separately.
+
+   manifest_mem must be aligned to FD_CHUNK_ALIGN and large enough for
+   fd_snapshot_manifest_t. */
+static fd_snapshot_manifest_t *
+wfs_manifest_setup( fd_snapin_tile_t * ctx,
+                    uchar *            manifest_mem,
+                    ulong              slot,
+                    int                full ) {
+  fd_snapshot_manifest_t * m = (fd_snapshot_manifest_t *)manifest_mem;
+  fd_memset( m, 0, sizeof(*m) );
+
+  m->slot                = slot;
+  m->parent_slot         = slot ? (slot-1UL) : 0UL;
+  m->has_accounts_lthash = 1;
+  m->has_block_id        = 1;
+  m->blockhashes_len     = 1UL;
+  m->ticks_per_slot      = 64UL;
+  /* accounts_lthash, parent_bank_hash, blockhashes[0].hash, signature_count
+     are all zero from memset.  Compute the matching bank hash. */
+  fd_lthash_value_t lthash[1];
+  fd_memcpy( lthash, m->accounts_lthash, sizeof(fd_lthash_value_t) );
+  fd_hash_t parent_bh = {0};
+  fd_hash_t last_bh   = {0};
+  fd_hash_t computed[1];
+  fd_hashes_hash_bank( lthash, &parent_bh, &last_bh, 0UL, computed );
+  fd_memcpy( m->bank_hash, computed->hash, FD_HASH_FOOTPRINT );
+
+  /* advertised_hash = blake3(accounts_lthash) */
+  uchar hash32[32];
+  fd_blake3_hash( m->accounts_lthash, FD_LTHASH_LEN_BYTES, hash32 );
+
+  fd_memset( ctx, 0, sizeof(*ctx) );
+  ctx->state          = FD_SNAPSHOT_STATE_PROCESSING;
+  ctx->full           = !!full;
+  ctx->lane_cnt       = 1UL;
+  ctx->lead.advertised_slot = slot;
+  fd_memcpy( ctx->lead.advertised_hash, hash32, FD_HASH_FOOTPRINT );
+  ctx->lead.manifest_out.mem   = (fd_wksp_t *)manifest_mem;
+  ctx->lead.manifest_out.chunk = 0UL;
+  ctx->ct_out.idx         = 0UL;
+  ctx->pending_control    = ULONG_MAX;
+
+  return m;
+}
+
+static void
+test_wfs_error_incremental( void ) {
+  /* WFS ERROR + incremental snapshot -> transition_malformed.
+     manifest slot (50) is behind WFS slot (100), incremental can't
+     bridge the gap. */
+  static uchar manifest_mem[ sizeof(fd_snapshot_manifest_t) ] __attribute__((aligned(FD_CHUNK_ALIGN)));
+  static fd_snapin_tile_t ctx[1];
+  wfs_manifest_setup( ctx, manifest_mem, 50UL, 0 /*incremental*/ );
+
+  ctx->wfs_slot          = 100UL;
+  ctx->wfs_hash_is_zero  = 0;
+  ctx->wfs_shred_version = 1234;
+  fd_memset( ctx->wfs_bank_hash.uc, 0xAA, FD_HASH_FOOTPRINT );
+
+  test_pub_cnt = 0UL;
+  process_manifest( ctx, (fd_stem_context_t *)1UL );
+
+  FD_TEST( ctx->state==FD_SNAPSHOT_STATE_ERROR );
+  FD_TEST( test_pub_cnt==1UL );
+  FD_TEST( test_pub_sig[0]==FD_SNAPSHOT_MSG_CTRL_ERROR );
+  FD_LOG_NOTICE(( "pass: test_wfs_error_incremental" ));
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -3286,7 +3431,7 @@ main( int     argc,
   /* The end-to-end populate test holds a full-size txncache (~1.3 GiB)
      and the staged transaction entries (~0.55 GiB) at once. */
   char const * _page_sz = fd_env_strip_cmdline_cstr ( &argc, &argv, "--page-sz",  NULL, "gigantic"               );
-  ulong        page_cnt = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt", NULL, 3UL                      );
+  ulong        page_cnt = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt", NULL, 2UL                      );
   ulong        numa_idx = fd_env_strip_cmdline_ulong( &argc, &argv, "--numa-idx", NULL, fd_shmem_numa_idx( 0UL ) );
   fd_wksp_t * wksp      = fd_wksp_new_anonymous( fd_cstr_to_shmem_page_sz( _page_sz ), page_cnt, fd_shmem_cpu_idx( numa_idx ), "wksp", 0UL );
   FD_TEST( wksp );
@@ -3313,7 +3458,6 @@ main( int     argc,
   fd_wksp_reset( wksp, 1UL ); test_snoop_incremental_fork( wksp );
   test_txncache_staging_entry_size();
   test_txncache_staging_group_record_size();
-  fd_wksp_reset( wksp, 1UL ); test_txncache_staging_groups_fit_txncache_scratch( wksp );
   fd_wksp_reset( wksp, 1UL ); test_txncache_staging_evicts_oldest_slot( wksp );
   fd_wksp_reset( wksp, 1UL ); test_txncache_staging_evicted_slot_drops_groups( wksp );
   fd_wksp_reset( wksp, 1UL ); test_txncache_staging_rejects_group_overflow( wksp );
@@ -3330,10 +3474,12 @@ main( int     argc,
   fd_wksp_reset( wksp, 1UL ); test_populate_txncache_slot_attribution_with_holes( wksp );
   fd_wksp_reset( wksp, 1UL ); test_txncache_staging_populate_expired_by_index( wksp );
   fd_wksp_reset( wksp, 1UL ); test_populate_txncache_slot_attribution( wksp );
+  fd_wksp_reset( wksp, 1UL ); test_populate_txncache_slot_attribution_spill( wksp );
   fd_wksp_reset( wksp, 1UL ); test_populate_txncache_rejects_invalid_blockhash_age( wksp );
   fd_wksp_reset( wksp, 1UL ); test_populate_txncache_requires_snapshot_slot_delta( wksp );
   fd_wksp_reset( wksp, 1UL ); test_populate_txncache_accepts_empty_rooted_status_cache( wksp );
 
+  test_wfs_error_incremental();
   fd_wksp_delete_anonymous( wksp );
 
   test_eager_claim_coverage();

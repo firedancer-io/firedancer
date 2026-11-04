@@ -21,7 +21,7 @@ import os
 
 INDENT = "    "
 
-ATTRS = ( "type", "compression", "description", "max_len", "dynamic" )
+ATTRS = ( "type", "compression", "description", "max_len", "dynamic", "field_number", "deprecated", "renamed_from", "aliases" )
 NESTED = ( "element", "variants", "fields" )
 
 
@@ -51,6 +51,12 @@ def inline_body( obj, type_w, comp_w ):
     out += f'"description": {jstr(obj["description"])}'
     if "max_len" in obj:
         out += f', "max_len": {obj["max_len"]}'
+    if "field_number" in obj:
+        out += f', "field_number": {obj["field_number"]}'
+    if obj.get( "deprecated" ):
+        out += ', "deprecated": true'
+    if "renamed_from" in obj:
+        out += f', "renamed_from": {jstr(obj["renamed_from"])}'
     return out + " }"
 
 
@@ -71,7 +77,13 @@ def block( entries, depth, blanks=None ):
         else:
             lines.append( f"{pad}{key} {{" )
             for a in ATTRS:
-                if a in v:
+                if a == "aliases" and a in v:
+                    w = max( len( jstr( n ) + ":" ) for n in v[ a ] )
+                    lines.append( f'{pad}{INDENT}"aliases": {{' )
+                    lines.extend( f"{pad}{INDENT*2}{jstr(n)+':':<{w}} {jstr(m)}," for n, m in v[ a ].items() )
+                    lines[ -1 ] = lines[ -1 ].rstrip( "," )
+                    lines.append( f"{pad}{INDENT}}}," )
+                elif a in v:
                     lines.append( f"{pad}{INDENT}{jstr(a)}: {jstr(v[ a ])}," )
             for n in NESTED:
                 if n not in v: continue
@@ -120,6 +132,10 @@ def render( doc ):
     lines.append( f'{INDENT}"name": {jstr(doc["name"])},' )
     lines.append( f'{INDENT}"id": {doc["id"]},' )
     lines.append( f'{INDENT}"description": {jstr(doc["description"])},' )
+    if doc.get( "local" ):
+        lines.append( f'{INDENT}"local": true,' )
+    if doc.get( "deprecated" ):
+        lines.append( f'{INDENT}"deprecated": true,' )
     lines.append( f'{INDENT}"fields": {{' )
     lines.extend( block( doc[ "fields" ], 2, blanks=doc.get( "_blanks" ) ) )
     lines.append( f"{INDENT}}}" )

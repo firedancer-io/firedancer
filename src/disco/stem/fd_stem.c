@@ -198,7 +198,8 @@
 #endif
 
 /* STEM_ALWAYS_PARK makes the tile park on its NEXT_DEADLINE even in
-   performance mode.
+   performance mode, where nothing rings it, so its ins wait for the
+   deadline too.
 
    STEM_NEVER_PARK keeps the tile spinning even if it has no fragments
    to process and would ordinarily try to park.  This is typically for
@@ -296,7 +297,15 @@ STEM_(park)( STEM_CALLBACK_CONTEXT_TYPE * ctx,
     }
   }
 
-  if( FD_LIKELY( sleep->waker_fseq ) ) {
+  /* Backpressured, waker readiness and already due work wait for
+     after_credit, which runs once credits return and ring us.  A
+     before_credit tile still does them while backpressured. */
+#ifdef STEM_CALLBACK_BEFORE_CREDIT
+  int bp_defer = 0;
+#else
+  int bp_defer = backpressured;
+#endif
+  if( FD_LIKELY( !bp_defer && sleep->waker_fseq ) ) {
     if( FD_UNLIKELY( fd_fseq_query( sleep->waker_fseq )==1UL ) ) return 0;
   }
 
@@ -311,7 +320,9 @@ STEM_(park)( STEM_CALLBACK_CONTEXT_TYPE * ctx,
 
   long due = deadline_hint;
 #ifdef STEM_CALLBACK_NEXT_DEADLINE
-  due = fd_long_min( due, STEM_CALLBACK_NEXT_DEADLINE( ctx ) );
+  long cb_due = STEM_CALLBACK_NEXT_DEADLINE( ctx );
+  if( FD_UNLIKELY( bp_defer && cb_due<=now ) ) cb_due = LONG_MAX;
+  due = fd_long_min( due, cb_due );
 #endif
   long deadline = fd_long_min( now+cap_ticks, due );
   if( FD_UNLIKELY( deadline-now<min_ticks ) ) return 0; /* already close enough to deadline, don't waste a syscall */
@@ -383,12 +394,10 @@ STEM_(park)( STEM_CALLBACK_CONTEXT_TYPE * ctx,
       pending |= __atomic_load_n( cons_fseq[ c ], __ATOMIC_ACQUIRE )!=cons_seq[ c ];
     }
   }
-  if( FD_LIKELY( sleep->waker_fseq ) ) pending |= fd_fseq_query( sleep->waker_fseq )==1UL;
+  if( FD_LIKELY( !bp_defer && sleep->waker_fseq ) ) pending |= fd_fseq_query( sleep->waker_fseq )==1UL;
 #ifdef STEM_CALLBACK_SHOULD_SHUTDOWN
   pending |= STEM_CALLBACK_SHOULD_SHUTDOWN( ctx );
 #endif
-
-  FD_MCNT_INC( TILE, PARK, 1UL );
 
   if( FD_UNLIKELY( pending ) ) {
     FD_VOLATILE( word[0] ) = 1UL;
@@ -396,7 +405,7 @@ STEM_(park)( STEM_CALLBACK_CONTEXT_TYPE * ctx,
       __atomic_fetch_and( &sleep->shmem->parked_bits[ my_w ], ~my_bit, __ATOMIC_SEQ_CST );
       if( FD_UNLIKELY( backpressured ) ) __atomic_fetch_and( &sleep->shmem->credit_bits[ my_w ], ~my_bit, __ATOMIC_SEQ_CST );
     }
-    FD_MCNT_INC( TILE, UNPARK_PENDING, 1UL );
+    FD_MCNT_INC( TILE, PARK_ATTEMPTED_PENDING, 1UL );
     return backpressured ? -1 : 0;
   }
 
@@ -416,8 +425,8 @@ STEM_(park)( STEM_CALLBACK_CONTEXT_TYPE * ctx,
     __atomic_fetch_and( &sleep->shmem->parked_bits[ my_w ], ~my_bit, __ATOMIC_SEQ_CST );
     if( FD_UNLIKELY( backpressured ) ) __atomic_fetch_and( &sleep->shmem->credit_bits[ my_w ], ~my_bit, __ATOMIC_SEQ_CST );
   }
-  if( FD_LIKELY( cause==FD_SLEEP_UNPARK_RING ) ) FD_MCNT_INC( TILE, UNPARK_RING,     1UL );
-  else                                           FD_MCNT_INC( TILE, UNPARK_DEADLINE, 1UL );
+  if( FD_LIKELY( cause==FD_SLEEP_UNPARK_RING ) ) FD_MCNT_INC( TILE, PARK_ATTEMPTED_RING,     1UL );
+  else                                           FD_MCNT_INC( TILE, PARK_ATTEMPTED_DEADLINE, 1UL );
   return 1;
 }
 
@@ -534,7 +543,7 @@ STEM_(park_attempt)( STEM_CALLBACK_CONTEXT_TYPE * ctx,
       *then = *now;
     } else {
       /* Credits only, nothing else is due yet. */
-      STEM_(cr_refresh)( out_cnt, out_depth, out_seq, cr_avail, min_cr_avail, cr_max, cons_cnt, cons_out, cons_seq, cons_slow, (ulong)backpressured );
+      STEM_(cr_refresh)( out_cnt, out_depth, out_seq, cr_avail, min_cr_avail, cr_max, cons_cnt, cons_out, cons_seq, cons_slow, 0UL );
       *then = *now + (long)async_min;
     }
   }
@@ -640,7 +649,6 @@ STEM_(run1)( ulong                        in_cnt,
              STEM_CALLBACK_CONTEXT_TYPE * ctx,
              fd_stem_sleep_t const *      sleep ) {
 #if STEM_ALWAYS_PARK
-  if( !sleep->shmem ) FD_TEST( !in_cnt );
   STEM_(run_park)( in_cnt, in_mcache, in_fseq, out_cnt, out_mcache, cons_cnt, _cons_out, _cons_fseq, _cons_slow, burst, lazy, rng, scratch, ctx, sleep );
 #elif STEM_NEVER_PARK
   STEM_(run_spin)( in_cnt, in_mcache, in_fseq, out_cnt, out_mcache, cons_cnt, _cons_out, _cons_fseq, _cons_slow, burst, lazy, rng, scratch, ctx, sleep );
@@ -712,7 +720,7 @@ STEM_(run)( fd_topo_t *      topo,
           cons_out[ reliable_cons_cnt ] = k;
           cons_fseq[ reliable_cons_cnt ] = consumer_tile->in_link_fseq[ j ];
           FD_TEST( cons_fseq[ reliable_cons_cnt ] );
-          cons_slow[ reliable_cons_cnt ] = fd_metrics_link_in( consumer_tile->metrics, polled_in_idx ) + FD_METRICS_COUNTER_LINK_SLOW_OFF;
+          cons_slow[ reliable_cons_cnt ] = fd_metrics_link_in( consumer_tile->metrics, polled_in_idx ) + FD_METRICS_COUNTER_LINK_BACKPRESSURE_BLAMED_OFF;
           reliable_cons_cnt++;
           /* Need to test this, since each link may connect to many outs,
              you could construct a topology which has more than this

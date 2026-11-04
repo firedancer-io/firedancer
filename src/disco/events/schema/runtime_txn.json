@@ -12,7 +12,7 @@
         "signature":                         { "type": "Signature",                               "description": "First signature of the transaction (64 bytes)" },
         "blockhash":                         { "type": "Hash",                                    "description": "Blockhash referenced by the transaction" },
         "fee_payer":                         { "type": "Pubkey",                                  "description": "Fee-payer pubkey" },
-        "is_simple_vote":                    { "type": "Bool",                                    "description": "True if the transaction was classified as a simple vote, false otherwise" },
+        "is_simple_vote":                    { "type": "Bool",                                    "description": "True if the transaction was classified as a simple vote, false otherwise", "deprecated": true },
         "is_bundle":                         { "type": "Bool",                                    "description": "True if the transaction is part of a bundle, false otherwise" },
         "is_committable":                    { "type": "Bool",                                    "description": "True if the transaction was committable (landed on-chain)" },
         "is_fees_only":                      { "type": "Bool",                                    "description": "True if the transaction landed but only fees were charged (e.g. account loading failure)" },

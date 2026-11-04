@@ -13,14 +13,10 @@
 #define DST_PROTO_SHRED    (3UL)
 #define DST_PROTO_REPAIR   (4UL)
 #define DST_PROTO_GOSSIP   (5UL)
-#define DST_PROTO_SEND     (6UL)
 #define DST_PROTO_RSERVE   (7UL)
 #define DST_PROTO_VOTOR    (8UL)
 
 #define POH_PKT_TYPE_MICROBLOCK      (0UL)
-#define POH_PKT_TYPE_BECAME_LEADER   (1UL)
-#define POH_PKT_TYPE_SHRED_EPOCH_MSG (2UL)
-#define POH_PKT_TYPE_LEADER_BANK     (3UL)
 
 /* FD_NET_MTU is the max full packet size, with ethernet, IP, and UDP
    headers that can go in or out of the net tile.  2048 is the maximum
@@ -41,21 +37,17 @@
 
 #define FD_GOSSIP_MTU (1232UL)
 
-/* FD_SHRED_STORE_MTU is the size of an fd_fec_set (statically
-   asserted in fd_shred_tile.c). */
-
-#define FD_SHRED_STORE_MTU (77888UL)
-
 #define FD_NETMUX_SIG_MIN_HDR_SZ (42UL) /* The default header size, which means no vlan tags and no IP options. */
 
 /* These limits are defined here to prevent circular dependencies, and
    statically asserted they are calculated correctly in the relevant
    places.  We get one bound using transactions that consume the minimum
    number of CUs and another bound using the minimum size transactions.
-   The overall bound is the lower of the two. */
-#define FD_MAX_TXN_PER_SLOT_CU    98039UL
-#define FD_MAX_TXN_PER_SLOT_SHRED 272635UL
-#define FD_MAX_TXN_PER_SLOT       98039UL
+   The overall bound is the lower of the two.  Both use the 200ms slot
+   params with raise_block_limits_to_100m (50M CUs, 16384 shreds). */
+#define FD_MAX_TXN_PER_SLOT_CU    49019UL
+#define FD_MAX_TXN_PER_SLOT_SHRED 136306UL
+#define FD_MAX_TXN_PER_SLOT       49019UL
 FD_STATIC_ASSERT( FD_MAX_TXN_PER_SLOT<=FD_MAX_TXN_PER_SLOT_CU&&FD_MAX_TXN_PER_SLOT<=FD_MAX_TXN_PER_SLOT_SHRED, max_txn_per_slot );
 FD_STATIC_ASSERT( FD_MAX_TXN_PER_SLOT>=FD_MAX_TXN_PER_SLOT_CU||FD_MAX_TXN_PER_SLOT>=FD_MAX_TXN_PER_SLOT_SHRED, max_txn_per_slot );
 
@@ -63,7 +55,7 @@ FD_STATIC_ASSERT( FD_MAX_TXN_PER_SLOT>=FD_MAX_TXN_PER_SLOT_CU||FD_MAX_TXN_PER_SL
 FD_PROTOTYPES_BEGIN
 
  /* hdr_sz is the total size of network headers, including eth, ip, udp.
-    Ignored for outgoing packets.
+    Also required for outgoing packets consumed by the socket tile.
     For incoming packets, hash_{ip_addr,port} are the source IP and port,
     for outgoing packets, they are the destination IP and port. */
 FD_FN_CONST static inline ulong
@@ -113,7 +105,7 @@ FD_FN_CONST static inline ulong fd_disco_poh_sig_execle_tile( ulong sig ) { retu
 FD_FN_CONST static inline ulong
 fd_disco_execle_sig( ulong slot,
                      ulong pack_idx ) {
-  return (slot << 32) | pack_idx;
+  return (slot << 32) | (pack_idx & 0xFFFFFFFFUL);
 }
 
 FD_FN_CONST static inline ulong fd_disco_execle_sig_slot( ulong sig ) { return (sig >> 32); }
@@ -149,6 +141,8 @@ fd_disco_tpu_is_durable_nonce( fd_txn_t const * txn,
   /* instruction with three accounts and a four byte instruction data, a
      little-endian uint value 4 */
   if( FD_UNLIKELY( (ix0->data_sz!=4) | (ix0->acct_cnt!=3) ) ) return 0;
+
+  if( FD_UNLIKELY( !fd_txn_is_writable( txn, payload[ ix0->acct_off ] ) ) ) return 0;
 
   return fd_uint_load_4( payload + ix0->data_off )==4U;
 }

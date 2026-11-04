@@ -375,6 +375,32 @@ test_path_response( void ) {
   FD_TEST( frame->data==0x0102030405060708UL );
 }
 
+static void
+test_new_token_frame( void ) {
+  uchar buf[ 1UL+8UL+1024UL ];
+  memset( buf, 0xa5, sizeof(buf) );
+  buf[0] = 0x07;
+  fd_quic_new_token_frame_t frame[1];
+
+  ulong const valid_len[] = { 1UL, 1024UL };
+  for( ulong i=0UL; i<sizeof(valid_len)/sizeof(valid_len[0]); i++ ) {
+    ulong len_sz = fd_quic_varint_encode( buf+1UL, valid_len[i] );
+    ulong sz = 1UL + len_sz + valid_len[i];
+    FD_TEST( fd_quic_decode_new_token_frame( frame, buf, sz )==sz );
+    FD_TEST( frame->token_len==valid_len[i] );
+    FD_TEST( frame->token==buf+1UL+len_sz );
+    FD_TEST( fd_quic_decode_new_token_frame( frame, buf, sz-1UL )==FD_QUIC_PARSE_FAIL );
+  }
+
+  /* Large varints must not wrap into the accepted token-length range. */
+  ulong const invalid_len[] = { 0UL, 1025UL, (1UL<<32)+1UL, (1UL<<32)+1024UL,
+                               0x3fffffffffffffffUL };
+  for( ulong i=0UL; i<sizeof(invalid_len)/sizeof(invalid_len[0]); i++ ) {
+    fd_quic_varint_encode( buf+1UL, invalid_len[i] );
+    FD_TEST( fd_quic_decode_new_token_frame( frame, buf, sizeof(buf) )==FD_QUIC_PARSE_FAIL );
+  }
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -387,6 +413,7 @@ main( int     argc,
   test_crypto_frame();
   test_stream_encode();
   test_path_response();
+  test_new_token_frame();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

@@ -407,7 +407,10 @@ fd_backt_src_pcap_shred( fd_backt_src_t * this,
 
     for(;;) {
       ulong pkt_sz = fd_pcap_iter_next( src->iter.pcap, pkt, sizeof(pkt), &ts );
-      if( FD_UNLIKELY( !pkt_sz ) ) return ULONG_MAX;
+      if( FD_UNLIKELY( !pkt_sz ) ) {
+        if( FD_UNLIKELY( ferror( (FILE *)fd_pcap_iter_file( src->iter.pcap ) ) ) ) FD_LOG_ERR(( "failed to read pcap" ));
+        return ULONG_MAX;
+      }
 
       ulong shred_sz = 0UL;
       uchar const * shred = find_udp_payload( pkt, pkt_sz, src->format, &shred_sz );
@@ -420,7 +423,10 @@ fd_backt_src_pcap_shred( fd_backt_src_t * this,
 
   for(;;) {
     fd_pcapng_frame_t const * frame = fd_pcapng_iter_next( src->iter.pcapng );
-    if( FD_UNLIKELY( !frame ) ) return ULONG_MAX;
+    if( FD_UNLIKELY( !frame ) ) {
+      if( FD_UNLIKELY( fd_pcapng_iter_err( src->iter.pcapng )!=-1 ) ) FD_LOG_ERR(( "failed to read pcapng" ));
+      return ULONG_MAX;
+    }
 
     if( FD_UNLIKELY( frame->idb &&
                      frame->idb->link_type==FD_PCAPNG_LINKTYPE_USER0 ) ) {

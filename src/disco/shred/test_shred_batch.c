@@ -15,7 +15,7 @@ main( int     argc,
   /* Helper must fail closed on impossible inputs. */
   FD_TEST( !fd_shred_batch_pack_data_max( 0UL, M ) );
   FD_TEST( !fd_shred_batch_pack_data_max( 96UL, M ) ); /* 3 FEC, less than first+last reserve */
-  FD_TEST( !fd_shred_batch_pack_data_max( 128UL, 30000UL ) ); /* 4 FEC; last batch needs 4 */
+  FD_TEST( !fd_shred_batch_pack_data_max( 128UL, 31000UL ) ); /* 4 FEC; last batch needs 4 */
   FD_TEST( !fd_shred_batch_pack_data_max( 24576UL, FD_SHRED_BATCH_WMARK_CHAINED ) );
 
   /* Helper is nonzero at every slot-time shred count.  Fewer shreds

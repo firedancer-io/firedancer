@@ -14,6 +14,8 @@ $(call make-unit-test,test_map_giant,test_map_giant,fd_util)
 $(call make-unit-test,test_map_giant_mem,test_map_giant_mem,fd_util)
 ifdef FD_HAS_HOSTED # FIXME: HMMM ....
 $(call make-unit-test,test_map_giant_concur,test_map_giant_concur,fd_util)
+$(call make-unit-test,test_unit_test,test_unit_test,fd_util)
+$(call run-unit-test,test_unit_test)
 endif
 $(call make-unit-test,test_map_perfect,test_map_perfect,fd_util)
 $(call make-unit-test,test_map_chain_para,test_map_chain_para,fd_util)

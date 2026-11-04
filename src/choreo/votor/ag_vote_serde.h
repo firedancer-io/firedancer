@@ -4,8 +4,9 @@
 #include "ag_vote.h"
 
 #define AG_VOTE_DE_SUCCESS   ( 0)
-#define AG_VOTE_DE_ERR_SZ    (-1) /* Io(ReadSizeLimit), PreallocationSizeLimit, LengthEncodingOverflow                */
-#define AG_VOTE_DE_ERR_INVAL (-2) /* InvalidTagEncoding, InvalidValue                                                 */
+#define AG_VOTE_DE_ERR_SZ    (-1) /* Io(ReadSizeLimit), PreallocationSizeLimit, LengthEncodingOverflow            */
+#define AG_VOTE_DE_ERR_INVAL (-2) /* InvalidTagEncoding, InvalidValue                                             */
+#define AG_VOTE_DE_ERR_SIG   (-3) /* BLS verification failed, identity is never a valid vote signature            */
 
 #define AG_VOTE_SERDE_TAG_NOTAR          (1)  /* WireConsensusMessageKind::NotarVote          #[wincode(tag = 1)] */
 #define AG_VOTE_SERDE_TAG_FINAL          (2)  /* WireConsensusMessageKind::FinalizeVote       #[wincode(tag = 2)] */

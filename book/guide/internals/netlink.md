@@ -95,8 +95,8 @@ A concurrent open addressed hash table is used to store ARP entries
 (henceforth called "neighbor table").  This table attempts to
 continuously stay in sync with the kernel.
 
-The netlink tile requests neighbor solicitations via the netlink
-equivalent of `ip neigh add dev DEVICE IP use`.
+The netlink tile requests neighbor resolution by sending a zero-length
+UDP datagram to port 65535 at the target IPv4 address.  See `fd_neigh4_probe.h`.
 
 ### Routing
 

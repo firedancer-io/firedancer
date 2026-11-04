@@ -27,9 +27,6 @@ struct fd_exec_instr_ctx {
   char program_id_base58[ FD_BASE58_ENCODED_32_SZ ];
 };
 
-#define FD_EXEC_INSTR_CTX_ALIGN     (alignof(fd_exec_instr_ctx_t))
-#define FD_EXEC_INSTR_CTX_FOOTPRINT (sizeof (fd_exec_instr_ctx_t))
-
 /* Be careful when using this macro. There may be places where the error
    will need to be handled differently. */
 #define FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( ctx, idx, acc ) do { \
@@ -59,16 +56,15 @@ fd_exec_instr_ctx_check_num_insn_accounts( fd_exec_instr_ctx_t const * ctx,
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
 
-/* Mirrors Agave function solana_sdk::transaction_context::InstructionContext::find_index_of_instruction_account.
+/* fd_exec_instr_ctx_instr_account_map fills map with, for each
+   transaction account index, the first index of that account in the
+   instruction, or USHORT_MAX.  Transaction keys are unique, so
+   map[ fd_runtime_find_index_of_account( pubkey ) ] is the index of
+   pubkey in the instruction. */
 
-   Returns the index of the instruction account given the account pubkey
-   or ULONG_MAX if the account is not found.
-
-   https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L524-L538 */
-
-ulong
-fd_exec_instr_ctx_find_idx_of_instr_account( fd_exec_instr_ctx_t const * ctx,
-                                             fd_pubkey_t const *         pubkey );
+void
+fd_exec_instr_ctx_instr_account_map( fd_exec_instr_ctx_t const * ctx,
+                                     ushort                      map[ MAX_TX_ACCOUNT_LOCKS ] );
 
 /* Mirrors Agave function solana_sdk::transaction_context::InstructionContext::get_index_of_instruction_account_in_transaction
 
@@ -83,7 +79,7 @@ fd_exec_instr_ctx_get_index_of_instr_account_in_transaction( fd_exec_instr_ctx_t
     return FD_EXECUTOR_INSTR_SUCCESS;
   }
 
-  /* Return a NotEnoughAccountKeys error if the idx is out of bounds.
+  /* Return a MissingAccount error if the idx is out of bounds.
      https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L559 */
   if( FD_UNLIKELY( idx_in_instr>=ctx->instr->acct_cnt ) ) {
     return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
@@ -91,18 +87,6 @@ fd_exec_instr_ctx_get_index_of_instr_account_in_transaction( fd_exec_instr_ctx_t
 
   *idx_in_txn = ctx->instr->accounts[ idx_in_instr ].index_in_transaction;
   return FD_EXECUTOR_INSTR_SUCCESS;
-}
-
-/* Mirrors Agave function solana_sdk::transaction_context::InstructionContext::get_number_of_program_accounts.
-
-   Strictly returns 1, as we only support one program account per instruction.
-
-   https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L480-L482 */
-
-static inline ushort
-fd_exec_instr_ctx_get_number_of_program_accounts( fd_exec_instr_ctx_t const * ctx ) {
-  (void) ctx;
-  return 1U;
 }
 
 /* A helper function to get the pubkey of an account using its instruction context index */

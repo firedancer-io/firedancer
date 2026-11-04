@@ -5,7 +5,7 @@
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/fd_clock_tile.h"
 #include "../../flamenco/gossip/fd_gossip.h"
-#include "../../flamenco/runtime/fd_runtime_const.h"
+#include "../../flamenco/leaders/fd_leaders_base.h"
 #include "../../disco/keyguard/fd_keyswitch.h"
 #include "../../disco/gui/fd_gui_gossip_bw.h"
 
@@ -54,7 +54,6 @@ struct fd_gossip_tile_ctx {
   fd_gossip_out_ctx_t update_out[ FD_GOSSIP_UPDATE_LINK_CNT ]; /* gossip_ciaddr, gossip_ciseen, gossip_vote, gossip_misc */
   fd_gossip_out_ctx_t gossvf_out[ 1 ];
   fd_gossip_out_ctx_t sign_out[ 1 ];
-  fd_gossip_out_ctx_t gossip_wfs[ 1 ];
   fd_gossip_out_ctx_t gui_out[ 1 ];
 
   ulong sign_out_mtu;
@@ -63,28 +62,32 @@ struct fd_gossip_tile_ctx {
   fd_keyswitch_t *     keyswitch;
   int                  is_halting_signing;
   int                  is_pending_set_identity;
-  ulong                txsend_in_seq;
 
   ushort            net_id;
   fd_ip4_udp_hdrs_t net_out_hdr[ 1 ];
   fd_rng_t          rng[ 1 ];
 
 
-  /* FIXME: Support a larger bound. */
   /* The condition for complete = 1 is 80% of the cluster has joined
      gossip. "joining gossip" is based on contact info CRDS values
      with a wallclock timestamp in the last 15 seconds.
 
-     We keep a copy of the snapshot bank's votes states in an array here
-     for quick look up. */
-  fd_vote_stake_weight_t wfs_stakes_scratch[ FD_RUNTIME_MAX_SNAPSHOT_VOTE_ACCOUNTS ];
-  fd_stake_weight_t      wfs_stakes        [ FD_RUNTIME_MAX_SNAPSHOT_VOTE_ACCOUNTS ];
-  ulong                  wfs_stakes_cnt;
+     We keep a copy of the resumed epoch's identity stake weights from
+     the replay_epoch message in an array here for quick look up. */
+  fd_stake_weight_t wfs_stakes[ MAX_STAKE_WEIGHTS ];
+  ulong             wfs_stakes_cnt;
 
   /* wfs_active is used to keep track of nodes we've already labeled as
      being active on gossip, so we don't double count their stake. */
-  uchar wfs_active[ FD_RUNTIME_MAX_SNAPSHOT_VOTE_ACCOUNTS ];
+  uchar wfs_active[ MAX_STAKE_WEIGHTS ];
   int   wfs_state;
+
+  /* Inputs to fd_wfs_mode (see fd_wfs.h), so gossip can tell MATCH
+     from NOOP.  wfs_boot_slot is ULONG_MAX until the first manifest. */
+  ulong  wfs_slot;
+  ushort wfs_shred_version;
+  int    wfs_hash_is_zero;
+  ulong  wfs_boot_slot;
 
   struct {
     ulong online;

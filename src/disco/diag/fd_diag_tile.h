@@ -4,11 +4,11 @@
 #include "../fd_disco_base.h"
 #include "../topo/fd_cpu_topo.h"
 
-#define FD_DIAG_BUNDLE_STATUS_DISABLED     (0UL) /* No bundle tiles configured */
-#define FD_DIAG_BUNDLE_STATUS_DISCONNECTED (1UL) /* All bundle tiles disconnected */
-#define FD_DIAG_BUNDLE_STATUS_CONNECTING   (2UL) /* At least one bundle tile connecting, none connected or sleeping */
-#define FD_DIAG_BUNDLE_STATUS_CONNECTED    (3UL) /* At least one bundle tile connected */
-#define FD_DIAG_BUNDLE_STATUS_SLEEPING     (4UL) /* At least one bundle tile sleeping, none connected */
+#define FD_DIAG_BUNDLE_STATUS_DISCONNECTED (0UL) /* All bundle tiles disconnected */
+#define FD_DIAG_BUNDLE_STATUS_CONNECTING   (1UL) /* At least one bundle tile connecting, none connected or sleeping */
+#define FD_DIAG_BUNDLE_STATUS_CONNECTED    (2UL) /* At least one bundle tile connected */
+#define FD_DIAG_BUNDLE_STATUS_SLEEPING     (3UL) /* At least one bundle tile sleeping, none connected */
+#define FD_DIAG_BUNDLE_STATUS_DISABLED     (4UL) /* No bundle tiles configured */
 
 #define FD_DIAG_VOTE_STATUS_DISABLED     (0UL) /* Non-voting or no tower tile */
 #define FD_DIAG_VOTE_STATUS_NOT_STARTED  (1UL) /* Tower tile not running or no votes cast yet */

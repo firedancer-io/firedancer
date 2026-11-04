@@ -3,7 +3,9 @@
 #include "../../../../flamenco/accdb/fd_accdb.h"
 #include "../../../../flamenco/stakes/fd_epoch_credits.h"
 #include "../../../../flamenco/runtime/fd_cost_tracker_store.h"
+#include "../../../../flamenco/stakes/fd_vote_stakes.h"
 #include "../../../../flamenco/stakes/fd_stake_delegations.h"
+#include "../../../../flamenco/runtime/fd_txncache.h"
 #include "../../../../disco/store/fd_store.h"
 
 #include <sys/wait.h>
@@ -25,9 +27,12 @@
 #include "../../../../disco/waker/fd_waker.h"
 #include "../../../../disco/sleep/fd_sleep.h"
 #include "../../../../util/pod/fd_pod_format.h"
+#include "../../../../discof/restore/utils/fd_wfs.h"
+#include "../../../../disco/keyguard/fd_keyload.h"
 
 #include "../configure/configure.h"
 #include "../configure/fd_cpu_isolation.h"
+#include "../../../../disco/topo/fd_cpu_topo.h"
 
 #include <dirent.h>
 #include <sched.h>
@@ -42,6 +47,10 @@
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <linux/capability.h>
+
+#if defined(__x86_64__)
+#include <cpuid.h>
+#endif
 
 #include "../../../../util/tile/fd_tile_private.h"
 
@@ -60,7 +69,7 @@ run_cmd_perm( args_t *         args,
   fd_cap_chk_raise_rlimit( chk, NAME, RLIMIT_MEMLOCK, mlock_limit, "call `rlimit(2)` to increase `RLIMIT_MEMLOCK` so all memory can be locked with `mlock(2)`" );
   fd_cap_chk_raise_rlimit( chk, NAME, RLIMIT_NICE,    40,          "call `setpriority(2)` to increase thread priorities" );
   fd_cap_chk_raise_rlimit( chk, NAME, RLIMIT_NOFILE,  CONFIGURE_NR_OPEN_FILES,
-                                                                       "call `rlimit(2)  to increase `RLIMIT_NOFILE` to allow more open files for Agave" );
+                                                                       "call `rlimit(2)  to increase `RLIMIT_NOFILE` to allow more open files" );
   fd_cap_chk_cap(          chk, NAME, CAP_NET_RAW,                 "call `socket(2)` to bind to a raw socket for use by XDP" );
   fd_cap_chk_cap(          chk, NAME, CAP_SYS_ADMIN,               "call `bpf(2)` with the `BPF_OBJ_GET` command to initialize XDP" );
   if( fd_sandbox_requires_cap_sys_admin( config->uid, config->gid ) )
@@ -73,6 +82,8 @@ run_cmd_perm( args_t *         args,
     fd_cap_chk_cap(        chk, NAME, CAP_NET_BIND_SERVICE,        "call `bind(2)` to bind to a privileged port for serving metrics" );
   if( FD_UNLIKELY( config->tiles.gui.gui_listen_port<1024 ) )
     fd_cap_chk_cap(        chk, NAME, CAP_NET_BIND_SERVICE,        "call `bind(2)` to bind to a privileged port for serving the GUI" );
+  if( FD_UNLIKELY( config->firedancer.failover.enabled && config->firedancer.failover.listen_port<1024 ) )
+    fd_cap_chk_cap(        chk, NAME, CAP_NET_BIND_SERVICE,        "call `bind(2)` to bind to a privileged port for the failover listener" );
 }
 
 struct pidns_clone_args {
@@ -142,37 +153,6 @@ create_clone_stack( void ) {
     FD_LOG_ERR(( "mmap failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
   return stack;
-}
-
-
-static int
-execve_agave( int config_memfd,
-                    int pipefd ) {
-  if( FD_UNLIKELY( -1==fcntl( pipefd, F_SETFD, 0 ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,0) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-  pid_t child = fork();
-  if( FD_UNLIKELY( -1==child ) ) FD_LOG_ERR(( "fork() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-  if( FD_LIKELY( !child ) ) {
-    char _current_executable_path[ PATH_MAX ];
-    FD_TEST( -1!=fd_file_util_self_exe( _current_executable_path ) );
-
-    char config_fd[ 32 ];
-    FD_TEST( fd_cstr_printf_check( config_fd, sizeof( config_fd ), NULL, "%d", config_memfd ) );
-    char * args[ 5 ] = { _current_executable_path, "run-agave", "--config-fd", config_fd, NULL };
-
-    char * envp[] = { NULL, NULL };
-    char * google_creds = getenv( "GOOGLE_APPLICATION_CREDENTIALS" );
-    char provide_creds[ PATH_MAX+30UL ];
-    if( FD_UNLIKELY( google_creds ) ) {
-      FD_TEST( fd_cstr_printf_check( provide_creds, sizeof( provide_creds ), NULL, "GOOGLE_APPLICATION_CREDENTIALS=%s", google_creds ) );
-      envp[ 0 ] = provide_creds;
-    }
-
-    if( FD_UNLIKELY( -1==execve( _current_executable_path, args, envp ) ) ) FD_LOG_ERR(( "execve() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-  } else {
-    if( FD_UNLIKELY( -1==fcntl( pipefd, F_SETFD, FD_CLOEXEC ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,FD_CLOEXEC) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-    return child;
-  }
-  return 0;
 }
 
 static int
@@ -255,7 +235,7 @@ static pid_t
 execve_tile( char const *           name,
              fd_topo_tile_t const * tile,
              fd_cpuset_t const *    float_cpu_set,
-             fd_cpuset_t const *    floating_cpu_set,
+             fd_cpuset_t const *    cpuless_cpu_set,
              int                    floating_priority,
              int                    config_memfd,
              int                    pipefd,
@@ -279,8 +259,7 @@ execve_tile( char const *           name,
     if( FD_UNLIKELY( -1==setpriority( PRIO_PROCESS, 0, -19 ) ) ) FD_LOG_ERR(( "setpriority() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   } else {
     leave_isolation_cgroup( cg );
-    fd_cpuset_intersect( cpu_set, float_cpu_set, floating_cpu_set );
-    if( FD_UNLIKELY( !fd_cpuset_cnt( cpu_set ) ) ) fd_memcpy( cpu_set, floating_cpu_set, fd_cpuset_footprint() );
+    fd_cpuset_copy( cpu_set, cpuless_cpu_set );
     if( FD_UNLIKELY( -1==setpriority( PRIO_PROCESS, 0, floating_priority ) ) ) FD_LOG_ERR(( "setpriority() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
 
@@ -300,6 +279,11 @@ execve_tile( char const *           name,
   pid_t child = fork();
   if( FD_UNLIKELY( -1==child ) ) FD_LOG_ERR(( "fork() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   if( FD_LIKELY( !child ) ) {
+    if( !strcmp( tile->name, "sign" ) && tile->sign.failover_junk_fd!=-1 ) {
+      if( FD_UNLIKELY( -1==fcntl( tile->sign.failover_junk_fd, F_SETFD, 0 ) ) )
+        FD_LOG_ERR(( "passing the failover junk key pipe failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    }
+
     char _current_executable_path[ PATH_MAX ];
     FD_TEST( -1!=fd_file_util_self_exe( _current_executable_path ) );
 
@@ -345,22 +329,13 @@ main_pid_namespace( void * _args ) {
   if( FD_UNLIKELY( fd_cpuset_getaffinity( 0, floating_cpu_set ) ) )
     FD_LOG_ERR(( "fd_cpuset_getaffinity failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
-  /* The CPUs of the floating tiles (efficient mode): floaters share
-     these among themselves and never a pinned tile's CPU */
   FD_CPUSET_DECL( float_cpu_set );
+  FD_CPUSET_DECL( cpuless_cpu_set );
+  static fd_topo_cpus_t cpus[1];
+  fd_topo_cpus_init( cpus );
+  fd_topo_cpus_floating( cpus, &config->topo, floating_cpu_set, float_cpu_set, cpuless_cpu_set );
   int any_floats = 0;
-  for( ulong i=0UL; i<config->topo.tile_cnt; i++ ) {
-    if( FD_LIKELY( !config->topo.tiles[ i ].floats ) ) continue;
-    fd_cpuset_insert( float_cpu_set, config->topo.tiles[ i ].cpu_idx );
-    any_floats = 1;
-  }
-  for( ulong i=0UL; i<config->topo.tile_cnt; i++ ) {
-    fd_topo_tile_t const * tile = &config->topo.tiles[ i ];
-    if( FD_UNLIKELY( tile->floats || tile->cpu_idx==ULONG_MAX ) ) continue;
-    fd_cpuset_remove( float_cpu_set, tile->cpu_idx );
-    ulong sibling = fd_tile_private_sibling_idx( tile->cpu_idx );
-    if( FD_LIKELY( sibling!=ULONG_MAX ) ) fd_cpuset_remove( float_cpu_set, sibling );
-  }
+  for( ulong i=0UL; i<config->topo.tile_cnt; i++ ) any_floats |= config->topo.tiles[ i ].floats;
 
   pid_t child_pids[ FD_TOPO_MAX_TILES+1 ];
   ulong actual_pids[ FD_TOPO_MAX_TILES+1 ];
@@ -372,6 +347,17 @@ main_pid_namespace( void * _args ) {
   int config_memfd = fd_config_to_memfd( config );
   if( FD_UNLIKELY( -1==config_memfd ) ) FD_LOG_ERR(( "fd_config_to_memfd() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
+  int need_iavf = 0==strcmp( config->net.provider, "iavf" );
+  fd_iavf_fds_t iavf_fds = { .member_cnt=0UL };
+  for( ulong i=0UL; i<FD_IAVF_MEMBER_MAX; i++ ) {
+    iavf_fds.container_fd[ i ] = -1;
+    iavf_fds.group_fd    [ i ] = -1;
+    iavf_fds.device_fd   [ i ] = -1;
+  }
+  if( need_iavf ) {
+    fd_topo_install_iavf( (fd_topo_t *)&config->topo, &iavf_fds );
+  }
+
   int need_mlx5 = 0==strcmp( config->net.provider, "mlx5" );
   fd_mlx5_fds_t mlx5_fds = { .cmd_fd=-1, .async_fd=-1 };
   if( need_mlx5 ) {
@@ -379,18 +365,6 @@ main_pid_namespace( void * _args ) {
   }
 
   ulong child_cnt = 0UL;
-  if( FD_LIKELY( !config->is_firedancer && !config->development.no_agave ) ) {
-    int pipefd[ 2 ];
-    if( FD_UNLIKELY( pipe2( pipefd, O_CLOEXEC ) ) ) FD_LOG_ERR(( "pipe2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-    fds[ child_cnt ] = (struct pollfd){ .fd = pipefd[ 0 ], .events = 0 };
-    child_pids[ child_cnt ] = execve_agave( config_memfd, pipefd[ 1 ] );
-    FD_TEST( child_pids[ child_cnt ]>0 );
-    actual_pids[ child_cnt ] = (ulong)child_pids[ child_cnt ];
-    child_idxs[ child_cnt ] = ULONG_MAX;
-    if( FD_UNLIKELY( close( pipefd[ 1 ] ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-    strncpy( child_names[ child_cnt ], "agave", 32 );
-    child_cnt++;
-  }
 
   errno = 0;
   int save_priority = getpriority( PRIO_PROCESS, 0 );
@@ -406,18 +380,18 @@ main_pid_namespace( void * _args ) {
   initialize_accdb_fd( config );
   initialize_epoch_credits_fd( config );
   initialize_cost_tracker_fd( config );
+  initialize_vote_stakes_fd( config );
   initialize_stake_delegations_fd( config );
+  initialize_txncache_fd( config );
   initialize_store_fds( config );
   ulong store_obj_id = fd_pod_query_ulong( config->topo.props, "store", ULONG_MAX );
   int   has_store     = store_obj_id!=ULONG_MAX;
   ulong snap_max                = 0UL;
   int   snapshot_upload_enabled = 0;
   int   snapshot_dio_enabled    = 0;
-  if( config->is_firedancer ) {
     snap_max                = initialize_snapshot_fds( config );
     snapshot_upload_enabled = fd_topo_find_tile( &config->topo, "snapsv", 0UL )!=ULONG_MAX;
     snapshot_dio_enabled    = fd_topo_find_tile( &config->topo, "snapzp", 0UL )!=ULONG_MAX;
-  }
 
   ulong waker_client_cnt = 0UL;
   for( ulong i=0UL; i<config->topo.tile_cnt; i++ ) {
@@ -432,7 +406,6 @@ main_pid_namespace( void * _args ) {
   for( ulong pass=0UL; pass<2UL; pass++ ) {
     for( ulong i=0UL; i<config->topo.tile_cnt; i++ ) {
       fd_topo_tile_t const * tile = &config->topo.tiles[ i ];
-      if( FD_UNLIKELY( tile->is_agave ) ) continue;
       if( FD_UNLIKELY( (tile->cpu_idx!=ULONG_MAX)!=pass ) ) continue;
 
       if( need_xdp ) {
@@ -447,6 +420,15 @@ main_pid_namespace( void * _args ) {
             if( FD_UNLIKELY( -1==fcntl( xdp_fds[i].xsk_map_fd,   F_SETFD, 0 ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,0) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
             if( FD_UNLIKELY( -1==fcntl( xdp_fds[i].prog_link_fd, F_SETFD, 0 ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,0) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
           }
+        }
+      }
+
+      if( need_iavf ) {
+        int const fd_flags = 0!=strcmp( tile->name, "iavf" ) ? FD_CLOEXEC : 0;
+        for( ulong i=0UL; i<iavf_fds.member_cnt; i++ ) {
+          if( FD_UNLIKELY( -1==fcntl( iavf_fds.container_fd[ i ], F_SETFD, fd_flags ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+          if( FD_UNLIKELY( -1==fcntl( iavf_fds.group_fd    [ i ], F_SETFD, fd_flags ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+          if( FD_UNLIKELY( -1==fcntl( iavf_fds.device_fd   [ i ], F_SETFD, fd_flags ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
         }
       }
 
@@ -467,7 +449,6 @@ main_pid_namespace( void * _args ) {
         }
       }
 
-      if( FD_LIKELY( config->is_firedancer ) ) {
         int tile_uses_accdb    = 0;
         int tile_uses_accdb_ro = 0;
         for( ulong i=0UL; i<tile->uses_obj_cnt; i++ ) {
@@ -498,6 +479,12 @@ main_pid_namespace( void * _args ) {
           if( FD_UNLIKELY( -1==fcntl( FD_ACCDB_FD_RO, F_SETFD, FD_CLOEXEC ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,FD_CLOEXEC) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
         }
 
+        ulong txncache_obj_id    = fd_pod_query_ulong( config->topo.props, "txncache", ULONG_MAX );
+        int   tile_uses_txncache = 0;
+        for( ulong i=0UL; i<tile->uses_obj_cnt; i++ ) tile_uses_txncache |= tile->uses_obj_id[ i ]==txncache_obj_id;
+        if( FD_UNLIKELY( fcntl( FD_TXNCACHE_FD, F_SETFD, tile_uses_txncache ? 0 : FD_CLOEXEC )<0 ) )
+          FD_LOG_ERR(( "fcntl(FD_TXNCACHE_FD,F_SETFD) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
         if( FD_LIKELY( has_store ) ) {
           int tile_uses_store = 0;
           for( ulong i=0UL; i<tile->uses_obj_cnt; i++ ) tile_uses_store |= tile->uses_obj_id[ i ]==store_obj_id;
@@ -516,6 +503,11 @@ main_pid_namespace( void * _args ) {
           FD_LOG_ERR(( "fcntl(F_SETFD) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
         if( FD_UNLIKELY( -1==fcntl( FD_COST_TRACKER_FD, F_SETFD, !strcmp( tile->name, "replay" ) ? 0 : FD_CLOEXEC ) ) )
+          FD_LOG_ERR(( "fcntl(F_SETFD) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
+        int tile_uses_vote_stakes = !strcmp( tile->name, "replay" ) || !strcmp( tile->name, "execle" ) ||
+                                    !strcmp( tile->name, "execrp" ) || !strcmp( tile->name, "snapmk" );
+        if( FD_UNLIKELY( -1==fcntl( FD_VOTE_STAKES_FD, F_SETFD, tile_uses_vote_stakes ? 0 : FD_CLOEXEC ) ) )
           FD_LOG_ERR(( "fcntl(F_SETFD) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
         int tile_uses_stake_spill = !strcmp( tile->name, "replay" ) || !strcmp( tile->name, "execle" ) ||
@@ -539,7 +531,6 @@ main_pid_namespace( void * _args ) {
               FD_LOG_ERR(( "fcntl(F_SETFD) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
           }
         }
-      }
 
       int is_waker = !strcmp( tile->name, "waker" );
       int outer_entitled = is_waker || tile->waker_client_idx!=ULONG_MAX;
@@ -562,7 +553,7 @@ main_pid_namespace( void * _args ) {
       fds[ child_cnt ] = (struct pollfd){ .fd = pipefd[ 0 ], .events = 0 };
 
       int floating_priority = ( any_floats && !strcmp( tile->name, "waker" ) ) ? -19 : save_priority;
-      child_pids[ child_cnt ] = execve_tile( config->name, tile, float_cpu_set, floating_cpu_set, floating_priority, config_memfd, pipefd[ 1 ], &spawn_cg );
+      child_pids[ child_cnt ] = execve_tile( config->name, tile, float_cpu_set, cpuless_cpu_set, floating_priority, config_memfd, pipefd[ 1 ], &spawn_cg );
       child_idxs[ child_cnt ] = i;
       if( FD_UNLIKELY( close( pipefd[ 1 ] ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
       strncpy( child_names[ child_cnt ], tile->name, 32 );
@@ -582,6 +573,12 @@ main_pid_namespace( void * _args ) {
   if( FD_UNLIKELY( fd_cpuset_setaffinity( 0, floating_cpu_set ) ) )
     FD_LOG_ERR(( "fd_cpuset_setaffinity failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
+  for( ulong i=0UL; i<config->topo.tile_cnt; i++ ) {
+    fd_topo_tile_t const * tile = &config->topo.tiles[ i ];
+    if( strcmp( tile->name, "sign" ) || tile->sign.failover_junk_fd==-1 ) continue;
+    if( FD_UNLIKELY( close( tile->sign.failover_junk_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
+
   if( FD_UNLIKELY( close( config_memfd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   if( need_xdp ) {
     for( uint i=0U; i<xdp_fds_cnt; i++ ) {
@@ -590,15 +587,16 @@ main_pid_namespace( void * _args ) {
     }
   }
 
-  if( FD_LIKELY( config->is_firedancer ) ) {
     if( FD_UNLIKELY( -1==close( FD_ACCDB_FD_RW ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     if( FD_UNLIKELY( -1==close( FD_ACCDB_FD_RO ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    if( FD_UNLIKELY( -1==close( FD_TXNCACHE_FD ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     if( FD_LIKELY( has_store ) ) {
       if( FD_UNLIKELY( -1==close( FD_STORE_FD_RW ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
       if( FD_UNLIKELY( -1==close( FD_STORE_FD_RO ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     }
     if( FD_UNLIKELY( -1==close( FD_EPOCH_CREDITS_FD ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     if( FD_UNLIKELY( -1==close( FD_COST_TRACKER_FD ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    if( FD_UNLIKELY( -1==close( FD_VOTE_STAKES_FD ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     if( FD_UNLIKELY( -1==close( FD_STAKE_DELEGATIONS_FD ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     for( ulong j=0UL; j<snap_max; j++ ) {
       if( FD_UNLIKELY( -1==close( FD_SNAP_FD( j ) ) ) )     FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
@@ -607,7 +605,6 @@ main_pid_namespace( void * _args ) {
       if( snapshot_upload_enabled )
         if( FD_UNLIKELY( -1==close( FD_SNAP_RO_FD( j ) ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     }
-  }
 
   if( FD_UNLIKELY( -1==close( FD_WAKER_OUTER_FD ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   for( ulong j=0UL; j<waker_client_cnt; j++ ) {
@@ -626,6 +623,13 @@ main_pid_namespace( void * _args ) {
   allow_fds[ allow_fds_cnt++ ] = args->pipefd[ 1 ]; /* write end of main pipe */
   for( ulong i=0UL; i<child_cnt; i++ )
     allow_fds[ allow_fds_cnt++ ] = fds[ i ].fd; /* read end of child pipes */
+  if( need_iavf ) {
+    for( ulong i=0UL; i<iavf_fds.member_cnt; i++ ) {
+      if( FD_UNLIKELY( -1==close( iavf_fds.container_fd[ i ] ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+      if( FD_UNLIKELY( -1==close( iavf_fds.group_fd    [ i ] ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+      if( FD_UNLIKELY( -1==close( iavf_fds.device_fd   [ i ] ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    }
+  }
   if( need_mlx5 ) {
     if( FD_UNLIKELY( -1==close( mlx5_fds.cmd_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     if( FD_UNLIKELY( -1==close( mlx5_fds.async_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
@@ -762,6 +766,11 @@ clone_firedancer( config_t const * config,
 
   int pid_namespace = clone( main_pid_namespace, (uchar *)stack + FD_TILE_PRIVATE_STACK_SZ, flags, &args );
   if( FD_UNLIKELY( pid_namespace<0 ) ) FD_LOG_ERR(( "clone() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  for( ulong i=0UL; i<config->topo.tile_cnt; i++ ) {
+    fd_topo_tile_t const * tile = &config->topo.tiles[ i ];
+    if( strcmp( tile->name, "sign" ) || tile->sign.failover_junk_fd==-1 ) continue;
+    if( FD_UNLIKELY( close( tile->sign.failover_junk_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
 
   if( FD_UNLIKELY( close( pipefd[ 1 ] ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
@@ -998,6 +1007,18 @@ initialize_stacks( config_t const * config ) {
 
 void
 fdctl_check_configure( config_t const * config ) {
+# if defined(__x86_64__)
+  uint eax, ebx, ecx, edx;
+  if( FD_LIKELY( __get_cpuid_count( 7U, 0U, &eax, &ebx, &ecx, &edx ) ) ) {
+    int cpu_avx512 = ((ebx>>16)&1U) && ((ebx>>21)&1U); /* avx512f, avx512ifma */
+    int cpu_gfni   = (int)((ecx>>8)&1U);
+    if( FD_UNLIKELY( (cpu_avx512 && !FD_HAS_AVX512) || (cpu_gfni && !FD_HAS_GFNI) ) )
+      FD_LOG_WARNING(( "This CPU supports%s%s but the binary was built without them, so it runs slower code paths. "
+                       "Rebuild on this host with MACHINE=native, or with a MACHINE matching this CPU.",
+                       (cpu_avx512 && !FD_HAS_AVX512) ? " AVX-512" : "", (cpu_gfni && !FD_HAS_GFNI) ? " GFNI" : "" ));
+  }
+# endif
+
   configure_result_t check = fd_cfg_stage_hugetlbfs.check( config, FD_CONFIGURE_CHECK_TYPE_RUN );
   if( FD_UNLIKELY( check.result!=CONFIGURE_OK ) )
     FD_LOG_ERR(( "Huge pages are not configured correctly: %s. You can run `%s configure init hugetlbfs` "
@@ -1026,6 +1047,20 @@ fdctl_check_configure( config_t const * config ) {
     if( FD_UNLIKELY( check.result!=CONFIGURE_OK ) )
       FD_LOG_ERR(( "Network %s. You can run `%s configure init ethtool-loopback` to disable tx-udp-segmentation "
                   "on the loopback device.", check.message, FD_BINARY_NAME ));
+  }
+
+  if( FD_LIKELY( 0==strcmp( config->net.provider, "mlx5" ) ) ) {
+    check = fd_cfg_stage_mlx5.check( config, FD_CONFIGURE_CHECK_TYPE_RUN );
+    if( FD_UNLIKELY( check.result!=CONFIGURE_OK ) )
+      FD_LOG_ERR(( "Network %s. You can run `%s configure init mlx5` to configure mlx5 network devices and load the ib_uverbs kernel module.",
+                   check.message, FD_BINARY_NAME ));
+  }
+
+  if( FD_LIKELY( 0==strcmp( config->net.provider, "iavf" ) ) ) {
+    check = fd_cfg_stage_iavf.check( config, FD_CONFIGURE_CHECK_TYPE_RUN );
+    if( FD_UNLIKELY( check.result!=CONFIGURE_OK ) )
+      FD_LOG_ERR(( "Network %s. You can run `%s configure init iavf` to configure the VFs and PF filters and load vfio-pci.",
+                   check.message, FD_BINARY_NAME ));
   }
 
   check = fd_cfg_stage_sysctl.check( config, FD_CONFIGURE_CHECK_TYPE_RUN );
@@ -1067,6 +1102,18 @@ fdctl_check_configure( config_t const * config ) {
     }
   }
 
+  FD_CPUSET_DECL( partition );
+  fd_cpu_isolation_partition_cpus( partition, &config->topo );
+  FD_CPUSET_DECL( housekeeping );
+  fd_cpuset_subtract( housekeeping, fd_cpu_isolation_online_cpus( housekeeping ), partition );
+  if( FD_UNLIKELY( fd_cpuset_cnt( partition ) && fd_cpuset_cnt( housekeeping )<2UL ) ) {
+    char list[ FD_CPU_ISOLATION_LIST_MAX ];
+    FD_LOG_WARNING(( "only %lu online CPU(s) (%s) remain outside Firedancer tile CPUs and their isolated hyperthread "
+                     "siblings for the kernel, interrupts and other processes. Consider reducing tile counts or "
+                     "adding to [layout.blocklist_cores].", fd_cpuset_cnt( housekeeping ),
+                     fd_cpu_isolation_format_list( list, sizeof(list), housekeeping ) ));
+  }
+
   if( FD_LIKELY( fd_cfg_stage_cpuset.enabled( config ) ) ) {
     check = fd_cfg_stage_cpuset.check( config, FD_CONFIGURE_CHECK_TYPE_RUN );
     if( FD_UNLIKELY( check.result==CONFIGURE_PARTIALLY_CONFIGURED ) )
@@ -1077,6 +1124,33 @@ fdctl_check_configure( config_t const * config ) {
       FD_LOG_WARNING(( "Firedancer tile CPUs are not isolated from other processes: %s. For lower jitter, run "
                        "`%s configure init cpuset`.", check.message, FD_BINARY_NAME ));
   }
+
+  fd_cpu_isolation_check_cgroup( config );
+}
+
+/* Each Sign tile gets its own one-shot pipe for receiving the ephemeral
+   generated junk key. */
+static void FD_FN_SENSITIVE
+failover_junk_prepare( config_t * config ) {
+  if( fd_topo_find_tile( &config->topo, "failov", 0UL )==ULONG_MAX ) return;
+  uchar const * key = fd_keyload_generate();
+  fd_memcpy( config->topo.failover_junk, key+32UL, 32UL );
+  for( ulong i=0UL; i<config->topo.tile_cnt; i++ ) {
+    fd_topo_tile_t * tile = &config->topo.tiles[ i ];
+    if( strcmp( tile->name, "sign" ) ) continue;
+    FD_TEST( tile->sign.failover_enabled && tile->sign.failover_junk_fd==-1 );
+    int pipefd[ 2 ];
+    if( FD_UNLIKELY( pipe2( pipefd, O_CLOEXEC ) ) ) FD_LOG_ERR(( "pipe2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    for( ulong off=0UL; off<64UL; ) {
+      long n = write( pipefd[ 1 ], key+off, 64UL-off );
+      if( FD_UNLIKELY( n==-1L && errno==EINTR ) ) continue;
+      if( FD_UNLIKELY( n<=0L ) ) FD_LOG_ERR(( "could not deliver the failover junk key" ));
+      off += (ulong)n;
+    }
+    if( FD_UNLIKELY( close( pipefd[ 1 ] ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    tile->sign.failover_junk_fd = pipefd[ 0 ];
+  }
+  fd_keyload_unload( key, 0 );
 }
 
 void
@@ -1085,16 +1159,11 @@ run_firedancer_init( config_t * config,
                      int        check_configure ) {
   struct stat st;
   int err = stat( config->paths.identity_key, &st );
-  if( FD_UNLIKELY( -1==err && errno==ENOENT ) ) FD_LOG_ERR(( "[consensus.identity_path] key does not exist `%s`. You can generate an identity key at this path by running `%s keys new %s --config <toml>`", config->paths.identity_key, FD_BINARY_NAME, config->paths.identity_key ));
-  else if( FD_UNLIKELY( -1==err ) )             FD_LOG_ERR(( "could not stat [consensus.identity_path] `%s` (%i-%s)", config->paths.identity_key, errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( -1==err && errno==ENOENT ) ) FD_LOG_ERR(( "[paths.identity_key] key does not exist `%s`. You can generate an identity key at this path by running `%s keys new %s --config <toml>`", config->paths.identity_key, FD_BINARY_NAME, config->paths.identity_key ));
+  else if( FD_UNLIKELY( -1==err ) )             FD_LOG_ERR(( "could not stat [paths.identity_key] `%s` (%i-%s)", config->paths.identity_key, errno, fd_io_strerror( errno ) ));
 
-  if( FD_UNLIKELY( !config->is_firedancer ) ) {
-    for( ulong i=0UL; i<config->frankendancer.paths.authorized_voter_paths_cnt; i++ ) {
-      err = stat( config->frankendancer.paths.authorized_voter_paths[ i ], &st );
-      if( FD_UNLIKELY( -1==err && errno==ENOENT ) ) FD_LOG_ERR(( "[consensus.authorized_voter_paths] key does not exist `%s`", config->frankendancer.paths.authorized_voter_paths[ i ] ));
-      else if( FD_UNLIKELY( -1==err ) )             FD_LOG_ERR(( "could not stat [consensus.authorized_voter_paths] `%s` (%i-%s)", config->frankendancer.paths.authorized_voter_paths[ i ], errno, fd_io_strerror( errno ) ));
-    }
-  }
+  /* Failover needs a fresh in-memory junk key. */
+  failover_junk_prepare( config );
 
   /* FIXME: fdctl_check_configure unconditionally checks for network
             stack prerequisites even if the command being run does not
@@ -1107,8 +1176,6 @@ run_firedancer_init( config_t * config,
 
 void
 initialize_accdb_fd( config_t const * config ) {
-  if( FD_UNLIKELY( !config->is_firedancer ) ) return;
-
   /* O_TRUNC of a previous run's accounts.db frees all its extents
      synchronously.  In development skip the truncate to keep reboots
      fast. */
@@ -1134,8 +1201,6 @@ initialize_accdb_fd( config_t const * config ) {
 
 void
 initialize_epoch_credits_fd( config_t const * config ) {
-  if( FD_UNLIKELY( !config->is_firedancer ) ) return;
-
   char const * spill_path = config->paths.epoch_credits;
   int spill_fd = open( spill_path, O_RDWR|O_CREAT|O_TRUNC|O_NOATIME, S_IRUSR|S_IWUSR );
   if( FD_UNLIKELY( -1==spill_fd ) ) FD_LOG_ERR(( "failed to open %s (%i-%s)", spill_path, errno, fd_io_strerror( errno ) ));
@@ -1149,8 +1214,6 @@ initialize_epoch_credits_fd( config_t const * config ) {
 
 void
 initialize_cost_tracker_fd( config_t const * config ) {
-  if( FD_UNLIKELY( !config->is_firedancer ) ) return;
-
   char const * spill_path = config->paths.cost_tracker;
   int spill_fd = open( spill_path, O_RDWR|O_CREAT|O_TRUNC|O_NOATIME, S_IRUSR|S_IWUSR );
   if( FD_UNLIKELY( -1==spill_fd ) ) FD_LOG_ERR(( "failed to open %s (%i-%s)", spill_path, errno, fd_io_strerror( errno ) ));
@@ -1163,9 +1226,20 @@ initialize_cost_tracker_fd( config_t const * config ) {
 }
 
 void
-initialize_stake_delegations_fd( config_t const * config ) {
-  if( FD_UNLIKELY( !config->is_firedancer ) ) return;
+initialize_vote_stakes_fd( config_t const * config ) {
+  char const * spill_path = config->paths.vote_stakes;
+  int spill_fd = open( spill_path, O_RDWR|O_CREAT|O_TRUNC|O_NOATIME, S_IRUSR|S_IWUSR );
+  if( FD_UNLIKELY( -1==spill_fd ) ) FD_LOG_ERR(( "failed to open %s (%i-%s)", spill_path, errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( -1==unlink( spill_path ) ) ) FD_LOG_ERR(( "unlink(%s) failed (%i-%s)", spill_path, errno, fd_io_strerror( errno ) ));
 
+  if( FD_LIKELY( spill_fd!=FD_VOTE_STAKES_FD ) ) {
+    if( FD_UNLIKELY( -1==dup2( spill_fd, FD_VOTE_STAKES_FD ) ) ) FD_LOG_ERR(( "dup2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    if( FD_UNLIKELY( -1==close( spill_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
+}
+
+void
+initialize_stake_delegations_fd( config_t const * config ) {
   char const * spill_path = config->paths.stake_delegations;
   int spill_fd = open( spill_path, O_RDWR|O_CREAT|O_TRUNC|O_NOATIME, S_IRUSR|S_IWUSR );
   if( FD_UNLIKELY( -1==spill_fd ) ) FD_LOG_ERR(( "failed to open %s (%i-%s)", spill_path, errno, fd_io_strerror( errno ) ));
@@ -1178,9 +1252,20 @@ initialize_stake_delegations_fd( config_t const * config ) {
 }
 
 void
-initialize_store_fds( config_t const * config ) {
-  if( FD_UNLIKELY( !config->is_firedancer ) ) return;
+initialize_txncache_fd( config_t const * config ) {
+  char const * spill_path = config->paths.txncache;
+  int spill_fd = open( spill_path, O_RDWR|O_CREAT|O_TRUNC|O_NOATIME|O_DIRECT, S_IRUSR|S_IWUSR );
+  if( FD_UNLIKELY( -1==spill_fd ) ) FD_LOG_ERR(( "failed to open %s (%i-%s)", spill_path, errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( -1==unlink( spill_path ) ) ) FD_LOG_ERR(( "unlink(%s) failed (%i-%s)", spill_path, errno, fd_io_strerror( errno ) ));
 
+  if( FD_LIKELY( spill_fd!=FD_TXNCACHE_FD ) ) {
+    if( FD_UNLIKELY( -1==dup2( spill_fd, FD_TXNCACHE_FD ) ) ) FD_LOG_ERR(( "dup2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    if( FD_UNLIKELY( -1==close( spill_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
+}
+
+void
+initialize_store_fds( config_t const * config ) {
   fd_topo_t const * topo = &config->topo;
   ulong store_obj_id = fd_pod_query_ulong( topo->props, "store", ULONG_MAX );
   if( FD_UNLIKELY( store_obj_id==ULONG_MAX ) ) return;
@@ -1303,7 +1388,10 @@ initialize_snapshot_fds( config_t const * config ) {
   int dio_enabled    = fd_topo_find_tile( &config->topo, "snapzp", 0UL )!=ULONG_MAX;
   fd_snap_pool_layout_t layout = fd_snap_pool_layout( config->firedancer.snapshots.max_full_snapshots_to_keep,
                                                       config->firedancer.snapshots.max_incremental_snapshots_to_keep,
-                                                      config->firedancer.snapshots.incremental_snapshots,
+                                                      fd_wfs_needs_incr( config->firedancer.snapshots.incremental_snapshots,
+                                                                         config->firedancer.consensus.wait_for_supermajority_at_slot,
+                                                                         !strcmp( config->firedancer.consensus.wait_for_supermajority_with_bank_hash, "" ),
+                                                                         (ulong)config->consensus.expected_shred_version ),
                                                       download_enabled );
   ulong snap_full_max     = layout.full_max;
   ulong snap_incr_max     = layout.incr_max;
@@ -1432,7 +1520,6 @@ initialize_snapshot_fds( config_t const * config ) {
 
    + main
    +-- pidns
-       +-- agave
        +-- tile 0
        +-- tile 1
        ...
@@ -1446,9 +1533,9 @@ initialize_snapshot_fds( config_t const * config ) {
     (b) main is the parent of pidns, so it can issue a waitpid() on the
         child PID, and when it completes terminate itself.
 
-    (c) pidns is the parent of agave and the tiles, so it could
-        issue a waitpid() of -1 to wait for any of them to terminate,
-        but how would it know if main has died?
+    (c) pidns is the parent of tiles, so it could issue a waitpid() of
+        -1 to wait for any of them to terminate, but how would it know
+        if main has died?
 
     (d) main creates a pipe, and passes the write end to pidns.  If main
         dies, the pipe will be closed, and pidns will get a HUP on the

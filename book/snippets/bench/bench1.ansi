@@ -1,7 +1,8 @@
-$ ./build/fddev bench
-[32mNOTICE [0m main configure.c(106): kill ... configuring
-[32mNOTICE [0m main configure.c(102): hugetlbfs ... already valid
-[32mNOTICE [0m main configure.c(102): sysctl ... already valid
+$ ./build/firedancer-dev bench
+[32mNOTICE [0m [1mcpuset[0m ... unconfigured ... [2m`/sys/fs/cgroup/fdbench` does not exist[0m
+[32mNOTICE [0m [1mcpuset[0m ... configuring
+[32mNOTICE [0m [2mRUN: `echo "+cpuset" > /sys/fs/cgroup/cgroup.subtree_control`[0m
 [ ... snip ... ]
-[32mNOTICE [0m bencho:0 fd_bencho.c(137): 63373 txn/s
-[32mNOTICE [0m bencho:0 fd_bencho.c(137): 63340 txn/s
+[38;5;208m◈ [1mnode        [0m[2m│[0m  [2mcluster [0m[38;5;245m[1munknown [0m  [2mid [0m[1m3uYXNz17iYDfQrCxh7jz2LhQ5wNfdfPzd7SV8mXWX4Jy[0m  [2mvote [0m382TtMsxrs3mEMbf1i5NfxfjF3DCnH2uoR3WZaChsuP1  [2muptime [0m1m 15s        [2mshred [0m2685     [2mgenesis [0mHGTLDv…NBqwtU[K
+[92m◎ [1mbench       [0m[2m│[0m  [2mtps [0m829.5 K  [2mbenchg [0m [31m99.2[2m%[0m[0m [31m99.3[2m%[0m[0m [31m99.3[2m%[0m[0m [31m99.3[2m%[0m[0m  [2mbenchs [0m 14.5[2m%[0m[0m 14.6[2m%[0m[0m[K
+[35m▶ [1mreplay      [0m[2m│[0m  [2mslot [0m[1m190[0m [2m-01[0m  [2mcu/s [0m 31.7 M  [2mtps [0m112.7 K  [2msps [0m    2.5  [2mleader in [0mnow  [2mroot dist [0m0  [2mbanks [0m 6[K

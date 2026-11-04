@@ -1028,7 +1028,7 @@ again:
     /* Ping frame, queue pong unless we are already sending one */
     uchar * trailing_data     = conn->recv_bytes+conn->recv_bytes_parsed+frame_len;
     ulong   trailing_data_len = conn->recv_bytes_read-frame_len;
-    if( FD_LIKELY( conn->pong_state!=FD_HTTP_SERVER_PONG_STATE_WAITING ) ) {
+    if( FD_LIKELY( conn->pong_state==FD_HTTP_SERVER_PONG_STATE_NONE ) ) {
       conn->pong_state    = FD_HTTP_SERVER_PONG_STATE_WAITING;
       conn->pong_data_len = payload_len;
       FD_TEST( payload_len<=125UL );
@@ -1423,24 +1423,25 @@ write_conn_ws( fd_http_server_t * http,
     if( FD_UNLIKELY( i || conn->send_frame_state==FD_HTTP_SERVER_SEND_FRAME_STATE_HEADER ) ) {
       ulong header_len;
       headers[ i ][ 0 ] = 0x80 | fd_uchar_if(frame->compressed, 0x02, 0x01); /* FIN, 0x1 for text, 0x2 for binary */
-      if( FD_LIKELY( frame->len<126UL ) ) {
-        headers[ i ][ 1 ] = (uchar)frame->len;
+      ulong frame_len = frame->len;
+      if( FD_LIKELY( frame_len<126UL ) ) {
+        headers[ i ][ 1 ] = (uchar)frame_len;
         header_len = 2UL;
-      } else if( FD_LIKELY( frame->len<65536UL ) ) {
+      } else if( FD_LIKELY( frame_len<65536UL ) ) {
         headers[ i ][ 1 ] = 126;
-        headers[ i ][ 2 ] = (uchar)(frame->len>>8);
-        headers[ i ][ 3 ] = (uchar)(frame->len);
+        headers[ i ][ 2 ] = (uchar)(frame_len>>8);
+        headers[ i ][ 3 ] = (uchar)(frame_len);
         header_len = 4UL;
       } else {
         headers[ i ][ 1 ] = 127;
-        headers[ i ][ 2 ] = (uchar)(frame->len>>56);
-        headers[ i ][ 3 ] = (uchar)(frame->len>>48);
-        headers[ i ][ 4 ] = (uchar)(frame->len>>40);
-        headers[ i ][ 5 ] = (uchar)(frame->len>>32);
-        headers[ i ][ 6 ] = (uchar)(frame->len>>24);
-        headers[ i ][ 7 ] = (uchar)(frame->len>>16);
-        headers[ i ][ 8 ] = (uchar)(frame->len>>8);
-        headers[ i ][ 9 ] = (uchar)(frame->len);
+        headers[ i ][ 2 ] = (uchar)(frame_len>>56);
+        headers[ i ][ 3 ] = (uchar)(frame_len>>48);
+        headers[ i ][ 4 ] = (uchar)(frame_len>>40);
+        headers[ i ][ 5 ] = (uchar)(frame_len>>32);
+        headers[ i ][ 6 ] = (uchar)(frame_len>>24);
+        headers[ i ][ 7 ] = (uchar)(frame_len>>16);
+        headers[ i ][ 8 ] = (uchar)(frame_len>>8);
+        headers[ i ][ 9 ] = (uchar)(frame_len);
         header_len = 10UL;
       }
 
@@ -1654,6 +1655,13 @@ fd_http_server_append_end( fd_http_server_t * http,
   http->stage_len += len;
 }
 
+static inline int
+ws_frame_oversz( fd_http_server_t const * http ) {
+  if( FD_LIKELY( http->stage_len<=UINT_MAX && http->stage_comp_len<=UINT_MAX ) ) return 0;
+  FD_LOG_WARNING(( "outgoing websocket message exceeds the maximum frame size (len=%lu comp_len=%lu)", http->stage_len, http->stage_comp_len ));
+  return 1;
+}
+
 int
 fd_http_server_ws_send( fd_http_server_t * http,
                         ulong              ws_conn_id ) {
@@ -1675,7 +1683,7 @@ fd_http_server_ws_send( fd_http_server_t * http,
     return 0;
   }
 
-  if( FD_UNLIKELY( http->stage_err ) ) {
+  if( FD_UNLIKELY( http->stage_err || ws_frame_oversz( http ) ) ) {
     http->stage_err = 0;
     http->stage_len = 0;
     http->stage_reserved_end = 0UL;
@@ -1695,7 +1703,7 @@ fd_http_server_ws_send( fd_http_server_t * http,
      so, and if the compression step wasn't skipped (i.e. stage_len>200) */
   fd_http_server_ws_frame_t frame = {
     .off = fd_ulong_if(compressed, http->stage_off+http->stage_len, http->stage_off),
-    .len = fd_ulong_if(compressed, http->stage_comp_len, http->stage_len),
+    .len = (uint)fd_ulong_if(compressed, http->stage_comp_len, http->stage_len),
     .compressed = compressed,
   };
 
@@ -1719,7 +1727,7 @@ int
 fd_http_server_ws_broadcast( fd_http_server_t * http ) {
   int compressed = fd_http_ws_compress_maybe( http );
 
-  if( FD_UNLIKELY( http->stage_err ) ) {
+  if( FD_UNLIKELY( http->stage_err || ws_frame_oversz( http ) ) ) {
     http->stage_err = 0;
     http->stage_len = 0;
     http->stage_reserved_end = 0UL;
@@ -1738,7 +1746,7 @@ fd_http_server_ws_broadcast( fd_http_server_t * http ) {
 
     fd_http_server_ws_frame_t frame = {
       .off = fd_ulong_if(conn->compress_websocket && compressed, http->stage_off+http->stage_len, http->stage_off),
-      .len = fd_ulong_if(conn->compress_websocket && compressed, http->stage_comp_len, http->stage_len),
+      .len = (uint)fd_ulong_if(conn->compress_websocket && compressed, http->stage_comp_len, http->stage_len),
       .compressed = conn->compress_websocket && compressed,
     };
 

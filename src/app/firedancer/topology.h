@@ -17,8 +17,18 @@ fd_topo_obj_t *
 setup_topo_banks( fd_topo_t *  topo,
                   char const * wksp_name,
                   ulong        max_live_slots,
-                  ulong        max_fork_width,
+                  ulong        cache_cnt,
+                  ulong        stake_delegation_cache_cnt,
                   ulong        bench_max_cost_per_block );
+
+fd_topo_obj_t *
+setup_topo_footer_cache( fd_topo_t *  topo,
+                         char const * wksp_name );
+
+fd_topo_obj_t *
+setup_topo_execrp_result( fd_topo_t *  topo,
+                          char const * wksp_name,
+                          ulong        execrp_tile_cnt );
 
 /* Smallest program_cache_size that setup_topo_progcache accepts: a huge-page
    multiple that is locked exactly.  0 if txn_max is invalid. */
@@ -41,7 +51,6 @@ setup_topo_store( fd_topo_t *  topo,
                   ulong        fec_set_cnt,
                   ulong        max_shreds_per_block,
                   char const * db_path,
-                  int          alpenglow,
                   ulong        shred_tile_cnt );
 
 fd_topo_obj_t *
@@ -66,7 +75,8 @@ fd_topo_obj_t *
 setup_topo_txncache( fd_topo_t *  topo,
                      char const * wksp_name,
                      ulong        max_live_slots,
-                     ulong        max_txn_per_slot );
+                     ulong        max_txn_per_slot,
+                     ulong        cache_footprint );
 
 void
 fd_topo_configure_tile( fd_topo_tile_t * tile,
@@ -74,6 +84,9 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
 
 void
 wire_event_links( fd_topo_t * topo );
+
+void
+wire_replay_diff_link( fd_topo_t * topo );
 
 FD_PROTOTYPES_END
 

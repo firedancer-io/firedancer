@@ -83,11 +83,7 @@ load_cmd_fn( args_t *   args,
   }
 
   if( FD_UNLIKELY( !args->load.rpc_port ) ) {
-    if( FD_UNLIKELY( config->is_firedancer ) ) {
-      args->load.rpc_port = config->tiles.rpc.rpc_listen_port;
-    } else {
-      args->load.rpc_port = config->frankendancer.rpc.port;
-    }
+    args->load.rpc_port = config->tiles.rpc.rpc_listen_port;
   }
   if( FD_UNLIKELY( !args->load.rpc_port ) )
     FD_LOG_ERR(( "Missing --rpc-port" ));
@@ -121,8 +117,7 @@ load_cmd_fn( args_t *   args,
                   args->load.tpu_port,
                   args->load.tpu_ip,
                   args->load.rpc_port,
-                  args->load.rpc_ip,
-                  0 );
+                  args->load.rpc_ip );
   config->topo = *topo;
 
   args_t configure_args = {
@@ -155,7 +150,7 @@ load_cmd_fn( args_t *   args,
   FD_LOG_NOTICE(( "  --cu-price-spread %g",      (double)args->load.cu_price_spread        ));
 
   /* FIXME allow running sandboxed/multiprocess */
-  fd_topo_run_single_process( &config->topo, 0, config->uid, config->gid, fdctl_tile_run );
+  fd_topo_run_single_process( &config->topo, config->uid, config->gid, fdctl_tile_run );
 
   /* Sleep parent thread forever, Ctrl+C will terminate. */
   for(;;) pause();

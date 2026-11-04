@@ -38,7 +38,7 @@ main( int     argc,
   fd_pubkey_t       const * leaders_pubkeys = (fd_pubkey_t       const *)e454_leaders_pubkeys;
   uint              const * leaders_idx     = (uint              const *)e454_leaders_idx;
 
-  FD_TEST( leaders_buf == fd_epoch_leaders_new( leaders_buf, 454UL, slot0, 432000UL, pub_cnt, stakes ) );
+  FD_TEST( leaders_buf == fd_epoch_leaders_new( leaders_buf, 454UL, slot0, 432000UL, pub_cnt, stakes, 0 ) );
   fd_epoch_leaders_t * leaders = fd_epoch_leaders_join( leaders_buf );
   FD_TEST( leaders );
 
@@ -73,7 +73,7 @@ main( int     argc,
     shared_stakes[2].stake  = 1000000000UL;
 
     ulong test_slot_cnt = 1000UL;
-    FD_TEST( leaders_buf == fd_epoch_leaders_new( leaders_buf, 1UL, 0UL, test_slot_cnt, 3UL, shared_stakes ) );
+    FD_TEST( leaders_buf == fd_epoch_leaders_new( leaders_buf, 1UL, 0UL, test_slot_cnt, 3UL, shared_stakes, 0 ) );
     leaders = fd_epoch_leaders_join( leaders_buf );
     FD_TEST( leaders );
 

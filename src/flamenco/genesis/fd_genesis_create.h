@@ -6,6 +6,7 @@
 
 #include "../fd_flamenco_base.h"
 #include "../features/fd_features.h"
+#include "../runtime/program/vote/fd_vote_codec.h"
 
 
 /* fd_genesis_options_t exists as a convenient way to specify options
@@ -21,7 +22,6 @@ struct fd_genesis_options {
   ulong faucet_balance;     /* in lamports */
   ulong vote_account_stake; /* in lamports */
 
-  ulong hashes_per_tick; /* 0 means unset */
   ulong ticks_per_slot;
   ulong target_tick_duration_micros;
 
@@ -32,6 +32,12 @@ struct fd_genesis_options {
   ulong         token_program_elf_sz;
 
   int   warmup_epochs;
+
+  /* bls_pubkey is the compressed BLS pubkey written into the vote
+     account.  Should be derived from the identity key with
+     fd_keyguard_bls_key_derive, else the validator cannot vote under
+     Alpenglow. */
+  uchar bls_pubkey[ FD_BLS_PUBKEY_COMPRESSED_SZ ];
 
   /* features points to an externally owned feature map.
      Adds a feature account to the genesis blob for feature enabled at
@@ -52,10 +58,11 @@ FD_PROTOTYPES_BEGIN
    success.  On failure, returns 0UL and logs reason for error.
 
    Assumes that caller is attached to an fd_scratch with sufficient
-   memory to buffer intermediate data.  Without token accounts, allow
-   16384 + 128*n bytes for n funded accounts.  With token accounts,
-   allow 16384 + 704*n + token_program_elf_sz bytes.  Requires 2
-   frames.
+   memory to buffer intermediate data.  For n funded accounts, allow
+   16384 + 160*FD_FEATURE_ID_CNT + 128*n bytes without token accounts,
+   or 16384 + 160*FD_FEATURE_ID_CNT + 704*n + token_program_elf_sz bytes
+   with token accounts.  The feature term covers the temporary pubkey
+   array and feature accounts.  Requires 2 frames.
 
    THIS METHOD IS NOT SAFE FOR PRODUCTION USE.
    It is intended for development only. */

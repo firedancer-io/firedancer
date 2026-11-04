@@ -6,7 +6,7 @@
 #include "../../choreo/votor/ag_cert_serde.h"
 #include "../../choreo/votor/ag_pool.h"
 #include "../../choreo/votor/ag_slot_state.h"
-#include "../../choreo/votor/ag_vote_history_file.h"
+#include "../../choreo/votor/ag_vote_history_serde.h"
 #include "../../choreo/votor/ag_vote_serde.h"
 #include "../../choreo/votor/ag_votor.h"
 #include "../../disco/events/generated/fd_event_gen.h"
@@ -24,16 +24,20 @@
 #include "../../flamenco/leaders/fd_multi_epoch_leaders.h"
 #include "../../flamenco/stakes/fd_stake_weight.h"
 #include "../../util/net/fd_net_headers.h"
+#include "../../util/fd_hash32.h"
 #include "../../waltz/quic/fd_quic.h"
 #include "../../waltz/quic/fd_quic_conn.h"
 #include "../../waltz/quic/fd_quic_private.h"
-#include "../../waltz/quic/tls/fd_quic_tls.h"
 #include "../replay/fd_replay_tile.h"
+#include "../restore/utils/fd_wfs.h"
 
+#include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <stdio.h>
 #include <unistd.h>
+#include <sys/mman.h>
+#include <sys/stat.h>
 #include <sys/syscall.h>
 #include <sys/uio.h>
 
@@ -43,27 +47,37 @@
 #define IN_KIND_NET    (3)
 #define IN_KIND_REPLAY (4)
 #define IN_KIND_SIGN   (5)
+#define IN_KIND_FAILOV (6)
 
 #define OUT_IDX_VOTOR (0UL)
 #define OUT_IDX_NET   (1UL)
 
-#define VOTE_LOOKAHEAD_MAX (40UL) /* lookahead at most 40 slots from highest ParentReady (matches Agave) */
+#define QUIC_CLOSE_CODE_INVALID_IDENTITY     (2U) /* agave_votor_transport::error::close_codes::INVALID_IDENTITY */
+#define QUIC_CLOSE_CODE_NOT_ADMITTED         (3U) /* agave_votor_transport::error::close_codes::NOT_ADMITTED */
+#define QUIC_CLOSE_CODE_BANNED               (4U) /* agave_votor_transport::error::close_codes::BANNED */
+#define QUIC_CLOSE_CODE_TOO_MANY_CONNECTIONS (5U) /* agave_votor_transport::error::close_codes::TOO_MANY_CONNECTIONS */
 
-#define QUIC_K_PACKET_THRESHOLD  (3UL) /* RFC 9002 kPacketThreshold: a packet this many packet numbers older than an acked one is lost */
-#define QUIC_K_GRANULARITY_NS    (1000000L) /* RFC 9002 kGranularity (1ms), same as FD_QUIC_K_GRANULARITY_NS */
-#define QUIC_BAN_TIMEOUT_NS      (10L*1000L*1000L*1000L) /* 10 seconds */
-#define QUIC_CONN_BACKOFF_MIN_NS (1L*1000L*1000L*1000L) /* reconnect delay when fd_quic had no free conn to connect with */
-#define QUIC_CONN_BACKOFF_MAX_NS (64L*1000L*1000L*1000L) /* reconnect delay doubles up to this */
-#define QUIC_CONN_AHEAD_NS       (10L*1000L*1000L*1000L) /* connect to peers this long before our first ranked epoch, spreading the handshakes out (Agave admits next-epoch voters from 30000 slots out) */
-#define QUIC_CLOSE_CODE_UNKNOWN  (2U)
-#define QUIC_CLOSE_CODE_EVICTED  (3U)
-#define QUIC_CLOSE_CODE_BANNED   (4U)
-#define QUIC_CONN_MAX            (AG_VAT_MAX * 2) /* each validator is alloted 2 concurrent conns */
-#define QUIC_CLIENT_CONN_MAX     (AG_VAT_MAX * 4) /* one conn to every validator of the prev, curr and next epochs, plus an epoch of evicted conns still closing */
+#define QUIC_BAN_TIMEOUT_NS   (10L*1000L*1000L*1000L) /* agave_bls_sigverify::bls_sigverifier::BAN_TIMEOUT */
+#define QUIC_K_GRANULARITY_NS (1000000L)              /* 1 ms, RFC 9002 kGranularity, same as FD_QUIC_K_GRANULARITY_NS */
+
+#define QUIC_CLIENT_CONN_BACKOFF_MIN_NS (1L*1000L*1000L*1000L)  /* 1 s */
+#define QUIC_CLIENT_CONN_BACKOFF_MAX_NS (1L*1000L*1000L*1000L)  /* 1 s */
+#define QUIC_CLIENT_CONN_AHEAD_NS       (10L*1000L*1000L*1000L) /* connect to peers this long before our first ranked epoch, spreading the handshakes out (Agave admits next-epoch voters from 30000 slots out) */
+#define QUIC_CLIENT_CONN_MAX            (AG_VAT_MAX * (3 + 1))  /* one conn to every validator of the prev, curr and next epochs, plus an epoch of evicted conns still closing */
+
+#define QUIC_SERVER_CONN_PER_PEER_MAX (2UL)                                        /* allow up to 2 per peer, in case of failures (zombies, network partition, etc.) */
+#define QUIC_SERVER_CONN_MAX          (AG_VAT_MAX * QUIC_SERVER_CONN_PER_PEER_MAX) /* at most AG_VAT_MAX connections */
 
 #define REWARD_VOTE_MAX        (AG_REWARD_SLOT_DELTA+AG_SLOTS_PER_WINDOW) /* voting slot+REWARD_VOTE_MAX needs ParentReady past slot+8's window, deciding slot's reward */
 #define REWARD_VOTE_RTT_MIN_NS (10000000L)                                /* retry a reward vote no sooner than 10ms */
 #define REWARD_VOTE_RTT_MAX_NS (200000000L)                               /* retry a reward vote no later than 200ms */
+#define REWARD_VOTE_TX_MAX     (16UL)                                     /* sends per reward vote: RTT_MIN doubling to RTT_MAX fits 13 before slot+8's footer seals at 200ms slots */
+#define REWARD_REPUBLISH_NS    (50000000L)                                /* republish a reward cert no sooner than 50ms, each publish verifies its aggregates */
+
+#define STANDSTILL_TX_INTERVAL_NS    (50000000L)   /* 20 standstill messages a second, Agave's STANDSTILL_REFRESH_BATCH_SIZE per STANDSTILL_REFRESH_INTERVAL */
+#define STANDSTILL_CYCLE_INTERVAL_NS (1000000000L) /* pause between standstill cycles, Agave's STANDSTILL_REFRESH_INTERVAL */
+
+#define VOTE_TOO_NEW (40UL) /* lookahead at most 40 slots from highest ParentReady, Agave's MAX_VOTE_SLOT_DISTANCE_FROM_PARENT_READY */
 
 #define SER_MAX (AG_VOTE_SER_MAX>AG_CERT_SER_MAX ? AG_VOTE_SER_MAX : AG_CERT_SER_MAX)
 
@@ -76,10 +90,10 @@ static fd_quic_limits_t quic_client_limits = {
 };
 
 static fd_quic_limits_t quic_server_limits = {
-  .conn_cnt                    = QUIC_CONN_MAX,
+  .conn_cnt                    = QUIC_SERVER_CONN_MAX,
   .handshake_cnt               = 1024UL,
   .conn_id_cnt                 = FD_QUIC_MIN_CONN_ID_CNT,
-  .inflight_frame_cnt          = 64UL * QUIC_CONN_MAX,
+  .inflight_frame_cnt          = 64UL * QUIC_SERVER_CONN_MAX,
   .min_inflight_frame_cnt_conn = 32UL,
 };
 
@@ -88,34 +102,35 @@ FD_STATIC_ASSERT( (1UL<<CONTACT_INFOS_LG_SLOT_CNT)==2UL*FD_CONTACT_INFO_TABLE_SI
 
 struct contact_info {
   fd_pubkey_t id_key;
+  uint        hash;
   uint        ip4;
   ushort      port;
+  uchar       removed; /* gossip removed it, kept until its peer is evicted */
 };
 typedef struct contact_info contact_info_t;
 
-#define MAP_NAME              contact_infos
-#define MAP_T                 contact_info_t
-#define MAP_LG_SLOT_CNT       CONTACT_INFOS_LG_SLOT_CNT
-#define MAP_KEY               id_key
-#define MAP_KEY_T             fd_pubkey_t
-#define MAP_KEY_NULL          ((fd_pubkey_t){ .ul = {0} }) /* no validator identity is the zero pubkey */
-#define MAP_KEY_INVAL(k)      (!((k).ul[0]|(k).ul[1]|(k).ul[2]|(k).ul[3]))
-#define MAP_KEY_EQUAL(k0,k1)  (!memcmp( &(k0), &(k1), sizeof(fd_pubkey_t) ))
-#define MAP_KEY_EQUAL_IS_SLOW 1
-#define MAP_KEY_HASH(key)     ((uint)fd_hash( 0UL, &(key), sizeof(fd_pubkey_t) ))
-#define MAP_MEMOIZE           0
-#include "../../util/tmpl/fd_map.c"
+#define MAP_NAME                contact_infos
+#define MAP_T                   contact_info_t
+#define MAP_KEY                 id_key
+#define MAP_KEY_T               fd_pubkey_t
+#define MAP_KEY_NULL            ((fd_pubkey_t){ .ul = {0} }) /* no validator identity is the zero pubkey */
+#define MAP_KEY_INVAL(k)        (!((k).ul[0]|(k).ul[1]|(k).ul[2]|(k).ul[3]))
+#define MAP_KEY_EQUAL(k0,k1)    (!memcmp( &(k0), &(k1), sizeof(fd_pubkey_t) ))
+#define MAP_KEY_EQUAL_IS_SLOW   1
+#define MAP_KEY_HASH(key,seed)  ((uint)fd_hash32( (key).uc, (seed) ))
+#include "../../util/tmpl/fd_map_dynamic.c"
 
 #define PEERS_LG_SLOT_CNT (13) /* 2*AG_VAT_MAX, fill ratio 0.5 */
 FD_STATIC_ASSERT( (1UL<<PEERS_LG_SLOT_CNT)>=4UL*AG_VAT_MAX, peers );
 
 struct peer {
   fd_pubkey_t      id_key;
+  uint             hash;
   ushort           prev_rank;
   ushort           curr_rank;
   ushort           next_rank;
   fd_quic_conn_t * tx_conn;
-  fd_quic_conn_t * rx_conn;
+  fd_quic_conn_t * rx_conn[ QUIC_SERVER_CONN_PER_PEER_MAX ];
   long             ban_ts;
   long             conn_ts;
   long             conn_backoff;
@@ -123,18 +138,16 @@ struct peer {
 };
 typedef struct peer peer_t;
 
-#define MAP_NAME              peers
-#define MAP_T                 peer_t
-#define MAP_LG_SLOT_CNT       PEERS_LG_SLOT_CNT
-#define MAP_KEY               id_key
-#define MAP_KEY_T             fd_pubkey_t
-#define MAP_KEY_NULL          ((fd_pubkey_t){ .ul = {0} }) /* no validator identity is the zero pubkey */
-#define MAP_KEY_INVAL(k)      (!((k).ul[0]|(k).ul[1]|(k).ul[2]|(k).ul[3]))
-#define MAP_KEY_EQUAL(k0,k1)  (!memcmp( &(k0), &(k1), sizeof(fd_pubkey_t) ))
-#define MAP_KEY_EQUAL_IS_SLOW 1
-#define MAP_KEY_HASH(key)     ((uint)fd_hash( 0UL, &(key), sizeof(fd_pubkey_t) ))
-#define MAP_MEMOIZE           0
-#include "../../util/tmpl/fd_map.c"
+#define MAP_NAME                peers
+#define MAP_T                   peer_t
+#define MAP_KEY                 id_key
+#define MAP_KEY_T               fd_pubkey_t
+#define MAP_KEY_NULL            ((fd_pubkey_t){ .ul = {0} }) /* no validator identity is the zero pubkey */
+#define MAP_KEY_INVAL(k)        (!((k).ul[0]|(k).ul[1]|(k).ul[2]|(k).ul[3]))
+#define MAP_KEY_EQUAL(k0,k1)    (!memcmp( &(k0), &(k1), sizeof(fd_pubkey_t) ))
+#define MAP_KEY_EQUAL_IS_SLOW   1
+#define MAP_KEY_HASH(key,seed)  ((uint)fd_hash32( (key).uc, (seed) ))
+#include "../../util/tmpl/fd_map_dynamic.c"
 
 struct reconn {
   long        timeout;
@@ -154,12 +167,23 @@ typedef struct reconn reconn_t;
 struct reward_vote {
   ulong            slot; /* ULONG_MAX if free */
   long             retry_ts;
+  long             backoff;
   ulong            tx_cnt;
   fd_quic_conn_t * conn; /* conn the pkt_nums were sent on */
-  ulong            pkt_num[ QUIC_K_PACKET_THRESHOLD+1UL ]; /* QUIC considers packets at kPacketThreshold (3), so we overwrite the oldest packet number after 3 */
+  ulong            pkt_num[ REWARD_VOTE_TX_MAX ]; /* every send on conn, an ACK of any acks the vote */
   ag_vote_t        vote;
 };
 typedef struct reward_vote reward_vote_t;
+
+/* reward_cert tracks whether we've obtained a better reward cert for a
+   given slot, marking it dirty to be republished. */
+
+struct reward_cert {
+  ulong slot; /* ULONG_MAX if free */
+  int   dirty;
+  long  publish_ts;
+};
+typedef struct reward_cert reward_cert_t;
 
 #define AUTH_VTR_LG_SLOT_CNT (5) /* identity plus 16 authorized voters, fill ratio 0.53 */
 
@@ -207,6 +231,20 @@ typedef struct sort_voter sort_voter_t;
 #define SORT_BEFORE(a,b) ( memcmp( (a).id, (b).id, sizeof(fd_pubkey_t) )<0 )
 #include "../../util/tmpl/fd_sort.c"
 
+/* known_key is a validated point from an earlier epoch's ranking, so
+   an unchanged key skips decompression and the subgroup check. */
+
+struct known_key {
+  uchar const *        bls;
+  fd_bls_pub_t const * pub;
+};
+typedef struct known_key known_key_t;
+
+#define SORT_NAME        sort_known_key
+#define SORT_KEY_T       known_key_t
+#define SORT_BEFORE(a,b) ( memcmp( (a).bls, (b).bls, FD_BLS_PUB_COMPRESSED_SZ )<0 )
+#include "../../util/tmpl/fd_sort.c"
+
 #define SORT_NAME        sort_voter_stake
 #define SORT_KEY_T       sort_voter_t
 #define SORT_BEFORE(a,b) ( (a).stake> (b).stake ||                                  \
@@ -219,38 +257,42 @@ struct fd_votor_tile {
   /* Signing */
 
   fd_pubkey_t          id_key;
+  fd_pubkey_t          id_key_bak;      /* the identity whose .bak is the vote history spare */
   fd_keyswitch_t *     id_keyswitch;
-  int                  halt_signing;      /* switching identity, see during_housekeeping */
-  ulong                replay_in_seq;     /* seq after the last replay_slot frag consumed */
-  ulong                wait_to_vote_slot; /* from the new identity's vote history file, 0 if none */
+  ulong                keyswitch_state; /* FD_KEYSWITCH_STATE_{...} */
+  ulong                replay_in_seq;   /* seq after the last replay_slot frag consumed */
   auth_vtr_t *         auth_vtr;
   ulong                auth_vtr_path_cnt;
   fd_keyswitch_t *     auth_vtr_keyswitch;
   fd_keyguard_client_t keyguard_client[1];
 
-  /* The vote history file.  Each write goes to the staging file, then
-     the two names are exchanged, so the live file is always complete. */
+  /* Vote history */
 
-  int                    vote_history_dir_fd;
-  int                    vote_history_fd[ 2 ];   /* [0] staging (<name>.new), [1] live (<name>), -1 if not written */
-  char                   vote_history_name[ 2 ][ PATH_MAX ];
-  ulong                  vote_history_pending;   /* newest vote slot not yet written, 0 if none (slot 0 is never voted on) */
-  int                    vote_history_empty;     /* the live file was emptied because the history did not fit */
-  ag_vote_history_file_t vote_history[1];        /* votor's history, encoded into vote_history_buf */
-  uchar                  vote_history_buf[ AG_VOTE_HISTORY_FILE_MAX ];
+  ulong       vote_history_slot;     /* first slot votor may vote in, from the vote history file, 0 if none */
+  int         vote_history_bak_full; /* the spare holds id_key_bak's vote history */
+  int         vote_history_fd;
+  int         vote_history_fd_swp;   /* swap file, atomic rename */
+  int         vote_history_fd_bak;   /* spare, the new identity's at a switch */
+  int         vote_history_fd_dir;
 
   /* Initialization */
 
   int           init;
   ag_block_id_t boot_block_id;
+  ulong         slot_max; /* max_live_slots */
+
+  /* Wait-for-supermajority (see fd_wfs.h). */
+
+  ulong  wfs_slot;
+  int    wfs_hash_is_zero;
+  ushort wfs_shred_version;
+  int    wfs_signalled;  /* latch: REPLAY_SIG_WFS_DONE seen */
 
   /* Cluster metadata */
 
-  ushort shred_version;
-  long   ns_per_slot;
-
-  /* Epoch metadata */
-
+  ushort                     shred_version;
+  long                       ns_per_slot;
+  ulong                      slots_per_epoch;
   ag_epoch_info_t *          prev_epoch_info;
   ulong                      prev_epoch_slot;
   ag_epoch_info_t *          curr_epoch_info;
@@ -259,20 +301,30 @@ struct fd_votor_tile {
   ulong                      next_epoch_slot;
   fd_multi_epoch_leaders_t * mleaders;
   ulong                      next_leader_slot;
+  ulong                      highest_vote_or_lead_slot; /* voting can be out of order, so track a hi-watermark of every vote votor decided and window it led */
   ulong                      highest_parent_ready_slot;
   ulong                      highest_certed_final_slot; /* highest slot whose final cert was published paired with its notar cert */
+  ulong                      catchup_slot;              /* highest slot past the pool window with a verified cert, 0 if none */
+  ulong                      catchup_final_slot;        /* same, for a final or fast-final cert */
+  ulong                      catchup_vote_slot;         /* first slot worth a vote or cert while catching up: slot_max behind catchup_slot, or the first whose reward block follows catchup_final_slot */
 
   /* Alpenglow data structures */
 
   ag_pool_t *  pool;
   ag_votor_t * votor;
 
+  /* Standstill */
+
+  ulong                     standstill_slot; /* the finalized slot when standstill_ts was last reset */
+  long                      standstill_ts;   /* LONG_MAX until votor runs, then AG_DELTA_STANDSTILL_NS after standstill_slot changes, then every STANDSTILL_TX_INTERVAL_NS */
+  ag_pool_standstill_iter_t standstill_iter[1];
+
   /* Networking */
 
   contact_info_t *   contact_infos;
   peer_t *           peers;
   fd_pubkey_t        client_peer_id_keys[ QUIC_CLIENT_CONN_MAX ];
-  fd_pubkey_t        server_peer_id_keys[ QUIC_CONN_MAX ];
+  fd_pubkey_t        server_peer_id_keys[ QUIC_SERVER_CONN_MAX ];
   fd_net_rx_bounds_t net_in_bounds[ 32 ];
   uchar              net_buf[ FD_NET_MTU ];
   fd_quic_t *        quic_client;
@@ -287,15 +339,13 @@ struct fd_votor_tile {
   reconn_t *         reconn_prq;
   ulong              conn_ahead_slot; /* next_epoch_slot we last queued connects ahead of */
   reward_vote_t      reward_votes[ REWARD_VOTE_MAX ]; /* our reward votes awaiting an ACK from the leader for the reward slot.  circ buf indexed by slot%REWARD_VOTE_MAX */
+  reward_cert_t      reward_certs[ AG_SLOTS_PER_WINDOW ]; /* reward certs published for our leader window.  circ buf indexed by slot%AG_SLOTS_PER_WINDOW */
 
   /* Links */
 
   int in_kind[32];
   struct {
     fd_wksp_t * mem;
-    ulong       chunk0;
-    ulong       wmark;
-    ulong       mtu;
   } in[ 32 ];
 
   void * net_out_mem;
@@ -311,6 +361,8 @@ struct fd_votor_tile {
   ulong                                        net_tx_cnt;
   struct { ulong chunk; ulong sz; ulong sig; } net_tx[ FD_VOTOR_NET_BURST ];
 
+  fd_stem_context_t * stem; /* for publishing from the quic callbacks */
+
   /* Scratch */
 
   struct {
@@ -325,6 +377,7 @@ struct fd_votor_tile {
     ag_epoch_info_t next_epoch_info;
     uchar           ser[ SER_MAX ];
     fd_bls_set_t    bad[ fd_bls_set_word_cnt ];
+    uchar           vote_history[ AG_VOTE_HISTORY_SER_SZ ];
   } scratch;
 
   /* Metrics */
@@ -333,12 +386,47 @@ struct fd_votor_tile {
     ulong datagram_rx[ FD_METRICS_ENUM_DATAGRAM_RX_RESULT_CNT ];
     ulong vote_rx    [ FD_METRICS_ENUM_VOTE_RX_RESULT_CNT     ];
     ulong cert_rx    [ FD_METRICS_ENUM_CERT_RX_RESULT_CNT     ];
-
+    ulong bls_verify;
     ulong vote_history_write;
-    ulong vote_history_slot;
-    ulong vote_history_sz;
-    ulong vote_history_too_large;
+    ulong leader_window_superseded;
+    ulong cert_tx_unstaked;
   } metrics;
+
+  /* Failover */
+
+  int         failover_enabled;         /* the topology has the failover links */
+  int         installed_by_failover;    /* the identity we run came from a failover switch, not boot or set-identity */
+  ulong       highest_unsent_slot;      /* highest vote the tile built but did not send, ULONG_MAX none */
+  int         failover_hist_adopted;    /* a history, possibly empty, was adopted since the last switch */
+  ulong       adopted_tip;              /* tip of the adopted history, ULONG_MAX for an empty one or none */
+  int         vote_authority;           /* our rank may be installed, 0 keeps us unranked */
+  int         hist_was_truncated;       /* the last export dropped windows, warned once */
+  ulong       last_leader_slot;         /* slot of the last LEADER we published, ULONG_MAX before any */
+  ulong       adopted_last_leader_slot; /* window of the adopted last LEADER or vote bound, ULONG_MAX when none */
+  ulong       last_vote_slot;           /* highest slot we broadcast a vote for, ULONG_MAX before any */
+  fd_pubkey_t last_vote_key;            /* the identity that vote went out as */
+  ulong       root_slot;                /* replay's root at the last completed slot, ULONG_MAX before any */
+  ulong       highest_completed_slot;   /* highest slot replay completed, 0 before any */
+
+  /* Publish a vote history snapshot (votor_hist) that the failover tile forwards to the peer */
+
+  ulong  hist_out_idx; /* votor_hist, ULONG_MAX without failover */
+  void * hist_out_mem;
+  ulong  hist_out_chunk0;
+  ulong  hist_out_wmark;
+  ulong  hist_out_chunk;
+  ulong  hist_seq;     /* votor_hist sequence after our last frame */
+
+  /* Receive and respond to an adoption request (failov_votor) */
+
+  ulong  failov_out_idx; /* votor_failov (our adoption response) */
+  void * failov_out_mem;
+  ulong  failov_out_chunk0;
+  ulong  failov_out_wmark;
+  ulong  failov_out_chunk;
+
+  uchar  adopt_req[ FD_VOTOR_ADOPT_REQ_HDR_SZ+AG_HIST_SER_MAX ];
+  ulong  adopt_req_sz;
 };
 typedef struct fd_votor_tile fd_votor_tile_t;
 
@@ -358,14 +446,11 @@ report_alpenglow_vote( fd_votor_tile_t * ctx,
   ev.kind       = FD_EVENT_ALPENGLOW_VOTE_KIND_NOTAR+tag-AG_VOTE_SERDE_TAG_NOTAR;
   ev.voter_rank = USHORT_MAX;
 
-  ag_epoch_info_t const * epoch_info = NULL;
   if( FD_LIKELY( vote ) ) {
     ev.slot       = ag_vote_slot( vote );
     ev.voter_rank = ag_vote_rank( vote );
-    epoch_info    = fd_ptr_if( ev.slot>=ctx->next_epoch_slot, ctx->next_epoch_info, fd_ptr_if( ev.slot>=ctx->curr_epoch_slot, ctx->curr_epoch_info, ctx->prev_epoch_info ) );
     uchar const * block_hash = ag_vote_block_hash( vote );
-    if( FD_LIKELY( block_hash                                            ) ) memcpy( ev.block_id,       block_hash,                                  sizeof(ag_block_hash_t) );
-    if( FD_LIKELY( epoch_info && ev.voter_rank<epoch_info->validator_cnt ) ) memcpy( ev.voter_identity, epoch_info->validators[ ev.voter_rank ].id_key, sizeof(ag_id_key_t)     );
+    if( FD_LIKELY( block_hash ) ) memcpy( ev.block_id, block_hash, sizeof(ag_block_hash_t) );
   }
 
   fd_pubkey_t const * id_key = conn ? fd_quic_conn_get_context( conn ) : &ctx->id_key;
@@ -385,18 +470,35 @@ report_alpenglow_vote( fd_votor_tile_t * ctx,
   ev.quorum_reached_skip_cert           = fd_uchar_extract_bit( quorum_reached, AG_POOL_QUORUM_REACHED_SKIP           );
   ev.aggregation_start_time             = (ulong)fd_long_if( result==FD_EVENT_ALPENGLOW_VOTE_PROCESSING_RESULT_ACCEPTED, aggregation_start_time, 0L );
   ev.broadcast_start_time               = (ulong)broadcast_start_time;
-  ev.done_time                          = (ulong)fd_clock_tile_now( ctx->clock );
 
-  if( FD_UNLIKELY( !conn && reason!=FD_EVENT_ALPENGLOW_VOTE_REASON_REWARD_ACKED ) ) {
-    ulong cnt = epoch_info ? epoch_info->validator_cnt : 0UL;
+  if( FD_UNLIKELY( reason==FD_EVENT_ALPENGLOW_VOTE_REASON_REWARD_NO_CONNECTION ) ) {
+    ulong                   reward_slot = ev.slot+AG_REWARD_SLOT_DELTA;
+    ag_epoch_info_t const * reward_info = fd_ptr_if( reward_slot>=ctx->next_epoch_slot, ctx->next_epoch_info, fd_ptr_if( reward_slot>=ctx->curr_epoch_slot, ctx->curr_epoch_info, ctx->prev_epoch_info ) );
+    ulong                   cnt         = reward_info ? reward_info->validator_cnt : 0UL;
+    ushort                  rank        = fd_ushort_if( reward_slot>=ctx->next_epoch_slot, reward_leader->next_rank, fd_ushort_if( reward_slot>=ctx->curr_epoch_slot, reward_leader->curr_rank, reward_leader->prev_rank ) );
+    contact_info_t const *  ci          = contact_infos_query( ctx->contact_infos, reward_leader->id_key, NULL );
     fd_memset( ev.broadcast_to, 0, cnt*sizeof(fd_event_alpenglow_vote_broadcast_to_t) );
-    for( ulong slot=0UL; slot<peers_slot_cnt(); slot++ ) {
+    if( FD_LIKELY( rank<cnt ) ) memcpy( ev.broadcast_to[ rank ].identity, reward_leader->id_key.uc, sizeof(fd_pubkey_t) );
+    if( FD_LIKELY( rank<cnt && ci ) ) {
+      FD_STORE( ushort, ev.broadcast_to[ rank ].ip+10, (ushort)0xffff );
+      FD_STORE( uint,   ev.broadcast_to[ rank ].ip+12, ci->ip4 );
+      ev.broadcast_to[ rank ].port = ci->port;
+    }
+    ev.broadcast_to_cnt = cnt;
+  }
+
+  if( FD_UNLIKELY( !conn && reason!=FD_EVENT_ALPENGLOW_VOTE_REASON_REWARD_ACKED && reason!=FD_EVENT_ALPENGLOW_VOTE_REASON_REWARD_NO_CONNECTION ) ) {
+    ulong                   rank_slot = fd_ulong_if( reason==FD_EVENT_ALPENGLOW_VOTE_REASON_REWARD, ev.slot+AG_REWARD_SLOT_DELTA, ev.slot );
+    ag_epoch_info_t const * rank_info = fd_ptr_if( rank_slot>=ctx->next_epoch_slot, ctx->next_epoch_info, fd_ptr_if( rank_slot>=ctx->curr_epoch_slot, ctx->curr_epoch_info, ctx->prev_epoch_info ) );
+    ulong                   cnt       = rank_info ? rank_info->validator_cnt : 0UL;
+    fd_memset( ev.broadcast_to, 0, cnt*sizeof(fd_event_alpenglow_vote_broadcast_to_t) );
+    for( ulong slot=0UL; slot<peers_slot_cnt( ctx->peers ); slot++ ) {
       peer_t const * peer = &ctx->peers[ slot ];
       if( FD_LIKELY(    peers_key_inval( peer->id_key )
                      || !peer->tx_conn
                      || peer->tx_conn->state!=FD_QUIC_CONN_STATE_ACTIVE
                      || (peer==reward_leader)!=(reason==FD_EVENT_ALPENGLOW_VOTE_REASON_REWARD) ) ) continue;
-      ushort rank = fd_ushort_if( ev.slot>=ctx->next_epoch_slot, peer->next_rank, fd_ushort_if( ev.slot>=ctx->curr_epoch_slot, peer->curr_rank, peer->prev_rank ) );
+      ushort rank = fd_ushort_if( rank_slot>=ctx->next_epoch_slot, peer->next_rank, fd_ushort_if( rank_slot>=ctx->curr_epoch_slot, peer->curr_rank, peer->prev_rank ) );
       if( FD_UNLIKELY( rank>=cnt ) ) continue;
       memcpy( ev.broadcast_to[ rank ].identity, peer->id_key.uc, sizeof(fd_pubkey_t) );
       FD_STORE( ushort, ev.broadcast_to[ rank ].ip+10, (ushort)0xffff );
@@ -460,13 +562,12 @@ report_alpenglow_cert( fd_votor_tile_t * ctx,
   ev.processing_result    = result;
   ev.verify_start_time    = (ulong)verify_start_time;
   ev.broadcast_start_time = (ulong)broadcast_start_time;
-  ev.done_time            = (ulong)fd_clock_tile_now( ctx->clock );
 
   if( FD_UNLIKELY( !conn ) ) {
     ag_epoch_info_t const * epoch_info = fd_ptr_if( ev.slot>=ctx->next_epoch_slot, ctx->next_epoch_info, fd_ptr_if( ev.slot>=ctx->curr_epoch_slot, ctx->curr_epoch_info, ctx->prev_epoch_info ) );
     ulong                   cnt        = epoch_info ? epoch_info->validator_cnt : 0UL;
     fd_memset( ev.broadcast_to, 0, cnt*sizeof(fd_event_alpenglow_cert_broadcast_to_t) );
-    for( ulong slot=0UL; slot<peers_slot_cnt(); slot++ ) {
+    for( ulong slot=0UL; slot<peers_slot_cnt( ctx->peers ); slot++ ) {
       peer_t const * peer = &ctx->peers[ slot ];
       if( FD_LIKELY( peers_key_inval( peer->id_key ) || !peer->tx_conn || peer->tx_conn->state!=FD_QUIC_CONN_STATE_ACTIVE ) ) continue;
       ushort rank = fd_ushort_if( ev.slot>=ctx->next_epoch_slot, peer->next_rank, fd_ushort_if( ev.slot>=ctx->curr_epoch_slot, peer->curr_rank, peer->prev_rank ) );
@@ -483,14 +584,16 @@ report_alpenglow_cert( fd_votor_tile_t * ctx,
 }
 
 static void
-ban_peer( peer_t * peer,
-          long     now ) {
+ban_peer( fd_votor_tile_t * ctx,
+          peer_t *          peer,
+          long              now ) {
   FD_BASE58_ENCODE_32_BYTES( peer->id_key.uc, id_key_b58 );
   FD_LOG_WARNING(( "banning peer %s", id_key_b58 ));
-  if( FD_LIKELY( peer->rx_conn ) ) {
-    fd_quic_conn_set_context( peer->rx_conn, NULL );
-    fd_quic_conn_close( peer->rx_conn, QUIC_CLOSE_CODE_BANNED );
-    peer->rx_conn = NULL;
+  for( ulong i=0UL; i<QUIC_SERVER_CONN_PER_PEER_MAX; i++ ) {
+    if( FD_UNLIKELY( !peer->rx_conn[ i ] ) ) continue;
+    fd_quic_conn_set_context( peer->rx_conn[ i ], NULL );
+    fd_quic_conn_close( peer->rx_conn[ i ], QUIC_CLOSE_CODE_BANNED );
+    peer->rx_conn[ i ] = NULL;
   }
   if( FD_LIKELY( peer->tx_conn ) ) {
     fd_quic_conn_set_context( peer->tx_conn, NULL );
@@ -498,6 +601,11 @@ ban_peer( peer_t * peer,
     peer->tx_conn = NULL;
   }
   peer->ban_ts = now;
+  if( FD_LIKELY( !peer->reconn_pending ) ) { /* redial outbound when the ban lapses */
+    reconn_t reconn = { .timeout = now+QUIC_BAN_TIMEOUT_NS, .id_key = peer->id_key };
+    reconn_prq_insert( ctx->reconn_prq, &reconn );
+    peer->reconn_pending = 1;
+  }
 }
 
 static void
@@ -513,16 +621,17 @@ ban_bad_ranks( fd_votor_tile_t *    ctx,
     fd_pubkey_t id_key; memcpy( id_key.uc, epoch_info->validators[ rank ].id_key, sizeof(ag_id_key_t) );
     peer_t * peer = peers_query( ctx->peers, id_key, NULL );
     if( FD_UNLIKELY( !peer || now<peer->ban_ts+QUIC_BAN_TIMEOUT_NS ) ) continue;
-    ban_peer( peer, now );
+    ban_peer( ctx, peer, now );
   }
 }
 
 static void
-publish_reward_certs( fd_votor_tile_t *   ctx,
-                      fd_stem_context_t * stem,
-                      ulong               reward_slot ) {
+publish_reward_cert( fd_votor_tile_t *   ctx,
+                     fd_stem_context_t * stem,
+                     ulong               reward_slot ) {
   fd_votor_msg_t *    chunk  = fd_chunk_to_laddr( ctx->votor_out_mem, ctx->votor_out_chunk );
   fd_votor_reward_t * reward = &chunk->reward;
+  ctx->reward_certs[ reward_slot%AG_SLOTS_PER_WINDOW ] = (reward_cert_t){ .slot = reward_slot, .publish_ts = fd_clock_tile_now( ctx->clock ) };
 
   reward->slot     = reward_slot;
   reward->block_id = (fd_hash_t){ 0 };
@@ -535,19 +644,22 @@ publish_reward_certs( fd_votor_tile_t *   ctx,
     ctx->votor_out_chunk = fd_dcache_compact_next( ctx->votor_out_chunk, sizeof(fd_votor_msg_t), ctx->votor_out_chunk0, ctx->votor_out_wmark );
     return;
   }
-  ag_epoch_info_t const * epoch_info = state->epoch_info;
-  ag_slot_votes_t const * votes      = &state->votes;
+  ag_slot_states_t const * states     = ag_pool_slot_states( ctx->pool );
+  ag_epoch_info_t const *  epoch_info = fd_ptr_if( reward_slot>=states->next_epoch_slot, states->next_epoch_info, fd_ptr_if( reward_slot>=states->curr_epoch_slot, states->curr_epoch_info, states->prev_epoch_info ) );
+  ag_slot_votes_t const *  votes      = &state->votes;
+  fd_bls_sig_t             sigs[ AG_VAT_MAX ];
 
   uchar msg[ AG_VOTE_SIGNING_SER_MAX ];
   ulong msg_sz;
   int   err;
 
   uchar const *        hash  = votes->top_notar_hash;
-  fd_bls_agg_t const * notar = ag_slot_state_notar_reward_agg( state );
+  fd_bls_agg_t const * notar = ag_slot_state_notar_reward_agg( state, states, &reward->agg_notar );
   if( FD_LIKELY( notar ) ) {
-    reward->agg_notar = *notar;
+    ag_slot_state_sigs( state, states, AG_VOTE_KIND_NOTAR, hash, reward->agg_notar.set, sigs );
     msg_sz = ag_vote_signing_ser( AG_VOTE_KIND_NOTAR, reward_slot, hash, ctx->shred_version, msg );
-    err    = fd_bls_agg_verify_subtract( &reward->agg_notar, msg, msg_sz, epoch_info->pubkeys, votes->notar_sig, ctx->scratch.bad );
+    ctx->metrics.bls_verify++;
+    err    = fd_bls_agg_verify_subtract( &reward->agg_notar, msg, msg_sz, epoch_info->pubkeys, sigs, ctx->scratch.bad );
     ban_bad_ranks( ctx, ctx->scratch.bad, reward_slot );
     if( FD_UNLIKELY( err ) ) fd_bls_agg_null( &reward->agg_notar );
     else                     memcpy( reward->block_id.uc, hash, sizeof(fd_hash_t) );
@@ -556,8 +668,10 @@ publish_reward_certs( fd_votor_tile_t *   ctx,
   fd_bls_agg_t const * skip = ag_slot_state_skip_reward_agg( state );
   if( FD_LIKELY( skip ) ) {
     reward->agg_skip = *skip;
+    ag_slot_state_sigs( state, states, AG_VOTE_KIND_SKIP, NULL, reward->agg_skip.set, sigs );
     msg_sz = ag_vote_signing_ser( AG_VOTE_KIND_SKIP, reward_slot, NULL, ctx->shred_version, msg );
-    err    = fd_bls_agg_verify_subtract( &reward->agg_skip, msg, msg_sz, epoch_info->pubkeys, votes->skip_sig, ctx->scratch.bad );
+    ctx->metrics.bls_verify++;
+    err    = fd_bls_agg_verify_subtract( &reward->agg_skip, msg, msg_sz, epoch_info->pubkeys, sigs, ctx->scratch.bad );
     ban_bad_ranks( ctx, ctx->scratch.bad, reward_slot );
     if( FD_UNLIKELY( err ) ) fd_bls_agg_null( &reward->agg_skip );
   }
@@ -566,28 +680,154 @@ publish_reward_certs( fd_votor_tile_t *   ctx,
   ctx->votor_out_chunk = fd_dcache_compact_next( ctx->votor_out_chunk, sizeof(fd_votor_msg_t), ctx->votor_out_chunk0, ctx->votor_out_wmark );
 }
 
+static peer_t const *
+query_reward_leader( fd_votor_tile_t const * ctx,
+                     reward_vote_t const *   rv ) {
+  fd_pubkey_t const * leader = fd_multi_epoch_leaders_get_leader_for_slot( ctx->mleaders, rv->slot+AG_REWARD_SLOT_DELTA );
+  peer_t const *      peer   = leader ? peers_query( ctx->peers, *leader, NULL ) : NULL;
+  if( FD_UNLIKELY( !peer || !peer->tx_conn || peer->tx_conn->state!=FD_QUIC_CONN_STATE_ACTIVE ) ) return NULL;
+  return peer;
+}
+
 static void
-sign_ed25519( void *      signer_ctx,
-              uchar       sig[ static FD_ED25519_SIG_SZ ],
-              uchar const msg[ static FD_TLS_CV_SIGN_SZ ] ) {
+quic_client_connect( fd_votor_tile_t *      ctx,
+                     peer_t *               peer,
+                     contact_info_t const * ci,
+                     long                   now ) {
+  if( FD_UNLIKELY( ctx->keyswitch_state ) ) return; /* halted for an identity switch, and the TLS handshake must sign */
+  peer_t const * self = peers_query( ctx->peers, ctx->id_key, NULL );
+  if( FD_UNLIKELY( !self || peer==self ) ) return;
+  if( FD_UNLIKELY( self->curr_rank==USHORT_MAX ) ) { /* not voting yet: only connect ahead, within QUIC_CLIENT_CONN_AHEAD_NS of our first ranked epoch */
+    ulong root = ag_pool_finalized_slot( ctx->pool );
+    if( FD_UNLIKELY( self->next_rank==USHORT_MAX || root==ULONG_MAX )                                                     ) return;
+    if( FD_UNLIKELY( root<ctx->next_epoch_slot && (long)( ctx->next_epoch_slot-root )*ctx->ns_per_slot>QUIC_CLIENT_CONN_AHEAD_NS ) ) return;
+  }
+  if( FD_UNLIKELY( peer->prev_rank==USHORT_MAX && peer->curr_rank==USHORT_MAX && peer->next_rank==USHORT_MAX ) ) return;
+  if( FD_UNLIKELY( peer->tx_conn ) ) return;
+  if( FD_UNLIKELY( now<peer->ban_ts+QUIC_BAN_TIMEOUT_NS ) ) { /* redial when the ban lapses, nothing else would */
+    if( FD_LIKELY( !peer->reconn_pending ) ) {
+      reconn_t reconn = { .timeout = peer->ban_ts+QUIC_BAN_TIMEOUT_NS, .id_key = peer->id_key };
+      reconn_prq_insert( ctx->reconn_prq, &reconn );
+      peer->reconn_pending = 1;
+    }
+    return;
+  }
+
+  fd_quic_conn_t * conn = fd_quic_connect( ctx->quic_client, ci->ip4, ci->port, ctx->src_ip_addr, ctx->quic_client_listen_port, now );
+  if( FD_UNLIKELY( !conn ) ) {
+    if( FD_LIKELY( !peer->reconn_pending ) ) {
+      reconn_t reconn = { .timeout = now+QUIC_CLIENT_CONN_BACKOFF_MIN_NS, .id_key = peer->id_key };
+      reconn_prq_insert( ctx->reconn_prq, &reconn );
+      peer->reconn_pending = 1;
+    }
+    return;
+  }
+
+  memcpy( conn->tls_hs->hs.cli.server_pubkey, peer->id_key.uc, sizeof(fd_pubkey_t) ); /* fail the handshake before authenticating to whoever else holds the peer's address */
+  conn->tls_hs->hs.cli.server_pubkey_len = sizeof(fd_pubkey_t);
+  conn->tls_hs->hs.cli.server_pubkey_pin = 1;
+
+  peer->conn_ts = now;
+  ctx->client_peer_id_keys[ conn->conn_idx ] = peer->id_key;
+  fd_quic_conn_set_context( conn, &ctx->client_peer_id_keys[ conn->conn_idx ] );
+  peer->tx_conn = conn;
+  for( ulong i=0UL; i<REWARD_VOTE_MAX; i++ ) if( ctx->reward_votes[ i ].conn==conn ) ctx->reward_votes[ i ].conn = NULL;
+}
+
+static ulong
+quic_client_datagram_tx( fd_votor_tile_t *   ctx,
+                         fd_stem_context_t * stem,
+                         fd_quic_conn_t *    conn,
+                         uchar const *       buf,
+                         ulong               buf_sz ) {
+  uchar * packet_l2 = fd_chunk_to_laddr( ctx->net_out_mem, ctx->net_out_chunk );
+  uchar * payload   = packet_l2 + sizeof(fd_ip4_udp_hdrs_t);
+
+  ulong pkt_num;
+  ulong pkt_sz = fd_quic_conn_tx_dgram( conn, payload, FD_NET_MTU-sizeof(fd_ip4_udp_hdrs_t), buf, buf_sz, &pkt_num );
+  if( FD_UNLIKELY( !pkt_sz ) ) return ULONG_MAX;
+
+  fd_ip4_udp_hdrs_t * hdr = (fd_ip4_udp_hdrs_t *)fd_type_pun( packet_l2 );
+  *hdr = *ctx->hdr;
+
+  hdr->ip4->daddr       = conn->peer[ 0 ].ip_addr;
+  hdr->ip4->net_tot_len = fd_ushort_bswap( (ushort)( pkt_sz+sizeof(fd_ip4_hdr_t)+sizeof(fd_udp_hdr_t) ) );
+  hdr->ip4->net_id      = fd_ushort_bswap( ctx->net_id++ );
+  hdr->ip4->check       = 0;
+  hdr->ip4->check       = fd_ip4_hdr_check_fast( hdr->ip4 );
+
+  hdr->udp->net_dport = fd_ushort_bswap( conn->peer[ 0 ].udp_port );
+  hdr->udp->net_len   = fd_ushort_bswap( (ushort)( pkt_sz+sizeof(fd_udp_hdr_t) ) );
+  hdr->udp->check     = (ushort)0;
+
+  uint  ip_dst = hdr->ip4->daddr;
+  ulong sig    = fd_disco_netmux_sig( ip_dst, 0U, ip_dst, DST_PROTO_OUTGOING, FD_NETMUX_SIG_MIN_HDR_SZ );
+  ulong sz_l2  = sizeof(fd_ip4_udp_hdrs_t) + pkt_sz;
+  fd_stem_publish( stem, OUT_IDX_NET, sig, ctx->net_out_chunk, sz_l2, fd_frag_meta_ctl( 0UL, 1, 1, 0 ), 0L, 0L );
+  ctx->net_out_chunk = fd_dcache_compact_next( ctx->net_out_chunk, FD_NET_MTU, ctx->net_out_chunk0, ctx->net_out_wmark );
+  ctx->quic_client->metrics.net_tx_pkt_cnt++; /* bypasses fd_quic's aio send, which counts the rest */
+  ctx->quic_client->metrics.net_tx_byte_cnt += sz_l2-sizeof(fd_eth_hdr_t); /* IP bytes, as fd_quic counts */
+  return pkt_num;
+}
+
+/* reward_vote_tx sends rv to peer, its reward leader, recording the
+   pkt_num an ACK must match and backing off the next retry. */
+
+static void
+reward_vote_tx( fd_votor_tile_t *   ctx,
+                fd_stem_context_t * stem,
+                reward_vote_t *     rv,
+                peer_t const *      peer,
+                long                now ) {
+  long  broadcast_start_time = fd_clock_tile_now( ctx->clock );
+  ulong ser_sz               = ag_vote_ser( &rv->vote, ctx->scratch.ser );
+  ulong pkt_num              = quic_client_datagram_tx( ctx, stem, peer->tx_conn, ctx->scratch.ser, ser_sz );
+  if( FD_UNLIKELY( pkt_num==ULONG_MAX ) ) {
+    rv->retry_ts = now+REWARD_VOTE_RTT_MIN_NS;
+    return;
+  }
+
+  if( FD_UNLIKELY( rv->conn!=peer->tx_conn ) ) {
+    rv->conn = peer->tx_conn;
+    for( ulong j=0UL; j<REWARD_VOTE_TX_MAX; j++ ) rv->pkt_num[ j ] = ULONG_MAX;
+  }
+  rv->pkt_num[ rv->tx_cnt ] = pkt_num;
+  rv->tx_cnt++;
+  report_alpenglow_vote( ctx, NULL, &rv->vote, ctx->scratch.ser[ 1 ], FD_EVENT_ALPENGLOW_VOTE_PROCESSING_RESULT_ACCEPTED, 0, FD_EVENT_ALPENGLOW_VOTE_REASON_REWARD, 0L, broadcast_start_time, peer );
+  long pto     = (long)( peer->tx_conn->rtt->smoothed_rtt + fmaxf( 4.0f*peer->tx_conn->rtt->var_rtt, (float)QUIC_K_GRANULARITY_NS ) + peer->tx_conn->peer_max_ack_delay_ns ); /* RFC 9002 PTO */
+  rv->backoff  = fd_long_min( fd_long_max( fd_long_max( 2L*rv->backoff, pto ), REWARD_VOTE_RTT_MIN_NS ), REWARD_VOTE_RTT_MAX_NS ); /* double per unacked send, clamp between RTT_MIN, RTT_MAX */
+  rv->retry_ts = now + rv->backoff;
+}
+
+/* QUIC callback */
+
+static void
+quic_sign( void *      signer_ctx,
+           uchar       sig[ static FD_ED25519_SIG_SZ ],
+           uchar const msg[ static FD_TLS_CV_SIGN_SZ ] ) {
   fd_votor_tile_t * ctx = signer_ctx;
   fd_keyguard_client_sign( ctx->keyguard_client, sig, msg, FD_TLS_CV_SIGN_SZ, FD_KEYGUARD_SIGN_TYPE_ED25519 );
 }
 
-FD_STATIC_ASSERT( FD_BLS_SIG_SZ==FD_KEYGUARD_BLS_SIG_SZ, bls_sig_sz );
+/* QUIC callback */
 
-static void
-sign_bls( void *         signer_ctx,
-          fd_bls_sig_t * sig,
-          uchar const *  public_key,
-          uchar const *  payload,
-          ulong          payload_sz ) {
-  fd_votor_tile_t * ctx = signer_ctx;
-  auth_vtr_t const * auth_vtr = auth_vtr_query_const( ctx->auth_vtr, *(auth_vtr_key_t const *)fd_type_pun_const( public_key ), NULL );
-  if( FD_UNLIKELY( !auth_vtr ) ) FD_LOG_CRIT(( "no key derives the requested BLS public key" ));
-  uchar sig_bytes[ FD_BLS_SIG_SZ ];
-  fd_keyguard_client_ag_vote_sign( ctx->keyguard_client, sig_bytes, auth_vtr->paths_idx, payload, payload_sz );
-  if( FD_UNLIKELY( fd_bls_sig_de( sig, sig_bytes ) ) ) FD_LOG_CRIT(( "sign tile returned an invalid BLS signature" ));
+/* votor_wfs_is_green returns whether WFS permits votor to run.  The
+   classifier is a pure function of config, so it takes the configured
+   shred version, never the one ipecho observed.  ERROR is replay's
+   fatal to report, so just hold here. */
+
+static int
+votor_wfs_is_green( fd_votor_tile_t const * ctx ) {
+  int mode = fd_wfs_mode( ctx->wfs_slot, ctx->wfs_hash_is_zero,
+                          (ulong)ctx->wfs_shred_version, ctx->boot_block_id.slot );
+  switch( mode ) {
+    case FD_WFS_MODE_DISABLED:
+    case FD_WFS_MODE_NOOP:       return 1;
+    case FD_WFS_MODE_MATCH:      return ctx->wfs_signalled;
+    case FD_WFS_MODE_UNRESOLVED:
+    case FD_WFS_MODE_ERROR:      return 0;
+    default: FD_LOG_CRIT(( "unexpected WFS mode %d", mode ));
+  }
 }
 
 static int
@@ -630,52 +870,7 @@ quic_aio_tx( void *                    _ctx,
   return FD_AIO_SUCCESS;
 }
 
-static void
-quic_client_connect( fd_votor_tile_t *      ctx,
-                     peer_t *               peer,
-                     contact_info_t const * ci,
-                     long                   now ) {
-  if( FD_UNLIKELY( ctx->halt_signing ) ) return; /* halted for an identity switch, and the TLS handshake must sign */
-  peer_t const * self = peers_query_const( ctx->peers, ctx->id_key, NULL );
-  if( FD_UNLIKELY( !self || peer==self ) ) return;
-  if( FD_UNLIKELY( self->curr_rank==USHORT_MAX ) ) { /* not voting yet: only connect ahead, within QUIC_CONN_AHEAD_NS of our first ranked epoch */
-    ulong root = ag_pool_finalized_slot( ctx->pool );
-    if( FD_UNLIKELY( self->next_rank==USHORT_MAX || root==ULONG_MAX )                                                     ) return;
-    if( FD_UNLIKELY( root<ctx->next_epoch_slot && (long)( ctx->next_epoch_slot-root )*ctx->ns_per_slot>QUIC_CONN_AHEAD_NS ) ) return;
-  }
-  if( FD_UNLIKELY( peer->prev_rank==USHORT_MAX && peer->curr_rank==USHORT_MAX && peer->next_rank==USHORT_MAX ) ) return;
-  if( FD_UNLIKELY( peer->tx_conn || now<peer->ban_ts+QUIC_BAN_TIMEOUT_NS ) ) return;
-
-  fd_quic_conn_t * conn = fd_quic_connect( ctx->quic_client, ci->ip4, ci->port, ctx->src_ip_addr, ctx->quic_client_listen_port, now );
-  if( FD_UNLIKELY( !conn ) ) {
-    if( FD_LIKELY( !peer->reconn_pending ) ) {
-      reconn_t reconn = { .timeout = now+QUIC_CONN_BACKOFF_MIN_NS, .id_key = peer->id_key };
-      reconn_prq_insert( ctx->reconn_prq, &reconn );
-      peer->reconn_pending = 1;
-    }
-    return;
-  }
-
-  peer->conn_ts = now;
-  ctx->client_peer_id_keys[ conn->conn_idx ] = peer->id_key;
-  fd_quic_conn_set_context( conn, &ctx->client_peer_id_keys[ conn->conn_idx ] );
-  peer->tx_conn = conn;
-  for( ulong i=0UL; i<REWARD_VOTE_MAX; i++ ) if( ctx->reward_votes[ i ].conn==conn ) ctx->reward_votes[ i ].conn = NULL;
-}
-
-/* connect_peers connects to every peer with contact info that
-   quic_client_connect allows. */
-
-static void
-connect_peers( fd_votor_tile_t * ctx,
-               long              now ) {
-  for( ulong slot=0UL; slot<peers_slot_cnt(); slot++ ) {
-    peer_t * peer = &ctx->peers[ slot ];
-    if( FD_LIKELY( peers_key_inval( peer->id_key ) ) ) continue;
-    contact_info_t const * ci = contact_infos_query( ctx->contact_infos, peer->id_key, NULL );
-    if( FD_LIKELY( ci ) ) quic_client_connect( ctx, peer, ci, now );
-  }
-}
+/* QUIC callback */
 
 static void
 quic_client_conn_final( fd_quic_conn_t * conn,
@@ -689,7 +884,7 @@ quic_client_conn_final( fd_quic_conn_t * conn,
   long now = fd_clock_tile_now( ctx->clock );
   long pto = (long)( conn->rtt->smoothed_rtt + fmaxf( 4.0f*conn->rtt->var_rtt, (float)QUIC_K_GRANULARITY_NS ) + conn->peer_max_ack_delay_ns ); /* RFC 9002 PTO */
   peer->tx_conn      = NULL;
-  peer->conn_backoff = fd_long_min( fd_long_max( 2L*peer->conn_backoff, pto ), QUIC_CONN_BACKOFF_MAX_NS );
+  peer->conn_backoff = fd_long_min( fd_long_max( 2L*peer->conn_backoff, pto ), QUIC_CLIENT_CONN_BACKOFF_MAX_NS );
   peer->conn_ts      = now;
   if( FD_LIKELY( !peer->reconn_pending ) ) {
     reconn_t reconn = { .timeout = now+peer->conn_backoff, .id_key = peer->id_key };
@@ -697,6 +892,8 @@ quic_client_conn_final( fd_quic_conn_t * conn,
     peer->reconn_pending = 1;
   }
 }
+
+/* QUIC callback */
 
 static void
 quic_client_conn_hs_complete( fd_quic_conn_t * conn,
@@ -706,13 +903,15 @@ quic_client_conn_hs_complete( fd_quic_conn_t * conn,
   if( FD_UNLIKELY( !id_key ) ) return;
 
   if( FD_LIKELY( !conn->tls_hs || memcmp( conn->tls_hs->hs.cli.server_pubkey, id_key->uc, sizeof(fd_pubkey_t) ) ) ) {
-    fd_quic_conn_close( conn, QUIC_CLOSE_CODE_UNKNOWN );
+    fd_quic_conn_close( conn, QUIC_CLOSE_CODE_INVALID_IDENTITY );
     return;
   }
 
   peer_t * peer = peers_query( ctx->peers, *id_key, NULL );
   if( FD_LIKELY( peer ) ) peer->conn_backoff = 0L;
 }
+
+/* QUIC callback */
 
 static void
 quic_client_ack_range( fd_quic_conn_t * conn,
@@ -723,7 +922,7 @@ quic_client_ack_range( fd_quic_conn_t * conn,
   for( ulong i=0UL; i<REWARD_VOTE_MAX; i++ ) {
     reward_vote_t * rv = &ctx->reward_votes[ i ];
     if( FD_LIKELY( rv->slot==ULONG_MAX || rv->conn!=conn ) ) continue;
-    for( ulong j=0UL; j<fd_ulong_min( rv->tx_cnt, QUIC_K_PACKET_THRESHOLD+1UL ); j++ ) {
+    for( ulong j=0UL; j<fd_ulong_min( rv->tx_cnt, REWARD_VOTE_TX_MAX ); j++ ) {
       if( FD_LIKELY(    rv->pkt_num[ j ]<pkt_num_lo
                      || rv->pkt_num[ j ]>pkt_num_hi ) ) continue;
       report_alpenglow_vote( ctx, NULL, &rv->vote, (uchar)( AG_VOTE_SERDE_TAG_NOTAR+rv->vote.kind ), FD_EVENT_ALPENGLOW_VOTE_PROCESSING_RESULT_ACCEPTED, 0, FD_EVENT_ALPENGLOW_VOTE_REASON_REWARD_ACKED, 0L, 0L, NULL );
@@ -733,39 +932,7 @@ quic_client_ack_range( fd_quic_conn_t * conn,
   }
 }
 
-static ulong
-quic_client_datagram_tx( fd_votor_tile_t *   ctx,
-                         fd_stem_context_t * stem,
-                         fd_quic_conn_t *    conn,
-                         uchar const *       buf,
-                         ulong               buf_sz ) {
-  uchar * packet_l2 = fd_chunk_to_laddr( ctx->net_out_mem, ctx->net_out_chunk );
-  uchar * payload   = packet_l2 + sizeof(fd_ip4_udp_hdrs_t);
-
-  ulong pkt_num;
-  ulong pkt_sz = fd_quic_conn_tx_dgram( conn, payload, FD_NET_MTU-sizeof(fd_ip4_udp_hdrs_t), buf, buf_sz, &pkt_num );
-  if( FD_UNLIKELY( !pkt_sz ) ) return ULONG_MAX;
-
-  fd_ip4_udp_hdrs_t * hdr = (fd_ip4_udp_hdrs_t *)fd_type_pun( packet_l2 );
-  *hdr = *ctx->hdr;
-
-  hdr->ip4->daddr       = conn->peer[ 0 ].ip_addr;
-  hdr->ip4->net_tot_len = fd_ushort_bswap( (ushort)( pkt_sz+sizeof(fd_ip4_hdr_t)+sizeof(fd_udp_hdr_t) ) );
-  hdr->ip4->net_id      = fd_ushort_bswap( ctx->net_id++ );
-  hdr->ip4->check       = 0;
-  hdr->ip4->check       = fd_ip4_hdr_check_fast( hdr->ip4 );
-
-  hdr->udp->net_dport = fd_ushort_bswap( conn->peer[ 0 ].udp_port );
-  hdr->udp->net_len   = fd_ushort_bswap( (ushort)( pkt_sz+sizeof(fd_udp_hdr_t) ) );
-  hdr->udp->check     = (ushort)0;
-
-  uint  ip_dst = hdr->ip4->daddr;
-  ulong sig    = fd_disco_netmux_sig( ip_dst, 0U, ip_dst, DST_PROTO_OUTGOING, FD_NETMUX_SIG_MIN_HDR_SZ );
-  ulong sz_l2  = sizeof(fd_ip4_udp_hdrs_t) + pkt_sz;
-  fd_stem_publish( stem, OUT_IDX_NET, sig, ctx->net_out_chunk, sz_l2, fd_frag_meta_ctl( 0UL, 1, 1, 0 ), 0L, 0L );
-  ctx->net_out_chunk = fd_dcache_compact_next( ctx->net_out_chunk, FD_NET_MTU, ctx->net_out_chunk0, ctx->net_out_wmark );
-  return pkt_num;
-}
+/* QUIC callback */
 
 static void
 quic_server_conn_new( fd_quic_conn_t * conn,
@@ -776,33 +943,39 @@ quic_server_conn_new( fd_quic_conn_t * conn,
   fd_votor_tile_t * ctx  = _ctx;
   peer_t *          peer = peers_query( ctx->peers, *id_key, NULL );
   if( FD_LIKELY( ctx->curr_epoch_info ) && FD_UNLIKELY( !peer ) ) {
-    fd_quic_conn_close( conn, 0U );
+    fd_quic_conn_close( conn, QUIC_CLOSE_CODE_NOT_ADMITTED );
     return;
   }
   if( FD_UNLIKELY( peer && fd_clock_tile_now( ctx->clock )<peer->ban_ts+QUIC_BAN_TIMEOUT_NS ) ) {
     fd_quic_conn_close( conn, QUIC_CLOSE_CODE_BANNED );
     return;
   }
+  ulong idx = 0UL;
+  while( peer && idx<QUIC_SERVER_CONN_PER_PEER_MAX && peer->rx_conn[ idx ] ) idx++;
+  if( FD_UNLIKELY( idx==QUIC_SERVER_CONN_PER_PEER_MAX ) ) { /* never the incumbents: another node's contact info can make the peer dial us */
+    fd_quic_conn_close( conn, QUIC_CLOSE_CODE_TOO_MANY_CONNECTIONS );
+    return;
+  }
   ctx->server_peer_id_keys[ conn->conn_idx ] = *id_key;
   fd_quic_conn_set_context( conn, &ctx->server_peer_id_keys[ conn->conn_idx ] );
-  if( FD_LIKELY( peer ) ) {
-    if( FD_UNLIKELY( peer->rx_conn ) ) {
-      fd_quic_conn_set_context( peer->rx_conn, NULL );
-      fd_quic_conn_close( peer->rx_conn, 0U );
-    }
-    peer->rx_conn = conn;
-  }
+  if( FD_LIKELY( peer ) ) peer->rx_conn[ idx ] = conn;
 }
+
+/* QUIC callback */
 
 static void
 quic_server_conn_final( fd_quic_conn_t * conn,
                         void *           _ctx ) {
   fd_votor_tile_t *   ctx    = _ctx;
   fd_pubkey_t const * id_key = fd_quic_conn_get_context( conn );
+  fd_quic_conn_set_context( conn, NULL ); /* a reused conn slot must not carry this peer's key */
   if( FD_UNLIKELY( !id_key ) ) return;
   peer_t * peer = peers_query( ctx->peers, *id_key, NULL );
-  if( FD_LIKELY( peer && peer->rx_conn==conn ) ) peer->rx_conn = NULL;
+  if( FD_UNLIKELY( !peer ) ) return;
+  for( ulong i=0UL; i<QUIC_SERVER_CONN_PER_PEER_MAX; i++ ) if( FD_UNLIKELY( peer->rx_conn[ i ]==conn ) ) peer->rx_conn[ i ] = NULL;
 }
+
+/* QUIC callback */
 
 static void
 quic_server_datagram_rx( fd_quic_conn_t * conn,
@@ -812,6 +985,7 @@ quic_server_datagram_rx( fd_quic_conn_t * conn,
 
   fd_votor_tile_t * ctx = _ctx;
   if( FD_UNLIKELY( !ctx->init  ) ) { ctx->metrics.datagram_rx[ FD_METRICS_ENUM_DATAGRAM_RX_RESULT_V_NOT_READY_IDX ]++; return; }
+  if( FD_UNLIKELY( conn->state!=FD_QUIC_CONN_STATE_ACTIVE ) ) { ctx->metrics.datagram_rx[ FD_METRICS_ENUM_DATAGRAM_RX_RESULT_V_NOT_ADMITTED_IDX ]++; return; }
   if( FD_UNLIKELY( data_sz<2UL ) ) { ctx->metrics.datagram_rx[ FD_METRICS_ENUM_DATAGRAM_RX_RESULT_V_TOO_SMALL_IDX ]++; return; }
   uchar kind = data[ 1 ];
 
@@ -825,7 +999,7 @@ quic_server_datagram_rx( fd_quic_conn_t * conn,
     fd_pubkey_t const * id_key = fd_quic_conn_get_context( conn );
     if( FD_UNLIKELY( !id_key ) ) { ctx->metrics.vote_rx[ FD_METRICS_ENUM_VOTE_RX_RESULT_V_UNKNOWN_SIGNER_IDX ]++; report_alpenglow_vote( ctx, conn, NULL, kind, FD_EVENT_ALPENGLOW_VOTE_PROCESSING_RESULT_UNKNOWN_PEER, 0, FD_EVENT_ALPENGLOW_VOTE_REASON_NOT_OUR_VOTE, 0L, 0L, NULL ); return; }
     peer_t * peer = peers_query( ctx->peers, *id_key, NULL );
-    if( FD_UNLIKELY( !peer ) ) { ctx->metrics.vote_rx[ FD_METRICS_ENUM_VOTE_RX_RESULT_V_NOT_A_PEER_IDX ]++; report_alpenglow_vote( ctx, conn, NULL, kind, FD_EVENT_ALPENGLOW_VOTE_PROCESSING_RESULT_UNKNOWN_PEER, 0, FD_EVENT_ALPENGLOW_VOTE_REASON_NOT_OUR_VOTE, 0L, 0L, NULL ); return; }
+    if( FD_UNLIKELY( !peer ) ) { ctx->metrics.vote_rx[ FD_METRICS_ENUM_VOTE_RX_RESULT_V_NOT_PEER_IDX ]++; report_alpenglow_vote( ctx, conn, NULL, kind, FD_EVENT_ALPENGLOW_VOTE_PROCESSING_RESULT_UNKNOWN_PEER, 0, FD_EVENT_ALPENGLOW_VOTE_REASON_NOT_OUR_VOTE, 0L, 0L, NULL ); return; }
     if( FD_UNLIKELY( fd_clock_tile_now( ctx->clock )<peer->ban_ts+QUIC_BAN_TIMEOUT_NS ) ) {
       ctx->metrics.vote_rx[FD_METRICS_ENUM_VOTE_RX_RESULT_V_BANNED_IDX]++;
       report_alpenglow_vote( ctx, conn, NULL, kind, FD_EVENT_ALPENGLOW_VOTE_PROCESSING_RESULT_BANNED_PEER, 0, FD_EVENT_ALPENGLOW_VOTE_REASON_NOT_OUR_VOTE, 0L, 0L, NULL );
@@ -834,10 +1008,12 @@ quic_server_datagram_rx( fd_quic_conn_t * conn,
     }
 
     int err = ag_vote_de( &ctx->scratch.vote, data, data_sz );
-    if( FD_UNLIKELY( err ) ) {
-      ctx->metrics.vote_rx[ FD_METRICS_ENUM_VOTE_RX_RESULT_V_BAD_SIZE_IDX     ] += (ulong)(err==AG_VOTE_DE_ERR_SZ   );
-      ctx->metrics.vote_rx[ FD_METRICS_ENUM_VOTE_RX_RESULT_V_BAD_ENCODING_IDX ] += (ulong)(err==AG_VOTE_DE_ERR_INVAL);
-      return;
+    switch( err ) {
+    case AG_VOTE_DE_SUCCESS:   break;
+    case AG_VOTE_DE_ERR_SZ:    ctx->metrics.vote_rx[ FD_METRICS_ENUM_VOTE_RX_RESULT_V_BAD_SIZE_IDX         ]++;                                              return;
+    case AG_VOTE_DE_ERR_INVAL: ctx->metrics.vote_rx[ FD_METRICS_ENUM_VOTE_RX_RESULT_V_BAD_ENCODING_IDX     ]++;                                              return;
+    case AG_VOTE_DE_ERR_SIG:   ctx->metrics.vote_rx[ FD_METRICS_ENUM_VOTE_RX_RESULT_V_SIGNATURE_FAILED_IDX ]++; ban_peer( ctx, peer, fd_clock_tile_now( ctx->clock ) ); return;
+    default:                   FD_LOG_CRIT(( "unhandled ag_vote_de err %d", err ));
     }
     ag_vote_t * vote      = &ctx->scratch.vote;
     ulong       vote_slot = ag_vote_slot( vote );
@@ -850,29 +1026,30 @@ quic_server_datagram_rx( fd_quic_conn_t * conn,
     case AG_VOTE_KIND_SKIP_FALLBACK:  vote->skip_fallback.rank  = rank; break;
     default:                          FD_LOG_CRIT(( "unreachable" ));
     }
-    if( FD_UNLIKELY( ag_vote_shred_version( vote )!=ctx->shred_version ) ) { ctx->metrics.vote_rx[ FD_METRICS_ENUM_VOTE_RX_RESULT_V_BAD_SHRED_VERSION_IDX ]++; report_alpenglow_vote( ctx, conn, vote, kind, FD_EVENT_ALPENGLOW_VOTE_PROCESSING_RESULT_SHRED_VERSION_MISMATCH, 0, FD_EVENT_ALPENGLOW_VOTE_REASON_NOT_OUR_VOTE, 0L, 0L, NULL ); return; }
-
-    if( FD_UNLIKELY( blst_p2_is_inf( ag_vote_sig( vote ) ) ) ) { ctx->metrics.vote_rx[ FD_METRICS_ENUM_VOTE_RX_RESULT_V_BAD_SIG_IDX ]++; ban_peer( peer, fd_clock_tile_now( ctx->clock ) ); return; } /* identity is never a valid vote signature */
+    if( FD_UNLIKELY( ag_vote_shred_version( vote )!=ctx->shred_version ) ) { ctx->metrics.vote_rx[ FD_METRICS_ENUM_VOTE_RX_RESULT_V_SHRED_VERSION_MISMATCHED_IDX ]++; report_alpenglow_vote( ctx, conn, vote, kind, FD_EVENT_ALPENGLOW_VOTE_PROCESSING_RESULT_SHRED_VERSION_MISMATCH, 0, FD_EVENT_ALPENGLOW_VOTE_REASON_NOT_OUR_VOTE, 0L, 0L, NULL ); return; }
     uchar const * block_hash = ag_vote_block_hash( vote );
-    if( FD_UNLIKELY( block_hash && !memcmp( block_hash, ag_block_hash_null, sizeof(ag_block_hash_t) ) ) ) { ctx->metrics.vote_rx[ FD_METRICS_ENUM_VOTE_RX_RESULT_V_BAD_BLOCK_HASH_IDX ]++; return; } /* null is never a valid block hash */
+    if( FD_UNLIKELY( block_hash && !memcmp( block_hash, ag_block_hash_null, sizeof(ag_block_hash_t) ) ) ) { ctx->metrics.vote_rx[ FD_METRICS_ENUM_VOTE_RX_RESULT_V_NULL_BLOCK_HASH_IDX ]++; return; } /* null is never a valid block hash */
 
-    if( FD_UNLIKELY( rank==USHORT_MAX ) ) { ctx->metrics.vote_rx[ FD_METRICS_ENUM_VOTE_RX_RESULT_V_BAD_RANK_IDX ]++; report_alpenglow_vote( ctx, conn, vote, kind, FD_EVENT_ALPENGLOW_VOTE_PROCESSING_RESULT_UNRANKED_PEER, 0, FD_EVENT_ALPENGLOW_VOTE_REASON_NOT_OUR_VOTE, 0L, 0L, NULL ); return; } /* peer is not ranked in their vote slot's epoch */
-    if( FD_UNLIKELY( vote_slot>fd_ulong_max( ag_pool_finalized_slot( ctx->pool ), ctx->highest_parent_ready_slot )+VOTE_LOOKAHEAD_MAX ) ) { ctx->metrics.vote_rx[ FD_METRICS_ENUM_VOTE_RX_RESULT_V_BAD_SLOT_IDX ]++; report_alpenglow_vote( ctx, conn, vote, kind, FD_EVENT_ALPENGLOW_VOTE_PROCESSING_RESULT_SLOT_TOO_NEW, 0, FD_EVENT_ALPENGLOW_VOTE_REASON_NOT_OUR_VOTE, 0L, 0L, NULL ); return; }
+    if( FD_UNLIKELY( rank==USHORT_MAX ) ) { ctx->metrics.vote_rx[ FD_METRICS_ENUM_VOTE_RX_RESULT_V_UNRANKED_IDX ]++; report_alpenglow_vote( ctx, conn, vote, kind, FD_EVENT_ALPENGLOW_VOTE_PROCESSING_RESULT_UNRANKED_PEER, 0, FD_EVENT_ALPENGLOW_VOTE_REASON_NOT_OUR_VOTE, 0L, 0L, NULL ); return; } /* peer is not ranked in their vote slot's epoch */
+    if( FD_UNLIKELY( vote_slot>fd_ulong_max( ag_pool_finalized_slot( ctx->pool ), ctx->highest_parent_ready_slot )+VOTE_TOO_NEW ) ) { ctx->metrics.vote_rx[ FD_METRICS_ENUM_VOTE_RX_RESULT_V_SLOT_OUT_OF_RANGE_IDX ]++; report_alpenglow_vote( ctx, conn, vote, kind, FD_EVENT_ALPENGLOW_VOTE_PROCESSING_RESULT_SLOT_TOO_NEW, 0, FD_EVENT_ALPENGLOW_VOTE_REASON_NOT_OUR_VOTE, 0L, 0L, NULL ); return; }
 
     long  aggregation_start_time = fd_clock_tile_now( ctx->clock );
     uchar quorum_reached;
-    err = ag_pool_add_vote( ctx->pool, &ctx->scratch.vote, ctx->scratch.bad, &quorum_reached );
+    err = ag_pool_add_vote( ctx->pool, &ctx->scratch.vote, 0, ctx->scratch.bad, &quorum_reached );
     int result;
     switch( err ) {
-    case AG_POOL_SUCCESS:                ctx->metrics.vote_rx[ FD_METRICS_ENUM_VOTE_RX_RESULT_V_SUCCESS_IDX   ]++; result = FD_EVENT_ALPENGLOW_VOTE_PROCESSING_RESULT_ACCEPTED;                                                                                                                         break;
-    case AG_POOL_ERR_SLOT_OUT_OF_BOUNDS: ctx->metrics.vote_rx[ FD_METRICS_ENUM_VOTE_RX_RESULT_V_BAD_SLOT_IDX  ]++; result = fd_int_if( vote_slot<ag_pool_finalized_slot( ctx->pool ), FD_EVENT_ALPENGLOW_VOTE_PROCESSING_RESULT_SLOT_TOO_OLD, FD_EVENT_ALPENGLOW_VOTE_PROCESSING_RESULT_SLOT_TOO_NEW ); break;
-    case AG_POOL_ERR_DUPLICATE:          ctx->metrics.vote_rx[ FD_METRICS_ENUM_VOTE_RX_RESULT_V_DUPLICATE_IDX ]++; result = FD_EVENT_ALPENGLOW_VOTE_PROCESSING_RESULT_DUPLICATE;                                                                                                                        break;
-    case AG_POOL_ERR_SLASHABLE:          ctx->metrics.vote_rx[ FD_METRICS_ENUM_VOTE_RX_RESULT_V_SLASHABLE_IDX ]++; result = FD_EVENT_ALPENGLOW_VOTE_PROCESSING_RESULT_SLASHABLE;                                                                                                                        break;
+    case AG_POOL_SUCCESS:                ctx->metrics.vote_rx[ FD_METRICS_ENUM_VOTE_RX_RESULT_V_SUCCESS_IDX           ]++; result = FD_EVENT_ALPENGLOW_VOTE_PROCESSING_RESULT_ACCEPTED;                                                                                                                         break;
+    case AG_POOL_ERR_SLOT_TOO_OLD:       ctx->metrics.vote_rx[ FD_METRICS_ENUM_VOTE_RX_RESULT_V_SLOT_OUT_OF_RANGE_IDX ]++; result = FD_EVENT_ALPENGLOW_VOTE_PROCESSING_RESULT_SLOT_TOO_OLD;                                                                                                                    break;
+    case AG_POOL_ERR_SLOT_TOO_NEW:       ctx->metrics.vote_rx[ FD_METRICS_ENUM_VOTE_RX_RESULT_V_SLOT_OUT_OF_RANGE_IDX ]++; result = FD_EVENT_ALPENGLOW_VOTE_PROCESSING_RESULT_SLOT_TOO_NEW;                                                                                                                    break;
+    case AG_POOL_ERR_DUPLICATE:          ctx->metrics.vote_rx[ FD_METRICS_ENUM_VOTE_RX_RESULT_V_DUPLICATE_IDX         ]++; result = FD_EVENT_ALPENGLOW_VOTE_PROCESSING_RESULT_DUPLICATE;                                                                                                                        break;
+    case AG_POOL_ERR_SLASHABLE:          ctx->metrics.vote_rx[ FD_METRICS_ENUM_VOTE_RX_RESULT_V_SLASHABLE_IDX         ]++; result = FD_EVENT_ALPENGLOW_VOTE_PROCESSING_RESULT_SLASHABLE;                                                                                                                        break;
     default:
       FD_LOG_CRIT(( "unhandled kind" ));
     }
     report_alpenglow_vote( ctx, conn, vote, kind, result, quorum_reached, FD_EVENT_ALPENGLOW_VOTE_REASON_NOT_OUR_VOTE, aggregation_start_time, 0L, NULL );
     if( FD_UNLIKELY( !fd_bls_set_is_null( ctx->scratch.bad ) ) ) ban_bad_ranks( ctx, ctx->scratch.bad, vote_slot );
+    reward_cert_t * rc = &ctx->reward_certs[ vote_slot%AG_SLOTS_PER_WINDOW ];
+    if( FD_UNLIKELY( err==AG_POOL_SUCCESS && rc->slot==vote_slot && ( vote->kind==AG_VOTE_KIND_NOTAR || vote->kind==AG_VOTE_KIND_SKIP ) ) ) rc->dirty = 1;
     return;
   }
   case AG_CERT_SERDE_TAG_FINAL:
@@ -884,7 +1061,7 @@ quic_server_datagram_rx( fd_quic_conn_t * conn,
     fd_pubkey_t const * id_key = fd_quic_conn_get_context( conn );
     if( FD_UNLIKELY( !id_key ) ) { ctx->metrics.cert_rx[ FD_METRICS_ENUM_CERT_RX_RESULT_V_UNKNOWN_SIGNER_IDX ]++; report_alpenglow_cert( ctx, conn, NULL, kind, FD_EVENT_ALPENGLOW_CERT_PROCESSING_RESULT_UNKNOWN_PEER, 0L, 0L ); return; }
     peer_t * peer = peers_query( ctx->peers, *id_key, NULL );
-    if( FD_UNLIKELY( !peer ) ) { ctx->metrics.cert_rx[ FD_METRICS_ENUM_CERT_RX_RESULT_V_NOT_A_PEER_IDX ]++; report_alpenglow_cert( ctx, conn, NULL, kind, FD_EVENT_ALPENGLOW_CERT_PROCESSING_RESULT_UNKNOWN_PEER, 0L, 0L ); return; }
+    if( FD_UNLIKELY( !peer ) ) { ctx->metrics.cert_rx[ FD_METRICS_ENUM_CERT_RX_RESULT_V_NOT_PEER_IDX ]++; report_alpenglow_cert( ctx, conn, NULL, kind, FD_EVENT_ALPENGLOW_CERT_PROCESSING_RESULT_UNKNOWN_PEER, 0L, 0L ); return; }
     if( FD_UNLIKELY( fd_clock_tile_now( ctx->clock )<peer->ban_ts+QUIC_BAN_TIMEOUT_NS ) ) { ctx->metrics.cert_rx[ FD_METRICS_ENUM_CERT_RX_RESULT_V_BANNED_IDX ]++; report_alpenglow_cert( ctx, conn, NULL, kind, FD_EVENT_ALPENGLOW_CERT_PROCESSING_RESULT_BANNED_PEER, 0L, 0L ); fd_quic_conn_close( conn, QUIC_CLOSE_CODE_BANNED ); return; }
 
     ulong bit_cnt;
@@ -895,29 +1072,57 @@ quic_server_datagram_rx( fd_quic_conn_t * conn,
       return;
     }
     ag_cert_t * cert = &ctx->scratch.cert;
-    if( FD_UNLIKELY( ag_cert_shred_version( cert )!=ctx->shred_version ) ) { ctx->metrics.cert_rx[ FD_METRICS_ENUM_CERT_RX_RESULT_V_SHRED_VERSION_IDX ]++; report_alpenglow_cert( ctx, conn, &ctx->scratch.cert, kind, FD_EVENT_ALPENGLOW_CERT_PROCESSING_RESULT_SHRED_VERSION_MISMATCH, 0L, 0L ); return; }
+    if( FD_UNLIKELY( ag_cert_shred_version( cert )!=ctx->shred_version ) ) { ctx->metrics.cert_rx[ FD_METRICS_ENUM_CERT_RX_RESULT_V_SHRED_VERSION_MISMATCHED_IDX ]++; report_alpenglow_cert( ctx, conn, &ctx->scratch.cert, kind, FD_EVENT_ALPENGLOW_CERT_PROCESSING_RESULT_SHRED_VERSION_MISMATCH, 0L, 0L ); return; }
 
     ulong  cert_slot = ag_cert_slot( cert );
     ushort rank      = fd_ushort_if( cert_slot>=ctx->next_epoch_slot, peer->next_rank, fd_ushort_if( cert_slot>=ctx->curr_epoch_slot, peer->curr_rank, peer->prev_rank ) );
-    if( FD_UNLIKELY( rank==USHORT_MAX ) ) { ctx->metrics.cert_rx[ FD_METRICS_ENUM_CERT_RX_RESULT_V_NOT_RANKED_IDX ]++; report_alpenglow_cert( ctx, conn, &ctx->scratch.cert, kind, FD_EVENT_ALPENGLOW_CERT_PROCESSING_RESULT_UNRANKED_PEER, 0L, 0L ); return; } /* peer is not ranked in this cert slot's epoch */
+    if( FD_UNLIKELY( rank==USHORT_MAX ) ) { ctx->metrics.cert_rx[ FD_METRICS_ENUM_CERT_RX_RESULT_V_UNRANKED_IDX ]++; report_alpenglow_cert( ctx, conn, &ctx->scratch.cert, kind, FD_EVENT_ALPENGLOW_CERT_PROCESSING_RESULT_UNRANKED_PEER, 0L, 0L ); return; } /* peer is not ranked in this cert slot's epoch */
     ag_epoch_info_t const * epoch_info = fd_ptr_if( cert_slot>=ctx->next_epoch_slot, ctx->next_epoch_info, fd_ptr_if( cert_slot>=ctx->curr_epoch_slot, ctx->curr_epoch_info, ctx->prev_epoch_info ) );
     if( FD_UNLIKELY( epoch_info && bit_cnt>epoch_info->validator_cnt ) ) { ctx->metrics.cert_rx[ FD_METRICS_ENUM_CERT_RX_RESULT_V_BAD_ENCODING_IDX ]++; return; }
 
+    int  final             = cert->kind==AG_CERT_KIND_FINAL || cert->kind==AG_CERT_KIND_FAST_FINAL;
     long verify_start_time = fd_clock_tile_now( ctx->clock );
     switch( ag_pool_add_cert( ctx->pool, &ctx->scratch.cert, 0, ctx->scratch.bad ) ) {
     case AG_POOL_SUCCESS:
       ctx->metrics.cert_rx[ FD_METRICS_ENUM_CERT_RX_RESULT_V_SUCCESS_IDX ]++;
       report_alpenglow_cert( ctx, conn, &ctx->scratch.cert, kind, FD_EVENT_ALPENGLOW_CERT_PROCESSING_RESULT_ACCEPTED, verify_start_time, 0L );
       break;
-    case AG_POOL_ERR_SLOT_OUT_OF_BOUNDS: ctx->metrics.cert_rx[ FD_METRICS_ENUM_CERT_RX_RESULT_V_SLOT_OUT_OF_BOUNDS_IDX ]++; break;
+    case AG_POOL_ERR_SLOT_TOO_OLD: ctx->metrics.cert_rx[ FD_METRICS_ENUM_CERT_RX_RESULT_V_SLOT_OUT_OF_RANGE_IDX ]++; break;
+    case AG_POOL_ERR_SLOT_TOO_NEW:
+      if( FD_LIKELY( ( cert_slot<=ctx->catchup_slot && ( !final || cert_slot<=ctx->catchup_final_slot ) ) || cert_slot>=ctx->next_epoch_slot+ctx->slots_per_epoch ) ) break;
+      ctx->metrics.bls_verify++;
+      if( FD_UNLIKELY( ag_cert_verify( cert, epoch_info )!=AG_CERT_VERIFY_SUCCESS ) ) {
+        ctx->metrics.cert_rx[ FD_METRICS_ENUM_CERT_RX_RESULT_V_SIGNATURE_FAILED_IDX ]++;
+        report_alpenglow_cert( ctx, conn, &ctx->scratch.cert, kind, FD_EVENT_ALPENGLOW_CERT_PROCESSING_RESULT_FAILED_BLS_VERIFY, verify_start_time, 0L );
+        ban_peer( ctx, peer, fd_clock_tile_now( ctx->clock ) );
+        break;
+      }
+      ctx->metrics.cert_rx[ FD_METRICS_ENUM_CERT_RX_RESULT_V_SLOT_OUT_OF_RANGE_IDX ]++;
+      report_alpenglow_cert( ctx, conn, &ctx->scratch.cert, kind, FD_EVENT_ALPENGLOW_CERT_PROCESSING_RESULT_SLOT_TOO_NEW, verify_start_time, 0L );
+      if( FD_UNLIKELY( final ) ) ctx->catchup_final_slot = cert_slot;
+      ulong vote_slot = fd_ulong_max( fd_ulong_sat_sub( cert_slot+1UL, ctx->slot_max ), fd_ulong_if( final, fd_ulong_sat_sub( cert_slot+1UL, AG_REWARD_SLOT_DELTA ), 0UL ) );
+      if( FD_UNLIKELY( vote_slot>ctx->catchup_vote_slot ) ) {
+        ctx->catchup_vote_slot = vote_slot;
+        ag_votor_set_catchup_vote_slot( ctx->votor, vote_slot );
+        for( ulong i=0UL; i<REWARD_VOTE_MAX; i++ ) {
+          if( FD_UNLIKELY( ctx->reward_votes[ i ].slot<vote_slot ) ) ctx->reward_votes[ i ].slot = ULONG_MAX;
+        }
+      }
+      if( FD_UNLIKELY( cert_slot<=ctx->catchup_slot ) ) break;
+      ctx->catchup_slot = cert_slot;
+      fd_votor_msg_t * chunk = fd_chunk_to_laddr( ctx->votor_out_mem, ctx->votor_out_chunk );
+      chunk->repair = (fd_votor_repair_t){ .slot = cert_slot };
+      fd_stem_publish( ctx->stem, OUT_IDX_VOTOR, FD_VOTOR_SIG_REPAIR, ctx->votor_out_chunk, sizeof(fd_votor_msg_t), 0UL, fd_frag_meta_ts_comp( fd_tickcount() ), fd_frag_meta_ts_comp( fd_tickcount() ) );
+      ctx->votor_out_chunk = fd_dcache_compact_next( ctx->votor_out_chunk, sizeof(fd_votor_msg_t), ctx->votor_out_chunk0, ctx->votor_out_wmark );
+      break;
     case AG_POOL_ERR_DUPLICATE:
       ctx->metrics.cert_rx[ FD_METRICS_ENUM_CERT_RX_RESULT_V_DUPLICATE_IDX ]++;
       if( FD_LIKELY( ctx->scratch.cert.kind==AG_CERT_KIND_NOTAR ) ) report_alpenglow_cert( ctx, conn, &ctx->scratch.cert, kind, FD_EVENT_ALPENGLOW_CERT_PROCESSING_RESULT_DUPLICATE, 0L, 0L );
       break;
     case AG_POOL_ERR_CERT_VERIFY:
-      ctx->metrics.cert_rx[ FD_METRICS_ENUM_CERT_RX_RESULT_V_FAILED_VERIFY_IDX ]++;
+      ctx->metrics.cert_rx[ FD_METRICS_ENUM_CERT_RX_RESULT_V_SIGNATURE_FAILED_IDX ]++;
       report_alpenglow_cert( ctx, conn, &ctx->scratch.cert, kind, FD_EVENT_ALPENGLOW_CERT_PROCESSING_RESULT_FAILED_BLS_VERIFY, verify_start_time, 0L );
-      ban_peer( peer, fd_clock_tile_now( ctx->clock ) );
+      ban_peer( ctx, peer, fd_clock_tile_now( ctx->clock ) );
       break;
     default:
       FD_LOG_CRIT(( "unhandled kind" ));
@@ -958,11 +1163,24 @@ load_keys( fd_votor_tile_t * ctx,
   ctx->auth_vtr_path_cnt = path_cnt;
 }
 
+/* Whether the identity this machine runs is ranked in an epoch. */
+static int
+is_ranked( fd_votor_tile_t const * ctx ) {
+  ag_epoch_info_t const * epoch_infos[3] = { ctx->prev_epoch_info, ctx->curr_epoch_info, ctx->next_epoch_info };
+  for( ulong i=0UL; i<3UL; i++ ) {
+    ag_epoch_info_t const * epoch_info = epoch_infos[ i ];
+    if( FD_UNLIKELY( !epoch_info ) ) continue;
+    for( ulong rank=0UL; rank<epoch_info->validator_cnt; rank++ ) {
+      if( FD_UNLIKELY( !memcmp( epoch_info->validators[ rank ].id_key, ctx->id_key.uc, sizeof(ag_id_key_t) ) ) ) return 1;
+    }
+  }
+  return 0;
+}
+
 static void
-set_rank_and_bls_key( fd_votor_tile_t * ctx ) {
+update_own_rank( fd_votor_tile_t * ctx ) {
   ag_epoch_info_t const * epoch_infos[3] = { ctx->prev_epoch_info, ctx->curr_epoch_info, ctx->next_epoch_info };
   ulong                   epoch_slots[3] = { ctx->prev_epoch_slot, ctx->curr_epoch_slot, ctx->next_epoch_slot };
-  char const *            voting     [3] = { "unknown", "unknown", "unknown" };
   for( ulong i=0UL; i<3UL; i++ ) {
     ag_epoch_info_t const * epoch_info = epoch_infos[ i ];
     if( FD_UNLIKELY( !epoch_info ) ) continue;
@@ -970,37 +1188,161 @@ set_rank_and_bls_key( fd_votor_tile_t * ctx ) {
     for( ulong rank=0UL; rank<epoch_info->validator_cnt; rank++ ) {
       if( FD_UNLIKELY( !memcmp( epoch_info->validators[ rank ].id_key, ctx->id_key.uc, sizeof(ag_id_key_t) ) ) ) own_rank = (ushort)rank;
     }
+    if( FD_UNLIKELY( ctx->failover_enabled && !ctx->vote_authority ) ) own_rank = USHORT_MAX;
+    ag_pool_set_rank ( ctx->pool,  epoch_slots[ i ], own_rank );
+    ag_votor_set_rank( ctx->votor, epoch_slots[ i ], own_rank );
+  }
+}
+
+static void
+update_own_bls_key( fd_votor_tile_t * ctx ) {
+  ag_epoch_info_t const * epoch_infos[3] = { ctx->prev_epoch_info, ctx->curr_epoch_info, ctx->next_epoch_info };
+  ulong                   epoch_slots[3] = { ctx->prev_epoch_slot, ctx->curr_epoch_slot, ctx->next_epoch_slot };
+  for( ulong i=0UL; i<3UL; i++ ) {
+    ag_epoch_info_t const * epoch_info = epoch_infos[ i ];
+    if( FD_UNLIKELY( !epoch_info ) ) continue;
+    ushort own_rank = USHORT_MAX;
+    for( ulong rank=0UL; rank<epoch_info->validator_cnt; rank++ ) {
+      if( FD_UNLIKELY( !memcmp( epoch_info->validators[ rank ].id_key, ctx->id_key.uc, sizeof(ag_id_key_t) ) ) ) own_rank = (ushort)rank;
+    }
+    if( FD_UNLIKELY( ctx->failover_enabled && !ctx->vote_authority ) ) own_rank = USHORT_MAX; /* with failover we stay unranked while we may not vote */
     uchar const * own_bls_key = NULL; /* NULL if we are not ranked or cannot sign with our key, in which case we do not vote */
     if( FD_LIKELY( own_rank!=USHORT_MAX ) ) {
       ag_validator_info_t const * validator = &epoch_info->validators[ own_rank ];
+      FD_BASE58_ENCODE_32_BYTES( validator->vote_key, vote_key_b58 );
       if( FD_LIKELY( auth_vtr_query_const( ctx->auth_vtr, *(auth_vtr_key_t const *)fd_type_pun_const( validator->bls_key ), NULL ) ) ) {
         own_bls_key = validator->bls_key;
+        FD_LOG_INFO(( "voting as %s in the epoch starting at slot %lu", vote_key_b58, epoch_slots[ i ] ));
       } else {
-        FD_BASE58_ENCODE_32_BYTES( validator->vote_key, vote_key_b58 );
         FD_LOG_WARNING(( "no identity or authorized voter keypair matches the BLS key of vote account %s, unable to vote", vote_key_b58 ));
       }
     }
-    ag_pool_set_rank    ( ctx->pool,  epoch_slots[ i ], own_rank );
-    ag_votor_set_rank   ( ctx->votor, epoch_slots[ i ], own_rank );
     ag_votor_set_bls_key( ctx->votor, epoch_slots[ i ], own_bls_key );
-    voting[ i ] = own_bls_key ? "enabled" : "disabled";
   }
-  FD_LOG_INFO(( "keyswitch: authorized voter count is now %lu; voting %s in the current epoch and %s in the next epoch",
-                ctx->auth_vtr_path_cnt, voting[ 1 ], voting[ 2 ] ));
+}
+
+static void
+sign_vote( void *         signer_ctx,
+           fd_bls_sig_t * sig,
+           uchar const *  public_key,
+           uchar const *  payload,
+           ulong          payload_sz ) {
+  fd_votor_tile_t * ctx = signer_ctx;
+  if( FD_UNLIKELY( ctx->keyswitch_state ) ) {
+    memset( sig, 0, sizeof(fd_bls_sig_t) );
+    return;
+  }
+  auth_vtr_t const * auth_vtr = auth_vtr_query_const( ctx->auth_vtr, *(auth_vtr_key_t const *)fd_type_pun_const( public_key ), NULL );
+  if( FD_UNLIKELY( !auth_vtr ) ) FD_LOG_CRIT(( "no key derives the requested BLS public key" ));
+  uchar sig_bytes[ FD_BLS_SIG_SZ ];
+  fd_keyguard_client_ag_vote_sign( ctx->keyguard_client, sig_bytes, auth_vtr->paths_idx, payload, payload_sz );
+  if( FD_UNLIKELY( fd_bls_sig_de( sig, sig_bytes ) ) ) FD_LOG_CRIT(( "sign tile returned an invalid BLS signature" ));
+}
+
+/* write_vote_history writes out an Agave-compatible vote history file.
+   Firedancer only writes out a single slot, the wait-to-vote slot.
+
+   Examples:
+
+   vote_history-A.bin          live
+   vote_history-A.bin.swp      staging, swapped with live on each write
+   vote_history-B.bin.bak      B as of the switch away from it, the spare
+                               the next switch reuses */
+
+static void
+write_vote_history( fd_votor_tile_t * ctx ) {
+  FD_BASE58_ENCODE_32_BYTES( ctx->id_key.uc, id_key_b58 );
+  char swp[ PATH_MAX ];
+  char bin[ PATH_MAX ];
+  FD_TEST( fd_cstr_printf_check( swp, PATH_MAX, NULL, "vote_history-%s.bin.swp", id_key_b58 ) );
+  FD_TEST( fd_cstr_printf_check( bin, PATH_MAX, NULL, "vote_history-%s.bin",     id_key_b58 ) );
+
+  uchar * buf = ctx->scratch.vote_history;
+  ulong   sz  = AG_VOTE_HISTORY_SER_SZ;
+  ag_vote_history_ser( ctx->id_key.uc, ag_first_slot_in_window( ctx->highest_vote_or_lead_slot )+AG_SLOTS_PER_WINDOW-1UL, buf );
+  fd_keyguard_client_sign( ctx->keyguard_client, buf+AG_VOTE_HISTORY_SERDE_SIG_OFF, buf+AG_VOTE_HISTORY_SERDE_DATA_OFF, sz-AG_VOTE_HISTORY_SERDE_DATA_OFF, FD_KEYGUARD_SIGN_TYPE_ED25519 );
+
+  for( ulong off=0UL; off<sz; ) {
+    long n = pwritev2( ctx->vote_history_fd_swp, &(struct iovec){ .iov_base=buf+off, .iov_len=sz-off }, 1, (long)off, 0 );
+    if( FD_UNLIKELY( -1==n && errno==EINTR ) ) continue;
+    if( FD_UNLIKELY( n<=0 ) ) FD_LOG_ERR(( "pwritev2(%s) failed (%i-%s)", swp, errno, fd_io_strerror( errno ) ));
+    off += (ulong)n;
+  }
+  while( FD_UNLIKELY( ftruncate( ctx->vote_history_fd_swp, (long)sz ) ) ) {
+    if( FD_UNLIKELY( errno!=EINTR ) ) FD_LOG_ERR(( "ftruncate(%s) failed (%i-%s)", swp, errno, fd_io_strerror( errno ) ));
+  }
+
+  if( FD_UNLIKELY( ctx->keyswitch_state==FD_KEYSWITCH_STATE_COMPLETED ) ) {
+    FD_BASE58_ENCODE_32_BYTES( ctx->id_key_bak.uc, bak_b58 );
+    char bak_swp[ PATH_MAX ];
+    FD_TEST( fd_cstr_printf_check( bak_swp, PATH_MAX, NULL, "vote_history-%s.bin.swp", bak_b58 ) );
+    if( FD_UNLIKELY( syscall( SYS_renameat2, ctx->vote_history_fd_dir, swp, ctx->vote_history_fd_dir, bin, RENAME_NOREPLACE ) && errno==EEXIST ) )
+      FD_LOG_WARNING(( "replacing vote history file %s, which was copied in.  set-identity takes the vote history from --vote-history-file", bin ));
+    if( FD_UNLIKELY( syscall( SYS_renameat2, ctx->vote_history_fd_dir, swp, ctx->vote_history_fd_dir, bin, 0 ) && errno!=ENOENT ) )
+      FD_LOG_ERR(( "renameat2(%s, %s) failed (%i-%s)", swp, bin, errno, fd_io_strerror( errno ) ));
+    if( FD_UNLIKELY( syscall( SYS_renameat2, ctx->vote_history_fd_dir, bak_swp, ctx->vote_history_fd_dir, swp, 0 ) ) )
+      FD_LOG_ERR(( "renameat2(%s, %s) failed (%i-%s)", bak_swp, swp, errno, fd_io_strerror( errno ) ));
+  } else if( FD_UNLIKELY( syscall( SYS_renameat2, ctx->vote_history_fd_dir, swp, ctx->vote_history_fd_dir, bin, RENAME_EXCHANGE ) ) ) {
+    FD_LOG_ERR(( "renameat2(%s, %s) failed (%i-%s)", swp, bin, errno, fd_io_strerror( errno ) ));
+  }
+  int fd = ctx->vote_history_fd_swp; ctx->vote_history_fd_swp = ctx->vote_history_fd; ctx->vote_history_fd = fd;
+
+  ctx->metrics.vote_history_write++;
+}
+
+/* read_vote_history returns the wait-to-vote slot of an Agave-compatible
+   vote history file, 0 if it is missing or empty. */
+
+static ulong
+read_vote_history( fd_votor_tile_t * ctx,
+                   char const *      path,
+                   char const *      name ) {
+  int fd = openat( ctx->vote_history_fd_dir, name, O_RDONLY );
+  if( FD_UNLIKELY( -1==fd && errno==ENOENT ) ) return 0UL;
+  if( FD_UNLIKELY( -1==fd ) ) FD_LOG_ERR(( "open(`%s/%s`) failed (%i-%s)", path, name, errno, fd_io_strerror( errno ) ));
+  struct stat st;
+  if( FD_UNLIKELY( -1==fstat( fd, &st ) ) ) FD_LOG_ERR(( "fstat(`%s/%s`) failed (%i-%s)", path, name, errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( !st.st_size ) ) { /* never written, the identity never voted from here */
+    if( FD_UNLIKELY( close( fd ) ) ) FD_LOG_ERR(( "close(`%s/%s`) failed (%i-%s)", path, name, errno, fd_io_strerror( errno ) ));
+    return 0UL;
+  }
+
+  ulong         sz   = (ulong)st.st_size;
+  uchar const * file = mmap( NULL, sz, PROT_READ, MAP_PRIVATE, fd, 0 );
+  if( FD_UNLIKELY( file==MAP_FAILED ) ) FD_LOG_ERR(( "mmap(`%s/%s`) failed (%i-%s)", path, name, errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( close( fd ) ) ) FD_LOG_ERR(( "close(`%s/%s`) failed (%i-%s)", path, name, errno, fd_io_strerror( errno ) ));
+  ulong vote_history_slot;
+  int   err = ag_vote_history_de( file, sz, ctx->id_key.uc, &vote_history_slot );
+  if( FD_UNLIKELY( munmap( (void *)file, sz ) ) ) FD_LOG_ERR(( "munmap(`%s/%s`) failed (%i-%s)", path, name, errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "vote history file `%s/%s` is invalid (%i) or not for this identity. Please copy this identity's latest %s into %s.", path, name, err, name, path ));
+  return vote_history_slot;
 }
 
 static ag_epoch_info_t *
 rank_voters( ag_epoch_info_t *              epoch_info,
              fd_vote_stake_weight_t const * stakes,
-             ulong                          stake_cnt ) {
+             ulong                          stake_cnt,
+             ag_epoch_info_t const *        known0,
+             ag_epoch_info_t const *        known1 ) {
 
   FD_TEST( stake_cnt<=AG_VAT_MAX );
+
+  known_key_t known[ 2UL*AG_VAT_MAX ];
+  ulong       known_cnt = 0UL;
+  ag_epoch_info_t const * src[2] = { known0, known1 };
+  for( ulong j=0UL; j<2UL; j++ ) {
+    if( !src[ j ] || src[ j ]==epoch_info ) continue; /* epoch_info is overwritten below */
+    for( ulong r=0UL; r<src[ j ]->validator_cnt; r++ ) known[ known_cnt++ ] = (known_key_t){ .bls = src[ j ]->validators[ r ].bls_key, .pub = &src[ j ]->pubkeys[ r ] };
+  }
+  sort_known_key_inplace( known, known_cnt );
 
   sort_voter_t voters[AG_VAT_MAX];
   ulong        voter_cnt = 0UL;
   for( ulong i=0UL; i<stake_cnt; i++ ) {
     if( FD_UNLIKELY( !stakes[i].stake ) ) continue;
-    if( FD_UNLIKELY( fd_bls_pub_de( &voters[voter_cnt].pub, stakes[i].bls_key, FD_BLS_PUB_COMPRESSED_SZ ) ) ) continue;
+    ulong k = sort_known_key_split( known, known_cnt, (known_key_t){ .bls = stakes[i].bls_key } );
+    if( FD_LIKELY( k<known_cnt && !memcmp( known[ k ].bls, stakes[i].bls_key, FD_BLS_PUB_COMPRESSED_SZ ) ) ) voters[voter_cnt].pub = *known[ k ].pub;
+    else if( FD_UNLIKELY( fd_bls_pub_de( &voters[voter_cnt].pub, stakes[i].bls_key, FD_BLS_PUB_COMPRESSED_SZ ) ) ) continue;
     voters[voter_cnt].bls   = stakes[i].bls_key;
     voters[voter_cnt].id    = stakes[i].id_key.uc;
     voters[voter_cnt].stake = stakes[i].stake;
@@ -1033,6 +1375,332 @@ rank_voters( ag_epoch_info_t *              epoch_info,
   return epoch_info;
 }
 
+/* Returns the highest slot whose window this identity may have led,
+   ULONG_MAX when there is none. */
+static ulong
+leader_floor( fd_votor_tile_t const * ctx ) {
+  if( ctx->last_leader_slot==ULONG_MAX ) return ctx->adopted_last_leader_slot;
+  if( ctx->adopted_last_leader_slot==ULONG_MAX ) return ctx->last_leader_slot;
+  return fd_ulong_max( ctx->last_leader_slot, ctx->adopted_last_leader_slot );
+}
+
+/* The end of the highest window in which our slot states may record a
+   vote that did not go out: under the restart floor, under the catch-up
+   floor, or dropped by this tile.  ULONG_MAX when there is none. */
+static ulong
+failover_unsent_bound( fd_votor_tile_t const * ctx ) {
+  ulong slots[ 3 ] = { ctx->vote_history_slot ? ctx->vote_history_slot-1UL : ULONG_MAX,
+                       ctx->catchup_vote_slot ? ctx->catchup_vote_slot-1UL : ULONG_MAX,
+                       ctx->highest_unsent_slot };
+  ulong bound = ULONG_MAX;
+  for( ulong i=0UL; i<3UL; i++ ) {
+    if( slots[ i ]==ULONG_MAX ) continue;
+    ulong end = ag_first_slot_in_window( slots[ i ] )+AG_SLOTS_PER_WINDOW-1UL;
+    bound = bound==ULONG_MAX ? end : fd_ulong_max( bound, end );
+  }
+  return bound;
+}
+
+/* Publishes a votor_hist snapshot message to the failover tile, see
+   fd_votor_hist_msg. */
+static void
+publish_hist( fd_votor_tile_t *   ctx,
+              fd_stem_context_t * stem,
+              int                 has_vote ) {
+  if( FD_UNLIKELY( ctx->hist_out_idx==ULONG_MAX ) ) return;
+  fd_votor_hist_msg_t * msg = fd_chunk_to_laddr( ctx->hist_out_mem, ctx->hist_out_chunk );
+  msg->identity    = ctx->id_key;
+  msg->replay_slot = ctx->highest_completed_slot ? ctx->highest_completed_slot : ULONG_MAX;
+  msg->root_slot   = ctx->root_slot;
+  msg->has_vote    = has_vote;
+  msg->ranked      = ctx->vote_authority && is_ranked( ctx );
+  msg->truncated   = ag_votor_hist_export( ctx->votor, leader_floor( ctx ), &msg->hist );
+  if( FD_UNLIKELY( msg->truncated && !ctx->hist_was_truncated ) ) FD_LOG_WARNING(( "vote history export dropped windows below slot %lu, finality is far behind our votes", ag_hist_first_slot( msg->hist.anchor ) ));
+  ctx->hist_was_truncated = msg->truncated;
+  ulong unsent = failover_unsent_bound( ctx );
+  if( FD_UNLIKELY( unsent!=ULONG_MAX && ( msg->hist.vote_bound==ULONG_MAX || msg->hist.vote_bound<unsent ) ) ) msg->hist.vote_bound = unsent;
+  msg->vote_slot   = ag_hist_tip( &msg->hist ); /* the failover tile checks the history ends here */
+  ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
+  fd_stem_publish( stem, ctx->hist_out_idx, FD_VOTOR_HIST_SIG, ctx->hist_out_chunk, sizeof(fd_votor_hist_msg_t), 0UL, tspub, tspub );
+  ctx->hist_out_chunk = fd_dcache_compact_next( ctx->hist_out_chunk, sizeof(fd_votor_hist_msg_t), ctx->hist_out_chunk0, ctx->hist_out_wmark );
+  ctx->hist_seq       = stem->seqs[ ctx->hist_out_idx ];
+}
+
+/* Raises the adopted leader floor to the window of slot, so we do not
+   lead that window or below it. The floor can only rise. */
+static void
+raise_leader_floor( fd_votor_tile_t * ctx,
+                    ulong             slot ) {
+  if( FD_UNLIKELY( slot==ULONG_MAX ) ) return;
+  ulong window = ag_first_slot_in_window( slot );
+  if( FD_LIKELY( ctx->adopted_last_leader_slot==ULONG_MAX || ctx->adopted_last_leader_slot<window ) ) ctx->adopted_last_leader_slot = window;
+}
+
+/* An empty request is shorter than any serialized history */
+FD_STATIC_ASSERT( FD_VOTOR_ADOPT_EMPTY_SZ<AG_HIST_HDR_SZ, adopt_empty_sz );
+
+/* Adopts the peer's vote history, or an empty one, for the given target identity. */
+static fd_votor_adopt_result_t
+failover_adopt_hist( fd_votor_tile_t *   ctx,
+                     fd_pubkey_t const * target,
+                     uchar const *       req,
+                     ulong               req_sz ) {
+  fd_votor_adopt_result_t result = {
+    .result     = FD_VOTOR_ADOPT_ERR_DECODE,
+    .root       = ULONG_MAX,
+    .vote_slot  = ULONG_MAX,
+    .vote_bound = ULONG_MAX
+  };
+  ag_hist_t hist[1];
+  int       empty = req_sz==FD_VOTOR_ADOPT_EMPTY_SZ;
+
+  /* Decode the request. */
+  if( FD_UNLIKELY( !empty && ( req_sz>AG_HIST_SER_MAX || ag_hist_de( req, req_sz, hist ) ) ) ) {
+    FD_LOG_WARNING(( "failover: refusing a vote history of %lu bytes that does not decode", req_sz ));
+    return result;
+  }
+
+  /* Consensus must be up to adopt. */
+  result.result = FD_VOTOR_ADOPT_ERR_UNREPLAYED;
+  if( FD_UNLIKELY( !ctx->init ) ) {
+    FD_LOG_WARNING(( "failover: not adopting the vote history, consensus is not up yet" ));
+    return result;
+  }
+  result.result = FD_VOTOR_ADOPT_ERR_INVALID;
+
+  /* An empty request assigns the vote bound and leader floor to the given slot. */
+  if( FD_UNLIKELY( empty ) ) {
+    ulong bound = FD_LOAD( ulong, req );
+    if( FD_UNLIKELY( bound==ULONG_MAX ) ) {
+      FD_LOG_WARNING(( "failover: refusing an empty vote history that has no bound slot" ));
+      return result;
+    }
+    ag_votor_set_vote_bound( ctx->votor, bound );
+    raise_leader_floor( ctx, bound );
+    ctx->failover_hist_adopted = 1;
+    ctx->adopted_tip  = ULONG_MAX;
+    result.result     = FD_VOTOR_ADOPT_SUCCESS;
+    result.root       = ag_votor_metrics( ctx->votor ).highest_final_cert_slot;
+    result.vote_bound = ag_votor_get_vote_bound( ctx->votor );
+    FD_LOG_NOTICE(( "failover: starting from an empty vote history on anchor %lu, no vote at or below slot %lu", result.root, result.vote_bound ));
+    return result;
+  }
+
+  /* A non-empty history must have votes in it. */
+  ulong tip = ag_hist_tip( hist );
+  if( FD_UNLIKELY( tip==ULONG_MAX ) ) {
+    FD_LOG_WARNING(( "failover: refusing a vote history on anchor %lu that has no votes in it", hist->anchor ));
+    return result;
+  }
+
+  /* Reject a history older than the votes we sent as THIS identity. */
+  result.result = FD_VOTOR_ADOPT_ERR_STALE;
+  if( FD_UNLIKELY( ctx->last_vote_slot!=ULONG_MAX && tip<ctx->last_vote_slot && fd_pubkey_eq( target, &ctx->last_vote_key ) ) ) {
+    FD_LOG_WARNING(( "failover: refusing a vote history through slot %lu, this machine already voted as this identity through slot %lu", tip, ctx->last_vote_slot ));
+    return result;
+  }
+
+  /* Reject a finality anchor past the blocks we replayed. */
+  result.result = FD_VOTOR_ADOPT_ERR_UNREPLAYED_ROOT;
+  if( FD_UNLIKELY( ctx->highest_completed_slot && hist->anchor>ctx->highest_completed_slot ) ) {
+    FD_LOG_WARNING(( "failover: refusing a vote history on anchor %lu, replay has only reached slot %lu, retry the promotion once replay passes the anchor", hist->anchor, ctx->highest_completed_slot ));
+    return result;
+  }
+
+  /* Adopt the history, rejecting if it exceeds the slot state capacity. */
+  ulong conflicts = ag_votor_hist_adopt( ctx->votor, hist );
+  if( FD_UNLIKELY( conflicts==ULONG_MAX ) ) {
+    result.result = FD_VOTOR_ADOPT_ERR_CAPACITY;
+    FD_LOG_WARNING(( "failover: vote history exceeds the available slot state capacity, retry as consensus prunes old slots" ));
+    return result;
+  }
+  if( FD_UNLIKELY( conflicts ) ) FD_LOG_WARNING(( "adopted vote history disagrees with %lu of our own notar hashes, theirs were the ones sent", conflicts ));
+  ctx->failover_hist_adopted = 1;
+  ctx->adopted_tip           = tip;
+  raise_leader_floor( ctx, hist->last_leader_slot );
+  raise_leader_floor( ctx, ag_votor_get_vote_bound( ctx->votor ) );
+  result.result     = FD_VOTOR_ADOPT_SUCCESS;
+  result.root       = ag_votor_metrics( ctx->votor ).highest_final_cert_slot;
+  result.vote_slot  = tip;
+  result.vote_bound = ag_votor_get_vote_bound( ctx->votor );
+  if( FD_LIKELY( result.vote_bound==ULONG_MAX ) ) FD_LOG_NOTICE(( "failover: adopted a vote history through slot %lu, the anchor is now %lu", tip, result.root ));
+  else                                            FD_LOG_NOTICE(( "failover: adopted a vote history through slot %lu, the anchor is now %lu, no vote at or below slot %lu", tip, result.root, result.vote_bound ));
+  return result;
+}
+
+/* Applies the failover voting rule at the end of an identity switch.
+   Runs when the identity key actually changes and updates state. */
+static void
+failover_switched( fd_votor_tile_t * ctx ) {
+  /* Skip leader windows this identity has already led. */
+  ulong floor = leader_floor( ctx );
+  if( FD_UNLIKELY( ctx->adopted_last_leader_slot!=ULONG_MAX ) ) {
+    ulong next_window  = ag_first_slot_in_window( ctx->highest_parent_ready_slot )+AG_SLOTS_PER_WINDOW;
+    ulong floor_window = ag_first_slot_in_window( floor )+AG_SLOTS_PER_WINDOW;
+    if( FD_UNLIKELY( floor_window>next_window ) ) {
+      ctx->next_leader_slot = fd_multi_epoch_leaders_get_next_slot( ctx->mleaders, fd_ulong_max( fd_ulong_max( ctx->curr_epoch_slot, floor_window ), ctx->vote_history_slot ), &ctx->id_key );
+    }
+  }
+  int operator = !FD_VOLATILE_CONST( ctx->id_keyswitch->failover );
+  ctx->vote_authority        = ( operator || ctx->failover_hist_adopted );
+  ctx->installed_by_failover = !operator;
+
+  if( FD_UNLIKELY( ctx->vote_authority && !operator ) ) {
+    ulong slots[ 3 ] = { ctx->adopted_tip, ag_votor_get_vote_bound( ctx->votor ), floor };
+    for( ulong i=0UL; i<3UL; i++ ) {
+      if( FD_LIKELY( slots[ i ]!=ULONG_MAX ) ) ctx->highest_vote_or_lead_slot = fd_ulong_max( ctx->highest_vote_or_lead_slot, slots[ i ] );
+    }
+  }
+  if( FD_UNLIKELY( !operator ) ) {
+    FD_BASE58_ENCODE_32_BYTES( ctx->id_key.uc, id_key_b58 );
+    FD_LOG_NOTICE(( "failover: switched to identity `%s`, this machine %s", id_key_b58, ctx->vote_authority ? "votes as it" : "does not vote as it" ));
+  }
+  ctx->failover_hist_adopted = 0;
+  ctx->adopted_tip           = ULONG_MAX;
+  ctx->id_keyswitch->result  = ctx->hist_seq;
+}
+
+/* Tracks the slot replay completed and its root. */
+static void
+failover_slot_completed( fd_votor_tile_t *                  ctx,
+                         fd_replay_slot_completed_t const * slot_completed ) {
+  ctx->highest_completed_slot = fd_ulong_max( ctx->highest_completed_slot, slot_completed->slot );
+  if( FD_LIKELY( slot_completed->root_slot!=ULONG_MAX ) ) ctx->root_slot = slot_completed->root_slot;
+}
+
+/* Tracks a vote we built, sent or not, and publishes the history. */
+static void
+failover_after_vote( fd_votor_tile_t *   ctx,
+                     fd_stem_context_t * stem,
+                     ulong               vote_slot,
+                     int                 sent ) {
+  if( FD_LIKELY( sent ) ) {
+    if( FD_LIKELY( ctx->last_vote_slot==ULONG_MAX || vote_slot>ctx->last_vote_slot ) ) {
+      ctx->last_vote_slot = vote_slot;
+      ctx->last_vote_key  = ctx->id_key;
+    }
+  } else if( FD_UNLIKELY( ctx->highest_unsent_slot==ULONG_MAX || vote_slot>ctx->highest_unsent_slot ) ) {
+    ctx->highest_unsent_slot = vote_slot;
+  }
+  publish_hist( ctx, stem, sent );
+}
+
+/* Tracks our LEADER and publishes the history. */
+static void
+failover_after_leader( fd_votor_tile_t *   ctx,
+                       fd_stem_context_t * stem ) {
+  ctx->last_leader_slot = ctx->next_leader_slot;
+  publish_hist( ctx, stem, 0 );
+}
+
+/* failover_init initializes failover in the votor tile, all of it off
+   unless the topology has the failover links. */
+static void
+failover_init( fd_votor_tile_t *      ctx,
+               fd_topo_t const *      topo,
+               fd_topo_tile_t const * tile ) {
+  /* Without the failover links failover stays off. */
+  ulong failov_in_idx = fd_topo_find_tile_in_link ( topo, tile, "failov_votor", tile->kind_id );
+  ctx->hist_out_idx   = fd_topo_find_tile_out_link( topo, tile, "votor_hist",   tile->kind_id );
+  ctx->failov_out_idx = fd_topo_find_tile_out_link( topo, tile, "votor_failov", tile->kind_id );
+  ctx->failover_enabled = failov_in_idx!=ULONG_MAX;
+  if( FD_UNLIKELY( ( ctx->hist_out_idx!=ULONG_MAX )!=ctx->failover_enabled || ( ctx->failov_out_idx!=ULONG_MAX )!=ctx->failover_enabled ) ) {
+    FD_LOG_ERR(( "votor tile needs all of the failov_votor, votor_hist and votor_failov links or none of them" ));
+  }
+  if( FD_UNLIKELY( ctx->failover_enabled ) ) {
+    fd_topo_link_t const * hist_out = &topo->links[ tile->out_link_id[ ctx->hist_out_idx ] ];
+    ctx->hist_out_mem    = topo->workspaces[ topo->objs[ hist_out->dcache_obj_id ].wksp_id ].wksp;
+    ctx->hist_out_chunk0 = fd_dcache_compact_chunk0( ctx->hist_out_mem, hist_out->dcache );
+    ctx->hist_out_wmark  = fd_dcache_compact_wmark ( ctx->hist_out_mem, hist_out->dcache, hist_out->mtu );
+    ctx->hist_out_chunk  = ctx->hist_out_chunk0;
+    fd_topo_link_t const * failov_out = &topo->links[ tile->out_link_id[ ctx->failov_out_idx ] ];
+    ctx->failov_out_mem    = topo->workspaces[ topo->objs[ failov_out->dcache_obj_id ].wksp_id ].wksp;
+    ctx->failov_out_chunk0 = fd_dcache_compact_chunk0( ctx->failov_out_mem, failov_out->dcache );
+    ctx->failov_out_wmark  = fd_dcache_compact_wmark ( ctx->failov_out_mem, failov_out->dcache, failov_out->mtu );
+    ctx->failov_out_chunk  = ctx->failov_out_chunk0;
+  }
+
+  ctx->installed_by_failover    = 0;
+  ctx->vote_authority           = 1;
+  ctx->highest_unsent_slot      = ULONG_MAX;
+  ctx->failover_hist_adopted    = 0;
+  ctx->adopted_tip              = ULONG_MAX;
+  ctx->hist_was_truncated       = 0;
+  ctx->last_leader_slot         = ULONG_MAX;
+  ctx->adopted_last_leader_slot = ULONG_MAX;
+  ctx->last_vote_slot           = ULONG_MAX;
+  ctx->root_slot                = ULONG_MAX;
+  ctx->adopt_req_sz             = 0UL;
+  ctx->hist_seq                 = 0UL;
+  ctx->highest_completed_slot   = 0UL;
+}
+
+/* Copies an adoption request from the failover tile. */
+static void
+failover_adopt_copy( fd_votor_tile_t * ctx,
+                     ulong             in_idx,
+                     ulong             chunk,
+                     ulong             sz ) {
+  ctx->adopt_req_sz = sz;
+  if( FD_LIKELY( sz<=sizeof(ctx->adopt_req) ) ) fd_memcpy( ctx->adopt_req, fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk ), sz );
+}
+
+/* Responds to an adoption request, echoing its sequence number. */
+static void
+failover_adopt_response( fd_votor_tile_t *   ctx,
+                       ulong               sig,
+                       fd_stem_context_t * stem ) {
+  fd_votor_adopt_result_t result;
+  if( FD_UNLIKELY( ctx->adopt_req_sz<FD_VOTOR_ADOPT_REQ_HDR_SZ || ctx->adopt_req_sz>sizeof(ctx->adopt_req) ) ) {
+    FD_LOG_WARNING(( "failover: refusing a vote history adoption of %lu bytes, it has no target identity", ctx->adopt_req_sz ));
+    result = (fd_votor_adopt_result_t){
+      .result     = FD_VOTOR_ADOPT_ERR_DECODE,
+      .root       = ULONG_MAX,
+      .vote_slot  = ULONG_MAX,
+      .vote_bound = ULONG_MAX
+    };
+  } else if( FD_UNLIKELY( ctx->keyswitch_state==FD_KEYSWITCH_STATE_SWITCH_PENDING ||
+                          fd_keyswitch_state_query( ctx->id_keyswitch )==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
+    FD_LOG_WARNING(( "failover: rejecting a vote history adoption, an identity switch is in progress" ));
+    result = (fd_votor_adopt_result_t){
+      .result     = FD_VOTOR_ADOPT_ERR_INVALID,
+      .root       = ULONG_MAX,
+      .vote_slot  = ULONG_MAX,
+      .vote_bound = ULONG_MAX
+    };
+  } else if( FD_UNLIKELY( ctx->vote_authority && ( ctx->installed_by_failover || is_ranked( ctx ) ) ) ) {
+    FD_LOG_WARNING(( "failover: rejecting a vote history adoption, this machine votes as its identity" ));
+    result = (fd_votor_adopt_result_t){
+      .result=FD_VOTOR_ADOPT_ERR_INVALID,
+      .root=ULONG_MAX,
+      .vote_slot=ULONG_MAX,
+      .vote_bound=ULONG_MAX
+    };
+  } else {
+    ulong boot_bound = ULONG_MAX;
+    ag_hist_t local;
+    ag_votor_hist_export( ctx->votor, ULONG_MAX, &local );
+    ulong tip = ag_hist_tip( &local );
+    if( tip!=ULONG_MAX ) boot_bound = ag_first_slot_in_window( tip )+AG_SLOTS_PER_WINDOW-1UL;
+    result = failover_adopt_hist( ctx, (fd_pubkey_t const *)ctx->adopt_req, ctx->adopt_req+FD_VOTOR_ADOPT_REQ_HDR_SZ,
+                                  ctx->adopt_req_sz-FD_VOTOR_ADOPT_REQ_HDR_SZ );
+    if( FD_LIKELY( result.result==FD_VOTOR_ADOPT_SUCCESS ) ) {
+      if( boot_bound!=ULONG_MAX ) {
+        ag_votor_set_vote_bound( ctx->votor, boot_bound );
+        raise_leader_floor( ctx, boot_bound );
+        result.vote_bound = ag_votor_get_vote_bound( ctx->votor );
+      }
+      ctx->vote_authority = 0;
+      update_own_rank( ctx );
+      update_own_bls_key( ctx );
+    }
+  }
+  fd_memcpy( fd_chunk_to_laddr( ctx->failov_out_mem, ctx->failov_out_chunk ), &result, sizeof(result) );
+  ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
+  fd_stem_publish( stem, ctx->failov_out_idx, sig, ctx->failov_out_chunk, sizeof(result), 0UL, tspub, tspub );
+  ctx->failov_out_chunk = fd_dcache_compact_next( ctx->failov_out_chunk, sizeof(result), ctx->failov_out_chunk0, ctx->failov_out_wmark );
+}
+
 static void
 handle_epoch( fd_votor_tile_t *           ctx,
               fd_epoch_info_msg_t const * msg ) {
@@ -1042,7 +1710,7 @@ handle_epoch( fd_votor_tile_t *           ctx,
   else if( FD_UNLIKELY( !ctx->next_epoch_info ) ) epoch_info = &ctx->scratch.next_epoch_info;
   else if( FD_UNLIKELY( !ctx->prev_epoch_info ) ) epoch_info = &ctx->scratch.prev_epoch_info;
   else                                            epoch_info = ctx->prev_epoch_info;
-  rank_voters( epoch_info, fd_epoch_info_msg_stake_weights( msg ), msg->staked_vote_cnt );
+  rank_voters( epoch_info, fd_epoch_info_msg_stake_weights( msg ), msg->staked_vote_cnt, ctx->curr_epoch_info, ctx->next_epoch_info );
 
   /* swap pointers */
 
@@ -1062,7 +1730,7 @@ handle_epoch( fd_votor_tile_t *           ctx,
 
   /* mark all for deletion */
 
-  for( ulong slot=0UL; slot<peers_slot_cnt(); slot++ ) {
+  for( ulong slot=0UL; slot<peers_slot_cnt( ctx->peers ); slot++ ) {
     peer_t * peer = &ctx->peers[ slot ];
     if( FD_LIKELY( peers_key_inval( peer->id_key ) ) ) continue;
     peer->prev_rank = USHORT_MAX;
@@ -1083,7 +1751,7 @@ handle_epoch( fd_votor_tile_t *           ctx,
       peer->curr_rank      = USHORT_MAX;
       peer->next_rank      = USHORT_MAX;
       peer->tx_conn        = NULL;
-      peer->rx_conn        = NULL;
+      memset( peer->rx_conn, 0, sizeof(peer->rx_conn) );
       peer->ban_ts         = 0L;
       peer->conn_ts        = 0L;
       peer->conn_backoff   = 0L;
@@ -1106,7 +1774,7 @@ handle_epoch( fd_votor_tile_t *           ctx,
       peer->prev_rank      = USHORT_MAX;
       peer->next_rank      = USHORT_MAX;
       peer->tx_conn        = NULL;
-      peer->rx_conn        = NULL;
+      memset( peer->rx_conn, 0, sizeof(peer->rx_conn) );
       peer->ban_ts         = 0L;
       peer->conn_ts        = 0L;
       peer->conn_backoff   = 0L;
@@ -1129,7 +1797,7 @@ handle_epoch( fd_votor_tile_t *           ctx,
       peer->prev_rank      = USHORT_MAX;
       peer->curr_rank      = USHORT_MAX;
       peer->tx_conn        = NULL;
-      peer->rx_conn        = NULL;
+      memset( peer->rx_conn, 0, sizeof(peer->rx_conn) );
       peer->ban_ts         = 0L;
       peer->conn_ts        = 0L;
       peer->conn_backoff   = 0L;
@@ -1140,11 +1808,16 @@ handle_epoch( fd_votor_tile_t *           ctx,
 
   /* quic_connect new peers */
 
-  connect_peers( ctx, fd_clock_tile_now( ctx->clock ) );
+  for( ulong slot=0UL; slot<peers_slot_cnt( ctx->peers ); slot++ ) {
+    peer_t * peer = &ctx->peers[ slot ];
+    if( FD_LIKELY( peers_key_inval( peer->id_key ) ) ) continue;
+    contact_info_t const * ci = contact_infos_query( ctx->contact_infos, peer->id_key, NULL );
+    if( FD_LIKELY( ci ) ) quic_client_connect( ctx, peer, ci, fd_clock_tile_now( ctx->clock ) );
+  }
 
   /* quic_conn_close evicted peers */
 
-  for( ulong slot=0UL; slot<peers_slot_cnt(); ) {
+  for( ulong slot=0UL; slot<peers_slot_cnt( ctx->peers ); ) {
     peer_t * peer = &ctx->peers[ slot ];
     if( FD_LIKELY( peers_key_inval( peer->id_key ) ) ) {
       slot++;
@@ -1156,13 +1829,14 @@ handle_epoch( fd_votor_tile_t *           ctx,
     }
     if( FD_LIKELY( peer->tx_conn ) ) {
       fd_quic_conn_set_context( peer->tx_conn, NULL );
-      fd_quic_conn_close( peer->tx_conn, QUIC_CLOSE_CODE_EVICTED );
+      fd_quic_conn_close( peer->tx_conn, QUIC_CLOSE_CODE_NOT_ADMITTED );
       peer->tx_conn = NULL;
     }
-    if( FD_LIKELY( peer->rx_conn ) ) {
-      fd_quic_conn_set_context( peer->rx_conn, NULL );
-      fd_quic_conn_close( peer->rx_conn, QUIC_CLOSE_CODE_EVICTED );
-      peer->rx_conn = NULL;
+    for( ulong i=0UL; i<QUIC_SERVER_CONN_PER_PEER_MAX; i++ ) {
+      if( FD_UNLIKELY( !peer->rx_conn[ i ] ) ) continue;
+      fd_quic_conn_set_context( peer->rx_conn[ i ], NULL );
+      fd_quic_conn_close( peer->rx_conn[ i ], QUIC_CLOSE_CODE_NOT_ADMITTED );
+      peer->rx_conn[ i ] = NULL;
     }
     if( FD_UNLIKELY( peer->reconn_pending ) ) {
       for( ulong i=0UL; i<reconn_prq_cnt( ctx->reconn_prq ); i++ ) {
@@ -1172,41 +1846,32 @@ handle_epoch( fd_votor_tile_t *           ctx,
         }
       }
     }
+    contact_info_t * ci = contact_infos_query( ctx->contact_infos, peer->id_key, NULL );
+    if( FD_UNLIKELY( ci && ci->removed ) ) contact_infos_remove( ctx->contact_infos, ci );
     peers_remove( ctx->peers, peer ); /* relocates, so reconsider the freed slot */
   }
 
-  /* update slot time.  It's ok if ns_per_slot is a little off around
-     epoch boundaries (for example, a slot in the previous or next epoch
-     becomes ParentReady and we need to set skip timers).
+  /* The latest epoch's slot time, only for the connect-ahead estimate:
+     votor times each window's skip deadlines by its own epoch's. */
 
-     We still vote skip regardless, just a little early or late, which
-     is ok especially given network jitter. */
+  ctx->ns_per_slot     = (long)msg->ns_per_slot;
+  ctx->slots_per_epoch = msg->epoch_schedule.slots_per_epoch;
 
-  ctx->ns_per_slot = (long)msg->ns_per_slot;
-
-  /* update our own bls key by reading it out of our own epoch_info. */
-
-  uchar const * own_bls_key = NULL; /* NULL if we are not ranked or cannot sign with our key, in which case we do not vote */
-  if( FD_LIKELY( own_rank!=USHORT_MAX ) ) {
-    ag_validator_info_t const * validator = &epoch_info->validators[ own_rank ];
-    if( FD_LIKELY( auth_vtr_query_const( ctx->auth_vtr, *(auth_vtr_key_t const *)fd_type_pun_const( validator->bls_key ), NULL ) ) ) {
-      own_bls_key = validator->bls_key;
-    } else {
-      FD_BASE58_ENCODE_32_BYTES( validator->vote_key, vote_key_b58 );
-      FD_LOG_WARNING(( "no identity or authorized voter keypair matches the BLS key of vote account %s, unable to vote", vote_key_b58 ));
-    }
-  }
-
+  if( FD_UNLIKELY( ctx->failover_enabled && !ctx->vote_authority ) ) own_rank = USHORT_MAX;
   ag_pool_advance_epoch ( ctx->pool,  epoch_info,       own_rank, msg->start_slot );
-  ag_votor_advance_epoch( ctx->votor, ctx->ns_per_slot, own_rank, msg->start_slot, ctx->halt_signing ? NULL : own_bls_key );
+  ag_votor_advance_epoch( ctx->votor, ctx->ns_per_slot, own_rank, msg->start_slot, NULL );
+  update_own_bls_key( ctx );
 
   /* update our leader schedule */
 
   fd_multi_epoch_leaders_epoch_msg_init( ctx->mleaders, msg );
   fd_multi_epoch_leaders_epoch_msg_fini( ctx->mleaders );
-  if( FD_UNLIKELY( ctx->next_leader_slot==ULONG_MAX ) ) ctx->next_leader_slot = fd_multi_epoch_leaders_get_next_slot( ctx->mleaders, fd_ulong_max( msg->start_slot, ctx->wait_to_vote_slot ), &ctx->id_key );
+  /* Slot 0 is genesis.  Slot 1 is ParentReady on genesis (see
+     ag_parent_ready_tracker_mark_root) even though it does not start a
+     window. */
+  if( FD_UNLIKELY( ctx->next_leader_slot==ULONG_MAX ) ) ctx->next_leader_slot = fd_multi_epoch_leaders_get_next_slot( ctx->mleaders, fd_ulong_max( fd_ulong_max( msg->start_slot, 1UL ), ctx->vote_history_slot ), &ctx->id_key );
 
-  ctx->init = ag_pool_finalized_slot( ctx->pool )!=ULONG_MAX && !!ctx->shred_version;
+  ctx->init = !!ctx->next_epoch_info && ag_pool_finalized_slot( ctx->pool )!=ULONG_MAX && !!ctx->shred_version && votor_wfs_is_green( ctx );
 }
 
 static void
@@ -1236,13 +1901,14 @@ handle_gossip( fd_votor_tile_t *                  ctx,
 
     /* short-circuit ci, if it didn't change (common case) */
 
-    if( FD_LIKELY( ci && ci->ip4==ip4 && ci->port==port ) ) return;
+    if( FD_LIKELY( ci && ci->ip4==ip4 && ci->port==port ) ) { ci->removed = 0; return; }
 
     /* upsert the ci */
 
     if( FD_UNLIKELY( !ci ) ) ci = contact_infos_insert( ctx->contact_infos, id_key );
-    ci->ip4  = ip4;
-    ci->port = port;
+    ci->ip4     = ip4;
+    ci->port    = port;
+    ci->removed = 0;
     if( FD_LIKELY( !peer ) ) return;
     if( FD_UNLIKELY( peer->tx_conn ) ) {
       fd_quic_conn_set_context( peer->tx_conn, NULL );
@@ -1254,7 +1920,8 @@ handle_gossip( fd_votor_tile_t *                  ctx,
     break;
   }
   case FD_GOSSIP_UPDATE_TAG_CONTACT_INFO_REMOVE:
-    if( FD_LIKELY( ci ) ) contact_infos_remove( ctx->contact_infos, ci );
+    if( FD_LIKELY  ( ci && !peer ) ) contact_infos_remove( ctx->contact_infos, ci );
+    if( FD_UNLIKELY( ci &&  peer ) ) ci->removed = 1; /* a peer's is kept, to redial its last address */
     break;
   default:
     FD_LOG_ERR(( "unexpected gossip sig %lu", sig ));
@@ -1272,18 +1939,39 @@ handle_replay( fd_votor_tile_t *           ctx,
     fd_replay_slot_completed_t const * slot_completed  = &replay->slot_completed;
     ag_block_id_t                      block_id        = ag_block_id( slot_completed->slot,        slot_completed->block_id.uc        );
     ag_block_id_t                      parent_block_id = ag_block_id( slot_completed->parent_slot, slot_completed->parent_block_id.uc );
+    if( FD_UNLIKELY( ctx->failover_enabled ) ) failover_slot_completed( ctx, slot_completed );
     if( FD_UNLIKELY( ag_pool_finalized_slot( ctx->pool )==ULONG_MAX ) ) {
       ctx->boot_block_id = block_id;
-      ag_pool_init( ctx->pool, &block_id );
-      if( FD_LIKELY( ctx->shred_version ) ) ag_votor_init( ctx->votor, &block_id, fd_clock_tile_now( ctx->clock ), ctx->ns_per_slot, ctx->shred_version, sign_bls, ctx );
-      ctx->init = !!ctx->curr_epoch_info && !!ctx->shred_version;
+
+      /* A cluster restart, booting at the wait-for-supermajority slot,
+         starts a new fork, so votes before it no longer bind, as in
+         Agave's maybe_cluster_restart_with_hard_fork. */
+
+      if( FD_UNLIKELY( fd_wfs_mode( ctx->wfs_slot, ctx->wfs_hash_is_zero, (ulong)ctx->wfs_shred_version, block_id.slot )==FD_WFS_MODE_MATCH && ctx->vote_history_slot ) ) {
+        FD_LOG_WARNING(( "cluster restart at slot %lu, discarding the vote history floor %lu", block_id.slot, ctx->vote_history_slot ));
+        ctx->vote_history_slot         = 0UL;
+        ctx->highest_vote_or_lead_slot = 0UL;
+        ctx->next_leader_slot          = fd_multi_epoch_leaders_get_next_slot( ctx->mleaders, fd_ulong_max( ctx->curr_epoch_slot, 1UL ), &ctx->id_key );
+      }
+
+      if( block_id.slot==0UL ) ag_pool_from_genesis ( ctx->pool, &block_id );
+      else                     ag_pool_from_snapshot( ctx->pool, &block_id );
+      int wfs_green = votor_wfs_is_green( ctx );
+      /* Without ipecho's shred version, init must be deferred. */
+      if( FD_LIKELY( ctx->shred_version ) ) {
+        long now = fd_clock_tile_now( ctx->clock );
+        ag_votor_init( ctx->votor, &block_id, now, ctx->ns_per_slot, ctx->shred_version, sign_vote, ctx );
+        ctx->highest_vote_or_lead_slot = fd_ulong_max( ctx->highest_vote_or_lead_slot, block_id.slot );
+        if( FD_LIKELY( wfs_green ) ) ag_votor_arm_skip_timeouts( ctx->votor, now );
+      }
+      ctx->init = !!ctx->next_epoch_info && !!ctx->shred_version && wfs_green;
     } else if( FD_UNLIKELY( block_id.slot!=0 ) ) {
       ag_pool_add_block( ctx->pool, &block_id, &parent_block_id, ctx->scratch.bad );
       if( FD_UNLIKELY( !fd_bls_set_is_null( ctx->scratch.bad ) ) ) ban_bad_ranks( ctx, ctx->scratch.bad, block_id.slot );
     }
     ag_block_info_t block_info = { .parent = parent_block_id };
     memcpy( block_info.hash, block_id.hash, sizeof(ag_block_hash_t) );
-    ag_votor_process_replay( ctx->votor, block_id.slot, &block_info );
+    if( FD_LIKELY( ctx->init ) ) ag_votor_process_replay( ctx->votor, block_id.slot, &block_info );
 
     ulong           reward_slot = block_id.slot-AG_REWARD_SLOT_DELTA;
     reward_vote_t * rv          = &ctx->reward_votes[ reward_slot%REWARD_VOTE_MAX ];
@@ -1303,9 +1991,9 @@ handle_replay( fd_votor_tile_t *           ctx,
 
   /* Replay verified these certs before publishing the footer (or, as
      leader, built them from ours), so skip re-verifying them. */
-  ag_cert_t *    cert = &ctx->scratch.cert;
-  blst_p2_affine sig_aff[1];
-  if( footer->has_fast_final_cert ) {
+  ag_cert_t *  cert = &ctx->scratch.cert;
+  fd_bls_sig_t sig_aff[1];
+  if( FD_LIKELY( footer->has_fast_final_cert ) ) {
     *cert = (ag_cert_t){ .kind = AG_CERT_KIND_FAST_FINAL, .fast_final = { .slot = footer->fast_final_cert.slot, .shred_version = ctx->shred_version } };
     memcpy( cert->fast_final.block_hash, footer->fast_final_cert.block_id.uc, sizeof(ag_block_hash_t) );
     fd_bls_set_copy( cert->fast_final.agg.set, footer->fast_final_cert.signer_set );
@@ -1313,7 +2001,7 @@ handle_replay( fd_votor_tile_t *           ctx,
     blst_p2_from_affine( &cert->fast_final.agg.sig, sig_aff );
     ag_pool_add_cert( ctx->pool, cert, 1, ctx->scratch.bad );
     if( FD_UNLIKELY( !fd_bls_set_is_null( ctx->scratch.bad ) ) ) ban_bad_ranks( ctx, ctx->scratch.bad, cert->fast_final.slot );
-  } else if( footer->has_final_cert ) {
+  } else if( FD_LIKELY( footer->has_final_cert ) ) {
     *cert = (ag_cert_t){ .kind = AG_CERT_KIND_FINAL, .final = { .slot = footer->final_cert.slot, .shred_version = ctx->shred_version } };
     fd_bls_set_copy( cert->final.agg.set, footer->final_cert.signer_set );
     blst_p2_uncompress( sig_aff, footer->final_cert.sig );
@@ -1339,124 +2027,43 @@ scratch_align( void ) {
 FD_FN_PURE static inline ulong
 scratch_footprint( fd_topo_tile_t const * tile ) {
   ulong l = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l, alignof(fd_votor_tile_t),       sizeof(fd_votor_tile_t)                           );
-  l = FD_LAYOUT_APPEND( l, auth_vtr_align(),               auth_vtr_footprint()                              );
-  l = FD_LAYOUT_APPEND( l, fd_quic_align(),                fd_quic_footprint( &quic_client_limits )          );
-  l = FD_LAYOUT_APPEND( l, fd_quic_align(),                fd_quic_footprint( &quic_server_limits )          );
-  l = FD_LAYOUT_APPEND( l, ag_pool_align(),                ag_pool_footprint( tile->votor.max_live_slots )   );
-  l = FD_LAYOUT_APPEND( l, ag_votor_align(),               ag_votor_footprint( tile->votor.max_live_slots )  );
-  l = FD_LAYOUT_APPEND( l, peers_align(),                  peers_footprint()                                 );
-  l = FD_LAYOUT_APPEND( l, contact_infos_align(),          contact_infos_footprint()                         );
-  l = FD_LAYOUT_APPEND( l, reconn_prq_align(),             reconn_prq_footprint( RECONN_MAX )                );
-  l = FD_LAYOUT_APPEND( l, fd_multi_epoch_leaders_align(), fd_multi_epoch_leaders_footprint()                );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_votor_tile_t),       sizeof(fd_votor_tile_t)                                           );
+  l = FD_LAYOUT_APPEND( l, auth_vtr_align(),               auth_vtr_footprint()                                              );
+  l = FD_LAYOUT_APPEND( l, fd_quic_align(),                fd_quic_footprint( &quic_client_limits )                          );
+  l = FD_LAYOUT_APPEND( l, fd_quic_align(),                fd_quic_footprint( &quic_server_limits )                          );
+  l = FD_LAYOUT_APPEND( l, ag_pool_align(),                ag_pool_footprint( tile->votor.max_live_slots, QUIC_DGRAM_BURST ) );
+  l = FD_LAYOUT_APPEND( l, ag_votor_align(),               ag_votor_footprint( tile->votor.max_live_slots )                  );
+  l = FD_LAYOUT_APPEND( l, peers_align(),                  peers_footprint( PEERS_LG_SLOT_CNT )                              );
+  l = FD_LAYOUT_APPEND( l, contact_infos_align(),          contact_infos_footprint( CONTACT_INFOS_LG_SLOT_CNT )              );
+  l = FD_LAYOUT_APPEND( l, reconn_prq_align(),             reconn_prq_footprint( RECONN_MAX )                                );
+  l = FD_LAYOUT_APPEND( l, fd_multi_epoch_leaders_align(), fd_multi_epoch_leaders_footprint()                                );
   return FD_LAYOUT_FINI( l, scratch_align() );
-}
-
-/* vote_history_write saves the votes votor cast the way Agave does, so
-   an operator can move them to another validator with set-identity.
-   The file is signed by the identity, so it is only written while the
-   sign tile is known to hold the same identity key as we do.
-
-   The first write after a set-identity gives the files the name of
-   the new identity.  A file that already has that name, e.g. the vote
-   history file passed to set-identity, is kept under a free .old name,
-   not replaced.  A history larger than AG_VOTE_HISTORY_FILE_MAX empties
-   the live file instead, so an old history is never used in its place. */
-
-static void
-vote_history_write( fd_votor_tile_t * ctx ) {
-  FD_BASE58_ENCODE_32_BYTES( ctx->id_key.uc, id_key_b58 );
-  char name[ 2 ][ PATH_MAX ];
-  FD_TEST( fd_cstr_printf_check( name[ 1 ], PATH_MAX, NULL, "vote_history-%s.bin",     id_key_b58 ) );
-  FD_TEST( fd_cstr_printf_check( name[ 0 ], PATH_MAX, NULL, "vote_history-%s.bin.new", id_key_b58 ) );
-
-  /* Handle the case around an identity switch.  Swap the name of the
-     files and handle naming collisions. */
-  if( FD_UNLIKELY( strcmp( name[ 1 ], ctx->vote_history_name[ 1 ] ) ) ) {
-    for( ulong i=0UL; i<2UL; i++ ) { /* [0] staging, [1] live */
-      if( FD_LIKELY( !syscall( SYS_renameat2, ctx->vote_history_dir_fd, ctx->vote_history_name[ i ], ctx->vote_history_dir_fd, name[ i ], RENAME_NOREPLACE ) ) ) continue;
-      if( FD_UNLIKELY( errno!=EEXIST ) ) FD_LOG_ERR(( "renameat2(%s, %s) failed (%i-%s)", ctx->vote_history_name[ i ], name[ i ], errno, fd_io_strerror( errno ) ));
-
-      /* A file already has the new name, e.g. the vote history file
-         passed to set-identity.  Move it to the first free .old name,
-         then rename ours. */
-      char old[ PATH_MAX ];
-      for( ulong j=0UL;; j++ ) {
-        if( j ) FD_TEST( fd_cstr_printf_check( old, PATH_MAX, NULL, "%s.old.%lu", name[ i ], j ) );
-        else    FD_TEST( fd_cstr_printf_check( old, PATH_MAX, NULL, "%s.old",     name[ i ]    ) );
-        if( FD_LIKELY( !syscall( SYS_renameat2, ctx->vote_history_dir_fd, name[ i ], ctx->vote_history_dir_fd, old, RENAME_NOREPLACE ) ) ) break;
-        if( FD_UNLIKELY( errno!=EEXIST ) ) FD_LOG_ERR(( "renameat2(%s, %s) failed (%i-%s)", name[ i ], old, errno, fd_io_strerror( errno ) ));
-      }
-      FD_LOG_WARNING(( "vote history file %s already existed, moved it to %s", name[ i ], old ));
-      if( FD_UNLIKELY( syscall( SYS_renameat2, ctx->vote_history_dir_fd, ctx->vote_history_name[ i ], ctx->vote_history_dir_fd, name[ i ], RENAME_NOREPLACE ) ) )
-        FD_LOG_ERR(( "renameat2(%s, %s) failed (%i-%s)", ctx->vote_history_name[ i ], name[ i ], errno, fd_io_strerror( errno ) ));
-    }
-    FD_LOG_NOTICE(( "vote history file %s renamed to %s for the new identity", ctx->vote_history_name[ 1 ], name[ 1 ] ));
-    memcpy( ctx->vote_history_name, name, sizeof(name) );
-  }
-
-  /* Produce and sign the contents of a valid vote history file, or
-     nothing if the history does not fit. */
-  uchar * buf = ctx->vote_history_buf;
-  ulong   sz  = ag_votor_vote_history( ctx->votor, ctx->vote_history ) ? 0UL : ag_vote_history_file_ser( ctx->vote_history, ctx->id_key.uc, buf, AG_VOTE_HISTORY_FILE_MAX );
-  if( FD_LIKELY( sz ) ) {
-    fd_keyguard_client_sign( ctx->keyguard_client, buf+AG_VOTE_HISTORY_FILE_SIG_OFF, buf+AG_VOTE_HISTORY_FILE_DATA_OFF, sz-AG_VOTE_HISTORY_FILE_DATA_OFF, FD_KEYGUARD_SIGN_TYPE_ED25519 );
-  } else {
-    ctx->metrics.vote_history_too_large++;
-    if( ctx->vote_history_empty ) { ctx->vote_history_pending = 0UL; return; }
-    FD_LOG_WARNING(( "vote history is larger than %lu bytes, emptied %s until it fits", AG_VOTE_HISTORY_FILE_MAX, ctx->vote_history_name[ 1 ] ));
-  }
-
-  /* Write and truncate staging file */
-  for( ulong off=0UL; off<sz; ) {
-    long n = pwritev2( ctx->vote_history_fd[ 0 ], &(struct iovec){ .iov_base=buf+off, .iov_len=sz-off }, 1, (long)off, 0 );
-    if( FD_UNLIKELY( -1==n && errno==EINTR ) ) continue;
-    if( FD_UNLIKELY( n<=0 ) ) FD_LOG_ERR(( "pwritev2(%s) failed (%i-%s)", ctx->vote_history_name[ 0 ], errno, fd_io_strerror( errno ) ));
-    off += (ulong)n;
-  }
-  while( FD_UNLIKELY( ftruncate( ctx->vote_history_fd[ 0 ], (long)sz ) ) ) {
-    if( FD_UNLIKELY( errno!=EINTR ) ) FD_LOG_ERR(( "ftruncate(%s) failed (%i-%s)", ctx->vote_history_name[ 0 ], errno, fd_io_strerror( errno ) ));
-  }
-
-  /* The exchange makes the new file live atomically.  Files cannot be
-     opened after boot, so old live file is now the staging file. */
-  if( FD_UNLIKELY( syscall( SYS_renameat2, ctx->vote_history_dir_fd, ctx->vote_history_name[ 0 ], ctx->vote_history_dir_fd, ctx->vote_history_name[ 1 ], RENAME_EXCHANGE ) ) )
-    FD_LOG_ERR(( "renameat2(%s, %s) failed (%i-%s)", ctx->vote_history_name[ 0 ], ctx->vote_history_name[ 1 ], errno, fd_io_strerror( errno ) ));
-  int staging = ctx->vote_history_fd[ 0 ]; ctx->vote_history_fd[ 0 ] = ctx->vote_history_fd[ 1 ]; ctx->vote_history_fd[ 1 ] = staging;
-
-  ctx->vote_history_empty           = !sz;
-  ctx->metrics.vote_history_write  += (ulong)!!sz;
-  ctx->metrics.vote_history_slot    = sz && ctx->vote_history->votes_cast_cnt ? ctx->vote_history->votes_cast[ ctx->vote_history->votes_cast_cnt-1UL ].block.slot : ULONG_MAX;
-  ctx->metrics.vote_history_sz      = sz;
-  ctx->vote_history_pending         = 0UL;
 }
 
 static void
 during_housekeeping( fd_votor_tile_t * ctx ) {
-  if( FD_UNLIKELY( ctx->vote_history_pending && !ctx->halt_signing ) ) vote_history_write( ctx );
-
   if( FD_UNLIKELY( fd_clock_tile_recal_due( ctx->clock ) ) ) fd_clock_tile_recal( ctx->clock );
 
   /* Spread handshakes to newly ranked peers across 10 seconds. */
 
   if( FD_UNLIKELY( ctx->conn_ahead_slot!=ctx->next_epoch_slot ) ) {
-    peer_t const * self = peers_query_const( ctx->peers, ctx->id_key, NULL );
+    peer_t const * self = peers_query( ctx->peers, ctx->id_key, NULL );
     ulong          root = ag_pool_finalized_slot( ctx->pool );
     if( FD_UNLIKELY( !self || self->curr_rank!=USHORT_MAX || self->next_rank==USHORT_MAX ) ) {
       ctx->conn_ahead_slot = ctx->next_epoch_slot;
-    } else if( FD_UNLIKELY( root!=ULONG_MAX && ( root>=ctx->next_epoch_slot || (long)( ctx->next_epoch_slot-root )*ctx->ns_per_slot<=QUIC_CONN_AHEAD_NS ) ) ) {
+    } else if( FD_UNLIKELY( root!=ULONG_MAX && ( root>=ctx->next_epoch_slot || (long)( ctx->next_epoch_slot-root )*ctx->ns_per_slot<=QUIC_CLIENT_CONN_AHEAD_NS ) ) ) {
       ctx->conn_ahead_slot = ctx->next_epoch_slot;
       ulong cnt = 0UL;
-      for( ulong slot=0UL; slot<peers_slot_cnt(); slot++ ) {
+      for( ulong slot=0UL; slot<peers_slot_cnt( ctx->peers ); slot++ ) {
         peer_t const * peer = &ctx->peers[ slot ];
-        cnt += (ulong)( !peers_key_inval( peer->id_key ) && peer!=self && !peer->tx_conn && !peer->reconn_pending && contact_infos_query_const( ctx->contact_infos, peer->id_key, NULL ) );
+        cnt += (ulong)( !peers_key_inval( peer->id_key ) && peer!=self && !peer->tx_conn && !peer->reconn_pending && contact_infos_query( ctx->contact_infos, peer->id_key, NULL ) );
       }
       long  now = fd_clock_tile_now( ctx->clock );
       ulong idx = 0UL;
-      for( ulong slot=0UL; slot<peers_slot_cnt(); slot++ ) {
+      for( ulong slot=0UL; slot<peers_slot_cnt( ctx->peers ); slot++ ) {
         peer_t * peer = &ctx->peers[ slot ];
-        if( FD_UNLIKELY( peers_key_inval( peer->id_key ) || peer==self || peer->tx_conn || peer->reconn_pending || !contact_infos_query_const( ctx->contact_infos, peer->id_key, NULL ) ) ) continue;
-        reconn_t reconn = { .timeout = now+(long)idx*(QUIC_CONN_AHEAD_NS/2L)/(long)cnt, .id_key = peer->id_key };
+        if( FD_UNLIKELY( peers_key_inval( peer->id_key ) || peer==self || peer->tx_conn || peer->reconn_pending || !contact_infos_query( ctx->contact_infos, peer->id_key, NULL ) ) ) continue;
+        reconn_t reconn = { .timeout = now+(long)idx*(QUIC_CLIENT_CONN_AHEAD_NS/2L)/(long)cnt, .id_key = peer->id_key };
         reconn_prq_insert( ctx->reconn_prq, &reconn );
         peer->reconn_pending = 1;
         idx++;
@@ -1499,7 +2106,8 @@ during_housekeeping( fd_votor_tile_t * ctx ) {
     /* The epochs votor holds chose their keys when they advanced, so
        choose them again for each of them. */
 
-    set_rank_and_bls_key( ctx );
+    FD_LOG_INFO(( "keyswitch: authorized voter count is now %lu", ctx->auth_vtr_path_cnt ));
+    update_own_bls_key( ctx );
     fd_keyswitch_state( ctx->auth_vtr_keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
   }
 
@@ -1511,24 +2119,75 @@ during_housekeeping( fd_votor_tile_t * ctx ) {
 
   if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->id_keyswitch )==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
     if( FD_UNLIKELY( fd_seq_lt( ctx->replay_in_seq, fd_keyswitch_param_query( ctx->id_keyswitch ) ) ) ) return;
-    /* Halt signing at first by removing our BLS keys from votor. */
-    if( !ctx->halt_signing ) {
-      ctx->halt_signing = 1;
-      ag_epoch_info_t const * epoch_infos[3] = { ctx->prev_epoch_info, ctx->curr_epoch_info, ctx->next_epoch_info };
-      ulong                   epoch_slots[3] = { ctx->prev_epoch_slot, ctx->curr_epoch_slot, ctx->next_epoch_slot };
-      for( ulong i=0UL; i<3UL; i++ ) if( FD_LIKELY( epoch_infos[ i ] ) ) ag_votor_set_bls_key( ctx->votor, epoch_slots[ i ], NULL );
-    }
+
+    /* Halt signing at first. */
+
+    ctx->keyswitch_state = FD_KEYSWITCH_STATE_SWITCH_PENDING;
+
     /* If votes and pool events drained close quic conns and update
-       leader tracking. */
-    if( FD_LIKELY( !ag_votor_metrics( ctx->votor ).vote_events_cnt && !ag_pool_metrics( ctx->pool ).pool_events_cnt ) ) {
+       leader tracking.  The pool queue drains only under ctx->init,
+       so waiting on it while held never completes: a late ipecho
+       stalls there, and under WFS the boot ParentReady sits in
+       it for the whole wait.  Skipping it is safe because no vote
+       built while halted is signed, so none decided under the old
+       identity goes out. */
+
+    if( FD_LIKELY( !ag_votor_metrics( ctx->votor ).vote_events_cnt &&
+                   ( !ctx->init || !ag_pool_metrics( ctx->pool ).pool_events_cnt ) ) ) {
+
       /* Save the votes drained since the halt as the old identity.  The
          admin tile switches the sign tile only after this completes. */
-      if( FD_UNLIKELY( ctx->vote_history_pending ) ) vote_history_write( ctx );
+
+      if( FD_LIKELY( ctx->vote_history_fd_dir!=-1 ) ) write_vote_history( ctx );
+      /* Leaving an identity saves its file as its .bak, and hands the
+         spare, the .bak votor holds, to the new identity as its staging
+         file.  The new identity's file is named only once it is written
+         at unhalt, so a restart before then finds no file and refuses to
+         boot rather than reading an empty one as never voted. */
+
+      if( FD_LIKELY( ctx->vote_history_fd_dir!=-1 ) ) {
+        FD_BASE58_ENCODE_32_BYTES( ctx->id_key.uc,           id_key_b58 );
+        FD_BASE58_ENCODE_32_BYTES( ctx->id_keyswitch->bytes, switch_b58 );
+        FD_BASE58_ENCODE_32_BYTES( ctx->id_key_bak.uc,       spare_b58  );
+        char swp       [ PATH_MAX ];
+        char bin       [ PATH_MAX ];
+        char bak       [ PATH_MAX ];
+        char spare     [ PATH_MAX ];
+        char switch_swp[ PATH_MAX ];
+        char switch_bin[ PATH_MAX ];
+        char switch_bak[ PATH_MAX ];
+        FD_TEST( fd_cstr_printf_check( swp,        PATH_MAX, NULL, "vote_history-%s.bin.swp", id_key_b58 ) );
+        FD_TEST( fd_cstr_printf_check( bin,        PATH_MAX, NULL, "vote_history-%s.bin",     id_key_b58 ) );
+        FD_TEST( fd_cstr_printf_check( bak,        PATH_MAX, NULL, "vote_history-%s.bin.bak", id_key_b58 ) );
+        FD_TEST( fd_cstr_printf_check( spare,      PATH_MAX, NULL, "vote_history-%s.bin.bak", spare_b58  ) );
+        FD_TEST( fd_cstr_printf_check( switch_swp, PATH_MAX, NULL, "vote_history-%s.bin.swp", switch_b58 ) );
+        FD_TEST( fd_cstr_printf_check( switch_bin, PATH_MAX, NULL, "vote_history-%s.bin",     switch_b58 ) );
+        FD_TEST( fd_cstr_printf_check( switch_bak, PATH_MAX, NULL, "vote_history-%s.bin.bak", switch_b58 ) );
+        int spare_mine   = fd_pubkey_eq( &ctx->id_key_bak, &ctx->id_key );
+        int spare_switch = !memcmp( ctx->id_key_bak.uc, ctx->id_keyswitch->bytes, sizeof(fd_pubkey_t) );
+        if( FD_UNLIKELY( ctx->vote_history_bak_full && !spare_mine && !spare_switch ) ) {
+          FD_LOG_WARNING(( "reusing vote history file %s for %s.  Copy it out first to keep that identity's vote history", spare, switch_bin ));
+        }
+        FD_LOG_NOTICE(( "vote history file %s saved as %s", bin, bak ));
+        if( FD_UNLIKELY( !spare_switch && syscall( SYS_renameat2, ctx->vote_history_fd_dir, switch_bin, ctx->vote_history_fd_dir, switch_bak, 0 ) && errno!=ENOENT ) )
+          FD_LOG_ERR(( "renameat2(%s, %s) failed (%i-%s)", switch_bin, switch_bak, errno, fd_io_strerror( errno ) ));
+        if( FD_UNLIKELY( syscall( SYS_renameat2, ctx->vote_history_fd_dir, spare, ctx->vote_history_fd_dir, switch_swp, 0 ) ) )
+          FD_LOG_ERR(( "renameat2(%s, %s) failed (%i-%s)", spare, switch_swp, errno, fd_io_strerror( errno ) ));
+        if( FD_UNLIKELY( syscall( SYS_renameat2, ctx->vote_history_fd_dir, bin, ctx->vote_history_fd_dir, bak, 0 ) ) )
+          FD_LOG_ERR(( "renameat2(%s, %s) failed (%i-%s)", bin, bak, errno, fd_io_strerror( errno ) ));
+        int fd = ctx->vote_history_fd_bak;
+        ctx->vote_history_fd_bak   = ctx->vote_history_fd;
+        ctx->vote_history_fd       = ctx->vote_history_fd_swp;
+        ctx->vote_history_fd_swp   = fd;
+        ctx->id_key_bak            = ctx->id_key;
+        ctx->vote_history_bak_full = 1;
+      }
       memcpy( ctx->id_key.uc, ctx->id_keyswitch->bytes, sizeof(fd_pubkey_t) );
-      ctx->wait_to_vote_slot = FD_LOAD( ulong, ctx->id_keyswitch->bytes+32UL ) ? FD_LOAD( ulong, ctx->id_keyswitch->bytes+40UL ) : 0UL;
+      ctx->vote_history_slot         = fd_ulong_max( FD_LOAD( ulong, ctx->id_keyswitch->bytes+32UL ), ag_first_slot_in_window( ctx->highest_vote_or_lead_slot )+AG_SLOTS_PER_WINDOW );
+      ctx->highest_vote_or_lead_slot = fd_ulong_max( ctx->highest_vote_or_lead_slot, fd_ulong_sat_sub( ctx->vote_history_slot, 1UL ) );
       fd_quic_set_identity_public_key( ctx->quic_client, ctx->id_key.uc );
       fd_quic_set_identity_public_key( ctx->quic_server, ctx->id_key.uc );
-      for( ulong slot=0UL; slot<peers_slot_cnt(); slot++ ) {
+      for( ulong slot=0UL; slot<peers_slot_cnt( ctx->peers ); slot++ ) {
         peer_t * peer = &ctx->peers[ slot ];
         if( FD_LIKELY( peers_key_inval( peer->id_key ) ) ) continue;
         if( FD_LIKELY( peer->tx_conn ) ) {
@@ -1537,9 +2196,11 @@ during_housekeeping( fd_votor_tile_t * ctx ) {
           peer->tx_conn = NULL;
         }
       }
+
       /* Keep established server conns, which identify the peer, not us.
          Close handshakes in progress, which are not yet rx_conns and
          would complete as the old identity. */
+
       fd_quic_state_t * server_state = fd_quic_get_state( ctx->quic_server );
       for( ulong i=0UL; i<ctx->quic_server->limits.conn_cnt; i++ ) {
         fd_quic_conn_t * conn = fd_quic_conn_at_idx( server_state, i );
@@ -1548,39 +2209,40 @@ during_housekeeping( fd_votor_tile_t * ctx ) {
         fd_quic_conn_close( conn, 0U );
       }
       for( ulong i=0UL; i<REWARD_VOTE_MAX; i++ ) ctx->reward_votes[ i ].slot = ULONG_MAX;
+      for( ulong i=0UL; i<AG_SLOTS_PER_WINDOW; i++ ) ctx->reward_certs[ i ] = (reward_cert_t){ .slot = ULONG_MAX };
+
       /* Skip the window in progress, it may already have a leader, and
-         those below the vote history file's floor, which the identity
-         may have led on another machine. */
+         those below the floor, which the identity may have voted or led
+         in here or on another machine. */
+
       ulong next_window = ag_first_slot_in_window( ctx->highest_parent_ready_slot )+AG_SLOTS_PER_WINDOW;
-      ctx->next_leader_slot = fd_multi_epoch_leaders_get_next_slot( ctx->mleaders, fd_ulong_max( fd_ulong_max( ctx->curr_epoch_slot, next_window ), ctx->wait_to_vote_slot ), &ctx->id_key );
+      ctx->next_leader_slot = fd_multi_epoch_leaders_get_next_slot( ctx->mleaders, fd_ulong_max( fd_ulong_max( ctx->curr_epoch_slot, next_window ), ctx->vote_history_slot ), &ctx->id_key );
+      if( FD_UNLIKELY( ctx->failover_enabled ) ) failover_switched( ctx );
+      ctx->keyswitch_state  = FD_KEYSWITCH_STATE_COMPLETED;
       fd_keyswitch_state( ctx->id_keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
     }
   }
 
   /* Once we can resume signing load auth voters and reconn to peers.
      Votor signs nothing in slots it already voted in. */
+
   if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->id_keyswitch )==FD_KEYSWITCH_STATE_UNHALT_PENDING ) ) {
-    FD_CHECK_CRIT( ctx->halt_signing, "state machine corruption" );
+    FD_CHECK_CRIT( ctx->keyswitch_state==FD_KEYSWITCH_STATE_COMPLETED, "state machine corruption" );
     load_keys( ctx, ctx->auth_vtr_path_cnt );
-    ctx->halt_signing = 0;
-    ag_votor_wait_to_vote( ctx->votor, ctx->wait_to_vote_slot );
-    set_rank_and_bls_key( ctx );
-    connect_peers( ctx, fd_clock_tile_now( ctx->clock ) );
+    ctx->vote_history_slot = fd_ulong_max( ctx->vote_history_slot, ag_first_slot_in_window( ctx->highest_vote_or_lead_slot )+AG_SLOTS_PER_WINDOW );
+    if( FD_LIKELY( ctx->vote_history_fd_dir!=-1 ) ) write_vote_history( ctx ); /* the sign tile has the new key, so its floor is on disk before it votes */
+    ctx->keyswitch_state = FD_KEYSWITCH_STATE_UNLOCKED;
+    update_own_rank( ctx );
+    update_own_bls_key( ctx );
+    ag_pool_standstill_iter_init( ctx->standstill_iter, ctx->pool ); /* its next vote was copied as the old identity */
+    for( ulong slot=0UL; slot<peers_slot_cnt( ctx->peers ); slot++ ) {
+      peer_t * peer = &ctx->peers[ slot ];
+      if( FD_LIKELY( peers_key_inval( peer->id_key ) ) ) continue;
+      contact_info_t const * ci = contact_infos_query( ctx->contact_infos, peer->id_key, NULL );
+      if( FD_LIKELY( ci ) ) quic_client_connect( ctx, peer, ci, fd_clock_tile_now( ctx->clock ) );
+    }
     fd_keyswitch_state( ctx->id_keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
   }
-}
-
-/* reward_vote_peer returns the reward leader of rv if a retry can go
-   out now (an active conn), else NULL.  A retry blocked on the conn
-   waits for the frag that completes the handshake, not a timer. */
-
-static peer_t const *
-reward_vote_peer( fd_votor_tile_t const * ctx,
-                  reward_vote_t const *   rv ) {
-  fd_pubkey_t const * leader = fd_multi_epoch_leaders_get_leader_for_slot( ctx->mleaders, rv->slot+AG_REWARD_SLOT_DELTA );
-  peer_t const *      peer   = leader ? peers_query_const( ctx->peers, *leader, NULL ) : NULL;
-  if( FD_UNLIKELY( !peer || !peer->tx_conn || peer->tx_conn->state!=FD_QUIC_CONN_STATE_ACTIVE ) ) return NULL;
-  return peer;
 }
 
 static inline long
@@ -1589,10 +2251,15 @@ next_deadline( fd_votor_tile_t * ctx ) {
   long next   = fd_long_min( fd_long_min( fd_quic_get_next_wakeup( ctx->quic_client ), fd_quic_get_next_wakeup( ctx->quic_server ) ), reconn );
   if( FD_LIKELY( ctx->init ) ) {
     next = fd_long_min( next, ag_votor_next_skip_timeout( ctx->votor ) );
+    next = fd_long_min( next, ctx->standstill_ts );
     for( ulong i=0UL; i<REWARD_VOTE_MAX; i++ ) {
       reward_vote_t const * rv = &ctx->reward_votes[ i ];
       if( FD_LIKELY( rv->slot==ULONG_MAX || rv->retry_ts>=next ) ) continue;
-      if( FD_LIKELY( reward_vote_peer( ctx, rv ) ) ) next = rv->retry_ts;
+      next = rv->retry_ts;
+    }
+    for( ulong i=0UL; i<AG_SLOTS_PER_WINDOW; i++ ) {
+      reward_cert_t const * rc = &ctx->reward_certs[ i ];
+      if( FD_LIKELY( rc->dirty ) ) next = fd_long_min( next, rc->publish_ts+REWARD_REPUBLISH_NS );
     }
   }
   return next==LONG_MAX ? LONG_MAX : fd_clock_tile_wallclock_to_tickcount( ctx->clock, next );
@@ -1604,35 +2271,147 @@ metrics_write( fd_votor_tile_t * ctx ) {
   FD_MCNT_ENUM_COPY( VOTOR, VOTE_RX,     ctx->metrics.vote_rx     );
   FD_MCNT_ENUM_COPY( VOTOR, CERT_RX,     ctx->metrics.cert_rx     );
 
-  FD_MCNT_SET  ( VOTOR, VOTE_HISTORY_FILE_WRITE,      ctx->metrics.vote_history_write     );
-  FD_MGAUGE_SET( VOTOR, VOTE_HISTORY_FILE_SLOT,       ctx->metrics.vote_history_slot      );
-  FD_MGAUGE_SET( VOTOR, VOTE_HISTORY_FILE_SIZE_BYTES, ctx->metrics.vote_history_sz        );
-  FD_MCNT_SET  ( VOTOR, VOTE_HISTORY_FILE_TOO_LARGE,  ctx->metrics.vote_history_too_large );
+  FD_MCNT_SET  ( VOTOR, VOTE_HISTORY_FILE_WRITTEN,    ctx->metrics.vote_history_write     );
+  FD_MGAUGE_SET( VOTOR, WAIT_TO_VOTE_SLOT,            ctx->vote_history_slot              );
 
   ag_votor_metrics_t votor_metrics = ag_votor_metrics( ctx->votor );
-  FD_MGAUGE_SET( VOTOR, SLOT_STATE_POOL_USED,    votor_metrics.slot_state_pool_used );
-  FD_MGAUGE_SET( VOTOR, SLOT_STATE_POOL_FREE,    votor_metrics.slot_state_pool_free );
+  FD_MGAUGE_SET( VOTOR, VOTING_SLOT_USED,        votor_metrics.slot_state_pool_used );
+  FD_MGAUGE_SET( VOTOR, VOTING_SLOT_FREE,        votor_metrics.slot_state_pool_free );
   FD_MGAUGE_SET( VOTOR, HIGHEST_FINAL_CERT_SLOT, fd_ulong_if( votor_metrics.highest_final_cert_slot!=ULONG_MAX, votor_metrics.highest_final_cert_slot, 0UL ) );
 
   ag_pool_metrics_t pool_metrics = ag_pool_metrics( ctx->pool );
-  FD_MGAUGE_SET( VOTOR, POOL_SLOT_STATE_POOL_USED, pool_metrics.slot_state_pool_used );
-  FD_MGAUGE_SET( VOTOR, POOL_SLOT_STATE_POOL_FREE, pool_metrics.slot_state_pool_free );
-  FD_MGAUGE_SET( VOTOR, POOL_FINALIZED_SLOT,       fd_ulong_if( pool_metrics.finalized_slot!=ULONG_MAX, pool_metrics.finalized_slot, 0UL ) );
+  FD_MGAUGE_SET( VOTOR, POOL_SLOT_USED,                    pool_metrics.slot_state_pool_used );
+  FD_MGAUGE_SET( VOTOR, POOL_SLOT_FREE,                    pool_metrics.slot_state_pool_free );
+  FD_MGAUGE_SET( VOTOR, HIGHEST_POOL_FINALIZED_SLOT,       fd_ulong_if( pool_metrics.finalized_slot!=ULONG_MAX, pool_metrics.finalized_slot, 0UL ) );
+  FD_MCNT_SET  ( VOTOR, BLS_SIGNATURE_CHECKED,             pool_metrics.bls_verify_cnt+ctx->metrics.bls_verify );
+  FD_MCNT_SET  ( VOTOR, LEADER_WINDOW_SUPERSEDED,          ctx->metrics.leader_window_superseded );
+  FD_MCNT_SET  ( VOTOR, CERT_TX_UNSTAKED_SKIPPED,          ctx->metrics.cert_tx_unstaked );
 
-  peer_t const * self = peers_query_const( ctx->peers, ctx->id_key, NULL );
+  peer_t const * self = peers_query( ctx->peers, ctx->id_key, NULL );
   ulong rank = self && self->curr_rank!=USHORT_MAX ? self->curr_rank : ULONG_MAX;
   FD_MGAUGE_SET( VOTOR, RANK, rank );
 
-  FD_MGAUGE_SET( VOTOR, PEERS_CONNECTED, ctx->quic_client->metrics.conn_state_cnt[ FD_QUIC_CONN_STATE_ACTIVE ] );
+
+  /* QUIC client (outbound conns) */
+
+  FD_MCNT_SET        ( VOTOR, CLIENT_PKT_RX_BYTES,                 ctx->quic_client->metrics.net_rx_byte_cnt+sizeof(fd_eth_hdr_t)*ctx->quic_client->metrics.net_rx_pkt_cnt );
+  FD_MCNT_ENUM_COPY  ( VOTOR, CLIENT_FRAME_RX,                     ctx->quic_client->metrics.frame_rx_cnt            );
+  FD_MCNT_SET        ( VOTOR, CLIENT_PKT_RX,                       ctx->quic_client->metrics.net_rx_pkt_cnt          );
+  FD_MCNT_SET        ( VOTOR, CLIENT_STREAM_RX_BYTES,              ctx->quic_client->metrics.stream_rx_byte_cnt      );
+  FD_MCNT_SET        ( VOTOR, CLIENT_STREAM_RX,                    ctx->quic_client->metrics.stream_rx_event_cnt     );
+  FD_MCNT_SET        ( VOTOR, CLIENT_PKT_TX,                       ctx->quic_client->metrics.net_tx_pkt_cnt          );
+  FD_MCNT_SET        ( VOTOR, CLIENT_PKT_TX_BYTES,                 ctx->quic_client->metrics.net_tx_byte_cnt+sizeof(fd_eth_hdr_t)*ctx->quic_client->metrics.net_tx_pkt_cnt );
+  FD_MCNT_ENUM_COPY  ( VOTOR, CLIENT_PKT_ACK_PROCESSED,            ctx->quic_client->metrics.ack_tx                  );
+  FD_MGAUGE_ENUM_COPY( VOTOR, CLIENT_CONN_USED,                    (ctx->quic_client->metrics.conn_state_cnt+1)      ); /* skip FD_QUIC_CONN_STATE_INVALID (free slots) */
+  FD_MGAUGE_SET      ( VOTOR, CLIENT_CONN_FREE,                    ctx->quic_client->limits.conn_cnt-ctx->quic_client->metrics.conn_alloc_cnt );
+  FD_MGAUGE_SET      ( VOTOR, CLIENT_CONN_CAPACITY,                ctx->quic_client->limits.conn_cnt                 );
+  FD_MCNT_SET        ( VOTOR, CLIENT_CONN_CREATED,                 ctx->quic_client->metrics.conn_created_cnt        );
+  FD_MCNT_SET        ( VOTOR, CLIENT_CONN_CLOSED,                  ctx->quic_client->metrics.conn_closed_cnt         );
+  FD_MCNT_SET        ( VOTOR, CLIENT_CONN_ABORTED,                 ctx->quic_client->metrics.conn_aborted_cnt        );
+  FD_MCNT_SET        ( VOTOR, CLIENT_CONN_TIMED_OUT,               ctx->quic_client->metrics.conn_timeout_cnt        );
+  FD_MCNT_SET        ( VOTOR, CLIENT_CONN_NO_SLOT_REJECTED,        ctx->quic_client->metrics.conn_err_no_slots_cnt   );
+  FD_MCNT_SET        ( VOTOR, CLIENT_CONN_RETRY_REJECTED,          ctx->quic_client->metrics.conn_err_retry_fail_cnt );
+  FD_MCNT_ENUM_COPY  ( VOTOR, CLIENT_PKT_DECRYPT_FAILED,           ctx->quic_client->metrics.pkt_decrypt_fail_cnt    );
+  FD_MCNT_ENUM_COPY  ( VOTOR, CLIENT_PKT_NO_KEY_DROPPED,           ctx->quic_client->metrics.pkt_no_key_cnt          );
+  FD_MCNT_ENUM_COPY  ( VOTOR, CLIENT_PKT_NO_CONN_DROPPED,          ctx->quic_client->metrics.pkt_no_conn_cnt         );
+  ulong pkt_drop_client[ FD_METRICS_ENUM_QUIC_PKT_DROP_REASON_CNT ] = {
+    [ FD_METRICS_ENUM_QUIC_PKT_DROP_REASON_V_UNDERSIZE_IDX           ] = ctx->quic_client->metrics.pkt_undersz_cnt,
+    [ FD_METRICS_ENUM_QUIC_PKT_DROP_REASON_V_OVERSIZE_IDX            ] = ctx->quic_client->metrics.pkt_oversz_cnt,
+    [ FD_METRICS_ENUM_QUIC_PKT_DROP_REASON_V_SRC_IP_MISMATCH_IDX     ] = ctx->quic_client->metrics.pkt_wrong_src_cnt,
+    [ FD_METRICS_ENUM_QUIC_PKT_DROP_REASON_V_HEADER_INVALID_IDX      ] = ctx->quic_client->metrics.pkt_quic_hdr_err_cnt,
+    [ FD_METRICS_ENUM_QUIC_PKT_DROP_REASON_V_NET_HEADER_INVALID_IDX  ] = ctx->quic_client->metrics.pkt_net_hdr_err_cnt,
+    [ FD_METRICS_ENUM_QUIC_PKT_DROP_REASON_V_VERSION_UNSUPPORTED_IDX ] = ctx->quic_client->metrics.pkt_verneg_cnt,
+    [ FD_METRICS_ENUM_QUIC_PKT_DROP_REASON_V_DUPLICATE_IDX           ] = ctx->quic_client->metrics.pkt_dup_cnt,
+  };
+  FD_MCNT_ENUM_COPY  ( VOTOR, CLIENT_PKT_DROPPED,                  pkt_drop_client                             );
+  FD_MCNT_ENUM_COPY  ( VOTOR, CLIENT_PKT_META_ACQUIRE_ATTEMPTED,   ctx->quic_client->metrics.frame_tx_alloc_cnt      );
+  FD_MCNT_ENUM_COPY  ( VOTOR, CLIENT_PKT_RETRANSMITTED,            ctx->quic_client->metrics.pkt_retransmissions_cnt );
+  FD_MCNT_SET        ( VOTOR, CLIENT_HANDSHAKE_CREATED,            ctx->quic_client->metrics.hs_created_cnt          );
+  FD_MCNT_SET        ( VOTOR, CLIENT_HANDSHAKE_POOL_FULL_REJECTED, ctx->quic_client->metrics.hs_err_alloc_fail_cnt   );
+  FD_MCNT_SET        ( VOTOR, CLIENT_HANDSHAKE_EVICTED,            ctx->quic_client->metrics.hs_evicted_cnt          );
+  FD_MCNT_SET        ( VOTOR, CLIENT_FRAME_PARSE_FAILED,           ctx->quic_client->metrics.frame_rx_err_cnt        );
+  FD_MHIST_COPY      ( VOTOR, CLIENT_SERVICE_DURATION_NANOS,       ctx->quic_client->metrics.service_duration        );
+  FD_MHIST_COPY      ( VOTOR, CLIENT_PKT_RX_DURATION_NANOS,        ctx->quic_client->metrics.receive_duration        );
+
+  /* QUIC server (inbound conns) */
+
+  FD_MCNT_SET        ( VOTOR, SERVER_PKT_RX_BYTES,                 ctx->quic_server->metrics.net_rx_byte_cnt+sizeof(fd_eth_hdr_t)*ctx->quic_server->metrics.net_rx_pkt_cnt );
+  FD_MCNT_ENUM_COPY  ( VOTOR, SERVER_FRAME_RX,                     ctx->quic_server->metrics.frame_rx_cnt            );
+  FD_MCNT_SET        ( VOTOR, SERVER_PKT_RX,                       ctx->quic_server->metrics.net_rx_pkt_cnt          );
+  FD_MCNT_SET        ( VOTOR, SERVER_STREAM_RX_BYTES,              ctx->quic_server->metrics.stream_rx_byte_cnt      );
+  FD_MCNT_SET        ( VOTOR, SERVER_STREAM_RX,                    ctx->quic_server->metrics.stream_rx_event_cnt     );
+  FD_MCNT_SET        ( VOTOR, SERVER_PKT_TX,                       ctx->quic_server->metrics.net_tx_pkt_cnt          );
+  FD_MCNT_SET        ( VOTOR, SERVER_PKT_TX_BYTES,                 ctx->quic_server->metrics.net_tx_byte_cnt+sizeof(fd_eth_hdr_t)*ctx->quic_server->metrics.net_tx_pkt_cnt );
+  FD_MCNT_ENUM_COPY  ( VOTOR, SERVER_PKT_ACK_PROCESSED,            ctx->quic_server->metrics.ack_tx                  );
+  FD_MGAUGE_ENUM_COPY( VOTOR, SERVER_CONN_USED,                    (ctx->quic_server->metrics.conn_state_cnt+1)      ); /* skip FD_QUIC_CONN_STATE_INVALID (free slots) */
+  FD_MGAUGE_SET      ( VOTOR, SERVER_CONN_FREE,                    ctx->quic_server->limits.conn_cnt-ctx->quic_server->metrics.conn_alloc_cnt );
+  FD_MGAUGE_SET      ( VOTOR, SERVER_CONN_CAPACITY,                ctx->quic_server->limits.conn_cnt                 );
+  FD_MCNT_SET        ( VOTOR, SERVER_CONN_CREATED,                 ctx->quic_server->metrics.conn_created_cnt        );
+  FD_MCNT_SET        ( VOTOR, SERVER_CONN_CLOSED,                  ctx->quic_server->metrics.conn_closed_cnt         );
+  FD_MCNT_SET        ( VOTOR, SERVER_CONN_ABORTED,                 ctx->quic_server->metrics.conn_aborted_cnt        );
+  FD_MCNT_SET        ( VOTOR, SERVER_CONN_TIMED_OUT,               ctx->quic_server->metrics.conn_timeout_cnt        );
+  FD_MCNT_SET        ( VOTOR, SERVER_CONN_NO_SLOT_REJECTED,        ctx->quic_server->metrics.conn_err_no_slots_cnt   );
+  FD_MCNT_SET        ( VOTOR, SERVER_CONN_RETRY_REJECTED,          ctx->quic_server->metrics.conn_err_retry_fail_cnt );
+  FD_MCNT_SET        ( VOTOR, SERVER_CONN_RETRY_EXPIRED_REJECTED,  ctx->quic_server->metrics.conn_err_retry_expired_cnt );
+  FD_MCNT_ENUM_COPY  ( VOTOR, SERVER_PKT_DECRYPT_FAILED,           ctx->quic_server->metrics.pkt_decrypt_fail_cnt    );
+  FD_MCNT_ENUM_COPY  ( VOTOR, SERVER_PKT_NO_KEY_DROPPED,           ctx->quic_server->metrics.pkt_no_key_cnt          );
+  FD_MCNT_ENUM_COPY  ( VOTOR, SERVER_PKT_NO_CONN_DROPPED,          ctx->quic_server->metrics.pkt_no_conn_cnt         );
+  ulong pkt_drop_server[ FD_METRICS_ENUM_QUIC_PKT_DROP_REASON_CNT ] = {
+    [ FD_METRICS_ENUM_QUIC_PKT_DROP_REASON_V_UNDERSIZE_IDX           ] = ctx->quic_server->metrics.pkt_undersz_cnt,
+    [ FD_METRICS_ENUM_QUIC_PKT_DROP_REASON_V_OVERSIZE_IDX            ] = ctx->quic_server->metrics.pkt_oversz_cnt,
+    [ FD_METRICS_ENUM_QUIC_PKT_DROP_REASON_V_SRC_IP_MISMATCH_IDX     ] = ctx->quic_server->metrics.pkt_wrong_src_cnt,
+    [ FD_METRICS_ENUM_QUIC_PKT_DROP_REASON_V_HEADER_INVALID_IDX      ] = ctx->quic_server->metrics.pkt_quic_hdr_err_cnt,
+    [ FD_METRICS_ENUM_QUIC_PKT_DROP_REASON_V_NET_HEADER_INVALID_IDX  ] = ctx->quic_server->metrics.pkt_net_hdr_err_cnt,
+    [ FD_METRICS_ENUM_QUIC_PKT_DROP_REASON_V_VERSION_UNSUPPORTED_IDX ] = ctx->quic_server->metrics.pkt_verneg_cnt,
+    [ FD_METRICS_ENUM_QUIC_PKT_DROP_REASON_V_DUPLICATE_IDX           ] = ctx->quic_server->metrics.pkt_dup_cnt,
+  };
+  FD_MCNT_ENUM_COPY  ( VOTOR, SERVER_PKT_DROPPED,                  pkt_drop_server                             );
+  FD_MCNT_ENUM_COPY  ( VOTOR, SERVER_PKT_META_ACQUIRE_ATTEMPTED,   ctx->quic_server->metrics.frame_tx_alloc_cnt      );
+  FD_MCNT_ENUM_COPY  ( VOTOR, SERVER_PKT_RETRANSMITTED,            ctx->quic_server->metrics.pkt_retransmissions_cnt );
+  FD_MCNT_SET        ( VOTOR, SERVER_HANDSHAKE_CREATED,            ctx->quic_server->metrics.hs_created_cnt          );
+  FD_MCNT_SET        ( VOTOR, SERVER_HANDSHAKE_POOL_FULL_REJECTED, ctx->quic_server->metrics.hs_err_alloc_fail_cnt   );
+  FD_MCNT_SET        ( VOTOR, SERVER_HANDSHAKE_EVICTED,            ctx->quic_server->metrics.hs_evicted_cnt          );
+  FD_MCNT_SET        ( VOTOR, SERVER_FRAME_PARSE_FAILED,           ctx->quic_server->metrics.frame_rx_err_cnt        );
+  FD_MHIST_COPY      ( VOTOR, SERVER_SERVICE_DURATION_NANOS,       ctx->quic_server->metrics.service_duration        );
+  FD_MHIST_COPY      ( VOTOR, SERVER_PKT_RX_DURATION_NANOS,        ctx->quic_server->metrics.receive_duration        );
 }
+
+/* cert_tx_skip returns 1 if a cert or standstill vote for slot should
+   not be sent: stale while catching up, or we are unstaked in its epoch
+   (peers only accept staked conns). */
+
+static int
+cert_tx_skip( fd_votor_tile_t * ctx,
+              ulong             slot ) {
+  if( FD_UNLIKELY( slot<ctx->catchup_vote_slot ) ) return 1;
+  peer_t const * self = peers_query( ctx->peers, ctx->id_key, NULL );
+  if( FD_UNLIKELY( !self || USHORT_MAX==fd_ushort_if( slot>=ctx->next_epoch_slot, self->next_rank, fd_ushort_if( slot>=ctx->curr_epoch_slot, self->curr_rank, self->prev_rank ) ) ) ) {
+    ctx->metrics.cert_tx_unstaked++;
+    return 1;
+  }
+  return 0;
+}
+
+/* after_credit is the tile's event loop.  Each step handles at most
+   one item per pass, at most 9 votor_out frags in all:
+
+   1. notify if we can become leader
+   2. retry un-acked reward votes
+   3. republish reward certs new votes widened (one per tile loop)
+   4. poll pool, repair, timeout events (can result in new votes, one per tile loop)
+   5. broadcast new votes (one per tile loop)
+   6. standstill re-broadcast */
 
 static inline void
 after_credit( fd_votor_tile_t *   ctx,
               fd_stem_context_t * stem,
-              int *               opt_poll_in FD_PARAM_UNUSED,
+              int *               opt_poll_in,
               int *               charge_busy ) {
 
   long now = fd_clock_tile_now( ctx->clock );
+
+  /* Reconnect any dropped QUIC conns. */
+
   while( FD_UNLIKELY( reconn_prq_cnt( ctx->reconn_prq ) && ctx->reconn_prq[ 0 ].timeout<=now ) ) {
     fd_pubkey_t id_key = ctx->reconn_prq[ 0 ].id_key;
     reconn_prq_remove_min( ctx->reconn_prq );
@@ -1651,15 +2430,102 @@ after_credit( fd_votor_tile_t *   ctx,
     *charge_busy = 1;
   }
 
+  /* Service both QUIC client and server. */
+
   *charge_busy = fd_quic_service( ctx->quic_client, now ) | fd_quic_service( ctx->quic_server, now );
   for( ulong i=0UL; i<ctx->net_tx_cnt; i++ ) fd_stem_publish( stem, OUT_IDX_NET, ctx->net_tx[ i ].sig, ctx->net_tx[ i ].chunk, ctx->net_tx[ i ].sz, fd_frag_meta_ctl( 0UL, 1, 1, 0 ), 0L, 0L );
   ctx->net_tx_cnt = 0UL;
 
+  /* Not initialized. */
+
   if( FD_UNLIKELY( !ctx->init ) ) return;
 
-  if( FD_UNLIKELY( ag_pool_poll_pool_event( ctx->pool, &ctx->scratch.pool_event ) ) ) {
+  /* 1. Notify if we can become leader. */
+
+  while( FD_UNLIKELY(    ctx->next_leader_slot!=ULONG_MAX
+                      && ( ctx->next_leader_slot<=ag_pool_finalized_slot( ctx->pool )
+                        || ctx->next_leader_slot+ctx->slot_max<=ctx->catchup_slot
+                        || ctx->next_leader_slot<ctx->vote_history_slot
+                        || ctx->next_leader_slot<ag_pool_highest_parent_ready( ctx->pool ) ) ) ) {
+    ctx->metrics.leader_window_superseded += (ulong)( ctx->next_leader_slot<ag_pool_highest_parent_ready( ctx->pool ) );
+    ctx->next_leader_slot = fd_multi_epoch_leaders_get_next_slot( ctx->mleaders, ag_first_slot_in_window( ctx->next_leader_slot )+AG_SLOTS_PER_WINDOW, &ctx->id_key );
+  }
+  ag_block_id_t parent = { .slot = ULONG_MAX }; /* never will be leader, schedule exhausted, or the pool has not granted parent ready yet */
+  if( FD_LIKELY( ctx->next_leader_slot!=ULONG_MAX && ( !ctx->failover_enabled || ctx->vote_authority ) ) )
+    parent = ag_pool_wait_for_parent_ready( ctx->pool, ctx->next_leader_slot );
+  if( FD_UNLIKELY( parent.slot!=ULONG_MAX && !ctx->keyswitch_state ) ) {
+    ctx->highest_vote_or_lead_slot = fd_ulong_max( ctx->highest_vote_or_lead_slot, ag_first_slot_in_window( ctx->next_leader_slot )+AG_SLOTS_PER_WINDOW-1UL );
+    if( FD_LIKELY( ctx->vote_history_fd_dir!=-1 ) ) write_vote_history( ctx ); /* a restart does not lead the window again */
+    fd_votor_msg_t * chunk = fd_chunk_to_laddr( ctx->votor_out_mem, ctx->votor_out_chunk );
+    chunk->leader = (fd_votor_leader_t){ .slot = ctx->next_leader_slot, .parent_slot = parent.slot, .parent_block_id = FD_LOAD( fd_hash_t, parent.hash ), .parent_ready_ns = now };
+    fd_stem_publish( stem, OUT_IDX_VOTOR, FD_VOTOR_SIG_LEADER, ctx->votor_out_chunk, sizeof(fd_votor_msg_t), 0UL, fd_frag_meta_ts_comp( fd_tickcount() ), fd_frag_meta_ts_comp( fd_tickcount() ) );
+    ctx->votor_out_chunk = fd_dcache_compact_next( ctx->votor_out_chunk, sizeof(fd_votor_msg_t), ctx->votor_out_chunk0, ctx->votor_out_wmark );
+
+    ulong reward_slot = fd_ulong_sat_sub( ctx->next_leader_slot, FD_NUM_SLOTS_FOR_REWARD );
+    for( ulong i=0UL; i<AG_SLOTS_PER_WINDOW; i++ ) publish_reward_cert( ctx, stem, reward_slot+i );
+
+    if( FD_UNLIKELY( ctx->failover_enabled ) ) failover_after_leader( ctx, stem );
+    ctx->next_leader_slot = fd_multi_epoch_leaders_get_next_slot( ctx->mleaders, ag_first_slot_in_window( ctx->next_leader_slot )+AG_SLOTS_PER_WINDOW, &ctx->id_key );
+    *charge_busy = 1;
+  }
+
+  /* 2. Retry un-acked reward votes. */
+
+  for( ulong i=0UL; i<REWARD_VOTE_MAX; i++ ) {
+    reward_vote_t * rv = &ctx->reward_votes[ i ];
+    if( FD_LIKELY( rv->slot==ULONG_MAX || now<rv->retry_ts ) ) continue;
+    if( FD_UNLIKELY( rv->tx_cnt==REWARD_VOTE_TX_MAX ) ) { rv->slot = ULONG_MAX; continue; } /* slot+8's footer has sealed */
+    peer_t const * peer = query_reward_leader( ctx, rv );
+    if( FD_UNLIKELY( !peer ) ) {
+      fd_pubkey_t const *    leader_key = fd_multi_epoch_leaders_get_leader_for_slot( ctx->mleaders, rv->slot+AG_REWARD_SLOT_DELTA );
+      peer_t *               leader     = leader_key ? peers_query( ctx->peers, *leader_key, NULL ) : NULL;
+      contact_info_t const * ci         = leader ? contact_infos_query( ctx->contact_infos, leader->id_key, NULL ) : NULL;
+      if( FD_LIKELY( ci && now>=leader->conn_ts+REWARD_VOTE_RTT_MAX_NS ) ) quic_client_connect( ctx, leader, ci, now ); /* skip the reconnect backoff, the reward vote is only useful until we replay slot+8 */
+      rv->retry_ts = now+REWARD_VOTE_RTT_MIN_NS;
+      continue;
+    }
+    reward_vote_tx( ctx, stem, rv, peer, now );
+    *charge_busy = 1;
+  }
+
+  /* 3. Republish reward certs new votes widened. */
+
+  for( ulong i=0UL; i<AG_SLOTS_PER_WINDOW; i++ ) {
+    reward_cert_t * rc = &ctx->reward_certs[ i ];
+    if( FD_LIKELY( !rc->dirty || now<rc->publish_ts+REWARD_REPUBLISH_NS ) ) continue;
+    if( FD_UNLIKELY( ctx->highest_parent_ready_slot>=ag_first_slot_in_window( rc->slot+AG_REWARD_SLOT_DELTA )+AG_SLOTS_PER_WINDOW ) ) { rc->slot = ULONG_MAX; rc->dirty = 0; continue; } /* our leader window is over */
+    publish_reward_cert( ctx, stem, rc->slot );
+    *charge_busy = 1;
+    break;
+  }
+
+  /* 4a. Poll pool events. */
+
+  int pool_event = ag_pool_poll_pool_event( ctx->pool, &ctx->scratch.pool_event );
+  if( FD_UNLIKELY( pool_event ) ) {
     ag_pool_event_t const * event = &ctx->scratch.pool_event;
-    if( FD_LIKELY( event->kind!=AG_POOL_EVENT_IMPLICITLY_FINALIZED && event->kind!=AG_POOL_EVENT_IMPLICITLY_SKIPPED ) ) ag_votor_handle_pool_event( ctx->votor, event, now );
+    ag_cert_t const * broadcast = NULL;
+    if( FD_LIKELY( event->kind!=AG_POOL_EVENT_IMPLICITLY_FINALIZED && event->kind!=AG_POOL_EVENT_IMPLICITLY_SKIPPED ) ) broadcast = ag_votor_handle_pool_event( ctx->votor, event, now );
+    if( FD_UNLIKELY( broadcast && !cert_tx_skip( ctx, ag_cert_slot( broadcast ) ) ) ) {
+      ulong ser_sz               = ag_cert_ser( broadcast, ctx->scratch.ser );
+      long  broadcast_start_time = fd_clock_tile_now( ctx->clock );
+      for( ulong slot=0UL; slot<peers_slot_cnt( ctx->peers ); slot++ ) {
+        peer_t const * peer = &ctx->peers[ slot ];
+        if( FD_LIKELY( peers_key_inval( peer->id_key ) || !peer->tx_conn || peer->tx_conn->state!=FD_QUIC_CONN_STATE_ACTIVE ) ) continue;
+        quic_client_datagram_tx( ctx, stem, peer->tx_conn, ctx->scratch.ser, ser_sz );
+      }
+
+      ulong stake;
+      switch( broadcast->kind ) {
+      case AG_CERT_KIND_FINAL:          stake = broadcast->final.stake;          break;
+      case AG_CERT_KIND_FAST_FINAL:     stake = broadcast->fast_final.stake;     break;
+      case AG_CERT_KIND_NOTAR:          stake = broadcast->notar.stake;          break;
+      case AG_CERT_KIND_NOTAR_FALLBACK: stake = broadcast->notar_fallback.stake; break;
+      case AG_CERT_KIND_SKIP:           stake = broadcast->skip.stake;           break;
+      default:                          FD_LOG_CRIT(( "unreachable" ));
+      }
+      if( FD_UNLIKELY( stake ) ) report_alpenglow_cert( ctx, NULL, broadcast, ctx->scratch.ser[ 1 ], FD_EVENT_ALPENGLOW_CERT_PROCESSING_RESULT_ACCEPTED, 0L, broadcast_start_time );
+    }
 
     if( FD_UNLIKELY( event->kind==AG_POOL_EVENT_SAFE_TO_NOTAR || event->kind==AG_POOL_EVENT_IMPLICITLY_FINALIZED || event->kind==AG_POOL_EVENT_IMPLICITLY_SKIPPED ) ) {
       fd_votor_quorum_t * quorum = &((fd_votor_msg_t *)fd_chunk_to_laddr( ctx->votor_out_mem, ctx->votor_out_chunk ))->quorum;
@@ -1685,12 +2551,13 @@ after_credit( fd_votor_tile_t *   ctx,
       fd_stem_publish( stem, OUT_IDX_VOTOR, FD_VOTOR_SIG_QUORUM, ctx->votor_out_chunk, sizeof(fd_votor_msg_t), 0UL, fd_frag_meta_ts_comp( fd_tickcount() ), fd_frag_meta_ts_comp( fd_tickcount() ) );
       ctx->votor_out_chunk = fd_dcache_compact_next( ctx->votor_out_chunk, sizeof(fd_votor_msg_t), ctx->votor_out_chunk0, ctx->votor_out_wmark );
     }
-    if( FD_UNLIKELY( ctx->scratch.pool_event.kind==AG_POOL_EVENT_PARENT_READY ) ) ctx->highest_parent_ready_slot = fd_ulong_max( ctx->highest_parent_ready_slot, ctx->scratch.pool_event.parent_ready.slot );
-
-    /* Notify other tiles that we have a cert indicating this slot has
-       reached a new state.
-
-       TODO ensure no missed final certs? */
+    if( FD_UNLIKELY( ctx->scratch.pool_event.kind==AG_POOL_EVENT_PARENT_READY && ctx->scratch.pool_event.parent_ready.slot>ctx->highest_parent_ready_slot ) ) {
+      ctx->highest_parent_ready_slot = ctx->scratch.pool_event.parent_ready.slot;
+      fd_votor_msg_t * msg = fd_chunk_to_laddr( ctx->votor_out_mem, ctx->votor_out_chunk );
+      msg->parent_ready = (fd_votor_parent_ready_t){ .slot = ctx->highest_parent_ready_slot }; /* a LEADER already sent may now be stale */
+      fd_stem_publish( stem, OUT_IDX_VOTOR, FD_VOTOR_SIG_PARENT_READY, ctx->votor_out_chunk, sizeof(fd_votor_msg_t), 0UL, fd_frag_meta_ts_comp( fd_tickcount() ), fd_frag_meta_ts_comp( fd_tickcount() ) );
+      ctx->votor_out_chunk = fd_dcache_compact_next( ctx->votor_out_chunk, sizeof(fd_votor_msg_t), ctx->votor_out_chunk0, ctx->votor_out_wmark );
+    }
 
     ag_cert_t const * cert = &ctx->scratch.pool_event.cert_created;
     if( FD_UNLIKELY( ctx->scratch.pool_event.kind==AG_POOL_EVENT_CERT_CREATED ) ) {
@@ -1741,43 +2608,50 @@ after_credit( fd_votor_tile_t *   ctx,
         FD_LOG_CRIT(( "unreachable" ));
       }
     }
+    *opt_poll_in = 0;
     *charge_busy = 1;
   }
 
-  if( FD_UNLIKELY( ag_pool_poll_repair_event( ctx->pool, &ctx->scratch.repair_event ) ) ) {
+  /* 4b. Poll repair events. */
+
+  int repair_event = ag_pool_poll_repair_event( ctx->pool, &ctx->scratch.repair_event );
+  if( FD_UNLIKELY( repair_event ) ) {
     fd_votor_msg_t * chunk = fd_chunk_to_laddr( ctx->votor_out_mem, ctx->votor_out_chunk );
     chunk->repair = (fd_votor_repair_t){ .slot = ctx->scratch.repair_event.slot, .block_id = FD_LOAD( fd_hash_t, ctx->scratch.repair_event.hash ) };
     fd_stem_publish( stem, OUT_IDX_VOTOR, FD_VOTOR_SIG_REPAIR, ctx->votor_out_chunk, sizeof(fd_votor_msg_t), 0UL, fd_frag_meta_ts_comp( fd_tickcount() ), fd_frag_meta_ts_comp( fd_tickcount() ) );
     ctx->votor_out_chunk = fd_dcache_compact_next( ctx->votor_out_chunk, sizeof(fd_votor_msg_t), ctx->votor_out_chunk0, ctx->votor_out_wmark );
+    *opt_poll_in = 0;
     *charge_busy = 1;
   }
+
+
+  /* 4c. Poll skip timeouts. */
 
   ulong timeout_slot;
   if( FD_UNLIKELY( ag_votor_poll_skip_timeout( ctx->votor, now, &timeout_slot ) ) ) { /* a timeout we set on ParentReady */
     ag_votor_handle_skip_timeout( ctx->votor, timeout_slot );
+    *opt_poll_in = 0;
     *charge_busy = 1;
   }
 
+  /* 5. Broadcast new votes. */
+
   uchar reason;
-  if( FD_UNLIKELY( ag_votor_poll_vote( ctx->votor, &ctx->scratch.vote, &reason ) ) ) { /* our own vote */
+  if( FD_UNLIKELY( !pool_event && !repair_event && ag_votor_poll_vote( ctx->votor, &ctx->scratch.vote, &reason ) ) ) {
     ulong                   vote_slot  = ag_vote_slot( &ctx->scratch.vote );
-    if( FD_LIKELY( reason!=UCHAR_MAX && ctx->vote_history_dir_fd!=-1 ) ) ctx->vote_history_pending = fd_ulong_max( ctx->vote_history_pending, vote_slot );
     ag_epoch_info_t const * epoch_info = fd_ptr_if( vote_slot>=ctx->next_epoch_slot, ctx->next_epoch_info, fd_ptr_if( vote_slot>=ctx->curr_epoch_slot, ctx->curr_epoch_info, ctx->prev_epoch_info ) );
     ulong                   rank       = ag_vote_rank( &ctx->scratch.vote );
-    if( FD_LIKELY( epoch_info && rank<epoch_info->validator_cnt ) ) {
-      long  aggregation_start_time = fd_clock_tile_now( ctx->clock );
-      uchar quorum_reached;
-      int   err = ag_pool_add_vote( ctx->pool, &ctx->scratch.vote, ctx->scratch.bad, &quorum_reached );
-      if( FD_UNLIKELY( !fd_bls_set_is_null( ctx->scratch.bad ) ) ) ban_bad_ranks( ctx, ctx->scratch.bad, vote_slot );
-
+    ctx->highest_vote_or_lead_slot = fd_ulong_max( ctx->highest_vote_or_lead_slot, vote_slot );
+    int sent = epoch_info && rank<epoch_info->validator_cnt && vote_slot>=ctx->vote_history_slot && vote_slot>=ctx->catchup_vote_slot && !blst_p2_affine_is_inf( ag_vote_sig( &ctx->scratch.vote ) );
+    if( FD_LIKELY( sent ) ) {
+      if( FD_LIKELY( ctx->vote_history_fd_dir!=-1 ) ) write_vote_history( ctx );
       ulong ser_sz               = ag_vote_ser( &ctx->scratch.vote, ctx->scratch.ser );
       long  broadcast_start_time = fd_clock_tile_now( ctx->clock );
 
       uint                kind                 = ctx->scratch.vote.kind;
       fd_pubkey_t const * reward_leader_pubkey = fd_multi_epoch_leaders_get_leader_for_slot( ctx->mleaders, vote_slot+AG_REWARD_SLOT_DELTA );
       peer_t const *      reward_leader        = NULL;
-      if( FD_LIKELY(    reason != UCHAR_MAX /* standstill re-broadcast */
-                     && reward_leader_pubkey
+      if( FD_LIKELY(    reward_leader_pubkey
                      && !fd_pubkey_eq( reward_leader_pubkey, &ctx->id_key )
                      && (kind==AG_VOTE_KIND_NOTAR || kind==AG_VOTE_KIND_SKIP) ) ) {
         reward_leader = peers_query( ctx->peers, *reward_leader_pubkey, NULL );
@@ -1786,12 +2660,15 @@ after_credit( fd_votor_tile_t *   ctx,
         reward_vote_t * rv = &ctx->reward_votes[ vote_slot%REWARD_VOTE_MAX ];
         rv->slot     = vote_slot;
         rv->retry_ts = now;
+        rv->backoff  = 0L;
         rv->tx_cnt   = 0UL;
         rv->conn     = NULL;
         rv->vote     = ctx->scratch.vote;
+        peer_t const * peer = query_reward_leader( ctx, rv );
+        if( FD_LIKELY( peer ) ) reward_vote_tx( ctx, stem, rv, peer, now ); /* the reward leader first, tracked so its ACK clears the retry */
       }
 
-      for( ulong slot=0UL; slot<peers_slot_cnt(); slot++ ) {
+      for( ulong slot=0UL; slot<peers_slot_cnt( ctx->peers ); slot++ ) {
         peer_t const * peer = &ctx->peers[ slot ];
         if( FD_LIKELY(    peers_key_inval( peer->id_key )
                        || !peer->tx_conn
@@ -1800,93 +2677,57 @@ after_credit( fd_votor_tile_t *   ctx,
         quic_client_datagram_tx( ctx, stem, peer->tx_conn, ctx->scratch.ser, ser_sz );
       }
 
+      long  aggregation_start_time = fd_clock_tile_now( ctx->clock );
+      uchar quorum_reached;
+      int   err = ag_pool_add_vote( ctx->pool, &ctx->scratch.vote, 1, ctx->scratch.bad, &quorum_reached );
+      if( FD_UNLIKELY( !fd_bls_set_is_null( ctx->scratch.bad ) ) ) ban_bad_ranks( ctx, ctx->scratch.bad, vote_slot );
+      reward_cert_t * rc = &ctx->reward_certs[ vote_slot%AG_SLOTS_PER_WINDOW ];
+      if( FD_UNLIKELY( err==AG_POOL_SUCCESS && rc->slot==vote_slot && ( ctx->scratch.vote.kind==AG_VOTE_KIND_NOTAR || ctx->scratch.vote.kind==AG_VOTE_KIND_SKIP ) ) ) rc->dirty = 1;
+
       int result;
       switch( err ) {
       case AG_POOL_SUCCESS:                result = FD_EVENT_ALPENGLOW_VOTE_PROCESSING_RESULT_ACCEPTED;                                                                                                                         break;
-      case AG_POOL_ERR_SLOT_OUT_OF_BOUNDS: result = fd_int_if( vote_slot<ag_pool_finalized_slot( ctx->pool ), FD_EVENT_ALPENGLOW_VOTE_PROCESSING_RESULT_SLOT_TOO_OLD, FD_EVENT_ALPENGLOW_VOTE_PROCESSING_RESULT_SLOT_TOO_NEW ); break;
+      case AG_POOL_ERR_SLOT_TOO_OLD:       result = FD_EVENT_ALPENGLOW_VOTE_PROCESSING_RESULT_SLOT_TOO_OLD;                                                                                                                    break;
+      case AG_POOL_ERR_SLOT_TOO_NEW:       result = FD_EVENT_ALPENGLOW_VOTE_PROCESSING_RESULT_SLOT_TOO_NEW;                                                                                                                    break;
       case AG_POOL_ERR_DUPLICATE:          result = FD_EVENT_ALPENGLOW_VOTE_PROCESSING_RESULT_DUPLICATE;                                                                                                                        break;
       case AG_POOL_ERR_SLASHABLE:          result = FD_EVENT_ALPENGLOW_VOTE_PROCESSING_RESULT_SLASHABLE;                                                                                                                        break;
       default:
         FD_LOG_CRIT(( "unhandled kind" ));
       }
-      if( FD_LIKELY( reason!=UCHAR_MAX ) ) report_alpenglow_vote( ctx, NULL, &ctx->scratch.vote, ctx->scratch.ser[ 1 ], result, quorum_reached, FD_EVENT_ALPENGLOW_VOTE_REASON_BLOCK_REPLAYED+reason, aggregation_start_time, broadcast_start_time, reward_leader );
+      report_alpenglow_vote( ctx, NULL, &ctx->scratch.vote, ctx->scratch.ser[ 1 ], result, quorum_reached, FD_EVENT_ALPENGLOW_VOTE_REASON_BLOCK_REPLAYED+reason, aggregation_start_time, broadcast_start_time, reward_leader );
+      if( FD_UNLIKELY( reward_leader && ( !reward_leader->tx_conn || reward_leader->tx_conn->state!=FD_QUIC_CONN_STATE_ACTIVE ) ) ) report_alpenglow_vote( ctx, NULL, &ctx->scratch.vote, ctx->scratch.ser[ 1 ], result, 0, FD_EVENT_ALPENGLOW_VOTE_REASON_REWARD_NO_CONNECTION, 0L, 0L, reward_leader );
     }
+    if( FD_UNLIKELY( ctx->failover_enabled ) ) failover_after_vote( ctx, stem, vote_slot, sent );
+    *opt_poll_in = 0;
     *charge_busy = 1;
   }
 
-  if( FD_UNLIKELY( ag_votor_poll_cert( ctx->votor, &ctx->scratch.cert ) ) ) { /* a cert the pool accepted, or a standstill re-broadcast */
-    ag_pool_add_cert( ctx->pool, &ctx->scratch.cert, 0, ctx->scratch.bad );
-    if( FD_UNLIKELY( !fd_bls_set_is_null( ctx->scratch.bad ) ) ) ban_bad_ranks( ctx, ctx->scratch.bad, ag_cert_slot( &ctx->scratch.cert ) );
+  /* 6. Standstill re-broadcast.  Unarmed until the first pass votor
+     runs: under WFS that is the restart, not the boot. */
 
-    ulong ser_sz               = ag_cert_ser( &ctx->scratch.cert, ctx->scratch.ser );
-    long  broadcast_start_time = fd_clock_tile_now( ctx->clock );
-    for( ulong slot=0UL; slot<peers_slot_cnt(); slot++ ) {
+  ulong finalized_slot = ag_pool_finalized_slot( ctx->pool );
+  if( FD_UNLIKELY( finalized_slot>ctx->standstill_slot || ctx->standstill_ts==LONG_MAX ) ) {
+    ctx->standstill_slot = finalized_slot;
+    ctx->standstill_ts   = now+AG_DELTA_STANDSTILL_NS;
+  }
+  if( FD_LIKELY( now<ctx->standstill_ts ) ) return;
+
+  ag_pool_standstill_iter_t * standstill_iter = ctx->standstill_iter;
+  if( FD_UNLIKELY( standstill_iter->finalized!=finalized_slot ) ) FD_LOG_WARNING(( "standstill at finalized slot %lu, re-broadcasting", finalized_slot ));
+  if( FD_UNLIKELY( ag_pool_standstill_iter_done( standstill_iter ) || standstill_iter->finalized!=finalized_slot ) ) ag_pool_standstill_iter_init( standstill_iter, ctx->pool );
+  if( FD_LIKELY( !ag_pool_standstill_iter_done( standstill_iter ) && cert_tx_skip( ctx, standstill_iter->is_vote ? ag_vote_slot( &standstill_iter->vote ) : ag_cert_slot( &standstill_iter->cert ) ) ) ) {
+    ag_pool_standstill_iter_next( standstill_iter, ctx->pool );
+  } else if( FD_LIKELY( !ag_pool_standstill_iter_done( standstill_iter ) ) ) {
+    ulong ser_sz = standstill_iter->is_vote ? ag_vote_ser( &standstill_iter->vote, ctx->scratch.ser ) : ag_cert_ser( &standstill_iter->cert, ctx->scratch.ser );
+    for( ulong slot=0UL; slot<peers_slot_cnt( ctx->peers ); slot++ ) {
       peer_t const * peer = &ctx->peers[ slot ];
       if( FD_LIKELY( peers_key_inval( peer->id_key ) || !peer->tx_conn || peer->tx_conn->state!=FD_QUIC_CONN_STATE_ACTIVE ) ) continue;
       quic_client_datagram_tx( ctx, stem, peer->tx_conn, ctx->scratch.ser, ser_sz );
     }
-
-    ulong stake;
-    switch( ctx->scratch.cert.kind ) {
-    case AG_CERT_KIND_FINAL:          stake = ctx->scratch.cert.final.stake;          break;
-    case AG_CERT_KIND_FAST_FINAL:     stake = ctx->scratch.cert.fast_final.stake;     break;
-    case AG_CERT_KIND_NOTAR:          stake = ctx->scratch.cert.notar.stake;          break;
-    case AG_CERT_KIND_NOTAR_FALLBACK: stake = ctx->scratch.cert.notar_fallback.stake; break;
-    case AG_CERT_KIND_SKIP:           stake = ctx->scratch.cert.skip.stake;           break;
-    default:                          FD_LOG_CRIT(( "unreachable" ));
-    }
-    if( FD_UNLIKELY( stake ) ) report_alpenglow_cert( ctx, NULL, &ctx->scratch.cert, ctx->scratch.ser[ 1 ], FD_EVENT_ALPENGLOW_CERT_PROCESSING_RESULT_ACCEPTED, 0L, broadcast_start_time );
+    ag_pool_standstill_iter_next( standstill_iter, ctx->pool );
     *charge_busy = 1;
   }
-
-  for( ulong i=0UL; i<REWARD_VOTE_MAX; i++ ) {
-    reward_vote_t * rv = &ctx->reward_votes[ i ];
-    if( FD_LIKELY( rv->slot==ULONG_MAX || now<rv->retry_ts ) ) continue;
-    peer_t const * peer = reward_vote_peer( ctx, rv );
-    if( FD_UNLIKELY( !peer ) ) continue;
-    long  broadcast_start_time = fd_clock_tile_now( ctx->clock );
-    ulong ser_sz               = ag_vote_ser( &rv->vote, ctx->scratch.ser );
-    ulong pkt_num              = quic_client_datagram_tx( ctx, stem, peer->tx_conn, ctx->scratch.ser, ser_sz );
-    if( FD_UNLIKELY( pkt_num==ULONG_MAX ) ) {
-      rv->retry_ts = now+REWARD_VOTE_RTT_MIN_NS;
-      continue;
-    }
-
-    if( FD_UNLIKELY( rv->conn!=peer->tx_conn ) ) {
-      rv->conn = peer->tx_conn;
-      for( ulong j=0UL; j<QUIC_K_PACKET_THRESHOLD+1UL; j++ ) rv->pkt_num[ j ] = ULONG_MAX;
-    }
-    rv->pkt_num[ rv->tx_cnt%(QUIC_K_PACKET_THRESHOLD+1UL) ] = pkt_num;
-    rv->tx_cnt++;
-    report_alpenglow_vote( ctx, NULL, &rv->vote, ctx->scratch.ser[ 1 ], FD_EVENT_ALPENGLOW_VOTE_PROCESSING_RESULT_ACCEPTED, 0, FD_EVENT_ALPENGLOW_VOTE_REASON_REWARD, 0L, broadcast_start_time, peer );
-    long pto     = (long)( peer->tx_conn->rtt->smoothed_rtt + fmaxf( 4.0f*peer->tx_conn->rtt->var_rtt, (float)QUIC_K_GRANULARITY_NS ) + peer->tx_conn->peer_max_ack_delay_ns ); /* RFC 9002 PTO */
-    rv->retry_ts = now + fd_long_max( REWARD_VOTE_RTT_MIN_NS, fd_long_min( pto, REWARD_VOTE_RTT_MAX_NS ) ); /* clamp between RTT_MIN, RTT_MAX  */
-    *charge_busy = 1;
-  }
-
-  if( FD_UNLIKELY( ctx->next_leader_slot==ULONG_MAX ) ) return; /* never will be leader */
-
-  /* Check if it's time to become leader. */
-
-  ulong finalized_slot = ag_pool_finalized_slot( ctx->pool );
-  while( FD_UNLIKELY( ctx->next_leader_slot<=finalized_slot ) ) {
-    ctx->next_leader_slot = fd_multi_epoch_leaders_get_next_slot( ctx->mleaders, ctx->next_leader_slot+AG_SLOTS_PER_WINDOW, &ctx->id_key );
-    if( FD_UNLIKELY( ctx->next_leader_slot==ULONG_MAX ) ) return; /* schedule exhausted */
-  }
-
-  ag_block_id_t parent = ag_pool_wait_for_parent_ready( ctx->pool, ctx->next_leader_slot );
-  if( FD_UNLIKELY( parent.slot==ULONG_MAX ) ) return; /* the pool has not granted parent ready yet */
-
-  fd_votor_msg_t * chunk = fd_chunk_to_laddr( ctx->votor_out_mem, ctx->votor_out_chunk );
-  chunk->leader = (fd_votor_leader_t){ .slot = ctx->next_leader_slot, .parent_slot = parent.slot, .parent_block_id = FD_LOAD( fd_hash_t, parent.hash ), .parent_ready_ns = now };
-  fd_stem_publish( stem, OUT_IDX_VOTOR, FD_VOTOR_SIG_LEADER, ctx->votor_out_chunk, sizeof(fd_votor_msg_t), 0UL, fd_frag_meta_ts_comp( fd_tickcount() ), fd_frag_meta_ts_comp( fd_tickcount() ) );
-  ctx->votor_out_chunk = fd_dcache_compact_next( ctx->votor_out_chunk, sizeof(fd_votor_msg_t), ctx->votor_out_chunk0, ctx->votor_out_wmark );
-
-  ulong reward_slot = fd_ulong_sat_sub( ctx->next_leader_slot, FD_NUM_SLOTS_FOR_REWARD );
-  for( ulong i=0UL; i<AG_SLOTS_PER_WINDOW; i++ ) publish_reward_certs( ctx, stem, reward_slot+i );
-
-  ctx->next_leader_slot = fd_multi_epoch_leaders_get_next_slot( ctx->mleaders, ctx->next_leader_slot+AG_SLOTS_PER_WINDOW, &ctx->id_key );
-  *charge_busy = 1;
+  ctx->standstill_ts = now+fd_long_if( ag_pool_standstill_iter_done( standstill_iter ), STANDSTILL_CYCLE_INTERVAL_NS, STANDSTILL_TX_INTERVAL_NS );
 }
 
 static int
@@ -1902,15 +2743,29 @@ before_frag( fd_votor_tile_t * ctx,
   case IN_KIND_IPECHO:
     return 0;
   case IN_KIND_NET:
-    if( FD_UNLIKELY( !ctx->curr_epoch_info || ctx->halt_signing ) ) return 1; /* halted, no TLS handshake may sign */
+    if( FD_UNLIKELY( !ctx->curr_epoch_info || ctx->keyswitch_state ) ) return 1; /* halted, no TLS handshake may sign */
     return fd_disco_netmux_sig_proto( sig )!=DST_PROTO_VOTOR;
   case IN_KIND_REPLAY:
     if( FD_UNLIKELY( sig!=REPLAY_SIG_SLOT_COMPLETED && sig!=REPLAY_SIG_SLOT_DEAD ) ) {
+      /* Handled here, not accepted: do not backpressure replay_slot. */
+      if( FD_UNLIKELY( sig==REPLAY_SIG_WFS_DONE && !ctx->wfs_signalled ) ) {
+        ctx->wfs_signalled = 1;
+        FD_LOG_NOTICE(( "wait for supermajority complete, resuming" ));
+        if( FD_LIKELY( votor_wfs_is_green( ctx ) && ag_pool_finalized_slot( ctx->pool )!=ULONG_MAX && ctx->shred_version ) ) {
+          ag_votor_arm_skip_timeouts( ctx->votor, fd_clock_tile_now( ctx->clock ) );
+          ctx->init = !!ctx->next_epoch_info;
+        }
+      }
       ctx->replay_in_seq = seq+1UL;
       return 1;
     }
     if( FD_UNLIKELY( !ctx->curr_epoch_info ) ) return -1;
     ctx->replay_in_seq = seq+1UL;
+    return 0;
+  case IN_KIND_FAILOV:
+    /* Drain votes and pool events produced under the current identity
+       before changing the history or removing its rank. */
+    if( FD_UNLIKELY( ctx->init && ( ag_votor_metrics( ctx->votor ).vote_events_cnt || ag_pool_metrics( ctx->pool ).pool_events_cnt ) ) ) return -1;
     return 0;
   default:
     FD_LOG_ERR(( "unexpected in_kind %d", ctx->in_kind[ in_idx ] ));
@@ -1931,27 +2786,21 @@ during_frag( fd_votor_tile_t * ctx,
   case IN_KIND_EPOCH:
     handle_epoch( ctx, fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk ) );
     break;
-  case IN_KIND_GOSSIP: {
-    if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>ctx->in[ in_idx ].mtu ) ) {
-      FD_LOG_ERR(( "chunk %lu sz %lu from gossip out of bounds, chunk0 %lu wmark %lu",
-                   chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
-    }
+  case IN_KIND_GOSSIP:
     handle_gossip( ctx, sig, fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk ) );
     break;
-  }
-  case IN_KIND_IPECHO: /* unreliable link, handled in after_frag */
+  case IN_KIND_IPECHO:
+    /* unreliable link, handled in after_frag */
     break;
   case IN_KIND_NET:
     fd_memcpy( ctx->net_buf, fd_net_rx_translate_frag( &ctx->net_in_bounds[ in_idx ], chunk, ctl, sz ), sz );
     break;
-  case IN_KIND_REPLAY: {
-    if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>sizeof(fd_replay_message_t) ) ) {
-      FD_LOG_ERR(( "chunk %lu sz %lu from replay out of bounds, chunk0 %lu wmark %lu",
-                   chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
-    }
+  case IN_KIND_REPLAY:
     handle_replay( ctx, sig, fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk ) );
     break;
-  }
+  case IN_KIND_FAILOV:
+    failover_adopt_copy( ctx, in_idx, chunk, sz );
+    break;
   default:
     FD_LOG_ERR(( "unexpected in_kind %d", ctx->in_kind[ in_idx ] ));
   }
@@ -1969,15 +2818,23 @@ after_frag( fd_votor_tile_t *   ctx,
   (void)seq; (void)tsorig; (void)tspub;
 
   switch( ctx->in_kind[ in_idx ] ) {
-  case IN_KIND_EPOCH: /* reliable link, handled in during_frag */
+  case IN_KIND_EPOCH:
+    /* reliable link, handled in during_frag */
     break;
-  case IN_KIND_GOSSIP: /* reliable link, handled in during_frag */
+  case IN_KIND_GOSSIP:
+    /* reliable link, handled in during_frag */
     break;
   case IN_KIND_IPECHO:
     FD_TEST( sig && sig<=USHORT_MAX );
-    if( FD_UNLIKELY( !ctx->shred_version && ag_pool_finalized_slot( ctx->pool )!=ULONG_MAX ) ) ag_votor_init( ctx->votor, &ctx->boot_block_id, fd_clock_tile_now( ctx->clock ), ctx->ns_per_slot, (ushort)sig, sign_bls, ctx );
+    int wfs_green = votor_wfs_is_green( ctx ); /* config only, so the assignment below cannot change it */
+    if( FD_UNLIKELY( !ctx->shred_version && ag_pool_finalized_slot( ctx->pool )!=ULONG_MAX ) ) {
+      long now = fd_clock_tile_now( ctx->clock );
+      ag_votor_init( ctx->votor, &ctx->boot_block_id, now, ctx->ns_per_slot, (ushort)sig, sign_vote, ctx );
+      ctx->highest_vote_or_lead_slot = fd_ulong_max( ctx->highest_vote_or_lead_slot, ctx->boot_block_id.slot );
+      if( FD_LIKELY( wfs_green ) ) ag_votor_arm_skip_timeouts( ctx->votor, now );
+    }
     ctx->shred_version = (ushort)sig;
-    ctx->init = !!ctx->curr_epoch_info && ag_pool_finalized_slot( ctx->pool )!=ULONG_MAX;
+    ctx->init = !!ctx->next_epoch_info && ag_pool_finalized_slot( ctx->pool )!=ULONG_MAX && wfs_green;
     break;
   case IN_KIND_NET: {
     if( FD_UNLIKELY( sz<sizeof(fd_eth_hdr_t)+sizeof(fd_ip4_hdr_t)+sizeof(fd_udp_hdr_t) ) ) break;
@@ -1988,12 +2845,18 @@ after_frag( fd_votor_tile_t *   ctx,
     ushort               dport = fd_ushort_bswap( udp->net_dport );
     if( FD_UNLIKELY( dport!=ctx->quic_client_listen_port && dport!=ctx->quic_server_listen_port ) ) break;
     fd_quic_t * quic = fd_ptr_if( dport==ctx->quic_client_listen_port, ctx->quic_client, ctx->quic_server );
+    ctx->stem = stem;
     fd_quic_process_packet( quic, ctx->net_buf+sizeof(fd_eth_hdr_t), sz-sizeof(fd_eth_hdr_t), fd_clock_tile_now( ctx->clock ) );
     for( ulong i=0UL; i<ctx->net_tx_cnt; i++ ) fd_stem_publish( stem, OUT_IDX_NET, ctx->net_tx[ i ].sig, ctx->net_tx[ i ].chunk, ctx->net_tx[ i ].sz, fd_frag_meta_ctl( 0UL, 1, 1, 0 ), 0L, 0L );
     ctx->net_tx_cnt = 0UL;
     break;
   }
-  case IN_KIND_REPLAY: /* reliable link, handled in during_frag */
+  case IN_KIND_REPLAY:
+    /* reliable link, handled in during_frag */
+    if( FD_UNLIKELY( ctx->failover_enabled && sig==REPLAY_SIG_SLOT_COMPLETED ) ) publish_hist( ctx, stem, 0 ); /* keeps the failover deadlines ticking */
+    break;
+  case IN_KIND_FAILOV:
+    failover_adopt_response( ctx, sig, stem );
     break;
   default:
     FD_LOG_ERR(( "unexpected in_kind %d", ctx->in_kind[ in_idx ] ));
@@ -2015,20 +2878,79 @@ privileged_init( fd_topo_t const *      topo,
   ctx->auth_vtr = auth_vtr_join( auth_vtr_new( auth_vtr ) );
   ctx->id_key   = *(fd_pubkey_t const *)fd_type_pun_const( fd_keyload_load( tile->votor.identity_key_path, /* pubkey only: */ 1 ) );
 
-  ctx->vote_history_dir_fd  = -1;
-  ctx->vote_history_fd[ 0 ] = -1;
-  ctx->vote_history_fd[ 1 ] = -1;
+  ctx->vote_history_fd_dir       = -1;
+  ctx->vote_history_fd           = -1;
+  ctx->vote_history_fd_swp       = -1;
+  ctx->vote_history_fd_bak       = -1;
+  ctx->id_key_bak                = ctx->id_key;
+  ctx->vote_history_bak_full     = 0;
+  ctx->vote_history_slot         = 0UL;
+  ctx->highest_vote_or_lead_slot = 0UL;
   if( FD_LIKELY( tile->votor.vote_history_path[ 0 ] ) ) {
     FD_BASE58_ENCODE_32_BYTES( ctx->id_key.uc, id_key_b58 );
-    FD_TEST( fd_cstr_printf_check( ctx->vote_history_name[ 1 ], PATH_MAX, NULL, "vote_history-%s.bin",     id_key_b58 ) );
-    FD_TEST( fd_cstr_printf_check( ctx->vote_history_name[ 0 ], PATH_MAX, NULL, "vote_history-%s.bin.new", id_key_b58 ) );
+    char bin[ PATH_MAX ];
+    char swp[ PATH_MAX ];
+    char bak[ PATH_MAX ];
+    FD_TEST( fd_cstr_printf_check( bin, PATH_MAX, NULL, "vote_history-%s.bin",     id_key_b58 ) );
+    FD_TEST( fd_cstr_printf_check( swp, PATH_MAX, NULL, "vote_history-%s.bin.swp", id_key_b58 ) );
+    FD_TEST( fd_cstr_printf_check( bak, PATH_MAX, NULL, "vote_history-%s.bin.bak", id_key_b58 ) );
 
-    ctx->vote_history_dir_fd = open( tile->votor.vote_history_path, O_RDONLY|O_DIRECTORY );
-    if( FD_UNLIKELY( -1==ctx->vote_history_dir_fd ) ) FD_LOG_ERR(( "open(`%s`) failed (%i-%s)", tile->votor.vote_history_path, errno, fd_io_strerror( errno ) ));
-    for( ulong i=0UL; i<2UL; i++ ) {
-      ctx->vote_history_fd[ i ] = openat( ctx->vote_history_dir_fd, ctx->vote_history_name[ i ], O_WRONLY|O_CREAT, 0644 );
-      if( FD_UNLIKELY( -1==ctx->vote_history_fd[ i ] ) ) FD_LOG_ERR(( "open(`%s/%s`) failed (%i-%s)", tile->votor.vote_history_path, ctx->vote_history_name[ i ], errno, fd_io_strerror( errno ) ));
+    ctx->vote_history_fd_dir = open( tile->votor.vote_history_path, O_RDONLY|O_DIRECTORY );
+    if( FD_UNLIKELY( -1==ctx->vote_history_fd_dir ) ) FD_LOG_ERR(( "open(`%s`) failed (%i-%s)", tile->votor.vote_history_path, errno, fd_io_strerror( errno ) ));
+
+    /* Without the identity's file, the directory must hold no other
+       vote history file, which may hold the identity's votes under
+       another name, like the .bak a set-identity away from it saves, or
+       the file an earlier version renamed to the new identity. */
+
+    int should_scan = strcmp( tile->votor.identity_key_path, FD_KEYLOAD_FAILOVER_JUNK );
+    if( FD_UNLIKELY( -1==faccessat( ctx->vote_history_fd_dir, bin, F_OK, 0 ) ) ) {
+      if( FD_UNLIKELY( errno!=ENOENT ) ) FD_LOG_ERR(( "faccessat(`%s/%s`) failed (%i-%s)", tile->votor.vote_history_path, bin, errno, fd_io_strerror( errno ) ));
+      DIR * dir = should_scan ? opendir( tile->votor.vote_history_path ) : NULL;
+      if( FD_UNLIKELY( should_scan && !dir ) ) FD_LOG_ERR(( "opendir(`%s`) failed (%i-%s)", tile->votor.vote_history_path, errno, fd_io_strerror( errno ) ));
+      errno = 0;
+      for( struct dirent * ent; dir && (ent = readdir( dir )); ) {
+        if( FD_LIKELY( strncmp( ent->d_name, "vote_history-", sizeof("vote_history-")-1UL ) ) ) continue;
+        FD_LOG_ERR(( "Booting as %s, but detected %s in %s, which is missing %s. Please either copy %s into %s or remove the vote_history-* files there if you wish to boot without a vote history file.",
+                     id_key_b58, ent->d_name, tile->votor.vote_history_path, bin, bin, tile->votor.vote_history_path ));
+      }
+      if( FD_UNLIKELY( errno ) ) FD_LOG_ERR(( "readdir(`%s`) failed (%i-%s)", tile->votor.vote_history_path, errno, fd_io_strerror( errno ) ));
+      if( FD_UNLIKELY( dir && closedir( dir ) ) ) FD_LOG_ERR(( "closedir(`%s`) failed (%i-%s)", tile->votor.vote_history_path, errno, fd_io_strerror( errno ) ));
+      FD_LOG_WARNING(( "vote history file `%s/%s` does not exist, creating it.  This identity is assumed to have never voted.", tile->votor.vote_history_path, bin ));
     }
+    ctx->vote_history_slot         = read_vote_history( ctx, tile->votor.vote_history_path, bin );
+    ctx->highest_vote_or_lead_slot = fd_ulong_sat_sub( ctx->vote_history_slot, 1UL );
+    if( FD_LIKELY( ctx->vote_history_slot ) ) FD_LOG_NOTICE(( "vote history file `%s/%s` has votes, waiting to vote until slot %lu", tile->votor.vote_history_path, bin, ctx->vote_history_slot ));
+
+    /* Switch to non-root uid/gid for file creation. */
+    struct stat st;
+    gid_t gid = getgid();
+    uid_t uid = getuid();
+    if( FD_LIKELY( !gid && -1==syscall( __NR_setresgid, -1, tile->votor.target_gid, -1 ) ) ) FD_LOG_ERR(( "setresgid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    if( FD_LIKELY( !uid && -1==syscall( __NR_setresuid, -1, tile->votor.target_uid, -1 ) ) ) FD_LOG_ERR(( "setresuid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
+    ctx->vote_history_fd = openat( ctx->vote_history_fd_dir, bin, O_WRONLY|O_CREAT, 0644 );
+    if( FD_UNLIKELY( -1==ctx->vote_history_fd ) ) FD_LOG_ERR(( "open(`%s/%s`) failed (%i-%s), make sure the configured user owns it", tile->votor.vote_history_path, bin, errno, fd_io_strerror( errno ) ));
+    if( FD_UNLIKELY( -1==fstat( ctx->vote_history_fd, &st ) ) ) FD_LOG_ERR(( "fstat(`%s/%s`) failed (%i-%s)", tile->votor.vote_history_path, bin, errno, fd_io_strerror( errno ) ));
+    if( FD_UNLIKELY( st.st_uid!=tile->votor.target_uid ) ) {
+      FD_LOG_ERR(( "vote history file `%s/%s` is owned by uid %u but the configured user is uid %u, chown it to the configured user", tile->votor.vote_history_path, bin, st.st_uid, tile->votor.target_uid ));
+    }
+    ctx->vote_history_fd_swp = openat( ctx->vote_history_fd_dir, swp, O_WRONLY|O_CREAT, 0644 );
+    if( FD_UNLIKELY( -1==ctx->vote_history_fd_swp ) ) FD_LOG_ERR(( "open(`%s/%s`) failed (%i-%s), make sure the configured user owns it", tile->votor.vote_history_path, swp, errno, fd_io_strerror( errno ) ));
+    if( FD_UNLIKELY( -1==fstat( ctx->vote_history_fd_swp, &st ) ) ) FD_LOG_ERR(( "fstat(`%s/%s`) failed (%i-%s)", tile->votor.vote_history_path, swp, errno, fd_io_strerror( errno ) ));
+    if( FD_UNLIKELY( st.st_uid!=tile->votor.target_uid ) ) {
+      FD_LOG_ERR(( "vote history file `%s/%s` is owned by uid %u but the configured user is uid %u, chown it to the configured user", tile->votor.vote_history_path, swp, st.st_uid, tile->votor.target_uid ));
+    }
+    ctx->vote_history_fd_bak = openat( ctx->vote_history_fd_dir, bak, O_WRONLY|O_CREAT, 0644 );
+    if( FD_UNLIKELY( -1==ctx->vote_history_fd_bak ) ) FD_LOG_ERR(( "open(`%s/%s`) failed (%i-%s), make sure the configured user owns it", tile->votor.vote_history_path, bak, errno, fd_io_strerror( errno ) ));
+    if( FD_UNLIKELY( -1==fstat( ctx->vote_history_fd_bak, &st ) ) ) FD_LOG_ERR(( "fstat(`%s/%s`) failed (%i-%s)", tile->votor.vote_history_path, bak, errno, fd_io_strerror( errno ) ));
+    ctx->vote_history_bak_full = !!st.st_size;
+    if( FD_UNLIKELY( st.st_uid!=tile->votor.target_uid ) ) {
+      FD_LOG_ERR(( "vote history file `%s/%s` is owned by uid %u but the configured user is uid %u, chown it to the configured user", tile->votor.vote_history_path, bak, st.st_uid, tile->votor.target_uid ));
+    }
+
+    if( FD_UNLIKELY( -1==syscall( __NR_setresuid, -1, uid, -1 ) ) ) FD_LOG_ERR(( "setresuid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    if( FD_UNLIKELY( -1==syscall( __NR_setresgid, -1, gid, -1 ) ) ) FD_LOG_ERR(( "setresgid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
 
   fd_log_wallclock();
@@ -2041,16 +2963,16 @@ unprivileged_init( fd_topo_t const *      topo,
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
-  fd_votor_tile_t * ctx           = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_votor_tile_t),       sizeof(fd_votor_tile_t)                           );
-  void *            auth_vtr      = FD_SCRATCH_ALLOC_APPEND( l, auth_vtr_align(),               auth_vtr_footprint()                              );
-  void *            quic_client   = FD_SCRATCH_ALLOC_APPEND( l, fd_quic_align(),                fd_quic_footprint( &quic_client_limits )          );
-  void *            quic_server   = FD_SCRATCH_ALLOC_APPEND( l, fd_quic_align(),                fd_quic_footprint( &quic_server_limits )          );
-  void *            pool          = FD_SCRATCH_ALLOC_APPEND( l, ag_pool_align(),                ag_pool_footprint( tile->votor.max_live_slots )   );
-  void *            votor         = FD_SCRATCH_ALLOC_APPEND( l, ag_votor_align(),               ag_votor_footprint( tile->votor.max_live_slots )  );
-  void *            peers         = FD_SCRATCH_ALLOC_APPEND( l, peers_align(),                  peers_footprint()                                 );
-  void *            contact_infos = FD_SCRATCH_ALLOC_APPEND( l, contact_infos_align(),          contact_infos_footprint()                         );
-  void *            reconn_prq    = FD_SCRATCH_ALLOC_APPEND( l, reconn_prq_align(),             reconn_prq_footprint( RECONN_MAX )                );
-  void *            mleaders      = FD_SCRATCH_ALLOC_APPEND( l, fd_multi_epoch_leaders_align(), fd_multi_epoch_leaders_footprint()                );
+  fd_votor_tile_t * ctx           = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_votor_tile_t),       sizeof(fd_votor_tile_t)                                           );
+  void *            auth_vtr      = FD_SCRATCH_ALLOC_APPEND( l, auth_vtr_align(),               auth_vtr_footprint()                                              );
+  void *            quic_client   = FD_SCRATCH_ALLOC_APPEND( l, fd_quic_align(),                fd_quic_footprint( &quic_client_limits )                          );
+  void *            quic_server   = FD_SCRATCH_ALLOC_APPEND( l, fd_quic_align(),                fd_quic_footprint( &quic_server_limits )                          );
+  void *            pool          = FD_SCRATCH_ALLOC_APPEND( l, ag_pool_align(),                ag_pool_footprint( tile->votor.max_live_slots, QUIC_DGRAM_BURST ) );
+  void *            votor         = FD_SCRATCH_ALLOC_APPEND( l, ag_votor_align(),               ag_votor_footprint( tile->votor.max_live_slots )                  );
+  void *            peers         = FD_SCRATCH_ALLOC_APPEND( l, peers_align(),                  peers_footprint( PEERS_LG_SLOT_CNT )                              );
+  void *            contact_infos = FD_SCRATCH_ALLOC_APPEND( l, contact_infos_align(),          contact_infos_footprint( CONTACT_INFOS_LG_SLOT_CNT )              );
+  void *            reconn_prq    = FD_SCRATCH_ALLOC_APPEND( l, reconn_prq_align(),             reconn_prq_footprint( RECONN_MAX )                                );
+  void *            mleaders      = FD_SCRATCH_ALLOC_APPEND( l, fd_multi_epoch_leaders_align(), fd_multi_epoch_leaders_footprint()                                );
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) ) {
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
@@ -2061,14 +2983,11 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->shred_version = (ushort)0;
 
   memset( &ctx->metrics, 0, sizeof(ctx->metrics) );
-  ctx->metrics.vote_history_slot = ULONG_MAX;
-  ctx->vote_history_pending      = 0UL;
-  ctx->vote_history_empty        = 0;
 
   ulong seed;
   FD_TEST( fd_rng_secure( &seed, sizeof(seed) ) );
 
-  ctx->pool = ag_pool_join( ag_pool_new( pool, tile->votor.max_live_slots, seed ) );
+  ctx->pool = ag_pool_join( ag_pool_new( pool, tile->votor.max_live_slots, QUIC_DGRAM_BURST, seed ) );
   FD_TEST( ctx->pool );
 
   ctx->votor = ag_votor_join( ag_votor_new( votor, tile->votor.max_live_slots, seed ) );
@@ -2097,10 +3016,13 @@ unprivileged_init( fd_topo_t const *      topo,
   fd_ip4_udp_hdr_init( ctx->hdr, FD_NET_MTU, ctx->src_ip_addr, ctx->quic_client_listen_port );
 
 
-  ctx->peers = peers_join( peers_new( peers ) );
+  ulong peers_seed;         FD_TEST( fd_rng_secure( &peers_seed,         sizeof(ulong) ) );
+  ulong contact_infos_seed; FD_TEST( fd_rng_secure( &contact_infos_seed, sizeof(ulong) ) );
+
+  ctx->peers = peers_join( peers_new( peers, PEERS_LG_SLOT_CNT, peers_seed ) );
   FD_TEST( ctx->peers );
 
-  ctx->contact_infos = contact_infos_join( contact_infos_new( contact_infos ) );
+  ctx->contact_infos = contact_infos_join( contact_infos_new( contact_infos, CONTACT_INFOS_LG_SLOT_CNT, contact_infos_seed ) );
   FD_TEST( ctx->contact_infos );
 
   ctx->reconn_prq = reconn_prq_join( reconn_prq_new( reconn_prq, RECONN_MAX ) );
@@ -2110,35 +3032,45 @@ unprivileged_init( fd_topo_t const *      topo,
   FD_TEST( ctx->mleaders );
 
   for( ulong i=0UL; i<REWARD_VOTE_MAX; i++ ) ctx->reward_votes[ i ].slot = ULONG_MAX;
+  for( ulong i=0UL; i<AG_SLOTS_PER_WINDOW; i++ ) ctx->reward_certs[ i ] = (reward_cert_t){ .slot = ULONG_MAX };
 
   ctx->init                      = 0;
+  ctx->boot_block_id             = (ag_block_id_t){ .slot = ULONG_MAX };
+  ctx->wfs_slot                  = tile->votor.wait_for_supermajority_at_slot;
+  ctx->wfs_hash_is_zero          = tile->votor.wait_for_supermajority_hash_is_zero;
+  ctx->wfs_shred_version         = tile->votor.expected_shred_version;
+  ctx->wfs_signalled             = 0;
   ctx->net_tx_cnt                = 0UL;
   ctx->next_leader_slot          = ULONG_MAX;
   ctx->ns_per_slot               = 400000000L; /* until epoch info */
+  ctx->slots_per_epoch           = 0UL;
   ctx->highest_parent_ready_slot = 0UL;
   ctx->highest_certed_final_slot = 0UL;
+  ctx->catchup_slot              = 0UL;
+  ctx->catchup_final_slot        = 0UL;
+  ctx->catchup_vote_slot         = 0UL;
+  ctx->slot_max                  = tile->votor.max_live_slots;
+  ctx->standstill_slot           = ULONG_MAX;
+  ctx->standstill_ts             = LONG_MAX;
+  ag_pool_standstill_iter_init( ctx->standstill_iter, ctx->pool );
 
   FD_TEST( tile->in_cnt<=sizeof(ctx->in_kind)/sizeof(ctx->in_kind[0]) );
   for( ulong i=0UL; i<tile->in_cnt; i++ ) {
     fd_topo_link_t const * link = &topo->links[ tile->in_link_id[ i ] ];
 
-    if     ( FD_LIKELY( !strcmp( link->name, "replay_epoch" ) ) ) ctx->in_kind[ i ] = IN_KIND_EPOCH;
+    if     ( FD_LIKELY( !strcmp( link->name, "replay_epoch"  ) ) ) ctx->in_kind[ i ] = IN_KIND_EPOCH;
     else if( FD_LIKELY( !strcmp( link->name, "gossip_ciaddr" ) ) ) ctx->in_kind[ i ] = IN_KIND_GOSSIP;
-    else if( FD_LIKELY( !strcmp( link->name, "ipecho_out"   ) ) ) ctx->in_kind[ i ] = IN_KIND_IPECHO;
-    else if( FD_LIKELY( !strcmp( link->name, "net_votor"    ) ) ) {
+    else if( FD_LIKELY( !strcmp( link->name, "ipecho_out"    ) ) ) ctx->in_kind[ i ] = IN_KIND_IPECHO;
+    else if( FD_LIKELY( !strcmp( link->name, "net_votor"     ) ) ) {
       ctx->in_kind[ i ] = IN_KIND_NET;
       fd_net_rx_bounds_init( &ctx->net_in_bounds[ i ], link->dcache );
     }
     else if( FD_LIKELY( !strcmp( link->name, "replay_slot"  ) ) ) ctx->in_kind[ i ] = IN_KIND_REPLAY;
     else if( FD_LIKELY( !strcmp( link->name, "sign_votor"   ) ) ) ctx->in_kind[ i ] = IN_KIND_SIGN;
+    else if( FD_LIKELY( !strcmp( link->name, "failov_votor" ) ) ) ctx->in_kind[ i ] = IN_KIND_FAILOV;
     else FD_LOG_ERR(( "votor tile has unexpected input link %lu %s", i, link->name ));
 
-    if( FD_LIKELY( link->mtu ) ) {
-      ctx->in[ i ].mem    = topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ].wksp;
-      ctx->in[ i ].chunk0 = fd_dcache_compact_chunk0( ctx->in[ i ].mem, link->dcache );
-      ctx->in[ i ].wmark  = fd_dcache_compact_wmark ( ctx->in[ i ].mem, link->dcache, link->mtu );
-      ctx->in[ i ].mtu    = link->mtu;
-    }
+    if( FD_LIKELY( link->mtu ) ) ctx->in[ i ].mem = topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ].wksp;
   }
 
   FD_TEST( tile->out_cnt>OUT_IDX_NET );
@@ -2156,6 +3088,8 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->net_out_chunk0 = fd_dcache_compact_chunk0( ctx->net_out_mem, net_out->dcache );
   ctx->net_out_wmark  = fd_dcache_compact_wmark ( ctx->net_out_mem, net_out->dcache, net_out->mtu );
   ctx->net_out_chunk  = ctx->net_out_chunk0;
+
+  failover_init( ctx, topo, tile );
 
   ulong sign_in_idx  = fd_topo_find_tile_in_link ( topo, tile, "sign_votor", tile->kind_id );
   ulong sign_out_idx = fd_topo_find_tile_out_link( topo, tile, "votor_sign", tile->kind_id );
@@ -2188,9 +3122,8 @@ unprivileged_init( fd_topo_t const *      topo,
   FD_TEST( ctx->auth_vtr_keyswitch );
   ctx->id_keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->id_keyswitch_obj_id ) );
   FD_TEST( ctx->id_keyswitch );
-  ctx->halt_signing      = 0;
+  ctx->keyswitch_state   = FD_KEYSWITCH_STATE_UNLOCKED;
   ctx->replay_in_seq     = 0UL;
-  ctx->wait_to_vote_slot = 0UL;
 
   fd_aio_t * quic_tx_aio = fd_aio_join( fd_aio_new( ctx->quic_tx_aio, ctx, quic_aio_tx ) );
   FD_TEST( quic_tx_aio );
@@ -2205,7 +3138,7 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->quic_client->config.idle_timeout               = 5L*1000L*1000L*1000L;
   ctx->quic_client->config.ack_delay                  = 2L*1000L*1000L;
   memcpy( ctx->quic_client->config.identity_public_key, ctx->id_key.uc, 32UL );
-  ctx->quic_client->config.sign                       = sign_ed25519;
+  ctx->quic_client->config.sign                       = quic_sign;
   ctx->quic_client->config.sign_ctx                   = ctx;
   ctx->quic_client->config.alpn[ 0 ]                  = 0x0c;
   memcpy( ctx->quic_client->config.alpn+1, "alpenglow-v1", 12UL );
@@ -2225,11 +3158,11 @@ unprivileged_init( fd_topo_t const *      topo,
   fd_quic_set_aio_net_tx( ctx->quic_server, quic_tx_aio );
 
   ctx->quic_server->config.role                       = FD_QUIC_ROLE_SERVER;
-  ctx->quic_server->config.retry                      = 0;
+  ctx->quic_server->config.retry                      = 1;
   ctx->quic_server->config.idle_timeout               = 5L*1000L*1000L*1000L;
   ctx->quic_server->config.ack_delay                  = 2L*1000L*1000L;
   memcpy( ctx->quic_server->config.identity_public_key, ctx->id_key.uc, 32UL );
-  ctx->quic_server->config.sign                       = sign_ed25519;
+  ctx->quic_server->config.sign                       = quic_sign;
   ctx->quic_server->config.sign_ctx                   = ctx;
   ctx->quic_server->config.req_client_cert            = 1;
   ctx->quic_server->config.alpn[ 0 ]                  = 0x0c;
@@ -2244,6 +3177,11 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->quic_server->cb.datagram_rx = quic_server_datagram_rx;
 
   FD_TEST( fd_quic_init( ctx->quic_server ) );
+
+  fd_histf_join( fd_metrics_histf_new_ns( ctx->quic_client->metrics.service_duration, FD_MHIST_EDGES_NS( VOTOR, CLIENT_SERVICE_DURATION_NANOS ) ) );
+  fd_histf_join( fd_metrics_histf_new_ns( ctx->quic_client->metrics.receive_duration, FD_MHIST_EDGES_NS( VOTOR, CLIENT_PKT_RX_DURATION_NANOS  ) ) );
+  fd_histf_join( fd_metrics_histf_new_ns( ctx->quic_server->metrics.service_duration, FD_MHIST_EDGES_NS( VOTOR, SERVER_SERVICE_DURATION_NANOS ) ) );
+  fd_histf_join( fd_metrics_histf_new_ns( ctx->quic_server->metrics.receive_duration, FD_MHIST_EDGES_NS( VOTOR, SERVER_PKT_RX_DURATION_NANOS  ) ) );
 }
 
 static ulong
@@ -2255,7 +3193,7 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_votor_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_votor_tile_t), sizeof(fd_votor_tile_t) );
 
-  populate_sock_filter_policy_fd_votor_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)ctx->vote_history_dir_fd, (uint)ctx->vote_history_fd[ 0 ], (uint)ctx->vote_history_fd[ 1 ] );
+  populate_sock_filter_policy_fd_votor_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)ctx->vote_history_fd_dir, (uint)ctx->vote_history_fd_swp, (uint)ctx->vote_history_fd, (uint)ctx->vote_history_fd_bak );
   return sock_filter_policy_fd_votor_tile_instr_cnt;
 }
 
@@ -2268,16 +3206,17 @@ populate_allowed_fds( fd_topo_t const *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_votor_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_votor_tile_t), sizeof(fd_votor_tile_t) );
 
-  if( FD_UNLIKELY( out_fds_cnt<5UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+  if( FD_UNLIKELY( out_fds_cnt<6UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
 
   ulong out_cnt = 0UL;
   out_fds[ out_cnt++ ] = 2;
   if( FD_LIKELY( -1!=fd_log_private_logfile_fd() ) )
     out_fds[ out_cnt++ ] = fd_log_private_logfile_fd();
-  if( FD_LIKELY( -1!=ctx->vote_history_dir_fd ) ) {
-    out_fds[ out_cnt++ ] = ctx->vote_history_dir_fd;
-    out_fds[ out_cnt++ ] = ctx->vote_history_fd[ 0 ];
-    out_fds[ out_cnt++ ] = ctx->vote_history_fd[ 1 ];
+  if( FD_LIKELY( -1!=ctx->vote_history_fd_dir ) ) {
+    out_fds[ out_cnt++ ] = ctx->vote_history_fd_dir;
+    out_fds[ out_cnt++ ] = ctx->vote_history_fd_swp;
+    out_fds[ out_cnt++ ] = ctx->vote_history_fd;
+    out_fds[ out_cnt++ ] = ctx->vote_history_fd_bak;
   }
   return out_cnt;
 }
@@ -2304,7 +3243,7 @@ max_event_sz( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
 
 fd_topo_run_tile_t fd_tile_votor = {
   .name                     = "votor",
-  .allow_renameat           = 1, /* vote_history_write */
+  .allow_renameat           = 1, /* write_vote_history */
   .max_event_sz             = max_event_sz,
   .populate_allowed_seccomp = populate_allowed_seccomp,
   .populate_allowed_fds     = populate_allowed_fds,

@@ -149,7 +149,7 @@ init( config_t const * config ) {
   }
 
   FD_CPUSET_DECL( host );
-  fd_cpu_isolation_host_cpus( host );
+  fd_cpu_isolation_online_cpus( host );
   FD_CPUSET_DECL( housekeeping );
   fd_cpuset_subtract( housekeeping, host, part_cpus );
   if( FD_UNLIKELY( !fd_cpuset_cnt( housekeeping ) ) )

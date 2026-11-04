@@ -55,7 +55,7 @@ static void
 deliver( ag_parent_ready_tracker_t * tracker,
          ag_parent_ready_t const *   out,
          ulong                       cnt ) {
-  for( ulong i=0UL; i<cnt; i++ ) ag_parent_ready_tracker_delivered( tracker, out[i].slot );
+  for( ulong i=0UL; i<cnt; i++ ) ag_parent_ready_state_map_ele_query( tracker->states.map, &out[i].slot, NULL, tracker->states.pool )->ready = 0;
 }
 
 static int
@@ -103,7 +103,7 @@ test_wait_blocking_sync( void ) {
   FD_TEST( ag_parent_ready_tracker_wait_for_parent_ready( tracker, 4UL ).slot==ULONG_MAX );
 
   ag_block_id_t block_id = random_block_id( 3UL );
-  ag_parent_ready_tracker_mark_notar_fallback( tracker, &block_id, out, &out_cnt );
+  out_cnt = ag_parent_ready_tracker_mark_notar_fallback( tracker, &block_id, out );
   FD_TEST( out_cnt==1UL );
 
   ag_block_id_t recv = ag_parent_ready_tracker_wait_for_parent_ready( tracker, 4UL );
@@ -124,7 +124,7 @@ test_basic( void ) {
 
   for( ulong s=1UL; s<=2UL*SLOTS_PER_WINDOW; s++ ) {
     ag_block_id_t block = random_block_id( s );
-    ag_parent_ready_tracker_mark_notar_fallback( tracker, &block, out, &out_cnt );
+    out_cnt = ag_parent_ready_tracker_mark_notar_fallback( tracker, &block, out );
     deliver( tracker, out, out_cnt );
     if( s==last_slot_in_window( s ) ) {
       FD_TEST( out_cnt==1UL && out_contains( out, out_cnt, s+1UL, &block ) );
@@ -147,7 +147,7 @@ test_genesis( void ) {
   ulong out_cnt;
 
   for( ulong slot=0UL; slot<SLOTS_PER_WINDOW; slot++ ) {
-    ag_parent_ready_tracker_mark_skipped( tracker, slot, out, &out_cnt );
+    out_cnt = ag_parent_ready_tracker_mark_skipped( tracker, slot, out );
     deliver( tracker, out, out_cnt );
     if( slot==last_slot_in_window( slot ) ) {
       FD_TEST( out_cnt==1UL && out_contains( out, out_cnt, slot+1UL, &genesis ) );
@@ -172,11 +172,11 @@ test_skips( void ) {
   ag_parent_ready_t out[ TEST_SLOT_MAX ];
   ulong out_cnt;
 
-  ag_parent_ready_tracker_mark_notar_fallback( tracker, &block, out, &out_cnt );
+  out_cnt = ag_parent_ready_tracker_mark_notar_fallback( tracker, &block, out );
   FD_TEST( out_cnt==0UL );
 
   for( ulong s=0UL; s<SLOTS_PER_WINDOW; s++ ) {
-    ag_parent_ready_tracker_mark_skipped( tracker, s, out, &out_cnt );
+    out_cnt = ag_parent_ready_tracker_mark_skipped( tracker, s, out );
     deliver( tracker, out, out_cnt );
     if( s==last_slot_in_window( s ) ) {
       FD_TEST( out_cnt==1UL && out_contains( out, out_cnt, s+1UL, &genesis ) );
@@ -202,17 +202,17 @@ test_out_of_order_skips( void ) {
   ag_parent_ready_t out[ TEST_SLOT_MAX ];
   ulong out_cnt;
 
-  ag_parent_ready_tracker_mark_skipped( tracker, 3UL, out, &out_cnt );
+  out_cnt = ag_parent_ready_tracker_mark_skipped( tracker, 3UL, out );
   FD_TEST( out_cnt==0UL );
-  ag_parent_ready_tracker_mark_skipped( tracker, 2UL, out, &out_cnt );
+  out_cnt = ag_parent_ready_tracker_mark_skipped( tracker, 2UL, out );
   FD_TEST( out_cnt==0UL );
 
-  ag_parent_ready_tracker_mark_notar_fallback( tracker, &block, out, &out_cnt );
+  out_cnt = ag_parent_ready_tracker_mark_notar_fallback( tracker, &block, out );
   FD_TEST( out_cnt==1UL );
   FD_TEST( out[0].slot==4UL && ag_block_id_eq( &out[0].parent, &block ) );
   deliver( tracker, out, out_cnt );
 
-  ag_parent_ready_tracker_mark_skipped( tracker, slot, out, &out_cnt );
+  out_cnt = ag_parent_ready_tracker_mark_skipped( tracker, slot, out );
   FD_TEST( out_cnt==1UL );
   FD_TEST( out[0].slot==4UL && ag_block_id_eq( &out[0].parent, &genesis ) );
 
@@ -231,15 +231,15 @@ test_out_of_order_notars( void ) {
   ag_parent_ready_t out[ TEST_SLOT_MAX ];
   ulong out_cnt;
 
-  ag_parent_ready_tracker_mark_notar_fallback( tracker, &block2, out, &out_cnt );
+  out_cnt = ag_parent_ready_tracker_mark_notar_fallback( tracker, &block2, out );
   FD_TEST( out_cnt==0UL );
 
-  ag_parent_ready_tracker_mark_notar_fallback( tracker, &block3, out, &out_cnt );
+  out_cnt = ag_parent_ready_tracker_mark_notar_fallback( tracker, &block3, out );
   FD_TEST( out_cnt==1UL );
   FD_TEST( out[0].slot==4UL && ag_block_id_eq( &out[0].parent, &block3 ) );
   deliver( tracker, out, out_cnt );
 
-  ag_parent_ready_tracker_mark_notar_fallback( tracker, &block1, out, &out_cnt );
+  out_cnt = ag_parent_ready_tracker_mark_notar_fallback( tracker, &block1, out );
   FD_TEST( out_cnt==0UL );
   FD_TEST( !ag_parent_ready_tracker_is_parent_ready( tracker, 4UL, &block1 ) );
   FD_TEST( !ag_parent_ready_tracker_is_parent_ready( tracker, 4UL, &block2 ) );
@@ -258,25 +258,25 @@ test_no_double_counting_skip_chain( void ) {
   ag_parent_ready_t out[ TEST_SLOT_MAX ];
   ulong out_cnt;
 
-  ag_parent_ready_tracker_mark_notar_fallback( tracker, &block, out, &out_cnt );
+  out_cnt = ag_parent_ready_tracker_mark_notar_fallback( tracker, &block, out );
   FD_TEST( out_cnt==0UL );
 
-  ag_parent_ready_tracker_mark_skipped( tracker, 2UL, out, &out_cnt );
+  out_cnt = ag_parent_ready_tracker_mark_skipped( tracker, 2UL, out );
   FD_TEST( out_cnt==0UL );
 
-  ag_parent_ready_tracker_mark_skipped( tracker, 3UL, out, &out_cnt );
+  out_cnt = ag_parent_ready_tracker_mark_skipped( tracker, 3UL, out );
   FD_TEST( out_cnt==1UL );
   FD_TEST( out[0].slot==4UL && ag_block_id_eq( &out[0].parent, &block ) );
   deliver( tracker, out, out_cnt );
 
-  ag_parent_ready_tracker_mark_skipped( tracker, 4UL, out, &out_cnt );
+  out_cnt = ag_parent_ready_tracker_mark_skipped( tracker, 4UL, out );
   FD_TEST( out_cnt==0UL );
-  ag_parent_ready_tracker_mark_skipped( tracker, 5UL, out, &out_cnt );
+  out_cnt = ag_parent_ready_tracker_mark_skipped( tracker, 5UL, out );
   FD_TEST( out_cnt==0UL );
-  ag_parent_ready_tracker_mark_skipped( tracker, 6UL, out, &out_cnt );
+  out_cnt = ag_parent_ready_tracker_mark_skipped( tracker, 6UL, out );
   FD_TEST( out_cnt==0UL );
 
-  ag_parent_ready_tracker_mark_skipped( tracker, 7UL, out, &out_cnt );
+  out_cnt = ag_parent_ready_tracker_mark_skipped( tracker, 7UL, out );
   FD_TEST( out_cnt==1UL );
   FD_TEST( out[0].slot==8UL && ag_block_id_eq( &out[0].parent, &block ) );
 
@@ -295,18 +295,18 @@ test_no_double_counting_notar_and_skip( void ) {
   ag_parent_ready_t out[ TEST_SLOT_MAX ];
   ulong out_cnt;
 
-  ag_parent_ready_tracker_mark_notar_fallback( tracker, &block, out, &out_cnt );
+  out_cnt = ag_parent_ready_tracker_mark_notar_fallback( tracker, &block, out );
   FD_TEST( out_cnt==0UL );
 
-  ag_parent_ready_tracker_mark_skipped( tracker, 2UL, out, &out_cnt );
+  out_cnt = ag_parent_ready_tracker_mark_skipped( tracker, 2UL, out );
   FD_TEST( out_cnt==0UL );
 
-  ag_parent_ready_tracker_mark_skipped( tracker, 3UL, out, &out_cnt );
+  out_cnt = ag_parent_ready_tracker_mark_skipped( tracker, 3UL, out );
   FD_TEST( out_cnt==1UL );
   FD_TEST( out[0].slot==4UL && ag_block_id_eq( &out[0].parent, &block ) );
   deliver( tracker, out, out_cnt );
 
-  ag_parent_ready_tracker_mark_skipped( tracker, 1UL, out, &out_cnt );
+  out_cnt = ag_parent_ready_tracker_mark_skipped( tracker, 1UL, out );
   FD_TEST( out_cnt==1UL );
   FD_TEST( out[0].slot==4UL && ag_block_id_eq( &out[0].parent, &genesis ) );
 
@@ -325,20 +325,20 @@ test_undelivered_coalesces( void ) {
   ag_parent_ready_t out[ TEST_SLOT_MAX ];
   ulong out_cnt;
 
-  ag_parent_ready_tracker_mark_notar_fallback( tracker, &block, out, &out_cnt );
-  ag_parent_ready_tracker_mark_skipped( tracker, 2UL, out, &out_cnt );
-  ag_parent_ready_tracker_mark_skipped( tracker, 3UL, out, &out_cnt );
+  out_cnt = ag_parent_ready_tracker_mark_notar_fallback( tracker, &block, out );
+  out_cnt = ag_parent_ready_tracker_mark_skipped( tracker, 2UL, out );
+  out_cnt = ag_parent_ready_tracker_mark_skipped( tracker, 3UL, out );
   FD_TEST( out_cnt==1UL && out[0].slot==4UL );
 
-  ag_parent_ready_tracker_mark_skipped( tracker, 1UL, out, &out_cnt );
+  out_cnt = ag_parent_ready_tracker_mark_skipped( tracker, 1UL, out );
   FD_TEST( out_cnt==0UL );
   FD_TEST( ag_parent_ready_tracker_is_parent_ready( tracker, 4UL, &genesis ) );
   ag_block_id_t min = ag_parent_ready_tracker_wait_for_parent_ready( tracker, 4UL );
   FD_TEST( ag_block_id_eq( &min, &genesis ) );
 
-  ag_parent_ready_tracker_delivered( tracker, 4UL );
+  ag_parent_ready_state_map_ele_query( tracker->states.map, &(ulong){ 4UL }, NULL, tracker->states.pool )->ready = 0;
   ag_block_id_t nf3 = random_block_id( 3UL );
-  ag_parent_ready_tracker_mark_notar_fallback( tracker, &nf3, out, &out_cnt );
+  out_cnt = ag_parent_ready_tracker_mark_notar_fallback( tracker, &nf3, out );
   FD_TEST( out_cnt==1UL && out[0].slot==4UL );
 
   teardown_tracker( tracker );
@@ -359,11 +359,11 @@ test_prune_recomputes_lowest_ready( void ) {
   ag_block_id_t b1 = random_block_id( 1UL );
   ag_block_id_t b3 = random_block_id( 3UL );
   ag_block_id_t b5 = random_block_id( 5UL );
-  ag_parent_ready_tracker_mark_notar_fallback( tracker, &b1, out, &out_cnt );
-  ag_parent_ready_tracker_mark_notar_fallback( tracker, &b3, out, &out_cnt );
-  for( ulong slot=2UL; slot<8UL; slot++ ) ag_parent_ready_tracker_mark_skipped( tracker, slot, out, &out_cnt );
-  ag_parent_ready_tracker_delivered( tracker, 4UL );
-  ag_parent_ready_tracker_delivered( tracker, 8UL );
+  out_cnt = ag_parent_ready_tracker_mark_notar_fallback( tracker, &b1, out );
+  out_cnt = ag_parent_ready_tracker_mark_notar_fallback( tracker, &b3, out );
+  for( ulong slot=2UL; slot<8UL; slot++ ) out_cnt = ag_parent_ready_tracker_mark_skipped( tracker, slot, out );
+  ag_parent_ready_state_map_ele_query( tracker->states.map, &(ulong){ 4UL }, NULL, tracker->states.pool )->ready = 0;
+  ag_parent_ready_state_map_ele_query( tracker->states.map, &(ulong){ 8UL }, NULL, tracker->states.pool )->ready = 0;
   ag_block_id_t lo = ag_parent_ready_tracker_wait_for_parent_ready( tracker, 8UL );
   FD_TEST( ag_block_id_eq( &lo, &b1 ) );
 
@@ -371,7 +371,7 @@ test_prune_recomputes_lowest_ready( void ) {
   lo = ag_parent_ready_tracker_wait_for_parent_ready( tracker, 8UL );
   FD_TEST( ag_block_id_eq( &lo, &b3 ) );
 
-  ag_parent_ready_tracker_mark_notar_fallback( tracker, &b5, out, &out_cnt );
+  out_cnt = ag_parent_ready_tracker_mark_notar_fallback( tracker, &b5, out );
   FD_TEST( out_cnt==1UL && out[0].slot==8UL && ag_block_id_eq( &out[0].parent, &b3 ) );
 
   teardown_tracker( tracker );
@@ -388,11 +388,10 @@ test_wait_for_parent_ready( void ) {
   ag_parent_ready_tracker_t * tracker = setup_tracker( 256 );
 
   ag_parent_ready_t out[ TEST_SLOT_MAX ];
-  ulong             out_cnt;
 
   for( ulong slot=window1; slot<window1+SLOTS_PER_WINDOW; slot++ ) {
     if( slot==0UL ) continue;
-    ag_parent_ready_tracker_mark_skipped( tracker, slot, out, &out_cnt );
+    ag_parent_ready_tracker_mark_skipped( tracker, slot, out );
   }
 
   ag_block_id_t got;
@@ -402,14 +401,16 @@ test_wait_for_parent_ready( void ) {
 
   got = ag_parent_ready_tracker_wait_for_parent_ready( tracker, window3 );
   FD_TEST( got.slot==ULONG_MAX );
+  FD_TEST( tracker->highest_ready==window2 );
 
   for( ulong slot=window2; slot<window2+SLOTS_PER_WINDOW; slot++ ) {
-    ag_parent_ready_tracker_mark_skipped( tracker, slot, out, &out_cnt );
+    ag_parent_ready_tracker_mark_skipped( tracker, slot, out );
   }
 
   got = ag_parent_ready_tracker_wait_for_parent_ready( tracker, window3 );
   FD_TEST( got.slot!=ULONG_MAX );
   FD_TEST( ag_block_id_eq( &got, &genesis ) );
+  FD_TEST( tracker->highest_ready==window3 ); /* as soon as marked, before any event is delivered */
 
   teardown_tracker( tracker );
 }
@@ -421,10 +422,9 @@ test_prune( void ) {
   ag_parent_ready_tracker_t * tracker = setup_tracker( 256 );
 
   ag_parent_ready_t out[ TEST_SLOT_MAX ];
-  ulong             out_cnt;
 
   for( ulong slot=1UL; slot<=2UL*SLOTS_PER_WINDOW; slot++ ) {
-    ag_parent_ready_tracker_mark_skipped( tracker, slot, out, &out_cnt );
+    ag_parent_ready_tracker_mark_skipped( tracker, slot, out );
   }
 
   ulong new_root = SLOTS_PER_WINDOW;
@@ -473,21 +473,20 @@ test_wait_tie_break( void ) {
   ag_parent_ready_tracker_t * tracker = setup_tracker( 256 );
 
   ag_parent_ready_t out[ TEST_SLOT_MAX ];
-  ulong             out_cnt;
 
   ag_block_id_t hi    = { .slot = 7UL }; fd_memset( hi.hash,    0xee, sizeof(ag_block_hash_t) );
   ag_block_id_t lo    = { .slot = 7UL }; fd_memset( lo.hash,    0x11, sizeof(ag_block_hash_t) );
   ag_block_id_t older = { .slot = 4UL }; fd_memset( older.hash, 0xff, sizeof(ag_block_hash_t) );
 
-  ag_parent_ready_tracker_mark_notar_fallback( tracker, &hi, out, &out_cnt );
+  ag_parent_ready_tracker_mark_notar_fallback( tracker, &hi, out );
   ag_block_id_t min = ag_parent_ready_tracker_wait_for_parent_ready( tracker, 8UL );
   FD_TEST( ag_block_id_eq( &min, &hi ) );
-  ag_parent_ready_tracker_mark_notar_fallback( tracker, &lo, out, &out_cnt );
+  ag_parent_ready_tracker_mark_notar_fallback( tracker, &lo, out );
   FD_TEST( !memcmp( ag_parent_ready_tracker_wait_for_parent_ready( tracker, 8UL ).hash, lo.hash, sizeof(ag_block_hash_t) ) );
 
   /* a lower slot still wins regardless of hash */
-  for( ulong s=5UL; s<=7UL; s++ ) ag_parent_ready_tracker_mark_skipped( tracker, s, out, &out_cnt );
-  ag_parent_ready_tracker_mark_notar_fallback( tracker, &older, out, &out_cnt );
+  for( ulong s=5UL; s<=7UL; s++ ) ag_parent_ready_tracker_mark_skipped( tracker, s, out );
+  ag_parent_ready_tracker_mark_notar_fallback( tracker, &older, out );
   FD_TEST( ag_parent_ready_tracker_wait_for_parent_ready( tracker, 8UL ).slot==4UL );
   FD_TEST( ag_parent_ready_tracker_is_parent_ready( tracker, 8UL, &hi ) );
 
@@ -504,7 +503,6 @@ test_wait_does_not_allocate( void ) {
   ag_block_id_t p = random_block_id( 12340UL );
   FD_TEST( ag_parent_ready_tracker_wait_for_parent_ready( tracker, 12345UL ).slot==ULONG_MAX );
   FD_TEST( !ag_parent_ready_tracker_is_parent_ready( tracker, 12344UL, &p ) );
-  ag_parent_ready_tracker_delivered( tracker, 12344UL );
   FD_TEST( ag_parent_ready_state_pool_free( tracker->states.pool )==free_before );
 
   teardown_tracker( tracker );
@@ -525,12 +523,12 @@ test_many_parents( void ) {
   for( ulong slot=1UL; slot<end; slot++ ) {
     for( ulong j=0UL; j<AG_NOTAR_FALLBACK_CERT_MAX; j++ ) {
       ag_block_id_t id = random_block_id( slot ); id.hash[0] = (uchar)j;
-      ag_parent_ready_tracker_mark_notar_fallback( tracker, &id, out, &out_cnt );
+      out_cnt = ag_parent_ready_tracker_mark_notar_fallback( tracker, &id, out );
       deliver( tracker, out, out_cnt );
     }
   }
   for( ulong slot=end-1UL; slot>=1UL; slot-- ) {
-    ag_parent_ready_tracker_mark_skipped( tracker, slot, out, &out_cnt );
+    out_cnt = ag_parent_ready_tracker_mark_skipped( tracker, slot, out );
     FD_TEST( out_cnt<=end/SLOTS_PER_WINDOW );
     deliver( tracker, out, out_cnt );
   }
@@ -600,11 +598,11 @@ test_brute_force( void ) {
       ulong             out_cnt;
       if( skip ) {
         bf_skip[ slot ] = 1;
-        ag_parent_ready_tracker_mark_skipped( tracker, slot, out, &out_cnt );
+        out_cnt = ag_parent_ready_tracker_mark_skipped( tracker, slot, out );
       } else {
         bf_nf[ slot ][ j ] = 1;
         ag_block_id_t id = bf_id( slot, j );
-        ag_parent_ready_tracker_mark_notar_fallback( tracker, &id, out, &out_cnt );
+        out_cnt = ag_parent_ready_tracker_mark_notar_fallback( tracker, &id, out );
       }
 
       for( ulong w=0UL; w<BF_SLOTS; w+=AG_SLOTS_PER_WINDOW ) {
@@ -615,7 +613,7 @@ test_brute_force( void ) {
           int r = bf_ready( w, p, k );
           FD_TEST( ag_parent_ready_tracker_is_parent_ready( tracker, w, &id )==r );
           grew |= r && !before[w][p][k];
-          if( r && ( min.slot==ULONG_MAX || block_id_lt( &id, &min ) ) ) min = id;
+          if( r && ( min.slot==ULONG_MAX || ag_block_id_lt( &id, &min ) ) ) min = id;
         }
         ag_block_id_t got = ag_parent_ready_tracker_wait_for_parent_ready( tracker, w );
         FD_TEST( got.slot==min.slot && ( min.slot==ULONG_MAX || ag_block_id_eq( &got, &min ) ) );
@@ -634,6 +632,52 @@ test_brute_force( void ) {
   fd_rng_delete( fd_rng_leave( rng ) );
 }
 
+/* ag_parent_ready_tracker_mark_root on a root that is not at a window
+   boundary: the root is notarized-fallback and root+1 is ready with
+   exactly the root as its parent. */
+
+static void
+test_mark_root( void ) {
+  FD_TEST( ag_parent_ready_tracker_footprint( TEST_SLOT_MAX )<=sizeof(scratch) );
+  ag_parent_ready_tracker_t * tracker = ag_parent_ready_tracker_join( ag_parent_ready_tracker_new( scratch, TEST_SLOT_MAX, 42UL ) );
+  FD_TEST( tracker );
+
+  ulong         root_slot = SLOTS_PER_WINDOW+1UL;
+  ag_block_id_t root      = random_block_id( root_slot );
+  FD_TEST( !ag_is_start_of_window( root_slot+1UL ) );
+  tracker->root = root_slot;
+
+  ag_parent_ready_t out[ TEST_SLOT_MAX ];
+  ulong out_cnt = ag_parent_ready_tracker_mark_root( tracker, &root, out );
+  FD_TEST( out_cnt==0UL );
+
+  ag_parent_ready_state_t * root_state = ag_parent_ready_state_map_ele_query( tracker->states.map, &root_slot, NULL, tracker->states.pool );
+  FD_TEST( root_state );
+  FD_TEST( root_state->notar_fallbacks_cnt==1 );
+  FD_TEST( !memcmp( root_state->notar_fallbacks[0], root.hash, sizeof(ag_block_hash_t) ) );
+
+  ag_block_id_t parent = ag_parent_ready_tracker_wait_for_parent_ready( tracker, root_slot+1UL );
+  FD_TEST( ag_block_id_eq( &parent, &root ) );
+
+  /* Re-marking the root is deduplicated. */
+  FD_TEST( ag_parent_ready_tracker_mark_notar_fallback( tracker, &root, out )==0UL );
+  FD_TEST( root_state->notar_fallbacks_cnt==1 );
+
+  /* Skipping the rest of the root's window makes the root a parent of
+     the next window. */
+  for( ulong s=root_slot+1UL; s<=last_slot_in_window( root_slot ); s++ ) {
+    out_cnt = ag_parent_ready_tracker_mark_skipped( tracker, s, out );
+    deliver( tracker, out, out_cnt );
+    if( s==last_slot_in_window( s ) ) {
+      FD_TEST( out_cnt==1UL && out_contains( out, out_cnt, s+1UL, &root ) );
+    } else {
+      FD_TEST( out_cnt==0UL );
+    }
+  }
+
+  teardown_tracker( tracker );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -644,6 +688,7 @@ main( int     argc,
 
   test_basic();
   test_genesis();
+  test_mark_root();
   test_skips();
   test_out_of_order_skips();
   test_out_of_order_notars();

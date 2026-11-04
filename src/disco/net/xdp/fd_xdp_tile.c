@@ -13,7 +13,6 @@
 #include <linux/if_xdp.h>
 #include <sys/epoll.h>
 
-#include "../../../discof/repair/fd_repair.h"
 #include "../../metrics/fd_metrics.h"
 #include "../../netlink/fd_netlink_tile.h" /* neigh4_solicit */
 #include "../../waker/fd_waker.h"
@@ -147,7 +146,7 @@ fd_net_flusher_inc( fd_net_flusher_t * flusher,
 
 /* fd_net_flusher_check returns 1 if a sendto() wakeup should be issued
    immediately.  now is a recent fd_tickcount() value.
-   If tx_ring_empty==0 then the kernel is caught up with the net tile
+   If tx_ring_empty!=0 then the kernel is caught up with the net tile
    on the XDP TX ring.  (Otherwise, the kernel is behind the net tile) */
 
 static inline int
@@ -244,7 +243,6 @@ typedef struct {
 
   struct {
     ulong rx_fill_blocked_cnt;
-    ulong rx_backp_cnt;
     long  rx_busy_cnt;
     long  rx_idle_cnt;
 
@@ -293,31 +291,25 @@ static void
 metrics_write( fd_net_ctx_t * ctx ) {
   FD_MCNT_SET(   NET, PKT_RX,                ctx->net.metrics.rx_pkt_cnt         );
   FD_MCNT_SET(   NET, PKT_RX_BYTES,          ctx->net.metrics.rx_bytes_total     );
-  FD_MCNT_SET(   NET, PKT_RX_MALFORMED,      ctx->net.metrics.rx_malformed_cnt   );
-  FD_MCNT_SET(   NET, PKT_RX_ROUTE_FAIL,     ctx->net.metrics.rx_route_fail_cnt  );
+  FD_MCNT_ENUM_COPY( NET, PKT_RX_DROPPED,  ctx->net.metrics.rx_drop_cnt        );
   FD_MCNT_SET(   NET, GRE_PKT_RX,            ctx->net.metrics.rx_gre_cnt         );
-  FD_MCNT_SET(   NET, GRE_PKT_RX_INVALID,    ctx->net.metrics.rx_gre_invalid_cnt );
-  FD_MCNT_SET(   NET, GRE_PKT_RX_IGNORED,    ctx->net.metrics.rx_gre_ignored_cnt );
-  FD_MCNT_SET(   NET, PKT_RX_FILL_RING_FULL, ctx->metrics.rx_fill_blocked_cnt    );
-  FD_MCNT_SET(   NET, PKT_RX_BACKPRESSURE,   ctx->metrics.rx_backp_cnt           );
-  FD_MGAUGE_SET( NET, RX_BUFFER_BUSY, (ulong)fd_long_max( ctx->metrics.rx_busy_cnt, 0L ) );
-  FD_MGAUGE_SET( NET, RX_BUFFER_IDLE, (ulong)fd_long_max( ctx->metrics.rx_idle_cnt, 0L ) );
-  FD_MGAUGE_SET( NET, TX_BUFFER_BUSY, (ulong)fd_long_max( ctx->metrics.tx_busy_cnt, 0L ) );
-  FD_MGAUGE_SET( NET, TX_BUFFER_IDLE, (ulong)fd_long_max( ctx->metrics.tx_idle_cnt, 0L ) );
+  FD_MCNT_SET(   NET, RX_FILL_RING_STALLED,  ctx->metrics.rx_fill_blocked_cnt    );
+  FD_MGAUGE_SET( NET, RX_BUFFER_USED, (ulong)fd_long_max( ctx->metrics.rx_busy_cnt, 0L ) );
+  FD_MGAUGE_SET( NET, RX_BUFFER_FREE, (ulong)fd_long_max( ctx->metrics.rx_idle_cnt, 0L ) );
+  FD_MGAUGE_SET( NET, TX_BUFFER_USED, (ulong)fd_long_max( ctx->metrics.tx_busy_cnt, 0L ) );
+  FD_MGAUGE_SET( NET, TX_BUFFER_FREE, (ulong)fd_long_max( ctx->metrics.tx_idle_cnt, 0L ) );
 
   FD_MCNT_SET( NET, PKT_TX_SUBMITTED,        ctx->metrics.tx_submit_cnt         );
   FD_MCNT_SET( NET, PKT_TX_COMPLETED,        ctx->net.metrics.tx_pkt_cnt        );
-  FD_MCNT_SET( NET, PKT_TX_BYTES,            ctx->net.metrics.tx_bytes_total    );
-  FD_MCNT_ENUM_COPY( NET, PKT_TX_ROUTE_FAIL, ctx->net.metrics.tx_route_fail_cnt );
-  FD_MCNT_SET( NET, PKT_TX_INVALID,          ctx->net.metrics.tx_invalid_cnt    );
-  FD_MCNT_SET( NET, PKT_TX_NO_NEIGHBOR,      ctx->metrics.tx_neigh_fail_cnt     );
-  FD_MCNT_SET( NET, PKT_TX_RING_FULL,        ctx->metrics.tx_full_fail_cnt      );
+  FD_MCNT_SET( NET, PKT_TX_SUBMITTED_BYTES,  ctx->net.metrics.tx_bytes_total    );
+  ctx->net.metrics.tx_drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_NO_NEIGHBOR_IDX ] = ctx->metrics.tx_neigh_fail_cnt;
+  ctx->net.metrics.tx_drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_RING_FULL_IDX   ] = ctx->metrics.tx_full_fail_cnt;
+  FD_MCNT_ENUM_COPY( NET, PKT_TX_DROPPED,    ctx->net.metrics.tx_drop_cnt       );
 
   FD_MCNT_SET( NET, XSK_SYSCALL_TX,          ctx->metrics.xsk_tx_wakeup_cnt );
   FD_MCNT_SET( NET, XSK_SYSCALL_RX,          ctx->metrics.xsk_rx_wakeup_cnt );
 
   FD_MCNT_SET( NET, GRE_PKT_TX_SUBMITTED,    ctx->net.metrics.tx_gre_cnt            );
-  FD_MCNT_SET( NET, GRE_PKT_TX_NO_ROUTE,     ctx->net.metrics.tx_gre_route_fail_cnt );
   /* fd_fib4_cnt includes the synthetic throw route at index zero. */
   FD_MGAUGE_SET( NET, ROUTE_COUNT_LOCAL, fd_ulong_sat_sub( fd_fib4_cnt( ctx->fib_local ), 1UL ) );
   FD_MGAUGE_SET( NET, ROUTE_COUNT_MAIN,  fd_ulong_sat_sub( fd_fib4_cnt( ctx->fib_main  ), 1UL ) );
@@ -359,12 +351,12 @@ poll_xdp_statistics( fd_net_ctx_t * ctx ) {
     stats.tx_ring_empty_descs      += sub_stats.tx_ring_empty_descs;
   }
 
-  FD_MCNT_SET( NET, XDP_RX_OTHER_DROPPED,         stats.rx_dropped               );
-  FD_MCNT_SET( NET, XDP_RX_INVALID_DESCRIPTOR,    stats.rx_invalid_descs         );
-  FD_MCNT_SET( NET, XDP_TX_INVALID_DESCRIPTOR,    stats.tx_invalid_descs         );
-  FD_MCNT_SET( NET, XDP_RX_RING_FULL,             stats.rx_ring_full             );
-  FD_MCNT_SET( NET, XDP_RX_FILL_RING_EMPTY,       stats.rx_fill_ring_empty_descs );
-  FD_MCNT_SET( NET, XDP_TX_RING_EMPTY,            stats.tx_ring_empty_descs      );
+  FD_MCNT_SET( NET, XDP_RX_OTHER_DROPPED,                 stats.rx_dropped               );
+  FD_MCNT_SET( NET, XDP_RX_INVALID_DESCRIPTOR_DROPPED,    stats.rx_invalid_descs         );
+  FD_MCNT_SET( NET, XDP_TX_INVALID_DESCRIPTOR_DROPPED,    stats.tx_invalid_descs         );
+  FD_MCNT_SET( NET, XDP_RX_RING_FULL_DROPPED,             stats.rx_ring_full             );
+  FD_MCNT_SET( NET, XDP_RX_FILL_RING_EMPTY,               stats.rx_fill_ring_empty_descs );
+  FD_MCNT_SET( NET, XDP_TX_RING_EMPTY,                    stats.tx_ring_empty_descs      );
 }
 
 /* net_is_fatal_xdp_error returns 1 if the given errno returned by an
@@ -475,8 +467,8 @@ during_housekeeping( fd_net_ctx_t * ctx ) {
 
   ctx->metrics.rx_busy_cnt = 0UL;
   ctx->metrics.rx_idle_cnt = 0UL;
-  ctx->metrics.tx_busy_cnt = 0UL;
   ctx->metrics.tx_idle_cnt = fd_seq_diff( ctx->free_tx.prod, ctx->free_tx.cons );
+  ctx->metrics.tx_busy_cnt = (long)ctx->free_tx.depth - ctx->metrics.tx_idle_cnt;
   for( uint j=0U; j<ctx->xsk_cnt; j++ ) {
     fd_xsk_t * xsk = &ctx->xsk[ j ];
     FD_COMPILER_MFENCE();
@@ -495,8 +487,6 @@ during_housekeeping( fd_net_ctx_t * ctx ) {
     FD_COMPILER_MFENCE();
     ctx->metrics.rx_busy_cnt += (long)(int)( xsk->ring_rx.cached_prod - xsk->ring_rx.cached_cons );
     ctx->metrics.rx_idle_cnt += (long)(int)( xsk->ring_fr.cached_prod - xsk->ring_fr.cached_cons );
-    ctx->metrics.tx_busy_cnt += (long)(int)( xsk->ring_tx.cached_prod - xsk->ring_tx.cached_cons );
-    ctx->metrics.tx_busy_cnt += (long)(int)( xsk->ring_cr.cached_prod - xsk->ring_cr.cached_cons );
   }
 
   if( now > ctx->next_xdp_stats_refresh ) {
@@ -537,15 +527,15 @@ net_tx_route( fd_net_ctx_t * ctx,
 
   if( FD_UNLIKELY( rtype!=FD_FIB4_RTYPE_UNICAST ) ) {
     uint reason = fd_uint_if( rtype==FD_FIB4_RTYPE_THROW,
-        FD_METRICS_ENUM_ROUTE_FAIL_V_NO_ROUTE_IDX,
-        FD_METRICS_ENUM_ROUTE_FAIL_V_ROUTE_TYPE_IDX );
-    ctx->net.metrics.tx_route_fail_cnt[ reason ]++;
+        FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_NO_ROUTE_IDX,
+        FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_UNSUPPORTED_ROUTE_IDX );
+    ctx->net.metrics.tx_drop_cnt[ reason ]++;
     return 0;
   }
 
   fd_netdev_t * netdev = fd_netdev_tbl_query( &ctx->netdev_tbl, if_idx );
   if( !netdev ) {
-    ctx->net.metrics.tx_route_fail_cnt[ FD_METRICS_ENUM_ROUTE_FAIL_V_INTERFACE_IDX ]++;
+    ctx->net.metrics.tx_drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_INTERFACE_MISSING_IDX ]++;
     return 0;
   }
 
@@ -559,7 +549,7 @@ net_tx_route( fd_net_ctx_t * ctx,
   if( netdev->dev_type==ARPHRD_LOOPBACK ) {
     /* Set Ethernet src and dst address to 00:00:00:00:00:00 */
     memset( route->mac_addrs, 0, 12UL );
-    ctx->tx_op.xsk_idx = XSK_IDX_LO;
+    ctx->tx_op.xsk_idx = if_idx==ctx->if_virt ? XSK_IDX_MAIN : XSK_IDX_LO;
     /* Set preferred src address to 127.0.0.1 if no bind address is set */
     if( !route->src_ip ) route->src_ip = FD_IP4_ADDR( 127,0,0,1 );
     return 1;
@@ -572,12 +562,12 @@ net_tx_route( fd_net_ctx_t * ctx,
   }
 
   if( FD_UNLIKELY( netdev->dev_type!=ARPHRD_ETHER ) ) {
-    ctx->net.metrics.tx_route_fail_cnt[ FD_METRICS_ENUM_ROUTE_FAIL_V_UNSUPPORTED_INTERFACE_IDX ]++;
+    ctx->net.metrics.tx_drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_UNSUPPORTED_INTERFACE_IDX ]++;
     return 0;
   }
 
   if( FD_UNLIKELY( if_idx!=ctx->if_virt ) ) {
-    ctx->net.metrics.tx_route_fail_cnt[ FD_METRICS_ENUM_ROUTE_FAIL_V_UNSUPPORTED_INTERFACE_IDX ]++;
+    ctx->net.metrics.tx_drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_UNSUPPORTED_INTERFACE_IDX ]++;
     return 0;
   }
   ctx->tx_op.xsk_idx = XSK_IDX_MAIN;
@@ -651,19 +641,17 @@ before_frag( fd_net_ctx_t * ctx,
   if( is_gre_inf ) {
     uint inner_src_ip = route->src_ip;
     if( FD_UNLIKELY( !inner_src_ip ) ) {
-      ctx->net.metrics.tx_gre_route_fail_cnt++;
+      ctx->net.metrics.tx_drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_GRE_NO_ROUTE_IDX ]++;
       return 1;
     }
     /* Find the MAC addrs for the eth hdr, and src ip for outer ip4 hdr if not found in netdev tbl */
     route->src_ip = 0;
     is_gre_inf    = 0;
-    if( FD_UNLIKELY( !net_tx_route( ctx, route->gre_outer_dst_ip, &is_gre_inf ) ) ) {
-      ctx->net.metrics.tx_gre_route_fail_cnt++;
-      return 1;
-    }
+    /* net_tx_route counts its own drop reason */
+    if( FD_UNLIKELY( !net_tx_route( ctx, route->gre_outer_dst_ip, &is_gre_inf ) ) ) return 1;
     if( is_gre_inf ) {
       /* Only one layer of tunnelling supported */
-      ctx->net.metrics.tx_gre_route_fail_cnt++;
+      ctx->net.metrics.tx_drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_GRE_NO_ROUTE_IDX ]++;
       return 1;
     }
     if( !route->gre_outer_src_ip ) {
@@ -682,7 +670,7 @@ before_frag( fd_net_ctx_t * ctx,
 
   if( FD_UNLIKELY( xsk_idx>=ctx->xsk_cnt ) ) {
     /* Packet does not route to an XDP interface */
-    ctx->net.metrics.tx_route_fail_cnt[ FD_METRICS_ENUM_ROUTE_FAIL_V_UNSUPPORTED_INTERFACE_IDX ]++;
+    ctx->net.metrics.tx_drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_UNSUPPORTED_INTERFACE_IDX ]++;
     return 1;
   }
 
@@ -697,7 +685,7 @@ before_frag( fd_net_ctx_t * ctx,
 
   /* Allocate buffer for receive */
   ulong                alloc_seq = free->cons;
-  void *               frame     = (void *)free->queue[ alloc_seq % free->depth ];
+  void *               frame     = (void *)free->queue[ alloc_seq & (free->depth-1UL) ];
   free->cons = fd_seq_inc( alloc_seq, 1UL );
 
   ctx->tx_op.frame = frame;
@@ -882,7 +870,7 @@ net_rx_event( fd_net_ctx_t *      ctx,
   ulong const chunk = ctx->net.pkt_buf_chunk0 + (frame.addr >> FD_CHUNK_LG_SZ);
   ulong const tspub = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
   ulong       freed_chunk;
-  fd_net_rx_pkt( &ctx->net, stem, chunk, frame.len, tspub, &freed_chunk );
+  fd_net_rx_pkt( &ctx->net, stem, chunk, frame.addr & (FD_CHUNK_SZ-1UL), frame.len, tspub, &freed_chunk, NULL );
 
   FD_COMPILER_MFENCE();
   rx_ring->cached_cons = rx_seq+1U;
@@ -1015,7 +1003,7 @@ before_credit( fd_net_ctx_t *      ctx,
     *charge_busy = 1;
     fd_net_free_ring_t * free      = &ctx->free_tx;
     ulong                alloc_seq = free->prod;
-    free->queue[ alloc_seq % free->depth ] = (ulong)ctx->tx_op.frame;
+    free->queue[ alloc_seq & (free->depth-1UL) ] = (ulong)ctx->tx_op.frame;
     free->prod = fd_seq_inc( alloc_seq, 1UL );
     ctx->tx_op.frame = NULL;
   }
@@ -1158,6 +1146,9 @@ privileged_init( fd_topo_t const *      topo,
   ctx->free_tx.queue = free_tx;
   ctx->free_tx.depth = tile->xdp.free_ring_depth;
 
+  /* Firedancer requires the ring be a power of two. */
+  FD_TEST( fd_ulong_is_pow2( tile->xdp.free_ring_depth ) );
+
   /* Create and install XSKs */
 
   uint if_phys_if_idx = if_nametoindex( tile->xdp.if_phys );
@@ -1184,8 +1175,6 @@ privileged_init( fd_topo_t const *      topo,
     .umem_addr = umem,
     .frame_sz  = umem_frame_sz,
     .umem_sz   = umem_sz,
-
-    .core_dump = tile->xdp.xsk_core_dump,
   };
 
   fd_cstr_ncpy( params0.poll_mode, tile->xdp.poll_mode, sizeof(params0.poll_mode) );

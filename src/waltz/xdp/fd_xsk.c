@@ -2,7 +2,7 @@
 #error "fd_xsk requires Linux operating system with XDP support"
 #endif
 
-#define _GNU_SOURCE /* MADV_DONTDUMP */
+#define _GNU_SOURCE
 
 #include <errno.h>
 #include <stdio.h> /* snprintf */
@@ -77,19 +77,16 @@ fd_xsk_mmap_ring( fd_xdp_ring_t * ring,
     return -1;
   }
 
-  /* Lock descriptor rings to prevent swapping. Also advise the
-     kernel to exclude this region from core dumps for consistency
-     with fd_shmem. Reimplements syscall logic of fd_numa_mlock()
-     from fd_shmem_private.h to circumvent the ASan interceptor
-     and avoid private header dependencies. */
+  /* Lock descriptor rings to prevent swapping. Reimplements syscall
+     logic of fd_numa_mlock() from fd_shmem_private.h to circumvent the
+     ASan interceptor and avoid private header dependencies. */
 
   if( FD_UNLIKELY( (int)syscall( SYS_mlock, res, map_sz ) ) )
     FD_LOG_WARNING(( "syscall(SYS_mlock, %p, %lu KiB) on %s ring failed (%i-%s); attempting to continue",
                      res, map_sz>>10, fd_xsk_mmap_offset_cstr( map_off ), errno, fd_io_strerror( errno ) ));
 
-  if( FD_UNLIKELY( madvise( res, map_sz, MADV_DONTDUMP ) ) )
-    FD_LOG_WARNING(( "madvise(%p, %lu KiB) on %s ring failed (%i-%s); attempting to continue",
-                     res, map_sz>>10, fd_xsk_mmap_offset_cstr( map_off ), errno, fd_io_strerror( errno ) ));
+  /* We would ordinarily set up core dump config (MADV_DONTDUMP) here,
+     but the kernel already makes XDP metadata rings non-dumpable. */
 
   /* TODO add unit test asserting that cached prod/cons seq gets
           cleared on join */
@@ -123,11 +120,11 @@ fd_xsk_munmap_ring( fd_xdp_ring_t * ring,
                      mem, sz, fd_xsk_mmap_offset_cstr( map_off ), errno, fd_io_strerror( errno ) ));
 }
 
-/* fd_xsk_cleanup undoes a (partial) join by releasing all active kernel
+/* fd_xsk_fini undoes a (partial) join by releasing all active kernel
    objects, such as mapped memory regions and file descriptors.  Assumes
    that no join to `xsk` is currently being used. */
 
-fd_xsk_t *
+static fd_xsk_t *
 fd_xsk_fini( fd_xsk_t * xsk ) {
   /* Undo memory mappings */
 
@@ -292,6 +289,16 @@ fd_xsk_init( fd_xsk_t *              xsk,
   if( FD_UNLIKELY( xsk->xsk_fd<0 ) ) {
     FD_LOG_WARNING(( "Failed to create XSK (%i-%s)", errno, fd_io_strerror( errno ) ));
     return NULL;
+  }
+
+  /* In copy mode every TX frame in flight is an skb charged to the
+     socket send buffer, so the default (wmem_default, often 64 KiB)
+     caps the kernel at a few dozen frames.  Size it to the TX ring. */
+
+  int sndbuf = (int)fd_ulong_min( params->tx_depth*params->frame_sz, (ulong)INT_MAX );
+  if( FD_UNLIKELY( 0!=setsockopt( xsk->xsk_fd, SOL_SOCKET, SO_SNDBUF, &sndbuf, sizeof(int) ) ) ) {
+    FD_LOG_WARNING(( "setsockopt(SOL_SOCKET,SO_SNDBUF,%i) failed (%i-%s)", sndbuf, errno, fd_io_strerror( errno ) ));
+    goto fail;
   }
 
   /* Associate UMEM region of fd_xsk_t with XSK via setsockopt() */

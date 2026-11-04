@@ -41,7 +41,7 @@ ag_cert_ser( ag_cert_t const * self,
 
   if( FD_UNLIKELY( agg2 && !fd_bls_set_cnt( agg2->set ) ) ) agg2 = NULL; /* check empty */
 
-  fd_bls_sig_t sig = agg->sig;
+  blst_p2 sig = agg->sig;
   if( FD_UNLIKELY( agg2 ) ) blst_p2_add_or_double( &sig, &sig, &agg2->sig );
 
   ag_cert_serde_t cert = {
@@ -58,7 +58,7 @@ ag_cert_ser( ag_cert_t const * self,
   buf[ off ] = cert.tag;                                                                        off += sizeof(uchar);
   FD_STORE( ulong, buf+off, cert.slot );                                                        off += sizeof(ulong);
   if( FD_LIKELY( cert.block_id ) ) { memcpy( buf+off, cert.block_id, sizeof(ag_block_hash_t) ); off += sizeof(ag_block_hash_t); }
-  blst_p2_affine sig_aff[1];
+  fd_bls_sig_t sig_aff[1];
   blst_p2_to_affine( sig_aff, &sig );
   blst_p2_affine_serialize( buf+off, sig_aff );                                                 off += FD_BLS_SIG_SZ;
   FD_STORE( ulong, buf+off, cert.bitmap_sz );                                                   off += sizeof(ulong);
@@ -94,8 +94,8 @@ ag_cert_de( ag_cert_t *   self,
   }
   cert.signature     = buf+off;                   off += FD_BLS_SIG_SZ;
 
-  fd_bls_sig_t   sig[1];
-  blst_p2_affine sig_aff[1];
+  blst_p2      sig[1];
+  fd_bls_sig_t sig_aff[1];
   FAIL( blst_p2_deserialize( sig_aff, cert.signature )!=BLST_SUCCESS, INVAL );
   blst_p2_from_affine( sig, sig_aff );
   cert.bitmap_sz     = FD_LOAD( ulong, buf+off ); off += sizeof(ulong);

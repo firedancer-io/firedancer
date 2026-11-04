@@ -8,49 +8,21 @@
 
 /* QUIC-TLS
 
-   This defines an API for QUIC-TLS
+   fd_quic_tls_new( mem, &cfg ) initializes caller-owned fd_quic_tls_t
+   storage.  cfg supplies a seeded CSPRNG, signer, certificate public
+   key and callbacks.  The RNG and signer context must outlive the object.
 
-   General operation:
-     // seed a CSPRNG
-     static fd_chacha_rng_t _rng[1];
-     fd_chacha_rng_t * rng = fd_chacha_rng_join(
-         fd_chacha_rng_new( _rng, FD_CHACHA_RNG_MODE_SHIFT ) );
-     uchar key[ FD_CHACHA_KEY_SZ ];
-     if( FD_UNLIKELY( !fd_rng_secure( key, sizeof(key) ) ) ) abort();
-     fd_chacha_rng_init( rng, key, FD_CHACHA_RNG_ALGO_CHACHA8 );
-     fd_memzero_explicit( key, sizeof(key) );
+   fd_quic_tls_hs_new( hs_mem, quic_tls, context, is_server,
+                       &self_transport_params, now ) initializes a
+   handshake in caller-owned storage.  Clients send ClientHello on
+   creation; servers wait for it.
 
-     // set up a quic-tls config object
-     fd_quic_tls_cfg_t quic_tls_cfg = {
-       .secret_cb             = my_secret_cb,        // callback for communicating secrets
+   Reassemble CRYPTO input in hs->rx_hs_buf, set rx_sz and rx_enc_level,
+   then call fd_quic_tls_process.  See fd_quic_handle_crypto_frame for
+   buffer offsets and encryption-level transitions.  Send queued output
+   using fd_quic_tls_get_hs_data / fd_quic_tls_pop_hs_data.
 
-       .handshake_complete_cb = my_hs_complete,      // called when handshake is complete
-
-       .max_concur_handshakes = 1234,                // number of handshakes this object can
-                                                     // manage concurrently
-
-       .rng                   = rng,                 // required, see above
-       };
-
-     // create a quic-tls object to manage handshakes:
-     fd_quic_tls_t * quic_tls = fd_quic_tls_new( quic_tls_cfg );
-
-     // delete a quic-tls object when it's not needed anymore
-     fd_quic_delete( quic_tls );
-
-     // create a client or a server handshake object
-     //   call upon a new connection to manage the connection TLS handshake
-     fd_quic_tls_hs_t * hs = fd_quic_tls_hs_new( quic_tls, conn_id, conn_id_sz, is_server, transport_params, now );
-
-     // delete a handshake object
-     //   NULL is allowed here
-     fd_quic_tls_hs_delete( hs );
-
-     // call fd_quic_tls_provide_data whenever the peer sends TLS
-     // handshake data.  The peer bootstraps the conversation with a
-     // zero byte input.
-
-*/
+   fd_quic_tls_hs_delete and fd_quic_tls_delete do not free storage. */
 
 /* each TLS handshake requires a number of fd_quic_tls_hs_data structures */
 #define FD_QUIC_TLS_HS_DATA_CNT 16u
@@ -204,7 +176,7 @@ fd_quic_tls_t *
 fd_quic_tls_new( fd_quic_tls_t *     mem,
                  fd_quic_tls_cfg_t * cfg );
 
-/* fd_quic_delete unformats a memory region used as an fd_quic_tls_t.
+/* fd_quic_tls_delete unformats a memory region used as an fd_quic_tls_t.
    Returns the given pointer on success and NULL if used obviously in error.
    Deletes any fd_tls resources. */
 

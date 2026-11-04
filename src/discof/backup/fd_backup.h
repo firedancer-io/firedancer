@@ -26,7 +26,7 @@
 
 /* FD_BACKUP_RD_MTU is the max frag size on a snaprd_out link. */
 
-#define FD_BACKUP_RD_MTU 262144UL
+#define FD_BACKUP_RD_MTU (16UL<<20)
 
 /* FD_BACKUP_ZSTD_LEVEL is the Zstandard compression level of snapshots
    produced by Firedancer. */

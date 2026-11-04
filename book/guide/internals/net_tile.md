@@ -71,7 +71,7 @@ https://github.com/firedancer-io/firedancer/blob/main/src/waltz/xdp/fd_xsk.h
 
 ### Persistent config
 
-Running `fdctl configure init all` does various NIC configuration.
+Running `firedancer configure init all` does various NIC configuration.
 This configuration persists across Firedancer restarts but gets wiped
 after a reboot.
 
@@ -89,7 +89,7 @@ the scheduling of kernel networking code.
 
 ### Ephemeral config
 
-Running `fdctl run` sets up the following ephemeral kernel config.
+Running `firedancer run` sets up the following ephemeral kernel config.
 This part of the setup is scoped to the lifetime of the Firedancer net
 tile processes:
 
@@ -448,13 +448,13 @@ The loopback device only supports XDP in SKB mode.
 
 ## Development
 
-### `fddev pktgen`
+### `firedancer-dev pktgen`
 
-The `fddev pktgen` subcommand floods an Ethernet neighbor with small
-packets.  The purpose of this tool is to benchmark the TX path of the
-net tile.
+The `firedancerd-dev pktgen` command floods an Ethernet neighbor with
+small packets.  The purpose of this tool is to benchmark the TX path of
+the net tile.
 
-`fddev pktgen` runs a single net tile and a special pktgen tile
+`firedancer-dev pktgen` runs a single net tile and a special pktgen tile
 generating about 10 million 64 byte sized Ethernet frames per second.
 
 While this application will cause significant load on the Ethernet
@@ -487,12 +487,8 @@ Firedancer v0.4 net tile. This list is likely to become out of date.
   - IPv6 is considerably more expensive than IPv4 due to far lower MTUs
     (1280 on IPv6 vs 1500 on IPv4), mandatory UDP checksums, and
     longer addresses requiring a more complex route table lookup routine
-- The net tile does not (yet) use `SO_PREFERRED_BUSY_POLL`
 - The net tile supports only one external network interface
   (in addition to loopback)
-- fdctl does not yet configure IRQ affinity, nor disable NIC interrupts,
-  which can lead hard IRQs and ksoftirqd/NAPI stealing CPU time from
-  random other pinned tiles
 - Firedancer cannot share a network interface with other AF_XDP apps
 - The net tile only supports simple route tables, see [Netlink](./netlink.md).
 - Running Firedancer is believed to cause a performance detriment to

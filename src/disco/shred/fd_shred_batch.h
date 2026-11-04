@@ -37,22 +37,16 @@
        |   FEC_set |  FEC_set (W)   extra |     extra |
        +-----------+-----------+~~~~~~~~~~+~~~~~~~~~~~+
 
-     Resigned: (last batch in block)
-       +----------+----------+~~~~~~~~~~+~~~~~~~~~~+
-       |  FEC_set | FEC_set (W)   extra |    extra |
-       +----------+----------+~~~~~~~~~~+~~~~~~~~~~+
 
-   The first n-1 batches are chained, whereas the last one in the
-   block is (chained+)resigned, which means that each shred (and thus
-   each FEC set) in the last batch has a smaller payload capacity.
-   In order to size the region labeled extra, we need to consider the
-   worst case scenario: we have buffered W-1 bytes using the chained
-   watermark, when a max-size microblock arrives indicating it is the
-   last in the block.  This situation can only happen when running in
-   low-power mode, because otherwise the last microblock would be a
-   tick, which is small, but it does not seem to be worth plumbing in
-   that sort of logic just to save a little memory that would not
-   pollute cache anyway.
+   In the current version, all n batches are chained.  In order to size
+   the region labeled extra, we need to consider the worst case
+   scenario: we have buffered W-1 bytes using the chained watermark,
+   when a max-size microblock arrives indicating it is the last in the
+   block.  This situation can only happen when running in low-power
+   mode, because otherwise the last microblock would be a tick, which is
+   small, but it does not seem to be worth plumbing in that sort of
+   logic just to save a little memory that would not pollute cache
+   anyway.
 
    Note that this payload reduction does not affect normal FEC sets,
    which are scheduled to be deprecated at some point (TODO). */
@@ -61,12 +55,8 @@
 /* FD_SHRED_BATCH_FEC_SETS_MAX affects the value of STEM_BURST inside
    the shred tile (refer to its calculation for details). */
 #define FD_SHRED_BATCH_FEC_SETS_MAX   ( FD_SHRED_BATCH_FEC_SETS_WMARK + FD_SHRED_BATCH_FEC_SETS_EXTRA )
-/* Validate extra payload capacity.  Note that (chained+)resigned
-   needs to take into considerations the watermark regression. */
-#define FD_SHRED_BATCH_RESIGNED_WMARK_REGRESSION ( FD_SHRED_BATCH_FEC_SETS_WMARK * ( FD_SHREDDER_CHAINED_FEC_SET_PAYLOAD_SZ - FD_SHREDDER_RESIGNED_FEC_SET_PAYLOAD_SZ ) )
 FD_STATIC_ASSERT( ( FD_SHRED_BATCH_FEC_SETS_EXTRA * FD_SHREDDER_NORMAL_FEC_SET_PAYLOAD_SZ   ) >= ( FD_POH_SHRED_MTU ), FD_SHRED_BATCH_FEC_SETS_EXTRA );
 FD_STATIC_ASSERT( ( FD_SHRED_BATCH_FEC_SETS_EXTRA * FD_SHREDDER_CHAINED_FEC_SET_PAYLOAD_SZ  ) >= ( FD_POH_SHRED_MTU ), FD_SHRED_BATCH_FEC_SETS_EXTRA );
-FD_STATIC_ASSERT( ( FD_SHRED_BATCH_FEC_SETS_EXTRA * FD_SHREDDER_RESIGNED_FEC_SET_PAYLOAD_SZ ) >= ( FD_POH_SHRED_MTU + FD_SHRED_BATCH_RESIGNED_WMARK_REGRESSION ), FD_SHRED_BATCH_FEC_SETS_EXTRA );
 
 /* FD_SHRED_BATCH_WMARK: Following along the lines of dcache, batch
    microblocks until either the slot ends or the batch would exceed
@@ -78,41 +68,36 @@ FD_STATIC_ASSERT( ( FD_SHRED_BATCH_FEC_SETS_EXTRA * FD_SHREDDER_RESIGNED_FEC_SET
    8 bytes needed for microblock_cnt in the batch header). */
 #define FD_SHRED_BATCH_WMARK_NORMAL   ( FD_SHRED_BATCH_FEC_SETS_WMARK * FD_SHREDDER_NORMAL_FEC_SET_PAYLOAD_SZ   - 8UL )
 #define FD_SHRED_BATCH_WMARK_CHAINED  ( FD_SHRED_BATCH_FEC_SETS_WMARK * FD_SHREDDER_CHAINED_FEC_SET_PAYLOAD_SZ  - 8UL )
-#define FD_SHRED_BATCH_WMARK_RESIGNED ( FD_SHRED_BATCH_FEC_SETS_WMARK * FD_SHREDDER_RESIGNED_FEC_SET_PAYLOAD_SZ - 8UL )
 /* Validate watermark payload capacity.  It must support at least
    FD_POH_SHRED_MTU bytes.  Prefer > to >= as a safety margin, to
    avoid any dependency on how we determine later on if the batch
    would exceed the watermark. */
 FD_STATIC_ASSERT( ( FD_SHRED_BATCH_WMARK_NORMAL   ) > ( FD_POH_SHRED_MTU ), FD_SHRED_BATCH_WMARK_NORMAL   );
 FD_STATIC_ASSERT( ( FD_SHRED_BATCH_WMARK_CHAINED  ) > ( FD_POH_SHRED_MTU ), FD_SHRED_BATCH_WMARK_CHAINED  );
-FD_STATIC_ASSERT( ( FD_SHRED_BATCH_WMARK_RESIGNED ) > ( FD_POH_SHRED_MTU ), FD_SHRED_BATCH_WMARK_RESIGNED );
-FD_STATIC_ASSERT( ( FD_SHRED_BATCH_WMARK_RESIGNED + FD_SHRED_BATCH_RESIGNED_WMARK_REGRESSION ) == ( FD_SHRED_BATCH_WMARK_CHAINED ), FD_SHRED_BATCH_RESIGNED_WMARK_REGRESSION );
 
-/* There are three different raw buffer sizes depending on the FEC
-   set type: normal, chained, and resigned (see fd_shredder.h for
-   further details).  In order to support all three, we allocate the
-   largest of them (i.e. normal).  TODO once normal FEC sets have
-   been deprecated, replace NORMAL with CHAINED payload size in the
-   calculation of FD_SHRED_BATCH_RAW_BUF_SZ below. */
+/* There are two different raw buffer sizes depending on the FEC
+   set type: normal and chained (see fd_shredder.h for further details).
+   In order to support all three, we allocate the largest of them (i.e.
+   normal).  TODO once normal FEC sets have been deprecated, replace
+   NORMAL with CHAINED payload size in the calculation of
+   FD_SHRED_BATCH_RAW_BUF_SZ below. */
 #define FD_SHRED_BATCH_RAW_BUF_SZ     ( FD_SHRED_BATCH_FEC_SETS_MAX * FD_SHREDDER_NORMAL_FEC_SET_PAYLOAD_SZ )
-/* Validate batch raw buffer size.  Note that (chained+)resigned
-   needs to take into considerations the watermark regression. */
+/* Validate batch raw buffer size. */
 FD_STATIC_ASSERT( ( FD_SHRED_BATCH_RAW_BUF_SZ ) >= ( FD_SHRED_BATCH_WMARK_NORMAL   + FD_POH_SHRED_MTU ), FD_SHRED_BATCH_RAW_BUF_SZ );
 FD_STATIC_ASSERT( ( FD_SHRED_BATCH_RAW_BUF_SZ ) >= ( FD_SHRED_BATCH_WMARK_CHAINED  + FD_POH_SHRED_MTU ), FD_SHRED_BATCH_RAW_BUF_SZ );
-FD_STATIC_ASSERT( ( FD_SHRED_BATCH_RAW_BUF_SZ ) >= ( FD_SHRED_BATCH_WMARK_RESIGNED + FD_POH_SHRED_MTU + FD_SHRED_BATCH_RESIGNED_WMARK_REGRESSION ), FD_SHRED_BATCH_RAW_BUF_SZ );
 
 /* FD_SHRED_BATCH_BLOCK_DATA_SZ_MAX is a conservative compile-time
-   bound on entry bytes in a 32k-shred block (1024 chained FEC sets).
-   It subtracts worst-case padding of about half the payload, plus
-   last-batch resigned-size regression and 8-byte batch headers.
-   Pack does not use this as its per-slot cap; that is
-   fd_shred_batch_pack_data_max at become-leader.  This macro is the
-   pre-leader default (FD_PACK_MAX_DATA_PER_BLOCK) and sizes skipped-
-   tick buffers. */
+   bound on entry bytes in a FD_SHRED_BLK_MAX-shred block
+   (FD_FEC_BLK_MAX chained FEC sets).  It subtracts worst-case padding
+   of about half the payload, 8-byte batch headers, and two FEC sets for
+   Alpenglow block components.  Pack does not use this as its per-slot
+   cap; that is fd_shred_batch_pack_data_max at become-leader.  This
+   macro is the pre-leader default (FD_PACK_MAX_DATA_PER_BLOCK) and
+   sizes skipped-tick buffers. */
 FD_STATIC_ASSERT( ( FD_SHRED_BATCH_FEC_SETS_MAX ) == ( 4UL ), FD_SHRED_BATCH_FEC_SETS_MAX );
-#define FD_SHRED_BATCH_BLOCK_DATA_OHEAD  (  512UL * FD_SHREDDER_CHAINED_FEC_SET_PAYLOAD_SZ + 8192UL + 8192UL )
-FD_STATIC_ASSERT( ( FD_SHRED_BATCH_BLOCK_DATA_OHEAD ) < ( 1024UL * FD_SHREDDER_CHAINED_FEC_SET_PAYLOAD_SZ ), FD_SHRED_BATCH_BLOCK_DATA_OHEAD );
-#define FD_SHRED_BATCH_BLOCK_DATA_SZ_MAX ( (1024UL-2UL) * FD_SHREDDER_CHAINED_FEC_SET_PAYLOAD_SZ - FD_SHRED_BATCH_BLOCK_DATA_OHEAD )
+#define FD_SHRED_BATCH_BLOCK_DATA_OHEAD  ( (FD_FEC_BLK_MAX/2UL) * FD_SHREDDER_CHAINED_FEC_SET_PAYLOAD_SZ + 8192UL + 8192UL )
+FD_STATIC_ASSERT( ( FD_SHRED_BATCH_BLOCK_DATA_OHEAD ) < ( FD_FEC_BLK_MAX * FD_SHREDDER_CHAINED_FEC_SET_PAYLOAD_SZ ), FD_SHRED_BATCH_BLOCK_DATA_OHEAD );
+#define FD_SHRED_BATCH_BLOCK_DATA_SZ_MAX ( (FD_FEC_BLK_MAX-2UL) * FD_SHREDDER_CHAINED_FEC_SET_PAYLOAD_SZ - FD_SHRED_BATCH_BLOCK_DATA_OHEAD )
 
 /* fd_shred_batch_pack_data_max: how many entry bytes (microblock
    headers + txn payloads, excluding empty ticks) pack can emit in a
@@ -129,8 +114,8 @@ FD_STATIC_ASSERT( ( FD_SHRED_BATCH_BLOCK_DATA_OHEAD ) < ( 1024UL * FD_SHREDDER_C
      - Each later closed batch holds at least
        WMARK_CHAINED-max_microblock_sz entry bytes and uses 2 FEC sets.
      - The last batch is the leftover (at most wmark) plus the
-       completing microblock, padded to resigned FEC sets:
-       ceil( (wmark + 8 + max_microblock_sz) / R ).  Production
+       completing microblock:
+       ceil( (wmark + 8 + max_microblock_sz) / C ).  Production
        finishes on an empty tick; low-power can finish on a
        max-size microblock.
 
@@ -141,17 +126,16 @@ FD_FN_CONST static inline ulong
 fd_shred_batch_pack_data_max( ulong slot_max_data_shreds,
                               ulong max_microblock_sz ) {
   ulong const C     = FD_SHREDDER_CHAINED_FEC_SET_PAYLOAD_SZ;
-  ulong const R     = FD_SHREDDER_RESIGNED_FEC_SET_PAYLOAD_SZ;
   ulong const wmark = FD_SHRED_BATCH_WMARK_CHAINED; /* 2*C - 8 */
 
   if( FD_UNLIKELY( max_microblock_sz>=wmark ) ) return 0UL;
 
   ulong fec_set_cnt          = slot_max_data_shreds / 32UL;
   ulong first_batch_fec_cnt  = ( 8UL + max_microblock_sz + C - 1UL ) / C;
-  ulong last_batch_fec_cnt   = ( wmark + 8UL + max_microblock_sz + R - 1UL ) / R;
-  if( FD_UNLIKELY( fec_set_cnt<first_batch_fec_cnt+last_batch_fec_cnt ) ) return 0UL;
+  ulong last_batch_fec_cnt   = ( wmark + 8UL + max_microblock_sz + C - 1UL ) / C;
+  if( FD_UNLIKELY( fec_set_cnt<first_batch_fec_cnt+last_batch_fec_cnt+2UL ) ) return 0UL;
 
-  ulong middle_batch_fec_cnt = ( fec_set_cnt - first_batch_fec_cnt - last_batch_fec_cnt ) & ~1UL; /* even, 2 FEC per batch */
+  ulong middle_batch_fec_cnt = ( fec_set_cnt - first_batch_fec_cnt - last_batch_fec_cnt - 2UL ) & ~1UL; /* even, 2 FEC per batch */
   ulong min_batch            = wmark - max_microblock_sz;
   return ( middle_batch_fec_cnt / 2UL ) * min_batch;
 }

@@ -9,13 +9,17 @@ telemetry = false
     execle_tile_count = 8
     execrp_tile_count = 1
 [tiles]
+    [tiles.pack]
+        # A full 65k pool slows pack, and whether it fills before the
+        # first slot is a race
+        max_pending_transactions = 16384
     [tiles.rpc]
         enabled = true
     [tiles.gui]
         enabled = false
 [runtime]
     max_live_slots = 256
-    max_fork_width = 8
+    transaction_cache_size_mib = 3072
 [accounts]
     max_accounts = 4000000
     cache_size_gib = 3

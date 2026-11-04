@@ -1,6 +1,12 @@
-# `fdctl` Command Line Interface
-The Firedancer binary `fdctl` contains many subcommands which can be run
-from the command line.
+# `firedancer` Command Line Interface
+The Firedancer binary `firedancer` contains many subcommands which can
+be run from the command line.
+
+Commands that attach to a running validator fall into two groups.
+`set-identity`, `get-identity`, and `add-authorized-voter` are
+versioned and work across releases. Diagnostic commands like `monitor`,
+`watch`, and `metrics` read the validator's memory directly and must be
+run from the same binary the validator is running.
 
 ## `run`
 Runs the validator. This command does not exit until the validator does,
@@ -13,6 +19,7 @@ abbreviated log output to `stderr` and nothing will be written to
 | Arguments         | Description |
 |-------------------|-------------|
 | `--config <path>` | Path to a configuration TOML file to run the validator with |
+| `--standby`       | Boot as a failover standby using an unstaked identity, see the [failover guide](/guide/failover#setup) |
 
 ::: details Capabilities
 
@@ -61,18 +68,26 @@ Configures the operating system so that it can run Firedancer. See
 [the guide](/guide/initializing) for more information. There are the
 following stages to each configure command:
 
- - `uverbs` Loads the `ib_uverbs` kernel module required by the
-    mlx5 network provider.
+ - `iavf` Configures VFs, clears and installs PF ntuple rules and loads the
+    `vfio-pci` kernel module required by the iavf network provider.
+ - `mlx5` Loads the `ib_uverbs` kernel module required by the mlx5
+    network provider. Clears leftover XDP ntuple rules, resets the
+    RSS indirection table and channel count to defaults.
  - `hugetlbfs` Reserves huge and gigantic pages for use by Firedancer
     and mounts huge page filesystems for then under a path in the
     configuration TOML file.
  - `sysctl` Set required kernel parameters.
- - `hyperthreads` Disables hyperthreaded pair for critical CPU cores.
+ - `hyperthreads` Checks hyperthreaded pair for critical CPU cores.
  - `bonding` Prepares bonded network devices for XDP networking.
  - `ethtool-channels` Configures the number of channels on the network
     device.
  - `ethtool-offloads` Modify offload feature flags on the network device.
  - `ethtool-loopback` Disables UDP segmentation on the loopback device.
+ - `irq-affinity` Removes Firedancer tile CPUs from configurable
+   `/proc/irq/*/smp_affinity` masks.
+ - `irq-balance` Configures the irqbalance daemon to avoid Firedancer
+   tile CPUs. If irqbalance is not running, this stage is a no-op.
+ - `snapshots` Prepares the snapshot download directory.
 
 | Arguments         | Description |
 |-------------------|-------------|
@@ -105,7 +120,10 @@ and configure the number of combined channels on the network device.
 | `root`          | increase network device channels with `ethtool --set-channels`. Only applies for the `ethtool-channels` stage |
 | `root`          | disable network device offloads with `ethtool --offload IFACE FEATURE off`. Only applies for the `ethtool-offloads` stage |
 | `root`          | disable network device tx-udp-segmentation with `ethtool --offload lo tx-udp-segmentation off`. Only applies for the `ethtool-loopback` stage |
-| `root`          | load the `ib_uverbs` kernel module with `modprobe`. Only applies for the `uverbs` stage |
+| `root`          | restore network device defaults and load the `ib_uverbs` kernel module if needed |
+| `CAP_SYS_MODULE` | load the `ib_uverbs` kernel module with `modprobe` when the uverbs interface is unavailable |
+| `root`          | configure VFs and PF ntuple rules. Only applies for the `iavf` stage |
+| `CAP_SYS_MODULE` | load the `vfio-pci` kernel module with `modprobe` when the driver is unavailable. Only applies for the `iavf` stage |
 | `CAP_SYS_ADMIN` | set kernel parameters in `/proc/sys`. Only applies for the `sysctl` stage |
 
 :::
@@ -121,16 +139,21 @@ diagnostics to `stderr`.
 
 ### `configure fini <stage>...`
 Remove any Firedancer specific operating system configuration still
-lingering. This only unmounts the `hugetlbfs` stages and returns the
-reserved huge and gigantic pages to the kernel pool. It will not reduce
-sysctls that were earlier increased, or change the network channel count
-back as we no longer know what the original value was.
+lingering. The `hugetlbfs` stage unmounts its filesystems and returns the
+reserved huge and gigantic pages to the kernel pool. The `mlx5` stage
+clears leftover XDP ntuple rules and resets the RSS indirection table and
+channel count to defaults. The `iavf` stage clears PF ntuple rules and
+removes VF 0 if its PF has exactly one VF. PFs with multiple VFs retain
+all of them. The `fini` mode does not reduce sysctls that were earlier
+increased or restore previous network settings.
 
 ::: details Capabilities
 
 | Capability | Reason |
 |------------|--------|
 | `root`     | remove directories from `/mnt`, unmount hugetlbfs. Only applies for the `hugetlbfs` stage |
+| `root`     | restore network device defaults |
+| `root`     | clear PF ntuple rules and remove VFs. Only applies for the `iavf` stage |
 
 :::
 
@@ -141,8 +164,8 @@ Prints the current version of the validator to the standard output and
 exits. The command writes diagnostic messages from logs to `stderr`.
 
 ```sh [bash]
-$ fdctl version
-0.101.11814
+$ firedancer version
+26.10.3
 ```
 
 ## `shred-version`
@@ -151,8 +174,8 @@ to the entrypoints, to standard output and exits. The command writes
 diagnostic messages from logs to `stderr`.
 
 ```sh [bash]
-$ fdctl shred-version
-9065
+$ firedancer shred-version
+50093
 ```
 
 ## `metrics`
@@ -162,7 +185,7 @@ command can be used even if the metrics server is not enabled, or the
 validator has crashed.
 
 ```sh [bash]
-$ fdctl metrics --config ~/config.toml
+$ firedancer metrics --config ~/config.toml
 # HELP tile_pid The process ID of the tile.
 # TYPE tile_pid gauge
 tile_pid{kind="netlnk",kind_id="0"} 627750
@@ -175,12 +198,13 @@ argument is required and must be the path to an Agave style
 `identity.json` keypair file. If the path is specified as `-` the key
 will instead be read from `stdin`.
 
-::: warning WARNING
+::: tip NOTE
 
-`set-identity` must be called with the configuration file you started
-the validator with, like `fdctl set-identity --config <config.toml>`,
-if the `config` argument is not provided, the command may not update
-the key on all tiles and your validator may start skipping slots.
+Between two Firedancer validators, Firedancer supports a native
+[failover](#failover) mechanism that is faster and safer than
+`set-identity`, and using `set-identity` between them is heavily
+discouraged. Use `set-identity` primarily for failing over between Agave
+and Firedancer.
 
 :::
 
@@ -189,9 +213,6 @@ might be running with the same identity, and if they both produce a
 block or vote concurrently, the validator may violate consensus and be
 subject to (future) slashing.
 
-Best practice requires copying the `tower.bin` file from the prior
-to the new validator, to ensure that vote lockouts are respected.
-
 The validator will not change identity in the middle of a leader slot,
 and will wait until any in-progress leader slot completes before
 switching to the new identity. It is safe to call during or near a
@@ -199,24 +220,259 @@ leader slot because of this wait.
 
 The command exits successfully (with an exit code of 0) if the identity
 key was changed, otherwise it will fail and print diagnostic messages to
-`stderr`. Reasons for failure include the validator being unable to open
-or load the tower, when `--require-tower` is specified, or being unable
-to load or verify the provided identity key.
+`stderr`. Reasons for failure include being unable to load or verify
+the provided identity key.
 
-Currently due to implementation limitations, the key can be partially
-changed if the `set-identity` command is cancelled (for example with
-Ctrl+C) while running. The next call to `set-identity` might need to
-provide the `--force` argument to succeed if this occurs, to reset this
-partial state and proceed with setting a new key.
+If more than one validator is running, pass
+`--name <name>` to select one (see [`ps`](#ps) to list instances). If
+`--config` is given, the validator is instead located from the
+configuration file: only the `name` and `[hugetlbfs.mount_path]` values
+are used, and they must match the running validator. Compatibility with
+the running validator is checked either way, and a version mismatch
+fails cleanly without changing anything. Pass the
+Agave-compatible vote history file of the new identity, signed by it.
+Without a file, the new identity is treated as never having voted. If
+the file is empty or invalid, the command will fail and the identity of
+the running validator will not be changed.
+Switching to the identity the validator is already
+running as is refused.
+
+The validator writes `vote_history-<identity>.bin` in the
+`[paths.vote_history]` directory before each vote and each block it
+produces. This is an Agave-compatible vote history file and it protects
+against equivocation, both double voting and double producing blocks.
+A cluster restart, booting at the
+`[consensus.wait_for_supermajority_at_slot]` slot, discards the vote
+history, as in Agave.
+
+### Manual failover
+Only one validator may run a staked identity at a time. To move an
+identity between two running validators:
+
+1. On the validator giving up the identity, run `set-identity` with an
+   unstaked keypair. If failing over _from_ Firedancer, it saves the identity's vote history in
+   `[paths.vote_history]` as `vote_history-<identity>.bin.bak`. If the
+   validator stopped without switching away, the identity's vote
+   history is `vote_history-<identity>.bin` instead, and its `.bak` is
+   not the identity's latest.
+2. Copy that file to the validator assuming the identity. For Agave,
+   place it in the ledger directory as `vote_history-<identity>.bin`.
+   For Firedancer, place it anywhere other than `[paths.vote_history]`.
+3. Then, on the assuming validator, run `set-identity` with the identity
+   keypair. If failing over _to_ Firedancer, pass the vote history file
+   with `--vote-history-file <path>`.
+
+A Firedancer validator that restarts after switching away from the
+identity it booted as refuses to boot until its vote history file is
+back in `[paths.vote_history]`. Copy in the latest vote history file
+from the validator that last ran the identity.
+
+A sample runbook, moving identity `A` from Firedancer validator
+`primary` to Firedancer validator `standby`, where each validator has
+its own unstaked keypair `junk.json` and both use the default
+`[paths.vote_history]`:
+
+```sh
+# on primary
+firedancer set-identity junk.json
+scp ~/.firedancer/fd1/vote_history-A.bin.bak standby:/tmp/vote_history-A.bin
+
+# on standby
+firedancer set-identity A.json --vote-history-file /tmp/vote_history-A.bin
+```
+
+To move it back, run the same steps with the validators swapped.
+
+| Arguments                    | Description |
+|------------------------------|-------------|
+| `<keypair>`                  | Path to a `identity.json` keypair file, or `-` to read the JSON formatted key from `stdin` |
+| `--name <name>`              | Name of the validator instance to attach to, if more than one is running on this host |
+| `--config <path>`            | Optional path to a configuration TOML file naming the validator to attach to. Only the `name` and `[hugetlbfs.mount_path]` values are used, and they must match the running validator |
+| `--vote-history-file <path>` | Path to the vote history file saved by the validator previously running with the new identity. Without it, the new identity is treated as never having voted |
+
+<<< @/snippets/commands/set-identity.ansi
+
+## `get-identity`
+Prints the base58 encoded identity public key the running validator is
+currently using for gossip, voting, and block production. This may
+differ from `[paths.identity_key]` in the configuration file if the
+identity was changed at runtime with `set-identity`.
+
+Like `set-identity`, the command discovers the running validator
+automatically when no `--config` is given.
+
+The command exits successfully (with an exit code of 0) and prints the
+key to `stdout` if the identity was retrieved, otherwise it fails and
+prints diagnostic messages to `stderr`.
 
 | Arguments         | Description |
 |-------------------|-------------|
-| `<keypair>`       | Path to a `identity.json` keypair file, or `-` to read the JSON formatted key from `stdin` |
-| `--config <path>` | Path to a configuration TOML file of the validator to change identity for. This must be the same configuration file the validator was started with |
-| `--require-tower` | If specified, refuse to set the validator identity if saved tower state is not found |
-| `--force`         | If a `set-identity` operation is abandoned part way through, you will need to specify `--force` to reset the validator key state when trying again |
+| `--name <name>`   | Name of the validator instance to attach to, if more than one is running on this host |
+| `--config <path>` | Optional path to a configuration TOML file naming the validator to attach to. Only the `name` and `[hugetlbfs.mount_path]` values are used, and they must match the running validator |
 
-<<< @/snippets/commands/set-identity.ansi
+<<< @/snippets/commands/get-identity.ansi
+
+## `add-authorized-voter`
+Adds an authorized voter to the running validator. The `<keypair>`
+argument is required and must be the path to an Agave style
+`voter.json` keypair file. If the path is specified as `-` the key
+will instead be read from `stdin`.
+
+With no arguments the command discovers the running validator on the
+host automatically. If more than one validator is running, pass
+`--name <name>` to select one (see [`ps`](#ps) to list instances). If
+`--config` is given, the validator is instead located from the
+configuration file: only the `name` and `[hugetlbfs.mount_path]` values
+are used, and they must match the running validator. Compatibility with
+the running validator is checked either way, and a version mismatch
+fails cleanly without changing anything.
+
+It is not generally safe to call `add-authorized-voter`, as another
+validator might be running with the same authorized voter and vote
+account. If they both vote concurrently, the validator may violate
+consensus and be subject to (future) slashing.
+
+It is safe to call the command while the validator is running and voting
+as the client guarantees that votes will not be produced with the new
+authorized voter key until the key has been gracefully added to the
+running validator.
+
+The command exits successfully (with an exit code of 0) if the
+authorized voter was added, otherwise it will fail and print diagnostic
+messages to `stderr`. Reasons for failure include the validator being
+unable to load or verify the provided authorized voter key, if the
+provided key is a duplicate that the validator is already using, or if
+there are too many authorized voters for the running validator (more
+than 16). With failover enabled, the key also cannot be the identity
+failover hands off.
+
+| Arguments         | Description |
+|-------------------|-------------|
+| `<keypair>`       | Path to a `voter.json` keypair file, or `-` to read the JSON formatted key from `stdin` |
+| `--name <name>`   | Name of the validator instance to attach to, if more than one is running on this host |
+| `--config <path>` | Optional path to a configuration TOML file naming the validator to attach to. Only the `name` and `[hugetlbfs.mount_path]` values are used, and they must match the running validator |
+
+<<< @/snippets/commands/add-authorized-voter.ansi
+
+## `failover`
+Failover takes over a remote identity (and its voting) from an
+already-running validator and hands it off to this locally-running
+validator. Run this command on the machine that should take over, with
+the keypair of the identity to take. The remote validator will switch
+to an unstaked junk key.
+
+See the [failover guide](/guide/failover) for more details.
+
+```sh
+firedancer failover promote  [<keypair>] [--name <name>] [--yes] [--address <address>] [--port <port>]
+firedancer failover takeover [<keypair>] [--name <name>] [--yes] [--force] [--address <address>] [--port <port>]
+```
+
+`failover promote` is for planned failover. The machine running the
+identity cooperatively hands it over. `failover takeover` is for
+when the other machine is dead or unreachable, see
+[taking the identity without the remote](#taking-the-identity-without-the-remote).
+
+The `<keypair>` argument is the path to an Agave style `identity.json`
+keypair file of the identity to take. If the path is specified as `-`
+the key will instead be read from `stdin`. Without `<keypair>`, the
+command takes the identity in `[paths.identity_key]`, or the last
+keypair passed into `failover` or `set-identity` since the
+validator started.
+
+The command discovers the running validator on the host automatically.
+If more than one is running, pass `--name <name>` to select one (see
+[`ps`](#ps)). In a terminal it asks for confirmation unless `--yes` is
+given.
+
+The local validator finds the address of the machine running the
+identity through gossip. Use `--address` to give its IPv4 address or host
+name instead, and `--port` if its failover listener does not use the
+default port 8010.
+
+The command waits for the outcome and exits with a code for the state
+it leaves the validators in. A failure prints the result name and what
+it means. The [failover guide](/guide/failover#if-a-handoff-fails)
+lists every result with its exit code.
+
+| Exit code | Meaning |
+|-----------|---------|
+| `0` | Success, the local validator now runs the identity |
+| `1` | Any other failure, the outcome is likely unknown, check both validators with [`get-identity`](#get-identity) |
+| `2` | Rejected, no validator changed identity |
+| `3` | The outcome is unknown, check both validators with [`get-identity`](#get-identity) before anything else |
+| `4` | Nobody runs the identity, see [taking the identity without the remote](#taking-the-identity-without-the-remote) |
+| `128+sig` | Interrupted by a signal. An already-started handoff keeps running |
+
+<<< @/snippets/commands/failover-promote.ansi
+
+<<< @/snippets/commands/failover-promote-failed.ansi
+### Taking the identity without the remote
+
+With `failover takeover`, the validator asks nicely for a handoff first. If
+that handoff fails, the failure reason is logged and then the local validator
+takes over the identity anyway, without coordinating with the other machine.
+
+As a safeguard, takeover only proceeds if the other machine shows no signs of life
+(neither in gossip nor on the failover channel). With `--force`, takeover
+will still proceed even if the other machine appears to still be alive.
+
+::: warning WARNING
+
+A takeover skips the checks on the other machine and can leave votes and
+leader windows unaccounted for by starting from an empty history. Use
+`failover takeover` when the other machine is down, and `--force` only
+after ensuring every other machine with the identity cannot sign. Never
+run this on both machines at the same time. Please note that `--force`
+can result in two validators double voting.
+
+:::
+
+<<< @/snippets/commands/failover-takeover.ansi
+
+<<< @/snippets/commands/failover-takeover-force.ansi
+
+| Arguments             | Description |
+|-----------------------|-------------|
+| `promote`             | Ask the machine running the identity to cooperatively hand it over |
+| `takeover`            | Like `promote`, but if the handoff fails and the machine running the identity shows no signs of life, take the identity without coordinating with it |
+| `<keypair>`           | Path to the `identity.json` keypair file of the identity to take, or `-` to read the JSON formatted key from `stdin`. Defaults to `[paths.identity_key]`, or the last keypair given to `failover` or `set-identity` |
+| `--name <name>`       | Name of the validator instance to attach to, if more than one is running on this host |
+| `--yes`               | Skip the confirmation prompt |
+| `--force`             | `takeover` only. Forcibly take the identity, even if the machine already running it may still be alive |
+| `--address <address>` | IPv4 address or host name of the machine running the identity, instead of the address found through gossip. |
+| `--port <port>`       | Failover TCP port of the machine running the identity, 8010 as default |
+
+## `remove-all-authorized-voters`
+Removes all authorized voters from the running validator, including any
+seeded from `[paths.authorized_voter_paths]` at startup as well as any
+added at runtime with `add-authorized-voter`. After removal the validator
+can only sign votes for vote accounts whose authorized voter is the
+identity key.
+
+::: warning WARNING
+
+Unlike Agave, this command will still leave the validator in a possibly
+voting state and will continue producing signed vote transactions with
+the identity of the running validator.
+
+:::
+
+The command is idempotent: removing when there are no authorized voters
+also succeeds. It exits successfully (with an exit code of 0) and prints
+`All authorized voters removed`.
+
+The change is live only: it is not written back to the configuration
+file, so any voters listed in `[paths.authorized_voter_paths]` return on
+the validator's next restart. To drop them across restarts, also remove
+them from the configuration file.
+
+| Arguments         | Description |
+|-------------------|-------------|
+| `--name <name>`   | Name of the validator instance to attach to, if more than one is running on this host |
+| `--config <path>` | Optional path to a configuration TOML file naming the validator to attach to. Only the `name` and `[hugetlbfs.mount_path]` values are used, and they must match the running validator |
+
+<<< @/snippets/commands/remove-all-authorized-voters.ansi
 
 ## `keys`
 
@@ -227,7 +483,7 @@ style `identity.json` key file. The command writes diagnostic messages
 from logs to `stderr`.
 
 ```sh [bash]
-$ fdctl keys pubkey ~/.firedancer/fd1/identity.json
+$ firedancer keys pubkey ~/.firedancer/fd1/identity.json
 Fe4StcZSQ228dKK2hni7aCP7ZprNhj8QKWzFe5usGFYF
 ```
 
@@ -258,8 +514,8 @@ exiting. The command writes diagnostic messages from logs to `stderr`.
 
 Firedancer preallocates and locks all memory it needs from huge and
 gigantic page mounts before booting, and the `hugetlbfs` stage of
-`fdctl configure` will reserve the memory described here for exclusive
-use by Firedancer.
+`firedancer configure` will reserve the memory described here for
+exclusive use by Firedancer.
 
 | Arguments | Description |
 |----------|-------------|
@@ -267,28 +523,109 @@ use by Firedancer.
 | `--sort` | List all memory allocations sorted by size in decreasing order, including a percentage of total and exact byte count |
 
 ```sh [bash]
-$ fdctl mem --config config.toml
-SUMMARY
-              Total Tiles: 17
-      Total Memory Locked: 27088932864 bytes (25 GiB + 234 MiB + 20 KiB)
-  Required Gigantic Pages: 25
-      Required Huge Pages: 117
-    Required Normal Pages: 27
-  Required Gigantic Pages (NUMA node 0): 25
-      Required Huge Pages (NUMA node 0): 117
+$ firedancer mem --config config.toml
+── Summary ─────────────────────────────────────────────────────────────────────
+  Total Tiles              57
+  Total Memory Locked      158 GiB + 915 MiB + 520 KiB  (170611187712 bytes)
+  Required Gigantic Pages  154
+  Required Huge Pages      2504
+  Required Normal Pages    898
 
-WORKSPACES
-   0 (  1 GiB):     net_quic  page_cnt=1  page_sz=gigantic  numa_idx=0   footprint=68173824    loose=1005563904
-   1 (  1 GiB):    net_shred  page_cnt=1  page_sz=gigantic  numa_idx=0   footprint=68173824    loose=1005563904
+── Workspaces (102) ────────────────────────────────────────────────────────────
+   ID        SIZE  NAME           PAGES  PAGE SZ   NUMA     FOOTPRINT         LOOSE
+    0    36.0 MiB  metric            18  huge         0      35946496       1798144
+    1     2.0 MiB  diag               1  huge         0        548864       1544192
 [...]
 
-LINKS
-   0 ( 32 MiB):     net_quic  kind_id=0   wksp_id=0   depth=16384  mtu=2048       burst=1
-   1 ( 32 MiB):    net_shred  kind_id=0   wksp_id=1   depth=16384  mtu=2048       burst=1
+── Objects (609) ───────────────────────────────────────────────────────────────
+    ID        SIZE  WORKSPACE      OBJECT         WKSP        OFFSET  PROPERTIES
+     0     1.0 MiB  net_gossip     mcache           25          4096  depth=32768
+     1    64.0 MiB  net_gossip     dcache           25       1056768  depth=32768 burst=1 mtu=2048
 [...]
 
-TILES
-   0 (  3 GiB):          net  kind_id=0   wksp_id=18  cpu_idx=1   out_link=-1  in=[-2, -3]  out=[ 0,  1]
-   1 (  3 GiB):         quic  kind_id=0   wksp_id=19  cpu_idx=2   out_link=4   in=[ 0, -21]  out=[ 2, 20]
+── Links (120) ─────────────────────────────────────────────────────────────────
+   ID        SIZE  NAME           KIND  WKSP     DEPTH        MTU  BURST
+    0    64.0 MiB  gossip_net        0    25     32768       2048      1
+    1    64.0 MiB  shred_net         0    26     32768       2048      1
+[...]
+
+── Tiles (57) ──────────────────────────────────────────────────────────────────
+   ID       MLOCK  NAME           KIND  WKSP   CPU  NUMA  LINKS / OBJECTS
+    0    34.0 MiB  netlnk            0    89   any     0  in=[-80, -81]  out=[79]  objs=[149:rw 150:rw 151:rw 152:rw 153:rw 154:rw 158:rw 157:ro 164:rw 163:ro 531:rw]
+    1     1.3 GiB  net               0    88     1     0  in=[79, -1,  0, -2, -3, -4, -5]  out=[80, 82, 84, 86, 88, 90, 92]  objs=[155:rw 156:rw 157:rw 159:rw 151:ro 152:ro 153:ro 154:ro 160:rw 167:rw 160:rw 169:rw 160:rw 171:rw 160:rw 173:rw 160:rw 175:rw 160:rw 177:rw 160:rw 309:rw 2:ro 3:ro 311:rw 0:ro 1:ro 313:rw 4:ro 5:ro 315:rw 6:ro 7:ro 317:rw 8:ro 9:ro 337:rw 10:ro 11:ro]
 [...]
 ```
+
+## `ps`
+Lists validator instances on this host. Each row shows the instance
+name, the process ID of the validator supervisor, whether the validator
+is currently `live` or `stale`, its uptime, and the version and commit
+of the running build.
+
+A `stale` entry means a validator was stopped or crashed. Stale entries
+are harmless and are cleaned up when the validator next starts, or can
+be removed with `--clean`.
+
+The command exits successfully (with an exit code of 0) even if no
+validators are found.
+
+| Arguments | Description |
+|-----------|-------------|
+| `--clean` | Remove entries for validators that are no longer running |
+
+<<< @/snippets/commands/ps.ansi
+
+## `wait`
+Waits for a window where it would be safe to stop the running
+validator before exiting, it does not actually stop the validator.
+Various conditions can be waited on, according to the supplied
+arguments:
+
+ - The validator is caught up to the tip of the chain
+ - There is sufficient time until our next leader slot
+ - No full or incremental snapshot is currently being written
+ - A new up to date incremental snapshot has been written
+ - The cluster delinquent stake is below a certain threshold
+
+Once the supplied checks pass, the command exits successfully with
+code 0. If the validator being waited on exits prematurely, or the
+command is interrupted, it fails with a non-zero code as follows:
+
+| Exit code | Meaning |
+|-----------|---------|
+| `0` | A safe window was found |
+| `2` | The validator exited while waiting |
+| `128+sig` | Interrupted by a signal, as a shell reports it (`130` for `SIGINT`, `143` for `SIGTERM`) |
+| `1` | Any other failure |
+
+If run from a terminal, the command prints live diagnostic output, you
+can prevent this with `--silent`.
+
+When it fails, the command prints diagnostic messages to `stderr`.
+Reasons for failure include no running validator being found, more
+than one running validator with nothing to select between them, the
+running validator being a different commit than this binary, a
+`--config` file that is not the one the validator was started with, or
+an idle gap that is larger than an epoch and so can never be
+satisfied.
+
+With no arguments the command discovers the running validator on the
+host automatically. If more than one validator is running, pass
+`--name <name>` to select one (see [`ps`](#ps) to list instances). If
+`--config` is given, that resolved configuration is used to locate and
+attach to the validator, and its topology layout must match the running
+validator. Compatibility with the running validator is checked either
+way, and a version mismatch fails cleanly without changing anything.
+
+| Arguments                          | Description |
+|------------------------------------|-------------|
+| `--min-idle-slots <slots>`         | Minimum number of idle slots required before the next leader slot. Default: 1500. Set to 0 to disable the gap check |
+| `--min-idle-seconds <seconds>`     | Minimum idle time in seconds before the next leader slot. Converted to slots using the live slot duration. Mutually exclusive with `--min-idle-slots`. Set to 0 to disable the gap check |
+| `--max-delinquent-stake <percent>` | Maximum percentage of delinquent stake allowed, in range [0–100]. Default: 5. Set to 100 to disable the check |
+| `--skip-health-check`              | Skip the health check (replay caught-up status) |
+| `--skip-snapshot-check`            | Skip the snapshot check |
+| `--silent`                         | Do not print the live status panel |
+| `--name <name>`   | Name of the validator instance to attach to, if more than one is running on this host |
+| `--config <path>` | Optional path to the configuration TOML file the validator was started with. Its resolved topology layout must match the running validator |
+
+<<< @/snippets/commands/wait.ansi

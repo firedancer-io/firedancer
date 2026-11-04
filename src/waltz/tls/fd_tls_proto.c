@@ -143,6 +143,10 @@ fd_tls_decode_client_hello( fd_tls_client_hello_t * out,
   }
   FD_TLS_DECODE_LIST_END
 
+  out->has_supported_groups     = !!( seen & (1UL<<FD_TLS_EXT_SUPPORTED_GROUPS) );
+  out->has_signature_algorithms = !!( seen & (1UL<<FD_TLS_EXT_SIGNATURE_ALGORITHMS) );
+  out->has_key_share            = !!( seen & (1UL<<FD_TLS_EXT_KEY_SHARE) );
+
   return (long)( wire_laddr - (ulong)wire );
 }
 
@@ -401,6 +405,7 @@ fd_tls_decode_server_hello( fd_tls_server_hello_t * out,
     long ext_parse_res;
     switch( ext_type ) {
     case FD_TLS_EXT_SUPPORTED_VERSIONS: {
+      if( FD_UNLIKELY( ext_sz!=2U ) ) return -(long)FD_TLS_ALERT_DECODE_ERROR;
       ushort chosen_version;
       FD_TLS_DECODE_FIELD( &chosen_version, ushort );
       ext_parse_res = 2L;
@@ -411,9 +416,18 @@ fd_tls_decode_server_hello( fd_tls_server_hello_t * out,
     case FD_TLS_EXT_KEY_SHARE:
       ext_parse_res = fd_tls_decode_key_share( &out->key_share, ext_data, ext_sz );
       break;
+    case FD_TLS_EXT_SERVER_NAME:
+    case FD_TLS_EXT_SUPPORTED_GROUPS:
+    case FD_TLS_EXT_SIGNATURE_ALGORITHMS:
+    case FD_TLS_EXT_ALPN:
+    case FD_TLS_EXT_CLIENT_CERT_TYPE:
+    case FD_TLS_EXT_SERVER_CERT_TYPE:
+    case FD_TLS_EXT_SIGNATURE_ALGORITHMS_CERT:
+    case FD_TLS_EXT_QUIC_TRANSPORT_PARAMS:
+      /* RFC 8446 Section 4.2: recognized extension in the wrong message. */
+      return -(long)FD_TLS_ALERT_ILLEGAL_PARAMETER;
     default:
-      /* RFC 8446 Section 4.2: a ServerHello may only carry responses
-         to extensions the client offered */
+      /* A ServerHello may only carry responses to extensions offered. */
       return -(long)FD_TLS_ALERT_UNSUPPORTED_EXTENSION;
     }
 
@@ -432,8 +446,10 @@ fd_tls_decode_server_hello( fd_tls_server_hello_t * out,
 
   if( FD_UNLIKELY( !(seen & (1UL<<FD_TLS_EXT_SUPPORTED_VERSIONS)) ) )
     return -(long)FD_TLS_ALERT_PROTOCOL_VERSION;
-  if( FD_UNLIKELY( !out->key_share.has_x25519 ) )
+  if( FD_UNLIKELY( !(seen & (1UL<<FD_TLS_EXT_KEY_SHARE)) ) )
     return -(long)FD_TLS_ALERT_MISSING_EXTENSION;
+  if( FD_UNLIKELY( !out->key_share.has_x25519 ) )
+    return -(long)FD_TLS_ALERT_ILLEGAL_PARAMETER;
 
   return (long)( wire_laddr - (ulong)wire );
 }
@@ -600,6 +616,11 @@ fd_tls_decode_enc_ext( fd_tls_enc_ext_t * const out,
       out->quic_tp.buf   = (void *)wire_laddr;
       out->quic_tp.bufsz = (ushort)ext_sz;
       break;
+    case FD_TLS_EXT_SIGNATURE_ALGORITHMS:
+    case FD_TLS_EXT_SUPPORTED_VERSIONS:
+    case FD_TLS_EXT_SIGNATURE_ALGORITHMS_CERT:
+    case FD_TLS_EXT_KEY_SHARE:
+      return -(long)FD_TLS_ALERT_ILLEGAL_PARAMETER;
     default:
       return -(long)FD_TLS_ALERT_UNSUPPORTED_EXTENSION;
     }

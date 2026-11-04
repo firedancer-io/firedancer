@@ -75,7 +75,6 @@ Used to sign various consensus and p2p messages.
 - A reference implementation using [fiat-crypto](https://github.com/firedancer-io/firedancer/blob/main/src/third_party/fiat-crypto/curve25519_64.c)
 - Handwritten constant-time signing routines (`fd_curve25519_secure.c`).
 - Handwritten high-performance AVX512-IFMA backend for Intel/AMD CPUs
-- Hardware-accelerated signature verification via FPGA offload ([Wiredancer](https://github.com/firedancer-io/firedancer/tree/main/src/wiredancer))
 
 ## Curve25519
 

@@ -5,7 +5,7 @@
    functions for creating a useful topology. */
 
 #include "../../disco/topo/fd_topo.h"
-#include "fd_cpu_topo.h"
+#include "fd_topob_layout.h"
 
 /* A link in the topology is either unpolled or polled.  Almost all
    links are polled, which means a tile which has this link as an in
@@ -22,19 +22,6 @@
 
 #define FD_TOPOB_UNRELIABLE 0
 #define FD_TOPOB_RELIABLE 1
-
-/* Affinity entries prefixed with 's' ("s2", "s2-3") are shared, the
-   tile is homed at that CPU but floats over the shared CPUs on the
-   same NUMA node.  The bit is set in the parsed CPU index, and only
-   callers passing allow_shared accept it. */
-#define FD_TOPOB_CPU_SHARED (0x8000UL)
-
-/* Tile priority types used by fd_topob_auto_layout to classify tiles
-   into scheduling categories. */
-#define FD_TOPOB_PRIORITY_FLOATING (1)
-#define FD_TOPOB_PRIORITY_STARTUP  (2)
-#define FD_TOPOB_PRIORITY_NORMAL   (3)
-#define FD_TOPOB_PRIORITY_CRITICAL (4)
 
 FD_PROTOTYPES_BEGIN
 
@@ -115,7 +102,6 @@ fd_topob_tile( fd_topo_t *    topo,
                char const *   tile_wksp,
                char const *   metrics_wksp,
                ulong          cpu_idx,
-               int            is_agave,
                int            uses_id_keyswitch,
                int            uses_av_keyswitch,
                int            is_waker_client );
@@ -167,20 +153,6 @@ fd_topob_tile_out( fd_topo_t *  topo,
                    char const * link_name,
                    ulong        link_kind_id );
 
-/* Automatically layout the tiles onto CPUs in the topology for a
-   best effort.  fd_topob_auto_layout reads CPU topology from the OS.
-   fd_topob_auto_layout_cpus takes a pre-built CPU topology, useful
-   for testing. */
-
-void
-fd_topob_auto_layout( fd_topo_t * topo,
-                      int         reserve_agave_cores );
-
-void
-fd_topob_auto_layout_cpus( fd_topo_t *      topo,
-                           fd_topo_cpus_t * cpus,
-                           int              reserve_agave_cores );
-
 /* Finish creating the topology.  Lays out all the objects in the
    given workspaces, and sizes everything correctly.  Also validates
    the topology before returning.
@@ -190,20 +162,6 @@ fd_topob_auto_layout_cpus( fd_topo_t *      topo,
 void
 fd_topob_finish( fd_topo_t *                topo,
                  fd_topo_obj_callbacks_t ** callbacks );
-
-
-/* Classify a tile into one of the FD_TOPOB_PRIORITY_* categories. */
-int
-fd_topob_tile_priority_type( fd_topo_tile_t const * tile );
-
-void
-fd_topob_validate_cpu_overlaps( fd_topo_t const * topo );
-
-ulong
-fd_topob_parse_affinity_cstr( char const * cstr,
-                              ushort *     tile_to_cpu,
-                              int          allow_repeats,
-                              int          allow_shared );
 
 FD_PROTOTYPES_END
 

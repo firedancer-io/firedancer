@@ -4,7 +4,6 @@
 #include "../../../disco/metrics/fd_metrics.h"
 #include "../../../disco/fd_clock_tile.h"
 #include "../../../disco/net/fd_net_tile.h"
-#include "../../../disco/shred/fd_fec_set.h"
 #include "../../../util/clock/fd_clock.h"
 #include "../../../util/net/fd_pcap.h"
 
@@ -14,9 +13,8 @@
 #include <stdio.h>
 #include <unistd.h>
 
-#define FD_DUMP_FLAGS_NO_DATA     1
-#define FD_DUMP_FLAGS_NET_RX      2
-#define FD_DUMP_FLAGS_OVERRIDE_SZ 4 /* high 24 bits give size */
+#define FD_DUMP_FLAGS_NO_DATA 1
+#define FD_DUMP_FLAGS_NET_RX  2
 
 struct dump_ctx {
   fd_io_buffered_ostream_t ostream;
@@ -59,8 +57,7 @@ dump_cmd_args( int      * argc,
 static FD_FN_CONST ulong
 frag_sz( int   flags,
          ulong line_sz ) {
-  return fd_ulong_if( flags & FD_DUMP_FLAGS_NO_DATA, 0UL,
-                                                     fd_ulong_if( flags & FD_DUMP_FLAGS_OVERRIDE_SZ, ((ulong)flags)>>8, line_sz ) );
+  return fd_ulong_if( flags & FD_DUMP_FLAGS_NO_DATA, 0UL, line_sz );
 }
 static FD_FN_PURE void const *
 frag_ptr( int                    flags,
@@ -309,9 +306,6 @@ dump_cmd_fn( args_t      * args,
       ctx.links[ ctx.link_cnt ].link_hash   = (uint)((fd_hash( 17UL, link->name, strlen( link->name ) ) << 8) | link->kind_id);
 
       int flags = fd_int_if( !link->mtu, FD_DUMP_FLAGS_NO_DATA, 0 );
-      if( FD_UNLIKELY( !strcmp( link->name, "shred_store" ) ) ) {
-        flags |= FD_DUMP_FLAGS_OVERRIDE_SZ | (sizeof(fd_fec_set_t)<<8);
-      }
       if( FD_UNLIKELY( strstr( link->name, "net_" ) ) ) {
         flags |= FD_DUMP_FLAGS_NET_RX;
         /* this overwrites dcache_base since it's part of the union, but

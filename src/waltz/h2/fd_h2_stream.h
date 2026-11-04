@@ -16,6 +16,7 @@ struct fd_h2_stream {
 
   uchar state;
   uchar hdrs_seq;
+  uchar rx_aborted; /* explicit reset/error stops pending DATA delivery */
 };
 
 #define FD_H2_STREAM_STATE_IDLE       0
@@ -91,10 +92,13 @@ fd_h2_stream_error( fd_h2_stream_t * stream,
   case FD_H2_STREAM_STATE_CLOSING_TX:
   case FD_H2_STREAM_STATE_CLOSING_RX:
     fd_h2_tx_rst_stream( rbuf_tx, stream->stream_id, h2_err );
+    /* NO_ERROR after the peer's END_STREAM still delivers received data */
+    stream->rx_aborted = (uchar)( h2_err!=FD_H2_SUCCESS || stream->state!=FD_H2_STREAM_STATE_CLOSING_RX );
     stream->state = FD_H2_STREAM_STATE_CLOSED;
     fd_h2_stream_private_deactivate( stream, conn );
     break;
   case FD_H2_STREAM_STATE_CLOSED:
+    if( h2_err!=FD_H2_SUCCESS ) stream->rx_aborted = 1U;
     break;
   default:
     stream->state = FD_H2_STREAM_STATE_ILLEGAL;
@@ -150,6 +154,7 @@ static inline void
 fd_h2_stream_reset( fd_h2_stream_t * stream,
                     fd_h2_conn_t *   conn ) {
   if( FD_UNLIKELY( (conn->flags & FD_H2_CONN_FLAGS_CONTINUATION) && conn->rx_stream_id==stream->stream_id ) ) conn->rx_hdrs_discard = 1U;
+  stream->rx_aborted = 1U;
   switch( stream->state ) {
   case FD_H2_STREAM_STATE_OPEN:
   case FD_H2_STREAM_STATE_CLOSING_TX:

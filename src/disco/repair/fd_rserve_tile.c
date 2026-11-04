@@ -1,0 +1,962 @@
+/* fd_rserve_tile serves incoming repair requests from other nodes */
+
+#define _GNU_SOURCE
+#include <errno.h>
+#include <fcntl.h>
+
+#include "fd_rserve.h"
+#include "fd_repair_tile.h"
+#include "fd_repair_serde.h"
+#include "../../disco/fd_disco_base.h"
+#include "../../disco/keyguard/fd_keyguard_client.h"
+#include "../../disco/keyguard/fd_keyguard.h"
+#include "../../disco/keyguard/fd_keyload.h"
+#include "../../disco/keyguard/fd_keyswitch.h"
+#include "../../disco/metrics/fd_metrics.h"
+#include "../../disco/net/fd_net_tile.h"
+#include "../../disco/shred/fd_shred_tile.h"
+#include "../../disco/store/fd_store.h"
+#include "../../disco/topo/fd_topo.h"
+#include "../../util/pod/fd_pod_format.h"
+#include "../../flamenco/gossip/fd_gossip_message.h"
+#include "../../util/net/fd_net_headers.h"
+
+#include <linux/futex.h>
+#include "generated/fd_rserve_tile_seccomp.h"
+
+#define IN_KIND_NET    (0)
+#define IN_KIND_SIGN   (1)
+#define IN_KIND_SHRED  (2)
+#define IN_KIND_ROTOR  (3)
+
+#define MAX_IN_LINKS FD_TOPO_MAX_TILE_IN_LINKS
+
+#define FD_RSERVE_MAX_PACKET_SIZE 1232
+
+/* The maximum number of parent slots to look for. */
+#define FD_RSERVE_MAX_ORPHAN_SLOTS 11
+
+/* 10 minutes in milliseconds. */
+#define FD_RSERVE_SIGNED_REPAIR_WINDOW (60L*10L*1000L)
+
+/* static map from request type to response metric array index */
+static uint response_metric_index[FD_REPAIR_SERDE_TAG_WINDOW_INDEX_FOR_BLOCK_ID + 1] = {
+  [FD_REPAIR_SERDE_TAG_PING]                      = FD_METRICS_ENUM_REPAIR_RESPONSE_TYPE_V_PING_IDX,
+  [FD_REPAIR_SERDE_TAG_WINDOW_INDEX]              = FD_METRICS_ENUM_REPAIR_RESPONSE_TYPE_V_WINDOW_INDEX_IDX,
+  [FD_REPAIR_SERDE_TAG_HIGHEST_WINDOW_INDEX]      = FD_METRICS_ENUM_REPAIR_RESPONSE_TYPE_V_HIGHEST_WINDOW_INDEX_IDX,
+  [FD_REPAIR_SERDE_TAG_ORPHAN]                    = FD_METRICS_ENUM_REPAIR_RESPONSE_TYPE_V_ORPHAN_IDX,
+  [FD_REPAIR_SERDE_TAG_PARENT_AND_FEC_SET_COUNT]  = FD_METRICS_ENUM_REPAIR_RESPONSE_TYPE_V_PARENT_FEC_SET_COUNT_IDX,
+  [FD_REPAIR_SERDE_TAG_FEC_SET_ROOT]              = FD_METRICS_ENUM_REPAIR_RESPONSE_TYPE_V_FEC_SET_ROOT_IDX,
+  [FD_REPAIR_SERDE_TAG_WINDOW_INDEX_FOR_BLOCK_ID] = FD_METRICS_ENUM_REPAIR_RESPONSE_TYPE_V_WINDOW_INDEX_FOR_BLOCK_ID_IDX,
+};
+
+/* static map from request type to received request metric array index */
+static uint request_metric_index[FD_REPAIR_SERDE_TAG_WINDOW_INDEX_FOR_BLOCK_ID + 1] = {
+  [FD_REPAIR_SERDE_TAG_PONG]                      = FD_METRICS_ENUM_REPAIR_REQUEST_TYPE_V_PONG_IDX,
+  [FD_REPAIR_SERDE_TAG_WINDOW_INDEX]              = FD_METRICS_ENUM_REPAIR_REQUEST_TYPE_V_WINDOW_INDEX_IDX,
+  [FD_REPAIR_SERDE_TAG_HIGHEST_WINDOW_INDEX]      = FD_METRICS_ENUM_REPAIR_REQUEST_TYPE_V_HIGHEST_WINDOW_INDEX_IDX,
+  [FD_REPAIR_SERDE_TAG_ORPHAN]                    = FD_METRICS_ENUM_REPAIR_REQUEST_TYPE_V_ORPHAN_IDX,
+  [FD_REPAIR_SERDE_TAG_PARENT_AND_FEC_SET_COUNT]  = FD_METRICS_ENUM_REPAIR_REQUEST_TYPE_V_PARENT_FEC_SET_COUNT_IDX,
+  [FD_REPAIR_SERDE_TAG_FEC_SET_ROOT]              = FD_METRICS_ENUM_REPAIR_REQUEST_TYPE_V_FEC_SET_ROOT_IDX,
+  [FD_REPAIR_SERDE_TAG_WINDOW_INDEX_FOR_BLOCK_ID] = FD_METRICS_ENUM_REPAIR_REQUEST_TYPE_V_WINDOW_INDEX_FOR_BLOCK_ID_IDX,
+};
+
+
+typedef union {
+  struct {
+    fd_wksp_t * mem;
+    ulong       chunk0;
+    ulong       wmark;
+    ulong       mtu;
+  };
+  fd_net_rx_bounds_t net_rx;
+} in_ctx_t;
+
+typedef struct ctx {
+  fd_net_rx_bounds_t net_rx;
+
+  uint     in_kind [ MAX_IN_LINKS ];
+  in_ctx_t in_links[ MAX_IN_LINKS ];
+
+  uint        net_out_idx;
+  fd_wksp_t * net_out_mem;
+  ulong       net_out_chunk0;
+  ulong       net_out_wmark;
+  ulong       net_out_chunk;
+
+  ulong           seed;
+  uchar           rserve_secret[ 32 ];
+  fd_rserve_t *   rserve;
+  fd_blockdb_t *  blockdb; /* NULL if disabled */
+  fd_store_t *    store;
+  int             disk_fd;
+  ulong           max_shreds_per_block;
+
+  /* Used for verifying incoming requests, and signing outgoing responses. */
+  fd_sha512_t sha512[1];
+  fd_keyguard_client_t keyguard_client[1];
+  fd_keyswitch_t * keyswitch;
+  fd_pubkey_t identity_public_key;
+  int halt_signing;
+
+  fd_ip4_udp_hdrs_t serve_hdr[1];
+  ushort            net_id;
+
+  uchar             net_buf[ FD_NET_MTU ];
+  fd_repair_block_t rotor_buf[1];
+
+  struct {
+    ulong received_request_count[FD_METRICS_ENUM_REPAIR_REQUEST_TYPE_CNT];
+    ulong received_request_bytes;
+    ulong received_malformed_count[FD_METRICS_ENUM_REQUEST_MALFORMED_REASON_CNT];
+
+    ulong send_pkt_cnt;
+    ulong sent_pkt_types  [FD_METRICS_ENUM_REPAIR_RESPONSE_TYPE_CNT];
+    ulong sent_response_bytes;
+
+    ulong unanswered      [FD_METRICS_ENUM_REPAIR_REQUEST_TYPE_CNT];
+    ulong dropped  [FD_METRICS_ENUM_REQUEST_DROP_REASON_CNT];
+    ulong disk_read[FD_METRICS_ENUM_DISK_READ_RESULT_CNT];
+    ulong disk_read_bytes;
+    ulong shreds_current;
+    ulong disk_current_bytes;
+    ulong disk_allocated_bytes;
+    fd_histf_t disk_write_timing[1];
+    ulong      disk_inserted;
+    ulong      disk_write_failed;
+    ulong      disk_write_bytes;
+    fd_histf_t fec_preevict_timing[1];
+    ulong      fec_preevict_write_cnt;
+    ulong      fec_preevict_write_bytes;
+
+    ulong ping_cache_entries;
+    ulong ping_cache_capacity;
+    ulong ping_cache_evictions;
+  } metrics[ 1 ];
+} ctx_t;
+
+FD_FN_CONST static inline ulong
+scratch_align( void ) {
+  return 128UL;
+}
+
+FD_FN_PURE static inline ulong
+scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
+  ulong l = FD_LAYOUT_INIT;
+  l = FD_LAYOUT_APPEND( l, alignof(ctx_t),    sizeof(ctx_t) );
+  l = FD_LAYOUT_APPEND( l, fd_rserve_align(), fd_rserve_footprint( tile->rserve.ping_cache_entries) );
+  if( FD_LIKELY( tile->rserve.blockdb_max ) ) {
+    l = FD_LAYOUT_APPEND( l, fd_blockdb_align(), fd_blockdb_footprint( tile->rserve.blockdb_max ) );
+  }
+  return FD_LAYOUT_FINI( l, scratch_align() );
+}
+
+static void
+send_packet( ctx_t               * ctx,
+            fd_stem_context_t    * stem,
+            uint                   dst_ip_addr,
+            ushort                 dst_port,
+            uint                   src_ip_addr,
+            uchar const          * payload,
+            ulong                  payload_sz,
+            ulong                  tsorig ) {
+  ctx->metrics->send_pkt_cnt++;
+  ctx->metrics->sent_response_bytes += payload_sz;
+  uchar * packet = fd_chunk_to_laddr( ctx->net_out_mem, ctx->net_out_chunk );
+  fd_ip4_udp_hdrs_t * hdr = (fd_ip4_udp_hdrs_t *)packet;
+  *hdr = *ctx->serve_hdr;
+
+  fd_ip4_hdr_t * ip4 = hdr->ip4;
+  ip4->saddr       = src_ip_addr;
+  ip4->daddr       = dst_ip_addr;
+  ip4->net_id      = fd_ushort_bswap( ctx->net_id++ );
+  ip4->check       = 0U;
+  ip4->net_tot_len = fd_ushort_bswap( (ushort)(payload_sz + sizeof(fd_ip4_hdr_t)+sizeof(fd_udp_hdr_t)) );
+  ip4->check       = fd_ip4_hdr_check_fast( ip4 );
+
+  fd_udp_hdr_t * udp = hdr->udp;
+  udp->net_dport = dst_port;
+  udp->net_len   = fd_ushort_bswap( (ushort)(payload_sz + sizeof(fd_udp_hdr_t)) );
+  fd_memcpy( packet+sizeof(fd_ip4_udp_hdrs_t), payload, payload_sz );
+  hdr->udp->check = 0U;
+
+  ulong tspub     = fd_frag_meta_ts_comp( fd_tickcount() );
+  ulong sig       = fd_disco_netmux_sig( dst_ip_addr, dst_port, dst_ip_addr, DST_PROTO_OUTGOING, sizeof(fd_ip4_udp_hdrs_t) );
+  ulong packet_sz = payload_sz + sizeof(fd_ip4_udp_hdrs_t);
+  ulong chunk     = ctx->net_out_chunk;
+  fd_stem_publish( stem, ctx->net_out_idx, sig, chunk, packet_sz, 0UL, tsorig, tspub );
+  ctx->net_out_chunk = fd_dcache_compact_next( chunk, packet_sz, ctx->net_out_chunk0, ctx->net_out_wmark );
+}
+
+static inline void
+handle_pong( ctx_t              * ctx,
+             uchar const        * payload,
+             ulong                payload_sz,
+             uint                 saddr,
+             ushort               sport ) {
+  fd_repair_pong_t pong;
+  fd_ed25519_sig_t signature;
+  fd_pubkey_t      from;
+  if( FD_UNLIKELY( fd_repair_pong_de( payload, payload_sz, &pong, signature, &from )!=payload_sz ) ) return;
+
+  if( FD_UNLIKELY( fd_pubkey_eq( &ctx->identity_public_key, &from ) ) ) {
+    /* We've received our own repair request, ignore. */
+    ctx->metrics->dropped[ FD_METRICS_ENUM_REQUEST_DROP_REASON_V_FROM_SELF_IDX ]++;
+    return;
+  }
+
+  if( FD_UNLIKELY( FD_ED25519_SUCCESS!=fd_ed25519_verify( pong.hash.uc, 32UL, signature, from.uc, ctx->sha512 ) ) ) {
+    /* Invalid signature, ignore. */
+    ctx->metrics->dropped[ FD_METRICS_ENUM_REQUEST_DROP_REASON_V_SIGNATURE_FAILED_IDX ]++;
+    return;
+  }
+
+  /* Verify that the pong hash corresponds to the token we would have issued
+     to this (pubkey, address) under either the current or previous rotating
+     secret. */
+  if( FD_UNLIKELY( !fd_rserve_pong_token_verify( ctx->rserve, pong.hash.uc, &from, saddr, sport ) ) ) {
+    ctx->metrics->dropped[ FD_METRICS_ENUM_REQUEST_DROP_REASON_V_PONG_TOKEN_INVALID_IDX ]++;
+    return;
+  }
+
+  fd_rserve_t * rserve = ctx->rserve;
+  ping_cache_key_t key[1];
+  memset( key, 0, sizeof(ping_cache_key_t) );
+  key->pubkey = from;
+  key->ip4    = saddr;
+  key->port   = sport;
+
+  ping_cache_entry_t * entry = ping_map_ele_query( rserve->ping_map, key, NULL, rserve->ping_pool );
+
+  if( FD_LIKELY( !entry ) ) {
+    /* New entry, evict LRU if pool is full. */
+    if( FD_UNLIKELY( !ping_pool_free( rserve->ping_pool ) ) ) {
+      ping_cache_entry_t * victim = ping_dlist_ele_pop_head( rserve->ping_dlist, rserve->ping_pool );
+      ping_map_ele_remove_fast( rserve->ping_map, victim, rserve->ping_pool );
+      ping_pool_ele_release( rserve->ping_pool, victim );
+      ctx->metrics->ping_cache_entries--;
+      ctx->metrics->ping_cache_evictions++;
+    }
+    entry = ping_pool_ele_acquire( rserve->ping_pool );
+    entry->key                = *key;
+    ping_map_ele_insert( rserve->ping_map, entry, rserve->ping_pool );
+    ctx->metrics->ping_cache_entries++;
+  } else {
+    /* Existing entry, move to tail. */
+    ping_dlist_ele_remove( rserve->ping_dlist, entry, rserve->ping_pool );
+  }
+
+  entry->timestamp = (ulong)fd_log_wallclock();
+  ping_dlist_ele_push_tail( rserve->ping_dlist, entry, rserve->ping_pool );
+  return;
+}
+
+static inline void
+handle_net_request( ctx_t             * ctx,
+                    fd_stem_context_t * stem,
+                    uchar const       * payload,
+                    ulong               payload_sz,
+                    fd_udp_hdr_t      * udp,
+                    fd_ip4_hdr_t      * ip4 ) {
+  if( FD_UNLIKELY( payload_sz<4UL ) ) {
+    ctx->metrics->received_malformed_count[ FD_METRICS_ENUM_REQUEST_MALFORMED_REASON_V_TOO_SMALL_IDX ]++;
+    return;
+  }
+  uint tag = FD_LOAD( uint, payload );
+
+  if( FD_UNLIKELY( tag==FD_REPAIR_SERDE_TAG_PONG ) ) {
+    ctx->metrics->received_request_count[ request_metric_index[tag] ]++;
+    ctx->metrics->received_request_bytes += payload_sz;
+    handle_pong( ctx, payload, payload_sz, ip4->saddr, udp->net_sport );
+    return;
+  }
+  /* Block id requests need the blockdb, which only exists when
+     alpenglow is enabled. */
+  int is_bid = tag==FD_REPAIR_SERDE_TAG_PARENT_AND_FEC_SET_COUNT || tag==FD_REPAIR_SERDE_TAG_FEC_SET_ROOT || tag==FD_REPAIR_SERDE_TAG_WINDOW_INDEX_FOR_BLOCK_ID;
+  if( FD_UNLIKELY( tag!=FD_REPAIR_SERDE_TAG_WINDOW_INDEX &&
+                   tag!=FD_REPAIR_SERDE_TAG_HIGHEST_WINDOW_INDEX &&
+                   tag!=FD_REPAIR_SERDE_TAG_ORPHAN &&
+                   !( is_bid && ctx->blockdb ) ) ) {
+    if(      tag==FD_REPAIR_SERDE_TAG_PING            ) ctx->metrics->received_malformed_count[ FD_METRICS_ENUM_REQUEST_MALFORMED_REASON_V_UNSUPPORTED_PING_IDX ]++;
+    else if( tag==FD_REPAIR_SERDE_TAG_ANCESTOR_HASHES ) ctx->metrics->received_malformed_count[ FD_METRICS_ENUM_REQUEST_MALFORMED_REASON_V_UNSUPPORTED_ANCESTOR_HASHES_IDX ]++;
+    else                                                ctx->metrics->received_malformed_count[ FD_METRICS_ENUM_REQUEST_MALFORMED_REASON_V_UNKNOWN_TAG_IDX ]++;
+    return;
+  }
+
+  /* The request must be exactly its kind's size, checked before
+     constructing the signable payload to avoid OOB reads. */
+  fd_ed25519_sig_t signature;
+  fd_pubkey_t      sender;
+  fd_pubkey_t      recipient;
+  ulong            timestamp;
+  uint             nonce;
+  union {
+    fd_repair_shred_t                shred;
+    fd_repair_highest_shred_t        highest_shred;
+    fd_repair_orphan_t               orphan;
+    fd_repair_parent_fec_set_count_t parent_fec_set_count;
+    fd_repair_fec_set_root_t         fec_set_root;
+    fd_repair_shred_for_block_id_t   shred_for_block_id;
+  } req;
+  ulong req_sz = 0UL;
+  switch( tag ) {
+    case FD_REPAIR_SERDE_TAG_WINDOW_INDEX:              req_sz = fd_repair_req_window_index_de             ( payload, payload_sz, &req.shred,                signature, &sender, &recipient, &timestamp, &nonce ); break;
+    case FD_REPAIR_SERDE_TAG_HIGHEST_WINDOW_INDEX:      req_sz = fd_repair_req_highest_window_index_de     ( payload, payload_sz, &req.highest_shred,        signature, &sender, &recipient, &timestamp, &nonce ); break;
+    case FD_REPAIR_SERDE_TAG_ORPHAN:                    req_sz = fd_repair_req_orphan_de                   ( payload, payload_sz, &req.orphan,               signature, &sender, &recipient, &timestamp, &nonce ); break;
+    case FD_REPAIR_SERDE_TAG_PARENT_AND_FEC_SET_COUNT:  req_sz = fd_repair_req_parent_and_fec_set_count_de ( payload, payload_sz, &req.parent_fec_set_count, signature, &sender, &recipient, &timestamp, &nonce ); break;
+    case FD_REPAIR_SERDE_TAG_FEC_SET_ROOT:              req_sz = fd_repair_req_fec_set_root_de             ( payload, payload_sz, &req.fec_set_root,         signature, &sender, &recipient, &timestamp, &nonce ); break;
+    case FD_REPAIR_SERDE_TAG_WINDOW_INDEX_FOR_BLOCK_ID: req_sz = fd_repair_req_window_index_for_block_id_de( payload, payload_sz, &req.shred_for_block_id,   signature, &sender, &recipient, &timestamp, &nonce ); break;
+  }
+  if( FD_UNLIKELY( req_sz!=payload_sz ) ) {
+    ctx->metrics->received_malformed_count[ FD_METRICS_ENUM_REQUEST_MALFORMED_REASON_V_WRONG_SIZE_IDX ]++;
+    return;
+  }
+
+  ctx->metrics->received_request_count[ request_metric_index[tag] ]++;
+  ctx->metrics->received_request_bytes += payload_sz;
+
+  if( FD_UNLIKELY( !fd_pubkey_eq( &ctx->identity_public_key, &recipient ) ) ) {
+    ctx->metrics->dropped[ FD_METRICS_ENUM_REQUEST_DROP_REASON_V_WRONG_RECIPIENT_IDX ]++;
+    return;
+  }
+  if( FD_UNLIKELY( fd_pubkey_eq( &ctx->identity_public_key, &sender ) ) ) {
+    ctx->metrics->dropped[ FD_METRICS_ENUM_REQUEST_DROP_REASON_V_FROM_SELF_IDX ]++;
+    return;
+  }
+
+  long current = FD_NANOSEC_TO_MILLI( fd_log_wallclock() );
+  long ts_diff = current - (long)timestamp;
+  if( FD_UNLIKELY( ts_diff < 0L ) ) ts_diff = -ts_diff;
+  if( FD_UNLIKELY( ts_diff > FD_RSERVE_SIGNED_REPAIR_WINDOW ) ) {
+    ctx->metrics->dropped[ FD_METRICS_ENUM_REQUEST_DROP_REASON_V_TIMESTAMP_SKEW_IDX ]++;
+    return;
+  }
+
+  /* Most requests are for shreds we never stored, probe before doing
+     a full ed25519 verify. */
+  if( FD_LIKELY( tag==FD_REPAIR_SERDE_TAG_WINDOW_INDEX || tag==FD_REPAIR_SERDE_TAG_HIGHEST_WINDOW_INDEX ) ) {
+    fd_repair_shred_t const * msg = &req.shred; /* highest_shred shares its layout */
+    if( FD_UNLIKELY( msg->shred_idx>=ctx->max_shreds_per_block ) ) {
+      ctx->metrics->dropped[ FD_METRICS_ENUM_REQUEST_DROP_REASON_V_SHRED_INDEX_INVALID_IDX ]++;
+      return;
+    }
+    if( FD_LIKELY( !fd_store_disk_probe( ctx->store, msg->slot, tag==FD_REPAIR_SERDE_TAG_WINDOW_INDEX ? (uint)msg->shred_idx : UINT_MAX ) ) ) {
+      ctx->metrics->disk_read[ FD_METRICS_ENUM_DISK_READ_RESULT_V_MISS_IDX ]++;
+      ctx->metrics->unanswered[ request_metric_index[tag] ]++;
+      return;
+    }
+  }
+
+  /* Verify the signature. */
+
+  /* The signed bytes are the tag followed by everything after the
+     signature. */
+  uchar signable[ FD_REPAIR_SIG_SER_MAX ];
+  ulong signable_sz = fd_repair_req_sig_ser( payload, payload_sz, signable );
+
+  if( FD_UNLIKELY( FD_ED25519_SUCCESS!=fd_ed25519_verify( signable, signable_sz, signature, sender.uc, ctx->sha512 ) ) ) {
+    ctx->metrics->dropped[ FD_METRICS_ENUM_REQUEST_DROP_REASON_V_SIGNATURE_FAILED_IDX ]++;
+    return;
+  }
+
+  /* Check whether we've heard a pong response from this peer at this
+     exact source address. Keying on (pubkey, address) means a peer that
+     ponged from one address cannot have repair responses redirected to
+     a spoofed source address. */
+  ping_cache_key_t key[1];
+  memset( key, 0, sizeof(ping_cache_key_t) );
+  key->pubkey = sender;
+  key->ip4    = ip4->saddr;
+  key->port   = udp->net_sport;
+  ping_cache_entry_t * entry = ping_map_ele_query( ctx->rserve->ping_map, key, NULL, ctx->rserve->ping_pool );
+  if( FD_LIKELY( entry ) ) {
+    switch( tag ) {
+      case FD_REPAIR_SERDE_TAG_WINDOW_INDEX:
+      case FD_REPAIR_SERDE_TAG_HIGHEST_WINDOW_INDEX: {
+        fd_repair_shred_t const * msg = &req.shred; /* highest_shred shares its layout */
+
+        ulong slot = msg->slot;
+        ulong shred_idx = msg->shred_idx;
+
+        if( FD_UNLIKELY( shred_idx>=ctx->max_shreds_per_block ) ) {
+          ctx->metrics->dropped[ FD_METRICS_ENUM_REQUEST_DROP_REASON_V_SHRED_INDEX_INVALID_IDX ]++;
+          return;
+        }
+
+        uchar payload[ FD_SHRED_MAX_SZ+sizeof(uint) ];
+        int len;
+        for( ulong retry=0UL;; retry++ ) {
+          if( tag==FD_REPAIR_SERDE_TAG_WINDOW_INDEX ) {
+            len = fd_store_disk_query( ctx->store, ctx->disk_fd, slot, (uint)shred_idx, payload );
+          } else {
+            len = fd_store_disk_query_highest( ctx->store, ctx->disk_fd, slot, (uint)shred_idx, payload );
+          }
+          if( FD_LIKELY( len!=FD_STORE_DISK_QUERY_BUSY || retry==7UL ) ) break;
+          for( ulong pause=0UL; pause<(1UL<<retry); pause++ ) FD_SPIN_PAUSE();
+        }
+        if( FD_UNLIKELY( len<0 ) ) {
+          if(      len==FD_STORE_DISK_QUERY_BUSY      ) ctx->metrics->disk_read[ FD_METRICS_ENUM_DISK_READ_RESULT_V_BUSY_IDX ]++;
+          else if( len==FD_STORE_DISK_QUERY_SCAN_LIMIT) ctx->metrics->disk_read[ FD_METRICS_ENUM_DISK_READ_RESULT_V_SCAN_LIMIT_IDX ]++;
+          else                                          ctx->metrics->disk_read[ FD_METRICS_ENUM_DISK_READ_RESULT_V_MISS_IDX ]++;
+          ctx->metrics->unanswered[ request_metric_index[tag] ]++;
+          return;
+        }
+        ctx->metrics->disk_read[ FD_METRICS_ENUM_DISK_READ_RESULT_V_SUCCESS_IDX ]++;
+        ctx->metrics->disk_read_bytes += (ulong)len;
+
+        fd_memcpy( payload+len, &nonce, sizeof(uint) );
+        send_packet( ctx, stem, ip4->saddr, udp->net_sport, ip4->daddr, payload, (ulong)len+sizeof(uint), fd_frag_meta_ts_comp( fd_tickcount() ) );
+        ctx->metrics->sent_pkt_types[ response_metric_index[tag] ]++;
+        return;
+      }
+      case FD_REPAIR_SERDE_TAG_ORPHAN: {
+        /* Orphan repair works by giving us a "root" slot to start at,
+           and has us walk back through the parent slots sending the
+           highest shred of each slot.
+           We may send up to FD_RSERVE_MAX_ORPHAN_SLOTS of these shreds
+           (including the root one). */
+        fd_repair_orphan_t const * msg = &req.orphan;
+
+        ulong current = msg->slot;
+        for( uint i=0; i<FD_RSERVE_MAX_ORPHAN_SLOTS; i++ ) {
+          uchar payload[ FD_SHRED_MAX_SZ+sizeof(uint) ];
+          int len;
+          for( ulong retry=0UL;; retry++ ) {
+            len = fd_store_disk_query_highest( ctx->store, ctx->disk_fd, current, 0, payload );
+            if( FD_LIKELY( len!=FD_STORE_DISK_QUERY_BUSY || retry==7UL ) ) break;
+            for( ulong pause=0UL; pause<(1UL<<retry); pause++ ) FD_SPIN_PAUSE();
+          }
+          if( FD_UNLIKELY( len<0 ) ) {
+            if(      len==FD_STORE_DISK_QUERY_BUSY      ) ctx->metrics->disk_read[ FD_METRICS_ENUM_DISK_READ_RESULT_V_BUSY_IDX ]++;
+            else if( len==FD_STORE_DISK_QUERY_SCAN_LIMIT) ctx->metrics->disk_read[ FD_METRICS_ENUM_DISK_READ_RESULT_V_SCAN_LIMIT_IDX ]++;
+            else                                          ctx->metrics->disk_read[ FD_METRICS_ENUM_DISK_READ_RESULT_V_MISS_IDX ]++;
+            ctx->metrics->unanswered[ FD_METRICS_ENUM_REPAIR_REQUEST_TYPE_V_ORPHAN_IDX ]++;
+            return;
+          }
+          ctx->metrics->disk_read[ FD_METRICS_ENUM_DISK_READ_RESULT_V_SUCCESS_IDX ]++;
+          ctx->metrics->disk_read_bytes += (ulong)len;
+          fd_shred_t const * shred = (fd_shred_t const *)fd_type_pun_const( payload );
+          memcpy( payload+len, &nonce, sizeof(uint) );
+          send_packet( ctx, stem, ip4->saddr, udp->net_sport, ip4->daddr, payload, (ulong)len+sizeof(uint), fd_frag_meta_ts_comp( fd_tickcount() ) );
+          ctx->metrics->sent_pkt_types[ FD_METRICS_ENUM_REPAIR_RESPONSE_TYPE_V_ORPHAN_IDX ]++;
+          ushort parent_off = shred->data.parent_off;
+          /* fd_shred_parse ensures that parent_off will be 0 if and only if slot is 0 */
+          if( FD_UNLIKELY( parent_off==0 ) ) break;
+          current = current - parent_off;
+        }
+        break;
+      }
+      case FD_REPAIR_SERDE_TAG_PARENT_AND_FEC_SET_COUNT: {
+        /* Serves the block's parent, FEC set count, and the proof of its
+           parent-info leaf, which follows the fec_set_cnt FEC root leaves. */
+        fd_repair_parent_fec_set_count_t const * msg = &req.parent_fec_set_count;
+
+        fd_blockdb_blk_t const * blk = fd_blockdb_query( ctx->blockdb, msg->slot, &msg->block_id );
+        if( FD_UNLIKELY( !blk ) ) {
+          ctx->metrics->unanswered[ request_metric_index[tag] ]++;
+          return;
+        }
+
+        uchar proof[ FD_BLOCKDB_PROOF_NODE_MAX*FD_SHRED_MERKLE_NODE_SZ ];
+        int proof_len = fd_blockdb_proof( ctx->blockdb, blk, blk->fec_set_cnt, proof );
+        FD_TEST( proof_len>=0 );
+
+        uchar buf[ FD_REPAIR_RES_DE_MAX ];
+        ulong sz = fd_repair_res_parent_fec_set_count_ser( blk->fec_set_cnt, blk->parent_slot, &blk->parent_block_id,
+                                                           proof, (ulong)proof_len*FD_SHRED_MERKLE_NODE_SZ, nonce, buf, sizeof(buf) );
+        FD_TEST( sz );
+
+        send_packet( ctx, stem, ip4->saddr, udp->net_sport, ip4->daddr, buf, sz, fd_frag_meta_ts_comp( fd_tickcount() ) );
+        ctx->metrics->sent_pkt_types[ response_metric_index[tag] ]++;
+        return;
+      }
+      case FD_REPAIR_SERDE_TAG_FEC_SET_ROOT: {
+        /* Serves the merkle root prefix of FEC set fec_set_idx and the
+           proof of its leaf. */
+        fd_repair_fec_set_root_t const * msg = &req.fec_set_root;
+
+        fd_blockdb_blk_t const * blk = fd_blockdb_query( ctx->blockdb, msg->slot, &msg->block_id );
+        if( FD_UNLIKELY( !blk ) ) {
+          ctx->metrics->unanswered[ request_metric_index[tag] ]++;
+          return;
+        }
+        if( FD_UNLIKELY( msg->fec_set_idx%FD_FEC_SHRED_CNT || msg->fec_set_idx/FD_FEC_SHRED_CNT>=blk->fec_set_cnt ) ) {
+          ctx->metrics->dropped[ FD_METRICS_ENUM_REQUEST_DROP_REASON_V_FEC_SET_INDEX_INVALID_IDX ]++;
+          return;
+        }
+        ulong leaf_idx = msg->fec_set_idx/FD_FEC_SHRED_CNT;
+
+        uchar proof[ FD_BLOCKDB_PROOF_NODE_MAX*FD_SHRED_MERKLE_NODE_SZ ];
+        int proof_len = fd_blockdb_proof( ctx->blockdb, blk, leaf_idx, proof );
+        FD_TEST( proof_len>=0 );
+
+        uchar buf[ FD_REPAIR_RES_DE_MAX ];
+        ulong sz = fd_repair_res_fec_set_root_ser( blk->merkle_roots[ leaf_idx ], proof, (ulong)proof_len*FD_SHRED_MERKLE_NODE_SZ, nonce, buf, sizeof(buf) );
+        FD_TEST( sz );
+
+        send_packet( ctx, stem, ip4->saddr, udp->net_sport, ip4->daddr, buf, sz, fd_frag_meta_ts_comp( fd_tickcount() ) );
+        ctx->metrics->sent_pkt_types[ response_metric_index[tag] ]++;
+        return;
+      }
+      case FD_REPAIR_SERDE_TAG_WINDOW_INDEX_FOR_BLOCK_ID: {
+        /* Serves the data shred at shred_idx of block (slot, block_id),
+           found by its FEC set's merkle root. */
+        fd_repair_shred_for_block_id_t const * msg = &req.shred_for_block_id;
+
+        fd_blockdb_blk_t const * blk = fd_blockdb_query( ctx->blockdb, msg->slot, &msg->block_id );
+        if( FD_UNLIKELY( !blk ) ) {
+          ctx->metrics->unanswered[ request_metric_index[tag] ]++;
+          return;
+        }
+        if( FD_UNLIKELY( (ulong)msg->shred_idx>=(ulong)blk->fec_set_cnt*FD_FEC_SHRED_CNT ) ) {
+          ctx->metrics->dropped[ FD_METRICS_ENUM_REQUEST_DROP_REASON_V_SHRED_INDEX_INVALID_IDX ]++;
+          return;
+        }
+
+        uchar const * root = blk->merkle_roots[ msg->shred_idx/FD_FEC_SHRED_CNT ];
+        uchar payload[ FD_SHRED_MAX_SZ+sizeof(uint) ];
+        int len;
+        for( ulong retry=0UL;; retry++ ) {
+          len = fd_store_disk_query_root( ctx->store, ctx->disk_fd, root, msg->shred_idx, payload );
+          if( FD_LIKELY( len!=FD_STORE_DISK_QUERY_BUSY || retry==7UL ) ) break;
+          for( ulong pause=0UL; pause<(1UL<<retry); pause++ ) FD_SPIN_PAUSE();
+        }
+        if( FD_UNLIKELY( len<0 ) ) {
+          if( len==FD_STORE_DISK_QUERY_BUSY ) ctx->metrics->disk_read[ FD_METRICS_ENUM_DISK_READ_RESULT_V_BUSY_IDX ]++;
+          else                                ctx->metrics->disk_read[ FD_METRICS_ENUM_DISK_READ_RESULT_V_MISS_IDX ]++;
+          ctx->metrics->unanswered[ request_metric_index[tag] ]++;
+          return;
+        }
+        ctx->metrics->disk_read[ FD_METRICS_ENUM_DISK_READ_RESULT_V_SUCCESS_IDX ]++;
+        ctx->metrics->disk_read_bytes += (ulong)len;
+
+        memcpy( payload+len, &nonce, sizeof(uint) );
+        send_packet( ctx, stem, ip4->saddr, udp->net_sport, ip4->daddr, payload, (ulong)len+sizeof(uint), fd_frag_meta_ts_comp( fd_tickcount() ) );
+        ctx->metrics->sent_pkt_types[ response_metric_index[tag] ]++;
+        return;
+      }
+    }
+  } else {
+        /* Derive a ping token bound to this peer's pubkey and the source
+       address the request arrived from.  The peer can only produce a
+       valid pong if it actually receives this ping at that address. */
+    uchar token[ 32UL ];
+    fd_rserve_ping_token( ctx->rserve, token, &sender, ip4->saddr, udp->net_sport );
+
+    /* Sign the token. */
+    fd_ed25519_sig_t ping_sig;
+    fd_keyguard_client_sign( ctx->keyguard_client, ping_sig, token, 32UL, FD_KEYGUARD_SIGN_TYPE_ED25519 );
+
+    /* Like Agave, block id metadata requests are answered with the
+       BlockIdRepairResponse ping variant, and ShredForBlockId, like the
+       legacy requests, with the RepairResponse one. */
+    uchar buf[ FD_REPAIR_PING_DE_SZ ];
+    ulong sz;
+    if( tag==FD_REPAIR_SERDE_TAG_PARENT_AND_FEC_SET_COUNT || tag==FD_REPAIR_SERDE_TAG_FEC_SET_ROOT ) sz = fd_repair_block_id_ping_ser( &ctx->identity_public_key, (fd_hash_t const *)token, ping_sig, buf );
+    else                                                                                            sz = fd_repair_ping_ser         ( &ctx->identity_public_key, (fd_hash_t const *)token, ping_sig, buf );
+
+    /* Send the ping packet back to the source. */
+    send_packet( ctx, stem, ip4->saddr, udp->net_sport, ip4->daddr, buf, sz, fd_frag_meta_ts_comp( fd_tickcount() ) );
+    ctx->metrics->sent_pkt_types[ FD_METRICS_ENUM_REPAIR_RESPONSE_TYPE_V_PING_IDX ]++;
+  }
+}
+
+
+static inline int
+before_frag( ctx_t * ctx,
+             ulong   in_idx,
+             ulong   seq FD_PARAM_UNUSED,
+             ulong   sig ) {
+  if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_NET ) ) return fd_disco_netmux_sig_proto( sig )!=DST_PROTO_RSERVE;
+  return 0;
+}
+
+static inline void
+during_frag( ctx_t * ctx,
+             ulong   in_idx,
+             ulong   seq FD_PARAM_UNUSED,
+             ulong   sig,
+             ulong   chunk,
+             ulong   sz,
+             ulong   ctl ) {
+  in_ctx_t const * in_ctx = &ctx->in_links[ in_idx ];
+  switch( ctx->in_kind[ in_idx ] ) {
+  case IN_KIND_NET: {
+    uchar const * buffer = fd_net_rx_translate_frag( &in_ctx->net_rx, chunk, ctl, sz );
+    fd_memcpy( ctx->net_buf, buffer, sz );
+    break;
+  }
+  case IN_KIND_ROTOR: {
+    if( FD_UNLIKELY( sig!=ROTOR_SIG_BLOCK ) ) break;
+    if( FD_UNLIKELY( sz<FD_REPAIR_BLOCK_SZ( 0 ) || sz>sizeof(fd_repair_block_t) || chunk<in_ctx->chunk0 || chunk>in_ctx->wmark ) )
+      FD_LOG_ERR(( "rotor_rserve chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, in_ctx->chunk0, in_ctx->wmark ));
+    fd_memcpy( ctx->rotor_buf, fd_chunk_to_laddr_const( in_ctx->mem, chunk ), sz );
+    break;
+  }
+  default: break;
+  }
+}
+
+static inline void
+after_frag( ctx_t *             ctx,
+            ulong               in_idx,
+            ulong               seq    FD_PARAM_UNUSED,
+            ulong               sig,
+            ulong               sz,
+            ulong               tsorig FD_PARAM_UNUSED,
+            ulong               tspub  FD_PARAM_UNUSED,
+            fd_stem_context_t * stem ) {
+  uint in_kind = ctx->in_kind[ in_idx ];
+  if( FD_UNLIKELY( in_kind==IN_KIND_ROTOR ) ) {
+    if( FD_UNLIKELY( sig!=ROTOR_SIG_BLOCK ) ) return;
+    fd_repair_block_t const * msg = ctx->rotor_buf;
+    if( FD_UNLIKELY( sz!=FD_REPAIR_BLOCK_SZ( msg->fec_set_cnt ) ) )
+      FD_LOG_ERR(( "rotor_rserve frag sz %lu does not match fec_set_cnt %u", sz, msg->fec_set_cnt ));
+    FD_TEST( fd_blockdb_insert( ctx->blockdb, msg->slot, &msg->block_id, msg->parent_slot, &msg->parent_block_id,
+                                msg->fec_set_cnt, (uchar const *)msg->merkle_roots ) );
+    return;
+  }
+  if( FD_LIKELY( in_kind!=IN_KIND_NET ) ) return; /* returnable_frag */
+
+  uchar * payload; ulong payload_sz;
+  fd_udp_hdr_t * udp;
+  fd_ip4_hdr_t * ip4;
+  if( FD_UNLIKELY( !fd_ip4_udp_hdr_strip( ctx->net_buf, sz, &payload, &payload_sz, NULL, &ip4, &udp ) ) ) {
+    FD_LOG_WARNING(( "rserve: malformed packet (sz=%lu)", sz ));
+    return;
+  }
+  handle_net_request( ctx, stem, payload, payload_sz, udp, ip4 );
+}
+
+static inline int
+returnable_frag( ctx_t             * ctx,
+                 ulong               in_idx,
+                 ulong               seq FD_PARAM_UNUSED,
+                 ulong               sig,
+                 ulong               chunk,
+                 ulong               sz,
+                 ulong               ctl FD_PARAM_UNUSED,
+                 ulong               tsorig FD_PARAM_UNUSED,
+                 ulong               tspub FD_PARAM_UNUSED,
+                 fd_stem_context_t * stem FD_PARAM_UNUSED ) {
+  uint in_kind = ctx->in_kind[ in_idx ];
+  in_ctx_t const * in_ctx = &ctx->in_links[ in_idx ];
+
+  switch( in_kind ) {
+  case IN_KIND_NET:
+    return ctx->halt_signing; /* after_frag */
+  case IN_KIND_SIGN: return 0; /* handled internally by keyguard_client */
+  case IN_KIND_SHRED: {
+    int shred_result = fd_shred_sig_res( sig );
+    if( FD_UNLIKELY( fd_shred_sig_src( sig )>SHRED_SIG_SRC_BAD_REPAIR ||
+                     (shred_result!=SHRED_SIG_RESULT_OKAY && shred_result!=SHRED_SIG_RESULT_COMPLETES) ) ) return 0;
+    if( FD_UNLIKELY( sz!=sizeof(fd_shred_base_t) || chunk<in_ctx->chunk0 || chunk>in_ctx->wmark ) )
+      FD_LOG_ERR(( "shred_out chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, in_ctx->chunk0, in_ctx->wmark ));
+
+    fd_shred_base_t const * msg   = fd_chunk_to_laddr_const( in_ctx->mem, chunk );
+    fd_shred_t const *      shred = &msg->shred;
+    if( FD_UNLIKELY( !fd_shred_is_data( fd_shred_type( shred->variant ) ) ) ) return 0;
+
+    long dt = -fd_tickcount();
+    int result = fd_store_disk_insert( ctx->store, ctx->disk_fd, shred, &msg->merkle_root );
+    dt += fd_tickcount();
+    fd_histf_sample( ctx->metrics->disk_write_timing, (ulong)dt );
+    if( FD_LIKELY( result==FD_STORE_DISK_INSERT_SUCCESS ) ) {
+      ctx->metrics->disk_inserted++;
+      ctx->metrics->disk_write_bytes += sizeof(fd_shredb_entry_t);
+    } else if( FD_UNLIKELY( result==FD_STORE_DISK_INSERT_ERR ) ) ctx->metrics->disk_write_failed++;
+    return 0;
+  }
+  case IN_KIND_ROTOR: return 0; /* after_frag */
+  default: FD_LOG_ERR(( "unexpected input kind (%u)", in_kind ));
+  }
+}
+
+static inline void
+before_credit( ctx_t             * ctx,
+               fd_stem_context_t * stem FD_PARAM_UNUSED,
+               int               * charge_busy ) {
+  fd_store_fec_spill_stats_t spill[1];
+  if( FD_UNLIKELY( fd_store_fec_data_preevict( ctx->store, ctx->disk_fd, spill ) ) ) {
+    fd_histf_sample( ctx->metrics->fec_preevict_timing, spill->write_ticks );
+    ctx->metrics->fec_preevict_write_cnt   += spill->write_cnt;
+    ctx->metrics->fec_preevict_write_bytes += spill->write_bytes;
+    *charge_busy = 1;
+  }
+}
+
+static inline void
+during_housekeeping( ctx_t * ctx ) {
+  if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->keyswitch )==FD_KEYSWITCH_STATE_UNHALT_PENDING ) ) {
+    FD_LOG_DEBUG(( "keyswitch: unhalting" ));
+    FD_DCHECK_CRIT( ctx->halt_signing, "state machine corruption" );
+    fd_memcpy( ctx->identity_public_key.uc, ctx->keyswitch->bytes, sizeof(fd_pubkey_t) );
+    ctx->halt_signing = 0;
+    fd_keyswitch_state( ctx->keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
+  }
+
+  if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->keyswitch )==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
+    ctx->halt_signing = 1;
+    fd_keyswitch_state( ctx->keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
+  }
+
+  fd_rserve_t * rserve = ctx->rserve;
+  ulong now_ns = (ulong)fd_log_wallclock();
+  fd_rserve_maybe_rotate( rserve, now_ns );
+
+  /* Evict expired entries from the head (oldest) of the LRU list. */
+  while( !ping_dlist_is_empty( rserve->ping_dlist, rserve->ping_pool ) ) {
+    ping_cache_entry_t * head = ping_dlist_ele_peek_head( rserve->ping_dlist, rserve->ping_pool );
+    if( FD_LIKELY( now_ns-head->timestamp <= FD_RSERVE_PING_CACHE_TTL_NS ) ) break;
+    ping_dlist_ele_pop_head( rserve->ping_dlist, rserve->ping_pool );
+    ping_map_ele_remove_fast( rserve->ping_map, head, rserve->ping_pool );
+    ping_pool_ele_release( rserve->ping_pool, head );
+    ctx->metrics->ping_cache_entries--;
+  }
+}
+
+static inline void
+metrics_write( ctx_t * ctx ) {
+  fd_store_fec_cache_stats_t cache_stats[1] = {{0}};
+  if( FD_LIKELY( ctx->store ) ) {
+    fd_store_disk_stats_t stats[1];
+    if( FD_LIKELY( !fd_store_disk_stats_query( ctx->store, stats ) ) ) {
+      ctx->metrics->shreds_current           = stats->shred_cnt;
+      ctx->metrics->disk_current_bytes       = stats->current_bytes;
+      ctx->metrics->disk_allocated_bytes     = stats->allocated_bytes;
+    }
+    fd_store_fec_cache_stats_query( ctx->store, cache_stats );
+  }
+
+  FD_MCNT_ENUM_COPY( RSERVE, REQUEST_RX,                         ctx->metrics->received_request_count   );
+  FD_MCNT_SET      ( RSERVE, REQUEST_RX_BYTES,                   ctx->metrics->received_request_bytes   );
+  FD_MCNT_ENUM_COPY( RSERVE, REQUEST_MALFORMED,                  ctx->metrics->received_malformed_count );
+  FD_MCNT_ENUM_COPY( RSERVE, REQUEST_DROPPED,                    ctx->metrics->dropped                  );
+  FD_MCNT_ENUM_COPY( RSERVE, REQUEST_UNANSWERED,                 ctx->metrics->unanswered               );
+
+  FD_MCNT_SET      ( RSERVE, PKT_TX,                             ctx->metrics->send_pkt_cnt             );
+  FD_MCNT_ENUM_COPY( RSERVE, RESPONSE_TX,                        ctx->metrics->sent_pkt_types           );
+  FD_MCNT_SET      ( RSERVE, RESPONSE_TX_BYTES,                  ctx->metrics->sent_response_bytes      );
+
+  FD_MCNT_ENUM_COPY( RSERVE, DISK_READ_ATTEMPTED,                ctx->metrics->disk_read                );
+  FD_MCNT_SET      ( RSERVE, DISK_READ_BYTES,                    ctx->metrics->disk_read_bytes          );
+  FD_MGAUGE_SET    ( RSERVE, SHRED_USED,                         ctx->metrics->shreds_current           );
+  FD_MGAUGE_SET    ( RSERVE, DISK_USED_BYTES,                    ctx->metrics->disk_current_bytes       );
+  FD_MGAUGE_SET    ( RSERVE, DISK_PEAK_BYTES,                    ctx->metrics->disk_allocated_bytes     );
+  FD_MHIST_COPY    ( RSERVE, DISK_WRITE_DURATION_NANOS,          ctx->metrics->disk_write_timing        );
+  FD_MCNT_SET      ( RSERVE, DISK_SHRED_WRITTEN,                 ctx->metrics->disk_inserted            );
+  FD_MCNT_SET      ( RSERVE, DISK_SHRED_WRITE_FAILED,            ctx->metrics->disk_write_failed        );
+  FD_MCNT_SET      ( RSERVE, DISK_SHRED_WRITTEN_BYTES,           ctx->metrics->disk_write_bytes         );
+  FD_MHIST_COPY    ( RSERVE, STORE_FEC_PREEVICT_DURATION_NANOS,  ctx->metrics->fec_preevict_timing      );
+  FD_MCNT_SET      ( RSERVE, STORE_FEC_PREEVICTED,               ctx->metrics->fec_preevict_write_cnt   );
+  FD_MCNT_SET      ( RSERVE, STORE_FEC_PREEVICTED_BYTES,         ctx->metrics->fec_preevict_write_bytes );
+  FD_MGAUGE_SET    ( RSERVE, STORE_FEC_CACHE_FREE,               cache_stats->free_cnt                  );
+  FD_MGAUGE_SET    ( RSERVE, STORE_FEC_CACHE_CAPACITY,           cache_stats->max                       );
+  FD_MGAUGE_SET    ( RSERVE, STORE_FEC_CACHE_FREE_TARGET,        cache_stats->target                    );
+  FD_MGAUGE_SET    ( RSERVE, STORE_FEC_CACHE_FREE_LOW_WATER,     cache_stats->low_water                 );
+
+  FD_MGAUGE_SET    ( RSERVE, PING_CACHE_USED,                    ctx->metrics->ping_cache_entries       );
+  FD_MGAUGE_SET    ( RSERVE, PING_CACHE_CAPACITY,                ctx->metrics->ping_cache_capacity      );
+  FD_MCNT_SET      ( RSERVE, PING_CACHE_EVICTED,                 ctx->metrics->ping_cache_evictions     );
+}
+
+static void
+privileged_init( fd_topo_t      const * topo,
+                 fd_topo_tile_t const * tile ) {
+  void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+
+  FD_SCRATCH_ALLOC_INIT( l, scratch );
+  ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(ctx_t), sizeof(ctx_t) );
+
+  FD_TEST( fd_rng_secure( &ctx->seed, sizeof(ulong) ) );
+  FD_TEST( fd_rng_secure( ctx->rserve_secret, sizeof(ctx->rserve_secret) ) );
+
+  ctx->disk_fd = -1;
+  ulong store_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "store" );
+  if( FD_LIKELY( store_obj_id!=ULONG_MAX ) ) {
+    fd_store_t * store = fd_store_join( fd_topo_obj_laddr( topo, store_obj_id ) );
+    FD_TEST( store );
+    ctx->disk_fd = FD_STORE_FD_RW;
+    if( FD_UNLIKELY( fcntl( ctx->disk_fd, F_GETFD )<0 ) )
+      FD_LOG_ERR(( "store file descriptor was not inherited (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
+
+  uchar const * identity_public_key = fd_keyload_load( tile->rserve.identity_key_path, /* pubkey only: */ 1 );
+  fd_memcpy( ctx->identity_public_key.uc, identity_public_key, sizeof(fd_pubkey_t) );
+}
+
+static void
+unprivileged_init( fd_topo_t      const * topo,
+                   fd_topo_tile_t const * tile ) {
+  void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+
+  ulong ping_cache_entries = tile->rserve.ping_cache_entries;
+
+  FD_SCRATCH_ALLOC_INIT( l, scratch );
+  ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(ctx_t), sizeof(ctx_t) );
+  ctx->rserve = FD_SCRATCH_ALLOC_APPEND( l, fd_rserve_align(), fd_rserve_footprint( ping_cache_entries ) );
+  void * blockdb_mem = NULL;
+  if( FD_LIKELY( tile->rserve.blockdb_max ) ) {
+    blockdb_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_blockdb_align(), fd_blockdb_footprint( tile->rserve.blockdb_max ) );
+  }
+  FD_TEST( FD_SCRATCH_ALLOC_FINI( l, scratch_align() )==(ulong)scratch + scratch_footprint( tile ) );
+
+  ctx->blockdb = NULL;
+  if( FD_LIKELY( blockdb_mem ) ) {
+    ctx->blockdb = fd_blockdb_join( fd_blockdb_new( blockdb_mem, tile->rserve.blockdb_max, ctx->seed ) );
+    FD_TEST( ctx->blockdb );
+  }
+
+  ctx->store = NULL;
+  ulong store_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "store" );
+  if( FD_LIKELY( store_obj_id!=ULONG_MAX ) ) {
+    ctx->store = fd_store_join( fd_topo_obj_laddr( topo, store_obj_id ) );
+    FD_TEST( ctx->store );
+  }
+  if( FD_UNLIKELY( !ctx->store || !fd_store_has_disk( ctx->store ) ) ) {
+    FD_LOG_ERR(( "rserve requires an enabled store disk layer" ));
+  }
+  if( FD_UNLIKELY( ctx->disk_fd<0 ) ) {
+    FD_LOG_ERR(( "rserve could not open the store disk file" ));
+  }
+
+  ctx->max_shreds_per_block = tile->rserve.max_shreds_per_block;
+  ctx->rserve    = fd_rserve_join   ( fd_rserve_new( ctx->rserve, ping_cache_entries, ctx->seed, ctx->rserve_secret ) );
+  ctx->keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->id_keyswitch_obj_id ) );
+  FD_TEST( ctx->keyswitch );
+
+  fd_memset( ctx->metrics, 0, sizeof(ctx->metrics) );
+  ctx->metrics->ping_cache_capacity = fd_ulong_pow2_up( ping_cache_entries );
+  fd_histf_join( fd_metrics_histf_new_ns( ctx->metrics->disk_write_timing, FD_MHIST_EDGES_NS( RSERVE, DISK_WRITE_DURATION_NANOS ) ) );
+  fd_histf_join( fd_metrics_histf_new_ns( ctx->metrics->fec_preevict_timing, FD_MHIST_EDGES_NS( RSERVE, STORE_FEC_PREEVICT_DURATION_NANOS ) ) );
+  FD_MGAUGE_SET( RSERVE, SHRED_CAPACITY, ctx->store ? ctx->store->disk_max_shreds : 0UL );
+
+  ctx->halt_signing = 0;
+  ctx->net_id = (ushort)0;
+  fd_ip4_udp_hdr_init( ctx->serve_hdr, FD_RSERVE_MAX_PACKET_SIZE, 0, tile->rserve.repair_serve_listen_port );
+  fd_sha512_new( ctx->sha512 );
+
+  ulong sign_in_idx  = fd_topo_find_tile_in_link ( topo, tile, "sign_rserve", tile->kind_id );
+  ulong sign_out_idx = fd_topo_find_tile_out_link( topo, tile, "rserve_sign", tile->kind_id );
+  FD_TEST( sign_in_idx!=ULONG_MAX );
+  fd_topo_link_t const * sign_in = &topo->links[ tile->in_link_id[ sign_in_idx ] ];
+  fd_topo_link_t const * sign_out = &topo->links[ tile->out_link_id[ sign_out_idx ] ];
+
+  fd_sleep_t * sleep = NULL;
+  if( FD_UNLIKELY( topo->sleep_obj_id!=ULONG_MAX ) ) {
+    sleep = fd_sleep_join( fd_topo_obj_laddr( topo, topo->sleep_obj_id ) );
+    FD_TEST( sleep );
+  }
+
+  if( FD_UNLIKELY( !fd_keyguard_client_join( fd_keyguard_client_new( ctx->keyguard_client,
+          sign_out->mcache,
+          sign_out->dcache,
+          sign_in->mcache,
+          sign_in->dcache,
+          sign_out->mtu,
+          sign_in->mtu,
+          sleep,
+          sign_out->id,
+          fd_topo_find_link_consumer( topo, sign_out ) ) ) ) ) {
+    FD_LOG_ERR(( "failed to construct keyguard" ));
+  }
+
+  FD_TEST( tile->in_cnt>=1UL );
+  FD_CHECK_ERR( tile->in_cnt<=MAX_IN_LINKS, "too many input links" );
+  for( ulong in_idx=0UL; in_idx<tile->in_cnt; in_idx++ ) {
+    fd_topo_link_t const * link = &topo->links[ tile->in_link_id[ in_idx ] ];
+    if( 0==strcmp( link->name, "net_rserve" ) ) {
+      ctx->in_kind[ in_idx ] = IN_KIND_NET;
+      fd_net_rx_bounds_init( &ctx->in_links[ in_idx ].net_rx, link->dcache );
+      continue;
+    }
+    else if( 0==strcmp( link->name, "sign_rserve" ) ) ctx->in_kind[ in_idx ] = IN_KIND_SIGN;
+    else if( 0==strcmp( link->name, "shred_out" ) )   ctx->in_kind[ in_idx ] = IN_KIND_SHRED;
+    else if( 0==strcmp( link->name, "rotor_rserve" ) ) {
+      if( FD_UNLIKELY( !ctx->blockdb ) ) FD_LOG_ERR(( "rserve has a rotor_rserve link but blockdb_max is 0" ));
+      ctx->in_kind[ in_idx ] = IN_KIND_ROTOR;
+    }
+    else FD_LOG_ERR(( "rserve tile has unexpected input link: %s", link->name ));
+
+    ctx->in_links[ in_idx ].mem    = topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ].wksp;
+    ctx->in_links[ in_idx ].chunk0 = fd_dcache_compact_chunk0( ctx->in_links[ in_idx ].mem, link->dcache );
+    ctx->in_links[ in_idx ].wmark  = fd_dcache_compact_wmark ( ctx->in_links[ in_idx ].mem, link->dcache, link->mtu );
+    ctx->in_links[ in_idx ].mtu    = link->mtu;
+  }
+
+  ctx->net_out_idx = UINT_MAX;
+  for( uint out_idx=0U; out_idx<tile->out_cnt; out_idx++ ) {
+    fd_topo_link_t const * link = &topo->links[ tile->out_link_id[ out_idx ] ];
+    if( 0==strcmp( link->name, "rserve_net" ) ) {
+      if( ctx->net_out_idx!=UINT_MAX ) continue; /* only use the first net link */
+      ctx->net_out_idx    = out_idx;
+      ctx->net_out_mem    = topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ].wksp;
+      ctx->net_out_chunk0 = fd_dcache_compact_chunk0( ctx->net_out_mem, link->dcache );
+      ctx->net_out_wmark  = fd_dcache_compact_wmark( ctx->net_out_mem, link->dcache, link->mtu );
+      ctx->net_out_chunk  = ctx->net_out_chunk0;
+    }
+    else if( 0==strcmp( link->name, "rserve_sign" ) ) { /* Handled above for keyguard. */ }
+    else FD_LOG_ERR(( "rserve tile has unexpected output link: %s", link->name ));
+  }
+  if( FD_UNLIKELY( ctx->net_out_idx==UINT_MAX ) ) FD_LOG_ERR(( "Missing rserve_net output link" ));
+}
+
+static ulong
+populate_allowed_seccomp( fd_topo_t const *      topo FD_PARAM_UNUSED,
+                          fd_topo_tile_t const * tile FD_PARAM_UNUSED,
+                          ulong                  out_cnt,
+                          struct sock_filter *   out ) {
+  void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+  FD_SCRATCH_ALLOC_INIT( l, scratch );
+  ctx_t * ctx     = FD_SCRATCH_ALLOC_APPEND( l, alignof(ctx_t), sizeof(ctx_t) );
+  populate_sock_filter_policy_fd_rserve_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)ctx->disk_fd );
+  return sock_filter_policy_fd_rserve_tile_instr_cnt;
+}
+
+static ulong
+populate_allowed_fds( fd_topo_t const *      topo FD_PARAM_UNUSED,
+                      fd_topo_tile_t const * tile FD_PARAM_UNUSED,
+                      ulong                  out_fds_cnt,
+                      int *                  out_fds ) {
+  void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+  FD_SCRATCH_ALLOC_INIT( l, scratch );
+  ctx_t * ctx     = FD_SCRATCH_ALLOC_APPEND( l, alignof(ctx_t), sizeof(ctx_t) );
+
+  if( FD_UNLIKELY( out_fds_cnt<3UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+
+  ulong out_cnt = 0UL;
+  out_fds[ out_cnt++ ] = 2; /* stderr */
+  if( FD_LIKELY( -1!=fd_log_private_logfile_fd() ) )
+    out_fds[ out_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
+  if( FD_LIKELY( ctx->disk_fd>=0 ) )
+    out_fds[ out_cnt++ ] = ctx->disk_fd;
+  return out_cnt;
+}
+
+/* For orphan responses, we may send up to 11 net packets out.
+   All other implemented codepaths will send at most 1. */
+#define STEM_BURST FD_RSERVE_MAX_ORPHAN_SLOTS
+#define STEM_LAZY (64000UL)
+
+#define STEM_CALLBACK_CONTEXT_TYPE  ctx_t
+#define STEM_CALLBACK_CONTEXT_ALIGN alignof(ctx_t)
+#define STEM_CALLBACK_DURING_HOUSEKEEPING during_housekeeping
+#define STEM_CALLBACK_METRICS_WRITE       metrics_write
+#define STEM_CALLBACK_BEFORE_CREDIT       before_credit
+#define STEM_CALLBACK_BEFORE_FRAG         before_frag
+#define STEM_CALLBACK_DURING_FRAG         during_frag
+#define STEM_CALLBACK_RETURNABLE_FRAG     returnable_frag
+#define STEM_CALLBACK_AFTER_FRAG          after_frag
+
+#include "../../disco/stem/fd_stem.c"
+
+fd_topo_run_tile_t fd_tile_rserve = {
+  .name                     = "rserve",
+  .populate_allowed_seccomp = populate_allowed_seccomp,
+  .populate_allowed_fds     = populate_allowed_fds,
+  .scratch_align            = scratch_align,
+  .scratch_footprint        = scratch_footprint,
+  .privileged_init          = privileged_init,
+  .unprivileged_init        = unprivileged_init,
+  .run                      = stem_run,
+};

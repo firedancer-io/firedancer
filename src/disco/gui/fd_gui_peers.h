@@ -21,9 +21,9 @@
 #include "../../disco/metrics/generated/fd_metrics_enums.h"
 #include "../../flamenco/gossip/fd_gossip_message.h"
 #include "../../flamenco/leaders/fd_leaders_base.h"
+#include "../../flamenco/alpenglow/fd_block_marker.h"
 
 #include "../../waltz/http/fd_http_server.h"
-#include "../../discof/restore/utils/fd_ssmsg.h"
 #include "../topo/fd_topo.h"
 #include "../../util/fd_hash32.h"
 
@@ -136,15 +136,8 @@ typedef struct fd_gui_peers_metric_rate fd_gui_peers_metric_rate_t;
 
 struct fd_gui_peers_voter {
   fd_vote_stake_weight_t weight;
-  ulong vote_slot;
 };
 typedef struct fd_gui_peers_voter fd_gui_peers_voter_t;
-
-struct fd_gui_peers_voter_idx {
-  fd_pubkey_t key;
-  ulong       idx;
-};
-typedef struct fd_gui_peers_voter_idx fd_gui_peers_voter_idx_t;
 
 /* fd_gui_peers_row_t holds all of the per-peer state that is read when
    formatting websocket viewport messages snapshotted into a client's
@@ -157,15 +150,15 @@ struct fd_gui_peers_row {
   fd_gossip_contact_info_t contact_info;
   char name[ FD_GUI_CONFIG_PARSE_VALIDATOR_INFO_NAME_SZ + 1UL ];
 
-  fd_gui_peers_metric_rate_t gossvf_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_CNT ];
-  fd_gui_peers_metric_rate_t gossip_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_CNT ];
+  fd_gui_peers_metric_rate_t gossvf_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_TYPE_CNT ];
+  fd_gui_peers_metric_rate_t gossip_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_TYPE_CNT ];
   fd_gui_peers_metric_rate_t gossvf_rx_sum; /* sum of gossvf_rx */
   fd_gui_peers_metric_rate_t gossip_tx_sum; /* sum of gossip_tx */
 
   int         has_vote_info;
   fd_pubkey_t vote_account;
-  int         delinquent;
   ulong       stake;
+  int         delinquent;
 
   uchar       country_code_idx;
   uint        city_name_idx;
@@ -249,17 +242,17 @@ struct fd_gui_peers_gossip_stats {
   ulong storage_capacity;
   ulong storage_expired_cnt;
   ulong storage_evicted_cnt;
-  ulong storage_active_cnt[ FD_METRICS_ENUM_CRDS_VALUE_CNT ];
-  ulong storage_cnt_tx    [ FD_METRICS_ENUM_CRDS_VALUE_CNT ];
-  ulong storage_bytes_tx  [ FD_METRICS_ENUM_CRDS_VALUE_CNT ];
+  ulong storage_active_cnt[ FD_METRICS_ENUM_CRDS_VALUE_TYPE_CNT ];
+  ulong storage_cnt_tx    [ FD_METRICS_ENUM_CRDS_VALUE_TYPE_CNT ];
+  ulong storage_bytes_tx  [ FD_METRICS_ENUM_CRDS_VALUE_TYPE_CNT ];
   ulong messages_push_rx_cnt;
   ulong messages_push_tx_cnt;
   ulong messages_pull_response_rx_cnt;
   ulong messages_pull_response_tx_cnt;
-  ulong messages_bytes_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_CNT ];
-  ulong messages_count_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_CNT ];
-  ulong messages_bytes_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_CNT ];
-  ulong messages_count_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_CNT ];
+  ulong messages_bytes_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_TYPE_CNT ];
+  ulong messages_count_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_TYPE_CNT ];
+  ulong messages_bytes_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_TYPE_CNT ];
+  ulong messages_count_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_TYPE_CNT ];
 };
 typedef struct fd_gui_peers_gossip_stats fd_gui_peers_gossip_stats_t;
 
@@ -334,10 +327,10 @@ static int live_table_col_stake_lt ( void const * a, void const * b ) { return f
   LIVE_TABLE_COL_ENTRY( "Name",         row.name,                                                                     live_table_col_name_lt   ), \
   LIVE_TABLE_COL_ENTRY( "Country",      row.country_code_idx,                                                         live_table_col_uchar_lt  ), \
   LIVE_TABLE_COL_ENTRY( "IP Addr",      row.contact_info.sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].ip4,         live_table_col_ipv4_lt   ), \
-  LIVE_TABLE_COL_ENTRY( "Ingress Push", row.gossvf_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PUSH_IDX ].rate_ema.value,          live_table_col_double_lt ), \
-  LIVE_TABLE_COL_ENTRY( "Ingress Pull", row.gossvf_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PULL_RESPONSE_IDX ].rate_ema.value, live_table_col_double_lt ), \
-  LIVE_TABLE_COL_ENTRY( "Egress Push",  row.gossip_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PUSH_IDX ].rate_ema.value,          live_table_col_double_lt ), \
-  LIVE_TABLE_COL_ENTRY( "Egress Pull",  row.gossip_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PULL_RESPONSE_IDX ].rate_ema.value, live_table_col_double_lt ), )
+  LIVE_TABLE_COL_ENTRY( "Ingress Push", row.gossvf_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_TYPE_V_PUSH_IDX ].rate_ema.value,          live_table_col_double_lt ), \
+  LIVE_TABLE_COL_ENTRY( "Ingress Pull", row.gossvf_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_TYPE_V_PULL_RESPONSE_IDX ].rate_ema.value, live_table_col_double_lt ), \
+  LIVE_TABLE_COL_ENTRY( "Egress Push",  row.gossip_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_TYPE_V_PUSH_IDX ].rate_ema.value,          live_table_col_double_lt ), \
+  LIVE_TABLE_COL_ENTRY( "Egress Pull",  row.gossip_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_TYPE_V_PULL_RESPONSE_IDX ].rate_ema.value, live_table_col_double_lt ), )
 #include "fd_gui_live_table_tmpl.c"
 
 #define FD_GUI_PEERS_LIVE_TABLE_DEFAULT_SORT_KEY ((fd_gui_peers_live_table_sort_key_t){ .col = { 0, 1, 2, 3, 4, 5, 6, 7, 8 }, .dir = { -1, -1, -1, -1, -1, -1, -1, -1, -1 } })
@@ -390,18 +383,22 @@ struct fd_gui_peers_ctx {
   fd_gui_peers_gossip_stats_t gossip_stats  [ 1 ];
   fd_gui_peers_node_t contact_info_table[ FD_CONTACT_INFO_TABLE_SIZE ];
 
-  ulong slot_voted; /* last vote slot for this validator */
-
-  /* stakes is sorted descending by identity pubkey.  vote_idx is sorted
-     descending by vote account pubkey, each entry pointing back into
-     the stakes array. */
+  /* stakes is sorted descending by identity pubkey. */
   struct {
     ulong epoch;
+    ulong start_slot;
 
     ulong                    stakes_cnt;
     fd_gui_peers_voter_t     stakes  [ MAX_STAKE_WEIGHTS ];
-    fd_gui_peers_voter_idx_t vote_idx[ MAX_STAKE_WEIGHTS ];
   } epochs[ 2 ];
+
+  struct {
+    ulong epoch;        /* ULONG_MAX if none */
+    ulong last_settled; /* highest reward slot seen */
+    ulong stamp_since;  /* first stamped reward slot of epoch, ULONG_MAX if none */
+    int   reconcile;    /* peers may hold vote info absent from epoch's stakes */
+    ulong last_voted[ FD_BLS_SET_MAX ];
+  } delinquency;
 
   union {
     struct {
@@ -409,13 +406,8 @@ struct fd_gui_peers_ctx {
       ulong idxs   [ FD_CONTACT_INFO_TABLE_SIZE ];
     };
     struct {
-      ulong wfs_peers[ FD_RUNTIME_MAX_SNAPSHOT_VOTE_ACCOUNTS ];
+      ulong wfs_peers[ MAX_STAKE_WEIGHTS ];
     };
-    struct {
-      fd_stake_weight_t      manifest_id_weights  [ FD_RUNTIME_MAX_SNAPSHOT_VOTE_ACCOUNTS ];
-      fd_vote_stake_weight_t manifest_vote_weights[ FD_RUNTIME_MAX_SNAPSHOT_VOTE_ACCOUNTS ];
-    };
-    fd_gui_peers_voter_t voters_scratch[ MAX_STAKE_WEIGHTS ];
     struct {
       fd_gui_peers_row_t viewport    [ FD_GUI_PEERS_WS_VIEWPORT_MAX_SZ ]; /* new rows snapshotted from live_table */
       fd_gui_peers_row_t viewport_ref[ FD_GUI_PEERS_WS_VIEWPORT_MAX_SZ ]; /* old baseline, diff reference */
@@ -427,7 +419,7 @@ struct fd_gui_peers_ctx {
   fd_gui_ip_db_t dbip;
 
   int               wfs_enabled;
-  fd_gui_wfs_peer_t wfs_peers[ FD_RUNTIME_MAX_SNAPSHOT_VOTE_ACCOUNTS ];
+  fd_gui_wfs_peer_t wfs_peers[ MAX_STAKE_WEIGHTS ];
   ulong             wfs_peers_cnt;
   int               wfs_peers_valid;
   int               wfs_stakes_sent;
@@ -435,11 +427,6 @@ struct fd_gui_peers_ctx {
 };
 
 typedef struct fd_gui_peers_ctx fd_gui_peers_ctx_t;
-
-/* FIXME: see src/discof/restore/utils/fd_ssmsg.h */
-FD_STATIC_ASSERT( sizeof(((fd_gui_peers_ctx_t *)NULL)->wfs_peers)/sizeof(((fd_gui_peers_ctx_t *)NULL)->wfs_peers[0])==
-                  sizeof(((struct fd_snapshot_manifest *)NULL)->vote_accounts)/sizeof(((struct fd_snapshot_manifest *)NULL)->vote_accounts[0]),
-                  wfs_peers_vote_accounts );
 
 FD_PROTOTYPES_BEGIN
 
@@ -481,24 +468,6 @@ fd_gui_peers_handle_gossip_update( fd_gui_peers_ctx_t *               peers,
                                    fd_gossip_update_message_t const * update,
                                    long                               now );
 
-void
-fd_gui_peers_handle_vote( fd_gui_peers_ctx_t * peers,
-                          fd_pubkey_t const *  vote_account,
-                          ulong                vote_slot,
-                          int                  is_us );
-
-/* fd_gui_peers_handle_identity_change invalidates/resets state from the
-   previous identity.  Namely, it resets the vote slot. */
-void
-fd_gui_peers_handle_identity_change( fd_gui_peers_ctx_t * peers );
-
-/* fd_gui_peers_update_delinquency is called infrequently (currently,
-   once per slot) and scans the cluster for any nodes that are
-   delinquent, publishing delinquency updates to the frontend. */
-void
-fd_gui_peers_update_delinquency( fd_gui_peers_ctx_t * peers,
-                                 long                 now );
-
 /* fd_gui_peers_handle_epoch_info is called at the epoch boundary and
    publishes updates for peer stake information. */
 void
@@ -506,18 +475,25 @@ fd_gui_peers_handle_epoch_info( fd_gui_peers_ctx_t *        peers,
                                 fd_epoch_info_msg_t const * epoch_info,
                                 long                        now );
 
+/* fd_gui_peers_handle_slot_completed stamps the reward cert signers in
+   footer (slot's block footer) and publishes peers whose delinquency
+   changed.  epoch is slot's epoch. */
+void
+fd_gui_peers_handle_slot_completed( fd_gui_peers_ctx_t *      peers,
+                                    ulong                     slot,
+                                    ulong                     epoch,
+                                    fd_block_footer_t const * footer );
+
 void
 fd_gui_peers_handle_config_account( fd_gui_peers_ctx_t *  peers,
                                     uchar const *         data,
-                                    ulong                 sz );
+                                    ulong                 sz,
+                                    ulong                 slot );
 
 void
-fd_gui_peers_stage_snapshot_manifest( fd_gui_peers_ctx_t *           peers,
-                                      fd_snapshot_manifest_t const * manifest,
-                                      long                           now );
-
-void
-fd_gui_peers_commit_snapshot_manifest( fd_gui_peers_ctx_t * peers );
+fd_gui_peers_start_wfs( fd_gui_peers_ctx_t *        peers,
+                        fd_epoch_info_msg_t const * epoch_info,
+                        long                        now );
 
 /* fd_gui_peers_ws_message handles incoming websocket request payloads
    requesting peer-related responses.  ws_conn_id is the connection id

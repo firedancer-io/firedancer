@@ -137,8 +137,9 @@ fd_progcache_rec_release( fd_progcache_join_t * join,
                           fd_progcache_rec_t *  rec );
 
 /* fd_progcache_rec_abandon releases an in-flight record that was never
-   published to the map: a peer owns the key, at this revision or another.  The
-   caller holds the read lock from fd_progcache_rec_acquire; abandon
+   published to the map, e.g. after losing a same-revision insert race
+   or during housekeeping eviction.  The caller holds the read lock
+   from fd_progcache_rec_acquire; abandon
    upgrades it to a write lock (draining transient speculative readers of
    a previous incarnation of this record) and releases. */
 

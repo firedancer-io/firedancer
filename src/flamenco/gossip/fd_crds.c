@@ -10,6 +10,8 @@
 struct fd_crds_contact_info_entry {
   fd_gossip_contact_info_t contact_info[1];
   long                     received_wallclock_nanos;
+  uchar                    is_me;
+  uchar                    is_entrypoint;
 
   fd_crds_entry_t *        crds_entry; /* Back-pointer to CRDS pool entry */
 
@@ -30,8 +32,7 @@ struct fd_crds_contact_info_entry {
   } fresh_dlist;
 
   /* Similar to fresh_dlist, but with a 15s timeout instead.
-     Additionally, fresh_dlist explicitly excludes our own contact info
-     while fresh_15s_dlist includes it. */
+     Both lists include our own contact info when it is indexed. */
   struct {
     ulong prev;
     ulong next;
@@ -103,7 +104,7 @@ struct fd_crds_entry_private {
   uchar  value_bytes[ FD_GOSSIP_VALUE_MAX_SZ ];
   uchar  value_hash[ 32UL ];
 
-  ulong num_duplicates;
+  ulong num_push_recv;
   ulong stake;
 
   struct {
@@ -151,9 +152,24 @@ struct fd_crds_entry_private {
     uint  prev;
     uint  next;
   } expire;
+
+  /* Relays of one key are coalesced to one per FD_CRDS_RELAY_COALESCE_NANOS:
+     a version arriving sooner waits in relay_treap, ordered by due time,
+     and only the latest one is pushed.  nanos is the last relay time, or
+     the due time while pending. */
+  struct {
+    long nanos;
+    uint parent;
+    uint left;
+    uint right;
+    uint prio;
+    int  pending;
+  } relay;
 };
 
-FD_STATIC_ASSERT( sizeof(fd_crds_entry_t)==1352UL, crds_entry_footprint );
+FD_STATIC_ASSERT( sizeof(fd_crds_entry_t)==1384UL, crds_entry_footprint );
+
+#define FD_CRDS_RELAY_COALESCE_NANOS (100L*1000L*1000L)
 
 #define POOL_NAME   crds_pool
 #define POOL_T      fd_crds_entry_t
@@ -201,6 +217,19 @@ FD_STATIC_ASSERT( sizeof(fd_crds_entry_t)==1352UL, crds_entry_footprint );
 #define DLIST_NEXT      expire.next
 
 #include "../../util/tmpl/fd_dlist.c"
+
+#define TREAP_NAME      relay_treap
+#define TREAP_T         fd_crds_entry_t
+#define TREAP_QUERY_T   void *
+#define TREAP_CMP(q,e)  (__extension__({ (void)(q); (void)(e); -1; }))
+#define TREAP_IDX_T     uint
+#define TREAP_LT(e0,e1) ((e0)->relay.nanos<(e1)->relay.nanos)
+#define TREAP_PARENT    relay.parent
+#define TREAP_LEFT      relay.left
+#define TREAP_RIGHT     relay.right
+#define TREAP_PRIO      relay.prio
+
+#include "../../util/tmpl/fd_treap.c"
 
 /* fresh_15s_dlist tracks all contact info crds entries from the last
    15 seconds. */
@@ -306,6 +335,7 @@ struct fd_crds_private {
 
   fd_ip4_port_t entrypoints[ 16UL ];
   ulong         entrypoints_cnt;
+  ulong         entrypoint_fresh_cnt;
 
   fd_crds_entry_t * pool;
   fd_crds_contact_info_entry_t * ci_pool;
@@ -313,6 +343,7 @@ struct fd_crds_private {
   evict_treap_t *           evict_treap;
   staked_expire_dlist_t *   staked_expire_dlist;
   unstaked_expire_dlist_t * unstaked_expire_dlist;
+  relay_treap_t *           relay_treap;
   ci_fresh_15s_dlist_t *    ci_fresh_15s_dlist;
   lookup_map_t *            lookup_map;
   fd_gossip_hset_t *        hset;
@@ -344,6 +375,7 @@ fd_crds_footprint( ulong ele_max ) {
   l = FD_LAYOUT_APPEND( l, evict_treap_align(),                   evict_treap_footprint( ele_max )                               );
   l = FD_LAYOUT_APPEND( l, staked_expire_dlist_align(),           staked_expire_dlist_footprint()                                );
   l = FD_LAYOUT_APPEND( l, unstaked_expire_dlist_align(),         unstaked_expire_dlist_footprint()                              );
+  l = FD_LAYOUT_APPEND( l, relay_treap_align(),                   relay_treap_footprint( ele_max )                               );
   l = FD_LAYOUT_APPEND( l, ci_fresh_15s_dlist_align(),            ci_fresh_15s_dlist_footprint()                                 );
   l = FD_LAYOUT_APPEND( l, lookup_map_align(),                    lookup_map_footprint( ele_max )                                );
   l = FD_LAYOUT_APPEND( l, fd_gossip_hset_align(),                fd_gossip_hset_footprint( ele_max )                            );
@@ -401,6 +433,7 @@ fd_crds_new( void *                       shmem,
   void * _evict_treap           = FD_SCRATCH_ALLOC_APPEND( l, evict_treap_align(),                   evict_treap_footprint( ele_max )                               );
   void * _staked_expire_dlist   = FD_SCRATCH_ALLOC_APPEND( l, staked_expire_dlist_align(),           staked_expire_dlist_footprint()                                );
   void * _unstaked_expire_dlist = FD_SCRATCH_ALLOC_APPEND( l, unstaked_expire_dlist_align(),         unstaked_expire_dlist_footprint()                              );
+  void * _relay_treap           = FD_SCRATCH_ALLOC_APPEND( l, relay_treap_align(),                   relay_treap_footprint( ele_max )                               );
   void * _ci_fresh_15s_dlist    = FD_SCRATCH_ALLOC_APPEND( l, ci_fresh_15s_dlist_align(),            ci_fresh_15s_dlist_footprint()                                 );
   void * _lookup_map            = FD_SCRATCH_ALLOC_APPEND( l, lookup_map_align(),                    lookup_map_footprint( ele_max )                                );
   void * _hset                  = FD_SCRATCH_ALLOC_APPEND( l, fd_gossip_hset_align(),                fd_gossip_hset_footprint( ele_max )                            );
@@ -425,6 +458,10 @@ fd_crds_new( void *                       shmem,
 
   crds->unstaked_expire_dlist = unstaked_expire_dlist_join( unstaked_expire_dlist_new( _unstaked_expire_dlist ) );
   FD_TEST( crds->unstaked_expire_dlist );
+
+  crds->relay_treap = relay_treap_join( relay_treap_new( _relay_treap, ele_max ) );
+  FD_TEST( crds->relay_treap );
+  relay_treap_seed( crds->pool, ele_max, fd_rng_ulong( rng ) );
 
   crds->ci_fresh_15s_dlist = ci_fresh_15s_dlist_join( ci_fresh_15s_dlist_new( _ci_fresh_15s_dlist ) );
   FD_TEST( crds->ci_fresh_15s_dlist );
@@ -455,6 +492,7 @@ fd_crds_new( void *                       shmem,
   FD_TEST( entrypoints_cnt<=16UL );
   for( ulong i=0UL; i<entrypoints_cnt; i++ ) crds->entrypoints[ i ] = entrypoints[ i ];
   crds->entrypoints_cnt = entrypoints_cnt;
+  crds->entrypoint_fresh_cnt = 0UL;
 
   memset( crds->metrics, 0, sizeof(fd_crds_metrics_t) );
 
@@ -515,7 +553,10 @@ crds_unindex( fd_crds_t *       crds,
     else                            crds->metrics->peer_unstaked_cnt--;
     crds->metrics->peer_visible_stake -= entry->stake;
 
-    if( FD_LIKELY( entry->ci->fresh_dlist.in_list ) ) crds_contact_info_fresh_list_ele_remove( crds->ci_fresh_dlist, entry->ci, crds->ci_pool );
+    if( FD_LIKELY( entry->ci->fresh_dlist.in_list ) ) {
+      crds_contact_info_fresh_list_ele_remove( crds->ci_fresh_dlist, entry->ci, crds->ci_pool );
+      crds->entrypoint_fresh_cnt -= entry->ci->is_entrypoint;
+    }
     if( FD_LIKELY( entry->ci->fresh_15s_dlist.in_list ) ) {
       ci_fresh_15s_dlist_ele_remove( crds->ci_fresh_15s_dlist, entry->ci, crds->ci_pool );
       crds->activity_update_fn( crds->activity_update_fn_ctx, (fd_pubkey_t const *)entry->key.pubkey, entry->ci->contact_info, FD_GOSSIP_ACTIVITY_CHANGE_TYPE_INACTIVE );
@@ -540,6 +581,13 @@ crds_index( fd_crds_t *       crds,
     if( FD_LIKELY( entry->stake ) ) crds->metrics->peer_staked_cnt++;
     else                            crds->metrics->peer_unstaked_cnt++;
     crds->metrics->peer_visible_stake += entry->stake;
+
+    fd_gossip_socket_t const * sock = &entry->ci->contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ];
+    entry->ci->is_entrypoint = 0;
+    for( ulong i=0UL; !entry->ci->is_me && i<crds->entrypoints_cnt; i++ ) {
+      entry->ci->is_entrypoint |= (uchar)( !sock->is_ipv6 && sock->ip4==crds->entrypoints[ i ].addr && sock->port==crds->entrypoints[ i ].port );
+    }
+    crds->entrypoint_fresh_cnt += entry->ci->is_entrypoint;
 
     ci_evict_treap_ele_insert( crds->ci_evict_treap, entry->ci, crds->ci_pool );
     crds_contact_info_fresh_list_ele_push_tail( crds->ci_fresh_dlist, entry->ci, crds->ci_pool );
@@ -576,6 +624,7 @@ crds_release( fd_crds_t *         crds,
               int                 evicting,
               fd_stem_context_t * stem ) {
   crds_unindex( crds, entry );
+  if( FD_UNLIKELY( entry->relay.pending ) ) relay_treap_ele_remove( crds->relay_treap, entry, crds->pool );
   fd_gossip_purged_insert_replaced( crds->purged, entry->value_hash, now );
 
   if( FD_UNLIKELY( entry->key.tag==FD_GOSSIP_VALUE_CONTACT_INFO ) ) {
@@ -677,6 +726,7 @@ unfresh( fd_crds_t * crds,
     head = crds_contact_info_fresh_list_ele_pop_head( crds->ci_fresh_dlist, crds->ci_pool );
     FD_TEST( head->fresh_dlist.in_list );
     head->fresh_dlist.in_list = 0;
+    crds->entrypoint_fresh_cnt -= head->is_entrypoint;
 
     fd_gossip_wsample_fresh( crds->wsample, crds_contact_info_pool_idx( crds->ci_pool, head ), 0 );
     if( charge_busy ) *charge_busy = 1;
@@ -696,6 +746,30 @@ unfresh( fd_crds_t * crds,
   }
 }
 
+/* uncoalesce pushes the latest version of each key whose relay was
+   held back and is now due. */
+
+static inline void
+uncoalesce( fd_crds_t *         crds,
+            long                now,
+            fd_stem_context_t * stem,
+            int *               charge_busy ) {
+  ulong now_ms = (ulong)FD_NANOSEC_TO_MILLI( now );
+  while( relay_treap_ele_cnt( crds->relay_treap ) ) {
+    fd_crds_entry_t * head = relay_treap_fwd_iter_ele( relay_treap_fwd_iter_init( crds->relay_treap, crds->pool ), crds->pool );
+    if( FD_LIKELY( head->relay.nanos>now ) ) break;
+    relay_treap_ele_remove( crds->relay_treap, head, crds->pool );
+    head->relay.pending = 0;
+    if( FD_UNLIKELY( head->wallclock+15000UL<now_ms || head->wallclock>now_ms+15000UL ) ) {
+      head->relay.nanos -= FD_CRDS_RELAY_COALESCE_NANOS; /* back to the last relay, none went out */
+      continue;
+    }
+    head->relay.nanos = now;
+    fd_active_set_push( crds->active_set, head->value_bytes, head->value_sz, head->key.pubkey, head->stake, stem, now, 0 );
+    if( charge_busy ) *charge_busy = 1;
+  }
+}
+
 void
 fd_crds_advance( fd_crds_t *         crds,
                  long                now,
@@ -703,6 +777,7 @@ fd_crds_advance( fd_crds_t *         crds,
                  int *               charge_busy ) {
   expire( crds, now, stem, charge_busy );
   unfresh( crds, now, charge_busy );
+  uncoalesce( crds, now, stem, charge_busy );
 }
 
 static inline void
@@ -714,7 +789,6 @@ publish_update_msg( fd_crds_t *               crds,
                     fd_stem_context_t *       stem ) {
   FD_TEST( stem );
   if( FD_LIKELY( entry->key.tag!=FD_GOSSIP_VALUE_CONTACT_INFO    &&
-                 entry->key.tag!=FD_GOSSIP_VALUE_VOTE            &&
                  entry->key.tag!=FD_GOSSIP_VALUE_DUPLICATE_SHRED &&
                  entry->key.tag!=FD_GOSSIP_VALUE_SNAPSHOT_HASHES ) ) {
     return;
@@ -723,7 +797,6 @@ publish_update_msg( fd_crds_t *               crds,
   int tag;
   switch( entry->key.tag ) {
     case FD_GOSSIP_VALUE_CONTACT_INFO:    tag = FD_GOSSIP_UPDATE_TAG_CONTACT_INFO;    break;
-    case FD_GOSSIP_VALUE_VOTE:            tag = FD_GOSSIP_UPDATE_TAG_VOTE;            break;
     case FD_GOSSIP_VALUE_DUPLICATE_SHRED: tag = FD_GOSSIP_UPDATE_TAG_DUPLICATE_SHRED; break;
     default:                              tag = FD_GOSSIP_UPDATE_TAG_SNAPSHOT_HASHES; break;
   }
@@ -743,33 +816,6 @@ publish_update_msg( fd_crds_t *               crds,
       *msg->contact_info->value = *entry->ci->contact_info;
       msg->contact_info->idx = crds_contact_info_pool_idx( crds->ci_pool, entry->ci );
       sz = FD_GOSSIP_UPDATE_SZ_CONTACT_INFO;
-      break;
-    case FD_GOSSIP_VALUE_VOTE:
-      /* TODO: dynamic sizing */
-      sz = FD_GOSSIP_UPDATE_SZ_VOTE;
-      fd_crds_key_t lookup_ci;
-      lookup_ci.tag = FD_GOSSIP_VALUE_CONTACT_INFO;
-      fd_memcpy( &lookup_ci.pubkey, entry->key.pubkey, sizeof(fd_pubkey_t) );
-      fd_crds_entry_t * ci = lookup_map_ele_query( crds->lookup_map, &lookup_ci, NULL, crds->pool );
-
-      if( FD_LIKELY( ci && ci->key.tag == FD_GOSSIP_VALUE_CONTACT_INFO ) ) {
-        msg->vote->socket->is_ipv6 = ci->ci->contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].is_ipv6;
-        if( msg->vote->socket->is_ipv6 ) {
-          fd_memcpy( msg->vote->socket->ip6, ci->ci->contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].ip6, 16UL );
-        } else {
-          msg->vote->socket->ip4 = ci->ci->contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].ip4;
-        }
-        msg->vote->socket->port = ci->ci->contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].port;
-      } else {
-        msg->vote->socket->is_ipv6 = 0;
-        msg->vote->socket->ip4 = 0;
-        msg->vote->socket->port = 0;
-      }
-
-      msg->vote->first_seen_nanos = now;
-      msg->vote->value->index = entry->key.vote_index;
-      msg->vote->value->transaction_len = entry_view->vote->transaction_len;
-      fd_memcpy( msg->vote->value->transaction, entry_view->vote->transaction, entry_view->vote->transaction_len );
       break;
     case FD_GOSSIP_VALUE_DUPLICATE_SHRED:
       /* TODO: dynamic sizing */
@@ -846,8 +892,11 @@ fd_crds_insert( fd_crds_t *               crds,
                 ulong                     origin_stake,
                 int                       origin_ping_tracked,
                 int                       is_me,
-                long                      now ,
-                fd_stem_context_t *       stem ) {
+                int                       is_push,
+                long                      now,
+                fd_stem_context_t *       stem,
+                int *                     opt_relay ) {
+  if( opt_relay ) *opt_relay = 0;
   fd_crds_key_t candidate_key = {
     .tag = (uchar)value->tag,
   };
@@ -868,21 +917,23 @@ fd_crds_insert( fd_crds_t *               crds,
     fd_sha256_hash( value_bytes, value_bytes_len, value_hash );
 
     incumbent = crds_acquire( crds, value->tag==FD_GOSSIP_VALUE_CONTACT_INFO, now, stem );
-    incumbent->key = candidate_key;
+    incumbent->key           = candidate_key;
+    incumbent->relay.nanos   = now-FD_CRDS_RELAY_COALESCE_NANOS;
+    incumbent->relay.pending = 0;
     if( FD_UNLIKELY( value->tag==FD_GOSSIP_VALUE_CONTACT_INFO ) ) {
       fd_gossip_wsample_add( crds->wsample, crds_contact_info_pool_idx( crds->ci_pool, incumbent->ci ), origin_stake, origin_ping_tracked, is_me );
     }
   } else {
     /* Fast duplicate check by signature before computing expensive
        sha256 hash. */
-    if( FD_UNLIKELY( fd_ulong_load_8( incumbent->value_bytes )==fd_ulong_load_8( value->signature ) ) ) return (long)(++incumbent->num_duplicates);
+    if( FD_UNLIKELY( fd_ulong_load_8( incumbent->value_bytes )==fd_ulong_load_8( value->signature ) ) ) return is_push ? (long)(1UL+incumbent->num_push_recv++) : 1L;
 
     fd_sha256_hash( value_bytes, value_bytes_len, value_hash );
     switch( crds_compare( incumbent, value ) ) {
       case -1: break; /* upserting */
       case 0: {
         int result = memcmp( value_hash, incumbent->value_hash, 32UL );
-        if( FD_UNLIKELY( !result ) ) return (long)(++incumbent->num_duplicates);
+        if( FD_UNLIKELY( !result ) ) return is_push ? (long)(1UL+incumbent->num_push_recv++) : 1L;
         else if( FD_UNLIKELY( result<0 ) ) {
           fd_gossip_purged_insert_failed_insert( crds->purged, value_hash, now );
           return -1L; /* stale */
@@ -909,7 +960,7 @@ fd_crds_insert( fd_crds_t *               crds,
 
   incumbent->wallclock              = value->wallclock;
   incumbent->stake                  = origin_stake;
-  incumbent->num_duplicates         = 0UL;
+  incumbent->num_push_recv          = (ulong)!!is_push;
   incumbent->expire.wallclock_nanos = now;
   incumbent->value_sz               = (ushort)value_bytes_len;
   fd_memcpy( incumbent->value_bytes, value_bytes, value_bytes_len );
@@ -920,6 +971,7 @@ fd_crds_insert( fd_crds_t *               crds,
   } else if( FD_UNLIKELY( value->tag==FD_GOSSIP_VALUE_CONTACT_INFO ) ) {
     *incumbent->ci->contact_info            = *value->contact_info;
     incumbent->ci->received_wallclock_nanos = now;
+    incumbent->ci->is_me                    = (uchar)!!is_me;
   }
 
   crds_index( crds, incumbent );
@@ -928,6 +980,20 @@ fd_crds_insert( fd_crds_t *               crds,
 
   publish_update_msg( crds, incumbent, value, ci_changed, now, stem );
 
+  if( FD_UNLIKELY( incumbent->relay.pending ) ) {
+    crds->metrics->relay_coalesced_cnt++;
+    return 0L;
+  }
+  ulong now_ms = (ulong)FD_NANOSEC_TO_MILLI( now );
+  if( FD_UNLIKELY( !opt_relay || value->wallclock+15000UL<now_ms || value->wallclock>now_ms+15000UL ) ) return 0L;
+  if( FD_LIKELY( now-incumbent->relay.nanos>=FD_CRDS_RELAY_COALESCE_NANOS ) ) {
+    incumbent->relay.nanos = now;
+    *opt_relay = 1;
+  } else {
+    incumbent->relay.pending = 1;
+    incumbent->relay.nanos  += FD_CRDS_RELAY_COALESCE_NANOS;
+    relay_treap_ele_insert( crds->relay_treap, incumbent, crds->pool );
+  }
   return 0L;
 }
 
@@ -957,6 +1023,11 @@ fd_crds_hset( fd_crds_t const * crds ) {
 ulong
 fd_crds_peer_count( fd_crds_t const * crds ){
   return crds_contact_info_pool_used( crds->ci_pool );
+}
+
+ulong
+fd_crds_entrypoint_fresh_cnt( fd_crds_t const * crds ) {
+  return crds->entrypoint_fresh_cnt;
 }
 
 fd_gossip_contact_info_t const *

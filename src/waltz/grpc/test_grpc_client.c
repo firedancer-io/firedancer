@@ -14,6 +14,7 @@ main( int     argc,
 #else
 
 #include "fd_grpc_client_private.h"
+#include "../h2/fd_hpack.h"
 #include "../../util/tmpl/fd_unit_test.c"
 
 #include <errno.h>
@@ -329,6 +330,37 @@ FD_UNIT_TEST( stream_send_state ) {
   fd_grpc_client_stream_release( client, stream );
 }
 
+FD_UNIT_TEST( request_scheme ) {
+  for( int https=0; https<=1; https++ ) {
+    fd_grpc_client_set_https( client, https );
+    for( int encoded=0; encoded<=1; encoded++ ) {
+      fd_grpc_client_reset( client );
+      test_grpc_client_mock_conn( client );
+      test_empty_msg_t msg = {0};
+      fd_grpc_h2_stream_t * stream;
+      if( encoded ) stream = fd_grpc_client_request_start1( client, "/test", 5UL, 0UL, NULL, 0UL, NULL, 0UL, 1 );
+      else          stream = fd_grpc_client_request_start ( client, "/test", 5UL, 0UL, &test_empty_msg_t_msg, &msg, NULL, 0UL, 1 );
+      FD_TEST( stream );
+
+      uchar buf[ 4096 ];
+      ulong sz = fd_h2_rbuf_used_sz( client->frame_tx );
+      FD_TEST( sz<=sizeof(buf) && sz>sizeof(fd_h2_frame_hdr_t) );
+      fd_h2_rbuf_pop_copy( client->frame_tx, buf, sz );
+      ulong hdr_sz = ((ulong)buf[0]<<16) | ((ulong)buf[1]<<8) | (ulong)buf[2];
+      FD_TEST( buf[3]==FD_H2_FRAME_TYPE_HEADERS && hdr_sz<=sz-sizeof(fd_h2_frame_hdr_t) );
+      fd_hpack_rd_t rd[1];
+      fd_hpack_rd_init( rd, buf+sizeof(fd_h2_frame_hdr_t), hdr_sz );
+      fd_h2_hdr_t hdr[1];
+      uchar * scratch = NULL;
+      FD_TEST( !fd_hpack_rd_next( rd, hdr, &scratch, 0UL ) ); /* :method */
+      FD_TEST( !fd_hpack_rd_next( rd, hdr, &scratch, 0UL ) );
+      FD_TEST( hdr->name_len==7UL && fd_memeq( hdr->name, ":scheme", 7UL ) );
+      FD_TEST( hdr->value_len==(https ? 5UL : 4UL) );
+      FD_TEST( fd_memeq( hdr->value, https ? "https" : "http", hdr->value_len ) );
+    }
+  }
+}
+
 FD_UNIT_TEST( stream_close_state ) {
   fd_grpc_client_reset( client );
   test_grpc_client_mock_conn( client );
@@ -402,6 +434,41 @@ FD_UNIT_TEST( rx_headers ) {
   FD_TEST( g_rx_start_cnt==2 );
   FD_TEST( g_rx_end_cnt  ==2 ); /* FIXME does it make sense to issue rx_end without rx_start? */
   FD_TEST( client->stream_cnt==0 );
+}
+
+FD_UNIT_TEST( compression_flags ) {
+  uchar const flags[] = {0,1,2,255};
+  for( ulong i=0UL; i<sizeof(flags); i++ ) for( int fragmented=0; fragmented<2; fragmented++ ) {
+    fd_grpc_client_reset( client );
+    test_grpc_client_mock_conn( client );
+    fd_grpc_h2_stream_t * stream = fd_grpc_client_stream_acquire( client, 1234UL );
+    stream->hdrs.h2_status = 200U;
+    stream->hdrs.is_grpc_proto = 1U;
+    stream->hdrs_received = 1;
+    uint const stream_id = stream->s.stream_id;
+    uchar data[] = {flags[i],0,0,0,1,'x'};
+    ulong const msgs = g_rx_msg_cnt;
+    ulong const ends = g_rx_end_cnt;
+    if( fragmented ) {
+      test_rx_frame( FD_H2_FRAME_TYPE_DATA, 0U, stream_id, data, 1UL );
+      FD_TEST( g_rx_msg_cnt==msgs && g_rx_end_cnt==ends && client->stream_cnt==1UL );
+    }
+    ulong off = fragmented ? 1UL : 0UL;
+    test_rx_frame( FD_H2_FRAME_TYPE_DATA, 0U, stream_id, data+off, sizeof(data)-off );
+    if( flags[i] ) {
+      FD_TEST( g_rx_msg_cnt==msgs && g_rx_end_cnt==ends+1UL );
+      FD_TEST( g_cb_request_ctx==1234UL && g_cb_resp_hdrs.grpc_status==FD_GRPC_STATUS_INTERNAL );
+      FD_TEST( !client->stream_cnt && !client->conn->stream_active_cnt[1] );
+      fd_h2_rst_stream_t rst;
+      FD_TEST( fd_h2_rbuf_used_sz( client->frame_tx )==sizeof(rst) );
+      fd_h2_rbuf_pop_copy( client->frame_tx, &rst, sizeof(rst) );
+      FD_TEST( rst.error_code==fd_uint_bswap( FD_H2_ERR_INTERNAL ) );
+    } else {
+      FD_TEST( g_rx_msg_cnt==msgs+1UL && g_rx_end_cnt==ends && client->stream_cnt==1UL );
+      fd_h2_stream_reset( &stream->s, client->conn );
+      fd_grpc_client_stream_release( client, stream );
+    }
+  }
 }
 
 FD_UNIT_TEST( error_data_end_stream_releases_stream ) {
@@ -599,11 +666,11 @@ FD_UNIT_TEST( grpc_stream_error_releases_h2_quota ) {
   FD_TEST( fd_uint_bswap( rst_stream.hdr.r_stream_id )==stream_id );
   FD_TEST( fd_uint_bswap( rst_stream.error_code )==FD_H2_ERR_INTERNAL );
 
-  /* Corrupt headers once END_STREAM closed the stream: no RST_STREAM */
+  /* Invalid :status once END_STREAM closed the stream: no RST_STREAM */
   ulong const rx_end_cnt = g_rx_end_cnt;
   stream = fd_grpc_client_stream_acquire( client, 2UL );
   fd_h2_stream_close_tx( &stream->s, client->conn );
-  test_rx_frame( FD_H2_FRAME_TYPE_HEADERS, FD_H2_FLAG_END_STREAM|FD_H2_FLAG_END_HEADERS, stream->s.stream_id, (uchar const *)"corrupt", 7UL );
+  test_rx_frame( FD_H2_FRAME_TYPE_HEADERS, FD_H2_FLAG_END_STREAM|FD_H2_FLAG_END_HEADERS, stream->s.stream_id, (uchar const *)"\x08\x03" "2x0", 5UL );
   FD_TEST( g_rx_end_cnt==rx_end_cnt+1UL && !client->stream_cnt && fd_h2_rbuf_is_empty( client->frame_tx ) );
 
   /* Zero stream WINDOW_UPDATE: one RST_STREAM, request ended */
@@ -848,7 +915,7 @@ FD_UNIT_TEST( request_deadlines_under_tx_backpressure ) {
   test_rx_frame( FD_H2_FRAME_TYPE_HEADERS,    FD_H2_FLAG_END_HEADERS|FD_H2_FLAG_END_STREAM, live->s.stream_id, (uchar const *)"\x88", 1UL );
   test_rx_frame( FD_H2_FRAME_TYPE_DATA,       FD_H2_FLAG_END_STREAM,                        peer->s.stream_id, (uchar const *)"", 0UL );
   test_rx_frame( FD_H2_FRAME_TYPE_RST_STREAM, 0U,                                           peer->s.stream_id, (uchar const *)"\0\0\0\0", 4UL );
-  test_rx_frame( FD_H2_FRAME_TYPE_HEADERS,    FD_H2_FLAG_END_HEADERS,                       bad->s.stream_id,  (uchar const *)"corrupt", 7UL );
+  test_rx_frame( FD_H2_FRAME_TYPE_HEADERS,    FD_H2_FLAG_END_HEADERS,                       bad->s.stream_id,  (uchar const *)"\x08\x03" "2x0", 5UL ); /* :status: 2x0 */
   FD_TEST( !g_rx_end_cnt && client->stream_cnt==2UL && fd_h2_rbuf_used_sz( client->frame_tx )==sizeof(fd_h2_rst_stream_t) );
 
   fd_grpc_client_service_streams( client, 1235L );

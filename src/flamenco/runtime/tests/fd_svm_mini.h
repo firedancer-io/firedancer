@@ -60,7 +60,6 @@ typedef struct fd_svm_mini fd_svm_mini_t;
 struct fd_svm_mini_limits {
   /* fork management */
   ulong max_live_slots;
-  ulong max_fork_width;
 
   /* consensus */
   ulong max_vote_accounts;
@@ -107,6 +106,13 @@ struct fd_svm_mini_params {
      stake and populates the epoch leader schedule.  For each validator,
      creates identity, vote, and stake accounts in the accounts DB. */
   ulong mock_validator_cnt;
+
+  /* Vote stakes fields for every mock validator.  A NULL
+     mock_block_collector keeps the node account default, and
+     mock_block_collector_self uses the validator's own vote account. */
+  ushort              mock_block_revenue_commission_bps;
+  fd_pubkey_t const * mock_block_collector;
+  int                 mock_block_collector_self;
 
   /* Sysvar overrides */
   fd_sol_sysvar_clock_t const * clock;
@@ -159,7 +165,6 @@ FD_FN_UNUSED static fd_svm_mini_limits_t *
 fd_svm_mini_limits_default( fd_svm_mini_limits_t * limits ) {
   *limits = (fd_svm_mini_limits_t) {
     .max_live_slots           = 16UL,
-    .max_fork_width           = 4UL,
     .max_vote_accounts        = 256UL,
     .max_stake_accounts       = 256UL,
     .max_disk_records            = 4096UL,
@@ -204,6 +209,9 @@ fd_svm_mini_params_default( fd_svm_mini_params_t * params ) {
     .init_feature_accounts  = 0,
     .init_builtins          = 1,
     .mock_validator_cnt     = 1UL,
+    .mock_block_revenue_commission_bps = FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS,
+    .mock_block_collector              = NULL,
+    .mock_block_collector_self         = 0,
     .clock                  = NULL,
     .epoch_schedule         = NULL,
     .rent                   = NULL,

@@ -549,17 +549,17 @@ FD_UNIT_TEST( test_newest_snap ) {
   FD_TEST( newest_snap( test_ctx, 0 )->key.slot==300UL );
   FD_TEST( newest_snap( test_ctx, 0 )->key.slot==300UL ); /* served from cache */
 
-  /* incrementals are tracked independently of fulls */
+  /* only incrementals built on the newest full count */
   open_snap( 310UL, 300UL, 3UL, 1UL, 4UL, 1 );
   open_snap( 320UL, 300UL, 4UL, 1UL, 5UL, 1 );
-  open_snap( 305UL, 100UL, 5UL, 1UL, 6UL, 1 );
+  open_snap( 330UL, 100UL, 5UL, 1UL, 6UL, 1 );
   FD_TEST( newest_snap( test_ctx, 0 )->key.slot==300UL );
   FD_TEST( newest_snap( test_ctx, 1 )->key.slot==320UL );
   FD_TEST( newest_snap( test_ctx, 1 )->key.base_slot==300UL );
 
-  /* adding a full snapshot must not disturb the incremental answer */
+  /* a newer full without an incremental yet hides the older incrementals */
   open_snap( 400UL, ULONG_MAX, 6UL, 1UL, 7UL, 1 );
-  FD_TEST( newest_snap( test_ctx, 1 )->key.slot==320UL );
+  FD_TEST( !newest_snap( test_ctx, 1 ) );
   FD_TEST( newest_snap( test_ctx, 0 )->key.slot==400UL );
 
   /* removing the newest falls back to the runner up */
@@ -576,7 +576,7 @@ FD_UNIT_TEST( test_newest_snap ) {
 
   /* drain the incrementals; the full answer must be unaffected */
   snap_close( test_ctx, 310UL, 300UL );
-  snap_close( test_ctx, 305UL, 100UL );
+  snap_close( test_ctx, 330UL, 100UL );
   FD_TEST( !newest_snap( test_ctx, 1 ) );
   FD_TEST( newest_snap( test_ctx, 0 )->key.slot==300UL );
 
@@ -585,6 +585,10 @@ FD_UNIT_TEST( test_newest_snap ) {
   FD_TEST( newest_snap( test_ctx, 0 )->key.slot==100UL );
   snap_close( test_ctx, 100UL, ULONG_MAX );
   FD_TEST( !newest_snap( test_ctx, 0 ) );
+  FD_TEST( !newest_snap( test_ctx, 1 ) );
+
+  /* an incremental with no full is not served */
+  open_snap( 110UL, 100UL, 0UL, 1UL, 9UL, 1 );
   FD_TEST( !newest_snap( test_ctx, 1 ) );
 
   /* the returned entry is the live map slot, not a copy */

@@ -93,6 +93,7 @@ fd_grpc_client_new( void *                             mem,
     .frame_rx_buf_max  = buf_max,
     .frame_tx_buf      = frame_tx_buf,
     .frame_tx_buf_max  = buf_max,
+    .https             = 1,
     .metrics           = metrics
   };
 
@@ -141,6 +142,12 @@ fd_grpc_client_set_authority( fd_grpc_client_t * client,
   fd_cstr_fini( fd_cstr_append_text( fd_cstr_init( client->host ), host, host_len ) );
   client->host_len = (uchar)host_len;
   client->port     = (ushort)port;
+}
+
+void
+fd_grpc_client_set_https( fd_grpc_client_t * client,
+                          int                https ) {
+  client->https = !!https;
 }
 
 int
@@ -603,7 +610,7 @@ fd_grpc_client_request_start(
     .port     = client->port,
     .path     = path,
     .path_len = path_len,
-    .https    = 1, /* grpc_client assumes TLS encryption for now */
+    .https    = client->https,
 
     .bearer_auth     = auth_token,
     .bearer_auth_len = auth_token_sz
@@ -689,7 +696,7 @@ fd_grpc_client_request_start1(
     .port     = client->port,
     .path     = path,
     .path_len = path_len,
-    .https    = 1, /* grpc_client assumes TLS encryption for now */
+    .https    = client->https,
 
     .bearer_auth     = auth_token,
     .bearer_auth_len = auth_token_sz
@@ -795,7 +802,7 @@ fd_grpc_client_stream_send_msg1(
 
   /* Copy protobuf to buffer after gRPC header */
   uchar * proto_buf = client->nanopb_tx + sizeof(fd_grpc_hdr_t);
-  memcpy( proto_buf, protobuf, protobuf_sz );
+  if( protobuf!=proto_buf ) memcpy( proto_buf, protobuf, protobuf_sz );
 
   /* Create gRPC length prefix */
   fd_grpc_hdr_t hdr = {
@@ -834,6 +841,15 @@ fd_grpc_client_stream_close(
 
   FD_LOG_DEBUG(( "gRPC stream_close stream_id=%u", stream->s.stream_id ));
 
+  return 1;
+}
+
+int
+fd_grpc_client_stream_cancel( fd_grpc_client_t *    client,
+                              fd_grpc_h2_stream_t * stream ) {
+  if( FD_UNLIKELY( fd_h2_rbuf_free_sz( client->frame_tx )<sizeof(fd_h2_rst_stream_t) ) ) return 0;
+  fd_h2_stream_error( &stream->s, client->conn, client->frame_tx, FD_H2_ERR_CANCEL );
+  fd_grpc_client_stream_release( client, stream );
   return 1;
 }
 
@@ -956,7 +972,14 @@ fd_grpc_h2_cb_data(
       data_sz -= hdr_frag_sz;
       if( FD_UNLIKELY( stream->msg_buf_used < sizeof(fd_grpc_hdr_t) ) ) goto check_end_stream;
 
-      /* Header complete */
+      /* Header complete.  Message compression is not supported. */
+      if( FD_UNLIKELY( stream->msg_buf[0] ) ) {
+        stream->hdrs.grpc_status = FD_GRPC_STATUS_INTERNAL;
+        fd_h2_stream_error( h2_stream, conn, client->frame_tx, FD_H2_ERR_INTERNAL );
+        client->callbacks->rx_end( client->ctx, stream->request_ctx, &stream->hdrs );
+        fd_grpc_client_stream_release( client, stream );
+        return;
+      }
       stream->msg_sz = fd_uint_bswap( FD_LOAD( uint, (void *)( (ulong)stream->msg_buf+1 ) ) );
       if( FD_UNLIKELY( sizeof(fd_grpc_hdr_t)  + stream->msg_sz > stream->msg_buf_max ) ) {
         FD_LOG_WARNING(( "Received oversized gRPC message (%lu bytes), killing request", stream->msg_sz ));

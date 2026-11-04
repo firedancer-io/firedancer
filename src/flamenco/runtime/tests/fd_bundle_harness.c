@@ -76,12 +76,14 @@ fd_solfuzz_pb_bundle_ctx_create( fd_solfuzz_runner_t *                 runner,
   runner->bank->f.slot_params.slots_per_year = SECONDS_PER_YEAR * (1000000000.0 / (double)6250000) / (double)(runner->bank->f.ticks_per_slot);
   runner->bank->f.slot_params_default        = runner->bank->f.slot_params;
 
-  fd_sysvar_cache_restore_fuzz( runner->bank, runner->accdb );
+  fd_sysvar_cache_t * sysvar_cache = runner->runtime->sysvar_cache;
+  fd_sysvar_cache_restore_fuzz( sysvar_cache, runner->accdb, runner->bank->accdb_fork_id );
+  runner->runtime->sysvar_bank_seq = runner->bank->bank_seq;
 
-  FD_TEST( fd_sysvar_cache_epoch_schedule_read( &runner->bank->f.sysvar_cache, &runner->bank->f.epoch_schedule ) );
+  FD_TEST( fd_sysvar_cache_epoch_schedule_read( sysvar_cache, &runner->bank->f.epoch_schedule ) );
   runner->bank->f.epoch = fd_slot_to_epoch( &runner->bank->f.epoch_schedule, slot, NULL );
 
-  FD_TEST( fd_sysvar_cache_rent_read( &runner->bank->f.sysvar_cache, &runner->bank->f.rent ) );
+  FD_TEST( fd_sysvar_cache_rent_read( sysvar_cache, &runner->bank->f.rent ) );
 
   runner->bank->f.alpenglow_migration_slot = fd_alpenglow_migration_slot( runner->bank, accdb );
 

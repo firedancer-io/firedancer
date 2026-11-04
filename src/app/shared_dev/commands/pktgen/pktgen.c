@@ -56,13 +56,13 @@ pktgen_topo( config_t * config ) {
 
   fd_topob_wksp( topo, "metric" );
   fd_topob_wksp( topo, "metric_in" );
-  fd_topos_net_tiles( topo, net_tile_cnt, &config->net, config->tiles.netlink.max_routes, config->tiles.netlink.max_peer_routes, config->tiles.netlink.max_neighbors, 0, tile_to_cpu );
-  fd_topob_tile( topo, "metric",  "metric", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0, 0, 1 );
+  fd_topos_net_tiles( topo, net_tile_cnt, &config->net, config->tiles.netlink.max_routes, config->tiles.netlink.max_peer_routes, config->tiles.netlink.max_neighbors, tile_to_cpu );
+  fd_topob_tile( topo, "metric",  "metric", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0, 1 );
 
   char const * net_tile_name = fd_net_tile_name( config->net.provider );
 
   fd_topob_wksp( topo, "pktgen" );
-  fd_topo_tile_t * pktgen_tile = fd_topob_tile( topo, "pktgen", "pktgen", "pktgen", tile_to_cpu[ topo->tile_cnt ], 0, 0, 0, 0 );
+  fd_topo_tile_t * pktgen_tile = fd_topob_tile( topo, "pktgen", "pktgen", "pktgen", tile_to_cpu[ topo->tile_cnt ], 0, 0, 0 );
   if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( config->development.pktgen.fake_dst_ip, &pktgen_tile->pktgen.fake_dst_ip ) ) ) {
     FD_LOG_ERR(( "Invalid [development.pktgen.fake_dst_ip]" ));
   }
@@ -79,8 +79,7 @@ pktgen_topo( config_t * config ) {
   }
 
 
-  if( FD_UNLIKELY( is_auto_affinity ) ) fd_topob_auto_layout( topo, 0 );
-  topo->agave_affinity_cnt = 0;
+  if( FD_UNLIKELY( is_auto_affinity ) ) fd_topob_auto_layout( topo );
   fd_topob_waker( topo );
   fd_topob_finish( topo, CALLBACKS );
   fd_topo_print_log( /* stdout */ 1, topo );
@@ -171,33 +170,45 @@ get_net_stats( ulong volatile const * net_metrics[ FD_TOPO_MAX_TILES ],
     ulong tx_byte_now = 0;
 
     if( 0==strcmp( provider, "xdp" ) ) {
-      stats->rx_bufs_idle = metrics[ MIDX( GAUGE, NET, RX_BUFFER_IDLE ) ];
-      stats->rx_bufs_busy = metrics[ MIDX( GAUGE, NET, RX_BUFFER_BUSY ) ];
-      stats->tx_bufs_idle = metrics[ MIDX( GAUGE, NET, TX_BUFFER_IDLE ) ];
-      stats->tx_bufs_busy = metrics[ MIDX( GAUGE, NET, TX_BUFFER_BUSY ) ];
+      stats->rx_bufs_idle = metrics[ MIDX( GAUGE, NET, RX_BUFFER_FREE ) ];
+      stats->rx_bufs_busy = metrics[ MIDX( GAUGE, NET, RX_BUFFER_USED ) ];
+      stats->tx_bufs_idle = metrics[ MIDX( GAUGE, NET, TX_BUFFER_FREE ) ];
+      stats->tx_bufs_busy = metrics[ MIDX( GAUGE, NET, TX_BUFFER_USED ) ];
 
       rx_ok_now     = metrics[ MIDX( COUNTER, NET, PKT_RX                    ) ];
       rx_byte_now   = metrics[ MIDX( COUNTER, NET, PKT_RX_BYTES              ) ];
-      rx_drop_now   = metrics[ MIDX( COUNTER, NET, PKT_RX_FILL_RING_FULL     ) ];
-      /* */ rx_drop_now  += metrics[ MIDX( COUNTER, NET, PKT_RX_BACKPRESSURE       ) ];
-      /* */ rx_drop_now  += metrics[ MIDX( COUNTER, NET, XDP_RX_OTHER_DROPPED      ) ];
-      /* */ rx_drop_now  += metrics[ MIDX( COUNTER, NET, XDP_RX_INVALID_DESCRIPTOR ) ];
-      /* */ rx_drop_now  += metrics[ MIDX( COUNTER, NET, XDP_RX_RING_FULL          ) ];
+      rx_drop_now   = metrics[ MIDX( COUNTER, NET, RX_FILL_RING_STALLED      ) ];
+      /* */ rx_drop_now  += metrics[ MIDX( COUNTER, NET, XDP_RX_OTHER_DROPPED              ) ];
+      /* */ rx_drop_now  += metrics[ MIDX( COUNTER, NET, XDP_RX_INVALID_DESCRIPTOR_DROPPED ) ];
+      /* */ rx_drop_now  += metrics[ MIDX( COUNTER, NET, XDP_RX_RING_FULL_DROPPED          ) ];
       tx_ok_now     = metrics[ MIDX( COUNTER, NET, PKT_TX_COMPLETED          ) ];
-      tx_byte_now   = metrics[ MIDX( COUNTER, NET, PKT_TX_BYTES              ) ];
+      tx_byte_now   = metrics[ MIDX( COUNTER, NET, PKT_TX_SUBMITTED_BYTES    ) ];
 
     } else if( 0==strcmp( provider, "mlx5" ) ) {
-      stats->rx_bufs_idle = metrics[ MIDX( GAUGE, MLX5, RX_BUFFER_IDLE ) ];
-      stats->rx_bufs_busy = metrics[ MIDX( GAUGE, MLX5, RX_BUFFER_BUSY ) ];
-      stats->tx_bufs_idle = metrics[ MIDX( GAUGE, MLX5, TX_BUFFER_IDLE ) ];
-      stats->tx_bufs_busy = metrics[ MIDX( GAUGE, MLX5, TX_BUFFER_BUSY ) ];
+      stats->rx_bufs_idle = metrics[ MIDX( GAUGE, MLX5, RX_BUFFER_FREE ) ];
+      stats->rx_bufs_busy = metrics[ MIDX( GAUGE, MLX5, RX_BUFFER_USED ) ];
+      stats->tx_bufs_idle = metrics[ MIDX( GAUGE, MLX5, TX_BUFFER_FREE ) ];
+      stats->tx_bufs_busy = metrics[ MIDX( GAUGE, MLX5, TX_BUFFER_USED ) ];
 
       rx_ok_now     = metrics[ MIDX( COUNTER, MLX5, PKT_RX       ) ];
       rx_byte_now   = metrics[ MIDX( COUNTER, MLX5, PKT_RX_BYTES ) ];
-      rx_drop_now   = metrics[ MIDX( COUNTER, MLX5, PKT_RX_MALFORMED  ) ];
-      /* */ rx_drop_now += metrics[ MIDX( COUNTER, MLX5, PKT_RX_ROUTE_FAIL ) ];
-      tx_ok_now     = metrics[ MIDX( COUNTER, MLX5, PKT_TX_COMPLETED ) ];
-      tx_byte_now   = metrics[ MIDX( COUNTER, MLX5, PKT_TX_BYTES     ) ];
+      rx_drop_now   = 0UL;
+      for( ulong r=0UL; r<FD_METRICS_ENUM_PKT_RX_DROP_REASON_CNT; r++ ) rx_drop_now += metrics[ MIDX( COUNTER, MLX5, PKT_RX_DROPPED )+r ];
+      tx_ok_now     = metrics[ MIDX( COUNTER, MLX5, PKT_TX_COMPLETED       ) ];
+      tx_byte_now   = metrics[ MIDX( COUNTER, MLX5, PKT_TX_COMPLETED_BYTES ) ];
+    } else if( 0==strcmp( provider, "iavf" ) ) {
+      stats->rx_bufs_idle = metrics[ MIDX( GAUGE, IAVF, RX_BUFFER_FREE ) ];
+      stats->rx_bufs_busy = metrics[ MIDX( GAUGE, IAVF, RX_BUFFER_USED ) ];
+      stats->tx_bufs_idle = metrics[ MIDX( GAUGE, IAVF, TX_BUFFER_FREE ) ];
+      stats->tx_bufs_busy = metrics[ MIDX( GAUGE, IAVF, TX_BUFFER_USED ) ];
+
+      rx_ok_now     = metrics[ MIDX( COUNTER, IAVF, PKT_RX       ) ];
+      rx_byte_now   = metrics[ MIDX( COUNTER, IAVF, PKT_RX_BYTES ) ];
+      rx_drop_now   = 0UL;
+      for( ulong r=0UL; r<FD_METRICS_ENUM_PKT_RX_DROP_REASON_CNT; r++ ) rx_drop_now += metrics[ MIDX( COUNTER, IAVF, PKT_RX_DROPPED )+r ];
+      rx_drop_now  += metrics[ MIDX( COUNTER, IAVF, PKT_RX_NO_LINK_DROPPED ) ];
+      tx_ok_now     = metrics[ MIDX( COUNTER, IAVF, PKT_TX_COMPLETED ) ];
+      tx_byte_now   = metrics[ MIDX( COUNTER, IAVF, PKT_TX_COMPLETED_BYTES     ) ];
     }
 
 
@@ -317,7 +328,8 @@ pktgen_cmd_fn( args_t *   args FD_PARAM_UNUSED,
     FD_LOG_ERR(( "failed to parse prometheus listen address `%s`", config->tiles.metric.prometheus_listen_address ));
   metric_tile->metric.prometheus_listen_port = config->tiles.metric.prometheus_listen_port;
 
-  configure_stage( &fd_cfg_stage_uverbs,           CONFIGURE_CMD_INIT, config );
+  configure_stage( &fd_cfg_stage_mlx5,             CONFIGURE_CMD_INIT, config );
+  configure_stage( &fd_cfg_stage_iavf,             CONFIGURE_CMD_INIT, config );
   configure_stage( &fd_cfg_stage_sysctl,           CONFIGURE_CMD_INIT, config );
   configure_stage( &fd_cfg_stage_hugetlbfs,        CONFIGURE_CMD_INIT, config );
   configure_stage( &fd_cfg_stage_bonding,          CONFIGURE_CMD_INIT, config );
@@ -336,9 +348,12 @@ pktgen_cmd_fn( args_t *   args FD_PARAM_UNUSED,
   if( 0==strcmp( config->net.provider, "mlx5" ) ) {
     fd_topo_install_mlx5( topo, NULL );
   }
+  if( 0==strcmp( config->net.provider, "iavf" ) ) {
+    fd_topo_install_iavf( topo, NULL );
+  }
 
   /* FIXME allow running sandboxed/multiprocess */
-  fd_topo_run_single_process( topo, 2, config->uid, config->gid, fdctl_tile_run );
+  fd_topo_run_single_process( topo, config->uid, config->gid, fdctl_tile_run );
 
   for( ulong kind_id=0UL; kind_id<net_tile_cnt; kind_id++ ) {
     net_metrics[ kind_id ] = fd_metrics_tile( net_tiles[ kind_id ]->metrics );
@@ -361,7 +376,7 @@ pktgen_cmd_fn( args_t *   args FD_PARAM_UNUSED,
   }
 
   /* Simple REPL loop */
-  puts( "Running fddev pktgen" );
+  puts( "Running firedancer-dev pktgen" );
   printf( "%s socket listening on port %u\n", config->net.provider, (uint)listen_port );
   puts( "Available commands: start, stop, quit" );
   puts( "" );

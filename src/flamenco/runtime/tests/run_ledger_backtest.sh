@@ -15,14 +15,14 @@ INGEST_MODE="shredcap"
 DUMP_DIR=${DUMP_DIR:="./dump"}
 ONE_OFFS=""
 HUGE_TLBFS_MOUNT_PATH=${HUGE_TLBFS_MOUNT_PATH:="/mnt/.fd"}
-DEBUG=( )
 WATCH=( )
 LOG_LEVEL_STDERR=NOTICE
 EXECRP_TILE_COUNT="10"
 SNAPDC_TILE_COUNT=""
 ROOT_DISTANCE="2"
 MAX_LIVE_SLOTS="32"
-ALPENGLOW="false"
+CACHE_SIZE_GIB="3"
+PARTITION_SIZE_GIB=""
 GENESIS_MAX_FILE_SIZE_MIB=""
 DOWNLOAD_ONLY=${DOWNLOAD_ONLY:-"false"}
 
@@ -80,10 +80,6 @@ while [[ $# -gt 0 ]]; do
         GENESIS=1
         shift
         ;;
-    --debug)
-        DEBUG=( gdb -q -x contrib/debug.gdb --args )
-        shift
-        ;;
     --log)
         LOG="$2"
         shift
@@ -109,8 +105,14 @@ while [[ $# -gt 0 ]]; do
         shift
         shift
         ;;
-    --alpenglow)
-        ALPENGLOW="true"
+    --cache-size-gib)
+        CACHE_SIZE_GIB="$2"
+        shift
+        shift
+        ;;
+    --partition-size-gib)
+        PARTITION_SIZE_GIB="$2"
+        shift
         shift
         ;;
     -*|--*)
@@ -143,9 +145,14 @@ download_and_extract_ledger() {
   fi
   rm -rf "$DUMP/$LEDGER.pending" "$DUMP/$LEDGER"
   mkdir -p "$DUMP/$LEDGER.pending"
-  if ! gcloud storage cat "gs://firedancer-ci-resources/$LEDGER.$ext" | eval "$unpack" -C "$DUMP/$LEDGER.pending" --strip-components=1; then
-    echo "Download failed, cleaning up..."; rm -rf "$DUMP/$LEDGER.pending"; exit 1
+  local archive="$DUMP/$LEDGER.$ext"
+  # sliced: one stream tops out near 30 MB/s
+  if ! CLOUDSDK_STORAGE_SLICED_OBJECT_DOWNLOAD_MAX_COMPONENTS=32 CLOUDSDK_STORAGE_PROCESS_COUNT=32 \
+         gcloud storage cp "gs://firedancer-ci-resources/$LEDGER.$ext" "$archive" ||
+     ! eval "$unpack" -C "$DUMP/$LEDGER.pending" --strip-components=1 < "$archive"; then
+    echo "Download failed, cleaning up..."; rm -rf "$DUMP/$LEDGER.pending" "$archive"; exit 1
   fi
+  rm -f "$archive"
   ( cd "$DUMP/$LEDGER.pending" && find . -type f -printf '%P %s\n' | sort ) > "$DUMP/$LEDGER.manifest"
   mv "$DUMP/$LEDGER.pending" "$DUMP/$LEDGER"
 }
@@ -225,16 +232,13 @@ ${SNAPDC_TILE_COUNT:+    snapdc_tile_count = $SNAPDC_TILE_COUNT}
         enabled = false
 [runtime]
     max_live_slots = $MAX_LIVE_SLOTS
-    max_fork_width = 4
 [log]
     level_stderr = "$LOG_LEVEL_STDERR"
     path = "$LOG"
 [paths]
     snapshots = "$DUMP/$LEDGER"
-    accounts = "$DUMP/accounts.db"
+    accounts = "${ACCOUNTS_DB:-$DUMP/accounts.db}"
     genesis = "$DUMP/$LEDGER/genesis.bin"
-[consensus]
-    alpenglow = $ALPENGLOW
 [development]
     fixed_fec_sets = false
     [development.genesis]
@@ -245,6 +249,8 @@ ${GENESIS_MAX_FILE_SIZE_MIB:+        max_file_size_mib = $GENESIS_MAX_FILE_SIZE_
         end_slot = $END_SLOT
     [development.backtest]
         root_distance = $ROOT_DISTANCE
+${PARTITION_SIZE_GIB:+    [development.accdb]
+        partition_size_gib = $PARTITION_SIZE_GIB}
 EOF
 
 if [[ "$INDEX_MAX" -lt "1000000" ]]; then
@@ -253,7 +259,7 @@ fi
 cat <<EOF >> ${CONFIG_FILE}
 [accounts]
     max_accounts = $INDEX_MAX
-    cache_size_gib = 3
+    cache_size_gib = $CACHE_SIZE_GIB
 EOF
 
 if [[ -z "$GENESIS" ]]; then
@@ -264,20 +270,20 @@ fi
 echo_notice "Running backtest for $LEDGER"
 
 sudo killall firedancer-dev &> /dev/null || true
-rm -f $DUMP/accounts.db
+rm -f "${ACCOUNTS_DB:-$DUMP/accounts.db}"
 
 set -x
 if [[ -n "$CI" ]]; then
-  "${DEBUG[@]}" $OBJDIR/bin/firedancer-dev backtest --config ${DUMP_DIR}/${LEDGER}_backtest.toml "${WATCH[@]}" &> /dev/null
+  $OBJDIR/bin/firedancer-dev backtest --config ${DUMP_DIR}/${LEDGER}_backtest.toml "${WATCH[@]}" &> /dev/null
   { status=$?; set +x; } &> /dev/null
 else
-  "${DEBUG[@]}" $OBJDIR/bin/firedancer-dev backtest --config ${DUMP_DIR}/${LEDGER}_backtest.toml "${WATCH[@]}"
+  $OBJDIR/bin/firedancer-dev backtest --config ${DUMP_DIR}/${LEDGER}_backtest.toml "${WATCH[@]}"
   { status=$?; set +x; }
 fi
 
 echo "Log for ledger $LEDGER at $LOG"
 
-rm -rf $DUMP/accounts.db
+rm -rf "${ACCOUNTS_DB:-$DUMP/accounts.db}"
 
 if [ "$status" -eq 0 ]; then
   snapshot_load_time=$(grep "loaded" $LOG | grep -o "from snapshot in [0-9.]*" | grep -o "[0-9.]*")

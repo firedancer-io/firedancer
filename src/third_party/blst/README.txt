@@ -24,6 +24,6 @@ shares fd_blst_curve.c; keygen.c, exports.c and rb_tree.c only need
 reciprocal_fr, which fd_blst_field.c defines via the identical export
 blst_fr_inverse.  bulk_addition.c and multi_scalar.c (blst_p1s_* /
 blst_p2s_*: batch addition and Pippenger multi-scalar multiplication)
-are not compiled: nothing in Firedancer uses them.  A new use fails at
-link time; add both files to fd_blst_curve.c.  When re-vendoring, diff
-the new server.c against the two include lists.
+are compiled, as fd_blst's bad-signer bisect uses the batch point
+addition.  When re-vendoring, diff the new server.c against the two
+include lists.

@@ -1,5 +1,6 @@
 #include "fd_config_private.h"
 #include "../../ballet/toml/fd_toml.h"
+#include "../../util/fd_boolau.h"
 
 #include <sys/wait.h>
 #include <unistd.h>
@@ -29,14 +30,20 @@ static char const cfg_str_5[] =
   "  max_file_size_mib = 33";
 static char const cfg_str_vote_history[] =
   "[paths]\n"
-  "  vote_history = \"/data/{name}/vote_history\"\n"
-  "[tiles.tower]\n"
-  "  write_vote_history_file = false\n"
-  "[tiles.votor]\n"
-  "  write_vote_history_file = true";
+  "  vote_history = \"/data/{name}/vote_history\"\n";
+static char const cfg_str_failover[] =
+  "[failover]\n"
+  "  enabled = true\n"
+  "  boot_to_standby = true\n"
+  "  listen_address = \"10.0.0.1\"\n"
+  "  listen_port = 9010";
 
-extern uchar const fdctl_default_config[];
-extern ulong const fdctl_default_config_sz;
+static char const cfg_str_iavf[] =
+  "[net]\nprovider = \"iavf\"\n"
+  "[net.iavf]\nrx_queue_size = 128\ntx_queue_size = 64\n";
+
+extern uchar const firedancer_default_config[];
+extern ulong const firedancer_default_config_sz;
 
 static int
 genesis_max_file_size_is_valid( config_t * config,
@@ -64,10 +71,65 @@ vote_history_path_is_valid( char const * path ) {
     static uchar pod_mem[ 1UL<<16 ];
     static uchar scratch[ 4096 ];
     static config_t config[1];
-    config->is_firedancer = 1;
     uchar * pod = fd_pod_join( fd_pod_new( pod_mem, sizeof(pod_mem) ) );
     FD_TEST( fd_toml_parse( toml, strlen( toml ), pod, scratch, sizeof(scratch), NULL )==FD_TOML_SUCCESS );
     _exit( fd_config_extract_pod( pod, config )!=config ); /* exits 1 on an invalid path */
+  }
+
+  int status = 0;
+  FD_TEST( waitpid( pid, &status, 0 )==pid );
+  return WIFEXITED( status ) && !WEXITSTATUS( status );
+}
+
+
+/* Runs fd_config_validate_consensus on the given combination and
+   reports whether it was accepted.  It exits the process on rejection,
+   so run it in a child. */
+
+static int
+consensus_is_valid( ulong        wfs_slot,
+                    char const * bank_hash,
+                    ushort       shred_version,
+                    int          leader_gate ) {
+  int pid = fork();
+  FD_TEST( pid>=0 );
+  if( FD_UNLIKELY( !pid ) ) {
+    static config_t config[1];
+    config->firedancer.consensus.wait_for_supermajority_at_slot = wfs_slot;
+    fd_cstr_ncpy( config->firedancer.consensus.wait_for_supermajority_with_bank_hash, bank_hash,
+                  sizeof(config->firedancer.consensus.wait_for_supermajority_with_bank_hash) );
+    config->consensus.expected_shred_version         = shred_version;
+    config->consensus.wait_for_vote_to_start_leader  = leader_gate;
+    fd_config_validate_consensus( config );
+    _exit( 0 );
+  }
+
+  int status = 0;
+  FD_TEST( waitpid( pid, &status, 0 )==pid );
+  return WIFEXITED( status ) && !WEXITSTATUS( status );
+}
+
+/* Validates the config with the given failover knobs in a child, so the
+   FD_LOG_ERR paths can be checked. */
+
+static int
+failover_is_valid( config_t *   config,
+                   int          enabled,
+                   int          boot_to_standby,
+                   char const * listen_address,
+                   ushort       listen_port,
+                   char const * vote_account ) {
+  int pid = fork();
+  FD_TEST( pid>=0 );
+  if( FD_UNLIKELY( !pid ) ) {
+    config->firedancer.development.genesis.max_file_size_mib = 4055UL;
+    config->firedancer.failover.enabled                      = enabled;
+    config->firedancer.failover.boot_to_standby              = boot_to_standby;
+    config->firedancer.failover.listen_port                  = listen_port;
+    fd_cstr_ncpy( config->firedancer.failover.listen_address, listen_address, sizeof(config->firedancer.failover.listen_address) );
+    fd_cstr_ncpy( config->paths.vote_account, vote_account, sizeof(config->paths.vote_account) );
+    fd_config_validate( config );
+    _exit( 0 );
   }
 
   int status = 0;
@@ -115,7 +177,6 @@ main( int     argc,
                                 endpoint, endpoint, endpoint+8UL, endpoint+8UL ) );
 
   memset( config, 0, sizeof(config_t) );
-  config->is_firedancer = 1;
   pod = fd_pod_join( fd_pod_new( pod_mem, sizeof(pod_mem) ) );
   FD_TEST( fd_toml_parse( cfg_str_limits, cfg_str_limits_sz, pod, scratch, sizeof(scratch), NULL )==FD_TOML_SUCCESS );
   FD_TEST( fd_config_extract_pod( pod, config )==config );
@@ -150,7 +211,7 @@ main( int     argc,
 
   memset( config, 0, sizeof(config_t) );
   pod = fd_pod_join( fd_pod_new( pod_mem, sizeof(pod_mem) ) );
-  FD_TEST( fd_toml_parse( fdctl_default_config, fdctl_default_config_sz, pod, scratch, sizeof(scratch), NULL ) == FD_TOML_SUCCESS );
+  FD_TEST( fd_toml_parse( firedancer_default_config, firedancer_default_config_sz, pod, scratch, sizeof(scratch), NULL ) == FD_TOML_SUCCESS );
   FD_TEST( fd_config_extract_pod( pod, config ) == config );
   fd_config_validate( config );  /* exits process with code 1 on failure */
 
@@ -160,7 +221,6 @@ main( int     argc,
 
   /* bzip2's avail_in and avail_out fields are uint. */
 
-  config->is_firedancer = 1;
   memset( &config->firedancer, 0, sizeof(config->firedancer) );
   config->firedancer.layout.sign_tile_count          = 2U;
   config->firedancer.layout.resolv_tile_count        = 1U;
@@ -176,11 +236,34 @@ main( int     argc,
   config->firedancer.accounts.max_accounts                     = 1UL;
   config->firedancer.accounts.cache_size_gib                   = 1UL;
   config->firedancer.runtime.program_cache_size_mib            = 32UL;
+  config->firedancer.runtime.transaction_cache_size_mib        = 640UL;
+  config->firedancer.development.genesis.max_file_size_mib     = 33UL;
   config->tiles.repair.slot_max                                   = 1UL;
   strcpy( config->firedancer.layout.mode, "performance" );
 
+  pod = fd_pod_join( fd_pod_new( pod_mem, sizeof(pod_mem) ) );
+  FD_TEST( fd_toml_parse( cfg_str_iavf, sizeof(cfg_str_iavf)-1UL, pod, scratch, sizeof(scratch), NULL )==FD_TOML_SUCCESS );
+  FD_TEST( fd_config_extract_pod( pod, config )==config );
+  FD_TEST( 0==strcmp( config->net.provider, "iavf" ) );
+  FD_TEST( config->net.iavf.rx_queue_size==128U && config->net.iavf.tx_queue_size==64U );
+  config->layout.net_tile_count = 1U;
+  fd_config_validate( config );
+  strcpy( config->net.provider, "xdp" );
+
   FD_TEST(  genesis_max_file_size_is_valid( config, 4055UL ) );
   FD_TEST( !genesis_max_file_size_is_valid( config, 4056UL ) );
+
+  FD_TEST(  failover_is_valid( config, 1, 0, "0.0.0.0",   8010, "vote.json" ) );
+  FD_TEST(  failover_is_valid( config, 1, 0, "10.0.0.1",  8010, "vote.json" ) );
+  FD_TEST( !failover_is_valid( config, 1, 0, "0.0.0.0",   0,    "vote.json" ) );
+  FD_TEST( !failover_is_valid( config, 1, 0, "localhost", 8010, "vote.json" ) );
+  FD_TEST(  failover_is_valid( config, 1, 0, "0.0.0.0",   8010, ""          ) );
+  FD_TEST(  failover_is_valid( config, 0, 0, "",          0,    ""          ) );
+  /* boot_to_standby needs failover enabled */
+  FD_TEST(  failover_is_valid( config, 1, 1, "0.0.0.0",   8010, "vote.json" ) );
+  FD_TEST(  failover_is_valid( config, 1, 1, "0.0.0.0",   8010, ""          ) );
+  FD_TEST( !failover_is_valid( config, 0, 1, "0.0.0.0",   8010, "vote.json" ) );
+  FD_TEST( !failover_is_valid( config, 0, 1, "",          0,    ""          ) );
 
   /* Ensure we can selectively override a field */
 
@@ -211,7 +294,6 @@ main( int     argc,
   /* Parse runtime genesis limits */
 
   memset( config, 0, sizeof(config_t) );
-  config->is_firedancer = 1;
   pod = fd_pod_join( fd_pod_new( pod_mem, sizeof(pod_mem) ) );
   FD_TEST( fd_toml_parse( cfg_str_5, sizeof(cfg_str_5)-1, pod, scratch, sizeof(scratch), NULL ) == FD_TOML_SUCCESS );
   FD_TEST( fd_config_extract_pod( pod, config ) == config );
@@ -220,19 +302,55 @@ main( int     argc,
   /* Parse the vote history file options */
 
   memset( config, 0, sizeof(config_t) );
-  config->is_firedancer = 1;
-  config->tiles.tower.write_vote_history_file = 1;
   pod = fd_pod_join( fd_pod_new( pod_mem, sizeof(pod_mem) ) );
   FD_TEST( fd_toml_parse( cfg_str_vote_history, sizeof(cfg_str_vote_history)-1, pod, scratch, sizeof(scratch), NULL ) == FD_TOML_SUCCESS );
   FD_TEST( fd_config_extract_pod( pod, config ) == config );
   FD_TEST( !strcmp( config->paths.vote_history, "/data/{name}/vote_history" ) );
-  FD_TEST( !config->tiles.tower.write_vote_history_file );
-  FD_TEST(  config->tiles.votor.write_vote_history_file );
 
   FD_TEST(  vote_history_path_is_valid( ""                   ) ); /* default */
   FD_TEST(  vote_history_path_is_valid( "/data/vote_history" ) );
   FD_TEST(  vote_history_path_is_valid( "/data/"             ) );
   FD_TEST( !vote_history_path_is_valid( "data/vote_history"  ) ); /* relative */
+
+
+  /* The WFS tuple and the leader gate.  A mistake here either
+     deadlocks a coordinated restart or rejects a valid non-WFS
+     config, so pin the whole matrix. */
+
+# define HASH "7LSPxRVx5cX1cPVgeEDqB6o2YjMMnH21CxZywpeesWiC"
+
+  /* WFS fully configured: an explicit true deadlocks. */
+  FD_TEST( !consensus_is_valid( 100UL, HASH, 1234, FD_BOOLAU_TRUE  ) );
+  FD_TEST(  consensus_is_valid( 100UL, HASH, 1234, FD_BOOLAU_AUTO  ) );
+  FD_TEST(  consensus_is_valid( 100UL, HASH, 1234, FD_BOOLAU_FALSE ) );
+
+  /* WFS off: true is the normal setting and stays legal. */
+  FD_TEST(  consensus_is_valid( 0UL, "", 0,    FD_BOOLAU_TRUE  ) );
+  FD_TEST(  consensus_is_valid( 0UL, "", 1234, FD_BOOLAU_TRUE  ) );
+  FD_TEST(  consensus_is_valid( 0UL, "", 0,    FD_BOOLAU_AUTO  ) );
+
+  /* Slot and bank hash are configured together or not at all, and a
+     bank hash needs a shred version to classify against. */
+  FD_TEST( !consensus_is_valid( 100UL, "",   1234, FD_BOOLAU_AUTO ) );
+  FD_TEST( !consensus_is_valid( 0UL,   HASH, 1234, FD_BOOLAU_AUTO ) );
+  FD_TEST( !consensus_is_valid( 100UL, HASH, 0,    FD_BOOLAU_AUTO ) );
+
+  /* An all-zeros bank hash, and a slot no boot could ever match. */
+  FD_TEST( !consensus_is_valid( 100UL, "11111111111111111111111111111111", 1234, FD_BOOLAU_AUTO ) );
+  FD_TEST( !consensus_is_valid( ULONG_MAX, HASH, 1234, FD_BOOLAU_AUTO ) );
+
+# undef HASH
+
+  /* Parse the failover knobs */
+
+  fd_memset( config, 0, sizeof(config_t) );
+  pod = fd_pod_join( fd_pod_new( pod_mem, sizeof(pod_mem) ) );
+  FD_TEST( fd_toml_parse( cfg_str_failover, sizeof(cfg_str_failover)-1, pod, scratch, sizeof(scratch), NULL ) == FD_TOML_SUCCESS );
+  FD_TEST( fd_config_extract_pod( pod, config ) == config );
+  FD_TEST( config->firedancer.failover.enabled );
+  FD_TEST( config->firedancer.failover.boot_to_standby );
+  FD_TEST( !strcmp( config->firedancer.failover.listen_address, "10.0.0.1" ) );
+  FD_TEST( config->firedancer.failover.listen_port==9010 );
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

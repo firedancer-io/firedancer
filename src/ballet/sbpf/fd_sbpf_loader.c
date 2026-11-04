@@ -316,10 +316,6 @@ fd_sbpf_lenient_get_string_in_section( uchar const *         elf_bytes,
    property, since the key-value pairs are deterministically derived
    from one another.
 
-   TODO: this function will have to be adapted to hash the target PC
-   depending on the SBPF version (>= V3). That has not been implemented
-   yet.
-
    https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/program.rs#L142-L178 */
 static int
 fd_sbpf_register_function_hashed_legacy( fd_sbpf_loader_t *  loader,
@@ -398,8 +394,6 @@ fd_sbpf_register_function_hashed_legacy( fd_sbpf_loader_t *  loader,
 
    Obviously invalid relocations (e.g. out-of-bounds of ELF file or
    unsupported reloc type) raise an error.
-   Relocations that would corrupt ELF data structures are silently
-   ignored (using the fd_sbpf_reloc_mask mechanism).
 
    ### History
 
@@ -469,7 +463,7 @@ fd_sbpf_r_bpf_64_64( fd_sbpf_elf_t const *      elf,
     fd_elf64_sym const *  dynsym_table = (fd_elf64_sym const *)( elf->bin + sh_dynsym->sh_offset );
     ulong                 dynsym_cnt   = (ulong)(sh_dynsym->sh_size / sizeof(fd_elf64_sym));
 
-    /* The symbol table index is stored in the lower 4 bytes of r_info.
+    /* The symbol table index is stored in the upper 4 bytes of r_info.
        Check the bounds of the symbol table index. */
     ulong r_sym = FD_ELF64_R_SYM( dt_rel->r_info );
     if( FD_UNLIKELY( r_sym>=dynsym_cnt ) ) {
@@ -658,7 +652,7 @@ fd_sbpf_r_bpf_64_32( fd_sbpf_loader_t *              loader,
   fd_elf64_sym const *  dynsym_table = (fd_elf64_sym const *)( elf->bin + sh_dynsym->sh_offset );
   ulong                 dynsym_cnt   = (ulong)(sh_dynsym->sh_size / sizeof(fd_elf64_sym));
 
-  /* The symbol table index is stored in the lower 4 bytes of r_info.
+  /* The symbol table index is stored in the upper 4 bytes of r_info.
      Check the bounds of the symbol table index. */
   ulong r_sym = FD_ELF64_R_SYM( dt_rel->r_info );
   if( FD_UNLIKELY( r_sym>=dynsym_cnt ) ) {
@@ -1993,8 +1987,8 @@ fd_sbpf_program_load_lenient( fd_sbpf_program_t *             prog,
   fd_elf64_shdr const * sh_text  = &shdrs[ elf_info->shndx_text ];
 
   /* Fast (no-scratch) path is selected by the caller passing scratch==NULL,
-     which the program cache does for fast-eligible programs (peek set
-     load_buf_sz < bin_sz, i.e. !fd_sbpf_loader_is_legacy_lenient).  On the
+     which the program cache does when load_buf_sz < bin_sz.  Fast-eligible
+     images with load_buf_sz==bin_sz still use scratch.  On the
      fast path the rodata buffer is sized to load_buf_sz and the read-only
      image is assembled in place; otherwise we take the original
      scratch-based path with a bin_sz buffer. */
@@ -2021,8 +2015,6 @@ fd_sbpf_program_load_lenient( fd_sbpf_program_t *             prog,
      symbol collisions and report errors accordingly. We unregister it
      first by setting it to ULONG_MAX.
 
-     TODO: Add special casing for static syscalls enabled. For now, it
-     is not implemented.
      https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L654-L667 */
   prog->entry_pc = ULONG_MAX;
   ulong entry_pc = offset/8UL;
@@ -2106,7 +2098,7 @@ fd_sbpf_program_load( fd_sbpf_program_t *             prog,
   };
 
   /* Invoke strict vs lenient loader
-     Note: info.sbpf_version is already set by fd_sbpf_program_parse()
+     Note: info.sbpf_version is already set by fd_sbpf_elf_peek()
      https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/elf.rs#L396-L402 */
   if( FD_UNLIKELY( fd_sbpf_enable_stricter_elf_headers_enabled( prog->info.sbpf_version ) ) ) {
     return fd_sbpf_program_load_strict( prog, bin );

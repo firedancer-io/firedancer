@@ -4,10 +4,8 @@
 #include "../../disco/events/fd_event_client.h"
 #include "../../discof/replay/fd_replay_tile.h"
 #include "../../disco/shred/fd_shred_tile.h"
-#include "../../discof/repair/fd_repair_tile.h"
-#include "../../discof/rotor/fd_rotor_tile.h"
+#include "../../disco/repair/fd_repair_tile.h"
 #include "../../discof/restore/utils/fd_ssmsg.h"
-#include "../../discof/tower/fd_tower_tile.h"
 #include "../../discof/votor/fd_votor_tile.h"
 #include "../../choreo/votor/ag_cert.h"
 #include "../../discof/genesis/fd_genesi_tile.h"
@@ -60,10 +58,8 @@ struct fd_backt_tile {
   int initialized;
   int genesis;
   int snapshot_done;
-  int alpenglow;
-  uint first_fec_complete : 1;
-  uint reasm_ready        : 1; /* reasm root is set, so we can start publishing FECs to replay */
-  uint source_exhausted   : 1;
+  uint reasm_ready      : 1; /* reasm root is set, so we can start publishing FECs to replay */
+  uint source_exhausted : 1;
 
   fd_backt_src_t * src;
 
@@ -73,6 +69,12 @@ struct fd_backt_tile {
   ulong prev_slot;
   ulong prev_fec_set_idx;
   ulong out_fec_set_idx;
+
+  /* The FEC set in progress, inserted into store once complete. */
+  uchar * fec_data;
+  uint    fec_data_idx;
+  uint    fec_data_sz;
+  ushort  fec_shred_sz[ FD_FEC_SHRED_CNT ];
 
   ulong start_slot;
   ulong end_slot;
@@ -102,7 +104,6 @@ struct fd_backt_tile {
   fd_backt_in_t in[ 16UL ];
 
   fd_backt_out_t repair_out[ 1 ];
-  fd_backt_out_t tower_out[ 1 ];
   fd_backt_out_t votor_out[ 1 ];
 
   ulong          ipecho_out_idx; /* ULONG if no event tile */
@@ -214,10 +215,6 @@ after_credit( fd_backt_tile_t *   ctx,
               int *               charge_busy ) {
   (void)opt_poll_in;
 
-  if( FD_LIKELY( ctx->store && ctx->store_disk_fd>=0 &&
-                 fd_store_disk_maintain( ctx->store, ctx->store_disk_fd ) ) )
-    *charge_busy = 1;
-
   int process = ctx->shreds_cnt>=2UL || (ctx->source_exhausted && ctx->shreds_cnt );
   if( FD_UNLIKELY( !process ) ) return; /* need to buffer two in ordinary processing for completes fec lookahead */
   if( FD_UNLIKELY( !ctx->reasm_ready ) ) return;
@@ -228,7 +225,7 @@ after_credit( fd_backt_tile_t *   ctx,
   fd_shred_t const * shred = (fd_shred_t const *)ctx->shreds[ ctx->shreds_idx ];
   fd_shred_t const * next_shred = (fd_shred_t const *)ctx->shreds[ (ctx->shreds_idx+1UL)%SHRED_BUFFER_LEN ];
 
-  int completes_slot = !!(shred->data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE);
+  uchar completes_slot = !!(shred->data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE);
   int completes_fec_set = completes_slot || next_shred->slot!=shred->slot || next_shred->fec_set_idx!=shred->fec_set_idx;
   int begins_fec_set = ctx->prev_slot==ULONG_MAX || shred->slot!=ctx->prev_slot || shred->fec_set_idx!=ctx->prev_fec_set_idx;
   if( FD_UNLIKELY( begins_fec_set ) ) {
@@ -243,26 +240,28 @@ after_credit( fd_backt_tile_t *   ctx,
      ledgers which may not have merkle roots or chained merkle roots. */
   fd_hash_t mr = { .ul[0] = shred->slot, .ul[1] = ctx->out_fec_set_idx };
   if( FD_UNLIKELY( begins_fec_set ) ) {
-    fd_store_fec_t * new_fec;
-    FD_TEST( !fd_store_insert( ctx->store, ctx->map_join, &mr, shred->slot, 0UL, &new_fec ) && new_fec );
-    FD_TEST( fd_store_fec_data_acquire( ctx->store, ctx->store_disk_fd, new_fec ) );
+    ctx->fec_data    = fd_store_fec_data_reserve( ctx->store, ctx->store_disk_fd, &ctx->fec_data_idx, NULL );
+    ctx->fec_data_sz = 0U;
+    memset( ctx->fec_shred_sz, 0, sizeof(ctx->fec_shred_sz) );
+    FD_TEST( ctx->fec_data );
   }
 
-  fd_store_fec_t * fec = fd_store_query( ctx->map_join, &mr );
-  if( FD_UNLIKELY( !fec->data_sz ) ) memset( fec->shred_sz, 0, sizeof(fec->shred_sz) );
-  if( FD_UNLIKELY( fec->data_sz+fd_shred_payload_sz( shred )>ctx->store->fec_data_max ) ) {
-    FD_LOG_ERR(( "backtest FEC payload exceeds store maximum (%lu>%lu)",
-                 fec->data_sz+fd_shred_payload_sz( shred ), ctx->store->fec_data_max ));
-  }
   ulong payload_sz = fd_shred_payload_sz( shred );
-  fd_memcpy( fd_store_fec_data( ctx->store, fec ) + fec->data_sz, fd_shred_data_payload( shred ), payload_sz );
-  fec->data_sz += (uint)payload_sz;
+  if( FD_UNLIKELY( ctx->fec_data_sz+payload_sz>ctx->store->fec_data_max ) ) {
+    FD_LOG_ERR(( "backtest FEC payload exceeds store maximum (%lu>%lu)",
+                 ctx->fec_data_sz+payload_sz, ctx->store->fec_data_max ));
+  }
+  fd_memcpy( ctx->fec_data + ctx->fec_data_sz, fd_shred_data_payload( shred ), payload_sz );
+  ctx->fec_data_sz += (uint)payload_sz;
   ulong shred_idx = out_shred_idx - ctx->out_fec_set_idx;
   if( FD_LIKELY( shred_idx<FD_FEC_SHRED_CNT ) ) {
     FD_TEST( payload_sz<=USHORT_MAX );
-    fec->shred_sz[ shred_idx ] = (ushort)payload_sz;
+    ctx->fec_shred_sz[ shred_idx ] = (ushort)payload_sz;
   }
-  if( FD_UNLIKELY( completes_fec_set ) ) fd_store_fec_data_publish( ctx->store, fec );
+  if( FD_UNLIKELY( completes_fec_set ) ) {
+    fd_store_fec_t * fec;
+    FD_TEST( !fd_store_insert( ctx->store, ctx->map_join, &mr, shred->slot, 0UL, ctx->fec_data_idx, ctx->fec_data_sz, ctx->fec_shred_sz, &fec ) && fec );
+  }
 
   ctx->shreds_idx = (ctx->shreds_idx+1UL)%SHRED_BUFFER_LEN;
   ctx->shreds_cnt--;
@@ -272,70 +271,32 @@ after_credit( fd_backt_tile_t *   ctx,
 
   if( FD_LIKELY( !completes_fec_set ) ) return;
 
-  /* If Alpenglow is enabled, simulate the rotor tile instead of the
-     repair tile. */
-  if( FD_UNLIKELY( ctx->alpenglow ) ) {
-    ulong parent_slot = shred->slot - shred->data.parent_off;
+  ulong parent_slot = shred->slot - shred->data.parent_off;
 
-    fd_rotor_replay_fec_t * rotor_fec = fd_chunk_to_laddr( ctx->repair_out->mem, ctx->repair_out->chunk );
-    memset( rotor_fec, 0, sizeof(fd_rotor_replay_fec_t) );
-    rotor_fec->slot          = shred->slot;
-    rotor_fec->fec_set_idx   = (uint)ctx->out_fec_set_idx;
-    rotor_fec->mr            = mr;
-    rotor_fec->parent_slot   = parent_slot;
-    rotor_fec->data_complete = !!(shred->data.flags & FD_SHRED_DATA_FLAG_DATA_COMPLETE);
-    rotor_fec->slot_complete = completes_slot;
+  fd_repair_replay_fec_t * rotor_fec = fd_chunk_to_laddr( ctx->repair_out->mem, ctx->repair_out->chunk );
+  memset( rotor_fec, 0, sizeof(fd_repair_replay_fec_t) );
+  rotor_fec->slot          = shred->slot;
+  rotor_fec->fec_set_idx   = (uint)ctx->out_fec_set_idx;
+  rotor_fec->mr            = mr;
+  rotor_fec->parent_slot   = parent_slot;
+  rotor_fec->data_complete = !!(shred->data.flags & FD_SHRED_DATA_FLAG_DATA_COMPLETE);
+  rotor_fec->slot_complete = !!completes_slot;
 
-    rotor_fec->metrics.highest_fec_complete_slot = shred->slot;
-    if( FD_UNLIKELY( ctx->out_fec_set_idx==0UL ) ) {
-      if( FD_UNLIKELY( parent_slot==ctx->start_slot ) ) {
-        rotor_fec->parent_block_id = ctx->rooted_slots_block_id[ parent_slot % BANK_HASH_BUFFER_LEN ];
-      } else {
-        rotor_fec->parent_block_id.ul[ 0 ] = parent_slot;
-        rotor_fec->parent_block_id.ul[ 1 ] = ctx->fec_set_idxs[ parent_slot % OUT_FECS_BUFFER_LEN ];
-      }
+  rotor_fec->metrics.highest_fec_complete_slot = shred->slot;
+  if( FD_UNLIKELY( ctx->out_fec_set_idx==0UL ) ) {
+    if( FD_UNLIKELY( parent_slot==ctx->start_slot ) ) {
+      rotor_fec->parent_block_id = ctx->rooted_slots_block_id[ parent_slot % BANK_HASH_BUFFER_LEN ];
+    } else {
+      rotor_fec->parent_block_id.ul[ 0 ] = parent_slot;
+      rotor_fec->parent_block_id.ul[ 1 ] = ctx->fec_set_idxs[ parent_slot % OUT_FECS_BUFFER_LEN ];
     }
-    if( FD_UNLIKELY( completes_slot ) ) rotor_fec->block_id = mr;
-
-    ctx->fec_set_idxs[ shred->slot % OUT_FECS_BUFFER_LEN ] = ctx->out_fec_set_idx;
-
-    fd_stem_publish( stem, ctx->repair_out->idx, ROTOR_SIG_FEC_REPLAY, ctx->repair_out->chunk, sizeof(fd_rotor_replay_fec_t), 0, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
-    ctx->repair_out->chunk = fd_dcache_compact_next( ctx->repair_out->chunk, sizeof(fd_rotor_replay_fec_t), ctx->repair_out->chunk0, ctx->repair_out->wmark );
-
-    if( FD_UNLIKELY( ctx->source_exhausted && !ctx->shreds_cnt ) ) ctx->publish_time += fd_log_wallclock();
-    return;
   }
-
-  fd_hash_t cmr = {0};
-  if( FD_UNLIKELY( !ctx->first_fec_complete ) ) {
-    cmr.ul[ 0 ] = 0xbaC27e57b1d; /* any initial value works */
-    ctx->first_fec_complete = 1;
-  } else {
-    ulong chained_slot = ctx->out_fec_set_idx==0 ? shred->slot - shred->data.parent_off : shred->slot;
-    cmr.ul[ 0 ] = chained_slot;
-    cmr.ul[ 1 ] = ctx->fec_set_idxs[ chained_slot % OUT_FECS_BUFFER_LEN ];
-  }
+  if( FD_UNLIKELY( completes_slot ) ) rotor_fec->block_id = mr;
 
   ctx->fec_set_idxs[ shred->slot % OUT_FECS_BUFFER_LEN ] = ctx->out_fec_set_idx;
 
-  /* We need to simulate the FEC set completion message that is sent out
-     of the shred tile.  This involves copying the data shred header and
-     appending the merkle root and chained merkle root. */
-
-  fd_repair_fec_complete_t * complete_msg = (fd_repair_fec_complete_t *)fd_type_pun( fd_chunk_to_laddr( ctx->repair_out->mem, ctx->repair_out->chunk ) );
-  complete_msg->fec.last_shred_hdr = *shred;
-  complete_msg->fec.last_shred_hdr.idx = (uint)out_shred_idx;
-  complete_msg->fec.last_shred_hdr.fec_set_idx = (uint)ctx->out_fec_set_idx;
-  memcpy( &complete_msg->fec.merkle_root, &mr, sizeof(fd_hash_t) );
-  memcpy( &complete_msg->fec.chained_merkle_root, &cmr, sizeof(fd_hash_t) );
-  complete_msg->fec.turbine_shred_cnt       = 0U;
-  complete_msg->fec.repair_shred_cnt        = 0U;
-  complete_msg->fec.reconstructed_shred_cnt = 0U;
-
-  memset( &complete_msg->metrics, 0, sizeof(fd_fec_complete_metrics_t) );
-
-  fd_stem_publish( stem, ctx->repair_out->idx, REPAIR_SIG_FEC, ctx->repair_out->chunk, sizeof(fd_repair_fec_complete_t), 0, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
-  ctx->repair_out->chunk = fd_dcache_compact_next( ctx->repair_out->chunk, sizeof(fd_repair_fec_complete_t), ctx->repair_out->chunk0, ctx->repair_out->wmark );
+  fd_stem_publish( stem, ctx->repair_out->idx, ROTOR_SIG_FEC_REPLAY, ctx->repair_out->chunk, sizeof(fd_repair_replay_fec_t), 0, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+  ctx->repair_out->chunk = fd_dcache_compact_next( ctx->repair_out->chunk, sizeof(fd_repair_replay_fec_t), ctx->repair_out->chunk0, ctx->repair_out->wmark );
 
   if( FD_UNLIKELY( ctx->source_exhausted && !ctx->shreds_cnt ) ) ctx->publish_time += fd_log_wallclock();
 }
@@ -386,14 +347,14 @@ finish( fd_backt_tile_t * ctx,
       for( ulong i=0UL; i<ctx->event_in_cnt; i++ ) {
         if( FD_UNLIKELY( fd_seq_lt( fd_fseq_query( ctx->event_in_cons[ i ] ), fd_mcache_seq_query( ctx->event_in_prod[ i ] ) ) ) ) { drained = 0; break; }
       }
-      drained = drained && !ctx->event_metrics[ FD_METRICS_GAUGE_EVENT_QUEUE_UNSENT_OFF ];
+      drained = drained && !ctx->event_metrics[ FD_METRICS_GAUGE_EVENT_QUEUE_UNSENT_COUNT_OFF ];
       if( FD_LIKELY( drained ) ) break;
       if( FD_UNLIKELY( ctx->event_metrics[ FD_METRICS_GAUGE_EVENT_CONN_STATE_OFF ]!=FD_EVENT_CLIENT_STATE_CONNECTED ) ) {
-        FD_LOG_WARNING(( "exiting with %lu events unsent (event collector not connected)", ctx->event_metrics[ FD_METRICS_GAUGE_EVENT_QUEUE_UNSENT_OFF ] ));
+        FD_LOG_WARNING(( "exiting with %lu events unsent (event collector not connected)", ctx->event_metrics[ FD_METRICS_GAUGE_EVENT_QUEUE_UNSENT_COUNT_OFF ] ));
         break;
       }
       if( FD_UNLIKELY( fd_log_wallclock()>deadline ) ) {
-        FD_LOG_WARNING(( "exiting with %lu events unsent (drain timed out)", ctx->event_metrics[ FD_METRICS_GAUGE_EVENT_QUEUE_UNSENT_OFF ] ));
+        FD_LOG_WARNING(( "exiting with %lu events unsent (drain timed out)", ctx->event_metrics[ FD_METRICS_GAUGE_EVENT_QUEUE_UNSENT_COUNT_OFF ] ));
         break;
       }
       FD_SPIN_PAUSE();
@@ -482,7 +443,7 @@ returnable_frag( fd_backt_tile_t *   ctx,
         /* In Alpenglow, dead blocks should never be in the ledger, so
            if Firedancer's replay marked a block as dead this should be
            fatal. */
-        if( FD_UNLIKELY( ctx->alpenglow ) ) {
+        if( FD_UNLIKELY( memcmp( msg->block_id.uc, ((fd_hash_t){0}).uc, sizeof(fd_hash_t) ) ) ) {
           FD_LOG_ERR(( "replay marked slot=%lu as dead", msg->slot ));
         }
         FD_LOG_NOTICE(( "replay marked slot=%lu as dead", msg->slot ));
@@ -498,37 +459,7 @@ returnable_frag( fd_backt_tile_t *   ctx,
         ctx->replay_ready_time     = fd_log_wallclock();
         ctx->prev_root             = msg->slot;
         if( FD_UNLIKELY( !ctx->src ) ) finish( ctx, msg->slot, msg->completion_time_nanos ); /* load-only: no ledger */
-        if( FD_UNLIKELY( ctx->alpenglow ) ) return 0;
-        /* Even though this is the first slot, we need to simulate tower
-           publishing the slot done message to replay so replay can
-           release the bank reference count on it. */
-        fd_tower_slot_done_t * dst = fd_chunk_to_laddr( ctx->tower_out->mem, ctx->tower_out->chunk );
-        /* Zero the fields this mock does not explicitly populate below
-           (eg. has_vote_txn, tower_cnt): consumers such as the gui tile
-           read the whole message. */
-        memset( dst, 0, sizeof(fd_tower_slot_done_t) );
-        dst->vote_slot             = msg->slot;
-        dst->reset_slot            = msg->slot;
-        dst->reset_block_id        = msg->block_id;
-        dst->reset_bank_seq        = msg->bank_seq;
-        dst->root_slot             = msg->slot;
-        dst->root_block_id         = msg->block_id;
-        dst->replay_slot           = msg->slot;
-        dst->replay_bank_idx       = msg->bank_idx;
-        dst->replay_bank_seq       = msg->bank_seq;
-        dst->active_fork_cnt       = 1UL;
-        dst->authority_idx         = ULONG_MAX;
-        dst->vote_acct_bal         = ULONG_MAX;
-        dst->vote_acct_com         = USHORT_MAX;
-        dst->is_voting             = 1;
-        fd_stem_publish( stem, ctx->tower_out->idx, FD_TOWER_SIG_SLOT_DONE, ctx->tower_out->chunk, sizeof(fd_tower_slot_done_t), 0UL, tspub, fd_frag_meta_ts_comp( fd_tickcount() ) );
-        ctx->tower_out->chunk = fd_dcache_compact_next( ctx->tower_out->chunk, sizeof(fd_tower_slot_done_t), ctx->tower_out->chunk0, ctx->tower_out->wmark );
         return 0;
-      }
-
-      for( ulong idx=0UL; !ctx->alpenglow && idx<=msg->block_id.ul[ 1 ]; idx+=FD_FEC_SHRED_CNT ) { /* replay publishes Alpenglow slots */
-        fd_hash_t mr = { .ul[ 0 ] = msg->slot, .ul[ 1 ] = idx };
-        fd_store_remove( ctx->store, ctx->map_join, &mr );
       }
 
       long prior_completion_timestamp = ctx->prior_completion_timestamp ? ctx->prior_completion_timestamp : msg->preparation_begin_nanos;
@@ -575,43 +506,17 @@ returnable_frag( fd_backt_tile_t *   ctx,
       int root_advanced = root_slot!=ctx->prev_root;
       ctx->prev_root    = root_slot;
 
-      /* Under Alpenglow the backtest tile stands in for votor and
-         certifies the root slot fast finalized so replay roots it. */
-      if( ctx->alpenglow ) {
-        if( FD_LIKELY( root_advanced ) ) {
-          fd_votor_certed_t * certed = fd_chunk_to_laddr( ctx->votor_out->mem, ctx->votor_out->chunk );
-          memset( certed, 0, sizeof(fd_votor_certed_t) );
-          certed->kind     = AG_CERT_KIND_FAST_FINAL;
-          certed->slot     = root_slot;
-          certed->block_id = ctx->rooted_slots_block_id[ root_slot%BANK_HASH_BUFFER_LEN ];
-          fd_stem_publish( stem, ctx->votor_out->idx, FD_VOTOR_SIG_CERTED, ctx->votor_out->chunk, sizeof(fd_votor_msg_t), 0UL, tspub, fd_frag_meta_ts_comp( fd_tickcount() ) );
-          ctx->votor_out->chunk = fd_dcache_compact_next( ctx->votor_out->chunk, sizeof(fd_votor_msg_t), ctx->votor_out->chunk0, ctx->votor_out->wmark );
-        }
-        break;
+      /* The backtest tile stands in for votor and certifies the root
+         slot fast finalized so replay roots it. */
+      if( FD_LIKELY( root_advanced ) ) {
+        fd_votor_certed_t * certed = fd_chunk_to_laddr( ctx->votor_out->mem, ctx->votor_out->chunk );
+        memset( certed, 0, sizeof(fd_votor_certed_t) );
+        certed->kind     = AG_CERT_KIND_FAST_FINAL;
+        certed->slot     = root_slot;
+        certed->block_id = ctx->rooted_slots_block_id[ root_slot%BANK_HASH_BUFFER_LEN ];
+        fd_stem_publish( stem, ctx->votor_out->idx, FD_VOTOR_SIG_CERTED, ctx->votor_out->chunk, sizeof(fd_votor_msg_t), 0UL, tspub, fd_frag_meta_ts_comp( fd_tickcount() ) );
+        ctx->votor_out->chunk = fd_dcache_compact_next( ctx->votor_out->chunk, sizeof(fd_votor_msg_t), ctx->votor_out->chunk0, ctx->votor_out->wmark );
       }
-
-      fd_tower_slot_done_t * dst = fd_chunk_to_laddr( ctx->tower_out->mem, ctx->tower_out->chunk );
-      /* Zero the fields this mock does not explicitly populate below
-         (eg. has_vote_txn, tower_cnt): consumers such as the gui tile
-         read the whole message. */
-      memset( dst, 0, sizeof(fd_tower_slot_done_t) );
-      dst->replay_slot           = msg->slot;
-      dst->replay_bank_idx       = msg->bank_idx;
-      dst->replay_bank_seq       = msg->bank_seq;
-      dst->vote_slot             = msg->slot;
-      dst->reset_slot            = msg->slot;
-      dst->reset_block_id        = msg->block_id;
-      dst->reset_bank_seq        = msg->bank_seq;
-      dst->root_slot             = root_slot;
-      dst->root_block_id         = ctx->rooted_slots_block_id[ root_slot%BANK_HASH_BUFFER_LEN ];
-      dst->active_fork_cnt       = 1UL;
-      dst->authority_idx         = ULONG_MAX;
-      dst->vote_acct_bal         = ULONG_MAX;
-      dst->vote_acct_com         = USHORT_MAX;
-      dst->is_voting             = 1;
-
-      fd_stem_publish( stem, ctx->tower_out->idx, FD_TOWER_SIG_SLOT_DONE, ctx->tower_out->chunk, sizeof(fd_tower_slot_done_t), 0UL, tspub, fd_frag_meta_ts_comp( fd_tickcount() ) );
-      ctx->tower_out->chunk = fd_dcache_compact_next( ctx->tower_out->chunk, sizeof(fd_tower_slot_done_t), ctx->tower_out->chunk0, ctx->tower_out->wmark );
       break;
     }
     default: FD_LOG_ERR(( "unhandled in_kind: %d in_idx: %lu", ctx->in_kind[ in_idx ], in_idx ));
@@ -674,7 +579,6 @@ unprivileged_init( fd_topo_t const *      topo,
 
   ctx->snapshot_done = 0;
   ctx->initialized = 0;
-  ctx->first_fec_complete = 0;
   ctx->reasm_ready = 0;
   ctx->genesis = fd_topo_find_tile( topo, "snapct", 0UL )==ULONG_MAX;
   ctx->idle_cnt = 0UL;
@@ -717,7 +621,6 @@ unprivileged_init( fd_topo_t const *      topo,
   memset( ctx->fec_set_idxs, 0UL, sizeof(ctx->fec_set_idxs) );
 
   ctx->root_distance = tile->backtest.root_distance;
-  ctx->alpenglow     = tile->backtest.alpenglow;
   ctx->boot_time     = tile->backtest.boot_timestamp_nanos;
 
   ctx->src = NULL;
@@ -734,7 +637,7 @@ unprivileged_init( fd_topo_t const *      topo,
     ctx->source_exhausted = 1;
   }
   FD_MGAUGE_SET( BACKT, START_SLOT, ctx->start_slot );
-  FD_MGAUGE_SET( BACKT, FINAL_SLOT, ctx->end_slot   );
+  FD_MGAUGE_SET( BACKT, END_SLOT,   fd_ulong_if( ctx->end_slot==ULONG_MAX, 0UL, ctx->end_slot ) );
 
   ulong store_obj_id = fd_pod_query_ulong( topo->props, "store", ULONG_MAX );
   FD_TEST( store_obj_id!=ULONG_MAX );
@@ -759,8 +662,7 @@ unprivileged_init( fd_topo_t const *      topo,
   }
 
   *ctx->repair_out = out1( topo, tile, "repair_out" );
-  *ctx->tower_out  = out1( topo, tile, "tower_out" );
-  if( ctx->alpenglow ) *ctx->votor_out = out1( topo, tile, "votor_out" );
+  *ctx->votor_out  = out1( topo, tile, "votor_out" );
   ctx->ipecho_out_idx = fd_topo_find_tile_out_link( topo, tile, "ipecho_out", 0UL );
 
   ctx->store = fd_store_join( fd_topo_obj_laddr( topo, fd_pod_query_ulong( topo->props, "store", ULONG_MAX ) ) );
