@@ -572,7 +572,7 @@ fd_topo_initialize( config_t * config ) {
       FOR(snapin_tile_cnt) fd_topob_link( topo, "snapin_gui",    "snapin_gui",    128UL,                                    FD_GUI_CONFIG_PARSE_MAX_VALID_ACCT_SZ, 1UL );
     }
     FOR(snapin_tile_cnt) fd_topob_link( topo, "snapin_ct",     "snapin_ct",     128UL,                                    0UL,                           1UL );
-    if( fast_boot )      fd_topob_link( topo, "snapct_ct",     "snapct_ct",     128UL,                                    sizeof(fd_ssctrl_meta_t),      1UL );
+    if( fast_boot )      fd_topob_link( topo, "snapct_ct",     "snapct_ct",     128UL,                                    sizeof(fd_ssctrl_stream_init_t),1UL );
   }
   FOR(snapzp_tile_cnt) fd_topob_link( topo, "snapmk_zp",     "snapmk_zp",     1024UL,                                   sizeof(fd_backup_frag_t),      1UL );
   if( snapmk_enabled ) fd_topob_link( topo, "replay_snapmk", "replay_snapmk", 16UL,                                     sizeof(fd_replay_snap_start_t),1UL );

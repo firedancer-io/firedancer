@@ -4156,7 +4156,7 @@ snapmk_start( fd_replay_tile_t *  ctx,
      period as the stream does not serve all stake accounts. */
   fd_sysvar_epoch_rewards_t epoch_rewards[1];
   if( FD_UNLIKELY( !fd_sysvar_epoch_rewards_read( ctx->accdb, bank->accdb_fork_id, epoch_rewards ) ) ) epoch_rewards->active = 0;
-  int should_open_stream = incremental && !epoch_rewards->active;
+  int should_open_stream = !epoch_rewards->active && ctx->caught_up;
 
   /* Send SNAP_START message to snapmk. */
   fd_replay_snap_start_t * msg = fd_chunk_to_laddr( ctx->snapmk_out->mem, ctx->snapmk_out->chunk );

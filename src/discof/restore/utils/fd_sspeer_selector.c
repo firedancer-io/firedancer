@@ -508,13 +508,9 @@ fd_sspeer_selector_remove_by_addr( fd_sspeer_selector_t * selector,
   }
 }
 
-fd_sspeer_t
-fd_sspeer_selector_best( fd_sspeer_selector_t * selector,
-                         int                    incremental,
-                         ulong                  base_slot,
-                         ulong                  min_reachable_slot ) {
-  if( FD_UNLIKELY( incremental && base_slot==FD_SSPEER_SLOT_UNKNOWN ) ) {
-    FD_LOG_WARNING(( "incremental selection requires a valid base_slot" ));
+static fd_sspeer_t
+fd_sspeer_from_private( fd_sspeer_private_t const * peer ) {
+  if( FD_UNLIKELY( !peer || !peer->valid ) ) {
     return (fd_sspeer_t){
       .key       = { .is_url = 0 },
       .addr      = { .l=0UL },
@@ -524,6 +520,27 @@ fd_sspeer_selector_best( fd_sspeer_selector_t * selector,
       .full_hash = {0},
       .incr_hash = {0},
     };
+  }
+  fd_sspeer_t out = {
+    .key       = peer->key,
+    .addr      = peer->addr,
+    .full_slot = peer->full_slot,
+    .incr_slot = peer->incr_slot,
+    .score     = peer->score,
+  };
+  fd_memcpy( out.full_hash, peer->full_hash, FD_HASH_FOOTPRINT );
+  fd_memcpy( out.incr_hash, peer->incr_hash, FD_HASH_FOOTPRINT );
+  return out;
+}
+
+fd_sspeer_t
+fd_sspeer_selector_best( fd_sspeer_selector_t * selector,
+                         int                    incremental,
+                         ulong                  base_slot,
+                         ulong                  min_reachable_slot ) {
+  if( FD_UNLIKELY( incremental && base_slot==FD_SSPEER_SLOT_UNKNOWN ) ) {
+    FD_LOG_WARNING(( "incremental selection requires a valid base_slot" ));
+    return fd_sspeer_from_private( NULL );
   }
 
   for( score_treap_fwd_iter_t iter = score_treap_fwd_iter_init( selector->score_treap, selector->pool );
@@ -538,28 +555,17 @@ fd_sspeer_selector_best( fd_sspeer_selector_t * selector,
                    reachable_slot>=min_reachable_slot &&
                    (!incremental ||
                    (peer->full_slot==base_slot && peer->incr_slot!=FD_SSPEER_SLOT_UNKNOWN) ) ) ) {
-      fd_sspeer_t best = {
-        .key       = peer->key,
-        .addr      = peer->addr,
-        .full_slot = peer->full_slot,
-        .incr_slot = peer->incr_slot,
-        .score     = peer->score,
-      };
-      fd_memcpy( best.full_hash, peer->full_hash, FD_HASH_FOOTPRINT );
-      fd_memcpy( best.incr_hash, peer->incr_hash, FD_HASH_FOOTPRINT );
-      return best;
+      return fd_sspeer_from_private( peer );
     }
   }
 
-  return (fd_sspeer_t){
-    .key       = { .is_url = 0 },
-    .addr      = { .l=0UL },
-    .full_slot = FD_SSPEER_SLOT_UNKNOWN,
-    .incr_slot = FD_SSPEER_SLOT_UNKNOWN,
-    .score     = FD_SSPEER_SCORE_INVALID,
-    .full_hash = {0},
-    .incr_hash = {0},
-  };
+  return fd_sspeer_from_private( NULL );
+}
+
+fd_sspeer_t
+fd_sspeer_selector_query( fd_sspeer_selector_t const * selector,
+                          fd_sspeer_key_t const *      key ) {
+  return fd_sspeer_from_private( peer_map_by_key_ele_query_const( selector->map_by_key, key, NULL, selector->pool ) );
 }
 
 void

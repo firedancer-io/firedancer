@@ -74,6 +74,15 @@ fd_sshttp_resume( fd_sshttp_t * http,
                   long          now,
                   ulong         range_start );
 
+/* fd_sshttp_request asks the server of the last request for path,
+   from the start, following redirects.  The connection must be idle. */
+
+int
+fd_sshttp_request( fd_sshttp_t * http,
+                   long          now,
+                   char const *  path,
+                   ulong         path_len );
+
 void
 fd_sshttp_cancel( fd_sshttp_t * http );
 

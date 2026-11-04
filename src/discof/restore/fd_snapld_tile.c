@@ -441,7 +441,11 @@ after_credit( fd_snapld_tile_t *  ctx,
         }
       }
 
-      if( FD_UNLIKELY( fd_sshttp_resume( ctx->sshttp, now, ctx->fast_boot_stream.off ) ) ) {
+      int err;
+      if( FD_UNLIKELY( ctx->fast_boot_stream.next_stream ) ) err = fd_sshttp_request( ctx->sshttp, now, "/fast-boot-stream.tar.zst", sizeof("/fast-boot-stream.tar.zst")-1UL );
+      else                                                   err = fd_sshttp_resume ( ctx->sshttp, now, ctx->fast_boot_stream.off );
+
+      if( FD_UNLIKELY( err ) ) {
         if( FD_UNLIKELY( !handle_connection_failure( ctx, now ) ) ) transition_malformed( ctx, stem );
         return;
       }
@@ -497,12 +501,10 @@ after_credit( fd_snapld_tile_t *  ctx,
               fd_sshttp_cancel( ctx->sshttp );
               break;
             }
-            int is_full_filename   = !strncmp( resolved_name, "snapshot-", 9 );
-            int is_stream_filename = !strncmp( resolved_name, "fast-boot-stream-", 17 );
-            if( FD_UNLIKELY( is_stream_filename!=ctx->fast_boot_stream.active || (!ctx->fast_boot_stream.active && is_full_filename!=ctx->load_full) ) ) {
+            int is_full_filename = !strncmp( resolved_name, "snapshot-", 9 );
+            if( FD_UNLIKELY( is_full_filename!=ctx->load_full ) ) {
               FD_LOG_WARNING(( "resolved snapshot type mismatch: expected %s but got %s filename `%s`",
-                               ctx->fast_boot_stream.active ? "stream" : ctx->load_full ? "full" : "incremental",
-                               is_stream_filename ? "stream" : is_full_filename ? "full" : "incremental", resolved_name ));
+                               ctx->load_full ? "full" : "incremental", is_full_filename ? "full" : "incremental", resolved_name ));
               transition_malformed( ctx, stem );
               fd_sshttp_cancel( ctx->sshttp );
               break;
@@ -523,7 +525,6 @@ after_credit( fd_snapld_tile_t *  ctx,
               break;
             }
             meta->resolved_slot = resolved_slot;
-            ctx->fast_boot_stream.slot = resolved_slot;
             fd_memcpy( meta->resolved_hash, fd_sshttp_resolved_hash( ctx->sshttp ), FD_HASH_FOOTPRINT );
             fd_cstr_ncpy( meta->resolved_name, resolved_name, PATH_MAX );
             FD_LOG_INFO(( "redirect resolved to `%s` (slot %lu) for %s snapshot",
@@ -679,7 +680,7 @@ returnable_frag( fd_snapld_tile_t *  ctx,
       ctx->fast_boot_stream.active           = msg_in->fast_boot_stream;
       ctx->fast_boot_stream.caught_up        = 0;
       ctx->fast_boot_stream.next_stream      = 0;
-      ctx->fast_boot_stream.slot             = 0UL;
+      ctx->fast_boot_stream.slot             = msg_in->slot;
       ctx->fast_boot_stream.off              = 0UL;
       ctx->fast_boot_stream.wait             = LONG_MAX;
       ctx->fast_boot_stream.next_stream_slot = ULONG_MAX;
@@ -738,6 +739,12 @@ returnable_frag( fd_snapld_tile_t *  ctx,
 
     case FD_SNAPSHOT_MSG_CTRL_FAIL:
       FD_TEST( ctx->state!=FD_SNAPSHOT_STATE_SHUTDOWN );
+      if( FD_UNLIKELY( ctx->state==FD_SNAPSHOT_STATE_PROCESSING && ctx->fast_boot_stream.active && ctx->sent_meta ) ) {
+        FD_LOG_INFO(( "keeping the fast boot stream at slot %lu, it answered before the fail arrived", ctx->fast_boot_stream.slot ));
+        forward_msg = 0;
+        break;
+      }
+      
       fd_sshttp_cancel( ctx->sshttp );
       ctx->state = FD_SNAPSHOT_STATE_IDLE;
       ctx->pipeline_ready = 0;

@@ -1,7 +1,35 @@
-/* strmk key store tests */
+/* strmk key store and stream announce tests */
 
+#define _GNU_SOURCE
 #define FD_TILE_TEST
+#include "fd_strmk_tile.h"
+#include "../../disco/stem/fd_stem.h"
+
+/* What the tile published last on the file server link. */
+
+static ulong          test_publish_cnt;
+static ulong          test_publish_sig;
+static fd_strmk_msg_t test_publish_msg;
+static void *         test_publish_mem;
+
+static ulong
+test_stem_publish( fd_stem_context_t * stem    FD_PARAM_UNUSED,
+                   ulong               out_idx FD_PARAM_UNUSED,
+                   ulong               sig,
+                   ulong               chunk,
+                   ulong               sz,
+                   ulong               ctl     FD_PARAM_UNUSED,
+                   ulong               tsorig  FD_PARAM_UNUSED,
+                   ulong               tspub   FD_PARAM_UNUSED ) {
+  test_publish_cnt++;
+  test_publish_sig = sig;
+  if( sz==sizeof(fd_strmk_msg_t) ) test_publish_msg = *(fd_strmk_msg_t const *)fd_chunk_to_laddr_const( test_publish_mem, chunk );
+  return 0UL;
+}
+
+#define fd_stem_publish test_stem_publish
 #include "fd_strmk_tile.c"
+#undef fd_stem_publish
 #include "../../util/tmpl/fd_unit_test.c"
 
 #include <stdlib.h>
@@ -120,6 +148,62 @@ FD_UNIT_TEST( keys_full ) {
   FD_TEST( env->ctx->metrics.key_dropped_cnt==1UL );
   FD_TEST( strmk_key_pool_used( env->ctx->key_pool )==1UL );
   keys_env_destroy( env );
+}
+
+/* A stream is announced once the snapshot at its start slot is on
+   disk, a full as well as an incremental. */
+
+FD_UNIT_TEST( announce_on_created ) {
+  static uchar out[ FD_CHUNK_SZ ] __attribute__((aligned(FD_CHUNK_ALIGN)));
+  ulong             seq_prod  = 0UL;
+  ulong             seqs[ 1 ] = { 0UL };
+  fd_stem_context_t stem[ 1 ] = { { .seqs = seqs } };
+  fd_strmk_t * ctx = alloc( alignof(fd_strmk_t), sizeof(fd_strmk_t) );
+  memset( ctx, 0, sizeof(fd_strmk_t) );
+  ctx->cur          = 0U;
+  ctx->snap_slot    = ULONG_MAX;
+  ctx->out.mem      = out;
+  ctx->out.seq_prod = &seq_prod;
+  ctx->stream[ 0 ].start_slot = 100UL;
+  test_publish_mem = out;
+  test_publish_cnt = 0UL;
+
+  /* A snapshot at another slot does not announce it. */
+  fd_snapmk_msg_created_t created = { .slot = 90UL, .base_slot = ULONG_MAX };
+  strmk_snapshot_created( ctx, stem, &created );
+  FD_TEST( !ctx->stream[ 0 ].announced && !test_publish_cnt );
+
+  /* The full at its slot does, once. */
+  created.slot = 100UL;
+  strmk_snapshot_created( ctx, stem, &created );
+  FD_TEST( ctx->stream[ 0 ].announced && test_publish_cnt==1UL && test_publish_sig==FD_STRMK_MSG_OPEN );
+  FD_TEST( test_publish_msg.idx==0U && test_publish_msg.slot==100UL );
+  strmk_snapshot_created( ctx, stem, &created );
+  FD_TEST( test_publish_cnt==1UL );
+
+  /* So does an incremental, for the next stream. */
+  ctx->cur = 1U;
+  ctx->stream[ 1 ].start_slot = 150UL;
+  created.slot      = 150UL;
+  created.base_slot = 100UL;
+  strmk_snapshot_created( ctx, stem, &created );
+  FD_TEST( ctx->stream[ 1 ].announced && test_publish_cnt==2UL && test_publish_sig==FD_STRMK_MSG_OPEN );
+  FD_TEST( test_publish_msg.idx==1U && test_publish_msg.slot==150UL );
+
+  /* A snapshot that lands before its stream starts announces the
+     stream once it does. */
+  ctx->cur = UINT_MAX;
+  created.slot      = 200UL;
+  created.base_slot = ULONG_MAX;
+  strmk_snapshot_created( ctx, stem, &created );
+  FD_TEST( ctx->snap_slot==200UL && test_publish_cnt==2UL );
+  ctx->cur = 2U;
+  ctx->stream[ 2 ].start_slot = 200UL;
+  strmk_announce_open( ctx, stem );
+  FD_TEST( ctx->stream[ 2 ].announced && test_publish_cnt==3UL && test_publish_sig==FD_STRMK_MSG_OPEN );
+  FD_TEST( test_publish_msg.idx==2U && test_publish_msg.slot==200UL );
+
+  free( ctx );
 }
 
 int

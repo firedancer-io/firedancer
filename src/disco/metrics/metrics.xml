@@ -1558,6 +1558,7 @@ deliberate exception with lint-allow="<rule id>")
     <int value="20" name="FlushingIncrementalHttpReset" label="Incremental download aborted, resetting downstream" />
     <int value="21" name="Shutdown" label="Snapshot load complete" />
     <int value="22" name="ReadingStream" label="Downloading fast boot stream" />
+    <int value="23" name="FlushingStreamReset" label="Fast boot stream not opened, asking for a newer one" />
 </enum>
 
 <tile name="snapct">

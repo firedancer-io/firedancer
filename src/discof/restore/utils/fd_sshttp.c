@@ -414,12 +414,19 @@ fd_sshttp_deadline( fd_sshttp_t const * http ) {
 }
 
 int
+fd_sshttp_request( fd_sshttp_t * http,
+                   long          now,
+                   char const *  path,
+                   ulong         path_len ) {
+  return fd_sshttp_init( http, http->addr, http->hostname, http->is_https, path, path_len, 4UL, now, 0UL, http->is_stream );
+}
+
+int
 fd_sshttp_resume( fd_sshttp_t * http,
                   long          now,
                   ulong         range_start ) {
-  char const * path     = range_start ? http->location     : http->path;
-  ulong        path_len = range_start ? http->location_len : http->path_len;
-  return fd_sshttp_init( http, http->addr, http->hostname, http->is_https, path, path_len, 4UL, now, range_start, http->is_stream );
+  if( FD_UNLIKELY( !range_start ) ) return fd_sshttp_request( http, now, http->path, http->path_len );
+  return fd_sshttp_init( http, http->addr, http->hostname, http->is_https, http->location, http->location_len, 4UL, now, range_start, http->is_stream );
 }
 
 void

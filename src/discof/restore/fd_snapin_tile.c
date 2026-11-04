@@ -2290,6 +2290,7 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
 
     case FD_SNAPSHOT_MSG_CTRL_FAIL: {
       FD_TEST( ctx->state!=FD_SNAPSHOT_STATE_SHUTDOWN );
+      FD_CHECK_ERR( !(ctx->fast_boot.stream && is_lead( ctx ) && ctx->lead.flags.manifest_processed), "the fast boot stream was reset after its manifest was loaded" );
       fd_accdb_flush_metrics( ctx->accdb );
 
       FD_COMPILER_MFENCE();

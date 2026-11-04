@@ -1082,10 +1082,12 @@ test_snapmk_start_leader_after_epoch_rollover( fd_wksp_t * wksp ) {
   FD_LOG_NOTICE(( "pass: test_snapmk_start_leader_after_epoch_rollover" ));
 }
 
-/* No stream for an incremental made during a rewards payout. */
+/* A snapshot, full or incremental, opens a stream once replay has
+   caught up and outside a rewards payout. */
 
 static void
-test_snapmk_start_no_stream_in_payout( fd_wksp_t * wksp ) {
+test_snapmk_start_opens_stream( fd_wksp_t * wksp,
+                                int         incremental ) {
   static fd_replay_tile_t ctx[ 1 ];
   setup_ctx( ctx, wksp );
 
@@ -1094,24 +1096,39 @@ test_snapmk_start_no_stream_in_payout( fd_wksp_t * wksp ) {
   bank->f.slot                 = 127UL;
   ctx->published_root_bank_idx = bank->idx;
   ctx->snapmk.supported        = 1;
-  ctx->snapmk.base_slot        = 100UL;
+  ctx->snapmk.base_slot        = incremental ? 100UL : ULONG_MAX;
   ctx->strmk.supported         = 1;
   *ctx->snapmk_out = *ctx->slot_out;
+  ulong refcnt = bank->refcnt;
 
-  mock_epoch_rewards_active = 1;
+  /* Not before replay has caught up. */
+  mock_epoch_rewards_active = 0;
   ulong chunk = ctx->snapmk_out->chunk;
-  snapmk_start( ctx, test_stem, 1 );
+  snapmk_start( ctx, test_stem, incremental );
   fd_replay_snap_start_t const * msg = fd_chunk_to_laddr_const( ctx->snapmk_out->mem, chunk );
+  FD_TEST( !msg->should_open_stream && !ctx->strmk.active );
+  snapmk_done( ctx, test_stem, 1 );
+
+  /* Nor during a rewards payout. */
+  ctx->caught_up            = 1;
+  mock_epoch_rewards_active = 1;
+  chunk = ctx->snapmk_out->chunk;
+  snapmk_start( ctx, test_stem, incremental );
+  msg = fd_chunk_to_laddr_const( ctx->snapmk_out->mem, chunk );
   FD_TEST( !msg->should_open_stream && !ctx->strmk.active );
   snapmk_done( ctx, test_stem, 1 );
 
   mock_epoch_rewards_active = 0;
   chunk = ctx->snapmk_out->chunk;
-  snapmk_start( ctx, test_stem, 1 );
+  snapmk_start( ctx, test_stem, incremental );
   msg = fd_chunk_to_laddr_const( ctx->snapmk_out->mem, chunk );
-  FD_TEST( msg->should_open_stream && ctx->strmk.active );
+  FD_TEST( msg->should_open_stream && msg->slot==127UL && msg->base_slot==(incremental ? 100UL : 127UL) );
+  FD_TEST( ctx->strmk.active && ctx->strmk.bank_idx==bank->idx && bank->refcnt==refcnt+2UL );
+  snapmk_done( ctx, test_stem, 1 );
+  strmk_done( ctx );
+  FD_TEST( bank->refcnt==refcnt );
 
-  FD_LOG_NOTICE(( "pass: test_snapmk_start_no_stream_in_payout" ));
+  FD_LOG_NOTICE(( "pass: test_snapmk_start_opens_stream incremental=%d", incremental ));
 }
 
 static void
@@ -4881,7 +4898,8 @@ main( int     argc,
   test_ag_leader_fec_not_gated( wksp );
   fd_wksp_reset( wksp, 42U );
   test_snapmk_start_leader_after_epoch_rollover( wksp );
-  test_snapmk_start_no_stream_in_payout( wksp );
+  test_snapmk_start_opens_stream( wksp, 0 );
+  test_snapmk_start_opens_stream( wksp, 1 );
 
   FD_TEST( mock_store_view_success_cnt==mock_store_view_release_cnt );
 

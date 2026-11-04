@@ -8,10 +8,10 @@
 
 /* The fast boot stream files are a pool like the snapshot pool, with
    as many files as incremental snapshots are kept.  One stream is
-   written at a time; at each incremental snapshot the current file is
-   ended and the next one is started in the next file.  A file is only
-   rewritten once every other file has been used, so the file server
-   has long stopped serving it by then. */
+   written at a time; at each snapshot, full or incremental, the
+   current file is ended and the next one is started in the next file.
+   A file is only rewritten once every other file has been used, so
+   the file server has long stopped serving it by then. */
 
 #define FD_STRMK_POOL_MAX FD_SSARCHIVE_MAX_ENTRIES
 

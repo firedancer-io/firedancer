@@ -1,15 +1,14 @@
 /* The strmk tile writes fast boot streams.
 
    A fast boot stream is a snapshot archive that never finishes: it
-   opens with the manifest of an incremental snapshot's slot and later
-   grows by one appendvec per transaction, with the accounts the
-   transaction touched as they were at that slot, so that a peer can
-   start executing before its own snapshot has loaded.  Replay tells
-   this tile about every snapshot it starts, the same message the
-   snapshot maker gets, and holds the published root at the snapshot's
-   slot until the tile is done with it: for a stream, until replay
-   ends the stream for the next snapshot.  The snapsv tile serves the
-   files over HTTP.
+   opens with the manifest of a snapshot's slot and later grows by one
+   appendvec per transaction, with the accounts the transaction touched
+   as they were at that slot, so that a peer can start executing before
+   its own snapshot has loaded.  Replay tells this tile about every
+   snapshot it starts, the same message the snapshot maker gets, and
+   holds the published root at the snapshot's slot until the tile is
+   done with it: for a stream, until replay ends the stream for the next
+   snapshot.  The snapsv tile serves the files over HTTP.
 
    The files are a small pool opened by run.c before the tiles start,
    like the snapshot pool.  A peer still downloading a file that is
@@ -97,8 +96,8 @@ typedef struct strmk_stream strmk_stream_t;
 struct fd_strmk {
   uint  cur;        /* the stream being written, UINT_MAX if none */
   uint  next;       /* the pool file the next stream goes in */
-  uint  stream_max; /* pool files, as many as incremental snapshots are kept */
-  ulong incr_slot;  /* slot of the newest incremental snapshot on disk */
+  uint  stream_max; /* pool files */
+  ulong snap_slot;  /* slot of the newest snapshot on disk */
 
   strmk_stream_t stream[ FD_STRMK_POOL_MAX ];
 
@@ -349,9 +348,9 @@ strmk_stream_close( fd_strmk_t *        ctx,
 }
 
 /* strmk_announce_open announces a stream once a peer can use it.  A
-   peer needs the incremental snapshot the stream starts at as well,
-   so the OPEN waits until that snapshot is on disk, whichever of the
-   two lands second. */
+   peer needs the snapshot the stream starts at as well, so the OPEN
+   waits until that snapshot is on disk, whichever of the two lands
+   second. */
 
 static void
 strmk_announce_open( fd_strmk_t *        ctx,
@@ -359,7 +358,7 @@ strmk_announce_open( fd_strmk_t *        ctx,
   if( FD_UNLIKELY( ctx->cur==UINT_MAX ) ) return;
 
   strmk_stream_t * stream = &ctx->stream[ ctx->cur ];
-  if( FD_LIKELY( stream->announced || stream->start_slot!=ctx->incr_slot ) ) return;
+  if( FD_LIKELY( stream->announced || stream->start_slot!=ctx->snap_slot ) ) return;
 
   stream->announced = 1;
   strmk_announce( ctx, stem, ctx->cur, FD_STRMK_MSG_OPEN );
@@ -560,11 +559,11 @@ strmk_store_keys( fd_strmk_t *                ctx,
 /**********************************************************************/
 
 /* strmk_stream_start starts the next stream.  It runs on replay's
-   snapshot start message: an incremental snapshot starts a stream in
-   the next pool file, with the version entry, the manifest and the
-   keys of the blocks above the snapshot slot.  Replay keeps the
-   published root at that slot until the stream ends, and says which
-   snapshots start a stream. */
+   snapshot start message: a snapshot starts a stream in the next pool
+   file, with the version entry, the manifest and the keys of the
+   blocks above the snapshot slot.  Replay keeps the published root at
+   that slot until the stream ends, and says which snapshots start a
+   stream. */
 
 static void
 strmk_stream_start( fd_strmk_t *                   ctx,
@@ -619,15 +618,13 @@ strmk_stream_start( fd_strmk_t *                   ctx,
   strmk_announce_open( ctx, stem );
 }
 
-/* strmk_snapshot_created notes that an incremental snapshot landed on
-   disk. */
+/* strmk_snapshot_created notes that a snapshot landed on disk. */
 
 static void
 strmk_snapshot_created( fd_strmk_t *                    ctx,
               fd_stem_context_t *             stem,
               fd_snapmk_msg_created_t const * msg ) {
-  if( FD_LIKELY( msg->base_slot==ULONG_MAX ) ) return;
-  ctx->incr_slot = msg->slot;
+  ctx->snap_slot = msg->slot;
   strmk_announce_open( ctx, stem );
 }
 
@@ -755,7 +752,7 @@ unprivileged_init( fd_topo_t const *      topo,
 
   ctx->cur       = UINT_MAX;
   ctx->next      = 0U;
-  ctx->incr_slot = ULONG_MAX;
+  ctx->snap_slot = ULONG_MAX;
   ctx->raw       = _raw;
 
   ctx->zstd = ZSTD_initStaticCStream( _zst, zst_sz );

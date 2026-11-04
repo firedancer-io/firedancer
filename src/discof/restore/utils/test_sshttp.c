@@ -505,6 +505,16 @@ test_range_request( void ) {
   FD_TEST( !strstr( http->request, "Range:" ) );
   fd_sshttp_cancel( http );
 
+  /* A request asks the same server for another path from the start,
+     which later resumes from the start go back to. */
+  FD_TEST( !fd_sshttp_request( http, 0L, "/boot/9.tar.zst", 15UL ) );
+  FD_TEST( strstr( http->request, "GET /boot/9.tar.zst HTTP/1.1" ) && strstr( http->request, "Host: localhost" ) );
+  FD_TEST( !strstr( http->request, "Range:" ) && http->is_stream );
+  fd_sshttp_cancel( http );
+  FD_TEST( !fd_sshttp_resume( http, 0L, 0UL ) );
+  FD_TEST( strstr( http->request, "GET /boot/9.tar.zst HTTP/1.1" ) );
+  fd_sshttp_cancel( http );
+
   FD_TEST( !close( listen_fd ) );
 }
 
