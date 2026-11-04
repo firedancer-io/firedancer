@@ -7138,7 +7138,7 @@ message MetricsVotorVoteRx {
   uint64 slot_out_of_range = 7;
   // Vote block hash was null
   uint64 null_block_hash = 8;
-  // Vote signature was the identity point
+  // Vote signature was the identity point or outside the G2 subgroup
   uint64 signature_failed = 9;
   // Sender was not a ranked validator in the vote slot's epoch
   uint64 unranked = 10;

@@ -13,6 +13,7 @@
 #define AG_POOL_ERR_DUPLICATE          (-3)
 #define AG_POOL_ERR_SLASHABLE          (-4)
 #define AG_POOL_ERR_CERT_VERIFY        (-5)
+#define AG_POOL_ERR_VOTE_VERIFY        (-6)
 
 #define AG_POOL_QUORUM_REACHED_FINAL          (AG_CERT_KIND_FINAL)
 #define AG_POOL_QUORUM_REACHED_FAST_FINAL     (AG_CERT_KIND_FAST_FINAL)
@@ -147,7 +148,8 @@ ag_pool_add_cert( ag_pool_t *       self,
 /* Definition 12. Pool::add_vote
 
    verified is non-zero for a vote whose signature is trusted, e.g. our
-   own, and skips the G2 subgroup check. */
+   own, and skips the G2 subgroup check.  An unverified vote whose
+   signature is outside G2 is dropped with AG_POOL_ERR_VOTE_VERIFY. */
 
 int
 ag_pool_add_vote( ag_pool_t *       self,

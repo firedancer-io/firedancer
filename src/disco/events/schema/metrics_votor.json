@@ -115,7 +115,7 @@
                 "banned":                   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Sender is banned for a failed signature verification" },
                 "slot_out_of_range":        { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Vote slot was either too old or too far in the future" },
                 "null_block_hash":          { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Vote block hash was null" },
-                "signature_failed":         { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Vote signature was the identity point" },
+                "signature_failed":         { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Vote signature was the identity point or outside the G2 subgroup" },
                 "unranked":                 { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Sender was not a ranked validator in the vote slot's epoch" },
                 "shred_version_mismatched": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Vote was for a different shred version" },
                 "duplicate":                { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Voter had already cast this vote" },

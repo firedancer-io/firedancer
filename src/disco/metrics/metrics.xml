@@ -1897,7 +1897,7 @@ deliberate exception with lint-allow="<rule id>")
     <int value="5" name="Banned" label="Sender is banned for a failed signature verification" />
     <int value="6" name="SlotOutOfRange" label="Vote slot was either too old or too far in the future" />
     <int value="7" name="NullBlockHash" label="Vote block hash was null" />
-    <int value="8" name="SignatureFailed" label="Vote signature was the identity point" />
+    <int value="8" name="SignatureFailed" label="Vote signature was the identity point or outside the G2 subgroup" />
     <int value="9" name="Unranked" label="Sender was not a ranked validator in the vote slot's epoch" />
     <int value="10" name="ShredVersionMismatched" label="Vote was for a different shred version" />
     <int value="11" name="Duplicate" label="Voter had already cast this vote" />
