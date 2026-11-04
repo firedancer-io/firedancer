@@ -21,6 +21,8 @@ $(call make-fuzz-test,fuzz_compute_budget_program_parse,fuzz_compute_budget_prog
 $(call make-fuzz-test,fuzz_chkdup,fuzz_chkdup,fd_ballet fd_util)
 $(call make-unit-test,test_pack,test_pack,fd_disco fd_ballet fd_util)
 $(call run-unit-test,test_pack)
+$(call make-unit-test,test_pack_cross_penalty,test_pack_cross_penalty,fd_disco fd_ballet fd_util)
+$(call run-unit-test,test_pack_cross_penalty)
 endif
 ifdef FD_HAS_AVX
 # Disabled in CI as it's just a benchmarking program and takes too long
