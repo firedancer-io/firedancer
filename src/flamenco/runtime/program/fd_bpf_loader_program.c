@@ -113,11 +113,23 @@ calculate_heap_cost( ulong heap_size, ulong heap_cost ) {
 
    As a concrete example, our version of deploy_program does not have the
    'account_size' argument because we do not update the record here. */
-int
-fd_deploy_program( fd_exec_instr_ctx_t * instr_ctx,
-                   uchar const *         programdata,
-                   ulong                 programdata_size,
-                   int                   disable_sbpf_v0_v1_v2_deployment ) {
+
+struct fd_bpf_deploy_scratch {
+  uchar rodata        [ FD_RUNTIME_ACC_SZ_MAX     ] __attribute__((aligned(FD_SBPF_PROG_RODATA_ALIGN)));
+  uchar sbpf_footprint[ FD_SBPF_PROGRAM_FOOTPRINT ] __attribute__((aligned(alignof(fd_sbpf_program_t))));
+  uchar programdata   [ FD_RUNTIME_ACC_SZ_MAX     ] __attribute__((aligned(FD_ACCOUNT_REC_ALIGN)));
+};
+typedef struct fd_bpf_deploy_scratch fd_bpf_deploy_scratch_t;
+
+FD_STATIC_ASSERT( sizeof (fd_bpf_deploy_scratch_t)<=BPF_LOADER_SERIALIZATION_FOOTPRINT, bpf_deploy_scratch_sz    );
+FD_STATIC_ASSERT( alignof(fd_bpf_deploy_scratch_t)<=FD_BPF_FRAMES_ALIGN,                bpf_deploy_scratch_align );
+
+static int
+deploy_program( fd_exec_instr_ctx_t *     instr_ctx,
+                uchar const *             programdata,
+                ulong                     programdata_size,
+                int                       disable_sbpf_v0_v1_v2_deployment,
+                fd_bpf_deploy_scratch_t * scratch ) {
   int deploy_mode                            = 1;
   int direct_mapping                         = FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, account_data_direct_mapping );
   int syscall_parameter_address_restrictions = FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, syscall_parameter_address_restrictions );
@@ -164,21 +176,13 @@ fd_deploy_program( fd_exec_instr_ctx_t * instr_ctx,
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   }
 
-  /* Allocate rodata segment */
-  void * rodata = instr_ctx->runtime->bpf_loader_program.rodata;
-  if( FD_UNLIKELY( !rodata ) ) {
-    return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
-  }
-
-  /* Allocate program buffer */
-  fd_sbpf_program_t * prog = fd_sbpf_program_new( instr_ctx->runtime->bpf_loader_program.sbpf_footprint, elf_info, rodata );
+  fd_sbpf_program_t * prog = fd_sbpf_program_new( scratch->sbpf_footprint, elf_info, scratch->rodata );
   if( FD_UNLIKELY( !prog ) ) {
     FD_LOG_ERR(( "fd_sbpf_program_new() failed" ));
   }
 
   /* Load program */
-  void * scratch = instr_ctx->runtime->bpf_loader_program.programdata;
-  int err = fd_sbpf_program_load( prog, programdata, programdata_size, syscalls, &config, scratch, programdata_size );
+  int err = fd_sbpf_program_load( prog, programdata, programdata_size, syscalls, &config, scratch->programdata, programdata_size );
   if( FD_UNLIKELY( err ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   }
@@ -224,6 +228,20 @@ fd_deploy_program( fd_exec_instr_ctx_t * instr_ctx,
   }
 
   return FD_EXECUTOR_INSTR_SUCCESS;
+}
+
+int
+fd_deploy_program( fd_exec_instr_ctx_t * instr_ctx,
+                   uchar const *         programdata,
+                   ulong                 programdata_size,
+                   int                   disable_sbpf_v0_v1_v2_deployment ) {
+  /* The loader runs as a builtin, so its stack level holds no frame and
+     can borrow one under the same rules as fd_bpf_execute. */
+  fd_runtime_t * runtime = instr_ctx->runtime;
+  uchar *        frame   = fd_bpf_frames_acquire( runtime->bpf_frames, fd_progcache_spill_held( runtime->progcache ) );
+  int err = deploy_program( instr_ctx, programdata, programdata_size, disable_sbpf_v0_v1_v2_deployment, (fd_bpf_deploy_scratch_t *)frame );
+  fd_bpf_frames_release( runtime->bpf_frames, frame );
+  return err;
 }
 
 /* SIMD-0500 finalize gate: when the feature is active and the ELF
