@@ -325,6 +325,50 @@ struct fd_gui_timeline_100ms {
 };
 typedef struct fd_gui_timeline_100ms fd_gui_timeline_100ms_t;
 
+/* Vote latency lines reported by query_agg_votes.  A sample is the
+   time from a slot's start (its window's ParentReady plus the slot's
+   offset in the window times the target slot duration, as in Agave's
+   consensus metrics) to the arrival of a certificate, bucketed at the
+   arrival.  Lines are independent: a slot may contribute to several.
+
+     NOTAR          first notarization (Notar or FastFinal cert)
+     FAST_FINAL     FastFinal cert (one round)
+     SLOW_FINAL     Final cert, or the later notarization if the Final
+                    cert came first (two rounds)
+     SKIP           Skip cert
+     NOTAR_FALLBACK NotarFallback cert */
+
+#define FD_GUI_VOTE_LAT_NOTAR          (0UL)
+#define FD_GUI_VOTE_LAT_FAST_FINAL     (1UL)
+#define FD_GUI_VOTE_LAT_SLOW_FINAL     (2UL)
+#define FD_GUI_VOTE_LAT_SKIP           (3UL)
+#define FD_GUI_VOTE_LAT_NOTAR_FALLBACK (4UL)
+#define FD_GUI_VOTE_LAT_CNT            (5UL)
+
+/* Per-line latency sum (us) and sample count tiers (250ms and longer).
+   Sums saturate at their type maximum; counts stop at their type
+   maximum minus one (all ones is unset). */
+#define FD_GUI_TIMELINE_VOTE_LAT_MAP( X ) \
+  /* tier   sum    cnt    */            \
+  X( 250MS, uint,  ushort )             \
+  X( 2S,    uint,  ushort )             \
+  X( 15S,   ulong, uint   )             \
+  X( 2M,    ulong, uint   )             \
+  X( 15M,   ulong, uint   )             \
+  X( 2H,    ulong, uint   )             \
+  X( 12H,   ulong, uint   )
+
+#define FD_GUI_TIMELINE_VOTE_LAT_DECL( g, s, c ) \
+  s sum_##g[ FD_GUI_TIMELINE_##g##_CNT ];        \
+  c cnt_##g[ FD_GUI_TIMELINE_##g##_CNT ];
+
+struct fd_gui_timeline_vote_lat {
+  FD_GUI_TIMELINE_VOTE_LAT_MAP( FD_GUI_TIMELINE_VOTE_LAT_DECL )
+};
+typedef struct fd_gui_timeline_vote_lat fd_gui_timeline_vote_lat_t;
+
+#undef FD_GUI_TIMELINE_VOTE_LAT_DECL
+
 struct fd_gui_timeline_day {
   long insert_time_ns;
   long end_time_ns; /* exclusive UTC day end (the following midnight) */
@@ -336,8 +380,56 @@ struct fd_gui_timeline_day {
   fd_gui_timeline_15m_t   bucket_15m;
   fd_gui_timeline_2h_t    bucket_2h;
   fd_gui_timeline_12h_t   bucket_12h;
+  fd_gui_timeline_vote_lat_t vote_lat[ FD_GUI_VOTE_LAT_CNT ]; /* zeroed on creation */
 };
 typedef struct fd_gui_timeline_day fd_gui_timeline_day_t;
+
+/* fd_gui_timeline_vote_lat_get reads the latency sum (us) and count of
+   line in bucket idx of stored tier granularity.  An unset count (all
+   ones) reads as no samples. */
+
+static inline void
+fd_gui_timeline_vote_lat_get( fd_gui_timeline_day_t const * day,
+                              ulong                         line,
+                              int                           granularity,
+                              ulong                         idx,
+                              ulong *                       sum,
+                              ulong *                       cnt ) {
+  fd_gui_timeline_vote_lat_t const * l = &day->vote_lat[ line ];
+  *sum = 0UL; *cnt = 0UL;
+  switch( granularity ) {
+#define FD_GUI_TIMELINE_VOTE_LAT_GET( g, s, c )                                \
+    case FD_GUI_TIMELINE_GRANULARITY_##g:                                      \
+      if( FD_UNLIKELY( idx>=FD_GUI_TIMELINE_##g##_CNT ) ) return;              \
+      if( FD_UNLIKELY( l->cnt_##g[ idx ]==(c)~(c)0 ) ) return;                 \
+      *sum = l->sum_##g[ idx ];                                                \
+      *cnt = l->cnt_##g[ idx ];                                                \
+      return;
+    FD_GUI_TIMELINE_VOTE_LAT_MAP( FD_GUI_TIMELINE_VOTE_LAT_GET )
+#undef FD_GUI_TIMELINE_VOTE_LAT_GET
+    default: return;
+  }
+}
+
+/* fd_gui_timeline_vote_lat_add folds one latency sample of lat_us into
+   every tier bucket of line covering day_ns. */
+
+static inline void
+fd_gui_timeline_vote_lat_add( fd_gui_timeline_day_t * day,
+                              ulong                   line,
+                              ulong                   day_ns,
+                              ulong                   lat_us ) {
+  fd_gui_timeline_vote_lat_t * l = &day->vote_lat[ line ];
+#define FD_GUI_TIMELINE_VOTE_LAT_ADD( g, s, c ) do {                                             \
+    ulong idx = day_ns/(ulong)(FD_GUI_TIMELINE_DAY_NS/FD_GUI_TIMELINE_##g##_CNT);                \
+    if( FD_LIKELY( l->cnt_##g[ idx ]<(c)((c)~(c)0-(c)1) ) ) {                                    \
+      l->sum_##g[ idx ] = (s)fd_ulong_min( fd_ulong_sat_add( l->sum_##g[ idx ], lat_us ), (ulong)(s)~(s)0 ); \
+      l->cnt_##g[ idx ]++;                                                                       \
+    }                                                                                            \
+  } while(0);
+  FD_GUI_TIMELINE_VOTE_LAT_MAP( FD_GUI_TIMELINE_VOTE_LAT_ADD )
+#undef FD_GUI_TIMELINE_VOTE_LAT_ADD
+}
 
 /* Tile states reported by query_tile_states and query_agg_tile_states.
    Execrp tiles run transaction stages and account LtHash tasks, the
@@ -1542,6 +1634,8 @@ struct fd_gui_timeline_query_bucket {
   ulong fields[ FD_GUI_TIMELINE_FIELD_CNT ];
   ulong slot_duration;
   int   has_day;
+  ulong vote_lat_sum[ FD_GUI_VOTE_LAT_CNT ]; /* us */
+  ulong vote_lat_cnt[ FD_GUI_VOTE_LAT_CNT ];
 };
 typedef struct fd_gui_timeline_query_bucket fd_gui_timeline_query_bucket_t;
 
@@ -1649,8 +1743,17 @@ struct fd_gui {
     struct {
       ulong slot;   /* ULONG_MAX if unused */
       uint  events; /* FD_GUI_VOTE_EVENT_* markers already recorded */
+      uint  lat;    /* FD_GUI_VOTE_LAT_* lines already sampled */
+      long  final_ts_ns; /* Final cert arrival awaiting notarization, LONG_MAX if none */
     } slot[ FD_GUI_VOTE_SLOT_CNT ];
-    ulong dropped_cnt; /* malformed, or markers for a slot older than the tracked ones */
+    /* First ParentReady per leader window, indexed by
+       window%FD_GUI_VOTE_SLOT_CNT.  Anchors the vote latency lines. */
+    struct {
+      ulong slot;  /* first slot of the window, ULONG_MAX if unused */
+      long  ts_ns;
+    } parent_ready[ FD_GUI_VOTE_SLOT_CNT ];
+    ulong dropped_cnt;     /* malformed, or markers for a slot older than the tracked ones */
+    ulong lat_missing_cnt; /* certs not sampled: no ParentReady or slot duration for the window, or arrival before the slot start */
   } votes;
 
   ulong leader_begin_slot;

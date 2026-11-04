@@ -3480,9 +3480,33 @@ They are `null` only outside the retained aggregates.
 :::
 
 ##### `timeline.query_agg_votes`
-| field        | type               | description |
-|--------------|--------------------|-------------|
-| missed_votes | `(number\|null)[]` | Count of slots this validator was a voter for but whose reward certificates did not include its vote, attributed to when that became known (about eight slots after the slot) |
+| field                     | type               | description |
+|---------------------------|--------------------|-------------|
+| missed_votes              | `(number\|null)[]` | Count of slots this validator was a voter for but whose reward certificates did not include its vote, attributed to when that became known (about eight slots after the slot) |
+| notarized_latency_ns      | `(number\|null)[]` | Average latency of a slot's first notarization (Notar or FastFinal certificate) |
+| notarized_cnt             | `number[]`         | Number of samples in `notarized_latency_ns` |
+| finalized_fast_latency_ns | `(number\|null)[]` | Average latency of FastFinal certificates (finalized in one round) |
+| finalized_fast_cnt        | `number[]`         | Number of samples in `finalized_fast_latency_ns` |
+| finalized_slow_latency_ns | `(number\|null)[]` | Average latency of slow finalization (finalized in two rounds): the Final certificate, or the slot's notarization if that arrived after the Final certificate |
+| finalized_slow_cnt        | `number[]`         | Number of samples in `finalized_slow_latency_ns` |
+| skipped_latency_ns        | `(number\|null)[]` | Average latency of Skip certificates |
+| skipped_cnt               | `number[]`         | Number of samples in `skipped_latency_ns` |
+| notar_fallback_latency_ns | `(number\|null)[]` | Average latency of NotarFallback certificates (a contested block that may still be built on; these never finalize the block directly) |
+| notar_fallback_cnt        | `number[]`         | Number of samples in `notar_fallback_latency_ns` |
+
+Latencies are measured from the slot's start to the arrival of the
+certificate at this validator, and each sample is bucketed by its
+arrival time. A slot starts at this validator's first ParentReady for
+its leader window plus the slot's offset in the window times the
+target slot duration, the same anchor Agave uses for its consensus
+metrics. The lines are independent: a slot contributes at most once
+to each line, and may contribute to several (a fast-finalized slot is
+also notarized and usually also receives a Final certificate). Slots
+finalized only implicitly through a descendant are not sampled.
+Certificates for a window whose ParentReady was not seen (for example
+before a restart or while catching up) are not sampled. A latency is
+`null` where the bucket has no samples, including sparse lines like
+`skipped_latency_ns`.
 
 ##### `timeline.query_agg_shreds`
 | field         | type               | description |

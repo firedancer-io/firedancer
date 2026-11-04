@@ -4240,7 +4240,10 @@ fd_gui_printf_timeline_query_agg( fd_gui_t *   gui,
     memset( b[ i ].fields, 0xFF, sizeof(b[ i ].fields) );
     b[ i ].slot_duration = ULONG_MAX;
     b[ i ].has_day       = 0;
+    memset( b[ i ].vote_lat_sum, 0, sizeof(b[ i ].vote_lat_sum) );
+    memset( b[ i ].vote_lat_cnt, 0, sizeof(b[ i ].vote_lat_cnt) );
   }
+  int votes = !strcmp( key, "query_agg_votes" );
 
   /* The buckets are visited in ascending time order, so the record
      for the previous bucket's day is reused until the query crosses
@@ -4263,6 +4266,14 @@ fd_gui_printf_timeline_query_agg( fd_gui_t *   gui,
       for( int f=0; f<FD_GUI_TIMELINE_FIELD_CNT; f++ ) {
         if( !fd_gui_timeline_tier_has_field( stored, f ) ) continue; /* unused by this query */
         b[ i ].fields[ f ] = fd_gui_timeline_combine( b[ i ].fields[ f ], fd_gui_timeline_field_get( cur_day, (int)stored, f, idx ), f );
+      }
+      if( votes ) {
+        for( ulong l=0UL; l<FD_GUI_VOTE_LAT_CNT; l++ ) {
+          ulong sum, cnt;
+          fd_gui_timeline_vote_lat_get( cur_day, l, stored, idx, &sum, &cnt );
+          b[ i ].vote_lat_sum[ l ] = fd_ulong_sat_add( b[ i ].vote_lat_sum[ l ], sum );
+          b[ i ].vote_lat_cnt[ l ] += cnt;
+        }
       }
     }
   }
@@ -4314,6 +4325,27 @@ fd_gui_printf_timeline_query_agg( fd_gui_t *   gui,
     AGG_ARRAY( "mine_skipped", MINE_SKIPPED, 0 );
   } else if( !strcmp( key, "query_agg_votes" ) ) {
     AGG_ARRAY( "missed_votes", MISSED_VOTE, 0 );
+    /* Average latency per line, null where the bucket has no samples
+       (including buckets without a day record). */
+    static char const * const lat_names[ FD_GUI_VOTE_LAT_CNT ][ 2 ] = {
+      [ FD_GUI_VOTE_LAT_NOTAR          ] = { "notarized_latency_ns",      "notarized_cnt"      },
+      [ FD_GUI_VOTE_LAT_FAST_FINAL     ] = { "finalized_fast_latency_ns", "finalized_fast_cnt" },
+      [ FD_GUI_VOTE_LAT_SLOW_FINAL     ] = { "finalized_slow_latency_ns", "finalized_slow_cnt" },
+      [ FD_GUI_VOTE_LAT_SKIP           ] = { "skipped_latency_ns",        "skipped_cnt"        },
+      [ FD_GUI_VOTE_LAT_NOTAR_FALLBACK ] = { "notar_fallback_latency_ns", "notar_fallback_cnt" },
+    };
+    for( ulong l=0UL; l<FD_GUI_VOTE_LAT_CNT; l++ ) {
+      jsonp_open_array( gui->http, lat_names[ l ][ 0 ] );
+      for( ulong i=0UL; i<count; i++ ) {
+        ulong cnt = b[ i ].vote_lat_cnt[ l ];
+        if( !cnt ) jsonp_null( gui->http, NULL );
+        else       jsonp_ulong( gui->http, NULL, fd_ulong_sat_mul( b[ i ].vote_lat_sum[ l ]/cnt, 1000UL ) + (b[ i ].vote_lat_sum[ l ]%cnt)*1000UL/cnt );
+      }
+      jsonp_close_array( gui->http );
+      jsonp_open_array( gui->http, lat_names[ l ][ 1 ] );
+      for( ulong i=0UL; i<count; i++ ) jsonp_ulong( gui->http, NULL, b[ i ].vote_lat_cnt[ l ] );
+      jsonp_close_array( gui->http );
+    }
   } else if( !strcmp( key, "query_agg_shreds" ) ) {
     AGG_ARRAY( "turbine", TURBINE, 0 );
     AGG_ARRAY( "repair", REPAIR, 0 );

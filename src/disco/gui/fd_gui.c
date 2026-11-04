@@ -282,8 +282,12 @@ fd_gui_new( void *                   shmem,
   gui->cpu_util.last_slot = ULONG_MAX;
   gui->cpu_util.cur_day   = ULONG_MAX;
 
-  for( ulong i=0UL; i<FD_GUI_VOTE_SLOT_CNT; i++ ) gui->votes.slot[ i ].slot = ULONG_MAX;
-  gui->votes.dropped_cnt = 0UL;
+  for( ulong i=0UL; i<FD_GUI_VOTE_SLOT_CNT; i++ ) {
+    gui->votes.slot[ i ].slot         = ULONG_MAX;
+    gui->votes.parent_ready[ i ].slot = ULONG_MAX;
+  }
+  gui->votes.dropped_cnt     = 0UL;
+  gui->votes.lat_missing_cnt = 0UL;
 
   gui->tile_state.exec_cnt = fd_ulong_min( gui->summary.execrp_tile_cnt, FD_SCHED_MAX_EXEC_TILE_CNT );
   gui->tile_state.pos_cnt  = gui->tile_state.exec_cnt;
@@ -3083,6 +3087,7 @@ fd_gui_timeline_day_create( fd_gui_t * gui,
   fd_gui_timeline_day_t * seed = fd_gui_hist_ts_emplace( gui, FD_GUI_HIST_TIMELINE_DAY, end_time_ns );
   if( FD_UNLIKELY( !seed ) ) return NULL;
   memset( seed, 0xFF, sizeof(fd_gui_timeline_day_t) ); /* all tiers, including 100ms, start unknown */
+  memset( seed->vote_lat, 0, sizeof(seed->vote_lat) ); /* sum/count tiers start empty */
 
   seed->insert_time_ns = now;
   seed->end_time_ns    = end_time_ns;
@@ -3933,6 +3938,110 @@ fd_gui_lthash_batch_flush( fd_gui_t * gui,
   }
 }
 
+/* Vote latency lines (see FD_GUI_VOTE_LAT_*).  Votor publishes the
+   first ParentReady of each leader window; it starts the window's
+   first slot, and each later slot in the window starts one target
+   slot duration after the previous one (Alpenglow's timers, and the
+   anchor of Agave's votor consensus metrics). */
+
+#define FD_GUI_VOTE_WINDOW_SLOTS (4UL) /* AG_SLOTS_PER_WINDOW */
+
+static void
+fd_gui_vote_lat_parent_ready( fd_gui_t * gui,
+                              ulong      slot,
+                              long       ts_ns ) {
+  ulong window = slot/FD_GUI_VOTE_WINDOW_SLOTS;
+  __typeof__(gui->votes.parent_ready[0]) * pr = &gui->votes.parent_ready[ window%FD_GUI_VOTE_SLOT_CNT ];
+  ulong first = window*FD_GUI_VOTE_WINDOW_SLOTS;
+  if( FD_UNLIKELY( pr->slot!=ULONG_MAX && pr->slot>=first ) ) return; /* first wins, older windows never replace newer ones */
+  pr->slot  = first;
+  pr->ts_ns = ts_ns;
+}
+
+/* fd_gui_vote_lat_start returns the start of slot, or LONG_MAX if its
+   window's ParentReady or the slot duration is unknown. */
+
+static long
+fd_gui_vote_lat_start( fd_gui_t * gui,
+                       ulong      slot ) {
+  ulong window = slot/FD_GUI_VOTE_WINDOW_SLOTS;
+  ulong first  = window*FD_GUI_VOTE_WINDOW_SLOTS;
+  __typeof__(gui->votes.parent_ready[0]) const * pr = &gui->votes.parent_ready[ window%FD_GUI_VOTE_SLOT_CNT ];
+  if( FD_UNLIKELY( pr->slot!=first ) ) return LONG_MAX;
+  fd_gui_epoch_t const * epoch = fd_gui_get_epoch_by_slot( gui, slot );
+  if( FD_UNLIKELY( !epoch || epoch->target_slot_duration_ns<=0L ) ) return LONG_MAX;
+  return pr->ts_ns + (long)(slot-first)*epoch->target_slot_duration_ns;
+}
+
+static void
+fd_gui_vote_lat_sample( fd_gui_t * gui,
+                        ulong      line,
+                        ulong      slot,
+                        long       ts_ns,
+                        long       now ) {
+  long start = fd_gui_vote_lat_start( gui, slot );
+  if( FD_UNLIKELY( start==LONG_MAX || ts_ns<start ) ) {
+    gui->votes.lat_missing_cnt++;
+    return;
+  }
+  fd_gui_timeline_day_t * day = fd_gui_timeline_day_for_event( gui, (ulong)ts_ns/(ulong)FD_GUI_TIMELINE_DAY_NS, now );
+  if( FD_UNLIKELY( !day ) ) return;
+  fd_gui_timeline_vote_lat_add( day, line, (ulong)ts_ns%(ulong)FD_GUI_TIMELINE_DAY_NS, (ulong)(ts_ns-start)/1000UL );
+}
+
+static void
+fd_gui_vote_lat_line( fd_gui_t * gui,
+                      uint *     lat,
+                      ulong      line,
+                      ulong      slot,
+                      long       ts_ns,
+                      long       now ) {
+  if( *lat & (1U<<line) ) return;
+  *lat |= 1U<<line;
+  fd_gui_vote_lat_sample( gui, line, slot, ts_ns, now );
+}
+
+/* fd_gui_vote_lat_cert samples the lines cert kind (AG_CERT_KIND_*)
+   completes for slot.  e is the slot's marker entry, so each line is
+   sampled at most once per slot.  Finalization needs the block
+   notarized too: votor can produce the Final cert before the Notar
+   cert (FINAL_PENDING_NOTAR), so the slow line waits for the later
+   of the two.  A FastFinal cert notarizes the block. */
+
+static void
+fd_gui_vote_lat_cert( fd_gui_t * gui,
+                      void *     _e,
+                      ulong      slot,
+                      uint       kind,
+                      long       ts_ns,
+                      long       now ) {
+  __typeof__(gui->votes.slot[0]) * e = _e;
+  int notarized = !!( e->lat & (1U<<FD_GUI_VOTE_LAT_NOTAR) );
+  switch( kind ) {
+    case 0U: /* AG_CERT_KIND_FINAL */
+      if( notarized ) fd_gui_vote_lat_line( gui, &e->lat, FD_GUI_VOTE_LAT_SLOW_FINAL, slot, ts_ns, now );
+      else            e->final_ts_ns = ts_ns;
+      break;
+    case 1U: /* AG_CERT_KIND_FAST_FINAL */
+      fd_gui_vote_lat_line( gui, &e->lat, FD_GUI_VOTE_LAT_FAST_FINAL, slot, ts_ns, now );
+      /* fall through */
+    case 2U: /* AG_CERT_KIND_NOTAR */
+      fd_gui_vote_lat_line( gui, &e->lat, FD_GUI_VOTE_LAT_NOTAR, slot, ts_ns, now );
+      if( FD_UNLIKELY( e->final_ts_ns!=LONG_MAX ) ) {
+        fd_gui_vote_lat_line( gui, &e->lat, FD_GUI_VOTE_LAT_SLOW_FINAL, slot, fd_long_max( ts_ns, e->final_ts_ns ), now );
+        e->final_ts_ns = LONG_MAX;
+      }
+      break;
+    case 3U: /* AG_CERT_KIND_NOTAR_FALLBACK */
+      fd_gui_vote_lat_line( gui, &e->lat, FD_GUI_VOTE_LAT_NOTAR_FALLBACK, slot, ts_ns, now );
+      break;
+    case 4U: /* AG_CERT_KIND_SKIP */
+      fd_gui_vote_lat_line( gui, &e->lat, FD_GUI_VOTE_LAT_SKIP, slot, ts_ns, now );
+      break;
+    default: break;
+  }
+}
+
 void
 fd_gui_handle_vote_event( fd_gui_t * gui,
                           ulong      slot,
@@ -3952,13 +4061,21 @@ fd_gui_handle_vote_event( fd_gui_t * gui,
       gui->votes.dropped_cnt++;
       return;
     }
-    e->slot   = slot;
-    e->events = 0U;
+    e->slot        = slot;
+    e->events      = 0U;
+    e->lat         = 0U;
+    e->final_ts_ns = LONG_MAX;
   }
   if( e->events & (1U<<event) ) return;
   e->events |= 1U<<event;
   fd_gui_store_vote_t row = { .insert_time_ns = now, .ts_ns = ts_ns, .slot = slot, .event = (uchar)event };
   fd_gui_hist_ts_append( gui, FD_GUI_HIST_VOTE_EVENTS, &row );
+
+  if( event==FD_GUI_VOTE_EVENT_PARENT_READY ) {
+    fd_gui_vote_lat_parent_ready( gui, slot, ts_ns );
+  } else if( event<FD_GUI_VOTE_EVENT_CERT+5U ) {
+    fd_gui_vote_lat_cert( gui, e, slot, event-FD_GUI_VOTE_EVENT_CERT, ts_ns, now );
+  }
 }
 
 void

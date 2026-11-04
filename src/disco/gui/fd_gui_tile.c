@@ -121,7 +121,9 @@ FD_STATIC_ASSERT( FD_GUI_TIMELINE_QUERY_VOTE_MAX*69UL+4096UL<=FD_GUI_TIMELINE_RA
 /* Agg shreds has five numeric arrays: four counts and slot_duration.
    Agg txn has four numeric arrays.  Agg revenue has three ulong-string
    arrays.  With commas, these use at most 5*21=105, 4*21=84 and
-   3*23=69 bytes for each bucket.  All are in the shared 512-byte
+   3*23=69 bytes for each bucket.  Agg votes has missed_votes and five
+   latency lines of an ns average and a count, at most 21+5*(21+11)=181
+   bytes for each bucket.  All are in the shared 512-byte
    budget.  Agg cpu and tile states are per tile: cpu at most 256 tiles
    of 4 bytes per bucket, tile states 11 us values of at most 12 bytes
    (a 12h bucket is 11 digits) per cell, plus brackets. */
