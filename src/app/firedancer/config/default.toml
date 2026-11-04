@@ -2220,8 +2220,8 @@ telemetry = true
         # How long each tick of the proof of history component should
         # take, in microseconds.  This value specifies the initial value
         # of the chain and it will not change at runtime.  The default
-        # value used here is the same as mainnet, devnet, and testnet.
-        target_tick_duration_micros = 6250
+        # gives 200ms slots with 64 ticks per slot.
+        target_tick_duration_micros = 3125
 
         # The number of ticks in each slot.  This value specifies the
         # initial value of the chain and it will not change at runtime.
