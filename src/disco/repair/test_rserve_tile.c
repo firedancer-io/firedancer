@@ -1,17 +1,37 @@
 /* test_rserve_tile drives rserve's request path with signed requests,
    with fd_stem_publish mocked to capture sent packets.  Covers the
-   Alpenglow metadata requests end to end and the shared validation. */
+   Alpenglow metadata requests end to end, the shared validation, and
+   the asynchronous ping signing. */
 
 #include "../../disco/topo/fd_topo.h" /* pulls in fd_stem.h so the static inline parses */
 
+#define TEST_NET_OUT  (0UL)
+#define TEST_SIGN_OUT (1UL)
+
 static uchar * test_out_mem;
+static uchar * test_sign_mem;
 static uchar   pub_data[ 2048 ];
 static ulong   pub_sz;
 static ulong   pub_cnt;
+static uchar   sign_req[ 32 ];
+static ulong   sign_req_sz;
+static ulong   sign_req_sig;
+static ulong   sign_req_cnt;
 
 static void
-test_stem_publish( ulong chunk,
+test_stem_publish( ulong out_idx,
+                   ulong sig,
+                   ulong chunk,
                    ulong sz ) {
+  if( out_idx==TEST_SIGN_OUT ) {
+    FD_TEST( sz<=sizeof(sign_req) );
+    fd_memcpy( sign_req, fd_chunk_to_laddr( test_sign_mem, chunk ), sz );
+    sign_req_sz  = sz;
+    sign_req_sig = sig;
+    sign_req_cnt++;
+    return;
+  }
+  FD_TEST( out_idx==TEST_NET_OUT );
   FD_TEST( sz<=sizeof(pub_data) );
   fd_memcpy( pub_data, fd_chunk_to_laddr( test_out_mem, chunk ), sz );
   pub_sz = sz;
@@ -19,8 +39,8 @@ test_stem_publish( ulong chunk,
 }
 
 #define fd_stem_publish( stem, out_idx, sig, chunk, sz, ctl, tsorig, tspub )             \
-  do { (void)(stem); (void)(out_idx); (void)(sig); (void)(ctl); (void)(tsorig);          \
-       (void)(tspub); test_stem_publish( (chunk), (sz) ); } while(0)
+  do { (void)(stem); (void)(ctl); (void)(tsorig); (void)(tspub);                         \
+       test_stem_publish( (out_idx), (sig), (chunk), (sz) ); } while(0)
 
 #include "fd_rserve_tile.c"
 
@@ -33,9 +53,15 @@ test_stem_publish( ulong chunk,
 static uchar rserve_mem [ 1UL<<16 ] __attribute__((aligned(128)));
 static uchar blockdb_mem[ 1UL<<20 ] __attribute__((aligned(FD_BLOCKDB_ALIGN)));
 static uchar out_mem    [ 1UL<<16 ] __attribute__((aligned(FD_CHUNK_ALIGN)));
+static uchar sign_mem   [ 1UL<<16 ] __attribute__((aligned(FD_CHUNK_ALIGN)));
+
+#define SIGN_DEPTH (4UL)
+static uchar sign_pool_mem[ 1UL<<12 ] __attribute__((aligned(128)));
+static uchar keyswitch_mem[ FD_KEYSWITCH_FOOTPRINT ] __attribute__((aligned(FD_KEYSWITCH_ALIGN)));
 
 static uchar       client_priv[ 32 ];
 static fd_pubkey_t client_pub;
+static uchar       server_priv[ 32 ];
 static fd_pubkey_t server_pub;
 
 static uint   const CLIENT_IP   = 0x0A000002U;
@@ -70,6 +96,20 @@ setup( ctx_t * ctx,
   ctx->net_out_chunk  = 0UL;
   fd_ip4_udp_hdr_init( ctx->serve_hdr, FD_RSERVE_MAX_PACKET_SIZE, 0, 8700 );
   pub_cnt = 0UL;
+
+  FD_TEST( sign_pool_footprint( SIGN_DEPTH )<=sizeof(sign_pool_mem) );
+  ctx->sign_pool       = sign_pool_join( sign_pool_new( sign_pool_mem, SIGN_DEPTH ) );
+  FD_TEST( ctx->sign_pool );
+  test_sign_mem        = sign_mem;
+  ctx->sign_out_idx    = TEST_SIGN_OUT;
+  ctx->sign_out_mem    = (fd_wksp_t *)sign_mem;
+  ctx->sign_out_chunk0 = 0UL;
+  ctx->sign_out_wmark  = (sizeof(sign_mem)>>FD_CHUNK_LG_SZ)-1UL;
+  ctx->sign_out_chunk  = 0UL;
+  sign_req_cnt = 0UL;
+
+  ctx->keyswitch = fd_keyswitch_join( fd_keyswitch_new( keyswitch_mem, FD_KEYSWITCH_STATE_UNLOCKED ) );
+  FD_TEST( ctx->keyswitch );
 }
 
 /* ping_cache_add marks the client as having completed a ping, as
@@ -418,6 +458,152 @@ test_shred_for_block_id( fd_wksp_t * wksp ) {
   FD_LOG_NOTICE(( "pass: test_shred_for_block_id" ));
 }
 
+/* The sign tile's half of the request: sign the token with the server
+   key and hand back the signature with sig echoed, as after_frag would
+   deliver it. */
+
+static void
+sign_reply( ctx_t * ctx,
+            ulong   sig ) {
+  FD_TEST( sign_req_sz==32UL );
+  FD_TEST( (uint)sig==FD_KEYGUARD_SIGN_TYPE_ED25519 );
+  fd_ed25519_sign( ctx->sign_buf, sign_req, 32UL, server_pub.uc, server_priv, sha );
+  handle_sign( ctx, NULL, sig );
+}
+
+/* check_ping checks the last packet is a ping of variant block_id to
+   the client, carrying token signed by the server key. */
+
+static void
+check_ping( int           block_id,
+            uchar const * token ) {
+  fd_ip4_udp_hdrs_t const * hdr = (fd_ip4_udp_hdrs_t const *)pub_data;
+  FD_TEST( hdr->ip4->daddr==CLIENT_IP && hdr->ip4->saddr==0x0A000001U && hdr->udp->net_dport==CLIENT_PORT );
+
+  fd_pubkey_t      from;
+  fd_hash_t        tok;
+  fd_ed25519_sig_t sig;
+  ulong            sz = pub_sz-sizeof(fd_ip4_udp_hdrs_t);
+  if( block_id ) {
+    FD_TEST( fd_repair_block_id_ping_de( response(), sz, &from, &tok, sig )==sz );
+    FD_TEST( !fd_repair_ping_de        ( response(), sz, &from, &tok, sig ) );
+  } else {
+    FD_TEST( fd_repair_ping_de         ( response(), sz, &from, &tok, sig )==sz );
+    FD_TEST( !fd_repair_block_id_ping_de( response(), sz, &from, &tok, sig ) );
+  }
+  FD_TEST( fd_pubkey_eq( &from, &server_pub ) );
+  FD_TEST( !memcmp( tok.uc, token, 32UL ) );
+  FD_TEST( fd_ed25519_verify( tok.uc, 32UL, sig, server_pub.uc, sha )==FD_ED25519_SUCCESS );
+}
+
+/* A request from a client that never ponged is answered with a ping
+   once the sign tile signs its token.  Nothing is sent before then. */
+
+static void
+test_ping_async( void ) {
+  static ctx_t ctx[1];
+  setup( ctx, 1 );
+  FD_TEST( fd_blockdb_insert( ctx->blockdb, blk_slot, &blk_id, blk_parent, &blk_parent_id, FEC_CNT, (uchar const *)blk_roots ) );
+
+  uchar expect[ 32 ];
+  fd_rserve_ping_token( ctx->rserve, expect, &client_pub, CLIENT_IP, CLIENT_PORT );
+
+  /* Two requests in flight, answered out of order */
+  FD_TEST( !request( ctx, req, parent_and_fec_set_count( &server_pub, now_ms(), 1U, blk_slot, &blk_id ) ) );
+  FD_TEST( sign_req_cnt==1UL && !memcmp( sign_req, expect, 32UL ) );
+  ulong sig0 = sign_req_sig;
+  uchar req0[ 32 ]; memcpy( req0, sign_req, 32UL );
+
+  FD_TEST( !request( ctx, req, window_index_for_block_id( now_ms(), 2U, blk_slot, &blk_id, 0U ) ) );
+  FD_TEST( sign_req_cnt==2UL && !memcmp( sign_req, expect, 32UL ) );
+  ulong sig1 = sign_req_sig;
+  FD_TEST( (sig0>>32)!=(sig1>>32) );
+  FD_TEST( sign_pool_used( ctx->sign_pool )==2UL );
+  FD_TEST( pub_cnt==0UL );
+
+  sign_reply( ctx, sig1 );
+  FD_TEST( pub_cnt==1UL );
+  check_ping( 0, expect );
+
+  memcpy( sign_req, req0, 32UL );
+  sign_reply( ctx, sig0 );
+  FD_TEST( pub_cnt==2UL );
+  check_ping( 1, expect );
+
+  FD_TEST( sign_pool_used( ctx->sign_pool )==0UL );
+  FD_TEST( ctx->metrics->sent_pkt_types[ FD_METRICS_ENUM_REPAIR_RESPONSE_TYPE_V_PING_IDX ]==2UL );
+  FD_TEST( ctx->metrics->send_pkt_cnt==2UL );
+  FD_LOG_NOTICE(( "pass: test_ping_async" ));
+}
+
+/* With every sign slot taken, a ping is dropped instead of waiting. */
+
+static void
+test_ping_pool_full( void ) {
+  static ctx_t ctx[1];
+  setup( ctx, 0 );
+
+  /* Orphan skips the store probe, which misses with no store */
+  for( ulong i=0UL; i<SIGN_DEPTH; i++ ) FD_TEST( !request( ctx, req, orphan( now_ms(), 1U, 10UL ) ) );
+  FD_TEST( sign_req_cnt==SIGN_DEPTH );
+  FD_TEST( !sign_pool_free( ctx->sign_pool ) );
+  ulong unanswered = ctx->metrics->unanswered[ FD_METRICS_ENUM_REPAIR_REQUEST_TYPE_V_ORPHAN_IDX ];
+  FD_TEST( !request( ctx, req, orphan( now_ms(), 1U, 10UL ) ) );
+  FD_TEST( sign_req_cnt==SIGN_DEPTH );
+  FD_TEST( ctx->metrics->unanswered[ FD_METRICS_ENUM_REPAIR_REQUEST_TYPE_V_ORPHAN_IDX ]==unanswered+1UL );
+
+  /* A returned signature frees its slot */
+  sign_reply( ctx, sign_req_sig );
+  FD_TEST( pub_cnt==1UL );
+  FD_TEST( !request( ctx, req, orphan( now_ms(), 1U, 10UL ) ) );
+  FD_TEST( sign_req_cnt==SIGN_DEPTH+1UL );
+  FD_LOG_NOTICE(( "pass: test_ping_pool_full" ));
+}
+
+/* A keyswitch halts new sign requests at once, but only completes once
+   every outstanding request has returned under the old key. */
+
+static void
+test_ping_keyswitch( void ) {
+  static ctx_t ctx[1];
+  setup( ctx, 0 );
+
+  FD_TEST( !request( ctx, req, orphan( now_ms(), 1U, 10UL ) ) );
+  FD_TEST( sign_req_cnt==1UL );
+  ulong sig0 = sign_req_sig;
+  uchar expect[ 32 ];
+  memcpy( expect, sign_req, 32UL ); /* housekeeping may rotate the token secret */
+
+  fd_pubkey_t new_key; memset( new_key.uc, 0x42, sizeof(fd_pubkey_t) );
+  memcpy( ctx->keyswitch->bytes, new_key.uc, 32UL );
+  fd_keyswitch_state( ctx->keyswitch, FD_KEYSWITCH_STATE_SWITCH_PENDING );
+  during_housekeeping( ctx );
+  FD_TEST( ctx->halt_signing );
+  FD_TEST( fd_keyswitch_state_query( ctx->keyswitch )==FD_KEYSWITCH_STATE_SWITCH_PENDING );
+
+  /* No new requests while halted */
+  FD_TEST( !request( ctx, req, orphan( now_ms(), 1U, 10UL ) ) );
+  FD_TEST( sign_req_cnt==1UL );
+  during_housekeeping( ctx );
+  FD_TEST( fd_keyswitch_state_query( ctx->keyswitch )==FD_KEYSWITCH_STATE_SWITCH_PENDING );
+
+  /* The outstanding ping goes out under the old identity */
+  sign_reply( ctx, sig0 );
+  FD_TEST( pub_cnt==1UL );
+  check_ping( 0, expect );
+
+  during_housekeeping( ctx );
+  FD_TEST( fd_keyswitch_state_query( ctx->keyswitch )==FD_KEYSWITCH_STATE_COMPLETED );
+  FD_TEST( ctx->halt_signing );
+
+  fd_keyswitch_state( ctx->keyswitch, FD_KEYSWITCH_STATE_UNHALT_PENDING );
+  during_housekeeping( ctx );
+  FD_TEST( fd_keyswitch_state_query( ctx->keyswitch )==FD_KEYSWITCH_STATE_COMPLETED );
+  FD_TEST( !ctx->halt_signing );
+  FD_TEST( fd_pubkey_eq( &ctx->identity_public_key, &new_key ) );
+  FD_LOG_NOTICE(( "pass: test_ping_keyswitch" ));
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -426,7 +612,8 @@ main( int     argc,
   fd_sha512_new( sha );
   for( ulong i=0UL; i<32UL; i++ ) client_priv[ i ] = (uchar)(i+1UL);
   fd_ed25519_public_from_private( client_pub.uc, client_priv, sha );
-  memset( server_pub.uc, 0x99, sizeof(fd_pubkey_t) );
+  for( ulong i=0UL; i<32UL; i++ ) server_priv[ i ] = (uchar)(0x80+i);
+  fd_ed25519_public_from_private( server_pub.uc, server_priv, sha );
 
   char const * _page_sz = fd_env_strip_cmdline_cstr ( &argc, &argv, "--page-sz",  NULL, "gigantic"               );
   ulong        page_cnt = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt", NULL, 1UL                      );
@@ -439,6 +626,9 @@ main( int     argc,
   test_legacy_sigverify  ();
   test_no_blockdb        ();
   test_shred_for_block_id( wksp );
+  test_ping_async        ();
+  test_ping_pool_full    ();
+  test_ping_keyswitch    ();
 
   fd_wksp_delete_anonymous( wksp );
 
