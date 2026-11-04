@@ -393,7 +393,16 @@ fd_accdb_acquire_a( fd_accdb_t *          accdb,
    Metadata is still private; callers must not write data or change its
    pointer/length while private_deferred is set.  Materialize before
    execution or any rollback data write.  Uncommitted deferred accounts
-   release normally.  Only the non-bundle executor uses this interface. */
+   release normally.  Only the non-bundle executor uses this interface.
+
+   Unlike generic acquire_a, this interface bounds phase B by the
+   unchanged Loader3 Program states in phase A: at most one derived PD
+   key per Program (regardless of the executable flag).  Do not change
+   phase-A owner/data/length before acquire_b.  Cold or uncertain cache
+   entries retain a conservative placeholder; known non-Program states
+   need none.  Generic acquire_a, including the bundle path, is unchanged.
+   Pass the original phase-A pubkeys_cnt as acquire_b's reserved_cnt;
+   accdb privately tracks and refunds the exact placeholder count. */
 
 void
 fd_accdb_acquire_a_deferred( fd_accdb_t *          accdb,

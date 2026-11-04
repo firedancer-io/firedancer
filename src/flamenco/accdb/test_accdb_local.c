@@ -1,6 +1,7 @@
 /* White-box allocator tests: include the implementation so conservation
    can cover private magazines without adding a production debug API. */
 #include "fd_accdb.c"
+#include "../../ballet/base58/fd_base58.h"
 
 #include <stdlib.h>
 #include <pthread.h>
@@ -21,22 +22,22 @@ typedef struct {
 } fixture_t;
 
 static fixture_t
-fixture_new( void ) {
+fixture_new_sized( ulong cache_fp, ulong minimum, ulong scarce ) {
   fixture_t f;
   f.fd = memfd_create( "accdb_local", 0 );
   FD_TEST( f.fd>=0 );
-  ulong fp = fd_accdb_shmem_footprint( 256UL, LIVE_CNT, 512UL, 32UL, 256UL<<20, 4UL, JOIN_CNT, 0UL );
+  ulong fp = fd_accdb_shmem_footprint( 256UL, LIVE_CNT, 512UL, 32UL, cache_fp, minimum, JOIN_CNT, 0UL );
   FD_TEST( fp );
   void * mem = aligned_alloc( fd_accdb_shmem_align(), fp );
   FD_TEST( mem );
   f.shmem = fd_accdb_shmem_join( fd_accdb_shmem_new( mem, 256UL, LIVE_CNT, 512UL, 32UL,
-      16UL<<20, 256UL<<20, 4UL, 0, 42UL, JOIN_CNT, 0UL ) );
+      cache_fp>(256UL<<20) ? 64UL<<20 : 16UL<<20, cache_fp, minimum, 0, 42UL, JOIN_CNT, 0UL ) );
   FD_TEST( f.shmem );
   /* Keep both scarce classes genuinely reservation-tracked.  Shrink
      logical capacity within the existing regions before any joins. */
   for( ulong c=6UL; c<8UL; c++ ) {
-    FD_TEST( f.shmem->cache_class_max[ c ]>=4UL );
-    f.shmem->cache_class_max[ c ] = 4UL;
+    FD_TEST( f.shmem->cache_class_max[ c ]>=scarce );
+    f.shmem->cache_class_max[ c ] = scarce;
     f.shmem->cache_class_used[ c ].val = 0UL;
   }
   for( ulong j=0UL; j<JOIN_CNT; j++ ) {
@@ -53,6 +54,11 @@ fixture_new( void ) {
     FD_TEST( !f.join[ j ]->cache_local_cap[ 7 ] );
   }
   return f;
+}
+
+static fixture_t
+fixture_new( void ) {
+  return fixture_new_sized( 256UL<<20, 4UL, 4UL );
 }
 
 static void
@@ -360,7 +366,170 @@ test_native_accounts( void ) {
   fixture_delete( &f );
 }
 
+/* Real cache/account operations, not a model of the reservation loop.
+   W32 has 32 live10MiB buffers,33 writable keys and one readonly native
+   program.  A hot Buffer tag cannot imply a PD, but a nonexecutable
+   Program tag can. */
+static void
+pd_write( fd_accdb_t * join, fd_accdb_fork_id_t fork, uchar const key_[32],
+          ulong size, uint tag, int executable, int commit ) {
+  fd_acc_t a = fd_accdb_write_one( join, fork, key_ );
+  a.lamports = 42UL;
+  a.data_len = size;
+  memset( a.owner, 0x11, 32UL );
+  memset( a.data, 0xA5, size );
+  if( size>=4UL ) memcpy( a.data, &tag, 4UL );
+  a.executable = executable;
+  a.commit = commit;
+  fd_accdb_unwrite_one( join, &a );
+}
+
+typedef struct {
+  fd_accdb_t * join;
+  fd_accdb_fork_id_t root;
+  uchar const * const * keys;
+  pthread_barrier_t * barrier;
+  int writer;
+} pd_stress_t;
+
+static void *
+pd_stress( void * arg ) {
+  pd_stress_t * s = arg;
+  int br = pthread_barrier_wait( s->barrier );
+  FD_TEST( br==0 || br==PTHREAD_BARRIER_SERIAL_THREAD );
+  for( ulong i=0UL; i<128UL; i++ ) {
+    if( s->writer ) {
+      /* Different accounts on the same fork: obey scheduler lock
+         discipline while forcing actual class7 eviction/reuse. */
+      uchar k[32] = {(uchar)(100UL+i)};
+      pd_write( s->join, s->root, k, (1UL<<20)+1UL, 1U, 0, 1 );
+    } else {
+      int ro[34] = {0};
+      fd_acc_t a[34];
+      fd_accdb_acquire_a_deferred( s->join, s->root, 34UL, s->keys, ro, ro, a );
+      for( ulong j=1UL; j<33UL; j++ )
+        FD_TEST( a[j].lamports==42UL && a[j].data_len==10UL<<20 && fd_uint_load_4(a[j].data)==1U && a[j].data[a[j].data_len-1UL]==0xA5 );
+      fd_accdb_acquire_b( s->join, s->root, 34UL, 0UL, NULL, NULL );
+      fd_accdb_release_ab( s->join, 34UL, a, 0UL, NULL );
+    }
+  }
+  return NULL;
+}
+
+static void
+test_pd_reservations( void ) {
+  fixture_t f = fixture_new_sized( 1536UL<<20, 128UL, 128UL );
+  fd_accdb_t * db = f.join[0];
+  fd_accdb_fork_id_t root = fd_accdb_attach_child( f.join[3], SENTINEL );
+  uchar keys[34][32] = {{0}};
+  uchar const * pks[34];
+  int wr[34], deferred[34];
+  for( ulong i=0UL; i<34UL; i++ ) {
+    keys[i][0] = (uchar)(i+1UL); pks[i]=keys[i]; wr[i]=i<33UL; deferred[i]=i>0UL;
+    pd_write( db, root, keys[i], i && i<33UL ? 10UL<<20 : 0UL, 1U, 0, 1 );
+  }
+  FD_TEST( !f.shmem->cache_class_used[7].val );
+  fd_acc_t a[34];
+  ulong copied = db->metrics->bytes_copied;
+  fd_accdb_acquire_a_deferred( db, root, 34UL, pks, wr, deferred, a );
+  FD_TEST( f.shmem->cache_class_used[7].val==65UL ); /* old path:99 */
+  FD_TEST( db->metrics->bytes_copied==copied );
+  for( ulong i=1UL; i<33UL; i++ ) {
+    FD_TEST( a[i].private_deferred && a[i].data==a[i].prior_data && a[i].data_len==10UL<<20 );
+    FD_TEST( fd_uint_load_4( a[i].data )==1U && a[i].data[a[i].data_len-1UL]==0xA5 );
+  }
+  fd_accdb_acquire_b( db, root, 34UL, 0UL, NULL, NULL );
+  FD_TEST( f.shmem->cache_class_used[7].val==65UL );
+  fd_accdb_release_ab( db, 34UL, a, 0UL, NULL );
+  FD_TEST( !f.shmem->cache_class_used[7].val );
+  /* Generic/eager API still permits arbitrary PD keys and keeps the old
+     full budget.  No silent contract change for bundles or old tests. */
+  fd_accdb_acquire_a( db, root, 34UL, pks, wr, a );
+  FD_TEST( f.shmem->cache_class_used[7].val==99UL );
+  fd_accdb_acquire_b( db, root, 34UL, 0UL, NULL, NULL );
+  fd_accdb_release_ab( db, 34UL, a, 0UL, NULL );
+  FD_TEST( !f.shmem->cache_class_used[7].val );
+  /* Executable=false is not grounds to omit a Program placeholder.
+     Also exercise a found large PD and a missing PD, with exact refunds. */
+  pd_write( db, root, keys[0], 36UL, 2U, 0, 1 );
+  uchar missing[32] = {200};
+  uchar const * two[2] = {keys[0],keys[33]};
+  int ro[2] = {0,0};
+  fd_acc_t b;
+  for( ulong n=0UL; n<2UL; n++ ) {
+    uchar const * pd = n ? missing : keys[1];
+    fd_acc_t program = fd_accdb_write_one( db, root, keys[0] );
+    FD_TEST( fd_base58_decode_32( "BPFLoaderUpgradeab1e11111111111111111111111", program.owner ) );
+    memcpy( program.data+4UL, pd, 32UL ); program.commit=1;
+    fd_accdb_unwrite_one( db, &program );
+    fd_accdb_acquire_a_deferred( db, root, 2UL, two, ro, ro, a );
+    FD_TEST( !a[0].executable && fd_uint_load_4(a[0].data)==2U && f.shmem->cache_class_used[7].val==1UL );
+    FD_TEST( !memcmp(a[0].data+4UL,pd,32UL) );
+    fd_accdb_acquire_b( db, root, 2UL, 1UL, &pd, &b );
+    FD_TEST( f.shmem->cache_class_used[7].val==!n );
+    FD_TEST( n ? !b.lamports : b.lamports==42UL && b.data_len==10UL<<20 );
+    fd_accdb_release_ab( db, 2UL, a, 1UL, &b );
+    FD_TEST( !f.shmem->cache_class_used[7].val );
+  }
+  /* Force a genuine cold Buffer: no header read is available, so retain
+     its placeholder until B refunds it; the subsequent hot read omits it. */
+  for( ulong n=0UL; n<2UL; n++ ) {
+    uchar const * k = keys[1];
+    if( !n ) {
+      fd_acc_t r = fd_accdb_read_one( db, root, k );
+      fd_accdb_accmeta_t * meta = &db->acc_pool[cache_line(db,7UL,r._original_cache_idx)->acc_idx];
+      fd_accdb_unread_one( db, &r );
+      for( ulong sweep=0UL; sweep<8UL && FD_ACCDB_SIZE_CACHE_VALID(meta->executable_size); sweep++ ) {
+        int busy=0; background_preevict( f.join[3], &busy, 1 );
+      }
+      FD_TEST( !FD_ACCDB_SIZE_CACHE_VALID(meta->executable_size) );
+    }
+    fd_accdb_acquire_a_deferred( db, root, 1UL, &k, ro, ro, a );
+    FD_TEST( f.shmem->cache_class_used[7].val==(n ? 1UL : 2UL) );
+    fd_accdb_acquire_b( db, root, 1UL, 0UL, NULL, NULL );
+    FD_TEST( f.shmem->cache_class_used[7].val==1UL );
+    fd_accdb_release_ab( db, 1UL, a, 0UL, NULL );
+    FD_TEST( !f.shmem->cache_class_used[7].val );
+  }
+  /* Two valid concurrent readonly acquisitions race unrelated writers
+     and actual cache eviction.  Account bytes and all reservation
+     counters must survive; a pin is never retained into reservation. */
+  pthread_barrier_t barrier;
+  FD_TEST( !pthread_barrier_init( &barrier, NULL, 3U ) );
+  pd_stress_t ctx[3]; pthread_t threads[3];
+  alarm( 90U );
+  for( ulong i=0UL; i<3UL; i++ ) {
+    ctx[i]=(pd_stress_t){f.join[i],root,pks,&barrier,i==2UL};
+    FD_TEST( !pthread_create( &threads[i], NULL, pd_stress, &ctx[i] ) );
+  }
+  for( ulong i=0UL; i<3UL; i++ ) FD_TEST( !pthread_join( threads[i], NULL ) );
+  alarm( 0U );
+  FD_TEST( !pthread_barrier_destroy( &barrier ) );
+  FD_TEST( f.join[2]->metrics->accounts_evicted_per_class[7]>0UL );
+  for( ulong c=0UL; c<8UL; c++ ) FD_TEST( f.shmem->cache_class_used[c].val==0UL || f.shmem->cache_class_used[c].val==ULONG_MAX );
+  for( ulong c=0UL; c<8UL; c++ ) conserve( &f, c );
+  FD_LOG_NOTICE(( "PD reservations: W32 hot65 vs generic99; nonexecutable Program/found+missing PD/cold fallback exact refunds; concurrent256 read batches+128 unrelated writes with eviction: pass" ));
+  fixture_delete( &f );
+}
+
 #if FD_HAS_RACESAN
+typedef struct {
+  fd_accdb_t * join;
+  fd_accdb_fork_id_t root;
+  ulong peak;
+} pd_race_t;
+
+static void
+pd_race_read( void * arg ) {
+  pd_race_t * ctx=arg;
+  uchar const * pk=key; int ro=0; fd_acc_t a;
+  fd_accdb_acquire_a_deferred( ctx->join, ctx->root, 1UL, &pk, &ro, &ro, &a );
+  ctx->peak=ctx->join->shmem->cache_class_used[7].val;
+  FD_TEST( a.lamports==42UL && a.data_len==10UL<<20 && fd_uint_load_4(a.data)==1U && a.data[a.data_len-1UL]==0xA5 );
+  fd_accdb_acquire_b( ctx->join, ctx->root, 1UL, 0UL, NULL, NULL );
+  fd_accdb_release_ab( ctx->join, 1UL, &a, 0UL, NULL );
+}
+
 typedef struct {
   fd_accdb_cache_line_t * line;
   fd_accdb_cache_line_t * result;
@@ -385,6 +554,34 @@ finish_async( fd_racesan_async_t * async ) {
     FD_TEST( res==FD_RACESAN_ASYNC_RET_HOOK );
   }
   FD_TEST( 0 );
+}
+
+static void
+test_pd_probe_eviction( void ) {
+  fixture_t f=fixture_new();
+  fd_accdb_fork_id_t root=fd_accdb_attach_child(f.join[3],SENTINEL);
+  pd_write(f.join[0],root,key,10UL<<20,1U,0,1);
+  for( ulong during=0UL; during<2UL; during++ ) {
+    ulong cls,idx; FD_TEST(fd_accdb_debug_find_line(f.join[0],key,&cls,&idx) && cls==7UL);
+    pd_race_t ctx={f.join[0],root,ULONG_MAX};
+    fd_racesan_async_t reader[1]; void * stack=fd_racesan_stack_create(1UL<<20);
+    fd_racesan_async_new(reader,stack,1UL<<20,pd_race_read,&ctx);
+    char const * hook=during ? "accdb_pd:post_read" : "accdb_pd:pre_pin";
+    FD_TEST(fd_racesan_async_step_until(reader,hook,10000UL)==FD_RACESAN_ASYNC_RET_HOOK);
+    fd_accdb_cache_line_t * line=cache_line(f.join[0],cls,idx);
+    uint ai=line->acc_idx; FD_TEST(ai!=UINT_MAX);
+    fd_accdb_debug_clock_evict_line(f.join[1],cls,idx);
+    /* Before pin: the real evictor wins and the stale pointer must cause
+       conservative fallback.  During prefix read: the validated pin
+       makes the real evictor fail, preserving the data being read. */
+    FD_TEST(!!FD_ACCDB_SIZE_CACHE_VALID(f.join[0]->acc_pool[ai].executable_size)==!!during);
+    finish_async(reader);
+    FD_TEST(ctx.peak==(during ? 1UL : 2UL));
+    FD_TEST(!f.shmem->cache_class_used[7].val);
+    fd_racesan_async_delete(reader);fd_racesan_stack_destroy(stack,1UL<<20);
+  }
+  FD_LOG_NOTICE(( "PD probe: real eviction before pin -> conservative fallback; eviction during read blocked by pin: pass" ));
+  fixture_delete(&f);
 }
 
 static void
@@ -428,8 +625,10 @@ main( int argc, char ** argv ) {
   RUN( test_saturated_reservations );
   RUN( test_reset );
   RUN( test_native_accounts );
+  RUN( test_pd_reservations );
 #if FD_HAS_RACESAN
   RUN( test_local_stray_pin );
+  RUN( test_pd_probe_eviction );
 #endif
 #undef RUN
   FD_LOG_NOTICE(( "pass" ));

@@ -73,6 +73,11 @@ struct __attribute__((aligned(FD_ACCDB_ALIGN))) fd_accdb_private {
 
   int acquire_state;
 
+  /* Private two-phase budget.  The public acquire_b reserved_cnt remains
+     the phase-A key count, not the smaller number of PD placeholders. */
+  ulong phase_a_cnt;
+  ulong programdata_reserved;
+
   fd_accdb_shmem_t * shmem;
 
   /* Doorbell for the parked accdb tile, NULL when nobody parks */
@@ -2520,6 +2525,44 @@ cold_load_acc( fd_accdb_t *     accdb,
 #define RESERVATION_TYPE_SIMPLE            (0)
 #define RESERVATION_TYPE_MAYBE_PROGRAMDATA (1)
 #define RESERVATION_TYPE_ALREADY_RESERVED  (2)
+#define RESERVATION_TYPE_PROGRAMDATA_STATE (3)
+
+/* Only the deferred executor interface bounds phase B by the Loader3
+   Program states in phase A.  A Program needs a 4-byte tag (2) plus a
+   32-byte address; executable==0 does NOT rule it out.  Never fault in
+   data or retain a pin while waiting for reservations.  Missing, dead or
+   too-short accounts cannot decode as Program.  A cold/contended/loading
+   cache entry remains a candidate, preserving the worst-case budget.
+
+   The acquire contract protects the selected accmeta's logical contents
+   against same-fork writes and ancestor writes.  Epoch protection keeps
+   it alive; the temporary validated pin protects these four bytes from
+   cache eviction/reuse.  Unpinning cannot change that logical version. */
+static int
+maybe_programdata( fd_accdb_t *                 accdb,
+                   fd_accdb_accmeta_t const *  meta,
+                   uchar const *               pubkey ) {
+  if( !meta || !meta->lamports ) return 0;
+  uint es = FD_VOLATILE_CONST( meta->executable_size );
+  if( FD_ACCDB_SIZE_DATA( es )<36U ) return 0;
+  if( !FD_ACCDB_SIZE_CACHE_VALID( es ) ) return 1;
+  uint cidx = FD_VOLATILE_CONST( meta->cache_idx );
+  if( cidx==FD_ACCDB_ACC_CIDX_INVAL ) return 1;
+  fd_accdb_cache_line_t * hit = cache_line( accdb, FD_ACCDB_ACC_CIDX_CLASS( cidx ), FD_ACCDB_ACC_CIDX_IDX( cidx ) );
+  fd_racesan_hook( "accdb_pd:pre_pin" );
+  hit = cache_try_pin( hit, pubkey, meta->key.generation );
+  if( !hit ) return 1;
+  int candidate = 1;
+  /* CACHE_VALID alone is not publication of loaded payload bytes. */
+  if( FD_VOLATILE_CONST( hit->acc_idx )!=UINT_MAX ) {
+    uint tag;
+    memcpy( &tag, hit+1UL, sizeof(tag) );
+    candidate = tag==2U;
+  }
+  fd_racesan_hook( "accdb_pd:post_read" );
+  FD_ATOMIC_FETCH_AND_SUB( &hit->refcnt, 1U );
+  return candidate;
+}
 
 static void
 fd_accdb_acquire_inner( fd_accdb_t *          accdb,
@@ -2667,8 +2710,9 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
   //   So we acquire one of each size class.  Then when the transaction
   //   finishes, if it succeeded, we will copy the data back to the
   //   whichever size-class is now right-sized post execution.
-  if( FD_LIKELY( reservation_type==RESERVATION_TYPE_SIMPLE || reservation_type==RESERVATION_TYPE_MAYBE_PROGRAMDATA ) ) {
+  if( FD_LIKELY( reservation_type!=RESERVATION_TYPE_ALREADY_RESERVED ) ) {
     ulong requested_buckets[ FD_ACCDB_CACHE_CLASS_CNT ] = {0};
+    ulong programdata_reserved = 0UL;
     for( ulong i=0UL; i<pubkeys_cnt; i++ ) {
       if( FD_LIKELY( accmetas[ i ] || writable[ i ] ) ) {
         if( FD_LIKELY( accmetas[ i ] ) ) {
@@ -2685,19 +2729,23 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
         }
       }
 
-      if( FD_LIKELY( reservation_type==RESERVATION_TYPE_MAYBE_PROGRAMDATA ) ) {
-        /* Any account could also have an implied reference to a
-          programdata account, which we don't know yet ... so we need to
-          reserve worst case space if they all went to the same size
-          class.  This reservation runs unconditionally per pubkey (not
-          gated on accmetas/writable) so that acquire_b can refund based on
-          pubkeys_cnt without needing to re-derive the live-account set. */
+      if( reservation_type==RESERVATION_TYPE_MAYBE_PROGRAMDATA ||
+          (reservation_type==RESERVATION_TYPE_PROGRAMDATA_STATE &&
+           maybe_programdata( accdb, accmetas[ i ], pubkeys[ i ] )) ) {
+        /* Generic acquire_a keeps its full per-key budget.  Deferred
+           executor acquisition can exclude proven non-Program states.
+           Retain an unknown PD size: one slot in EVERY tracked class. */
+        programdata_reserved++;
         for( ulong j=0UL; j<FD_ACCDB_CACHE_CLASS_CNT; j++ ) {
           if( FD_UNLIKELY( accdb->shmem->cache_class_used[ j ].val!=ULONG_MAX ) ) {
             requested_buckets[ j ]++;
           }
         }
       }
+    }
+    if( reservation_type!=RESERVATION_TYPE_SIMPLE ) {
+      accdb->phase_a_cnt         = pubkeys_cnt;
+      accdb->programdata_reserved = programdata_reserved;
     }
 
     /* TODO: This over-reserves cache slots for writable accounts that
@@ -3356,7 +3404,7 @@ fd_accdb_acquire_a_deferred( fd_accdb_t *          accdb,
                              fd_acc_t *            out_accs ) {
   FD_TEST( accdb->acquire_state==FD_ACCDB_ACQUIRE_STATE_IDLE );
   accdb->acquire_state = FD_ACCDB_ACQUIRE_STATE_PHASE_A;
-  fd_accdb_acquire_inner( accdb, fork_id, RESERVATION_TYPE_MAYBE_PROGRAMDATA, deferred, 0UL, pubkeys_cnt, pubkeys, writable, out_accs );
+  fd_accdb_acquire_inner( accdb, fork_id, RESERVATION_TYPE_PROGRAMDATA_STATE, deferred, 0UL, pubkeys_cnt, pubkeys, writable, out_accs );
 }
 
 void
@@ -3384,8 +3432,11 @@ fd_accdb_acquire_b( fd_accdb_t *          accdb,
                     fd_acc_t *            out_accs ) {
   static int const readonly[ FD_ACCDB_MAX_ACQUIRE_CNT ] = {0};
   FD_TEST( accdb->acquire_state==FD_ACCDB_ACQUIRE_STATE_PHASE_A );
+  FD_TEST( reserved_cnt==accdb->phase_a_cnt );
+  FD_TEST( pubkeys_cnt<=accdb->programdata_reserved );
   accdb->acquire_state = FD_ACCDB_ACQUIRE_STATE_OPEN;
-  fd_accdb_acquire_inner( accdb, fork_id, RESERVATION_TYPE_ALREADY_RESERVED, 0, reserved_cnt, pubkeys_cnt, pubkeys, readonly, out_accs );
+  fd_accdb_acquire_inner( accdb, fork_id, RESERVATION_TYPE_ALREADY_RESERVED, 0, accdb->programdata_reserved, pubkeys_cnt, pubkeys, readonly, out_accs );
+  accdb->phase_a_cnt = accdb->programdata_reserved = 0UL;
 }
 
 /* release_inner drains one group of acquired accs but does NOT change the
