@@ -866,6 +866,20 @@ fd_runtime_load_txn_address_lookup_tables( fd_txn_t const *         txn,
     fd_txn_acct_addr_lut_t const * addr_lut = &addr_luts[i];
     fd_pubkey_t addr_lut_acc = FD_LOAD( fd_pubkey_t, payload+addr_lut->addr_off );
 
+    /* Preserve not-found and owner error precedence without acquiring
+       or reading an oversized account's data. */
+    uchar owner[32];
+    ulong data_len;
+    if( FD_UNLIKELY( !fd_accdb_read_one_meta( accdb, fork_id, addr_lut_acc.uc, owner, &data_len ) ) ) {
+      return FD_RUNTIME_TXN_ERR_ADDRESS_LOOKUP_TABLE_NOT_FOUND;
+    }
+    if( FD_UNLIKELY( !fd_memeq( owner, fd_solana_address_lookup_table_program_id.key, sizeof(fd_pubkey_t) ) ) ) {
+      return FD_RUNTIME_TXN_ERR_INVALID_ADDRESS_LOOKUP_TABLE_OWNER;
+    }
+    if( FD_UNLIKELY( data_len>FD_LOOKUP_TABLE_SZ_MAX ) ) {
+      return FD_RUNTIME_TXN_ERR_INVALID_ADDRESS_LOOKUP_TABLE_DATA;
+    }
+
     fd_acc_t acc = fd_accdb_read_one( accdb, fork_id, addr_lut_acc.uc );
     if( FD_UNLIKELY( !acc.lamports ) ) {
       fd_accdb_unread_one( accdb, &acc );

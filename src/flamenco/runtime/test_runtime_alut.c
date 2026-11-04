@@ -347,6 +347,40 @@ test_invalid_alt_owner( fd_wksp_t * wksp ) {
 
   FD_TEST( result == FD_RUNTIME_TXN_ERR_INVALID_ADDRESS_LOOKUP_TABLE_OWNER );
 
+  create_test_account( ctx, ctx->fork_id, alt_addr, &invalid_owner, NULL, FD_RUNTIME_ACC_SZ_MAX, 1000000, 0 );
+  fd_accdb_metrics_t const * metrics = fd_accdb_metrics( ctx->accdb );
+  ulong acquire_calls = metrics->acquire_calls;
+
+  result = fd_runtime_load_txn_address_lookup_tables(
+    txn, payload, ctx->accdb, ctx->fork_id, TEST_SLOT, hashes, out_accts );
+
+  FD_TEST( result == FD_RUNTIME_TXN_ERR_INVALID_ADDRESS_LOOKUP_TABLE_OWNER );
+  FD_TEST( metrics->acquire_calls == acquire_calls );
+
+  /* The conformance regression references the 16,392-byte stake-history
+     sysvar as an ALT.  Its owner must be rejected before its size. */
+  create_test_account( ctx, ctx->fork_id, alt_addr, &fd_sysvar_owner_id, NULL, 16392UL, 1UL, 0 );
+  acquire_calls = metrics->acquire_calls;
+  ulong bytes_copied = metrics->bytes_copied;
+
+  result = fd_runtime_load_txn_address_lookup_tables(
+    txn, payload, ctx->accdb, ctx->fork_id, TEST_SLOT, hashes, out_accts );
+
+  FD_TEST( result == FD_RUNTIME_TXN_ERR_INVALID_ADDRESS_LOOKUP_TABLE_OWNER );
+  FD_TEST( metrics->acquire_calls == acquire_calls );
+  FD_TEST( metrics->bytes_copied == bytes_copied );
+
+  create_test_account( ctx, ctx->fork_id, alt_addr, &fd_solana_address_lookup_table_program_id, NULL, FD_RUNTIME_ACC_SZ_MAX, 1000000, 0 );
+  acquire_calls = metrics->acquire_calls;
+  bytes_copied = metrics->bytes_copied;
+
+  result = fd_runtime_load_txn_address_lookup_tables(
+    txn, payload, ctx->accdb, ctx->fork_id, TEST_SLOT, hashes, out_accts );
+
+  FD_TEST( result == FD_RUNTIME_TXN_ERR_INVALID_ADDRESS_LOOKUP_TABLE_DATA );
+  FD_TEST( metrics->acquire_calls == acquire_calls );
+  FD_TEST( metrics->bytes_copied == bytes_copied );
+
   /* Verify out_accts - on error, we don't have guarantees about the state,
      but we can check that we didn't corrupt memory */
   int memory_intact = 1;
