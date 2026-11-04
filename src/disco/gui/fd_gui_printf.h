@@ -102,6 +102,13 @@ fd_gui_printf_slot_transactions_request( fd_gui_t *            gui,
                                          fd_gui_slot_t const * slot );
 
 int
+fd_gui_printf_timeline_query_votes( fd_gui_t * gui,
+                                    long       start,
+                                    long       end,
+                                    int        batch, /* vote batches instead of votes */
+                                    ulong      id );
+
+int
 fd_gui_printf_timeline_query_slots( fd_gui_t * gui,
                                     long       start_ns,
                                     long       end_ns,

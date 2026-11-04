@@ -282,6 +282,18 @@ fd_gui_new( void *                   shmem,
   gui->cpu_util.last_slot = ULONG_MAX;
   gui->cpu_util.cur_day   = ULONG_MAX;
 
+  for( ulong i=0UL; i<FD_GUI_VOTE_SLOT_CNT; i++ ) {
+    gui->votes.slot[ i ].slot         = ULONG_MAX;
+    gui->votes.parent_ready[ i ].slot = ULONG_MAX;
+  }
+  for( ulong i=0UL; i<FD_GUI_VOTE_SLOT_CNT; i++ ) {
+    gui->votes.batch[ i ].slot   = ULONG_MAX;
+    gui->votes.batch[ i ].pt_cnt = 0UL;
+  }
+  gui->votes.dropped_cnt     = 0UL;
+  gui->votes.lat_missing_cnt = 0UL;
+  gui->votes.batch_late_cnt  = 0UL;
+
   gui->tile_state.exec_cnt = fd_ulong_min( gui->summary.execrp_tile_cnt, FD_SCHED_MAX_EXEC_TILE_CNT );
   gui->tile_state.pos_cnt  = gui->tile_state.exec_cnt;
   gui->tile_state.cur_day  = ULONG_MAX;
@@ -1813,6 +1825,7 @@ fd_gui_next_deadline( fd_gui_t const * gui ) {
 int
 fd_gui_poll( fd_gui_t * gui, long now ) {
   fd_gui_lthash_batch_flush( gui, now );
+  fd_gui_vote_batch_flush( gui, now, 0 );
 
   if( FD_LIKELY( now>gui->next_sample_1sec ) ) {
     for( ulong i=0UL; i<gui->tile_cnt; i++ ) {
@@ -2223,6 +2236,10 @@ fd_gui_request_timeline( fd_gui_t *   gui,
   int err;
   if( !strcmp( key, "query_slots" ) ) {
     err = fd_gui_printf_timeline_query_slots( gui, start_ns, end_ns, id );
+  } else if( !strcmp( key, "query_votes" ) ) {
+    if(      !strcmp( name, "vote"       ) ) err = fd_gui_printf_timeline_query_votes( gui, start_ns, end_ns, 0, id );
+    else if( !strcmp( name, "vote_batch" ) ) err = fd_gui_printf_timeline_query_votes( gui, start_ns, end_ns, 1, id );
+    else return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
   } else if( !strcmp( key, "query_events" ) ) {
     err = fd_gui_printf_timeline_query_events( gui, start_ns, end_ns, id );
   } else if( !strcmp( key, "query_txn_meta" ) ) {
@@ -2300,6 +2317,8 @@ fd_gui_ws_message( fd_gui_t *    gui,
   } else if( FD_LIKELY( fd_jtok_str_eq( &topic, "timeline" ) &&
       (fd_jtok_str_eq( &key, "query_shreds" ) ||
        fd_jtok_str_eq( &key, "query_slots" ) ||
+       fd_jtok_str_eq( &key, "query_votes" ) ||
+       fd_jtok_str_eq( &key, "query_agg_votes" ) ||
        fd_jtok_str_eq( &key, "query_events" ) ||
        fd_jtok_str_eq( &key, "query_tile_states" ) ||
        fd_jtok_str_eq( &key, "query_txn_meta" ) ||
@@ -2883,11 +2902,17 @@ fd_gui_ag_slot_is_skip_notarized( fd_gui_t const * gui,
   return ent->slot==slot && ent->skip>=FD_GUI_SKIP_STATUS_NOTARIZED;
 }
 
+static int
+fd_gui_timeline_missed_vote_add( fd_gui_t * gui,
+                                 long       timestamp_ns,
+                                 long       now );
+
 static void
 fd_gui_handle_ag_reward( fd_gui_t * gui,
                          ulong      slot,
                          int        voted,
-                         ushort     voted_rank ) {
+                         ushort     voted_rank,
+                         long       now ) {
 
   uchar vote_rewarded = fd_uchar_if( !!voted, FD_GUI_VOTE_REWARDED_YES, FD_GUI_VOTE_REWARDED_NO );
   uchar is_voter = fd_uchar_if( voted_rank!=USHORT_MAX, FD_GUI_IS_VOTER_YES, FD_GUI_IS_VOTER_NO );
@@ -2904,6 +2929,9 @@ fd_gui_handle_ag_reward( fd_gui_t * gui,
       int is_missed = vote_rewarded==FD_GUI_VOTE_REWARDED_NO && is_voter==FD_GUI_IS_VOTER_YES;
 
       if( FD_UNLIKELY( was_missed!=is_missed ) ) gui->epoch.missed_vote_history_dirty = epoch->epoch; /* coalesced into one broadcast per poll */
+      /* Counted when the outcome becomes known (~FD_NUM_SLOTS_FOR_REWARD
+         slots after the slot); a later flip back is not uncounted. */
+      if( FD_UNLIKELY( is_missed && !was_missed ) ) fd_gui_timeline_missed_vote_add( gui, now, now );
     }
   }
 
@@ -2984,7 +3012,8 @@ fd_gui_timeline_tiers( char const * key ) {
       !strcmp( key, "query_agg_revenue" ) ) return FD_GUI_TIMELINE_TIERS_DAY | (1UL<<FD_GUI_TIMELINE_GRANULARITY_100MS);
   if( !strcmp( key, "query_agg_shreds" ) ||
       !strcmp( key, "query_agg_slots"  ) ||
-      !strcmp( key, "query_agg_txn"    ) ) return FD_GUI_TIMELINE_TIERS_DAY;
+      !strcmp( key, "query_agg_txn"    ) ||
+      !strcmp( key, "query_agg_votes"  ) ) return FD_GUI_TIMELINE_TIERS_DAY;
   return 0UL;
 }
 
@@ -3072,6 +3101,7 @@ fd_gui_timeline_day_create( fd_gui_t * gui,
   fd_gui_timeline_day_t * seed = fd_gui_hist_ts_emplace( gui, FD_GUI_HIST_TIMELINE_DAY, end_time_ns );
   if( FD_UNLIKELY( !seed ) ) return NULL;
   memset( seed, 0xFF, sizeof(fd_gui_timeline_day_t) ); /* all tiers, including 100ms, start unknown */
+  memset( seed->vote_lat, 0, sizeof(seed->vote_lat) ); /* sum/count tiers start empty */
 
   seed->insert_time_ns = now;
   seed->end_time_ns    = end_time_ns;
@@ -3254,6 +3284,21 @@ fd_gui_timeline_mine_add( fd_gui_t * gui,
   fd_gui_timeline_day_t * day = fd_gui_timeline_day_for_event( gui, (ulong)timestamp_ns/(ulong)FD_GUI_TIMELINE_DAY_NS, now );
   if( FD_UNLIKELY( !day ) ) return 0;
   fd_gui_timeline_count_add( day, FD_GUI_TIMELINE_FIELD_MINE, timestamp_ns );
+  return 1;
+}
+
+static int
+fd_gui_timeline_missed_vote_add( fd_gui_t * gui,
+                                 long       timestamp_ns,
+                                 long       now ) {
+  if( FD_UNLIKELY( timestamp_ns<0L || timestamp_ns==LONG_MAX ) ) return 0;
+  fd_gui_timeline_day_t * day = fd_gui_timeline_day_for_event( gui, (ulong)timestamp_ns/(ulong)FD_GUI_TIMELINE_DAY_NS, now );
+  if( FD_UNLIKELY( !day ) ) return 0;
+  ulong day_ns = (ulong)timestamp_ns % (ulong)FD_GUI_TIMELINE_DAY_NS;
+  for( int g=FD_GUI_TIMELINE_GRANULARITY_250MS; g<(int)FD_GUI_TIMELINE_STORED_GRANULARITY_CNT; g++ ) {
+    fd_gui_timeline_field_accum( day, g, FD_GUI_TIMELINE_FIELD_MISSED_VOTE,
+                               day_ns/fd_gui_timeline_stored_granularity_ns[ g ], 1UL );
+  }
   return 1;
 }
 
@@ -3907,6 +3952,347 @@ fd_gui_lthash_batch_flush( fd_gui_t * gui,
   }
 }
 
+/* Vote latency lines (see FD_GUI_VOTE_LAT_*).  Votor publishes the
+   first ParentReady of each leader window; it starts the window's
+   first slot, and each later slot in the window starts one target
+   slot duration after the previous one (Alpenglow's timers, and the
+   anchor of Agave's votor consensus metrics). */
+
+#define FD_GUI_VOTE_WINDOW_SLOTS (4UL) /* FD_VOTOR_SLOTS_PER_WINDOW */
+
+static void
+fd_gui_vote_lat_parent_ready( fd_gui_t * gui,
+                              ulong      slot,
+                              long       ts_ns ) {
+  ulong window = slot/FD_GUI_VOTE_WINDOW_SLOTS;
+  __typeof__(gui->votes.parent_ready[0]) * pr = &gui->votes.parent_ready[ window%FD_GUI_VOTE_SLOT_CNT ];
+  ulong first = window*FD_GUI_VOTE_WINDOW_SLOTS;
+  if( FD_UNLIKELY( pr->slot!=ULONG_MAX && pr->slot>=first ) ) return; /* first wins, older windows never replace newer ones */
+  pr->slot  = first;
+  pr->ts_ns = ts_ns;
+}
+
+/* fd_gui_vote_lat_start returns the start of slot, or LONG_MAX if its
+   window's ParentReady or the slot duration is unknown. */
+
+static long
+fd_gui_vote_lat_start( fd_gui_t * gui,
+                       ulong      slot ) {
+  ulong window = slot/FD_GUI_VOTE_WINDOW_SLOTS;
+  ulong first  = window*FD_GUI_VOTE_WINDOW_SLOTS;
+  __typeof__(gui->votes.parent_ready[0]) const * pr = &gui->votes.parent_ready[ window%FD_GUI_VOTE_SLOT_CNT ];
+  if( FD_UNLIKELY( pr->slot!=first ) ) return LONG_MAX;
+  fd_gui_epoch_t const * epoch = fd_gui_get_epoch_by_slot( gui, slot );
+  if( FD_UNLIKELY( !epoch || epoch->target_slot_duration_ns<=0L ) ) return LONG_MAX;
+  return pr->ts_ns + (long)(slot-first)*epoch->target_slot_duration_ns;
+}
+
+static void
+fd_gui_vote_lat_sample( fd_gui_t * gui,
+                        ulong      line,
+                        ulong      slot,
+                        long       ts_ns,
+                        long       now ) {
+  long start = fd_gui_vote_lat_start( gui, slot );
+  if( FD_UNLIKELY( start==LONG_MAX || ts_ns<start ) ) {
+    gui->votes.lat_missing_cnt++;
+    return;
+  }
+  fd_gui_timeline_day_t * day = fd_gui_timeline_day_for_event( gui, (ulong)ts_ns/(ulong)FD_GUI_TIMELINE_DAY_NS, now );
+  if( FD_UNLIKELY( !day ) ) return;
+  fd_gui_timeline_vote_lat_add( day, line, (ulong)ts_ns%(ulong)FD_GUI_TIMELINE_DAY_NS, (ulong)(ts_ns-start)/1000UL );
+}
+
+static void
+fd_gui_vote_lat_line( fd_gui_t * gui,
+                      uint *     lat,
+                      ulong      line,
+                      ulong      slot,
+                      long       ts_ns,
+                      long       now ) {
+  if( *lat & (1U<<line) ) return;
+  *lat |= 1U<<line;
+  fd_gui_vote_lat_sample( gui, line, slot, ts_ns, now );
+}
+
+/* fd_gui_vote_lat_cert samples the lines cert kind (FD_CERT_KIND_*)
+   completes for slot.  e is the slot's marker entry, so each line is
+   sampled at most once per slot.  Finalization needs the block
+   notarized too: votor can produce the Final cert before the Notar
+   cert (FINAL_PENDING_NOTAR), so the slow line waits for the later
+   of the two.  A FastFinal cert notarizes the block. */
+
+static void
+fd_gui_vote_lat_cert( fd_gui_t * gui,
+                      void *     _e,
+                      ulong      slot,
+                      uint       kind,
+                      long       ts_ns,
+                      long       now ) {
+  __typeof__(gui->votes.slot[0]) * e = _e;
+  int notarized = !!( e->lat & (1U<<FD_GUI_VOTE_LAT_NOTAR) );
+  switch( kind ) {
+    case 0U: /* FD_CERT_KIND_FINAL */
+      if( notarized ) fd_gui_vote_lat_line( gui, &e->lat, FD_GUI_VOTE_LAT_SLOW_FINAL, slot, ts_ns, now );
+      else            e->final_ts_ns = ts_ns;
+      break;
+    case 1U: /* FD_CERT_KIND_FAST_FINAL */
+      fd_gui_vote_lat_line( gui, &e->lat, FD_GUI_VOTE_LAT_FAST_FINAL, slot, ts_ns, now );
+      /* fall through */
+    case 2U: /* FD_CERT_KIND_NOTAR */
+      fd_gui_vote_lat_line( gui, &e->lat, FD_GUI_VOTE_LAT_NOTAR, slot, ts_ns, now );
+      if( FD_UNLIKELY( e->final_ts_ns!=LONG_MAX ) ) {
+        fd_gui_vote_lat_line( gui, &e->lat, FD_GUI_VOTE_LAT_SLOW_FINAL, slot, fd_long_max( ts_ns, e->final_ts_ns ), now );
+        e->final_ts_ns = LONG_MAX;
+      }
+      break;
+    case 3U: /* FD_CERT_KIND_NOTAR_FALLBACK */
+      fd_gui_vote_lat_line( gui, &e->lat, FD_GUI_VOTE_LAT_NOTAR_FALLBACK, slot, ts_ns, now );
+      break;
+    case 4U: /* FD_CERT_KIND_SKIP */
+      fd_gui_vote_lat_line( gui, &e->lat, FD_GUI_VOTE_LAT_SKIP, slot, ts_ns, now );
+      break;
+    default: break;
+  }
+}
+
+void
+fd_gui_handle_vote_event( fd_gui_t * gui,
+                          ulong      slot,
+                          uint       event,
+                          long       ts_ns,
+                          long       now ) {
+  if( FD_UNLIKELY( !gui->db || !gui->hist ) ) return;
+  if( FD_UNLIKELY( event<FD_GUI_VOTE_EVENT_CERT || event>=FD_GUI_VOTE_EVENT_BATCH || slot==ULONG_MAX || ts_ns<0L ) ) {
+    gui->votes.dropped_cnt++;
+    return;
+  }
+  /* Only the first of each marker per slot is kept (votor can create
+     and then accept the same cert, or retransmit). */
+  __typeof__(gui->votes.slot[0]) * e = &gui->votes.slot[ slot%FD_GUI_VOTE_SLOT_CNT ];
+  if( FD_UNLIKELY( e->slot!=slot ) ) {
+    if( FD_UNLIKELY( e->slot!=ULONG_MAX && e->slot>slot ) ) {
+      gui->votes.dropped_cnt++;
+      return;
+    }
+    e->slot        = slot;
+    e->events      = 0U;
+    e->lat         = 0U;
+    e->final_ts_ns = LONG_MAX;
+  }
+  if( e->events & (1U<<event) ) return;
+  e->events |= 1U<<event;
+  fd_gui_store_vote_t row = { .insert_time_ns = now, .ts_ns = ts_ns, .slot = slot, .event = (uchar)event };
+  fd_gui_hist_ts_append( gui, FD_GUI_HIST_VOTE_EVENTS, &row );
+
+  if( event==FD_GUI_VOTE_EVENT_PARENT_READY ) {
+    fd_gui_vote_lat_parent_ready( gui, slot, ts_ns );
+  } else if( event<FD_GUI_VOTE_EVENT_CERT+5U ) {
+    fd_gui_vote_lat_cert( gui, e, slot, event-FD_GUI_VOTE_EVENT_CERT, ts_ns, now );
+  }
+}
+
+#define SORT_NAME        fd_gui_vote_batch_pt_sort
+#define SORT_KEY_T       fd_gui_vote_batch_pt_t
+#define SORT_BEFORE(a,b) (((a).kind<(b).kind) || (((a).kind==(b).kind) && ((a).ts_ns<(b).ts_ns)))
+#include "../../util/tmpl/fd_sort.c"
+
+/* fd_gui_vote_batch_dist2 returns the squared distance of point p from
+   the segment a-b. */
+
+static double
+fd_gui_vote_batch_dist2( double ax, double ay,
+                        double bx, double by,
+                        double px, double py ) {
+  double dx = bx-ax;
+  double dy = by-ay;
+  double l2 = dx*dx + dy*dy;
+  double t  = l2>0.0 ? ((px-ax)*dx + (py-ay)*dy)/l2 : 0.0;
+  t = t<0.0 ? 0.0 : ( t>1.0 ? 1.0 : t );
+  double ex = ax + t*dx - px;
+  double ey = ay + t*dy - py;
+  return ex*ex + ey*ey;
+}
+
+/* fd_gui_vote_batch_rows simplifies the buffered votes of b into
+   gui->votes.batch_rows and returns the row count.  It reorders b's
+   points. */
+
+static ulong
+fd_gui_vote_batch_rows( fd_gui_t *                        gui,
+                        __typeof__(gui->votes.batch[0]) * b,
+                        long                              now ) {
+  fd_gui_vote_batch_pt_t * pt = b->pt;
+  ulong n = b->pt_cnt;
+  fd_gui_vote_batch_pt_sort_inplace( pt, n );
+  ulong *               cum   = gui->votes.batch_cum;
+  ulong *               stack = gui->votes.batch_stack;
+  uchar *               keep  = gui->votes.batch_keep;
+  fd_gui_store_vote_t * rows  = gui->votes.batch_rows;
+  ulong                 row_cnt = 0UL;
+  double eps_y = (double)b->total_stake*(double)FD_GUI_VOTE_BATCH_EPS_STAKE_BPS/10000.0;
+  if( eps_y<1.0 ) eps_y = 1.0;
+  double eps_x = (double)FD_GUI_VOTE_BATCH_EPS_TS_NS;
+  for( ulong lo=0UL; lo<n; ) {
+    ulong hi = lo;
+    ulong sum = 0UL;
+    while( hi<n && pt[ hi ].kind==pt[ lo ].kind ) {
+      sum = fd_ulong_sat_add( sum, pt[ hi ].stake );
+      cum [ hi ] = sum;
+      keep[ hi ] = 0;
+      hi++;
+    }
+    /* Douglas-Peucker over [lo,hi) with time scaled by eps_x and stake
+       by eps_y, so the tolerance is one unit. */
+    long  t0 = pt[ lo ].ts_ns;
+    keep[ lo ] = 1; keep[ hi-1UL ] = 1;
+    ulong sp = 0UL;
+    if( hi-lo>2UL ) { stack[ sp++ ] = lo; stack[ sp++ ] = hi-1UL; }
+    while( sp ) {
+      ulong j = stack[ --sp ];
+      ulong i = stack[ --sp ];
+      double ax = (double)(pt[ i ].ts_ns-t0)/eps_x, ay = (double)cum[ i ]/eps_y;
+      double bx = (double)(pt[ j ].ts_ns-t0)/eps_x, by = (double)cum[ j ]/eps_y;
+      double worst = 1.0; /* squared tolerance */
+      ulong  split = ULONG_MAX;
+      for( ulong k=i+1UL; k<j; k++ ) {
+        double d = fd_gui_vote_batch_dist2( ax, ay, bx, by, (double)(pt[ k ].ts_ns-t0)/eps_x, (double)cum[ k ]/eps_y );
+        if( d>worst ) { worst = d; split = k; }
+      }
+      if( split==ULONG_MAX ) continue;
+      keep[ split ] = 1;
+      if( split-i>1UL ) { stack[ sp++ ] = i;     stack[ sp++ ] = split; }
+      if( j-split>1UL ) { stack[ sp++ ] = split; stack[ sp++ ] = j;     }
+    }
+    ulong prev = 0UL;
+    for( ulong k=lo; k<hi; k++ ) {
+      if( !keep[ k ] ) continue;
+      rows[ row_cnt++ ] = (fd_gui_store_vote_t){
+        .insert_time_ns = now,
+        .ts_ns          = pt[ k ].ts_ns,
+        .slot           = b->slot,
+        .stake          = cum[ k ]-prev,
+        .total_stake    = b->total_stake,
+        .event          = (uchar)(FD_GUI_VOTE_EVENT_BATCH+pt[ k ].kind)
+      };
+      prev = cum[ k ];
+    }
+    lo = hi;
+  }
+  return row_cnt;
+}
+
+static void
+fd_gui_vote_batch_flush_one( fd_gui_t *                        gui,
+                             __typeof__(gui->votes.batch[0]) * b,
+                             long                              now ) {
+  if( !b->pt_cnt ) return;
+  ulong row_cnt = fd_gui_vote_batch_rows( gui, b, now );
+  for( ulong i=0UL; i<row_cnt; i++ ) fd_gui_hist_ts_append( gui, FD_GUI_HIST_VOTE_BATCH, &gui->votes.batch_rows[ i ] );
+  b->pt_cnt = 0UL;
+}
+
+void
+fd_gui_vote_batch_flush( fd_gui_t * gui,
+                         long       now,
+                         int        force ) {
+  if( FD_UNLIKELY( !gui->db || !gui->hist ) ) return;
+  for( ulong i=0UL; i<FD_GUI_VOTE_SLOT_CNT; i++ ) {
+    __typeof__(gui->votes.batch[0]) * b = &gui->votes.batch[ i ];
+    if( !b->pt_cnt ) continue;
+    if( !force &&
+        now<fd_long_sat_add( b->last_ns,  FD_GUI_VOTE_BATCH_IDLE_NS ) &&
+        now<fd_long_sat_add( b->first_ns, FD_GUI_VOTE_BATCH_AGE_NS  ) ) continue;
+    fd_gui_vote_batch_flush_one( gui, b, now );
+  }
+}
+
+int
+fd_gui_vote_batch_collect_open( fd_gui_t *            gui,
+                                fd_gui_store_vote_t * rows,
+                                ulong *               n,
+                                ulong                 max,
+                                long                  start,
+                                long                  end ) {
+  for( ulong i=0UL; i<FD_GUI_VOTE_SLOT_CNT; i++ ) {
+    __typeof__(gui->votes.batch[0]) * b = &gui->votes.batch[ i ];
+    if( !b->pt_cnt ) continue;
+    ulong row_cnt = fd_gui_vote_batch_rows( gui, b, LONG_MAX );
+    for( ulong j=0UL; j<row_cnt; j++ ) {
+      fd_gui_store_vote_t const * v = &gui->votes.batch_rows[ j ];
+      if( v->ts_ns<start || v->ts_ns>=end ) continue;
+      if( FD_UNLIKELY( *n==max ) ) return -1;
+      rows[ (*n)++ ] = *v;
+    }
+  }
+  return 0;
+}
+
+/* fd_gui_vote_batch_add buffers vote r of kind for its slot's batch. */
+
+static void
+fd_gui_vote_batch_add( fd_gui_t *                 gui,
+                       fd_votor_gui_rec_t const * r,
+                       long                       now ) {
+  __typeof__(gui->votes.batch[0]) * b = &gui->votes.batch[ r->slot%FD_GUI_VOTE_SLOT_CNT ];
+  if( FD_UNLIKELY( b->slot!=r->slot ) ) {
+    if( FD_UNLIKELY( b->slot!=ULONG_MAX && b->slot>r->slot ) ) {
+      /* The slot left the tracked ones, record the vote alone. */
+      fd_gui_store_vote_t row = {
+        .insert_time_ns = now,
+        .ts_ns          = r->ts_ns,
+        .slot           = r->slot,
+        .stake          = r->stake,
+        .total_stake    = r->total_stake,
+        .event          = (uchar)(FD_GUI_VOTE_EVENT_BATCH+r->sub)
+      };
+      fd_gui_hist_ts_append( gui, FD_GUI_HIST_VOTE_BATCH, &row );
+      gui->votes.batch_late_cnt++;
+      return;
+    }
+    fd_gui_vote_batch_flush_one( gui, b, now );
+    b->slot = r->slot;
+  }
+  if( FD_UNLIKELY( b->pt_cnt==FD_GUI_VOTE_BATCH_PTS_MAX ) ) fd_gui_vote_batch_flush_one( gui, b, now );
+  if( !b->pt_cnt ) b->first_ns = now;
+  b->last_ns     = now;
+  b->total_stake = r->total_stake;
+  b->pt[ b->pt_cnt++ ] = (fd_gui_vote_batch_pt_t){ .ts_ns = r->ts_ns, .stake = r->stake, .kind = r->sub };
+}
+
+void
+fd_gui_handle_votor_gui( fd_gui_t *                 gui,
+                         fd_votor_gui_rec_t const * recs,
+                         ulong                      rec_cnt,
+                         long                       now ) {
+  if( FD_UNLIKELY( !gui->db || !gui->hist ) ) return;
+  for( ulong i=0UL; i<rec_cnt; i++ ) {
+    fd_votor_gui_rec_t const * r = &recs[ i ];
+    if( FD_UNLIKELY( r->kind>FD_VOTOR_GUI_REC_KIND_VOTE_ACK || r->sub>=FD_GUI_VOTE_KIND_CNT || r->slot==ULONG_MAX || r->ts_ns<0L ) ) {
+      gui->votes.dropped_cnt++;
+      continue;
+    }
+    if( r->kind==FD_VOTOR_GUI_REC_KIND_VOTE_CAST ) { fd_gui_handle_vote_event( gui, r->slot, FD_GUI_VOTE_EVENT_CAST+r->sub, r->ts_ns, now ); continue; }
+    if( r->kind==FD_VOTOR_GUI_REC_KIND_VOTE_ACK  ) { fd_gui_handle_vote_event( gui, r->slot, FD_GUI_VOTE_EVENT_ACK +r->sub, r->ts_ns, now ); continue; }
+    /* shortcut: votor counts a vote before its batched BLS check and
+       drops only votes rejected in the same call.  A bad vote removed by
+       a later check stays here, overstating the slot's stake by at most
+       the voter's stake.  shortcut: a voter's notar fallback votes for
+       up to three block hashes in a slot each add its stake, and the
+       block hash is not kept, so per-kind sums can double count. */
+    fd_gui_store_vote_t row = {
+      .insert_time_ns = now,
+      .ts_ns          = r->ts_ns,
+      .slot           = r->slot,
+      .stake          = r->stake,
+      .total_stake    = r->total_stake,
+      .event          = (uchar)(FD_GUI_VOTE_EVENT_VOTE+r->sub)
+    };
+    fd_gui_hist_ts_append( gui, FD_GUI_HIST_VOTES, &row );
+    fd_gui_vote_batch_add( gui, r, now );
+  }
+}
+
 static inline int
 fd_gui_batch_txn_before( fd_gui_batch_txn_ptr_t a,
                          fd_gui_batch_txn_ptr_t b,
@@ -4401,7 +4787,7 @@ fd_gui_handle_replay_update( fd_gui_t *                         gui,
   }
 
   if( FD_LIKELY( slot_completed->slot>=FD_NUM_SLOTS_FOR_REWARD ) ) {
-    fd_gui_handle_ag_reward( gui, slot_completed->slot-FD_NUM_SLOTS_FOR_REWARD, slot_completed->voted, slot_completed->voted_rank );
+    fd_gui_handle_ag_reward( gui, slot_completed->slot-FD_NUM_SLOTS_FOR_REWARD, slot_completed->voted, slot_completed->voted_rank, now );
   }
 
   int frontier_updated = handle_tower_slot( gui, slot_completed->slot, slot_completed->bank_seq, now );

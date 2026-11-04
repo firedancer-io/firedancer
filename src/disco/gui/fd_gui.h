@@ -17,6 +17,7 @@
 #include "../../discof/restore/utils/fd_ssmsg.h"
 #include "../../discof/restore/utils/fd_wfs.h"
 #include "../../discof/replay/fd_replay_tile.h"
+#include "../../discof/votor/fd_votor_tile.h"
 #include "../../flamenco/leaders/fd_leaders.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h" /* fd_slot_to_epoch */
 #include "../../util/fd_util_base.h"
@@ -184,6 +185,7 @@ typedef struct fd_gui_rate_entry fd_gui_rate_entry_t;
 #define FD_GUI_TIMELINE_QUERY_TXN_MAX          (65536UL)
 #define FD_GUI_TIMELINE_QUERY_SLOT_MAX         (65536UL)
 #define FD_GUI_TIMELINE_QUERY_EVENT_MAX        (65536UL)
+#define FD_GUI_TIMELINE_QUERY_VOTE_MAX         (262144UL)
 /* query_tile_states: slot state and lthash rows, and intervals (up to
    four stages and a sigverify per txn, one per slot state or lthash
    task). */
@@ -277,6 +279,7 @@ fd_gui_timeline_tier( char const * key,
   X( SKIPPED,         skipped,          ushort, ushort, ushort, ushort, ushort, ushort, uint   ) \
   X( MINE,            mine,             uint,   uint,   uint,   uint,   uint,   uint,   uint   ) \
   X( MINE_SKIPPED,    mine_skipped,     uint,   uint,   uint,   uint,   uint,   uint,   uint   ) \
+  X( MISSED_VOTE,     missed_vote,      ushort, ushort, ushort, ushort, ushort, ushort, uint   ) \
   X( DURATION_WALL,   duration_wall,    ulong,  ulong,  ulong,  ulong,  ulong,  ulong,  ulong  ) \
   X( DURATION_SLOTS,  duration_slots,   ulong,  ulong,  ulong,  ulong,  ulong,  ulong,  ulong  )
 
@@ -322,6 +325,50 @@ struct fd_gui_timeline_100ms {
 };
 typedef struct fd_gui_timeline_100ms fd_gui_timeline_100ms_t;
 
+/* Vote latency lines reported by query_agg_votes.  A sample is the
+   time from a slot's start (its window's ParentReady plus the slot's
+   offset in the window times the target slot duration, as in Agave's
+   consensus metrics) to the arrival of a certificate, bucketed at the
+   arrival.  Lines are independent: a slot may contribute to several.
+
+     NOTAR          first notarization (Notar or FastFinal cert)
+     FAST_FINAL     FastFinal cert (one round)
+     SLOW_FINAL     Final cert, or the later notarization if the Final
+                    cert came first (two rounds)
+     SKIP           Skip cert
+     NOTAR_FALLBACK NotarFallback cert */
+
+#define FD_GUI_VOTE_LAT_NOTAR          (0UL)
+#define FD_GUI_VOTE_LAT_FAST_FINAL     (1UL)
+#define FD_GUI_VOTE_LAT_SLOW_FINAL     (2UL)
+#define FD_GUI_VOTE_LAT_SKIP           (3UL)
+#define FD_GUI_VOTE_LAT_NOTAR_FALLBACK (4UL)
+#define FD_GUI_VOTE_LAT_CNT            (5UL)
+
+/* Per-line latency sum (us) and sample count tiers (250ms and longer).
+   Sums saturate at their type maximum; counts stop at their type
+   maximum minus one (all ones is unset). */
+#define FD_GUI_TIMELINE_VOTE_LAT_MAP( X ) \
+  /* tier   sum    cnt    */            \
+  X( 250MS, uint,  ushort )             \
+  X( 2S,    uint,  ushort )             \
+  X( 15S,   ulong, uint   )             \
+  X( 2M,    ulong, uint   )             \
+  X( 15M,   ulong, uint   )             \
+  X( 2H,    ulong, uint   )             \
+  X( 12H,   ulong, uint   )
+
+#define FD_GUI_TIMELINE_VOTE_LAT_DECL( g, s, c ) \
+  s sum_##g[ FD_GUI_TIMELINE_##g##_CNT ];        \
+  c cnt_##g[ FD_GUI_TIMELINE_##g##_CNT ];
+
+struct fd_gui_timeline_vote_lat {
+  FD_GUI_TIMELINE_VOTE_LAT_MAP( FD_GUI_TIMELINE_VOTE_LAT_DECL )
+};
+typedef struct fd_gui_timeline_vote_lat fd_gui_timeline_vote_lat_t;
+
+#undef FD_GUI_TIMELINE_VOTE_LAT_DECL
+
 struct fd_gui_timeline_day {
   long insert_time_ns;
   long end_time_ns; /* exclusive UTC day end (the following midnight) */
@@ -333,8 +380,56 @@ struct fd_gui_timeline_day {
   fd_gui_timeline_15m_t   bucket_15m;
   fd_gui_timeline_2h_t    bucket_2h;
   fd_gui_timeline_12h_t   bucket_12h;
+  fd_gui_timeline_vote_lat_t vote_lat[ FD_GUI_VOTE_LAT_CNT ]; /* zeroed on creation */
 };
 typedef struct fd_gui_timeline_day fd_gui_timeline_day_t;
+
+/* fd_gui_timeline_vote_lat_get reads the latency sum (us) and count of
+   line in bucket idx of stored tier granularity.  An unset count (all
+   ones) reads as no samples. */
+
+static inline void
+fd_gui_timeline_vote_lat_get( fd_gui_timeline_day_t const * day,
+                              ulong                         line,
+                              int                           granularity,
+                              ulong                         idx,
+                              ulong *                       sum,
+                              ulong *                       cnt ) {
+  fd_gui_timeline_vote_lat_t const * l = &day->vote_lat[ line ];
+  *sum = 0UL; *cnt = 0UL;
+  switch( granularity ) {
+#define FD_GUI_TIMELINE_VOTE_LAT_GET( g, s, c )                                \
+    case FD_GUI_TIMELINE_GRANULARITY_##g:                                      \
+      if( FD_UNLIKELY( idx>=FD_GUI_TIMELINE_##g##_CNT ) ) return;              \
+      if( FD_UNLIKELY( l->cnt_##g[ idx ]==(c)~(c)0 ) ) return;                 \
+      *sum = l->sum_##g[ idx ];                                                \
+      *cnt = l->cnt_##g[ idx ];                                                \
+      return;
+    FD_GUI_TIMELINE_VOTE_LAT_MAP( FD_GUI_TIMELINE_VOTE_LAT_GET )
+#undef FD_GUI_TIMELINE_VOTE_LAT_GET
+    default: return;
+  }
+}
+
+/* fd_gui_timeline_vote_lat_add folds one latency sample of lat_us into
+   every tier bucket of line covering day_ns. */
+
+static inline void
+fd_gui_timeline_vote_lat_add( fd_gui_timeline_day_t * day,
+                              ulong                   line,
+                              ulong                   day_ns,
+                              ulong                   lat_us ) {
+  fd_gui_timeline_vote_lat_t * l = &day->vote_lat[ line ];
+#define FD_GUI_TIMELINE_VOTE_LAT_ADD( g, s, c ) do {                                             \
+    ulong idx = day_ns/(ulong)(FD_GUI_TIMELINE_DAY_NS/FD_GUI_TIMELINE_##g##_CNT);                \
+    if( FD_LIKELY( l->cnt_##g[ idx ]<(c)((c)~(c)0-(c)1) ) ) {                                    \
+      l->sum_##g[ idx ] = (s)fd_ulong_min( fd_ulong_sat_add( l->sum_##g[ idx ], lat_us ), (ulong)(s)~(s)0 ); \
+      l->cnt_##g[ idx ]++;                                                                       \
+    }                                                                                            \
+  } while(0);
+  FD_GUI_TIMELINE_VOTE_LAT_MAP( FD_GUI_TIMELINE_VOTE_LAT_ADD )
+#undef FD_GUI_TIMELINE_VOTE_LAT_ADD
+}
 
 /* Tile states reported by query_tile_states and query_agg_tile_states.
    Execrp tiles run transaction stages and account LtHash tasks, the
@@ -430,6 +525,83 @@ struct fd_gui_store_replay_lthash_batch {
   uchar  _pad;
 };
 typedef struct fd_gui_store_replay_lthash_batch fd_gui_store_replay_lthash_batch_t;
+
+/* Votes track records.  Three time-series DBs share one row type:
+
+   FD_GUI_HIST_VOTES        every vote the votor counted.
+   FD_GUI_HIST_VOTE_EVENTS  per-slot markers (certs, our casts and acks,
+                            ParentReady), first of each per slot.
+   FD_GUI_HIST_VOTE_BATCH   vote batches: breakpoints of each (slot,
+                            vote kind) cumulative stake curve, simplified
+                            with Douglas-Peucker.  stake is the stake
+                            added since the previous breakpoint, so
+                            batch rows sum like the votes they replace.
+
+   ts_ns is the votor's wallclock at the vote or marker.  stake is the
+   voter's stake and total_stake the votor's total stake for the slot's
+   epoch, in lamports (0 for markers). */
+
+#define FD_GUI_VOTE_KIND_CNT (5UL)  /* FD_VOTE_KIND_* */
+#define FD_GUI_VOTE_SLOT_CNT (64UL) /* recent slots tracked for marker dedup */
+
+/* FD_GUI_VOTE_EVENT_VOTE+FD_VOTE_KIND_* (vote rows, the only ones with
+   stake), FD_GUI_VOTE_EVENT_CERT+FD_CERT_KIND_*, FD_GUI_VOTE_EVENT_CAST+
+   FD_VOTE_KIND_*, FD_GUI_VOTE_EVENT_ACK+FD_VOTE_KIND_* and
+   FD_GUI_VOTE_EVENT_PARENT_READY. */
+#define FD_GUI_VOTE_EVENT_VOTE         (0U)
+#define FD_GUI_VOTE_EVENT_CERT         (5U)
+#define FD_GUI_VOTE_EVENT_CAST         (10U)
+#define FD_GUI_VOTE_EVENT_ACK          (15U)
+#define FD_GUI_VOTE_EVENT_PARENT_READY (20U)
+#define FD_GUI_VOTE_EVENT_BATCH        (21U) /* +FD_VOTE_KIND_* */
+#define FD_GUI_VOTE_EVENT_CNT          (26U)
+
+/* fd_gui_vote_event_has_stake returns whether rows of event carry
+   stake (votes and vote batches, not markers). */
+
+static inline int
+fd_gui_vote_event_has_stake( uint event ) {
+  return event<FD_GUI_VOTE_EVENT_CERT || ( event>=FD_GUI_VOTE_EVENT_BATCH && event<FD_GUI_VOTE_EVENT_CNT );
+}
+
+/* Vote batching.  Votes of a recent slot are buffered (up to
+   FD_GUI_VOTE_BATCH_PTS_MAX), and flushed as batch rows when the slot
+   leaves the tracked slots, the buffer is full, the slot has had no
+   vote for FD_GUI_VOTE_BATCH_IDLE_NS or its oldest buffered vote is
+   FD_GUI_VOTE_BATCH_AGE_NS old.  A flush simplifies each kind's
+   cumulative stake curve (Douglas-Peucker) so that, with time scaled by
+   FD_GUI_VOTE_BATCH_EPS_TS_NS and stake by
+   FD_GUI_VOTE_BATCH_EPS_STAKE_BPS basis points of the total stake, no
+   vote is more than one unit from the polyline through the breakpoints.
+   Both ends of each flushed curve are kept.  A vote for a slot older
+   than the tracked one is recorded as a batch of itself.  Batch rows
+   are inserted at most about FD_GUI_VOTE_BATCH_AGE_NS after their
+   timestamp, queries widen their scan by
+   FD_GUI_VOTE_BATCH_QUERY_MARGIN_NS. */
+
+#define FD_GUI_VOTE_BATCH_PTS_MAX         (4096UL)
+#define FD_GUI_VOTE_BATCH_IDLE_NS         (5L*1000L*1000L*1000L)
+#define FD_GUI_VOTE_BATCH_AGE_NS          (20L*1000L*1000L*1000L)
+#define FD_GUI_VOTE_BATCH_QUERY_MARGIN_NS (30L*1000L*1000L*1000L)
+#define FD_GUI_VOTE_BATCH_EPS_TS_NS       (20L*1000L*1000L)
+#define FD_GUI_VOTE_BATCH_EPS_STAKE_BPS   (100UL)
+
+struct fd_gui_vote_batch_pt {
+  long  ts_ns;
+  ulong stake;
+  ulong kind; /* FD_VOTE_KIND_* */
+};
+typedef struct fd_gui_vote_batch_pt fd_gui_vote_batch_pt_t;
+
+struct fd_gui_store_vote {
+  long  insert_time_ns;
+  long  ts_ns;
+  ulong slot;
+  ulong stake;
+  ulong total_stake;
+  uchar event; /* FD_GUI_VOTE_EVENT_* */
+};
+typedef struct fd_gui_store_vote fd_gui_store_vote_t;
 
 /* fd_gui_timeline_tile_state_day holds one tile's time per stored
    state, bucketed per tier like the CPU records.  The 2s tier is exact
@@ -1512,6 +1684,8 @@ struct fd_gui_timeline_query_bucket {
   ulong fields[ FD_GUI_TIMELINE_FIELD_CNT ];
   ulong slot_duration;
   int   has_day;
+  ulong vote_lat_sum[ FD_GUI_VOTE_LAT_CNT ]; /* us */
+  ulong vote_lat_cnt[ FD_GUI_VOTE_LAT_CNT ];
 };
 typedef struct fd_gui_timeline_query_bucket fd_gui_timeline_query_bucket_t;
 
@@ -1552,6 +1726,7 @@ union fd_gui_timeline_scratch {
   fd_gui_timeline_query_event_t           slot_events[ FD_GUI_TIMELINE_QUERY_EVENT_MAX ];
   fd_gui_timeline_query_bucket_t          buckets    [ FD_GUI_TIMELINE_QUERY_MAX_BUCKETS ];
   struct { uint sum; uint cnt; }          cpu        [ FD_GUI_TIMELINE_QUERY_MAX_BUCKETS ];
+  fd_gui_store_vote_t                     votes      [ FD_GUI_TIMELINE_QUERY_VOTE_MAX ];
   struct { ulong ns[ FD_GUI_TILE_STATE_CNT ]; int have; } agg_tile_states[ FD_GUI_TIMELINE_QUERY_MAX_BUCKETS ];
   struct {
     void const *                  rows[ FD_GUI_TIMELINE_QUERY_TXN_MAX+FD_GUI_TIMELINE_QUERY_SLOT_STATE_MAX+FD_GUI_TIMELINE_QUERY_LTHASH_MAX ];
@@ -1611,6 +1786,41 @@ struct fd_gui {
     /* Open lthash batch per execrp tile, task_cnt 0 if none. */
     fd_gui_store_replay_lthash_batch_t lthash_open[ FD_SCHED_MAX_EXEC_TILE_CNT ];
   } tile_state;
+
+  /* Markers already recorded for recent slots, indexed by
+     slot%FD_GUI_VOTE_SLOT_CNT. */
+  struct {
+    struct {
+      ulong slot;   /* ULONG_MAX if unused */
+      uint  events; /* FD_GUI_VOTE_EVENT_* markers already recorded */
+      uint  lat;    /* FD_GUI_VOTE_LAT_* lines already sampled */
+      long  final_ts_ns; /* Final cert arrival awaiting notarization, LONG_MAX if none */
+    } slot[ FD_GUI_VOTE_SLOT_CNT ];
+    /* First ParentReady per leader window, indexed by
+       window%FD_GUI_VOTE_SLOT_CNT.  Anchors the vote latency lines. */
+    struct {
+      ulong slot;  /* first slot of the window, ULONG_MAX if unused */
+      long  ts_ns;
+    } parent_ready[ FD_GUI_VOTE_SLOT_CNT ];
+    ulong dropped_cnt;     /* malformed, or markers for a slot older than the tracked ones */
+    ulong lat_missing_cnt; /* certs not sampled: no ParentReady or slot duration for the window, or arrival before the slot start */
+    /* Buffered votes per recent slot, indexed by slot%FD_GUI_VOTE_SLOT_CNT
+       (see FD_GUI_VOTE_BATCH_*). */
+    struct {
+      ulong                  slot;        /* ULONG_MAX if unused */
+      ulong                  total_stake; /* of the latest buffered vote */
+      long                   first_ns;    /* receive time of the oldest buffered vote */
+      long                   last_ns;     /* receive time of the newest buffered vote */
+      ulong                  pt_cnt;
+      fd_gui_vote_batch_pt_t pt[ FD_GUI_VOTE_BATCH_PTS_MAX ];
+    } batch[ FD_GUI_VOTE_SLOT_CNT ];
+    ulong batch_late_cnt; /* votes for a slot older than the tracked one, recorded alone */
+    /* Flush scratch */
+    ulong batch_cum  [ FD_GUI_VOTE_BATCH_PTS_MAX ];
+    ulong batch_stack[ 2UL*FD_GUI_VOTE_BATCH_PTS_MAX ];
+    uchar batch_keep [ FD_GUI_VOTE_BATCH_PTS_MAX ];
+    fd_gui_store_vote_t batch_rows[ FD_GUI_VOTE_BATCH_PTS_MAX ];
+  } votes;
 
   ulong leader_begin_slot;
   ulong leader_end_slot;
@@ -1816,6 +2026,45 @@ fd_gui_lthash_record( fd_gui_t * gui,
 void
 fd_gui_lthash_batch_flush( fd_gui_t * gui,
                            long       now );
+
+/* fd_gui_handle_votor_gui records a votor_gui frag of rec_cnt records
+   for the Votes track (see fd_gui_store_vote_t).  fd_gui_handle_vote_event
+   records marker event (FD_GUI_VOTE_EVENT_*) of slot at votor time
+   ts_ns. */
+
+void
+fd_gui_handle_votor_gui( fd_gui_t *                 gui,
+                         fd_votor_gui_rec_t const * recs,
+                         ulong                      rec_cnt,
+                         long                       now );
+
+void
+fd_gui_handle_vote_event( fd_gui_t * gui,
+                          ulong      slot,
+                          uint       event,
+                          long       ts_ns,
+                          long       now );
+
+/* fd_gui_vote_batch_collect_open appends to rows (n in use, at most
+   max) the batch rows with ts_ns in [start,end) that the buffered
+   votes would flush to now, without flushing them.  Returns -1 past
+   max rows. */
+
+int
+fd_gui_vote_batch_collect_open( fd_gui_t *            gui,
+                                fd_gui_store_vote_t * rows,
+                                ulong *               n,
+                                ulong                 max,
+                                long                  start,
+                                long                  end );
+
+/* fd_gui_vote_batch_flush records the buffered votes of slots that are
+   due (all if force) as vote batches (see FD_GUI_VOTE_BATCH_*). */
+
+void
+fd_gui_vote_batch_flush( fd_gui_t * gui,
+                         long       now,
+                         int        force );
 
 /* fd_gui_timeline_handle_fec adds the shred counts of one completed FEC
    set to the calendar-day aggregates.  It ignores invalid input. */

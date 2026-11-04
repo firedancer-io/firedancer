@@ -11,6 +11,7 @@
 #include "../../ballet/json/fd_jtok.h"
 #include "../../waltz/http/fd_http_server_private.h"
 #include "../pack/fd_pack_cost.h"
+#include "../../choreo/votor/fd_vote.h"
 #include "../../flamenco/runtime/fd_system_ids.h"
 
 #include <stdlib.h>
@@ -29,7 +30,7 @@
 #define C_END_SLOT   (C_START_SLOT+SLOT_CNT-1UL) /* 1029 */
 #define BANK_SEQ     (0UL)
 
-#define TEST_STORE_BYTES (6UL<<30) /* the [tiles.gui.db_size_gib] minimum */
+#define TEST_STORE_BYTES (8UL<<30) /* the [tiles.gui.db_size_gib] minimum */
 #define TEST_TILE_CNT    (44UL)
 
 /* test_descs returns the DB descriptors for a TEST_STORE_BYTES store. */
@@ -563,6 +564,7 @@ store_open( test_store_t * s, ulong map_bytes, int instance ) {
   s->gui->tile_cnt = TEST_TILE_CNT;
   s->gui->cpu_util.last_slot = ULONG_MAX;
   s->gui->cpu_util.cur_day   = ULONG_MAX;
+  for( ulong i=0UL; i<FD_GUI_VOTE_SLOT_CNT; i++ ) s->gui->votes.slot[ i ].slot = ULONG_MAX;
 
   s->db_mem = aligned_alloc( fd_gui_store_align(),
                              fd_ulong_align_up( fd_gui_hist_store_footprint( map_bytes ), fd_gui_store_align() ) );
@@ -598,9 +600,15 @@ test_timeline_db( fd_gui_t * gui ) {
   FD_TEST( FD_GUI_HIST_FEC_EVENT_ARCHIVE==15 );
   FD_TEST( FD_GUI_HIST_REPLAY_SLOT_STATE==16 );
   FD_TEST( FD_GUI_HIST_TIMELINE_TILE_STATE_DAY==17 );
-  FD_TEST( FD_GUI_HIST_REPLAY_LTHASH==18 );
-  FD_TEST( FD_GUI_HIST_REPLAY_LTHASH_BATCH==19 );
-  FD_TEST( FD_GUI_HIST_CNT==20 );
+  FD_TEST( FD_GUI_HIST_VOTES==18 );
+  FD_TEST( FD_GUI_HIST_VOTE_EVENTS==19 );
+  FD_TEST( FD_GUI_HIST_REPLAY_LTHASH==20 );
+  FD_TEST( FD_GUI_HIST_REPLAY_LTHASH_BATCH==21 );
+  FD_TEST( FD_GUI_HIST_VOTE_BATCH==22 );
+  FD_TEST( FD_GUI_HIST_CNT==23 );
+  FD_TEST( !strcmp( descs[ FD_GUI_HIST_VOTE_BATCH ].name, "vote_batch" ) );
+  FD_TEST( descs[ FD_GUI_HIST_VOTE_BATCH ].kind==FD_GUI_STORE_KIND_TS );
+  FD_TEST( descs[ FD_GUI_HIST_VOTE_BATCH ].ts_off==offsetof(fd_gui_store_vote_t,insert_time_ns) );
   FD_TEST( !strcmp( descs[ FD_GUI_HIST_REPLAY_LTHASH_BATCH ].name, "replay_lthash_batch" ) );
   FD_TEST( descs[ FD_GUI_HIST_REPLAY_LTHASH_BATCH ].kind==FD_GUI_STORE_KIND_TS );
   FD_TEST( descs[ FD_GUI_HIST_REPLAY_LTHASH_BATCH ].ts_off==offsetof(fd_gui_store_replay_lthash_batch_t,insert_time_ns) );
@@ -3969,6 +3977,12 @@ test_timeline_agg_shreds( fd_gui_t * gui ) {
   FD_LOG_NOTICE(( "test_timeline_agg_shreds: ok" ));
 }
 
+/* test_votes covers the Votes track: votes reach the raw ring, our
+   casts / acks and votor_out certs / ParentReady become markers (first
+   per slot), malformed and stale records are counted, query_votes
+   merges both by time, and a newly missed vote lands in
+   query_agg_votes. */
+
 static void
 timeline_setup( fd_gui_t * gui,
                 ulong      epoch_cnt ) {
@@ -4157,6 +4171,410 @@ test_timeline_replayed_skips( fd_gui_t * gui ) {
 
   test_http_close( gui, http_mem );
   FD_LOG_NOTICE(( "test_timeline_replayed_skips: ok" ));
+}
+
+static fd_votor_gui_rec_t
+vote_rec( uchar kind, uchar sub, ulong slot, long ts, ulong stake ) {
+  return (fd_votor_gui_rec_t){ .slot=slot, .ts_ns=ts, .stake=stake, .total_stake=10000UL, .rank=7, .kind=kind, .sub=sub };
+}
+
+static void
+test_votes( fd_gui_t * gui ) {
+  long base = 3L*FD_GUI_TIMELINE_DAY_NS;
+  long now  = base + sec_ns( 5UL );
+  fd_votor_gui_rec_t recs[ 16 ];
+  ulong n = 0UL;
+  /* slot 100: three notar votes (the third arriving out of order), a
+     skip vote, our cast (twice) and ack.  Malformed records are
+     dropped. */
+  recs[ n++ ] = vote_rec( FD_VOTOR_GUI_REC_KIND_VOTE, FD_VOTE_KIND_NOTAR, 100UL, base+1L, 10UL );
+  recs[ n++ ] = vote_rec( FD_VOTOR_GUI_REC_KIND_VOTE, FD_VOTE_KIND_NOTAR, 100UL, base+20L, 30UL );
+  recs[ n++ ] = vote_rec( FD_VOTOR_GUI_REC_KIND_VOTE, FD_VOTE_KIND_NOTAR, 100UL, base, 30UL );
+  recs[ n++ ] = vote_rec( FD_VOTOR_GUI_REC_KIND_VOTE, FD_VOTE_KIND_SKIP,  100UL, base+10L, 20UL );
+  recs[ n++ ] = vote_rec( FD_VOTOR_GUI_REC_KIND_VOTE_CAST, FD_VOTE_KIND_NOTAR, 100UL, base+6L, 100UL );
+  recs[ n++ ] = vote_rec( FD_VOTOR_GUI_REC_KIND_VOTE_CAST, FD_VOTE_KIND_NOTAR, 100UL, base+7L, 100UL );
+  recs[ n++ ] = vote_rec( FD_VOTOR_GUI_REC_KIND_VOTE_ACK,  FD_VOTE_KIND_NOTAR, 100UL, base+8L, 100UL );
+  recs[ n++ ] = vote_rec( 3, 0, 100UL, base+1L, 0UL );
+  recs[ n++ ] = vote_rec( FD_VOTOR_GUI_REC_KIND_VOTE, 5, 100UL, base+1L, 0UL );
+  recs[ n++ ] = vote_rec( FD_VOTOR_GUI_REC_KIND_VOTE, FD_VOTE_KIND_NOTAR, 100UL, -1L, 0UL );
+  fd_gui_handle_votor_gui( gui, recs, n, now );
+  /* votor_out markers: notar cert (created then accepted), finalize
+     cert, ParentReady for 104, a malformed one. */
+  fd_gui_handle_vote_event( gui, 100UL, FD_GUI_VOTE_EVENT_CERT+FD_CERT_KIND_NOTAR, base+7L, now );
+  fd_gui_handle_vote_event( gui, 100UL, FD_GUI_VOTE_EVENT_CERT+FD_CERT_KIND_NOTAR, base+9L, now );
+  fd_gui_handle_vote_event( gui, 100UL, FD_GUI_VOTE_EVENT_CERT+FD_CERT_KIND_FINAL, base+30L, now );
+  fd_gui_handle_vote_event( gui, 104UL, FD_GUI_VOTE_EVENT_PARENT_READY, base+9L, now );
+  fd_gui_handle_vote_event( gui, 100UL, FD_GUI_VOTE_EVENT_BATCH, base+9L, now );
+  FD_TEST( gui->votes.dropped_cnt==4UL );
+  FD_TEST( count_ts( gui, FD_GUI_HIST_VOTES,       ULONG_MAX )==4UL );
+  FD_TEST( count_ts( gui, FD_GUI_HIST_VOTE_EVENTS, ULONG_MAX )==5UL ); /* cast, ack, 2 certs, parent ready */
+
+  /* Markers for a slot older than the one tracked in its entry are
+     dropped; a newer slot takes the entry over. */
+  fd_gui_handle_vote_event( gui, 100UL+FD_GUI_VOTE_SLOT_CNT, FD_GUI_VOTE_EVENT_CERT+FD_CERT_KIND_SKIP, base+40L, now );
+  fd_gui_handle_vote_event( gui, 100UL, FD_GUI_VOTE_EVENT_CERT+FD_CERT_KIND_SKIP, base+40L, now );
+  FD_TEST( gui->votes.dropped_cnt==5UL );
+  FD_TEST( count_ts( gui, FD_GUI_HIST_VOTE_EVENTS, ULONG_MAX )==6UL );
+
+  /* query_votes: votes and markers by time, stakes null for markers. */
+  void * http_mem = timeline_http_open( gui );
+  FD_TEST( !fd_gui_printf_timeline_query_votes( gui, base, base+30L, 0, 7UL ) );
+  test_json_t json = timeline_response( gui );
+  FD_TEST( test_json_ulong( timeline_value( json, "reference_slot" ) )==100UL );
+  FD_TEST( test_json_string_eq( timeline_value( json, "reference_ts" ), "259200000000000" ) );
+  test_json_t ev    = timeline_value( json, "event" );
+  test_json_t stake = timeline_value( json, "stake" );
+  ulong const expect_ev[ 8 ] = {
+    FD_GUI_VOTE_EVENT_VOTE+FD_VOTE_KIND_NOTAR, FD_GUI_VOTE_EVENT_VOTE+FD_VOTE_KIND_NOTAR,
+    FD_GUI_VOTE_EVENT_CAST+FD_VOTE_KIND_NOTAR, FD_GUI_VOTE_EVENT_CERT+FD_CERT_KIND_NOTAR,
+    FD_GUI_VOTE_EVENT_ACK +FD_VOTE_KIND_NOTAR, FD_GUI_VOTE_EVENT_PARENT_READY,
+    FD_GUI_VOTE_EVENT_VOTE+FD_VOTE_KIND_SKIP,  FD_GUI_VOTE_EVENT_VOTE+FD_VOTE_KIND_NOTAR };
+  FD_TEST( test_json_count( ev )==8 ); /* finalize cert at base+30 is outside [base, base+30) */
+  for( int i=0; i<8; i++ ) FD_TEST( test_json_ulong( test_json_index( ev, i ) )==expect_ev[ i ] );
+  FD_TEST( test_json_string_eq( test_json_index( stake, 0 ), "30" ) );
+  FD_TEST( test_json_string_eq( test_json_index( stake, 1 ), "10" ) );
+  FD_TEST( test_json_kind( test_json_index( stake, 2 ) )==FD_JTOK_NULL );
+  FD_TEST( test_json_string_eq( timeline_value( json, "total_stake" ), "10000" ) );
+  FD_TEST( test_json_kind( timeline_value( json, "next_epoch_start_slot" ) )==FD_JTOK_NULL );
+  FD_TEST( test_json_kind( timeline_value( json, "next_total_stake" ) )==FD_JTOK_NULL );
+  FD_TEST( test_json_ulong( test_json_index( timeline_value( json, "slot_delta" ), 5 ) )==4UL );
+  FD_TEST( test_json_string_eq( test_json_index( timeline_value( json, "event_ts_delta" ), 2 ), "6" ) );
+  FD_TEST( test_json_kind( timeline_value( json, "available_start_ns" ) )!=FD_JTOK_NULL );
+  FD_TEST( test_json_string_eq( timeline_value( json, "granularity" ), "vote" ) );
+
+  /* A window before anything happened, and bad arguments. */
+  FD_TEST( !fd_gui_printf_timeline_query_votes( gui, base-sec_ns( 2UL ), base-sec_ns( 1UL ), 0, 7UL ) );
+  json = timeline_response( gui );
+  FD_TEST( !test_json_count( timeline_value( json, "event" ) ) );
+  FD_TEST( test_json_kind( timeline_value( json, "reference_slot" ) )==FD_JTOK_NULL );
+  FD_TEST( test_json_kind( timeline_value( json, "total_stake" ) )==FD_JTOK_NULL );
+  FD_TEST( fd_gui_printf_timeline_query_votes( gui, base, base, 0, 7UL )==-1 );
+
+  /* A newly missed vote counts in query_agg_votes at the time it
+     becomes known. */
+  long mt = base+sec_ns( 20UL );
+  FD_TEST( fd_epoch_schedule_derive( &gui->epoch.epoch_schedule, 1024UL, 1024UL, 0 ) );
+  gui->epoch.has_epoch_schedule = 1;
+  gui->epoch.current_epoch      = 0UL;
+  put_epoch( gui, 0UL, 0UL, 1024UL );
+  fd_replay_slot_completed_t completed = { .slot=500UL+FD_NUM_SLOTS_FOR_REWARD, .bank_seq=BANK_SEQ, .parent_slot=ULONG_MAX, .parent_bank_seq=ULONG_MAX,
+    .completion_time_nanos=mt, .identity_balance=ULONG_MAX, .vote_balance=ULONG_MAX, .vote_commission=USHORT_MAX, .voted=0, .voted_rank=3 };
+  gui->summary.slot_caught_up = ULONG_MAX; /* no repair sampling (needs the topology) */
+  fd_gui_handle_replay_update( gui, &completed, mt );
+  fd_http_server_stage_trunc( gui->http, 0UL );
+  FD_TEST( !fd_gui_printf_timeline_query_agg( gui, "query_agg_votes", "250ms", 3UL, mt-sec_ns( 1UL ), 8UL, 7UL ) );
+  json = timeline_response( gui );
+  test_json_t missed = timeline_value( json, "missed_votes" );
+  FD_TEST( test_json_count( missed )==8 );
+  for( int i=0; i<8; i++ ) FD_TEST( test_json_ulong( test_json_index( missed, i ) )==(i==4 ? 1UL : 0UL) );
+
+  /* A window crossing an epoch boundary (1024-slot epochs above)
+     reports the next epoch's total stake from its start slot on; old
+     epoch votes arriving late still use total_stake. */
+  n = 0UL;
+  recs[ n++ ] = vote_rec( FD_VOTOR_GUI_REC_KIND_VOTE, FD_VOTE_KIND_NOTAR, 1023UL, mt+100L, 10UL );
+  recs[ n++ ] = vote_rec( FD_VOTOR_GUI_REC_KIND_VOTE, FD_VOTE_KIND_NOTAR, 1024UL, mt+101L, 10UL );
+  recs[ n++ ] = vote_rec( FD_VOTOR_GUI_REC_KIND_VOTE, FD_VOTE_KIND_NOTAR, 1022UL, mt+102L, 10UL );
+  recs[ 1 ].total_stake = 20000UL;
+  fd_gui_handle_votor_gui( gui, recs, n, mt );
+  FD_TEST( !fd_gui_printf_timeline_query_votes( gui, mt+100L, mt+103L, 0, 7UL ) );
+  json = timeline_response( gui );
+  FD_TEST( test_json_string_eq( timeline_value( json, "total_stake" ), "10000" ) );
+  FD_TEST( test_json_ulong( timeline_value( json, "next_epoch_start_slot" ) )==1024UL );
+  FD_TEST( test_json_string_eq( timeline_value( json, "next_total_stake" ), "20000" ) );
+  FD_TEST( !fd_gui_printf_timeline_query_votes( gui, mt+101L, mt+102L, 0, 7UL ) );
+  json = timeline_response( gui );
+  FD_TEST( test_json_string_eq( timeline_value( json, "total_stake" ), "20000" ) );
+  FD_TEST( test_json_kind( timeline_value( json, "next_total_stake" ) )==FD_JTOK_NULL );
+
+  /* Websocket dispatch */
+  char const * ok  = "{\"id\":7,\"topic\":\"timeline\",\"key\":\"query_votes\",\"params\":"
+                     "{\"start_ns\":\"0\",\"end_ns\":\"1000000000\",\"granularity\":\"vote\"}}";
+  char const * nog = "{\"id\":7,\"topic\":\"timeline\",\"key\":\"query_votes\",\"params\":"
+                     "{\"start_ns\":\"0\",\"end_ns\":\"1000000000\"}}";
+  char const * agg = "{\"id\":7,\"topic\":\"timeline\",\"key\":\"query_agg_votes\",\"params\":"
+                     "{\"start_ns\":\"0\",\"end_ns\":\"1000000000\",\"granularity\":\"1s\"}}";
+  FD_TEST( !fd_gui_ws_message( gui, 0UL, (uchar const *)ok,  strlen( ok  ) ) );
+  FD_TEST( fd_gui_ws_message( gui, 0UL, (uchar const *)nog, strlen( nog ) )==FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST );
+  FD_TEST( !fd_gui_ws_message( gui, 0UL, (uchar const *)agg, strlen( agg ) ) );
+
+  fd_http_server_delete( fd_http_server_leave( gui->http ) );
+  gui->http = NULL;
+  free( http_mem );
+  FD_LOG_NOTICE(( "test_votes: ok" ));
+}
+
+/* test_vote_latency covers the query_agg_votes latency lines: slot
+   starts anchored at the window's ParentReady plus the slot's offset
+   times the target slot duration, independent lines, Final before
+   Notar, dedup, missing anchors, null gaps, tier rollup and sum
+   saturation. */
+
+static void
+vote_latency_values( test_json_t json,
+                     char const * name,
+                     ulong        n,
+                     ulong const * expect ) { /* ULONG_MAX for null */
+  test_json_t arr = timeline_value( json, name );
+  FD_TEST( test_json_count( arr )==(int)n );
+  for( ulong i=0UL; i<n; i++ ) {
+    test_json_t v = test_json_index( arr, (int)i );
+    if( expect[ i ]==ULONG_MAX ) FD_TEST( test_json_kind( v )==FD_JTOK_NULL );
+    else                         FD_TEST( test_json_ulong( v )==expect[ i ] );
+  }
+}
+
+static void
+test_vote_latency( fd_gui_t * gui ) {
+  long base = 5L*FD_GUI_TIMELINE_DAY_NS;
+  long ms   = 1000000L;
+  long t0   = base + sec_ns( 1UL ); /* ParentReady of window 200..203 */
+  FD_TEST( fd_epoch_schedule_derive( &gui->epoch.epoch_schedule, 1024UL, 1024UL, 0 ) );
+  gui->epoch.has_epoch_schedule = 1;
+  gui->epoch.current_epoch      = 0UL;
+  put_epoch( gui, 0UL, 0UL, 1024UL );
+  fd_gui_epoch( gui, 0UL )->target_slot_duration_ns = 400L*ms;
+
+  long now = t0;
+  fd_gui_handle_vote_event( gui, 200UL, FD_GUI_VOTE_EVENT_PARENT_READY, t0, now );
+  fd_gui_handle_vote_event( gui, 204UL, FD_GUI_VOTE_EVENT_PARENT_READY, t0+2000L*ms, now );
+  /* slot 200 (starts t0): notar 300ms, fast final 350ms, slow final
+     500ms (both finalization lines are recorded). */
+  fd_gui_handle_vote_event( gui, 200UL, FD_GUI_VOTE_EVENT_CERT+FD_CERT_KIND_NOTAR,      t0+300L*ms, now );
+  fd_gui_handle_vote_event( gui, 200UL, FD_GUI_VOTE_EVENT_CERT+FD_CERT_KIND_FAST_FINAL, t0+350L*ms, now );
+  fd_gui_handle_vote_event( gui, 200UL, FD_GUI_VOTE_EVENT_CERT+FD_CERT_KIND_FINAL,      t0+500L*ms, now );
+  fd_gui_handle_vote_event( gui, 200UL, FD_GUI_VOTE_EVENT_CERT+FD_CERT_KIND_FINAL,      t0+600L*ms, now ); /* duplicate */
+  /* slot 201 (starts t0+400ms): Final before Notar, so the slow line
+     waits for the notarization at 800ms (latency 400ms). */
+  fd_gui_handle_vote_event( gui, 201UL, FD_GUI_VOTE_EVENT_CERT+FD_CERT_KIND_FINAL,      t0+700L*ms, now );
+  fd_gui_handle_vote_event( gui, 201UL, FD_GUI_VOTE_EVENT_CERT+FD_CERT_KIND_NOTAR,      t0+800L*ms, now );
+  /* slot 202 (starts t0+800ms): notar fallback 300ms, skip 400ms. */
+  fd_gui_handle_vote_event( gui, 202UL, FD_GUI_VOTE_EVENT_CERT+FD_CERT_KIND_NOTAR_FALLBACK, t0+1100L*ms, now );
+  fd_gui_handle_vote_event( gui, 202UL, FD_GUI_VOTE_EVENT_CERT+FD_CERT_KIND_SKIP,           t0+1200L*ms, now );
+  /* slot 203 (starts t0+1200ms): fast final notarizes too, 50ms. */
+  fd_gui_handle_vote_event( gui, 203UL, FD_GUI_VOTE_EVENT_CERT+FD_CERT_KIND_FAST_FINAL, t0+1250L*ms, now );
+  fd_gui_handle_vote_event( gui, 203UL, FD_GUI_VOTE_EVENT_CERT+FD_CERT_KIND_NOTAR,      t0+1260L*ms, now ); /* already notarized */
+  /* Not sampled: no ParentReady for window 300..303, and slot 207
+     (starts t0+3200ms) certified before its start. */
+  FD_TEST( gui->votes.lat_missing_cnt==0UL );
+  fd_gui_handle_vote_event( gui, 300UL, FD_GUI_VOTE_EVENT_CERT+FD_CERT_KIND_NOTAR,      t0+1300L*ms, now );
+  fd_gui_handle_vote_event( gui, 207UL, FD_GUI_VOTE_EVENT_CERT+FD_CERT_KIND_NOTAR,      t0+2500L*ms, now );
+  FD_TEST( gui->votes.lat_missing_cnt==2UL );
+
+  void * http_mem = timeline_http_open( gui );
+  /* 1s buckets from t0: [t0,t0+1s) [t0+1s,t0+2s) [t0+2s,t0+3s) */
+  FD_TEST( !fd_gui_printf_timeline_query_agg( gui, "query_agg_votes", "1s", 5UL, t0, 3UL, 7UL ) );
+  test_json_t json = timeline_response( gui );
+  ulong const U = ULONG_MAX;
+  vote_latency_values( json, "notarized_latency_ns",      3UL, (ulong[]){ 350000000UL, 50000000UL, U } );
+  vote_latency_values( json, "notarized_cnt",             3UL, (ulong[]){ 2UL, 1UL, 0UL } );
+  vote_latency_values( json, "finalized_fast_latency_ns", 3UL, (ulong[]){ 350000000UL, 50000000UL, U } );
+  vote_latency_values( json, "finalized_fast_cnt",        3UL, (ulong[]){ 1UL, 1UL, 0UL } );
+  vote_latency_values( json, "finalized_slow_latency_ns", 3UL, (ulong[]){ 450000000UL, U, U } );
+  vote_latency_values( json, "finalized_slow_cnt",        3UL, (ulong[]){ 2UL, 0UL, 0UL } );
+  vote_latency_values( json, "skipped_latency_ns",        3UL, (ulong[]){ U, 400000000UL, U } );
+  vote_latency_values( json, "skipped_cnt",               3UL, (ulong[]){ 0UL, 1UL, 0UL } );
+  vote_latency_values( json, "notar_fallback_latency_ns", 3UL, (ulong[]){ U, 300000000UL, U } );
+  vote_latency_values( json, "notar_fallback_cnt",        3UL, (ulong[]){ 0UL, 1UL, 0UL } );
+  vote_latency_values( json, "missed_votes",              3UL, (ulong[]){ 0UL, 0UL, 0UL } );
+
+  /* The 2m tier rolls the same samples up: notarized (300+400+50)/3. */
+  FD_TEST( !fd_gui_printf_timeline_query_agg( gui, "query_agg_votes", "2m", 12UL, base, 1UL, 7UL ) );
+  json = timeline_response( gui );
+  vote_latency_values( json, "notarized_latency_ns", 1UL, (ulong[]){ 250000000UL } );
+  vote_latency_values( json, "notarized_cnt",        1UL, (ulong[]){ 3UL } );
+
+  /* Buckets before the first day record are null too. */
+  FD_TEST( !fd_gui_printf_timeline_query_agg( gui, "query_agg_votes", "1s", 5UL, base-sec_ns( 2UL ), 1UL, 7UL ) );
+  json = timeline_response( gui );
+  vote_latency_values( json, "notarized_latency_ns", 1UL, (ulong[]){ U } );
+  vote_latency_values( json, "notarized_cnt",        1UL, (ulong[]){ 0UL } );
+  fd_http_server_delete( fd_http_server_leave( gui->http ) );
+  gui->http = NULL;
+  free( http_mem );
+
+  /* Sums saturate rather than wrap; unset counts read as empty. */
+  fd_gui_timeline_day_t * day = aligned_alloc( alignof(fd_gui_timeline_day_t), sizeof(fd_gui_timeline_day_t) );
+  FD_TEST( day );
+  memset( day->vote_lat, 0xFF, sizeof(day->vote_lat) );
+  ulong sum, cnt;
+  fd_gui_timeline_vote_lat_get( day, FD_GUI_VOTE_LAT_SKIP, FD_GUI_TIMELINE_GRANULARITY_250MS, 0UL, &sum, &cnt );
+  FD_TEST( !sum && !cnt );
+  memset( day->vote_lat, 0, sizeof(day->vote_lat) );
+  fd_gui_timeline_vote_lat_add( day, FD_GUI_VOTE_LAT_SKIP, 0UL, 4000000000UL );
+  fd_gui_timeline_vote_lat_add( day, FD_GUI_VOTE_LAT_SKIP, 0UL, 4000000000UL );
+  fd_gui_timeline_vote_lat_get( day, FD_GUI_VOTE_LAT_SKIP, FD_GUI_TIMELINE_GRANULARITY_250MS, 0UL, &sum, &cnt );
+  FD_TEST( sum==UINT_MAX && cnt==2UL );
+  fd_gui_timeline_vote_lat_get( day, FD_GUI_VOTE_LAT_SKIP, FD_GUI_TIMELINE_GRANULARITY_15S, 0UL, &sum, &cnt );
+  FD_TEST( sum==8000000000UL && cnt==2UL );
+  free( day );
+  FD_LOG_NOTICE(( "test_vote_latency: ok" ));
+}
+
+/* test_vote_batch covers vote batches: each (slot, kind) cumulative
+   stake curve is flushed as Douglas-Peucker breakpoints whose stakes
+   sum to the votes they replace, open slots are simplified at query
+   time, late votes are recorded alone, and query_votes "vote_batch"
+   returns batches and markers but no raw votes. */
+
+static ulong
+batch_stake_sum( fd_gui_t * gui, ulong slot, uint event, ulong * cnt ) {
+  fd_gui_hist_iter_t it[ 1 ];
+  FD_TEST( !fd_gui_hist_range_begin( gui, it, FD_GUI_HIST_VOTE_BATCH, LONG_MIN+1, LONG_MAX-1L, NULL, NULL ) );
+  ulong sum = 0UL;
+  *cnt = 0UL;
+  while( fd_gui_hist_range_next( it ) ) {
+    fd_gui_store_vote_t const * v = (fd_gui_store_vote_t const *)it->rec;
+    if( v->slot!=slot || v->event!=event ) continue;
+    sum += v->stake;
+    (*cnt)++;
+  }
+  fd_gui_hist_range_end( it );
+  return sum;
+}
+
+static void
+test_vote_batch( fd_gui_t * gui ) {
+  long  base = 5L*FD_GUI_TIMELINE_DAY_NS;
+  long  ms   = 1000L*1000L;
+  fd_votor_gui_rec_t recs[ 512 ];
+
+  /* slot 200: 400 notar votes of 10 stake, 1 ms apart: a straight line
+     collapses to its two ends.  Then 100 skip votes on a curve with a
+     knee: the knee survives. */
+  ulong n = 0UL;
+  for( ulong i=0UL; i<400UL; i++ ) recs[ n++ ] = vote_rec( FD_VOTOR_GUI_REC_KIND_VOTE, FD_VOTE_KIND_NOTAR, 200UL, base+(long)i*ms, 10UL );
+  for( ulong i=0UL; i<100UL; i++ ) recs[ n++ ] = vote_rec( FD_VOTOR_GUI_REC_KIND_VOTE, FD_VOTE_KIND_SKIP, 200UL, base+(long)i*ms, i<50UL ? 40UL : 1UL );
+  fd_gui_handle_votor_gui( gui, recs, n, base );
+  FD_TEST( count_ts( gui, FD_GUI_HIST_VOTES, 200UL )==500UL );
+  FD_TEST( gui->votes.batch[ 200UL%FD_GUI_VOTE_SLOT_CNT ].pt_cnt==500UL );
+
+  /* Open slots are visible to vote_batch queries before any flush. */
+  void * http_mem = timeline_http_open( gui );
+  FD_TEST( !fd_gui_printf_timeline_query_votes( gui, base, base+sec_ns( 1UL ), 1, 7UL ) );
+  test_json_t json = timeline_response( gui );
+  test_json_t ev    = timeline_value( json, "event" );
+  test_json_t stake = timeline_value( json, "stake" );
+  ulong notar_cnt = 0UL, notar_sum = 0UL, skip_cnt = 0UL, skip_sum = 0UL;
+  for( int i=0; i<test_json_count( ev ); i++ ) {
+    ulong e = test_json_ulong( test_json_index( ev, i ) );
+    test_json_t sj = test_json_index( stake, i );
+    FD_TEST( sj.sz>2UL && sj.ptr[ 0 ]=='"' );
+    ulong s = strtoul( sj.ptr+1, NULL, 10 );
+    if( e==FD_GUI_VOTE_EVENT_BATCH+FD_VOTE_KIND_NOTAR ) { notar_cnt++; notar_sum += s; }
+    else if( e==FD_GUI_VOTE_EVENT_BATCH+FD_VOTE_KIND_SKIP ) { skip_cnt++; skip_sum += s; }
+    else FD_TEST( 0 );
+  }
+  FD_TEST( notar_cnt==2UL && notar_sum==4000UL );
+  FD_TEST( skip_cnt>=3UL && skip_cnt<10UL && skip_sum==2050UL );
+  FD_TEST( test_json_string_eq( timeline_value( json, "total_stake" ), "10000" ) );
+  FD_TEST( test_json_string_eq( timeline_value( json, "granularity" ), "vote_batch" ) );
+  ulong c;
+  FD_TEST( !batch_stake_sum( gui, 200UL, FD_GUI_VOTE_EVENT_BATCH+FD_VOTE_KIND_NOTAR, &c ) && !c );
+
+  /* Not yet idle or old: nothing flushed. */
+  fd_gui_vote_batch_flush( gui, base+FD_GUI_VOTE_BATCH_IDLE_NS-1L, 0 );
+  FD_TEST( !count_ts( gui, FD_GUI_HIST_VOTE_BATCH, 200UL ) );
+  /* Idle: flushed, with the same rows the open query produced. */
+  fd_gui_vote_batch_flush( gui, base+FD_GUI_VOTE_BATCH_IDLE_NS, 0 );
+  FD_TEST( batch_stake_sum( gui, 200UL, FD_GUI_VOTE_EVENT_BATCH+FD_VOTE_KIND_NOTAR, &c )==4000UL && c==2UL );
+  FD_TEST( batch_stake_sum( gui, 200UL, FD_GUI_VOTE_EVENT_BATCH+FD_VOTE_KIND_SKIP,  &c )==2050UL && c==skip_cnt );
+  FD_TEST( !gui->votes.batch[ 200UL%FD_GUI_VOTE_SLOT_CNT ].pt_cnt );
+
+  /* A slot that keeps getting votes flushes once its oldest buffered
+     vote is FD_GUI_VOTE_BATCH_AGE_NS old. */
+  long t = base+sec_ns( 10UL );
+  for( long k=0L; k*sec_ns( 1UL )<=FD_GUI_VOTE_BATCH_AGE_NS; k++ ) {
+    fd_votor_gui_rec_t r = vote_rec( FD_VOTOR_GUI_REC_KIND_VOTE, FD_VOTE_KIND_FINAL, 201UL, t+k*sec_ns( 1UL ), 1UL );
+    fd_gui_handle_votor_gui( gui, &r, 1UL, t+k*sec_ns( 1UL ) );
+    fd_gui_vote_batch_flush( gui, t+k*sec_ns( 1UL ), 0 );
+  }
+  FD_TEST( batch_stake_sum( gui, 201UL, FD_GUI_VOTE_EVENT_BATCH+FD_VOTE_KIND_FINAL, &c )==21UL );
+
+  /* A newer slot taking the entry over flushes the old one; a vote for
+     the older slot after that is recorded alone. */
+  long t2 = base+sec_ns( 40UL );
+  fd_votor_gui_rec_t r = vote_rec( FD_VOTOR_GUI_REC_KIND_VOTE, FD_VOTE_KIND_NOTAR, 202UL, t2, 5UL );
+  fd_gui_handle_votor_gui( gui, &r, 1UL, t2 );
+  r = vote_rec( FD_VOTOR_GUI_REC_KIND_VOTE, FD_VOTE_KIND_NOTAR, 202UL+FD_GUI_VOTE_SLOT_CNT, t2+1L, 5UL );
+  fd_gui_handle_votor_gui( gui, &r, 1UL, t2+1L );
+  FD_TEST( batch_stake_sum( gui, 202UL, FD_GUI_VOTE_EVENT_BATCH+FD_VOTE_KIND_NOTAR, &c )==5UL && c==1UL );
+  ulong late = gui->votes.batch_late_cnt;
+  r = vote_rec( FD_VOTOR_GUI_REC_KIND_VOTE, FD_VOTE_KIND_SKIP_FALLBACK, 202UL, t2+2L, 7UL );
+  fd_gui_handle_votor_gui( gui, &r, 1UL, t2+2L );
+  FD_TEST( gui->votes.batch_late_cnt==late+1UL );
+  FD_TEST( batch_stake_sum( gui, 202UL, FD_GUI_VOTE_EVENT_BATCH+FD_VOTE_KIND_SKIP_FALLBACK, &c )==7UL && c==1UL );
+
+  /* A full buffer flushes. */
+  long t3 = base+sec_ns( 60UL );
+  for( ulong done=0UL; done<FD_GUI_VOTE_BATCH_PTS_MAX+1UL; done+=n ) {
+    n = fd_ulong_min( 512UL, FD_GUI_VOTE_BATCH_PTS_MAX+1UL-done );
+    for( ulong i=0UL; i<n; i++ ) recs[ i ] = vote_rec( FD_VOTOR_GUI_REC_KIND_VOTE, FD_VOTE_KIND_NOTAR, 300UL, t3+(long)(done+i), 1UL );
+    fd_gui_handle_votor_gui( gui, recs, n, t3 );
+  }
+  FD_TEST( batch_stake_sum( gui, 300UL, FD_GUI_VOTE_EVENT_BATCH+FD_VOTE_KIND_NOTAR, &c )==FD_GUI_VOTE_BATCH_PTS_MAX );
+  FD_TEST( gui->votes.batch[ 300UL%FD_GUI_VOTE_SLOT_CNT ].pt_cnt==1UL );
+  fd_gui_vote_batch_flush( gui, t3, 1 );
+  FD_TEST( batch_stake_sum( gui, 300UL, FD_GUI_VOTE_EVENT_BATCH+FD_VOTE_KIND_NOTAR, &c )==FD_GUI_VOTE_BATCH_PTS_MAX+1UL );
+
+  /* vote_batch queries return batches and markers, never raw votes;
+     vote queries the reverse. */
+  fd_gui_handle_vote_event( gui, 200UL, FD_GUI_VOTE_EVENT_CERT+FD_CERT_KIND_NOTAR, base+5L*ms, base+sec_ns( 6UL ) );
+  fd_http_server_stage_trunc( gui->http, 0UL );
+  FD_TEST( !fd_gui_printf_timeline_query_votes( gui, base, base+sec_ns( 1UL ), 1, 7UL ) );
+  json = timeline_response( gui );
+  ev    = timeline_value( json, "event" );
+  stake = timeline_value( json, "stake" );
+  int saw_marker = 0;
+  for( int i=0; i<test_json_count( ev ); i++ ) {
+    ulong e = test_json_ulong( test_json_index( ev, i ) );
+    FD_TEST( e>=FD_GUI_VOTE_EVENT_CERT );
+    if( e<FD_GUI_VOTE_EVENT_BATCH ) { saw_marker = 1; FD_TEST( test_json_kind( test_json_index( stake, i ) )==FD_JTOK_NULL ); }
+  }
+  FD_TEST( saw_marker );
+  fd_http_server_stage_trunc( gui->http, 0UL );
+  FD_TEST( !fd_gui_printf_timeline_query_votes( gui, base, base+sec_ns( 1UL ), 0, 7UL ) );
+  json = timeline_response( gui );
+  ev = timeline_value( json, "event" );
+  FD_TEST( test_json_count( ev )==501 );
+  for( int i=0; i<test_json_count( ev ); i++ ) FD_TEST( test_json_ulong( test_json_index( ev, i ) )<FD_GUI_VOTE_EVENT_BATCH );
+
+  /* Websocket dispatch */
+  char const * batch = "{\"id\":7,\"topic\":\"timeline\",\"key\":\"query_votes\",\"params\":"
+                       "{\"start_ns\":\"0\",\"end_ns\":\"1000000000\",\"granularity\":\"vote_batch\"}}";
+  char const * vote  = "{\"id\":7,\"topic\":\"timeline\",\"key\":\"query_votes\",\"params\":"
+                       "{\"start_ns\":\"0\",\"end_ns\":\"1000000000\",\"granularity\":\"vote\"}}";
+  char const * bad   = "{\"id\":7,\"topic\":\"timeline\",\"key\":\"query_votes\",\"params\":"
+                       "{\"start_ns\":\"0\",\"end_ns\":\"1000000000\",\"granularity\":\"1s\"}}";
+  FD_TEST( !fd_gui_ws_message( gui, 0UL, (uchar const *)batch, strlen( batch ) ) );
+  FD_TEST( !fd_gui_ws_message( gui, 0UL, (uchar const *)vote,  strlen( vote  ) ) );
+  FD_TEST( fd_gui_ws_message( gui, 0UL, (uchar const *)bad, strlen( bad ) )==FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST );
+
+  fd_http_server_delete( fd_http_server_leave( gui->http ) );
+  gui->http = NULL;
+  free( http_mem );
+  FD_LOG_NOTICE(( "test_vote_batch: ok" ));
+}
+
+/* test_votes_raw_grow covers the raw vote ring growing past its base
+   regions into shared space rather than being capped. */
+
+static void
+test_votes_raw_grow( fd_gui_t * gui ) {
+  ulong per_region = FD_GUI_STORE_REGION_SZ/sizeof(fd_gui_store_vote_t);
+  long  base       = 4L*FD_GUI_TIMELINE_DAY_NS; /* after test_votes */
+  fd_votor_gui_rec_t recs[ FD_VOTOR_GUI_REC_MAX ];
+  for( ulong i=0UL; i<FD_VOTOR_GUI_REC_MAX; i++ ) recs[ i ] = vote_rec( FD_VOTOR_GUI_REC_KIND_VOTE, FD_VOTE_KIND_NOTAR, 7UL, base, 1UL );
+  ulong total = 0UL;
+  for( ulong done=0UL; done<3UL*per_region; done+=FD_VOTOR_GUI_REC_MAX ) {
+    fd_gui_handle_votor_gui( gui, recs, FD_VOTOR_GUI_REC_MAX, base+(long)done );
+    total += FD_VOTOR_GUI_REC_MAX;
+  }
+  ulong used_bytes, cap_bytes, free_bytes, used_slots, cap_slots, free_slots;
+  fd_gui_store_ring_stats( gui->db, FD_GUI_HIST_VOTES, &used_bytes, &cap_bytes, &free_bytes, &used_slots, &cap_slots, &free_slots );
+  FD_TEST( cap_bytes>=3UL*FD_GUI_STORE_REGION_SZ );
+  FD_TEST( used_slots>=total ); /* nothing evicted: the store has room */
+  FD_LOG_NOTICE(( "test_votes_raw_grow: ok" ));
 }
 
 int
@@ -4415,6 +4833,22 @@ main( int     argc,
   store_open( s21, TEST_STORE_BYTES, 26 );
   test_timeline_marker_order( s21->gui );
   store_close( s21 );
+
+  test_store_t sv[ 1 ];
+  store_open( sv, TEST_STORE_BYTES, 40 );
+  test_votes( sv->gui );
+  test_votes_raw_grow( sv->gui );
+  store_close( sv );
+
+  test_store_t sl[ 1 ];
+  store_open( sl, TEST_STORE_BYTES, 41 );
+  test_vote_latency( sl->gui );
+  store_close( sl );
+
+  test_store_t sb[ 1 ];
+  store_open( sb, TEST_STORE_BYTES, 42 );
+  test_vote_batch( sb->gui );
+  store_close( sb );
 
   if( !run_all ) FD_LOG_NOTICE(( "skipped 8 expensive tests; pass --run-all to run them" ));
   FD_LOG_NOTICE(( "pass" ));
