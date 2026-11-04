@@ -519,7 +519,7 @@ strmk_runtime_keys( fd_strmk_t *     ctx,
   fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
   ushort             fork_id     = bank->vote_stakes_fork_id;
   uchar __attribute__((aligned(FD_VOTE_STAKES_ITER_ALIGN))) iter_mem[ FD_VOTE_STAKES_ITER_FOOTPRINT ];
-  for( int kind=FD_VOTE_STAKES_ITER_T_1; kind<=FD_VOTE_STAKES_ITER_T_2; kind++ ) {
+  for( int kind=FD_VOTE_STAKES_ITER_T_1; kind<=FD_VOTE_STAKES_ITER_T_3; kind++ ) {
     for( fd_vote_stakes_iter_t * iter = fd_vote_stakes_iter_init( vote_stakes, fork_id, kind, iter_mem );
          !fd_vote_stakes_iter_done( vote_stakes, fork_id, kind, iter );
          fd_vote_stakes_iter_next( vote_stakes, fork_id, kind, iter ) ) {
