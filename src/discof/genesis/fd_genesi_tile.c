@@ -124,8 +124,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
 FD_FN_CONST static inline ulong
 loose_footprint( fd_topo_tile_t const * tile ) {
   (void)tile;
-  /* Leftover space for bzip2 allocations (decompress needs <4 MiB) */
-  return 1UL<<24; /* 16 MiB */
+  return FD_GENESI_BZ2_LOOSE_SZ;
 }
 
 static inline int

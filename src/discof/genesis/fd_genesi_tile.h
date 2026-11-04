@@ -13,6 +13,9 @@
    fit in a uint (in bytes). */
 #define FD_GENESIS_MAX_FILE_SIZE_MIB (4055UL)
 
+/* bzip2 decompress heap (small=0): DState + tt, blockSize100k<=9 */
+#define FD_GENESI_BZ2_LOOSE_SZ (6UL<<20)
+
 struct fd_genesis_meta {
   ulong bootstrap  : 1;
   ulong has_lthash : 1;
