@@ -2268,10 +2268,6 @@ fd_pack_microblock_complete( fd_pack_t * pack,
 
   fd_pack_addr_use_t * base = pack->use_by_bank[bank_tile];
 
-  fd_pack_ord_txn_t       * best         = NULL;
-  fd_pack_penalty_treap_t * best_penalty = NULL;
-  ulong                     txn_cnt      = 0UL;
-
   for( ulong i=0UL; i<pack->use_by_bank_cnt[bank_tile]; i++ ) {
     fd_pack_addr_use_t * use = acct_uses_query( pack->acct_in_use, base[i].key, NULL );
     FD_TEST( use );
@@ -2312,44 +2308,30 @@ fd_pack_microblock_complete( fd_pack_t * pack,
       FD_PACK_BITSET_CLEARN( bitset_w_in_use,  q->bit );
       FD_PACK_BITSET_CLEARN( bitset_rw_in_use, q->bit );
 
-      /* Because this account is no longer in use, it might be possible
-         to schedule a transaction that writes to it.  Check its
-         penalty treap if it has one, and potentially move it to the
-         main treap. */
+      /* Each account whose last execution use ends needs its own wakeup.
+         Selecting one best writer across the transaction can strand another
+         account's queue after all outstanding uses have completed.  The bank
+         list has unique keys, so this promotes at most once per account. */
       fd_pack_penalty_treap_t * p_trp = penalty_map_query( pack->penalty_treaps, base[i].key, NULL );
       if( FD_UNLIKELY( p_trp ) ) {
-        fd_pack_ord_txn_t * best_in_trp = treap_rev_iter_ele( treap_rev_iter_init( p_trp->penalty_treap, pack->pool ), pack->pool );
-        if( FD_UNLIKELY( !best || COMPARE_WORSE( best, best_in_trp ) ) ) {
-          best         = best_in_trp;
-          best_penalty = p_trp;
+        fd_pack_ord_txn_t * best = treap_rev_iter_ele( treap_rev_iter_init( p_trp->penalty_treap, pack->pool ), pack->pool );
+        treap_ele_remove( p_trp->penalty_treap, best, pack->pool );
+        best->root = FD_ORD_TXN_ROOT_PENDING;
+        treap_ele_insert( pack->pending, best, pack->pool );
+
+        pack->pending_smallest->cus   = fd_ulong_min( pack->pending_smallest->cus,   best->compute_est );
+        pack->pending_smallest->bytes = fd_ulong_min( pack->pending_smallest->bytes, best->txn_e->txnp->payload_sz );
+
+        if( FD_UNLIKELY( !treap_ele_cnt( p_trp->penalty_treap ) ) ) {
+          treap_delete( treap_leave( p_trp->penalty_treap ) );
+          /* Removal can relocate other entries. Query afresh next account;
+             retain no map or embedded-treap pointer across the removal. */
+          penalty_map_remove( pack->penalty_treaps, p_trp );
         }
       }
     }
 
     if( FD_LIKELY( !(use->in_use_by & ~FD_PACK_IN_USE_BIT_CLEARED) ) ) acct_uses_remove( pack->acct_in_use, use );
-
-    if( FD_UNLIKELY( i+1UL==pack->use_by_bank_txn[ bank_tile ][ txn_cnt ] ) ) {
-      txn_cnt++;
-      if( FD_LIKELY( best ) ) {
-        /* move best to the main treap */
-        treap_ele_remove( best_penalty->penalty_treap, best, pack->pool );
-        best->root = FD_ORD_TXN_ROOT_PENDING;
-        treap_ele_insert( pack->pending,               best, pack->pool );
-
-        pack->pending_smallest->cus   = fd_ulong_min( pack->pending_smallest->cus,   best->compute_est             );
-        pack->pending_smallest->bytes = fd_ulong_min( pack->pending_smallest->bytes, best->txn_e->txnp->payload_sz );
-
-        if( FD_UNLIKELY( !treap_ele_cnt( best_penalty->penalty_treap ) ) ) {
-          treap_delete( treap_leave( best_penalty->penalty_treap ) );
-          /* Removal invalidates any pointers we got from
-             penalty_map_query, but we immediately set these to NULL, so
-             we're not keeping any pointers around. */
-          penalty_map_remove( pack->penalty_treaps, best_penalty );
-        }
-        best         = NULL;
-        best_penalty = NULL;
-      }
-    }
   }
 
   pack->use_by_bank_cnt[bank_tile] = 0UL;
