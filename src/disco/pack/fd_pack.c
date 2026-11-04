@@ -2862,6 +2862,38 @@ fd_pack_end_block( fd_pack_t * pack ) {
 
   pack->initializer_bundle_state = FD_PACK_IB_STATE_NOT_INITIALIZED;
 
+  /* end_block discards outstanding account uses, so their later
+     microblock_complete calls cannot promote penalized writers.  Make
+     one writer per released hot account eligible now, just as a normal
+     lock release would.  Only visit accounts in outstanding microblocks;
+     do not flush pending transactions or drain every penalty treap.
+
+     The bank lists can overlap.  Removing each visited account from
+     acct_in_use ensures a single promotion per account, even when many
+     banks were reading it.  This only resets pack's lock bookkeeping:
+     callers must still drain execution as required before reusing banks. */
+  for( ulong bank=0UL; bank<pack->bank_tile_cnt; bank++ ) {
+    for( ulong i=0UL; i<pack->use_by_bank_cnt[ bank ]; i++ ) {
+      fd_acct_addr_t key = pack->use_by_bank[ bank ][ i ].key;
+      fd_pack_addr_use_t * use = acct_uses_query( pack->acct_in_use, key, NULL );
+      if( FD_UNLIKELY( !use ) ) continue;
+      acct_uses_remove( pack->acct_in_use, use );
+
+      fd_pack_penalty_treap_t * p_trp = penalty_map_query( pack->penalty_treaps, key, NULL );
+      if( FD_LIKELY( !p_trp ) ) continue;
+      fd_pack_ord_txn_t * best = treap_rev_iter_ele( treap_rev_iter_init( p_trp->penalty_treap, pack->pool ), pack->pool );
+      treap_ele_remove( p_trp->penalty_treap, best, pack->pool );
+      best->root = FD_ORD_TXN_ROOT_PENDING;
+      treap_ele_insert( pack->pending, best, pack->pool );
+      pack->pending_smallest->cus   = fd_ulong_min( pack->pending_smallest->cus,   best->compute_est );
+      pack->pending_smallest->bytes = fd_ulong_min( pack->pending_smallest->bytes, best->txn_e->txnp->payload_sz );
+      if( FD_UNLIKELY( !treap_ele_cnt( p_trp->penalty_treap ) ) ) {
+        treap_delete( treap_leave( p_trp->penalty_treap ) );
+        penalty_map_remove( pack->penalty_treaps, p_trp );
+      }
+    }
+  }
+
   acct_uses_clear( pack->acct_in_use  );
   memset( pack->top_writers, 0, sizeof(pack->top_writers) );
 

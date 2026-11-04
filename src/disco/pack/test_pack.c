@@ -1051,6 +1051,168 @@ void heap_overflow_test( void ) {
 }
 
 static void
+check_penalty_pending( fd_pack_t * pack,
+                       ulong       regular,
+                       ulong       conflicting ) {
+  FD_TEST( !fd_pack_verify( pack, pack_verify_scratch ) );
+  fd_pack_metrics_write( pack );
+  FD_TEST( FD_MGAUGE_GET( PACK, TXN_PENDING_USED_REGULAR     )==regular     );
+  FD_TEST( FD_MGAUGE_GET( PACK, TXN_PENDING_USED_CONFLICTING )==conflicting );
+  FD_TEST( fd_pack_avail_txn_cnt( pack )==regular+conflicting );
+}
+
+static void
+test_penalty_end_block( void ) {
+  FD_LOG_NOTICE(( "TEST PENALTY END BLOCK" ));
+
+  /* 65 pending readers put a later writer into the penalty treap.
+     Four txns/microblock and 20 banks match the production geometry.
+     Cover overlapping bank uses, independent hot accounts, multiple
+     writers, repeated resets, late completions and flush/expiry/delete. */
+  for( ulong scenario=0UL; scenario<7UL; scenario++ ) {
+    FD_LOG_NOTICE(( "penalty end block scenario %lu", scenario ));
+    fd_pack_t * pack = init_all( 256UL, 20UL, 4UL, &outcome );
+    int two_writers = (scenario==2UL || scenario==3UL || scenario==5UL || scenario==6UL);
+    for( ulong i=0UL; i<65UL; i++ ) {
+      make_transaction( i, 1000U, 1024U, 1.0, "", scenario==2UL ? "XY" : "X", NULL, NULL );
+      FD_TEST( insert( i, pack )>=0 );
+    }
+    make_transaction( 65UL, 1000U, 1024U, 12.0, "X", "", NULL, NULL );
+    FD_TEST( insert( 65UL, pack )>=0 );
+    if( two_writers ) {
+      make_transaction( 66UL, 1000U, 1024U, 10.0, scenario==2UL ? "Y" : "X", "", NULL, NULL );
+      FD_TEST( insert( 66UL, pack )>=0 );
+    }
+    check_penalty_pending( pack, 65UL, 1UL+(ulong)two_writers );
+
+    /* No account released yet: resetting must leave both trees intact. */
+    fd_pack_end_block( pack );
+    check_penalty_pending( pack, 65UL, 1UL+(ulong)two_writers );
+
+    for( ulong bank=0UL; bank<17UL; bank++ ) {
+      ulong n = fd_pack_schedule_next_microblock( pack, 1000000UL, bank, FD_PACK_SCHEDULE_TXN, outcome.results );
+      FD_TEST( n==(bank==16UL ? 1UL : 4UL) );
+      for( ulong j=0UL; j<n; j++ ) FD_TEST( fd_ulong_load_8( outcome.results[j].txnp->payload+1UL )<65UL );
+    }
+    FD_TEST( fd_pack_avail_txn_cnt( pack )==1UL+(ulong)two_writers );
+    check_penalty_pending( pack, 0UL, 1UL+(ulong)two_writers );
+
+    if( scenario==1UL ) {
+      for( ulong bank=0UL; bank<16UL; bank++ ) FD_TEST( fd_pack_microblock_complete( pack, bank )==1 );
+      check_penalty_pending( pack, 0UL, 1UL );
+    }
+    if( scenario==6UL ) {
+      /* Ordinary completion still promotes exactly one writer, only
+         when the last overlapping reader releases the account. */
+      for( ulong bank=0UL; bank<17UL; bank++ ) {
+        FD_TEST( fd_pack_microblock_complete( pack, bank )==1 );
+        check_penalty_pending( pack, bank==16UL ? 1UL : 0UL, bank==16UL ? 1UL : 2UL );
+      }
+    }
+    if( scenario==4UL ) {
+      fd_pack_clear_all( pack );
+      FD_TEST( !fd_pack_avail_txn_cnt( pack ) );
+      FD_TEST( !fd_pack_verify( pack, pack_verify_scratch ) );
+    }
+    fd_pack_end_block( pack );
+    ulong promoted = scenario==4UL ? 0UL : (scenario==2UL ? 2UL : 1UL);
+    ulong remaining = scenario==4UL ? 0UL : 1UL+(ulong)two_writers-promoted;
+    check_penalty_pending( pack, promoted, remaining );
+    fd_pack_end_block( pack ); /* No new releases: must not promote twice. */
+    check_penalty_pending( pack, promoted, remaining );
+    FD_TEST( fd_pack_avail_txn_cnt( pack )==(scenario==4UL ? 0UL : 1UL+(ulong)two_writers) );
+    for( ulong bank=0UL; bank<20UL; bank++ ) FD_TEST( !fd_pack_microblock_complete( pack, bank ) );
+    check_penalty_pending( pack, promoted, remaining );
+
+    if( scenario==4UL ) {
+      FD_TEST( !fd_pack_schedule_next_microblock( pack, 1000000UL, 0UL, FD_PACK_SCHEDULE_TXN, outcome.results ) );
+      make_transaction( 100UL, 1000U, 1024U, 1.0, "Z", "", NULL, NULL );
+      FD_TEST( insert( 100UL, pack )>=0 );
+      FD_TEST( fd_pack_schedule_next_microblock( pack, 1000000UL, 0UL, FD_PACK_SCHEDULE_TXN, outcome.results )==1UL );
+      FD_TEST( fd_pack_microblock_complete( pack, 0UL )==1 );
+    } else if( scenario==5UL ) {
+      FD_TEST( fd_pack_expire_before( pack, 66UL )==1UL );
+      FD_TEST( fd_pack_avail_txn_cnt( pack )==1UL );
+      FD_TEST( fd_pack_delete_transaction( pack, (fd_ed25519_sig_t const *)(txnp_scratch[66].payload+1UL) )==1UL );
+    } else {
+      ulong n = fd_pack_schedule_next_microblock( pack, 1000000UL, 0UL, FD_PACK_SCHEDULE_TXN, outcome.results );
+      FD_TEST( n==(scenario==2UL ? 2UL : 1UL) );
+      FD_TEST( fd_ulong_load_8( outcome.results[0].txnp->payload+1UL )==65UL );
+      if( scenario==2UL ) FD_TEST( fd_ulong_load_8( outcome.results[1].txnp->payload+1UL )==66UL );
+      if( scenario==3UL || scenario==6UL ) {
+        check_penalty_pending( pack, 0UL, 1UL );
+        FD_TEST( !fd_pack_schedule_next_microblock( pack, 1000000UL, 1UL, FD_PACK_SCHEDULE_TXN, outcome.results ) );
+      }
+      FD_TEST( fd_pack_microblock_complete( pack, 0UL )==1 );
+      if( scenario==3UL || scenario==6UL ) {
+        check_penalty_pending( pack, 1UL, 0UL );
+        FD_TEST( fd_pack_schedule_next_microblock( pack, 1000000UL, 0UL, FD_PACK_SCHEDULE_TXN, outcome.results )==1UL );
+        FD_TEST( fd_ulong_load_8( outcome.results[0].txnp->payload+1UL )==66UL );
+        FD_TEST( fd_pack_microblock_complete( pack, 0UL )==1 );
+      }
+    }
+    FD_TEST( !fd_pack_avail_txn_cnt( pack ) );
+    FD_TEST( !fd_pack_verify( pack, pack_verify_scratch ) );
+    fd_pack_clear_all( pack );
+    FD_TEST( !fd_pack_verify( pack, pack_verify_scratch ) );
+    fd_pack_delete( fd_pack_leave( pack ) );
+  }
+}
+
+static void
+test_penalty_end_block_bit_cleared( void ) {
+  FD_LOG_NOTICE(( "TEST PENALTY END BLOCK BIT_CLEARED" ));
+  fd_pack_t * pack = init_all( 256UL, 20UL, 4UL, &outcome );
+
+  for( ulong i=0UL; i<65UL; i++ ) {
+    make_transaction( i, 1000U, 1024U, 1.0, "", "X", NULL, NULL );
+    FD_TEST( insert( i, pack )>=0 );
+  }
+  for( ulong bank=0UL; bank<17UL; bank++ ) {
+    FD_TEST( fd_pack_schedule_next_microblock( pack, 1000000UL, bank, FD_PACK_SCHEDULE_TXN, outcome.results )==
+             (bank==16UL ? 1UL : 4UL) );
+  }
+  check_penalty_pending( pack, 0UL, 0UL );
+
+  /* Scheduling the last pending X reference releases its bit and sets
+     BIT_CLEARED on the overlapping uses.  Insertion recreates X's bit
+     mapping without clearing that flag on the outstanding readers. */
+  for( ulong i=100UL; i<165UL; i++ ) {
+    make_transaction( i, 1000U, 1024U, 1.0, "", "X", NULL, NULL );
+    FD_TEST( insert( i, pack )>=0 );
+  }
+  for( ulong i=65UL; i<67UL; i++ ) {
+    make_transaction( i, 1000U, 1024U, i==65UL ? 12.0 : 10.0, "X", "", NULL, NULL );
+    FD_TEST( insert( i, pack )>=0 );
+  }
+  check_penalty_pending( pack, 65UL, 2UL );
+  fd_pack_end_block( pack );
+  check_penalty_pending( pack, 66UL, 1UL );
+  fd_pack_end_block( pack );
+  check_penalty_pending( pack, 66UL, 1UL );
+  for( ulong bank=0UL; bank<20UL; bank++ ) FD_TEST( !fd_pack_microblock_complete( pack, bank ) );
+  check_penalty_pending( pack, 66UL, 1UL );
+
+  for( ulong i=65UL; i<67UL; i++ ) {
+    FD_TEST( fd_pack_schedule_next_microblock( pack, 1000000UL, 0UL, FD_PACK_SCHEDULE_TXN, outcome.results )==1UL );
+    FD_TEST( fd_ulong_load_8( outcome.results[0].txnp->payload+1UL )==i );
+    check_penalty_pending( pack, 65UL, (ulong)(i==65UL) );
+    FD_TEST( fd_pack_microblock_complete( pack, 0UL )==1 );
+    check_penalty_pending( pack, i==65UL ? 66UL : 65UL, 0UL );
+  }
+  for( ulong left=65UL; left; ) {
+    ulong n = fd_pack_schedule_next_microblock( pack, 1000000UL, 0UL, FD_PACK_SCHEDULE_TXN, outcome.results );
+    FD_TEST( n==fd_ulong_min( left, 4UL ) );
+    left -= n;
+    FD_TEST( fd_pack_microblock_complete( pack, 0UL )==1 );
+    check_penalty_pending( pack, left, 0UL );
+  }
+  fd_pack_clear_all( pack );
+  check_penalty_pending( pack, 0UL, 0UL );
+  fd_pack_delete( fd_pack_leave( pack ) );
+}
+
+static void
 test_gap( void ) {
   FD_LOG_NOTICE(( "TEST GAP" ));
 
@@ -1761,6 +1923,8 @@ main( int     argc,
   heap_overflow_test();
   test_delete();
   test_expiration();
+  test_penalty_end_block();
+  test_penalty_end_block_bit_cleared();
   test_gap();
   test_limits();
   test_reject_writes_to_sysvars();
