@@ -1360,9 +1360,20 @@ fd_executor_setup_metadata_load_failure( fd_runtime_t *      runtime,
      Narrow eligibility also keeps nonce/ALT/bundle and diagnostic consumers
      on the established fully acquired path. */
   if( txn->acct_addr_cnt<8UL || txn->acct_addr_cnt>MAX_TX_ACCOUNT_LOCKS ||
-      txn->transaction_version!=FD_TXN_VLEGACY || txn_in->bundle.is_bundle ||
+      ( txn->transaction_version!=FD_TXN_VLEGACY &&
+        ( txn->transaction_version!=FD_TXN_V0 || txn->addr_table_lookup_cnt || txn->addr_table_adtl_cnt ) ) ||
+      txn_in->bundle.is_bundle ||
       runtime->log.capture_ctx || runtime->log.dump_proto_ctx || runtime->log.txn_dump_ctx ||
       fd_bank_report_runtime_diffs( bank ) ) return 0;
+
+  if( txn->transaction_version==FD_TXN_V0 ) {
+    /* Even a v0 message without lookups checks SlotHashes before account locks,
+       age/status and fees.  Preserve that setup failure instead of replacing it
+       with the guaranteed loaded-limit failure. */
+    fd_slot_hashes_t slot_hashes[1];
+    if( FD_UNLIKELY( !fd_sysvar_cache_slot_hashes_view( runtime->sysvar_cache, slot_hashes ) ) ) return 0;
+    FD_TEST( bank->parent_accdb_fork_id.val!=USHORT_MAX );
+  }
 
   fd_hash_t const * hash = (fd_hash_t const *)(txn_in->txn->payload+txn->recent_blockhash_off);
   if( !fd_blockhashes_check_age( &bank->f.block_hash_queue, hash, FD_SYSVAR_RECENT_HASHES_CAP ) ) return 0;
