@@ -1386,14 +1386,53 @@ fd_executor_setup_metadata_load_failure( fd_runtime_t *      runtime,
 
   /* Scheduler account locks and frozen ancestors protect these logical
      versions; data_len performs its own epoch-protected metadata lookup.
-     Omit base charges, the payer and implicit PD: every omitted contribution
+     Omit base charges and the payer: every omitted contribution
      is nonnegative.  Without Instructions synthesis the account-loading
      pass can only fail with the loaded-limit error before program checks.
      Owner/Program state and payloads are unnecessary for this lower bound. */
   ulong lower = 0UL;
+  ulong lens[ MAX_TX_ACCOUNT_LOCKS ];
   for( ulong i=1UL; i<key_cnt; i++ ) {
-    lower = fd_ulong_sat_add( lower, fd_accdb_data_len( runtime->accdb, bank->accdb_fork_id, keys[i].uc ) );
+    lens[i] = fd_accdb_data_len( runtime->accdb, bank->accdb_fork_id, keys[i].uc );
+    lower = fd_ulong_sat_add( lower, lens[i] );
     if( lower>txn_out->details.compute_budget.loaded_accounts_data_size_limit ) break;
+  }
+
+  /* A small Loader-v3 Program can add a large implicit ProgramData account,
+     including when no instruction uses the Program.  Inspect only the
+     ordinary 36-byte state here; omit larger or malformed Program states
+     from this bounded lower bound.  Release each read before acquiring the
+     next account, so no locks or cache reservations carry into the payer acquire below.
+
+     Match fd_collect_loaded_account: ownership and Program state matter,
+     not the executable bit, and an explicit PD key or another Program alias
+     must not contribute twice.  data_len supplies the current-fork live
+     length, including same-slot deployments, extensions and tombstones;
+     the parent executable payload can lag that length.  Omit the PD base
+     charge as well, keeping this a lower bound without reading PD payloads. */
+  if( lower<=txn_out->details.compute_budget.loaded_accounts_data_size_limit ) {
+    fd_pubkey_t pd_keys[ MAX_TX_ACCOUNT_LOCKS ];
+    ulong pd_cnt = 0UL;
+    for( ulong i=1UL; i<key_cnt; i++ ) {
+      if( lens[i]!=SIZE_OF_PROGRAM ) continue;
+      fd_acc_t acc = fd_accdb_read_one( runtime->accdb, bank->accdb_fork_id, keys[i].uc );
+      fd_bpf_state_t state[1];
+      int program = acc.lamports && acc.data_len==SIZE_OF_PROGRAM &&
+                    !memcmp( acc.owner, fd_solana_bpf_loader_upgradeable_program_id.uc, 32UL ) &&
+                    !fd_bpf_loader_program_get_state( &acc, state ) && state->discriminant==FD_BPF_STATE_PROGRAM;
+      fd_pubkey_t pd;
+      if( program ) pd = state->inner.program.programdata_address;
+      fd_accdb_unread_one( runtime->accdb, &acc );
+      if( !program ) continue;
+
+      int duplicate = 0;
+      for( ulong j=0UL; j<key_cnt; j++ ) duplicate |= !memcmp( pd.uc, keys[j].uc, 32UL );
+      for( ulong j=0UL; j<pd_cnt; j++ ) duplicate |= !memcmp( pd.uc, pd_keys[j].uc, 32UL );
+      if( duplicate ) continue;
+      pd_keys[pd_cnt++] = pd;
+      lower = fd_ulong_sat_add( lower, fd_accdb_data_len( runtime->accdb, bank->accdb_fork_id, pd.uc ) );
+      if( lower>txn_out->details.compute_budget.loaded_accounts_data_size_limit ) break;
+    }
   }
   if( lower<=txn_out->details.compute_budget.loaded_accounts_data_size_limit ) return 0;
 
