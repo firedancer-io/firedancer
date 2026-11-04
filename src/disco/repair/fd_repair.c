@@ -61,7 +61,7 @@ blk_insert( fd_repair_t *     self,
   blk->rcvd_fec_ts   = 0L;
   for( ulong k=0UL; k<self->fec_blk_max; k++ ) blk->fecs[ k ] = fd_repair_fec_pool_idx_null( self->fec_pool );
   fd_repair_blk_map_ele_insert( self->blk_map, blk, self->blk_pool );
-  if     ( !memcmp( dmr, &hash_null, sizeof(fd_mr32_t) )    ) meta->eager = fd_repair_blk_pool_idx( self->blk_pool, blk );
+  if     ( !memcmp( dmr, &hash_null, sizeof(fd_mr32_t) ) )               meta->eager = fd_repair_blk_pool_idx( self->blk_pool, blk );
   else if( meta->notar==fd_repair_blk_pool_idx_null( self->blk_pool ) ) meta->notar = fd_repair_blk_pool_idx( self->blk_pool, blk );
   blk_treap_insert( self, blk );
   return blk;

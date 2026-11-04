@@ -715,6 +715,7 @@ replay_block_start( fd_replay_tile_t * ctx,
      line with agave behavior. */
   bank->f.tick_height = bank->f.max_tick_height - 1UL;
   fd_sched_set_poh_params( ctx->sched, bank->idx, bank->f.tick_height, bank->f.max_tick_height, &parent_bank->f.poh );
+  fd_sched_set_flh_active( ctx->sched, bank->idx, FD_FEATURE_ACTIVE_BANK( bank, alpenglow_fast_leader_handover ) );
 
   FD_LOG_DEBUG(( "replay_block_start: bank_idx=%lu slot=%lu parent_bank_idx=%lu", bank_idx, slot, parent_bank_idx ));
 }
@@ -2964,12 +2965,16 @@ mark_bank_dead( fd_replay_tile_t *        ctx,
                 int                       dead_reason,
                 int                       abandoned_reason,
                 fd_block_footer_t const * footer ) {
+  /* With no FLH, latest_fec_idx must be UINT_MAX.  A bank still in INIT
+     was never cloned, its features are stale, so it counts as no FLH. */
+  fd_block_id_ele_t * block_id_ele   = &ctx->block_id_arr[ bank_idx ];
+  fd_bank_t *         dead_bank      = fd_banks_bank_query( ctx->banks, bank_idx );
+  uint                latest_fec_idx = dead_bank->state!=FD_BANK_STATE_INIT && FD_FEATURE_ACTIVE_BANK( dead_bank, alpenglow_fast_leader_handover ) ? block_id_ele->latest_fec_idx : UINT_MAX;
+
   ulong * dead_idxs     = ctx->dead_idxs;
   ulong   dead_idxs_cnt = 0UL;
   fd_banks_mark_bank_dead( ctx->banks, bank_idx, dead_idxs, &dead_idxs_cnt );
 
-  fd_block_id_ele_t * block_id_ele = &ctx->block_id_arr[ bank_idx ];
-  uint latest_fec_idx = FD_FEATURE_ACTIVE_BANK( fd_banks_bank_query( ctx->banks, bank_idx ), alpenglow_fast_leader_handover ) ? block_id_ele->latest_fec_idx : UINT_MAX; /* UINT_MAX: no FLH, rotor treats the death as final */
   if( block_id_ele->block_id_seen ) publish_slot_dead( ctx, stem, block_id_ele->slot, &block_id_ele->dmr, latest_fec_idx, footer );
   else if( dead_reason!=FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_NOT_DEAD && !memcmp( &block_id_ele->block_info.hash, ((fd_hash_t){0}).uc, sizeof(fd_hash_t) ) ) publish_slot_dead( ctx, stem, block_id_ele->slot, &(fd_hash_t){ 0 }, latest_fec_idx, footer ); /* an incomplete turbine copy, keyed {slot,0}: rotor frees its eager blk */
 
@@ -3024,7 +3029,8 @@ try_replay( fd_replay_tile_t *  ctx,
       end->leader_credits = 0UL;
       end->cert_next      = 0UL;
       end->finalized      = 0;
-      fd_sched_task_done( ctx->sched, FD_SCHED_TT_BLOCK_START, ULONG_MAX, ULONG_MAX, NULL );
+      int res = fd_sched_task_done( ctx->sched, FD_SCHED_TT_BLOCK_START, ULONG_MAX, ULONG_MAX, NULL );
+      if( FD_UNLIKELY( res ) ) mark_bank_dead( ctx, stem, task->block_start->bank_idx, sched_dead_reason_to_event( res ), FD_EVENT_BLOCK_COMPLETED_ABANDONED_REASON_NOT_ABANDONED, NULL );
       break;
     }
     case FD_SCHED_TT_BLOCK_END: {
@@ -3997,7 +4003,7 @@ process_rotor_fec( fd_replay_tile_t       * ctx,
   sched_fec->slot              = fec->slot;
   sched_fec->parent_slot       = fec->parent_slot;
   sched_fec->is_first_in_block       = fec->fec_set_idx==fec->update_parent_fec_idx;
-  sched_fec->starts_at_update_parent = sched_fec->is_first_in_block && fec->update_parent_fec_idx!=0U && FD_FEATURE_ACTIVE_BANK( bank, alpenglow_fast_leader_handover ); /* without the feature the initial UpdateParent is unexpected, as agave rules it */
+  sched_fec->starts_at_update_parent = sched_fec->is_first_in_block && fec->update_parent_fec_idx!=0U; /* the feature is checked at BLOCK_START, after the bank is cloned */
   sched_fec->fec               = store_fec;
   sched_fec->data              = data_view->data;
   sched_fec->alut_ctx->fork_id = fd_banks_bank_query( ctx->banks, ctx->published_root_bank_idx )->accdb_fork_id;

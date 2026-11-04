@@ -135,6 +135,7 @@ ulong mock_sched_pruned_fn      ( fd_sched_t * s FD_PARAM_UNUSED ) {
 ulong mock_sched_states_fn      ( fd_sched_t * s FD_PARAM_UNUSED, fd_sched_slot_state_t * o FD_PARAM_UNUSED ) { return 0UL; }
 void  mock_sched_metrics_fn     ( fd_sched_t * s FD_PARAM_UNUSED, fd_clock_tile_t const * c FD_PARAM_UNUSED ) {}
 void  mock_sched_poh_fn         ( fd_sched_t * s FD_PARAM_UNUSED, ulong a FD_PARAM_UNUSED, ulong b FD_PARAM_UNUSED, ulong c FD_PARAM_UNUSED, fd_hash_t const * d FD_PARAM_UNUSED ) {}
+void  mock_sched_flh_fn         ( fd_sched_t * s FD_PARAM_UNUSED, ulong a FD_PARAM_UNUSED, int b FD_PARAM_UNUSED ) {}
 ulong mock_sched_task_next_fn   ( fd_sched_t * s FD_PARAM_UNUSED, fd_sched_task_t * t FD_PARAM_UNUSED ) { return 0UL; }
 void  mock_sched_root_notify_fn ( fd_sched_t * s FD_PARAM_UNUSED, ulong i ) {
   mock_sched_root_notify_cnt++;
@@ -187,6 +188,7 @@ mock_sched_get_txn_info_fn( fd_sched_t * s FD_PARAM_UNUSED,
 #define fd_sched_slot_states_drain mock_sched_states_fn
 #define fd_sched_metrics_write     mock_sched_metrics_fn
 #define fd_sched_set_poh_params    mock_sched_poh_fn
+#define fd_sched_set_flh_active    mock_sched_flh_fn
 #define fd_sched_task_next_ready   mock_sched_task_next_fn
 #define fd_sched_root_notify       mock_sched_root_notify_fn
 #define fd_sched_task_done         mock_sched_task_done_fn
@@ -2856,7 +2858,11 @@ test_process_rotor_fec_dead_prefix( fd_wksp_t * wksp ) {
   ulong       pre_idx  = fd_block_id_ele_get_idx( ctx->block_id_arr, pre_ele );
   fd_bank_t * pre_bank = fd_banks_bank_query( ctx->banks, pre_idx );
 
-  /* It dies, as on a malformed microblock where the leader cut it off. */
+  /* It dies, as on a malformed microblock where the leader cut it off,
+     after BLOCK_START cloned it: an INIT bank's features are stale, so
+     its death would count as final. */
+  pre_bank->state  = FD_BANK_STATE_REPLAYABLE;
+  pre_bank->f.slot = 4UL;
   ulong seq_dead = test_stem_seqs[ out_idx ];
   mark_bank_dead( ctx, test_stem, pre_idx, FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_BAD_FOOTER, FD_EVENT_BLOCK_COMPLETED_ABANDONED_REASON_NOT_ABANDONED, NULL );
   FD_TEST( pre_bank->state==FD_BANK_STATE_DEAD );

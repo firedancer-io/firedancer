@@ -485,6 +485,7 @@ struct fd_sched_block {
   /* Replay started the block at its UpdateParent FEC set, so the
      UpdateParent stands in for the header as the parent marker. */
   uint starts_at_update_parent : 1;
+  uint flh_active              : 1; /* alpenglow_fast_leader_handover is active on the block's bank, set at BLOCK_START */
 };
 typedef struct fd_sched_block fd_sched_block_t;
 
@@ -3233,6 +3234,14 @@ fd_sched_task_done( fd_sched_t * sched, ulong task_type, ulong txn_idx, ulong ex
     case FD_SCHED_TT_BLOCK_START: {
       FD_TEST( !block->block_start_done );
       block->block_start_done = 1;
+      if( FD_UNLIKELY( block->starts_at_update_parent && !block->flh_active ) ) {
+        /* Without the feature an initial UpdateParent is unexpected, as
+           agave rules it.  The UpdateParent was parsed at ingest, but
+           the feature is only known once BLOCK_START cloned the bank. */
+        FD_LOG_INFO(( "bad block: SPURIOUS_UPDATE_PARENT, slot %lu, parent slot %lu, started at its UpdateParent without alpenglow_fast_leader_handover", block->slot, block->parent_slot ));
+        handle_bad_block( sched, block, FD_SCHED_DEAD_REASON_SPURIOUS_UPDATE_PARENT );
+        return FD_SCHED_DEAD_REASON_SPURIOUS_UPDATE_PARENT;
+      }
       break;
     }
     case FD_SCHED_TT_BLOCK_END: {
@@ -3718,6 +3727,13 @@ fd_sched_set_poh_params( fd_sched_t * sched, ulong bank_idx, ulong tick_height, 
 }
 
 void
+fd_sched_set_flh_active( fd_sched_t * sched, ulong bank_idx, int flh_active ) {
+  FD_TEST( sched->canary==FD_SCHED_MAGIC );
+  FD_TEST( bank_idx<sched->block_cnt_max );
+  block_pool_ele( sched, bank_idx )->flh_active = !!flh_active;
+}
+
+void
 fd_sched_set_bypass_poh_verify( fd_sched_t * sched, int bypass_poh_verify ) {
   FD_TEST( sched->canary==FD_SCHED_MAGIC );
   sched->bypass_poh_verify = !!bypass_poh_verify;
@@ -3995,6 +4011,7 @@ add_block( fd_sched_t * sched,
   block->cert_next          = 0U;
   block->alpentick_seen     = 0;
   block->starts_at_update_parent = 0;
+  block->flh_active              = 0;
 
   block->mblks_rem        = 0UL;
   block->txns_rem         = 0UL;

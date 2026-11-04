@@ -552,6 +552,8 @@ run_shred_window_overflow_case( void ) {
    expect_dead_reason.  Otherwise every ingest succeeds and the block is
    driven to completion, ending with expect_dead_reason (NONE for a
    valid block). */
+static int ag_flh_active = 1; /* alpenglow_fast_leader_handover, as replay sets it at BLOCK_START */
+
 static void
 run_ag_structure_case_up( fd_hash_t const * start_poh,
                           int const *       comps,
@@ -598,6 +600,7 @@ run_ag_structure_case_up( fd_hash_t const * start_poh,
       ingest_ok = !!fd_sched_fec_ingest( sched, fec );
       if( FD_LIKELY( ingest_ok && !i && !off ) ) {
         fd_sched_set_poh_params( sched, 2UL, TEST_ROOT_TICK_HEIGHT, TEST_ROOT_TICK_HEIGHT+1UL, start_poh );
+        fd_sched_set_flh_active( sched, 2UL, ag_flh_active );
       }
     }
   }
@@ -609,9 +612,11 @@ run_ag_structure_case_up( fd_hash_t const * start_poh,
       while( fd_sched_pruned_block_next( sched )!=ULONG_MAX ) {}
       if( FD_UNLIKELY( !fd_sched_task_next_ready( sched, task ) ) ) break;
       switch( task->task_type ) {
-        case FD_SCHED_TT_BLOCK_START:
-          FD_TEST( 0==fd_sched_task_done( sched, FD_SCHED_TT_BLOCK_START, ULONG_MAX, ULONG_MAX, NULL ) );
+        case FD_SCHED_TT_BLOCK_START: {
+          int res = fd_sched_task_done( sched, FD_SCHED_TT_BLOCK_START, ULONG_MAX, ULONG_MAX, NULL );
+          FD_TEST( !res || res==expect_dead_reason ); /* killed at BLOCK_START, as replay would see it */
           break;
+        }
         case FD_SCHED_TT_BLOCK_END:
           FD_TEST( 0==fd_sched_task_done( sched, FD_SCHED_TT_BLOCK_END, ULONG_MAX, ULONG_MAX, NULL ) );
           break;
@@ -708,9 +713,17 @@ run_ag_structure_cases( void ) {
   { int c[] = { AG_COMP_UPDATE_PARENT, AG_COMP_FOOTER, AG_COMP_TICK };
     run_ag_structure_case_up( start_poh, c, 3UL, 1, 1, FD_SCHED_DEAD_REASON_NONE ); }
 
+  /* The same block without alpenglow_fast_leader_handover: ingest
+     accepts the UpdateParent, the block dies once BLOCK_START reports
+     the feature inactive. */
+  { int c[] = { AG_COMP_UPDATE_PARENT, AG_COMP_FOOTER, AG_COMP_TICK };
+    ag_flh_active = 0;
+    run_ag_structure_case_up( start_poh, c, 3UL, 1, 1, FD_SCHED_DEAD_REASON_SPURIOUS_UPDATE_PARENT );
+    ag_flh_active = 1; }
+
   /* The same block, but replay did not start it at the UpdateParent. */
   { int c[] = { AG_COMP_UPDATE_PARENT, AG_COMP_FOOTER, AG_COMP_TICK };
-    run_ag_structure_case( start_poh, c, 3UL, 0, FD_SCHED_DEAD_REASON_UNEXPECTED_INITIAL_UPDATE_PARENT ); }
+    run_ag_structure_case( start_poh, c, 3UL, 0, FD_SCHED_DEAD_REASON_SPURIOUS_UPDATE_PARENT ); }
 
   /* Started at the UpdateParent, but it is not the first component. */
   { int c[] = { AG_COMP_TICK, AG_COMP_UPDATE_PARENT, AG_COMP_FOOTER, AG_COMP_TICK };

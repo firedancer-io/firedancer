@@ -608,6 +608,13 @@ fd_sched_slot_states_drain( fd_sched_t * sched, fd_sched_slot_state_t * out );
 void
 fd_sched_set_poh_params( fd_sched_t * sched, ulong bank_idx, ulong tick_height, ulong max_tick_height, fd_hash_t const * start_poh );
 
+/* fd_sched_set_flh_active records whether alpenglow_fast_leader_handover
+   is active on the block's bank.  Called during BLOCK_START, once the
+   bank is cloned.  A block started at its UpdateParent without the
+   feature dies as SPURIOUS_UPDATE_PARENT when BLOCK_START is done. */
+void
+fd_sched_set_flh_active( fd_sched_t * sched, ulong bank_idx, int flh_active );
+
 /* fd_sched_block_verify_ticks sets the tick window and verifies
    ticks on bank_idx (shred fuzz harness, no exec).  Returns
    FD_SCHED_DEAD_REASON_NONE (0) if valid, else the
