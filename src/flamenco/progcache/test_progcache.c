@@ -2144,6 +2144,33 @@ FD_UNIT_TEST( spill_lock ) {
   uint spad_after1 = sh->spill.spad_used;
   FD_TEST( spad_after1>0U );
 
+  /* Recursive calls to this exact held program must reuse its bytecode.  In
+     particular, repeated leaf calls cannot allocate and validate a new copy
+     on each invocation while the parent frame still owns the spill lock. */
+  ulong load0 = env->progcache->metrics->load_cnt;
+  ulong spill0 = env->progcache->metrics->spill_cnt;
+  ulong hit0 = env->progcache->metrics->hit_cnt;
+  for( ulong i=0UL; i<60UL; i++ ) {
+    fd_progcache_rec_t * recursive = fd_progcache_pull( env->progcache, xid, &kx, &load_env, acc->entry );
+    FD_TEST( recursive==recx && recursive->lock.value==2 );
+    FD_TEST( env->progcache->spill_active==2U && sh->spill.rec_used==1U );
+    FD_TEST( sh->spill.spad_used==spad_after1 );
+    fd_progcache_rec_close( env->progcache, recursive );
+    FD_TEST( recx->exists && recx->lock.value==1 && env->progcache->spill_active==1U );
+  }
+  FD_TEST( env->progcache->metrics->load_cnt==load0 );
+  FD_TEST( env->progcache->metrics->spill_cnt==spill0 );
+  FD_TEST( env->progcache->metrics->hit_cnt==hit0+60UL );
+
+  /* The same address under a different feature revision must remain a miss. */
+  fd_prog_load_env_t revised_env = load_env;
+  revised_env.feature_slot = 1UL;
+  fd_progcache_rec_t * revised = fd_progcache_pull( env->progcache, xid, &kx, &revised_env, acc->entry );
+  FD_TEST( revised && revised!=recx && revised->feature_slot==1UL );
+  FD_TEST( env->progcache->spill_active==2U );
+  fd_progcache_rec_close( env->progcache, revised );
+  FD_TEST( env->progcache->spill_active==1U && sh->spill.spad_used==spad_after1 );
+
   /* Frame 2 (nested: recx still held): spills, REUSING the ws lock. */
   fd_pubkey_t ky = test_key( 9002UL );
   test_account_init( acc, &ky, &fd_solana_bpf_loader_program_id, 1, valid_program_data, valid_program_data_sz );

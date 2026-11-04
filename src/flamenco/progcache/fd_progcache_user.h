@@ -91,7 +91,7 @@ struct fd_progcache {
   uchar * scratch;
   ulong   scratch_sz;
 
-  uint spill_active;
+  uint spill_active; /* outstanding spill handles, including reentrant aliases */
 };
 
 /* Writes every progcache counter for a tile. */

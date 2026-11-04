@@ -417,11 +417,14 @@ fd_progcache_spill_acquire( fd_progcache_t *        cache,
   memset( rec, 0, sizeof(fd_progcache_rec_t) );
   rec->lock.value    = 1; /* read lock; no concurrency, don't need CAS */
   rec->exists        = 1;
+  rec->pair.xid      = cache->lineage->fork[ 0 ];
+  rec->pair.prog     = params->prog_addr;
   rec->feature_slot  = params->feature_slot;
   rec->deploy_slot   = params->deploy_slot;
   rec->calldests_off = UINT_MAX; /* non-executable until a load says otherwise */
 
   if( params->peek_err==FD_SBPF_ELF_SUCCESS ) {
+    rec->size_class = fd_progcache_cache_class( fd_progcache_val_footprint( &params->elf_info ) ) & 0x7UL;
     ulong off0 = fd_ulong_align_up( shmem->spill.spad_used, fd_progcache_val_align() );
     ulong off1 = off0 + fd_progcache_val_footprint( &params->elf_info );
     if( FD_UNLIKELY( off1 > FD_PROGCACHE_SPAD_MAX ) ) {
@@ -570,10 +573,31 @@ fd_progcache_pull( fd_progcache_t *           cache,
 
   fd_progcache_rec_t * found_rec =
       fd_progcache_query( cache, prog_addr, env->feature_slot, info->deploy_slot );
+  int from_spill = 0;
+  /* Spill records are private to the client holding spill.lock.  A recursive
+     call can reuse an already loaded frame without publishing it or loading
+     the same bytecode again.  Match the complete revision and current fork. */
+  if( FD_UNLIKELY( !found_rec && cache->spill_active ) ) {
+    fd_progcache_shmem_t * shmem = cache->join->shmem;
+    FD_TEST( FD_VOLATILE_CONST( shmem->spill.lock.value )==FD_RWLOCK_WRITE_LOCK );
+    for( uint i=0U; i<shmem->spill.rec_used; i++ ) {
+      fd_progcache_rec_t * rec = shmem->spill.rec+i;
+      if( rec->exists && rec->pair.xid==fork_id && fd_pubkey_eq( &rec->pair.prog, prog_addr ) &&
+          rec->feature_slot==env->feature_slot && rec->deploy_slot==info->deploy_slot ) {
+        fd_rwlock_read( &rec->lock );
+        cache->spill_active++;
+        found_rec  = rec;
+        from_spill = 1;
+        break;
+      }
+    }
+  }
   if( FD_LIKELY( found_rec ) ) {
     cache->metrics->hit_cnt++;
     /* Mark the record as recently accessed for CLOCK replacement */
-    fd_prog_state_touch( cache->join->rec.ele, (ulong)( found_rec - cache->join->rec.ele ) );
+    if( FD_LIKELY( !from_spill ) ) {
+      fd_prog_state_touch( cache->join->rec.ele, (ulong)( found_rec - cache->join->rec.ele ) );
+    }
     progcache_metric_per_class( cache->metrics->hit_per_class, found_rec->size_class );
   } else {
     cache->metrics->miss_cnt++;
@@ -620,6 +644,8 @@ fd_progcache_rec_close( fd_progcache_t *     cache,
   fd_progcache_shmem_t * shmem = cache->join->shmem;
   if( rec >= shmem->spill.rec &&
       rec <  shmem->spill.rec + FD_MAX_INSTRUCTION_STACK_DEPTH ) {
-    rec->exists = 0;
+    /* Reentrant frames share the read lock; only the final close retires the
+       record and permits the LIFO cascade to reclaim its value storage. */
+    if( !FD_VOLATILE_CONST( rec->lock.value ) ) rec->exists = 0;
     fd_progcache_spill_close( cache );
   }}
