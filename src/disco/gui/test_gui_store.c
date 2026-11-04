@@ -311,7 +311,7 @@ test_kv_index_footprint( void ) {
     .base_regions = 2UL,
   };
   ulong fp = fd_gui_store_footprint( 512UL<<20, 1UL, &kv_desc );
-  FD_TEST( fp && fp<(6UL<<20) ); /* 4 B links + 4 B chains at load ~4 */
+  FD_TEST( fp && fp<(4UL<<20) ); /* 21-bit packed links + chains */
 
   fd_gui_store_desc_t big = kv_desc;
   big.max_records = UINT_MAX;
@@ -1084,6 +1084,56 @@ test_kv_index_wrap_alias( void ) {
   FD_LOG_NOTICE(( "test_kv_index_wrap_alias: ok" ));
 }
 
+static ulong mod13_key_hash( void const * key ) { return *(ulong const *)key % 13UL; }
+
+/* Packed links (w=10 at 1000 records, fields straddle bytes): fill to
+   max_records with collisions, evict FIFO, check against a reference. */
+static void
+test_kv_index_packed_ref( void ) {
+  char path[ 128 ]; mk_path( path, sizeof(path) );
+  fd_gui_store_desc_t d = descs[ DB_ENT8 ];
+  d.key_hash    = mod13_key_hash;
+  d.max_records = 1000UL;
+  ulong size = fd_gui_store_min_size( 1UL, &d );
+  void * mem = aligned_alloc( fd_gui_store_align(), fd_ulong_align_up( fd_gui_store_footprint( size, 1UL, &d ), fd_gui_store_align() ) );
+  FD_TEST( mem );
+  fd_gui_store_t * db = fd_gui_store_join( fd_gui_store_new( mem, path, size, 1UL, TEST_SEED, &d ) );
+  FD_TEST( db );
+  static ulong fifo[ 1UL<<16 ];
+  static uchar live[ 4096 ];
+  memset( live, 0, sizeof(live) );
+  ulong lo = 0UL, hi = 0UL;
+  fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 1234U, 0UL ) );
+  for( ulong iter=0UL; iter<40000UL; iter++ ) {
+    ulong key = fd_rng_ulong_roll( rng, 4096UL );
+    void * val;
+    int rc = fd_gui_store_kv_get_or_create( db, 0UL, &key, &val );
+    if( live[ key ] ) {
+      FD_TEST( !rc && ((ent8_val_t *)val)->payload==key*3UL );
+    } else if( hi-lo==d.max_records ) {
+      FD_TEST( rc==FD_GUI_STORE_RING_FULL );
+      ulong n = 1UL+fd_rng_ulong_roll( rng, 300UL );
+      FD_TEST( fd_gui_store_reclaim( db, 0UL, n, NULL, NULL )==n );
+      for( ulong j=0UL; j<n; j++ ) live[ fifo[ (lo++)&0xffffUL ] ] = 0;
+    } else {
+      FD_TEST( !rc );
+      ((ent8_val_t *)val)->payload = key*3UL;
+      live[ key ] = 1; fifo[ (hi++)&0xffffUL ] = key;
+    }
+    if( !(iter%997UL) ) {
+      for( ulong k=0UL; k<4096UL; k++ ) {
+        ent8_val_t const * v = fd_gui_store_kv_get( db, 0UL, &k );
+        FD_TEST( live[ k ] ? ( v && v->key==k && v->payload==k*3UL ) : !v );
+      }
+    }
+  }
+  FD_TEST( hi>3UL*d.max_records );
+  fd_rng_delete( fd_rng_leave( rng ) );
+  db_close( db );
+  cleanup( path );
+  FD_LOG_NOTICE(( "test_kv_index_packed_ref: ok" ));
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -1109,6 +1159,7 @@ main( int     argc,
   test_per_ring_bases();
   test_private_index_budget();
   test_kv_index_wrap_alias();
+  test_kv_index_packed_ref();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
