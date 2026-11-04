@@ -1358,8 +1358,8 @@ fd_executor_setup_metadata_load_failure( fd_runtime_t *      runtime,
   ulong key_cnt = (ulong)txn->acct_addr_cnt + (ulong)txn->addr_table_adtl_cnt;
   /* Keep small baseline transfers entirely out of the metadata probe.  Seven
      maximum-size non-payer accounts can exceed the ordinary 64MiB limit.
-     Nonces, bundles, Instructions synthesis and diagnostics retain the
-     established fully acquired path. */
+     Durable nonces, bundles and diagnostics retain the established
+     account setup path. */
   if( key_cnt<8UL || key_cnt>MAX_TX_ACCOUNT_LOCKS ||
       ( txn->transaction_version!=FD_TXN_VLEGACY && txn->transaction_version!=FD_TXN_V0 ) ||
       txn_in->bundle.is_bundle ||
@@ -1380,20 +1380,30 @@ fd_executor_setup_metadata_load_failure( fd_runtime_t *      runtime,
   key_cnt = txn_out->accounts.cnt;
   fd_pubkey_t const * keys = txn_out->accounts.keys;
   for( ulong i=0UL; i<key_cnt; i++ ) {
-    if( !memcmp( keys[i].uc, fd_sysvar_instructions_id.uc, 32UL ) ) return 0;
+    /* Non-payer Instructions data is synthesized with zero loaded-size
+       charge.  Keep the physical fee-payer case and serialization errors
+       on ordinary setup: offset overflow can fail before the loaded limit
+       and retain a different accumulated size under fee-only semantics. */
+    if( !memcmp( keys[i].uc, fd_sysvar_instructions_id.uc, 32UL ) &&
+        ( i==FD_FEE_PAYER_TXN_IDX || fd_sysvar_instructions_offsets_overflow( txn ) ) ) return 0;
     for( ulong j=0UL; j<i; j++ ) if( !memcmp( keys[i].uc, keys[j].uc, 32UL ) ) return 0;
   }
 
   /* Scheduler account locks and frozen ancestors protect these logical
      versions; data_len performs its own epoch-protected metadata lookup.
      Omit base charges and the payer: every omitted contribution
-     is nonnegative.  Without Instructions synthesis the account-loading
-     pass can only fail with the loaded-limit error before program checks.
+     is nonnegative.  With Instructions serialization known to succeed,
+     account loading can only fail with the loaded-limit error before
+     program checks, including when Instructions is an invoked program.
      Owner/Program state and payloads are unnecessary for this lower bound. */
   ulong lower = 0UL;
   ulong lens[ MAX_TX_ACCOUNT_LOCKS ];
   for( ulong i=1UL; i<key_cnt; i++ ) {
-    lens[i] = fd_accdb_data_len( runtime->accdb, bank->accdb_fork_id, keys[i].uc );
+    /* The virtual account replaces any physical owner/data before loaded
+       size and implicit ProgramData accounting.  Zero also excludes it
+       from the Program prefix probe below, regardless of declared metas. */
+    lens[i] = !memcmp( keys[i].uc, fd_sysvar_instructions_id.uc, 32UL )
+              ? 0UL : fd_accdb_data_len( runtime->accdb, bank->accdb_fork_id, keys[i].uc );
     lower = fd_ulong_sat_add( lower, lens[i] );
     if( lower>txn_out->details.compute_budget.loaded_accounts_data_size_limit ) break;
   }
