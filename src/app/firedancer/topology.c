@@ -39,6 +39,7 @@
 #include "../../flamenco/capture/fd_solcap_writer.h"
 #include "../../flamenco/events/fd_event_runtime.h"
 #include "../../flamenco/progcache/fd_progcache.h"
+#include "../../flamenco/runtime/fd_bpf_frames.h"
 #include "../../flamenco/runtime/fd_cost_tracker.h"
 
 #include <sys/random.h>
@@ -195,6 +196,27 @@ setup_topo_progcache( fd_topo_t *  topo,
 
   FD_TEST( fd_pod_insertf_ulong( topo->props, txn_max, "obj.%lu.txn_max", obj->id ) );
   FD_TEST( fd_pod_insertf_ulong( topo->props, progcache_sz, "obj.%lu.progcache_sz", obj->id ) );
+}
+
+fd_topo_obj_t *
+setup_topo_bpf_frames( fd_topo_t *  topo,
+                       char const * wksp_name,
+                       ulong        frame_cnt,
+                       ulong        local_cnt,
+                       ulong        join_cnt ) {
+  if( FD_UNLIKELY( local_cnt>FD_MAX_INSTRUCTION_STACK_DEPTH ) ) {
+    FD_LOG_ERR(( "Invalid [runtime]: bpf_local_frames must be at most %lu", FD_MAX_INSTRUCTION_STACK_DEPTH ));
+  }
+  ulong frame_max = FD_BPF_FRAMES_CNT_MAX-join_cnt*local_cnt;
+  if( FD_UNLIKELY( frame_cnt<FD_BPF_FRAMES_HELD_CNT( local_cnt ) || frame_cnt>frame_max ) ) {
+    FD_LOG_ERR(( "Invalid [runtime]: bpf_shared_frames must be in [%lu,%lu]", FD_BPF_FRAMES_HELD_CNT( local_cnt ), frame_max ));
+  }
+  fd_topo_obj_t * obj = fd_topob_obj( topo, "bpf_frames", wksp_name );
+  FD_TEST( fd_pod_insert_ulong(  topo->props, "bpf_frames", obj->id ) );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, frame_cnt, "obj.%lu.frame_cnt",      obj->id ) );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, join_cnt,  "obj.%lu.joiner_cnt_max", obj->id ) );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, local_cnt, "obj.%lu.local_cnt",      obj->id ) );
+  return obj;
 }
 
 fd_topo_obj_t *
@@ -1086,6 +1108,11 @@ fd_topo_initialize( config_t * config ) {
   FOR(execrp_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "execrp", i   ) ], progcache_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FOR(execle_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "execle", i   ) ], progcache_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
 
+  fd_topob_wksp( topo, "bpf_frames" );
+  fd_topo_obj_t * bpf_frames_obj = setup_topo_bpf_frames( topo, "bpf_frames", config->firedancer.runtime.bpf_shared_frames, config->firedancer.runtime.bpf_local_frames, execrp_tile_cnt+execle_tile_cnt );
+  FOR(execrp_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "execrp", i   ) ], bpf_frames_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  FOR(execle_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "execle", i   ) ], bpf_frames_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+
   if( FD_LIKELY( config->tiles.gui.enabled ) ) {
     fd_topob_wksp( topo, "gui"        );
 
@@ -1745,6 +1772,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->execrp.txncache_obj_id  = fd_pod_query_ulong( config->topo.props, "txncache",  ULONG_MAX ); FD_TEST( tile->execrp.txncache_obj_id !=ULONG_MAX );
     tile->execrp.progcache_obj_id = fd_pod_query_ulong( config->topo.props, "progcache", ULONG_MAX ); FD_TEST( tile->execrp.progcache_obj_id!=ULONG_MAX );
     tile->execrp.accdb_obj_id     = fd_pod_query_ulong( config->topo.props, "accdb",     ULONG_MAX ); FD_TEST( tile->execrp.accdb_obj_id    !=ULONG_MAX );
+    tile->execrp.bpf_frames_obj_id = fd_pod_query_ulong( config->topo.props, "bpf_frames", ULONG_MAX ); FD_TEST( tile->execrp.bpf_frames_obj_id!=ULONG_MAX );
 
     tile->execrp.max_live_slots  = config->firedancer.runtime.max_live_slots;
 
@@ -1860,6 +1888,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->execle.txncache_obj_id    = fd_pod_query_ulong( config->topo.props, "txncache",  ULONG_MAX ); FD_TEST( tile->execle.txncache_obj_id !=ULONG_MAX );
     tile->execle.progcache_obj_id   = fd_pod_query_ulong( config->topo.props, "progcache", ULONG_MAX ); FD_TEST( tile->execle.progcache_obj_id!=ULONG_MAX );
     tile->execle.accdb_obj_id       = fd_pod_query_ulong( config->topo.props, "accdb",     ULONG_MAX ); FD_TEST( tile->execle.accdb_obj_id    !=ULONG_MAX );
+    tile->execle.bpf_frames_obj_id  = fd_pod_query_ulong( config->topo.props, "bpf_frames", ULONG_MAX ); FD_TEST( tile->execle.bpf_frames_obj_id!=ULONG_MAX );
     tile->execle.max_live_slots     = config->firedancer.runtime.max_live_slots;
     tile->execle.report_runtime_diffs = config->development.event.report_runtime_diffs;
 

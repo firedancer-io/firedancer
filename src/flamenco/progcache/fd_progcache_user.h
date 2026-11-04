@@ -94,6 +94,14 @@ struct fd_progcache {
   uint spill_active;
 };
 
+/* fd_progcache_spill_held returns 1 if cache holds the spill buffer
+   lock, which other users of the program cache may be waiting for. */
+
+static inline int
+fd_progcache_spill_held( fd_progcache_t const * cache ) {
+  return !!cache->spill_active;
+}
+
 /* Writes every progcache counter for a tile. */
 
 #define FD_PROGCACHE_METRICS_WRITE( TILE, m ) do {                                          \

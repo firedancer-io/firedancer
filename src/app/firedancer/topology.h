@@ -42,6 +42,13 @@ setup_topo_progcache( fd_topo_t *  topo,
                       ulong        wksp_size );
 
 fd_topo_obj_t *
+setup_topo_bpf_frames( fd_topo_t *  topo,
+                       char const * wksp_name,
+                       ulong        frame_cnt,
+                       ulong        local_cnt,
+                       ulong        join_cnt );
+
+fd_topo_obj_t *
 setup_topo_store( fd_topo_t *  topo,
                   char const * wksp_name,
                   ulong        fec_max,

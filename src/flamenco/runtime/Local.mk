@@ -8,6 +8,13 @@ $(call add-objs,fd_blockhashes,fd_flamenco)
 
 $(call add-objs,fd_core_bpf_migration,fd_flamenco)
 
+$(call add-hdrs,fd_bpf_frames.h)
+$(call add-objs,fd_bpf_frames,fd_flamenco)
+ifdef FD_HAS_HOSTED
+$(call make-unit-test,test_bpf_frames,test_bpf_frames,fd_flamenco fd_ballet fd_util)
+$(call run-unit-test,test_bpf_frames)
+endif
+
 $(call add-hdrs,fd_executor.h)
 $(call add-objs,fd_executor,fd_flamenco)
 
