@@ -327,7 +327,7 @@ quic_stream_rx( fd_quic_conn_t * conn,
 
   int oversz = offset+data_sz > FD_TPU_MTU;
 
-  if( offset==0UL && fin ) {
+  if( offset==0UL && fin && !conn->srx->rx_streams_active ) {
     /* Fast path */
     if( FD_UNLIKELY( data_sz<FD_TXN_MIN_SERIALIZED_SZ ) ) {
       ctx->metrics.quic_txn_too_small++;
@@ -387,6 +387,9 @@ quic_stream_rx( fd_quic_conn_t * conn,
   if( fin ) {
     if( FD_UNLIKELY( slot->k.sz < FD_TXN_MIN_SERIALIZED_SZ ) ) {
       ctx->metrics.quic_txn_too_small++;
+      fd_tpu_reasm_cancel( reasm, slot );
+      ctx->metrics.reasm_active--;
+      conn->srx->rx_streams_active--;
       return FD_QUIC_SUCCESS; /* ignore */
     }
     int pub_err = fd_tpu_reasm_publish( reasm, slot, mcache, base, seq, tspub, conn->peer->ip_addr, FD_TXN_M_TPU_SOURCE_QUIC );
