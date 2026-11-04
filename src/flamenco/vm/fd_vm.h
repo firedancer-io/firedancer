@@ -174,13 +174,8 @@ struct __attribute__((aligned(FD_VM_HOST_REGION_ALIGN))) fd_vm {
      any positive sz range in this region will fail, making region 1
      unwritable.
 
-     When the direct mapping feature is enabled, the input region will
-     no longer be a contiguous buffer of host memory.  Instead
-     it will compose of several fragmented regions of memory each with
-     its own read/write privileges and size.  Address translation to the
-     input region will now have to rely on a binary search lookup of the
-     start of the appropriate area of physical memory. It also involves
-     doing a check against if the region can be written to. */
+     Input addresses are translated through input_mem_regions, not these
+     arrays.  The entries at FD_VM_INPUT_REGION are unused. */
 
    /* FIXME: If accessing memory beyond the end of the current heap
       region is not allowed, sol_alloc_free will need to update the tlb
