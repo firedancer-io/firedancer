@@ -1428,11 +1428,23 @@ test_execute_bundles( fd_svm_mini_t * mini ) {
     env->txn_out[0].accounts.account[1]->lamports = 8000000UL;
     fd_runtime_commit_txn( env->runtime, env->bank, NULL, &env->txn_out[0] );
 
-    serialize_bundle_txn( &txn_p, gate_keys, 2UL, 0UL );
+    /* A real instruction reference is required for a writable staging
+       buffer.  Unused message keys above are acquired read-only. */
+    fd_pubkey_t used_gate_keys[4] = { pubkey1, gate_key, fd_solana_system_program_id, filler[filler_idx++] };
+    uchar transfer_accts[2] = { 0, 1 };
+    uchar transfer_data[12] = { 2 }; /* System transfer of zero lamports */
+    txn_instr_t transfer = { .program_id_idx=2, .account_idxs=transfer_accts,
+                            .account_idxs_cnt=2, .data=transfer_data, .data_sz=12 };
+    ulong used_gate_sz = txn_serialize_with_instrs( txn_p.payload, 1UL, &signature, 1UL, 0UL,
+                                                   2UL, 4UL, used_gate_keys, &dummy_hash, &transfer, 1 );
+    txn_p.payload_sz = (ushort)used_gate_sz;
+    FD_TEST( fd_txn_parse( txn_p.payload, used_gate_sz, TXN( &txn_p ), NULL ) );
     env->txn_in.txn                 = &txn_p;
     env->txn_in.bundle.is_bundle    = 0;
     fd_runtime_prepare_and_execute_txn( env->runtime, env->bank, &env->txn_in, &env->txn_out[1] );
     FD_TEST( env->txn_out[1].err.is_committable );
+    FD_TEST( env->txn_out[1].err.txn_err==FD_RUNTIME_EXECUTE_SUCCESS );
+    FD_TEST( env->txn_out[1].accounts.account[1]->_writable );
     FD_TEST( env->txn_out[1].accounts.account[1]->lamports==7000000UL ); /* prior version retained */
 
     /* Touched counterpart: the same mutation marked touched must publish. */

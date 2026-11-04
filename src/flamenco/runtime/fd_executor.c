@@ -1376,6 +1376,23 @@ fd_executor_setup_accounts_for_txn( fd_runtime_t *      runtime,
   err = fd_executor_validate_account_locks( txn_out );
   if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) return err;
 
+  /* A message may include writable accounts that no instruction uses.
+     They still participate in locking, loaded-data accounting, and rent
+     checks, but cannot change: CPI can only borrow accounts passed by
+     its caller.  Avoid allocating and copying a writable staging buffer
+     for these accounts.  The fee payer is modified outside instructions.
+     Bundle acquisition uses a separate path and retains its union of
+     writable references. */
+  uchar used[ MAX_TX_ACCOUNT_LOCKS ] = {0};
+  used[ FD_FEE_PAYER_TXN_IDX ] = 1U;
+  fd_txn_t const * txn = TXN( txn_in->txn );
+  for( ushort j=0; j<txn->instr_cnt; j++ ) {
+    fd_txn_instr_t const * instr = &txn->instr[ j ];
+    used[ instr->program_id ] = 1U;
+    uchar const * accts = fd_txn_get_instr_accts( instr, txn_in->txn->payload );
+    for( ushort k=0; k<instr->acct_cnt; k++ ) used[ accts[ k ] ] = 1U;
+  }
+
   /* Resolve all transaction accounts and queue them for acquisition. */
 
   for( ushort i=0; i<txn_out->accounts.cnt; i++ ) {
@@ -1387,7 +1404,7 @@ fd_executor_setup_accounts_for_txn( fd_runtime_t *      runtime,
     FD_TEST( runtime->accounts.account_cnt+acquire_cnt<FD_PACK_MAX_TXN_PER_BUNDLE*MAX_TX_ACCOUNT_LOCKS );
     acquire_idx[ acquire_cnt ]      = i;
     acquire_pubkeys[ acquire_cnt ]  = txn_out->accounts.keys[ i ].uc;
-    acquire_writable[ acquire_cnt ] = (int)txn_out->accounts.is_writable[ i ];
+    acquire_writable[ acquire_cnt ] = (int)(txn_out->accounts.is_writable[ i ] & used[ i ]);
     acquire_cnt++;
   }
 

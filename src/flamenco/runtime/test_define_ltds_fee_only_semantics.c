@@ -403,11 +403,16 @@ test_off_no_nonce_limit_exceeded( fd_svm_mini_t * mini ) {
   fd_txn_in_t  txn_in[1];
   build_limit_exceeded_txn( bank, &fee_payer, &large_acct, 200U, txn_p, txn_in, txn_out );
 
+  ulong copied_before = fd_accdb_metrics( mini->runtime->accdb )->bytes_copied;
   fd_runtime_prepare_and_execute_txn( mini->runtime, bank, txn_in, txn_out );
 
   FD_TEST( txn_out->err.is_fees_only );
   FD_TEST( txn_out->err.txn_err==FD_RUNTIME_TXN_ERR_MAX_LOADED_ACCOUNTS_DATA_SIZE_EXCEEDED );
   FD_TEST( txn_out->details.loaded_accounts_data_size==0UL );
+  /* The unused writable account must still trigger the load limit,
+     without first copying its payload into a writable staging buffer. */
+  FD_TEST( txn_out->accounts.is_writable[ 1 ] );
+  FD_TEST( fd_accdb_metrics( mini->runtime->accdb )->bytes_copied==copied_before );
 }
 
 /* CASE 4 — feature ON, no nonce, load fails at size limit: expects the
@@ -427,11 +432,14 @@ test_on_no_nonce_limit_exceeded( fd_svm_mini_t * mini ) {
   uint const limit = 200U;
   build_limit_exceeded_txn( bank, &fee_payer, &large_acct, limit, txn_p, txn_in, txn_out );
 
+  ulong copied_before = fd_accdb_metrics( mini->runtime->accdb )->bytes_copied;
   fd_runtime_prepare_and_execute_txn( mini->runtime, bank, txn_in, txn_out );
 
   FD_TEST( txn_out->err.is_fees_only );
   FD_TEST( txn_out->err.txn_err==FD_RUNTIME_TXN_ERR_MAX_LOADED_ACCOUNTS_DATA_SIZE_EXCEEDED );
   FD_TEST( txn_out->details.loaded_accounts_data_size==(ulong)limit );
+  FD_TEST( txn_out->accounts.is_writable[ 1 ] );
+  FD_TEST( fd_accdb_metrics( mini->runtime->accdb )->bytes_copied==copied_before );
 }
 
 /* CASE 5 — feature OFF, separate nonce account: expects
