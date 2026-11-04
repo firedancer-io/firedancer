@@ -460,13 +460,9 @@ fd_topo_initialize( config_t * config ) {
     fd_topob_wksp( topo, "pack_poh"      );
     fd_topob_wksp( topo, "pack_execle"   );
     fd_topob_wksp( topo, "resolv_replay" );
-    if( FD_LIKELY( config->tiles.pack.use_consumed_cus ) ) {
-      fd_topob_wksp( topo, "execle_pack" );
-    }
     fd_topob_wksp( topo, "execle_poh"    );
     fd_topob_wksp( topo, "execle_busy"   );
     fd_topob_wksp( topo, "poh_shred"     );
-    fd_topob_wksp( topo, "poh_replay"    );
   }
 
   fd_topob_wksp( topo, "adminctl"      )->core_dump_level = FD_TOPO_CORE_DUMP_LEVEL_NEVER;
@@ -504,7 +500,6 @@ fd_topo_initialize( config_t * config ) {
   }
 
   fd_topob_wksp( topo, "execrp_replay" );
-  fd_topob_wksp( topo, "admin_replay"  );
   if( FD_LIKELY( failover_enabled ) ) {
     fd_topob_wksp( topo, "admin_failov" );
     fd_topob_wksp( topo, "failov_admin" );
@@ -526,7 +521,6 @@ fd_topo_initialize( config_t * config ) {
     if( FD_LIKELY( config->tiles.gui.enabled ) ) fd_topob_wksp( topo, "snapct_gui"  );
     if( FD_LIKELY( config->tiles.gui.enabled ) ) fd_topob_wksp( topo, "snapin_gui"  );
     fd_topob_wksp( topo, "snapin_manif" );
-    fd_topob_wksp( topo, "snapct_repr"  );
   }
   if( snapmk_enabled ) {
     fd_topob_wksp( topo, "snapmk"        );
@@ -582,7 +576,7 @@ fd_topo_initialize( config_t * config ) {
     FOR(snapdc_tile_cnt) fd_topob_link( topo, "snapdc_in",     "snapdc_in",     FD_SNAPSHOT_DC_IN_DEPTH,                  FD_SNAPSHOT_DATA_MTU,          1UL );
 
     /**/                 fd_topob_link( topo, "snapin_manif",  "snapin_manif",  2UL,                                      sizeof(fd_snapshot_manifest_t),1UL ); /* FULL, INCREMENTAL and DONE (empty); snapshot retries may publish again */
-    /**/                 fd_topob_link( topo, "snapct_repr",   "snapct_repr",   128UL,                                    0UL,                           1UL )->permit_no_consumers = 1; /* TODO: wire in repair later */
+    /**/                 fd_topob_link( topo, "snapct_repr",   "snapct",        128UL,                                    0UL,                           1UL )->permit_no_consumers = 1; /* TODO: wire in repair later */
     if( FD_LIKELY( config->tiles.gui.enabled ) ) {
       /**/               fd_topob_link( topo, "snapct_gui",    "snapct_gui",    128UL,                                    sizeof(fd_snapct_update_t),    1UL );
       FOR(snapin_tile_cnt) fd_topob_link( topo, "snapin_gui",    "snapin_gui",    128UL,                                    FD_GUI_CONFIG_PARSE_MAX_VALID_ACCT_SZ, 1UL );
@@ -632,8 +626,8 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_link( topo, "replay_repair", "replay_slot",   16UL,                                     sizeof(fd_replay_message_t),   1UL ); /* REPLAY_SIG_MISSING_FEC; depth >= replay's STEM_BURST */
   char const * replay_rd = efficient_mode ? "replay_bat" : "replay_out";
   FOR(execrp_tile_cnt) fd_topob_link( topo, "replay_execrp", "replay_execrp", 256UL,                                    sizeof(fd_execrp_task_msg_t),  1UL );
-  /**/                 fd_topob_link( topo, "admin_replay",  "admin_replay",  32UL,                                     0UL,                           1UL );
-  /**/                 fd_topob_link( topo, "replay_admin",  "admin_replay",  32UL,                                     0UL,                           1UL );
+  /**/                 fd_topob_link( topo, "admin_replay",  "replay",        32UL,                                     0UL,                           1UL );
+  /**/                 fd_topob_link( topo, "replay_admin",  "replay",        32UL,                                     0UL,                           1UL );
   if( FD_LIKELY( failover_enabled ) ) {
     /**/               fd_topob_link( topo, "admin_failov",  "admin_failov",  32UL,                                     FD_FAILOVER_BUS_MTU,           1UL );
     /**/               fd_topob_link( topo, "failov_admin",  "failov_admin",  32UL,                                     FD_FAILOVER_BUS_MTU,           1UL );
@@ -652,10 +646,10 @@ fd_topo_initialize( config_t * config ) {
     FOR(execle_tile_cnt)   fd_topob_link( topo, "execle_poh",    "execle_poh",    4096UL,                                   FD_EXECLE_POH_MTU_TXN( mblk_txn_max ), 1UL );
     FOR(execle_tile_cnt)   fd_topob_link( topo, "pack_execle",   "pack_execle",   128UL,                                     FD_PACK_EXECLE_MTU_TXN( mblk_txn_max ), 1UL ); /* execle returns credits per frag, so this can be shallow enough for pack to keep in cache */
     if( FD_LIKELY( config->tiles.pack.use_consumed_cus ) ) {
-      FOR(execle_tile_cnt) fd_topob_link( topo, "execle_pack",   "execle_pack",   1024UL,                                   FD_PACK_REBATE_MAX_SZ,         1UL );
+      FOR(execle_tile_cnt) fd_topob_link( topo, "execle_pack",   "execle_busy",   1024UL,                                   FD_PACK_REBATE_MAX_SZ,         1UL );
     }
     /**/                   fd_topob_link( topo, "poh_shred",     "poh_shred",     4096UL,                                   FD_POH_SHRED_MTU_TXN( mblk_txn_max ), 1UL );
-    /**/                   fd_topob_link( topo, "poh_replay",    "poh_replay",    4096UL,                                   sizeof(fd_poh_leader_slot_ended_t), 1UL );
+    /**/                   fd_topob_link( topo, "poh_replay",    "motor",         4096UL,                                   sizeof(fd_poh_leader_slot_ended_t), 1UL );
   }
 
   FOR(resolv_tile_cnt) fd_topob_link( topo, "resolv_replay", "resolv_replay", 4096UL,                                   sizeof(fd_resolv_slot_exchanged_t), 1UL );

@@ -200,7 +200,6 @@ snapshot_load_topo( config_t * config ) {
   fd_topob_wksp( topo, "snapdc_in"    );
 
   fd_topob_wksp( topo, "snapin_manif" );
-  fd_topob_wksp( topo, "snapct_repr"  );
 
   fd_topob_wksp( topo, "snapin_ct"    );
 
@@ -208,7 +207,7 @@ snapshot_load_topo( config_t * config ) {
   fd_topob_link( topo, "snapld_dc",    "snapld_dc",    FD_SNAPSHOT_DATA_DEPTH, FD_SNAPSHOT_DATA_MTU,           1UL );
   FOR(snapdc_tile_cnt) fd_topob_link( topo, "snapdc_in", "snapdc_in", FD_SNAPSHOT_DC_IN_DEPTH, FD_SNAPSHOT_DATA_MTU, 1UL );
   fd_topob_link( topo, "snapin_manif", "snapin_manif", 4UL,     sizeof(fd_snapshot_manifest_t), 1UL )->permit_no_consumers = 1;
-  fd_topob_link( topo, "snapct_repr",  "snapct_repr",  128UL,   0UL,                            1UL )->permit_no_consumers = 1;
+  fd_topob_link( topo, "snapct_repr",  "snapct",       128UL,   0UL,                            1UL )->permit_no_consumers = 1;
 
   FOR(snapin_tile_cnt) fd_topob_link( topo, "snapin_ct", "snapin_ct", 128UL, 0UL, 1UL );
   FOR(snapin_tile_cnt) fd_topob_tile_in( topo, "snapct", 0UL, "metric_in", "snapin_ct", i, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
