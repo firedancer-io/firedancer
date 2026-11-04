@@ -550,6 +550,24 @@ fd_accdb_read_one_nocache( fd_accdb_t *       accdb,
                            uchar *            out_data,
                            ulong *            out_data_len );
 
+/* Like fd_accdb_read_one_nocache, but copies at most data_max payload
+   bytes into out_data.  out_data must have room for data_max bytes;
+   out_data_len still receives the full account length.  The owner is always
+   copied in full for a live account.  Missing/dead accounts, return codes,
+   fork visibility, epoch protection and cache validation are unchanged.
+   No cache slot is reserved or populated. */
+
+int
+fd_accdb_read_one_prefix_nocache( fd_accdb_t *       accdb,
+                                  fd_accdb_fork_id_t fork_id,
+                                  uchar const *      pubkey,
+                                  ulong *            out_lamports,
+                                  int *              out_executable,
+                                  uchar *            out_owner,
+                                  uchar *            out_data,
+                                  ulong              data_max,
+                                  ulong *            out_data_len );
+
 /* fd_accdb_lamports returns the lamports of the account at fork_id, or
    zero if the account does not exist. */
 

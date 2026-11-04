@@ -3951,14 +3951,15 @@ fd_accdb_unwrite_one( fd_accdb_t * accdb,
 }
 
 int
-fd_accdb_read_one_nocache( fd_accdb_t *       accdb,
-                           fd_accdb_fork_id_t fork_id,
-                           uchar const *      pubkey,
-                           ulong *            out_lamports,
-                           int *              out_executable,
-                           uchar *            out_owner,
-                           uchar *            out_data,
-                           ulong *            out_data_len ) {
+fd_accdb_read_one_prefix_nocache( fd_accdb_t *       accdb,
+                                  fd_accdb_fork_id_t fork_id,
+                                  uchar const *      pubkey,
+                                  ulong *            out_lamports,
+                                  int *              out_executable,
+                                  uchar *            out_owner,
+                                  uchar *            out_data,
+                                  ulong              data_max,
+                                  ulong *            out_data_len ) {
   /* Publish epoch — protects against compaction freeing the partition
      under us during the preadv2 path.  Readonly joiners publish to a
      separate writable fseq scanned via external_epoch_slots. */
@@ -4006,6 +4007,7 @@ fd_accdb_read_one_nocache( fd_accdb_t *       accdb,
   ulong snap_lamports = accmeta->lamports;
   uint  snap_cidx     = FD_VOLATILE_CONST( accmeta->cache_idx );
   ulong data_len      = (ulong)FD_ACCDB_SIZE_DATA( snap_es );
+  ulong read_len      = fd_ulong_min( data_len, data_max );
   int   executable    = FD_ACCDB_SIZE_EXEC( snap_es );
 
   accdb->metrics->accounts_acquired_per_class[ fd_accdb_cache_class( data_len ) ]++;
@@ -4048,7 +4050,7 @@ fd_accdb_read_one_nocache( fd_accdb_t *       accdb,
       FD_COMPILER_MFENCE();
       fd_racesan_hook( "accdb_nocache:pre_copy" );
       memcpy( out_owner, line->owner, 32UL );
-      memcpy( out_data,  (uchar const *)(line+1UL), data_len );
+      memcpy( out_data,  (uchar const *)(line+1UL), read_len );
       fd_racesan_hook( "accdb_nocache:post_copy" );
       FD_COMPILER_MFENCE();
 
@@ -4065,7 +4067,7 @@ fd_accdb_read_one_nocache( fd_accdb_t *       accdb,
       *out_lamports   = snap_lamports;
       *out_executable = executable;
       *out_data_len   = data_len;
-      accdb->metrics->bytes_copied += data_len;
+      accdb->metrics->bytes_copied += read_len;
       FD_COMPILER_MFENCE();
       FD_VOLATILE( *accdb->my_epoch_slot ) = ULONG_MAX;
       return FD_ACCDB_READ_ONE_NOCACHE_CACHE;
@@ -4096,12 +4098,12 @@ miss:;
 
   struct iovec iovs[ 2 ] = {
     { .iov_base = out_owner, .iov_len = 32UL     },
-    { .iov_base = out_data,  .iov_len = data_len },
+    { .iov_base = out_data,  .iov_len = read_len },
   };
-  ulong total = 32UL+data_len;
+  ulong total = 32UL+read_len;
   ulong start = off+offsetof( fd_accdb_disk_meta_t, owner );
   ulong got   = 0UL;
-  int   nio   = data_len ? 2 : 1;
+  int   nio   = read_len ? 2 : 1;
   while( FD_LIKELY( got<total ) ) {
     long result = preadv2( accdb->fd, iovs, nio, (long)(start+got), 0 );
     if( FD_UNLIKELY( -1==result && (errno==EINTR || errno==EAGAIN || errno==EWOULDBLOCK) ) ) continue;
@@ -4132,6 +4134,20 @@ miss:;
   FD_COMPILER_MFENCE();
   FD_VOLATILE( *accdb->my_epoch_slot ) = ULONG_MAX;
   return FD_ACCDB_READ_ONE_NOCACHE_DISK;
+}
+
+int
+fd_accdb_read_one_nocache( fd_accdb_t *       accdb,
+                           fd_accdb_fork_id_t fork_id,
+                           uchar const *      pubkey,
+                           ulong *            out_lamports,
+                           int *              out_executable,
+                           uchar *            out_owner,
+                           uchar *            out_data,
+                           ulong *            out_data_len ) {
+  return fd_accdb_read_one_prefix_nocache( accdb, fork_id, pubkey, out_lamports,
+                                          out_executable, out_owner, out_data,
+                                          ULONG_MAX, out_data_len );
 }
 
 int

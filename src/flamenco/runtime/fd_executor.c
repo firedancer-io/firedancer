@@ -1398,11 +1398,12 @@ fd_executor_setup_metadata_load_failure( fd_runtime_t *      runtime,
     if( lower>txn_out->details.compute_budget.loaded_accounts_data_size_limit ) break;
   }
 
-  /* A small Loader-v3 Program can add a large implicit ProgramData account,
-     including when no instruction uses the Program.  Inspect only the
-     ordinary 36-byte state here; omit larger or malformed Program states
-     from this bounded lower bound.  Release each read before acquiring the
-     next account, so no locks or cache reservations carry into the payer acquire below.
+  /* A Loader-v3 Program can add a large implicit ProgramData account,
+     including when no instruction uses the Program.  Its decoder accepts
+     trailing bytes, so include padded accounts as well as the ordinary
+     36-byte state.  Read only the owner and 36-byte prefix without filling
+     cache slots or reserving them; larger non-Program accounts must not
+     incur full payload reads in this probe.
 
      Match fd_collect_loaded_account: ownership and Program state matter,
      not the executable bit, and an explicit PD key or another Program alias
@@ -1414,15 +1415,19 @@ fd_executor_setup_metadata_load_failure( fd_runtime_t *      runtime,
     fd_pubkey_t pd_keys[ MAX_TX_ACCOUNT_LOCKS ];
     ulong pd_cnt = 0UL;
     for( ulong i=1UL; i<key_cnt; i++ ) {
-      if( lens[i]!=SIZE_OF_PROGRAM ) continue;
-      fd_acc_t acc = fd_accdb_read_one( runtime->accdb, bank->accdb_fork_id, keys[i].uc );
+      if( lens[i]<SIZE_OF_PROGRAM ) continue;
+      ulong lamports, data_len;
+      int executable;
+      uchar owner[32];
+      uchar prefix[SIZE_OF_PROGRAM];
+      fd_accdb_read_one_prefix_nocache( runtime->accdb, bank->accdb_fork_id, keys[i].uc,
+                                       &lamports, &executable, owner, prefix, sizeof(prefix), &data_len );
       fd_bpf_state_t state[1];
-      int program = acc.lamports && acc.data_len==SIZE_OF_PROGRAM &&
-                    !memcmp( acc.owner, fd_solana_bpf_loader_upgradeable_program_id.uc, 32UL ) &&
-                    !fd_bpf_loader_program_get_state( &acc, state ) && state->discriminant==FD_BPF_STATE_PROGRAM;
+      int program = lamports && data_len>=SIZE_OF_PROGRAM &&
+                    !memcmp( owner, fd_solana_bpf_loader_upgradeable_program_id.uc, 32UL ) &&
+                    !fd_bpf_loader_program_get_state2( prefix, sizeof(prefix), state ) && state->discriminant==FD_BPF_STATE_PROGRAM;
       fd_pubkey_t pd;
       if( program ) pd = state->inner.program.programdata_address;
-      fd_accdb_unread_one( runtime->accdb, &acc );
       if( !program ) continue;
 
       int duplicate = 0;
