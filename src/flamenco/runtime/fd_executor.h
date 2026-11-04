@@ -102,6 +102,16 @@ fd_executor_setup_accounts_for_txn( fd_runtime_t *      runtime,
                                     fd_txn_in_t const * txn_in,
                                     fd_txn_out_t *      txn_out );
 
+/* Try a guaranteed loaded-limit failure using only direct-account lengths.
+   Returns 1 with just the real fee payer acquired, or 0 without acquiring
+   anything.  The caller must still run normal age/status/fee validation and
+   the normal fees-only accounting.  No non-payer fd_acc_t is fabricated. */
+int
+fd_executor_setup_metadata_load_failure( fd_runtime_t *      runtime,
+                                         fd_bank_t *         bank,
+                                         fd_txn_in_t const * txn_in,
+                                         fd_txn_out_t *      txn_out );
+
 void
 fd_executor_setup_accounts_for_txn_bundle( fd_runtime_t *      runtime,
                                            fd_txn_in_t const * txn_in,

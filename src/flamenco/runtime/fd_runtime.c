@@ -1072,11 +1072,13 @@ fd_runtime_pre_execute_check( fd_runtime_t *      runtime,
      earlier bundle transaction can deploy a program, which changes
      whether a pool account parses as a program account, and therefore
      which PD account is being implicitly accounted for. */
+  int metadata_load_failure = 0;
   if( FD_UNLIKELY( txn_in->bundle.is_bundle ) ) {
     fd_executor_setup_accounts_for_txn_bundle( runtime, txn_in, txn_out );
     err = fd_runtime_setup_bundle_executables( runtime, bank, txn_out );
   } else {
-    err = fd_executor_setup_accounts_for_txn( runtime, bank, txn_in, txn_out );
+    metadata_load_failure = fd_executor_setup_metadata_load_failure( runtime, bank, txn_in, txn_out );
+    if( !metadata_load_failure ) err = fd_executor_setup_accounts_for_txn( runtime, bank, txn_in, txn_out );
   }
   if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
     txn_out->err.is_committable = 0;
@@ -1126,7 +1128,15 @@ fd_runtime_pre_execute_check( fd_runtime_t *      runtime,
   }
 
   /* https://github.com/anza-xyz/agave/blob/ced98f1ebe73f7e9691308afa757323003ff744f/svm/src/transaction_processor.rs#L284-L296 */
-  err = fd_executor_load_transaction_accounts( bank, txn_in, txn_out );
+  if( FD_UNLIKELY( metadata_load_failure ) ) {
+    /* The direct-account lower bound guarantees the same load error.
+       Preserve the ordinary feature-dependent fees-only accounting below;
+       never let this observation bypass age/status or fee-payer errors. */
+    txn_out->details.loaded_accounts_data_size = txn_out->details.compute_budget.loaded_accounts_data_size_limit+1UL;
+    err = FD_RUNTIME_TXN_ERR_MAX_LOADED_ACCOUNTS_DATA_SIZE_EXCEEDED;
+  } else {
+    err = fd_executor_load_transaction_accounts( bank, txn_in, txn_out );
+  }
   if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
     /* Regardless of whether transaction accounts were loaded successfully, the transaction is
        included in the block and transaction fees are collected.
@@ -1428,7 +1438,7 @@ commit_txn( fd_runtime_t *      runtime,
 
   if( FD_LIKELY( !txn_out->accounts.is_bundle ) ) {
     fd_accdb_release_ab( runtime->accdb,
-                         txn_out->accounts.cnt, runtime->accounts.account,
+                         runtime->accounts.account_cnt, runtime->accounts.account,
                          runtime->accounts.executable_cnt, runtime->accounts.executable );
     runtime->accounts.executable_cnt = 0UL;
   }
@@ -1463,7 +1473,7 @@ fd_runtime_cancel_txn( fd_runtime_t *      runtime,
   if( FD_UNLIKELY( !txn_out->accounts.is_setup ) ) return;
 
   fd_accdb_release_ab( runtime->accdb,
-                       txn_out->accounts.cnt, runtime->accounts.account,
+                       runtime->accounts.account_cnt, runtime->accounts.account,
                        runtime->accounts.executable_cnt, runtime->accounts.executable );
   runtime->accounts.executable_cnt = 0UL;
 }

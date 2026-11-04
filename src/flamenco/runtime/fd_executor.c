@@ -15,6 +15,7 @@
 #include "program/fd_zk_elgamal_proof_program.h"
 #include "sysvar/fd_sysvar_instructions.h"
 #include "sysvar/fd_sysvar_rent.h"
+#include "sysvar/fd_sysvar_recent_hashes.h"
 
 #include "../log_collector/fd_log_collector.h"
 
@@ -1346,6 +1347,72 @@ fd_executor_setup_accounts_for_txn_bundle( fd_runtime_t *      runtime,
 
   txn_out->accounts.is_setup         = 1;
   txn_out->accounts.nonce_idx_in_txn = ULONG_MAX;
+}
+
+int
+fd_executor_setup_metadata_load_failure( fd_runtime_t *      runtime,
+                                         fd_bank_t *         bank,
+                                         fd_txn_in_t const * txn_in,
+                                         fd_txn_out_t *      txn_out ) {
+  fd_txn_t const * txn = TXN( txn_in->txn );
+  /* Keep small baseline transfers entirely out of the metadata probe.  Seven
+     maximum-size non-payer accounts can exceed the ordinary 64MiB limit.
+     Narrow eligibility also keeps nonce/ALT/bundle and diagnostic consumers
+     on the established fully acquired path. */
+  if( txn->acct_addr_cnt<8UL || txn->acct_addr_cnt>MAX_TX_ACCOUNT_LOCKS ||
+      txn->transaction_version!=FD_TXN_VLEGACY || txn_in->bundle.is_bundle ||
+      runtime->log.capture_ctx || runtime->log.dump_proto_ctx || runtime->log.txn_dump_ctx ||
+      fd_bank_report_runtime_diffs( bank ) ) return 0;
+
+  fd_hash_t const * hash = (fd_hash_t const *)(txn_in->txn->payload+txn->recent_blockhash_off);
+  if( !fd_blockhashes_check_age( &bank->f.block_hash_queue, hash, FD_SYSVAR_RECENT_HASHES_CAP ) ) return 0;
+
+  fd_pubkey_t const * keys = (fd_pubkey_t const *)(txn_in->txn->payload+txn->acct_addr_off);
+  for( ulong i=0UL; i<txn->acct_addr_cnt; i++ ) {
+    if( !memcmp( keys[i].uc, fd_sysvar_instructions_id.uc, 32UL ) ) return 0;
+    for( ulong j=0UL; j<i; j++ ) if( !memcmp( keys[i].uc, keys[j].uc, 32UL ) ) return 0;
+  }
+
+  /* Scheduler account locks and frozen ancestors protect these logical
+     versions; data_len performs its own epoch-protected metadata lookup.
+     Omit base charges, the payer and implicit PD: every omitted contribution
+     is nonnegative.  Without Instructions synthesis the account-loading
+     pass can only fail with the loaded-limit error before program checks.
+     Owner/Program state and payloads are unnecessary for this lower bound. */
+  ulong lower = 0UL;
+  for( ulong i=1UL; i<txn->acct_addr_cnt; i++ ) {
+    lower = fd_ulong_sat_add( lower, fd_accdb_data_len( runtime->accdb, bank->accdb_fork_id, keys[i].uc ) );
+    if( lower>txn_out->details.compute_budget.loaded_accounts_data_size_limit ) break;
+  }
+  if( lower<=txn_out->details.compute_budget.loaded_accounts_data_size_limit ) return 0;
+
+  txn_out->accounts.cnt = (uchar)txn->acct_addr_cnt;
+  fd_memcpy( txn_out->accounts.keys, keys, txn->acct_addr_cnt*sizeof(fd_pubkey_t) );
+  if( fd_executor_validate_account_locks( txn_out ) ) return 0;
+  runtime->accounts.account_cnt = 0UL;
+  runtime->accounts.executable_cnt = 0UL;
+  txn_out->accounts.executable_cnt = 0U;
+  for( ushort i=0; i<txn_out->accounts.cnt; i++ ) {
+    txn_out->accounts.is_writable[i] = (uchar)fd_runtime_account_is_writable_idx( txn_in, txn_out, i );
+    txn_out->accounts.account_acquired[i] = 0U;
+    txn_out->accounts.account[i] = NULL;
+    runtime->accounts.refcnt[i] = 0UL;
+  }
+  uchar const * pubkeys[1] = { txn_out->accounts.keys[FD_FEE_PAYER_TXN_IDX].uc };
+  int writable[1] = { txn_out->accounts.is_writable[FD_FEE_PAYER_TXN_IDX] };
+  int deferred[1] = { 0 };
+  fd_acc_t * payer = runtime->accounts.account;
+  fd_accdb_acquire_a_deferred( runtime->accdb, bank->accdb_fork_id, 1UL, pubkeys, writable, deferred, payer );
+  fd_accdb_acquire_b( runtime->accdb, bank->parent_accdb_fork_id, 1UL, 0UL, pubkeys, runtime->accounts.executable );
+  runtime->accounts.account_cnt = 1UL;
+  txn_out->accounts.account[FD_FEE_PAYER_TXN_IDX] = payer;
+  txn_out->accounts.account_acquired[FD_FEE_PAYER_TXN_IDX] = 1U;
+  txn_out->accounts.starting_lamports[FD_FEE_PAYER_TXN_IDX] = payer->prior_lamports;
+  txn_out->accounts.starting_data_len[FD_FEE_PAYER_TXN_IDX] = payer->prior_data_len;
+  fd_memcpy( &txn_out->accounts.starting_owner[FD_FEE_PAYER_TXN_IDX], payer->owner, 32UL );
+  txn_out->accounts.nonce_idx_in_txn = ULONG_MAX;
+  txn_out->accounts.is_setup = 1;
+  return 1;
 }
 
 int
