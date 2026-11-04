@@ -21,7 +21,7 @@ vote_stakes_iter_kind_for_epoch( fd_bank_t const * bank,
 
 /* Footer cert verification */
 
-/* TBD: this is a copy of the votor's ag_vote_signing_ser so the runtime
+/* TBD: this is a copy of the votor's fd_vote_signing_ser so the runtime
    does not link fd_choreo; keep the two in sync. */
 
 #define VOTE_TAG_NOTAR (1U) /* WireConsensusMessageKind::NotarVote    */
@@ -48,11 +48,11 @@ vote_signing_ser( uint          tag,
 
 struct validator_set {
   ulong          epoch;
-  ulong          validator_cnt;          /* 0 if not built */
+  ulong          validator_cnt;                /* 0 if not built */
   ulong          total_stake;
-  fd_bls_pub_t   key_sum;                /* sum of all keys, unused for a t-1 set */
-  fd_bls_pub_t   bls_keys[ AG_VAT_MAX ]; /* indexed by rank */
-  ulong          stakes  [ AG_VAT_MAX ]; /* indexed by rank */
+  fd_bls_pub_t   key_sum;                      /* sum of all keys, unused for a t-1 set */
+  fd_bls_pub_t   bls_keys[ FD_VOTOR_VAT_MAX ]; /* indexed by rank */
+  ulong          stakes  [ FD_VOTOR_VAT_MAX ]; /* indexed by rank */
 };
 typedef struct validator_set validator_set_t;
 
@@ -88,7 +88,7 @@ validator_set_for_slot( validator_set_t * set,
     fd_vote_stakes_ele_t ele[1];
     fd_vote_stakes_iter_ele( vote_stakes, fork_id, iter_kind, iter, ele );
     if( FD_UNLIKELY( ele->rank==FD_VOTE_STAKES_ALPENGLOW_RANK_NULL ) ) continue;
-    FD_TEST( ele->rank<AG_VAT_MAX );
+    FD_TEST( ele->rank<FD_VOTOR_VAT_MAX );
 
     /* finalize subgroup-checked each ranked key while producing this
        uncompressed encoding, so do not repeat that expensive check here. */
@@ -160,9 +160,9 @@ fd_alpenglow_cert_verify( fd_bank_t const *              bank,
   fd_bls_pub_t pub[1];
   fd_bls_pub_sum_cached( pub, set->bls_keys, set->validator_cnt, cert->signer_set,
                          set->epoch!=ULONG_MAX ? &set->key_sum : NULL );
-  if( FD_UNLIKELY( quorum_numer && (uint128)stake*(uint128)AG_QUORUM_THRESHOLD_DENOM<(uint128)set->total_stake*(uint128)quorum_numer ) ) {
+  if( FD_UNLIKELY( quorum_numer && (uint128)stake*(uint128)FD_VOTOR_QUORUM_THRESHOLD_DENOM<(uint128)set->total_stake*(uint128)quorum_numer ) ) {
     FD_LOG_WARNING(( "slot %lu: footer cert for slot %lu has %lu of %lu stake, below %lu/%lu",
-                     bank_slot, cert_slot, stake, set->total_stake, quorum_numer, AG_QUORUM_THRESHOLD_DENOM ));
+                     bank_slot, cert_slot, stake, set->total_stake, quorum_numer, FD_VOTOR_QUORUM_THRESHOLD_DENOM ));
     return -1;
   }
 
@@ -196,10 +196,10 @@ fd_alpenglow_footer_certs( fd_block_footer_t const *      footer,
                            ulong                          quorum[ static FD_ALPENGLOW_FOOTER_CERT_MAX ] ) {
   ulong n = 0UL;
 # define PUSH(c,t,q) do { cert[ n ] = (c); tag[ n ] = (t); quorum[ n ] = (q); n++; } while(0)
-  if( footer->has_fast_final_cert   ) PUSH( &footer->fast_final_cert,   VOTE_TAG_NOTAR, AG_STRONG_QUORUM_THRESHOLD_NUMER );
+  if( footer->has_fast_final_cert   ) PUSH( &footer->fast_final_cert,   VOTE_TAG_NOTAR, FD_VOTOR_STRONG_QUORUM_THRESHOLD_NUMER );
   if( footer->has_final_cert        ) {
-    PUSH( &footer->final_cert, VOTE_TAG_FINAL, AG_QUORUM_THRESHOLD_NUMER );
-    PUSH( &footer->notar_cert, VOTE_TAG_NOTAR, AG_QUORUM_THRESHOLD_NUMER );
+    PUSH( &footer->final_cert, VOTE_TAG_FINAL, FD_VOTOR_QUORUM_THRESHOLD_NUMER );
+    PUSH( &footer->notar_cert, VOTE_TAG_NOTAR, FD_VOTOR_QUORUM_THRESHOLD_NUMER );
   }
   if( footer->has_skip_reward_cert  ) PUSH( &footer->skip_reward_cert,  VOTE_TAG_SKIP,  0UL );
   if( footer->has_notar_reward_cert ) PUSH( &footer->notar_reward_cert, VOTE_TAG_NOTAR, 0UL );
@@ -578,7 +578,7 @@ ranked_ele( fd_bank_t const *      bank,
   }
   }
   if( FD_UNLIKELY( !found || ele->rank==FD_VOTE_STAKES_ALPENGLOW_RANK_NULL ) ) return 0;
-  FD_TEST( ele->rank<AG_VAT_MAX );
+  FD_TEST( ele->rank<FD_VOTOR_VAT_MAX );
   return 1;
 }
 
@@ -751,7 +751,7 @@ fd_alpenglow_rewards_apply_slice( fd_bank_t *                         bank,
       fd_vote_stakes_ele_t ele[1];
       fd_vote_stakes_iter_ele( vote_stakes, bank->vote_stakes_fork_id, iter_kind, iter, ele );
       if( FD_UNLIKELY( ele->rank==FD_VOTE_STAKES_ALPENGLOW_RANK_NULL ) ) continue;
-      FD_TEST( ele->rank<AG_VAT_MAX );
+      FD_TEST( ele->rank<FD_VOTOR_VAT_MAX );
       have_ranked_vote = 1;
       ulong r      = (ulong)ele->rank;
       int   in_rwd = rwd && fd_bls_set_test( plan->reward_set, r );

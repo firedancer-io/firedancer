@@ -100,7 +100,7 @@
    end.  Our own telemetry data of finishing pack => shredding last
    batch suggests roughly the same delay, so we mirror the constant. */
 
-#define AG_TIME_TO_COMPLETE_BROADCAST_NS (6000000L)
+#define FD_TIME_TO_COMPLETE_BROADCAST_NS (6000000L)
 
 #define IN_KIND_SNAP       ( 0)
 #define IN_KIND_GENESIS    ( 1)
@@ -416,23 +416,23 @@ replay_voter_rank( fd_replay_tile_t * ctx,
   return rank;
 }
 
-/* ag_rank_is_current returns 1 if the rank's last observed vote is
+/* fd_rank_is_current returns 1 if the rank's last observed vote is
    recent enough. */
 
 static inline int
-ag_rank_is_current( ulong last_settled,
+fd_rank_is_current( ulong last_settled,
                     ulong rank_last_voted ) {
   return fd_ulong_sat_sub( last_settled, rank_last_voted )<DELINQUENT_VALIDATOR_SLOT_DISTANCE;
 }
 
-/* ag_delinquent_epoch_roll clears the rank table when the epoch
+/* fd_delinquent_epoch_roll clears the rank table when the epoch
    advances and raises the settled watermark.  Ranks are remapped across
    the rollover, so the previous epoch's figure no longer describes the
    current stake set and reads unknown until a sample repopulates the
    table.  The watermark cannot regress. */
 
 static void
-ag_delinquent_epoch_roll( fd_replay_tile_t * ctx,
+fd_delinquent_epoch_roll( fd_replay_tile_t * ctx,
                           ulong              reward_slot,
                           ulong              reward_epoch ) {
   if( FD_UNLIKELY( ctx->ag_last_voted_epoch==ULONG_MAX ||
@@ -445,11 +445,11 @@ ag_delinquent_epoch_roll( fd_replay_tile_t * ctx,
   ctx->ag_last_settled = fd_ulong_max( ctx->ag_last_settled, reward_slot );
 }
 
-/* ag_update_delinquent stamps the reward cert's signers into
+/* fd_update_delinquent stamps the reward cert's signers into
    ag_last_voted and recomputes delinquent stake. */
 
 static void
-ag_update_delinquent( fd_replay_tile_t *   ctx,
+fd_update_delinquent( fd_replay_tile_t *   ctx,
                       fd_bank_t const *    bank,
                       ulong                reward_slot,
                       ulong                reward_epoch,
@@ -462,7 +462,7 @@ ag_update_delinquent( fd_replay_tile_t *   ctx,
   /* Roll on the fork's epoch, not the cert's: the cert trails the bank
      by FD_NUM_SLOTS_FOR_REWARD slots, so it still names the old epoch
      over the first slots of a new one. */
-  ag_delinquent_epoch_roll( ctx, ctx->ag_last_settled, fork_epoch );
+  fd_delinquent_epoch_roll( ctx, ctx->ag_last_settled, fork_epoch );
 
   /* Only T-2 exposes stake and is_valid. */
   if( FD_UNLIKELY( reward_epoch!=fork_epoch ) ) return;
@@ -473,7 +473,7 @@ ag_update_delinquent( fd_replay_tile_t *   ctx,
                    reward_epoch<ctx->ag_last_voted_epoch ) ) return;
 
   /* Raise the watermark, so stamps age out as certs settle. */
-  ag_delinquent_epoch_roll( ctx, reward_slot, reward_epoch );
+  fd_delinquent_epoch_roll( ctx, reward_slot, reward_epoch );
 
   /* An empty cert is absence of evidence, so it stamps nothing.  With no
      figure yet there is nothing to age either, but once one is known the
@@ -488,7 +488,7 @@ ag_update_delinquent( fd_replay_tile_t *   ctx,
   for( ulong rank=fd_bls_set_const_iter_init( reward_set );
        !fd_bls_set_const_iter_done( rank );
        rank=fd_bls_set_const_iter_next( reward_set, rank ) ) {
-    if( FD_UNLIKELY( rank>=AG_VAT_MAX ) ) break; /* FD_BLS_SET_MAX is sized separately */
+    if( FD_UNLIKELY( rank>=FD_VOTOR_VAT_MAX ) ) break; /* FD_BLS_SET_MAX is sized separately */
     ctx->ag_last_voted[ rank ] = fd_ulong_max( ctx->ag_last_voted[ rank ], reward_slot );
   }
 
@@ -511,10 +511,10 @@ ag_update_delinquent( fd_replay_tile_t *   ctx,
     ulong  stake = ele->stake;
     ushort rank  = ele->rank;
     if( FD_UNLIKELY( !ele->is_valid || rank==FD_VOTE_STAKES_ALPENGLOW_RANK_NULL ) ) continue;
-    FD_TEST( rank<AG_VAT_MAX );
+    FD_TEST( rank<FD_VOTOR_VAT_MAX );
 
     total += stake;
-    if( FD_UNLIKELY( !ag_rank_is_current( ctx->ag_last_settled, ctx->ag_last_voted[ rank ] ) ) ) {
+    if( FD_UNLIKELY( !fd_rank_is_current( ctx->ag_last_settled, ctx->ag_last_voted[ rank ] ) ) ) {
       delinquent += stake;
     }
   }
@@ -551,7 +551,7 @@ replay_reward_cert_voted( fd_replay_tile_t * ctx,
   if( FD_LIKELY( footer->has_notar_reward_cert ) ) fd_bls_set_union( reward_set, reward_set, footer->notar_reward_cert.signer_set );
   *count_out = (ushort)fd_bls_set_cnt( reward_set );
 
-  ag_update_delinquent( ctx, bank, reward_slot, reward_epoch, reward_set );
+  fd_update_delinquent( ctx, bank, reward_slot, reward_epoch, reward_set );
 
   if( FD_UNLIKELY( rank==USHORT_MAX ) ) return 0;
 
@@ -1102,16 +1102,16 @@ update_metric_balances( fd_replay_tile_t * ctx,
 
 static void
 try_advance_root( fd_replay_tile_t * ctx,
-                  ag_block_id_t      finalized_block_id ) {
+                  fd_block_id_t      finalized_block_id ) {
 
   if( FD_UNLIKELY( finalized_block_id.slot<=ctx->consensus_root_slot ) ) return;
 
   if( FD_UNLIKELY( fd_bhm_map_ele_query( ctx->bhm_map, &finalized_block_id, NULL, ctx->bhm_pool ) ) ) {
-    FD_BASE58_ENCODE_32_BYTES( finalized_block_id.hash, block_id_b58 );
+    FD_BASE58_ENCODE_32_BYTES( finalized_block_id.hash.uc, block_id_b58 );
     FD_LOG_ERR(( "HARD FORK DETECTED for slot %lu block ID `%s`", finalized_block_id.slot, block_id_b58 ));
   }
 
-  ag_block_id_t ancestor_block_id = finalized_block_id;
+  fd_block_id_t ancestor_block_id = finalized_block_id;
   fd_bank_t *   finalized_bank    = NULL;
 
   while( FD_LIKELY( ancestor_block_id.slot>ctx->consensus_root_slot ) ) {
@@ -1122,9 +1122,9 @@ try_advance_root( fd_replay_tile_t * ctx,
     ancestor_block_id = ctx->block_id_arr[ bank->parent_idx ].block_info;
   }
 
-  if( FD_LIKELY( ancestor_block_id.slot==ctx->consensus_root_slot && !memcmp( ancestor_block_id.hash, ctx->consensus_root.uc, sizeof(fd_hash_t) ) ) ) {
+  if( FD_LIKELY( ancestor_block_id.slot==ctx->consensus_root_slot && !memcmp( &ancestor_block_id.hash, ctx->consensus_root.uc, sizeof(fd_hash_t) ) ) ) {
     ctx->consensus_root_slot = finalized_block_id.slot;
-    memcpy( ctx->consensus_root.uc, finalized_block_id.hash, sizeof(fd_hash_t) );
+    memcpy( ctx->consensus_root.uc, &finalized_block_id.hash, sizeof(fd_hash_t) );
     if( FD_UNLIKELY( ctx->next_leader_slot!=ULONG_MAX && finalized_block_id.slot>ctx->votor_leader->parent_slot ) ) ctx->next_leader_slot = ULONG_MAX;
     update_metric_balances( ctx, finalized_bank ); /* Alpenglow has no optimistic confirmation */
     return;
@@ -1302,7 +1302,7 @@ publish_slot_completed( fd_replay_tile_t *        ctx,
   if( FD_LIKELY( !is_initial ) ) report_block_completed( ctx, bank, is_leader, slot_info );
   timing_slot_release( ctx, bank->idx );
 
-  if( FD_UNLIKELY( slot==ctx->finalized_block_id_lo.slot && !memcmp( block_id.uc, ctx->finalized_block_id_lo.hash, sizeof(fd_hash_t) ) ) ) { /* finalized ahead of replay, replay caught up */
+  if( FD_UNLIKELY( slot==ctx->finalized_block_id_lo.slot && !memcmp( block_id.uc, &ctx->finalized_block_id_lo.hash, sizeof(fd_hash_t) ) ) ) { /* finalized ahead of replay, replay caught up */
     try_advance_root( ctx, ctx->finalized_block_id_lo );
     ctx->finalized_block_id_lo = ctx->finalized_block_id_hi; /* hi becomes lo once lo is reached */
   }
@@ -1570,8 +1570,8 @@ construct_footer_certs( fd_replay_tile_t const * ctx,
                         ulong                    migration_slot,
                         fd_block_footer_t *      footer ) {
   fd_votor_certed_t const * fin = ctx->votor_final;
-  int use_fast = fin->slot!=ULONG_MAX && fin->kind==AG_CERT_KIND_FAST_FINAL;
-  int use_slow = fin->slot!=ULONG_MAX && fin->kind==AG_CERT_KIND_FINAL;
+  int use_fast = fin->slot!=ULONG_MAX && fin->kind==FD_CERT_KIND_FAST_FINAL;
+  int use_slow = fin->slot!=ULONG_MAX && fin->kind==FD_CERT_KIND_FINAL;
 
   footer->has_fast_final_cert = use_fast;
   footer->has_final_cert      = use_slow;
@@ -1587,7 +1587,7 @@ construct_footer_certs( fd_replay_tile_t const * ctx,
                   leader_slot>=migration_slot+FD_NUM_SLOTS_FOR_REWARD+1UL;
   if( FD_LIKELY( reward_ok ) ) {
     ulong                     reward_slot = leader_slot-FD_NUM_SLOTS_FOR_REWARD;
-    fd_votor_reward_t const * reward      = &ctx->votor_reward[ reward_slot%(FD_NUM_SLOTS_FOR_REWARD+AG_SLOTS_PER_WINDOW+1UL) ];
+    fd_votor_reward_t const * reward      = &ctx->votor_reward[ reward_slot%(FD_NUM_SLOTS_FOR_REWARD+FD_VOTOR_SLOTS_PER_WINDOW+1UL) ];
     footer->has_notar_reward_cert = reward->slot==reward_slot && !fd_bls_set_is_null( reward->agg_notar.set ) && fd_block_footer_cert_from_agg( &footer->notar_reward_cert, reward_slot, reward->block_id.uc, &reward->agg_notar );
     footer->has_skip_reward_cert  = reward->slot==reward_slot && !fd_bls_set_is_null( reward->agg_skip.set  ) && fd_block_footer_cert_from_agg( &footer->skip_reward_cert,  reward_slot, NULL,                &reward->agg_skip  );
   }
@@ -1627,7 +1627,7 @@ try_become_leader( fd_replay_tile_t *  ctx,
 
   ulong             parent_slot     = ctx->votor_leader->parent_slot;
   fd_hash_t const * parent_block_id = &ctx->votor_leader->parent_block_id;
-  ag_block_id_t     parent_key      = ag_block_id( parent_slot, parent_block_id->uc );
+  fd_block_id_t     parent_key      = fd_block_id( parent_slot, parent_block_id->uc );
 
   fd_block_id_ele_t * block_id_ele = fd_block_id_map_ele_query( ctx->block_id_map, &parent_key, NULL, ctx->block_id_arr );
   if( FD_UNLIKELY( !block_id_ele ) ) return 0;
@@ -1666,7 +1666,7 @@ try_become_leader( fd_replay_tile_t *  ctx,
 
   /* The cluster already produced a slot of this window, eg. our own
      past slots replayed during catch-up after a restart. */
-  ulong window_end = ctx->next_leader_slot - ctx->next_leader_slot%AG_SLOTS_PER_WINDOW + AG_SLOTS_PER_WINDOW;
+  ulong window_end = ctx->next_leader_slot - ctx->next_leader_slot%FD_VOTOR_SLOTS_PER_WINDOW + FD_VOTOR_SLOTS_PER_WINDOW;
   for( ulong idx=0UL; idx<ctx->block_id_len; idx++ ) {
     fd_block_id_ele_t const * ele = &ctx->block_id_arr[ idx ];
     if( FD_LIKELY( ele->slot<ctx->next_leader_slot || ele->slot>=window_end ) ) continue;
@@ -1768,8 +1768,8 @@ try_become_leader( fd_replay_tile_t *  ctx,
      ParentReady.  If that is already past, end at once rather than run
      into votor's skip timeout. */
   long slot_end_ns = ctx->votor_leader->parent_ready_ns
-                   + (long)( ( ctx->next_leader_slot%AG_SLOTS_PER_WINDOW+1UL )*bank->f.slot_params.ns_per_slot )
-                   - (long)FD_TARGET_SLOT_ADJUSTMENT_NS - AG_TIME_TO_COMPLETE_BROADCAST_NS;
+                   + (long)( ( ctx->next_leader_slot%FD_VOTOR_SLOTS_PER_WINDOW+1UL )*bank->f.slot_params.ns_per_slot )
+                   - (long)FD_TARGET_SLOT_ADJUSTMENT_NS - FD_TIME_TO_COMPLETE_BROADCAST_NS;
 
   fd_became_leader_t * msg = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
   msg->slot                = ctx->next_leader_slot;
@@ -1829,10 +1829,10 @@ replay_block_complete( fd_replay_tile_t *        ctx,
        finalized_block_id_lo/hi.  Rotor may also have detected the block
        is finalized, on its delivery or a redelivery, so check the
        block_id_ele. */
-    ag_block_id_t const * block_id = &ctx->block_id_arr[ bank->idx ].block_info;
-    if( FD_UNLIKELY( ag_block_id_eq( block_id, &ctx->finalized_block_id_lo ) || ag_block_id_eq( block_id, &ctx->finalized_block_id_hi )
+    fd_block_id_t const * block_id = &ctx->block_id_arr[ bank->idx ].block_info;
+    if( FD_UNLIKELY( fd_block_id_eq( block_id, &ctx->finalized_block_id_lo ) || fd_block_id_eq( block_id, &ctx->finalized_block_id_hi )
                      || ctx->block_id_arr[ bank->idx ].finalized ) ) {
-      FD_BASE58_ENCODE_32_BYTES( block_id->hash, block_id_b58 );
+      FD_BASE58_ENCODE_32_BYTES( block_id->hash.uc, block_id_b58 );
       FD_LOG_ERR(( "HARD FORK DETECTED for slot %lu block ID `%s`", block_id->slot, block_id_b58 ));
     }
 
@@ -1884,8 +1884,8 @@ replay_block_complete( fd_replay_tile_t *        ctx,
   publish_slot_completed( ctx, stem, bank, 0, 0 /* is_leader */, execution_fees_pre_settle, priority_fees_pre_settle, footer );
 
   /* The footer's finalization cert can also finalize. */
-  if( footer->has_fast_final_cert ) { try_advance_root( ctx, ag_block_id( footer->fast_final_cert.slot, footer->fast_final_cert.block_id.uc ) ); }
-  else if( footer->has_final_cert ) { try_advance_root( ctx, ag_block_id( footer->final_cert.slot,      footer->notar_cert.block_id.uc      ) ); }
+  if( footer->has_fast_final_cert ) { try_advance_root( ctx, fd_block_id( footer->fast_final_cert.slot, footer->fast_final_cert.block_id.uc ) ); }
+  else if( footer->has_final_cert ) { try_advance_root( ctx, fd_block_id( footer->final_cert.slot,      footer->notar_cert.block_id.uc      ) ); }
 
   /* If enabled, dump the block to a file and reset the dumping
      context state */
@@ -2140,7 +2140,7 @@ try_fini_leader( fd_replay_tile_t *  ctx,
   ctx->recv_poh    = 0;
   ctx->is_leader   = 0;
 
-  if( FD_UNLIKELY( ctx->next_leader_slot==ULONG_MAX && (curr_slot+1UL)%AG_SLOTS_PER_WINDOW ) ) {
+  if( FD_UNLIKELY( ctx->next_leader_slot==ULONG_MAX && (curr_slot+1UL)%FD_VOTOR_SLOTS_PER_WINDOW ) ) {
     *ctx->votor_leader = (fd_votor_leader_t){
       .slot            = curr_slot+1UL,
       .parent_slot     = curr_slot,
@@ -2507,7 +2507,7 @@ boot_genesis( fd_replay_tile_t *        ctx,
 
   ctx->consensus_root          = ctx->initial_block_id;
   ctx->consensus_root_slot     = 0UL;
-  ctx->finalized_block_id_lo   = ag_block_id( 0UL, ctx->initial_block_id.uc );
+  ctx->finalized_block_id_lo   = fd_block_id( 0UL, ctx->initial_block_id.uc );
   ctx->finalized_block_id_hi   = ctx->finalized_block_id_lo;
   ctx->notified_root           = ctx->initial_block_id;
   ctx->notified_root_slot      = 0UL;
@@ -2543,7 +2543,7 @@ boot_genesis( fd_replay_tile_t *        ctx,
   block_id_ele->bank_seq       = bank->bank_seq;
   block_id_ele->block_id_seen  = 1;
   block_id_ele->latest_fec_idx = 0U;
-  block_id_ele->block_info     = ag_block_id( 0UL, initial_block_id.uc );
+  block_id_ele->block_info     = fd_block_id( 0UL, initial_block_id.uc );
   bank->f.block_id             = initial_block_id;
   FD_TEST( fd_block_id_map_ele_insert( ctx->block_id_map, block_id_ele, ctx->block_id_arr ) );
 
@@ -2710,7 +2710,7 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
 
     ctx->consensus_root          = manifest_block_id;
     ctx->consensus_root_slot     = snapshot_slot;
-    ctx->finalized_block_id_lo   = ag_block_id( snapshot_slot, manifest_block_id.uc );
+    ctx->finalized_block_id_lo   = fd_block_id( snapshot_slot, manifest_block_id.uc );
     ctx->finalized_block_id_hi   = ctx->finalized_block_id_lo;
     ctx->notified_root           = manifest_block_id;
     ctx->notified_root_slot      = snapshot_slot;
@@ -2743,7 +2743,7 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
     block_id_ele->latest_fec_idx = 0U;
     bank->f.block_id             = manifest_block_id;
 
-    block_id_ele->block_info = ag_block_id( snapshot_slot, manifest_block_id.uc );
+    block_id_ele->block_info = fd_block_id( snapshot_slot, manifest_block_id.uc );
     FD_TEST( fd_block_id_map_ele_insert( ctx->block_id_map, block_id_ele, ctx->block_id_arr ) );
 
     /* We call this after fd_runtime_read_genesis, which sets up the
@@ -2966,7 +2966,7 @@ mark_bank_dead( fd_replay_tile_t *        ctx,
 
   fd_block_id_ele_t * block_id_ele = &ctx->block_id_arr[ bank_idx ];
   if( block_id_ele->block_id_seen ) publish_slot_dead( ctx, stem, block_id_ele->slot, &block_id_ele->dmr, footer );
-  else if( dead_reason!=FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_NOT_DEAD && !memcmp( block_id_ele->block_info.hash, ((fd_hash_t){0}).uc, sizeof(fd_hash_t) ) ) publish_slot_dead( ctx, stem, block_id_ele->slot, &(fd_hash_t){ 0 }, footer ); /* an incomplete turbine copy, keyed {slot,0}: rotor frees its eager blk */
+  else if( dead_reason!=FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_NOT_DEAD && !memcmp( &block_id_ele->block_info.hash, ((fd_hash_t){0}).uc, sizeof(fd_hash_t) ) ) publish_slot_dead( ctx, stem, block_id_ele->slot, &(fd_hash_t){ 0 }, footer ); /* an incomplete turbine copy, keyed {slot,0}: rotor frees its eager blk */
 
   /* Report each newly dead bank now (dead_idxs excludes already-dead,
      already-reported subtrees): the failing bank with its real reason and
@@ -3107,12 +3107,12 @@ can_process_rotor_fec( fd_replay_tile_t       * ctx,
   {
     fd_block_id_ele_t * self = NULL;
     if( FD_LIKELY( !fd_hash_check_zero( &fec->block_id ) ) ) {
-      ag_block_id_t self_key = ag_block_id( fec->slot, fec->block_id.uc );
+      fd_block_id_t self_key = fd_block_id( fec->slot, fec->block_id.uc );
       self = live_block_id_ele( ctx, fd_block_id_map_ele_query( ctx->block_id_map, &self_key, NULL, ctx->block_id_arr ) );
       if( FD_UNLIKELY( self && !self->block_id_seen && !fec->known_id ) ) self = NULL;
     }
     if( FD_LIKELY( !self && !fec->known_id ) ) {
-      ag_block_id_t self_key = { .slot = fec->slot };
+      fd_block_id_t self_key = { .slot = fec->slot };
       self = live_block_id_ele( ctx, fd_block_id_map_ele_query( ctx->block_id_map, &self_key, NULL, ctx->block_id_arr ) );
     }
     if( FD_UNLIKELY( self && ( self->block_id_seen || self->latest_fec_idx>=fec->fec_set_idx ) ) ) return PROCESS_FEC_SKIP;
@@ -3132,7 +3132,7 @@ can_process_rotor_fec( fd_replay_tile_t       * ctx,
   ulong               parent_bank_idx = UINT_MAX;
   fd_block_id_ele_t * parent          = NULL;
   if( FD_UNLIKELY( fec->fec_set_idx==0 ) ) {
-    ag_block_id_t parent_key = ag_block_id( fec->parent_slot, fec->parent_block_id.uc );
+    fd_block_id_t parent_key = fd_block_id( fec->parent_slot, fec->parent_block_id.uc );
     parent = fd_block_id_map_ele_query( ctx->block_id_map, &parent_key, NULL, ctx->block_id_arr );
     if( FD_UNLIKELY( !parent ) ) {
       FD_BASE58_ENCODE_32_BYTES( fec->parent_block_id.uc, parent_key_b58 );
@@ -3148,8 +3148,8 @@ can_process_rotor_fec( fd_replay_tile_t       * ctx,
     }
     parent_bank_idx = fd_block_id_ele_get_idx( ctx->block_id_arr, parent );
   } else {
-    ag_block_id_t key = { .slot = fec->slot };
-    if( FD_LIKELY( fec->known_id ) ) key = ag_block_id( fec->slot, fec->block_id.uc );
+    fd_block_id_t key = { .slot = fec->slot };
+    if( FD_LIKELY( fec->known_id ) ) key = fd_block_id( fec->slot, fec->block_id.uc );
 
     parent = fd_block_id_map_ele_query( ctx->block_id_map, &key, NULL, ctx->block_id_arr );
     if( FD_UNLIKELY( !parent ) ) {
@@ -3273,7 +3273,7 @@ try_notify_consensus_root( fd_replay_tile_t *  ctx,
   if( FD_LIKELY( ctx->notified_root_slot==ctx->consensus_root_slot &&
                  fd_hash_eq( &ctx->notified_root, &ctx->consensus_root ) ) ) return 0;
 
-  ag_block_id_t root_key = ag_block_id( ctx->consensus_root_slot, ctx->consensus_root.uc );
+  fd_block_id_t root_key = fd_block_id( ctx->consensus_root_slot, ctx->consensus_root.uc );
   fd_block_id_ele_t * block_id_ele = fd_block_id_map_ele_query( ctx->block_id_map, &root_key, NULL, ctx->block_id_arr );
   if( FD_UNLIKELY( !block_id_ele ) ) return 0;
 
@@ -3370,7 +3370,7 @@ try_advance_published_root( fd_replay_tile_t *  ctx,
   /* If the new root is not available because the bank is/has been
      evicted, we can't advance the root.  Try again later. */
 
-  ag_block_id_t consensus_root_key = ag_block_id( ctx->consensus_root_slot, ctx->consensus_root.uc );
+  fd_block_id_t consensus_root_key = fd_block_id( ctx->consensus_root_slot, ctx->consensus_root.uc );
   fd_block_id_ele_t * block_id_ele = fd_block_id_map_ele_query( ctx->block_id_map, &consensus_root_key, NULL, ctx->block_id_arr );
   if( FD_UNLIKELY( !block_id_ele ) ) return 0;
   fd_bank_t * target_bank = fd_banks_bank_query( ctx->banks, fd_block_id_ele_get_idx( ctx->block_id_arr, block_id_ele ) );
@@ -3823,7 +3823,7 @@ process_rotor_fec( fd_replay_tile_t       * ctx,
 
   ulong parent_bank_idx = ULONG_MAX;
   if( FD_UNLIKELY( fec->fec_set_idx==0 ) ) {
-    ag_block_id_t parent_key = ag_block_id( fec->parent_slot, fec->parent_block_id.uc );
+    fd_block_id_t parent_key = fd_block_id( fec->parent_slot, fec->parent_block_id.uc );
     fd_block_id_ele_t * parent = fd_block_id_map_ele_query( ctx->block_id_map, &parent_key, NULL, ctx->block_id_arr );
     FD_TEST( parent );
     parent_bank_idx = fd_block_id_ele_get_idx( ctx->block_id_arr, parent );
@@ -3835,9 +3835,9 @@ process_rotor_fec( fd_replay_tile_t       * ctx,
        the FEC will have the computed DMR.  We first try to replay
        this FEC on a bank keyed with the computed DMR - if it doesn't
        exist, it must belong to the original turbine version. */
-    ag_block_id_t key = { .slot = fec->slot };
+    fd_block_id_t key = { .slot = fec->slot };
     if( FD_LIKELY( fec->known_id ) ) {
-      key = ag_block_id( fec->slot, fec->block_id.uc );
+      key = fd_block_id( fec->slot, fec->block_id.uc );
     }
 
     fd_block_id_ele_t * parent = fd_block_id_map_ele_query( ctx->block_id_map, &key, NULL, ctx->block_id_arr );
@@ -3895,7 +3895,7 @@ process_rotor_fec( fd_replay_tile_t       * ctx,
     block_id_ele->latest_fec_idx = 0U;
     block_id_ele->fec_cnt        = 0U;
     block_id_ele->finalized      = 0;
-    block_id_ele->block_info     = fec->known_id ? ag_block_id( fec->slot, fec->block_id.uc ) : (ag_block_id_t){ .slot = fec->slot };
+    block_id_ele->block_info     = fec->known_id ? fd_block_id( fec->slot, fec->block_id.uc ) : (fd_block_id_t){ .slot = fec->slot };
 
     /* If this fec 0 is rebuilding an evicted block (recovery redelivery),
        the evicted bank's stale map entry may still hold this key at a
@@ -3940,7 +3940,7 @@ process_rotor_fec( fd_replay_tile_t       * ctx,
        rebuilt through recovery redelivery.  Evict the stale entry before
        inserting. */
     FD_TEST( fd_block_id_map_ele_remove( ctx->block_id_map, &block_id_ele->block_info, NULL, ctx->block_id_arr )==block_id_ele );
-    ag_block_id_t key = ag_block_id( fec->slot, fec->block_id.uc );
+    fd_block_id_t key = fd_block_id( fec->slot, fec->block_id.uc );
     block_id_ele->block_info = key;
     fd_block_id_map_ele_remove( ctx->block_id_map, &key, NULL, ctx->block_id_arr ); // evicted / stale entry
     FD_TEST( fd_block_id_map_ele_insert( ctx->block_id_map, block_id_ele, ctx->block_id_arr ) );
@@ -4347,13 +4347,13 @@ returnable_frag( fd_replay_tile_t *  ctx,
         fd_votor_certed_t const * certed = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
         fd_votor_certed_t *       fin    = ctx->votor_final;
         switch( certed->kind ) {
-        case AG_CERT_KIND_FINAL:
+        case FD_CERT_KIND_FINAL:
           if( fin->slot==ULONG_MAX || certed->slot>fin->slot ) *fin = *certed;
-          try_advance_root( ctx, ag_block_id( certed->slot, certed->block_id.uc ) );
+          try_advance_root( ctx, fd_block_id( certed->slot, certed->block_id.uc ) );
           break;
-        case AG_CERT_KIND_FAST_FINAL: /* fast beats slow at the same slot */
-          if( fin->slot==ULONG_MAX || certed->slot>fin->slot || ( certed->slot==fin->slot && fin->kind==AG_CERT_KIND_FINAL ) ) *fin = *certed;
-          try_advance_root( ctx, ag_block_id( certed->slot, certed->block_id.uc ) );
+        case FD_CERT_KIND_FAST_FINAL: /* fast beats slow at the same slot */
+          if( fin->slot==ULONG_MAX || certed->slot>fin->slot || ( certed->slot==fin->slot && fin->kind==FD_CERT_KIND_FINAL ) ) *fin = *certed;
+          try_advance_root( ctx, fd_block_id( certed->slot, certed->block_id.uc ) );
           break;
         default: break;
         }
@@ -4363,21 +4363,21 @@ returnable_frag( fd_replay_tile_t *  ctx,
       } else if( FD_UNLIKELY( sig==FD_VOTOR_SIG_QUORUM ) ) {
         fd_votor_quorum_t const * quorum = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
         if( FD_UNLIKELY( quorum->kind==FD_VOTOR_QUORUM_KIND_IMPLICITLY_FINALIZED ) ) {
-          ag_block_id_t block_id = ag_block_id( quorum->slot, quorum->block_id.uc );
+          fd_block_id_t block_id = fd_block_id( quorum->slot, quorum->block_id.uc );
           if( FD_UNLIKELY( fd_bhm_map_ele_query( ctx->bhm_map, &block_id, NULL, ctx->bhm_pool ) ) ) {
-            FD_BASE58_ENCODE_32_BYTES( block_id.hash, block_id_b58 );
+            FD_BASE58_ENCODE_32_BYTES( block_id.hash.uc, block_id_b58 );
             FD_LOG_ERR(( "HARD FORK DETECTED for slot %lu block ID `%s`", block_id.slot, block_id_b58 ));
           }
         }
       } else if( FD_UNLIKELY( sig==FD_VOTOR_SIG_REWARD ) ) {
         fd_votor_reward_t const * reward = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
-        fd_votor_reward_t *       ring   = &ctx->votor_reward[ reward->slot%(FD_NUM_SLOTS_FOR_REWARD+AG_SLOTS_PER_WINDOW+1UL) ];
+        fd_votor_reward_t *       ring   = &ctx->votor_reward[ reward->slot%(FD_NUM_SLOTS_FOR_REWARD+FD_VOTOR_SLOTS_PER_WINDOW+1UL) ];
         if( ring->slot==ULONG_MAX || reward->slot>=ring->slot ) *ring = *reward;
       }
       break;
     }
     case IN_KIND_REPAIR: {
-      if( FD_UNLIKELY( sig!=ROTOR_SIG_FEC_REPLAY ) ) break;
+      if( FD_UNLIKELY( sig!=REPAIR_SIG_FEC_REPLAY ) ) break;
 
       /* process rotor incoming FECs. 1 to keep frag for retry, returning 0 consumes it. */
 
@@ -4387,9 +4387,9 @@ returnable_frag( fd_replay_tile_t *  ctx,
       /* Rare case where we replayed a slot completely, but on re-delivery
          we discover the FEC is finalized. */
       if( FD_UNLIKELY( fec->finalized && fec->slot_complete ) ) {
-        ag_block_id_t key = ag_block_id( fec->slot, fec->block_id.uc );
+        fd_block_id_t key = fd_block_id( fec->slot, fec->block_id.uc );
         if( FD_UNLIKELY( fd_bhm_map_ele_query( ctx->bhm_map, &key, NULL, ctx->bhm_pool ) ) ) {
-          FD_BASE58_ENCODE_32_BYTES( key.hash, block_id_b58 );
+          FD_BASE58_ENCODE_32_BYTES( key.hash.uc, block_id_b58 );
           FD_LOG_ERR(( "HARD FORK DETECTED for slot %lu block ID `%s`", key.slot, block_id_b58 ));
         }
         fd_block_id_ele_t * ele = live_block_id_ele( ctx, fd_block_id_map_ele_query( ctx->block_id_map, &key, NULL, ctx->block_id_arr ) );
@@ -4687,7 +4687,7 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->ag_stamp_since      = ULONG_MAX;
   ctx->consensus_root_slot = ULONG_MAX;
   ctx->consensus_root      = ctx->initial_block_id;
-  ctx->finalized_block_id_lo = ag_block_id( ULONG_MAX, ctx->initial_block_id.uc );
+  ctx->finalized_block_id_lo = fd_block_id( ULONG_MAX, ctx->initial_block_id.uc );
   ctx->finalized_block_id_hi = ctx->finalized_block_id_lo;
   ctx->notified_root_slot  = ULONG_MAX;
   ctx->notified_root       = ctx->initial_block_id;
@@ -4853,7 +4853,7 @@ unprivileged_init( fd_topo_t const *      topo,
 
   ctx->votor_final->slot       = ULONG_MAX;
   ctx->votor_parent_ready_slot = 0UL;
-  for( ulong i=0UL; i<FD_NUM_SLOTS_FOR_REWARD+AG_SLOTS_PER_WINDOW+1UL; i++ ) ctx->votor_reward[ i ].slot = ULONG_MAX;
+  for( ulong i=0UL; i<FD_NUM_SLOTS_FOR_REWARD+FD_VOTOR_SLOTS_PER_WINDOW+1UL; i++ ) ctx->votor_reward[ i ].slot = ULONG_MAX;
 
   ctx->caught_up                = 0;
   ctx->catch_up_max_fec_slot    = ULONG_MAX;
@@ -4882,7 +4882,7 @@ unprivileged_init( fd_topo_t const *      topo,
   for( ulong i=0UL; i<tile->replay.max_live_slots; i++ ) {
     ctx->block_id_arr[ i ].block_id_seen = 0;
     ctx->block_id_arr[ i ].fec_cnt       = 0U;
-    memset( &ctx->block_id_arr[ i ].block_info, 0, sizeof(ag_block_id_t) );
+    memset( &ctx->block_id_arr[ i ].block_info, 0, sizeof(fd_block_id_t) );
   }
 
   ctx->resolv_tile_cnt = fd_topo_tile_name_cnt( topo, "resolv" );

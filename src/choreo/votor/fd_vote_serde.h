@@ -1,0 +1,67 @@
+#ifndef HEADER_fd_src_choreo_votor_fd_vote_serde_h
+#define HEADER_fd_src_choreo_votor_fd_vote_serde_h
+
+#include "fd_vote.h"
+
+#define FD_VOTE_DE_SUCCESS   ( 0)
+#define FD_VOTE_DE_ERR_SZ    (-1) /* Io(ReadSizeLimit), PreallocationSizeLimit, LengthEncodingOverflow            */
+#define FD_VOTE_DE_ERR_INVAL (-2) /* InvalidTagEncoding, InvalidValue                                             */
+#define FD_VOTE_DE_ERR_SIG   (-3) /* BLS verification failed, identity is never a valid vote signature            */
+
+#define FD_VOTE_SERDE_TAG_NOTAR          (1)  /* WireConsensusMessageKind::NotarVote          #[wincode(tag = 1)] */
+#define FD_VOTE_SERDE_TAG_FINAL          (2)  /* WireConsensusMessageKind::FinalizeVote       #[wincode(tag = 2)] */
+#define FD_VOTE_SERDE_TAG_SKIP           (3)  /* WireConsensusMessageKind::SkipVote           #[wincode(tag = 3)] */
+#define FD_VOTE_SERDE_TAG_NOTAR_FALLBACK (4)  /* WireConsensusMessageKind::NotarFallbackVote  #[wincode(tag = 4)] */
+#define FD_VOTE_SERDE_TAG_SKIP_FALLBACK  (5)  /* WireConsensusMessageKind::SkipFallbackVote   #[wincode(tag = 5)] */
+
+FD_STATIC_ASSERT( FD_VOTE_KIND_NOTAR         +1==FD_VOTE_SERDE_TAG_NOTAR,          fd_vote_serde );
+FD_STATIC_ASSERT( FD_VOTE_KIND_FINAL         +1==FD_VOTE_SERDE_TAG_FINAL,          fd_vote_serde );
+FD_STATIC_ASSERT( FD_VOTE_KIND_SKIP          +1==FD_VOTE_SERDE_TAG_SKIP,           fd_vote_serde );
+FD_STATIC_ASSERT( FD_VOTE_KIND_NOTAR_FALLBACK+1==FD_VOTE_SERDE_TAG_NOTAR_FALLBACK, fd_vote_serde );
+FD_STATIC_ASSERT( FD_VOTE_KIND_SKIP_FALLBACK +1==FD_VOTE_SERDE_TAG_SKIP_FALLBACK,  fd_vote_serde );
+
+struct fd_vote_serde {
+  uchar         version;       /* VersionedWireConsensusMessage::V1     (u8 tag)       */
+  uchar         tag;           /* WireConsensusMessageKind              (u8 tag)       */
+  ulong         slot;          /* WireSlotVoteMessage::slot             (Slot)         */
+  uchar const * block_id;      /* Block::block_id                       (Hash)         */
+  uchar const * signature;     /* WireVoteSignature::signature          (BLSSignature) */
+  ushort        shred_version; /* WireConsensusMessageV1::shred_version (u16)          */
+};
+typedef struct fd_vote_serde fd_vote_serde_t;
+
+#define FD_VOTE_SIGNING_SER_MAX ( sizeof(uchar)           /* kind          */ + \
+                                  sizeof(ulong)           /* slot          */ + \
+                                  sizeof(fd_block_hash_t) /* block_id      */ + \
+                                  sizeof(ushort)          /* shred_version */ )
+
+#define FD_VOTE_SER_SZ( has_block_id ) ( sizeof(uchar)                                      /* version       */ + \
+                                         sizeof(uchar)                                      /* kind          */ + \
+                                         sizeof(ulong)                                      /* slot          */ + \
+                                         ( (has_block_id) ? sizeof(fd_block_hash_t) : 0UL ) /* block_id      */ + \
+                                         FD_BLS_SIG_SZ                                      /* signature     */ + \
+                                         sizeof(ushort)                                     /* shred_version */ )
+
+#define FD_VOTE_SER_MAX FD_VOTE_SER_SZ( 1 )
+
+FD_PROTOTYPES_BEGIN
+
+ulong
+fd_vote_ser( fd_vote_t const * self,
+             uchar             buf[ static FD_VOTE_SER_MAX ] );
+
+int
+fd_vote_de( fd_vote_t *   self,
+            uchar const * buf,
+            ulong         buf_sz );
+
+ulong
+fd_vote_signing_ser( uint                    kind,
+                     ulong                   slot,
+                     fd_block_hash_t const * block_hash,
+                     ushort                  shred_version,
+                     uchar                   buf[ static FD_VOTE_SIGNING_SER_MAX ] );
+
+FD_PROTOTYPES_END
+
+#endif /* HEADER_fd_src_choreo_votor_fd_vote_serde_h */

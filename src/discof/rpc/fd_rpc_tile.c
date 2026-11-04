@@ -1,7 +1,7 @@
 #include "../replay/fd_replay_tile.h"
 #include "../genesis/fd_genesi_tile.h"
 #include "../votor/fd_votor_tile.h"
-#include "../../choreo/votor/ag_cert.h"
+#include "../../choreo/votor/fd_cert.h"
 
 #include "../../ballet/base64/fd_base64.h"
 #include "../../ballet/json/fd_jtok.h"
@@ -470,7 +470,7 @@ struct fd_rpc_tile {
 
   /* Address of the account holding the alpenglow genesis certificate,
      for getAgGenesisCert. */
-  fd_pubkey_t ag_genesis_cert_addr[ 1 ];
+  fd_pubkey_t fd_genesis_cert_addr[ 1 ];
 
   ulong processed_idx;
   ulong confirmed_idx;
@@ -966,7 +966,7 @@ returnable_frag( fd_rpc_tile_t *     ctx,
     fd_rpc_mleaders_ingest( ctx->mleaders, msg );
   } else if( ctx->in_kind[ in_idx ]==IN_KIND_VOTOR ) {
     fd_votor_msg_t const * msg = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
-    if( FD_LIKELY( msg->certed.kind==AG_CERT_KIND_FINAL || msg->certed.kind==AG_CERT_KIND_FAST_FINAL ) ) {
+    if( FD_LIKELY( msg->certed.kind==FD_CERT_KIND_FINAL || msg->certed.kind==FD_CERT_KIND_FAST_FINAL ) ) {
       fd_rpc_cluster_finalized( ctx, msg->certed.slot );
     }
   } else if( ctx->in_kind[ in_idx ]==IN_KIND_GENESI ) {
@@ -1965,7 +1965,7 @@ getAgGenesisCert( fd_rpc_tile_t *         ctx,
   int   acct_executable;
   uchar acct_owner[ 32UL ];
   ulong acct_data_len;
-  fd_accdb_read_one_nocache( ctx->accdb, info->accdb_fork_id, ctx->ag_genesis_cert_addr->uc,
+  fd_accdb_read_one_nocache( ctx->accdb, info->accdb_fork_id, ctx->fd_genesis_cert_addr->uc,
                              &acct_lamports, &acct_executable, acct_owner,
                              ctx->scratch.accdb_data_buf, &acct_data_len );
   if( FD_UNLIKELY( !acct_lamports || !acct_data_len ) ) {
@@ -3106,7 +3106,7 @@ unprivileged_init( fd_topo_t const *      topo,
   void * _zstd_wksp   = FD_SCRATCH_ALLOC_APPEND( l, 16UL,                     zstd_wksp_sz                                           );
 
   ctx->delay_startup       = tile->rpc.delay_startup;
-  fd_alpenglow_pda( "carlgration", ctx->ag_genesis_cert_addr );
+  fd_alpenglow_pda( "carlgration", ctx->fd_genesis_cert_addr );
   ctx->waker_rearm_pending = 0;
   ctx->ws_subscribers_vote = _ws_sub_vote;
   ctx->ws_subscribers_vote_cnt = 0UL;

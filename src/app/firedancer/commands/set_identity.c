@@ -8,7 +8,7 @@
 #include "../../../disco/keyguard/fd_keyload.h"
 #include "../../../ballet/base58/fd_base58.h"
 #include "../../../ballet/ed25519/fd_ed25519.h"
-#include "../../../choreo/votor/ag_vote_history_serde.h"
+#include "../../../choreo/votor/fd_vote_history_serde.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -71,7 +71,7 @@ set_identity_cmd_args( int *    pargc,
     if( FD_UNLIKELY( file==MAP_FAILED ) ) FD_LOG_ERR(( "mmap(%s) failed (%i-%s)", vote_history_file, errno, fd_io_strerror( errno ) ));
     if( FD_UNLIKELY( -1==close( fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
-    int err = ag_vote_history_de( file, sz, args->set_identity.keypair+32UL, &args->set_identity.vote_history_slot );
+    int err = fd_vote_history_de( file, sz, args->set_identity.keypair+32UL, &args->set_identity.vote_history_slot );
     if( FD_UNLIKELY( err ) ) {
       FD_LOG_ERR(( "vote history file %s is invalid (%i) or does not belong to the new identity.  If you believe the "
                    "vote history file is valid, please contact the Firedancer team for additional assistance.", vote_history_file, err ));

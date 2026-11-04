@@ -14,7 +14,7 @@
 #include "../../flamenco/runtime/fd_system_ids_pp.h"
 #include "../../flamenco/runtime/program/fd_system_program.h"
 #include "../../flamenco/stakes/fd_vote_stakes.h"
-#include "../../choreo/votor/ag_vote_serde.h"
+#include "../../choreo/votor/fd_vote_serde.h"
 #include "../../util/tmpl/fd_unit_test.c"
 #include <unistd.h>
 
@@ -753,8 +753,8 @@ FD_UNIT_TEST( execrp_cert_verify ) {
 
   /* notar(1,bid) by every rank */
   fd_hash_t bid = { .ul = { 1UL, 9UL } };
-  uchar msg[ AG_VOTE_SIGNING_SER_MAX ];
-  ulong sz = ag_vote_signing_ser( AG_VOTE_KIND_NOTAR, 1UL, bid.uc, sv, msg );
+  uchar msg[ FD_VOTE_SIGNING_SER_MAX ];
+  ulong sz = fd_vote_signing_ser( FD_VOTE_KIND_NOTAR, 1UL, fd_type_pun_const( bid.uc ), sv, msg );
   fd_bls_agg_t agg[1]; fd_bls_agg_null( agg );
   for( ulong r=0UL; r<CERT_VAL_CNT; r++ ) {
     fd_bls_sig_t sig[1]; fd_bls_sec_sign( sec+r, msg, sz, sig );
@@ -766,8 +766,8 @@ FD_UNIT_TEST( execrp_cert_verify ) {
 
   uchar          pl[ FD_ALPENGLOW_CERT_PAYLOAD_MAX ];
   fd_bls_hash_t hm[ 2 ];
-  fd_bls_hash_msg( pl, fd_alpenglow_cert_payload( good, AG_VOTE_SERDE_TAG_NOTAR, sv, pl ), hm+0 );
-  good->slot++; fd_bls_hash_msg( pl, fd_alpenglow_cert_payload( good, AG_VOTE_SERDE_TAG_NOTAR, sv, pl ), hm+1 ); good->slot--;
+  fd_bls_hash_msg( pl, fd_alpenglow_cert_payload( good, FD_VOTE_SERDE_TAG_NOTAR, sv, pl ), hm+0 );
+  good->slot++; fd_bls_hash_msg( pl, fd_alpenglow_cert_payload( good, FD_VOTE_SERDE_TAG_NOTAR, sv, pl ), hm+1 ); good->slot--;
 
   /* bad 0 malformed sig, 1 signed another slot, 2 good, 3 good with its
      H(m), 4 good with another payload's H(m) */
@@ -776,7 +776,7 @@ FD_UNIT_TEST( execrp_cert_verify ) {
     fd_execrp_cert_verify_msg_t * in_msg = fd_chunk_to_laddr( env->execrp->replay_in->mem, in_chunk );
     in_msg->bank_idx      = env->bank_idx;
     in_msg->quorum        = 0UL; /* reward cert */
-    in_msg->tag           = AG_VOTE_SERDE_TAG_NOTAR;
+    in_msg->tag           = FD_VOTE_SERDE_TAG_NOTAR;
     in_msg->shred_version = sv;
     *in_msg->cert         = *good;
     in_msg->has_hm        = bad>=3UL;

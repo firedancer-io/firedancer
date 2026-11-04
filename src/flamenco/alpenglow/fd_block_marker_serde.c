@@ -39,7 +39,7 @@ typedef struct update_parent_serde update_parent_serde_t;
 
 /* solana_signer_store base2 bitmap: one byte version tag, u16 bit count,
    then the bits packed LSB first, bit i naming rank i.  Only base2 goes
-   in a footer; base3 pairs are a votor wire shape (ag_bls_serde.h). */
+   in a footer; base3 pairs are a votor wire shape (fd_bls_serde.h). */
 
 struct bitmap_serde {
   uchar         version;    /* solana_signer_store::Version  (u8 tag), base2 */
@@ -50,7 +50,7 @@ struct bitmap_serde {
 typedef struct bitmap_serde bitmap_serde_t;
 
 /* VotesAggregate: https://github.com/anza-xyz/agave/blob/v4.3.0-beta.0/entry/src/block_component.rs#L324-L328
-   Not the wire framing in ag_cert_serde.h: the signature is compressed
+   Not the wire framing in fd_cert_serde.h: the signature is compressed
    and the bitmap sits under a u16 byte count rather than a u64. */
 
 struct votes_aggregate_serde {
@@ -133,7 +133,7 @@ header_ser( fd_block_header_t const * header,
 /* bitmap_ser writes the base2 bitmap naming the ranks in signer_set,
    exactly nbits wide: a footer cert re-emits the width it carries, so
    one that came off the wire goes back out byte for byte.  Returns the
-   bytes written, or 0UL if nbits passes AG_VAT_MAX (which sizes
+   bytes written, or 0UL if nbits passes FD_VOTOR_VAT_MAX (which sizes
    FD_BLOCK_FOOTER_SER_MAX) or a rank sits at or past nbits. */
 
 static ulong
@@ -141,7 +141,7 @@ bitmap_ser( ulong                nbits,
             fd_bls_set_t const * signer_set,
             uchar *              buf ) {
   ulong bits = fd_ulong_min( FD_BLS_SET_MAX, fd_bls_set_last( signer_set )+1UL ); /* one past the highest rank, 0 when empty */
-  if( FD_UNLIKELY( nbits>AG_VAT_MAX || bits>nbits ) ) return 0UL;
+  if( FD_UNLIKELY( nbits>FD_VOTOR_VAT_MAX || bits>nbits ) ) return 0UL;
 
   bitmap_serde_t bm;
 

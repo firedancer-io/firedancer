@@ -1,0 +1,64 @@
+#ifndef HEADER_fd_src_choreo_votor_fd_cert_serde_h
+#define HEADER_fd_src_choreo_votor_fd_cert_serde_h
+
+#include "fd_cert.h"
+#include "fd_bls_serde.h"
+
+#define FD_CERT_DE_SUCCESS   ( 0)
+#define FD_CERT_DE_ERR_SZ    (-1) /* Io(ReadSizeLimit), PreallocationSizeLimit, LengthEncodingOverflow                */
+#define FD_CERT_DE_ERR_INVAL (-2) /* InvalidTagEncoding, InvalidValue                                                 */
+
+FD_STATIC_ASSERT( FD_BLS_DE_SUCCESS  ==FD_CERT_DE_SUCCESS,   fd_cert_serde );
+FD_STATIC_ASSERT( FD_BLS_DE_ERR_SZ   ==FD_CERT_DE_ERR_SZ,    fd_cert_serde );
+FD_STATIC_ASSERT( FD_BLS_DE_ERR_INVAL==FD_CERT_DE_ERR_INVAL, fd_cert_serde );
+
+#define FD_CERT_SERDE_TAG_FINAL          ( 7)  /* WireConsensusMessageKind::FinalizeCert       #[wincode(tag = 7)]  */
+#define FD_CERT_SERDE_TAG_FAST_FINAL     ( 8)  /* WireConsensusMessageKind::FastFinalizeCert   #[wincode(tag = 8)]  */
+#define FD_CERT_SERDE_TAG_NOTAR          ( 9)  /* WireConsensusMessageKind::NotarCert          #[wincode(tag = 9)]  */
+#define FD_CERT_SERDE_TAG_NOTAR_FALLBACK (10)  /* WireConsensusMessageKind::NotarFallbackCert  #[wincode(tag = 10)] */
+#define FD_CERT_SERDE_TAG_SKIP           (11)  /* WireConsensusMessageKind::SkipCert           #[wincode(tag = 11)] */
+
+FD_STATIC_ASSERT( FD_CERT_KIND_FINAL         +7==FD_CERT_SERDE_TAG_FINAL,          fd_cert_serde );
+FD_STATIC_ASSERT( FD_CERT_KIND_FAST_FINAL    +7==FD_CERT_SERDE_TAG_FAST_FINAL,     fd_cert_serde );
+FD_STATIC_ASSERT( FD_CERT_KIND_NOTAR         +7==FD_CERT_SERDE_TAG_NOTAR,          fd_cert_serde );
+FD_STATIC_ASSERT( FD_CERT_KIND_NOTAR_FALLBACK+7==FD_CERT_SERDE_TAG_NOTAR_FALLBACK, fd_cert_serde );
+FD_STATIC_ASSERT( FD_CERT_KIND_SKIP          +7==FD_CERT_SERDE_TAG_SKIP,           fd_cert_serde );
+
+struct fd_cert_serde {
+  uchar         version;       /* VersionedWireConsensusMessage::V1     (u8 tag)       */
+  uchar         tag;           /* WireConsensusMessageKind              (u8 tag)       */
+  ulong         slot;          /* WireSlotCertMessage::slot             (Slot)         */
+  uchar const * block_id;      /* Block::block_id                       (Hash)         */
+  uchar const * signature;     /* WireCertSignature::signature          (BLSSignature) */
+  ulong         bitmap_sz;     /* WireCertSignature::bitmap len         (u64)          */
+  uchar const * bitmap;        /* WireCertSignature::bitmap             (Vec<u8>)      */
+  ushort        shred_version; /* WireConsensusMessageV1::shred_version (u16)          */
+};
+typedef struct fd_cert_serde fd_cert_serde_t;
+
+#define FD_CERT_SER_HDR_SZ( has_block_id ) ( sizeof(uchar)                                      /* version   */ + \
+                                             sizeof(uchar)                                      /* kind      */ + \
+                                             sizeof(ulong)                                      /* slot      */ + \
+                                             ( (has_block_id) ? sizeof(fd_block_hash_t) : 0UL ) /* block_id  */ + \
+                                             FD_BLS_SIG_SZ                                      /* signature */ + \
+                                             sizeof(ulong)                                      /* bitmap_sz */ )
+
+#define FD_CERT_SER_MAX ( FD_CERT_SER_HDR_SZ( 1 ) + \
+                          FD_BLS_AGG_PAIR_SER_MAX + \
+                          sizeof(ushort) /* shred_version */ )
+
+FD_PROTOTYPES_BEGIN
+
+ulong
+fd_cert_ser( fd_cert_t const * self,
+             uchar             buf[ static FD_CERT_SER_MAX ] );
+
+int
+fd_cert_de( fd_cert_t *   self,
+            ulong *       bit_cnt,
+            uchar const * buf,
+            ulong         buf_sz );
+
+FD_PROTOTYPES_END
+
+#endif /* HEADER_fd_src_choreo_votor_fd_cert_serde_h */

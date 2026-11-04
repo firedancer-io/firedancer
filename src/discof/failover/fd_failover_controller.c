@@ -380,7 +380,7 @@ prepare_history( fd_failover_tile_ctx_t *    ctx,
                  fd_votor_hist_msg_t const * hist ) {
   uchar state[ FD_FAILOVER_ALPENGLOW_STATE_MAX ];
   ulong state_sz = 0UL;
-  if( FD_UNLIKELY( ag_hist_ser( &hist->hist, state, FD_FAILOVER_ALPENGLOW_STATE_MAX, &state_sz ) || ag_hist_tip( &hist->hist )!=hist->vote_slot ) ) {
+  if( FD_UNLIKELY( fd_votor_hist_ser( &hist->hist, state, FD_FAILOVER_ALPENGLOW_STATE_MAX, &state_sz ) || fd_votor_hist_tip( &hist->hist )!=hist->vote_slot ) ) {
     if( FD_UNLIKELY( !ctx->hist_warned ) ) FD_LOG_WARNING(( "votor produced a vote history that does not match its slot metadata" ));
     ctx->hist_warned = 1;
     return;
@@ -518,8 +518,8 @@ static ulong
 check_handoff( fd_failover_tile_ctx_t const * ctx,
                ulong                          replay_slot ) {
   if( FD_UNLIKELY( !is_final_history_ok( ctx ) ) ) return FD_FAILOVER_CONTROL_RESULT_NO_FINAL_HISTORY;
-  ag_hist_t hist[1];
-  ulong     anchor = ag_hist_de( ctx->current_history.state, ctx->current_history.sz, hist ) ? ctx->last_vote_slot : hist->anchor;
+  fd_votor_hist_t hist[1];
+  ulong           anchor = fd_votor_hist_de( ctx->current_history.state, ctx->current_history.sz, hist ) ? ctx->last_vote_slot : hist->anchor;
   if( FD_UNLIKELY( replay_slot==FD_FAILOVER_SLOT_NULL || fd_ulong_sat_add( replay_slot, FD_FAILOVER_DEADLINE_SLOTS )<anchor ) ) return FD_FAILOVER_CONTROL_RESULT_REPLAY_BEHIND;
   return FD_ADMINCTL_RESULT_SUCCESS;
 }
@@ -665,8 +665,8 @@ set_adopt_anchor( fd_failover_tile_ctx_t * ctx ) {
   ctx->adopt_anchor     = FD_FAILOVER_SLOT_NULL;
   ctx->empty_vote_after = FD_FAILOVER_SLOT_NULL;
   if( FD_UNLIKELY( ctx->promotion.source==FD_FAILOVER_SOURCE_EMPTY ) ) return;
-  ag_hist_t hist[1];
-  if( FD_LIKELY( !ag_hist_de( ctx->promotion.adopt.state, ctx->promotion.adopt.sz, hist ) ) ) ctx->adopt_anchor = hist->anchor;
+  fd_votor_hist_t hist[1];
+  if( FD_LIKELY( !fd_votor_hist_de( ctx->promotion.adopt.state, ctx->promotion.adopt.sz, hist ) ) ) ctx->adopt_anchor = hist->anchor;
 }
 
 /* Whether replay reached the saved history's finality anchor. */

@@ -1,0 +1,134 @@
+#ifndef HEADER_fd_src_choreo_votor_fd_parent_ready_tracker_h
+#define HEADER_fd_src_choreo_votor_fd_parent_ready_tracker_h
+
+#include "fd_votor_base.h"
+
+struct fd_parent_ready {
+  ulong         slot;
+  fd_block_id_t parent;
+};
+typedef struct fd_parent_ready fd_parent_ready_t;
+
+struct fd_parent_ready_state {
+  ulong slot; /* map key */
+  ulong next; /* reserved for fd_pool, fd_map_chain */
+
+  int skip;
+
+  fd_block_hash_t notar_fallbacks[FD_VOTOR_NOTAR_FALLBACK_CERT_MAX];
+  uchar           notar_fallbacks_cnt;
+
+  /* window starts only.  The ready parents of a window start are the
+     notar fallbacks of slots [b_lo,slot), Definition 15 with every
+     slot strictly between b_lo and slot skip certified. */
+
+  ulong         b_lo;            /* highest slot below that is not skipped, ULONG_MAX if slot-1 */
+  fd_block_id_t parent_ready_lo; /* lowest ready parent by (slot,hash), slot ULONG_MAX if none */
+  int           ready;           /* a ParentReady for this slot is queued but not delivered */
+};
+typedef struct fd_parent_ready_state fd_parent_ready_state_t;
+
+#define POOL_NAME fd_parent_ready_state_pool
+#define POOL_T    fd_parent_ready_state_t
+#include "../../util/tmpl/fd_pool.c"
+
+#define MAP_NAME               fd_parent_ready_state_map
+#define MAP_ELE_T              fd_parent_ready_state_t
+#define MAP_KEY                slot
+#define MAP_KEY_T              ulong
+#define MAP_KEY_EQ(k0,k1)      ((*(k0))==(*(k1)))
+#define MAP_KEY_HASH(key,seed) (fd_ulong_hash((*(key))^(seed)))
+#define MAP_NEXT               next
+#include "../../util/tmpl/fd_map_chain.c"
+
+struct fd_parent_ready_states {
+  fd_parent_ready_state_t *     pool;
+  fd_parent_ready_state_map_t * map;
+};
+typedef struct fd_parent_ready_states fd_parent_ready_states_t;
+
+struct __attribute__((aligned(128UL))) fd_parent_ready_tracker {
+  fd_parent_ready_states_t states;
+  ulong                    root;
+  ulong                    highest_ready;
+};
+typedef struct fd_parent_ready_tracker fd_parent_ready_tracker_t;
+
+FD_PROTOTYPES_BEGIN
+
+FD_FN_CONST ulong
+fd_parent_ready_tracker_align( void );
+
+FD_FN_CONST ulong
+fd_parent_ready_tracker_footprint( ulong slot_max );
+
+void *
+fd_parent_ready_tracker_new( void * shmem,
+                             ulong  slot_max,
+                             ulong  seed );
+
+fd_parent_ready_tracker_t *
+fd_parent_ready_tracker_join( void * shtracker );
+
+void *
+fd_parent_ready_tracker_leave( fd_parent_ready_tracker_t const * self );
+
+void *
+fd_parent_ready_tracker_delete( void * shtracker );
+
+/* fd_parent_ready_tracker_mark_root marks root notarized-fallback and
+   makes root+1 ParentReady with root as its parent, even if root+1
+   does not start a window.  Only a window start emits an event.
+
+   https://github.com/anza-xyz/agave/blob/v4.3.0-beta.0/votor/src/consensus_pool/parent_ready_tracker.rs#L65-L108 */
+
+ulong
+fd_parent_ready_tracker_mark_root( fd_parent_ready_tracker_t * self,
+                                   fd_block_id_t const *       root,
+                                   fd_parent_ready_t *         newly_certified );
+
+/* Definition 15, ParentReady. ParentReadyTracker::mark_notar_fallback */
+
+ulong
+fd_parent_ready_tracker_mark_notar_fallback( fd_parent_ready_tracker_t * self,
+                                             fd_block_id_t const *       id,
+                                             fd_parent_ready_t *         newly_certified );
+
+/* Definition 15, ParentReady. ParentReadyTracker::mark_skipped */
+
+ulong
+fd_parent_ready_tracker_mark_skipped( fd_parent_ready_tracker_t * self,
+                                      ulong                       marked_slot,
+                                      fd_parent_ready_t *         newly_certified );
+
+/* Definition 15, ParentReady. ParentReadyTracker::parents_ready.  Writes up to
+   out_max ready parents of slot to out and returns how many are ready. */
+
+ulong
+fd_parent_ready_tracker_parents_ready( fd_parent_ready_tracker_t const * self,
+                                       ulong                             slot,
+                                       fd_block_id_t *                   out,
+                                       ulong                             out_max );
+
+/* Definition 15, ParentReady. Pool::is_parent_ready */
+
+int
+fd_parent_ready_tracker_is_parent_ready( fd_parent_ready_tracker_t const * self,
+                                         ulong                             slot,
+                                         fd_block_id_t const *             parent );
+
+/* Definition 15, ParentReady. ParentReadyTracker::wait_for_parent_ready; slot ULONG_MAX is the pending receiver */
+
+fd_block_id_t
+fd_parent_ready_tracker_wait_for_parent_ready( fd_parent_ready_tracker_t const * self,
+                                               ulong                             slot );
+
+/* Section 2.9. ParentReadyTracker::prune */
+
+void
+fd_parent_ready_tracker_prune( fd_parent_ready_tracker_t * self,
+                               ulong                       new_root );
+
+FD_PROTOTYPES_END
+
+#endif

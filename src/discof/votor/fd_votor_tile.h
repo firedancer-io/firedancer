@@ -2,7 +2,7 @@
 #define HEADER_fd_src_discof_votor_fd_votor_tile_h
 
 #include "../../ballet/bls/fd_bls.h"
-#include "../../choreo/votor/ag_hist.h"
+#include "../../choreo/votor/fd_votor_hist.h"
 #include "../../disco/topo/fd_topo.h"
 #include "../../waltz/quic/tls/fd_quic_tls.h"
 
@@ -33,7 +33,7 @@
 
 #define QUIC_DGRAM_BURST (9UL)
 
-#define FD_VOTOR_OUT_BURST (1UL+AG_SLOTS_PER_WINDOW+1UL+QUIC_DGRAM_BURST+1UL) /* 1 leader + 4 reward + 1 republished reward, then 2 certed or 1 quorum + 1 repair, or a catchup repair per datagram, + 1 parent ready */
+#define FD_VOTOR_OUT_BURST (1UL+FD_VOTOR_SLOTS_PER_WINDOW+1UL+QUIC_DGRAM_BURST+1UL) /* 1 leader + 4 reward + 1 republished reward, then 2 certed or 1 quorum + 1 repair, or a catchup repair per datagram, + 1 parent ready */
 
 /* fd_votor_certed notifies that we have a valid cert for the block
    reaching a given state.  A final cert names only its slot, so it is
@@ -48,7 +48,7 @@
    skip           | ✗        | skip  votes | skip-fallback  votes */
 
 struct fd_votor_certed {
-  uint         kind; /* AG_CERT_KIND_* */
+  uint         kind; /* FD_CERT_KIND_* */
   ulong        slot;
   fd_hash_t    block_id;
   fd_bls_agg_t agg;
@@ -133,14 +133,14 @@ typedef union fd_votor_msg fd_votor_msg_t;
 #define FD_VOTOR_HIST_SIG (0UL)
 
 struct fd_votor_hist_msg {
-  fd_pubkey_t identity;    /* identity installed when this history was published */
-  ulong       replay_slot; /* highest slot replay completed, ULONG_MAX before any */
-  ulong       root_slot;   /* replay's root at the last completed slot, ULONG_MAX before any */
-  ulong       vote_slot;   /* the history's tip, ULONG_MAX while it is empty */
-  int         has_vote;    /* we sent a vote just before this frame, so vote_slot is a vote we signed */
-  int         truncated;   /* the export dropped old windows and lifted the anchor */
-  int         ranked;      /* the installed identity votes and is ranked in an epoch we hold */
-  ag_hist_t   hist;
+  fd_pubkey_t     identity;    /* identity installed when this history was published */
+  ulong           replay_slot; /* highest slot replay completed, ULONG_MAX before any */
+  ulong           root_slot;   /* replay's root at the last completed slot, ULONG_MAX before any */
+  ulong           vote_slot;   /* the history's tip, ULONG_MAX while it is empty */
+  int             has_vote;    /* we sent a vote just before this frame, so vote_slot is a vote we signed */
+  int             truncated;   /* the export dropped old windows and lifted the anchor */
+  int             ranked;      /* the installed identity votes and is ranked in an epoch we hold */
+  fd_votor_hist_t hist;
 };
 typedef struct fd_votor_hist_msg fd_votor_hist_msg_t;
 

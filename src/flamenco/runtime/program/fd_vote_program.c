@@ -1230,7 +1230,7 @@ static int
 process_vote_unfiltered( fd_exec_instr_ctx_t *       ctx,
                          fd_vote_state_versioned_t * versioned,
                          ulong *                     vote_slots,
-                         fd_vote_t const *           vote,
+                         fd_legacy_vote_t const *    vote,
                          fd_slot_hashes_t const *    slot_hashes,
                          ulong                       epoch,
                          ulong                       current_slot ) {
@@ -1252,7 +1252,7 @@ process_vote_unfiltered( fd_exec_instr_ctx_t *       ctx,
 static int
 process_vote( fd_exec_instr_ctx_t *       ctx,
               fd_vote_state_versioned_t * versioned,
-              fd_vote_t const *           vote,
+              fd_legacy_vote_t const *    vote,
               fd_slot_hashes_t const *    slot_hashes,
               ulong                       epoch,
               ulong                       current_slot ) {
@@ -1404,7 +1404,7 @@ process_vote_with_account( fd_exec_instr_ctx_t *         ctx,
                            int                           target_version,
                            fd_slot_hashes_t const *      slot_hashes,
                            fd_sol_sysvar_clock_t const * clock,
-                           fd_vote_t *                   vote,
+                           fd_legacy_vote_t *            vote,
                            fd_pubkey_t const *           signers[static FD_INSTR_SIGNERS_MAX],
                            ulong                         signers_cnt ) {
   fd_vote_state_versioned_t * versioned = &ctx->runtime->vote_program.process_vote.vote_state;
@@ -2021,7 +2021,7 @@ fd_vote_program_execute( fd_exec_instr_ctx_t * ctx ) {
       return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
     }
 
-    fd_vote_t * vote;
+    fd_legacy_vote_t * vote;
     if( instruction->discriminant == fd_vote_instruction_enum_vote ) {
       vote = &instruction->vote;
     } else if( instruction->discriminant == fd_vote_instruction_enum_vote_switch ) {

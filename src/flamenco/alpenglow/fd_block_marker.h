@@ -3,7 +3,7 @@
 
 #include "../fd_flamenco_base.h"
 #include "../../ballet/bls/fd_bls.h"
-#include "../../choreo/votor/ag_votor_base.h"
+#include "../../choreo/votor/fd_votor_base.h"
 
 #define FD_BLOCK_MARKER_KIND_FOOTER        (0U)
 #define FD_BLOCK_MARKER_KIND_HEADER        (1U)
@@ -16,7 +16,7 @@
    footer reach: a leader producing slot s attests the voters of
    s-FD_NUM_SLOTS_FOR_REWARD. */
 
-#define FD_NUM_SLOTS_FOR_REWARD AG_REWARD_SLOT_DELTA
+#define FD_NUM_SLOTS_FOR_REWARD FD_VOTOR_REWARD_SLOT_DELTA
 
 struct fd_block_header {
   ulong     parent_slot;
@@ -34,7 +34,7 @@ struct fd_block_footer_cert {
   ulong        slot;
   fd_hash_t    block_id;                          /* zero when the wire carries none: final and skip reward certs */
   uchar        sig[ FD_BLS_SIG_COMPRESSED_SZ ];   /* compressed, unverified */
-  ushort       nbits;                             /* signer bitmap bit count, <=AG_VAT_MAX */
+  ushort       nbits;                             /* signer bitmap bit count, <=FD_VOTOR_VAT_MAX */
   fd_bls_set_t signer_set[ fd_bls_set_word_cnt ]; /* decoded base2 signer bitmap */
 };
 typedef struct fd_block_footer_cert fd_block_footer_cert_t;
