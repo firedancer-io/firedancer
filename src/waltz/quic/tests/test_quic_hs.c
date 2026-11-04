@@ -483,6 +483,114 @@ test_quic_hs_storm( fd_wksp_t * wksp,
   fd_wksp_free_laddr( fd_quic_delete( fd_quic_leave( client ) ) );
 }
 
+/* Shared tx_buf under aio AGAIN (votor net_tx batch full): the stuck
+   owner's datagram goes out first, other conns wait without building
+   packets, and freeing the owner drops its data. */
+
+typedef struct {
+  fd_aio_t const * next;
+  int              gate;
+  ulong            again_cnt;
+} test_gate_aio_t;
+
+static int
+test_gate_send( void *                    ctx,
+                fd_aio_pkt_info_t const * batch,
+                ulong                     batch_cnt,
+                ulong *                   opt_batch_idx,
+                int                       flush ) {
+  test_gate_aio_t * g = ctx;
+  if( !g->gate ) {
+    g->again_cnt++;
+    if( opt_batch_idx ) *opt_batch_idx = 0UL;
+    return FD_AIO_ERR_AGAIN;
+  }
+  return fd_aio_send( g->next, batch, batch_cnt, opt_batch_idx, flush );
+}
+
+static void
+test_quic_tx_again( fd_wksp_t * wksp,
+                    fd_rng_t *  rng ) {
+  FD_LOG_NOTICE(( "Testing shared tx_buf under aio AGAIN" ));
+
+  fd_quic_limits_t const limits = {
+    .conn_cnt           = 4UL,
+    .conn_id_cnt        = FD_QUIC_MIN_CONN_ID_CNT,
+    .handshake_cnt      = 4UL,
+    .inflight_frame_cnt = 256UL
+  };
+  fd_quic_t * server = fd_quic_new_anonymous( wksp, &limits, FD_QUIC_ROLE_SERVER, rng );
+  fd_quic_t * client = fd_quic_new_anonymous( wksp, &limits, FD_QUIC_ROLE_CLIENT, rng );
+
+  fd_quic_virtual_pair_t vp;
+  fd_quic_virtual_pair_init( &vp, server, client );
+  FD_TEST( fd_quic_init( server ) );
+  FD_TEST( fd_quic_init( client ) );
+  fd_quic_state_t * cstate = fd_quic_get_state( client );
+  FD_TEST( cstate->tx_ptr==cstate->tx_buf );
+
+  fd_aio_t        client_tx = client->aio_tx;
+  test_gate_aio_t g         = { .next = &client_tx };
+  fd_aio_t        gate_aio[1];
+  FD_TEST( fd_aio_join( fd_aio_new( gate_aio, &g, test_gate_send ) ) );
+  fd_quic_set_aio_net_tx( client, gate_aio );
+
+  long t = 1000L;
+  fd_quic_sync_clocks( server, client, t );
+
+  /* A's Initial is built, then stuck */
+  fd_quic_conn_t * a = fd_quic_connect( client, FD_QUIC_TEST_SERVER_IP4, 0, FD_QUIC_TEST_CLIENT_IP4, 0, t );
+  FD_TEST( a );
+  fd_quic_service( client, t );
+  FD_TEST( g.again_cnt==1UL );
+  FD_TEST( cstate->tx_owner==a && cstate->tx_ptr>cstate->tx_buf );
+  FD_TEST( a->pkt_number[0]==1UL );
+  ulong a_sz = (ulong)( cstate->tx_ptr - cstate->tx_buf );
+
+  /* B retries A's flush and waits */
+  fd_quic_conn_t * b = fd_quic_connect( client, FD_QUIC_TEST_SERVER_IP4, 0, FD_QUIC_TEST_CLIENT_IP4, 0, t );
+  FD_TEST( b );
+  fd_quic_service( client, t );
+  FD_TEST( g.again_cnt==2UL );
+  FD_TEST( cstate->tx_owner==a && (ulong)( cstate->tx_ptr - cstate->tx_buf )==a_sz );
+  FD_TEST( b->pkt_number[0]==0UL );
+
+  /* B flushes A's datagram, then sends its own */
+  g.gate = 1;
+  ulong tx0 = client->metrics.net_tx_pkt_cnt;
+  fd_quic_service( client, t );
+  FD_TEST( client->metrics.net_tx_pkt_cnt==tx0+2UL );
+  FD_TEST( b->pkt_number[0]==1UL );
+  FD_TEST( cstate->tx_ptr==cstate->tx_buf );
+
+  for( ulong j=0UL; j<1000UL; j++ ) {
+    fd_quic_service( client, t );
+    fd_quic_service( server, t );
+    t += (long)1e6;
+    if( client->metrics.conn_state_cnt[ FD_QUIC_CONN_STATE_ACTIVE ]==2UL &&
+        server->metrics.conn_state_cnt[ FD_QUIC_CONN_STATE_ACTIVE ]==2UL ) break;
+  }
+  FD_TEST( client->metrics.conn_state_cnt[ FD_QUIC_CONN_STATE_ACTIVE ]==2UL );
+  FD_TEST( server->metrics.conn_state_cnt[ FD_QUIC_CONN_STATE_ACTIVE ]==2UL );
+
+  /* freeing the stuck owner drops its data */
+  g.gate = 0;
+  fd_quic_conn_t * c = fd_quic_connect( client, FD_QUIC_TEST_SERVER_IP4, 0, FD_QUIC_TEST_CLIENT_IP4, 0, t );
+  FD_TEST( c );
+  for( ulong j=0UL; j<8UL && cstate->tx_owner!=c; j++ ) fd_quic_service( client, t );
+  FD_TEST( cstate->tx_owner==c && cstate->tx_ptr>cstate->tx_buf );
+  fd_quic_conn_free( client, c );
+  FD_TEST( !cstate->tx_owner && cstate->tx_ptr==cstate->tx_buf );
+  g.gate = 1;
+  fd_quic_state_validate( client );
+
+  fd_quic_virtual_pair_fini( &vp );
+  fd_quic_fini( server );
+  fd_quic_fini( client );
+  fd_wksp_free_laddr( fd_quic_delete( fd_quic_leave( server ) ) );
+  fd_wksp_free_laddr( fd_quic_delete( fd_quic_leave( client ) ) );
+}
+
 int
 main( int argc, char ** argv ) {
   fd_boot          ( &argc, &argv );
@@ -545,6 +653,7 @@ main( int argc, char ** argv ) {
   FD_LOG_NOTICE(( "Cleaning up" ));
   fd_quic_virtual_pair_fini( &vp );
   test_quic_hs_storm( wksp, rng );
+  test_quic_tx_again( wksp, rng );
   fd_wksp_free_laddr( fd_quic_delete( fd_quic_leave( server_quic ) ) );
   fd_wksp_free_laddr( fd_quic_delete( fd_quic_leave( client_quic ) ) );
   fd_wksp_delete_anonymous( wksp );

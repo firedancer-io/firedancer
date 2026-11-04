@@ -178,11 +178,6 @@ struct fd_quic_conn {
 
   ushort ipv4_id;           /* ipv4 id field */
 
-  /* buffer to send next */
-  /* must be at least FD_QUIC_MAX_UDP_PAYLOAD_SZ */
-  uchar   tx_buf_conn[2048];
-  uchar * tx_ptr; /* ptr to free space in tx_buf_conn */
-
   uint state;      /* PERSISTENT to keep state counters correct */
   uint reason;     /* quic reason for closing. see FD_QUIC_CONN_REASON_* */
   uint app_reason; /* application reason for closing */
