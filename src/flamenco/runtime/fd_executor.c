@@ -1355,31 +1355,31 @@ fd_executor_setup_metadata_load_failure( fd_runtime_t *      runtime,
                                          fd_txn_in_t const * txn_in,
                                          fd_txn_out_t *      txn_out ) {
   fd_txn_t const * txn = TXN( txn_in->txn );
+  ulong key_cnt = (ulong)txn->acct_addr_cnt + (ulong)txn->addr_table_adtl_cnt;
   /* Keep small baseline transfers entirely out of the metadata probe.  Seven
      maximum-size non-payer accounts can exceed the ordinary 64MiB limit.
-     Narrow eligibility also keeps nonce/ALT/bundle and diagnostic consumers
-     on the established fully acquired path. */
-  if( txn->acct_addr_cnt<8UL || txn->acct_addr_cnt>MAX_TX_ACCOUNT_LOCKS ||
-      ( txn->transaction_version!=FD_TXN_VLEGACY &&
-        ( txn->transaction_version!=FD_TXN_V0 || txn->addr_table_lookup_cnt || txn->addr_table_adtl_cnt ) ) ||
+     Nonces, bundles, Instructions synthesis and diagnostics retain the
+     established fully acquired path. */
+  if( key_cnt<8UL || key_cnt>MAX_TX_ACCOUNT_LOCKS ||
+      ( txn->transaction_version!=FD_TXN_VLEGACY && txn->transaction_version!=FD_TXN_V0 ) ||
       txn_in->bundle.is_bundle ||
       runtime->log.capture_ctx || runtime->log.dump_proto_ctx || runtime->log.txn_dump_ctx ||
       fd_bank_report_runtime_diffs( bank ) ) return 0;
 
-  if( txn->transaction_version==FD_TXN_V0 ) {
-    /* Even a v0 message without lookups checks SlotHashes before account locks,
-       age/status and fees.  Preserve that setup failure instead of replacing it
-       with the guaranteed loaded-limit failure. */
-    fd_slot_hashes_t slot_hashes[1];
-    if( FD_UNLIKELY( !fd_sysvar_cache_slot_hashes_view( runtime->sysvar_cache, slot_hashes ) ) ) return 0;
-    FD_TEST( bank->parent_accdb_fork_id.val!=USHORT_MAX );
-  }
-
   fd_hash_t const * hash = (fd_hash_t const *)(txn_in->txn->payload+txn->recent_blockhash_off);
   if( !fd_blockhashes_check_age( &bank->f.block_hash_queue, hash, FD_SYSVAR_RECENT_HASHES_CAP ) ) return 0;
 
-  fd_pubkey_t const * keys = (fd_pubkey_t const *)(txn_in->txn->payload+txn->acct_addr_off);
-  for( ulong i=0UL; i<txn->acct_addr_cnt; i++ ) {
+  /* Use the ordinary parent-fork resolver, including its SlotHashes, owner,
+     lifetime and index checks.  On failure or any later fallback ordinary
+     setup resets these keys/count and repeats resolution; no account has
+     been acquired here, and the original setup error retains precedence. */
+  txn_out->accounts.cnt = (uchar)txn->acct_addr_cnt;
+  fd_memcpy( txn_out->accounts.keys, txn_in->txn->payload+txn->acct_addr_off,
+             txn->acct_addr_cnt*sizeof(fd_pubkey_t) );
+  if( fd_executor_setup_txn_alut_account_keys( runtime, bank, txn_in, txn_out ) ) return 0;
+  key_cnt = txn_out->accounts.cnt;
+  fd_pubkey_t const * keys = txn_out->accounts.keys;
+  for( ulong i=0UL; i<key_cnt; i++ ) {
     if( !memcmp( keys[i].uc, fd_sysvar_instructions_id.uc, 32UL ) ) return 0;
     for( ulong j=0UL; j<i; j++ ) if( !memcmp( keys[i].uc, keys[j].uc, 32UL ) ) return 0;
   }
@@ -1391,14 +1391,12 @@ fd_executor_setup_metadata_load_failure( fd_runtime_t *      runtime,
      pass can only fail with the loaded-limit error before program checks.
      Owner/Program state and payloads are unnecessary for this lower bound. */
   ulong lower = 0UL;
-  for( ulong i=1UL; i<txn->acct_addr_cnt; i++ ) {
+  for( ulong i=1UL; i<key_cnt; i++ ) {
     lower = fd_ulong_sat_add( lower, fd_accdb_data_len( runtime->accdb, bank->accdb_fork_id, keys[i].uc ) );
     if( lower>txn_out->details.compute_budget.loaded_accounts_data_size_limit ) break;
   }
   if( lower<=txn_out->details.compute_budget.loaded_accounts_data_size_limit ) return 0;
 
-  txn_out->accounts.cnt = (uchar)txn->acct_addr_cnt;
-  fd_memcpy( txn_out->accounts.keys, keys, txn->acct_addr_cnt*sizeof(fd_pubkey_t) );
   if( fd_executor_validate_account_locks( txn_out ) ) return 0;
   runtime->accounts.account_cnt = 0UL;
   runtime->accounts.executable_cnt = 0UL;
