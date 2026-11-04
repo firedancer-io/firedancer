@@ -563,7 +563,7 @@ calculate_stake_vote_rewards( fd_bank_t *                    bank,
 
     /* The rewards overwrite the cached points, so copy them out first. */
     int                          cached = !is_recalculation && stake_delegation_idx<runtime_stack->max_stake_accounts;
-    fd_calculated_stake_points_t stake_points_result[1];
+    fd_calculated_stake_points_t stake_points_result[1] = {0};
     if( FD_LIKELY( cached ) ) *stake_points_result = runtime_stack->stakes.stake_results[ stake_delegation_idx ].points;
 
     fd_calculated_stake_rewards_t * calculated_stake_rewards = NULL;
