@@ -68,6 +68,14 @@ test_translate_rtype( void ) {
   FD_TEST( route.hop.rtype==FD_FIB4_RTYPE_UNICAST );
   FD_TEST( !( route.hop.flags & FD_FIB4_FLAG_RTYPE_UNSUPPORTED ) );
 
+  route = translate_rtype( RTN_BROADCAST );
+  FD_TEST( route.hop.rtype==FD_FIB4_RTYPE_BROADCAST );
+  FD_TEST( !( route.hop.flags & FD_FIB4_FLAG_RTYPE_UNSUPPORTED ) );
+
+  route = translate_rtype( RTN_MULTICAST );
+  FD_TEST( route.hop.rtype==FD_FIB4_RTYPE_MULTICAST );
+  FD_TEST( !( route.hop.flags & FD_FIB4_FLAG_RTYPE_UNSUPPORTED ) );
+
   route = translate_rtype( RTN_BLACKHOLE );
   FD_TEST( route.hop.rtype==FD_FIB4_RTYPE_BLACKHOLE );
   FD_TEST( !( route.hop.flags & FD_FIB4_FLAG_RTYPE_UNSUPPORTED ) );
