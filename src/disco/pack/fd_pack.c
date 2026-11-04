@@ -3013,9 +3013,9 @@ fd_pack_clear_all( fd_pack_t * pack ) {
 /* If delete_full_bundle is non-zero and the transaction to delete is
    part of a bundle, the rest of the bundle it is part of will be
    deleted as well.
-   If move_from_penalty_treap is non-zero and the transaction to delete
-   is in the pending treap, move the best transaction in any of the
-   conflicting penalty treaps to the pending treap (if there is one). */
+   If move_from_penalty_treap is non-zero, move at most one best
+   conflicting penalized transaction to pending per deleted transaction,
+   irrespective of the deleted transaction's original treap. */
 static ulong
 delete_transaction( fd_pack_t         * pack,
                     fd_pack_ord_txn_t * containing,
@@ -3076,17 +3076,26 @@ delete_transaction( fd_pack_t         * pack,
 
     /* Delete them each, setting delete_full_bundle to 0 to avoid
        infinite recursion. */
-    for( ulong k=0UL; k<cnt; k++ ) delete_cnt += delete_transaction( pack, bundle_ptrs[ k ], 0, 0 );
+    for( ulong k=0UL; k<cnt; k++ ) delete_cnt += delete_transaction( pack, bundle_ptrs[ k ], 0, move_from_penalty_treap );
   }
 
 
-  if( FD_UNLIKELY( move_from_penalty_treap & (root==pack->pending) ) ) {
+  /* Exclude the victim before choosing a replacement: it can itself
+     be the best entry in a conflicting penalty treap.  Finish removing
+     its empty owner before querying candidates, since penalty_map_remove
+     can relocate other map entries (and their embedded treaps).  Keep
+     the victim's pool storage alive until its accounts are released. */
+  treap_ele_remove( root, containing, pack->pool );
+  if( FD_UNLIKELY( penalty_treap && !treap_ele_cnt( root ) ) )
+    penalty_map_remove( pack->penalty_treaps, penalty_treap );
+
+  if( FD_UNLIKELY( move_from_penalty_treap ) ) {
 
     fd_pack_ord_txn_t       * best         = NULL;
     fd_pack_penalty_treap_t * best_penalty = NULL;
 
-    /* Pending readers also contribute to the penalty threshold.  Their
-       deletion must make a conflicting writer eligible for scheduling. */
+    /* Reads contribute references too, including reads by transactions
+       rooted in a different account's penalty treap or in a bundle. */
     for( fd_txn_acct_iter_t iter=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_ALL );
         iter!=fd_txn_acct_iter_end(); iter=fd_txn_acct_iter_next( iter ) ) {
       fd_pack_penalty_treap_t * p_trp = penalty_map_query( pack->penalty_treaps, *ACCT_ITER_TO_PTR( iter ), NULL );
@@ -3129,16 +3138,11 @@ delete_transaction( fd_pack_t         * pack,
   }
   expq_remove( pack->expiration_q, containing->expq_idx );
   containing->root = FD_ORD_TXN_ROOT_FREE;
-  treap_ele_remove( root, containing, pack->pool );
   sig2txn_ele_remove_fast( pack->signature_map, containing, pack->pool );
   trp_pool_ele_release( pack->pool, containing );
 
   delete_cnt += 1UL;
   pack->pending_txn_cnt--;
-
-  if( FD_UNLIKELY( penalty_treap && treap_ele_cnt( root )==0UL ) ) {
-    penalty_map_remove( pack->penalty_treaps, penalty_treap );
-  }
 
   return delete_cnt;
 }
