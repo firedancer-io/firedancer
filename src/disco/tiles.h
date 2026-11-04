@@ -15,6 +15,16 @@
 struct fd_became_leader {
    ulong slot;
 
+  /* The parent block the leader slot builds on. parent_cmr is the
+     merkle root of the parent's last FEC set, which chains our first
+     FEC set.  parent_dmr is the parent's double merkle root (block id),
+     which goes in the block header.  parent_blockhash is the parent's
+     last blockhash (its alpentick). */
+  ulong     parent_slot;
+  fd_hash_t parent_cmr;
+  fd_hash_t parent_dmr;
+  fd_hash_t parent_blockhash;
+
   /* Start and end time of the slot in nanoseconds (from
      fd_log_wallclock()). */
   long   slot_start_ns;

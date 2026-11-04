@@ -486,21 +486,21 @@ local f_ticks_per_slot = ProtoField.uint64("fd_became_leader_t.ticks_per_slot", 
 fd_became_leader.fields = { f_slot, f_slot_start, f_slot_end, f_bank_idx, f_bank_seq, f_max_microblocks_in_slot, f_ticks_per_slot }
 
 function fd_became_leader.dissector(buffer, pinfo, tree)
-  if buffer:len() < 56 then return end
+  if buffer:len() < 160 then return end
   local subtree = tree:add(fd_became_leader, buffer(), "fd_became_leader_t")
 
   -- Extract fields from buffer
-  local slot_start = buffer(8, 8):le_int64()
-  local slot_end   = buffer(16, 8):le_int64()
+  local slot_start = buffer(112, 8):le_int64()
+  local slot_end   = buffer(120, 8):le_int64()
 
   -- Add fields to the tree
   subtree:add_le(f_slot, buffer(0, 8))
-  subtree:add(f_slot_start, buffer(8, 8), NSTime.new( (slot_start/1000000000):tonumber(), (slot_start%1000000000):lower()) )
-  subtree:add(f_slot_end,   buffer(16, 8), NSTime.new( (slot_end  /1000000000):tonumber(), (slot_end  %1000000000):lower()) )
-  subtree:add_le(f_bank_idx, buffer(24, 8))
-  subtree:add_le(f_bank_seq, buffer(32, 8))
-  subtree:add_le(f_max_microblocks_in_slot, buffer(40, 8))
-  subtree:add_le(f_ticks_per_slot, buffer(48, 8))
+  subtree:add(f_slot_start, buffer(112, 8), NSTime.new( (slot_start/1000000000):tonumber(), (slot_start%1000000000):lower()) )
+  subtree:add(f_slot_end,   buffer(120, 8), NSTime.new( (slot_end  /1000000000):tonumber(), (slot_end  %1000000000):lower()) )
+  subtree:add_le(f_bank_idx, buffer(128, 8))
+  subtree:add_le(f_bank_seq, buffer(136, 8))
+  subtree:add_le(f_max_microblocks_in_slot, buffer(144, 8))
+  subtree:add_le(f_ticks_per_slot, buffer(152, 8))
 end
 
 
