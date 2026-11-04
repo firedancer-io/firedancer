@@ -188,6 +188,8 @@ test_env_create( test_env_t * env ) {
   FD_SCRATCH_ALLOC_INIT( l, env->tile_mem );
   env->ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_resolv_ctx_t), sizeof(fd_resolv_ctx_t) );
   env->ctx->startup_gate->started = 1;
+  fd_siphash13_init( env->ctx->tag_hasher,   TEST_HASH_SEED, 1UL );
+  fd_siphash13_init( env->ctx->nonce_hasher, TEST_HASH_SEED, 2UL );
 
   ulong map_chain_cnt = 2UL*map_chain_cnt_est( BLOCKHASH_RING_LEN );
   env->ctx->completed_slot         = 200UL;
@@ -233,6 +235,8 @@ test_env_destroy( test_env_t * env ) {
   fd_memset( env, 0, sizeof(test_env_t) );
 }
 
+/* Tags cover the full 32 B key, match the reference SipHash1-3, and
+   the blockhash and nonce keys are independent. */
 FD_UNIT_TEST( resolv_blockhash_map_hashes_full_key ) {
 # define COLLISION_CNT (64UL)
   ulong map_chain_cnt = 2UL*map_chain_cnt_est( BLOCKHASH_RING_LEN );
@@ -242,18 +246,27 @@ FD_UNIT_TEST( resolv_blockhash_map_hashes_full_key ) {
   FD_TEST( blockhash_map );
   FD_TEST( map_seed( blockhash_map )==TEST_HASH_SEED );
 
+  fd_siphash13_t tag_hasher[1];
+  fd_siphash13_t nonce_hasher[1];
+  fd_siphash13_init( tag_hasher,   TEST_HASH_SEED, 1UL );
+  fd_siphash13_init( nonce_hasher, TEST_HASH_SEED, 2UL );
+
   blockhash_map_t inserted[ COLLISION_CNT ];
   for( ulong i=0UL; i<COLLISION_CNT; i++ ) {
     blockhash_t key = {0};
     uint  prefix = 0x12345678U;
     ulong suffix = i+1UL;
-    fd_memcpy( key.b,     &prefix, sizeof(prefix) );
-    fd_memcpy( key.b+8UL, &suffix, sizeof(suffix) );
-    FD_TEST( ULONG_MAX==map_idx_query( blockhash_map, &key, ULONG_MAX, inserted ) );
+    fd_memcpy( key.b,      &prefix, sizeof(prefix) );
+    fd_memcpy( key.b+24UL, &suffix, sizeof(suffix) );
+    ulong tag = fd_siphash13_fini_x32( tag_hasher, key.b );
+    FD_TEST( tag==fd_siphash13_hash( key.b, 32UL, TEST_HASH_SEED, 1UL ) );
+    FD_TEST( tag!=fd_siphash13_fini_x32( nonce_hasher, key.b ) );
+    FD_TEST( ULONG_MAX==map_idx_query( blockhash_map, &tag, ULONG_MAX, inserted ) );
 
-    inserted[ i ].key = key;
+    inserted[ i ].tag = tag;
     map_idx_insert( blockhash_map, i, inserted );
   }
+  for( ulong i=0UL; i<COLLISION_CNT; i++ ) FD_TEST( i==map_idx_query( blockhash_map, &inserted[ i ].tag, ULONG_MAX, inserted ) );
 
   fd_wksp_free_laddr( map_leave( blockhash_map ) );
 # undef COLLISION_CNT
@@ -290,22 +303,33 @@ FD_UNIT_TEST( resolv_stash_map_seed_initialized ) {
 
   fd_resolv_ctx_t * ctx = tile_mem;
   ctx->map_seed = TEST_HASH_SEED;
+  fd_memset( ctx->tag_hasher,   0, sizeof(fd_siphash13_t) );
+  fd_memset( ctx->nonce_hasher, 0, sizeof(fd_siphash13_t) );
   FD_TEST( fd_tile_resolv.privileged_init );
   fd_tile_resolv.privileged_init( topo, &tile );
   FD_TEST( ctx->map_seed!=TEST_HASH_SEED );
+
+  /* Keyed (not the zero-key IV) and independent */
+  fd_siphash13_t zero_key[1];
+  fd_siphash13_init( zero_key, 0UL, 0UL );
+  FD_TEST( memcmp( ctx->tag_hasher->v,   zero_key->v,          sizeof(zero_key->v) ) );
+  FD_TEST( memcmp( ctx->nonce_hasher->v, zero_key->v,          sizeof(zero_key->v) ) );
+  FD_TEST( memcmp( ctx->tag_hasher->v,   ctx->nonce_hasher->v, sizeof(zero_key->v) ) );
+  FD_TEST( !ctx->tag_hasher->n && !ctx->nonce_hasher->n );
 
   fd_wksp_free_laddr( tile_mem );
 }
 
 static void
-test_add_blockhash_hint( test_env_t * env,
-                         fd_hash_t *  hash,
-                         ulong        slot,
-                         ulong        hint ) {
+test_add_blockhash( test_env_t * env,
+                    fd_hash_t *  hash,
+                    ulong        slot ) {
   blockhash_map_t * entry = env->ctx->blockhash_ring+(env->ctx->blockhash_ring_idx%BLOCKHASH_RING_LEN);
 
-  memcpy( entry->key.b, hash, 32UL );
-  entry->nonce_hint   = hint;
+  blockhash_t nonce[1];
+  durable_nonce_hash( (blockhash_t const *)hash, nonce );
+  entry->tag          = fd_siphash13_fini_x32( env->ctx->tag_hasher,   hash->uc );
+  entry->nonce_tag    = fd_siphash13_fini_x32( env->ctx->nonce_hasher, nonce->b );
   entry->block_height = slot;
 
   map_ele_insert ( env->ctx->blockhash_map,       entry, env->ctx->blockhash_ring );
@@ -314,12 +338,13 @@ test_add_blockhash_hint( test_env_t * env,
 }
 
 static void
-test_add_blockhash( test_env_t * env,
-                    fd_hash_t *  hash,
-                    ulong        slot ) {
-  blockhash_t nonce[1];
-  durable_nonce_hash( (blockhash_t const *)hash, nonce );
-  test_add_blockhash_hint( env, hash, slot, FD_LOAD( ulong, nonce->b ) );
+test_complete_slot( test_env_t *      env,
+                    fd_hash_t const * hash,
+                    ulong             block_height ) {
+  env->ctx->_completed_slot_msg.slot         = block_height;
+  env->ctx->_completed_slot_msg.block_height = block_height;
+  env->ctx->_completed_slot_msg.block_hash   = *hash;
+  after_frag( env->ctx, 1UL, 0UL, REPLAY_SIG_SLOT_COMPLETED, sizeof(fd_replay_slot_completed_t), 0UL, 0UL, env->stem );
 }
 
 static void
@@ -375,33 +400,78 @@ FD_UNIT_TEST( resolv_durable_nonce ) {
   test_env_destroy( env );
 }
 
-/* A ring entry whose nonce hint collides but whose full durable nonce
-   differs must not match, whichever order the chain holds them in. */
-FD_UNIT_TEST( resolv_durable_nonce_hint_collision ) {
-  fd_hash_t hash  = { .ul = { 0xfeedUL } };
-  fd_hash_t other = { .ul = { 0xbeefUL } };
+/* Slot completion inserts both tags: a nonce txn resolves through
+   its durable nonce, never through the raw blockhash, and a non-nonce
+   txn never through a durable nonce. */
+FD_UNIT_TEST( resolv_durable_nonce_slot_completed ) {
+  fd_hash_t hash = { .ul = { 0xfeedUL } };
   fd_hash_t durable_hash = { .ul = { 0x9af781fcada1b490, 0x60638414e047e3e1, 0x2a3c8375f0b67f7, 0xfeb08e84ac3cb6f9 } };
-  for( int order=0; order<2; order++ ) {
-    test_env_t env[1];
-    test_env_create( env );
-    env->ctx->completed_block_height = 7UL;
-    if( order ) test_add_blockhash( env, &hash, 125UL );
-    test_add_blockhash_hint( env, &other, 99UL, durable_hash.ul[ 0 ] );
-    if( !order ) test_add_blockhash( env, &hash, 125UL );
-    test_ingest_txn( env, &durable_hash, 1 );
-    fd_frag_meta_t const * meta = env->out_mcache[0] + fd_mcache_line_idx( 0UL, env->stem_depths[0] );
-    FD_TEST( env->stem_seqs[0]==1UL && meta->sig==125UL );
 
-    /* Only the colliding entry: no match, reference stays at the tip */
-    test_env_destroy( env );
-    test_env_create( env );
-    env->ctx->completed_block_height = 7UL;
-    test_add_blockhash_hint( env, &other, 99UL, durable_hash.ul[ 0 ] );
-    test_ingest_txn( env, &durable_hash, 1 );
-    meta = env->out_mcache[0] + fd_mcache_line_idx( 0UL, env->stem_depths[0] );
-    FD_TEST( env->stem_seqs[0]==1UL && meta->sig==7UL );
-    test_env_destroy( env );
+  test_env_t env[1];
+  test_env_create( env );
+  test_complete_slot( env, &hash, 125UL );
+  env->ctx->completed_block_height = 130UL;
+  FD_TEST( env->ctx->blockhash_ring_idx==1UL );
+
+  test_ingest_txn( env, &durable_hash, 1 );
+  test_ingest_txn( env, &hash,         1 );
+  test_ingest_txn( env, &hash,         0 );
+  FD_TEST( env->stem_seqs[0]==3UL );
+  ulong want[3] = { 125UL, 130UL, 125UL };
+  for( ulong i=0UL; i<3UL; i++ ) {
+    fd_frag_meta_t const * meta = env->out_mcache[0] + fd_mcache_line_idx( i, env->stem_depths[0] );
+    FD_TEST( meta->seq==i && meta->sig==want[ i ] );
   }
+
+  /* Durable nonce as a plain recent blockhash: unknown, stashed */
+  test_ingest_txn( env, &durable_hash, 0 );
+  FD_TEST( env->stem_seqs[0]==3UL );
+  FD_TEST( env->ctx->metrics.stash_inserted==1UL );
+  test_env_destroy( env );
+}
+
+/* An equivocating slot with the same blockhash is ignored. */
+FD_UNIT_TEST( resolv_same_blockhash_ignored ) {
+  fd_hash_t hash = { .ul = { 0xfeedUL } };
+  test_env_t env[1];
+  test_env_create( env );
+  test_complete_slot( env, &hash, 125UL );
+  test_complete_slot( env, &hash, 126UL );
+  FD_TEST( env->ctx->blockhash_ring_idx==1UL );
+  FD_TEST( env->ctx->completed_block_height==125UL );
+
+  test_ingest_txn( env, &hash, 0 );
+  fd_frag_meta_t const * meta = env->out_mcache[0] + fd_mcache_line_idx( 0UL, env->stem_depths[0] );
+  FD_TEST( env->stem_seqs[0]==1UL && meta->sig==125UL );
+  test_env_destroy( env );
+}
+
+/* Ring wrap removes the overwritten entry from both maps. */
+FD_UNIT_TEST( resolv_ring_wrap ) {
+  fd_hash_t old_hash = { .ul = { 0xfeedUL } };
+  fd_hash_t new_hash = { .ul = { 0xf00dUL } };
+  fd_hash_t durable_hash = { .ul = { 0x9af781fcada1b490, 0x60638414e047e3e1, 0x2a3c8375f0b67f7, 0xfeb08e84ac3cb6f9 } };
+  test_env_t env[1];
+  test_env_create( env );
+  test_complete_slot( env, &old_hash, 125UL );
+  env->ctx->blockhash_ring_idx = BLOCKHASH_RING_LEN;
+  test_complete_slot( env, &new_hash, 126UL );
+  FD_TEST( env->ctx->blockhash_ring_idx==BLOCKHASH_RING_LEN+1UL );
+  FD_TEST( env->ctx->blockhash_ring[ 0 ].block_height==126UL );
+  env->ctx->completed_block_height = 130UL;
+
+  test_ingest_txn( env, &durable_hash, 1 ); /* no match: tip */
+  test_ingest_txn( env, &new_hash,     0 );
+  FD_TEST( env->stem_seqs[0]==2UL );
+  fd_frag_meta_t const * meta = env->out_mcache[0] + fd_mcache_line_idx( 0UL, env->stem_depths[0] );
+  FD_TEST( meta->sig==130UL );
+  meta = env->out_mcache[0] + fd_mcache_line_idx( 1UL, env->stem_depths[0] );
+  FD_TEST( meta->sig==126UL );
+
+  test_ingest_txn( env, &old_hash, 0 ); /* removed: stashed */
+  FD_TEST( env->stem_seqs[0]==2UL );
+  FD_TEST( env->ctx->metrics.stash_inserted==1UL );
+  test_env_destroy( env );
 }
 
 FD_UNIT_TEST( resolv_blockhash_unknown ) {

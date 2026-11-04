@@ -15,6 +15,7 @@
 #include "../../tango/fseq/fd_fseq.h"
 #include "../../util/pod/fd_pod_format.h"
 #include "../../util/fd_hash32.h"
+#include "../../ballet/siphash13/fd_siphash13.h"
 
 #include <time.h>
 #include <linux/futex.h>
@@ -33,23 +34,23 @@ struct blockhash {
 
 typedef struct blockhash blockhash_t;
 
-/* One ring element serves both the blockhash map (key/next/prev) and
-   the nonce map (nonce_hint/nonce_next/nonce_prev).  nonce_hint is the
-   first 8 bytes of the durable nonce sha256("DURABLE_NONCE"||key); a
-   hint match is confirmed by recomputing the full hash. */
+/* One ring element serves both the blockhash map (tag/next/prev) and
+   the nonce map (nonce_tag/nonce_next/nonce_prev).  Tags are SipHash
+   of the blockhash and of its durable nonce under secret per-boot
+   keys, so collisions (filter-only effects) cannot be targeted. */
 
 struct blockhash_map {
-  blockhash_t key;
-  uint        next;
-  uint        prev;
-  ulong       block_height;
-  ulong       nonce_hint;
-  uint        nonce_next;
-  uint        nonce_prev;
+  ulong tag;
+  uint  next;
+  uint  prev;
+  ulong block_height;
+  ulong nonce_tag;
+  uint  nonce_next;
+  uint  nonce_prev;
 };
 
 typedef struct blockhash_map blockhash_map_t;
-FD_STATIC_ASSERT( sizeof(blockhash_map_t)==64UL, blockhash_map_sz );
+FD_STATIC_ASSERT( sizeof(blockhash_map_t)==40UL, blockhash_map_sz );
 
 /* See fd_durable_nonce_from_blockhash */
 static inline void
@@ -94,18 +95,19 @@ durable_nonce_hash( blockhash_t const * blockhash,
 
 #define MAP_NAME               map
 #define MAP_ELE_T              blockhash_map_t
-#define MAP_KEY_T              blockhash_t
+#define MAP_KEY_T              ulong
+#define MAP_KEY                tag
 #define MAP_IDX_T              uint
 #define MAP_OPTIMIZE_RANDOM_ACCESS_REMOVAL 1
-#define MAP_KEY_EQ(k0,k1)      (!memcmp((k0)->b,(k1)->b, 32UL))
-#define MAP_KEY_HASH(key,seed) ((uint)fd_hash32( (key)->b, (seed) ))
+#define MAP_KEY_EQ(k0,k1)      (*(k0)==*(k1))
+#define MAP_KEY_HASH(key,seed) fd_ulong_hash( *(key)^(seed) )
 
 #include "../../util/tmpl/fd_map_chain.c"
 
 #define MAP_NAME               nmap
 #define MAP_ELE_T              blockhash_map_t
 #define MAP_KEY_T              ulong
-#define MAP_KEY                nonce_hint
+#define MAP_KEY                nonce_tag
 #define MAP_NEXT               nonce_next
 #define MAP_PREV               nonce_prev
 #define MAP_IDX_T              uint
@@ -201,6 +203,10 @@ typedef struct {
 } fd_resolv_out_ctx_t;
 
 typedef struct {
+  /* Primed with secret keys; tag/nonce_tag hashers */
+  fd_siphash13_t tag_hasher[1];
+  fd_siphash13_t nonce_hasher[1];
+
   ulong round_robin_idx;
   ulong round_robin_cnt;
   ulong map_seed;
@@ -533,7 +539,8 @@ after_frag( fd_resolv_ctx_t *   ctx,
 
         /* Equivocating slot with same blockhash, ignore.  See fd_txncache.h on how this is possible.
            TODO make sure matches how agave handles it */
-        if( FD_UNLIKELY( map_ele_query( ctx->blockhash_map, (blockhash_t *)msg->block_hash.uc, NULL, ctx->blockhash_ring ) ) ) {
+        ulong tag = fd_siphash13_fini_x32( ctx->tag_hasher, msg->block_hash.uc );
+        if( FD_UNLIKELY( map_ele_query( ctx->blockhash_map, &tag, NULL, ctx->blockhash_ring ) ) ) {
           FD_LOG_WARNING(( "slot with same blockhash, ignoring: %lu", msg->slot ));
           return;
         }
@@ -546,10 +553,10 @@ after_frag( fd_resolv_ctx_t *   ctx,
         }
         blockhash_map_t * entry = ctx->blockhash_ring+(ctx->blockhash_ring_idx%BLOCKHASH_RING_LEN);
 
-        memcpy( entry->key.b, msg->block_hash.uc, 32UL );
         blockhash_t nonce[1];
-        durable_nonce_hash( &entry->key, nonce );
-        entry->nonce_hint   = FD_LOAD( ulong, nonce->b );
+        durable_nonce_hash( (blockhash_t const *)msg->block_hash.uc, nonce );
+        entry->tag          = tag;
+        entry->nonce_tag    = fd_siphash13_fini_x32( ctx->nonce_hasher, nonce->b );
         entry->block_height = msg->block_height;
 
         map_ele_insert ( ctx->blockhash_map,       entry, ctx->blockhash_ring );
@@ -638,16 +645,11 @@ after_frag( fd_resolv_ctx_t *   ctx,
 
   blockhash_map_t const * blockhash;
   if( FD_LIKELY( !is_durable_nonce ) ) {
-    blockhash = map_ele_query_const( ctx->blockhash_map, recent_blockhash, NULL, ctx->blockhash_ring );
+    ulong tag = fd_siphash13_fini_x32( ctx->tag_hasher, recent_blockhash->b );
+    blockhash = map_ele_query_const( ctx->blockhash_map, &tag, NULL, ctx->blockhash_ring );
   } else {
-    ulong hint = FD_LOAD( ulong, recent_blockhash->b );
-    for( blockhash = nmap_ele_query_const( ctx->nonce_blockhash_map, &hint, NULL, ctx->blockhash_ring );
-         blockhash;
-         blockhash = nmap_ele_next_const( blockhash, NULL, ctx->blockhash_ring ) ) {
-      blockhash_t nonce[1];
-      durable_nonce_hash( &blockhash->key, nonce );
-      if( FD_LIKELY( !memcmp( nonce->b, recent_blockhash->b, 32UL ) ) ) break;
-    }
+    ulong tag = fd_siphash13_fini_x32( ctx->nonce_hasher, recent_blockhash->b );
+    blockhash = nmap_ele_query_const( ctx->nonce_blockhash_map, &tag, NULL, ctx->blockhash_ring );
   }
   if( FD_LIKELY( blockhash ) ) {
     txnm->reference_block_height = blockhash->block_height;
@@ -738,6 +740,11 @@ privileged_init( fd_topo_t const *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_resolv_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_resolv_ctx_t ), sizeof( fd_resolv_ctx_t ) );
   FD_TEST( fd_rng_secure( &ctx->map_seed, sizeof(ctx->map_seed) ) );
+  ulong key[ 4 ];
+  FD_TEST( fd_rng_secure( key, sizeof(key) ) );
+  fd_siphash13_init( ctx->tag_hasher,   key[ 0 ], key[ 1 ] );
+  fd_siphash13_init( ctx->nonce_hasher, key[ 2 ], key[ 3 ] );
+  fd_memzero_explicit( key, sizeof(key) );
 }
 
 static void
