@@ -580,6 +580,25 @@ fd_rpc_ws_subscriber_slot_remove( fd_rpc_tile_t * ctx,
   return 0;
 }
 
+/* fd_rpc_ws_unsubscribe removes the subscription with id sub_id from
+   connection ws_conn_id, whatever its type.  Returns 1 if a
+   subscription was removed, 0 if the connection has no subscription
+   with that id.
+
+   Agave keeps all subscriptions of a connection in one map keyed by id
+   and every *Unsubscribe method removes from that map without checking
+   the subscription type.  This is a bug in Agave, we replicate it for
+   conformance. */
+
+static int
+fd_rpc_ws_unsubscribe( fd_rpc_tile_t * ctx,
+                       ulong           sub_id,
+                       ulong           ws_conn_id ) {
+  if( sub_id==ctx->ws_sub_id_slot && fd_rpc_ws_subscriber_slot_remove( ctx, ws_conn_id ) ) return 1;
+  if( sub_id==ctx->ws_sub_id_vote && fd_rpc_ws_subscriber_vote_remove( ctx, ws_conn_id ) ) return 1;
+  return 0;
+}
+
 static void *
 bz2_malloc( void * opaque,
             int    items,
@@ -2651,11 +2670,11 @@ voteUnsubscribe( fd_rpc_tile_t *         ctx,
     return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: %s, expected usize.\"},\"id\":%s}\n", fd_rpc_val_kind_cstr( subscription ), id_cstr );
   }
 
-  int unsubscribed = 0;
-  if( FD_LIKELY( subscription->u==ctx->ws_sub_id_vote ) )
-    unsubscribed = fd_rpc_ws_subscriber_vote_remove( ctx, ws_conn_id );
+  if( FD_UNLIKELY( !fd_rpc_ws_unsubscribe( ctx, subscription->u, ws_conn_id ) ) ) {
+    return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid subscription id.\"},\"id\":%s}\n", id_cstr );
+  }
 
-  return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"result\":%s,\"id\":%s}\n", unsubscribed ? "true" : "false", id_cstr );
+  return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"result\":true,\"id\":%s}\n", id_cstr );
 }
 
 static fd_http_server_response_t
@@ -2678,11 +2697,11 @@ slotUnsubscribe( fd_rpc_tile_t *         ctx,
     return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: %s, expected usize.\"},\"id\":%s}\n", fd_rpc_val_kind_cstr( subscription ), id_cstr );
   }
 
-  int unsubscribed = 0;
-  if( FD_LIKELY( subscription->u==ctx->ws_sub_id_slot ) )
-    unsubscribed = fd_rpc_ws_subscriber_slot_remove( ctx, ws_conn_id );
+  if( FD_UNLIKELY( !fd_rpc_ws_unsubscribe( ctx, subscription->u, ws_conn_id ) ) ) {
+    return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid subscription id.\"},\"id\":%s}\n", id_cstr );
+  }
 
-  return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"result\":%s,\"id\":%s}\n", unsubscribed ? "true" : "false", id_cstr );
+  return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"result\":true,\"id\":%s}\n", id_cstr );
 }
 
 UNIMPLEMENTED(getVoteAccounts) // TODO: Used by solana-exporter

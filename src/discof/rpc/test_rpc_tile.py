@@ -5,6 +5,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 import pytest
 import requests
+import websocket
 from deepdiff import DeepDiff
 from deepdiff.helper import COLORED_COMPACT_VIEW
 
@@ -13,6 +14,11 @@ from deepdiff.helper import COLORED_COMPACT_VIEW
 SERVER1_URL = os.environ.get("SERVER1_URL", "http://localhost:8899")
 SERVER2_URL = os.environ.get(
     "SERVER2_URL", "http://solana-testnet-rpc.jumpisolated.com:8899"
+)
+# Firedancer serves WebSocket on the RPC port, Agave on the RPC port + 1
+SERVER1_WS_URL = os.environ.get("SERVER1_WS_URL", "ws://localhost:8899")
+SERVER2_WS_URL = os.environ.get(
+    "SERVER2_WS_URL", "ws://solana-testnet-rpc.jumpisolated.com:8900"
 )
 
 
@@ -38,6 +44,25 @@ class RPCTester:
             if response is not None:
                 return {"msg": response.text, "status": response.status_code}
             return {"msg": str(e), "status": None}
+
+    def make_ws_call(
+        self, url: str, payload: Dict[str, Any], timeout: int = 10
+    ) -> Dict[str, Any]:
+        """Send one request over a fresh WebSocket and return its response"""
+        try:
+            ws = websocket.create_connection(url, timeout=timeout)
+        except Exception as e:
+            return {"msg": str(e), "status": None}
+        try:
+            ws.send(json.dumps(payload))
+            while True:
+                msg = json.loads(ws.recv())
+                if "id" in msg:  # skip subscription notifications
+                    return {"msg": msg, "status": None}
+        except Exception as e:
+            return {"msg": str(e), "status": None}
+        finally:
+            ws.close()
 
     def compare_responses(
         self,
@@ -1288,6 +1313,23 @@ GET_MULTIPLE_ACCOUNTS = [
     },
 ]
 
+# Sent over WebSocket instead of HTTP.
+SLOT_UNSUBSCRIBE = [
+    {
+        "payload": {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "slotUnsubscribe",
+            "params": [987654321],
+        },
+        "description": "slotUnsubscribe unknown subscription id",
+    },
+]
+
+WS_TEST_SUITE = [
+    *SLOT_UNSUBSCRIBE,
+]
+
 TEST_SUITE = [
     *MISC,
     *GET_HEALTH,
@@ -1348,6 +1390,40 @@ def test_rpc(tester: RPCTester, test_case: Dict[str, Any]):
         f"Diff:\n{diff}\n\n"
         f"Server 1 ({tester.server1_url}):\n{json.dumps(resp1, indent=2, default=str)}\n\n"
         f"Server 2 ({tester.server2_url}):\n{json.dumps(resp2, indent=2, default=str)}\n"
+    )
+
+
+@pytest.mark.parametrize(
+    "test_case",
+    WS_TEST_SUITE,
+    ids=[tc.get("description", f"test_ws_{i}") for i, tc in enumerate(WS_TEST_SUITE)],
+)
+def test_rpc_ws(tester: RPCTester, test_case: Dict[str, Any]):
+    payload = test_case["payload"]
+    description = test_case.get("description", "")
+
+    resp1 = tester.make_ws_call(SERVER1_WS_URL, payload)
+    resp2 = tester.make_ws_call(SERVER2_WS_URL, payload)
+
+    assert isinstance(resp1["msg"], dict), (
+        f"Server 1 WebSocket request failed: {resp1['msg']}"
+    )
+    assert isinstance(resp2["msg"], dict), (
+        f"Server 2 WebSocket request failed: {resp2['msg']}"
+    )
+
+    is_equal, diff = tester.compare_responses(
+        resp1, resp2, test_case.get("exclude_paths")
+    )
+
+    assert is_equal, (
+        f"\n{'=' * 60}\n"
+        f"Test: {description}\n"
+        f"{'=' * 60}\n"
+        f"Payload: {json.dumps(payload, indent=2, default=str)}\n\n"
+        f"Diff:\n{diff}\n\n"
+        f"Server 1 ({SERVER1_WS_URL}):\n{json.dumps(resp1, indent=2, default=str)}\n\n"
+        f"Server 2 ({SERVER2_WS_URL}):\n{json.dumps(resp2, indent=2, default=str)}\n"
     )
 
 
