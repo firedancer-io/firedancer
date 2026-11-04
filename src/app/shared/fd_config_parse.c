@@ -264,7 +264,6 @@ fd_config_extract_pod( uchar *       pod,
 
   CFG_POP      ( bool,   development.gossip.allow_private_address         );
 
-  CFG_POP      ( ulong,  development.genesis.hashes_per_tick              );
   CFG_POP      ( ulong,  development.genesis.target_tick_duration_micros  );
   CFG_POP      ( ulong,  development.genesis.ticks_per_slot               );
   CFG_POP      ( ulong,  development.genesis.fund_initial_accounts        );
