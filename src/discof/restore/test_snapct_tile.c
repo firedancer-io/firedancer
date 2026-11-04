@@ -1272,15 +1272,18 @@ test_full_fini_full_only( void ) {
     int          gossip;
     ulong        wfs_slot;    /* 0: no target */
     ulong        local_incr;  /* incremental on disk, ULONG_MAX: none */
+    int          fast_boot;   /* the stream names the incremental */
     int          expect_load_incremental;
   } const cases[] = {
-    { "http, nobody offers one",      1, 0, 0, 0, 0UL,   ULONG_MAX, 0 },
-    { "file, nobody offers one",      0, 0, 0, 0, 0UL,   ULONG_MAX, 0 },
-    { "http, live server",            1, 1, 0, 0, 0UL,   ULONG_MAX, 1 },
-    { "http, remembered server",      1, 0, 1, 0, 0UL,   ULONG_MAX, 1 },
-    { "http, gossip may still bring", 1, 0, 0, 1, 0UL,   ULONG_MAX, 1 },
-    { "http, full short of WFS",      1, 0, 0, 0, 300UL, ULONG_MAX, 1 },
-    { "file, incremental on disk",    0, 0, 0, 0, 0UL,   120UL,     1 },
+    { "http, nobody offers one",      1, 0, 0, 0, 0UL,   ULONG_MAX, 0, 0 },
+    { "file, nobody offers one",      0, 0, 0, 0, 0UL,   ULONG_MAX, 0, 0 },
+    { "http, live server",            1, 1, 0, 0, 0UL,   ULONG_MAX, 0, 1 },
+    { "http, remembered server",      1, 0, 1, 0, 0UL,   ULONG_MAX, 0, 1 },
+    { "http, gossip may still bring", 1, 0, 0, 1, 0UL,   ULONG_MAX, 0, 1 },
+    { "http, full short of WFS",      1, 0, 0, 0, 300UL, ULONG_MAX, 0, 1 },
+    { "file, incremental on disk",    0, 0, 0, 0, 0UL,   120UL,     0, 1 },
+    { "http, fast boot, nobody offers one", 1, 0, 0, 0, 0UL, ULONG_MAX, 1, 1 },
+    { "file, fast boot, nobody offers one", 0, 0, 0, 0, 0UL, ULONG_MAX, 1, 1 },
   };
 
   void * scratch = aligned_alloc( scratch_align(), scratch_footprint( NULL ) ); FD_TEST( scratch );
@@ -1311,7 +1314,8 @@ test_full_fini_full_only( void ) {
     ctx->load_incremental  = 1;
     ctx->wfs_is_configured = cases[ i ].wfs_slot!=0UL;
     ctx->config.wfs_slot   = cases[ i ].wfs_slot;
-    ctx->predicted_incremental.full_slot    = 100UL;
+    ctx->config.fast_boot  = cases[ i ].fast_boot;
+    ctx->predicted_incremental.full_slot    = cases[ i ].fast_boot ? FD_SSPEER_SLOT_UNKNOWN : 100UL;
     ctx->predicted_incremental.slot         = FD_SSPEER_SLOT_UNKNOWN;
     ctx->local_in.full_snapshot_slot        = cases[ i ].http ? ULONG_MAX : 100UL;
     ctx->local_in.incremental_snapshot_slot = cases[ i ].local_incr;

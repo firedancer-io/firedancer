@@ -456,7 +456,7 @@ best_incremental_peer( fd_snapct_tile_t * ctx ) {
 
 static int
 full_only( fd_snapct_tile_t * ctx ) {
-  if( !ctx->load_incremental || ctx->gossip_enabled ) return 0;
+  if( !ctx->load_incremental || ctx->gossip_enabled || ctx->config.fast_boot ) return 0;
   if( wfs_short_of_target( ctx, ctx->predicted_incremental.full_slot ) ) return 0;
   if( ctx->local_in.full_snapshot_slot==ctx->predicted_incremental.full_slot &&
       ctx->local_in.incremental_snapshot_slot!=ULONG_MAX ) return 0;
