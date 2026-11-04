@@ -95,7 +95,10 @@ FD_UNIT_TEST( h2_peer_stream_roles_and_refusal ) {
     fd_h2_rst_stream_t rst;
     fd_h2_rbuf_pop_copy( tx, &rst, sizeof(rst) );
     FD_TEST( fd_uint_bswap(rst.error_code)==FD_H2_ERR_REFUSED_STREAM );
-    fd_h2_tx( rx, NULL, 0UL, FD_H2_FRAME_TYPE_CONTINUATION, FD_H2_FLAG_END_HEADERS, id );
+    /* The else branch passes the valid status buffer with a zero
+       length b/c a null pointer and length zero is undefined behavior
+       for memcpy. */
+    fd_h2_tx( rx, &status, 0UL, FD_H2_FRAME_TYPE_CONTINUATION, FD_H2_FLAG_END_HEADERS, id );
     fd_h2_tx( rx, &status, 1UL, FD_H2_FRAME_TYPE_DATA, 0U, 1U ); /* implicitly closed */
     fd_h2_tx( rx, &status, 1UL, FD_H2_FRAME_TYPE_DATA, 0U, id ); /* refused */
     fd_h2_tx( rx, (uchar const *)&increment, 4UL, FD_H2_FRAME_TYPE_WINDOW_UPDATE, 0U, id );
@@ -664,8 +667,10 @@ FD_UNIT_TEST( h2_initial_peer_settings ) {
     fd_h2_conn_t conn[1];
     if( server ) fd_h2_conn_init_server( conn );
     else         fd_h2_conn_init_client( conn );
+    /* The else branch passes the ping with a zero length b/c a null pointer and
+      length zero is undefined behavior for memcpy. */
     if( first_ping ) fd_h2_tx( rx, ping, 8UL, FD_H2_FRAME_TYPE_PING,     0U, 0U );
-    else             fd_h2_tx( rx, NULL, 0UL, FD_H2_FRAME_TYPE_SETTINGS, 0U, 0U );
+    else             fd_h2_tx( rx, ping, 0UL, FD_H2_FRAME_TYPE_SETTINGS, 0U, 0U );
     ulong rx_sz = fd_h2_rbuf_used_sz( rx );
     fd_h2_rx( conn, rx, tx, scratch, sizeof(scratch), &fd_h2_callbacks_noop );
     FD_TEST( fd_h2_rbuf_used_sz( rx )==rx_sz && fd_h2_rbuf_is_empty( tx ) );
