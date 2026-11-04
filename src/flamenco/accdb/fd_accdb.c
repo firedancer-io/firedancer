@@ -2525,6 +2525,7 @@ static void
 fd_accdb_acquire_inner( fd_accdb_t *          accdb,
                         fd_accdb_fork_id_t    fork_id,
                         int                   reservation_type,
+                        int const *           deferred,
                         ulong                 reserved_cnt,
                         ulong                 pubkeys_cnt,
                         uchar const * const * pubkeys,
@@ -2984,6 +2985,7 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
   //   reserved.
 
   for( ulong i=0UL; i<pubkeys_cnt; i++ ) {
+    out_accs[ i ].private_deferred = 0;
     if( FD_UNLIKELY( !accmetas[ i ] && !writable[ i ] ) ) {
       out_accs[ i ].data = NULL;
       out_accs[ i ].data_len = 0UL;
@@ -3298,9 +3300,18 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
   // STEP 16.
   //   Finally, copy any accounts we are writing into the staging
   //   buffers, so they occupy a 10MiB cache line for the execution
-  //   system.
+  //   system.  The non-bundle executor can defer this copy until load
+  //   succeeds.  Keep all destination lines and the original pin; only
+  //   the exposed data pointer changes.  The first account, explicit
+  //   exclusions, and tombstones stay eager.
   for( ulong i=0UL; i<pubkeys_cnt; i++ ) {
     if( FD_UNLIKELY( !accmetas[ i ] || !writable[ i ] ) ) continue;
+
+    if( FD_UNLIKELY( deferred && deferred[ i ] && i && accmetas[ i ]->lamports ) ) {
+      out_accs[ i ].data = out_accs[ i ].prior_data;
+      out_accs[ i ].private_deferred = 1;
+      continue;
+    }
 
     ulong copy_sz = (ulong)FD_ACCDB_SIZE_DATA( accmetas[ i ]->executable_size );
     fd_memcpy( destination_cache_lines[ i ][ 7UL ]+1UL, original_cache_line[ i ]+1UL, copy_sz );
@@ -3320,7 +3331,7 @@ fd_accdb_acquire( fd_accdb_t *          accdb,
                   fd_acc_t *            out_accs ) {
   FD_TEST( accdb->acquire_state==FD_ACCDB_ACQUIRE_STATE_IDLE );
   accdb->acquire_state = FD_ACCDB_ACQUIRE_STATE_OPEN;
-  fd_accdb_acquire_inner( accdb, fork_id, RESERVATION_TYPE_SIMPLE, 0UL, pubkeys_cnt, pubkeys, writable, out_accs );
+  fd_accdb_acquire_inner( accdb, fork_id, RESERVATION_TYPE_SIMPLE, 0, 0UL, pubkeys_cnt, pubkeys, writable, out_accs );
 }
 
 void
@@ -3332,7 +3343,36 @@ fd_accdb_acquire_a( fd_accdb_t *             accdb,
                        fd_acc_t *            out_accs ) {
   FD_TEST( accdb->acquire_state==FD_ACCDB_ACQUIRE_STATE_IDLE );
   accdb->acquire_state = FD_ACCDB_ACQUIRE_STATE_PHASE_A;
-  fd_accdb_acquire_inner( accdb, fork_id, RESERVATION_TYPE_MAYBE_PROGRAMDATA, 0UL, pubkeys_cnt, pubkeys, writable, out_accs );
+  fd_accdb_acquire_inner( accdb, fork_id, RESERVATION_TYPE_MAYBE_PROGRAMDATA, 0, 0UL, pubkeys_cnt, pubkeys, writable, out_accs );
+}
+
+void
+fd_accdb_acquire_a_deferred( fd_accdb_t *          accdb,
+                             fd_accdb_fork_id_t    fork_id,
+                             ulong                 pubkeys_cnt,
+                             uchar const * const * pubkeys,
+                             int *                 writable,
+                             int const *           deferred,
+                             fd_acc_t *            out_accs ) {
+  FD_TEST( accdb->acquire_state==FD_ACCDB_ACQUIRE_STATE_IDLE );
+  accdb->acquire_state = FD_ACCDB_ACQUIRE_STATE_PHASE_A;
+  fd_accdb_acquire_inner( accdb, fork_id, RESERVATION_TYPE_MAYBE_PROGRAMDATA, deferred, 0UL, pubkeys_cnt, pubkeys, writable, out_accs );
+}
+
+void
+fd_accdb_materialize( fd_accdb_t * accdb,
+                      fd_acc_t *   acc ) {
+  if( FD_LIKELY( !acc->private_deferred ) ) return;
+
+  FD_TEST( accdb->acquire_state==FD_ACCDB_ACQUIRE_STATE_OPEN );
+  FD_TEST( acc->_writable && acc->_original_size_class!=ULONG_MAX );
+  FD_TEST( acc->prior_data && acc->data==acc->prior_data && acc->data_len==acc->prior_data_len );
+  FD_TEST( acc->prior_data_len<=(10UL<<20) );
+  fd_accdb_cache_line_t * staging = cache_line( accdb, 7UL, acc->_write.destination_cache_idx[ 7UL ] );
+  fd_memcpy( staging+1UL, acc->prior_data, acc->prior_data_len );
+  acc->data = (uchar *)(staging+1UL);
+  acc->private_deferred = 0;
+  accdb->metrics->bytes_copied += acc->prior_data_len;
 }
 
 void
@@ -3345,7 +3385,7 @@ fd_accdb_acquire_b( fd_accdb_t *          accdb,
   static int const readonly[ FD_ACCDB_MAX_ACQUIRE_CNT ] = {0};
   FD_TEST( accdb->acquire_state==FD_ACCDB_ACQUIRE_STATE_PHASE_A );
   accdb->acquire_state = FD_ACCDB_ACQUIRE_STATE_OPEN;
-  fd_accdb_acquire_inner( accdb, fork_id, RESERVATION_TYPE_ALREADY_RESERVED, reserved_cnt, pubkeys_cnt, pubkeys, readonly, out_accs );
+  fd_accdb_acquire_inner( accdb, fork_id, RESERVATION_TYPE_ALREADY_RESERVED, 0, reserved_cnt, pubkeys_cnt, pubkeys, readonly, out_accs );
 }
 
 /* release_inner drains one group of acquired accs but does NOT change the
@@ -3377,6 +3417,9 @@ release_inner( fd_accdb_t * accdb,
   //   memcpy out so they are not done inside the cache lock.
 
   for( ulong i=0UL; i<accs_cnt; i++ ) {
+#if FD_TMPL_USE_HANDHOLDING
+    FD_TEST( !accs[ i ].commit || !accs[ i ].private_deferred );
+#endif
     if( FD_UNLIKELY( accs[ i ]._original_size_class==ULONG_MAX && !accs[ i ]._writable ) ) continue;
 
 #if FD_TMPL_USE_HANDHOLDING

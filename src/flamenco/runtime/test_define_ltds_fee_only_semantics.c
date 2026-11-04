@@ -4,6 +4,7 @@
 #include "fd_runtime.h"
 #include "fd_runtime_err.h"
 #include "fd_executor.h"
+#include "fd_hashes.h"
 #include "fd_system_ids.h"
 #include "../features/fd_features.h"
 #include "../../disco/fd_txn_p.h"
@@ -517,12 +518,61 @@ test_on_separate_nonce_limit_exceeded( fd_svm_mini_t * mini ) {
   build_separate_nonce_with_limit_txn( &fee_payer, &nonce_key, &bad_program, &durable_nonce,
                                        limit, txn_p, txn_in, txn_out );
 
+  ulong copied_before = fd_accdb_metrics( mini->runtime->accdb )->bytes_copied;
   fd_runtime_prepare_and_execute_txn( mini->runtime, bank, txn_in, txn_out );
 
   FD_TEST( txn_out->err.is_fees_only );
   FD_TEST( txn_out->err.txn_err==FD_RUNTIME_TXN_ERR_MAX_LOADED_ACCOUNTS_DATA_SIZE_EXCEEDED );
   FD_TEST( txn_out->accounts.nonce_idx_in_txn==1UL );
   FD_TEST( txn_out->details.loaded_accounts_data_size==(ulong)limit );
+
+  /* The nonce is instruction-referenced and writable, but failed load
+     must not copy it or mutate its pinned original.  The fee payer is
+     eager even when it is itself the nonce in the other cases above. */
+  fd_acc_t * nonce = txn_out->accounts.account[ 1 ];
+  fd_acc_t * payer = txn_out->accounts.account[ FD_FEE_PAYER_TXN_IDX ];
+  FD_TEST( nonce->_writable && nonce->private_deferred && nonce->data==nonce->prior_data );
+  FD_TEST( !payer->private_deferred );
+  FD_TEST( fd_accdb_metrics( mini->runtime->accdb )->bytes_copied==copied_before );
+  FD_TEST( txn_out->details.compute_budget.compute_meter==txn_out->details.compute_budget.compute_unit_limit );
+  FD_TEST( txn_out->details.execution_fee==5000UL && !txn_out->details.priority_fee );
+  FD_TEST( payer->lamports==payer->prior_lamports-5000UL );
+  FD_TEST( nonce->data_len==FD_SYSTEM_PROGRAM_NONCE_DLEN &&
+           memcmp( nonce->prior_data, txn_out->accounts.nonce_rollback_data, FD_SYSTEM_PROGRAM_NONCE_DLEN ) );
+
+  /* Compute the exact expected fee+nonce bank delta before commit.  If
+     rollback overwrites prior_data instead of materializing, its nonce
+     subtraction aliases the new bytes and this equality fails. */
+  fd_lthash_value_t expected = bank->f.lthash;
+  fd_lthash_value_t pre[1], post[1];
+  fd_hashes_account_lthash_simple( nonce->pubkey, nonce->prior_owner, nonce->prior_lamports,
+                                  nonce->prior_executable, nonce->prior_data, nonce->prior_data_len, pre );
+  fd_hashes_account_lthash_simple( nonce->pubkey, nonce->prior_owner, nonce->prior_lamports,
+                                  nonce->prior_executable, txn_out->accounts.nonce_rollback_data,
+                                  txn_out->accounts.nonce_rollback_data_len, post );
+  fd_lthash_sub( &expected, pre );
+  fd_lthash_add( &expected, post );
+  fd_hashes_account_lthash_simple( payer->pubkey, payer->prior_owner, payer->prior_lamports,
+                                  payer->prior_executable, payer->prior_data, payer->prior_data_len, pre );
+  fd_hashes_account_lthash_simple( payer->pubkey, payer->prior_owner, txn_out->accounts.fee_payer_rollback_lamports,
+                                  payer->prior_executable, payer->prior_data, payer->prior_data_len, post );
+  fd_lthash_sub( &expected, pre );
+  fd_lthash_add( &expected, post );
+
+  fd_runtime_commit_txn( mini->runtime, bank, txn_in, txn_out );
+  FD_TEST( txn_out->err.is_committable );
+  FD_TEST( !nonce->private_deferred && nonce->data!=nonce->prior_data );
+  FD_TEST( fd_lthash_eq( &expected, &bank->f.lthash ) );
+  /* One materialization copy and one right-sized release copy. */
+  FD_TEST( fd_accdb_metrics( mini->runtime->accdb )->bytes_copied==copied_before+2UL*FD_SYSTEM_PROGRAM_NONCE_DLEN );
+  fd_acc_t saved = fd_accdb_read_one( mini->runtime->accdb, fork_id, nonce_key.uc );
+  FD_TEST( saved.lamports==1000000000UL && saved.data_len==FD_SYSTEM_PROGRAM_NONCE_DLEN );
+  FD_TEST( !memcmp( saved.owner, fd_solana_system_program_id.uc, 32UL ) && !saved.executable );
+  FD_TEST( !memcmp( saved.data, txn_out->accounts.nonce_rollback_data, FD_SYSTEM_PROGRAM_NONCE_DLEN ) );
+  fd_accdb_unread_one( mini->runtime->accdb, &saved );
+  saved = fd_accdb_read_one( mini->runtime->accdb, fork_id, fee_payer.uc );
+  FD_TEST( saved.lamports==1000000000UL-5000UL );
+  fd_accdb_unread_one( mini->runtime->accdb, &saved );
 }
 
 int

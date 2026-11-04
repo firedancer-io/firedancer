@@ -1356,6 +1356,7 @@ fd_executor_setup_accounts_for_txn( fd_runtime_t *      runtime,
 
   ulong         acquire_idx[ MAX_TX_ACCOUNT_LOCKS ];
   int           acquire_writable[ MAX_TX_ACCOUNT_LOCKS ];
+  int           acquire_deferred[ MAX_TX_ACCOUNT_LOCKS ];
   uchar const * acquire_pubkeys[ MAX_TX_ACCOUNT_LOCKS ];
   ulong         acquire_cnt = 0UL;
 
@@ -1376,13 +1377,10 @@ fd_executor_setup_accounts_for_txn( fd_runtime_t *      runtime,
   err = fd_executor_validate_account_locks( txn_out );
   if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) return err;
 
-  /* A message may include writable accounts that no instruction uses.
-     They still participate in locking, loaded-data accounting, and rent
-     checks, but cannot change: CPI can only borrow accounts passed by
-     its caller.  Avoid allocating and copying a writable staging buffer
-     for these accounts.  The fee payer is modified outside instructions.
-     Bundle acquisition uses a separate path and retains its union of
-     writable references. */
+  /* Accounts unused by instructions cannot change; retain the existing
+     read-only acquisition optimization for them.  Referenced writable
+     accounts retain all reservations but defer payload copies until load
+     passes.  CPI can only borrow accounts passed by its caller. */
   uchar used[ MAX_TX_ACCOUNT_LOCKS ] = {0};
   used[ FD_FEE_PAYER_TXN_IDX ] = 1U;
   fd_txn_t const * txn = TXN( txn_in->txn );
@@ -1393,7 +1391,9 @@ fd_executor_setup_accounts_for_txn( fd_runtime_t *      runtime,
     for( ushort k=0; k<instr->acct_cnt; k++ ) used[ accts[ k ] ] = 1U;
   }
 
-  /* Resolve all transaction accounts and queue them for acquisition. */
+  /* The fee payer remains eager.  Explicitly exclude the Instructions
+     sysvar: loading synthesizes its data in transaction scratch.  Bundle
+     acquisition uses its unchanged eager path. */
 
   for( ushort i=0; i<txn_out->accounts.cnt; i++ ) {
     txn_out->accounts.is_writable[ i ]      = (uchar)fd_runtime_account_is_writable_idx( txn_in, txn_out, i );
@@ -1405,6 +1405,8 @@ fd_executor_setup_accounts_for_txn( fd_runtime_t *      runtime,
     acquire_idx[ acquire_cnt ]      = i;
     acquire_pubkeys[ acquire_cnt ]  = txn_out->accounts.keys[ i ].uc;
     acquire_writable[ acquire_cnt ] = (int)(txn_out->accounts.is_writable[ i ] & used[ i ]);
+    acquire_deferred[ acquire_cnt ] = i!=FD_FEE_PAYER_TXN_IDX &&
+                                     memcmp( txn_out->accounts.keys[ i ].uc, fd_sysvar_instructions_id.uc, 32UL )!=0;
     acquire_cnt++;
   }
 
@@ -1425,7 +1427,7 @@ fd_executor_setup_accounts_for_txn( fd_runtime_t *      runtime,
 
   if( FD_LIKELY( acquire_cnt ) ) {
     fd_acc_t * acquire_base = &runtime->accounts.account[ runtime->accounts.account_cnt ];
-    fd_accdb_acquire_a( runtime->accdb, bank->accdb_fork_id, acquire_cnt, acquire_pubkeys, acquire_writable, acquire_base );
+    fd_accdb_acquire_a_deferred( runtime->accdb, bank->accdb_fork_id, acquire_cnt, acquire_pubkeys, acquire_writable, acquire_deferred, acquire_base );
 
     for( ulong i=0UL; i<acquire_cnt; i++ ) {
       ulong txn_idx = acquire_idx[ i ];

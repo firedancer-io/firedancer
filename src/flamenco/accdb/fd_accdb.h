@@ -37,6 +37,7 @@ struct fd_accdb_entry {
 
   int     _writable;
   int     _overwrite;
+  int     private_deferred; /* data aliases the pinned prior_data until materialized */
 
   ushort  _fork_id;
   uint    _generation;
@@ -383,6 +384,34 @@ fd_accdb_acquire_a( fd_accdb_t *          accdb,
                     uchar const * const * pubkeys,
                     int *                 writable,
                     fd_acc_t *            out_accs );
+
+/* Like acquire_a, including all writable reservations, but live existing
+   writable accounts after index 0 with deferred[i]!=0 initially expose
+   their pinned original data.  The first account, tombstones, and entries
+   with deferred[i]==0 remain eager.  The non-bundle executor excludes its
+   fee payer and Instructions sysvar (which synthesizes its own data).
+   Metadata is still private; callers must not write data or change its
+   pointer/length while private_deferred is set.  Materialize before
+   execution or any rollback data write.  Uncommitted deferred accounts
+   release normally.  Only the non-bundle executor uses this interface. */
+
+void
+fd_accdb_acquire_a_deferred( fd_accdb_t *          accdb,
+                             fd_accdb_fork_id_t    fork_id,
+                             ulong                 pubkeys_cnt,
+                             uchar const * const * pubkeys,
+                             int *                 writable,
+                             int const *           deferred,
+                             fd_acc_t *            out_accs );
+
+/* Switch a deferred account to its already-reserved 10MiB staging buffer,
+   copying prior_data_len bytes and accounting for that copy.  No-op for
+   eager, new, read-only, or already-materialized accounts.  No reservations
+   are acquired or released here. */
+
+void
+fd_accdb_materialize( fd_accdb_t * accdb,
+                      fd_acc_t *   acc );
 
 void
 fd_accdb_acquire_b( fd_accdb_t *          accdb,

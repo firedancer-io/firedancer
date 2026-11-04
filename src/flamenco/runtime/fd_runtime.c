@@ -1167,6 +1167,17 @@ fd_runtime_pre_execute_check( fd_runtime_t *      runtime,
     }
   }
 
+  /* Check/load only read non-fee-payer payloads: nonce checking encodes
+     into nonce_rollback_data, and the explicitly non-deferred Instructions
+     sysvar uses its own scratch buffer.  Before instructions can mutate
+     any account, switch every deferred writable to its already-reserved
+     staging buffer. */
+  if( FD_LIKELY( err==FD_RUNTIME_EXECUTE_SUCCESS && !txn_in->bundle.is_bundle ) ) {
+    for( ulong i=0UL; i<runtime->accounts.account_cnt; i++ ) {
+      fd_accdb_materialize( runtime->accdb, &runtime->accounts.account[ i ] );
+    }
+  }
+
   /*
      The fee payer and the nonce account will be stored and hashed so
      long as the transaction landed on chain, or, in Agave terminology,
@@ -1379,6 +1390,9 @@ commit_txn( fd_runtime_t *      runtime,
        nonce account may be the fee payer (case 2). */
     if( FD_UNLIKELY( txn_out->accounts.nonce_idx_in_txn!=ULONG_MAX ) ) {
       fd_acc_t * nonce_account = txn_out->accounts.account[ txn_out->accounts.nonce_idx_in_txn ];
+      /* Fees-only load failures have not materialized a separate nonce.
+         Never write rollback bytes into its pinned prior account data. */
+      fd_accdb_materialize( runtime->accdb, nonce_account );
       fd_memcpy( nonce_account->data, txn_out->accounts.nonce_rollback_data, txn_out->accounts.nonce_rollback_data_len );
       nonce_account->data_len = txn_out->accounts.nonce_rollback_data_len;
       fd_memcpy( nonce_account->owner, nonce_account->prior_owner, 32UL );
