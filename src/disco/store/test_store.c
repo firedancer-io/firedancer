@@ -327,11 +327,11 @@ void
 test_disk_index_footprint( void ) {
   ulong fp_no_disk = fd_store_footprint( 8UL, 31840UL,  0UL, 0UL, 0UL, 1UL );
   ulong fp_50_gib  = fd_store_footprint( 8UL, 31840UL, 50UL, 0UL, 0UL, 1UL );
-  /* 16B ring pool + slot map bucket array (max_shreds/8 rounded up to
+  /* 12B ring pool + slot map bucket array (max_shreds/8 rounded up to
      2^23 heads) + per-slot hints and table counts. */
   ulong m = fd_shredb_max_shreds( 50UL );
   FD_TEST( fd_shredb_disk_chain_cnt( m )==(1UL<<23) );
-  FD_TEST( fp_50_gib-fp_no_disk==fd_ulong_align_up( fd_shredb_slot_map_footprint( 1UL<<23 ) + 16UL*m + 12UL*fd_shredb_max_slots( 50UL ), 4096UL ) );
+  FD_TEST( fp_50_gib-fp_no_disk==fd_ulong_align_up( fd_shredb_slot_map_footprint( 1UL<<23 ) + 12UL*m + 12UL*fd_shredb_max_slots( 50UL ), 4096UL ) );
   FD_TEST( fd_shredb_tbl_rec_cnt( m )>2UL*m && fd_shredb_tbl_rec_cnt( 1UL<<22 )==(1UL<<24) ); /* 5 GiB ring is 2^22 cells */
 
   /* A 4 TiB ring fits the 32-bit index; a cell's tag repeats only
@@ -1030,6 +1030,40 @@ test_disk_root_offset_alias( fd_wksp_t * wksp ) {
   FD_TEST( !tbl_cnt[ 11UL % store->disk_max_slots ] );
   FD_TEST( fd_store_disk_query_root( store, disk_fd, 11UL, root_b.uc, 3U, out )==FD_STORE_DISK_QUERY_MISS );
   fd_shredb_tbl_rec_t rec[1];
+  for( ulong pos=0UL; pos<fd_shredb_tbl_rec_cnt( store->disk_max_shreds ); pos++ ) {
+    disk_tbl_read( store, disk_fd, pos, rec );
+    FD_TEST( rec->gen!=store->disk_tbl_gen );
+  }
+
+  /* Slots 2^(32-key_idx_bits) apart share a map key.  The older first
+     version keeps it, the newer gets an ALIAS record, and both are
+     served as first versions, as are later versions of the newer. */
+  ulong const slot  = 20UL;
+  ulong const alias = slot + (1UL<<(32UL-store->key_idx_bits));
+  FD_TEST( store->key_idx_bits==14UL );
+  FD_TEST( disk_map_key( store, fd_shredb_key_pack( alias, 5U ) )==disk_map_key( store, fd_shredb_key_pack( slot, 5U ) ) );
+  fd_hash_t root_x = disk_root( 3000UL, 0U );
+  fd_hash_t root_y = disk_root( 3001UL, 0U );
+  FD_TEST( disk_insert( store, disk_fd, disk_make_shred( buf, slot, 5U, 0xe0U ) )==FD_STORE_DISK_INSERT_SUCCESS );
+  FD_TEST( !fd_store_disk_probe( store, alias, 6U ) );
+  FD_TEST( fd_store_disk_insert( store, disk_fd, disk_make_shred( buf, alias, 5U, 0xf0U ), &root_x )==FD_STORE_DISK_INSERT_SUCCESS );
+  FD_TEST( tbl_cnt[ alias % store->disk_max_slots ]==1U );
+  FD_TEST( fd_store_disk_query( store, disk_fd, alias, 5U, out )>0 && out[ FD_SHRED_DATA_HEADER_SZ ]==0xf0U );
+  FD_TEST( fd_store_disk_query( store, disk_fd, slot,  5U, out )>0 && out[ FD_SHRED_DATA_HEADER_SZ ]==0xe0U );
+  FD_TEST( fd_store_disk_query_highest( store, disk_fd, alias, 0U, out )>0 && out[ FD_SHRED_DATA_HEADER_SZ ]==0xf0U );
+  FD_TEST( fd_store_disk_probe( store, alias, 5U ) );
+  FD_TEST( fd_store_disk_insert( store, disk_fd, disk_make_shred( buf, alias, 5U, 0xf1U ), &root_x )==FD_STORE_DISK_INSERT_DUP );
+  FD_TEST( fd_store_disk_insert( store, disk_fd, disk_make_shred( buf, alias, 5U, 0xf2U ), &root_y )==FD_STORE_DISK_INSERT_SUCCESS );
+  FD_TEST( tbl_cnt[ alias % store->disk_max_slots ]==2U );
+  FD_TEST( fd_store_disk_query_root( store, disk_fd, alias, root_y.uc, 5U, out )>0 && out[ FD_SHRED_DATA_HEADER_SZ ]==0xf2U );
+  FD_TEST( fd_store_disk_query_root( store, disk_fd, alias, root_x.uc, 5U, out )>0 && out[ FD_SHRED_DATA_HEADER_SZ ]==0xf0U );
+  FD_TEST( fd_store_disk_query( store, disk_fd, alias, 5U, out )>0 && out[ FD_SHRED_DATA_HEADER_SZ ]==0xf0U );
+  FD_TEST( fd_store_disk_insert( store, disk_fd, disk_make_shred( buf, alias, 5U, 0xf3U ), &root_y )==FD_STORE_DISK_INSERT_DUP );
+
+  /* Overwriting every alias record drops it */
+  for( ulong i=0UL; i<4UL; i++ ) FD_TEST( disk_insert( store, disk_fd, disk_make_shred( buf, slot+10UL+i, 0U, 0U ) )==FD_STORE_DISK_INSERT_SUCCESS );
+  FD_TEST( !tbl_cnt[ alias % store->disk_max_slots ] );
+  FD_TEST( fd_store_disk_query( store, disk_fd, alias, 5U, out )==FD_STORE_DISK_QUERY_MISS );
   for( ulong pos=0UL; pos<fd_shredb_tbl_rec_cnt( store->disk_max_shreds ); pos++ ) {
     disk_tbl_read( store, disk_fd, pos, rec );
     FD_TEST( rec->gen!=store->disk_tbl_gen );

@@ -467,6 +467,7 @@ fd_store_new( void       * shmem,
     store->tbl_cnt_gaddr   = fd_wksp_gaddr_fast( wksp, tbl_cnt_mem );
     store->disk_root_seed  = seed;
     store->disk_tbl_gen    = (uint)fd_ulong_hash( seed ) | 1U; /* records of other boots read as empty */
+    store->key_idx_bits    = (ulong)fd_ulong_find_msb( fd_ulong_pow2_up( max_shreds_per_block ) );
     fd_rwlock_new( &store->disk_lock );
     fd_rwlock_new( &store->tbl_lock );
 
@@ -917,10 +918,22 @@ disk_slot_hint_publish_locked( fd_store_t * store,
    exclusive write lock.  UINT_MAX is the miss sentinel (no ring index can
    equal it since disk_max_shreds < UINT_MAX). */
 static inline uint
+disk_map_key( fd_store_t const * store,
+              ulong              key ) {
+  return (uint)((fd_shredb_key_slot( key )<<store->key_idx_bits) | fd_shredb_key_shred_idx( key ));
+}
+
+static inline ulong
+disk_alias_fp( fd_store_t const * store,
+               ulong              key ) {
+  return fd_hash( store->disk_root_seed, &key, sizeof(ulong) );
+}
+
+static inline uint
 disk_slot_lookup_locked( fd_store_t const * store,
-                         ulong              key ) {
+                         uint               map_key ) {
   fd_shredb_slot_map_t * map = disk_slot_map_join( store );
-  return (uint)fd_shredb_slot_map_idx_query_const( map, &key, UINT_MAX, disk_ring_pool_laddr( store ) );
+  return (uint)fd_shredb_slot_map_idx_query_const( map, &map_key, UINT_MAX, disk_ring_pool_laddr( store ) );
 }
 
 static void
@@ -948,12 +961,12 @@ disk_invalidate_locked( fd_store_t * store,
 struct disk_view {
   uint lap;
   uint ring_idx;
-  int  linked;
+  int  kind;
 };
 typedef struct disk_view disk_view_t;
 
 /* disk_cell_recorded_locked returns whether ring_idx holds a NONFIRST
-   shred, which has a table record. */
+   or ALIAS shred, which has a table record. */
 static inline int
 disk_cell_recorded_locked( fd_store_t const * store,
                            uint               ring_idx ) {
@@ -962,8 +975,8 @@ disk_cell_recorded_locked( fd_store_t const * store,
 }
 
 /* disk_insert_prepare_write_locked reserves the next cell for key, of
-   kind FIRST (linked) or NONFIRST (counted in tbl_cnt).  *old_recorded
-   is set if the cell held a NONFIRST shred, whose table record and
+   kind FIRST (linked) or recorded (counted in tbl_cnt).  *old_recorded
+   is set if the cell held a recorded shred, whose table record and
    count the caller must retire. */
 static int
 disk_insert_prepare_write_locked( fd_store_t  * store,
@@ -987,19 +1000,20 @@ disk_insert_prepare_write_locked( fd_store_t  * store,
 
   uint lap  = disk_cell_lap( ticket, store->disk_max_shreds );
   cell->tag = disk_cell_tag( lap, FD_SHREDB_CELL_WRITING );
-  cell->key = key;
+  cell->key = disk_map_key( store, key );
   if( kind==FD_SHREDB_KIND_FIRST ) fd_shredb_slot_map_idx_insert( disk_slot_map_join( store ), ring_idx, pool );
   else                             disk_tbl_cnt_laddr( store )[ fd_shredb_key_slot( key ) % store->disk_max_slots ]++;
 
   view->lap      = lap;
   view->ring_idx = ring_idx;
-  view->linked   = kind==FD_SHREDB_KIND_FIRST;
+  view->kind     = kind;
   return FD_STORE_DISK_INSERT_SUCCESS;
 }
 
 static int
 disk_insert_finish_write_locked( fd_store_t * store,
-                                 disk_view_t  view ) {
+                                 disk_view_t  view,
+                                 ulong        key ) {
   fd_shredb_ring_entry_t * cell = disk_ring_pool_laddr( store ) + view.ring_idx;
   FD_TEST( cell->tag==disk_cell_tag( view.lap, FD_SHREDB_CELL_WRITING ) );
 
@@ -1007,7 +1021,7 @@ disk_insert_finish_write_locked( fd_store_t * store,
   atomic_store_explicit( &store->disk_cnt, disk_cnt+1UL, memory_order_relaxed );
   cell->tag = disk_cell_tag( view.lap, FD_SHREDB_CELL_READY );
 
-  if( view.linked ) disk_slot_hint_publish_locked( store, fd_shredb_key_slot( cell->key ), fd_shredb_key_shred_idx( cell->key ) );
+  if( view.kind!=FD_SHREDB_KIND_NONFIRST ) disk_slot_hint_publish_locked( store, fd_shredb_key_slot( key ), fd_shredb_key_shred_idx( key ) );
   return FD_STORE_DISK_INSERT_SUCCESS;
 }
 
@@ -1023,7 +1037,7 @@ disk_insert_write( fd_store_t *       store,
   fd_shredb_entry_t wr_entry[1];
   ulong shred_sz = fd_ulong_min( fd_shred_sz( shred ), FD_SHRED_MAX_SZ );
   ulong tail_off = FD_SHREDB_ENTRY_HDR_SZ+shred_sz;
-  wr_entry->tag      = disk_cell_tag( view.lap, FD_SHREDB_CELL_READY );
+  wr_entry->tag      = disk_cell_tag( view.lap, FD_SHREDB_CELL_READY ) | ((ulong)view.kind<<32);
   wr_entry->key      = fd_shredb_key_pack( shred->slot, shred->idx );
   wr_entry->shred_sz = (ushort)shred_sz;
   memcpy( wr_entry->root, merkle_root->uc, FD_SHRED_MERKLE_NODE_SZ );
@@ -1035,7 +1049,7 @@ disk_insert_write( fd_store_t *       store,
   atomic_fetch_add_explicit( &store->disk_write_bytes, sizeof(wr_entry), memory_order_relaxed );
 
   fd_rwlock_write( &store->disk_lock );
-  int result = disk_insert_finish_write_locked( store, view );
+  int result = disk_insert_finish_write_locked( store, view, wr_entry->key );
   fd_rwlock_unwrite( &store->disk_lock );
   if( FD_UNLIKELY( result!=FD_STORE_DISK_INSERT_SUCCESS ) ) return result;
 
@@ -1054,7 +1068,7 @@ disk_view_locked( fd_store_t const * store,
   }
   view->lap      = tag>>2;
   view->ring_idx = ring_idx;
-  view->linked   = 0;
+  view->kind     = FD_SHREDB_KIND_FIRST; /* unknown until read */
   return 0;
 }
 
@@ -1062,7 +1076,7 @@ static int
 disk_query_prepare_read_locked( fd_store_t  const * store,
                                 ulong               key,
                                 disk_view_t *       view ) {
-  uint ring_idx = disk_slot_lookup_locked( store, key );
+  uint ring_idx = disk_slot_lookup_locked( store, disk_map_key( store, key ) );
   if( FD_UNLIKELY( ring_idx==UINT_MAX ) ) return FD_STORE_DISK_QUERY_MISS;
   return disk_view_locked( store, ring_idx, view );
 }
@@ -1077,7 +1091,8 @@ disk_query_finish_read_locked( fd_store_t  const * store,
 
 /* disk_read_view preads the first sz bytes of view's cell, releasing
    disk_lock for the I/O.  The tag checks reject a torn read if the
-   cell was overwritten meanwhile. */
+   cell was overwritten meanwhile.  The on-disk tag's high bits hold the
+   cell's kind. */
 static int
 disk_read_view( fd_store_t const *  store,
                 int                 disk_fd,
@@ -1094,12 +1109,13 @@ disk_read_view( fd_store_t const *  store,
   int result = disk_query_finish_read_locked( store, view );
   fd_rwlock_unread( rwlock );
   if( FD_UNLIKELY( result ) ) return result;
-  if( FD_UNLIKELY( rd_entry->tag!=disk_cell_tag( view.lap, FD_SHREDB_CELL_READY ) ) ) return FD_STORE_DISK_QUERY_BUSY;
+  if( FD_UNLIKELY( (uint)rd_entry->tag!=disk_cell_tag( view.lap, FD_SHREDB_CELL_READY ) ) ) return FD_STORE_DISK_QUERY_BUSY;
   return 0;
 }
 
-/* disk_read_once reads the first version of key, snapshotting and
-   validating under disk_lock and releasing it only for pread. */
+/* disk_read_once reads the slot-map linked first version of key,
+   snapshotting and validating under disk_lock and releasing it only for
+   pread.  A stable holder of another key is an alias and misses. */
 static int
 disk_read_once( fd_store_t const *  store,
                 int                 disk_fd,
@@ -1115,7 +1131,7 @@ disk_read_once( fd_store_t const *  store,
 
   result = disk_read_view( store, disk_fd, view, rd_entry, sizeof(fd_shredb_entry_t) );
   if( FD_UNLIKELY( result ) ) return result;
-  if( FD_UNLIKELY( rd_entry->key!=key ) ) return FD_STORE_DISK_QUERY_BUSY;
+  if( FD_UNLIKELY( rd_entry->key!=key ) ) return FD_STORE_DISK_QUERY_MISS;
   return (int)fd_ulong_min( rd_entry->shred_sz, FD_SHRED_MAX_SZ );
 }
 
@@ -1142,16 +1158,19 @@ disk_tbl_write( fd_store_t const *          store,
     FD_LOG_ERR(( "error writing to disk store: (%d-%s)", errno, fd_io_strerror( errno ) ));
 }
 
-/* disk_tbl_find reads the recorded version (key,merkle_root) into
-   rd_entry.  Returns its byte count, MISS, or BUSY. */
+/* disk_tbl_find reads the recorded cell of kind holding key (and the
+   root prefix merkle_root if non-NULL) into rd_entry and its index into
+   *ring_idx if non-NULL.  Returns its byte count, MISS, or BUSY. */
 
 static int
 disk_tbl_find( fd_store_t const *  store,
                int                 disk_fd,
                ulong               fp,
+               int                 kind,
                ulong               key,
                uchar const *       merkle_root,
-               fd_shredb_entry_t * rd_entry ) {
+               fd_shredb_entry_t * rd_entry,
+               uint *              ring_idx ) {
   fd_rwlock_t * rwlock = (fd_rwlock_t *)fd_type_pun_const( &store->disk_lock );
   ulong mask = fd_shredb_tbl_rec_cnt( store->disk_max_shreds )-1UL;
   for( ulong pos=fp&mask, i=0UL; i<=mask; pos=(pos+1UL)&mask, i++ ) {
@@ -1166,7 +1185,9 @@ disk_tbl_find( fd_store_t const *  store,
     if( FD_UNLIKELY( result ) ) continue;
     result = disk_read_view( store, disk_fd, view, rd_entry, sizeof(fd_shredb_entry_t) );
     if( FD_UNLIKELY( result ) ) return result;
-    if( rd_entry->key!=key || memcmp( rd_entry->root, merkle_root, FD_SHRED_MERKLE_NODE_SZ ) ) continue;
+    if( rd_entry->key!=key || (rd_entry->tag>>32)!=(ulong)kind ||
+        ( merkle_root && memcmp( rd_entry->root, merkle_root, FD_SHRED_MERKLE_NODE_SZ ) ) ) continue;
+    if( ring_idx ) *ring_idx = rec->ring_idx;
     return (int)fd_ulong_min( rd_entry->shred_sz, FD_SHRED_MAX_SZ );
   }
   return FD_STORE_DISK_QUERY_MISS;
@@ -1214,10 +1235,11 @@ disk_tbl_remove( fd_store_t * store,
 }
 
 /* disk_insert_versioned is the insert path that uses the version table.
-   Requires tbl_lock exclusively.  The first version's root is read off
-   disk; a fast-path insert that relinks the key meanwhile is caught at
-   reservation and retried.  A WRITING first version belongs to a fast
-   path insert, which finishes without tbl_lock, so it is waited for. */
+   Requires tbl_lock exclusively.  The first version is the slot-map
+   holder of key's map key if it holds key, else key's ALIAS record.  A
+   fast-path insert that relinks the map key meanwhile is caught at
+   reservation and retried.  A WRITING holder belongs to a fast path
+   insert, which finishes without tbl_lock, so it is waited for. */
 
 static int
 disk_insert_versioned( fd_store_t *       store,
@@ -1225,16 +1247,17 @@ disk_insert_versioned( fd_store_t *       store,
                        fd_shred_t const * shred,
                        ulong              key,
                        fd_hash_t const *  merkle_root ) {
-  ulong slot = shred->slot;
-  ulong fp   = fd_shredb_root_fp( store->disk_root_seed, slot, merkle_root->uc, shred->idx );
-  uint  tcnt = disk_tbl_cnt_laddr( store )[ slot % store->disk_max_slots ]; /* only changes under tbl_lock */
+  ulong slot    = shred->slot;
+  uint  map_key = disk_map_key( store, key );
+  ulong fp      = fd_shredb_root_fp( store->disk_root_seed, slot, merkle_root->uc, shred->idx );
+  uint  tcnt    = disk_tbl_cnt_laddr( store )[ slot % store->disk_max_slots ]; /* only changes under tbl_lock */
   for( ulong retry=0UL; retry<FD_STORE_DISK_READ_RETRY_CNT; retry++ ) {
     disk_view_t holder = { .ring_idx = UINT_MAX };
     int         result;
     uint        holder_idx;
     do {
       fd_rwlock_read( &store->disk_lock );
-      holder_idx = disk_slot_lookup_locked( store, key );
+      holder_idx = disk_slot_lookup_locked( store, map_key );
       result     = holder_idx==UINT_MAX ? 0 : disk_view_locked( store, holder_idx, &holder );
       fd_rwlock_unread( &store->disk_lock );
       if( FD_UNLIKELY( result ) ) FD_SPIN_PAUSE();
@@ -1242,32 +1265,50 @@ disk_insert_versioned( fd_store_t *       store,
     FD_TEST( !result ); /* a linked cell is WRITING or READY */
 
     fd_shredb_entry_t rd_entry[1];
+    uint first_idx = UINT_MAX; /* first version of key */
     if( holder_idx!=UINT_MAX ) {
-      if( FD_UNLIKELY( disk_read_view( store, disk_fd, holder, rd_entry, FD_SHREDB_ENTRY_HDR_SZ ) || rd_entry->key!=key ) ) continue;
-      if( !memcmp( rd_entry->root, merkle_root->uc, FD_SHRED_MERKLE_NODE_SZ ) ) return FD_STORE_DISK_INSERT_DUP;
+      if( FD_UNLIKELY( disk_read_view( store, disk_fd, holder, rd_entry, FD_SHREDB_ENTRY_HDR_SZ ) ) ) continue;
+      if( rd_entry->key==key ) {
+        if( !memcmp( rd_entry->root, merkle_root->uc, FD_SHRED_MERKLE_NODE_SZ ) ) return FD_STORE_DISK_INSERT_DUP;
+        first_idx = holder_idx;
+      }
     }
     if( tcnt ) {
-      result = disk_tbl_find( store, disk_fd, fp, key, merkle_root->uc, rd_entry );
+      uint found_idx;
+      if( first_idx==UINT_MAX ) {
+        result = disk_tbl_find( store, disk_fd, disk_alias_fp( store, key ), FD_SHREDB_KIND_ALIAS, key, NULL, rd_entry, &found_idx );
+        if( FD_UNLIKELY( result==FD_STORE_DISK_QUERY_BUSY ) ) continue;
+        if( result>0 ) {
+          if( !memcmp( rd_entry->root, merkle_root->uc, FD_SHRED_MERKLE_NODE_SZ ) ) return FD_STORE_DISK_INSERT_DUP;
+          first_idx = found_idx;
+        }
+      }
+      result = disk_tbl_find( store, disk_fd, fp, FD_SHREDB_KIND_NONFIRST, key, merkle_root->uc, rd_entry, NULL );
       if( result>0 ) return FD_STORE_DISK_INSERT_DUP;
       if( FD_UNLIKELY( result==FD_STORE_DISK_QUERY_BUSY ) ) continue;
     }
 
-    /* A later version while the first is stored and not being replaced */
+    /* A later version if the first is stored and not being replaced,
+       else a first version, recorded if an alias still holds the map
+       key. */
     disk_view_t view;
     int old_recorded;
     fd_shredb_ring_entry_t * cell;
-    ulong old_key;
+    uint old_map_key;
     fd_rwlock_write( &store->disk_lock );
-    if( FD_UNLIKELY( disk_slot_lookup_locked( store, key )!=holder_idx ||
+    if( FD_UNLIKELY( disk_slot_lookup_locked( store, map_key )!=holder_idx ||
                      ( holder_idx!=UINT_MAX && disk_query_finish_read_locked( store, holder ) ) ) ) {
       fd_rwlock_unwrite( &store->disk_lock );
       continue;
     }
     uint next_idx = (uint)(atomic_load_explicit( &store->disk_reservation_head, memory_order_relaxed ) % store->disk_max_shreds);
-    int  kind     = holder_idx==UINT_MAX || holder_idx==next_idx ? FD_SHREDB_KIND_FIRST : FD_SHREDB_KIND_NONFIRST;
-    cell    = disk_ring_pool_laddr( store ) + next_idx;
-    old_key = cell->key;
-    result  = disk_insert_prepare_write_locked( store, key, kind, &view, &old_recorded );
+    if( first_idx ==next_idx ) first_idx  = UINT_MAX;
+    if( holder_idx==next_idx ) holder_idx = UINT_MAX;
+    int kind = first_idx!=UINT_MAX  ? FD_SHREDB_KIND_NONFIRST :
+               holder_idx!=UINT_MAX ? FD_SHREDB_KIND_ALIAS    : FD_SHREDB_KIND_FIRST;
+    cell        = disk_ring_pool_laddr( store ) + next_idx;
+    old_map_key = cell->key;
+    result      = disk_insert_prepare_write_locked( store, key, kind, &view, &old_recorded );
     fd_rwlock_unwrite( &store->disk_lock );
     if( FD_UNLIKELY( result!=FD_STORE_DISK_INSERT_SUCCESS ) ) return result;
 
@@ -1275,14 +1316,18 @@ disk_insert_versioned( fd_store_t *       store,
     if( FD_UNLIKELY( old_recorded ) ) {
       if( FD_UNLIKELY( store_pread_all( disk_fd, rd_entry, FD_SHREDB_ENTRY_HDR_SZ, disk_cell_off( store, view.ring_idx ) ) ) )
         FD_LOG_ERR(( "error reading disk store: (%d-%s)", errno, fd_io_strerror( errno ) ));
-      FD_TEST( rd_entry->key==old_key );
+      ulong old_key  = rd_entry->key;
       ulong old_slot = fd_shredb_key_slot( old_key );
-      disk_tbl_remove( store, disk_fd, fd_shredb_root_fp( store->disk_root_seed, old_slot, rd_entry->root, fd_shredb_key_shred_idx( old_key ) ), view.ring_idx );
+      FD_TEST( disk_map_key( store, old_key )==old_map_key );
+      ulong old_fp   = (rd_entry->tag>>32)==FD_SHREDB_KIND_NONFIRST
+                     ? fd_shredb_root_fp( store->disk_root_seed, old_slot, rd_entry->root, fd_shredb_key_shred_idx( old_key ) )
+                     : disk_alias_fp( store, old_key );
+      disk_tbl_remove( store, disk_fd, old_fp, view.ring_idx );
       fd_rwlock_write( &store->disk_lock );
       disk_tbl_cnt_laddr( store )[ old_slot % store->disk_max_slots ]--;
       fd_rwlock_unwrite( &store->disk_lock );
     }
-    if( kind==FD_SHREDB_KIND_NONFIRST ) disk_tbl_insert( store, disk_fd, fp, view.ring_idx );
+    if( kind!=FD_SHREDB_KIND_FIRST ) disk_tbl_insert( store, disk_fd, kind==FD_SHREDB_KIND_NONFIRST ? fp : disk_alias_fp( store, key ), view.ring_idx );
     return disk_insert_write( store, disk_fd, shred, merkle_root, view );
   }
   return FD_STORE_DISK_INSERT_ERR;
@@ -1301,14 +1346,15 @@ fd_store_disk_insert( fd_store_t *       store,
   if( FD_UNLIKELY( slot>=FD_SHREDB_KEY_SLOT_MAX || shred_idx>=store->max_shreds_per_block ) ) return FD_STORE_DISK_INSERT_ERR;
   ulong key = fd_shredb_key_pack( slot, shred_idx );
 
-  /* No version of key stored and no record in the next cell: a plain
-     slot-map insert, the only path without equivocation or duplicates. */
+  /* Map key free, no record in key's slot or the next cell: a plain
+     slot-map insert, the only path without equivocation, duplicates or
+     aliases. */
   disk_view_t view;
   int old_recorded = 0;
   int result       = FD_STORE_DISK_INSERT_DUP;
   fd_rwlock_write( &store->disk_lock );
   ulong next_idx = atomic_load_explicit( &store->disk_reservation_head, memory_order_relaxed ) % store->disk_max_shreds;
-  int   fast     = disk_slot_lookup_locked( store, key )==UINT_MAX &&
+  int   fast     = disk_slot_lookup_locked( store, disk_map_key( store, key ) )==UINT_MAX &&
                    !disk_tbl_cnt_laddr( store )[ slot % store->disk_max_slots ] &&
                    !disk_cell_recorded_locked( store, (uint)next_idx );
   if( FD_LIKELY( fast ) ) result = disk_insert_prepare_write_locked( store, key, FD_SHREDB_KIND_FIRST, &view, &old_recorded );
@@ -1325,6 +1371,34 @@ fd_store_disk_insert( fd_store_t *       store,
   return result;
 }
 
+static inline uint
+disk_tbl_cnt_query( fd_store_t const * store,
+                    ulong              slot ) {
+  fd_rwlock_t * disk_lock = (fd_rwlock_t *)fd_type_pun_const( &store->disk_lock );
+  fd_rwlock_read( disk_lock );
+  uint tcnt = disk_tbl_cnt_laddr( store )[ slot % store->disk_max_slots ];
+  fd_rwlock_unread( disk_lock );
+  return tcnt;
+}
+
+/* disk_read_key_once reads the first version of key into rd_entry: the
+   slot-map holder, or the ALIAS record if an alias holds the map key. */
+
+static int
+disk_read_key_once( fd_store_t const *  store,
+                    int                 disk_fd,
+                    ulong               key,
+                    fd_shredb_entry_t * rd_entry ) {
+  int result = disk_read_once( store, disk_fd, key, rd_entry );
+  if( FD_LIKELY( result!=FD_STORE_DISK_QUERY_MISS ) ) return result;
+  if( FD_LIKELY( !disk_tbl_cnt_query( store, fd_shredb_key_slot( key ) ) ) ) return FD_STORE_DISK_QUERY_MISS;
+  fd_rwlock_t * tbl_lock = (fd_rwlock_t *)fd_type_pun_const( &store->tbl_lock );
+  fd_rwlock_read( tbl_lock );
+  result = disk_tbl_find( store, disk_fd, disk_alias_fp( store, key ), FD_SHREDB_KIND_ALIAS, key, NULL, rd_entry, NULL );
+  fd_rwlock_unread( tbl_lock );
+  return result;
+}
+
 int
 fd_store_disk_query( fd_store_t const * store,
                      int                disk_fd,
@@ -1336,7 +1410,7 @@ fd_store_disk_query( fd_store_t const * store,
   ulong key = fd_shredb_key_pack( slot, shred_idx );
   for( ulong retry=0UL; retry<FD_STORE_DISK_READ_RETRY_CNT; retry++ ) {
     fd_shredb_entry_t entry[1];
-    int result = disk_read_once( store, disk_fd, key, entry );
+    int result = disk_read_key_once( store, disk_fd, key, entry );
     if( FD_UNLIKELY( result==FD_STORE_DISK_QUERY_BUSY ) ) { FD_SPIN_PAUSE(); continue; }
     if( FD_UNLIKELY( result<0 ) ) return result;
     fd_memcpy( out, entry->shred, (ulong)result );
@@ -1354,20 +1428,17 @@ fd_store_disk_query_root( fd_store_t const * store,
                           uchar              out[ FD_SHRED_MAX_SZ ] ) {
   if( FD_UNLIKELY( !store || disk_fd<0 || !merkle_root || !out || !fd_store_has_disk( store ) ||
                    slot>=FD_SHREDB_KEY_SLOT_MAX || shred_idx>=store->max_shreds_per_block ) ) return FD_STORE_DISK_QUERY_MISS;
-  fd_rwlock_t * disk_lock = (fd_rwlock_t *)fd_type_pun_const( &store->disk_lock );
-  fd_rwlock_t * tbl_lock  = (fd_rwlock_t *)fd_type_pun_const( &store->tbl_lock  );
+  fd_rwlock_t * tbl_lock = (fd_rwlock_t *)fd_type_pun_const( &store->tbl_lock );
   ulong key = fd_shredb_key_pack( slot, shred_idx );
   for( ulong retry=0UL; retry<FD_STORE_DISK_READ_RETRY_CNT; retry++ ) {
     fd_shredb_entry_t entry[1];
-    int result = disk_read_once( store, disk_fd, key, entry );
+    int result = disk_read_key_once( store, disk_fd, key, entry );
     if( FD_UNLIKELY( result==FD_STORE_DISK_QUERY_BUSY ) ) { FD_SPIN_PAUSE(); continue; }
     if( result<0 || memcmp( entry->root, merkle_root, FD_SHRED_MERKLE_NODE_SZ ) ) {
-      fd_rwlock_read( disk_lock );
-      uint tcnt = disk_tbl_cnt_laddr( store )[ slot % store->disk_max_slots ];
-      fd_rwlock_unread( disk_lock );
-      if( FD_LIKELY( !tcnt ) ) return FD_STORE_DISK_QUERY_MISS;
+      if( FD_LIKELY( !disk_tbl_cnt_query( store, slot ) ) ) return FD_STORE_DISK_QUERY_MISS;
       fd_rwlock_read( tbl_lock );
-      result = disk_tbl_find( store, disk_fd, fd_shredb_root_fp( store->disk_root_seed, slot, merkle_root, shred_idx ), key, merkle_root, entry );
+      result = disk_tbl_find( store, disk_fd, fd_shredb_root_fp( store->disk_root_seed, slot, merkle_root, shred_idx ),
+                              FD_SHREDB_KIND_NONFIRST, key, merkle_root, entry, NULL );
       fd_rwlock_unread( tbl_lock );
       if( FD_UNLIKELY( result==FD_STORE_DISK_QUERY_BUSY ) ) { FD_SPIN_PAUSE(); continue; }
       if( FD_UNLIKELY( result<0 ) ) return result;
@@ -1377,6 +1448,9 @@ fd_store_disk_query_root( fd_store_t const * store,
   }
   return FD_STORE_DISK_QUERY_BUSY;
 }
+
+/* A recorded version in slot makes the probe say maybe, and an alias
+   holder of the map key may hide the asked first version. */
 
 int
 fd_store_disk_probe( fd_store_t const * store,
@@ -1390,7 +1464,8 @@ fd_store_disk_probe( fd_store_t const * store,
 
   fd_rwlock_t * rwlock = (fd_rwlock_t *)fd_type_pun_const( &store->disk_lock );
   fd_rwlock_read( rwlock );
-  int present = disk_slot_lookup_locked( store, fd_shredb_key_pack( slot, shred_idx ) )!=UINT_MAX;
+  int present = disk_tbl_cnt_laddr( store )[ slot % store->disk_max_slots ] ||
+                disk_slot_lookup_locked( store, disk_map_key( store, fd_shredb_key_pack( slot, shred_idx ) ) )!=UINT_MAX;
   fd_rwlock_unread( rwlock );
   return present;
 }
@@ -1412,7 +1487,7 @@ fd_store_disk_query_highest( fd_store_t const * store,
     if( FD_UNLIKELY( idx>=store->max_shreds_per_block ) ) return FD_STORE_DISK_QUERY_MISS;
 
     fd_shredb_entry_t entry[1];
-    int result = disk_read_once( store, disk_fd, fd_shredb_key_pack( slot, idx ), entry );
+    int result = disk_read_key_once( store, disk_fd, fd_shredb_key_pack( slot, idx ), entry );
     ulong hint_after = atomic_load_explicit( hint_ptr, memory_order_acquire );
     if( FD_UNLIKELY( hint_after!=hint || result==FD_STORE_DISK_QUERY_BUSY ) ) {
       FD_SPIN_PAUSE();
