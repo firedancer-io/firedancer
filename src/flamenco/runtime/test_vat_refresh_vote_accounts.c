@@ -870,6 +870,19 @@ test_runtime_stack_stake_accum_map_sizing( fd_wksp_t * wksp ) {
   FD_TEST( stack );
   FD_TEST( fd_stake_accum_map_chain_cnt( stack->stakes.stake_accum_map )==
            fd_stake_accum_map_chain_cnt_est( max_staked_vote_accounts ) );
+  /* bpf_migration covers stake_accum then stake_results, which are
+     disjoint, all inside the footprint. */
+  ulong mig = (ulong)stack->bpf_migration;
+  ulong res = (ulong)stack->stakes.stake_results;
+  FD_TEST( mig==(ulong)stack->stakes.stake_accum );
+  FD_TEST( res>=mig+max_staked_vote_accounts*sizeof(fd_stake_accum_t) );
+  FD_TEST( fd_ulong_is_aligned( res, alignof(fd_calculated_stake_result_t) ) );
+  FD_TEST( fd_ulong_is_aligned( mig, alignof(fd_runtime_stack_bpf_migration_t) ) );
+  FD_TEST( res+max_stake_accounts*sizeof(fd_calculated_stake_result_t)<=(ulong)mem+footprint );
+  FD_TEST( mig+sizeof(fd_runtime_stack_bpf_migration_t)<=(ulong)mem+footprint );
+  /* Mainnet sizing pays the migration staging once, not on top of either array. */
+  FD_TEST( fd_runtime_stack_footprint( FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS, FD_RUNTIME_STAKE_ACCUM_RAM_MAX, FD_RUNTIME_STAKE_POINTS_WINDOW )<
+           sizeof(fd_runtime_stack_bpf_migration_t)+sizeof(fd_calculated_stake_result_t)*FD_RUNTIME_STAKE_POINTS_WINDOW );
   fd_wksp_free_laddr( mem );
 
   /* 4 RAM entries, the rest in the spill table: same sums either way,
