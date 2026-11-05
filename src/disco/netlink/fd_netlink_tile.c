@@ -303,7 +303,6 @@ iproute_dump_next( fd_netlink_tile_ctx_t * ctx,
     int err = FD_FIB_NETLINK_SUCCESS;
     if( FD_UNLIKELY( ctx->dump_iter->err>0 ) ) err = FD_FIB_NETLINK_ERR_IO;
     else if( FD_UNLIKELY( ctx->dump_intr ) )   err = FD_FIB_NETLINK_ERR_INTR;
-    else if( FD_UNLIKELY( ctx->dump_overflow ) ) err = FD_FIB_NETLINK_ERR_SPACE;
     ctx->dump_active = 0;
     return -err;
   }
@@ -322,19 +321,20 @@ iproute_dump_next( fd_netlink_tile_ctx_t * ctx,
     FD_LOG_DEBUG(( "unexpected nlmsg_type %u", nlh->nlmsg_type ));
     return FD_NETLINK_DUMP_NEXT_PROGRESS;
   }
-  if( FD_UNLIKELY( ctx->dump_overflow ) ) return FD_NETLINK_DUMP_NEXT_PROGRESS;
+  ulong table_idx = ctx->dump_table_id==RT_TABLE_LOCAL ? 0UL : 1UL;
+  int   overflow  = 1<<table_idx;
+  if( FD_UNLIKELY( ctx->dump_overflow & overflow ) ) return FD_NETLINK_DUMP_NEXT_PROGRESS;
   if( !fd_fib4_netlink_translate( nlh, ctx->dump_table_id, route ) ) return FD_NETLINK_DUMP_NEXT_PROGRESS;
 
-  ulong table_idx = ctx->dump_table_id==RT_TABLE_LOCAL ? 0UL : 1UL;
   if( route->prefix==32U && route->dst_addr ) {
-    if( FD_UNLIKELY( ctx->dump_peer_cnt[ table_idx ]>=ctx->route_peer_max ) ) ctx->dump_overflow = 1;
+    if( FD_UNLIKELY( ctx->dump_peer_cnt[ table_idx ]>=ctx->route_peer_max ) ) ctx->dump_overflow |= overflow;
     else ctx->dump_peer_cnt[ table_idx ]++;
   } else {
     /* fd_fib4 reserves one non-peer slot for its dummy throw route. */
-    if( FD_UNLIKELY( ctx->dump_route_cnt[ table_idx ]+1UL>=ctx->route_max ) ) ctx->dump_overflow = 1;
+    if( FD_UNLIKELY( ctx->dump_route_cnt[ table_idx ]+1UL>=ctx->route_max ) ) ctx->dump_overflow |= overflow;
     else ctx->dump_route_cnt[ table_idx ]++;
   }
-  return ctx->dump_overflow ? FD_NETLINK_DUMP_NEXT_PROGRESS : FD_NETLINK_DUMP_NEXT_ROUTE;
+  return ( ctx->dump_overflow & overflow ) ? FD_NETLINK_DUMP_NEXT_PROGRESS : FD_NETLINK_DUMP_NEXT_ROUTE;
 }
 
 /* netlink_monitor_read processes at most one netlink message.  Returns
@@ -475,7 +475,6 @@ after_credit( fd_netlink_tile_ctx_t * ctx,
       return;
     }
     if( FD_UNLIKELY( dump_res<0 ) ) {
-      if( dump_res==-FD_FIB_NETLINK_ERR_SPACE ) FD_LOG_WARNING(( "routing table exceeds configured netlink route capacity" ));
       ctx->dump_table_id = 0U;
       ctx->action |= FD_NET_TILE_ACTION_ROUTE4_UPDATE;
       ctx->route4_update_ts = now+ctx->update_backoff;
@@ -489,6 +488,10 @@ after_credit( fd_netlink_tile_ctx_t * ctx,
       ctx->dump_table_id = 0U;
       ctx->route4_update_ts = now+ctx->update_backoff;
       ctx->metrics.route_full_syncs++;
+      if( FD_UNLIKELY( ctx->dump_overflow && !ctx->route_overflow ) ) {
+        FD_LOG_WARNING(( "routing table exceeds configured capacity, some routes were not loaded (increase [net.max_routes] or [net.max_peer_routes])" ));
+      }
+      ctx->route_overflow = !!ctx->dump_overflow;
     }
     *charge_busy = 1;
     return;
@@ -547,7 +550,8 @@ after_frag( fd_netlink_tile_ctx_t * ctx,
     FD_LOG_WARNING(( "unexpected sz %lu", sz ));
   }
   if( FD_UNLIKELY( sig==FD_NETLINK_ROUTE4_SYNC_SIG ) ) {
-    ctx->action |= FD_NET_TILE_ACTION_ROUTE4_UPDATE;
+    /* A full table is already known; resyncing would not help. */
+    if( !ctx->route_overflow ) ctx->action |= FD_NET_TILE_ACTION_ROUTE4_UPDATE;
     return;
   }
   uint if_idx   = (uint)(sig>>32);

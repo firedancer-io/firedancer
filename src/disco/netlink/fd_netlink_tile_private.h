@@ -41,7 +41,8 @@ struct fd_netlink_tile_ctx {
   ulong  route_peer_max;
   ulong  dump_route_cnt[2];
   ulong  dump_peer_cnt[2];
-  int    dump_overflow;
+  int    dump_overflow;  /* bit i set if table i exceeded capacity */
+  int    route_overflow; /* last full sync exceeded capacity */
   uint   dump_table_id;
   int    dump_active;
   int    dump_advance;
