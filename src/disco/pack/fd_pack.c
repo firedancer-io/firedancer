@@ -1516,7 +1516,7 @@ insert_txn( fd_pack_t         * pack,
 
   fd_txn_t *             txn     = TXN( ord->txn );
   fd_acct_addr_t const * accts   = fd_txn_get_acct_addrs( txn, ord->txn->payload );
-  fd_acct_addr_t const * alt_adj = ord->txn_e->alt_accts - fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_IMM );
+  fd_acct_addr_t const * alt     = ord->txn_e->alt_accts;
 
   /* Since the pool uses ushorts, the size of the pool is < USHORT_MAX.
      Each transaction can reference an account at most once, which means
@@ -1673,7 +1673,7 @@ bundle_txn_declared_tip( fd_pack_ord_txn_t const * ord ) {
   fd_txn_t       const * txn     = TXN( ord->txn );
   uchar          const * payload = ord->txn->payload;
   fd_acct_addr_t const * accts   = fd_txn_get_acct_addrs( txn, payload );
-  fd_acct_addr_t const * alt_adj = ord->txn_e->alt_accts - fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_IMM );
+  fd_acct_addr_t const * alt     = ord->txn_e->alt_accts;
 
   ulong tip = 0UL;
   for( ulong i=0UL; i<(ulong)txn->instr_cnt; i++ ) {
