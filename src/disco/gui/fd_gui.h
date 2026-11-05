@@ -508,7 +508,8 @@ typedef struct fd_gui_store_replay_lthash fd_gui_store_replay_lthash_t;
    tile's open batch if it is for the same slot, starts at most
    FD_GUI_TXN_BATCH_GAP_NS after the batch's previous task ended, and
    the batch has fewer than FD_GUI_TXN_BATCH_MAX_TXN tasks.  [start_ns,
-   end_ns) spans the members, which hashed acct_cnt accounts in total.
+   end_ns) ends with the last member and lasts the members' total time
+   (gaps between them excluded); they hashed acct_cnt accounts.
    A batch is written when the tile's next task does not join it, or by
    fd_gui_lthash_batch_flush once it has been idle for
    FD_GUI_LTHASH_BATCH_IDLE_NS. */

@@ -2089,7 +2089,13 @@ test_timeline_batch_parity( fd_gui_t * gui ) {
       ulong j = 0UL;
       while( j<count && oracle[ j ].first!=rec->sigverify_txn_idx ) j++;
       FD_TEST( j<count && rec->sigverify_txn_cnt==oracle[ j ].cnt );
-      FD_TEST( rec->sigverify_start_ns==oracle[ j ].start_ns && rec->sigverify_end_ns==oracle[ j ].end_ns );
+      /* The lane ends with its last member and lasts their total time. */
+      long busy = 0L;
+      for( ulong k=0UL; k<oracle[ j ].cnt; k++ ) {
+        busy += txns[ oracle[ j ].first+k ].sigverify_end_ns - txns[ oracle[ j ].first+k ].sigverify_start_ns;
+      }
+      long want_start = fd_long_max( oracle[ j ].start_ns, oracle[ j ].end_ns-busy );
+      FD_TEST( rec->sigverify_start_ns==want_start && rec->sigverify_end_ns==oracle[ j ].end_ns );
     }
   }
   ulong n = FD_MAX_TXN_PER_SLOT;

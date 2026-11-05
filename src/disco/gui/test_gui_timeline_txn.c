@@ -365,7 +365,7 @@ test_lthash_batch( fd_gui_t * gui ) {
   long const flush = now+FD_GUI_LTHASH_BATCH_IDLE_NS;
   fd_gui_lthash_batch_flush( gui, flush );
   struct { long start, end; ulong slot; uint acct; ushort pos; uchar tasks; } const want[] = {
-    { base,          base+400L+gap,   500UL, 56U, 0, 3 },
+    { base+100L+gap, base+400L+gap,   500UL, 56U, 0, 3 }, /* 300 ns of tasks, ending with the last */
     { base,          base+10L,        500UL, 2U,  1, 1 },
     { base+20L,      base+30L,        501UL, 3U,  1, 1 },
     { base+3L*gap,   base+3L*gap+50L, 500UL, 4U,  0, 1 },
@@ -386,12 +386,12 @@ test_lthash_batch( fd_gui_t * gui ) {
 
   /* txn_batch: one LthashBatch per batch.  txn: one Lthash per task. */
   json_t value = field( query_batch( gui, "query_tile_states", base, base+4L*gap, 1 ), "value" );
-  ulong const bstates[] = { FD_GUI_TILE_STATE_LTHASH_BATCH, FD_GUI_TILE_STATE_IDLE, FD_GUI_TILE_STATE_LTHASH_BATCH, FD_GUI_TILE_STATE_IDLE,
+  ulong const bstates[] = { FD_GUI_TILE_STATE_IDLE, FD_GUI_TILE_STATE_LTHASH_BATCH, FD_GUI_TILE_STATE_IDLE, FD_GUI_TILE_STATE_LTHASH_BATCH, FD_GUI_TILE_STATE_IDLE,
                             FD_GUI_TILE_STATE_LTHASH_BATCH, FD_GUI_TILE_STATE_IDLE, FD_GUI_TILE_STATE_LTHASH_BATCH, FD_GUI_TILE_STATE_IDLE };
-  ulong const bdurs[]   = { (ulong)(400L+gap), (ulong)(2L*gap-400L), 50UL, (ulong)(gap-50L),
+  ulong const bdurs[]   = { (ulong)(100L+gap), 300UL, (ulong)(2L*gap-400L), 50UL, (ulong)(gap-50L),
                             10UL, 10UL, 10UL, (ulong)(4L*gap-30L) };
-  FD_TEST( count( field( value, "state" ) )==8UL );
-  for( ulong i=0UL; i<8UL; i++ ) {
+  FD_TEST( count( field( value, "state" ) )==9UL );
+  for( ulong i=0UL; i<9UL; i++ ) {
     FD_TEST( number( element( field( value, "state" ), i ) )==bstates[ i ] );
     FD_TEST( number( element( field( value, "dur" ), i ) )==bdurs[ i ] );
   }
@@ -490,8 +490,11 @@ test_revenue( fd_gui_t * gui ) {
   value = field( query_batch( gui, "query_revenue", ts, ts+3000L, 1 ), "value" );
   FD_TEST( string_eq( field( value, "granularity" ), "txn_batch" ) );
   FD_TEST( count( field( value, "slot_delta" ) )==1UL );
+  /* The batch lasts its members' 500 ns of execution, ending with the
+     last of them. */
+  FD_TEST( string_eq( field( value, "reference_ts" ), "80000001700" ) );
   FD_TEST( string_eq( element( field( value, "start_ts_delta" ), 0UL ), "0" ) );
-  FD_TEST( string_eq( element( field( value, "end_ts_delta" ), 0UL ), "2200" ) );
+  FD_TEST( string_eq( element( field( value, "end_ts_delta" ), 0UL ), "500" ) );
   FD_TEST( string_eq( element( field( value, "txn_fees" ), 0UL ), "15000" ) );
   FD_TEST( string_eq( element( field( value, "prio_fees" ), 0UL ), "400" ) );
   FD_TEST( string_eq( element( field( value, "tips" ), 0UL ), "14" ) );

@@ -3116,11 +3116,14 @@ work into batches. A batch's signature verification is one
 `ValidBatch`, `ExecBatch` and `PostExecBatch`, in that order, each
 lasting a share of the batch's span proportional to its members' total
 time in that stage. A stage no member reached is omitted. Gaps between
-members are included in the span, so the durations are proportions,
-not measured stage times. LtHash tasks are batched by the same rule
-(same tile and slot, each task starting at most 5ms after the previous
-one ends, at most 128 tasks) and each batch is one `LthashBatch` state
-spanning its members; a batch is recorded once its tile's next task
+members are excluded: each batch lane (signature verification, and
+execution) ends when its last member ends and lasts its members' total
+time in that lane, so the stage durations are the measured totals and
+a batch may start after its first member started. LtHash tasks are
+batched by the same rule (same tile and slot, each task starting at
+most 5ms after the previous one ends, at most 128 tasks) and each batch
+is one `LthashBatch` state that likewise ends with its last task and
+lasts the tasks' total time; a batch is recorded once its tile's next task
 does not join it or it has been idle for 10ms. Slot states are
 reported unchanged. The `slot_*`, `txn_*` and `lthash_*`
 arrays are empty, and `reference_slot` is `null`.

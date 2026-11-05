@@ -3938,10 +3938,13 @@ fd_gui_lthash_record( fd_gui_t * gui,
   int merge = b->task_cnt && b->slot==slot && b->task_cnt<FD_GUI_TXN_BATCH_MAX_TXN &&
               rec.start_ns<=fd_long_sat_add( b->end_ns, FD_GUI_TXN_BATCH_GAP_NS );
   if( FD_LIKELY( merge ) ) {
+    /* The batch spans its tasks' total time, ending with the last. */
+    long busy = fd_long_sat_add( b->end_ns-b->start_ns, rec.end_ns-rec.start_ns );
+    long lo   = fd_long_min( b->start_ns, rec.start_ns );
     b->task_cnt++;
     b->acct_cnt += (uint)cnt;
-    b->start_ns  = fd_long_min( b->start_ns, rec.start_ns );
-    b->end_ns    = fd_long_max( b->end_ns,   rec.end_ns   );
+    b->end_ns    = fd_long_max( b->end_ns, rec.end_ns );
+    b->start_ns  = fd_long_max( lo, fd_long_sat_sub( b->end_ns, busy ) );
     return;
   }
   if( b->task_cnt ) {
@@ -4547,6 +4550,19 @@ fd_gui_batch_error_code( fd_gui_txn_batch_work_t const * ex,
   return best;
 }
 
+/* fd_gui_batch_busy_start returns the start of a batch lane spanning
+   [start,end) whose members were busy for busy ns in total: end-busy,
+   clamped to [start,end]. */
+
+static long
+fd_gui_batch_busy_start( long    start,
+                         long    end,
+                         uint128 busy ) {
+  if( FD_UNLIKELY( end<=start ) ) return start;
+  ulong span = (ulong)end - (ulong)start;
+  return busy>=(uint128)span ? start : end - (long)(ulong)busy;
+}
+
 static void
 fd_gui_batch_record( fd_gui_store_replay_txn_batch_t * r,
                      ulong                             idx,
@@ -4566,11 +4582,18 @@ fd_gui_batch_record( fd_gui_store_replay_txn_batch_t * r,
   r->error_code              = fd_gui_batch_error_code( ex, et );
   r->exec_txn_cnt            = (uchar)ex->cnt;
   r->sigverify_txn_cnt       = (uchar)sg->cnt;
-  r->load_start_ns           = ex->start_ns;
   r->commit_end_ns           = ex->end_ns;
-  r->sigverify_start_ns      = sg->start_ns;
   r->sigverify_end_ns        = sg->end_ns;
   r->completion_time_ns      = sg->cnt ? fd_long_max( ex->end_ns, sg->end_ns ) : ex->end_ns;
+  /* Each lane's span is its members' total time, not the gaps between
+     them: it ends where the last member ended and starts that much
+     earlier (never before the first member started). */
+  uint128 sig_busy = 0;
+  for( ulong i=0UL; i<sg->cnt; i++ ) {
+    fd_gui_store_replay_txn_t const * t = st[ sg->first+i ];
+    sig_busy += (uint128)(ulong)fd_long_max( 0L, fd_long_sat_sub( t->sigverify_end_ns, t->sigverify_start_ns ) );
+  }
+  r->sigverify_start_ns      = sg->cnt ? fd_gui_batch_busy_start( sg->start_ns, sg->end_ns, sig_busy ) : sg->start_ns;
   uint128 duration[ 4 ] = {0};
   int     present[ 4 ]  = {0};
   for( ulong i=0UL; i<ex->cnt; i++ ) {
@@ -4590,6 +4613,7 @@ fd_gui_batch_record( fd_gui_store_replay_txn_batch_t * r,
   }
   uint128 total      = duration[ 0 ] + duration[ 1 ] + duration[ 2 ] + duration[ 3 ];
   uint128 cumulative = duration[ 0 ];
+  r->load_start_ns           = fd_gui_batch_busy_start( ex->start_ns, ex->end_ns, total );
   long * dst[ 3 ] = { &r->check_start_ns, &r->exec_start_ns, &r->commit_start_ns };
   ulong span = (ulong)fd_long_max( 0L, fd_long_sat_sub( r->commit_end_ns, r->load_start_ns ) );
   for( ulong j=0UL; j<3UL; j++ ) {
