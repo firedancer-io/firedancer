@@ -12,7 +12,8 @@ FD_PROTOTYPES_BEGIN
    eBPF program bytecode at code_buf.  xsks_fd is the XSKMAP file
    descriptor.  If listen_ip_addr!=0, only redirects packets with a
    matching dst IP address.  ports is a list of UDP dst ports to
-   redirect.  If allowed_gre==1, also forwards GRE-tunnelled packets. */
+   redirect.  If allowed_gre==1, also forwards GRE-tunnelled packets.
+   With ports_cnt==0, emits only XDP_PASS and exit (no packet accesses). */
 
 ulong
 fd_xdp_gen_program( ulong          code_buf[ 512 ],
@@ -34,6 +35,9 @@ fd_xdp_gen_program( ulong          code_buf[ 512 ],
    The XSK map returned in xsk_map_fd simply needs to have socket file
    descriptors inserted, one per each queue, with BPF_MAP_UPDATE_ELEM,
    where the sockets are correctly configured XSK sockets.
+
+   An empty port list is permitted only on lo in skb mode, to retain an
+   AF_XDP socket for TX while kernel UDP sockets handle local RX.
 
    This function will print a diagnostic error message and terminate the
    process if it fails, and will not return in failure cases. */

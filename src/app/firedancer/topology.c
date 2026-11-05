@@ -1134,7 +1134,9 @@ fd_topo_initialize( config_t * config ) {
     if( topo->tiles[ i ].av_keyswitch_obj_id!=ULONG_MAX ) fd_topob_tile_uses( topo, admin_tile, &topo->objs[ topo->tiles[ i ].av_keyswitch_obj_id ], FD_SHMEM_JOIN_MODE_READ_WRITE );
   }
 
-  if( 0==strcmp( config->net.provider, "mlx5" ) || 0==strcmp( config->net.provider, "iavf" ) ) {
+  if( 0==strcmp( config->net.provider, "xdp" ) ||
+      0==strcmp( config->net.provider, "mlx5" ) ||
+      0==strcmp( config->net.provider, "iavf" ) ) {
     ulong net_tile_id = fd_topo_find_tile( topo, fd_net_tile_name( config->net.provider ), 0UL );
     FD_TEST( net_tile_id!=ULONG_MAX );
     fd_topos_sock_lo( topo, &topo->tiles[ net_tile_id ] );

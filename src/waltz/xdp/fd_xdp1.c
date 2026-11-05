@@ -91,6 +91,14 @@ fd_xdp_gen_program( ulong          code_buf[ 512 ],
   }
 
   ulong * code = code_buf;
+  /* Local kernel UDP RX must retain checksum-offload metadata.  A
+     transmit-only loopback XSK needs no redirect or packet accesses. */
+  if( !ports_cnt ) {
+    *(code++) = FD_EBPF( mov64_imm, r0, XDP_PASS );
+    *(code++) = FD_EBPF_exit;
+    return (ulong)(code-code_buf);
+  }
+
   *(code++) = FD_EBPF( ldxw, r2, r1, 0                          );  // r2 = xdp_md->data
   *(code++) = FD_EBPF( ldxw, r3, r1, 4                          );  // r3 = xdp_md->data_end
 
@@ -262,7 +270,10 @@ fd_xdp_install( uint           if_idx,
 
   uint true_port_cnt = 0U;
   for( ulong i=0UL; i<ports_cnt; i++ ) true_port_cnt += !!ports[ i ];
-  if( FD_UNLIKELY( !true_port_cnt ) ) FD_LOG_ERR(( "XDP program is not listening on any UDP ports" ));
+  /* Empty port lists are explicitly reserved for TX-only generic lo.
+     Never turn a physical ingress classifier into an accidental PASS. */
+  int const pass_lo = !ports_cnt && if_idx && if_idx==if_nametoindex( "lo" ) && uxdp_mode==XDP_FLAGS_SKB_MODE;
+  if( FD_UNLIKELY( !true_port_cnt && !pass_lo ) ) FD_LOG_ERR(( "XDP program is not listening on any UDP ports" ));
 
   /* Create XSK map */
 

@@ -375,6 +375,23 @@ int main( int     argc,
   run_tests( FD_IP4_ADDR( 0,0,0,0 ) );
   close( prog_fd );
 
+  /* TX-only loopback must pass even service-port traffic, with no map
+     lookup, packet parsing, or unreachable redirect instructions. */
+  code_cnt = fd_xdp_gen_program( code_buf, -1, 0U, NULL, 0UL, 1 );
+  FD_TEST( code_cnt==2UL );
+  prog_fd = load_prog( code_buf, code_cnt );
+  prog_test( tcp_syn, tcp_syn_sz, "loopback_pass_tcp", XDP_PASS );
+  prog_test( arp_request, arp_request_sz, "loopback_pass_arp", XDP_PASS );
+  uchar udp[64] = {0};
+  fd_eth_hdr_t * eth = (fd_eth_hdr_t *)udp;
+  eth->net_type = fd_ushort_bswap( FD_ETH_HDR_TYPE_IP );
+  fd_ip4_hdr_t * ip = (fd_ip4_hdr_t *)(eth+1);
+  ip->verihl = FD_IP4_VERIHL( 4, 5 ); ip->protocol = 17U;
+  fd_udp_hdr_t * uh = (fd_udp_hdr_t *)(ip+1);
+  uh->net_dport = fd_ushort_bswap( PORT0 );
+  prog_test( udp, sizeof(udp), "loopback_pass_service_udp", XDP_PASS );
+  close( prog_fd );
+
   /* Clean up */
 
   close( xsk_fd );

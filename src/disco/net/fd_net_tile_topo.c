@@ -566,14 +566,20 @@ fd_topo_install_xdp( fd_topo_t const * topo,
   };
 
   for( uint i=0U; i<if_cnt; i++ ) {
-    /* Override XDP mode for loopback */
+    /* A dedicated kernel socket tile owns local UDP RX.  Keep the lo
+       XSK for raw TX, but pass RX to the kernel with its checksum metadata.
+       Other topologies without sock_lo retain their existing classifier. */
+    int kernel_lo_rx = 0;
+    for( ulong j=0UL; j<topo->tile_cnt; j++ )
+      kernel_lo_rx |= sock_lo_net_tile_id( &topo->tiles[j] )==net0_tile->id;
+    kernel_lo_rx &= fds[ i ].if_idx==lo_idx;
     char const * xdp_mode = net0_tile->xdp.xdp_mode;
-    if( fds[ i ].if_idx==1U ) xdp_mode = "skb";
+    if( fds[ i ].if_idx==lo_idx ) xdp_mode = "skb";
 
     fd_xdp_fds_t xdp_fds = fd_xdp_install(
         fds[ i ].if_idx,
         bind_addr,
-        sizeof(udp_port_candidates)/sizeof(udp_port_candidates[0]),
+        kernel_lo_rx ? 0UL : sizeof(udp_port_candidates)/sizeof(udp_port_candidates[0]),
         udp_port_candidates,
         xdp_mode );
     if( FD_UNLIKELY( -1==dup2( xdp_fds.xsk_map_fd, fds[ i ].xsk_map_fd ) ) ) {
