@@ -213,6 +213,8 @@ fd_keyguard_authorize_bundle_crank_txn( fd_keyguard_authority_t const * authorit
         if( crank_3_mask[i+65UL] ) matches_mask &= data[i]==crank_3_vals[i+65UL];
       }
       if( !fd_memeq( data+FD_BUNDLE_CRANK_TIP_DISTRIBUTION_OFFSET-65UL, authority->tip_distribution_program, 32UL ) ) return 0;
+      if( !fd_memeq( data+FD_BUNDLE_CRANK_UPLOAD_AUTHORITY_OFFSET-65UL, authority->tip_distribution_authority, 32UL ) ) return 0;
+      if( fd_ushort_load_2( data+FD_BUNDLE_CRANK_COMMISSION_BPS_OFFSET-65UL )!=authority->tip_distribution_commission_bps ) return 0;
       break;
     default:
       return 0;
