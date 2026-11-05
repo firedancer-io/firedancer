@@ -49,9 +49,10 @@ fd_sshttp_resolved_hash( fd_sshttp_t const * http );
    redirects to follow, pass ULONG_MAX to preserve the current hops
    value (e.g. when following a redirect internally).  now is the
    current timestamp.  A nonzero range_start asks the server to resume
-   the body at that byte offset, which it must answer with a 206.
-   is_stream marks a fast boot stream request.  Returns 0 on success and
-   -1 on failure. */
+   the body at that byte offset, which it must answer with a 206.  A
+   redirect to another file reads that file from its start.  is_stream
+   marks a fast boot stream request.  Returns 0 on success and -1 on
+   failure. */
 
 int
 fd_sshttp_init( fd_sshttp_t * http,
@@ -75,13 +76,15 @@ fd_sshttp_resume( fd_sshttp_t * http,
                   ulong         range_start );
 
 /* fd_sshttp_request asks the server of the last request for path,
-   from the start, following redirects.  The connection must be idle. */
+   from byte range_start, following redirects.  A redirect to another
+   file reads that file from its start.  The connection must be idle. */
 
 int
 fd_sshttp_request( fd_sshttp_t * http,
                    long          now,
                    char const *  path,
-                   ulong         path_len );
+                   ulong         path_len,
+                   ulong         range_start );
 
 void
 fd_sshttp_cancel( fd_sshttp_t * http );
@@ -99,8 +102,8 @@ fd_sshttp_deadline( fd_sshttp_t const * http );
 #define FD_SSHTTP_ADVANCE_NOT_FOUND     ( 3) /* file: 404 */
 #define FD_SSHTTP_ADVANCE_STREAM_CHUNK  ( 4) /* stream: this poll's bytes all arrived */
 #define FD_SSHTTP_ADVANCE_STREAM_IDLE   ( 5) /* stream: 416, nothing past range_start yet */
-#define FD_SSHTTP_ADVANCE_STREAM_ENDED  ( 6) /* stream: 404 to a ranged request, the file is gone */
-#define FD_SSHTTP_ADVANCE_STREAM_ABSENT ( 7) /* stream: 404 to an unranged request, no stream open */
+#define FD_SSHTTP_ADVANCE_STREAM_ENDED  ( 6) /* stream: 404 to a ranged request, it ended and nothing follows it yet */
+#define FD_SSHTTP_ADVANCE_STREAM_ABSENT ( 7) /* stream: 404 to an unranged request, the stream is not served */
 
 int
 fd_sshttp_advance( fd_sshttp_t * http,

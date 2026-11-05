@@ -249,9 +249,10 @@ init_stream_download( fd_snapld_tile_t *   ctx,
 
 /* A fast boot stream: the first response holds what the server has,
    a 416 means nothing new yet (reported once as caught up), a 206
-   adds bytes and a 404 ends it.  The next request then asks for the
-   newest stream, which must be newer than the one that ended.  Failed
-   polls are asked again, only a SHUTDOWN ends the load. */
+   adds bytes, a 404 means it ended with nothing after it yet, and a
+   redirect sends the peer on to the next stream, which must be newer
+   than the one that ended.  Failed polls are asked again, only a
+   SHUTDOWN ends the load. */
 static void
 test_stream( void ) {
   static fd_sshttp_t http[1];
@@ -352,20 +353,15 @@ test_stream( void ) {
   FD_TEST( !close( conn ) );
   FD_TEST( ctx->state==FD_SNAPSHOT_STATE_PROCESSING && publish_cnt==5UL && publish_sig==FD_SNAPSHOT_MSG_DATA );
 
-  /* The stream ended: the next request asks for the newest stream. */
+  /* The stream ended and nothing follows it yet: asked again later,
+     from the same offset. */
   serve_one( ctx, server, "Range: bytes=12-\r\n", "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n" );
-  drive_until( ctx, &ctx->fast_boot_stream.off, 0UL );
-  FD_TEST( ctx->fast_boot_stream.next_stream && ctx->state==FD_SNAPSHOT_STATE_PROCESSING && publish_cnt==5UL && ctx->fast_boot_stream.wait!=LONG_MAX );
+  for( int i=0; i<100000 && ctx->fast_boot_stream.wait==LONG_MAX; i++ ) after_credit( ctx, test_stem, NULL, &busy );
+  FD_TEST( ctx->state==FD_SNAPSHOT_STATE_PROCESSING && ctx->fast_boot_stream.off==12UL && publish_cnt==5UL && ctx->fast_boot_stream.wait!=LONG_MAX );
   ctx->fast_boot_stream.wait = 0L;
 
-  /* No newer stream at the server yet: asked again later. */
-  serve_one( ctx, server, "GET /fast-boot-stream.tar.zst HTTP/1.1", "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n" );
-  for( int i=0; i<100; i++ ) after_credit( ctx, test_stem, NULL, &busy );
-  FD_TEST( init_cnt==1UL && ctx->fast_boot_stream.next_stream && publish_cnt==5UL && ctx->fast_boot_stream.wait!=LONG_MAX );
-  ctx->fast_boot_stream.wait = 0L;
-
-  /* The newer stream is followed from its start, without a second
-     META. */
+  /* The server sends the peer on to the next stream, which is read
+     from its start, without a second META. */
   FD_TEST( fd_cstr_printf_check( name, sizeof(name), NULL, "fast-boot-stream-124-%s.tar.zst", hash_b58 ) );
   char redirect[ 256 ];
   FD_TEST( fd_cstr_printf_check( redirect, sizeof(redirect), NULL, "HTTP/1.1 302 Found\r\nLocation: /%s\r\nContent-Length: 0\r\n\r\n", name ) );
@@ -376,21 +372,21 @@ test_stream( void ) {
   ctx->wait_info->info.reset_slot = 123UL;
 
   /* Its connection drops after the headers, before any data: the
-     newest stream is asked for again by the generic name, so it is
-     checked again. */
-  serve_one( ctx, server, "GET /fast-boot-stream.tar.zst HTTP/1.1", redirect );
+     stream that ended is asked again, so the redirect is checked
+     again. */
+  serve_one( ctx, server, "Range: bytes=12-\r\n", redirect );
   serve_one( ctx, server, get, "HTTP/1.1 200 OK\r\nContent-Length: 4\r\n\r\n" );
   for( int i=0; i<100000 && ctx->fast_boot_stream.wait==LONG_MAX; i++ ) after_credit( ctx, test_stem, NULL, &busy );
-  FD_TEST( ctx->fast_boot_stream.next_stream && ctx->fast_boot_stream.slot==123UL && ctx->fast_boot_stream.off==0UL );
+  FD_TEST( ctx->fast_boot_stream.slot==123UL && ctx->fast_boot_stream.off==12UL );
   FD_TEST( ctx->fast_boot_stream.next_stream_slot==ULONG_MAX && publish_cnt==5UL && http->state==FD_SSHTTP_STATE_INIT );
   ctx->fast_boot_stream.wait = 0L;
 
-  /* Replay is still below the newer stream's start: not followed,
+  /* Replay is still below the next stream's start: not followed,
      asked again later. */
-  serve_one( ctx, server, "GET /fast-boot-stream.tar.zst HTTP/1.1", redirect );
+  serve_one( ctx, server, "Range: bytes=12-\r\n", redirect );
   serve_one( ctx, server, get, "HTTP/1.1 200 OK\r\nContent-Length: 4\r\n\r\nnext" );
   drive_until( ctx, &ctx->fast_boot_stream.next_stream_slot, 124UL );
-  FD_TEST( ctx->fast_boot_stream.next_stream && ctx->fast_boot_stream.slot==123UL && ctx->fast_boot_stream.off==0UL );
+  FD_TEST( ctx->fast_boot_stream.slot==123UL && ctx->fast_boot_stream.off==12UL );
   FD_TEST( publish_cnt==5UL && ctx->fast_boot_stream.wait!=LONG_MAX && http->state==FD_SSHTTP_STATE_INIT );
 
   /* Not even asked for until replay gets there. */
@@ -400,19 +396,30 @@ test_stream( void ) {
   ctx->wait_info->info.reset_slot = 124UL;
   ctx->fast_boot_stream.wait = 0L;
 
-  serve_one( ctx, server, "GET /fast-boot-stream.tar.zst HTTP/1.1", redirect );
+  serve_one( ctx, server, "Range: bytes=12-\r\n", redirect );
   serve_one( ctx, server, get, "HTTP/1.1 200 OK\r\nContent-Length: 4\r\n\r\nnext" );
   drive_until( ctx, &ctx->fast_boot_stream.off, 4UL );
-  FD_TEST( init_cnt==1UL && !ctx->fast_boot_stream.next_stream && ctx->fast_boot_stream.slot==124UL );
+  FD_TEST( init_cnt==1UL && ctx->fast_boot_stream.slot==124UL && ctx->fast_boot_stream.next_stream_slot==ULONG_MAX );
+  FD_TEST( !strcmp( ctx->fast_boot_stream.path+1, name ) && ctx->fast_boot_stream.path_len==strlen( name )+1UL );
   FD_TEST( publish_cnt==6UL && publish_sig==FD_SNAPSHOT_MSG_DATA );
 
-  /* A newest stream that is not newer than the one that ended is
-     malformed. */
-  serve_one( ctx, server, "Range: bytes=4-\r\n", "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n" );
-  drive_until( ctx, &ctx->fast_boot_stream.off, 0UL );
+  /* A dropped poll on the new stream is asked again on it, from its
+     offset. */
+  serve_one( ctx, server, get, "" );
+  for( int i=0; i<100000 && ctx->fast_boot_stream.wait==LONG_MAX; i++ ) after_credit( ctx, test_stem, NULL, &busy );
+  FD_TEST( ctx->fast_boot_stream.slot==124UL && ctx->fast_boot_stream.off==4UL && publish_cnt==6UL );
   ctx->fast_boot_stream.wait = 0L;
-  serve_one( ctx, server, "GET /fast-boot-stream.tar.zst HTTP/1.1", redirect );
-  serve_one( ctx, server, get, "HTTP/1.1 200 OK\r\nContent-Length: 4\r\n\r\nnext" );
+
+  /* Sent on to a stream that is not after the one that ended:
+     malformed. */
+  char name123[ 128 ];
+  char redirect123[ 256 ];
+  char get123[ 160 ];
+  FD_TEST( fd_cstr_printf_check( name123, sizeof(name123), NULL, "fast-boot-stream-123-%s.tar.zst", hash_b58 ) );
+  FD_TEST( fd_cstr_printf_check( redirect123, sizeof(redirect123), NULL, "HTTP/1.1 302 Found\r\nLocation: /%s\r\nContent-Length: 0\r\n\r\n", name123 ) );
+  FD_TEST( fd_cstr_printf_check( get123, sizeof(get123), NULL, "GET /%s HTTP/1.1", name123 ) );
+  serve_one( ctx, server, "Range: bytes=4-\r\n", redirect123 );
+  serve_one( ctx, server, get123, "HTTP/1.1 200 OK\r\nContent-Length: 4\r\n\r\nnext" );
   drive_until( ctx, &publish_cnt, 7UL );
   FD_TEST( publish_sig==FD_SNAPSHOT_MSG_CTRL_ERROR && ctx->state==FD_SNAPSHOT_STATE_ERROR && http->state==FD_SSHTTP_STATE_INIT );
 
@@ -424,8 +431,8 @@ test_stream( void ) {
   FD_TEST( init_cnt==2UL && http->state!=FD_SSHTTP_STATE_INIT && http->sockfd!=-1 );
 
   /* A stream that ends before replay caught up on it is complete as
-     of its start: caught up is reported once, then the newest stream
-     is asked for. */
+     of its start: caught up is reported once, then the server is
+     asked again. */
   serve_one( ctx, server, get, "HTTP/1.1 200 OK\r\nContent-Length: 8\r\n\r\nsnapshot" );
   drive_until( ctx, &ctx->fast_boot_stream.off, 8UL );
   FD_TEST( !ctx->fast_boot_stream.caught_up );
@@ -433,7 +440,7 @@ test_stream( void ) {
   serve_one( ctx, server, "Range: bytes=8-\r\n", "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n" );
   drive_until( ctx, &publish_cnt, published+1UL );
   FD_TEST( publish_sig==FD_SNAPSHOT_MSG_STREAM_CAUGHT_UP && ctx->fast_boot_stream.caught_up );
-  FD_TEST( ctx->fast_boot_stream.next_stream && ctx->fast_boot_stream.off==0UL && ctx->fast_boot_stream.wait!=LONG_MAX );
+  FD_TEST( ctx->fast_boot_stream.off==8UL && ctx->fast_boot_stream.wait!=LONG_MAX );
   ctx->fast_boot_stream.wait = 0L;
   for( int i=0; i<100; i++ ) after_credit( ctx, test_stem, NULL, &busy );
   FD_TEST( publish_cnt==published+1UL && http->state!=FD_SSHTTP_STATE_INIT && http->sockfd!=-1 );

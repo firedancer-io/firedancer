@@ -417,15 +417,19 @@ int
 fd_sshttp_request( fd_sshttp_t * http,
                    long          now,
                    char const *  path,
-                   ulong         path_len ) {
-  return fd_sshttp_init( http, http->addr, http->hostname, http->is_https, path, path_len, 4UL, now, 0UL, http->is_stream );
+                   ulong         path_len,
+                   ulong         range_start ) {
+  if( FD_UNLIKELY( fd_sshttp_init( http, http->addr, http->hostname, http->is_https, path, path_len, 4UL, now, range_start, http->is_stream ) ) ) return -1;
+  memmove( http->path, http->location, http->location_len+1UL );
+  http->path_len = http->location_len;
+  return 0;
 }
 
 int
 fd_sshttp_resume( fd_sshttp_t * http,
                   long          now,
                   ulong         range_start ) {
-  if( FD_UNLIKELY( !range_start ) ) return fd_sshttp_request( http, now, http->path, http->path_len );
+  if( FD_UNLIKELY( !range_start ) ) return fd_sshttp_request( http, now, http->path, http->path_len, 0UL );
   return fd_sshttp_init( http, http->addr, http->hostname, http->is_https, http->location, http->location_len, 4UL, now, range_start, http->is_stream );
 }
 
@@ -595,6 +599,8 @@ follow_redirect( fd_sshttp_t *        http,
      buffer.  The request is rebuilt from scratch by fd_sshttp_init
      during the redirect, but the format must match so that a path
      accepted here will not overflow in fd_sshttp_init. */
+  if( location_len!=http->location_len || memcmp( location, http->location, location_len ) ) http->range_start = 0UL;
+
   int pre_check = http_format_request( http, http->addr, location, location_len, http->range_start );
   if( FD_UNLIKELY( !pre_check ) ) {
     FD_LOG_WARNING(( "redirect request too long `%.*s` from " FD_IP4_ADDR_FMT ":%hu", (int)location_len, location,
@@ -690,9 +696,9 @@ read_response( fd_sshttp_t * http,
       return FD_SSHTTP_ADVANCE_STREAM_IDLE;
     }
 
-    /* Code 404 means the stream is no longer available.  The first
-       request for a stream has no offset, and a 404 to it means no
-       stream is open. */
+    /* Code 404 to a ranged request means the stream ended and nothing
+       follows it yet.  The first request for a stream has no offset,
+       and a 404 to it means the stream is not served. */
     if( FD_UNLIKELY( status==404 ) ) {
       fd_sshttp_cancel( http );
       *data_len = 0UL;

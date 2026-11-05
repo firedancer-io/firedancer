@@ -1322,24 +1322,6 @@ fast_boot_name( char  out[ static 128 ],
   return out;
 }
 
-/* No stream is served, so the redirect has nowhere to point. */
-
-FD_UNIT_TEST( fast_boot_redirect_none ) {
-  snapsv_env_t * env = snapsv_env_create();
-  expect_res_env( env, "GET /fast-boot-stream.tar.zst HTTP/1.1\r\n\r\n", RES_404_KEEPALIVE );
-  snapsv_env_destroy( env );
-}
-
-/* The well known name redirects to the newest stream, like the
-   snapshot one does. */
-
-FD_UNIT_TEST( fast_boot_redirect ) {
-  snapsv_env_t * env = fast_boot_env( 100UL );
-  char name[ 128 ];
-  expect_redirect( env, "GET /fast-boot-stream.tar.zst HTTP/1.1\r\n\r\n", fast_boot_name( name, 100UL ) );
-  snapsv_env_destroy( env );
-}
-
 FD_UNIT_TEST( fast_boot_stream_unknown ) {
   snapsv_env_t * env = snapsv_env_create();
   char name[ 128 ];
@@ -1456,9 +1438,9 @@ FD_UNIT_TEST( fast_boot_stream_closed_mid_download ) {
   snapsv_env_destroy( env );
 }
 
-/* A closed stream is served to its end but the redirect no longer
-   names it, and a range past its end is a 404 rather than a 416.  It
-   goes away when the next stream closes, as its file is reused then. */
+/* A closed stream is served to its end, and a range past its end is
+   a 404 rather than a 416 while no stream follows it.  It goes away
+   when the next stream closes, as its file is reused then. */
 
 FD_UNIT_TEST( fast_boot_stream_closed ) {
   snapsv_env_t * env = fast_boot_env( 100UL );
@@ -1474,7 +1456,6 @@ FD_UNIT_TEST( fast_boot_stream_closed ) {
       "Content-Length: %lu\r\n"
       "\r\n", FAST_BOOT_FILE_SZ );
   expect_res_env( env, req, expected );
-  expect_res_env( env, "GET /fast-boot-stream.tar.zst HTTP/1.1\r\n\r\n", RES_404_KEEPALIVE );
 
   fd_cstr_printf( req, sizeof(req), NULL,
       "GET /%s HTTP/1.1\r\n"
@@ -1484,6 +1465,57 @@ FD_UNIT_TEST( fast_boot_stream_closed ) {
 
   fast_boot_msg_idx( env, FD_STRMK_MSG_OPEN,  200UL, 1U );
   fast_boot_msg_idx( env, FD_STRMK_MSG_CLOSE, 200UL, 1U );
+  fd_cstr_printf( req, sizeof(req), NULL, "GET /%s HTTP/1.1\r\n\r\n", fast_boot_name( name, 100UL ) );
+  expect_res_env( env, req, RES_404_KEEPALIVE );
+  snapsv_env_destroy( env );
+}
+
+/* A read past the end of a closed stream is sent on to the first
+   stream after it once there is one, closed or not; a read resumed on
+   a stream that is gone likewise, while a first read of it is a 404. */
+
+FD_UNIT_TEST( fast_boot_stream_ended ) {
+  snapsv_env_t * env = fast_boot_env( 100UL );
+  char name[ 128 ];
+  char next[ 128 ];
+  char req[ 256 ];
+  fast_boot_msg( env, FD_STRMK_MSG_CLOSE, 100UL );
+  fd_cstr_printf( req, sizeof(req), NULL,
+      "GET /%s HTTP/1.1\r\n"
+      "Range: bytes=%lu-\r\n"
+      "\r\n", fast_boot_name( name, 100UL ), FAST_BOOT_FILE_SZ );
+  expect_res_env( env, req, RES_404_KEEPALIVE );
+  fast_boot_msg_idx( env, FD_STRMK_MSG_OPEN, 150UL, 1U );
+  expect_redirect( env, req, fast_boot_name( next, 150UL ) );
+
+  /* A HEAD past the end of the closed stream is still a 200. */
+  fd_cstr_printf( req, sizeof(req), NULL,
+      "HEAD /%s HTTP/1.1\r\n"
+      "Range: bytes=%lu-\r\n"
+      "\r\n", fast_boot_name( name, 100UL ), FAST_BOOT_FILE_SZ );
+  char expected[ 256 ];
+  fd_cstr_printf( expected, sizeof(expected), NULL,
+      "HTTP/1.1 200 OK\r\n"
+      "Content-Type: application/zstd\r\n"
+      "Accept-Ranges: bytes\r\n"
+      "Content-Length: %lu\r\n"
+      "\r\n", FAST_BOOT_FILE_SZ );
+  expect_res_env( env, req, expected );
+
+  /* The stream is gone: a ranged read, from any offset, is sent on
+     past it; a read without a range is not. */
+  fast_boot_msg_idx( env, FD_STRMK_MSG_CLOSE, 150UL, 1U ); /* frees the pool file holding 100 */
+  fast_boot_msg_idx( env, FD_STRMK_MSG_OPEN,  200UL, 0U );
+  fd_cstr_printf( req, sizeof(req), NULL,
+      "GET /%s HTTP/1.1\r\n"
+      "Range: bytes=5-\r\n"
+      "\r\n", fast_boot_name( name, 100UL ) );
+  expect_redirect( env, req, fast_boot_name( next, 150UL ) );
+  fd_cstr_printf( req, sizeof(req), NULL,
+      "GET /%s HTTP/1.1\r\n"
+      "Range: bytes=0-\r\n"
+      "\r\n", fast_boot_name( name, 100UL ) );
+  expect_redirect( env, req, fast_boot_name( next, 150UL ) );
   fd_cstr_printf( req, sizeof(req), NULL, "GET /%s HTTP/1.1\r\n\r\n", fast_boot_name( name, 100UL ) );
   expect_res_env( env, req, RES_404_KEEPALIVE );
   snapsv_env_destroy( env );

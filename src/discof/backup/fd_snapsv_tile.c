@@ -142,7 +142,7 @@ struct snapsv_conn {
     uint  head:1;        /* HEAD request? */
     uint  get_snap:1;    /* GET request for a snapshot? (streaming) */
     uint  incremental:1; /* incremental snap requested? */
-    uint  fast_boot:1;   /* redirect to the newest fast boot stream? */
+    uint  fast_boot:1;   /* redirect to the fast boot stream after the one at stream.slot? */
   } req;
 
   struct {
@@ -168,7 +168,7 @@ struct snapsv_conn {
   struct {
     uint  active:1;
     uint  idx;  /* pool file */
-    ulong slot; /* stream start slot, checked on every read */
+    ulong slot; /* start slot of the stream the request names, checked on every read */
   } stream;
 
   fd_kernel_timespec_t idle_timeout;
@@ -1486,9 +1486,8 @@ build_redirect_hdr( char        out[ static RES_HDR_MAX ], /* not a cstr */
   return (ulong)( p - out );
 }
 
-/* build_fast_boot_redirect_hdr names the newest fast boot stream,
-   which has the most life left, the way the snapshot redirect names
-   a snapshot. */
+/* build_fast_boot_redirect_hdr names a fast boot stream the way the
+   snapshot redirect names a snapshot. */
 
 static ulong
 build_fast_boot_redirect_hdr( char        out[ static RES_HDR_MAX ], /* not a cstr */
@@ -1518,11 +1517,13 @@ serve_redirect( fd_snapsv_t * ctx,
   FD_CHECK_ERR( conn->state==CONN_STATE_RES_REDIRECT, "state confusion" );
 
   if( FD_UNLIKELY( conn->req.fast_boot ) ) {
+    /* The first stream after the one the peer finished, closed or
+       not, so a peer far behind still reads every stream in order. */
     ulong idx = ULONG_MAX;
     for( ulong i=0UL; i<ctx->fast_boot_max; i++ ) {
-      if( ctx->fast_boot_slot[ i ]==ULONG_MAX || ctx->fast_boot_closed[ i ] ) continue;
-      if( idx!=ULONG_MAX && ctx->fast_boot_slot[ i ]<=ctx->fast_boot_slot[ idx ] ) continue;
-      idx = i;
+      ulong slot = ctx->fast_boot_slot[ i ];
+      if( slot==ULONG_MAX || slot<=conn->stream.slot ) continue;
+      if( idx==ULONG_MAX || slot<ctx->fast_boot_slot[ idx ] ) idx = i;
     }
     if( FD_UNLIKELY( idx==ULONG_MAX ) ) {
       conn->state      = CONN_STATE_RES_WRITE_ERR;
@@ -1653,12 +1654,15 @@ fast_boot_file_sz( fd_snapsv_t const * ctx,
 
 /* match_fast_boot_stream_path parses the name a fast boot stream is
    served under and returns the pool file holding that stream, or
-   ULONG_MAX if there is none. */
+   ULONG_MAX if there is none.  name_slot is the slot in the name,
+   ULONG_MAX if the name does not parse. */
 
 static ulong
 match_fast_boot_stream_path( fd_snapsv_t const * ctx,
                              char const *        path,
-                             ulong               path_len ) {
+                             ulong               path_len,
+                             ulong *             name_slot ) {
+  *name_slot = ULONG_MAX;
   char cstr[ FD_SNAP_NAME_MAX ];
   if( FD_UNLIKELY( path_len>=FD_SNAP_NAME_MAX-1 ) ) return ULONG_MAX;
   fd_cstr_fini( fd_cstr_append_text( fd_cstr_init( cstr ), path, path_len ) );
@@ -1666,6 +1670,7 @@ match_fast_boot_stream_path( fd_snapsv_t const * ctx,
   ulong slot;
   uchar hash[ 32 ];
   if( FD_UNLIKELY( 0!=fd_ssarchive_parse_fast_boot_filename( cstr, &slot, hash ) ) ) return ULONG_MAX;
+  *name_slot = slot;
 
   for( ulong i=0UL; i<ctx->fast_boot_max; i++ ) {
     if( ctx->fast_boot_slot[ i ]==slot && !memcmp( ctx->fast_boot_hash[ i ], hash, 32UL ) ) return i;
@@ -1925,29 +1930,28 @@ handle_peek( fd_snapsv_t *       ctx,
     path++; path_len--;
   }
 
-  /* The newest stream, by redirect, like the newest snapshot. */
-  if( FD_UNLIKELY( ctx->fast_boot_max && path_len==24UL && !memcmp( path, "fast-boot-stream.tar.zst", 24UL ) ) ) {
-    conn->state         = CONN_STATE_RES_REDIRECT;
-    conn->req.fast_boot = 1;
-    FD_MCNT_INC( SNAPSV, FAST_BOOT_REQUEST_SERVED, 1UL );
-    return;
-  }
-
   /* A fast boot stream by name?  Its size is read on every request,
-     because a stream grows while it is served. */
+     because a stream grows while it is served.  A peer that reads a
+     closed stream past its end has finished it and is sent on to the
+     stream after it.  So is a peer resuming a stream whose file was
+     recycled, which a Range header tells apart from a first read. */
   if( FD_UNLIKELY( ctx->fast_boot_max && path_len>17UL && !memcmp( path, "fast-boot-stream-", 17UL ) ) ) {
-    ulong fast_boot_idx = match_fast_boot_stream_path( ctx, path, path_len );
-    if( FD_UNLIKELY( fast_boot_idx==ULONG_MAX ) ) goto not_found;
-    conn->stream.active = 1U;
-    conn->stream.idx    = (uint)fast_boot_idx;
-    conn->stream.slot   = ctx->fast_boot_slot[ fast_boot_idx ];
-    conn_begin_file( conn, fast_boot_file_sz( ctx, fast_boot_idx ), range, range_len );
+    ulong fast_boot_idx = match_fast_boot_stream_path( ctx, path, path_len, &conn->stream.slot );
+    if( FD_UNLIKELY( fast_boot_idx==ULONG_MAX && ( conn->stream.slot==ULONG_MAX || !range ) ) ) goto not_found;
+    FD_MCNT_INC( SNAPSV, FAST_BOOT_REQUEST_SERVED, 1UL );
 
-    if( FD_UNLIKELY( conn->res.status==416U && conn->state==CONN_STATE_RES_WRITE_ERR && ctx->fast_boot_closed[ fast_boot_idx ] ) ) {
-      conn->res.status = 404U;
+    if( FD_LIKELY( fast_boot_idx!=ULONG_MAX ) ) {
+      conn_begin_file( conn, fast_boot_file_sz( ctx, fast_boot_idx ), range, range_len );
+      int finished = conn->res.status==416U && conn->state==CONN_STATE_RES_WRITE_ERR && ctx->fast_boot_closed[ fast_boot_idx ];
+      if( FD_LIKELY( !finished ) ) {
+        conn->stream.active = 1U;
+        conn->stream.idx    = (uint)fast_boot_idx;
+        return;
+      }
     }
 
-    FD_MCNT_INC( SNAPSV, FAST_BOOT_REQUEST_SERVED, 1UL );
+    conn->state         = CONN_STATE_RES_REDIRECT;
+    conn->req.fast_boot = 1;
     return;
   }
 

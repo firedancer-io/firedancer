@@ -379,7 +379,9 @@ test_range_not_satisfiable( void ) {
   }
 }
 
-/* A redirect to a fast boot stream name resolves its slot and hash. */
+/* A redirect to a fast boot stream name resolves its slot and hash.
+   Another file is read from its start whatever the offset asked for,
+   the same file goes on from it. */
 
 static void
 test_redirect_stream_name( void ) {
@@ -387,6 +389,7 @@ test_redirect_stream_name( void ) {
   FD_TEST( http );
 
   int server = connect_pair( http );
+  http->range_start = 4096UL;
 
   uchar hash[ 32 ];
   for( ulong i=0UL; i<32UL; i++ ) hash[ i ] = (uchar)(i+1UL);
@@ -405,7 +408,7 @@ test_redirect_stream_name( void ) {
     data_len = sizeof(buf);
     FD_TEST( FD_SSHTTP_ADVANCE_AGAIN==fd_sshttp_advance( http, &data_len, buf, &downloading, 0L ) );
   }
-  FD_TEST( http->hops==3UL );
+  FD_TEST( http->hops==3UL && http->range_start==0UL );
   char name[ 128 ];
   FD_TEST( fd_cstr_printf_check( name, sizeof(name), NULL, "fast-boot-stream-123-%s.tar.zst", hash_b58 ) );
   FD_TEST( http->resolved_slot==123UL && !memcmp( http->resolved_hash, hash, 32UL ) && !strcmp( http->snapshot_name, name ) );
@@ -416,14 +419,26 @@ test_redirect_stream_name( void ) {
   ulong body_len, last_len;
   FD_TEST( FD_SSHTTP_ADVANCE_DONE==run_request( http, body, sizeof(body), &body_len, &last_len ) );
   FD_TEST( body_len==5UL && !memcmp( body, "hello", 5UL ) );
+  FD_TEST( 0==close( server ) );
+  fd_sshttp_cancel( http );
 
+  server = connect_pair( http );
+  http->range_start = 4096UL;
+  FD_TEST( fd_cstr_printf_check( http->location, sizeof(http->location), &http->location_len, "/%s", name ) );
+  FD_TEST( (long)strlen( redirect )==send( server, redirect, strlen( redirect ), 0 ) );
+  for( ulong i=0UL; i<1024UL && http->hops==4UL; i++ ) {
+    data_len = sizeof(buf);
+    FD_TEST( FD_SSHTTP_ADVANCE_AGAIN==fd_sshttp_advance( http, &data_len, buf, &downloading, 0L ) );
+  }
+  FD_TEST( http->hops==3UL && http->range_start==4096UL );
   FD_TEST( 0==close( server ) );
   fd_sshttp_cancel( http );
 }
 
 /* A 404 means there is no such file, ranged or not.  For a stream it
-   means no stream is open when the request had no offset, and that
-   the stream being read ended when it had one. */
+   means the stream is not served when the request had no offset, and
+   that the stream being read ended with nothing after it yet when it
+   had one. */
 
 static void
 test_not_found( void ) {
@@ -507,12 +522,20 @@ test_range_request( void ) {
 
   /* A request asks the same server for another path from the start,
      which later resumes from the start go back to. */
-  FD_TEST( !fd_sshttp_request( http, 0L, "/boot/9.tar.zst", 15UL ) );
+  FD_TEST( !fd_sshttp_request( http, 0L, "/boot/9.tar.zst", 15UL, 0UL ) );
   FD_TEST( strstr( http->request, "GET /boot/9.tar.zst HTTP/1.1" ) && strstr( http->request, "Host: localhost" ) );
   FD_TEST( !strstr( http->request, "Range:" ) && http->is_stream );
   fd_sshttp_cancel( http );
   FD_TEST( !fd_sshttp_resume( http, 0L, 0UL ) );
   FD_TEST( strstr( http->request, "GET /boot/9.tar.zst HTTP/1.1" ) );
+  fd_sshttp_cancel( http );
+
+  /* A request from an offset is the last request too. */
+  FD_TEST( !fd_sshttp_request( http, 0L, "/boot/10.tar.zst", 16UL, 4096UL ) );
+  FD_TEST( strstr( http->request, "GET /boot/10.tar.zst HTTP/1.1" ) && strstr( http->request, "Range: bytes=4096-\r\n" ) && http->is_stream );
+  fd_sshttp_cancel( http );
+  FD_TEST( !fd_sshttp_resume( http, 0L, 0UL ) );
+  FD_TEST( strstr( http->request, "GET /boot/10.tar.zst HTTP/1.1" ) && !strstr( http->request, "Range:" ) );
   fd_sshttp_cancel( http );
 
   FD_TEST( !close( listen_fd ) );

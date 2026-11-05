@@ -61,11 +61,13 @@ typedef struct fd_snapld_tile {
   struct {
     int   active;
     int   caught_up;
-    int   next_stream;      /* the stream ended, the next request asks for the newest one */
-    ulong slot;             /* open slot of the stream being read */
-    ulong off;              /* bytes of the stream read so far */
-    long  wait;             /* when to ask for more, LONG_MAX while a request runs */
-    ulong next_stream_slot; /* start of the next stream, ULONG_MAX until its redirect resolves */
+    char  path[ PATH_MAX ];   /* URL path of the stream being read */
+    ulong path_len;
+    ulong slot;               /* start slot of the stream being read */
+    ulong off;                /* bytes of it read so far */
+    long  wait;               /* when to poll again, LONG_MAX while a request runs */
+    ulong next_stream_slot;   /* start slot of the next stream, which replay must reach before it is read; ULONG_MAX when not waiting */
+    int   redirect_handled;   /* the redirect that led to the current response was checked already */
   } fast_boot_stream;
 
   fd_wait_info_box_t * wait_info; /* NULL unless this tile reads the fast boot stream */
@@ -433,7 +435,7 @@ after_credit( fd_snapld_tile_t *  ctx,
 
       /* Replay must be caught up to where the next stream begins
          before we can start consuming the next stream. */
-      if( FD_UNLIKELY( ctx->fast_boot_stream.next_stream && ctx->fast_boot_stream.next_stream_slot!=ULONG_MAX ) ) {
+      if( FD_UNLIKELY( ctx->fast_boot_stream.next_stream_slot!=ULONG_MAX ) ) {
         fd_wait_info_t wi;
         if( FD_LIKELY( !fd_wait_info_try_read( &wi, ctx->wait_info ) || wi.reset_slot<ctx->fast_boot_stream.next_stream_slot ) ) {
           ctx->fast_boot_stream.wait = now+FD_SNAPLD_STREAM_RETRY_NS;
@@ -442,9 +444,9 @@ after_credit( fd_snapld_tile_t *  ctx,
       }
 
       int err;
-      if( FD_UNLIKELY( ctx->fast_boot_stream.next_stream ) ) err = fd_sshttp_request( ctx->sshttp, now, "/fast-boot-stream.tar.zst", sizeof("/fast-boot-stream.tar.zst")-1UL );
-      else                                                   err = fd_sshttp_resume ( ctx->sshttp, now, ctx->fast_boot_stream.off );
-
+      ctx->fast_boot_stream.redirect_handled = 0;
+      if( FD_LIKELY( ctx->fast_boot_stream.active ) ) err = fd_sshttp_request( ctx->sshttp, now, ctx->fast_boot_stream.path, ctx->fast_boot_stream.path_len, ctx->fast_boot_stream.off );
+      else                                            err = fd_sshttp_resume( ctx->sshttp, now, ctx->fast_boot_stream.off );
       if( FD_UNLIKELY( err ) ) {
         if( FD_UNLIKELY( !handle_connection_failure( ctx, now ) ) ) transition_malformed( ctx, stem );
         return;
@@ -536,16 +538,19 @@ after_credit( fd_snapld_tile_t *  ctx,
           ctx->out_dc.chunk = next_chunk;
         }
 
-        if( FD_UNLIKELY( ctx->fast_boot_stream.next_stream ) ) {
-          /* The newest stream must come after the one that ended. */
-          ulong slot = fd_sshttp_resolved_slot( ctx->sshttp );
-          if( FD_UNLIKELY( slot<=ctx->fast_boot_stream.slot ) ) {
-            FD_LOG_WARNING(( "the newest fast boot stream is at slot %lu, not after the one that ended at slot %lu", slot, ctx->fast_boot_stream.slot ));
+        if( FD_UNLIKELY( ctx->fast_boot_stream.active && !ctx->fast_boot_stream.redirect_handled && fd_sshttp_resolved_slot( ctx->sshttp ) ) ) {
+          /* The stream ended and the server sent us on to the next
+             one, which must start after it. */
+          ctx->fast_boot_stream.redirect_handled = 1;
+          publish_caught_up( ctx, stem );
+          ulong        slot = fd_sshttp_resolved_slot( ctx->sshttp );
+          char const * name = fd_sshttp_snapshot_name( ctx->sshttp );
+          if( FD_UNLIKELY( slot<=ctx->fast_boot_stream.slot || strncmp( name, "fast-boot-stream-", 17UL ) ) ) {
+            FD_LOG_WARNING(( "sent on to `%s` at slot %lu, not a fast boot stream after the one that ended at slot %lu", name, slot, ctx->fast_boot_stream.slot ));
             transition_malformed( ctx, stem );
             fd_sshttp_cancel( ctx->sshttp );
             break;
           }
-          ctx->fast_boot_stream.next_stream_slot = slot;
 
           /* Before we process the next stream, make sure replay has
              caught up first. */
@@ -554,6 +559,7 @@ after_credit( fd_snapld_tile_t *  ctx,
           ulong replay_slot = fd_wait_info_try_read( &wi, ctx->wait_info ) ? wi.reset_slot : 0UL;
           if( FD_UNLIKELY( slot>replay_slot ) ) {
             FD_LOG_NOTICE(( "the next fast boot stream starts at slot %lu, ahead of replay at slot %lu, waiting", slot, replay_slot ));
+            ctx->fast_boot_stream.next_stream_slot = slot;
             fd_sshttp_cancel( ctx->sshttp );
             ctx->window_deadline       = LONG_MAX;
             ctx->fast_boot_stream.wait = now+FD_SNAPLD_STREAM_RETRY_NS;
@@ -561,8 +567,10 @@ after_credit( fd_snapld_tile_t *  ctx,
           }
 
           FD_LOG_INFO(( "following the fast boot stream at slot %lu", slot ));
-          ctx->fast_boot_stream.slot        = slot;
-          ctx->fast_boot_stream.next_stream = 0;
+          FD_TEST( fd_cstr_printf_check( ctx->fast_boot_stream.path, PATH_MAX, &ctx->fast_boot_stream.path_len, "/%s", name ) );
+          ctx->fast_boot_stream.slot             = slot;
+          ctx->fast_boot_stream.off              = 0UL;
+          ctx->fast_boot_stream.next_stream_slot = ULONG_MAX;
         }
 
         if( FD_LIKELY( data_len!=0UL ) ) {
@@ -610,20 +618,15 @@ after_credit( fd_snapld_tile_t *  ctx,
         ctx->fast_boot_stream.wait = now;
         break;
       case FD_SSHTTP_ADVANCE_STREAM_IDLE:
+      case FD_SSHTTP_ADVANCE_STREAM_ENDED:
+        /* Nothing new yet, or the stream ended and nothing follows it
+           yet.  The server sends us on once the next one opens. */
         publish_caught_up( ctx, stem );
         ctx->fast_boot_stream.wait = now+FD_SNAPLD_STREAM_RETRY_NS;
         break;
       case FD_SSHTTP_ADVANCE_STREAM_ABSENT:
-        /* The server has no stream right now.  It may be between two
-           streams. */
-        ctx->fast_boot_stream.wait = now+FD_SNAPLD_STREAM_RETRY_NS;
-        break;
-      case FD_SSHTTP_ADVANCE_STREAM_ENDED:
-        publish_caught_up( ctx, stem );
-        FD_LOG_INFO(( "the fast boot stream ended after %lu bytes, following the next one", ctx->fast_boot_stream.off ));
-        ctx->fast_boot_stream.next_stream      = 1;
-        ctx->fast_boot_stream.next_stream_slot = ULONG_MAX;
-        ctx->fast_boot_stream.off  = 0UL;
+        /* The server does not serve the stream: it has not opened yet
+           or its file was reused. */
         ctx->fast_boot_stream.wait = now+FD_SNAPLD_STREAM_RETRY_NS;
         break;
       case FD_SSHTTP_ADVANCE_ERROR:
@@ -679,11 +682,11 @@ returnable_frag( fd_snapld_tile_t *  ctx,
 
       ctx->fast_boot_stream.active           = msg_in->fast_boot_stream;
       ctx->fast_boot_stream.caught_up        = 0;
-      ctx->fast_boot_stream.next_stream      = 0;
       ctx->fast_boot_stream.slot             = msg_in->slot;
       ctx->fast_boot_stream.off              = 0UL;
       ctx->fast_boot_stream.wait             = LONG_MAX;
       ctx->fast_boot_stream.next_stream_slot = ULONG_MAX;
+      ctx->fast_boot_stream.redirect_handled = 0;
 
       ctx->window_deadline = LONG_MAX;
       ctx->bytes_in_window = 0UL;
@@ -711,6 +714,10 @@ returnable_frag( fd_snapld_tile_t *  ctx,
           transition_malformed( ctx, stem );
           forward_msg = 0;
           break;
+        }
+        if( FD_UNLIKELY( ctx->fast_boot_stream.active ) ) {
+          fd_cstr_ncpy( ctx->fast_boot_stream.path, msg->path, PATH_MAX );
+          ctx->fast_boot_stream.path_len = msg->path_len;
         }
       }
       ctx->pipeline_ready = 1;
@@ -744,7 +751,7 @@ returnable_frag( fd_snapld_tile_t *  ctx,
         forward_msg = 0;
         break;
       }
-      
+
       fd_sshttp_cancel( ctx->sshttp );
       ctx->state = FD_SNAPSHOT_STATE_IDLE;
       ctx->pipeline_ready = 0;
