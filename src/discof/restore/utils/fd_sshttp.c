@@ -408,6 +408,8 @@ fd_sshttp_cancel( fd_sshttp_t * http ) {
   http->state = FD_SSHTTP_STATE_INIT;
 
   /* Clean up native TLS state */
+  fd_tlsrec_conn_fini( &http->tls_conn );
+  fd_memzero_explicit( http->tls.kex_private_key, 32UL );
   fd_tlsrec_sock_init( http->tls_sock );
 }
 

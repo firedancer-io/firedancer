@@ -153,12 +153,20 @@ fd_tlsrec_hdr_bswap( fd_tlsrec_hdr_t * hdr ) {
    the TLS instance parameters.  tls->secrets_fn, if non-NULL, observes
    generated traffic secrets after fd_tlsrec installs them.  The
    tls->sendmsg_fn callback is ignored.  is_server is 1 if conn operates
-   in server mode. */
+   in server mode.  tls must not overlap conn.  Call fd_tlsrec_conn_fini
+   when the connection is discarded. */
 
 fd_tlsrec_conn_t *
 fd_tlsrec_conn_init( fd_tlsrec_conn_t * conn,
                      fd_tls_t const *   tls,
                      int                is_server );
+
+/* fd_tlsrec_conn_fini clears the connection, including its keys and
+   buffered data.  It does not send close_notify.  Reinitialize conn
+   before using it again. */
+
+void
+fd_tlsrec_conn_fini( fd_tlsrec_conn_t * conn );
 
 FD_FN_PURE int
 fd_tlsrec_conn_is_server( fd_tlsrec_conn_t const * conn );
