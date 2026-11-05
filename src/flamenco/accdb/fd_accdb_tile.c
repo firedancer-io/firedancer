@@ -1,6 +1,7 @@
 #include "../../disco/tiles.h"
 
 #include <linux/futex.h>
+#include <linux/falloc.h>
 
 #include "../../discof/fd_startup.h"
 
