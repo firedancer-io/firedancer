@@ -7329,7 +7329,7 @@ fd_accdb_background( fd_accdb_t * accdb,
      pages (several times faster than first writes); compaction is held
      off, so the bounce buffer is free.  Not for buckets that would not
      stay cached. */
-  if( FD_UNLIKELY( idx_enabled( accdb ) && accdb->bounce && FD_VOLATILE_CONST( shmem->snapshot_loading ) &&
+  if( FD_UNLIKELY( idx_enabled( accdb ) && accdb->bounce && !accdb->carry_sz && FD_VOLATILE_CONST( shmem->snapshot_loading ) &&
                    accdb->bkt->npage*FD_ACCDB_IDX_PAGE_SZ<=FD_ACCDB_PREPOP_MAX ) ) {
     ulong off = FD_VOLATILE_CONST( shmem->prepop_off );
     ulong end = accdb->bkt->npage*FD_ACCDB_IDX_PAGE_SZ;
