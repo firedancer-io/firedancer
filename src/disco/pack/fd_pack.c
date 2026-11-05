@@ -1,5 +1,6 @@
 #define FD_UNALIGNED_ACCESS_STYLE 0
 #include "fd_pack.h"
+#include "fd_pack_nonce_wakeup_trace.h"
 
 #define SORT_NAME        fd_pack_writer_cost_sort
 #define SORT_KEY_T       fd_pack_addr_use_t
@@ -74,6 +75,8 @@ struct fd_pack_private_ord_txn {
      for use by the noncemap comparison functionality.  The actual
      expires_at value for nonce transactions is rewritten */
   ulong  nonce_expires_at;
+
+  FD_PACK_NT_ORD_FIELD
 
   /* We want rewards*compute_est to fit in a ulong so that r1/c1 < r2/c2 can be
      computed as r1*c2 < r2*c1, with the product fitting in a ulong.
@@ -758,11 +761,15 @@ struct fd_pack_private {
      bundle meta, it's located at bundle_meta[j] for j in
      [i*bundle_meta_sz, (i+1)*bundle_meta_sz). */
   void * bundle_meta;
+
+  FD_PACK_NT_PACK_FIELD
 };
 
 typedef struct fd_pack_private fd_pack_t;
 
 FD_STATIC_ASSERT( offsetof(fd_pack_t, pending_txn_cnt)==FD_PACK_PENDING_TXN_CNT_OFF, txn_cnt_off );
+
+#include "fd_pack_nonce_wakeup_trace.inc"
 
 /* Forward-declare some helper functions */
 static ulong delete_transaction( fd_pack_t * pack, fd_pack_ord_txn_t * txn, int delete_full_bundle, int move_from_penalty_treap );
@@ -865,6 +872,7 @@ fd_pack_new( void                   * mem,
   void * _acct_bitset = FD_SCRATCH_ALLOC_APPEND( l,  bitset_map_align(),  bitset_map_footprint( lg_acct_in_trp        ) );
   void * bundle_meta  = FD_SCRATCH_ALLOC_APPEND( l,  64UL,                (pack_depth+extra_depth)*bundle_meta_sz       );
 
+  FD_PACK_NT_INIT( pack );
   pack->pack_depth                  = pack_depth;
   pack->bundle_meta_sz              = bundle_meta_sz;
   pack->bank_tile_cnt               = bank_tile_cnt;
@@ -898,7 +906,10 @@ fd_pack_new( void                   * mem,
 
   fd_pack_ord_txn_t * pool = trp_pool_join( _pool );
   treap_seed( pool, pack_depth+extra_depth, fd_rng_ulong( rng ) );
-  for( ulong i=0UL; i<pack_depth+extra_depth; i++ ) pool[i].root = FD_ORD_TXN_ROOT_FREE;
+  for( ulong i=0UL; i<pack_depth+extra_depth; i++ ) {
+    pool[i].root = FD_ORD_TXN_ROOT_FREE;
+    FD_PACK_NT_RESET( pool+i );
+  }
 
   (void)trp_pool_leave( pool );
 
@@ -1016,6 +1027,7 @@ fd_pack_join( void * mem ) {
   FD_MGAUGE_SET( PACK, TXN_PENDING_CAPACITY, pack->pack_depth );
   memset( pack->top_writers, 0, sizeof(pack->top_writers) );
 
+  FD_PACK_NT_START( pack );
   return pack;
 }
 
@@ -1129,6 +1141,7 @@ fd_pack_can_fee_payer_afford( fd_acct_addr_t const * acct_addr,
 fd_txn_e_t *
 fd_pack_insert_txn_init( fd_pack_t * pack ) {
   fd_pack_ord_txn_t * ord = trp_pool_ele_acquire( pack->pool );
+  FD_PACK_NT_RESET( ord );
   /* fini clears the bitsets; nothing on the way there touches those
      lines and a just-evicted element has them cold.  The two sets are
      adjacent and span at most two lines, whatever the bitset mode. */
@@ -1139,6 +1152,7 @@ fd_pack_insert_txn_init( fd_pack_t * pack ) {
 void         fd_pack_insert_txn_cancel( fd_pack_t * pack, fd_txn_e_t * txn ) { trp_pool_ele_release( pack->pool, (fd_pack_ord_txn_t*)txn ); }
 
 #define REJECT( reason ) do {                                       \
+                           FD_PACK_NT_RESULT( pack, ord, FD_PACK_INSERT_REJECT_ ## reason ); \
                            trp_pool_ele_release( pack->pool, ord ); \
                            return FD_PACK_INSERT_REJECT_ ## reason; \
                          } while( 0 )
@@ -1451,6 +1465,7 @@ fd_pack_insert_txn_fini( fd_pack_t  * pack,
   *delete_cnt = 0UL;
 
   fd_pack_ord_txn_t * ord = (fd_pack_ord_txn_t *)txne;
+  FD_PACK_NT_BEGIN( pack, ord );
 
   fd_txn_t * txn   = TXN(txne->txnp);
   uchar * payload  = txne->txnp->payload;
@@ -1463,6 +1478,7 @@ fd_pack_insert_txn_fini( fd_pack_t  * pack,
 
   int est_result = fd_pack_estimate_rewards_and_compute( txne, ord, pack->lim );
   if( FD_UNLIKELY( !est_result ) ) REJECT( ESTIMATION_FAIL );
+  FD_PACK_NT_EST( ord );
 
   int nonce_result = fd_pack_validate_durable_nonce( txne );
   if( FD_UNLIKELY( !nonce_result ) ) REJECT( INVALID_NONCE );
@@ -1472,6 +1488,7 @@ fd_pack_insert_txn_fini( fd_pack_t  * pack,
 
   int validation_result = validate_transaction( pack, ord, txn, accts, alt_adj, !!pack->bundle_meta_sz );
   if( FD_UNLIKELY( validation_result ) ) {
+    FD_PACK_NT_RESULT( pack, ord, validation_result );
     trp_pool_ele_release( pack->pool, ord );
     return validation_result;
   }
@@ -1487,9 +1504,12 @@ fd_pack_insert_txn_fini( fd_pack_t  * pack,
   if( FD_UNLIKELY( is_durable_nonce ) ) {
     fd_pack_ord_txn_t * same_nonce = noncemap_ele_query( pack->noncemap, txne, NULL, pack->pool );
     if( FD_LIKELY( same_nonce ) ) { /* Seems like most nonce transactions are effectively duplicates */
+      FD_PACK_NT_MATCH( pack, ord, same_nonce );
       if( FD_LIKELY( same_nonce->root == FD_ORD_TXN_ROOT_PENDING_BUNDLE || same_nonce->nonce_expires_at>expires_at ||
             (same_nonce->nonce_expires_at==expires_at && COMPARE_WORSE( ord, same_nonce ) ) ) ) REJECT( NONCE_PRIORITY );
+      FD_PACK_NT_REPLACE( pack, ord, "REPLACE_BEFORE" );
       ulong _delete_cnt = delete_transaction( pack, same_nonce, 0, 0 ); /* Not a bundle, so delete_full_bundle is 0 */
+      FD_PACK_NT_REPLACE( pack, ord, "REPLACE_AFTER" );
       *delete_cnt += _delete_cnt;
       replaces = 1;
     }
@@ -1558,6 +1578,7 @@ fd_pack_insert_txn_fini( fd_pack_t  * pack,
   expq_insert( pack->expiration_q, temp );
 
   treap_ele_insert( insert_into, ord, pack->pool );
+  FD_PACK_NT_RESULT( pack, ord, (replaces<<1) | (is_durable_nonce<<2) );
   return (replaces<<1) | (is_durable_nonce<<2);
 }
 #undef REJECT
@@ -1568,7 +1589,10 @@ fd_pack_insert_bundle_init( fd_pack_t          * pack,
                             ulong                txn_cnt ) {
   FD_TEST( txn_cnt<=FD_PACK_MAX_TXN_PER_BUNDLE  );
   FD_TEST( trp_pool_free( pack->pool )>=txn_cnt );
-  for( ulong i=0UL; i<txn_cnt; i++ ) bundle[ i ] = trp_pool_ele_acquire( pack->pool )->txn_e;
+  for( ulong i=0UL; i<txn_cnt; i++ ) {
+    bundle[ i ] = trp_pool_ele_acquire( pack->pool )->txn_e;
+    FD_PACK_NT_RESET( ((fd_pack_ord_txn_t *)bundle[i]) );
+  }
   return bundle;
 }
 
@@ -1598,6 +1622,7 @@ fd_pack_insert_bundle_fini( fd_pack_t          * pack,
 
   int err = 0;
   *delete_cnt = 0UL;
+  FD_PACK_NT_BUNDLE_BEGIN( pack, bundle, txn_cnt );
 
   ulong pending_b_txn_cnt = treap_ele_cnt( pack->pending_bundles );
     /* We want to prevent bundles from consuming the whole treap, but in
@@ -1634,6 +1659,7 @@ fd_pack_insert_bundle_fini( fd_pack_t          * pack,
 
     int est_result = fd_pack_estimate_rewards_and_compute( bundle[ i ], ord, pack->lim );
     if( FD_UNLIKELY( est_result==0 ) ) { err = FD_PACK_INSERT_REJECT_ESTIMATION_FAIL;  break; }
+    FD_PACK_NT_EST( ord );
     int nonce_result = fd_pack_validate_durable_nonce( ord->txn_e );
     if( FD_UNLIKELY( !nonce_result ) ) { err = FD_PACK_INSERT_REJECT_INVALID_NONCE;    break; }
     /* The expires_at field is interpreted differently for nonce vs.
@@ -1660,13 +1686,16 @@ fd_pack_insert_bundle_fini( fd_pack_t          * pack,
       nonce_hash63[ i ] = noncemap_key_hash( ord->txn_e, pack->noncemap->seed ) & 0x7FFFFFFFFFFFFFFFUL;
       fd_pack_ord_txn_t * same_nonce = noncemap_ele_query( pack->noncemap, ord->txn_e, NULL, pack->pool );
       if( FD_LIKELY( same_nonce ) ) {
+        FD_PACK_NT_MATCH( pack, ord, same_nonce );
         /* bundles take priority over non-bundles, and earlier bundles
            take priority over later bundles. */
         if( FD_UNLIKELY( same_nonce->txn->flags & FD_TXN_P_FLAGS_BUNDLE ) ) {
           err = FD_PACK_INSERT_REJECT_NONCE_PRIORITY;
           break;
         } else {
+          FD_PACK_NT_REPLACE( pack, ord, "REPLACE_BEFORE" );
           ulong _delete_cnt = delete_transaction( pack, same_nonce, 0, 0 );
+          FD_PACK_NT_REPLACE( pack, ord, "REPLACE_AFTER" );
           *delete_cnt += _delete_cnt;
           replaces = 1;
         }
@@ -1678,6 +1707,7 @@ fd_pack_insert_bundle_fini( fd_pack_t          * pack,
   }
 
   if( FD_UNLIKELY( err ) ) {
+    FD_PACK_NT_BUNDLE_RESULT( pack, bundle, txn_cnt, err );
     fd_pack_insert_bundle_cancel( pack, bundle, txn_cnt );
     return err;
   }
@@ -1699,6 +1729,7 @@ fd_pack_insert_bundle_fini( fd_pack_t          * pack,
     ulong _delete_cnt = delete_worst( pack, FLT_MAX );
     *delete_cnt += _delete_cnt;
     if( FD_UNLIKELY( !_delete_cnt ) ) {
+      FD_PACK_NT_BUNDLE_RESULT( pack, bundle, txn_cnt, FD_PACK_INSERT_REJECT_PRIORITY );
       fd_pack_insert_bundle_cancel( pack, bundle, txn_cnt );
       return FD_PACK_INSERT_REJECT_PRIORITY;
     }
@@ -1725,6 +1756,7 @@ fd_pack_insert_bundle_fini( fd_pack_t          * pack,
       }
     }
     if( FD_UNLIKELY( conflict_detected ) ) {
+      FD_PACK_NT_BUNDLE_RESULT( pack, bundle, txn_cnt, FD_PACK_INSERT_REJECT_NONCE_CONFLICT );
       fd_pack_insert_bundle_cancel( pack, bundle, txn_cnt );
       return FD_PACK_INSERT_REJECT_NONCE_CONFLICT;
     }
@@ -1847,6 +1879,7 @@ fd_pack_insert_bundle_fini( fd_pack_t          * pack,
      x+1) which is x++ */
   pack->relative_bundle_idx = fd_ulong_max( bundle_idx+1UL, pack->relative_bundle_idx );
 
+  FD_PACK_NT_BUNDLE_RESULT( pack, bundle, txn_cnt, (replaces<<1) | ((!!nonce_txn_cnt)<<2) );
   return (0) | (replaces<<1) | ((!!nonce_txn_cnt)<<2);
 }
 static inline void
@@ -2213,6 +2246,7 @@ fd_pack_schedule_impl( fd_pack_t          * pack,
 
     *(use_by_bank_txn++) = use_by_bank_cnt;
 
+    FD_PACK_NT_SCHEDULED( pack, cur, bank_tile );
     if( FD_UNLIKELY( cur->txn->flags & FD_TXN_P_FLAGS_DURABLE_NONCE ) ) noncemap_ele_remove_fast( pack->noncemap, cur, pack->pool );
     sig2txn_ele_remove_fast( pack->signature_map, cur, pool );
 
@@ -2266,6 +2300,7 @@ fd_pack_microblock_complete( fd_pack_t * pack,
   FD_PACK_BITSET_COPY( bitset_rw_in_use, pack->bitset_rw_in_use );
   FD_PACK_BITSET_COPY( bitset_w_in_use,  pack->bitset_w_in_use  );
 
+  FD_PACK_NT_COMPLETE( pack, bank_tile, 0 );
   fd_pack_addr_use_t * base = pack->use_by_bank[bank_tile];
 
   for( ulong i=0UL; i<pack->use_by_bank_cnt[bank_tile]; i++ ) {
@@ -2342,6 +2377,7 @@ fd_pack_microblock_complete( fd_pack_t * pack,
   /* outstanding_microblock_mask never has the writable bit set, so we
      don't care about clearing it here either. */
   pack->outstanding_microblock_mask &= clear_mask;
+  FD_PACK_NT_COMPLETE( pack, bank_tile, 1 );
   return 1;
 }
 
@@ -2598,6 +2634,7 @@ fd_pack_try_schedule_bundle( fd_pack_t  * pack,
     pack->alloc_consumed        += cur->txn->pack_alloc;
     pack->microblock_cnt        += 1UL;
 
+    FD_PACK_NT_SCHEDULED( pack, cur, bank_tile );
     if( FD_UNLIKELY( cur->txn->flags & FD_TXN_P_FLAGS_DURABLE_NONCE ) ) noncemap_ele_remove_fast( pack->noncemap, cur, pack->pool );
     sig2txn_ele_remove_fast( pack->signature_map, cur, pack->pool );
 
@@ -2668,10 +2705,12 @@ fd_pack_schedule_next_microblock( fd_pack_t *  pack,
 
   if( FD_UNLIKELY( (pack->microblock_cnt>=pack->lim->max_microblocks_per_block) ) ) {
     FD_MCNT_INC( PACK, BLOCK_MICROBLOCK_LIMIT_REACHED, 1UL );
+    FD_PACK_NT_SCHEDULE_RESULT( pack, 0UL, total_cus, bank_tile, schedule_flags );
     return 0UL;
   }
   if( FD_UNLIKELY( pack->data_bytes_consumed+MICROBLOCK_DATA_OVERHEAD+FD_TXN_MIN_SERIALIZED_SZ>pack->lim->max_data_bytes_per_block) ) {
     FD_MCNT_INC( PACK, BLOCK_BYTE_LIMIT_REACHED, 1UL );
+    FD_PACK_NT_SCHEDULE_RESULT( pack, 0UL, total_cus, bank_tile, schedule_flags );
     return 0UL;
   }
 
@@ -2696,8 +2735,14 @@ fd_pack_schedule_next_microblock( fd_pack_t *  pack,
 
   if( FD_UNLIKELY( schedule_flags & FD_PACK_SCHEDULE_BUNDLE ) ) {
     int bundle_result = fd_pack_try_schedule_bundle( pack, bank_tile, out );
-    if( FD_UNLIKELY( bundle_result>0                         ) ) return (ulong)bundle_result;
-    if( FD_UNLIKELY( bundle_result==TRY_BUNDLE_HAS_CONFLICTS ) ) return 0UL;
+    if( FD_UNLIKELY( bundle_result>0                         ) ) {
+      FD_PACK_NT_SCHEDULE_RESULT( pack, (ulong)bundle_result, total_cus, bank_tile, schedule_flags );
+      return (ulong)bundle_result;
+    }
+    if( FD_UNLIKELY( bundle_result==TRY_BUNDLE_HAS_CONFLICTS ) ) {
+      FD_PACK_NT_SCHEDULE_RESULT( pack, 0UL, total_cus, bank_tile, schedule_flags );
+      return 0UL;
+    }
     /* in the NO_READY_BUNDLES or DOES_NOT_FIT case, we schedule like
        normal. */
     /* We have the early returns here because try_schedule_bundle does
@@ -2725,6 +2770,7 @@ fd_pack_schedule_next_microblock( fd_pack_t *  pack,
   fd_histf_sample( pack->txn_per_microblock, scheduled );
 
   pack_memcpy_fini();
+  FD_PACK_NT_SCHEDULE_RESULT( pack, scheduled, total_cus, bank_tile, schedule_flags );
   return scheduled;
 }
 
@@ -2828,6 +2874,7 @@ fd_pack_expire_before( fd_pack_t * pack,
 
 void
 fd_pack_end_block( fd_pack_t * pack ) {
+  FD_PACK_NT_END_BLOCK( pack, 0 );
   /* rounded division */
   ulong pct_cus_per_block = (pack->cumulative_block_cost*100UL + (pack->lim->max_cost_per_block>>1))/pack->lim->max_cost_per_block;
   fd_histf_sample( pack->pct_cus_per_block,       pct_cus_per_block                                          );
@@ -2916,6 +2963,7 @@ fd_pack_end_block( fd_pack_t * pack ) {
   FD_MHIST_COPY( PACK, CU_REBATED_PER_BLOCK,     pack->rebated_cus_per_block   );
   FD_MHIST_COPY( PACK, COST_NET_PER_BLOCK,       pack->net_cus_per_block       );
   FD_MHIST_COPY( PACK, COST_PER_BLOCK_PCT,       pack->pct_cus_per_block       );
+  FD_PACK_NT_END_BLOCK( pack, 1 );
 }
 
 static void
@@ -2939,6 +2987,7 @@ release_tree( treap_t           * treap,
 
 void
 fd_pack_clear_all( fd_pack_t * pack ) {
+  FD_PACK_NT_CLEAR( pack, 0 );
   pack->pending_txn_cnt        = 0UL;
   pack->microblock_cnt         = 0UL;
   pack->cumulative_block_cost  = 0UL;
@@ -2989,6 +3038,7 @@ fd_pack_clear_all( fd_pack_t * pack ) {
   pack->bitset_avail_cnt = FD_PACK_BITSET_MAX;
 
   for( ulong i=0UL; i<pack->bank_tile_cnt; i++ ) pack->use_by_bank_cnt[i] = 0UL;
+  FD_PACK_NT_CLEAR( pack, 1 );
 }
 
 
@@ -3004,6 +3054,7 @@ delete_transaction( fd_pack_t         * pack,
                     int                 delete_full_bundle,
                     int                 move_from_penalty_treap ) {
 
+  FD_PACK_NT_DELETE_BEGIN( pack, containing, delete_full_bundle, move_from_penalty_treap );
   fd_txn_t * txn = TXN( containing->txn );
   fd_acct_addr_t const * accts   = fd_txn_get_acct_addrs( txn, containing->txn->payload );
   fd_acct_addr_t const * alt_adj = containing->txn_e->alt_accts - fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_IMM );
@@ -3119,6 +3170,7 @@ delete_transaction( fd_pack_t         * pack,
 
   delete_cnt += 1UL;
   pack->pending_txn_cnt--;
+  FD_PACK_NT_DELETE_END( pack );
 
   return delete_cnt;
 }
