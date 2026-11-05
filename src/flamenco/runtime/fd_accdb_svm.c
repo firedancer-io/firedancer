@@ -73,7 +73,10 @@ fd_accdb_svm_close_rw( fd_bank_t *             bank,
 
     fd_lthash_value_t * bank_lthash = fd_bank_lthash_locking_modify( bank );
     fd_lthash_add( bank_lthash, hash );
+    ulong lthash_seq = bank->lthash_seq++;
     fd_bank_lthash_end_locking_modify( bank );
+
+    if( FD_UNLIKELY( fd_bank_report_runtime_diffs( bank ) ) ) fd_event_runtime_account_lthash_emit( bank, acc->pubkey, lthash_seq, hash );
   } else if( bank->lthash_mode==FD_BANK_LTHASH_MODE_OOB_RECORD ) {
     fd_bank_lthash_record( bank, acc->pubkey );
   }

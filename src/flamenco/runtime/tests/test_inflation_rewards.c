@@ -882,7 +882,7 @@ test_finalize_verifies_footer( fd_svm_mini_t * mini ) {
   fd_lthash_value_t delta[1];
   fd_lthash_zero( delta );
   ulong leader_credits = 0UL;
-  FD_TEST( !fd_alpenglow_rewards_apply_slice( bank[ 1 ], accdb, NULL, cache, plan, 0UL, 1UL, delta, &leader_credits ) );
+  FD_TEST( !fd_alpenglow_rewards_apply_slice( bank[ 1 ], accdb, NULL, cache, plan, 0UL, 1UL, 0UL, delta, &leader_credits ) );
   fd_lthash_add( fd_bank_lthash_locking_modify( bank[ 1 ] ), delta ); fd_bank_lthash_end_locking_modify( bank[ 1 ] );
   fd_runtime_freeze_sysvars( bank[ 1 ], accdb, NULL );
   fd_runtime_block_footer_end( bank[ 1 ], accdb, cache, plan, leader_credits );

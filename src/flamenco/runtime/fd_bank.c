@@ -500,6 +500,7 @@ fd_banks_init_bank( fd_banks_t * banks ) {
 
   bank->lthash_mode = FD_BANK_LTHASH_MODE_INBAND;
   bank->lthash_rec  = NULL;
+  bank->lthash_seq  = 0UL;
 
   banks->root_idx = bank->idx;
   banks->curr_fork_width = 1UL;
@@ -826,6 +827,7 @@ fd_banks_new_bank( fd_banks_t * banks,
   child_bank->is_leader   = is_leader;
   child_bank->lthash_mode = FD_BANK_LTHASH_MODE_INBAND;
   child_bank->lthash_rec  = NULL;
+  child_bank->lthash_seq  = 0UL;
   fd_event_runtime_slot_diffs_reset( child_bank->idx );
   child_bank->f.block_id  = (fd_hash_t){0};
   child_bank->footer_task_cnt = 0UL;
@@ -1104,6 +1106,7 @@ fd_banks_clear_bank( fd_banks_t * banks,
   fd_event_runtime_slot_diffs_reset( bank->idx );
   bank->lthash_mode = FD_BANK_LTHASH_MODE_INBAND;
   bank->lthash_rec  = NULL;
+  bank->lthash_seq  = 0UL;
 
   fd_vote_stakes_t * vote_stakes = fd_banks_get_vote_stakes( banks );
   fd_banks_vote_stakes_evict_bank_fork( banks, bank );

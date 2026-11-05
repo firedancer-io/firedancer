@@ -77,6 +77,7 @@ typedef struct fd_execrp_cert_verify_msg fd_execrp_cert_verify_msg_t;
 
 struct fd_execrp_lthash_msg {
   ulong          bank_idx;
+  ulong          lthash_seq; /* bank->lthash_seq taken at dispatch (ADD only), for runtime_account_lthash events */
   ulong          cnt; /* In [1, FD_EXECRP_LTHASH_BATCH_MAX] */
   fd_acct_addr_t acct[ FD_EXECRP_LTHASH_BATCH_MAX ];
 };
@@ -86,6 +87,7 @@ struct fd_execrp_rewards_msg {
   ulong                       bank_idx;
   ulong                       slice_idx; /* in [0, slice_cnt) */
   ulong                       slice_cnt;
+  ulong                       lthash_seq; /* bank->lthash_seq taken at dispatch, for runtime_account_lthash events */
   fd_alpenglow_rewards_plan_t plan;
 };
 typedef struct fd_execrp_rewards_msg fd_execrp_rewards_msg_t;

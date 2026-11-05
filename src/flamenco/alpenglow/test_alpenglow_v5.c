@@ -141,7 +141,7 @@ test_v5_in_place( fd_svm_mini_t * mini,
     .migration_epoch = ULONG_MAX,
     .current_epoch   = 90UL,
   };
-  fd_vote_queue_t * q = fd_vote_queue_init( q_mem );
+  fd_vote_queue_t * q = fd_vote_queue_init( q_mem, bank, 0UL );
   modify_vote_account( bank, accdb, &key4,   &upd, q );
   modify_vote_account( bank, accdb, &key5,   &upd, q );
   modify_vote_account( bank, accdb, &keybad, &upd, q );
@@ -242,7 +242,7 @@ test_rewards_slices( fd_svm_mini_t * mini,
   fd_lthash_value_t delta_a[1];
   fd_lthash_zero( delta_a );
   ulong credits_a = 0UL;
-  FD_TEST( !fd_alpenglow_rewards_apply_slice( bank_a, accdb, NULL, NULL, plan, 0UL, 1UL, delta_a, &credits_a ) );
+  FD_TEST( !fd_alpenglow_rewards_apply_slice( bank_a, accdb, NULL, NULL, plan, 0UL, 1UL, 0UL, delta_a, &credits_a ) );
   FD_TEST( credits_a );
   fd_alpenglow_rewards_apply_leader( bank_a, accdb, NULL, NULL, plan, credits_a, delta_a );
   for( ulong i=0UL; i<SLICE_TEST_VAL_CNT; i++ ) {
@@ -263,7 +263,7 @@ test_rewards_slices( fd_svm_mini_t * mini,
     fd_lthash_value_t delta_b[1];
     fd_lthash_zero( delta_b );
     ulong credits_b = 0UL;
-    for( ulong i=0UL; i<slice_cnt; i++ ) FD_TEST( !fd_alpenglow_rewards_apply_slice( bank_b, accdb, NULL, run_cache, plan, i, slice_cnt, delta_b, &credits_b ) );
+    for( ulong i=0UL; i<slice_cnt; i++ ) FD_TEST( !fd_alpenglow_rewards_apply_slice( bank_b, accdb, NULL, run_cache, plan, i, slice_cnt, i, delta_b, &credits_b ) );
     FD_TEST( credits_b==credits_a );
     fd_alpenglow_rewards_apply_leader( bank_b, accdb, NULL, run_cache, plan, credits_b, delta_b );
     ulong memo_cnt = 0UL;

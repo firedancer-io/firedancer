@@ -668,6 +668,19 @@ fd_event_repair_request_fill_max( fd_event_repair_request_t * msg ) {
 static void
 fd_event_repair_request_fill_max_v( void * msg ) { fd_event_repair_request_fill_max( (fd_event_repair_request_t *)msg ); }
 
+static inline void
+fd_event_runtime_account_lthash_fill_max( fd_event_runtime_account_lthash_t * msg ) {
+  fd_memset( msg, 0, sizeof(*msg) );
+  msg->bank_seq = ULONG_MAX;
+  msg->slot = ULONG_MAX;
+  fd_memset( msg->pubkey, 0xFF, 32UL );
+  msg->lthash_seq = ULONG_MAX;
+  fd_memset( msg->lthash_32, 0xFF, 32UL );
+}
+
+static void
+fd_event_runtime_account_lthash_fill_max_v( void * msg ) { fd_event_runtime_account_lthash_fill_max( (fd_event_runtime_account_lthash_t *)msg ); }
+
 typedef struct {
   ulong        type;    /* event schema id */
   ulong        buf_max; /* modeled encode bound */
@@ -696,9 +709,10 @@ static const fd_event_gen_test_case_t fd_event_gen_test_cases[] = {
   { 20UL, FD_EVENT_ALPENGLOW_CERT_BUF_MAX, sizeof(fd_event_alpenglow_cert_t), "alpenglow_cert", fd_event_alpenglow_cert_fill_max_v },
   { 21UL, FD_EVENT_BLOCK_RECEIVED_BUF_MAX, sizeof(fd_event_block_received_t), "block_received", fd_event_block_received_fill_max_v },
   { 63UL, FD_EVENT_REPAIR_REQUEST_BUF_MAX, sizeof(fd_event_repair_request_t), "repair_request", fd_event_repair_request_fill_max_v },
+  { 65UL, FD_EVENT_RUNTIME_ACCOUNT_LTHASH_BUF_MAX, sizeof(fd_event_runtime_account_lthash_t), "runtime_account_lthash", fd_event_runtime_account_lthash_fill_max_v },
 };
 
-#define FD_EVENT_GEN_TEST_CASE_CNT (19UL)
+#define FD_EVENT_GEN_TEST_CASE_CNT (20UL)
 
 FD_PROTOTYPES_END
 

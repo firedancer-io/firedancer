@@ -368,7 +368,7 @@ returnable_frag( fd_execrp_tile_t *  ctx,
         out_msg->bank_idx                = msg->bank_idx;
         out_msg->rewards->leader_credits = 0UL;
         fd_lthash_zero( &ctx->result->lthash );
-        out_msg->rewards->err = !!fd_alpenglow_rewards_apply_slice( bank, ctx->accdb, NULL, ctx->footer_cache, &msg->plan, msg->slice_idx, msg->slice_cnt, &ctx->result->lthash, &out_msg->rewards->leader_credits );
+        out_msg->rewards->err = !!fd_alpenglow_rewards_apply_slice( bank, ctx->accdb, NULL, ctx->footer_cache, &msg->plan, msg->slice_idx, msg->slice_cnt, msg->lthash_seq, &ctx->result->lthash, &out_msg->rewards->leader_credits );
         fd_stem_publish( stem, ctx->execrp_replay_out->idx, (FD_EXECRP_TT_REWARDS<<32)|ctx->tile_idx, ctx->execrp_replay_out->chunk, sizeof(*out_msg), 0UL, 0UL, 0UL );
         ctx->execrp_replay_out->chunk = fd_dcache_compact_next( ctx->execrp_replay_out->chunk, sizeof(*out_msg), ctx->execrp_replay_out->chunk0, ctx->execrp_replay_out->wmark );
         break;
@@ -413,6 +413,9 @@ returnable_frag( fd_execrp_tile_t *  ctx,
           fd_hashes_account_lthash_xn( acc_cnt, pubkey, owner, lamports, executable, data, data_len, hash_out );
           fd_accdb_release( ctx->accdb, acc_cnt, acc );
           for( ulong j=0UL; j<acc_cnt; j++ ) fd_lthash_add( sum, hash+j );
+          if( FD_UNLIKELY( kind==FD_EXECRP_TT_LTHASH_ADD && fd_bank_report_runtime_diffs( bank ) ) ) {
+            for( ulong j=0UL; j<acc_cnt; j++ ) fd_event_runtime_account_lthash_emit( bank, pubkey[ j ], msg->lthash_seq, hash+j );
+          }
         }
         fd_stem_publish( stem, ctx->execrp_replay_out->idx, (kind<<32)|ctx->tile_idx, ctx->execrp_replay_out->chunk, sizeof(*out_msg), 0UL, 0UL, 0UL );
         ctx->execrp_replay_out->chunk = fd_dcache_compact_next( ctx->execrp_replay_out->chunk, sizeof(*out_msg), ctx->execrp_replay_out->chunk0, ctx->execrp_replay_out->wmark );

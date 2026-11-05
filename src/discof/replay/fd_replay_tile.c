@@ -2034,7 +2034,7 @@ replay_block_finalize( fd_replay_tile_t *  ctx,
       /* No idle exec tile.  Run the one slice here. */
       fd_lthash_value_t delta[1];
       fd_lthash_zero( delta );
-      if( FD_UNLIKELY( fd_alpenglow_rewards_apply_slice( bank, ctx->accdb, NULL, ctx->footer_cache, &end->plan, 0UL, 1UL, delta, &end->leader_credits ) ) ) goto bad_footer;
+      if( FD_UNLIKELY( fd_alpenglow_rewards_apply_slice( bank, ctx->accdb, NULL, ctx->footer_cache, &end->plan, 0UL, 1UL, bank->lthash_seq++, delta, &end->leader_credits ) ) ) goto bad_footer;
       fd_lthash_add( fd_bank_lthash_locking_modify( bank ), delta );
       fd_bank_lthash_end_locking_modify( bank );
     }
@@ -2045,8 +2045,9 @@ replay_block_finalize( fd_replay_tile_t *  ctx,
       fd_execrp_rewards_msg_t * msg = fd_chunk_to_laddr( exec_out->mem, exec_out->chunk );
       msg->bank_idx  = bank->idx;
       msg->slice_idx = i;
-      msg->slice_cnt = slice_cnt;
-      msg->plan      = end->plan;
+      msg->slice_cnt  = slice_cnt;
+      msg->lthash_seq = bank->lthash_seq++;
+      msg->plan       = end->plan;
 
       bank->refcnt++;
 
@@ -2943,10 +2944,13 @@ dispatch_task( fd_replay_tile_t *  ctx,
       FD_TEST( task->lthash->cnt && task->lthash->cnt<=FD_SCHED_LTHASH_BATCH_MAX );
       fd_replay_out_link_t * exec_out = &ctx->exec_out[ task->lthash->exec_idx ];
       fd_execrp_lthash_msg_t * exec_msg = fd_chunk_to_laddr( exec_out->mem, exec_out->chunk );
-      exec_msg->bank_idx = task->lthash->bank_idx;
-      exec_msg->cnt      = task->lthash->cnt;
-      fd_memcpy( exec_msg->acct, task->lthash->accts, task->lthash->cnt*sizeof(fd_acct_addr_t) );
       ulong kind = task->task_type==FD_SCHED_TT_LTHASH_SUB ? FD_EXECRP_TT_LTHASH_SUB : FD_EXECRP_TT_LTHASH_ADD;
+      exec_msg->bank_idx   = task->lthash->bank_idx;
+      /* A replacement add is dispatched after the add it supersedes, so
+         it gets a higher lthash_seq. */
+      exec_msg->lthash_seq = kind==FD_EXECRP_TT_LTHASH_ADD ? bank->lthash_seq++ : 0UL;
+      exec_msg->cnt        = task->lthash->cnt;
+      fd_memcpy( exec_msg->acct, task->lthash->accts, task->lthash->cnt*sizeof(fd_acct_addr_t) );
       ulong sz   = fd_execrp_lthash_msg_sz( task->lthash->cnt );
       fd_stem_publish( stem, exec_out->idx, (kind<<32) | task->lthash->exec_idx, exec_out->chunk, sz, 0UL, 0UL, 0UL );
       exec_out->chunk = fd_dcache_compact_next( exec_out->chunk, sz, exec_out->chunk0, exec_out->wmark );

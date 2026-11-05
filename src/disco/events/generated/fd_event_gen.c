@@ -1191,6 +1191,44 @@ fd_event_repair_request_serialize( fd_circq_t *                      circq,
 }
 
 void
+fd_event_runtime_account_lthash_serialize( fd_circq_t *                              circq,
+                                           fd_event_client_t *                       client,
+                                           long                                      timestamp_nanos,
+                                           ulong                                     link_seq,
+                                           fd_event_runtime_account_lthash_t const * msg ) {
+  uchar * buffer = fd_circq_push_back( circq, 1UL, FD_EVENT_RUNTIME_ACCOUNT_LTHASH_BUF_MAX );
+  FD_TEST( buffer );
+
+  ulong event_id = fd_event_client_id_reserve( client );
+
+  fd_pb_encoder_t encoder[1];
+  fd_pb_encoder_init( encoder, buffer, FD_EVENT_RUNTIME_ACCOUNT_LTHASH_BUF_MAX );
+
+  /* Pushes fail (returning NULL) rather than overflow; accumulate so
+     a FD_EVENT_RUNTIME_ACCOUNT_LTHASH_BUF_MAX that under-models the encoder aborts loudly instead
+     of silently truncating fields off published rows. */
+  int ok = 1;
+
+  FD_TEST( circq->cursor_push_seq );
+  ok &= !!fd_pb_push_uint64( encoder, 1U, circq->cursor_push_seq-1UL );
+  ok &= !!fd_pb_push_uint64( encoder, 2U, event_id );
+  ok &= !!fd_pb_push_uint64( encoder, 3U, link_seq );
+  ok &= !!fd_pb_push_uint64( encoder, 4U, (ulong)timestamp_nanos );
+
+  ok &= !!fd_pb_submsg_open( encoder, 5U ); /* Event */
+  ok &= !!fd_pb_submsg_open( encoder, 65U ); /* RuntimeAccountLthash */
+  if( msg->bank_seq ) ok &= !!fd_pb_push_uint64( encoder, 1U, (ulong)msg->bank_seq );
+  if( msg->slot ) ok &= !!fd_pb_push_uint64( encoder, 2U, (ulong)msg->slot );
+  ok &= !!fd_pb_push_bytes ( encoder, 3U, msg->pubkey, 32UL );
+  if( msg->lthash_seq ) ok &= !!fd_pb_push_uint64( encoder, 4U, (ulong)msg->lthash_seq );
+  ok &= !!fd_pb_push_bytes ( encoder, 5U, msg->lthash_32, 32UL );
+  ok &= !!fd_pb_submsg_close( encoder );
+  ok &= !!fd_pb_submsg_close( encoder );
+  FD_TEST( ok );
+  fd_circq_resize_back( circq, fd_pb_encoder_out_sz( encoder ) );
+}
+
+void
 fd_event_serialize_by_type( ulong               type,
                             fd_circq_t *        circq,
                             fd_event_client_t * client,
@@ -1290,6 +1328,10 @@ fd_event_serialize_by_type( ulong               type,
   case 63UL:
     FD_TEST( ev_sz==sizeof(fd_event_repair_request_t) );
     fd_event_repair_request_serialize( circq, client, timestamp_nanos, link_seq, (fd_event_repair_request_t const *)ev );
+    break;
+  case 65UL:
+    FD_TEST( ev_sz==sizeof(fd_event_runtime_account_lthash_t) );
+    fd_event_runtime_account_lthash_serialize( circq, client, timestamp_nanos, link_seq, (fd_event_runtime_account_lthash_t const *)ev );
     break;
   default: FD_LOG_ERR(( "unexpected event type %lu", type ));
   }

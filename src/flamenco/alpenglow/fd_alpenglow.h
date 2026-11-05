@@ -161,6 +161,7 @@ fd_alpenglow_rewards_plan( fd_bank_t *                   bank,
    slice's signers unless the plan's use_memo is 0.  The slice's change
    to the accounts' lthash is added to delta and its share of the
    leader's credits to leader_credits, both initialized by the caller.
+   lthash_seq is the bank lthash_seq the caller took for this slice.
    Returns 0 on success and -1 if a cert's epoch has no ranked
    validators, in which case processing of the bank should fail. */
 
@@ -172,6 +173,7 @@ fd_alpenglow_rewards_apply_slice( fd_bank_t *                         bank,
                                   fd_alpenglow_rewards_plan_t const * plan,
                                   ulong                               slice_idx,
                                   ulong                               slice_cnt,
+                                  ulong                               lthash_seq,
                                   fd_lthash_value_t *                 delta,
                                   ulong *                             leader_credits );
 
@@ -180,7 +182,8 @@ fd_alpenglow_rewards_apply_slice( fd_bank_t *                         bank,
    leader's credits, which are leader_credits as the slices summed them
    plus the leader's share of its own reward.  Call it once every slice
    has completed.  cache is used as for a slice.  The account's lthash
-   change is added to delta. */
+   change is added to delta.  It takes its own bank lthash_seq, so it
+   must run on the tile that owns the bank (replay). */
 
 void
 fd_alpenglow_rewards_apply_leader( fd_bank_t *                         bank,

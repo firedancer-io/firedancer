@@ -297,10 +297,16 @@ struct fd_bank {
      line.  The mode fields share the line because they change only
      while no exec tile is working on the bank.  lthash_rec points into
      replay tile private memory and is valid only in OOB_RECORD mode,
-     which only the replay tile sets. */
+     which only the replay tile sets.
+     
+     lthash_seq numbers the account lthashes computed for this bank,
+     for runtime_account_lthash events: replay takes values for
+     out-of-band jobs as it dispatches them, and in-band hashing takes
+     them under lthash_lock.  The two never run on the same bank at once. */
   fd_rwlock_t            lthash_lock __attribute__((aligned(64UL)));
   uchar                  lthash_mode;
   fd_bank_lthash_rec_t * lthash_rec;
+  ulong                  lthash_seq;
 
   struct {
     fd_lthash_value_t      lthash;
@@ -358,6 +364,7 @@ FD_STATIC_ASSERT( offsetof(fd_bank_t, banks_data_offset)+sizeof(ulong)-offsetof(
 FD_STATIC_ASSERT( offsetof(fd_bank_t, refcnt)%64UL==0UL, fd_bank_refcnt_line );
 FD_STATIC_ASSERT( offsetof(fd_bank_t, lthash_lock)%64UL==0UL, fd_bank_lthash_lock_line );
 FD_STATIC_ASSERT( offsetof(fd_bank_t, f)-offsetof(fd_bank_t, lthash_lock)>=64UL, fd_bank_lthash_lock_alone );
+FD_STATIC_ASSERT( offsetof(fd_bank_t, lthash_seq)+sizeof(ulong)<=offsetof(fd_bank_t, lthash_lock)+64UL, fd_bank_lthash_seq_padding );
 
 struct fd_banks_prune_cancel_info {
   fd_txncache_fork_id_t  txncache_fork_id;

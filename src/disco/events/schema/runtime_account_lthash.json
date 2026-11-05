@@ -1,0 +1,12 @@
+{
+    "name": "runtime_account_lthash",
+    "id": 65,
+    "description": "One row each time replay computes an account's final-value LtHash contribution for a block. Speculative hashes can be recomputed within a block; the row with the highest lthash_seq per (bank_seq, pubkey) is the one that went into the bank hash.",
+    "fields": {
+        "bank_seq":   { "type": "UInt64", "compression": "Delta, ZSTD", "description": "Bank sequence number, counting from 1 within a run; the join key to runtime_block for slot and block_id. Not meaningful across restarts: scope by the stream's instance id from the connection's authentication metadata." },
+        "slot":       { "type": "UInt64", "compression": "Delta, ZSTD", "description": "Slot whose LtHash this account contributes to" },
+        "pubkey":     { "type": "Pubkey",                               "description": "Address of the hashed account" },
+        "lthash_seq": { "type": "UInt64", "compression": "T64, ZSTD",   "description": "Order in which this hash was computed within the block, from a per-bank counter. A recomputed hash always has a higher value than the one it replaces, so the highest lthash_seq per (bank_seq, pubkey) is the final hash." },
+        "lthash_32":  { "type": "Hash",                                 "description": "First 32 bytes of the account's 2048-byte LtHash value. LtHash is blake3 in extended-output mode, so this equals the account's ordinary 32-byte blake3 hash of (lamports, data, executable, owner, pubkey) and identifies its exact contents. All-zero if the account has zero lamports (deleted)." }
+    }
+}

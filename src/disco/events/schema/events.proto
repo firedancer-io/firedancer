@@ -12964,6 +12964,20 @@ message MetricsIavf {
   uint64 non_fd_pkt_rx = 40;
 }
 
+// One row each time replay computes an account's final-value LtHash contribution for a block. Speculative hashes can be recomputed within a block; the row with the highest lthash_seq per (bank_seq, pubkey) is the one that went into the bank hash.
+message RuntimeAccountLthash {
+  // Bank sequence number, counting from 1 within a run; the join key to runtime_block for slot and block_id. Not meaningful across restarts: scope by the stream's instance id from the connection's authentication metadata.
+  uint64 bank_seq = 1;
+  // Slot whose LtHash this account contributes to
+  uint64 slot = 2;
+  // Address of the hashed account
+  bytes pubkey = 3;
+  // Order in which this hash was computed within the block, from a per-bank counter. A recomputed hash always has a higher value than the one it replaces, so the highest lthash_seq per (bank_seq, pubkey) is the final hash.
+  uint64 lthash_seq = 4;
+  // First 32 bytes of the account's 2048-byte LtHash value. LtHash is blake3 in extended-output mode, so this equals the account's ordinary 32-byte blake3 hash of (lamports, data, executable, owner, pubkey) and identifies its exact contents. All-zero if the account has zero lamports (deleted).
+  bytes lthash_32 = 5;
+}
+
 // Combined event type
 message Event {
   oneof event {
@@ -13031,5 +13045,6 @@ message Event {
     MetricsMotor metrics_motor = 62;
     RepairRequest repair_request = 63;
     MetricsIavf metrics_iavf = 64;
+    RuntimeAccountLthash runtime_account_lthash = 65;
   }
 }

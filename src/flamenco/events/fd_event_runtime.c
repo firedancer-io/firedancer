@@ -12,6 +12,7 @@ FD_STATIC_ASSERT( sizeof(fd_event_runtime_vote_account_t    )<=FD_EVENT_RUNTIME_
 FD_STATIC_ASSERT( sizeof(fd_event_runtime_epoch_t           )<=FD_EVENT_RUNTIME_DIFF_MTU, diff_mtu );
 FD_STATIC_ASSERT( sizeof(fd_event_runtime_rooted_t          )<=FD_EVENT_RUNTIME_DIFF_MTU, diff_mtu );
 FD_STATIC_ASSERT( sizeof(fd_event_runtime_reward_t          )<=FD_EVENT_RUNTIME_DIFF_MTU, diff_mtu );
+FD_STATIC_ASSERT( sizeof(fd_event_runtime_account_lthash_t  )<=FD_EVENT_RUNTIME_DIFF_MTU, diff_mtu );
 
 #define REPORT_DIFF( call ) do {                                      \
     fd_event_reporter_t * _tl = fd_event_tl;                          \
@@ -471,6 +472,23 @@ fd_event_runtime_reward_emit( fd_bank_t const * bank,
   fd_memcpy( ev.pubkey, pubkey, 32UL );
   fd_memcpy( ev.owner,  owner,  32UL );
   REPORT_DIFF( fd_event_report_runtime_reward( &ev ) );
+}
+
+void
+fd_event_runtime_account_lthash_emit( fd_bank_t const *         bank,
+                                      uchar const *             pubkey,
+                                      ulong                     lthash_seq,
+                                      fd_lthash_value_t const * lthash ) {
+  if( FD_LIKELY( !fd_event_tl ) ) return;
+
+  fd_event_runtime_account_lthash_t ev = {
+    .bank_seq   = bank->bank_seq,
+    .slot       = bank->f.slot,
+    .lthash_seq = lthash_seq,
+  };
+  fd_memcpy( ev.pubkey,    pubkey,        32UL );
+  fd_memcpy( ev.lthash_32, lthash->bytes, 32UL );
+  REPORT_DIFF( fd_event_report_runtime_account_lthash( &ev ) );
 }
 
 /* Accumulator for slot-level account diffs, which get staged in the bank

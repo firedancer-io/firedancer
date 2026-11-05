@@ -16,10 +16,14 @@ typedef struct fd_vote_queue fd_vote_queue_t;
 
 FD_PROTOTYPES_BEGIN
 
-/* fd_vote_queue_init formats mem as an empty queue. */
+/* fd_vote_queue_init formats mem as an empty queue.  Each new image
+   hashed is reported as a runtime_account_lthash event for bank (when
+   it reports runtime diffs) under lthash_seq. */
 
 fd_vote_queue_t *
-fd_vote_queue_init( void * mem );
+fd_vote_queue_init( void *            mem,
+                    fd_bank_t const * bank,
+                    ulong             lthash_seq );
 
 /* fd_vote_queue_store records acc's change from its prior image to its
    new one.  memo (NULL for none) is the account's slot and takes the

@@ -2,6 +2,7 @@
 #include "fd_bank.h"
 #include "../../ballet/sha256/fd_sha256.h"
 #include "../capture/fd_capture_ctx.h"
+#include "../events/fd_event_runtime.h"
 
 static fd_blake3_t *
 account_lthash_init( fd_blake3_t * b3,
@@ -95,6 +96,7 @@ fd_hashes_hash_bank( fd_lthash_value_t const * lthash,
 
 static void
 update_bank_lthash( fd_bank_t *               bank,
+                    uchar const *             pubkey,
                     fd_lthash_value_t const * lthash_prev,
                     fd_lthash_value_t const * lthash_post ) {
   fd_lthash_value_t delta[1];
@@ -103,7 +105,10 @@ update_bank_lthash( fd_bank_t *               bank,
 
   fd_lthash_value_t * bank_lthash = fd_bank_lthash_locking_modify( bank );
   fd_lthash_add( bank_lthash, delta );
+  ulong lthash_seq = bank->lthash_seq++;
   fd_bank_lthash_end_locking_modify( bank );
+
+  if( FD_UNLIKELY( fd_bank_report_runtime_diffs( bank ) ) ) fd_event_runtime_account_lthash_emit( bank, pubkey, lthash_seq, lthash_post );
 }
 
 void
@@ -119,7 +124,7 @@ fd_hashes_update_simple( fd_lthash_value_t *       lthash_post, /* out */
                          fd_capture_ctx_t        * capture_ctx ) {
   if( bank->lthash_mode==FD_BANK_LTHASH_MODE_INBAND ) {
     fd_hashes_account_lthash_simple( pubkey, owner, lamports, executable, data, data_len, lthash_post );
-    update_bank_lthash( bank, lthash_prev, lthash_post );
+    update_bank_lthash( bank, pubkey, lthash_prev, lthash_post );
   } else if( bank->lthash_mode==FD_BANK_LTHASH_MODE_OOB_RECORD ) {
     fd_bank_lthash_record( bank, pubkey );
   }
@@ -152,7 +157,7 @@ fd_hashes_update_pair( uchar const        pubkey[ static FD_HASH_FOOTPRINT ],
     ulong               dl [2] = { prev_data_len,   data_len   };
     fd_lthash_value_t * out[2] = { lthash_prev,     lthash_post };
     fd_hashes_account_lthash_xn( 2UL, pk, ow, la, ex, da, dl, out );
-    update_bank_lthash( bank, lthash_prev, lthash_post );
+    update_bank_lthash( bank, pubkey, lthash_prev, lthash_post );
   } else if( bank->lthash_mode==FD_BANK_LTHASH_MODE_OOB_RECORD ) {
     fd_bank_lthash_record( bank, pubkey );
   }

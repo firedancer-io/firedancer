@@ -1,5 +1,7 @@
 #include "fd_vote_queue.h"
 #include "../runtime/fd_hashes.h"
+#include "../runtime/fd_bank.h"
+#include "../events/fd_event_runtime.h"
 
 /* Images kept by a memo slot (memo[i]!=NULL) are read from and hashed
    into the slot; others point into the account being stored (acc_cnt
@@ -8,6 +10,8 @@
 struct __attribute__((aligned(FD_VOTE_QUEUE_ALIGN))) fd_vote_queue {
   fd_lthash_value_t        delta[ 1 ];
   fd_lthash_value_t        tmp  [ FD_BLAKE3_XN_MAX ];
+  fd_bank_t const *        bank;
+  ulong                    lthash_seq;
   ulong                    cnt;
   ulong                    acc_cnt;
   fd_footer_cache_memo_t * memo [ FD_BLAKE3_XN_MAX ];
@@ -25,9 +29,13 @@ FD_STATIC_ASSERT( sizeof (fd_vote_queue_t)==FD_VOTE_QUEUE_FOOTPRINT, vote_queue_
 FD_STATIC_ASSERT( alignof(fd_vote_queue_t)==FD_VOTE_QUEUE_ALIGN,     vote_queue_align     );
 
 fd_vote_queue_t *
-fd_vote_queue_init( void * mem ) {
+fd_vote_queue_init( void *            mem,
+                    fd_bank_t const * bank,
+                    ulong             lthash_seq ) {
   fd_vote_queue_t * q = (fd_vote_queue_t *)mem;
-  q->cnt     = 0UL;
+  q->bank       = bank;
+  q->lthash_seq = lthash_seq;
+  q->cnt        = 0UL;
   q->acc_cnt = 0UL;
   fd_lthash_zero( q->delta );
   return q;
@@ -39,6 +47,11 @@ hash( fd_vote_queue_t * q ) {
   for( ulong i=0UL; i<q->cnt; i++ ) {
     if( q->sub[ i ] ) fd_lthash_sub( q->delta, q->out[ i ] );
     else              fd_lthash_add( q->delta, q->out[ i ] );
+  }
+  if( FD_UNLIKELY( fd_bank_report_runtime_diffs( q->bank ) ) ) {
+    for( ulong i=0UL; i<q->cnt; i++ ) {
+      if( !q->sub[ i ] ) fd_event_runtime_account_lthash_emit( q->bank, q->pk[ i ], q->lthash_seq, q->out[ i ] );
+    }
   }
   q->cnt     = 0UL;
   q->acc_cnt = 0UL;

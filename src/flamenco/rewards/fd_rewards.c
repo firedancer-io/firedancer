@@ -1273,6 +1273,14 @@ distribute_epoch_reward_to_stake_acc( fd_bank_t *         bank,
   FD_STORE( fd_stake_state_t, acc->data, *stake_state );
   if( lthash_mode==FD_BANK_LTHASH_MODE_INBAND ) {
     fd_lthash_adder_push_solana_account( adder_post, sum_post, stake_pubkey->uc, acc->data, acc->data_len, acc->lamports, (uchar)!!acc->executable, acc->owner );
+    /* The adder only keeps the sum, so rehash the account for its event.
+       This runs on replay before any transaction of the bank, so no
+       exec tile can be taking lthash_seq values concurrently. */
+    if( FD_UNLIKELY( fd_bank_report_runtime_diffs( bank ) ) ) {
+      fd_lthash_value_t post[1];
+      fd_hashes_account_lthash_simple( stake_pubkey->uc, acc->owner, acc->lamports, acc->executable, acc->data, acc->data_len, post );
+      fd_event_runtime_account_lthash_emit( bank, stake_pubkey->uc, bank->lthash_seq++, post );
+    }
   } else if( lthash_mode==FD_BANK_LTHASH_MODE_OOB_RECORD ) {
     fd_bank_lthash_record( bank, acc->pubkey );
   }

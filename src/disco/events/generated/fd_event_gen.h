@@ -1094,11 +1094,25 @@ typedef struct fd_event_repair_request fd_event_repair_request_t;
    submsg + inner submsg + all fields, padded for encoder slack). */
 #define FD_EVENT_REPAIR_REQUEST_BUF_MAX (357UL)
 
+/* One row each time replay computes an account's final-value LtHash contribution for a block. Speculative hashes can be recomputed within a block; the row with the highest lthash_seq per (bank_seq, pubkey) is the one that went into the bank hash. */
+struct fd_event_runtime_account_lthash {
+  ulong bank_seq;          /* Bank sequence number, counting from 1 within a run; the join key to runtime_block for slot and block_id. Not meaningful across restarts: scope by the stream's instance id from the connection's authentication metadata. */
+  ulong slot;              /* Slot whose LtHash this account contributes to */
+  uchar pubkey[ 32UL ];    /* Address of the hashed account */
+  ulong lthash_seq;        /* Order in which this hash was computed within the block, from a per-bank counter. A recomputed hash always has a higher value than the one it replaces, so the highest lthash_seq per (bank_seq, pubkey) is the final hash. */
+  uchar lthash_32[ 32UL ]; /* First 32 bytes of the account's 2048-byte LtHash value. LtHash is blake3 in extended-output mode, so this equals the account's ordinary 32-byte blake3 hash of (lamports, data, executable, owner, pubkey) and identifies its exact contents. All-zero if the account has zero lamports (deleted). */
+};
+typedef struct fd_event_runtime_account_lthash fd_event_runtime_account_lthash_t;
+
+/* Worst-case encoded size of a runtime_account_lthash event (envelope + Event
+   submsg + inner submsg + all fields, padded for encoder slack). */
+#define FD_EVENT_RUNTIME_ACCOUNT_LTHASH_BUF_MAX (241UL)
+
 /* Largest generated event struct; a consumer can stage any incoming
    event in a buffer of this size, aligned to
    FD_EVENT_GEN_STRUCT_ALIGN. */
-#define FD_EVENT_GEN_STRUCT_MAX   (sizeof (union { fd_event_signed_vote_t signed_vote_; fd_event_slot_confirmed_t slot_confirmed_; fd_event_accdb_compaction_completed_t accdb_compaction_completed_; fd_event_accdb_partition_added_t accdb_partition_added_; fd_event_block_equivocated_t block_equivocated_; fd_event_runtime_txn_t runtime_txn_; fd_event_block_completed_t block_completed_; fd_event_snapshot_created_t snapshot_created_; fd_event_admin_command_t admin_command_; fd_event_runtime_block_t runtime_block_; fd_event_runtime_reward_t runtime_reward_; fd_event_runtime_stake_delegation_t runtime_stake_delegation_; fd_event_runtime_rooted_t runtime_rooted_; fd_event_runtime_epoch_t runtime_epoch_; fd_event_runtime_vote_account_t runtime_vote_account_; fd_event_alpenglow_vote_t alpenglow_vote_; fd_event_alpenglow_cert_t alpenglow_cert_; fd_event_block_received_t block_received_; fd_event_repair_request_t repair_request_; }))
-#define FD_EVENT_GEN_STRUCT_ALIGN (alignof(union { fd_event_signed_vote_t signed_vote_; fd_event_slot_confirmed_t slot_confirmed_; fd_event_accdb_compaction_completed_t accdb_compaction_completed_; fd_event_accdb_partition_added_t accdb_partition_added_; fd_event_block_equivocated_t block_equivocated_; fd_event_runtime_txn_t runtime_txn_; fd_event_block_completed_t block_completed_; fd_event_snapshot_created_t snapshot_created_; fd_event_admin_command_t admin_command_; fd_event_runtime_block_t runtime_block_; fd_event_runtime_reward_t runtime_reward_; fd_event_runtime_stake_delegation_t runtime_stake_delegation_; fd_event_runtime_rooted_t runtime_rooted_; fd_event_runtime_epoch_t runtime_epoch_; fd_event_runtime_vote_account_t runtime_vote_account_; fd_event_alpenglow_vote_t alpenglow_vote_; fd_event_alpenglow_cert_t alpenglow_cert_; fd_event_block_received_t block_received_; fd_event_repair_request_t repair_request_; }))
+#define FD_EVENT_GEN_STRUCT_MAX   (sizeof (union { fd_event_signed_vote_t signed_vote_; fd_event_slot_confirmed_t slot_confirmed_; fd_event_accdb_compaction_completed_t accdb_compaction_completed_; fd_event_accdb_partition_added_t accdb_partition_added_; fd_event_block_equivocated_t block_equivocated_; fd_event_runtime_txn_t runtime_txn_; fd_event_block_completed_t block_completed_; fd_event_snapshot_created_t snapshot_created_; fd_event_admin_command_t admin_command_; fd_event_runtime_block_t runtime_block_; fd_event_runtime_reward_t runtime_reward_; fd_event_runtime_stake_delegation_t runtime_stake_delegation_; fd_event_runtime_rooted_t runtime_rooted_; fd_event_runtime_epoch_t runtime_epoch_; fd_event_runtime_vote_account_t runtime_vote_account_; fd_event_alpenglow_vote_t alpenglow_vote_; fd_event_alpenglow_cert_t alpenglow_cert_; fd_event_block_received_t block_received_; fd_event_repair_request_t repair_request_; fd_event_runtime_account_lthash_t runtime_account_lthash_; }))
+#define FD_EVENT_GEN_STRUCT_ALIGN (alignof(union { fd_event_signed_vote_t signed_vote_; fd_event_slot_confirmed_t slot_confirmed_; fd_event_accdb_compaction_completed_t accdb_compaction_completed_; fd_event_accdb_partition_added_t accdb_partition_added_; fd_event_block_equivocated_t block_equivocated_; fd_event_runtime_txn_t runtime_txn_; fd_event_block_completed_t block_completed_; fd_event_snapshot_created_t snapshot_created_; fd_event_admin_command_t admin_command_; fd_event_runtime_block_t runtime_block_; fd_event_runtime_reward_t runtime_reward_; fd_event_runtime_stake_delegation_t runtime_stake_delegation_; fd_event_runtime_rooted_t runtime_rooted_; fd_event_runtime_epoch_t runtime_epoch_; fd_event_runtime_vote_account_t runtime_vote_account_; fd_event_alpenglow_vote_t alpenglow_vote_; fd_event_alpenglow_cert_t alpenglow_cert_; fd_event_block_received_t block_received_; fd_event_repair_request_t repair_request_; fd_event_runtime_account_lthash_t runtime_account_lthash_; }))
 
 FD_PROTOTYPES_BEGIN
 
@@ -1292,6 +1306,16 @@ fd_event_repair_request_serialize( fd_circq_t *                      circq,
                                    ulong                             link_seq,
                                    fd_event_repair_request_t const * msg );
 
+/* Serialize a runtime_account_lthash event into the circq, reserving an event id
+   from the client and writing the standard event envelope.  Mirrors
+   the hand-written fd_pb_* path. */
+void
+fd_event_runtime_account_lthash_serialize( fd_circq_t *                              circq,
+                                           fd_event_client_t *                       client,
+                                           long                                      timestamp_nanos,
+                                           ulong                                     link_seq,
+                                           fd_event_runtime_account_lthash_t const * msg );
+
 /* Serialize an event of the given type id (the schema id carried in the
    report frag's sig) from a fully-formed fd_event_<name>_t at ev. */
 void
@@ -1462,6 +1486,13 @@ fd_event_report_block_received( fd_event_block_received_t const * msg ) {
 static inline void
 fd_event_report_repair_request( fd_event_repair_request_t const * msg ) {
   fd_event_report_( 63UL, msg, sizeof(fd_event_repair_request_t) );
+}
+
+/* Report a runtime_account_lthash event (RuntimeAccountLthash, id 65) to the event tile via
+   the thread-local reporter (no-op when the tile has no event link). */
+static inline void
+fd_event_report_runtime_account_lthash( fd_event_runtime_account_lthash_t const * msg ) {
+  fd_event_report_( 65UL, msg, sizeof(fd_event_runtime_account_lthash_t) );
 }
 
 FD_PROTOTYPES_END

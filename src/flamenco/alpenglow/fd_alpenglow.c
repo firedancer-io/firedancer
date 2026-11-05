@@ -721,6 +721,7 @@ fd_alpenglow_rewards_apply_slice( fd_bank_t *                         bank,
                                   fd_alpenglow_rewards_plan_t const * plan,
                                   ulong                               slice_idx,
                                   ulong                               slice_cnt,
+                                  ulong                               lthash_seq,
                                   fd_lthash_value_t *                 delta,
                                   ulong *                             leader_credits ) {
 
@@ -728,7 +729,7 @@ fd_alpenglow_rewards_apply_slice( fd_bank_t *                         bank,
   if( FD_UNLIKELY( !plan->use_memo ) ) cache = NULL;
 
   uchar __attribute__((aligned(FD_VOTE_QUEUE_ALIGN))) q_mem[ FD_VOTE_QUEUE_FOOTPRINT ];
-  fd_vote_queue_t * q = fd_vote_queue_init( q_mem );
+  fd_vote_queue_t * q = fd_vote_queue_init( q_mem, bank, lthash_seq );
 
   /* When both certs draw on the same epoch set, one walk applies the
      reward and then the final update to each signer with a single
@@ -854,7 +855,7 @@ fd_alpenglow_rewards_apply_leader( fd_bank_t *                         bank,
   for( ulong i=0UL; i<upd_cnt; i++ ) vote_update_apply( vs, &acc, upd+i );
 
   uchar __attribute__((aligned(FD_VOTE_QUEUE_ALIGN))) q_mem[ FD_VOTE_QUEUE_FOOTPRINT ];
-  fd_vote_queue_t * q = fd_vote_queue_init( q_mem );
+  fd_vote_queue_t * q = fd_vote_queue_init( q_mem, bank, bank->lthash_seq++ );
   ulong m = memo_rank( bank, plan->memo_kind, &plan->leader_vote_pubkey );
   vote_account_store( bank, accdb, capture_ctx, &acc, vs, cache && m!=ULONG_MAX ? cache->memo+m : NULL, q );
   fd_lthash_add( delta, fd_vote_queue_fini( q ) );
@@ -873,7 +874,7 @@ fd_alpenglow_rewards_apply( fd_bank_t *               bank,
   fd_lthash_value_t delta[1];
   fd_lthash_zero( delta );
   ulong leader_credits = 0UL;
-  if( FD_UNLIKELY( fd_alpenglow_rewards_apply_slice( bank, accdb, capture_ctx, cache, plan, 0UL, 1UL, delta, &leader_credits ) ) ) return -1;
+  if( FD_UNLIKELY( fd_alpenglow_rewards_apply_slice( bank, accdb, capture_ctx, cache, plan, 0UL, 1UL, bank->lthash_seq++, delta, &leader_credits ) ) ) return -1;
   fd_alpenglow_rewards_apply_leader( bank, accdb, capture_ctx, cache, plan, leader_credits, delta );
 
   fd_lthash_add( fd_bank_lthash_locking_modify( bank ), delta );

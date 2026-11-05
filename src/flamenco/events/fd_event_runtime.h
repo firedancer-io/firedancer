@@ -301,6 +301,18 @@ fd_event_runtime_reward_emit( fd_bank_t const * bank,
                               ulong             credits_observed,
                               ulong             stake );
 
+/* Build a runtime_account_lthash event for an account's final-value
+   lthash and publish it on the calling tile's event link.  lthash_seq
+   orders hashes computed for the same bank; a recomputed hash carries a
+   higher value than the one it replaces.  Only the first 32 bytes of
+   lthash are reported.  No-op when the tile has no event link. */
+
+void
+fd_event_runtime_account_lthash_emit( fd_bank_t const *         bank,
+                                      uchar const *             pubkey,
+                                      ulong                     lthash_seq,
+                                      fd_lthash_value_t const * lthash );
+
 /* Build the runtime_block event for a finalized bank from the bank
    state and its accumulated diffs and publish it on the calling
    tile's event link. No-op when the tile has no event link. */
