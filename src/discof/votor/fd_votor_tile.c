@@ -1388,7 +1388,7 @@ failover_adopt_hist( fd_votor_tile_t *   ctx,
     ctx->failover_hist_adopted = 1;
     ctx->adopted_tip  = ULONG_MAX;
     result.result     = FD_VOTOR_ADOPT_SUCCESS;
-    result.root       = fd_votor_loop_metrics( ctx->votor ).highest_final_cert_slot;
+    result.root       = fd_votor_loop_metrics( ctx->votor ).highest_final_slot;
     result.vote_bound = fd_votor_loop_failover_get_vote_bound( ctx->votor );
     FD_LOG_NOTICE(( "failover: starting from an empty vote history on anchor %lu, no vote at or below slot %lu", result.root, result.vote_bound ));
     return result;
@@ -1428,7 +1428,7 @@ failover_adopt_hist( fd_votor_tile_t *   ctx,
   failover_raise_leader_floor( ctx, hist->last_leader_slot );
   failover_raise_leader_floor( ctx, fd_votor_loop_failover_get_vote_bound( ctx->votor ) );
   result.result     = FD_VOTOR_ADOPT_SUCCESS;
-  result.root       = fd_votor_loop_metrics( ctx->votor ).highest_final_cert_slot;
+  result.root       = fd_votor_loop_metrics( ctx->votor ).highest_final_slot;
   result.vote_slot  = tip;
   result.vote_bound = fd_votor_loop_failover_get_vote_bound( ctx->votor );
   if( FD_LIKELY( result.vote_bound==ULONG_MAX ) ) FD_LOG_NOTICE(( "failover: adopted a vote history through slot %lu, the anchor is now %lu", tip, result.root ));
@@ -2232,7 +2232,7 @@ metrics_write( fd_votor_tile_t * ctx ) {
   fd_votor_loop_metrics_t votor_metrics = fd_votor_loop_metrics( ctx->votor );
   FD_MGAUGE_SET( VOTOR, VOTING_SLOT_USED,        votor_metrics.slot_state_pool_used );
   FD_MGAUGE_SET( VOTOR, VOTING_SLOT_FREE,        votor_metrics.slot_state_pool_free );
-  FD_MGAUGE_SET( VOTOR, HIGHEST_FINAL_CERT_SLOT, fd_ulong_if( votor_metrics.highest_final_cert_slot!=ULONG_MAX, votor_metrics.highest_final_cert_slot, 0UL ) );
+  FD_MGAUGE_SET( VOTOR, HIGHEST_FINAL_CERT_SLOT, fd_ulong_if( votor_metrics.highest_final_slot!=ULONG_MAX, votor_metrics.highest_final_slot, 0UL ) );
 
   fd_votor_pool_metrics_t pool_metrics = fd_votor_pool_metrics( ctx->pool );
   FD_MGAUGE_SET( VOTOR, POOL_SLOT_USED,                    pool_metrics.slot_state_pool_used );

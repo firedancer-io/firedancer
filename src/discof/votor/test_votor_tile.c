@@ -3049,7 +3049,7 @@ test_adopt_refused_while_voting( void ) {
   FD_TEST( !ctx.vote_authority );
   FD_TEST( ctx.adopted_last_leader_slot==ULONG_MAX );
   FD_TEST( fd_votor_loop_failover_get_vote_bound( ctx.votor )==ULONG_MAX );
-  FD_TEST( fd_votor_loop_metrics( ctx.votor ).highest_final_cert_slot==0UL );
+  FD_TEST( fd_votor_loop_metrics( ctx.votor ).highest_final_slot==0UL );
   FD_TEST( fd_votor_loop_metrics( ctx.votor ).slot_state_pool_free==free );
 
   ctx.vote_authority = 0;

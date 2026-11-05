@@ -92,7 +92,8 @@ struct __attribute__((aligned(128UL))) fd_votor_loop {
 
   slot_states_t *             slot_states;
   fd_parent_ready_tracker_t * parent_ready_tracker; /* Definition 15 over the certs received */
-  ulong                       highest_final_cert_slot;
+  ulong                       highest_final_slot;
+  long                        highest_final_ts; /* when highest_final_slot last rose */
   ulong                       catchup_vote_slot; /* first slot worth a vote while catching up, 0 if none */
 
   fd_bls_sign_fn bls_sign_fn;
@@ -156,7 +157,16 @@ set_timeouts( fd_votor_loop_t * self,
 
   long ns_per_slot = own_epoch( self, slot )->ns_per_slot; /* the window's own epoch, not the latest one announced */
   if( FD_UNLIKELY( !ns_per_slot ) ) ns_per_slot = self->ns_per_slot;
-  long deadline = self->now + FD_VOTOR_DELTA_TIMEOUT_NS + ns_per_slot;
+
+  /* Section 4.1: after DELTA_STANDSTILL without a new finalization, the
+     skip timeout grows 5% per window past the finalized slot. */
+
+  long delta_timeout = FD_VOTOR_DELTA_TIMEOUT_NS;
+  if( FD_UNLIKELY( self->now-self->highest_final_ts>=FD_VOTOR_DELTA_STANDSTILL_NS ) ) {
+    for( ulong w=fd_ulong_sat_sub( slot, self->highest_final_slot )/FD_VOTOR_SLOTS_PER_WINDOW; w && delta_timeout<FD_VOTOR_DELTA_TIMEOUT_MAX_NS; w-- ) delta_timeout += delta_timeout/20L;
+    delta_timeout = fd_long_min( delta_timeout, FD_VOTOR_DELTA_TIMEOUT_MAX_NS );
+  }
+  long deadline = self->now + delta_timeout + ns_per_slot;
 
   for( ulong s=slot; s<slot+FD_VOTOR_SLOTS_PER_WINDOW; s++ ) {
     deadline += fd_long_if( fd_is_start_of_window( s ), 0L, ns_per_slot );
@@ -279,7 +289,8 @@ fd_votor_loop_new( void * mem,
   votor->slot_states             = (slot_states_t *)slot_states;
   votor->slot_states->pool       = slot_state_pool_join( slot_state_pool_new( slot_state_pool, slot_max                  ) );
   votor->slot_states->map        = slot_state_map_join ( slot_state_map_new ( slot_state_map,  slot_state_chain_cnt, seed ) );
-  votor->highest_final_cert_slot = ULONG_MAX;
+  votor->highest_final_slot      = ULONG_MAX;
+  votor->highest_final_ts        = 0L;
   votor->catchup_vote_slot       = 0UL;
   votor->prev_epoch              = (epoch_bls_key_t){ .start_slot = ULONG_MAX, .rank = USHORT_MAX };
   votor->curr_epoch              = (epoch_bls_key_t){ .start_slot = ULONG_MAX, .rank = USHORT_MAX };
@@ -361,7 +372,8 @@ fd_votor_loop_init( fd_votor_loop_t *     self,
     below->retired             = 1;
   }
 
-  self->highest_final_cert_slot = root->slot;
+  self->highest_final_slot = root->slot;
+  self->highest_final_ts   = now;
 
   ulong ready_cnt;
   self->parent_ready_tracker->root = fd_ulong_sat_sub( fd_first_slot_in_window( fd_ulong_sat_sub( root->slot, FD_VOTOR_REWARD_SLOT_DELTA ) ), FD_VOTOR_SLOTS_PER_WINDOW );
@@ -372,7 +384,7 @@ fd_votor_loop_init( fd_votor_loop_t *     self,
 void
 fd_votor_loop_fini( fd_votor_loop_t * self ) {
   self->root                    = ULONG_MAX;
-  self->highest_final_cert_slot = ULONG_MAX;
+  self->highest_final_slot      = ULONG_MAX;
 }
 
 FD_FN_PURE fd_votor_loop_metrics_t
@@ -380,7 +392,7 @@ fd_votor_loop_metrics( fd_votor_loop_t const * self ) {
   return (fd_votor_loop_metrics_t){
     .slot_state_pool_used    = slot_state_pool_used( self->slot_states->pool ),
     .slot_state_pool_free    = slot_state_pool_free( self->slot_states->pool ),
-    .highest_final_cert_slot = self->highest_final_cert_slot,
+    .highest_final_slot      = self->highest_final_slot,
     .vote_events_cnt         = vote_events_cnt( self->vote_events )
   };
 }
@@ -401,7 +413,7 @@ has_voted( fd_votor_loop_t const * self,
 
 FD_FN_PURE static ulong
 first_unpruned_slot( fd_votor_loop_t const * self ) {
-  return fd_first_slot_in_window( fd_ulong_sat_sub( self->highest_final_cert_slot, FD_VOTOR_REWARD_SLOT_DELTA ) );
+  return fd_first_slot_in_window( fd_ulong_sat_sub( self->highest_final_slot, FD_VOTOR_REWARD_SLOT_DELTA ) );
 }
 
 /* Returns whether slot is at or below our vote bound. */
@@ -562,9 +574,11 @@ handle_cert_created( fd_votor_loop_t * self,
 
   case FD_CERT_KIND_FINAL:
   case FD_CERT_KIND_FAST_FINAL:
+    if( FD_LIKELY( slot>self->highest_final_slot ) ) {
+      self->highest_final_slot = slot;
+      self->highest_final_ts   = self->now;
+    }
     set_timeouts( self, fd_first_slot_in_window( slot ) );
-
-    self->highest_final_cert_slot = fd_ulong_max( self->highest_final_cert_slot, slot );
     prune( self );
     break;
 
@@ -614,7 +628,8 @@ void
 fd_votor_loop_arm_skip_timeouts( fd_votor_loop_t * self,
                                  long              now ) {
   FD_TEST( self->root!=ULONG_MAX );
-  self->now = fd_long_max( self->now, now );
+  self->now              = fd_long_max( self->now, now );
+  self->highest_final_ts = self->now;
   set_timeouts( self, fd_first_slot_in_window( self->root ) );
 }
 
@@ -799,8 +814,9 @@ fd_votor_loop_poll_vote( fd_votor_loop_t * self,
 static void
 advance_root( fd_votor_loop_t * self,
               ulong             slot ) {
-  if( FD_UNLIKELY( self->highest_final_cert_slot==ULONG_MAX || slot<=self->highest_final_cert_slot ) ) return;
-  self->highest_final_cert_slot = slot;
+  if( FD_UNLIKELY( self->highest_final_slot==ULONG_MAX || slot<=self->highest_final_slot ) ) return;
+  self->highest_final_slot = slot;
+  self->highest_final_ts   = self->now;
   prune( self );
 }
 
@@ -822,7 +838,7 @@ fd_votor_loop_failover_hist_export( fd_votor_loop_t * self,
   out->last_leader_slot = last_leader_slot;
   out->vote_bound       = self->failover_vote_bound;
   out->rec_cnt          = 0UL;
-  if( FD_UNLIKELY( self->highest_final_cert_slot==ULONG_MAX ) ) {
+  if( FD_UNLIKELY( self->highest_final_slot==ULONG_MAX ) ) {
     out->anchor = 0UL;
     return 0;
   }
@@ -848,7 +864,7 @@ fd_votor_loop_failover_hist_export( fd_votor_loop_t * self,
     while( lo<cnt && slots[ lo ]<next_window ) lo++;
   }
   int truncated = lo>0UL;
-  out->anchor = self->highest_final_cert_slot;
+  out->anchor = self->highest_final_slot;
   if( FD_UNLIKELY( truncated ) ) out->anchor = fd_ulong_max( out->anchor, fd_first_slot_in_window( slots[ lo ] )+FD_VOTOR_REWARD_SLOT_DELTA );
 
   for( ulong i=lo; i<cnt; i++ ) {
@@ -873,9 +889,9 @@ fd_votor_loop_failover_hist_adopt( fd_votor_loop_t *       self,
 
   slot_state_map_t * map   = self->slot_states->map;
   slot_state_ele_t * pool  = self->slot_states->pool;
-  ulong              first = fd_votor_hist_first_slot( fd_ulong_max( self->highest_final_cert_slot, hist->anchor ) );
+  ulong              first = fd_votor_hist_first_slot( fd_ulong_max( self->highest_final_slot, hist->anchor ) );
   ulong              free  = slot_state_pool_free( pool );
-  if( hist->anchor>self->highest_final_cert_slot ) {
+  if( hist->anchor>self->highest_final_slot ) {
     for( slot_state_map_iter_t iter = slot_state_map_iter_init( map, pool );
                                      !slot_state_map_iter_done( iter, map, pool );
                                iter = slot_state_map_iter_next( iter, map, pool ) ) {
@@ -892,7 +908,7 @@ fd_votor_loop_failover_hist_adopt( fd_votor_loop_t *       self,
   }
 
   /* A newer anchor prunes the skip timeouts of the windows below it. */
-  int set_anchor_timeouts = hist->anchor>self->highest_final_cert_slot && next_timeout( self );
+  int set_anchor_timeouts = hist->anchor>self->highest_final_slot && next_timeout( self );
   if( set_anchor_timeouts ) {
     for( ulong s=fd_first_slot_in_window( hist->anchor ); s<fd_first_slot_in_window( hist->anchor )+FD_VOTOR_SLOTS_PER_WINDOW; s++ ) {
       if( slot_state_map_ele_query_const( map, &s, NULL, pool ) ) continue;
