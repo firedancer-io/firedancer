@@ -327,11 +327,11 @@ void
 test_disk_index_footprint( void ) {
   ulong fp_no_disk = fd_store_footprint( 8UL, 31840UL,  0UL, 0UL, 0UL, 1UL );
   ulong fp_50_gib  = fd_store_footprint( 8UL, 31840UL, 50UL, 0UL, 0UL, 1UL );
-  /* 8B ring pool + 2-bit states + slot map bucket array (max_shreds/8 rounded up to
-     2^23 heads) + per-slot hints and table counts. */
+  /* 8B ring pool + 2-bit states + slot map bucket array (max_shreds/16
+     rounded up to 2^22 heads) + per-slot hints and table counts. */
   ulong m = fd_shredb_max_shreds( 50UL );
-  FD_TEST( fd_shredb_disk_chain_cnt( m )==(1UL<<23) );
-  FD_TEST( fp_50_gib-fp_no_disk==fd_ulong_align_up( fd_shredb_slot_map_footprint( 1UL<<23 ) + 8UL*m + 8UL*fd_shredb_state_word_cnt( m ) + 12UL*fd_shredb_max_slots( 50UL ), 4096UL ) );
+  FD_TEST( fd_shredb_disk_chain_cnt( m )==(1UL<<22) );
+  FD_TEST( fp_50_gib-fp_no_disk==fd_ulong_align_up( fd_shredb_slot_map_footprint( 1UL<<22 ) + 8UL*m + 8UL*fd_shredb_state_word_cnt( m ) + 12UL*fd_shredb_max_slots( 50UL ), 4096UL ) );
   FD_TEST( fd_shredb_tbl_rec_cnt( m )>2UL*m && fd_shredb_tbl_rec_cnt( 1UL<<22 )==(1UL<<24) ); /* 5 GiB ring is 2^22 cells */
 
   /* A 4 TiB ring fits the 32-bit index. */

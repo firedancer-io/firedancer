@@ -156,12 +156,12 @@ fd_shredb_max_slots( ulong gib ) {
   return fd_ulong_max( !!gib, fd_shredb_max_shreds( gib )/FD_FEC_SHRED_CNT );
 }
 
-/* The chain count estimator halves its input, so dividing by four
-   targets max_shreds/8 buckets.  This reduces bucket memory at the
+/* The chain count estimator halves its input, so dividing by eight
+   targets max_shreds/16 buckets.  This reduces bucket memory at the
    expense of longer chains. */
 FD_FN_CONST static inline ulong
 fd_shredb_disk_chain_cnt( ulong max_shreds ) {
-  return fd_shredb_slot_map_chain_cnt_est( max_shreds/4UL );
+  return fd_shredb_slot_map_chain_cnt_est( max_shreds/8UL );
 }
 
 struct fd_store_fec {
