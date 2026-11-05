@@ -327,16 +327,18 @@ void
 test_disk_index_footprint( void ) {
   ulong fp_no_disk = fd_store_footprint( 8UL, 31840UL,  0UL, 0UL, 0UL, 1UL );
   ulong fp_50_gib  = fd_store_footprint( 8UL, 31840UL, 50UL, 0UL, 0UL, 1UL );
-  /* 20B ring pool + slot map bucket array (max_shreds/8 rounded up to
+  /* 16B ring pool + slot map bucket array (max_shreds/8 rounded up to
      2^23 heads) + per-slot hints and table counts. */
   ulong m = fd_shredb_max_shreds( 50UL );
   FD_TEST( fd_shredb_disk_chain_cnt( m )==(1UL<<23) );
-  FD_TEST( fp_50_gib-fp_no_disk==fd_ulong_align_up( fd_shredb_slot_map_footprint( 1UL<<23 ) + 20UL*m + 12UL*fd_shredb_max_slots( 50UL ), 4096UL ) );
+  FD_TEST( fp_50_gib-fp_no_disk==fd_ulong_align_up( fd_shredb_slot_map_footprint( 1UL<<23 ) + 16UL*m + 12UL*fd_shredb_max_slots( 50UL ), 4096UL ) );
   FD_TEST( fd_shredb_tbl_rec_cnt( m )>2UL*m && fd_shredb_tbl_rec_cnt( 1UL<<22 )==(1UL<<24) ); /* 5 GiB ring is 2^22 cells */
 
-  /* A 4 TiB ring fits the 32-bit index and 54-bit ticket limits. */
+  /* A 4 TiB ring fits the 32-bit index; a cell's tag repeats only
+     after 2^30 laps, at least 2^54 tickets on the 32 GiB default. */
   ulong ring_4_tib = fd_shredb_max_shreds( 4096UL );
-  FD_TEST( ring_4_tib==3435973836UL && ring_4_tib<UINT_MAX && ring_4_tib<FD_SHREDB_TAG_SEQ_MASK );
+  FD_TEST( ring_4_tib==3435973836UL && ring_4_tib<UINT_MAX );
+  FD_TEST( (FD_SHREDB_LAP_MASK+1UL)*fd_shredb_max_shreds( 32UL )>=(1UL<<54) );
   FD_TEST( fd_store_footprint( 8UL, 31840UL, 4096UL, 0UL, 0UL, 1UL )>0UL );
 }
 
@@ -822,8 +824,8 @@ test_disk_many_wraps( fd_wksp_t * wksp ) {
   FD_TEST( store );
   store->disk_max_shreds = 16UL;
 
-  /* Start just before the 54-bit ticket wrap. */
-  ulong first_ticket = (1UL<<54)-80UL;
+  /* Start 5 laps before the 30-bit lap wrap. */
+  ulong first_ticket = (1UL<<30)*16UL-80UL;
   atomic_store_explicit( &store->disk_reservation_head, first_ticket, memory_order_relaxed );
 
   int disk_fd = store_file_open( store, O_RDWR );
@@ -832,8 +834,8 @@ test_disk_many_wraps( fd_wksp_t * wksp ) {
   uchar buf[ FD_SHRED_MAX_SZ ];
   uchar out[ FD_SHRED_MAX_SZ ];
 
-  /* Cross the ticket wrap and overwrite the 16-cell ring repeatedly.
-     Just before the wrap, query a shred whose tag uses all three high bytes. */
+  /* Cross the lap wrap and overwrite the 16-cell ring repeatedly.
+     Just before the wrap, query a shred whose tag has the top lap bit. */
   for( ulong i=0UL; i<160UL; i++ ) {
     FD_TEST( disk_insert( store, disk_fd, disk_make_shred( buf, i/4UL, (uint)(i%4UL), (uchar)i ) )==FD_STORE_DISK_INSERT_SUCCESS );
     if( i==79UL ) FD_TEST( fd_store_disk_query( store, disk_fd, 19UL, 3U, out )>0 && out[ FD_SHRED_DATA_HEADER_SZ ]==79U );
@@ -853,15 +855,19 @@ test_disk_many_wraps( fd_wksp_t * wksp ) {
   FD_TEST( !disk_query_prepare_read_locked( store, fd_shredb_key_pack( 39UL, 3U ), &stale ) );
   fd_rwlock_unread( &store->disk_lock );
 
-  /* Recreate the old 32-bit tag's ABA case: after 2^30 tickets the
-     ring index and low tag repeat, but the high tag must differ. */
-  ulong next_ticket = first_ticket+159UL+(1UL<<30);
-  FD_TEST( (uint)disk_cell_tag( stale.ticket, FD_SHREDB_CELL_READY )==(uint)disk_cell_tag( next_ticket, FD_SHREDB_CELL_READY ) );
+  /* The removed 30-bit ticket tag's ABA case: 2^30 tickets later the
+     ring index and masked ticket repeat (a 16-cell ring divides 2^30),
+     but the lap differs. */
+  ulong stale_ticket = first_ticket+159UL;
+  ulong next_ticket  = stale_ticket+(1UL<<30);
+  FD_TEST( ((stale_ticket^next_ticket)&((1UL<<30)-1UL))==0UL );
+  FD_TEST( stale.lap==disk_cell_lap( stale_ticket, store->disk_max_shreds ) );
+  FD_TEST( stale.lap!=disk_cell_lap( next_ticket,  store->disk_max_shreds ) );
   FD_TEST( (ulong)stale.ring_idx==next_ticket%store->disk_max_shreds );
   atomic_store_explicit( &store->disk_reservation_head, next_ticket, memory_order_relaxed );
   FD_TEST( disk_insert( store, disk_fd, disk_make_shred( buf, 1000UL, 0U, 0xe0U ) )==FD_STORE_DISK_INSERT_SUCCESS );
 
-  /* The high tag bits reject the stale view; the new shred is readable. */
+  /* The lap rejects the stale view; the new shred is readable. */
   fd_rwlock_read( &store->disk_lock );
   FD_TEST( disk_query_finish_read_locked( store, stale )==FD_STORE_DISK_QUERY_BUSY );
   fd_rwlock_unread( &store->disk_lock );
@@ -1430,9 +1436,9 @@ test_disk_insert_batch( fd_wksp_t * wksp ) {
   for( ulong i=0UL; i<a->disk_max_shreds; i++ ) {
     fd_shredb_ring_entry_t const * cell_a = disk_ring_pool_laddr( a )+i;
     fd_shredb_ring_entry_t const * cell_b = disk_ring_pool_laddr( b )+i;
-    FD_TEST( disk_cell_tag_load( cell_a )==disk_cell_tag_load( cell_b ) );
+    FD_TEST( cell_a->tag==cell_b->tag );
     FD_TEST( cell_a->key==cell_b->key );
-    FD_TEST( cell_a->kind==cell_b->kind );
+    FD_TEST( disk_cell_recorded_locked( a, (uint)i )==disk_cell_recorded_locked( b, (uint)i ) );
   }
   for( ulong i=0UL; i<a->disk_max_slots; i++ ) FD_TEST( disk_tbl_cnt_laddr( a )[ i ]==disk_tbl_cnt_laddr( b )[ i ] );
   for( ulong i=0UL; i<a->disk_max_slots; i++ ) {
