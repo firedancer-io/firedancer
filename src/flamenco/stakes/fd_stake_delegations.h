@@ -323,6 +323,34 @@ fd_stake_delegations_reset( fd_stake_delegations_t * stake_delegations );
 fd_stake_history_entry_t
 fd_stake_delegations_totals( fd_stake_delegations_t const * stake_delegations );
 
+/* fd_stake_delegations_metrics_t holds the in-memory occupancy and disk
+   spill metrics.  *_spilled_cnt and disk_* only grow; disk_ticks is in
+   fd_tickcount() units. */
+
+struct fd_stake_delegations_metrics {
+  ulong root_used;
+  ulong root_capacity;
+  ulong root_disk_cnt;
+  ulong delta_used;
+  ulong delta_capacity;
+  ulong delta_disk_cnt;
+  ulong root_spilled_cnt;
+  ulong delta_spilled_cnt;
+  ulong disk_read_cnt;
+  ulong disk_written_cnt;
+  ulong disk_ticks;
+};
+
+typedef struct fd_stake_delegations_metrics fd_stake_delegations_metrics_t;
+
+/* fd_stake_delegations_metrics_snap copies the metrics of
+   stake_delegations into out without taking the lock, so values from
+   different fields may be slightly out of step. */
+
+void
+fd_stake_delegations_metrics_snap( fd_stake_delegations_t const *   stake_delegations,
+                                   fd_stake_delegations_metrics_t * out );
+
 /* Replace aggregate totals when the root crosses an epoch boundary.
    Acquires the store write lock; do not call inside a frontier query. */
 

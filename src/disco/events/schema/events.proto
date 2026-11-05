@@ -9483,6 +9483,28 @@ message MetricsReplay {
   uint64 leader_window_already_produced = 118;
   // Leader windows given up after votor sent them because certificates already let a later window start (Alpenglow)
   uint64 leader_window_superseded = 119;
+  // Rooted stake delegations held in memory
+  uint64 stake_delegation_root_used = 120;
+  // Rooted stake delegations that fit in memory, from runtime.stake_delegation_cache_cnt
+  uint64 stake_delegation_root_capacity = 121;
+  // Rooted stake delegations currently spilled to disk
+  uint64 stake_delegation_root_disk_count = 122;
+  // Unrooted stake delegation fork deltas held in memory
+  uint64 stake_delegation_delta_used = 123;
+  // Unrooted stake delegation fork deltas that fit in memory
+  uint64 stake_delegation_delta_capacity = 124;
+  // Unrooted stake delegation fork deltas currently spilled to disk
+  uint64 stake_delegation_delta_disk_count = 125;
+  // Rooted stake delegations written to disk because the in-memory root pool was full
+  uint64 stake_delegation_root_spilled = 126;
+  // Stake delegation fork deltas written to disk because the in-memory delta pool was full
+  uint64 stake_delegation_delta_spilled = 127;
+  // Reads from the stake delegation spill file by all tiles
+  uint64 stake_delegation_disk_read = 128;
+  // Writes to the stake delegation spill file by all tiles
+  uint64 stake_delegation_disk_written = 129;
+  // Time all tiles spent in stake delegation spill file reads and writes
+  uint64 stake_delegation_disk_duration_nanos = 130;
 }
 
 // Metrics of one rotor tile instance, one row per sweep

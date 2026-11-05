@@ -393,6 +393,11 @@ test_disk_iterator_batches( void ) {
     stake_delegations->effective_stake += i+1UL;
   }
   FD_TEST( stake_delegations->disk_root_cnt_==259UL );
+  fd_stake_delegations_metrics_t metrics[1];
+  fd_stake_delegations_metrics_snap( stake_delegations, metrics );
+  FD_TEST( metrics->root_used==8UL && metrics->root_capacity==8UL );
+  FD_TEST( metrics->root_disk_cnt==259UL && metrics->root_spilled_cnt==259UL );
+  FD_TEST( metrics->disk_written_cnt>=2UL*259UL );
 
   fd_stake_history_t history[1] = {0};
   for( ulong phase=0UL; phase<3UL; phase++ ) {
@@ -748,8 +753,17 @@ int main( int argc, char ** argv ) {
       fd_stake_delegations_fork_update( stake_delegations, fork_idx, 0UL, &key, &voter_pubkey_0, i+1UL, 0UL, 0UL, 0UL, TEST_STAKE_DELEGATION_LAMPORTS, TEST_STAKE_DELEGATION_ACC_DLEN );
     }
     FD_TEST( stake_delegations->disk_delta_cnt_==1UL );
+    fd_stake_delegations_metrics_t metrics[1];
+    fd_stake_delegations_metrics_snap( stake_delegations, metrics );
+    FD_TEST( metrics->delta_used==max_delta_accounts && metrics->delta_capacity==max_delta_accounts );
+    FD_TEST( metrics->delta_disk_cnt==1UL && metrics->delta_spilled_cnt==1UL );
+    FD_TEST( metrics->root_capacity==max_stake_accounts && !metrics->root_used );
+    FD_TEST( !metrics->root_disk_cnt && !metrics->root_spilled_cnt );
+    FD_TEST( metrics->disk_written_cnt && metrics->disk_read_cnt );
     fd_stake_delegations_evict_fork( stake_delegations, fork_idx );
     FD_TEST( !stake_delegations->disk_delta_cnt_ );
+    fd_stake_delegations_metrics_snap( stake_delegations, metrics );
+    FD_TEST( !metrics->delta_used && !metrics->delta_disk_cnt && metrics->delta_spilled_cnt==1UL );
   }
 
   FD_TEST( test_stake_delegations_base_cnt( stake_delegations ) == 0UL );

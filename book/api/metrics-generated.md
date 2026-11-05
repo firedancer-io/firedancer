@@ -1085,6 +1085,17 @@
 | <span class="metrics-name">replay_&#8203;store_&#8203;fec_&#8203;cache_&#8203;used</span> | gauge | FEC payload slots in use in the store RAM cache |
 | <span class="metrics-name">replay_&#8203;store_&#8203;fec_&#8203;cache_&#8203;capacity</span> | gauge | FEC payload capacity of the store RAM cache |
 | <span class="metrics-name">replay_&#8203;store_&#8203;fec_&#8203;cache_&#8203;pinned</span> | gauge | FEC payload views currently pinned against eviction |
+| <span class="metrics-name">replay_&#8203;stake_&#8203;delegation_&#8203;root_&#8203;used</span> | gauge | Rooted stake delegations held in memory |
+| <span class="metrics-name">replay_&#8203;stake_&#8203;delegation_&#8203;root_&#8203;capacity</span> | gauge | Rooted stake delegations that fit in memory, from runtime.stake_delegation_cache_cnt |
+| <span class="metrics-name">replay_&#8203;stake_&#8203;delegation_&#8203;root_&#8203;disk_&#8203;count</span> | gauge | Rooted stake delegations currently spilled to disk |
+| <span class="metrics-name">replay_&#8203;stake_&#8203;delegation_&#8203;delta_&#8203;used</span> | gauge | Unrooted stake delegation fork deltas held in memory |
+| <span class="metrics-name">replay_&#8203;stake_&#8203;delegation_&#8203;delta_&#8203;capacity</span> | gauge | Unrooted stake delegation fork deltas that fit in memory |
+| <span class="metrics-name">replay_&#8203;stake_&#8203;delegation_&#8203;delta_&#8203;disk_&#8203;count</span> | gauge | Unrooted stake delegation fork deltas currently spilled to disk |
+| <span class="metrics-name">replay_&#8203;stake_&#8203;delegation_&#8203;root_&#8203;spilled</span> | counter | Rooted stake delegations written to disk because the in-memory root pool was full |
+| <span class="metrics-name">replay_&#8203;stake_&#8203;delegation_&#8203;delta_&#8203;spilled</span> | counter | Stake delegation fork deltas written to disk because the in-memory delta pool was full |
+| <span class="metrics-name">replay_&#8203;stake_&#8203;delegation_&#8203;disk_&#8203;read</span> | counter | Reads from the stake delegation spill file by all tiles |
+| <span class="metrics-name">replay_&#8203;stake_&#8203;delegation_&#8203;disk_&#8203;written</span> | counter | Writes to the stake delegation spill file by all tiles |
+| <span class="metrics-name">replay_&#8203;stake_&#8203;delegation_&#8203;disk_&#8203;duration_&#8203;nanos</span> | counter | Time all tiles spent in stake delegation spill file reads and writes |
 | <span class="metrics-name">replay_&#8203;is_&#8203;caught_&#8203;up</span> | gauge | Whether replay has caught up to the cluster tip; set once per run, never cleared |
 | <span class="metrics-name">replay_&#8203;root_&#8203;slot</span> | gauge | Most recent consensus root, 0 if none |
 | <span class="metrics-name">replay_&#8203;root_&#8203;slot_&#8203;distance</span> | gauge | Slots between the current reset slot and our root |
