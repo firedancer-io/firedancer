@@ -100,20 +100,21 @@ fd_shredb_tbl_rec_cnt( ulong max_shreds ) {
 #define FD_SHREDB_KIND_FIRST    (0) /* linked in the slot map while live */
 #define FD_SHREDB_KIND_NONFIRST (1) /* later version, has a table record */
 
-/* One ring entry per cell.  tag_hi extends the low 30 ticket bits in
-   tag by 24 bits; the bottom two tag bits hold the cell state.  All
+/* One ring entry per cell.  tag is lap<<2 | state, where lap is the
+   reservation ticket's lap (ticket/disk_max_shreds) mod 2^30.  A cell's
+   writes are one lap apart, so a stale tag repeats only 2^30 laps (>=
+   2^54 tickets for rings of 2^24+ cells) later, whatever the ring size.
+   A READY cell is NONFIRST iff the slot map does not link it.  All
    fields use disk_lock. */
 struct fd_shredb_ring_entry {
   uint                 tag;
-  uchar                tag_hi[ 3 ];
-  uchar                kind;
   fd_shredb_map_key_t  key;
   uint                 slot_next;
 };
 typedef struct fd_shredb_ring_entry fd_shredb_ring_entry_t;
-FD_STATIC_ASSERT( sizeof(fd_shredb_ring_entry_t)==20UL, shredb_ring_entry_footprint );
+FD_STATIC_ASSERT( sizeof(fd_shredb_ring_entry_t)==16UL, shredb_ring_entry_footprint );
 
-#define FD_SHREDB_TAG_SEQ_MASK ((1UL<<54)-1UL)
+#define FD_SHREDB_LAP_MASK ((1UL<<30)-1UL)
 
 #define FD_SHREDB_CELL_INVALID    (0UL)
 #define FD_SHREDB_CELL_WRITING    (1UL)
