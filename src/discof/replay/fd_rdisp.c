@@ -535,13 +535,16 @@ typedef struct {
 
 struct ustlt {
   ustlt_key_t key;
-  uint map_prev;
+  union {
+    uint map_prev; /* when NEEDED */
+    uint ptxn_idx; /* when CREATED, never in the map */
+  };
   uint map_next;
   uint ll_prev;
   uint ll_next;
-  uint ptxn_idx; /* when CREATED */
 };
 typedef struct ustlt ustlt_t;
+FD_STATIC_ASSERT( sizeof(ustlt_t)==52UL, ustlt );
 
 #define MAP_NAME  ustlt_map
 #define MAP_ELE_T ustlt_t
@@ -2243,7 +2246,12 @@ fd_rdisp_verify( fd_rdisp_t const * disp,
       for( ustlt_dlist_iter_t jt=ustlt_dlist_iter_fwd_init( lists[ l ], disp->ustlt_pool );
            !ustlt_dlist_iter_done( jt, lists[ l ], disp->ustlt_pool );
            jt=ustlt_dlist_iter_fwd_next( jt, lists[ l ], disp->ustlt_pool ) ) {
-        FD_TEST( ustlt_dlist_iter_ele_const( jt, lists[ l ], disp->ustlt_pool )->key.block_idx==(uint)(block-disp->block_pool) );
+        ustlt_t const * ele = ustlt_dlist_iter_ele_const( jt, lists[ l ], disp->ustlt_pool );
+        ulong           idx = (ulong)(ele-disp->ustlt_pool);
+        FD_TEST( ele->key.block_idx==(uint)(block-disp->block_pool) );
+        /* ptxn_idx aliases map_prev: CREATED is off the map. */
+        FD_TEST( (ustlt_map_idx_query_const( disp->ustlt_map, &ele->key, ULONG_MAX, disp->ustlt_pool )==idx)==(l==0UL) );
+        if( l==1UL ) FD_TEST( disp->ptxn_pool[ ele->ptxn_idx ].last==(uint)idx );
         ustlt_cnt++;
       }
     }
