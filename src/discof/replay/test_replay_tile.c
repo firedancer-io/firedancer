@@ -294,9 +294,6 @@ static int               mock_footer_finalize;
 static fd_block_footer_t mock_footer_storage[ 1 ];
 static fd_block_footer_t * mock_footer = mock_footer_storage;
 static fd_hash_t         mock_footer_poh;
-/* The runtime diff path reads the clock for its runtime_block event. */
-static fd_sol_sysvar_clock_t mock_footer_clock;
-#define fd_sysvar_clock_read(a,f,c) (mock_footer_finalize ? fd_memcpy( (c), &mock_footer_clock, sizeof(fd_sol_sysvar_clock_t) ) : (fd_sysvar_clock_read)(a,f,c))
 
 #define fd_sched_get_poh(s,b)        (mock_footer_finalize ? &mock_footer_poh : (fd_sched_get_poh)(s,b))
 #define fd_sched_get_shred_cnt(s,b)  (mock_footer_finalize ? 0U : (fd_sched_get_shred_cnt)(s,b))
@@ -2215,11 +2212,11 @@ test_root_from_footer( fd_wksp_t * wksp ) {
    CERT_VERIFY frag each and the bank stays REPLAYABLE until every done
    frag is in, then the last done frag completes and publishes it.  A
    failed cert (on a tile or inline) marks it dead BAD_FOOTER and later
-   done frags only drain.  With no idle tile, or with runtime diffs on, the
-   certs verify inline and the bank is frozen at once.  With a reward
-   plan to apply, the tiles left idle after the certs get one REWARDS
-   frag each, whose done frag folds the slice's lthash delta and leader
-   credits in.  A failed slice marks the bank dead. */
+   done frags only drain.  With no idle tile, the certs verify inline
+   and the bank is frozen at once.  With a reward plan to apply, the
+   tiles left idle after the certs get one REWARDS frag each, whose
+   done frag folds the slice's lthash delta and leader credits in.  A
+   failed slice marks the bank dead. */
 
 #define CERT_TEST_VAL_CNT (4UL)
 #define CERT_TEST_SV      ((ushort)4242)
@@ -2288,12 +2285,12 @@ test_footer_cert_tasks( fd_wksp_t * wksp ) {
   ulong       hm_cnt  = 0UL;
   ulong       out_idx = ctx->replay_out->idx;
   /* mode 0 two tiles, 1 one tile (one cert inline), 2 no idle tile, 3
-     runtime diffs on, 4 two tiles and a footer bank hash mismatch, 5 one cert
-     on a tile and a reward slice on the other, where the bad round
-     fails the slice instead of a cert */
-  for( ulong mode=0UL; mode<6UL; mode++ ) {
+     two tiles and a footer bank hash mismatch, 4 one cert on a tile and
+     a reward slice on the other, where the bad round fails the slice
+     instead of a cert */
+  for( ulong mode=0UL; mode<5UL; mode++ ) {
     for( ulong bad=0UL; bad<2UL; bad++ ) {
-      int slice_mode = mode==5UL;
+      int slice_mode = mode==4UL;
       memset( mock_footer, 0, sizeof(fd_block_footer_t) );
       mock_footer->has_fast_final_cert   = 1;
       mock_footer->has_notar_reward_cert = !slice_mode;
@@ -2301,21 +2298,19 @@ test_footer_cert_tasks( fd_wksp_t * wksp ) {
       if( !slice_mode ) cert_test_sign( &mock_footer->notar_reward_cert, parent->f.slot, &parent->f.block_id );
       if( bad && !slice_mode ) mock_footer->notar_reward_cert.slot = slot; /* signed another slot */
       mock_footer_plan_final = slice_mode;
-      int hash_bad = mode==4UL;
+      int hash_bad = mode==3UL;
 
       fd_bank_t * b = add_replayable_block( ctx, parent, slot, ids+slot );
       memset( ctx->footer_end+b->idx, 0, sizeof(fd_replay_footer_end_t) ); /* as BLOCK_START leaves it */
       mock_footer->bank_hash = b->f.bank_hash; /* the mocked finalize keeps it */
       if( hash_bad ) mock_footer->bank_hash.ul[ 0 ] ^= 1UL;
       mock_cert_tiles  = mode==1UL ? 2UL : mode==2UL ? 0UL : 3UL;
-      ctx->report_runtime_diffs     = mode==3UL;
-      mock_leader_for_slot_override = mode==3UL;
       ulong refcnt0    = b->refcnt;
       ulong seq0[ 2 ]  = { test_stem_seqs[ ctx->exec_out[ 0 ].idx ], test_stem_seqs[ ctx->exec_out[ 1 ].idx ] };
       ulong done0      = test_stem_seqs[ out_idx ];
       int   dead       = replay_block_finalize( ctx, test_stem, b );
 
-      ulong frag_cnt   = mode==0UL || mode==4UL || slice_mode ? 2UL : mode==1UL ? 1UL : 0UL;
+      ulong frag_cnt   = mode==0UL || mode==3UL || slice_mode ? 2UL : mode==1UL ? 1UL : 0UL;
       int   inline_bad = bad && !slice_mode && frag_cnt!=2UL; /* the bad cert verifies on replay */
       fd_lthash_value_t lthash0[1];
       fd_memcpy( lthash0, fd_bank_lthash_locking_query( b ), sizeof(fd_lthash_value_t) ); fd_bank_lthash_end_locking_query( b );
@@ -2450,8 +2445,6 @@ test_footer_cert_tasks( fd_wksp_t * wksp ) {
   }
 
   FD_TEST( hm_cnt ); /* earlier certs seeded the memo for later posts */
-  ctx->report_runtime_diffs     = 0;
-  mock_leader_for_slot_override = 0;
   mock_cert_tiles        = 0UL;
   mock_footer_finalize   = 0;
   mock_footer_verify     = 0;
