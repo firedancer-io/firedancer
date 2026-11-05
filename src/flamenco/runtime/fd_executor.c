@@ -945,7 +945,12 @@ fd_executor_setup_txn_alut_account_keys( fd_runtime_t *      runtime,
                                                          accts_alt );
     if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
       if( FD_UNLIKELY( loading && err==FD_RUNTIME_TXN_ERR_ADDRESS_LOOKUP_TABLE_NOT_FOUND ) ) {
-        txn_out->err.is_deferred = 1;
+        fd_txn_acct_addr_lut_t const * luts = fd_txn_get_address_tables_const( TXN( txn_in->txn ) );
+        for( ulong i=0UL; i<TXN( txn_in->txn )->addr_table_lookup_cnt; i++ ) {
+          if( FD_UNLIKELY( !fd_accdb_has_record( runtime->accdb, bank->parent_accdb_fork_id, txn_in->txn->payload+luts[ i ].addr_off ) ) ) {
+            txn_out->err.is_deferred = 1;
+          }
+        }
       }
       return err;
     }

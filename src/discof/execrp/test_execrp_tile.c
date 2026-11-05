@@ -1013,6 +1013,41 @@ FD_UNIT_TEST( execrp_deferred_while_loading ) {
   test_env_destroy( env );
 }
 
+/* A lookup table the server streamed as a tombstone is missing for
+   real, so the transaction fails like it does on the server.  One with
+   no record yet is handed back. */
+
+FD_UNIT_TEST( execrp_missing_alt_while_loading ) {
+  test_env_t * env  = test_env_create();
+  fd_bank_t *  bank = fd_svm_mini_bank( env->mini, env->bank_idx );
+
+  fd_pubkey_t fee_payer  = { .ul = { 0xA1A1UL } };
+  fd_pubkey_t dead_alt   = { .ul = { 0xA2A2UL } };
+  fd_pubkey_t unseen_alt = { .ul = { 0xA3A3UL } };
+  fd_pubkey_t alt_addrs[ 3 ] = { { .ul = { 0xA4A4UL } }, { .ul = { 0xA5A5UL } }, { .ul = { 0xA6A6UL } } };
+  fd_blockhash_info_t * blockhash_info = (fd_blockhash_info_t *)fd_blockhashes_peek_last( &bank->f.block_hash_queue );
+  FD_TEST( blockhash_info );
+  blockhash_info->lamports_per_signature = 5000UL;
+  test_fund_account( env, &fee_payer, 1000000000UL );
+  test_put_account( env, bank->parent_accdb_fork_id, &dead_alt, &fd_solana_system_program_id, 0UL, 0, NULL, 0UL );
+
+  fd_accdb_snapshot_load_begin( env->execrp->accdb );
+
+  fd_txn_p_t txn[1];
+  test_build_alt_transfer_txn( txn, bank, fee_payer, dead_alt, alt_addrs, 40UL );
+  fd_execrp_task_done_msg_t const * out_msg = test_execrp_run_alts( env, txn, 40UL, 1, 0UL );
+  FD_TEST( !out_msg->txn_exec->is_committable );
+  FD_TEST( out_msg->txn_exec->txn_err==FD_RUNTIME_TXN_ERR_ADDRESS_LOOKUP_TABLE_NOT_FOUND );
+
+  test_build_alt_transfer_txn( txn, bank, fee_payer, unseen_alt, alt_addrs, 41UL );
+  test_execrp_send( env, txn, 41UL, 1 );
+  out_msg = test_assert_out_msg( env, 0UL, FD_EXECRP_TT_TXN_DEFERRED );
+  FD_TEST( out_msg->txn_deferred->txn_idx==41UL );
+
+  fd_accdb_snapshot_load_end( env->execrp->accdb );
+  test_env_destroy( env );
+}
+
 FD_UNIT_TEST( execrp_simple_fee_payer_fail ) {
   test_env_t * env = test_env_create();
   fd_bank_t * bank = fd_svm_mini_bank( env->mini, env->bank_idx );
