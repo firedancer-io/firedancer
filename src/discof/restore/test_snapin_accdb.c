@@ -136,6 +136,13 @@ test_env_init_ex( test_env_t * env,
     FD_TEST( dup2( idx_fd, FD_ACCDB_IDX_FD_RW )==FD_ACCDB_IDX_FD_RW );
     if( idx_fd!=FD_ACCDB_IDX_FD_RW ) FD_TEST( !close( idx_fd ) );
     FD_TEST( !ftruncate( FD_ACCDB_IDX_FD_RW, (long)env->shmem->idx_file_sz ) );
+    /* stage file, O_DIRECT as run.c opens it */
+    int  mfd = memfd_create( "snapin_accdb_stage", 0 );
+    char dio_path[ 64 ];
+    FD_TEST( mfd>=0 && fd_cstr_printf_check( dio_path, sizeof(dio_path), NULL, "/proc/self/fd/%d", mfd ) );
+    int stage_fd = open( dio_path, O_RDWR|O_DIRECT );
+    FD_TEST( stage_fd>=0 && dup2( stage_fd, FD_ACCDB_STAGE_FD )==FD_ACCDB_STAGE_FD );
+    FD_TEST( !close( stage_fd ) && !close( mfd ) );
   }
 
   env->snapin_shmem_mem = aligned_alloc( alignof(fd_snapin_shmem_t), sizeof(fd_snapin_shmem_t) );
@@ -168,7 +175,7 @@ test_env_init_ex( test_env_t * env,
     fd_snapin_tile_t * ctx = &env->worker[ i ];
     ctx->accdb = fd_accdb_join( fd_accdb_new( env->join_mem[ i ], env->shmem,
                                                FD_ACCDB_FD_RW, -1, 0UL, NULL, NULL, 0UL, 0,
-                                               index_ram_entries ? FD_ACCDB_IDX_FD_RW : -1, env->place_window[ i ] ) );
+                                               index_ram_entries ? FD_ACCDB_IDX_FD_RW : -1, index_ram_entries ? FD_ACCDB_STAGE_FD : -1, env->place_window[ i ] ) );
     FD_TEST( ctx->accdb );
     ctx->full              = 1;
     ctx->tile_idx          = i;
@@ -304,7 +311,7 @@ test_env_free( test_env_t * env ) {
   free( env->stake_mem );
   free( env->snapin_shmem_mem );
   for( ulong i=0UL; i<env->worker_cnt; i++ ) free( env->place_window[ i ] );
-  if( env->shmem->index_ram_entries ) FD_TEST( !close( FD_ACCDB_IDX_FD_RW ) );
+  if( env->shmem->index_ram_entries ) FD_TEST( !close( FD_ACCDB_IDX_FD_RW ) && !close( FD_ACCDB_STAGE_FD ) );
   free( env->shmem_mem );
   FD_TEST( !close( FD_ACCDB_FD_RW ) );
   FD_TEST( !close( FD_STAKE_DELEGATIONS_FD ) );

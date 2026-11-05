@@ -12,6 +12,7 @@
 #include <unistd.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
+#include <fcntl.h>
 
 static uchar pubkey0[ 32UL ]  = { 0 };
 static uchar pubkey1[ 32UL ]  = { 1, 0 };
@@ -66,7 +67,7 @@ test_setup_ex( int * out_fd,
   FD_TEST( accdb_fp );
   void * accdb_mem = aligned_alloc( fd_accdb_align(), accdb_fp );
   FD_TEST( accdb_mem );
-  fd_accdb_t * accdb = fd_accdb_join( fd_accdb_new( accdb_mem, shmem, fd, -1, 0UL, NULL, NULL, 0UL, 1, -1, NULL ) );
+  fd_accdb_t * accdb = fd_accdb_join( fd_accdb_new( accdb_mem, shmem, fd, -1, 0UL, NULL, NULL, 0UL, 1, -1, -1, NULL ) );
   FD_TEST( accdb );
   return accdb;
 }
@@ -104,7 +105,7 @@ test_setup_idx_part( int * out_fd,
     FD_TEST( scratch_fd>=0 && !ftruncate( scratch_fd, (long)fd_accdb_scratch_sz( max_live_slots, max_account_writes_per_slot, max_accounts, index_ram_entries ) ) );
   }
   void * accdb_mem = aligned_alloc( fd_accdb_align(), fd_accdb_footprint( max_live_slots, 1 ) );
-  fd_accdb_t * accdb = fd_accdb_join( fd_accdb_new( accdb_mem, shmem, fd, scratch_fd, 0UL, NULL, NULL, 0UL, 1, test_idx_fd, NULL ) );
+  fd_accdb_t * accdb = fd_accdb_join( fd_accdb_new( accdb_mem, shmem, fd, scratch_fd, 0UL, NULL, NULL, 0UL, 1, test_idx_fd, -1, NULL ) );
   FD_TEST( accdb );
   return accdb;
 }
@@ -134,7 +135,7 @@ test_join_writer( int fd ) {
   ulong fp = fd_accdb_footprint( test_shmem_mem->max_live_slots, 1 );
   void * mem = aligned_alloc( fd_accdb_align(), fp );
   FD_TEST( mem );
-  fd_accdb_t * accdb = fd_accdb_join( fd_accdb_new( mem, test_shmem_mem, fd, -1, 0UL, NULL, NULL, 0UL, 1, -1, NULL ) );
+  fd_accdb_t * accdb = fd_accdb_join( fd_accdb_new( mem, test_shmem_mem, fd, -1, 0UL, NULL, NULL, 0UL, 1, -1, -1, NULL ) );
   FD_TEST( accdb );
   return accdb;
 }
@@ -1005,7 +1006,7 @@ test_purge_deep_subtree( void ) {
   FD_TEST( !ftruncate( scratch_fd, (long)fd_accdb_scratch_sz( 64UL, 8192UL, 1024UL, 0UL ) ) );
   void * t2_mem = aligned_alloc( fd_accdb_align(), fd_accdb_footprint( 64UL, 1 ) );
   FD_TEST( t2_mem );
-  fd_accdb_t * t2 = fd_accdb_join( fd_accdb_new( t2_mem, test_shmem_mem, fd, scratch_fd, 0UL, NULL, NULL, 0UL, 1, -1, NULL ) );
+  fd_accdb_t * t2 = fd_accdb_join( fd_accdb_new( t2_mem, test_shmem_mem, fd, scratch_fd, 0UL, NULL, NULL, 0UL, 1, -1, -1, NULL ) );
   FD_TEST( t2 );
   /* Mainnet window: resident holds >3x the ~0.7M unlinks one root of
      FD_RUNTIME_MAX_ACC_WRITES_PER_SLOT (172,841) can append. */
@@ -2765,7 +2766,7 @@ test_idx_prefetch_and_residual( void ) {
   int fd;
   fd_accdb_t * t2 = test_setup_idx( &fd, 8192UL, 1024UL, 256UL, 64UL );
   void * fg_mem = aligned_alloc( fd_accdb_align(), fd_accdb_footprint( 256UL, 0 ) );
-  fd_accdb_t * fg = fd_accdb_join( fd_accdb_new( fg_mem, test_shmem_mem, fd, -1, 0UL, NULL, NULL, 0UL, 0, -1, NULL ) );
+  fd_accdb_t * fg = fd_accdb_join( fd_accdb_new( fg_mem, test_shmem_mem, fd, -1, 0UL, NULL, NULL, 0UL, 0, -1, -1, NULL ) );
   FD_TEST( fg );
 
   uchar d[ 40 ]; ulong lamports, data_len; uchar owner[ 32 ];
@@ -2971,7 +2972,16 @@ test_idx_place_equivalence( ulong seed,
   fd_accdb_t * t2 = test_setup_idx( &fd, max_accounts, 1024UL, 64UL, 64UL );
   void * window = aligned_alloc( 4096UL, FD_ACCDB_PLACE_WINDOW );
   FD_TEST( window );
-  fd_accdb_t * accdb = fd_accdb_join( fd_accdb_new( aligned_alloc( fd_accdb_align(), fd_accdb_footprint( 64UL, 0 ) ), test_shmem_mem, fd, -1, 0UL, NULL, NULL, 0UL, 0, test_idx_fd, window ) );
+  /* odd seeds stage in a separate O_DIRECT file, as snapin does */
+  int stage_fd = -1;
+  if( seed&1UL ) {
+    int  mfd = memfd_create( "accdb_stage", 0 );
+    char dio_path[ 64 ];
+    FD_TEST( mfd>=0 && fd_cstr_printf_check( dio_path, sizeof(dio_path), NULL, "/proc/self/fd/%d", mfd ) );
+    stage_fd = open( dio_path, O_RDWR|O_DIRECT );
+    FD_TEST( stage_fd>=0 && !close( mfd ) );
+  }
+  fd_accdb_t * accdb = fd_accdb_join( fd_accdb_new( aligned_alloc( fd_accdb_align(), fd_accdb_footprint( 64UL, 0 ) ), test_shmem_mem, fd, -1, 0UL, NULL, NULL, 0UL, 0, test_idx_fd, stage_fd, window ) );
   FD_TEST( accdb );
   fd_accdb_cf_t cf[1] = {{ .cf = (ulong *)( (uchar *)test_shmem_mem + test_shmem_mem->idx_cf_off ), .nb = test_shmem_mem->idx_cf_nb, .seed = test_shmem_mem->seed,
                            .seq = &test_shmem_mem->idx_cf_seq, .stash = (ulong *)( (uchar *)test_shmem_mem + test_shmem_mem->idx_cf_stash_off ),
@@ -3013,7 +3023,7 @@ test_idx_place_equivalence( ulong seed,
   plt_stop = 0;
   for( ulong i=0UL; i<helper_cnt; i++ ) {
     hwin[ i ] = aligned_alloc( 4096UL, FD_ACCDB_PLACE_WINDOW );
-    hj[ i ]   = fd_accdb_join( fd_accdb_new( aligned_alloc( fd_accdb_align(), fd_accdb_footprint( 64UL, 0 ) ), test_shmem_mem, fd, -1, 0UL, NULL, NULL, 0UL, 0, test_idx_fd, hwin[ i ] ) );
+    hj[ i ]   = fd_accdb_join( fd_accdb_new( aligned_alloc( fd_accdb_align(), fd_accdb_footprint( 64UL, 0 ) ), test_shmem_mem, fd, -1, 0UL, NULL, NULL, 0UL, 0, test_idx_fd, stage_fd, hwin[ i ] ) );
     FD_TEST( hj[ i ] );
     FD_TEST( !pthread_create( &helper[ i ], NULL, plt_helper, hj[ i ] ) );
   }
@@ -3117,6 +3127,7 @@ test_idx_place_equivalence( ulong seed,
   FD_TEST( live==test_shmem_mem->shmetrics->accounts_total );
 
   fd_accdb_snapshot_load_end( accdb );
+  if( stage_fd>=0 ) FD_TEST( !close( stage_fd ) );
   free( window );
   free( accdb );
   close( test_idx_fd );
@@ -3129,7 +3140,7 @@ test_idx_overflow_worst_case( void ) {
   ulong writes = 64UL, leaves = 24UL;
   fd_accdb_t * t2 = test_setup_idx( &fd, 1UL<<16, 512UL, 64UL, writes );
   void * fg_mem = aligned_alloc( fd_accdb_align(), fd_accdb_footprint( 64UL, 0 ) );
-  fd_accdb_t * fg = fd_accdb_join( fd_accdb_new( fg_mem, test_shmem_mem, fd, -1, 0UL, NULL, NULL, 0UL, 0, -1, NULL ) );
+  fd_accdb_t * fg = fd_accdb_join( fd_accdb_new( fg_mem, test_shmem_mem, fd, -1, 0UL, NULL, NULL, 0UL, 0, -1, -1, NULL ) );
   test_background_ctx_t bg = { .accdb = t2, .stop = 0 };
   pthread_t thr;
   FD_TEST( !pthread_create( &thr, NULL, run_background, &bg ) );
@@ -3332,7 +3343,7 @@ test_idx_fifo_rewrite( void ) {
   FD_TEST( scratch_fd>=0 );
   test_shmem_mem->fifo_chunk = 16UL;
   FD_TEST( !ftruncate( scratch_fd, (long)( test_shmem_mem->fifo_file_off+(4096UL/16UL+2UL)*16UL*sizeof(ulong) ) ) );
-  fd_accdb_t * t2 = fd_accdb_join( fd_accdb_new( aligned_alloc( fd_accdb_align(), fd_accdb_footprint( 256UL, 1 ) ), test_shmem_mem, fd, scratch_fd, 0UL, NULL, NULL, 0UL, 1, test_idx_fd, NULL ) );
+  fd_accdb_t * t2 = fd_accdb_join( fd_accdb_new( aligned_alloc( fd_accdb_align(), fd_accdb_footprint( 256UL, 1 ) ), test_shmem_mem, fd, scratch_fd, 0UL, NULL, NULL, 0UL, 1, test_idx_fd, -1, NULL ) );
   FD_TEST( t2 );
   tip = fd_accdb_attach_child( t2, SENTINEL );
   for( ulong r=0UL; r<FD_ACCDB_DEMOTE_AGE+16UL; r++ ) {

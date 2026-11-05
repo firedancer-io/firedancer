@@ -9,7 +9,10 @@
 #
 # accdb_idx_fd: Accounts index file (index mode), explicit positioned
 #               I/O only, fallocated at boot.
-uint logfile_fd, uint accounts_fd, uint accdb_scratch_fd, uint accdb_idx_fd
+#
+# accdb_stage_fd: Snapshot stage file (index mode), punched out after a
+#                 snapshot load.
+uint logfile_fd, uint accounts_fd, uint accdb_scratch_fd, uint accdb_idx_fd, uint accdb_stage_fd
 
 # logging: all log messages are written to a file and/or pipe
 #
@@ -49,11 +52,10 @@ pwritev2: (or (eq (arg 0) accounts_fd)
 # The accounts database allocates more space from the underlying storage
 # device in 1GiB chunks, as it runs out.
 #
-# The accounts index file's snapshot stage is punched out after a
-# snapshot load.
+# The snapshot stage file is punched out after a snapshot load.
 fallocate: (or (and (eq (arg 0) accounts_fd)
                     (eq (arg 1) 0))
-               (and (eq (arg 0) accdb_idx_fd)
+               (and (eq (arg 0) accdb_stage_fd)
                     (eq (arg 1) "FALLOC_FL_PUNCH_HOLE|FALLOC_FL_KEEP_SIZE")))
 
 # startup: sleep until snapshot loaded

@@ -35,7 +35,7 @@
 
 static const uint sock_filter_policy_fd_accdb_tile_instr_cnt = 59;
 
-static void populate_sock_filter_policy_fd_accdb_tile( ulong out_cnt, struct sock_filter out[ static 59 ], uint logfile_fd, uint accounts_fd, uint accdb_scratch_fd, uint accdb_idx_fd ) {
+static void populate_sock_filter_policy_fd_accdb_tile( ulong out_cnt, struct sock_filter out[ static 59 ], uint logfile_fd, uint accounts_fd, uint accdb_scratch_fd, uint accdb_idx_fd, uint accdb_stage_fd ) {
   FD_TEST( out_cnt >= 59 );
   struct sock_filter filter[59] = {
     /* validate architecture */
@@ -128,7 +128,7 @@ static void populate_sock_filter_policy_fd_accdb_tile( ulong out_cnt, struct soc
 //  or_6:
     /* arg 0 low 32 bits */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, FD_SECCOMP_ARG_LO_OFFSET(0)),
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, ((uint)(accdb_idx_fd)), /* and_8 */ 0, /* fallocate_KILL */ 2 ),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, ((uint)(accdb_stage_fd)), /* and_8 */ 0, /* fallocate_KILL */ 2 ),
 //  and_8:
     /* arg 1 low 32 bits */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, FD_SECCOMP_ARG_LO_OFFSET(1)),

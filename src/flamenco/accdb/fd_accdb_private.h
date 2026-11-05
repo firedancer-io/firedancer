@@ -747,9 +747,9 @@ struct fd_accdb_shmem_private {
   ulong ovl_ans_off;        /* uint [MAX_JOINERS][MAX_ACQUIRE_CNT]: T2's
                                newest visible generation per request */
 
-  /* Snapshot staging (index mode).  Stage bytes live in the index file
-     at [stage_base, stage_base+stage_head); the region grows by
-     fallocate under grow_lock. */
+  /* Snapshot staging (index mode).  Stage bytes live in the stage file,
+     or in the index file from stage_base; the region grows by fallocate
+     under grow_lock. */
   ulong stage_base;
   ulong stage_head __attribute__((aligned(64)));   /* FAA by writers */
   ulong stage_falloc;                              /* grow_lock      */
