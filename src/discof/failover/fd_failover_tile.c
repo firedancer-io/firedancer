@@ -17,6 +17,7 @@
 #include <sys/socket.h>
 #include <netinet/in.h>  /* IPPROTO_TCP */
 #include <netinet/tcp.h> /* TCP_NODELAY */
+#include <linux/futex.h> /* FUTEX_WAIT_BITSET */
 
 #include "generated/fd_failover_tile_seccomp.h"
 
@@ -26,7 +27,8 @@
    identity, and the admin tile does the identity switch and stays off
    the network. */
 
-#define FD_FAILOVER_TILE_POLL_NANOS (50000L) /* 50us */
+#define FD_FAILOVER_TILE_POLL_NANOS (50000L)   /* 50us */
+#define FD_FAILOVER_TILE_PARK_NANOS (1000000L) /* 1ms */
 
 #define FD_FAILOVER_DEADLINE_SLOTS (64UL)
 #define FD_FAILOVER_DEADLINE_NANOS ((long)FD_FAILOVER_DEADLINE_SLOTS*(long)FD_FAILOVER_NANOS_PER_SECOND)
@@ -205,7 +207,7 @@ struct fd_failover_tile_ctx {
   ushort                  cmd_port;     /* failover port, 0 if from gossip */
   fd_failover_channel_t * channel;      /* the TLS channel to the peer */
   fd_failover_session_t   session;      /* the session we last saw on the channel */
-  long                    poll_at;      /* next idle socket poll */
+  long                    next_wake;    /* next socket poll, the park deadline */
   long                    target_since; /* our clock since we started watching gossip for the target */
 
   fd_failover_request_t request;               /* our handoff request */
@@ -665,10 +667,11 @@ after_credit( fd_failover_tile_ctx_t * ctx,
   step_controller( ctx, stem );
 
   long now = fd_failover_clock();
-  if( FD_LIKELY( now>=ctx->poll_at ) ) {
+  if( FD_LIKELY( stem->now>=ctx->next_wake ) ) {
     int busy = 0;
     poll_peer( ctx, now, &busy );
-    ctx->poll_at = busy ? now : now+FD_FAILOVER_TILE_POLL_NANOS;
+    long poll_nanos = ctx->action!=FD_FAILOVER_ACTION_IDLE ? FD_FAILOVER_TILE_POLL_NANOS : FD_FAILOVER_TILE_PARK_NANOS;
+    ctx->next_wake = busy ? 0L : stem->now+(long)((double)poll_nanos*fd_tempo_tick_per_ns( NULL ));
     if( busy ) *charge_busy = 1;
   }
   flush_pending( ctx, now );
@@ -691,6 +694,11 @@ after_credit( fd_failover_tile_ctx_t * ctx,
     ctx->stuck_logged = ctx->stuck;
     if( !ctx->stuck ) FD_LOG_NOTICE(( "failover is no longer stuck, %s", holds_identity( ctx ) ? "this machine runs the identity" : "this machine does not run the identity" ));
   }
+}
+
+static inline long
+next_deadline( fd_failover_tile_ctx_t const * ctx ) {
+  return ctx->next_wake;
 }
 
 static ulong
@@ -731,11 +739,12 @@ populate_allowed_fds( fd_topo_t const *      topo,
 #define STEM_BURST (3UL)
 #define STEM_LAZY  ((long)1e6) /* 1ms */
 
-#define STEM_NEVER_PARK 1
+#define STEM_ALWAYS_PARK 1
 
 #define STEM_CALLBACK_CONTEXT_TYPE       fd_failover_tile_ctx_t
 #define STEM_CALLBACK_CONTEXT_ALIGN      alignof(fd_failover_tile_ctx_t)
 
+#define STEM_CALLBACK_NEXT_DEADLINE      next_deadline
 #define STEM_CALLBACK_AFTER_CREDIT       after_credit
 #define STEM_CALLBACK_BEFORE_FRAG        before_frag
 #define STEM_CALLBACK_DURING_FRAG        during_frag
