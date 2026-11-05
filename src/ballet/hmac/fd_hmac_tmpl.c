@@ -38,9 +38,14 @@ HMAC_FN( void const * data,
 
   /* Compress key */
 
+  HASH_(t) _sha[ 1 ];
+  HASH_(t) * sha = HASH_(join)( HASH_(new)( _sha ) );
+
   uchar key[ HASH_BLOCK_SZ ] __attribute__((aligned(32))) = {0};
   if( key_sz>HASH_BLOCK_SZ ) {
-    HASH_(hash)( _key, key_sz, key );
+    HASH_(init)( sha );
+    HASH_(append)( sha, _key, key_sz );
+    HASH_(fini)( sha, key );
     key_sz = HASH_SZ;
   } else {
     fd_memcpy( key, _key, key_sz );
@@ -59,8 +64,6 @@ HMAC_FN( void const * data,
 
   /* Inner SHA calculation */
 
-  HASH_(t) _sha[ 1 ];
-  HASH_(t) * sha = HASH_(join)( HASH_(new)( _sha ) );
   HASH_(init)( sha );
   HASH_(append)( sha, key_ipad, HASH_BLOCK_SZ );
   HASH_(append)( sha, data, data_sz );
@@ -72,6 +75,11 @@ HMAC_FN( void const * data,
   HASH_(append)( sha, key_opad, HASH_BLOCK_SZ );
   HASH_(append)( sha, hash,     HASH_SZ       );
   HASH_(fini)( sha, hash );
+
+  fd_memzero_explicit( key,      sizeof(key)      );
+  fd_memzero_explicit( key_ipad, sizeof(key_ipad) );
+  fd_memzero_explicit( key_opad, sizeof(key_opad) );
+  fd_memzero_explicit( _sha,     sizeof(_sha)     );
 
   return hash;
 }
