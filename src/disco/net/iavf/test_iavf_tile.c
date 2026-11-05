@@ -399,7 +399,7 @@ test_bond_route( void ) {
   hop.if_idx = 7U;
   FD_TEST( fd_fib4_insert( test_tile.router.fib_main, dst, 32, 0U, &hop ) );
   FD_TEST( before_frag( &test_tile, 0UL, 0UL, sig ) );
-  FD_TEST( test_tile.net.metrics.tx_drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_UNSUPPORTED_INTERFACE_IDX ]==1UL );
+  FD_TEST( test_tile.net.metrics.tx_routing_failure_cnt[ FD_METRICS_ENUM_PKT_TX_ROUTING_FAILURE_REASON_V_UNSUPPORTED_INTERFACE_IDX ]==1UL );
   FD_TEST( test_tile.metrics.tx_no_link_cnt==1UL );
 
   /* One failed job must count once even when tile 0 probes for loopback. */
@@ -413,7 +413,7 @@ test_bond_route( void ) {
     test_tile.net.kind_id = tile_idx;
     FD_TEST( before_frag( &test_tile, 0UL, 0UL, sig ) );
   }
-  FD_TEST( test_tile.net.metrics.tx_drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_NO_ROUTE_IDX ]==1UL );
+  FD_TEST( test_tile.net.metrics.tx_routing_failure_cnt[ FD_METRICS_ENUM_PKT_TX_ROUTING_FAILURE_REASON_V_NO_ROUTE_IDX ]==1UL );
 
   /* An unroutable GRE outer endpoint is counted once, as NoRoute */
   test_tile.net.kind_id  = 0UL;
@@ -422,7 +422,7 @@ test_bond_route( void ) {
   test_netdevs[1].gre_dst_ip = FD_IP4_ADDR( 192,0,2,1 );
   FD_TEST( fd_fib4_insert( test_tile.router.fib_main, dst, 32, 0U, &hop ) );
   FD_TEST( before_frag( &test_tile, 0UL, 0UL, sig ) );
-  FD_TEST( test_tile.net.metrics.tx_drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_NO_ROUTE_IDX ]==2UL );
+  FD_TEST( test_tile.net.metrics.tx_routing_failure_cnt[ FD_METRICS_ENUM_PKT_TX_ROUTING_FAILURE_REASON_V_NO_ROUTE_IDX ]==2UL );
   FD_TEST( test_tile.net.metrics.tx_drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_GRE_NO_ROUTE_IDX ]==0UL );
 
   test_tile.net.tile_cnt = 2UL;

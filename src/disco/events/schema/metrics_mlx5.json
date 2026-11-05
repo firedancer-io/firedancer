@@ -127,6 +127,19 @@
         "gre_pkt_tx_submitted":       { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "GRE transmit jobs submitted to the NIC" },
         "tx_buffer_used":             { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "TX buffers pending or submitted to the NIC" },
         "tx_buffer_free":             { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "TX buffers available for a new transmit job" },
-        "vlan_pkt_rx":                { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "VLAN-tagged packets with the tag stripped in software and published; subset of PktRx" }
+        "vlan_pkt_rx":                { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "VLAN-tagged packets with the tag stripped in software and published; subset of PktRx" },
+        "pkt_tx_routing_failed": {
+            "type": "Tuple",
+            "description": "Transmit jobs that failed route resolution, by reason",
+            "aliases": {
+                "all": ["no_route", "unsupported_route", "interface_missing", "unsupported_interface"]
+            },
+            "fields": {
+                "no_route":              { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "No matching route" },
+                "unsupported_route":     { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Unsupported route type" },
+                "interface_missing":     { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Interface not available" },
+                "unsupported_interface": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Interface type not supported" }
+            }
+        }
     }
 }

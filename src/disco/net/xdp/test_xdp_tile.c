@@ -595,25 +595,25 @@ main( int     argc,
   /* TX routes to non-XDP or non-Ethernet interfaces count as
      unsupported_interface */
   {
-    ulong * fail_cnt = ctx->net.metrics.tx_drop_cnt;
-    ulong   before   = fail_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_UNSUPPORTED_INTERFACE_IDX ];
+    ulong * fail_cnt = ctx->net.metrics.tx_routing_failure_cnt;
+    ulong   before   = fail_cnt[ FD_METRICS_ENUM_PKT_TX_ROUTING_FAILURE_REASON_V_UNSUPPORTED_INTERFACE_IDX ];
 
     ctx->if_virt = IF_IDX_ETH0;
     FD_TEST( net_tx_route( ctx, random_ip, &is_gre_inf )==0 );
-    FD_TEST( fail_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_UNSUPPORTED_INTERFACE_IDX ]==before+1UL );
+    FD_TEST( fail_cnt[ FD_METRICS_ENUM_PKT_TX_ROUTING_FAILURE_REASON_V_UNSUPPORTED_INTERFACE_IDX ]==before+1UL );
 
     ctx->if_virt = IF_IDX_ETH1;
     fd_netdev_t * eth1 = fd_netdev_tbl_query( &ctx->netdev_tbl, IF_IDX_ETH1 );
     eth1->dev_type = ARPHRD_NONE;
     FD_TEST( net_tx_route( ctx, random_ip, &is_gre_inf )==0 );
-    FD_TEST( fail_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_UNSUPPORTED_INTERFACE_IDX ]==before+2UL );
+    FD_TEST( fail_cnt[ FD_METRICS_ENUM_PKT_TX_ROUTING_FAILURE_REASON_V_UNSUPPORTED_INTERFACE_IDX ]==before+2UL );
     eth1->dev_type = ARPHRD_ETHER;
 
     ulong metrics[ FD_METRICS_TOTAL_SZ/sizeof(ulong) ] = {0};
     volatile ulong * saved_metrics = fd_metrics_tl;
     fd_metrics_tl = metrics;
     metrics_write( ctx );
-    FD_TEST( fd_metrics_tl[ FD_METRICS_COUNTER_NET_PKT_TX_DROPPED_UNSUPPORTED_INTERFACE_OFF ]==before+2UL );
+    FD_TEST( fd_metrics_tl[ FD_METRICS_COUNTER_NET_PKT_TX_ROUTING_FAILED_UNSUPPORTED_INTERFACE_OFF ]==before+2UL );
     fd_metrics_tl = saved_metrics;
   }
 
@@ -621,8 +621,8 @@ main( int     argc,
      count it as unsupported_interface, while tile 0 must if it lacks
      the loopback XSK. */
   {
-    ulong * fail_cnt = ctx->net.metrics.tx_drop_cnt;
-    ulong   before   = fail_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_UNSUPPORTED_INTERFACE_IDX ];
+    ulong * fail_cnt = ctx->net.metrics.tx_routing_failure_cnt;
+    ulong   before   = fail_cnt[ FD_METRICS_ENUM_PKT_TX_ROUTING_FAILURE_REASON_V_UNSUPPORTED_INTERFACE_IDX ];
     FD_TEST( ctx->xsk_cnt==1U );
 
     ctx->net.tile_cnt = 2UL;
@@ -634,11 +634,11 @@ main( int     argc,
 
     ctx->net.kind_id = 1UL;
     FD_TEST( before_frag( ctx, 0UL, 0UL, sig )==1 );
-    FD_TEST( fail_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_UNSUPPORTED_INTERFACE_IDX ]==before );
+    FD_TEST( fail_cnt[ FD_METRICS_ENUM_PKT_TX_ROUTING_FAILURE_REASON_V_UNSUPPORTED_INTERFACE_IDX ]==before );
 
     ctx->net.kind_id = 0UL;
     FD_TEST( before_frag( ctx, 0UL, 0UL, sig )==1 );
-    FD_TEST( fail_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_UNSUPPORTED_INTERFACE_IDX ]==before+1UL );
+    FD_TEST( fail_cnt[ FD_METRICS_ENUM_PKT_TX_ROUTING_FAILURE_REASON_V_UNSUPPORTED_INTERFACE_IDX ]==before+1UL );
 
     ctx->net.tile_cnt = 1UL;
   }

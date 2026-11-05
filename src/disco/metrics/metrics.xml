@@ -221,6 +221,13 @@ deliberate exception with lint-allow="<rule id>")
     <int value="8" name="GreNoRoute" label="GRE tunnel addresses missing or outer route is itself tunnelled" />
 </enum>
 
+<enum name="PktTxRoutingFailureReason">
+    <int value="0" name="NoRoute" label="No matching route" />
+    <int value="1" name="UnsupportedRoute" label="Unsupported route type" />
+    <int value="2" name="InterfaceMissing" label="Interface not available" />
+    <int value="3" name="UnsupportedInterface" label="Interface type not supported" />
+</enum>
+
 <tile name="net">
     <counter name="PktRx" summary="Packets successfully published to output links" />
     <counter name="PktRxBytes" summary="Bytes of packets successfully published to output links" />
@@ -233,6 +240,7 @@ deliberate exception with lint-allow="<rule id>")
     <counter name="PktTxCompleted" summary="Packet transmit jobs marked as completed by the kernel" />
     <counter name="PktTxSubmittedBytes" summary="Bytes of packets submitted for transmission" />
     <counter name="PktTxDropped" enum="PktTxDropReason" summary="Transmit jobs dropped, by reason" />
+    <counter name="PktTxRoutingFailed" enum="PktTxRoutingFailureReason" summary="Transmit jobs that failed route resolution, by reason" />
     <gauge name="TxBufferUsed" summary="Transmit buffers currently in use" />
     <gauge name="TxBufferFree" summary="Transmit buffers currently free" />
 
@@ -267,6 +275,7 @@ deliberate exception with lint-allow="<rule id>")
     <counter name="PktTxCompleted" summary="Packets completed by the NIC for transmission" />
     <counter name="PktTxCompletedBytes" summary="Bytes of packets completed by the NIC" />
     <counter name="PktTxDropped" enum="PktTxDropReason" summary="Transmit jobs dropped, by reason" />
+    <counter name="PktTxRoutingFailed" enum="PktTxRoutingFailureReason" summary="Transmit jobs that failed route resolution, by reason" />
     <counter name="GrePktTxSubmitted" summary="GRE transmit jobs submitted to the NIC" />
     <gauge name="TxBufferUsed" summary="TX buffers pending or submitted to the NIC" />
     <gauge name="TxBufferFree" summary="TX buffers available for a new transmit job" />
@@ -284,6 +293,7 @@ deliberate exception with lint-allow="<rule id>")
     <counter name="PktTxCompleted" summary="Packets completed by the NIC for transmission" />
     <counter name="PktTxCompletedBytes" summary="Bytes of packets completed by the NIC" />
     <counter name="PktTxDropped" enum="PktTxDropReason" summary="Transmit jobs dropped, by reason" />
+    <counter name="PktTxRoutingFailed" enum="PktTxRoutingFailureReason" summary="Transmit jobs that failed route resolution, by reason" />
     <counter name="PktTxNoLinkDropped" summary="Transmit jobs dropped because no configured VF or bond member can send traffic" />
     <counter name="PktTxLoopbackFailed" summary="Loopback transmit jobs dropped because the socket send failed or accepted only part of a batch" />
     <counter name="GrePktTxSubmitted" summary="GRE transmit jobs submitted to the NIC" />
