@@ -1013,7 +1013,7 @@ fd_gui_accounts_stats_snap( fd_gui_t *                gui,
      accumulates into the aggregate (cur->*), and stashes the per-tile
      cumulative values into gui->summary.accdb->tile_cur_* for the
      per-tile rate window pushes done later in
-     fd_gui_printf_accounts_stats. */
+     fd_gui_accounts_stats_window_push. */
   for( ulong s=0UL; s<gui->summary.accdb->accdb_tile_cnt; s++ ) {
     ulong t_idx = (ulong)gui->summary.accdb->accdb_tile_topo_idx[ s ];
     uchar kind  = gui->summary.accdb->accdb_tile_kind[ s ];
@@ -1851,6 +1851,7 @@ fd_gui_poll( fd_gui_t * gui, long now ) {
 
       *gui->summary.accounts_stats_reference = *gui->summary.accounts_stats_current;
       fd_gui_accounts_stats_snap( gui, gui->summary.accounts_stats_current );
+      fd_gui_accounts_stats_window_push( gui );
       fd_gui_printf_accounts_stats( gui );
       fd_http_server_ws_broadcast( gui->http );
       gui->summary.accounts_stats_have_reference = 1;

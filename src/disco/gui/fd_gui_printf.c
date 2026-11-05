@@ -1410,7 +1410,7 @@ fd_gui_sparkline_push( char *  text,
 }
 
 void
-fd_gui_printf_accounts_stats( fd_gui_t * gui ) {
+fd_gui_accounts_stats_window_push( fd_gui_t * gui ) {
   fd_gui_accounts_stats_t const * cur  = gui->summary.accounts_stats_current;
   fd_gui_accounts_stats_t const * prev = gui->summary.accounts_stats_reference;
   int have_ref = gui->summary.accounts_stats_have_reference;
@@ -1548,6 +1548,11 @@ fd_gui_printf_accounts_stats( fd_gui_t * gui ) {
     if( gui->summary.accdb->accdb_win_count<FD_GUI_ACCDB_WIN_SAMPLES )
       gui->summary.accdb->accdb_win_count++;
   }
+}
+
+void
+fd_gui_printf_accounts_stats( fd_gui_t * gui ) {
+  fd_gui_accounts_stats_t const * cur = gui->summary.accounts_stats_current;
 
   /* Compute weighted denominator once: sum(weight * dt_sec).  Newest
      sample has weight n, oldest has weight 1.  If unfilled, only the
