@@ -2,6 +2,7 @@
 #define HEADER_fd_src_flamenco_runtime_fd_runtime_h
 
 #include "fd_runtime_const.h"
+#include "fd_bpf_frames.h"
 #include "fd_runtime_stack.h"
 #include "fd_compute_budget_details.h"
 #include "fd_runtime_helpers.h"
@@ -74,9 +75,10 @@
 */
 
 struct fd_runtime {
-  fd_accdb_t *     accdb;
-  fd_txncache_t *  status_cache;
-  fd_progcache_t * progcache;
+  fd_accdb_t *      accdb;
+  fd_txncache_t *   status_cache;
+  fd_progcache_t *  progcache;
+  fd_bpf_frames_t * bpf_frames;
 
   /* Sysvars of the bank with sequence number sysvar_bank_seq (0 if
      none).  Refilled by fd_runtime_sysvar_cache_refresh. */
@@ -139,9 +141,8 @@ struct fd_runtime {
     int                   enable_vm_tracing;
     uchar *               tracing_mem;
   } log;
-
   struct {
-    uchar serialization_mem[ FD_MAX_INSTRUCTION_STACK_DEPTH ][ BPF_LOADER_SERIALIZATION_FOOTPRINT ] __attribute__((aligned(FD_RUNTIME_EBPF_HOST_ALIGN)));
+    uchar * frame[ FD_MAX_INSTRUCTION_STACK_DEPTH ];
   } bpf_loader_serialization;
 
   struct {

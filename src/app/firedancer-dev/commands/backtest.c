@@ -142,6 +142,10 @@ backtest_topo( config_t * config ) {
   #define FOR(cnt) for( ulong i=0UL; i<cnt; i++ )
   FOR(execrp_tile_cnt) fd_topob_tile( topo, "execrp", "execrp", "metric_in", NEXT_CPU, 0, 0, 0 );
 
+  fd_topob_wksp( topo, "bpf_frames" );
+  fd_topo_obj_t * bpf_frames_obj = setup_topo_bpf_frames( topo, "bpf_frames", config->firedancer.runtime.bpf_shared_frames, config->firedancer.runtime.bpf_local_frames, execrp_tile_cnt );
+  FOR(execrp_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "execrp", i ) ], bpf_frames_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+
   /**********************************************************************/
   /* Add the capture tile to topo                                       */
   /**********************************************************************/

@@ -428,10 +428,10 @@ common_close_account( fd_pubkey_t *         authority_address,
 /* Every loader-owned BPF program goes through this function, which goes into the VM.
 
    https://github.com/anza-xyz/agave/blob/574bae8fefc0ed256b55340b9d87b7689bcdf222/programs/bpf_loader/src/lib.rs#L1332-L1501 */
-int
-fd_bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
-                fd_progcache_rec_t const * cache_entry,
-                uchar                      is_deprecated ) {
+static int
+bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
+             fd_progcache_rec_t const * cache_entry,
+             uchar                      is_deprecated ) {
   long const regime0 = fd_tickcount();
 
   int err = FD_EXECUTOR_INSTR_SUCCESS;
@@ -463,7 +463,7 @@ fd_bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
   ulong instruction_data_offset = 0UL;
   /* 16-byte aligned buffer:
      https://github.com/anza-xyz/agave/blob/v3.0.0/program-runtime/src/serialization.rs#L60 */
-  uchar * input = instr_ctx->runtime->bpf_loader_serialization.serialization_mem[ instr_ctx->runtime->instr.stack_sz-1UL ];
+  uchar * input = instr_ctx->runtime->bpf_loader_serialization.frame[ instr_ctx->runtime->instr.stack_sz-1UL ];
   err = fd_bpf_loader_input_serialize_parameters( instr_ctx, pre_lens,
                                                   input_mem_regions, &input_mem_regions_cnt,
                                                   acc_region_metas, virtual_address_space_adjustments, direct_mapping,
@@ -699,6 +699,20 @@ fd_bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
     instr_ctx->runtime->metrics.cpi_commit_cum_ticks  += (ulong)( regime3-regime2 );
   }
 
+  return err;
+}
+
+int
+fd_bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
+                fd_progcache_rec_t const * cache_entry,
+                uchar                      is_deprecated ) {
+  /* Tiles holding frames can wait on the program cache spill lock, so
+     its holder must never wait for a frame. */
+  fd_runtime_t * runtime = instr_ctx->runtime;
+  uchar *        frame   = fd_bpf_frames_acquire( runtime->bpf_frames, fd_progcache_spill_held( runtime->progcache ) );
+  runtime->bpf_loader_serialization.frame[ runtime->instr.stack_sz-1UL ] = frame;
+  int err = bpf_execute( instr_ctx, cache_entry, is_deprecated );
+  fd_bpf_frames_release( runtime->bpf_frames, frame );
   return err;
 }
 

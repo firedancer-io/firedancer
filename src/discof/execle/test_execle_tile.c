@@ -145,6 +145,7 @@ test_env_create( void ) {
   fd_topo_obj_t * progcache_obj  = test_topo_obj_laddr( topo, "progcache",  "execle", env->mini->progcache->join->shmem );
   fd_topo_obj_t * banks_obj      = test_topo_obj_laddr( topo, "banks",      "execle", env->mini->banks );
   fd_topo_obj_t * txncache_obj   = test_topo_obj_laddr( topo, "txncache",   "execle", env->mini->txncache_shmem );
+  fd_topo_obj_t * bpf_frames_obj = test_topo_obj_laddr( topo, "bpf_frames", "execle", env->mini->bpf_frames_shmem );
   FD_TEST( fd_pod_insertf_ulong( topo->props, banks_obj->id, "banks" ) );
 
   void * busy_fseq_mem = fd_wksp_alloc_laddr( env->mini->wksp, fd_fseq_align(), fd_fseq_footprint(), TOPO_TAG );
@@ -163,6 +164,7 @@ test_env_create( void ) {
   topo_tile->execle.accdb_obj_id     = accdb_obj->id;
   topo_tile->execle.progcache_obj_id = progcache_obj->id;
   topo_tile->execle.txncache_obj_id  = txncache_obj->id;
+  topo_tile->execle.bpf_frames_obj_id = bpf_frames_obj->id;
 
   privileged_init( topo, topo_tile );
   unprivileged_init( topo, topo_tile );

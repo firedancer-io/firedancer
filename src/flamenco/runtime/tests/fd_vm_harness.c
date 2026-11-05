@@ -82,6 +82,7 @@ fd_solfuzz_pb_syscall_run( fd_solfuzz_runner_t * runner,
   const fd_exec_test_instr_context_t * input_instr_ctx = &input->instr_ctx;
   fd_exec_instr_ctx_t ctx[1];
   fd_solfuzz_pb_instr_ctx_create( runner, ctx, input_instr_ctx );
+  ulong frame_level = ULONG_MAX;
 
   ctx->txn_out->err.exec_err = 0;
   ctx->txn_out->err.exec_err_kind = FD_EXECUTOR_ERR_KIND_NONE;
@@ -162,6 +163,8 @@ fd_solfuzz_pb_syscall_run( fd_solfuzz_runner_t * runner,
       FD_LOG_WARNING(( "instr stack push err" ));
       goto error;
   }
+  frame_level = ctx->runtime->instr.stack_sz-1UL;
+  ctx->runtime->bpf_loader_serialization.frame[ frame_level ] = fd_bpf_frames_acquire( ctx->runtime->bpf_frames, 0 );
 
   ulong instr_data_offset = 0UL;
   int err = fd_bpf_loader_input_serialize_parameters( ctx,
@@ -321,12 +324,14 @@ fd_solfuzz_pb_syscall_run( fd_solfuzz_runner_t * runner,
 
   /* Return the effects */
   ulong actual_end = tmp_end + input_regions_size;
+  fd_bpf_frames_release( ctx->runtime->bpf_frames, ctx->runtime->bpf_loader_serialization.frame[ frame_level ] );
   fd_solfuzz_pb_instr_ctx_destroy( runner, ctx );
 
   *output = effects;
   return actual_end - (ulong)output_buf;
 
 error:
+  if( frame_level!=ULONG_MAX ) fd_bpf_frames_release( ctx->runtime->bpf_frames, ctx->runtime->bpf_loader_serialization.frame[ frame_level ] );
   fd_solfuzz_pb_instr_ctx_destroy( runner, ctx );
   return 0;
 }
@@ -369,6 +374,9 @@ fd_solfuzz_pb_vm_serialize_run( fd_solfuzz_runner_t * runner,
 
   /* Push the instruction onto the stack */
   FD_TEST( !fd_instr_stack_push( ctx->runtime, ctx->txn_in, ctx->txn_out, (fd_instr_info_t *)ctx->instr ) );
+  ulong   frame_level    = ctx->runtime->instr.stack_sz-1UL;
+  uchar * serialized_buf = fd_bpf_frames_acquire( ctx->runtime->bpf_frames, 0 );
+  ctx->runtime->bpf_loader_serialization.frame[ frame_level ] = serialized_buf;
 
   /* Call serialize_parameters */
   ulong                   input_sz                = 0UL;
@@ -395,13 +403,13 @@ fd_solfuzz_pb_vm_serialize_run( fd_solfuzz_runner_t * runner,
   if( FD_UNLIKELY( err ) ) {
     effects->has_error = true;
     ulong actual_end = FD_SCRATCH_ALLOC_FINI( l, 1UL );
+    fd_bpf_frames_release( ctx->runtime->bpf_frames, ctx->runtime->bpf_loader_serialization.frame[ frame_level ] );
     fd_solfuzz_pb_instr_ctx_destroy( runner, ctx );
     *output = effects;
     return actual_end - (ulong)output_buf;
   }
 
   /* Hash the serialized memory buffer. */
-  uchar * serialized_buf = ctx->runtime->bpf_loader_serialization.serialization_mem[ ctx->runtime->instr.stack_sz-1UL ];
   effects->serialized_memory_hash = fd_hash( 0UL, serialized_buf, input_sz );
 
   /* Populate vm_input_memory_regions */
@@ -438,6 +446,7 @@ fd_solfuzz_pb_vm_serialize_run( fd_solfuzz_runner_t * runner,
   }
 
   ulong actual_end = FD_SCRATCH_ALLOC_FINI( l, 1UL );
+  fd_bpf_frames_release( ctx->runtime->bpf_frames, ctx->runtime->bpf_loader_serialization.frame[ frame_level ] );
   fd_solfuzz_pb_instr_ctx_destroy( runner, ctx );
 
   *output = effects;

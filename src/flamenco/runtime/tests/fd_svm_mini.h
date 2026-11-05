@@ -39,6 +39,8 @@ struct fd_svm_mini {
   fd_vm_t *             vm;
 
   fd_progcache_t     progcache[1];
+  void *             bpf_frames_shmem;
+  fd_bpf_frames_t *  bpf_frames;
   fd_log_collector_t log_collector[1];
   fd_features_t      features[1];
   fd_sha256_t        sha256[1]; /* FIXME this should not be separate */
