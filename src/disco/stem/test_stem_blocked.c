@@ -11,7 +11,11 @@
      the blocked frag.
 
    - A deadline (NEXT_DEADLINE) ends the park, and work done at the
-     deadline unblocks the frag. */
+     deadline unblocks the frag.
+
+   The scenario runs unsharded, then with in 0 sharded (IN_SHARD),
+   where a sibling shard's frag published behind the blocked head must
+   not sweep it awake either. */
 
 #include "fd_stem.h"
 #include "../metrics/fd_metrics.h"
@@ -38,6 +42,8 @@ static fd_sleep_t * sleep_obj;
 static volatile int waker_done;
 static volatile ulong sweep_wakes;
 static volatile ulong park_wakes;
+static ulong          shard_cnt0;  /* in 0's shard count */
+static ulong          shard_idx0;  /* and this tile's shard */
 
 static int
 should_shutdown( test_ctx_t * ctx ) {
@@ -59,6 +65,18 @@ after_credit( test_ctx_t *        ctx,
     ctx->pace_deadline = LONG_MAX;
     ctx->capacity      = 1;
     *charge_busy       = 1;
+  }
+}
+
+static void
+in_shard( test_ctx_t * ctx,
+          ulong        in_idx,
+          ulong *      shard_cnt,
+          ulong *      shard_idx ) {
+  (void)ctx;
+  if( in_idx==0UL ) {
+    *shard_cnt = shard_cnt0;
+    *shard_idx = shard_idx0;
   }
 }
 
@@ -93,6 +111,7 @@ returnable_frag( test_ctx_t *        ctx,
 #define STEM_CALLBACK_SHOULD_SHUTDOWN should_shutdown
 #define STEM_CALLBACK_NEXT_DEADLINE   next_deadline
 #define STEM_CALLBACK_AFTER_CREDIT    after_credit
+#define STEM_CALLBACK_IN_SHARD        in_shard
 #define STEM_CALLBACK_RETURNABLE_FRAG returnable_frag
 #include "fd_stem.c"
 
@@ -143,16 +162,30 @@ waker_thread( void * arg ) {
 }
 
 /* Publish one frag on in i as its producer would: mcache, mirror, and
-   ring the consumer if parked */
+   ring the consumer if parked and ring is set */
 
 static void
-publish( ulong i ) {
+publish( ulong i,
+         int   ring ) {
   ulong seq = in_pub[ i ]++;
   fd_mcache_publish( in_mcache[ i ], DEPTH, seq, 0UL, 0UL, 0UL, 0UL, 0UL, 0UL );
   fd_mcache_seq_update( fd_mcache_seq_laddr( in_mcache[ i ] ), in_pub[ i ] );
   __atomic_store_n( &sleep_obj->seq_mirror[ i ], in_pub[ i ], __ATOMIC_RELEASE );
-  fd_sleep_wake_t wake[ 1 ] = {{ .w = 0UL, .mask = 1UL }};
-  fd_sleep_wake_check( sleep_obj, wake, 1UL );
+  if( ring ) {
+    fd_sleep_wake_t wake[ 1 ] = {{ .w = 0UL, .mask = 1UL }};
+    fd_sleep_wake_check( sleep_obj, wake, 1UL );
+  }
+}
+
+/* Publish the next frag on in i this tile owns, after any sibling
+   shards' frags ahead of it */
+
+static void
+publish_own( ulong i ) {
+  ulong cnt = i ? 1UL : shard_cnt0;
+  ulong idx = i ? 0UL : shard_idx0;
+  while( in_pub[ i ]%cnt!=idx ) publish( i, 1 );
+  publish( i, 1 );
 }
 
 static volatile ulong const * tile_metrics;
@@ -193,18 +226,22 @@ nap_ms( long ms ) {
   while( nanosleep( &ts, &ts ) ) {}
 }
 
-int
-main( int     argc,
-      char ** argv ) {
-  fd_boot( &argc, &argv );
+static void
+run( double tick_per_ns,
+     ulong  shard_cnt,
+     ulong  shard_idx ) {
+  shard_cnt0  = shard_cnt;
+  shard_idx0  = shard_idx;
+  waker_done  = 0;
+  sweep_wakes = 0UL;
+  park_wakes  = 0UL;
 
-  double tick_per_ns = fd_tempo_tick_per_ns( NULL );
   FD_TEST( fd_metrics_new( metrics_mem, 2UL ) );
-
   for( ulong i=0UL; i<2UL; i++ ) {
     in_mcache[ i ] = fd_mcache_join( fd_mcache_new( mcache_mem[ i ], DEPTH, 0UL, 0UL ) );
     in_fseq  [ i ] = fd_fseq_join( fd_fseq_new( fseq_mem[ i ], 0UL ) );
     FD_TEST( in_mcache[ i ] && in_fseq[ i ] );
+    in_pub   [ i ] = 0UL;
   }
 
   sleep_obj = fd_sleep_join( fd_sleep_new( sleep_mem, tick_per_ns ) );
@@ -221,7 +258,7 @@ main( int     argc,
   ctx.pace_deadline = LONG_MAX;
 
   /* The blocked frag is already published and mirrored */
-  publish( 0UL );
+  publish_own( 0UL );
 
   pthread_t waker, stem;
   FD_TEST( !pthread_create( &waker, NULL, waker_thread, NULL ) );
@@ -239,8 +276,25 @@ main( int     argc,
   FD_TEST( ctx.attempts<=park_wakes+1UL );    /* one retry per wake at most */
   FD_TEST( tile_metrics[ FD_METRICS_COUNTER_TILE_PARK_ATTEMPTED_DEADLINE_OFF ]>=2UL );
 
+  /* Sharded: a sibling shard's frag behind the blocked head, which the
+     tile never polls, does not sweep it awake.  It goes unrung so only
+     the sweep could wake the tile. */
+  if( shard_cnt>1UL ) {
+    wait_parked();
+    long  deadline = (long)FD_VOLATILE_CONST( sleep_obj->tile[ 0 ].deadline );
+    ulong wakes0   = park_wakes;
+    FD_TEST( in_pub[ 0 ]%shard_cnt!=shard_idx );
+    publish( 0UL, 0 );
+    nap_ms( 2L );
+    FD_TEST( !sweep_wakes );
+    int capped = deadline<=fd_tickcount(); /* only the park cap may end it */
+    FD_TEST( tile_parked()     || capped );
+    FD_TEST( park_wakes==wakes0 || capped );
+    FD_TEST( !ctx.consumed0 );
+  }
+
   /* A frag on in 1 wakes it, and it retries and consumes in 0 */
-  publish( 1UL );
+  publish_own( 1UL );
   wait_for( &ctx.consumed0, 1UL );
   FD_TEST( ctx.consumed1==1UL );
   FD_TEST( !sweep_wakes );
@@ -251,7 +305,7 @@ main( int     argc,
   long t0 = fd_tickcount();
   ctx.pace_deadline = t0 + (long)( (double)PACE_NS*tick_per_ns );
   ulong attempts0 = ctx.attempts;
-  publish( 0UL );
+  publish_own( 0UL );
   wait_for( &ctx.consumed0, 2UL );
   FD_TEST( fd_tickcount()-t0>=(long)( (double)PACE_NS*tick_per_ns ) );
   FD_TEST( ctx.attempts>=attempts0+2UL ); /* blocked, then consumed after the deadline */
@@ -264,6 +318,23 @@ main( int     argc,
   FD_TEST( !pthread_join( stem, NULL ) );
   waker_done = 1;
   FD_TEST( !pthread_join( waker, NULL ) );
+
+  for( ulong i=0UL; i<2UL; i++ ) {
+    FD_TEST( fd_fseq_delete( fd_fseq_leave( in_fseq[ i ] ) ) );
+    FD_TEST( fd_mcache_delete( fd_mcache_leave( in_mcache[ i ] ) ) );
+  }
+
+  FD_LOG_NOTICE(( "pass (in 0 shard %lu/%lu)", shard_idx, shard_cnt ));
+}
+
+int
+main( int     argc,
+      char ** argv ) {
+  fd_boot( &argc, &argv );
+
+  double tick_per_ns = fd_tempo_tick_per_ns( NULL );
+  run( tick_per_ns, 1UL, 0UL );
+  run( tick_per_ns, 2UL, 1UL );
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
