@@ -118,7 +118,7 @@ struct fd_accdb_partition {
      freed-bytes threshold.  The compaction tile will not begin reading
      from this partition until all joiners that were in an
      epoch-protected critical section at enqueue time have exited,
-     ensuring any in-flight pwritev2 to this partition has completed. */
+     ensuring any in-flight vectored write to this partition has completed. */
   ulong compaction_ready_epoch;
 
   /* Epoch at which this partition was enqueued for deferred freeing.

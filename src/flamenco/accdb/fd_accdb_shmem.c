@@ -199,7 +199,7 @@ fd_accdb_shmem_new( void * shmem,
 
   /* The maximum file offset is (partition_cnt-1)*partition_sz +
      partition_sz - 1, which must fit in a signed long (off_t) because
-     pwritev2, preadv2, and fallocate all take signed offsets. */
+     vectored I/O and preallocation calls take signed offsets. */
   if( FD_UNLIKELY( partition_cnt>=(ulong)LONG_MAX/partition_sz ) ) {
     FD_LOG_WARNING(( "partition_cnt*partition_sz must be at most LONG_MAX" ));
     return NULL;

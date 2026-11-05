@@ -42,6 +42,81 @@ ulong fd_accdb_dbg_compact_scanned; /* bytes compaction stepped over */
 #include <fcntl.h>
 #include <errno.h>
 #include <sys/uio.h>
+#include <sys/stat.h>
+
+static inline long
+fd_accdb_preadv( int           fd,
+                 struct iovec * iov,
+                 int           iov_cnt,
+                 off_t         offset ) {
+#if defined(__linux__)
+  return preadv2( fd, iov, iov_cnt, offset, 0 );
+#elif defined(__APPLE__)
+  return preadv( fd, iov, iov_cnt, offset );
+#else
+#error "accdb vectored I/O is unsupported on this platform"
+#endif
+}
+
+static inline long
+fd_accdb_pwritev( int                 fd,
+                  struct iovec *       iov,
+                  int                 iov_cnt,
+                  off_t               offset ) {
+#if defined(__linux__)
+  return pwritev2( fd, iov, iov_cnt, offset, 0 );
+#elif defined(__APPLE__)
+  return pwritev( fd, iov, iov_cnt, offset );
+#else
+#error "accdb vectored I/O is unsupported on this platform"
+#endif
+}
+
+static inline int
+fd_accdb_preallocate( int   fd,
+                      off_t offset,
+                      off_t len ) {
+#if defined(__linux__)
+  return fallocate( fd, 0, offset, len );
+#elif defined(__APPLE__)
+  if( FD_UNLIKELY( offset<0 || len<=0 ) ) {
+    errno = EINVAL;
+    return -1;
+  }
+
+  off_t end;
+  if( FD_UNLIKELY( __builtin_add_overflow( offset, len, &end ) ) ) {
+    errno = EOVERFLOW;
+    return -1;
+  }
+
+  fstore_t store = {
+    .fst_flags      = F_ALLOCATECONTIG | F_ALLOCATEALL,
+    .fst_posmode    = F_VOLPOSMODE,
+    .fst_offset     = offset ? offset : 1,
+    .fst_length     = len,
+    .fst_bytesalloc = 0,
+  };
+  int result;
+  do result = fcntl( fd, F_PREALLOCATE, &store );
+  while( FD_UNLIKELY( result && errno==EINTR ) );
+  if( FD_UNLIKELY( result ) ) {
+    store.fst_flags = F_ALLOCATEALL;
+    do result = fcntl( fd, F_PREALLOCATE, &store );
+    while( FD_UNLIKELY( result && errno==EINTR ) );
+    if( FD_UNLIKELY( result ) ) return -1;
+  }
+
+  struct stat st;
+  if( FD_UNLIKELY( fstat( fd, &st ) ) ) return -1;
+  if( FD_LIKELY( st.st_size>=end ) ) return 0;
+  do result = ftruncate( fd, end );
+  while( FD_UNLIKELY( result && errno==EINTR ) );
+  return result;
+#else
+#error "accdb preallocation is unsupported on this platform"
+#endif
+}
 
 struct fd_accdb_fork {
   fd_accdb_fork_shmem_t * shmem;
@@ -1828,15 +1903,15 @@ grow_locked( fd_accdb_t * accdb,
     FD_LOG_INFO(( "growing accounts database from %lu GiB to %lu GiB", p*accdb->shmem->partition_sz/(1UL<<30UL), (p+1UL)*accdb->shmem->partition_sz/(1UL<<30UL) ));
 
     long fallocate_nanos = -fd_log_wallclock();
-    int  result          = fallocate( accdb->fd, 0, (long)(p*accdb->shmem->partition_sz), (long)accdb->shmem->partition_sz );
+    int  result          = fd_accdb_preallocate( accdb->fd, (off_t)(p*accdb->shmem->partition_sz), (off_t)accdb->shmem->partition_sz );
     fallocate_nanos     += fd_log_wallclock();
     if( FD_UNLIKELY( -1==result ) ) {
       if( FD_LIKELY( preallocated ) ) return errno;
-      if( FD_LIKELY( errno==ENOSPC ) ) FD_LOG_ERR(( "fallocate() failed (%d-%s). The accounts database filled "
+      if( FD_LIKELY( errno==ENOSPC ) ) FD_LOG_ERR(( "accounts database preallocation failed (%d-%s). The accounts database filled "
                                                     "the disk it is on, trying to grow from %lu GiB to %lu GiB. Please "
                                                     "free up disk space and restart the validator.",
                                                     errno, fd_io_strerror( errno ), p*accdb->shmem->partition_sz/(1UL<<30UL), (p+1UL)*accdb->shmem->partition_sz/(1UL<<30UL) ));
-      else FD_LOG_ERR(( "fallocate() failed (%d-%s)", errno, fd_io_strerror( errno ) ));
+      else FD_LOG_ERR(( "accounts database preallocation failed (%d-%s)", errno, fd_io_strerror( errno ) ));
     }
 
     FD_VOLATILE( accdb->shmem->partition_fallocated ) = p+1UL;
@@ -2199,10 +2274,10 @@ background_compact( fd_accdb_t * accdb,
     for( ulong i=0UL; i<live_cnt; i++ ) iov[ i ] = (struct iovec){ .iov_base = accdb->bounce+live_src[ i ], .iov_len = live_sz[ i ] };
     ulong written = 0UL; ulong iov_idx = 0UL;
     while( written<live_bytes ) {
-      long result = pwritev2( accdb->fd, iov+iov_idx, (int)(live_cnt-iov_idx), (long)(dest_base+written), 0 );
+      long result = fd_accdb_pwritev( accdb->fd, iov+iov_idx, (int)(live_cnt-iov_idx), (off_t)(dest_base+written) );
       if( FD_UNLIKELY( -1==result && (errno==EINTR || errno==EAGAIN || errno==EWOULDBLOCK ) ) ) continue;
-      else if( FD_UNLIKELY( -1==result ) ) FD_LOG_ERR(( "pwritev2() failed (%d-%s)", errno, fd_io_strerror( errno ) ));
-      else if( FD_UNLIKELY( !result ) ) FD_LOG_ERR(( "accounts database is corrupt, pwritev2() returned 0 at offset %lu", dest_base+written ));
+      else if( FD_UNLIKELY( -1==result ) ) FD_LOG_ERR(( "vectored write failed (%d-%s)", errno, fd_io_strerror( errno ) ));
+      else if( FD_UNLIKELY( !result ) ) FD_LOG_ERR(( "accounts database is corrupt, vectored write returned 0 at offset %lu", dest_base+written ));
       written += (ulong)result;
       accdb->metrics->copy_ops++;
       ulong adv = (ulong)result;
@@ -2981,10 +3056,10 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
     ulong bytes_written = 0UL;
     struct iovec * write_ptr = write_ops;
     while( FD_LIKELY( bytes_written<total_write_sz ) ) {
-      long result = pwritev2( accdb->fd, write_ptr, fd_int_min( write_ops_cnt, IOV_MAX ), (long)(file_offset+bytes_written), 0 );
+      long result = fd_accdb_pwritev( accdb->fd, write_ptr, fd_int_min( write_ops_cnt, IOV_MAX ), (off_t)(file_offset+bytes_written) );
       if( FD_UNLIKELY( -1==result && (errno==EINTR || errno==EAGAIN || errno==EWOULDBLOCK ) ) ) continue;
-      else if( FD_UNLIKELY( -1==result ) ) FD_LOG_ERR(( "pwritev2() failed (%d-%s)", errno, fd_io_strerror( errno ) ));
-      else if( FD_UNLIKELY( !result ) ) FD_LOG_ERR(( "accounts database is corrupt, pwritev2() returned 0 at offset %lu with %lu bytes remaining",
+      else if( FD_UNLIKELY( -1==result ) ) FD_LOG_ERR(( "vectored write failed (%d-%s)", errno, fd_io_strerror( errno ) ));
+      else if( FD_UNLIKELY( !result ) ) FD_LOG_ERR(( "accounts database is corrupt, vectored write returned 0 at offset %lu with %lu bytes remaining",
                                                      file_offset+bytes_written, total_write_sz-bytes_written ));
       bytes_written += (ulong)result;
       accdb->metrics->bytes_written += (ulong)result;
@@ -3014,10 +3089,10 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
 
       ulong written = 0UL;
       while( FD_LIKELY( written<entry_sz ) ) {
-        long result = pwritev2( accdb->fd, entry_iovs, 2, (long)(entry_off+written), 0 );
+        long result = fd_accdb_pwritev( accdb->fd, entry_iovs, 2, (off_t)(entry_off+written) );
         if( FD_UNLIKELY( -1==result && (errno==EINTR || errno==EAGAIN || errno==EWOULDBLOCK ) ) ) continue;
-        else if( FD_UNLIKELY( -1==result ) ) FD_LOG_ERR(( "pwritev2() failed (%d-%s)", errno, fd_io_strerror( errno ) ));
-        else if( FD_UNLIKELY( !result ) ) FD_LOG_ERR(( "accounts database is corrupt, pwritev2() returned 0 at offset %lu with %lu bytes remaining", entry_off+written, entry_sz-written ));
+        else if( FD_UNLIKELY( -1==result ) ) FD_LOG_ERR(( "vectored write failed (%d-%s)", errno, fd_io_strerror( errno ) ));
+        else if( FD_UNLIKELY( !result ) ) FD_LOG_ERR(( "accounts database is corrupt, vectored write returned 0 at offset %lu with %lu bytes remaining", entry_off+written, entry_sz-written ));
         written += (ulong)result;
         accdb->metrics->bytes_written += (ulong)result;
         accdb->metrics->write_ops++;
@@ -3125,9 +3200,9 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
   for( ulong i=0UL; i<read_ops_cnt; i++ ) {
     ulong bytes_read = 0UL;
     while( FD_LIKELY( bytes_read<read_sizes[ i ] ) ) {
-      long result = preadv2( accdb->fd, &read_ops[ i ], 1, (long)(read_offsets[ i ]+bytes_read), 0 );
+      long result = fd_accdb_preadv( accdb->fd, &read_ops[ i ], 1, (off_t)(read_offsets[ i ]+bytes_read) );
       if( FD_UNLIKELY( -1==result && (errno==EINTR || errno==EAGAIN || errno==EWOULDBLOCK ) ) ) continue;
-      else if( FD_UNLIKELY( -1==result ) ) FD_LOG_ERR(( "preadv2() failed (%d-%s)", errno, fd_io_strerror( errno ) ));
+      else if( FD_UNLIKELY( -1==result ) ) FD_LOG_ERR(( "vectored read failed (%d-%s)", errno, fd_io_strerror( errno ) ));
       else if( FD_UNLIKELY( !result ) ) FD_LOG_ERR(( "accounts database is corrupt, data expected at offset %lu with size %lu exceeded file extents",
                                                      read_offsets[ i ]+bytes_read, read_sizes[ i ] ));
       fd_accdb_partition_read_bump( accdb, read_offsets[ i ]+bytes_read, (ulong)result );
@@ -3910,9 +3985,9 @@ miss:;
   ulong got   = 0UL;
   int   nio   = read_data_len ? 2 : 1;
   while( FD_LIKELY( got<total ) ) {
-    long result = preadv2( accdb->fd, iovs, nio, (long)(start+got), 0 );
+    long result = fd_accdb_preadv( accdb->fd, iovs, nio, (off_t)(start+got) );
     if( FD_UNLIKELY( -1==result && (errno==EINTR || errno==EAGAIN || errno==EWOULDBLOCK) ) ) continue;
-    else if( FD_UNLIKELY( -1==result ) ) FD_LOG_ERR(( "preadv2() failed (%d-%s)", errno, fd_io_strerror( errno ) ));
+    else if( FD_UNLIKELY( -1==result ) ) FD_LOG_ERR(( "vectored read failed (%d-%s)", errno, fd_io_strerror( errno ) ));
     else if( FD_UNLIKELY( !result ) ) FD_LOG_ERR(( "accounts database is corrupt, data expected at offset %lu with size %lu exceeded file extents", start+got, total ));
     fd_accdb_partition_read_bump( accdb, start+got, (ulong)result );
     got += (ulong)result;
@@ -4161,9 +4236,9 @@ preevict_flush( fd_accdb_t *             accdb,
   ulong written  = 0UL;
   while( written<stage_sz ) {
     struct iovec iov = { .iov_base = accdb->stage+written, .iov_len = stage_sz-written };
-    long result = pwritev2( accdb->fd, &iov, 1, (long)(file_off+written), 0 );
+    long result = fd_accdb_pwritev( accdb->fd, &iov, 1, (off_t)(file_off+written) );
     if( FD_UNLIKELY( result==-1 && errno==EINTR ) ) continue;
-    else if( FD_UNLIKELY( result<=0 ) ) FD_LOG_ERR(( "pwritev2() failed (%d-%s)", errno, fd_io_strerror( errno ) ));
+    else if( FD_UNLIKELY( result<=0 ) ) FD_LOG_ERR(( "vectored write failed (%d-%s)", errno, fd_io_strerror( errno ) ));
     written += (ulong)result;
     accdb->metrics->bytes_written += (ulong)result;
     accdb->metrics->write_ops++;
@@ -4642,7 +4717,7 @@ fd_accdb_background( fd_accdb_t * accdb,
     int   err        = grow ? grow_locked( accdb, fallocated, 0, ULONG_MAX, 1 ) : 0;
     spin_lock_release( &shmem->grow_lock );
     if( FD_UNLIKELY( err ) ) {
-      FD_LOG_WARNING(( "fallocate() failed (%d-%s) preallocating the accounts database beyond %lu GiB. "
+      FD_LOG_WARNING(( "preallocating the accounts database failed (%d-%s) beyond %lu GiB. "
                        "The validator will exit soon when the disk fills.",
                        err, fd_io_strerror( err ), fallocated*shmem->partition_sz/(1UL<<30UL) ));
       accdb->prealloc_failed_at = fallocated;
@@ -4829,9 +4904,9 @@ fd_accdb_debug_clock_evict_line( fd_accdb_t * accdb,
     ulong file_off = allocate_next_write( accdb, entry_sz );
     ulong written  = 0UL;
     while( written<entry_sz ) {
-      long result = pwritev2( accdb->fd, iovs, 2, (long)(file_off+written), 0 );
+      long result = fd_accdb_pwritev( accdb->fd, iovs, 2, (off_t)(file_off+written) );
       if( FD_UNLIKELY( result==-1 && errno==EINTR ) ) continue;
-      else if( FD_UNLIKELY( result<=0 ) ) FD_LOG_ERR(( "pwritev2() failed (%d-%s)", errno, fd_io_strerror( errno ) ));
+      else if( FD_UNLIKELY( result<=0 ) ) FD_LOG_ERR(( "vectored write failed (%d-%s)", errno, fd_io_strerror( errno ) ));
       written += (ulong)result;
       for( int v=0; v<2; v++ ) {
         if( (ulong)result>=iovs[ v ].iov_len ) { result -= (long)iovs[ v ].iov_len; iovs[ v ].iov_len = 0UL; }
