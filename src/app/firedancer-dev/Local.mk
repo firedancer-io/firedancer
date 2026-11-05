@@ -14,6 +14,7 @@ $(call add-objs,commands/rotor,fd_firedancer_dev)
 $(call add-objs,commands/ipecho_server,fd_firedancer_dev)
 $(call add-objs,commands/gossip_dump,fd_firedancer_dev)
 $(call add-objs,commands/force_mismatch,fd_firedancer_dev)
+$(call add-objs,commands/shredb_export,fd_firedancer_dev)
 
 ifdef FD_ARCH_SUPPORTS_SANDBOX
 $(call make-bin,firedancer-dev,main,fd_firedancer_dev fd_firedancer fddev_shared fdctl_shared fdctl_platform fd_discof fd_disco fd_choreo fd_flamenco fd_waltz_test fd_quic fd_tls fd_reedsol fd_waltz fd_tango fd_ballet fd_util_extra fd_util)
