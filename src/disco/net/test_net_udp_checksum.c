@@ -69,6 +69,11 @@ run_case( char const * name, int mode, ulong payload, ulong declared_payload,
   if( mode==4 ) ip->daddr^=1U; /* pseudo-header corruption */
   if( mode==5 ) ((uchar *)(udp+1))[declared_payload-1UL]^=1U; /* odd final byte corruption */
   if( mode==6 ) { udp->check=0U;udp->net_dport=fd_ushort_bswap(9001U); } /* unbound kernel path */
+  ip->check=fd_ip4_hdr_check(ip);
+  if( gre ) {
+    fd_ip4_hdr_t * outer=(fd_ip4_hdr_t *)(eth+1);
+    outer->check=fd_ip4_hdr_check(outer);
+  }
   fd_net_tile_t ctx;fd_stem_context_t stem;ulong seq,credit,min_credit,depth;int reliable;fd_frag_meta_t * mcaches[1];
   fd_frag_meta_t * mc=setup(&ctx,&stem,base,proto,&seq,&credit,&min_credit,&reliable,mcaches,&depth);
   ulong freed=ULONG_MAX,non_fd=0UL;int published=fd_net_rx_pkt(&ctx,&stem,chunk,ctl,frame_sz,123UL,&freed,iavf ? &non_fd : NULL);
@@ -98,7 +103,7 @@ live_frame( char const * path ) {
 }
 static void
 bench( ulong payload, int nonzero ) {
-  fd_memset(packet,0,sizeof(packet));uchar * frame=packet+FD_CHUNK_SZ;fd_eth_hdr_t * eth=(fd_eth_hdr_t *)frame;eth->net_type=fd_ushort_bswap(FD_ETH_HDR_TYPE_IP);fd_ip4_hdr_t * ip=(fd_ip4_hdr_t *)(eth+1);*ip=(fd_ip4_hdr_t){.verihl=FD_IP4_VERIHL(4,5),.protocol=17U,.saddr=FD_IP4_ADDR(198,51,100,1),.daddr=FD_IP4_ADDR(198,51,100,2),.net_tot_len=fd_ushort_bswap((ushort)(28UL+payload))};fd_udp_hdr_t * udp=(fd_udp_hdr_t *)(ip+1);*udp=(fd_udp_hdr_t){.net_sport=fd_ushort_bswap(4321U),.net_dport=fd_ushort_bswap(9000U),.net_len=fd_ushort_bswap((ushort)(8UL+payload))};for(ulong i=0UL;i<payload;i++)((uchar *)(udp+1))[i]=wire[i%wire_sz];if(nonzero)set_checksum(ip,udp,8UL+payload);
+  fd_memset(packet,0,sizeof(packet));uchar * frame=packet+FD_CHUNK_SZ;fd_eth_hdr_t * eth=(fd_eth_hdr_t *)frame;eth->net_type=fd_ushort_bswap(FD_ETH_HDR_TYPE_IP);fd_ip4_hdr_t * ip=(fd_ip4_hdr_t *)(eth+1);*ip=(fd_ip4_hdr_t){.verihl=FD_IP4_VERIHL(4,5),.protocol=17U,.saddr=FD_IP4_ADDR(198,51,100,1),.daddr=FD_IP4_ADDR(198,51,100,2),.net_tot_len=fd_ushort_bswap((ushort)(28UL+payload))};fd_udp_hdr_t * udp=(fd_udp_hdr_t *)(ip+1);*udp=(fd_udp_hdr_t){.net_sport=fd_ushort_bswap(4321U),.net_dport=fd_ushort_bswap(9000U),.net_len=fd_ushort_bswap((ushort)(8UL+payload))};for(ulong i=0UL;i<payload;i++)((uchar *)(udp+1))[i]=wire[i%wire_sz];if(nonzero)set_checksum(ip,udp,8UL+payload);ip->check=fd_ip4_hdr_check(ip);
   fd_net_tile_t ctx;fd_stem_context_t stem;ulong seq,credit,min_credit,depth;int reliable;fd_frag_meta_t * mcaches[1];fd_frag_meta_t * mc=setup(&ctx,&stem,packet,DST_PROTO_TPU_UDP,&seq,&credit,&min_credit,&reliable,mcaches,&depth);reliable=0;ulong freed,iterations=200000UL;long start=fd_log_wallclock();
   for(ulong i=0UL;i<iterations;i++){FD_COMPILER_MFENCE();FD_TEST(fd_net_rx_pkt(&ctx,&stem,1UL,0UL,42UL+payload,123UL,&freed,NULL));}
   long elapsed=fd_log_wallclock()-start;printf("{\"benchmark_payload\":%lu,\"nonzero\":%d,\"iterations\":%lu,\"ns_per_packet\":%.3f,\"scope\":\"local_parser_stem_mcache_only\"}\n",payload,nonzero,iterations,(double)elapsed/(double)iterations);fd_mcache_delete(fd_mcache_leave(mc));

@@ -499,6 +499,7 @@ test_rx_non_fd_packets( void ) {
       .verihl=FD_IP4_VERIHL( 4,5 ), .protocol=FD_IP4_HDR_PROTOCOL_UDP,
       .net_tot_len=fd_ushort_bswap( 28U ), .saddr=FD_IP4_ADDR( 198,51,100,1 )
     };
+    ip4->check=fd_ip4_hdr_check( ip4 );
     fd_udp_hdr_t * udp = (fd_udp_hdr_t *)(ip4+1);
     *udp = (fd_udp_hdr_t) { .net_sport=fd_ushort_bswap( 4321U ),
                            .net_dport=fd_ushort_bswap( cases[i].dst_port ), .net_len=fd_ushort_bswap( cases[i].udp_sz ) };

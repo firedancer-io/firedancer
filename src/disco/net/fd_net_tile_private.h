@@ -380,6 +380,7 @@ fd_net_rx_pkt( fd_net_tile_t *     ctx,
   }
 
   int is_gre = ip4_hdr->protocol==FD_IP4_HDR_PROTOCOL_GRE;
+  int gre_ip4_checksum_valid = 1;
   if( FD_UNLIKELY( is_gre ) ) {
     /* No IP reassembly: a fragment cannot be interpreted as a GRE
        header and complete inner datagram.  DF alone is permitted. */
@@ -409,6 +410,9 @@ fd_net_rx_pkt( fd_net_tile_t *     ctx,
       return 0;
     }
 
+    /* Decapsulation overwrites part of the outer header.  Save its
+       checksum verdict now, but enforce it only for owned UDP below. */
+    gre_ip4_checksum_valid = !fd_ip4_hdr_check( ip4_hdr );
     frame += overhead;
     fd_memcpy( frame, eth_hdr, sizeof(fd_eth_hdr_t) );
 
@@ -474,6 +478,15 @@ fd_net_rx_pkt( fd_net_tile_t *     ctx,
       if( port_idx==ctx->dst_port_cnt ) goto iavf_non_fd_pkt;
     }
     ctx->metrics.rx_drop_cnt[ FD_METRICS_ENUM_PKT_RX_DROP_REASON_V_DST_PORT_UNBOUND_IDX ]++;
+    return 0;
+  }
+
+  /* IPv4 header checksums are mandatory, including options and both IP
+     headers of configured GRE.  Check after destination lookup so kernel
+     traffic keeps its existing path.  RX bytes have no trusted checksum
+     metadata; local kernel UDP arrives through the loopback sock tile. */
+  if( FD_UNLIKELY( !gre_ip4_checksum_valid || fd_ip4_hdr_check( ip4_hdr ) ) ) {
+    ctx->metrics.rx_drop_cnt[ FD_METRICS_ENUM_PKT_RX_DROP_REASON_V_MALFORMED_IDX ]++;
     return 0;
   }
 

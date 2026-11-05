@@ -874,6 +874,13 @@ main( int     argc,
       default: FD_LOG_CRIT(( "invalid test case" ));
     }
 
+    /* RX fixtures include mandatory IPv4 checksums. */
+    rx_pkt.inner_ip4.check=0U;
+    rx_pkt.inner_ip4.check=fd_ip4_hdr_check( &rx_pkt.inner_ip4 );
+    rx_pkt_gre.inner_ip4.check=rx_pkt.inner_ip4.check;
+    rx_pkt_gre.outer_ip4.check=0U;
+    rx_pkt_gre.outer_ip4.check=fd_ip4_hdr_check( &rx_pkt_gre.outer_ip4 );
+
     /* before credit -  test rx path ***********************************
 
        When the NIC receives a packet, the kernel moves a frame from

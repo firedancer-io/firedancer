@@ -51,6 +51,11 @@ test_case( char const * name, ushort inner_flags, ushort outer_flags,
   *udp=(fd_udp_hdr_t){ .net_sport=fd_ushort_bswap(4321U), .net_dport=fd_ushort_bswap(9000U),
     .net_len=fd_ushort_bswap((ushort)(8UL+wire_sz)) };
   fd_memcpy(udp+1,wire,wire_sz);
+  ip->check=fd_ip4_hdr_check(ip);
+  if( gre ) {
+    fd_ip4_hdr_t * outer=(fd_ip4_hdr_t *)(eth+1);
+    outer->check=fd_ip4_hdr_check(outer);
+  }
   ulong const byte_len=14UL+overhead+ihl+ip_payload;
   fd_net_tile_t ctx={ .pkt_buf_wksp_base=packet, .dst_port_cnt=1UL, .rx_out_cnt=1UL };
   ctx.dst_ports[0]=9000U;ctx.dst_protos[0]=proto;ctx.gre_tunnel_ip[0]=FD_IP4_ADDR(192,0,2,1);
