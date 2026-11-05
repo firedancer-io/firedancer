@@ -1024,6 +1024,17 @@ deliberate exception with lint-allow="<rule id>")
     <gauge name="TxncachePageCapacity" summary="Maximum transaction cache logical pages" />
     <gauge name="TxncacheFrameUsed" summary="Transaction cache in-memory frames holding a page" />
     <gauge name="TxncacheFrameCapacity" summary="Transaction cache in-memory frames, from runtime.transaction_cache_size_mib" />
+    <gauge name="StakeDelegationRootUsed" summary="Rooted stake delegations held in memory" />
+    <gauge name="StakeDelegationRootCapacity" summary="Rooted stake delegations that fit in memory, from runtime.stake_delegation_cache_cnt" />
+    <gauge name="StakeDelegationRootDiskCount" summary="Rooted stake delegations currently spilled to disk" />
+    <gauge name="StakeDelegationDeltaUsed" summary="Unrooted stake delegation fork deltas held in memory" />
+    <gauge name="StakeDelegationDeltaCapacity" summary="Unrooted stake delegation fork deltas that fit in memory" />
+    <gauge name="StakeDelegationDeltaDiskCount" summary="Unrooted stake delegation fork deltas currently spilled to disk" />
+    <counter name="StakeDelegationRootSpilled" summary="Rooted stake delegations written to disk because the in-memory root pool was full" />
+    <counter name="StakeDelegationDeltaSpilled" summary="Stake delegation fork deltas written to disk because the in-memory delta pool was full" />
+    <counter name="StakeDelegationDiskRead" summary="Reads from the stake delegation spill file by all tiles" />
+    <counter name="StakeDelegationDiskWritten" summary="Writes to the stake delegation spill file by all tiles" />
+    <counter name="StakeDelegationDiskDurationNanos" source="ticks" summary="Time all tiles spent in stake delegation spill file reads and writes" />
 
     <bool name="IsCaughtUp" summary="Whether replay has caught up to the cluster tip; set once per run, never cleared" />
     <gauge name="RootSlot" summary="Most recent consensus root, 0 if none" />
