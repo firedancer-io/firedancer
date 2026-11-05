@@ -9,4 +9,17 @@ typedef struct fd_accdb_private fd_accdb_t;
 struct fd_accdb_fork_id { ushort val; };
 typedef struct fd_accdb_fork_id fd_accdb_fork_id_t;
 
+/* Output of one snapshot placement phase (fd_accdb_snapshot_place). */
+
+struct fd_accdb_snapshot_placement {
+  ulong loaded;
+  ulong removed;
+  ulong duplicates;
+  ulong dup_lamports;
+  ulong dup_lamports_hi;
+  ulong disk_freed;
+};
+
+typedef struct fd_accdb_snapshot_placement fd_accdb_snapshot_placement_t;
+
 #endif /* HEADER_fd_src_flamenco_accdb_fd_accdb_base_h */

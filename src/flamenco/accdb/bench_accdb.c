@@ -10,6 +10,7 @@
 #include <unistd.h>
 #include <sys/mman.h>
 #include <fcntl.h>
+#include <pthread.h>
 
 /* Account size distribution modeled from Solana mainnet snapshot data.
    ~996M accounts, ~285.5 GiB total.  The cumulative distribution
@@ -493,12 +494,21 @@ bench_mixed( ulong   base_cnt,
    through check and apply.  idx_path picks the index file's filesystem
    (default: memfd). */
 
+static volatile int bench_place_stop;
+
+static void *
+bench_place_helper( void * arg ) {
+  while( !bench_place_stop ) if( !fd_accdb_snapshot_place_help( (fd_accdb_t *)arg, NULL, NULL ) ) FD_SPIN_PAUSE();
+  return NULL;
+}
+
 static void
 bench_place( ulong        max_accounts,
              ulong        place_cnt,
              ulong        incr_cnt,
              uint         dup_pct,
-             char const * idx_path ) {
+             char const * idx_path,
+             ulong        helper_cnt ) {
   ulong max_live_slots = 64UL;
   ulong writes         = 1024UL;
   ulong ram            = fd_ulong_max( 1UL<<20, max_accounts/64UL );
@@ -507,12 +517,13 @@ bench_place( ulong        max_accounts,
   ulong cache_fp       = 64UL<<20;
   int fd = memfd_create( "accdb_place", 0 );
   FD_TEST( fd>=0 );
-  ulong shmem_fp = fd_accdb_shmem_footprint( max_accounts, max_live_slots, writes, partition_cnt, cache_fp, 2UL, 2UL, 0UL, ram );
+  ulong joiners  = 2UL+helper_cnt;
+  ulong shmem_fp = fd_accdb_shmem_footprint( max_accounts, max_live_slots, writes, partition_cnt, cache_fp, 2UL, joiners, 0UL, ram );
   FD_TEST( shmem_fp );
   void * shmem_mem = aligned_alloc( fd_accdb_shmem_align(), shmem_fp );
   FD_TEST( shmem_mem );
   fd_accdb_shmem_t * shmem = fd_accdb_shmem_join( fd_accdb_shmem_new( shmem_mem, max_accounts, max_live_slots, writes, partition_cnt,
-                                                                      partition_sz, cache_fp, 2UL, 0, 42UL, 2UL, 0UL, ram ) );
+                                                                      partition_sz, cache_fp, 2UL, 0, 42UL, joiners, 0UL, ram ) );
   FD_TEST( shmem );
   int idx_fd = idx_path ? open( idx_path, O_RDWR|O_CREAT|O_TRUNC, 0600 ) : memfd_create( "accdb_place_idx", 0 );
   FD_TEST( idx_fd>=0 );
@@ -556,10 +567,23 @@ bench_place( ulong        max_accounts,
   dt += fd_log_wallclock();
   FD_LOG_NOTICE(( "bench_place: staged %lu records (%lu keys) in %.3f s", total, place_cnt, (double)dt/1e9 ));
 
+  /* helpers model the other snapin tiles: own join and window */
+  pthread_t helper[ 16 ]; void * hwin[ 16 ];
+  FD_TEST( helper_cnt<=16UL );
+  bench_place_stop = 0;
+  for( ulong i=0UL; i<helper_cnt; i++ ) {
+    hwin[ i ] = aligned_alloc( 4096UL, FD_ACCDB_PLACE_WINDOW );
+    fd_accdb_t * h = fd_accdb_join( fd_accdb_new( aligned_alloc( fd_accdb_align(), fd_accdb_footprint( max_live_slots, 0 ) ), shmem,
+                                                  fd, -1, 0UL, NULL, NULL, 0UL, 0, idx_fd, hwin[ i ] ) );
+    FD_TEST( h );
+    FD_TEST( !pthread_create( &helper[ i ], NULL, bench_place_helper, h ) );
+  }
   fd_accdb_snapshot_placement_t out[1];
   dt = -fd_log_wallclock();
   FD_TEST( !fd_accdb_snapshot_place( accdb, FD_ACCDB_PLACE_FULL, NULL, NULL, out ) );
   dt += fd_log_wallclock();
+  bench_place_stop = 1;
+  for( ulong i=0UL; i<helper_cnt; i++ ) FD_TEST( !pthread_join( helper[ i ], NULL ) );
   FD_LOG_NOTICE(( "bench_place: FULL %.3f s (%.1f ns/rec) loaded=%lu dups=%lu", (double)dt/1e9, (double)dt/(double)total, out->loaded, out->duplicates ));
 
   fd_accdb_fork_id_t incr = fd_accdb_attach_child( accdb, root );
@@ -591,6 +615,7 @@ bench_place( ulong        max_accounts,
 
   fd_accdb_snapshot_load_end( accdb );
   close( idx_fd ); close( scratch_fd ); close( fd );
+  for( ulong i=0UL; i<helper_cnt; i++ ) free( hwin[ i ] );
   free( window ); free( shmem_mem );
 }
 
@@ -613,6 +638,7 @@ main( int     argc,
   ulong place_incr      = fd_env_strip_cmdline_ulong( &argc, &argv, "--place-incr",      NULL,  12048UL  );
   uint  place_dup_pct   = fd_env_strip_cmdline_uint ( &argc, &argv, "--place-dup-pct",   NULL,       1U  );
   char const * idx_path = fd_env_strip_cmdline_cstr ( &argc, &argv, "--place-idx-path",  NULL,     NULL  );
+  ulong place_helpers   = fd_env_strip_cmdline_ulong( &argc, &argv, "--place-helpers",   NULL,      4UL  );
 
   FD_LOG_NOTICE(( "accdb benchmark (accounts=%lu slots=%lu wpslot=%lu "
                   "rpslot=%lu mixed_ops=%lu read_pct=%u seed=%u)",
@@ -620,7 +646,7 @@ main( int     argc,
                   mixed_ops, read_pct, seed ));
 
   if( place_recs ) {
-    bench_place( place_max, place_recs, place_incr, place_dup_pct, idx_path );
+    bench_place( place_max, place_recs, place_incr, place_dup_pct, idx_path, place_helpers );
     FD_LOG_NOTICE(( "pass" ));
     fd_halt();
     return 0;
