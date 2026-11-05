@@ -1161,10 +1161,12 @@ fd_topo_initialize( config_t * config ) {
     FOR(snapin_tile_cnt) fd_topob_obj_overlay( topo, &topo->objs[ topo->tiles[ fd_topo_find_tile( topo, "snapin", i ) ].tile_obj_id ], progcache_obj );
     ulong idx_ram = config->firedancer.accounts.index_ram_entries;
     if( idx_ram && idx_ram<config->firedancer.accounts.max_accounts ) {
-      fd_topo_obj_t * win = fd_topob_obj( topo, "accdb_window", "progcache" );
-      fd_topob_obj_overlay( topo, win, progcache_obj );
-      FOR(snapin_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "snapin", i ) ], win, FD_SHMEM_JOIN_MODE_READ_WRITE );
-      FD_TEST( fd_pod_insert_ulong( topo->props, "accdb_window", win->id ) );
+      for( ulong i=0UL; i<snapin_tile_cnt; i++ ) { /* one per tile: writers stage in it */
+        fd_topo_obj_t * win = fd_topob_obj( topo, "accdb_window", "progcache" );
+        fd_topob_obj_overlay( topo, win, progcache_obj );
+        fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "snapin", i ) ], win, FD_SHMEM_JOIN_MODE_READ_WRITE );
+        FD_TEST( fd_pod_insertf_ulong( topo->props, win->id, "accdb_window.%lu", i ) );
+      }
     }
   }
 
@@ -1801,7 +1803,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->snapin.txncache_obj_id = fd_pod_query_ulong( config->topo.props, "txncache", ULONG_MAX );
     tile->snapin.banks_obj_id = fd_pod_query_ulong( config->topo.props, "banks", ULONG_MAX );
     tile->snapin.shmem_obj_id = fd_pod_query_ulong( config->topo.props, "snapin_shmem", ULONG_MAX );
-    tile->snapin.accdb_window_obj_id = fd_pod_query_ulong( config->topo.props, "accdb_window", ULONG_MAX );
+    tile->snapin.accdb_window_obj_id = fd_pod_queryf_ulong( config->topo.props, ULONG_MAX, "accdb_window.%lu", tile->kind_id );
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "rotor" ) ) ) {
     tile->rotor.slot_max = config->firedancer.runtime.max_live_slots;

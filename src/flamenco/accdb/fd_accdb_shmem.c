@@ -559,7 +559,7 @@ fd_accdb_shmem_new( void * shmem,
   accdb->stage_base         = accdb->idx_olog_byte0 + olog_cnt*FD_ACCDB_OLOG_CHUNK*sizeof(fd_accdb_olog_rec_t);
   accdb->stage_head         = 0UL;
   accdb->stage_falloc       = 0UL;
-  accdb->stage_full_end     = 0UL;
+  memset( accdb->stage_dir, 0, sizeof(accdb->stage_dir) );
   if( index_ram_entries ) {
     memset( _ovl_seq, 0, fd_accdb_idx_seq_cnt( ovl_npage )*sizeof(uint) );
     uint * nx = (uint *)_olog_next;

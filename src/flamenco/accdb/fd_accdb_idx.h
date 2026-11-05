@@ -83,16 +83,32 @@ typedef struct fd_accdb_stage_rec fd_accdb_stage_rec_t;
 
 FD_STATIC_ASSERT( sizeof(fd_accdb_stage_rec_t)==64UL, stage_layout );
 
+/* Writers route records by placement range into per-range chunks.  A
+   chunk is a header then its records; each range's chunks of one
+   writer form a chain from the newest.  link = (off/64+1) | cnt<<40
+   (off relative to the stage base), 0 = none.  The writer's FINI flush
+   writes a directory of R links and publishes its offset. */
+
+struct fd_accdb_stage_hdr {
+  ulong prev;        /* link */
+  uchar pad[ 56 ];
+};
+
+typedef struct fd_accdb_stage_hdr fd_accdb_stage_hdr_t;
+
+FD_STATIC_ASSERT( sizeof(fd_accdb_stage_hdr_t)==64UL, stage_hdr_layout );
+
 #define FD_ACCDB_STAGE_DELEG     (1U)
-#define FD_ACCDB_STAGE_CHUNK     (1UL<<20)                 /* bytes per writer flush */
-#define FD_ACCDB_STAGE_CHUNK_REC (FD_ACCDB_STAGE_CHUNK/64UL)
+#define FD_ACCDB_STAGE_CHUNK_REC (16383UL)                 /* records per chunk, max */
+#define FD_ACCDB_STAGE_LINK_OFF  ((1UL<<40)-1UL)
 #define FD_ACCDB_PLACE_RANGE_PG  (49152UL)                  /* 192 MiB of pages */
 #define FD_ACCDB_PLACE_PG_MAX    (FD_ACCDB_PLACE_RANGE_PG+FD_ACCDB_IDX_PROBE_MAX)
 #define FD_ACCDB_PLACE_RANGE_MAX (1UL<<16)
 #define FD_ACCDB_PLACE_WINDOW    (256UL<<20)
-/* pass 2: pages, their slot tags, a >=32 MiB record buffer, the
-   per-range counters */
-FD_STATIC_ASSERT( FD_ACCDB_PLACE_PG_MAX*(FD_ACCDB_IDX_PAGE_SZ+64UL)+(32UL<<20)+3UL*FD_ACCDB_PLACE_RANGE_MAX*8UL<=FD_ACCDB_PLACE_WINDOW, place_window );
+/* placement: pages, their slot tags, page bitmaps, one chunk.
+   staging: >=2 records per range chunk plus fill counts and heads. */
+FD_STATIC_ASSERT( FD_ACCDB_PLACE_PG_MAX*(FD_ACCDB_IDX_PAGE_SZ+64UL+1UL)+(FD_ACCDB_STAGE_CHUNK_REC+1UL)*64UL<=FD_ACCDB_PLACE_WINDOW, place_window );
+FD_STATIC_ASSERT( FD_ACCDB_PLACE_RANGE_MAX*(2UL*64UL+12UL)+4096UL<=FD_ACCDB_PLACE_WINDOW, stage_window );
 
 /* Overflow log: per-fork chains of OLOG_CHUNK records. */
 #define FD_ACCDB_OLOG_CHUNK   (4096UL)

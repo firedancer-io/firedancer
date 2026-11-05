@@ -753,7 +753,7 @@ struct fd_accdb_shmem_private {
   ulong stage_base;
   ulong stage_head __attribute__((aligned(64)));   /* FAA by writers */
   ulong stage_falloc;                              /* grow_lock      */
-  ulong stage_full_end;                            /* full load's records end here */
+  ulong stage_dir[ FD_ACCDB_MAX_JOINERS ];         /* per joiner: chain directory offset+1, 0 = none */
   ulong bg_defer_head;      /* T2 only: total appended             */
   ulong bg_defer_tail;      /* T2 only: total released             */
   ulong bg_defer_sealed;    /* T2 only: entries below are tagged   */
