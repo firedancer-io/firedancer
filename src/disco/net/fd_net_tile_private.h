@@ -351,6 +351,7 @@ fd_net_rx_pkt( fd_net_tile_t *     ctx,
   fd_ip4_hdr_t * ip4_hdr = (fd_ip4_hdr_t *)(eth_hdr+1);
   ulong ip4_hdr_sz = FD_IP4_GET_LEN( *ip4_hdr );
   ulong ip4_total_sz = fd_ushort_bswap( ip4_hdr->net_tot_len );
+  ulong ip4_max_sz = ip4_total_sz;
   if( FD_UNLIKELY( FD_IP4_GET_VERSION( *ip4_hdr )!=4 || ip4_hdr_sz<sizeof(fd_ip4_hdr_t) ) ) {
     ctx->metrics.rx_drop_cnt[ FD_METRICS_ENUM_PKT_RX_DROP_REASON_V_MALFORMED_IDX ]++;
     return 0;
@@ -389,6 +390,7 @@ fd_net_rx_pkt( fd_net_tile_t *     ctx,
     fd_memcpy( frame, eth_hdr, sizeof(fd_eth_hdr_t) );
 
     byte_len    -= overhead;
+    ip4_max_sz  -= overhead;
     ctl         += overhead;
     eth_hdr      = (fd_eth_hdr_t *)frame;
     ip4_hdr      = (fd_ip4_hdr_t *)(eth_hdr+1);
@@ -422,7 +424,8 @@ fd_net_rx_pkt( fd_net_tile_t *     ctx,
 
   fd_udp_hdr_t const * udp_hdr = (fd_udp_hdr_t const *)((uchar const *)eth_hdr+udp_off);
   ulong const          udp_sz  = fd_ushort_bswap( udp_hdr->net_len );
-  if( FD_UNLIKELY( udp_sz<sizeof(fd_udp_hdr_t) || udp_sz>ip4_total_sz-ip4_hdr_sz ||
+  if( FD_UNLIKELY( ip4_total_sz>ip4_max_sz ||
+                   udp_sz<sizeof(fd_udp_hdr_t) || udp_sz>ip4_total_sz-ip4_hdr_sz ||
                    fd_ip4_addr_is_mcast( ip4_hdr->saddr ) ) ) {
     ctx->metrics.rx_drop_cnt[ FD_METRICS_ENUM_PKT_RX_DROP_REASON_V_MALFORMED_IDX ]++;
     return 0;
@@ -454,7 +457,11 @@ fd_net_rx_pkt( fd_net_tile_t *     ctx,
   ulong const  sig      = fd_disco_netmux_sig( ip4_hdr->saddr, src_port, ip4_hdr->saddr, dst_proto, dgram_off );
   ulong const  tsorig   = 0UL;
 
-  fd_stem_publish( stem, out_idx, sig, chunk, byte_len, ctl, tsorig, tspub );
+  /* Publish only the declared UDP datagram.  IP and Ethernet padding
+     must not become payload for consumers that use the published size.
+     After GRE decapsulation, the inner IP length is also bounded by the
+     outer IP datagram above.  Keep byte_len for receive-byte accounting. */
+  fd_stem_publish( stem, out_idx, sig, chunk, udp_off+udp_sz, ctl, tsorig, tspub );
 
   ctx->metrics.rx_gre_cnt += (ulong)is_gre;
   ctx->metrics.rx_pkt_cnt++;
