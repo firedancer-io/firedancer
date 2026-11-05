@@ -356,7 +356,7 @@ static tile_spec_t const FIREDANCER_TILES[] = {
   { "net",    2 }, { "quic",   1 }, { "verify", 6 }, { "dedup",  1 },
   { "resolv", 1 }, { "pack",   1 }, { "execle", 2 }, { "motor",  1 },
   { "shred",  1 }, { "sign",   2 }, { "gui",    1 }, { "gossvf", 2 },
-  { "gossip", 1 }, { "rotor",  1 }, { "replay", 1 }, { "execrp",10 },
+  { "gossip", 1 }, { "repair", 1 }, { "replay", 1 }, { "execrp",10 },
   { "votor",  1 },
   { NULL, 0 }
 };
@@ -371,7 +371,7 @@ static tile_spec_t const FIREDANCER_EFF_TILES[] = {
   { "net",    2 }, { "quic",   1 }, { "verify", 6 }, { "dedup",  1 },
   { "resolv", 1 }, { "pack",   1 }, { "execle", 2 }, { "motor",  1 },
   { "shred",  1 }, { "sign",   2 }, { "gui",    1 }, { "gossvf", 2 },
-  { "gossip", 1 }, { "rotor",  1 }, { "replay", 1 }, { "execrp",10 },
+  { "gossip", 1 }, { "repair", 1 }, { "replay", 1 }, { "execrp",10 },
   { "votor",  1 },
   { NULL, 0 }
 };
@@ -404,7 +404,7 @@ static char const * const FD_SKIP_HT[] = {
   /*  8 */ "verify",  /*  9 */ "verify",  /* 10 */ "dedup",   /* 11 */ "resolv",
   /* 12 */ "pack",    /* 13 */ "sign",    /* 14 */ "sign",    /* 15 */ "shred",
   /* 16 */ "gui",     /* 17 */ "gossvf",  /* 18 */ "gossvf",  /* 19 */ "gossip",
-  /* 20 */ "rotor",   /* 21 */ "replay",  /* 22 */ "votor",   /* 23 */ "execle",
+  /* 20 */ "repair",  /* 21 */ "replay",  /* 22 */ "votor",   /* 23 */ "execle",
   /* 24 */ "execle",  /* 25 */ "motor",   /* 26 */ "execrp",  /* 27 */ "execrp",
   /* 28 */ "execrp",  /* 29 */ "execrp",  /* 30 */ "execrp",  /* 31 */ "execrp",
   /* 32 */ "execrp",  /* 33 */ "execrp",  /* 34 */ "execrp",  /* 35 */ "execrp",
@@ -421,7 +421,7 @@ static char const * const FD_EFF_SKIP_HT[] = {
   /*  8 */ "verify",  /*  9 */ "verify",  /* 10 */ "dedup",   /* 11 */ "resolv",
   /* 12 */ "pack",    /* 13 */ "sign",    /* 14 */ "sign",    /* 15 */ "shred",
   /* 16 */ "gui",     /* 17 */ "gossvf",  /* 18 */ "gossvf",  /* 19 */ "gossip",
-  /* 20 */ "rotor",   /* 21 */ "replay",  /* 22 */ "votor",   /* 23 */ "mwaitx",
+  /* 20 */ "repair",  /* 21 */ "replay",  /* 22 */ "votor",   /* 23 */ "mwaitx",
   /* 24 */ "execle",  /* 25 */ "execle",  /* 26 */ "motor",   /* 27 */ "execrp",
   /* 28 */ "execrp",  /* 29 */ "execrp",  /* 30 */ "execrp",  /* 31 */ "execrp",
   /* 32 */ "execrp",  /* 33 */ "execrp",  /* 34 */ "execrp",  /* 35 */ "execrp",
@@ -445,7 +445,7 @@ static char const * const FD_EFF_48X2_L3[] = {
   /* 20 */ "verify",  /* 21 */ "verify",  /* 22 */ "dedup",   /* 23 */ "resolv",
   /* 24 */ "pack",    /* 25 */ "sign",    /* 26 */ "sign",    /* 27 */ "shred",
   /* 28 */ "gui",     /* 29 */ "gossvf",  /* 30 */ "gossvf",  /* 31 */ "gossip",
-  /* 32 */ "rotor",   /* 33 */ "votor",   /* 34 */ "execle",  /* 35 */ "execle",
+  /* 32 */ "repair",  /* 33 */ "votor",   /* 34 */ "execle",  /* 35 */ "execle",
   /* 36 */ "motor",
 };
 #define FD_EFF_48X2_L3_LEN (sizeof(FD_EFF_48X2_L3)/sizeof(FD_EFF_48X2_L3[0]))
@@ -460,7 +460,7 @@ static char const * const FD_48X2_L3_PERF[] = {
   /*  8 */ "verify",  /*  9 */ "verify",  /* 10 */ "verify",  /* 11 */ "verify",
   /* 12 */ "verify",  /* 13 */ "verify",  /* 14 */ "dedup",   /* 15 */ "resolv",
   /* 16 */ "sign",    /* 17 */ "sign",    /* 18 */ "shred",   /* 19 */ "gui",
-  /* 20 */ "gossvf",  /* 21 */ "gossvf",  /* 22 */ "gossip",  /* 23 */ "rotor",
+  /* 20 */ "gossvf",  /* 21 */ "gossvf",  /* 22 */ "gossip",  /* 23 */ "repair",
   /* 24 */ "replay",  /* 25 */ "votor",   /* 26 */ "execrp",  /* 27 */ "execrp",
   /* 28 */ "execrp",  /* 29 */ "execrp",  /* 30 */ "execrp",  /* 31 */ "execrp",
   /* 32 */ "execrp",  /* 33 */ "execrp",  /* 34 */ "execrp",  /* 35 */ "execrp",
@@ -479,7 +479,7 @@ static char const * const FD_24X2[] = {
   /* 16 */ "execrp", /* 17 */ "execrp", /* 18 */ "execrp", /* 19 */ "execrp",
   /* 20 */ "execrp", /* 21 */ "execrp", /* 22 */ "execrp", /* 23 */ "execrp",
   /* --- HT siblings (24-47) --- */
-  /* 24 */ __,       /* 25 */ "gossip", /* 26 */ "rotor",  /* 27 */ "dedup",
+  /* 24 */ __,       /* 25 */ "gossip", /* 26 */ "repair", /* 27 */ "dedup",
   /* 28 */ "verify", /* 29 */ "verify", /* 30 */ "verify", /* 31 */ "sign",
   /* 32 */ __,       /* 33 */ "replay", /* 34 */ "gossvf", /* 35 */ "execrp",
   /* 36 */ "votor",  /* 37 */ "execle",
@@ -494,7 +494,7 @@ static char const * const FD_32X2[] = {
   /*  4 */ "verify", /*  5 */ "verify", /*  6 */ "verify", /*  7 */ "verify",
   /*  8 */ "verify", /*  9 */ "dedup",  /* 10 */ "resolv", /* 11 */ "pack",
   /* 12 */ "sign",   /* 13 */ "sign",   /* 14 */ "shred",  /* 15 */ "gossvf",
-  /* 16 */ "rotor",  /* 17 */ "replay", /* 18 */ "votor",  /* 19 */ "execle",
+  /* 16 */ "repair", /* 17 */ "replay", /* 18 */ "votor",  /* 19 */ "execle",
   /* 20 */ "execle", /* 21 */ "motor",  /* 22 */ "execrp", /* 23 */ "execrp",
   /* 24 */ "execrp", /* 25 */ "execrp", /* 26 */ "execrp", /* 27 */ "execrp",
   /* 28 */ "execrp", /* 29 */ "execrp", /* 30 */ "execrp", /* 31 */ "execrp",
@@ -516,7 +516,7 @@ static tile_spec_t const FD_FEWER_TILES[] = {
   { "net",    2 }, { "quic",   1 }, { "verify", 2 }, { "dedup",  1 },
   { "resolv", 1 }, { "pack",   1 }, { "execle", 2 }, { "motor",  1 },
   { "shred",  1 }, { "sign",   2 }, { "gui",    1 }, { "gossvf", 2 },
-  { "gossip", 1 }, { "rotor",  1 }, { "replay", 1 }, { "execrp", 4 },
+  { "gossip", 1 }, { "repair", 1 }, { "replay", 1 }, { "execrp", 4 },
   { "votor",  1 },
   { NULL, 0 }
 };
@@ -527,7 +527,7 @@ static char const * const FD_32X2_FEWER[] = {
   /*  4 */ "verify",  /*  5 */ "verify",  /*  6 */ "dedup",   /*  7 */ "resolv",
   /*  8 */ "pack",    /*  9 */ "sign",    /* 10 */ "sign",    /* 11 */ "shred",
   /* 12 */ "gui",     /* 13 */ "gossvf",  /* 14 */ "gossvf",  /* 15 */ "gossip",
-  /* 16 */ "rotor",   /* 17 */ "replay",  /* 18 */ "votor",   /* 19 */ "execle",
+  /* 16 */ "repair",  /* 17 */ "replay",  /* 18 */ "votor",   /* 19 */ "execle",
   /* 20 */ "execle",  /* 21 */ "motor",   /* 22 */ "execrp",  /* 23 */ "execrp",
   /* 24 */ "execrp",  /* 25 */ "execrp",
 };
@@ -541,7 +541,7 @@ static char const * const FD_32X2_EXTRA_BL[] = {
   /*  4 */ "verify", /*  5 */ __,       /*  6 */ "verify", /*  7 */ "verify",
   /*  8 */ "verify", /*  9 */ "dedup",  /* 10 */ "resolv", /* 11 */ "pack",
   /* 12 */ "sign",   /* 13 */ "sign",   /* 14 */ "shred",  /* 15 */ "gossvf",
-  /* 16 */ "rotor",  /* 17 */ "replay", /* 18 */ "votor",  /* 19 */ "execle",
+  /* 16 */ "repair", /* 17 */ "replay", /* 18 */ "votor",  /* 19 */ "execle",
   /* 20 */ "execle", /* 21 */ "motor",  /* 22 */ "execrp", /* 23 */ "execrp",
   /* 24 */ "execrp", /* 25 */ "execrp", /* 26 */ "execrp", /* 27 */ "execrp",
   /* 28 */ "execrp", /* 29 */ "execrp", /* 30 */ "execrp", /* 31 */ "execrp",
@@ -970,7 +970,7 @@ static tile_spec_t const FIREDANCER_SNAP_EFF_TILES[] = {
   { "admin",  1 }, { "waker",  1 }, { "mwaitx", 1 },
   { "net",    1 }, { "quic",   1 }, { "verify", 3 }, { "dedup",  1 }, { "resolv", 1 },
   { "pack",   1 }, { "execle", 2 }, { "motor",  1 }, { "shred",  1 }, { "sign",   1 },
-  { "gui",    1 }, { "gossvf", 1 }, { "gossip", 1 }, { "rotor",  1 }, { "replay", 1 },
+  { "gui",    1 }, { "gossvf", 1 }, { "gossip", 1 }, { "repair", 1 }, { "replay", 1 },
   { "accdb",  1 }, { "execrp",10 }, { "votor",  1 },
   { "snapct", 1 }, { "snapld", 1 }, { "snapdc", 3 }, { "snapin", 5 },
   { NULL, 0 }
@@ -1389,7 +1389,7 @@ static tile_spec_t const MAINNET_TILES[] = {
   { "netlnk", 1 }, { "net",    2 }, { "metric", 1 }, { "diag",   1 },
   { "snapct", 1 }, { "snapld", 1 }, { "snapdc", 3 }, { "snapin", 5 },
   { "genesi", 1 }, { "ipecho", 1 }, { "gossvf", 1 }, { "gossip", 1 },
-  { "shred",  1 }, { "rotor",  1 }, { "rserve", 1 }, { "replay", 1 },
+  { "shred",  1 }, { "repair", 1 }, { "rserve", 1 }, { "replay", 1 },
   { "accdb",  1 }, { "execrp",10 }, { "votor",  1 },
   { "quic",   1 }, { "verify", 3 }, { "dedup",  1 }, { "resolv", 1 },
   { "pack",   1 }, { "execle", 2 }, { "motor",  1 }, { "sign",   2 },
@@ -1403,7 +1403,7 @@ static tile_spec_t const MAINNET_WIDE_TILES[] = {
   { "netlnk", 1 }, { "net",    2 }, { "metric", 1 }, { "diag",   1 },
   { "snapct", 1 }, { "snapld", 1 }, { "snapdc", 3 }, { "snapin", 5 },
   { "genesi", 1 }, { "ipecho", 1 }, { "gossvf", 2 }, { "gossip", 1 },
-  { "shred",  1 }, { "rotor",  1 }, { "rserve", 1 }, { "replay", 1 },
+  { "shred",  1 }, { "repair", 1 }, { "rserve", 1 }, { "replay", 1 },
   { "accdb",  1 }, { "execrp",10 }, { "votor",  1 },
   { "quic",   1 }, { "verify", 6 }, { "dedup",  1 }, { "resolv", 1 },
   { "pack",   1 }, { "execle", 2 }, { "motor",  1 }, { "sign",   2 },
@@ -1622,7 +1622,7 @@ FD_UNIT_TEST( test_smt_budget_sweep ) {
 FD_UNIT_TEST( test_group_l3_bench_9474f ) {
   static tile_spec_t const BENCH_TILES[] = {
     { "netlnk", 1 }, { "net",    2 }, { "metric", 1 }, { "diag",   1 }, { "genesi", 1 }, { "ipecho", 1 },
-    { "gossvf", 1 }, { "gossip", 1 }, { "shred",  1 }, { "rotor",  1 }, { "rserve", 1 }, { "replay", 1 },
+    { "gossvf", 1 }, { "gossip", 1 }, { "shred",  1 }, { "repair", 1 }, { "rserve", 1 }, { "replay", 1 },
     { "accdb",  1 }, { "execrp", 1 }, { "votor",  1 }, { "quic",   2 }, { "verify",32 }, { "dedup",  1 },
     { "resolv", 1 }, { "pack",   1 }, { "execle", 8 }, { "motor",  1 }, { "sign",   2 }, { "rpc",    1 },
     { "admin",  1 }, { "waker",  1 }, { "bencho", 1 }, { "benchg",16 }, { "benchs", 4 }, { NULL, 0 }
@@ -1657,7 +1657,7 @@ FD_UNIT_TEST( test_smt_budget_efficient_isolcpus ) {
   static tile_spec_t const MAINNET_EFF_TILES[] = {
     { "netlnk", 1 }, { "net",    2 }, { "metric", 1 }, { "diag",   1 }, { "waker",  1 }, { "mwaitx", 1 },
     { "snapct", 1 }, { "snapld", 1 }, { "snapdc", 3 }, { "snapin", 5 }, { "genesi", 1 }, { "ipecho", 1 },
-    { "gossvf", 1 }, { "gossip", 1 }, { "shred",  1 }, { "rotor",  1 }, { "rserve", 1 }, { "replay", 1 },
+    { "gossvf", 1 }, { "gossip", 1 }, { "shred",  1 }, { "repair", 1 }, { "rserve", 1 }, { "replay", 1 },
     { "accdb",  1 }, { "execrp",10 }, { "votor",  1 }, { "quic",   1 }, { "verify", 3 },
     { "dedup",  1 }, { "resolv", 1 }, { "pack",   1 }, { "execle", 2 }, { "motor",  1 }, { "sign",   2 },
     { "rpc",    1 }, { "admin",  1 }, { "event",  1 }, { "bundle", 1 }, { "gui",    1 }, { NULL, 0 }

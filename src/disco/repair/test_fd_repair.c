@@ -66,7 +66,7 @@ fecs( fd_repair_t * repair,
   fd_mr32_t id = hash( dmr );
   for( uint k=0U; k<fec_set_cnt; k++ ) {
     fd_mr32_t         mr = hash( (uchar)( dmr+1U+k ) );
-    fd_mr20_t key; memcpy( key.uc, mr.uc, sizeof(fd_mr20_t) );
+    fd_mr_t key = { .mr32 = mr };
     FD_TEST( fd_repair_fec_notarized( repair, slot, &id, k*FD_FEC_SHRED_CNT, &key, 0L ) );
   }
 }
@@ -106,7 +106,7 @@ shred0( fd_repair_t *     repair,
   fd_block_marker_t marker[1]; memset( marker, 0, sizeof(fd_block_marker_t) );
   marker->kind                   = FD_BLOCK_MARKER_KIND_HEADER;
   marker->header.parent_slot     = parent_slot;
-  marker->header.parent_block_id = *parent_mr;
+  marker->header.parent_block_id = FD_LOAD( fd_hash_t, parent_mr->uc );
   ulong sz = fd_block_marker_ser( marker, ser );
   memcpy( buf+FD_SHRED_DATA_HEADER_SZ, ser, sz );
 
@@ -116,7 +116,7 @@ shred0( fd_repair_t *     repair,
   shred->idx              = 0U;
   shred->data.parent_off  = (ushort)( slot-parent_slot );
   shred->data.size        = (ushort)( FD_SHRED_DATA_HEADER_SZ+sz );
-  fd_repair_shred_insert( repair, shred, fec0_mr, 0, 0L );
+  fd_repair_shred_insert( repair, shred, fec0_mr, 0L );
 }
 
 /* shred_up inserts the first data shred of FEC set fec_idx of slot
@@ -156,13 +156,13 @@ shred_up( fd_repair_t *     repair,
   shred->fec_set_idx      = fec_idx*FD_FEC_SHRED_CNT;
   shred->data.parent_off  = (ushort)( slot-parent_slot );
   shred->data.size        = (ushort)( FD_SHRED_DATA_HEADER_SZ+off );
-  fd_repair_shred_insert( repair, shred, mr, 0, 0L );
+  fd_repair_shred_insert( repair, shred, mr, 0L );
 }
 
 static int
 is_eager( fd_repair_t const *     repair,
           fd_repair_blk_t const * blk ) {
-  return repair->slot_meta[ blk->slot % repair->slot_max ].eager==fd_repair_blk_pool_idx( repair->blk_pool, blk );
+  return repair->slot_meta[ blk->slot % repair->slot_max ].eager_blk_idx==fd_repair_blk_pool_idx( repair->blk_pool, blk );
 }
 
 static fd_repair_t *
@@ -186,29 +186,39 @@ rooted( fd_repair_t const *     repair,
         fd_repair_blk_t const * blk ) {
   fd_repair_blk_t const * pool = repair->blk_pool;
   for( fd_repair_blk_t const * b = blk; b; b = fd_repair_blk_pool_ele_const( pool, b->parent ) ) {
-    if( b->slot==repair->root && repair->slot_meta[ b->slot%repair->slot_max ].final==fd_repair_blk_pool_idx( pool, b ) ) return 1;
+    if( b->slot==repair->root && repair->slot_meta[ b->slot%repair->slot_max ].final_blk_idx==fd_repair_blk_pool_idx( pool, b ) ) return 1;
   }
   return 0;
 }
 
+/* queued is whether blk is in a blk_treap. */
+
+static int
+queued( fd_repair_t const *     repair,
+        fd_repair_blk_t const * blk ) {
+  return fd_repair_treap_ele_query_const( repair->final_treap, blk, repair->blk_pool )==blk ||
+         fd_repair_treap_ele_query_const( repair->notar_treap, blk, repair->blk_pool )==blk ||
+         fd_repair_treap_ele_query_const( repair->eager_treap, blk, repair->blk_pool )==blk;
+}
+
 /* orphan_cnt checks orphan_map's invariant over every held blk, a blk
-   is in it iff unlinked and naming a parent, root excluded, and returns
-   the number of orphans. */
+   is in it iff unlinked, root excluded, and returns the number of
+   orphans naming a parent. */
 
 static ulong
 orphan_cnt( fd_repair_t const * repair ) {
   fd_repair_blk_t const * pool = repair->blk_pool;
   ulong                   cnt  = 0UL;
-  FD_TEST( !fd_repair_orphan_map_verify( repair->orphan_map, fd_repair_blk_pool_max( pool ), pool ) );
+  FD_TEST( !fd_repair_blk_orphan_map_verify( repair->orphan_map, fd_repair_blk_pool_max( pool ), pool ) );
   for( ulong s=repair->root; s<repair->root+repair->slot_max; s++ ) {
     for( fd_repair_blk_t const * blk = fd_repair_blk_map_ele_query_const( repair->blk_map, &s, NULL, pool );
                                  blk;
                                  blk = fd_repair_blk_map_ele_next_const( blk, NULL, pool ) ) {
-      int waiting = blk!=repair->root_blk && blk->parent==fd_repair_blk_pool_idx_null( pool ) && memcmp( &blk->parent_blk_mr, &hash_null, sizeof(fd_mr32_t) );
-      fd_repair_blk_t const * o = fd_repair_orphan_map_ele_query_const( repair->orphan_map, &blk->parent_blk_mr, NULL, pool );
-      while( o && o!=blk ) o = fd_repair_orphan_map_ele_next_const( o, NULL, pool );
-      FD_TEST( waiting==!!o );
-      cnt += (ulong)waiting;
+      int orphan = blk!=repair->root_blk && blk->parent==fd_repair_blk_pool_idx_null( pool );
+      fd_repair_blk_t const * o = fd_repair_blk_orphan_map_ele_query_const( repair->orphan_map, &blk->parent_dmr, NULL, pool );
+      while( o && o!=blk ) o = fd_repair_blk_orphan_map_ele_next_const( o, NULL, pool );
+      FD_TEST( orphan==!!o );
+      cnt += (ulong)( orphan && memcmp( &blk->parent_dmr, fd_type_pun_const( &hash_null ), sizeof(fd_mr32_t) ) );
     }
   }
   return cnt;
@@ -300,7 +310,7 @@ slot1_dmr( fd_mr32_t const * m10,
   complete( pre, 1UL, 0UL, 1U, 1, m11 );
   ulong     one = 1UL;
   fd_mr32_t d1  = fd_repair_blk_map_ele_query( pre->blk_map, &one, NULL, pre->blk_pool )->dmr;
-  FD_TEST( memcmp( &d1, &hash_null, sizeof(fd_mr32_t) ) );
+  FD_TEST( memcmp( &d1, fd_type_pun_const( &hash_null ), sizeof(fd_mr32_t) ) );
   return d1;
 }
 
@@ -492,46 +502,6 @@ test_telemetry_cancelled( void ) {
   orphan_cnt( repair );
 }
 
-/* A FEC set's final shred source follows each received data shred
-   until the set completes, then freezes.  A reconstructed shred leaves
-   it alone, our own leader set completes as LEADER. */
-
-static void
-test_telemetry_final_src( void ) {
-  fd_mr32_t root = hash( 0xEE ), m10 = hash( 0x11 ), m11 = hash( 0x12 ), m20 = hash( 0x21 );
-  fd_mr20_t k10; memcpy( k10.uc, m10.uc, sizeof(fd_mr20_t) );
-  fd_mr20_t k11; memcpy( k11.uc, m11.uc, sizeof(fd_mr20_t) );
-
-  fd_repair_t * repair = setup();
-  shred0( repair, 1UL, 0UL, &root, &m10 );
-  fd_repair_fec_t const * f10 = fd_repair_fec_map_ele_query_const( repair->fec_map, &k10, NULL, repair->fec_pool );
-  FD_TEST( f10 && !f10->final_src ); /* shred0 gives no source */
-
-  fd_shred_t shred[1]; memset( shred, 0, sizeof(fd_shred_t) );
-  shred->variant         = fd_shred_variant( FD_SHRED_TYPE_MERKLE_DATA, 6 );
-  shred->data.size       = (ushort)FD_SHRED_DATA_HEADER_SZ; /* header only, no payload */
-  shred->slot            = 1UL;
-  shred->data.parent_off = 1;
-  shred->idx = 1U; fd_repair_shred_insert( repair, shred, &m10, FD_EVENT_BLOCK_RECEIVED_FEC_SETS_FINAL_SHRED_SOURCE_TURBINE, 1L );
-  FD_TEST( f10->final_src==FD_EVENT_BLOCK_RECEIVED_FEC_SETS_FINAL_SHRED_SOURCE_TURBINE );
-  shred->idx = 2U; fd_repair_shred_insert( repair, shred, &m10, FD_EVENT_BLOCK_RECEIVED_FEC_SETS_FINAL_SHRED_SOURCE_REPAIR, 2L );
-  shred->idx = 3U; fd_repair_shred_insert( repair, shred, &m10, 0, 3L ); /* reconstructed */
-  FD_TEST( f10->final_src==FD_EVENT_BLOCK_RECEIVED_FEC_SETS_FINAL_SHRED_SOURCE_REPAIR );
-
-  shred->idx = FD_FEC_SHRED_CNT-1U;
-  FD_TEST( fd_repair_fec_complete( repair, shred, &m10, 0, 0U, 0U, 0U, 0U, 0U, 0U, 4L )==f10 && f10->final_src==FD_EVENT_BLOCK_RECEIVED_FEC_SETS_FINAL_SHRED_SOURCE_REPAIR );
-  shred->idx = 4U; fd_repair_shred_insert( repair, shred, &m10, FD_EVENT_BLOCK_RECEIVED_FEC_SETS_FINAL_SHRED_SOURCE_TURBINE, 5L );
-  FD_TEST( f10->final_src==FD_EVENT_BLOCK_RECEIVED_FEC_SETS_FINAL_SHRED_SOURCE_REPAIR ); /* frozen */
-
-  shred->idx = FD_FEC_SHRED_CNT; fd_repair_shred_insert( repair, shred, &m11, FD_EVENT_BLOCK_RECEIVED_FEC_SETS_FINAL_SHRED_SOURCE_TURBINE, 6L );
-  fd_repair_fec_t const * f11 = fd_repair_fec_map_ele_query_const( repair->fec_map, &k11, NULL, repair->fec_pool );
-  FD_TEST( f11 && f11->final_src==FD_EVENT_BLOCK_RECEIVED_FEC_SETS_FINAL_SHRED_SOURCE_TURBINE ); /* a new set takes its first shred's source */
-
-  shred->slot = 2UL; shred->idx = FD_FEC_SHRED_CNT-1U; shred->data.flags = FD_SHRED_DATA_FLAG_SLOT_COMPLETE;
-  FD_TEST( fd_repair_fec_complete( repair, shred, &m20, 1, 0U, 0U, 0U, 0U, 0U, 0U, 7L )->final_src==FD_EVENT_BLOCK_RECEIVED_FEC_SETS_FINAL_SHRED_SOURCE_LEADER );
-  orphan_cnt( repair );
-}
-
 /* A verified metadata response is counted on the blk it names, a
    duplicate and a bad parent included, a pruned blk's not at all.  The
    first one stamps first_meta_res_ts. */
@@ -540,7 +510,7 @@ static void
 test_telemetry_meta( void ) {
   fd_mr32_t root = hash( 0xEE ), m10 = hash( 0x11 ), m11 = hash( 0x12 ), gone = hash( 0x99 );
   fd_mr32_t d1   = slot1_dmr( &m10, &m11 );
-  fd_mr20_t k10; memcpy( k10.uc, m10.uc, sizeof(fd_mr20_t) );
+  fd_mr_t k10 = { .mr32 = m10 };
 
   fd_repair_t *     repair = setup();
   fd_repair_blk_t * n1     = fd_repair_blk_notarized( repair, 1UL, &d1 );
@@ -586,8 +556,8 @@ test_notarized_shreds_build_eager( void ) {
   fd_repair_blk_t * n1     = fd_repair_blk_notarized( repair, 1UL, &d1 );
   ulong             n1_idx = fd_repair_blk_pool_idx( repair->blk_pool, n1 );
   FD_TEST( e2->parent==n1_idx ); /* it names n1 */
-  fd_mr20_t k10; memcpy( k10.uc, m10.uc, sizeof(fd_mr20_t) );
-  fd_mr20_t k11; memcpy( k11.uc, m11.uc, sizeof(fd_mr20_t) );
+  fd_mr_t k10 = { .mr32 = m10 };
+  fd_mr_t k11 = { .mr32 = m11 };
   fd_repair_blk_parented ( repair, 1UL, &d1, 0UL, &root, 2U, 0L );
   fd_repair_fec_notarized( repair, 1UL, &d1, 0U,               &k10, 0L );
   fd_repair_fec_notarized( repair, 1UL, &d1, FD_FEC_SHRED_CNT, &k11, 0L );
@@ -618,9 +588,9 @@ static void
 test_twin_merge_ahead( void ) {
   fd_mr32_t root = hash( 0xEE );
   fd_mr32_t m10  = hash( 0x11 ), m20 = hash( 0x21 ), m21 = hash( 0x22 );
-  fd_mr20_t k10; memcpy( k10.uc, m10.uc, sizeof(fd_mr20_t) );
-  fd_mr20_t k20; memcpy( k20.uc, m20.uc, sizeof(fd_mr20_t) );
-  fd_mr20_t k21; memcpy( k21.uc, m21.uc, sizeof(fd_mr20_t) );
+  fd_mr_t k10 = { .mr32 = m10 };
+  fd_mr_t k20 = { .mr32 = m20 };
+  fd_mr_t k21 = { .mr32 = m21 };
 
   fd_repair_t * pre = setup_in( scratch );
   shred0  ( pre, 1UL, 0UL, &root, &m10 );
@@ -634,8 +604,8 @@ test_twin_merge_ahead( void ) {
 
   fd_repair_t * repair = setup();
   shred0( repair, 2UL, 1UL, &d1, &m20 );
-  fd_repair_blk_t * e1 = fd_repair_blk_pool_ele( repair->blk_pool, repair->slot_meta[ one % repair->slot_max ].eager );
-  fd_repair_blk_t * e2 = fd_repair_blk_pool_ele( repair->blk_pool, repair->slot_meta[ two % repair->slot_max ].eager );
+  fd_repair_blk_t * e1 = fd_repair_blk_pool_ele( repair->blk_pool, repair->slot_meta[ one % repair->slot_max ].eager_blk_idx );
+  fd_repair_blk_t * e2 = fd_repair_blk_pool_ele( repair->blk_pool, repair->slot_meta[ two % repair->slot_max ].eager_blk_idx );
   FD_TEST( e1 && e2->parent==fd_repair_blk_pool_idx_null( repair->blk_pool ) && !rooted( repair, e2 ) );
   fd_repair_slot_invalidated( repair, 1UL, FD_EVENT_BLOCK_RECEIVED_CANCELLED_REASON_MERKLE_ROOT_MISMATCH, 0L );
   FD_TEST( e2->parent==fd_repair_blk_pool_idx_null( repair->blk_pool ) && !rooted( repair, e2 ) );
@@ -679,7 +649,7 @@ test_eager_finished_wrong_parent( void ) {
   complete( repair, 1UL, 0UL, 0U, 1, &m10 );
   ulong             one = 1UL, two = 2UL;
   fd_repair_blk_t * e1  = fd_repair_blk_map_ele_query( repair->blk_map, &one, NULL, repair->blk_pool );
-  FD_TEST( memcmp(  &e1->dmr, &hash_null, sizeof(fd_mr32_t) ) );
+  FD_TEST( memcmp(  &e1->dmr, fd_type_pun_const( &hash_null ), sizeof(fd_mr32_t) ) );
   expect( repair, e1, 0U );
 
   shred0  ( repair, 2UL, 1UL, &y, &m20 );
@@ -722,15 +692,15 @@ test_orphan_adopted( void ) {
   shred0  ( pre, 2UL, 1UL, &y, &m20 );
   complete( pre, 2UL, 1UL, 0U, 1, &m20 );
   ulong     one = 1UL, two = 2UL;
-  fd_mr32_t d2  = fd_repair_blk_pool_ele( pre->blk_pool, pre->slot_meta[ two % pre->slot_max ].eager )->dmr;
-  FD_TEST( memcmp( &d2, &hash_null, sizeof(fd_mr32_t) ) );
+  fd_mr32_t d2  = fd_repair_blk_pool_ele( pre->blk_pool, pre->slot_meta[ two % pre->slot_max ].eager_blk_idx )->dmr;
+  FD_TEST( memcmp( &d2, fd_type_pun_const( &hash_null ), sizeof(fd_mr32_t) ) );
 
   fd_repair_t * repair = setup();
   shred0  ( repair, 2UL, 1UL, &y, &m20 );
   shred0  ( repair, 1UL, 0UL, &root, &m10 );
   complete( repair, 1UL, 0UL, 0U, 1, &m10 );
-  fd_repair_blk_t * e1 = fd_repair_blk_pool_ele( repair->blk_pool, repair->slot_meta[ one % repair->slot_max ].eager );
-  fd_repair_blk_t * e2 = fd_repair_blk_pool_ele( repair->blk_pool, repair->slot_meta[ two % repair->slot_max ].eager );
+  fd_repair_blk_t * e1 = fd_repair_blk_pool_ele( repair->blk_pool, repair->slot_meta[ one % repair->slot_max ].eager_blk_idx );
+  fd_repair_blk_t * e2 = fd_repair_blk_pool_ele( repair->blk_pool, repair->slot_meta[ two % repair->slot_max ].eager_blk_idx );
   FD_TEST( e2->parent==fd_repair_blk_pool_idx_null( repair->blk_pool ) );
   expect( repair, e1, 0U );
 
@@ -834,16 +804,16 @@ test_blk_dead(  void ) {
 
   fd_repair_blk_dead( repair, 1UL, &d1, 0U );
   FD_TEST( fd_repair_blk_map_ele_query( repair->blk_map, &one, NULL, repair->blk_pool )==e1 && !fd_repair_blk_map_ele_next_const( e1, NULL, repair->blk_pool ) );
-  FD_TEST( repair->slot_meta[ one % repair->slot_max ].invalidated && !e1->eager && !e1->in_blk_treap );
+  FD_TEST( repair->slot_meta[ one % repair->slot_max ].invalidated && !e1->eager && !queued( repair, e1 ) );
   FD_TEST( e2->parent==fd_repair_blk_pool_idx( repair->blk_pool, e1 ) );
-  fd_mr20_t k10; memcpy( k10.uc, m10.uc, sizeof(fd_mr20_t) );
+  fd_mr_t k10 = { .mr32 = m10 };
   FD_TEST( fd_repair_fec_map_ele_query( repair->fec_map, &k10, NULL, repair->fec_pool ) );
   fd_repair_blk_dead( repair, 1UL, &d1, 0U ); /* SLOT_DEAD again changes nothing */
   FD_TEST( fd_repair_deque_empty( repair->reasm_deque ) );
 
   shred0( repair, 1UL, 0UL, &root, &m10 );
   FD_TEST( fd_repair_blk_map_ele_query( repair->blk_map, &one, NULL, repair->blk_pool )==e1 && !fd_repair_blk_map_ele_next_const( e1, NULL, repair->blk_pool ) );
-  FD_TEST( !e1->in_blk_treap );
+  FD_TEST( !queued( repair, e1 ) );
 
   repair->reconsume = 1;
   FD_TEST( fd_repair_deque_empty( repair->reasm_deque ) );
@@ -934,13 +904,13 @@ test_blk_dead_minority_fork( void ) {
   FD_TEST( fd_repair_deque_empty( repair->reasm_deque ) );
 
   fd_repair_blk_dead( repair, 1UL, &dB, 0U );
-  FD_TEST( repair->slot_meta[ one % repair->slot_max ].invalidated && !b->eager && !b->in_blk_treap );
+  FD_TEST( repair->slot_meta[ one % repair->slot_max ].invalidated && !b->eager && !queued( repair, b ) );
   FD_TEST( c->parent==fd_repair_blk_pool_idx( repair->blk_pool, b ) && fd_repair_deque_empty( repair->reasm_deque ) );
 
   for( ulong i=0UL; i<3UL; i++ ) FD_TEST( !fd_repair_blk_notarized( repair, 1UL, &dB ) ); /* SafeToNotar, found */
   shred0( repair, 1UL, 0UL, &root, &m10 );                                                 /* turbine again */
   FD_TEST( fd_repair_blk_map_ele_query( repair->blk_map, &one, NULL, repair->blk_pool )==b && !fd_repair_blk_map_ele_next_const( b, NULL, repair->blk_pool ) );
-  FD_TEST( !b->in_blk_treap && fd_repair_deque_empty( repair->reasm_deque ) );
+  FD_TEST( !queued( repair, b ) && fd_repair_deque_empty( repair->reasm_deque ) );
 
   repair->reconsume = 1; /* replay dropped C under the dead B */
   complete( repair, 2UL, 1UL, 1U, 1, &m21 );
@@ -971,8 +941,8 @@ test_blk_dead_minority_fork( void ) {
   fd_repair_blk_t * t = fd_repair_blk_map_ele_query( repair->blk_map, &one, NULL, repair->blk_pool );
   expect( repair, t, 0U );
 
-  fd_repair_blk_dead( repair, 1UL, &hash_null, 0U ); /* the incomplete turbine copy */
-  FD_TEST( repair->slot_meta[ one % repair->slot_max ].invalidated && !t->eager && !t->in_blk_treap );
+  fd_repair_blk_dead( repair, 1UL, fd_type_pun_const( &hash_null ), 0U ); /* the incomplete turbine copy */
+  FD_TEST( repair->slot_meta[ one % repair->slot_max ].invalidated && !t->eager && !queued( repair, t ) );
   FD_TEST( !fd_repair_fec_complete( repair, &(fd_shred_t){ .slot = 1UL, .idx = 2U*FD_FEC_SHRED_CNT-1U, .data = { .parent_off = 1, .flags = FD_SHRED_DATA_FLAG_SLOT_COMPLETE } }, &m11, 0, 0U, 0U, 0U, 0U, 0U, 0U, 0L ) );
 
   shred0  ( repair, 2UL, 1UL, &X, &m20 ); /* the leader builds C on B's real id */
@@ -1000,7 +970,7 @@ test_blk_dead_minority_fork( void ) {
   for( fd_repair_blk_t const * x = fd_repair_blk_map_ele_query_const( repair->blk_map, &one, NULL, repair->blk_pool ); x; x = fd_repair_blk_map_ele_next_const( x, NULL, repair->blk_pool ) ) {
     named += (ulong)!memcmp( &x->dmr, &X, sizeof(fd_mr32_t) );
   }
-  FD_TEST( named==1UL && c->parent==fd_repair_blk_pool_idx( repair->blk_pool, n ) && !n->in_blk_treap );
+  FD_TEST( named==1UL && c->parent==fd_repair_blk_pool_idx( repair->blk_pool, n ) && !queued( repair, n ) );
   orphan_cnt( repair );
 }
 
@@ -1043,7 +1013,7 @@ test_eqvoc_invalidates( void ) {
   shred0( repair, 1UL, 0UL, &y,    &m19 );
   fd_repair_blk_t * e1 = fd_repair_blk_map_ele_query( repair->blk_map, &one, NULL, repair->blk_pool );
   FD_TEST( repair->slot_meta[ one % repair->slot_max ].invalidated );
-  FD_TEST( !memcmp( &e1->parent_blk_mr, &root, sizeof(fd_mr32_t) ) );
+  FD_TEST( !memcmp( &e1->parent_dmr, &root, sizeof(fd_mr32_t) ) );
 
   fd_mr32_t m20 = hash( 0x21 ), m29 = hash( 0x29 );
   complete( repair, 2UL, 1UL, 1U, 0, &m20 );
@@ -1062,7 +1032,7 @@ test_fec_alias_refused( void ) {
   fd_repair_t * repair = setup();
   shred0  ( repair, 1UL, 0UL, &root, &m10 );
   complete( repair, 1UL, 0UL, 0U, 0, &m10 );
-  fd_mr20_t k10; memcpy( k10.uc, m10.uc, sizeof(fd_mr20_t) );
+  fd_mr_t k10 = { .mr32 = m10 };
 
   fd_repair_blk_t * t = notar( repair, 2UL, 0x50 );
   parented( repair, 2UL, 0x50, 0UL, 0xEE, 2U );
@@ -1090,7 +1060,7 @@ role( fd_repair_t const *     repair,
       fd_repair_blk_t const * blk ) {
   fd_repair_slot_meta_t const * meta = &repair->slot_meta[ blk->slot % repair->slot_max ];
   ulong                         idx  = fd_repair_blk_pool_idx( repair->blk_pool, blk );
-  return meta->final==idx ? ROLE_FINAL : meta->notar==idx ? ROLE_NOTAR : ROLE_EAGER;
+  return meta->final_blk_idx==idx ? ROLE_FINAL : meta->notar_blk_idx==idx ? ROLE_NOTAR : ROLE_EAGER;
 }
 
 /* blk_treap_pop takes the lowest slot blk of the first non-empty treap,
@@ -1105,7 +1075,6 @@ blk_treap_pop( fd_repair_t * repair ) {
   if( FD_UNLIKELY( !treap ) ) return NULL;
   fd_repair_blk_t * blk = fd_repair_treap_fwd_iter_ele( fd_repair_treap_fwd_iter_init( treap, repair->blk_pool ), repair->blk_pool );
   fd_repair_treap_ele_remove( treap, blk, repair->blk_pool );
-  blk->in_blk_treap = 0;
   return blk;
 }
 
@@ -1116,7 +1085,7 @@ static fd_repair_blk_t *
 pop( fd_repair_t * repair,
      ulong         c ) {
   fd_repair_blk_t * blk = blk_treap_pop( repair );
-  FD_TEST( blk && role( repair, blk )==c && !blk->in_blk_treap );
+  FD_TEST( blk && role( repair, blk )==c && !queued( repair, blk ) );
   return blk;
 }
 
@@ -1142,15 +1111,15 @@ test_repair_blk_treap( void ) {
   fd_repair_t *    repair = setup();
   FD_TEST( !blk_treap_cnt( repair ) );                                          /* the root blk is never repaired */
   fd_repair_blk_t * n1    = notar( repair, 1UL, 0x10 );
-  FD_TEST( role( repair, n1 )==ROLE_NOTAR && n1->in_blk_treap );
+  FD_TEST( role( repair, n1 )==ROLE_NOTAR && queued( repair, n1 ) );
   FD_TEST( pop( repair, ROLE_NOTAR )==n1 && !blk_treap_pop( repair ) );
 
   parented( repair, 1UL, 0x10, 0UL, 0xEE, 2U );                                 /* FEC set count known */
-  FD_TEST( n1->in_blk_treap && pop( repair, ROLE_NOTAR )==n1 );
+  FD_TEST( queued( repair, n1 ) && pop( repair, ROLE_NOTAR )==n1 );
   fecs    ( repair, 1UL, 0x10, 1U );
   fd_mr32_t m11 = hash( 0x11 );
   complete( repair, 1UL, 0UL, 0U, 0, &m11 );                                   /* buffering a FEC set adds no work */
-  FD_TEST( !n1->in_blk_treap );
+  FD_TEST( !queued( repair, n1 ) );
 
   /* Eager: turbine showing a higher FEC set inserts it and stamps it. */
 
@@ -1163,15 +1132,15 @@ test_repair_blk_treap( void ) {
   fd_shred_t shred[1]; memset( shred, 0, sizeof(fd_shred_t) );
   shred->slot = 3UL; shred->idx = 2U*FD_FEC_SHRED_CNT; shred->data.parent_off = 3;
   shred->variant = fd_shred_variant( FD_SHRED_TYPE_MERKLE_DATA, 6 ); shred->data.size = (ushort)FD_SHRED_DATA_HEADER_SZ; /* header only, no payload */
-  fd_repair_shred_insert( repair, shred, &m32, 0, 77L );
-  FD_TEST( e3->in_blk_treap && e3->rcvd_fec_ts==77L && e3->rcvd_fec_cnt==3U );
+  fd_repair_shred_insert( repair, shred, &m32, 77L );
+  FD_TEST( queued( repair, e3 ) && e3->eager_ts==77L && e3->rcvd_fec_cnt==3U );
   pop( repair, ROLE_EAGER );
 
   /* Eviction of an incomplete FEC set forgets the shreds it had. */
 
-  fd_mr20_t k32; memcpy( k32.uc, m32.uc, sizeof(fd_mr20_t) );
+  fd_mr_t k32 = { .mr32 = m32 };
   fd_repair_fec_evicted( repair, 3UL, 2U*FD_FEC_SHRED_CNT, &k32 );
-  FD_TEST( !fd_repair_fec_pool_ele( repair->fec_pool, e3->fecs[ 2 ] )->rcvd );
+  FD_TEST( !fd_repair_fec_pool_ele( repair->fec_pool, e3->fecs[ 2 ] )->data_rcvd );
 
   /* Finalized blks are ROLE_FINAL. */
 
@@ -1191,7 +1160,7 @@ test_blk_treap_freed( void ) {
   fd_repair_t *     repair = setup();
   fd_repair_blk_t * a     = notar( repair, 2UL, 0x20 );
   fd_repair_blk_t * b     = notar( repair, 3UL, 0x30 );
-  FD_TEST( a->in_blk_treap && b->in_blk_treap && blk_treap_cnt( repair )==2UL );
+  FD_TEST( queued( repair, a ) && queued( repair, b ) && blk_treap_cnt( repair )==2UL );
   fd_repair_blk_dead( repair, 2UL, &h20, 0U );
   FD_TEST( blk_treap_cnt( repair )==1UL );
   FD_TEST( pop( repair, ROLE_NOTAR )==b && !blk_treap_pop( repair ) );
@@ -1224,13 +1193,13 @@ test_blk_treap_promote( void ) {
   shred0  ( repair, 4UL, 0UL, &root, &m40 );
   complete( repair, 4UL, 0UL, 0U, 1, &m40 );
   fd_repair_blk_t * e     = fd_repair_blk_map_ele_query( repair->blk_map, &four, NULL, repair->blk_pool );
-  FD_TEST( role( repair, e )==ROLE_EAGER && e->eager && e->in_blk_treap && memcmp( &e->dmr, &hash_null, sizeof(fd_mr32_t) ) );
+  FD_TEST( role( repair, e )==ROLE_EAGER && e->eager && queued( repair, e ) && memcmp( &e->dmr, fd_type_pun_const( &hash_null ), sizeof(fd_mr32_t) ) );
 
   FD_TEST( fd_repair_blk_finalized( repair, 3UL, &h30, 0L )==m );
-  FD_TEST( role( repair, m )==ROLE_FINAL && m->in_blk_treap );
+  FD_TEST( role( repair, m )==ROLE_FINAL && queued( repair, m ) );
   fd_mr32_t d4 = e->dmr;
   FD_TEST( !fd_repair_blk_notarized( repair, 4UL, &d4 ) );
-  FD_TEST( role( repair, e )==ROLE_NOTAR && !e->eager && e->in_blk_treap );
+  FD_TEST( role( repair, e )==ROLE_NOTAR && !e->eager && queued( repair, e ) );
   FD_TEST( fd_repair_treap_ele_cnt( repair->final_treap )==1UL );
   FD_TEST( fd_repair_treap_ele_cnt( repair->notar_treap )==2UL );
   FD_TEST( !fd_repair_treap_ele_cnt( repair->eager_treap ) );
@@ -1242,7 +1211,7 @@ test_blk_treap_promote( void ) {
 
   fd_mr32_t h10 = hash( 0x10 );
   FD_TEST( fd_repair_blk_finalized( repair, 1UL, &h10, 0L )==n );
-  FD_TEST( role( repair, n )==ROLE_FINAL && !n->in_blk_treap && !blk_treap_cnt( repair ) );
+  FD_TEST( role( repair, n )==ROLE_FINAL && !queued( repair, n ) && !blk_treap_cnt( repair ) );
   orphan_cnt( repair );
 }
 
@@ -1285,7 +1254,7 @@ was_eager( fd_repair_t const *     repair,
            fd_repair_blk_t const * blk ) {
   fd_repair_slot_meta_t const * meta = &repair->slot_meta[ blk->slot % repair->slot_max ];
   return meta->slot==blk->slot && !meta->invalidated && !meta->leader &&
-         meta->eager==fd_repair_blk_pool_idx( repair->blk_pool, blk ) && role( repair, blk )==ROLE_EAGER;
+         meta->eager_blk_idx==fd_repair_blk_pool_idx( repair->blk_pool, blk ) && role( repair, blk )==ROLE_EAGER;
 }
 
 /* check_eager checks the eager bit matches the predicate, and that a
@@ -1295,7 +1264,7 @@ static void
 check_eager( fd_repair_t const *     repair,
              fd_repair_blk_t const * blk ) {
   FD_TEST( blk->eager==was_eager( repair, blk ) );
-  FD_TEST( blk->eager || role( repair, blk )!=ROLE_EAGER || !blk->in_blk_treap );
+  FD_TEST( blk->eager || role( repair, blk )!=ROLE_EAGER || !queued( repair, blk ) );
 }
 
 /* The eager bit follows the slot's eager blk across invalidation,
@@ -1312,9 +1281,9 @@ test_eager_bit( void ) {
   check_eager( repair, fd_repair_blk_map_ele_query( repair->blk_map, &zero, NULL, repair->blk_pool ) );
   shred0( repair, 1UL, 0UL, &root, &m10 );
   fd_repair_blk_t * e1 = fd_repair_blk_map_ele_query( repair->blk_map, &one, NULL, repair->blk_pool );
-  FD_TEST( e1->eager && e1->in_blk_treap ); check_eager( repair, e1 );
+  FD_TEST( e1->eager && queued( repair, e1 ) ); check_eager( repair, e1 );
   fd_repair_slot_invalidated( repair, 1UL, 0, 0L );
-  FD_TEST( !e1->eager && !e1->in_blk_treap ); check_eager( repair, e1 );
+  FD_TEST( !e1->eager && !queued( repair, e1 ) ); check_eager( repair, e1 );
 
   repair = setup();
   shred0  ( repair, 1UL, 0UL, &root, &m10 );
@@ -1329,17 +1298,17 @@ test_eager_bit( void ) {
   shred0( repair, 1UL, 0UL, &root, &m10 );
   e1 = fd_repair_blk_map_ele_query( repair->blk_map, &one, NULL, repair->blk_pool );
   fd_repair_blk_t * fin = fd_repair_blk_finalized( repair, 1UL, &h77, 0L );
-  FD_TEST( fin && fin!=e1 && e1->eager && e1->in_blk_treap ); check_eager( repair, e1 ); check_eager( repair, fin ); /* still repaired by position */
+  FD_TEST( fin && fin!=e1 && e1->eager && queued( repair, e1 ) ); check_eager( repair, e1 ); check_eager( repair, fin ); /* still repaired by position */
   fd_shred_t shred[1]; memset( shred, 0, sizeof(fd_shred_t) );
   shred->slot = 1UL; shred->idx = 2U*FD_FEC_SHRED_CNT; shred->data.parent_off = 1;
   shred->variant = fd_shred_variant( FD_SHRED_TYPE_MERKLE_DATA, 6 ); shred->data.size = (ushort)FD_SHRED_DATA_HEADER_SZ; /* header only, no payload */
-  fd_repair_shred_insert( repair, shred, &m12, 0, 0L );                            /* turbine moves its limit */
-  FD_TEST( e1->rcvd_fec_cnt==3U && e1->in_blk_treap ); check_eager( repair, e1 );
+  fd_repair_shred_insert( repair, shred, &m12, 0L );                            /* turbine moves its limit */
+  FD_TEST( e1->rcvd_fec_cnt==3U && queued( repair, e1 ) ); check_eager( repair, e1 );
 
   repair = setup();
   fd_repair_blk_t * n1 = fd_repair_blk_notarized( repair, 1UL, &d1 );
   shred0  ( repair, 1UL, 0UL, &root, &m10 );
-  e1 = fd_repair_blk_pool_ele( repair->blk_pool, repair->slot_meta[ one % repair->slot_max ].eager );
+  e1 = fd_repair_blk_pool_ele( repair->blk_pool, repair->slot_meta[ one % repair->slot_max ].eager_blk_idx );
   FD_TEST( e1!=n1 && e1->eager ); check_eager( repair, e1 ); check_eager( repair, n1 );
   complete( repair, 1UL, 0UL, 0U, 0, &m10 );
   complete( repair, 1UL, 0UL, 1U, 1, &m11 );
@@ -1351,17 +1320,17 @@ test_eager_bit( void ) {
   e1 = fd_repair_blk_map_ele_query( repair->blk_map, &one, NULL, repair->blk_pool );
   FD_TEST( e1->eager );
   complete_as( repair, 1UL, 0UL, 0U, 1, &m10, 1 );
-  FD_TEST( !e1->eager && !e1->in_blk_treap ); check_eager( repair, e1 );
+  FD_TEST( !e1->eager && !queued( repair, e1 ) ); check_eager( repair, e1 );
 
   repair = setup();
   complete_as( repair, 1UL, 0UL, 0U, 0, &m10, 1 );
   e1 = fd_repair_blk_map_ele_query( repair->blk_map, &one, NULL, repair->blk_pool );
-  FD_TEST( !e1->eager && !e1->in_blk_treap ); check_eager( repair, e1 );
+  FD_TEST( !e1->eager && !queued( repair, e1 ) ); check_eager( repair, e1 );
 
   repair = fd_repair_join( fd_repair_new( mem, SLOT_MAX, FEC_MAX, BLK_FECS, 42UL ) );
-  fd_repair_init( repair, 0UL, &hash_null, NULL, NULL );
+  fd_repair_init( repair, 0UL, fd_type_pun_const( &hash_null ), NULL, NULL );
   fd_repair_blk_t * r = fd_repair_blk_map_ele_query( repair->blk_map, &zero, NULL, repair->blk_pool );
-  FD_TEST( role( repair, r )==ROLE_FINAL && !r->in_blk_treap ); check_eager( repair, r );
+  FD_TEST( role( repair, r )==ROLE_FINAL && !queued( repair, r ) ); check_eager( repair, r );
   orphan_cnt( repair );
 }
 
@@ -1372,14 +1341,14 @@ test_eager_bit( void ) {
 static void
 test_genesis( void ) {
   fd_repair_t * repair = fd_repair_join( fd_repair_new( mem, SLOT_MAX, FEC_MAX, BLK_FECS, 42UL ) );
-  fd_repair_init( repair, 0UL, &hash_null, NULL, NULL );
+  fd_repair_init( repair, 0UL, fd_type_pun_const( &hash_null ), NULL, NULL );
   fd_mr32_t m10 = hash( 0x11 ), m20 = hash( 0x21 );
 
-  shred0  ( repair, 1UL, 0UL, &hash_null, &m10 );
+  shred0  ( repair, 1UL, 0UL, fd_type_pun_const( &hash_null ), &m10 );
   complete( repair, 1UL, 0UL, 0U, 1, &m10 );
   ulong             one = 1UL, two = 2UL;
   fd_repair_blk_t * e1  = fd_repair_blk_map_ele_query( repair->blk_map, &one, NULL, repair->blk_pool );
-  FD_TEST( memcmp(  &e1->dmr, &hash_null, sizeof(fd_mr32_t) ) );
+  FD_TEST( memcmp(  &e1->dmr, fd_type_pun_const( &hash_null ), sizeof(fd_mr32_t) ) );
   expect( repair, e1, 0U );
 
   shred0  ( repair, 2UL, 1UL, &e1->dmr, &m20 );
@@ -1390,7 +1359,7 @@ test_genesis( void ) {
   fd_repair_blk_t * n3    = notar( repair, 3UL, 0x30 );
   fd_mr32_t         n3_id = hash( 0x30 ), m30 = hash( 0x31 );
   ulong             zero  = 0UL;
-  FD_TEST( !fd_repair_blk_parented( repair, 3UL, &n3_id, 0UL, &hash_null, 1U, 0L ) );
+  FD_TEST( !fd_repair_blk_parented( repair, 3UL, &n3_id, 0UL, fd_type_pun_const( &hash_null ), 1U, 0L ) );
   FD_TEST( n3->parent==fd_repair_blk_pool_idx( repair->blk_pool, fd_repair_blk_map_ele_query( repair->blk_map, &zero, NULL, repair->blk_pool ) ) );
   fecs    ( repair, 3UL, 0x30, 1U );
   complete( repair, 3UL, 0UL, 0U, 1, &m30 );
@@ -1409,10 +1378,10 @@ test_raised_blk_max( void ) {
   FD_TEST( fd_repair_footprint( SLOT_MAX, fec_max, blk_fecs )<=sizeof(mem) );
   FD_TEST( !fd_repair_new( mem, SLOT_MAX, fec_max, FD_FEC_BLK_MAX-1UL, 42UL ) );
   fd_repair_t * repair = fd_repair_join( fd_repair_new( mem, SLOT_MAX, fec_max, blk_fecs, 42UL ) );
-  fd_repair_init( repair, 0UL, &hash_null, NULL, NULL );
+  fd_repair_init( repair, 0UL, fd_type_pun_const( &hash_null ), NULL, NULL );
 
   fd_mr32_t m0 = hash( 0x11 );
-  shred0     ( repair, 1UL, 0UL, &hash_null, &m0 );
+  shred0     ( repair, 1UL, 0UL, fd_type_pun_const( &hash_null ), &m0 );
   complete   ( repair, 1UL, 0UL, 0U, 0, &m0 );
   for( uint k=1U; k<(uint)blk_fecs; k++ ) {
     fd_mr32_t mr; memset( mr.uc, 0, sizeof(fd_mr32_t) ); FD_STORE( uint, mr.uc, k );
@@ -1421,7 +1390,7 @@ test_raised_blk_max( void ) {
   ulong             one = 1UL;
   fd_repair_blk_t * e1  = fd_repair_blk_map_ele_query( repair->blk_map, &one, NULL, repair->blk_pool );
   FD_TEST( e1->cmpl_fec_cnt==blk_fecs && e1->cons_fec_cnt==blk_fecs );
-  FD_TEST( memcmp( &e1->dmr, &hash_null, sizeof(fd_mr32_t) ) );
+  FD_TEST( memcmp( &e1->dmr, fd_type_pun_const( &hash_null ), sizeof(fd_mr32_t) ) );
   for( uint k=0U; k<(uint)blk_fecs; k++ ) expect( repair, e1, k );
   FD_TEST( fd_repair_deque_empty( repair->reasm_deque ) );
 }
@@ -1472,7 +1441,7 @@ test_invalidated_after_whole( void ) {
   complete( repair, 2UL, 1UL, 0U, 1, &m20 );
   ulong             two = 2UL;
   fd_repair_blk_t * e2  = fd_repair_blk_map_ele_query( repair->blk_map, &two, NULL, repair->blk_pool );
-  FD_TEST( e2->parent==fd_repair_blk_pool_idx( repair->blk_pool, a ) && memcmp( &e2->dmr, &hash_null, sizeof(fd_mr32_t) ) );
+  FD_TEST( e2->parent==fd_repair_blk_pool_idx( repair->blk_pool, a ) && memcmp( &e2->dmr, fd_type_pun_const( &hash_null ), sizeof(fd_mr32_t) ) );
   fd_repair_slot_invalidated( repair, 2UL, 0, 0L );
   FD_TEST( fd_repair_deque_empty( repair->reasm_deque ) );
 
@@ -1503,7 +1472,7 @@ test_eager_out_of_order( void ) {
   expect( repair, e1, 0U );
   FD_TEST( fd_repair_deque_empty( repair->reasm_deque ) );
   complete( repair, 1UL, 0UL, 1U, 0, &m11 );
-  FD_TEST( memcmp( &e1->dmr, &hash_null, sizeof(fd_mr32_t) ) );
+  FD_TEST( memcmp( &e1->dmr, fd_type_pun_const( &hash_null ), sizeof(fd_mr32_t) ) );
   expect( repair, e1, 1U ); expect( repair, e1, 2U );
   FD_TEST( fd_repair_deque_empty( repair->reasm_deque ) );
 
@@ -1514,9 +1483,9 @@ test_eager_out_of_order( void ) {
   expect( repair, e1, 0U );
   complete( repair, 1UL, 0UL, 1U, 0, &m11 );
   expect( repair, e1, 1U );
-  FD_TEST( !e1->cmpl_fec_cnt && !memcmp( &e1->dmr, &hash_null, sizeof(fd_mr32_t) ) );
+  FD_TEST( !e1->cmpl_fec_cnt && !memcmp( &e1->dmr, fd_type_pun_const( &hash_null ), sizeof(fd_mr32_t) ) );
   complete( repair, 1UL, 0UL, 2U, 1, &m12 );
-  FD_TEST( e1->cmpl_fec_cnt==3U && memcmp( &e1->dmr, &hash_null, sizeof(fd_mr32_t) ) );
+  FD_TEST( e1->cmpl_fec_cnt==3U && memcmp( &e1->dmr, fd_type_pun_const( &hash_null ), sizeof(fd_mr32_t) ) );
   expect( repair, e1, 2U );
   FD_TEST( fd_repair_deque_empty( repair->reasm_deque ) );
   orphan_cnt( repair );
@@ -1604,7 +1573,7 @@ test_shared_fec( void ) {
   fecs    ( repair, 1UL, 0x10, 1U );
   complete( repair, 1UL, 0UL, 0U, 0, &m10 );
   ulong             one   = 1UL;
-  fd_repair_blk_t * e1    = fd_repair_blk_pool_ele( repair->blk_pool, repair->slot_meta[ one % repair->slot_max ].eager );
+  fd_repair_blk_t * e1    = fd_repair_blk_pool_ele( repair->blk_pool, repair->slot_meta[ one % repair->slot_max ].eager_blk_idx );
   FD_TEST( e1!=n1 && !repair->slot_meta[ one % repair->slot_max ].invalidated );
   expect( repair, e1, 0U );
   FD_TEST( fd_repair_deque_empty( repair->reasm_deque ) && !n1->cons_fec_cnt );
@@ -1626,7 +1595,7 @@ test_notarized_complete_fec( void ) {
   shred0  ( repair, 1UL, 0UL, &root, &m10 );
   complete( repair, 1UL, 0UL, 0U, 0, &m10 );
   ulong             one = 1UL;
-  fd_repair_blk_t * e1  = fd_repair_blk_pool_ele( repair->blk_pool, repair->slot_meta[ one % repair->slot_max ].eager );
+  fd_repair_blk_t * e1  = fd_repair_blk_pool_ele( repair->blk_pool, repair->slot_meta[ one % repair->slot_max ].eager_blk_idx );
   expect( repair, e1, 0U );
   FD_TEST( fd_repair_deque_empty( repair->reasm_deque ) );
 
@@ -1672,7 +1641,7 @@ test_eager_invalidated( void ) {
   shred->idx              = FD_FEC_SHRED_CNT + 8U;
   shred->data.parent_off  = 1;
   shred->data.flags       = FD_SHRED_DATA_FLAG_SLOT_COMPLETE;
-  fd_repair_shred_insert( repair, shred, &m11, 0, 0L );
+  fd_repair_shred_insert( repair, shred, &m11, 0L );
   FD_TEST( repair->slot_meta[ one % repair->slot_max ].invalidated );
   FD_TEST( !complete( repair, 1UL, 0UL, 3U, 1, &m13 ) );
   FD_TEST( fd_repair_deque_empty( repair->reasm_deque ) );
@@ -1682,7 +1651,7 @@ test_eager_invalidated( void ) {
   fd_repair_slot_invalidated( repair, 1UL, 0, 0L );
   FD_TEST( complete( repair, 1UL, 0UL, 0U, 1, &m10 ) );
   e1 = fd_repair_blk_map_ele_query( repair->blk_map, &one, NULL, repair->blk_pool );
-  FD_TEST( !memcmp( &e1->dmr, &hash_null, sizeof(fd_mr32_t) ) );
+  FD_TEST( !memcmp( &e1->dmr, fd_type_pun_const( &hash_null ), sizeof(fd_mr32_t) ) );
   FD_TEST( fd_repair_deque_empty( repair->reasm_deque ) );
   orphan_cnt( repair );
 }
@@ -1699,7 +1668,7 @@ test_finalize_other(  void ) {
   fd_repair_blk_t * fin = fd_repair_blk_finalized( repair, 1UL, &h77, 0L );
   ulong             one = 1UL, two = 2UL;
   FD_TEST( fin && !is_eager( repair, fin ) );
-  fd_repair_blk_t * e1  = fd_repair_blk_pool_ele( repair->blk_pool, repair->slot_meta[ one % repair->slot_max ].eager );
+  fd_repair_blk_t * e1  = fd_repair_blk_pool_ele( repair->blk_pool, repair->slot_meta[ one % repair->slot_max ].eager_blk_idx );
   FD_TEST( e1 && e1!=fin ); /* the unfinished turbine version stays */
   complete( repair, 1UL, 0UL, 0U, 1, &m10 ); /* it completes as another blk and is pruned */
   FD_TEST( fd_repair_blk_map_ele_query( repair->blk_map, &one, NULL, repair->blk_pool )==fin && !fd_repair_blk_map_ele_next_const( fin, NULL, repair->blk_pool ) );
@@ -1724,25 +1693,25 @@ static void
 test_final_before_turbine( void ) {
   fd_mr32_t root = hash( 0xEE ), m10 = hash( 0x11 ), m11 = hash( 0x12 );
   fd_mr32_t d1   = slot1_dmr( &m10, &m11 );
-  fd_mr20_t k0; memcpy( k0.uc, m10.uc, sizeof(fd_mr20_t) );
+  fd_mr_t k0 = { .mr32 = m10 };
   ulong     one  = 1UL;
 
   fd_repair_t *     repair = setup();
   fd_repair_blk_t * fin    = fd_repair_blk_finalized( repair, 1UL, &d1, 0L );
-  FD_TEST( fin && repair->slot_meta[ one % repair->slot_max ].eager==fd_repair_blk_pool_idx_null( repair->blk_pool ) );
+  FD_TEST( fin && repair->slot_meta[ one % repair->slot_max ].eager_blk_idx==fd_repair_blk_pool_idx_null( repair->blk_pool ) );
   fd_repair_blk_parented( repair, 1UL, &d1, 0UL, &root, 2U, 0L );
 
   shred0( repair, 1UL, 0UL, &root, &m10 );
-  fd_repair_blk_t * e1 = fd_repair_blk_pool_ele( repair->blk_pool, repair->slot_meta[ one % repair->slot_max ].eager );
-  FD_TEST( e1 && e1!=fin && !e1->eager && !e1->in_blk_treap );
+  fd_repair_blk_t * e1 = fd_repair_blk_pool_ele( repair->blk_pool, repair->slot_meta[ one % repair->slot_max ].eager_blk_idx );
+  FD_TEST( e1 && e1!=fin && !e1->eager && !queued( repair, e1 ) );
   complete( repair, 1UL, 0UL, 0U, 0, &m10 );
-  FD_TEST( fd_repair_fec_notarized( repair, 1UL, &d1, 0U, &k0, 0L )->complete ); /* the FecRoot reply finds it complete */
+  FD_TEST( fd_repair_fec_notarized( repair, 1UL, &d1, 0U, &k0, 0L )->fec_complete ); /* the FecRoot reply finds it complete */
   FD_TEST( fin->buff_fec_cnt==1U );
   expect( repair, e1, 0U );
   FD_TEST( fd_repair_deque_empty( repair->reasm_deque ) );
 
   complete( repair, 1UL, 0UL, 1U, 1, &m11 );
-  FD_TEST( repair->slot_meta[ one % repair->slot_max ].final==fd_repair_blk_pool_idx( repair->blk_pool, e1 ) );
+  FD_TEST( repair->slot_meta[ one % repair->slot_max ].final_blk_idx==fd_repair_blk_pool_idx( repair->blk_pool, e1 ) );
   FD_TEST( fd_repair_blk_map_ele_query( repair->blk_map, &one, NULL, repair->blk_pool )==e1 && !fd_repair_blk_map_ele_next_const( e1, NULL, repair->blk_pool ) ); /* the finalized blk was merged */
   expect( repair, e1, 1U );
   FD_TEST( fd_repair_deque_empty( repair->reasm_deque ) );
@@ -1771,17 +1740,17 @@ test_finalize_moves_child( void ) {
   fd_repair_blk_t * n1 = fd_repair_blk_finalized( repair, 1UL, &d1, 0L );
   FD_TEST( n1 && !is_eager( repair, n1 ) && e2->parent==fd_repair_blk_pool_idx( repair->blk_pool, n1 ) );
   fd_repair_blk_parented( repair, 1UL, &d1, 0UL, &root, 2U, 0L );
-  fd_mr20_t k0; memcpy( k0.uc, m10.uc, sizeof(fd_mr20_t) );
-  fd_mr20_t k1; memcpy( k1.uc, m11.uc, sizeof(fd_mr20_t) );
+  fd_mr_t k0 = { .mr32 = m10 };
+  fd_mr_t k1 = { .mr32 = m11 };
   FD_TEST( fd_repair_fec_notarized( repair, 1UL, &d1, 0U,               &k0, 0L ) );
   FD_TEST( fd_repair_fec_notarized( repair, 1UL, &d1, FD_FEC_SHRED_CNT, &k1, 0L ) );
   FD_TEST( fd_repair_deque_empty( repair->reasm_deque ) );
   ulong             one = 1UL;
-  fd_repair_blk_t * e1  = fd_repair_blk_pool_ele( repair->blk_pool, repair->slot_meta[ one % repair->slot_max ].eager );
+  fd_repair_blk_t * e1  = fd_repair_blk_pool_ele( repair->blk_pool, repair->slot_meta[ one % repair->slot_max ].eager_blk_idx );
   FD_TEST( e1 && e1!=n1 );
   complete( repair, 1UL, 0UL, 0U, 0, &m10 );
   complete( repair, 1UL, 0UL, 1U, 1, &m11 );
-  FD_TEST( repair->slot_meta[ one % repair->slot_max ].final==fd_repair_blk_pool_idx( repair->blk_pool, e1 ) );
+  FD_TEST( repair->slot_meta[ one % repair->slot_max ].final_blk_idx==fd_repair_blk_pool_idx( repair->blk_pool, e1 ) );
   FD_TEST( e2->parent==fd_repair_blk_pool_idx( repair->blk_pool, e1 ) );
   expect( repair, e1, 0U ); /* the notar blk was held behind the eager blk */
   expect( repair, e1, 1U );
@@ -1831,7 +1800,7 @@ test_eqvoc_links_waiting( void ) {
     complete( repair, 2UL, 1UL, 0U, 1, &m20 );
     fd_repair_blk_t * a = fd_repair_blk_map_ele_query( repair->blk_map, &one, NULL, repair->blk_pool );
     fd_repair_blk_t * c = fd_repair_blk_map_ele_query( repair->blk_map, &two, NULL, repair->blk_pool );
-    FD_TEST( a && is_eager( repair, a ) && !memcmp( &a->dmr, &hash_null, sizeof(fd_mr32_t) ) );
+    FD_TEST( a && is_eager( repair, a ) && !memcmp( &a->dmr, fd_type_pun_const( &hash_null ), sizeof(fd_mr32_t) ) );
     FD_TEST( c && c->parent==fd_repair_blk_pool_idx_null( repair->blk_pool ) && !rooted( repair, c ) && a->child==fd_repair_blk_pool_idx_null( repair->blk_pool ) );
 
     fd_repair_blk_t * b = NULL;
@@ -1878,7 +1847,7 @@ test_invalidated_unlinked( void ) {
     complete( repair, 2UL, 1UL, 0U, 1, &m20 );
     fd_repair_blk_t * a = fd_repair_blk_map_ele_query( repair->blk_map, &one, NULL, repair->blk_pool );
     fd_repair_blk_t * c = fd_repair_blk_map_ele_query( repair->blk_map, &two, NULL, repair->blk_pool );
-    FD_TEST( a && is_eager( repair, a ) && rooted( repair, a ) && !memcmp( &a->dmr, &hash_null, sizeof(fd_mr32_t) ) && a->child==fd_repair_blk_pool_idx_null( repair->blk_pool ) );
+    FD_TEST( a && is_eager( repair, a ) && rooted( repair, a ) && !memcmp( &a->dmr, fd_type_pun_const( &hash_null ), sizeof(fd_mr32_t) ) && a->child==fd_repair_blk_pool_idx_null( repair->blk_pool ) );
     FD_TEST( c && c->parent==fd_repair_blk_pool_idx_null( repair->blk_pool ) && !rooted( repair, c ) );
     FD_TEST( fd_repair_deque_empty( repair->reasm_deque ) );
 
@@ -1910,7 +1879,7 @@ test_invalidated_unlinked( void ) {
     FD_TEST( d && d->parent==fd_repair_blk_pool_idx( repair->blk_pool, c ) );
     expect( repair, d, 0U );
     FD_TEST( fd_repair_blk_finalized( repair, 3UL, &d->dmr, 0L )==d );
-    FD_TEST( repair->slot_meta[ two % repair->slot_max ].final==fd_repair_blk_pool_idx( repair->blk_pool, c ) );
+    FD_TEST( repair->slot_meta[ two % repair->slot_max ].final_blk_idx==fd_repair_blk_pool_idx( repair->blk_pool, c ) );
     FD_TEST( fd_repair_deque_empty( repair->reasm_deque ) );
     FD_TEST( fd_repair_blk_finalized( repair, 1UL, &dX, 0L )==x ); /* votor implicitly finalizes the ancestors */
     FD_TEST( fd_repair_blk_map_ele_query( repair->blk_map, &one, NULL, repair->blk_pool )==x && !fd_repair_blk_map_ele_next_const( x, NULL, repair->blk_pool ) ); /* A is pruned */
@@ -1960,7 +1929,7 @@ test_parented( void ) {
   FD_TEST( !fd_repair_blk_parented( repair, 2UL, &h20, 1UL, &h40, 1U, 0L ) );
   FD_TEST( !fd_repair_blk_parented( repair, 2UL, &h20, 1UL, &h10, 1U, 0L ) );
   FD_TEST( b->parent==fd_repair_blk_pool_idx( repair->blk_pool, n1 ) && n1->child==fd_repair_blk_pool_idx( repair->blk_pool, b ) );
-  FD_TEST( b->sibling==fd_repair_blk_pool_idx_null( repair->blk_pool ) && !memcmp( &b->parent_blk_mr, &h10, sizeof(fd_mr32_t) ) );
+  FD_TEST( b->sibling==fd_repair_blk_pool_idx_null( repair->blk_pool ) && !memcmp( &b->parent_dmr, &h10, sizeof(fd_mr32_t) ) );
   FD_TEST( fd_repair_blk_map_ele_query( repair->blk_map, &one, NULL, repair->blk_pool )==n1 && !fd_repair_blk_map_ele_next_const( n1, NULL, repair->blk_pool ) );
 
   repair = setup();
@@ -2091,7 +2060,7 @@ test_twin_merge_children( void ) {
   complete( repair, 4UL, 1UL, 0U, 1, &m40 );
   fd_repair_blk_t * e3 = fd_repair_blk_map_ele_query( repair->blk_map, &three, NULL, repair->blk_pool );
   fd_repair_blk_t * e4 = fd_repair_blk_map_ele_query( repair->blk_map, &four,  NULL, repair->blk_pool );
-  fd_repair_blk_t * e1 = fd_repair_blk_pool_ele( repair->blk_pool, repair->slot_meta[ one % repair->slot_max ].eager );
+  fd_repair_blk_t * e1 = fd_repair_blk_pool_ele( repair->blk_pool, repair->slot_meta[ one % repair->slot_max ].eager_blk_idx );
   FD_TEST( e3->parent==fd_repair_blk_pool_idx( repair->blk_pool, n1 ) && e4->parent==fd_repair_blk_pool_idx_null( repair->blk_pool ) && e1->child==fd_repair_blk_pool_idx_null( repair->blk_pool ) );
   FD_TEST( fd_repair_deque_empty( repair->reasm_deque ) );
 
@@ -2372,8 +2341,8 @@ test_catchup( void ) {
   for( ulong s=1UL; s<6UL; s+=2UL ) {
     fd_repair_blk_t * blk = fd_repair_blk_map_ele_query( repair->blk_map, &s, NULL, repair->blk_pool );
     FD_TEST( blk && !fd_repair_blk_map_ele_next_const( blk, NULL, repair->blk_pool ) && is_eager( repair, blk ) );
-    FD_TEST( role( repair, blk )==ROLE_EAGER && blk->eager && blk->in_blk_treap );
-    FD_TEST( !memcmp( &blk->dmr, &hash_null, sizeof(fd_mr32_t) ) );
+    FD_TEST( role( repair, blk )==ROLE_EAGER && blk->eager && queued( repair, blk ) );
+    FD_TEST( !memcmp( &blk->dmr, fd_type_pun_const( &hash_null ), sizeof(fd_mr32_t) ) );
     FD_TEST( blk->parent==fd_repair_blk_pool_idx_null( repair->blk_pool ) && blk->parent_slot==ULONG_MAX && !blk->rcvd_fec_cnt );
   }
   FD_TEST( fd_repair_blk_map_ele_query( repair->blk_map, &two, NULL, repair->blk_pool )==e2 && !fd_repair_blk_map_ele_next_const( e2, NULL, repair->blk_pool ) );
@@ -2397,8 +2366,8 @@ test_catchup( void ) {
   used = fd_repair_blk_pool_used( repair->blk_pool );
   fd_repair_slot_catchup( repair, 10UL );
   FD_TEST( fd_repair_blk_pool_used( repair->blk_pool )==used+2UL );
-  FD_TEST( fd_repair_slot_meta( repair, 7UL )->eager==fd_repair_blk_pool_idx_null( repair->blk_pool ) );
-  FD_TEST( fd_repair_slot_meta( repair, 8UL )->eager==fd_repair_blk_pool_idx_null( repair->blk_pool ) );
+  FD_TEST( fd_repair_slot_meta( repair, 7UL )->eager_blk_idx==fd_repair_blk_pool_idx_null( repair->blk_pool ) );
+  FD_TEST( fd_repair_slot_meta( repair, 8UL )->eager_blk_idx==fd_repair_blk_pool_idx_null( repair->blk_pool ) );
   ulong seven = 7UL;
   FD_TEST( !fd_repair_blk_map_ele_query( repair->blk_map, &seven, NULL, repair->blk_pool ) );
   orphan_cnt( repair );
@@ -2456,7 +2425,7 @@ test_catchup_root_advanced( void ) {
   FD_TEST( fd_repair_blk_map_ele_query( repair->blk_map, &three, NULL, repair->blk_pool )==c && !fd_repair_blk_map_ele_next_const( c, NULL, repair->blk_pool ) );
   for( ulong s=4UL; s<6UL; s++ ) {
     fd_repair_blk_t * blk = fd_repair_blk_map_ele_query( repair->blk_map, &s, NULL, repair->blk_pool );
-    FD_TEST( blk && is_eager( repair, blk ) && blk->in_blk_treap );
+    FD_TEST( blk && is_eager( repair, blk ) && queued( repair, blk ) );
   }
   FD_TEST( fd_repair_blk_pool_used( repair->blk_pool )==3UL );
 
@@ -2464,7 +2433,7 @@ test_catchup_root_advanced( void ) {
   FD_TEST( fd_repair_blk_pool_used( repair->blk_pool )==5UL );
   for( ulong s=6UL; s<8UL; s++ ) {
     fd_repair_blk_t * blk = fd_repair_blk_map_ele_query( repair->blk_map, &s, NULL, repair->blk_pool );
-    FD_TEST( blk && is_eager( repair, blk ) && blk->in_blk_treap );
+    FD_TEST( blk && is_eager( repair, blk ) && queued( repair, blk ) );
   }
 
   fd_repair_blk_t * f    = notar( repair, 9UL, 0x90 );
@@ -2477,7 +2446,7 @@ test_catchup_root_advanced( void ) {
   FD_TEST( fd_repair_blk_map_ele_query( repair->blk_map, &nine, NULL, repair->blk_pool )==f );
   for( ulong s=10UL; s<12UL; s++ ) {
     fd_repair_blk_t * blk = fd_repair_blk_map_ele_query( repair->blk_map, &s, NULL, repair->blk_pool );
-    FD_TEST( blk && is_eager( repair, blk ) && blk->in_blk_treap );
+    FD_TEST( blk && is_eager( repair, blk ) && queued( repair, blk ) );
   }
   FD_TEST( fd_repair_blk_pool_used( repair->blk_pool )==3UL );
   orphan_cnt( repair );
@@ -2507,7 +2476,7 @@ test_ancestry_held_orphan( void ) {
   fd_repair_blk_t * b = fd_repair_blk_map_ele_query( repair->blk_map, &one, NULL, repair->blk_pool );
   while( b && memcmp( &b->dmr, &B, sizeof(fd_mr32_t) ) ) b = (fd_repair_blk_t *)fd_repair_blk_map_ele_next_const( b, NULL, repair->blk_pool );
   FD_TEST( b && role( repair, b )==ROLE_NOTAR && b->parent_slot==ULONG_MAX );
-  FD_TEST( c->parent==fd_repair_blk_pool_idx( repair->blk_pool, b ) && !rooted( repair, c ) && c->in_blk_treap );
+  FD_TEST( c->parent==fd_repair_blk_pool_idx( repair->blk_pool, b ) && !rooted( repair, c ) && queued( repair, c ) );
 
   FD_TEST( fd_repair_blk_finalized( repair, 2UL, &cid, 0L )==c );
   FD_TEST( role( repair, c )==ROLE_FINAL && role( repair, b )==ROLE_FINAL );
@@ -2568,7 +2537,7 @@ test_ancestry_eager_merge( void ) {
   complete( repair, 2UL, 1UL, 0U, 1, &mC );
   fd_repair_blk_t * c  = fd_repair_blk_map_ele_query( repair->blk_map, &two, NULL, repair->blk_pool );
   fd_repair_blk_t * e1 = fd_repair_blk_map_ele_query( repair->blk_map, &one, NULL, repair->blk_pool );
-  FD_TEST( e1 && is_eager( repair, e1 ) && !memcmp( &e1->dmr, &hash_null, sizeof(fd_mr32_t) ) && e1->child==fd_repair_blk_pool_idx_null( repair->blk_pool ) );
+  FD_TEST( e1 && is_eager( repair, e1 ) && !memcmp( &e1->dmr, fd_type_pun_const( &hash_null ), sizeof(fd_mr32_t) ) && e1->child==fd_repair_blk_pool_idx_null( repair->blk_pool ) );
   FD_TEST( c->parent==fd_repair_blk_pool_idx_null( repair->blk_pool ) && !rooted( repair, c ) );
 
   fd_mr32_t cid = c->dmr;
@@ -2693,7 +2662,7 @@ test_ancestry_relink_final( void ) {
   FD_TEST( t->parent==fd_repair_blk_pool_idx( repair->blk_pool, x ) && role( repair, x )==ROLE_FINAL && role( repair, t )==ROLE_FINAL );
 
   fd_repair_blk_dead( repair, 1UL, &X, 0U );
-  FD_TEST( fd_repair_blk_map_ele_query( repair->blk_map, &one, NULL, repair->blk_pool )==x && !x->in_blk_treap );
+  FD_TEST( fd_repair_blk_map_ele_query( repair->blk_map, &one, NULL, repair->blk_pool )==x && !queued( repair, x ) );
   FD_TEST( t->parent==fd_repair_blk_pool_idx( repair->blk_pool, x ) && role( repair, x )==ROLE_FINAL );
   FD_TEST( !orphan_cnt( repair ) );
 
@@ -2709,7 +2678,7 @@ test_ancestry_relink_final( void ) {
    repeated does not insert twice; the parent appearing links both out;
    the parent dying keeps both linked and naming it again finds it; a
    skip of one's slot prunes it; a blk whose eager parent completes as
-   what it named leaves through link_children; and the root passing the
+   what it named leaves through link_orphans; and the root passing the
    dead parent puts its remaining child back. */
 
 static void
@@ -2756,7 +2725,7 @@ test_orphan_map( void ) {
   shred0  ( repair, 1UL, 0UL, &root, &m1 );
   FD_TEST( orphan_cnt( repair )==1UL ); /* no dmr yet */
   complete( repair, 1UL, 0UL, 0U, 1, &m1 );
-  fd_repair_blk_t * e1 = fd_repair_blk_pool_ele( repair->blk_pool, repair->slot_meta[ one % repair->slot_max ].eager );
+  fd_repair_blk_t * e1 = fd_repair_blk_pool_ele( repair->blk_pool, repair->slot_meta[ one % repair->slot_max ].eager_blk_idx );
   FD_TEST( e1 && !memcmp( &e1->dmr, &d1, sizeof(fd_mr32_t) ) );
   FD_TEST( !orphan_cnt( repair ) ); /* slot 4 linked, e2 still under P */
   FD_TEST( e1->child!=fd_repair_blk_pool_idx_null( repair->blk_pool ) && fd_repair_blk_pool_ele( repair->blk_pool, e1->child )->slot==4UL );
@@ -2765,7 +2734,7 @@ test_orphan_map( void ) {
 
   fd_repair_root_advanced( repair, 1UL, &d1 );
   FD_TEST( orphan_cnt( repair )==1UL ); /* e2 names a freed P and stays an orphan, harmless */
-  FD_TEST( fd_repair_orphan_map_ele_query( repair->orphan_map, &P, NULL, repair->blk_pool )==e2 );
+  FD_TEST( fd_repair_blk_orphan_map_ele_query( repair->orphan_map, &P, NULL, repair->blk_pool )==e2 );
   fd_repair_root_advanced( repair, 4UL, &fd_repair_blk_pool_ele( repair->blk_pool, e1->child )->dmr );
   FD_TEST( !orphan_cnt( repair ) );
 }
@@ -2782,18 +2751,18 @@ test_orphan_map_root_advanced( void ) {
   fd_repair_blk_t * a  = notar( repair, 1UL, 0x10 );
   parented( repair, 1UL, 0x10, 0UL, 0xEE, 1U );
   fd_repair_root_advanced( repair, 1UL, &A );
-  FD_TEST( repair->root_blk==a && a->parent==fd_repair_blk_pool_idx_null( repair->blk_pool ) && !memcmp( &a->parent_blk_mr, &root, sizeof(fd_mr32_t) ) );
+  FD_TEST( repair->root_blk==a && a->parent==fd_repair_blk_pool_idx_null( repair->blk_pool ) && !memcmp( &a->parent_dmr, &root, sizeof(fd_mr32_t) ) );
   FD_TEST( !orphan_cnt( repair ) );
 
   fd_repair_blk_t * x = notar( repair, 3UL, 0x30 ); /* names the freed root, under A's old key */
   parented( repair, 3UL, 0x30, 0UL, 0xEE, 1U );
-  FD_TEST( orphan_cnt( repair )==1UL && fd_repair_orphan_map_ele_query( repair->orphan_map, &root, NULL, repair->blk_pool )==x );
+  FD_TEST( orphan_cnt( repair )==1UL && fd_repair_blk_orphan_map_ele_query( repair->orphan_map, &root, NULL, repair->blk_pool )==x );
 
   fd_repair_blk_t * b = notar( repair, 2UL, 0x20 );
   parented( repair, 2UL, 0x20, 1UL, 0x10, 1U );
   fd_repair_root_advanced( repair, 2UL, &B );
   FD_TEST( repair->root_blk==b );
-  FD_TEST( orphan_cnt( repair )==1UL && fd_repair_orphan_map_ele_query( repair->orphan_map, &root, NULL, repair->blk_pool )==x );
+  FD_TEST( orphan_cnt( repair )==1UL && fd_repair_blk_orphan_map_ele_query( repair->orphan_map, &root, NULL, repair->blk_pool )==x );
 }
 
 /* The root advances to a blk of slot 2 we don't hold while slot 2 has
@@ -2806,16 +2775,16 @@ test_root_advanced_unheld( void ) {
   fd_repair_t *     repair = setup();
   fd_repair_blk_t * n      = notar( repair, 2UL, 0x20 );
   parented( repair, 2UL, 0x20, 1UL, 0x10, 1U );
-  shred0( repair, 2UL, 1UL, &hash_null, &m2 );
+  shred0( repair, 2UL, 1UL, fd_type_pun_const( &hash_null ), &m2 );
   ulong                   two  = 2UL;
   fd_repair_slot_meta_t * meta = fd_repair_slot_meta( repair, 2UL );
-  FD_TEST( meta->notar==fd_repair_blk_pool_idx( repair->blk_pool, n ) && meta->eager!=fd_repair_blk_pool_idx_null( repair->blk_pool ) );
+  FD_TEST( meta->notar_blk_idx==fd_repair_blk_pool_idx( repair->blk_pool, n ) && meta->eager_blk_idx!=fd_repair_blk_pool_idx_null( repair->blk_pool ) );
 
   fd_repair_root_advanced( repair, 2UL, &other );
   FD_TEST( repair->root==2UL && !repair->root_blk );
   FD_TEST( !fd_repair_blk_map_ele_query( repair->blk_map, &two, NULL, repair->blk_pool ) );
   FD_TEST( !fd_repair_blk_pool_used( repair->blk_pool ) );
-  FD_TEST( meta->slot==2UL && meta->eager==fd_repair_blk_pool_idx_null( repair->blk_pool ) && meta->notar==fd_repair_blk_pool_idx_null( repair->blk_pool ) && meta->final==fd_repair_blk_pool_idx_null( repair->blk_pool ) );
+  FD_TEST( meta->slot==2UL && meta->eager_blk_idx==fd_repair_blk_pool_idx_null( repair->blk_pool ) && meta->notar_blk_idx==fd_repair_blk_pool_idx_null( repair->blk_pool ) && meta->final_blk_idx==fd_repair_blk_pool_idx_null( repair->blk_pool ) );
   orphan_cnt( repair );
 }
 
@@ -2841,7 +2810,7 @@ test_orphan_map_slot_mismatch( void ) {
   fd_repair_blk_t * h = fd_repair_blk_notarized( repair, 3UL, &H );
   FD_TEST( h && e5->parent==fd_repair_blk_pool_idx( repair->blk_pool, h ) );
   FD_TEST( e4->parent==fd_repair_blk_pool_idx_null( repair->blk_pool ) );
-  FD_TEST( orphan_cnt( repair )==1UL && fd_repair_orphan_map_ele_query( repair->orphan_map, &H, NULL, repair->blk_pool )==e4 );
+  FD_TEST( orphan_cnt( repair )==1UL && fd_repair_blk_orphan_map_ele_query( repair->orphan_map, &H, NULL, repair->blk_pool )==e4 );
   FD_TEST( h->child==fd_repair_blk_pool_idx( repair->blk_pool, e5 ) && e5->sibling==fd_repair_blk_pool_idx_null( repair->blk_pool ) );
 
   parented( repair, 3UL, 0x30, 0UL, 0xEE, 1U );
@@ -2867,11 +2836,11 @@ test_fec_update_parent( void ) {
   fd_repair_t * repair = setup();
   fd_mr32_t     root  = hash( 0xEE );
   fd_mr32_t     m0 = hash( 0x30 ), m1 = hash( 0x31 ), m2 = hash( 0x32 );
-  shred0( repair, 4UL, 3UL, &hash_null, &m0 );
+  shred0( repair, 4UL, 3UL, fd_type_pun_const( &hash_null ), &m0 );
   shred_up( repair, 4UL, 3UL, 1U, 0, 0UL, &root, &m1 );
   shred_up( repair, 4UL, 3UL, 2U, 1, 0UL, &root, &m2 );
 
-  fd_repair_blk_t const * e4 = fd_repair_blk_pool_ele_const( repair->blk_pool, repair->slot_meta[ 4UL % repair->slot_max ].eager );
+  fd_repair_blk_t const * e4 = fd_repair_blk_pool_ele_const( repair->blk_pool, repair->slot_meta[ 4UL % repair->slot_max ].eager_blk_idx );
   fd_repair_fec_t const * f0 = fd_repair_fec_pool_ele_const( repair->fec_pool, e4->fecs[ 0 ] );
   fd_repair_fec_t const * f1 = fd_repair_fec_pool_ele_const( repair->fec_pool, e4->fecs[ 1 ] );
   fd_repair_fec_t const * f2 = fd_repair_fec_pool_ele_const( repair->fec_pool, e4->fecs[ 2 ] );
@@ -2883,7 +2852,7 @@ test_fec_update_parent( void ) {
      an invalidated slot ignores the shred. */
 
   fd_mr32_t m5 = hash( 0x50 );
-  fd_mr20_t k5; memcpy( k5.uc, hash( 0x52 ).uc, sizeof(fd_mr20_t) );
+  fd_mr_t k5 = { .mr32 = hash( 0x52 ) };
   fd_repair_slot_invalidated( repair, 5UL, FD_EVENT_BLOCK_RECEIVED_CANCELLED_REASON_MERKLE_ROOT_MISMATCH, 0L );
   FD_TEST( fd_repair_blk_notarized( repair, 5UL, &m5 ) );
   fd_repair_fec_t const * n2 = fd_repair_fec_notarized( repair, 5UL, &m5, 2U*FD_FEC_SHRED_CNT, &k5, 0L );
@@ -2911,13 +2880,13 @@ last_dc( fd_repair_t *     repair,
   shred->fec_set_idx     = fec_idx*FD_FEC_SHRED_CNT;
   shred->data.parent_off = (ushort)( slot-parent_slot );
   shred->data.flags      = dc ? FD_SHRED_DATA_FLAG_DATA_COMPLETE : 0;
-  fd_repair_shred_insert( repair, shred, mr, 0, 0L );
+  fd_repair_shred_insert( repair, shred, mr, 0L );
 }
 
 static fd_repair_blk_t const *
 eager_of( fd_repair_t const * repair,
           ulong               slot ) {
-  return fd_repair_blk_pool_ele_const( repair->blk_pool, repair->slot_meta[ slot % repair->slot_max ].eager );
+  return fd_repair_blk_pool_ele_const( repair->blk_pool, repair->slot_meta[ slot % repair->slot_max ].eager_blk_idx );
 }
 
 static fd_repair_blk_t const *
@@ -2950,12 +2919,12 @@ test_update_parent_reparent( void ) {
   last_dc ( repair, 4UL, 3UL, 1U, 1, &a1 );
   FD_TEST( e4->parent_slot==3UL && !e4->init_fec_cnt );
   shred_up( repair, 4UL, 3UL, 2U, 1, 0UL, &root, &a2 );
-  FD_TEST( e4->parent_slot==0UL && !memcmp( &e4->parent_blk_mr, &root, sizeof(fd_mr32_t) ) && e4->init_fec_cnt==2U );
+  FD_TEST( e4->parent_slot==0UL && !memcmp( &e4->parent_dmr, &root, sizeof(fd_mr32_t) ) && e4->init_fec_cnt==2U );
   FD_TEST( rooted( repair, e4 ) && orphan_cnt( repair )==0UL );
   shred_up( repair, 4UL, 3UL, 3U, 0, 0UL, &root, &a3 ); /* parent offset still names slot 3 */
   FD_TEST( !repair->slot_meta[ 4UL % repair->slot_max ].invalidated && e4->fecs[ 3 ]!=fd_repair_fec_pool_idx_null( repair->fec_pool ) );
   shred0( repair, 4UL, 3UL, &p3, &a0 );
-  FD_TEST( e4->parent_slot==0UL && !memcmp( &e4->parent_blk_mr, &root, sizeof(fd_mr32_t) ) && rooted( repair, e4 ) );
+  FD_TEST( e4->parent_slot==0UL && !memcmp( &e4->parent_dmr, &root, sizeof(fd_mr32_t) ) && rooted( repair, e4 ) );
 
   /* UpdateParent first, then the last shred of FEC set k-1: without
      DATA_COMPLETE it is entry data, with it the blk reparents. */
@@ -2980,10 +2949,10 @@ test_update_parent_reparent( void ) {
   last_dc ( repair, 8UL, 7UL, 1U, 1, &c1 );
   shred_up( repair, 8UL, 7UL, 2U, 1, 2UL, &p2, &c2 );
   fd_repair_blk_t const * e8 = eager_of( repair, 8UL );
-  FD_TEST( e8->parent_slot==2UL && !memcmp( &e8->parent_blk_mr, &p2, sizeof(fd_mr32_t) ) && e8->init_fec_cnt==2U );
+  FD_TEST( e8->parent_slot==2UL && !memcmp( &e8->parent_dmr, &p2, sizeof(fd_mr32_t) ) && e8->init_fec_cnt==2U );
   FD_TEST( e8->parent==fd_repair_blk_pool_idx_null( repair->blk_pool ) && orphan_cnt( repair )==1UL ); /* the seeded parent blks name nothing yet */
-  FD_TEST( fd_repair_orphan_map_ele_query_const( repair->orphan_map, &p2, NULL, repair->blk_pool )==e8 );
-  FD_TEST( repair->slot_meta[ 2UL % repair->slot_max ].eager!=fd_repair_blk_pool_idx_null( repair->blk_pool ) );
+  FD_TEST( fd_repair_blk_orphan_map_ele_query_const( repair->orphan_map, &p2, NULL, repair->blk_pool )==e8 );
+  FD_TEST( repair->slot_meta[ 2UL % repair->slot_max ].eager_blk_idx!=fd_repair_blk_pool_idx_null( repair->blk_pool ) );
 
   fd_repair_fini( repair );
 }
@@ -3026,7 +2995,7 @@ test_update_parent_eager_chain( void ) {
   shred0  ( repair, 2UL, 1UL, &e1->dmr, &m20 );
   complete( repair, 2UL, 1UL, 0U, 1, &m20 );
   fd_repair_blk_t const * e2 = fd_repair_blk_map_ele_query_const( repair->blk_map, &two, NULL, repair->blk_pool );
-  FD_TEST( memcmp( &e1->dmr, &hash_null, sizeof(fd_mr32_t) ) && memcmp( &e2->dmr, &hash_null, sizeof(fd_mr32_t) ) );
+  FD_TEST( memcmp( &e1->dmr, fd_type_pun_const( &hash_null ), sizeof(fd_mr32_t) ) && memcmp( &e2->dmr, fd_type_pun_const( &hash_null ), sizeof(fd_mr32_t) ) );
   FD_TEST( rooted( repair, e2 ) && e2->parent==fd_repair_blk_pool_idx( repair->blk_pool, e1 ) );
   expect( repair, e1, 0U );
   expect( repair, e2, 0U );
@@ -3049,7 +3018,7 @@ test_update_parent_eager_chain( void ) {
   shred_up( repair, 4UL, 2UL, 2U, 1, 1UL, &e1->dmr, &m42 );
 
   FD_TEST( e4->parent==fd_repair_blk_pool_idx( repair->blk_pool, e1 ) );
-  FD_TEST( e4->parent_slot==1UL && !memcmp( &e4->parent_blk_mr, &e1->dmr, sizeof(fd_mr32_t) ) );
+  FD_TEST( e4->parent_slot==1UL && !memcmp( &e4->parent_dmr, &e1->dmr, sizeof(fd_mr32_t) ) );
   FD_TEST( e4->init_fec_cnt==2U && e4->init_parent_slot==2UL );
   FD_TEST( children( repair, e2, e4, &found )==0UL && !found );
   FD_TEST( children( repair, e1, e4, &found )==2UL &&  found ); /* e2 and e4 */
@@ -3119,7 +3088,7 @@ test_up_target_arrives_eager( void ) {
   fd_mr32_t p3 = hash( 0x33 );
   fd_repair_blk_t const * e4 = up_blk( repair, 4UL, 3UL, &p3, 2U, 2UL, &d2, 0x40 );
   FD_TEST( e4->init_fec_cnt==2U && e4->parent_slot==2UL && e4->parent==fd_repair_blk_pool_idx_null( repair->blk_pool ) );
-  FD_TEST( fd_repair_orphan_map_ele_query_const( repair->orphan_map, &d2, NULL, repair->blk_pool )==e4 );
+  FD_TEST( fd_repair_blk_orphan_map_ele_query_const( repair->orphan_map, &d2, NULL, repair->blk_pool )==e4 );
   FD_TEST( eager_of( repair, 2UL ) );
 
   /* Slots 1 and 2 arrive on turbine, 2's dmr is d2. */
@@ -3163,10 +3132,10 @@ test_up_target_same_slot( void ) {
   fd_repair_blk_t * n2a = notar( repair, 2UL, 0x2A );
   parented( repair, 2UL, 0x2A, 0UL, 0xEE, 1U );
   fd_repair_blk_t const * e4 = up_blk( repair, 4UL, 2UL, &a, 2U, 2UL, &b, 0x40 );
-  FD_TEST( e4->init_fec_cnt==2U && e4->parent_slot==2UL && !memcmp( &e4->parent_blk_mr, &b, sizeof(fd_mr32_t) ) );
+  FD_TEST( e4->init_fec_cnt==2U && e4->parent_slot==2UL && !memcmp( &e4->parent_dmr, &b, sizeof(fd_mr32_t) ) );
   int found;
   FD_TEST( !children( repair, n2a, e4, &found ) && !found );
-  FD_TEST( fd_repair_orphan_map_ele_query_const( repair->orphan_map, &b, NULL, repair->blk_pool )==e4 );
+  FD_TEST( fd_repair_blk_orphan_map_ele_query_const( repair->orphan_map, &b, NULL, repair->blk_pool )==e4 );
 
   fd_repair_blk_t * n2b = notar( repair, 2UL, 0x2B );
   FD_TEST( e4->parent==fd_repair_blk_pool_idx( repair->blk_pool, n2b ) );
@@ -3198,7 +3167,7 @@ test_up_orig_parent_missing( void ) {
   fd_mr32_t m40 = hash( 0x40 );
   shred0( repair, 4UL, 2UL, &d2, &m40 );
   fd_repair_blk_t const * e4 = eager_of( repair, 4UL );
-  FD_TEST( fd_repair_orphan_map_ele_query_const( repair->orphan_map, &d2, NULL, repair->blk_pool )==e4 );
+  FD_TEST( fd_repair_blk_orphan_map_ele_query_const( repair->orphan_map, &d2, NULL, repair->blk_pool )==e4 );
   FD_TEST( eager_of( repair, 2UL ) ); /* seeded by the header */
 
   fd_mr32_t m41 = hash( 0x41 ), m42 = hash( 0x42 );
@@ -3206,7 +3175,7 @@ test_up_orig_parent_missing( void ) {
   last_dc ( repair, 4UL, 2UL, 1U, 1, &m41 );
   shred_up( repair, 4UL, 2UL, 2U, 1, 0UL, &root, &m42 );
   FD_TEST( e4->init_fec_cnt==2U && rooted( repair, e4 ) && !e4->orphan_req );
-  FD_TEST( !fd_repair_orphan_map_ele_query_const( repair->orphan_map, &d2, NULL, repair->blk_pool ) && orphan_cnt( repair )==0UL );
+  FD_TEST( !fd_repair_blk_orphan_map_ele_query_const( repair->orphan_map, &d2, NULL, repair->blk_pool ) && orphan_cnt( repair )==0UL );
 
   /* Slot 2 arrives and completes with dmr d2: slot 4 is not linked under
      it again. */
@@ -3265,7 +3234,7 @@ test_up_eager_dmr( void ) {
   complete( repair, 4UL, 2UL, 0U, 0, &m40 );
   complete( repair, 4UL, 2UL, 1U, 0, &m41 );
   complete( repair, 4UL, 2UL, 2U, 1, &m42 );
-  FD_TEST( memcmp( &e4->dmr, &hash_null, sizeof(fd_mr32_t) ) );
+  FD_TEST( memcmp( &e4->dmr, fd_type_pun_const( &hash_null ), sizeof(fd_mr32_t) ) );
 
   /* The same FEC roots under a header naming the root directly. */
 
@@ -3294,7 +3263,7 @@ notar_up( fd_repair_t *     repair,
   fd_mr32_t id = hash( dmr );
   for( uint j=0U; j<=k; j++ ) {
     fd_mr32_t mr = hash( (uchar)( b+j ) );
-    fd_mr20_t key; memcpy( key.uc, mr.uc, sizeof(fd_mr20_t) );
+    fd_mr_t key = { .mr32 = mr };
     FD_TEST( fd_repair_fec_notarized( repair, slot, &id, j*FD_FEC_SHRED_CNT, &key, 0L ) );
   }
   fd_mr32_t mk1 = hash( (uchar)( b+k-1U ) ), mk = hash( (uchar)( b+k ) );
@@ -3361,7 +3330,7 @@ test_up_notar_proofs_after_shreds( int up_last ) {
   for( uint i=0U; i<3U; i++ ) {
     uint      j  = up_last ? i : (uint[]){ 0U, 2U, 1U }[ i ]; /* FEC set 2 attached last, or FEC set 1 */
     fd_mr32_t mr = hash( (uchar)( 0x40+j ) );
-    fd_mr20_t key; memcpy( key.uc, mr.uc, sizeof(fd_mr20_t) );
+    fd_mr_t key = { .mr32 = mr };
     fd_repair_fec_notarized( repair, 4UL, &id, j*FD_FEC_SHRED_CNT, &key, 0L );
   }
   FD_TEST( n4->init_fec_cnt==2U && n4->cons_fec_cnt>=2U );
@@ -3387,11 +3356,11 @@ test_up_consume_merge_equivocation( void ) {
   FD_TEST( b4->parent==fd_repair_blk_pool_idx_null( repair->blk_pool ) );
 
   fd_repair_blk_t * a4 = notar( repair, 4UL, 0x4A );
-  fd_mr20_t k0; memcpy( k0.uc, m40.uc, sizeof(fd_mr20_t) );
+  fd_mr_t k0 = { .mr32 = m40 };
   FD_TEST( fd_repair_fec_notarized( repair, 4UL, &a4->dmr, 0U, &k0, 0L ) );
   parented( repair, 4UL, 0x4A, 0UL, 0xEE, 3U );
   FD_TEST( rooted( repair, a4 ) );
-  FD_TEST( b4->parent==fd_repair_blk_pool_idx_null( repair->blk_pool ) && b4->parent_slot==2UL && !memcmp( &b4->parent_blk_mr, &p2, sizeof(fd_mr32_t) ) );
+  FD_TEST( b4->parent==fd_repair_blk_pool_idx_null( repair->blk_pool ) && b4->parent_slot==2UL && !memcmp( &b4->parent_dmr, &p2, sizeof(fd_mr32_t) ) );
   (void)root;
   fd_repair_fini( repair );
 }
@@ -3476,7 +3445,7 @@ test_up_rules( void ) {
   /* A null parent block id. */
 
   repair = setup();
-  up_blk( repair, 4UL, 2UL, &p2, 2U, 1UL, &hash_null, 0x40 );
+  up_blk( repair, 4UL, 2UL, &p2, 2U, 1UL, fd_type_pun_const( &hash_null ), 0x40 );
   FD_TEST( invalidated( repair, 4UL ) );
   fd_repair_fini( repair );
 
@@ -3516,7 +3485,7 @@ test_up_rules( void ) {
   shred->slot            = 4UL;
   shred->data.parent_off = 2;
   shred->data.size       = (ushort)( FD_SHRED_DATA_HEADER_SZ+off );
-  fd_repair_shred_insert( repair, shred, &m40, 0, 0L );
+  fd_repair_shred_insert( repair, shred, &m40, 0L );
   FD_TEST( invalidated( repair, 4UL ) );
   fd_repair_fini( repair );
 }
@@ -3561,8 +3530,8 @@ order_setup( fd_repair_t * repair,
              fd_mr32_t *   d2,
              fd_mr32_t *   d3 ) {
   fd_mr32_t root = hash( 0xEE ), m10 = hash( 0x11 ), m20 = hash( 0x21 ), m21 = hash( 0x22 ), m30 = hash( 0x31 );
-  fd_mr20_t k20; memcpy( k20.uc, m20.uc, sizeof(fd_mr20_t) );
-  fd_mr20_t k21; memcpy( k21.uc, m21.uc, sizeof(fd_mr20_t) );
+  fd_mr_t k20 = { .mr32 = m20 };
+  fd_mr_t k21 = { .mr32 = m21 };
   *d2 = hash( 0x2D );
 
   shred0  ( repair, 1UL, 0UL, &root, &m10 );
@@ -3655,8 +3624,8 @@ test_up_orphan_then_partial_parent( void ) {
   fd_repair_t * repair = setup();
   fd_mr32_t     root  = hash( 0xEE ), p3 = hash( 0x33 ), d2 = hash( 0x2D );
   fd_mr32_t     m10   = hash( 0x11 ), m20 = hash( 0x21 ), m21 = hash( 0x22 );
-  fd_mr20_t     k20; memcpy( k20.uc, m20.uc, sizeof(fd_mr20_t) );
-  fd_mr20_t     k21; memcpy( k21.uc, m21.uc, sizeof(fd_mr20_t) );
+  fd_mr_t     k20 = { .mr32 = m20 };
+  fd_mr_t     k21 = { .mr32 = m21 };
   fd_mr32_t     m40 = hash( 0x41 ), m41 = hash( 0x42 ), m42 = hash( 0x43 );
 
   shred0  ( repair, 1UL, 0UL, &root, &m10 );
@@ -3747,7 +3716,7 @@ test_up_orphan_map_neighbour( void ) {
   shred_up( repair, 4UL, 3UL, 2U, 1, 0UL, &root, &m42 );
   FD_TEST( e4->init_fec_cnt==2U && rooted( repair, e4 ) );
   FD_TEST( orphan_cnt( repair )==1UL ); /* verifies orphan_map and that e8 is found under p3 */
-  FD_TEST( fd_repair_orphan_map_ele_query_const( repair->orphan_map, &p3, NULL, repair->blk_pool )==e8 );
+  FD_TEST( fd_repair_blk_orphan_map_ele_query_const( repair->orphan_map, &p3, NULL, repair->blk_pool )==e8 );
   fd_repair_fini( repair );
 }
 
@@ -3856,8 +3825,8 @@ test_up_dead_prefix_then_marker( void ) {
   fd_repair_blk_t const * e4 = up_dead_setup( repair, &d1 );
   fd_mr32_t m41 = hash( 0x42 ), m42 = hash( 0x43 );
 
-  fd_repair_blk_dead( repair, 4UL, &hash_null, 0U );
-  FD_TEST( !invalidated( repair, 4UL ) && e4->eager && e4->in_blk_treap );
+  fd_repair_blk_dead( repair, 4UL, fd_type_pun_const( &hash_null ), 0U );
+  FD_TEST( !invalidated( repair, 4UL ) && e4->eager && queued( repair, e4 ) );
 
   last_dc ( repair, 4UL, 3UL, 1U, 1, &m41 );
   shred_up( repair, 4UL, 3UL, 2U, 1, 1UL, &d1, &m42 );
@@ -3880,9 +3849,9 @@ test_up_dead_prefix_no_marker( void ) {
   fd_repair_blk_t const * e4 = up_dead_setup( repair, &d1 );
   fd_mr32_t m41 = hash( 0x42 );
 
-  fd_repair_blk_dead( repair, 4UL, &hash_null, 0U );
+  fd_repair_blk_dead( repair, 4UL, fd_type_pun_const( &hash_null ), 0U );
   complete( repair, 4UL, 3UL, 1U, 1, &m41 );
-  FD_TEST( !invalidated( repair, 4UL ) && !e4->init_fec_cnt && memcmp( &e4->dmr, &hash_null, sizeof(fd_mr32_t) ) );
+  FD_TEST( !invalidated( repair, 4UL ) && !e4->init_fec_cnt && memcmp( &e4->dmr, fd_type_pun_const( &hash_null ), sizeof(fd_mr32_t) ) );
   fd_repair_fini( repair );
 }
 
@@ -3902,8 +3871,8 @@ test_up_dead_after_marker( void ) {
   complete( repair, 4UL, 3UL, 2U, 0, &m42 );
   expect( repair, e4, 2U );
 
-  fd_repair_blk_dead( repair, 4UL, &hash_null, 2U*FD_FEC_SHRED_CNT );
-  FD_TEST( invalidated( repair, 4UL ) && !e4->eager && !e4->in_blk_treap );
+  fd_repair_blk_dead( repair, 4UL, fd_type_pun_const( &hash_null ), 2U*FD_FEC_SHRED_CNT );
+  FD_TEST( invalidated( repair, 4UL ) && !e4->eager && !queued( repair, e4 ) );
   fd_repair_fini( repair );
 }
 
@@ -3922,7 +3891,7 @@ test_up_dead_old_stream_late( void ) {
   shred_up( repair, 4UL, 3UL, 2U, 1, 1UL, &d1, &m42 );
   FD_TEST( e4->init_fec_cnt==2U );
 
-  fd_repair_blk_dead( repair, 4UL, &hash_null, 0U );
+  fd_repair_blk_dead( repair, 4UL, fd_type_pun_const( &hash_null ), 0U );
   FD_TEST( !invalidated( repair, 4UL ) && e4->eager );
   complete( repair, 4UL, 3UL, 1U, 0, &m41 );
   complete( repair, 4UL, 3UL, 2U, 1, &m42 );
@@ -3944,7 +3913,7 @@ test_up_dead_not_window_start( void ) {
   fd_repair_blk_t const * e5 = eager_req( repair, 5UL );
   expect( repair, e5, 0U );
 
-  fd_repair_blk_dead( repair, 5UL, &hash_null, 0U );
+  fd_repair_blk_dead( repair, 5UL, fd_type_pun_const( &hash_null ), 0U );
   FD_TEST( invalidated( repair, 5UL ) && !e5->eager );
   fd_repair_fini( repair );
 }
@@ -3979,7 +3948,6 @@ main( int     argc,
   test_telemetry();
   test_telemetry_cancelled();
   test_telemetry_meta();
-  test_telemetry_final_src();
   test_notarized_shreds_build_eager();
   test_genesis();
   test_raised_blk_max();

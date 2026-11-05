@@ -58,7 +58,6 @@ class Tile(Enum):
     BACKT = 105
     BENCHS = 106
 
-    ROTOR = 108
     VOTOR = 109
     MOTOR = 110
     SOLCAP = 111

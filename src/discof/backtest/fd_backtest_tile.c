@@ -247,7 +247,7 @@ after_credit( fd_backt_tile_t *   ctx,
     }
 
     /* An UpdateParent is the first component of a FEC set past the
-       first that follows a FEC set ending its entry batch, as rotor
+       first that follows a FEC set ending its entry batch, as repair
        detects it (fd_repair_shred_insert). */
     fd_block_marker_t marker[1];
     if( FD_UNLIKELY( ctx->out_fec_set_idx && ctx->prev_data_complete &&
@@ -307,31 +307,31 @@ after_credit( fd_backt_tile_t *   ctx,
   ulong parent_slot = ctx->update_parent_fec_idx ? ctx->update_parent_slot : shred->slot - shred->data.parent_off;
   uint  first_fec   = ctx->update_parent_fec_idx;
 
-  fd_repair_replay_fec_t * rotor_fec = fd_chunk_to_laddr( ctx->repair_out->mem, ctx->repair_out->chunk );
-  memset( rotor_fec, 0, sizeof(fd_repair_replay_fec_t) );
-  rotor_fec->slot                  = shred->slot;
-  rotor_fec->fec_set_idx           = (uint)ctx->out_fec_set_idx;
-  rotor_fec->mr                    = mr;
-  rotor_fec->parent_slot           = parent_slot;
-  rotor_fec->update_parent_fec_idx = ctx->update_parent_fec_idx;
-  rotor_fec->data_complete         = !!(shred->data.flags & FD_SHRED_DATA_FLAG_DATA_COMPLETE);
-  rotor_fec->slot_complete         = !!completes_slot;
+  fd_repair_out_fec_t * repair_fec = fd_chunk_to_laddr( ctx->repair_out->mem, ctx->repair_out->chunk );
+  memset( repair_fec, 0, sizeof(fd_repair_out_fec_t) );
+  repair_fec->slot                  = shred->slot;
+  repair_fec->fec_set_idx           = (uint)ctx->out_fec_set_idx;
+  repair_fec->mr                    = mr;
+  repair_fec->parent_slot           = parent_slot;
+  repair_fec->update_parent_fec_idx = ctx->update_parent_fec_idx;
+  repair_fec->data_complete         = !!(shred->data.flags & FD_SHRED_DATA_FLAG_DATA_COMPLETE);
+  repair_fec->slot_complete         = !!completes_slot;
 
-  rotor_fec->metrics.highest_fec_complete_slot = shred->slot;
+  repair_fec->highest_fec_complete_slot = shred->slot;
   if( FD_UNLIKELY( ctx->out_fec_set_idx==first_fec ) ) {
     if( FD_UNLIKELY( parent_slot==ctx->start_slot ) ) {
-      rotor_fec->parent_block_id = ctx->rooted_slots_block_id[ parent_slot % BANK_HASH_BUFFER_LEN ];
+      repair_fec->parent_block_id = ctx->rooted_slots_block_id[ parent_slot % BANK_HASH_BUFFER_LEN ];
     } else {
-      rotor_fec->parent_block_id.ul[ 0 ] = parent_slot;
-      rotor_fec->parent_block_id.ul[ 1 ] = ctx->fec_set_idxs[ parent_slot % OUT_FECS_BUFFER_LEN ];
+      repair_fec->parent_block_id.ul[ 0 ] = parent_slot;
+      repair_fec->parent_block_id.ul[ 1 ] = ctx->fec_set_idxs[ parent_slot % OUT_FECS_BUFFER_LEN ];
     }
   }
-  if( FD_UNLIKELY( completes_slot ) ) rotor_fec->block_id = mr;
+  if( FD_UNLIKELY( completes_slot ) ) repair_fec->block_id = mr;
 
   ctx->fec_set_idxs[ shred->slot % OUT_FECS_BUFFER_LEN ] = ctx->out_fec_set_idx;
 
-  fd_stem_publish( stem, ctx->repair_out->idx, REPAIR_SIG_FEC_REPLAY, ctx->repair_out->chunk, sizeof(fd_repair_replay_fec_t), 0, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
-  ctx->repair_out->chunk = fd_dcache_compact_next( ctx->repair_out->chunk, sizeof(fd_repair_replay_fec_t), ctx->repair_out->chunk0, ctx->repair_out->wmark );
+  fd_stem_publish( stem, ctx->repair_out->idx, REPAIR_SIG_FEC, ctx->repair_out->chunk, sizeof(fd_repair_out_fec_t), 0, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+  ctx->repair_out->chunk = fd_dcache_compact_next( ctx->repair_out->chunk, sizeof(fd_repair_out_fec_t), ctx->repair_out->chunk0, ctx->repair_out->wmark );
 
   if( FD_UNLIKELY( ctx->source_exhausted && !ctx->shreds_cnt ) ) ctx->publish_time += fd_log_wallclock();
 }

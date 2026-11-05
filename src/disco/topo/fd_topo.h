@@ -593,19 +593,6 @@ struct fd_topo_tile {
     struct {
       ushort  repair_client_listen_port;
       char    identity_key_path[ PATH_MAX ];
-      ulong   max_pending_shred_sets;
-      ulong   slot_max;
-      ulong   max_shreds_per_block;
-
-      /* non-config */
-
-      ulong   repair_sign_depth;
-      ulong   repair_sign_cnt;
-    } repair;
-
-    struct {
-      ushort  repair_client_listen_port;
-      char    identity_key_path[ PATH_MAX ];
       ulong   slot_max;
       ulong   fec_max;
       ulong   max_shreds_per_block;
@@ -614,7 +601,7 @@ struct fd_topo_tile {
 
       ulong   repair_sign_depth;
       ulong   repair_sign_cnt;
-    } rotor;
+    } repair;
 
     struct {
       ushort repair_serve_listen_port;

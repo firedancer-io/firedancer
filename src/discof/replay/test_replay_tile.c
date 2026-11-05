@@ -361,7 +361,7 @@ static fd_stem_context_t test_stem[ 1 ];
 static void
 setup_repair_input( fd_replay_tile_t * ctx, fd_wksp_t * wksp ) {
   ulong const depth = 128UL;
-  ulong const mtu   = sizeof(fd_repair_replay_fec_t);
+  ulong const mtu   = sizeof(fd_repair_out_fec_t);
   ulong dcache_data_sz = fd_dcache_req_data_sz( mtu, depth, 1UL, 1 );
 
   void * dcache_mem = fd_wksp_alloc_laddr( wksp, fd_dcache_align(), fd_dcache_footprint( dcache_data_sz, 0UL ), 1UL );
@@ -2516,7 +2516,7 @@ test_slot_completed_keeps_leader_sentinel( fd_wksp_t * wksp ) {
   FD_LOG_NOTICE(( "pass: test_slot_completed_keeps_leader_sentinel" ));
 }
 
-/* Deliver one fd_repair_replay_fec_t through the REPAIR_SIG_FEC_REPLAY
+/* Deliver one fd_repair_out_fec_t through the REPAIR_SIG_FEC
    handler (it lives under IN_KIND_REPAIR, dispatched by sig).  Returns
    returnable_frag's value: 0 = frag consumed, 1 = kept for retry. */
 static int
@@ -2529,7 +2529,7 @@ deliver_rotor_fec( fd_replay_tile_t * ctx,
                    int                slot_complete,
                    int                verified ) {
   ulong chunk = ctx->in[ TEST_REPAIR_IN_IDX ].chunk0;
-  fd_repair_replay_fec_t * fec = fd_chunk_to_laddr( ctx->in[ TEST_REPAIR_IN_IDX ].mem, chunk );
+  fd_repair_out_fec_t * fec = fd_chunk_to_laddr( ctx->in[ TEST_REPAIR_IN_IDX ].mem, chunk );
   memset( fec, 0, sizeof(*fec) );
   fec->slot            = slot;
   fec->fec_set_idx     = fec_set_idx;
@@ -2537,15 +2537,15 @@ deliver_rotor_fec( fd_replay_tile_t * ctx,
   fec->parent_slot     = parent_slot;
   fec->parent_block_id = *parent_block_id;
   fec->slot_complete   = !!slot_complete;
-  fec->known_id        = !!verified;
+  fec->is_known        = !!verified;
 
   /* Clear the pacing gate at the top of the handler
      (execrp_idle_cnt >= 2*in_cnt || is_leader) so the FEC reaches the
      drain gate rather than being kept for retry. */
   ctx->execrp_idle_cnt = 2UL*ctx->in_cnt + 4UL;
 
-  return returnable_frag( ctx, TEST_REPAIR_IN_IDX, 0UL, REPAIR_SIG_FEC_REPLAY, chunk,
-                          sizeof(fd_repair_replay_fec_t), 0UL, 0UL,
+  return returnable_frag( ctx, TEST_REPAIR_IN_IDX, 0UL, REPAIR_SIG_FEC, chunk,
+                          sizeof(fd_repair_out_fec_t), 0UL, 0UL,
                           fd_frag_meta_ts_comp( fd_tickcount() ), test_stem );
 }
 
@@ -2563,7 +2563,7 @@ deliver_rotor_fec_bid( fd_replay_tile_t * ctx,
                        int                slot_complete,
                        int                verified ) {
   ulong chunk = ctx->in[ TEST_REPAIR_IN_IDX ].chunk0;
-  fd_repair_replay_fec_t * fec = fd_chunk_to_laddr( ctx->in[ TEST_REPAIR_IN_IDX ].mem, chunk );
+  fd_repair_out_fec_t * fec = fd_chunk_to_laddr( ctx->in[ TEST_REPAIR_IN_IDX ].mem, chunk );
   memset( fec, 0, sizeof(*fec) );
   fec->slot            = slot;
   fec->fec_set_idx     = fec_set_idx;
@@ -2572,10 +2572,10 @@ deliver_rotor_fec_bid( fd_replay_tile_t * ctx,
   fec->parent_block_id = *parent_block_id;
   fec->block_id        = *block_id;
   fec->slot_complete   = !!slot_complete;
-  fec->known_id        = !!verified;
+  fec->is_known        = !!verified;
   ctx->execrp_idle_cnt = 2UL*ctx->in_cnt + 4UL;
-  return returnable_frag( ctx, TEST_REPAIR_IN_IDX, 0UL, REPAIR_SIG_FEC_REPLAY, chunk,
-                          sizeof(fd_repair_replay_fec_t), 0UL, 0UL,
+  return returnable_frag( ctx, TEST_REPAIR_IN_IDX, 0UL, REPAIR_SIG_FEC, chunk,
+                          sizeof(fd_repair_out_fec_t), 0UL, 0UL,
                           fd_frag_meta_ts_comp( fd_tickcount() ), test_stem );
 }
 
@@ -2592,7 +2592,7 @@ deliver_rotor_fec_up( fd_replay_tile_t * ctx,
                       int                data_complete,
                       int                slot_complete ) {
   ulong chunk = ctx->in[ TEST_REPAIR_IN_IDX ].chunk0;
-  fd_repair_replay_fec_t * fec = fd_chunk_to_laddr( ctx->in[ TEST_REPAIR_IN_IDX ].mem, chunk );
+  fd_repair_out_fec_t * fec = fd_chunk_to_laddr( ctx->in[ TEST_REPAIR_IN_IDX ].mem, chunk );
   memset( fec, 0, sizeof(*fec) );
   fec->slot                  = slot;
   fec->fec_set_idx           = fec_set_idx;
@@ -2603,8 +2603,8 @@ deliver_rotor_fec_up( fd_replay_tile_t * ctx,
   fec->data_complete         = !!data_complete;
   fec->slot_complete         = !!slot_complete;
   ctx->execrp_idle_cnt = 2UL*ctx->in_cnt + 4UL;
-  return returnable_frag( ctx, TEST_REPAIR_IN_IDX, 0UL, REPAIR_SIG_FEC_REPLAY, chunk,
-                          sizeof(fd_repair_replay_fec_t), 0UL, 0UL,
+  return returnable_frag( ctx, TEST_REPAIR_IN_IDX, 0UL, REPAIR_SIG_FEC, chunk,
+                          sizeof(fd_repair_out_fec_t), 0UL, 0UL,
                           fd_frag_meta_ts_comp( fd_tickcount() ), test_stem );
 }
 
@@ -2620,7 +2620,7 @@ deliver_rotor_fec_up_bid( fd_replay_tile_t * ctx,
                           fd_hash_t const *  block_id,
                           fd_hash_t const *  mr ) {
   ulong chunk = ctx->in[ TEST_REPAIR_IN_IDX ].chunk0;
-  fd_repair_replay_fec_t * fec = fd_chunk_to_laddr( ctx->in[ TEST_REPAIR_IN_IDX ].mem, chunk );
+  fd_repair_out_fec_t * fec = fd_chunk_to_laddr( ctx->in[ TEST_REPAIR_IN_IDX ].mem, chunk );
   memset( fec, 0, sizeof(*fec) );
   fec->slot                  = slot;
   fec->fec_set_idx           = fec_set_idx;
@@ -2629,11 +2629,11 @@ deliver_rotor_fec_up_bid( fd_replay_tile_t * ctx,
   fec->parent_slot           = parent_slot;
   fec->parent_block_id       = *parent_block_id;
   fec->block_id              = *block_id;
-  fec->known_id              = 1;
+  fec->is_known              = 1;
   fec->data_complete         = 1;
   ctx->execrp_idle_cnt = 2UL*ctx->in_cnt + 4UL;
-  return returnable_frag( ctx, TEST_REPAIR_IN_IDX, 0UL, REPAIR_SIG_FEC_REPLAY, chunk,
-                          sizeof(fd_repair_replay_fec_t), 0UL, 0UL,
+  return returnable_frag( ctx, TEST_REPAIR_IN_IDX, 0UL, REPAIR_SIG_FEC, chunk,
+                          sizeof(fd_repair_out_fec_t), 0UL, 0UL,
                           fd_frag_meta_ts_comp( fd_tickcount() ), test_stem );
 }
 
@@ -3128,7 +3128,7 @@ test_process_rotor_fec_skip_replayed( fd_wksp_t * wksp ) {
   FD_LOG_NOTICE(( "pass: test_process_rotor_fec_skip_replayed" ));
 }
 
-/* Exercises the drain_rotor_fecs gate in the REPAIR_SIG_FEC_REPLAY
+/* Exercises the drain_rotor_fecs gate in the REPAIR_SIG_FEC
    handler: a bank eviction breaks the replayable FEC chain, so on the
    first un-replayable FEC (parent absent from block_id_map ->
    PROCESS_FEC_DROP) replay enters drain, ignores subsequent FECs, and
@@ -3305,12 +3305,12 @@ setup_ag_root( fd_replay_tile_t * ctx,
 }
 
 
-/* test_rotor_fec_turbine_keying: the replay side of the known_id
-   contract.  A turbine block (known_id clear) is keyed {slot, 0} until
+/* test_rotor_fec_turbine_keying: the replay side of the is_known
+   contract.  A turbine block (is_known clear) is keyed {slot, 0} until
    replay processes its slot-complete FEC, then re-keyed {slot, dmr};
    this holds even when rotor filled in block_id on a redelivered copy
    of an incomplete block.  Consequences pinned here:
-     (a) a redelivered FEC 0 with a nonzero block_id but known_id clear
+     (a) a redelivered FEC 0 with a nonzero block_id but is_known clear
          creates the {slot, 0} element, and the live turbine FEC 32
          (no block_id) finds it;
      (b) a duplicate FEC 32 is SKIPped by the {slot, 0} dedup;
@@ -3344,7 +3344,7 @@ test_rotor_fec_turbine_keying( fd_wksp_t * wksp ) {
   fd_block_id_t key_id   = fd_block_id( 5UL, B.uc );
 
   /* (a) Redelivered FEC 0 of an incomplete turbine block: block_id
-     filled in, known_id clear.  Keyed {5, 0}, not {5, B}. */
+     filled in, is_known clear.  Keyed {5, 0}, not {5, B}. */
   FD_TEST( deliver_rotor_fec_bid( ctx, 5UL, 0U, 0UL, &parent_bid, &B, &mr0, 0, 0 )==0 );
   FD_TEST( fd_banks_pool_used_cnt( ctx->banks )==used0+1UL );
   FD_TEST( mock_sched_fec_ingest_cnt==ing0+1UL );
@@ -3429,9 +3429,9 @@ test_rotor_fec_rooted_past( fd_wksp_t * wksp ) {
   FD_LOG_NOTICE(( "pass: test_rotor_fec_rooted_past" ));
 }
 
-/* test_rotor_fec_merged_copies: rotor delivers a turbine copy (known_id
-   0) and a repaired copy (known_id 1) of block B, then merges them into
-   the turbine copy, which keeps known_id 0 and continues from its own
+/* test_rotor_fec_merged_copies: rotor delivers a turbine copy (is_known
+   0) and a repaired copy (is_known 1) of block B, then merges them into
+   the turbine copy, which keeps is_known 0 and continues from its own
    consumed count, carrying B (see dedup in fd_repair.c).  Whichever copy
    was ahead at the merge, the turbine copy's bank completes, takes
    {5, B}, and a child attaches to it.  In particular a turbine FEC that
@@ -3482,7 +3482,7 @@ deliver_rotor_fec_final( fd_replay_tile_t * ctx,
                          fd_hash_t const *  mr,
                          int                finalized ) {
   ulong chunk = ctx->in[ TEST_REPAIR_IN_IDX ].chunk0;
-  fd_repair_replay_fec_t * fec = fd_chunk_to_laddr( ctx->in[ TEST_REPAIR_IN_IDX ].mem, chunk );
+  fd_repair_out_fec_t * fec = fd_chunk_to_laddr( ctx->in[ TEST_REPAIR_IN_IDX ].mem, chunk );
   memset( fec, 0, sizeof(*fec) );
   fec->slot            = slot;
   fec->mr              = *mr;
@@ -3490,11 +3490,11 @@ deliver_rotor_fec_final( fd_replay_tile_t * ctx,
   fec->parent_block_id = *parent_block_id;
   fec->block_id        = *block_id;
   fec->slot_complete   = 1;
-  fec->known_id        = 1;
-  fec->finalized       = !!finalized;
+  fec->is_known        = 1;
+  fec->is_finalized    = !!finalized;
   ctx->execrp_idle_cnt = 2UL*ctx->in_cnt + 4UL;
-  return returnable_frag( ctx, TEST_REPAIR_IN_IDX, 0UL, REPAIR_SIG_FEC_REPLAY, chunk,
-                          sizeof(fd_repair_replay_fec_t), 0UL, 0UL,
+  return returnable_frag( ctx, TEST_REPAIR_IN_IDX, 0UL, REPAIR_SIG_FEC, chunk,
+                          sizeof(fd_repair_out_fec_t), 0UL, 0UL,
                           fd_frag_meta_ts_comp( fd_tickcount() ), test_stem );
 }
 
@@ -3874,7 +3874,7 @@ deliver_leader_fec( fd_replay_tile_t * ctx,
                     fd_hash_t const *  mr,
                     int                slot_complete ) {
   ulong chunk = ctx->in[ TEST_REPAIR_IN_IDX ].chunk0;
-  fd_repair_replay_fec_t * fec = fd_chunk_to_laddr( ctx->in[ TEST_REPAIR_IN_IDX ].mem, chunk );
+  fd_repair_out_fec_t * fec = fd_chunk_to_laddr( ctx->in[ TEST_REPAIR_IN_IDX ].mem, chunk );
   memset( fec, 0, sizeof(*fec) );
   fec->slot            = slot;
   fec->fec_set_idx     = fec_set_idx;
@@ -3885,8 +3885,8 @@ deliver_leader_fec( fd_replay_tile_t * ctx,
   fec->slot_complete   = !!slot_complete;
   fec->is_leader       = 1;
   ctx->execrp_idle_cnt = 2UL*ctx->in_cnt + 4UL;
-  return returnable_frag( ctx, TEST_REPAIR_IN_IDX, 0UL, REPAIR_SIG_FEC_REPLAY, chunk,
-                          sizeof(fd_repair_replay_fec_t), 0UL, 0UL,
+  return returnable_frag( ctx, TEST_REPAIR_IN_IDX, 0UL, REPAIR_SIG_FEC, chunk,
+                          sizeof(fd_repair_out_fec_t), 0UL, 0UL,
                           fd_frag_meta_ts_comp( fd_tickcount() ), test_stem );
 }
 

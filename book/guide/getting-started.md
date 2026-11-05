@@ -282,7 +282,7 @@ systemd --switched-root --system --deserialize=51
               ├─pack:0 run1 pack 0 --pipe-fd 53 --config-fd 0
               ├─motor:0 run1 motor 0 --pipe-fd 56 --config-fd 0
               ├─quic:0 run1 quic 0 --pipe-fd 44 --config-fd 0
-              ├─rotor:0 run1 rotor 0 --pipe-fd 28 --config-fd 0
+              ├─repair:0 run1 repair 0 --pipe-fd 28 --config-fd 0
               ├─replay:0 run1 replay 0 --pipe-fd 30 --config-fd 0
               ├─resolv:0 run1 resolv 0 --pipe-fd 52 --config-fd 0
               ├─rpc:0 run1 rpc 0 --pipe-fd 59 --config-fd 0

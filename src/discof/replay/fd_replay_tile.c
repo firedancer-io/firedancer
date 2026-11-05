@@ -785,7 +785,6 @@ block_completed_event_fill_reception( fd_replay_tile_t *           ctx,
                                       ulong                        bank_idx ) {
   ev->lowest_verified_fec_index    = 0U;
   ev->last_completed_fec_set_index = UINT_MAX;
-  fd_repair_fec_metrics_t const * rm = NULL;
 
     fd_bank_t const * bank = bank_idx==ULONG_MAX ? NULL : fd_banks_bank_query( ctx->banks, bank_idx );
     if( FD_UNLIKELY( !bank ) ) return;
@@ -803,36 +802,7 @@ block_completed_event_fill_reception( fd_replay_tile_t *           ctx,
        occupant of this bank idx, i.e. we have no stats for this block. */
     fd_reception_stats_t const * s = &ctx->reception_stats[ bank_idx ];
     if( FD_UNLIKELY( s->bank_seq!=bank->bank_seq ) ) return;
-    rm = &s->metrics.rotor;
-    ev->votor_repaired = !!rm->votor_repaired;
-
-    if( FD_UNLIKELY( !rm->stats_valid ) ) return;
-
-    ev->turbine_shred_count   = rm->blk_turbine_cnt;
-    ev->repair_shred_count    = rm->blk_repair_cnt;
-    ev->recovered_shred_count = rm->blk_recovered_cnt;
-    ev->data_shred_count      = rm->blk_data_cnt;
-    ev->parity_shred_count    = rm->blk_parity_cnt;
-    ev->slot_complete_flag    = !!rm->blk_slot_complete;
-
-    ev->last_completed_fec_set_index        = rm->blk_last_completed_fec_idx;
-    ev->repair_request_window_count         = rm->blk_req_window_cnt;
-    ev->repair_request_highest_window_count = rm->blk_req_highest_cnt;
-    ev->repair_request_orphan_count         = rm->blk_req_orphan_cnt;
-    ev->repair_request_shred_block_id_count = rm->blk_req_shred_bid_cnt;
-    ev->repair_request_parent_count         = rm->blk_req_parent_cnt;
-    ev->repair_request_fec_root_count       = rm->blk_req_fec_root_cnt;
-    ev->repair_requests_retransmitted       = rm->blk_req_retransmit_cnt;
-    ev->repair_responses_received           = rm->blk_repair_responses;
-    ev->first_shred_received_time           = rm->blk_first_shred_ts_nanos;
-    ev->last_shred_received_time            = rm->blk_last_shred_ts_nanos;
-    ev->first_repair_request_time           = rm->blk_first_req_ts_nanos;
-    ev->last_repair_received_time           = rm->blk_last_repair_resp_ts_nanos;
-
-    /* always zero for alpenglow*/
-    ev->lowest_verified_fec_index  = 0;
-    ev->repair_failed_chain_verify = 0;
-    ev->chain_confirmed            = 0;
+    ev->votor_repaired = !!s->votor_repaired;
 }
 
 static void
@@ -3090,7 +3060,7 @@ live_block_id_ele( fd_replay_tile_t *  ctx,
 
 static int
 can_process_rotor_fec( fd_replay_tile_t       * ctx,
-                       fd_repair_replay_fec_t * fec,
+                       fd_repair_out_fec_t    * fec,
                        int *                    evict_banks_out ) {
   /* We can process a FEC set if a few conditions are met:
      - sched has capacity
@@ -3125,7 +3095,7 @@ can_process_rotor_fec( fd_replay_tile_t       * ctx,
      complete.  An incomplete one is the repaired copy of the same
      block, a different stream that may be ahead of or behind the
      turbine copy: rotor merges the two copies into the turbine one
-     without changing its known_id, so the turbine copy keeps building
+     without changing its is_known, so the turbine copy keeps building
      its own {slot, 0} bank, and the repaired one is abandoned once the
      turbine bank completes and takes its {slot, block_id} key. */
   {
@@ -3133,9 +3103,9 @@ can_process_rotor_fec( fd_replay_tile_t       * ctx,
     if( FD_LIKELY( !fd_hash_check_zero( &fec->block_id ) ) ) {
       fd_block_id_t self_key = fd_block_id( fec->slot, fec->block_id.uc );
       self = live_block_id_ele( ctx, fd_block_id_map_ele_query( ctx->block_id_map, &self_key, NULL, ctx->block_id_arr ) );
-      if( FD_UNLIKELY( self && !self->block_id_seen && !fec->known_id ) ) self = NULL;
+      if( FD_UNLIKELY( self && !self->block_id_seen && !fec->is_known ) ) self = NULL;
     }
-    if( FD_LIKELY( !self && !fec->known_id ) ) {
+    if( FD_LIKELY( !self && !fec->is_known ) ) {
       fd_block_id_t self_key = { .slot = fec->slot };
       self = live_block_id_ele( ctx, fd_block_id_map_ele_query( ctx->block_id_map, &self_key, NULL, ctx->block_id_arr ) );
     }
@@ -3173,7 +3143,7 @@ can_process_rotor_fec( fd_replay_tile_t       * ctx,
     parent_bank_idx = fd_block_id_ele_get_idx( ctx->block_id_arr, parent );
   } else {
     fd_block_id_t key = { .slot = fec->slot };
-    if( FD_LIKELY( fec->known_id ) ) key = fd_block_id( fec->slot, fec->block_id.uc );
+    if( FD_LIKELY( fec->is_known ) ) key = fd_block_id( fec->slot, fec->block_id.uc );
 
     parent = fd_block_id_map_ele_query( ctx->block_id_map, &key, NULL, ctx->block_id_arr );
     if( FD_UNLIKELY( !parent ) ) {
@@ -3839,9 +3809,9 @@ process_exec_task_done( fd_replay_tile_t *          ctx,
 static void
 process_rotor_fec( fd_replay_tile_t       * ctx,
                    fd_stem_context_t      * stem,
-                   fd_repair_replay_fec_t * fec ) {
-  if( FD_LIKELY( fec->metrics.highest_fec_complete_slot && ( ctx->catch_up_max_fec_slot==ULONG_MAX || fec->metrics.highest_fec_complete_slot>ctx->catch_up_max_fec_slot ) ) ) {
-    ctx->catch_up_max_fec_slot = fec->metrics.highest_fec_complete_slot;
+                   fd_repair_out_fec_t    * fec ) {
+  if( FD_LIKELY( fec->highest_fec_complete_slot && ( ctx->catch_up_max_fec_slot==ULONG_MAX || fec->highest_fec_complete_slot>ctx->catch_up_max_fec_slot ) ) ) {
+    ctx->catch_up_max_fec_slot = fec->highest_fec_complete_slot;
     ctx->catch_up_tip_advance_cnt++;
   }
 
@@ -3860,7 +3830,7 @@ process_rotor_fec( fd_replay_tile_t       * ctx,
        this FEC on a bank keyed with the computed DMR - if it doesn't
        exist, it must belong to the original turbine version. */
     fd_block_id_t key = { .slot = fec->slot };
-    if( FD_LIKELY( fec->known_id ) ) {
+    if( FD_LIKELY( fec->is_known ) ) {
       key = fd_block_id( fec->slot, fec->block_id.uc );
     }
 
@@ -3905,7 +3875,7 @@ process_rotor_fec( fd_replay_tile_t       * ctx,
     /* Give up on the prefix bank if it exists: the block is not at
        fault, so its sched block is discarded, not invalid, and
        SLOT_DEAD is not published. */
-    fd_block_id_t       prefix_key = fec->known_id ? fd_block_id( fec->slot, fec->block_id.uc ) : (fd_block_id_t){ .slot = fec->slot };
+    fd_block_id_t       prefix_key = fec->is_known ? fd_block_id( fec->slot, fec->block_id.uc ) : (fd_block_id_t){ .slot = fec->slot };
     fd_block_id_ele_t * prefix     = fec->update_parent_fec_idx && !fec->is_leader ? live_block_id_ele( ctx, fd_block_id_map_ele_query( ctx->block_id_map, &prefix_key, NULL, ctx->block_id_arr ) ) : NULL;
     if( FD_UNLIKELY( prefix ) ) {
       ulong opt_idx = fd_block_id_ele_get_idx( ctx->block_id_arr, prefix );
@@ -3939,7 +3909,7 @@ process_rotor_fec( fd_replay_tile_t       * ctx,
     block_id_ele->latest_fec_idx = fec->fec_set_idx;
     block_id_ele->fec_cnt        = 0U;
     block_id_ele->finalized      = 0;
-    block_id_ele->block_info     = fec->known_id ? fd_block_id( fec->slot, fec->block_id.uc ) : (fd_block_id_t){ .slot = fec->slot };
+    block_id_ele->block_info     = fec->is_known ? fd_block_id( fec->slot, fec->block_id.uc ) : (fd_block_id_t){ .slot = fec->slot };
 
     /* If this fec 0 is rebuilding an evicted block (recovery redelivery),
        the evicted bank's stale map entry may still hold this key at a
@@ -3964,14 +3934,14 @@ process_rotor_fec( fd_replay_tile_t       * ctx,
   fd_reception_stats_t * stats = &ctx->reception_stats[ bank->idx ];
   stats->bank_seq      = bank->bank_seq;
   stats->fec_set_idx   = fec->fec_set_idx;
-  stats->metrics.rotor = fec->metrics; /* votor_repaired always, the counters only if stats_valid */
+  stats->votor_repaired = fec->votor_repaired;
 
   if( FD_UNLIKELY( fec->slot_complete ) ) {
     FD_BASE58_ENCODE_32_BYTES( fec->block_id.uc, block_id_b58 );
-    FD_LOG_INFO(( "slot %lu fec set idx %u slot_bid %s is complete, inserted to map. finalized: %d", fec->slot, fec->fec_set_idx, block_id_b58, fec->finalized ));
+    FD_LOG_INFO(( "slot %lu fec set idx %u slot_bid %s is complete, inserted to map. finalized: %d", fec->slot, fec->fec_set_idx, block_id_b58, fec->is_finalized ));
     block_id_ele->block_id_seen = 1;
     block_id_ele->dmr           = fec->block_id;
-    block_id_ele->finalized     = !!fec->finalized;
+    block_id_ele->finalized     = !!fec->is_finalized;
 
     /* block is complete and DMR block id is now known so re-key.  The
        map does not support duplicate keys: rotor guarantees at most one
@@ -4014,7 +3984,7 @@ process_rotor_fec( fd_replay_tile_t       * ctx,
   sched_fec->alut_ctx->fork_id = fd_banks_bank_query( ctx->banks, ctx->published_root_bank_idx )->accdb_fork_id;
   sched_fec->alut_ctx->accdb   = ctx->accdb;
   sched_fec->alut_ctx->els     = ctx->published_root_slot;
-  sched_fec->completed_ns      = fec->metrics.fec_completed_ts_nanos;
+  sched_fec->completed_ns      = fec->fec_completed_ts_nanos;
 
   if( sched_fec->is_first_in_block ) {
     bank->refcnt++;
@@ -4422,16 +4392,16 @@ returnable_frag( fd_replay_tile_t *  ctx,
       break;
     }
     case IN_KIND_REPAIR: {
-      if( FD_UNLIKELY( sig!=REPAIR_SIG_FEC_REPLAY ) ) break;
+      if( FD_UNLIKELY( sig!=REPAIR_SIG_FEC ) ) break;
 
       /* process rotor incoming FECs. 1 to keep frag for retry, returning 0 consumes it. */
 
-      fd_repair_replay_fec_t * fec = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
+      fd_repair_out_fec_t * fec = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
       if( FD_UNLIKELY( !( ctx->execrp_idle_cnt>=2UL*ctx->in_cnt || ctx->is_leader ) ) ) return 1; /* pace behind exec notifications, retry */
 
       /* Rare case where we replayed a slot completely, but on re-delivery
          we discover the FEC is finalized. */
-      if( FD_UNLIKELY( fec->finalized && fec->slot_complete ) ) {
+      if( FD_UNLIKELY( fec->is_finalized && fec->slot_complete ) ) {
         fd_block_id_t key = fd_block_id( fec->slot, fec->block_id.uc );
         if( FD_UNLIKELY( fd_bhm_map_ele_query( ctx->bhm_map, &key, NULL, ctx->bhm_pool ) ) ) {
           FD_BASE58_ENCODE_32_BYTES( key.hash.uc, block_id_b58 );
@@ -4972,7 +4942,7 @@ unprivileged_init( fd_topo_t const *      topo,
   *ctx->epoch_out  = out1( topo, tile, "replay_epoch" ); FD_TEST( ctx->epoch_out->idx!=ULONG_MAX );
   *ctx->replay_out = out1( topo, tile, "replay_out"   ); FD_TEST( ctx->replay_out->idx!=ULONG_MAX );
   *ctx->slot_out   = out1( topo, tile, "replay_slot"  ); FD_TEST( ctx->slot_out->idx!=ULONG_MAX );
-  *ctx->rotor_out  = out1( topo, tile, "replay_rotor" );
+  *ctx->rotor_out  = out1( topo, tile, "replay_repair" );
   *ctx->snapmk_out = out1( topo, tile, "replay_snapmk" ); FD_TEST( ctx->snapmk.supported == (ctx->snapmk_out->idx!=ULONG_MAX) );
 
   ctx->exec_cnt = 0UL;

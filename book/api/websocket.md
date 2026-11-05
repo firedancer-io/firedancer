@@ -323,8 +323,7 @@ Frankendancer client will always publish `null` for this message
 | *Once* + *Live* | `number\|null` | `100`   |
 
 The largest slot which the validator has fully retrieved and
-reconstructed by repair. In Alpenglow mode this is reported by the rotor
-tile rather than the repair tile; the field name is unchanged.
+reconstructed by repair.
 This slot has the same problem as `summary.turbine_slot` (it might
 sporadically become unboundedly large) and provides the same guarantees.
 
@@ -700,16 +699,9 @@ gossip messages arriving from the network.
 - gossip: Handles trusted, parsed messages from gossvf tile.
 - shred: Parses, verifies, and reconstructs untrusted shred payloads
 from the network.
-- repair: Consumes parsed shreds from shred tile, issues repair requests
-for any missing shreds, and reconstructs the block. This tile is present
-only in Tower mode.
-- rotor: The Alpenglow counterpart of the repair tile. Consumes block
-data relayed to us over Rotor, issues repair requests for anything still
-missing, and reconstructs the block. This tile is present only in
-Alpenglow mode. Note that the `summary.repair_slot` field and the
-`repair` network traffic category keep their names in both modes and
-report on whichever of the two tiles the topology has.
-- replay: Consumes block shreds from repair or rotor and schedules
+- repair: Consumes block data from the shred tile, issues repair
+requests for anything still missing, and reconstructs the block.
+- replay: Consumes block shreds from repair and schedules
 execution and validation of block transactions.
 - exec: Executes replay transactions.
 - tower: Runs Tower BFT consensus and communicates Tower fork-choice and
@@ -1041,8 +1033,6 @@ in a client used to consume and forward incoming Solana transactions for
 their next leader slot.
 - repair: a client subsystem which requests any missing block data
 needed by the replay pipeline which may have been lost over the network.
-In Alpenglow mode this category reports the rotor tile, which serves the
-same role; the category name is unchanged
 - rserve: "repair serve", a client subsystem which serves repair
 requests from other nodes, responding with any block data they are
 missing
