@@ -98,23 +98,22 @@ fd_shredb_tbl_rec_cnt( ulong max_shreds ) {
 #define FD_SHREDB_KIND_NONFIRST (1) /* later version, has a table record */
 #define FD_SHREDB_KIND_ALIAS    (2) /* first version an alias keeps out of the slot map, has a table record */
 
-/* One ring entry per cell.  tag is lap<<2 | state, where lap is the
-   reservation ticket's lap (ticket/disk_max_shreds) mod 2^30.  A cell's
-   writes are one lap apart, so a stale tag repeats only 2^30 laps (>=
-   2^54 tickets for rings of 2^24+ cells) later, whatever the ring size.
-   key is (slot<<key_idx_bits | idx) truncated to 32 bits, so slots
-   2^(32-key_idx_bits) apart alias; reads check the full key on disk.
-   A READY cell has a record iff the slot map does not link it.  All
-   fields use disk_lock. */
+/* One ring entry per cell, its 2-bit state packed 32 per ulong
+   beside the pool.  key is (slot<<key_idx_bits | idx) truncated to 32
+   bits, so slots 2^(32-key_idx_bits) apart alias; reads check the full
+   key on disk.  A READY cell has a record iff the slot map does not
+   link it.  All fields and states use disk_lock. */
 struct fd_shredb_ring_entry {
-  uint tag;
   uint key;
   uint slot_next;
 };
 typedef struct fd_shredb_ring_entry fd_shredb_ring_entry_t;
-FD_STATIC_ASSERT( sizeof(fd_shredb_ring_entry_t)==12UL, shredb_ring_entry_footprint );
+FD_STATIC_ASSERT( sizeof(fd_shredb_ring_entry_t)==8UL, shredb_ring_entry_footprint );
 
-#define FD_SHREDB_LAP_MASK ((1UL<<30)-1UL)
+FD_FN_CONST static inline ulong
+fd_shredb_state_word_cnt( ulong max_shreds ) {
+  return (max_shreds+31UL)/32UL;
+}
 
 #define FD_SHREDB_CELL_INVALID    (0UL)
 #define FD_SHREDB_CELL_WRITING    (1UL)
@@ -283,6 +282,7 @@ struct fd_store {
      tbl_lock, then disk_lock. */
   ulong        shred_map_gaddr; /* fd_shredb_slot_map over the ring pool */
   ulong        ring_pool_gaddr;
+  ulong        ring_state_gaddr;
   fd_rwlock_t  disk_lock;
   fd_rwlock_t  tbl_lock;
   ulong        slot_hint_gaddr;
@@ -382,6 +382,7 @@ fd_store_footprint( ulong fec_max,
     if( FD_UNLIKELY( !max_shreds || !max_slots ||
                      fd_store_layout_append( &l, fd_shredb_slot_map_align(),      1UL,        fd_shredb_slot_map_footprint( disk_chain_cnt ) ) ||
                      fd_store_layout_append( &l, alignof(fd_shredb_ring_entry_t), max_shreds, sizeof(fd_shredb_ring_entry_t) ) ||
+                     fd_store_layout_append( &l, alignof(ulong),                  fd_shredb_state_word_cnt( max_shreds ), sizeof(ulong) ) ||
                      fd_store_layout_append( &l, alignof(atomic_ulong),           max_slots,  sizeof(atomic_ulong) ) ||
                      fd_store_layout_append( &l, alignof(uint),                   max_slots,  sizeof(uint) ) ) ) return 0UL;
   }
