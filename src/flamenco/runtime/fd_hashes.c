@@ -153,7 +153,6 @@ fd_hashes_update_pair( uchar const        pubkey[ static FD_HASH_FOOTPRINT ],
   }
 }
 
-
 void
 fd_hashes_apply_hard_forks( fd_hash_t *            hash,
                             ulong                  slot,

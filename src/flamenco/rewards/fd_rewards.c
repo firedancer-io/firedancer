@@ -673,7 +673,6 @@ calculate_stake_vote_rewards( fd_bank_t *                    bank,
       calculated_stake_rewards->block_reward = block_reward;
     }
 
-
     runtime_stack->stakes.vote_ele[ idx ].vote_rewards += calculated_stake_rewards->voter_rewards;
     runtime_stack->stakes.stake_rewards_cnt++;
   }
@@ -831,7 +830,6 @@ calculate_validator_rewards( fd_bank_t *                    bank,
       stake_history,
       rewarded_epoch,
       runtime_stack );
-
 
   /* Calculate the stake and vote rewards for each account. We want to
      use the vote states from the end of the current_epoch. */
@@ -1224,7 +1222,6 @@ distribute_epoch_reward_to_stake_acc( fd_bank_t *         bank,
                                                    stake_state->stake.stake.delegation.deactivation_epoch,
                                                    stake_state->stake.stake.credits_observed );
   }
-
 
   FD_STORE( fd_stake_state_t, acc->data, *stake_state );
   if( lthash_mode==FD_BANK_LTHASH_MODE_INBAND ) {

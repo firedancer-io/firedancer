@@ -355,7 +355,6 @@ backtest_topo( config_t * config ) {
   /* Setup the shared objs used by replay and exec tiles                */
   /**********************************************************************/
 
-
   fd_topob_wksp( topo, "store" );
   fd_topo_link_t const * repair_out_link = &topo->links[ fd_topo_find_link( topo, "repair_out", 0UL ) ];
   ulong fec_sets_per_slot = fd_ulong_if( config->firedancer.development.fixed_fec_sets,
