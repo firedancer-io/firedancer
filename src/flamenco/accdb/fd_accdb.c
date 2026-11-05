@@ -2129,6 +2129,75 @@ allocate_next_write( fd_accdb_t * accdb,
   return file_offset;
 }
 
+/* release_take_line takes a line of size_class for a commit at release
+   time (writable acquires reserve every class but only materialize the
+   staging line; the final class is known only after execution).  The
+   caller holds a reservation for size_class, so a line exists.  If the
+   line came from CLOCK with a dirty victim, the victim is written back
+   and its offset published before the line is returned, exactly as
+   acquire's steps 5-10 do (victim offset xchg'd to INVAL first, so
+   concurrent readers wait for the publish).  Returns the line pinned
+   (refcnt 1), persisted, owned by no account.  The caller holds its
+   epoch, which keeps the victim's accmeta from being recycled. */
+
+static fd_accdb_cache_line_t *
+release_take_line( fd_accdb_t * accdb,
+                   ulong        size_class ) {
+  fd_accdb_shmem_t * shmem = accdb->shmem;
+  uint victim = UINT_MAX;
+  fd_accdb_cache_line_t * line = acquire_cache_line( accdb, size_class, &victim );
+  if( FD_UNLIKELY( victim!=UINT_MAX ) ) {
+    fd_accdb_accmeta_t * accmeta  = &accdb->acc_pool[ victim ];
+    ulong                data_sz  = (ulong)FD_ACCDB_SIZE_DATA( accmeta->executable_size );
+    ulong                entry_sz = sizeof(fd_accdb_disk_meta_t)+data_sz;
+    accdb->metrics->accounts_evicted++;
+    accdb->metrics->accounts_evicted_per_class[ size_class ]++;
+
+    ulong old_offset = fd_accdb_acc_xchg_offset( accmeta, FD_ACCDB_OFF_INVAL );
+    if( FD_LIKELY( old_offset!=FD_ACCDB_OFF_INVAL ) ) {
+      fd_accdb_shmem_bytes_freed( shmem, old_offset, entry_sz );
+      FD_ATOMIC_FETCH_AND_SUB( &shmem->shmetrics->disk_used_bytes, entry_sz );
+    }
+
+    fd_accdb_disk_meta_t meta;
+    fd_memcpy( meta.pubkey, accmeta->key.pubkey, 32UL );
+    meta.size       = (uint)data_sz;
+    meta.generation = accmeta->key.generation;
+    fd_memcpy( meta.owner, line->owner, 32UL );
+
+    struct iovec iovs[ 2UL ] = {
+      { .iov_base = &meta,              .iov_len = sizeof(fd_accdb_disk_meta_t) },
+      { .iov_base = (void *)(line+1UL), .iov_len = data_sz                      }
+    };
+    ulong file_off = allocate_next_write( accdb, entry_sz );
+    ulong written  = 0UL;
+    while( written<entry_sz ) {
+      long result = pwritev2( accdb->fd, iovs, 2, (long)(file_off+written), 0 );
+      if( FD_UNLIKELY( -1==result && (errno==EINTR || errno==EAGAIN || errno==EWOULDBLOCK) ) ) continue;
+      else if( FD_UNLIKELY( result<=0 ) ) FD_LOG_ERR(( "pwritev2() failed (%d-%s)", errno, fd_io_strerror( errno ) ));
+      written += (ulong)result;
+      accdb->metrics->bytes_written += (ulong)result;
+      accdb->metrics->write_ops++;
+      for( int v=0; v<2; v++ ) {
+        if( (ulong)result>=iovs[ v ].iov_len ) {
+          result -= (long)iovs[ v ].iov_len;
+          iovs[ v ].iov_len = 0UL;
+        } else {
+          iovs[ v ].iov_base = (uchar *)iovs[ v ].iov_base + result;
+          iovs[ v ].iov_len -= (ulong)result;
+          break;
+        }
+      }
+    }
+    FD_ATOMIC_FETCH_AND_ADD( &shmem->shmetrics->disk_used_bytes, entry_sz );
+    FD_COMPILER_MFENCE();
+    accmeta->offset_fork = fd_accdb_acc_pack_offset_fork( file_off, fd_accdb_acc_fork_id( accmeta ) );
+  }
+  line->persisted = 1;
+  line->acc_idx   = UINT_MAX;
+  return line;
+}
+
 ulong
 fd_accdb_snapshot_reserve_write( fd_accdb_t * accdb,
                                  ulong        sz,
@@ -2823,7 +2892,12 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
     exists_in_cache[ i ] = original_cache_line[ i ]!=NULL;
 
     if( FD_UNLIKELY( writable[ i ] ) ) {
-      for( ulong j=0UL; j<FD_ACCDB_CACHE_CLASS_CNT; j++ ) destination_cache_lines[ i ][ j ] = acquire_cache_line( accdb, j, &evicted_dest_acc[ i ][ j ] );
+      /* Only the 10 MiB staging line is materialized now; the final
+         class is known after execution, and release takes that line
+         then (release_take_line).  Every class is still reserved
+         (step 3), so release can always get one. */
+      for( ulong j=0UL; j<FD_ACCDB_CACHE_CLASS_CNT-1UL; j++ ) { destination_cache_lines[ i ][ j ] = NULL; evicted_dest_acc[ i ][ j ] = UINT_MAX; }
+      destination_cache_lines[ i ][ 7UL ] = acquire_cache_line( accdb, 7UL, &evicted_dest_acc[ i ][ 7UL ] );
       if( FD_UNLIKELY( accmetas[ i ] && !original_cache_line[ i ] ) ) {
         original_cache_line[ i ] = cold_load_acc( accdb, accmetas[ i ], pubkeys[ i ], &exists_in_cache[ i ], &evicted_orig_acc[ i ] );
       }
@@ -3087,9 +3161,8 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
     }
 
     if( FD_UNLIKELY( writable[ i ] ) ) {
-      for( ulong j=0UL; j<FD_ACCDB_CACHE_CLASS_CNT; j++ ) {
-        out_accs[ i ]._write.destination_cache_idx[ j ] = cache_line_idx( accdb, j, destination_cache_lines[ i ][ j ] );
-      }
+      for( ulong j=0UL; j<FD_ACCDB_CACHE_CLASS_CNT-1UL; j++ ) out_accs[ i ]._write.destination_cache_idx[ j ] = ULONG_MAX;
+      out_accs[ i ]._write.destination_cache_idx[ 7UL ] = cache_line_idx( accdb, 7UL, destination_cache_lines[ i ][ 7UL ] );
     }
   }
 
@@ -3427,8 +3500,14 @@ release_inner( fd_accdb_t * accdb,
     if( FD_UNLIKELY( new_size_class==7UL ) ) continue;
 
     fd_accdb_cache_line_t * target_cache_line;
-    if( FD_LIKELY( original_size_class==new_size_class && accs[ i ]._overwrite ) ) target_cache_line = cache_line( accdb, original_size_class, accs[ i ]._original_cache_idx );
-    else                                                                              target_cache_line = cache_line( accdb, new_size_class, accs[ i ]._write.destination_cache_idx[ new_size_class ] );
+    if( FD_LIKELY( original_size_class==new_size_class && accs[ i ]._overwrite ) ) {
+      target_cache_line = cache_line( accdb, original_size_class, accs[ i ]._original_cache_idx );
+    } else {
+      /* The final class's line is taken now (acquire only reserved
+         it).  Step 2 finds it in destination_cache_idx. */
+      target_cache_line = release_take_line( accdb, new_size_class );
+      accs[ i ]._write.destination_cache_idx[ new_size_class ] = cache_line_idx( accdb, new_size_class, target_cache_line );
+    }
 
     fd_accdb_cache_line_t * staging_line = cache_line( accdb, 7UL, accs[ i ]._write.destination_cache_idx[ 7UL ] );
 
@@ -3486,7 +3565,10 @@ release_inner( fd_accdb_t * accdb,
     }
 
     fd_accdb_cache_line_t * destination_cache_lines[ FD_ACCDB_CACHE_CLASS_CNT ];
-    for( ulong j=0UL; j<FD_ACCDB_CACHE_CLASS_CNT; j++ ) destination_cache_lines[ j ] = cache_line( accdb, j, accs[ i ]._write.destination_cache_idx[ j ] );
+    for( ulong j=0UL; j<FD_ACCDB_CACHE_CLASS_CNT; j++ ) {
+      ulong idx = accs[ i ]._write.destination_cache_idx[ j ];
+      destination_cache_lines[ j ] = idx==ULONG_MAX ? NULL : cache_line( accdb, j, idx );
+    }
     int destination_committed[ FD_ACCDB_CACHE_CLASS_CNT ] = {0};
 
     if( FD_LIKELY( !accs[ i ].commit ) ) {
@@ -3497,6 +3579,7 @@ release_inner( fd_accdb_t * accdb,
          recently used. */
       if( FD_LIKELY( original_cache_line ) ) original_cache_line->referenced = 1;
       for( ulong j=0UL; j<FD_ACCDB_CACHE_CLASS_CNT; j++ ) {
+        if( !destination_cache_lines[ j ] ) continue; /* never materialized */
         /* acquire_cache_line via CLOCK leaves line->acc_idx pointing
            at the prior owner.  cache_free_push consumers (CLOCK,
            background_preevict) skip lines only when acc_idx==UINT_MAX
@@ -3657,6 +3740,7 @@ release_inner( fd_accdb_t * accdb,
        unpin happens after the publish below), uncommitted ones are
        fully freed to the CAS free list. */
     for( ulong j=0UL; j<FD_ACCDB_CACHE_CLASS_CNT; j++ ) {
+      if( !destination_cache_lines[ j ] ) continue; /* never materialized */
       if( destination_committed[ j ] ) {
         destination_cache_lines[ j ]->referenced = 1;
       } else {

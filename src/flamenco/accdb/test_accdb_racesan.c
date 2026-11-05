@@ -2659,12 +2659,14 @@ test_stray_pin_vs_freepop( void ) {
 
 /* test_stray_pin_vs_release_cleanup proves the uncommitted-destination
    cleanup in release_inner waits out a stray pin on a destination line
-   instead of plain-storing refcnt=0 over it:
-     1. P resident in class-0 line L; reader R suspends at
+   instead of plain-storing refcnt=0 over it.  A writable acquire only
+   materializes its class-7 staging line (the final class's line is
+   taken at release), so the destination here is a class-7 line:
+     1. P resident in class-7 line L; reader R suspends at
         accdb_acquire:pre_try_pin having captured L.
      2. Main evicts L (free list).
      3. Writer W (writable acquire of new account Q, never commits)
-        pops L as its class-0 destination (refcnt 0->1) and parks at
+        pops L as its class-7 staging line (refcnt 0->1) and parks at
         accdb_acquire:pre_step7_meta, mid-bracket.
      4. R resumes to accdb_try_pin:post_cas: CAS 1->2, stray pin on
         W's destination line.
@@ -2687,11 +2689,11 @@ test_stray_pin_vs_release_cleanup( void ) {
 
   fd_accdb_fork_id_t root0 = fd_accdb_attach_child( accdb, SENTINEL );
 
-  write_acc( accdb, root0, key_P, 100UL, owner_P, NULL, 0UL );
+  seq_write_data( accdb, root0, key_P, 100UL, owner_P, BIG_DATA, 0x5A );
 
   ulong cls, idx;
   FD_TEST( fd_accdb_debug_find_line( accdb, key_P, &cls, &idx ) );
-  FD_TEST( cls==0UL );
+  FD_TEST( cls==7UL );
 
   /* R captures P's cache_idx, suspends before pinning. */
   fd_racesan_async_t * ar = fiber_acquire_expect( &g_fiber[0], accdb_r, root0, key_P, 100UL );
@@ -2700,7 +2702,7 @@ test_stray_pin_vs_release_cleanup( void ) {
   /* Evict L to the free list. */
   fd_accdb_debug_clock_evict_line( accdb, cls, idx );
 
-  /* W: writable acquire of Q pops L as its class-0 destination
+  /* W: writable acquire of Q pops L as its class-7 staging line
      (refcnt 0->1), parks mid-bracket before release. */
   static read_fiber_t wf[1];
   wf->accdb   = accdb;

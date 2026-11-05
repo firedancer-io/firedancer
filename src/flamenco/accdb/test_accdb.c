@@ -2371,6 +2371,79 @@ test_txn_footprint_growth( void ) {
   FD_TEST( fp_96-fp_64==32UL*(8UL+4UL) );
 }
 
+/* Deferred destination allocation: a writable acquire materializes only
+   its staging line; release takes the final class's line.  With a tiny
+   cache full of dirty accounts, those release-time lines come from CLOCK
+   with dirty victims, which release must write back (and publish) before
+   reusing the line.  Checks every account reads back its last committed
+   value after heavy churn across size classes, including class changes
+   on overwrite and on new versions, reverts, and class-7 results. */
+
+static void
+test_release_alloc( void ) {
+  int fd;
+  ulong cache_fp = 24UL<<20;
+  /* 1024 partitions of 64 MiB: room for the churn's write-back (no
+     compaction thread runs here; drain_background compacts). */
+  fd_accdb_t * accdb = test_setup_ex( &fd, 1024UL, 8UL, 1024UL, 1024UL, 64UL<<20UL, cache_fp, TEST_CACHE_MIN_RESERVED, 1UL );
+  fd_accdb_fork_id_t root = fd_accdb_attach_child( accdb, SENTINEL );
+  fd_accdb_fork_id_t f    = fd_accdb_attach_child( accdb, root );
+
+#define RA_CNT (200UL)
+  static uchar data[ 3UL<<20 ];
+  ulong want_lam[ RA_CNT ] = {0};
+  ulong want_len[ RA_CNT ] = {0};
+  uchar want_b0 [ RA_CNT ] = {0};
+  static ulong const sizes[] = { 0UL, 100UL, 165UL, 600UL, 3000UL, 20000UL, 200000UL, 2UL<<20, 100UL, 165UL, 600UL };
+  ulong sz_cnt = sizeof(sizes)/sizeof(sizes[0]);
+  fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 7U, 0UL ) );
+
+  for( ulong it=0UL; it<3000UL; it++ ) {
+    if( !(it%64UL) ) drain_background( accdb ); /* compaction + pre-evict */
+    ulong k = fd_rng_ulong( rng )%RA_CNT;
+    uchar pk[ 32 ] = { 0x52, 0x41 }; FD_STORE( ulong, pk+8, k );
+    ulong len = sizes[ fd_rng_ulong( rng )%sz_cnt ];
+    int   commit = ( fd_rng_uint( rng )%8U )!=0U; /* 1 in 8 reverts */
+    uchar fill = (uchar)fd_rng_uint( rng );
+
+    uchar const * pks[ 1 ] = { pk }; int wr[ 1 ] = { 1 }; fd_acc_t acc[ 1 ];
+    memset( acc, 0, sizeof(acc) );
+    fd_accdb_acquire( accdb, f, 1UL, pks, wr, acc );
+    if( want_lam[ k ] ) {
+      FD_TEST( acc[ 0 ].lamports==want_lam[ k ] && acc[ 0 ].data_len==want_len[ k ] );
+      if( want_len[ k ] ) FD_TEST( acc[ 0 ].data[ 0 ]==want_b0[ k ] );
+    }
+    acc[ 0 ].lamports = 1UL+it;
+    acc[ 0 ].data_len = len;
+    if( len ) fd_memset( acc[ 0 ].data, fill, len );
+    memcpy( acc[ 0 ].owner, owner2, 32UL );
+    acc[ 0 ].commit = commit;
+    fd_accdb_release( accdb, 1UL, acc );
+    if( commit ) { want_lam[ k ] = 1UL+it; want_len[ k ] = len; want_b0[ k ] = fill; }
+
+    /* Root and open a new fork now and then, so writes alternate between
+       overwrites (same fork) and new versions (child fork). */
+    if( !(it%250UL) && it ) {
+      fd_accdb_advance_root( accdb, f );
+      drain_background( accdb );
+      drain_background( accdb );
+      f = fd_accdb_attach_child( accdb, f );
+    }
+  }
+  for( ulong k=0UL; k<RA_CNT; k++ ) {
+    if( !want_lam[ k ] ) continue;
+    uchar pk[ 32 ] = { 0x52, 0x41 }; FD_STORE( ulong, pk+8, k );
+    ulong lamports, data_len;
+    FD_TEST( accdb_read( accdb, f, pk, &lamports, data, &data_len, NULL ) );
+    FD_TEST( lamports==want_lam[ k ] && data_len==want_len[ k ] );
+    if( data_len ) FD_TEST( data[ 0 ]==want_b0[ k ] && data[ data_len-1UL ]==want_b0[ k ] );
+  }
+  FD_TEST( fd_accdb_shmetrics( accdb )->accounts_total );
+  fd_rng_delete( fd_rng_leave( rng ) );
+  test_teardown( accdb, fd );
+#undef RA_CNT
+}
+
 /* Per-join free-line magazines: writable acquire/release recycles
    destination lines through the join's magazine; the shared free list
    only sees the overflow.  Checks that (a) data stays correct across
@@ -2557,6 +2630,9 @@ main( int     argc,
 
   FD_LOG_NOTICE(( "test_magazine ..." ));
   test_magazine();
+
+  FD_LOG_NOTICE(( "test_release_alloc ..." ));
+  test_release_alloc();
 
   FD_LOG_NOTICE(( "success" ));
 
