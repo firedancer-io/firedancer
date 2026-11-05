@@ -366,6 +366,196 @@ FD_UNIT_TEST( transaction_account_count_is_bounded ) {
   fd_txn_builder_delete( builder );
 }
 
+
+/* A reference is an instruction-local index, not a distinct account.
+   This real transfer shape uses just four keys but114references. */
+FD_UNIT_TEST( repeated_system_transfers ) {
+  fd_txn_builder_t builder[1];
+  FD_TEST( fd_txn_builder_new( builder, 12UL ) );
+  fd_acct_addr_t fee    = addr( 0xA1 );
+  fd_acct_addr_t sink   = addr( 0xB2 );
+  fd_acct_addr_t bhash  = addr( 0xC3 );
+  fd_acct_addr_t system = { .b = { SYS_PROG_ID } };
+  fd_acct_addr_t budget = { .b = { COMPUTE_BUDGET_PROG_ID } };
+  uchar const limit[]  = { 2, 0xC0, 0x5C, 0x15, 0 }; /*1,400,000CU*/
+  uchar const price[]  = { 3, 0x80, 0x84, 0x1E, 0, 0, 0, 0, 0 }; /*2,000,000*/
+  uchar const loaded[] = { 4, 0, 0, 1, 0 }; /*65,536bytes*/
+  uchar const transfer[12] = { 2, 0, 0, 0, 1 }; /*System Transfer1lamport*/
+  FD_TEST( fd_txn_builder_fee_payer_set( builder, &fee ) );
+  fd_txn_builder_blockhash_set( builder, &bhash );
+  FD_TEST( fd_txn_builder_instr_open( builder, &budget, limit, sizeof(limit) ) );
+  fd_txn_builder_instr_close( builder );
+  FD_TEST( fd_txn_builder_instr_open( builder, &budget, price, sizeof(price) ) );
+  fd_txn_builder_instr_close( builder );
+  FD_TEST( fd_txn_builder_instr_open( builder, &budget, loaded, sizeof(loaded) ) );
+  fd_txn_builder_instr_close( builder );
+  for( ulong i=0UL; i<57UL; i++ ) {
+    FD_TEST( fd_txn_builder_instr_open( builder, &system, transfer, sizeof(transfer) ) );
+    FD_TEST( fd_txn_builder_instr_account_push( builder, &fee, FD_TXN_ACCT_CAT_WRITABLE_SIGNER ) );
+    FD_TEST( fd_txn_builder_instr_account_push( builder, &sink, FD_TXN_ACCT_CAT_WRITABLE ) );
+    fd_txn_builder_instr_close( builder );
+  }
+  uint sz;
+  fd_txn_t * txn = build_txn( builder, &sz );
+  FD_TEST( sz==1227U && txn->transaction_version==FD_TXN_VLEGACY );
+  FD_TEST( txn->acct_addr_cnt==4UL && txn->instr_cnt==60UL );
+  for( ulong i=3UL; i<60UL; i++ ) {
+    fd_txn_instr_t const * instr = txn->instr+i;
+    FD_TEST( instr->program_id==3U && instr->acct_cnt==2U && instr->data_sz==12U );
+    uchar const * refs = fd_txn_get_instr_accts( instr, payload );
+    FD_TEST( refs[0]==0U && refs[1]==1U );
+    FD_TEST( !memcmp( fd_txn_get_instr_data( instr, payload ), transfer, 12UL ) );
+  }
+
+  /* An independent wire encoding catches serializer offset/remapping errors. */
+  uchar expected[ FD_TXN_MTU_V0 ] = {1};
+  uchar * out = expected+65;
+  *out++=1; *out++=0; *out++=2; *out++=4;
+  fd_memcpy( out, &fee, 32UL ); out+=32;
+  fd_memcpy( out, &sink, 32UL ); out+=32;
+  fd_memcpy( out, &budget, 32UL ); out+=32;
+  fd_memcpy( out, &system, 32UL ); out+=32;
+  fd_memcpy( out, &bhash, 32UL ); out+=32;
+  *out++=60;
+  *out++=2; *out++=0; *out++=5; fd_memcpy( out, limit, 5UL ); out+=5;
+  *out++=2; *out++=0; *out++=9; fd_memcpy( out, price, 9UL ); out+=9;
+  *out++=2; *out++=0; *out++=5; fd_memcpy( out, loaded, 5UL ); out+=5;
+  for( ulong i=0UL; i<57UL; i++ ) {
+    *out++=3; *out++=2; *out++=0; *out++=1; *out++=12;
+    fd_memcpy( out, transfer, 12UL ); out+=12;
+  }
+  FD_TEST( (ulong)(out-expected)==sz );
+  FD_TEST( !memcmp( expected, payload, sz ) );
+
+  /* This API chooses v0 only with used ALTs.  Independently wrap this
+     exact message as no-ALT v0; parsing must preserve all114references. */
+  uchar v0[ FD_TXN_MTU_V0 ];
+  fd_memcpy( v0, payload, 65UL ); v0[65]=0x80U;
+  fd_memcpy( v0+66, payload+65, sz-65UL ); v0[sz+1U]=0U;
+  FD_TEST( sz+2U==1229U );
+  FD_TEST( fd_txn_parse( v0, sz+2UL, txn_mem, NULL ) );
+  txn = (fd_txn_t *)txn_mem;
+  FD_TEST( txn->transaction_version==FD_TXN_V0 && txn->addr_table_lookup_cnt==0UL && txn->instr_cnt==60UL );
+  for( ulong i=3UL; i<60UL; i++ ) {
+    fd_txn_instr_t const * instr = txn->instr+i;
+    uchar const * refs = fd_txn_get_instr_accts( instr, v0 );
+    FD_TEST( instr->acct_cnt==2U && refs[0]==0U && refs[1]==1U );
+    FD_TEST( !memcmp( fd_txn_get_instr_data( instr, v0 ), transfer, 12UL ) );
+  }
+  fd_txn_builder_delete( builder );
+
+  /* Exercise builder-selected v0 through the public ALT API as well.
+     Without CB instructions the57transfer message and one ALT fit. */
+  FD_TEST( fd_txn_builder_new( builder, 13UL ) );
+  FD_TEST( fd_txn_builder_fee_payer_set( builder, &fee ) );
+  fd_txn_builder_blockhash_set( builder, &bhash );
+  for( ulong i=0UL; i<57UL; i++ ) {
+    FD_TEST( fd_txn_builder_instr_open( builder, &system, transfer, sizeof(transfer) ) );
+    FD_TEST( fd_txn_builder_instr_account_push( builder, &fee, FD_TXN_ACCT_CAT_WRITABLE_SIGNER ) );
+    FD_TEST( fd_txn_builder_instr_account_push( builder, &sink, FD_TXN_ACCT_CAT_WRITABLE ) );
+    fd_txn_builder_instr_close( builder );
+  }
+  fd_acct_addr_t table = addr( 0xD4 );
+  FD_TEST( fd_txn_builder_alut_open( builder, &table ) );
+  fd_txn_builder_alut_address_push( builder, &sink, 7U );
+  fd_txn_builder_alut_close( builder );
+  txn = build_txn( builder, &sz );
+  FD_TEST( sz==1204U && txn->transaction_version==FD_TXN_V0 );
+  FD_TEST( txn->acct_addr_cnt==3UL && txn->addr_table_adtl_cnt==1UL && txn->instr_cnt==57UL );
+  for( ulong i=0UL; i<57UL; i++ ) {
+    fd_txn_instr_t const * instr = txn->instr+i;
+    uchar const * refs = fd_txn_get_instr_accts( instr, payload );
+    FD_TEST( instr->program_id==1U && instr->acct_cnt==2U && refs[0]==0U && refs[1]==3U );
+    FD_TEST( !memcmp( fd_txn_get_instr_data( instr, payload ), transfer, 12UL ) );
+  }
+  fd_txn_builder_delete( builder );
+}
+
+static void
+check_many_instruction_references( ulong total,
+                                   int   use_alt ) {
+  fd_txn_builder_t builder[1];
+  FD_TEST( fd_txn_builder_new( builder, total ) );
+  fd_acct_addr_t fee = addr( 0x11 );
+  fd_acct_addr_t program = addr( 0x22 );
+  fd_acct_addr_t other = use_alt ? addr( 0x33 ) : program;
+  FD_TEST( fd_txn_builder_fee_payer_set( builder, &fee ) );
+  ulong n = (total+63UL)/64UL;
+  for( ulong i=0UL, at=0UL; i<n; i++ ) {
+    FD_TEST( fd_txn_builder_instr_open( builder, &program, NULL, 0UL ) );
+    for( ulong k=0UL; k<64UL && at<total; k++,at++ ) {
+      fd_acct_addr_t const * acct = (i*7UL+k)%5UL==0UL ? &other : &fee;
+      FD_TEST( fd_txn_builder_instr_account_push( builder, acct, FD_TXN_ACCT_CAT_NONE ) );
+    }
+    fd_txn_builder_instr_close( builder );
+  }
+  if( use_alt ) {
+    fd_acct_addr_t table = addr( 0x44 );
+    FD_TEST( fd_txn_builder_alut_open( builder, &table ) );
+    fd_txn_builder_alut_address_push( builder, &other, 9U );
+    fd_txn_builder_alut_close( builder );
+  }
+  uint expected_sz = (uint)((use_alt ? 235UL : 166UL)+3UL*n+total);
+  /* The builder may collect an oversized message, but cannot serialize it. */
+  if( expected_sz>FD_TXN_MTU_V0 ) {
+    uchar guarded[ FD_TXN_MTU_V0+2UL ]; fd_memset( guarded, 0xA5, sizeof(guarded) );
+    FD_TEST( !fd_txn_build_raw( builder, guarded+1 ) );
+    FD_TEST( guarded[0]==0xA5U && guarded[FD_TXN_MTU_V0+1UL]==0xA5U );
+  } else {
+    uint sz;
+    fd_txn_t * txn = build_txn( builder, &sz );
+    FD_TEST( sz==expected_sz && txn->instr_cnt==n );
+    FD_TEST( txn->transaction_version==(use_alt ? FD_TXN_V0 : FD_TXN_VLEGACY) );
+    for( ulong i=0UL, at=0UL; i<n; i++ ) {
+      fd_txn_instr_t const * instr = txn->instr+i;
+      FD_TEST( instr->acct_cnt==fd_ulong_min( 64UL, total-at ) );
+      uchar const * refs = fd_txn_get_instr_accts( instr, payload );
+      for( ulong k=0UL; k<instr->acct_cnt; k++,at++ ) {
+        uchar expected = (uchar)((i*7UL+k)%5UL==0UL ? (use_alt ? 3UL : 1UL) : 0UL);
+        FD_TEST( refs[k]==expected );
+      }
+    }
+  }
+  fd_txn_builder_delete( builder );
+}
+
+FD_UNIT_TEST( instruction_reference_offsets_cross_uchar ) {
+  ulong const refs[] = { 255UL, 256UL, 257UL, 320UL };
+  for( ulong i=0UL; i<sizeof(refs)/sizeof(refs[0]); i++ ) {
+    check_many_instruction_references( refs[i], 0 );
+    check_many_instruction_references( refs[i], 1 );
+  }
+  check_many_instruction_references( 1018UL, 0 ); /*exact1232byte legacy*/
+  check_many_instruction_references( 1019UL, 0 ); /*1233byte legacy rejected*/
+  check_many_instruction_references(  952UL, 1 ); /*exact1232byte v0*/
+  check_many_instruction_references(  953UL, 1 ); /*1233byte v0 rejected*/
+}
+
+FD_UNIT_TEST( instruction_reference_pool_and_local_limit ) {
+  fd_txn_builder_t builder[1];
+  FD_TEST( fd_txn_builder_new( builder, 14UL ) );
+  fd_acct_addr_t fee = addr( 0x11 );
+  fd_acct_addr_t program = addr( 0x22 );
+  FD_TEST( fd_txn_builder_fee_payer_set( builder, &fee ) );
+  /* The limit within each instruction remains64, including duplicates. */
+  FD_TEST( fd_txn_builder_instr_open( builder, &program, NULL, 0UL ) );
+  for( ulong i=0UL; i<FD_TXN_ACCT_ADDR_MAX; i++ ) FD_TEST( fd_txn_builder_instr_account_push( builder, &fee, FD_TXN_ACCT_CAT_NONE ) );
+  FD_TEST( !fd_txn_builder_instr_account_push( builder, &fee, FD_TXN_ACCT_CAT_NONE ) );
+  fd_txn_builder_instr_close( builder );
+  for( ulong i=FD_TXN_ACCT_ADDR_MAX; i<FD_TXN_MTU_V0; ) {
+    FD_TEST( fd_txn_builder_instr_open( builder, &program, NULL, 0UL ) );
+    for( ulong k=0UL; k<FD_TXN_ACCT_ADDR_MAX && i<FD_TXN_MTU_V0; k++,i++ )
+      FD_TEST( fd_txn_builder_instr_account_push( builder, &fee, FD_TXN_ACCT_CAT_NONE ) );
+    fd_txn_builder_instr_close( builder );
+  }
+  FD_TEST( !fd_txn_builder_instr_account_push( builder, &fee, FD_TXN_ACCT_CAT_NONE ) );
+  /* A later empty instruction's offset must also represent the full pool. */
+  FD_TEST( fd_txn_builder_instr_open( builder, &program, NULL, 0UL ) );
+  FD_TEST( !fd_txn_builder_instr_account_push( builder, &fee, FD_TXN_ACCT_CAT_NONE ) );
+  FD_TEST( !fd_txn_build_raw( builder, payload ) );
+  fd_txn_builder_delete( builder );
+}
+
 int
 main( int     argc,
       char ** argv ) {

@@ -29,8 +29,8 @@ typedef struct fd_txn_b_acct fd_txn_b_acct_t;
 
 struct fd_txn_b_instr {
   uchar  program_id;
-  uchar  instr_acct0;
   uchar  instr_acct_cnt;
+  ushort instr_acct0;
   ushort data_off;
   ushort data_sz;
 };
@@ -72,9 +72,12 @@ struct fd_txn_builder {
   uchar           acct_rev[ FD_TXN_ACCT_ADDR_MAX ];
   uchar           acct_cnt;
 
-  /* Instruction Account Pool */
-  uchar instr_acct[ FD_TXN_ACCT_ADDR_MAX ];
-  uchar instr_acct_cnt;
+  /* Instruction Account Pool.  Repeated references across instructions
+     each consume one wire byte, independently of the distinct account
+     limit.  No legacy/v0 transaction can fit more references than its MTU. */
+#define FD_TXN_B_INSTR_ACCT_MAX FD_TXN_MTU_V0
+  uchar  instr_acct[ FD_TXN_B_INSTR_ACCT_MAX ];
+  ushort instr_acct_cnt;
 
   /* Address Hash Map */
   union {

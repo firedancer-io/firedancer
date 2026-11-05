@@ -5,6 +5,7 @@
 
 FD_STATIC_ASSERT( FD_TXN_ACCT_CAT_PIN       > FD_TXN_ACCT_CAT_ALL, flags );
 FD_STATIC_ASSERT( FD_TXN_ACCT_CAT_FEE_PAYER > FD_TXN_ACCT_CAT_ALL, flags );
+FD_STATIC_ASSERT( FD_TXN_B_INSTR_ACCT_MAX<=USHORT_MAX, instr_acct_pool_fits_ushort );
 
 /* Implementation */
 
@@ -139,7 +140,7 @@ fd_txn_builder_instr_account_push(
   /* Instruction Account */
 
   if( FD_UNLIKELY( instr->instr_acct_cnt   >= FD_TXN_ACCT_ADDR_MAX ) ) return NULL;
-  if( FD_UNLIKELY( builder->instr_acct_cnt >= FD_TXN_ACCT_ADDR_MAX ) ) return NULL;
+  if( FD_UNLIKELY( builder->instr_acct_cnt >= FD_TXN_B_INSTR_ACCT_MAX ) ) return NULL;
   ulong instr_acct_idx =  builder->instr_acct_cnt++;
   ulong exp_instr_acct_idx = (ulong)instr->instr_acct0 + (instr->instr_acct_cnt++);
   FD_TEST( instr_acct_idx==exp_instr_acct_idx );
