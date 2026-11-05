@@ -43,6 +43,14 @@ struct fd_stake_delegations {
   uint  disk_root_gen_;           /* buckets with an older generation are empty */
   uint  disk_delta_gen_;
 
+  /* Spill metrics.  Counts only grow; disk_ticks_ is in fd_tickcount()
+     units. */
+  ulong root_spilled_cnt_;
+  ulong delta_spilled_cnt_;
+  ulong disk_read_cnt_;
+  ulong disk_written_cnt_;
+  ulong disk_ticks_;
+
   /* Stake totals for the current root. */
   ulong effective_stake;
   ulong activating_stake;
@@ -208,6 +216,18 @@ disk_delta_record_off( fd_stake_delegations_t const * stake_delegations ) {
                             alignof(disk_delta_t) );
 }
 
+/* Iteration reads the spill file through a const join. */
+
+static inline void
+disk_metrics_add( fd_stake_delegations_t const * stake_delegations,
+                  int                            write,
+                  long                           t0 ) {
+  fd_stake_delegations_t * metrics = (fd_stake_delegations_t *)stake_delegations;
+  if( write ) metrics->disk_written_cnt_++;
+  else        metrics->disk_read_cnt_++;
+  metrics->disk_ticks_ += (ulong)(fd_tickcount()-t0);
+}
+
 /* Reads short at EOF zero-fill.  The spill file is sparse and is not
    required to be pre-sized. */
 
@@ -216,6 +236,7 @@ disk_read( fd_stake_delegations_t const * stake_delegations,
            void *                         dst,
            ulong                          off,
            ulong                          sz ) {
+  long  t0  = fd_tickcount();
   ulong got = 0UL;
   while( got<sz ) {
     long n = pread( stake_delegations->disk_fd_, (uchar *)dst+got, sz-got, (long)(off+got) );
@@ -227,6 +248,7 @@ disk_read( fd_stake_delegations_t const * stake_delegations,
     got += (ulong)n;
   }
   if( FD_UNLIKELY( got<sz ) ) fd_memset( (uchar *)dst+got, 0, sz-got );
+  disk_metrics_add( stake_delegations, 0, t0 );
 }
 
 static void
@@ -234,6 +256,7 @@ disk_write( fd_stake_delegations_t const * stake_delegations,
             void const *                   src,
             ulong                          off,
             ulong                          sz ) {
+  long  t0  = fd_tickcount();
   ulong put = 0UL;
   while( put<sz ) {
     long n = pwrite( stake_delegations->disk_fd_, (uchar const *)src+put, sz-put, (long)(off+put) );
@@ -242,6 +265,7 @@ disk_write( fd_stake_delegations_t const * stake_delegations,
     if( FD_UNLIKELY( !n ) ) errno = EIO;
     FD_LOG_CRIT(( "pwrite(stake delegation spill file, fd=%d) failed (%i-%s)", stake_delegations->disk_fd_, errno, fd_io_strerror( errno ) ));
   }
+  disk_metrics_add( stake_delegations, 1, t0 );
 }
 
 static inline int
@@ -521,6 +545,7 @@ disk_root_insert( fd_stake_delegations_t *      stake_delegations,
   disk_bucket_store( stake_delegations, 0UL, free_bucket_idx,
                      stake_delegations->disk_root_gen_, idx );
   stake_delegations->disk_root_cnt_++;
+  stake_delegations->root_spilled_cnt_++;
 }
 
 static void
@@ -581,6 +606,7 @@ disk_delta_insert( fd_stake_delegations_t *      stake_delegations,
                      stake_delegations->disk_delta_gen_, idx );
   fork->disk_delta_head = idx;
   stake_delegations->disk_delta_cnt_++;
+  stake_delegations->delta_spilled_cnt_++;
 }
 
 static void
@@ -775,6 +801,11 @@ fd_stake_delegations_new( void * mem,
   stake_delegations->disk_delta_tombstone_cnt_ = 0UL;
   stake_delegations->disk_root_gen_            = 1U;
   stake_delegations->disk_delta_gen_           = 1U;
+  stake_delegations->root_spilled_cnt_         = 0UL;
+  stake_delegations->delta_spilled_cnt_        = 0UL;
+  stake_delegations->disk_read_cnt_            = 0UL;
+  stake_delegations->disk_written_cnt_         = 0UL;
+  stake_delegations->disk_ticks_               = 0UL;
 
   stake_delegations->effective_stake      = 0UL;
   stake_delegations->activating_stake     = 0UL;
@@ -981,6 +1012,24 @@ fd_stake_delegations_totals( fd_stake_delegations_t const * stake_delegations ) 
     .activating   = stake_delegations->activating_stake,
     .deactivating = stake_delegations->deactivating_stake,
   };
+}
+
+void
+fd_stake_delegations_metrics_snap( fd_stake_delegations_t const *   stake_delegations,
+                                   fd_stake_delegations_metrics_t * out ) {
+  fd_stake_delegation_t const * root_pool  = get_root_pool ( stake_delegations );
+  fd_stake_delegation_t const * delta_pool = get_delta_pool( stake_delegations );
+  out->root_used         = root_pool_used ( root_pool  );
+  out->root_capacity     = root_pool_max  ( root_pool  );
+  out->root_disk_cnt     = FD_VOLATILE_CONST( stake_delegations->disk_root_cnt_     );
+  out->delta_used        = delta_pool_used( delta_pool );
+  out->delta_capacity    = delta_pool_max ( delta_pool );
+  out->delta_disk_cnt    = FD_VOLATILE_CONST( stake_delegations->disk_delta_cnt_    );
+  out->root_spilled_cnt  = FD_VOLATILE_CONST( stake_delegations->root_spilled_cnt_  );
+  out->delta_spilled_cnt = FD_VOLATILE_CONST( stake_delegations->delta_spilled_cnt_ );
+  out->disk_read_cnt     = FD_VOLATILE_CONST( stake_delegations->disk_read_cnt_     );
+  out->disk_written_cnt  = FD_VOLATILE_CONST( stake_delegations->disk_written_cnt_  );
+  out->disk_ticks        = FD_VOLATILE_CONST( stake_delegations->disk_ticks_        );
 }
 
 void

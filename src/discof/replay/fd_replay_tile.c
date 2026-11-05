@@ -318,6 +318,20 @@ metrics_write( fd_replay_tile_t * ctx ) {
   FD_MGAUGE_SET( REPLAY, STORE_FEC_CACHE_CAPACITY,   store_fec_cache_max                  );
   FD_MGAUGE_SET( REPLAY, STORE_FEC_CACHE_PINNED,     store_fec_cache_pinned               );
 
+  fd_stake_delegations_metrics_t stake_delegations_metrics[1];
+  fd_stake_delegations_metrics_snap( fd_banks_stake_delegations_root_query( ctx->banks ), stake_delegations_metrics );
+  FD_MGAUGE_SET( REPLAY, STAKE_DELEGATION_ROOT_USED,           stake_delegations_metrics->root_used         );
+  FD_MGAUGE_SET( REPLAY, STAKE_DELEGATION_ROOT_CAPACITY,       stake_delegations_metrics->root_capacity     );
+  FD_MGAUGE_SET( REPLAY, STAKE_DELEGATION_ROOT_DISK_COUNT,     stake_delegations_metrics->root_disk_cnt     );
+  FD_MGAUGE_SET( REPLAY, STAKE_DELEGATION_DELTA_USED,          stake_delegations_metrics->delta_used        );
+  FD_MGAUGE_SET( REPLAY, STAKE_DELEGATION_DELTA_CAPACITY,      stake_delegations_metrics->delta_capacity    );
+  FD_MGAUGE_SET( REPLAY, STAKE_DELEGATION_DELTA_DISK_COUNT,    stake_delegations_metrics->delta_disk_cnt    );
+  FD_MCNT_SET  ( REPLAY, STAKE_DELEGATION_ROOT_SPILLED,        stake_delegations_metrics->root_spilled_cnt  );
+  FD_MCNT_SET  ( REPLAY, STAKE_DELEGATION_DELTA_SPILLED,       stake_delegations_metrics->delta_spilled_cnt );
+  FD_MCNT_SET  ( REPLAY, STAKE_DELEGATION_DISK_READ,           stake_delegations_metrics->disk_read_cnt     );
+  FD_MCNT_SET  ( REPLAY, STAKE_DELEGATION_DISK_WRITTEN,        stake_delegations_metrics->disk_written_cnt  );
+  FD_MCNT_SET  ( REPLAY, STAKE_DELEGATION_DISK_DURATION_NANOS, stake_delegations_metrics->disk_ticks        );
+
   FD_MGAUGE_SET( REPLAY, ROOT_SLOT, ctx->consensus_root_slot==ULONG_MAX ? 0UL : ctx->consensus_root_slot );
   ulong leader_slot = ctx->leader_bank ? ctx->leader_bank->f.slot : 0UL;
 
