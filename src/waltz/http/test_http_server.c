@@ -248,6 +248,33 @@ test_oring( void ) {
   fd_http_server_printf( http, "012345678" );
   FD_TEST( fd_http_server_stage_body( http, &response ) );
   FD_TEST( http->stage_comp_len==0UL );
+
+  /* Resolve the source after reserve relocates the staged prefix. */
+  http->stage_off = 1UL;
+  fd_http_server_memcpy( http, (uchar const *)"ABCD", 4UL );
+  FD_TEST( http->stage_off==1UL );
+  FD_TEST( !fd_http_server_stage_copy( http, 0UL, 4UL ) );
+  FD_TEST( http->stage_off==8UL && http->stage_len==8UL );
+  /* The old source address now reads BCDD, not ABCD. */
+  FD_TEST( !memcmp( http->oring, "ABCDABCD", 8UL ) );
+  FD_TEST( !fd_http_server_stage_copy( http, 8UL, 0UL ) );
+  FD_TEST( fd_http_server_stage_copy( http, 0UL, 1UL )==-1 );
+  FD_TEST( http->stage_err && http->stage_len==8UL );
+  FD_TEST( fd_http_server_stage_copy( http, 0UL, 1UL )==-1 );
+  FD_TEST( fd_http_server_stage_body( http, &response ) );
+  FD_TEST( !http->stage_err && !http->stage_len );
+
+  /* Invalid offsets/lengths cannot wrap or read prior messages. */
+  FD_TEST( fd_http_server_stage_copy( http, ULONG_MAX, 1UL )==-1 );
+  fd_http_server_unstage( http );
+  fd_http_server_memcpy( http, (uchar const *)"xy", 2UL );
+  FD_TEST( fd_http_server_stage_copy( http, 1UL, ULONG_MAX )==-1 );
+  fd_http_server_unstage( http );
+  fd_http_server_memcpy( http, (uchar const *)"new", 3UL );
+  FD_TEST( !fd_http_server_stage_copy( http, 0UL, 3UL ) );
+  FD_TEST( !fd_http_server_stage_body( http, &response ) );
+  FD_TEST( response._body_len==6UL );
+  FD_TEST( !memcmp( http->oring+(response._body_off%http->oring_sz), "newnew", 6UL ) );
 }
 
 void

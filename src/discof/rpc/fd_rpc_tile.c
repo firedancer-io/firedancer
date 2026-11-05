@@ -2411,8 +2411,17 @@ getMultipleAccounts( fd_rpc_tile_t *         ctx,
   bank_info_t * info = &ctx->banks[ bank_idx ];
 
   fd_pubkey_t addresses[ 100UL ];
+  ulong first[ 100UL ];
+  struct { ulong off; ulong len; } spans[ 100UL ];
   for( ulong i=0UL; i<cnt; i++ ) {
     if( FD_UNLIKELY( !fd_rpc_validate_address( ctx, id_cstr, &keys[ i ], &addresses[ i ], &response ) ) ) return response;
+    first[ i ] = i;
+    for( ulong j=0UL; j<i; j++ ) {
+      if( !memcmp( addresses[ i ].uc, addresses[ j ].uc, 32UL ) ) {
+        first[ i ] = j;
+        break;
+      }
+    }
   }
 
   fd_http_server_printf( ctx->http,
@@ -2421,6 +2430,16 @@ getMultipleAccounts( fd_rpc_tile_t *         ctx,
 
   for( ulong i=0UL; i<cnt; i++ ) {
     if( i>0UL ) fd_http_server_printf( ctx->http, "," );
+    if( FD_UNLIKELY( ctx->http->stage_err ) ) goto response_overflow;
+
+    /* Reuse complete serialized objects only within this request's
+       fixed bank/config.  Relative spans survive ring relocation and
+       do not alias the scratch account/compression buffers. */
+    if( first[ i ]!=i ) {
+      if( FD_UNLIKELY( fd_http_server_stage_copy( ctx->http, spans[ first[ i ] ].off, spans[ first[ i ] ].len ) ) ) goto response_overflow;
+      continue;
+    }
+    spans[ i ].off = fd_http_server_stage_len( ctx->http );
 
     ulong acct_lamports;
     int   acct_executable;
@@ -2431,17 +2450,24 @@ getMultipleAccounts( fd_rpc_tile_t *         ctx,
                                slice_length ? ctx->scratch.accdb_data_buf : NULL, &acct_data_len );
     if( FD_UNLIKELY( !acct_lamports ) ) {
       fd_http_server_printf( ctx->http, "null" );
-      continue;
+    } else {
+      fd_http_server_response_t err_response;
+      if( FD_UNLIKELY( !fd_rpc_encode_account_data( ctx, ctx->scratch.accdb_data_buf, acct_data_len, acct_owner, acct_lamports, acct_executable, encoding_cstr, slice_offset, slice_length, id_cstr, &err_response ) ) ) {
+        return err_response;
+      }
     }
-
-    fd_http_server_response_t err_response;
-    if( FD_UNLIKELY( !fd_rpc_encode_account_data( ctx, ctx->scratch.accdb_data_buf, acct_data_len, acct_owner, acct_lamports, acct_executable, encoding_cstr, slice_offset, slice_length, id_cstr, &err_response ) ) ) {
-      return err_response;
-    }
+    /* The encoder's final printf can fail after its data append. */
+    if( FD_UNLIKELY( ctx->http->stage_err ) ) goto response_overflow;
+    spans[ i ].len = fd_http_server_stage_len( ctx->http )-spans[ i ].off;
   }
 
   fd_http_server_printf( ctx->http, "]}}\n" );
+  if( FD_UNLIKELY( ctx->http->stage_err ) ) goto response_overflow;
   return STAGE_JSON( ctx );
+
+response_overflow:
+  fd_http_server_unstage( ctx->http );
+  return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32065,\"message\":\"Firedancer Error: response encoding buffer overflow (account data too large for response buffer)\"},\"id\":%s}\n", id_cstr );
 }
 
 UNIMPLEMENTED(getProgramAccounts)

@@ -1,5 +1,34 @@
 #define _GNU_SOURCE
+#include "../../waltz/http/fd_http_server_private.h"
+#define ZSTD_STATIC_LINKING_ONLY
+#include <zstd.h>
+
+/* Count calls around, not instead of, the production implementations. */
+static ulong test_compress_calls;
+static int   test_compress_fail;
+static size_t
+test_compress( ZSTD_CCtx * cctx, void * dst, size_t cap, void const * src, size_t sz, int level ) {
+  test_compress_calls++;
+  if( test_compress_fail ) return (size_t)-1;
+  return ZSTD_compressCCtx( cctx, dst, cap, src, sz, level );
+}
+
+static ulong test_copy_calls;
+static ulong test_copy_relocations;
+static int
+test_stage_copy( fd_http_server_t * http, ulong off, ulong len ) {
+  ulong before = http->stage_off;
+  test_copy_calls++;
+  int rc = fd_http_server_stage_copy( http, off, len );
+  test_copy_relocations += (ulong)(http->stage_off!=before);
+  return rc;
+}
+
+#define ZSTD_compressCCtx          test_compress
+#define fd_http_server_stage_copy test_stage_copy
 #include "fd_rpc_tile.c"
+#undef fd_http_server_stage_copy
+#undef ZSTD_compressCCtx
 #include "../../disco/topo/fd_topob.h"
 #include "../../waltz/http/fd_http_server_private.h"
 #include "../../util/pod/fd_pod.h"
@@ -221,6 +250,193 @@ expect_rpc_response( fd_rpc_tile_t * ctx,
     FD_LOG_WARNING(( "Got RPC response:\n---\n%.*s\n---", (int)got_json_sz, (char const *)got_json ));
     FD_LOG_ERR(( "RPC response did not match expected" ));
   }
+}
+
+static ulong
+test_account_reads( fd_rpc_tile_t * ctx ) {
+  ulong cnt = 0UL;
+  for( ulong i=0UL; i<FD_ACCDB_CACHE_CLASS_CNT; i++ ) cnt += fd_accdb_metrics( ctx->accdb )->accounts_acquired_per_class[ i ];
+  return cnt;
+}
+
+static void
+test_write_account( fd_accdb_t * db, fd_accdb_fork_id_t fork, fd_pubkey_t const * key,
+                    uchar const * owner, ulong lamports, uchar const * data, ulong len, int executable ) {
+  uchar const * keys[] = { key->uc };
+  int wr[] = { 1 };
+  fd_acc_t acc[1] = {0};
+  fd_accdb_acquire( db, fork, 1UL, keys, wr, acc );
+  acc->lamports = lamports;
+  acc->data_len = len;
+  acc->executable = executable;
+  memcpy( acc->owner, owner, 32UL );
+  memcpy( acc->data, data, len );
+  acc->commit = 1;
+  fd_accdb_release( db, 1UL, acc );
+}
+
+static void
+test_encoded_row( fd_rpc_tile_t * ctx, char * out, ulong cap, uchar const * data, ulong len,
+                  uchar const * owner, ulong lamports, int executable, char const * encoding, ulong offset, ulong length ) {
+  fd_http_server_unstage( ctx->http );
+  fd_http_server_response_t err;
+  FD_TEST( fd_rpc_encode_account_data( ctx, data, len, owner, lamports, executable, encoding, offset, length, "1", &err ) );
+  FD_TEST( !ctx->http->stage_err && ctx->http->stage_len<cap );
+  memcpy( out, ctx->http->oring+(ctx->http->stage_off%ctx->http->oring_sz), ctx->http->stage_len );
+  out[ ctx->http->stage_len ] = '\0';
+  fd_http_server_unstage( ctx->http );
+}
+
+static void
+test_multiple( fd_rpc_tile_t * ctx, char const * const * keys, char const * const * rows, ulong cnt,
+               char const * config, ulong slot, ulong unique, ulong compressions ) {
+  char req[8192], res[65536];
+  char * q = fd_cstr_append_cstr( req, "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getMultipleAccounts\",\"params\":[[" );
+  char * p = fd_cstr_append_printf( res, "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"context\":{\"apiVersion\":\"" FD_RPC_AGAVE_API_VERSION "\",\"slot\":%lu},\"value\":[", slot );
+  for( ulong i=0UL; i<cnt; i++ ) {
+    FD_TEST( (ulong)(q-req)+strlen(keys[i])+4UL<sizeof(req) );
+    FD_TEST( (ulong)(p-res)+strlen(rows[i])+5UL<sizeof(res) );
+    q = fd_cstr_append_printf( q, "%s\"%s\"", i ? "," : "", keys[i] );
+    p = fd_cstr_append_printf( p, "%s%s", i ? "," : "", rows[i] );
+  }
+  fd_cstr_fini( fd_cstr_append_printf( q, "],%s]}", config ) );
+  fd_cstr_fini( fd_cstr_append_cstr( p, "]}}" ) );
+  ulong reads = test_account_reads( ctx );
+  ulong compress = test_compress_calls;
+  ulong copies = test_copy_calls;
+  expect_rpc_response( ctx, req, res );
+  FD_TEST( test_account_reads( ctx )-reads==unique );
+  FD_TEST( test_compress_calls-compress==compressions );
+  FD_TEST( test_copy_calls-copies==cnt-unique );
+}
+
+static void
+test_duplicate_accounts( fd_rpc_tile_t * ctx, fd_accdb_t * writer, fd_accdb_fork_id_t fork, fd_accdb_fork_id_t root,
+                         fd_pubkey_t const * key_a, fd_pubkey_t const * key_b, char const * missing,
+                         uchar const * owner_a, uchar const * owner_b ) {
+  FD_BASE58_ENCODE_32_BYTES( key_a->uc, a58 );
+  FD_BASE58_ENCODE_32_BYTES( key_b->uc, b58 );
+  uchar da[] = {1,2,3,4}, db[] = {0xfe,0xed};
+  char ra[4096], rb[4096], config[256];
+  char const * encodings[] = { "binary", "base58", "base64", "base64+zstd" };
+  char const * commitments[] = { "processed", "confirmed", "finalized" };
+  char const * keys[100]; char const * rows[100];
+  for( ulong encoding=0UL; encoding<4UL; encoding++ ) {
+    for( ulong slice=0UL; slice<3UL; slice++ ) {
+      ulong offset = slice==2UL ? ULONG_MAX : slice==1UL ? 1UL : 0UL;
+      ulong length = slice==0UL ? ULONG_MAX : slice==1UL ? 1UL : 0UL;
+      test_encoded_row( ctx, ra, sizeof(ra), da, sizeof(da), owner_a, 1000000UL, 0, encodings[encoding], offset, length );
+      test_encoded_row( ctx, rb, sizeof(rb), db, sizeof(db), owner_b, 500000UL, 0, encodings[encoding], offset, length );
+      for( ulong commitment=0UL; commitment<3UL; commitment++ ) {
+        FD_TEST( fd_cstr_printf_check( config, sizeof(config), NULL,
+            "{\"encoding\":\"%s\",\"commitment\":\"%s\",\"dataSlice\":{\"offset\":%lu,\"length\":%lu}}",
+            encodings[encoding], commitments[commitment], offset, length ) );
+        for( ulong i=0UL; i<100UL; i++ ) { keys[i] = i%2UL ? b58 : a58; rows[i] = i%2UL ? rb : ra; }
+        test_multiple( ctx, keys, rows, 100UL, config, 42UL, 2UL, encoding==3UL ? 2UL : 0UL );
+      }
+    }
+  }
+  test_encoded_row( ctx, ra, sizeof(ra), da, sizeof(da), owner_a, 1000000UL, 0, "base64+zstd", 0UL, ULONG_MAX );
+  for( ulong i=0UL; i<100UL; i++ ) { keys[i] = a58; rows[i] = ra; }
+  test_multiple( ctx, keys, rows, 100UL, "{\"encoding\":\"base64+zstd\"}", 42UL, 1UL, 1UL );
+  for( ulong i=0UL; i<100UL; i++ ) { keys[i] = i%2UL ? a58 : missing; rows[i] = i%2UL ? ra : "null"; }
+  test_multiple( ctx, keys, rows, 100UL, "{\"encoding\":\"base64+zstd\"}", 42UL, 2UL, 1UL );
+  for( ulong i=0UL; i<100UL; i++ ) { keys[i] = missing; rows[i] = "null"; }
+  test_multiple( ctx, keys, rows, 100UL, "{}", 42UL, 1UL, 0UL );
+
+  /* All unique, existing accounts: no accidental coalescing. */
+  char unique_keys[100][FD_BASE58_ENCODED_32_SZ];
+  char unique_rows[100][512];
+  for( ulong i=0UL; i<100UL; i++ ) {
+    fd_pubkey_t key = {{0}};
+    FD_STORE( ulong, key.uc, i+1000UL );
+    uchar byte = (uchar)i;
+    test_write_account( writer, fork, &key, owner_a, i+1UL, &byte, 1UL, (int)(i%2UL) );
+    fd_base58_encode_32( key.uc, NULL, unique_keys[i] );
+    test_encoded_row( ctx, unique_rows[i], sizeof(unique_rows[i]), &byte, 1UL, owner_a, i+1UL, (int)(i%2UL), "base64+zstd", 0UL, ULONG_MAX );
+    keys[i] = unique_keys[i]; rows[i] = unique_rows[i];
+  }
+  test_multiple( ctx, keys, rows, 100UL, "{\"encoding\":\"base64+zstd\"}", 42UL, 100UL, 100UL );
+
+  /* Full maximum-size data: one real hot-cache copy and compression,
+     even though all100 complete objects are returned. */
+  static uchar max_data[ FD_RUNTIME_ACC_SZ_MAX ];
+  fd_pubkey_t max_key = {{0}}; max_key.uc[0] = 0x78;
+  test_write_account( writer, fork, &max_key, owner_a, 77UL, max_data, sizeof(max_data), 0 );
+  FD_BASE58_ENCODE_32_BYTES( max_key.uc, max58 );
+  test_encoded_row( ctx, ra, sizeof(ra), max_data, sizeof(max_data), owner_a, 77UL, 0, "base64+zstd", 0UL, ULONG_MAX );
+  for( ulong i=0UL; i<100UL; i++ ) { keys[i] = max58; rows[i] = ra; }
+  ulong copied = fd_accdb_metrics( ctx->accdb )->bytes_copied;
+  ulong read_bytes = fd_accdb_metrics( ctx->accdb )->bytes_read;
+  test_multiple( ctx, keys, rows, 100UL, "{\"encoding\":\"base64+zstd\"}", 42UL, 1UL, 1UL );
+  FD_TEST( fd_accdb_metrics( ctx->accdb )->bytes_copied-copied==FD_RUNTIME_ACC_SZ_MAX );
+  FD_TEST( fd_accdb_metrics( ctx->accdb )->bytes_read==read_bytes );
+  char bad_req[1024];
+  FD_TEST( fd_cstr_printf_check( bad_req, sizeof(bad_req), NULL,
+      "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getMultipleAccounts\",\"params\":[[\"%s\",\"%s\"],{\"encoding\":\"jsonParsed\"}]}", max58, max58 ) );
+  ulong reads = test_account_reads( ctx );
+  expect_rpc_response( ctx, bad_req, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32065,\"message\":\"Firedancer Error: jsonParsed is unsupported\"},\"id\":1}" );
+  FD_TEST( test_account_reads( ctx )==reads );
+  FD_TEST( fd_cstr_printf_check( bad_req, sizeof(bad_req), NULL,
+      "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getMultipleAccounts\",\"params\":[[\"%s\",\"%s\"],{\"encoding\":\"base58\"}]}", max58, max58 ) );
+  expect_rpc_response( ctx, bad_req, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32600,\"message\":\"Encoded binary (base 58) data should be less than 128 bytes, please use Base64 encoding.\"},\"id\":1}" );
+  FD_TEST( test_account_reads( ctx )-reads==1UL );
+
+  /* No cached object survives a request, a changed account or bank. */
+  uchar changed[] = {9,8,7};
+  test_write_account( writer, fork, key_a, owner_b, 123UL, changed, sizeof(changed), 1 );
+  test_encoded_row( ctx, ra, sizeof(ra), changed, sizeof(changed), owner_b, 123UL, 1, "base64+zstd", 0UL, ULONG_MAX );
+  keys[0] = keys[1] = a58; rows[0] = rows[1] = ra;
+  test_multiple( ctx, keys, rows, 2UL, "{\"encoding\":\"base64+zstd\"}", 42UL, 1UL, 1UL );
+  fd_accdb_fork_id_t other = fd_accdb_attach_child( writer, root );
+  test_write_account( writer, other, key_a, owner_a, 456UL, da, sizeof(da), 0 );
+  bank_info_t saved = ctx->banks[1];
+  ctx->banks[1].slot = 43UL; ctx->banks[1].accdb_fork_id = other;
+  ctx->confirmed_idx = 1UL;
+  test_encoded_row( ctx, rb, sizeof(rb), da, sizeof(da), owner_a, 456UL, 0, "base64", 0UL, ULONG_MAX );
+  rows[0] = rows[1] = rb;
+  test_multiple( ctx, keys, rows, 2UL, "{\"commitment\":\"confirmed\"}", 43UL, 1UL, 0UL );
+  rows[0] = rows[1] = ra;
+  test_multiple( ctx, keys, rows, 2UL, "{\"commitment\":\"finalized\",\"encoding\":\"base64+zstd\"}", 42UL, 1UL, 1UL );
+  ctx->banks[1] = saved; ctx->confirmed_idx = 0UL;
+  test_write_account( writer, fork, key_a, owner_a, 1000000UL, da, sizeof(da), 0 );
+
+  /* A 2048-byte object leaves enough room for final printf's reserve,
+     but forces relocation on the duplicate's larger stage_copy. */
+  fd_pubkey_t large = {{0}}; large.uc[0] = 0x77;
+  uchar data[2048]; memset( data, 0x5a, sizeof(data) );
+  test_write_account( writer, fork, &large, owner_a, 7UL, data, sizeof(data), 1 );
+  FD_BASE58_ENCODE_32_BYTES( large.uc, large58 );
+  test_encoded_row( ctx, ra, sizeof(ra), data, sizeof(data), owner_a, 7UL, 1, "base64", 0UL, ULONG_MAX );
+  ulong ring_sz = ctx->http->oring_sz;
+  fd_http_server_unstage( ctx->http );
+  ctx->http->oring_sz = 8192UL; ctx->http->stage_off = 4096UL;
+  keys[0] = keys[1] = large58; rows[0] = rows[1] = ra;
+  ulong moved = test_copy_relocations;
+  test_multiple( ctx, keys, rows, 2UL, "{}", 42UL, 1UL, 0UL );
+  FD_TEST( test_copy_relocations==moved+1UL );
+
+  char req[1024];
+  FD_TEST( fd_cstr_printf_check( req, sizeof(req), NULL,
+      "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getMultipleAccounts\",\"params\":[[\"%s\",\"%s\",\"%s\"]]}", large58, large58, large58 ) );
+  char const * overflow = "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32065,\"message\":\"Firedancer Error: response encoding buffer overflow (account data too large for response buffer)\"},\"id\":1}";
+  expect_rpc_response( ctx, req, overflow );
+  /* Overflow at the first object's closing printf must also unwind. */
+  ctx->http->stage_off = 0UL;
+  ctx->http->oring_sz = strlen(ra)+strlen("{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"context\":{\"apiVersion\":\"" FD_RPC_AGAVE_API_VERSION "\",\"slot\":42},\"value\":[")-1UL;
+  expect_rpc_response( ctx, req, overflow );
+  ctx->http->oring_sz = ring_sz;
+  fd_http_server_unstage( ctx->http );
+  /* An encoding error must not leave spans for the next request. */
+  test_compress_fail = 1;
+  FD_TEST( fd_cstr_printf_check( req, sizeof(req), NULL,
+      "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getMultipleAccounts\",\"params\":[[\"%s\",\"%s\"],{\"encoding\":\"base64+zstd\"}]}", a58, a58 ) );
+  expect_rpc_response( ctx, req, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32065,\"message\":\"Firedancer Error: zstandard compression failed (Error (generic))\"},\"id\":1}" );
+  test_compress_fail = 0;
+  test_encoded_row( ctx, ra, sizeof(ra), da, sizeof(da), owner_a, 1000000UL, 0, "base64", 0UL, ULONG_MAX );
+  keys[0] = keys[1] = a58; rows[0] = rows[1] = ra;
+  test_multiple( ctx, keys, rows, 2UL, "{}", 42UL, 1UL, 0UL );
+  FD_LOG_NOTICE(( "duplicate reuse: alternating/all-unique/null/slices/banks/freshness/counts/relocation/overflow pass" ));
 }
 
 static void
@@ -501,7 +717,7 @@ main( int     argc,
 
   ulong const max_accounts                = 1024UL;
   ulong const max_live_slots              = 16UL;
-  ulong const max_writes_per_slot         = 64UL;
+  ulong const max_writes_per_slot         = 192UL;
   ulong const partition_cnt               = 8192UL;
   ulong const partition_sz                = 1UL<<24UL;
   ulong const cache_fp                    = 64UL<<20UL;
@@ -540,10 +756,10 @@ main( int     argc,
   fd_accdb_t * writer_accdb = fd_accdb_join( fd_accdb_new( writer_ljoin, writer_shmem, accdb_data_fd, 0UL, NULL, NULL, 0UL, 0 ) );
   FD_TEST( writer_accdb );
 
-  fd_accdb_fork_id_t test_fork_id;
+  fd_accdb_fork_id_t test_fork_id, root_fork;
   {
     fd_accdb_fork_id_t sentinel = { .val = USHORT_MAX };
-    fd_accdb_fork_id_t root_fork = fd_accdb_attach_child( writer_accdb, sentinel );
+    root_fork = fd_accdb_attach_child( writer_accdb, sentinel );
     test_fork_id = fd_accdb_attach_child( writer_accdb, root_fork );
   }
 
@@ -911,6 +1127,9 @@ main( int     argc,
       expect_rpc_response( ctx, req_buf, res_buf );
     }
   }
+
+  test_duplicate_accounts( ctx, writer_accdb, test_fork_id, root_fork,
+                           &addr_a, &addr_b, addr_missing_b58, owner_a, owner_b );
 
   FD_TEST( fd_cstr_printf_check( req_buf, sizeof(req_buf), NULL,
       "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getMinimumBalanceForRentExemption\",\"params\":[%lu]}",

@@ -1827,6 +1827,25 @@ fd_http_server_memcpy( fd_http_server_t * http,
   http->stage_len += data_len;
 }
 
+int
+fd_http_server_stage_copy( fd_http_server_t * http,
+                           ulong              off,
+                           ulong              len ) {
+  if( FD_UNLIKELY( http->stage_err || off>http->stage_len || len>http->stage_len-off ) ) {
+    http->stage_err = 1;
+    return -1;
+  }
+
+  uchar * dst = fd_http_server_append_start( http, len );
+  if( FD_UNLIKELY( !dst ) ) return -1;
+  /* reserve may have moved the entire prefix.  Its relative offsets
+     remain valid, and the source ends before the new destination. */
+  uchar const * src = http->oring+(http->stage_off%http->oring_sz)+off;
+  fd_memcpy( dst, src, len );
+  fd_http_server_append_end( http, len );
+  return 0;
+}
+
 void
 fd_http_server_unstage( fd_http_server_t * http ) {
   http->stage_err = 0;

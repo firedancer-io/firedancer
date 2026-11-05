@@ -433,6 +433,18 @@ fd_http_server_memcpy( fd_http_server_t * http,
                        uchar const *      data,
                        ulong              data_len );
 
+/* fd_http_server_stage_copy appends a copy of [off,off+len) from the
+   current uncompressed staging area.  The source is resolved after
+   reserving space, since reservation may relocate the staged message.
+   Returns 0 on success.  An invalid span, an existing staging error, or
+   insufficient space marks the stage errored and returns -1.  Offsets
+   are relative to the current message and must not outlive it. */
+
+int
+fd_http_server_stage_copy( fd_http_server_t * http,
+                           ulong              off,
+                           ulong              len );
+
 /* fd_http_server_append_start starts an in-place append operation.
    len is the amount of buffer space to reserve.  Returns a pointer to
    len bytes to which the user should write the message to, on success.
