@@ -1775,6 +1775,42 @@ try_become_leader( fd_replay_tile_t *  ctx,
   return 1;
 }
 
+/* try_optimistic_leader arms our leader window on bank, the frozen
+   last block of the window before ours, ahead of the ParentReady that
+   names the parent (fast leader handover) */
+
+static void
+try_optimistic_leader( fd_replay_tile_t * ctx,
+                      fd_bank_t const *  bank ) {
+  ulong slot = bank->f.slot+1UL;
+  if( FD_LIKELY( !fd_is_start_of_window( slot ) ) ) return;
+  if( FD_LIKELY( !FD_FEATURE_ACTIVE_BANK( bank, alpenglow_fast_leader_handover ) ) ) return;
+  if( ctx->next_leader_slot!=ULONG_MAX || ctx->is_leader || !ctx->supports_leader ) return; /* a LEADER or our own window is pending */
+  if( ctx->highwater_leader_slot!=ULONG_MAX && ctx->highwater_leader_slot>=slot ) return;
+
+  /* Make sure parent's window was ParentReady, so a fork of frozen
+     banks far ahead of consensus cannot start us.
+
+     If our own window is ParentReady, wait for LEADER to name the parent. */
+  if( ctx->votor_parent_ready_slot<fd_first_slot_in_window( bank->f.slot ) ) return;
+  if( ctx->votor_parent_ready_slot>=slot ) return;
+
+  fd_pubkey_t const * leader = fd_multi_epoch_leaders_get_leader_for_slot( ctx->mleaders, slot );
+  if( !leader || !fd_pubkey_eq( leader, ctx->identity_pubkey ) ) return;
+
+  /* TODO: votor writes the window to the vote history only when it
+     sends LEADER, so a restart before then could lead this window
+     again. */
+  *ctx->votor_leader = (fd_votor_leader_t){
+    .slot            = slot,
+    .parent_slot     = bank->f.slot,
+    .parent_block_id = bank->f.block_id,
+    .parent_ready_ns = fd_clock_tile_now( ctx->clock ) /* the block timer starts at the freeze, as Agave's optimistic one */
+  };
+  ctx->next_leader_slot          = slot;
+  ctx->leader_parent_unconfirmed = 1;
+}
+
 /* replay_block_complete checks the footer's bank hash, then freezes and
    publishes a finalized bank, whose footer certs all verified.  Returns
    1 if it marked the bank dead. */
@@ -1851,6 +1887,7 @@ replay_block_complete( fd_replay_tile_t *        ctx,
   /* Must be last so we can measure completion time correctly, even
      though we could technically do this before the hash cmp. */
   publish_slot_completed( ctx, stem, bank, 0, 0 /* is_leader */, execution_fees_pre_settle, priority_fees_pre_settle, footer );
+  try_optimistic_leader( ctx, bank );
 
   /* The footer's finalization cert can also finalize. */
   if( footer->has_fast_final_cert ) { try_advance_root( ctx, fd_block_id( footer->fast_final_cert.slot, footer->fast_final_cert.block_id.uc ) ); }
@@ -2044,6 +2081,22 @@ try_fini_leader( fd_replay_tile_t *  ctx,
   if( FD_LIKELY( !ctx->is_leader ) ) return 0;
   if( !ctx->recv_poh ) return 0;
 
+  /* The cluster skipped our window, so the held block is never finished. */
+
+  if( FD_UNLIKELY( ctx->leader_footer_pending && ctx->votor_parent_ready_slot>ctx->leader_bank->f.slot ) ) {
+    ulong bank_idx = ctx->leader_bank->idx;
+    metrics_trigger( ctx, FD_METRICS_SAMPLE_REASON_LEADER_END, ctx->leader_bank->f.slot );
+    ctx->metrics.leader_window_superseded++;
+    ctx->leader_bank->refcnt--;
+    ctx->leader_bank           = NULL;
+    ctx->recv_poh              = 0;
+    ctx->is_leader             = 0;
+    ctx->leader_footer_pending     = 0;
+    ctx->leader_parent_unconfirmed = 0;
+    mark_bank_dead( ctx, stem, bank_idx, FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_NOT_DEAD, FD_EVENT_BLOCK_COMPLETED_ABANDONED_REASON_RESET, NULL );
+    return 1;
+  }
+
   /* The consensus root only advances through FROZEN banks and the
      leader bank is frozen only below, so a root at or past our slot
      can never include the leader bank.
@@ -2061,6 +2114,8 @@ try_fini_leader( fd_replay_tile_t *  ctx,
     ctx->leader_bank = NULL;
     ctx->recv_poh    = 0;
     ctx->is_leader   = 0;
+    ctx->leader_footer_pending     = 0;
+    ctx->leader_parent_unconfirmed = 0;
     mark_bank_dead( ctx, stem, bank_idx, FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_NOT_DEAD, FD_EVENT_BLOCK_COMPLETED_ABANDONED_REASON_PRUNED, NULL );
     return 1;
   }
@@ -2108,6 +2163,8 @@ try_fini_leader( fd_replay_tile_t *  ctx,
   ctx->leader_bank = NULL;
   ctx->recv_poh    = 0;
   ctx->is_leader   = 0;
+  ctx->leader_parent_unconfirmed = 0; /* the next slot of the window builds on this one */
+  FD_CHECK_CRIT( !ctx->leader_footer_pending, "leader footer still pending after clean leader end" );
 
   if( FD_UNLIKELY( ctx->next_leader_slot==ULONG_MAX && (curr_slot+1UL)%FD_VOTOR_SLOTS_PER_WINDOW ) ) {
     *ctx->votor_leader = (fd_votor_leader_t){
@@ -2341,6 +2398,32 @@ enforce_nanosecond_clock_bounds( fd_replay_tile_t * ctx,
   return (ulong)fd_long_max( lo, fd_long_min( hi, (long)fd_ulong_min( now_nanos, (ulong)LONG_MAX ) ) );
 }
 
+/* fini_leader_footer builds the footer of the ended leader slot, applies
+   it to the leader bank and sends it to motor, which finishes the
+   block. */
+
+static void
+fini_leader_footer( fd_replay_tile_t *  ctx,
+                    fd_stem_context_t * stem ) {
+  fd_block_footer_t * footer = ctx->leader_footer;
+  fd_memset( footer, 0, sizeof(fd_block_footer_t) );
+  footer->block_producer_time_nanos = enforce_nanosecond_clock_bounds( ctx, ctx->leader_bank, (ulong)fd_clock_tile_now( ctx->clock ) );
+
+  ulong migration_slot = fd_alpenglow_migration_slot( ctx->leader_bank, ctx->accdb );
+  construct_footer_certs( ctx, ctx->leader_bank->f.slot, migration_slot, footer );
+
+  /* The block goes out regardless: the certs are already committed to
+    the bank hash, so there is nothing left to fall back to. */
+  /* The footer cache stays out of this while another bank's slices may
+    be writing its memo. */
+  if( FD_UNLIKELY( fd_runtime_block_execute_finalize( ctx->leader_bank, ctx->accdb, ctx->capture_ctx, footer, ctx->shred_version, ctx->rewards_in_flight_cnt ? NULL : ctx->footer_cache ) ) ) {
+    FD_LOG_WARNING(( "slot %lu: our own block footer certs did not apply; the block we produce will be dead to the cluster", ctx->leader_bank->f.slot ));
+  }
+  footer->bank_hash = ctx->leader_bank->f.bank_hash;
+
+  publish_leader_footer( ctx, stem, ctx->leader_bank->f.slot, footer );
+}
+
 static void
 process_motor_done( fd_replay_tile_t *                 ctx,
                     fd_stem_context_t *                stem,
@@ -2374,9 +2457,10 @@ process_motor_done( fd_replay_tile_t *                 ctx,
     ulong bank_idx = ctx->leader_bank->idx;
     metrics_trigger( ctx, FD_METRICS_SAMPLE_REASON_LEADER_END, slot_ended->slot );
     ctx->leader_bank->refcnt--;
-    ctx->leader_bank = NULL;
-    ctx->recv_poh    = 0;
-    ctx->is_leader   = 0;
+    ctx->leader_bank     = NULL;
+    ctx->recv_poh        = 0;
+    ctx->is_leader                 = 0;
+    ctx->leader_parent_unconfirmed = 0;
     mark_bank_dead( ctx, stem, bank_idx, FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_NOT_DEAD, FD_EVENT_BLOCK_COMPLETED_ABANDONED_REASON_RESET, NULL );
     return;
   }
@@ -2398,23 +2482,9 @@ process_motor_done( fd_replay_tile_t *                 ctx,
   ctx->leader_priority_fees  = ctx->leader_bank->f.priority_fees;
   ctx->leader_tips           = ctx->leader_bank->f.tips;
 
-  fd_block_footer_t * footer = ctx->leader_footer;
-  fd_memset( footer, 0, sizeof(fd_block_footer_t) );
-  footer->block_producer_time_nanos = enforce_nanosecond_clock_bounds( ctx, ctx->leader_bank, (ulong)fd_clock_tile_now( ctx->clock ) );
-
-  ulong migration_slot = fd_alpenglow_migration_slot( ctx->leader_bank, ctx->accdb );
-  construct_footer_certs( ctx, ctx->leader_bank->f.slot, migration_slot, footer );
-
-  /* The block goes out regardless: the certs are already committed to
-     the bank hash, so there is nothing left to fall back to. */
-  /* The footer cache stays out of this while another bank's slices may
-     be writing its memo. */
-  if( FD_UNLIKELY( fd_runtime_block_execute_finalize( ctx->leader_bank, ctx->accdb, ctx->capture_ctx, footer, ctx->shred_version, ctx->rewards_in_flight_cnt ? NULL : ctx->footer_cache ) ) ) {
-    FD_LOG_WARNING(( "slot %lu: our own block footer certs did not apply; the block we produce will be dead to the cluster", ctx->leader_bank->f.slot ));
-  }
-  footer->bank_hash = ctx->leader_bank->f.bank_hash;
-
-  publish_leader_footer( ctx, stem, ctx->leader_bank->f.slot, footer );
+  /* never finish an optimistic block before ParentReady. */
+  if( FD_UNLIKELY( ctx->leader_parent_unconfirmed ) ) { ctx->leader_footer_pending = 1; return; }
+  fini_leader_footer( ctx, stem );
 }
 
 static void
@@ -4296,9 +4366,20 @@ returnable_frag( fd_replay_tile_t *  ctx,
     case IN_KIND_VOTOR: {
       if( FD_UNLIKELY( sig==FD_VOTOR_SIG_LEADER ) ) {
         fd_votor_leader_t const * leader = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
-        *ctx->votor_leader    = *leader;
-        ctx->next_leader_slot = leader->slot;
-        try_become_leader( ctx, stem, FD_METRICS_SAMPLE_REASON_LEADER_START, 0UL );
+        if( FD_LIKELY( ctx->leader_parent_unconfirmed && ctx->leader_bank && ctx->leader_bank->f.slot==leader->slot ) ) {
+          /* We already lead this window on an optimistic parent. */
+          if( FD_UNLIKELY( leader->parent_slot!=ctx->votor_leader->parent_slot || !fd_hash_eq( &leader->parent_block_id, &ctx->votor_leader->parent_block_id ) ) ) {
+            FD_LOG_WARNING(( "slot %lu: ParentReady names parent slot %lu, not the optimistic parent slot %lu", leader->slot, leader->parent_slot, ctx->votor_leader->parent_slot ));
+            /* TODO: switch parent in the same slot with an UpdateParent */
+          }
+          ctx->leader_parent_unconfirmed = 0;
+          if( FD_UNLIKELY( ctx->leader_footer_pending ) ) { ctx->leader_footer_pending = 0; fini_leader_footer( ctx, stem ); }
+        } else {
+          if( FD_LIKELY( !ctx->is_leader ) ) ctx->leader_parent_unconfirmed = 0; /* an armed start that never began */
+          *ctx->votor_leader    = *leader;
+          ctx->next_leader_slot = leader->slot;
+          try_become_leader( ctx, stem, FD_METRICS_SAMPLE_REASON_LEADER_START, 0UL );
+        }
       } else if( FD_LIKELY( sig==FD_VOTOR_SIG_CERTED ) ) {
         fd_votor_certed_t const * certed = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
         fd_votor_certed_t *       fin    = ctx->votor_final;
@@ -4804,6 +4885,8 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->ns_per_slot           = 0UL;
   ctx->next_leader_slot      = ULONG_MAX;
   ctx->highwater_leader_slot = ULONG_MAX;
+  ctx->leader_parent_unconfirmed = 0;
+  ctx->leader_footer_pending     = 0;
 
   ctx->votor_final->slot       = ULONG_MAX;
   ctx->votor_parent_ready_slot = 0UL;

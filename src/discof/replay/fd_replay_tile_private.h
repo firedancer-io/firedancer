@@ -481,6 +481,7 @@ struct fd_replay_tile {
      slot-ended message alone; no block id will ever arrive for it. */
   uint        is_leader : 1;
   uint        supports_leader : 1;
+  uint        leader_parent_unconfirmed : 1; /* the leader window, armed or led, is on an optimistic parent LEADER has not confirmed yet */
   int         recv_poh;
 
   ulong       leader_execution_fees;
@@ -492,6 +493,7 @@ struct fd_replay_tile {
   fd_votor_leader_t votor_leader[ 1 ];                                               /* ParentReady trigger behind next_leader_slot     */
   ulong             votor_parent_ready_slot;                                         /* highest window start certs made ParentReady   */
   long              leader_window_start_ns;                                          /* ParentReady time of the window we are leading   */
+  int               leader_footer_pending;                                           /* the leader slot ended, its footer waits for LEADER to confirm the parent */
   fd_votor_reward_t votor_reward[ FD_NUM_SLOTS_FOR_REWARD+FD_VOTOR_SLOTS_PER_WINDOW+1UL ];
 
   ulong       next_leader_slot;
