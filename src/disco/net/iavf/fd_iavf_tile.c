@@ -595,7 +595,7 @@ after_frag( fd_iavf_tile_t *    ctx,
     int owns_udp_dst = 0;
     if( 0==ctx->router.bind_address || ctx->router.bind_address==ip4->daddr ) {
       ushort const dst_port = fd_ushort_bswap( udp->net_dport );
-      for( ulong i=0UL; i<ctx->net.dst_port_cnt; i++ ) owns_udp_dst |= ctx->net.dst_ports[ i ]==dst_port;
+      for( ulong i=0UL; i<ctx->net.rx_dest_cnt; i++ ) owns_udp_dst |= ctx->net.rx_dst_ports[ i ]==dst_port;
     }
     if( !owns_udp_dst ) {
       fd_iavf_tile_lo_tx_enqueue( ctx, ip4, ip_sz );
@@ -920,7 +920,7 @@ fd_topo_install_iavf( fd_topo_t *     topo,
         .packet_iova      = packet_iova
       };
     }
-    fd_net_rx_dst_ports_init( &ctx->net, topo, tile );
+    fd_net_rx_dests_init( &ctx->net, topo, tile );
   }
 
   /* Configure VFs through tile 0's Admin Queues */
