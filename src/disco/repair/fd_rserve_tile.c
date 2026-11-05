@@ -524,7 +524,7 @@ handle_net_request( ctx_t             * ctx,
         uchar payload[ FD_SHRED_MAX_SZ+sizeof(uint) ];
         int len;
         for( ulong retry=0UL;; retry++ ) {
-          len = fd_store_disk_query_root( ctx->store, ctx->disk_fd, root, msg->shred_idx, payload );
+          len = fd_store_disk_query_root( ctx->store, ctx->disk_fd, msg->slot, root, msg->shred_idx, payload );
           if( FD_LIKELY( len!=FD_STORE_DISK_QUERY_BUSY || retry==7UL ) ) break;
           for( ulong pause=0UL; pause<(1UL<<retry); pause++ ) FD_SPIN_PAUSE();
         }
