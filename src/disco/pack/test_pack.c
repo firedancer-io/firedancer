@@ -2197,6 +2197,64 @@ test_next_auction( void ) {
   fd_pack_delete( fd_pack_leave( pack ) );
 }
 
+/* BUNDLE_N in fd_pack.c */
+#define BUNDLE_ORDINAL_LIMIT (313721UL)
+
+/* Inserts a bundle of cnt transactions with ids starting at id, and
+   returns the signature of the middle one. */
+static fd_ed25519_sig_t const *
+insert_ordinal_bundle( fd_pack_t * pack,
+                       ulong       id,
+                       ulong       cnt,
+                       int         initializer ) {
+  fd_txn_e_t * _bundle[ FD_PACK_MAX_TXN_PER_BUNDLE ];
+  fd_txn_e_t * const * bundle = fd_pack_insert_bundle_init( pack, _bundle, cnt );
+  for( ulong j=0UL; j<cnt; j++ ) make_transaction1( bundle[ j ]->txnp, id+j, (id+j)%2UL ? 1000U : 1400000U, 32U, 5.0, "", "", NULL, NULL );
+  ulong deleted;
+  FD_TEST( fd_pack_insert_bundle_fini( pack, bundle, cnt, 1000UL, initializer, NULL, &deleted )>=0 );
+  return txnp_get_signatures( bundle[ cnt/2UL ]->txnp );
+}
+
+/* Crossing the limit on ordinals with bundles pending keeps them separate
+   and in order.  Just restarting the ordinals would merge some of them. */
+static void
+test_bundle_ordinal_limit( void ) {
+  FD_LOG_NOTICE(( "TEST BUNDLE ORDINAL LIMIT" ));
+
+  fd_pack_t * pack = init_all( 64UL, 1UL, 8UL, &outcome );
+
+  /* Ordinals 0 through 5, then the rest up to the two highest */
+  insert_ordinal_bundle( pack, 3000UL, 3UL, 1 );
+  for( ulong i=0UL; i<5UL; i++ ) insert_ordinal_bundle( pack, 1000UL+10UL*i, i+1UL, 0 );
+  for( ulong i=6UL; i<BUNDLE_ORDINAL_LIMIT-1UL; i++ ) FD_TEST( fd_pack_delete_transaction( pack, insert_ordinal_bundle( pack, 9000UL, 1UL, 0 ) )==1UL );
+  insert_ordinal_bundle( pack, 2000UL, 4UL, 0 );
+  fd_ed25519_sig_t const * sig = insert_ordinal_bundle( pack, 2010UL, 5UL, 0 );
+
+  /* Renumbers to 28 and below.  The initializer bundle keeps ordinal 0, so
+     the next one replaces it, and deleting only takes the one bundle. */
+  insert_ordinal_bundle( pack, 2020UL, 1UL, 0 );
+  insert_ordinal_bundle( pack, 3100UL, 3UL, 1 );
+  FD_TEST( fd_pack_delete_transaction( pack, sig )==5UL );
+  FD_TEST( fd_pack_avail_txn_cnt( pack )==23UL );
+  FD_TEST( !fd_pack_verify( pack, pack_verify_scratch ) );
+
+  /* Replacing the initializer bundle renumbers again */
+  for( ulong i=29UL; i<=BUNDLE_ORDINAL_LIMIT; i++ ) FD_TEST( fd_pack_delete_transaction( pack, insert_ordinal_bundle( pack, 9000UL, 1UL, 0 ) )==1UL );
+  insert_ordinal_bundle( pack, 3200UL, 3UL, 1 );
+  insert_ordinal_bundle( pack, 2030UL, 1UL, 0 );
+  FD_TEST( !fd_pack_verify( pack, pack_verify_scratch ) );
+
+  FD_TEST( schedule_bundle_id( pack )==3200UL );
+  fd_pack_rebate_t rebate[ 1 ] = {{ .ib_result = 1 }};
+  fd_pack_rebate_cus( pack, rebate );
+  for( ulong i=0UL; i<5UL; i++ ) FD_TEST( schedule_bundle_id( pack )==1000UL+10UL*i );
+  FD_TEST( schedule_bundle_id( pack )==2000UL );
+  FD_TEST( schedule_bundle_id( pack )==2020UL );
+  FD_TEST( schedule_bundle_id( pack )==2030UL );
+  FD_TEST( !fd_pack_avail_txn_cnt( pack ) );
+  FD_TEST( !fd_pack_verify( pack, pack_verify_scratch ) );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -2226,6 +2284,7 @@ main( int     argc,
   test_pre_rotation_bundles();
   test_pre_rotation_bundle_lifecycle();
   test_pre_rotation_bundle_size_limit();
+  test_bundle_ordinal_limit();
   test_next_auction();
   if( extra_benchmark ) {
     performance_test( extra_benchmark );
