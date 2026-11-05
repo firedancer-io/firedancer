@@ -32,9 +32,9 @@
    try again. */
 
 struct timeout {
-  long  timeout; /* ns */
-  ulong slot;
-  ulong blk;     /* blk_pool idx, checked against slot when due */
+  long   timeout;   /* ns */
+  ulong  slot;
+  ulong  blk;       /* blk_pool idx, checked against slot when due */
   uint   fec_idx;   /* FEC index, WINDOW_INDEX only */
   uchar  tag;       /* FD_REPAIR_SERDE_TAG_*, WINDOW_INDEX for any FEC set */
   uchar  attempt;

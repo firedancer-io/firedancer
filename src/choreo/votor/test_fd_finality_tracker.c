@@ -377,6 +377,59 @@ test_finalize_after_finalize_keeps_watermark( void ) {
   teardown_tracker( t );
 }
 
+/* A NOTAR cert on a3 and a NOTAR_FALLBACK cert on b3 can coexist, and
+   the next leader may build on b3.  Finalizing c5 through b3 must
+   implicitly finalize b3, in either order with the NOTAR on a3.  Slot 1
+   stays unresolved so slot 3 sits above the watermark. */
+
+static void
+test_notar_sibling_implicitly_finalized( int notar_first ) {
+  fd_finality_tracker_t * t = setup_tracker();
+  fd_finalization_event_t event;
+
+  fd_block_id_t b1 = random_block_id( 1UL );
+  fd_block_id_t p2 = random_block_id( 2UL );
+  fd_block_id_t a3 = random_block_id( 3UL );
+  fd_block_id_t b3 = random_block_id( 3UL );
+  fd_block_id_t c5 = random_block_id( 5UL );
+
+  event = event_default(); fd_finality_tracker_mark_finalized( t, b1.slot, &event );
+  event = event_default(); fd_finality_tracker_add_parent( t, &b3, &p2, &event );
+  event = event_default(); fd_finality_tracker_add_parent( t, &c5, &b3, &event );
+
+  if( notar_first ) {
+    event = event_default();
+    fd_finality_tracker_mark_notarized( t, &a3, &event );
+    assert_event_default( &event );
+  }
+
+  event = event_default();
+  fd_finality_tracker_mark_fast_finalized( t, &c5, &event );
+  assert_finalized( &event, &c5 );
+  FD_TEST( event.implicitly_finalized_cnt==2UL );
+  FD_TEST( block_id_eq( &event.implicitly_finalized[0], &b3 ) );
+  FD_TEST( block_id_eq( &event.implicitly_finalized[1], &p2 ) );
+  FD_TEST( event.implicitly_skipped_cnt==1UL && event.implicitly_skipped[0]==4UL );
+
+  if( !notar_first ) {
+    event = event_default();
+    fd_finality_tracker_mark_notarized( t, &a3, &event );
+    assert_event_default( &event );
+  }
+
+  fd_block_hash_t hash;
+  FD_TEST( fd_finality_tracker_status( t, 3UL, &hash )==FD_FINALIZATION_STATUS_IMPLICITLY_FINALIZED );
+  FD_TEST( 0==memcmp( &hash, &b3.hash, sizeof(fd_block_hash_t) ) );
+
+  fd_block_id_t gen = genesis_block_id();
+  event = event_default(); fd_finality_tracker_add_parent( t, &b1, &gen, &event );
+  event = event_default(); fd_finality_tracker_mark_notarized( t, &b1, &event );
+  assert_finalized( &event, &b1 );
+  FD_TEST( fd_finality_tracker_first_unpruned_slot( t )==c5.slot );
+
+  teardown_tracker( t );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -391,6 +444,8 @@ main( int     argc,
 
   test_notarize_after_finalize_keeps_watermark();
   test_finalize_after_finalize_keeps_watermark();
+  test_notar_sibling_implicitly_finalized( 1 );
+  test_notar_sibling_implicitly_finalized( 0 );
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
