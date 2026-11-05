@@ -70,7 +70,8 @@
 #define FD_SBPF_V4            (4U)
 #define FD_SBPF_RESERVED      (FD_SBPF_VERSION_COUNT)
 
-/* Hardcoded constant for the murmur3_32 hash of the entrypoint. */
+/* FD_SBPF_ENTRYPOINT_HASH is the murmur3_32 hash of "entrypoint".
+   FD_SBPF_ENTRYPOINT_PC is the PC whose fd_pchash is that hash. */
 #define FD_SBPF_ENTRYPOINT_PC   (0xb00c380U)
 #define FD_SBPF_ENTRYPOINT_HASH (0x71e3cf81U) /* fd_pchash( FD_SBPF_ENTRYPOINT_PC ) */
 
@@ -220,10 +221,10 @@ fd_sbpf_loader_is_legacy_lenient( fd_sbpf_elf_info_t const * info ) {
 
 /* fd_sbpf_program_t describes a loaded program in memory.
 
-   [rodata,rodata+bin_sz) is an externally allocated buffer holding
-   the read-only segment to be loaded into the VM.  WARNING: The rodata
-   area required doing load (bin_sz) is larger than the area mapped into
-   the VM (rodata_sz).
+   [rodata,rodata+info.load_buf_sz) is an externally allocated buffer
+   holding the read-only segment to be loaded into the VM.  On the
+   legacy lenient path load_buf_sz is bin_sz, which is larger than the
+   area mapped into the VM (rodata_sz).
 
    [text,text+8*text_cnt) is a sub-region of the read-only segment
    containing executable code.

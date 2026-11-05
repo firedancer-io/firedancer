@@ -386,7 +386,8 @@ fd_sbpf_register_function_hashed_legacy( fd_sbpf_loader_t *  loader,
        64-bit immediate field of an lddw instruction
      - R_BPF_64_RELATIVE: Adds MM_PROGRAM_START (0x1_0000_0000) to ...
        a) ... the 64-bit imm field of an lddw instruction (if in text)
-       b) ... a 64-bit integer (if not in text section)
+       b) ... the 32-bit value at r_offset+4, written back as a 64-bit
+          integer at r_offset (if not in text section)
      - R_BPF_64_32: Sets the 32-bit immediate field of a call
        instruction to ...
        a) the ID of a local function (Murmur3 hash of function PC address)
