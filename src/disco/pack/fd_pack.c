@@ -1994,8 +1994,8 @@ fd_pack_insert_bundle_fini( fd_pack_t          * pack,
      that we require N, since it limits our capacity, but it's necessary
      in any system that tries to compute priorities to enforce a FIFO
      order.  If we've inserted more than N bundles without ever having
-     the bundle treap go empty, we'll briefly break the FIFO ordering as
-     we underflow.
+     the bundle treap go empty, we renumber the pending bundles to make
+     room, since bundles can't share an ordinal.
 
      Thus, we'd like to make N as big as possible, avoiding overflow.
      r_0, ..., r_4 are all uints, and taking the bounds from above,
@@ -2022,9 +2022,25 @@ fd_pack_insert_bundle_fini( fd_pack_t          * pack,
 #define BUNDLE_N       313721UL
 
   if( FD_UNLIKELY( pack->relative_bundle_idx>BUNDLE_N ) ) {
-    FD_LOG_WARNING(( "Too many bundles inserted without allowing pending bundles to go empty. "
-                     "Ordering of bundles may be incorrect." ));
-    pack->relative_bundle_idx = 1UL;
+    /* Walk worst to best, which is last to first within each bundle.
+       Only an initializer bundle has ordinal 0, and it keeps it. */
+    ulong new_ordinal = pack->relative_bundle_idx = pending_b_txn_cnt+1UL;
+    ulong old_ordinal = ULONG_MAX;
+    ulong prev_reward = 0UL;
+    ulong prev_cost   = 0UL;
+    for( treap_fwd_iter_t _cur=treap_fwd_iter_init( pack->pending_bundles, pack->pool );
+        !treap_fwd_iter_done( _cur ); _cur=treap_fwd_iter_next( _cur, pack->pool ) ) {
+      fd_pack_ord_txn_t * cur = treap_fwd_iter_ele( _cur, pack->pool );
+      ulong this_ordinal = RC_TO_REL_BUNDLE_IDX( cur->rewards, cur->compute_est );
+      if( this_ordinal!=old_ordinal ) {
+        old_ordinal = this_ordinal;
+        prev_reward = BUNDLE_L_PRIME * (BUNDLE_N - (this_ordinal ? --new_ordinal : 0UL)) - 1UL;
+        prev_cost   = 1UL<<32;
+      }
+      cur->rewards = (uint)(((ulong)cur->compute_est * (prev_reward + 1UL) + prev_cost-1UL)/prev_cost);
+      prev_reward  = cur->rewards;
+      prev_cost    = cur->compute_est;
+    }
   }
   ulong bundle_idx = fd_ulong_if( initializer_bundle, 0UL, pack->relative_bundle_idx );
   insert_bundle_impl( pack, bundle_idx, txn_cnt, (fd_pack_ord_txn_t * *)bundle, expires_at );
