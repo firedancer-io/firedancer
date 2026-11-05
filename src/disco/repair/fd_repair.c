@@ -584,14 +584,16 @@ fd_repair_blk_finalized( fd_repair_t *     self,
                          fd_mr32_t const * blk_mr,
                          long              ts ) {
   fd_repair_slot_meta_t * meta = fd_repair_slot_meta( self, slot );
+  fd_repair_blk_t const * existing_final = fd_repair_blk_pool_ele_const( self->blk_pool, meta->final_blk_idx );
+  FD_CHECK_CRIT( !existing_final || !memcmp( &existing_final->dmr, blk_mr, sizeof(fd_mr32_t) ), "consensus safety violation" );
 
-  fd_repair_blk_t * fin = fd_repair_blk_map_ele_query( self->blk_map, &slot, NULL, self->blk_pool );
-  while( fin && memcmp( &fin->dmr, blk_mr, sizeof(fd_mr32_t) ) ) fin = (fd_repair_blk_t *)fd_repair_blk_map_ele_next_const( fin, NULL, self->blk_pool );
-  if( FD_UNLIKELY( !fin ) ) fin = fd_repair_blk_notarized( self, slot, blk_mr );
-  if( FD_UNLIKELY( !fin ) ) return NULL; /* the slot is already finalized with another blk */
+  fd_repair_blk_t * final = fd_repair_blk_map_ele_query( self->blk_map, &slot, NULL, self->blk_pool );
+  while( final && memcmp( &final->dmr, blk_mr, sizeof(fd_mr32_t) ) ) final = (fd_repair_blk_t *)fd_repair_blk_map_ele_next_const( final, NULL, self->blk_pool );
+  if( FD_UNLIKELY( !final ) ) final = fd_repair_blk_notarized( self, slot, blk_mr );
+  if( FD_UNLIKELY( !final ) ) return NULL;
 
   fd_repair_blk_t * pool = self->blk_pool;
-  promote( self, fin, &meta->final_blk_idx );
+  promote( self, final, &meta->final_blk_idx );
   /* The eager blk keeps its positional repair: peers without the whole
      block still serve its shreds, which by-id repair cannot ask them for. */
 
@@ -603,14 +605,14 @@ fd_repair_blk_finalized( fd_repair_t *     self,
                          blk;
                          blk = next ) {
     next = (fd_repair_blk_t *)fd_repair_blk_map_ele_next_const( blk, NULL, pool );
-    if( FD_LIKELY( blk==fin ) ) continue;
+    if( FD_LIKELY( blk==final ) ) continue;
     if( FD_UNLIKELY( meta->eager_blk_idx==fd_repair_blk_pool_idx( pool, blk ) && !meta->invalidated && !memcmp( &blk->dmr, &hash_null, sizeof(fd_mr32_t) ) ) ) continue; /* turbine may still complete as the finalized blk, see dedup */
     blk->telemetry.cancelled_ts     = fd_long_if( !blk->telemetry.cancelled_reason, ts, blk->telemetry.cancelled_ts );
     blk->telemetry.cancelled_reason = (uchar)fd_int_if( !blk->telemetry.cancelled_reason, FD_EVENT_BLOCK_RECEIVED_CANCELLED_REASON_NOTARIZED_VERSION, blk->telemetry.cancelled_reason ); /* an invalidated eager blk keeps its reason */
     prune( self, blk );
   }
-  link_ancestors( self, fin );
-  return fin;
+  link_ancestors( self, final );
+  return final;
 }
 
 fd_repair_blk_t *
@@ -830,6 +832,10 @@ void
 fd_repair_root_advanced( fd_repair_t *     self,
                          ulong             slot,
                          fd_mr32_t const * blk_mr ) {
+  fd_repair_slot_meta_t const * meta           = &self->slot_meta[ slot % self->slot_max ];
+  fd_repair_blk_t const *       existing_final = meta->slot==slot ? fd_repair_blk_pool_ele_const( self->blk_pool, meta->final_blk_idx ) : NULL;
+  FD_CHECK_CRIT( !existing_final || !memcmp( &existing_final->dmr, blk_mr, sizeof(fd_mr32_t) ), "consensus safety violation" );
+
   ulong             root     = self->root;
   fd_repair_blk_t * root_blk = NULL; /* the new root, if held. self->root_blk is the old root until freed below: it left orphan_map on becoming root and must not be removed again */
   for( ulong s=root; s<=slot; s++ ) {

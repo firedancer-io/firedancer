@@ -1657,12 +1657,11 @@ test_eager_invalidated( void ) {
 }
 
 /* Finalizing a slot as a block repair does not have frees the eager blk
-   and drops its later FEC sets.  A second finalization of the slot as
-   another block, or finalizing a skipped slot, is refused. */
+   and drops its later FEC sets.  Finalizing a skipped slot is refused. */
 
 static void
 test_finalize_other(  void ) {
-  fd_mr32_t     root   = hash( 0xEE ), m10 = hash( 0x11 ), h77 = hash( 0x77 ), h40 = hash( 0x40 ), h20 = hash( 0x20 );
+  fd_mr32_t     root   = hash( 0xEE ), m10 = hash( 0x11 ), h77 = hash( 0x77 ), h20 = hash( 0x20 );
   fd_repair_t * repair = setup();
   shred0( repair, 1UL, 0UL, &root, &m10 );
   fd_repair_blk_t * fin = fd_repair_blk_finalized( repair, 1UL, &h77, 0L );
@@ -1673,9 +1672,6 @@ test_finalize_other(  void ) {
   complete( repair, 1UL, 0UL, 0U, 1, &m10 ); /* it completes as another blk and is pruned */
   FD_TEST( fd_repair_blk_map_ele_query( repair->blk_map, &one, NULL, repair->blk_pool )==fin && !fd_repair_blk_map_ele_next_const( fin, NULL, repair->blk_pool ) );
   FD_TEST( fd_repair_deque_empty( repair->reasm_deque ) );
-
-  FD_TEST( !fd_repair_blk_finalized( repair, 1UL, &h40, 0L ) );
-  FD_TEST( fd_repair_blk_map_ele_query( repair->blk_map, &one, NULL, repair->blk_pool )==fin && !fd_repair_blk_map_ele_next_const( fin, NULL, repair->blk_pool ) );
 
   fd_repair_slot_skipped( repair, 2UL );
   FD_TEST( !fd_repair_blk_finalized( repair, 2UL, &h20, 0L ) );
