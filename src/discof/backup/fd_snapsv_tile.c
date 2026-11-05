@@ -800,6 +800,7 @@ conn_req_next( fd_snapsv_t * ctx,
   memset( &conn->req,  0, sizeof(conn->req ) );
   memset( &conn->res,  0, sizeof(conn->res ) );
   memset( &conn->snap, 0, sizeof(conn->snap) );
+  conn->snap.key = (snap_key_t){ ULONG_MAX, ULONG_MAX };
   conn->state = CONN_STATE_REQ_PEEK;
   prep_peek( ctx, conn_idx );
 }
@@ -1726,7 +1727,6 @@ handle_peek( fd_snapsv_t *       ctx,
   }
 
   conn->snap.range    = 0U;
-  conn->snap.key      = (snap_key_t){ ULONG_MAX, ULONG_MAX };
   conn->snap.req_off0 = 0UL;
   conn->snap.req_off1 = 0UL;
 
