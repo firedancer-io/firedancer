@@ -33,36 +33,40 @@
 #define FD_SECCOMP_ARG_LO(x) ((uint)(((ulong)(uint)(int)(x)      ) & 0xffffffffUL))
 #define FD_SECCOMP_ARG_HI(x) ((uint)(((ulong)(x) >> 32) & 0xffffffffUL))
 
-static const uint sock_filter_policy_fd_failover_tile_instr_cnt = 55;
+static const uint sock_filter_policy_fd_failover_tile_instr_cnt = 63;
 
-static void populate_sock_filter_policy_fd_failover_tile( ulong out_cnt, struct sock_filter out[ static 55 ], uint logfile_fd, uint listen_fd ) {
-  FD_TEST( out_cnt >= 55 );
-  struct sock_filter filter[55] = {
+static void populate_sock_filter_policy_fd_failover_tile( ulong out_cnt, struct sock_filter out[ static 63 ], uint logfile_fd, uint listen_fd ) {
+  FD_TEST( out_cnt >= 63 );
+  struct sock_filter filter[63] = {
     /* validate architecture */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, ( offsetof( struct seccomp_data, arch ) )),
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, ARCH_NR, 0, /* RET_KILL_PROCESS */ 11 ),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, ARCH_NR, 0, /* RET_KILL_PROCESS */ 13 ),
     /* load syscall number */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, ( offsetof( struct seccomp_data, nr ) )),
     /* check write */
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_write, /* check_write */ 11, 0 ),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_write, /* check_write */ 13, 0 ),
     /* check fsync */
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_fsync, /* check_fsync */ 16, 0 ),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_fsync, /* check_fsync */ 18, 0 ),
+    /* check futex */
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_futex, /* check_futex */ 21, 0 ),
+    /* allow restart_syscall */
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_restart_syscall, /* RET_ALLOW */ 9, 0 ),
     /* allow getrandom */
     BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_getrandom, /* RET_ALLOW */ 8, 0 ),
     /* check socket */
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_socket, /* check_socket */ 18, 0 ),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_socket, /* check_socket */ 24, 0 ),
     /* allow connect */
     BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_connect, /* RET_ALLOW */ 6, 0 ),
     /* check setsockopt */
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_setsockopt, /* check_setsockopt */ 24, 0 ),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_setsockopt, /* check_setsockopt */ 30, 0 ),
     /* check accept4 */
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_accept4, /* check_accept4 */ 31, 0 ),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_accept4, /* check_accept4 */ 37, 0 ),
     /* allow recvfrom */
     BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_recvfrom, /* RET_ALLOW */ 3, 0 ),
     /* allow sendto */
     BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_sendto, /* RET_ALLOW */ 2, 0 ),
     /* check close */
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_close, /* check_close */ 34, 0 ),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_close, /* check_close */ 40, 0 ),
 //  RET_KILL_PROCESS:
     /* default deny */
     BPF_STMT( BPF_RET | BPF_K, SECCOMP_RET_KILL_PROCESS ),
@@ -89,15 +93,27 @@ static void populate_sock_filter_policy_fd_failover_tile( ulong out_cnt, struct 
     BPF_STMT( BPF_RET | BPF_K, SECCOMP_RET_KILL_PROCESS ),
 //  fsync_ALLOW:
     BPF_STMT( BPF_RET | BPF_K, SECCOMP_RET_ALLOW ),
+//  check_futex:
+    /* arg 1 low 32 bits */
+    BPF_STMT( BPF_LD | BPF_W | BPF_ABS, FD_SECCOMP_ARG_LO_OFFSET(1)),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, FD_SECCOMP_ARG_LO(FUTEX_WAIT_BITSET), /* and_2 */ 0, /* futex_KILL */ 2 ),
+//  and_2:
+    /* arg 2 low 32 bits */
+    BPF_STMT( BPF_LD | BPF_W | BPF_ABS, FD_SECCOMP_ARG_LO_OFFSET(2)),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, 0x00000000U, /* futex_ALLOW */ 1, /* futex_KILL */ 0 ),
+//  futex_KILL:
+    BPF_STMT( BPF_RET | BPF_K, SECCOMP_RET_KILL_PROCESS ),
+//  futex_ALLOW:
+    BPF_STMT( BPF_RET | BPF_K, SECCOMP_RET_ALLOW ),
 //  check_socket:
     /* arg 0 low 32 bits */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, FD_SECCOMP_ARG_LO_OFFSET(0)),
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, FD_SECCOMP_ARG_LO(AF_INET), /* and_2 */ 0, /* socket_KILL */ 4 ),
-//  and_2:
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, FD_SECCOMP_ARG_LO(AF_INET), /* and_3 */ 0, /* socket_KILL */ 4 ),
+//  and_3:
     /* arg 1 low 32 bits */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, FD_SECCOMP_ARG_LO_OFFSET(1)),
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, FD_SECCOMP_ARG_LO(SOCK_STREAM|SOCK_NONBLOCK|SOCK_CLOEXEC), /* and_3 */ 0, /* socket_KILL */ 2 ),
-//  and_3:
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, FD_SECCOMP_ARG_LO(SOCK_STREAM|SOCK_NONBLOCK|SOCK_CLOEXEC), /* and_4 */ 0, /* socket_KILL */ 2 ),
+//  and_4:
     /* arg 2 low 32 bits */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, FD_SECCOMP_ARG_LO_OFFSET(2)),
     BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, 0x00000000U, /* socket_ALLOW */ 1, /* socket_KILL */ 0 ),
@@ -108,12 +124,12 @@ static void populate_sock_filter_policy_fd_failover_tile( ulong out_cnt, struct 
 //  check_setsockopt:
     /* arg 1 low 32 bits */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, FD_SECCOMP_ARG_LO_OFFSET(1)),
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, FD_SECCOMP_ARG_LO(IPPROTO_TCP), /* and_4 */ 0, /* setsockopt_KILL */ 4 ),
-//  and_4:
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, FD_SECCOMP_ARG_LO(IPPROTO_TCP), /* and_5 */ 0, /* setsockopt_KILL */ 4 ),
+//  and_5:
     /* arg 2 low 32 bits */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, FD_SECCOMP_ARG_LO_OFFSET(2)),
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, FD_SECCOMP_ARG_LO(TCP_NODELAY), /* setsockopt_ALLOW */ 3, /* or_5 */ 0 ),
-//  or_5:
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, FD_SECCOMP_ARG_LO(TCP_NODELAY), /* setsockopt_ALLOW */ 3, /* or_6 */ 0 ),
+//  or_6:
     /* arg 2 low 32 bits */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, FD_SECCOMP_ARG_LO_OFFSET(2)),
     BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, FD_SECCOMP_ARG_LO(TCP_DEFER_ACCEPT), /* setsockopt_ALLOW */ 1, /* setsockopt_KILL */ 0 ),
@@ -124,8 +140,8 @@ static void populate_sock_filter_policy_fd_failover_tile( ulong out_cnt, struct 
 //  check_accept4:
     /* arg 0 low 32 bits */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, FD_SECCOMP_ARG_LO_OFFSET(0)),
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, ((uint)(listen_fd)), /* and_6 */ 0, /* accept4_KILL */ 2 ),
-//  and_6:
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, ((uint)(listen_fd)), /* and_7 */ 0, /* accept4_KILL */ 2 ),
+//  and_7:
     /* arg 3 low 32 bits */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, FD_SECCOMP_ARG_LO_OFFSET(3)),
     BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, FD_SECCOMP_ARG_LO(SOCK_NONBLOCK|SOCK_CLOEXEC), /* accept4_ALLOW */ 1, /* accept4_KILL */ 0 ),
@@ -136,12 +152,12 @@ static void populate_sock_filter_policy_fd_failover_tile( ulong out_cnt, struct 
 //  check_close:
     /* arg 0 low 32 bits */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, FD_SECCOMP_ARG_LO_OFFSET(0)),
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, 0x00000002U, /* close_KILL */ 4, /* or_7 */ 0 ),
-//  or_7:
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, 0x00000002U, /* close_KILL */ 4, /* or_8 */ 0 ),
+//  or_8:
     /* arg 0 low 32 bits */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, FD_SECCOMP_ARG_LO_OFFSET(0)),
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, ((uint)(logfile_fd)), /* close_KILL */ 2, /* or_8 */ 0 ),
-//  or_8:
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, ((uint)(logfile_fd)), /* close_KILL */ 2, /* or_9 */ 0 ),
+//  or_9:
     /* arg 0 low 32 bits */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, FD_SECCOMP_ARG_LO_OFFSET(0)),
     BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, ((uint)(listen_fd)), /* close_KILL */ 0, /* close_ALLOW */ 1 ),
