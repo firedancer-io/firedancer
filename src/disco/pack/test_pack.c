@@ -1401,8 +1401,15 @@ test_limits( void ) {
 
     make_transaction( j, 20000UL, 500U, 11.0, "A", "B", NULL, NULL );
     insert( j++, pack );
-    schedule_validate_microblock( pack, FD_PACK_TEST_MAX_COST_PER_BLOCK, 0UL, 0UL, 0UL, &outcome );
+    /* Reach the cached writer-limit deferral before freeing quota.  An
+       empty rebate must retain it; positive writer feedback must let
+       the pending transaction retry during this same block. */
+    for( ulong attempt=0UL; attempt<50UL; attempt++ )
+      schedule_validate_microblock( pack, FD_PACK_TEST_MAX_COST_PER_BLOCK, 0UL, 0UL, 0UL, &outcome );
     FD_TEST( fd_pack_avail_txn_cnt( pack )==1UL );
+    fd_memset( report, 0, sizeof(report) );
+    fd_pack_rebate_cus( pack, report->rebate );
+    schedule_validate_microblock( pack, FD_PACK_TEST_MAX_COST_PER_BLOCK, 0UL, 0UL, 0UL, &outcome );
 
     outcome.results->txnp->execle_cu.rebated_cus = (uint)((total_cus + (total_cus*FD_PACK_TEST_MAX_COST_PER_BLOCK/(4*total_cus))) - FD_PACK_TEST_MAX_WRITE_COST_PER_ACCT);
     fd_pack_rebate_sum_add_txn( rebater, outcome.results->txnp, rebate_alt, 1UL );

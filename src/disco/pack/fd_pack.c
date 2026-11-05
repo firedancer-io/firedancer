@@ -100,8 +100,9 @@ struct fd_pack_private_ord_txn {
      then that means we have to skip it `skip` more times before taking
      any action.  If skip>FD_PACK_SKIP_CNT, then it is a compressed slot
      number during which it should be skipped, and we'll skip it until
-     the compressed slot reaches a new value.  skip is never 0. */
+     the compressed slot or writer rebate generation changes.  skip is never 0. */
   ushort skip;
+  ulong  writer_rebate_seq; /* generation at last writer-limit backoff */
 
   FD_PACK_BITSET_DECLARE( rw_bitset ); /* all accts this txn references */
   FD_PACK_BITSET_DECLARE(  w_bitset ); /* accts this txn write-locks    */
@@ -739,6 +740,11 @@ struct fd_pack_private {
      that advances each time we start packing for a new slot. */
   ushort     compressed_slot_number;
 
+  /* Positive writer quota rebates invalidate cached writer-limit skips in
+     O(1), without walking pending transactions.  Keep this separate from
+     the 16-bit slot number: rebates can arrive many times within a slot. */
+  ulong      writer_rebate_seq;
+
   /* bitset_avail: a stack of which bits are not currently reserved and
      can be used to represent an account address.
      Indexed [0, bitset_avail_cnt].  Element 0 is fixed at
@@ -955,6 +961,7 @@ fd_pack_new( void                   * mem,
                                                FD_MHIST_MAX( PACK, COST_PER_BLOCK_PCT       ) );
 
   pack->compressed_slot_number = (ushort)(FD_PACK_SKIP_CNT+1);
+  pack->writer_rebate_seq      = 0UL;
 
   pack->bitset_avail[ 0 ] = FD_PACK_BITSET_SLOWPATH;
   for( ulong i=0UL; i<FD_PACK_BITSET_MAX; i++ ) pack->bitset_avail[ i+1UL ] = (ushort)i;
@@ -1512,6 +1519,7 @@ fd_pack_insert_txn_fini( fd_pack_t  * pack,
 
   ord->txn->flags &= ~(FD_TXN_P_FLAGS_BUNDLE | FD_TXN_P_FLAGS_INITIALIZER_BUNDLE);
   ord->skip = FD_PACK_SKIP_CNT;
+  ord->writer_rebate_seq = pack->writer_rebate_seq;
 
   /* At this point, we know we have space to insert the transaction and
      we've committed to insert it. */
@@ -1655,6 +1663,7 @@ fd_pack_insert_bundle_fini( fd_pack_t          * pack,
     bundle[ i ]->txnp->flags |= fd_uint_if( initializer_bundle, FD_TXN_P_FLAGS_INITIALIZER_BUNDLE, 0U );
     bundle[ i ]->txnp->flags |= fd_uint_if( is_durable_nonce,   FD_TXN_P_FLAGS_DURABLE_NONCE,      0U );
     ord->skip = FD_PACK_SKIP_CNT;
+    ord->writer_rebate_seq = pack->writer_rebate_seq;
     ord->expires_at = expires_at;
 
     if( FD_UNLIKELY( is_durable_nonce ) ) {
@@ -2055,7 +2064,7 @@ fd_pack_schedule_impl( fd_pack_t          * pack,
       continue;
     }
 
-    if( FD_UNLIKELY( cur->skip==compressed_slot_number ) ) {
+    if( FD_UNLIKELY( cur->skip==compressed_slot_number && cur->writer_rebate_seq==pack->writer_rebate_seq ) ) {
       skip_c++;
       continue;
     }
@@ -2066,7 +2075,8 @@ fd_pack_schedule_impl( fd_pack_t          * pack,
        need to eagerly reset it to FD_PACK_MAX_SKIP.
        compressed_slot_number is a ushort, so it's possible for it to
        roll over, but the transaction lifetime is much shorter than
-       that, so it won't be a problem. */
+       that, so it won't be a problem.  A stale writer rebate generation
+       also permits reconsideration, with the same lazy backoff reset. */
 
     if( FD_UNLIKELY( cur->txn->payload_sz>byte_limit ) ) {
       byte_limit_c++;
@@ -2111,8 +2121,13 @@ fd_pack_schedule_impl( fd_pack_t          * pack,
            x in [2, psc]      x     x-2         x-2     x-1
            x where x>psc     psc   psc-2       psc-2   psc-1
          So B+1 is the desired value. */
-      cur->skip = (ushort)(1+fd_ushort_min( (ushort)(compressed_slot_number-1),
-                                            (ushort)(fd_ushort_min( cur->skip, FD_PACK_SKIP_CNT )-2) ) );
+      /* A rebate permits one fresh eligibility check.  If this writer
+         is still full, retain the latch in the new generation instead
+         of paying for another full backoff sequence. */
+      if( FD_LIKELY( cur->skip!=compressed_slot_number || cur->writer_rebate_seq==pack->writer_rebate_seq ) )
+        cur->skip = (ushort)(1+fd_ushort_min( (ushort)(compressed_slot_number-1),
+                                              (ushort)(fd_ushort_min( cur->skip, FD_PACK_SKIP_CNT )-2) ) );
+      cur->writer_rebate_seq = pack->writer_rebate_seq;
       write_limit_c++;
       continue;
     }
@@ -2371,7 +2386,9 @@ fd_pack_try_schedule_bundle( fd_pack_t  * pack,
   ulong bundle_idx = ULONG_MAX;
 
   /* Skip any that we've marked as won't fit in this block */
-  while( FD_UNLIKELY( !treap_rev_iter_done( _cur ) && treap_rev_iter_ele( _cur, pool )->skip==pack->compressed_slot_number ) ) {
+  while( FD_UNLIKELY( !treap_rev_iter_done( _cur ) &&
+                      treap_rev_iter_ele( _cur, pool )->skip==pack->compressed_slot_number &&
+                      treap_rev_iter_ele( _cur, pool )->writer_rebate_seq==pack->writer_rebate_seq ) ) {
     _cur = treap_rev_iter_next( _cur, pool );
     pack->sched_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_RESULT_V_WRITE_COST_DEFERRED_IDX ]++;
   }
@@ -2551,8 +2568,10 @@ fd_pack_try_schedule_bundle( fd_pack_t  * pack,
         if( FD_UNLIKELY( this_bundle_idx!=bundle_idx ) ) break;
 
         /* See fd_pack_schedule_impl for this line */
-        cur->skip = (ushort)(1+fd_ushort_min( (ushort)(pack->compressed_slot_number-1),
-              (ushort)(fd_ushort_min( cur->skip, FD_PACK_SKIP_CNT )-2) ) );
+        if( FD_LIKELY( cur->skip!=pack->compressed_slot_number || cur->writer_rebate_seq==pack->writer_rebate_seq ) )
+          cur->skip = (ushort)(1+fd_ushort_min( (ushort)(pack->compressed_slot_number-1),
+                (ushort)(fd_ushort_min( cur->skip, FD_PACK_SKIP_CNT )-2) ) );
+        cur->writer_rebate_seq = pack->writer_rebate_seq;
       }
     }
     return retval;
@@ -2794,9 +2813,11 @@ fd_pack_rebate_cus( fd_pack_t              * pack,
   (void)rebate->microblock_cnt_rebate;
 
   wcost_map_t * writer_costs = pack->writer_costs;
+  int writer_rebated = 0;
   for( ulong i=0UL; i<rebate->writer_cnt; i++ ) {
     fd_pack_wcost_ele_t * in_wcost_table = wcost_map_ele_query( writer_costs, &rebate->writer_rebates[i].key, NULL, pack->writers );
     if( FD_UNLIKELY( !in_wcost_table ) ) FD_LOG_ERR(( "Rebate to unknown written account" ));
+    writer_rebated |= !!rebate->writer_rebates[i].rebate_cus;
     in_wcost_table->total_cost -= rebate->writer_rebates[i].rebate_cus;
     /* If the rebate drops it to zero, return it to the pool */
     if( FD_UNLIKELY( !in_wcost_table->total_cost ) ) {
@@ -2805,6 +2826,7 @@ fd_pack_rebate_cus( fd_pack_t              * pack,
       wcost_pool_ele_release   ( pack->writers,      in_wcost_table );
     }
   }
+  pack->writer_rebate_seq += (ulong)writer_rebated;
 }
 
 
