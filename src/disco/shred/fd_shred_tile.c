@@ -19,6 +19,7 @@
 #include "fd_stake_ci.h"
 #include "fd_rnonce_ss.h"
 #include "fd_shred_tile.h"
+#include "fd_shred_dispatch.h"
 #include "../store/fd_store.h"
 #include "../keyguard/fd_keyload.h"
 #include "../keyguard/fd_keyguard.h"
@@ -153,6 +154,7 @@ typedef struct {
 
   ulong                round_robin_id;
   ulong                round_robin_cnt;
+  fd_shred_dispatch_key_t const * dispatch_key;
   /* Number of batches shredded from PoH during the current slot.
      This should be the same for all the shred tiles. */
   ulong                batch_cnt;
@@ -772,16 +774,18 @@ alpenglow_marker:
        is overrun meanwhile, which the stem detects before after_frag. */
     fd_shred_t const * shred = fd_shred_parse( dcache_entry+hdr_sz, sz-hdr_sz, ctx->shred_limit );
     if( FD_UNLIKELY( !shred ) ) {
-      ulong owner = sz-hdr_sz>=sizeof(ulong) ? fd_ulong_load_8( dcache_entry+hdr_sz )%ctx->round_robin_cnt : 0UL; /* round-robin key, the signature */
+      /* Diagnostic ownership only: never read past a short malformed packet. */
+      ulong owner = fd_siphash13_hash( dcache_entry+hdr_sz, fd_ulong_min( sz-hdr_sz, 64UL ),
+                                      ctx->dispatch_key->k0, ctx->dispatch_key->k1 ) % ctx->round_robin_cnt;
       ctx->parse_failed = owner==ctx->round_robin_id;
       ctx->skip_frag    = 1;
       return;
     };
 
-    /* all shreds in the same FEC set will have the same signature
-       so we can round-robin shreds between the shred tiles based on
-       just the signature without splitting individual FEC sets. */
-    if( FD_LIKELY( fd_ulong_load_8( shred->signature )%ctx->round_robin_cnt!=ctx->round_robin_id ) ) {
+    /* Keep all variants/signatures of one (slot,FEC) with one resolver.
+       The node-private key prevents offline selection of a victim owner. */
+    if( FD_LIKELY( fd_shred_dispatch_fec_owner( ctx->dispatch_key, shred->slot,
+                                               shred->fec_set_idx, ctx->round_robin_cnt )!=ctx->round_robin_id ) ) {
       ctx->skip_frag = 1;
       return;
     }
@@ -1316,6 +1320,20 @@ privileged_init( fd_topo_t const *      topo,
 
 }
 
+/* Fail closed before polling ingress.  Only the object ID is in props;
+   key bytes stay in a dedicated non-dumpable workspace, joined read-only. */
+static fd_shred_dispatch_key_t const *
+join_dispatch_key( fd_topo_t const * topo ) {
+  ulong id = fd_pod_query_ulong( topo->props, "shred_key", ULONG_MAX );
+  if( FD_UNLIKELY( id==ULONG_MAX || id>=topo->obj_cnt ) )
+    FD_LOG_ERR(( "missing shred dispatch key object" ));
+  fd_topo_obj_t const * obj = &topo->objs[ id ];
+  if( FD_UNLIKELY( strcmp( obj->name, "shred_key" ) || obj->wksp_id>=topo->wksp_cnt ||
+                    !topo->workspaces[ obj->wksp_id ].wksp ) )
+    FD_LOG_ERR(( "unjoined shred dispatch key object" ));
+  return (fd_shred_dispatch_key_t const *)fd_topo_obj_laddr( topo, id );
+}
+
 static void
 unprivileged_init( fd_topo_t const *      topo,
                    fd_topo_tile_t const * tile ) {
@@ -1339,6 +1357,8 @@ unprivileged_init( fd_topo_t const *      topo,
 
   ctx->round_robin_cnt = fd_topo_tile_name_cnt( topo, tile->name );
   ctx->round_robin_id  = tile->kind_id;
+  if( FD_UNLIKELY( !ctx->round_robin_cnt ) ) FD_LOG_ERR(( "no shred tiles" ));
+  ctx->dispatch_key = join_dispatch_key( topo );
   ctx->batch_cnt       = 0UL;
   ctx->slot            = ULONG_MAX;
   ctx->store           = NULL;

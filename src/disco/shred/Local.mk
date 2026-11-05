@@ -21,3 +21,13 @@ ifdef FD_HAS_HOSTED
 $(call make-unit-test,test_shredder,test_shredder,fd_disco fd_flamenco fd_ballet fd_util_extra fd_util fd_reedsol)
 $(call run-unit-test,test_shredder)
 endif
+
+ifdef FD_HAS_HOSTED
+# Include the actual callbacks/resolver in the regression TU; discard unused
+# application initialization so the test needs no node state or hugepages.
+$(OBJDIR)/obj/disco/shred/test_shred_dispatch.o: CFLAGS+=-ffunction-sections -fdata-sections
+$(call make-unit-test,test_shred_dispatch,test_shred_dispatch,fd_flamenco fd_disco fd_waltz fd_ballet fd_tango fd_reedsol fd_util_test fd_util,-Wl$(comma)--gc-sections)
+$(call run-unit-test,test_shred_dispatch)
+# Do not root every unrelated topology/application symbol through -rdynamic.
+$(OBJDIR)/unit-test/test_shred_dispatch: LDFLAGS:=$(filter-out -rdynamic,$(LDFLAGS))
+endif

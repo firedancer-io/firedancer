@@ -266,6 +266,21 @@ setup_topo_accdb( fd_topo_t *  topo,
   return obj;
 }
 
+/* One key object for the whole resolver cohort. Rejoining an individual tile
+   must not rotate ownership; rekey only with a fresh cohort/workspace. */
+fd_topo_obj_t *
+setup_topo_shred_key( fd_topo_t * topo ) {
+  fd_topob_wksp( topo, "shred_key" )->core_dump_level = FD_TOPO_CORE_DUMP_LEVEL_NEVER;
+  fd_topo_obj_t * key = fd_topob_obj( topo, "shred_key", "shred_key" );
+  ulong cnt = fd_topo_tile_name_cnt( topo, "shred" );
+  FD_TEST( cnt );
+  for( ulong i=0UL; i<cnt; i++ )
+    fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "shred", i ) ],
+                       key, FD_SHMEM_JOIN_MODE_READ_ONLY );
+  FD_TEST( fd_pod_insert_ulong( topo->props, "shred_key", key->id ) );
+  return key;
+}
+
 void
 fd_topo_initialize( config_t * config ) {
   ulong net_tile_cnt    = config->layout.net_tile_count;
@@ -959,6 +974,8 @@ fd_topo_initialize( config_t * config ) {
     fd_topob_tile_uses( topo, execle_tile, busy_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
     FD_TEST( fd_pod_insertf_ulong( topo->props, busy_obj->id, "execle_busy.%lu", i ) );
   }
+
+  setup_topo_shred_key( topo );
 
   /* Repair and shred share a secret they use to generate the nonces.
      It's not super security sensitive, but for good hygiene, we make it

@@ -13,6 +13,11 @@ FD_PROTOTYPES_BEGIN
 void
 fd_topo_initialize( fd_config_t * config );
 
+/* Shared immutable node-private dispatch key. Call after all shred tiles have
+   been added; constructor runs once during workspace initialization. */
+fd_topo_obj_t *
+setup_topo_shred_key( fd_topo_t * topo );
+
 fd_topo_obj_t *
 setup_topo_banks( fd_topo_t *  topo,
                   char const * wksp_name,

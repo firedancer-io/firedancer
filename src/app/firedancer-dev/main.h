@@ -30,6 +30,7 @@ extern fd_topo_obj_callbacks_t fd_obj_cb_snapin_shmem;
 extern fd_topo_obj_callbacks_t fd_obj_cb_banks;
 extern fd_topo_obj_callbacks_t fd_obj_cb_progcache;
 extern fd_topo_obj_callbacks_t fd_obj_cb_rnonce_ss;
+extern fd_topo_obj_callbacks_t fd_obj_cb_shred_key;
 extern fd_topo_obj_callbacks_t fd_obj_cb_footer_cache;
 
 fd_topo_obj_callbacks_t * CALLBACKS[] = {
@@ -56,6 +57,7 @@ fd_topo_obj_callbacks_t * CALLBACKS[] = {
   &fd_obj_cb_banks,
   &fd_obj_cb_progcache,
   &fd_obj_cb_rnonce_ss,
+  &fd_obj_cb_shred_key,
   &fd_obj_cb_footer_cache,
   NULL,
 };

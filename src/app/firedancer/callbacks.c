@@ -7,6 +7,7 @@
 #include "../../flamenco/progcache/fd_progcache.h"
 #include "../../flamenco/alpenglow/fd_footer_cache.h"
 #include "../../disco/shred/fd_rnonce_ss.h"
+#include "../../disco/shred/fd_shred_dispatch.h"
 #include "../../discof/backup/fd_backup_shmem.h"
 
 #include "../../discof/admin/fd_adminctl.h"
@@ -227,6 +228,27 @@ fd_topo_obj_callbacks_t fd_obj_cb_footer_cache = {
   .footprint = footer_cache_footprint,
   .align     = footer_cache_align,
   .new       = footer_cache_new,
+};
+
+static ulong
+shred_key_footprint( fd_topo_t const * topo FD_FN_UNUSED,
+                     fd_topo_obj_t const * obj FD_FN_UNUSED ) {
+  return sizeof(fd_shred_dispatch_key_t);
+}
+static ulong
+shred_key_align( fd_topo_t const * topo FD_FN_UNUSED,
+                 fd_topo_obj_t const * obj FD_FN_UNUSED ) {
+  return alignof(fd_shred_dispatch_key_t);
+}
+static void
+shred_key_new( fd_topo_t const * topo, fd_topo_obj_t const * obj ) {
+  FD_TEST( fd_rng_secure( fd_topo_obj_laddr( topo, obj->id ), sizeof(fd_shred_dispatch_key_t) ) );
+}
+fd_topo_obj_callbacks_t fd_obj_cb_shred_key = {
+  .name      = "shred_key",
+  .footprint = shred_key_footprint,
+  .align     = shred_key_align,
+  .new       = shred_key_new,
 };
 
 static ulong
