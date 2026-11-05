@@ -2425,7 +2425,7 @@ populate_allowed_fds( fd_topo_t      const * topo,
                       fd_topo_tile_t const * tile,
                       ulong                  out_fds_cnt,
                       int *                  out_fds ) {
-  if( FD_UNLIKELY( out_fds_cnt<7UL ) ) FD_LOG_ERR(( "invalid out_fds_cnt %lu", out_fds_cnt ));
+  if( FD_UNLIKELY( out_fds_cnt<8UL ) ) FD_LOG_ERR(( "invalid out_fds_cnt %lu", out_fds_cnt ));
   fd_snapin_tile_t const * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   ulong out_cnt = 0;
@@ -2436,7 +2436,8 @@ populate_allowed_fds( fd_topo_t      const * topo,
   out_fds[ out_cnt++ ] = FD_ACCDB_FD_RW; /* accounts db */
   out_fds[ out_cnt++ ] = FD_STAKE_DELEGATIONS_FD; /* stake delegation disk spill */
   out_fds[ out_cnt++ ] = ctx->writer.accdb_direct_fd; /* accounts db, O_DIRECT */
-  out_fds[ out_cnt++ ] = FD_ACCDB_IDX_FD_RW; /* index file (stage, placement) */
+  out_fds[ out_cnt++ ] = FD_ACCDB_IDX_FD_RW; /* index file (placement) */
+  out_fds[ out_cnt++ ] = FD_ACCDB_STAGE_FD;  /* snapshot stage, O_DIRECT */
   if( FD_LIKELY( !tile->kind_id ) ) out_fds[ out_cnt++ ] = FD_TXNCACHE_FD;
 
   return out_cnt;
@@ -2448,7 +2449,7 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
                           ulong                  out_cnt,
                           struct sock_filter *   out ) {
   fd_snapin_tile_t const * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
-  populate_sock_filter_policy_fd_snapin_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), FD_ACCDB_FD_RW, (uint)ctx->writer.accdb_direct_fd, FD_STAKE_DELEGATIONS_FD, (uint)FD_TXNCACHE_FD, (uint)FD_ACCDB_IDX_FD_RW );
+  populate_sock_filter_policy_fd_snapin_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), FD_ACCDB_FD_RW, (uint)ctx->writer.accdb_direct_fd, FD_STAKE_DELEGATIONS_FD, (uint)FD_TXNCACHE_FD, (uint)FD_ACCDB_IDX_FD_RW, (uint)FD_ACCDB_STAGE_FD );
   return sock_filter_policy_fd_snapin_tile_instr_cnt;
 }
 
@@ -2507,7 +2508,7 @@ unprivileged_init( fd_topo_t const *      topo,
 
   fd_sleep_t * accdb_sleep = topo->sleep_obj_id!=ULONG_MAX ? fd_sleep_join( fd_topo_obj_laddr( topo, topo->sleep_obj_id ) ) : NULL;
   void * place_window = tile->snapin.accdb_window_obj_id!=ULONG_MAX ? fd_topo_obj_laddr( topo, tile->snapin.accdb_window_obj_id ) : NULL;
-  ctx->accdb = fd_accdb_join( fd_accdb_new( _accdb, accdb_shmem, FD_ACCDB_FD_RW, -1, 0UL, NULL, accdb_sleep, fd_topo_find_tile( topo, "accdb", 0UL ), 0, FD_ACCDB_IDX_FD_RW, place_window ) );
+  ctx->accdb = fd_accdb_join( fd_accdb_new( _accdb, accdb_shmem, FD_ACCDB_FD_RW, -1, 0UL, NULL, accdb_sleep, fd_topo_find_tile( topo, "accdb", 0UL ), 0, FD_ACCDB_IDX_FD_RW, FD_ACCDB_STAGE_FD, place_window ) );
   FD_TEST( ctx->accdb );
 
   ctx->shmem = fd_topo_obj_laddr( topo, tile->snapin.shmem_obj_id );

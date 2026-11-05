@@ -6,9 +6,12 @@
 #              or purge out of cache to the disk to make forward
 #              progress.
 #
-# accdb_idx_fd: The accounts index file (index mode), fallocated as it
-#               grows, explicit positioned I/O only.
-uint logfile_fd, uint accounts_fd, uint accounts_direct_fd, uint stake_spill_fd, uint txncache_fd, uint accdb_idx_fd
+# accdb_idx_fd: The accounts index file (index mode), explicit
+#               positioned I/O only.
+#
+# accdb_stage_fd: The snapshot stage file (index mode, O_DIRECT),
+#                 fallocated as it grows, explicit positioned I/O only.
+uint logfile_fd, uint accounts_fd, uint accounts_direct_fd, uint stake_spill_fd, uint txncache_fd, uint accdb_idx_fd, uint accdb_stage_fd
 
 # logging: all log messages are written to a file and/or pipe
 #
@@ -41,14 +44,16 @@ preadv2: (eq (arg 0) accounts_fd)
 # device in chunks, as it runs out.
 fallocate: (or (and (eq (arg 0) accounts_fd)
                     (eq (arg 1) 0))
-               (eq (arg 0) accdb_idx_fd))
+               (and (eq (arg 0) accdb_stage_fd)
+                    (eq (arg 1) 0)))
 
 # stake delegations: full root and fork-delta records spilled beyond
 # the in-memory delegation pools.
 # transaction cache: read spilled pages
 pread64: (or (eq (arg 0) stake_spill_fd)
              (eq (arg 0) txncache_fd)
-             (eq (arg 0) accdb_idx_fd))
+             (eq (arg 0) accdb_idx_fd)
+             (eq (arg 0) accdb_stage_fd))
 
 # accounts database: write account records at explicit offsets
 #
@@ -64,11 +69,12 @@ pwrite64: (or (eq (arg 0) accounts_direct_fd)
               (eq (arg 0) txncache_fd))
 
 # accounts index (index mode): each loader writes its staged index
-# records, and tile 0 builds the on-disk index from them, with explicit
-# positioned I/O on the index file.
+# records to the stage file, and the loaders build the on-disk index
+# from them, with explicit positioned I/O.
 #
 # arg 0 is the file descriptor to write to.
-pwritev2: (eq (arg 0) accdb_idx_fd)
+pwritev2: (or (eq (arg 0) accdb_idx_fd)
+              (eq (arg 0) accdb_stage_fd))
 
 # power saving: sleep when there is no work to do
 #
