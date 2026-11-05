@@ -198,6 +198,15 @@ fd_gui_printf_health( fd_gui_t * gui );
 void
 fd_gui_printf_system_resources( fd_gui_t * gui );
 
+/* fd_gui_accounts_stats_window_push appends the deltas between the
+   current and reference accounts stats snaps to the rate windows.
+   Must be called exactly once per snap, before
+   fd_gui_printf_accounts_stats.  fd_gui_printf_accounts_stats does not
+   modify gui state. */
+
+void
+fd_gui_accounts_stats_window_push( fd_gui_t * gui );
+
 void
 fd_gui_printf_accounts_stats( fd_gui_t * gui );
 
