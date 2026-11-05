@@ -10980,6 +10980,8 @@ message MetricsGossip {
   MetricsGossipPingPeerRemoved ping_peer_removed = 56;
   // Received entry versions not relayed because a newer version of the same entry replaced them within the relay interval
   uint64 crds_relay_coalesced = 57;
+  // Client id currently advertised in our ContactInfo
+  uint64 contact_info_client_id = 58;
 }
 
 // Metrics of one gossvf tile instance, one row per sweep

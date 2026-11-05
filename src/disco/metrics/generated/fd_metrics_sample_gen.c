@@ -2288,7 +2288,7 @@ static fd_metrics_sample_field_t const fields_rserve[ 145 ] = {
   { FD_METRICS_COUNTER_RSERVE_PING_CACHE_EVICTED_OFF, 52U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
 };
 
-static fd_metrics_sample_field_t const fields_gossip[ 184 ] = {
+static fd_metrics_sample_field_t const fields_gossip[ 185 ] = {
   { FD_METRICS_GAUGE_TILE_PID_OFF, 8U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_GAUGE_TILE_TID_OFF, 9U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_GAUGE_TILE_LAST_CPU_INDEX_OFF, 10U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
@@ -2473,6 +2473,7 @@ static fd_metrics_sample_field_t const fields_gossip[ 184 ] = {
   { FD_METRICS_GAUGE_GOSSIP_WAIT_FOR_SUPERMAJORITY_STAKE_ONLINE_LAMPORTS_OFF, 53U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_GAUGE_GOSSIP_WAIT_FOR_SUPERMAJORITY_STAKE_TRACKED_LAMPORTS_OFF, 54U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_GAUGE_GOSSIP_WAIT_FOR_SUPERMAJORITY_STATE_OFF, 55U, FD_METRICS_SAMPLE_STATE, state_gossip_wait_for_supermajority_state, 5UL },
+  { FD_METRICS_GAUGE_GOSSIP_CONTACT_INFO_CLIENT_ID_OFF, 58U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
 };
 
 static fd_metrics_sample_field_t const fields_gossvf[ 124 ] = {
@@ -4671,7 +4672,7 @@ fd_metrics_sample_schema_t const fd_metrics_sample_tiles[] = {
   { "replay", 34U, fields_replay, 296UL, 3164UL },
   { "rotor", 35U, fields_rotor, 158UL, 1769UL },
   { "rserve", 36U, fields_rserve, 145UL, 1593UL },
-  { "gossip", 37U, fields_gossip, 184UL, 1952UL },
+  { "gossip", 37U, fields_gossip, 185UL, 1964UL },
   { "gossvf", 38U, fields_gossvf, 124UL, 1416UL },
   { "sign", 39U, fields_sign, 57UL, 708UL },
   { "netlnk", 40U, fields_netlnk, 55UL, 673UL },

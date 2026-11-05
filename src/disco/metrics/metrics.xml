@@ -1410,6 +1410,8 @@ deliberate exception with lint-allow="<rule id>")
     <gauge name="WaitForSupermajorityStakeOnlineLamports" summary="Stake from peers with recent gossip activity" />
     <gauge name="WaitForSupermajorityStakeTrackedLamports" ambiguous-kind="true" summary="Stake tracked while waiting for supermajority" />
     <gauge name="WaitForSupermajorityState" states="WaitForSupermajorityState" summary="Wait-for-supermajority progress" />
+
+    <gauge name="ContactInfoClientId" summary="Client id currently advertised in our ContactInfo" lint-allow="sentinel" />
 </tile>
 
 <enum name="GossvfMessageResult">

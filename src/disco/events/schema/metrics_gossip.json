@@ -319,6 +319,7 @@
                 "identity": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Became our identity" }
             }
         },
-        "crds_relay_coalesced":                          { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Received entry versions not relayed because a newer version of the same entry replaced them within the relay interval" }
+        "crds_relay_coalesced":                          { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Received entry versions not relayed because a newer version of the same entry replaced them within the relay interval" },
+        "contact_info_client_id":                        { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Client id currently advertised in our ContactInfo" }
     }
 }
