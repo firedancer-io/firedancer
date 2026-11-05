@@ -20,6 +20,7 @@
 FD_STATIC_ASSERT( sizeof(fd_accdb_cache_line_t)==FD_ACCDB_CACHE_META_SZ, cache_meta_sz );
 
 #define FD_ACCDB_BOUNCE_SZ (16UL<<20)
+#define FD_ACCDB_PREPOP_MAX (64UL<<30)
 FD_STATIC_ASSERT( FD_ACCDB_BOUNCE_SZ>=FD_RUNTIME_ACC_SZ_MAX+sizeof(fd_accdb_disk_meta_t), bounce_fits_any_record );
 
 /* Preevict batches up to PREEVICT_BATCH_SZ bytes, but stages a larger
@@ -647,6 +648,7 @@ void
 fd_accdb_snapshot_load_begin( fd_accdb_t * accdb ) {
   FD_CHECK_CRIT( fd_accdb_snapshot_sync_state( &accdb->shmem->snapshot_sync )==FD_ACCDB_SNAPSHOT_SYNC_IDLE,
                  "snapshot load started while snapshot production active" );
+  FD_VOLATILE( accdb->shmem->prepop_off ) = 0UL;
   FD_VOLATILE( accdb->shmem->snapshot_loading ) = 1;
 }
 
@@ -7520,6 +7522,22 @@ fd_accdb_background( fd_accdb_t * accdb,
   background_preevict( accdb, charge_busy, 0 );
 
   if( FD_UNLIKELY( idx_enabled( accdb ) ) ) background_idx( accdb, charge_busy );
+
+  /* Full load: read the bucket ahead so placement overwrites cached
+     pages (several times faster than first writes); compaction is held
+     off, so the bounce buffer is free.  Not for buckets that would not
+     stay cached. */
+  if( FD_UNLIKELY( idx_enabled( accdb ) && accdb->bounce && FD_VOLATILE_CONST( shmem->snapshot_loading ) &&
+                   accdb->bkt->npage*FD_ACCDB_IDX_PAGE_SZ<=FD_ACCDB_PREPOP_MAX ) ) {
+    ulong off = FD_VOLATILE_CONST( shmem->prepop_off );
+    ulong end = accdb->bkt->npage*FD_ACCDB_IDX_PAGE_SZ;
+    if( off<end ) {
+      ulong sz = fd_ulong_min( FD_ACCDB_BOUNCE_SZ, end-off );
+      fd_accdb_idx_io( accdb->bkt->fd, 0, accdb->bounce, sz, accdb->bkt->page0*FD_ACCDB_IDX_PAGE_SZ+off );
+      FD_VOLATILE( shmem->prepop_off ) = off+sz;
+      *charge_busy = 1;
+    }
+  }
 
   /* Keep one partition allocated ahead so a write head rotating into a
      new partition never waits on fallocate. */
