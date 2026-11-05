@@ -1030,30 +1030,9 @@ fd_runtime_pre_execute_check( fd_runtime_t *      runtime,
                               fd_txn_in_t const * txn_in,
                               fd_txn_out_t *      txn_out ) {
 
-  /* https://github.com/anza-xyz/agave/blob/16de8b75ebcd57022409b422de557dd37b1de8db/sdk/src/transaction/sanitized.rs#L263-L275
-     TODO: Agave's precompile verification is done at the slot level, before batching and executing transactions. This logic should probably
-     be moved in the future. The Agave call hierarchy looks something like this:
-            process_single_slot
-                   v
-            confirm_full_slot
-                   v
-            confirm_slot_entries --------------------------------------------------->
-                   v                               v                                v
-            verify_transaction    ComputeBudget::process_instruction         process_entries
-                   v                                                                v
-            verify_precompiles                                                process_batches
-                                                                                    v
-                                                                                   ...
-                                                                                    v
-                                                                        load_and_execute_transactions
-                                                                                    v
-                                                                                   ...
-                                                                                    v
-                                                                              load_accounts --> load_transaction_accounts
-                                                                                    v
-                                                                       general transaction execution
-
-  */
+  /* Agave: Bank::verify_transaction.  Precompiles are not checked here;
+     they run as instructions inside the SVM, see fd_execute_instr.
+     https://github.com/anza-xyz/agave/blob/v4.4.0/runtime/src/bank.rs#L5762-L5816 */
 
   /* Verify the transaction. For now, this step only involves processing
      the compute budget instructions. */
@@ -1319,11 +1298,10 @@ fd_runtime_commit_txn( fd_runtime_t *      runtime,
   }
 
   if( FD_LIKELY( runtime->status_cache && txn_out->accounts.nonce_idx_in_txn==ULONG_MAX && txn_out->err.is_committable ) ) {
-    /* In Agave, durable nonce transactions are inserted to the status
-       cache the same as any others, but this is only to serve RPC
-       requests, they do not need to be in there for correctness as the
-       nonce mechanism itself prevents double spend.  We skip this logic
-       entirely to simplify and improve performance of the txn cache.
+    /* Agave also excludes durable nonce transactions from the status
+       cache (SIMD-0297), the nonce mechanism itself prevents double
+       spend.
+       https://github.com/anza-xyz/agave/blob/v4.4.0/runtime/src/bank.rs#L3708-L3718
 
        Cost tracker rejected transactions are also skipped: the block
        is already dead, and skipping keeps the per slot insert count

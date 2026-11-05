@@ -335,11 +335,10 @@ fd_executor_check_status_cache( fd_txncache_t *     status_cache,
   }
 
   if( FD_UNLIKELY( txn_out->accounts.nonce_idx_in_txn!=ULONG_MAX ) ) {
-    /* In Agave, durable nonce transactions are inserted to the status
-       cache the same as any others, but this is only to serve RPC
-       requests, they do not need to be in there for correctness as the
-       nonce mechanism itself prevents double spend.  We skip this logic
-       entirely to simplify and improve performance of the txn cache. */
+    /* Agave excludes durable nonce transactions from the status cache
+       (SIMD-0297), the nonce mechanism itself prevents double spend.
+       So a lookup can never hit and we skip it.
+       https://github.com/anza-xyz/agave/blob/v4.4.0/runtime/src/bank.rs#L3708-L3718 */
     return FD_RUNTIME_EXECUTE_SUCCESS;
   }
 
@@ -429,15 +428,16 @@ fd_executor_sanitize_txn_v1_config( fd_txn_in_t const * txn_in,
 
 /* `verify_transaction()` is the first function called in the
    transaction execution pipeline. It is responsible for deserializing
-   the transaction, verifying the message hash (sigverify), verifying
-   the precompiles, and processing compute budget instructions. We
-   leave sigverify out for now to easily bypass this function's
-   checks for fuzzing.
+   the transaction, verifying the message hash (sigverify), and
+   processing compute budget instructions. We leave sigverify out for
+   now to easily bypass this function's checks for fuzzing.
+   Precompiles are verified per instruction in fd_execute_instr, as in
+   Agave's SVM.
 
    TODO: Maybe support adding sigverify in here, and toggling it
    on/off with a flag.
 
-   https://github.com/anza-xyz/agave/blob/v2.3.1/runtime/src/bank.rs#L5725-L5753 */
+   https://github.com/anza-xyz/agave/blob/v4.4.0/runtime/src/bank.rs#L5762-L5816 */
 int
 fd_executor_verify_transaction( fd_bank_t const *   bank,
                                 fd_txn_in_t const * txn_in,
