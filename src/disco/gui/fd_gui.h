@@ -531,6 +531,7 @@ struct fd_gui_scheduler_counts {
   ulong votes;
   ulong conflicting;
   ulong bundles;
+  ulong next_auction;
 };
 
 typedef struct fd_gui_scheduler_counts fd_gui_scheduler_counts_t;
