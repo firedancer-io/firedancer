@@ -33,16 +33,24 @@ fd_runtime_stack_align( void ) {
   return 128UL;
 }
 
-/* stake_accum and bpf_migration share a region, see fd_runtime_stack_t */
+/* stake_accum, then stake_results, share a region with bpf_migration,
+   see fd_runtime_stack_t */
 
 FD_FN_CONST static inline ulong
 fd_runtime_stack_private_stake_accum_align( void ) {
-  return fd_ulong_max( 128UL, alignof(fd_runtime_stack_bpf_migration_t) );
+  return fd_ulong_max( fd_ulong_max( 128UL, alignof(fd_runtime_stack_bpf_migration_t) ), alignof(fd_calculated_stake_result_t) );
 }
 
 FD_FN_CONST static inline ulong
-fd_runtime_stack_private_stake_accum_footprint( ulong max_staked_vote_accounts ) {
-  return fd_ulong_max( sizeof(fd_stake_accum_t) * max_staked_vote_accounts, sizeof(fd_runtime_stack_bpf_migration_t) );
+fd_runtime_stack_private_stake_results_off( ulong max_staked_vote_accounts ) {
+  return fd_ulong_align_up( sizeof(fd_stake_accum_t) * max_staked_vote_accounts, alignof(fd_calculated_stake_result_t) );
+}
+
+FD_FN_CONST static inline ulong
+fd_runtime_stack_private_stake_accum_footprint( ulong max_staked_vote_accounts,
+                                                ulong max_stake_accounts ) {
+  return fd_ulong_max( fd_runtime_stack_private_stake_results_off( max_staked_vote_accounts ) + sizeof(fd_calculated_stake_result_t) * max_stake_accounts,
+                       sizeof(fd_runtime_stack_bpf_migration_t) );
 }
 
 FD_FN_PURE static inline ulong
@@ -57,9 +65,8 @@ fd_runtime_stack_footprint( ulong max_vote_accounts,
   l = FD_LAYOUT_APPEND( l, alignof(fd_stake_weight_t),                      sizeof(fd_stake_weight_t) * max_vote_accounts );
   l = FD_LAYOUT_APPEND( l, 128UL,                                           sizeof(fd_vote_rewards_t) * max_vote_accounts );
   l = FD_LAYOUT_APPEND( l, fd_vote_rewards_map_align(),                     fd_vote_rewards_map_footprint( vote_chain_cnt ) );
-  l = FD_LAYOUT_APPEND( l, fd_runtime_stack_private_stake_accum_align(),    fd_runtime_stack_private_stake_accum_footprint( max_staked_vote_accounts ) );
+  l = FD_LAYOUT_APPEND( l, fd_runtime_stack_private_stake_accum_align(),    fd_runtime_stack_private_stake_accum_footprint( max_staked_vote_accounts, max_stake_accounts ) );
   l = FD_LAYOUT_APPEND( l, fd_stake_accum_map_align(),                      fd_stake_accum_map_footprint( stake_chain_cnt ) );
-  l = FD_LAYOUT_APPEND( l, alignof(fd_calculated_stake_result_t),           sizeof(fd_calculated_stake_result_t) * max_stake_accounts );
   return FD_LAYOUT_FINI( l, fd_runtime_stack_align() );
 }
 
@@ -89,9 +96,9 @@ fd_runtime_stack_new( void * shmem,
   fd_stake_weight_t *             id_weights           = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_stake_weight_t),             sizeof(fd_stake_weight_t) * max_vote_accounts );
   fd_vote_rewards_t *             vote_ele             = FD_SCRATCH_ALLOC_APPEND( l, 128UL,                                  sizeof(fd_vote_rewards_t) * max_vote_accounts );
   void *                          vote_map_mem         = FD_SCRATCH_ALLOC_APPEND( l, fd_vote_rewards_map_align(),            fd_vote_rewards_map_footprint( vote_chain_cnt ) );
-  fd_stake_accum_t *              stake_accum          = FD_SCRATCH_ALLOC_APPEND( l, fd_runtime_stack_private_stake_accum_align(), fd_runtime_stack_private_stake_accum_footprint( max_staked_vote_accounts ) );
+  fd_stake_accum_t *              stake_accum          = FD_SCRATCH_ALLOC_APPEND( l, fd_runtime_stack_private_stake_accum_align(), fd_runtime_stack_private_stake_accum_footprint( max_staked_vote_accounts, max_stake_accounts ) );
   void *                          stake_accum_map_mem  = FD_SCRATCH_ALLOC_APPEND( l, fd_stake_accum_map_align(),             fd_stake_accum_map_footprint( stake_chain_cnt ) );
-  fd_calculated_stake_result_t *  stake_results        = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_calculated_stake_result_t),  sizeof(fd_calculated_stake_result_t) * max_stake_accounts );
+  fd_calculated_stake_result_t *  stake_results        = (fd_calculated_stake_result_t *)( (ulong)stake_accum + fd_runtime_stack_private_stake_results_off( max_staked_vote_accounts ) );
   if( FD_UNLIKELY( FD_SCRATCH_ALLOC_FINI( l, fd_runtime_stack_align() )!=(ulong)shmem + fd_runtime_stack_footprint( max_vote_accounts, max_staked_vote_accounts, max_stake_accounts ) ) ) {
     FD_LOG_WARNING(( "fd_runtime_stack_new: bad layout" ));
     return NULL;
