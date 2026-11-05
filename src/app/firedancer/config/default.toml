@@ -1945,7 +1945,7 @@ telemetry = true
         # spill pages are written. This value is not a total disk limit;
         # FEC payload spills can consume additional space.
         #
-        # The in-RAM shred index costs ~16 MiB per GiB of ring.  32 GiB
+        # The in-RAM shred index costs ~8 MiB per GiB of ring.  32 GiB
         # serves ~3.5 hours of history, several times the incremental
         # snapshot cadence that far-behind nodes bootstrap from instead.
         shred_storage_limit_gib = 32
