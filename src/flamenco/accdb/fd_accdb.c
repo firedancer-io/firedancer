@@ -5322,6 +5322,13 @@ struct place_ctx {
   int                           incr;
   int                           apply;   /* incr phase B */
   ulong                         recs_end;
+  /* incremental: window pages are read lazily, written if dirty */
+  fd_accdb_idx_page_t *         pages;
+  uchar *                       tags;
+  ulong                         p0;
+  ulong                         p1;
+  ulong *                       ld;      /* NULL = all pages present */
+  ulong *                       dirty;
 };
 
 typedef struct place_ctx place_ctx_t;
@@ -5406,6 +5413,52 @@ place_tags_build( fd_accdb_idx_page_t const * pages,
   }
 }
 
+#define PLACE_GAP (16UL) /* coalesce reads/writes across gaps this small */
+
+static inline int  place_bit( ulong const * b, ulong i ) { return (int)( ( b[ i>>6 ]>>(i&63UL) )&1UL ); }
+static inline void place_set( ulong * b, ulong i )       { b[ i>>6 ] |= 1UL<<(i&63UL); }
+
+/* place_load: incremental, window pages [a,b) present (relative). */
+
+static void
+place_load( place_ctx_t * pc,
+            ulong         a,
+            ulong         b ) {
+  fd_accdb_t * accdb = pc->accdb;
+  while( a<b ) {
+    if( place_bit( pc->ld, a ) ) { a++; continue; }
+    ulong e = a+1UL;
+    while( e<b && !place_bit( pc->ld, e ) ) e++;
+    fd_accdb_idx_io( accdb->bkt->fd, 0, pc->pages+a, (e-a)*FD_ACCDB_IDX_PAGE_SZ, (accdb->bkt->page0+pc->p0+a)*FD_ACCDB_IDX_PAGE_SZ );
+    place_tags_build( pc->pages+a, pc->tags+a*64UL, e-a, accdb->shmem->seed );
+    for( ulong i=a; i<e; i++ ) place_set( pc->ld, i );
+    a = e;
+  }
+}
+
+/* place_load_homes: incremental, loads the home pages of recs, one
+   pread per run of nearby missing pages. */
+
+static void
+place_load_homes( place_ctx_t *                pc,
+                  fd_accdb_stage_rec_t const * recs,
+                  ulong                        n,
+                  ulong *                      want ) {
+  ulong w = ( pc->p1-pc->p0+63UL )>>6;
+  memset( want, 0, w*sizeof(ulong) );
+  for( ulong k=0UL; k<n; k++ ) place_set( want, recs[ k ].home-pc->p0 );
+  ulong run0 = ULONG_MAX, last = 0UL;
+  for( ulong j=0UL; j<w; j++ ) {
+    for( ulong m=want[ j ] & ~pc->ld[ j ]; m; m=fd_ulong_pop_lsb( m ) ) {
+      ulong i = (j<<6) | (ulong)fd_ulong_find_lsb( m );
+      if( run0!=ULONG_MAX && i-last>PLACE_GAP ) { place_load( pc, run0, last+1UL ); run0 = ULONG_MAX; }
+      if( run0==ULONG_MAX ) run0 = i;
+      last = i;
+    }
+  }
+  if( run0!=ULONG_MAX ) place_load( pc, run0, last+1UL );
+}
+
 /* place_rec (streaming, any order): r against the window pages
    [p0,p1).  Newest slot wins, equal slots = corrupt (as upstream
    write_batch, which also compares against the current winner only).
@@ -5413,11 +5466,11 @@ place_tags_build( fd_accdb_idx_page_t const * pages,
 
 static int
 place_rec( place_ctx_t *                pc,
-           ulong                        p0,
-           ulong                        p1,
-           fd_accdb_stage_rec_t const * r,
-           fd_accdb_idx_page_t *        pages,
-           uchar *                      tags ) {
+           fd_accdb_stage_rec_t const * r ) {
+  ulong                 p0    = pc->p0;
+  ulong                 p1    = pc->p1;
+  fd_accdb_idx_page_t * pages = pc->pages;
+  uchar *               tags  = pc->tags;
   int   count = !pc->incr || !pc->apply;  /* capitalization inputs */
   int   tomb  = !pc->incr ||  pc->apply;  /* byte frees, once      */
   uchar deleg = ( r->flags & FD_ACCDB_STAGE_DELEG ) ? (uchar)PLACE_DELEG : (uchar)0;
@@ -5426,12 +5479,14 @@ place_rec( place_ctx_t *                pc,
   fd_accdb_idx_slot_t * found = NULL;
   for( ulong pg=home; pg<p1 && !found; pg++ ) {
     fd_accdb_idx_page_t * P = &pages[ pg-p0 ];
+    if( FD_UNLIKELY( pc->ld && !place_bit( pc->ld, pg-p0 ) ) ) place_load( pc, pg-p0, fd_ulong_min( pg-p0+PLACE_GAP, p1-p0 ) );
     for( ulong m=place_tag_mask( tags+(pg-p0)*64UL, tag ); m; m=fd_ulong_pop_lsb( m ) ) {
       fd_accdb_idx_slot_t * d = &P->slot[ fd_ulong_find_lsb( m ) ];
       if( FD_LIKELY( !memcmp( d->pubkey, r->pubkey, 32UL ) ) ) { found = d; break; }
     }
     if( !found && !(P->flags & FD_ACCDB_IDX_OVERFLOWED) ) break;
   }
+  if( found && pc->dirty ) place_set( pc->dirty, (ulong)( (uchar *)found-(uchar *)pages )/FD_ACCDB_IDX_PAGE_SZ );
   if( found && ( found->flags & PLACE_MINE ) ) {
     if( FD_UNLIKELY( found->aux==r->slot ) ) return -1;
     fd_accdb_stage_rec_t loser = *r;
@@ -5461,9 +5516,12 @@ place_rec( place_ctx_t *                pc,
   }
   ulong pg = home;
   while( pages[ pg-p0 ].cnt==FD_ACCDB_IDX_SLOT_CNT ) {
+    if( pc->dirty && !(pages[ pg-p0 ].flags & FD_ACCDB_IDX_OVERFLOWED) ) place_set( pc->dirty, pg-p0 );
     pages[ pg-p0 ].flags |= FD_ACCDB_IDX_OVERFLOWED;
     if( FD_UNLIKELY( ++pg>=p1 ) ) FD_LOG_ERR(( "snapshot placement range overflow" ));
+    if( FD_UNLIKELY( pc->ld && !place_bit( pc->ld, pg-p0 ) ) ) place_load( pc, pg-p0, fd_ulong_min( pg-p0+PLACE_GAP, p1-p0 ) );
   }
+  if( pc->dirty ) place_set( pc->dirty, pg-p0 );
   fd_accdb_idx_page_t * P   = &pages[ pg-p0 ];
   uchar *               row = tags+(pg-p0)*64UL;
   ulong                 i   = (ulong)fd_ulong_find_lsb( place_tag_mask( row, 0 ) );
@@ -5486,17 +5544,18 @@ place_rec( place_ctx_t *                pc,
 #define PLACE_CF_RING (16UL)
 
 static void
-place_settle( place_ctx_t *         pc,
-              ulong                 p0,
-              ulong                 p1,
-              fd_accdb_idx_page_t * pages,
-              uchar *               tags ) {
-  fd_accdb_t * accdb = pc->accdb;
+place_settle( place_ctx_t * pc ) {
+  fd_accdb_t *          accdb = pc->accdb;
+  ulong                 p0    = pc->p0;
+  ulong                 p1    = pc->p1;
+  fd_accdb_idx_page_t * pages = pc->pages;
+  uchar *               tags  = pc->tags;
   int tomb = !pc->incr || pc->apply;
   /* filter inserts trail by PLACE_CF_RING keys with their words prefetched */
   ulong cf_i1[ PLACE_CF_RING ], cf_i2[ PLACE_CF_RING ], cf_fp[ PLACE_CF_RING ];
   ulong cf_n = 0UL;
   for( ulong pg=p0; pg<p1; pg++ ) {
+    if( pc->dirty && !place_bit( pc->dirty, pg-p0 ) ) continue;
     fd_accdb_idx_page_t * P   = &pages[ pg-p0 ];
     uchar *               row = tags+(pg-p0)*64UL;
     for( ulong m=~place_tag_mask( row, 0 ); m; m=fd_ulong_pop_lsb( m ) ) {
@@ -5534,7 +5593,24 @@ place_settle( place_ctx_t *         pc,
     ulong k = j%PLACE_CF_RING;
     fd_accdb_cf_insert_key( accdb->cf, cf_i1[ k ], cf_i2[ k ], cf_fp[ k ], &accdb->idx_rng );
   }
-  if( tomb ) fd_accdb_idx_io( accdb->bkt->fd, 1, pages, (p1-p0)*FD_ACCDB_IDX_PAGE_SZ, (accdb->bkt->page0+p0)*FD_ACCDB_IDX_PAGE_SZ );
+  if( !tomb ) return;
+  if( !pc->dirty ) {
+    fd_accdb_idx_io( accdb->bkt->fd, 1, pages, (p1-p0)*FD_ACCDB_IDX_PAGE_SZ, (accdb->bkt->page0+p0)*FD_ACCDB_IDX_PAGE_SZ );
+    return;
+  }
+  /* dirty runs; small gaps of loaded clean pages ride along */
+  ulong a = ULONG_MAX, last = 0UL;
+  for( ulong i=0UL; i<p1-p0; i++ ) {
+    if( !place_bit( pc->dirty, i ) ) continue;
+    if( a!=ULONG_MAX ) {
+      int join = i-last<=PLACE_GAP;
+      for( ulong j=last+1UL; join && j<i; j++ ) join = place_bit( pc->ld, j );
+      if( !join ) { fd_accdb_idx_io( accdb->bkt->fd, 1, pages+a, (last+1UL-a)*FD_ACCDB_IDX_PAGE_SZ, (accdb->bkt->page0+p0+a)*FD_ACCDB_IDX_PAGE_SZ ); a = ULONG_MAX; }
+    }
+    if( a==ULONG_MAX ) a = i;
+    last = i;
+  }
+  if( a!=ULONG_MAX ) fd_accdb_idx_io( accdb->bkt->fd, 1, pages+a, (last+1UL-a)*FD_ACCDB_IDX_PAGE_SZ, (accdb->bkt->page0+p0+a)*FD_ACCDB_IDX_PAGE_SZ );
 }
 
 /* place_all: scatters the stage [s0,s1) by range into run files after
@@ -5596,17 +5672,22 @@ place_all( place_ctx_t * pc,
      overlap the next range, which picks them up from disk. */
   fd_accdb_idx_page_t *  pages = (fd_accdb_idx_page_t *)win;
   uchar *                tags  = win+FD_ACCDB_PLACE_PG_MAX*FD_ACCDB_IDX_PAGE_SZ;
-  fd_accdb_stage_rec_t * buf   = (fd_accdb_stage_rec_t *)( tags+FD_ACCDB_PLACE_PG_MAX*64UL );
-  ulong                  buf_n = ( FD_ACCDB_PLACE_WINDOW-meta_sz-FD_ACCDB_PLACE_PG_MAX*(FD_ACCDB_IDX_PAGE_SZ+64UL) )/sizeof(fd_accdb_stage_rec_t);
+  ulong                  bm_w  = ( FD_ACCDB_PLACE_PG_MAX+63UL )>>6;
+  ulong *                bm    = (ulong *)( tags+FD_ACCDB_PLACE_PG_MAX*64UL );     /* ld, dirty, want */
+  fd_accdb_stage_rec_t * buf   = (fd_accdb_stage_rec_t *)( bm+fd_ulong_align_up( 3UL*bm_w, 8UL ) );
+  ulong                  buf_n = ( FD_ACCDB_PLACE_WINDOW-meta_sz-(ulong)( (uchar *)buf-win ) )/sizeof(fd_accdb_stage_rec_t);
+  pc->pages = pages;
+  pc->tags  = tags;
   ulong base = 0UL;
   for( ulong r=0UL; r<R; r++ ) {
     ulong p0 = r*FD_ACCDB_PLACE_RANGE_PG;
     ulong p1 = fd_ulong_min( npage, p0+FD_ACCDB_PLACE_PG_MAX );
     ulong pg_bytes = (p1-p0)*FD_ACCDB_IDX_PAGE_SZ;
     if( !cnt[ r ] && pc->incr ) continue;
+    pc->p0 = p0; pc->p1 = p1;
     if( pc->incr ) {
-      fd_accdb_idx_io( accdb->bkt->fd, 0, pages, pg_bytes, (accdb->bkt->page0+p0)*FD_ACCDB_IDX_PAGE_SZ );
-      place_tags_build( pages, tags, p1-p0, shmem->seed );
+      pc->ld = bm; pc->dirty = bm+bm_w;
+      memset( bm, 0, 2UL*bm_w*sizeof(ulong) );
     } else {
       ulong carry = r ? fd_ulong_min( FD_ACCDB_IDX_PROBE_MAX, p1-p0 ) : 0UL;
       if( carry ) fd_accdb_idx_io( accdb->bkt->fd, 0, pages, carry*FD_ACCDB_IDX_PAGE_SZ, (accdb->bkt->page0+p0)*FD_ACCDB_IDX_PAGE_SZ );
@@ -5617,16 +5698,17 @@ place_all( place_ctx_t * pc,
     for( ulong i=0UL; i<cnt[ r ]; i+=buf_n ) {
       ulong n = fd_ulong_min( buf_n, cnt[ r ]-i );
       fd_accdb_idx_io( accdb->bkt->fd, 0, buf, n*sizeof(*buf), shmem->stage_base+runs+(base+i)*sizeof(*buf) );
+      if( pc->incr ) place_load_homes( pc, buf, n, bm+2UL*bm_w );
       for( ulong k=0UL; k<n; k++ ) {
         if( FD_LIKELY( k+8UL<n ) ) { /* home row and header, 8 ahead */
           ulong hp = buf[ k+8UL ].home-p0;
           __builtin_prefetch( tags+hp*64UL, 1, 0 );
           __builtin_prefetch( &pages[ hp ], 1, 0 );
         }
-        if( FD_UNLIKELY( place_rec( pc, p0, p1, &buf[ k ], pages, tags ) ) ) return -1;
+        if( FD_UNLIKELY( place_rec( pc, &buf[ k ] ) ) ) return -1;
       }
     }
-    place_settle( pc, p0, p1, pages, tags );
+    place_settle( pc );
     base += cnt[ r ];
   }
   return 0;
