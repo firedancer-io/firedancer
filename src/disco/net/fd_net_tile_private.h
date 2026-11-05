@@ -316,6 +316,23 @@ fd_net_rx_dst_port_lookup( fd_net_tile_t const * ctx,
   return *out_idx<ctx->rx_out_cnt;
 }
 
+/* Validate a nonzero IPv4 UDP checksum over the already bounded datagram.
+   Unlike fd_ip4_udp_check, this does not require readable tail padding. */
+static inline int
+fd_net_rx_udp_checksum_valid( fd_ip4_hdr_t const * ip4,
+                              fd_udp_hdr_t const * udp,
+                              ulong                udp_sz ) {
+  uchar const * addr = (uchar const *)&ip4->saddr;
+  ulong sum = FD_IP4_HDR_PROTOCOL_UDP + udp_sz;
+  for( ulong i=0UL; i<8UL; i+=2UL ) sum += fd_ushort_bswap( FD_LOAD( ushort, addr+i ) );
+
+  uchar const * p = (uchar const *)udp;
+  for( ; udp_sz>=2UL; udp_sz-=2UL, p+=2UL ) sum += fd_ushort_bswap( FD_LOAD( ushort, p ) );
+  if( udp_sz ) sum += (ulong)p[0]<<8;
+  while( sum>>16 ) sum = (sum & 0xffffUL) + (sum>>16);
+  return sum==0xffffUL;
+}
+
 /* fd_net_rx_pkt validates and publishes an RX packet.  It returns whether
    publication succeeded and sets freed_chunk to a reusable buffer. */
 static inline int
@@ -457,6 +474,16 @@ fd_net_rx_pkt( fd_net_tile_t *     ctx,
       if( port_idx==ctx->dst_port_cnt ) goto iavf_non_fd_pkt;
     }
     ctx->metrics.rx_drop_cnt[ FD_METRICS_ENUM_PKT_RX_DROP_REASON_V_DST_PORT_UNBOUND_IDX ]++;
+    return 0;
+  }
+
+  /* IPv4 permits an omitted UDP checksum (zero).  Owned datagrams with a
+     nonzero checksum must validate in software: neither the iavf completion
+     nor AF_XDP RX contract supplies a trusted checksum verdict here.  Use
+     the inner IP pseudo header after GRE and only the declared UDP length.
+     Check after port lookup so unrelated kernel traffic keeps its path. */
+  if( FD_UNLIKELY( udp_hdr->check && !fd_net_rx_udp_checksum_valid( ip4_hdr, udp_hdr, udp_sz ) ) ) {
+    ctx->metrics.rx_drop_cnt[ FD_METRICS_ENUM_PKT_RX_DROP_REASON_V_MALFORMED_IDX ]++;
     return 0;
   }
 
