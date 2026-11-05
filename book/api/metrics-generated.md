@@ -1983,6 +1983,15 @@
 
 </div>
 
+## Failov Tile
+
+<div class="metrics">
+
+| Metric | Type | Description |
+|--------|------|-------------|
+
+</div>
+
 ## Snapmk Tile
 
 <div class="metrics">
