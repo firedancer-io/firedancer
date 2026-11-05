@@ -23,6 +23,7 @@ struct fake_client {
   uint  req_sz;
   uint  req_cur;
   uint  res_sz;
+  uint  send_max;
   uint  conn_alive:1;
   ulong req_cnt;
 
@@ -38,6 +39,7 @@ fake_client_init( fake_client_t * fake ) {
   fake->req_sz        = 0;
   fake->req_cur       = 0;
   fake->res_sz        = 0;
+  fake->send_max      = 0;
   fake->conn_alive    = 0;
   fake->defer_sqe_cnt = 0;
   fake->req_cnt       = 0;
@@ -99,6 +101,7 @@ fake_client_handle_sqe( fake_client_t *     fake,
     FD_TEST( sqe->flags & FD_IOSQE_FIXED_FILE );
     ulong len = fd_ulong_min( sqe->len, sizeof(fake->res)-fake->res_sz );
     FD_TEST( len==sqe->len );
+    if( fake->send_max ) len = fd_ulong_min( len, fake->send_max );
     memcpy( fake->res+fake->res_sz, (void const *)sqe->addr, len );
     fake->res_sz += (uint)len;
     fake_client_post_cqe( cq, sqe->user_data, (int)len, 0U );
@@ -1332,6 +1335,49 @@ FD_UNIT_TEST( delete_other_snapshot_during_download ) {
   ulong event_cnt = snapsv_events( env, event, OUT_DEPTH );
   FD_TEST( event_cnt>=2UL && event[ event_cnt-1UL ].eom );
   FD_TEST( event[ event_cnt-1UL ].msg.close_kind==FD_SNAPSV_CLOSE_DONE );
+  snapsv_env_destroy( env );
+}
+
+static int
+last_close_kind( snapsv_env_t * env ) {
+  ulong seq = env->out_seq[ 0 ];
+  if( !seq ) return -1;
+  fd_frag_meta_t const * mline = env->out_mcache[ 0 ] + fd_mcache_line_idx( seq-1UL, OUT_DEPTH );
+  if( !fd_frag_meta_ctl_eom( mline->ctl ) ) return -1;
+  fd_snapsv_msg_snap_t const * msg = fd_chunk_to_laddr_const( env->ctx->out.mem, mline->chunk );
+  return (int)msg->close_kind;
+}
+
+FD_UNIT_TEST( transfer_deadline ) {
+  char name[ FD_SNAP_NAME_MAX ];
+  snapsv_env_t * env = snap_env( name, 1 );
+  fd_snapsv_t *  ctx = env->ctx;
+
+  char req[ 256 ];
+  fd_cstr_printf( req, sizeof(req), NULL, "GET /%s HTTP/1.1\r\n\r\n", name );
+  fake_client_t fake;
+  fake_client_req( &fake, req );
+  uint iter = 0U;
+  for( ; iter<64U && !shoveling_conn( ctx ); iter++ ) snapsv_step( env, &fake, iter );
+  snapsv_conn_t * conn = shoveling_conn( ctx );
+  FD_TEST( conn );
+  FD_TEST( last_close_kind( env )<0 );
+
+  fake.send_max = 1U;
+  long now        = (long)iter*STEP_NANOS;
+  int  close_kind = -1;
+  for( ulong i=0UL; i<1400UL; i++ ) {
+    now += (long)9e9;
+    int charge_busy = 0;
+    after_credit_pre( ctx, env->stem, &charge_busy, now );
+    fake_client_drive( &fake, ctx->ring->sq, ctx->ring->cq );
+    after_credit_post( ctx, env->stem, &charge_busy, now );
+    int kind = last_close_kind( env );
+    if( kind>=0 ) close_kind = kind;
+    if( i<1300UL ) FD_TEST( shoveling_conn( ctx )==conn && !conn->closing && close_kind<0 );
+  }
+  FD_TEST( !ctx->conn_cnt );
+  FD_TEST( close_kind==FD_SNAPSV_CLOSE_ABORT );
   snapsv_env_destroy( env );
 }
 
