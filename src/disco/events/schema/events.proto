@@ -1474,6 +1474,8 @@ message MetricsNetPktTxDropped {
   uint64 ring_full = 8;
   // GRE tunnel addresses missing or outer route is itself tunnelled
   uint64 gre_no_route = 9;
+  // Socket send failed or failed to send the entire packet
+  uint64 socket_send_failure = 354873657;
 }
 
 // Received packets dropped, by reason
@@ -1570,6 +1572,8 @@ message MetricsMlx5PktTxDropped {
   uint64 ring_full = 8;
   // GRE tunnel addresses missing or outer route is itself tunnelled
   uint64 gre_no_route = 9;
+  // Socket send failed or failed to send the entire packet
+  uint64 socket_send_failure = 482779610;
 }
 
 // Received packets dropped, by reason
@@ -8170,6 +8174,8 @@ message MetricsIavfPktTxDropped {
   uint64 ring_full = 8;
   // GRE tunnel addresses missing or outer route is itself tunnelled
   uint64 gre_no_route = 9;
+  // Socket send failed or failed to send the entire packet
+  uint64 socket_send_failure = 322423358;
 }
 
 // Received packets dropped, by reason
@@ -9630,6 +9636,8 @@ message MetricsNet {
   uint64 vlan_pkt_rx = 48;
   // Transmit jobs that failed route resolution, by reason
   MetricsNetPktTxRoutingFailed pkt_tx_routing_failed = 49;
+  // Packets sent via a kernel socket instead of the configured provider; subset of PktTxSubmitted
+  uint64 socket_pkt_tx_submitted = 455291496;
 }
 
 // Metrics of one mlx5 tile instance, one row per sweep
@@ -9710,6 +9718,8 @@ message MetricsMlx5 {
   uint64 vlan_pkt_rx = 37;
   // Transmit jobs that failed route resolution, by reason
   MetricsMlx5PktTxRoutingFailed pkt_tx_routing_failed = 38;
+  // Packets sent via a kernel socket instead of the NIC
+  uint64 socket_pkt_tx_submitted = 292288909;
 }
 
 // Metrics of one sock tile instance, one row per sweep
@@ -13313,6 +13323,8 @@ message MetricsIavf {
   uint64 vlan_pkt_rx = 41;
   // Transmit jobs that failed route resolution, by reason
   MetricsIavfPktTxRoutingFailed pkt_tx_routing_failed = 42;
+  // Packets sent via a kernel socket instead of the NIC
+  uint64 socket_pkt_tx_submitted = 475815439;
 }
 
 // Metrics of one failov tile instance, one row per sweep

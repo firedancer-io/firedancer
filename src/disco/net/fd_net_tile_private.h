@@ -18,6 +18,7 @@
 #include "../../util/net/fd_gre.h"
 #include "../../util/net/fd_ip4.h"
 #include "../../util/net/fd_udp.h"
+#include "fd_net_sock.h"
 
 #define FD_NET_IN_KIND_TX      (0U)
 #define FD_NET_IN_KIND_IPROUTE (1U)
@@ -43,6 +44,9 @@ struct fd_net_tx_route {
   uint   use_gre;
   uint   gre_outer_src_ip;
   uint   gre_outer_dst_ip;
+  /* routing_failure is set if userland routing failed.  The packet is
+     then sent on fd_net_tile_t::sock and routed by the kernel. */
+  int    routing_failure;
 };
 typedef struct fd_net_tx_route fd_net_tx_route_t;
 
@@ -78,6 +82,9 @@ struct fd_net_tile {
   ulong  rx_out_cnt;
   uint   gre_tunnel_ip[ FD_NET_GRE_MAX ];
 
+  /* sock is a raw socket for packets that failed userland routing */
+  fd_net_sock_t sock;
+
   struct {
     ulong rx_pkt_cnt;
     ulong rx_bytes_total;
@@ -90,6 +97,7 @@ struct fd_net_tile {
     ulong tx_drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_CNT ];
     ulong tx_routing_failure_cnt[ FD_METRICS_ENUM_PKT_TX_ROUTING_FAILURE_REASON_CNT ];
     ulong tx_gre_cnt;
+    ulong tx_sock_cnt;
   } metrics;
 };
 typedef struct fd_net_tile fd_net_tile_t;
@@ -248,6 +256,25 @@ fd_net_tx_pkt_prep( fd_net_tile_t * ctx,
   };
   FD_STORE( fd_gre_hdr_t, frame+sizeof(fd_eth_hdr_t)+sizeof(fd_ip4_hdr_t), gre_hdr );
   *frame_sz = sizeof(fd_eth_hdr_t)+outer_ip_sz;
+  return 1;
+}
+
+/* fd_net_tx_sock_send sends a prepared frame on ctx->sock.  frame
+   points to the Ethernet header and frame_sz is the size of the whole
+   frame.  The Ethernet header is not sent: the kernel routes the packet
+   and builds its own L2 header.  Returns 1 if the packet was sent and 0
+   after counting a dropped packet.  The caller updates the packet and
+   byte counters, because they differ between providers. */
+static inline int
+fd_net_tx_sock_send( fd_net_tile_t * ctx,
+                     uchar const *   frame,
+                     ulong           frame_sz ) {
+  fd_ip4_hdr_t const * ip4 = (fd_ip4_hdr_t const *)( frame+sizeof(fd_eth_hdr_t) );
+  if( FD_UNLIKELY( !fd_net_sock_send( &ctx->sock, ip4, frame_sz-sizeof(fd_eth_hdr_t) ) ) ) {
+    ctx->metrics.tx_drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_SOCKET_SEND_FAILURE_IDX ]++;
+    return 0;
+  }
+  ctx->metrics.tx_sock_cnt++;
   return 1;
 }
 
