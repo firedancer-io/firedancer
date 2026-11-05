@@ -123,12 +123,12 @@ check_wire( fd_vote_t const *    v,
   fd_bls_sig_compress( fd_vote_sig( v ), comp_sig );
   fd_memset( comp_sig+FD_BLS_SIG_COMPRESSED_SZ, 0xEE, FD_BLS_SIG_SZ-FD_BLS_SIG_COMPRESSED_SZ );
   FD_TEST( comp_sig[0]&0x80U );
-  FD_TEST( fd_vote_de( &rt, wire_comp, n )==FD_VOTE_DE_SUCCESS );
-  FD_TEST( fd_bls_sig_eq( fd_vote_sig( &rt ), fd_vote_sig( v ) ) );
+  FD_TEST( fd_vote_de( &rt, wire_comp, n )==FD_VOTE_DE_ERR_INVAL ); /* compressed in the uncompressed slot */
 
   fd_memset( comp_sig, 0, FD_BLS_SIG_SZ );
-  comp_sig[0] = 0x40; FD_TEST( fd_vote_de( &rt, wire_comp, n )==FD_VOTE_DE_ERR_SIG ); /* uncompressed identity */
-  comp_sig[0] = 0xC0; FD_TEST( fd_vote_de( &rt, wire_comp, n )==FD_VOTE_DE_ERR_SIG ); /* compressed identity   */
+  comp_sig[0] = 0x40; FD_TEST( fd_vote_de( &rt, wire_comp, n )==FD_VOTE_DE_ERR_SIG   ); /* uncompressed identity */
+  comp_sig[0] = 0xC0; FD_TEST( fd_vote_de( &rt, wire_comp, n )==FD_VOTE_DE_ERR_INVAL ); /* compressed identity   */
+  comp_sig[0] = 0x20; FD_TEST( fd_vote_de( &rt, wire_comp, n )==FD_VOTE_DE_ERR_INVAL ); /* sort flag            */
 
   uchar          payload[ FD_VOTE_SIGNING_SER_MAX ];
   ulong          payload_sz = fd_vote_signing_ser( v->kind, fd_vote_slot( v ), h, TEST_SHRED_VERSION, payload );

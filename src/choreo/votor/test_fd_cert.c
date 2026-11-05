@@ -751,8 +751,7 @@ test_wire_compressed( void ) {
   fd_bls_sig_compress( &rt.notar.agg.sig, sig );
   fd_memset( sig+FD_BLS_SIG_COMPRESSED_SZ, 0xEE, FD_BLS_SIG_SZ-FD_BLS_SIG_COMPRESSED_SZ );
   FD_TEST( sig[0]&0x80U );
-  FD_TEST( fd_cert_de( &rt, &bit_cnt, buf, sz )==FD_CERT_DE_SUCCESS );
-  FD_TEST( cert_verify( &rt, e )==FD_CERT_VERIFY_SUCCESS );
+  FD_TEST( fd_cert_de( &rt, &bit_cnt, buf, sz )==FD_CERT_DE_ERR_INVAL ); /* compressed in the uncompressed slot */
 
   free( em );
 }
