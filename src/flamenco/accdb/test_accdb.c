@@ -2371,6 +2371,74 @@ test_txn_footprint_growth( void ) {
   FD_TEST( fp_96-fp_64==32UL*(8UL+4UL) );
 }
 
+/* Per-join free-line magazines: writable acquire/release recycles
+   destination lines through the join's magazine; the shared free list
+   only sees the overflow.  Checks that (a) data stays correct across
+   many writable cycles, (b) the lines a join holds in magazines never
+   exceed its bound (occupancy = lines not on the shared free list), (c)
+   reservations still admit a full worst-case acquire on every class at
+   the smallest legal cache, and (d) fd_accdb_reset drops magazines. */
+
+static void
+test_magazine( void ) {
+  int fd;
+  ulong joiners = 2UL;
+  fd_accdb_t * accdb = test_setup_ex( &fd, 1024UL, 8UL, 1024UL, 64UL, 11UL<<20UL, 64UL<<20, TEST_CACHE_MIN_RESERVED, joiners );
+  fd_accdb_fork_id_t root = fd_accdb_attach_child( accdb, SENTINEL );
+  fd_accdb_fork_id_t f    = fd_accdb_attach_child( accdb, root );
+
+  ulong used0[ FD_ACCDB_CACHE_CLASS_CNT ], max[ FD_ACCDB_CACHE_CLASS_CNT ], res[ FD_ACCDB_CACHE_CLASS_CNT ];
+  fd_accdb_cache_class_occupancy( accdb, used0, max, res );
+
+  uchar pk[ 32 ] = { 0x6A };
+  uchar data[ 200 ];
+  for( ulong i=0UL; i<500UL; i++ ) {
+    fd_memset( data, (int)(i&0xFF), sizeof(data) );
+    accdb_write( accdb, f, pk, 1000UL+i, data, 165UL+(i%3UL)*10UL, owner2 );
+    ulong lamports, data_len; uchar out[ 256 ];
+    FD_TEST( accdb_read( accdb, f, pk, &lamports, out, &data_len, NULL ) );
+    FD_TEST( lamports==1000UL+i && data_len==165UL+(i%3UL)*10UL && out[ 0 ]==(uchar)(i&0xFF) );
+  }
+
+  /* Lines held outside the shared free list beyond the account's own
+     resident line are the magazines: bounded by fd_accdb_mag_max. */
+  ulong used1[ FD_ACCDB_CACHE_CLASS_CNT ];
+  fd_accdb_cache_class_occupancy( accdb, used1, max, res );
+  for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) {
+    ulong held = used1[ c ]>used0[ c ] ? used1[ c ]-used0[ c ] : 0UL;
+    FD_TEST( held<=fd_accdb_mag_max( c, max[ c ], joiners )+1UL ); /* +1: the account's own line */
+    /* reservations never promise magazined capacity */
+    if( res[ c ]!=ULONG_MAX ) FD_TEST( res[ c ]+fd_accdb_mag_held( c, max[ c ], joiners )<=max[ c ] );
+  }
+
+  /* Class 6 gets no magazine, class 7 at most a couple of lines. */
+  FD_TEST( !fd_accdb_mag_max( 6UL, max[ 6 ], joiners ) );
+  FD_TEST( fd_accdb_mag_max( 7UL, max[ 7 ], joiners )<=FD_ACCDB_MAG_DEPTH_STAGING );
+
+  /* Pressure flush: mark every magazined class pressured (as a join's
+     CLOCK eviction would); the next release returns this join's
+     magazined lines, so occupancy drops back to the resident lines. */
+  for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) test_shmem_mem->mag_pressure[ c ].val = fd_accdb_mag_max( c, max[ c ], joiners ) ? 1UL : 0UL;
+  accdb_write( accdb, f, pk, 5UL, data, 165UL, owner2 );
+  for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) FD_TEST( !test_shmem_mem->mag_pressure[ c ].val );
+  ulong used2[ FD_ACCDB_CACHE_CLASS_CNT ];
+  fd_accdb_cache_class_occupancy( accdb, used2, max, res );
+  for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) if( c!=6UL ) FD_TEST( used2[ c ]<=used0[ c ]+1UL );
+
+  /* A reset drops magazines: occupancy returns to empty and the engine
+     still works. */
+  fd_accdb_reset( accdb );
+  drain_background( accdb ); /* reset posts a command for T2 */
+  fd_accdb_cache_class_occupancy( accdb, used1, max, res );
+  for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) FD_TEST( !used1[ c ] );
+  root = fd_accdb_attach_child( accdb, SENTINEL );
+  f    = fd_accdb_attach_child( accdb, root );
+  accdb_write( accdb, f, pk, 7UL, data, 165UL, owner2 );
+  ulong lamports;
+  FD_TEST( accdb_read( accdb, f, pk, &lamports, NULL, NULL, NULL ) && lamports==7UL );
+  test_teardown( accdb, fd );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -2486,6 +2554,9 @@ main( int     argc,
 
   FD_LOG_NOTICE(( "test_pd_write_bit_and_probe ..." ));
   test_pd_write_bit_and_probe();
+
+  FD_LOG_NOTICE(( "test_magazine ..." ));
+  test_magazine();
 
   FD_LOG_NOTICE(( "success" ));
 

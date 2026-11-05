@@ -436,13 +436,16 @@ fd_accdb_shmem_new( void * shmem,
     }
   }
 
+  accdb->mag_gen = 0UL;
+  for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) accdb->mag_pressure[ c ].val = 0UL;
+
   /* If a class has enough slots for every joiner's worst case
      simultaneously (cache_min_reserved per joiner), no reservation can
      ever overflow.  Sentinel ULONG_MAX tells acquire/release to skip
      the atomic counters entirely. */
   for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) {
-    if( cache_class_max[ c ]>=cache_min_reserved*joiner_cnt ) accdb->cache_class_used[ c ].val = ULONG_MAX;
-    else                                                      accdb->cache_class_used[ c ].val = 0UL;
+    ulong worst = cache_min_reserved*joiner_cnt + fd_accdb_mag_held( c, cache_class_max[ c ], joiner_cnt );
+    accdb->cache_class_used[ c ].val = fd_ulong_if( cache_class_max[ c ]>=worst, ULONG_MAX, 0UL );
   }
 
   accdb->delta.seed       = seed+1UL;

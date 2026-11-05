@@ -164,6 +164,53 @@ typedef struct fd_accdb_partition fd_accdb_partition_t;
 
 #include "../../util/tmpl/fd_dlist.c"
 
+/* Per-join free cache-line magazines (fd_accdb.c mag_*).
+
+   Magazine depth per class.  Small classes recycle many lines per
+   transaction (destination lines, cold-load lines).  Class 6 (1 MiB) is
+   rarely allocated per transaction and gets none.  Class 7 (10 MiB)
+   holds every writable account's staging line, so it keeps a magazine,
+   but only FD_ACCDB_MAG_DEPTH_STAGING lines per join, to bound how much
+   10 MiB memory sits idle (and those return under pressure, see
+   mag_flush_if_pressured). */
+
+#define FD_ACCDB_MAG_DEPTH         (16UL) /* lines per join, classes 0..FD_ACCDB_MAG_CLASS_MAX */
+#define FD_ACCDB_MAG_CLASS_MAX     (5UL)  /* largest small class with a full magazine */
+#define FD_ACCDB_MAG_DEPTH_STAGING (2UL)  /* class-7 lines per join */
+
+/* All joins' magazines together hold at most 1/FD_ACCDB_MAG_CLASS_DIV
+   of a class, so idle magazined lines cost at most that share of the
+   class's cache capacity. */
+
+#define FD_ACCDB_MAG_CLASS_DIV     (16UL)
+
+/* fd_accdb_mag_max is the magazine depth of class size_class for one of
+   joiner_cnt joins sharing class_max lines: the per-class depth above,
+   capped so the joins' magazines together hold at most
+   class_max/FD_ACCDB_MAG_CLASS_DIV lines. */
+
+static inline ulong
+fd_accdb_mag_max( ulong size_class,
+                  ulong class_max,
+                  ulong joiner_cnt ) {
+  ulong depth;
+  if(      size_class<=FD_ACCDB_MAG_CLASS_MAX ) depth = FD_ACCDB_MAG_DEPTH;
+  else if( size_class==7UL                    ) depth = FD_ACCDB_MAG_DEPTH_STAGING;
+  else                                          return 0UL;
+  ulong share = class_max/( FD_ACCDB_MAG_CLASS_DIV*fd_ulong_max( joiner_cnt, 1UL ) );
+  return fd_ulong_min( share, depth );
+}
+
+/* fd_accdb_mag_held is the most lines all joins' magazines can hold in a
+   class: capacity that reservations must not promise. */
+
+static inline ulong
+fd_accdb_mag_held( ulong size_class,
+                   ulong class_max,
+                   ulong joiner_cnt ) {
+  return fd_ulong_max( joiner_cnt, 1UL )*fd_accdb_mag_max( size_class, class_max, joiner_cnt );
+}
+
 struct fd_accdb_cache_key {
   uchar pubkey[ 32UL ];
   uint generation;
@@ -521,6 +568,17 @@ struct fd_accdb_shmem_private {
   struct __attribute__((aligned(64))) { ulong val; } joiner_epochs[ FD_ACCDB_MAX_JOINERS ];
   ulong joiner_cnt __attribute__((aligned(64)));
   ulong deferred_free_dlist_off;
+
+  /* Bumped by fd_accdb_reset, which rebuilds the cache free lists from
+     scratch: a join whose magazines were filled under an older value
+     drops them (the lines they named were reinitialized). */
+  ulong mag_gen __attribute__((aligned(64)));
+
+  /* mag_pressure[c] is set by a join that had to CLOCK-evict in class c;
+     every join flushes its class-c magazine back to the shared free list
+     at its next release and clears the flag, so idle magazined lines
+     return to circulation when another join is short of lines. */
+  struct __attribute__((aligned(64))) { ulong val; } mag_pressure[ FD_ACCDB_CACHE_CLASS_CNT ];
 
   fd_accdb_shmem_metrics_t shmetrics[1];
 
