@@ -3,6 +3,10 @@
 
 #include "fd_gui.h"
 
+/* Print cnt>0 decoded events from gui->shred_scratch as one complete
+   slot/live_shreds message, with independent delta references. */
+void fd_gui_printf_shred_chunk( fd_gui_t * gui, ulong cnt );
+
 /* These functions format the current state of the GUI as various JSON
    messages into the GUI outgoing message buffer, where they can be sent
    to a specific WebSocket client, or broadcast out to all clients. */

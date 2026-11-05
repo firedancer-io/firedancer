@@ -948,7 +948,8 @@ fd_gui_store_ts_scan_advance( fd_gui_store_ts_iter_t * iter ) {
   ulong              ring_idx = iter->_rec_sz - 1UL;
   fd_gui_store_ring_t * p        = &db->super->ring[ ring_idx ];
 
-  ulong cur = fd_ulong_max( (ulong)iter->_cur, p->evict_cur );
+  ulong cur = fd_ulong_min( fd_ulong_max( (ulong)iter->_cur, p->evict_cur ), iter->_cur_hi );
+  iter->lost_records += cur-(ulong)iter->_cur;
   for( ; cur<iter->_cur_hi; cur++ ) {
     uchar const * slot   = (uchar const *)fd_gui_store_slot( db, ring_idx, p, cur );
     ulong         window = fd_gui_store_ts_window( p, slot );

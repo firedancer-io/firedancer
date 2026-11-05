@@ -8,6 +8,7 @@ struct fd_gui;
 typedef struct fd_gui fd_gui_t;
 
 #define FD_GUI_SHRED_BATCH_SZ       (4096UL)
+#define FD_GUI_SHRED_BATCH_EVENT_MAX ((FD_GUI_SHRED_BATCH_SZ-16UL)/9UL)
 #define FD_GUI_SHRED_EVENT_TS_MAX   (0xFFFFFFUL)
 
 /* FEC staging holds at most FD_GUI_FEC_RECORD_MAX records, and only
@@ -122,7 +123,37 @@ struct fd_gui_shred_event_iter {
 };
 typedef struct fd_gui_shred_event_iter fd_gui_shred_event_iter_t;
 
+/* A join-time snapshot, resumable across GUI input/eviction.  Only the
+   two copied batches are retained; no record pointer or lock survives a
+   step.  The store cursor stops at the head captured by begin. */
+struct fd_gui_shred_history {
+  fd_gui_store_ts_iter_t iter;
+  fd_gui_shred_batch_t   pending;
+  fd_gui_shred_batch_t   active;
+  long                  after_ns;
+  long                  before_ns;
+  int                   pending_valid;
+  int                   active_valid;
+};
+typedef struct fd_gui_shred_history fd_gui_shred_history_t;
+
 FD_PROTOTYPES_BEGIN
+
+void
+fd_gui_shred_history_begin( fd_gui_t *               gui,
+                            fd_gui_shred_history_t * history,
+                            long                     after_ns,
+                            long                     before_ns );
+
+/* Decode at most batch_budget batches into out (capacity at least
+   batch_budget*FD_GUI_SHRED_BATCH_EVENT_MAX).  Returns 1 with work still
+   pending, 0 when complete, or -1 if unread history was evicted.  cnt is
+   set even for the final step. */
+int
+fd_gui_shred_history_next( fd_gui_shred_history_t * history,
+                           fd_gui_shred_scratch_t * out,
+                           ulong                    batch_budget,
+                           ulong *                  cnt );
 
 /* Iterate by original insertion time, inclusive at both ends.  Event
    timestamps are preserved verbatim and need not be ordered. */

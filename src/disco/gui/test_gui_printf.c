@@ -389,14 +389,75 @@ test_message( void ) {
    of assorted sizes both ways (the fallback forced by shrinking the
    scratch) and compare. */
 
+/* Compare the resumable join snapshot with the original events supplied
+   to the codec.  Yields must neither include later appends nor depend on
+   live store/builder pointers; each chunk is independently decodable. */
+static void
+check_shred_history( fd_gui_t *                    gui,
+                     fd_gui_shred_history_t *      history,
+                     fd_gui_shred_event_t const * expected,
+                     ulong                        expected_cnt,
+                     long                         lo,
+                     long                         hi,
+                     fd_http_server_t *           oracle ) {
+  ulong pos = 0UL;
+  int more;
+  do {
+    ulong reads = fd_gui_store_metrics( gui->db )->ts_read_records[ FD_GUI_HIST_SHRED_EVENTS ];
+    ulong cnt;
+    more = fd_gui_shred_history_next( history, gui->shred_scratch.ev, 4UL, &cnt );
+    FD_TEST( more>=0 && cnt<=4UL*FD_GUI_SHRED_BATCH_EVENT_MAX );
+    FD_TEST( fd_gui_store_metrics( gui->db )->ts_read_records[ FD_GUI_HIST_SHRED_EVENTS ]-reads<=4UL );
+    FD_TEST( !history->iter.rec );
+    ulong min_slot = ULONG_MAX;
+    long min_ts = LONG_MAX;
+    fd_gui_shred_event_t selected[ 4UL*FD_GUI_SHRED_BATCH_EVENT_MAX ];
+    for( ulong i=0UL; i<cnt; i++ ) {
+      while( pos<expected_cnt && (expected[ pos ].insert_time_ns<lo || expected[ pos ].insert_time_ns>hi) ) pos++;
+      FD_TEST( pos<expected_cnt );
+      fd_gui_shred_event_t const * e = &expected[ pos++ ];
+      fd_gui_shred_scratch_t const * a = &gui->shred_scratch.ev[ i ];
+      FD_TEST( a->slot==e->slot && a->idx==e->idx && a->event==e->event && a->event_time_ns==e->event_time_ns );
+      selected[ i ] = *e;
+      min_slot = fd_ulong_min( min_slot, e->slot );
+      min_ts = fd_long_min( min_ts, e->event_time_ns );
+    }
+    if( cnt ) {
+      fd_gui_printf_shred_chunk( gui, cnt );
+      fd_http_server_printf( oracle, "{\"topic\":\"slot\",\"key\":\"live_shreds\",\"value\":{\"reference_slot\":%lu,\"reference_ts\":\"%ld\",\"slot_delta\":[", min_slot, min_ts );
+      for( ulong i=0UL; i<cnt; i++ ) fd_http_server_printf( oracle, "%s%lu", i ? "," : "", (ulong)selected[ i ].slot-min_slot );
+      fd_http_server_printf( oracle, "],\"shred_idx\":[" );
+      for( ulong i=0UL; i<cnt; i++ ) {
+        if( selected[ i ].idx==USHORT_MAX ) fd_http_server_printf( oracle, "%snull", i ? "," : "" );
+        else fd_http_server_printf( oracle, "%s%u", i ? "," : "", (uint)selected[ i ].idx );
+      }
+      fd_http_server_printf( oracle, "],\"event\":[" );
+      for( ulong i=0UL; i<cnt; i++ ) fd_http_server_printf( oracle, "%s%u", i ? "," : "", (uint)selected[ i ].event );
+      fd_http_server_printf( oracle, "],\"event_ts_delta\":[" );
+      for( ulong i=0UL; i<cnt; i++ ) fd_http_server_printf( oracle, "%s\"%ld\"", i ? "," : "", selected[ i ].event_time_ns-min_ts );
+      fd_http_server_printf( oracle, "]}}" );
+      ulong la, lb;
+      char const * a = staged( gui->http, &la );
+      char const * b = staged( oracle, &lb );
+      FD_TEST( la==lb && !memcmp( a, b, la ) );
+      FD_TEST( !fd_http_server_ws_broadcast( gui->http ) );
+      FD_TEST( !fd_http_server_ws_broadcast( oracle ) );
+    }
+  } while( more );
+  while( pos<expected_cnt && (expected[ pos ].insert_time_ns<lo || expected[ pos ].insert_time_ns>hi) ) pos++;
+  FD_TEST( pos==expected_cnt );
+  ulong cnt;
+  FD_TEST( !fd_gui_shred_history_next( history, gui->shred_scratch.ev, 4UL, &cnt ) && !cnt );
+}
+
 static void
 test_shreds_window( void ) {
   char path[ 128 ];
   FD_TEST( fd_cstr_printf_check( path, sizeof(path), NULL, "/tmp/fd_gui_printf_test.%i", (int)getpid() ) );
 
-  fd_gui_t * gui = aligned_alloc( fd_gui_align(), fd_gui_footprint( 1UL, 1UL, 1UL ) );
+  fd_gui_t * gui = aligned_alloc( fd_gui_align(), fd_gui_footprint( 1UL, 1UL, 1UL, 0UL ) );
   FD_TEST( gui );
-  memset( gui, 0, fd_gui_footprint( 1UL, 1UL, 1UL ) );
+  memset( gui, 0, fd_gui_footprint( 1UL, 1UL, 1UL, 0UL ) );
 
   ulong map_bytes = 4UL<<30;
   void * db_mem = aligned_alloc( fd_gui_store_align(), fd_ulong_align_up( fd_gui_hist_store_footprint( map_bytes ), fd_gui_store_align() ) );
@@ -415,6 +476,8 @@ test_shreds_window( void ) {
   fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 3U, 0UL ) );
   long  const base = 1000L*1000L*1000L*1000L;
   ulong const cnt  = 30000UL;
+  fd_gui_shred_event_t * expected = malloc( cnt*sizeof(fd_gui_shred_event_t) );
+  FD_TEST( expected );
   long  now  = base;
   ulong slot = 5000UL;
   for( ulong i=0UL; i<cnt; i++ ) {
@@ -425,6 +488,7 @@ test_shreds_window( void ) {
     if( FD_UNLIKELY( !fd_rng_ulong_roll( rng, 500UL ) ) ) idx = USHORT_MAX; /* slot complete marker */
     uchar event = idx==USHORT_MAX ? FD_GUI_SLOT_SHRED_SHRED_SLOT_COMPLETE : (uchar)fd_rng_ulong_roll( rng, 5UL );
     long  ts    = now-(long)fd_rng_ulong_roll( rng, 50000000UL )+(fd_rng_ulong_roll( rng, 50UL )==0UL ? -(long)fd_rng_ulong_roll( rng, 1000000000UL ) : 0L); /* ts deltas both signs, some beyond 24 bits */
+    expected[ i ] = (fd_gui_shred_event_t){ .insert_time_ns=now, .event_time_ns=ts, .slot=(uint)slot, .idx=(ushort)idx, .event=event };
     fd_gui_shred_event_append( gui, slot, idx, event, ts, now );
   }
   FD_TEST( fd_gui_store_metrics( gui->db )->ts_appends[ FD_GUI_HIST_SHRED_EVENTS ]>2UL ); /* sealed batches */
@@ -456,9 +520,36 @@ test_shreds_window( void ) {
     total += la;
     FD_TEST( !fd_http_server_ws_broadcast( a ) );
     FD_TEST( !fd_http_server_ws_broadcast( b ) );
+
+    gui->http = a;
+    gui->shred_scratch.max = FD_GUI_SHRED_SCRATCH_MAX;
+    fd_gui_shred_history_t history[ 1 ];
+    fd_gui_shred_history_begin( gui, history, lo, hi );
+    FD_TEST( !history->iter.rec );
+    check_shred_history( gui, history, expected, cnt, lo, hi, b );
   }
   FD_TEST( empty && empty<250UL );
   FD_LOG_NOTICE(( "shreds window: 300 windows (%lu empty), %lu bytes identical between the scratch and per-column paths", empty, total ));
+
+  /* New appends flush and overwrite the active builder after begin;
+     the join snapshot must still reproduce exactly the original rows. */
+  fd_gui_shred_history_t history[ 1 ];
+  fd_gui_shred_history_begin( gui, history, base, now );
+  for( ulong i=0UL; i<10000UL; i++ )
+    fd_gui_shred_event_append( gui, slot+100UL, i%100UL, 1U, now+(long)i+1L, now+(long)i+1L );
+  check_shred_history( gui, history, expected, cnt, base, now, b );
+
+  /* Evict unread records after begin.  A copied first batch stays safe,
+     but the cursor must report a gap rather than silently omit rows. */
+  fd_gui_shred_history_begin( gui, history, base, now );
+  ulong budget = ULONG_MAX;
+  int drained;
+  FD_TEST( !fd_gui_store_ts_evict( gui->db, FD_GUI_HIST_SHRED_EVENTS, ULONG_MAX, &budget, &drained ) );
+  FD_TEST( drained );
+  ulong decoded;
+  FD_TEST( fd_gui_shred_history_next( history, gui->shred_scratch.ev, 4UL, &decoded )==-1 );
+  FD_TEST( history->iter.lost_records && !history->iter.rec );
+  free( expected );
 
   free( fd_http_server_delete( fd_http_server_leave( a ) ) );
   free( fd_http_server_delete( fd_http_server_leave( b ) ) );
@@ -485,9 +576,9 @@ test_exec_done_dedupe( void ) {
   char path[ 128 ];
   FD_TEST( fd_cstr_printf_check( path, sizeof(path), NULL, "/tmp/fd_gui_printf_test_ed.%i", (int)getpid() ) );
 
-  fd_gui_t * gui = aligned_alloc( fd_gui_align(), fd_gui_footprint( 1UL, 1UL, 1UL ) );
+  fd_gui_t * gui = aligned_alloc( fd_gui_align(), fd_gui_footprint( 1UL, 1UL, 1UL, 0UL ) );
   FD_TEST( gui );
-  memset( gui, 0, fd_gui_footprint( 1UL, 1UL, 1UL ) );
+  memset( gui, 0, fd_gui_footprint( 1UL, 1UL, 1UL, 0UL ) );
   ulong map_bytes = 4UL<<30;
   void * db_mem = aligned_alloc( fd_gui_store_align(), fd_ulong_align_up( fd_gui_hist_store_footprint( map_bytes ), fd_gui_store_align() ) );
   FD_TEST( db_mem );

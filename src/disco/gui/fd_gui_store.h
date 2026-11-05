@@ -410,6 +410,7 @@ struct fd_gui_store_ts_iter {
   ulong                  _rec_sz;   /* ring_idx+1 (0 means uninitialised) */
   ulong                  _window_hi;
   ulong                  _cur_hi;   /* ring cursor to stop at (exclusive; head_cur at scan begin) */
+  ulong                  lost_records; /* unread snapshot records evicted between scan steps */
   fd_gui_store_ts_filter_fn _filter;
   void *                 _filter_ctx;
 };

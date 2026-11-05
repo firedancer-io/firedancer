@@ -1228,6 +1228,15 @@ union fd_gui_timeline_scratch {
 };
 typedef union fd_gui_timeline_scratch fd_gui_timeline_scratch_t;
 
+struct fd_gui_ws_init {
+  fd_gui_shred_history_t history;
+  ulong                 prev;
+  ulong                 next;
+  int                   connected;
+  int                   queued;
+};
+typedef struct fd_gui_ws_init fd_gui_ws_init_t;
+
 struct fd_gui {
   fd_gui_timeline_scratch_t timeline_scratch;
 
@@ -1319,6 +1328,14 @@ struct fd_gui {
   } epoch;
 
   fd_gui_peers_ctx_t * peers; /* full-client */
+
+  struct {
+    fd_gui_ws_init_t * jobs; /* [max_connections], indexed by HTTP connection ID */
+    ulong              max_connections;
+    ulong              head;
+    ulong              tail;
+    long               next_step;
+  } ws_init;
 
   /* One decoded shred event for fd_gui_printf_shreds_window, which
      prints a window's events column by column and would otherwise
@@ -1459,7 +1476,8 @@ fd_gui_align( void );
 ulong
 fd_gui_footprint( ulong tile_cnt,
                   ulong max_live_slots,
-                  ulong max_txn_per_slot );
+                  ulong max_txn_per_slot,
+                  ulong max_ws_connections );
 
 void *
 fd_gui_new( void *                   shmem,
@@ -1471,6 +1489,7 @@ fd_gui_new( void *                   shmem,
             uchar const *            vote_key,
             ulong                    max_live_slots,
             ulong                    max_txn_per_slot,
+            ulong                    max_ws_connections,
             int                      snapshots_enabled,
             int                      is_voting,
             int                      schedule_strategy,
@@ -1500,6 +1519,10 @@ void
 fd_gui_ws_open( fd_gui_t *  gui,
                 ulong       conn_id,
                 long now );
+
+void
+fd_gui_ws_close( fd_gui_t * gui,
+                 ulong      conn_id );
 
 int
 fd_gui_ws_message( fd_gui_t *    gui,

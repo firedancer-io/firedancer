@@ -27,10 +27,12 @@ fd_gui_align( void ) {
 ulong
 fd_gui_footprint( ulong tile_cnt,
                   ulong max_live_slots,
-                  ulong max_txn_per_slot ) {
+                  ulong max_txn_per_slot,
+                  ulong max_ws_connections ) {
   FD_TEST( tile_cnt && tile_cnt <=FD_DIAG_SYSTEM_TILE_MAX );
   FD_TEST( max_live_slots && max_live_slots<=ULONG_MAX/sizeof(fd_gui_ag_slot_t) );
   FD_TEST( max_txn_per_slot && max_txn_per_slot<=ULONG_MAX/sizeof(fd_gui_store_txn_start_t) );
+  FD_TEST( max_ws_connections<=ULONG_MAX/sizeof(fd_gui_ws_init_t) );
 
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, fd_gui_align(),                     sizeof(fd_gui_t) );
@@ -43,6 +45,7 @@ fd_gui_footprint( ulong tile_cnt,
   l = FD_LAYOUT_APPEND( l, alignof(fd_gui_slot_txn_join_t),   max_txn_per_slot*sizeof(fd_gui_slot_txn_join_t)   );
   l = FD_LAYOUT_APPEND( l, alignof(fd_gui_shred_scratch_t),   FD_GUI_SHRED_SCRATCH_MAX*sizeof(fd_gui_shred_scratch_t) );
   l = FD_LAYOUT_APPEND( l, alignof(long),                     FD_GUI_EXEC_DONE_SLOT_CNT*FD_SHRED_BLK_MAX*sizeof(long) );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_gui_ws_init_t),         max_ws_connections*sizeof(fd_gui_ws_init_t) );
   return FD_LAYOUT_FINI( l, fd_gui_align() );
 }
 
@@ -85,6 +88,7 @@ fd_gui_new( void *                   shmem,
             uchar const *            vote_key,
             ulong                    max_live_slots,
             ulong                    max_txn_per_slot,
+            ulong                    max_ws_connections,
             int                      snapshots_enabled,
             int                      is_voting,
             int                      schedule_strategy,
@@ -126,6 +130,14 @@ fd_gui_new( void *                   shmem,
   void *     txn_joined_mem   = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_gui_slot_txn_join_t),   max_txn_per_slot*sizeof(fd_gui_slot_txn_join_t)   );
   void *     shred_sc_mem     = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_gui_shred_scratch_t),   FD_GUI_SHRED_SCRATCH_MAX*sizeof(fd_gui_shred_scratch_t) );
   void *     exec_done_mem    = FD_SCRATCH_ALLOC_APPEND( l, alignof(long),                     FD_GUI_EXEC_DONE_SLOT_CNT*FD_SHRED_BLK_MAX*sizeof(long) );
+  void *     ws_init_mem      = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_gui_ws_init_t),         max_ws_connections*sizeof(fd_gui_ws_init_t) );
+
+  gui->ws_init.jobs            = ws_init_mem;
+  gui->ws_init.max_connections = max_ws_connections;
+  gui->ws_init.head            = ULONG_MAX;
+  gui->ws_init.tail            = ULONG_MAX;
+  gui->ws_init.next_step       = now;
+  fd_memset( ws_init_mem, 0, max_ws_connections*sizeof(fd_gui_ws_init_t) );
 
   gui->slot_txn_scratch.max    = max_txn_per_slot;
   gui->slot_txn_scratch.starts = txn_starts_mem;
@@ -501,10 +513,50 @@ fd_gui_handle_diag_snapshot( fd_gui_t *   gui,
   fd_http_server_ws_broadcast( gui->http );
 }
 
+static void
+ws_init_remove( fd_gui_t * gui,
+                ulong      conn_id ) {
+  fd_gui_ws_init_t * job = &gui->ws_init.jobs[ conn_id ];
+  if( !job->queued ) return;
+  if( job->prev==ULONG_MAX ) gui->ws_init.head = job->next;
+  else gui->ws_init.jobs[ job->prev ].next = job->next;
+  if( job->next==ULONG_MAX ) gui->ws_init.tail = job->prev;
+  else gui->ws_init.jobs[ job->next ].prev = job->prev;
+  job->queued = 0;
+}
+
+static void
+ws_init_enqueue( fd_gui_t * gui,
+                 ulong      conn_id ) {
+  fd_gui_ws_init_t * job = &gui->ws_init.jobs[ conn_id ];
+  job->prev = gui->ws_init.tail;
+  job->next = ULONG_MAX;
+  job->queued = 1;
+  if( gui->ws_init.tail==ULONG_MAX ) gui->ws_init.head = conn_id;
+  else gui->ws_init.jobs[ gui->ws_init.tail ].next = conn_id;
+  gui->ws_init.tail = conn_id;
+}
+
+void
+fd_gui_ws_close( fd_gui_t * gui,
+                 ulong      conn_id ) {
+  FD_TEST( conn_id<gui->ws_init.max_connections );
+  ws_init_remove( gui, conn_id );
+  gui->ws_init.jobs[ conn_id ].connected = 0;
+}
+
 void
 fd_gui_ws_open( fd_gui_t * gui,
                 ulong      ws_conn_id,
                 long now ) {
+  FD_TEST( ws_conn_id<gui->ws_init.max_connections );
+  fd_gui_ws_init_t * job = &gui->ws_init.jobs[ ws_conn_id ];
+  ws_init_remove( gui, ws_conn_id );
+  job->connected = 1;
+  fd_gui_shred_history_begin( gui, &job->history, now-10L*1000L*1000L*1000L, now );
+  ws_init_enqueue( gui, ws_conn_id );
+  gui->ws_init.next_step = now;
+
   fd_gui_printf_is_alpenglow( gui );
   FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
 
@@ -592,12 +644,39 @@ fd_gui_ws_open( fd_gui_t * gui,
     FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
   }
 
-  /* rebroadcast 10s of historical shred data */
-  long const shred_history_start = now-10L*1000L*1000L*1000L;
-  if( FD_LIKELY( !fd_gui_shred_window_is_empty( gui, shred_history_start, now ) ) ) {
-    fd_gui_printf_shred_rebroadcast( gui, shred_history_start, now );
-    FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
+  /* The ten-second history is delivered by fd_gui_poll in bounded
+     complete messages.  Returning to the stem between chunks lets GUI
+     input credits and existing clients progress while new clients join. */
+}
+
+static int
+ws_init_poll( fd_gui_t * gui,
+              long       now ) {
+  if( gui->ws_init.head==ULONG_MAX || now<gui->ws_init.next_step ) return 0;
+  ulong conn_id = gui->ws_init.head;
+  fd_gui_ws_init_t * job = &gui->ws_init.jobs[ conn_id ];
+
+  /* Bound scanned batches, including batches with no matching rows.
+     Four batches contain at most 1812 events.  Do not leave a partial
+     JSON message in the shared HTTP staging buffer across yields. */
+  FD_STATIC_ASSERT( 4UL*FD_GUI_SHRED_BATCH_EVENT_MAX<=FD_GUI_SHRED_SCRATCH_MAX, gui_history_scratch );
+  ulong cnt;
+  int pending = fd_gui_shred_history_next( &job->history, gui->shred_scratch.ev, 4UL, &cnt );
+  if( FD_UNLIKELY( pending<0 ) ) {
+    fd_http_server_ws_close( gui->http, conn_id, FD_HTTP_SERVER_CONNECTION_CLOSE_WS_CLIENT_TOO_SLOW );
+  } else if( cnt ) {
+    fd_gui_printf_shred_chunk( gui, cnt );
+    FD_TEST( !fd_http_server_ws_send( gui->http, conn_id ) );
   }
+
+  /* Formatting/sending can close this or another connection.  The close
+     callback removes queued jobs before any connection ID is reused. */
+  if( job->queued ) {
+    ws_init_remove( gui, conn_id );
+    if( pending>0 ) ws_init_enqueue( gui, conn_id );
+  }
+  gui->ws_init.next_step = now+250000L;
+  return 1;
 }
 
 
@@ -1795,7 +1874,9 @@ fd_gui_next_deadline( fd_gui_t const * gui ) {
   due = fd_long_min( due, gui->next_sample_40millis  );
   due = fd_long_min( due, gui->next_sample_25millis  );
   due = fd_long_min( due, gui->next_sample_10millis  );
-  return due+1L; /* the samplers fire on now>next */
+  due += 1L; /* the samplers fire on now>next */
+  if( FD_UNLIKELY( gui->ws_init.head!=ULONG_MAX ) ) due = fd_long_min( due, gui->ws_init.next_step );
+  return due;
 }
 
 int
@@ -1958,7 +2039,7 @@ fd_gui_poll( fd_gui_t * gui, long now ) {
     return 1;
   }
 
-  return 0;
+  return ws_init_poll( gui, now );
 }
 
 int

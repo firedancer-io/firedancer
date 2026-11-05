@@ -3204,6 +3204,47 @@ fd_gui_peers_printf_gossip_stats( fd_gui_peers_ctx_t *  peers ) {
    order (see test_gui_printf). */
 
 static void
+shred_scratch_columns( fd_gui_t * gui,
+                       ulong      cnt,
+                       ulong      min_slot,
+                       long       min_ts ) {
+  fd_gui_shred_scratch_t const * sc = gui->shred_scratch.ev;
+  jsonp_ulong      ( gui->http, "reference_slot", min_slot );
+  jsonp_long_as_str( gui->http, "reference_ts",   min_ts   );
+  jsonp_open_array( gui->http, "slot_delta" );
+    for( ulong i=0UL; i<cnt; i++ ) jsonp_ulong( gui->http, NULL, (ulong)sc[ i ].slot-min_slot );
+  jsonp_close_array( gui->http );
+  jsonp_open_array( gui->http, "shred_idx" );
+    for( ulong i=0UL; i<cnt; i++ ) {
+      if( FD_LIKELY( sc[ i ].idx!=USHORT_MAX ) ) jsonp_ulong( gui->http, NULL, sc[ i ].idx );
+      else                                       jsonp_null ( gui->http, NULL );
+    }
+  jsonp_close_array( gui->http );
+  jsonp_open_array( gui->http, "event" );
+    for( ulong i=0UL; i<cnt; i++ ) jsonp_ulong( gui->http, NULL, sc[ i ].event );
+  jsonp_close_array( gui->http );
+  jsonp_open_array( gui->http, "event_ts_delta" );
+    for( ulong i=0UL; i<cnt; i++ ) jsonp_long_as_str( gui->http, NULL, sc[ i ].event_time_ns-min_ts );
+  jsonp_close_array( gui->http );
+}
+
+void
+fd_gui_printf_shred_chunk( fd_gui_t * gui, ulong cnt ) {
+  FD_TEST( cnt && cnt<=gui->shred_scratch.max );
+  ulong min_slot = ULONG_MAX;
+  long  min_ts   = LONG_MAX;
+  for( ulong i=0UL; i<cnt; i++ ) {
+    min_slot = fd_ulong_min( min_slot, (ulong)gui->shred_scratch.ev[ i ].slot );
+    min_ts   = fd_long_min ( min_ts, gui->shred_scratch.ev[ i ].event_time_ns );
+  }
+  jsonp_open_envelope( gui->http, "slot", "live_shreds" );
+    jsonp_open_object( gui->http, "value" );
+      shred_scratch_columns( gui, cnt, min_slot, min_ts );
+    jsonp_close_object( gui->http );
+  jsonp_close_envelope( gui->http );
+}
+
+static void
 fd_gui_printf_shreds_window( fd_gui_t * gui, long after_ns, long before_ns ) {
   fd_gui_shred_event_iter_t it[ 1 ];
 
@@ -3226,27 +3267,13 @@ fd_gui_printf_shreds_window( fd_gui_t * gui, long after_ns, long before_ns ) {
   }
   fd_gui_shred_event_iter_end( it );
 
-  jsonp_ulong      ( gui->http, "reference_slot", min_slot );
-  jsonp_long_as_str( gui->http, "reference_ts",   min_ts   );
-
   if( FD_LIKELY( fits ) ) {
-    jsonp_open_array( gui->http, "slot_delta" );
-      for( ulong i=0UL; i<cnt; i++ ) jsonp_ulong( gui->http, NULL, (ulong)sc[ i ].slot-min_slot );
-    jsonp_close_array( gui->http );
-    jsonp_open_array( gui->http, "shred_idx" );
-      for( ulong i=0UL; i<cnt; i++ ) {
-        if( FD_LIKELY( sc[ i ].idx!=USHORT_MAX ) ) jsonp_ulong( gui->http, NULL, sc[ i ].idx );
-        else                                       jsonp_null ( gui->http, NULL );
-      }
-    jsonp_close_array( gui->http );
-    jsonp_open_array( gui->http, "event" );
-      for( ulong i=0UL; i<cnt; i++ ) jsonp_ulong( gui->http, NULL, sc[ i ].event );
-    jsonp_close_array( gui->http );
-    jsonp_open_array( gui->http, "event_ts_delta" );
-      for( ulong i=0UL; i<cnt; i++ ) jsonp_long_as_str( gui->http, NULL, sc[ i ].event_time_ns-min_ts );
-    jsonp_close_array( gui->http );
+    shred_scratch_columns( gui, cnt, min_slot, min_ts );
     return;
   }
+
+  jsonp_ulong      ( gui->http, "reference_slot", min_slot );
+  jsonp_long_as_str( gui->http, "reference_ts",   min_ts   );
 
 #define SHREDS_WINDOW_ITER( code ) \
   do { \

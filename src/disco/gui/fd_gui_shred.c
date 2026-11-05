@@ -15,6 +15,7 @@ struct __attribute__((packed)) fd_gui_shred_delta {
 typedef struct fd_gui_shred_delta fd_gui_shred_delta_t;
 
 FD_STATIC_ASSERT( sizeof(fd_gui_shred_delta_t)==8UL, shred_delta_sz );
+FD_STATIC_ASSERT( 1UL+sizeof(fd_gui_shred_delta_t)==9UL, shred_batch_event_bound );
 
 static ulong
 shred_window( long ns ) {
@@ -122,6 +123,59 @@ static int
 fec_admitted_before( void const * rec,
                      void *       ctx ) {
   return ((fd_gui_fec_event_t const *)rec)->insert_time_ns<*(long const *)ctx;
+}
+
+static void
+history_copy_pending( fd_gui_shred_history_t * history ) {
+  history->pending_valid = !fd_gui_store_ts_scan_done( &history->iter );
+  if( history->pending_valid ) history->pending = *(fd_gui_shred_batch_t const *)history->iter.rec;
+  history->iter.rec = NULL; /* never retain a pointer into the mutable store */
+}
+
+void
+fd_gui_shred_history_begin( fd_gui_t *               gui,
+                            fd_gui_shred_history_t * history,
+                            long                     after_ns,
+                            long                     before_ns ) {
+  fd_memset( history, 0, sizeof(*history) );
+  history->after_ns  = fd_long_max( after_ns, 0L );
+  history->before_ns = fd_long_min( before_ns, LONG_MAX-1L );
+  if( FD_UNLIKELY( !gui->db || !gui->hist || history->after_ns>history->before_ns ) ) return;
+
+  history->active       = gui->shreds.builder.batch;
+  history->active_valid = !!history->active.event_cnt;
+  fd_gui_store_ts_scan_begin( gui->db, &history->iter, FD_GUI_HIST_SHRED_EVENTS,
+                             shred_window( history->after_ns ), shred_window( history->before_ns ), NULL, NULL );
+  history_copy_pending( history );
+}
+
+int
+fd_gui_shred_history_next( fd_gui_shred_history_t * history,
+                           fd_gui_shred_scratch_t * out,
+                           ulong                    batch_budget,
+                           ulong *                  cnt ) {
+  *cnt = 0UL;
+  for( ulong b=0UL; b<batch_budget; b++ ) {
+    fd_gui_shred_batch_t const * batch;
+    if( history->pending_valid ) batch = &history->pending;
+    else if( history->active_valid ) batch = &history->active;
+    else return 0;
+
+    fd_gui_shred_event_iter_t it = { ._batch=batch };
+    while( it._batch_idx<batch->event_cnt ) {
+      batch_next( &it );
+      fd_gui_shred_event_t const * e = &it.event;
+      if( e->insert_time_ns<history->after_ns || e->insert_time_ns>history->before_ns ) continue;
+      out[ (*cnt)++ ] = (fd_gui_shred_scratch_t){ .event_time_ns=e->event_time_ns, .slot=e->slot, .idx=e->idx, .event=e->event };
+    }
+
+    if( history->pending_valid ) {
+      fd_gui_store_ts_scan_next( &history->iter );
+      if( FD_UNLIKELY( history->iter.lost_records ) ) { history->iter.rec = NULL; return -1; }
+      history_copy_pending( history );
+    } else history->active_valid = 0;
+  }
+  return history->pending_valid || history->active_valid;
 }
 
 static fd_gui_shred_event_iter_t *
