@@ -2965,11 +2965,16 @@ mark_bank_dead( fd_replay_tile_t *        ctx,
                 int                       dead_reason,
                 int                       abandoned_reason,
                 fd_block_footer_t const * footer ) {
-  /* With no FLH, latest_fec_idx must be UINT_MAX.  A bank still in INIT
-     was never cloned, its features are stale, so it counts as no FLH. */
+  /* UINT_MAX only when the bank knows FLH is off: repair treats the death
+     as final.  A bank still in INIT was never cloned, so its
+     features are unknown: count it as a possible prefix.  At worst
+     rotor finishes repairing a dead slot whose FEC sets replay drops.
+
+     Remove this garbage after FLH is stable. */
   fd_block_id_ele_t * block_id_ele   = &ctx->block_id_arr[ bank_idx ];
   fd_bank_t *         dead_bank      = fd_banks_bank_query( ctx->banks, bank_idx );
-  uint                latest_fec_idx = dead_bank->state!=FD_BANK_STATE_INIT && FD_FEATURE_ACTIVE_BANK( dead_bank, alpenglow_fast_leader_handover ) ? block_id_ele->latest_fec_idx : UINT_MAX;
+  int                 flh_active     = dead_bank->state==FD_BANK_STATE_INIT || FD_FEATURE_ACTIVE_BANK( dead_bank, alpenglow_fast_leader_handover );
+  uint                latest_fec_idx = flh_active ? block_id_ele->latest_fec_idx : UINT_MAX;
 
   ulong * dead_idxs     = ctx->dead_idxs;
   ulong   dead_idxs_cnt = 0UL;

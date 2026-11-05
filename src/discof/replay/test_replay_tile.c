@@ -2859,10 +2859,10 @@ test_process_rotor_fec_dead_prefix( fd_wksp_t * wksp ) {
   fd_bank_t * pre_bank = fd_banks_bank_query( ctx->banks, pre_idx );
 
   /* It dies, as on a malformed microblock where the leader cut it off,
-     after BLOCK_START cloned it: an INIT bank's features are stale, so
-     its death would count as final. */
-  pre_bank->state  = FD_BANK_STATE_REPLAYABLE;
-  pre_bank->f.slot = 4UL;
+     after BLOCK_START cloned it. */
+  pre_bank->state                                   = FD_BANK_STATE_REPLAYABLE;
+  pre_bank->f.slot                                  = 4UL;
+  pre_bank->f.features.alpenglow_fast_leader_handover = 0UL;
   ulong seq_dead = test_stem_seqs[ out_idx ];
   mark_bank_dead( ctx, test_stem, pre_idx, FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_BAD_FOOTER, FD_EVENT_BLOCK_COMPLETED_ABANDONED_REASON_NOT_ABANDONED, NULL );
   FD_TEST( pre_bank->state==FD_BANK_STATE_DEAD );
@@ -2889,6 +2889,73 @@ test_process_rotor_fec_dead_prefix( fd_wksp_t * wksp ) {
   FD_TEST( mock_sched_fec_last_first==1U && mock_sched_fec_last_up==1U );
   FD_TEST( !slot_dead_cnt( ctx, seq0 ) );
   FD_LOG_NOTICE(( "pass: test_process_rotor_fec_dead_prefix" ));
+}
+
+/* test_mark_bank_dead_init_prefix: an optimistic prefix bank can die
+   while still in INIT, eg. a FEC set that fails to parse at ingest
+   while its parent is still replaying.  It was never cloned, so its
+   features are unknown and the death counts as a possible prefix,
+   whatever the root says.  A cloned bank reads its own features.
+   cloned picks the bank's state at death, flh_slot the feature's
+   activation slot on the root and, if cloned, on the bank. */
+
+static uint
+init_prefix_dead_latest( fd_wksp_t * wksp,
+                         int         cloned,
+                         ulong       flh_slot ) {
+  ulong const slot = 4UL;
+  static fd_replay_tile_t ctx[ 1 ];
+  setup_ctx( ctx, wksp );
+
+  fd_hash_t mr_root = { .ul = { 100 } };
+  init_root( ctx, &mr_root );
+  fd_bank_t * root_bank = fd_banks_root( ctx->banks );
+  root_bank->state                                     = FD_BANK_STATE_FROZEN;
+  root_bank->f.features.alpenglow_fast_leader_handover = flh_slot;
+  fd_hash_t root_bid = { .ul = { 0xBEEFUL } };
+  fd_block_id_ele_t * root_ele = &ctx->block_id_arr[ root_bank->idx ];
+  root_ele->block_info    = fd_block_id( 0UL, root_bid.uc );
+  root_ele->block_id_seen = 1;
+  FD_TEST( fd_block_id_map_ele_insert( ctx->block_id_map, root_ele, ctx->block_id_arr ) );
+
+  mock_sched_capacity = ULONG_MAX;
+  fd_hash_t mr0 = { .ul = { 400 } }, mr1 = { .ul = { 401 } };
+  FD_TEST( !deliver_rotor_fec_up( ctx, slot, 0U,               0U, 0UL, &root_bid, &mr0, 1, 0 ) );
+  FD_TEST( !deliver_rotor_fec_up( ctx, slot, FD_FEC_SHRED_CNT, 0U, 0UL, &root_bid, &mr1, 1, 0 ) );
+  fd_block_id_t       slot_key = { .slot = slot };
+  fd_block_id_ele_t * pre_ele  = fd_block_id_map_ele_query( ctx->block_id_map, &slot_key, NULL, ctx->block_id_arr );
+  FD_TEST( pre_ele );
+  ulong       pre_idx  = fd_block_id_ele_get_idx( ctx->block_id_arr, pre_ele );
+  fd_bank_t * pre_bank = fd_banks_bank_query( ctx->banks, pre_idx );
+  FD_TEST( pre_bank->state==FD_BANK_STATE_INIT );
+  if( cloned ) {
+    pre_bank->state                                     = FD_BANK_STATE_REPLAYABLE;
+    pre_bank->f.slot                                    = slot;
+    pre_bank->f.features.alpenglow_fast_leader_handover = flh_slot;
+  } else {
+    pre_bank->f.slot                                    = 0UL;                 /* never cloned: stale features */
+    pre_bank->f.features.alpenglow_fast_leader_handover = FD_FEATURE_DISABLED;
+  }
+
+  ulong out_idx  = ctx->replay_out->idx;
+  ulong seq_dead = test_stem_seqs[ out_idx ];
+  mark_bank_dead( ctx, test_stem, pre_idx, FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_MISSING_PARENT_MARKER, FD_EVENT_BLOCK_COMPLETED_ABANDONED_REASON_NOT_ABANDONED, NULL );
+  FD_TEST( test_stem_seqs[ out_idx ]==seq_dead+1UL && replay_out_sig( ctx, seq_dead )==REPLAY_SIG_SLOT_DEAD );
+  fd_frag_meta_t const *        dead_frag = test_stem_mcaches[ out_idx ] + fd_mcache_line_idx( seq_dead, test_stem_depths[ out_idx ] );
+  fd_replay_slot_dead_t const * dead      = fd_chunk_to_laddr_const( ctx->replay_out->mem, dead_frag->chunk );
+  FD_TEST( dead->slot==slot && fd_hash_check_zero( &dead->block_id ) );
+  return dead->latest_fec_idx;
+}
+
+static void
+test_mark_bank_dead_init_prefix( fd_wksp_t * wksp ) {
+  /* INIT: a possible prefix whether or not FLH is active. */
+  FD_TEST( init_prefix_dead_latest( wksp, 0, 0UL                 )==FD_FEC_SHRED_CNT ); fd_wksp_reset( wksp, 42U );
+  FD_TEST( init_prefix_dead_latest( wksp, 0, FD_FEATURE_DISABLED )==FD_FEC_SHRED_CNT ); fd_wksp_reset( wksp, 42U );
+  /* Cloned: the bank knows, final only without FLH. */
+  FD_TEST( init_prefix_dead_latest( wksp, 1, 0UL                 )==FD_FEC_SHRED_CNT ); fd_wksp_reset( wksp, 42U );
+  FD_TEST( init_prefix_dead_latest( wksp, 1, FD_FEATURE_DISABLED )==UINT_MAX         );
+  FD_LOG_NOTICE(( "pass: test_mark_bank_dead_init_prefix" ));
 }
 
 /* test_process_rotor_fec_optimistic_bank_notar: the same for a notarized
@@ -4639,6 +4706,7 @@ main( int     argc,
   test_process_rotor_fec_optimistic_bank( wksp, 1 ); fd_wksp_reset( wksp, 42U );
   test_process_rotor_fec_optimistic_bank_notar( wksp ); fd_wksp_reset( wksp, 42U );
   test_process_rotor_fec_dead_prefix( wksp );        fd_wksp_reset( wksp, 42U );
+  test_mark_bank_dead_init_prefix( wksp );           fd_wksp_reset( wksp, 42U );
   test_rotor_fec_turbine_keying( wksp );            fd_wksp_reset( wksp, 42U );
   test_rotor_fec_rooted_past( wksp );               fd_wksp_reset( wksp, 42U );
   test_rotor_fec_merged_copies( wksp );             fd_wksp_reset( wksp, 42U );
