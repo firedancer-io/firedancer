@@ -29,6 +29,11 @@
 #define FD_ACCDB_IDX_FD_RW (123447)
 #define FD_ACCDB_IDX_FD_RO (123446)
 
+/* Well-known fd for the snapshot stage file (index mode): opened
+   O_DIRECT, O_TRUNC and unlinked at boot; snapin and the accdb tile. */
+
+#define FD_ACCDB_STAGE_FD (123441)
+
 struct fd_accdb_entry {
   uchar   pubkey[ 32UL ];
   uchar   owner[ 32UL ];
@@ -104,7 +109,9 @@ fd_accdb_footprint( ulong max_live_slots,
    compaction must match the value given to fd_accdb_footprint.
 
    idx_fd is the index file fd (FD_ACCDB_IDX_FD_RW) for joiners that do
-   index I/O in index mode (the accdb tile, snapin), else -1.
+   index I/O in index mode (the accdb tile, snapin), else -1.  stage_fd
+   is the snapshot stage file (FD_ACCDB_STAGE_FD, O_DIRECT), or -1 to
+   stage in the index file; every joiner of a shmem passes the same.
 
    place_window is FD_ACCDB_PLACE_WINDOW bytes of 4 KiB aligned scratch
    shared by all snapshot writers of this shmem (index-mode staging and
@@ -123,6 +130,7 @@ fd_accdb_new( void *                    ljoin,
               ulong                     sleep_tile_id,
               int                       compaction,
               int                       idx_fd,
+              int                       stage_fd,
               void *                    place_window );
 
 fd_accdb_t *

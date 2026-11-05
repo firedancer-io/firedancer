@@ -155,7 +155,7 @@ join_new( void ) {
   FD_TEST( accdb_fp );
   void * mem = aligned_alloc( fd_accdb_align(), accdb_fp );
   FD_TEST( mem );
-  fd_accdb_t * accdb = fd_accdb_join( fd_accdb_new( mem, g_shmem, g_fd, -1, 0UL, NULL, NULL, 0UL, 1, -1, NULL ) );
+  fd_accdb_t * accdb = fd_accdb_join( fd_accdb_new( mem, g_shmem, g_fd, -1, 0UL, NULL, NULL, 0UL, 1, -1, -1, NULL ) );
   FD_TEST( accdb );
   fd_accdb_set_preevict_interval( accdb, 0L ); /* background steps pre-evict every call */
   return accdb;
@@ -3943,8 +3943,8 @@ test_residual_wait_vs_epoch_drain( void ) {
   int idx_fd = memfd_create( "accdb_rs_idx2", 0 );
   FD_TEST( !ftruncate( idx_fd, (long)shmem->idx_file_sz ) );
   ulong jfp = fd_accdb_footprint( mls, 1 );
-  fd_accdb_t * t2 = fd_accdb_join( fd_accdb_new( aligned_alloc( fd_accdb_align(), jfp ), shmem, fd, -1, 0UL, NULL, NULL, 0UL, 1, idx_fd, NULL ) );
-  fd_accdb_t * fg = fd_accdb_join( fd_accdb_new( aligned_alloc( fd_accdb_align(), jfp ), shmem, fd, -1, 0UL, NULL, NULL, 0UL, 1, -1, NULL ) );
+  fd_accdb_t * t2 = fd_accdb_join( fd_accdb_new( aligned_alloc( fd_accdb_align(), jfp ), shmem, fd, -1, 0UL, NULL, NULL, 0UL, 1, idx_fd, -1, NULL ) );
+  fd_accdb_t * fg = fd_accdb_join( fd_accdb_new( aligned_alloc( fd_accdb_align(), jfp ), shmem, fd, -1, 0UL, NULL, NULL, 0UL, 1, -1, -1, NULL ) );
   FD_TEST( t2 && fg );
 
   fd_accdb_fork_id_t tip = fd_accdb_attach_child( t2, SENTINEL );
@@ -3975,7 +3975,7 @@ test_residual_wait_vs_epoch_drain( void ) {
      A reader can already pin the published line at this point. */
   fd_racesan_async_t * bg = fiber_background( &g_fiber[0], t2 );
   FD_TEST( fd_racesan_async_step_until( bg, "accdb_warm:pre_unpin", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
-  fd_accdb_t * reader = fd_accdb_join( fd_accdb_new( aligned_alloc( fd_accdb_align(), jfp ), shmem, fd, -1, 0UL, NULL, NULL, 0UL, 1, -1, NULL ) );
+  fd_accdb_t * reader = fd_accdb_join( fd_accdb_new( aligned_alloc( fd_accdb_align(), jfp ), shmem, fd, -1, 0UL, NULL, NULL, 0UL, 1, -1, -1, NULL ) );
   FD_TEST( reader );
   fd_acc_t held = fd_accdb_read_one( reader, c, key );
   FD_TEST( held.lamports==77UL );
@@ -4018,8 +4018,8 @@ test_tier_vs_coldload_claim( void ) {
   int idx_fd = memfd_create( "accdb_rs_tier2", 0 );
   FD_TEST( !ftruncate( idx_fd, (long)shmem->idx_file_sz ) );
   ulong jfp = fd_accdb_footprint( mls, 1 );
-  fd_accdb_t * t2 = fd_accdb_join( fd_accdb_new( aligned_alloc( fd_accdb_align(), jfp ), shmem, fd, -1, 0UL, NULL, NULL, 0UL, 1, idx_fd, NULL ) );
-  fd_accdb_t * fg = fd_accdb_join( fd_accdb_new( aligned_alloc( fd_accdb_align(), jfp ), shmem, fd, -1, 0UL, NULL, NULL, 0UL, 1, -1, NULL ) );
+  fd_accdb_t * t2 = fd_accdb_join( fd_accdb_new( aligned_alloc( fd_accdb_align(), jfp ), shmem, fd, -1, 0UL, NULL, NULL, 0UL, 1, idx_fd, -1, NULL ) );
+  fd_accdb_t * fg = fd_accdb_join( fd_accdb_new( aligned_alloc( fd_accdb_align(), jfp ), shmem, fd, -1, 0UL, NULL, NULL, 0UL, 1, -1, -1, NULL ) );
   FD_TEST( t2 && fg );
 
   fd_accdb_fork_id_t root = fd_accdb_attach_child( t2, SENTINEL );
@@ -4074,9 +4074,9 @@ test_hot_ref_vs_coldload_claim( void ) {
   int idx_fd = memfd_create( "accdb_rs_ref2", 0 );
   FD_TEST( !ftruncate( idx_fd, (long)shmem->idx_file_sz ) );
   ulong jfp = fd_accdb_footprint( mls, 1 );
-  fd_accdb_t * t2  = fd_accdb_join( fd_accdb_new( aligned_alloc( fd_accdb_align(), jfp ), shmem, fd, -1, 0UL, NULL, NULL, 0UL, 1, idx_fd, NULL ) );
-  fd_accdb_t * fga = fd_accdb_join( fd_accdb_new( aligned_alloc( fd_accdb_align(), jfp ), shmem, fd, -1, 0UL, NULL, NULL, 0UL, 1, -1, NULL ) );
-  fd_accdb_t * fgb = fd_accdb_join( fd_accdb_new( aligned_alloc( fd_accdb_align(), jfp ), shmem, fd, -1, 0UL, NULL, NULL, 0UL, 1, -1, NULL ) );
+  fd_accdb_t * t2  = fd_accdb_join( fd_accdb_new( aligned_alloc( fd_accdb_align(), jfp ), shmem, fd, -1, 0UL, NULL, NULL, 0UL, 1, idx_fd, -1, NULL ) );
+  fd_accdb_t * fga = fd_accdb_join( fd_accdb_new( aligned_alloc( fd_accdb_align(), jfp ), shmem, fd, -1, 0UL, NULL, NULL, 0UL, 1, -1, -1, NULL ) );
+  fd_accdb_t * fgb = fd_accdb_join( fd_accdb_new( aligned_alloc( fd_accdb_align(), jfp ), shmem, fd, -1, 0UL, NULL, NULL, 0UL, 1, -1, -1, NULL ) );
   FD_TEST( t2 && fga && fgb );
 
   fd_accdb_fork_id_t tip = fd_accdb_attach_child( t2, SENTINEL );
