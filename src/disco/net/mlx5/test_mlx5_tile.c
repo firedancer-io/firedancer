@@ -195,30 +195,30 @@ test_rx_routes( void ) {
   fd_net_rx_dests_init( &tile->net, topo, topo_tile );
 
   ulong out_idx;
-  ulong proto;
-  FD_TEST( fd_net_rx_dest_lookup( &tile->net, 8001U, &out_idx, &proto ) );
+  ulong proto_id;
+  FD_TEST( fd_net_rx_dest_lookup( &tile->net, 8001U, &out_idx, &proto_id ) );
   FD_TEST( out_idx==fd_topo_find_tile_out_link( topo, topo_tile, "net_gossvf", 0UL ) );
-  FD_TEST( proto==DST_PROTO_GOSSIP );
+  FD_TEST( proto_id==DST_PROTO_GOSSIP );
 
-  FD_TEST( fd_net_rx_dest_lookup( &tile->net, 8002U, &out_idx, &proto ) );
+  FD_TEST( fd_net_rx_dest_lookup( &tile->net, 8002U, &out_idx, &proto_id ) );
   FD_TEST( out_idx==fd_topo_find_tile_out_link( topo, topo_tile, "net_shred", 0UL ) );
-  FD_TEST( proto==DST_PROTO_REPAIR );
+  FD_TEST( proto_id==DST_PROTO_REPAIR );
 
-  FD_TEST( fd_net_rx_dest_lookup( &tile->net, 8003U, &out_idx, &proto ) );
+  FD_TEST( fd_net_rx_dest_lookup( &tile->net, 8003U, &out_idx, &proto_id ) );
   FD_TEST( out_idx==fd_topo_find_tile_out_link( topo, topo_tile, "net_rserve", 0UL ) );
-  FD_TEST( proto==DST_PROTO_RSERVE );
+  FD_TEST( proto_id==DST_PROTO_RSERVE );
 
   fd_mlx5_tile_t tile1[1];
   fd_memset( tile1, 0, sizeof(tile1) );
   fd_net_rx_dests_init( &tile1->net, topo, topo_tile1 );
 
-  FD_TEST( fd_net_rx_dest_lookup( &tile1->net, 9000U, &out_idx, &proto ) );
+  FD_TEST( fd_net_rx_dest_lookup( &tile1->net, 9000U, &out_idx, &proto_id ) );
   FD_TEST( out_idx==fd_topo_find_tile_out_link( topo, topo_tile1, "net_quic", 1UL ) );
-  FD_TEST( proto==DST_PROTO_TPU_UDP );
+  FD_TEST( proto_id==DST_PROTO_TPU_UDP );
 
-  FD_TEST( fd_net_rx_dest_lookup( &tile1->net, 9001U, &out_idx, &proto ) );
+  FD_TEST( fd_net_rx_dest_lookup( &tile1->net, 9001U, &out_idx, &proto_id ) );
   FD_TEST( out_idx==fd_topo_find_tile_out_link( topo, topo_tile1, "net_shred", 1UL ) );
-  FD_TEST( proto==DST_PROTO_REPAIR );
+  FD_TEST( proto_id==DST_PROTO_REPAIR );
 }
 
 #define SHRED_PORT ((ushort)4242)
@@ -937,9 +937,9 @@ main( int     argc,
   rx_seq++;
 
   /* A second port rule can share an output without changing its protocol */
-  tile->net.rx_dst_ports  [ 1 ] = 9999U;
-  tile->net.rx_dst_protos [ 1 ] = DST_PROTO_GOSSIP;
-  tile->net.rx_dst_out_idx[ 1 ] = 0UL;
+  tile->net.rx_listen_ports[ 1 ] = 9999U;
+  tile->net.rx_proto_ids   [ 1 ] = DST_PROTO_GOSSIP;
+  tile->net.rx_out_link_idx[ 1 ] = 0UL;
   tile->net.rx_dest_cnt = 2UL;
   rx_chunk  = rx_comp_one( mock, tile, FD_MLX5_CQE_OP_RX_OK, sizeof(rx_pkt_templ) );
   rx_packet = fd_chunk_to_laddr( tile->net.pkt_buf_wksp_base, rx_chunk );
@@ -1054,13 +1054,13 @@ main( int     argc,
   FD_TEST( tile->net.metrics.rx_drop_cnt[ FD_METRICS_ENUM_PKT_RX_DROP_REASON_V_DST_PORT_UNBOUND_IDX ]==rx_route_fail_before+1UL );
 
   /* RX packet with a port rule that cannot be routed to an output */
-  ulong const shred_out_idx = tile->net.rx_dst_out_idx[ 0 ];
-  tile->net.rx_dst_out_idx[ 0 ] = ULONG_MAX;
+  ulong const shred_out_idx = tile->net.rx_out_link_idx[ 0 ];
+  tile->net.rx_out_link_idx[ 0 ] = ULONG_MAX;
   rx_chunk  = rx_comp_one( mock, tile, FD_MLX5_CQE_OP_RX_OK, sizeof(rx_pkt_templ) );
   rx_packet = fd_chunk_to_laddr( tile->net.pkt_buf_wksp_base, rx_chunk );
   fd_memcpy( rx_packet, &rx_pkt_templ, sizeof(rx_pkt_templ) );
   after_credit( tile, stem, &poll_in, &charge_busy );
-  tile->net.rx_dst_out_idx[ 0 ] = shred_out_idx;
+  tile->net.rx_out_link_idx[ 0 ] = shred_out_idx;
   FD_TEST( fd_seq_ne( fd_frag_meta_seq_query( rx_link->mcache+rx_seq ), rx_seq ) );
   FD_TEST( tile->net.metrics.rx_drop_cnt[ FD_METRICS_ENUM_PKT_RX_DROP_REASON_V_DST_PORT_UNBOUND_IDX ]==rx_route_fail_before+2UL );
 

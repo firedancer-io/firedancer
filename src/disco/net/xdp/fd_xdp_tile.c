@@ -612,8 +612,8 @@ before_frag( fd_net_ctx_t * ctx,
   if( FD_UNLIKELY( ctx->net.in_kind[ in_idx ]==FD_NET_IN_KIND_IPROUTE ) ) return 0;
 
   /* Find interface index of next packet */
-  ulong proto = fd_disco_netmux_sig_proto( sig );
-  if( FD_UNLIKELY( proto!=DST_PROTO_OUTGOING ) ) return 1;
+  ulong proto_id = fd_disco_netmux_sig_proto( sig );
+  if( FD_UNLIKELY( proto_id!=DST_PROTO_OUTGOING ) ) return 1;
 
   /* Load balance TX */
   ulong tile_cnt   = ctx->net.tile_cnt;
