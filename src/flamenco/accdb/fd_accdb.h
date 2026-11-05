@@ -685,16 +685,7 @@ fd_accdb_idx_busy( fd_accdb_t const * accdb );
 
 #define FD_ACCDB_PEND_MAX (16UL)
 
-struct fd_accdb_snapshot_placement {
-  ulong loaded;
-  ulong removed;
-  ulong duplicates;
-  ulong dup_lamports;
-  ulong dup_lamports_hi;
-  ulong disk_freed;
-};
-
-typedef struct fd_accdb_snapshot_placement fd_accdb_snapshot_placement_t;
+/* fd_accdb_snapshot_placement_t: fd_accdb_base.h */
 
 typedef void (* fd_accdb_place_tomb_fn_t)( void * ctx, uchar const pubkey[ 32 ], ulong slot, int cross );
 
@@ -710,6 +701,16 @@ fd_accdb_snapshot_place( fd_accdb_t *                    accdb,
 
 void
 fd_accdb_snapshot_stage_discard( fd_accdb_t * accdb );
+
+/* fd_accdb_snapshot_place_help: non-lead snapin tiles call it while
+   idle.  It places ranges of a full placement the lead has opened, with
+   tomb_fn for its own superseded delegations.  Returns 1 if it did
+   work. */
+
+int
+fd_accdb_snapshot_place_help( fd_accdb_t *             accdb,
+                              fd_accdb_place_tomb_fn_t tomb_fn,
+                              void *                   tomb_ctx );
 
 /* fd_accdb_snapshot_stage_drop discards this joiner's staged records
    not yet flushed.  Every writer calls it when a load attempt ends

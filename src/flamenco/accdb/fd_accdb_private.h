@@ -754,6 +754,20 @@ struct fd_accdb_shmem_private {
   ulong stage_head __attribute__((aligned(64)));   /* FAA by writers */
   ulong stage_falloc;                              /* grow_lock      */
   ulong stage_dir[ FD_ACCDB_MAX_JOINERS ];         /* per joiner: chain directory offset+1, 0 = none */
+
+  /* Parallel full placement: the lead opens a job, every snapin joiner
+     claims range tickets (even ranges, then odd once all even are done,
+     so neighbours never overlap) and adds its outputs to place_out. */
+  struct __attribute__((aligned(64))) {
+    ulong open;       /* 0 = none, else job sequence */
+    ulong ticket;     /* FAA */
+    ulong done;       /* ranges finished */
+    ulong done_even;
+    ulong err;
+    ulong active;     /* helpers inside the job */
+  } place_job;
+  int   cf_lock __attribute__((aligned(64)));          /* filter kick paths */
+  fd_accdb_snapshot_placement_t place_out[ FD_ACCDB_MAX_JOINERS ];
   ulong bg_defer_head;      /* T2 only: total appended             */
   ulong bg_defer_tail;      /* T2 only: total released             */
   ulong bg_defer_sealed;    /* T2 only: entries below are tagged   */

@@ -2881,9 +2881,9 @@ plt_tomb_fn( void *      ctx,
              ulong       slot,
              int         cross ) {
   (void)ctx;
-  FD_TEST( plt_tomb.n<4UL*PLT_KEYS );
-  memcpy( plt_tomb.key[ plt_tomb.n ], pubkey, 32 ); plt_tomb.slot[ plt_tomb.n ] = slot; plt_tomb.cross[ plt_tomb.n ] = cross;
-  plt_tomb.n++;
+  ulong i = FD_ATOMIC_FETCH_AND_ADD( &plt_tomb.n, 1UL );
+  FD_TEST( i<4UL*PLT_KEYS );
+  memcpy( plt_tomb.key[ i ], pubkey, 32 ); plt_tomb.slot[ i ] = slot; plt_tomb.cross[ i ] = cross;
 }
 
 typedef struct {
@@ -2891,9 +2891,31 @@ typedef struct {
   int   any_deleg, present;
 } plt_model_t;
 
+static ulong * plt_map; /* id -> key seed, NULL = identity */
+
 static void
 plt_key( uchar key[ 32 ], ulong id ) {
-  memset( key, 0, 32 ); FD_STORE( ulong, key, fd_ulong_hash( id ) ); key[ 31 ] = 0x5E;
+  memset( key, 0, 32 ); FD_STORE( ulong, key, fd_ulong_hash( plt_map ? plt_map[ id ] : id ) ); key[ 31 ] = 0x5E;
+}
+
+/* plt_seams: 3/4 of the full keys home on the two pages either side
+   of the range 0/1 and 1/2 seams, so probe runs overflow across them
+   in both waves. */
+
+static void
+plt_seams( void ) {
+  static ulong map[ 2UL*PLT_KEYS ];
+  fd_accdb_idx_region_t bkt = test_bkt_region();
+  FD_TEST( bkt.npage>2UL*FD_ACCDB_PLACE_RANGE_PG+FD_ACCDB_IDX_PROBE_MAX );
+  ulong const lo[ 4 ] = { FD_ACCDB_PLACE_RANGE_PG-2UL, FD_ACCDB_PLACE_RANGE_PG, 2UL*FD_ACCDB_PLACE_RANGE_PG-2UL, 2UL*FD_ACCDB_PLACE_RANGE_PG };
+  ulong want = PLT_KEYS/4UL*3UL/4UL, got[ 4 ] = {0}, n = 0UL;
+  for( ulong c=0UL; n<4UL*want; c++ ) {
+    uchar key[ 32 ]; memset( key, 0, 32 ); FD_STORE( ulong, key, fd_ulong_hash( c ) ); key[ 31 ] = 0x5E;
+    ulong h = fd_accdb_idx_home( &bkt, key, 0, test_shmem_mem->seed );
+    for( ulong w=0UL; w<4UL; w++ ) if( h>=lo[ w ] && h<lo[ w ]+2UL && got[ w ]<want ) { map[ n++ ] = c; got[ w ]++; break; }
+  }
+  for( ulong id=n; id<2UL*PLT_KEYS; id++ ) map[ id ] = id | (1UL<<41);
+  plt_map = map;
 }
 
 static void
@@ -2929,10 +2951,24 @@ plt_apply( plt_model_t * m, ulong slot, ulong lamports, ulong len, ulong off, in
   }
 }
 
+static volatile int plt_stop;
+
+static void *
+plt_helper( void * arg ) {
+  while( !plt_stop ) if( !fd_accdb_snapshot_place_help( (fd_accdb_t *)arg, plt_tomb_fn, NULL ) ) FD_SPIN_PAUSE();
+  return NULL;
+}
+
+/* max_accounts sets the range count; helper threads join the full
+   placement as the other snapin tiles do. */
+
 static void
-test_idx_place_equivalence( ulong seed ) {
+test_idx_place_equivalence( ulong seed,
+                            ulong max_accounts,
+                            ulong helper_cnt,
+                            int   seams ) {
   int fd;
-  fd_accdb_t * t2 = test_setup_idx( &fd, 8UL*PLT_KEYS, 1024UL, 64UL, 64UL );
+  fd_accdb_t * t2 = test_setup_idx( &fd, max_accounts, 1024UL, 64UL, 64UL );
   void * window = aligned_alloc( 4096UL, FD_ACCDB_PLACE_WINDOW );
   FD_TEST( window );
   fd_accdb_t * accdb = fd_accdb_join( fd_accdb_new( aligned_alloc( fd_accdb_align(), fd_accdb_footprint( 64UL, 0 ) ), test_shmem_mem, fd, -1, 0UL, NULL, NULL, 0UL, 0, test_idx_fd, window ) );
@@ -2941,6 +2977,8 @@ test_idx_place_equivalence( ulong seed ) {
                            .seq = &test_shmem_mem->idx_cf_seq, .stash = (ulong *)( (uchar *)test_shmem_mem + test_shmem_mem->idx_cf_stash_off ),
                            .stash_cnt = &test_shmem_mem->idx_cf_stash_cnt, .disabled = &test_shmem_mem->idx_cf_disabled }};
   fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, (uint)seed, 0UL ) );
+  plt_map = NULL;
+  if( seams ) plt_seams();
   fd_accdb_fork_id_t root = fd_accdb_attach_child( accdb, SENTINEL );
   fd_accdb_snapshot_load_begin( accdb );
   static plt_model_t full[ PLT_KEYS ];
@@ -2970,8 +3008,19 @@ test_idx_place_equivalence( ulong seed ) {
   }
   fd_accdb_snapshot_stage_flush( accdb );
   plt_tomb.n = 0UL;
+  pthread_t helper[ 2 ]; void * hwin[ 2 ]; fd_accdb_t * hj[ 2 ];
+  FD_TEST( helper_cnt<=2UL );
+  plt_stop = 0;
+  for( ulong i=0UL; i<helper_cnt; i++ ) {
+    hwin[ i ] = aligned_alloc( 4096UL, FD_ACCDB_PLACE_WINDOW );
+    hj[ i ]   = fd_accdb_join( fd_accdb_new( aligned_alloc( fd_accdb_align(), fd_accdb_footprint( 64UL, 0 ) ), test_shmem_mem, fd, -1, 0UL, NULL, NULL, 0UL, 0, test_idx_fd, hwin[ i ] ) );
+    FD_TEST( hj[ i ] );
+    FD_TEST( !pthread_create( &helper[ i ], NULL, plt_helper, hj[ i ] ) );
+  }
   fd_accdb_snapshot_placement_t out[1];
   FD_TEST( !fd_accdb_snapshot_place( accdb, FD_ACCDB_PLACE_FULL, plt_tomb_fn, NULL, out ) );
+  plt_stop = 1;
+  for( ulong i=0UL; i<helper_cnt; i++ ) { FD_TEST( !pthread_join( helper[ i ], NULL ) ); free( hj[ i ] ); free( hwin[ i ] ); }
 
   ulong loaded = 0UL, tombs = 0UL;
   for( ulong id=0UL; id<PLT_KEYS; id++ ) {
@@ -2985,6 +3034,13 @@ test_idx_place_equivalence( ulong seed ) {
   FD_TEST( plt_tomb.n==tombs );
   for( ulong t=0UL; t<plt_tomb.n; t++ ) FD_TEST( !plt_tomb.cross[ t ] );
   fd_accdb_idx_region_t bkt = test_bkt_region();
+  if( seams ) { /* the runs did cross both seams */
+    fd_accdb_idx_page_t pg[1];
+    for( ulong b=1UL; b<=2UL; b++ ) {
+      fd_accdb_idx_page_read_raw( &bkt, b*FD_ACCDB_PLACE_RANGE_PG-1UL, pg ); FD_TEST( pg->flags & FD_ACCDB_IDX_OVERFLOWED );
+      fd_accdb_idx_page_read_raw( &bkt, b*FD_ACCDB_PLACE_RANGE_PG+4UL, pg ); FD_TEST( pg->cnt ); /* past every home page */
+    }
+  }
   for( ulong id=0UL; id<PLT_KEYS; id++ ) {
     uchar key[ 32 ]; plt_key( key, id ); fd_accdb_idx_slot_t got;
     int hit = fd_accdb_idx_lookup( &bkt, test_shmem_mem->seed, key, 0, &got );
@@ -3436,7 +3492,9 @@ main( int     argc,
   test_idx_prefetch_and_residual();
 
   FD_LOG_NOTICE(( "test_idx_place_equivalence ..." ));
-  for( ulong i=0UL; i<4UL; i++ ) test_idx_place_equivalence( i );
+  for( ulong i=0UL; i<4UL; i++ ) test_idx_place_equivalence( i, 8UL*PLT_KEYS, i&1UL, 0 );
+  test_idx_place_equivalence( 7UL, 12000000UL, 2UL, 0 ); /* 7 ranges, waves A/B across threads */
+  for( ulong h=0UL; h<3UL; h++ ) test_idx_place_equivalence( 8UL+h, 4000000UL, h, 1 ); /* overflow across range seams */
 
   FD_LOG_NOTICE(( "test_idx_overflow_worst_case ..." ));
   test_idx_overflow_worst_case();
