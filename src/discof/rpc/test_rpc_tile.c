@@ -846,6 +846,72 @@ main( int     argc,
   char req_buf[8192];
   char res_buf[4096];
 
+  /* Empty slices must retain the full metadata without copying the
+     payload, even for repeated keys and offsets beyond the account. */
+  {
+    fd_pubkey_t addr_large;
+    memset( addr_large.uc, 0x45, 32UL );
+    uchar const * pks[1] = { addr_large.uc };
+    int wr[1] = { 1 };
+    fd_acc_t acc[1] = {0};
+    fd_accdb_acquire( writer_accdb, test_fork_id, 1UL, pks, wr, acc );
+    acc[0].lamports   = 7UL;
+    acc[0].data_len   = 1UL<<20UL;
+    acc[0].executable = 1;
+    memcpy( acc[0].owner, owner_a, 32UL );
+    memset( acc[0].data, 0x5A, acc[0].data_len );
+    acc[0].commit = 1;
+    fd_accdb_release( writer_accdb, 1UL, acc );
+    FD_BASE58_ENCODE_32_BYTES( addr_large.uc, addr_large_b58 );
+
+    char const * encodings[]  = { "binary", "base58", "base64", "base64+zstd" };
+    char const * empty_data[] = { "\"\"", "[\"\",\"base58\"]", "[\"\",\"base64\"]", "[\"KLUv/SAAAQAA\",\"base64+zstd\"]" };
+    ulong offsets[] = { 0UL, ULONG_MAX };
+    fd_accdb_metrics_t const * metrics = fd_accdb_metrics( ctx->accdb );
+    for( ulong encoding=0UL; encoding<4UL; encoding++ ) {
+      for( ulong offset=0UL; offset<2UL; offset++ ) {
+        char account[512];
+        FD_TEST( fd_cstr_printf_check( account, sizeof(account), NULL,
+            "{\"executable\":true,\"lamports\":7,\"owner\":\"%s\",\"rentEpoch\":18446744073709551615,\"space\":1048576,\"data\":%s}",
+            owner_a_b58, empty_data[encoding] ) );
+        for( int multiple=0; multiple<2; multiple++ ) {
+          if( multiple ) {
+            FD_TEST( fd_cstr_printf_check( req_buf, sizeof(req_buf), NULL,
+                "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getMultipleAccounts\",\"params\":[[\"%s\",\"%s\",\"%s\"],{\"encoding\":\"%s\",\"dataSlice\":{\"offset\":%lu,\"length\":0}}]}",
+                addr_large_b58, addr_missing_b58, addr_large_b58, encodings[encoding], offsets[offset] ) );
+            FD_TEST( fd_cstr_printf_check( res_buf, sizeof(res_buf), NULL,
+                "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"context\":{\"apiVersion\":\"" FD_RPC_AGAVE_API_VERSION "\",\"slot\":42},\"value\":[%s,null,%s]}}",
+                account, account ) );
+          } else {
+            FD_TEST( fd_cstr_printf_check( req_buf, sizeof(req_buf), NULL,
+                "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getAccountInfo\",\"params\":[\"%s\",{\"encoding\":\"%s\",\"dataSlice\":{\"offset\":%lu,\"length\":0}}]}",
+                addr_large_b58, encodings[encoding], offsets[offset] ) );
+            FD_TEST( fd_cstr_printf_check( res_buf, sizeof(res_buf), NULL,
+                "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"context\":{\"apiVersion\":\"" FD_RPC_AGAVE_API_VERSION "\",\"slot\":42},\"value\":%s}}",
+                account ) );
+          }
+          ulong copied = metrics->bytes_copied;
+          ulong reads  = metrics->bytes_read;
+          expect_rpc_response( ctx, req_buf, res_buf );
+          FD_TEST( metrics->bytes_copied==copied );
+          FD_TEST( metrics->bytes_read<=reads+32UL*(multiple ? 2UL : 1UL) );
+        }
+      }
+    }
+
+    /* A nonempty slice must still fetch and encode the actual byte. */
+    for( int multiple=0; multiple<2; multiple++ ) {
+      FD_TEST( fd_cstr_printf_check( req_buf, sizeof(req_buf), NULL,
+          "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"%s\",\"params\":[%s\"%s\"%s,{\"encoding\":\"base64\",\"dataSlice\":{\"offset\":1048575,\"length\":1}}]}",
+          multiple ? "getMultipleAccounts" : "getAccountInfo", multiple ? "[" : "", addr_large_b58, multiple ? "]" : "" ) );
+      FD_TEST( fd_cstr_printf_check( res_buf, sizeof(res_buf), NULL,
+          "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"context\":{\"apiVersion\":\"" FD_RPC_AGAVE_API_VERSION "\",\"slot\":42},\"value\":%s"
+          "{\"executable\":true,\"lamports\":7,\"owner\":\"%s\",\"rentEpoch\":18446744073709551615,\"space\":1048576,\"data\":[\"Wg==\",\"base64\"]}%s}}",
+          multiple ? "[" : "", owner_a_b58, multiple ? "]" : "" ) );
+      expect_rpc_response( ctx, req_buf, res_buf );
+    }
+  }
+
   FD_TEST( fd_cstr_printf_check( req_buf, sizeof(req_buf), NULL,
       "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getMinimumBalanceForRentExemption\",\"params\":[%lu]}",
       FD_RUNTIME_ACC_SZ_MAX+1UL ) );

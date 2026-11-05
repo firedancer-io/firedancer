@@ -1711,7 +1711,7 @@ getAccountInfo( fd_rpc_tile_t *         ctx,
   ulong acct_data_len;
   fd_accdb_read_one_nocache( ctx->accdb, info->accdb_fork_id, address.uc,
                              &acct_lamports, &acct_executable, acct_owner,
-                             ctx->scratch.accdb_data_buf, &acct_data_len );
+                             slice_length ? ctx->scratch.accdb_data_buf : NULL, &acct_data_len );
   if( FD_UNLIKELY( !acct_lamports ) ) {
     return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"%s\",\"slot\":%lu},\"value\":null},\"id\":%s}\n", FD_RPC_AGAVE_API_VERSION, info->slot, id_cstr );
   }
@@ -2428,7 +2428,7 @@ getMultipleAccounts( fd_rpc_tile_t *         ctx,
     ulong acct_data_len;
     fd_accdb_read_one_nocache( ctx->accdb, info->accdb_fork_id, addresses[i].uc,
                                &acct_lamports, &acct_executable, acct_owner,
-                               ctx->scratch.accdb_data_buf, &acct_data_len );
+                               slice_length ? ctx->scratch.accdb_data_buf : NULL, &acct_data_len );
     if( FD_UNLIKELY( !acct_lamports ) ) {
       fd_http_server_printf( ctx->http, "null" );
       continue;
