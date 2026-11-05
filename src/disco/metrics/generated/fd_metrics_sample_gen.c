@@ -1332,7 +1332,7 @@ static fd_metrics_sample_field_t const fields_execle[ 247 ] = {
   { 0, 0U, FD_METRICS_SAMPLE_CLOSE, NULL, 0UL },
 };
 
-static fd_metrics_sample_field_t const fields_shred[ 177 ] = {
+static fd_metrics_sample_field_t const fields_shred[ 178 ] = {
   { FD_METRICS_GAUGE_TILE_PID_OFF, 8U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_GAUGE_TILE_TID_OFF, 9U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_GAUGE_TILE_LAST_CPU_INDEX_OFF, 10U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
@@ -1510,6 +1510,7 @@ static fd_metrics_sample_field_t const fields_shred[ 177 ] = {
   { 0, 0U, FD_METRICS_SAMPLE_CLOSE, NULL, 0UL },
   { FD_METRICS_COUNTER_SHRED_STORE_FEC_SYNC_SPILLED_OFF, 45U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_COUNTER_SHRED_STORE_FEC_SYNC_SPILLED_BYTES_OFF, 46U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
+  { FD_METRICS_COUNTER_SHRED_INVALID_SIGNATURE_CACHE_HIT_OFF, 47U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
 };
 
 static fd_metrics_sample_field_t const fields_accdb[ 132 ] = {
@@ -4606,7 +4607,7 @@ fd_metrics_sample_schema_t const fd_metrics_sample_tiles[] = {
   { "resolv", 29U, fields_resolv, 81UL, 915UL },
   { "pack", 30U, fields_pack, 283UL, 3013UL },
   { "execle", 31U, fields_execle, 247UL, 2599UL },
-  { "shred", 32U, fields_shred, 177UL, 1962UL },
+  { "shred", 32U, fields_shred, 178UL, 1974UL },
   { "accdb", 33U, fields_accdb, 132UL, 1361UL },
   { "replay", 34U, fields_replay, 297UL, 3177UL },
   { "rotor", 35U, fields_rotor, 158UL, 1769UL },

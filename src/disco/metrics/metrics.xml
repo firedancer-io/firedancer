@@ -865,6 +865,7 @@ deliberate exception with lint-allow="<rule id>")
     </histogram>
     <counter name="StoreFecSyncSpilled" summary="FEC payloads the shred tile spilled to the store synchronously because the store RAM cache was full" />
     <counter name="StoreFecSyncSpilledBytes" summary="FEC payload bytes the shred tile spilled to the store synchronously" />
+    <counter name="InvalidSignatureCacheHit" summary="Initial shreds rejected using an exact cached Ed25519 equation failure; included in InitialRejected" />
 </tile>
 
 <tile name="accdb">

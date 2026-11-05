@@ -730,6 +730,7 @@
 | <span class="metrics-name">shred_&#8203;repair_&#8203;lead_&#8203;delay_&#8203;nanos</span> | histogram | Estimated time repair advanced FEC set completion: the delay from a repair-assisted completion until turbine had delivered as many shreds for that set as repair contributed. Counts arrivals rather than distinct indices, so turbine duplicates bias this low |
 | <span class="metrics-name">shred_&#8203;store_&#8203;fec_&#8203;sync_&#8203;spilled</span> | counter | FEC payloads the shred tile spilled to the store synchronously because the store RAM cache was full |
 | <span class="metrics-name">shred_&#8203;store_&#8203;fec_&#8203;sync_&#8203;spilled_&#8203;bytes</span> | counter | FEC payload bytes the shred tile spilled to the store synchronously |
+| <span class="metrics-name">shred_&#8203;invalid_&#8203;signature_&#8203;cache_&#8203;hit</span> | counter | Initial shreds rejected using an exact cached Ed25519 equation failure; included in InitialRejected |
 
 </div>
 

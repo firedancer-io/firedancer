@@ -10079,6 +10079,8 @@ message MetricsShred {
   uint64 store_fec_sync_spilled = 45;
   // FEC payload bytes the shred tile spilled to the store synchronously
   uint64 store_fec_sync_spilled_bytes = 46;
+  // Initial shreds rejected using an exact cached Ed25519 equation failure; included in InitialRejected
+  uint64 invalid_signature_cache_hit = 47;
 }
 
 // Metrics of one accdb tile instance, one row per sweep

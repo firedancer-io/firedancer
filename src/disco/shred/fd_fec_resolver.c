@@ -169,6 +169,18 @@ FD_STATIC_ASSERT( sizeof(done_ele_t)==40UL, done_ele_t );
 #define POOL_NEXT             heap_left
 #include "../../util/tmpl/fd_pool.c"
 
+/* Only cache a proved equation failure, never an admission or FEC verdict.
+   Ed25519 verifies exactly (signature, derived Merkle root, leader pubkey).
+   Keeping every byte avoids poisoning a valid alternate signature/root/key.
+   Direct mapping bounds both work and memory; collisions only cause misses. */
+#define INVALID_SIG_CACHE_CNT (256UL)
+typedef struct {
+  uchar signature[64];
+  uchar root[32];
+  uchar pubkey[32];
+} invalid_sig_key_t;
+FD_STATIC_ASSERT( sizeof(invalid_sig_key_t)==128UL, invalid_sig_key_sz );
+
 struct __attribute__((aligned(FD_FEC_RESOLVER_ALIGN))) fd_fec_resolver {
   /* depth stores the number of FEC sets this resolver can track
      simultaneously.  done_depth stores the depth of the done tcache,
@@ -275,6 +287,12 @@ struct __attribute__((aligned(FD_FEC_RESOLVER_ALIGN))) fd_fec_resolver {
      FEC set signatures.  A leader signs every set of its slots, so
      the few keys active at once repeat for hundreds of sets. */
   fd_ed25519_cache_t * ed25519_cache;
+
+  /* Separate from authenticated contexts and done membership.  No expiry is
+     needed: a failed equation for these exact public inputs stays failed.
+     Fresh S/root/key or cache churn still incurs verification. */
+  invalid_sig_key_t invalid_sig_cache[INVALID_SIG_CACHE_CNT];
+  ulong             invalid_sig_valid[INVALID_SIG_CACHE_CNT/64UL];
 
   /* The footprint for the objects follows the struct and is in the same
      order as the pointers, namely:
@@ -399,6 +417,7 @@ fd_fec_resolver_new( void                    * shmem,
   resolver->free_list_cnt          = depth+partial_depth;
   resolver->slot_old               = 0UL;
   resolver->seed                   = seed3;
+  fd_memset( resolver->invalid_sig_valid, 0, sizeof(resolver->invalid_sig_valid) );
   return shmem;
 }
 
@@ -697,7 +716,26 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
         return FD_FEC_RESOLVER_SHRED_REJECTED;
       }
 
-      if( FD_UNLIKELY( FD_ED25519_SUCCESS != fd_ed25519_verify_cached( _root->hash, 32UL, shred->signature, leader_pubkey, sha512, resolver->ed25519_cache ) ) ) {
+      invalid_sig_key_t key;
+      fd_memcpy( key.signature, shred->signature, 64UL );
+      fd_memcpy( key.root,      _root->hash,       32UL );
+      fd_memcpy( key.pubkey,    leader_pubkey,     32UL );
+      ulong idx  = fd_hash( resolver->seed, &key, sizeof(key) ) & (INVALID_SIG_CACHE_CNT-1UL);
+      ulong bit  = 1UL << (idx & 63UL);
+      int cached = !!(resolver->invalid_sig_valid[idx>>6] & bit) &&
+                   !memcmp( &resolver->invalid_sig_cache[idx], &key, sizeof(key) );
+      int sig_rc;
+      if( FD_UNLIKELY( cached ) ) {
+        FD_MCNT_INC( SHRED, INVALID_SIGNATURE_CACHE_HIT, 1UL );
+        sig_rc = FD_ED25519_ERR_MSG;
+      } else {
+        sig_rc = fd_ed25519_verify_cached( _root->hash, 32UL, shred->signature, leader_pubkey, sha512, resolver->ed25519_cache );
+        if( FD_UNLIKELY( sig_rc==FD_ED25519_ERR_MSG ) ) {
+          resolver->invalid_sig_cache[idx] = key;
+          resolver->invalid_sig_valid[idx>>6] |= bit;
+        }
+      }
+      if( FD_UNLIKELY( sig_rc!=FD_ED25519_SUCCESS ) ) {
         ctx_list_ele_push_head( free_list, ctx, ctx_pool );
         resolver->free_list_cnt++;
         FD_MCNT_INC( SHRED, INITIAL_REJECTED, 1UL );

@@ -278,6 +278,7 @@
             }
         },
         "store_fec_sync_spilled":       { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "FEC payloads the shred tile spilled to the store synchronously because the store RAM cache was full" },
-        "store_fec_sync_spilled_bytes": { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "FEC payload bytes the shred tile spilled to the store synchronously" }
+        "store_fec_sync_spilled_bytes": { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "FEC payload bytes the shred tile spilled to the store synchronously" },
+        "invalid_signature_cache_hit":  { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Initial shreds rejected using an exact cached Ed25519 equation failure; included in InitialRejected" }
     }
 }

@@ -31,3 +31,10 @@ $(call run-unit-test,test_shred_dispatch)
 # Do not root every unrelated topology/application symbol through -rdynamic.
 $(OBJDIR)/unit-test/test_shred_dispatch: LDFLAGS:=$(filter-out -rdynamic,$(LDFLAGS))
 endif
+
+ifdef FD_HAS_HOSTED
+$(OBJDIR)/obj/disco/shred/test_fec_invalid_cache.o: CFLAGS+=-ffunction-sections -fdata-sections
+$(call make-unit-test,test_fec_invalid_cache,test_fec_invalid_cache,fd_flamenco fd_disco fd_waltz fd_ballet fd_tango fd_reedsol fd_util_test fd_util,-Wl$(comma)--gc-sections)
+$(call run-unit-test,test_fec_invalid_cache)
+$(OBJDIR)/unit-test/test_fec_invalid_cache: LDFLAGS:=$(filter-out -rdynamic,$(LDFLAGS))
+endif
