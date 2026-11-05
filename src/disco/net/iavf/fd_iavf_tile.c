@@ -447,8 +447,8 @@ before_frag( fd_iavf_tile_t * ctx,
   if( FD_UNLIKELY( ctx->net.in_kind[ in_idx ]==FD_NET_IN_KIND_IPROUTE ) ) return 0;
 
   /* Resolve the TX route for outgoing packets */
-  ulong dst_proto = fd_disco_netmux_sig_proto( sig );
-  if( FD_UNLIKELY( dst_proto!=DST_PROTO_OUTGOING ) ) return 1;
+  ulong proto_id = fd_disco_netmux_sig_proto( sig );
+  if( FD_UNLIKELY( proto_id!=DST_PROTO_OUTGOING ) ) return 1;
 
   ulong const hash       = fd_disco_netmux_sig_hash( sig );
   ulong       target_idx = hash % ctx->net.tile_cnt;
@@ -595,7 +595,7 @@ after_frag( fd_iavf_tile_t *    ctx,
     int owns_udp_dst = 0;
     if( 0==ctx->router.bind_address || ctx->router.bind_address==ip4->daddr ) {
       ushort const dst_port = fd_ushort_bswap( udp->net_dport );
-      for( ulong i=0UL; i<ctx->net.rx_dest_cnt; i++ ) owns_udp_dst |= ctx->net.rx_dst_ports[ i ]==dst_port;
+      for( ulong i=0UL; i<ctx->net.rx_dest_cnt; i++ ) owns_udp_dst |= ctx->net.rx_listen_ports[ i ]==dst_port;
     }
     if( !owns_udp_dst ) {
       fd_iavf_tile_lo_tx_enqueue( ctx, ip4, ip_sz );
