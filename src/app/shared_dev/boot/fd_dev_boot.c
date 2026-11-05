@@ -72,6 +72,7 @@ fd_global_options_help( fd_action_help_t * help ) {
   fd_action_help_arg( help, "--no-clone",         NULL,      "Run all tiles in a single process instead of one per tile (development only)" );
   fd_action_help_arg( help, "--max-live-slots",   "<count>", "Override the [runtime.max_live_slots] configuration (development only)" );
   fd_action_help_arg( help, "--efficient",        NULL,      "Override the layout mode to \"efficient\" so tiles sleep when idle" );
+  fd_action_help_arg( help, "--standby",          NULL,      "Boot as a failover standby under a junk identity, like [failover.boot_to_standby]" );
   fd_action_help_arg( help, "--version",          NULL,      "Show the current software version" );
   fd_action_help_arg( help, "--help/-h",          NULL,      "Print this help message" );
 }
@@ -97,8 +98,8 @@ fd_dev_main( int                        argc,
   char const * log_path = fd_env_strip_cmdline_cstr( &argc, &argv, "--log-path", NULL, NULL );
 
   int no_sandbox = fd_env_strip_cmdline_contains( &argc, &argv, "--no-sandbox" );
-  int no_clone = fd_env_strip_cmdline_contains( &argc, &argv, "--no-clone" );
-  int efficient = fd_env_strip_cmdline_contains( &argc, &argv, "--efficient" );
+  int no_clone   = fd_env_strip_cmdline_contains( &argc, &argv, "--no-clone" );
+  int efficient  = fd_env_strip_cmdline_contains( &argc, &argv, "--efficient" );
 
   ulong max_live_slots = fd_env_strip_cmdline_ulong( &argc, &argv, "--max-live-slots", NULL, 0UL );
 

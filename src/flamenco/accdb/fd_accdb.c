@@ -3887,6 +3887,7 @@ fd_accdb_read_one_nocache( fd_accdb_t *       accdb,
   ulong snap_lamports = accmeta->lamports;
   uint  snap_cidx     = FD_VOLATILE_CONST( accmeta->cache_idx );
   ulong data_len      = (ulong)FD_ACCDB_SIZE_DATA( snap_es );
+  ulong read_data_len = out_data ? data_len : 0UL;
   int   executable    = FD_ACCDB_SIZE_EXEC( snap_es );
 
   accdb->metrics->accounts_acquired_per_class[ fd_accdb_cache_class( data_len ) ]++;
@@ -3929,7 +3930,7 @@ fd_accdb_read_one_nocache( fd_accdb_t *       accdb,
       FD_COMPILER_MFENCE();
       fd_racesan_hook( "accdb_nocache:pre_copy" );
       memcpy( out_owner, line->owner, 32UL );
-      memcpy( out_data,  (uchar const *)(line+1UL), data_len );
+      if( read_data_len ) memcpy( out_data, (uchar const *)(line+1UL), read_data_len );
       fd_racesan_hook( "accdb_nocache:post_copy" );
       FD_COMPILER_MFENCE();
 
@@ -3946,7 +3947,7 @@ fd_accdb_read_one_nocache( fd_accdb_t *       accdb,
       *out_lamports   = snap_lamports;
       *out_executable = executable;
       *out_data_len   = data_len;
-      accdb->metrics->bytes_copied += data_len;
+      accdb->metrics->bytes_copied += read_data_len;
       FD_COMPILER_MFENCE();
       FD_VOLATILE( *accdb->my_epoch_slot ) = ULONG_MAX;
       return FD_ACCDB_READ_ONE_NOCACHE_CACHE;
@@ -3977,12 +3978,12 @@ miss:;
 
   struct iovec iovs[ 2 ] = {
     { .iov_base = out_owner, .iov_len = 32UL     },
-    { .iov_base = out_data,  .iov_len = data_len },
+    { .iov_base = out_data,  .iov_len = read_data_len },
   };
-  ulong total = 32UL+data_len;
+  ulong total = 32UL+read_data_len;
   ulong start = off+offsetof( fd_accdb_disk_meta_t, owner );
   ulong got   = 0UL;
-  int   nio   = data_len ? 2 : 1;
+  int   nio   = read_data_len ? 2 : 1;
   while( FD_LIKELY( got<total ) ) {
     long result = fd_accdb_preadv( accdb->fd, iovs, nio, (off_t)(start+got) );
     if( FD_UNLIKELY( -1==result && (errno==EINTR || errno==EAGAIN || errno==EWOULDBLOCK) ) ) continue;
@@ -4013,6 +4014,18 @@ miss:;
   FD_COMPILER_MFENCE();
   FD_VOLATILE( *accdb->my_epoch_slot ) = ULONG_MAX;
   return FD_ACCDB_READ_ONE_NOCACHE_DISK;
+}
+
+int
+fd_accdb_read_one_meta( fd_accdb_t *       accdb,
+                        fd_accdb_fork_id_t fork_id,
+                        uchar const *      pubkey,
+                        uchar *            out_owner,
+                        ulong *            out_data_len ) {
+  ulong lamports;
+  int   executable;
+  return fd_accdb_read_one_nocache( accdb, fork_id, pubkey, &lamports, &executable,
+                                   out_owner, NULL, out_data_len );
 }
 
 int

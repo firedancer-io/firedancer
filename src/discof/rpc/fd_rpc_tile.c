@@ -1,7 +1,7 @@
 #include "../replay/fd_replay_tile.h"
 #include "../genesis/fd_genesi_tile.h"
 #include "../votor/fd_votor_tile.h"
-#include "../../choreo/votor/ag_cert.h"
+#include "../../choreo/votor/fd_cert.h"
 
 #include "../../ballet/base64/fd_base64.h"
 #include "../../ballet/json/fd_jtok.h"
@@ -470,7 +470,7 @@ struct fd_rpc_tile {
 
   /* Address of the account holding the alpenglow genesis certificate,
      for getAgGenesisCert. */
-  fd_pubkey_t ag_genesis_cert_addr[ 1 ];
+  fd_pubkey_t fd_genesis_cert_addr[ 1 ];
 
   ulong processed_idx;
   ulong confirmed_idx;
@@ -577,6 +577,25 @@ fd_rpc_ws_subscriber_slot_remove( fd_rpc_tile_t * ctx,
     return 1;
   }
 
+  return 0;
+}
+
+/* fd_rpc_ws_unsubscribe removes the subscription with id sub_id from
+   connection ws_conn_id, whatever its type.  Returns 1 if a
+   subscription was removed, 0 if the connection has no subscription
+   with that id.
+
+   Agave keeps all subscriptions of a connection in one map keyed by id
+   and every *Unsubscribe method removes from that map without checking
+   the subscription type.  This is a bug in Agave, we replicate it for
+   conformance. */
+
+static int
+fd_rpc_ws_unsubscribe( fd_rpc_tile_t * ctx,
+                       ulong           sub_id,
+                       ulong           ws_conn_id ) {
+  if( sub_id==ctx->ws_sub_id_slot && fd_rpc_ws_subscriber_slot_remove( ctx, ws_conn_id ) ) return 1;
+  if( sub_id==ctx->ws_sub_id_vote && fd_rpc_ws_subscriber_vote_remove( ctx, ws_conn_id ) ) return 1;
   return 0;
 }
 
@@ -947,7 +966,7 @@ returnable_frag( fd_rpc_tile_t *     ctx,
     fd_rpc_mleaders_ingest( ctx->mleaders, msg );
   } else if( ctx->in_kind[ in_idx ]==IN_KIND_VOTOR ) {
     fd_votor_msg_t const * msg = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
-    if( FD_LIKELY( msg->certed.kind==AG_CERT_KIND_FINAL || msg->certed.kind==AG_CERT_KIND_FAST_FINAL ) ) {
+    if( FD_LIKELY( msg->certed.kind==FD_CERT_KIND_FINAL || msg->certed.kind==FD_CERT_KIND_FAST_FINAL ) ) {
       fd_rpc_cluster_finalized( ctx, msg->certed.slot );
     }
   } else if( ctx->in_kind[ in_idx ]==IN_KIND_GENESI ) {
@@ -1946,7 +1965,7 @@ getAgGenesisCert( fd_rpc_tile_t *         ctx,
   int   acct_executable;
   uchar acct_owner[ 32UL ];
   ulong acct_data_len;
-  fd_accdb_read_one_nocache( ctx->accdb, info->accdb_fork_id, ctx->ag_genesis_cert_addr->uc,
+  fd_accdb_read_one_nocache( ctx->accdb, info->accdb_fork_id, ctx->fd_genesis_cert_addr->uc,
                              &acct_lamports, &acct_executable, acct_owner,
                              ctx->scratch.accdb_data_buf, &acct_data_len );
   if( FD_UNLIKELY( !acct_lamports || !acct_data_len ) ) {
@@ -2651,11 +2670,11 @@ voteUnsubscribe( fd_rpc_tile_t *         ctx,
     return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: %s, expected usize.\"},\"id\":%s}\n", fd_rpc_val_kind_cstr( subscription ), id_cstr );
   }
 
-  int unsubscribed = 0;
-  if( FD_LIKELY( subscription->u==ctx->ws_sub_id_vote ) )
-    unsubscribed = fd_rpc_ws_subscriber_vote_remove( ctx, ws_conn_id );
+  if( FD_UNLIKELY( !fd_rpc_ws_unsubscribe( ctx, subscription->u, ws_conn_id ) ) ) {
+    return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid subscription id.\"},\"id\":%s}\n", id_cstr );
+  }
 
-  return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"result\":%s,\"id\":%s}\n", unsubscribed ? "true" : "false", id_cstr );
+  return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"result\":true,\"id\":%s}\n", id_cstr );
 }
 
 static fd_http_server_response_t
@@ -2678,11 +2697,11 @@ slotUnsubscribe( fd_rpc_tile_t *         ctx,
     return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: %s, expected usize.\"},\"id\":%s}\n", fd_rpc_val_kind_cstr( subscription ), id_cstr );
   }
 
-  int unsubscribed = 0;
-  if( FD_LIKELY( subscription->u==ctx->ws_sub_id_slot ) )
-    unsubscribed = fd_rpc_ws_subscriber_slot_remove( ctx, ws_conn_id );
+  if( FD_UNLIKELY( !fd_rpc_ws_unsubscribe( ctx, subscription->u, ws_conn_id ) ) ) {
+    return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid subscription id.\"},\"id\":%s}\n", id_cstr );
+  }
 
-  return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"result\":%s,\"id\":%s}\n", unsubscribed ? "true" : "false", id_cstr );
+  return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"result\":true,\"id\":%s}\n", id_cstr );
 }
 
 UNIMPLEMENTED(getVoteAccounts) // TODO: Used by solana-exporter
@@ -3087,7 +3106,7 @@ unprivileged_init( fd_topo_t const *      topo,
   void * _zstd_wksp   = FD_SCRATCH_ALLOC_APPEND( l, 16UL,                     zstd_wksp_sz                                           );
 
   ctx->delay_startup       = tile->rpc.delay_startup;
-  fd_alpenglow_pda( "carlgration", ctx->ag_genesis_cert_addr );
+  fd_alpenglow_pda( "carlgration", ctx->fd_genesis_cert_addr );
   ctx->waker_rearm_pending = 0;
   ctx->ws_subscribers_vote = _ws_sub_vote;
   ctx->ws_subscribers_vote_cnt = 0UL;

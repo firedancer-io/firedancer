@@ -9,7 +9,7 @@ parallel.
 Each thread is given a CPU core to run on, and threads take ownership of
 the core: never sleeping or letting the operating system use it for
 another purpose. The combination of a job, and the thread it runs on,
-and the CPU core it is assigned to is called a tile. The fifteen kinds of
+and the CPU core it is assigned to is called a tile. The twenty-two kinds of
 tile are,
 
 | Tile   | Description |

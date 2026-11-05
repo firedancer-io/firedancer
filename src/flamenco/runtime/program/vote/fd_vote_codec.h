@@ -444,15 +444,15 @@ typedef struct fd_lockout_offset fd_lockout_offset_t;
 #define FD_LOCKOUT_OFFSET_ALIGN alignof(fd_lockout_offset_t)
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L133 */
-struct fd_vote {
+struct fd_legacy_vote {
   ulong *   slots;
   fd_hash_t hash;
   long      timestamp;
   uchar     has_timestamp;
   uchar     slots_mem[ FD_VOTE_INSTR_SLOTS_FOOTPRINT ] __attribute__((aligned(FD_VOTE_INSTR_SLOTS_ALIGN)));
 };
-typedef struct fd_vote fd_vote_t;
-#define FD_VOTE_ALIGN alignof(fd_vote_t)
+typedef struct fd_legacy_vote fd_legacy_vote_t;
+#define FD_LEGACY_VOTE_ALIGN alignof(fd_legacy_vote_t)
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_instruction.rs#L37 */
 struct fd_vote_authorize_pubkey {
@@ -464,8 +464,8 @@ typedef struct fd_vote_authorize_pubkey fd_vote_authorize_pubkey_t;
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_instruction.rs#L78 */
 struct fd_vote_switch {
-  fd_vote_t vote;
-  fd_hash_t hash;
+  fd_legacy_vote_t vote;
+  fd_hash_t        hash;
 };
 typedef struct fd_vote_switch fd_vote_switch_t;
 #define FD_VOTE_SWITCH_ALIGN alignof(fd_vote_switch_t)
@@ -590,7 +590,7 @@ struct fd_vote_instruction {
   union {
     fd_vote_init_t                             initialize_account;
     fd_vote_authorize_pubkey_t                 authorize;
-    fd_vote_t                                  vote;
+    fd_legacy_vote_t                           vote;
     ulong                                      withdraw;
     uchar                                      update_commission;
     fd_vote_switch_t                           vote_switch;

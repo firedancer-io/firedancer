@@ -11,6 +11,7 @@
 #include "../../discof/poh/fd_poh.h"
 #include "../../disco/repair/fd_repair_tile.h"
 #include "../../discof/replay/fd_sched.h"
+#include "../../discof/replay/fd_execrp.h"
 #include "../../discof/votor/fd_votor_tile.h"
 #include "../../flamenco/capture/fd_capture_ctx.h"
 #include "../../flamenco/genesis/fd_genesis_parse.h"
@@ -50,7 +51,7 @@ struct fd_block_id_ele {
                                which the next block's shreds chain off (the cmr). */
   fd_hash_t     dmr;        /* block id (double merkle root).  Only valid once block_id_seen is
                                set. */
-  ag_block_id_t block_info; /* key for the compound map */
+  fd_block_id_t block_info; /* key for the compound map */
   uint          latest_fec_idx;
   ulong         slot;
   ulong         bank_seq;
@@ -115,11 +116,11 @@ typedef struct fd_replay_txn_timing_slot fd_replay_txn_timing_slot_t;
 
 #define MAP_NAME               fd_block_id_map
 #define MAP_ELE_T              fd_block_id_ele_t
-#define MAP_KEY_T              ag_block_id_t
+#define MAP_KEY_T              fd_block_id_t
 #define MAP_KEY                block_info
 #define MAP_NEXT               next
-#define MAP_KEY_EQ(k0,k1)      (ag_block_id_eq( (k0), (k1) ))
-#define MAP_KEY_HASH(key,seed) (fd_hash( (seed), (key), sizeof(ag_block_id_t) ))
+#define MAP_KEY_EQ(k0,k1)      (fd_block_id_eq( (k0), (k1) ))
+#define MAP_KEY_HASH(key,seed) (fd_hash( (seed), (key), sizeof(fd_block_id_t) ))
 #include "../../util/tmpl/fd_map_chain.c"
 
 /* fd_bhm_map (bank hash mismatch) remembers blocks that replay marked
@@ -135,7 +136,7 @@ typedef struct fd_replay_txn_timing_slot fd_replay_txn_timing_slot_t;
    this bank hash mismatch. */
 
 struct fd_bhm_ele {
-  ag_block_id_t block_id;
+  fd_block_id_t block_id;
   ulong         next;
   struct {
     ulong       next;
@@ -150,11 +151,11 @@ typedef struct fd_bhm_ele fd_bhm_ele_t;
 
 #define MAP_NAME               fd_bhm_map
 #define MAP_ELE_T              fd_bhm_ele_t
-#define MAP_KEY_T              ag_block_id_t
+#define MAP_KEY_T              fd_block_id_t
 #define MAP_KEY                block_id
 #define MAP_NEXT               next
-#define MAP_KEY_EQ(k0,k1)      (ag_block_id_eq( (k0), (k1) ))
-#define MAP_KEY_HASH(key,seed) (fd_hash( (seed), (key), sizeof(ag_block_id_t) ))
+#define MAP_KEY_EQ(k0,k1)      (fd_block_id_eq( (k0), (k1) ))
+#define MAP_KEY_HASH(key,seed) (fd_hash( (seed), (key), sizeof(fd_block_id_t) ))
 #include "../../util/tmpl/fd_map_chain.c"
 
 #define DLIST_NAME             fd_bhm_dlist
@@ -164,6 +165,16 @@ typedef struct fd_bhm_ele fd_bhm_ele_t;
 #include "../../util/tmpl/fd_dlist.c"
 
 FD_STATIC_ASSERT( FD_EVENT_BLOCK_COMPLETED_TXN_TIMING_MAX>=FD_MAX_TXN_PER_SLOT, txn_timing_ships_full_block );
+
+/* Per bank state of a block's footer tasks on exec tiles. */
+
+struct fd_replay_footer_end {
+  fd_alpenglow_rewards_plan_t plan;
+  ulong                       leader_credits; /* Summed from the reward slices as they complete. */
+  ulong                       cert_next;      /* Footer certs sent to tiles so far, in fd_alpenglow_footer_certs order. */
+  int                         finalized;      /* Set once BLOCK_END is processed.  The block then fully completes on its last footer task. */
+};
+typedef struct fd_replay_footer_end fd_replay_footer_end_t;
 
 struct fd_replay_tile {
   fd_wksp_t * wksp;
@@ -223,6 +234,16 @@ struct fd_replay_tile {
   fd_sched_t * sched;
   ulong        in_cnt;
   ulong        execrp_idle_cnt;
+
+  fd_bank_lthash_rec_t lthash_rec[ 1 ];
+  fd_execrp_result_t * execrp_result; /* One entry per exec tile. */
+
+  /* Signing payload of each exec tile's footer cert verify task */
+  uchar cert_payload   [ FD_SCHED_MAX_EXEC_TILE_CNT ][ FD_ALPENGLOW_CERT_PAYLOAD_MAX ];
+  ulong cert_payload_sz[ FD_SCHED_MAX_EXEC_TILE_CNT ];
+
+  fd_replay_footer_end_t * footer_end;            /* Indexed by bank idx. */
+  ulong                    rewards_in_flight_cnt; /* Reward slices out on exec tiles, over every bank. */
 
   ulong                vote_tracker_seed;
   fd_vote_tracker_t *  vote_tracker;
@@ -396,8 +417,8 @@ struct fd_replay_tile {
      oldest and held until replay reaches it.  hi is the newest and
      continuously updated.  Finalizations between lo and hi are dropped
      since rooting hi implies its ancestors. */
-  ag_block_id_t finalized_block_id_lo;
-  ag_block_id_t finalized_block_id_hi;
+  fd_block_id_t finalized_block_id_lo;
+  fd_block_id_t finalized_block_id_hi;
 
   /* Randomly generated block id for the initial genesis/snapshot slot.
      Used as a fallback when the snapshot manifest does not contain a
@@ -485,7 +506,7 @@ struct fd_replay_tile {
   fd_votor_leader_t votor_leader[ 1 ];                                               /* ParentReady trigger behind next_leader_slot     */
   ulong             votor_parent_ready_slot;                                         /* highest window start certs made ParentReady   */
   long              leader_window_start_ns;                                          /* ParentReady time of the window we are leading   */
-  fd_votor_reward_t votor_reward[ FD_NUM_SLOTS_FOR_REWARD+AG_SLOTS_PER_WINDOW+1UL ];
+  fd_votor_reward_t votor_reward[ FD_NUM_SLOTS_FOR_REWARD+FD_VOTOR_SLOTS_PER_WINDOW+1UL ];
 
   ulong       next_leader_slot;
 
@@ -545,14 +566,17 @@ struct fd_replay_tile {
   /* Delinquency tracking, from the block footer reward certs since
      last_vote_slot stalls without vote transactions. Indexed by
      alpenglow rank, which is epoch-scoped. */
-  ulong ag_last_voted[ AG_VAT_MAX ];
+  ulong ag_last_voted[ FD_VOTOR_VAT_MAX ];
   ulong ag_last_voted_epoch; /* ULONG_MAX before the first reward cert */
   ulong ag_last_settled;     /* highest settled slot observed */
   ulong ag_stamp_since;      /* first slot stamped into an empty table */
 
-  /* Signing payload of each exec tile's footer cert verify task */
-  uchar cert_payload   [ FD_SCHED_MAX_EXEC_TILE_CNT ][ FD_ALPENGLOW_CERT_PAYLOAD_MAX ];
-  ulong cert_payload_sz[ FD_SCHED_MAX_EXEC_TILE_CNT ];
+  /* Our identity's rank in the vote stakes snapshot of an epoch.
+     USHORT_MAX if unranked.  Cached since the snapshot is fixed for the
+     epoch. */
+  int    voter_rank_cached;
+  ulong  voter_rank_epoch;
+  ushort voter_rank;
 
   fd_keyswitch_t * keyswitch;
   int              halt_replay;
@@ -620,6 +644,7 @@ struct fd_replay_tile {
     ulong reasm_latest_fec_idx;
 
     ulong sched_full;
+    ulong lane_wait;
     ulong leader_bid_wait;
     ulong banks_full;
     ulong parent_unavailable;

@@ -386,16 +386,52 @@ fd_runtime_block_execute_finalize( fd_bank_t *               bank,
                                    ushort                    shred_version,
                                    fd_footer_cache_t *       cache );
 
-/* fd_runtime_block_execute_finalize_unverified is
-   fd_runtime_block_execute_finalize for a follower bank's footer whose
-   cert signatures the caller checks itself, concurrently, discarding
-   the bank unless they pass.  No capture or runtime diffs. */
+/* fd_runtime_block_footer_begin starts the footer effects of a follower
+   bank whose cert signatures the caller checks itself, discarding the
+   bank unless they pass.  It rewrites the clock and alpenclock and
+   plans the footer's vote rewards.  The caller applies the plan's
+   slices on tiles, freezes the sysvars meanwhile, and completes it with
+   fd_runtime_block_footer_end.  No capture or runtime diffs.  Returns
+   -1 if the footer is invalid and 0 otherwise. */
 
 int
-fd_runtime_block_execute_finalize_unverified( fd_bank_t *               bank,
-                                              fd_accdb_t *              accdb,
-                                              fd_block_footer_t const * footer,
-                                              fd_footer_cache_t *       cache );
+fd_runtime_block_footer_begin( fd_bank_t *                   bank,
+                               fd_accdb_t *                  accdb,
+                               fd_block_footer_t const *     footer,
+                               fd_alpenglow_rewards_plan_t * plan );
+
+/* fd_runtime_freeze_sysvars updates the recent hashes and slot history
+   sysvars once the block's transactions are done.  It writes no vote
+   account, so it may run while the footer's reward slices are out on
+   tiles. */
+
+void
+fd_runtime_freeze_sysvars( fd_bank_t *        bank,
+                           fd_accdb_t *       accdb,
+                           fd_capture_ctx_t * capture_ctx );
+
+/* fd_runtime_freeze_fees settles the block's fees and removes the
+   incinerator.  The leader's fee collector may be any account, a
+   signer's vote account included, so call it after the last vote
+   account write of the block and before the bank hash. */
+
+void
+fd_runtime_freeze_fees( fd_bank_t *        bank,
+                        fd_accdb_t *       accdb,
+                        fd_capture_ctx_t * capture_ctx );
+
+/* fd_runtime_block_footer_end completes a block begun with
+   fd_runtime_block_footer_begin once every reward slice is done and the
+   sysvars are frozen.  It updates the leader's vote account with the
+   slices' summed leader credits, settles the fees, and then the bank
+   hash. */
+
+void
+fd_runtime_block_footer_end( fd_bank_t *                         bank,
+                             fd_accdb_t *                        accdb,
+                             fd_footer_cache_t *                 cache,
+                             fd_alpenglow_rewards_plan_t const * plan,
+                             ulong                               leader_credits );
 
 /* fd_runtime_fee_split computes the burned portion and the leader
    reward for a block's collected fees: half the execution fees burn,

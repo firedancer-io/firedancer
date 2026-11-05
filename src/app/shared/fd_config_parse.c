@@ -78,6 +78,11 @@ fd_config_extract_podf( uchar *        pod,
   CFG_POP      ( ulong,  snapshots.server.send_timeout_millis                );
   CFG_POP      ( ulong,  snapshots.server.send_buffer_size_kib               );
 
+  CFG_POP      ( bool,   failover.enabled                                    );
+  CFG_POP      ( bool,   failover.boot_to_standby                            );
+  CFG_POP      ( cstr,   failover.listen_address                             );
+  CFG_POP      ( ushort, failover.listen_port                                );
+
   CFG_POP      ( bool,   development.hard_fork_fatal                         );
   CFG_POP      ( bool,   development.fixed_fec_sets                          );
 
@@ -160,6 +165,8 @@ fd_config_extract_pod( uchar *       pod,
   CFG_POP      ( boolau, net.xdp.native_bond                              );
   CFG_POP      ( uint,   net.mlx5.rx_queue_size                           );
   CFG_POP      ( uint,   net.mlx5.tx_queue_size                           );
+  CFG_POP      ( uint,   net.iavf.rx_queue_size                           );
+  CFG_POP      ( uint,   net.iavf.tx_queue_size                           );
   CFG_POP      ( uint,   net.socket.receive_buffer_size                   );
   CFG_POP      ( uint,   net.socket.send_buffer_size                      );
 
@@ -257,7 +264,6 @@ fd_config_extract_pod( uchar *       pod,
 
   CFG_POP      ( bool,   development.gossip.allow_private_address         );
 
-  CFG_POP      ( ulong,  development.genesis.hashes_per_tick              );
   CFG_POP      ( ulong,  development.genesis.target_tick_duration_micros  );
   CFG_POP      ( ulong,  development.genesis.ticks_per_slot               );
   CFG_POP      ( ulong,  development.genesis.fund_initial_accounts        );

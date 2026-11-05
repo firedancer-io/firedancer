@@ -326,6 +326,7 @@ typedef struct fd_event_runtime_txn fd_event_runtime_txn_t;
 #define FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_MISSING_BLOCK_FOOTER        (35) /* An Alpenglow block ended without a block footer. */
 #define FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_SPURIOUS_UPDATE_PARENT      (36) /* An Alpenglow block carried an UpdateParent marker where none is valid: before the header or after the footer. */
 #define FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_BAD_BLOCK_MARKER            (37) /* An Alpenglow block marker (header, footer, genesis certificate or update parent) failed to parse or had an unknown kind. */
+#define FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_TOO_MANY_WRITABLE_ACCOUNTS  (38) /* The block's transactions declare more writable accounts than a valid block can afford. */
 
 /* Why this validator gave up on the block before it completed; not_abandoned otherwise. Independent of dead. */
 #define FD_EVENT_BLOCK_COMPLETED_ABANDONED_REASON_NOT_ABANDONED (1) /* Not abandoned; the block completed or was ruled invalid. */
@@ -517,6 +518,7 @@ typedef struct fd_event_snapshot_created fd_event_snapshot_created_t;
 #define FD_EVENT_ADMIN_COMMAND_TYPE_ADD_AUTHORIZED_VOTER         (3) /* Add an authorized voter key. */
 #define FD_EVENT_ADMIN_COMMAND_TYPE_REMOVE_ALL_AUTHORIZED_VOTERS (4) /* Remove every authorized voter key. */
 #define FD_EVENT_ADMIN_COMMAND_TYPE_SNAPSHOT_CREATE              (5) /* Request creation of a snapshot. */
+#define FD_EVENT_ADMIN_COMMAND_TYPE_FAILOVER_PROMOTE             (6) /* Take over the identity specified by the given keypair from the machine currently running it. */
 
 /* The result of processing the admin command. */
 #define FD_EVENT_ADMIN_COMMAND_RESULT_SUCCESS              (1) /* The command completed successfully. */

@@ -116,6 +116,7 @@ main( int     argc,
       fd_compute_budget_program_init( &state ); \
       FD_STORE( uint, instr+1, (uint)(heap_sz) ); \
       FD_TEST( fd_compute_budget_program_parse( instr, 5UL, &state ) == (expected) ); \
+      FD_TEST( state.heap_size == ((expected) ? (uint)(heap_sz) : 0U) ); \
     } while(0)
 
     /* Below minimum (32 KiB) */

@@ -45,6 +45,7 @@ typedef struct {
   int       used;
   ushort    block_fork;
   ushort    txn_fork;
+  uint      block_generation;
   uint      generation;
   fd_hash_t txnhash;
 } model_txn_t;
@@ -330,7 +331,7 @@ model_query( model_t const *   m,
   for( ulong i=0UL; i<m->txn_cnt; i++ ) {
     model_txn_t const * txn = &m->txn[ i ];
     if( FD_UNLIKELY( !txn->used ) ) continue;
-    if( txn->block_fork!=block_fork ) continue;
+    if( txn->block_fork!=block_fork || txn->block_generation!=block->generation ) continue;
     if( FD_UNLIKELY( txn->txn_fork>=FUZZ_MAX_ACTIVE_SLOTS ) ) continue;
 
     model_fork_t const * txn_fork = &m->fork[ txn->txn_fork ];
@@ -352,11 +353,12 @@ model_record_txn( model_t *       m,
   FD_TEST( m->txn_cnt<FUZZ_MAX_MODEL_TXNS );
 
   model_txn_t * txn = &m->txn[ m->txn_cnt++ ];
-  txn->used       = 1;
-  txn->block_fork = block_fork;
-  txn->txn_fork   = txn_fork;
-  txn->generation = m->fork[ txn_fork ].generation;
-  txn->txnhash    = *txnhash;
+  txn->used             = 1;
+  txn->block_fork       = block_fork;
+  txn->txn_fork         = txn_fork;
+  txn->block_generation = m->fork[ block_fork ].generation;
+  txn->generation       = m->fork[ txn_fork ].generation;
+  txn->txnhash          = *txnhash;
 }
 
 /* Counts the transactions of blockcache block_fork through the
@@ -487,7 +489,7 @@ model_pick_visible_txn_query( model_t const * m,
     if( FD_UNLIKELY( txn->block_fork>=FUZZ_MAX_ACTIVE_SLOTS || txn->txn_fork>=FUZZ_MAX_ACTIVE_SLOTS ) ) continue;
 
     model_fork_t const * block = &m->fork[ txn->block_fork ];
-    if( FD_UNLIKELY( !block->alive || block->frozen!=FORK_FINAL ) ) continue;
+    if( FD_UNLIKELY( !block->alive || block->generation!=txn->block_generation || block->frozen!=FORK_FINAL ) ) continue;
 
     model_fork_t const * txn_fork = &m->fork[ txn->txn_fork ];
     if( FD_UNLIKELY( !txn_fork->alive || txn_fork->generation!=txn->generation ) ) continue;
@@ -529,7 +531,7 @@ model_pick_stale_txn_query( model_t const * m,
     if( FD_UNLIKELY( txn->block_fork>=FUZZ_MAX_ACTIVE_SLOTS || txn->txn_fork>=FUZZ_MAX_ACTIVE_SLOTS ) ) continue;
 
     model_fork_t const * block = &m->fork[ txn->block_fork ];
-    if( FD_UNLIKELY( !block->alive || block->frozen!=FORK_FINAL ) ) continue;
+    if( FD_UNLIKELY( !block->alive || block->generation!=txn->block_generation || block->frozen!=FORK_FINAL ) ) continue;
 
     model_fork_t const * txn_fork = &m->fork[ txn->txn_fork ];
     int stale = !txn_fork->alive || txn_fork->generation!=txn->generation;

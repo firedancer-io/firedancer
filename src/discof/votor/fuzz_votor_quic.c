@@ -39,16 +39,17 @@
 #define FUZZ_SERVER_IP4      FD_IP4_ADDR( 127, 0, 0, 1 )
 
 
-#define FUZZ_SLOT_MAX  (AG_SLOTS_PER_WINDOW+AG_REWARD_SLOT_DELTA) /* smallest pool ag_pool_footprint accepts */
+#define FUZZ_SLOT_MAX  (FD_VOTOR_SLOTS_PER_WINDOW+FD_VOTOR_REWARD_SLOT_DELTA) /* smallest pool fd_votor_pool_footprint accepts */
 
 /* Pool event-queue capacity, for the burst-bound oracle below.  Mirrors
-   POOL_EVENT_MAX in ag_pool.c (private there) and must stay in sync.  The
-   queue counts past capacity on overflow (only the ring index wraps), so a
-   pool_events_cnt above this is a real overflow of the burst sizing. */
-#define FUZZ_POOL_EVENT_MAX                                                                    \
-  ( FUZZ_SLOT_MAX                                                                              \
-  + 3UL*( (FUZZ_SLOT_MAX+AG_SLOTS_PER_WINDOW-1UL)/AG_SLOTS_PER_WINDOW + QUIC_DGRAM_BURST )     \
-  +     ( (FUZZ_SLOT_MAX+AG_SLOTS_PER_WINDOW-1UL)/AG_SLOTS_PER_WINDOW + QUIC_DGRAM_BURST )     \
+   POOL_EVENT_MAX in fd_votor_pool.c (private there) and must stay in
+   sync.  The queue counts past capacity on overflow (only the ring
+   index wraps), so a pool_events_cnt above this is a real overflow of
+   the burst sizing. */
+#define FUZZ_POOL_EVENT_MAX                                                                            \
+  ( FUZZ_SLOT_MAX                                                                                      \
+  + 3UL*( (FUZZ_SLOT_MAX+FD_VOTOR_SLOTS_PER_WINDOW-1UL)/FD_VOTOR_SLOTS_PER_WINDOW + QUIC_DGRAM_BURST ) \
+  +     ( (FUZZ_SLOT_MAX+FD_VOTOR_SLOTS_PER_WINDOW-1UL)/FD_VOTOR_SLOTS_PER_WINDOW + QUIC_DGRAM_BURST ) \
   + 4UL*QUIC_DGRAM_BURST )
 
 /* Reused across inputs; heap-allocated once in LLVMFuzzerInitialize at the
@@ -57,7 +58,7 @@ static void *              quic_mem;
 static void *              pool_mem;
 static void *              peers_mem;
 static void *              reconn_prq_mem;
-static ag_epoch_info_t     epoch_info_mem[2]; /* curr, next */
+static fd_epoch_info_t     epoch_info_mem[2]; /* curr, next */
 static fd_votor_tile_t     g_ctx[1];
 static fd_quic_t *         g_quic;
 static long                g_clock = 1000L;
@@ -66,11 +67,11 @@ static long                g_clock = 1000L;
 static uchar               votor_out_mem   [ 1UL<<16 ] __attribute__((aligned(FD_CHUNK_ALIGN)));
 static uchar               votor_mcache_mem[ FD_MCACHE_FOOTPRINT( 128UL, 0UL ) ] __attribute__((aligned(FD_MCACHE_ALIGN)));
 static fd_frag_meta_t *    votor_mcache;
-static void *              votor_mem;   /* ag_votor_t backing (built once) */
+static void *              votor_mem;   /* fd_votor_loop_t backing (built once) */
 
-/* Dummy BLS signer for ag_votor_init.  The receive path never signs (it only
-   calls ag_votor_set_catchup_vote_slot), so this is only here to satisfy the
-   init signature. */
+/* Dummy BLS signer for fd_votor_loop_init.  The receive path never
+   signs (it only calls fd_votor_loop_advance_cert_wmark), so this is
+   only here to satisfy the init signature. */
 static void
 fuzz_sign_vote( void *         ctx,
                 fd_bls_sig_t * sig,
@@ -244,7 +245,7 @@ LLVMFuzzerCustomMutator( uchar * data,
 
 #endif /* !FD_QUIC_DISABLE_CRYPTO */
 
-/* Build FUZZ_VOTER_CNT voters with real BLS keys so rank_voters keeps
+/* Build FUZZ_VOTER_CNT voters with real BLS keys so handle_epoch keeps
    them (it drops voters whose compressed BLS key fails to deserialize). */
 static void
 fuzz_build_stakes( fd_vote_stake_weight_t * out,
@@ -256,7 +257,7 @@ fuzz_build_stakes( fd_vote_stake_weight_t * out,
     out[i].vote_key.uc[ 0 ] = (uchar)( i + 0x80UL );
     fd_bls_sec_t sec; memset( &sec, (int)( i*7UL + 1UL ), FD_BLS_SEC_SZ );
     fd_bls_pub_t pub; fd_bls_sec_to_pub( &sec, &pub );
-    blst_p1_affine_compress( out[i].bls_key, &pub );
+    fd_bls_pub_compress( &pub, out[i].bls_key );
   }
 }
 
@@ -273,13 +274,40 @@ LLVMFuzzerInitialize( int *    pargc,
   ulong fp = fd_quic_footprint( &quic_server_limits );
   FD_TEST( fp );
   quic_mem = aligned_alloc( FD_QUIC_ALIGN, fd_ulong_align_up( fp, FD_QUIC_ALIGN ) );
-  fp = ag_pool_footprint( FUZZ_SLOT_MAX, QUIC_DGRAM_BURST );
+  fp = fd_votor_pool_footprint( FUZZ_SLOT_MAX, QUIC_DGRAM_BURST );
   FD_TEST( fp );
-  pool_mem = aligned_alloc( ag_pool_align(), fd_ulong_align_up( fp, ag_pool_align() ) );
-  votor_mem = aligned_alloc( ag_votor_align(), fd_ulong_align_up( ag_votor_footprint( FUZZ_SLOT_MAX ), ag_votor_align() ) );
+  pool_mem = aligned_alloc( fd_votor_pool_align(), fd_ulong_align_up( fp, fd_votor_pool_align() ) );
+  votor_mem = aligned_alloc( fd_votor_loop_align(), fd_ulong_align_up( fd_votor_loop_footprint( FUZZ_SLOT_MAX ), fd_votor_loop_align() ) );
   peers_mem = aligned_alloc( peers_align(), fd_ulong_align_up( peers_footprint( PEERS_LG_SLOT_CNT ), peers_align() ) );
   reconn_prq_mem = aligned_alloc( reconn_prq_align(), fd_ulong_align_up( reconn_prq_footprint( RECONN_MAX ), reconn_prq_align() ) );
   FD_TEST( quic_mem && pool_mem && votor_mem && peers_mem && reconn_prq_mem );
+
+  /* Rank the voters once, the way the tile does: two epoch messages
+     through handle_epoch on a scratch tile, whose epoch infos every
+     input then starts from. */
+  static fd_votor_tile_t epoch_ctx[1];
+  static uchar           mleaders_mem[ FD_MULTI_EPOCH_LEADERS_FOOTPRINT ] __attribute__((aligned(FD_MULTI_EPOCH_LEADERS_ALIGN)));
+  static uchar           epoch_msg_mem[ FD_EPOCH_INFO_MSG_HEADER_SZ+FUZZ_VOTER_CNT*sizeof(fd_vote_stake_weight_t) ] __attribute__((aligned(8)));
+  void * contact_infos_mem = aligned_alloc( contact_infos_align(), fd_ulong_align_up( contact_infos_footprint( CONTACT_INFOS_LG_SLOT_CNT ), contact_infos_align() ) );
+  FD_TEST( contact_infos_mem );
+  epoch_ctx->peers            = peers_join( peers_new( peers_mem, PEERS_LG_SLOT_CNT, 42UL ) );
+  epoch_ctx->contact_infos    = contact_infos_join( contact_infos_new( contact_infos_mem, CONTACT_INFOS_LG_SLOT_CNT, 42UL ) );
+  epoch_ctx->mleaders         = fd_multi_epoch_leaders_join( fd_multi_epoch_leaders_new( mleaders_mem ) );
+  epoch_ctx->pool             = fd_votor_pool_join( fd_votor_pool_new( pool_mem, FUZZ_SLOT_MAX, QUIC_DGRAM_BURST, 42UL ) );
+  epoch_ctx->votor            = fd_votor_loop_join( fd_votor_loop_new( votor_mem, FUZZ_SLOT_MAX, 42UL ) );
+  epoch_ctx->next_epoch_slot  = ULONG_MAX;
+  epoch_ctx->next_leader_slot = ULONG_MAX;
+  FD_TEST( epoch_ctx->peers && epoch_ctx->contact_infos && epoch_ctx->mleaders && epoch_ctx->pool && epoch_ctx->votor );
+  fd_epoch_info_msg_t * epoch_msg = fd_type_pun( epoch_msg_mem );
+  for( ulong epoch=0UL; epoch<2UL; epoch++ ) {
+    *epoch_msg = (fd_epoch_info_msg_t){ .epoch = epoch, .staked_vote_cnt = FUZZ_VOTER_CNT, .start_slot = FUZZ_ROOT_SLOT+epoch*FUZZ_SLOTS_PER_EPOCH, .slot_cnt = FUZZ_SLOTS_PER_EPOCH, .ns_per_slot = 400000000UL };
+    epoch_msg->features.geo_aware_leader_schedule = FD_FEATURE_DISABLED;
+    fuzz_build_stakes( fd_epoch_info_msg_stake_weights( epoch_msg ), FUZZ_VOTER_CNT );
+    handle_epoch( epoch_ctx, epoch_msg );
+  }
+  epoch_info_mem[0] = *epoch_ctx->curr_epoch_info;
+  epoch_info_mem[1] = *epoch_ctx->next_epoch_info;
+  free( contact_infos_mem );
   votor_mcache = fd_mcache_join( fd_mcache_new( votor_mcache_mem, 128UL, 0UL, 0UL ) );
   FD_TEST( votor_mcache );
 
@@ -323,13 +351,13 @@ LLVMFuzzerInitialize( int *    pargc,
    vote lookahead bound. */
 static void
 fuzz_drain( fd_votor_tile_t * ctx ) {
-  ag_pool_event_t ev;
-  while( ag_pool_poll_pool_event( ctx->pool, &ev ) ) {
-    if( ev.kind==AG_POOL_EVENT_PARENT_READY )
+  fd_votor_pool_event_t ev;
+  while( fd_votor_pool_poll_pool_event( ctx->pool, &ev ) ) {
+    if( ev.kind==FD_VOTOR_POOL_EVENT_PARENT_READY )
       ctx->highest_parent_ready_slot = fd_ulong_max( ctx->highest_parent_ready_slot, ev.parent_ready.slot );
   }
-  ag_block_id_t repair;
-  while( ag_pool_poll_repair_event( ctx->pool, &repair ) ) {}
+  fd_block_id_t repair;
+  while( fd_votor_pool_poll_repair_event( ctx->pool, &repair ) ) {}
 }
 
 /* (Re)build the tile ctx and a fresh pool/peers for one input, leaving an
@@ -344,12 +372,10 @@ fuzz_ctx_reset( uint sender_sel ) {
   /* Our identity is not one of the voters, so votes are never self-votes. */
   memset( ctx->id_key.uc, 0xEE, sizeof(fd_pubkey_t) );
 
-  /* Rank the same voters into curr and next epoch.  The tile only sets
-     init once the next epoch is known, so both are always present. */
-  fd_vote_stake_weight_t stakes[ FUZZ_VOTER_CNT ];
-  fuzz_build_stakes( stakes, FUZZ_VOTER_CNT );
-  ctx->curr_epoch_info = rank_voters( &epoch_info_mem[0], stakes, FUZZ_VOTER_CNT, NULL, NULL );
-  ctx->next_epoch_info = rank_voters( &epoch_info_mem[1], stakes, FUZZ_VOTER_CNT, ctx->curr_epoch_info, NULL );
+  /* The same voters in curr and next epoch.  The tile only sets init
+     once the next epoch is known, so both are always present. */
+  ctx->curr_epoch_info = &epoch_info_mem[0];
+  ctx->next_epoch_info = &epoch_info_mem[1];
   ctx->curr_epoch_slot = FUZZ_ROOT_SLOT;
   ctx->next_epoch_slot = FUZZ_ROOT_SLOT+FUZZ_SLOTS_PER_EPOCH;
   ctx->slots_per_epoch = FUZZ_SLOTS_PER_EPOCH;
@@ -373,11 +399,11 @@ fuzz_ctx_reset( uint sender_sel ) {
   }
 
   /* Pool rooted at FUZZ_ROOT_SLOT, current epoch advanced. */
-  ctx->pool = ag_pool_join( ag_pool_new( pool_mem, FUZZ_SLOT_MAX, QUIC_DGRAM_BURST, 42UL ) );
+  ctx->pool = fd_votor_pool_join( fd_votor_pool_new( pool_mem, FUZZ_SLOT_MAX, QUIC_DGRAM_BURST, 42UL ) );
   FD_TEST( ctx->pool );
-  ag_pool_from_genesis( ctx->pool, &(ag_block_id_t){ .slot = FUZZ_ROOT_SLOT } );
-  ag_pool_advance_epoch( ctx->pool, ctx->curr_epoch_info, USHORT_MAX, ctx->curr_epoch_slot );
-  ag_pool_advance_epoch( ctx->pool, ctx->next_epoch_info, USHORT_MAX, ctx->next_epoch_slot );
+  fd_votor_pool_from_genesis( ctx->pool, &(fd_block_id_t){ .slot = FUZZ_ROOT_SLOT } );
+  fd_votor_pool_advance_epoch( ctx->pool, ctx->curr_epoch_info, USHORT_MAX, ctx->curr_epoch_slot );
+  fd_votor_pool_advance_epoch( ctx->pool, ctx->next_epoch_info, USHORT_MAX, ctx->next_epoch_slot );
   fuzz_drain( ctx ); /* genesis ParentReady sets highest_parent_ready_slot */
 
   /* reconn_prq: ban_peer -> reconn_prq_insert needs it (a bad-rank vote bans
@@ -389,13 +415,13 @@ fuzz_ctx_reset( uint sender_sel ) {
   ctx->ns_per_slot   = 400L*1000L*1000L;
   ctx->slot_max      = FUZZ_SLOT_MAX; /* cert SLOT_TOO_NEW branch looks back slot_max */
   ctx->init          = 1;
-  for( ulong i=0UL; i<AG_SLOTS_PER_WINDOW; i++ ) ctx->reward_certs[ i ].slot = ULONG_MAX; /* as in unprivileged_init */
+  for( ulong i=0UL; i<FD_VOTOR_SLOTS_PER_WINDOW; i++ ) ctx->reward_certs[ i ].slot = ULONG_MAX; /* as in unprivileged_init */
 
-  /* ag_votor: the cert catchup branch of the receive path calls
-     ag_votor_set_catchup_vote_slot on it. */
-  ctx->votor = ag_votor_join( ag_votor_new( votor_mem, FUZZ_SLOT_MAX, 42UL ) );
+  /* fd_votor_loop: the cert catchup branch of the receive path calls
+     fd_votor_loop_advance_cert_wmark on it. */
+  ctx->votor = fd_votor_loop_join( fd_votor_loop_new( votor_mem, FUZZ_SLOT_MAX, 42UL ) );
   FD_TEST( ctx->votor );
-  ag_votor_init( ctx->votor, &(ag_block_id_t){ .slot = FUZZ_ROOT_SLOT }, g_clock, ctx->ns_per_slot, ctx->shred_version, fuzz_sign_vote, ctx );
+  fd_votor_loop_init( ctx->votor, &(fd_block_id_t){ .slot = FUZZ_ROOT_SLOT }, g_clock, ctx->ns_per_slot, ctx->shred_version, fuzz_sign_vote, ctx );
 
   static ulong             seqs[1], depths[1] = { 128UL }, cr_avail[1] = { ULONG_MAX }, min_cr_avail[1] = { ULONG_MAX };
   static int               reliable[1];
@@ -454,7 +480,7 @@ fuzz_ctx_reset( uint sender_sel ) {
 static void
 fuzz_ctx_delete( void ) {
   fd_votor_tile_t * ctx = g_ctx;
-  ag_pool_delete( ag_pool_leave( ctx->pool ) );
+  fd_votor_pool_delete( fd_votor_pool_leave( ctx->pool ) );
   peers_delete( peers_leave( ctx->peers ) );
   reconn_prq_delete( reconn_prq_leave( ctx->reconn_prq ) );
 }
@@ -502,10 +528,11 @@ LLVMFuzzerTestOneInput( uchar const * data,
   fd_quic_process_packet( g_quic, pkt, hdr_sz+udp_payload_sz, g_clock );
   fd_quic_service( g_quic, g_clock ); /* e.g. frees a conn closed by a ban */
 
-  /* Burst-bound oracle: this packet's DATAGRAM frames each drive an ag_pool
-     add, and nothing drains the event queue mid-packet, so its depth is the
-     whole QUIC_DGRAM_BURST fan-out.  Overflow wraps silently, so assert it. */
-  FD_TEST( ag_pool_metrics( g_ctx->pool ).pool_events_cnt<=FUZZ_POOL_EVENT_MAX );
+  /* Burst-bound oracle: this packet's DATAGRAM frames each drive an
+     fd_votor_pool add, and nothing drains the event queue mid-packet,
+     so its depth is the whole QUIC_DGRAM_BURST fan-out.  Overflow wraps
+     silently, so assert it. */
+  FD_TEST( fd_votor_pool_metrics( g_ctx->pool ).pool_events_cnt<=FUZZ_POOL_EVENT_MAX );
 
   /* A fuzzed Initial can open conns beyond the fabricated one.  Advance the
      clock past the idle timeout and drain the service queue so fd_quic frees

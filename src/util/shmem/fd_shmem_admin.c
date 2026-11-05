@@ -84,6 +84,7 @@ static ulong  fd_shmem_private_numa_cnt;                      /* 0UL at thread g
 static ulong  fd_shmem_private_cpu_cnt;                       /* " */
 static ushort fd_shmem_private_numa_idx[ FD_SHMEM_CPU_MAX  ]; /* " */
 static ushort fd_shmem_private_cpu_idx [ FD_SHMEM_NUMA_MAX ]; /* " */
+static uint   fd_shmem_private_mpol_strict;                   /* " */
 
 ulong fd_shmem_numa_cnt( void ) { return fd_shmem_private_numa_cnt; }
 ulong fd_shmem_cpu_cnt ( void ) { return fd_shmem_private_cpu_cnt;  }
@@ -346,9 +347,9 @@ fd_shmem_create_multi_flags( char const *  name,
     fd_memset( nodemask, 0, 8UL*((FD_SHMEM_NUMA_MAX+63UL)/64UL) );
     nodemask[ sub_numa_idx >> 6 ] = 1UL << (sub_numa_idx & 63UL);
 
-    if( FD_UNLIKELY( fd_numa_mbind( sub_shmem, sub_sz, MPOL_BIND, nodemask, FD_SHMEM_NUMA_MAX, MPOL_MF_MOVE|MPOL_MF_STRICT ) ) ) {
-      FD_LOG_WARNING(( "sub[%lu]: fd_numa_mbind(\"%s\",%lu KiB,MPOL_BIND,1UL<<%lu,MPOL_MF_MOVE|MPOL_MF_STRICT) failed (%i-%s)",
-                       sub_idx, path, sub_sz>>10, sub_numa_idx, errno, fd_io_strerror( errno ) ));
+    if( FD_UNLIKELY( fd_numa_mbind( sub_shmem, sub_sz, MPOL_BIND, nodemask, FD_SHMEM_NUMA_MAX, MPOL_MF_MOVE|fd_shmem_private_mpol_strict ) ) ) {
+      FD_LOG_WARNING(( "sub[%lu]: fd_numa_mbind(\"%s\",%lu KiB,MPOL_BIND,1UL<<%lu,MPOL_MF_MOVE%s) failed (%i-%s)",
+                       sub_idx, path, sub_sz>>10, sub_numa_idx, fd_shmem_private_mpol_strict ? "|MPOL_MF_STRICT" : "", errno, fd_io_strerror( errno ) ));
       ERROR( unmap );
     }
 
@@ -591,9 +592,9 @@ fd_shmem_acquire_multi( ulong         page_sz,
     fd_memset( nodemask, 0, 8UL*((FD_SHMEM_NUMA_MAX+63UL)/64UL) );
     nodemask[ sub_numa_idx >> 6 ] = 1UL << (sub_numa_idx & 63UL);
 
-    if( FD_UNLIKELY( fd_numa_mbind( sub_mem, sub_sz, MPOL_BIND, nodemask, FD_SHMEM_NUMA_MAX, MPOL_MF_MOVE|MPOL_MF_STRICT ) ) ) {
-      FD_LOG_WARNING(( "sub[%lu]: fd_numa_mbind(anon,%lu KiB,MPOL_BIND,1UL<<%lu,MPOL_MF_MOVE|MPOL_MF_STRICT) failed (%i-%s)",
-                       sub_idx, sub_sz>>10, sub_numa_idx, errno, fd_io_strerror( errno ) ));
+    if( FD_UNLIKELY( fd_numa_mbind( sub_mem, sub_sz, MPOL_BIND, nodemask, FD_SHMEM_NUMA_MAX, MPOL_MF_MOVE|fd_shmem_private_mpol_strict ) ) ) {
+      FD_LOG_WARNING(( "sub[%lu]: fd_numa_mbind(anon,%lu KiB,MPOL_BIND,1UL<<%lu,MPOL_MF_MOVE%s) failed (%i-%s)",
+                       sub_idx, sub_sz>>10, sub_numa_idx, fd_shmem_private_mpol_strict ? "|MPOL_MF_STRICT" : "", errno, fd_io_strerror( errno ) ));
       ERROR( unmap );
     }
 
@@ -734,9 +735,12 @@ fd_shmem_private_boot( int *    pargc,
   fd_shmem_private_base[len] = '\0';
   fd_shmem_private_base_len = (ulong)len;
 
+  int strict = fd_env_strip_cmdline_int( pargc, pargv, "--shmem-mpol-strict", "FD_SHMEM_MPOL_STRICT", 1 );
+  fd_shmem_private_mpol_strict = fd_uint_if( strict, MPOL_MF_STRICT, 0U );
+
   /* At this point, shared memory is online */
 
-  FD_LOG_INFO(( "fd_shmem: --shmem-path %s", fd_shmem_private_base ));
+  FD_LOG_INFO(( "fd_shmem: --shmem-path %s --shmem-mpol-strict %i", fd_shmem_private_base, !!strict ));
   FD_LOG_INFO(( "fd_shmem: boot success" ));
 }
 
@@ -772,6 +776,7 @@ fd_shmem_private_boot( int *    pargc,
      parsing identical to downstream regardless of platform. */
 
   (void)fd_env_strip_cmdline_cstr( pargc, pargv, "--shmem-path", "FD_SHMEM_PATH", "/mnt/.fd" );
+  (void)fd_env_strip_cmdline_int( pargc, pargv, "--shmem-mpol-strict", "FD_SHMEM_MPOL_STRICT", 1 );
 
   FD_LOG_INFO(( "fd_shmem: --shmem-path (ignored)" ));
   FD_LOG_INFO(( "fd_shmem: boot success" ));

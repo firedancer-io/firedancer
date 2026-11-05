@@ -28,6 +28,7 @@
 #include "../../../../disco/sleep/fd_sleep.h"
 #include "../../../../util/pod/fd_pod_format.h"
 #include "../../../../discof/restore/utils/fd_wfs.h"
+#include "../../../../disco/keyguard/fd_keyload.h"
 
 #include "../configure/configure.h"
 #include "../configure/fd_cpu_isolation.h"
@@ -81,6 +82,8 @@ run_cmd_perm( args_t *         args,
     fd_cap_chk_cap(        chk, NAME, CAP_NET_BIND_SERVICE,        "call `bind(2)` to bind to a privileged port for serving metrics" );
   if( FD_UNLIKELY( config->tiles.gui.gui_listen_port<1024 ) )
     fd_cap_chk_cap(        chk, NAME, CAP_NET_BIND_SERVICE,        "call `bind(2)` to bind to a privileged port for serving the GUI" );
+  if( FD_UNLIKELY( config->firedancer.failover.enabled && config->firedancer.failover.listen_port<1024 ) )
+    fd_cap_chk_cap(        chk, NAME, CAP_NET_BIND_SERVICE,        "call `bind(2)` to bind to a privileged port for the failover listener" );
 }
 
 struct pidns_clone_args {
@@ -276,6 +279,11 @@ execve_tile( char const *           name,
   pid_t child = fork();
   if( FD_UNLIKELY( -1==child ) ) FD_LOG_ERR(( "fork() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   if( FD_LIKELY( !child ) ) {
+    if( !strcmp( tile->name, "sign" ) && tile->sign.failover_junk_fd!=-1 ) {
+      if( FD_UNLIKELY( -1==fcntl( tile->sign.failover_junk_fd, F_SETFD, 0 ) ) )
+        FD_LOG_ERR(( "passing the failover junk key pipe failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    }
+
     char _current_executable_path[ PATH_MAX ];
     FD_TEST( -1!=fd_file_util_self_exe( _current_executable_path ) );
 
@@ -339,6 +347,17 @@ main_pid_namespace( void * _args ) {
   int config_memfd = fd_config_to_memfd( config );
   if( FD_UNLIKELY( -1==config_memfd ) ) FD_LOG_ERR(( "fd_config_to_memfd() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
+  int need_iavf = 0==strcmp( config->net.provider, "iavf" );
+  fd_iavf_fds_t iavf_fds = { .member_cnt=0UL };
+  for( ulong i=0UL; i<FD_IAVF_MEMBER_MAX; i++ ) {
+    iavf_fds.container_fd[ i ] = -1;
+    iavf_fds.group_fd    [ i ] = -1;
+    iavf_fds.device_fd   [ i ] = -1;
+  }
+  if( need_iavf ) {
+    fd_topo_install_iavf( (fd_topo_t *)&config->topo, &iavf_fds );
+  }
+
   int need_mlx5 = 0==strcmp( config->net.provider, "mlx5" );
   fd_mlx5_fds_t mlx5_fds = { .cmd_fd=-1, .async_fd=-1 };
   if( need_mlx5 ) {
@@ -401,6 +420,15 @@ main_pid_namespace( void * _args ) {
             if( FD_UNLIKELY( -1==fcntl( xdp_fds[i].xsk_map_fd,   F_SETFD, 0 ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,0) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
             if( FD_UNLIKELY( -1==fcntl( xdp_fds[i].prog_link_fd, F_SETFD, 0 ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,0) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
           }
+        }
+      }
+
+      if( need_iavf ) {
+        int const fd_flags = 0!=strcmp( tile->name, "iavf" ) ? FD_CLOEXEC : 0;
+        for( ulong i=0UL; i<iavf_fds.member_cnt; i++ ) {
+          if( FD_UNLIKELY( -1==fcntl( iavf_fds.container_fd[ i ], F_SETFD, fd_flags ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+          if( FD_UNLIKELY( -1==fcntl( iavf_fds.group_fd    [ i ], F_SETFD, fd_flags ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+          if( FD_UNLIKELY( -1==fcntl( iavf_fds.device_fd   [ i ], F_SETFD, fd_flags ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
         }
       }
 
@@ -545,6 +573,12 @@ main_pid_namespace( void * _args ) {
   if( FD_UNLIKELY( fd_cpuset_setaffinity( 0, floating_cpu_set ) ) )
     FD_LOG_ERR(( "fd_cpuset_setaffinity failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
+  for( ulong i=0UL; i<config->topo.tile_cnt; i++ ) {
+    fd_topo_tile_t const * tile = &config->topo.tiles[ i ];
+    if( strcmp( tile->name, "sign" ) || tile->sign.failover_junk_fd==-1 ) continue;
+    if( FD_UNLIKELY( close( tile->sign.failover_junk_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
+
   if( FD_UNLIKELY( close( config_memfd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   if( need_xdp ) {
     for( uint i=0U; i<xdp_fds_cnt; i++ ) {
@@ -589,6 +623,13 @@ main_pid_namespace( void * _args ) {
   allow_fds[ allow_fds_cnt++ ] = args->pipefd[ 1 ]; /* write end of main pipe */
   for( ulong i=0UL; i<child_cnt; i++ )
     allow_fds[ allow_fds_cnt++ ] = fds[ i ].fd; /* read end of child pipes */
+  if( need_iavf ) {
+    for( ulong i=0UL; i<iavf_fds.member_cnt; i++ ) {
+      if( FD_UNLIKELY( -1==close( iavf_fds.container_fd[ i ] ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+      if( FD_UNLIKELY( -1==close( iavf_fds.group_fd    [ i ] ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+      if( FD_UNLIKELY( -1==close( iavf_fds.device_fd   [ i ] ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    }
+  }
   if( need_mlx5 ) {
     if( FD_UNLIKELY( -1==close( mlx5_fds.cmd_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     if( FD_UNLIKELY( -1==close( mlx5_fds.async_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
@@ -725,6 +766,11 @@ clone_firedancer( config_t const * config,
 
   int pid_namespace = clone( main_pid_namespace, (uchar *)stack + FD_TILE_PRIVATE_STACK_SZ, flags, &args );
   if( FD_UNLIKELY( pid_namespace<0 ) ) FD_LOG_ERR(( "clone() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  for( ulong i=0UL; i<config->topo.tile_cnt; i++ ) {
+    fd_topo_tile_t const * tile = &config->topo.tiles[ i ];
+    if( strcmp( tile->name, "sign" ) || tile->sign.failover_junk_fd==-1 ) continue;
+    if( FD_UNLIKELY( close( tile->sign.failover_junk_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
 
   if( FD_UNLIKELY( close( pipefd[ 1 ] ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
@@ -1010,6 +1056,13 @@ fdctl_check_configure( config_t const * config ) {
                    check.message, FD_BINARY_NAME ));
   }
 
+  if( FD_LIKELY( 0==strcmp( config->net.provider, "iavf" ) ) ) {
+    check = fd_cfg_stage_iavf.check( config, FD_CONFIGURE_CHECK_TYPE_RUN );
+    if( FD_UNLIKELY( check.result!=CONFIGURE_OK ) )
+      FD_LOG_ERR(( "Network %s. You can run `%s configure init iavf` to configure the VFs and PF filters and load vfio-pci.",
+                   check.message, FD_BINARY_NAME ));
+  }
+
   check = fd_cfg_stage_sysctl.check( config, FD_CONFIGURE_CHECK_TYPE_RUN );
   if( FD_UNLIKELY( check.result!=CONFIGURE_OK ) )
     FD_LOG_ERR(( "Kernel parameters are not configured correctly: %s. You can run `%s configure init sysctl` "
@@ -1075,14 +1128,42 @@ fdctl_check_configure( config_t const * config ) {
   fd_cpu_isolation_check_cgroup( config );
 }
 
+/* Each Sign tile gets its own one-shot pipe for receiving the ephemeral
+   generated junk key. */
+static void FD_FN_SENSITIVE
+failover_junk_prepare( config_t * config ) {
+  if( fd_topo_find_tile( &config->topo, "failov", 0UL )==ULONG_MAX ) return;
+  uchar const * key = fd_keyload_generate();
+  fd_memcpy( config->topo.failover_junk, key+32UL, 32UL );
+  for( ulong i=0UL; i<config->topo.tile_cnt; i++ ) {
+    fd_topo_tile_t * tile = &config->topo.tiles[ i ];
+    if( strcmp( tile->name, "sign" ) ) continue;
+    FD_TEST( tile->sign.failover_enabled && tile->sign.failover_junk_fd==-1 );
+    int pipefd[ 2 ];
+    if( FD_UNLIKELY( pipe2( pipefd, O_CLOEXEC ) ) ) FD_LOG_ERR(( "pipe2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    for( ulong off=0UL; off<64UL; ) {
+      long n = write( pipefd[ 1 ], key+off, 64UL-off );
+      if( FD_UNLIKELY( n==-1L && errno==EINTR ) ) continue;
+      if( FD_UNLIKELY( n<=0L ) ) FD_LOG_ERR(( "could not deliver the failover junk key" ));
+      off += (ulong)n;
+    }
+    if( FD_UNLIKELY( close( pipefd[ 1 ] ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    tile->sign.failover_junk_fd = pipefd[ 0 ];
+  }
+  fd_keyload_unload( key, 0 );
+}
+
 void
 run_firedancer_init( config_t * config,
                      int        init_workspaces,
                      int        check_configure ) {
   struct stat st;
   int err = stat( config->paths.identity_key, &st );
-  if( FD_UNLIKELY( -1==err && errno==ENOENT ) ) FD_LOG_ERR(( "[consensus.identity_path] key does not exist `%s`. You can generate an identity key at this path by running `%s keys new %s --config <toml>`", config->paths.identity_key, FD_BINARY_NAME, config->paths.identity_key ));
-  else if( FD_UNLIKELY( -1==err ) )             FD_LOG_ERR(( "could not stat [consensus.identity_path] `%s` (%i-%s)", config->paths.identity_key, errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( -1==err && errno==ENOENT ) ) FD_LOG_ERR(( "[paths.identity_key] key does not exist `%s`. You can generate an identity key at this path by running `%s keys new %s --config <toml>`", config->paths.identity_key, FD_BINARY_NAME, config->paths.identity_key ));
+  else if( FD_UNLIKELY( -1==err ) )             FD_LOG_ERR(( "could not stat [paths.identity_key] `%s` (%i-%s)", config->paths.identity_key, errno, fd_io_strerror( errno ) ));
+
+  /* Failover needs a fresh in-memory junk key. */
+  failover_junk_prepare( config );
 
   /* FIXME: fdctl_check_configure unconditionally checks for network
             stack prerequisites even if the command being run does not

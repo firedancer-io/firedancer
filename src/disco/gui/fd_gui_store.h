@@ -207,7 +207,7 @@ fd_gui_store_min_size( ulong                       ring_cnt,
    the oldest eligible excess region across all rings and protects their
    newest base_regions regions.
    Otherwise only the named writer's own oldest region is considered,
-   including its base.  eligible may be NULL (all records eligible).
+   including its base.  eligible_cb may be NULL (all records eligible).
    A rejected head is never skipped within a ring.  Returns records
    removed (not regions freed); zero means no eligible candidate.
    Explicit kv_evict/ts_evict below are logical deletion operations and
@@ -216,7 +216,7 @@ ulong
 fd_gui_store_reclaim( fd_gui_store_t * db,
                       ulong            ring_idx,
                       ulong            budget,
-                      int (*eligible)( ulong, void const *, void * ),
+                      int (*eligible_cb)( ulong, void const *, void * ),
                       void *           ctx );
 
 int
@@ -338,15 +338,26 @@ fd_gui_store_kv_scan_begin( fd_gui_store_t *         db,
 int
 fd_gui_store_kv_scan_next( fd_gui_store_kv_scan_t * iter );
 
+/* fd_gui_store_kv_scan_seek advances iter past the leading records for
+   which below_cb(rec,ctx) holds, by binary search.  below_cb must be
+   monotone over the remaining scan range (true on a prefix, then false
+   for the rest). */
+
+void
+fd_gui_store_kv_scan_seek( fd_gui_store_kv_scan_t * iter,
+                           int (*below_cb)( void const *, void * ),
+                           void *                   ctx );
+
 /* fd_gui_store_kv_reclaim_prefix removes up to budget records in admission
-   order, stopping at the first record rejected by eligible(rec,ctx).
-   Returns the number removed. */
+   order, stopping at the first record rejected by eligible_cb(rec,ctx).
+   eligible_cb may be NULL (all records eligible).  Returns the number
+   removed. */
 
 ulong
 fd_gui_store_kv_reclaim_prefix( fd_gui_store_t * db,
                                 ulong            ring_idx,
                                 ulong            budget,
-                                int (*eligible)( void const *, void * ),
+                                int (*eligible_cb)( void const *, void * ),
                                 void *           ctx );
 
 /* ---- KV ring: eviction ---------------------------------------------- */

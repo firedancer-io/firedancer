@@ -19,6 +19,7 @@ abbreviated log output to `stderr` and nothing will be written to
 | Arguments         | Description |
 |-------------------|-------------|
 | `--config <path>` | Path to a configuration TOML file to run the validator with |
+| `--standby`       | Boot as a failover standby using an unstaked identity, see the [failover guide](/guide/failover#setup) |
 
 ::: details Capabilities
 
@@ -67,6 +68,8 @@ Configures the operating system so that it can run Firedancer. See
 [the guide](/guide/initializing) for more information. There are the
 following stages to each configure command:
 
+ - `iavf` Configures VFs, clears and installs PF ntuple rules and loads the
+    `vfio-pci` kernel module required by the iavf network provider.
  - `mlx5` Loads the `ib_uverbs` kernel module required by the mlx5
     network provider. Clears leftover XDP ntuple rules, resets the
     RSS indirection table and channel count to defaults.
@@ -119,6 +122,8 @@ and configure the number of combined channels on the network device.
 | `root`          | disable network device tx-udp-segmentation with `ethtool --offload lo tx-udp-segmentation off`. Only applies for the `ethtool-loopback` stage |
 | `root`          | restore network device defaults and load the `ib_uverbs` kernel module if needed |
 | `CAP_SYS_MODULE` | load the `ib_uverbs` kernel module with `modprobe` when the uverbs interface is unavailable |
+| `root`          | configure VFs and PF ntuple rules. Only applies for the `iavf` stage |
+| `CAP_SYS_MODULE` | load the `vfio-pci` kernel module with `modprobe` when the driver is unavailable. Only applies for the `iavf` stage |
 | `CAP_SYS_ADMIN` | set kernel parameters in `/proc/sys`. Only applies for the `sysctl` stage |
 
 :::
@@ -137,8 +142,10 @@ Remove any Firedancer specific operating system configuration still
 lingering. The `hugetlbfs` stage unmounts its filesystems and returns the
 reserved huge and gigantic pages to the kernel pool. The `mlx5` stage
 clears leftover XDP ntuple rules and resets the RSS indirection table and
-channel count to defaults. The `fini` mode does not reduce sysctls that
-were earlier increased or restore previous network settings.
+channel count to defaults. The `iavf` stage clears PF ntuple rules and
+removes VF 0 if its PF has exactly one VF. PFs with multiple VFs retain
+all of them. The `fini` mode does not reduce sysctls that were earlier
+increased or restore previous network settings.
 
 ::: details Capabilities
 
@@ -146,6 +153,7 @@ were earlier increased or restore previous network settings.
 |------------|--------|
 | `root`     | remove directories from `/mnt`, unmount hugetlbfs. Only applies for the `hugetlbfs` stage |
 | `root`     | restore network device defaults |
+| `root`     | clear PF ntuple rules and remove VFs. Only applies for the `iavf` stage |
 
 :::
 
@@ -189,6 +197,16 @@ Changes the identity key of a running validator. The `<keypair>`
 argument is required and must be the path to an Agave style
 `identity.json` keypair file. If the path is specified as `-` the key
 will instead be read from `stdin`.
+
+::: tip NOTE
+
+Between two Firedancer validators, Firedancer supports a native
+[failover](#failover) mechanism that is faster and safer than
+`set-identity`, and using `set-identity` between them is heavily
+discouraged. Use `set-identity` primarily for failing over between Agave
+and Firedancer.
+
+:::
 
 It is not generally safe to call `set-identity`, as another validator
 might be running with the same identity, and if they both produce a
@@ -292,6 +310,8 @@ prints diagnostic messages to `stderr`.
 | `--name <name>`   | Name of the validator instance to attach to, if more than one is running on this host |
 | `--config <path>` | Optional path to a configuration TOML file naming the validator to attach to. Only the `name` and `[hugetlbfs.mount_path]` values are used, and they must match the running validator |
 
+<<< @/snippets/commands/get-identity.ansi
+
 ## `add-authorized-voter`
 Adds an authorized voter to the running validator. The `<keypair>`
 argument is required and must be the path to an Agave style
@@ -323,7 +343,8 @@ messages to `stderr`. Reasons for failure include the validator being
 unable to load or verify the provided authorized voter key, if the
 provided key is a duplicate that the validator is already using, or if
 there are too many authorized voters for the running validator (more
-than 16).
+than 16). With failover enabled, the key also cannot be the identity
+failover hands off.
 
 | Arguments         | Description |
 |-------------------|-------------|
@@ -332,6 +353,95 @@ than 16).
 | `--config <path>` | Optional path to a configuration TOML file naming the validator to attach to. Only the `name` and `[hugetlbfs.mount_path]` values are used, and they must match the running validator |
 
 <<< @/snippets/commands/add-authorized-voter.ansi
+
+## `failover`
+Failover takes over a remote identity (and its voting) from an
+already-running validator and hands it off to this locally-running
+validator. Run this command on the machine that should take over, with
+the keypair of the identity to take. The remote validator will switch
+to an unstaked junk key.
+
+See the [failover guide](/guide/failover) for more details.
+
+```sh
+firedancer failover promote  [<keypair>] [--name <name>] [--yes] [--address <address>] [--port <port>]
+firedancer failover takeover [<keypair>] [--name <name>] [--yes] [--force] [--address <address>] [--port <port>]
+```
+
+`failover promote` is for planned failover. The machine running the
+identity cooperatively hands it over. `failover takeover` is for
+when the other machine is dead or unreachable, see
+[taking the identity without the remote](#taking-the-identity-without-the-remote).
+
+The `<keypair>` argument is the path to an Agave style `identity.json`
+keypair file of the identity to take. If the path is specified as `-`
+the key will instead be read from `stdin`. Without `<keypair>`, the
+command takes the identity in `[paths.identity_key]`, or the last
+keypair passed into `failover` or `set-identity` since the
+validator started.
+
+The command discovers the running validator on the host automatically.
+If more than one is running, pass `--name <name>` to select one (see
+[`ps`](#ps)). In a terminal it asks for confirmation unless `--yes` is
+given.
+
+The local validator finds the address of the machine running the
+identity through gossip. Use `--address` to give its IPv4 address or host
+name instead, and `--port` if its failover listener does not use the
+default port 8010.
+
+The command waits for the outcome and exits with a code for the state
+it leaves the validators in. A failure prints the result name and what
+it means. The [failover guide](/guide/failover#if-a-handoff-fails)
+lists every result with its exit code.
+
+| Exit code | Meaning |
+|-----------|---------|
+| `0` | Success, the local validator now runs the identity |
+| `1` | Any other failure, the outcome is likely unknown, check both validators with [`get-identity`](#get-identity) |
+| `2` | Rejected, no validator changed identity |
+| `3` | The outcome is unknown, check both validators with [`get-identity`](#get-identity) before anything else |
+| `4` | Nobody runs the identity, see [taking the identity without the remote](#taking-the-identity-without-the-remote) |
+| `128+sig` | Interrupted by a signal. An already-started handoff keeps running |
+
+<<< @/snippets/commands/failover-promote.ansi
+
+<<< @/snippets/commands/failover-promote-failed.ansi
+### Taking the identity without the remote
+
+With `failover takeover`, the validator asks nicely for a handoff first. If
+that handoff fails, the failure reason is logged and then the local validator
+takes over the identity anyway, without coordinating with the other machine.
+
+As a safeguard, takeover only proceeds if the other machine shows no signs of life
+(neither in gossip nor on the failover channel). With `--force`, takeover
+will still proceed even if the other machine appears to still be alive.
+
+::: warning WARNING
+
+A takeover skips the checks on the other machine and can leave votes and
+leader windows unaccounted for by starting from an empty history. Use
+`failover takeover` when the other machine is down, and `--force` only
+after ensuring every other machine with the identity cannot sign. Never
+run this on both machines at the same time. Please note that `--force`
+can result in two validators double voting.
+
+:::
+
+<<< @/snippets/commands/failover-takeover.ansi
+
+<<< @/snippets/commands/failover-takeover-force.ansi
+
+| Arguments             | Description |
+|-----------------------|-------------|
+| `promote`             | Ask the machine running the identity to cooperatively hand it over |
+| `takeover`            | Like `promote`, but if the handoff fails and the machine running the identity shows no signs of life, take the identity without coordinating with it |
+| `<keypair>`           | Path to the `identity.json` keypair file of the identity to take, or `-` to read the JSON formatted key from `stdin`. Defaults to `[paths.identity_key]`, or the last keypair given to `failover` or `set-identity` |
+| `--name <name>`       | Name of the validator instance to attach to, if more than one is running on this host |
+| `--yes`               | Skip the confirmation prompt |
+| `--force`             | `takeover` only. Forcibly take the identity, even if the machine already running it may still be alive |
+| `--address <address>` | IPv4 address or host name of the machine running the identity, instead of the address found through gossip. |
+| `--port <port>`       | Failover TCP port of the machine running the identity, 8010 as default |
 
 ## `remove-all-authorized-voters`
 Removes all authorized voters from the running validator, including any

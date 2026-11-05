@@ -36,7 +36,15 @@ FD_STATIC_ASSERT( FD_KEYGUARD_AUTH_VOTERS_MAX<=16UL, auth_voters_max_fits_sign_r
 #define FD_KEYGUARD_ROLE_RSERVE       (8)  /* Repair server tile */
 #define FD_KEYGUARD_ROLE_VOTOR        (9)  /* Alpenglow votor tile (QUIC TLS, vote history file) */
 #define FD_KEYGUARD_ROLE_TOWER        (10) /* Tower tile (tower file) */
-#define FD_KEYGUARD_ROLE_CNT          (11) /* number of known roles */
+#define FD_KEYGUARD_ROLE_FAILOV       (11) /* Failover admission proof and TLS */
+#define FD_KEYGUARD_ROLE_CNT          (12) /* number of known roles */
+
+/* The failover identity signs admission proofs, TLS, and the
+   admission payload. */
+#define FD_KEYGUARD_FAILOVER_CLIENT_DOMAIN "FD_FAILOVER_CLI1"
+#define FD_KEYGUARD_FAILOVER_SERVER_DOMAIN "FD_FAILOVER_SRV1"
+#define FD_KEYGUARD_FAILOVER_DOMAIN_SZ     (16UL)
+#define FD_KEYGUARD_FAILOVER_PROOF_SZ      (FD_KEYGUARD_FAILOVER_DOMAIN_SZ+32UL)
 
 /* Payload types ******************************************************/
 
@@ -54,6 +62,7 @@ FD_STATIC_ASSERT( FD_KEYGUARD_AUTH_VOTERS_MAX<=16UL, auth_voters_max_fits_sign_r
 #define FD_KEYGUARD_PAYLOAD_LG_BLS_PUBKEY   (12)  /* Alpenglow BLS public key query */
 #define FD_KEYGUARD_PAYLOAD_LG_TOWER        (13)  /* Tower file */
 #define FD_KEYGUARD_PAYLOAD_LG_VOTE_HISTORY (14)  /* Alpenglow vote history file */
+#define FD_KEYGUARD_PAYLOAD_LG_FAILOV       (15)  /* Failover admission proof */
 
 #define FD_KEYGUARD_PAYLOAD_TXN          (1UL<<FD_KEYGUARD_PAYLOAD_LG_TXN         )
 #define FD_KEYGUARD_PAYLOAD_GOSSIP       (1UL<<FD_KEYGUARD_PAYLOAD_LG_GOSSIP      )
@@ -69,6 +78,7 @@ FD_STATIC_ASSERT( FD_KEYGUARD_AUTH_VOTERS_MAX<=16UL, auth_voters_max_fits_sign_r
 #define FD_KEYGUARD_PAYLOAD_BLS_PUBKEY   (1UL<<FD_KEYGUARD_PAYLOAD_LG_BLS_PUBKEY  )
 #define FD_KEYGUARD_PAYLOAD_TOWER        (1UL<<FD_KEYGUARD_PAYLOAD_LG_TOWER       )
 #define FD_KEYGUARD_PAYLOAD_VOTE_HISTORY (1UL<<FD_KEYGUARD_PAYLOAD_LG_VOTE_HISTORY)
+#define FD_KEYGUARD_PAYLOAD_FAILOV       (1UL<<FD_KEYGUARD_PAYLOAD_LG_FAILOV      )
 
 /* Sign types *********************************************************/
 

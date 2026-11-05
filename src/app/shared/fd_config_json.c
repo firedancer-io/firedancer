@@ -12,7 +12,7 @@
    or knowingly skipped) before the constant is bumped.  String keys of
    the user's own file are separately forced through the classification
    lists below. */
-FD_STATIC_ASSERT( sizeof(fd_config_t)==24462488UL, update_fd_config_to_json_for_the_layout_change );
+FD_STATIC_ASSERT( sizeof(fd_config_t)==24464600UL, update_fd_config_to_json_for_the_layout_change );
 
 #define REDACTED "[redacted]"
 
@@ -127,6 +127,7 @@ static char const * const jw_redacted_keys[] = {
   "snapshots.sources.servers",
   "snapshots.server.http_listen_address",
   "hugetlbfs.mount_path",
+  "failover.listen_address",
   "net.bind_address",
   "tiles.quic.ssl_key_log_file",
   "tiles.bundle.url",
@@ -422,6 +423,13 @@ fd_config_to_json( fd_config_t const * config,
     jw_obj_close( &w );
   jw_obj_close( &w );
 
+  jw_obj_open( &w, "failover" );
+    jw_bool ( &w, "enabled",         f->failover.enabled );
+    jw_bool ( &w, "boot_to_standby", f->failover.boot_to_standby );
+    jw_path ( &w, "listen_address",  f->failover.listen_address );
+    jw_ulong( &w, "listen_port",     f->failover.listen_port );
+  jw_obj_close( &w );
+
   jw_obj_open( &w, "hugetlbfs" );
     jw_path ( &w, "gigantic_page_mount_path",    config->hugetlbfs.gigantic_page_mount_path );
     jw_path ( &w, "huge_page_mount_path",        config->hugetlbfs.huge_page_mount_path );
@@ -455,6 +463,11 @@ fd_config_to_json( fd_config_t const * config,
       jw_ulong( &w, "rx_queue_size", config->net.mlx5.rx_queue_size );
       jw_ulong( &w, "tx_queue_size", config->net.mlx5.tx_queue_size );
     jw_obj_close( &w );
+
+    jw_obj_open( &w, "iavf" );
+      jw_ulong( &w, "rx_queue_size", config->net.iavf.rx_queue_size );
+      jw_ulong( &w, "tx_queue_size", config->net.iavf.tx_queue_size );
+    jw_obj_close( &w );
   jw_obj_close( &w );
 
   jw_obj_open( &w, "development" );
@@ -472,7 +485,6 @@ fd_config_to_json( fd_config_t const * config,
       jw_bool( &w, "allow_private_address", config->development.gossip.allow_private_address );
     jw_obj_close( &w );
     jw_obj_open( &w, "genesis" );
-      jw_ulong( &w, "hashes_per_tick",              config->development.genesis.hashes_per_tick );
       jw_ulong( &w, "target_tick_duration_micros",  config->development.genesis.target_tick_duration_micros );
       jw_ulong( &w, "ticks_per_slot",               config->development.genesis.ticks_per_slot );
       jw_ulong( &w, "fund_initial_accounts",        config->development.genesis.fund_initial_accounts );

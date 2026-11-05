@@ -96,6 +96,9 @@ fd_fib4_netlink_translate( struct nlmsghdr const * msg_hdr,
   case RTN_BLACKHOLE:
     hop->rtype = FD_FIB4_RTYPE_BLACKHOLE;
     break;
+  case RTN_THROW:
+    hop->rtype = FD_FIB4_RTYPE_THROW;
+    break;
   default:
     FD_LOG_DEBUG(( "Unsupported route type (%u-%s)", msg->rtm_type, fd_netlink_rtm_type_str( msg->rtm_type ) ));
     hop->rtype = FD_FIB4_RTYPE_BLACKHOLE;

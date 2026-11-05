@@ -2226,8 +2226,8 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
      of the loaded program cache. It checks to see if an account is able to be
      executed. It is possible for a program to be in the DelayVisibility state or
      Closed state but it won't be reflected in the Firedancer cache. Program
-     accounts that are in this state should exit with an invalid account data
-     error. For programs that are recently deployed or upgraded, they should not
+     accounts that are in this state should exit with an unsupported program
+     id error. For programs that are recently deployed or upgraded, they should not
      be allowed to be executed for the remainder of the slot. For closed
      accounts, they're uninitialized and shouldn't be executed as well.
 
@@ -2248,9 +2248,7 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
      program_data.slot cannot reflect a current-slot deploy/upgrade/extend/close,
      so the DelayVisibility gate below is provenance-aware: current-fork copies keep
      the slot comparison, parent-fork copies gate on the accdb pd_write probe
-     result instead.
-
-     Every error that comes out of this block is mapped to an InvalidAccountData instruction error in Agave. */
+     result instead. */
 
   uchar is_deprecated = !memcmp( program_account.acc->owner, &fd_solana_bpf_loader_deprecated_program_id, sizeof(fd_pubkey_t) );
 

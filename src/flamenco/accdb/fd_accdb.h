@@ -116,9 +116,9 @@ fd_accdb_join( void * shaccdb );
    external_epoch_slots[] pointer and defers partition reclamation
    accordingly, the same way it does for in-shmem joiner_epochs[].
 
-   Only fd_accdb_read_one_nocache, fd_accdb_exists, fd_accdb_lamports,
-   and fd_accdb_data_len are supported on a readonly join; any other API
-   is undefined behavior. */
+   Only fd_accdb_read_one_nocache, fd_accdb_read_one_meta, fd_accdb_exists,
+   fd_accdb_lamports, and fd_accdb_data_len are supported on a readonly
+   join; any other API is undefined behavior. */
 
 fd_accdb_t *
 fd_accdb_join_readonly( void *             ljoin,
@@ -478,6 +478,11 @@ fd_accdb_probe_pd_this_fork( fd_accdb_t *       accdb,
    and data are read from the disk fd passed at join time, scattered
    into out_owner and out_data via iovec (looping on short reads).
 
+   If out_data is NULL, only account metadata is read: no account data
+   is copied or read from disk.  out_data_len still reports the full
+   account data length.  This permits bounded owner checks on accounts
+   that are too large to load.
+
    If the account does not exist, *out_lamports is set to zero and the
    other outputs are undefined; otherwise *out_lamports is non-zero and
    out_executable, out_owner, out_data, and out_data_len are all filled
@@ -502,6 +507,17 @@ fd_accdb_read_one_nocache( fd_accdb_t *       accdb,
                            uchar *            out_owner,
                            uchar *            out_data,
                            ulong *            out_data_len );
+
+/* Reads owner (32 bytes) and data length without acquiring account data.
+   Uses cache when available, otherwise reads only the owner from disk.
+   Returns FD_ACCDB_READ_ONE_NOCACHE_*; outputs are undefined on MISS. */
+
+int
+fd_accdb_read_one_meta( fd_accdb_t *       accdb,
+                        fd_accdb_fork_id_t fork_id,
+                        uchar const *      pubkey,
+                        uchar *            out_owner,
+                        ulong *            out_data_len );
 
 /* fd_accdb_lamports returns the lamports of the account at fork_id, or
    zero if the account does not exist. */

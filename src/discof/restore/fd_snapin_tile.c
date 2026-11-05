@@ -574,17 +574,10 @@ verify_slot_hashes( fd_sysvar_cache_t const * cache,
 
 static int
 verify_epoch_rewards( fd_snapin_tile_t const *  ctx,
-                      fd_sysvar_cache_t const * cache,
-                      ulong                     data_len ) {
+                      fd_sysvar_cache_t const * cache ) {
   fd_sysvar_epoch_rewards_t rewards[1];
   if( !fd_sysvar_cache_epoch_rewards_read( cache, rewards ) || !rewards->active ) return 0;
 
-  /* fd_sysvar_epoch_rewards_read requires the exact size */
-  if( FD_UNLIKELY( data_len!=FD_SYSVAR_EPOCH_REWARDS_BINCODE_SZ ) ) {
-    FD_LOG_WARNING(( "EpochRewards sysvar account data size is %lu, expected %lu",
-                     data_len, FD_SYSVAR_EPOCH_REWARDS_BINCODE_SZ ));
-    return -1;
-  }
   /* https://github.com/anza-xyz/agave/blob/v4.4.0-alpha.4/runtime/src/bank/partitioned_epoch_rewards/sysvar.rs#L117 */
   if( FD_UNLIKELY( rewards->distributed_rewards>rewards->total_rewards ) ) {
     FD_LOG_WARNING(( "EpochRewards sysvar distributed rewards %lu exceed total rewards %lu",
@@ -678,9 +671,9 @@ verify_sysvars( fd_snapin_tile_t * ctx ) {
     data_lens[ i ] = data_len;
   }
 
-  if( FD_UNLIKELY( verify_rent         ( cache )                                                ) ) return -1;
-  if( FD_UNLIKELY( verify_slot_hashes  ( cache,      data_lens[ FD_SYSVAR_slot_hashes_IDX   ] ) ) ) return -1;
-  if( FD_UNLIKELY( verify_epoch_rewards( ctx, cache, data_lens[ FD_SYSVAR_epoch_rewards_IDX ] ) ) ) return -1;
+  if( FD_UNLIKELY( verify_rent         ( cache )                                              ) ) return -1;
+  if( FD_UNLIKELY( verify_slot_hashes  ( cache,      data_lens[ FD_SYSVAR_slot_hashes_IDX ] ) ) ) return -1;
+  if( FD_UNLIKELY( verify_epoch_rewards( ctx, cache )                                         ) ) return -1;
 
   snapin_sysvar_t const slot_history = { &fd_sysvar_slot_history_id, "SlotHistory", 1 };
   ulong lamports;

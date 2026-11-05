@@ -5,6 +5,21 @@
 #include "../runtime/sysvar/fd_sysvar_recent_hashes.h"
 #include "../../ballet/blake3/fd_blake3.h"
 
+FD_TL fd_event_reporter_t * fd_event_runtime_diff_tl = NULL;
+
+FD_STATIC_ASSERT( sizeof(fd_event_runtime_stake_delegation_t)<=FD_EVENT_RUNTIME_DIFF_MTU, diff_mtu );
+FD_STATIC_ASSERT( sizeof(fd_event_runtime_vote_account_t    )<=FD_EVENT_RUNTIME_DIFF_MTU, diff_mtu );
+FD_STATIC_ASSERT( sizeof(fd_event_runtime_epoch_t           )<=FD_EVENT_RUNTIME_DIFF_MTU, diff_mtu );
+FD_STATIC_ASSERT( sizeof(fd_event_runtime_rooted_t          )<=FD_EVENT_RUNTIME_DIFF_MTU, diff_mtu );
+FD_STATIC_ASSERT( sizeof(fd_event_runtime_reward_t          )<=FD_EVENT_RUNTIME_DIFF_MTU, diff_mtu );
+
+#define REPORT_DIFF( call ) do {                                      \
+    fd_event_reporter_t * _tl = fd_event_tl;                          \
+    if( fd_event_runtime_diff_tl ) fd_event_tl = fd_event_runtime_diff_tl; \
+    call;                                                             \
+    fd_event_tl = _tl;                                                \
+  } while(0)
+
 void
 fd_event_runtime_txn_emit( fd_txn_in_t  const * txn_in,
                            fd_txn_out_t const * txn_out,
@@ -201,7 +216,7 @@ fd_event_runtime_stake_delegation_entry_emit( ulong             bank_seq,
   ev.deactivation_epoch = deactivation_epoch;
   ev.credits_observed   = credits_observed;
 
-  fd_event_report_runtime_stake_delegation( &ev );
+  REPORT_DIFF( fd_event_report_runtime_stake_delegation( &ev ) );
 }
 
 void
@@ -232,7 +247,7 @@ fd_event_runtime_stake_delegation_remove_emit( fd_bank_t const * bank,
   ev.kind          = FD_EVENT_RUNTIME_STAKE_DELEGATION_KIND_REMOVE;
   fd_memcpy( ev.stake_account, stake_account, 32UL );
 
-  fd_event_report_runtime_stake_delegation( &ev );
+  REPORT_DIFF( fd_event_report_runtime_stake_delegation( &ev ) );
 }
 
 void
@@ -352,7 +367,7 @@ fd_event_runtime_vote_account_emit( fd_bank_t const *          bank,
   ev.prev_credits          = epoch_credits->cnt ? epoch_credits->base_credits + epoch_credits->prev_credits_delta[ epoch_credits->cnt-1UL ] : 0UL;
   ev.epoch_credits_cnt     = epoch_credits->cnt;
 
-  fd_event_report_runtime_vote_account( &ev );
+  REPORT_DIFF( fd_event_report_runtime_vote_account( &ev ) );
 }
 
 void
@@ -393,7 +408,7 @@ fd_event_runtime_epoch_emit( fd_bank_t const * bank ) {
 
   ev.vat_burn_per_vote_account = fd_event_runtime_epoch_summary.vat_burn_per_vote_account;
 
-  fd_event_report_runtime_epoch( &ev );
+  REPORT_DIFF( fd_event_report_runtime_epoch( &ev ) );
 
   fd_memset( &fd_event_runtime_epoch_summary, 0, sizeof(fd_event_runtime_epoch_summary) );
 }
@@ -427,7 +442,7 @@ fd_event_runtime_rooted_emit( fd_bank_t const *                          bank,
 
   fd_memcpy( ev.block_id, bank->f.block_id.uc, 32UL );
 
-  fd_event_report_runtime_rooted( &ev );
+  REPORT_DIFF( fd_event_report_runtime_rooted( &ev ) );
 }
 
 void
@@ -455,7 +470,7 @@ fd_event_runtime_reward_emit( fd_bank_t const * bank,
   };
   fd_memcpy( ev.pubkey, pubkey, 32UL );
   fd_memcpy( ev.owner,  owner,  32UL );
-  fd_event_report_runtime_reward( &ev );
+  REPORT_DIFF( fd_event_report_runtime_reward( &ev ) );
 }
 
 /* Accumulator for slot-level account diffs, which get staged in the bank

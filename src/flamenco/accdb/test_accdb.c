@@ -1661,6 +1661,64 @@ test_write_batch( fd_accdb_t *                         accdb,
   return result;
 }
 
+static void
+test_read_one_meta( void ) {
+  int fd;
+  fd_accdb_t * accdb = test_setup( &fd, 1024UL, 64UL, 8192UL, 64UL, 11UL<<20UL );
+  fd_accdb_fork_id_t root = fd_accdb_attach_child( accdb, SENTINEL );
+  test_store_ctx_t store = { .fd=fd };
+  ulong big = 1UL<<20UL;
+  uchar const * pubkeys[ 1 ] = { pubkey0 };
+
+  /* Snapshot accounts start cold.  Install a known owner on disk. */
+  fd_accdb_snapshot_load_begin( accdb );
+  test_batch_result_t r = test_write_batch( accdb, SENTINEL, 1UL, pubkeys,
+                                            (ulong[]){ 10UL }, (ulong[]){ 50UL },
+                                            &big, (int[]){ 0 }, &store );
+  FD_TEST( !r.err && r.loaded==1UL );
+  ulong owner_off = store.ranges[ 0 ].off + offsetof(fd_accdb_disk_meta_t,owner);
+  FD_TEST( pwrite( fd, owner2, 32UL, (long)owner_off )==32L );
+  fd_accdb_snapshot_load_end( accdb );
+
+  fd_accdb_metrics_t const * metrics = fd_accdb_metrics( accdb );
+  ulong reads   = metrics->bytes_read;
+  ulong copied  = metrics->bytes_copied;
+  ulong acquire = metrics->acquire_calls;
+  uchar owner[ 32UL ];
+  ulong data_len;
+
+  FD_TEST( fd_accdb_read_one_meta( accdb, root, pubkey0, owner, &data_len )==FD_ACCDB_READ_ONE_NOCACHE_DISK );
+  FD_TEST( data_len==big && !memcmp( owner, owner2, 32UL ) );
+  FD_TEST( metrics->bytes_read==reads+32UL );
+  FD_TEST( metrics->bytes_copied==copied && metrics->acquire_calls==acquire );
+
+  /* A regular read populates the cache.  Metadata then needs no I/O
+     and does not copy the 1 MiB payload or acquire a cache reference. */
+  fd_acc_t acc = fd_accdb_read_one( accdb, root, pubkey0 );
+  FD_TEST( acc.data_len==big );
+  fd_accdb_unread_one( accdb, &acc );
+  reads   = metrics->bytes_read;
+  copied  = metrics->bytes_copied;
+  acquire = metrics->acquire_calls;
+  FD_TEST( fd_accdb_read_one_meta( accdb, root, pubkey0, owner, &data_len )==FD_ACCDB_READ_ONE_NOCACHE_CACHE );
+  FD_TEST( data_len==big && !memcmp( owner, owner2, 32UL ) );
+  FD_TEST( metrics->bytes_read==reads && metrics->bytes_copied==copied && metrics->acquire_calls==acquire );
+
+  /* Each fork must return its own version's owner and length.  A
+     tombstone must hide the live ancestor, just like a missing key. */
+  fd_accdb_fork_id_t child = fd_accdb_attach_child( accdb, root );
+  accdb_write( accdb, child, pubkey0, 70UL, NULL, 64UL, owner3 );
+  FD_TEST( fd_accdb_read_one_meta( accdb, child, pubkey0, owner, &data_len )==FD_ACCDB_READ_ONE_NOCACHE_CACHE );
+  FD_TEST( data_len==64UL && !memcmp( owner, owner3, 32UL ) );
+  FD_TEST( fd_accdb_read_one_meta( accdb, root, pubkey0, owner, &data_len )==FD_ACCDB_READ_ONE_NOCACHE_CACHE );
+  FD_TEST( data_len==big && !memcmp( owner, owner2, 32UL ) );
+  accdb_write( accdb, child, pubkey0, 0UL, NULL, 64UL, owner3 );
+  FD_TEST( fd_accdb_read_one_meta( accdb, child, pubkey0, owner, &data_len )==FD_ACCDB_READ_ONE_NOCACHE_MISS );
+  FD_TEST( fd_accdb_read_one_meta( accdb, child, pubkey1, owner, &data_len )==FD_ACCDB_READ_ONE_NOCACHE_MISS );
+
+  test_teardown( accdb, fd );
+}
+
 typedef struct {
   fd_accdb_t *       accdb;
   ulong              thread_idx;
@@ -2320,6 +2378,9 @@ main( int     argc,
 
   FD_LOG_NOTICE(( "test_basic ..." ));
   test_basic();
+
+  FD_LOG_NOTICE(( "test_read_one_meta ..." ));
+  test_read_one_meta();
 
   FD_LOG_NOTICE(( "test_cache_line_seq_on_reuse ..." ));
   test_cache_line_seq_on_reuse();

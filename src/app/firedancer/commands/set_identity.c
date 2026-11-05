@@ -8,7 +8,7 @@
 #include "../../../disco/keyguard/fd_keyload.h"
 #include "../../../ballet/base58/fd_base58.h"
 #include "../../../ballet/ed25519/fd_ed25519.h"
-#include "../../../choreo/votor/ag_vote_history_serde.h"
+#include "../../../choreo/votor/fd_vote_history_serde.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -71,7 +71,7 @@ set_identity_cmd_args( int *    pargc,
     if( FD_UNLIKELY( file==MAP_FAILED ) ) FD_LOG_ERR(( "mmap(%s) failed (%i-%s)", vote_history_file, errno, fd_io_strerror( errno ) ));
     if( FD_UNLIKELY( -1==close( fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
-    int err = ag_vote_history_de( file, sz, args->set_identity.keypair+32UL, &args->set_identity.vote_history_slot );
+    int err = fd_vote_history_de( file, sz, args->set_identity.keypair+32UL, &args->set_identity.vote_history_slot );
     if( FD_UNLIKELY( err ) ) {
       FD_LOG_ERR(( "vote history file %s is invalid (%i) or does not belong to the new identity.  If you believe the "
                    "vote history file is valid, please contact the Firedancer team for additional assistance.", vote_history_file, err ));
@@ -132,10 +132,13 @@ set_identity( args_t *   args,
     case FD_SET_IDENTITY_RESULT_INVALID_VOTE_HISTORY:
       FD_LOG_ERR(( "Failed to set identity: the vote history file is invalid or does not belong to the new identity. "
                    "If you believe the vote history file is valid, please contact the Firedancer team for additional assistance." ));
+    case FD_SET_IDENTITY_RESULT_KEYPAIR_MISMATCH:
+      FD_LOG_ERR(( "Failed to set identity: the public key in the keypair does not match the public key derived "
+                   "from its private key." ));
     case FD_ADMINCTL_RESULT_UNKNOWN_COMMAND:
+    case FD_ADMINCTL_RESULT_UNSUPPORTED:
     case FD_ADMINCTL_RESULT_ABI_VERSION_MISMATCH:
     case FD_ADMINCTL_RESULT_ABI_SIZE_MISMATCH:
-    case FD_SET_IDENTITY_RESULT_KEYPAIR_MISMATCH:
       FD_LOG_ERR(( "Failed to set identity: the command was not able to successfully communicate "
                    "with the running Firedancer process. It is possible that you are running the "
                    "command from an older or newer version of Firedancer that is no longer compatible." ));

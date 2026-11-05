@@ -28,6 +28,14 @@ struct fd_calculated_stake_rewards {
 };
 typedef struct fd_calculated_stake_rewards fd_calculated_stake_rewards_t;
 
+/* A delegation's points are only read while computing its rewards,
+   which then overwrite them. */
+union fd_calculated_stake_result {
+  fd_calculated_stake_points_t  points;
+  fd_calculated_stake_rewards_t rewards;
+};
+typedef union fd_calculated_stake_result fd_calculated_stake_result_t;
+
 /* fd_vote_ele and fd_vote_ele_map are used to temporarily cache
    computed fields for vote accounts during epoch boundary stake
    and rewards calculations. */
@@ -56,6 +64,31 @@ typedef struct fd_stake_accum fd_stake_accum_t;
 struct fd_stake_accum_map_private;
 typedef struct fd_stake_accum_map_private fd_stake_accum_map_t;
 
+/* Staging memory for bpf migration.  This is used to store and stage
+   various accounts which is required for deploying a new BPF program at
+   the epoch boundary.
+
+   TODO: We could just acquire these buffers out of the account database
+   directly to share them across tiles using the existing flexible
+   buffer management. */
+
+struct fd_runtime_stack_bpf_migration {
+  fd_tmp_account_t source;
+  fd_tmp_account_t program_account;
+  fd_tmp_account_t new_target_program;
+  fd_tmp_account_t new_target_program_data;
+  fd_tmp_account_t empty;
+
+  /* Staging memory for ELF validation during BPF program
+     migrations. */
+  struct {
+    uchar rodata        [ FD_RUNTIME_ACC_SZ_MAX     ] __attribute__((aligned(FD_SBPF_PROG_RODATA_ALIGN)));
+    uchar sbpf_footprint[ FD_SBPF_PROGRAM_FOOTPRINT ] __attribute__((aligned(alignof(fd_sbpf_program_t))));
+    uchar programdata   [ FD_RUNTIME_ACC_SZ_MAX     ] __attribute__((aligned(FD_ACCOUNT_REC_ALIGN)));
+  } progcache_validate;
+};
+typedef struct fd_runtime_stack_bpf_migration fd_runtime_stack_bpf_migration_t;
+
 /* fd_runtime_stack_t serves as stack memory to store temporary data
    for the runtime.  This object should only be used and owned by the
    replay tile and is used for short-lived allocations for the runtime,
@@ -66,35 +99,13 @@ struct fd_runtime_stack {
   ulong max_staked_vote_accounts;
   ulong max_stake_accounts;
 
-  struct {
-    /* Staging memory for bpf migration.  This is used to store and
-       stage various accounts which is required for deploying a new BPF
-       program at the epoch boundary.
-
-       TODO: These are only used by the replay tile on epoch boundaries
-       and don't need to be in the per-exec stacks.  Additionally, we
-       could just acquire these buffers out of the account database
-       directly to share them across tiles using the existing flexible
-       buffer management. */
-    fd_tmp_account_t source;
-    fd_tmp_account_t program_account;
-    fd_tmp_account_t new_target_program;
-    fd_tmp_account_t new_target_program_data;
-    fd_tmp_account_t empty;
-
-    /* Staging memory for ELF validation during BPF program
-       migrations. */
-    struct {
-      uchar rodata        [ FD_RUNTIME_ACC_SZ_MAX     ] __attribute__((aligned(FD_SBPF_PROG_RODATA_ALIGN)));
-      uchar sbpf_footprint[ FD_SBPF_PROGRAM_FOOTPRINT ] __attribute__((aligned(alignof(fd_sbpf_program_t))));
-      uchar programdata   [ FD_RUNTIME_ACC_SZ_MAX     ] __attribute__((aligned(FD_ACCOUNT_REC_ALIGN)));
-    } progcache_validate;
-  } bpf_migration;
+  /* Overlaps stakes.stake_accum.  Migrations finish at the epoch
+     boundary before the stake accumulators are filled, and every user
+     of stake_accum resets its map before use. */
+  fd_runtime_stack_bpf_migration_t * bpf_migration;
 
   struct {
-    fd_calculated_stake_points_t *  stake_points_result;
-
-    fd_calculated_stake_rewards_t * stake_rewards_result;
+    fd_calculated_stake_result_t * stake_results;
 
     fd_stake_accum_t *     stake_accum;
     fd_stake_accum_map_t * stake_accum_map;

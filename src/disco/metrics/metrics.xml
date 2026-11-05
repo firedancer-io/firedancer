@@ -268,6 +268,25 @@ deliberate exception with lint-allow="<rule id>")
     <gauge name="TxBufferFree" summary="TX buffers available for a new transmit job" />
 </tile>
 
+<tile name="iavf">
+    <counter name="PktRx" summary="Packets successfully published to output links" />
+    <counter name="PktRxBytes" summary="Bytes of packets successfully published to output links" />
+    <counter name="PktRxDropped" enum="PktRxDropReason" summary="Received packets dropped, by reason" />
+    <counter name="PktRxNoLinkDropped" summary="Packets dropped because the configured VF or bond member is not accepting traffic" />
+    <counter name="GrePktRx" summary="GRE packets decapsulated and published; subset of PktRx" />
+    <gauge name="RxBufferUsed" summary="RX buffers not currently posted to the NIC" />
+    <gauge name="RxBufferFree" summary="RX buffers currently posted to the NIC" />
+    <counter name="PktTxCompleted" summary="Packets completed by the NIC for transmission" />
+    <counter name="PktTxCompletedBytes" summary="Bytes of packets completed by the NIC" />
+    <counter name="PktTxDropped" enum="PktTxDropReason" summary="Transmit jobs dropped, by reason" />
+    <counter name="PktTxNoLinkDropped" summary="Transmit jobs dropped because no configured VF or bond member can send traffic" />
+    <counter name="PktTxLoopbackFailed" summary="Loopback transmit jobs dropped because the socket send failed or accepted only part of a batch" />
+    <counter name="GrePktTxSubmitted" summary="GRE transmit jobs submitted to the NIC" />
+    <gauge name="TxBufferUsed" summary="TX buffers pending or submitted to the NIC" />
+    <gauge name="TxBufferFree" summary="TX buffers available for a new transmit job" />
+    <counter name="NonFdPktRx" summary="Packets received by IAVF VFs that are not intended for Firedancer" />
+</tile>
+
 <enum name="SendmmsgResult">
     <int value="0" name="Success" label="Success" />
     <int value="1" name="BufferFull" label="ENOBUFS, EAGAIN error" />
@@ -583,6 +602,7 @@ deliberate exception with lint-allow="<rule id>")
     <int value="1" name="ReassemblyEmpty" deprecated="true" label="The reassembly queue was empty" />
     <int value="2" name="LeaderFreezeWait" label="Waiting for PoH to end our leader block" />
     <int value="3" name="BankFull" label="The bank pool was full" />
+    <int value="4" name="LaneWait" label="A block's first FEC set waited for a staging lane" />
 </enum>
 
 <enum name="PackScheduleRegime">
@@ -613,6 +633,7 @@ deliberate exception with lint-allow="<rule id>")
     <int value="2" name="Vote" label="Deprecated, always 0 since Firedancer v26.11." />
     <int value="3" name="Conflicting" label="Transactions that write to a hotly-contended account" />
     <int value="4" name="Bundle" label="Transactions that are part of a bundle" />
+    <int value="5" name="NextAuction" label="Transactions that are currently held waiting for the next auction" />
 </enum>
 
 <enum name="BundleCrankResult">
@@ -620,6 +641,13 @@ deliberate exception with lint-allow="<rule id>")
     <int value="1" name="Inserted" label="Inserted an initializer bundle to update the on-chain state" />
     <int value="2" name="CreationFailed" label="Tried to insert an initializer bundle to update the on-chain state, but creation failed" />
     <int value="3" name="InsertionFailed" label="Tried to insert an initializer bundle to update the on-chain state, but insertion failed" />
+</enum>
+
+<enum name="PackAuctionEndReason">
+    <int value="0" name="Limit" label="An auction ended because the block reached the auction's CU limit" />
+    <int value="1" name="Restarted" label="An auction ended because a new auction was started" />
+    <int value="2" name="Final" label="An auction ended because the final 10ms of our leader rotation began" />
+    <int value="3" name="SlotEnd" label="An auction ended because the leader slot ended" />
 </enum>
 
 <tile name="pack">
@@ -658,6 +686,18 @@ deliberate exception with lint-allow="<rule id>")
     <counter name="TxnScheduleAttempted" enum="PackTxnScheduleResult" summary="Times a pending transaction was considered for a microblock, by outcome; one transaction may be considered many times" />
 
     <counter name="BundleCrankAttempted" enum="BundleCrankResult" summary="Times pack checked whether the bundle tip state needed cranking, by outcome" />
+
+    <gauge name="PreRotationBundlePending" summary="Bundles that arrived while not leader that pack is holding" />
+    <counter name="PreRotationBundleInserted" summary="Bundles that arrived while not leader that pack kept" />
+    <counter name="PreRotationBundleRejected" summary="Bundles that arrived while not leader that pack dropped because it was full of ones that declare at least as large a tip" />
+    <counter name="PreRotationBundleEvicted" summary="Bundles that arrived while not leader that pack dropped for one that declares a larger tip" />
+    <counter name="PreRotationBundleScheduled" summary="Bundles that arrived while not leader that pack scheduled" />
+    <counter name="AuctionStarted" summary="Batch auctions started" />
+    <counter name="AuctionCancelled" summary="Batch auctions skipped because the block was already at their CU limit" />
+    <counter name="AuctionEnded" enum="PackAuctionEndReason" summary="Batch auctions ended, by reason" />
+    <histogram name="AuctionDurationNanos" min="10000" max="100000000" source="ticks">
+        <summary>Duration that batch auctions ran for</summary>
+    </histogram>
 
     <gauge name="BlockCost" summary="Cost units used in the current block, 0 if not packing a block" />
     <histogram name="CostScheduledPerBlock" min="1000000" max="240000000">
@@ -747,7 +787,7 @@ deliberate exception with lint-allow="<rule id>")
     <counter name="TxnProcessedByVersion" enum="TxnVersion" summary="Transactions processed, by transaction version" />
     <counter name="InstructionExecuted" summary="Top-level instructions executed" />
     <counter name="CpiExecuted" summary="Cross-program invocations executed" />
-    <counter name="AccountLthashSkipped" summary="Committed writable accounts left byte-identical by their transaction, so their lthash update was skipped" />
+    <counter name="AccountLthashSkipped" summary="Committed writable accounts left byte-identical by their transaction, so their in-band lthash update was skipped" />
     <counter name="BankSwitched" summary="Cache invalidations due to transaction execution from a different block" />
     <counter name="CuConsumed" summary="Compute units consumed by executed transactions" />
 
@@ -905,10 +945,12 @@ deliberate exception with lint-allow="<rule id>")
 </enum>
 
 <enum name="SchedDeactivateReason">
-    <int value="0" name="NoChild" label="A block fully replayed and there was no child block available yet" />
+    <int value="0" name="NoChild" label="A block fully replayed and the block activated next, if any, was not its child" />
     <int value="1" name="NoWork" label="A partially replayed block ran out of work to dispatch" />
     <int value="2" name="Abandoned" label="A block was abandoned, other than by minority fork pruning" />
     <int value="3" name="MinorityFork" label="A block was pruned for being on a minority fork (not also counted as Abandoned)" />
+    <int value="4" name="SpecYield" label="A block that could only speculate on out-of-band lthash additions gave way to another lane head's real work" />
+    <int value="5" name="SpecPoolFull" label="A partially replayed block owing out-of-band lthash additions had nothing to dispatch because the speculation pool had no free entry" />
 </enum>
 
 <enum name="SchedBlockStagingState">
@@ -920,6 +962,35 @@ deliberate exception with lint-allow="<rule id>")
 <enum name="SchedLutResolveResult">
     <int value="0" name="Success" label="Address lookup tables expanded successfully" />
     <int value="1" name="Failed" label="Address lookup table expansion failed" />
+</enum>
+
+<enum name="SchedLthashWriteType">
+    <int value="0" name="Parsed" label="Declared writable accounts of parsed transactions, as handed to the dispatcher" />
+    <int value="1" name="BlockStart" label="Accounts registered by start-of-block processing" />
+    <int value="2" name="LateLut" label="Writable lookup table accounts registered at transaction completion" />
+    <int value="3" name="Demoted" label="Accounts re-registered when their block was demoted" />
+    <int value="4" name="SpecGivenUp" label="Accounts re-registered when a speculative addition was given up" />
+</enum>
+
+<enum name="SchedLthashWriteResult">
+    <int value="0" name="FirstWrite" label="First write to the account since its last addition pseudo transaction, which makes the block owe it an addition" />
+    <int value="1" name="Coalesced" label="Write to an account the block already owed an addition for" />
+</enum>
+
+<enum name="SchedLthashWorkType">
+    <int value="0" name="AddOwed" label="Additions owed by abandoned blocks, never created" />
+    <int value="1" name="AddPending" label="Pseudo transactions of abandoned blocks, never surfaced" />
+    <int value="2" name="AddApplied" label="Additions in the delta of an abandoned or demoted block, net of undone" />
+    <int value="3" name="SubQueued" label="Subtractions of abandoned blocks, never dispatched" />
+    <int value="4" name="SubApplied" label="Subtractions in the delta of an abandoned or demoted block" />
+    <int value="5" name="AddHeld" label="Additions of abandoned blocks that were batched behind a transaction and never reached a tile" />
+    <int value="6" name="InbandAddOwed" label="Additions owed by blocks that picked in-band hashing, never created" />
+    <int value="7" name="InbandSubQueued" label="Subtractions of blocks that picked in-band hashing, never dispatched" />
+</enum>
+
+<enum name="SchedLthashTaskType">
+    <int value="0" name="Sub" label="Subtraction tasks, each a batch of accounts hashed on the parent fork" />
+    <int value="1" name="Add" label="Addition tasks, each a batch of accounts hashed on the block's fork" />
 </enum>
 
 <tile name="replay">
@@ -985,10 +1056,12 @@ deliberate exception with lint-allow="<rule id>")
     <counter name="SchedBlockRejected" summary="Blocks the replay scheduler found invalid while parsing or verifying PoH; also counted in SchedBlockAbandoned once drained; replay-tile verdicts not counted" />
     <counter name="SchedBlockPromoted" summary="Blocks the replay scheduler promoted from unstaged to a staging lane" />
     <counter name="SchedBlockDemoted" summary="Blocks the replay scheduler demoted from a staging lane to unstaged" />
+    <counter name="SchedTxnPromoted" summary="Transactions the replay scheduler moved into a staging lane when it promoted their block" />
     <counter name="SchedBlockDeactivated" enum="SchedDeactivateReason" summary="Times the replay scheduler stopped dispatching a block, by reason" />
-    <counter name="SchedLaneSwitched" summary="Times the replay scheduler switched the lane it is dispatching from" />
-    <counter name="SchedLanePromoted" summary="Times the replay scheduler promoted one or more blocks onto a staging lane" />
-    <counter name="SchedLaneDemoted" summary="Times the replay scheduler demoted one or more blocks from a staging lane" />
+    <counter name="SchedBlockInbandPicked" summary="Blocks that fell back to in-band lthash because every demotion reservation was in use" />
+    <counter name="SchedLaneSwitched" summary="Times the replay scheduler activated a block on a different fork than the previously active block" />
+    <counter name="SchedLanePromoted" summary="Times the replay scheduler promoted a block onto a staging lane" />
+    <counter name="SchedLaneDemoted" summary="Times the replay scheduler demoted a block from a staging lane" />
     <counter name="SchedForkObserved" summary="Forks the replay scheduler has observed" />
     <counter name="SchedTxnLutResolveAttempted" enum="SchedLutResolveResult" summary="Transactions with address lookup tables the replay scheduler tried to resolve, by result" />
     <counter name="SchedTxnParsedAbandoned" summary="Transactions that were parsed but ended up being in abandoned blocks" />
@@ -1009,6 +1082,26 @@ deliberate exception with lint-allow="<rule id>")
     <counter name="SchedTrailingSkippedBytes" summary="Trailing bytes of a block the replay scheduler ingested but did not parse" />
     <counter name="SchedDroppedBytes" summary="Bytes the replay scheduler refused to ingest because the block was abandoned" />
     <counter name="SchedFecIngested" summary="FEC sets the replay scheduler has been given" />
+    <counter name="SchedLthashWriteObserved" enum="SchedLthashWriteResult" summary="Writes the replay scheduler saw for out-of-band lthash, by result" />
+    <counter name="SchedLthashWriteObservedByType" enum="SchedLthashWriteType" summary="Writes the replay scheduler saw for out-of-band lthash, the same as SchedLthashWriteObserved, by type" />
+    <counter name="SchedLthashAddCreated" summary="Out-of-band lthash addition pseudo transactions the dispatcher handed back" />
+    <counter name="SchedLthashAddSurfaced" summary="Addition pseudo transactions the dispatcher handed out as ready" />
+    <counter name="SchedLthashAddStaleSurfaced" summary="Addition pseudo transactions surfaced after a later write made them stale, completed without hashing" />
+    <counter name="SchedLthashAddDispatched" summary="Additions handed to an exec tile" />
+    <counter name="SchedLthashAddStaleDropped" summary="Addition results dropped because a later write made them stale while on the tile" />
+    <counter name="SchedLthashAddApplied" summary="Addition results added to a block's delta" />
+    <counter name="SchedLthashAddUndone" summary="Applied additions subtracted back out after a later write" />
+    <counter name="SchedLthashSpecCreated" summary="Speculative additions created" />
+    <counter name="SchedLthashSpecApplied" summary="Speculative additions applied; a subset of SchedLthashAddApplied" />
+    <counter name="SchedLthashSpecInvalidated" summary="Speculative additions invalidated before they applied" />
+    <counter name="SchedLthashSubOwed" summary="Lane map entries inserted, each owing one out-of-band lthash subtraction" />
+    <counter name="SchedLthashSubDispatched" summary="Subtractions handed to an exec tile" />
+    <counter name="SchedLthashSubApplied" summary="Subtraction results subtracted from a block's delta" />
+    <counter name="SchedLthashAccountFrozen" summary="Accounts whose out-of-band lthash subtraction and addition are in the delta of a block whose end task completed" />
+    <counter name="SchedLthashWorkDropped" enum="SchedLthashWorkType" summary="Out-of-band lthash work discarded when a block was abandoned, demoted, or switched to in-band hashing, by type" />
+    <counter name="SchedLthashTaskDispatched" enum="SchedLthashTaskType" summary="Out-of-band lthash tasks handed to exec tiles, each a batch of the accounts SchedLthashSubDispatched and SchedLthashAddDispatched count, by type" />
+    <counter name="SchedLthashBatchHeld" summary="Out-of-band lthash addition batches held because a transaction or standalone speculation surfaced behind them" />
+    <counter name="SchedLthashBatchIdleWaited" summary="Dispatch polls that held an out-of-band lthash addition batch because too few exec tiles were idle" />
 
     <counter name="BankFrozen" summary="Banks frozen, including our own leader blocks" />
     <gauge name="ChainTxnHeight" ambiguous-kind="true" summary="Transactions from genesis through the last replayed block, 0 if none; drops on a fork switch" />
@@ -1317,6 +1410,8 @@ deliberate exception with lint-allow="<rule id>")
     <gauge name="WaitForSupermajorityStakeOnlineLamports" summary="Stake from peers with recent gossip activity" />
     <gauge name="WaitForSupermajorityStakeTrackedLamports" ambiguous-kind="true" summary="Stake tracked while waiting for supermajority" />
     <gauge name="WaitForSupermajorityState" states="WaitForSupermajorityState" summary="Wait-for-supermajority progress" />
+
+    <gauge name="ContactInfoClientId" summary="Client id currently advertised in our ContactInfo" lint-allow="sentinel" />
 </tile>
 
 <enum name="GossvfMessageResult">
@@ -1725,7 +1820,7 @@ deliberate exception with lint-allow="<rule id>")
 </enum>
 
 <tile name="execrp">
-    <bool name="IsProcessing" summary="Whether the tile is currently processing a task (executing, sigverifying, or PoH hashing)" />
+    <bool name="IsProcessing" summary="Whether the tile is processing a replay task" />
 
     <counter name="TxnProcessed" enum="TxnResult" summary="Transactions loaded and executed, by result" />
     <counter name="TxnProcessedByVersion" enum="TxnVersion" summary="Transactions processed, by transaction version" />
@@ -1733,7 +1828,7 @@ deliberate exception with lint-allow="<rule id>")
     <counter name="PohHashComputed" summary="PoH SHA-256 iterations computed" />
     <counter name="InstructionExecuted" summary="Top-level instructions executed" />
     <counter name="CpiExecuted" summary="Cross-program invocations executed" />
-    <counter name="AccountLthashSkipped" summary="Committed writable accounts left byte-identical by their transaction, so their lthash update was skipped" />
+    <counter name="AccountLthashSkipped" summary="Committed writable accounts left byte-identical by their transaction, so their in-band lthash update was skipped" />
     <counter name="BankSwitched" summary="Cache invalidations due to transaction execution from a different block" />
 
     <counter name="TxnRegimeDurationNanos" enum="TxnRegime" source="ticks" summary="Time per transaction, by phase; a phase counts only once the next phase starts, so dropped, fees-only and no-op transactions lose their trailing phases" />
@@ -1804,7 +1899,7 @@ deliberate exception with lint-allow="<rule id>")
     <int value="5" name="Banned" label="Sender is banned for a failed signature verification" />
     <int value="6" name="SlotOutOfRange" label="Vote slot was either too old or too far in the future" />
     <int value="7" name="NullBlockHash" label="Vote block hash was null" />
-    <int value="8" name="SignatureFailed" label="Vote signature was the identity point" />
+    <int value="8" name="SignatureFailed" label="Vote signature was the identity point or outside the G2 subgroup" />
     <int value="9" name="Unranked" label="Sender was not a ranked validator in the vote slot's epoch" />
     <int value="10" name="ShredVersionMismatched" label="Vote was for a different shred version" />
     <int value="11" name="Duplicate" label="Voter had already cast this vote" />
@@ -1970,6 +2065,8 @@ deliberate exception with lint-allow="<rule id>")
     <int value="11" name="TimelineDay" label="timeline_day" />
     <int value="12" name="ReplayTxn" label="replay_txn" />
     <int value="13" name="TimelineTileDay" label="timeline_tile_day" />
+    <int value="14" name="FecEvents" label="fec_events" />
+    <int value="15" name="FecEventArchive" label="fec_event_archive" />
 </enum>
 
 <enum name="EventConnState">

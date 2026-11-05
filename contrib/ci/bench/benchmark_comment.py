@@ -6,7 +6,7 @@
 """
 import json, os, re, sys
 
-JOBS = ("replay", "snapshot", "bench")
+JOBS = ("replay", "snapshot", "snapshot-mainnet", "bench")
 TIERS = " +!-"  # noise, improved, warning, regression: diff-fence gutter chars, in severity order
 
 def read(d, s, name):
@@ -24,8 +24,8 @@ def stamp(log, needle):  # seconds since midnight of the first log line containi
     h, m, s = re.match(r"\S+\s+\S+ (\d\d):(\d\d):(\S+) ", line).groups()
     return int(h) * 3600 + int(m) * 60 + float(s)
 
-def snapshot_load(d, s):
-    log = read(d, s, "snapshot.log")
+def snapshot_load(d, s, what="snapshot"):
+    log = read(d, s, what + ".log")
     return (stamp(log, "replay ready at slot") - stamp(log, "reading full snapshot from file")) % 86400  # midnight
 
 def epoch_boundary(d, s):  # ms fd_runtime_process_new_epoch() took at the boundary the epoch ledger crosses
@@ -42,13 +42,14 @@ ROWS = (
     ("replay_tps",    "replay tps, mainnet",       "replay",   lambda d, s: summary(d, s, "replay")["tps"],                ",.0f tps",  1.25,  2.5, True),
     ("bench_tps",     "bench tps, localnet",       "bench",    lambda d, s: summary(d, s, "bench")["tps"],                 ",.0f tps",  1.75,  3.5, True),
     ("snapshot_load", "snapshot load, testnet",    "snapshot", snapshot_load,                                              ".2f s",      1.5,  3.0, False),
+    ("snapshot_load_mainnet", "snapshot load, mainnet", "snapshot-mainnet", lambda d, s: snapshot_load(d, s, "snapshot-mainnet"), ".2f s", 3.0, 6.0, False),
     ("epoch_boundary","epoch boundary, mainnet",   "snapshot", epoch_boundary,                                             ".1f ms",     5.0, 10.0, False),
     ("mem_mainnet",   "mem total, mainnet",        "replay",   lambda d, s: mem(d, s, "mainnet"),                          ".2f GiB",    0.0,  1.0, False),
     ("mem_testnet",   "mem total, testnet",        "replay",   lambda d, s: mem(d, s, "testnet"),                          ".2f GiB",    0.0,  1.0, False),
     ("compile",       "clean compile, firedancer", "*",        lambda d, s: float(read(d, s, "build.time").split()[0]),   ".2f s",       1.5,  3.0, False),
     ("binsize",       "binary size, firedancer",   "replay",   lambda d, s: os.path.getsize(f"{d}/{s}/bin/firedancer") / 1e6, ".2f MB",  0.5,  2.0, False),
 )
-HIST_HDR = ("TPS", "BENCH", "SNAP", "EPOCH", "MEM·M", "MEM·T", "COMPILE", "BINARY")
+HIST_HDR = ("TPS", "BENCH", "SNAP·T", "SNAP·M", "EPOCH", "MEM·M", "MEM·T", "COMPILE", "BINARY")
 
 def tier(row, d):
     _, _, _, _, _, warn, red, up = row
@@ -147,11 +148,11 @@ def render(a):
 
     if state["history"]:
         pushes = [{"head": state["head"], "rows": {k: v[2] for k, v in ds.items()}, "tier": worst(state, ds)}] + state["history"]
-        lines = [rule(" ┌─ HISTORY · Δ vs main, per push, newest first ", 82),
+        lines = [rule(" ┌─ HISTORY · Δ vs main, per push, newest first ", 91),
                  " │ " + "HEAD".ljust(7) + "".join(h.rjust(9) for h in HIST_HDR)]
         for p in pushes:
             lines.append(p["tier"] + "│ " + p["head"][:7].ljust(7) + "".join(pct(p["rows"][r[0]], 9) if r[0] in p["rows"] else "…".rjust(9) for r in ROWS))
-        lines.append(rule(" └", 82))
+        lines.append(rule(" └", 91))
         body += f"\n<details><summary>history · {len(pushes)} pushes</summary>\n\n```diff\n" + "\n".join(lines) + "\n```\n\n</details>\n"
 
     st = json.dumps(state, separators=(",", ":"))

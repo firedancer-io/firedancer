@@ -347,20 +347,21 @@ vote_last_voted_slot( fd_svm_mini_t *     mini,
   return result;
 }
 
+/* The cache under test, reset on every call. */
+
 static fd_footer_cache_t *
 new_cache( void ) {
-  void * mem = aligned_alloc( FD_FOOTER_CACHE_ALIGN, fd_ulong_align_up( fd_footer_cache_footprint(), FD_FOOTER_CACHE_ALIGN ) );
-  FD_TEST( mem );
-  return fd_footer_cache_join( fd_footer_cache_new( mem ) );
+  static fd_footer_cache_t cache_mem[ 1 ];
+  return fd_footer_cache_join( fd_footer_cache_new( cache_mem ) );
 }
 
-/* empty_cache returns a reset cache: reference runs hash every image */
+/* The reference runs hash every image, so they get a cache of their own
+   that is empty on every call. */
 
 static fd_footer_cache_t *
 empty_cache( void ) {
-  static fd_footer_cache_t * cache;
-  if( !cache ) cache = new_cache();
-  return fd_footer_cache_join( fd_footer_cache_new( cache ) );
+  static fd_footer_cache_t cache_mem[ 1 ];
+  return fd_footer_cache_join( fd_footer_cache_new( cache_mem ) );
 }
 
 static void
@@ -538,7 +539,7 @@ test_footer_fused_matches_sequential( fd_svm_mini_t * mini ) {
     uchar ikm[ 32 ] = {0}; FD_STORE( ulong, ikm, i+1UL );
     fd_bls_sec_t sk[1]; fd_bls_sec_derive( sk, ikm, sizeof(ikm) );
     fd_bls_pub_t pub[1]; fd_bls_sec_to_pub( sk, pub );
-    blst_p1_affine_compress( bls[i], pub );
+    fd_bls_pub_compress( pub, bls[i] );
   }
 
   fd_footer_cache_t * cache = new_cache();
@@ -661,7 +662,6 @@ test_footer_fused_matches_sequential( fd_svm_mini_t * mini ) {
     }
   }
   FD_TEST( fused_cnt && split_cnt && rev_diff_cnt && memo_hit_cnt );
-  free( cache );
   fd_rng_delete( fd_rng_leave( rng ) );
   FD_LOG_NOTICE(( "test_footer_fused_matches_sequential: PASSED (fused %lu, split %lu, reverse order differs %lu)", fused_cnt, split_cnt, rev_diff_cnt ));
 }
@@ -730,7 +730,7 @@ test_footer_vote_account_acquire( fd_svm_mini_t * mini ) {
     uchar ikm[ 32 ] = {0}; FD_STORE( ulong, ikm, i+1UL );
     fd_bls_sec_t sk[1]; fd_bls_sec_derive( sk, ikm, sizeof(ikm) );
     fd_bls_pub_t pub[1]; fd_bls_sec_to_pub( sk, pub );
-    blst_p1_affine_compress( bls[i], pub );
+    fd_bls_pub_compress( pub, bls[i] );
   }
 
   fd_accdb_fork_id_t root_fk = fd_banks_root( mini->banks )->accdb_fork_id;
@@ -834,7 +834,7 @@ test_finalize_verifies_footer( fd_svm_mini_t * mini ) {
     uchar ikm[ 32 ] = {0}; FD_STORE( ulong, ikm, i+1UL );
     fd_bls_sec_t sk[1]; fd_bls_sec_derive( sk, ikm, sizeof(ikm) );
     fd_bls_pub_t pub[1]; fd_bls_sec_to_pub( sk, pub );
-    blst_p1_affine_compress( bls[i], pub );
+    fd_bls_pub_compress( pub, bls[i] );
   }
 
   ulong bank_slot = 24UL;
@@ -874,10 +874,20 @@ test_finalize_verifies_footer( fd_svm_mini_t * mini ) {
   FD_TEST( fd_lthash_eq( &pre, &post ) );
   FD_TEST( vote_last_voted_slot( mini, fd_svm_mini_fork_id( mini, idx[ 0 ] ), vote+0 )!=bank_slot-1UL );
 
-  FD_TEST( !fd_runtime_block_execute_finalize_unverified( bank[ 1 ], accdb, footer, cache ) );
+  /* Walk the unverified path by hand.  Plan the rewards, apply one
+     slice, freeze the sysvars, and then update the leader, settle the
+     fees and hash the bank. */
+  fd_alpenglow_rewards_plan_t plan[1];
+  FD_TEST( !fd_runtime_block_footer_begin( bank[ 1 ], accdb, footer, plan ) );
+  fd_lthash_value_t delta[1];
+  fd_lthash_zero( delta );
+  ulong leader_credits = 0UL;
+  FD_TEST( !fd_alpenglow_rewards_apply_slice( bank[ 1 ], accdb, NULL, cache, plan, 0UL, 1UL, delta, &leader_credits ) );
+  fd_lthash_add( fd_bank_lthash_locking_modify( bank[ 1 ] ), delta ); fd_bank_lthash_end_locking_modify( bank[ 1 ] );
+  fd_runtime_freeze_sysvars( bank[ 1 ], accdb, NULL );
+  fd_runtime_block_footer_end( bank[ 1 ], accdb, cache, plan, leader_credits );
   FD_TEST( vote_last_voted_slot( mini, fd_svm_mini_fork_id( mini, idx[ 1 ] ), vote+0 )==bank_slot-1UL );
   FD_TEST( bank[ 1 ]->f.slot==bank_slot );
-  free( cache );
   FD_LOG_NOTICE(( "test_finalize_verifies_footer: PASSED" ));
 }
 

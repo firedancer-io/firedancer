@@ -136,7 +136,7 @@ test_one_batch( void ) {
   meta->block_complete = 1;
 
   FD_TEST( fd_shredder_init_batch( shredder, test_bin, test_bin_sz, 0UL, meta ) );
-  ulong fec_cnt = fd_shredder_count_fec_sets( test_bin_sz, 1 );
+  ulong fec_cnt = fd_shredder_count_fec_sets( test_bin_sz );
 
   ulong foot = fd_fec_resolver_footprint( 4UL, 1UL, 1UL, 1UL );
   fd_fec_resolver_t *r1, *r2, *r3;
@@ -316,7 +316,7 @@ perf_test( void ) {
   for( ulong iter=0UL; iter<iterations; iter++ ) {
     fd_shredder_init_batch( shredder, perf_test_entry_batch, PERF_TEST_SZ, 0UL, meta );
 
-    ulong sets_cnt = fd_shredder_count_fec_sets( PERF_TEST_SZ, 0 );
+    ulong sets_cnt = fd_shredder_count_fec_sets( PERF_TEST_SZ );
     for( ulong j=0UL; j<sets_cnt; j++ ) {
       next_fec_set_signed( shredder, _set, chained_merkle_root, signer_ctx );
     }
@@ -670,12 +670,9 @@ test_chained_merkle_shreds( void ) {
 
   /* Settings so that we get 32 data + 32 parity shreds */
   ulong data_sz = 28000UL;
-  FD_TEST( fd_shredder_count_data_shreds(   data_sz, 0 ) == 32UL );
-  FD_TEST( fd_shredder_count_parity_shreds( data_sz, 0 ) == 32UL );
-  FD_TEST( fd_shredder_count_fec_sets(      data_sz, 0 ) ==  1UL );
-  FD_TEST( fd_shredder_count_data_shreds(   data_sz, 1 ) == 32UL );
-  FD_TEST( fd_shredder_count_parity_shreds( data_sz, 1 ) == 32UL );
-  FD_TEST( fd_shredder_count_fec_sets(      data_sz, 1 ) ==  1UL );
+  FD_TEST( fd_shredder_count_data_shreds(   data_sz ) == 32UL );
+  FD_TEST( fd_shredder_count_parity_shreds( data_sz ) == 32UL );
+  FD_TEST( fd_shredder_count_fec_sets(      data_sz ) ==  1UL );
 
   /* Fill buffer with fake data */
   for( ulong i=0UL; i<data_sz; i++ )  perf_test_entry_batch[ i ] = (uchar)i;

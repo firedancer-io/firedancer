@@ -16,6 +16,7 @@ extern fd_topo_obj_callbacks_t fd_obj_cb_neigh4_hmap;
 extern fd_topo_obj_callbacks_t fd_obj_cb_keyswitch;
 extern fd_topo_obj_callbacks_t fd_obj_cb_node_info;
 extern fd_topo_obj_callbacks_t fd_obj_cb_wait_info;
+extern fd_topo_obj_callbacks_t fd_obj_cb_execrp_result;
 extern fd_topo_obj_callbacks_t fd_obj_cb_leader_txn_timing;
 extern fd_topo_obj_callbacks_t fd_obj_cb_tile;
 extern fd_topo_obj_callbacks_t fd_obj_cb_store;
@@ -41,6 +42,7 @@ fd_topo_obj_callbacks_t * CALLBACKS[] = {
   &fd_obj_cb_keyswitch,
   &fd_obj_cb_node_info,
   &fd_obj_cb_wait_info,
+  &fd_obj_cb_execrp_result,
   &fd_obj_cb_leader_txn_timing,
   &fd_obj_cb_tile,
   &fd_obj_cb_store,
@@ -60,6 +62,7 @@ fd_topo_obj_callbacks_t * CALLBACKS[] = {
 
 configure_stage_t * STAGES[] = {
   &fd_cfg_stage_mlx5,
+  &fd_cfg_stage_iavf,
   &fd_cfg_stage_hugetlbfs,
   &fd_cfg_stage_sysctl,
   &fd_cfg_stage_hyperthreads,
@@ -85,6 +88,7 @@ FD_STATIC_ASSERT( sizeof(STAGES)/sizeof(STAGES[0])<=CONFIGURE_STAGE_COUNT, stage
 extern fd_topo_run_tile_t fd_tile_net;
 extern fd_topo_run_tile_t fd_tile_netlnk;
 extern fd_topo_run_tile_t fd_tile_mlx5;
+extern fd_topo_run_tile_t fd_tile_iavf;
 extern fd_topo_run_tile_t fd_tile_sock;
 extern fd_topo_run_tile_t fd_tile_quic;
 extern fd_topo_run_tile_t fd_tile_verify;
@@ -106,6 +110,7 @@ extern fd_topo_run_tile_t fd_tile_bundle;
 extern fd_topo_run_tile_t fd_tile_genesi;
 extern fd_topo_run_tile_t fd_tile_ipecho;
 extern fd_topo_run_tile_t fd_tile_admin;
+extern fd_topo_run_tile_t fd_tile_failov;
 
 extern fd_topo_run_tile_t fd_tile_gossvf;
 extern fd_topo_run_tile_t fd_tile_gossip;
@@ -130,6 +135,7 @@ fd_topo_run_tile_t * TILES[] = {
   &fd_tile_net,
   &fd_tile_netlnk,
   &fd_tile_mlx5,
+  &fd_tile_iavf,
   &fd_tile_sock,
   &fd_tile_quic,
   &fd_tile_verify,
@@ -163,6 +169,7 @@ fd_topo_run_tile_t * TILES[] = {
   &fd_tile_genesi,
   &fd_tile_ipecho,
   &fd_tile_admin,
+  &fd_tile_failov,
   &fd_tile_solcap,
   &fd_tile_snapmk,
   &fd_tile_snapzp,
@@ -188,6 +195,7 @@ extern action_t fd_action_add_authorized_voter;
 extern action_t fd_action_remove_all_authorized_voters;
 extern action_t fd_action_set_identity;
 extern action_t fd_action_get_identity;
+extern action_t fd_action_failover;
 extern action_t fd_action_ps;
 extern action_t fd_action_monitor_gossip;
 extern action_t fd_action_snapshot_create;
@@ -212,6 +220,7 @@ action_t * ACTIONS[] = {
   &fd_action_monitor_gossip,
   &fd_action_set_identity,
   &fd_action_get_identity,
+  &fd_action_failover,
   &fd_action_ps,
   &fd_action_snapshot_create,
   &fd_action_wait,

@@ -358,10 +358,10 @@ test_reward_cert_bitmap_errors( void ) {
   /* payload length inconsistent with the bit count */
   FD_TEST( footer_skip_cert_de( bitmap, 6UL )==FD_BLOCK_MARKER_DE_ERR_INVAL );
 
-  /* bit count over AG_VAT_MAX */
-  FD_STORE( ushort, bitmap+1UL, (ushort)(AG_VAT_MAX+1UL) );
-  fd_memset( bitmap+3UL, 0, (AG_VAT_MAX+1UL+7UL)/8UL );
-  FD_TEST( footer_skip_cert_de( bitmap, 3UL+(AG_VAT_MAX+1UL+7UL)/8UL )==FD_BLOCK_MARKER_DE_ERR_SZ );
+  /* bit count over FD_VOTOR_VAT_MAX */
+  FD_STORE( ushort, bitmap+1UL, (ushort)(FD_VOTOR_VAT_MAX+1UL) );
+  fd_memset( bitmap+3UL, 0, (FD_VOTOR_VAT_MAX+1UL+7UL)/8UL );
+  FD_TEST( footer_skip_cert_de( bitmap, 3UL+(FD_VOTOR_VAT_MAX+1UL+7UL)/8UL )==FD_BLOCK_MARKER_DE_ERR_SZ );
 }
 
 static void
@@ -639,7 +639,7 @@ test_ser_certs( void ) {
 }
 
 /* fill_max_cert_footer builds the widest footer we can emit: a slow
-   finalization, both reward certs, every one of AG_VAT_MAX ranks
+   finalization, both reward certs, every one of FD_VOTOR_VAT_MAX ranks
    signing, and a full length user agent. */
 
 static void
@@ -664,21 +664,21 @@ fill_max_cert_footer( fd_block_marker_t * marker ) {
   fd_memset( footer->notar_cert.block_id.uc, 0x55, sizeof(fd_hash_t) );
   memcpy( footer->final_cert.sig, csig, sizeof(csig) );
   memcpy( footer->notar_cert.sig, csig, sizeof(csig) );
-  footer->final_cert.nbits = (ushort)AG_VAT_MAX;
-  footer->notar_cert.nbits = (ushort)AG_VAT_MAX;
+  footer->final_cert.nbits = (ushort)FD_VOTOR_VAT_MAX;
+  footer->notar_cert.nbits = (ushort)FD_VOTOR_VAT_MAX;
 
   footer->has_skip_reward_cert   = 1;
   footer->skip_reward_cert.slot  = 769UL;
-  footer->skip_reward_cert.nbits = (ushort)AG_VAT_MAX;
+  footer->skip_reward_cert.nbits = (ushort)FD_VOTOR_VAT_MAX;
   fd_memset( footer->skip_reward_cert.sig, 0xf3, FD_BLS_SIG_COMPRESSED_SZ );
 
   footer->has_notar_reward_cert   = 1;
   footer->notar_reward_cert.slot  = 769UL;
-  footer->notar_reward_cert.nbits = (ushort)AG_VAT_MAX;
+  footer->notar_reward_cert.nbits = (ushort)FD_VOTOR_VAT_MAX;
   fd_memset( footer->notar_reward_cert.block_id.uc, 0x55, sizeof(fd_hash_t) );
   fd_memset( footer->notar_reward_cert.sig,         0xf4, FD_BLS_SIG_COMPRESSED_SZ );
 
-  /* every one of AG_VAT_MAX ranks signs all four certs */
+  /* every one of FD_VOTOR_VAT_MAX ranks signs all four certs */
   fd_bls_set_full( footer->final_cert.signer_set        );
   fd_bls_set_full( footer->notar_cert.signer_set        );
   fd_bls_set_full( footer->skip_reward_cert.signer_set  );
@@ -710,24 +710,24 @@ test_ser_max( void ) {
   FD_TEST( marker->kind==FD_BLOCK_MARKER_KIND_FOOTER );
   FD_TEST( marker->footer.user_agent_len==FD_BLOCK_FOOTER_USER_AGENT_MAX );
   FD_TEST( marker->footer.has_final_cert && !marker->footer.has_fast_final_cert );
-  FD_TEST( marker->footer.final_cert.nbits       ==(ushort)AG_VAT_MAX );
-  FD_TEST( marker->footer.notar_cert.nbits       ==(ushort)AG_VAT_MAX );
-  FD_TEST( marker->footer.skip_reward_cert.nbits ==(ushort)AG_VAT_MAX );
-  FD_TEST( marker->footer.notar_reward_cert.nbits==(ushort)AG_VAT_MAX );
+  FD_TEST( marker->footer.final_cert.nbits       ==(ushort)FD_VOTOR_VAT_MAX );
+  FD_TEST( marker->footer.notar_cert.nbits       ==(ushort)FD_VOTOR_VAT_MAX );
+  FD_TEST( marker->footer.skip_reward_cert.nbits ==(ushort)FD_VOTOR_VAT_MAX );
+  FD_TEST( marker->footer.notar_reward_cert.nbits==(ushort)FD_VOTOR_VAT_MAX );
   FD_TEST( !memcmp( marker->footer.final_cert.sig, csig, sizeof(csig) ) );
   FD_TEST( !memcmp( marker->footer.notar_cert.sig, csig, sizeof(csig) ) );
-  FD_TEST( set_is_range( marker->footer.final_cert.signer_set,        0UL, AG_VAT_MAX ) );
-  FD_TEST( set_is_range( marker->footer.notar_cert.signer_set,        0UL, AG_VAT_MAX ) );
-  FD_TEST( set_is_range( marker->footer.skip_reward_cert.signer_set,  0UL, AG_VAT_MAX ) );
-  FD_TEST( set_is_range( marker->footer.notar_reward_cert.signer_set, 0UL, AG_VAT_MAX ) );
+  FD_TEST( set_is_range( marker->footer.final_cert.signer_set,        0UL, FD_VOTOR_VAT_MAX ) );
+  FD_TEST( set_is_range( marker->footer.notar_cert.signer_set,        0UL, FD_VOTOR_VAT_MAX ) );
+  FD_TEST( set_is_range( marker->footer.skip_reward_cert.signer_set,  0UL, FD_VOTOR_VAT_MAX ) );
+  FD_TEST( set_is_range( marker->footer.notar_reward_cert.signer_set, 0UL, FD_VOTOR_VAT_MAX ) );
 
-  /* a width past AG_VAT_MAX is refused */
+  /* a width past FD_VOTOR_VAT_MAX is refused */
   fill_max_cert_footer( marker );
-  marker->footer.skip_reward_cert.nbits = (ushort)(AG_VAT_MAX+1UL);
+  marker->footer.skip_reward_cert.nbits = (ushort)(FD_VOTOR_VAT_MAX+1UL);
   FD_TEST( !fd_block_marker_ser( marker, out ) );
 
   fill_max_cert_footer( marker );
-  marker->footer.final_cert.nbits = (ushort)(AG_VAT_MAX+1UL);
+  marker->footer.final_cert.nbits = (ushort)(FD_VOTOR_VAT_MAX+1UL);
   FD_TEST( !fd_block_marker_ser( marker, out ) );
 }
 
@@ -747,7 +747,7 @@ test_ser_signature( void ) {
 
   fd_bls_agg_t agg[1];
   memset( agg, 0, sizeof(fd_bls_agg_t) );
-  fd_bls_set_insert( agg->set, 4UL ); blst_p2_from_affine( &agg->sig, &sig );
+  fd_bls_set_insert( agg->set, 4UL ); agg->sig = sig;
   fd_hash_t bid = hash_of( 0x77 );
 
   fd_block_marker_t marker[1];
@@ -765,7 +765,7 @@ test_ser_signature( void ) {
   ulong sig_off = FD_BLOCK_MARKER_PREAMBLE_SZ+1UL+32UL+8UL+1UL+1UL+8UL+32UL;
   FD_TEST( !memcmp( out+sig_off, marker->footer.fast_final_cert.sig, FD_BLS_SIG_COMPRESSED_SZ ) );
   uchar expected[ 192 ];
-  { fd_bls_sig_t a[1]; blst_p2_to_affine( a, &agg->sig ); blst_p2_affine_serialize( expected, a ); }
+  fd_bls_sig_ser( &agg->sig, expected );
   uchar decompressed[ 192 ];
   FD_TEST( !fd_bls12_381_g2_decompress_syscall( decompressed, out+sig_off, 1 ) );
   FD_TEST( !memcmp( decompressed, expected, sizeof(decompressed) ) );
@@ -787,7 +787,7 @@ test_ser_signature( void ) {
   FD_TEST( !fd_block_footer_cert_from_agg( &c, 1UL, NULL, agg ) );
 
   memset( agg, 0, sizeof(fd_bls_agg_t) );
-  fd_bls_set_insert( agg->set, 4UL ); blst_p2_from_affine( &agg->sig, &sig );
+  fd_bls_set_insert( agg->set, 4UL ); agg->sig = sig;
   fd_block_footer_cert_t rc;
   FD_TEST( fd_block_footer_cert_from_agg( &rc, 5UL, NULL, agg ) );
   FD_TEST( rc.slot==5UL && rc.nbits==5 && set_is_range( rc.signer_set, 4UL, 5UL ) );

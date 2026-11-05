@@ -145,9 +145,14 @@ download_and_extract_ledger() {
   fi
   rm -rf "$DUMP/$LEDGER.pending" "$DUMP/$LEDGER"
   mkdir -p "$DUMP/$LEDGER.pending"
-  if ! gcloud storage cat "gs://firedancer-ci-resources/$LEDGER.$ext" | eval "$unpack" -C "$DUMP/$LEDGER.pending" --strip-components=1; then
-    echo "Download failed, cleaning up..."; rm -rf "$DUMP/$LEDGER.pending"; exit 1
+  local archive="$DUMP/$LEDGER.$ext"
+  # sliced: one stream tops out near 30 MB/s
+  if ! CLOUDSDK_STORAGE_SLICED_OBJECT_DOWNLOAD_MAX_COMPONENTS=32 CLOUDSDK_STORAGE_PROCESS_COUNT=32 \
+         gcloud storage cp "gs://firedancer-ci-resources/$LEDGER.$ext" "$archive" ||
+     ! eval "$unpack" -C "$DUMP/$LEDGER.pending" --strip-components=1 < "$archive"; then
+    echo "Download failed, cleaning up..."; rm -rf "$DUMP/$LEDGER.pending" "$archive"; exit 1
   fi
+  rm -f "$archive"
   ( cd "$DUMP/$LEDGER.pending" && find . -type f -printf '%P %s\n' | sort ) > "$DUMP/$LEDGER.manifest"
   mv "$DUMP/$LEDGER.pending" "$DUMP/$LEDGER"
 }

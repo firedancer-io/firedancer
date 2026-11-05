@@ -30,10 +30,6 @@ fd_sysvar_clock_read( fd_accdb_t *            accdb,
                       fd_sol_sysvar_clock_t * clock ) {
   fd_acc_t acc = fd_accdb_read_one( accdb, fork_id, fd_sysvar_clock_id.uc );
   if( FD_UNLIKELY( !acc.lamports || acc.data_len<sizeof(fd_sol_sysvar_clock_t) ) ) {
-    /* This check is needed as a quirk of the fuzzer. If a sysvar
-       account exists in the accounts database, but doesn't have any
-       lamports, this means that the account does not exist.  This
-       wouldn't happen in a real execution environment. */
     fd_accdb_unread_one( accdb, &acc );
     return NULL;
   }

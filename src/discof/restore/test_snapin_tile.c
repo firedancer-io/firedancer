@@ -2991,9 +2991,9 @@ test_verify_sysvars_epoch_rewards( void ) {
   FD_TEST( verify_sysvars( ctx )==-1 );
   test_sysvars[ FD_SYSVAR_stake_history_IDX ].lamports = 1UL;
 
-  /* The reward reader requires the exact serialized size. */
+  /* Oversized accounts decode from their prefix, like at boot. */
   test_sysvars[ idx ].data_len = sz+1UL;
-  FD_TEST( verify_sysvars( ctx )==-1 );
+  FD_TEST( !verify_sysvars( ctx ) );
 
   /* None of this applies while rewards are inactive. */
   rewards.active              = 0;

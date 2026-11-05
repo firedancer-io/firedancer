@@ -7,7 +7,7 @@
 #include "../../disco/repair/fd_repair_tile.h"
 #include "../../discof/restore/utils/fd_ssmsg.h"
 #include "../../discof/votor/fd_votor_tile.h"
-#include "../../choreo/votor/ag_cert.h"
+#include "../../choreo/votor/fd_cert.h"
 #include "../../discof/genesis/fd_genesi_tile.h"
 #include "../../discof/genesis/genesis_hash.h"
 #include "../../util/pod/fd_pod.h"
@@ -295,7 +295,7 @@ after_credit( fd_backt_tile_t *   ctx,
 
   ctx->fec_set_idxs[ shred->slot % OUT_FECS_BUFFER_LEN ] = ctx->out_fec_set_idx;
 
-  fd_stem_publish( stem, ctx->repair_out->idx, ROTOR_SIG_FEC_REPLAY, ctx->repair_out->chunk, sizeof(fd_repair_replay_fec_t), 0, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+  fd_stem_publish( stem, ctx->repair_out->idx, REPAIR_SIG_FEC_REPLAY, ctx->repair_out->chunk, sizeof(fd_repair_replay_fec_t), 0, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
   ctx->repair_out->chunk = fd_dcache_compact_next( ctx->repair_out->chunk, sizeof(fd_repair_replay_fec_t), ctx->repair_out->chunk0, ctx->repair_out->wmark );
 
   if( FD_UNLIKELY( ctx->source_exhausted && !ctx->shreds_cnt ) ) ctx->publish_time += fd_log_wallclock();
@@ -511,7 +511,7 @@ returnable_frag( fd_backt_tile_t *   ctx,
       if( FD_LIKELY( root_advanced ) ) {
         fd_votor_certed_t * certed = fd_chunk_to_laddr( ctx->votor_out->mem, ctx->votor_out->chunk );
         memset( certed, 0, sizeof(fd_votor_certed_t) );
-        certed->kind     = AG_CERT_KIND_FAST_FINAL;
+        certed->kind     = FD_CERT_KIND_FAST_FINAL;
         certed->slot     = root_slot;
         certed->block_id = ctx->rooted_slots_block_id[ root_slot%BANK_HASH_BUFFER_LEN ];
         fd_stem_publish( stem, ctx->votor_out->idx, FD_VOTOR_SIG_CERTED, ctx->votor_out->chunk, sizeof(fd_votor_msg_t), 0UL, tspub, fd_frag_meta_ts_comp( fd_tickcount() ) );

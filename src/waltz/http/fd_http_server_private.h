@@ -51,8 +51,8 @@ struct fd_http_server_connection {
 
 struct fd_http_server_ws_frame {
   ulong off;
-  ulong len;
-  int compressed;
+  uint  len; /* ws_send and ws_broadcast reject longer messages */
+  int   compressed;
 };
 
 typedef struct fd_http_server_ws_frame fd_http_server_ws_frame_t;

@@ -66,8 +66,112 @@ const ulong CUS_PER_MICROBLOCK = 1600000UL;
 /* Sync with src/app/shared/fd_config.c */
 #define FD_PACK_STRATEGY_PERF     0
 #define FD_PACK_STRATEGY_BALANCED 1
+#define FD_PACK_STRATEGY_AUCTION  2
 
-static char const * const schedule_strategy_strings[2] = { "PRF", "BAL" };
+static char const * const schedule_strategy_strings[3] = { "PRF", "BAL", "AUC" };
+
+/* Overview of how the "auction" strategy works:
+
+   In the perf and balanced strategies, as soon as a transaction
+   arrives it becomes eligible for scheduling. The auction strategy
+   runs periodic batch "auctions". Transactions that arrive during the
+   period when the auction is running are not immediately eligible for
+   scheduling. These become eligible for scheduling when the auction
+   ends. The exception is bundles, which are immediately eligible for
+   scheduling regardless of whether an auction is running or not.
+
+   Therefore, pack can be in one of 3 states:
+   - 1) No auction running. New transactions that arrive are added to
+        the pending/penalty treaps, but are not eligible for scheduling
+        until the start of the next auction.
+   - 2) Auction running. New transactions that arrive are added to the
+        next_auction treap, which means they are not eligible for
+        scheduling. Transactions in the pending/penalty treaps at the
+        time of the auction starting are eligible for scheduling
+        throughout the auction.
+   - 3) The final 10ms of the leader rotation. All transactions are
+        eligible for scheduling immediately.
+
+   Each auction is limited to its proportional fraction of the blocks
+   total CU limit. auction_cu_limit is the total block CU limit cost
+   that the current auction cannot exceed. This is the fraction of the
+   slot time (leader_slot_end_tick-leader_slot_start_tick) that will
+   have elapsed when the auction ends (now+auction_interval_tick)
+   multiplied by the total block CU limit (slot_max_cost).
+
+   Auctions are run back to back, every 50ms (auction_interval_tick).
+   auction_next_tick is the tick at which the next auction is due to
+   start. This is set to start of the current auction +
+   auction_interval_tick. Note that bundles adjust this value, to
+   try and synchronize the start of the auction with a "burst" of
+   bundles. This is because bundles typically arrive in bursts, and we
+   want the pack auctions to coincide with the auctions held in the
+   bundle engine. Therefore, each bundle arrival sets
+   auction_next_tick to 5ms after that bundle arrived, so that the
+   auction starts once the current bundle burst has ended. The
+   following limits apply:
+   - auction_next_tick can't be less than 40ms after the previous
+     attempt (auction_last_attempt_tick + auction_spacing_tick). This
+     is so that a short pause within a bundle burst does not trigger
+     a new auction.
+   - auction_next_tick can't be later than 50ms after the previous
+     attempt (auction_last_attempt_tick + auction_interval_tick).
+
+   Pack moves between the states as such:
+   - An auction begins when we are leader, and all of the following are
+     true:
+     - The current tick (now) >= auction_next_tick
+     - The current tick (now)  < auction_final_start_tick
+     - The current block cost is less than the auction CU limit
+       (auction_cu_limit). If the auction has exceeded the limit the
+       attempt is cancelled, and tried again at the next
+       auction_next_tick.
+     Starting an auction means:
+     - New transactions are held in next_auction and are not eligible
+       for scheduling until the start of the next auction.
+     - Transactions already in the pending/penalty treaps become
+       eligible for scheduling.
+   - An auction ends when we are leader, and one of the following is
+     true:
+     - The next auction is due (now>=auction_next_tick)
+     - The current block cost has exceeded the auction CU limit
+       (auction_cu_limit)
+     - We are in the last 10ms of the leader rotation
+       (now>=auction_final_start_tick)
+     - The block ends for any other reason
+     Ending an auction means:
+     - Every transaction held in next_auction is moved into the
+       penalty/pending treaps. New transactions are added to the
+       penalty/pending treaps.
+     - Transactions in the pending/penalty treaps are no longer eligible
+       for scheduling, until the start of the next auction - unless
+       we are in the final 10ms of the rotation.
+
+   Note that none of the above applies to bundles, which are eligible
+   for scheduling as soon as they arrive, on all execle tiles. */
+
+/* FD_PACK_AUCTION_BUNDLE_END_GAP_NS is the amount of time for which,
+   if we receive no bundles, we consider the bundle burst to be over. We
+   start auctions after not observing any bundles for
+   FD_PACK_AUCTION_BUNDLE_END_GAP_NS. This synchronizes the start of
+   the auction with the end of the bundle burst. */
+#define FD_PACK_AUCTION_BUNDLE_END_GAP_NS ( 5000000L)
+
+/* FD_PACK_AUCTION_SPACING_NS is the minimum time gap between auctions.
+   40ms was chosen so that a bundle burst with a short pause in the
+   middle doesn't start two auctions. */
+#define FD_PACK_AUCTION_SPACING_NS        (40000000L)
+
+/* FD_PACK_AUCTION_INTERVAL_NS is the maximum time between auctions.
+   This was chosen so that no transaction is ineligible for scheduling
+   for more than 50ms. */
+#define FD_PACK_AUCTION_INTERVAL_NS       (50000000L)
+
+/* FD_PACK_AUCTION_FINAL_NS is the length of time before the end of the
+   last slot of the leader rotation that we do not hold incoming
+   transactions. This is so that all incoming transactions have a
+   chance of being scheduled. */
+#define FD_PACK_AUCTION_FINAL_NS          (10000000L)
 
 
 typedef struct {
@@ -168,6 +272,27 @@ typedef struct {
      for, if we are currently packing for a slot.*/
   long slot_end_ns;
 
+  /* The batch auction bookkeeping state.
+     leader_slot_start_tick:    the start tick of the leader slot
+     leader_slot_end_tick:      the end tick of the leader slot
+     auction_start_tick:        the tick when the current auction started
+     auction_last_attempt_tick: the tick when we last started or skipped an auction
+     auction_next_tick:         the tick when the next auction is due to be attempted
+     auction_cu_limit:          the total number of CUs within a block at which the auction must stop (for pacing)
+     auction_final_start_tick:  the tick at which the last auction in the rotation should end, to give any held transactions a chance to execute */
+  long  leader_slot_start_tick;
+  long  leader_slot_end_tick;
+  long  auction_start_tick;
+  long  auction_last_attempt_tick;
+  long  auction_next_tick;
+  long  auction_final_start_tick;
+  ulong auction_cu_limit;
+
+  /* The FD_PACK_AUCTION_*_NS constants, in ticks */
+  long  auction_bundle_end_gap_tick;
+  long  auction_spacing_tick;
+  long  auction_interval_tick;
+
   /* The current dynamic upper bound on total microblocks for this slot.
      Monotonically decreasing over the slot lifetime. */
   ulong slot_dynamic_max_microblocks;
@@ -225,6 +350,11 @@ typedef struct {
   fd_histf_t no_sched_duration[ 1 ];
   fd_histf_t insert_duration  [ 1 ];
   fd_histf_t complete_duration[ 1 ];
+
+  ulong      auction_started;
+  ulong      auction_cancelled;
+  ulong      auction_ended    [ FD_METRICS_ENUM_PACK_AUCTION_END_REASON_CNT   ];
+  fd_histf_t auction_duration [ 1 ];
 
   struct {
     uint metric_state;
@@ -405,6 +535,10 @@ metrics_write( fd_pack_ctx_t * ctx ) {
   FD_MHIST_COPY( PACK, MICROBLOCK_SCHEDULE_EMPTY_DURATION_NANOS, ctx->no_sched_duration );
   FD_MHIST_COPY( PACK, TXN_INSERT_DURATION_NANOS,            ctx->insert_duration   );
   FD_MHIST_COPY( PACK, MICROBLOCK_COMPLETE_DURATION_NANOS,   ctx->complete_duration );
+  FD_MCNT_SET      ( PACK, AUCTION_STARTED,        ctx->auction_started   );
+  FD_MCNT_SET      ( PACK, AUCTION_CANCELLED,      ctx->auction_cancelled );
+  FD_MCNT_ENUM_COPY( PACK, AUCTION_ENDED,          ctx->auction_ended     );
+  FD_MHIST_COPY    ( PACK, AUCTION_DURATION_NANOS, ctx->auction_duration  );
 
   fd_pack_metrics_write( ctx->pack );
 }
@@ -518,14 +652,50 @@ prevent_park( fd_pack_ctx_t * ctx ) {
   return ctx->skip_cnt>0L;
 }
 
+static inline void
+auction_end( fd_pack_ctx_t * ctx,
+             long            now_tick,
+             ulong           reason ) {
+  if( !fd_pack_auction_running( ctx->pack ) ) return;
+  ctx->auction_ended[ reason ]++;
+  fd_histf_sample( ctx->auction_duration, (ulong)fd_long_max( now_tick-ctx->auction_start_tick, 0L ) );
+  fd_pack_auction_end( ctx->pack );
+}
+
+static inline void
+auction_begin( fd_pack_ctx_t * ctx,
+               long            now_tick ) {
+  ctx->auction_last_attempt_tick = now_tick;
+  ctx->auction_next_tick         = now_tick+ctx->auction_interval_tick;
+
+  long  span    = fd_long_max( ctx->leader_slot_end_tick-ctx->leader_slot_start_tick, 1L );
+  long  elapsed = fd_long_min( fd_long_max( now_tick+ctx->auction_interval_tick-ctx->leader_slot_start_tick, 0L ), span );
+  ulong limit   = (ulong)( (double)ctx->limits.slot_max_cost*(double)elapsed/(double)span );
+  if( FD_UNLIKELY( fd_pack_current_block_cost( ctx->pack )>=limit ) ) {
+    ctx->auction_cancelled++;
+    return;
+  }
+
+  ctx->auction_started++;
+  ctx->auction_start_tick = now_tick;
+  ctx->auction_cu_limit   = limit;
+  fd_pack_auction_begin( ctx->pack );
+}
+
 static inline long
 next_deadline( fd_pack_ctx_t * ctx ) {
   if( FD_LIKELY( ctx->leader_slot==ULONG_MAX ) ) return LONG_MAX;
   long now      = fd_tickcount();
-  long slot_end = fd_clock_tile_wallclock_to_tickcount( ctx->clock, ctx->slot_end_ns );
+  long deadline = fd_clock_tile_wallclock_to_tickcount( ctx->clock, ctx->slot_end_ns );
+  if( ctx->strategy==FD_PACK_STRATEGY_AUCTION ) {
+    if( now<ctx->auction_final_start_tick ) {
+      deadline = fd_long_min( deadline, fd_long_min( ctx->auction_next_tick, ctx->auction_final_start_tick ) );
+    }
+    return deadline;
+  }
   ulong enabled = fd_ulong_min( fd_pack_pacing_enabled_bank_cnt( ctx->pacer, now ), ctx->execle_cnt );
-  if( FD_UNLIKELY( enabled>=ctx->execle_cnt ) ) return slot_end;
-  return fd_long_min( slot_end, fd_pack_pacing_next_enable( ctx->pacer, enabled ) );
+  if( FD_UNLIKELY( enabled>=ctx->execle_cnt ) ) return deadline;
+  return fd_long_min( deadline, fd_pack_pacing_next_enable( ctx->pacer, enabled ) );
 }
 
 static inline void
@@ -604,6 +774,7 @@ after_credit( fd_pack_ctx_t *     ctx,
     ctx->poh_out.chunk = fd_dcache_compact_next( ctx->poh_out.chunk, sizeof(fd_done_packing_t), ctx->poh_out.chunk0, ctx->poh_out.wmark );
     ctx->pack_idx++;
 
+    auction_end( ctx, now, FD_METRICS_ENUM_PACK_AUCTION_END_REASON_V_SLOT_END_IDX );
     ctx->drain_execle        = 1;
     ctx->leader_slot         = ULONG_MAX;
     ctx->slot_microblock_cnt = 0UL;
@@ -633,6 +804,19 @@ after_credit( fd_pack_ctx_t *     ctx,
   /* Am I leader? */
   if( FD_UNLIKELY( ctx->leader_slot==ULONG_MAX ) ) {
     return;
+  }
+
+  if( ctx->strategy==FD_PACK_STRATEGY_AUCTION ) {
+    if( now>=ctx->auction_final_start_tick ) {
+      auction_end( ctx, now, FD_METRICS_ENUM_PACK_AUCTION_END_REASON_V_FINAL_IDX );
+    } else if( now>=ctx->auction_next_tick ) {
+      /* End the current auction, if one is running. This will flush
+         all transactions held in next_auction. */
+      auction_end( ctx, now, FD_METRICS_ENUM_PACK_AUCTION_END_REASON_V_RESTARTED_IDX );
+      /* Start the new auction, holding any new transactions in
+         next_auction. */
+      auction_begin( ctx, now );
+    }
   }
 
   if( FD_UNLIKELY( ctx->pending_reduce_mb_bound ) ) {
@@ -743,6 +927,11 @@ after_credit( fd_pack_ctx_t *     ctx,
         flags = fd_int_if( i==0,                FD_PACK_SCHEDULE_BUNDLE, 0 )
               | fd_int_if( i<pacing_execle_cnt, FD_PACK_SCHEDULE_TXN,    0 );
         break;
+      case FD_PACK_STRATEGY_AUCTION: {
+        int allow = fd_pack_auction_running( ctx->pack ) | (now>=ctx->auction_final_start_tick);
+        flags     = FD_PACK_SCHEDULE_BUNDLE | fd_int_if( allow, FD_PACK_SCHEDULE_TXN, 0 );
+        break;
+      }
     }
 
     fd_pack_out_ctx_t * execle_out = &ctx->execle_out[ i ];
@@ -751,6 +940,13 @@ after_credit( fd_pack_ctx_t *     ctx,
     ulong schedule_cnt = fd_pack_schedule_next_microblock( ctx->pack, CUS_PER_MICROBLOCK, (ulong)i, flags, microblock_dst );
     schedule_duration      += fd_tickcount();
     fd_histf_sample( (schedule_cnt>0UL) ? ctx->schedule_duration : ctx->no_sched_duration, (ulong)schedule_duration );
+
+    if( fd_pack_auction_running( ctx->pack ) ) {
+      /* End the auction early if we have reached the CU limit. */
+      if( fd_pack_current_block_cost( ctx->pack )>=ctx->auction_cu_limit ) {
+        auction_end( ctx, now, FD_METRICS_ENUM_PACK_AUCTION_END_REASON_V_LIMIT_IDX );
+      }
+    }
 
     if( FD_LIKELY( schedule_cnt ) ) {
       any_scheduled = 1;
@@ -823,6 +1019,7 @@ after_credit( fd_pack_ctx_t *     ctx,
     ctx->poh_out.chunk = fd_dcache_compact_next( ctx->poh_out.chunk, sizeof(fd_done_packing_t), ctx->poh_out.chunk0, ctx->poh_out.wmark );
     ctx->pack_idx++;
 
+    auction_end( ctx, now, FD_METRICS_ENUM_PACK_AUCTION_END_REASON_V_SLOT_END_IDX );
     ctx->drain_execle        = 1;
     ctx->leader_slot         = ULONG_MAX;
     ctx->slot_microblock_cnt = 0UL;
@@ -1007,6 +1204,7 @@ after_frag( fd_pack_ctx_t *     ctx,
         ctx->pack_idx++;
 
         FD_LOG_WARNING(( "consensus reset while packing for slot %lu, ending block early", ctx->leader_slot ));
+        auction_end( ctx, now, FD_METRICS_ENUM_PACK_AUCTION_END_REASON_V_SLOT_END_IDX );
         ctx->drain_execle        = 1;
         ctx->leader_slot         = ULONG_MAX;
         ctx->slot_microblock_cnt = 0UL;
@@ -1051,6 +1249,9 @@ after_frag( fd_pack_ctx_t *     ctx,
       remove_ib( ctx );
     }
     ctx->leader_slot = leader_slot;
+    ulong slots_left = 3UL - (leader_slot%4UL);
+    long  slot_ns    = (long)( ctx->_became_leader->ticks_per_slot*ctx->_became_leader->tick_duration_ns );
+    fd_pack_set_rotation_end_ns( ctx->pack, ctx->_became_leader->slot_end_ns + (long)slots_left*slot_ns );
     ctx->block_height = ctx->_became_leader->block_height;
 
     ctx->slot_pack_start_ns  = now_ns;
@@ -1099,7 +1300,16 @@ after_frag( fd_pack_ctx_t *     ctx,
 
     update_metric_state( ctx, fd_tickcount(), FD_PACK_METRIC_STATE_LEADER, 1 );
 
-    ctx->slot_end_ns = ctx->_became_leader->slot_end_ns;
+    /* If there is currently an auction running from a previous slot, end it. */
+    auction_end( ctx, now_ticks, FD_METRICS_ENUM_PACK_AUCTION_END_REASON_V_SLOT_END_IDX );
+
+    ctx->slot_end_ns                   = ctx->_became_leader->slot_end_ns;
+    ctx->leader_slot_start_tick        = now_ticks + (long)((double)( ctx->_became_leader->slot_start_ns - now_ns )*tick_per_ns);
+    ctx->leader_slot_end_tick          = end_ticks;
+    ctx->auction_final_start_tick      = fd_long_if( ctx->leader_slot%4UL==3UL,
+                                                     end_ticks-(long)(tick_per_ns*(double)FD_PACK_AUCTION_FINAL_NS), LONG_MAX );
+    ctx->auction_last_attempt_tick     = now_ticks - ctx->auction_interval_tick;
+    ctx->auction_next_tick             = now_ticks;
     ctx->slot_dynamic_max_microblocks  = ctx->slot_max_microblocks;
     ctx->slot_mixin_per_tick           = fd_ulong_if( ctx->_became_leader->hashcnt_per_tick>1UL, ctx->_became_leader->hashcnt_per_tick-1UL, 0UL ); /* 0: low power / alpenglow, no hash budget */
     ctx->slot_tick_duration_ns         = ctx->_became_leader->tick_duration_ns;
@@ -1134,7 +1344,10 @@ after_frag( fd_pack_ctx_t *     ctx,
         ulong deleted;
         long insert_duration = -fd_tickcount();
         int result = fd_pack_insert_bundle_fini( ctx->pack, ctx->current_bundle->bundle, ctx->current_bundle->txn_cnt, ctx->current_bundle->min_blockhash_height, 0, ctx->blk_engine_cfg, &deleted );
-        insert_duration      += fd_tickcount();
+        insert_duration       += fd_tickcount();
+        long burst             = fd_long_max( now+ctx->auction_bundle_end_gap_tick, ctx->auction_last_attempt_tick+ctx->auction_spacing_tick );
+        long fallback          = ctx->auction_last_attempt_tick+ctx->auction_interval_tick;
+        ctx->auction_next_tick = fd_long_min( burst, fallback );
         FD_MCNT_INC( PACK, TXN_EVICTED, deleted );
         ctx->insert_result[ result + FD_PACK_INSERT_RETVAL_OFF ] += ctx->current_bundle->txn_received;
         fd_histf_sample( ctx->insert_duration, (ulong)insert_duration );
@@ -1250,7 +1463,7 @@ unprivileged_init( fd_topo_t const *      topo,
 
   if( FD_UNLIKELY( tile->pack.execle_tile_count>FD_PACK_MAX_EXECLE_TILES ) ) FD_LOG_ERR(( "pack tile connects to too many execle tiles" ));
 
-  FD_TEST( (tile->pack.schedule_strategy>=0) & (tile->pack.schedule_strategy<=FD_PACK_STRATEGY_BALANCED) );
+  FD_TEST( (tile->pack.schedule_strategy>=0) & (tile->pack.schedule_strategy<=FD_PACK_STRATEGY_AUCTION) );
 
   ctx->crank->enabled = tile->pack.bundle.enabled;
   if( FD_UNLIKELY( tile->pack.bundle.enabled ) ) {
@@ -1311,6 +1524,9 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->max_pending_transactions      = tile->pack.max_pending_transactions;
   ctx->leader_slot                   = ULONG_MAX;
   ctx->block_height                  = 0UL;
+  ctx->auction_last_attempt_tick     = 0L;
+  ctx->auction_next_tick             = LONG_MAX;
+  ctx->auction_final_start_tick      = LONG_MAX;
   ctx->leader_bank_idx               = ULONG_MAX;
   ctx->leader_bank_seq               = ULONG_MAX;
   ctx->pack_idx                      = 0UL;
@@ -1327,6 +1543,9 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->last_successful_insert        = 0L;
   ctx->highest_observed_block_height = 0UL;
   ctx->microblock_duration_ticks     = (ulong)(tick_per_ns*(double)MICROBLOCK_DURATION_NS  + 0.5);
+  ctx->auction_bundle_end_gap_tick   = (long)(tick_per_ns*(double)FD_PACK_AUCTION_BUNDLE_END_GAP_NS);
+  ctx->auction_spacing_tick          = (long)(tick_per_ns*(double)FD_PACK_AUCTION_SPACING_NS);
+  ctx->auction_interval_tick         = (long)(tick_per_ns*(double)FD_PACK_AUCTION_INTERVAL_NS);
   ctx->use_consumed_cus              = tile->pack.use_consumed_cus;
   ctx->bench_max_shreds_per_block    = tile->pack.bench_max_shreds_per_block;
   ctx->crank->enabled                = tile->pack.bundle.enabled;
@@ -1383,6 +1602,10 @@ unprivileged_init( fd_topo_t const *      topo,
   fd_histf_join( fd_metrics_histf_new_ns( ctx->no_sched_duration, FD_MHIST_EDGES_NS( PACK, MICROBLOCK_SCHEDULE_EMPTY_DURATION_NANOS ) ) );
   fd_histf_join( fd_metrics_histf_new_ns( ctx->insert_duration,   FD_MHIST_EDGES_NS( PACK, TXN_INSERT_DURATION_NANOS ) ) );
   fd_histf_join( fd_metrics_histf_new_ns( ctx->complete_duration, FD_MHIST_EDGES_NS( PACK, MICROBLOCK_COMPLETE_DURATION_NANOS ) ) );
+  ctx->auction_started   = 0UL;
+  ctx->auction_cancelled = 0UL;
+  memset( ctx->auction_ended,   0, sizeof(ctx->auction_ended)   );
+  fd_histf_join( fd_metrics_histf_new_ns( ctx->auction_duration,  FD_MHIST_EDGES_NS( PACK, AUCTION_DURATION_NANOS ) ) );
   ctx->metric_state = 0;
   ctx->metric_state_begin = fd_tickcount();
   memset( ctx->metric_timing,             '\0', 16*sizeof(long)                        );

@@ -98,7 +98,7 @@
 
 #include "../poh/fd_poh_tile.h"
 #include "../../disco/tiles.h"
-#include "../../choreo/votor/ag_cert.h"
+#include "../../choreo/votor/fd_cert.h"
 #include "../../flamenco/alpenglow/fd_block_marker.h"
 #include "fd_sched.h"
 
@@ -300,7 +300,7 @@ typedef struct fd_replay_snap_start fd_replay_snap_start_t;
 struct fd_replay_final_cert {
   ulong     slot;     /* the block whose footer carried the cert */
   uint      cert_cnt;
-  ag_cert_t certs[ 2 ];
+  fd_cert_t certs[ 2 ];
 };
 typedef struct fd_replay_final_cert fd_replay_final_cert_t;
 

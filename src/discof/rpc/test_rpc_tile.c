@@ -670,7 +670,7 @@ main( int     argc,
   /* the expired subscription id no longer matches */
   expect_ws_rpc_response( ctx, 0UL,
       "{\"jsonrpc\":\"2.0\",\"id\":4,\"method\":\"slotUnsubscribe\",\"params\":[0]}",
-      "{\"jsonrpc\":\"2.0\",\"result\":false,\"id\":4}"
+      "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid subscription id.\"},\"id\":4}"
   );
   FD_TEST( ctx->ws_subscribers_slot_cnt==1UL );
   expect_ws_rpc_response( ctx, 0UL,
@@ -699,11 +699,6 @@ main( int     argc,
       "{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"slotSubscribe\"}",
       "{\"jsonrpc\":\"2.0\",\"result\":3,\"id\":3}"
   );
-  expect_ws_rpc_response( ctx, 0UL,
-      "{\"jsonrpc\":\"2.0\",\"id\":4,\"method\":\"voteUnsubscribe\",\"params\":[3]}",
-      "{\"jsonrpc\":\"2.0\",\"result\":false,\"id\":4}"
-  );
-  FD_TEST( ctx->ws_subscribers_vote_cnt==1UL );
   {
     fd_replay_slot_completed_t slot_completed = {
       .slot        = 124UL,
@@ -720,14 +715,25 @@ main( int     argc,
     char const * got = (char const *)( ctx->http->oring + (frame->off % ctx->http->oring_sz) );
     FD_TEST( frame->len==strlen( expected ) && !memcmp( got, expected, frame->len ) );
   }
+  /* like Agave, unsubscribe methods remove any subscription type */
   expect_ws_rpc_response( ctx, 0UL,
-      "{\"jsonrpc\":\"2.0\",\"id\":5,\"method\":\"slotUnsubscribe\",\"params\":[3]}",
-      "{\"jsonrpc\":\"2.0\",\"result\":true,\"id\":5}"
+      "{\"jsonrpc\":\"2.0\",\"id\":4,\"method\":\"voteUnsubscribe\",\"params\":[3]}",
+      "{\"jsonrpc\":\"2.0\",\"result\":true,\"id\":4}"
   );
   FD_TEST( ctx->ws_subscribers_slot_cnt==0UL );
+  FD_TEST( ctx->ws_subscribers_vote_cnt==1UL );
   expect_ws_rpc_response( ctx, 0UL,
-      "{\"jsonrpc\":\"2.0\",\"id\":6,\"method\":\"voteUnsubscribe\",\"params\":[2]}",
+      "{\"jsonrpc\":\"2.0\",\"id\":5,\"method\":\"slotUnsubscribe\",\"params\":[3]}",
+      "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid subscription id.\"},\"id\":5}"
+  );
+  expect_ws_rpc_response( ctx, 0UL,
+      "{\"jsonrpc\":\"2.0\",\"id\":6,\"method\":\"slotUnsubscribe\",\"params\":[2]}",
       "{\"jsonrpc\":\"2.0\",\"result\":true,\"id\":6}"
+  );
+  FD_TEST( ctx->ws_subscribers_vote_cnt==0UL );
+  expect_ws_rpc_response( ctx, 0UL,
+      "{\"jsonrpc\":\"2.0\",\"id\":7,\"method\":\"voteUnsubscribe\",\"params\":[2]}",
+      "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid subscription id.\"},\"id\":7}"
   );
   FD_TEST( ctx->ws_subscribers_vote_cnt==0UL );
   fd_http_server_ws_close( ctx->http, 0UL, FD_HTTP_SERVER_CONNECTION_CLOSE_OK );
@@ -1266,10 +1272,10 @@ main( int     argc,
 
     FD_TEST( ctx->cluster_confirmed_slot==ULONG_MAX );
     ctx->banks[ 3 ].slot = 30UL;
-    DRIVE_CERT( AG_CERT_KIND_SKIP,        500UL );
+    DRIVE_CERT( FD_CERT_KIND_SKIP,        500UL );
     FD_TEST( ctx->cluster_confirmed_slot==ULONG_MAX );
-    DRIVE_CERT( AG_CERT_KIND_FAST_FINAL,  200UL );
-    DRIVE_CERT( AG_CERT_KIND_FINAL,       100UL );
+    DRIVE_CERT( FD_CERT_KIND_FAST_FINAL,  200UL );
+    DRIVE_CERT( FD_CERT_KIND_FINAL,       100UL );
     FD_TEST( ctx->cluster_confirmed_slot==200UL );
     EXPECT_HEALTH( HEALTH_BEHIND( "170" ) );
 
@@ -1278,7 +1284,7 @@ main( int     argc,
     FD_TEST( ctx->cluster_confirmed_slot==400UL );
     EXPECT_HEALTH( HEALTH_OK );
 
-    DRIVE_CERT( AG_CERT_KIND_FAST_FINAL, 600UL );
+    DRIVE_CERT( FD_CERT_KIND_FAST_FINAL, 600UL );
     ctx->banks[ 3 ].slot = 450UL;
     DRIVE_ROOT_ADVANCED( 3UL, 450UL );
     FD_TEST( ctx->cluster_confirmed_slot==600UL );
@@ -1291,7 +1297,7 @@ main( int     argc,
     ctx->banks[ 0 ].accdb_fork_id = test_fork_id;
 
 #define WRITE_AG_ACCT( _data, _data_sz ) do {                               \
-      uchar const * _pks[ 1 ] = { ctx->ag_genesis_cert_addr->uc };          \
+      uchar const * _pks[ 1 ] = { ctx->fd_genesis_cert_addr->uc };          \
       int           _wr [ 1 ] = { 1 };                                      \
       fd_acc_t      _acc[ 1 ]; memset( _acc, 0, sizeof(_acc) );             \
       fd_accdb_acquire( writer_accdb, test_fork_id, 1UL, _pks, _wr, _acc ); \

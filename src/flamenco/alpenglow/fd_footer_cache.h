@@ -9,7 +9,7 @@
 #include "../fd_flamenco_base.h"
 #include "../../ballet/bls/fd_bls.h"
 #include "../../ballet/lthash/fd_lthash.h"
-#include "../../choreo/votor/ag_votor_base.h"
+#include "../../choreo/votor/fd_votor_base.h"
 #include "../runtime/program/vote/fd_vote_codec.h"
 
 #define FD_FOOTER_CACHE_ALIGN   (64UL)
@@ -38,10 +38,10 @@ struct __attribute__((aligned(FD_FOOTER_CACHE_ALIGN))) fd_footer_cache {
   struct {
     ulong sz; /* 0 if empty */
     uchar msg[ FD_FOOTER_CACHE_MSG_MAX ];
-    blst_p2_affine h;
+    fd_bls_hash_t h;
   } e[ FD_FOOTER_CACHE_MSG_CNT ];
 
-  fd_footer_cache_memo_t memo[ AG_VAT_MAX ];
+  fd_footer_cache_memo_t memo[ FD_VOTOR_VAT_MAX ];
 };
 typedef struct fd_footer_cache fd_footer_cache_t;
 
@@ -67,9 +67,9 @@ void
 fd_footer_cache_hash_msg( fd_footer_cache_t * cache,
                           uchar const *       msg,
                           ulong               msg_sz,
-                          blst_p2_affine *    h );
+                          fd_bls_hash_t *    h );
 
-blst_p2_affine const *
+fd_bls_hash_t const *
 fd_footer_cache_hash_query( fd_footer_cache_t const * cache,
                             uchar const *             msg,
                             ulong                     msg_sz );
@@ -78,7 +78,7 @@ void
 fd_footer_cache_hash_insert( fd_footer_cache_t *    cache,
                              uchar const *          msg,
                              ulong                  msg_sz,
-                             blst_p2_affine const * h );
+                             fd_bls_hash_t const * h );
 
 fd_lthash_value_t const *
 fd_footer_cache_memo_query( fd_footer_cache_memo_t const * memo,

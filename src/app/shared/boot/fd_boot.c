@@ -121,6 +121,7 @@ fd_global_options_help( fd_action_help_t * help ) {
   fd_action_help_arg( help, "--devnet",       NULL,     "Use Solana devnet defaults" );
   fd_action_help_arg( help, "--mainnet-jito", NULL,     "Use Solana mainnet defaults with the Jito relayer/bundles" );
   fd_action_help_arg( help, "--testnet-jito", NULL,     "Use Solana testnet defaults with the Jito relayer/bundles" );
+  fd_action_help_arg( help, "--standby",      NULL,     "Boot as a failover standby under a junk identity" );
   fd_action_help_arg( help, "--version",      NULL,     "Show the current software version" );
   fd_action_help_arg( help, "--help/-h",      NULL,     "Print this help message" );
 }
@@ -172,8 +173,16 @@ fd_main_init( int *                      pargc,
     ulong override_config_sz = 0UL;
     determine_override_config( pargc, pargv, configs,
                                &override_config, &override_config_path, &override_config_sz );
+    int standby = fd_env_strip_cmdline_contains( pargc, pargv, "--standby" );
 
     fd_config_load( is_local_cluster, default_config, default_config_sz, override_config, override_config_path, override_config_sz, user_config, user_config_sz, opt_user_config_path, config, dev );
+
+    /* --standby is a shorthand for [failover.boot_to_standby], applied
+       before the topology picks the key every tile boots under. */
+    if( FD_UNLIKELY( standby ) ) {
+      if( FD_UNLIKELY( !config->firedancer.failover.enabled ) ) FD_LOG_ERR(( "--standby needs [failover.enabled] set to true" ));
+      config->firedancer.failover.boot_to_standby = 1;
+    }
 
     if( FD_UNLIKELY( user_config && -1==munmap( user_config, user_config_sz ) ) ) FD_LOG_ERR(( "munmap() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 

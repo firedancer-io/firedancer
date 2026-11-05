@@ -11,6 +11,7 @@
 #include "../genesis/fd_genesis_parse.h"
 #include "fd_txncache.h"
 #include "fd_compute_budget_details.h"
+#include "program/fd_compute_budget_program.h"
 #include "tests/fd_dump_pb.h"
 
 #include "fd_system_ids.h"
@@ -381,12 +382,18 @@ fd_runtime_settle_fees( fd_bank_t *        bank,
                 priority_fees, execution_fees, fee_burn, fee_reward, fee_reward_burn ));
 }
 
-static void
-fd_runtime_freeze( fd_bank_t *        bank,
-                   fd_accdb_t *       accdb,
-                   fd_capture_ctx_t * capture_ctx ) {
+void
+fd_runtime_freeze_sysvars( fd_bank_t *        bank,
+                           fd_accdb_t *       accdb,
+                           fd_capture_ctx_t * capture_ctx ) {
   if( FD_LIKELY( bank->f.slot ) ) fd_sysvar_recent_hashes_update( bank, accdb, capture_ctx );
   fd_sysvar_slot_history_update( bank, accdb, capture_ctx );
+}
+
+void
+fd_runtime_freeze_fees( fd_bank_t *        bank,
+                        fd_accdb_t *       accdb,
+                        fd_capture_ctx_t * capture_ctx ) {
   fd_runtime_settle_fees( bank, accdb, capture_ctx );
 
   /* jito collects a 3% fee at the end of the block + 3% fee at
@@ -635,6 +642,11 @@ fd_compute_and_apply_new_feature_activations( fd_bank_t *          bank,
     set_lamports_per_byte( bank, accdb, capture_ctx, 6960UL );
   }
 
+  /* https://github.com/anza-xyz/agave/blob/9bcf93e368b5fb52c21677ed8c7f0360eb93b5b7/runtime/src/bank.rs#L6366-L6368 */
+  if( FD_UNLIKELY( FD_FEATURE_JUST_ACTIVATED_BANK( bank, remove_runtime_float_ops ) ) ) {
+    fd_apply_integer_inflation_initial_rate( bank );
+  }
+
   /* SIMD-0550: double_disinflation_rate
      https://github.com/anza-xyz/agave/blob/v4.3.0-beta.0/runtime/src/bank.rs#L6232-L6234 */
   if( FD_UNLIKELY( FD_FEATURE_JUST_ACTIVATED_BANK( bank, double_disinflation_rate ) ) ) {
@@ -645,45 +657,20 @@ fd_compute_and_apply_new_feature_activations( fd_bank_t *          bank,
       https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank.rs#L6621-L6624 */
   fd_apply_builtin_program_feature_transitions( bank, accdb, runtime_stack, capture_ctx );
 
-  if( FD_UNLIKELY( FD_FEATURE_JUST_ACTIVATED_BANK( bank, vote_state_v4 ) ) ) {
-    fd_upgrade_core_bpf_program( bank, accdb, runtime_stack, &fd_solana_stake_program_id, &fd_solana_stake_program_vote_state_v4_buffer_address, capture_ctx );
-  }
-
   if( FD_UNLIKELY( FD_FEATURE_JUST_ACTIVATED_BANK( bank, validator_location_registration ) ) ) {
     /* TODO: upgrade the stake program to support vote state v5 */
   }
 
-  /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.2/runtime/src/bank.rs#L5703-L5716 */
-  if( FD_UNLIKELY( FD_FEATURE_JUST_ACTIVATED_BANK( bank, replace_spl_token_with_p_token ) ) ) {
+  /* https://github.com/anza-xyz/agave/blob/8da849e919e0762f6bfc9ca17ac2339c7a003a0e/runtime/src/bank.rs#L6389-L6402 */
+  if( FD_UNLIKELY( FD_FEATURE_JUST_ACTIVATED_BANK( bank, replace_ata_with_p_ata ) ) ) {
     fd_upgrade_loader_v2_program_with_loader_v3_program(
       bank,
       accdb,
       runtime_stack,
-      &fd_solana_spl_token_id,
-      &fd_solana_ptoken_program_buffer_address,
-      FD_FEATURE_ACTIVE_BANK( bank, relax_programdata_account_check_migration ),
-      capture_ctx );
-  }
-
-  /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.4/runtime/src/bank.rs#L5736-L5744 */
-  if( FD_UNLIKELY( FD_FEATURE_JUST_ACTIVATED_BANK( bank, upgrade_bpf_stake_program_to_v5 ) ) ) {
-    fd_upgrade_core_bpf_program(
-      bank,
-      accdb,
-      runtime_stack,
-      &fd_solana_stake_program_id,
-      &fd_solana_stake_program_v5_buffer_address,
-      capture_ctx );
-  }
-
-  /* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.1/runtime/src/bank.rs#L6182-L6190 */
-  if( FD_UNLIKELY( FD_FEATURE_JUST_ACTIVATED_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ) ) ) {
-    fd_upgrade_core_bpf_program(
-      bank,
-      accdb,
-      runtime_stack,
-      &fd_solana_stake_program_id,
-      &fd_solana_stake_program_v5_1_buffer_address,
+      &fd_solana_spl_associated_token_account_id,
+      &fd_solana_pata_program_buffer_address,
+      &fd_solana_pata_program_verified_build_hash,
+      1,
       capture_ctx );
   }
 }
@@ -879,6 +866,20 @@ fd_runtime_load_txn_address_lookup_tables( fd_txn_t const *         txn,
     fd_txn_acct_addr_lut_t const * addr_lut = &addr_luts[i];
     fd_pubkey_t addr_lut_acc = FD_LOAD( fd_pubkey_t, payload+addr_lut->addr_off );
 
+    /* Preserve not-found and owner error precedence without acquiring
+       or reading an oversized account's data. */
+    uchar owner[32];
+    ulong data_len;
+    if( FD_UNLIKELY( !fd_accdb_read_one_meta( accdb, fork_id, addr_lut_acc.uc, owner, &data_len ) ) ) {
+      return FD_RUNTIME_TXN_ERR_ADDRESS_LOOKUP_TABLE_NOT_FOUND;
+    }
+    if( FD_UNLIKELY( !fd_memeq( owner, fd_solana_address_lookup_table_program_id.key, sizeof(fd_pubkey_t) ) ) ) {
+      return FD_RUNTIME_TXN_ERR_INVALID_ADDRESS_LOOKUP_TABLE_OWNER;
+    }
+    if( FD_UNLIKELY( data_len>FD_LOOKUP_TABLE_SZ_MAX ) ) {
+      return FD_RUNTIME_TXN_ERR_INVALID_ADDRESS_LOOKUP_TABLE_DATA;
+    }
+
     fd_acc_t acc = fd_accdb_read_one( accdb, fork_id, addr_lut_acc.uc );
     if( FD_UNLIKELY( !acc.lamports ) ) {
       fd_accdb_unread_one( accdb, &acc );
@@ -1062,6 +1063,13 @@ fd_runtime_pre_execute_check( fd_runtime_t *      runtime,
     return err;
   }
 
+  /* Setup needs the fee to skip loading accounts for transactions with
+     an invalid fee payer, so compute unit limits are sanitized here.
+     Any sanitization error is reported as part of check_transactions.
+     https://github.com/anza-xyz/agave/blob/v4.4.0-beta.0/runtime/src/bank/check_transactions.rs#L148-L184 */
+  int sanitize_err = fd_sanitize_compute_unit_limits( txn_out );
+  fd_executor_calculate_fee( txn_out, TXN( txn_in->txn ), txn_in->txn->payload, &txn_out->details.execution_fee, &txn_out->details.priority_fee );
+
   /* Set up the transaction accounts and other txn ctx metadata. This
      also resolves ALUT-referenced account keys and validates account
      locks before accounts are acquired.  Bundle transactions bind to
@@ -1087,7 +1095,8 @@ fd_runtime_pre_execute_check( fd_runtime_t *      runtime,
 
   /* load_and_execute_transactions() -> check_transactions()
      https://github.com/anza-xyz/agave/blob/ced98f1ebe73f7e9691308afa757323003ff744f/runtime/src/bank.rs#L3667-L3672 */
-  err = fd_executor_check_transactions( runtime, bank, txn_in, txn_out );
+  err = sanitize_err;
+  if( FD_LIKELY( !err ) ) err = fd_executor_check_transactions( runtime, bank, txn_in, txn_out );
   if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
     txn_out->err.is_committable = 0;
     return err;
@@ -1125,8 +1134,15 @@ fd_runtime_pre_execute_check( fd_runtime_t *      runtime,
     return err;
   }
 
-  /* https://github.com/anza-xyz/agave/blob/ced98f1ebe73f7e9691308afa757323003ff744f/svm/src/transaction_processor.rs#L284-L296 */
-  err = fd_executor_load_transaction_accounts( bank, txn_in, txn_out );
+  /* With a valid fee payer, setup only skips acquiring accounts if they
+     are known to exceed the loaded accounts data size limit.
+     https://github.com/anza-xyz/agave/blob/ced98f1ebe73f7e9691308afa757323003ff744f/svm/src/transaction_processor.rs#L284-L296 */
+  if( FD_UNLIKELY( runtime->accounts.account_cnt<txn_out->accounts.cnt ) ) {
+    txn_out->details.loaded_accounts_data_size = txn_out->details.compute_budget.loaded_accounts_data_size_limit;
+    err = FD_RUNTIME_TXN_ERR_MAX_LOADED_ACCOUNTS_DATA_SIZE_EXCEEDED;
+  } else {
+    err = fd_executor_load_transaction_accounts( bank, txn_in, txn_out );
+  }
   if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
     /* Regardless of whether transaction accounts were loaded successfully, the transaction is
        included in the block and transaction fees are collected.
@@ -1197,6 +1213,14 @@ fd_runtime_lthash_account( fd_runtime_t *      runtime,
     acc->data_len   = 0UL;
     acc->executable = 0;
     memset( acc->owner, 0, sizeof(acc->owner) );
+  }
+
+  /* Outside INBAND mode the account is not hashed here.  The in-band
+     path captures an account iff prior_lamports or lamports is
+     non-zero, and so does this. */
+  if( FD_UNLIKELY( bank->lthash_mode!=FD_BANK_LTHASH_MODE_INBAND ) ) {
+    if( FD_LIKELY( acc->prior_lamports || acc->lamports ) ) fd_hashes_capture_account( pubkey->uc, acc->owner, acc->lamports, acc->executable, acc->data, acc->data_len, bank, capture_ctx );
+    return;
   }
 
   if( FD_UNLIKELY( acc->prior_data &&
@@ -1352,7 +1376,7 @@ fd_runtime_commit_txn( fd_runtime_t *      runtime,
 
   if( FD_LIKELY( !txn_out->accounts.is_bundle ) ) {
     fd_accdb_release_ab( runtime->accdb,
-                         txn_out->accounts.cnt, runtime->accounts.account,
+                         runtime->accounts.account_cnt, runtime->accounts.account,
                          runtime->accounts.executable_cnt, runtime->accounts.executable );
     runtime->accounts.executable_cnt = 0UL;
   }
@@ -1370,7 +1394,7 @@ fd_runtime_cancel_txn( fd_runtime_t *      runtime,
   if( FD_UNLIKELY( !txn_out->accounts.is_setup ) ) return;
 
   fd_accdb_release_ab( runtime->accdb,
-                       txn_out->accounts.cnt, runtime->accounts.account,
+                       runtime->accounts.account_cnt, runtime->accounts.account,
                        runtime->accounts.executable_cnt, runtime->accounts.executable );
   runtime->accounts.executable_cnt = 0UL;
 }
@@ -1489,6 +1513,11 @@ fd_runtime_prepare_and_execute_txn( fd_runtime_t *      runtime,
   /* Transaction sanitization.  If a transaction can't be committed, is
      fees-only, or a no-op, we return early. */
   txn_out->err.txn_err = fd_runtime_pre_execute_check( runtime, bank, txn_in, txn_out );
+  if( FD_UNLIKELY( !txn_out->err.is_committable || txn_out->err.is_noop ) ) {
+    /* No fees are collected from these transactions. */
+    txn_out->details.execution_fee = 0UL;
+    txn_out->details.priority_fee  = 0UL;
+  }
   ulong cu_before = txn_out->details.compute_budget.compute_meter;
 
   /* Execute the transaction if eligible to do so. */
@@ -1657,6 +1686,11 @@ fd_runtime_init_bank_from_genesis( fd_banks_t *         banks,
 
   fd_features_restore( &bank->f.features, accdb, bank->accdb_fork_id, bank->f.slot, &bank->f.epoch_schedule );
 
+  /* https://github.com/anza-xyz/agave/blob/9bcf93e368b5fb52c21677ed8c7f0360eb93b5b7/runtime/src/bank.rs#L6237-L6242 */
+  if( FD_UNLIKELY( FD_FEATURE_ACTIVE_BANK( bank, remove_runtime_float_ops ) ) ) {
+    fd_apply_integer_inflation_initial_rate( bank );
+  }
+
   /* https://github.com/anza-xyz/agave/blob/v4.3.0-beta.0/runtime/src/bank.rs#L6101-L6109 */
   if( FD_UNLIKELY( FD_FEATURE_ACTIVE_BANK( bank, double_disinflation_rate ) ) ) {
     fd_apply_double_disinflation_rate( bank );
@@ -1729,7 +1763,8 @@ fd_runtime_process_genesis_block( fd_bank_t *          bank,
   fd_runtime_genesis_init_program( bank, accdb, capture_ctx );
   fd_sysvar_slot_history_update( bank, accdb, capture_ctx );
   fd_runtime_update_leaders( bank, runtime_stack );
-  fd_runtime_freeze( bank, accdb, capture_ctx );
+  fd_runtime_freeze_sysvars( bank, accdb, capture_ctx );
+  fd_runtime_freeze_fees( bank, accdb, capture_ctx );
 
   fd_hash_t const * prev_bank_hash = &bank->f.bank_hash;
 
@@ -1803,21 +1838,16 @@ valid_producer_time( fd_bank_t const * bank,
   return producer_time_nanos<=(ulong)LONG_MAX && (long)producer_time_nanos>=lo && (long)producer_time_nanos<=hi;
 }
 
+/* Rewrites the clock sysvar and the alpenclock account from the
+   footer's producer timestamp (Agave Bank::update_clock_from_footer).
+   The clock must be applied before the reward certs.  Returns -1 if the
+   producer time is invalid. */
+
 static int
-apply_footer( fd_bank_t *               bank,
-              fd_accdb_t *              accdb,
-              fd_capture_ctx_t *        capture_ctx,
-              fd_block_footer_t const * footer,
-              int                       verify,
-              ushort                    shred_version,
-              fd_footer_cache_t *       cache ) {
-
-  /* leader bank's certs were verified by votor */
-  if( FD_UNLIKELY( verify && !bank->is_leader && fd_alpenglow_footer_verify( bank, footer, shred_version, cache ) ) ) return -1;
-
-  /* Rewrite the clock sysvar and the alpenclock account from the
-     footer's producer timestamp (Agave Bank::update_clock_from_footer).
-     The clock must be applied before the reward certs. */
+apply_footer_clock( fd_bank_t *               bank,
+                    fd_accdb_t *              accdb,
+                    fd_capture_ctx_t *        capture_ctx,
+                    fd_block_footer_t const * footer ) {
 
   ulong producer_time_nanos = footer->block_producer_time_nanos;
   long  unix_timestamp = (long)(producer_time_nanos/1000000000UL);
@@ -1859,6 +1889,23 @@ apply_footer( fd_bank_t *               bank,
   fd_memcpy( acc.data, data, sizeof(data) );
   fd_accdb_svm_close_rw( bank, accdb, capture_ctx, &acc, update );
 
+  return 0;
+}
+
+static int
+apply_footer( fd_bank_t *               bank,
+              fd_accdb_t *              accdb,
+              fd_capture_ctx_t *        capture_ctx,
+              fd_block_footer_t const * footer,
+              int                       verify,
+              ushort                    shred_version,
+              fd_footer_cache_t *       cache ) {
+
+  /* leader bank's certs were verified by votor */
+  if( FD_UNLIKELY( verify && !bank->is_leader && fd_alpenglow_footer_verify( bank, footer, shred_version, cache ) ) ) return -1;
+
+  if( FD_UNLIKELY( apply_footer_clock( bank, accdb, capture_ctx, footer ) ) ) return -1;
+
   return fd_alpenglow_rewards_apply( bank, accdb, capture_ctx, cache, footer );
 }
 
@@ -1870,21 +1917,35 @@ fd_runtime_block_execute_finalize( fd_bank_t *               bank,
                                    ushort                    shred_version,
                                    fd_footer_cache_t *       cache ) {
   if( FD_UNLIKELY( footer && apply_footer( bank, accdb, capture_ctx, footer, 1, shred_version, cache ) ) ) return -1;
-  fd_runtime_freeze( bank, accdb, capture_ctx );
+  fd_runtime_freeze_sysvars( bank, accdb, capture_ctx );
+  fd_runtime_freeze_fees( bank, accdb, capture_ctx );
   fd_runtime_update_bank_hash( bank, capture_ctx );
   return 0;
 }
 
 int
-fd_runtime_block_execute_finalize_unverified( fd_bank_t *               bank,
-                                              fd_accdb_t *              accdb,
-                                              fd_block_footer_t const * footer,
-                                              fd_footer_cache_t *       cache ) {
+fd_runtime_block_footer_begin( fd_bank_t *                   bank,
+                               fd_accdb_t *                  accdb,
+                               fd_block_footer_t const *     footer,
+                               fd_alpenglow_rewards_plan_t * plan ) {
   FD_TEST( footer && !bank->is_leader && !fd_bank_report_runtime_diffs( bank ) );
-  if( FD_UNLIKELY( apply_footer( bank, accdb, NULL, footer, 0, 0, cache ) ) ) return -1;
-  fd_runtime_freeze( bank, accdb, NULL );
+  if( FD_UNLIKELY( apply_footer_clock( bank, accdb, NULL, footer ) ) ) return -1;
+  return fd_alpenglow_rewards_plan( bank, accdb, footer, plan );
+}
+
+void
+fd_runtime_block_footer_end( fd_bank_t *                         bank,
+                             fd_accdb_t *                        accdb,
+                             fd_footer_cache_t *                 cache,
+                             fd_alpenglow_rewards_plan_t const * plan,
+                             ulong                               leader_credits ) {
+  fd_lthash_value_t delta[1];
+  fd_lthash_zero( delta );
+  fd_alpenglow_rewards_apply_leader( bank, accdb, NULL, cache, plan, leader_credits, delta );
+  fd_lthash_add( fd_bank_lthash_locking_modify( bank ), delta );
+  fd_bank_lthash_end_locking_modify( bank );
+  fd_runtime_freeze_fees( bank, accdb, NULL );
   fd_runtime_update_bank_hash( bank, NULL );
-  return 0;
 }
 
 /* Mirrors Agave function solana_sdk::transaction_context::find_index_of_account

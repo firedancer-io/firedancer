@@ -10,6 +10,8 @@
 #include "../../disco/genesis/fd_genesis_cluster.h"
 #include "../../discof/genesis/fd_genesi_tile.h"
 #include "../../disco/net/fd_net_tile.h"
+#include "../../disco/net/fd_linux_bond.h"
+#include "../../disco/net/iavf/fd_iavf.h"
 #include "../../disco/pack/fd_pack_cost.h"
 #include "../../disco/pack/fd_microblock.h"
 #include "../../ballet/shred/fd_shred.h"
@@ -219,6 +221,19 @@ fd_config_fill_net( fd_config_t * config ) {
                  "or newer. interface `%s` uses `%s`", config->net.interface, driver ));
   }
 
+  if( 0==strcmp( config->net.provider, "iavf" ) ) {
+    char members[ FD_IAVF_MEMBER_MAX ][ 16 ];
+    ulong member_cnt;
+    if( FD_UNLIKELY( -1==fd_iavf_member_interfaces( config->net.interface, members, &member_cnt ) ) ) {
+      int err = errno;
+      if( err==EOPNOTSUPP && fd_bonding_is_active_backup( config->net.interface ) ) {
+        FD_LOG_ERR(( "IAVF does not support bond `%s` in active-backup mode. "
+                     "Only 802.3ad (LACP) bonds are currently supported.", config->net.interface ));
+      }
+      FD_LOG_ERR(( "IAVF requires ice or i40e PFs on a physical interface or 802.3ad bond (%i-%s)", err, fd_io_strerror( err ) ));
+    }
+  }
+
   uint iface_ip;
   if( FD_UNLIKELY( -1==fd_net_util_if_addr( config->net.interface, &iface_ip ) ) )
     FD_LOG_ERR(( "could not get IP address for interface `%s`", config->net.interface ));
@@ -399,6 +414,7 @@ fd_config_fill( fd_config_t * config,
   else if( FD_LIKELY( !strcmp( config->tiles.pack.schedule_strategy, "revenue"  ) ) ) {
     FD_LOG_ERR(( "the revenue scheduler has been removed.  Please update [tiles.pack.schedule_strategy]" ));
   }
+  else if( FD_LIKELY( !strcmp( config->tiles.pack.schedule_strategy, "auction"  ) ) ) config->tiles.pack.schedule_strategy_enum = 2;
   else FD_LOG_ERR(( "[tiles.pack.schedule_strategy] %s not recognized", config->tiles.pack.schedule_strategy ));
 
   fd_config_fill_net( config );
@@ -530,9 +546,27 @@ fd_config_validatef( fd_configf_t const * config ) {
   }
 }
 
+static void
+fd_config_validate_failover( fd_config_t const * config ) {
+  fd_configf_t const * f = &config->firedancer;
+
+  if( FD_UNLIKELY( f->failover.boot_to_standby && !f->failover.enabled ) ) {
+    FD_LOG_ERR(( "[failover.boot_to_standby] is true, so [failover.enabled] must be true" ));
+  }
+  if( FD_LIKELY( !f->failover.enabled ) ) return;
+  if( FD_UNLIKELY( !f->failover.listen_port ) ) {
+    FD_LOG_ERR(( "[failover.listen_port] must not be zero" ));
+  }
+  uint listen_addr;
+  if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( f->failover.listen_address, &listen_addr ) ) ) {
+    FD_LOG_ERR(( "[failover.listen_address] `%s` must be an IPv4 address, host names are not accepted", f->failover.listen_address ));
+  }
+}
+
 void
 fd_config_validate( fd_config_t const * config ) {
   fd_config_validatef( &config->firedancer );
+  fd_config_validate_failover( config );
 
   if( FD_UNLIKELY( config->tiles.gui.enabled && config->tiles.gui.db_size_gib<4UL ) )
     FD_LOG_ERR(( "invalid [tiles.gui.db_size_gib]: must be at least 4 GiB" ));
@@ -602,13 +636,30 @@ fd_config_validate( fd_config_t const * config ) {
                      config->net.mlx5.tx_queue_size>FD_MLX5_QUEUE_DEPTH_MAX ) ) {
       FD_LOG_ERR(( "invalid mlx5 queue depth: RX and TX must not exceed %u", FD_MLX5_QUEUE_DEPTH_MAX ));
     }
+  } else if( 0==strcmp( config->net.provider, "iavf" ) ) {
+    CFG_HAS_POW2( net.iavf.rx_queue_size );
+    CFG_HAS_POW2( net.iavf.tx_queue_size );
+    if( FD_UNLIKELY( config->net.iavf.rx_queue_size<=FD_IAVF_BATCH_SIZE ||
+                     config->net.iavf.rx_queue_size>FD_IAVF_QUEUE_DEPTH_MAX ) ) {
+      FD_LOG_ERR(( "invalid iavf RX queue depth %u: must exceed %u and must not exceed %u",
+                   config->net.iavf.rx_queue_size, FD_IAVF_BATCH_SIZE, FD_IAVF_QUEUE_DEPTH_MAX ));
+    }
+    if( FD_UNLIKELY( config->net.iavf.tx_queue_size<FD_IAVF_BATCH_SIZE ||
+                     config->net.iavf.tx_queue_size>FD_IAVF_QUEUE_DEPTH_MAX ) ) {
+      FD_LOG_ERR(( "invalid iavf TX queue depth %u: must be at least %u and must not exceed %u",
+                   config->net.iavf.tx_queue_size, FD_IAVF_BATCH_SIZE, FD_IAVF_QUEUE_DEPTH_MAX ));
+    }
+    if( FD_UNLIKELY( config->layout.net_tile_count>FD_IAVF_TILE_MAX ) ) {
+      FD_LOG_ERR(( "invalid iavf net tile count %u: must be between 1 and %lu",
+                   config->layout.net_tile_count, FD_IAVF_TILE_MAX ));
+    }
   } else if( 0==strcmp( config->net.provider, "socket" ) ) {
     CFG_HAS_NON_ZERO( net.socket.receive_buffer_size );
     CFG_HAS_NON_ZERO( net.socket.send_buffer_size );
   } else if( 0==strcmp( config->net.provider, "auto" ) ) {
     /* "auto" is resolved after interface discovery in fd_config_fill(). */
   } else {
-    FD_LOG_ERR(( "invalid `net.provider`: \"%s\"; must be \"auto\", \"xdp\", \"socket\" or \"mlx5\"",
+    FD_LOG_ERR(( "invalid `net.provider`: \"%s\"; must be \"auto\", \"xdp\", \"socket\", \"mlx5\" or \"iavf\"",
                  config->net.provider ));
   }
 

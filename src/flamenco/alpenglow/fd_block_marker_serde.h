@@ -44,7 +44,7 @@ FD_STATIC_ASSERT( FD_BLOCK_MARKER_KIND_GENESIS_CERT ==FD_BLOCK_MARKER_SERDE_TAG_
 #define FD_BLOCK_VOTES_AGGREGATE_SER_SZ( bit_cnt ) ( FD_BLOCK_VOTES_AGGREGATE_SER_HDR_SZ + \
                                                      FD_BLOCK_BITMAP_SER_SZ( bit_cnt ) /* bitmap */ )
 
-#define FD_BLOCK_VOTES_AGGREGATE_SER_MAX ( FD_BLOCK_VOTES_AGGREGATE_SER_SZ( AG_VAT_MAX ) )
+#define FD_BLOCK_VOTES_AGGREGATE_SER_MAX ( FD_BLOCK_VOTES_AGGREGATE_SER_SZ( FD_VOTOR_VAT_MAX ) )
 
 #define FD_BLOCK_FINAL_CERT_SER_HDR_SZ ( sizeof(ulong)     /* slot     */ + \
                                          sizeof(fd_hash_t) /* block_id */ )
@@ -59,17 +59,17 @@ FD_STATIC_ASSERT( FD_BLOCK_MARKER_KIND_GENESIS_CERT ==FD_BLOCK_MARKER_SERDE_TAG_
 #define FD_BLOCK_SKIP_REWARD_CERT_SER_HDR_SZ ( sizeof(ulong)            /* slot      */ + \
                                                FD_BLS_SIG_COMPRESSED_SZ /* signature */ )
 
-#define FD_BLOCK_SKIP_REWARD_CERT_SER_MAX ( FD_BLOCK_SKIP_REWARD_CERT_SER_HDR_SZ /* slot, signature */ + \
-                                            FD_BLOCK_REWARD_CERT_SER_CU16_MAX    /* bitmap_sz       */ + \
-                                            FD_BLOCK_BITMAP_SER_SZ( AG_VAT_MAX ) /* bitmap          */ )
+#define FD_BLOCK_SKIP_REWARD_CERT_SER_MAX ( FD_BLOCK_SKIP_REWARD_CERT_SER_HDR_SZ       /* slot, signature */ + \
+                                            FD_BLOCK_REWARD_CERT_SER_CU16_MAX          /* bitmap_sz       */ + \
+                                            FD_BLOCK_BITMAP_SER_SZ( FD_VOTOR_VAT_MAX ) /* bitmap          */ )
 
 #define FD_BLOCK_NOTAR_REWARD_CERT_SER_HDR_SZ ( sizeof(ulong)            /* slot      */ + \
                                                 sizeof(fd_hash_t)        /* block_id  */ + \
                                                 FD_BLS_SIG_COMPRESSED_SZ /* signature */ )
 
-#define FD_BLOCK_NOTAR_REWARD_CERT_SER_MAX ( FD_BLOCK_NOTAR_REWARD_CERT_SER_HDR_SZ /* slot, block_id, signature */ + \
-                                             FD_BLOCK_REWARD_CERT_SER_CU16_MAX     /* bitmap_sz                 */ + \
-                                             FD_BLOCK_BITMAP_SER_SZ( AG_VAT_MAX )  /* bitmap                    */ )
+#define FD_BLOCK_NOTAR_REWARD_CERT_SER_MAX ( FD_BLOCK_NOTAR_REWARD_CERT_SER_HDR_SZ      /* slot, block_id, signature */ + \
+                                             FD_BLOCK_REWARD_CERT_SER_CU16_MAX          /* bitmap_sz                 */ + \
+                                             FD_BLOCK_BITMAP_SER_SZ( FD_VOTOR_VAT_MAX ) /* bitmap                    */ )
 
 #define FD_BLOCK_FOOTER_SER_HDR_SZ ( sizeof(uchar)     /* version                   */ + \
                                      sizeof(fd_hash_t) /* bank_hash                 */ + \
@@ -88,21 +88,21 @@ FD_STATIC_ASSERT( FD_BLOCK_MARKER_KIND_GENESIS_CERT ==FD_BLOCK_MARKER_SERDE_TAG_
 
 #define FD_BLOCK_MARKER_SER_MAX ( FD_BLOCK_FOOTER_SER_MAX ) /* the footer is the widest marker */
 
-FD_STATIC_ASSERT( FD_BLOCK_MARKER_PREAMBLE_SZ          ==  13UL, fd_block_marker_serde );
-FD_STATIC_ASSERT( FD_BLOCK_HEADER_SER_SZ               ==  41UL, fd_block_marker_serde );
-FD_STATIC_ASSERT( FD_UPDATE_PARENT_SER_SZ              ==  41UL, fd_block_marker_serde );
-FD_STATIC_ASSERT( FD_BLOCK_BITMAP_SER_HDR_SZ           ==   3UL, fd_block_marker_serde );
-FD_STATIC_ASSERT( FD_BLOCK_BITMAP_SER_SZ( AG_VAT_MAX ) == 253UL, fd_block_marker_serde );
-FD_STATIC_ASSERT( FD_BLOCK_VOTES_AGGREGATE_SER_HDR_SZ  ==  98UL, fd_block_marker_serde );
-FD_STATIC_ASSERT( FD_BLOCK_VOTES_AGGREGATE_SER_MAX     == 351UL, fd_block_marker_serde );
-FD_STATIC_ASSERT( FD_BLOCK_FINAL_CERT_SER_HDR_SZ       ==  40UL, fd_block_marker_serde );
-FD_STATIC_ASSERT( FD_BLOCK_FINAL_CERT_SER_MAX          == 743UL, fd_block_marker_serde );
-FD_STATIC_ASSERT( FD_BLOCK_SKIP_REWARD_CERT_SER_HDR_SZ  == 104UL, fd_block_marker_serde );
-FD_STATIC_ASSERT( FD_BLOCK_SKIP_REWARD_CERT_SER_MAX     == 360UL, fd_block_marker_serde );
-FD_STATIC_ASSERT( FD_BLOCK_NOTAR_REWARD_CERT_SER_HDR_SZ == 136UL, fd_block_marker_serde );
-FD_STATIC_ASSERT( FD_BLOCK_NOTAR_REWARD_CERT_SER_MAX    == 392UL, fd_block_marker_serde );
-FD_STATIC_ASSERT( FD_BLOCK_FOOTER_SER_HDR_SZ            ==  42UL, fd_block_marker_serde );
-FD_STATIC_ASSERT( FD_BLOCK_FOOTER_SER_MAX               ==1808UL, fd_block_marker_serde );
+FD_STATIC_ASSERT( FD_BLOCK_MARKER_PREAMBLE_SZ                ==  13UL, fd_block_marker_serde );
+FD_STATIC_ASSERT( FD_BLOCK_HEADER_SER_SZ                     ==  41UL, fd_block_marker_serde );
+FD_STATIC_ASSERT( FD_UPDATE_PARENT_SER_SZ                    ==  41UL, fd_block_marker_serde );
+FD_STATIC_ASSERT( FD_BLOCK_BITMAP_SER_HDR_SZ                 ==   3UL, fd_block_marker_serde );
+FD_STATIC_ASSERT( FD_BLOCK_BITMAP_SER_SZ( FD_VOTOR_VAT_MAX ) == 253UL, fd_block_marker_serde );
+FD_STATIC_ASSERT( FD_BLOCK_VOTES_AGGREGATE_SER_HDR_SZ        ==  98UL, fd_block_marker_serde );
+FD_STATIC_ASSERT( FD_BLOCK_VOTES_AGGREGATE_SER_MAX           == 351UL, fd_block_marker_serde );
+FD_STATIC_ASSERT( FD_BLOCK_FINAL_CERT_SER_HDR_SZ             ==  40UL, fd_block_marker_serde );
+FD_STATIC_ASSERT( FD_BLOCK_FINAL_CERT_SER_MAX                == 743UL, fd_block_marker_serde );
+FD_STATIC_ASSERT( FD_BLOCK_SKIP_REWARD_CERT_SER_HDR_SZ       == 104UL, fd_block_marker_serde );
+FD_STATIC_ASSERT( FD_BLOCK_SKIP_REWARD_CERT_SER_MAX          == 360UL, fd_block_marker_serde );
+FD_STATIC_ASSERT( FD_BLOCK_NOTAR_REWARD_CERT_SER_HDR_SZ      == 136UL, fd_block_marker_serde );
+FD_STATIC_ASSERT( FD_BLOCK_NOTAR_REWARD_CERT_SER_MAX         == 392UL, fd_block_marker_serde );
+FD_STATIC_ASSERT( FD_BLOCK_FOOTER_SER_HDR_SZ                 ==  42UL, fd_block_marker_serde );
+FD_STATIC_ASSERT( FD_BLOCK_FOOTER_SER_MAX                    ==1808UL, fd_block_marker_serde );
 FD_STATIC_ASSERT( FD_BLOCK_FOOTER_SER_MAX-FD_BLOCK_MARKER_PREAMBLE_SZ<=(ulong)USHORT_MAX, fd_block_marker_serde ); /* LengthPrefixed::len is a u16 */
 
 FD_PROTOTYPES_BEGIN

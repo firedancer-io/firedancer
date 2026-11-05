@@ -77,6 +77,7 @@ init_all( ulong pack_depth,
 #endif
 
   fd_pack_t * pack = fd_pack_join( fd_pack_new( pack_scratch, pack_depth, 1UL, bank_tile_cnt, limits, NULL, 0UL, rng ) );
+  fd_pack_set_rotation_end_ns( pack, LONG_MAX );
 
   outcome->microblock_cnt = 0UL;
   for( ulong i=0UL; i<FD_PACK_MAX_EXECLE_TILES; i++ ) {
@@ -1744,6 +1745,458 @@ test_bundle_nonce( void ) {
   fd_pack_delete( fd_pack_leave( pack ) );
 }
 
+/* The Jito tip accounts */
+static char const * const TEST_TIP_ACCTS[ 8 ] = {
+  "96gYZGLnJYVFmbjzopPSU6QiEV5fGqZNyN9nmNhvrZU5", "HFqU5x63VTqvQss8hp11i4wVV8bD44PvwucfZ2bU7gRe",
+  "Cw8CFyM9FkoMi7K7Crf6HNQqf4uEMzpKw6QNghXLvLkY", "ADaUMid9yfUytqMBgopwjb2DTLSokTSzL1zt6iGPaS49",
+  "DfXygSm4jCyNCybVYYK6DwvWqjKee8pbDmJGcLWNDXjh", "ADuUkR4vqLUMWXxW9gh6D6L8pMSawimctcNZ5pGwDcEt",
+  "DttWaMuVvTiduZRnguLF7jNxTgiMBZ1hyAumKUiL2KRL", "3AVi9Tg9Uo68tJfuvoKvqKNWKkC5wPdSSdeBnizKZ6jT" };
+
+/* Like make_transaction1, but with a System transfer of tip lamports
+   to a tip account */
+static void
+make_tip_transaction1( fd_txn_p_t * txnp,
+                       ulong        i,
+                       uint         compute,
+                       ulong        tip,
+                       ulong        tip_acct_idx,
+                       char const * writes ) {
+  uchar *    p      = txnp->payload;
+  uchar *    p_base = p;
+  fd_txn_t * t      = TXN( txnp );
+  ulong      w      = strlen( writes );
+
+  *(p++) = (uchar)1;
+  fd_memcpy( p,                                   &i,               sizeof(ulong)                                    );
+  fd_memcpy( p+sizeof(ulong),                     SIGNATURE_SUFFIX, FD_TXN_SIGNATURE_SZ - sizeof(ulong)-sizeof(uint) );
+  fd_memcpy( p+FD_TXN_SIGNATURE_SZ-sizeof(uint),  &compute,         sizeof(uint)                                     );
+  p += FD_TXN_SIGNATURE_SZ;
+
+  t->transaction_version   = FD_TXN_VLEGACY;
+  t->signature_cnt         = 1;
+  t->signature_off         = 1;
+  t->message_off           = FD_TXN_SIGNATURE_SZ+1UL;
+  t->readonly_signed_cnt   = 0;
+  t->readonly_unsigned_cnt = 2;
+  t->acct_addr_cnt         = (ushort)(1UL + w + 1UL + 2UL);
+  t->acct_addr_off         = FD_TXN_SIGNATURE_SZ+1UL;
+
+  *p = 's' + 0x80; fd_memcpy( p+1, &i, sizeof(ulong) ); memset( p+9, 'S', FD_TXN_ACCT_ADDR_SZ-9 ); p += FD_TXN_ACCT_ADDR_SZ;
+  for( ulong k=0UL; k<w; k++ ) { memset( p, writes[ k ], FD_TXN_ACCT_ADDR_SZ ); p += FD_TXN_ACCT_ADDR_SZ; }
+  FD_TEST( fd_base58_decode_32( TEST_TIP_ACCTS[ tip_acct_idx ], p ) );  p += FD_TXN_ACCT_ADDR_SZ;
+  memset( p, 0, FD_TXN_ACCT_ADDR_SZ );                                  p += FD_TXN_ACCT_ADDR_SZ;
+  fd_memcpy( p, FD_COMPUTE_BUDGET_PROGRAM_ID, FD_TXN_ACCT_ADDR_SZ );    p += FD_TXN_ACCT_ADDR_SZ;
+
+  t->recent_blockhash_off         = 0;
+  t->addr_table_lookup_cnt        = 0;
+  t->addr_table_adtl_writable_cnt = 0;
+  t->addr_table_adtl_cnt          = 0;
+  t->instr_cnt                    = 2;
+
+  uchar tip_idx = (uchar)(1UL+w);
+  uchar sys_idx = (uchar)(2UL+w);
+  uchar cb_idx  = (uchar)(3UL+w);
+
+  t->instr[ 0 ].program_id = cb_idx;
+  t->instr[ 0 ].acct_cnt   = 0;
+  t->instr[ 0 ].data_sz    = 5;
+  t->instr[ 0 ].acct_off   = (ushort)(p - p_base);
+  t->instr[ 0 ].data_off   = (ushort)(p - p_base);
+  *p = 2; fd_memcpy( p+1, &compute, sizeof(uint) ); p += 5UL;
+
+  t->instr[ 1 ].program_id = sys_idx;
+  t->instr[ 1 ].acct_cnt   = 2;
+  t->instr[ 1 ].data_sz    = 12;
+  t->instr[ 1 ].acct_off   = (ushort)(p - p_base);
+  *(p++) = 0;
+  *(p++) = tip_idx;
+  t->instr[ 1 ].data_off   = (ushort)(p - p_base);
+  FD_STORE( uint,  p,     2U  );
+  FD_STORE( ulong, p+4UL, tip );
+  p += 12UL;
+
+  txnp->payload_sz = (ushort)(p-p_base);
+}
+
+static int
+insert_tip_bundle( fd_pack_t *  pack,
+                   ulong        i,
+                   ulong        tip,
+                   ulong        tip_acct_idx,
+                   char const * writes,
+                   ulong        expires_at ) {
+  fd_txn_e_t * _bundle[ 1 ];
+  fd_txn_e_t * const * bundle = fd_pack_insert_bundle_init( pack, _bundle, 1UL );
+  make_tip_transaction1( bundle[ 0 ]->txnp, i, 10000U, tip, tip_acct_idx, writes );
+  ulong deleted;
+  return fd_pack_insert_bundle_fini( pack, bundle, 1UL, expires_at, 0, NULL, &deleted );
+}
+
+static int
+insert_tip_bundle2( fd_pack_t * pack,
+                    ulong       i0,
+                    ulong       tip0,
+                    ulong       i1,
+                    ulong       tip1,
+                    ulong       expires_at ) {
+  fd_txn_e_t * _bundle[ 2 ];
+  fd_txn_e_t * const * bundle = fd_pack_insert_bundle_init( pack, _bundle, 2UL );
+  make_tip_transaction1( bundle[ 0 ]->txnp, i0, 10000U, tip0, 6UL, "Y" );
+  make_tip_transaction1( bundle[ 1 ]->txnp, i1, 10000U, tip1, 7UL, "Z" );
+  ulong deleted;
+  return fd_pack_insert_bundle_fini( pack, bundle, 2UL, expires_at, 0, NULL, &deleted );
+}
+
+static ulong
+result_id( fd_txn_e_t const * r ) {
+  return FD_LOAD( ulong, r->txnp->payload+1UL );
+}
+
+/* Returns the id of the first txn of the scheduled bundle, or
+   ULONG_MAX if nothing was scheduled */
+static ulong
+schedule_bundle_id( fd_pack_t * pack ) {
+  ulong cnt = fd_pack_schedule_next_microblock( pack, FD_PACK_TEST_MAX_COST_PER_BLOCK, 0UL, FD_PACK_SCHEDULE_BUNDLE, outcome.results );
+  if( !cnt ) return ULONG_MAX;
+  fd_pack_microblock_complete( pack, 0UL );
+  return result_id( outcome.results );
+}
+
+static ulong
+pre_rotation_bundle_cnt( fd_pack_t const * pack ) {
+  fd_pack_metrics_write( pack );
+  return FD_MGAUGE_GET( PACK, PRE_ROTATION_BUNDLE_PENDING );
+}
+
+static void
+test_pre_rotation_bundles( void ) {
+  FD_LOG_NOTICE(( "TEST PRE-ROTATION BUNDLES" ));
+
+  /* Normal bundles first, then pre-rotation bundles by tip */
+  fd_pack_t * pack = init_all( 1024UL, 1UL, 8UL, &outcome );
+  fd_pack_set_initializer_bundles_ready( pack );
+  fd_pack_set_rotation_end_ns( pack, LONG_MIN );
+  FD_TEST( insert_tip_bundle( pack, 0UL, 1000UL, 0UL, "A", 1000UL )>=0 );
+  FD_TEST( insert_tip_bundle( pack, 1UL, 9000UL, 1UL, "B", 1000UL )>=0 );
+  FD_TEST( insert_tip_bundle( pack, 2UL, 5000UL, 2UL, "C", 1000UL )>=0 );
+  FD_TEST( insert_tip_bundle( pack, 3UL, 9000UL, 3UL, "D", 1000UL )>=0 );
+  fd_pack_set_rotation_end_ns( pack, LONG_MAX );
+  FD_TEST( insert_tip_bundle( pack, 4UL,    1UL, 4UL, "E", 1000UL )>=0 );
+  FD_TEST( insert_tip_bundle( pack, 5UL,    2UL, 5UL, "F", 1000UL )>=0 );
+  FD_TEST( pre_rotation_bundle_cnt( pack )==4UL );
+  FD_TEST( fd_pack_avail_txn_cnt( pack )==6UL );
+  FD_TEST( !fd_pack_verify( pack, pack_verify_scratch ) );
+  ulong sched0 = FD_MCNT_GET( PACK, PRE_ROTATION_BUNDLE_SCHEDULED );
+  ulong expect[ 6 ] = { 4UL, 5UL, 1UL, 3UL, 2UL, 0UL };
+  for( ulong k=0UL; k<6UL; k++ ) {
+    FD_TEST( schedule_bundle_id( pack )==expect[ k ] );
+    FD_TEST( !fd_pack_verify( pack, pack_verify_scratch ) );
+  }
+  FD_TEST( schedule_bundle_id( pack )==ULONG_MAX );
+  FD_TEST( pre_rotation_bundle_cnt( pack )==0UL );
+  FD_TEST( FD_MCNT_GET( PACK, PRE_ROTATION_BUNDLE_SCHEDULED )==sched0+4UL );
+
+  /* Once full, a new bundle has to out-tip the worst one */
+  pack = init_all( 1024UL, 1UL, 8UL, &outcome );
+  fd_pack_set_initializer_bundles_ready( pack );
+  fd_pack_set_rotation_end_ns( pack, LONG_MIN );
+  ulong inserted0 = FD_MCNT_GET( PACK, PRE_ROTATION_BUNDLE_INSERTED );
+  ulong rejected0 = FD_MCNT_GET( PACK, PRE_ROTATION_BUNDLE_REJECTED );
+  ulong evicted0  = FD_MCNT_GET( PACK, PRE_ROTATION_BUNDLE_EVICTED  );
+  FD_TEST( insert_tip_bundle( pack, 10UL, 100UL, 0UL, "A", 1000UL )>=0 );
+  FD_TEST( insert_tip_bundle( pack, 11UL, 300UL, 1UL, "B", 1000UL )>=0 );
+  FD_TEST( insert_tip_bundle( pack, 12UL, 200UL, 2UL, "C", 1000UL )>=0 );
+  for( ulong k=0UL; k<13UL; k++ ) FD_TEST( insert_tip_bundle( pack, 40UL+k, 1000UL+k, 3UL, "D", 1000UL )>=0 );
+  FD_TEST( insert_tip_bundle( pack, 13UL, 100UL, 3UL, "D", 1000UL )==FD_PACK_INSERT_REJECT_PRIORITY );
+  FD_TEST( insert_tip_bundle( pack, 14UL,  50UL, 4UL, "E", 1000UL )==FD_PACK_INSERT_REJECT_PRIORITY );
+  FD_TEST( insert_tip_bundle( pack, 15UL, 250UL, 5UL, "F", 1000UL )>=0 );
+  FD_TEST( pre_rotation_bundle_cnt( pack )==16UL );
+  FD_TEST( fd_pack_avail_txn_cnt( pack )==16UL );
+  FD_TEST( FD_MCNT_GET( PACK, PRE_ROTATION_BUNDLE_INSERTED )==inserted0+17UL );
+  FD_TEST( FD_MCNT_GET( PACK, PRE_ROTATION_BUNDLE_REJECTED )==rejected0+ 2UL );
+  FD_TEST( FD_MCNT_GET( PACK, PRE_ROTATION_BUNDLE_EVICTED  )==evicted0 + 1UL );
+  FD_TEST( !fd_pack_verify( pack, pack_verify_scratch ) );
+  for( ulong k=0UL; k<13UL; k++ ) FD_TEST( schedule_bundle_id( pack )==52UL-k );
+  FD_TEST( schedule_bundle_id( pack )==11UL );
+  FD_TEST( schedule_bundle_id( pack )==15UL );
+  FD_TEST( schedule_bundle_id( pack )==12UL );
+  FD_TEST( schedule_bundle_id( pack )==ULONG_MAX );
+
+  /* Pre-rotation bundles wait for the initializer bundle */
+  pack = init_all( 1024UL, 1UL, 8UL, &outcome );
+  fd_pack_end_block( pack );
+  fd_pack_set_rotation_end_ns( pack, LONG_MIN );
+  FD_TEST( insert_tip_bundle( pack, 30UL, 5000UL, 0UL, "A", 1000UL )>=0 );
+  FD_TEST( fd_pack_peek_bundle_meta( pack )!=NULL );
+  FD_TEST( schedule_bundle_id( pack )==ULONG_MAX );
+  {
+    fd_txn_e_t * _ib[ 1 ];
+    fd_txn_e_t * const * ib = fd_pack_insert_bundle_init( pack, _ib, 1UL );
+    make_transaction1( ib[ 0 ]->txnp, 31UL, 1000U, 100U, 5.0, "I", "J", NULL, NULL );
+    ulong deleted;
+    FD_TEST( fd_pack_insert_bundle_fini( pack, ib, 1UL, 1000UL, 1, NULL, &deleted )>=0 );
+  }
+  FD_TEST( pre_rotation_bundle_cnt( pack )==1UL );
+  FD_TEST( fd_pack_avail_txn_cnt( pack )==2UL );
+  FD_TEST( fd_pack_peek_bundle_meta( pack )==NULL );
+  FD_TEST( schedule_bundle_id( pack )==31UL );
+  FD_TEST( schedule_bundle_id( pack )==ULONG_MAX );
+  fd_pack_set_initializer_bundles_ready( pack );
+  FD_TEST( schedule_bundle_id( pack )==30UL );
+  FD_TEST( !fd_pack_verify( pack, pack_verify_scratch ) );
+
+  /* Pre-rotation bundle based on total tip */
+  pack = init_all( 1024UL, 1UL, 8UL, &outcome );
+  fd_pack_set_initializer_bundles_ready( pack );
+  fd_pack_set_rotation_end_ns( pack, LONG_MIN );
+  FD_TEST( insert_tip_bundle ( pack, 40UL, 6000UL, 0UL, "A", 1000UL )>=0 );
+  FD_TEST( insert_tip_bundle2( pack, 41UL, 3000UL, 42UL, 4000UL, 1000UL )>=0 );
+  FD_TEST( pre_rotation_bundle_cnt( pack )==2UL );
+  FD_TEST( fd_pack_schedule_next_microblock( pack, FD_PACK_TEST_MAX_COST_PER_BLOCK, 0UL, FD_PACK_SCHEDULE_BUNDLE, outcome.results )==2UL );
+  FD_TEST( result_id( outcome.results+0 )==41UL );
+  FD_TEST( result_id( outcome.results+1 )==42UL );
+  fd_pack_microblock_complete( pack, 0UL );
+  FD_TEST( pre_rotation_bundle_cnt( pack )==1UL );
+  FD_TEST( schedule_bundle_id( pack )==40UL );
+  FD_TEST( !fd_pack_verify( pack, pack_verify_scratch ) );
+
+  /* Pre-rotation bundles respect account conflicts */
+  pack = init_all( 1024UL, 2UL, 8UL, &outcome );
+  fd_pack_set_initializer_bundles_ready( pack );
+  fd_pack_set_rotation_end_ns( pack, LONG_MIN );
+  FD_TEST( insert_tip_bundle( pack, 50UL, 9000UL, 0UL, "E", 1000UL )>=0 );
+  fd_pack_set_rotation_end_ns( pack, LONG_MAX );
+  make_transaction( 51UL, 1000U, 100U, 11.0, "A", "Z", NULL, NULL );
+  FD_TEST( insert( 51UL, pack )>=0 );
+  FD_TEST( fd_pack_schedule_next_microblock( pack, FD_PACK_TEST_MAX_COST_PER_BLOCK, 0UL, FD_PACK_SCHEDULE_TXN, outcome.results )==1UL );
+  FD_TEST( insert_tip_bundle( pack, 52UL, 1UL, 1UL, "A", 1000UL )>=0 );
+  FD_TEST( fd_pack_schedule_next_microblock( pack, FD_PACK_TEST_MAX_COST_PER_BLOCK, 1UL, FD_PACK_SCHEDULE_BUNDLE, outcome.results )==0UL );
+  fd_pack_microblock_complete( pack, 0UL );
+  FD_TEST( schedule_bundle_id( pack )==52UL );
+  FD_TEST( schedule_bundle_id( pack )==50UL );
+  FD_TEST( !fd_pack_verify( pack, pack_verify_scratch ) );
+
+  /* Ties broken by arrival time */
+  pack = init_all( 1024UL, 1UL, 8UL, &outcome );
+  fd_pack_set_initializer_bundles_ready( pack );
+  fd_pack_set_rotation_end_ns( pack, 1000L );
+  ulong deleted;
+  long  arrival[ 3 ] = { 999L, 1000L, 5000L };
+  for( ulong k=0UL; k<3UL; k++ ) {
+    fd_txn_e_t * _b[ 1 ];
+    fd_txn_e_t * const * b = fd_pack_insert_bundle_init( pack, _b, 1UL );
+    make_tip_transaction1( b[ 0 ]->txnp, 60UL+k, 10000U, 100UL*(k+1UL), k, "A" );
+    b[ 0 ]->txnp->scheduler_arrival_time_nanos = arrival[ k ];
+    FD_TEST( fd_pack_insert_bundle_fini( pack, b, 1UL, 1000UL, 0, NULL, &deleted )>=0 );
+  }
+  FD_TEST( pre_rotation_bundle_cnt( pack )==2UL );
+  FD_TEST( schedule_bundle_id( pack )==60UL );
+  FD_TEST( schedule_bundle_id( pack )==62UL );
+  FD_TEST( schedule_bundle_id( pack )==61UL );
+  FD_TEST( !fd_pack_verify( pack, pack_verify_scratch ) );
+
+  /* Reuse of a pre-rotation bundle's pool slot */
+  pack = init_all( 1024UL, 1UL, 8UL, &outcome );
+  fd_pack_set_initializer_bundles_ready( pack );
+  fd_pack_set_rotation_end_ns( pack, LONG_MIN );
+  FD_TEST( insert_tip_bundle( pack, 70UL, 5000UL, 0UL, "A", 1000UL )>=0 );
+  FD_TEST( schedule_bundle_id( pack )==70UL );
+  fd_pack_set_rotation_end_ns( pack, LONG_MAX );
+  FD_TEST( insert_tip_bundle( pack, 71UL, 100UL, 1UL, "B", 1000UL )>=0 );
+  FD_TEST( insert_tip_bundle( pack, 72UL, 100UL, 2UL, "C", 1000UL )>=0 );
+  FD_TEST( !fd_pack_verify( pack, pack_verify_scratch ) );
+  FD_TEST( schedule_bundle_id( pack )==71UL );
+  FD_TEST( schedule_bundle_id( pack )==72UL );
+}
+
+static void
+test_pre_rotation_bundle_lifecycle( void ) {
+  FD_LOG_NOTICE(( "TEST PRE-ROTATION BUNDLE LIFECYCLE" ));
+
+  fd_pack_t * pack = init_all( 1024UL, 1UL, 8UL, &outcome );
+  fd_pack_set_initializer_bundles_ready( pack );
+  fd_pack_set_rotation_end_ns( pack, LONG_MIN );
+  FD_TEST( insert_tip_bundle2( pack, 60UL, 0UL, 61UL, 7000UL, 1000UL )>=0 );
+  FD_TEST( insert_tip_bundle ( pack, 62UL, 1000UL, 0UL, "C", 5000UL )>=0 );
+  FD_TEST( insert_tip_bundle2( pack, 63UL, 0UL, 64UL, 2000UL, 6000UL )>=0 );
+  FD_TEST( pre_rotation_bundle_cnt( pack )==3UL );
+  FD_TEST( !fd_pack_verify( pack, pack_verify_scratch ) );
+
+  /* Deleting one txn removes the whole bundle */
+  make_tip_transaction1( &txnp_scratch[ 0 ], 61UL, 10000U, 7000UL, 7UL, "Z" );
+  FD_TEST( fd_pack_delete_transaction( pack, txnp_get_signatures( &txnp_scratch[ 0 ] ) )==2UL );
+  FD_TEST( pre_rotation_bundle_cnt( pack )==2UL );
+  FD_TEST( !fd_pack_verify( pack, pack_verify_scratch ) );
+
+  /* Expiration removes one txn at a time */
+  FD_TEST( fd_pack_expire_before( pack, 5500UL )==1UL );
+  FD_TEST( pre_rotation_bundle_cnt( pack )==1UL );
+  FD_TEST( !fd_pack_verify( pack, pack_verify_scratch ) );
+  FD_TEST( fd_pack_expire_before( pack, 7000UL )==2UL );
+  FD_TEST( pre_rotation_bundle_cnt( pack )==0UL );
+  FD_TEST( fd_pack_avail_txn_cnt( pack )==0UL );
+  FD_TEST( !fd_pack_verify( pack, pack_verify_scratch ) );
+
+  /* clear_all drops pre-rotation bundles too */
+  FD_TEST( insert_tip_bundle( pack, 65UL, 1000UL, 0UL, "A", 10000UL )>=0 );
+  fd_pack_clear_all( pack );
+  FD_TEST( pre_rotation_bundle_cnt( pack )==0UL );
+  FD_TEST( fd_pack_avail_txn_cnt( pack )==0UL );
+  FD_TEST( !fd_pack_verify( pack, pack_verify_scratch ) );
+  FD_TEST( insert_tip_bundle( pack, 66UL, 1000UL, 0UL, "A", 10000UL )>=0 );
+  FD_TEST( pre_rotation_bundle_cnt( pack )==1UL );
+  FD_TEST( !fd_pack_verify( pack, pack_verify_scratch ) );
+
+  /* delete_worst can evict pre-rotation bundles */
+  pack = init_all( 16UL, 1UL, 8UL, &outcome );
+  fd_pack_set_initializer_bundles_ready( pack );
+  fd_pack_set_rotation_end_ns( pack, LONG_MIN );
+  for( ulong k=0UL; k<4UL; k++ ) {
+    char writes[ 2 ] = { (char)('A'+k), '\0' };
+    FD_TEST( insert_tip_bundle( pack, 70UL+k, 1UL+k, k, writes, 1000UL )>=0 );
+  }
+  fd_pack_set_rotation_end_ns( pack, LONG_MAX );
+  for( ulong k=0UL; k<40UL; k++ ) {
+    make_transaction( 80UL+k, 1000U, 100U, 11.0+(double)(k%5UL), "Q", "", NULL, NULL );
+    insert( 80UL+k, pack );
+    FD_TEST( !fd_pack_verify( pack, pack_verify_scratch ) );
+  }
+  FD_TEST( pre_rotation_bundle_cnt( pack )<=4UL );
+  FD_TEST( fd_pack_avail_txn_cnt( pack )<=16UL );
+
+  /* A normal txn can't take a pre-rotation bundle's nonce */
+  pack = init_all( 32UL, 1UL, 32UL, &outcome );
+  fd_pack_set_initializer_bundles_ready( pack );
+  fd_pack_set_rotation_end_ns( pack, LONG_MIN );
+  ulong deleted;
+  fd_txn_e_t * _bundle[ 1 ];
+  fd_txn_e_t * const * bundle = fd_pack_insert_bundle_init( pack, _bundle, 1UL );
+  make_nonce_transaction1( bundle[ 0 ]->txnp, 120UL, 11.0, 5, 0, 'b' );
+  FD_TEST( fd_pack_insert_bundle_fini( pack, bundle, 1UL, 1000UL, 0, NULL, &deleted )==FD_PACK_INSERT_ACCEPT_NONCE_NONVOTE_ADD );
+  FD_TEST( pre_rotation_bundle_cnt( pack )==1UL );
+  fd_txn_e_t * txn = fd_pack_insert_txn_init( pack );
+  make_nonce_transaction1( txn->txnp, 121UL, 12.0, 5, 0, 'b' );
+  FD_TEST( fd_pack_insert_txn_fini( pack, txn, 2000UL, &deleted )==FD_PACK_INSERT_REJECT_NONCE_PRIORITY );
+  FD_TEST( pre_rotation_bundle_cnt( pack )==1UL );
+  FD_TEST( fd_pack_avail_txn_cnt( pack )==1UL );
+  FD_TEST( !fd_pack_verify( pack, pack_verify_scratch ) );
+
+  /* Normal bundles take nonces from pre-rotation bundles */
+  pack = init_all( 32UL, 1UL, 32UL, &outcome );
+  fd_pack_set_initializer_bundles_ready( pack );
+  fd_pack_set_rotation_end_ns( pack, LONG_MIN );
+  fd_txn_e_t * _held[ 2 ];
+  fd_txn_e_t * const * held = fd_pack_insert_bundle_init( pack, _held, 2UL );
+  make_nonce_transaction1( held[ 0 ]->txnp, 122UL, 11.0, 5, 0, 'b' );
+  make_tip_transaction1  ( held[ 1 ]->txnp, 123UL, 10000U, 1000UL, 1UL, "C" );
+  FD_TEST( fd_pack_insert_bundle_fini( pack, held, 2UL, 1000UL, 0, NULL, &deleted )==FD_PACK_INSERT_ACCEPT_NONCE_NONVOTE_ADD );
+  FD_TEST( pre_rotation_bundle_cnt( pack )==1UL );
+  FD_TEST( fd_pack_avail_txn_cnt( pack )==2UL );
+  fd_pack_set_rotation_end_ns( pack, LONG_MAX );
+  bundle = fd_pack_insert_bundle_init( pack, _bundle, 1UL );
+  make_nonce_transaction1( bundle[ 0 ]->txnp, 124UL, 11.0, 5, 0, 'b' );
+  FD_TEST( fd_pack_insert_bundle_fini( pack, bundle, 1UL, 1000UL, 0, NULL, &deleted )==FD_PACK_INSERT_ACCEPT_NONCE_NONVOTE_REPLACE );
+  FD_TEST( deleted==2UL );
+  FD_TEST( pre_rotation_bundle_cnt( pack )==0UL );
+  FD_TEST( fd_pack_avail_txn_cnt( pack )==1UL );
+  FD_TEST( !fd_pack_verify( pack, pack_verify_scratch ) );
+  fd_pack_set_rotation_end_ns( pack, LONG_MIN );
+  bundle = fd_pack_insert_bundle_init( pack, _bundle, 1UL );
+  make_nonce_transaction1( bundle[ 0 ]->txnp, 125UL, 11.0, 5, 0, 'b' );
+  FD_TEST( fd_pack_insert_bundle_fini( pack, bundle, 1UL, 1000UL, 0, NULL, &deleted )==FD_PACK_INSERT_REJECT_NONCE_PRIORITY );
+  FD_TEST( deleted==0UL );
+  FD_TEST( pre_rotation_bundle_cnt( pack )==0UL );
+  FD_TEST( fd_pack_avail_txn_cnt( pack )==1UL );
+  FD_TEST( schedule_bundle_id( pack )==124UL );
+  FD_TEST( !fd_pack_verify( pack, pack_verify_scratch ) );
+
+  /* A rejected bundle must not delete the nonce holder */
+  pack = init_all( 1024UL, 1UL, 8UL, &outcome );
+  fd_pack_set_initializer_bundles_ready( pack );
+  fd_pack_set_rotation_end_ns( pack, LONG_MIN );
+  for( ulong k=0UL; k<16UL; k++ ) FD_TEST( insert_tip_bundle( pack, 200UL+k, 9000UL, 0UL, "A", 1000UL )>=0 );
+  txn = fd_pack_insert_txn_init( pack );
+  make_nonce_transaction1( txn->txnp, 131UL, 11.0, 5, 0, 'b' );
+  FD_TEST( fd_pack_insert_txn_fini( pack, txn, 1000UL, &deleted )>=0 );
+  fd_txn_e_t * _bundle2[ 2 ];
+  fd_txn_e_t * const * bundle2 = fd_pack_insert_bundle_init( pack, _bundle2, 2UL );
+  make_nonce_transaction1( bundle2[ 0 ]->txnp, 132UL, 12.0, 5, 0, 'b' );
+  make_tip_transaction1  ( bundle2[ 1 ]->txnp, 133UL, 10000U, 1000UL, 1UL, "C" );
+  FD_TEST( fd_pack_insert_bundle_fini( pack, bundle2, 2UL, 1000UL, 0, NULL, &deleted )==FD_PACK_INSERT_REJECT_PRIORITY );
+  FD_TEST( deleted==0UL );
+  FD_TEST( pre_rotation_bundle_cnt( pack )==16UL );
+  FD_TEST( fd_pack_avail_txn_cnt( pack )==17UL );
+  FD_TEST( !fd_pack_verify( pack, pack_verify_scratch ) );
+}
+
+static void
+test_pre_rotation_bundle_size_limit( void ) {
+  FD_LOG_NOTICE(( "TEST PRE-ROTATION BUNDLE SIZE LIMIT" ));
+
+  /* Pre-rotation bundles also can't use more than half of pack */
+  fd_pack_t * pack = init_all( 4UL, 1UL, 8UL, &outcome );
+  fd_pack_set_initializer_bundles_ready( pack );
+  fd_pack_set_rotation_end_ns( pack, LONG_MIN );
+  fd_txn_e_t * _bundle[ FD_PACK_MAX_TXN_PER_BUNDLE ];
+  fd_txn_e_t * const * bundle = fd_pack_insert_bundle_init( pack, _bundle, FD_PACK_MAX_TXN_PER_BUNDLE );
+  for( ulong k=0UL; k<FD_PACK_MAX_TXN_PER_BUNDLE; k++ ) make_tip_transaction1( bundle[ k ]->txnp, k, 10000U, 1000UL, k, "A" );
+  ulong deleted;
+  FD_TEST( fd_pack_insert_bundle_fini( pack, bundle, FD_PACK_MAX_TXN_PER_BUNDLE, 1000UL, 0, NULL, &deleted )==FD_PACK_INSERT_REJECT_PRIORITY );
+  FD_TEST( insert_tip_bundle2( pack, 5UL, 1000UL, 6UL, 1000UL, 1000UL )>=0 );
+  FD_TEST( pre_rotation_bundle_cnt( pack )==1UL );
+  FD_TEST( !fd_pack_verify( pack, pack_verify_scratch ) );
+}
+
+static void
+test_next_auction( void ) {
+  FD_LOG_NOTICE(( "TEST NEXT AUCTION" ));
+  fd_pack_t * pack = init_all( 128UL, 1UL, 128UL, &outcome );
+  ulong i = 0UL;
+  make_transaction( i, 500U, 500U, 11.0, "A", "B", NULL, NULL ); FD_TEST( insert( i++, pack )>=0 ); /* eligible */
+  fd_pack_auction_begin( pack );
+  make_transaction( i, 500U, 500U, 12.0, "C", "D", NULL, NULL ); FD_TEST( insert( i++, pack )>=0 ); /* held */
+  FD_TEST( fd_pack_next_auction_txn_cnt( pack )==1UL );
+  FD_TEST( fd_pack_avail_txn_cnt( pack )==2UL );
+  FD_TEST( !fd_pack_verify( pack, pack_verify_scratch ) );
+
+  /* We expect only the transaction that arrived before the auction
+     started to be scheduled. */
+  FD_TEST( 1UL==fd_pack_schedule_next_microblock( pack, 10000000UL, 0UL, ALL, outcome.results ) );
+  fd_pack_microblock_complete( pack, 0UL );
+  FD_TEST( 0UL==fd_pack_schedule_next_microblock( pack, 10000000UL, 0UL, ALL, outcome.results ) );
+  fd_pack_microblock_complete( pack, 0UL );
+
+  /* When we end the auction, the transaction that is held in
+     next_auction can now be scheduled. */
+  fd_pack_auction_end( pack );
+  FD_TEST( fd_pack_next_auction_txn_cnt( pack )==0UL );
+  FD_TEST( !fd_pack_verify( pack, pack_verify_scratch ) );
+  FD_TEST( 1UL==fd_pack_schedule_next_microblock( pack, 10000000UL, 0UL, ALL, outcome.results ) );
+  fd_pack_microblock_complete( pack, 0UL );
+  FD_TEST( !fd_pack_verify( pack, pack_verify_scratch ) );
+
+  /* Test that deletion and expiry of transactions held in next_auction
+     work correctly. */
+  fd_pack_auction_begin( pack );
+  ulong i_g = i;
+  make_transaction( i, 500U, 500U, 11.0, "G", "H", NULL, NULL );
+  FD_TEST( insert( i, pack )>=0 );
+  FD_TEST( insert( i, pack )>=0 );
+  i++;
+  make_transaction( i, 500U, 500U, 11.0, "I", "J", NULL, NULL ); FD_TEST( insert( i, pack )>=0 );
+  FD_TEST( fd_pack_next_auction_txn_cnt( pack )==3UL );
+  FD_TEST( 1UL==fd_pack_delete_transaction( pack, txnp_get_signatures( &txnp_scratch[ i ] ) ) );
+  i++;
+  FD_TEST( fd_pack_next_auction_txn_cnt( pack )==2UL );
+  FD_TEST( !fd_pack_verify( pack, pack_verify_scratch ) );
+  FD_TEST( 2UL==fd_pack_expire_before( pack, i_g+1UL ) );
+  FD_TEST( fd_pack_next_auction_txn_cnt( pack )==0UL );
+  FD_TEST( fd_pack_avail_txn_cnt( pack )==0UL );
+  FD_TEST( !fd_pack_verify( pack, pack_verify_scratch ) );
+  fd_pack_auction_end( pack );
+  fd_pack_delete( fd_pack_leave( pack ) );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -1770,6 +2223,10 @@ main( int     argc,
   test_duplicate_sig();
   test_nonce();
   test_bundle_nonce();
+  test_pre_rotation_bundles();
+  test_pre_rotation_bundle_lifecycle();
+  test_pre_rotation_bundle_size_limit();
+  test_next_auction();
   if( extra_benchmark ) {
     performance_test( extra_benchmark );
     performance_test2();

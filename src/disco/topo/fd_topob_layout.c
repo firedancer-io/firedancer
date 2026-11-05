@@ -28,6 +28,7 @@ static struct { char const * name; uint flags; } const TILE_CLASS[] = {
   { "benchs", ALWAYS|THRUPUT               },
   { "net",    ALWAYS                       },
   { "mlx5",   ALWAYS                       },
+  { "iavf",   ALWAYS|PIN_EFF               },
   { "sock",   ALWAYS|PIN_EFF               },
   { "quic",   ALWAYS                       },
   { "bundle", ALWAYS                       },
@@ -72,6 +73,7 @@ static struct { char const * name; uint flags; } const TILE_CLASS[] = {
   { "genesi", FLOATING                     },
   { "ipecho", FLOATING                     },
   { "admin",  FLOATING                     },
+  { "failov", FLOATING                     },
   { "snapsv", FLOATING|PIN_EFF             },
   { "snapmk", FLOATING                     },
   { "snapzp", FLOATING                     },
@@ -108,6 +110,7 @@ static char const * HOT_TILES[] = {
   "replay",
   "execrp",
   "mlx5",
+  "iavf",
   NULL
 };
 

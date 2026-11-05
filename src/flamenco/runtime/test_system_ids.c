@@ -86,8 +86,10 @@ main( int     argc,
   assert_eq( "AddressLookupTab1e1111111111111111111111111", fd_solana_address_lookup_table_program_id   );
   assert_eq( "So11111111111111111111111111111111111111112", fd_solana_spl_native_mint_id                );
   assert_eq( "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA", fd_solana_spl_token_id                      );
+  assert_eq( "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL", fd_solana_spl_associated_token_account_id   );
   assert_eq( "ZkE1Gama1Proof11111111111111111111111111111", fd_solana_zk_elgamal_proof_program_id       );
   assert_eq( "ZkTokenProof1111111111111111111111111111111", fd_solana_zk_token_proof_program_id         );
+  assert_eq( "pataAAkF439TTjwRqmxRkTTEfZemRdoriXusez4PQ6S", fd_solana_pata_program_buffer_address       );
 
   char const * const test_pubkeys[ 37 ] = {
     "Sysvar1111111111111111111111111111111111111",

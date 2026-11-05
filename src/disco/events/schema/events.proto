@@ -179,6 +179,7 @@ enum BlockCompletedDeadReason {
   BLOCK_COMPLETED_DEAD_REASON_MISSING_BLOCK_FOOTER = 35;  // An Alpenglow block ended without a block footer.
   BLOCK_COMPLETED_DEAD_REASON_SPURIOUS_UPDATE_PARENT = 36;  // An Alpenglow block carried an UpdateParent marker where none is valid: before the header or after the footer.
   BLOCK_COMPLETED_DEAD_REASON_BAD_BLOCK_MARKER = 37;  // An Alpenglow block marker (header, footer, genesis certificate or update parent) failed to parse or had an unknown kind.
+  BLOCK_COMPLETED_DEAD_REASON_TOO_MANY_WRITABLE_ACCOUNTS = 38;  // The block's transactions declare more writable accounts than a valid block can afford.
 }
 
 // Why this validator gave up on the block before it completed; not_abandoned otherwise. Independent of dead.
@@ -405,6 +406,7 @@ enum AdminCommandType {
   ADMIN_COMMAND_TYPE_ADD_AUTHORIZED_VOTER = 3;  // Add an authorized voter key.
   ADMIN_COMMAND_TYPE_REMOVE_ALL_AUTHORIZED_VOTERS = 4;  // Remove every authorized voter key.
   ADMIN_COMMAND_TYPE_SNAPSHOT_CREATE = 5;  // Request creation of a snapshot.
+  ADMIN_COMMAND_TYPE_FAILOVER_PROMOTE = 6;  // Take over the identity specified by the given keypair from the machine currently running it.
 }
 
 // The result of processing the admin command.
@@ -1056,6 +1058,14 @@ enum RepairRequestRole {
   REPAIR_REQUEST_ROLE_EAGER = 1;  // Neither the slot's notarized nor finalized block: turbine's block, or another block of the slot known by id.
   REPAIR_REQUEST_ROLE_NOTAR = 2;  // The slot's first notarized, or stronger, block.
   REPAIR_REQUEST_ROLE_FINAL = 3;  // The slot's finalized block.
+}
+
+// Tile lifecycle state: 0=booting, 1=running, 2=shutdown
+enum MetricsIavfState {
+  METRICS_IAVF_STATE_UNSPECIFIED = 0;
+  METRICS_IAVF_STATE_BOOTING = 1;  // Booting
+  METRICS_IAVF_STATE_RUNNING = 2;  // Running
+  METRICS_IAVF_STATE_SHUTDOWN = 3;  // Shutdown
 }
 
 // Slot that was voted on
@@ -2286,6 +2296,56 @@ message MetricsResolvRegimeDurationNanos {
   uint64 backpressure_sleeping = 10;
 }
 
+// Duration that batch auctions ran for
+message MetricsPackAuctionDurationNanos {
+  // [0, 10000) nanos
+  uint64 b0 = 1;
+  // [10000, 19307) nanos
+  uint64 b1 = 2;
+  // [19307, 37276) nanos
+  uint64 b2 = 3;
+  // [37276, 71969) nanos
+  uint64 b3 = 4;
+  // [71969, 138950) nanos
+  uint64 b4 = 5;
+  // [138950, 268270) nanos
+  uint64 b5 = 6;
+  // [268270, 517948) nanos
+  uint64 b6 = 7;
+  // [517948, 1000001) nanos
+  uint64 b7 = 8;
+  // [1000001, 1930699) nanos
+  uint64 b8 = 9;
+  // [1930699, 3727596) nanos
+  uint64 b9 = 10;
+  // [3727596, 7196860) nanos
+  uint64 b10 = 11;
+  // [7196860, 13894960) nanos
+  uint64 b11 = 12;
+  // [13894960, 26826964) nanos
+  uint64 b12 = 13;
+  // [26826964, 51794753) nanos
+  uint64 b13 = 14;
+  // [51794753, 100000000) nanos
+  uint64 b14 = 15;
+  // [100000000, inf) nanos
+  uint64 b15 = 16;
+  // Sum of samples (nanos)
+  uint64 sum = 17;
+}
+
+// Batch auctions ended, by reason
+message MetricsPackAuctionEnded {
+  // An auction ended because the block reached the auction's CU limit
+  uint64 limit = 1;
+  // An auction ended because a new auction was started
+  uint64 restarted = 2;
+  // An auction ended because the final 10ms of our leader rotation began
+  uint64 final = 3;
+  // An auction ended because the leader slot ended
+  uint64 slot_end = 4;
+}
+
 // Percent of max_cost_per_block used by each block pack produced
 message MetricsPackCostPerBlockPct {
   // [0, 1) pct
@@ -2480,6 +2540,8 @@ message MetricsPackTxnPendingUsed {
   uint64 conflicting = 3;
   // Transactions that are part of a bundle
   uint64 bundle = 4;
+  // Transactions that are currently held waiting for the next auction
+  uint64 next_auction = 5;
 }
 
 // Transactions dropped from pack after insertion, by reason
@@ -3808,6 +3870,56 @@ message MetricsAccdbRegimeDurationNanos {
   uint64 backpressure_sleeping = 10;
 }
 
+// Out-of-band lthash tasks handed to exec tiles, each a batch of the accounts SchedLthashSubDispatched and SchedLthashAddDispatched count, by type
+message MetricsReplaySchedLthashTaskDispatched {
+  // Subtraction tasks, each a batch of accounts hashed on the parent fork
+  uint64 sub = 1;
+  // Addition tasks, each a batch of accounts hashed on the block's fork
+  uint64 add = 2;
+}
+
+// Out-of-band lthash work discarded when a block was abandoned, demoted, or switched to in-band hashing, by type
+message MetricsReplaySchedLthashWorkDropped {
+  // Additions owed by abandoned blocks, never created
+  uint64 add_owed = 1;
+  // Pseudo transactions of abandoned blocks, never surfaced
+  uint64 add_pending = 2;
+  // Additions in the delta of an abandoned or demoted block, net of undone
+  uint64 add_applied = 3;
+  // Subtractions of abandoned blocks, never dispatched
+  uint64 sub_queued = 4;
+  // Subtractions in the delta of an abandoned or demoted block
+  uint64 sub_applied = 5;
+  // Additions of abandoned blocks that were batched behind a transaction and never reached a tile
+  uint64 add_held = 6;
+  // Additions owed by blocks that picked in-band hashing, never created
+  uint64 inband_add_owed = 7;
+  // Subtractions of blocks that picked in-band hashing, never dispatched
+  uint64 inband_sub_queued = 8;
+}
+
+// Writes the replay scheduler saw for out-of-band lthash, the same as SchedLthashWriteObserved, by type
+message MetricsReplaySchedLthashWriteObservedByType {
+  // Declared writable accounts of parsed transactions, as handed to the dispatcher
+  uint64 parsed = 1;
+  // Accounts registered by start-of-block processing
+  uint64 block_start = 2;
+  // Writable lookup table accounts registered at transaction completion
+  uint64 late_lut = 3;
+  // Accounts re-registered when their block was demoted
+  uint64 demoted = 4;
+  // Accounts re-registered when a speculative addition was given up
+  uint64 spec_given_up = 5;
+}
+
+// Writes the replay scheduler saw for out-of-band lthash, by result
+message MetricsReplaySchedLthashWriteObserved {
+  // First write to the account since its last addition pseudo transaction, which makes the block owe it an addition
+  uint64 first_write = 1;
+  // Write to an account the block already owed an addition for
+  uint64 coalesced = 2;
+}
+
 // Accounts not found in the account database cache and read from disk, by cache size class
 message MetricsReplayAccdbAccountCacheMissed {
   // 0-128 B
@@ -3970,6 +4082,8 @@ message MetricsReplayFecPollSkipped {
   uint64 leader_freeze_wait = 3;
   // The bank pool was full
   uint64 bank_full = 4;
+  // A block's first FEC set waited for a staging lane
+  uint64 lane_wait = 5;
 }
 
 // Transactions with address lookup tables the replay scheduler tried to resolve, by result
@@ -3982,7 +4096,7 @@ message MetricsReplaySchedTxnLutResolveAttempted {
 
 // Times the replay scheduler stopped dispatching a block, by reason
 message MetricsReplaySchedBlockDeactivated {
-  // A block fully replayed and there was no child block available yet
+  // A block fully replayed and the block activated next, if any, was not its child
   uint64 no_child = 1;
   // A partially replayed block ran out of work to dispatch
   uint64 no_work = 2;
@@ -3990,6 +4104,10 @@ message MetricsReplaySchedBlockDeactivated {
   uint64 abandoned = 3;
   // A block was pruned for being on a minority fork (not also counted as Abandoned)
   uint64 minority_fork = 4;
+  // A block that could only speculate on out-of-band lthash additions gave way to another lane head's real work
+  uint64 spec_yield = 5;
+  // A partially replayed block owing out-of-band lthash additions had nothing to dispatch because the speculation pool had no free entry
+  uint64 spec_pool_full = 6;
 }
 
 // Blocks added to the replay scheduler, by staging state
@@ -7020,7 +7138,7 @@ message MetricsVotorVoteRx {
   uint64 slot_out_of_range = 7;
   // Vote block hash was null
   uint64 null_block_hash = 8;
-  // Vote signature was the identity point
+  // Vote signature was the identity point or outside the G2 subgroup
   uint64 signature_failed = 9;
   // Sender was not a ranked validator in the vote slot's epoch
   uint64 unranked = 10;
@@ -7126,6 +7244,10 @@ message MetricsGuiDbForcedEvictWriteCompleted {
   uint64 replay_txn = 13;
   // timeline_tile_day
   uint64 timeline_tile_day = 14;
+  // fec_events
+  uint64 fec_events = 15;
+  // fec_event_archive
+  uint64 fec_event_archive = 16;
 }
 
 // Records dropped because the database was full (MAP_FULL) or the KV index budget was exhausted (RING_FULL), by database
@@ -7158,6 +7280,10 @@ message MetricsGuiDbRecordDropped {
   uint64 replay_txn = 13;
   // timeline_tile_day
   uint64 timeline_tile_day = 14;
+  // fec_events
+  uint64 fec_events = 15;
+  // fec_event_archive
+  uint64 fec_event_archive = 16;
 }
 
 // Regions returned to the free list, by database
@@ -7190,6 +7316,10 @@ message MetricsGuiDbRegionReleased {
   uint64 replay_txn = 13;
   // timeline_tile_day
   uint64 timeline_tile_day = 14;
+  // fec_events
+  uint64 fec_events = 15;
+  // fec_event_archive
+  uint64 fec_event_archive = 16;
 }
 
 // Regions claimed from the free list, by database
@@ -7222,6 +7352,10 @@ message MetricsGuiDbRegionClaimed {
   uint64 replay_txn = 13;
   // timeline_tile_day
   uint64 timeline_tile_day = 14;
+  // fec_events
+  uint64 fec_events = 15;
+  // fec_event_archive
+  uint64 fec_event_archive = 16;
 }
 
 // Eviction passes that removed at least one record, by database
@@ -7254,6 +7388,10 @@ message MetricsGuiDbEvictionPassCompleted {
   uint64 replay_txn = 13;
   // timeline_tile_day
   uint64 timeline_tile_day = 14;
+  // fec_events
+  uint64 fec_events = 15;
+  // fec_event_archive
+  uint64 fec_event_archive = 16;
 }
 
 // Records evicted from the database, by database
@@ -7286,6 +7424,10 @@ message MetricsGuiDbRecordEvicted {
   uint64 replay_txn = 13;
   // timeline_tile_day
   uint64 timeline_tile_day = 14;
+  // fec_events
+  uint64 fec_events = 15;
+  // fec_event_archive
+  uint64 fec_event_archive = 16;
 }
 
 // Time-series records returned by scans, by database
@@ -7318,6 +7460,10 @@ message MetricsGuiDbTimeSeriesRecordRead {
   uint64 replay_txn = 13;
   // timeline_tile_day
   uint64 timeline_tile_day = 14;
+  // fec_events
+  uint64 fec_events = 15;
+  // fec_event_archive
+  uint64 fec_event_archive = 16;
 }
 
 // Time-series scans, by database
@@ -7350,6 +7496,10 @@ message MetricsGuiDbTimeSeriesScanned {
   uint64 replay_txn = 13;
   // timeline_tile_day
   uint64 timeline_tile_day = 14;
+  // fec_events
+  uint64 fec_events = 15;
+  // fec_event_archive
+  uint64 fec_event_archive = 16;
 }
 
 // Time-series records appended, by database
@@ -7382,6 +7532,10 @@ message MetricsGuiDbTimeSeriesRecordAppended {
   uint64 replay_txn = 13;
   // timeline_tile_day
   uint64 timeline_tile_day = 14;
+  // fec_events
+  uint64 fec_events = 15;
+  // fec_event_archive
+  uint64 fec_event_archive = 16;
 }
 
 // Key-value lookups (kv_get, kv_get_any, kv_iter_begin), by database
@@ -7414,6 +7568,10 @@ message MetricsGuiDbKvQueried {
   uint64 replay_txn = 13;
   // timeline_tile_day
   uint64 timeline_tile_day = 14;
+  // fec_events
+  uint64 fec_events = 15;
+  // fec_event_archive
+  uint64 fec_event_archive = 16;
 }
 
 // Record capacity of regions owned by each database ring; grows on demand
@@ -7446,6 +7604,10 @@ message MetricsGuiDbRecordAllocated {
   uint64 replay_txn = 13;
   // timeline_tile_day
   uint64 timeline_tile_day = 14;
+  // fec_events
+  uint64 fec_events = 15;
+  // fec_event_archive
+  uint64 fec_event_archive = 16;
 }
 
 // Records present in the store ring
@@ -7478,6 +7640,10 @@ message MetricsGuiDbRecordUsed {
   uint64 replay_txn = 13;
   // timeline_tile_day
   uint64 timeline_tile_day = 14;
+  // fec_events
+  uint64 fec_events = 15;
+  // fec_event_archive
+  uint64 fec_event_archive = 16;
 }
 
 // Bytes of regions owned by each database ring; grows on demand
@@ -7510,6 +7676,10 @@ message MetricsGuiDbAllocatedBytes {
   uint64 replay_txn = 13;
   // timeline_tile_day
   uint64 timeline_tile_day = 14;
+  // fec_events
+  uint64 fec_events = 15;
+  // fec_event_archive
+  uint64 fec_event_archive = 16;
 }
 
 // Bytes occupied by records present in the store ring
@@ -7542,6 +7712,10 @@ message MetricsGuiDbUsedBytes {
   uint64 replay_txn = 13;
   // timeline_tile_day
   uint64 timeline_tile_day = 14;
+  // fec_events
+  uint64 fec_events = 15;
+  // fec_event_archive
+  uint64 fec_event_archive = 16;
 }
 
 // Times the tile tried to park while idle (efficient mode), by result
@@ -7898,6 +8072,90 @@ message MetricsMotorThreadDurationNanos {
 
 // Tile wall time, by regime; regimes are exhaustive and groups Busy, Idle, Backpressure and Housekeeping partition it
 message MetricsMotorRegimeDurationNanos {
+  // Caught up + Housekeeping
+  uint64 caught_up_housekeeping = 1;
+  // Processing + Housekeeping
+  uint64 processing_housekeeping = 2;
+  // Backpressure + Housekeeping
+  uint64 backpressure_housekeeping = 3;
+  // Caught up + Prefrag
+  uint64 caught_up_prefrag = 4;
+  // Processing + Prefrag
+  uint64 processing_prefrag = 5;
+  // Backpressure + Prefrag
+  uint64 backpressure_prefrag = 6;
+  // Caught up + Postfrag
+  uint64 caught_up_postfrag = 7;
+  // Processing + Postfrag
+  uint64 processing_postfrag = 8;
+  // Caught up + Sleeping
+  uint64 caught_up_sleeping = 9;
+  // Backpressure + Sleeping
+  uint64 backpressure_sleeping = 10;
+}
+
+// Transmit jobs dropped, by reason
+message MetricsIavfPktTxDropped {
+  // Invalid packet headers, or GRE packet exceeding the MTU
+  uint64 invalid = 1;
+  // No matching route
+  uint64 no_route = 2;
+  // Unsupported route type
+  uint64 unsupported_route = 3;
+  // Interface not available
+  uint64 interface_missing = 4;
+  // Interface type not supported
+  uint64 unsupported_interface = 5;
+  // No source IP address chosen
+  uint64 source_ip_missing = 6;
+  // Next-hop neighbor unresolved
+  uint64 no_neighbor = 7;
+  // TX ring full or no TX buffer available
+  uint64 ring_full = 8;
+  // GRE tunnel addresses missing or outer route is itself tunnelled
+  uint64 gre_no_route = 9;
+}
+
+// Received packets dropped, by reason
+message MetricsIavfPktRxDropped {
+  // Undersized, oversized, or malformed Ethernet, IPv4 or UDP headers
+  uint64 malformed = 1;
+  // Destination IP does not match the bind address
+  uint64 dst_ip_mismatch = 2;
+  // No output link for the destination UDP port
+  uint64 dst_port_unbound = 3;
+  // GRE tunnel peer or headers invalid
+  uint64 gre_invalid = 4;
+  // GRE packet with no GRE tunnel configured
+  uint64 gre_unconfigured = 5;
+}
+
+// Times the tile tried to park while idle (efficient mode), by result
+message MetricsIavfParkAttempted {
+  // Woken by a doorbell ring
+  uint64 ring = 1;
+  // Deadline or park cap lapsed
+  uint64 deadline = 2;
+  // Pre-park recheck found work, did not park
+  uint64 pending = 3;
+}
+
+// Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless it is the only live tile pinned to its CPU
+message MetricsIavfThreadDurationNanos {
+  // Wait (task was runnable but not scheduled)
+  uint64 wait = 1;
+  // Idle (task was not runnable)
+  uint64 idle = 2;
+  // User (task was scheduled and executing in user mode)
+  uint64 user = 3;
+  // System (task was scheduled and executing in kernel mode)
+  uint64 system = 4;
+  // Interrupt (CPU time stolen by hardirq/softirq handlers or a hypervisor; fixed tiles only)
+  uint64 interrupt = 5;
+}
+
+// Tile wall time, by regime; regimes are exhaustive and groups Busy, Idle, Backpressure and Housekeeping partition it
+message MetricsIavfRegimeDurationNanos {
   // Caught up + Housekeeping
   uint64 caught_up_housekeeping = 1;
   // Processing + Housekeeping
@@ -9698,6 +9956,24 @@ message MetricsPack {
   MetricsPackCostNetPerBlock cost_net_per_block = 46;
   // Percent of max_cost_per_block used by each block pack produced
   MetricsPackCostPerBlockPct cost_per_block_pct = 47;
+  // Bundles that arrived while not leader that pack is holding
+  uint64 pre_rotation_bundle_pending = 48;
+  // Bundles that arrived while not leader that pack kept
+  uint64 pre_rotation_bundle_inserted = 49;
+  // Bundles that arrived while not leader that pack dropped because it was full of ones that declare at least as large a tip
+  uint64 pre_rotation_bundle_rejected = 50;
+  // Bundles that arrived while not leader that pack dropped for one that declares a larger tip
+  uint64 pre_rotation_bundle_evicted = 51;
+  // Bundles that arrived while not leader that pack scheduled
+  uint64 pre_rotation_bundle_scheduled = 52;
+  // Batch auctions started
+  uint64 auction_started = 53;
+  // Batch auctions skipped because the block was already at their CU limit
+  uint64 auction_cancelled = 54;
+  // Batch auctions ended, by reason
+  MetricsPackAuctionEnded auction_ended = 55;
+  // Duration that batch auctions ran for
+  MetricsPackAuctionDurationNanos auction_duration_nanos = 56;
 }
 
 // Metrics of one execle tile instance, one row per sweep
@@ -9760,7 +10036,7 @@ message MetricsExecle {
   uint64 instruction_executed = 28;
   // Cross-program invocations executed
   uint64 cpi_executed = 29;
-  // Committed writable accounts left byte-identical by their transaction, so their lthash update was skipped
+  // Committed writable accounts left byte-identical by their transaction, so their in-band lthash update was skipped
   uint64 account_lthash_skipped = 30;
   // Compute units consumed by executed transactions
   uint64 cu_consumed = 31;
@@ -10176,11 +10452,11 @@ message MetricsReplay {
   uint64 sched_block_demoted = 69;
   // Times the replay scheduler stopped dispatching a block, by reason
   MetricsReplaySchedBlockDeactivated sched_block_deactivated = 70;
-  // Times the replay scheduler switched the lane it is dispatching from
+  // Times the replay scheduler activated a block on a different fork than the previously active block
   uint64 sched_lane_switched = 71;
-  // Times the replay scheduler promoted one or more blocks onto a staging lane
+  // Times the replay scheduler promoted a block onto a staging lane
   uint64 sched_lane_promoted = 72;
-  // Times the replay scheduler demoted one or more blocks from a staging lane
+  // Times the replay scheduler demoted a block from a staging lane
   uint64 sched_lane_demoted = 73;
   // Forks the replay scheduler has observed
   uint64 sched_fork_observed = 74;
@@ -10296,6 +10572,50 @@ message MetricsReplay {
   uint64 txncache_lock_read_wait_duration_nanos = 129;
   // Time all tiles spent waiting to take the transaction cache exclusive lock
   uint64 txncache_lock_write_wait_duration_nanos = 130;
+  // Transactions the replay scheduler moved into a staging lane when it promoted their block
+  uint64 sched_txn_promoted = 131;
+  // Blocks that fell back to in-band lthash because every demotion reservation was in use
+  uint64 sched_block_inband_picked = 132;
+  // Writes the replay scheduler saw for out-of-band lthash, by result
+  MetricsReplaySchedLthashWriteObserved sched_lthash_write_observed = 133;
+  // Writes the replay scheduler saw for out-of-band lthash, the same as SchedLthashWriteObserved, by type
+  MetricsReplaySchedLthashWriteObservedByType sched_lthash_write_observed_by_type = 134;
+  // Out-of-band lthash addition pseudo transactions the dispatcher handed back
+  uint64 sched_lthash_add_created = 135;
+  // Addition pseudo transactions the dispatcher handed out as ready
+  uint64 sched_lthash_add_surfaced = 136;
+  // Addition pseudo transactions surfaced after a later write made them stale, completed without hashing
+  uint64 sched_lthash_add_stale_surfaced = 137;
+  // Additions handed to an exec tile
+  uint64 sched_lthash_add_dispatched = 138;
+  // Addition results dropped because a later write made them stale while on the tile
+  uint64 sched_lthash_add_stale_dropped = 139;
+  // Addition results added to a block's delta
+  uint64 sched_lthash_add_applied = 140;
+  // Applied additions subtracted back out after a later write
+  uint64 sched_lthash_add_undone = 141;
+  // Speculative additions created
+  uint64 sched_lthash_spec_created = 142;
+  // Speculative additions applied; a subset of SchedLthashAddApplied
+  uint64 sched_lthash_spec_applied = 143;
+  // Speculative additions invalidated before they applied
+  uint64 sched_lthash_spec_invalidated = 144;
+  // Lane map entries inserted, each owing one out-of-band lthash subtraction
+  uint64 sched_lthash_sub_owed = 145;
+  // Subtractions handed to an exec tile
+  uint64 sched_lthash_sub_dispatched = 146;
+  // Subtraction results subtracted from a block's delta
+  uint64 sched_lthash_sub_applied = 147;
+  // Accounts whose out-of-band lthash subtraction and addition are in the delta of a block whose end task completed
+  uint64 sched_lthash_account_frozen = 148;
+  // Out-of-band lthash work discarded when a block was abandoned, demoted, or switched to in-band hashing, by type
+  MetricsReplaySchedLthashWorkDropped sched_lthash_work_dropped = 149;
+  // Out-of-band lthash tasks handed to exec tiles, each a batch of the accounts SchedLthashSubDispatched and SchedLthashAddDispatched count, by type
+  MetricsReplaySchedLthashTaskDispatched sched_lthash_task_dispatched = 150;
+  // Out-of-band lthash addition batches held because a transaction or standalone speculation surfaced behind them
+  uint64 sched_lthash_batch_held = 151;
+  // Dispatch polls that held an out-of-band lthash addition batch because too few exec tiles were idle
+  uint64 sched_lthash_batch_idle_waited = 152;
 }
 
 // Metrics of one rotor tile instance, one row per sweep
@@ -10660,6 +10980,8 @@ message MetricsGossip {
   MetricsGossipPingPeerRemoved ping_peer_removed = 56;
   // Received entry versions not relayed because a newer version of the same entry replaced them within the relay interval
   uint64 crds_relay_coalesced = 57;
+  // Client id currently advertised in our ContactInfo
+  uint64 contact_info_client_id = 58;
 }
 
 // Metrics of one gossvf tile instance, one row per sweep
@@ -11676,7 +11998,7 @@ message MetricsExecrp {
   uint64 tlb_shootdown = 23;
   // counter: cumulative since tile start, query deltas. Local timer interrupts (LOC) on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
   uint64 timer_irq = 24;
-  // Whether the tile is currently processing a task (executing, sigverifying, or PoH hashing)
+  // Whether the tile is processing a replay task
   bool is_processing = 25;
   // Transactions loaded and executed, by result
   MetricsExecrpTxnProcessed txn_processed = 26;
@@ -11690,7 +12012,7 @@ message MetricsExecrp {
   uint64 instruction_executed = 30;
   // Cross-program invocations executed
   uint64 cpi_executed = 31;
-  // Committed writable accounts left byte-identical by their transaction, so their lthash update was skipped
+  // Committed writable accounts left byte-identical by their transaction, so their in-band lthash update was skipped
   uint64 account_lthash_skipped = 32;
   // Time per transaction, by phase; a phase counts only once the next phase starts, so dropped, fees-only and no-op transactions lose their trailing phases
   MetricsExecrpTxnRegimeDurationNanos txn_regime_duration_nanos = 33;
@@ -12554,6 +12876,90 @@ message RepairRequest {
   RepairRequestRole role = 15;
 }
 
+// Metrics of one iavf tile instance, one row per sweep
+message MetricsIavf {
+  // Identifier shared by every row of one sweep
+  uint64 sample_id = 1;
+  // Why a metrics sweep was taken
+  MetricsSampleReason sample_reason = 2;
+  // Slot that triggered the sweep, 0 for periodic sweeps
+  uint64 sample_slot = 3;
+  // Snapshot load state
+  MetricsSnapctLoadState sample_snapct_state = 4;
+  // Whether replay had caught up to the cluster tip when the sweep was taken (replay IsCaughtUp); set once per run, never cleared
+  bool sample_caught_up = 5;
+  // Tile instances in the sweep, to detect partial sweeps
+  uint64 sample_tile_cnt = 6;
+  // Index of this tile instance among tiles of its kind
+  uint64 kind_id = 7;
+  // Process ID of the tile
+  uint64 pid = 8;
+  // Thread ID of the tile. Same as Pid in production, but might differ in development
+  uint64 tid = 9;
+  // CPU the tile last ran on
+  uint64 last_cpu_index = 10;
+  // counter: cumulative since tile start, query deltas. Involuntary context switches
+  uint64 context_switch_involuntary = 11;
+  // counter: cumulative since tile start, query deltas. Voluntary context switches
+  uint64 context_switch_voluntary = 12;
+  // counter: cumulative since tile start, query deltas. Major page faults
+  uint64 page_fault_major = 13;
+  // counter: cumulative since tile start, query deltas. Minor page faults
+  uint64 page_fault_minor = 14;
+  // Tile lifecycle state: 0=booting, 1=running, 2=shutdown
+  MetricsIavfState state = 15;
+  // Last wall-clock time the tile heartbeated
+  uint64 heartbeat_time = 16;
+  // Whether the tile is currently backpressured
+  bool is_backpressured = 17;
+  // counter: cumulative since tile start, query deltas. Times the tile waited for one or more consumers to catch up to resume publishing
+  uint64 backpressure = 18;
+  // Tile wall time, by regime; regimes are exhaustive and groups Busy, Idle, Backpressure and Housekeeping partition it
+  MetricsIavfRegimeDurationNanos regime_duration_nanos = 19;
+  // Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless it is the only live tile pinned to its CPU
+  MetricsIavfThreadDurationNanos thread_duration_nanos = 20;
+  // Times the tile tried to park while idle (efficient mode), by result
+  MetricsIavfParkAttempted park_attempted = 21;
+  // counter: cumulative since tile start, query deltas. Device IRQs on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
+  uint64 device_irq = 22;
+  // counter: cumulative since tile start, query deltas. TLB shootdowns on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
+  uint64 tlb_shootdown = 23;
+  // counter: cumulative since tile start, query deltas. Local timer interrupts (LOC) on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
+  uint64 timer_irq = 24;
+  // Packets successfully published to output links
+  uint64 pkt_rx = 25;
+  // Bytes of packets successfully published to output links
+  uint64 pkt_rx_bytes = 26;
+  // Received packets dropped, by reason
+  MetricsIavfPktRxDropped pkt_rx_dropped = 27;
+  // Packets dropped because the configured VF or bond member is not accepting traffic
+  uint64 pkt_rx_no_link_dropped = 28;
+  // GRE packets decapsulated and published; subset of PktRx
+  uint64 gre_pkt_rx = 29;
+  // RX buffers not currently posted to the NIC
+  uint64 rx_buffer_used = 30;
+  // RX buffers currently posted to the NIC
+  uint64 rx_buffer_free = 31;
+  // Packets completed by the NIC for transmission
+  uint64 pkt_tx_completed = 32;
+  // Bytes of packets completed by the NIC
+  uint64 pkt_tx_completed_bytes = 33;
+  // Transmit jobs dropped, by reason
+  MetricsIavfPktTxDropped pkt_tx_dropped = 34;
+  // Transmit jobs dropped because no configured VF or bond member can send traffic
+  uint64 pkt_tx_no_link_dropped = 35;
+  // Loopback transmit jobs dropped because the socket send failed or accepted only part of a batch
+  uint64 pkt_tx_loopback_failed = 36;
+  // GRE transmit jobs submitted to the NIC
+  uint64 gre_pkt_tx_submitted = 37;
+  // TX buffers pending or submitted to the NIC
+  uint64 tx_buffer_used = 38;
+  // TX buffers available for a new transmit job
+  uint64 tx_buffer_free = 39;
+  // Packets received by IAVF VFs that are not intended for Firedancer
+  uint64 non_fd_pkt_rx = 40;
+}
+
 // Combined event type
 message Event {
   oneof event {
@@ -12620,5 +13026,6 @@ message Event {
     MetricsLink metrics_link = 61;
     MetricsMotor metrics_motor = 62;
     RepairRequest repair_request = 63;
+    MetricsIavf metrics_iavf = 64;
   }
 }
