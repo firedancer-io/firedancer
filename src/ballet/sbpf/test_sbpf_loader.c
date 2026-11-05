@@ -30,8 +30,9 @@ LOAD_ELF( zero_text_cnt )
     - So in a call to fd_sbpf_calldests_test( prog->calldests, 595 ), we should get 0
 
   * Entrypoint is not referenced in text section or relocation table
-    - Yet it must be in calldests, since we register it by default
-    - So in a call to fd_sbpf_calldests_test( prog->calldests, 3920 ), we should still get 1
+    - It is tracked in prog->entry_pc, not in calldests
+    - So in a call to fd_sbpf_calldests_test( prog->calldests, 3920 ), we should get 0
+    - And prog->entry_pc should be 3920
 
 */
 

@@ -5,7 +5,9 @@
          fast path (load_buf_sz buffer, scratch==NULL); and
      (2) that load is byte-for-byte equivalent to the scratch fallback load
          (rodata bytes, rodata_sz, entry_pc, text layout, calldests); and
-     (3) a program with a tail relocation is classified legacy lenient.
+     (3) a program with a tail relocation is classified legacy lenient; and
+     (4) the scratch fallback loads a program whose tail relocation lands
+         inside the file.
 
    The fast path is the runtime program-cache path (reject_broken_elfs=0). */
 
@@ -37,7 +39,8 @@ FIX( hello_v2, "hello_solana_program_sbpf_v2.so" );
 FIX( dup_ep,   "duplicate_entrypoint_entry.elf"  );
 FIX( clock,    "clock_sysvar_program.so"         );
 /* A lenient program with a relocation that targets the ELF tail (outside the
-   read-only image): not fast-path eligible, loads via the scratch fallback. */
+   read-only image): not fast-path eligible.  Its tail relocation points past
+   the end of the file, so the scratch fallback rejects it. */
 FIX( tail_reloc, "vm_program_tail_reloc.so" );
 #undef FIX
 
@@ -132,7 +135,9 @@ test_fast_equiv( char const * name, uchar const * bin, ulong bin_sz ) {
 }
 
 /* A program with a relocation that touches the ELF tail is classified legacy
-   lenient (load_buf_sz==bin_sz) and loaded via the scratch fallback. */
+   lenient (load_buf_sz==bin_sz) and handed to the scratch fallback, which
+   rejects this fixture because the relocation points past the end of the
+   file. */
 static void
 test_legacy_tail_reloc( char const * name, uchar const * bin, ulong bin_sz ) {
   fd_sbpf_loader_config_t config = { 0 };
@@ -156,6 +161,40 @@ test_legacy_tail_reloc( char const * name, uchar const * bin, ulong bin_sz ) {
   FD_LOG_NOTICE(( "%-34s legacy-lenient fallback (load err=%d) OK", name, err ));
 }
 
+/* Move the first relocation of a fast-eligible program into the ELF tail,
+   just past the read-only image.  The program becomes legacy lenient and
+   the scratch fallback loads it, dropping the relocated tail bytes. */
+static void
+test_legacy_tail_reloc_loads( char const * name, uchar const * bin, ulong bin_sz ) {
+  fd_sbpf_loader_config_t config = { 0 };
+  config.sbpf_min_version = FD_SBPF_V0;
+  config.sbpf_max_version = FD_SBPF_V3;
+
+  fd_sbpf_elf_info_t info;
+  FD_TEST( fd_sbpf_elf_peek( &info, bin, bin_sz, &config )==0 );
+  FD_TEST( !fd_sbpf_loader_is_legacy_lenient( &info ) );
+  FD_TEST( info.load_buf_sz+sizeof(ulong)<=bin_sz );
+
+  uchar * copy = malloc( bin_sz );
+  FD_TEST( copy );
+  memcpy( copy, bin, bin_sz );
+  fd_elf64_rel * rel = (fd_elf64_rel *)( copy+info.dt_rel_off );
+  rel->r_offset = info.load_buf_sz;
+  rel->r_info   = FD_ELF_R_BPF_64_RELATIVE;
+
+  fd_sbpf_elf_info_t tail_info;
+  FD_TEST( fd_sbpf_elf_peek( &tail_info, copy, bin_sz, &config )==0 );
+  FD_TEST( fd_sbpf_loader_is_legacy_lenient( &tail_info ) );
+
+  loaded_t slow;
+  FD_TEST( 0==do_load( copy, bin_sz, &tail_info, 0 /* slow / fallback */, &slow ) );
+  FD_TEST( slow.prog->rodata_sz==info.load_buf_sz );
+  free_loaded( &slow );
+  free( copy );
+
+  FD_LOG_NOTICE(( "%-34s legacy-lenient fallback load OK", name ));
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -167,6 +206,7 @@ main( int     argc,
   test_fast_equiv( "clock_sysvar_program",         fix_clock,    fix_clock_sz    );
 
   test_legacy_tail_reloc( "vm_program_tail_reloc", fix_tail_reloc, fix_tail_reloc_sz );
+  test_legacy_tail_reloc_loads( "hello_solana_program", fix_hello, fix_hello_sz );
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
