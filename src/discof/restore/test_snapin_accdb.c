@@ -36,7 +36,7 @@ typedef struct {
   void *                   stake_mem;
   fd_snapin_tile_t *       worker;
   void *                   join_mem [ TEST_WORKER_MAX ];
-  void *                   place_window;
+  void *                   place_window[ TEST_WORKER_MAX ]; /* one per tile */
   fd_accdb_fork_id_t       root;
 } test_env_t;
 
@@ -152,8 +152,6 @@ test_env_init_ex( test_env_t * env,
   fd_stake_delegations_t * stake_delegations = fd_stake_delegations_join( env->stake_mem, FD_STAKE_DELEGATIONS_FD );
   FD_TEST( stake_delegations );
 
-  env->place_window = index_ram_entries ? aligned_alloc( 4096UL, FD_ACCDB_PLACE_WINDOW ) : NULL;
-  FD_TEST( !index_ram_entries || env->place_window );
 
   ulong worker_fp = fd_ulong_align_up( worker_cnt*sizeof(fd_snapin_tile_t), alignof(fd_snapin_tile_t) );
   env->worker = aligned_alloc( alignof(fd_snapin_tile_t), worker_fp );
@@ -165,10 +163,12 @@ test_env_init_ex( test_env_t * env,
     env->join_mem[ i ] = aligned_alloc( fd_accdb_align(), join_fp );
     FD_TEST( env->join_mem[ i ] );
 
+    env->place_window[ i ] = index_ram_entries ? aligned_alloc( 4096UL, FD_ACCDB_PLACE_WINDOW ) : NULL;
+    FD_TEST( !index_ram_entries || env->place_window[ i ] );
     fd_snapin_tile_t * ctx = &env->worker[ i ];
     ctx->accdb = fd_accdb_join( fd_accdb_new( env->join_mem[ i ], env->shmem,
                                                FD_ACCDB_FD_RW, -1, 0UL, NULL, NULL, 0UL, 0,
-                                               index_ram_entries ? FD_ACCDB_IDX_FD_RW : -1, env->place_window ) );
+                                               index_ram_entries ? FD_ACCDB_IDX_FD_RW : -1, env->place_window[ i ] ) );
     FD_TEST( ctx->accdb );
     ctx->full              = 1;
     ctx->tile_idx          = i;
@@ -303,7 +303,7 @@ test_env_free( test_env_t * env ) {
   free( env->worker );
   free( env->stake_mem );
   free( env->snapin_shmem_mem );
-  free( env->place_window );
+  for( ulong i=0UL; i<env->worker_cnt; i++ ) free( env->place_window[ i ] );
   if( env->shmem->index_ram_entries ) FD_TEST( !close( FD_ACCDB_IDX_FD_RW ) );
   free( env->shmem_mem );
   FD_TEST( !close( FD_ACCDB_FD_RW ) );
