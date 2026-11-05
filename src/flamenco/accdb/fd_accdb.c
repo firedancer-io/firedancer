@@ -342,6 +342,8 @@ idx_join( fd_accdb_t * accdb,
   accdb->hot_map = (uint *)( (uchar *)shmem + shmem->idx_hot_map_off );
 }
 
+FD_STATIC_ASSERT( FD_ACCDB_PLACE_RANGE_MAX==1024UL*64UL, place_done );
+
 static void stage_reset( fd_accdb_t * accdb );
 
 FD_FN_CONST ulong
@@ -653,6 +655,8 @@ fd_accdb_snapshot_load_begin( fd_accdb_t * accdb ) {
                  "snapshot load started while snapshot production active" );
   FD_VOLATILE( accdb->shmem->prepop_off ) = 0UL;
   FD_VOLATILE( accdb->shmem->snapshot_loading ) = 1;
+  FD_ATOMIC_FETCH_AND_ADD( &accdb->shmem->prepop_off, 0UL ); /* full fence: see background stage punch */
+  while( FD_VOLATILE_CONST( accdb->shmem->punch_busy ) ) FD_SPIN_PAUSE();
 }
 
 static inline void
@@ -5780,8 +5784,8 @@ place_range( place_ctx_t * pc,
 }
 
 /* place_job_work: claims full-placement range tickets until none are
-   left: even ranges first, odd ones once every even range is done, so
-   no two ranges in flight share a page. */
+   left: even ranges first, then odd ones, each once both even
+   neighbours are done, so no two ranges in flight share a page. */
 
 static void
 place_job_work( place_ctx_t * pc ) {
@@ -5793,15 +5797,15 @@ place_job_work( place_ctx_t * pc ) {
     ulong t = FD_ATOMIC_FETCH_AND_ADD( &shmem->place_job.ticket, 1UL );
     if( t>=R ) return;
     ulong r = t<ne ? 2UL*t : 2UL*(t-ne)+1UL;
-    if( r&1UL ) {
-      while( FD_VOLATILE_CONST( shmem->place_job.done_even )<ne ) {
+    for( ulong nb=r-1UL; (r&1UL) && nb<=r+1UL && nb<R; nb+=2UL ) {
+      while( !( FD_VOLATILE_CONST( shmem->place_done[ nb>>6 ] ) & (1UL<<(nb&63UL)) ) ) {
         if( FD_VOLATILE_CONST( shmem->place_job.err ) ) return;
         FD_SPIN_PAUSE();
       }
     }
     if( FD_UNLIKELY( place_range( pc, r ) ) ) FD_VOLATILE( shmem->place_job.err ) = 1UL;
     FD_COMPILER_MFENCE();
-    if( !(r&1UL) ) FD_ATOMIC_FETCH_AND_ADD( &shmem->place_job.done_even, 1UL );
+    FD_ATOMIC_FETCH_AND_OR( &shmem->place_done[ r>>6 ], 1UL<<(r&63UL) );
     FD_ATOMIC_FETCH_AND_ADD( &shmem->place_job.done, 1UL );
   }
 }
@@ -5829,7 +5833,8 @@ place_all( place_ctx_t * pc ) {
   }
   /* full: open a job the other snapin tiles join */
   memset( shmem->place_out, 0, sizeof(shmem->place_out) );
-  shmem->place_job.ticket = shmem->place_job.done = shmem->place_job.done_even = shmem->place_job.err = 0UL;
+  shmem->place_job.ticket = shmem->place_job.done = shmem->place_job.err = 0UL;
+  memset( shmem->place_done, 0, ( R+63UL )/64UL*sizeof(ulong) );
   pc->conc = 1;
   FD_COMPILER_MFENCE();
   FD_VOLATILE( shmem->place_job.open ) = 1UL;
@@ -5889,9 +5894,10 @@ fd_accdb_snapshot_place( fd_accdb_t *                    accdb,
     shmem->shmetrics->accounts_total -= out->removed;
   }
   if( phase!=FD_ACCDB_PLACE_INCR_CHECK ) {
-    /* stage consumed: punch it */
-    if( shmem->stage_falloc ) fallocate( accdb->bkt->fd, FALLOC_FL_PUNCH_HOLE|FALLOC_FL_KEEP_SIZE, (long)shmem->stage_base, (long)shmem->stage_falloc );
-    shmem->stage_falloc = 0UL; /* punched: the next stage fallocates again */
+    /* stage consumed: the accdb tile punches it after the load (it
+       costs seconds on dirty pages); a later stage fallocates again */
+    FD_VOLATILE( shmem->stage_punch ) = fd_ulong_max( FD_VOLATILE_CONST( shmem->stage_punch ), shmem->stage_falloc );
+    shmem->stage_falloc = 0UL;
     for( ulong j=0UL; j<shmem->joiner_cnt_max; j++ ) FD_VOLATILE( shmem->stage_dir[ j ] ) = 0UL;
     FD_VOLATILE( shmem->stage_head ) = 0UL;
     memset( accdb->pend, 0, sizeof(accdb->pend) );
@@ -7525,6 +7531,19 @@ fd_accdb_background( fd_accdb_t * accdb,
   background_preevict( accdb, charge_busy, 0 );
 
   if( FD_UNLIKELY( idx_enabled( accdb ) ) ) background_idx( accdb, charge_busy );
+
+  /* Stage punch after a load; a new load waits until it is done before
+     staging (busy flag, then loading, both behind full fences). */
+  if( FD_UNLIKELY( FD_VOLATILE_CONST( shmem->stage_punch ) && !FD_VOLATILE_CONST( shmem->snapshot_loading ) ) ) {
+    FD_ATOMIC_FETCH_AND_ADD( &shmem->punch_busy, 1UL );
+    if( FD_LIKELY( !FD_VOLATILE_CONST( shmem->snapshot_loading ) ) ) {
+      fallocate( accdb->bkt->fd, FALLOC_FL_PUNCH_HOLE|FALLOC_FL_KEEP_SIZE, (long)shmem->stage_base, (long)shmem->stage_punch );
+      FD_VOLATILE( shmem->stage_punch ) = 0UL;
+    }
+    FD_ATOMIC_FETCH_AND_SUB( &shmem->punch_busy, 1UL );
+    *charge_busy = 1;
+    return;
+  }
 
   /* Full load: read the bucket ahead so placement overwrites cached
      pages (several times faster than first writes); compaction is held
