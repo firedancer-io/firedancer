@@ -105,9 +105,10 @@ FD_STATIC_ASSERT( sizeof(fd_accdb_stage_hdr_t)==64UL, stage_hdr_layout );
 #define FD_ACCDB_PLACE_PG_MAX    (FD_ACCDB_PLACE_RANGE_PG+FD_ACCDB_IDX_PROBE_MAX)
 #define FD_ACCDB_PLACE_RANGE_MAX (1UL<<16)
 #define FD_ACCDB_PLACE_WINDOW    (256UL<<20)
-/* placement: pages, their slot tags, page bitmaps, one chunk.
+#define FD_ACCDB_STAGE_ALIGN     (4096UL)                   /* stage I/O spans (O_DIRECT) */
+/* placement: pages, their slot tags, page bitmaps, one chunk's span.
    staging: >=2 records per range chunk plus fill counts and heads. */
-FD_STATIC_ASSERT( FD_ACCDB_PLACE_PG_MAX*(FD_ACCDB_IDX_PAGE_SZ+64UL+1UL)+(FD_ACCDB_STAGE_CHUNK_REC+1UL)*64UL<=FD_ACCDB_PLACE_WINDOW, place_window );
+FD_STATIC_ASSERT( FD_ACCDB_PLACE_PG_MAX*(FD_ACCDB_IDX_PAGE_SZ+64UL+1UL)+(FD_ACCDB_STAGE_CHUNK_REC+1UL)*64UL+3UL*FD_ACCDB_STAGE_ALIGN<=FD_ACCDB_PLACE_WINDOW, place_window );
 FD_STATIC_ASSERT( FD_ACCDB_PLACE_RANGE_MAX*(2UL*64UL+12UL)+4096UL<=FD_ACCDB_PLACE_WINDOW, stage_window );
 
 /* Overflow log: per-fork chains of OLOG_CHUNK records. */

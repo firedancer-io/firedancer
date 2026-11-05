@@ -182,7 +182,7 @@ unprivileged_init( fd_topo_t const *      topo,
     external_epoch_slots[ external_epoch_cnt++ ] = fseq;
   }
 
-  ctx->accdb = fd_accdb_join( fd_accdb_new( _accdb, accdb_shmem, FD_ACCDB_FD_RW, FD_ACCDB_SCRATCH_FD, external_epoch_cnt, external_epoch_slots, NULL, 0UL, 1, FD_ACCDB_IDX_FD_RW, NULL ) );
+  ctx->accdb = fd_accdb_join( fd_accdb_new( _accdb, accdb_shmem, FD_ACCDB_FD_RW, FD_ACCDB_SCRATCH_FD, external_epoch_cnt, external_epoch_slots, NULL, 0UL, 1, FD_ACCDB_IDX_FD_RW, FD_ACCDB_STAGE_FD, NULL ) );
   FD_TEST( ctx->accdb );
 
   ulong progcache_obj_id = fd_pod_query_ulong( topo->props, "progcache", ULONG_MAX );
@@ -203,7 +203,7 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
                           ulong                  out_cnt,
                           struct sock_filter *   out ) {
   (void)topo; (void)tile;
-  populate_sock_filter_policy_fd_accdb_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)FD_ACCDB_FD_RW, (uint)FD_ACCDB_SCRATCH_FD, (uint)FD_ACCDB_IDX_FD_RW );
+  populate_sock_filter_policy_fd_accdb_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)FD_ACCDB_FD_RW, (uint)FD_ACCDB_SCRATCH_FD, (uint)FD_ACCDB_IDX_FD_RW, (uint)FD_ACCDB_STAGE_FD );
   return sock_filter_policy_fd_accdb_tile_instr_cnt;
 }
 
@@ -214,7 +214,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
                       int *                  out_fds ) {
   (void)topo; (void)tile;
 
-  if( FD_UNLIKELY( out_fds_cnt<5UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+  if( FD_UNLIKELY( out_fds_cnt<6UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
 
   ulong out_cnt = 0UL;
   out_fds[ out_cnt++ ] = 2; /* stderr */
@@ -223,6 +223,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
   out_fds[ out_cnt++ ] = FD_ACCDB_FD_RW; /* accounts db fd */
   out_fds[ out_cnt++ ] = FD_ACCDB_SCRATCH_FD; /* deferred-free spill */
   out_fds[ out_cnt++ ] = FD_ACCDB_IDX_FD_RW;  /* index file */
+  out_fds[ out_cnt++ ] = FD_ACCDB_STAGE_FD;   /* snapshot stage (punch) */
   return out_cnt;
 }
 
