@@ -404,7 +404,7 @@ main( int     argc,
   ctx->net.pkt_buf_wmark     = umem_chunk0 + ((umem_sz-umem_frame_sz)>>FD_CHUNK_LG_SZ);
 
   topo_tile->net.shred_listen_port = SHRED_PORT;
-  fd_net_rx_dst_ports_init( &ctx->net, topo, topo_tile );
+  fd_net_rx_dests_init( &ctx->net, topo, topo_tile );
 
   /* Initialize out link mcache chunks (RX links) */
   ulong frame_off = 0UL;

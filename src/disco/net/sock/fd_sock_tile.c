@@ -1,5 +1,6 @@
 #define _GNU_SOURCE /* dup3 */
 #include "fd_sock_tile_private.h"
+#include "../fd_net_tile.h"
 #include "../../fd_disco_base.h"
 #include "../../topo/fd_topo.h"
 #include "../../../util/net/fd_eth.h"
@@ -221,47 +222,19 @@ privileged_init( fd_topo_t const *      topo,
      descriptors starting at sock_fd_min. */
 
   int sock_fd_min = RX_SOCK_FD_MIN;
-  ushort udp_port_candidates[] = {
-    (ushort)tile->sock.net.legacy_transaction_listen_port,
-    (ushort)tile->sock.net.quic_transaction_listen_port,
-    (ushort)tile->sock.net.shred_listen_port,
-    (ushort)tile->sock.net.gossip_listen_port,
-    (ushort)tile->sock.net.repair_client_listen_port,
-    (ushort)tile->sock.net.repair_serve_listen_port,
-    (ushort)tile->sock.net.votor_quic_client_listen_port,
-    (ushort)tile->sock.net.votor_quic_server_listen_port
-  };
-  static char const * udp_port_links[] = {
-    "net_quic",   /* legacy_transaction_listen_port */
-    "net_quic",   /* quic_transaction_listen_port */
-    "net_shred",  /* shred_listen_port (turbine) */
-    "net_gossvf", /* gossip_listen_port */
-    "net_shred",  /* shred_listen_port (repair) */
-    "net_rserve", /* repair_serve_listen_port */
-    "net_votor",  /* votor_quic_client_listen_port */
-    "net_votor"   /* votor_quic_server_listen_port */
-  };
-  static uchar const udp_port_protos[] = {
-    DST_PROTO_TPU_UDP,  /* legacy_transaction_listen_port */
-    DST_PROTO_TPU_QUIC, /* quic_transaction_listen_port */
-    DST_PROTO_SHRED,    /* shred_listen_port (turbine) */
-    DST_PROTO_GOSSIP,   /* gossip_listen_port */
-    DST_PROTO_REPAIR,   /* shred_listen_port (repair) */
-    DST_PROTO_RSERVE,   /* repair_serve_listen_port */
-    DST_PROTO_VOTOR,    /* votor_quic_client_listen_port */
-    DST_PROTO_VOTOR     /* votor_quic_server_listen_port */
-  };
-  for( uint candidate_idx=0U; candidate_idx<sizeof(udp_port_candidates)/sizeof(udp_port_candidates[0]); candidate_idx++ ) {
-    if( !udp_port_candidates[ candidate_idx ] ) continue;
+  fd_net_rx_dest_t rx_dests[ FD_NET_RX_DEST_CNT ];
+  fd_net_rx_dest_list( rx_dests, &tile->net );
+  for( ulong dest_idx=0UL; dest_idx<FD_NET_RX_DEST_CNT; dest_idx++ ) {
+    if( !rx_dests[ dest_idx ].listen_port ) continue;
     uint sock_idx = ctx->sock_cnt;
     if( sock_idx>=FD_SOCK_TILE_MAX_SOCKETS ) FD_LOG_ERR(( "too many sockets" ));
-    ushort port = (ushort)udp_port_candidates[ candidate_idx ];
+    ushort port = rx_dests[ dest_idx ].listen_port;
 
-    char const * target_link = udp_port_links[ candidate_idx ];
+    char const * target_link = rx_dests[ dest_idx ].out_link;
     ctx->link_rx_map[ sock_idx ] = 0xFF;
     for( ulong j=0UL; j<(tile->out_cnt); j++ ) {
       if( 0==strcmp( topo->links[ tile->out_link_id[ j ] ].name, target_link ) ) {
-        ctx->proto_id    [ sock_idx ] = (uchar)udp_port_protos[ candidate_idx ];
+        ctx->proto_id    [ sock_idx ] = (uchar)rx_dests[ dest_idx ].proto_id;
         ctx->link_rx_map [ sock_idx ] = (uchar)j;
         ctx->rx_sock_port[ sock_idx ] = (ushort)port;
         break;

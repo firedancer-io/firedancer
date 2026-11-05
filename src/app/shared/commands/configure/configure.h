@@ -4,6 +4,7 @@
 #include "../../../platform/fd_cap_chk.h"
 #include "../../fd_config.h"
 #include "../../fd_action.h"
+#include "../../../../disco/net/fd_net_tile.h"
 
 #include <stdarg.h>
 
@@ -133,7 +134,7 @@ configure_stage( configure_stage_t * stage,
 /* configure_udp_ports lists the UDP listen ports */
 uint
 configure_udp_ports( fd_config_t const * config,
-                     ushort              ports[ 32 ] );
+                     ushort              ports[ FD_NET_RX_DEST_CNT ] );
 
 void configure_cmd_args( int * pargc, char *** pargv, args_t * args );
 void configure_cmd_perm( args_t * args, fd_cap_chk_t * chk, config_t const * config );
