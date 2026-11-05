@@ -169,18 +169,18 @@ main( int     argc,
      the chain walk stays out of the measurement (smaller sizes have
      measured up to 30 ns/txn slower). */
   ulong max_accounts  = 1200000000UL;
-  ulong shmem_fp = fd_accdb_shmem_footprint( max_accounts, max_live_slots, writes_per_slot, partition_cnt, cache_fp, min_reserved, joiner_cnt, 0UL );
+  ulong shmem_fp = fd_accdb_shmem_footprint( max_accounts, max_live_slots, writes_per_slot, partition_cnt, cache_fp, min_reserved, joiner_cnt, 0UL, 0UL );
   FD_TEST( shmem_fp );
   void * shmem_mem = aligned_alloc( fd_accdb_shmem_align(), shmem_fp );
   FD_TEST( shmem_mem );
-  fd_accdb_shmem_t * shmem = fd_accdb_shmem_join( fd_accdb_shmem_new( shmem_mem, max_accounts, max_live_slots, writes_per_slot, partition_cnt, partition_sz, cache_fp, min_reserved, 0, 42UL, joiner_cnt, 0UL ) );
+  fd_accdb_shmem_t * shmem = fd_accdb_shmem_join( fd_accdb_shmem_new( shmem_mem, max_accounts, max_live_slots, writes_per_slot, partition_cnt, partition_sz, cache_fp, min_reserved, 0, 42UL, joiner_cnt, 0UL, 0UL ) );
   FD_TEST( shmem );
 
   fd_accdb_t * joins[ BENCH_MAX_THREADS+1UL ];
   for( ulong i=0UL; i<joiner_cnt; i++ ) {
     void * mem = aligned_alloc( fd_accdb_align(), fd_accdb_footprint( max_live_slots, 0 ) );
     FD_TEST( mem );
-    joins[ i ] = fd_accdb_join( fd_accdb_new( mem, shmem, fd, 0UL, NULL, NULL, 0UL, 0 ) );
+    joins[ i ] = fd_accdb_join( fd_accdb_new( mem, shmem, fd, -1, 0UL, NULL, NULL, 0UL, 0, -1, -1, NULL ) );
     FD_TEST( joins[ i ] );
   }
   fd_accdb_t * accdb = joins[ max_threads ];

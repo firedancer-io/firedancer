@@ -153,6 +153,8 @@ struct __attribute__((aligned(FD_ACCDB_ALIGN))) fd_accdb_private {
   ulong                 stage_cnt;       /* records staged since the last directory */
   ulong                 stage_pub;       /* published directory offset+1, 0 = none */
   uchar *               place_window;    /* FD_ACCDB_PLACE_WINDOW B, snapin only */
+  int                   stage_fd;        /* stage chunk I/O, 4 KiB aligned (O_DIRECT) */
+  ulong                 stage_off0;      /* stage byte 0 in that file */
   ulong                 pend_watch_cnt;
   uchar                 pend_watch[ FD_ACCDB_PEND_MAX ][ 32 ];
   fd_accdb_stage_rec_t  pend      [ FD_ACCDB_PEND_MAX ];
@@ -373,6 +375,7 @@ fd_accdb_new( void *              ljoin,
               ulong               sleep_tile_id,
               int                 compaction,
               int                 idx_fd,
+              int                 stage_fd,
               void *              place_window ) {
   if( FD_UNLIKELY( !ljoin ) ) {
     FD_LOG_WARNING(( "NULL ljoin" ));
@@ -470,6 +473,8 @@ fd_accdb_new( void *              ljoin,
   accdb->stage_cnt       = 0UL;
   accdb->stage_pub       = 0UL;
   accdb->place_window    = place_window;
+  accdb->stage_fd        = stage_fd>=0 ? stage_fd : idx_fd;
+  accdb->stage_off0      = stage_fd>=0 ? 0UL      : shmem->stage_base;
   if( place_window && idx_fd>=0 && shmem->index_ram_entries ) stage_reset( accdb );
   accdb->pend_watch_cnt  = 0UL;
 
@@ -983,6 +988,8 @@ fd_accdb_join_readonly( void *             ljoin,
   accdb->shmem = shmem;
   FD_TEST( acc_pool_join( accdb->acc_pool_join, shmem->acc_pool, _acc_pool_ele, pool_max ) );
   idx_join( accdb, idx_fd_ro );
+  accdb->stage_fd   = -1;
+  accdb->stage_off0 = 0UL;
   accdb->acc_pool = accdb->acc_pool_join->ele;
   accdb->acc_map  = _acc_map;
   for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) accdb->cache[ c ] = (uchar *)shmem + shmem->cache_region_off[ c ];
@@ -5292,7 +5299,7 @@ stage_grow( fd_accdb_t * accdb,
   spin_lock_acquire( &shmem->grow_lock );
   if( end>shmem->stage_falloc ) {
     ulong to = fd_ulong_align_up( end, 1UL<<30 );
-    if( FD_UNLIKELY( -1==fallocate( accdb->bkt->fd, 0, (long)(shmem->stage_base+shmem->stage_falloc), (long)(to-shmem->stage_falloc) ) ) )
+    if( FD_UNLIKELY( -1==fallocate( accdb->stage_fd, 0, (long)(accdb->stage_off0+shmem->stage_falloc), (long)(to-shmem->stage_falloc) ) ) )
       FD_LOG_ERR(( "fallocate() of the snapshot index stage failed (%d-%s); free disk space", errno, fd_io_strerror( errno ) ));
     FD_VOLATILE( shmem->stage_falloc ) = to;
   }
@@ -5326,6 +5333,23 @@ stage_check_consumed( fd_accdb_t * accdb ) {
   if( FD_UNLIKELY( accdb->stage_pub && FD_VOLATILE_CONST( accdb->shmem->stage_dir[ accdb->joiner_idx ] )!=accdb->stage_pub ) ) stage_reset( accdb );
 }
 
+/* stage_write writes [p,p+sz) of the window as the 4 KiB aligned span
+   around it (O_DIRECT: writers share the inode lock, and the stage
+   never dirties the page cache).  The span's other bytes are this
+   writer's own and never read back.  Returns p's stage offset. */
+
+static ulong
+stage_write( fd_accdb_t * accdb,
+             void const * p,
+             ulong        sz ) {
+  ulong a   = fd_ulong_align_dn( (ulong)p, FD_ACCDB_STAGE_ALIGN );
+  ulong len = fd_ulong_align_up( (ulong)p+sz, FD_ACCDB_STAGE_ALIGN )-a;
+  ulong off = stage_alloc( accdb, len );
+  FD_TEST( fd_ulong_is_aligned( accdb->stage_off0+off, FD_ACCDB_STAGE_ALIGN ) );
+  fd_accdb_idx_io( accdb->stage_fd, 1, (void *)a, len, accdb->stage_off0+off );
+  return off+( (ulong)p-a );
+}
+
 static void
 stage_chunk_flush( fd_accdb_t * accdb,
                    ulong        R,
@@ -5336,9 +5360,7 @@ stage_chunk_flush( fd_accdb_t * accdb,
   fd_accdb_stage_hdr_t * hdr = (fd_accdb_stage_hdr_t *)( accdb->place_window + r*( stage_bw( R )+1UL )*64UL );
   memset( hdr, 0, sizeof(*hdr) );
   hdr->prev = heads[ r ];
-  ulong sz  = (n+1UL)*64UL;
-  ulong off = stage_alloc( accdb, sz );
-  fd_accdb_idx_io( accdb->bkt->fd, 1, hdr, sz, accdb->shmem->stage_base+off );
+  ulong off = stage_write( accdb, hdr, (n+1UL)*64UL );
   heads[ r ] = ( off/64UL+1UL ) | ( n<<40 );
   fill[ r ]  = 0U;
 }
@@ -5356,9 +5378,7 @@ fd_accdb_snapshot_stage_flush( fd_accdb_t * accdb ) {
   uint *  fill  = stage_fill( accdb, R );
   ulong * heads = stage_heads( accdb, R );
   for( ulong r=0UL; r<R; r++ ) if( fill[ r ] ) stage_chunk_flush( accdb, R, r );
-  ulong sz  = fd_ulong_align_up( R*sizeof(ulong), 64UL );
-  ulong off = stage_alloc( accdb, sz );
-  fd_accdb_idx_io( accdb->bkt->fd, 1, heads, sz, accdb->shmem->stage_base+off );
+  ulong off = stage_write( accdb, heads, R*sizeof(ulong) );
   accdb->stage_pub = off+1UL;
   accdb->stage_cnt = 0UL;
   FD_COMPILER_MFENCE();
@@ -5731,14 +5751,19 @@ place_range( place_ctx_t * pc,
   uchar *                tags  = win+FD_ACCDB_PLACE_PG_MAX*FD_ACCDB_IDX_PAGE_SZ;
   ulong                  bm_w  = ( FD_ACCDB_PLACE_PG_MAX+63UL )>>6;
   ulong *                bm    = (ulong *)( tags+FD_ACCDB_PLACE_PG_MAX*64UL );     /* ld, dirty, want */
-  fd_accdb_stage_rec_t * buf   = (fd_accdb_stage_rec_t *)( bm+fd_ulong_align_up( 3UL*bm_w, 8UL ) );
+  uchar *                buf   = (uchar *)fd_ulong_align_up( (ulong)( bm+3UL*bm_w ), FD_ACCDB_STAGE_ALIGN );
   ulong S = shmem->joiner_cnt_max;
   ulong heads[ FD_ACCDB_MAX_JOINERS ];
   ulong any = 0UL;
   for( ulong j=0UL; j<S; j++ ) {
     ulong dir = FD_VOLATILE_CONST( shmem->stage_dir[ j ] );
     heads[ j ] = 0UL;
-    if( dir ) fd_accdb_idx_io( accdb->bkt->fd, 0, &heads[ j ], sizeof(ulong), shmem->stage_base+dir-1UL+r*sizeof(ulong) );
+    if( dir ) { /* aligned block read: no stage page enters the page cache */
+      ulong o = accdb->stage_off0+dir-1UL+r*sizeof(ulong);
+      ulong a = fd_ulong_align_dn( o, FD_ACCDB_STAGE_ALIGN );
+      fd_accdb_idx_io( accdb->stage_fd, 0, buf, FD_ACCDB_STAGE_ALIGN, a );
+      heads[ j ] = FD_LOAD( ulong, buf+o-a );
+    }
     any |= heads[ j ];
   }
   if( !any && pc->incr ) return 0;
@@ -5764,9 +5789,11 @@ place_range( place_ctx_t * pc,
     for( ulong link=heads[ j ]; link; ) {
       ulong off = ( (link&FD_ACCDB_STAGE_LINK_OFF)-1UL )*64UL;
       ulong n   = link>>40;
-      fd_accdb_idx_io( accdb->bkt->fd, 0, buf, (n+1UL)*64UL, shmem->stage_base+off );
-      link = ((fd_accdb_stage_hdr_t const *)buf)->prev;
-      fd_accdb_stage_rec_t const * rec = buf+1UL;
+      ulong a   = fd_ulong_align_dn( off, FD_ACCDB_STAGE_ALIGN ); /* the span stage_write wrote */
+      fd_accdb_idx_io( accdb->stage_fd, 0, buf, fd_ulong_align_up( off+(n+1UL)*64UL, FD_ACCDB_STAGE_ALIGN )-a, accdb->stage_off0+a );
+      fd_accdb_stage_hdr_t const * hdr = (fd_accdb_stage_hdr_t const *)( buf+off-a );
+      link = hdr->prev;
+      fd_accdb_stage_rec_t const * rec = (fd_accdb_stage_rec_t const *)hdr+1UL;
       if( pc->incr ) place_load_homes( pc, rec, n, bm+2UL*bm_w );
       for( ulong k=0UL; k<n; k++ ) {
         if( FD_LIKELY( k+8UL<n ) ) { /* home row and header, 8 ahead */
@@ -5894,8 +5921,8 @@ fd_accdb_snapshot_place( fd_accdb_t *                    accdb,
     shmem->shmetrics->accounts_total -= out->removed;
   }
   if( phase!=FD_ACCDB_PLACE_INCR_CHECK ) {
-    /* stage consumed: the accdb tile punches it after the load (it
-       costs seconds on dirty pages); a later stage fallocates again */
+    /* stage consumed: the accdb tile punches it after the load; a
+       later stage fallocates again */
     FD_VOLATILE( shmem->stage_punch ) = fd_ulong_max( FD_VOLATILE_CONST( shmem->stage_punch ), shmem->stage_falloc );
     shmem->stage_falloc = 0UL;
     for( ulong j=0UL; j<shmem->joiner_cnt_max; j++ ) FD_VOLATILE( shmem->stage_dir[ j ] ) = 0UL;
@@ -7537,7 +7564,7 @@ fd_accdb_background( fd_accdb_t * accdb,
   if( FD_UNLIKELY( FD_VOLATILE_CONST( shmem->stage_punch ) && !FD_VOLATILE_CONST( shmem->snapshot_loading ) ) ) {
     FD_ATOMIC_FETCH_AND_ADD( &shmem->punch_busy, 1UL );
     if( FD_LIKELY( !FD_VOLATILE_CONST( shmem->snapshot_loading ) ) ) {
-      fallocate( accdb->bkt->fd, FALLOC_FL_PUNCH_HOLE|FALLOC_FL_KEEP_SIZE, (long)shmem->stage_base, (long)shmem->stage_punch );
+      fallocate( accdb->stage_fd, FALLOC_FL_PUNCH_HOLE|FALLOC_FL_KEEP_SIZE, (long)accdb->stage_off0, (long)shmem->stage_punch );
       FD_VOLATILE( shmem->stage_punch ) = 0UL;
     }
     FD_ATOMIC_FETCH_AND_SUB( &shmem->punch_busy, 1UL );

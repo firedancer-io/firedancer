@@ -498,6 +498,8 @@ main_pid_namespace( void * _args ) {
           FD_LOG_ERR(( "fcntl(F_SETFD) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
         if( FD_UNLIKELY( -1==fcntl( FD_ACCDB_IDX_FD_RO, F_SETFD, tile_uses_idx_ro ? 0 : FD_CLOEXEC ) ) )
           FD_LOG_ERR(( "fcntl(F_SETFD) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+        if( FD_UNLIKELY( -1==fcntl( FD_ACCDB_STAGE_FD, F_SETFD, tile_uses_idx_rw ? 0 : FD_CLOEXEC ) ) )
+          FD_LOG_ERR(( "fcntl(F_SETFD) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
         if( FD_UNLIKELY( tile_uses_accdb_ro ) ) {
           if( FD_UNLIKELY( -1==fcntl( FD_ACCDB_FD_RO, F_SETFD, 0 ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,0) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
@@ -631,6 +633,7 @@ main_pid_namespace( void * _args ) {
     if( FD_UNLIKELY( -1==close( FD_ACCDB_SCRATCH_FD ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     if( FD_UNLIKELY( -1==close( FD_ACCDB_IDX_FD_RW ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     if( FD_UNLIKELY( -1==close( FD_ACCDB_IDX_FD_RO ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    if( FD_UNLIKELY( -1==close( FD_ACCDB_STAGE_FD ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     if( FD_UNLIKELY( -1==close( FD_TXNCACHE_FD ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     if( FD_UNLIKELY( -1==close( FD_VOTOR_SPILL_FD ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     if( FD_UNLIKELY( -1==close( FD_EVENT_SPOOL_FD ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
@@ -1311,6 +1314,17 @@ initialize_accdb_fd( config_t const * config ) {
   if( FD_UNLIKELY( -1==idx_ro_fd ) ) FD_LOG_ERR(( "failed to open accounts index read-only (%i-%s)", errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( -1==dup2( idx_ro_fd, FD_ACCDB_IDX_FD_RO ) ) ) FD_LOG_ERR(( "dup2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( -1==close( idx_ro_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
+  /* Snapshot stage file (index mode): its own inode, O_DIRECT, so the
+     snapin writers neither serialize on the index file's inode lock
+     nor fill the page cache.  Grown by fallocate during a load. */
+  char stage_path[ PATH_MAX ];
+  FD_TEST( fd_cstr_printf_check( stage_path, sizeof(stage_path), NULL, "%s.stage", config->paths.accounts ) );
+  int stage_fd = open( stage_path, O_RDWR|O_CREAT|O_TRUNC|O_NOATIME|O_CLOEXEC|O_DIRECT, S_IRUSR|S_IWUSR );
+  if( FD_UNLIKELY( -1==stage_fd ) ) FD_LOG_ERR(( "failed to open %s with O_DIRECT (%i-%s); the filesystem holding [paths.accounts] must support direct IO", stage_path, errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( -1==unlink( stage_path ) ) ) FD_LOG_ERR(( "unlink(%s) failed (%i-%s)", stage_path, errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( -1==dup2( stage_fd, FD_ACCDB_STAGE_FD ) ) ) FD_LOG_ERR(( "dup2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( -1==close( stage_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 }
 
 void
