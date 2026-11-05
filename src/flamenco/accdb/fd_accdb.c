@@ -5402,6 +5402,7 @@ struct place_ctx {
   ulong                         p1;
   ulong *                       ld;      /* NULL = all pages present */
   ulong *                       dirty;
+  int                           conc;    /* full placement job: filter shared */
 };
 
 typedef struct place_ctx place_ctx_t;
@@ -5616,6 +5617,16 @@ place_rec( place_ctx_t *                pc,
 
 #define PLACE_CF_RING (16UL)
 
+static inline void
+place_cf_insert( place_ctx_t * pc,
+                 ulong         i1,
+                 ulong         i2,
+                 ulong         fp ) {
+  fd_accdb_t * accdb = pc->accdb;
+  if( pc->conc ) fd_accdb_cf_insert_conc( accdb->cf, i1, i2, fp, &accdb->idx_rng, &accdb->shmem->cf_lock );
+  else           fd_accdb_cf_insert_key ( accdb->cf, i1, i2, fp, &accdb->idx_rng, 0 );
+}
+
 static void
 place_settle( place_ctx_t * pc ) {
   fd_accdb_t *          accdb = pc->accdb;
@@ -5652,7 +5663,7 @@ place_settle( place_ctx_t * pc ) {
         pc->out->loaded++;
         if( tomb ) {
           ulong k = cf_n%PLACE_CF_RING;
-          if( cf_n>=PLACE_CF_RING ) fd_accdb_cf_insert_key( accdb->cf, cf_i1[ k ], cf_i2[ k ], cf_fp[ k ], &accdb->idx_rng );
+          if( cf_n>=PLACE_CF_RING ) place_cf_insert( pc, cf_i1[ k ], cf_i2[ k ], cf_fp[ k ] );
           fd_accdb_cf_key( accdb->cf, d->pubkey, &cf_i1[ k ], &cf_i2[ k ], &cf_fp[ k ] );
           __builtin_prefetch( &accdb->cf->cf[ cf_i1[ k ] ], 1, 0 );
           __builtin_prefetch( &accdb->cf->cf[ cf_i2[ k ] ], 1, 0 );
@@ -5664,7 +5675,7 @@ place_settle( place_ctx_t * pc ) {
   }
   for( ulong j=cf_n>PLACE_CF_RING ? cf_n-PLACE_CF_RING : 0UL; j<cf_n; j++ ) {
     ulong k = j%PLACE_CF_RING;
-    fd_accdb_cf_insert_key( accdb->cf, cf_i1[ k ], cf_i2[ k ], cf_fp[ k ], &accdb->idx_rng );
+    place_cf_insert( pc, cf_i1[ k ], cf_i2[ k ], cf_fp[ k ] );
   }
   if( !tomb ) return;
   if( !pc->dirty ) {
@@ -5691,73 +5702,162 @@ place_settle( place_ctx_t * pc ) {
    scratch is the window (locked shmem): counters at its end, pages
    then a read buffer in pass 2, so a range of any density fits. */
 
+/* place_range: range r's records from every writer's chain against
+   window pages [p0,p1), p1 including PROBE_MAX pages of the next range.
+   Incremental ranges read pages lazily.  A full range starts from zero
+   pages, except that a wave-B (odd) range reads both overlaps from
+   disk: its head (spill of range r-1) and its extension (the head of
+   range r+1, already written by wave A). */
+
 static int
-place_all( place_ctx_t * pc ) {
+place_range( place_ctx_t * pc,
+             ulong         r ) {
   fd_accdb_t *       accdb = pc->accdb;
   fd_accdb_shmem_t * shmem = accdb->shmem;
-  ulong npage  = accdb->bkt->npage;
-  ulong R      = place_range_cnt( accdb );
-  uchar * win  = accdb->place_window;
-  FD_TEST( win );
-  FD_TEST( R<=FD_ACCDB_PLACE_RANGE_MAX );
-  ulong S = shmem->joiner_cnt_max;
-
-  /* ranges in order, each from every writer's chain; a range's
-     trailing PROBE_MAX pages overlap the next range, which picks them
-     up from disk. */
+  uchar *            win   = accdb->place_window;
+  ulong p0 = r*FD_ACCDB_PLACE_RANGE_PG;
+  ulong p1 = fd_ulong_min( accdb->bkt->npage, p0+FD_ACCDB_PLACE_PG_MAX );
+  ulong np = p1-p0;
   fd_accdb_idx_page_t *  pages = (fd_accdb_idx_page_t *)win;
   uchar *                tags  = win+FD_ACCDB_PLACE_PG_MAX*FD_ACCDB_IDX_PAGE_SZ;
   ulong                  bm_w  = ( FD_ACCDB_PLACE_PG_MAX+63UL )>>6;
   ulong *                bm    = (ulong *)( tags+FD_ACCDB_PLACE_PG_MAX*64UL );     /* ld, dirty, want */
   fd_accdb_stage_rec_t * buf   = (fd_accdb_stage_rec_t *)( bm+fd_ulong_align_up( 3UL*bm_w, 8UL ) );
-  pc->pages = pages;
-  pc->tags  = tags;
-  for( ulong r=0UL; r<R; r++ ) {
-    ulong p0 = r*FD_ACCDB_PLACE_RANGE_PG;
-    ulong p1 = fd_ulong_min( npage, p0+FD_ACCDB_PLACE_PG_MAX );
-    ulong pg_bytes = (p1-p0)*FD_ACCDB_IDX_PAGE_SZ;
-    ulong heads[ FD_ACCDB_MAX_JOINERS ];
-    ulong any = 0UL;
-    for( ulong j=0UL; j<S; j++ ) {
-      ulong dir = FD_VOLATILE_CONST( shmem->stage_dir[ j ] );
-      heads[ j ] = 0UL;
-      if( dir ) fd_accdb_idx_io( accdb->bkt->fd, 0, &heads[ j ], sizeof(ulong), shmem->stage_base+dir-1UL+r*sizeof(ulong) );
-      any |= heads[ j ];
+  ulong S = shmem->joiner_cnt_max;
+  ulong heads[ FD_ACCDB_MAX_JOINERS ];
+  ulong any = 0UL;
+  for( ulong j=0UL; j<S; j++ ) {
+    ulong dir = FD_VOLATILE_CONST( shmem->stage_dir[ j ] );
+    heads[ j ] = 0UL;
+    if( dir ) fd_accdb_idx_io( accdb->bkt->fd, 0, &heads[ j ], sizeof(ulong), shmem->stage_base+dir-1UL+r*sizeof(ulong) );
+    any |= heads[ j ];
+  }
+  if( !any && pc->incr ) return 0;
+  pc->pages = pages; pc->tags = tags; pc->p0 = p0; pc->p1 = p1;
+  if( pc->incr ) {
+    pc->ld = bm; pc->dirty = bm+bm_w;
+    memset( bm, 0, 2UL*bm_w*sizeof(ulong) );
+  } else {
+    ulong head = (r&1UL) ? fd_ulong_min( FD_ACCDB_IDX_PROBE_MAX, np ) : 0UL;
+    ulong ext  = (r&1UL) && np>FD_ACCDB_PLACE_RANGE_PG ? np-FD_ACCDB_PLACE_RANGE_PG : 0UL;
+    memset( pages+head, 0, ( np-head-ext )*FD_ACCDB_IDX_PAGE_SZ );
+    memset( tags+head*64UL, 0, ( np-head-ext )*64UL );
+    if( head ) {
+      fd_accdb_idx_io( accdb->bkt->fd, 0, pages, head*FD_ACCDB_IDX_PAGE_SZ, (accdb->bkt->page0+p0)*FD_ACCDB_IDX_PAGE_SZ );
+      place_tags_build( pages, tags, head, shmem->seed );
     }
-    if( !any && pc->incr ) continue;
-    pc->p0 = p0; pc->p1 = p1;
-    if( pc->incr ) {
-      pc->ld = bm; pc->dirty = bm+bm_w;
-      memset( bm, 0, 2UL*bm_w*sizeof(ulong) );
-    } else {
-      ulong carry = r ? fd_ulong_min( FD_ACCDB_IDX_PROBE_MAX, p1-p0 ) : 0UL;
-      if( carry ) fd_accdb_idx_io( accdb->bkt->fd, 0, pages, carry*FD_ACCDB_IDX_PAGE_SZ, (accdb->bkt->page0+p0)*FD_ACCDB_IDX_PAGE_SZ );
-      memset( pages+carry, 0, pg_bytes-carry*FD_ACCDB_IDX_PAGE_SZ );
-      place_tags_build( pages, tags, carry, shmem->seed );
-      memset( tags+carry*64UL, 0, (p1-p0-carry)*64UL );
+    if( ext ) {
+      fd_accdb_idx_io( accdb->bkt->fd, 0, pages+np-ext, ext*FD_ACCDB_IDX_PAGE_SZ, (accdb->bkt->page0+p1-ext)*FD_ACCDB_IDX_PAGE_SZ );
+      place_tags_build( pages+np-ext, tags+(np-ext)*64UL, ext, shmem->seed );
     }
-    for( ulong j=0UL; j<S; j++ ) {
-      for( ulong link=heads[ j ]; link; ) {
-        ulong off = ( (link&FD_ACCDB_STAGE_LINK_OFF)-1UL )*64UL;
-        ulong n   = link>>40;
-        fd_accdb_idx_io( accdb->bkt->fd, 0, buf, (n+1UL)*64UL, shmem->stage_base+off );
-        link = ((fd_accdb_stage_hdr_t const *)buf)->prev;
-        fd_accdb_stage_rec_t const * rec = buf+1UL;
-        if( pc->incr ) place_load_homes( pc, rec, n, bm+2UL*bm_w );
-        for( ulong k=0UL; k<n; k++ ) {
-          if( FD_LIKELY( k+8UL<n ) ) { /* home row and header, 8 ahead */
-            ulong hp = rec[ k+8UL ].home-p0;
-            __builtin_prefetch( tags+hp*64UL, 1, 0 );
-            __builtin_prefetch( &pages[ hp ], 1, 0 );
-          }
-          if( FD_UNLIKELY( rec[ k ].home<p0 || rec[ k ].home>=p0+FD_ACCDB_PLACE_RANGE_PG ) ) FD_LOG_CRIT(( "stage chunk out of range" ));
-          if( FD_UNLIKELY( place_rec( pc, &rec[ k ] ) ) ) return -1;
+  }
+  for( ulong j=0UL; j<S; j++ ) {
+    for( ulong link=heads[ j ]; link; ) {
+      ulong off = ( (link&FD_ACCDB_STAGE_LINK_OFF)-1UL )*64UL;
+      ulong n   = link>>40;
+      fd_accdb_idx_io( accdb->bkt->fd, 0, buf, (n+1UL)*64UL, shmem->stage_base+off );
+      link = ((fd_accdb_stage_hdr_t const *)buf)->prev;
+      fd_accdb_stage_rec_t const * rec = buf+1UL;
+      if( pc->incr ) place_load_homes( pc, rec, n, bm+2UL*bm_w );
+      for( ulong k=0UL; k<n; k++ ) {
+        if( FD_LIKELY( k+8UL<n ) ) { /* home row and header, 8 ahead */
+          ulong hp = rec[ k+8UL ].home-p0;
+          __builtin_prefetch( tags+hp*64UL, 1, 0 );
+          __builtin_prefetch( &pages[ hp ], 1, 0 );
         }
+        if( FD_UNLIKELY( rec[ k ].home<p0 || rec[ k ].home>=p0+FD_ACCDB_PLACE_RANGE_PG ) ) FD_LOG_CRIT(( "stage chunk out of range" ));
+        if( FD_UNLIKELY( place_rec( pc, &rec[ k ] ) ) ) return -1;
       }
     }
-    place_settle( pc );
   }
+  place_settle( pc );
   return 0;
+}
+
+/* place_job_work: claims full-placement range tickets until none are
+   left: even ranges first, odd ones once every even range is done, so
+   no two ranges in flight share a page. */
+
+static void
+place_job_work( place_ctx_t * pc ) {
+  fd_accdb_shmem_t * shmem = pc->accdb->shmem;
+  ulong R  = place_range_cnt( pc->accdb );
+  ulong ne = ( R+1UL )/2UL;
+  for(;;) {
+    if( FD_VOLATILE_CONST( shmem->place_job.err ) ) return;
+    ulong t = FD_ATOMIC_FETCH_AND_ADD( &shmem->place_job.ticket, 1UL );
+    if( t>=R ) return;
+    ulong r = t<ne ? 2UL*t : 2UL*(t-ne)+1UL;
+    if( r&1UL ) {
+      while( FD_VOLATILE_CONST( shmem->place_job.done_even )<ne ) {
+        if( FD_VOLATILE_CONST( shmem->place_job.err ) ) return;
+        FD_SPIN_PAUSE();
+      }
+    }
+    if( FD_UNLIKELY( place_range( pc, r ) ) ) FD_VOLATILE( shmem->place_job.err ) = 1UL;
+    FD_COMPILER_MFENCE();
+    if( !(r&1UL) ) FD_ATOMIC_FETCH_AND_ADD( &shmem->place_job.done_even, 1UL );
+    FD_ATOMIC_FETCH_AND_ADD( &shmem->place_job.done, 1UL );
+  }
+}
+
+static void
+place_out_add( fd_accdb_snapshot_placement_t *       acc,
+               fd_accdb_snapshot_placement_t const * o ) {
+  acc->loaded     += o->loaded;
+  acc->removed    += o->removed;
+  acc->duplicates += o->duplicates;
+  acc->disk_freed += o->disk_freed;
+  fd_uwide_add( &acc->dup_lamports_hi, &acc->dup_lamports, acc->dup_lamports_hi, acc->dup_lamports, o->dup_lamports_hi, o->dup_lamports, 0UL );
+}
+
+static int
+place_all( place_ctx_t * pc ) {
+  fd_accdb_t *       accdb = pc->accdb;
+  fd_accdb_shmem_t * shmem = accdb->shmem;
+  ulong R = place_range_cnt( accdb );
+  FD_TEST( accdb->place_window );
+  FD_TEST( R<=FD_ACCDB_PLACE_RANGE_MAX );
+  if( pc->incr ) {
+    for( ulong r=0UL; r<R; r++ ) if( FD_UNLIKELY( place_range( pc, r ) ) ) return -1;
+    return 0;
+  }
+  /* full: open a job the other snapin tiles join */
+  memset( shmem->place_out, 0, sizeof(shmem->place_out) );
+  shmem->place_job.ticket = shmem->place_job.done = shmem->place_job.done_even = shmem->place_job.err = 0UL;
+  pc->conc = 1;
+  FD_COMPILER_MFENCE();
+  FD_VOLATILE( shmem->place_job.open ) = 1UL;
+  place_job_work( pc );
+  while( FD_VOLATILE_CONST( shmem->place_job.done )<R && !FD_VOLATILE_CONST( shmem->place_job.err ) ) FD_SPIN_PAUSE();
+  FD_VOLATILE( shmem->place_job.open ) = 0UL;
+  FD_COMPILER_MFENCE();
+  while( FD_VOLATILE_CONST( shmem->place_job.active ) ) FD_SPIN_PAUSE();
+  FD_COMPILER_MFENCE();
+  for( ulong j=0UL; j<shmem->joiner_cnt_max; j++ ) place_out_add( pc->out, &shmem->place_out[ j ] );
+  return shmem->place_job.err ? -1 : 0;
+}
+
+int
+fd_accdb_snapshot_place_help( fd_accdb_t *             accdb,
+                              fd_accdb_place_tomb_fn_t tomb_fn,
+                              void *                   tomb_ctx ) {
+  if( FD_LIKELY( !idx_enabled( accdb ) || !accdb->place_window ) ) return 0;
+  fd_accdb_shmem_t * shmem = accdb->shmem;
+  if( FD_LIKELY( !FD_VOLATILE_CONST( shmem->place_job.open ) ) ) return 0;
+  FD_ATOMIC_FETCH_AND_ADD( &shmem->place_job.active, 1UL );
+  FD_COMPILER_MFENCE();
+  int did = 0;
+  if( FD_VOLATILE_CONST( shmem->place_job.open ) && FD_VOLATILE_CONST( shmem->place_job.ticket )<place_range_cnt( accdb ) ) {
+    place_ctx_t pc[1] = {{ .accdb = accdb, .tomb_fn = tomb_fn, .tomb_ctx = tomb_ctx, .conc = 1 }};
+    place_job_work( pc );
+    place_out_add( &shmem->place_out[ accdb->joiner_idx ], pc->out );
+    stage_reset( accdb ); /* the window held pages */
+    did = 1;
+  }
+  FD_COMPILER_MFENCE();
+  FD_ATOMIC_FETCH_AND_SUB( &shmem->place_job.active, 1UL );
+  return did;
 }
 
 int

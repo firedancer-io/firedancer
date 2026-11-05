@@ -753,12 +753,20 @@ fd_accdb_cf_insert_key( fd_accdb_cf_t * f,
                         ulong           i1,
                         ulong           i2,
                         ulong           fp,
-                        ulong *         rng ) {
+                        ulong *         rng,
+                        int             conc ) {
   if( FD_UNLIKELY( *f->disabled ) ) return;
   ulong bs[ 2 ] = { i1, i2 };
+retry:
   for( ulong k=0UL; k<2UL; k++ ) {
-    int l = fd_accdb_cf_free_lane( f->cf[ bs[ k ] ] );
-    if( l>=0 ) { FD_VOLATILE( f->cf[ bs[ k ] ] ) = fd_accdb_cf_set_lane( f->cf[ bs[ k ] ], (ulong)l, fp ); return; }
+    for(;;) {
+      ulong w = FD_VOLATILE_CONST( f->cf[ bs[ k ] ] );
+      int   l = fd_accdb_cf_free_lane( w );
+      if( l<0 ) break;
+      ulong nw = fd_accdb_cf_set_lane( w, (ulong)l, fp );
+      if( !conc ) { FD_VOLATILE( f->cf[ bs[ k ] ] ) = nw; return; }
+      if( FD_ATOMIC_CAS( &f->cf[ bs[ k ] ], w, nw )==w ) return;
+    }
   }
 
   /* Compute the kick path without mutating: path[j] is the bucket and
@@ -798,9 +806,13 @@ fd_accdb_cf_insert_key( fd_accdb_cf_t * f,
       b  = nb2;
     }
     if( !ok ) continue;
+    if( conc ) { /* the free word may have filled; full words cannot change */
+      ulong w = FD_VOLATILE_CONST( f->cf[ pb[ n ] ] );
+      if( fd_accdb_cf_free_lane( w )<0 || FD_ATOMIC_CAS( &f->cf[ pb[ n ] ], w, fd_accdb_cf_set_lane( w, pl[ n ], pf[ n ] ) )!=w ) goto retry;
+    }
     FD_VOLATILE( *f->seq ) = *f->seq+1UL;
     FD_COMPILER_MFENCE();
-    for( ulong j=n+1UL; j>0UL; j-- ) {
+    for( ulong j=n+1UL-(ulong)!!conc; j>0UL; j-- ) {
       ulong k = j-1UL;
       FD_VOLATILE( f->cf[ pb[ k ] ] ) = fd_accdb_cf_set_lane( f->cf[ pb[ k ] ], pl[ k ], pf[ k ] );
       fd_racesan_hook( "accdb_cf:kick_step" );
@@ -822,13 +834,40 @@ fd_accdb_cf_insert_key( fd_accdb_cf_t * f,
   FD_VOLATILE( *f->disabled ) = 1UL;
 }
 
+/* fd_accdb_cf_insert_conc: inserts from several writers at once (no
+   readers, boot only).  Free lanes are claimed by CAS; kick paths run
+   under *lock.  Greedy writers never edit a full word, so a kick races
+   only on its last (free) word, which it stores by CAS, retrying. */
+
+static inline void
+fd_accdb_cf_insert_conc( fd_accdb_cf_t * f,
+                         ulong           i1,
+                         ulong           i2,
+                         ulong           fp,
+                         ulong *         rng,
+                         int *           lock ) {
+  ulong bs[ 2 ] = { i1, i2 };
+  for( ulong k=0UL; k<2UL; k++ ) {
+    for(;;) {
+      ulong w = FD_VOLATILE_CONST( f->cf[ bs[ k ] ] );
+      int   l = fd_accdb_cf_free_lane( w );
+      if( l<0 ) break;
+      if( FD_ATOMIC_CAS( &f->cf[ bs[ k ] ], w, fd_accdb_cf_set_lane( w, (ulong)l, fp ) )==w ) return;
+    }
+  }
+  while( FD_ATOMIC_CAS( lock, 0, 1 ) ) FD_SPIN_PAUSE();
+  fd_accdb_cf_insert_key( f, i1, i2, fp, rng, 1 );
+  FD_COMPILER_MFENCE();
+  FD_VOLATILE( *lock ) = 0;
+}
+
 static inline void
 fd_accdb_cf_insert( fd_accdb_cf_t * f,
                     uchar const     pubkey[ 32 ],
                     ulong *         rng ) {
   ulong i1, i2, fp;
   fd_accdb_cf_key( f, pubkey, &i1, &i2, &fp );
-  fd_accdb_cf_insert_key( f, i1, i2, fp, rng );
+  fd_accdb_cf_insert_key( f, i1, i2, fp, rng, 0 );
 }
 
 /* fd_accdb_cf_delete (writer only): removes one copy of the key's
