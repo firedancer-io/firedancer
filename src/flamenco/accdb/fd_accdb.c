@@ -91,7 +91,7 @@ fd_accdb_preallocate( int   fd,
   }
 
   fstore_t store = {
-    .fst_flags      = F_ALLOCATECONTIG,
+    .fst_flags      = F_ALLOCATECONTIG | F_ALLOCATEALL,
     .fst_posmode    = F_VOLPOSMODE,
     .fst_offset     = offset ? offset : 1,
     .fst_length     = len,
