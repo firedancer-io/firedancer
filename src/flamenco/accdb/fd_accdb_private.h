@@ -784,6 +784,7 @@ struct fd_accdb_shmem_private {
     ulong active;     /* helpers inside the job */
   } place_job;
   int   cf_lock __attribute__((aligned(64)));          /* filter kick paths */
+  ulong prepop_off;   /* T2: bucket bytes read ahead during a full load */
   fd_accdb_snapshot_placement_t place_out[ FD_ACCDB_MAX_JOINERS ];
   ulong bg_defer_head;      /* T2 only: total appended             */
   ulong bg_defer_tail;      /* T2 only: total released             */
