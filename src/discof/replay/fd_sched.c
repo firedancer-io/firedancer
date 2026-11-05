@@ -481,6 +481,11 @@ struct fd_sched_block {
   uint cert_cnt           : 3; /* Footer certs to verify.  See fd_alpenglow_footer_certs. */
   uint cert_next          : 3; /* Footer certs already sent out as tasks. */
   uint alpentick_seen     : 1;
+
+  /* Replay started the block at its UpdateParent FEC set, so the
+     UpdateParent stands in for the header as the parent marker. */
+  uint starts_at_update_parent : 1;
+  uint flh_active              : 1; /* alpenglow_fast_leader_handover is active on the block's bank, set at BLOCK_START */
 };
 typedef struct fd_sched_block fd_sched_block_t;
 
@@ -2482,8 +2487,9 @@ fd_sched_fec_ingest( fd_sched_t *     sched,
   if( FD_UNLIKELY( fec->is_first_in_block ) ) {
     /* This is a new block. */
     add_block( sched, fec->bank_idx, fec->parent_bank_idx );
-    block->slot        = fec->slot;
-    block->parent_slot = fec->parent_slot;
+    block->slot                    = fec->slot;
+    block->parent_slot             = fec->parent_slot;
+    block->starts_at_update_parent = fec->starts_at_update_parent;
 
     if( FD_UNLIKELY( block->dying ) ) {
       /* The child of a dead block is also dead.  We added it to our
@@ -3228,6 +3234,14 @@ fd_sched_task_done( fd_sched_t * sched, ulong task_type, ulong txn_idx, ulong ex
     case FD_SCHED_TT_BLOCK_START: {
       FD_TEST( !block->block_start_done );
       block->block_start_done = 1;
+      if( FD_UNLIKELY( block->starts_at_update_parent && !block->flh_active ) ) {
+        /* Without the feature an initial UpdateParent is unexpected, as
+           agave rules it.  The UpdateParent was parsed at ingest, but
+           the feature is only known once BLOCK_START cloned the bank. */
+        FD_LOG_INFO(( "bad block: SPURIOUS_UPDATE_PARENT, slot %lu, parent slot %lu, started at its UpdateParent without alpenglow_fast_leader_handover", block->slot, block->parent_slot ));
+        handle_bad_block( sched, block, FD_SCHED_DEAD_REASON_SPURIOUS_UPDATE_PARENT );
+        return FD_SCHED_DEAD_REASON_SPURIOUS_UPDATE_PARENT;
+      }
       break;
     }
     case FD_SCHED_TT_BLOCK_END: {
@@ -3713,6 +3727,13 @@ fd_sched_set_poh_params( fd_sched_t * sched, ulong bank_idx, ulong tick_height, 
 }
 
 void
+fd_sched_set_flh_active( fd_sched_t * sched, ulong bank_idx, int flh_active ) {
+  FD_TEST( sched->canary==FD_SCHED_MAGIC );
+  FD_TEST( bank_idx<sched->block_cnt_max );
+  block_pool_ele( sched, bank_idx )->flh_active = !!flh_active;
+}
+
+void
 fd_sched_set_bypass_poh_verify( fd_sched_t * sched, int bypass_poh_verify ) {
   FD_TEST( sched->canary==FD_SCHED_MAGIC );
   sched->bypass_poh_verify = !!bypass_poh_verify;
@@ -3989,6 +4010,8 @@ add_block( fd_sched_t * sched,
   block->cert_cnt           = 0U;
   block->cert_next          = 0U;
   block->alpentick_seen     = 0;
+  block->starts_at_update_parent = 0;
+  block->flh_active              = 0;
 
   block->mblks_rem        = 0UL;
   block->txns_rem         = 0UL;
@@ -4110,7 +4133,32 @@ on_marker( fd_sched_t *              sched,
     return FD_SCHED_DEAD_REASON_NONE;
 
   case FD_BLOCK_MARKER_KIND_UPDATE_PARENT:
-    block->update_parent_seen = 1;
+    if( FD_UNLIKELY( block->update_parent_seen ) ) {
+      FD_LOG_INFO(( "bad block: MULTIPLE_UPDATE_PARENTS, slot %lu, parent slot %lu", block->slot, block->parent_slot ));
+      return FD_SCHED_DEAD_REASON_MULTIPLE_UPDATE_PARENTS;
+    }
+    if( FD_LIKELY( !block->header_seen ) ) {
+      /* Replay started the block here because rotor saw the
+         UpdateParent, so it is the parent marker in place of the
+         header and must name the parent replay built the block on.
+         Anything before it already died as MISSING_PARENT_MARKER. */
+      if( FD_UNLIKELY( !block->starts_at_update_parent ) ) {
+        FD_LOG_INFO(( "bad block: SPURIOUS_UPDATE_PARENT, slot %lu, parent slot %lu", block->slot, block->parent_slot ));
+        return FD_SCHED_DEAD_REASON_SPURIOUS_UPDATE_PARENT;
+      }
+      if( FD_UNLIKELY( marker->update_parent.new_parent_slot!=block->parent_slot ) ) {
+        FD_LOG_INFO(( "bad block: UPDATE_PARENT_MISMATCH, slot %lu, parent slot %lu, update parent names %lu", block->slot, block->parent_slot, marker->update_parent.new_parent_slot ));
+        return FD_SCHED_DEAD_REASON_UPDATE_PARENT_MISMATCH;
+      }
+      block->header_seen        = 1; /* the parent marker the remaining rules gate on */
+      block->update_parent_seen = 1;
+      return FD_SCHED_DEAD_REASON_NONE;
+    }
+    /* After a header or footer.  If after a header, replay should have
+       skipped the prefix instead, so reaching here means it was handed
+       a prefix it did not know to skip. If after a footer, its a
+       misformed block. */
+    FD_LOG_INFO(( "bad block: SPURIOUS_UPDATE_PARENT, slot %lu, parent slot %lu, update parent after %s", block->slot, block->parent_slot, block->footer_seen ? "footer" : "header" ));
     return FD_SCHED_DEAD_REASON_SPURIOUS_UPDATE_PARENT;
 
   default:

@@ -715,6 +715,7 @@ replay_block_start( fd_replay_tile_t * ctx,
      line with agave behavior. */
   bank->f.tick_height = bank->f.max_tick_height - 1UL;
   fd_sched_set_poh_params( ctx->sched, bank->idx, bank->f.tick_height, bank->f.max_tick_height, &parent_bank->f.poh );
+  fd_sched_set_flh_active( ctx->sched, bank->idx, FD_FEATURE_ACTIVE_BANK( bank, alpenglow_fast_leader_handover ) );
 
   FD_LOG_DEBUG(( "replay_block_start: bank_idx=%lu slot=%lu parent_bank_idx=%lu", bank_idx, slot, parent_bank_idx ));
 }
@@ -764,6 +765,8 @@ sched_dead_reason_to_event( int sched_reason ) {
     case FD_SCHED_DEAD_REASON_MISSING_BLOCK_FOOTER:        return FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_MISSING_BLOCK_FOOTER;
     case FD_SCHED_DEAD_REASON_SPURIOUS_UPDATE_PARENT:      return FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_SPURIOUS_UPDATE_PARENT;
     case FD_SCHED_DEAD_REASON_TOO_MANY_WRITABLE_ACCOUNTS:  return FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_TOO_MANY_WRITABLE_ACCOUNTS;
+    case FD_SCHED_DEAD_REASON_MULTIPLE_UPDATE_PARENTS:     return FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_MULTIPLE_UPDATE_PARENTS;
+    case FD_SCHED_DEAD_REASON_UPDATE_PARENT_MISMATCH:      return FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_UPDATE_PARENT_MISMATCH;
     default: FD_LOG_CRIT(( "unmapped scheduler dead reason %d", sched_reason ));
   }
 }
@@ -1361,10 +1364,12 @@ publish_slot_dead( fd_replay_tile_t *        ctx,
                    fd_stem_context_t *       stem,
                    ulong                     slot,
                    fd_hash_t const *         block_id,
+                   uint                      latest_fec_idx,
                    fd_block_footer_t const * footer ) {
   fd_replay_slot_dead_t * slot_dead = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
   slot_dead->slot                   = slot;
   slot_dead->block_id               = *block_id;
+  slot_dead->latest_fec_idx         = latest_fec_idx;
   slot_dead->footer                 = footer ? *footer : (fd_block_footer_t){0};
   publish_replay_out( ctx, stem, REPLAY_SIG_SLOT_DEAD, sizeof(fd_replay_slot_dead_t) );
 }
@@ -2960,13 +2965,23 @@ mark_bank_dead( fd_replay_tile_t *        ctx,
                 int                       dead_reason,
                 int                       abandoned_reason,
                 fd_block_footer_t const * footer ) {
+  /* UINT_MAX only when the bank knows FLH is off: repair treats the death
+     as final.  A bank still in INIT was never cloned, so its
+     features are unknown: count it as a possible prefix.  At worst
+     rotor finishes repairing a dead slot whose FEC sets replay drops.
+
+     Remove this garbage after FLH is stable. */
+  fd_block_id_ele_t * block_id_ele   = &ctx->block_id_arr[ bank_idx ];
+  fd_bank_t *         dead_bank      = fd_banks_bank_query( ctx->banks, bank_idx );
+  int                 flh_active     = dead_bank->state==FD_BANK_STATE_INIT || FD_FEATURE_ACTIVE_BANK( dead_bank, alpenglow_fast_leader_handover );
+  uint                latest_fec_idx = flh_active ? block_id_ele->latest_fec_idx : UINT_MAX;
+
   ulong * dead_idxs     = ctx->dead_idxs;
   ulong   dead_idxs_cnt = 0UL;
   fd_banks_mark_bank_dead( ctx->banks, bank_idx, dead_idxs, &dead_idxs_cnt );
 
-  fd_block_id_ele_t * block_id_ele = &ctx->block_id_arr[ bank_idx ];
-  if( block_id_ele->block_id_seen ) publish_slot_dead( ctx, stem, block_id_ele->slot, &block_id_ele->dmr, footer );
-  else if( dead_reason!=FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_NOT_DEAD && !memcmp( &block_id_ele->block_info.hash, ((fd_hash_t){0}).uc, sizeof(fd_hash_t) ) ) publish_slot_dead( ctx, stem, block_id_ele->slot, &(fd_hash_t){ 0 }, footer ); /* an incomplete turbine copy, keyed {slot,0}: rotor frees its eager blk */
+  if( block_id_ele->block_id_seen ) publish_slot_dead( ctx, stem, block_id_ele->slot, &block_id_ele->dmr, latest_fec_idx, footer );
+  else if( dead_reason!=FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_NOT_DEAD && !memcmp( &block_id_ele->block_info.hash, ((fd_hash_t){0}).uc, sizeof(fd_hash_t) ) ) publish_slot_dead( ctx, stem, block_id_ele->slot, &(fd_hash_t){ 0 }, latest_fec_idx, footer ); /* an incomplete turbine copy, keyed {slot,0}: rotor frees its eager blk */
 
   /* Report each newly dead bank now (dead_idxs excludes already-dead,
      already-reported subtrees): the failing bank with its real reason and
@@ -3019,7 +3034,8 @@ try_replay( fd_replay_tile_t *  ctx,
       end->leader_credits = 0UL;
       end->cert_next      = 0UL;
       end->finalized      = 0;
-      fd_sched_task_done( ctx->sched, FD_SCHED_TT_BLOCK_START, ULONG_MAX, ULONG_MAX, NULL );
+      int res = fd_sched_task_done( ctx->sched, FD_SCHED_TT_BLOCK_START, ULONG_MAX, ULONG_MAX, NULL );
+      if( FD_UNLIKELY( res ) ) mark_bank_dead( ctx, stem, task->block_start->bank_idx, sched_dead_reason_to_event( res ), FD_EVENT_BLOCK_COMPLETED_ABANDONED_REASON_NOT_ABANDONED, NULL );
       break;
     }
     case FD_SCHED_TT_BLOCK_END: {
@@ -3085,6 +3101,14 @@ can_process_rotor_fec( fd_replay_tile_t       * ctx,
 
   if( FD_UNLIKELY( fec->is_leader && ( !ctx->leader_bank || ctx->leader_bank->f.slot!=fec->slot ) ) ) return PROCESS_FEC_SKIP;
 
+  /* The FEC sets before an UpdateParent are the abandoned prefix,
+     built on the leader's optimistic parent.  The block replays from
+     the UpdateParent FEC set onto the new parent. */
+  if( FD_UNLIKELY( fec->fec_set_idx<fec->update_parent_fec_idx ) ) {
+    FD_LOG_DEBUG(( "skipping FEC set (slot=%lu, fec_set_idx=%u) before the UpdateParent at fec set idx %u", fec->slot, fec->fec_set_idx, fec->update_parent_fec_idx ));
+    return PROCESS_FEC_SKIP;
+  }
+
   if( FD_UNLIKELY( !fec->is_leader && fd_sched_can_ingest_cnt( ctx->sched )==0UL ) ) {
     ctx->metrics.sched_full++;
     return PROCESS_FEC_WAIT;
@@ -3131,7 +3155,7 @@ can_process_rotor_fec( fd_replay_tile_t       * ctx,
 
   ulong               parent_bank_idx = UINT_MAX;
   fd_block_id_ele_t * parent          = NULL;
-  if( FD_UNLIKELY( fec->fec_set_idx==0 ) ) {
+  if( FD_UNLIKELY( fec->fec_set_idx==fec->update_parent_fec_idx ) ) {
     fd_block_id_t parent_key = fd_block_id( fec->parent_slot, fec->parent_block_id.uc );
     parent = fd_block_id_map_ele_query( ctx->block_id_map, &parent_key, NULL, ctx->block_id_arr );
     if( FD_UNLIKELY( !parent ) ) {
@@ -3173,7 +3197,7 @@ can_process_rotor_fec( fd_replay_tile_t       * ctx,
   }
 
   if( FD_UNLIKELY( ctx->is_leader &&
-                   fec->fec_set_idx==0U &&
+                   fec->fec_set_idx==fec->update_parent_fec_idx &&
                    parent_bank_idx==ctx->leader_bank->idx &&
                    parent->bank_seq==ctx->leader_bank->bank_seq ) ) {
     /* This guards against a rare race where we receive the FEC set for
@@ -3226,7 +3250,7 @@ can_process_rotor_fec( fd_replay_tile_t       * ctx,
     FD_LOG_INFO(( "parent bank evicted for slot %lu fec set idx %u, parent slot %lu", fec->slot, fec->fec_set_idx, fec->parent_slot ));
     ctx->metrics.parent_unavailable++;
     return PROCESS_FEC_DROP;
-  } else if( FD_UNLIKELY( fec->fec_set_idx!=0U && parent->latest_fec_idx!=fec->fec_set_idx - FD_FEC_SHRED_CNT ) ) {
+  } else if( FD_UNLIKELY( fec->fec_set_idx!=fec->update_parent_fec_idx && parent->latest_fec_idx!=fec->fec_set_idx - FD_FEC_SHRED_CNT ) ) {
     /* Similar to the very first condition in can_process_rotor_fec,
        but this would hit if we were halfway through replaying a slot
        and then requested redelivery from rotor. Then we can skip
@@ -3236,7 +3260,7 @@ can_process_rotor_fec( fd_replay_tile_t       * ctx,
   }
 
   if( FD_UNLIKELY( !fd_banks_can_start_bank( ctx->banks ) ) ) {
-    int is_new_block = fec->fec_set_idx==0U && !fec->is_leader;
+    int is_new_block = fec->fec_set_idx==fec->update_parent_fec_idx && !fec->is_leader;
     if( FD_UNLIKELY( is_new_block ) ) {
       ctx->metrics.banks_full++;
       if( FD_UNLIKELY( fd_sched_is_drained( ctx->sched ) && !ctx->snapmk.active ) ) *evict_banks_out = 1; /* see can_process_fec */
@@ -3822,7 +3846,7 @@ process_rotor_fec( fd_replay_tile_t       * ctx,
   }
 
   ulong parent_bank_idx = ULONG_MAX;
-  if( FD_UNLIKELY( fec->fec_set_idx==0 ) ) {
+  if( FD_UNLIKELY( fec->fec_set_idx==fec->update_parent_fec_idx ) ) {
     fd_block_id_t parent_key = fd_block_id( fec->parent_slot, fec->parent_block_id.uc );
     fd_block_id_ele_t * parent = fd_block_id_map_ele_query( ctx->block_id_map, &parent_key, NULL, ctx->block_id_arr );
     FD_TEST( parent );
@@ -3877,7 +3901,27 @@ process_rotor_fec( fd_replay_tile_t       * ctx,
   long now = fd_log_wallclock();
   fd_block_id_ele_t * block_id_ele;
   fd_bank_t *         bank;
-  if( FD_UNLIKELY( fec->fec_set_idx==0U ) ) {
+  if( FD_UNLIKELY( fec->fec_set_idx==fec->update_parent_fec_idx ) ) {
+    /* Give up on the prefix bank if it exists: the block is not at
+       fault, so its sched block is discarded, not invalid, and
+       SLOT_DEAD is not published. */
+    fd_block_id_t       prefix_key = fec->known_id ? fd_block_id( fec->slot, fec->block_id.uc ) : (fd_block_id_t){ .slot = fec->slot };
+    fd_block_id_ele_t * prefix     = fec->update_parent_fec_idx && !fec->is_leader ? live_block_id_ele( ctx, fd_block_id_map_ele_query( ctx->block_id_map, &prefix_key, NULL, ctx->block_id_arr ) ) : NULL;
+    if( FD_UNLIKELY( prefix ) ) {
+      ulong opt_idx = fd_block_id_ele_get_idx( ctx->block_id_arr, prefix );
+      FD_TEST( fd_block_id_map_ele_remove( ctx->block_id_map, &prefix->block_info, NULL, ctx->block_id_arr )==prefix );
+      fd_sched_block_abandon( ctx->sched, opt_idx, FD_SCHED_ABANDON_DISCARDED );
+      ulong dead_idxs_cnt = 0UL;
+      fd_banks_mark_bank_dead( ctx->banks, opt_idx, ctx->dead_idxs, &dead_idxs_cnt );
+      for( ulong i=0UL; i<dead_idxs_cnt; i++ ) {
+        fd_block_id_ele_t * dead = &ctx->block_id_arr[ ctx->dead_idxs[ i ] ];
+        timing_slot_release( ctx, ctx->dead_idxs[ i ] );
+        report_block_incomplete( ctx, dead->slot, dead->block_id_seen ? &dead->dmr : &dead->latest_mr, fd_banks_bank_query( ctx->banks, ctx->dead_idxs[ i ] ),
+                                 FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_NOT_DEAD, FD_EVENT_BLOCK_COMPLETED_ABANDONED_REASON_REPARENTED );
+      }
+      FD_LOG_INFO(( "abandoned optimistic bank (idx=%lu, slot=%lu), replaying the slot from its UpdateParent", opt_idx, fec->slot ));
+      try_prune_sched( ctx );
+    }
     bank = fec->is_leader ? ctx->leader_bank : fd_banks_new_bank( ctx->banks, parent_bank_idx, now, 0 );
     if( FD_UNLIKELY( fec->is_leader && ctx->leader_stats.slot==fec->slot ) ) {
       ctx->leader_stats.first_fec_returned_nanos = now;
@@ -3892,7 +3936,7 @@ process_rotor_fec( fd_replay_tile_t       * ctx,
     block_id_ele->block_id_seen  = 0;
     block_id_ele->bank_seq       = bank->bank_seq;
     block_id_ele->slot           = fec->slot;
-    block_id_ele->latest_fec_idx = 0U;
+    block_id_ele->latest_fec_idx = fec->fec_set_idx;
     block_id_ele->fec_cnt        = 0U;
     block_id_ele->finalized      = 0;
     block_id_ele->block_info     = fec->known_id ? fd_block_id( fec->slot, fec->block_id.uc ) : (fd_block_id_t){ .slot = fec->slot };
@@ -3963,7 +4007,8 @@ process_rotor_fec( fd_replay_tile_t       * ctx,
   sched_fec->parent_bank_idx   = bank->parent_idx;
   sched_fec->slot              = fec->slot;
   sched_fec->parent_slot       = fec->parent_slot;
-  sched_fec->is_first_in_block = fec->fec_set_idx==0U;
+  sched_fec->is_first_in_block       = fec->fec_set_idx==fec->update_parent_fec_idx;
+  sched_fec->starts_at_update_parent = sched_fec->is_first_in_block && fec->update_parent_fec_idx!=0U; /* the feature is checked at BLOCK_START, after the bank is cloned */
   sched_fec->fec               = store_fec;
   sched_fec->data              = data_view->data;
   sched_fec->alut_ctx->fork_id = fd_banks_bank_query( ctx->banks, ctx->published_root_bank_idx )->accdb_fork_id;

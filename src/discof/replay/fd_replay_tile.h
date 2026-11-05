@@ -208,6 +208,7 @@ typedef struct fd_replay_slot_completed fd_replay_slot_completed_t;
 struct fd_replay_slot_dead {
   ulong             slot;
   fd_hash_t         block_id;
+  uint              latest_fec_idx; /* highest fec_set_idx ingested by the dead slot, >= fec with the dead transaction.  UINT_MAX if alpenglow_fast_leader_handover is not active on the dead bank */
 
   /* Agave can finalize off the certs in a dead block's footer.
 

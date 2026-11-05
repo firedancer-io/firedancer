@@ -338,8 +338,8 @@ fd_solfuzz_pb_shred_run( fd_solfuzz_runner_t * runner,
   FD_TEST( rotor );
   fd_repair_init( rotor, input->root_slot, &root_blk_mr, NULL, NULL );
 
-  /* Bank index of each rotor blk, UINT_MAX until its FEC set 0 is
-     ingested.  Rotor never frees a blk here, so a blk pool idx names
+  /* Bank index of each rotor blk, UINT_MAX until its first FEC set
+     (FEC set 0, or its UpdateParent's) is ingested.  Rotor never frees a blk here, so a blk pool idx names
      one blk for the whole run. */
   ulong  blk_max      = fd_repair_blk_pool_max( rotor->blk_pool );
   uint * blk_bank_idx = fd_spad_alloc( runner->spad, alignof(uint), sizeof(uint)*blk_max );
@@ -407,12 +407,17 @@ fd_solfuzz_pb_shred_run( fd_solfuzz_runner_t * runner,
 
       /* Bank lineage comes from the rotor blk tree.  Rotor delivers a
          blk only after its parent blk in full, so the parent's bank_idx
-         is known unless its batches were held back above.  FEC set 0
-         starts a new bank, later FEC sets reuse the blk's. */
+         is known unless its batches were held back above.  The blk's
+         first FEC set starts a new bank, later FEC sets reuse the blk's.
+         With an UpdateParent the first FEC set is init_fec_cnt, as in
+         replay: FEC sets before it are the abandoned prefix, and a bank
+         already built on the prefix is given up, not reused. */
+      if( out.fec_idx<blk->init_fec_cnt ) continue; /* the prefix, after rotor confirmed the UpdateParent */
       uint parent_bank_idx;
-      if( out.fec_idx==0U ) {
+      if( out.fec_idx==blk->init_fec_cnt ) {
         parent_bank_idx = blk_bank_idx[ blk->parent ];
         if( parent_bank_idx==UINT_MAX ) continue;
+        if( blk_bank_idx[ out.blk_idx ]!=UINT_MAX ) fd_sched_block_abandon( sched, blk_bank_idx[ out.blk_idx ], FD_SCHED_ABANDON_DISCARDED ); /* the optimistic prefix bank */
         blk_bank_idx[ out.blk_idx ] = next_bank_idx++;
       } else {
         parent_bank_idx = blk_bank_idx[ out.blk_idx ];
@@ -436,7 +441,8 @@ fd_solfuzz_pb_shred_run( fd_solfuzz_runner_t * runner,
         .shred_cnt         = popped_rec->shred_cnt,
         .is_last_in_batch  = !!popped_rec->data_complete,
         .is_last_in_block  = out.fec_idx+1U==blk->cmpl_fec_cnt,
-        .is_first_in_block = out.fec_idx==0U
+        .is_first_in_block = out.fec_idx==blk->init_fec_cnt,
+        .starts_at_update_parent = out.fec_idx==blk->init_fec_cnt && blk->init_fec_cnt!=0U
       };
 
       /* Drain abandoned blocks; fd_sched_fec_ingest requires an empty

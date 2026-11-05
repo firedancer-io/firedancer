@@ -715,7 +715,7 @@ handle_replay( fd_repair_tile_t * ctx,
   case REPLAY_SIG_SLOT_DEAD: {
     fd_replay_slot_dead_t const * dead = (fd_replay_slot_dead_t const *)fd_type_pun_const( chunk );
     if( FD_UNLIKELY( dead->slot<=ctx->repair->root ) ) return;
-    fd_repair_blk_dead( ctx->repair, dead->slot, &dead->block_id );
+    fd_repair_blk_dead( ctx->repair, dead->slot, &dead->block_id, dead->latest_fec_idx );
     break;
   }
   case REPLAY_SIG_MISSING_FEC:
@@ -1061,17 +1061,18 @@ after_credit( fd_repair_tile_t *  ctx,
     fd_repair_fec_t const *  fec = fd_repair_fec_pool_ele_const( ctx->repair->fec_pool, blk->fecs[ out.fec_idx ] );
     fd_repair_replay_fec_t * msg = fd_chunk_to_laddr( ctx->replay_out_mem, ctx->replay_out_chunk );
     fd_memset( msg, 0, sizeof(fd_repair_replay_fec_t) );
-    msg->slot            = blk->slot;
-    msg->fec_set_idx     = out.fec_idx*FD_FEC_SHRED_CNT;
-    msg->mr              = fec->mr32;
-    msg->parent_slot     = blk->parent_slot;
-    msg->parent_block_id = blk->parent_blk_mr;
-    msg->slot_complete   = out.fec_idx+1U==blk->cmpl_fec_cnt;
-    msg->data_complete   = fec->data_complete;
-    msg->is_leader       = fec->is_leader;
-    msg->known_id        = fd_repair_slot_meta( ctx->repair, blk->slot )->eager!=out.blk_idx;
-    msg->block_id        = blk->dmr;
-    msg->finalized       = msg->slot_complete && fd_repair_slot_meta( ctx->repair, blk->slot )->final==out.blk_idx;
+    msg->slot                  = blk->slot;
+    msg->fec_set_idx           = out.fec_idx*FD_FEC_SHRED_CNT;
+    msg->mr                    = fec->mr32;
+    msg->parent_slot           = blk->parent_slot;
+    msg->parent_block_id       = blk->parent_blk_mr;
+    msg->update_parent_fec_idx = blk->init_fec_cnt*FD_FEC_SHRED_CNT;
+    msg->slot_complete         = out.fec_idx+1U==blk->cmpl_fec_cnt;
+    msg->data_complete         = fec->data_complete;
+    msg->is_leader             = fec->is_leader;
+    msg->known_id              = fd_repair_slot_meta( ctx->repair, blk->slot )->eager!=out.blk_idx;
+    msg->block_id              = blk->dmr;
+    msg->finalized             = msg->slot_complete && fd_repair_slot_meta( ctx->repair, blk->slot )->final==out.blk_idx;
     msg->metrics.highest_fec_complete_slot = fd_ulong_max( ctx->highest_fec_complete_slot, ctx->catchup_slot );
     msg->metrics.fec_completed_ts_nanos    = fec->cmpl_ts;       /* shred tile rx of the shred that completed it, 0 for our own */
     msg->metrics.votor_repaired            = (uchar)msg->known_id;
