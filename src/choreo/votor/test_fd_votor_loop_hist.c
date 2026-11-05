@@ -240,7 +240,7 @@ test_adopt_capacity( void ) {
      pruning boundary.  Repeating the adoption needs no more capacity. */
   hist.rec_cnt--;
   FD_TEST( !fd_votor_loop_failover_hist_adopt( votor, &hist ) );
-  FD_TEST( votor->root==4UL && votor->highest_final_cert_slot==12UL );
+  FD_TEST( votor->root==4UL && votor->highest_final_slot==12UL );
   FD_TEST( fd_votor_loop_failover_get_vote_bound( votor )==83UL );
   FD_TEST( !slot_state_pool_free( votor->slot_states->pool ) );
   FD_TEST( !fd_votor_loop_failover_hist_adopt( votor, &hist ) );
@@ -249,7 +249,7 @@ test_adopt_capacity( void ) {
   expect_adopt_full( votor, &hist );
   advance_root( votor, 16UL );
   FD_TEST( !fd_votor_loop_failover_hist_adopt( votor, &hist ) );
-  FD_TEST( votor->root==8UL && votor->highest_final_cert_slot==16UL );
+  FD_TEST( votor->root==8UL && votor->highest_final_slot==16UL );
   FD_TEST( slot_state_pool_free( votor->slot_states->pool )==3UL );
   FD_TEST( !slot_state_map_ele_query_const( votor->slot_states->map, &hist.rec[ 0 ].slot, NULL, votor->slot_states->pool ) );
   FD_TEST( has_voted( votor, 20UL ) );
@@ -286,7 +286,7 @@ test_adopt_equal_anchor_prunes( void ) {
   fd_votor_pool_event_t event = { .kind = FD_VOTOR_POOL_EVENT_CERT_CREATED,
                            .cert_created = { .kind = FD_CERT_KIND_FINAL, .final = { .slot = 112UL } } };
   fd_votor_loop_handle_pool_event( votor, &event, 0L );
-  FD_TEST( votor->root==104UL && votor->highest_final_cert_slot==112UL );
+  FD_TEST( votor->root==104UL && votor->highest_final_slot==112UL );
   for( ulong slot=92UL; slot<=100UL; slot++ ) {
     FD_TEST( !slot_state_map_ele_query_const( votor->slot_states->map, &slot, NULL, votor->slot_states->pool ) );
   }

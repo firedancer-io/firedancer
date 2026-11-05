@@ -296,6 +296,47 @@ test_timeouts_interleaved( void ) {
   teardown_votor( votor );
 }
 
+/* Section 4.1: once DELTA_STANDSTILL passes without a new finalization,
+   a window's skip timeout grows 5% per window past the finalized slot, up
+   to FD_VOTOR_DELTA_TIMEOUT_MAX_NS, and a new final cert ends it. */
+
+static void
+arm_window( fd_votor_loop_t * votor,
+            ulong             slot,
+            long              now ) {
+  fd_block_id_t         parent       = { .slot = slot-1UL }; memset( &parent.hash, 1, sizeof(fd_block_hash_t) );
+  fd_votor_pool_event_t parent_ready = { .kind = FD_VOTOR_POOL_EVENT_PARENT_READY, .parent_ready = { .slot = slot, .parent = parent } };
+  fd_votor_loop_handle_pool_event( votor, &parent_ready, now );
+}
+
+static void
+test_standstill_timeouts( void ) {
+  fd_votor_loop_t * votor      = setup_votor( 0L );
+  long              standstill = FD_VOTOR_DELTA_STANDSTILL_NS;
+
+  arm_window( votor, 4UL, standstill-1L );
+  FD_TEST( state_mut( votor, 4UL )->timeout==standstill-1L+FD_VOTOR_DELTA_TIMEOUT_NS+TEST_NS_PER_SLOT );
+
+  arm_window( votor, 8UL, standstill );
+  FD_TEST( state_mut( votor,  8UL )->timeout==standstill+441000000L+   TEST_NS_PER_SLOT );
+  FD_TEST( state_mut( votor, 11UL )->timeout==standstill+441000000L+4L*TEST_NS_PER_SLOT );
+
+  arm_window( votor, 4000UL, standstill );
+  FD_TEST( state_mut( votor, 4000UL )->timeout==standstill+FD_VOTOR_DELTA_TIMEOUT_MAX_NS+TEST_NS_PER_SLOT );
+
+  fd_vote_t             fv    = fd_vote_construct_final( sec_sign_fn, &g_sk[1], test_bls_public_key, 8UL, (ushort)1, TEST_SHRED_VERSION );
+  fd_votor_pool_event_t final = { .kind = FD_VOTOR_POOL_EVENT_CERT_CREATED, .cert_created = cert_build_final( &fv.final, 1UL, g_epoch_info ) };
+  fd_votor_loop_handle_pool_event( votor, &final, 2L*standstill );
+
+  arm_window( votor, 16UL, 3L*standstill-1L );
+  FD_TEST( state_mut( votor, 16UL )->timeout==3L*standstill-1L+FD_VOTOR_DELTA_TIMEOUT_NS+TEST_NS_PER_SLOT );
+
+  arm_window( votor, 20UL, 3L*standstill );
+  FD_TEST( state_mut( votor, 20UL )->timeout==3L*standstill+FD_VOTOR_DELTA_TIMEOUT_NS*21L*21L*21L/8000L+TEST_NS_PER_SLOT );
+
+  teardown_votor( votor );
+}
+
 /* Booting mid-window must not skip the slots below the boot slot */
 
 static void
@@ -691,7 +732,7 @@ test_prunes_to_finalized_window( void ) {
   fd_cert_t cert = cert_build_final( &fv.final, 1UL, g_epoch_info );
   fd_votor_pool_event_t event = { .kind = FD_VOTOR_POOL_EVENT_CERT_CREATED, .cert_created = cert };
   fd_votor_loop_handle_pool_event( votor, &event, 0L );
-  FD_TEST( votor->highest_final_cert_slot==finalized );
+  FD_TEST( votor->highest_final_slot==finalized );
 
   /* the finalized window and the reward buffer before it are kept */
   ulong kept_start = fd_first_slot_in_window( fd_ulong_sat_sub( finalized, FD_VOTOR_REWARD_SLOT_DELTA ) );
@@ -877,6 +918,7 @@ main( int     argc,
   test_timeouts();
   test_timeouts_epoch_slot_length();
   test_timeouts_interleaved();
+  test_standstill_timeouts();
   test_boot_mid_window();
   test_notar_and_final();
   test_notar_out_of_order();

@@ -17,7 +17,7 @@ typedef struct fd_votor_loop fd_votor_loop_t;
 struct fd_votor_loop_metrics {
   ulong slot_state_pool_used;
   ulong slot_state_pool_free;
-  ulong highest_final_cert_slot;
+  ulong highest_final_slot;
   ulong vote_events_cnt;
 };
 typedef struct fd_votor_loop_metrics fd_votor_loop_metrics_t;

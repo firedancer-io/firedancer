@@ -11,8 +11,9 @@
 #define FD_VOTOR_NOTAR_FALLBACK_CERT_MAX (4UL)    /* Lemma 48 */
 #define FD_VOTOR_VOTES_PER_SLOT_MAX      (5UL)    /* notar + 3 notar_fallback + skip_fallback */
 
-#define FD_VOTOR_DELTA_TIMEOUT_NS    (400000000L)   /* skip timeout */
-#define FD_VOTOR_DELTA_STANDSTILL_NS (10000000000L) /* 10s since last finalize */
+#define FD_VOTOR_DELTA_TIMEOUT_NS     (400000000L)     /* skip timeout */
+#define FD_VOTOR_DELTA_TIMEOUT_MAX_NS (3600000000000L) /* skip timeout cap under standstill, Agave MAX_TIMEOUT */
+#define FD_VOTOR_DELTA_STANDSTILL_NS  (10000000000L)   /* 10s since last finalize */
 
 #define FD_VOTOR_WEAKEST_QUORUM_THRESHOLD_NUMER (1UL) /* 20%, safe-to-notar + 40% skip */
 #define FD_VOTOR_WEAK_QUORUM_THRESHOLD_NUMER    (2UL) /* 40%, safe-to-notar / safe-to-skip */

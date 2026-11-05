@@ -28,7 +28,7 @@ struct fd_votor_hist_rec {
 typedef struct fd_votor_hist_rec fd_votor_hist_rec_t;
 
 struct fd_votor_hist {
-  ulong               anchor;                   /* exporter's highest_final_cert_slot, raised when the export was truncated */
+  ulong               anchor;                   /* exporter's highest_final_slot, raised when the export was truncated */
   ulong               last_leader_slot;         /* slot of the last LEADER the exporter published, ULONG_MAX when none */
   ulong               vote_bound;               /* the exporter casts no vote at or below this slot, ULONG_MAX when none */
   ulong               rec_cnt;
