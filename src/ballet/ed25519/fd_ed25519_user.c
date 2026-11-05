@@ -176,12 +176,12 @@ fd_ed25519_sign_batch8( uchar               sig[],        /* n*64 */
                         ulong const         msg_sz[],     /* n */
                         uchar const         public_key[ 32 ],
                         uchar const         private_key[ 32 ],
+                        fd_sha512_t *       shas[],       /* n */
                         ulong               n ) {         /* in [1,8] */
 
   FD_TEST( 0UL<n && n<=8UL );
   if( FD_UNLIKELY( n==1UL ) ) {
-    fd_sha512_t sha[1];
-    return fd_ed25519_sign( sig, msg[0], msg_sz[0], public_key, private_key, sha );
+    return fd_ed25519_sign( sig, msg[0], msg_sz[0], public_key, private_key, shas[0] );
   }
 
   for( ulong i=0UL; i<n; i++ ) FD_TEST( msg_sz[i]<=FD_ED25519_SIGN_BATCH_MSG_MAX );
@@ -189,20 +189,17 @@ fd_ed25519_sign_batch8( uchar               sig[],        /* n*64 */
   fd_sha512_batch_t batch[1];
   fd_sha512_batch_t * b;
 
-  /* Expand the private keys: s[i] = SHA-512(private_key[i]), clamped.
-     Lower 32 bytes are the secret scalar, upper 32 the prefix. */
+  /* Expand the private key: s = SHA-512(private_key), clamped.  Lower
+     32 bytes are the secret scalar, upper 32 the prefix. */
 
-  uchar s[ 8UL ][ FD_SHA512_HASH_SZ ] __attribute__((aligned(64)));
-  b = fd_sha512_batch_init( batch );
-  for( ulong i=0UL; i<n; i++ ) b = fd_sha512_batch_add( b, private_key, 32UL, s[i] );
-  fd_sha512_batch_fini( b );
-  for( ulong i=0UL; i<n; i++ ) {
-    s[i][ 0] &= (uchar)0xF8;
-    s[i][31] &= (uchar)0x7F;
-    s[i][31] |= (uchar)0x40;
-  }
+  uchar s[ FD_SHA512_HASH_SZ ] __attribute__((aligned(64)));
+  fd_sha512_fini( fd_sha512_append( fd_sha512_init( shas[0] ), private_key, 32UL ), s );
+  fd_sha512_clear( shas[0] );
+  s[ 0] &= (uchar)0xF8;
+  s[31] &= (uchar)0x7F;
+  s[31] |= (uchar)0x40;
 
-  /* r[i] = SHA-512(prefix[i] || msg[i]).  The batch API hashes one
+  /* r[i] = SHA-512(prefix || msg[i]).  The batch API hashes one
      contiguous region per message, so the inputs are staged in buf,
      laid out as R[i] || A[i] || msg[i]: the message is parked once at
      buf[i]+64 for both hashes, the r hash reads from buf[i]+32 with
@@ -213,7 +210,7 @@ fd_ed25519_sign_batch8( uchar               sig[],        /* n*64 */
   uchar r[ 8UL ][ FD_SHA512_HASH_SZ ] __attribute__((aligned(64)));
   b = fd_sha512_batch_init( batch );
   for( ulong i=0UL; i<n; i++ ) {
-    memcpy( buf[i]+32UL, s[i]+32, 32UL );
+    memcpy( buf[i]+32UL, s+32, 32UL );
     if( FD_LIKELY( msg_sz[i] ) ) memcpy( buf[i]+64UL, msg[i], msg_sz[i] );
     b = fd_sha512_batch_add( b, buf[i]+32UL, 32UL+msg_sz[i], r[i] );
   }
@@ -254,12 +251,12 @@ fd_ed25519_sign_batch8( uchar               sig[],        /* n*64 */
 
   for( ulong i=0UL; i<n; i++ ) {
     fd_curve25519_scalar_reduce( k[i], k[i] );
-    fd_curve25519_scalar_muladd( sig+64UL*i+32UL, k[i], s[i], r[i] );
+    fd_curve25519_scalar_muladd( sig+64UL*i+32UL, k[i], s, r[i] );
   }
 
   /* Sanitize */
 
-  fd_memzero_explicit( s, n*FD_SHA512_HASH_SZ );
+  fd_memzero_explicit( s, FD_SHA512_HASH_SZ );
   fd_memzero_explicit( r, n*FD_SHA512_HASH_SZ );
 
   return sig;
@@ -348,79 +345,16 @@ fd_ed25519_verify( uchar const   msg[], /* msg_sz */
   return FD_ED25519_ERR_MSG;
 }
 
-int fd_ed25519_verify_batch_single_msg( uchar const   msg[], /* msg_sz */
-                                        ulong const   msg_sz,
-                                        uchar const   signatures[ static 64 ], /* 64 * batch_sz */
-                                        uchar const   pubkeys[ static 32 ],    /* 32 * batch_sz */
-                                        fd_sha512_t * shas[ 1 ],               /* batch_sz */
-                                        uchar const   batch_sz ) {
-#define MAX 16
-  if( FD_UNLIKELY( batch_sz == 0 || batch_sz > MAX ) ) {
-    return FD_ED25519_ERR_SIG;
-  }
-
-#if 0
-  /* Naive */
-  for( uchar i=0; i<batch_sz; i++ ) {
-    int res = fd_ed25519_verify( msg, msg_sz, &signatures[ i*64 ], &pubkeys[ i*32 ], shas[0] );
-    if( FD_UNLIKELY( res != FD_ED25519_SUCCESS ) ) {
-      return res;
-    }
-  }
-  return FD_ED25519_SUCCESS;
-#else
-
-  fd_ed25519_point_t R     [MAX];
-  fd_ed25519_point_t Aprime[MAX];
-  uchar              k     [MAX * 32];
-
-  /* The first batch_sz points are the R_j, the last are A'_j.
-     Scalars will be stored accordingly. */
-
-  /* First, we validate scalars, decompress public keys and points R_j,
-     check low order points, and compute k_j.
-     TODO: optimize, this is 20% of the total time. */
-  for( int j=0; j<batch_sz; j++ ) {
-
-    uchar const * r = signatures + 64*j;
-    uchar const * S = signatures + 32 + 64*j;
-    uchar const * public_key = pubkeys + 32*j;
-
-    /* Check scalar s */
-    if( FD_UNLIKELY( !fd_curve25519_scalar_validate( S ) )) {
-      return FD_ED25519_ERR_SIG;
-    }
-
-    /* Decompress public_key and point r, concurrently */
-    int res = fd_ed25519_point_frombytes_2x( &Aprime[j], public_key, &R[j], r );
-
-    /* Check public key and point r */
-    if( FD_UNLIKELY( res ) ) {
-      return res == -1 ? FD_ED25519_ERR_PUBKEY : FD_ED25519_ERR_SIG;
-    }
-    if( FD_UNLIKELY( fd_ed25519_affine_is_small_order(&Aprime[j]) ) ) {
-      return FD_ED25519_ERR_PUBKEY;
-    }
-    if( FD_UNLIKELY( fd_ed25519_affine_is_small_order(&R[j]) ) ) {
-      return FD_ED25519_ERR_SIG;
-    }
-
-    /* Compute scalars k_j */
-    uchar _k[ 64 ];
-    fd_sha512_fini( fd_sha512_append( fd_sha512_append( fd_sha512_append( fd_sha512_init( shas[j] ),
-                    r, 32UL ), public_key, 32UL ), msg, msg_sz ), _k );
-    fd_curve25519_scalar_reduce( &k[32*j], _k );
-  }
-
-  for( uchar j=0; j<batch_sz; j++ ) {
-    uchar const * S = signatures + 32 + 64*j;
-    if( FD_UNLIKELY( !fd_ed25519_verify_equation( &k[32*j], &Aprime[j], S, &R[j] ) ) ) {
-      return FD_ED25519_ERR_MSG;
-    }
-  }
-  return FD_ED25519_SUCCESS;
-#endif
-#undef MAX
+void
+fd_ed25519_verify_batch8( uchar const * const msgs[],        /* n */
+                          ulong const         msg_szs[],     /* n */
+                          uchar const * const sigs[],        /* n */
+                          uchar const * const public_keys[], /* n */
+                          fd_sha512_t *       shas[],        /* n */
+                          int                 results[],     /* n */
+                          ulong               n ) {
+  FD_TEST( 0UL<n && n<=8UL );
+  for( ulong i=0UL; i<n; i++ ) results[i] = fd_ed25519_verify( msgs[i], msg_szs[i], sigs[i], public_keys[i], shas[i] );
 }
 
 char const *
