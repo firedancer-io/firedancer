@@ -2138,6 +2138,203 @@ test_bundle_nonce( void ) {
   fd_pack_delete( fd_pack_leave( pack ) );
 }
 
+/* Failure feedback and completion are independent inputs.  These tests
+   use the real rebate accumulator, with modeled transaction outcomes. */
+static void
+failed_init_check( fd_pack_t * pack, ulong regular, ulong bundles, ulong penalized ) {
+  FD_TEST( !fd_pack_verify( pack, pack_verify_scratch ) );
+  fd_pack_metrics_write( pack );
+  FD_TEST( FD_MGAUGE_GET( PACK, TXN_PENDING_USED_REGULAR     )==regular   );
+  FD_TEST( FD_MGAUGE_GET( PACK, TXN_PENDING_USED_BUNDLE      )==bundles   );
+  FD_TEST( FD_MGAUGE_GET( PACK, TXN_PENDING_USED_CONFLICTING )==penalized );
+  FD_TEST( fd_pack_avail_txn_cnt( pack )==regular+bundles+penalized );
+}
+
+static void
+failed_init_put( fd_pack_t * pack, ulong id, uint compute, ulong price,
+                 char const * writes, char const * reads, int bundle, int initializer ) {
+  fd_txn_e_t * slot[1];
+  if( bundle ) fd_pack_insert_bundle_init( pack, slot, 1UL );
+  else         slot[0] = fd_pack_insert_txn_init( pack );
+  make_transaction1( slot[0]->txnp, id, compute, 1024U, 1.0, writes, reads, NULL, NULL );
+  fd_txn_p_t * p = slot[0]->txnp;
+  FD_TEST( p->payload[ TXN(p)->instr[1].data_off ]==3U );
+  memcpy( p->payload+TXN(p)->instr[1].data_off+1UL, &price, sizeof(price) );
+  ulong deleted;
+  int rc = bundle ? fd_pack_insert_bundle_fini( pack, slot, 1UL, 10000UL, initializer, NULL, &deleted )
+                  : fd_pack_insert_txn_fini   ( pack, slot[0], 10000UL, &deleted );
+  FD_TEST( rc==FD_PACK_INSERT_ACCEPT_NONVOTE_ADD && !deleted );
+  FD_TEST( !fd_pack_verify( pack, pack_verify_scratch ) );
+}
+
+static ulong
+failed_init_schedule( fd_pack_t * pack, ulong cus, ulong bank, int flags ) {
+  ulong n = fd_pack_schedule_next_microblock( pack, cus, bank, flags, outcome.results );
+  FD_TEST( !fd_pack_verify( pack, pack_verify_scratch ) );
+  return n;
+}
+
+static ulong
+failed_init_id( ulong i ) {
+  return fd_ulong_load_8( outcome.results[i].txnp->payload+TXN(outcome.results[i].txnp)->signature_off );
+}
+
+static void
+failed_init_feedback( fd_pack_t * pack, int result ) {
+  fd_pack_rebate_sum_t rebater[1];
+  union { fd_pack_rebate_t rebate[1]; uchar footprint[USHORT_MAX]; } report[1];
+  fd_acct_addr_t const * alt[1] = { NULL };
+  fd_txn_p_t * p = outcome.results[0].txnp;
+  FD_TEST( p->flags & FD_TXN_P_FLAGS_INITIALIZER_BUNDLE );
+  p->flags &= ~(FD_TXN_P_FLAGS_EXECUTE_SUCCESS | FD_TXN_P_FLAGS_RESULT_MASK);
+  if( result==1 ) p->flags |= FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
+  else           p->flags |= (uint)(result==7 ? 7 : 1)<<24;
+  p->execle_cu.rebated_cus = 0U;
+  fd_pack_rebate_sum_new( rebater, 0UL );
+  fd_pack_rebate_sum_add_txn( rebater, p, alt, 1UL );
+  FD_TEST( fd_pack_rebate_sum_report( rebater, report->rebate )>=FD_PACK_REBATE_MIN_SZ );
+  FD_TEST( report->rebate->ib_result==(result<0 ? -1 : 1) );
+  fd_pack_rebate_cus( pack, report->rebate );
+  FD_TEST( !fd_pack_verify( pack, pack_verify_scratch ) );
+}
+
+static void
+failed_init_finish( fd_pack_t * pack ) {
+  fd_pack_clear_all( pack );
+  failed_init_check( pack, 0UL, 0UL, 0UL );
+  fd_pack_delete( fd_pack_leave( pack ) );
+}
+
+static void
+test_failed_initializer( void ) {
+  FD_LOG_NOTICE(( "TEST FAILED INITIALIZER ORDINARY ELIGIBILITY" ));
+  /* 65/64 threshold, disjoint-account control, success, AlreadyProcessed.
+     Failed initialization must block bundles without blocking ordinary
+     work, and success must retain the normal penalty/completion policy. */
+  for( ulong scenario=0UL; scenario<5UL; scenario++ ) {
+    FD_LOG_NOTICE(( "failed initializer threshold/control %lu", scenario ));
+    fd_pack_t * pack = init_all( 256UL, 3UL, 128UL, &outcome );
+    ulong readers = scenario==1UL ? 64UL : 65UL;
+    for( ulong i=0UL; i<readers; i++ ) failed_init_put( pack, i, 1000U, 0UL, "", scenario==2UL ? "J" : "K", 1, 0 );
+    failed_init_put( pack, 700UL, 1000U, 1000000000UL, "K", "", 0, 0 );
+    ulong penalty = (ulong)(readers==65UL && scenario!=2UL);
+    failed_init_check( pack, 1UL-penalty, readers, penalty );
+    failed_init_put( pack, 800UL, 1000U, 0UL, "", "", 1, 1 );
+    FD_TEST( failed_init_schedule( pack, 2000000UL, 0UL, ALL )==1UL && failed_init_id(0UL)==800UL );
+    FD_TEST( fd_pack_microblock_complete( pack, 0UL )==1 );
+    /* Non-initializer feedback cannot release the PENDING gate. */
+    fd_pack_rebate_t ignored = {0};
+    fd_pack_rebate_cus( pack, &ignored );
+    failed_init_check( pack, 1UL-penalty, readers, penalty );
+    FD_TEST( !failed_init_schedule( pack, 2000000UL, 1UL, FD_PACK_SCHEDULE_BUNDLE ) );
+    failed_init_feedback( pack, scenario>=3UL ? (scenario==4UL ? 7 : 1) : -1 );
+    if( scenario<3UL ) {
+      failed_init_check( pack, 1UL, readers, 0UL );
+      FD_TEST( !failed_init_schedule( pack, 2000000UL, 1UL, FD_PACK_SCHEDULE_BUNDLE ) );
+      FD_TEST( failed_init_schedule( pack, 2000000UL, 1UL, ALL )==1UL && failed_init_id(0UL)==700UL );
+      FD_TEST( fd_pack_microblock_complete( pack, 1UL )==1 );
+      /* Later arrivals need the same eligibility, even though all bundle
+         references remain queued and no K completion is forthcoming. */
+      failed_init_put( pack, 701UL, 1000U, 1000000000UL, "K", "", 0, 0 );
+      failed_init_check( pack, 1UL, readers, 0UL );
+      ignored.ib_result = 1; /* late/duplicate success cannot leave FAILED */
+      fd_pack_rebate_cus( pack, &ignored );
+      FD_TEST( !failed_init_schedule( pack, 2000000UL, 1UL, FD_PACK_SCHEDULE_BUNDLE ) );
+      FD_TEST( failed_init_schedule( pack, 2000000UL, 1UL, ALL )==1UL && failed_init_id(0UL)==701UL );
+      FD_TEST( fd_pack_microblock_complete( pack, 1UL )==1 );
+      /* A new block restores normal admission.  Feedback without a
+         pending initializer, including late failure, must not drain it. */
+      fd_pack_end_block( pack );
+      failed_init_put( pack, 702UL, 1000U, 1000000000UL, "K", "", 0, 0 );
+      ulong next_penalty = (ulong)(readers==65UL && scenario!=2UL);
+      ignored.ib_result = -1; fd_pack_rebate_cus( pack, &ignored );
+      failed_init_check( pack, 1UL-next_penalty, readers, next_penalty );
+      FD_TEST( !failed_init_schedule( pack, 2000000UL, 1UL, FD_PACK_SCHEDULE_BUNDLE ) );
+      failed_init_put( pack, 801UL, 1000U, 0UL, "", "", 1, 1 );
+      FD_TEST( failed_init_schedule( pack, 2000000UL, 0UL, ALL )==1UL && failed_init_id(0UL)==801UL );
+      FD_TEST( fd_pack_microblock_complete( pack, 0UL )==1 );
+      failed_init_feedback( pack, 1 );
+      failed_init_check( pack, 1UL-next_penalty, readers, next_penalty );
+    } else {
+      failed_init_check( pack, 0UL, readers, 1UL );
+      ignored.ib_result = -1; fd_pack_rebate_cus( pack, &ignored ); /* READY ignores stale failure */
+      failed_init_check( pack, 0UL, readers, 1UL );
+    }
+    /* Arrivals after success once again use normal penalty admission. */
+    failed_init_put( pack, 703UL, 1000U, 1000000000UL, "K", "", 0, 0 );
+    /* The second writer sees the first writer's reference as well. */
+    ulong restored_penalty = (ulong)(readers==65UL && scenario!=2UL) + (ulong)(scenario!=2UL);
+    failed_init_check( pack, 2UL-restored_penalty, readers, restored_penalty );
+    /* Success permits the preserved bundles to run.  Their completions
+       restore the normal writer promotion path. */
+    for( ulong i=0UL; i<readers; i++ ) {
+      FD_TEST( failed_init_schedule( pack, 2000000UL, 1UL, ALL )==1UL && failed_init_id(0UL)==i );
+      FD_TEST( fd_pack_microblock_complete( pack, 1UL )==1 );
+    }
+    ulong writer_ids = 0UL;
+    for( ulong i=0UL; i<2UL; i++ ) {
+      FD_TEST( failed_init_schedule( pack, 2000000UL, 1UL, ALL )==1UL );
+      ulong id = failed_init_id(0UL);
+      if( id==703UL ) writer_ids |= 1UL;
+      else { FD_TEST( id==(scenario<3UL ? 702UL : 700UL) ); writer_ids |= 2UL; }
+      FD_TEST( fd_pack_microblock_complete( pack, 1UL )==1 );
+    }
+    FD_TEST( writer_ids==3UL );
+    failed_init_finish( pack );
+  }
+
+  /* Failure feedback can arrive before the initializer bank completes,
+     while another bank still owns a real K read or write lock. */
+  for( ulong writes=0UL; writes<2UL; writes++ ) {
+    FD_LOG_NOTICE(( "failed initializer inflight %lu", writes ));
+    fd_pack_t * pack = init_all( 256UL, 3UL, 128UL, &outcome );
+    failed_init_put( pack, 900UL, 1000U, 0UL, writes ? "K" : "", writes ? "" : "K", 0, 0 );
+    FD_TEST( failed_init_schedule( pack, 2000000UL, 1UL, ALL )==1UL );
+    for( ulong i=0UL; i<65UL; i++ ) failed_init_put( pack, i, 1000U, 0UL, "", "K", 1, 0 );
+    failed_init_put( pack, 700UL, 1000U, 1000000000UL, "K", "", 0, 0 );
+    failed_init_put( pack, 800UL, 1000U, 0UL, "", "", 1, 1 );
+    FD_TEST( failed_init_schedule( pack, 2000000UL, 0UL, ALL )==1UL && failed_init_id(0UL)==800UL );
+    failed_init_feedback( pack, -1 );
+    failed_init_check( pack, 1UL, 65UL, 0UL );
+    FD_TEST( !failed_init_schedule( pack, 2000000UL, 2UL, ALL ) );
+    FD_TEST( fd_pack_microblock_complete( pack, 0UL )==1 );
+    FD_TEST( !failed_init_schedule( pack, 2000000UL, 2UL, ALL ) );
+    /* New arrivals in FAILED also respect the independent K lock. */
+    failed_init_put( pack, 701UL, 1000U, 1000000000UL, "K", "", 0, 0 );
+    failed_init_check( pack, 2UL, 65UL, 0UL );
+    FD_TEST( !failed_init_schedule( pack, 2000000UL, 2UL, ALL ) );
+    FD_TEST( fd_pack_microblock_complete( pack, 1UL )==1 );
+    for( ulong i=0UL; i<2UL; i++ ) {
+      FD_TEST( failed_init_schedule( pack, 2000000UL, 2UL, ALL )==1UL );
+      FD_TEST( fd_pack_microblock_complete( pack, 2UL )==1 );
+    }
+    failed_init_check( pack, 0UL, 65UL, 0UL );
+    failed_init_finish( pack );
+  }
+
+  /* All queues and all their candidates need eligibility.  One best
+     candidate per account can still hide a smaller transaction when the
+     best cannot fit the current CU allowance. */
+  FD_LOG_NOTICE(( "failed initializer multiple queues and CU frontier" ));
+  fd_pack_t * pack = init_all( 256UL, 3UL, 128UL, &outcome );
+  for( ulong i=0UL; i<65UL; i++ ) failed_init_put( pack, i, 1000U, 0UL, "", "KL", 1, 0 );
+  failed_init_put( pack, 700UL, 1000000U, 1000000000UL, "K", "", 0, 0 );
+  failed_init_put( pack, 701UL, 1000U, 1000000000UL, "K", "", 0, 0 );
+  failed_init_put( pack, 702UL, 1000U, 1000000000UL, "L", "", 0, 0 );
+  failed_init_check( pack, 0UL, 65UL, 3UL );
+  failed_init_put( pack, 800UL, 1000U, 0UL, "", "", 1, 1 );
+  FD_TEST( failed_init_schedule( pack, 2000000UL, 0UL, ALL )==1UL && failed_init_id(0UL)==800UL );
+  FD_TEST( fd_pack_microblock_complete( pack, 0UL )==1 );
+  failed_init_feedback( pack, -1 );
+  failed_init_check( pack, 3UL, 65UL, 0UL );
+  FD_TEST( failed_init_schedule( pack, 10000UL, 1UL, ALL )==2UL );
+  FD_TEST( failed_init_id(0UL)!=700UL && failed_init_id(1UL)!=700UL );
+  FD_TEST( fd_pack_microblock_complete( pack, 1UL )==1 );
+  FD_TEST( failed_init_schedule( pack, 2000000UL, 1UL, ALL )==1UL && failed_init_id(0UL)==700UL );
+  FD_TEST( fd_pack_microblock_complete( pack, 1UL )==1 );
+  failed_init_finish( pack );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -2168,6 +2365,7 @@ main( int     argc,
   test_nonce();
   test_nonce_replacement_wakeup();
   test_bundle_nonce();
+  test_failed_initializer();
   if( extra_benchmark ) {
     performance_test( extra_benchmark );
     performance_test2();
