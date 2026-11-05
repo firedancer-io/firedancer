@@ -471,8 +471,7 @@ fd_store_new( void       * shmem,
     fd_rwlock_new( &store->tbl_lock );
 
     /* Unlink examines the old key even for a never-used cell.  Initialize
-       the key, the FIRST kind and the INVALID tag; chain links are set on
-       insertion. */
+       the key and the INVALID tag; chain links are set on insertion. */
     fd_memset( ring_pool_mem, 0, max_shreds*sizeof(fd_shredb_ring_entry_t) );
     for( ulong i=0UL; i<max_slots; i++ ) {
       atomic_init( slot_hint_mem+i, 0UL );
@@ -873,39 +872,21 @@ fd_store_publish( fd_store_t *     store,
    caller. */
 #define FD_STORE_DISK_READ_RETRY_CNT (8UL)
 
-static inline ulong
-disk_cell_tag( ulong ticket,
-               uint  state ) {
-  return ((ticket & FD_SHREDB_TAG_SEQ_MASK)<<2) | state;
+static inline uint
+disk_cell_lap( ulong ticket,
+               ulong max_shreds ) {
+  return (uint)((ticket/max_shreds) & FD_SHREDB_LAP_MASK);
+}
+
+static inline uint
+disk_cell_tag( uint lap,
+               uint state ) {
+  return (lap<<2) | state;
 }
 
 static inline ulong
 disk_cell_state( ulong tag ) {
   return tag & FD_SHREDB_CELL_STATE_MASK;
-}
-
-static inline ulong
-disk_cell_ticket( ulong tag ) {
-  return (tag>>2) & FD_SHREDB_TAG_SEQ_MASK;
-}
-
-/* The tag is split across seven bytes in the ring, but is a ulong on
-   disk.  All ring accesses to these fields hold disk_lock. */
-static inline ulong
-disk_cell_tag_load( fd_shredb_ring_entry_t const * cell ) {
-  return (ulong)cell->tag
-       | ((ulong)cell->tag_hi[0]<<32)
-       | ((ulong)cell->tag_hi[1]<<40)
-       | ((ulong)cell->tag_hi[2]<<48);
-}
-
-static inline void
-disk_cell_tag_store( fd_shredb_ring_entry_t * cell,
-                     ulong                     tag ) {
-  cell->tag       = (uint)tag;
-  cell->tag_hi[0] = (uchar)(tag>>32);
-  cell->tag_hi[1] = (uchar)(tag>>40);
-  cell->tag_hi[2] = (uchar)(tag>>48);
 }
 
 static inline off_t
@@ -965,11 +946,20 @@ disk_invalidate_locked( fd_store_t * store,
 /* A snapshot of a cell's tag kept after releasing the rwlock.
    This view is only held on the caller's stack across disk I/O. */
 struct disk_view {
-  ulong ticket;
-  uint  ring_idx;
-  int   linked;
+  uint lap;
+  uint ring_idx;
+  int  linked;
 };
 typedef struct disk_view disk_view_t;
+
+/* disk_cell_recorded_locked returns whether ring_idx holds a NONFIRST
+   shred, which has a table record. */
+static inline int
+disk_cell_recorded_locked( fd_store_t const * store,
+                           uint               ring_idx ) {
+  fd_shredb_ring_entry_t const * cell = disk_ring_pool_laddr( store ) + ring_idx;
+  return disk_cell_state( cell->tag )==FD_SHREDB_CELL_READY && disk_slot_lookup_locked( store, cell->key )!=ring_idx;
+}
 
 /* disk_insert_prepare_write_locked reserves the next cell for key, of
    kind FIRST (linked) or NONFIRST (counted in tbl_cnt).  *old_recorded
@@ -990,18 +980,18 @@ disk_insert_prepare_write_locked( fd_store_t  * store,
   atomic_store_explicit( &store->disk_reservation_head, ticket + 1UL, memory_order_relaxed );
   fd_shredb_ring_entry_t * cell = pool + ring_idx;
   if( FD_UNLIKELY( disk_cell_state( cell->tag )==FD_SHREDB_CELL_WRITING ) ) return FD_STORE_DISK_INSERT_ERR;
-  *old_recorded = cell->kind==FD_SHREDB_KIND_NONFIRST && disk_cell_state( cell->tag )==FD_SHREDB_CELL_READY;
+  *old_recorded = disk_cell_recorded_locked( store, ring_idx );
 
   /* Retire the ring cell's old key before changing it. */
   disk_invalidate_locked( store, ring_idx );
 
-  disk_cell_tag_store( cell, disk_cell_tag( ticket, FD_SHREDB_CELL_WRITING ) );
-  cell->key  = key;
-  cell->kind = (uchar)kind;
+  uint lap  = disk_cell_lap( ticket, store->disk_max_shreds );
+  cell->tag = disk_cell_tag( lap, FD_SHREDB_CELL_WRITING );
+  cell->key = key;
   if( kind==FD_SHREDB_KIND_FIRST ) fd_shredb_slot_map_idx_insert( disk_slot_map_join( store ), ring_idx, pool );
   else                             disk_tbl_cnt_laddr( store )[ fd_shredb_key_slot( key ) % store->disk_max_slots ]++;
 
-  view->ticket   = ticket;
+  view->lap      = lap;
   view->ring_idx = ring_idx;
   view->linked   = kind==FD_SHREDB_KIND_FIRST;
   return FD_STORE_DISK_INSERT_SUCCESS;
@@ -1011,11 +1001,11 @@ static int
 disk_insert_finish_write_locked( fd_store_t * store,
                                  disk_view_t  view ) {
   fd_shredb_ring_entry_t * cell = disk_ring_pool_laddr( store ) + view.ring_idx;
-  FD_TEST( disk_cell_tag_load( cell )==disk_cell_tag( view.ticket, FD_SHREDB_CELL_WRITING ) );
+  FD_TEST( cell->tag==disk_cell_tag( view.lap, FD_SHREDB_CELL_WRITING ) );
 
   ulong disk_cnt = atomic_load_explicit( &store->disk_cnt, memory_order_relaxed );
   atomic_store_explicit( &store->disk_cnt, disk_cnt+1UL, memory_order_relaxed );
-  disk_cell_tag_store( cell, disk_cell_tag( view.ticket, FD_SHREDB_CELL_READY ) );
+  cell->tag = disk_cell_tag( view.lap, FD_SHREDB_CELL_READY );
 
   if( view.linked ) disk_slot_hint_publish_locked( store, fd_shredb_key_slot( cell->key ), fd_shredb_key_shred_idx( cell->key ) );
   return FD_STORE_DISK_INSERT_SUCCESS;
@@ -1033,7 +1023,7 @@ disk_insert_write( fd_store_t *       store,
   fd_shredb_entry_t wr_entry[1];
   ulong shred_sz = fd_ulong_min( fd_shred_sz( shred ), FD_SHRED_MAX_SZ );
   ulong tail_off = FD_SHREDB_ENTRY_HDR_SZ+shred_sz;
-  wr_entry->tag      = disk_cell_tag( view.ticket, FD_SHREDB_CELL_READY );
+  wr_entry->tag      = disk_cell_tag( view.lap, FD_SHREDB_CELL_READY );
   wr_entry->key      = fd_shredb_key_pack( shred->slot, shred->idx );
   wr_entry->shred_sz = (ushort)shred_sz;
   memcpy( wr_entry->root, merkle_root->uc, FD_SHRED_MERKLE_NODE_SZ );
@@ -1057,12 +1047,12 @@ static int
 disk_view_locked( fd_store_t const * store,
                   uint               ring_idx,
                   disk_view_t      * view ) {
-  ulong tag = disk_cell_tag_load( disk_ring_pool_laddr( store ) + ring_idx );
+  uint tag = disk_ring_pool_laddr( store )[ ring_idx ].tag;
   if( FD_UNLIKELY( disk_cell_state( tag )!=FD_SHREDB_CELL_READY ) ) {
     if( disk_cell_state( tag )==FD_SHREDB_CELL_WRITING ) return FD_STORE_DISK_QUERY_BUSY;
     return FD_STORE_DISK_QUERY_MISS;
   }
-  view->ticket   = disk_cell_ticket( tag );
+  view->lap      = tag>>2;
   view->ring_idx = ring_idx;
   view->linked   = 0;
   return 0;
@@ -1081,7 +1071,7 @@ static int
 disk_query_finish_read_locked( fd_store_t  const * store,
                                disk_view_t         view ) {
   fd_shredb_ring_entry_t const * cell = disk_ring_pool_laddr( store ) + view.ring_idx;
-  if( FD_UNLIKELY( disk_cell_tag_load( cell )!=disk_cell_tag( view.ticket, FD_SHREDB_CELL_READY ) ) ) return FD_STORE_DISK_QUERY_BUSY;
+  if( FD_UNLIKELY( cell->tag!=disk_cell_tag( view.lap, FD_SHREDB_CELL_READY ) ) ) return FD_STORE_DISK_QUERY_BUSY;
   return 0;
 }
 
@@ -1104,7 +1094,7 @@ disk_read_view( fd_store_t const *  store,
   int result = disk_query_finish_read_locked( store, view );
   fd_rwlock_unread( rwlock );
   if( FD_UNLIKELY( result ) ) return result;
-  if( FD_UNLIKELY( rd_entry->tag!=disk_cell_tag( view.ticket, FD_SHREDB_CELL_READY ) ) ) return FD_STORE_DISK_QUERY_BUSY;
+  if( FD_UNLIKELY( rd_entry->tag!=disk_cell_tag( view.lap, FD_SHREDB_CELL_READY ) ) ) return FD_STORE_DISK_QUERY_BUSY;
   return 0;
 }
 
@@ -1320,7 +1310,7 @@ fd_store_disk_insert( fd_store_t *       store,
   ulong next_idx = atomic_load_explicit( &store->disk_reservation_head, memory_order_relaxed ) % store->disk_max_shreds;
   int   fast     = disk_slot_lookup_locked( store, key )==UINT_MAX &&
                    !disk_tbl_cnt_laddr( store )[ slot % store->disk_max_slots ] &&
-                   disk_ring_pool_laddr( store )[ next_idx ].kind==FD_SHREDB_KIND_FIRST;
+                   !disk_cell_recorded_locked( store, (uint)next_idx );
   if( FD_LIKELY( fast ) ) result = disk_insert_prepare_write_locked( store, key, FD_SHREDB_KIND_FIRST, &view, &old_recorded );
   fd_rwlock_unwrite( &store->disk_lock );
   if( FD_LIKELY( fast ) ) {
