@@ -15,9 +15,9 @@ FD_PROTOTYPES_BEGIN
    amount of distinct accounts the transaction can access. */
 #define FD_INSTR_SIGNERS_MAX FD_TXN_ACCT_ADDR_MAX
 
-/* FD_RUNTIME_MAX_STAKE_ACCOUNTS bounds the in-memory stake-delegation
-   cache and the number of distinct staked vote accounts.  Additional
-   stake delegations spill to disk. */
+/* FD_RUNTIME_MAX_STAKE_ACCOUNTS bounds cached per-stake reward-calculation
+   results in the runtime stack.  Stake-delegation cache capacity is
+   configured separately. */
 
 #define FD_RUNTIME_MAX_STAKE_ACCOUNTS (2150000UL)
 
