@@ -1178,7 +1178,7 @@ test_migration_upgrade_gates_invoke( fd_svm_mini_t * mini ) {
 
   /* Run the migration against the executing (child) fork, exactly as
      fd_compute_and_apply_new_feature_activations does at block start. */
-  fd_upgrade_core_bpf_program( env->bank, accdb, env->mini->runtime_stack, &prog, &buffer, &test_elf_hash, NULL );
+  fd_upgrade_core_bpf_program( env->bank, accdb, env->mini->runtime_stack, &prog, &buffer, &test_elf_hash );
 
   int   pd = 0; ulong len = ULONG_MAX; ulong lamports = ULONG_MAX;
   FD_TEST( fd_accdb_probe_pd_this_fork( accdb, env->fork_id, pda.uc, &pd, &len, &lamports ) );
@@ -1273,7 +1273,7 @@ test_builtin_migration_prefunded_pd( fd_svm_mini_t * mini ) {
     .builtin_program_id        = &prog,
     .verified_build_hash       = &test_elf_hash,
   };
-  fd_migrate_builtin_to_core_bpf( env->bank, accdb, env->mini->runtime_stack, &config, NULL );
+  fd_migrate_builtin_to_core_bpf( env->bank, accdb, env->mini->runtime_stack, &config );
 
   /* The marker is what this case exists to pin. */
   int   pd = 0; ulong len = ULONG_MAX; ulong lamports = ULONG_MAX;

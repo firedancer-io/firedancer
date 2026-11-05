@@ -30,21 +30,21 @@ test_credit( fd_svm_mini_t * mini,
   fd_lthash_value_t lthash = bank->f.lthash;
 
   /* Credit a new account (should create it) */
-  fd_accdb_svm_credit( bank, accdb, NULL, &acct_a, 1000UL, 0 );
+  fd_accdb_svm_credit( bank, accdb, &acct_a, 1000UL, 0 );
   FD_TEST( fd_accdb_lamports( accdb, fork_id, acct_a.uc )==1000UL );
   FD_TEST( bank->f.capitalization==cap_before+1000UL );
   FD_TEST( !fd_lthash_eq( &lthash, &bank->f.lthash ) );
   lthash = bank->f.lthash;
 
   /* Credit the same account again */
-  fd_accdb_svm_credit( bank, accdb, NULL, &acct_a, 500UL, 0 );
+  fd_accdb_svm_credit( bank, accdb, &acct_a, 500UL, 0 );
   FD_TEST( fd_accdb_lamports( accdb, fork_id, acct_a.uc )==1500UL );
   FD_TEST( bank->f.capitalization==cap_before+1500UL );
   FD_TEST( !fd_lthash_eq( &lthash, &bank->f.lthash ) );
   lthash = bank->f.lthash;
 
   /* Credit with zero lamports is a no-op */
-  fd_accdb_svm_credit( bank, accdb, NULL, &acct_a, 0UL, 0 );
+  fd_accdb_svm_credit( bank, accdb, &acct_a, 0UL, 0 );
   FD_TEST( fd_accdb_lamports( accdb, fork_id, acct_a.uc )==1500UL );
   FD_TEST( bank->f.capitalization==cap_before+1500UL );
   FD_TEST( fd_lthash_eq( &lthash, &bank->f.lthash ) );
@@ -64,7 +64,7 @@ test_write_create( fd_svm_mini_t * mini,
 
   /* Write to a non-existent account — should create since svm_write always creates */
   uchar data1[4] = { 0xDE, 0xAD, 0xBE, 0xEF };
-  fd_accdb_svm_write( bank, accdb, NULL,
+  fd_accdb_svm_write( bank, accdb,
                       &acct_b, &owner1, data1, sizeof(data1),
                       100UL, 1, 0 );
   FD_TEST( fd_accdb_lamports( accdb, fork_id, acct_b.uc )==100UL );
@@ -91,7 +91,7 @@ test_write_overwrite( fd_svm_mini_t * mini,
   fd_accdb_t *       accdb   = mini->runtime->accdb;
 
   /* Seed acct_c with credit */
-  fd_accdb_svm_credit( bank, accdb, NULL, &acct_c, 500UL, 0 );
+  fd_accdb_svm_credit( bank, accdb, &acct_c, 500UL, 0 );
 
   ulong cap_before = bank->f.capitalization;
   fd_lthash_value_t lthash = bank->f.lthash;
@@ -99,7 +99,7 @@ test_write_overwrite( fd_svm_mini_t * mini,
   /* Overwrite with new owner, data, and exec_bit=0.  lamports_min=0
      means no minting since account already has 500 lamports. */
   uchar data2[8] = { 1,2,3,4,5,6,7,8 };
-  fd_accdb_svm_write( bank, accdb, NULL,
+  fd_accdb_svm_write( bank, accdb,
                       &acct_c, &owner2, data2, sizeof(data2),
                       0UL, 0, 0 );
   FD_TEST( fd_accdb_lamports( accdb, fork_id, acct_c.uc )==500UL );
@@ -117,7 +117,7 @@ test_write_overwrite( fd_svm_mini_t * mini,
 
   /* Overwrite again with lamports_min > current => should mint */
   uchar data3[2] = { 0xFF, 0x00 };
-  fd_accdb_svm_write( bank, accdb, NULL,
+  fd_accdb_svm_write( bank, accdb,
                       &acct_c, &owner1, data3, sizeof(data3),
                       1000UL, 0, 0 );
   FD_TEST( fd_accdb_lamports( accdb, fork_id, acct_c.uc )==1000UL );
@@ -140,11 +140,11 @@ test_remove( fd_svm_mini_t * mini,
   fd_accdb_t *       accdb   = mini->runtime->accdb;
 
   /* Seed an account */
-  fd_accdb_svm_credit( bank, accdb, NULL, &acct_a, 2000UL, 0 );
+  fd_accdb_svm_credit( bank, accdb, &acct_a, 2000UL, 0 );
   ulong cap_before = bank->f.capitalization;
 
   /* Remove the account => returns burned lamports */
-  ulong burned = fd_accdb_svm_remove( bank, accdb, NULL, &acct_a );
+  ulong burned = fd_accdb_svm_remove( bank, accdb, &acct_a );
   FD_TEST( burned==2000UL );
   FD_TEST( bank->f.capitalization==cap_before-2000UL );
 
@@ -154,7 +154,7 @@ test_remove( fd_svm_mini_t * mini,
   /* Remove non-existent account => returns 0 */
   fd_pubkey_t ghost = {{ 0xFF,0xFF,0xFF,0xFF,0,0,0,0,0,0,0,0,0,0,0,0,
                          0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 }};
-  ulong burned2 = fd_accdb_svm_remove( bank, accdb, NULL, &ghost );
+  ulong burned2 = fd_accdb_svm_remove( bank, accdb, &ghost );
   FD_TEST( burned2==0UL );
 
   FD_LOG_NOTICE(( "test_remove passed" ));
@@ -168,7 +168,7 @@ test_open_close_rw( fd_svm_mini_t * mini,
   fd_accdb_t *       accdb   = mini->runtime->accdb;
 
   /* Seed an account */
-  fd_accdb_svm_credit( bank, accdb, NULL, &acct_a, 3000UL, 0 );
+  fd_accdb_svm_credit( bank, accdb, &acct_a, 3000UL, 0 );
   ulong cap_before = bank->f.capitalization;
 
   /* Open for rw, modify lamports, close */
@@ -179,7 +179,7 @@ test_open_close_rw( fd_svm_mini_t * mini,
 
   /* Increase lamports */
   rw.lamports = 5000UL;
-  fd_accdb_svm_close_rw( bank, accdb, NULL, &rw, update );
+  fd_accdb_svm_close_rw( bank, accdb, &rw, update );
 
   /* Capitalization should increase by 2000 */
   FD_TEST( bank->f.capitalization==cap_before+2000UL );
@@ -189,7 +189,7 @@ test_open_close_rw( fd_svm_mini_t * mini,
   cap_before = bank->f.capitalization;
   rw = fd_accdb_svm_open_rw( bank, accdb, update, &acct_a, 0 );
   rw.lamports = 1000UL;
-  fd_accdb_svm_close_rw( bank, accdb, NULL, &rw, update );
+  fd_accdb_svm_close_rw( bank, accdb, &rw, update );
   FD_TEST( bank->f.capitalization==cap_before-4000UL );
   FD_TEST( fd_accdb_lamports( accdb, fork_id, acct_a.uc )==1000UL );
 
@@ -200,7 +200,7 @@ test_open_close_rw( fd_svm_mini_t * mini,
   FD_TEST( update->lamports_before==0UL );
   rw.lamports = 100UL;
   cap_before = bank->f.capitalization;
-  fd_accdb_svm_close_rw( bank, accdb, NULL, &rw, update );
+  fd_accdb_svm_close_rw( bank, accdb, &rw, update );
   FD_TEST( bank->f.capitalization==cap_before+100UL );
   FD_TEST( fd_accdb_lamports( accdb, fork_id, ghost.uc )==100UL );
 
@@ -216,7 +216,7 @@ test_fork_isolation( fd_svm_mini_t * mini,
   ulong seed_idx = fd_svm_mini_attach_child( mini, root_idx, 11UL );
   fd_bank_t *        seed_bank    = fd_svm_mini_bank( mini, seed_idx );
   fd_accdb_fork_id_t seed_fork_id = fd_svm_mini_fork_id( mini, seed_idx );
-  fd_accdb_svm_credit( seed_bank, accdb, NULL, &acct_a, 1000UL, 0 );
+  fd_accdb_svm_credit( seed_bank, accdb, &acct_a, 1000UL, 0 );
 
   /* Freeze and advance root so account is rooted */
   fd_banks_mark_bank_frozen( seed_bank );
@@ -231,7 +231,7 @@ test_fork_isolation( fd_svm_mini_t * mini,
   fd_accdb_fork_id_t fork_id_b = fd_svm_mini_fork_id( mini, fork_b_idx );
 
   /* Credit on fork A */
-  fd_accdb_svm_credit( bank_a, accdb, NULL, &acct_a, 500UL, 0 );
+  fd_accdb_svm_credit( bank_a, accdb, &acct_a, 500UL, 0 );
   FD_TEST( fd_accdb_lamports( accdb, fork_id_a, acct_a.uc )==1500UL );
 
   /* Fork B should still see original balance */
@@ -239,7 +239,7 @@ test_fork_isolation( fd_svm_mini_t * mini,
 
   /* Write on fork B with different owner */
   uchar data[4] = { 1,2,3,4 };
-  fd_accdb_svm_write( bank_b, accdb, NULL,
+  fd_accdb_svm_write( bank_b, accdb,
                       &acct_a, &owner2, data, sizeof(data),
                       0UL, 0, 0 );
 
@@ -323,10 +323,10 @@ test_write_lthash( fd_svm_mini_t * mini,
       fd_lthash_value_t pre, post;
       hash_acct( accdb, fork_id, key, &pre );
       if( fd_rng_uint_roll( rng, 4U ) ) {
-        fd_accdb_svm_write( bank, accdb, NULL, key, fd_rng_uint_roll( rng, 2U ) ? &owner1 : &owner2, data, sz,
+        fd_accdb_svm_write( bank, accdb, key, fd_rng_uint_roll( rng, 2U ) ? &owner1 : &owner2, data, sz,
                             fd_rng_ulong_roll( rng, 3000UL ), (int)fd_rng_uint_roll( rng, 2U ), 0 );
       } else {
-        fd_accdb_svm_credit( bank, accdb, NULL, key, 1UL+fd_rng_ulong_roll( rng, 1000UL ), 0 );
+        fd_accdb_svm_credit( bank, accdb, key, 1UL+fd_rng_ulong_roll( rng, 1000UL ), 0 );
       }
       hash_acct( accdb, fork_id, key, &post );
       check_lthash_step( bank, &before, &pre, &post );
@@ -434,8 +434,8 @@ test_lthash_mode( fd_svm_mini_t *        mini,
 
   /* Seed in band, then switch.  The record list is attached in every
      mode so that a stray append shows up. */
-  fd_accdb_svm_credit( bank, accdb, NULL, &acct_a, 3000UL, 0 );
-  fd_accdb_svm_credit( bank, accdb, NULL, &acct_c, 500UL,  0 );
+  fd_accdb_svm_credit( bank, accdb, &acct_a, 3000UL, 0 );
+  fd_accdb_svm_credit( bank, accdb, &acct_c, 500UL,  0 );
   test_rec->cnt  = 0UL;
   test_rec->max  = TEST_REC_CNT;
   test_rec->keys = test_rec_keys;
@@ -460,7 +460,7 @@ test_lthash_mode( fd_svm_mini_t *        mini,
   }
   FD_TEST( test_rec->cnt==0UL );
   rw.lamports = 5000UL;
-  fd_accdb_svm_close_rw( bank, accdb, NULL, &rw, update );
+  fd_accdb_svm_close_rw( bank, accdb, &rw, update );
   snap_check( snap, bank, accdb, fork_id, &acct_a, 1UL );
   FD_TEST( bank->f.capitalization==cap+2000UL );
   FD_TEST( fd_accdb_lamports( accdb, fork_id, acct_a.uc )==5000UL );
@@ -473,16 +473,16 @@ test_lthash_mode( fd_svm_mini_t *        mini,
 
   /* credit creates an account, then adds to it.  Writes 2 and 3. */
   snap_take( snap, bank, accdb, fork_id, &acct_b );
-  fd_accdb_svm_credit( bank, accdb, NULL, &acct_b, 1000UL, 0 );
+  fd_accdb_svm_credit( bank, accdb, &acct_b, 1000UL, 0 );
   snap_check( snap, bank, accdb, fork_id, &acct_b, 1UL );
   snap_take( snap, bank, accdb, fork_id, &acct_b );
-  fd_accdb_svm_credit( bank, accdb, NULL, &acct_b, 250UL, 0 );
+  fd_accdb_svm_credit( bank, accdb, &acct_b, 250UL, 0 );
   snap_check( snap, bank, accdb, fork_id, &acct_b, 1UL );
   FD_TEST( bank->f.capitalization==cap+3250UL );
 
   /* A zero credit writes nothing. */
   snap_take( snap, bank, accdb, fork_id, &acct_b );
-  fd_accdb_svm_credit( bank, accdb, NULL, &acct_b, 0UL, 0 );
+  fd_accdb_svm_credit( bank, accdb, &acct_b, 0UL, 0 );
   snap_check_none( snap, bank );
 
   /* write overwrites an account and mints up to lamports_min, then
@@ -490,31 +490,31 @@ test_lthash_mode( fd_svm_mini_t *        mini,
   uchar data1[ 4 ] = { 0xDE, 0xAD, 0xBE, 0xEF };
   uchar data2[ 8 ] = { 1,2,3,4,5,6,7,8 };
   snap_take( snap, bank, accdb, fork_id, &acct_c );
-  fd_accdb_svm_write( bank, accdb, NULL, &acct_c, &owner2, data2, sizeof(data2), 1000UL, 1, 0 );
+  fd_accdb_svm_write( bank, accdb, &acct_c, &owner2, data2, sizeof(data2), 1000UL, 1, 0 );
   snap_check( snap, bank, accdb, fork_id, &acct_c, 1UL );
   FD_TEST( bank->f.capitalization==cap+3750UL );
   snap_take( snap, bank, accdb, fork_id, &acct_d );
-  fd_accdb_svm_write( bank, accdb, NULL, &acct_d, &owner1, data1, sizeof(data1), 100UL, 0, 0 );
+  fd_accdb_svm_write( bank, accdb, &acct_d, &owner1, data1, sizeof(data1), 100UL, 0, 0 );
   snap_check( snap, bank, accdb, fork_id, &acct_d, 1UL );
   FD_TEST( bank->f.capitalization==cap+3850UL );
 
   /* remove burns an account.  Write 6.  Removing a missing account
      writes nothing. */
   snap_take( snap, bank, accdb, fork_id, &acct_a );
-  FD_TEST( fd_accdb_svm_remove( bank, accdb, NULL, &acct_a )==5000UL );
+  FD_TEST( fd_accdb_svm_remove( bank, accdb, &acct_a )==5000UL );
   snap_check( snap, bank, accdb, fork_id, &acct_a, 1UL );
   FD_TEST( bank->f.capitalization==cap-1150UL );
   FD_TEST( !fd_accdb_lamports( accdb, fork_id, acct_a.uc ) );
   snap_take( snap, bank, accdb, fork_id, &acct_missing );
-  FD_TEST( !fd_accdb_svm_remove( bank, accdb, NULL, &acct_missing ) );
+  FD_TEST( !fd_accdb_svm_remove( bank, accdb, &acct_missing ) );
   snap_check_none( snap, bank );
 
   /* Two writes to one account are recorded twice.  Writes 7 and 8. */
   snap_take( snap, bank, accdb, fork_id, &acct_b );
   rw = fd_accdb_svm_open_rw( bank, accdb, update, &acct_b, 0 );
   rw.lamports -= 50UL;
-  fd_accdb_svm_close_rw( bank, accdb, NULL, &rw, update );
-  fd_accdb_svm_credit( bank, accdb, NULL, &acct_b, 20UL, 0 );
+  fd_accdb_svm_close_rw( bank, accdb, &rw, update );
+  fd_accdb_svm_credit( bank, accdb, &acct_b, 20UL, 0 );
   snap_check( snap, bank, accdb, fork_id, &acct_b, 2UL );
   FD_TEST( bank->f.capitalization==cap-1180UL );
 

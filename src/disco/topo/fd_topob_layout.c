@@ -61,7 +61,6 @@ static struct { char const * name; uint flags; } const TILE_CLASS[] = {
   { "execle", POSTSTART|THRUPUT            },
   { "motor",  POSTSTART|CRITICAL           },
   { "execrp", POSTSTART|DEDICATED|THRUPUT  },
-  { "solcap", POSTSTART|PIN_EFF            },
 
   /* Yield to the kernel scheduler */
   { "netlnk", FLOATING                     },

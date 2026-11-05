@@ -103,7 +103,7 @@ static void
 init_rent_sysvar( test_env_t * env ) {
   fd_rent_t rent = { .lamports_per_uint8_year = 3480UL, .exemption_threshold = 2.0, .burn_percent = 50 };
   env->bank->f.rent = rent;
-  fd_sysvar_rent_write( env->bank, env->accdb, NULL, &rent );
+  fd_sysvar_rent_write( env->bank, env->accdb, &rent );
 }
 
 static void
@@ -116,7 +116,7 @@ init_epoch_schedule_sysvar( test_env_t * env ) {
     .first_normal_slot           = 0UL
   };
   env->bank->f.epoch_schedule = epoch_schedule;
-  fd_sysvar_epoch_schedule_write( env->bank, env->accdb, NULL, &epoch_schedule );
+  fd_sysvar_epoch_schedule_write( env->bank, env->accdb, &epoch_schedule );
 }
 
 static void
@@ -124,7 +124,7 @@ init_epoch_inflation_account( test_env_t * env ) {
   fd_epoch_inflation_account_state_t state = { .current = {
     .slots_per_epoch = TEST_SLOTS_PER_EPOCH,
     .epoch           = fd_slot_to_epoch( &env->bank->f.epoch_schedule, env->bank->f.slot, NULL ) } };
-  fd_epoch_inflation_account_write( env->bank, env->accdb, NULL, &state );
+  fd_epoch_inflation_account_write( env->bank, env->accdb, &state );
 }
 
 static void
@@ -392,8 +392,8 @@ test_env_create( test_env_t * env, fd_wksp_t * wksp ) {
   init_rent_sysvar( env );
   init_epoch_schedule_sysvar( env );
   init_epoch_inflation_account( env );
-  fd_sysvar_stake_history_init( env->bank, env->accdb, NULL );
-  fd_sysvar_clock_init( env->bank, env->accdb, NULL );
+  fd_sysvar_stake_history_init( env->bank, env->accdb );
+  fd_sysvar_clock_init( env->bank, env->accdb );
   init_blockhash_queue( env );
 
   fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( env->bank );
@@ -480,7 +480,7 @@ step_slot( test_env_t * env, ulong prep_epoch ) {
   env->bank = new_bank;
 
   int is_epoch_boundary = 0;
-  fd_runtime_block_execute_prepare( env->banks, env->bank, env->accdb, env->runtime_stack, NULL, &is_epoch_boundary );
+  fd_runtime_block_execute_prepare( env->banks, env->bank, env->accdb, env->runtime_stack, &is_epoch_boundary );
 
   if( prep_epoch ) prep_votes( env, prep_epoch );
   if( flip_i_pending>=0L ) {

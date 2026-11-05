@@ -99,7 +99,7 @@ modify_vote_account( fd_bank_t *           bank,
   fd_acc_t acc;
   if( !vote_account_open( bank, accdb, pk, vs, &acc ) ) return;
   vote_update_apply( vs, &acc, upd );
-  vote_account_store( bank, accdb, NULL, &acc, vs, NULL, q );
+  vote_account_store( bank, accdb, &acc, vs, NULL, q );
 }
 
 static void
@@ -242,9 +242,9 @@ test_rewards_slices( fd_svm_mini_t * mini,
   fd_lthash_value_t delta_a[1];
   fd_lthash_zero( delta_a );
   ulong credits_a = 0UL;
-  FD_TEST( !fd_alpenglow_rewards_apply_slice( bank_a, accdb, NULL, NULL, plan, 0UL, 1UL, delta_a, &credits_a ) );
+  FD_TEST( !fd_alpenglow_rewards_apply_slice( bank_a, accdb, NULL, plan, 0UL, 1UL, delta_a, &credits_a ) );
   FD_TEST( credits_a );
-  fd_alpenglow_rewards_apply_leader( bank_a, accdb, NULL, NULL, plan, credits_a, delta_a );
+  fd_alpenglow_rewards_apply_leader( bank_a, accdb, NULL, plan, credits_a, delta_a );
   for( ulong i=0UL; i<SLICE_TEST_VAL_CNT; i++ ) {
     fd_acc_t acc = fd_accdb_read_one( accdb, bank_a->accdb_fork_id, vote[ i ].uc );
     FD_TEST( acc.data_len==FD_VOTE_STATE_V5_SZ && fd_memeq( acc.data, data[ i ], FD_VOTE_STATE_V5_SZ )==( i==7UL ) );
@@ -263,9 +263,9 @@ test_rewards_slices( fd_svm_mini_t * mini,
     fd_lthash_value_t delta_b[1];
     fd_lthash_zero( delta_b );
     ulong credits_b = 0UL;
-    for( ulong i=0UL; i<slice_cnt; i++ ) FD_TEST( !fd_alpenglow_rewards_apply_slice( bank_b, accdb, NULL, run_cache, plan, i, slice_cnt, delta_b, &credits_b ) );
+    for( ulong i=0UL; i<slice_cnt; i++ ) FD_TEST( !fd_alpenglow_rewards_apply_slice( bank_b, accdb, run_cache, plan, i, slice_cnt, delta_b, &credits_b ) );
     FD_TEST( credits_b==credits_a );
-    fd_alpenglow_rewards_apply_leader( bank_b, accdb, NULL, run_cache, plan, credits_b, delta_b );
+    fd_alpenglow_rewards_apply_leader( bank_b, accdb, run_cache, plan, credits_b, delta_b );
     ulong memo_cnt = 0UL;
     for( ulong r=0UL; r<AG_VAT_MAX; r++ ) memo_cnt += !!cache->memo[ r ].lamports;
     FD_TEST( memo_cnt==( slice_cnt==2UL ? 0UL : SLICE_TEST_VAL_CNT-1UL ) );

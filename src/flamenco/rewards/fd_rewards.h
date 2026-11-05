@@ -55,7 +55,6 @@ void
 fd_begin_partitioned_rewards( fd_bank_t *                    bank,
                               fd_accdb_t *                   accdb,
                               fd_runtime_stack_t *           runtime_stack,
-                              fd_capture_ctx_t *             capture_ctx,
                               fd_stake_delegations_t const * stake_delegations,
                               fd_hash_t const *              parent_blockhash,
                               ulong                          parent_epoch,
@@ -72,8 +71,7 @@ fd_begin_partitioned_rewards( fd_bank_t *                    bank,
 void
 fd_rewards_recalculate_partitioned_rewards( fd_bank_t *          bank,
                                             fd_accdb_t *         accdb,
-                                            fd_runtime_stack_t * runtime_stack,
-                                            fd_capture_ctx_t *   capture_ctx );
+                                            fd_runtime_stack_t * runtime_stack );
 
 /* fd_distribute_partitioned_epoch_rewards pays out rewards to stake
    accounts.  Called at the beginning of a few slots per epoch or when
@@ -86,8 +84,7 @@ fd_rewards_recalculate_partitioned_rewards( fd_bank_t *          bank,
 void
 fd_distribute_partitioned_epoch_rewards( fd_bank_t *          bank,
                                          fd_accdb_t *         accdb,
-                                         fd_runtime_stack_t * runtime_stack,
-                                         fd_capture_ctx_t *   capture_ctx );
+                                         fd_runtime_stack_t * runtime_stack );
 
 /* fd_rewards_get_reward_distribution_num_blocks returns the number of
    blocks required to distribute rewards for a given epoch schedule and

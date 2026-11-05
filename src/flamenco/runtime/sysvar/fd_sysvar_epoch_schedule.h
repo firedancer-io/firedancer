@@ -68,9 +68,8 @@ fd_epoch_schedule_derive( fd_epoch_schedule_t * schedule,
    account.  FIXME document what this actually does. */
 
 void
-fd_sysvar_epoch_schedule_init( fd_bank_t *        bank,
-                               fd_accdb_t *       accdb,
-                               fd_capture_ctx_t * capture_ctx );
+fd_sysvar_epoch_schedule_init( fd_bank_t *  bank,
+                               fd_accdb_t * accdb );
 
 /* fd_sysvar_epoch_schedule_write writes the current value of the epoch
    schedule sysvar to the accounts database. */
@@ -78,7 +77,6 @@ fd_sysvar_epoch_schedule_init( fd_bank_t *        bank,
 void
 fd_sysvar_epoch_schedule_write( fd_bank_t *                 bank,
                                 fd_accdb_t *                accdb,
-                                fd_capture_ctx_t *          capture_ctx,
                                 fd_epoch_schedule_t const * epoch_schedule );
 
 /* fd_epoch_slot_cnt returns the number of slots in an epoch given an

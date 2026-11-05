@@ -103,7 +103,6 @@ enum {
 #include "fd_metrics_snaprd.h"
 #include "fd_metrics_snapsv.h"
 #include "fd_metrics_motor.h"
-#include "fd_metrics_solcap.h"
 
 /* LINK IN metric properties */
 
@@ -251,7 +250,7 @@ extern const fd_metrics_meta_t FD_METRICS_ALL_LINK_IN[FD_METRICS_ALL_LINK_IN_TOT
 
 #define FD_METRICS_TOTAL_SZ (8UL*301UL)
 
-#define FD_METRICS_TILE_KIND_CNT 44
+#define FD_METRICS_TILE_KIND_CNT 43
 extern const char * FD_METRICS_TILE_KIND_NAMES[FD_METRICS_TILE_KIND_CNT];
 extern const ulong FD_METRICS_TILE_KIND_SIZES[FD_METRICS_TILE_KIND_CNT];
 extern const fd_metrics_meta_t * FD_METRICS_TILE_KIND_METRICS[FD_METRICS_TILE_KIND_CNT];

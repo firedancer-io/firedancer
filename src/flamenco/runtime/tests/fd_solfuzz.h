@@ -10,7 +10,6 @@
    - Multi-threaded use
    - Multi-session use */
 
-#include "../../capture/fd_solcap_writer.h"
 #include "../../../util/spad/fd_spad.h"
 #include "../../accdb/fd_accdb.h"
 #include "../../progcache/fd_progcache_user.h"
@@ -37,9 +36,6 @@ struct fd_solfuzz_runner {
 
   fd_accdb_t *         accdb;
   fd_accdb_fork_id_t   root_fork_id;
-
-  fd_solcap_writer_t * solcap;
-  void *               solcap_file; /* FILE * */
 
   fd_runtime_stack_t * runtime_stack;
 

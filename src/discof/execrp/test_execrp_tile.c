@@ -536,7 +536,7 @@ test_execrp_run_alts( test_env_t * env,
   fd_memset( in_msg, 0, sizeof(fd_execrp_txn_exec_msg_t) );
   in_msg->bank_idx        = env->bank_idx;
   in_msg->txn_idx         = txn_idx;
-  in_msg->capture_txn_idx = txn_idx;
+
   in_msg->want_alts       = want_alts;
   fd_memcpy( in_msg->txn, txn, sizeof(fd_txn_p_t) );
   test_poison_out( env );

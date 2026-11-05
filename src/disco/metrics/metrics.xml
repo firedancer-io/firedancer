@@ -2171,7 +2171,4 @@ deliberate exception with lint-allow="<rule id>")
 <tile name="motor">
 </tile>
 
-<tile name="solcap" telemetry="false">
-</tile>
-
 </metrics>

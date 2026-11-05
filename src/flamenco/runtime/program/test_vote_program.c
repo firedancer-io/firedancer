@@ -1323,7 +1323,7 @@ set_clock_epoch( test_env_t * env,
   fd_sol_sysvar_clock_t clock[1];
   FD_TEST( fd_sysvar_clock_read( env->mini->runtime->accdb, env->bank->accdb_fork_id, clock ) );
   clock->epoch = epoch;
-  fd_sysvar_account_update( env->bank, env->mini->runtime->accdb, NULL, &fd_sysvar_clock_id, clock, sizeof(fd_sol_sysvar_clock_t) );
+  fd_sysvar_account_update( env->bank, env->mini->runtime->accdb, &fd_sysvar_clock_id, clock, sizeof(fd_sol_sysvar_clock_t) );
   env->mini->runtime->sysvar_bank_seq = 0UL;
 }
 

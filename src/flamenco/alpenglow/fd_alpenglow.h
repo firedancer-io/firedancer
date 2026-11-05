@@ -167,7 +167,6 @@ fd_alpenglow_rewards_plan( fd_bank_t *                   bank,
 int
 fd_alpenglow_rewards_apply_slice( fd_bank_t *                         bank,
                                   fd_accdb_t *                        accdb,
-                                  fd_capture_ctx_t *                  capture_ctx,
                                   fd_footer_cache_t *                 cache,
                                   fd_alpenglow_rewards_plan_t const * plan,
                                   ulong                               slice_idx,
@@ -185,7 +184,6 @@ fd_alpenglow_rewards_apply_slice( fd_bank_t *                         bank,
 void
 fd_alpenglow_rewards_apply_leader( fd_bank_t *                         bank,
                                    fd_accdb_t *                        accdb,
-                                   fd_capture_ctx_t *                  capture_ctx,
                                    fd_footer_cache_t *                 cache,
                                    fd_alpenglow_rewards_plan_t const * plan,
                                    ulong                               leader_credits,
@@ -199,7 +197,6 @@ fd_alpenglow_rewards_apply_leader( fd_bank_t *                         bank,
 int
 fd_alpenglow_rewards_apply( fd_bank_t *               bank,
                             fd_accdb_t *              accdb,
-                            fd_capture_ctx_t *        capture_ctx,
                             fd_footer_cache_t *       cache,
                             fd_block_footer_t const * footer );
 

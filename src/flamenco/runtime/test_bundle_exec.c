@@ -1003,7 +1003,7 @@ test_execute_bundles( fd_svm_mini_t * mini ) {
       fd_memset( sh_entries[i].hash.hash, 0, 32UL );
     }
     ulong sh_sz = sizeof(ulong) + sh_cnt * sizeof(fd_slot_hash_t);
-    fd_sysvar_account_update( env->bank, env->runtime->accdb, NULL, &fd_sysvar_slot_hashes_id, slot_hashes_data, sh_sz );
+    fd_sysvar_account_update( env->bank, env->runtime->accdb, &fd_sysvar_slot_hashes_id, slot_hashes_data, sh_sz );
     env->runtime->sysvar_bank_seq = 0UL;
 
     fd_pubkey_t alut_key = { .ul[0] = 0xA107UL };

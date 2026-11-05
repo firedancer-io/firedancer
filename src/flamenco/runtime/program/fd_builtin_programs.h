@@ -70,13 +70,11 @@ FD_PROTOTYPES_BEGIN
 /* Initialize the builtin program accounts */
 void
 fd_builtin_programs_init( fd_bank_t *        bank,
-                          fd_accdb_t *       accdb,
-                          fd_capture_ctx_t * capture_ctx );
+                          fd_accdb_t *       accdb );
 
 void
 fd_write_builtin_account( fd_bank_t  *       bank,
                           fd_accdb_t *       accdb,
-                          fd_capture_ctx_t * capture_ctx,
                           fd_pubkey_t const  pubkey,
                           void const *       data,
                           ulong              sz );
@@ -113,8 +111,7 @@ void
 fd_migrate_builtin_to_core_bpf( fd_bank_t *                            bank,
                                 fd_accdb_t *                           accdb,
                                 fd_runtime_stack_t *                   runtime_stack,
-                                fd_core_bpf_migration_config_t const * config,
-                                fd_capture_ctx_t *                     capture_ctx );
+                                fd_core_bpf_migration_config_t const * config );
 
 void
 fd_upgrade_core_bpf_program( fd_bank_t *          bank,
@@ -122,8 +119,7 @@ fd_upgrade_core_bpf_program( fd_bank_t *          bank,
                              fd_runtime_stack_t * runtime_stack,
                              fd_pubkey_t const *  builtin_program_id,
                              fd_pubkey_t const *  source_buffer_address,
-                             fd_hash_t const *    verified_build_hash,
-                             fd_capture_ctx_t *   capture_ctx );
+                             fd_hash_t const *    verified_build_hash );
 
 /* https://github.com/anza-xyz/agave/blob/8da849e919e0762f6bfc9ca17ac2339c7a003a0e/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L408-L415 */
 void
@@ -133,8 +129,7 @@ fd_upgrade_loader_v2_program_with_loader_v3_program( fd_bank_t *          bank,
                                                      fd_pubkey_t const *  loader_v2_program_address,
                                                      fd_pubkey_t const *  source_buffer_address,
                                                      fd_hash_t const *    verified_build_hash,
-                                                     int                  allow_prefunded,
-                                                     fd_capture_ctx_t *   capture_ctx );
+                                                     int                  allow_prefunded );
 
 FD_PROTOTYPES_END
 

@@ -167,7 +167,6 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, fd_sched_align(),                    fd_sched_footprint( tile->replay.sched_depth, tile->replay.max_live_slots, tile->replay.max_shreds_per_block, tile->replay.max_txn_per_slot ) );
   l = FD_LAYOUT_APPEND( l, alignof(fd_pubkey_t),                FD_SCHED_LTHASH_START_WRITES_MAX*sizeof(fd_pubkey_t) );
   l = FD_LAYOUT_APPEND( l, fd_vote_tracker_align(),             fd_vote_tracker_footprint() );
-  l = FD_LAYOUT_APPEND( l, fd_capture_ctx_align(),              fd_capture_ctx_footprint() );
   l = FD_LAYOUT_APPEND( l, alignof(fd_dump_proto_ctx_t),        sizeof(fd_dump_proto_ctx_t) );
   l = FD_LAYOUT_APPEND( l, alignof(fd_event_block_completed_t), sizeof(fd_event_block_completed_t) );
   l = FD_LAYOUT_APPEND( l, fd_timing_slot_pool_align(),         fd_timing_slot_pool_footprint( FD_REPLAY_TXN_TIMING_SLOTS ) );
@@ -695,7 +694,7 @@ replay_block_start( fd_replay_tile_t * ctx,
   /* Update required runtime state and handle potential boundary. */
 
   int is_epoch_boundary = 0;
-  fd_runtime_block_execute_prepare( ctx->banks, bank, ctx->accdb, ctx->runtime_stack, ctx->capture_ctx, &is_epoch_boundary );
+  fd_runtime_block_execute_prepare( ctx->banks, bank, ctx->accdb, ctx->runtime_stack, &is_epoch_boundary );
   FD_CHECK_CRIT( !is_epoch_boundary || FD_FEATURE_ACTIVE_BANK( bank, alpenglow ), "alpenglow feature is not active" );
 
   if( FD_LIKELY( !lthash_inband ) ) {
@@ -1511,7 +1510,7 @@ prepare_leader_bank( fd_replay_tile_t * ctx,
   ctx->leader_bank->parent_accdb_fork_id = parent_bank->accdb_fork_id;
 
   int is_epoch_boundary = 0;
-  fd_runtime_block_execute_prepare( ctx->banks, ctx->leader_bank, ctx->accdb, ctx->runtime_stack, ctx->capture_ctx, &is_epoch_boundary );
+  fd_runtime_block_execute_prepare( ctx->banks, ctx->leader_bank, ctx->accdb, ctx->runtime_stack, &is_epoch_boundary );
   FD_CHECK_CRIT( !is_epoch_boundary || FD_FEATURE_ACTIVE_BANK( ctx->leader_bank, alpenglow ), "alpenglow feature is not active" );
 
   ulong max_tick_height;
@@ -1993,7 +1992,7 @@ replay_block_finalize( fd_replay_tile_t *  ctx,
 
   fd_replay_footer_end_t * end = ctx->footer_end + bank->idx;
   ulong cnt = 0UL;
-  if( footer && !ctx->capture_ctx && !ctx->report_runtime_diffs ) {
+  if( footer && !ctx->report_runtime_diffs ) {
     cnt = fd_alpenglow_footer_certs( footer, cert, tag, quorum );
     ulong tiles = fd_sched_footer_dispatch( ctx->sched, bank->idx, cnt-end->cert_next );
     for( ; tiles; end->cert_next++, tiles=fd_ulong_pop_lsb( tiles ) ) {
@@ -2005,7 +2004,7 @@ replay_block_finalize( fd_replay_tile_t *  ctx,
     /* No cert went to a tile.  Finish the block serially right here,
        footer and all.  The footer cache stays out of it while another
        bank's slices may be writing its memo. */
-    if( FD_UNLIKELY( fd_runtime_block_execute_finalize( bank, ctx->accdb, ctx->capture_ctx, footer, ctx->shred_version, ctx->rewards_in_flight_cnt ? NULL : ctx->footer_cache ) ) ) goto bad_footer;
+    if( FD_UNLIKELY( fd_runtime_block_execute_finalize( bank, ctx->accdb, footer, ctx->shred_version, ctx->rewards_in_flight_cnt ? NULL : ctx->footer_cache ) ) ) goto bad_footer;
     if( FD_UNLIKELY( ctx->report_runtime_diffs ) ) replay_runtime_block_emit( ctx, bank, execution_fees_pre_settle, priority_fees_pre_settle, tips_pre_settle );
     return replay_block_complete( ctx, stem, bank, footer, execution_fees_pre_settle, priority_fees_pre_settle );
   }
@@ -2029,7 +2028,7 @@ replay_block_finalize( fd_replay_tile_t *  ctx,
       /* No idle exec tile.  Run the one slice here. */
       fd_lthash_value_t delta[1];
       fd_lthash_zero( delta );
-      if( FD_UNLIKELY( fd_alpenglow_rewards_apply_slice( bank, ctx->accdb, NULL, ctx->footer_cache, &end->plan, 0UL, 1UL, delta, &end->leader_credits ) ) ) goto bad_footer;
+      if( FD_UNLIKELY( fd_alpenglow_rewards_apply_slice( bank, ctx->accdb, ctx->footer_cache, &end->plan, 0UL, 1UL, delta, &end->leader_credits ) ) ) goto bad_footer;
       fd_lthash_add( fd_bank_lthash_locking_modify( bank ), delta );
       fd_bank_lthash_end_locking_modify( bank );
     }
@@ -2051,7 +2050,7 @@ replay_block_finalize( fd_replay_tile_t *  ctx,
     bank->footer_task_cnt      += slice_cnt;
     ctx->rewards_in_flight_cnt += slice_cnt;
   }
-  fd_runtime_freeze_sysvars( bank, ctx->accdb, NULL );
+  fd_runtime_freeze_sysvars( bank, ctx->accdb );
 
   end->finalized = 1;
   if( FD_LIKELY( bank->footer_task_cnt ) ) return 0;
@@ -2356,7 +2355,7 @@ init_after_snapshot( fd_replay_tile_t *  ctx,
   /* After both snapshots have been loaded in, we can determine if we should
      start distributing rewards. */
 
-  fd_rewards_recalculate_partitioned_rewards( bank, ctx->accdb, ctx->runtime_stack, ctx->capture_ctx );
+  fd_rewards_recalculate_partitioned_rewards( bank, ctx->accdb, ctx->runtime_stack );
 
   /* Signals fd_startup_gate */
   FD_MGAUGE_SET( REPLAY, IS_RUNTIME_LOADED, 1UL );
@@ -2440,7 +2439,7 @@ process_poh_message( fd_replay_tile_t *                 ctx,
      the bank hash, so there is nothing left to fall back to. */
   /* The footer cache stays out of this while another bank's slices may
      be writing its memo. */
-  if( FD_UNLIKELY( fd_runtime_block_execute_finalize( ctx->leader_bank, ctx->accdb, ctx->capture_ctx, footer, ctx->shred_version, ctx->rewards_in_flight_cnt ? NULL : ctx->footer_cache ) ) ) {
+  if( FD_UNLIKELY( fd_runtime_block_execute_finalize( ctx->leader_bank, ctx->accdb, footer, ctx->shred_version, ctx->rewards_in_flight_cnt ? NULL : ctx->footer_cache ) ) ) {
     FD_LOG_WARNING(( "slot %lu: our own block footer certs did not apply; the block we produce will be dead to the cluster", ctx->leader_bank->f.slot ));
   }
   footer->bank_hash = ctx->leader_bank->f.bank_hash;
@@ -2486,7 +2485,7 @@ boot_genesis( fd_replay_tile_t *        ctx,
   bank->accdb_fork_id = fd_accdb_attach_child( ctx->accdb, accdb_root );
   bank->parent_accdb_fork_id = bank->accdb_fork_id;
 
-  fd_runtime_read_genesis( ctx->banks, bank, ctx->accdb, NULL, &meta->genesis_hash, &meta->lthash, ctx->genesis, genesis_blob, ctx->runtime_stack );
+  fd_runtime_read_genesis( ctx->banks, bank, ctx->accdb, &meta->genesis_hash, &meta->lthash, ctx->genesis, genesis_blob, ctx->runtime_stack );
   FD_TEST( fd_sysvar_cache_validate( bank, ctx->accdb ) );
 
   fd_txncache_reset( ctx->txncache );
@@ -2866,9 +2865,6 @@ dispatch_task( fd_replay_tile_t *  ctx,
       fd_sched_txn_info_t const * txn_info = fd_sched_get_txn_info( ctx->sched, task->txn_exec->txn_idx );
       exec_msg->index_in_slot = txn_info->index_in_slot;
       exec_msg->want_alts     = !!(txn_info->flags & FD_SCHED_TXN_ALT_UNRESOLVED);
-      if( FD_UNLIKELY( ctx->capture_ctx ) ) {
-        exec_msg->capture_txn_idx = ctx->capture_ctx->current_txn_idx++;
-      }
       fd_stem_publish( stem, exec_out->idx, (FD_EXECRP_TT_TXN_EXEC<<32) | task->txn_exec->exec_idx, exec_out->chunk, sizeof(*exec_msg), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
       exec_out->chunk = fd_dcache_compact_next( exec_out->chunk, sizeof(*exec_msg), exec_out->chunk0, exec_out->wmark );
       break;
@@ -2876,9 +2872,9 @@ dispatch_task( fd_replay_tile_t *  ctx,
     case FD_SCHED_TT_CERT_VERIFY: {
       fd_bank_t * bank = fd_banks_bank_query( ctx->banks, task->cert_verify->bank_idx );
       FD_TEST( bank );
-      /* Capture and runtime diff runs verify every cert on this tile at
+      /* Runtime diff runs verify every cert on this tile at
          block end, so the task completes with nothing sent. */
-      if( FD_UNLIKELY( ctx->capture_ctx || ctx->report_runtime_diffs ) ) {
+      if( FD_UNLIKELY( ctx->report_runtime_diffs ) ) {
         FD_TEST( !fd_sched_task_done( ctx->sched, FD_SCHED_TT_CERT_VERIFY, ULONG_MAX, task->cert_verify->exec_idx, NULL ) );
         break;
       }
@@ -4616,7 +4612,6 @@ unprivileged_init( fd_topo_t const *      topo,
   void * sched_mem          = FD_SCRATCH_ALLOC_APPEND( l, fd_sched_align(),                    fd_sched_footprint( tile->replay.sched_depth, tile->replay.max_live_slots, tile->replay.max_shreds_per_block, tile->replay.max_txn_per_slot ) );
   void * lthash_rec_keys    = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_pubkey_t),                FD_SCHED_LTHASH_START_WRITES_MAX*sizeof(fd_pubkey_t) );
   void * vote_tracker_mem   = FD_SCRATCH_ALLOC_APPEND( l, fd_vote_tracker_align(),             fd_vote_tracker_footprint() );
-  void * _capture_ctx       = FD_SCRATCH_ALLOC_APPEND( l, fd_capture_ctx_align(),              fd_capture_ctx_footprint() );
   void * dump_proto_ctx_mem = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_dump_proto_ctx_t),        sizeof(fd_dump_proto_ctx_t) );
   void * block_completed_ev = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_event_block_completed_t), sizeof(fd_event_block_completed_t) );
   void * timing_pool_mem    = FD_SCRATCH_ALLOC_APPEND( l, fd_timing_slot_pool_align(),         fd_timing_slot_pool_footprint( FD_REPLAY_TXN_TIMING_SLOTS ) );
@@ -4737,13 +4732,6 @@ unprivileged_init( fd_topo_t const *      topo,
   fd_sleep_t * accdb_sleep = topo->sleep_obj_id!=ULONG_MAX ? fd_sleep_join( fd_topo_obj_laddr( topo, topo->sleep_obj_id ) ) : NULL;
   ctx->accdb = fd_accdb_join( fd_accdb_new( _accdb, accdb_shmem, FD_ACCDB_FD_RW, 0UL, NULL, accdb_sleep, fd_topo_find_tile( topo, "accdb", 0UL ), 0 ) );
   FD_TEST( ctx->accdb );
-
-  ctx->capture_ctx = NULL;
-  if( FD_UNLIKELY( strcmp( "", tile->replay.solcap_capture ) ) ) {
-    ctx->capture_ctx = fd_capture_ctx_join( fd_capture_ctx_new( _capture_ctx ) );
-    ctx->capture_ctx->solcap_start_slot = tile->replay.capture_start_slot;
-    ctx->capture_ctx->capture_solcap = 1;
-  }
 
   ctx->block_completed_event = block_completed_ev;
 
@@ -4954,39 +4942,6 @@ unprivileged_init( fd_topo_t const *      topo,
 
   ctx->rpc_enabled = fd_topo_find_tile( topo, "rpc", 0UL )!=ULONG_MAX;
 
-  if( FD_UNLIKELY( strcmp( "", tile->replay.solcap_capture ) ) ) {
-    ulong idx = fd_topo_find_tile_out_link( topo, tile, "cap_repl", 0UL );
-    FD_TEST( idx!=ULONG_MAX );
-    fd_topo_link_t const * link = &topo->links[ tile->out_link_id[ idx ] ];
-
-
-    fd_capture_link_buf_t * cap_repl_out = ctx->cap_repl_out;
-    cap_repl_out->base.vt = &fd_capture_link_buf_vt;
-    cap_repl_out->idx     = idx;
-    cap_repl_out->mem     = topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ].wksp;
-    cap_repl_out->chunk0  = fd_dcache_compact_chunk0( cap_repl_out->mem, link->dcache );
-    cap_repl_out->wmark   = fd_dcache_compact_wmark( cap_repl_out->mem, link->dcache, link->mtu );
-    cap_repl_out->chunk   = cap_repl_out->chunk0;
-    cap_repl_out->mcache  = link->mcache;
-    cap_repl_out->depth   = fd_mcache_depth( link->mcache );
-    cap_repl_out->seq     = 0UL;
-
-    ctx->capture_ctx->capctx_type.buf  = cap_repl_out;
-    ctx->capture_ctx->capture_link    = &cap_repl_out->base;
-    ctx->capture_ctx->current_txn_idx = 0UL;
-
-
-    ulong consumer_tile_idx = fd_topo_find_tile( topo, "solcap", 0UL );
-    fd_topo_tile_t const * consumer_tile = &topo->tiles[ consumer_tile_idx ];
-    cap_repl_out->fseq = NULL;
-    for( ulong j = 0UL; j < consumer_tile->in_cnt; j++ ) {
-      if( FD_UNLIKELY( consumer_tile->in_link_id[ j ]  == link->id ) ) {
-        cap_repl_out->fseq = fd_fseq_join( fd_topo_obj_laddr( topo, consumer_tile->in_link_fseq_obj_id[ j ] ) );
-        FD_TEST( cap_repl_out->fseq );
-        break;
-      }
-    }
-  }
 
   fd_memset( &ctx->metrics, 0, sizeof(ctx->metrics) );
 

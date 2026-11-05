@@ -463,7 +463,6 @@ vote_update_apply( fd_vote_state_versioned_t * vs,
 static void
 vote_account_store( fd_bank_t *                       bank,
                     fd_accdb_t *                      accdb,
-                    fd_capture_ctx_t *                capture_ctx,
                     fd_acc_t *                        acc,
                     fd_vote_state_versioned_t const * vs,
                     fd_footer_cache_memo_t *          memo,
@@ -482,7 +481,6 @@ vote_account_store( fd_bank_t *                       bank,
   acc->executable = 0;
 
   fd_vote_queue_store( q, acc, memo );
-  fd_hashes_capture_account( acc->pubkey, acc->owner, acc->lamports, acc->executable, acc->data, acc->data_len, bank, capture_ctx );
 
   acc->commit = 1;
   fd_accdb_unwrite_one( accdb, acc );
@@ -716,7 +714,6 @@ fd_alpenglow_rewards_plan( fd_bank_t *                   bank,
 int
 fd_alpenglow_rewards_apply_slice( fd_bank_t *                         bank,
                                   fd_accdb_t *                        accdb,
-                                  fd_capture_ctx_t *                  capture_ctx,
                                   fd_footer_cache_t *                 cache,
                                   fd_alpenglow_rewards_plan_t const * plan,
                                   ulong                               slice_idx,
@@ -792,7 +789,7 @@ fd_alpenglow_rewards_apply_slice( fd_bank_t *                         bank,
         } );
       }
       ulong m = iter_kind==plan->memo_kind ? r : memo_rank( bank, plan->memo_kind, &ele->pubkey );
-      vote_account_store( bank, accdb, capture_ctx, &acc, vs, cache && m!=ULONG_MAX ? cache->memo+m : NULL, q );
+      vote_account_store( bank, accdb, &acc, vs, cache && m!=ULONG_MAX ? cache->memo+m : NULL, q );
     }
     if( FD_UNLIKELY( !have_ranked_vote ) ) {
       if( rwd ) FD_LOG_WARNING(( "slot %lu: no ranked validators for reward slot %lu",    bank_slot, plan->reward_slot ));
@@ -809,7 +806,6 @@ fd_alpenglow_rewards_apply_slice( fd_bank_t *                         bank,
 void
 fd_alpenglow_rewards_apply_leader( fd_bank_t *                         bank,
                                    fd_accdb_t *                        accdb,
-                                   fd_capture_ctx_t *                  capture_ctx,
                                    fd_footer_cache_t *                 cache,
                                    fd_alpenglow_rewards_plan_t const * plan,
                                    ulong                               leader_credits,
@@ -856,14 +852,13 @@ fd_alpenglow_rewards_apply_leader( fd_bank_t *                         bank,
   uchar __attribute__((aligned(FD_VOTE_QUEUE_ALIGN))) q_mem[ FD_VOTE_QUEUE_FOOTPRINT ];
   fd_vote_queue_t * q = fd_vote_queue_init( q_mem );
   ulong m = memo_rank( bank, plan->memo_kind, &plan->leader_vote_pubkey );
-  vote_account_store( bank, accdb, capture_ctx, &acc, vs, cache && m!=ULONG_MAX ? cache->memo+m : NULL, q );
+  vote_account_store( bank, accdb, &acc, vs, cache && m!=ULONG_MAX ? cache->memo+m : NULL, q );
   fd_lthash_add( delta, fd_vote_queue_fini( q ) );
 }
 
 int
 fd_alpenglow_rewards_apply( fd_bank_t *               bank,
                             fd_accdb_t *              accdb,
-                            fd_capture_ctx_t *        capture_ctx,
                             fd_footer_cache_t *       cache,
                             fd_block_footer_t const * footer ) {
 
@@ -873,8 +868,8 @@ fd_alpenglow_rewards_apply( fd_bank_t *               bank,
   fd_lthash_value_t delta[1];
   fd_lthash_zero( delta );
   ulong leader_credits = 0UL;
-  if( FD_UNLIKELY( fd_alpenglow_rewards_apply_slice( bank, accdb, capture_ctx, cache, plan, 0UL, 1UL, delta, &leader_credits ) ) ) return -1;
-  fd_alpenglow_rewards_apply_leader( bank, accdb, capture_ctx, cache, plan, leader_credits, delta );
+  if( FD_UNLIKELY( fd_alpenglow_rewards_apply_slice( bank, accdb, cache, plan, 0UL, 1UL, delta, &leader_credits ) ) ) return -1;
+  fd_alpenglow_rewards_apply_leader( bank, accdb, cache, plan, leader_credits, delta );
 
   fd_lthash_add( fd_bank_lthash_locking_modify( bank ), delta );
   fd_bank_lthash_end_locking_modify( bank );

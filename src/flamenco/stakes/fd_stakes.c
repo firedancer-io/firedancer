@@ -760,8 +760,7 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
 /* https://github.com/anza-xyz/agave/blob/v4.3.0-beta.0/runtime/src/bank.rs#L2644-L2695 */
 static void
 fd_stakes_burn_vat( fd_bank_t *         bank,
-                    fd_accdb_t *        accdb,
-                    fd_capture_ctx_t *  capture_ctx ) {
+                    fd_accdb_t *        accdb ) {
   fd_vote_stakes_t * vote_stakes    = fd_bank_vote_stakes( bank );
   ushort             fork_id        = bank->vote_stakes_fork_id;
   ulong              burn_per_epoch = fd_slot_params_at_slot( bank, bank->f.slot ).vat_to_burn_per_epoch;
@@ -780,10 +779,10 @@ fd_stakes_burn_vat( fd_bank_t *         bank,
     total_vat    += burn_per_epoch;
     acc.lamports -= burn_per_epoch;
     update->skip_event_diff = 1;
-    fd_accdb_svm_close_rw( bank, accdb, capture_ctx, &acc, update );
+    fd_accdb_svm_close_rw( bank, accdb, &acc, update );
   }
 
-  fd_accdb_svm_credit( bank, accdb, capture_ctx, &fd_sysvar_incinerator_id, total_vat, 0 );
+  fd_accdb_svm_credit( bank, accdb, &fd_sysvar_incinerator_id, total_vat, 0 );
 
   if( FD_UNLIKELY( fd_bank_report_runtime_diffs( bank ) ) ) fd_event_runtime_epoch_vat_burn( burn_per_epoch );
 }
@@ -793,7 +792,6 @@ void
 fd_stakes_activate_epoch( fd_bank_t *                    bank,
                           fd_runtime_stack_t *           runtime_stack,
                           fd_accdb_t *                   accdb,
-                          fd_capture_ctx_t *             capture_ctx,
                           fd_stake_delegations_t *       stake_delegations,
                           ulong *                        new_rate_activation_epoch ) {
   /* We can update our stake history sysvar based on the bank stake values.
@@ -841,7 +839,7 @@ fd_stakes_activate_epoch( fd_bank_t *                    bank,
     elem.deactivating = deactivating;
   }
 
-  fd_sysvar_stake_history_update( bank, accdb, capture_ctx, &elem );
+  fd_sysvar_stake_history_update( bank, accdb, &elem );
   if( FD_UNLIKELY( fd_bank_report_runtime_diffs( bank ) ) ) fd_event_runtime_epoch_stake_history( &elem );
 
   uchar              stake_history_data[ FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ ];
@@ -864,7 +862,7 @@ fd_stakes_activate_epoch( fd_bank_t *                    bank,
                             stake_history,
                             rewarded_epoch,
                             new_rate_activation_epoch );
-  fd_stakes_burn_vat( bank, accdb, capture_ctx );
+  fd_stakes_burn_vat( bank, accdb );
 }
 
 

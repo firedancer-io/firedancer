@@ -10,9 +10,8 @@ FD_PROTOTYPES_BEGIN
    state. */
 
 void
-fd_sysvar_last_restart_slot_init( fd_bank_t *        bank,
-                                  fd_accdb_t *       accdb,
-                                  fd_capture_ctx_t * capture_ctx );
+fd_sysvar_last_restart_slot_init( fd_bank_t *  bank,
+                                  fd_accdb_t * accdb );
 
 /* fd_sysvar_last_restart_slot_derive returns the highest hard fork slot
    that is less than or equal to the bank slot, or 0 if no such hard
@@ -27,9 +26,8 @@ fd_sysvar_last_restart_slot_derive( fd_bank_t const * bank );
    See Agave's solana_runtime::bank::Bank::update_last_restart_slot */
 
 void
-fd_sysvar_last_restart_slot_update( fd_bank_t *        bank,
-                                    fd_accdb_t *       accdb,
-                                    fd_capture_ctx_t * capture_ctx );
+fd_sysvar_last_restart_slot_update( fd_bank_t *  bank,
+                                    fd_accdb_t * accdb );
 
 /* fd_sysvar_last_restart_slot_read queries the last restart slot sysvar
    from the given fork. If the account doesn't exist in the database or

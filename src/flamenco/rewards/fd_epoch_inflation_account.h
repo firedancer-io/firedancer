@@ -113,7 +113,6 @@ fd_epoch_inflation_account_encode( uchar                                      da
 static inline void
 fd_epoch_inflation_account_write( fd_bank_t *                                bank,
                                   fd_accdb_t *                               accdb,
-                                  fd_capture_ctx_t *                         capture_ctx,
                                   fd_epoch_inflation_account_state_t const * state ) {
   uchar data[ FD_EPOCH_INFLATION_ACCOUNT_SOME ];
   ulong data_sz = fd_epoch_inflation_account_encode( data, state );
@@ -126,14 +125,13 @@ fd_epoch_inflation_account_write( fd_bank_t *                                ban
   acc.executable = 0;
   acc.data_len   = data_sz;
   fd_memcpy( acc.data, data, data_sz );
-  fd_accdb_svm_close_rw( bank, accdb, capture_ctx, &acc, update );
+  fd_accdb_svm_close_rw( bank, accdb, &acc, update );
 }
 
 /* https://github.com/anza-xyz/agave/blob/v4.3.0-beta.0/runtime/src/block_component_processor/vote_reward/epoch_inflation_account_state.rs#L147-L160 */
 static inline void
 fd_epoch_inflation_account_update( fd_bank_t *        bank,
                                    fd_accdb_t *       accdb,
-                                   fd_capture_ctx_t * capture_ctx,
                                    ulong              max_possible_validator_reward ) {
   fd_epoch_inflation_account_state_t old_state[1];
   int                                has_old_state = fd_epoch_inflation_account_read( bank, accdb, old_state );
@@ -147,7 +145,7 @@ fd_epoch_inflation_account_update( fd_bank_t *        bank,
     .has_prev = has_old_state,
   };
   if( has_old_state ) new_state.prev = old_state->current;
-  fd_epoch_inflation_account_write( bank, accdb, capture_ctx, &new_state );
+  fd_epoch_inflation_account_write( bank, accdb, &new_state );
 }
 
 #endif /* HEADER_fd_src_flamenco_rewards_fd_epoch_inflation_account_h */

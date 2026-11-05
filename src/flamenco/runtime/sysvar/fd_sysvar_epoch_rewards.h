@@ -19,7 +19,6 @@ fd_sysvar_epoch_rewards_read( fd_accdb_t *                accdb,
 void
 fd_sysvar_epoch_rewards_distribute( fd_bank_t *        bank,
                                     fd_accdb_t *       accdb,
-                                    fd_capture_ctx_t * capture_ctx,
                                     ulong              distributed,
                                     ulong              debit_block_reward_lamports );
 
@@ -28,8 +27,7 @@ fd_sysvar_epoch_rewards_distribute( fd_bank_t *        bank,
     https://github.com/anza-xyz/agave/blob/v4.4.0-alpha.5/runtime/src/bank/partitioned_epoch_rewards/sysvar.rs#L113 */
 void
 fd_sysvar_epoch_rewards_set_inactive( fd_bank_t *        bank,
-                                      fd_accdb_t *       accdb,
-                                      fd_capture_ctx_t * capture_ctx );
+                                      fd_accdb_t *       accdb );
 
 /* Initialize the EpochRewards sysvar account
 
@@ -37,7 +35,6 @@ fd_sysvar_epoch_rewards_set_inactive( fd_bank_t *        bank,
 void
 fd_sysvar_epoch_rewards_init( fd_bank_t *        bank,
                               fd_accdb_t *       accdb,
-                              fd_capture_ctx_t * capture_ctx,
                               ulong              distributed_rewards,
                               ulong              distribution_starting_block_height,
                               ulong              num_partitions,

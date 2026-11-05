@@ -127,7 +127,6 @@ struct fd_runtime {
   struct {
     int                   enable_log_collector;
     fd_log_collector_t *  log_collector; /* Log collector instance */
-    fd_capture_ctx_t *    capture_ctx;
     fd_dump_proto_ctx_t * dump_proto_ctx;
     fd_txn_dump_ctx_t *   txn_dump_ctx;
 
@@ -368,7 +367,6 @@ fd_runtime_block_execute_prepare( fd_banks_t *         banks,
                                   fd_bank_t *          bank,
                                   fd_accdb_t  *        accdb,
                                   fd_runtime_stack_t * runtime_stack,
-                                  fd_capture_ctx_t *   capture_ctx,
                                   int *                is_epoch_boundary );
 
 /* fd_runtime_block_execute_finalize finishes the execution of the block
@@ -381,7 +379,6 @@ fd_runtime_block_execute_prepare( fd_banks_t *         banks,
 int
 fd_runtime_block_execute_finalize( fd_bank_t *               bank,
                                    fd_accdb_t *              accdb,
-                                   fd_capture_ctx_t *        capture_ctx,
                                    fd_block_footer_t const * footer,
                                    ushort                    shred_version,
                                    fd_footer_cache_t *       cache );
@@ -391,7 +388,7 @@ fd_runtime_block_execute_finalize( fd_bank_t *               bank,
    bank unless they pass.  It rewrites the clock and alpenclock and
    plans the footer's vote rewards.  The caller applies the plan's
    slices on tiles, freezes the sysvars meanwhile, and completes it with
-   fd_runtime_block_footer_end.  No capture or runtime diffs.  Returns
+   fd_runtime_block_footer_end.  No runtime diffs.  Returns
    -1 if the footer is invalid and 0 otherwise. */
 
 int
@@ -407,8 +404,7 @@ fd_runtime_block_footer_begin( fd_bank_t *                   bank,
 
 void
 fd_runtime_freeze_sysvars( fd_bank_t *        bank,
-                           fd_accdb_t *       accdb,
-                           fd_capture_ctx_t * capture_ctx );
+                           fd_accdb_t *       accdb );
 
 /* fd_runtime_freeze_fees settles the block's fees and removes the
    incinerator.  The leader's fee collector may be any account, a
@@ -417,8 +413,7 @@ fd_runtime_freeze_sysvars( fd_bank_t *        bank,
 
 void
 fd_runtime_freeze_fees( fd_bank_t *        bank,
-                        fd_accdb_t *       accdb,
-                        fd_capture_ctx_t * capture_ctx );
+                        fd_accdb_t *       accdb );
 
 /* fd_runtime_block_footer_end completes a block begun with
    fd_runtime_block_footer_begin once every reward slice is done and the

@@ -23,7 +23,7 @@ test_tag_bank( fd_svm_mini_t * mini,
   fd_sol_sysvar_clock_t clock[1];
   FD_TEST( fd_sysvar_clock_read( accdb, bank->accdb_fork_id, clock ) );
   clock->epoch_start_timestamp = tag;
-  fd_sysvar_account_update( bank, accdb, NULL, &fd_sysvar_clock_id, clock, sizeof(fd_sol_sysvar_clock_t) );
+  fd_sysvar_account_update( bank, accdb, &fd_sysvar_clock_id, clock, sizeof(fd_sol_sysvar_clock_t) );
 
   if( drop_restart ) {
     fd_acc_t acc = fd_accdb_write_one( accdb, bank->accdb_fork_id, fd_sysvar_last_restart_slot_id.uc );

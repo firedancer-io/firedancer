@@ -234,7 +234,6 @@ mock_runtime_block_execute_prepare_fn( fd_banks_t *         banks FD_PARAM_UNUSE
                                        fd_bank_t *          bank,
                                        fd_accdb_t *         accdb FD_PARAM_UNUSED,
                                        fd_runtime_stack_t * runtime_stack FD_PARAM_UNUSED,
-                                       fd_capture_ctx_t *   capture_ctx FD_PARAM_UNUSED,
                                        int *                is_epoch_boundary ) {
   if( FD_UNLIKELY( !mock_epoch_boundary_enabled ) ) {
     *is_epoch_boundary = 0;
@@ -284,7 +283,7 @@ mock_runtime_block_execute_prepare_fn( fd_banks_t *         banks FD_PARAM_UNUSE
 #define fd_sysvar_stake_history_read(a,f,d,v) (mock_snapshot_boot ? NULL : (fd_sysvar_stake_history_read)(a,f,d,v))
 #define fd_stake_delegations_refresh(d,e,h,w,f,r)     do { if( !mock_snapshot_boot ) (fd_stake_delegations_refresh)(d,e,h,w,f,r); } while(0)
 #define fd_vote_stakes_refresh(v,f,a,i)              do { if( !mock_snapshot_boot ) (fd_vote_stakes_refresh)(v,f,a,i); } while(0)
-#define fd_rewards_recalculate_partitioned_rewards(k,a,s,c) do { if( !mock_snapshot_boot ) (fd_rewards_recalculate_partitioned_rewards)(k,a,s,c); } while(0)
+#define fd_rewards_recalculate_partitioned_rewards(k,a,s) do { if( !mock_snapshot_boot ) (fd_rewards_recalculate_partitioned_rewards)(k,a,s); } while(0)
 #define fd_accdb_lamports(a,i,p) (mock_snapshot_boot ? 0UL : (fd_accdb_lamports)(a,i,p))
 static ulong mock_migration_slot = ULONG_MAX;
 #define fd_alpenglow_migration_slot(b,a) (mock_snapshot_boot || mock_footer_finalize ? mock_migration_slot : (fd_alpenglow_migration_slot)(b,a))
@@ -295,6 +294,9 @@ static int               mock_footer_finalize;
 static fd_block_footer_t mock_footer_storage[ 1 ];
 static fd_block_footer_t * mock_footer = mock_footer_storage;
 static fd_hash_t         mock_footer_poh;
+/* The runtime diff path reads the clock for its runtime_block event. */
+static fd_sol_sysvar_clock_t mock_footer_clock;
+#define fd_sysvar_clock_read(a,f,c) (mock_footer_finalize ? fd_memcpy( (c), &mock_footer_clock, sizeof(fd_sol_sysvar_clock_t) ) : (fd_sysvar_clock_read)(a,f,c))
 
 #define fd_sched_get_poh(s,b)        (mock_footer_finalize ? &mock_footer_poh : (fd_sched_get_poh)(s,b))
 #define fd_sched_get_shred_cnt(s,b)  (mock_footer_finalize ? 0U : (fd_sched_get_shred_cnt)(s,b))
@@ -303,7 +305,7 @@ static fd_lthash_value_t mock_sched_lthash_delta[ 1 ];
 #define fd_sched_lthash_delta(s,b)   ((mock_footer_finalize || !(s)) ? mock_sched_lthash_delta : (fd_sched_lthash_delta)(s,b))
 static int mock_footer_verify; /* mocked finalize still verifies certs */
 #define fd_alpenglow_producer_time_bounds(b,a,l,h) do { if( mock_footer_finalize ) { *(l) = 0L; *(h) = LONG_MAX; } else (fd_alpenglow_producer_time_bounds)(b,a,l,h); } while(0)
-#define fd_runtime_block_execute_finalize(b,a,c,f,s,g) (mock_footer_finalize ? ( mock_footer_verify && (f) ? fd_alpenglow_footer_verify(b,f,s,g) : 0 ) : (fd_runtime_block_execute_finalize)(b,a,c,f,s,g))
+#define fd_runtime_block_execute_finalize(b,a,f,s,g) (mock_footer_finalize ? ( mock_footer_verify && (f) ? fd_alpenglow_footer_verify(b,f,s,g) : 0 ) : (fd_runtime_block_execute_finalize)(b,a,f,s,g))
 static int mock_footer_plan_final; /* the mocked plan has a finalization cert to apply */
 static int
 mock_footer_begin_fn( fd_alpenglow_rewards_plan_t * plan ) {
@@ -312,7 +314,7 @@ mock_footer_begin_fn( fd_alpenglow_rewards_plan_t * plan ) {
   return 0;
 }
 #define fd_runtime_block_footer_begin(b,a,f,p) (mock_footer_finalize ? mock_footer_begin_fn(p) : (fd_runtime_block_footer_begin)(b,a,f,p))
-#define fd_runtime_freeze_sysvars(b,a,c)       do { if( !mock_footer_finalize ) (fd_runtime_freeze_sysvars)(b,a,c); } while(0)
+#define fd_runtime_freeze_sysvars(b,a)          do { if( !mock_footer_finalize ) (fd_runtime_freeze_sysvars)(b,a); } while(0)
 #define fd_runtime_block_footer_end(b,a,g,p,c) do { if( !mock_footer_finalize ) (fd_runtime_block_footer_end)(b,a,g,p,c); } while(0)
 #define fd_txncache_finalize_fork(t,f,o,h) do { if( !mock_footer_finalize ) (fd_txncache_finalize_fork)(t,f,o,h); } while(0)
 static ulong mock_cert_tiles; /* idle exec tiles for the footer dispatch mock to claim, consumed as it does */
@@ -2213,7 +2215,7 @@ test_root_from_footer( fd_wksp_t * wksp ) {
    CERT_VERIFY frag each and the bank stays REPLAYABLE until every done
    frag is in, then the last done frag completes and publishes it.  A
    failed cert (on a tile or inline) marks it dead BAD_FOOTER and later
-   done frags only drain.  With no idle tile, or with capture on, the
+   done frags only drain.  With no idle tile, or with runtime diffs on, the
    certs verify inline and the bank is frozen at once.  With a reward
    plan to apply, the tiles left idle after the certs get one REWARDS
    frag each, whose done frag folds the slice's lthash delta and leader
@@ -2286,7 +2288,7 @@ test_footer_cert_tasks( fd_wksp_t * wksp ) {
   ulong       hm_cnt  = 0UL;
   ulong       out_idx = ctx->replay_out->idx;
   /* mode 0 two tiles, 1 one tile (one cert inline), 2 no idle tile, 3
-     capture on, 4 two tiles and a footer bank hash mismatch, 5 one cert
+     runtime diffs on, 4 two tiles and a footer bank hash mismatch, 5 one cert
      on a tile and a reward slice on the other, where the bad round
      fails the slice instead of a cert */
   for( ulong mode=0UL; mode<6UL; mode++ ) {
@@ -2305,9 +2307,9 @@ test_footer_cert_tasks( fd_wksp_t * wksp ) {
       memset( ctx->footer_end+b->idx, 0, sizeof(fd_replay_footer_end_t) ); /* as BLOCK_START leaves it */
       mock_footer->bank_hash = b->f.bank_hash; /* the mocked finalize keeps it */
       if( hash_bad ) mock_footer->bank_hash.ul[ 0 ] ^= 1UL;
-      static fd_capture_ctx_t cap[1];
       mock_cert_tiles  = mode==1UL ? 2UL : mode==2UL ? 0UL : 3UL;
-      ctx->capture_ctx = mode==3UL ? cap : NULL;
+      ctx->report_runtime_diffs     = mode==3UL;
+      mock_leader_for_slot_override = mode==3UL;
       ulong refcnt0    = b->refcnt;
       ulong seq0[ 2 ]  = { test_stem_seqs[ ctx->exec_out[ 0 ].idx ], test_stem_seqs[ ctx->exec_out[ 1 ].idx ] };
       ulong done0      = test_stem_seqs[ out_idx ];
@@ -2448,7 +2450,8 @@ test_footer_cert_tasks( fd_wksp_t * wksp ) {
   }
 
   FD_TEST( hm_cnt ); /* earlier certs seeded the memo for later posts */
-  ctx->capture_ctx       = NULL;
+  ctx->report_runtime_diffs     = 0;
+  mock_leader_for_slot_override = 0;
   mock_cert_tiles        = 0UL;
   mock_footer_finalize   = 0;
   mock_footer_verify     = 0;

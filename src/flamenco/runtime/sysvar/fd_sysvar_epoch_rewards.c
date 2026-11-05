@@ -14,9 +14,8 @@ validate( fd_sysvar_epoch_rewards_t const * epoch_rewards ) {
 static void
 write_epoch_rewards( fd_bank_t *                 bank,
                      fd_accdb_t *                accdb,
-                     fd_capture_ctx_t *          capture_ctx,
                      fd_sysvar_epoch_rewards_t * epoch_rewards ) {
-  fd_sysvar_account_update( bank, accdb, capture_ctx, &fd_sysvar_epoch_rewards_id, epoch_rewards, FD_SYSVAR_EPOCH_REWARDS_BINCODE_SZ );
+  fd_sysvar_account_update( bank, accdb, &fd_sysvar_epoch_rewards_id, epoch_rewards, FD_SYSVAR_EPOCH_REWARDS_BINCODE_SZ );
 }
 
 /* write_epoch_rewards with the balance set to the rent exempt minimum,
@@ -26,7 +25,6 @@ write_epoch_rewards( fd_bank_t *                 bank,
 static void
 write_epoch_rewards_reset_balance( fd_bank_t *                 bank,
                                    fd_accdb_t *                accdb,
-                                   fd_capture_ctx_t *          capture_ctx,
                                    fd_sysvar_epoch_rewards_t * epoch_rewards ) {
   fd_accdb_svm_update_t update[1];
   fd_acc_t              acc = fd_accdb_svm_open_rw( bank, accdb, update, &fd_sysvar_epoch_rewards_id, 1 );
@@ -35,7 +33,7 @@ write_epoch_rewards_reset_balance( fd_bank_t *                 bank,
   fd_memcpy( acc.data, epoch_rewards, FD_SYSVAR_EPOCH_REWARDS_BINCODE_SZ );
   acc.data_len = FD_SYSVAR_EPOCH_REWARDS_BINCODE_SZ;
   acc.lamports = fd_ulong_max( fd_rent_exempt_minimum_balance( &bank->f.rent, acc.data_len ), FD_SYSVAR_RENT_UNADJUSTED_INITIAL_BALANCE );
-  fd_accdb_svm_close_rw( bank, accdb, capture_ctx, &acc, update );
+  fd_accdb_svm_close_rw( bank, accdb, &acc, update );
 }
 
 fd_sysvar_epoch_rewards_t *
@@ -62,7 +60,6 @@ fd_sysvar_epoch_rewards_read( fd_accdb_t *                accdb,
 void
 fd_sysvar_epoch_rewards_distribute( fd_bank_t *        bank,
                                     fd_accdb_t *       accdb,
-                                    fd_capture_ctx_t * capture_ctx,
                                     ulong              distributed,
                                     ulong              debit_block_reward_lamports ) {
   fd_sysvar_epoch_rewards_t epoch_rewards[1];
@@ -73,7 +70,7 @@ fd_sysvar_epoch_rewards_distribute( fd_bank_t *        bank,
   FD_TEST( new_distributed<=epoch_rewards->total_rewards );
   epoch_rewards->distributed_rewards += distributed;
 
-  write_epoch_rewards( bank, accdb, capture_ctx, epoch_rewards );
+  write_epoch_rewards( bank, accdb, epoch_rewards );
 
   if( FD_UNLIKELY( !debit_block_reward_lamports ) ) return;
 
@@ -84,13 +81,12 @@ fd_sysvar_epoch_rewards_distribute( fd_bank_t *        bank,
   acc.lamports -= debit_block_reward_lamports;
   /* https://github.com/anza-xyz/agave/blob/v4.4.0-alpha.5/runtime/src/bank/partitioned_epoch_rewards/sysvar.rs#L102-L105 */
   FD_TEST( acc.lamports>=fd_rent_exempt_minimum_balance( &bank->f.rent, acc.data_len ) );
-  fd_accdb_svm_close_rw( bank, accdb, capture_ctx, &acc, update );
+  fd_accdb_svm_close_rw( bank, accdb, &acc, update );
 }
 
 void
 fd_sysvar_epoch_rewards_set_inactive( fd_bank_t *        bank,
-                                      fd_accdb_t *       accdb,
-                                      fd_capture_ctx_t * capture_ctx ) {
+                                      fd_accdb_t *       accdb ) {
   fd_sysvar_epoch_rewards_t epoch_rewards[1];
   FD_TEST( fd_sysvar_epoch_rewards_read( accdb, bank->accdb_fork_id, epoch_rewards ) );
   FD_TEST( epoch_rewards->total_rewards>=epoch_rewards->distributed_rewards );
@@ -102,9 +98,9 @@ fd_sysvar_epoch_rewards_set_inactive( fd_bank_t *        bank,
        get burned: the balance is reset to the rent-exempt minimum and
        capitalization is updated.
        https://github.com/anza-xyz/agave/blob/v4.4.0-alpha.5/runtime/src/bank/partitioned_epoch_rewards/sysvar.rs#L120-L135 */
-    write_epoch_rewards_reset_balance( bank, accdb, capture_ctx, epoch_rewards );
+    write_epoch_rewards_reset_balance( bank, accdb, epoch_rewards );
   } else {
-    write_epoch_rewards( bank, accdb, capture_ctx, epoch_rewards );
+    write_epoch_rewards( bank, accdb, epoch_rewards );
   }
 }
 
@@ -114,7 +110,6 @@ fd_sysvar_epoch_rewards_set_inactive( fd_bank_t *        bank,
 void
 fd_sysvar_epoch_rewards_init( fd_bank_t *        bank,
                               fd_accdb_t *       accdb,
-                              fd_capture_ctx_t * capture_ctx,
                               ulong              distributed_rewards,
                               ulong              distribution_starting_block_height,
                               ulong              num_partitions,
@@ -134,10 +129,10 @@ fd_sysvar_epoch_rewards_init( fd_bank_t *        bank,
 
   FD_TEST( epoch_rewards.total_rewards>=epoch_rewards.distributed_rewards );
   if( FD_UNLIKELY( fd_bank_report_runtime_diffs( bank ) ) ) fd_event_runtime_epoch_rewards( &epoch_rewards );
-  write_epoch_rewards( bank, accdb, capture_ctx, &epoch_rewards );
+  write_epoch_rewards( bank, accdb, &epoch_rewards );
 
   /* https://github.com/anza-xyz/agave/blob/v4.4.0-alpha.5/runtime/src/bank/partitioned_epoch_rewards/sysvar.rs#L58-L69 */
   if( block_rewards ) {
-    fd_accdb_svm_credit( bank, accdb, capture_ctx, &fd_sysvar_epoch_rewards_id, block_rewards, 0 );
+    fd_accdb_svm_credit( bank, accdb, &fd_sysvar_epoch_rewards_id, block_rewards, 0 );
   }
 }

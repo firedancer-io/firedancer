@@ -1,7 +1,6 @@
 #include "fd_hashes.h"
 #include "fd_bank.h"
 #include "../../ballet/sha256/fd_sha256.h"
-#include "../capture/fd_capture_ctx.h"
 
 static fd_blake3_t *
 account_lthash_init( fd_blake3_t * b3,
@@ -115,16 +114,13 @@ fd_hashes_update_simple( fd_lthash_value_t *       lthash_post, /* out */
                          int                       executable,
                          uchar const *             data,
                          ulong                     data_len,
-                         fd_bank_t               * bank,
-                         fd_capture_ctx_t        * capture_ctx ) {
+                         fd_bank_t               * bank ) {
   if( bank->lthash_mode==FD_BANK_LTHASH_MODE_INBAND ) {
     fd_hashes_account_lthash_simple( pubkey, owner, lamports, executable, data, data_len, lthash_post );
     update_bank_lthash( bank, lthash_prev, lthash_post );
   } else if( bank->lthash_mode==FD_BANK_LTHASH_MODE_OOB_RECORD ) {
     fd_bank_lthash_record( bank, pubkey );
   }
-
-  fd_hashes_capture_account( pubkey, owner, lamports, executable, data, data_len, bank, capture_ctx );
 }
 
 void
@@ -139,8 +135,7 @@ fd_hashes_update_pair( uchar const        pubkey[ static FD_HASH_FOOTPRINT ],
                        int                executable,
                        uchar const *      data,
                        ulong              data_len,
-                       fd_bank_t *        bank,
-                       fd_capture_ctx_t * capture_ctx ) {
+                       fd_bank_t *        bank ) {
   if( bank->lthash_mode==FD_BANK_LTHASH_MODE_INBAND ) {
     fd_lthash_value_t   lthash_prev[1];
     fd_lthash_value_t   lthash_post[1];
@@ -156,34 +151,8 @@ fd_hashes_update_pair( uchar const        pubkey[ static FD_HASH_FOOTPRINT ],
   } else if( bank->lthash_mode==FD_BANK_LTHASH_MODE_OOB_RECORD ) {
     fd_bank_lthash_record( bank, pubkey );
   }
-
-  fd_hashes_capture_account( pubkey, owner, lamports, executable, data, data_len, bank, capture_ctx );
 }
 
-void
-fd_hashes_capture_account( uchar const        pubkey[ static FD_HASH_FOOTPRINT ],
-                           uchar const        owner[ static FD_HASH_FOOTPRINT ],
-                           ulong              lamports,
-                           int                executable,
-                           uchar const *      data,
-                           ulong              data_len,
-                           fd_bank_t *        bank,
-                           fd_capture_ctx_t * capture_ctx ) {
-  if( FD_LIKELY( !capture_ctx ||
-                 !capture_ctx->capture_solcap ||
-                 bank->f.slot<capture_ctx->solcap_start_slot ) ) return;
-
-  fd_solana_account_meta_t solana_meta[1];
-  fd_solana_account_meta_init( solana_meta, lamports, owner, executable );
-  fd_capture_link_write_account_update(
-    capture_ctx,
-    capture_ctx->current_txn_idx,
-    (fd_pubkey_t const *)pubkey,
-    solana_meta,
-    bank->f.slot,
-    data,
-    data_len );
-}
 
 void
 fd_hashes_apply_hard_forks( fd_hash_t *            hash,

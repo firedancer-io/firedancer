@@ -64,10 +64,9 @@ fd_hashes_account_lthash_xn( ulong                 n,
                              fd_lthash_value_t **  lthash_out );
 
 /* fd_hashes_update_simple records an account write according to the
-   bank's LtHash mode and captures it when capture_ctx requests it.  In
-   INBAND mode, it computes lthash_post and replaces lthash_prev in the
-   bank's LtHash.  OOB_RECORD appends pubkey to the bank's record, while
-   OOB_SKIP does neither.
+   bank's LtHash mode.  In INBAND mode, it computes lthash_post and
+   replaces lthash_prev in the bank's LtHash.  OOB_RECORD appends pubkey
+   to the bank's record, while OOB_SKIP does neither.
 
    lthash_prev and lthash_post are used only in INBAND mode.  The caller
    must call this for every account modification, including sysvars. */
@@ -81,13 +80,12 @@ fd_hashes_update_simple( fd_lthash_value_t *       lthash_post, /* out */
                          int                       executable,
                          uchar const *             data,
                          ulong                     data_len,
-                         fd_bank_t               * bank,
-                         fd_capture_ctx_t        * capture_ctx );
+                         fd_bank_t               * bank );
 
 /* fd_hashes_update_pair is fd_hashes_update_simple for callers that
    have the account's previous image (prev_*) rather than its lthash.
-   Both lthashes are computed at once.  The bank lthash and capture
-   are updated as fd_hashes_update_simple would. */
+   Both lthashes are computed at once.  The bank lthash is updated as
+   fd_hashes_update_simple would. */
 
 void
 fd_hashes_update_pair( uchar const        pubkey[ static FD_HASH_FOOTPRINT ],
@@ -101,30 +99,7 @@ fd_hashes_update_pair( uchar const        pubkey[ static FD_HASH_FOOTPRINT ],
                        int                executable,
                        uchar const *      data,
                        ulong              data_len,
-                       fd_bank_t *        bank,
-                       fd_capture_ctx_t * capture_ctx );
-
-/* fd_hashes_capture_account records the state of a modified account to
-   the solcap capture.  It does nothing unless capture_ctx is non-NULL,
-   solcap capture is enabled on it, and bank's slot is at or past the
-   configured capture start slot.
-
-   pubkey, owner, lamports, executable, data and data_len describe the
-   account as it should appear in the capture, i.e. after the
-   modification being recorded.
-
-   Callers that accumulate the lthash themselves must call this
-   directly.  Callers that use fd_hashes_update_simple do not. */
-
-void
-fd_hashes_capture_account( uchar const        pubkey[ static FD_HASH_FOOTPRINT ],
-                           uchar const        owner[ static FD_HASH_FOOTPRINT ],
-                           ulong              lamports,
-                           int                executable,
-                           uchar const *      data,
-                           ulong              data_len,
-                           fd_bank_t *        bank,
-                           fd_capture_ctx_t * capture_ctx );
+                       fd_bank_t *        bank );
 
 /* fd_hashes_hash_bank computes the bank hash for a completed slot.  The
    bank hash is a deterministic hash of the slot's state including all

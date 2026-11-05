@@ -13,7 +13,6 @@
 #include "../../discof/replay/fd_sched.h"
 #include "../../discof/replay/fd_execrp.h"
 #include "../../discof/votor/fd_votor_tile.h"
-#include "../../flamenco/capture/fd_capture_ctx.h"
 #include "../../flamenco/genesis/fd_genesis_parse.h"
 #include "../../flamenco/leaders/fd_multi_epoch_leaders.h"
 #include "../../flamenco/progcache/fd_progcache.h"
@@ -454,11 +453,6 @@ struct fd_replay_tile {
   fd_bhm_map_t *         bhm_map;
   fd_bhm_ele_t *         bhm_pool;
   fd_bhm_dlist_t *       bhm_dlist;
-
-  /* Capture-related configs */
-  fd_capture_ctx_t *     capture_ctx;
-  FILE *                 capture_file;
-  fd_capture_link_buf_t  cap_repl_out[1];
 
   /* Protobuf dumping context for debugging runtime execution and
      collecting seed corpora. */

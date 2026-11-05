@@ -2365,12 +2365,3 @@
 |--------|------|-------------|
 
 </div>
-
-## Solcap Tile
-
-<div class="metrics">
-
-| Metric | Type | Description |
-|--------|------|-------------|
-
-</div>
