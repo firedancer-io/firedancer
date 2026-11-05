@@ -148,8 +148,6 @@ fd_rewards_validate_commission_collector( fd_bank_t const *   bank,
                                           fd_pubkey_t const * collector,
                                           fd_acc_t const *    account,
                                           ulong               rewards ) {
-  /* A nonexistent account (lamports==0, other fields undefined) is
-     treated as a default system program owned account with no data. */
   int   exists   = !!account->lamports;
   ulong data_len = exists ? account->data_len : 0UL;
 
