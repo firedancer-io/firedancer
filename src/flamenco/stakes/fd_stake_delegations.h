@@ -67,9 +67,8 @@
    to disk.  The disk root capacity is max_stake_accounts plus twice
    max_disk_records. */
 
-#define FD_STAKE_DELEGATIONS_ALIGN              (128UL)
-#define FD_STAKE_DELEGATIONS_FORK_MAX           (65534UL)
-#define FD_STAKE_DELEGATIONS_DELTA_POOL_DIVISOR (2UL)
+#define FD_STAKE_DELEGATIONS_ALIGN    (128UL)
+#define FD_STAKE_DELEGATIONS_FORK_MAX (65534UL)
 
 /* 123454 is vote stakes, 123455 is cost tracker, 123456 is epoch
    credits, 123458/123459 are store, 123460/123461 are accdb, and
