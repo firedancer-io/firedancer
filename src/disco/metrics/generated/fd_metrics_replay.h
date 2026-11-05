@@ -771,7 +771,7 @@ enum {
 
 #define FD_METRICS_COUNTER_REPLAY_FEC_ROOTED_PAST_SKIPPED_NAME "replay_fec_rooted_past_skipped"
 #define FD_METRICS_COUNTER_REPLAY_FEC_ROOTED_PAST_SKIPPED_TYPE (FD_METRICS_TYPE_COUNTER)
-#define FD_METRICS_COUNTER_REPLAY_FEC_ROOTED_PAST_SKIPPED_DESC "Rotor FEC sets of a slot at or below the published root, or of a block whose parent is below it, skipped rather than dropped: no redelivery can replay them"
+#define FD_METRICS_COUNTER_REPLAY_FEC_ROOTED_PAST_SKIPPED_DESC "Repair FEC sets of a slot at or below the published root, or of a block whose parent is below it, skipped rather than dropped: no redelivery can replay them"
 #define FD_METRICS_COUNTER_REPLAY_FEC_ROOTED_PAST_SKIPPED_CVT  (FD_METRICS_CONVERTER_NONE)
 
 #define FD_METRICS_COUNTER_REPLAY_ROOT_ADVANCE_DEFERRED_NAME "replay_root_advance_deferred"

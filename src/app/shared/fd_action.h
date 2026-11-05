@@ -196,10 +196,6 @@ union fdctl_args {
   } monitor_gossip;
 
   struct {
-    int once;
-  } rotor;
-
-  struct {
     ulong ready_slot;
   } ready;
 

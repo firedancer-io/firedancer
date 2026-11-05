@@ -1192,7 +1192,7 @@ after_frag( fd_shred_ctx_t *    ctx,
       ctx->shred_out_chunk = fd_dcache_compact_next( ctx->shred_out_chunk, sizeof(fd_fec_evicted_t), ctx->shred_out_chunk0, ctx->shred_out_wmark );
     }
 
-    /* Send rotor future slots past max_live_slots so that unstaked
+    /* Send repair future slots past max_live_slots so that unstaked
        nodes can catch up. */
 
     if( FD_UNLIKELY( rv==FD_FEC_RESOLVER_SHRED_IGNORED &&
@@ -1360,7 +1360,7 @@ unprivileged_init( fd_topo_t const *      topo,
     FD_TEST( ctx->rtx_fseq );
   }
 
-  ctx->repair_out_idx = fd_topo_find_tile_out_link( topo, tile, "shred_rotor", ctx->round_robin_id );
+  ctx->repair_out_idx = fd_topo_find_tile_out_link( topo, tile, "shred_repair", ctx->round_robin_id );
   if( FD_LIKELY( ctx->repair_out_idx!=ULONG_MAX ) ) {
     fd_topo_link_t const * repair_out = &topo->links[ tile->out_link_id[ ctx->repair_out_idx ] ];
     FD_TEST( repair_out->mtu>=FD_REPAIR_NET_FRAME_MAX );

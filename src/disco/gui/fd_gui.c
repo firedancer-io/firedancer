@@ -54,7 +54,7 @@ fd_gui_build_tile_order( fd_gui_t * gui ) {
 
   char const * const tile_display_order[] = {
     "gossvf", "gossip", "snapct", "snapld", "snapdc", "snapin",
-    "net", "shred", "rotor", "replay", "execrp", "votor", "sign",
+    "net", "shred", "repair", "replay", "execrp", "votor", "sign",
     "quic", "verify", "dedup", "pack", "execle"
   };
 
@@ -817,12 +817,12 @@ fd_gui_network_stats_snap( fd_gui_t *               gui,
   }
 
   cur->in.repair = fd_gui_metrics_sum_tiles_counter( topo, "shred", shred_tile_cnt, MIDX( COUNTER, SHRED, REPAIR_RX_BYTES ) );
-  ulong repair_tile_idx = fd_topo_find_tile( topo, "rotor", 0UL );
+  ulong repair_tile_idx = fd_topo_find_tile( topo, "repair", 0UL );
   if( FD_LIKELY( repair_tile_idx!=ULONG_MAX ) ) {
     fd_topo_tile_t const * repair = &topo->tiles[ repair_tile_idx ];
 
     for( ulong i=0UL; i<repair->in_cnt; i++ ) {
-      if( FD_UNLIKELY( !strcmp( topo->links[ repair->in_link_id[ i ] ].name, "shred_rotor" ) ) ) {
+      if( FD_UNLIKELY( !strcmp( topo->links[ repair->in_link_id[ i ] ].name, "shred_repair" ) ) ) {
           cur->in.repair += fd_metrics_link_in( repair->metrics, i )[ FD_METRICS_COUNTER_LINK_FRAG_CONSUMED_BYTES_OFF ];
       }
     }
@@ -1717,11 +1717,11 @@ static void
 fd_gui_sample_repair_slot( fd_gui_t * gui, long now ) {
   ulong slot;
 
-    ulong rotor_tile_idx = fd_topo_find_tile( gui->topo, "rotor", 0UL );
-    if( FD_UNLIKELY( rotor_tile_idx==ULONG_MAX ) ) return;
-    fd_topo_tile_t const * rotor = &gui->topo->tiles[ rotor_tile_idx ];
-    volatile ulong const * rotor_metrics = fd_metrics_tile( rotor->metrics );
-    slot = rotor_metrics[ MIDX( GAUGE, ROTOR, HIGHEST_DELIVERED_SLOT ) ];
+    ulong repair_tile_idx = fd_topo_find_tile( gui->topo, "repair", 0UL );
+    if( FD_UNLIKELY( repair_tile_idx==ULONG_MAX ) ) return;
+    fd_topo_tile_t const * repair = &gui->topo->tiles[ repair_tile_idx ];
+    volatile ulong const * repair_metrics = fd_metrics_tile( repair->metrics );
+    slot = repair_metrics[ MIDX( GAUGE, REPAIR, HIGHEST_DELIVERED_SLOT ) ];
 
   fd_gui_handle_repair_slot( gui, slot, now );
 }
@@ -1729,11 +1729,11 @@ fd_gui_sample_repair_slot( fd_gui_t * gui, long now ) {
 static void
 fd_gui_sample_catchup_slot( fd_gui_t * gui ) {
   if( FD_LIKELY( gui->summary.slot_caught_up!=ULONG_MAX ) ) return;
-  ulong rotor_tile_idx = fd_topo_find_tile( gui->topo, "rotor", 0UL );
-  if( FD_UNLIKELY( rotor_tile_idx==ULONG_MAX ) ) return;
-  fd_topo_tile_t const * rotor         = &gui->topo->tiles[ rotor_tile_idx ];
-  volatile ulong const * rotor_metrics = fd_metrics_tile( rotor->metrics );
-  ulong                  slot          = rotor_metrics[ MIDX( GAUGE, ROTOR, CATCHUP_SLOT ) ];
+  ulong repair_tile_idx = fd_topo_find_tile( gui->topo, "repair", 0UL );
+  if( FD_UNLIKELY( repair_tile_idx==ULONG_MAX ) ) return;
+  fd_topo_tile_t const * repair        = &gui->topo->tiles[ repair_tile_idx ];
+  volatile ulong const * repair_metrics = fd_metrics_tile( repair->metrics );
+  ulong                  slot          = repair_metrics[ MIDX( GAUGE, REPAIR, CATCHUP_SLOT ) ];
   if( FD_LIKELY( !slot || ( gui->summary.slot_turbine!=ULONG_MAX && slot<=gui->summary.slot_turbine ) ) ) return;
 
   gui->summary.slot_turbine = slot;

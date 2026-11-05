@@ -117,7 +117,7 @@ mock_tile( char const * name ) {
   return ks;
 }
 
-/* Votor and rotor stop signing before the sign tiles switch keys, and
+/* Votor and repair stop signing before the sign tiles switch keys, and
    resume after. */
 
 static void
@@ -126,7 +126,7 @@ test_set_identity( void ) {
   FD_TEST( fd_topob_new( test_topo, "admin-test" ) );
   fd_topob_wksp( test_topo, "wksp" )->wksp = NULL;
   fd_keyswitch_t * replay_ks = mock_tile( "replay" );
-  fd_keyswitch_t * repair_ks = mock_tile( "rotor" );
+  fd_keyswitch_t * repair_ks = mock_tile( "repair" );
   fd_keyswitch_t * voter_ks  = mock_tile( "votor" );
   fd_keyswitch_t * gossip_ks = mock_tile( "gossip" );
   fd_keyswitch_t * sign_ks   = mock_tile( "sign" );

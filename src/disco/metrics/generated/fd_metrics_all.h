@@ -74,7 +74,7 @@ enum {
 #include "fd_metrics_shred.h"
 #include "fd_metrics_accdb.h"
 #include "fd_metrics_replay.h"
-#include "fd_metrics_rotor.h"
+#include "fd_metrics_repair.h"
 #include "fd_metrics_rserve.h"
 #include "fd_metrics_gossip.h"
 #include "fd_metrics_gossvf.h"

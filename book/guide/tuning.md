@@ -29,7 +29,7 @@ tile are,
 | `votor` | Runs Alpenglow consensus, exchanges BLS votes and certificates |
 | `gossip` | Runs the gossip protocol for discovering peers |
 | `gossvf` | Verifies cryptographic signatures on incoming gossip messages |
-| `rotor` | Consumes block data relayed to us over Rotor, issues repair requests for anything still missing, and reconstructs the block |
+| `repair` | Consumes block data from the shred tile, issues repair requests for anything still missing, and reconstructs the block |
 | `rserve` | Serves block data to other peers via the repair protocol |
 | `sign` | Holds the validator private key, and receives and responds to signing requests from other tiles |
 | `gui` | Serves the web dashboard and WebSocket streaming API |

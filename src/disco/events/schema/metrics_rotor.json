@@ -3,6 +3,7 @@
     "id": 35,
     "description": "Metrics of one rotor tile instance, one row per sweep",
     "local": true,
+    "deprecated": true,
     "fields": {
         "sample_id":                       { "type": "UInt64",                                                         "description": "Identifier shared by every row of one sweep" },
         "sample_reason":                   { "type": "ref:MetricsSampleReason",                                        "description": "Why the sweep was taken" },
