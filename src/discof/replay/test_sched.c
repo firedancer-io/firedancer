@@ -64,7 +64,7 @@ delete_sched( fd_sched_t * sched ) {
    by a cache line or two with the machine target through the duplicate
    account checker. */
 #define TEST_SCHED_PER_SLOT_FOOTPRINT   (9586UL)
-#define TEST_SCHED_DEPTH_STEP_FOOTPRINT (747896832UL)
+#define TEST_SCHED_DEPTH_STEP_FOOTPRINT (739508224UL)
 
 static void
 test_sched_footprint( void ) {
