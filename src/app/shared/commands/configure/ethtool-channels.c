@@ -113,7 +113,7 @@ init_device( char const *        device,
     /* Add a ntuple rule for each listening destination port.  If there
        are multiple net tiles, create a group of rules for each tile. */
     int ntuple_error = 0;
-    ushort ports[ 32 ];
+    ushort ports[ FD_NET_RX_DEST_CNT ];
     uint port_cnt = configure_udp_ports( config, ports );
     uint rule_idx = 0;
     uint const rule_group_cnt = fd_uint_pow2_up( queue_cnt );
@@ -249,7 +249,7 @@ check_device_is_configured( char const *        device,
     if( !ntuple_rules_empty ) return 0;
   } else {
     int ports_valid;
-    ushort ports[ 32 ];
+    ushort ports[ FD_NET_RX_DEST_CNT ];
     uint port_cnt = configure_udp_ports( config, ports );
     int listen_gre = config->net.xdp.listen_gre;
     FD_TEST( 0==fd_ethtool_ioctl_ntuple_validate( &ioc, ports, port_cnt, queue_cnt, listen_gre ? 0U : UINT_MAX, &ports_valid ));

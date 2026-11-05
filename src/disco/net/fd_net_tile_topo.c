@@ -80,6 +80,22 @@ fd_net_get_driver( char *       driver,
   if( FD_UNLIKELY( !driver[0] ) ) fd_memcpy( driver, "n/a", 4UL );
 }
 
+void
+fd_net_rx_dest_list( fd_net_rx_dest_t           out[ FD_NET_RX_DEST_CNT ],
+                     fd_topo_net_tile_t const * net ) {
+  fd_net_rx_dest_t const rx_dests[ FD_NET_RX_DEST_CNT ] = {
+    { DST_PROTO_TPU_UDP,  "net_quic",   net->legacy_transaction_listen_port, 1 },
+    { DST_PROTO_TPU_QUIC, "net_quic",   net->quic_transaction_listen_port,   1 },
+    { DST_PROTO_SHRED,    "net_shred",  net->shred_listen_port,              1 },
+    { DST_PROTO_GOSSIP,   "net_gossvf", net->gossip_listen_port,             1 },
+    { DST_PROTO_REPAIR,   "net_shred",  net->repair_client_listen_port,      1 },
+    { DST_PROTO_RSERVE,   "net_rserve", net->repair_serve_listen_port,       0 },
+    { DST_PROTO_VOTOR,    "net_votor",  net->votor_quic_client_listen_port,  1 },
+    { DST_PROTO_VOTOR,    "net_votor",  net->votor_quic_server_listen_port,  1 }
+  };
+  fd_memcpy( out, rx_dests, sizeof(rx_dests) );
+}
+
 char const *
 fd_net_tile_name( char const * provider ) {
   if( 0==strcmp( provider, "xdp" ) ) {
@@ -554,16 +570,11 @@ fd_topo_install_xdp( fd_topo_t const * topo,
   FD_TEST( net0_tile_idx!=ULONG_MAX );
   fd_topo_tile_t const * net0_tile = &topo->tiles[ net0_tile_idx ];
 
-  ushort udp_port_candidates[] = {
-    (ushort)net0_tile->xdp.net.legacy_transaction_listen_port,
-    (ushort)net0_tile->xdp.net.quic_transaction_listen_port,
-    (ushort)net0_tile->xdp.net.shred_listen_port,
-    (ushort)net0_tile->xdp.net.gossip_listen_port,
-    (ushort)net0_tile->xdp.net.repair_client_listen_port,
-    (ushort)net0_tile->xdp.net.repair_serve_listen_port,
-    (ushort)net0_tile->xdp.net.votor_quic_client_listen_port,
-    (ushort)net0_tile->xdp.net.votor_quic_server_listen_port,
-  };
+  /* Get UDP ports to listen on */
+  fd_net_rx_dest_t rx_dests[ FD_NET_RX_DEST_CNT ];
+  fd_net_rx_dest_list( rx_dests, &net0_tile->net );
+  ushort udp_port_candidates[ FD_NET_RX_DEST_CNT ];
+  for( ulong i=0UL; i<FD_NET_RX_DEST_CNT; i++ ) udp_port_candidates[ i ] = rx_dests[ i ].listen_port;
 
   for( uint i=0U; i<if_cnt; i++ ) {
     /* Override XDP mode for loopback */
@@ -573,7 +584,7 @@ fd_topo_install_xdp( fd_topo_t const * topo,
     fd_xdp_fds_t xdp_fds = fd_xdp_install(
         fds[ i ].if_idx,
         bind_addr,
-        sizeof(udp_port_candidates)/sizeof(udp_port_candidates[0]),
+        FD_NET_RX_DEST_CNT,
         udp_port_candidates,
         xdp_mode );
     if( FD_UNLIKELY( -1==dup2( xdp_fds.xsk_map_fd, fds[ i ].xsk_map_fd ) ) ) {
