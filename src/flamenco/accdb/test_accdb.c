@@ -2918,6 +2918,210 @@ idx_fork_spilled( fd_accdb_fork_id_t f ) {
   return (int)FD_VOLATILE_CONST( xf->spilled );
 }
 
+/* Placement equivalence: a randomized stage (duplicates in any order,
+   delegation flags, zero-lamport versions, an incremental replacing,
+   closing and adding keys) placed through fd_accdb_snapshot_place must
+   match a direct model of the rules: newest slot wins, capitalization
+   and byte frees per loser, zero-lamport winners removed, tombstones
+   for non-delegation winners over a delegation (full) or over any full
+   version (incremental). */
+
+#define PLT_KEYS (6000UL)
+
+static struct { ulong n; uchar key[ 4*PLT_KEYS ][ 32 ]; ulong slot[ 4*PLT_KEYS ]; int cross[ 4*PLT_KEYS ]; } plt_tomb;
+
+static void
+plt_tomb_fn( void *      ctx,
+             uchar const pubkey[ 32 ],
+             ulong       slot,
+             int         cross ) {
+  (void)ctx;
+  FD_TEST( plt_tomb.n<4UL*PLT_KEYS );
+  memcpy( plt_tomb.key[ plt_tomb.n ], pubkey, 32 ); plt_tomb.slot[ plt_tomb.n ] = slot; plt_tomb.cross[ plt_tomb.n ] = cross;
+  plt_tomb.n++;
+}
+
+typedef struct {
+  ulong lamports, off, slot; uint len; int deleg;         /* winner */
+  int   any_deleg, present;
+} plt_model_t;
+
+static void
+plt_key( uchar key[ 32 ], ulong id ) {
+  memset( key, 0, 32 ); FD_STORE( ulong, key, fd_ulong_hash( id ) ); key[ 31 ] = 0x5E;
+}
+
+static void
+plt_stage( fd_accdb_t * accdb, fd_accdb_fork_id_t fork, ulong id, ulong slot, ulong lamports, ulong len, ulong off, int deleg ) {
+  uchar key[ 32 ]; plt_key( key, id ); uchar const * pk[ 1 ] = { key };
+  ulong slots[ 1 ] = { slot }, lam[ 1 ] = { lamports }, lens[ 1 ] = { len }, offs[ 1 ] = { off }; int ex[ 1 ] = { 0 };
+  uint fl[ 1 ] = { deleg ? FD_ACCDB_STAGE_DELEG : 0U }; uchar res[ 1 ]; ulong a, b, c, d, e;
+  FD_TEST( !fd_accdb_snapshot_write_batch( accdb, fork, 1UL, pk, slots, lam, lens, ex, offs, &a, &b, &c, &d, &e, res, fl ) );
+}
+
+static ulong
+plt_bytes_freed( void ) {
+  fd_accdb_shmem_t *     s = test_shmem_mem;
+  fd_accdb_partition_t * p = (fd_accdb_partition_t *)( (uchar *)s + s->partition_pool_off );
+  ulong t = 0UL;
+  for( ulong i=0UL; i<s->partition_cnt; i++ ) t += p[ i ].bytes_freed;
+  return t;
+}
+
+static void
+plt_apply( plt_model_t * m, ulong slot, ulong lamports, ulong len, ulong off, int deleg, int incr_phase,
+           ulong * dup_lo, ulong * dups, ulong * freed ) {
+  ulong esz = sizeof(fd_accdb_disk_meta_t);
+  if( !m->present ) { *m = (plt_model_t){ .lamports=lamports, .off=off, .slot=slot, .len=(uint)len, .deleg=deleg, .present=1 }; return; }
+  (void)incr_phase;
+  if( slot>m->slot ) {
+    *dup_lo += m->lamports; (*dups)++; *freed += esz+m->len;
+    m->any_deleg |= m->deleg;
+    m->lamports = lamports; m->off = off; m->slot = slot; m->len = (uint)len; m->deleg = deleg;
+  } else {
+    *dup_lo += lamports; (*dups)++; *freed += esz+len;
+    m->any_deleg |= deleg;
+  }
+}
+
+static void
+test_idx_place_equivalence( ulong seed ) {
+  int fd;
+  fd_accdb_t * t2 = test_setup_idx( &fd, 8UL*PLT_KEYS, 1024UL, 64UL, 64UL );
+  void * window = aligned_alloc( 4096UL, FD_ACCDB_PLACE_WINDOW );
+  FD_TEST( window );
+  fd_accdb_t * accdb = fd_accdb_join( fd_accdb_new( aligned_alloc( fd_accdb_align(), fd_accdb_footprint( 64UL, 0 ) ), test_shmem_mem, fd, -1, 0UL, NULL, NULL, 0UL, 0, test_idx_fd, window ) );
+  FD_TEST( accdb );
+  fd_accdb_cf_t cf[1] = {{ .cf = (ulong *)( (uchar *)test_shmem_mem + test_shmem_mem->idx_cf_off ), .nb = test_shmem_mem->idx_cf_nb, .seed = test_shmem_mem->seed,
+                           .seq = &test_shmem_mem->idx_cf_seq, .stash = (ulong *)( (uchar *)test_shmem_mem + test_shmem_mem->idx_cf_stash_off ),
+                           .stash_cnt = &test_shmem_mem->idx_cf_stash_cnt, .disabled = &test_shmem_mem->idx_cf_disabled }};
+  fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, (uint)seed, 0UL ) );
+  fd_accdb_fork_id_t root = fd_accdb_attach_child( accdb, SENTINEL );
+  fd_accdb_snapshot_load_begin( accdb );
+  static plt_model_t full[ PLT_KEYS ];
+  memset( full, 0, sizeof(full) );
+  ulong dup_lo = 0UL, dups = 0UL, freed = 0UL, off = 0UL;
+  ulong freed0 = plt_bytes_freed();
+
+  /* full: every key 1..4 versions at distinct slots, shuffled order */
+  static ulong ord_id[ 4*PLT_KEYS ], ord_slot[ 4*PLT_KEYS ];
+  ulong nrec = 0UL;
+  for( ulong id=0UL; id<PLT_KEYS; id++ ) {
+    ulong v = 1UL+fd_rng_uint_roll( rng, 4U );
+    for( ulong j=0UL; j<v; j++ ) { ord_id[ nrec ] = id; ord_slot[ nrec ] = 10UL+j*7UL+fd_rng_uint_roll( rng, 7U ); nrec++; }
+  }
+  for( ulong i=nrec-1UL; i>0UL; i-- ) {
+    ulong j = fd_rng_ulong_roll( rng, i+1UL );
+    ulong t = ord_id[ i ]; ord_id[ i ] = ord_id[ j ]; ord_id[ j ] = t;
+    t = ord_slot[ i ]; ord_slot[ i ] = ord_slot[ j ]; ord_slot[ j ] = t;
+  }
+  for( ulong i=0UL; i<nrec; i++ ) {
+    ulong lam = fd_rng_uint_roll( rng, 10U ) ? 1UL+fd_rng_uint_roll( rng, 1000000U ) : 0UL;
+    ulong len = fd_rng_uint_roll( rng, 200U );
+    int   dg  = !fd_rng_uint_roll( rng, 8U );
+    plt_stage( accdb, SENTINEL, ord_id[ i ], ord_slot[ i ], lam, len, off, dg );
+    plt_apply( &full[ ord_id[ i ] ], ord_slot[ i ], lam, len, off, dg, 0, &dup_lo, &dups, &freed );
+    off += fd_ulong_align_up( sizeof(fd_accdb_disk_meta_t)+len, 8UL );
+  }
+  fd_accdb_snapshot_stage_flush( accdb );
+  plt_tomb.n = 0UL;
+  fd_accdb_snapshot_placement_t out[1];
+  FD_TEST( !fd_accdb_snapshot_place( accdb, FD_ACCDB_PLACE_FULL, plt_tomb_fn, NULL, out ) );
+
+  ulong loaded = 0UL, tombs = 0UL;
+  for( ulong id=0UL; id<PLT_KEYS; id++ ) {
+    plt_model_t * m = &full[ id ];
+    if( !m->deleg && m->any_deleg ) tombs++;
+    if( !m->lamports ) { freed += sizeof(fd_accdb_disk_meta_t)+m->len; m->present = 0; continue; }
+    loaded++;
+  }
+  FD_TEST( out->loaded==loaded && out->duplicates==dups && out->dup_lamports==dup_lo && !out->dup_lamports_hi );
+  FD_TEST( out->disk_freed==freed && plt_bytes_freed()-freed0==freed );
+  FD_TEST( plt_tomb.n==tombs );
+  for( ulong t=0UL; t<plt_tomb.n; t++ ) FD_TEST( !plt_tomb.cross[ t ] );
+  fd_accdb_idx_region_t bkt = test_bkt_region();
+  for( ulong id=0UL; id<PLT_KEYS; id++ ) {
+    uchar key[ 32 ]; plt_key( key, id ); fd_accdb_idx_slot_t got;
+    int hit = fd_accdb_idx_lookup( &bkt, test_shmem_mem->seed, key, 0, &got );
+    FD_TEST( hit==full[ id ].present );
+    if( hit ) {
+      FD_TEST( got.lamports==full[ id ].lamports && got.off_plus1==full[ id ].off+1UL && FD_ACCDB_SIZE_DATA( got.exec_size )==full[ id ].len );
+      FD_TEST( !got.flags && !got.aux && !got.generation );
+      FD_TEST( fd_accdb_cf_probe( cf, key ) );
+    }
+  }
+
+  /* incremental: half the keys updated (some closed), new keys added,
+     duplicates inside the incremental */
+  fd_accdb_fork_id_t incr = fd_accdb_attach_child( accdb, root );
+  static plt_model_t inc[ 2*PLT_KEYS ];
+  memset( inc, 0, sizeof(inc) );
+  ulong idup = 0UL, idups = 0UL, ifreed = 0UL;
+  for( ulong r=0UL; r<PLT_KEYS; r++ ) {
+    ulong id  = fd_rng_uint_roll( rng, 2U ) ? fd_rng_ulong_roll( rng, PLT_KEYS ) : PLT_KEYS+fd_rng_ulong_roll( rng, PLT_KEYS );
+    ulong sl  = 1000UL+r;
+    ulong lam = fd_rng_uint_roll( rng, 6U ) ? 1UL+fd_rng_uint_roll( rng, 1000000U ) : 0UL;
+    ulong len = fd_rng_uint_roll( rng, 200U );
+    int   dg  = !fd_rng_uint_roll( rng, 8U );
+    plt_stage( accdb, incr, id, sl, lam, len, off, dg );
+    plt_apply( &inc[ id ], sl, lam, len, off, dg, 1, &idup, &idups, &ifreed );
+    off += fd_ulong_align_up( sizeof(fd_accdb_disk_meta_t)+len, 8UL );
+  }
+  fd_accdb_snapshot_stage_flush( accdb );
+  ulong cross_dup = 0UL, cross_dups = 0UL, cross_freed = 0UL, iloaded = 0UL, iremoved = 0UL, itombs = 0UL, zfreed = 0UL;
+  for( ulong id=0UL; id<2UL*PLT_KEYS; id++ ) {
+    plt_model_t * m = &inc[ id ];
+    if( !m->present ) continue;
+    int cross = id<PLT_KEYS && full[ id ].present;
+    if( cross ) { cross_dup += full[ id ].lamports; cross_dups++; cross_freed += sizeof(fd_accdb_disk_meta_t)+full[ id ].len; }
+    if( !m->deleg && ( cross || m->any_deleg ) ) itombs++;
+    if( !m->lamports ) { zfreed += sizeof(fd_accdb_disk_meta_t)+m->len; iremoved += (ulong)cross; continue; }
+    iloaded += (ulong)!cross;
+  }
+
+  /* check: capitalization inputs, no mutation, no frees */
+  ulong fb = plt_bytes_freed();
+  plt_tomb.n = 0UL;
+  FD_TEST( !fd_accdb_snapshot_place( accdb, FD_ACCDB_PLACE_INCR_CHECK, plt_tomb_fn, NULL, out ) );
+  FD_TEST( out->duplicates==idups+cross_dups && out->dup_lamports==idup+cross_dup && !out->disk_freed && plt_bytes_freed()==fb && !plt_tomb.n );
+  for( ulong id=0UL; id<PLT_KEYS; id++ ) {
+    uchar key[ 32 ]; plt_key( key, id ); fd_accdb_idx_slot_t got;
+    FD_TEST( fd_accdb_idx_lookup( &bkt, test_shmem_mem->seed, key, 0, &got )==full[ id ].present );
+  }
+
+  /* apply */
+  ulong total0 = test_shmem_mem->shmetrics->accounts_total;
+  FD_TEST( !fd_accdb_snapshot_place( accdb, FD_ACCDB_PLACE_INCR_APPLY, plt_tomb_fn, NULL, out ) );
+  FD_TEST( out->loaded==iloaded && out->removed==iremoved );
+  FD_TEST( out->disk_freed==ifreed+cross_freed+zfreed && plt_bytes_freed()-fb==out->disk_freed );
+  FD_TEST( plt_tomb.n==itombs );
+  ulong ncross = 0UL;
+  for( ulong t=0UL; t<plt_tomb.n; t++ ) ncross += (ulong)plt_tomb.cross[ t ];
+  FD_TEST( test_shmem_mem->shmetrics->accounts_total==total0+iloaded-iremoved );
+  ulong live = 0UL;
+  for( ulong id=0UL; id<2UL*PLT_KEYS; id++ ) {
+    uchar key[ 32 ]; plt_key( key, id ); fd_accdb_idx_slot_t got;
+    plt_model_t const * w = inc[ id ].present ? &inc[ id ] : ( id<PLT_KEYS ? &full[ id ] : NULL );
+    int want = w && w->present && w->lamports;
+    int hit  = fd_accdb_idx_lookup( &bkt, test_shmem_mem->seed, key, 0, &got );
+    FD_TEST( hit==want );
+    if( hit ) {
+      FD_TEST( got.lamports==w->lamports && got.off_plus1==w->off+1UL && !got.flags && !got.aux );
+      FD_TEST( fd_accdb_cf_probe( cf, key ) );
+      live++;
+    }
+    if( inc[ id ].present && id<PLT_KEYS && full[ id ].present && !inc[ id ].deleg ) ncross--;
+  }
+  FD_TEST( !ncross );
+  FD_TEST( live==test_shmem_mem->shmetrics->accounts_total );
+
+  fd_accdb_snapshot_load_end( accdb );
+  free( window );
+  free( accdb );
+  close( test_idx_fd );
+  test_teardown( t2, fd );
+}
+
 static void
 test_idx_overflow_worst_case( void ) {
   int fd;
@@ -3288,6 +3492,9 @@ main( int     argc,
 
   FD_LOG_NOTICE(( "test_idx_prefetch_and_residual ..." ));
   test_idx_prefetch_and_residual();
+
+  FD_LOG_NOTICE(( "test_idx_place_equivalence ..." ));
+  for( ulong i=0UL; i<4UL; i++ ) test_idx_place_equivalence( i );
 
   FD_LOG_NOTICE(( "test_idx_overflow_worst_case ..." ));
   test_idx_overflow_worst_case();
