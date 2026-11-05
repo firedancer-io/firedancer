@@ -1497,6 +1497,46 @@ run_deferred_lanes_full_case( void ) {
   delete_sched( sched );
 }
 
+/* While the snapshots load a child enters unstaged until its parent
+   is done, even before the parent was dispatched, so a dead fork
+   arriving in slot order during catch-up cannot take every lane.  The
+   child is promoted and started once the parent completes. */
+static void
+run_deferred_pipeline_case( void ) {
+  fd_sched_t * sched = new_deferred_sched();
+  fd_hash_t poh[ 1 ]; hash_from_seed( poh, 0x5c7e9a1b3d2f4068UL );
+  FD_TEST( ingest_ag_component_under( sched, 3UL, 2UL, TEST_ROOT_SLOT+1UL, AG_COMP_HEADER, poh, 1, 0 ) );
+  FD_TEST( strstr( fd_sched_get_state_cstr( sched ), "staged_bitset 1," ) );
+
+  /* Everything else of block 2 retires, after the retry delay the held
+     transaction goes out again and then the one behind it, block 2
+     ends and block 3 is promoted and started. */
+  ulong held_txn_idx = hand_back_first_txn( sched, 2UL );
+  fd_sched_task_t task[ 1 ];
+  ulong started  = ULONG_MAX;
+  ulong exec_cnt = 0UL;
+  for( ulong step=0UL; step<20000UL; step++ ) {
+    while( fd_sched_pruned_block_next( sched )!=ULONG_MAX ) {}
+    if( !fd_sched_task_next_ready( sched, task ) ) {
+      if( started!=ULONG_MAX ) break;
+      fd_log_sleep( 1000000L );
+      continue;
+    }
+    if( task->task_type==FD_SCHED_TT_TXN_EXEC ) {
+      FD_TEST( task->txn_exec->bank_idx==2UL );
+      if( !exec_cnt ) FD_TEST( task->txn_exec->txn_idx==held_txn_idx );
+      exec_cnt++;
+      FD_TEST( !fd_sched_task_done( sched, FD_SCHED_TT_TXN_EXEC, task->txn_exec->txn_idx, task->txn_exec->exec_idx, NULL ) );
+    } else {
+      if( task->task_type==FD_SCHED_TT_BLOCK_START ) { FD_TEST( started==ULONG_MAX ); started = task->block_start->bank_idx; }
+      complete_task( sched, task );
+    }
+  }
+  FD_TEST( exec_cnt==2UL );
+  FD_TEST( started==3UL );
+  delete_sched( sched );
+}
+
 /* A transaction entry whose claimed hash does not match the mixin rules
    the block dead when its PoH task retires. */
 static void
@@ -5165,6 +5205,7 @@ main( int     argc,
   run_deferred_abandon_case( 1 );
   run_deferred_hold_fork_case();
   run_deferred_lanes_full_case();
+  run_deferred_pipeline_case();
   run_entry_hash_mismatch_case();
   run_cert_verify_case( 0 );
   run_cert_verify_case( 1 );

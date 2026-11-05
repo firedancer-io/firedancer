@@ -673,7 +673,9 @@ fd_sched_set_lthash_oob_block_max( fd_sched_t * sched, ulong lthash_oob_block_ma
 /* fd_sched_set_lthash_inband_only makes every block picked from now on
    hash in band.  Replay sets it while the snapshots are still loading
    in the background: an account the load has not written yet reads as
-   empty, which an out of band subtraction would hash. */
+   empty, which an out of band subtraction would hash.  It also keeps a
+   child block unstaged until its parent is done, since any block may
+   still hand a transaction back. */
 void
 fd_sched_set_lthash_inband_only( fd_sched_t * sched, int lthash_inband_only );
 

@@ -1708,7 +1708,7 @@ fec_waits_for_lane( fd_sched_t * sched,
     if( FD_UNLIKELY( parent->dying ) ) return 0;
     /* A child of an unstaged stageable block enters unstaged, and so
        does a child of a block with a requeued transaction. */
-    if( block_is_stageable( parent ) && (!parent->staged || block_txn_requeued( parent )) ) return 0;
+    if( block_is_stageable( parent ) && (!parent->staged || block_txn_requeued( parent ) || sched->lthash_inband_only) ) return 0;
   }
   for( ulong lanes=sched->staged_bitset; lanes; lanes=fd_ulong_pop_lsb( lanes ) ) {
     fd_sched_block_t * head = block_pool_ele( sched, sched->staged_head_bank_idx[ fd_ulong_find_lsb( lanes ) ] );
@@ -2565,7 +2565,7 @@ fd_sched_fec_ingest( fd_sched_t *     sched,
        unstaged parent that still has to run.  See the lane eviction
        comments in try_activate_block(). */
     fd_sched_block_t * parent_block = block_pool_ele( sched, fec->parent_bank_idx );
-    int needs_lane = (parent_block->staged && !block_txn_requeued( parent_block )) || !block_is_stageable( parent_block );
+    int needs_lane = (parent_block->staged && !block_txn_requeued( parent_block ) && !sched->lthash_inband_only) || !block_is_stageable( parent_block );
     if( FD_UNLIKELY( needs_lane && sched->staged_bitset==fd_ulong_mask_lsb( FD_SCHED_MAX_STAGING_LANES ) ) ) {
       /* Every lane is taken.  A demotable block is empty and waiting
          for FEC sets and loses nothing by waiting unstaged, so we give
