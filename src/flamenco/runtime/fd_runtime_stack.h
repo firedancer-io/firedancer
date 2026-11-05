@@ -104,9 +104,10 @@ struct fd_runtime_stack {
   ulong max_staked_vote_accounts;
   ulong max_stake_accounts;
 
-  /* Overlaps stakes.stake_accum.  Migrations finish at the epoch
-     boundary before the stake accumulators are filled, and every user
-     of stake_accum resets its map before use. */
+  /* Overlaps stakes.stake_accum and stakes.stake_results.  Migrations
+     finish at the epoch boundary before either is filled.  Every user
+     of stake_accum resets its map first, and stake_results is written
+     before it is read within each rewards call. */
   fd_runtime_stack_bpf_migration_t * bpf_migration;
 
   struct {
