@@ -1920,6 +1920,10 @@
 | <span class="metrics-name">gui_&#8203;db_&#8203;forced_&#8203;evict_&#8203;write_&#8203;completed</span><br/>{gui_&#8203;db_&#8203;type="<span class="metrics-enum">vote_&#8203;batch</span>"} | counter | Writes that evicted records before succeeding, by database (vote_batch) |
 | <span class="metrics-name">gui_&#8203;vote_&#8203;record_&#8203;dropped</span> | counter | Votes track records dropped because they were malformed, or markers for a slot older than the recently tracked slots |
 | <span class="metrics-name">gui_&#8203;vote_&#8203;late_&#8203;recorded</span> | counter | Votes for a slot older than the recently tracked slots, recorded as a vote batch of their own |
+| <span class="metrics-name">gui_&#8203;timeline_&#8203;chunk_&#8203;hit</span> | counter | Timeline response chunks served from the chunk cache |
+| <span class="metrics-name">gui_&#8203;timeline_&#8203;chunk_&#8203;miss</span> | counter | Timeline response chunks built, compressed and added to the chunk cache |
+| <span class="metrics-name">gui_&#8203;timeline_&#8203;chunk_&#8203;late</span> | counter | Timeline rows recorded after their chunk was cached, so missing from the frozen cached chunk |
+| <span class="metrics-name">gui_&#8203;timeline_&#8203;chunk_&#8203;fallback</span> | counter | Raw timeline queries answered without the chunk cache (uncompressed connection, row limit, or oversized chunk) |
 
 </div>
 

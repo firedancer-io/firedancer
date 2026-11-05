@@ -279,6 +279,7 @@ fd_gui_shred_event_append( fd_gui_t * gui,
   if( batch->event_cnt && batch->insert_time_ns!=window_ns ) batch_flush( gui );
   batch->insert_time_ns = window_ns;
   fd_gui_shred_event_t rec = { .insert_time_ns=now, .event_time_ns=timestamp, .slot=(uint)slot, .idx=(ushort)idx, .event=event };
+  fd_gui_chunk_note( &gui->chunk, FD_GUI_CHUNK_MASK( FD_GUI_CHUNK_KIND_SHREDS ), timestamp, timestamp );
   if( FD_UNLIKELY( !batch_append( builder, &rec ) ) ) {
     batch_flush( gui );
     FD_TEST( batch_append( builder, &rec ) );
@@ -356,6 +357,8 @@ fd_gui_fec_event_append( fd_gui_t * gui,
     return;
   }
   if( dst ) {
+    /* Moves the event to an earlier chunk, so both change. */
+    fd_gui_chunk_note( &gui->chunk, FD_GUI_CHUNK_MASK( FD_GUI_CHUNK_KIND_FEC ), timestamp, dst->event_time_ns );
     dst->event_time_ns = timestamp;
     return;
   }
@@ -366,6 +369,7 @@ fd_gui_fec_event_append( fd_gui_t * gui,
     return;
   }
   *dst = (fd_gui_fec_event_t){ .key=key, .insert_time_ns=now, .event_time_ns=timestamp };
+  fd_gui_chunk_note( &gui->chunk, FD_GUI_CHUNK_MASK( FD_GUI_CHUNK_KIND_FEC ), timestamp, timestamp );
   gui->shreds.fec_insert_time_ns = now;
 }
 

@@ -3,6 +3,7 @@
 #include "../../ballet/json/fd_jtok.h"
 #include "../../waltz/http/fd_http_server_private.h"
 #include <stdlib.h>
+#include <zstd.h>
 #include <unistd.h>
 
 /* Exercise the public producer and query paths against a real history
@@ -499,6 +500,157 @@ test_revenue( fd_gui_t * gui ) {
   FD_TEST( !count( field( value, "slot_delta" ) ) );
 }
 
+/* chunked stages a chunked response and returns it decoded (into a
+   static buffer); *rc gets fd_gui_printf_timeline_query_chunked's
+   return. */
+static json_t
+chunked( fd_gui_t *   gui,
+         int          compressed,
+         int          kind,
+         long         start,
+         long         end,
+         int *        rc ) {
+  static char out[ 1UL<<20 ];
+  *rc = fd_gui_printf_timeline_query_chunked( gui, compressed, kind, start, end, 9UL );
+  FD_TEST( *rc>=0 && !gui->http->stage_err );
+  ulong len = fd_http_server_stage_len( gui->http );
+  uchar const * staged = gui->http->oring+gui->http->stage_off%gui->http->oring_sz;
+  ulong sz = len;
+  if( *rc ) {
+    sz = ZSTD_decompress( out, sizeof(out), staged, len );
+    FD_TEST( !ZSTD_isError( sz ) );
+  } else {
+    FD_TEST( len<=sizeof(out) );
+    fd_memcpy( out, staged, len );
+  }
+  fd_http_server_stage_trunc( gui->http, 0UL );
+  json_t json = { out, sz };
+  FD_TEST( string_eq( field( json, "topic" ), "timeline" ) );
+  FD_TEST( number( field( json, "id" ) )==9UL );
+  return json;
+}
+
+static int
+json_eq( json_t a,
+         json_t b ) {
+  return a.ptr && b.ptr && a.sz==b.sz && !memcmp( a.ptr, b.ptr, a.sz );
+}
+
+/* test_chunks covers chunked responses over the rows of test_revenue:
+   final chunks are cached and identical to the plain query for their
+   window, non-final chunks are left out, late rows are counted but
+   cached chunks stay frozen, and
+   uncompressed connections get one uncached chunk. */
+static void
+test_chunks( fd_gui_t * gui ) {
+  long const ts = 80000000000L; /* chunk 800 */
+  void * mem = aligned_alloc( 64UL, FD_GUI_CHUNK_CACHE_SZ );
+  FD_TEST( mem );
+  fd_gui_chunk_t * c = &gui->chunk;
+  fd_gui_chunk_init( c, mem );
+
+  /* Not final yet: nothing, and available_end_ns stops before it. */
+  c->now = ts+FD_GUI_CHUNK_NS+FD_GUI_CHUNK_FINAL_NS-1L;
+  int rc;
+  json_t value = field( chunked( gui, 1, FD_GUI_CHUNK_KIND_REVENUE_TXN, ts, ts+3000L, &rc ), "value" );
+  FD_TEST( rc==1 );
+  FD_TEST( string_eq( field( value, "granularity" ), "txn" ) );
+  FD_TEST( !count( field( value, "chunks" ) ) );
+  FD_TEST( !c->hit_cnt && !c->miss_cnt );
+
+  /* Final: one chunk covering the whole 100 ms, built once. */
+  c->now = ts+FD_GUI_CHUNK_NS+FD_GUI_CHUNK_FINAL_NS;
+  json_t json = chunked( gui, 1, FD_GUI_CHUNK_KIND_REVENUE_TXN, ts, ts+3000L, &rc );
+  FD_TEST( string_eq( field( json, "key" ), "query_revenue" ) );
+  value = field( json, "value" );
+  FD_TEST( string_eq( field( value, "available_end_ns" ), "80100000000" ) );
+  FD_TEST( count( field( value, "chunks" ) )==1UL );
+  json_t chunk = element( field( value, "chunks" ), 0UL );
+  FD_TEST( string_eq( field( chunk, "chunk_ts" ), "80000000000" ) );
+  FD_TEST( string_eq( field( chunk, "chunk_dur" ), "100000000" ) );
+  FD_TEST( !field( chunk, "available_start_ns" ).ptr && !field( chunk, "granularity" ).ptr );
+  FD_TEST( c->miss_cnt==1UL && !c->hit_cnt );
+
+  static char first[ 1UL<<16 ];
+  FD_TEST( json.sz<=sizeof(first) );
+  fd_memcpy( first, json.ptr, json.sz );
+  json_t first_json = { first, json.sz };
+  json_t first_chunk = element( field( field( first_json, "value" ), "chunks" ), 0UL );
+
+  /* Same fields as the plain query for the chunk's window. */
+  json_t plain = field( query( gui, "query_revenue", ts, ts+FD_GUI_CHUNK_NS ), "value" );
+  char const * names[ 9 ] = { "reference_slot", "reference_ts", "slot_delta", "exec_idx", "start_ts_delta",
+                              "end_ts_delta", "txn_fees", "prio_fees", "tips" };
+  for( ulong i=0UL; i<9UL; i++ ) FD_TEST( json_eq( field( first_chunk, names[ i ] ), field( plain, names[ i ] ) ) );
+
+  /* Served from the cache, byte for byte. */
+  json = chunked( gui, 1, FD_GUI_CHUNK_KIND_REVENUE_TXN, ts+50L, ts+60L, &rc );
+  FD_TEST( c->hit_cnt==1UL && c->miss_cnt==1UL );
+  FD_TEST( json.sz==first_json.sz && !memcmp( json.ptr, first, json.sz ) );
+
+  /* Several chunks, the empty ones included, comma separated. */
+  c->now = ts+10L*FD_GUI_CHUNK_NS;
+  value = field( chunked( gui, 1, FD_GUI_CHUNK_KIND_REVENUE_TXN, ts, ts+3L*FD_GUI_CHUNK_NS, &rc ), "value" );
+  FD_TEST( count( field( value, "chunks" ) )==3UL );
+  FD_TEST( c->hit_cnt==2UL && c->miss_cnt==3UL );
+  chunk = element( field( value, "chunks" ), 2UL );
+  FD_TEST( string_eq( field( chunk, "chunk_ts" ), "80200000000" ) );
+  FD_TEST( !count( field( chunk, "slot_delta" ) ) );
+
+  /* A late row is counted, but the cached chunk stays frozen. */
+  fd_gui_chunk_note( c, FD_GUI_CHUNK_MASK( FD_GUI_CHUNK_KIND_REVENUE_TXN ), ts+10L, ts+10L );
+  FD_TEST( c->late_cnt==1UL );
+  FD_TEST(  fd_gui_chunk_get( c, FD_GUI_CHUNK_KIND_REVENUE_TXN, 800UL ) );
+  FD_TEST(  fd_gui_chunk_get( c, FD_GUI_CHUNK_KIND_REVENUE_TXN, 801UL ) );
+  fd_gui_chunk_note( c, FD_GUI_CHUNK_MASK( FD_GUI_CHUNK_KIND_REVENUE_TXN ), c->now, c->now );
+  FD_TEST( c->late_cnt==1UL ); /* not final yet: not late */
+
+  /* Other kinds are cached separately, with their own key. */
+  json = chunked( gui, 1, FD_GUI_CHUNK_KIND_TILE_STATES_TXN, ts, ts+FD_GUI_CHUNK_NS, &rc );
+  FD_TEST( string_eq( field( json, "key" ), "query_tile_states" ) );
+  chunk = element( field( field( json, "value" ), "chunks" ), 0UL );
+  FD_TEST( string_eq( field( chunk, "start_ts" ), "80000000000" ) );
+  json = chunked( gui, 1, FD_GUI_CHUNK_KIND_TXN_META, ts, ts+FD_GUI_CHUNK_NS, &rc );
+  FD_TEST( string_eq( field( json, "key" ), "query_txn_meta" ) );
+  FD_TEST( !field( field( json, "value" ), "granularity" ).ptr );
+
+  /* Uncompressed: one uncached plaintext chunk for exactly the request. */
+  ulong miss = c->miss_cnt;
+  json = chunked( gui, 0, FD_GUI_CHUNK_KIND_REVENUE_TXN, ts, ts+3000L, &rc );
+  FD_TEST( !rc && c->fallback_cnt==1UL && c->miss_cnt==miss );
+  value = field( json, "value" );
+  FD_TEST( count( field( value, "chunks" ) )==1UL );
+  chunk = element( field( value, "chunks" ), 0UL );
+  FD_TEST( string_eq( field( chunk, "chunk_dur" ), "3000" ) );
+  plain = field( query( gui, "query_revenue", ts, ts+3000L ), "value" );
+  for( ulong i=0UL; i<9UL; i++ ) FD_TEST( json_eq( field( chunk, names[ i ] ), field( plain, names[ i ] ) ) );
+
+  /* Invalid windows stage nothing. */
+  FD_TEST( fd_gui_printf_timeline_query_chunked( gui, 1, FD_GUI_CHUNK_KIND_REVENUE_TXN, ts, ts, 9UL )==-1 );
+  FD_TEST( !fd_http_server_stage_len( gui->http ) );
+
+  /* Ring wrap: entries are dropped once their bytes may be reused. */
+  fd_gui_chunk_entry_t const * e = fd_gui_chunk_get( c, FD_GUI_CHUNK_KIND_REVENUE_TXN, 801UL );
+  FD_TEST( e );
+  ulong pos = e->pos;
+  for(;;) {
+    ulong hi = c->hi;
+    c->wr += FD_GUI_CHUNK_SZ_MAX/3UL;
+    fd_gui_chunk_prepare( c );
+    FD_TEST( c->wr%FD_GUI_CHUNK_CACHE_SZ+FD_GUI_CHUNK_SZ_MAX<=FD_GUI_CHUNK_CACHE_SZ );
+    if( !fd_gui_chunk_get( c, FD_GUI_CHUNK_KIND_REVENUE_TXN, 801UL ) ) {
+      FD_TEST( hi<=pos+FD_GUI_CHUNK_CACHE_SZ && c->hi>pos+FD_GUI_CHUNK_CACHE_SZ );
+      break;
+    }
+  }
+
+  /* Disabled cache: plaintext fallback even if compressed. */
+  fd_gui_chunk_init( c, NULL );
+  json = chunked( gui, 1, FD_GUI_CHUNK_KIND_REVENUE_TXN, ts, ts+3000L, &rc );
+  FD_TEST( !rc );
+  free( mem );
+}
+
 static void
 test_limit( fd_gui_t * gui ) {
   long const ts = 40000000000L;
@@ -560,6 +712,7 @@ main( int argc, char ** argv ) {
   test_lthash( gui ); /* after test_limit: time-series appends are in time order */
   test_lthash_batch( gui );
   test_revenue( gui );
+  test_chunks( gui );
   fd_http_server_delete( fd_http_server_leave( gui->http ) );
   fd_gui_hist_delete( fd_gui_hist_leave( gui->hist ) );
   fd_gui_store_delete( fd_gui_store_leave( gui->db ) );

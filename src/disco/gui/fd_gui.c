@@ -43,6 +43,7 @@ fd_gui_footprint( ulong tile_cnt,
   l = FD_LAYOUT_APPEND( l, alignof(fd_gui_slot_txn_join_t),   max_txn_per_slot*sizeof(fd_gui_slot_txn_join_t)   );
   l = FD_LAYOUT_APPEND( l, alignof(fd_gui_shred_scratch_t),   FD_GUI_SHRED_SCRATCH_MAX*sizeof(fd_gui_shred_scratch_t) );
   l = FD_LAYOUT_APPEND( l, alignof(long),                     FD_GUI_EXEC_DONE_SLOT_CNT*FD_SHRED_BLK_MAX*sizeof(long) );
+  l = FD_LAYOUT_APPEND( l, 64UL,                              FD_GUI_CHUNK_CACHE_SZ ); /* chunk cache */
   return FD_LAYOUT_FINI( l, fd_gui_align() );
 }
 
@@ -126,6 +127,7 @@ fd_gui_new( void *                   shmem,
   void *     txn_joined_mem   = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_gui_slot_txn_join_t),   max_txn_per_slot*sizeof(fd_gui_slot_txn_join_t)   );
   void *     shred_sc_mem     = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_gui_shred_scratch_t),   FD_GUI_SHRED_SCRATCH_MAX*sizeof(fd_gui_shred_scratch_t) );
   void *     exec_done_mem    = FD_SCRATCH_ALLOC_APPEND( l, alignof(long),                     FD_GUI_EXEC_DONE_SLOT_CNT*FD_SHRED_BLK_MAX*sizeof(long) );
+  void *     chunk_mem        = FD_SCRATCH_ALLOC_APPEND( l, 64UL,                              FD_GUI_CHUNK_CACHE_SZ );
 
   gui->shreds.closed_slot_wmark            = 0UL;
   gui->shreds.dropped_fec_event_cnt        = 0UL;
@@ -140,6 +142,8 @@ fd_gui_new( void *                   shmem,
   gui->shred_scratch.ev        = shred_sc_mem;
   gui->shred_scratch.max       = FD_GUI_SHRED_SCRATCH_MAX;
   gui->exec_done.ts            = exec_done_mem;
+  fd_gui_chunk_init( &gui->chunk, chunk_mem );
+  gui->chunk.now = now;
   for( ulong i=0UL; i<FD_GUI_EXEC_DONE_SLOT_CNT; i++ ) gui->exec_done.slot[ i ] = ULONG_MAX;
 
   gui->http        = http;
@@ -1824,6 +1828,7 @@ fd_gui_next_deadline( fd_gui_t const * gui ) {
 
 int
 fd_gui_poll( fd_gui_t * gui, long now ) {
+  gui->chunk.now = fd_long_max( gui->chunk.now, now );
   fd_gui_lthash_batch_flush( gui, now );
   fd_gui_vote_batch_flush( gui, now, 0 );
 
@@ -2233,7 +2238,8 @@ fd_gui_request_timeline( fd_gui_t *   gui,
   if( FD_UNLIKELY( fd_jtok_fini( j ) || !has_start || !has_end || end_ns<=start_ns ) ) {
     return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
   }
-  int err;
+  int err  = 0;
+  int kind = -1;
   if( !strcmp( key, "query_slots" ) ) {
     err = fd_gui_printf_timeline_query_slots( gui, start_ns, end_ns, id );
   } else if( !strcmp( key, "query_votes" ) ) {
@@ -2243,18 +2249,18 @@ fd_gui_request_timeline( fd_gui_t *   gui,
   } else if( !strcmp( key, "query_events" ) ) {
     err = fd_gui_printf_timeline_query_events( gui, start_ns, end_ns, id );
   } else if( !strcmp( key, "query_txn_meta" ) ) {
-    err = fd_gui_printf_timeline_query_txn_meta( gui, start_ns, end_ns, id );
+    kind = FD_GUI_CHUNK_KIND_TXN_META;
   } else if( !strcmp( key, "query_shreds" ) ) {
-    if(      !strcmp( name, "shred" ) ) err = fd_gui_printf_timeline_query_shreds( gui, start_ns, end_ns, id );
-    else if( !strcmp( name, "fec"   ) ) err = fd_gui_printf_timeline_query_fec_events( gui, start_ns, end_ns, id );
+    if(      !strcmp( name, "shred" ) ) kind = FD_GUI_CHUNK_KIND_SHREDS;
+    else if( !strcmp( name, "fec"   ) ) kind = FD_GUI_CHUNK_KIND_FEC;
     else return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
   } else if( !strcmp( key, "query_revenue" ) ) {
-    if(      !strcmp( name, "txn"       ) ) err = fd_gui_printf_timeline_query_revenue( gui, start_ns, end_ns, 0, id );
-    else if( !strcmp( name, "txn_batch" ) ) err = fd_gui_printf_timeline_query_revenue( gui, start_ns, end_ns, 1, id );
+    if(      !strcmp( name, "txn"       ) ) kind = FD_GUI_CHUNK_KIND_REVENUE_TXN;
+    else if( !strcmp( name, "txn_batch" ) ) kind = FD_GUI_CHUNK_KIND_REVENUE_BATCH;
     else return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
   } else if( !strcmp( key, "query_tile_states" ) ) {
-    if(      !strcmp( name, "txn"       ) ) err = fd_gui_printf_timeline_query_tile_states( gui, start_ns, end_ns, 0, id );
-    else if( !strcmp( name, "txn_batch" ) ) err = fd_gui_printf_timeline_query_tile_states( gui, start_ns, end_ns, 1, id );
+    if(      !strcmp( name, "txn"       ) ) kind = FD_GUI_CHUNK_KIND_TILE_STATES_TXN;
+    else if( !strcmp( name, "txn_batch" ) ) kind = FD_GUI_CHUNK_KIND_TILE_STATES_BATCH;
     else return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
   } else {
     ulong g = 0UL;
@@ -2271,6 +2277,14 @@ fd_gui_request_timeline( fd_gui_t *   gui,
     if(      !strcmp( key, "query_agg_cpu"         ) ) err = fd_gui_printf_timeline_query_agg_cpu( gui, name, g, (long)reference, count, tiles, tile_cnt, id );
     else if( !strcmp( key, "query_agg_tile_states" ) ) err = fd_gui_printf_timeline_query_agg_tile_states( gui, name, g, (long)reference, count, id );
     else                                             err = fd_gui_printf_timeline_query_agg( gui, key, name, g, (long)reference, count, id );
+  }
+  if( kind>=0 ) {
+    /* Raw row queries answer in chunks, possibly pre-compressed. */
+    int rc = fd_gui_printf_timeline_query_chunked( gui, fd_http_server_ws_compressed( gui->http, ws_conn_id ), kind, start_ns, end_ns, id );
+    if( FD_UNLIKELY( rc<0 ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
+    if( rc ) FD_TEST( !fd_http_server_ws_send_compressed( gui->http, ws_conn_id ) );
+    else     FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
+    return 0;
   }
   if( FD_UNLIKELY( err ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
   FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
@@ -3803,6 +3817,10 @@ fd_gui_record_replay_txn( fd_gui_t *                        gui,
                                                                      rec->block_compute_unit_limit, txn_fee, prio_fee,
                                                                      tips, !rec->error_code, rec->insert_time_ns );
   fd_gui_hist_ts_append( gui, FD_GUI_HIST_REPLAY_TXN, rec );
+  fd_gui_chunk_note( &gui->chunk, FD_GUI_CHUNK_MASK( FD_GUI_CHUNK_KIND_TXN_META )|FD_GUI_CHUNK_MASK( FD_GUI_CHUNK_KIND_REVENUE_TXN ),
+                     rec->completion_time_ns, rec->completion_time_ns );
+  fd_gui_chunk_note( &gui->chunk, FD_GUI_CHUNK_MASK( FD_GUI_CHUNK_KIND_TILE_STATES_TXN ),
+                     fd_gui_chunk_lo( rec->sigverify_start_ns, rec->load_start_ns ), rec->completion_time_ns );
 }
 
 void
@@ -3872,6 +3890,7 @@ fd_gui_handle_replay_slot_states( fd_gui_t *                      gui,
     };
     if( FD_UNLIKELY( rec.end_ns<rec.start_ns ) ) continue;
     fd_gui_hist_ts_append( gui, FD_GUI_HIST_REPLAY_SLOT_STATE, &rec );
+    fd_gui_chunk_note( &gui->chunk, FD_GUI_CHUNK_MASK( FD_GUI_CHUNK_KIND_TILE_STATES_TXN )|FD_GUI_CHUNK_MASK( FD_GUI_CHUNK_KIND_TILE_STATES_BATCH ), rec.start_ns, rec.end_ns );
     fd_gui_tile_state_add( gui, gui->tile_state.exec_cnt, rec.state, rec.start_ns, rec.end_ns, now );
   }
 }
@@ -3912,6 +3931,7 @@ fd_gui_lthash_record( fd_gui_t * gui,
     .cnt            = (uchar)cnt
   };
   fd_gui_hist_ts_append( gui, FD_GUI_HIST_REPLAY_LTHASH, &rec );
+  fd_gui_chunk_note( &gui->chunk, FD_GUI_CHUNK_MASK( FD_GUI_CHUNK_KIND_TILE_STATES_TXN ), rec.start_ns, rec.end_ns );
   fd_gui_tile_state_add( gui, exec_idx, FD_GUI_TILE_STATE_LTHASH, rec.start_ns, rec.end_ns, now );
 
   fd_gui_store_replay_lthash_batch_t * b = &gui->tile_state.lthash_open[ exec_idx ];
@@ -3927,6 +3947,7 @@ fd_gui_lthash_record( fd_gui_t * gui,
   if( b->task_cnt ) {
     b->insert_time_ns = now;
     fd_gui_hist_ts_append( gui, FD_GUI_HIST_REPLAY_LTHASH_BATCH, b );
+    fd_gui_chunk_note( &gui->chunk, FD_GUI_CHUNK_MASK( FD_GUI_CHUNK_KIND_TILE_STATES_BATCH ), b->start_ns, b->end_ns );
   }
   *b = (fd_gui_store_replay_lthash_batch_t){
     .start_ns = rec.start_ns,
@@ -3948,6 +3969,7 @@ fd_gui_lthash_batch_flush( fd_gui_t * gui,
     if( now<fd_long_sat_add( b->end_ns, FD_GUI_LTHASH_BATCH_IDLE_NS ) ) continue;
     b->insert_time_ns = now;
     fd_gui_hist_ts_append( gui, FD_GUI_HIST_REPLAY_LTHASH_BATCH, b );
+    fd_gui_chunk_note( &gui->chunk, FD_GUI_CHUNK_MASK( FD_GUI_CHUNK_KIND_TILE_STATES_BATCH ), b->start_ns, b->end_ns );
     b->task_cnt = 0;
   }
 }
@@ -4637,7 +4659,11 @@ fd_gui_materialize_replay_txn_batches( fd_gui_t * gui,
                          sn ? &sc->materialize.sig_batches[ i ] : &no_sig, sc->materialize.sig_txns, now );
   }
   for( ulong i=0UL; i<en; i++ ) {
-    if( FD_UNLIKELY( fd_gui_hist_ts_append( gui, FD_GUI_HIST_REPLAY_TXN_BATCH, &sc->materialize.records[ i ] ) ) ) rc = -1;
+    fd_gui_store_replay_txn_batch_t const * r = &sc->materialize.records[ i ];
+    if( FD_UNLIKELY( fd_gui_hist_ts_append( gui, FD_GUI_HIST_REPLAY_TXN_BATCH, r ) ) ) rc = -1;
+    fd_gui_chunk_note( &gui->chunk, FD_GUI_CHUNK_MASK( FD_GUI_CHUNK_KIND_REVENUE_BATCH ), r->completion_time_ns, r->completion_time_ns );
+    fd_gui_chunk_note( &gui->chunk, FD_GUI_CHUNK_MASK( FD_GUI_CHUNK_KIND_TILE_STATES_BATCH ),
+                       fd_gui_chunk_lo( r->sigverify_start_ns, r->load_start_ns ), r->completion_time_ns );
   }
  done:
   return rc;

@@ -288,6 +288,10 @@ metrics_write( fd_gui_ctx_t * ctx ) {
   FD_MGAUGE_SET( GUI, DISK_ALLOCATED_BYTES, fd_gui_store_file_sz( ctx->db ) );
   FD_MCNT_SET( GUI, VOTE_RECORD_DROPPED, ctx->gui->votes.dropped_cnt );
   FD_MCNT_SET( GUI, VOTE_LATE_RECORDED, ctx->gui->votes.batch_late_cnt );
+  FD_MCNT_SET( GUI, TIMELINE_CHUNK_HIT,      ctx->gui->chunk.hit_cnt      );
+  FD_MCNT_SET( GUI, TIMELINE_CHUNK_MISS,     ctx->gui->chunk.miss_cnt     );
+  FD_MCNT_SET( GUI, TIMELINE_CHUNK_LATE,     ctx->gui->chunk.late_cnt     );
+  FD_MCNT_SET( GUI, TIMELINE_CHUNK_FALLBACK, ctx->gui->chunk.fallback_cnt );
 
   ulong db_cnt = fd_gui_store_cnt( ctx->db );
 

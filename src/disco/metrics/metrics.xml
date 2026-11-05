@@ -2055,6 +2055,11 @@ deliberate exception with lint-allow="<rule id>")
 
     <counter name="VoteRecordDropped" summary="Votes track records dropped because they were malformed, or markers for a slot older than the recently tracked slots" />
     <counter name="VoteLateRecorded" summary="Votes for a slot older than the recently tracked slots, recorded as a vote batch of their own" />
+
+    <counter name="TimelineChunkHit" summary="Timeline response chunks served from the chunk cache" />
+    <counter name="TimelineChunkMiss" summary="Timeline response chunks built, compressed and added to the chunk cache" />
+    <counter name="TimelineChunkLate" summary="Timeline rows recorded after their chunk was cached, so missing from the frozen cached chunk" />
+    <counter name="TimelineChunkFallback" summary="Raw timeline queries answered without the chunk cache (uncompressed connection, row limit, or oversized chunk)" />
 </tile>
 
 <enum name="GuiDbType">

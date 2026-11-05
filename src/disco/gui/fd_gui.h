@@ -4,6 +4,7 @@
 #include "fd_gui_peers.h"
 #include "fd_gui_shred.h"
 #include "fd_gui_ema.h"
+#include "fd_gui_chunk.h"
 
 #include "../topo/fd_topo.h"
 #include "../diag/fd_diag_tile.h"
@@ -1925,6 +1926,7 @@ struct fd_gui {
     ulong                   pending_cnt;
     fd_gui_snapsv_pending_t pending[ FD_GUI_SNAPSV_PENDING_MAX ];
   } snapsv;
+  fd_gui_chunk_t chunk; /* compressed timeline response cache */
 };
 
 typedef struct fd_gui fd_gui_t;

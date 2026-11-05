@@ -2868,12 +2868,59 @@ before it.
 The GUI's database is wiped on boot. When it reaches capacity, data is
 evicted approximately oldest-first.
 
+##### Chunked responses
+`query_shreds`, `query_tile_states`, `query_txn_meta` and
+`query_revenue` answer with a list of chunks instead of a single set of
+fields. Chunk `k` covers the absolute window
+`[k * 100ms, (k + 1) * 100ms)` and holds exactly what a query for that
+window returns: the fields described for the method, except
+`granularity`, `available_start_ns` and `available_end_ns`, which are
+given once for the whole response. Chunks are listed in time order and
+include empty ones.
+
+**`TimelineChunked`**
+| field              | type           | description |
+|--------------------|----------------|-------------|
+| granularity        | `string`       | Echoes the request, if the method has one |
+| available_start_ns | `string\|null` | As for the method |
+| available_end_ns   | `string\|null` | As for the method, but at most the end of the last returned chunk |
+| chunks             | `TimelineChunk[]` | Chunks overlapping the request, see below |
+
+**`TimelineChunk`**
+| field     | type     | description |
+|-----------|----------|-------------|
+| chunk_ts  | `string` | Start of the chunk window |
+| chunk_dur | `string` | Length of the chunk window in nanoseconds |
+| ...       |          | The method's fields for the chunk window |
+
+On connections that negotiated `compress-zstd`, the server only returns
+chunks that are final, meaning the server will not record more rows
+for them. A chunk is final 300 milliseconds after its end (3 seconds
+for `txn_batch` granularity). A response therefore may cover less than
+the requested window: it ends at `available_end_ns`, and the client
+should request the rest later. A response returns at most 300 chunks
+(30 seconds), and fewer if their compressed size exceeds 16 MiB. Final
+chunks are cached on the server and shared by all clients, so live
+clients following the present should request from the end of their
+previous response. Cached chunks never change: rows recorded late
+anyway (counted by the `gui_timeline_chunk_late` metric) are missing
+from the cached chunk, but are returned by uncached queries. The `skipped` field of `query_shreds` reflects the slot
+classification when the chunk was built.
+
+On connections without compression, or when a chunk would exceed a
+row limit, the response is a single uncached chunk for exactly the
+requested window, with `chunk_ts` equal to `start_ns` and
+`chunk_dur` equal to `end_ns - start_ns`, or the row limit error.
+
+The compressed response is a sequence of zstd frames, one per chunk
+plus framing, which decodes as a single JSON message.
+
 | query                  | maximum result | outcome if exceeded |
 |------------------------|----------------|---------------------|
-| `query_shreds`         | 262,144 rows   | error message       |
-| `query_tile_states`    | 65,536 rows of each kind | error message |
-| `query_txn_meta`       | 65,536 rows    | error message       |
-| `query_revenue`        | 65,536 rows    | error message       |
+| `query_shreds`         | 262,144 rows per chunk | error message |
+| `query_tile_states`    | 65,536 rows of each kind per chunk | error message |
+| `query_txn_meta`       | 65,536 rows per chunk | error message |
+| `query_revenue`        | 65,536 rows per chunk | error message |
 | `query_slots`          | 65,536 rows    | error message       |
 | `query_events`         | 65,536 rows    | error message       |
 | `query_votes`          | 262,144 rows   | error message       |
@@ -2913,6 +2960,9 @@ rooted; ordinary events arriving after closure are rejected at both
 granularities.
 
 Empty results have empty arrays and `null` reference fields.
+
+The response is chunked (see above); each chunk holds the fields
+below other than `granularity` and `available_*`.
 
 **`TimelineShreds`**
 | field              | type               | description |
@@ -2964,14 +3014,20 @@ list. Clients should not assume timestamps are ordered.
     "value": {
         "granularity": "shred",
         "available_start_ns": "1739657040000000000",
-        "available_end_ns": "1739657043000000000",
-        "reference_slot": 289245044,
-        "reference_ts": "1739657041588242791",
-        "slot_delta": [0, 0],
-        "idx": [1234, null],
-        "event": [0, 4],
-        "event_ts_delta": ["0", "100000"],
-        "skipped": []
+        "available_end_ns": "1739657041600000000",
+        "chunks": [
+            {
+                "chunk_ts": "1739657041500000000",
+                "chunk_dur": "100000000",
+                "reference_slot": 289245044,
+                "reference_ts": "1739657041588242791",
+                "slot_delta": [0, 0],
+                "idx": [1234, null],
+                "event": [0, 4],
+                "event_ts_delta": ["0", "100000"],
+                "skipped": []
+            }
+        ]
     }
 }
 ```
@@ -3020,6 +3076,10 @@ An Lthash state is one task that hashes a batch of accounts written
 in a slot: either removing their previous versions or adding their new
 ones. It can overlap the end of a transaction's state on the same tile;
 the later state is then reported starting where the earlier one ends.
+
+The response is chunked (see [Chunked responses](#chunked-responses));
+each chunk holds the fields below other than `granularity` and
+`available_*`.
 
 **`TimelineTileStates`**
 | field              | type               | description |
@@ -3129,6 +3189,10 @@ transaction completion time. Rows are ordered by `(slot, txn_idx)`.
 returned rows. Deltas are non-negative and stages can precede
 `start_ns`. Empty results have empty arrays and `null` reference fields.
 
+The response is chunked (see [Chunked responses](#chunked-responses));
+each chunk holds the fields below other than `granularity` and
+`available_*`.
+
 **`TimelineTxnMeta`**
 | field                       | type               | description |
 |-----------------------------|--------------------|-------------|
@@ -3201,6 +3265,10 @@ granularities share one shape. Empty results have empty arrays and
 
 Batches are the ones `query_tile_states` reports at `txn_batch`
 granularity and are available once their slot completes replay.
+
+The response is chunked (see [Chunked responses](#chunked-responses));
+each chunk holds the fields below other than `granularity` and
+`available_*`.
 
 **`TimelineRevenue`**
 | field              | type           | description |

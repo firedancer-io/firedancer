@@ -544,6 +544,10 @@
             }
         },
         "vote_record_dropped":        { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Votes track records dropped because they were malformed, or markers for a slot older than the recently tracked slots", "field_number": 286774468 },
-        "vote_late_recorded":         { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Votes for a slot older than the recently tracked slots, recorded as a vote batch of their own", "field_number": 269679291 }
+        "vote_late_recorded":         { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Votes for a slot older than the recently tracked slots, recorded as a vote batch of their own", "field_number": 269679291 },
+        "timeline_chunk_hit":         { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Timeline response chunks served from the chunk cache", "field_number": 283824574 },
+        "timeline_chunk_miss":        { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Timeline response chunks built, compressed and added to the chunk cache", "field_number": 439231069 },
+        "timeline_chunk_late":        { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Timeline rows recorded after their chunk was cached, so missing from the frozen cached chunk", "field_number": 334971405 },
+        "timeline_chunk_fallback":    { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Raw timeline queries answered without the chunk cache (uncompressed connection, row limit, or oversized chunk)", "field_number": 445413164 }
     }
 }
