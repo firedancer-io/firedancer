@@ -19,6 +19,17 @@ write: (or (eq (arg 0) 2)
 # arg 0 is the file descriptor to fsync.
 fsync: (eq (arg 0) logfile_fd)
 
+# power saving: sleep when there is no work to do
+#
+# arg 1 is the futex op, always FUTEX_WAIT_BITSET so the timeout is an
+# absolute deadline.  arg 2 is the expected value of the word, always 0
+# (parked).
+futex: (and (eq (arg 1) FUTEX_WAIT_BITSET)
+            (eq (arg 2) 0))
+
+# power saving: resume an interrupted sleep
+restart_syscall
+
 # every connection draws its X25519 key share from the kernel
 getrandom
 
