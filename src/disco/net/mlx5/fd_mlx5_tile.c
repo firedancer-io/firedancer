@@ -831,8 +831,8 @@ before_frag( fd_mlx5_tile_t * ctx,
   if( FD_UNLIKELY( ctx->net.in_kind[ in_idx ]==FD_NET_IN_KIND_IPROUTE ) ) return 0;
 
   /* Resolve the TX route for outgoing packets */
-  ulong dst_proto = fd_disco_netmux_sig_proto( sig );
-  if( FD_UNLIKELY( dst_proto!=DST_PROTO_OUTGOING ) ) return 1;
+  ulong proto_id = fd_disco_netmux_sig_proto( sig );
+  if( FD_UNLIKELY( proto_id!=DST_PROTO_OUTGOING ) ) return 1;
 
   ulong const hash       = fd_disco_netmux_sig_hash( sig );
   ulong       target_idx = hash % ctx->net.tile_cnt;
@@ -961,7 +961,7 @@ after_frag( fd_mlx5_tile_t *    ctx,
     int owned = 0;
     if( !ctx->router.bind_address || ctx->router.bind_address==ip4->daddr ) {
       ushort const dst_port = fd_ushort_bswap( udp->net_dport );
-      for( ulong i=0UL; i<ctx->net.rx_dest_cnt; i++ ) owned |= ctx->net.rx_dst_ports[ i ]==dst_port;
+      for( ulong i=0UL; i<ctx->net.rx_dest_cnt; i++ ) owned |= ctx->net.rx_listen_ports[ i ]==dst_port;
     }
     if( !owned ) {
       fd_mlx5_tile_lo_tx_enqueue( ctx, ip4, ip_sz );
@@ -1246,12 +1246,12 @@ fd_topo_install_mlx5( fd_topo_t *     topo,
   for( ulong flow_idx=0UL; flow_idx<first->net.rx_dest_cnt; flow_idx++ ) {
     if( FD_UNLIKELY( fd_uverbs_create_udp_flow( &first->uverbs, &first->outer_rss_qp,
                                                 first_tile->mlx5.net.bind_address,
-                                                first->net.rx_dst_ports[ flow_idx ] ) ) ) {
+                                                first->net.rx_listen_ports[ flow_idx ] ) ) ) {
       FD_LOG_ERR(( "fd_uverbs_create_udp_flow failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     }
     if( FD_UNLIKELY( fd_uverbs_create_gre_udp_flow( &first->uverbs, &first->gre_rss_qp,
                                                     first_tile->mlx5.net.bind_address,
-                                                    first->net.rx_dst_ports[ flow_idx ] ) ) ) {
+                                                    first->net.rx_listen_ports[ flow_idx ] ) ) ) {
       FD_LOG_ERR(( "fd_uverbs_create_gre_udp_flow failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     }
   }

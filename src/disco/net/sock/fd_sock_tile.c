@@ -111,7 +111,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
 static void
 create_udp_socket( int    sock_fd,
                    uint   bind_addr,
-                   ushort udp_port,
+                   ushort listen_port,
                    int    so_rcvbuf,
                    uint   lo_ifindex ) {
 
@@ -143,7 +143,7 @@ create_udp_socket( int    sock_fd,
   struct sockaddr_in saddr = {
     .sin_family      = AF_INET,
     .sin_addr.s_addr = bind_addr,
-    .sin_port        = fd_ushort_bswap( udp_port ),
+    .sin_port        = fd_ushort_bswap( listen_port ),
   };
   if( lo_ifindex ) {
     /* SKF_AD_IFINDEX identifies the receive device, including local
@@ -160,7 +160,7 @@ create_udp_socket( int    sock_fd,
     }
   }
   if( FD_UNLIKELY( 0!=bind( orig_fd, fd_type_pun_const( &saddr ), sizeof(struct sockaddr_in) ) ) ) {
-    FD_LOG_ERR(( "bind(0.0.0.0:%i) failed (%i-%s)", udp_port, errno, fd_io_strerror( errno ) ));
+    FD_LOG_ERR(( "bind(0.0.0.0:%i) failed (%i-%s)", listen_port, errno, fd_io_strerror( errno ) ));
   }
 
   if( orig_fd==sock_fd ) {
@@ -228,15 +228,15 @@ privileged_init( fd_topo_t const *      topo,
     if( !rx_dests[ dest_idx ].listen_port ) continue;
     uint sock_idx = ctx->sock_cnt;
     if( sock_idx>=FD_SOCK_TILE_MAX_SOCKETS ) FD_LOG_ERR(( "too many sockets" ));
-    ushort port = rx_dests[ dest_idx ].listen_port;
+    ushort listen_port = rx_dests[ dest_idx ].listen_port;
 
     char const * target_link = rx_dests[ dest_idx ].out_link;
     ctx->link_rx_map[ sock_idx ] = 0xFF;
     for( ulong j=0UL; j<(tile->out_cnt); j++ ) {
       if( 0==strcmp( topo->links[ tile->out_link_id[ j ] ].name, target_link ) ) {
-        ctx->proto_id    [ sock_idx ] = (uchar)rx_dests[ dest_idx ].proto_id;
-        ctx->link_rx_map [ sock_idx ] = (uchar)j;
-        ctx->rx_sock_port[ sock_idx ] = (ushort)port;
+        ctx->proto_id       [ sock_idx ] = (uchar)rx_dests[ dest_idx ].proto_id;
+        ctx->link_rx_map    [ sock_idx ] = (uchar)j;
+        ctx->rx_listen_ports[ sock_idx ] = (ushort)listen_port;
         break;
       }
     }
@@ -247,7 +247,7 @@ privileged_init( fd_topo_t const *      topo,
     }
 
     int sock_fd = sock_fd_min + (int)sock_idx;
-    create_udp_socket( sock_fd, tile->sock.net.bind_address, port, tile->sock.so_rcvbuf, ctx->lo_ifindex );
+    create_udp_socket( sock_fd, tile->sock.net.bind_address, listen_port, tile->sock.so_rcvbuf, ctx->lo_ifindex );
     ctx->pollfd[ sock_idx ].fd     = sock_fd;
     ctx->pollfd[ sock_idx ].events = POLLIN;
     ctx->sock_cnt++;
@@ -338,11 +338,11 @@ poll_rx_socket( fd_sock_tile_t *    ctx,
                 fd_stem_context_t * stem,
                 uint                sock_idx,
                 int                 sock_fd,
-                ushort              proto ) {
+                ushort              proto_id ) {
   ulong  hdr_sz      = sizeof(fd_eth_hdr_t) + sizeof(fd_ip4_hdr_t) + sizeof(fd_udp_hdr_t);
   ulong  payload_max = FD_NET_MTU-hdr_sz;
   uchar  rx_link     = ctx->link_rx_map[ sock_idx ];
-  ushort dport       = ctx->rx_sock_port[ sock_idx ];
+  ushort listen_port = ctx->rx_listen_ports[ sock_idx ];
 
   fd_sock_link_rx_t * link = ctx->link_rx + rx_link;
   void * const base       = link->base;
@@ -433,14 +433,14 @@ poll_rx_socket( fd_sock_tile_t *    ctx,
     memcpy( ip_hdr->daddr_c, &daddr_,              4 );
     *udp_hdr = (fd_udp_hdr_t) {
       .net_sport = sa->sin_port,
-      .net_dport = (ushort)fd_ushort_bswap( (ushort)dport ),
+      .net_dport = (ushort)fd_ushort_bswap( (ushort)listen_port ),
       .net_len   = (ushort)fd_ushort_bswap( (ushort)( payload_sz+8UL ) ),
       .check     = 0
     };
 
     ctx->metrics.rx_pkt_cnt++;
     ulong chunk = fd_laddr_to_chunk( base, eth_hdr );
-    ulong sig   = fd_disco_netmux_sig( sa->sin_addr.s_addr, fd_ushort_bswap( sa->sin_port ), sa->sin_addr.s_addr, proto, hdr_sz );
+    ulong sig   = fd_disco_netmux_sig( sa->sin_addr.s_addr, fd_ushort_bswap( sa->sin_port ), sa->sin_addr.s_addr, proto_id, hdr_sz );
     ulong tspub = fd_frag_meta_ts_comp( ts );
 
     if( FD_UNLIKELY( chunk!=chunk_pub ) ) {
@@ -553,8 +553,8 @@ before_frag( fd_sock_tile_t * ctx,
              ulong            in_idx FD_PARAM_UNUSED,
              ulong            seq    FD_PARAM_UNUSED,
              ulong            sig ) {
-  ulong proto = fd_disco_netmux_sig_proto( sig );
-  if( FD_UNLIKELY( proto!=DST_PROTO_OUTGOING ) ) return 1;
+  ulong proto_id = fd_disco_netmux_sig_proto( sig );
+  if( FD_UNLIKELY( proto_id!=DST_PROTO_OUTGOING ) ) return 1;
   if( fd_disco_netmux_sig_hash( sig )%ctx->tx_tile_cnt!=ctx->tx_tile_idx ) return 1;
   return 0; /* continue */
 }
