@@ -76,6 +76,19 @@ struct fd_poh_leader_slot_ended {
 
 typedef struct fd_poh_leader_slot_ended fd_poh_leader_slot_ended_t;
 
+/* fd_motor_prefix_drained tells replay that no further microblock reads
+   that bank anymore, so replay can release it. Motor sends this after
+   it has published the UpdateParent marker. */
+
+#define FD_POH_SIG_PREFIX_DRAINED (1UL)
+
+struct fd_motor_prefix_drained {
+  ulong slot;
+  ulong bank_idx; /* the old bank */
+  ulong bank_seq;
+};
+typedef struct fd_motor_prefix_drained fd_motor_prefix_drained_t;
+
 struct fd_poh_out_private {
   ulong       idx;
   fd_wksp_t * mem;

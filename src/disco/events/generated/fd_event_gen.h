@@ -342,6 +342,7 @@ typedef struct fd_event_runtime_txn fd_event_runtime_txn_t;
 #define FD_EVENT_BLOCK_COMPLETED_PACK_END_REASON_TIME             (2) /* The leader slot's time window ended, the normal case. Blocks that filled a consensus limit also end here; measure saturation via pack_block_cost and pack_data_bytes against the protocol caps. */
 #define FD_EVENT_BLOCK_COMPLETED_PACK_END_REASON_MICROBLOCK_LIMIT (3) /* Microblock count limit reached. */
 #define FD_EVENT_BLOCK_COMPLETED_PACK_END_REASON_ABANDONED        (4) /* Production was abandoned mid-slot by a reset onto another fork; only on abandoned leader blocks (abandoned_reason reset). Pack ends the block early and its summary rides on the terminating message, so microblock_count, pack costs, pack timings, and bundle_txn_count reflect what was produced before the abandonment. */
+#define FD_EVENT_BLOCK_COMPLETED_PACK_END_REASON_REPARENTED       (5) /* Fast leader handover: production started on an optimistic parent and ParentReady named another. Only on the abandoned prefix's bank (abandoned_reason reparented); pack did not end the block, so microblock_count, pack costs, pack timings, and bundle_txn_count are 0. The block continues on a new bank and reports its own row. */
 
 /* Timestamps for one transaction. A zero timestamp means the stage did not occur on this path, was never reached, or its stamp was unavailable. */
 struct fd_event_block_completed_txn_timing {

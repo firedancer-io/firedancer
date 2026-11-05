@@ -707,6 +707,7 @@ test_execle_run( test_env_t *     env,
   fd_microblock_execle_trailer_t * in_trailer = (fd_microblock_execle_trailer_t *)( in_txn+txn_cnt );
   *in_trailer = (fd_microblock_execle_trailer_t) {
     .bank_idx       = env->bank_idx,
+    .bank_seq       = bank->bank_seq,
     .microblock_idx = 0UL,
     .pack_idx       = pack_idx,
     .pack_txn_idx   = pack_txn_idx,
@@ -915,6 +916,39 @@ FD_UNIT_TEST( execle_rebate_flushes_full_batch ) {
   test_env_destroy( env );
 }
 
+FD_UNIT_TEST( execle_rebate_drops_old_bank ) {
+  /* A slot that switches parent goes on on a new bank (fast leader
+     handover).  Pack reset its accounting for it, so a pending rebate
+     of the old bank is dropped, and the batch is keyed by the new
+     bank. */
+  test_env_t * env = test_env_create();
+  fd_bank_t * bank = fd_svm_mini_bank( env->mini, env->bank_idx );
+  fd_pubkey_t writable_acct = { .ul = { 0xbbbbUL } };
+  ulong old_bank_seq = bank->bank_seq;
+
+  fd_pubkey_t old_payer = { .ul = { 0x2000UL } };
+  fd_txn_p_t txn[1];
+  test_build_empty_txn( txn, bank, old_payer, writable_acct, 10UL, 0 );
+  test_execle_run( env, txn, 1UL, 0U, 0UL, 0 );
+  FD_TEST( env->execle->rebates_for_bank_seq==old_bank_seq && env->execle->rebate_microblock_cnt==1UL );
+
+  bank->bank_seq = old_bank_seq+1UL; /* same slot, new bank */
+  fd_pubkey_t new_payer = { .ul = { 0x2001UL } };
+  test_build_empty_txn( txn, bank, new_payer, writable_acct, 11UL, 0 );
+  test_execle_run( env, txn, 1UL, 1U, 1UL, 0 );
+  FD_TEST( env->execle->rebates_for_bank_seq==old_bank_seq+1UL && env->execle->rebate_microblock_cnt==1UL );
+
+  test_execle_flush_rebate( env );
+  fd_frag_meta_t const * rebate_meta = test_out_pack_meta( 0UL );
+  FD_TEST( fd_frag_meta_seq_query( rebate_meta )==0UL );
+  FD_TEST( rebate_meta->sig==old_bank_seq+1UL );
+  fd_pack_rebate_t const * rebate = fd_chunk_to_laddr( env->execle->out_pack->mem, rebate_meta->chunk );
+  FD_TEST( rebate->total_cost_rebate==301000UL && rebate->microblock_cnt_rebate==1UL );
+
+  bank->bank_seq = old_bank_seq;
+  test_env_destroy( env );
+}
+
 FD_UNIT_TEST( execle_rebate_batch_counts_bundle_microblocks ) {
   test_env_t * env = test_env_create();
   fd_bank_t * bank = fd_svm_mini_bank( env->mini, env->bank_idx );
@@ -980,7 +1014,7 @@ FD_UNIT_TEST( execle_rebate_flushes_initializer_bundle ) {
   test_env_destroy( env );
 }
 
-FD_UNIT_TEST( execle_rebate_slot_change_resets_batch ) {
+FD_UNIT_TEST( execle_rebate_bank_change_resets_batch ) {
   test_env_t * env = test_env_create();
   fd_bank_t * bank = fd_svm_mini_bank( env->mini, env->bank_idx );
   fd_pubkey_t writable_acct = { .ul = { 0xabcdUL } };
@@ -992,7 +1026,8 @@ FD_UNIT_TEST( execle_rebate_slot_change_resets_batch ) {
 
   env->execle->rebate_microblock_cnt = REBATE_BATCH_MAX_MICROBLOCKS-1UL;
 
-  bank->f.slot++;
+  bank->f.slot++; /* a new slot is on a new bank */
+  bank->bank_seq++;
   fd_pubkey_t second_fee_payer = { .ul = { 0x2222UL } };
   fd_txn_p_t second_txn[1];
   test_build_empty_txn( second_txn, bank, second_fee_payer, writable_acct, 21UL, 0 );
@@ -1026,6 +1061,7 @@ FD_UNIT_TEST( execle_vote ) {
   fd_microblock_execle_trailer_t * in_trailer = (fd_microblock_execle_trailer_t *)( in_txn+1UL );
   *in_trailer = (fd_microblock_execle_trailer_t) {
     .bank_idx       = env->bank_idx,
+    .bank_seq       = bank->bank_seq,
     .microblock_idx = 0UL,
     .pack_idx       = 0U,
     .pack_txn_idx   = 0UL,
@@ -1502,7 +1538,7 @@ FD_UNIT_TEST( execle_bundle_fail ) {
   test_execle_flush_rebate( env );
   fd_frag_meta_t const * rebate_meta = test_out_pack_meta( 0UL );
   FD_TEST( fd_frag_meta_seq_query( rebate_meta )==0UL );
-  FD_TEST( rebate_meta->sig==bank->f.slot );
+  FD_TEST( rebate_meta->sig==bank->bank_seq );
   FD_TEST( rebate_meta->sz>=FD_PACK_REBATE_MIN_SZ );
   fd_pack_rebate_t const * rebate = fd_chunk_to_laddr( env->execle->out_pack->mem, rebate_meta->chunk );
   ulong expected_rebated_cus = 0UL;
@@ -1614,7 +1650,7 @@ FD_UNIT_TEST( execle_bundle_peer_fail ) {
   test_execle_flush_rebate( env );
   fd_frag_meta_t const * rebate_meta = test_out_pack_meta( 0UL );
   FD_TEST( fd_frag_meta_seq_query( rebate_meta )==0UL );
-  FD_TEST( rebate_meta->sig==bank->f.slot );
+  FD_TEST( rebate_meta->sig==bank->bank_seq );
   FD_TEST( rebate_meta->sz>=FD_PACK_REBATE_MIN_SZ );
   fd_pack_rebate_t const * rebate = fd_chunk_to_laddr( env->execle->out_pack->mem, rebate_meta->chunk );
   ulong expected_rebated_cus = 0UL;

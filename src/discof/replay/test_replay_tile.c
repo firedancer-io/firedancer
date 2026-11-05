@@ -3983,12 +3983,13 @@ test_ag_leader_abandon_on_root_past_leader_slot( fd_wksp_t * wksp ) {
   ulong leader_idx = leader->idx;
   ulong out_idx    = ctx->replay_out->idx;
 
-  /* FEC 0 of our block comes back, the rest never does. */
+  /* FEC 0 of our block comes back, the rest never does.  Only our
+     slot-complete FEC set is taken, so this one is skipped. */
   fd_hash_t zero    = {0};
   fd_hash_t mr2_0   = { .ul = { 2001UL } };
   fd_hash_t mr2_32  = { .ul = { 2002UL } };
   FD_TEST( !deliver_leader_fec( ctx, 2UL, 0U, 1UL, &id1, &zero, &mr2_0, 0 ) );
-  FD_TEST( fd_hash_eq( &ctx->block_id_arr[ leader_idx ].latest_mr, &mr2_0 ) );
+  FD_TEST( !ctx->block_id_arr[ leader_idx ].fec_cnt );
   FD_TEST( !ctx->block_id_arr[ leader_idx ].block_id_seen );
 
   /* An identity switch arrives mid-slot and is deferred. */
@@ -4184,6 +4185,405 @@ test_ag_become_leader_publishes_parent( fd_wksp_t * wksp ) {
   FD_LOG_NOTICE(( "pass: test_ag_become_leader_publishes_parent" ));
 }
 
+/* count_sig counts the frags with signal sig published on replay_out
+   from seq0 on. */
+
+static ulong
+count_sig( fd_replay_tile_t * ctx,
+           ulong              seq0,
+           ulong              sig ) {
+  ulong out_idx = ctx->replay_out->idx;
+  ulong cnt     = 0UL;
+  for( ulong seq=seq0; seq<test_stem_seqs[ out_idx ]; seq++ ) {
+    cnt += (ulong)( test_stem_mcaches[ out_idx ][ fd_mcache_line_idx( seq, test_stem_depths[ out_idx ] ) ].sig==sig );
+  }
+  return cnt;
+}
+
+/* last_sig returns the payload of the last frag with signal sig
+   published on replay_out from seq0 on, NULL if none. */
+
+static void const *
+last_sig( fd_replay_tile_t * ctx,
+          ulong              seq0,
+          ulong              sig ) {
+  ulong        out_idx = ctx->replay_out->idx;
+  void const * last    = NULL;
+  for( ulong seq=seq0; seq<test_stem_seqs[ out_idx ]; seq++ ) {
+    fd_frag_meta_t const * m = test_stem_mcaches[ out_idx ] + fd_mcache_line_idx( seq, test_stem_depths[ out_idx ] );
+    if( m->sig==sig ) last = fd_chunk_to_laddr_const( ctx->replay_out->mem, m->chunk );
+  }
+  return last;
+}
+
+/* deliver_prefix_drained drives motor's drain report for a slot that
+   switched parent through a motor input. */
+
+#define TEST_MOTOR_IN_IDX 3UL
+
+static void
+deliver_prefix_drained( fd_replay_tile_t *                ctx,
+                        fd_wksp_t *                       wksp,
+                        fd_motor_prefix_drained_t const * drained ) {
+  if( ctx->in_kind[ TEST_MOTOR_IN_IDX ]!=IN_KIND_MOTOR ) {
+    ulong const depth = 128UL;
+    ulong const mtu   = sizeof(fd_poh_leader_slot_ended_t);
+    ulong dcache_data_sz = fd_dcache_req_data_sz( mtu, depth, 1UL, 1 );
+    void * dcache = fd_dcache_join( fd_dcache_new( fd_wksp_alloc_laddr( wksp, fd_dcache_align(), fd_dcache_footprint( dcache_data_sz, 0UL ), 1UL ), dcache_data_sz, 0UL ) );
+    FD_TEST( dcache );
+    ctx->in_kind[ TEST_MOTOR_IN_IDX ] = IN_KIND_MOTOR;
+    ctx->in[ TEST_MOTOR_IN_IDX ].mem    = wksp;
+    ctx->in[ TEST_MOTOR_IN_IDX ].chunk0 = fd_dcache_compact_chunk0( wksp, dcache );
+    ctx->in[ TEST_MOTOR_IN_IDX ].wmark  = fd_dcache_compact_wmark ( wksp, dcache, mtu );
+    ctx->in[ TEST_MOTOR_IN_IDX ].mtu    = mtu;
+  }
+  ulong chunk = ctx->in[ TEST_MOTOR_IN_IDX ].chunk0;
+  *(fd_motor_prefix_drained_t *)fd_chunk_to_laddr( wksp, chunk ) = *drained;
+  FD_TEST( !returnable_frag( ctx, TEST_MOTOR_IN_IDX, 0UL, FD_POH_SIG_PREFIX_DRAINED, chunk, sizeof(fd_motor_prefix_drained_t), 0UL, 0UL, 0UL, test_stem ) );
+}
+
+/* deliver_leader drives votor's LEADER through the votor input. */
+
+static void
+deliver_leader( fd_replay_tile_t * ctx,
+                ulong              slot,
+                ulong              parent_slot,
+                fd_hash_t const *  parent_block_id ) {
+  ulong chunk = ctx->in[ TEST_VOTOR_IN_IDX ].chunk0;
+  fd_votor_leader_t * leader = fd_chunk_to_laddr( ctx->in[ TEST_VOTOR_IN_IDX ].mem, chunk );
+  *leader = (fd_votor_leader_t){ .slot = slot, .parent_slot = parent_slot, .parent_block_id = *parent_block_id };
+  FD_TEST( !returnable_frag( ctx, TEST_VOTOR_IN_IDX, 0UL, FD_VOTOR_SIG_LEADER, chunk, sizeof(fd_votor_msg_t), 0UL, 0UL, 0UL, test_stem ) );
+}
+
+/* setup_flh_ctx is setup_ag_leader_ctx before any LEADER: slot 3, the
+   last block of the window before ours, is frozen with fast leader
+   handover active, and certs made its window ParentReady.  Our window
+   starts at slot 4. */
+
+static fd_bank_t *
+setup_flh_ctx( fd_replay_tile_t * ctx,
+               fd_wksp_t *        wksp,
+               fd_hash_t const *  root_id,
+               fd_hash_t const *  id3 ) {
+  fd_hash_t id1 = { .ul = { 201UL } };
+  fd_bank_t * b1 = setup_ag_leader_ctx( ctx, wksp, root_id, &id1 );
+  setup_votor_input( ctx, wksp );
+  ctx->next_leader_slot  = ULONG_MAX;
+  *ctx->votor_leader     = (fd_votor_leader_t){ .slot = ULONG_MAX };
+  ctx->votor_leader_switch->slot = ULONG_MAX;
+  fd_bank_t * b3 = add_block( ctx, b1, 3UL, id3 );
+  b3->f.features.alpenglow_fast_leader_handover = 0UL;
+  ctx->votor_parent_ready_slot = 0UL;
+  return b3;
+}
+
+/* Fast leader handover, happy path.  When the last block of the window
+   before ours freezes, replay starts our window on it as an optimistic
+   parent, ahead of votor's LEADER, and tells pack the parent is
+   unconfirmed: pack does not end the slot until replay resolves it.
+   LEADER naming the same parent confirms it (REPLAY_SIG_CONFIRM_LEADER),
+   then the slot ends as usual and the footer goes out at once. */
+
+static void
+test_flh_optimistic_start( fd_wksp_t * wksp ) {
+  static fd_replay_tile_t ctx[ 1 ];
+  fd_hash_t root_id = { .ul = { 0xBEEFUL } };
+  fd_hash_t id3     = { .ul = { 203UL } };
+  fd_bank_t * b3 = setup_flh_ctx( ctx, wksp, &root_id, &id3 );
+
+  try_optimistic_leader( ctx, b3 );
+  FD_TEST( ctx->next_leader_slot==4UL && ctx->leader_parent_unconfirmed );
+  FD_TEST( ctx->votor_leader->parent_slot==3UL && fd_hash_eq( &ctx->votor_leader->parent_block_id, &id3 ) );
+
+  ulong seq0 = test_stem_seqs[ ctx->replay_out->idx ];
+  FD_TEST( try_become_leader( ctx, test_stem, FD_METRICS_SAMPLE_REASON_LEADER_START, 0UL ) );
+  FD_TEST( ctx->is_leader && ctx->leader_bank->f.slot==4UL && ctx->reset_slot==3UL );
+  fd_became_leader_t const * became = last_sig( ctx, seq0, REPLAY_SIG_BECAME_LEADER );
+  FD_TEST( became && became->slot==4UL && became->parent_unconfirmed );
+
+  /* LEADER confirms the parent, and replay does not become leader
+     again. */
+  seq0 = test_stem_seqs[ ctx->replay_out->idx ];
+  deliver_leader( ctx, 4UL, 3UL, &id3 );
+  FD_TEST( !ctx->leader_parent_unconfirmed && ctx->is_leader && ctx->leader_bank->f.slot==4UL );
+  fd_replay_leader_slot_t const * confirm = last_sig( ctx, seq0, REPLAY_SIG_CONFIRM_LEADER );
+  FD_TEST( confirm && confirm->slot==4UL );
+  FD_TEST( !count_sig( ctx, seq0, REPLAY_SIG_BECAME_LEADER ) && !count_sig( ctx, seq0, REPLAY_SIG_UPDATE_PARENT_KILL ) );
+
+  /* Pack ends the slot: the footer goes out at once. */
+  seq0 = test_stem_seqs[ ctx->replay_out->idx ];
+  end_leader_slot( ctx, 4UL );
+  FD_TEST( count_sig( ctx, seq0, REPLAY_SIG_LEADER_FOOTER )==1UL );
+
+  FD_LOG_NOTICE(( "pass: test_flh_optimistic_start" ));
+}
+
+/* The optimistic start is gated.  It needs the feature on the parent,
+   a window start that is ours, and certs that made the parent's window,
+   not yet ours, ParentReady (Agave #14408). */
+
+static void
+test_flh_optimistic_gates( fd_wksp_t * wksp ) {
+  fd_hash_t root_id = { .ul = { 0xBEEFUL } };
+  fd_hash_t id3     = { .ul = { 203UL } };
+
+  for( int c=0; c<5; c++ ) {
+    static fd_replay_tile_t ctx[ 1 ];
+    fd_bank_t * b3 = setup_flh_ctx( ctx, wksp, &root_id, &id3 );
+    switch( c ) {
+    case 0: b3->f.features.alpenglow_fast_leader_handover = FD_FEATURE_DISABLED; break; /* no FLH       */
+    case 1: mock_slot_leader = (fd_pubkey_t){ .ul = { 9UL } };                   break; /* not our window */
+    case 2: ctx->votor_parent_ready_slot = 4UL;                                  break; /* LEADER names it */
+    case 3: b3->f.slot = 2UL;                                                    break; /* not a window's last block */
+    case 4: ctx->votor_parent_ready_slot = 0UL; b3->f.slot = 7UL;                break; /* parent window not ParentReady */
+    }
+    try_optimistic_leader( ctx, b3 );
+    FD_TEST( ctx->next_leader_slot==ULONG_MAX && !ctx->leader_parent_unconfirmed );
+    mock_slot_leader = (fd_pubkey_t){ .ul = { 1UL } };
+    fd_wksp_reset( wksp, 42U );
+  }
+
+  FD_LOG_NOTICE(( "pass: test_flh_optimistic_gates" ));
+}
+
+/* The cluster skips our window before LEADER confirms the optimistic
+   parent, so votor never sends that LEADER.  Replay tells pack to give
+   the slot up (REPLAY_SIG_ABANDON_LEADER), once, and the aborted slot
+   ended that comes back kills the bank instead of wedging is_leader. */
+
+static void
+test_flh_superseded( fd_wksp_t * wksp ) {
+  static fd_replay_tile_t ctx[ 1 ];
+  fd_hash_t root_id = { .ul = { 0xBEEFUL } };
+  fd_hash_t id3     = { .ul = { 203UL } };
+  fd_bank_t * b3 = setup_flh_ctx( ctx, wksp, &root_id, &id3 );
+
+  try_optimistic_leader( ctx, b3 );
+  FD_TEST( try_become_leader( ctx, test_stem, FD_METRICS_SAMPLE_REASON_LEADER_START, 0UL ) );
+  fd_bank_t * leader = ctx->leader_bank;
+  FD_TEST( !try_fini_leader( ctx, test_stem ) ); /* our window is not skipped */
+
+  ulong seq0 = test_stem_seqs[ ctx->replay_out->idx ];
+  ctx->votor_parent_ready_slot = 8UL;
+  FD_TEST( try_fini_leader( ctx, test_stem ) );
+  FD_TEST( ctx->is_leader && ctx->leader_bank==leader && !ctx->leader_parent_unconfirmed );
+  fd_replay_leader_slot_t const * abandon = last_sig( ctx, seq0, REPLAY_SIG_ABANDON_LEADER );
+  FD_TEST( abandon && abandon->slot==4UL );
+  FD_TEST( !try_fini_leader( ctx, test_stem ) ); /* once */
+  FD_TEST( count_sig( ctx, seq0, REPLAY_SIG_ABANDON_LEADER )==1UL );
+
+  /* Motor reports the slot aborted. */
+  fd_poh_leader_slot_ended_t slot_ended = { .completed = 0, .slot = 4UL };
+  process_motor_done( ctx, test_stem, &slot_ended );
+  FD_TEST( !ctx->is_leader && !ctx->leader_bank );
+  FD_TEST( leader->state==FD_BANK_STATE_DEAD && !leader->refcnt );
+  FD_TEST( !count_sig( ctx, seq0, REPLAY_SIG_LEADER_FOOTER ) );
+
+  FD_LOG_NOTICE(( "pass: test_flh_superseded" ));
+}
+
+/* Fast leader handover, sad path: LEADER names a parent other than the
+   optimistic one.  Replay tells pack to switch (UPDATE_PARENT_KILL) and
+   kills the old bank quietly, keeping its leader refcount for the
+   drain.  Pack never ended the slot on it.  Until the new bank, replay
+   stays leader with no leader bank. */
+
+static void
+test_flh_update_parent_kill( fd_wksp_t * wksp ) {
+  static fd_replay_tile_t ctx[ 1 ];
+  fd_hash_t root_id = { .ul = { 0xBEEFUL } };
+  fd_hash_t id3     = { .ul = { 203UL } };
+  fd_hash_t id2     = { .ul = { 202UL } };
+  fd_bank_t * b3 = setup_flh_ctx( ctx, wksp, &root_id, &id3 );
+
+  try_optimistic_leader( ctx, b3 );
+  FD_TEST( try_become_leader( ctx, test_stem, FD_METRICS_SAMPLE_REASON_LEADER_START, 0UL ) );
+  fd_bank_t * old = ctx->leader_bank;
+  FD_TEST( old->refcnt==1UL );
+
+  ulong seq0 = test_stem_seqs[ ctx->replay_out->idx ];
+  deliver_leader( ctx, 4UL, 2UL, &id2 );
+  FD_TEST( ctx->is_leader && !ctx->leader_bank && !ctx->recv_poh && !ctx->leader_parent_unconfirmed );
+  FD_TEST( old->state==FD_BANK_STATE_DEAD && old->refcnt==1UL ); /* held for the drain */
+  FD_TEST( ctx->reset_slot==2UL );
+  FD_TEST( ctx->votor_leader_switch->slot==4UL && ctx->votor_leader_switch->parent_slot==2UL && fd_hash_eq( &ctx->votor_leader_switch->parent_block_id, &id2 ) );
+  FD_TEST( ctx->votor_leader->parent_slot==3UL ); /* the optimistic parent, untouched */
+  fd_replay_update_parent_kill_t const * kill = last_sig( ctx, seq0, REPLAY_SIG_UPDATE_PARENT_KILL );
+  FD_TEST( kill && kill->slot==4UL && kill->parent_slot==2UL && !memcmp( kill->parent_dmr, id2.uc, sizeof(fd_hash_t) ) );
+  FD_TEST( !count_sig( ctx, seq0, REPLAY_SIG_SLOT_DEAD ) && !count_sig( ctx, seq0, REPLAY_SIG_CONFIRM_LEADER ) );
+
+  /* Nothing ends the slot while it switches. */
+  FD_TEST( !try_fini_leader( ctx, test_stem ) );
+  FD_TEST( ctx->is_leader && !ctx->leader_bank );
+
+  FD_LOG_NOTICE(( "pass: test_flh_update_parent_kill" ));
+}
+
+/* The switch completes.  The new bank is built on the parent LEADER
+   named only once that parent is frozen, independently of the old
+   bank's drain, and resumes the slot (REPLAY_SIG_UPDATE_PARENT_BANK) as
+   a became leader for the same slot on the new parent.  Motor's drain
+   report releases the old bank: its leader refcount and cost tracker
+   pin go, and it prunes. */
+
+static void
+test_flh_update_parent_bank( fd_wksp_t * wksp,
+                             int         drain_first ) {
+  static fd_replay_tile_t ctx[ 1 ];
+  fd_hash_t root_id = { .ul = { 0xBEEFUL } };
+  fd_hash_t id3     = { .ul = { 203UL } };
+  fd_hash_t id2     = { .ul = { 202UL } };
+  fd_hash_t mr2     = { .ul = { 2032UL } };
+  fd_bank_t * b3 = setup_flh_ctx( ctx, wksp, &root_id, &id3 );
+  fd_bank_t * b1 = fd_banks_bank_query( ctx->banks, b3->parent_idx );
+
+  try_optimistic_leader( ctx, b3 );
+  FD_TEST( try_become_leader( ctx, test_stem, FD_METRICS_SAMPLE_REASON_LEADER_START, 0UL ) );
+  fd_bank_t * old     = ctx->leader_bank;
+  ulong       old_idx = old->idx;
+  ulong       old_seq = old->bank_seq;
+  deliver_leader( ctx, 4UL, 2UL, &id2 );
+  FD_TEST( ctx->is_leader && !ctx->leader_bank );
+
+  /* The new parent isn't replayed yet: no new bank. */
+  FD_TEST( !try_update_parent_bank( ctx, test_stem ) );
+
+  fd_motor_prefix_drained_t drained = { .slot = 4UL, .bank_idx = old_idx, .bank_seq = old_seq };
+  if( drain_first ) {
+    deliver_prefix_drained( ctx, wksp, &drained );
+    FD_TEST( !old->refcnt );
+  }
+
+  /* Slot 2 is replayed and frozen. */
+  fd_bank_t * b2 = add_block( ctx, b1, 2UL, &id2 );
+  ctx->block_id_arr[ b2->idx ].latest_mr = mr2;
+  fd_hash_t alpentick2 = { .ul = { 0xA2UL } };
+  FD_TEST( fd_blockhashes_push_new( &b2->f.block_hash_queue, &alpentick2 ) );
+
+  ulong seq0 = test_stem_seqs[ ctx->replay_out->idx ];
+  FD_TEST( try_update_parent_bank( ctx, test_stem ) );
+  fd_bank_t * nb = ctx->leader_bank;
+  FD_TEST( nb && nb->idx!=old_idx && nb->parent_idx==b2->idx && nb->f.slot==4UL && nb->refcnt==1UL );
+  FD_TEST( ctx->is_leader && !ctx->leader_parent_unconfirmed );
+  fd_became_leader_t const * bank = last_sig( ctx, seq0, REPLAY_SIG_UPDATE_PARENT_BANK );
+  FD_TEST( bank && bank->slot==4UL && bank->parent_slot==2UL && !bank->parent_unconfirmed );
+  FD_TEST( bank->bank_idx==nb->idx && bank->bank_seq==nb->bank_seq );
+  FD_TEST( fd_hash_eq( &bank->parent_dmr, &id2 ) && fd_hash_eq( &bank->parent_cmr, &mr2 ) );
+  FD_TEST( fd_hash_eq( &bank->parent_blockhash, &alpentick2 ) );
+  FD_TEST( !count_sig( ctx, seq0, REPLAY_SIG_BECAME_LEADER ) ); /* not a new leader slot */
+  FD_TEST( !try_update_parent_bank( ctx, test_stem ) );       /* once */
+  FD_TEST( ctx->votor_leader_switch->slot==ULONG_MAX );
+
+  if( !drain_first ) {
+    FD_TEST( old->refcnt==1UL ); /* still draining */
+    deliver_prefix_drained( ctx, wksp, &drained );
+    FD_TEST( !old->refcnt );
+  }
+  FD_TEST( old->state==FD_BANK_STATE_DEAD );
+
+  /* The slot ends on the new bank as usual. */
+  seq0 = test_stem_seqs[ ctx->replay_out->idx ];
+  end_leader_slot( ctx, 4UL );
+  FD_TEST( count_sig( ctx, seq0, REPLAY_SIG_LEADER_FOOTER )==1UL );
+
+  FD_LOG_NOTICE(( "pass: test_flh_update_parent_bank drain_first=%d", drain_first ));
+}
+
+/* A LEADER for a later window arriving while our slot switches parent
+   records the later window for try_become_leader, and does not change
+   which slot switches or onto which parent.  The new bank is built for
+   the switching slot on the parent the first LEADER named. */
+
+static void
+test_flh_leader_during_switch( fd_wksp_t * wksp ) {
+  static fd_replay_tile_t ctx[ 1 ];
+  fd_hash_t root_id = { .ul = { 0xBEEFUL } };
+  fd_hash_t id3     = { .ul = { 203UL } };
+  fd_hash_t id2     = { .ul = { 202UL } };
+  fd_hash_t id7     = { .ul = { 207UL } };
+  fd_bank_t * b3 = setup_flh_ctx( ctx, wksp, &root_id, &id3 );
+  fd_bank_t * b1 = fd_banks_bank_query( ctx->banks, b3->parent_idx );
+
+  try_optimistic_leader( ctx, b3 );
+  FD_TEST( try_become_leader( ctx, test_stem, FD_METRICS_SAMPLE_REASON_LEADER_START, 0UL ) );
+  deliver_leader( ctx, 4UL, 2UL, &id2 );
+  FD_TEST( ctx->is_leader && !ctx->leader_bank && ctx->votor_leader_switch->slot==4UL );
+
+  /* LEADER for our next window, on a parent that is frozen. */
+  fd_bank_t * b7 = add_block( ctx, b3, 7UL, &id7 );
+  (void)b7;
+  deliver_leader( ctx, 8UL, 7UL, &id7 );
+  FD_TEST( ctx->next_leader_slot==8UL && ctx->votor_leader->slot==8UL && ctx->votor_leader->parent_slot==7UL );
+  FD_TEST( ctx->votor_leader_switch->slot==4UL && ctx->votor_leader_switch->parent_slot==2UL && fd_hash_eq( &ctx->votor_leader_switch->parent_block_id, &id2 ) );
+  FD_TEST( ctx->is_leader && !ctx->leader_bank ); /* still switching, no bank on slot 7's child */
+
+  /* Only the switching slot's own parent builds the new bank. */
+  FD_TEST( !try_update_parent_bank( ctx, test_stem ) );
+  fd_bank_t * b2 = add_block( ctx, b1, 2UL, &id2 );
+  fd_hash_t alpentick2 = { .ul = { 0xA2UL } };
+  FD_TEST( fd_blockhashes_push_new( &b2->f.block_hash_queue, &alpentick2 ) );
+  ulong seq0 = test_stem_seqs[ ctx->replay_out->idx ];
+  FD_TEST( try_update_parent_bank( ctx, test_stem ) );
+  fd_became_leader_t const * bank = last_sig( ctx, seq0, REPLAY_SIG_UPDATE_PARENT_BANK );
+  FD_TEST( bank && bank->slot==4UL && bank->parent_slot==2UL );
+  FD_TEST( ctx->leader_bank->f.slot==4UL && ctx->leader_bank->parent_idx==b2->idx );
+  FD_TEST( ctx->next_leader_slot==8UL ); /* the later window waits for this slot to end */
+
+  FD_LOG_NOTICE(( "pass: test_flh_leader_during_switch" ));
+}
+
+/* Certs skip our window while it switches parent, before the new bank.
+   Replay gives the slot up (ABANDON_LEADER) once, and builds no bank
+   even when the new parent freezes later.  The drain report releases
+   the old bank, and the aborted slot ended, which finds no leader bank,
+   ends our leadership so a later window can start. */
+
+static void
+test_flh_switch_superseded( fd_wksp_t * wksp ) {
+  static fd_replay_tile_t ctx[ 1 ];
+  fd_hash_t root_id = { .ul = { 0xBEEFUL } };
+  fd_hash_t id3     = { .ul = { 203UL } };
+  fd_hash_t id2     = { .ul = { 202UL } };
+  fd_bank_t * b3 = setup_flh_ctx( ctx, wksp, &root_id, &id3 );
+  fd_bank_t * b1 = fd_banks_bank_query( ctx->banks, b3->parent_idx );
+
+  try_optimistic_leader( ctx, b3 );
+  FD_TEST( try_become_leader( ctx, test_stem, FD_METRICS_SAMPLE_REASON_LEADER_START, 0UL ) );
+  fd_bank_t * old     = ctx->leader_bank;
+  ulong       old_idx = old->idx;
+  ulong       old_seq = old->bank_seq;
+  deliver_leader( ctx, 4UL, 2UL, &id2 );
+  FD_TEST( ctx->is_leader && !ctx->leader_bank && ctx->votor_leader_switch->slot==4UL );
+  FD_TEST( !try_fini_leader( ctx, test_stem ) ); /* our window is not skipped */
+
+  ulong seq0 = test_stem_seqs[ ctx->replay_out->idx ];
+  ctx->votor_parent_ready_slot = 8UL;
+  FD_TEST( try_fini_leader( ctx, test_stem ) );
+  fd_replay_leader_slot_t const * abandon = last_sig( ctx, seq0, REPLAY_SIG_ABANDON_LEADER );
+  FD_TEST( abandon && abandon->slot==4UL );
+  FD_TEST( ctx->votor_leader_switch->slot==ULONG_MAX && ctx->is_leader && !ctx->leader_bank );
+  FD_TEST( !try_fini_leader( ctx, test_stem ) ); /* once */
+  FD_TEST( count_sig( ctx, seq0, REPLAY_SIG_ABANDON_LEADER )==1UL );
+
+  /* The new parent freezes now: no bank for the slot given up. */
+  fd_bank_t * b2 = add_block( ctx, b1, 2UL, &id2 );
+  fd_hash_t alpentick2 = { .ul = { 0xA2UL } };
+  FD_TEST( fd_blockhashes_push_new( &b2->f.block_hash_queue, &alpentick2 ) );
+  FD_TEST( !try_update_parent_bank( ctx, test_stem ) );
+  FD_TEST( !count_sig( ctx, seq0, REPLAY_SIG_UPDATE_PARENT_BANK ) );
+
+  /* Pack drained the old bank first, then ended the slot aborted. */
+  fd_motor_prefix_drained_t drained = { .slot = 4UL, .bank_idx = old_idx, .bank_seq = old_seq };
+  deliver_prefix_drained( ctx, wksp, &drained );
+  FD_TEST( old->state==FD_BANK_STATE_DEAD && !old->refcnt );
+  fd_poh_leader_slot_ended_t slot_ended = { .completed = 0, .slot = 4UL, .pack_end_reason = FD_PACK_END_SLOT_REASON_ABANDONED };
+  process_motor_done( ctx, test_stem, &slot_ended );
+  FD_TEST( !ctx->is_leader && !ctx->leader_bank && !ctx->recv_poh );
+  FD_TEST( !count_sig( ctx, seq0, REPLAY_SIG_LEADER_FOOTER ) );
+
+  FD_LOG_NOTICE(( "pass: test_flh_switch_superseded" ));
+}
+
 /* Our leader FECs bind to the existing leader bank and never enter
    sched, so a full sched or a full bank pool must not hold them back
    the way it holds back other FECs. */
@@ -4214,19 +4614,25 @@ test_ag_leader_fec_not_gated( fd_wksp_t * wksp ) {
   FD_TEST( deliver_rotor_fec( ctx, 9UL, 0U, 1UL, &id1, &mr9, 0, 0 )==1 );
   mock_sched_capacity = 0UL;
 
-  /* Ours goes through, FEC 0 past the full bank pool and the rest past
-     the full sched, and the block id returns. */
+  /* Ours goes through past the full bank pool and the full sched: FEC 0
+     is skipped, not held, and the slot-complete one returns the block
+     id, with the block's FEC set count from its index. */
   fd_hash_t zero   = {0};
   fd_hash_t mr2_0  = { .ul = { 2001UL } };
   fd_hash_t mr2_32 = { .ul = { 2002UL } };
   ulong seq0 = test_stem_seqs[ ctx->replay_out->idx ];
   mock_sched_capacity = ULONG_MAX;
   FD_TEST( !deliver_leader_fec( ctx, 2UL, 0U,               1UL, &id1, &zero, &mr2_0,  0 ) );
-  FD_TEST( fd_hash_eq( &ctx->block_id_arr[ leader->idx ].latest_mr, &mr2_0 ) );
+  FD_TEST( !ctx->block_id_arr[ leader->idx ].fec_cnt );
   mock_sched_capacity = 0UL;
   FD_TEST( !deliver_leader_fec( ctx, 2UL, FD_FEC_SHRED_CNT, 1UL, &id1, &id2,  &mr2_32, 1 ) );
   fd_block_id_ele_t * ele = &ctx->block_id_arr[ leader->idx ];
   FD_TEST( ele->block_id_seen && fd_hash_eq( &ele->dmr, &id2 ) );
+  FD_TEST( fd_hash_eq( &ele->latest_mr, &mr2_32 ) && ele->fec_cnt==2U );
+
+  /* A redelivery of it is skipped. */
+  FD_TEST( !deliver_leader_fec( ctx, 2UL, FD_FEC_SHRED_CNT, 1UL, &id1, &id2,  &mr2_32, 1 ) );
+  FD_TEST( ele->fec_cnt==2U );
   fd_block_id_t key2 = fd_block_id( 2UL, id2.uc );
   FD_TEST( fd_block_id_map_ele_query( ctx->block_id_map, &key2, NULL, ctx->block_id_arr )==ele );
   FD_TEST( !ctx->drain_rotor_fecs && test_stem_seqs[ ctx->replay_out->idx ]==seq0 );
@@ -4776,6 +5182,14 @@ main( int     argc,
   test_ag_leader_abandon_on_root_past_leader_slot( wksp ); fd_wksp_reset( wksp, 42U );
   test_ag_become_leader_refuses_settled_slot( wksp ); fd_wksp_reset( wksp, 42U );
   test_ag_become_leader_publishes_parent( wksp );   fd_wksp_reset( wksp, 42U );
+  test_flh_optimistic_start( wksp );                fd_wksp_reset( wksp, 42U );
+  test_flh_optimistic_gates( wksp );                fd_wksp_reset( wksp, 42U );
+  test_flh_superseded( wksp );                      fd_wksp_reset( wksp, 42U );
+  test_flh_update_parent_kill( wksp );              fd_wksp_reset( wksp, 42U );
+  test_flh_update_parent_bank( wksp, 0 );           fd_wksp_reset( wksp, 42U );
+  test_flh_update_parent_bank( wksp, 1 );           fd_wksp_reset( wksp, 42U );
+  test_flh_leader_during_switch( wksp );            fd_wksp_reset( wksp, 42U );
+  test_flh_switch_superseded( wksp );               fd_wksp_reset( wksp, 42U );
   test_ag_leader_fec_not_gated( wksp );
   fd_wksp_reset( wksp, 42U );
   test_snapmk_start_leader_after_epoch_rollover( wksp );

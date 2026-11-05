@@ -44,6 +44,7 @@ struct fd_execle_tile {
   void * bmtree;
 
   ulong _bank_idx;
+  ulong _bank_seq;
   ulong _pack_idx;
   ulong _txn_idx;
   int _is_bundle;
@@ -58,7 +59,7 @@ struct fd_execle_tile {
   fd_execle_out_t out_poh[1];
   fd_execle_out_t out_pack[1];
 
-  ulong                rebates_for_slot;
+  ulong                rebates_for_bank_seq; /* rebates go to pack keyed by bank, a slot can switch bank (fast leader handover) */
   ulong                rebate_tsorig;
   ulong                rebate_microblock_cnt;
   ulong                rebate_idle_loop_cnt;
@@ -186,7 +187,7 @@ after_credit( fd_execle_tile_t *  ctx,
   ulong written_sz = fd_pack_rebate_sum_report( ctx->rebater, fd_chunk_to_laddr( ctx->out_pack->mem, ctx->out_pack->chunk ) );
   if( FD_UNLIKELY( written_sz ) ) {
     ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
-    fd_stem_publish( stem, ctx->out_pack->idx, ctx->rebates_for_slot, ctx->out_pack->chunk, written_sz, 0UL, ctx->rebate_tsorig, tspub );
+    fd_stem_publish( stem, ctx->out_pack->idx, ctx->rebates_for_bank_seq, ctx->out_pack->chunk, written_sz, 0UL, ctx->rebate_tsorig, tspub );
     ctx->out_pack->chunk = fd_dcache_compact_next( ctx->out_pack->chunk, written_sz, ctx->out_pack->chunk0, ctx->out_pack->wmark );
     *opt_poll_in = 0;
     *charge_busy = 1;
@@ -252,6 +253,7 @@ during_frag( fd_execle_tile_t * ctx,
 
   fd_microblock_execle_trailer_t * trailer = (fd_microblock_execle_trailer_t *)( src+sz-sizeof(fd_microblock_execle_trailer_t) );
   ctx->_bank_idx  = trailer->bank_idx;
+  ctx->_bank_seq  = trailer->bank_seq;
   ctx->_pack_idx  = trailer->pack_idx;
   ctx->_txn_idx   = trailer->pack_txn_idx;
   ctx->_is_bundle = trailer->is_bundle;
@@ -719,16 +721,17 @@ after_frag( fd_execle_tile_t *  ctx,
             ulong               tsorig,
             ulong               tspub,
             fd_stem_context_t * stem ) {
-  ulong slot = fd_disco_poh_sig_slot( sig );
   if( FD_LIKELY( ctx->enable_rebates ) ) {
-    if( FD_UNLIKELY( slot!=ctx->rebates_for_slot ) ) {
-      /* If pack has already moved on to a new slot, the rebates are no
-         longer useful. */
+    if( FD_UNLIKELY( ctx->_bank_seq!=ctx->rebates_for_bank_seq ) ) {
+      /* If pack has already moved on to a new bank, the rebates are no
+         longer useful.  Keyed by bank, not slot: a slot that switches
+         parent goes on on a new bank, and pack has reset its accounting
+         for it. */
       fd_pack_rebate_sum_clear( ctx->rebater );
       ctx->rebate_microblock_cnt = 0UL;
       ctx->rebate_idle_loop_cnt  = 0UL;
       ctx->rebate_draining       = 0;
-      ctx->rebates_for_slot      = slot;
+      ctx->rebates_for_bank_seq  = ctx->_bank_seq;
     }
     if( FD_UNLIKELY( !ctx->rebate_microblock_cnt ) ) {
       ctx->rebate_tsorig = tsorig;
@@ -805,7 +808,7 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->bmtree    = NONNULL( bmtree );
 
   NONNULL( fd_pack_rebate_sum_join( fd_pack_rebate_sum_new( ctx->rebater, ctx->rebate_seed ) ) );
-  ctx->rebates_for_slot      = 0UL;
+  ctx->rebates_for_bank_seq  = 0UL;
   ctx->rebate_microblock_cnt = 0UL;
   ctx->rebate_idle_loop_cnt  = 0UL;
   ctx->rebate_draining       = 0;

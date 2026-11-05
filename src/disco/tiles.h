@@ -78,6 +78,12 @@ struct fd_became_leader {
     uchar                                tip_receiver_owner[32];
     uchar                                last_blockhash[32];
   } bundle[1];
+
+  /* Fast leader handover: the slot is built on an optimistic parent
+     that ParentReady has not confirmed yet.  Pack holds done_packing
+     until replay sends REPLAY_SIG_CONFIRM_LEADER,
+     REPLAY_SIG_UPDATE_PARENT_KILL or REPLAY_SIG_ABANDON_LEADER. */
+  int parent_unconfirmed;
 };
 typedef struct fd_became_leader fd_became_leader_t;
 
@@ -129,9 +135,35 @@ typedef struct fd_microblock_trailer fd_microblock_trailer_t;
    done_packing messages use fd_disco_execle_sig( slot, pack_idx ). */
 #define FD_PACK_MSG_DONE_DRAINING   (ULONG_MAX)
 
+/* fd_pack_prefix_drained is sent once every execle is idle after an
+   UPDATE_PARENT_KILL, so no microblock on the slot's old bank follows
+   it.  Its signal is fd_disco_execle_sig( slot, pack_idx ). On this
+   signal, Motor sends the UpdateParent marker naming the new parent,
+   and passes the old bank on to replay, which releases it. */
+
+struct fd_pack_prefix_drained {
+  ulong slot;
+  ulong parent_slot;      /* the new parent */
+  uchar parent_dmr[ 32 ]; /* its block id */
+  ulong bank_idx;         /* the old bank */
+  ulong bank_seq;
+};
+typedef struct fd_pack_prefix_drained fd_pack_prefix_drained_t;
+
+/* fd_pack_resume is sent after prefix_drained, when our slot
+   resumes on its new bank, before any of the new bank's microblocks.
+   Motor continues the hash chain from the new parent's last blockhash
+   (its alpentick). */
+struct fd_pack_resume {
+  ulong slot;
+  uchar parent_blockhash[ 32 ];
+};
+typedef struct fd_pack_resume fd_pack_resume_t;
+
 #define FD_PACK_END_SLOT_REASON_TIME       (1)
 #define FD_PACK_END_SLOT_REASON_MICROBLOCK (2)
 #define FD_PACK_END_SLOT_REASON_ABANDONED  (3)
+#define FD_PACK_END_SLOT_REASON_REPARENTED (4)
 
 struct fd_done_packing {
   ulong microblocks_in_slot;
