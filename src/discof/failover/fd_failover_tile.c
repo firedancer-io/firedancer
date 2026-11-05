@@ -420,25 +420,18 @@ privileged_init( fd_topo_t const *      topo,
   if( FD_LIKELY( tile->failov.listen ) ) fd_failover_channel_init_listener( ctx->channel, tile->failov.listen_addr, tile->failov.port );
   ctx->session.state = fd_failover_channel_state( ctx->channel );
 
+  char const * role = holds_identity( ctx ) ? "primary" : "standby";
+  if( FD_LIKELY( tile->failov.listen ) ) {
+    FD_LOG_NOTICE(( "failover booted %s server listening on " FD_IP4_ADDR_FMT ":%u", role, FD_IP4_ADDR_FMT_ARGS( tile->failov.listen_addr ), (uint)tile->failov.port ));
+  } else {
+    FD_LOG_NOTICE(( "failover booted %s server not listening, [failover.enabled] is false", role ));
+  }
+
   char junk_b58  [ FD_BASE58_ENCODED_32_SZ ];
   char staked_b58[ FD_BASE58_ENCODED_32_SZ ];
   fd_base58_encode_32( ctx->spare_pubkey,        NULL, junk_b58   );
   fd_base58_encode_32( ctx->hello.staked_pubkey, NULL, staked_b58 );
-  char listen_desc[ 64 ];
-  if( FD_LIKELY( tile->failov.listen ) ) {
-    FD_TEST( fd_cstr_printf_check( listen_desc, sizeof(listen_desc), NULL, "listening on `" FD_IP4_ADDR_FMT ":%u`", FD_IP4_ADDR_FMT_ARGS( tile->failov.listen_addr ), (uint)tile->failov.port ) );
-  } else {
-    FD_TEST( fd_cstr_printf_check( listen_desc, sizeof(listen_desc), NULL, "not listening ([failover.enabled] is off)" ) );
-  }
-  if( FD_UNLIKELY( !holds_identity( ctx ) ) ) {
-    FD_LOG_NOTICE(( "failover is on, booting as a standby under junk key `%s` for identity `%s`, %s, "
-                    "this machine does not vote until `failover promote` takes the identity from the machine running it",
-                    junk_b58, staked_b58, listen_desc ));
-  } else {
-    FD_LOG_NOTICE(( "failover is on, %s, with junk key `%s`, a handoff from this machine gives up identity `%s`, "
-                    "`failover promote <keypair>` takes the identity in that keypair from the machine running it",
-                    listen_desc, junk_b58, staked_b58 ));
-  }
+  FD_LOG_INFO(( "failover identity `%s`, junk key `%s`", staked_b58, junk_b58 ));
 
   FD_TEST( FD_SCRATCH_ALLOC_FINI( l, scratch_align() )==(ulong)scratch+scratch_footprint( tile ) );
 }
