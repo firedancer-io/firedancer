@@ -447,6 +447,23 @@ test_shred_for_block_id( fd_wksp_t * wksp ) {
   FD_TEST( sz );
   check_shred( sz, blk_slot, 33U, 0xEEU, 9U );
 
+  /* Re-arrivals of either version through shred_out are not rewritten */
+  static uchar shred_in_mem[ sizeof(fd_shred_base_t) ] __attribute__((aligned(FD_CHUNK_ALIGN)));
+  fd_shred_base_t * shred_in = fd_type_pun( shred_in_mem );
+  ctx->in_kind[ 0 ]         = IN_KIND_SHRED;
+  ctx->in_links[ 0 ].mem    = fd_type_pun( shred_in_mem );
+  ctx->in_links[ 0 ].chunk0 = 0UL;
+  ctx->in_links[ 0 ].wmark  = 0UL;
+  ulong written = ctx->metrics->disk_inserted;
+  for( ulong i=0UL; i<2UL; i++ ) {
+    memset( shred_in->merkle_root.uc, 0x77, sizeof(fd_hash_t) );
+    memcpy( shred_in->merkle_root.uc, i ? blk_roots[ 1 ] : alt_root, FD_SHRED_MERKLE_NODE_SZ );
+    make_shred( shred_in->shred_, blk_slot, 33U, 0x00U );
+    FD_TEST( !returnable_frag( ctx, 0UL, 0UL, SHRED_SIG_SRC_TURBINE, 0UL, sizeof(fd_shred_base_t), 0UL, 0UL, 0UL, NULL ) );
+  }
+  FD_TEST( ctx->metrics->disk_inserted==written && !ctx->metrics->disk_write_failed );
+  check_shred( request( ctx, req, window_index_for_block_id( now_ms(), 201U, blk_slot, &blk_id, 33U ) ), blk_slot, 33U, 0x21U, 201U );
+
   /* A shred of the block that isn't stored misses */
   ulong read_miss = ctx->metrics->disk_read[ FD_METRICS_ENUM_DISK_READ_RESULT_V_MISS_IDX ];
   FD_TEST( !request( ctx, req, window_index_for_block_id( now_ms(), 1U, blk_slot, &blk_id, 1U ) ) );
