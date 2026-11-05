@@ -327,18 +327,16 @@ void
 test_disk_index_footprint( void ) {
   ulong fp_no_disk = fd_store_footprint( 8UL, 31840UL,  0UL, 0UL, 0UL, 1UL );
   ulong fp_50_gib  = fd_store_footprint( 8UL, 31840UL, 50UL, 0UL, 0UL, 1UL );
-  /* 12B ring pool + slot map bucket array (max_shreds/8 rounded up to
+  /* 8B ring pool + 2-bit states + slot map bucket array (max_shreds/8 rounded up to
      2^23 heads) + per-slot hints and table counts. */
   ulong m = fd_shredb_max_shreds( 50UL );
   FD_TEST( fd_shredb_disk_chain_cnt( m )==(1UL<<23) );
-  FD_TEST( fp_50_gib-fp_no_disk==fd_ulong_align_up( fd_shredb_slot_map_footprint( 1UL<<23 ) + 12UL*m + 12UL*fd_shredb_max_slots( 50UL ), 4096UL ) );
+  FD_TEST( fp_50_gib-fp_no_disk==fd_ulong_align_up( fd_shredb_slot_map_footprint( 1UL<<23 ) + 8UL*m + 8UL*fd_shredb_state_word_cnt( m ) + 12UL*fd_shredb_max_slots( 50UL ), 4096UL ) );
   FD_TEST( fd_shredb_tbl_rec_cnt( m )>2UL*m && fd_shredb_tbl_rec_cnt( 1UL<<22 )==(1UL<<24) ); /* 5 GiB ring is 2^22 cells */
 
-  /* A 4 TiB ring fits the 32-bit index; a cell's tag repeats only
-     after 2^30 laps, at least 2^54 tickets on the 32 GiB default. */
+  /* A 4 TiB ring fits the 32-bit index. */
   ulong ring_4_tib = fd_shredb_max_shreds( 4096UL );
   FD_TEST( ring_4_tib==3435973836UL && ring_4_tib<UINT_MAX );
-  FD_TEST( (FD_SHREDB_LAP_MASK+1UL)*fd_shredb_max_shreds( 32UL )>=(1UL<<54) );
   FD_TEST( fd_store_footprint( 8UL, 31840UL, 4096UL, 0UL, 0UL, 1UL )>0UL );
 }
 
@@ -824,8 +822,8 @@ test_disk_many_wraps( fd_wksp_t * wksp ) {
   FD_TEST( store );
   store->disk_max_shreds = 16UL;
 
-  /* Start 5 laps before the 30-bit lap wrap. */
-  ulong first_ticket = (1UL<<30)*16UL-80UL;
+  /* Start 5 laps before 2^54 tickets, the old tag wrap. */
+  ulong first_ticket = (1UL<<54)-80UL;
   atomic_store_explicit( &store->disk_reservation_head, first_ticket, memory_order_relaxed );
 
   int disk_fd = store_file_open( store, O_RDWR );
@@ -834,8 +832,7 @@ test_disk_many_wraps( fd_wksp_t * wksp ) {
   uchar buf[ FD_SHRED_MAX_SZ ];
   uchar out[ FD_SHRED_MAX_SZ ];
 
-  /* Cross the lap wrap and overwrite the 16-cell ring repeatedly.
-     Just before the wrap, query a shred whose tag has the top lap bit. */
+  /* Cross 2^54 and overwrite the 16-cell ring repeatedly. */
   for( ulong i=0UL; i<160UL; i++ ) {
     FD_TEST( disk_insert( store, disk_fd, disk_make_shred( buf, i/4UL, (uint)(i%4UL), (uchar)i ) )==FD_STORE_DISK_INSERT_SUCCESS );
     if( i==79UL ) FD_TEST( fd_store_disk_query( store, disk_fd, 19UL, 3U, out )>0 && out[ FD_SHRED_DATA_HEADER_SZ ]==79U );
@@ -855,23 +852,31 @@ test_disk_many_wraps( fd_wksp_t * wksp ) {
   FD_TEST( !disk_query_prepare_read_locked( store, fd_shredb_key_pack( 39UL, 3U ), &stale ) );
   fd_rwlock_unread( &store->disk_lock );
 
-  /* The removed 30-bit ticket tag's ABA case: 2^30 tickets later the
-     ring index and masked ticket repeat (a 16-cell ring divides 2^30),
-     but the lap differs. */
+  /* Masked-ticket tags' ABA case: 2^30 (or 2^54) tickets later the ring
+     index repeats.  The view still sees the cell's next ticket go by. */
   ulong stale_ticket = first_ticket+159UL;
   ulong next_ticket  = stale_ticket+(1UL<<30);
-  FD_TEST( ((stale_ticket^next_ticket)&((1UL<<30)-1UL))==0UL );
-  FD_TEST( stale.lap==disk_cell_lap( stale_ticket, store->disk_max_shreds ) );
-  FD_TEST( stale.lap!=disk_cell_lap( next_ticket,  store->disk_max_shreds ) );
+  FD_TEST( stale.head==stale_ticket+1UL );
   FD_TEST( (ulong)stale.ring_idx==next_ticket%store->disk_max_shreds );
   atomic_store_explicit( &store->disk_reservation_head, next_ticket, memory_order_relaxed );
   FD_TEST( disk_insert( store, disk_fd, disk_make_shred( buf, 1000UL, 0U, 0xe0U ) )==FD_STORE_DISK_INSERT_SUCCESS );
 
-  /* The lap rejects the stale view; the new shred is readable. */
+  /* The head rejects the stale view; the new shred is readable.  A view
+     is good up to its cell's next ticket and no further. */
   fd_rwlock_read( &store->disk_lock );
   FD_TEST( disk_query_finish_read_locked( store, stale )==FD_STORE_DISK_QUERY_BUSY );
   fd_rwlock_unread( &store->disk_lock );
   FD_TEST( fd_store_disk_query( store, disk_fd, 1000UL, 0U, out )>0 && out[ FD_SHRED_DATA_HEADER_SZ ]==0xe0U );
+  disk_view_t view;
+  fd_rwlock_read( &store->disk_lock );
+  FD_TEST( !disk_query_prepare_read_locked( store, fd_shredb_key_pack( 1000UL, 0U ), &view ) );
+  fd_rwlock_unread( &store->disk_lock );
+  for( ulong i=0UL; i<17UL; i++ ) {
+    fd_rwlock_read( &store->disk_lock );
+    FD_TEST( disk_query_finish_read_locked( store, view )==(i<16UL ? 0 : FD_STORE_DISK_QUERY_BUSY) );
+    fd_rwlock_unread( &store->disk_lock );
+    FD_TEST( disk_insert( store, disk_fd, disk_make_shred( buf, 2000UL+i, 0U, 0U ) )==FD_STORE_DISK_INSERT_SUCCESS );
+  }
 
   close( disk_fd );
   fd_wksp_free_laddr( fd_store_delete( fd_store_leave( store ) ) );
@@ -1350,17 +1355,16 @@ test_disk_collision_eviction( fd_wksp_t * wksp ) {
 
   /* A busy ring cell consumes a ticket so the next insert can try a
      different cell. */
-  fd_shredb_ring_entry_t * pool = disk_ring_pool_laddr( store );
   fd_rwlock_write( &store->disk_lock );
-  uint tag = pool[ 0 ].tag;
-  pool[ 0 ].tag = (tag & ~(uint)FD_SHREDB_CELL_STATE_MASK) | (uint)FD_SHREDB_CELL_WRITING;
+  ulong state = disk_cell_state( store, 0UL );
+  disk_cell_state_set( store, 0UL, FD_SHREDB_CELL_WRITING );
   fd_rwlock_unwrite( &store->disk_lock );
   ulong head = atomic_load_explicit( &store->disk_reservation_head, memory_order_relaxed );
   FD_TEST( disk_insert( store, disk_fd, disk_make_shred( buf, 10UL, 0U, 4U ) )==FD_STORE_DISK_INSERT_ERR );
   FD_TEST( atomic_load_explicit( &store->disk_reservation_head, memory_order_relaxed )==head+1UL );
 
   fd_rwlock_write( &store->disk_lock );
-  pool[ 0 ].tag = tag;
+  disk_cell_state_set( store, 0UL, state );
   fd_rwlock_unwrite( &store->disk_lock );
   FD_TEST( disk_insert( store, disk_fd, disk_make_shred( buf, 10UL, 0U, 4U ) )==FD_STORE_DISK_INSERT_SUCCESS );
   FD_TEST( fd_store_disk_query( store, disk_fd, 9UL, 1U, out )>0 && out[ FD_SHRED_DATA_HEADER_SZ ]==3U );
@@ -1470,7 +1474,7 @@ test_disk_insert_batch( fd_wksp_t * wksp ) {
   for( ulong i=0UL; i<a->disk_max_shreds; i++ ) {
     fd_shredb_ring_entry_t const * cell_a = disk_ring_pool_laddr( a )+i;
     fd_shredb_ring_entry_t const * cell_b = disk_ring_pool_laddr( b )+i;
-    FD_TEST( cell_a->tag==cell_b->tag );
+    FD_TEST( disk_cell_state( a, i )==disk_cell_state( b, i ) );
     FD_TEST( cell_a->key==cell_b->key );
     FD_TEST( disk_cell_recorded_locked( a, (uint)i )==disk_cell_recorded_locked( b, (uint)i ) );
   }
