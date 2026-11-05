@@ -26,12 +26,6 @@ fd_vm_derive_pda( fd_vm_t *           vm,
                   uchar *             bump_seed,
                   fd_pubkey_t *       out ) {
 
-  /* This is a preflight check that is performed in Agave before deriving PDAs but after checking the seeds vaddr.
-     Weirdly they do two checks for seeds cnt - one before PDA derivation, and one during. The first check will
-     fail the preflight checks, and the second should just continue execution. We can't put this check one level up
-     because it's only done after haddr conversion / alignment / size checks, which is done by the above line. We
-     also can't rely on just the second check because we need execution to halt.
-     https://github.com/anza-xyz/agave/blob/v2.1.0/programs/bpf_loader/src/syscalls/mod.rs#L728-L730 */
   if( FD_UNLIKELY( seeds_cnt>FD_VM_PDA_SEEDS_MAX ) ) {
     FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_BAD_SEEDS );
     return FD_VM_SYSCALL_ERR_BAD_SEEDS;

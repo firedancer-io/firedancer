@@ -12,7 +12,7 @@
 /* Follows message structure in fd_stake_ci_stake_msg_init. */
 struct fd_stake_weight_msg_t {
   ulong             epoch;             /* Epoch for which the stake weights are valid */
-  ulong             staked_vote_cnt;   /* Number of staked nodes */
+  ulong             staked_vote_cnt;   /* Number of staked vote accounts */
   ulong             staked_id_cnt;     /* Number of staked nodes */
   ulong             start_slot;        /* Start slot of the epoch */
   ulong             slot_cnt;          /* Number of slots in the epoch */
@@ -45,7 +45,7 @@ fd_stake_weight_msg_id_weights( fd_stake_weight_msg_t const * stake_weight_msg )
 /* Firedancer only */
 struct fd_epoch_info_msg_t {
   ulong               epoch;             /* Epoch for which the info is valid */
-  ulong               staked_vote_cnt;   /* Number of staked nodes */
+  ulong               staked_vote_cnt;   /* Number of staked vote accounts */
   ulong               staked_id_cnt;     /* Number of staked nodes */
   ulong               start_slot;        /* Start slot of the epoch */
   ulong               slot_cnt;          /* Number of slots in the epoch */

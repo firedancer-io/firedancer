@@ -272,24 +272,12 @@ fd_accdb_purge( fd_accdb_t *       accdb,
    fork_idx into the cache, and refcnts them in the cache so they cannot
    be evicted until later released.
 
-   fork_idx is the fork index from replay to query as-of, and must exist
-   for the entire duration of the acquire call, meaning, whoever is
-   acquiring must have a refcnt on the bank corresponding to fork_idx,
-   and not release it until after the accounts are acquired.  It is safe
-   to release the bank after the acquire call returns, and this will not
-   cause the acquired accounts to be evicted from the cache.
-
-   The refcnt does not have to be on the bank of fork_idx itself: a
-   refcnt on a live child bank of fork_idx also suffices.  This is the
-   executor's pattern, it holds a refcnt on the executing child bank
-   and read-only acquires implicit programdata on that bank's (frozen)
-   parent fork.  It works because a fork with a live (refcnt>0) child
-   bank can be neither advanced-past nor purged, so fork_idx cannot be
-   recycled out from under the acquire.  advance_root(fork_idx) itself
-   (rooting the queried fork) IS permitted concurrently with a read-only
-   acquire on fork_idx (see the THREADING MODEL section); what remains
-   forbidden is advancing PAST fork_idx or purging it while any acquire
-   on it is outstanding.
+   fork_idx is the fork index from replay to query as-of.  The caller
+   must keep the fork live until every acquired account is released.
+   Cache pins prevent eviction; they do not prevent fork recycling.
+   advance_root(fork_idx) may run concurrently with read-only acquires
+   on that fork, but advancing past it or purging it is forbidden while
+   any acquire on it is outstanding.
 
    pubkeys_cnt is the number of accounts to acquire, and pubkeys is an
    array of pointers to the 32-byte pubkeys of the accounts to acquire.
@@ -644,13 +632,10 @@ fd_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
 
    BEHAVIOR
 
-   First checks for a pending advance_root or purge command from T1; if
-   one is present it executes the command, sets *charge_busy to 1, and
-   returns immediately without doing compaction. Otherwise, if every
-   fallocated partition is in use, grows the file by one partition
-   (fallocate, can take seconds on slow filesystems), sets *charge_busy
-   and returns.  Otherwise, attempts one step of compaction at each
-   layer, setting *charge_busy if work was done. */
+   Processes pending commands and snapshot state changes first.  During
+   snapshot production, pre-evicts cache lines without compacting.  Otherwise
+   pre-evicts, grows the file if needed, and attempts compaction at each
+   layer.  Sets *charge_busy when work is done. */
 
 void
 fd_accdb_background( fd_accdb_t * accdb,

@@ -3,17 +3,7 @@
 
 /* Choreo consensus library:
 
-  - eqvoc: Block and vote equivocation.
-
-  - forks: Frontier of banks.
-
-  - ghost: Fork choice rule.
-
-  - tower: TowerBFT algorithm.
-
-  - voter: Voter tracking.
-
-  */
+   - votor: Alpenglow voting and certificate tracking. */
 
 #include "../flamenco/fd_flamenco.h"
 

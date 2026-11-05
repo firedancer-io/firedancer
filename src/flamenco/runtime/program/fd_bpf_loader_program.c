@@ -2154,13 +2154,9 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
           if( FD_UNLIKELY( err ) ) return err; /* unreachable */
           instr_ctx->txn_out->accounts.account[ pd_idx_in_txn ]->pd_write = 1;
 
-          /* The Agave client updates the account state upon closing an account
-             in their loaded program cache. Checking for a program can be
-             checked by checking to see if the programdata account's loader state
-             is uninitialized. The firedancer implementation also removes closed
-             accounts from the loaded program cache at the end of a slot. Closed
-             accounts are not checked from the cache, instead the account state
-             is looked up. */
+          /* Execution validates ProgramData and rejects a parent copy
+             if pd_write_this_slot is set, before consulting the program
+             cache. */
 
         } else {
           fd_log_collector_msg_literal( instr_ctx, "Invalid Program account" );

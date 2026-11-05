@@ -45,9 +45,8 @@ rec_init_inflight( fd_progcache_join_t * join,
 }
 
 /* free_push returns record idx to class c's free list.  free_pop takes one, or
-   returns UINT_MAX when the class is full.  Both are lock-free: the link lives in
-   the record being moved, which no other thread can be touching, so there is no
-   shared slot to race on, and the version in the top word defeats ABA. */
+   returns UINT_MAX when the class is full.  Both use atomic free-list links
+   and a versioned top word to detect intervening changes and prevent ABA. */
 
 static void
 free_push( fd_progcache_join_t * join,

@@ -1316,8 +1316,7 @@ static void
 test_read_vs_overwrite( void ) {
   /* Demonstration repro that intentionally FAILS (it violates the accdb
      API contract on purpose).  Skip unless named explicitly so a default
-     "run all" stays green.  See the reframe in ACCDB_BANKHASH_BUG_REPORT.md:
-     the multi-read tear is a real fragility but NOT the production bug. */
+     "run all" stays green. */
   if( FD_UNLIKELY( !g_explicit ) ) {
     FD_LOG_NOTICE(( "  (skipped: contract-violating demo; run by name to exercise)" ));
     return;
@@ -1543,8 +1542,7 @@ test_nocache_vs_compaction( void ) {
 /* ===================================================================
    COMPACTION RELOCATION TESTS
 
-   The top remaining un-dispositioned suspect (see ACCDB_BANKHASH_BUG_
-   REPORT.md 0.6/0.7): background_compact relocates a record
+   background_compact relocates a record
    (copy_file_range to a new layer) and CAS-republishes offset_fork from
    the snapshotted source offset to the destination.  Two races:
 
@@ -1608,8 +1606,8 @@ static uchar g_cold_data[ 10UL<<20 ];
         small), or over-copies would surface as a wrong/zero data byte.
 
    This does NOT self-heal (unlike the in-place-overwrite-vs-CAS race,
-   which leaves offset=INVAL and is repaired by the next persist — see
-   ACCDB_BANKHASH_BUG_REPORT.md): the relocation publishes a real
+   which leaves offset=INVAL and is repaired by the next persist):
+   the relocation publishes a real
    dest_offset whose bytes are whatever copy_file_range wrote, and the
    cold read dereferences exactly that. */
 static void

@@ -273,10 +273,13 @@ FD_PROTOTYPES_BEGIN
    Requires CAP_SYS_ADMIN. May issue the following syscalls:
 
    - socket( AF_XDP, SOCK_RAW, 0 ) = fd
-   - setsockopt( fd, SOL_XDP, ... )
+   - setsockopt( fd, SOL_XDP or SOL_SOCKET, ... )
    - getsockopt( fd, SOL_XDP, ... )
    - mmap( ..., fd, ... )
    - bind( fd, ... )
+   - mlock( ... )
+   - sendto( fd, ... )
+   - fcntl( fd, F_GETFL or F_SETFL, ... )
    - munmap  ; on fail
    - close   ; on fail */
 

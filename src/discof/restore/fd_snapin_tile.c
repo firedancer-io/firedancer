@@ -515,8 +515,7 @@ verify_slot_deltas_with_slot_history( fd_snapin_tile_t * ctx,
 }
 
 /* Sysvar accounts checked by verify_sysvars.  Agave requires Rent at
-   restore; Firedancer also needs Clock and SlotHistory.  The rest are
-   recreated by the runtime if absent. */
+   restore; Firedancer also needs Clock and SlotHistory. */
 
 struct snapin_sysvar {
   fd_pubkey_t const * id;

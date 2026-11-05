@@ -1208,12 +1208,8 @@ interp_exec:
      as per the accounting described above. +1 to include the faulting
      instruction itself.
 
-     Note that, for a sigtext caused by a branch instruction, pc0==pc
-     (from the BRANCH_END) and ic_correction==0 (from the BRANCH_BEGIN)
-     such that the below does not change the already current values in
-     ic and cu.  Thus it also "does the right thing" in both the
-     non-branching and branching cases for sigtext.  The same applies to
-     sigsplit. */
+     Branch faults use separate halt paths (such as sigtextbr) after
+     branch accounting, and do not invoke this macro. */
 
 #define FD_VM_INTERP_FAULT                                                                 \
   ic_correction = pc - pc0 + 1UL - ic_correction;                                          \

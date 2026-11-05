@@ -53,7 +53,7 @@
    functionality as described above using empty UDP/IP packets. */
 
 struct fd_neigh4_prober {
-  int sock_fd;  /* UDP socket with IP_TTL 0 */
+  int sock_fd;  /* UDP socket with IP_TTL 1 */
 
   /* probe_delay specifies the delay in ticks for successive ARP
      requests to the same IP address (see fd_tickcount()) */
@@ -74,7 +74,7 @@ typedef struct fd_neigh4_prober fd_neigh4_prober_t;
 FD_PROTOTYPES_BEGIN
 
 /* fd_neigh4_prober_init initializes a neigh4_prober object.  Creates a
-   new unbound UDP socket (socket(2)) with an IPv4 TTL of zero
+   new unbound UDP socket (socket(2)) with an IPv4 TTL of one
    (setsockopt(2)).  max_probes_per_second and max_probe_burst configure
    token bucket rate limit parameters for outgoing probe packets.
    probe_delay_seconds sets the min wait time between two probe packet

@@ -95,7 +95,11 @@ typedef struct fd_vm_haddr_query fd_vm_haddr_query_t;
    multi region accesses. So if there is an attempt at a multi region
    translation, an error will be returned.
 
-   FD_VM_MEM_HADDR_ST_UNCHECKED has all of the checks of a load or a
+   FD_VM_MEM_HADDR_ST_UNCHECKED checks region writability during
+   address translation, but omits the size-limit, translation-failure and
+   alignment error handling in FD_VM_MEM_HADDR_ST.
+
+   FD_VM_MEM_HADDR_ST_WRITE_UNCHECKED has all of the checks of a
    store, but intentionally omits the is_writable checks for the
    input region that are done during memory translation.
 

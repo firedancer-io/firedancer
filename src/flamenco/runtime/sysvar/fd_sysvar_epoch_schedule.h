@@ -82,7 +82,8 @@ fd_sysvar_epoch_schedule_write( fd_bank_t *                 bank,
                                 fd_epoch_schedule_t const * epoch_schedule );
 
 /* fd_epoch_slot_cnt returns the number of slots in an epoch given an
-   epoch schedule config and an epoch number.  Return value > 0 */
+   epoch schedule config and an epoch number.  For normal epochs this
+   returns schedule->slots_per_epoch, which may be zero. */
 
 FD_FN_PURE ulong
 fd_epoch_slot_cnt( fd_epoch_schedule_t const * schedule,
@@ -98,7 +99,8 @@ fd_epoch_slot0( fd_epoch_schedule_t const * schedule,
 /* fd_slot_to_epoch returns the epoch number of the epoch containing
    the given slot number. If out_offset_opt != NULL, on return
    *out_offset_opt contains the number of slots that precede the given
-   slot in the same epoch.  U.B. if schedule->slots_per_epoch is zero. */
+   slot in the same epoch.  If slots_per_epoch is zero and slot is at
+   or beyond first_normal_slot, returns first_normal_epoch with offset 0. */
 
 ulong
 fd_slot_to_epoch( fd_epoch_schedule_t const * schedule,

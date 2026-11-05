@@ -427,17 +427,8 @@ fd_executor_sanitize_txn_v1_config( fd_txn_in_t const * txn_in,
   return FD_RUNTIME_EXECUTE_SUCCESS;
 }
 
-/* `verify_transaction()` is the first function called in the
-   transaction execution pipeline. It is responsible for deserializing
-   the transaction, verifying the message hash (sigverify), verifying
-   the precompiles, and processing compute budget instructions. We
-   leave sigverify out for now to easily bypass this function's
-   checks for fuzzing.
-
-   TODO: Maybe support adding sigverify in here, and toggling it
-   on/off with a flag.
-
-   https://github.com/anza-xyz/agave/blob/v2.3.1/runtime/src/bank.rs#L5725-L5753 */
+/* fd_executor_verify_transaction checks the transaction version and
+   processes its compute budget or v1 configuration. */
 int
 fd_executor_verify_transaction( fd_bank_t const *   bank,
                                 fd_txn_in_t const * txn_in,

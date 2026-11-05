@@ -227,9 +227,6 @@ metrics_write( fd_netlink_tile_ctx_t * ctx ) {
   FD_MCNT_ENUM_COPY( NETLNK, NEIGHBOR_PROBE_REQUESTED, ctx->metrics.neigh_probe       );
 }
 
-/* netlink_monitor_read calls recvfrom to process a link, route, or
-   neighbor update.  Returns 1 if a message was read, 0 otherwise. */
-
 static void
 iproute_publish( fd_netlink_tile_ctx_t * ctx,
                  fd_stem_context_t *     stem,
