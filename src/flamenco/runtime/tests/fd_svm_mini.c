@@ -31,6 +31,8 @@
 #define TEST_PARTITION_CNT      (8192UL)
 #define TEST_PARTITION_SZ       (1UL<<30UL)
 #define TEST_WRITES_PER_SLOT    (8192UL)
+#define TEST_BPF_FRAMES_LOCAL   (2UL)
+#define TEST_BPF_FRAMES_JOINS   (2UL) /* mini runtime and exec tile under test */
 
 #define SENTINEL ((fd_accdb_fork_id_t){ .val = USHORT_MAX })
 
@@ -158,6 +160,8 @@ fd_svm_mini_wksp_data_max( fd_svm_mini_limits_t const * limits ) {
   sz += WKSP_ALLOC( fd_txncache_align(),        txncache_sz                      );
   sz += WKSP_ALLOC( fd_banks_align(),           banks_sz                         );
   sz += WKSP_ALLOC( alignof(fd_runtime_t),      sizeof(fd_runtime_t)             );
+  sz += WKSP_ALLOC( fd_bpf_frames_shmem_align(), fd_bpf_frames_shmem_footprint( FD_BPF_FRAMES_HELD_CNT( TEST_BPF_FRAMES_LOCAL ), TEST_BPF_FRAMES_JOINS, TEST_BPF_FRAMES_LOCAL ) );
+  sz += WKSP_ALLOC( fd_bpf_frames_align(),      fd_bpf_frames_footprint() );
   sz += WKSP_ALLOC( fd_runtime_stack_align(),   runtime_stack_sz                 );
   sz += WKSP_ALLOC( fd_vm_align(),              fd_vm_footprint()                );
   sz += WKSP_ALLOC( 16UL,                       limits->wksp_addl_sz             );
@@ -197,6 +201,8 @@ fd_svm_mini_create( fd_wksp_t *                  wksp,
   void *          txncache_mem;   FD_TEST( (txncache_mem   = fd_wksp_alloc_laddr( wksp, fd_txncache_align(),       txncache_sz,                    wksp_tag )) );
   void *          banks_mem;     FD_TEST( (banks_mem      = fd_wksp_alloc_laddr( wksp, fd_banks_align(),           banks_sz,                       wksp_tag )) );
   fd_runtime_t *  runtime;       FD_TEST( (runtime        = fd_wksp_alloc_laddr( wksp, alignof(fd_runtime_t),      sizeof(fd_runtime_t),           wksp_tag )) );
+  void *          frames_shmem;  FD_TEST( (frames_shmem   = fd_wksp_alloc_laddr( wksp, fd_bpf_frames_shmem_align(), fd_bpf_frames_shmem_footprint( FD_BPF_FRAMES_HELD_CNT( TEST_BPF_FRAMES_LOCAL ), TEST_BPF_FRAMES_JOINS, TEST_BPF_FRAMES_LOCAL ), wksp_tag )) );
+  void *          frames_join;   FD_TEST( (frames_join    = fd_wksp_alloc_laddr( wksp, fd_bpf_frames_align(),      fd_bpf_frames_footprint(), wksp_tag )) );
   void *          rstack_mem;    FD_TEST( (rstack_mem     = fd_wksp_alloc_laddr( wksp, fd_runtime_stack_align(),   runtime_stack_sz,               wksp_tag )) );
   void *          vm_mem;        FD_TEST( (vm_mem         = fd_wksp_alloc_laddr( wksp, fd_vm_align(),              fd_vm_footprint(),              wksp_tag )) );
 
@@ -253,6 +259,9 @@ fd_svm_mini_create( fd_wksp_t *                  wksp,
   runtime->instr.current_idx       = 0;
   runtime->accounts.executable_cnt = 0;
   runtime->accounts.account_cnt    = 0;
+  mini->bpf_frames_shmem = fd_bpf_frames_shmem_new( frames_shmem, FD_BPF_FRAMES_HELD_CNT( TEST_BPF_FRAMES_LOCAL ), TEST_BPF_FRAMES_JOINS, TEST_BPF_FRAMES_LOCAL );
+  FD_TEST( (mini->bpf_frames = fd_bpf_frames_join( frames_join, mini->bpf_frames_shmem )) );
+  runtime->bpf_frames = mini->bpf_frames;
   fd_memset( &runtime->log,     0, sizeof(runtime->log)     );
   fd_memset( &runtime->metrics, 0, sizeof(runtime->metrics) );
   fd_memset( &runtime->fuzz,    0, sizeof(runtime->fuzz)    );
@@ -284,6 +293,8 @@ fd_svm_mini_destroy( fd_svm_mini_t * mini ) {
   if( mini->vm ) fd_wksp_free_laddr( fd_vm_delete( fd_vm_leave( mini->vm ) ) );
   if( mini->runtime_stack ) fd_wksp_free_laddr( mini->runtime_stack );
   if( mini->runtime ) fd_wksp_free_laddr( mini->runtime );
+  if( mini->bpf_frames ) fd_wksp_free_laddr( mini->bpf_frames );
+  if( mini->bpf_frames_shmem ) fd_wksp_free_laddr( mini->bpf_frames_shmem );
   if( mini->banks ) fd_wksp_free_laddr( mini->banks );
 
   if( mini->txncache ) {
@@ -501,6 +512,9 @@ fd_svm_mini_reset( fd_svm_mini_t *        mini,
   mini->runtime->accdb = accdb;
 
   fd_progcache_reset( mini->progcache->join );
+
+  FD_TEST( fd_bpf_frames_shmem_new( mini->bpf_frames_shmem, FD_BPF_FRAMES_HELD_CNT( TEST_BPF_FRAMES_LOCAL ), TEST_BPF_FRAMES_JOINS, TEST_BPF_FRAMES_LOCAL ) );
+  FD_TEST( fd_bpf_frames_join( mini->bpf_frames, mini->bpf_frames_shmem )==mini->bpf_frames );
   fd_txncache_reset( mini->txncache );
   fd_banks_clear   ( mini->banks    );
   mini->runtime->sysvar_bank_seq = 0UL; /* fd_banks_clear recycles bank_seq */

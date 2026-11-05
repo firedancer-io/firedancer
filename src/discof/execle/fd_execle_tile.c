@@ -71,6 +71,7 @@ struct fd_execle_tile {
   fd_accdb_t * accdb;
 
   fd_progcache_t  progcache[1];
+  fd_bpf_frames_t * bpf_frames;
 
   fd_runtime_t runtime[1];
 
@@ -117,6 +118,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, fd_txncache_align(),         fd_txncache_footprint( tile->execle.max_live_slots ) );
   l = FD_LAYOUT_APPEND( l, fd_accdb_align(),            fd_accdb_footprint( tile->execle.max_live_slots, 0 ) );
   l = FD_LAYOUT_APPEND( l, FD_PROGCACHE_SCRATCH_ALIGN,  FD_PROGCACHE_SCRATCH_FOOTPRINT );
+  l = FD_LAYOUT_APPEND( l, fd_bpf_frames_align(),       fd_bpf_frames_footprint() );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -791,6 +793,7 @@ unprivileged_init( fd_topo_t const *      topo,
   void * _txncache       = FD_SCRATCH_ALLOC_APPEND( l, fd_txncache_align(),        fd_txncache_footprint( tile->execle.max_live_slots ) );
   void * _accdb          = FD_SCRATCH_ALLOC_APPEND( l, fd_accdb_align(),           fd_accdb_footprint( tile->execle.max_live_slots, 0 ) );
   void * pc_scratch      = FD_SCRATCH_ALLOC_APPEND( l, FD_PROGCACHE_SCRATCH_ALIGN, FD_PROGCACHE_SCRATCH_FOOTPRINT );
+  void * _bpf_frames     = FD_SCRATCH_ALLOC_APPEND( l, fd_bpf_frames_align(),      fd_bpf_frames_footprint() );
 
 #define NONNULL( x ) (__extension__({                                        \
       __typeof__((x)) __x = (x);                                             \
@@ -810,6 +813,7 @@ unprivileged_init( fd_topo_t const *      topo,
   FD_TEST( fd_progcache_join( ctx->progcache,
       fd_topo_obj_laddr( topo, tile->execle.progcache_obj_id ),
       pc_scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT ) );
+  FD_TEST( (ctx->bpf_frames = fd_bpf_frames_join( _bpf_frames, fd_topo_obj_laddr( topo, tile->execle.bpf_frames_obj_id ) )) );
 
   void * _txncache_shmem = fd_topo_obj_laddr( topo, tile->execle.txncache_obj_id );
   fd_txncache_shmem_t * txncache_shmem = fd_txncache_shmem_join( _txncache_shmem );
@@ -835,6 +839,7 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->runtime->accdb                    = ctx->accdb;
   ctx->runtime->sysvar_bank_seq          = 0UL;
   ctx->runtime->progcache                = ctx->progcache;
+  ctx->runtime->bpf_frames               = ctx->bpf_frames;
   ctx->runtime->status_cache             = txncache;
   memset( &ctx->runtime->log, 0, sizeof(ctx->runtime->log) );
   ctx->runtime->log.log_collector        = ctx->log_collector;

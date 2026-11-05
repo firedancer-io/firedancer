@@ -5,6 +5,7 @@
 #include "../../flamenco/runtime/fd_bank.h"
 #include "../../flamenco/runtime/fd_txncache_shmem.h"
 #include "../../flamenco/progcache/fd_progcache.h"
+#include "../../flamenco/runtime/fd_bpf_frames.h"
 #include "../../flamenco/alpenglow/fd_footer_cache.h"
 #include "../../disco/shred/fd_rnonce_ss.h"
 #include "../../discof/backup/fd_backup_shmem.h"
@@ -68,6 +69,32 @@ fd_topo_obj_callbacks_t fd_obj_cb_progcache = {
   .footprint = progcache_footprint,
   .align     = progcache_align,
   .new       = progcache_new,
+};
+
+static ulong
+bpf_frames_align( fd_topo_t const *     topo,
+                  fd_topo_obj_t const * obj ) {
+  (void)topo; (void)obj;
+  return fd_bpf_frames_shmem_align();
+}
+
+static ulong
+bpf_frames_footprint( fd_topo_t const *     topo,
+                      fd_topo_obj_t const * obj ) {
+  return fd_bpf_frames_shmem_footprint( VAL("frame_cnt"), VAL("joiner_cnt_max"), VAL("local_cnt") );
+}
+
+static void
+bpf_frames_new( fd_topo_t const *     topo,
+                fd_topo_obj_t const * obj ) {
+  FD_TEST( fd_bpf_frames_shmem_new( fd_topo_obj_laddr( topo, obj->id ), VAL("frame_cnt"), VAL("joiner_cnt_max"), VAL("local_cnt") ) );
+}
+
+fd_topo_obj_callbacks_t fd_obj_cb_bpf_frames = {
+  .name      = "bpf_frames",
+  .footprint = bpf_frames_footprint,
+  .align     = bpf_frames_align,
+  .new       = bpf_frames_new,
 };
 
 /* adminctl: admin tile command channel */
