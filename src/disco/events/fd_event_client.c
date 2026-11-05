@@ -416,6 +416,9 @@ disconnect( fd_event_client_t * client,
     fd_circq_reset_cursor( client->circq );
   }
 
+  fd_tlsrec_conn_fini( client->tls_conn );
+  fd_memzero_explicit( client->tls->kex_private_key, 32UL );
+
   client->event_stream = NULL;
   client->defer_disconnect = INT_MAX;
   client->auth_deadline = LONG_MAX;
