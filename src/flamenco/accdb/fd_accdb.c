@@ -149,7 +149,8 @@ struct __attribute__((aligned(FD_ACCDB_ALIGN))) fd_accdb_private {
   int                   readonly;
   ulong                 residual_ticket; /* ULONG_MAX = none to ack */
   struct { uchar pubkey[ 32 ]; uint fork_gen; uint gen; ulong epoch; } ovl_res[ 32 ]; /* R4: ovl resolved by T2 */
-  ulong                 stage_cnt;       /* records in this joiner's share */
+  ulong                 stage_cnt;       /* records staged since the last directory */
+  ulong                 stage_pub;       /* published directory offset+1, 0 = none */
   uchar *               place_window;    /* FD_ACCDB_PLACE_WINDOW B, snapin only */
   ulong                 pend_watch_cnt;
   uchar                 pend_watch[ FD_ACCDB_PEND_MAX ][ 32 ];
@@ -340,6 +341,8 @@ idx_join( fd_accdb_t * accdb,
   accdb->hot_map = (uint *)( (uchar *)shmem + shmem->idx_hot_map_off );
 }
 
+static void stage_reset( fd_accdb_t * accdb );
+
 FD_FN_CONST ulong
 fd_accdb_align( void ) {
   return FD_ACCDB_ALIGN;
@@ -462,7 +465,9 @@ fd_accdb_new( void *              ljoin,
   accdb->hazard_cnt      = 0UL;
   accdb->residual_ticket = ULONG_MAX;
   accdb->stage_cnt       = 0UL;
+  accdb->stage_pub       = 0UL;
   accdb->place_window    = place_window;
+  if( place_window && idx_fd>=0 && shmem->index_ram_entries ) stage_reset( accdb );
   accdb->pend_watch_cnt  = 0UL;
 
   accdb->external_epoch_slots = external_epoch_slots;
@@ -534,7 +539,7 @@ fd_accdb_reset( fd_accdb_t * accdb ) {
     shmem->unspill_head = shmem->unspill_tail = shmem->unspill_cnt = 0UL;
     shmem->thaw_fork = USHORT_MAX;
     FD_VOLATILE( shmem->stage_head ) = 0UL;
-    shmem->stage_full_end = 0UL;
+    for( ulong j=0UL; j<shmem->joiner_cnt_max; j++ ) shmem->stage_dir[ j ] = 0UL;
   }
   fork_pool_reset( accdb->fork_shmem_pool );
   partition_pool_reset( accdb->partition_pool );
@@ -5243,20 +5248,31 @@ background_preevict( fd_accdb_t * accdb,
 
 /* ---- Snapshot staging and placement (§9, §15 R17/R21/R23) ----------- */
 
-/* Each writer joiner stages into its own share of the window (no
-   sharing), flushing whole chunks to the index file at an FAA offset.
-   share = window / joiner_cnt_max, rounded to chunks. */
+/* Each writer stages into its own window: R range buffers of
+   1+stage_bw records (header slot first), then fill[R] and heads[R].
+   A full range buffer is written as a chunk at an FAA offset and
+   becomes the head of that range's chain. */
 
-static inline fd_accdb_stage_rec_t *
-stage_buf( fd_accdb_t * accdb ) {
-  ulong share = fd_ulong_align_dn( FD_ACCDB_PLACE_WINDOW/accdb->shmem->joiner_cnt_max, 64UL );
-  return (fd_accdb_stage_rec_t *)( accdb->place_window + accdb->joiner_idx*share );
+static inline ulong
+place_range_cnt( fd_accdb_t const * accdb ) {
+  return ( accdb->bkt->npage + FD_ACCDB_PLACE_RANGE_PG-1UL )/FD_ACCDB_PLACE_RANGE_PG;
 }
 
 static inline ulong
-stage_buf_max( fd_accdb_t const * accdb ) {
-  ulong share = FD_ACCDB_PLACE_WINDOW/accdb->shmem->joiner_cnt_max;
-  return fd_ulong_min( FD_ACCDB_STAGE_CHUNK_REC, share/64UL );
+stage_bw( ulong R ) {
+  return fd_ulong_min( FD_ACCDB_STAGE_CHUNK_REC, ( FD_ACCDB_PLACE_WINDOW-4096UL-R*12UL )/( R*64UL )-1UL );
+}
+
+static inline uint *
+stage_fill( fd_accdb_t * accdb,
+            ulong        R ) {
+  return (uint *)( accdb->place_window + R*( stage_bw( R )+1UL )*64UL );
+}
+
+static inline ulong *
+stage_heads( fd_accdb_t * accdb,
+             ulong        R ) {
+  return (ulong *)fd_ulong_align_up( (ulong)( stage_fill( accdb, R )+R ), 8UL );
 }
 
 static void
@@ -5274,17 +5290,70 @@ stage_grow( fd_accdb_t * accdb,
   spin_lock_release( &shmem->grow_lock );
 }
 
-/* fd_accdb_snapshot_stage_flush writes this joiner's staged records.
-   Every snapin writer calls it before acking FINI. */
+static ulong
+stage_alloc( fd_accdb_t * accdb,
+             ulong        sz ) {
+  ulong off = FD_ATOMIC_FETCH_AND_ADD( &accdb->shmem->stage_head, sz );
+  stage_grow( accdb, off+sz );
+  return off;
+}
+
+/* stage_reset: forget this writer's chains (consumed or dropped). */
+
+static void
+stage_reset( fd_accdb_t * accdb ) {
+  ulong R = place_range_cnt( accdb );
+  memset( stage_fill( accdb, R ), 0, R*sizeof(uint) );
+  memset( stage_heads( accdb, R ), 0, R*sizeof(ulong) );
+  accdb->stage_cnt = 0UL;
+  accdb->stage_pub = 0UL;
+}
+
+/* The lead zeroes a published directory when it consumes the stage;
+   chains named by it are then dead. */
+
+static inline void
+stage_check_consumed( fd_accdb_t * accdb ) {
+  if( FD_UNLIKELY( accdb->stage_pub && FD_VOLATILE_CONST( accdb->shmem->stage_dir[ accdb->joiner_idx ] )!=accdb->stage_pub ) ) stage_reset( accdb );
+}
+
+static void
+stage_chunk_flush( fd_accdb_t * accdb,
+                   ulong        R,
+                   ulong        r ) {
+  uint *  fill  = stage_fill( accdb, R );
+  ulong * heads = stage_heads( accdb, R );
+  ulong   n     = fill[ r ];
+  fd_accdb_stage_hdr_t * hdr = (fd_accdb_stage_hdr_t *)( accdb->place_window + r*( stage_bw( R )+1UL )*64UL );
+  memset( hdr, 0, sizeof(*hdr) );
+  hdr->prev = heads[ r ];
+  ulong sz  = (n+1UL)*64UL;
+  ulong off = stage_alloc( accdb, sz );
+  fd_accdb_idx_io( accdb->bkt->fd, 1, hdr, sz, accdb->shmem->stage_base+off );
+  heads[ r ] = ( off/64UL+1UL ) | ( n<<40 );
+  fill[ r ]  = 0U;
+}
+
+/* fd_accdb_snapshot_stage_flush writes this joiner's partial chunks
+   and its chain directory.  Every snapin writer calls it before acking
+   FINI. */
 
 void
 fd_accdb_snapshot_stage_flush( fd_accdb_t * accdb ) {
-  if( FD_LIKELY( !idx_enabled( accdb ) || !accdb->stage_cnt ) ) return;
-  ulong sz  = accdb->stage_cnt*sizeof(fd_accdb_stage_rec_t);
-  ulong off = FD_ATOMIC_FETCH_AND_ADD( &accdb->shmem->stage_head, sz );
-  stage_grow( accdb, off+sz );
-  fd_accdb_idx_io( accdb->bkt->fd, 1, stage_buf( accdb ), sz, accdb->shmem->stage_base+off );
+  if( FD_LIKELY( !idx_enabled( accdb ) || !accdb->place_window ) ) return;
+  stage_check_consumed( accdb );
+  if( !accdb->stage_cnt ) return;
+  ulong   R     = place_range_cnt( accdb );
+  uint *  fill  = stage_fill( accdb, R );
+  ulong * heads = stage_heads( accdb, R );
+  for( ulong r=0UL; r<R; r++ ) if( fill[ r ] ) stage_chunk_flush( accdb, R, r );
+  ulong sz  = fd_ulong_align_up( R*sizeof(ulong), 64UL );
+  ulong off = stage_alloc( accdb, sz );
+  fd_accdb_idx_io( accdb->bkt->fd, 1, heads, sz, accdb->shmem->stage_base+off );
+  accdb->stage_pub = off+1UL;
   accdb->stage_cnt = 0UL;
+  FD_COMPILER_MFENCE();
+  FD_VOLATILE( accdb->shmem->stage_dir[ accdb->joiner_idx ] ) = off+1UL;
 }
 
 static void
@@ -5296,17 +5365,24 @@ stage_append( fd_accdb_t *  accdb,
               ulong         slot,
               uint          flags ) {
   FD_TEST( accdb->place_window );
-  fd_accdb_stage_rec_t * r = &stage_buf( accdb )[ accdb->stage_cnt++ ];
-  ulong h   = fd_hash32( pubkey, accdb->shmem->seed^accdb->bkt->salt );
-  uint  tag = (uint)(uchar)h;
-  memcpy( r->pubkey, pubkey, 32UL );
-  r->off_plus1 = off+1UL;
-  r->lamports  = lamports;
-  r->exec_size = exec_size;
-  r->slot      = (uint)slot;
-  r->flags     = flags | ( ( tag+!tag )<<8 );
-  r->home      = (uint)fd_accdb_idx_fastrange( h, accdb->bkt->nhome );
-  if( FD_UNLIKELY( accdb->stage_cnt==stage_buf_max( accdb ) ) ) fd_accdb_snapshot_stage_flush( accdb );
+  stage_check_consumed( accdb );
+  ulong h    = fd_hash32( pubkey, accdb->shmem->seed^accdb->bkt->salt );
+  uint  tag  = (uint)(uchar)h;
+  ulong home = fd_accdb_idx_fastrange( h, accdb->bkt->nhome );
+  ulong R    = place_range_cnt( accdb );
+  ulong r    = home/FD_ACCDB_PLACE_RANGE_PG;
+  ulong bw   = stage_bw( R );
+  uint * fill = stage_fill( accdb, R );
+  fd_accdb_stage_rec_t * rec = (fd_accdb_stage_rec_t *)( accdb->place_window + r*( bw+1UL )*64UL ) + 1UL + fill[ r ]++;
+  memcpy( rec->pubkey, pubkey, 32UL );
+  rec->off_plus1 = off+1UL;
+  rec->lamports  = lamports;
+  rec->exec_size = exec_size;
+  rec->slot      = (uint)slot;
+  rec->flags     = flags | ( ( tag+!tag )<<8 );
+  rec->home      = (uint)home;
+  accdb->stage_cnt++;
+  if( FD_UNLIKELY( fill[ r ]==bw ) ) stage_chunk_flush( accdb, R, r );
 }
 
 /* Placement scratch, lead only (writers are done). */
@@ -5616,71 +5692,39 @@ place_settle( place_ctx_t * pc ) {
    then a read buffer in pass 2, so a range of any density fits. */
 
 static int
-place_all( place_ctx_t * pc,
-           ulong         s0,
-           ulong         s1 ) {
+place_all( place_ctx_t * pc ) {
   fd_accdb_t *       accdb = pc->accdb;
   fd_accdb_shmem_t * shmem = accdb->shmem;
   ulong npage  = accdb->bkt->npage;
-  ulong R      = ( npage + FD_ACCDB_PLACE_RANGE_PG-1UL )/FD_ACCDB_PLACE_RANGE_PG;
-  ulong nrec   = ( s1-s0 )/sizeof(fd_accdb_stage_rec_t);
+  ulong R      = place_range_cnt( accdb );
   uchar * win  = accdb->place_window;
   FD_TEST( win );
-  ulong meta_sz = fd_ulong_align_up( 3UL*R*sizeof(ulong), FD_ACCDB_IDX_PAGE_SZ );
   FD_TEST( R<=FD_ACCDB_PLACE_RANGE_MAX );
-  ulong * cnt  = (ulong *)( win+FD_ACCDB_PLACE_WINDOW-meta_sz );
-  ulong * pos  = cnt+R;
-  ulong * fill = pos+R;
+  ulong S = shmem->joiner_cnt_max;
 
-  /* pass 1: counts per range, then a prefix layout of the run area */
-  memset( cnt, 0, 3UL*R*sizeof(ulong) );
-  ulong rd_max = FD_ACCDB_PLACE_WINDOW/2UL/sizeof(fd_accdb_stage_rec_t);
-  fd_accdb_stage_rec_t * rd = (fd_accdb_stage_rec_t *)win;
-  for( ulong i=0UL; i<nrec; i+=rd_max ) {
-    ulong n = fd_ulong_min( rd_max, nrec-i );
-    fd_accdb_idx_io( accdb->bkt->fd, 0, rd, n*sizeof(*rd), shmem->stage_base+s0+i*sizeof(*rd) );
-    for( ulong k=0UL; k<n; k++ ) if( rd[ k ].off_plus1 ) cnt[ rd[ k ].home/FD_ACCDB_PLACE_RANGE_PG ]++;
-  }
-  ulong runs = fd_ulong_align_up( s1, 64UL ), acc = 0UL;
-  for( ulong r=0UL; r<R; r++ ) { pos[ r ] = acc; acc += cnt[ r ]; }
-  stage_grow( accdb, runs+acc*sizeof(fd_accdb_stage_rec_t) );
-  /* scatter with per-range write buffers of B records */
-  ulong B = fd_ulong_max( 1UL, ( ( FD_ACCDB_PLACE_WINDOW/2UL-meta_sz )/sizeof(fd_accdb_stage_rec_t) )/R );
-  B = fd_ulong_min( B, 4096UL );
-  fd_accdb_stage_rec_t * wb = (fd_accdb_stage_rec_t *)( win+FD_ACCDB_PLACE_WINDOW/2UL );
-  for( ulong i=0UL; i<nrec; i+=rd_max ) {
-    ulong n = fd_ulong_min( rd_max, nrec-i );
-    fd_accdb_idx_io( accdb->bkt->fd, 0, rd, n*sizeof(*rd), shmem->stage_base+s0+i*sizeof(*rd) );
-    for( ulong k=0UL; k<n; k++ ) {
-      if( !rd[ k ].off_plus1 ) continue;
-      ulong r = rd[ k ].home/FD_ACCDB_PLACE_RANGE_PG;
-      wb[ r*B+fill[ r ] ] = rd[ k ];
-      if( ++fill[ r ]==B ) {
-        fd_accdb_idx_io( accdb->bkt->fd, 1, &wb[ r*B ], B*sizeof(*wb), shmem->stage_base+runs+pos[ r ]*sizeof(*wb) );
-        pos[ r ] += B; fill[ r ] = 0UL;
-      }
-    }
-  }
-  for( ulong r=0UL; r<R; r++ ) if( fill[ r ] ) {
-    fd_accdb_idx_io( accdb->bkt->fd, 1, &wb[ r*B ], fill[ r ]*sizeof(*wb), shmem->stage_base+runs+pos[ r ]*sizeof(*wb) );
-    pos[ r ] += fill[ r ];
-  }
-  /* pass 2: ranges in order; a range's trailing PROBE_MAX pages
-     overlap the next range, which picks them up from disk. */
+  /* ranges in order, each from every writer's chain; a range's
+     trailing PROBE_MAX pages overlap the next range, which picks them
+     up from disk. */
   fd_accdb_idx_page_t *  pages = (fd_accdb_idx_page_t *)win;
   uchar *                tags  = win+FD_ACCDB_PLACE_PG_MAX*FD_ACCDB_IDX_PAGE_SZ;
   ulong                  bm_w  = ( FD_ACCDB_PLACE_PG_MAX+63UL )>>6;
   ulong *                bm    = (ulong *)( tags+FD_ACCDB_PLACE_PG_MAX*64UL );     /* ld, dirty, want */
   fd_accdb_stage_rec_t * buf   = (fd_accdb_stage_rec_t *)( bm+fd_ulong_align_up( 3UL*bm_w, 8UL ) );
-  ulong                  buf_n = ( FD_ACCDB_PLACE_WINDOW-meta_sz-(ulong)( (uchar *)buf-win ) )/sizeof(fd_accdb_stage_rec_t);
   pc->pages = pages;
   pc->tags  = tags;
-  ulong base = 0UL;
   for( ulong r=0UL; r<R; r++ ) {
     ulong p0 = r*FD_ACCDB_PLACE_RANGE_PG;
     ulong p1 = fd_ulong_min( npage, p0+FD_ACCDB_PLACE_PG_MAX );
     ulong pg_bytes = (p1-p0)*FD_ACCDB_IDX_PAGE_SZ;
-    if( !cnt[ r ] && pc->incr ) continue;
+    ulong heads[ FD_ACCDB_MAX_JOINERS ];
+    ulong any = 0UL;
+    for( ulong j=0UL; j<S; j++ ) {
+      ulong dir = FD_VOLATILE_CONST( shmem->stage_dir[ j ] );
+      heads[ j ] = 0UL;
+      if( dir ) fd_accdb_idx_io( accdb->bkt->fd, 0, &heads[ j ], sizeof(ulong), shmem->stage_base+dir-1UL+r*sizeof(ulong) );
+      any |= heads[ j ];
+    }
+    if( !any && pc->incr ) continue;
     pc->p0 = p0; pc->p1 = p1;
     if( pc->incr ) {
       pc->ld = bm; pc->dirty = bm+bm_w;
@@ -5692,21 +5736,26 @@ place_all( place_ctx_t * pc,
       place_tags_build( pages, tags, carry, shmem->seed );
       memset( tags+carry*64UL, 0, (p1-p0-carry)*64UL );
     }
-    for( ulong i=0UL; i<cnt[ r ]; i+=buf_n ) {
-      ulong n = fd_ulong_min( buf_n, cnt[ r ]-i );
-      fd_accdb_idx_io( accdb->bkt->fd, 0, buf, n*sizeof(*buf), shmem->stage_base+runs+(base+i)*sizeof(*buf) );
-      if( pc->incr ) place_load_homes( pc, buf, n, bm+2UL*bm_w );
-      for( ulong k=0UL; k<n; k++ ) {
-        if( FD_LIKELY( k+8UL<n ) ) { /* home row and header, 8 ahead */
-          ulong hp = buf[ k+8UL ].home-p0;
-          __builtin_prefetch( tags+hp*64UL, 1, 0 );
-          __builtin_prefetch( &pages[ hp ], 1, 0 );
+    for( ulong j=0UL; j<S; j++ ) {
+      for( ulong link=heads[ j ]; link; ) {
+        ulong off = ( (link&FD_ACCDB_STAGE_LINK_OFF)-1UL )*64UL;
+        ulong n   = link>>40;
+        fd_accdb_idx_io( accdb->bkt->fd, 0, buf, (n+1UL)*64UL, shmem->stage_base+off );
+        link = ((fd_accdb_stage_hdr_t const *)buf)->prev;
+        fd_accdb_stage_rec_t const * rec = buf+1UL;
+        if( pc->incr ) place_load_homes( pc, rec, n, bm+2UL*bm_w );
+        for( ulong k=0UL; k<n; k++ ) {
+          if( FD_LIKELY( k+8UL<n ) ) { /* home row and header, 8 ahead */
+            ulong hp = rec[ k+8UL ].home-p0;
+            __builtin_prefetch( tags+hp*64UL, 1, 0 );
+            __builtin_prefetch( &pages[ hp ], 1, 0 );
+          }
+          if( FD_UNLIKELY( rec[ k ].home<p0 || rec[ k ].home>=p0+FD_ACCDB_PLACE_RANGE_PG ) ) FD_LOG_CRIT(( "stage chunk out of range" ));
+          if( FD_UNLIKELY( place_rec( pc, &rec[ k ] ) ) ) return -1;
         }
-        if( FD_UNLIKELY( place_rec( pc, &buf[ k ] ) ) ) return -1;
       }
     }
     place_settle( pc );
-    base += cnt[ r ];
   }
   return 0;
 }
@@ -5721,17 +5770,15 @@ fd_accdb_snapshot_place( fd_accdb_t *                    accdb,
   if( FD_LIKELY( !idx_enabled( accdb ) ) ) return 0;
   fd_accdb_shmem_t * shmem = accdb->shmem;
   place_ctx_t pc[1] = {{ .accdb = accdb, .tomb_fn = tomb_fn, .tomb_ctx = tomb_ctx }};
-  ulong s0 = phase==FD_ACCDB_PLACE_FULL ? 0UL : shmem->stage_full_end;
-  ulong s1 = FD_VOLATILE_CONST( shmem->stage_head );
   pc->incr  = phase!=FD_ACCDB_PLACE_FULL;
   pc->apply = phase==FD_ACCDB_PLACE_INCR_APPLY;
   if( phase==FD_ACCDB_PLACE_INCR_CHECK ) memset( accdb->pend, 0, sizeof(accdb->pend) );
-  int err = place_all( pc, s0, s1 );
+  int err = place_all( pc );
+  stage_reset( accdb ); /* the window held pages */
   *out = *pc->out;
   if( err ) return -1;
   if( phase==FD_ACCDB_PLACE_FULL ) {
     shmem->shmetrics->accounts_total = out->loaded;
-    shmem->stage_full_end = s1;
   } else if( phase==FD_ACCDB_PLACE_INCR_APPLY ) {
     shmem->shmetrics->accounts_total += out->loaded;
     shmem->shmetrics->accounts_total -= out->removed;
@@ -5740,8 +5787,8 @@ fd_accdb_snapshot_place( fd_accdb_t *                    accdb,
     /* stage consumed: punch it */
     if( shmem->stage_falloc ) fallocate( accdb->bkt->fd, FALLOC_FL_PUNCH_HOLE|FALLOC_FL_KEEP_SIZE, (long)shmem->stage_base, (long)shmem->stage_falloc );
     shmem->stage_falloc = 0UL; /* punched: the next stage fallocates again */
+    for( ulong j=0UL; j<shmem->joiner_cnt_max; j++ ) FD_VOLATILE( shmem->stage_dir[ j ] ) = 0UL;
     FD_VOLATILE( shmem->stage_head ) = 0UL;
-    shmem->stage_full_end = 0UL;
     memset( accdb->pend, 0, sizeof(accdb->pend) );
   }
   FD_ATOMIC_FETCH_AND_SUB( &shmem->shmetrics->disk_used_bytes, out->disk_freed );
@@ -5750,15 +5797,16 @@ fd_accdb_snapshot_place( fd_accdb_t *                    accdb,
 
 void
 fd_accdb_snapshot_stage_drop( fd_accdb_t * accdb ) {
-  accdb->stage_cnt = 0UL;
+  if( idx_enabled( accdb ) && accdb->place_window ) stage_reset( accdb );
 }
 
 void
 fd_accdb_snapshot_stage_discard( fd_accdb_t * accdb ) {
   if( FD_LIKELY( !idx_enabled( accdb ) ) ) return;
   fd_accdb_shmem_t * shmem = accdb->shmem;
-  accdb->stage_cnt = 0UL;
-  FD_VOLATILE( shmem->stage_head ) = shmem->stage_full_end;
+  if( accdb->place_window ) stage_reset( accdb );
+  for( ulong j=0UL; j<shmem->joiner_cnt_max; j++ ) FD_VOLATILE( shmem->stage_dir[ j ] ) = 0UL;
+  FD_VOLATILE( shmem->stage_head ) = 0UL;
   memset( accdb->pend, 0, sizeof(accdb->pend) );
 }
 
