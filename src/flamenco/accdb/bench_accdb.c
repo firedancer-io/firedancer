@@ -487,18 +487,65 @@ bench_mixed( ulong   base_cnt,
 
 /* ------------------------------------------------------------------ */
 
-/* bench_place: index-mode snapshot placement.  Stages place_cnt
-   records (dup_pct newer/older duplicates, 1% stake-delegation flags,
-   1% zero lamports) through write_batch, times the full placement,
-   then an incremental of incr_cnt records (half replace full keys)
-   through check and apply.  idx_path picks the index file's filesystem
-   (default: memfd). */
+/* bench_place: index-mode snapshot placement.  writer_cnt threads,
+   each with its own join and window, stage place_cnt records (dup_pct
+   newer/older duplicates, 1% stake-delegation flags, 1% zero lamports)
+   through write_batch while the accdb tile thread reads the bucket
+   ahead, as in a boot.  Then times the full placement, an incremental
+   of incr_cnt records (half replace full keys) through check and
+   apply, and the accdb tile's post-load stage punch.  idx_path picks
+   the index file's filesystem (default: memfd). */
 
 static volatile int bench_place_stop;
 
 static void *
 bench_place_helper( void * arg ) {
   while( !bench_place_stop ) if( !fd_accdb_snapshot_place_help( (fd_accdb_t *)arg, NULL, NULL ) ) FD_SPIN_PAUSE();
+  return NULL;
+}
+
+static void *
+bench_place_t2( void * arg ) {
+  while( !bench_place_stop ) { int busy = 0; fd_accdb_background( (fd_accdb_t *)arg, &busy ); if( !busy ) FD_SPIN_PAUSE(); }
+  return NULL;
+}
+
+struct bench_place_writer {
+  fd_accdb_t * accdb;
+  ulong        place_cnt;
+  ulong        r0;
+  ulong        r1;
+  ulong        partition_sz;
+  long         dt;
+};
+
+static void *
+bench_place_writer( void * arg ) {
+  struct bench_place_writer * w = arg;
+  /* key i = hash(i); record r of the stream: key r%place_cnt, slot 100
+     + r/place_cnt, so a duplicate is newer than its original */
+  uchar keys[ 8 ][ 32 ]; uchar const * pk[ 8 ];
+  ulong slots[ 8 ], lamports[ 8 ], lens[ 8 ], offs[ 8 ]; int execs[ 8 ] = {0}; uint flags[ 8 ]; uchar res[ 8 ];
+  ulong ig, rp, ld, rpl, igl;
+  for( ulong i=0UL; i<8UL; i++ ) pk[ i ] = keys[ i ];
+  long t = -fd_log_wallclock();
+  for( ulong j=w->r0; j<w->r1; j+=8UL ) {
+    ulong n = fd_ulong_min( 8UL, w->r1-j );
+    for( ulong k=0UL; k<n; k++ ) {
+      ulong r = j+k;
+      ulong id = r<w->place_cnt ? r : fd_ulong_hash( r )%w->place_cnt;
+      memset( keys[ k ], 0, 32 ); FD_STORE( ulong, keys[ k ], fd_ulong_hash( id+1UL ) ); FD_STORE( ulong, keys[ k ]+8, id );
+      slots[ k ]    = r<w->place_cnt ? 100UL : 200UL+r;
+      lamports[ k ] = ( fd_ulong_hash( r^0x5A5AUL )%100UL ) ? 1000UL+id : 0UL;
+      lens[ k ]     = 64UL;
+      offs[ k ]     = ( r*128UL )%( 64UL*w->partition_sz );
+      flags[ k ]    = ( fd_ulong_hash( r^0xA5A5UL )%100UL )==0UL ? 1U : 0U;
+    }
+    FD_TEST( !fd_accdb_snapshot_write_batch( w->accdb, (fd_accdb_fork_id_t){ .val = USHORT_MAX }, n, pk, slots, lamports, lens, execs, offs,
+                                             &ig, &rp, &ld, &rpl, &igl, res, flags ) );
+  }
+  fd_accdb_snapshot_stage_flush( w->accdb );
+  w->dt = t+fd_log_wallclock();
   return NULL;
 }
 
@@ -509,6 +556,7 @@ bench_place( ulong        max_accounts,
              uint         dup_pct,
              char const * idx_path,
              ulong        helper_cnt,
+             ulong        writer_cnt,
              int          prepop ) {
   ulong max_live_slots = 64UL;
   ulong writes         = 1024UL;
@@ -518,7 +566,8 @@ bench_place( ulong        max_accounts,
   ulong cache_fp       = 64UL<<20;
   int fd = memfd_create( "accdb_place", 0 );
   FD_TEST( fd>=0 );
-  ulong joiners  = 2UL+helper_cnt;
+  FD_TEST( helper_cnt<=16UL && writer_cnt>=1UL && writer_cnt<=16UL );
+  ulong joiners  = 2UL+helper_cnt+writer_cnt;
   ulong shmem_fp = fd_accdb_shmem_footprint( max_accounts, max_live_slots, writes, partition_cnt, cache_fp, 2UL, joiners, 0UL, ram );
   FD_TEST( shmem_fp );
   void * shmem_mem = aligned_alloc( fd_accdb_shmem_align(), shmem_fp );
@@ -541,45 +590,38 @@ bench_place( ulong        max_accounts,
   fd_accdb_fork_id_t root = fd_accdb_attach_child( accdb, (fd_accdb_fork_id_t){ .val = USHORT_MAX } );
   fd_accdb_snapshot_load_begin( accdb );
 
-  /* key i = hash(i); record j of the stream: key j%place_cnt, slot 100
-     + j/place_cnt, so a duplicate is newer than its original */
+  /* writers model the snapin tiles while the accdb tile reads the
+     bucket ahead (it is otherwise idle during the load) */
   ulong total = place_cnt + place_cnt*dup_pct/100UL;
-  uchar keys[ 8 ][ 32 ]; uchar const * pk[ 8 ];
-  ulong slots[ 8 ], lamports[ 8 ], lens[ 8 ], offs[ 8 ]; int execs[ 8 ] = {0}; uint flags[ 8 ]; uchar res[ 8 ];
-  ulong ig, rp, ld, rpl, igl;
-  for( ulong i=0UL; i<8UL; i++ ) pk[ i ] = keys[ i ];
+  pthread_t wt[ 16 ], t2; void * wwin[ 16 ]; struct bench_place_writer wa[ 16 ];
+  bench_place_stop = 0;
+  if( prepop ) FD_TEST( !pthread_create( &t2, NULL, bench_place_t2, accdb ) );
   long dt = -fd_log_wallclock();
-  for( ulong j=0UL; j<total; j+=8UL ) {
-    ulong n = fd_ulong_min( 8UL, total-j );
-    for( ulong k=0UL; k<n; k++ ) {
-      ulong r = j+k;
-      ulong id = r<place_cnt ? r : fd_ulong_hash( r )%place_cnt;
-      memset( keys[ k ], 0, 32 ); FD_STORE( ulong, keys[ k ], fd_ulong_hash( id+1UL ) ); FD_STORE( ulong, keys[ k ]+8, id );
-      slots[ k ]    = r<place_cnt ? 100UL : 200UL+r;
-      lamports[ k ] = ( fd_ulong_hash( r^0x5A5AUL )%100UL ) ? 1000UL+id : 0UL;
-      lens[ k ]     = 64UL;
-      offs[ k ]     = ( r*128UL )%( 64UL*partition_sz );
-      flags[ k ]    = ( fd_ulong_hash( r^0xA5A5UL )%100UL )==0UL ? 1U : 0U;
-    }
-    FD_TEST( !fd_accdb_snapshot_write_batch( accdb, (fd_accdb_fork_id_t){ .val = USHORT_MAX }, n, pk, slots, lamports, lens, execs, offs,
-                                             &ig, &rp, &ld, &rpl, &igl, res, flags ) );
+  for( ulong i=0UL; i<writer_cnt; i++ ) {
+    wwin[ i ] = aligned_alloc( 4096UL, FD_ACCDB_PLACE_WINDOW );
+    wa[ i ] = (struct bench_place_writer){ .place_cnt = place_cnt, .r0 = total*i/writer_cnt, .r1 = total*(i+1UL)/writer_cnt, .partition_sz = partition_sz,
+                                           .accdb = fd_accdb_join( fd_accdb_new( aligned_alloc( fd_accdb_align(), fd_accdb_footprint( max_live_slots, 0 ) ), shmem,
+                                                                                 fd, -1, 0UL, NULL, NULL, 0UL, 0, idx_fd, wwin[ i ] ) ) };
+    FD_TEST( wa[ i ].accdb );
+    FD_TEST( !pthread_create( &wt[ i ], NULL, bench_place_writer, &wa[ i ] ) );
   }
-  fd_accdb_snapshot_stage_flush( accdb );
+  long wmax = 0L;
+  for( ulong i=0UL; i<writer_cnt; i++ ) { FD_TEST( !pthread_join( wt[ i ], NULL ) ); wmax = fd_long_max( wmax, wa[ i ].dt ); }
   dt += fd_log_wallclock();
-  FD_LOG_NOTICE(( "bench_place: staged %lu records (%lu keys) in %.3f s", total, place_cnt, (double)dt/1e9 ));
-
-  /* the accdb tile reads the bucket ahead during the load (it is idle):
-     drive it here, untimed, as it overlaps the load in a real boot */
+  ulong pp = FD_VOLATILE_CONST( shmem->prepop_off );
+  FD_LOG_NOTICE(( "bench_place: %lu writers staged %lu records (%lu keys) in %.3f s (slowest writer %.3f s), read-ahead %.1f GB of %.1f meanwhile",
+                  writer_cnt, total, place_cnt, (double)dt/1e9, (double)wmax/1e9, (double)pp/1e9, (double)(shmem->idx_bkt_npage*FD_ACCDB_IDX_PAGE_SZ)/1e9 ));
   if( prepop ) {
     long t = -fd_log_wallclock();
-    for( int busy=1; busy; ) { busy = 0; fd_accdb_background( accdb, &busy ); }
+    while( FD_VOLATILE_CONST( shmem->prepop_off )<shmem->idx_bkt_npage*FD_ACCDB_IDX_PAGE_SZ && shmem->idx_bkt_npage*FD_ACCDB_IDX_PAGE_SZ<=(64UL<<30) ) FD_SPIN_PAUSE();
+    bench_place_stop = 1;
+    FD_TEST( !pthread_join( t2, NULL ) );
     t += fd_log_wallclock();
-    FD_LOG_NOTICE(( "bench_place: bucket read-ahead %.3f s (overlaps the load)", (double)t/1e9 ));
+    FD_LOG_NOTICE(( "bench_place: bucket read-ahead finished %.3f s after staging (overlaps the load)", (double)t/1e9 ));
   }
 
   /* helpers model the other snapin tiles: own join and window */
   pthread_t helper[ 16 ]; void * hwin[ 16 ];
-  FD_TEST( helper_cnt<=16UL );
   bench_place_stop = 0;
   for( ulong i=0UL; i<helper_cnt; i++ ) {
     hwin[ i ] = aligned_alloc( 4096UL, FD_ACCDB_PLACE_WINDOW );
@@ -597,6 +639,10 @@ bench_place( ulong        max_accounts,
   FD_LOG_NOTICE(( "bench_place: FULL %.3f s (%.1f ns/rec) loaded=%lu dups=%lu", (double)dt/1e9, (double)dt/(double)total, out->loaded, out->duplicates ));
 
   fd_accdb_fork_id_t incr = fd_accdb_attach_child( accdb, root );
+  uchar keys[ 8 ][ 32 ]; uchar const * pk[ 8 ];
+  ulong slots[ 8 ], lamports[ 8 ], lens[ 8 ], offs[ 8 ]; int execs[ 8 ] = {0}; uint flags[ 8 ]; uchar res[ 8 ];
+  ulong ig, rp, ld, rpl, igl;
+  for( ulong i=0UL; i<8UL; i++ ) pk[ i ] = keys[ i ];
   for( ulong j=0UL; j<incr_cnt; j+=8UL ) {
     ulong n = fd_ulong_min( 8UL, incr_cnt-j );
     for( ulong k=0UL; k<n; k++ ) {
@@ -623,9 +669,16 @@ bench_place( ulong        max_accounts,
   FD_LOG_NOTICE(( "bench_place: INCR_APPLY %.3f s loaded=%lu removed=%lu", (double)dt/1e9, out->loaded, out->removed ));
   FD_LOG_NOTICE(( "bench_place: accounts_total=%lu", shmem->shmetrics->accounts_total ));
 
+  /* the accdb tile punches the stage once the load ends; replay's
+     first residual misses wait behind it */
   fd_accdb_snapshot_load_end( accdb );
+  dt = -fd_log_wallclock();
+  while( FD_VOLATILE_CONST( shmem->stage_punch ) ) { int busy = 0; fd_accdb_background( accdb, &busy ); }
+  dt += fd_log_wallclock();
+  FD_LOG_NOTICE(( "bench_place: post-load stage punch %.3f s", (double)dt/1e9 ));
   close( idx_fd ); close( scratch_fd ); close( fd );
   for( ulong i=0UL; i<helper_cnt; i++ ) free( hwin[ i ] );
+  for( ulong i=0UL; i<writer_cnt; i++ ) free( wwin[ i ] );
   free( window ); free( shmem_mem );
 }
 
@@ -649,6 +702,7 @@ main( int     argc,
   uint  place_dup_pct   = fd_env_strip_cmdline_uint ( &argc, &argv, "--place-dup-pct",   NULL,       1U  );
   char const * idx_path = fd_env_strip_cmdline_cstr ( &argc, &argv, "--place-idx-path",  NULL,     NULL  );
   ulong place_helpers   = fd_env_strip_cmdline_ulong( &argc, &argv, "--place-helpers",   NULL,      4UL  );
+  ulong place_writers   = fd_env_strip_cmdline_ulong( &argc, &argv, "--place-writers",   NULL,      5UL  );
   int   place_prepop    = fd_env_strip_cmdline_int  ( &argc, &argv, "--place-prepop",    NULL,      1    );
 
   FD_LOG_NOTICE(( "accdb benchmark (accounts=%lu slots=%lu wpslot=%lu "
@@ -657,7 +711,7 @@ main( int     argc,
                   mixed_ops, read_pct, seed ));
 
   if( place_recs ) {
-    bench_place( place_max, place_recs, place_incr, place_dup_pct, idx_path, place_helpers, place_prepop );
+    bench_place( place_max, place_recs, place_incr, place_dup_pct, idx_path, place_helpers, place_writers, place_prepop );
     FD_LOG_NOTICE(( "pass" ));
     fd_halt();
     return 0;
