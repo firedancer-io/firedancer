@@ -570,8 +570,10 @@ test_shred_reject( void ) {
 
   /* The leader key has verified many times by now, so its signer
      cache entry is warm: a corrupt signature, a signature by another
-     key, and a mismatched pubkey are still rejected, and the intact
-     shred still accepted. */
+     key, and a mismatched pubkey are still rejected.  Authentication
+     failure preserves conflicting contexts already in the full pool.
+     Use repair admission, as SIGN_ACCEPT does above, to test the signer
+     cache independently of turbine equivocation suppression. */
   shred = set->parity_shreds[ 4 ].s;
   fake_resign( shred, signer_ctx );
   shred->signature[ 5 ]++;
@@ -581,7 +583,7 @@ test_shred_reject( void ) {
   fd_sha512_t _sha[1]; fd_sha512_t * sha = fd_sha512_join( fd_sha512_new( _sha ) );
   fd_ed25519_public_from_private( other_key+32UL, other_key, sha );
   FD_TEST( FD_FEC_RESOLVER_SHRED_REJECTED==fd_fec_resolver_add_shred( r, shred, 2048UL, MAX, FD_FEC_RESOLVER_SHRED_SRC_TURBINE, other_key+32UL, out_fec, out_shred, out_merkle_root, NULL ) );
-  FD_TEST( FD_FEC_RESOLVER_SHRED_OKAY    ==fd_fec_resolver_add_shred( r, shred, 2048UL, MAX, FD_FEC_RESOLVER_SHRED_SRC_TURBINE, pubkey,         out_fec, out_shred, out_merkle_root, NULL ) );
+  FD_TEST( FD_FEC_RESOLVER_SHRED_OKAY    ==fd_fec_resolver_add_shred( r, shred, 2048UL, MAX, FD_FEC_RESOLVER_SHRED_SRC_REPAIR,  pubkey,         out_fec, out_shred, out_merkle_root, NULL ) );
   shred = set->parity_shreds[ 5 ].s;
   signer_ctx_t other_signer[ 1 ];
   signer_ctx_init( other_signer, other_key );
@@ -862,6 +864,96 @@ test_private_shred_boundary( void ) {
   FD_LOG_NOTICE(( "pass: native shredder/parser/parity recovery through index %lu; %lu rejected", limit-1UL, limit ));
 }
 
+/* Authentication failure at capacity must not discard previously accepted
+   shreds.  Complete both pending sets using only their missing halves, then
+   separately exercise authenticated pressure and the normal victim policy. */
+static void
+test_auth_before_spill( void ) {
+  signer_ctx_t signer[1];
+  signer_ctx_init( signer, test_private_key );
+  fd_shredder_t * shredder = fd_shredder_join( fd_shredder_new( _shredder ) );
+  FD_TEST( shredder );
+  fd_shredder_set_shred_version( shredder, SHRED_VER );
+  uchar roots[4][32];
+  for( ulong j=0UL; j<4UL; j++ ) {
+    for( ulong k=0UL; k<FD_SHREDDER_CHAINED_FEC_SET_PAYLOAD_SZ; k++ )
+      perf_test_entry_batch[k] = (uchar)(k*37UL+j*43UL);
+    fd_entry_batch_meta_t meta = { .block_complete=0, .parent_offset=1U };
+    FD_TEST( fd_shredder_init_batch( shredder, perf_test_entry_batch, FD_SHREDDER_CHAINED_FEC_SET_PAYLOAD_SZ, 100UL+j, &meta ) );
+    memset( roots[j], 0, 32UL );
+    FD_TEST( next_fec_set_signed( shredder, _set+j, roots[j], signer ) );
+    FD_TEST( fd_shredder_fini_batch( shredder ) );
+  }
+  uchar invalid[FD_SHRED_MAX_SZ];
+  memcpy( invalid, _set[2].data_shreds[0].b, FD_SHRED_MIN_SZ );
+  invalid[32] ^= 1U; /* Signature only: preserve C's valid Merkle proof. */
+  FD_TEST( fd_ed25519_verify( roots[2], 32UL, invalid, test_private_key+32UL, signer->sha512 )!=FD_ED25519_SUCCESS );
+  uchar const * pubkey = test_private_key+32UL;
+  fd_fec_set_t const * out_fec[1] = { NULL };
+  fd_shred_t const * out_shred[1] = { NULL };
+  fd_bmtree_node_t out_merkle_root[1];
+  static fd_fec_set_t saved[5];
+  for( ulong partial=1UL; partial<=2UL; partial++ ) {
+    for( ulong pressure=0UL; pressure<2UL; pressure++ ) {
+      memset( out_sets, 0, sizeof(saved) );
+      fd_fec_resolver_t * resolver = fd_fec_resolver_join( fd_fec_resolver_new( res_mem, 2UL, partial, 1UL, 8UL, SLOT_MAX, out_sets, SEED ) );
+      FD_TEST( resolver );
+      fd_fec_resolver_set_shred_version( resolver, SHRED_VER );
+      ulong evicted = FD_MCNT_GET( SHRED, FEC_INCOMPLETE_EVICTED );
+      ulong rejected = FD_MCNT_GET( SHRED, INITIAL_REJECTED );
+      memcpy( saved, out_sets, sizeof(saved) );
+      fd_fec_resolver_spilled_t spill = { 0 };
+      int ret = fd_fec_resolver_add_shred( resolver, (fd_shred_t const *)invalid, FD_SHRED_MIN_SZ, MAX,
+                                          FD_FEC_RESOLVER_SHRED_SRC_TURBINE, pubkey, out_fec, out_shred, out_merkle_root, &spill );
+      FD_TEST( ret==FD_FEC_RESOLVER_SHRED_REJECTED && !spill.slot );
+      FD_TEST( !memcmp( saved, out_sets, sizeof(saved) ) );
+      FD_TEST( FD_MCNT_GET( SHRED, FEC_INCOMPLETE_EVICTED )==evicted );
+      FD_TEST( FD_MCNT_GET( SHRED, INITIAL_REJECTED )==rejected+1UL );
+      for( ulong j=0UL; j<2UL; j++ )
+        for( ulong k=0UL; k<16UL; k++ ) ADD_SHRED( resolver, _set[j].data_shreds[k], OKAY );
+
+      if( !pressure ) {
+        memcpy( saved, out_sets, sizeof(saved) );
+        ret = fd_fec_resolver_add_shred( resolver, (fd_shred_t const *)invalid, FD_SHRED_MIN_SZ, MAX,
+                                        FD_FEC_RESOLVER_SHRED_SRC_TURBINE, pubkey, out_fec, out_shred, out_merkle_root, &spill );
+        FD_TEST( ret==FD_FEC_RESOLVER_SHRED_REJECTED );
+        FD_TEST( !spill.slot );
+        FD_TEST( !memcmp( saved, out_sets, sizeof(saved) ) );
+        FD_TEST( FD_MCNT_GET( SHRED, FEC_INCOMPLETE_EVICTED )==evicted );
+        FD_TEST( FD_MCNT_GET( SHRED, INITIAL_REJECTED )==rejected+2UL );
+        /* B completes on its first missing-half delivery; none of its
+           initial16 contributions is sent again. */
+        for( ulong j=0UL; j<2UL; j++ ) {
+          for( ulong k=0UL; k<15UL; k++ ) ADD_SHRED( resolver, _set[j].parity_shreds[k], OKAY );
+          ADD_SHRED( resolver, _set[j].parity_shreds[15], COMPLETES );
+          FD_TEST( sets_eq( _set+j, *out_fec ) );
+        }
+      } else {
+        /* Authenticated C still enters the full pool and evicts B, the
+           highest slot, while A's initial16 contributions survive. */
+        ret = fd_fec_resolver_add_shred( resolver, _set[2].data_shreds[0].s, FD_SHRED_MIN_SZ, MAX,
+                                        FD_FEC_RESOLVER_SHRED_SRC_TURBINE, pubkey, out_fec, out_shred, out_merkle_root, &spill );
+        FD_TEST( ret==FD_FEC_RESOLVER_SHRED_OKAY && spill.slot==101UL && !spill.fec_set_idx );
+        FD_TEST( !memcmp( spill.merkle_root->hash, roots[1], 32UL ) );
+        FD_TEST( FD_MCNT_GET( SHRED, FEC_INCOMPLETE_EVICTED )==evicted+1UL );
+        for( ulong k=0UL; k<15UL; k++ ) ADD_SHRED( resolver, _set[0].parity_shreds[k], OKAY );
+        ADD_SHRED( resolver, _set[0].parity_shreds[15], COMPLETES );
+        FD_TEST( sets_eq( _set, *out_fec ) );
+        for( ulong k=1UL; k<31UL; k++ ) ADD_SHRED( resolver, _set[2].data_shreds[k], OKAY );
+        ADD_SHRED( resolver, _set[2].data_shreds[31], COMPLETES );
+        FD_TEST( sets_eq( _set+2, *out_fec ) );
+      }
+      /* Subsequent healthy input also completes with byte-exact recovery. */
+      for( ulong k=0UL; k<31UL; k++ ) ADD_SHRED( resolver, _set[3].parity_shreds[k], OKAY );
+      ADD_SHRED( resolver, _set[3].parity_shreds[31], COMPLETES );
+      FD_TEST( sets_eq( _set+3, *out_fec ) );
+      fd_fec_resolver_delete( fd_fec_resolver_leave( resolver ) );
+    }
+  }
+  fd_shredder_delete( fd_shredder_leave( shredder ) );
+  FD_LOG_NOTICE(( "pass: unauthenticated full-pool input preserves pending shreds; authenticated pressure evicts highest slot" ));
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -870,6 +962,7 @@ main( int     argc,
 
   (void)perf_test;
 
+  test_auth_before_spill();
   test_interleaved();
   test_one_batch();
   test_rolloff();

@@ -672,34 +672,9 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
 
   if( FD_UNLIKELY( !ctx ) ) { /* This is the first shred in the FEC set */
 
-    if( FD_UNLIKELY( resolver->free_list_cnt<=partial_depth ) ) {
-      /* Packet loss is really high and we have a lot of in-progress FEC
-         sets that we haven't been able to finish.  Evict the context
-         with the highest (slot, FEC idx).  This is the one that is the
-         farthest away from what we're currently replaying, which means
-         we have the longest time to request it via repair if we
-         actually need it.  This also handles the case where a leader
-         sends some shreds from their slots that are far in the future
-         in this epoch. */
-      set_ctx_t * victim_ctx = ctx_treap_rev_iter_ele( ctx_treap_rev_iter_init( ctx_treap, ctx_pool ), ctx_pool );
-
-      if( FD_LIKELY( out_spilled ) ) {
-        out_spilled->slot         = victim_ctx->slot;
-        out_spilled->fec_set_idx  = victim_ctx->fec_set_idx;
-        *out_spilled->merkle_root = victim_ctx->root;
-      }
-
-      /* Remove from treap and map, then add to free_list */
-      ctx_treap_ele_remove   ( ctx_treap, victim_ctx, ctx_pool );
-      ctx_map_ele_remove_fast( ctx_map,   victim_ctx, ctx_pool );
-
-      ctx_list_ele_push_tail ( free_list, victim_ctx, ctx_pool );
-      resolver->free_list_cnt++;
-
-      FD_MCNT_INC( SHRED, FEC_INCOMPLETE_EVICTED, 1UL );
-    }
-    /* Now we know |free_list|>partial_depth */
-
+    /* partial_depth is positive, so a spare context is always available.
+       Authenticate in that context before discarding any pending set.
+       Its retained shred buffers are not modified until admission. */
     ctx = ctx_list_ele_pop_head( free_list, ctx_pool );
     resolver->free_list_cnt--;
 
@@ -728,6 +703,27 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
         FD_MCNT_INC( SHRED, INITIAL_REJECTED, 1UL );
         return FD_FEC_RESOLVER_SHRED_REJECTED;
       }
+    }
+
+    if( FD_UNLIKELY( resolver->free_list_cnt<partial_depth ) ) {
+      /* Authentication consumed the spare context.  Restore the reserve
+         by evicting the highest (slot, FEC idx), farthest from replay
+         and with the longest time to request repair.  Rejected input
+         never reaches this irreversible spill. */
+      set_ctx_t * victim_ctx = ctx_treap_rev_iter_ele( ctx_treap_rev_iter_init( ctx_treap, ctx_pool ), ctx_pool );
+
+      if( FD_LIKELY( out_spilled ) ) {
+        out_spilled->slot         = victim_ctx->slot;
+        out_spilled->fec_set_idx  = victim_ctx->fec_set_idx;
+        *out_spilled->merkle_root = victim_ctx->root;
+      }
+
+      ctx_treap_ele_remove   ( ctx_treap, victim_ctx, ctx_pool );
+      ctx_map_ele_remove_fast( ctx_map,   victim_ctx, ctx_pool );
+      ctx_list_ele_push_tail ( free_list, victim_ctx, ctx_pool );
+      resolver->free_list_cnt++;
+
+      FD_MCNT_INC( SHRED, FEC_INCOMPLETE_EVICTED, 1UL );
     }
 
     /* Copy the merkle root into the output arg. */
