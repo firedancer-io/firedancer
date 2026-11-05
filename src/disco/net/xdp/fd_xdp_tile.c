@@ -305,6 +305,7 @@ metrics_write( fd_net_ctx_t * ctx ) {
   ctx->net.metrics.tx_drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_NO_NEIGHBOR_IDX ] = ctx->metrics.tx_neigh_fail_cnt;
   ctx->net.metrics.tx_drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_RING_FULL_IDX   ] = ctx->metrics.tx_full_fail_cnt;
   FD_MCNT_ENUM_COPY( NET, PKT_TX_DROPPED,    ctx->net.metrics.tx_drop_cnt       );
+  FD_MCNT_ENUM_COPY( NET, PKT_TX_ROUTING_FAILED, ctx->net.metrics.tx_routing_failure_cnt );
 
   FD_MCNT_SET( NET, XSK_SYSCALL_TX,          ctx->metrics.xsk_tx_wakeup_cnt );
   FD_MCNT_SET( NET, XSK_SYSCALL_RX,          ctx->metrics.xsk_rx_wakeup_cnt );
@@ -527,15 +528,15 @@ net_tx_route( fd_net_ctx_t * ctx,
 
   if( FD_UNLIKELY( rtype!=FD_FIB4_RTYPE_UNICAST ) ) {
     uint reason = fd_uint_if( rtype==FD_FIB4_RTYPE_THROW,
-        FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_NO_ROUTE_IDX,
-        FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_UNSUPPORTED_ROUTE_IDX );
-    ctx->net.metrics.tx_drop_cnt[ reason ]++;
+        FD_METRICS_ENUM_PKT_TX_ROUTING_FAILURE_REASON_V_NO_ROUTE_IDX,
+        FD_METRICS_ENUM_PKT_TX_ROUTING_FAILURE_REASON_V_UNSUPPORTED_ROUTE_IDX );
+    ctx->net.metrics.tx_routing_failure_cnt[ reason ]++;
     return 0;
   }
 
   fd_netdev_t * netdev = fd_netdev_tbl_query( &ctx->netdev_tbl, if_idx );
   if( !netdev ) {
-    ctx->net.metrics.tx_drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_INTERFACE_MISSING_IDX ]++;
+    ctx->net.metrics.tx_routing_failure_cnt[ FD_METRICS_ENUM_PKT_TX_ROUTING_FAILURE_REASON_V_INTERFACE_MISSING_IDX ]++;
     return 0;
   }
 
@@ -562,12 +563,12 @@ net_tx_route( fd_net_ctx_t * ctx,
   }
 
   if( FD_UNLIKELY( netdev->dev_type!=ARPHRD_ETHER ) ) {
-    ctx->net.metrics.tx_drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_UNSUPPORTED_INTERFACE_IDX ]++;
+    ctx->net.metrics.tx_routing_failure_cnt[ FD_METRICS_ENUM_PKT_TX_ROUTING_FAILURE_REASON_V_UNSUPPORTED_INTERFACE_IDX ]++;
     return 0;
   }
 
   if( FD_UNLIKELY( if_idx!=ctx->if_virt ) ) {
-    ctx->net.metrics.tx_drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_UNSUPPORTED_INTERFACE_IDX ]++;
+    ctx->net.metrics.tx_routing_failure_cnt[ FD_METRICS_ENUM_PKT_TX_ROUTING_FAILURE_REASON_V_UNSUPPORTED_INTERFACE_IDX ]++;
     return 0;
   }
   ctx->tx_op.xsk_idx = XSK_IDX_MAIN;
@@ -670,7 +671,7 @@ before_frag( fd_net_ctx_t * ctx,
 
   if( FD_UNLIKELY( xsk_idx>=ctx->xsk_cnt ) ) {
     /* Packet does not route to an XDP interface */
-    ctx->net.metrics.tx_drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_UNSUPPORTED_INTERFACE_IDX ]++;
+    ctx->net.metrics.tx_routing_failure_cnt[ FD_METRICS_ENUM_PKT_TX_ROUTING_FAILURE_REASON_V_UNSUPPORTED_INTERFACE_IDX ]++;
     return 1;
   }
 

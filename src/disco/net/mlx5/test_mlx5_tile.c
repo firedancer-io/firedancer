@@ -1162,8 +1162,10 @@ main( int     argc,
   ulong const tx_wmark  = fd_dcache_compact_wmark( wksp, tx_link->dcache, FD_NET_MTU );
   ulong       tx_seq    = 0UL;
   ulong       tx_chunk  = tx_chunk0;
-  ulong tx_route_fail_before[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_CNT ];
-  fd_memcpy( tx_route_fail_before, tile->net.metrics.tx_drop_cnt, sizeof(tx_route_fail_before) );
+  ulong tx_drop_before[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_CNT ];
+  fd_memcpy( tx_drop_before, tile->net.metrics.tx_drop_cnt, sizeof(tx_drop_before) );
+  ulong tx_route_fail_before[ FD_METRICS_ENUM_PKT_TX_ROUTING_FAILURE_REASON_CNT ];
+  fd_memcpy( tx_route_fail_before, tile->net.metrics.tx_routing_failure_cnt, sizeof(tx_route_fail_before) );
   ulong const tx_neigh_fail_before = tile->router.metrics.tx_neigh_fail_cnt;
 
   /* TX packet with invalid sig */
@@ -1200,23 +1202,23 @@ main( int     argc,
   /* TX packet targeting unknown neighbor */
   FD_TEST( 1==before_frag( tile, 0UL, tx_seq,
            fd_disco_netmux_sig( 0U, 0, neigh1_ip4_addr, DST_PROTO_OUTGOING, 0UL ) ) );
-  FD_TEST( tile->net.metrics.tx_drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_NO_ROUTE_IDX ]==
-           tx_route_fail_before[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_NO_ROUTE_IDX ]+1UL );
-  FD_TEST( tile->net.metrics.tx_drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_UNSUPPORTED_ROUTE_IDX ]==
-           tx_route_fail_before[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_UNSUPPORTED_ROUTE_IDX ]+1UL );
-  FD_TEST( tile->net.metrics.tx_drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_INTERFACE_MISSING_IDX ]==
-           tx_route_fail_before[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_INTERFACE_MISSING_IDX ]+1UL );
-  FD_TEST( tile->net.metrics.tx_drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_UNSUPPORTED_INTERFACE_IDX ]==
-           tx_route_fail_before[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_UNSUPPORTED_INTERFACE_IDX ]+1UL );
+  FD_TEST( tile->net.metrics.tx_routing_failure_cnt[ FD_METRICS_ENUM_PKT_TX_ROUTING_FAILURE_REASON_V_NO_ROUTE_IDX ]==
+           tx_route_fail_before[ FD_METRICS_ENUM_PKT_TX_ROUTING_FAILURE_REASON_V_NO_ROUTE_IDX ]+1UL );
+  FD_TEST( tile->net.metrics.tx_routing_failure_cnt[ FD_METRICS_ENUM_PKT_TX_ROUTING_FAILURE_REASON_V_UNSUPPORTED_ROUTE_IDX ]==
+           tx_route_fail_before[ FD_METRICS_ENUM_PKT_TX_ROUTING_FAILURE_REASON_V_UNSUPPORTED_ROUTE_IDX ]+1UL );
+  FD_TEST( tile->net.metrics.tx_routing_failure_cnt[ FD_METRICS_ENUM_PKT_TX_ROUTING_FAILURE_REASON_V_INTERFACE_MISSING_IDX ]==
+           tx_route_fail_before[ FD_METRICS_ENUM_PKT_TX_ROUTING_FAILURE_REASON_V_INTERFACE_MISSING_IDX ]+1UL );
+  FD_TEST( tile->net.metrics.tx_routing_failure_cnt[ FD_METRICS_ENUM_PKT_TX_ROUTING_FAILURE_REASON_V_UNSUPPORTED_INTERFACE_IDX ]==
+           tx_route_fail_before[ FD_METRICS_ENUM_PKT_TX_ROUTING_FAILURE_REASON_V_UNSUPPORTED_INTERFACE_IDX ]+1UL );
   FD_TEST( tile->router.metrics.tx_neigh_fail_cnt==tx_neigh_fail_before+1UL );
 
   /* An unroutable outer endpoint is counted once, as NoRoute */
   eth1->dev_type   = ARPHRD_IPGRE;
   eth1->gre_dst_ip = no_route_ip4_addr;
-  ulong const tx_no_route_before = tile->net.metrics.tx_drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_NO_ROUTE_IDX ];
+  ulong const tx_no_route_before = tile->net.metrics.tx_routing_failure_cnt[ FD_METRICS_ENUM_PKT_TX_ROUTING_FAILURE_REASON_V_NO_ROUTE_IDX ];
   FD_TEST( 1==before_frag( tile, 0UL, tx_seq,
            fd_disco_netmux_sig( 0U, 0, path2_ip4_addr, DST_PROTO_OUTGOING, 0UL ) ) );
-  FD_TEST( tile->net.metrics.tx_drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_NO_ROUTE_IDX     ]==tx_no_route_before+1UL       );
+  FD_TEST( tile->net.metrics.tx_routing_failure_cnt[ FD_METRICS_ENUM_PKT_TX_ROUTING_FAILURE_REASON_V_NO_ROUTE_IDX ]==tx_no_route_before+1UL );
   FD_TEST( tile->net.metrics.tx_drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_GRE_NO_ROUTE_IDX ]==tx_gre_route_fail_before+1UL );
   eth1->gre_dst_ip = 0U;
   eth1->dev_type   = ARPHRD_ETHER;
@@ -1319,7 +1321,7 @@ main( int     argc,
   after_frag( tile, 0UL, tx_seq, tx_sig, sizeof(tx_pkt_templ), 0UL, 0UL, stem );
   tile->net.tx_route.src_ip = tx_src_ip;
   FD_TEST( tile->net.metrics.tx_drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_SOURCE_IP_MISSING_IDX ]==
-           tx_route_fail_before[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_SOURCE_IP_MISSING_IDX ]+1UL );
+           tx_drop_before[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_SOURCE_IP_MISSING_IDX ]+1UL );
   FD_TEST( !test_tx_wq_cnt( mock, tile ) );
 
   fd_memcpy( tx_packet, &tx_pkt_templ, sizeof(tx_pkt_templ) );

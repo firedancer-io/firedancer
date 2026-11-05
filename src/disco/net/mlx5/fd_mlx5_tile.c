@@ -1015,6 +1015,7 @@ metrics_write( fd_mlx5_tile_t * ctx ) {
   ctx->net.metrics.tx_drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_NO_NEIGHBOR_IDX ] = ctx->router.metrics.tx_neigh_fail_cnt;
   ctx->net.metrics.tx_drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_RING_FULL_IDX   ] = ctx->metrics.tx_no_buffer_cnt;
   FD_MCNT_ENUM_COPY( MLX5, PKT_TX_DROPPED,     ctx->net.metrics.tx_drop_cnt           );
+  FD_MCNT_ENUM_COPY( MLX5, PKT_TX_ROUTING_FAILED, ctx->net.metrics.tx_routing_failure_cnt );
   FD_MCNT_SET(   MLX5, GRE_PKT_TX_SUBMITTED,   ctx->net.metrics.tx_gre_cnt            );
   FD_MGAUGE_SET( MLX5, TX_BUFFER_USED,         tx_buffer_busy_cnt                     );
   FD_MGAUGE_SET( MLX5, TX_BUFFER_FREE,         tx_buffer_idle_cnt                     );

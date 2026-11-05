@@ -653,6 +653,7 @@ metrics_write( fd_iavf_tile_t * ctx ) {
   ctx->net.metrics.tx_drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_NO_NEIGHBOR_IDX ] = ctx->router.metrics.tx_neigh_fail_cnt;
   ctx->net.metrics.tx_drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_RING_FULL_IDX   ] = ctx->metrics.tx_no_buffer_cnt;
   FD_MCNT_ENUM_COPY( IAVF, PKT_TX_DROPPED,     ctx->net.metrics.tx_drop_cnt           );
+  FD_MCNT_ENUM_COPY( IAVF, PKT_TX_ROUTING_FAILED, ctx->net.metrics.tx_routing_failure_cnt );
   FD_MCNT_SET(   IAVF, PKT_TX_NO_LINK_DROPPED, ctx->metrics.tx_no_link_cnt            );
   FD_MCNT_SET(   IAVF, PKT_TX_LOOPBACK_FAILED, ctx->metrics.tx_loopback_fail_cnt      );
   FD_MCNT_SET(   IAVF, GRE_PKT_TX_SUBMITTED,   ctx->net.metrics.tx_gre_cnt            );

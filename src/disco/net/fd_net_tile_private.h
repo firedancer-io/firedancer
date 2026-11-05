@@ -89,6 +89,7 @@ struct fd_net_tile {
     ulong tx_pkt_cnt;
     ulong tx_bytes_total;
     ulong tx_drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_CNT ];
+    ulong tx_routing_failure_cnt[ FD_METRICS_ENUM_PKT_TX_ROUTING_FAILURE_REASON_CNT ];
     ulong tx_gre_cnt;
   } metrics;
 };
