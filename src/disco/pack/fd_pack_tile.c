@@ -719,6 +719,7 @@ after_credit( fd_pack_ctx_t *     ctx,
       } else {
         /* Already logged a warning in this case */
         fd_pack_insert_bundle_cancel( ctx->pack, bundle, 1UL );
+        fd_pack_set_initializer_bundles_failed( ctx->pack );
         ctx->crank->metrics[ 2 ]++; /* BUNDLE_CRANK_ATTEMPTED_CREATION_FAILED */
       }
     }

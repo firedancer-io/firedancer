@@ -1910,6 +1910,47 @@ fd_pack_set_initializer_bundles_ready( fd_pack_t * pack ) {
   pack->initializer_bundle_state = FD_PACK_IB_STATE_READY;
 }
 
+static void
+fail_initializer_bundles( fd_pack_t * pack ) {
+  pack->initializer_bundle_state = FD_PACK_IB_STATE_FAILED;
+  /* pending_txn_cnt sums all treaps; only penalty treaps are outside
+     pending and pending_bundles.  Avoid scanning their map when empty. */
+  if( FD_LIKELY( pack->pending_txn_cnt==treap_ele_cnt( pack->pending )+treap_ele_cnt( pack->pending_bundles ) ) ) return;
+
+  /* Bundles cannot execute for the rest of this block, so their queued
+     references must not strand ordinary transactions.  Make every
+     deferred transaction eligible, including candidates behind a best
+     transaction that cannot fit.  New admissions likewise bypass
+     penalty deferral while FAILED.  This changes no account uses,
+     references, costs, or outstanding microblock bookkeeping: the
+     ordinary scheduler still checks all execution locks/limits.
+
+     Keep the map intact while draining its embedded treaps, then clear
+     it once.  Removing entries during iteration could relocate another
+     entry and skip its queue. */
+  for( ulong i=0UL; i<penalty_map_slot_cnt( pack->penalty_treaps ); i++ ) {
+    fd_pack_penalty_treap_t * q = pack->penalty_treaps+i;
+    if( FD_LIKELY( penalty_map_key_inval( q->key ) ) ) continue;
+    while( treap_ele_cnt( q->penalty_treap ) ) {
+      fd_pack_ord_txn_t * best = treap_rev_iter_ele( treap_rev_iter_init( q->penalty_treap, pack->pool ), pack->pool );
+      treap_ele_remove( q->penalty_treap, best, pack->pool );
+      best->root = FD_ORD_TXN_ROOT_PENDING;
+      treap_ele_insert( pack->pending, best, pack->pool );
+      pack->pending_smallest->cus   = fd_ulong_min( pack->pending_smallest->cus,   best->compute_est );
+      pack->pending_smallest->bytes = fd_ulong_min( pack->pending_smallest->bytes, best->txn_e->txnp->payload_sz );
+    }
+    treap_delete( treap_leave( q->penalty_treap ) );
+  }
+  penalty_map_clear( pack->penalty_treaps );
+}
+
+void
+fd_pack_set_initializer_bundles_failed( fd_pack_t * pack ) {
+  int state = pack->initializer_bundle_state;
+  if( FD_UNLIKELY( state!=FD_PACK_IB_STATE_NOT_INITIALIZED && state!=FD_PACK_IB_STATE_READY ) ) return;
+  fail_initializer_bundles( pack );
+}
+
 void
 fd_pack_metrics_write( fd_pack_t const * pack ) {
   ulong pending_regular = treap_ele_cnt( pack->pending         );
@@ -2776,34 +2817,8 @@ void
 fd_pack_rebate_cus( fd_pack_t              * pack,
                     fd_pack_rebate_t const * rebate ) {
   if( FD_UNLIKELY( (rebate->ib_result!=0) & (pack->initializer_bundle_state==FD_PACK_IB_STATE_PENDING ) ) ) {
-    pack->initializer_bundle_state = fd_int_if( rebate->ib_result==1, FD_PACK_IB_STATE_READY, FD_PACK_IB_STATE_FAILED );
-    if( FD_UNLIKELY( pack->initializer_bundle_state==FD_PACK_IB_STATE_FAILED ) ) {
-      /* Bundles cannot execute for the rest of this block, so their
-         queued references must not strand ordinary transactions.  Make
-         every deferred transaction eligible, including candidates behind
-         a best transaction that cannot fit.  New admissions likewise
-         bypass penalty deferral while FAILED.  This changes no account
-         uses, references, costs, or outstanding microblock bookkeeping:
-         the ordinary scheduler still checks all execution locks/limits.
-
-         Keep the map intact while draining its embedded treaps, then
-         clear it once.  Removing entries during iteration could relocate
-         another entry and skip its queue. */
-      for( ulong i=0UL; i<penalty_map_slot_cnt( pack->penalty_treaps ); i++ ) {
-        fd_pack_penalty_treap_t * q = pack->penalty_treaps+i;
-        if( FD_LIKELY( penalty_map_key_inval( q->key ) ) ) continue;
-        while( treap_ele_cnt( q->penalty_treap ) ) {
-          fd_pack_ord_txn_t * best = treap_rev_iter_ele( treap_rev_iter_init( q->penalty_treap, pack->pool ), pack->pool );
-          treap_ele_remove( q->penalty_treap, best, pack->pool );
-          best->root = FD_ORD_TXN_ROOT_PENDING;
-          treap_ele_insert( pack->pending, best, pack->pool );
-          pack->pending_smallest->cus   = fd_ulong_min( pack->pending_smallest->cus,   best->compute_est );
-          pack->pending_smallest->bytes = fd_ulong_min( pack->pending_smallest->bytes, best->txn_e->txnp->payload_sz );
-        }
-        treap_delete( treap_leave( q->penalty_treap ) );
-      }
-      penalty_map_clear( pack->penalty_treaps );
-    }
+    if( FD_LIKELY( rebate->ib_result==1 ) ) pack->initializer_bundle_state = FD_PACK_IB_STATE_READY;
+    else                                  fail_initializer_bundles( pack );
   }
 
   pack->cumulative_block_cost  -= rebate->total_cost_rebate;

@@ -2335,6 +2335,131 @@ test_failed_initializer( void ) {
   failed_init_finish( pack );
 }
 
+/* Crank generation can fail before any initializer is inserted or
+   executed, so no runtime rebate will ever arrive to release the gate. */
+static void
+creation_failure( fd_pack_t * pack ) {
+  fd_pack_limits_usage_t before = {0}, after = {0};
+  fd_pack_get_block_limits( pack, &before, NULL );
+  /* The tile cancels its reserved slot before reporting failure. */
+  fd_txn_e_t * reserved[1];
+  fd_pack_insert_bundle_init( pack, reserved, 1UL );
+  fd_pack_insert_bundle_cancel( pack, reserved, 1UL );
+  fd_pack_set_initializer_bundles_failed( pack );
+  fd_pack_get_block_limits( pack, &after, NULL );
+  FD_TEST( !memcmp( &before, &after, sizeof(before) ) );
+  FD_TEST( !fd_pack_verify( pack, pack_verify_scratch ) );
+}
+
+static void
+test_initializer_creation_failure( void ) {
+  FD_LOG_NOTICE(( "TEST INITIALIZER CREATION FAILURE" ));
+  /* NOT_INITIALIZED/READY, threshold, and disjoint controls.  No
+     initializer is submitted and no feedback is manufactured. */
+  for( ulong scenario=0UL; scenario<4UL; scenario++ ) {
+    FD_LOG_NOTICE(( "initializer creation threshold/control %lu", scenario ));
+    fd_pack_t * pack = init_all( 256UL, 3UL, 128UL, &outcome );
+    ulong readers = scenario==1UL ? 64UL : 65UL;
+    for( ulong i=0UL; i<readers; i++ ) failed_init_put( pack, i, 1000U, 0UL, "", scenario==2UL ? "J" : "K", 1, 0 );
+    failed_init_put( pack, 700UL, 1000U, 1000000000UL, "K", "", 0, 0 );
+    ulong penalty = (ulong)(readers==65UL && scenario!=2UL);
+    failed_init_check( pack, 1UL-penalty, readers, penalty );
+    if( scenario==3UL ) fd_pack_set_initializer_bundles_ready( pack );
+    FD_TEST( fd_pack_peek_bundle_meta( pack ) );
+    creation_failure( pack );
+    failed_init_check( pack, 1UL, readers, 0UL );
+    /* FAILED prevents another generation attempt as well as execution
+       of the invalid bundles.  Repeated failure is harmless. */
+    fd_pack_set_initializer_bundles_failed( pack );
+    for( ulong i=0UL; i<8UL; i++ ) {
+      FD_TEST( !fd_pack_peek_bundle_meta( pack ) );
+      FD_TEST( !failed_init_schedule( pack, 2000000UL, 0UL, FD_PACK_SCHEDULE_BUNDLE ) );
+    }
+    FD_TEST( failed_init_schedule( pack, 2000000UL, 0UL, ALL )==1UL && failed_init_id(0UL)==700UL );
+    FD_TEST( fd_pack_microblock_complete( pack, 0UL )==1 );
+    failed_init_put( pack, 701UL, 1000U, 1000000000UL, "K", "", 0, 0 );
+    failed_init_check( pack, 1UL, readers, 0UL );
+    FD_TEST( failed_init_schedule( pack, 2000000UL, 0UL, ALL )==1UL && failed_init_id(0UL)==701UL );
+    FD_TEST( fd_pack_microblock_complete( pack, 0UL )==1 );
+    /* A fresh block exposes bundle metadata and restores ordinary
+       penalty admission; success can then run the retained bundles. */
+    fd_pack_end_block( pack );
+    FD_TEST( fd_pack_peek_bundle_meta( pack ) );
+    failed_init_put( pack, 702UL, 1000U, 1000000000UL, "K", "", 0, 0 );
+    failed_init_check( pack, 1UL-penalty, readers, penalty );
+    FD_TEST( !failed_init_schedule( pack, 2000000UL, 0UL, FD_PACK_SCHEDULE_BUNDLE ) );
+    fd_pack_set_initializer_bundles_ready( pack );
+    for( ulong i=0UL; i<readers; i++ ) {
+      FD_TEST( failed_init_schedule( pack, 2000000UL, 0UL, ALL )==1UL && failed_init_id(0UL)==i );
+      FD_TEST( fd_pack_microblock_complete( pack, 0UL )==1 );
+    }
+    FD_TEST( failed_init_schedule( pack, 2000000UL, 0UL, ALL )==1UL && failed_init_id(0UL)==702UL );
+    FD_TEST( fd_pack_microblock_complete( pack, 0UL )==1 );
+    failed_init_check( pack, 0UL, 0UL, 0UL );
+    failed_init_finish( pack );
+  }
+
+  /* Promoting queued work must not bypass an actual inflight read or
+     write lock.  Later arrivals in FAILED must respect that lock too. */
+  for( ulong writes=0UL; writes<2UL; writes++ ) {
+    FD_LOG_NOTICE(( "initializer creation inflight %lu", writes ));
+    fd_pack_t * pack = init_all( 256UL, 3UL, 128UL, &outcome );
+    failed_init_put( pack, 900UL, 1000U, 0UL, writes ? "K" : "", writes ? "" : "K", 0, 0 );
+    FD_TEST( failed_init_schedule( pack, 2000000UL, 1UL, ALL )==1UL );
+    for( ulong i=0UL; i<65UL; i++ ) failed_init_put( pack, i, 1000U, 0UL, "", "K", 1, 0 );
+    failed_init_put( pack, 700UL, 1000U, 1000000000UL, "K", "", 0, 0 );
+    creation_failure( pack );
+    failed_init_check( pack, 1UL, 65UL, 0UL );
+    FD_TEST( !failed_init_schedule( pack, 2000000UL, 2UL, ALL ) );
+    failed_init_put( pack, 701UL, 1000U, 1000000000UL, "K", "", 0, 0 );
+    failed_init_check( pack, 2UL, 65UL, 0UL );
+    FD_TEST( !failed_init_schedule( pack, 2000000UL, 2UL, ALL ) );
+    FD_TEST( fd_pack_microblock_complete( pack, 1UL )==1 );
+    for( ulong i=0UL; i<2UL; i++ ) {
+      FD_TEST( failed_init_schedule( pack, 2000000UL, 2UL, ALL )==1UL );
+      ulong id = failed_init_id(0UL); FD_TEST( id==700UL || id==701UL );
+      FD_TEST( fd_pack_microblock_complete( pack, 2UL )==1 );
+    }
+    failed_init_check( pack, 0UL, 65UL, 0UL );
+    /* Preserved bundle expiry/account references remain coherent. */
+    FD_TEST( !fd_pack_expire_before( pack, 10000UL ) );
+    FD_TEST( fd_pack_expire_before( pack, 10001UL )==65UL );
+    failed_init_finish( pack );
+  }
+
+  /* The creation-only API must not override an initializer already
+     awaiting execution feedback, even before microblock completion. */
+  FD_LOG_NOTICE(( "initializer creation ignores PENDING" ));
+  fd_pack_t * pack = init_all( 256UL, 3UL, 128UL, &outcome );
+  for( ulong i=0UL; i<65UL; i++ ) failed_init_put( pack, i, 1000U, 0UL, "", "K", 1, 0 );
+  failed_init_put( pack, 700UL, 1000U, 1000000000UL, "K", "", 0, 0 );
+  failed_init_put( pack, 800UL, 1000U, 0UL, "", "", 1, 1 );
+  FD_TEST( failed_init_schedule( pack, 2000000UL, 0UL, ALL )==1UL && failed_init_id(0UL)==800UL );
+  fd_pack_set_initializer_bundles_failed( pack );
+  failed_init_check( pack, 0UL, 65UL, 1UL );
+  FD_TEST( !failed_init_schedule( pack, 2000000UL, 1UL, ALL ) );
+  FD_TEST( fd_pack_microblock_complete( pack, 0UL )==1 );
+  fd_pack_set_initializer_bundles_failed( pack );
+  failed_init_check( pack, 0UL, 65UL, 1UL );
+  failed_init_feedback( pack, 1 );
+  FD_TEST( fd_pack_peek_bundle_meta( pack ) );
+  FD_TEST( failed_init_schedule( pack, 2000000UL, 1UL, FD_PACK_SCHEDULE_BUNDLE )==1UL );
+  FD_TEST( fd_pack_microblock_complete( pack, 1UL )==1 );
+  failed_init_finish( pack );
+
+  /* Empty queues exercise the no-penalty fast path.  The state still
+     changes, and even a later initializer is blocked until end-block. */
+  FD_LOG_NOTICE(( "initializer creation empty queues" ));
+  pack = init_all( 256UL, 3UL, 128UL, &outcome );
+  creation_failure( pack );
+  failed_init_put( pack, 800UL, 1000U, 0UL, "", "", 1, 1 );
+  FD_TEST( !failed_init_schedule( pack, 2000000UL, 0UL, ALL ) );
+  fd_pack_end_block( pack );
+  FD_TEST( failed_init_schedule( pack, 2000000UL, 0UL, ALL )==1UL && failed_init_id(0UL)==800UL );
+  FD_TEST( fd_pack_microblock_complete( pack, 0UL )==1 );
+  failed_init_finish( pack );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -2366,6 +2491,7 @@ main( int     argc,
   test_nonce_replacement_wakeup();
   test_bundle_nonce();
   test_failed_initializer();
+  test_initializer_creation_failure();
   if( extra_benchmark ) {
     performance_test( extra_benchmark );
     performance_test2();

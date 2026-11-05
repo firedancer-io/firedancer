@@ -606,6 +606,10 @@ void                 fd_pack_insert_bundle_cancel( fd_pack_t * pack, fd_txn_e_t 
    is in good shape, the state machine can transition directly to
    [Ready] by calling fd_pack_set_initializer_bundles_ready.
 
+   If an initializer cannot be generated, call
+   fd_pack_set_initializer_bundles_failed to disable bundles for the
+   rest of the block while keeping ordinary transactions eligible.
+
    Initializer bundles are not exempt from expiration, but it should not
    be a problem if they are always inserted with the most recent
    blockhash and deleted at the end of the slot.
@@ -640,6 +644,18 @@ void const * fd_pack_peek_bundle_meta( fd_pack_t const * pack );
    This function makes it easy to use bundles without initializer
    bundles.  pack must be a valid local join. */
 void fd_pack_set_initializer_bundles_ready( fd_pack_t * pack );
+
+/* fd_pack_set_initializer_bundles_failed reports that an initializer
+   could not be created.  In [Not initialized] or [Ready], this enters
+   [Failed] until fd_pack_end_block: bundle scheduling and metadata peeks
+   are disabled, and ordinary penalty queues become eligible.  Ordinary
+   scheduling still enforces all account locks and resource limits.
+   Queued bundles, account references, costs, and expirations are retained.
+
+   Calls in [Pending] are ignored: only execution feedback may resolve an
+   outstanding initializer.  Calls in [Failed] are also ignored.
+   pack must be a valid local join. */
+void fd_pack_set_initializer_bundles_failed( fd_pack_t * pack );
 
 
 /* FD_PACK_SCHEDULE_{BUNDLE,TXN} form a set of bitflags used in
