@@ -76,7 +76,7 @@ struct fd_accdb_stage_rec {
   uint  exec_size;
   uint  slot;
   uint  flags;
-  uint  pad;
+  uint  home;        /* bucket home page */
 };
 
 typedef struct fd_accdb_stage_rec fd_accdb_stage_rec_t;
@@ -90,8 +90,9 @@ FD_STATIC_ASSERT( sizeof(fd_accdb_stage_rec_t)==64UL, stage_layout );
 #define FD_ACCDB_PLACE_PG_MAX    (FD_ACCDB_PLACE_RANGE_PG+FD_ACCDB_IDX_PROBE_MAX)
 #define FD_ACCDB_PLACE_RANGE_MAX (1UL<<16)
 #define FD_ACCDB_PLACE_WINDOW    (256UL<<20)
-/* pass 2: pages, a >=32 MiB record buffer, the per-range counters */
-FD_STATIC_ASSERT( FD_ACCDB_PLACE_PG_MAX*FD_ACCDB_IDX_PAGE_SZ+(32UL<<20)+3UL*FD_ACCDB_PLACE_RANGE_MAX*8UL<=FD_ACCDB_PLACE_WINDOW, place_window );
+/* pass 2: pages, their slot tags, a >=32 MiB record buffer, the
+   per-range counters */
+FD_STATIC_ASSERT( FD_ACCDB_PLACE_PG_MAX*(FD_ACCDB_IDX_PAGE_SZ+64UL)+(32UL<<20)+3UL*FD_ACCDB_PLACE_RANGE_MAX*8UL<=FD_ACCDB_PLACE_WINDOW, place_window );
 
 /* Overflow log: per-fork chains of OLOG_CHUNK records. */
 #define FD_ACCDB_OLOG_CHUNK   (4096UL)
@@ -728,15 +729,16 @@ fd_accdb_cf_set_lane( ulong w,
   return fd_accdb_cf_encode( f );
 }
 
-/* fd_accdb_cf_insert (writer only).  rng picks kick lanes. */
+/* fd_accdb_cf_insert (writer only).  rng picks kick lanes.  _key takes
+   a precomputed fd_accdb_cf_key. */
 
 static inline void
-fd_accdb_cf_insert( fd_accdb_cf_t * f,
-                    uchar const     pubkey[ 32 ],
-                    ulong *         rng ) {
+fd_accdb_cf_insert_key( fd_accdb_cf_t * f,
+                        ulong           i1,
+                        ulong           i2,
+                        ulong           fp,
+                        ulong *         rng ) {
   if( FD_UNLIKELY( *f->disabled ) ) return;
-  ulong i1, i2, fp;
-  fd_accdb_cf_key( f, pubkey, &i1, &i2, &fp );
   ulong bs[ 2 ] = { i1, i2 };
   for( ulong k=0UL; k<2UL; k++ ) {
     int l = fd_accdb_cf_free_lane( f->cf[ bs[ k ] ] );
@@ -802,6 +804,15 @@ fd_accdb_cf_insert( fd_accdb_cf_t * f,
   }
   FD_LOG_WARNING(( "accdb cuckoo filter stash full, disabling the filter" ));
   FD_VOLATILE( *f->disabled ) = 1UL;
+}
+
+static inline void
+fd_accdb_cf_insert( fd_accdb_cf_t * f,
+                    uchar const     pubkey[ 32 ],
+                    ulong *         rng ) {
+  ulong i1, i2, fp;
+  fd_accdb_cf_key( f, pubkey, &i1, &i2, &fp );
+  fd_accdb_cf_insert_key( f, i1, i2, fp, rng );
 }
 
 /* fd_accdb_cf_delete (writer only): removes one copy of the key's
