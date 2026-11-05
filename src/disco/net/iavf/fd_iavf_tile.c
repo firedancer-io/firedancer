@@ -657,6 +657,7 @@ metrics_write( fd_iavf_tile_t * ctx ) {
   FD_MCNT_SET(   IAVF, PKT_TX_NO_LINK_DROPPED, ctx->metrics.tx_no_link_cnt            );
   FD_MCNT_SET(   IAVF, PKT_TX_LOOPBACK_FAILED, ctx->metrics.tx_loopback_fail_cnt      );
   FD_MCNT_SET(   IAVF, GRE_PKT_TX_SUBMITTED,   ctx->net.metrics.tx_gre_cnt            );
+  FD_MCNT_SET(   IAVF, SOCKET_PKT_TX_SUBMITTED, ctx->net.metrics.tx_sock_cnt          );
   FD_MGAUGE_SET( IAVF, TX_BUFFER_USED,         tx_buffer_busy_cnt                     );
   FD_MGAUGE_SET( IAVF, TX_BUFFER_FREE,         tx_buffer_idle_cnt                     );
 }

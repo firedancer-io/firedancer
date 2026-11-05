@@ -1017,6 +1017,7 @@ metrics_write( fd_mlx5_tile_t * ctx ) {
   FD_MCNT_ENUM_COPY( MLX5, PKT_TX_DROPPED,     ctx->net.metrics.tx_drop_cnt           );
   FD_MCNT_ENUM_COPY( MLX5, PKT_TX_ROUTING_FAILED, ctx->net.metrics.tx_routing_failure_cnt );
   FD_MCNT_SET(   MLX5, GRE_PKT_TX_SUBMITTED,   ctx->net.metrics.tx_gre_cnt            );
+  FD_MCNT_SET(   MLX5, SOCKET_PKT_TX_SUBMITTED, ctx->net.metrics.tx_sock_cnt          );
   FD_MGAUGE_SET( MLX5, TX_BUFFER_USED,         tx_buffer_busy_cnt                     );
   FD_MGAUGE_SET( MLX5, TX_BUFFER_FREE,         tx_buffer_idle_cnt                     );
 }
