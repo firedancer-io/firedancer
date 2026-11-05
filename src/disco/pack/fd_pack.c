@@ -1489,7 +1489,9 @@ fd_pack_insert_txn_fini( fd_pack_t  * pack,
     if( FD_LIKELY( same_nonce ) ) { /* Seems like most nonce transactions are effectively duplicates */
       if( FD_LIKELY( same_nonce->root == FD_ORD_TXN_ROOT_PENDING_BUNDLE || same_nonce->nonce_expires_at>expires_at ||
             (same_nonce->nonce_expires_at==expires_at && COMPARE_WORSE( ord, same_nonce ) ) ) ) REJECT( NONCE_PRIORITY );
-      ulong _delete_cnt = delete_transaction( pack, same_nonce, 0, 0 ); /* Not a bundle, so delete_full_bundle is 0 */
+      /* The replacement can omit accounts of the old transaction.  Wake
+         penalized writers that depended on those accounts. */
+      ulong _delete_cnt = delete_transaction( pack, same_nonce, 0, 1 ); /* Not a bundle, so delete_full_bundle is 0 */
       *delete_cnt += _delete_cnt;
       replaces = 1;
     }
@@ -1666,7 +1668,9 @@ fd_pack_insert_bundle_fini( fd_pack_t          * pack,
           err = FD_PACK_INSERT_REJECT_NONCE_PRIORITY;
           break;
         } else {
-          ulong _delete_cnt = delete_transaction( pack, same_nonce, 0, 0 );
+          /* Wake penalized writers for the old accounts even if this
+             bundle subsequently fails validation. */
+          ulong _delete_cnt = delete_transaction( pack, same_nonce, 0, 1 );
           *delete_cnt += _delete_cnt;
           replaces = 1;
         }

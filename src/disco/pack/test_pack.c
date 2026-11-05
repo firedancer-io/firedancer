@@ -1827,6 +1827,143 @@ test_nonce( void ) {
   FD_TEST( !fd_pack_verify( pack, pack_verify_scratch ) );
 }
 
+/* These reuse native pack fixture records, including fake signatures.
+   They test public pack transitions, not signature or runtime validity. */
+static void
+nonce_replacement_make_reader( fd_txn_p_t * txnp,
+                               ulong        id,
+                               ulong        nonce_pair,
+                               int          reads_k,
+                               ulong        price ) {
+  make_nonce_transaction1( txnp, id, 1.0, 4, 0, 'h' );
+  fd_txn_t * txn = TXN(txnp);
+  fd_acct_addr_t * accts = (fd_acct_addr_t *)(txnp->payload+txn->acct_addr_off);
+  /* Distinct nonce pairs share only readonly accounts.  Index 6 is an
+     optional readonly dependency; changing it preserves nonce/authority. */
+  for( ulong j=0UL; j<8UL; j++ ) {
+    ulong pair = nonce_pair+1000UL, role = j+1UL;
+    memset( accts[j].b, 'N', 32UL );
+    memcpy( accts[j].b, &pair, sizeof(pair) );
+    memcpy( accts[j].b+8UL, &role, sizeof(role) );
+  }
+  if( reads_k ) memset( accts[6].b, 'K', 32UL );
+  FD_TEST( txn->instr[2].data_sz==9UL && txnp->payload[txn->instr[2].data_off]==3U );
+  /* With 10001 requested CU, price 0/1 micro-lamports yields a budget
+     priority fee of 0/1 lamports, independent of the helper's pow(). */
+  memcpy( txnp->payload+txn->instr[2].data_off+1UL, &price, sizeof(price) );
+  FD_TEST( fd_disco_tpu_is_durable_nonce( txn, txnp->payload ) );
+}
+
+static void
+nonce_replacement_count_scheduled( ulong   count,
+                                   ulong   reader_cnt,
+                                   ulong * writer_cnt,
+                                   ulong * replacement_cnt,
+                                   uchar   seen[ static 65 ] ) {
+  for( ulong j=0UL; j<count; j++ ) {
+    fd_txn_p_t const * txnp = outcome.results[j].txnp;
+    ulong id = fd_ulong_load_8( txnp->payload+TXN(txnp)->signature_off );
+    if( id==300UL ) (*writer_cnt)++;
+    else {
+      FD_TEST( id>=128UL && id<128UL+reader_cnt );
+      FD_TEST( !seen[id-128UL] );
+      seen[id-128UL] = 1U;
+      FD_TEST( txnp->flags & FD_TXN_P_FLAGS_DURABLE_NONCE );
+      (*replacement_cnt)++;
+    }
+  }
+}
+
+static void
+test_nonce_replacement_wakeup_case( ulong reader_cnt,
+                                    int   retain_k,
+                                    int   bundle_kind ) {
+  /* bundle_kind: 0 ordinary, 1 accepted bundle, 2 validation rejection
+     after deleting the old nonce.  No original reader is scheduled. */
+  FD_LOG_NOTICE(( "nonce replacement wakeup readers %lu retain K %d bundle kind %d", reader_cnt, retain_k, bundle_kind ));
+  fd_pack_t * pack = init_all( 256UL, 1UL, 128UL, &outcome );
+  fd_pack_set_initializer_bundles_ready( pack );
+  FD_TEST( !fd_pack_expire_before( pack, 100UL ) );
+  for( ulong i=0UL; i<reader_cnt; i++ ) {
+    nonce_replacement_make_reader( txnp_scratch+i, i, i, 1, 0UL );
+    fd_txn_e_t * slot = fd_pack_insert_txn_init( pack );
+    memcpy( slot->txnp, txnp_scratch+i, sizeof(fd_txn_p_t) );
+    ulong deleted;
+    FD_TEST( fd_pack_insert_txn_fini( pack, slot, 200UL, &deleted )==FD_PACK_INSERT_ACCEPT_NONCE_NONVOTE_ADD );
+    FD_TEST( !deleted );
+  }
+  fd_txn_e_t * writer = fd_pack_insert_txn_init( pack );
+  make_transaction1( writer->txnp, 300UL, 1000000U, 4096U, 1.0, "K", "", NULL, NULL );
+  ulong price = 1000000UL, deleted;
+  memcpy( writer->txnp->payload+TXN(writer->txnp)->instr[1].data_off+1UL, &price, sizeof(price) );
+  FD_TEST( fd_pack_insert_txn_fini( pack, writer, 10000UL, &deleted )==FD_PACK_INSERT_ACCEPT_NONVOTE_ADD );
+  FD_TEST( !deleted );
+  /* At 65 readonly references, only the new writer is penalized. */
+  check_penalty_pending( pack, reader_cnt+(ulong)(reader_cnt<=64UL), (ulong)(reader_cnt>64UL) );
+
+  for( ulong i=0UL; i<reader_cnt; i++ ) {
+    fd_txn_e_t * slots[1];
+    if( bundle_kind ) fd_pack_insert_bundle_init( pack, slots, 1UL );
+    else             slots[0] = fd_pack_insert_txn_init( pack );
+    nonce_replacement_make_reader( slots[0]->txnp, 128UL+i, i, retain_k, 1UL );
+    if( bundle_kind==2 ) {
+      /* Keep the same nonce account/authority and a valid first nonce
+         instruction, but duplicate K in two readonly metas.  Bundle
+         insertion deletes the old nonce before account validation. */
+      fd_txn_p_t * txnp = slots[0]->txnp;
+      fd_acct_addr_t * accts = (fd_acct_addr_t *)(txnp->payload+TXN(txnp)->acct_addr_off);
+      memset( accts[6].b, 'K', 32UL );
+      accts[7] = accts[6];
+    }
+    int rc = bundle_kind ? fd_pack_insert_bundle_fini( pack, slots, 1UL, 200UL, 0, NULL, &deleted )
+                         : fd_pack_insert_txn_fini   ( pack, slots[0], 200UL, &deleted );
+    FD_TEST( rc==(bundle_kind==2 ? FD_PACK_INSERT_REJECT_DUPLICATE_ACCT : FD_PACK_INSERT_ACCEPT_NONCE_NONVOTE_REPLACE) );
+    FD_TEST( deleted==1UL );
+    FD_TEST( !fd_pack_delete_transaction( pack, txnp_get_signatures(txnp_scratch+i) ) );
+    FD_TEST( !fd_pack_verify( pack, pack_verify_scratch ) );
+  }
+  FD_TEST( fd_pack_avail_txn_cnt( pack )==(bundle_kind==2 ? 1UL : reader_cnt+1UL) );
+
+  ulong writer_cnt = 0UL, replacement_cnt = 0UL;
+  uchar seen[65] = {0};
+  /* For accepted bundles, initially schedule only regular transactions.
+     The writer must be eligible before completing any replacement.
+     Keep-K controls may instead complete a K reader before the writer. */
+  ulong count = fd_pack_schedule_next_microblock( pack, 2000000UL, 0UL, FD_PACK_SCHEDULE_TXN, outcome.results );
+  if( !retain_k || bundle_kind==2 ) {
+    FD_TEST( count );
+    FD_TEST( fd_ulong_load_8( outcome.results[0].txnp->payload+TXN(outcome.results[0].txnp)->signature_off )==300UL );
+  }
+  nonce_replacement_count_scheduled( count, reader_cnt, &writer_cnt, &replacement_cnt, seen );
+  if( count ) FD_TEST( fd_pack_microblock_complete( pack, 0UL )==1 );
+  FD_TEST( !fd_pack_verify( pack, pack_verify_scratch ) );
+  for( ulong step=0UL; fd_pack_avail_txn_cnt( pack ) && step<reader_cnt+2UL; step++ ) {
+    count = fd_pack_schedule_next_microblock( pack, 2000000UL, 0UL, ALL, outcome.results );
+    FD_TEST( count );
+    nonce_replacement_count_scheduled( count, reader_cnt, &writer_cnt, &replacement_cnt, seen );
+    FD_TEST( fd_pack_microblock_complete( pack, 0UL )==1 );
+    FD_TEST( !fd_pack_verify( pack, pack_verify_scratch ) );
+  }
+  FD_TEST( writer_cnt==1UL && replacement_cnt==(bundle_kind==2 ? 0UL : reader_cnt) );
+  FD_TEST( !fd_pack_avail_txn_cnt( pack ) );
+  fd_pack_clear_all( pack );
+  FD_TEST( !fd_pack_verify( pack, pack_verify_scratch ) );
+  fd_pack_delete( fd_pack_leave( pack ) );
+}
+
+static void
+test_nonce_replacement_wakeup( void ) {
+  FD_LOG_NOTICE(( "TEST NONCE REPLACEMENT WAKEUP" ));
+  for( ulong readers=64UL; readers<=65UL; readers++ )
+    for( int retain_k=0; retain_k<2; retain_k++ )
+      test_nonce_replacement_wakeup_case( readers, retain_k, 0 );
+  test_nonce_replacement_wakeup_case( 0UL, 0, 0 );
+  test_nonce_replacement_wakeup_case( 65UL, 0, 1 );
+  test_nonce_replacement_wakeup_case( 65UL, 1, 1 );
+  test_nonce_replacement_wakeup_case( 65UL, 1, 2 );
+  test_nonce_replacement_wakeup_case( 64UL, 1, 2 );
+}
+
 static void
 test_bundle_nonce_conflict_detect( fd_pack_t * pack,
                                    ulong       txn_cnt,
@@ -2029,6 +2166,7 @@ main( int     argc,
   test_reject_blocklist();
   test_duplicate_sig();
   test_nonce();
+  test_nonce_replacement_wakeup();
   test_bundle_nonce();
   if( extra_benchmark ) {
     performance_test( extra_benchmark );
