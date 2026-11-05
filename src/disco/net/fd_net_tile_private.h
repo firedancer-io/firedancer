@@ -364,6 +364,12 @@ fd_net_rx_pkt( fd_net_tile_t *     ctx,
 
   int is_gre = ip4_hdr->protocol==FD_IP4_HDR_PROTOCOL_GRE;
   if( FD_UNLIKELY( is_gre ) ) {
+    /* No IP reassembly: a fragment cannot be interpreted as a GRE
+       header and complete inner datagram.  DF alone is permitted. */
+    if( FD_UNLIKELY( !fd_ip4_hdr_net_frag_off_is_unfragmented( ip4_hdr->net_frag_off ) ) ) {
+      ctx->metrics.rx_drop_cnt[ FD_METRICS_ENUM_PKT_RX_DROP_REASON_V_MALFORMED_IDX ]++;
+      return 0;
+    }
     if( FD_UNLIKELY( !ctx->gre_tunnel_ip[0] ) ) {
       if( iavf_non_fd_pkts_rx_total ) goto iavf_non_fd_pkt;
       ctx->metrics.rx_drop_cnt[ FD_METRICS_ENUM_PKT_RX_DROP_REASON_V_GRE_UNCONFIGURED_IDX ]++;
@@ -406,6 +412,13 @@ fd_net_rx_pkt( fd_net_tile_t *     ctx,
   }
   if( FD_UNLIKELY( ip4_hdr->protocol!=FD_IP4_HDR_PROTOCOL_UDP ) ) {
     if( iavf_non_fd_pkts_rx_total ) goto iavf_non_fd_pkt;
+    ctx->metrics.rx_drop_cnt[ FD_METRICS_ENUM_PKT_RX_DROP_REASON_V_MALFORMED_IDX ]++;
+    return 0;
+  }
+  /* Applies to direct UDP and the inner IP header after GRE.  Neither a
+     first fragment (MF) nor a later fragment contains a complete IP
+     datagram, even if its bytes happen to form a valid UDP payload. */
+  if( FD_UNLIKELY( !fd_ip4_hdr_net_frag_off_is_unfragmented( ip4_hdr->net_frag_off ) ) ) {
     ctx->metrics.rx_drop_cnt[ FD_METRICS_ENUM_PKT_RX_DROP_REASON_V_MALFORMED_IDX ]++;
     return 0;
   }
