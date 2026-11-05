@@ -58,15 +58,11 @@ fd_shredb_key_shred_idx( ulong key ) {
   return (uint)fd_ulong_extract( key, 0, 31 );
 }
 
-typedef __attribute__((aligned(4))) ulong fd_shredb_map_key_t;
-
-FD_STATIC_ASSERT( sizeof(fd_shredb_map_key_t)==8UL, shredb_map_key_footprint );
-FD_STATIC_ASSERT( alignof(fd_shredb_map_key_t)==4UL, shredb_map_key_align );
-
 /* Versions of a (slot,idx) the slot map can't serve are found through
    an on-disk linear-probing table of (fp,ring_idx) records placed after
-   the shred ring.  fp is a seeded hash of (slot,root prefix,idx).  A
-   cell has at most one record.  Records of another gen (an earlier
+   the shred ring: later versions by a seeded hash of (slot,root
+   prefix,idx), and first versions whose map key an alias holds by a
+   seeded hash of (slot,idx).  A cell has at most one record.  Records of another gen (an earlier
    boot) are empty; the table has more than 2x as many records as ring
    cells, so even a gen collision with a full earlier boot never fills
    it. */
@@ -97,22 +93,26 @@ fd_shredb_tbl_rec_cnt( ulong max_shreds ) {
   return max_shreds ? fd_ulong_pow2_up( 2UL*max_shreds+1UL ) : 0UL;
 }
 
+/* Cell kinds, kept in the on-disk entry tag above bit 32 */
 #define FD_SHREDB_KIND_FIRST    (0) /* linked in the slot map while live */
 #define FD_SHREDB_KIND_NONFIRST (1) /* later version, has a table record */
+#define FD_SHREDB_KIND_ALIAS    (2) /* first version an alias keeps out of the slot map, has a table record */
 
 /* One ring entry per cell.  tag is lap<<2 | state, where lap is the
    reservation ticket's lap (ticket/disk_max_shreds) mod 2^30.  A cell's
    writes are one lap apart, so a stale tag repeats only 2^30 laps (>=
    2^54 tickets for rings of 2^24+ cells) later, whatever the ring size.
-   A READY cell is NONFIRST iff the slot map does not link it.  All
+   key is (slot<<key_idx_bits | idx) truncated to 32 bits, so slots
+   2^(32-key_idx_bits) apart alias; reads check the full key on disk.
+   A READY cell has a record iff the slot map does not link it.  All
    fields use disk_lock. */
 struct fd_shredb_ring_entry {
-  uint                 tag;
-  fd_shredb_map_key_t  key;
-  uint                 slot_next;
+  uint tag;
+  uint key;
+  uint slot_next;
 };
 typedef struct fd_shredb_ring_entry fd_shredb_ring_entry_t;
-FD_STATIC_ASSERT( sizeof(fd_shredb_ring_entry_t)==16UL, shredb_ring_entry_footprint );
+FD_STATIC_ASSERT( sizeof(fd_shredb_ring_entry_t)==12UL, shredb_ring_entry_footprint );
 
 #define FD_SHREDB_LAP_MASK ((1UL<<30)-1UL)
 
@@ -127,7 +127,7 @@ FD_STATIC_ASSERT( sizeof(fd_shredb_ring_entry_t)==16UL, shredb_ring_entry_footpr
 
 #define MAP_NAME   fd_shredb_slot_map
 #define MAP_ELE_T  fd_shredb_ring_entry_t
-#define MAP_KEY_T  fd_shredb_map_key_t
+#define MAP_KEY_T  uint
 #define MAP_KEY    key
 #define MAP_NEXT   slot_next
 #define MAP_IDX_T  uint
@@ -291,6 +291,7 @@ struct fd_store {
   ulong        disk_max_slots;
   ulong        disk_root_seed;
   uint         disk_tbl_gen;    /* non-zero, per boot */
+  ulong        key_idx_bits;    /* bits of idx in slot map keys */
   ulong        max_shreds_per_block; /* bounds shred idxs, <=FD_SHREDB_HINT_VALID */
   atomic_ulong disk_reservation_head;
   atomic_ulong disk_cnt;
