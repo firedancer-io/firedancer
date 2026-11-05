@@ -102,6 +102,7 @@ struct fd_x509_cert_info {
   int           is_ca;                    /* 1 if basicConstraints cA=TRUE */
   uchar         has_basic_constraints;
   uchar         has_path_len_constraint;
+  uchar         basic_constraints_noncritical; /* 1 if cA=TRUE but extension is not critical */
 
   /* Key Usage (RFC 5280 Section 4.2.1.3) */
   ushort        key_usage;          /* FD_X509_KU_* bits, 0 if absent */

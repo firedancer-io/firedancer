@@ -488,8 +488,8 @@ fd_x509_parse_extensions( fd_der_cursor_t *     c,
           FD_DER_READ( val, FD_DER_TAG_BOOLEAN, ca_ptr, ca_len );
           /* cA is DEFAULT FALSE, so DER permits only explicit TRUE. */
           if( FD_UNLIKELY( ca_len!=1UL || ca_ptr[0]!=0xFF ) ) return -1;
-          if( FD_UNLIKELY( !critical ) ) return -1;
           out->is_ca = 1;
+          out->basic_constraints_noncritical = (uchar)!critical;
         }
         int path_len_tag; FD_DER_PEEK_TAG_OR( val, path_len_tag, 0 );
         if( path_len_tag == (int)FD_DER_TAG_INTEGER ) {
