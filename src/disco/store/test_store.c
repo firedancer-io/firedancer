@@ -327,11 +327,11 @@ void
 test_disk_index_footprint( void ) {
   ulong fp_no_disk = fd_store_footprint( 8UL, 31840UL,  0UL, 0UL, 0UL, 1UL );
   ulong fp_50_gib  = fd_store_footprint( 8UL, 31840UL, 50UL, 0UL, 0UL, 1UL );
-  /* 44B ring pool + two fd_map_chain bucket arrays (max_shreds/8
+  /* 32B ring pool + two fd_map_chain bucket arrays (max_shreds/8
      rounded up to 2^23 heads each) + per-slot hints; the +4096 is
      the slot map's header. */
   FD_TEST( fd_shredb_disk_chain_cnt( fd_shredb_max_shreds( 50UL ) )==(1UL<<23) );
-  FD_TEST( fp_50_gib-fp_no_disk==(1834UL<<20)+4096UL );
+  FD_TEST( fp_50_gib-fp_no_disk==(1354UL<<20)+4096UL );
 
   /* A 4 TiB ring fits the 32-bit index and 54-bit ticket limits. */
   ulong ring_4_tib = fd_shredb_max_shreds( 4096UL );
@@ -1007,6 +1007,21 @@ test_disk_root_offset_alias( fd_wksp_t * wksp ) {
   FD_TEST( atomic_load_explicit( &store->disk_reservation_head, memory_order_relaxed )==head );
   FD_TEST( fd_store_disk_query_root( store, disk_fd, root.uc, 3U, out )>0 && out[ FD_SHRED_DATA_HEADER_SZ ]==0xb0U );
 
+  /* Fake a fingerprint collision (one chain, so rekeying in place is
+     safe): another root reads the cell, sees its on-disk root differ and
+     misses instead of serving the wrong shred; its insert is dropped. */
+  fd_hash_t other = disk_root( 501UL, 0U );
+  fd_shredb_ring_entry_t * pool = disk_ring_pool_laddr( store );
+  uint owner = (uint)fd_shredb_slot_map_idx_query_const( disk_slot_map_join( store ), &(ulong){ fd_shredb_key_pack( 11UL, 3U ) }, UINT_MAX, pool );
+  FD_TEST( owner<store->disk_max_shreds );
+  ulong fp = pool[ owner ].root_fp;
+  pool[ owner ].root_fp = fd_shredb_root_fp( store->disk_root_seed, other.uc, 3U );
+  FD_TEST( fd_store_disk_query_root( store, disk_fd, other.uc, 3U, out )==FD_STORE_DISK_QUERY_MISS );
+  FD_TEST( fd_store_disk_insert( store, disk_fd, disk_make_shred( buf, 12UL, 3U, 0xe0U ), &other )==FD_STORE_DISK_INSERT_DUP );
+  FD_TEST( atomic_load_explicit( &store->disk_reservation_head, memory_order_relaxed )==head );
+  pool[ owner ].root_fp = fp;
+  FD_TEST( fd_store_disk_query_root( store, disk_fd, root.uc, 3U, out )>0 && out[ FD_SHRED_DATA_HEADER_SZ ]==0xb0U );
+
   close( disk_fd );
   fd_wksp_free_laddr( fd_store_delete( fd_store_leave( store ) ) );
 }
@@ -1409,7 +1424,7 @@ test_disk_insert_batch( fd_wksp_t * wksp ) {
     fd_shredb_ring_entry_t const * cell_b = disk_ring_pool_laddr( b )+i;
     FD_TEST( disk_cell_tag_load( cell_a )==disk_cell_tag_load( cell_b ) );
     FD_TEST( cell_a->key==cell_b->key );
-    FD_TEST( !memcmp( &cell_a->root_key, &cell_b->root_key, sizeof(fd_shredb_root_key_t) ) );
+    FD_TEST( cell_a->root_fp==cell_b->root_fp );
   }
   for( ulong i=0UL; i<a->disk_max_slots; i++ ) {
     FD_TEST( atomic_load_explicit( disk_slot_hint_laddr( a )+i, memory_order_relaxed )==
