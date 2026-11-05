@@ -27,7 +27,7 @@ fd_store_payload_slot_sz( ulong fec_data_max ) {
   if( FD_UNLIKELY( __builtin_uaddl_overflow( fec_data_max, FD_STORE_PAYLOAD_HDR_SZ+FD_STORE_PAYLOAD_PAGE_SZ-1UL, &rounded ) ) ) return 0UL;
   return rounded & ~(FD_STORE_PAYLOAD_PAGE_SZ-1UL);
 }
-#define FD_STORE_MAGIC (0xf17eda2ce75702f0UL) /* firedancer store version 16 */
+#define FD_STORE_MAGIC (0xf17eda2ce75702f1UL) /* firedancer store version 17 */
 
 #define FD_STORE_FEC_DATA_EMPTY       (0U)
 #define FD_STORE_FEC_DATA_RAM_WRITING (1U)
@@ -63,37 +63,32 @@ typedef __attribute__((aligned(4))) ulong fd_shredb_map_key_t;
 FD_STATIC_ASSERT( sizeof(fd_shredb_map_key_t)==8UL, shredb_map_key_footprint );
 FD_STATIC_ASSERT( alignof(fd_shredb_map_key_t)==4UL, shredb_map_key_align );
 
-struct fd_shredb_root_key {
-  uchar root[ FD_SHRED_MERKLE_NODE_SZ ];
-  uchar off; /* 0 <= off < 32 */
-};
-typedef struct fd_shredb_root_key fd_shredb_root_key_t;
+/* The root map keys every cell by a seeded 64-bit fingerprint of
+   (root,idx%32).  Reads check the full root and idx on disk. */
 
-FD_STATIC_ASSERT( sizeof(fd_shredb_root_key_t)==21UL, shredb_root_key_footprint );
-
-static inline fd_shredb_root_key_t
-fd_shredb_root_key( uchar const * merkle_root,
-                    uint          shred_idx ) {
-  fd_shredb_root_key_t key;
-  memcpy( key.root, merkle_root, FD_SHRED_MERKLE_NODE_SZ );
-  key.off = (uchar)(shred_idx % FD_FEC_SHRED_CNT);
-  return key;
+static inline ulong
+fd_shredb_root_fp( ulong         seed,
+                   uchar const * merkle_root,
+                   uint          shred_idx ) {
+  uchar buf[ FD_SHRED_MERKLE_NODE_SZ+1UL ];
+  memcpy( buf, merkle_root, FD_SHRED_MERKLE_NODE_SZ );
+  buf[ FD_SHRED_MERKLE_NODE_SZ ] = (uchar)(shred_idx % FD_FEC_SHRED_CNT);
+  return fd_hash( seed, buf, sizeof(buf) );
 }
 
-/* One ring entry provides keys and chain links to both maps.  Its
-   seven-byte tag and 21-byte root key leave no padding in 44 bytes.
-   tag_hi extends the low 30 ticket bits in tag by 24 bits; the bottom
-   two tag bits hold the cell state.  All fields use disk_lock. */
+/* One ring entry provides keys and chain links to both maps.  tag_hi
+   extends the low 30 ticket bits in tag by 24 bits; the bottom two tag
+   bits hold the cell state.  All fields use disk_lock. */
 struct fd_shredb_ring_entry {
   uint                 tag;
   uchar                tag_hi[ 3 ];
-  fd_shredb_root_key_t root_key;
+  fd_shredb_map_key_t  root_fp;
   fd_shredb_map_key_t  key;
   uint                 slot_next;
   uint                 root_next;
 };
 typedef struct fd_shredb_ring_entry fd_shredb_ring_entry_t;
-FD_STATIC_ASSERT( sizeof(fd_shredb_ring_entry_t)==44UL, shredb_ring_entry_footprint );
+FD_STATIC_ASSERT( sizeof(fd_shredb_ring_entry_t)==32UL, shredb_ring_entry_footprint );
 
 #define FD_SHREDB_TAG_SEQ_MASK ((1UL<<54)-1UL)
 
@@ -115,14 +110,12 @@ FD_STATIC_ASSERT( sizeof(fd_shredb_ring_entry_t)==44UL, shredb_ring_entry_footpr
 #define MAP_IDX_T  uint
 #include "../../util/tmpl/fd_map_chain.c"
 
-#define MAP_NAME               fd_shredb_root_map
-#define MAP_ELE_T              fd_shredb_ring_entry_t
-#define MAP_KEY_T              fd_shredb_root_key_t
-#define MAP_KEY                root_key
-#define MAP_KEY_EQ(k0,k1)      (!memcmp( (k0), (k1), sizeof(fd_shredb_root_key_t) ))
-#define MAP_KEY_HASH(key,seed) fd_hash( (seed), (key), sizeof(fd_shredb_root_key_t) )
-#define MAP_NEXT               root_next
-#define MAP_IDX_T              uint
+#define MAP_NAME   fd_shredb_root_map
+#define MAP_ELE_T  fd_shredb_ring_entry_t
+#define MAP_KEY_T  fd_shredb_map_key_t
+#define MAP_KEY    root_fp
+#define MAP_NEXT   root_next
+#define MAP_IDX_T  uint
 #include "../../util/tmpl/fd_map_chain.c"
 
 struct __attribute__((aligned(64))) fd_shredb_entry {
@@ -268,7 +261,8 @@ struct fd_store {
   /* On-disk shred index. Lives in the wire region of the shared file
      at byte offset wire_off + ring_idx*sizeof(entry).  shred_map keys
      cells by (slot,idx), first version wins.  root_map keys every cell
-     by (root,idx%32).  Both maps share the ring pool and disk_lock. */
+     by a seeded fingerprint of (root,idx%32).  Both maps share the ring
+     pool and disk_lock. */
   ulong        shred_map_gaddr; /* fd_shredb_slot_map over the ring pool */
   ulong        ring_pool_gaddr;
   ulong        root_map_gaddr;  /* fd_shredb_root_map over the ring pool */
@@ -276,6 +270,7 @@ struct fd_store {
   ulong        slot_hint_gaddr;
   ulong        disk_max_shreds;
   ulong        disk_max_slots;
+  ulong        disk_root_seed;
   ulong        max_shreds_per_block; /* bounds shred idxs, <=FD_SHREDB_HINT_VALID */
   atomic_ulong disk_reservation_head;
   atomic_ulong disk_cnt;
@@ -560,9 +555,9 @@ typedef struct fd_store_disk_stats fd_store_disk_stats_t;
 /* Persists one (slot,idx) shred, where idx is below max_shreds_per_block,
    whose FEC set has merkle root merkle_root (only the first
    FD_SHRED_MERKLE_NODE_SZ bytes are used).  Every version is indexed by
-   (root,idx%FD_FEC_SHRED_CNT) and inserting a key already held by a
-   READY cell is a no-op, so a different idx that aliases the same
-   offset is dropped too.  The first version stored for a (slot,idx) is
+   a fingerprint of (root,idx%FD_FEC_SHRED_CNT) and inserting a key
+   already held by a READY cell is a no-op, so a different idx that
+   aliases the same offset is dropped too.  The first version stored for a (slot,idx) is
    also indexed by (slot,idx).  Returns FD_STORE_DISK_INSERT_SUCCESS if
    written, FD_STORE_DISK_INSERT_DUP if already stored or dropped, or
    FD_STORE_DISK_INSERT_ERR. */
