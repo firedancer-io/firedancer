@@ -561,6 +561,7 @@ static int
 fd_collect_loaded_account( fd_txn_out_t *   txn_out,
                            fd_acc_t const * acc,
                            ulong            loaded_acc_size,
+                           int              programdata_size_floor,
                            fd_pubkey_t *    additional_loaded_account_keys,
                            ulong *          additional_loaded_account_keys_cnt ) {
 
@@ -611,11 +612,11 @@ fd_collect_loaded_account( fd_txn_out_t *   txn_out,
     }
   }
 
-  /* Programdata account size check.  Agave counts the current-fork
-     size, which the parent-fork executable[] copy can lag, so prefer
-     executable_cur_len when the probe reported one.  Programdata
-     deployed this slot has no executable[] copy at all; its size is
-     in the skipped list. */
+  /* Programdata liveness and size.  Agave reads both off the current
+     fork, which the parent-fork executable[] copy can lag, so prefer
+     the probe's current-fork values when it reported them.  Programdata
+     deployed this slot has no executable[] copy at all.  Its size is in
+     the skipped list. */
   fd_acc_t const * programdata_ref = NULL;
   ushort           pd_idx          = USHORT_MAX;
   for( ushort i=0; i<txn_out->accounts.executable_cnt; i++ ) {
@@ -626,20 +627,16 @@ fd_collect_loaded_account( fd_txn_out_t *   txn_out,
       break;
     }
   }
+  int   programdata_live;
   ulong programdata_sz;
   if( FD_LIKELY( programdata_ref ) ) {
-    /* Agave charges 64+len iff on the current fork the account is
-       lamports!=0.  The length used is also from the current fork.  So
-       liveness and length must come from the current fork.
-       executable[] holds the parent fork, so prefer the current fork
-       values from the probe whenever available. */
     ulong cur = txn_out->accounts.executable_cur_len[ pd_idx ];
     if( cur!=ULONG_MAX ) {
-      if( FD_UNLIKELY( !txn_out->accounts.executable_cur_lamports[ pd_idx ] ) ) return FD_RUNTIME_EXECUTE_SUCCESS;
-      programdata_sz = cur;
+      programdata_live = !!txn_out->accounts.executable_cur_lamports[ pd_idx ];
+      programdata_sz   = cur;
     } else {
-      if( FD_UNLIKELY( !programdata_ref->lamports ) ) return FD_RUNTIME_EXECUTE_SUCCESS;
-      programdata_sz = programdata_ref->data_len;
+      programdata_live = !!programdata_ref->lamports;
+      programdata_sz   = programdata_ref->data_len;
     }
   } else {
     /* Membership in the skipped list is the liveness answer: producers
@@ -649,21 +646,29 @@ fd_collect_loaded_account( fd_txn_out_t *   txn_out,
        (e.g. closed in an earlier slot, then credited back to
        rent-exemption), which Agave still charges the 64-byte base
        for. */
-    int found = 0;
-    programdata_sz = 0UL;
+    programdata_live = 0;
+    programdata_sz   = 0UL;
     for( ushort i=0; i<txn_out->accounts.executable_skipped_cnt; i++ ) {
       if( !memcmp( txn_out->accounts.executable_skipped_key[ i ].uc, &loader_state->inner.program.programdata_address, 32UL ) ) {
-        programdata_sz = txn_out->accounts.executable_skipped_len[ i ];
-        found          = 1;
+        programdata_live = 1;
+        programdata_sz   = txn_out->accounts.executable_skipped_len[ i ];
         break;
       }
     }
-    if( FD_UNLIKELY( !found ) ) return FD_RUNTIME_EXECUTE_SUCCESS;
   }
 
-  /* Try to accumulate the programdata's data size
+  /* Agave charges 64+len for a live PD and nothing for a dead or
+     missing one.  Under loaderv3_programdata_size_floor it charges
+     64+max(len,45) regardless, with a dead or missing PD counting as
+     length 0.  So a PD closed in an earlier slot charges the same
+     whether or not the reader observes a plain transfer reviving it.
      https://github.com/anza-xyz/agave/blob/v2.3.1/svm/src/account_loader.rs#L625-L630 */
-  ulong programdata_size_delta = fd_ulong_sat_add( FD_TRANSACTION_ACCOUNT_BASE_SIZE, programdata_sz );
+  ulong programdata_size_delta;
+  if( programdata_size_floor ) {
+    programdata_size_delta = fd_ulong_sat_add( FD_TRANSACTION_ACCOUNT_BASE_SIZE, fd_ulong_max( programdata_live ? programdata_sz : 0UL, PROGRAMDATA_METADATA_SIZE ) );
+  } else {
+    programdata_size_delta = programdata_live ? fd_ulong_sat_add( FD_TRANSACTION_ACCOUNT_BASE_SIZE, programdata_sz ) : 0UL;
+  }
   err = fd_increase_calculated_data_size( txn_out, programdata_size_delta );
   if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
     return err;
@@ -702,6 +707,7 @@ fd_executor_load_transaction_accounts( fd_bank_t *         bank,
      https://github.com/anza-xyz/agave/blob/v2.3.1/svm/src/account_loader.rs#L559 */
   fd_pubkey_t additional_loaded_account_keys[ FD_TXN_ACCT_ADDR_MAX ];
   ulong       additional_loaded_account_keys_cnt = 0UL;
+  int         programdata_size_floor = FD_FEATURE_ACTIVE_BANK( bank, loaderv3_programdata_size_floor );
 
   /* Charge a base fee for each address lookup table.
      https://github.com/anza-xyz/agave/blob/v2.3.1/svm/src/account_loader.rs#L570-L576 */
@@ -730,6 +736,7 @@ fd_executor_load_transaction_accounts( fd_bank_t *         bank,
         txn_out,
         acc,
         loaded_acc_size,
+        programdata_size_floor,
         additional_loaded_account_keys,
         &additional_loaded_account_keys_cnt );
       if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
@@ -749,6 +756,7 @@ fd_executor_load_transaction_accounts( fd_bank_t *         bank,
       txn_out,
       acc,
       loaded_acc_size,
+      programdata_size_floor,
       additional_loaded_account_keys,
       &additional_loaded_account_keys_cnt );
     if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
