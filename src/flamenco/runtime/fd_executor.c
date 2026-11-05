@@ -1541,20 +1541,36 @@ fd_executor_setup_accounts_for_txn( fd_runtime_t *      runtime,
 }
 
 int
-fd_executor_txn_verify( fd_txn_p_t *         txn_p,
-                        fd_sha512_t *        shas[ FD_TXN_SIG_MAX ],
-                        fd_ed25519_cache_t * cache ) {
-  fd_txn_t * txn = TXN( txn_p );
+fd_executor_txn_verify( fd_ed25519_verifier_t *  verifier,
+                        fd_txn_p_t const * const txns[],
+                        ulong                    txn_cnt ) {
+  uchar const * msgs       [ FD_ED25519_VERIFIER_SIG_MAX ];
+  ulong         msg_szs    [ FD_ED25519_VERIFIER_SIG_MAX ];
+  uchar const * sigs       [ FD_ED25519_VERIFIER_SIG_MAX ];
+  uchar const * public_keys[ FD_ED25519_VERIFIER_SIG_MAX ];
+  int           results    [ FD_ED25519_VERIFIER_SIG_MAX ];
 
-  uchar * signatures = txn_p->payload + txn->signature_off;
-  uchar * pubkeys    = txn_p->payload + txn->acct_addr_off;
-  uchar * msg        = txn_p->payload + txn->message_off;
-  ulong   msg_sz     = fd_txn_msg_sz( txn, txn_p->payload_sz );
+  ulong sig_cnt = 0UL;
+  for( ulong i=0UL; i<txn_cnt; i++ ) {
+    fd_txn_p_t const * txn_p = txns[ i ];
+    fd_txn_t const *   txn   = TXN( txn_p );
+    uchar const *      msg   = txn_p->payload + txn->message_off;
+    ulong              msg_sz = fd_txn_msg_sz( txn, txn_p->payload_sz );
+    FD_TEST( sig_cnt+txn->signature_cnt<=FD_ED25519_VERIFIER_SIG_MAX );
+    for( ulong j=0UL; j<txn->signature_cnt; j++ ) {
+      msgs       [ sig_cnt ] = msg;
+      msg_szs    [ sig_cnt ] = msg_sz;
+      sigs       [ sig_cnt ] = txn_p->payload + txn->signature_off + 64UL*j;
+      public_keys[ sig_cnt ] = txn_p->payload + txn->acct_addr_off + 32UL*j;
+      sig_cnt++;
+    }
+  }
+  FD_TEST( sig_cnt );
 
-  int res = cache ? fd_ed25519_verify_batch_single_msg_cached( msg, msg_sz, signatures, pubkeys, shas, txn->signature_cnt, cache ) :
-                    fd_ed25519_verify_batch_single_msg       ( msg, msg_sz, signatures, pubkeys, shas, txn->signature_cnt        );
-  if( FD_UNLIKELY( res!=FD_ED25519_SUCCESS ) ) return FD_RUNTIME_TXN_ERR_SIGNATURE_FAILURE;
-
+  fd_ed25519_verifier_verify_sigs( verifier, msgs, msg_szs, sigs, public_keys, results, sig_cnt );
+  for( ulong k=0UL; k<sig_cnt; k++ ) {
+    if( FD_UNLIKELY( results[ k ]!=FD_ED25519_SUCCESS ) ) return FD_RUNTIME_TXN_ERR_SIGNATURE_FAILURE;
+  }
   return FD_RUNTIME_EXECUTE_SUCCESS;
 }
 

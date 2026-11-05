@@ -73,7 +73,7 @@ fuzz_mem_align( void ) {
   a = fd_ulong_max( a, fd_tcache_align () );
   a = fd_ulong_max( a, FD_CHUNK_ALIGN    );
   a = fd_ulong_max( a, fd_mcache_align() );
-  a = fd_ulong_max( a, fd_ed25519_cache_align() );
+  a = fd_ulong_max( a, fd_ed25519_verifier_align() );
   return a;
 }
 
@@ -93,7 +93,7 @@ fuzz_mem_footprint( void ) {
   l = FD_LAYOUT_APPEND( l, fd_tcache_align(),  fd_tcache_footprint( FUZZ_TCACHE_DEPTH, 0UL ) );
   l = FD_LAYOUT_APPEND( l, FD_CHUNK_ALIGN,     FUZZ_OUT_DBUF_SZ );
   l = FD_LAYOUT_APPEND( l, fd_mcache_align(),  fd_mcache_footprint( FUZZ_OUT_DEPTH, 0UL ) );
-  l = FD_LAYOUT_APPEND( l, fd_ed25519_cache_align(), fd_ed25519_cache_footprint( FUZZ_ED25519_CACHE_ENT_CNT ) );
+  l = FD_LAYOUT_APPEND( l, fd_ed25519_verifier_align(), fd_ed25519_verifier_footprint( FUZZ_ED25519_CACHE_ENT_CNT ) );
   return FD_LAYOUT_FINI( l, fuzz_mem_align() );
 }
 
@@ -316,7 +316,7 @@ setup_env( fuzz_env_t * env ) {
   void * tcache_mem     = FD_SCRATCH_ALLOC_APPEND( l, fd_tcache_align(),  fd_tcache_footprint( FUZZ_TCACHE_DEPTH, 0UL ) );
   void * out_dcache     = FD_SCRATCH_ALLOC_APPEND( l, FD_CHUNK_ALIGN, FUZZ_OUT_DBUF_SZ );
   void * mcache_mem     = FD_SCRATCH_ALLOC_APPEND( l, fd_mcache_align(), fd_mcache_footprint( FUZZ_OUT_DEPTH, 0UL ) );
-  void * edcache_mem    = FD_SCRATCH_ALLOC_APPEND( l, fd_ed25519_cache_align(), fd_ed25519_cache_footprint( FUZZ_ED25519_CACHE_ENT_CNT ) );
+  void * verifier_mem   = FD_SCRATCH_ALLOC_APPEND( l, fd_ed25519_verifier_align(), fd_ed25519_verifier_footprint( FUZZ_ED25519_CACHE_ENT_CNT ) );
 
   ctx->peers      = peer_pool_join( peer_pool_new( peer_pool_mem, FD_CONTACT_INFO_TABLE_SIZE ) );
   ctx->peer_map   = peer_map_join ( peer_map_new ( peer_map_mem, 2UL*FD_CONTACT_INFO_TABLE_SIZE, ctx->seed ) );
@@ -334,9 +334,8 @@ setup_env( fuzz_env_t * env ) {
   ctx->tcache.ring    = fd_tcache_ring_laddr  ( tcache );
   ctx->tcache.map     = fd_tcache_map_laddr   ( tcache );
 
-  FD_TEST( fd_sha512_join( fd_sha512_new( ctx->sha ) ) );
-  ctx->ed25519_cache = fd_ed25519_cache_join( fd_ed25519_cache_new( edcache_mem, FUZZ_ED25519_CACHE_ENT_CNT, ctx->seed ) );
-  FD_TEST( ctx->ed25519_cache );
+  ctx->verifier = fd_ed25519_verifier_join( fd_ed25519_verifier_new( verifier_mem, FUZZ_ED25519_CACHE_ENT_CNT, ctx->seed ) );
+  FD_TEST( ctx->verifier );
 
   ctx->out->mem     = out_dcache;
   ctx->out->chunk0  = fd_laddr_to_chunk( out_dcache, out_dcache );

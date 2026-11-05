@@ -8,6 +8,7 @@
 #include "../../flamenco/accdb/fd_accdb.h"
 #include "../../disco/fd_clock_tile.h"
 #include "../../ballet/lthash/fd_lthash.h"
+#include "../../ballet/ed25519/fd_ed25519_verifier.h"
 
 /* fd_sched schedules replay work across a fork tree.  It uses fd_rdisp
    to order conflicting transactions and adds fork-aware lane
@@ -236,10 +237,17 @@ struct fd_sched_txn_exec {
 };
 typedef struct fd_sched_txn_exec fd_sched_txn_exec_t;
 
+/* A sigverify task takes up to FD_SCHED_SIGVERIFY_SIG_PARA consecutive
+   transactions of one block, whose signatures fill the group the exec
+   tile verifies together; a transaction with more signatures than a
+   group goes alone.  Every transaction carries a signature, so a group
+   holds at most FD_ED25519_VERIFIER_GROUP transactions. */
+#define FD_SCHED_SIGVERIFY_SIG_PARA FD_ED25519_VERIFIER_GROUP
 struct fd_sched_txn_sigverify {
   ulong bank_idx;
-  ulong txn_idx;
   ulong exec_idx;
+  ulong cnt;
+  ulong txn_idx[ FD_SCHED_SIGVERIFY_SIG_PARA ];
 };
 typedef struct fd_sched_txn_sigverify fd_sched_txn_sigverify_t;
 
@@ -486,6 +494,9 @@ fd_sched_task_next_ready( fd_sched_t * sched, fd_sched_task_t * out );
    sched_pruned_next() will return the index for the corresponding bank
    so the refcnt can be decremented for sched.
 
+   A sigverify task retires every transaction dispatched to exec_idx;
+   txn_idx and data are ignored for it.
+
    The transaction at the given index may be freed upon return from this
    function.  Nonetheless, as long as there is no intervening FEC
    ingestion, it would still be safe to query the transaction using
@@ -640,6 +651,14 @@ fd_sched_set_bypass_poh_verify( fd_sched_t * sched, int bypass_poh_verify );
    Production call sites should leave this disabled. */
 void
 fd_sched_set_bypass_alut_resolution( fd_sched_t * sched, int bypass_alut_resolution );
+
+/* fd_sched_set_sigverify_group sets the signature count a sigverify
+   task collects before it goes out, in [1,FD_SCHED_SIGVERIFY_SIG_PARA],
+   FD_ED25519_VERIFIER_GROUP by default.  This is intended for
+   tests that want a specific grouping.  Production call sites should
+   leave the default. */
+void
+fd_sched_set_sigverify_group( fd_sched_t * sched, ulong sigverify_group );
 
 /* fd_sched_set_lthash_txn_writers_max lowers the bound on writable
    accounts declared by a block's transactions from
