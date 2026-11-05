@@ -722,10 +722,11 @@ fd_gui_scheduler_counts_snap( fd_gui_t * gui, long now ) {
 
   cur->sample_time_ns = now;
 
-  cur->regular     = pack_metrics[ MIDX( GAUGE, PACK, TXN_PENDING_USED_REGULAR ) ];
-  cur->votes       = pack_metrics[ MIDX( GAUGE, PACK, TXN_PENDING_USED_VOTE ) ];
-  cur->conflicting = pack_metrics[ MIDX( GAUGE, PACK, TXN_PENDING_USED_CONFLICTING ) ];
-  cur->bundles     = pack_metrics[ MIDX( GAUGE, PACK, TXN_PENDING_USED_BUNDLE ) ];
+  cur->regular      = pack_metrics[ MIDX( GAUGE, PACK, TXN_PENDING_USED_REGULAR ) ];
+  cur->votes        = pack_metrics[ MIDX( GAUGE, PACK, TXN_PENDING_USED_VOTE ) ];
+  cur->conflicting  = pack_metrics[ MIDX( GAUGE, PACK, TXN_PENDING_USED_CONFLICTING ) ];
+  cur->bundles      = pack_metrics[ MIDX( GAUGE, PACK, TXN_PENDING_USED_BUNDLE ) ];
+  cur->next_auction = pack_metrics[ MIDX( GAUGE, PACK, TXN_PENDING_USED_NEXT_AUCTION ) ];
 
   fd_gui_hist_ts_append( gui, FD_GUI_HIST_SCHEDULER_COUNTS, cur );
 }

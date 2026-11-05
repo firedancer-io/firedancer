@@ -2746,6 +2746,7 @@ fd_gui_printf_slot_request_detailed( fd_gui_t *            gui,
                   jsonp_ulong      ( gui->http, "votes",           0UL                 );
                   jsonp_ulong      ( gui->http, "conflicting",     cur->conflicting    );
                   jsonp_ulong      ( gui->http, "bundles",         cur->bundles        );
+                  jsonp_ulong      ( gui->http, "next_auction",    cur->next_auction   );
                 jsonp_close_object( gui->http );
               }
               fd_gui_hist_range_end( &it );
