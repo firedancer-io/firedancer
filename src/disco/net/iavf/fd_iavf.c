@@ -1553,8 +1553,8 @@ fd_iavf_virtchnl_request( fd_iavf_vfio_t *   vfio,
       return -1;
     }
     if( FD_UNLIKELY( 0!=received_status ) ) {
-      FD_LOG_WARNING(( "%s rejected, PF status %i (%i-%s)", fd_iavf_virtchnl_op_name( virtchnl_op ), received_status, EIO, fd_io_strerror( EIO ) ));
-      errno = EIO;
+      FD_LOG_WARNING(( "%s rejected, PF status %i (%i-%s)", fd_iavf_virtchnl_op_name( virtchnl_op ), received_status, EREMOTEIO, fd_io_strerror( EREMOTEIO ) ));
+      errno = EREMOTEIO;
       return -1;
     }
     if( FD_UNLIKELY( message_sz>response_capacity ) ) {
@@ -2048,8 +2048,12 @@ fd_iavf_virtchnl_enable_vlan_strip( fd_iavf_vfio_t *          vfio,
 
   /* this particular request has payload size 0 */
   ulong response_sz = 0UL;
-  return fd_iavf_virtchnl_request( vfio, adminq, FD_IAVF_VIRTCHNL_ENABLE_VLAN_STRIPPING,
-                                   NULL, 0UL, NULL, &response_sz );
+  if( FD_UNLIKELY( -1==fd_iavf_virtchnl_request( vfio, adminq, FD_IAVF_VIRTCHNL_ENABLE_VLAN_STRIPPING,
+                                                 NULL, 0UL, NULL, &response_sz ) ) ) {
+    if( errno!=EREMOTEIO ) return -1;
+    FD_LOG_WARNING(( "iavf VLAN offload not enabled, tags will be stripped in software" ));
+  }
+  return 0;
 }
 
 int

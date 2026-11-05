@@ -269,7 +269,7 @@ test_virtchnl_vlan( void ) {
   /* A PF rejection leaves stripping to software without failing. */
   test_adminq_init( &vfio, &adminq );
   test_adminq_reply( 27U, -5, NULL, 0UL ); /* VIRTCHNL_STATUS_ERR_PARAM */
-  FD_TEST( -1==fd_iavf_virtchnl_enable_vlan_strip( &vfio, &adminq, &granted ) && errno==EIO );
+  FD_TEST( 0==fd_iavf_virtchnl_enable_vlan_strip( &vfio, &adminq, &granted ) );
   FD_TEST( 1U==*atq_tail );
 
   /* A reply for another request leaves the Admin Queue out of sync. */
