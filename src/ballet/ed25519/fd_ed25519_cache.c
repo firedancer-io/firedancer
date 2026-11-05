@@ -315,27 +315,3 @@ fd_ed25519_verify_cached( uchar const          msg[], /* msg_sz */
   if( FD_UNLIKELY( err ) ) return err;
   return FD_LIKELY( ok ) ? FD_ED25519_SUCCESS : FD_ED25519_ERR_MSG;
 }
-
-int
-fd_ed25519_verify_batch_single_msg_cached( uchar const          msg[], /* msg_sz */
-                                           ulong const          msg_sz,
-                                           uchar const          signatures[ 64 ], /* 64 * batch_sz */
-                                           uchar const          pubkeys[ 32 ],    /* 32 * batch_sz */
-                                           fd_sha512_t *        shas[ 1 ],        /* batch_sz */
-                                           uchar const          batch_sz,
-                                           fd_ed25519_cache_t * cache ) {
-  if( FD_UNLIKELY( batch_sz == 0 || batch_sz > 16 ) ) return FD_ED25519_ERR_SIG;
-
-  /* The uncached version runs all checks first and then the group
-     equations.  A check failure on any signature takes precedence over
-     a group equation failure on an earlier one, so group equation
-     failures are only reported after all checks pass.  Once a group
-     equation fails, the remaining ones are skipped. */
-
-  int ok = 1;
-  for( ulong j=0UL; j<batch_sz; j++ ) {
-    int err = verify_one( msg, msg_sz, signatures+64UL*j, pubkeys+32UL*j, shas[j], cache, &ok );
-    if( FD_UNLIKELY( err ) ) return err;
-  }
-  return FD_LIKELY( ok ) ? FD_ED25519_SUCCESS : FD_ED25519_ERR_MSG;
-}

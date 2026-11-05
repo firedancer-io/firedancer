@@ -77,15 +77,6 @@ LLVMFuzzerTestOneInput( uchar const * data,
     int expected = fd_ed25519_verify( msg, msg_sz, sig, pk, sha );
     for( ulong r=0UL; r<3UL; r++ ) assert( fd_ed25519_verify_cached( msg, msg_sz, sig, pk, sha, cache )==expected );
 
-    /* batch: this signature in the middle of two good ones */
-    uchar sigs[ 3*64 ]; uchar pks[ 3*32 ];
-    ulong k2 = (k+1UL) % KEY_CNT;
-    memcpy( pks, pub[k2], 32UL ); fd_ed25519_sign( sigs, msg, msg_sz, pks, prv[k2], sha );
-    memcpy( pks+32, pk, 32UL );   memcpy( sigs+64, sig, 64UL );
-    memcpy( pks+64, pub[k], 32UL ); fd_ed25519_sign( sigs+128, msg, msg_sz, pks+64, prv[k], sha );
-    fd_sha512_t * shas[3] = { sha, sha, sha };
-    int eb = fd_ed25519_verify_batch_single_msg( msg, msg_sz, sigs, pks, shas, 3 );
-    assert( fd_ed25519_verify_batch_single_msg_cached( msg, msg_sz, sigs, pks, shas, 3, cache )==eb );
     FD_FUZZ_MUST_BE_COVERED;
   }
   return 0;
