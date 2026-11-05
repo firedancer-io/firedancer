@@ -120,6 +120,8 @@ FD_STATIC_ASSERT( FD_SCHED_LTHASH_OOB_BLOCK_MAX<=64UL, lthash_oob_reserved_bitma
    entries per exec tile before a deactivated block is activated to
    engage in speculation.  This is meant to reduce churn. */
 #define FD_SCHED_LTHASH_SPEC_MAX (8192UL)
+#define LTHASH_SPEC_NULL         ((ushort)USHORT_MAX)
+FD_STATIC_ASSERT( FD_SCHED_LTHASH_SPEC_MAX<=(ulong)LTHASH_SPEC_NULL, lthash_spec_idx );
 #define FD_SCHED_LTHASH_SPEC_THRESHOLD_PER_TILE (2UL)
 
 FD_STATIC_ASSERT( FD_SCHED_LTHASH_BATCH_MAX>=1UL && FD_SCHED_LTHASH_BATCH_MAX<=FD_EXECRP_LTHASH_BATCH_MAX, lthash_batch );
@@ -222,15 +224,13 @@ struct fd_sched_lthash_entry {
   fd_acct_addr_t acct;
   uint  map_next;
   uint  q_next;    /* Subtraction queue link while SUB_QUEUED. */
-  uint  spec_idx;  /* Speculation pool entry or UINT_MAX. */
-  uint  ptxn_idx;  /* Non-zero only while the entry is ADD_PENDING or ADD_DISPATCHED.  High bit set if non-zero, like the index returned from fd_rdisp_get_next_ready(). */
-  uint  bank_idx;
-  uchar sub_state;
-  uchar add_state;
-  uchar pad[ 2 ];
+  uint   ptxn_idx; /* Non-zero only while the entry is ADD_PENDING or ADD_DISPATCHED.  High bit set if non-zero, like the index returned from fd_rdisp_get_next_ready(). */
+  ushort spec_idx; /* Speculation pool entry or LTHASH_SPEC_NULL.  The owning bank is the lane's. */
+  uchar  sub_state;
+  uchar  add_state;
 };
 typedef struct fd_sched_lthash_entry fd_sched_lthash_entry_t;
-FD_STATIC_ASSERT( sizeof(fd_sched_lthash_entry_t)==56UL, lthash_entry );
+FD_STATIC_ASSERT( sizeof(fd_sched_lthash_entry_t)==48UL, lthash_entry );
 
 #define MAP_NAME          lthash_map
 #define MAP_ELE_T         fd_sched_lthash_entry_t
@@ -1309,7 +1309,7 @@ lthash_release_lane_map( fd_sched_t * sched,
   fd_sched_lthash_lane_t * lane_map = sched->lthash_lane+lane;
   if( FD_UNLIKELY( lane_map->bank_idx==ULONG_MAX ) ) FD_LOG_CRIT(( "invariant violation: releasing lane %lu, which no bank owns", lane ));
   for( ulong i=0UL; i<lane_map->entry_cnt; i++ ) {
-    if( lane_map->entry_pool[ i ].spec_idx!=UINT_MAX ) lthash_spec_release( sched, lane_map->entry_pool[ i ].spec_idx );
+    if( lane_map->entry_pool[ i ].spec_idx!=LTHASH_SPEC_NULL ) lthash_spec_release( sched, lane_map->entry_pool[ i ].spec_idx );
   }
   lthash_map_reset( lane_map->map );
   lane_map->entry_cnt = 0U;
@@ -1336,9 +1336,8 @@ lthash_entry_new( fd_sched_t *           sched,
   fd_sched_lthash_entry_t * e   = lane_map->entry_pool+idx;
   e->acct      = *acct;
   e->q_next    = UINT_MAX;
-  e->spec_idx  = UINT_MAX;
+  e->spec_idx  = LTHASH_SPEC_NULL;
   e->ptxn_idx  = 0U;
-  e->bank_idx  = (uint)lane_map->bank_idx;
   e->sub_state = (uchar)FD_SCHED_LTHASH_SUB_QUEUED;
   e->add_state = (uchar)FD_SCHED_LTHASH_ADD_NONE;
   lthash_map_idx_insert( lane_map->map, idx, lane_map->entry_pool );
@@ -1363,12 +1362,12 @@ lthash_entry_clear_add( fd_sched_t *              sched,
                         fd_lthash_value_t *       block_lthash ) {
   uint spec_idx = e->spec_idx;
   if( e->add_state==FD_SCHED_LTHASH_ADD_DONE ) {
-    if( FD_UNLIKELY( spec_idx==UINT_MAX ) ) FD_LOG_CRIT(( "invariant violation: rewrite of an applied addition with no entry to undo it, bank idx %u", e->bank_idx ));
+    if( FD_UNLIKELY( spec_idx==LTHASH_SPEC_NULL ) ) FD_LOG_CRIT(( "invariant violation: rewrite of an applied addition with no entry to undo it" ));
     fd_lthash_sub( block_lthash, sched->lthash_spec_pool+spec_idx );
   }
-  if( spec_idx!=UINT_MAX ) {
+  if( spec_idx!=LTHASH_SPEC_NULL ) {
     lthash_spec_release( sched, spec_idx );
-    e->spec_idx = UINT_MAX;
+    e->spec_idx = LTHASH_SPEC_NULL;
   }
   e->ptxn_idx  = 0U;
   e->add_state = (uchar)FD_SCHED_LTHASH_ADD_NONE;
@@ -1382,7 +1381,7 @@ lthash_entry_rewrite( fd_sched_t *              sched,
                       fd_sched_lthash_entry_t * e ) {
   int undone = e->add_state==FD_SCHED_LTHASH_ADD_DONE;
   sched->metrics->lthash_add_undone_cnt += (ulong)undone;
-  sched->metrics->lthash_spec_stale_cnt += (ulong)(!undone && e->spec_idx!=UINT_MAX);
+  sched->metrics->lthash_spec_stale_cnt += (ulong)(!undone && e->spec_idx!=LTHASH_SPEC_NULL);
   block->add_undone_cnt                 += (uint)undone;
   lthash_entry_clear_add( sched, e, block_lthash_delta( sched, block ) );
 }
@@ -1417,7 +1416,7 @@ lthash_add_created( fd_sched_t *       sched,
        was not the lane's owner while its transactions parsed, and then
        one is created now. */
     e = lthash_entry_new( sched, block, acct );
-  } else if( FD_UNLIKELY( e->add_state!=FD_SCHED_LTHASH_ADD_NONE || e->ptxn_idx || e->spec_idx!=UINT_MAX ) ) {
+  } else if( FD_UNLIKELY( e->add_state!=FD_SCHED_LTHASH_ADD_NONE || e->ptxn_idx || e->spec_idx!=LTHASH_SPEC_NULL ) ) {
     /* Otherwise the entry holds no addition of record.  The dispatcher
        only creates an addition for an account whose last reference in
        the block is a write, and there are three ways an account gets
@@ -1425,13 +1424,13 @@ lthash_add_created( fd_sched_t *       sched,
        registration writes it, or a given up speculation hands it back
        as written.  Each of those cleared the entry's addition on the
        way. */
-    FD_LOG_CRIT(( "invariant violation: addition created for an account with an addition of record, block %lu:%lu, ptxn_idx 0x%lx, add_state %u, entry ptxn_idx 0x%x, spec_idx %u", block->slot, block_to_idx( sched, block ), ptxn_idx, (uint)e->add_state, e->ptxn_idx, e->spec_idx ));
+    FD_LOG_CRIT(( "invariant violation: addition created for an account with an addition of record, block %lu:%lu, ptxn_idx 0x%lx, add_state %u, entry ptxn_idx 0x%x, spec_idx %u", block->slot, block_to_idx( sched, block ), ptxn_idx, (uint)e->add_state, e->ptxn_idx, (uint)e->spec_idx ));
   }
   e->add_state = (uchar)FD_SCHED_LTHASH_ADD_PENDING;
   e->ptxn_idx  = (uint)ptxn_idx;
   if( FD_LIKELY( speculative ) ) {
     FD_TEST( sched->lthash_spec_free_cnt );
-    e->spec_idx = sched->lthash_spec_free[ --sched->lthash_spec_free_cnt ];
+    e->spec_idx = (ushort)sched->lthash_spec_free[ --sched->lthash_spec_free_cnt ];
   }
 }
 
@@ -1921,7 +1920,7 @@ lthash_surface( fd_sched_t *       sched,
     FD_LOG_NOTICE(( "%s", sched->print_buf ));
     FD_LOG_CRIT(( "invariant violation: pseudo transaction 0x%lx of block %lu:%lu has no entry", ptxn_idx, block->slot, bank_idx ));
   }
-  FD_TEST( e->bank_idx==(uint)bank_idx );
+  FD_TEST( sched->lthash_lane[ block->staging_lane ].bank_idx==bank_idx );
   if( FD_UNLIKELY( e->ptxn_idx!=(uint)ptxn_idx ) ) {
     sched->metrics->lthash_add_surfaced_stale_cnt++;
     block->add_done_cnt++;
@@ -2044,7 +2043,7 @@ lthash_dispatch_sub( fd_sched_t *       sched,
     uint entry_idx = block->sub_q_head;
     FD_TEST( entry_idx!=UINT_MAX );
     fd_sched_lthash_entry_t * e = sched->lthash_lane[ lane ].entry_pool+entry_idx;
-    FD_TEST( e->sub_state==FD_SCHED_LTHASH_SUB_QUEUED && e->bank_idx==(uint)bank_idx );
+    FD_TEST( e->sub_state==FD_SCHED_LTHASH_SUB_QUEUED && sched->lthash_lane[ lane ].bank_idx==bank_idx );
 
     block->sub_q_head = e->q_next;
     if( FD_UNLIKELY( block->sub_q_head==UINT_MAX ) ) block->sub_q_tail = UINT_MAX;
@@ -2844,7 +2843,7 @@ task_next_ready( fd_sched_t * sched, fd_sched_task_t * out, int may_drain ) {
       if( FD_LIKELY( e ) ) {
         /* ... and the addition is not stale. */
         fd_sched_lthash_batch_t * batch = sched->lthash_add_batch;
-        if( FD_UNLIKELY( e->spec_idx!=UINT_MAX ) ) {
+        if( FD_UNLIKELY( e->spec_idx!=LTHASH_SPEC_NULL ) ) {
           /* This is a speculative addition that was transiently waiting
              on a writer.  While the block may still speculate, the
              speculation goes out under the same idleness policy as
@@ -3353,7 +3352,7 @@ fd_sched_task_done( fd_sched_t * sched, ulong task_type, ulong txn_idx, ulong ex
       FD_TEST( rec->kind==FD_SCHED_TT_LTHASH_SUB && rec->bank_idx==bank_idx && rec->cnt && rec->cnt<=FD_SCHED_LTHASH_BATCH_MAX );
       for( ulong i=0UL; i<rec->cnt; i++ ) {
         fd_sched_lthash_entry_t * e = sched->lthash_lane[ rec->lane ].entry_pool+rec->entry_idx[ i ];
-        FD_TEST( e->sub_state==FD_SCHED_LTHASH_SUB_DISPATCHED && e->bank_idx==(uint)bank_idx );
+        FD_TEST( e->sub_state==FD_SCHED_LTHASH_SUB_DISPATCHED && sched->lthash_lane[ rec->lane ].bank_idx==bank_idx );
         e->sub_state = (uchar)FD_SCHED_LTHASH_SUB_DONE;
       }
       fd_lthash_sub( block_lthash_delta( sched, block ), fd_type_pun_const( data ) );
@@ -3373,7 +3372,7 @@ fd_sched_task_done( fd_sched_t * sched, ulong task_type, ulong txn_idx, ulong ex
       ulong stale_cnt = 0UL;
       for( ulong i=0UL; i<rec->cnt; i++ ) {
         fd_sched_lthash_entry_t * e = sched->lthash_lane[ rec->lane ].entry_pool+rec->entry_idx[ i ];
-        FD_TEST( e->bank_idx==(uint)bank_idx );
+        FD_TEST( sched->lthash_lane[ rec->lane ].bank_idx==bank_idx );
         /* A later write to the account was observed while the batch
            was on the tile, so its value is not final.  The rewrite
            freed its speculation entry, if any. */
@@ -3402,7 +3401,7 @@ fd_sched_task_done( fd_sched_t * sched, ulong task_type, ulong txn_idx, ulong ex
         for( ulong i=0UL; i<rec->cnt; i++ ) {
           fd_sched_lthash_entry_t * e = sched->lthash_lane[ rec->lane ].entry_pool+rec->entry_idx[ i ];
           FD_TEST( e->add_state==FD_SCHED_LTHASH_ADD_DISPATCHED );
-          if( e->spec_idx!=UINT_MAX ) {
+          if( e->spec_idx!=LTHASH_SPEC_NULL ) {
             /* A speculative addition is always sent individually. */
             FD_TEST( rec->cnt==1UL );
             fd_memcpy( sched->lthash_spec_pool+e->spec_idx, data, sizeof(fd_lthash_value_t) );
