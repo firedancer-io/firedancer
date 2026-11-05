@@ -141,6 +141,7 @@ enum {
   FD_METRICS_GAUGE_GOSSIP_WAIT_FOR_SUPERMAJORITY_STAKE_ONLINE_LAMPORTS_OFF,
   FD_METRICS_GAUGE_GOSSIP_WAIT_FOR_SUPERMAJORITY_STAKE_TRACKED_LAMPORTS_OFF,
   FD_METRICS_GAUGE_GOSSIP_WAIT_FOR_SUPERMAJORITY_STATE_OFF,
+  FD_METRICS_GAUGE_GOSSIP_CONTACT_INFO_CLIENT_ID_OFF,
 };
 
 #define FD_METRICS_GAUGE_GOSSIP_PING_PEER_COUNT_NAME "gossip_ping_peer_count"
@@ -310,7 +311,12 @@ enum {
 #define FD_METRICS_GAUGE_GOSSIP_WAIT_FOR_SUPERMAJORITY_STATE_DESC "Wait-for-supermajority progress: 0=unset (Not started), 1=loading_stakes (Loading stakes from the snapshot), 2=waiting_for_stake (Waiting for enough stake to come online), 3=publishing (Publishing our contact info to start), 4=done_or_disabled (Done, or wait-for-supermajority is disabled)"
 #define FD_METRICS_GAUGE_GOSSIP_WAIT_FOR_SUPERMAJORITY_STATE_CVT  (FD_METRICS_CONVERTER_NONE)
 
-#define FD_METRICS_GOSSIP_TOTAL (122UL)
+#define FD_METRICS_GAUGE_GOSSIP_CONTACT_INFO_CLIENT_ID_NAME "gossip_contact_info_client_id"
+#define FD_METRICS_GAUGE_GOSSIP_CONTACT_INFO_CLIENT_ID_TYPE (FD_METRICS_TYPE_GAUGE)
+#define FD_METRICS_GAUGE_GOSSIP_CONTACT_INFO_CLIENT_ID_DESC "Client id currently advertised in our ContactInfo"
+#define FD_METRICS_GAUGE_GOSSIP_CONTACT_INFO_CLIENT_ID_CVT  (FD_METRICS_CONVERTER_NONE)
+
+#define FD_METRICS_GOSSIP_TOTAL (123UL)
 extern const fd_metrics_meta_t FD_METRICS_GOSSIP[FD_METRICS_GOSSIP_TOTAL];
 
 #endif /* HEADER_fd_src_disco_metrics_generated_fd_metrics_gossip_h */

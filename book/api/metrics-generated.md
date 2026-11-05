@@ -961,6 +961,7 @@
 | <span class="metrics-name">gossip_&#8203;wait_&#8203;for_&#8203;supermajority_&#8203;stake_&#8203;online_&#8203;lamports</span> | gauge | Stake from peers with recent gossip activity |
 | <span class="metrics-name">gossip_&#8203;wait_&#8203;for_&#8203;supermajority_&#8203;stake_&#8203;tracked_&#8203;lamports</span> | gauge | Stake tracked while waiting for supermajority |
 | <span class="metrics-name">gossip_&#8203;wait_&#8203;for_&#8203;supermajority_&#8203;state</span> | gauge | Wait-for-supermajority progress: 0=unset (Not started), 1=loading_stakes (Loading stakes from the snapshot), 2=waiting_for_stake (Waiting for enough stake to come online), 3=publishing (Publishing our contact info to start), 4=done_or_disabled (Done, or wait-for-supermajority is disabled) |
+| <span class="metrics-name">gossip_&#8203;contact_&#8203;info_&#8203;client_&#8203;id</span> | gauge | Client id currently advertised in our ContactInfo |
 
 </div>
 

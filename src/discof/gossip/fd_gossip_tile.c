@@ -212,6 +212,8 @@ metrics_write( fd_gossip_tile_ctx_t * ctx ) {
   FD_MCNT_ENUM_COPY( GOSSIP, PONG_PROCESSED,    ping_tracker_metrics->pong_result );
   FD_MCNT_ENUM_COPY( GOSSIP, PING_PEER_REMOVED, ping_tracker_metrics->removed     );
 
+  FD_MGAUGE_SET( GOSSIP, CONTACT_INFO_CLIENT_ID, ctx->my_contact_info->version.client );
+
   FD_MCNT_SET( GOSSIP, PING_PEER_ADDED,           ping_tracker_metrics->tracked_cnt         );
   FD_MCNT_SET( GOSSIP, PING_PEER_ADDRESS_CHANGED, ping_tracker_metrics->address_changed_cnt );
 
