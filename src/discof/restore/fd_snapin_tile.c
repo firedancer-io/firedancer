@@ -2286,6 +2286,19 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
   }
 }
 
+/* Non-lead tiles place full-snapshot ranges while the lead runs the
+   placement (after their FINI ack). */
+
+static void
+after_credit( fd_snapin_tile_t *  ctx,
+              fd_stem_context_t * stem,
+              int *               opt_poll_in,
+              int *               charge_busy ) {
+  (void)stem; (void)opt_poll_in;
+  if( FD_LIKELY( is_lead( ctx ) || !ctx->accdb ) ) return;
+  if( FD_UNLIKELY( fd_accdb_snapshot_place_help( ctx->accdb, place_tomb, ctx ) ) ) *charge_busy = 1;
+}
+
 static inline int
 all_controls_seen( fd_snapin_tile_t const * ctx ) {
   int all_seen = 1;
@@ -2597,6 +2610,7 @@ unprivileged_init( fd_topo_t const *      topo,
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_snapin_tile_t)
 
 #define STEM_CALLBACK_SHOULD_SHUTDOWN should_shutdown
+#define STEM_CALLBACK_AFTER_CREDIT    after_credit
 #define STEM_CALLBACK_METRICS_WRITE   metrics_write
 #define STEM_CALLBACK_BEFORE_FRAG     before_frag
 #define STEM_CALLBACK_RETURNABLE_FRAG returnable_frag
