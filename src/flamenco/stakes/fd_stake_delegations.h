@@ -66,9 +66,8 @@
    to disk.  The disk root capacity is max_stake_accounts plus twice
    max_disk_records. */
 
-#define FD_STAKE_DELEGATIONS_ALIGN              (128UL)
-#define FD_STAKE_DELEGATIONS_FORK_MAX           (4096UL)
-#define FD_STAKE_DELEGATIONS_DELTA_POOL_DIVISOR (2UL)
+#define FD_STAKE_DELEGATIONS_ALIGN    (128UL)
+#define FD_STAKE_DELEGATIONS_FORK_MAX (4096UL)
 
 /* 123458/123459 are store, 123460/123461 are accdb, and 123462+ are
    reserved by XDP. */
