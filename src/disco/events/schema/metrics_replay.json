@@ -458,6 +458,17 @@
             }
         },
         "sched_lthash_batch_held":                 { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Out-of-band lthash addition batches held because a transaction or standalone speculation surfaced behind them" },
-        "sched_lthash_batch_idle_waited":          { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Dispatch polls that held an out-of-band lthash addition batch because too few exec tiles were idle" }
+        "sched_lthash_batch_idle_waited":          { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Dispatch polls that held an out-of-band lthash addition batch because too few exec tiles were idle" },
+        "stake_delegation_root_used":              { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Rooted stake delegations held in memory" },
+        "stake_delegation_root_capacity":          { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Rooted stake delegations that fit in memory, from runtime.stake_delegation_cache_cnt" },
+        "stake_delegation_root_disk_count":        { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Rooted stake delegations currently spilled to disk" },
+        "stake_delegation_delta_used":             { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Unrooted stake delegation fork deltas held in memory" },
+        "stake_delegation_delta_capacity":         { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Unrooted stake delegation fork deltas that fit in memory" },
+        "stake_delegation_delta_disk_count":       { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Unrooted stake delegation fork deltas currently spilled to disk" },
+        "stake_delegation_root_spilled":           { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Rooted stake delegations written to disk because the in-memory root pool was full" },
+        "stake_delegation_delta_spilled":          { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Stake delegation fork deltas written to disk because the in-memory delta pool was full" },
+        "stake_delegation_disk_read":              { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Reads from the stake delegation spill file by all tiles" },
+        "stake_delegation_disk_written":           { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Writes to the stake delegation spill file by all tiles" },
+        "stake_delegation_disk_duration_nanos":    { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Time all tiles spent in stake delegation spill file reads and writes" }
     }
 }
