@@ -98,10 +98,14 @@ fd_ed25519_sign( uchar         sig[ 64 ],
    public_key and private_key are each a single 32-byte key, shared by
    all n messages (this is a shared-identity batch signer).
 
+   shas[i], i in [0,n), are handles of local joins to sha512
+   calculators; shas[0] is scratch (sanitized on return), the others
+   are left untouched.
+
    Sanitizes internal state to minimize risk of leaking private key
-   info after return.  The caller takes a write interest in sig and a
-   read interest in the messages and keys for the duration the call.
-   Returns sig. */
+   info after return.  The caller takes a write interest in sig and
+   shas[0] and a read interest in the messages and keys for the
+   duration the call.  Returns sig. */
 
 uchar * FD_FN_SENSITIVE
 fd_ed25519_sign_batch8( uchar               sig[],        /* n*64 */
@@ -109,6 +113,7 @@ fd_ed25519_sign_batch8( uchar               sig[],        /* n*64 */
                         ulong const         msg_sz[],     /* n */
                         uchar const         public_key[ 32 ],
                         uchar const         private_key[ 32 ],
+                        fd_sha512_t *       shas[],       /* n */
                         ulong               n );
 
 /* fd_ed25519_verify verifies message according to the ED25519 standard.
@@ -138,34 +143,22 @@ fd_ed25519_verify( uchar const   msg[], /* msg_sz */
                    uchar const   public_key[ 32 ],
                    fd_sha512_t * sha );
 
-/* fd_ed25519_verify_batch_single_msg verifies a batch of signatures
-   over a single message, according to the ED25519 standard.
+/* fd_ed25519_verify_batch8 verifies n independent signatures, n in
+   [1,8] (asserted).  results[i] is exactly what fd_ed25519_verify
+   returns for (msgs[i], msg_szs[i], sigs[i], public_keys[i], shas[i]),
+   error precedence included; nothing is aggregated across items.
+   shas[i] is scratch and its state on return is unspecified.  Grouping
+   more items into calls of at most eight and deriving a transaction
+   verdict from the codes are the caller's. */
 
-   msg is assumed to point to the first byte of a msg_sz byte memory region
-   which holds the message to verify (msg_sz==0 fine, msg==NULL fine if
-   msg_sz==0).
-
-   signatures is assumed to point to the first byte of a memory region
-   which holds the signatures of the message. Each signature is 64-byte long.
-
-   pubkeys is assumed to point to first byte of a memory region
-   that holds the public keys to use to verify these signatures.
-   Each public key is 32 bytes long.
-
-   shas is an array of handles of a local join to sha512 calculators.
-
-   batch_sz is the size of signatures, pubkeys and shas.
-   batch_sz must be greater than zero.
-
-   See fd_ed25519_verify for more details. */
-
-int
-fd_ed25519_verify_batch_single_msg( uchar const   msg[], /* msg_sz */
-                                    ulong const   msg_sz,
-                                    uchar const   signatures[ 64 ], /* 64 * batch_sz */
-                                    uchar const   pubkeys[ 32 ],    /* 32 * batch_sz */
-                                    fd_sha512_t * shas[ 1 ],               /* batch_sz */
-                                    uchar const   batch_sz );
+void
+fd_ed25519_verify_batch8( uchar const * const msgs[],        /* n */
+                          ulong const         msg_szs[],     /* n */
+                          uchar const * const sigs[],        /* n */
+                          uchar const * const public_keys[], /* n */
+                          fd_sha512_t *       shas[],        /* n */
+                          int                 results[],     /* n */
+                          ulong               n );
 
 /* fd_ed25519_cache_t is a bounded cache of per public key
    precomputation used to speed up verifying signatures of repeated
@@ -239,19 +232,6 @@ fd_ed25519_verify_cached( uchar const          msg[], /* msg_sz */
                           uchar const          public_key[ 32 ],
                           fd_sha512_t *        sha,
                           fd_ed25519_cache_t * cache );
-
-/* fd_ed25519_verify_batch_single_msg_cached is
-   fd_ed25519_verify_batch_single_msg using cache.  Returns exactly what
-   fd_ed25519_verify_batch_single_msg returns for the same arguments. */
-
-int
-fd_ed25519_verify_batch_single_msg_cached( uchar const          msg[], /* msg_sz */
-                                           ulong const          msg_sz,
-                                           uchar const          signatures[ 64 ], /* 64 * batch_sz */
-                                           uchar const          pubkeys[ 32 ],    /* 32 * batch_sz */
-                                           fd_sha512_t *        shas[ 1 ],        /* batch_sz */
-                                           uchar const          batch_sz,
-                                           fd_ed25519_cache_t * cache );
 
 /* fd_ed25519_strerror converts an FD_ED25519_SUCCESS / FD_ED25519_ERR_*
    code into a human readable cstr.  The lifetime of the returned

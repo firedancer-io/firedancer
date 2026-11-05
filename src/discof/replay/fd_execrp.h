@@ -7,6 +7,7 @@
 #include "../../flamenco/alpenglow/fd_block_marker.h"
 #include "../../flamenco/alpenglow/fd_alpenglow.h"
 #include "../../ballet/lthash/fd_lthash.h"
+#include "../../ballet/ed25519/fd_ed25519_verifier.h"
 
 /* Exec tile task types. */
 #define FD_EXECRP_TT_TXN_EXEC      (1UL) /* Transaction execution. */
@@ -43,10 +44,17 @@ struct fd_execrp_txn_exec_msg {
 };
 typedef struct fd_execrp_txn_exec_msg fd_execrp_txn_exec_msg_t;
 
+/* A sigverify task carries up to FD_EXECRP_SIGVERIFY_SIG_PARA
+   consecutive transactions of one bank, whose signatures fill the
+   group the exec tile verifies together.  Every transaction carries a
+   signature, so a group holds at most FD_ED25519_VERIFIER_GROUP
+   transactions. */
+#define FD_EXECRP_SIGVERIFY_SIG_PARA FD_ED25519_VERIFIER_GROUP
 struct fd_execrp_txn_sigverify_msg {
   ulong      bank_idx;
-  ulong      txn_idx;
-  fd_txn_p_t txn[ 1 ];
+  ulong      cnt;
+  ulong      txn_idx[ FD_EXECRP_SIGVERIFY_SIG_PARA ];
+  fd_txn_p_t txn    [ FD_EXECRP_SIGVERIFY_SIG_PARA ];
 };
 typedef struct fd_execrp_txn_sigverify_msg fd_execrp_txn_sigverify_msg_t;
 
@@ -165,8 +173,9 @@ struct fd_execrp_txn_exec_done_msg {
 typedef struct fd_execrp_txn_exec_done_msg fd_execrp_txn_exec_done_msg_t;
 
 struct fd_execrp_txn_sigverify_done_msg {
-  ulong txn_idx;
-  int   err;
+  ulong cnt;
+  ulong txn_idx[ FD_EXECRP_SIGVERIFY_SIG_PARA ];
+  int   err; /* Non-zero if a signature of the task failed */
 };
 typedef struct fd_execrp_txn_sigverify_done_msg fd_execrp_txn_sigverify_done_msg_t;
 

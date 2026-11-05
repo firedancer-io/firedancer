@@ -46,10 +46,8 @@ struct fd_execrp_tile {
   link_ctx_t            replay_in[ 1 ];
   link_ctx_t            execrp_replay_out[ 1 ];
 
-  fd_sha512_t           sha_mem[ FD_TXN_SIG_MAX ];
-  fd_sha512_t *         sha_lj[  FD_TXN_SIG_MAX ];
-  fd_ed25519_cache_t *  ed25519_cache;
-  fd_footer_cache_t *   footer_cache;
+  fd_ed25519_verifier_t * verifier;
+  fd_footer_cache_t *     footer_cache;
 
   /* Capture context for debugging runtime execution. */
   fd_capture_ctx_t *    capture_ctx;
@@ -106,10 +104,6 @@ struct fd_execrp_tile {
 
 typedef struct fd_execrp_tile fd_execrp_tile_t;
 
-/* Signer precomputation cache entries (vote authorities and frequent
-   fee payers) */
-#define ED25519_CACHE_ENT_CNT (2048UL)
-
 FD_FN_CONST static inline ulong
 scratch_align( void ) {
   return 128UL;
@@ -122,7 +116,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND(   l, fd_txncache_align(),          fd_txncache_footprint( tile->execrp.max_live_slots ) );
   l = FD_LAYOUT_APPEND(   l, fd_accdb_align(),             fd_accdb_footprint( tile->execrp.max_live_slots, 0 )    );
   l = FD_LAYOUT_APPEND(   l, FD_PROGCACHE_SCRATCH_ALIGN,   FD_PROGCACHE_SCRATCH_FOOTPRINT                       );
-  l = FD_LAYOUT_APPEND(   l, fd_ed25519_cache_align(),     fd_ed25519_cache_footprint( ED25519_CACHE_ENT_CNT )  );
+  l = FD_LAYOUT_APPEND(   l, fd_ed25519_verifier_align(),  fd_ed25519_verifier_footprint( FD_ED25519_VERIFIER_TXN_CACHE ) );
   l = FD_LAYOUT_APPEND(   l, fd_bpf_frames_align(),        fd_bpf_frames_footprint()                            );
 
   if( FD_UNLIKELY( strlen( tile->execrp.solcap_capture ) ) ) {
@@ -324,14 +318,23 @@ returnable_frag( fd_execrp_tile_t *  ctx,
       }
       case FD_EXECRP_TT_TXN_SIGVERIFY: {
         fd_execrp_txn_sigverify_msg_t * msg = fd_chunk_to_laddr( ctx->replay_in->mem, chunk );
-        int res = fd_executor_txn_verify( msg->txn, ctx->sha_lj, ctx->ed25519_cache );
+        FD_CHECK_CRIT( msg->cnt && msg->cnt<=FD_EXECRP_SIGVERIFY_SIG_PARA, "invalid sigverify batch" );
+
+        fd_txn_p_t const * txns[ FD_EXECRP_SIGVERIFY_SIG_PARA ];
         fd_execrp_task_done_msg_t * out_msg = fd_chunk_to_laddr( ctx->execrp_replay_out->mem, ctx->execrp_replay_out->chunk );
-        out_msg->bank_idx               = msg->bank_idx;
-        out_msg->txn_sigverify->txn_idx = msg->txn_idx;
-        out_msg->txn_sigverify->err     = (res!=FD_RUNTIME_EXECUTE_SUCCESS);
+        ulong sig_cnt = 0UL;
+        for( ulong i=0UL; i<msg->cnt; i++ ) {
+          txns[ i ] = msg->txn+i;
+          sig_cnt += TXN( txns[ i ] )->signature_cnt;
+          out_msg->txn_sigverify->txn_idx[ i ] = msg->txn_idx[ i ];
+        }
+        FD_CHECK_CRIT( sig_cnt && sig_cnt<=FD_ED25519_VERIFIER_SIG_MAX, "invalid sigverify batch" );
+        ctx->metrics.sigverify_cnt += sig_cnt;
+        out_msg->bank_idx           = msg->bank_idx;
+        out_msg->txn_sigverify->cnt = msg->cnt;
+        out_msg->txn_sigverify->err = fd_executor_txn_verify( ctx->verifier, txns, msg->cnt )!=FD_RUNTIME_EXECUTE_SUCCESS;
         fd_stem_publish( stem, ctx->execrp_replay_out->idx, (FD_EXECRP_TT_TXN_SIGVERIFY<<32)|ctx->tile_idx, ctx->execrp_replay_out->chunk, sizeof(*out_msg), 0UL, 0UL, 0UL );
         ctx->execrp_replay_out->chunk = fd_dcache_compact_next( ctx->execrp_replay_out->chunk, sizeof(*out_msg), ctx->execrp_replay_out->chunk0, ctx->execrp_replay_out->wmark );
-        ctx->metrics.sigverify_cnt += TXN( msg->txn )->signature_cnt;
         break;
       }
       case FD_EXECRP_TT_POH_HASH: {
@@ -451,7 +454,7 @@ unprivileged_init( fd_topo_t const *      topo,
   void * _txncache          = FD_SCRATCH_ALLOC_APPEND( l, fd_txncache_align(),          fd_txncache_footprint( tile->execrp.max_live_slots ) );
   void * _accdb             = FD_SCRATCH_ALLOC_APPEND( l, fd_accdb_align(),             fd_accdb_footprint( tile->execrp.max_live_slots, 0 )    );
   uchar * pc_scratch        = FD_SCRATCH_ALLOC_APPEND( l, FD_PROGCACHE_SCRATCH_ALIGN,   FD_PROGCACHE_SCRATCH_FOOTPRINT                       );
-  void * _ed25519_cache     = FD_SCRATCH_ALLOC_APPEND( l, fd_ed25519_cache_align(),     fd_ed25519_cache_footprint( ED25519_CACHE_ENT_CNT )  );
+  void * _verifier          = FD_SCRATCH_ALLOC_APPEND( l, fd_ed25519_verifier_align(),  fd_ed25519_verifier_footprint( FD_ED25519_VERIFIER_TXN_CACHE ) );
   void * _bpf_frames        = FD_SCRATCH_ALLOC_APPEND( l, fd_bpf_frames_align(),        fd_bpf_frames_footprint()                            );
 
   void * _capture_ctx = NULL;
@@ -470,14 +473,8 @@ unprivileged_init( fd_topo_t const *      topo,
     }
   }
 
-  for( ulong i=0UL; i<FD_TXN_SIG_MAX; i++ ) {
-    fd_sha512_t * sha = fd_sha512_join( fd_sha512_new( ctx->sha_mem+i ) );
-    FD_TEST( sha );
-    ctx->sha_lj[ i ] = sha;
-  }
-
-  ctx->ed25519_cache = fd_ed25519_cache_join( fd_ed25519_cache_new( _ed25519_cache, ED25519_CACHE_ENT_CNT, ctx->ed25519_cache_seed ) );
-  FD_TEST( ctx->ed25519_cache );
+  ctx->verifier = fd_ed25519_verifier_join( fd_ed25519_verifier_new( _verifier, FD_ED25519_VERIFIER_TXN_CACHE, ctx->ed25519_cache_seed ) );
+  FD_TEST( ctx->verifier );
 
   ulong footer_cache_obj_id = fd_pod_query_ulong( topo->props, "footer_cache", ULONG_MAX );
   ctx->footer_cache = footer_cache_obj_id!=ULONG_MAX ? fd_footer_cache_join( fd_topo_obj_laddr( topo, footer_cache_obj_id ) ) : NULL;

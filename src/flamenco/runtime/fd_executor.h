@@ -4,6 +4,7 @@
 #include "info/fd_instr_info.h"
 #include "../../util/spad/fd_spad.h"
 #include "../../disco/fd_txn_p.h"
+#include "../../ballet/ed25519/fd_ed25519_verifier.h"
 #include "sysvar/fd_sysvar_rent.h"
 
 /* https://github.com/anza-xyz/agave/blob/v2.3.1/svm/src/account_loader.rs#L40-L47 */
@@ -50,13 +51,15 @@ fd_executor_check_transactions( fd_runtime_t *      runtime,
                                 fd_txn_in_t const * txn_in,
                                 fd_txn_out_t *      txn_out );
 
-/* fd_executor_txn_verify verifies the signatures of txn_p.  If cache
-   is non-NULL, it is used to speed up verification (the result is the
-   same either way). */
+/* fd_executor_txn_verify verifies the signatures of the txn_cnt
+   parsed transactions txns[i] together with verifier (their total
+   signature count is in [1,FD_ED25519_VERIFIER_SIG_MAX], asserted).
+   Returns FD_RUNTIME_EXECUTE_SUCCESS if every signature verifies and
+   FD_RUNTIME_TXN_ERR_SIGNATURE_FAILURE otherwise. */
 int
-fd_executor_txn_verify( fd_txn_p_t *         txn_p,
-                        fd_sha512_t *        shas[ FD_TXN_SIG_MAX ],
-                        fd_ed25519_cache_t * cache );
+fd_executor_txn_verify( fd_ed25519_verifier_t *  verifier,
+                        fd_txn_p_t const * const txns[], /* txn_cnt */
+                        ulong                    txn_cnt );
 
 /* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.0/svm/src/rent_calculator.rs#L144-L178 */
 int

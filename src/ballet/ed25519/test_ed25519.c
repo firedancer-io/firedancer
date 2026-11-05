@@ -1334,9 +1334,12 @@ test_sign_batch( fd_rng_t *    rng,
 
   uchar const * msg   [ 8UL ];
   ulong         msg_sz[ 8UL ];
+  fd_sha512_t   _shas [ 8UL ];
+  fd_sha512_t * shas  [ 8UL ];
 
   for( ulong b=0UL; b<8UL*msg_row; b++ ) msg_mem[b] = fd_rng_uchar( rng );
   for( ulong i=0UL; i<8UL; i++ ) {
+    shas[i] = fd_sha512_join( fd_sha512_new( _shas+i ) );
     msg[i] = msg_mem + msg_row*i;
     fd_ed25519_public_from_private( pub+32UL*i, fd_rng_b256( rng, prv+32UL*i ), sha );
   }
@@ -1351,7 +1354,7 @@ test_sign_batch( fd_rng_t *    rng,
       if( FD_UNLIKELY( (trial==0UL) | (i==0UL) ) ) msg_sz[i] = 0UL;
       fd_ed25519_sign( sig1+64UL*i, msg[i], msg_sz[i], pub, prv, sha );
     }
-    fd_ed25519_sign_batch8( sign, msg, msg_sz, pub, prv, n );
+    fd_ed25519_sign_batch8( sign, msg, msg_sz, pub, prv, shas, n );
     FD_TEST( fd_memeq( sig1, sign, n*64UL ) );
   }
   FD_LOG_NOTICE(( "fd_ed25519_sign_batch8: ok" ));
@@ -1374,7 +1377,7 @@ test_sign_batch( fd_rng_t *    rng,
 
       dt = fd_log_wallclock();
       for( ulong rem=iter; rem; rem-- ) {
-        fd_ed25519_sign_batch8( sign, msg, msg_sz, pub, prv, n );
+        fd_ed25519_sign_batch8( sign, msg, msg_sz, pub, prv, shas, n );
       }
       dt = fd_log_wallclock() - dt;
       log_bench( fd_cstr_printf( cstr, 128UL, NULL, "fd_ed25519_sign_batch8(%lu) n=%lu", sz, n ), iter*n, dt );
@@ -1401,37 +1404,31 @@ test_verify( fd_rng_t *    rng,
     fd_hex_decode( sig, "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff2222222222222222222222222222222222222222222222222222222222222222", 64 );
     fd_hex_decode( pub, "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", 32 );
     FD_TEST( fd_ed25519_verify( msg, 0, sig, pub, sha )==FD_ED25519_ERR_SIG );
-    FD_TEST( fd_ed25519_verify_batch_single_msg( msg, 0, sig, pub, &sha, 1 )==FD_ED25519_ERR_SIG );
 
     // invalid point r
     fd_hex_decode( sig, "b898e00f6f6df758b3f9a05cbf73b15fd392a008a9a417d471c178c1b28c74470000000000000000000000000000000000000000000000000000000000000000", 64 );
     fd_hex_decode( pub, "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", 32 );
     FD_TEST( fd_ed25519_verify( msg, 0, sig, pub, sha )==FD_ED25519_ERR_SIG );
-    FD_TEST( fd_ed25519_verify_batch_single_msg( msg, 0, sig, pub, &sha, 1 )==FD_ED25519_ERR_SIG );
 
     // small order r
     fd_hex_decode( sig, "26e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc050000000000000000000000000000000000000000000000000000000000000000", 64 );
     fd_hex_decode( pub, "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", 32 );
     FD_TEST( fd_ed25519_verify( msg, 0, sig, pub, sha )==FD_ED25519_ERR_SIG );
-    FD_TEST( fd_ed25519_verify_batch_single_msg( msg, 0, sig, pub, &sha, 1 )==FD_ED25519_ERR_SIG );
 
     // invalid point a
     fd_hex_decode( sig, "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff0000000000000000000000000000000000000000000000000000000000000000", 64 );
     fd_hex_decode( pub, "b898e00f6f6df758b3f9a05cbf73b15fd392a008a9a417d471c178c1b28c7447", 32 );
     FD_TEST( fd_ed25519_verify( msg, 0, sig, pub, sha )==FD_ED25519_ERR_PUBKEY );
-    FD_TEST( fd_ed25519_verify_batch_single_msg( msg, 0, sig, pub, &sha, 1 )==FD_ED25519_ERR_PUBKEY );
 
     // small order a
     fd_hex_decode( sig, "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff0000000000000000000000000000000000000000000000000000000000000000", 64 );
     fd_hex_decode( pub, "26e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc05", 32 );
     FD_TEST( fd_ed25519_verify( msg, 0, sig, pub, sha )==FD_ED25519_ERR_PUBKEY );
-    FD_TEST( fd_ed25519_verify_batch_single_msg( msg, 0, sig, pub, &sha, 1 )==FD_ED25519_ERR_PUBKEY );
 
     // all good, but (clearly) invalid sig
     fd_hex_decode( sig, "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff0000000000000000000000000000000000000000000000000000000000000000", 64 );
     fd_hex_decode( pub, "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", 32 );
     FD_TEST( fd_ed25519_verify( msg, 0, sig, pub, sha )==FD_ED25519_ERR_MSG );
-    FD_TEST( fd_ed25519_verify_batch_single_msg( msg, 0, sig, pub, &sha, 1 )==FD_ED25519_ERR_MSG );
   }
 
   for( ulong b=0; b<1024UL; b++ ) msg[b] = fd_rng_uchar( rng );
@@ -1452,37 +1449,6 @@ test_verify( fd_rng_t *    rng,
     }
     dt = fd_log_wallclock() - dt;
     log_bench( fd_cstr_printf( cstr, 128UL, NULL, "fd_ed25519_verify(good %lu)", sz ), iter, dt );
-  }
-
-  for( ulong sz=1024UL; sz<=1024UL; sz+=128UL ) {
-    uchar _pubs[   32*16 ]; uchar * pubs = _pubs;
-    uchar _sigs[   64*16 ]; uchar * sigs = _sigs;
-    uchar _prv2[   32 ]; uchar * prv2 = _prv2;
-    fd_sha512_t * _shas[ 16 ]; fd_sha512_t ** shas = _shas;
-    for( ulong j=0; j<16; j++ ) {
-      _shas[j] = sha;
-      fd_rng_b256( rng, prv2 );
-      fd_ed25519_public_from_private( &pubs[32*j], prv2, sha );
-      fd_ed25519_sign( &sigs[64*j], msg, sz, &pubs[32*j], prv2, sha );
-    }
-    for( uchar batch=1; batch<=12; batch=(uchar)(batch*2) ) {
-
-      // FD_TEST( fd_ed25519_verify( msg, sz, sigs, pubs, sha )==FD_ED25519_SUCCESS );
-      FD_TEST( fd_ed25519_verify_batch_single_msg( msg, sz, sigs, pubs, shas, batch )==FD_ED25519_SUCCESS );
-
-      long dt = fd_log_wallclock();
-      for( ulong rem=iter/batch; rem; rem-- ) {
-        FD_COMPILER_FORGET( sigs ); FD_COMPILER_FORGET( msg ); FD_COMPILER_FORGET( sz  );
-        FD_COMPILER_FORGET( pubs ); FD_COMPILER_FORGET( shas ); FD_COMPILER_FORGET( batch );
-        fd_ed25519_verify_batch_single_msg( msg, sz, sigs, pubs, shas, batch );
-      }
-      dt = fd_log_wallclock() - dt;
-      char cstr[128];
-      log_bench( fd_cstr_printf( cstr, 128UL, NULL, "fd_..._verify_batch(%lu / %u)", sz, batch ), iter/batch, dt );
-
-      /* trick to test 1, 2, 4, 8, 12 => 12 is the max we support */
-      if( batch == 8 ) { batch = 6; }
-    }
   }
 
   for( ulong sz=128UL; sz<=1024UL; sz+=128UL ) {
@@ -1567,49 +1533,6 @@ test_cctv( fd_sha512_t * sha ) {
     FD_CHECK_ERR( actual == proof->ok, fd_cstr_printf( cstr, 128UL, NULL, "fd_ed25519_verify_cctv id=%u", proof->tc_id ) );
   }
   FD_LOG_NOTICE(( "fd_ed25519_verify_cctv: ok" ));
-}
-
-void
-test_cctv_batch( fd_rng_t * rng, fd_sha512_t * sha ) {
-  char cstr[128];
-
-  uchar const * msg = ed25519_verify_cctvs[7].msg;
-  ulong msg_sz = ed25519_verify_cctvs[7].msg_sz;
-
-  uchar _pubs[   32*16 ]; uchar * pubs = _pubs;
-  uchar _sigs[   64*16 ]; uchar * sigs = _sigs;
-  uchar _prv2[   32 ]; uchar * prv2 = _prv2;
-  fd_sha512_t * _shas[ 16 ]; fd_sha512_t ** shas = _shas;
-
-  /* generate 16 valid signatures */
-  for( ulong j=0; j<16; j++ ) {
-    _shas[j] = sha;
-    fd_rng_b256( rng, prv2 );
-    fd_ed25519_public_from_private( &pubs[32*j], prv2, sha );
-    fd_ed25519_sign( &sigs[64*j], msg, msg_sz, &pubs[32*j], prv2, sha );
-  }
-  FD_TEST( fd_ed25519_verify_batch_single_msg( msg, msg_sz, sigs, pubs, shas, 16 )==FD_ED25519_SUCCESS );
-
-  for( fd_ed25519_verify_cctv_t const * proof = ed25519_verify_cctvs;
-       proof->msg;
-       proof++ ) {
-    // only keep tests with the same msg
-    if (proof->msg_sz != msg_sz || !fd_memeq( proof->msg, msg, msg_sz )) {
-      continue;
-    }
-
-    fd_memcpy( &sigs[64], proof->sig, 64 );
-    fd_memcpy( &pubs[32], proof->pub, 32 );
-
-    int actual = ( fd_ed25519_verify_batch_single_msg( msg, msg_sz, sigs, pubs, shas, 2 )
-                     == FD_ED25519_SUCCESS );
-    FD_CHECK_ERR( actual == proof->ok, fd_cstr_printf( cstr, 128UL, NULL, "fd_ed25519_verify_cctv_batch(2) id=%u", proof->tc_id ) );
-
-    actual = ( fd_ed25519_verify_batch_single_msg( msg, msg_sz, sigs, pubs, shas, 4 )
-                     == FD_ED25519_SUCCESS );
-    FD_CHECK_ERR( actual == proof->ok, fd_cstr_printf( cstr, 128UL, NULL, "fd_ed25519_verify_cctv_batch(4) id=%u", proof->tc_id ) );
-  }
-  FD_LOG_NOTICE(( "fd_ed25519_verify_cctv_batch: ok" ));
 }
 
 /* Cached verify tests.  Every cached result is compared against the
@@ -1836,30 +1759,6 @@ test_verify_cached( fd_rng_t *    rng,
     FD_TEST( good && bad[1] && bad[2] && bad[3] );
     FD_TEST( fd_ed25519_cache_hit_cnt( cache ) && fd_ed25519_cache_insert_cnt( cache ) );
 
-    /* Batch: mixes of cached and uncached keys, errors at any index */
-
-    for( ulong iter=0UL; iter<1500UL; iter++ ) {
-      uchar msg[ 128 ]; ulong msg_sz = fd_rng_ulong_roll( rng, 129UL );
-      for( ulong b=0UL; b<msg_sz; b++ ) msg[b] = fd_rng_uchar( rng );
-      uchar batch = (uchar)(1UL+fd_rng_ulong_roll( rng, 12UL ));
-      if( iter%100UL==0UL ) batch = (uchar)( iter%200UL ? 0 : 17 );
-      uchar sigs[ 64*17 ], pubs[ 32*17 ];
-      fd_sha512_t * shas[ 17 ];
-      for( ulong j=0UL; j<17UL; j++ ) shas[j] = sha;
-      for( ulong j=0UL; j<batch; j++ ) {
-        ulong i = fd_rng_ulong_roll( rng, 16UL );
-        memcpy( pubs+32*j, pubk[i], 32 );
-        fd_ed25519_sign( sigs+64*j, msg, msg_sz, pubs+32*j, prv[i], sha );
-      }
-      for( ulong j=0UL; j<batch; j++ ) if( !fd_rng_uint_roll( rng, 6U ) ) {
-        uchar m2[1];
-        mutate( rng, m2, 0UL, sigs+64*j, pubs+32*j );
-      }
-      int expected = fd_ed25519_verify_batch_single_msg( msg, msg_sz, sigs, pubs, shas, batch );
-      for( ulong r=0UL; r<3UL; r++ ) {
-        FD_TEST( fd_ed25519_verify_batch_single_msg_cached( msg, msg_sz, sigs, pubs, shas, batch, cache )==expected );
-      }
-    }
     cache_destroy( cache );
   }
 
@@ -1914,21 +1813,6 @@ test_verify_cached( fd_rng_t *    rng,
       FD_TEST( check_cached( msg, 32UL, sig3, pub2, sha, cache, 1UL )==( expect_sig ? FD_ED25519_ERR_SIG : (res==FD_ED25519_ERR_SIG ? FD_ED25519_ERR_SIG : FD_ED25519_ERR_MSG) ) );
     }
     FD_TEST( fd_ed25519_cache_insert_cnt( cache )==1UL );
-    /* batch: invalid R after an earlier failure still gives ERR_SIG */
-    {
-      uchar sigs[128], pubs[64]; fd_sha512_t * shas[2] = { sha, sha };
-      memcpy( sigs, sig, 64 ); sigs[40] ^= 1; /* S off by 2^64: still canonical, group equation fails */
-      memcpy( pubs, pub, 32 );
-      memcpy( sigs+64, sig, 64 ); fd_hex_decode( sigs+64, small_order_hex[4], 32 );
-      memcpy( pubs+32, pub, 32 );
-      int expected = fd_ed25519_verify_batch_single_msg( msg, 32UL, sigs, pubs, shas, 2 );
-      FD_TEST( expected==FD_ED25519_ERR_SIG );
-      FD_TEST( fd_ed25519_verify_batch_single_msg_cached( msg, 32UL, sigs, pubs, shas, 2, cache )==expected );
-      do { fd_rng_b256( rng, sigs+64 ); } while( !fd_ed25519_point_frombytes_1x( &R0[0], sigs+64 ) );
-      expected = fd_ed25519_verify_batch_single_msg( msg, 32UL, sigs, pubs, shas, 2 );
-      FD_TEST( expected==FD_ED25519_ERR_SIG );
-      FD_TEST( fd_ed25519_verify_batch_single_msg_cached( msg, 32UL, sigs, pubs, shas, 2, cache )==expected );
-    }
     cache_destroy( cache );
   }
 
@@ -1972,25 +1856,6 @@ test_verify_cached( fd_rng_t *    rng,
                     fd_ed25519_cache_hit_cnt( cache ), fd_ed25519_cache_miss_cnt( cache ), fd_ed25519_cache_insert_cnt( cache ) ));
     FD_TEST( fd_ed25519_cache_hit_cnt( cache ) );
 
-    /* cctv vectors (mixed order / non-canonical A and R) against a
-       cached key in slot 0 and 2 of a batch */
-
-    uchar const * msg    = ed25519_verify_cctvs[7].msg;
-    ulong         msg_sz = ed25519_verify_cctvs[7].msg_sz;
-    uchar sigs[ 64*4 ], pubs[ 32*4 ];
-    fd_sha512_t * shas[4] = { sha, sha, sha, sha };
-    for( ulong j=0UL; j<4UL; j++ ) {
-      uchar prv[32];
-      fd_ed25519_public_from_private( pubs+32*j, fd_rng_b256( rng, prv ), sha );
-      fd_ed25519_sign( sigs+64*j, msg, msg_sz, pubs+32*j, prv, sha );
-    }
-    for( fd_ed25519_verify_cctv_t const * proof = ed25519_verify_cctvs; proof->msg; proof++ ) {
-      if( proof->msg_sz!=msg_sz || !fd_memeq( proof->msg, msg, msg_sz ) ) continue;
-      memcpy( sigs+64, proof->sig, 64 ); memcpy( pubs+32, proof->pub, 32 );
-      int expected = fd_ed25519_verify_batch_single_msg( msg, msg_sz, sigs, pubs, shas, 4 );
-      FD_TEST( (expected==FD_ED25519_SUCCESS)==proof->ok );
-      for( ulong r=0UL; r<3UL; r++ ) FD_TEST( fd_ed25519_verify_batch_single_msg_cached( msg, msg_sz, sigs, pubs, shas, 4, cache )==expected );
-    }
     cache_destroy( cache );
   }
 
@@ -2113,7 +1978,6 @@ main( int     argc,
 
   test_wycheproofs( sha );
   test_cctv       ( sha );
-  test_cctv_batch ( rng, sha );
 
   test_verify_cached( rng, sha );
 
