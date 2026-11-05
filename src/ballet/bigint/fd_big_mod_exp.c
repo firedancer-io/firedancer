@@ -207,7 +207,18 @@ fd_big_mod_exp( uchar *       out,
   if( FD_UNLIKELY( !fd_big_mod_exp_modulus_is_valid( mod, mod_len ) ) )
     return FD_BIG_MOD_EXP_ERR_MODULUS;
 
-  ulong k = ( fd_ulong_max( base_len, mod_len ) + 7UL )/8UL;  /* [1,MAX_WORDS] */
+  /* Leading zero bytes do not change the input integers.  Keep the
+     declared modulus length for the caller's padded output. */
+  ulong base_sig_len = base_len;
+  ulong mod_sig_len  = mod_len;
+  while( base_sig_len && !base[base_sig_len-1UL] ) base_sig_len--;
+  while( mod_sig_len  && !mod [mod_sig_len -1UL] ) mod_sig_len--;
+  ulong k = ( fd_ulong_max( base_sig_len, mod_sig_len ) + 7UL )/8UL;
+#if FD_BIG_MOD_EXP_ADX
+  /* Do not discard an existing ADX domain for a narrower generic one. */
+  ulong declared_k = ( fd_ulong_max( base_len, mod_len ) + 7UL )/8UL;
+  if( declared_k>=8UL && !(declared_k & 7UL) && (k<8UL || (k & 7UL)) ) k = declared_k;
+#endif
   ulong e = ( exp_len                           + 7UL )/8UL;  /* [0,MAX_WORDS] */
 
   ulong a  [ FD_BIG_MOD_EXP_MAX_WORDS ]; /* base,     zero extended to k */
@@ -222,8 +233,8 @@ fd_big_mod_exp( uchar *       out,
 
   fd_memset( a, 0, k*sizeof(ulong) );
   fd_memset( m, 0, k*sizeof(ulong) );
-  fd_memcpy( (uchar *)a, base, base_len );
-  fd_memcpy( (uchar *)m, mod,  mod_len  );
+  fd_memcpy( (uchar *)a, base, base_sig_len );
+  fd_memcpy( (uchar *)m, mod,  mod_sig_len  );
   if( FD_LIKELY( e ) ) {
     fd_memset( p, 0, e*sizeof(ulong) );
     fd_memcpy( (uchar *)p, exp, exp_len );
@@ -241,7 +252,9 @@ fd_big_mod_exp( uchar *       out,
   /* base^1 == base mod m: one reduction, no Montgomery setup. */
   if( FD_UNLIKELY( nbits==1UL ) ) {
     fd_big_mod_exp_reduce( u, a, m, k );
-    fd_memcpy( out, (uchar const *)u, mod_len );
+    ulong copy_len = fd_ulong_min( mod_len, k*sizeof(ulong) );
+    fd_memcpy( out, (uchar const *)u, copy_len );
+    if( copy_len<mod_len ) fd_memset( out+copy_len, 0, mod_len-copy_len );
     return FD_BIG_MOD_EXP_SUCCESS;
   }
 
@@ -289,7 +302,9 @@ fd_big_mod_exp( uchar *       out,
   }
 
   bignum_demont( k, nxt, cur, m );
-  fd_memcpy( out, (uchar const *)nxt, mod_len );
+  ulong copy_len = fd_ulong_min( mod_len, k*sizeof(ulong) );
+  fd_memcpy( out, (uchar const *)nxt, copy_len );
+  if( copy_len<mod_len ) fd_memset( out+copy_len, 0, mod_len-copy_len );
 
   return FD_BIG_MOD_EXP_SUCCESS;
 }
