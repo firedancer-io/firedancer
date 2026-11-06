@@ -29,9 +29,9 @@ struct __attribute__((aligned(FD_BPF_FRAMES_ALIGN))) fd_bpf_frames_shmem {
 struct fd_bpf_frames {
   fd_bpf_frames_shmem_t * shmem;
   fd_bpf_frame_t *        pool;
-  fd_bpf_frame_t *        local;
-  ulong                   local_cnt;
-  ulong                   local_used;  /* local[ 0, local_used ) are in use */
+  uchar *                 local;
+  ulong                   local_sz;
+  ulong                   local_used;  /* local[ 0, local_used ) bytes are in use */
   ulong                   reserve_cnt; /* frames held back for each of the owner and
                                           the priority caller, the most shared
                                           frames one stack can need */
@@ -137,8 +137,8 @@ fd_bpf_frames_join( void * ljoin,
 
   join->shmem       = shmem;
   join->pool        = frame_pool_join( pool_mem( shmem ) );
-  join->local       = local_frames( shmem )+idx*shmem->local_cnt;
-  join->local_cnt   = shmem->local_cnt;
+  join->local       = (uchar *)( local_frames( shmem )+idx*shmem->local_cnt );
+  join->local_sz    = shmem->local_cnt*sizeof(fd_bpf_frame_t);
   join->reserve_cnt = FD_MAX_INSTRUCTION_STACK_DEPTH-shmem->local_cnt;
   join->local_used  = 0UL;
   join->is_owner    = 0;
@@ -147,11 +147,21 @@ fd_bpf_frames_join( void * ljoin,
   return join;
 }
 
+/* Levels are carved from the local frames by size.  A level that does
+   not fit finds over local_cnt-1 frames of them in use, so at least
+   local_cnt local levels below it, and a stack still takes at most
+   reserve_cnt shared frames. */
+
 static uchar *
 fd_bpf_frames_try_acquire( fd_bpf_frames_t * join,
+                           ulong             sz,
                            int               priority ) {
-  if( FD_LIKELY( join->local_used<join->local_cnt ) ) {
-    return (uchar *)( join->local+join->local_used++ );
+  if( FD_UNLIKELY( sz>BPF_LOADER_SERIALIZATION_FOOTPRINT ) ) FD_LOG_CRIT(( "bpf frame size %lu too large", sz ));
+  sz = fd_ulong_align_up( fd_ulong_max( sz, 1UL ), FD_BPF_FRAMES_ALIGN );
+  ulong used = join->local_used;
+  if( FD_LIKELY( sz<=join->local_sz-used ) ) {
+    join->local_used = used+sz;
+    return join->local+used;
   }
 
   /* Take the lock, and give up right away if no frames are free. */
@@ -191,9 +201,10 @@ fd_bpf_frames_try_acquire( fd_bpf_frames_t * join,
 
 uchar *
 fd_bpf_frames_acquire( fd_bpf_frames_t * join,
+                       ulong             sz,
                        int               priority ) {
   for(;;) {
-    uchar * frame = fd_bpf_frames_try_acquire( join, priority );
+    uchar * frame = fd_bpf_frames_try_acquire( join, sz, priority );
     if( FD_LIKELY( frame ) ) return frame;
     FD_SPIN_PAUSE();
   }
@@ -202,14 +213,16 @@ fd_bpf_frames_acquire( fd_bpf_frames_t * join,
 void
 fd_bpf_frames_release( fd_bpf_frames_t * join,
                        uchar *           frame ) {
-  if( FD_LIKELY( !join->held_cnt ) ) {
-    FD_TEST( join->local_used && frame==(uchar *)( join->local+join->local_used-1UL ) );
-    join->local_used--;
+  ulong off = (ulong)frame-(ulong)join->local;
+  if( FD_LIKELY( off<join->local_sz ) ) {
+    FD_TEST( off<join->local_used );
+    join->local_used = off;
     return;
   }
 
   fd_bpf_frames_shmem_t * shmem = join->shmem;
   fd_rwlock_write( &shmem->lock );
+  FD_TEST( join->held_cnt );
   frame_pool_ele_release( join->pool, (fd_bpf_frame_t *)frame );
   join->held_cnt--;
   if( !join->held_cnt && join->is_owner ) {
