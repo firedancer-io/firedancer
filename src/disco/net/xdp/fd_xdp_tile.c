@@ -37,6 +37,7 @@
 #include <linux/rtnetlink.h>
 #include <linux/futex.h>
 
+#define FD_SOCKADDR_IN_SZ sizeof(struct sockaddr_in)
 #include "generated/fd_xdp_tile_seccomp.h"
 
 
@@ -520,7 +521,13 @@ net_tx_route( fd_net_ctx_t * ctx,
 
   uint rtype   = next_hop->rtype;
   uint if_idx  = next_hop->if_idx;
-  uint ip4_src = next_hop->ip4_src;
+  uint ip4_src = fd_uint_if( !!ctx->net.bind_address, ctx->net.bind_address, next_hop->ip4_src );
+  /* if routing fails the socket fallback will need the src ip.
+     Success paths below overwrite it.  mtu is reset because the outer
+     GRE lookup reuses route, and a failed lookup must not keep the
+     inner GRE device's mtu. */
+  route->src_ip = fd_uint_if( !ip4_src, ctx->default_address, ip4_src );
+  route->mtu    = 0U;
 
   if( FD_UNLIKELY( rtype==FD_FIB4_RTYPE_LOCAL ) ) {
     rtype  = FD_FIB4_RTYPE_UNICAST;
@@ -532,17 +539,17 @@ net_tx_route( fd_net_ctx_t * ctx,
         FD_METRICS_ENUM_PKT_TX_ROUTING_FAILURE_REASON_V_NO_ROUTE_IDX,
         FD_METRICS_ENUM_PKT_TX_ROUTING_FAILURE_REASON_V_UNSUPPORTED_ROUTE_IDX );
     ctx->net.metrics.tx_routing_failure_cnt[ reason ]++;
+    route->routing_failure = 1;
     return 0;
   }
 
   fd_netdev_t * netdev = fd_netdev_tbl_query( &ctx->netdev_tbl, if_idx );
   if( !netdev ) {
     ctx->net.metrics.tx_routing_failure_cnt[ FD_METRICS_ENUM_PKT_TX_ROUTING_FAILURE_REASON_V_INTERFACE_MISSING_IDX ]++;
+    route->routing_failure = 1;
     return 0;
   }
 
-  ip4_src = fd_uint_if( !!ctx->net.bind_address, ctx->net.bind_address, ip4_src );
-  route->src_ip = ip4_src;
   route->mtu    = netdev->mtu;
   ctx->tx_op.xsk_idx = UINT_MAX;
 
@@ -553,10 +560,12 @@ net_tx_route( fd_net_ctx_t * ctx,
     memset( route->mac_addrs, 0, 12UL );
     ctx->tx_op.xsk_idx = if_idx==ctx->if_virt ? XSK_IDX_MAIN : XSK_IDX_LO;
     /* Set preferred src address to 127.0.0.1 if no bind address is set */
-    if( !route->src_ip ) route->src_ip = FD_IP4_ADDR( 127,0,0,1 );
+    route->src_ip = fd_uint_if( !ip4_src, FD_IP4_ADDR( 127,0,0,1 ), ip4_src );
     return 1;
   } else if( netdev->dev_type==ARPHRD_IPGRE ) {
-    /* skip MAC addrs lookup for GRE inner dst ip */
+    /* skip MAC addrs lookup for GRE inner dst ip.  The caller drops the
+       packet if there is no inner source, so don't apply the default. */
+    route->src_ip = ip4_src;
     if( netdev->gre_src_ip ) route->gre_outer_src_ip = netdev->gre_src_ip;
     route->gre_outer_dst_ip = netdev->gre_dst_ip;
     *is_gre_inf = 1;
@@ -565,11 +574,13 @@ net_tx_route( fd_net_ctx_t * ctx,
 
   if( FD_UNLIKELY( netdev->dev_type!=ARPHRD_ETHER ) ) {
     ctx->net.metrics.tx_routing_failure_cnt[ FD_METRICS_ENUM_PKT_TX_ROUTING_FAILURE_REASON_V_UNSUPPORTED_INTERFACE_IDX ]++;
+    route->routing_failure = 1;
     return 0;
   }
 
   if( FD_UNLIKELY( if_idx!=ctx->if_virt ) ) {
     ctx->net.metrics.tx_routing_failure_cnt[ FD_METRICS_ENUM_PKT_TX_ROUTING_FAILURE_REASON_V_UNSUPPORTED_INTERFACE_IDX ]++;
+    route->routing_failure = 1;
     return 0;
   }
   ctx->tx_op.xsk_idx = XSK_IDX_MAIN;
@@ -585,10 +596,12 @@ net_tx_route( fd_net_ctx_t * ctx,
     ctx->solicit_ip     = neigh_ip;
     ctx->solicit_if_idx = if_idx;
     ctx->metrics.tx_neigh_fail_cnt++;
+    route->routing_failure = 1;
     return 0;
   }
   if( FD_UNLIKELY( neigh->state != FD_NEIGH4_STATE_ACTIVE ) ) {
     ctx->metrics.tx_neigh_fail_cnt++;
+    route->routing_failure = 1;
     return 0;
   }
   ip4_src = fd_uint_if( !ip4_src, ctx->default_address, ip4_src );
@@ -634,8 +647,12 @@ before_frag( fd_net_ctx_t * ctx,
   *route = (fd_net_tx_route_t){0};
   uint is_gre_inf = 0;
 
+  /* Packets that fail userland routing are sent on net.sock in
+     after_frag and routed by the kernel.  They share the main XSK's TX
+     frame accounting. */
   if( FD_UNLIKELY( !net_tx_route( ctx, dst_ip, &is_gre_inf ) ) ) {
-    return 1; /* metrics incremented by net_tx_route */
+    if( !route->routing_failure ) return 1; /* metrics incremented by net_tx_route */
+    ctx->tx_op.xsk_idx = XSK_IDX_MAIN;
   }
 
   uint xsk_idx     = ctx->tx_op.xsk_idx;
@@ -649,8 +666,11 @@ before_frag( fd_net_ctx_t * ctx,
     /* Find the MAC addrs for the eth hdr, and src ip for outer ip4 hdr if not found in netdev tbl */
     route->src_ip = 0;
     is_gre_inf    = 0;
-    /* net_tx_route counts its own drop reason */
-    if( FD_UNLIKELY( !net_tx_route( ctx, route->gre_outer_dst_ip, &is_gre_inf ) ) ) return 1;
+    /* net_tx_route counts its own routing failure.  An unroutable outer
+       endpoint is encapsulated here and sent on net.sock, so the kernel
+       routes the outer packet. */
+    if( FD_UNLIKELY( !net_tx_route( ctx, route->gre_outer_dst_ip, &is_gre_inf ) &&
+                     !route->routing_failure ) ) return 1;
     if( is_gre_inf ) {
       /* Only one layer of tunnelling supported */
       ctx->net.metrics.tx_drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_GRE_NO_ROUTE_IDX ]++;
@@ -671,9 +691,11 @@ before_frag( fd_net_ctx_t * ctx,
   if( kind_id!=target_idx ) return 1; /* ignore */
 
   if( FD_UNLIKELY( xsk_idx>=ctx->xsk_cnt ) ) {
-    /* Packet does not route to an XDP interface */
+    /* Packet does not route to an XDP interface, so send it on net.sock */
     ctx->net.metrics.tx_routing_failure_cnt[ FD_METRICS_ENUM_PKT_TX_ROUTING_FAILURE_REASON_V_UNSUPPORTED_INTERFACE_IDX ]++;
-    return 1;
+    route->routing_failure = 1;
+    xsk_idx                = XSK_IDX_MAIN;
+    ctx->tx_op.xsk_idx     = XSK_IDX_MAIN;
   }
 
   /* Skip if TX is blocked */
@@ -762,6 +784,27 @@ after_frag( fd_net_ctx_t *      ctx,
 
   if( FD_UNLIKELY( !fd_net_tx_pkt_prep( &ctx->net, frame, &sz, in_idx ) ) ) return;
   if( ctx->net.tx_route.use_gre ) xsk_idx = XSK_IDX_MAIN;
+
+  /* Packets that failed userland routing are sent on net.sock starting
+     at the IPv4 header, and the kernel builds the L2 header.  The send
+     is synchronous, so the frame goes straight back to free_tx, and a
+     sent packet is counted as both submitted and completed (there is
+     no XSK completion event for it). */
+  if( FD_UNLIKELY( ctx->net.tx_route.routing_failure ) ) {
+    int                  ok       = fd_net_tx_sock_send( &ctx->net, frame, sz );
+    fd_net_free_ring_t * free     = &ctx->free_tx;
+    ulong                free_idx = free->prod & (free->depth-1UL);
+    free->queue[ free_idx ] = (ulong)frame;
+    free->prod              = fd_seq_inc( free->prod, 1UL );
+    ctx->tx_op.frame        = NULL;
+    if( FD_LIKELY( ok ) ) {
+      ctx->metrics.tx_submit_cnt++;
+      ctx->net.metrics.tx_pkt_cnt++;
+      ctx->net.metrics.tx_bytes_total += sz;
+      ctx->net.metrics.tx_gre_cnt     += (ulong)ctx->net.tx_route.use_gre;
+    }
+    return;
+  }
 
   /* Submit packet TX job
 
@@ -1265,6 +1308,10 @@ privileged_init( fd_topo_t const *      topo,
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
+
+  if( FD_UNLIKELY( !fd_net_sock_init( &ctx->net.sock ) ) ) {
+    FD_LOG_ERR(( "fd_net_sock_init failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
 }
 
 static void
@@ -1405,12 +1452,13 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
   /* A bit of a hack, if there is no loopback XSK for this tile, we still need to pass
      two "allow" FD arguments to the net policy, so we just make them both the same. */
   int allow_fd2 = ctx->xsk_cnt>1UL ? ctx->xsk[ 1 ].xsk_fd : ctx->xsk[ 0 ].xsk_fd;
-  FD_TEST( ctx->xsk[ 0 ].xsk_fd >= 0 && allow_fd2 >= 0 );
+  FD_TEST( ctx->xsk[ 0 ].xsk_fd >= 0 && allow_fd2 >= 0 && ctx->net.sock.sock >= 0 );
 
   /* not a waker client in performance mode: no fd matches, epoll_ctl denied */
   uint epoll_inner_fd = tile->is_waker_client ? (uint)FD_WAKER_INNER_FD( tile->waker_client_idx ) : (uint)-1;
   uint epoll_outer_fd = tile->is_waker_client ? (uint)FD_WAKER_OUTER_FD : (uint)-1;
-  populate_sock_filter_policy_fd_xdp_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)ctx->xsk[ 0 ].xsk_fd, (uint)allow_fd2, epoll_inner_fd, epoll_outer_fd );
+  populate_sock_filter_policy_fd_xdp_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)ctx->xsk[ 0 ].xsk_fd, (uint)allow_fd2,
+                                           (uint)ctx->net.sock.sock, epoll_inner_fd, epoll_outer_fd );
   return sock_filter_policy_fd_xdp_tile_instr_cnt;
 }
 
@@ -1423,7 +1471,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_net_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_net_ctx_t ), sizeof( fd_net_ctx_t ) );
 
-  if( FD_UNLIKELY( out_fds_cnt<8UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+  if( FD_UNLIKELY( out_fds_cnt<9UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
 
   ulong out_cnt = 0UL;
 
@@ -1433,6 +1481,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
 
                                       out_fds[ out_cnt++ ] = ctx->xsk[ 0 ].xsk_fd;
                                       out_fds[ out_cnt++ ] = ctx->prog_link_fds[ 0 ];
+                                      out_fds[ out_cnt++ ] = ctx->net.sock.sock; /* routing fallback socket */
   if( FD_LIKELY( ctx->xsk_cnt>1UL ) ) out_fds[ out_cnt++ ] = ctx->xsk[ 1 ].xsk_fd;
   if( FD_LIKELY( ctx->xsk_cnt>1UL ) ) out_fds[ out_cnt++ ] = ctx->prog_link_fds[ 1 ];
   if( FD_UNLIKELY( tile->is_waker_client ) ) {

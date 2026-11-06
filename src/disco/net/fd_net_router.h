@@ -92,7 +92,6 @@ fd_net_tx_route( fd_net_router_t *   ctx,
   }
 
   out->mtu    = netdev->mtu;
-  out->src_ip = ip4_src;
   out->if_idx = if_idx;
 
   if( netdev->dev_type==ARPHRD_LOOPBACK ) {
@@ -101,7 +100,9 @@ fd_net_tx_route( fd_net_router_t *   ctx,
     out->use_loopback = 1U;
     return 1;
   } else if( netdev->dev_type==ARPHRD_IPGRE ) {
-    /* skip MAC addrs lookup for GRE inner dst ip */
+    /* skip MAC addrs lookup for GRE inner dst ip.  The caller drops the
+       packet if there is no inner source, so don't apply the default. */
+    out->src_ip           = ip4_src;
     out->gre_outer_src_ip = netdev->gre_src_ip;
     out->gre_outer_dst_ip = netdev->gre_dst_ip;
     out->use_gre = 1U;
