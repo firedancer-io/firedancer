@@ -575,6 +575,7 @@ after_frag( fd_gui_ctx_t *      ctx,
       break;
     }
     case IN_KIND_PACK_POH: {
+      if( FD_UNLIKELY( sz==sizeof(fd_pack_prefix_drained_t) || sz==sizeof(fd_pack_resume_t) ) ) break; /* the slot switches parent, it goes on */
       if( FD_UNLIKELY( sig==FD_PACK_MSG_DONE_DRAINING ) ) fd_gui_done_draining( ctx->gui, fd_clock_tile_now( ctx->clock ) );
       else                                                fd_gui_unbecame_leader( ctx->gui, fd_disco_execle_sig_slot( sig ), (fd_done_packing_t const *)src );
       break;

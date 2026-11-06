@@ -184,6 +184,12 @@ test_update_parent( void ) {
   FD_TEST( marker->kind==FD_BLOCK_MARKER_KIND_UPDATE_PARENT );
   FD_TEST( marker->update_parent.new_parent_slot==5678UL );
   FD_TEST( !memcmp( marker->update_parent.new_parent_block_id.uc, new_parent_id.uc, sizeof(fd_hash_t) ) );
+
+  /* A leader switching its slot's parent sends one: it encodes back to
+     the same bytes. */
+  uchar out[ FD_BLOCK_MARKER_SER_MAX ];
+  FD_TEST( fd_block_marker_ser( marker, out )==g_sz );
+  FD_TEST( !memcmp( out, g_buf, g_sz ) );
 }
 
 static void
@@ -532,11 +538,9 @@ test_ser( void ) {
   emit_u8 ( 0 ); emit_u8( 0 ); emit_u8( 0 );
   roundtrip( g_sz );
 
-  /* the kinds we never produce are refused */
+  /* the kind we never produce is refused */
   fd_block_marker_t marker[1];
   fd_memset( marker, 0, sizeof(fd_block_marker_t) );
-  marker->kind = FD_BLOCK_MARKER_KIND_UPDATE_PARENT;
-  FD_TEST( !fd_block_marker_ser( marker, out ) );
   marker->kind = FD_BLOCK_MARKER_KIND_GENESIS_CERT;
   FD_TEST( !fd_block_marker_ser( marker, out ) );
 

@@ -103,6 +103,21 @@ struct fd_poh_leader_slot_ended {
 
 typedef struct fd_poh_leader_slot_ended fd_poh_leader_slot_ended_t;
 
+/* fd_poh_prefix_drained tells replay that motor sent the UpdateParent
+   marker of slot, switching its parent, after every microblock of its
+   old bank (fast leader handover, sad path).  No microblock reads that
+   bank anymore, so replay releases it.  It goes on poh_replay with
+   signal FD_POH_SIG_PREFIX_DRAINED, slot ended messages have signal 0. */
+
+#define FD_POH_SIG_PREFIX_DRAINED (1UL)
+
+struct fd_poh_prefix_drained {
+  ulong slot;
+  ulong bank_idx; /* the old bank */
+  ulong bank_seq;
+};
+typedef struct fd_poh_prefix_drained fd_poh_prefix_drained_t;
+
 struct fd_poh_out_private {
   ulong       idx;
   fd_wksp_t * mem;

@@ -130,6 +130,23 @@ header_ser( fd_block_header_t const * header,
   return off;
 }
 
+static ulong
+update_parent_ser( fd_update_parent_t const * update_parent,
+                   uchar *                    buf ) {
+  update_parent_serde_t upd;
+
+  upd.version             = (uchar)1;
+  upd.new_parent_slot     = update_parent->new_parent_slot;
+  upd.new_parent_block_id = update_parent->new_parent_block_id.uc;
+
+  ulong off = 0UL;
+  buf[ off ] = upd.version;                                      off += sizeof(uchar);
+  FD_STORE( ulong, buf+off, upd.new_parent_slot );               off += sizeof(ulong);
+  memcpy( buf+off, upd.new_parent_block_id, sizeof(fd_hash_t) ); off += sizeof(fd_hash_t);
+
+  return off;
+}
+
 /* bitmap_ser writes the base2 bitmap naming the ranks in signer_set,
    exactly nbits wide: a footer cert re-emits the width it carries, so
    one that came off the wire goes back out byte for byte.  Returns the
@@ -303,9 +320,10 @@ fd_block_marker_ser( fd_block_marker_t const * self,
   uchar * payload = buf+FD_BLOCK_MARKER_PREAMBLE_SZ;
   ulong   payload_sz;
   switch( self->kind ) {
-  case FD_BLOCK_MARKER_KIND_FOOTER: payload_sz = footer_ser( &self->footer, payload ); break;
-  case FD_BLOCK_MARKER_KIND_HEADER: payload_sz = header_ser( &self->header, payload ); break;
-  default:                          return 0UL; /* nothing we produce is an UpdateParent or GenesisCertificate */
+  case FD_BLOCK_MARKER_KIND_FOOTER:        payload_sz = footer_ser       ( &self->footer,        payload ); break;
+  case FD_BLOCK_MARKER_KIND_HEADER:        payload_sz = header_ser       ( &self->header,        payload ); break;
+  case FD_BLOCK_MARKER_KIND_UPDATE_PARENT: payload_sz = update_parent_ser( &self->update_parent, payload ); break;
+  default:                                 return 0UL; /* nothing we produce is a GenesisCertificate */
   }
   if( FD_UNLIKELY( !payload_sz ) ) return 0UL;
 
