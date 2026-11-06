@@ -23,6 +23,12 @@
 
 #define MAX_NET_OUTS (32UL)
 
+/* FD_SOCK_EPOLL_EV_MAX is the epoll_pwait event array size of a parked
+   sock tile: every RX socket plus the sleep doorbell.  Keep in sync
+   with fd_sock_tile.seccomppolicy. */
+
+#define FD_SOCK_EPOLL_EV_MAX (FD_SOCK_TILE_MAX_SOCKETS+1)
+
 /* Local metrics.  Periodically copied to the metric_in shm region. */
 
 struct fd_sock_tile_metrics {
@@ -63,6 +69,13 @@ struct fd_sock_tile {
   uint          lo_ifindex;
   double        tick_per_ns;
   uchar         proto_id[ FD_SOCK_TILE_MAX_SOCKETS ];
+
+  /* Efficient mode only: epoll park set (sleep doorbell and RX
+     sockets), and the RX sockets it reported readable (bit j is
+     pollfd[ j ]) for the next after_credit to receive from.  epoll_fd
+     is -1 and rx_ready 0 in performance mode. */
+  int           epoll_fd;
+  uint          rx_ready;
 
   /* TX SOCK_RAW socket */
   int   tx_sock;
