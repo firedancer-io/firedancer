@@ -170,6 +170,7 @@ action_t fd_action_set_identity = {
   .args           = set_identity_cmd_args,
   .fn             = set_identity_cmd_fn,
   .require_config = 0,
+  .no_topo        = 1,
   .perm           = set_identity_cmd_perm,
   .description    = "Change the identity of a running validator",
   .detail         = "Switches the gossip/voting/block-production identity key of an already\n"

@@ -360,6 +360,7 @@ action_t fd_action_failover = {
   .args           = failover_args,
   .fn             = failover_cmd_fn,
   .require_config = 0,
+  .no_topo        = 1,
   .perm           = failover_promote_perm,
   .description    = "Take the identity that another validator runs",
   .detail         = "Hands off an identity between validators.  Each boots under its own\n"
