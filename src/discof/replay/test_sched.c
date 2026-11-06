@@ -34,6 +34,9 @@ new_sched_ext( ulong depth,
   FD_TEST( mem );
   fd_sched_t * sched = fd_sched_join( fd_sched_new( mem, rng, depth, block_cnt_max, max_shreds_per_block, max_txn_per_slot, TEST_EXEC_CNT ) );
   FD_TEST( sched );
+  /* One sigverify task per transaction; the sigverify cases set the
+     group they exercise. */
+  fd_sched_set_sigverify_group( sched, 1UL );
   fd_sched_block_add_done( sched, 1UL, ULONG_MAX, TEST_ROOT_SLOT );
   return sched;
 }
@@ -252,7 +255,7 @@ run_interleaved_fec_tasks( fd_sched_t * sched, uint const * signature_tag, ulong
         break;
       }
       case FD_SCHED_TT_TXN_SIGVERIFY:
-        FD_TEST( !fd_sched_task_done( sched, FD_SCHED_TT_TXN_SIGVERIFY, task->txn_sigverify->txn_idx, task->txn_sigverify->exec_idx, NULL ) );
+        FD_TEST( !fd_sched_task_done( sched, FD_SCHED_TT_TXN_SIGVERIFY, ULONG_MAX, task->txn_sigverify->exec_idx, NULL ) );
         break;
       case FD_SCHED_TT_POH_HASH: {
         fd_execrp_poh_hash_done_msg_t msg[ 1 ];
@@ -523,7 +526,7 @@ run_shred_window_overflow_case( void ) {
         break;
       }
       case FD_SCHED_TT_TXN_SIGVERIFY:
-        FD_TEST( !fd_sched_task_done( sched, FD_SCHED_TT_TXN_SIGVERIFY, task->txn_sigverify->txn_idx, task->txn_sigverify->exec_idx, NULL ) );
+        FD_TEST( !fd_sched_task_done( sched, FD_SCHED_TT_TXN_SIGVERIFY, ULONG_MAX, task->txn_sigverify->exec_idx, NULL ) );
         break;
       case FD_SCHED_TT_POH_HASH: {
         fd_execrp_poh_hash_done_msg_t msg[ 1 ];
@@ -1146,7 +1149,7 @@ run_zero_hashcnt_mblk_case( void ) {
         FD_TEST( !fd_sched_task_done( sched, FD_SCHED_TT_TXN_EXEC, task->txn_exec->txn_idx, task->txn_exec->exec_idx, NULL ) );
         break;
       case FD_SCHED_TT_TXN_SIGVERIFY:
-        FD_TEST( !fd_sched_task_done( sched, FD_SCHED_TT_TXN_SIGVERIFY, task->txn_sigverify->txn_idx, task->txn_sigverify->exec_idx, NULL ) );
+        FD_TEST( !fd_sched_task_done( sched, FD_SCHED_TT_TXN_SIGVERIFY, ULONG_MAX, task->txn_sigverify->exec_idx, NULL ) );
         break;
       case FD_SCHED_TT_POH_HASH: {
         poh_task_cnt++;
@@ -1283,7 +1286,7 @@ run_entry_hash_mismatch_case( void ) {
         FD_TEST( !fd_sched_task_done( sched, FD_SCHED_TT_TXN_EXEC, task->txn_exec->txn_idx, task->txn_exec->exec_idx, NULL ) );
         break;
       case FD_SCHED_TT_TXN_SIGVERIFY:
-        FD_TEST( !fd_sched_task_done( sched, FD_SCHED_TT_TXN_SIGVERIFY, task->txn_sigverify->txn_idx, task->txn_sigverify->exec_idx, NULL ) );
+        FD_TEST( !fd_sched_task_done( sched, FD_SCHED_TT_TXN_SIGVERIFY, ULONG_MAX, task->txn_sigverify->exec_idx, NULL ) );
         break;
       case FD_SCHED_TT_POH_HASH: {
         FD_TEST( !task->poh_hash->hashcnt ); /* txn microblock: mixin only */
@@ -1305,6 +1308,273 @@ run_entry_hash_mismatch_case( void ) {
   }
   FD_TEST( poh_dead );
   FD_TEST( fd_sched_get_dead_reason( sched, 2UL )==FD_SCHED_DEAD_REASON_ENTRY_HASH_MISMATCH );
+  while( fd_sched_pruned_block_next( sched )!=ULONG_MAX ) {}
+
+  delete_sched( sched );
+}
+
+/* build_multisig_test_txn builds a transaction with sig_cnt writable
+   signers, the first one distinguished by seed. */
+
+static ulong
+build_multisig_test_txn( uchar * payload,
+                         ulong   sig_cnt,
+                         uchar   seed ) {
+  fd_pubkey_t signer[ FD_TXN_SIG_MAX ];
+  fd_pubkey_t program[ 1 ];
+  for( ulong i=0UL; i<sig_cnt; i++ ) fd_memset( signer[ i ].uc, (int)(seed+i), sizeof(fd_pubkey_t) );
+  fd_memset( program->uc, 0x22, sizeof(fd_pubkey_t) );
+
+  fd_txn_accounts_t accounts = {
+    .signature_cnt         = (uchar)sig_cnt,
+    .readonly_signed_cnt   = 0U,
+    .readonly_unsigned_cnt = 1U,
+    .acct_cnt              = (ushort)(sig_cnt+1UL),
+    .signers_w             = signer,
+    .signers_r             = NULL,
+    .non_signers_w         = NULL,
+    .non_signers_r         = program,
+  };
+
+  uchar meta[ FD_TXN_MAX_SZ ] __attribute__((aligned(alignof(fd_txn_t))));
+  fd_memset( meta, 0, sizeof(meta) );
+  fd_txn_base_generate( meta, payload, sig_cnt, &accounts, NULL );
+
+  uchar instr_acct = 0U;
+  uchar instr_data = 0x5aU;
+  return fd_txn_add_instr( meta, payload, (uchar)sig_cnt, &instr_acct, 1UL, &instr_data, 1UL );
+}
+
+/* Ingest block 2 as a header followed by one microblock whose txn_cnt
+   transactions carry txn_sig_cnt[ i ] signatures each.  The block is
+   left open: no FEC set is marked last in block. */
+
+static void
+ingest_multisig_block( fd_sched_t *  sched,
+                       ulong const * txn_sig_cnt,
+                       ulong         txn_cnt ) {
+  fd_hash_t start_poh[ 1 ];
+  fd_hash_t mblk_hash[ 1 ];
+  hash_from_seed( start_poh, 0x2b9e61d40c7f35a8UL );
+  hash_from_seed( mblk_hash, 0x93f0a5c7e1d2b468UL );
+
+  FD_TEST( ingest_ag_component( sched, 2UL, AG_COMP_HEADER, start_poh, 1, 0 ) );
+  fd_sched_set_poh_params( sched, 2UL, TEST_ROOT_TICK_HEIGHT, TEST_ROOT_TICK_HEIGHT+1UL, start_poh );
+
+  uchar fec0[ 16384 ];
+  ulong fec0_sz = 0UL;
+  FD_STORE( ulong, fec0, 1UL );
+  fec0_sz += sizeof(ulong);
+  fd_microblock_hdr_t hdr = { .hash_cnt = 1UL, .txn_cnt = txn_cnt };
+  fd_memcpy( hdr.hash, mblk_hash->hash, sizeof(fd_hash_t) );
+  fd_memcpy( fec0+fec0_sz, &hdr, sizeof(hdr) );
+  fec0_sz += sizeof(hdr);
+  for( ulong i=0UL; i<txn_cnt; i++ ) {
+    uchar txn_payload[ FD_TXN_MTU ];
+    ulong txn_sz = build_multisig_test_txn( txn_payload, txn_sig_cnt[ i ], (uchar)(0x30UL+i) );
+    FD_TEST( fec0_sz+txn_sz<=sizeof(fec0) );
+    fd_memcpy( fec0+fec0_sz, txn_payload, txn_sz );
+    fec0_sz += txn_sz;
+  }
+
+  fd_store_fec_t store_fec0[ 1 ] __attribute__((aligned(alignof(fd_store_fec_t))));
+  fd_memset( store_fec0, 0, sizeof(fd_store_fec_t) );
+  store_fec0->data_sz         = (uint)fec0_sz;
+  store_fec0->shred_sz[ 0 ]   = (ushort)fec0_sz;
+  fd_sched_fec_t fec[ 1 ] = {{
+    .bank_idx          = 2UL,
+    .parent_bank_idx   = 1UL,
+    .slot              = TEST_ROOT_SLOT+1UL,
+    .parent_slot       = TEST_ROOT_SLOT,
+    .fec               = store_fec0,
+    .data              = fec0,
+    .shred_cnt         = 1U,
+    .is_last_in_batch  = 1U,
+  }};
+  FD_TEST( fd_sched_fec_can_ingest( sched, fec ) );
+  FD_TEST( fd_sched_fec_ingest( sched, fec ) );
+}
+
+/* model_sigverify_cnt is the transaction count of the sigverify task
+   that starts at the next_local-th transaction of a block whose
+   transactions carry txn_sig_cnt[ i ] signatures: transactions join
+   while their signatures fit in a group, a transaction with more than
+   a group goes alone.  *partial is set when the block runs out before
+   the group fills; the sched dispatches such a task only once the
+   block has nothing in flight. */
+
+static ulong
+model_sigverify_cnt( ulong const * txn_sig_cnt,
+                     ulong         txn_cnt,
+                     ulong         next_local,
+                     ulong         group,
+                     int *         partial ) {
+  ulong sig_cnt = 0UL;
+  ulong cnt     = 0UL;
+  *partial = 1;
+  while( next_local+cnt<txn_cnt ) {
+    ulong s = txn_sig_cnt[ next_local+cnt ];
+    if( sig_cnt+s>group && cnt ) { *partial = 0; break; }
+    sig_cnt += s;
+    cnt++;
+    if( sig_cnt>=group ) { *partial = 0; break; }
+  }
+  return cnt;
+}
+
+/* Sigverify tasks take consecutive transactions of a block up to a
+   group of group signatures; a transaction with more signatures than a
+   group goes alone, and the tail of the block goes out as a partial
+   group once nothing of the block is in flight. */
+
+static void
+run_sigverify_batch_case( ulong group ) {
+  fd_sched_t * sched = new_sched( 4UL );
+  fd_sched_set_bypass_poh_verify( sched, 1 );
+  fd_sched_set_sigverify_group( sched, group );
+
+  /* Signature count of each transaction of the microblock, in order */
+  static ulong const txn_sig_cnt[] = { 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, FD_TXN_SIG_MAX, 1, 1, 1, 5, 4 };
+  ulong const txn_cnt = sizeof(txn_sig_cnt)/sizeof(txn_sig_cnt[0]);
+
+  ingest_multisig_block( sched, txn_sig_cnt, txn_cnt );
+
+  /* Sigverify tasks stay in flight until nothing else is ready, so
+     several exec tiles hold a task at once. */
+  fd_sched_txn_sigverify_t pending[ TEST_EXEC_CNT ];
+  ulong pending_cnt = 0UL;
+  ulong task_cnt    = 0UL;
+  ulong partial_cnt = 0UL;
+  ulong next_local  = 0UL;
+  ulong exec_cnt    = 0UL;
+  for( ulong step=0UL; step<1000UL; step++ ) {
+    fd_sched_task_t task[ 1 ];
+    if( !fd_sched_task_next_ready( sched, task ) ) {
+      if( !pending_cnt ) break;
+      pending_cnt--;
+      FD_TEST( !fd_sched_task_done( sched, FD_SCHED_TT_TXN_SIGVERIFY, ULONG_MAX, pending[ pending_cnt ].exec_idx, NULL ) );
+      for( ulong i=0UL; i<pending[ pending_cnt ].cnt; i++ ) {
+        fd_sched_txn_info_t * info = fd_sched_get_txn_info( sched, pending[ pending_cnt ].txn_idx[ i ] );
+        FD_TEST( info->flags & FD_SCHED_TXN_SIGVERIFY_DONE );
+      }
+      continue;
+    }
+    switch( task->task_type ) {
+      case FD_SCHED_TT_BLOCK_START:
+        FD_TEST( !fd_sched_task_done( sched, FD_SCHED_TT_BLOCK_START, ULONG_MAX, ULONG_MAX, NULL ) );
+        break;
+      case FD_SCHED_TT_TXN_EXEC:
+        exec_cnt++;
+        FD_TEST( !fd_sched_task_done( sched, FD_SCHED_TT_TXN_EXEC, task->txn_exec->txn_idx, task->txn_exec->exec_idx, NULL ) );
+        break;
+      case FD_SCHED_TT_TXN_SIGVERIFY: {
+        fd_sched_txn_sigverify_t const * sv = task->txn_sigverify;
+        int partial;
+        FD_TEST( sv->cnt==model_sigverify_cnt( txn_sig_cnt, txn_cnt, next_local, group, &partial ) );
+        if( partial ) {
+          FD_TEST( !pending_cnt );                 /* nothing of the block in flight */
+          FD_TEST( next_local+sv->cnt==txn_cnt );  /* the tail of the block */
+          partial_cnt++;
+        }
+        for( ulong i=0UL; i<sv->cnt; i++ ) {
+          fd_sched_txn_info_t * info = fd_sched_get_txn_info( sched, sv->txn_idx[ i ] );
+          FD_TEST( info );
+          FD_TEST( info->index_in_slot==next_local );
+          FD_TEST( info->sigverify_exec_tile_idx==sv->exec_idx );
+          FD_TEST( !(info->flags & FD_SCHED_TXN_SIGVERIFY_DONE) );
+          FD_TEST( TXN( fd_sched_get_txn( sched, sv->txn_idx[ i ] ) )->signature_cnt==txn_sig_cnt[ next_local ] );
+          next_local++;
+        }
+        task_cnt++;
+        FD_TEST( pending_cnt<TEST_EXEC_CNT );
+        pending[ pending_cnt++ ] = *sv;
+        break;
+      }
+      case FD_SCHED_TT_POH_HASH: {
+        fd_execrp_poh_hash_done_msg_t msg[ 1 ];
+        msg->cnt = task->poh_hash->cnt;
+        for( ulong i=0UL; i<task->poh_hash->cnt; i++ ) repeat_hash( msg->hash+i, task->poh_hash->hash+i, task->poh_hash->hashcnt );
+        FD_TEST( !fd_sched_task_done( sched, FD_SCHED_TT_POH_HASH, ULONG_MAX, task->poh_hash->exec_idx, msg ) );
+        break;
+      }
+      case FD_SCHED_TT_LTHASH_SUB:
+      case FD_SCHED_TT_LTHASH_ADD: {
+        fd_lthash_value_t v[ 1 ]; fd_lthash_zero( v );
+        FD_TEST( !fd_sched_task_done( sched, task->task_type, ULONG_MAX, task->lthash->exec_idx, v ) );
+        break;
+      }
+      default:
+        FD_LOG_ERR(( "unexpected task type %lu", task->task_type ));
+    }
+  }
+  FD_TEST( next_local==txn_cnt );
+  FD_TEST( task_cnt==fd_ulong_if( group==8UL, 5UL, txn_cnt ) ); /* 8x1 | 1,1 | 12 | 1,1,1,5 | 4 */
+  FD_TEST( partial_cnt==(group>4UL) );
+  FD_TEST( exec_cnt==txn_cnt );
+  FD_TEST( fd_sched_is_drained( sched ) );
+
+  delete_sched( sched );
+}
+
+/* A sigverify task of a block that is abandoned while it is in flight
+   retires normally and nothing more of the block is dispatched; the
+   block leaves the dispatcher once the task completes. */
+
+static void
+run_sigverify_abandon_case( void ) {
+  fd_sched_t * sched = new_sched( 4UL );
+  fd_sched_set_bypass_poh_verify( sched, 1 );
+  fd_sched_set_sigverify_group( sched, 8UL );
+
+  static ulong const txn_sig_cnt[] = { 1, 2, 1 };
+  ulong const txn_cnt = sizeof(txn_sig_cnt)/sizeof(txn_sig_cnt[0]);
+  ingest_multisig_block( sched, txn_sig_cnt, txn_cnt );
+
+  ulong sv_task_cnt = 0UL;
+  for( ulong step=0UL; step<1000UL; step++ ) {
+    FD_TEST( fd_sched_pruned_block_next( sched )==ULONG_MAX );
+
+    fd_sched_task_t task[ 1 ];
+    if( !fd_sched_task_next_ready( sched, task ) ) break;
+    switch( task->task_type ) {
+      case FD_SCHED_TT_BLOCK_START:
+        FD_TEST( !fd_sched_task_done( sched, FD_SCHED_TT_BLOCK_START, ULONG_MAX, ULONG_MAX, NULL ) );
+        break;
+      case FD_SCHED_TT_TXN_EXEC:
+        FD_TEST( !fd_sched_task_done( sched, FD_SCHED_TT_TXN_EXEC, task->txn_exec->txn_idx, task->txn_exec->exec_idx, NULL ) );
+        break;
+      case FD_SCHED_TT_TXN_SIGVERIFY: {
+        FD_TEST( !sv_task_cnt++ );
+        int partial;
+        FD_TEST( task->txn_sigverify->cnt==model_sigverify_cnt( txn_sig_cnt, txn_cnt, 0UL, 8UL, &partial ) );
+        ulong exec_idx = task->txn_sigverify->exec_idx;
+        fd_sched_block_abandon( sched, 2UL, FD_SCHED_ABANDON_INVALID );
+        FD_TEST( fd_sched_pruned_block_next( sched )==ULONG_MAX ); /* released only once the task completes */
+        FD_TEST( !fd_sched_is_drained( sched ) );
+        FD_TEST( !fd_sched_task_done( sched, FD_SCHED_TT_TXN_SIGVERIFY, ULONG_MAX, exec_idx, NULL ) );
+        for( ulong i=0UL; i<task->txn_sigverify->cnt; i++ ) FD_TEST( fd_sched_get_txn_info( sched, task->txn_sigverify->txn_idx[ i ] )->flags & FD_SCHED_TXN_SIGVERIFY_DONE );
+        FD_TEST( fd_sched_pruned_block_next( sched )==2UL );
+        break;
+      }
+      case FD_SCHED_TT_POH_HASH: {
+        fd_execrp_poh_hash_done_msg_t msg[ 1 ];
+        msg->cnt = task->poh_hash->cnt;
+        for( ulong i=0UL; i<task->poh_hash->cnt; i++ ) repeat_hash( msg->hash+i, task->poh_hash->hash+i, task->poh_hash->hashcnt );
+        FD_TEST( !fd_sched_task_done( sched, FD_SCHED_TT_POH_HASH, ULONG_MAX, task->poh_hash->exec_idx, msg ) );
+        break;
+      }
+      case FD_SCHED_TT_LTHASH_SUB:
+      case FD_SCHED_TT_LTHASH_ADD: {
+        fd_lthash_value_t v[ 1 ]; fd_lthash_zero( v );
+        FD_TEST( !fd_sched_task_done( sched, task->task_type, ULONG_MAX, task->lthash->exec_idx, v ) );
+        break;
+      }
+      default:
+        FD_LOG_ERR(( "unexpected task type %lu", task->task_type ));
+    }
+  }
+  FD_TEST( sv_task_cnt==1UL );
+  FD_TEST( fd_sched_is_drained( sched ) );
   while( fd_sched_pruned_block_next( sched )!=ULONG_MAX ) {}
 
   delete_sched( sched );
@@ -1693,7 +1963,7 @@ lthash_drive_task( fd_sched_t *        sched,
       break;
     case FD_SCHED_TT_TXN_SIGVERIFY:
       ctx->step++;
-      FD_TEST( !fd_sched_task_done( sched, FD_SCHED_TT_TXN_SIGVERIFY, task->txn_sigverify->txn_idx, task->txn_sigverify->exec_idx, NULL ) );
+      FD_TEST( !fd_sched_task_done( sched, FD_SCHED_TT_TXN_SIGVERIFY, ULONG_MAX, task->txn_sigverify->exec_idx, NULL ) );
       break;
     case FD_SCHED_TT_POH_HASH: {
       ctx->step++;
@@ -1781,7 +2051,7 @@ drive_untracked( fd_sched_t * sched,
       case FD_SCHED_TT_BLOCK_START:   FD_TEST( !fd_sched_task_done( sched, FD_SCHED_TT_BLOCK_START,   ULONG_MAX,                    ULONG_MAX,                     NULL ) ); break;
       case FD_SCHED_TT_BLOCK_END:     FD_TEST( !fd_sched_task_done( sched, FD_SCHED_TT_BLOCK_END,     ULONG_MAX,                    ULONG_MAX,                     NULL ) ); break;
       case FD_SCHED_TT_TXN_EXEC:      FD_TEST( !fd_sched_task_done( sched, FD_SCHED_TT_TXN_EXEC,      task->txn_exec->txn_idx,      task->txn_exec->exec_idx,      NULL ) ); break;
-      case FD_SCHED_TT_TXN_SIGVERIFY: FD_TEST( !fd_sched_task_done( sched, FD_SCHED_TT_TXN_SIGVERIFY, task->txn_sigverify->txn_idx, task->txn_sigverify->exec_idx, NULL ) ); break;
+      case FD_SCHED_TT_TXN_SIGVERIFY: FD_TEST( !fd_sched_task_done( sched, FD_SCHED_TT_TXN_SIGVERIFY, ULONG_MAX,                    task->txn_sigverify->exec_idx, NULL ) ); break;
       case FD_SCHED_TT_POH_HASH: {
         fd_execrp_poh_hash_done_msg_t msg[ 1 ];
         msg->cnt = task->poh_hash->cnt;
@@ -3221,7 +3491,7 @@ lthash_batch_hold( fd_sched_t *        sched,
                    fd_acct_addr_t *    held_acct ) {
   fd_sched_task_t task[ 1 ];
   fd_sched_task_t first[ 1 ];
-  ulong txn_cnt = 0UL, sigverify_cnt = 0UL;
+  ulong txn_cnt = 0UL, sigverify_txn_cnt = 0UL;
   for(;;) {
     FD_TEST( 1UL==fd_sched_task_next_ready( sched, task ) );
     if( task->task_type==FD_SCHED_TT_TXN_EXEC ) {
@@ -3232,7 +3502,7 @@ lthash_batch_hold( fd_sched_t *        sched,
       continue;
     }
     FD_TEST( task->task_type==FD_SCHED_TT_POH_HASH || task->task_type==FD_SCHED_TT_TXN_SIGVERIFY );
-    if( task->task_type==FD_SCHED_TT_TXN_SIGVERIFY && ++sigverify_cnt==3UL ) break;
+    if( task->task_type==FD_SCHED_TT_TXN_SIGVERIFY && (sigverify_txn_cnt+=task->txn_sigverify->cnt)==3UL ) break;
     lthash_drive_task( sched, task, ctx );
   }
   FD_TEST( txn_cnt==3UL );
@@ -4942,6 +5212,9 @@ main( int     argc,
   run_lthash_writer_bound_case( 2 );
   run_lthash_writer_bound_case( 3 );
   run_lthash_writer_bound_full_case();
+  run_sigverify_batch_case( 1UL );
+  run_sigverify_batch_case( 8UL );
+  run_sigverify_abandon_case();
 
   fd_wksp_delete_anonymous( test_wksp );
   FD_LOG_NOTICE(( "pass" ));
