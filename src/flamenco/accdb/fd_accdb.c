@@ -125,8 +125,12 @@ struct __attribute__((aligned(FD_ACCDB_ALIGN))) fd_accdb_private {
   long  free_ring_ticks;
 
   /* Last time background_preevict scanned the watermarks (it reads
-     every join's free-list counts, so it is rate-limited). */
+     every join's free-list counts, so it is rate-limited), and whether
+     that scan left a class short of its target.  Throttled calls keep
+     reporting busy while a refill is pending, so the accdb tile does
+     not park mid-refill. */
   long  preevict_ticks;
+  int   preevict_pending;
 
   /* Reservation state (res_*), constant after join.  res_limit[c] is
      ULONG_MAX if class c is untracked, so the hot path never loads the
@@ -356,9 +360,10 @@ fd_accdb_new( void *              ljoin,
   FD_TEST( epoch_idx<shmem->joiner_cnt_max );
   accdb->my_epoch_slot = &shmem->joiner_epochs[ epoch_idx ].val;
   res_init( accdb, shmem, epoch_idx );
-  accdb->free_idx        = epoch_idx;
-  accdb->free_ring_ticks = 0L;
-  accdb->preevict_ticks  = 0L;
+  accdb->free_idx         = epoch_idx;
+  accdb->free_ring_ticks  = 0L;
+  accdb->preevict_ticks   = 0L;
+  accdb->preevict_pending = 0;
 
   accdb->external_epoch_slots = external_epoch_slots;
   accdb->external_epoch_cnt   = external_epoch_cnt;
@@ -4529,8 +4534,12 @@ background_preevict( fd_accdb_t * accdb,
 
   if( FD_LIKELY( !force ) ) {
     long now = fd_tickcount();
-    if( FD_LIKELY( now-accdb->preevict_ticks<FD_ACCDB_PREEVICT_SCAN_TICKS ) ) return;
-    accdb->preevict_ticks = now;
+    if( FD_LIKELY( now-accdb->preevict_ticks<FD_ACCDB_PREEVICT_SCAN_TICKS ) ) {
+      *charge_busy |= accdb->preevict_pending;
+      return;
+    }
+    accdb->preevict_ticks   = now;
+    accdb->preevict_pending = 0;
   }
 
   /* A batch has to fit one disk partition. */
@@ -4632,6 +4641,13 @@ background_preevict( fd_accdb_t * accdb,
       preevict_flush( accdb, size_class, pend_line, pend_sz, pend_cnt, stage_sz );
       pend_cnt = 0UL;
       stage_sz = 0UL;
+    }
+
+    /* Still below low water (budget ran out or too little was
+       evictable): the next scan will sweep this class again, so stay
+       busy until then rather than letting the tile park. */
+    if( FD_UNLIKELY( !force && avail+evicted<shmem->cache_free_low_water[ size_class ] ) ) {
+      accdb->preevict_pending = 1;
     }
   }
 }
