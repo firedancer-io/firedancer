@@ -1,7 +1,7 @@
 This directory contains a compress-only subset of the zlib library at
 https://github.com/madler/zlib
 
-Files are copied exactly from tag v1.3.1, with no Firedancer
+Files are copied exactly from tag v1.4, with no Firedancer
 specific modifications.  Do not edit vendored files locally; update
 by re-running `vendor.sh` against a new pinned tag.
 
