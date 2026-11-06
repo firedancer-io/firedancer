@@ -164,12 +164,13 @@ typedef struct fd_accdb_partition fd_accdb_partition_t;
 
 #include "../../util/tmpl/fd_dlist.c"
 
-/* Per-join reservation credits (fd_accdb.c res_*): each join holds at
-   most fd_accdb_cred_max idle credits per tracked class, taken from
-   cache_class_used in chunks of half that. */
+/* Per-join reservation credits (fd_accdb.c res_*).  fd_accdb_cred_max
+   is the most idle credits a join holds per tracked class: at most
+   FD_ACCDB_CRED_MAX, and all joins together at most
+   class_max/FD_ACCDB_CRED_DIV. */
 
-#define FD_ACCDB_CRED_MAX  (64UL) /* idle credits per join per class */
-#define FD_ACCDB_CRED_DIV  (2UL)  /* all joins' idle credits <= class_max/FD_ACCDB_CRED_DIV */
+#define FD_ACCDB_CRED_MAX (64UL)
+#define FD_ACCDB_CRED_DIV (2UL)
 
 static inline ulong
 fd_accdb_cred_max( ulong class_max,
@@ -537,12 +538,9 @@ struct fd_accdb_shmem_private {
   ulong joiner_cnt __attribute__((aligned(64)));
   ulong deferred_free_dlist_off;
 
-  /* join_cred[j].val[c] is joiner j's idle reservation credits in class
-     c: reserved in cache_class_used but not yet promised to an acquire.
-     Only joiner j adds to it; joiner j takes from it and any joiner
-     whose reservation failed steals it (atomic exchange to 0), so the
-     word is only CAS'd / exchanged, never written plainly.  One line
-     per joiner. */
+  /* join_cred[j].val[c] is join j's idle reservation credits in class
+     c (fd_accdb.c res_*).  Only updated atomically: the owner adds and
+     CAS-takes, a failing reserver exchanges it to 0. */
   struct __attribute__((aligned(64))) { ulong val[ FD_ACCDB_CACHE_CLASS_CNT ]; } join_cred[ FD_ACCDB_MAX_JOINERS ];
 
   fd_accdb_shmem_metrics_t shmetrics[1];

@@ -2476,7 +2476,6 @@ test_free_lists( void ) {
   }
   FD_TEST( test_free_cnt( 0UL, 7UL )>=1UL );  /* the staging line */
   for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) FD_TEST( !test_free_cnt( 1UL, c ) );
-  FD_TEST( sh->cache_free_have[ 7 ].bits[ 0 ] & 1UL );
 
   ulong max7 = sh->cache_class_max[ 7 ];
   FD_TEST( sh->cache_class_init[ 7 ].val<=max7 );
@@ -2502,14 +2501,13 @@ test_free_lists( void ) {
     FD_TEST( test_free_cnt( 0UL, c )+test_free_cnt( 1UL, c )<=fd_ulong_min( sh->cache_class_init[ c ].val, max[ c ] ) );
   }
 
-  /* reset empties every list and hint; the engine still works. */
+  /* reset empties every list; the engine still works. */
   fd_accdb_reset( a );
   drain_background( a );
   for( ulong j=0UL; j<joiners; j++ ) for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) {
     FD_TEST( !test_free_cnt( j, c ) );
     FD_TEST( (uint)sh->cache_free[ j ].ver_top[ c ]==UINT_MAX );
   }
-  for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) FD_TEST( !sh->cache_free_have[ c ].bits[ 0 ] );
   root = fd_accdb_attach_child( a, SENTINEL );
   f    = fd_accdb_attach_child( a, root );
   accdb_write( a, f, pk, 7UL, data, 165UL, owner2 );

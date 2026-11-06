@@ -137,11 +137,10 @@ struct __attribute__((aligned(FD_ACCDB_ALIGN))) fd_accdb_private {
      every join's free-list counts, so it is rate-limited). */
   long  preevict_ticks;
 
-  /* Reservation state (see res_* below), constant after join.
-     res_limit[c] is the most class-c lines reservations may promise,
-     ULONG_MAX if class c is untracked (kept here so the hot path never
-     loads the contended counter line just to learn that).  cred points
-     at this join's shmem->join_cred line (NULL for readonly joins). */
+  /* Reservation state (res_*), constant after join.  res_limit[c] is
+     ULONG_MAX if class c is untracked, so the hot path never loads the
+     shared counter just to learn that.  cred points at this join's
+     shmem->join_cred line. */
   ulong   res_limit[ FD_ACCDB_CACHE_CLASS_CNT ];
   ulong   cred_max [ FD_ACCDB_CACHE_CLASS_CNT ];
   ulong * cred;
@@ -1128,23 +1127,16 @@ cache_free_ring( fd_accdb_t * accdb ) {
 
 /* Per-join reservation credits.
 
-   Every writable acquire reserves a line in each tracked class on the
-   shared cache_class_used counters and release gives them back, so at
-   high join counts those few counter lines bounced between cores on
-   every transaction.  Each join instead keeps up to cred_max[c] idle
-   credits per class: reserved on the shared counter, not yet promised
-   to an acquire.  An acquire takes from its own credits first and goes
-   to the shared counter only when short, taking a chunk (cred_max/2)
-   with what it needs; release puts credits back locally and returns
-   the surplus over cred_max to the shared counter.
+   Each join keeps up to cred_max[c] idle credits per tracked class:
+   lines reserved on the shared cache_class_used counter but not yet
+   promised to an acquire.  Acquire spends its own credits first and
+   takes a chunk (cred_max/2) from the shared counter when short;
+   release returns credits locally and the surplus to the counter.
 
-   Idle credits must not starve another join (a join may sit idle
-   indefinitely).  A join whose reservation fails steals every join's
-   idle credits in that class back to the shared counter before it
-   retries, so a reservation still only ever waits for lines promised
-   to in-flight acquires, as before.  Credits live in shmem, one line
-   per join (join_cred): the owner's CAS / add hit its own line; only a
-   failing join's steal touches other joins' lines. */
+   A join whose reservation fails steals every join's idle credits in
+   that class back to the counter before retrying, so idle credits
+   never starve anyone and a reservation still only waits for lines
+   promised to in-flight acquires. */
 
 static void
 res_init( fd_accdb_t *       accdb,
@@ -4515,17 +4507,17 @@ preevict_flush( fd_accdb_t *             accdb,
   FD_VOLATILE( *accdb->my_epoch_slot ) = ULONG_MAX;
 }
 
-/* cache_bg_evict pre-evicts cache lines in the background to keep the
-   per-class CAS free lists populated ahead of demand.  For each class
+/* background_preevict pre-evicts cache lines in the background to keep
+   the per-join free lists populated ahead of demand.  For each class
   whose immediately available capacity has dropped below low_water,
   a bounded CLOCK sweep claims lines, writes dirty ones to disk, and
   pushes them onto the free list until available capacity reaches
-  target.  Immediately available capacity includes both the CAS free
-  list and the never-initialized tail of the class, since foreground
+  target.  Immediately available capacity includes both the free
+  lists and the never-initialized tail of the class, since foreground
   allocators can consume either path without evicting resident data.
 
-  Budget: at most 256 CLOCK ticks per class per invocation to keep the
-  background loop responsive.  The function is called every tick of
+  Budget: at most PREEVICT_TICK_BUDGET CLOCK ticks per class per call
+  to keep the background loop responsive.  The function is called every tick of
   fd_accdb_background, so large refills happen across several ticks
   rather than blocking.  The low_water / target thresholds are static
   per-class watermarks computed at initialization; pre-eviction only
