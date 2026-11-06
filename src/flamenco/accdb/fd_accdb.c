@@ -1036,6 +1036,7 @@ cache_try_pin( fd_accdb_cache_line_t * line,
       fd_racesan_hook( "cache_try_pin:pinned" );
       return line;
     }
+    fd_racesan_hook( "accdb_try_pin:cas_retry" );
     FD_SPIN_PAUSE();
   }
 }
@@ -1971,6 +1972,7 @@ reserve_next_write( fd_accdb_t * accdb,
         accdb_offset_t cur = { .val = FD_VOLATILE_CONST( accdb->shmem->whead[ 0 ].val ) };
         if( packed_partition_idx( &cur )!=stale_partition ) break;
         if( packed_partition_offset( &cur )<=accdb->shmem->partition_sz ) break;
+        fd_racesan_hook( "accdb_reserve:switch_wait" );
         FD_SPIN_PAUSE();
       }
       continue;
@@ -2357,7 +2359,11 @@ cold_load_acc( fd_accdb_t *     accdb,
          INVAL would yield a wild cache_line pointer; retry the loop
          instead (next iteration will see VALID=0). */
       uint cidx = FD_VOLATILE_CONST( accmeta->cache_idx );
-      if( FD_UNLIKELY( cidx==FD_ACCDB_ACC_CIDX_INVAL ) ) { FD_SPIN_PAUSE(); continue; }
+      if( FD_UNLIKELY( cidx==FD_ACCDB_ACC_CIDX_INVAL ) ) {
+        fd_racesan_hook( "accdb_cold_load:inval_wait" );
+        FD_SPIN_PAUSE();
+        continue;
+      }
       fd_accdb_cache_line_t * hit = cache_line( accdb, FD_ACCDB_ACC_CIDX_CLASS( cidx ), FD_ACCDB_ACC_CIDX_IDX( cidx ) );
       fd_racesan_hook( "accdb_cold_load:pre_try_pin" );
       fd_accdb_cache_line_t * pinned = cache_try_pin( hit, pubkey, accmeta->key.generation );
@@ -2366,6 +2372,7 @@ cold_load_acc( fd_accdb_t *     accdb,
         *out_evicted_acc_idx  = UINT_MAX;
         return pinned;
       }
+      fd_racesan_hook( "accdb_cold_load:pin_retry" );
       FD_SPIN_PAUSE();
       continue;
     }
@@ -2377,6 +2384,7 @@ cold_load_acc( fd_accdb_t *     accdb,
     }
 
     if( FD_UNLIKELY( FD_ATOMIC_CAS( &accmeta->executable_size, old_es, old_es | FD_ACCDB_SIZE_CACHE_CLAIM_BIT )!=old_es ) ) {
+      fd_racesan_hook( "accdb_cold_load:claim_cas_retry" );
       FD_SPIN_PAUSE();
       continue;
     }
@@ -2627,6 +2635,7 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
           for( ulong j=0UL; j<i; j++ ) {
             if( grabbed[ j ] ) FD_ATOMIC_FETCH_AND_SUB( &accdb->shmem->cache_class_used[ j ].val, grabbed[ j ] );
           }
+          fd_racesan_hook( "accdb_acquire:reservation_retry" );
           FD_SPIN_PAUSE();
           break;
         }
