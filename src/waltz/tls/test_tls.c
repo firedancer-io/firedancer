@@ -529,6 +529,43 @@ static uchar const test_sh_template[] =
 #define TEST_SH_CIPHER_OFF     (71UL)
 
 static void
+test_tls_psk_requires_modes( fd_rng_t * rng ) {
+  uchar const modes[] = { 1, 1 }; /* psk_dhe_ke */
+  uchar const psk[44] = { 0,7, 0,1,'x',0,0,0,0, 0,33,32 };
+  for( uint mask=0U; mask<4U; mask++ ) {
+    fd_tls_t client[1], server[1];
+    prepare_tls_pair( rng, client, server );
+    fd_tls_estate_srv_t hs[1];
+    FD_TEST( fd_tls_estate_srv_new( hs ) );
+    test_server_hs = hs;
+    test_record_reset( &test_server_out );
+
+    uchar wire[512];
+    fd_tls_client_hello_t ch = { .signature_algorithms = { .ed25519 = 1 } };
+    fd_memcpy( ch.key_share.x25519, client->kex_public_key, 32UL );
+    long body_sz = fd_tls_encode_client_hello( &ch, wire+4UL, sizeof(wire)-4UL );
+    FD_TEST( body_sz>0L );
+    ulong sz = (ulong)body_sz;
+    if( mask&2U ) sz = test_tls_append_ext( wire+4UL, sz, 41UL, FD_TLS_EXT_PSK_KEY_EXCHANGE_MODES, modes, sizeof(modes) );
+    if( mask&1U ) sz = test_tls_append_ext( wire+4UL, sz, 41UL, FD_TLS_EXT_PRE_SHARED_KEY, psk, sizeof(psk) );
+    fd_tls_msg_hdr_t hdr = { .type = FD_TLS_MSG_CLIENT_HELLO, .sz = fd_uint_to_tls_u24( (uint)sz ) };
+    FD_TEST( fd_tls_encode_msg_hdr( &hdr, wire, 4UL )==4L );
+    long res = fd_tls_server_handshake( server, hs, wire, sz+4UL, FD_TLS_LEVEL_INITIAL );
+    if( mask==1U ) {
+      FD_TEST( res==-FD_TLS_ALERT_MISSING_EXTENSION );
+      FD_TEST( hs->base.reason==FD_TLS_REASON_CH_PARSE );
+      FD_TEST( !test_server_out.send );
+    } else {
+      FD_TEST( res==(long)(sz+4UL) );
+      FD_TEST( !hs->base.reason );
+    }
+    test_record_reset( &test_server_out );
+    test_server_hs = NULL;
+    fd_tls_estate_srv_delete( hs );
+  }
+}
+
+static void
 test_tls_server_wrong_ciphersuite( fd_rng_t * rng ) {
 
   /* Set up client and server objects */
@@ -1554,6 +1591,7 @@ main( int     argc,
   test_tls_client_hello_required_extensions( rng );
   test_tls_client_wrong_ciphersuite( rng );
   test_tls_server_wrong_ciphersuite( rng );
+  test_tls_psk_requires_modes( rng );
   test_tls_server_session_id_mismatch( rng, 0 );
   test_tls_server_session_id_mismatch( rng, 1 );
   test_tls_truncated_cert_extract();
