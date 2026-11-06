@@ -8,7 +8,7 @@ set -euo pipefail
 
 cd -- "$( dirname -- "${BASH_SOURCE[0]}" )"
 
-readonly ZLIB_TAG="v1.3.1"
+readonly ZLIB_TAG="v1.4"
 readonly ZLIB_URL="https://github.com/madler/zlib"
 
 readonly -a ZLIB_FILES=(
