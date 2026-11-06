@@ -148,8 +148,11 @@ fd_rewards_validate_commission_collector( fd_bank_t const *   bank,
                                           fd_pubkey_t const * collector,
                                           fd_acc_t const *    account,
                                           ulong               rewards ) {
+  int   exists   = !!account->lamports;
+  ulong data_len = exists ? account->data_len : 0UL;
+
   /* Must be a system program owned account. */
-  if( FD_UNLIKELY( memcmp( account->owner, fd_solana_system_program_id.uc, sizeof(fd_pubkey_t) ) ) ) return 1;
+  if( FD_UNLIKELY( exists && memcmp( account->owner, fd_solana_system_program_id.uc, sizeof(fd_pubkey_t) ) ) ) return 1;
 
   /* Must not be a reserved account. */
   if( FD_UNLIKELY( fd_pubkey_is_active_reserved_key( collector ) ||
@@ -166,9 +169,9 @@ fd_rewards_validate_commission_collector( fd_bank_t const *   bank,
   /* Must be rent-exempt after the deposit.  With
      relax_post_exec_min_balance_check (SIMD-0392) a pre-existing
      account may stay rent-paying. */
-  int is_rent_exempt = post_balance>=fd_rent_exempt_minimum_balance( &bank->f.rent, account->data_len );
+  int is_rent_exempt = post_balance>=fd_rent_exempt_minimum_balance( &bank->f.rent, data_len );
   return !is_rent_exempt &&
-         ( !FD_FEATURE_ACTIVE_BANK( bank, relax_post_exec_min_balance_check ) || !account->lamports );
+         ( !FD_FEATURE_ACTIVE_BANK( bank, relax_post_exec_min_balance_check ) || !exists );
 }
 
 /* Resolves the SIMD-0232 inflation commission collector from the vote
