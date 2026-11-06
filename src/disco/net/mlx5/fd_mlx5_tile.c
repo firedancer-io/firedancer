@@ -38,6 +38,7 @@
 #include <linux/rtnetlink.h>
 #include <rdma/ib_user_verbs.h>
 
+#define FD_SOCKADDR_IN_SZ sizeof(struct sockaddr_in)
 #include "generated/fd_mlx5_tile_seccomp.h"
 
 
@@ -840,8 +841,15 @@ before_frag( fd_mlx5_tile_t * ctx,
   if( kind_id!=0UL && kind_id!=target_idx ) return 1;
 
   uint dst_ip = fd_disco_netmux_sig_ip( sig );
+  /* Tile 0 probes for loopback without counting another tile's route failures. */
+  if( kind_id!=target_idx &&
+      !fd_net_tx_probe_loopback( ctx->router.fib_local, ctx->router.fib_main, &ctx->router.netdev_tbl, dst_ip ) ) return 1;
+
   fd_net_tx_route_t * route = &ctx->net.tx_route;
-  if( FD_UNLIKELY( !fd_net_tx_route( &ctx->router, &ctx->net, dst_ip, route ) ) ) return 1;
+  /* Packets that fail userland routing are sent on net.sock in
+     after_frag and routed by the kernel. */
+  if( FD_UNLIKELY( !fd_net_tx_route( &ctx->router, &ctx->net, dst_ip, route ) &&
+                   !route->routing_failure ) ) return 1;
   if( FD_UNLIKELY( route->use_gre ) ) {
     fd_net_tx_route_t outer_route;
     uint const inner_src_ip = route->src_ip;
@@ -852,8 +860,11 @@ before_frag( fd_mlx5_tile_t * ctx,
       ctx->net.metrics.tx_drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_GRE_NO_ROUTE_IDX ]++;
       return 1;
     }
-    /* fd_net_tx_route counts its own drop reason */
-    if( FD_UNLIKELY( !fd_net_tx_route( &ctx->router, &ctx->net, outer_dst_ip, &outer_route ) ) ) return 1;
+    /* fd_net_tx_route counts its own routing failure.  An unroutable
+       outer endpoint is encapsulated here and sent on net.sock, so the
+       kernel routes the outer packet. */
+    if( FD_UNLIKELY( !fd_net_tx_route( &ctx->router, &ctx->net, outer_dst_ip, &outer_route ) &&
+                     !outer_route.routing_failure ) ) return 1;
     if( FD_UNLIKELY( outer_route.use_gre || outer_route.use_loopback ) ) {
       ctx->net.metrics.tx_drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_GRE_NO_ROUTE_IDX ]++;
       return 1;
@@ -938,6 +949,18 @@ after_frag( fd_mlx5_tile_t *    ctx,
 
   if( FD_UNLIKELY( !fd_net_tx_pkt_prep( &ctx->net, frame, &frame_sz, in_idx ) ) ) return;
 
+  /* Packets that failed userland routing are sent on net.sock starting
+     at the IPv4 header, and the kernel builds the L2 header.  The send
+     is synchronous, so no WQE is posted and the chunk is reused. */
+  if( FD_UNLIKELY( ctx->net.tx_route.routing_failure ) ) {
+    if( FD_LIKELY( fd_net_tx_sock_send( &ctx->net, frame, frame_sz ) ) ) {
+      ctx->net.metrics.tx_pkt_cnt++;
+      ctx->net.metrics.tx_bytes_total += frame_sz;
+      ctx->net.metrics.tx_gre_cnt     += (ulong)ctx->net.tx_route.use_gre;
+    }
+    return;
+  }
+
   if( FD_UNLIKELY( ctx->net.tx_route.use_loopback ) ) {
     fd_eth_hdr_t const * eth_hdr = (fd_eth_hdr_t const *)frame;
     fd_ip4_hdr_t const * ip4 = (fd_ip4_hdr_t const *)(eth_hdr+1);
@@ -1012,10 +1035,12 @@ metrics_write( fd_mlx5_tile_t * ctx ) {
 
   FD_MCNT_SET(   MLX5, PKT_TX_COMPLETED,       ctx->net.metrics.tx_pkt_cnt            );
   FD_MCNT_SET(   MLX5, PKT_TX_COMPLETED_BYTES, ctx->net.metrics.tx_bytes_total        );
-  ctx->net.metrics.tx_drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_NO_NEIGHBOR_IDX ] = ctx->router.metrics.tx_neigh_fail_cnt;
-  ctx->net.metrics.tx_drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_RING_FULL_IDX   ] = ctx->metrics.tx_no_buffer_cnt;
+  ctx->net.metrics.tx_routing_failure_cnt[ FD_METRICS_ENUM_PKT_TX_ROUTING_FAILURE_REASON_V_NO_NEIGHBOR_IDX ] = ctx->router.metrics.tx_neigh_fail_cnt;
+  ctx->net.metrics.tx_drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_RING_FULL_IDX ] = ctx->metrics.tx_no_buffer_cnt;
   FD_MCNT_ENUM_COPY( MLX5, PKT_TX_DROPPED,     ctx->net.metrics.tx_drop_cnt           );
+  FD_MCNT_ENUM_COPY( MLX5, PKT_TX_ROUTING_FAILED, ctx->net.metrics.tx_routing_failure_cnt );
   FD_MCNT_SET(   MLX5, GRE_PKT_TX_SUBMITTED,   ctx->net.metrics.tx_gre_cnt            );
+  FD_MCNT_SET(   MLX5, SOCKET_PKT_TX_SUBMITTED, ctx->net.metrics.tx_sock_cnt          );
   FD_MGAUGE_SET( MLX5, TX_BUFFER_USED,         tx_buffer_busy_cnt                     );
   FD_MGAUGE_SET( MLX5, TX_BUFFER_FREE,         tx_buffer_idle_cnt                     );
 }
@@ -1305,6 +1330,9 @@ privileged_init( fd_topo_t const *      topo,
   ctx->router.if_virt         = interface_idx;
   ctx->router.default_address = fd_mlx5_tile_if_ip4_addr( tile->mlx5.if_name );
   ctx->lo_tx_sock = tile->kind_id==0UL ? fd_mlx5_tile_lo_tx_socket() : -1;
+  if( FD_UNLIKELY( !fd_net_sock_init( &ctx->net.sock ) ) ) {
+    FD_LOG_ERR(( "fd_net_sock_init failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
 
   if( FD_UNLIKELY( tile->sleep_eventfd ) ) {
     if( FD_UNLIKELY( ctx->rx_comp_channel_fd<0 ) ) {
@@ -1450,7 +1478,8 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
   fd_mlx5_tile_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   populate_sock_filter_policy_fd_mlx5_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(),
                                             (uint)ctx->uverbs.async_fd, (uint)ctx->lo_tx_sock,
-                                            (uint)ctx->rx_comp_channel_fd, (uint)ctx->epoll_fd );
+                                            (uint)ctx->net.sock.sock, (uint)ctx->rx_comp_channel_fd,
+                                            (uint)ctx->epoll_fd );
   return sock_filter_policy_fd_mlx5_tile_instr_cnt;
 }
 
@@ -1460,12 +1489,13 @@ populate_allowed_fds( fd_topo_t const *      topo,
                       ulong                  out_fds_cnt,
                       int *                  out_fds ) {
   fd_mlx5_tile_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
-  if( FD_UNLIKELY( out_fds_cnt<8UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+  if( FD_UNLIKELY( out_fds_cnt<9UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
   ulong out_cnt = 0UL;
   out_fds[ out_cnt++ ] = 2;
   if( FD_LIKELY( fd_log_private_logfile_fd()!=-1 ) ) out_fds[ out_cnt++ ] = fd_log_private_logfile_fd();
   out_fds[ out_cnt++ ] = ctx->uverbs.cmd_fd;
   out_fds[ out_cnt++ ] = ctx->uverbs.async_fd;
+  out_fds[ out_cnt++ ] = ctx->net.sock.sock; /* routing fallback socket */
   if( ctx->lo_tx_sock>=0 ) out_fds[ out_cnt++ ] = ctx->lo_tx_sock;
   if( FD_UNLIKELY( tile->sleep_eventfd ) ) {
     out_fds[ out_cnt++ ] = ctx->rx_comp_channel_fd;

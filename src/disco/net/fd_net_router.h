@@ -41,7 +41,11 @@ FD_PROTOTYPES_BEGIN
 
 /* fd_net_tx_route resolves the destination interface index, src MAC
    address, and dst MAC address.  Returns 1 on success, 0 on failure.
-   On success, writes the complete route result to out. */
+   On success, writes the complete route result to out.  On failure,
+   out->routing_failure is set if the packet may be sent on a kernel
+   socket instead, and out->src_ip holds the source address to use:
+   the bind address, else the route's preferred source, else the
+   default address. */
 
 static int
 fd_net_tx_route( fd_net_router_t *   ctx,
@@ -61,7 +65,10 @@ fd_net_tx_route( fd_net_router_t *   ctx,
 
   uint rtype   = next_hop->rtype;
   uint if_idx  = next_hop->if_idx;
-  uint ip4_src = next_hop->ip4_src;
+  uint ip4_src = fd_uint_if( !!ctx->bind_address, ctx->bind_address, next_hop->ip4_src );
+  /* if the provider uses a socket fallback it'll need the src ip.
+     Success paths below overwrite it. */
+  out->src_ip  = fd_uint_if( !ip4_src, ctx->default_address, ip4_src );
 
   if( FD_UNLIKELY( rtype==FD_FIB4_RTYPE_LOCAL ) ) {
     rtype  = FD_FIB4_RTYPE_UNICAST;
@@ -70,21 +77,21 @@ fd_net_tx_route( fd_net_router_t *   ctx,
 
   if( FD_UNLIKELY( rtype!=FD_FIB4_RTYPE_UNICAST ) ) {
     uint const reason = fd_uint_if( rtype==FD_FIB4_RTYPE_THROW,
-                                    FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_NO_ROUTE_IDX,
-                                    FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_UNSUPPORTED_ROUTE_IDX );
-    net->metrics.tx_drop_cnt[       reason ]++;
+                                    FD_METRICS_ENUM_PKT_TX_ROUTING_FAILURE_REASON_V_NO_ROUTE_IDX,
+                                    FD_METRICS_ENUM_PKT_TX_ROUTING_FAILURE_REASON_V_UNSUPPORTED_ROUTE_IDX );
+    net->metrics.tx_routing_failure_cnt[ reason ]++;
+    out->routing_failure = 1;
     return 0;
   }
 
   fd_netdev_t * netdev = fd_netdev_tbl_query( &ctx->netdev_tbl, if_idx );
   if( !netdev ) {
-    net->metrics.tx_drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_INTERFACE_MISSING_IDX ]++;
+    net->metrics.tx_routing_failure_cnt[ FD_METRICS_ENUM_PKT_TX_ROUTING_FAILURE_REASON_V_INTERFACE_MISSING_IDX ]++;
+    out->routing_failure = 1;
     return 0;
   }
 
-  ip4_src = fd_uint_if( !!ctx->bind_address, ctx->bind_address, ip4_src );
   out->mtu    = netdev->mtu;
-  out->src_ip = ip4_src;
   out->if_idx = if_idx;
 
   if( netdev->dev_type==ARPHRD_LOOPBACK ) {
@@ -93,7 +100,9 @@ fd_net_tx_route( fd_net_router_t *   ctx,
     out->use_loopback = 1U;
     return 1;
   } else if( netdev->dev_type==ARPHRD_IPGRE ) {
-    /* skip MAC addrs lookup for GRE inner dst ip */
+    /* skip MAC addrs lookup for GRE inner dst ip.  The caller drops the
+       packet if there is no inner source, so don't apply the default. */
+    out->src_ip           = ip4_src;
     out->gre_outer_src_ip = netdev->gre_src_ip;
     out->gre_outer_dst_ip = netdev->gre_dst_ip;
     out->use_gre = 1U;
@@ -101,12 +110,14 @@ fd_net_tx_route( fd_net_router_t *   ctx,
   }
 
   if( FD_UNLIKELY( netdev->dev_type!=ARPHRD_ETHER ) ) {
-    net->metrics.tx_drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_UNSUPPORTED_INTERFACE_IDX ]++;
+    net->metrics.tx_routing_failure_cnt[ FD_METRICS_ENUM_PKT_TX_ROUTING_FAILURE_REASON_V_UNSUPPORTED_INTERFACE_IDX ]++;
+    out->routing_failure = 1;
     return 0;
   }
 
   if( FD_UNLIKELY( if_idx!=ctx->if_virt ) ) {
-    net->metrics.tx_drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_UNSUPPORTED_INTERFACE_IDX ]++;
+    net->metrics.tx_routing_failure_cnt[ FD_METRICS_ENUM_PKT_TX_ROUTING_FAILURE_REASON_V_UNSUPPORTED_INTERFACE_IDX ]++;
+    out->routing_failure = 1;
     return 0;
   }
 
@@ -121,10 +132,12 @@ fd_net_tx_route( fd_net_router_t *   ctx,
     ctx->solicit_ip     = neigh_ip;
     ctx->solicit_if_idx = if_idx;
     ctx->metrics.tx_neigh_fail_cnt++;
+    out->routing_failure = 1;
     return 0;
   }
   if( FD_UNLIKELY( neigh->state != FD_NEIGH4_STATE_ACTIVE ) ) {
     ctx->metrics.tx_neigh_fail_cnt++;
+    out->routing_failure = 1;
     return 0;
   }
   ip4_src = fd_uint_if( !ip4_src, ctx->default_address, ip4_src );
