@@ -4,6 +4,7 @@
 #include "fd_bundle_auth.h"
 #include "fd_keepalive.h"
 #include "../fd_clock_tile.h"
+#include "../fd_txn_m.h"
 #include "../stem/fd_stem.h"
 #include "../keyguard/fd_keyswitch.h"
 #include "../keyguard/fd_keyguard_client.h"
@@ -38,6 +39,28 @@ typedef struct fd_bundle_pending_txn fd_bundle_pending_txn_t;
 #define DEQUE_NAME pending_txn
 #define DEQUE_T    fd_bundle_pending_txn_t
 #include "../../util/tmpl/fd_deque_dynamic.c"
+
+/* fd_bundle_pending_txn_write writes txn to txnm as it is published to
+   verify, and returns the frag size. */
+
+static inline ulong
+fd_bundle_pending_txn_write( fd_txn_m_t *                    txnm,
+                             fd_bundle_pending_txn_t const * txn ) {
+  *txnm = (fd_txn_m_t) {
+    .payload_sz       = txn->payload_sz,
+    .source_ipv4      = txn->source_ipv4,
+    .source_tpu       = FD_TXN_M_TPU_SOURCE_BUNDLE,
+    .first_seen_nanos = txn->first_seen_nanos,
+    .block_engine     = {
+      .bundle_id      = txn->bundle_seq,
+      .bundle_txn_cnt = txn->bundle_txn_cnt,
+      .commission     = txn->commission,
+    },
+  };
+  fd_memcpy( txnm->block_engine.commission_pubkey, txn->commission_pubkey, 32UL );
+  fd_memcpy( fd_txn_m_payload( txnm ), txn->payload, txn->payload_sz );
+  return fd_txn_m_realized_footprint( txnm, 0, 0 );
+}
 
 /* Returns true if the drain loop should continue after popping an
    entry.  Bundles drain atomically (all txns with matching bundle_seq).
@@ -88,6 +111,81 @@ struct fd_bundle_metrics {
 
 typedef struct fd_bundle_metrics fd_bundle_metrics_t;
 
+typedef struct fd_bundle_tile fd_bundle_tile_t;
+
+/* fd_bundle_builder_t is the block builder whose tips the validator
+   cranks for a bundle, and when to next ask the server for it. */
+
+struct fd_bundle_builder {
+  uchar pubkey[ 32 ];
+  uchar commission; /* in [0,100] (percent) */
+  uchar avail;      /* known (potentially stale)? */
+  uchar wait;       /* request in flight? */
+  long  next;       /* when the next request is due */
+};
+
+typedef struct fd_bundle_builder fd_bundle_builder_t;
+
+/* Streams a Jito protocol session subscribes to */
+
+#define FD_BUNDLE_SUB_PACKETS (0) /* SubscribePackets */
+#define FD_BUNDLE_SUB_BUNDLES (1) /* SubscribeBundles */
+#define FD_BUNDLE_SUB_CNT     (2)
+
+/* fd_bundle_conn_t is the state of one connection to a bundle server.
+   Its gRPC client's app_ctx is the conn. */
+
+struct fd_bundle_conn {
+  fd_bundle_tile_t * ctx;
+
+  /* Session state, reset with the conn */
+  fd_bundle_auther_t  auther;
+  fd_bundle_builder_t builder; /* refreshed every 5 minutes */
+
+  /* Subscriptions, indexed by FD_BUNDLE_SUB_* */
+  struct {
+    uchar live; /* stream open */
+    uchar wait; /* request in flight */
+  } sub[ FD_BUNDLE_SUB_CNT ];
+
+  /* Endpoint */
+  uint   is_ssl : 1;
+  char   server_fqdn[ FD_FQDN_BUF_MAX ]; /* cstr */
+  ulong  server_fqdn_len;
+  char   server_sni[ FD_SNI_BUF_MAX ]; /* cstr */
+  ulong  server_sni_len;
+  ushort server_tcp_port;
+  uint   server_ip4_addr; /* last DNS lookup result */
+
+  /* Native TLS, configured with this conn's server name */
+  fd_tls_t         tls[1];
+  fd_tlsrec_conn_t tls_conn[1];
+
+  /* TCP socket */
+  int  tcp_sock;
+  uint tcp_sock_connected : 1;
+  uint defer_reset : 1;
+  uint sock_in_epoll : 1;
+  uint epoll_out_armed : 1;
+  long conn_deadline;
+
+  /* Keepalive via HTTP/2 PINGs (randomized) */
+  fd_keepalive_t    keepalive[1];
+  fd_rtt_estimate_t rtt[1];
+
+  /* gRPC client */
+  void *                   grpc_client_mem;
+  fd_grpc_client_t *       grpc_client;
+  fd_grpc_client_metrics_t grpc_metrics[1];
+
+  /* Error backoff */
+  uint backoff_iter;
+  long backoff_until;
+  long backoff_reset;
+};
+
+typedef struct fd_bundle_conn fd_bundle_conn_t;
+
 /* fd_bundle_tile_t is the context object provided to callbacks from
    stem, and contains all state needed to progress the tile. */
 
@@ -98,77 +196,44 @@ struct fd_bundle_tile {
   /* Key guard */
   fd_keyguard_client_t keyguard_client[1];
 
-  uint is_ssl : 1;
-  int  keylog_fd;
+  int keylog_fd;
 
-  /* Native TLS */
-  fd_tls_t           tls[1];
+  /* Native TLS, shared by all conns */
   fd_chacha_rng_t    tls_rng[1];
-  fd_tlsrec_conn_t   tls_conn[1];
   fd_x509_ca_store_t ca_store[1];
 
   /* Config */
-  char   server_fqdn[ FD_FQDN_BUF_MAX ]; /* cstr */
-  ulong  server_fqdn_len;
-  char   server_sni[ FD_SNI_BUF_MAX ]; /* cstr */
-  ulong  server_sni_len;
-  ushort server_tcp_port;
+  int protocol; /* FD_BUNDLE_PROTOCOL_* */
 
   /* Resolver */
   fd_netdb_fds_t netdb_fds[1];
-  uint server_ip4_addr; /* last DNS lookup result */
 
-  /* TCP socket */
-  int  tcp_sock;
-  int  so_rcvbuf;
-  uint tcp_sock_connected : 1;
-  uint defer_reset : 1;
-  uint sock_in_epoll : 1;
-  uint epoll_out_armed : 1;
-  long cached_ts;
-  long conn_deadline;
+  /* Bundle server connection */
+  fd_bundle_conn_t conn[1];
+  int              so_rcvbuf;
+  long             keepalive_interval;
+  ulong            grpc_buf_max;
+  ulong            map_seed;
+  long             cached_ts;
 
   ulong   waker_client_idx;
   ulong * waker_fseq;
   long    next_step_deadline;
 
-  /* Keepalive via HTTP/2 PINGs (randomized) */
-  long              keepalive_interval;
-  fd_keepalive_t    keepalive[1];
-  fd_rtt_estimate_t rtt[1];
-
-  /* gRPC client */
-  void *                   grpc_client_mem;
-  ulong                    grpc_buf_max;
-  fd_grpc_client_t *       grpc_client;
-  fd_grpc_client_metrics_t grpc_metrics[1];
-  ulong                    map_seed;
-
-  /* Bundle authenticator */
-  fd_bundle_auther_t auther;
-
-  /* Bundle block builder info */
-  uchar builder_pubkey[ 32 ];
-  uchar builder_commission;  /* in [0,100] (percent) */
-  uchar builder_info_avail : 1;  /* Block builder info available? (potentially stale) */
-  uchar builder_info_wait  : 1;  /* Request already in-flight? */
-  long  builder_info_valid_until;
-
-  /* Bundle subscriptions */
-  uchar packet_subscription_live : 1;  /* Want to subscribe to a stream? */
-  uchar packet_subscription_wait : 1;  /* Request already in-flight? */
-  uchar bundle_subscription_live : 1;
-  uchar bundle_subscription_wait : 1;
-
   /* Bundle state */
   ulong bundle_seq;
-  ulong bundle_txn_cnt;
 
-  /* Error backoff */
+  /* Bundle being decoded, its transactions at the tail of pending_txns
+     from index cnt0 */
+  struct {
+    fd_bundle_builder_t const * builder;
+    ulong cnt0;
+    ulong txn_cnt;     /* transactions seen, including dropped ones */
+    uchar invalid : 1; /* dropped on close */
+    uchar full    : 1; /* dropped on close, for lack of space */
+  } bundle;
+
   fd_rng_t rng[1];
-  uint     backoff_iter;
-  long     backoff_until;
-  long     backoff_reset;
 
   /* Stem publish */
   fd_stem_context_t *       stem;
@@ -204,8 +269,6 @@ struct fd_bundle_tile {
     ulong       wmark;
   } replay_in;
 };
-
-typedef struct fd_bundle_tile fd_bundle_tile_t;
 
 /* Define 'request_ctx' IDs to identify different types of gRPC calls */
 
@@ -256,21 +319,21 @@ long
 fd_bundle_client_next_deadline( fd_bundle_tile_t const * ctx,
                                 long                     now );
 
-/* fd_bundle_tile_backoff is called whenever an error occurs.  Stalls
-   forward progress for a randomized amount of time to prevent error
-   floods. */
+/* fd_bundle_conn_backoff is called whenever an error occurs on conn.
+   Stalls its forward progress for a randomized amount of time to
+   prevent error floods. */
 
 void
-fd_bundle_tile_backoff( fd_bundle_tile_t * ctx,
+fd_bundle_conn_backoff( fd_bundle_conn_t * conn,
                         long               now );
 
-/* fd_bundle_tile_should_stall returns 1 if forward progress should be
-   temporarily prevented due to an error. */
+/* fd_bundle_conn_should_stall returns 1 if forward progress on conn
+   should be temporarily prevented due to an error. */
 
 FD_FN_PURE static inline int
-fd_bundle_tile_should_stall( fd_bundle_tile_t const * ctx,
+fd_bundle_conn_should_stall( fd_bundle_conn_t const * conn,
                              long                     now ) {
-  return now < ctx->backoff_until;
+  return now < conn->backoff_until;
 }
 
 /* fd_bundle_tile_housekeeping runs periodically at a low frequency. */
@@ -291,7 +354,7 @@ fd_bundle_client_grpc_rx_start(
 
 void
 fd_bundle_client_grpc_rx_msg(
-    void *       app_ctx,      /* (fd_bundle_tile_t *) */
+    void *       app_ctx,      /* (fd_bundle_conn_t *) */
     void const * protobuf,
     ulong        protobuf_sz,
     ulong        request_ctx   /* FD_BUNDLE_CLIENT_REQ_{...} */
@@ -335,17 +398,18 @@ fd_bundle_client_status( fd_bundle_tile_t const * ctx );
 FD_FN_CONST char const *
 fd_bundle_request_ctx_cstr( ulong request_ctx );
 
-/* fd_bundle_client_reset frees all connection-related resources. */
+/* fd_bundle_client_reset closes the block engine connection and resets
+   the session on it. */
 
 void
 fd_bundle_client_reset( fd_bundle_tile_t * ctx );
 
-/* fd_bundle_client_send_ping enqueues an HTTP/2 PING and starts the
-   keepalive deadline.  Does nothing if the connection is unavailable,
-   busy, or lacks TX ring space. */
+/* fd_bundle_conn_send_ping enqueues an HTTP/2 PING on conn and starts
+   the keepalive deadline.  Does nothing if the connection is
+   unavailable, busy, or lacks TX ring space. */
 
 void
-fd_bundle_client_send_ping( fd_bundle_tile_t * ctx );
+fd_bundle_conn_send_ping( fd_bundle_conn_t * conn );
 
 FD_PROTOTYPES_END
 
