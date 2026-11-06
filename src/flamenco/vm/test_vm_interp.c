@@ -139,6 +139,138 @@ test_vm_validate( ulong                 sbpf_version,
   return fd_vm_validate( vm );
 }
 
+/* test_vm_validate_msg validates text and checks that a failure renders
+   exactly as expected. */
+
+static void
+test_vm_validate_msg( char const *          name,
+                      ulong                 sbpf_version,
+                      ulong const *         text,
+                      ulong                 text_cnt,
+                      char const *          expected,
+                      fd_sbpf_syscalls_t *  syscalls,
+                      fd_exec_instr_ctx_t * instr_ctx ) {
+  fd_sha256_t _sha[1];
+  fd_sha256_t * sha = fd_sha256_join( fd_sha256_new( _sha ) );
+  fd_vm_t _vm[1];
+  fd_vm_t * vm = fd_vm_join( fd_vm_new( _vm ) );
+  FD_TEST( vm );
+  int ok = !!fd_vm_init(
+      vm, instr_ctx, FD_VM_HEAP_DEFAULT, FD_VM_COMPUTE_UNIT_LIMIT,
+      (uchar *)text, 8UL*text_cnt, text, text_cnt, 0UL, 8UL*text_cnt,
+      0UL, NULL, sbpf_version, syscalls, NULL, sha, NULL, 0UL, NULL, 0,
+      FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, account_data_direct_mapping ),
+      FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, syscall_parameter_address_restrictions ),
+      FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, virtual_address_space_adjustments ),
+      0, 0UL );
+  FD_TEST( ok );
+  fd_vm_validate_err_t err[1];
+  int   code = fd_vm_validate_detail( vm, err );
+  char  msg[ 128 ];
+  ulong msg_sz = fd_vm_validate_err_cstr( code, err, msg, sizeof(msg) );
+  FD_TEST( code!=FD_VM_SUCCESS );
+  if( FD_UNLIKELY( msg_sz!=strlen( expected ) || strcmp( msg, expected ) ) ) {
+    FD_LOG_ERR(( "%s: expected \"%s\" got \"%s\"", name, expected, msg ));
+  }
+  FD_LOG_NOTICE(( "%-20s PASS", name ));
+}
+
+static void
+test_validate_messages( fd_sbpf_syscalls_t *  syscalls,
+                        fd_exec_instr_ctx_t * instr_ctx ) {
+# define T( name, ver, expected, ... ) do {                                   \
+    ulong t[] = { __VA_ARGS__ };                                              \
+    test_vm_validate_msg( name, ver, t, sizeof(t)/sizeof(t[0]), expected,     \
+                          syscalls, instr_ctx );                              \
+  } while(0)
+
+  T( "msg-jmp-oob", FD_SBPF_V3, "Verifier error: jump out of code to #18446744073709551615 (insn #0)",
+     fd_vm_instr( FD_SBPF_OP_JA, 0, 0, -2, 0 ),
+     fd_vm_instr( FD_SBPF_OP_EXIT, 0, 0, 0, 0 ) );
+  T( "msg-jmp-oob-hi", FD_SBPF_V3, "Verifier error: jump out of code to #3 (insn #1)",
+     fd_vm_instr( FD_SBPF_OP_MOV64_IMM, 0, 0, 0, 0 ),
+     fd_vm_instr( FD_SBPF_OP_JA, 0, 0, 1, 0 ),
+     fd_vm_instr( FD_SBPF_OP_EXIT, 0, 0, 0, 0 ) );
+  T( "msg-jmp-lddw", FD_SBPF_V0, "Verifier error: jump to middle of LD_DW at #2 (insn #0)",
+     fd_vm_instr( FD_SBPF_OP_JA, 0, 0, 1, 0 ),
+     fd_vm_instr( FD_SBPF_OP_LDDW, 0, 0, 0, 0 ),
+     fd_vm_instr( 0, 0, 0, 0, 0 ),
+     fd_vm_instr( FD_SBPF_OP_EXIT, 0, 0, 0, 0 ) );
+  T( "msg-lddw-last", FD_SBPF_V0, "Verifier error: LD_DW instruction cannot be last in program",
+     fd_vm_instr( FD_SBPF_OP_LDDW, 0, 0, 0, 0 ) );
+  T( "msg-lddw-incomplete", FD_SBPF_V0, "Verifier error: incomplete LD_DW instruction (insn #1)",
+     fd_vm_instr( FD_SBPF_OP_MOV64_IMM, 0, 0, 0, 0 ),
+     fd_vm_instr( FD_SBPF_OP_LDDW, 0, 0, 0, 0 ),
+     fd_vm_instr( FD_SBPF_OP_EXIT, 0, 0, 0, 0 ) );
+  T( "msg-lddw-r10", FD_SBPF_V0, "Verifier error: cannot write into register r10 (insn #1)",
+     fd_vm_instr( FD_SBPF_OP_LDDW, 10, 0, 0, 0 ),
+     fd_vm_instr( 0, 0, 0, 0, 0 ),
+     fd_vm_instr( FD_SBPF_OP_EXIT, 0, 0, 0, 0 ) );
+  T( "msg-div0", FD_SBPF_V0, "Verifier error: division by 0 (insn #1)",
+     fd_vm_instr( FD_SBPF_OP_MOV64_IMM, 0, 0, 0, 0 ),
+     fd_vm_instr( 0x37, 0, 0, 0, 0 ),
+     fd_vm_instr( FD_SBPF_OP_EXIT, 0, 0, 0, 0 ) );
+  T( "msg-le", FD_SBPF_V0, "Verifier error: unsupported argument for LE/BE (insn #0)",
+     fd_vm_instr( 0xd4, 0, 0, 0, 8 ),
+     fd_vm_instr( FD_SBPF_OP_EXIT, 0, 0, 0, 0 ) );
+  T( "msg-sh32", FD_SBPF_V3, "Verifier error: Shift with overflow of 32-bit value by 32 (insn #0)",
+     fd_vm_instr( 0x64, 0, 0, 0, 32 ),
+     fd_vm_instr( FD_SBPF_OP_EXIT, 0, 0, 0, 0 ) );
+  T( "msg-sh64-neg", FD_SBPF_V3, "Verifier error: Shift with overflow of 18446744073709551615-bit value by 64 (insn #0)",
+     fd_vm_instr( FD_SBPF_OP_LSH64_IMM, 0, 0, 0, 0xffffffffU ),
+     fd_vm_instr( FD_SBPF_OP_EXIT, 0, 0, 0, 0 ) );
+  T( "msg-opcode", FD_SBPF_V3, "Verifier error: unknown eBPF opcode 0x6 (insn #0)",
+     fd_vm_instr( 0x06, 0, 0, 0, 0 ),
+     fd_vm_instr( FD_SBPF_OP_EXIT, 0, 0, 0, 0 ) );
+  T( "msg-src-reg", FD_SBPF_V3, "Verifier error: invalid source register (insn #0)",
+     fd_vm_instr( FD_SBPF_OP_MOV64_IMM, 0, 11, 0, 0 ),
+     fd_vm_instr( FD_SBPF_OP_EXIT, 0, 0, 0, 0 ) );
+  T( "msg-dst-r10", FD_SBPF_V3, "Verifier error: cannot write into register r10 (insn #0)",
+     fd_vm_instr( FD_SBPF_OP_MOV64_IMM, 10, 0, 0, 0 ),
+     fd_vm_instr( FD_SBPF_OP_EXIT, 0, 0, 0, 0 ) );
+  T( "msg-dst-r10-v0", FD_SBPF_V0, "Verifier error: cannot write into register r10 (insn #0)",
+     fd_vm_instr( FD_SBPF_OP_ADD64_IMM, 10, 0, 0, 64 ),
+     fd_vm_instr( FD_SBPF_OP_EXIT, 0, 0, 0, 0 ) );
+  T( "msg-dst-r10-v3", FD_SBPF_V3, "Verifier error: cannot write into register r10 (insn #0)",
+     fd_vm_instr( FD_SBPF_OP_ADD64_IMM, 10, 0, 0, 8 ),
+     fd_vm_instr( FD_SBPF_OP_EXIT, 0, 0, 0, 0 ) );
+  T( "msg-dst-r10-unaligned", FD_SBPF_V2, "Verifier error: Unaligned immediate (insn #0)",
+     fd_vm_instr( FD_SBPF_OP_ADD64_IMM, 10, 0, 0, 8 ),
+     fd_vm_instr( FD_SBPF_OP_EXIT, 0, 0, 0, 0 ) );
+  T( "msg-dst-reg", FD_SBPF_V3, "Verifier error: invalid destination register (insn #0)",
+     fd_vm_instr( FD_SBPF_OP_MOV64_IMM, 11, 0, 0, 0 ),
+     fd_vm_instr( FD_SBPF_OP_EXIT, 0, 0, 0, 0 ) );
+  T( "msg-callx", FD_SBPF_V3, "Verifier error: Invalid register specified at instruction 0",
+     fd_vm_instr( FD_SBPF_OP_CALL_REG, 10, 0, 0, 0 ),
+     fd_vm_instr( FD_SBPF_OP_EXIT, 0, 0, 0, 0 ) );
+# undef T
+
+  /* Text size checks. */
+  {
+    ulong t[2] = { fd_vm_instr( FD_SBPF_OP_EXIT, 0, 0, 0, 0 ), 0UL };
+    fd_vm_t _vm[1];
+    fd_vm_t * vm = fd_vm_join( fd_vm_new( _vm ) );
+    FD_TEST( fd_vm_init( vm, instr_ctx, FD_VM_HEAP_DEFAULT, FD_VM_COMPUTE_UNIT_LIMIT,
+                         (uchar *)t, 12UL, t, 1UL, 0UL, 12UL, 0UL, NULL, FD_SBPF_V3, syscalls,
+                         NULL, NULL, NULL, 0UL, NULL, 0, 0, 0, 0, 0, 0UL ) );
+    fd_vm_validate_err_t err[1];
+    char msg[ 128 ];
+    int code = fd_vm_validate_detail( vm, err );
+    FD_TEST( code==FD_VM_TEXT_SZ_UNALIGNED );
+    fd_vm_validate_err_cstr( code, err, msg, sizeof(msg) );
+    FD_TEST( !strcmp( msg, "Verifier error: program length must be a multiple of 8 octets" ) );
+
+    FD_TEST( fd_vm_init( vm, instr_ctx, FD_VM_HEAP_DEFAULT, FD_VM_COMPUTE_UNIT_LIMIT,
+                         (uchar *)t, 0UL, t, 0UL, 0UL, 0UL, 0UL, NULL, FD_SBPF_V3, syscalls,
+                         NULL, NULL, NULL, 0UL, NULL, 0, 0, 0, 0, 0, 0UL ) );
+    code = fd_vm_validate_detail( vm, err );
+    FD_TEST( code==FD_VM_ERR_EMPTY );
+    fd_vm_validate_err_cstr( code, err, msg, sizeof(msg) );
+    FD_TEST( !strcmp( msg, "Verifier error: no program set, call prog_set() to load one" ) );
+    FD_LOG_NOTICE(( "%-20s PASS", "msg-text-sz" ));
+  }
+}
+
 static void
 test_stack_configuration( fd_sbpf_syscalls_t *  syscalls,
                           fd_exec_instr_ctx_t * instr_ctx ) {
@@ -163,6 +295,29 @@ test_stack_configuration( fd_sbpf_syscalls_t *  syscalls,
     FD_TEST( vm->stack_frame_sz==expected_sz[i] );
     FD_TEST( vm->stack_push_frame_count==expected_ct[i] );
   }
+
+  /* The access violation messages, rendered from the recorded fault
+     the way sbpf's EbpfError renders them (error.rs:54-59): the stack
+     frame index for a stack fault; otherwise the access, size, address
+     and the region named by the address, "unallocated" when no region
+     holds it.  The vm is the V3 one of the loop's last pass. */
+  fd_vm_mem_cfg( vm );
+  char  msg[ 128 ];
+  ulong msg_sz;
+
+  vm->segv_vaddr = 0x200007fa8UL; vm->segv_access_len = 8UL; vm->segv_access_type = FD_VM_ACCESS_TYPE_LD;
+  msg_sz = fd_vm_access_violation_cstr( vm, FD_VM_ERR_EBPF_STACK_ACCESS_VIOLATION, msg, sizeof(msg) );
+  FD_TEST( msg_sz==strlen( msg ) && !strcmp( msg, "Access violation in stack frame 7 at address 0x200007fa8 of size 8" ) );
+
+  vm->segv_vaddr = 0x400001234UL; vm->segv_access_len = 8UL; vm->segv_access_type = FD_VM_ACCESS_TYPE_LD;
+  msg_sz = fd_vm_access_violation_cstr( vm, FD_VM_ERR_EBPF_ACCESS_VIOLATION, msg, sizeof(msg) );
+  FD_TEST( !strcmp( msg, "Access violation reading 8 bytes at address 0x400001234 (in unallocated region)" ) );
+
+  vm->heap_sz = FD_VM_HEAP_DEFAULT;
+  vm->segv_vaddr = 0x300000010UL; vm->segv_access_len = 16UL; vm->segv_access_type = FD_VM_ACCESS_TYPE_ST;
+  fd_vm_mem_cfg( vm );
+  msg_sz = fd_vm_access_violation_cstr( vm, FD_VM_ERR_EBPF_ACCESS_VIOLATION, msg, sizeof(msg) );
+  FD_TEST( !strcmp( msg, "Access violation writing 16 bytes at address 0x300000010 (in heap region)" ) );
 
   FD_LOG_NOTICE(( "%-20s PASS", "stack-frame-cfg" ));
 }
@@ -2069,6 +2224,7 @@ main( int     argc,
     FD_LOG_NOTICE(( "%-20s PASS", "jmp32-vfy-gate" ));
   }
 
+  test_validate_messages( syscalls, instr_ctx );
   test_stack_configuration( syscalls, instr_ctx );
   test_lazy_stack_zeroing( syscalls, instr_ctx );
   test_lazy_heap_zeroing( syscalls, instr_ctx );

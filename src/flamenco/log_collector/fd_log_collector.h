@@ -67,6 +67,34 @@ fd_log_collector_init( fd_log_collector_t * log, int enabled ) {
   log->log_sz = 0;
   log->warn = 0;
   log->disabled = !enabled;
+  log->panic_file_sz = USHORT_MAX;
+  log->vm_err_msg_sz = USHORT_MAX;
+}
+
+/* fd_log_collector_vm_err records the message of a VM access violation,
+   so that the failure message of the program carries it. */
+static inline void
+fd_log_collector_vm_err( fd_log_collector_t * log,
+                         char const *         msg,
+                         ulong                msg_sz ) {
+  ulong sz = fd_ulong_min( msg_sz, FD_LOG_COLLECTOR_VM_ERR_MSG_MAX );
+  fd_memcpy( log->vm_err_msg, msg, sz );
+  log->vm_err_msg_sz = (ushort)sz;
+}
+
+/* fd_log_collector_panic records the location a sol_panic_ syscall
+   reported, so that the failure message of the program names it. */
+static inline void
+fd_log_collector_panic( fd_log_collector_t * log,
+                        char const *         file,
+                        ulong                file_sz,
+                        ulong                line,
+                        ulong                column ) {
+  ulong sz = fd_ulong_min( file_sz, FD_LOG_COLLECTOR_PANIC_FILE_MAX );
+  fd_memcpy( log->panic_file, file, sz );
+  log->panic_file_sz = (ushort)sz;
+  log->panic_line    = line;
+  log->panic_column  = column;
 }
 
 static inline ulong
@@ -461,6 +489,41 @@ fd_log_collector_program_failure( fd_exec_instr_ctx_t * ctx ) {
   extern char const * fd_vm_ebpf_strerror( int err );
   extern char const * fd_vm_syscall_strerror( int err );
   extern char const * fd_executor_instr_strerror( int err );
+
+  fd_log_collector_t * log = ctx->runtime->log.log_collector;
+
+  /* "Program <ProgramIdBase58> failed: SBF program Panicked in <file> at <line>:<column>"
+     https://github.com/anza-xyz/agave/blob/v4.2.0-beta.0/syscalls/src/lib.rs#L74 */
+  if( FD_UNLIKELY( ctx->txn_out->err.exec_err_kind==FD_EXECUTOR_ERR_KIND_SYSCALL &&
+                   ctx->txn_out->err.exec_err==FD_VM_SYSCALL_ERR_PANIC &&
+                   log->panic_file_sz!=USHORT_MAX ) ) {
+    char err_prefix[ 17+FD_BASE58_ENCODED_32_SZ ];
+    int  err_prefix_len = sprintf( err_prefix, "Program %s failed: ", ctx->program_id_base58 );
+    char loc[ 48 ];
+    int  loc_len = sprintf( loc, " at %lu:%lu", log->panic_line, log->panic_column );
+    if( err_prefix_len>0 && loc_len>0 ) {
+      fd_log_collector_msg_many( ctx, 4, err_prefix, (ulong)err_prefix_len,
+                                 "SBF program Panicked in ", 24UL,
+                                 (char const *)log->panic_file, (ulong)log->panic_file_sz,
+                                 loc, (ulong)loc_len );
+    }
+    return;
+  }
+
+  /* "Program <ProgramIdBase58> failed: Access violation ..." with the
+     address, size and region of the fault, as agave's EbpfError renders
+     it (sbpf src/error.rs:54-59). */
+  if( FD_UNLIKELY( ctx->txn_out->err.exec_err_kind==FD_EXECUTOR_ERR_KIND_EBPF &&
+                   ( ctx->txn_out->err.exec_err==FD_VM_ERR_EBPF_ACCESS_VIOLATION ||
+                     ctx->txn_out->err.exec_err==FD_VM_ERR_EBPF_STACK_ACCESS_VIOLATION ) &&
+                   log->vm_err_msg_sz!=USHORT_MAX ) ) {
+    char err_prefix[ 17+FD_BASE58_ENCODED_32_SZ ];
+    int  err_prefix_len = sprintf( err_prefix, "Program %s failed: ", ctx->program_id_base58 );
+    if( err_prefix_len>0 ) {
+      fd_log_collector_msg_many( ctx, 2, err_prefix, (ulong)err_prefix_len, log->vm_err_msg, (ulong)log->vm_err_msg_sz );
+    }
+    return;
+  }
 
   char custom_err[33] = { 0 };
   const char * err = custom_err;

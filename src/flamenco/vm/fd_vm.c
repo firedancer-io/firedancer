@@ -54,6 +54,36 @@ fd_vm_syscall_strerror( int err ) {
    intended to be logged by log_collector, or an empty string if the error code
    should be omitted in logs for whatever reason.
    See also fd_log_collector_program_failure(). */
+ulong
+fd_vm_access_violation_cstr( fd_vm_t * vm,
+                             int       err,
+                             char *    buf,
+                             ulong     buf_sz ) {
+  ulong vaddr = vm->segv_vaddr;
+  ulong len   = vm->segv_access_len;
+  ulong out_len = 0UL;
+  if( err==FD_VM_ERR_EBPF_STACK_ACCESS_VIOLATION ) {
+    long rel_offset  = fd_long_sat_sub( (long)vaddr, (long)FD_VM_MEM_MAP_STACK_REGION_START );
+    long stack_frame = rel_offset / (long)FD_VM_STACK_FRAME_SZ;
+    fd_cstr_printf( buf, buf_sz, &out_len, "Access violation in stack frame %ld at address 0x%lx of size %lu", stack_frame, vaddr, len );
+    return out_len;
+  }
+  /* sbpf names the region by its base address, "unallocated" when no
+     region holds the first byte of the access, "allocated" for one
+     with no name of its own (memory_region.rs:999-1027). */
+  int inside = !!fd_vm_mem_haddr( vm, vaddr, 1UL, vm->region_haddr, vm->region_ld_sz, 0, 0UL );
+  ulong        base   = vaddr & ~0xFFFFFFFFUL;
+  char const * region = !inside                                      ? "unallocated"
+                      : base==FD_VM_MEM_MAP_PROGRAM_REGION_START     ? "program"
+                      : base==FD_VM_MEM_MAP_STACK_REGION_START       ? "stack"
+                      : base==FD_VM_MEM_MAP_HEAP_REGION_START        ? "heap"
+                      : base==FD_VM_MEM_MAP_INPUT_REGION_START       ? "input"
+                      :                                                "allocated";
+  fd_cstr_printf( buf, buf_sz, &out_len, "Access violation %s %lu bytes at address 0x%lx (in %s region)",
+                  vm->segv_access_type==FD_VM_ACCESS_TYPE_ST ? "writing" : "reading", len, vaddr, region );
+  return out_len;
+}
+
 char const *
 fd_vm_ebpf_strerror( int err ) {
 
@@ -136,9 +166,12 @@ fd_vm_strerror( int err ) {
    IDENTICALLY! */
 
 int
-fd_vm_validate( fd_vm_t const * vm ) {
+fd_vm_validate_detail( fd_vm_t const *        vm,
+                       fd_vm_validate_err_t * err ) {
 
   ulong sbpf_version = vm->sbpf_version;
+
+  memset( err, 0, sizeof(*err) );
 
   /* A mapping of all the possible 1-byte sBPF opcodes to their
      validation criteria. */
@@ -361,6 +394,8 @@ fd_vm_validate( fd_vm_t const * vm ) {
   for( ulong i=0UL; i<text_cnt; i++ ) {
     fd_sbpf_instr_t instr = fd_sbpf_instr( text[i] );
 
+    err->insn = i;
+
     uchar validation_code = validation_map[ instr.opcode.raw ];
     switch( validation_code ) {
 
@@ -374,6 +409,7 @@ fd_vm_validate( fd_vm_t const * vm ) {
 
     case FD_CHECK_JMP: {
       long jmp_dst = (long)i + (long)instr.offset + 1L;
+      err->arg0 = (ulong)jmp_dst;
       if( FD_UNLIKELY( (jmp_dst<0) | (jmp_dst>=(long)text_cnt)                          ) ) return FD_VM_ERR_JMP_OUT_OF_BOUNDS;
       //FIXME: this shouldn't be here?
       if( FD_UNLIKELY( fd_sbpf_instr( text[ jmp_dst ] ).opcode.raw==FD_SBPF_OP_ADDL_IMM ) ) return FD_VM_ERR_JMP_TO_ADDL_IMM;
@@ -406,12 +442,15 @@ fd_vm_validate( fd_vm_t const * vm ) {
       break;
     }
 
+    /* sbpf reports the shift amount as the sign-extended immediate. */
     case FD_CHECK_SH32: {
+      err->arg0 = (ulong)(long)(int)instr.imm; err->arg1 = 32UL;
       if( FD_UNLIKELY( instr.imm>=32 ) ) return FD_VM_SH_OVERFLOW;
       break;
     }
 
     case FD_CHECK_SH64: {
+      err->arg0 = (ulong)(long)(int)instr.imm; err->arg1 = 64UL;
       if( FD_UNLIKELY( instr.imm>=64 ) ) return FD_VM_SH_OVERFLOW;
       break;
     }
@@ -437,28 +476,66 @@ fd_vm_validate( fd_vm_t const * vm ) {
       break;
     }
 
-    case FD_INVALID: default: return FD_VM_ERR_INVALID_OPCODE;
+    case FD_INVALID: default:
+      err->arg0 = (ulong)instr.opcode.raw;
+      return FD_VM_ERR_INVALID_OPCODE;
     }
 
     /* Check registers
-       https://github.com/solana-labs/rbpf/blob/v0.8.5/src/verifier.rs#L177 */
+       https://github.com/solana-labs/rbpf/blob/v0.8.5/src/verifier.rs#L177
+       sbpf reports a register error on an lddw at the index of its
+       second slot. */
+
+    err->insn = i;
 
     /* Source register */
     if( FD_UNLIKELY( instr.src_reg>10 ) ) return FD_VM_ERR_INVALID_SRC_REG;
 
     /* Special R10 register allowed for ADD64_IMM */
     if( instr.dst_reg==10U
-        && FD_VM_SBPF_MANUAL_STACK_FRAME_BUMP( sbpf_version )
-        && instr.opcode.raw == 0x07
-        && ( instr.imm % FD_VM_SBPF_DYNAMIC_STACK_FRAMES_ALIGN )==0 )
-        continue;
+        && FD_VM_SBPF_MANUAL_STACK_FRAME_BUMP( sbpf_version ) ) {
+      if( instr.opcode.raw == 0x07 ) {
+        if( ( instr.imm % FD_VM_SBPF_DYNAMIC_STACK_FRAMES_ALIGN )==0 ) continue;
+        err->r10_unaligned = 1;
+      }
+    }
 
     /* Destination register. */
+    err->dst_reg = instr.dst_reg;
     if( FD_UNLIKELY( instr.dst_reg==10U && validation_code != FD_CHECK_ST ) ) return FD_VM_ERR_INVALID_DST_REG;
     if( FD_UNLIKELY( instr.dst_reg > 10U ) ) return FD_VM_ERR_INVALID_DST_REG;
   }
 
   return FD_VM_SUCCESS;
+}
+
+ulong
+fd_vm_validate_err_cstr( int                          code,
+                         fd_vm_validate_err_t const * err,
+                         char *                       buf,
+                         ulong                        buf_sz ) {
+  ulong len = 0UL;
+# define PRINT(...) do { fd_cstr_printf( buf, buf_sz, &len, "Verifier error: " __VA_ARGS__ ); return len; } while(0)
+  switch( code ) {
+  case FD_VM_TEXT_SZ_UNALIGNED:     PRINT( "program length must be a multiple of 8 octets" );
+  case FD_VM_ERR_EMPTY:             PRINT( "no program set, call prog_set() to load one" );
+  case FD_VM_ERR_SIGFPE:            PRINT( "division by 0 (insn #%lu)", err->insn );
+  case FD_VM_ERR_INVALID_END_IMM:   PRINT( "unsupported argument for LE/BE (insn #%lu)", err->insn );
+  case FD_VM_ERR_INCOMPLETE_LDQ:    PRINT( "LD_DW instruction cannot be last in program" );
+  case FD_VM_ERR_LDQ_NO_ADDL_IMM:   PRINT( "incomplete LD_DW instruction (insn #%lu)", err->insn );
+  case FD_VM_ERR_JMP_OUT_OF_BOUNDS: PRINT( "jump out of code to #%lu (insn #%lu)", err->arg0, err->insn );
+  case FD_VM_ERR_JMP_TO_ADDL_IMM:   PRINT( "jump to middle of LD_DW at #%lu (insn #%lu)", err->arg0, err->insn );
+  case FD_VM_ERR_INVALID_SRC_REG:   PRINT( "invalid source register (insn #%lu)", err->insn );
+  case FD_VM_ERR_INVALID_DST_REG:
+    if( err->r10_unaligned )  PRINT( "Unaligned immediate (insn #%lu)", err->insn );
+    if( err->dst_reg==10U )   PRINT( "cannot write into register r10 (insn #%lu)", err->insn );
+    PRINT( "invalid destination register (insn #%lu)", err->insn );
+  case FD_VM_ERR_INVALID_OPCODE:    PRINT( "unknown eBPF opcode 0x%lx (insn #%lu)", err->arg0, err->insn );
+  case FD_VM_SH_OVERFLOW:           PRINT( "Shift with overflow of %lu-bit value by %lu (insn #%lu)", err->arg0, err->arg1, err->insn );
+  case FD_VM_ERR_INVALID_REG:       PRINT( "Invalid register specified at instruction %lu", err->insn );
+  default:                          PRINT( "" );
+  }
+# undef PRINT
 }
 
 FD_FN_CONST ulong

@@ -1,0 +1,425 @@
+syntax = "proto3";
+
+import "timestamp.proto";
+import public "solana_storage.proto";
+
+option go_package = "github.com/rpcpool/yellowstone-grpc/examples/golang/proto";
+
+package geyser;
+
+service Geyser {
+  rpc Subscribe(stream SubscribeRequest) returns (stream SubscribeUpdate) {}
+  rpc SubscribeDeshred(stream SubscribeDeshredRequest) returns (stream SubscribeUpdateDeshred) {}
+  rpc SubscribeGossip(SubscribeGossipRequest) returns (stream SubscribeUpdateGossip) {}
+  rpc SubscribeReplayInfo(SubscribeReplayInfoRequest) returns (SubscribeReplayInfoResponse) {}
+  rpc Ping(PingRequest) returns (PongResponse) {}
+  rpc GetLatestBlockhash(GetLatestBlockhashRequest) returns (GetLatestBlockhashResponse) {}
+  rpc GetBlockHeight(GetBlockHeightRequest) returns (GetBlockHeightResponse) {}
+  rpc GetSlot(GetSlotRequest) returns (GetSlotResponse) {}
+  rpc IsBlockhashValid(IsBlockhashValidRequest) returns (IsBlockhashValidResponse) {}
+  rpc GetVersion(GetVersionRequest) returns (GetVersionResponse) {}
+}
+
+enum CommitmentLevel {
+  PROCESSED = 0;
+  CONFIRMED = 1;
+  FINALIZED = 2;
+}
+
+enum SlotStatus {
+  SLOT_PROCESSED = 0;
+  SLOT_CONFIRMED = 1;
+  SLOT_FINALIZED = 2;
+  SLOT_FIRST_SHRED_RECEIVED = 3;
+  SLOT_COMPLETED = 4;
+  SLOT_CREATED_BANK = 5;
+  SLOT_DEAD = 6;
+}
+
+message SubscribeRequest {
+  map<string, SubscribeRequestFilterAccounts> accounts = 1;
+  map<string, SubscribeRequestFilterSlots> slots = 2;
+  map<string, SubscribeRequestFilterTransactions> transactions = 3;
+  map<string, SubscribeRequestFilterTransactions> transactions_status = 10;
+  map<string, SubscribeRequestFilterBlocks> blocks = 4;
+  map<string, SubscribeRequestFilterBlocksMeta> blocks_meta = 5;
+  map<string, SubscribeRequestFilterEntry> entry = 8;
+  optional CommitmentLevel commitment = 6;
+  repeated SubscribeRequestAccountsDataSlice accounts_data_slice = 7;
+  optional SubscribeRequestPing ping = 9;
+  optional uint64 from_slot = 11;
+}
+
+// Hash algorithm used to build the filter. Carried on the wire so future
+// releases can add alternative algorithms (e.g., xxh3) without breaking
+// existing clients. Readers should verify this matches a supported algorithm
+// before deserializing.
+enum CuckooHashAlgorithm {
+  SIP_HASH = 0;
+}
+
+message CuckooFilter {
+  bytes data = 1;                    // bucket data
+  uint32 bucket_count = 2;           // number of buckets
+  uint32 entries_per_bucket = 3;     // slots per bucket (typically 4)
+  uint32 fingerprint_bits = 4;       // fingerprint size (8, 12, or 16)
+  uint64 hash_seed = 5;              // seed for deterministic hashing
+  CuckooHashAlgorithm hash_algorithm = 6;
+}
+
+message SubscribeRequestFilterAccounts {
+  repeated string account = 2;
+  repeated string owner = 3;
+  repeated SubscribeRequestFilterAccountsFilter filters = 4;
+  optional bool nonempty_txn_signature = 5;
+
+  optional CuckooFilter cuckoo_accounts_filter = 6;
+}
+
+message SubscribeRequestFilterAccountsFilter {
+  oneof filter {
+    SubscribeRequestFilterAccountsFilterMemcmp memcmp = 1;
+    uint64 datasize = 2;
+    bool token_account_state = 3;
+    SubscribeRequestFilterAccountsFilterLamports lamports = 4;
+  }
+}
+
+message SubscribeRequestFilterAccountsFilterMemcmp {
+  uint64 offset = 1;
+  oneof data {
+    bytes bytes = 2;
+    string base58 = 3;
+    string base64 = 4;
+  }
+}
+
+message SubscribeRequestFilterAccountsFilterLamports {
+  oneof cmp {
+    uint64 eq = 1;
+    uint64 ne = 2;
+    uint64 lt = 3;
+    uint64 gt = 4;
+  }
+}
+
+message SubscribeRequestFilterSlots {
+  optional bool filter_by_commitment = 1;
+  optional bool interslot_updates = 2;
+}
+
+message SubscribeRequestFilterTransactions {
+  optional bool vote = 1;
+  optional bool failed = 2;
+  optional string signature = 5;
+  repeated string account_include = 3;
+  repeated string account_exclude = 4;
+  repeated string account_required = 6;
+  optional CuckooFilter cuckoo_account_include = 7;
+  // ATA / token-account expansion control. When set, account_include /
+  // account_exclude / account_required also match against owners of
+  // pre/post token balances on each transaction. Absent = no expansion.
+  optional TokenAccountExpansionControlFlag token_accounts = 30;
+}
+
+enum TokenAccountExpansionControlFlag {
+  // Match an owner if it owns a pre OR post token balance on the tx.
+  ALL = 0;
+  // Match an owner whose token balance changed in amount (per
+  // `account_index`) or whose token account was closed.
+  BALANCE_CHANGED = 1;
+}
+
+message SubscribeRequestFilterBlocks {
+  repeated string account_include = 1;
+  optional bool include_transactions = 2;
+  optional bool include_accounts = 3;
+  optional bool include_entries = 4;
+  optional CuckooFilter cuckoo_account_include = 5;
+}
+
+message SubscribeRequestFilterBlocksMeta {}
+
+message SubscribeRequestFilterEntry {}
+
+// Filter for deshred transactions (transactions received before execution).
+// Deshred transactions are received when entries are formed from shreds,
+// BEFORE any execution occurs. No TransactionStatusMeta is available.
+// Address lookup tables are resolved, so both static account keys and
+// dynamically loaded addresses (from ALTs) are available for filtering.
+message SubscribeRequestFilterDeshredTransactions {
+  optional bool vote = 1;
+  repeated string account_include = 2;
+  repeated string account_exclude = 3;
+  repeated string account_required = 4;
+}
+
+message SubscribeRequestAccountsDataSlice {
+  uint64 offset = 1;
+  uint64 length = 2;
+}
+
+message SubscribeRequestPing {
+  int32 id = 1;
+}
+
+// Request message for the SubscribeDeshred RPC.
+// Subscribes to deshred transactions (transactions received before execution).
+// Deshred transactions are received when entries are formed from shreds,
+// BEFORE any execution occurs. No TransactionStatusMeta is available.
+// Address lookup tables are resolved, so both static and loaded addresses
+// are available for filtering.
+message SubscribeDeshredRequest {
+  map<string, SubscribeRequestFilterDeshredTransactions> deshred_transactions = 1;
+  optional SubscribeRequestPing ping = 2;
+  map<string, SubscribeRequestFilterSlots> slots = 3;
+}
+
+message SubscribeUpdate {
+  repeated string filters = 1;
+  oneof update_oneof {
+    SubscribeUpdateAccount account = 2;
+    SubscribeUpdateSlot slot = 3;
+    SubscribeUpdateTransaction transaction = 4;
+    SubscribeUpdateTransactionStatus transaction_status = 10;
+    SubscribeUpdateBlock block = 5;
+    SubscribeUpdatePing ping = 6;
+    SubscribeUpdatePong pong = 9;
+    SubscribeUpdateBlockMeta block_meta = 7;
+    SubscribeUpdateEntry entry = 8;
+  }
+  google.protobuf.Timestamp created_at = 11;
+}
+
+message SubscribeUpdateAccount {
+  SubscribeUpdateAccountInfo account = 1;
+  uint64 slot = 2;
+  bool is_startup = 3;
+  // if is_startup is true, bank id is None.
+  optional uint64 bank_id = 4;
+}
+
+message SubscribeUpdateAccountInfo {
+  bytes pubkey = 1;
+  uint64 lamports = 2;
+  bytes owner = 3;
+  bool executable = 4;
+  uint64 rent_epoch = 5;
+  bytes data = 6;
+  uint64 write_version = 7;
+  optional bytes txn_signature = 8;
+}
+
+message SubscribeUpdateSlot {
+  uint64 slot = 1;
+  optional uint64 parent = 2;
+  SlotStatus status = 3;
+  optional string dead_error = 4;
+
+  // FIRST_SHRED_RECEIVED and COMPLETED slot status does not belong to any bank.
+  optional uint64 bank_id = 5;
+}
+
+message SubscribeUpdateTransaction {
+  SubscribeUpdateTransactionInfo transaction = 1;
+  uint64 slot = 2;
+  uint64 bank_id = 3;
+}
+
+message SubscribeUpdateTransactionInfo {
+  bytes signature = 1;
+  bool is_vote = 2;
+  solana.storage.ConfirmedBlock.Transaction transaction = 3;
+  solana.storage.ConfirmedBlock.TransactionStatusMeta meta = 4;
+  uint64 index = 5;
+}
+
+message SubscribeUpdateTransactionStatus {
+  uint64 slot = 1;
+  bytes signature = 2;
+  bool is_vote = 3;
+  uint64 index = 4;
+  solana.storage.ConfirmedBlock.TransactionError err = 5;
+  uint64 bank_id = 6;
+}
+
+message SubscribeUpdateBlock {
+  uint64 slot = 1;
+  string blockhash = 2;
+  solana.storage.ConfirmedBlock.Rewards rewards = 3;
+  solana.storage.ConfirmedBlock.UnixTimestamp block_time = 4;
+  solana.storage.ConfirmedBlock.BlockHeight block_height = 5;
+  uint64 parent_slot = 7;
+  string parent_blockhash = 8;
+  uint64 executed_transaction_count = 9;
+  repeated SubscribeUpdateTransactionInfo transactions = 6;
+  uint64 updated_account_count = 10;
+  repeated SubscribeUpdateAccountInfo accounts = 11;
+  uint64 entries_count = 12;
+  repeated SubscribeUpdateEntry entries = 13;
+  uint64 bank_id = 14;
+}
+
+message SubscribeUpdateBlockMeta {
+  uint64 slot = 1;
+  string blockhash = 2;
+  solana.storage.ConfirmedBlock.Rewards rewards = 3;
+  solana.storage.ConfirmedBlock.UnixTimestamp block_time = 4;
+  solana.storage.ConfirmedBlock.BlockHeight block_height = 5;
+  uint64 parent_slot = 6;
+  string parent_blockhash = 7;
+  uint64 executed_transaction_count = 8;
+  uint64 entries_count = 9;
+  uint64 bank_id = 10;
+}
+
+message SubscribeUpdateEntry {
+  uint64 slot = 1;
+  uint64 index = 2;
+  uint64 num_hashes = 3;
+  bytes hash = 4;
+  uint64 executed_transaction_count = 5;
+  uint64 starting_transaction_index = 6; // added in v1.18, for solana 1.17 value is always 0
+
+  uint64 bank_id = 7;
+}
+
+message SubscribeUpdateDeshredTransaction {
+  SubscribeUpdateDeshredTransactionInfo transaction = 1;
+  uint64 slot = 2;
+}
+
+message SubscribeUpdateDeshredTransactionInfo {
+  bytes signature = 1;
+  bool is_vote = 2;
+  solana.storage.ConfirmedBlock.Transaction transaction = 3;
+  repeated bytes loaded_writable_addresses = 4;
+  repeated bytes loaded_readonly_addresses = 5;
+  uint32 completed_data_set_starting_shred_index = 6;
+  uint32 completed_data_set_ending_shred_index_exclusive = 7;
+}
+
+message SubscribeUpdatePing {}
+
+message SubscribeUpdatePong {
+  int32 id = 1;
+}
+
+message SubscribeUpdateDeshred {
+  repeated string filters = 1;
+  oneof update_oneof {
+    SubscribeUpdateDeshredTransaction deshred_transaction = 2;
+    SubscribeUpdatePing ping = 3;
+    SubscribeUpdatePong pong = 4;
+    // field 5 is reserved for created_at (below the oneof)
+    SubscribeUpdateSlot slot = 6;
+  }
+  google.protobuf.Timestamp created_at = 5;
+}
+
+message SubscribeGossipRequest {}
+
+message SubscribeUpdateGossip {
+  oneof update_oneof {
+    SubscribeUpdateContactInfoNode node = 1;
+    SubscribeUpdateContactInfoRemoved removed = 2;
+    // Server keepalive; the stream can be silent for minutes on a stable cluster.
+    SubscribeUpdatePing ping = 3;
+    GossipTopology snapshot = 6;
+  }
+  google.protobuf.Timestamp created_at = 5;
+  // Table revision: for `snapshot` the revision copied, for `node`/`removed` the revision applied. Increases by one per change. Unset (0) for `ping`.
+  uint64 seq = 7;
+}
+
+// Full copy of the server-side gossip contact info table, sent when a client subscribes. Later `node`/`removed` updates carry `seq > snapshot.seq`.
+message GossipTopology {
+  repeated SubscribeUpdateContactInfoNode nodes = 1;
+}
+
+message SubscribeUpdateContactInfoNode {
+  bytes pubkey = 1;
+  uint64 wallclock = 2;
+  uint64 outset = 3;
+  uint32 shred_version = 4;
+  uint32 version_major = 5;
+  uint32 version_minor = 6;
+  uint32 version_patch = 7;
+  uint32 version_commit = 8;
+  uint32 version_feature_set = 9;
+  uint32 version_client_id = 10;
+  optional string gossip = 11;
+  optional string tpu_quic = 12;
+  optional string tpu_forwards_quic = 13;
+  optional string tpu_vote_udp = 14;
+  optional string tpu_vote_quic = 15;
+  optional string tvu_udp = 16;
+  optional string tvu_quic = 17;
+  optional string serve_repair_udp = 18;
+  optional string serve_repair_quic = 19;
+  optional string rpc = 20;
+  optional string rpc_pubsub = 21;
+  optional string alpenglow = 22;
+}
+
+message SubscribeUpdateContactInfoRemoved {
+  bytes pubkey = 1;
+}
+
+// non-streaming methods
+
+message SubscribeReplayInfoRequest {}
+
+message SubscribeReplayInfoResponse {
+  optional uint64 first_available = 1;
+}
+
+message PingRequest {
+  int32 count = 1;
+}
+
+message PongResponse {
+  int32 count = 1;
+}
+
+message GetLatestBlockhashRequest {
+  optional CommitmentLevel commitment = 1;
+}
+
+message GetLatestBlockhashResponse {
+  uint64 slot = 1;
+  string blockhash = 2;
+  uint64 last_valid_block_height = 3;
+}
+
+message GetBlockHeightRequest {
+  optional CommitmentLevel commitment = 1;
+}
+
+message GetBlockHeightResponse {
+  uint64 block_height = 1;
+}
+
+message GetSlotRequest {
+  optional CommitmentLevel commitment = 1;
+}
+
+message GetSlotResponse {
+  uint64 slot = 1;
+}
+
+message GetVersionRequest {}
+
+message GetVersionResponse {
+  string version = 1;
+}
+
+message IsBlockhashValidRequest {
+  string blockhash = 1;
+  optional CommitmentLevel commitment = 2;
+}
+
+message IsBlockhashValidResponse {
+  uint64 slot = 1;
+  bool valid = 2;
+}

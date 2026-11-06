@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang='en'><head><meta charset='utf-8'>
+<meta name='viewport' content='width=device-width,initial-scale=1'>
+<title>Firedancer Dragon's Mouth</title>
+<style>
+ :root{color-scheme:dark;--bg:#0e1116;--fg:#e6edf3;--dim:#8b949e;--acc:#4cc38a;--brd:#30363d;--card:#161b22}
+ body{margin:0;padding:1.5rem 1.25rem;background:var(--bg);color:var(--fg);
+      font:14px/1.5 ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+ main{max-width:72rem;margin:0 auto}
+ h1{font-size:1.3rem;margin:0 0 .25rem}
+ p{color:var(--dim);margin:.2rem 0 1rem}
+ .card{background:var(--card);border:1px solid var(--brd);border-radius:8px;padding:.9rem 1rem;margin-bottom:1rem}
+ .row{display:flex;gap:.6rem;flex-wrap:wrap;align-items:center;margin:.35rem 0}
+ label{min-width:8.5rem}
+ input,select{background:#0b0f14;color:var(--fg);border:1px solid var(--brd);border-radius:5px;padding:.35rem .5rem}
+ input[type=text]{flex:1;min-width:20rem;font-family:ui-monospace,Menlo,monospace}
+ button{background:var(--acc);color:#08130d;border:0;border-radius:5px;padding:.45rem 1rem;font-weight:600;cursor:pointer}
+ button.sec{background:#21262d;color:var(--fg);border:1px solid var(--brd)}
+ table{border-collapse:collapse;width:100%;font-size:13px}
+ td,th{text-align:left;padding:.25rem .8rem .25rem 0;border-bottom:1px solid var(--brd)}
+ code,.mono{font-family:ui-monospace,Menlo,monospace}
+ .mono{color:var(--dim)}
+ #cli{display:block;white-space:pre-wrap;word-break:break-all;color:var(--dim);flex:1}
+ .ok{color:var(--acc)}.warn{color:#d29922}.err{color:#f85149}
+ .grid{display:grid;grid-template-columns:minmax(16rem,1fr) 3fr;gap:1rem}
+ .scroll{max-height:60vh;overflow-y:auto}
+</style></head><body><main>
+<h1>Firedancer &mdash; Dragon's Mouth</h1>
+<p>Yellowstone-compatible gRPC.  This page subscribes over gRPC-Web on the same port.</p>
+<div class='card'>
+ <div class='row'><label for='preset'>preset</label>
+  <select id='preset'>
+   <option value='predict'>Predict / issuer programs</option>
+   <option value='firehose'>Every transaction</option>
+   <option value='custom'>Custom</option></select></div>
+ <div class='row'><label for='accts'>account_include</label><input id='accts' type='text' spellcheck='false'></div>
+ <div class='row'><label for='commit'>commitment</label>
+  <select id='commit'><option value=''>processed</option><option value='1'>confirmed</option>
+   <option value='2'>finalized</option></select>
+  <label for='vote' style='min-width:auto'>votes</label><input id='vote' type='checkbox'>
+  <label for='failed' style='min-width:auto'>failed</label><input id='failed' type='checkbox'>
+  <label for='slots' style='min-width:auto'>slots</label><input id='slots' type='checkbox' checked></div>
+ <div class='row'><label for='token'>x-token</label><input id='token' type='text' spellcheck='false' placeholder='(none)'></div>
+ <div class='row'><label for='n'>clients</label><input id='n' type='number' value='1' min='1' max='6' style='width:4rem'>
+  <button id='go'>Subscribe</button><button id='stop' class='sec'>Stop</button>
+  <span class='mono'>a browser opens at most 6 connections to one host</span></div>
+ <div class='row'><label>CLI</label><code id='cli'></code><button id='copy' class='sec'>Copy</button></div>
+</div>
+<div class='grid'>
+ <div class='card scroll'><table><thead><tr><th>#</th><th>state</th><th>slots</th><th>txs</th><th>tx/s</th></tr></thead>
+  <tbody id='clients'></tbody></table></div>
+ <div class='card scroll'><table><thead><tr><th>#</th><th>kind</th><th>slot</th><th>detail</th></tr></thead>
+  <tbody id='rows'></tbody></table></div>
+</div>
+</main><script>
+const $ = (id) => document.getElementById(id);
+const PRESETS = {
+  predict: '2DNbzPochEcyCcWMbL4d9S3u9QqQEj5bbe6cSZFvKsbh,JanusXpm3gsW3c9ErNoUgHppL8dGLvZKB7uekkJEYFP,Tri3NG4HkZ6DddYPKoX2ehgkqFtDuej9Aspw5BmvSo4',
+  firehose: '',
+};
+const SLOT_STATUS = ['processed', 'confirmed', 'finalized', 'first shred', 'completed', 'created bank', 'dead'];
+
+/* Protobuf, only the fields this page uses (geyser.proto) */
+function wVarint(out, v) { while (v > 127) { out.push((v & 127) | 128); v = Math.floor(v / 128); } out.push(v); }
+function wBytes(out, num, b) { wVarint(out, num * 8 + 2); wVarint(out, b.length); for (const x of b) out.push(x); }
+function wBool(out, num, v) { wVarint(out, num * 8); out.push(v ? 1 : 0); }
+function wStr(out, num, s) { wBytes(out, num, new TextEncoder().encode(s)); }
+function wMapEntry(out, num, key, value) { const e = []; wStr(e, 1, key); wBytes(e, 2, value); wBytes(out, num, e); }
+function rVarint(b, i) { let v = 0, m = 1, c; do { c = b[i++]; v += (c & 127) * m; m *= 128; } while (c & 128); return [v, i]; }
+function fields(b) {
+  const out = {};
+  for (let i = 0; i < b.length;) {
+    let key, v; [key, i] = rVarint(b, i);
+    switch (key & 7) {
+      case 0: [v, i] = rVarint(b, i); break;
+      case 1: i += 8; continue;
+      case 2: { let len; [len, i] = rVarint(b, i); v = b.subarray(i, i + len); i += len; break; }
+      case 5: i += 4; continue;
+      default: return out;
+    }
+    out[key >>> 3] = v;
+  }
+  return out;
+}
+
+const B58 = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+function b58(bytes) {
+  const d = [];
+  for (const b of bytes) {
+    let c = b;
+    for (let i = 0; i < d.length; i++) { c += d[i] << 8; d[i] = c % 58; c = (c / 58) | 0; }
+    while (c) { d.push(c % 58); c = (c / 58) | 0; }
+  }
+  let s = '';
+  for (const b of bytes) { if (b) break; s += '1'; }
+  for (let i = d.length - 1; i >= 0; i--) s += B58[d[i]];
+  return s;
+}
+
+function accounts() { return $('accts').value.split(',').map(s => s.trim()).filter(Boolean); }
+
+/* SubscribeRequest in a gRPC-Web frame */
+function request() {
+  const txs = [];
+  wBool(txs, 1, $('vote').checked);
+  wBool(txs, 2, $('failed').checked);
+  for (const k of accounts()) wStr(txs, 3, k);
+  const req = [];
+  wMapEntry(req, 3, 'txs', txs);
+  if ($('slots').checked) { const s = []; wBool(s, 1, true); wMapEntry(req, 2, 'slots', s); }
+  if ($('commit').value) { wVarint(req, 6 * 8); wVarint(req, Number($('commit').value)); }
+  const frame = new Uint8Array(5 + req.length);
+  new DataView(frame.buffer).setUint32(1, req.length);
+  frame.set(req, 5);
+  return frame;
+}
+
+/* The same subscription for the yellowstone example client */
+function cli() {
+  const a = ['client', '-e', location.origin];
+  if ($('token').value.trim()) a.push('--x-token', $('token').value.trim());
+  a.push('subscribe', '--transactions', '--transactions-vote', String($('vote').checked),
+         '--transactions-failed', String($('failed').checked));
+  for (const k of accounts()) a.push('--transactions-account-include', k);
+  if ($('slots').checked) a.push('--slots', '--slots-filter-by-commitment', 'true');
+  if ($('commit').value) a.push('--commitment', $('commit').selectedOptions[0].textContent);
+  return a.join(' ');
+}
+
+const clients = [];
+let recent = [];
+let t0 = 0;
+
+function onUpdate(c, msg) {
+  const u = fields(msg);
+  if (u[4]) {
+    c.tx++;
+    const t = fields(u[4]);
+    const info = t[1] ? fields(t[1]) : {};
+    recent.push([c.id, 'tx', t[2] || 0, info[1] ? b58(info[1]) : '']);
+  } else if (u[3]) {
+    c.slot++;
+    const s = fields(u[3]);
+    if (c.id === 1) recent.push([c.id, 'slot', s[1] || 0, SLOT_STATUS[s[3] || 0] || String(s[3])]);
+  }
+}
+
+/* One Subscribe call.  gRPC-Web frames a message like gRPC does, and
+   the trailers come last as a frame with the top bit of its flag set. */
+async function run(c, body) {
+  try {
+    const headers = { 'content-type': 'application/grpc-web+proto', 'x-grpc-web': '1' };
+    if ($('token').value.trim()) headers['x-token'] = $('token').value.trim();
+    const res = await fetch('/geyser.Geyser/Subscribe', { method: 'POST', headers, body, signal: c.abort.signal });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    c.state = 'streaming';
+    const rd = res.body.getReader();
+    let buf = new Uint8Array(0);
+    for (;;) {
+      const { done, value } = await rd.read();
+      if (done) break;
+      const joined = new Uint8Array(buf.length + value.length);
+      joined.set(buf); joined.set(value, buf.length);
+      buf = joined;
+      while (buf.length >= 5) {
+        const len = new DataView(buf.buffer, buf.byteOffset).getUint32(1);
+        if (buf.length < 5 + len) break;
+        const flag = buf[0], msg = buf.subarray(5, 5 + len);
+        buf = buf.subarray(5 + len);
+        if (!(flag & 0x80)) { onUpdate(c, msg); continue; }
+        const trailers = new TextDecoder().decode(msg);
+        const status = /grpc-status:\s*(\d+)/.exec(trailers);
+        const text = /grpc-message:\s*(.*)/.exec(trailers);
+        if (status && status[1] !== '0') throw new Error(text ? decodeURIComponent(text[1].trim()) : 'status ' + status[1]);
+      }
+    }
+    c.state = 'ended';
+  } catch (e) {
+    c.state = c.abort.signal.aborted ? 'stopped' : e.message;
+  }
+}
+
+function stop() {
+  for (const c of clients) c.abort.abort();
+  clients.length = 0;
+}
+
+function start() {
+  stop();
+  const body = request();
+  const n = Math.max(1, Math.min(6, parseInt($('n').value, 10) || 1));
+  t0 = performance.now();
+  recent = [];
+  $('rows').textContent = '';
+  for (let i = 1; i <= n; i++) {
+    const c = { id: i, tx: 0, slot: 0, state: 'connecting', abort: new AbortController() };
+    clients.push(c);
+    run(c, body);
+  }
+}
+
+function refresh() {
+  $('cli').textContent = cli();
+  const dt = Math.max((performance.now() - t0) / 1000, 0.001);
+  $('clients').textContent = '';
+  for (const c of clients) {
+    const tr = $('clients').insertRow();
+    for (const v of [c.id, c.state, c.slot, c.tx, (c.tx / dt).toFixed(1)]) tr.insertCell().textContent = v;
+    tr.cells[1].className = c.state === 'streaming' ? 'ok' : c.state === 'connecting' ? 'warn' : 'err';
+  }
+  const tb = $('rows');
+  for (const r of recent.slice(-50)) {
+    const tr = tb.insertRow(0);
+    for (const v of r) tr.insertCell().textContent = v;
+    tr.cells[3].className = 'mono';
+  }
+  recent = [];
+  while (tb.rows.length > 200) tb.deleteRow(-1);
+}
+
+$('go').onclick = start;
+$('stop').onclick = stop;
+$('copy').onclick = () => navigator.clipboard.writeText(cli());
+$('preset').onchange = function () { if (this.value !== 'custom') $('accts').value = PRESETS[this.value]; };
+$('accts').value = PRESETS.predict;
+setInterval(refresh, 500);
+refresh();
+</script></body></html>

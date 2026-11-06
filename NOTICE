@@ -598,3 +598,30 @@ https://github.com/madler/zlib
 Copyright (C) 1995-2022 Jean-loup Gailly and Mark Adler
 
 See src/third_party/zlib/LICENSE for the full license text.
+
+=======================================================================
+
+'src/discof/dragon/proto' contains the Dragon's Mouth protocol
+definitions from yellowstone-grpc (tag v16.0.0-rc8+solana.4.3.0.rc.0,
+yellowstone-grpc-proto/proto only, which is Apache-2.0 licensed) and
+the nanopb bindings generated from them.
+
+https://github.com/rpcpool/yellowstone-grpc
+
+Copyright Triton One
+
+Licensed under the Apache License, Version 2.0.  See
+src/discof/dragon/proto/README.txt and LICENSE in the root of this repo
+for the full license text.
+
+The same directory also contains health.proto, the gRPC health checking
+protocol definition of grpc/health/v1, and the nanopb bindings
+generated from it.
+
+https://github.com/grpc/grpc-proto/blob/master/grpc/health/v1/health.proto
+
+Copyright 2015 The gRPC Authors
+
+Licensed under the Apache License, Version 2.0.  See the header of
+src/discof/dragon/proto/health.proto and LICENSE in the root of this
+repo for the full license text.

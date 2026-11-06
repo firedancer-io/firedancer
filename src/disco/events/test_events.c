@@ -7,6 +7,7 @@
 
 #include "generated/fd_event_gen.h"
 #include "generated/fd_event_gen_test.h"
+#include "generated/fd_event_internal_gen.h"
 
 #include <stdlib.h>
 
@@ -67,6 +68,114 @@ test_admin_command_fields( fd_circq_t *        circq,
   FD_TEST( !fd_pb_inbuf_sz( command ) );
 }
 
+/* An internal schema has no protobuf side; what has to hold for it is
+   that the record a producer packs is the record a consumer unpacks.
+   The packing helper is driven here without a link, by copying the
+   pieces it describes into a buffer the way the chunked publisher
+   copies them into the dcache. */
+
+static void
+test_internal_round_trip( void ) {
+  static uchar rec[ 8192 ] __attribute__((aligned(8)));
+
+  uchar keys[ 2 ][ 32 ];
+  for( ulong i=0UL; i<2UL; i++ ) fd_memset( keys[ i ], (int)(0x60+i), 32UL );
+
+  static uchar data[ 100 ];
+  for( ulong i=0UL; i<sizeof(data); i++ ) data[ i ] = (uchar)(i+9UL);
+
+  /* The first account's data needs padding, so the second one's offset
+     is not simply the sum of the sizes. */
+  fd_event_internal_runtime_write_touched_t touched[ 2 ] = {
+    { .key_idx = 0U, .executable = 1U, .lamports = 5UL,  .data_off = 0UL,  .data_sz = 37UL },
+    { .key_idx = 1U, .executable = 0U, .lamports = 60UL, .data_off = 40UL, .data_sz = 60UL }
+  };
+  fd_memset( touched[ 0 ].owner, 0x71, 32UL );
+  fd_memset( touched[ 1 ].owner, 0x72, 32UL );
+
+  fd_event_internal_runtime_write_t ev[1];
+  fd_memset( ev, 0, sizeof(fd_event_internal_runtime_write_t) );
+  ev->bank_seq          = 3UL;
+  ev->slot              = 4UL;
+  ev->phase             = 2U;
+  ev->is_leader         = 1;
+  ev->accounts_included = 1;
+  ev->write_seq         = 6UL;
+  ev->keys_cnt          = 2UL;
+  ev->touched_cnt       = 2UL;
+  ev->account_data_cnt  = 100UL;
+
+  fd_event_internal_runtime_write_parts_t parts = {
+    .prefix       = ev,
+    .keys         = (uchar const (*)[ 32UL ])keys,
+    .touched      = touched,
+    .account_data = data
+  };
+
+  FD_TEST( fd_event_internal_runtime_write_bounded( ev ) );
+
+  fd_event_report_iov_t iov[ FD_EVENT_INTERNAL_RUNTIME_WRITE_IOV_MAX ];
+  iov[ 0 ].base = (void const *)ev;
+  iov[ 0 ].sz   = FD_EVENT_INTERNAL_RUNTIME_WRITE_PREFIX_SZ;
+  ulong iov_cnt = fd_event_internal_runtime_write_iov( &parts, iov, 1UL, 0UL,
+                                                       FD_EVENT_INTERNAL_RUNTIME_WRITE_ARR_CNT );
+
+  ulong sz = 0UL;
+  for( ulong i=0UL; i<iov_cnt; i++ ) {
+    FD_TEST( sz+iov[ i ].sz<=sizeof(rec) );
+    fd_memcpy( rec+sz, iov[ i ].base, iov[ i ].sz );
+    sz += iov[ i ].sz;
+  }
+  FD_TEST( sz==fd_event_internal_runtime_write_footprint( ev ) );
+
+  fd_event_internal_runtime_write_parts_t got[1];
+  FD_TEST( !fd_event_internal_runtime_write_unpack( rec, sz, got ) );
+  FD_TEST( got->prefix->bank_seq==3UL          );
+  FD_TEST( got->prefix->slot==4UL              );
+  FD_TEST( got->prefix->phase==2U              );
+  FD_TEST( got->prefix->is_leader==1           );
+  FD_TEST( got->prefix->accounts_included==1   );
+  FD_TEST( got->prefix->write_seq==6UL         );
+  FD_TEST( got->prefix->keys_cnt==2UL          );
+  FD_TEST( got->prefix->touched_cnt==2UL       );
+  FD_TEST( got->prefix->account_data_cnt==100UL );
+  for( ulong i=0UL; i<2UL; i++ ) {
+    FD_TEST( !memcmp( got->keys[ i ], keys[ i ], 32UL ) );
+    FD_TEST( got->touched[ i ].key_idx==touched[ i ].key_idx       );
+    FD_TEST( got->touched[ i ].executable==touched[ i ].executable );
+    FD_TEST( got->touched[ i ].lamports==touched[ i ].lamports     );
+    FD_TEST( got->touched[ i ].data_off==touched[ i ].data_off     );
+    FD_TEST( got->touched[ i ].data_sz==touched[ i ].data_sz       );
+    FD_TEST( !memcmp( got->touched[ i ].owner, touched[ i ].owner, 32UL ) );
+  }
+  FD_TEST( !memcmp( got->account_data, data, 100UL ) );
+  FD_TEST( fd_ulong_is_aligned( (ulong)got->touched, 8UL ) );
+
+  /* The commit schema's packing agrees with its footprint too, with
+     every array empty and with one entry each. */
+  fd_event_internal_commit_t cev[1];
+  fd_memset( cev, 0, sizeof(fd_event_internal_commit_t) );
+  FD_TEST( fd_event_internal_commit_footprint( cev )==FD_EVENT_INTERNAL_COMMIT_PREFIX_SZ );
+  FD_TEST( fd_event_internal_commit_bounded( cev ) );
+
+  cev->payload_cnt      = 1UL;
+  cev->keys_cnt         = 1UL;
+  cev->pre_lamports_cnt = 1UL;
+  cev->trace_cnt        = 1UL;
+  cev->trace_accts_cnt  = 1UL;
+  cev->touched_cnt      = 1UL;
+  FD_TEST( fd_event_internal_commit_footprint( cev )==FD_EVENT_INTERNAL_COMMIT_PREFIX_SZ+
+             8UL  /* payload, padded */ +
+             32UL /* one key */ +
+             8UL  /* one balance */ +
+             24UL /* one instruction */ +
+             8UL  /* one account index, padded */ +
+             sizeof(fd_event_internal_commit_touched_t) /* one written account */ );
+
+  cev->touched_cnt = FD_EVENT_INTERNAL_COMMIT_TOUCHED_MAX+1UL;
+  FD_TEST( !fd_event_internal_commit_bounded( cev ) );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -110,6 +219,9 @@ main( int     argc,
   test_admin_command_fields( circq, client );
 
   free( fd_circq_delete( fd_circq_leave( circq ) ) );
+
+  test_internal_round_trip();
+  FD_LOG_NOTICE(( "pass: internal_round_trip" ));
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

@@ -1,0 +1,6 @@
+{
+  "blocks": {
+    "blk": { "include_transactions": true, "include_accounts": true }
+  },
+  "accounts_data_slice": [ { "offset": 0, "length": 0 } ]
+}

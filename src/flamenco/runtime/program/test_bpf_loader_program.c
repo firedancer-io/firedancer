@@ -5,6 +5,7 @@
 #include "../fd_borrowed_account.h"
 #include "../sysvar/fd_sysvar_rent.h"
 #include "../../features/fd_features.h"
+#include "../../log_collector/fd_log_collector.h"
 #include "../../../ballet/sbpf/fd_sbpf_loader.h"
 #include "../../../ballet/elf/fd_elf64.h"
 #include "../../../ballet/elf/fd_elf.h"
@@ -82,6 +83,7 @@ struct deploy_env {
   fd_bank_t *         bank;
   fd_runtime_t *      runtime;
   fd_txn_out_t *      txn_out;
+  fd_log_collector_t  log[1];
   fd_instr_info_t     instr[1];
   fd_exec_instr_ctx_t ctx[1];
 };
@@ -106,6 +108,8 @@ deploy_env_init( deploy_env_t * env,
   FD_TEST( env->runtime );
   fd_memset( env->runtime, 0, sizeof(fd_runtime_t) );
   env->runtime->instr.stack_sz = 1;
+  fd_log_collector_init( env->log, 1 );
+  env->runtime->log.log_collector = env->log;
 
   env->txn_out = fd_wksp_alloc_laddr( wksp, alignof(fd_txn_out_t), sizeof(fd_txn_out_t), tag++ );
   FD_TEST( env->txn_out );
@@ -136,6 +140,23 @@ deploy_env_destroy( deploy_env_t * env ) {
   fd_wksp_free_laddr( env->txn_out );
   fd_wksp_free_laddr( env->runtime );
   fd_wksp_free_laddr( env->banks );
+}
+
+/* expect_last_log checks that the most recent collected log line is
+   exactly msg, then clears the collector. */
+
+static void
+expect_last_log( deploy_env_t * env,
+                 char const *   msg ) {
+  ulong cnt = fd_log_collector_debug_len( env->log );
+  FD_TEST( cnt>0UL );
+  uchar const * got    = NULL;
+  ulong         got_sz = 0UL;
+  fd_log_collector_debug_get( env->log, cnt-1UL, &got, &got_sz );
+  if( FD_UNLIKELY( got_sz!=strlen( msg ) || memcmp( got, msg, got_sz ) ) ) {
+    FD_LOG_ERR(( "log mismatch: expected \"%s\" got \"%.*s\"", msg, (int)got_sz, (char const *)got ));
+  }
+  fd_log_collector_init( env->log, 1 );
 }
 
 static void
@@ -182,6 +203,52 @@ test_deploy_v0_rejected_when_gated( fd_wksp_t * wksp ) {
   int err = fd_deploy_program( env->ctx, elf_v0, elf_v0_sz,
                                /* disable_sbpf_v0_v1_v2_deployment */ 1 );
   FD_TEST( err==FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA );
+  expect_last_log( env, "Detected sbpf_version required by the executable which are not enabled" );
+
+  deploy_env_destroy( env );
+}
+
+/* A rejected deploy logs the ELF or verifier error text the way agave
+   does, before mapping it to InvalidAccountData. */
+
+static void
+test_deploy_failure_logs( fd_wksp_t * wksp ) {
+  deploy_env_t env[1];
+  deploy_env_init( env, wksp );
+
+  /* ELF header parse failure: e_ehsize is wrong. */
+  uchar elf[ ELF_V3_MAX ];
+  ulong elf_sz = build_v3_elf( elf );
+  FD_STORE( ushort, elf+52UL, 0 );
+  int err = fd_deploy_program( env->ctx, elf, elf_sz, 0 );
+  FD_TEST( err==FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA );
+  expect_last_log( env, "Failed to parse ELF file: invalid file header" );
+
+  /* ELF load failure: the first .rel.dyn entry of the v0 fixture (file
+     offset 0x7a88) gets an undefined relocation type. */
+  uchar * elf0 = fd_wksp_alloc_laddr( wksp, 8UL, elf_v0_sz, 99UL );
+  FD_TEST( elf0 );
+  fd_memcpy( elf0, elf_v0, elf_v0_sz );
+  elf0[ 0x7a90UL ] = 0x7f;
+  err = fd_deploy_program( env->ctx, elf0, elf_v0_sz, 0 );
+  FD_TEST( err==FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA );
+  expect_last_log( env, "Relocation failed, unknown type 127" );
+  fd_wksp_free_laddr( elf0 );
+
+  /* Verifier failure: opcode 0x06 is undefined. */
+  elf_sz = build_v3_elf( elf );
+  elf[ elf_sz-8UL ] = 0x06;
+  err = fd_deploy_program( env->ctx, elf, elf_sz, 0 );
+  FD_TEST( err==FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA );
+  expect_last_log( env, "Verifier error: unknown eBPF opcode 0x6 (insn #0)" );
+
+  /* Verifier failure with arguments: lsh64 by 64. */
+  elf_sz = build_v3_elf( elf );
+  elf[ elf_sz-8UL ] = 0x67;
+  FD_STORE( uint, elf+elf_sz-4UL, 70U );
+  err = fd_deploy_program( env->ctx, elf, elf_sz, 0 );
+  FD_TEST( err==FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA );
+  expect_last_log( env, "Verifier error: Shift with overflow of 70-bit value by 64 (insn #0)" );
 
   deploy_env_destroy( env );
 }
@@ -360,6 +427,7 @@ main( int     argc,
   test_deploy_v0_succeeds( wksp );
   test_deploy_v3_succeeds( wksp );
   test_deploy_v0_rejected_when_gated( wksp );
+  test_deploy_failure_logs( wksp );
 
   test_finalize_v0_feature_off( );
   test_finalize_v0_feature_on ( );
