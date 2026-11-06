@@ -504,6 +504,8 @@ fd_tls_server_hs_start( fd_tls_t const *      const server,
   /* Detect QUIC */
 
   if( server->quic ) {
+    if( FD_UNLIKELY( ch.session_id.bufsz ) )
+      return fd_tls_alert( &handshake->base, FD_TLS_ALERT_ILLEGAL_PARAMETER, FD_TLS_REASON_CH_SESSION_ID );
     /* QUIC transport parameters are mandatory in QUIC mode */
     if( FD_UNLIKELY( !ch.quic_tp.buf ) )
       return fd_tls_alert( &handshake->base, FD_TLS_ALERT_MISSING_EXTENSION, FD_TLS_REASON_CH_NO_QUIC );
@@ -2103,6 +2105,8 @@ fd_tls_reason_cstr( uint reason ) {
     return "ClientHello did not advertise Ed25519 as a supported signature alg";
   case FD_TLS_REASON_CH_NEG_CIPHER:
     return "ClientHello did not advertise AES-128-GCM as a supported cipher suite";
+  case FD_TLS_REASON_CH_SESSION_ID:
+    return "QUIC ClientHello requested compatibility mode";
   case FD_TLS_REASON_CH_NO_QUIC:
     return "client does not support QUIC (missing QUIC transport params)";
   case FD_TLS_REASON_CH_RETRY_KS:

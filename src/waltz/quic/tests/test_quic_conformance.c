@@ -425,6 +425,41 @@ FD_UNIT_TEST( quic_one_rtt_before_handshake_complete ) {
 
 /* Test an ALPN failure when acting as a server */
 
+FD_UNIT_TEST( quic_client_hello_session_id ) {
+  fd_quic_sandbox_init( sandbox, FD_QUIC_ROLE_SERVER );
+  fd_quic_t * quic = sandbox->quic;
+  fd_quic_state_t * state = fd_quic_get_state( quic );
+  fd_quic_conn_t * conn = fd_quic_sandbox_new_conn_established( sandbox, rng );
+  conn->state = FD_QUIC_CONN_STATE_HANDSHAKE;
+  conn->handshake_complete = 0;
+  fd_quic_transport_params_t tp[1] = {0};
+  conn->tls_hs = fd_quic_tls_hs_new( fd_quic_tls_hs_pool_ele_acquire( state->hs_pool ),
+      state->tls, conn, 1, tp, state->now );
+  fd_quic_tls_hs_cache_ele_push_tail( &state->hs_cache, conn->tls_hs, state->hs_pool );
+  uchar sid[1] = {1};
+  fd_tls_client_hello_t ch = {
+    .signature_algorithms={ .ed25519=1 },
+    .session_id={ .buf=sid, .bufsz=1UL },
+    .quic_tp={ .buf=sid, .bufsz=0UL }
+  };
+  uchar wire[1024];
+  long sz = fd_tls_encode_client_hello( &ch, wire+4, sizeof(wire)-4UL );
+  FD_TEST( sz>0L );
+  fd_tls_msg_hdr_t hdr = { .type=FD_TLS_MSG_CLIENT_HELLO, .sz=fd_uint_to_tls_u24( (uint)sz ) };
+  FD_TEST( fd_tls_encode_msg_hdr( &hdr, wire, 4UL )==4L );
+  uchar frame[1100];
+  fd_quic_crypto_frame_t crypto = { .length=(ulong)sz+4UL };
+  ulong off = fd_quic_encode_crypto_frame( frame, sizeof(frame), &crypto );
+  FD_TEST( off!=FD_QUIC_ENCODE_FAIL );
+  memcpy( frame+off, wire, (ulong)sz+4UL );
+  fd_quic_pkt_t pkt = { .enc_level=fd_quic_enc_level_initial_id };
+  fd_quic_sandbox_send_frame( sandbox, conn, &pkt, frame, off+(ulong)sz+4UL );
+  FD_TEST( conn->state==FD_QUIC_CONN_STATE_ABORT );
+  FD_TEST( conn->reason==FD_QUIC_CONN_REASON_PROTOCOL_VIOLATION );
+  FD_TEST( conn->tls_hs->hs.base.reason==FD_TLS_REASON_CH_SESSION_ID );
+  fd_quic_fini( quic );
+}
+
 static void
 test_post_hs_crypto( fd_quic_conn_t * conn, uchar off, uchar const * data, uchar len ) {
   uchar frame[64] = { 6, off, len };
