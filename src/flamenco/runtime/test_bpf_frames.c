@@ -5,6 +5,9 @@
 #define DEPTH FD_MAX_INSTRUCTION_STACK_DEPTH
 #define LOCAL (2UL)
 #define HELD  FD_BPF_FRAMES_HELD_CNT( LOCAL )
+#define FULL  BPF_LOADER_SERIALIZATION_FOOTPRINT
+#define FRAME sizeof(fd_bpf_frame_t)
+#define PAGE  FD_BPF_FRAMES_ALIGN
 
 /* Frames are only addressed, never touched beyond their pool links, so
    the memory comes from aligned_alloc and stays mostly virtual. */
@@ -49,15 +52,23 @@ test_new( void ) {
      starting with the join's local ones. */
   uchar * frame[ HELD+LOCAL+1UL ];
   ulong   got = 0UL;
-  while( (frame[ got ] = fd_bpf_frames_try_acquire( join, 1 )) ) {
+  while( (frame[ got ] = fd_bpf_frames_try_acquire( join, FULL, 1 )) ) {
     FD_TEST( fd_ulong_is_aligned( (ulong)frame[ got ], FD_BPF_FRAMES_ALIGN ) );
     FD_TEST( (ulong)frame[ got ]>=(ulong)mem && (ulong)frame[ got ]+sizeof(fd_bpf_frame_t)<=(ulong)mem+footprint );
     for( ulong j=0UL; j<got; j++ ) FD_TEST( frame[ got ]!=frame[ j ] );
     got++;
   }
   FD_TEST( got==HELD+LOCAL );
-  for( ulong i=0UL; i<LOCAL; i++ ) FD_TEST( frame[ i ]==(uchar *)( join->local+i ) );
+  for( ulong i=0UL; i<LOCAL; i++ ) FD_TEST( frame[ i ]==join->local+i*FRAME );
   for( ulong i=got; i; i-- ) fd_bpf_frames_release( join, frame[ i-1UL ] );
+  FD_TEST( !join->local_used && !join->held_cnt );
+
+  /* Releasing a level also frees the local levels above it. */
+  frame[ 0 ] = fd_bpf_frames_try_acquire( join, 1UL, 0 );
+  frame[ 1 ] = fd_bpf_frames_try_acquire( join, 1UL, 0 );
+  FD_TEST( frame[ 1 ]==frame[ 0 ]+PAGE );
+  fd_bpf_frames_release( join, frame[ 0 ] );
+  FD_TEST( !join->local_used );
 
   free( mem );
 }
@@ -73,11 +84,11 @@ test_single( void ) {
   for( ulong iter=0UL; iter<2UL; iter++ ) {
     uchar * frame[ DEPTH ];
     for( ulong i=0UL; i<DEPTH; i++ ) {
-      frame[ i ] = fd_bpf_frames_try_acquire( join, 0 );
+      frame[ i ] = fd_bpf_frames_try_acquire( join, FULL, 0 );
       FD_TEST( frame[ i ] );
       for( ulong j=0UL; j<i; j++ ) FD_TEST( frame[ i ]!=frame[ j ] );
     }
-    for( ulong i=0UL; i<LOCAL; i++ ) FD_TEST( frame[ i ]==(uchar *)( join->local+i ) );
+    for( ulong i=0UL; i<LOCAL; i++ ) FD_TEST( frame[ i ]==join->local+i*FRAME );
     for( ulong i=DEPTH; i; i-- ) fd_bpf_frames_release( join, frame[ i-1UL ] );
   }
   free( mem );
@@ -97,20 +108,20 @@ test_pools( void ) {
   uchar * b[ DEPTH ];
   uchar * s[ DEPTH ];
   for( ulong i=0UL; i<LOCAL; i++ ) {
-    FD_TEST( (a[ i ] = fd_bpf_frames_try_acquire( t1, 0 ))==(uchar *)( t1->local+i ) );
-    FD_TEST( (b[ i ] = fd_bpf_frames_try_acquire( t2, 0 ))==(uchar *)( t2->local+i ) );
-    FD_TEST( (s[ i ] = fd_bpf_frames_try_acquire( t3, 0 ))==(uchar *)( t3->local+i ) );
+    FD_TEST( (a[ i ] = fd_bpf_frames_try_acquire( t1, FULL, 0 ))==t1->local+i*FRAME );
+    FD_TEST( (b[ i ] = fd_bpf_frames_try_acquire( t2, FULL, 0 ))==t2->local+i*FRAME );
+    FD_TEST( (s[ i ] = fd_bpf_frames_try_acquire( t3, FULL, 0 ))==t3->local+i*FRAME );
   }
 
   /* Tile 1 becomes owner and gets the rest of its stack, while other
      tiles must leave both reserves. */
-  for( ulong i=LOCAL; i<DEPTH; i++ ) FD_TEST( (a[ i ] = fd_bpf_frames_try_acquire( t1, 0 )) );
+  for( ulong i=LOCAL; i<DEPTH; i++ ) FD_TEST( (a[ i ] = fd_bpf_frames_try_acquire( t1, FULL, 0 )) );
   FD_TEST( t1->is_owner );
-  FD_TEST( !fd_bpf_frames_try_acquire( t2, 0 ) );
+  FD_TEST( !fd_bpf_frames_try_acquire( t2, FULL, 0 ) );
 
   /* The priority caller still gets the rest of its stack. */
-  for( ulong i=LOCAL; i<DEPTH; i++ ) FD_TEST( (s[ i ] = fd_bpf_frames_try_acquire( t3, 1 )) );
-  FD_TEST( !fd_bpf_frames_try_acquire( t3, 1 ) );
+  for( ulong i=LOCAL; i<DEPTH; i++ ) FD_TEST( (s[ i ] = fd_bpf_frames_try_acquire( t3, FULL, 1 )) );
+  FD_TEST( !fd_bpf_frames_try_acquire( t3, FULL, 1 ) );
   FD_TEST( !t3->is_owner );
 
   for( ulong i=0UL; i<DEPTH; i++ ) {
@@ -122,15 +133,15 @@ test_pools( void ) {
      become owner. */
   for( ulong i=DEPTH; i>LOCAL; i-- ) fd_bpf_frames_release( t1, a[ i-1UL ] );
   FD_TEST( !t1->is_owner );
-  FD_TEST( (b[ LOCAL ] = fd_bpf_frames_try_acquire( t2, 0 )) && t2->is_owner );
-  FD_TEST( !fd_bpf_frames_try_acquire( t1, 0 ) );
+  FD_TEST( (b[ LOCAL ] = fd_bpf_frames_try_acquire( t2, FULL, 0 )) && t2->is_owner );
+  FD_TEST( !fd_bpf_frames_try_acquire( t1, FULL, 0 ) );
   fd_bpf_frames_release( t2, b[ LOCAL ] );
   FD_TEST( !t2->is_owner );
   for( ulong i=DEPTH; i>LOCAL; i-- ) fd_bpf_frames_release( t3, s[ i-1UL ] );
 
   /* Local frames are reused. */
   fd_bpf_frames_release( t1, a[ LOCAL-1UL ] );
-  FD_TEST( fd_bpf_frames_try_acquire( t1, 0 )==a[ LOCAL-1UL ] );
+  FD_TEST( fd_bpf_frames_try_acquire( t1, FULL, 0 )==a[ LOCAL-1UL ] );
   for( ulong i=LOCAL; i; i-- ) {
     fd_bpf_frames_release( t1, a[ i-1UL ] );
     fd_bpf_frames_release( t2, b[ i-1UL ] );
@@ -150,9 +161,9 @@ test_no_local( void ) {
 
   uchar * a[ DEPTH ];
   uchar * b[ DEPTH ];
-  for( ulong i=0UL; i<DEPTH; i++ ) FD_TEST( (a[ i ] = fd_bpf_frames_try_acquire( t1, 0 )) );
+  for( ulong i=0UL; i<DEPTH; i++ ) FD_TEST( (a[ i ] = fd_bpf_frames_try_acquire( t1, 1UL, 0 )) );
   FD_TEST( t1->is_owner );
-  for( ulong i=0UL; i<DEPTH; i++ ) FD_TEST( (b[ i ] = fd_bpf_frames_try_acquire( t2, 1 )) );
+  for( ulong i=0UL; i<DEPTH; i++ ) FD_TEST( (b[ i ] = fd_bpf_frames_try_acquire( t2, 1UL, 1 )) );
 
   for( ulong i=DEPTH; i; i-- ) {
     fd_bpf_frames_release( t1, a[ i-1UL ] );
@@ -161,14 +172,49 @@ test_no_local( void ) {
   free( mem );
 }
 
+/* Levels are carved by size from the local frames, a level that does
+   not fit takes a shared frame, and a later level that fits is local
+   again. */
+
+static void
+test_carve( void ) {
+  fd_bpf_frames_t join[1];
+  void * mem = pool_new( FD_BPF_FRAMES_HELD_CNT( 1UL ), 1UL, 1UL );
+  FD_TEST( fd_bpf_frames_join( join, mem ) );
+  uchar * l = join->local;
+
+  uchar * a = fd_bpf_frames_try_acquire( join, 0UL,      0 ); FD_TEST( a==l          );
+  uchar * b = fd_bpf_frames_try_acquire( join, PAGE+1UL, 0 ); FD_TEST( b==l+PAGE     );
+  uchar * c = fd_bpf_frames_try_acquire( join, FULL,     0 ); FD_TEST( c && (ulong)c-(ulong)l>=FRAME && join->held_cnt==1UL );
+  uchar * d = fd_bpf_frames_try_acquire( join, PAGE,     0 ); FD_TEST( d==l+3UL*PAGE );
+  fd_bpf_frames_release( join, d );
+  fd_bpf_frames_release( join, c );
+  FD_TEST( !join->held_cnt && !join->is_owner );
+  fd_bpf_frames_release( join, b );
+  fd_bpf_frames_release( join, a );
+  FD_TEST( !join->local_used );
+
+  /* A stack whose first level nearly fills the local frame takes the
+     most shared frames, one per later level. */
+  uchar * f[ DEPTH ];
+  FD_TEST( (f[ 0 ] = fd_bpf_frames_try_acquire( join, FULL-PAGE, 0 ))==l );
+  for( ulong i=1UL; i<DEPTH; i++ ) FD_TEST( (f[ i ] = fd_bpf_frames_try_acquire( join, 2UL*PAGE, 0 )) );
+  FD_TEST( join->held_cnt==DEPTH-1UL && join->held_cnt==join->reserve_cnt );
+  for( ulong i=DEPTH; i; i-- ) fd_bpf_frames_release( join, f[ i-1UL ] );
+  FD_TEST( !join->held_cnt && !join->local_used );
+  free( mem );
+}
+
 /* Stress: threads join while others are already running, then run
-   random nested stacks and sometimes take an exclusive lock partway
+   random nested stacks of random sizes and sometimes take an exclusive lock partway
    down, spinning for it while holding frames, and acquire as the
    priority caller while holding it, like the program cache spill lock.
    A deadlock trips the watchdog. */
 
 #define STRESS_THREAD_CNT (12UL)
-#define STRESS_FRAME_CNT  (STRESS_THREAD_CNT*LOCAL+HELD)
+#define STRESS_LOCAL      (1UL)
+#define STRESS_SHARED_CNT FD_BPF_FRAMES_HELD_CNT( STRESS_LOCAL )
+#define STRESS_FRAME_CNT  (STRESS_THREAD_CNT*STRESS_LOCAL+STRESS_SHARED_CNT)
 #define STRESS_ITER_CNT   (20000UL)
 
 static void *            stress_mem;
@@ -199,16 +245,26 @@ stress_thread( void * arg ) {
     int     has_lock = 0;
     uchar * frame[ DEPTH ];
 
+    int     shared[ DEPTH ];
+    ulong   local_end = (ulong)join->local;
     for( ulong i=0UL; i<depth; i++ ) {
       if( i==lock_at ) {
         while( FD_ATOMIC_CAS( &stress_lock, 0UL, tid+1UL ) ) FD_SPIN_PAUSE();
         has_lock = 1;
       }
-      frame[ i ] = fd_bpf_frames_acquire( join, has_lock );
-      FD_TEST( !FD_ATOMIC_CAS( &stress_frame_holder[ stress_frame_idx( frame[ i ] ) ], 0UL, tid+1UL ) );
+      ulong sz = fd_rng_uint_roll( rng, 2U ) ? 1UL+fd_rng_ulong_roll( rng, 4UL*PAGE ) : FULL-fd_rng_ulong_roll( rng, FULL/2UL );
+      frame[ i ]  = fd_bpf_frames_acquire( join, sz, has_lock );
+      shared[ i ] = (ulong)frame[ i ]-(ulong)join->local>=join->local_sz;
+      if( shared[ i ] ) {
+        FD_TEST( !FD_ATOMIC_CAS( &stress_frame_holder[ stress_frame_idx( frame[ i ] ) ], 0UL, tid+1UL ) );
+      } else {
+        FD_TEST( (ulong)frame[ i ]>=local_end && (ulong)frame[ i ]+sz<=(ulong)join->local+join->local_sz );
+        local_end = (ulong)frame[ i ]+sz;
+      }
+      FD_TEST( join->held_cnt<=join->reserve_cnt );
     }
     for( ulong i=depth; i; i-- ) {
-      FD_TEST( FD_ATOMIC_CAS( &stress_frame_holder[ stress_frame_idx( frame[ i-1UL ] ) ], tid+1UL, 0UL )==tid+1UL );
+      if( shared[ i-1UL ] ) FD_TEST( FD_ATOMIC_CAS( &stress_frame_holder[ stress_frame_idx( frame[ i-1UL ] ) ], tid+1UL, 0UL )==tid+1UL );
       fd_bpf_frames_release( join, frame[ i-1UL ] );
       if( i-1UL==lock_at ) {
         FD_COMPILER_MFENCE();
@@ -225,7 +281,7 @@ stress_thread( void * arg ) {
 
 static void
 test_stress( void ) {
-  stress_mem = pool_new( HELD, STRESS_THREAD_CNT, LOCAL );
+  stress_mem = pool_new( STRESS_SHARED_CNT, STRESS_THREAD_CNT, STRESS_LOCAL );
 
   pthread_t thread[ STRESS_THREAD_CNT ];
   for( ulong t=0UL; t<STRESS_THREAD_CNT; t++ ) {
@@ -240,22 +296,51 @@ test_stress( void ) {
   for( ulong t=0UL; t<STRESS_THREAD_CNT; t++ ) FD_TEST( !pthread_join( thread[ t ], NULL ) );
 
   /* Every shared frame is back and the owner role is free. */
-  FD_TEST( frame_pool_free( stress_join[ 0 ].pool )==HELD );
+  FD_TEST( frame_pool_free( stress_join[ 0 ].pool )==STRESS_SHARED_CNT );
   FD_TEST( !stress_join[ 0 ].shmem->has_owner );
 
   free( stress_mem );
+}
+
+/* Acquire+release cost per level of a 3 level stack, local and
+   shared. */
+
+static void
+test_bench( ulong iter_cnt ) {
+  void *          mem[2] = { pool_new( FD_BPF_FRAMES_HELD_CNT( 1UL ), 1UL, 1UL ), pool_new( FD_BPF_FRAMES_HELD_CNT( 0UL ), 1UL, 0UL ) };
+  fd_bpf_frames_t join[2][1];
+  for( ulong pass=0UL; pass<2UL; pass++ ) FD_TEST( fd_bpf_frames_join( join[ pass ], mem[ pass ] ) );
+  for( ulong pass=0UL; pass<4UL; pass++ ) {
+    long dt = -fd_log_wallclock();
+    for( ulong iter=0UL; iter<iter_cnt; iter++ ) {
+      fd_bpf_frames_t * j = join[ pass&1UL ];
+      uchar * a = fd_bpf_frames_acquire( j, 33506UL+iter%64UL, 0 ); FD_COMPILER_FORGET( a );
+      uchar * b = fd_bpf_frames_acquire( j, 3000UL,            0 ); FD_COMPILER_FORGET( b );
+      uchar * c = fd_bpf_frames_acquire( j, 1000UL,            0 ); FD_COMPILER_FORGET( c );
+      fd_bpf_frames_release( j, c );
+      fd_bpf_frames_release( j, b );
+      fd_bpf_frames_release( j, a );
+    }
+    dt += fd_log_wallclock();
+    FD_LOG_NOTICE(( "%s: %.2f ns per acquire+release", (pass&1UL) ? "shared" : "local", (double)dt/(double)(3UL*iter_cnt) ));
+  }
+  free( mem[ 0 ] );
+  free( mem[ 1 ] );
 }
 
 int
 main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
+  ulong bench_iter = fd_env_strip_cmdline_ulong( &argc, &argv, "--bench-iter", NULL, 100000UL );
 
   test_new();
   test_single();
   test_pools();
   test_no_local();
+  test_carve();
   test_stress();
+  test_bench( bench_iter );
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
