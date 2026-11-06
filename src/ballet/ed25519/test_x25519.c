@@ -1,4 +1,5 @@
 #include "fd_x25519.h"
+#include "fd_f25519.h"
 #include "../hex/fd_hex.h"
 #include "test_x25519_wycheproof.c"
 
@@ -119,6 +120,18 @@ main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
   fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
+
+  fd_f25519_t sum[1], diff[1], product[1];
+  uchar actual[32], expected[32] = { 2 };
+  fd_f25519_add_nr( sum, fd_f25519_minus_one, fd_f25519_minus_one );
+  fd_f25519_sub_nr( diff, fd_f25519_zero, sum );
+  fd_f25519_mul( product, diff, fd_f25519_one );
+  fd_f25519_tobytes( actual, product );
+  FD_TEST( fd_memeq( actual, expected, sizeof(actual) ) );
+  fd_f25519_sqr( product, diff );
+  fd_f25519_tobytes( actual, product );
+  expected[0] = 4;
+  FD_TEST( fd_memeq( actual, expected, sizeof(actual) ) );
 
   test_wycheproofs();
 

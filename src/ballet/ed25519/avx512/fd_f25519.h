@@ -74,7 +74,7 @@ FD_25519_INLINE fd_f25519_t *
 fd_f25519_sub_nr( fd_f25519_t * r,
                   fd_f25519_t const * a,
                   fd_f25519_t const * b ) {
-  (r->el) = fd_r43x6_sub_fast( (a->el), (b->el) );
+  (r->el) = fd_r43x6_fold_signed( fd_r43x6_sub_fast( (a->el), (b->el) ) );
   return r;
 }
 
