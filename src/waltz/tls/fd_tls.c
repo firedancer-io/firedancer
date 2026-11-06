@@ -422,7 +422,7 @@ fd_tls_server_hs_start( fd_tls_t const *      const server,
     return fd_tls_alert( &handshake->base, FD_TLS_ALERT_DECODE_ERROR, FD_TLS_REASON_QUIC_TP_OVERSZ );
 
   if( FD_UNLIKELY( encryption_level != FD_TLS_LEVEL_INITIAL ) )
-    return fd_tls_alert( &handshake->base, FD_TLS_ALERT_INTERNAL_ERROR, FD_TLS_REASON_WRONG_ENC_LVL );
+    return fd_tls_alert( &handshake->base, FD_TLS_ALERT_UNEXPECTED_MESSAGE, FD_TLS_REASON_WRONG_ENC_LVL );
 
   if( FD_UNLIKELY( !server->cert_x509_sz ) )
     return fd_tls_alert( &handshake->base, FD_TLS_ALERT_INTERNAL_ERROR, FD_TLS_REASON_NO_X509 );
@@ -1027,7 +1027,7 @@ fd_tls_server_hs_wait_cert( fd_tls_t const *      server,
   (void)server;
 
   if( FD_UNLIKELY( encryption_level != FD_TLS_LEVEL_HANDSHAKE ) )
-    return fd_tls_alert( &handshake->base, FD_TLS_ALERT_INTERNAL_ERROR, FD_TLS_REASON_WRONG_ENC_LVL );
+    return fd_tls_alert( &handshake->base, FD_TLS_ALERT_UNEXPECTED_MESSAGE, FD_TLS_REASON_WRONG_ENC_LVL );
 
   /* Read Certificate *************************************************/
 
@@ -1086,7 +1086,7 @@ fd_tls_server_hs_wait_cert_verify( fd_tls_t const *      server,
   (void)server;
 
   if( FD_UNLIKELY( encryption_level != FD_TLS_LEVEL_HANDSHAKE ) )
-    return fd_tls_alert( &hs->base, FD_TLS_ALERT_INTERNAL_ERROR, FD_TLS_REASON_WRONG_ENC_LVL );
+    return fd_tls_alert( &hs->base, FD_TLS_ALERT_UNEXPECTED_MESSAGE, FD_TLS_REASON_WRONG_ENC_LVL );
 
   fd_sha256_t transcript;
   fd_tls_transcript_load( &hs->transcript, &transcript );
@@ -1118,7 +1118,7 @@ fd_tls_server_hs_wait_finished( fd_tls_t const *      server,
   (void)server;
 
   if( FD_UNLIKELY( encryption_level != FD_TLS_LEVEL_HANDSHAKE ) )
-    return fd_tls_alert( &handshake->base, FD_TLS_ALERT_INTERNAL_ERROR, FD_TLS_REASON_WRONG_ENC_LVL );
+    return fd_tls_alert( &handshake->base, FD_TLS_ALERT_UNEXPECTED_MESSAGE, FD_TLS_REASON_WRONG_ENC_LVL );
 
   /* Restore state ****************************************************/
 
@@ -1379,7 +1379,7 @@ fd_tls_client_hs_wait_sh( fd_tls_t const *      const client,
                           uint                  const encryption_level ) {
 
   if( FD_UNLIKELY( encryption_level != FD_TLS_LEVEL_INITIAL ) )
-    return fd_tls_alert( &handshake->base, FD_TLS_ALERT_INTERNAL_ERROR, FD_TLS_REASON_WRONG_ENC_LVL );
+    return fd_tls_alert( &handshake->base, FD_TLS_ALERT_UNEXPECTED_MESSAGE, FD_TLS_REASON_WRONG_ENC_LVL );
 
   /* Read server hello ************************************************/
 
@@ -1518,7 +1518,7 @@ fd_tls_client_hs_wait_ee( fd_tls_t const *      const client,
                           uint                  const encryption_level ) {
 
   if( FD_UNLIKELY( encryption_level != FD_TLS_LEVEL_HANDSHAKE ) )
-    return fd_tls_alert( &handshake->base, FD_TLS_ALERT_INTERNAL_ERROR, FD_TLS_REASON_WRONG_ENC_LVL );
+    return fd_tls_alert( &handshake->base, FD_TLS_ALERT_UNEXPECTED_MESSAGE, FD_TLS_REASON_WRONG_ENC_LVL );
 
   /* Read EncryptedExtensions (EE) message ****************************/
 
@@ -1671,7 +1671,7 @@ fd_tls_client_hs_wait_cert_cr( fd_tls_t const *      const client,
                                uint                  const encryption_level ) {
 
   if( FD_UNLIKELY( encryption_level != FD_TLS_LEVEL_HANDSHAKE ) )
-    return fd_tls_alert( &handshake->base, FD_TLS_ALERT_INTERNAL_ERROR, FD_TLS_REASON_WRONG_ENC_LVL );
+    return fd_tls_alert( &handshake->base, FD_TLS_ALERT_UNEXPECTED_MESSAGE, FD_TLS_REASON_WRONG_ENC_LVL );
 
   /* Read Certificate(Request) ****************************************/
 
@@ -1730,7 +1730,7 @@ fd_tls_client_hs_wait_cert( fd_tls_t const *      const client,
                             uint                  const encryption_level ) {
 
   if( FD_UNLIKELY( encryption_level != FD_TLS_LEVEL_HANDSHAKE ) )
-    return fd_tls_alert( &handshake->base, FD_TLS_ALERT_INTERNAL_ERROR, FD_TLS_REASON_WRONG_ENC_LVL );
+    return fd_tls_alert( &handshake->base, FD_TLS_ALERT_UNEXPECTED_MESSAGE, FD_TLS_REASON_WRONG_ENC_LVL );
 
   /* Read Certificate *************************************************/
 
@@ -1782,7 +1782,7 @@ fd_tls_client_hs_wait_cert_verify( fd_tls_t const *      const client,
   (void)client;
 
   if( FD_UNLIKELY( encryption_level != FD_TLS_LEVEL_HANDSHAKE ) )
-    return fd_tls_alert( &hs->base, FD_TLS_ALERT_INTERNAL_ERROR, FD_TLS_REASON_WRONG_ENC_LVL );
+    return fd_tls_alert( &hs->base, FD_TLS_ALERT_UNEXPECTED_MESSAGE, FD_TLS_REASON_WRONG_ENC_LVL );
 
   /* Decode incoming server CertificateVerify *************************/
 
@@ -1807,7 +1807,7 @@ fd_tls_client_hs_wait_finished( fd_tls_t const *      const client,
                                 uint                  const encryption_level ) {
 
   if( FD_UNLIKELY( encryption_level != FD_TLS_LEVEL_HANDSHAKE ) )
-    return fd_tls_alert( &hs->base, FD_TLS_ALERT_INTERNAL_ERROR, FD_TLS_REASON_WRONG_ENC_LVL );
+    return fd_tls_alert( &hs->base, FD_TLS_ALERT_UNEXPECTED_MESSAGE, FD_TLS_REASON_WRONG_ENC_LVL );
 
   /* Export transcript hash ClientHello..CertificateVerify */
 
