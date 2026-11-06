@@ -76,6 +76,11 @@ fd_sysvar_slot_history_update( fd_bank_t *        bank,
   if( FD_UNLIKELY( acc.data_len < min_sz ) ) {
     FD_LOG_ERR(( "invalid slot history sysvar: data_sz too small (%lu, required %lu)", acc.data_len, min_sz ));
   }
+
+  ulong canonical_sz = fd_ulong_max( FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ, min_sz );
+  fd_memset( acc.data+min_sz, 0, canonical_sz-min_sz );
+  acc.data_len = canonical_sz;
+
   uchar * bits      = acc.data + 9UL;
   uchar * footer    = acc.data + 9UL + bits_bitvec_len * sizeof(ulong);
   ulong   next_slot = FD_LOAD( ulong, footer+8UL );
