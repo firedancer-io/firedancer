@@ -851,6 +851,8 @@ step_promote_wait_adopt( fd_failover_tile_ctx_t * ctx,
     return;
   }
   if( FD_UNLIKELY( ctx->promotion.holder_seen && ( !ctx->promotion.force || ctx->promotion.soft ) ) ) { reject_promotion( ctx, FD_FAILOVER_REJECT_HOLDS_IDENTITY, 0 ); return; }
+  if( FD_UNLIKELY( !covered                   ) ) ctx->cmd_bypassed |= FD_FAILOVER_BYPASS_HISTORY_INCOMPLETE;
+  if( FD_UNLIKELY( ctx->promotion.holder_seen ) ) ctx->cmd_bypassed |= FD_FAILOVER_BYPASS_HOLDER_SEEN;
   if( FD_UNLIKELY( tip==FD_FAILOVER_SLOT_NULL ) ) ctx->last_vote_slot = ctx->adopt_result.vote_slot;
   if( FD_UNLIKELY( request_switch( ctx, stem, FD_FAILOVER_SWITCH_KEY_STAKED )==ULONG_MAX ) ) { reject_promotion( ctx, FD_FAILOVER_REJECT_ADOPTION_FAILED, 0 ); return; }
   LOG_CMD_STEP( ctx, "%s: asked the admin tile to install the identity", ctx->promotion.label );
@@ -1214,7 +1216,8 @@ run_promote_cmd( fd_failover_tile_ctx_t *           ctx,
   if( FD_UNLIKELY( !fd_memeq( req->target, no_target, 32UL ) && !fd_memeq( req->target, ctx->hello.staked_pubkey, 32UL ) ) ) return FD_FAILOVER_CONTROL_RESULT_IDENTITY_CHANGED;
   ulong result = check_promotion( ctx );
   if( FD_UNLIKELY( result!=FD_ADMINCTL_RESULT_SUCCESS ) ) return result;
-  if( FD_UNLIKELY( !force && is_holder_live( ctx, now ) ) ) return FD_FAILOVER_CONTROL_RESULT_HOLDER_LIVE;
+  int holder_live = is_holder_live( ctx, now );
+  if( FD_UNLIKELY( !force && holder_live ) ) return FD_FAILOVER_CONTROL_RESULT_HOLDER_LIVE;
   if( ctx->request.id && is_requesting( ctx ) ) end_request( ctx, now, FD_FAILOVER_HANDOFF_CANCELLED );
   int gave_up = ctx->action==FD_FAILOVER_ACTION_DEMOTE_WAIT_ACK;
   if( gave_up ) {
@@ -1223,6 +1226,7 @@ run_promote_cmd( fd_failover_tile_ctx_t *           ctx,
   }
   start_promotion( ctx, FD_FAILOVER_SOURCE_EMPTY, NULL, 0UL, req->flags & (FD_ADMINCTL_FAILOVER_FLAG_TAKEOVER|FD_ADMINCTL_FAILOVER_FLAG_FORCE) );
   ctx->promotion.gave_up = gave_up;
+  if( FD_UNLIKELY( holder_live ) ) ctx->cmd_bypassed |= FD_FAILOVER_BYPASS_HOLDER_LIVE;
   return FD_FAILOVER_CMD_PENDING;
 }
 
@@ -1257,12 +1261,14 @@ static void
 publish_bus_result( fd_failover_tile_ctx_t * ctx,
                     fd_stem_context_t *      stem,
                     ulong                    nonce,
-                    ulong                    result ) {
+                    ulong                    result,
+                    ulong                    bypassed ) {
   fd_failover_bus_msg_t * out = fd_chunk_to_laddr( ctx->admin_out_mem, ctx->admin_out_chunk );
   fd_memset( out, 0, sizeof(*out) );
   out->nonce  = nonce;
   out->result = result;
-  FD_STORE( ulong, out->payload, ctx->last_vote_slot );
+  fd_failover_cmd_resp_t resp = { .last_vote_slot=ctx->last_vote_slot, .bypassed=bypassed };
+  fd_memcpy( out->payload, &resp, sizeof(resp) );
   ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
   fd_stem_publish( stem, ctx->admin_out_idx, FD_FAILOVER_BUS_RESPONSE, ctx->admin_out_chunk, sizeof(*out), 0UL, tspub, tspub );
   ctx->admin_out_chunk = fd_dcache_compact_next( ctx->admin_out_chunk, sizeof(*out), ctx->admin_out_chunk0, ctx->admin_out_wmark );
@@ -1272,7 +1278,8 @@ publish_bus_result( fd_failover_tile_ctx_t * ctx,
 static void
 publish_cmd_answer( fd_failover_tile_ctx_t * ctx,
                     fd_stem_context_t *      stem ) {
-  publish_bus_result( ctx, stem, ctx->cmd_nonce, ctx->cmd_result );
+  publish_bus_result( ctx, stem, ctx->cmd_nonce, ctx->cmd_result, ctx->cmd_bypassed );
+  ctx->cmd_bypassed  = 0UL;
   ctx->cmd_nonce     = 0UL;
   ctx->cmd_done      = 0;
   ctx->cmd_step_tail = ctx->cmd_step_head;
@@ -1301,6 +1308,7 @@ serve_bus_request( fd_failover_tile_ctx_t * ctx,
   fd_memcpy( &req, ctx->bus_req.payload, sizeof(req) );
   char const * cmd_name  = fd_adminctl_failover_cmd_typed( req.cmd, req.flags );
   ulong        step_head = ctx->cmd_step_head;
+  if( FD_LIKELY( !ctx->cmd_nonce ) ) ctx->cmd_bypassed = 0UL; /* a pending command keeps its own */
   ulong        result    = apply_control( ctx, &req, now );
   if( FD_UNLIKELY( result==FD_FAILOVER_CMD_PENDING ) ) {
     ctx->cmd_nonce     = ctx->bus_req.nonce;
@@ -1309,5 +1317,5 @@ serve_bus_request( fd_failover_tile_ctx_t * ctx,
   }
   if( FD_UNLIKELY( result==FD_FAILOVER_CONTROL_RESULT_ALREADY_HOLDS ) ) FD_LOG_NOTICE(( "`%s` done, this machine already runs the identity", cmd_name ));
   else if( FD_UNLIKELY( result!=FD_ADMINCTL_RESULT_SUCCESS ) ) FD_LOG_WARNING(( "`%s` refused (result %#lx)", cmd_name, result ));
-  publish_bus_result( ctx, stem, ctx->bus_req.nonce, result );
+  publish_bus_result( ctx, stem, ctx->bus_req.nonce, result, 0UL );
 }

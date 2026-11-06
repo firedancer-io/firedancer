@@ -1961,6 +1961,61 @@ put_block( fd_gui_t * gui,
   return c;
 }
 
+/* Boot, catch-up and epoch-start events. */
+
+static void
+test_timeline_lifecycle_events( fd_gui_t * gui ) {
+  void * http_mem = test_http_open( gui, FD_GUI_HTTP_MIN_SEND_BUFFER_SZ );
+  long const ts = sec_ns( 10UL );
+  timeline_setup( gui, 2UL ); /* epochs 0 [0,1024) and 1 [1024,2048) */
+  gui->summary.startup_time_nanos = ts-sec_ns( 5UL );
+  fd_gui_timeline_query_event_t events[ 8 ];
+  ulong cnt;
+
+  /* Nothing before a snapshot is known or anything is rooted. */
+  for( ulong i=0UL; i<FD_GUI_BOOT_PROGRESS_SNAPSHOT_CNT; i++ ) gui->summary.boot_progress.loading_snapshot[ i ].slot = ULONG_MAX;
+  FD_TEST( !fd_gui_timeline_events_collect( gui, 0L, LONG_MAX-1L, events, 8UL, &cnt ) && !cnt );
+
+  /* Boot is at the snapshot slot, at process start, as soon as the
+     snapshot is known; the incremental wins over the full. */
+  gui->summary.boot_progress.loading_snapshot[ FD_GUI_BOOT_PROGRESS_FULL_SNAPSHOT_IDX ].slot = 900UL;
+  FD_TEST( !fd_gui_timeline_events_collect( gui, 0L, LONG_MAX-1L, events, 8UL, &cnt ) && cnt==1UL );
+  FD_TEST( events[ 0 ].event==FD_GUI_TIMELINE_EVENT_BOOT && events[ 0 ].slot==900UL && events[ 0 ].ts==ts-sec_ns( 5UL ) );
+  gui->summary.boot_progress.loading_snapshot[ FD_GUI_BOOT_PROGRESS_INCREMENTAL_SNAPSHOT_IDX ].slot = 1020UL;
+  FD_TEST( !fd_gui_timeline_events_collect( gui, 0L, LONG_MAX-1L, events, 8UL, &cnt ) && cnt==1UL && events[ 0 ].slot==1020UL );
+
+  /* Root 1020 -> 1023 -> 1026.  1021 and 1022 are skipped and split the
+     1020 -> 1023 gap, so catch-up (1021) is at the gap start.  1024,
+     the first slot of epoch 1, gets the first third of 1023 -> 1026. */
+  put_block( gui, 1020UL, ULONG_MAX, ts );
+  put_block( gui, 1023UL, 1020UL, ts+300L );
+  fd_gui_handle_root_advanced( gui, 1023UL, BANK_SEQ, ts+300L );
+  FD_TEST( !fd_gui_timeline_events_collect( gui, 0L, LONG_MAX-1L, events, 8UL, &cnt ) && cnt==2UL );
+  FD_TEST( events[ 0 ].event==FD_GUI_TIMELINE_EVENT_BOOT );
+  FD_TEST( events[ 1 ].event==FD_GUI_TIMELINE_EVENT_CATCH_UP && events[ 1 ].slot==1021UL && events[ 1 ].ts==ts );
+  put_block( gui, 1026UL, 1023UL, ts+600L );
+  fd_gui_handle_root_advanced( gui, 1026UL, BANK_SEQ, ts+600L );
+  FD_TEST( !fd_gui_timeline_events_collect( gui, 0L, LONG_MAX-1L, events, 8UL, &cnt ) && cnt==3UL );
+  FD_TEST( events[ 2 ].event==FD_GUI_TIMELINE_EVENT_EPOCH_START && events[ 2 ].slot==1024UL && events[ 2 ].ts==ts+300L );
+  /* Epoch 0 started before the snapshot, so it has no event. */
+
+  /* Events are owned by the window containing their timestamp. */
+  FD_TEST( !fd_gui_timeline_events_collect( gui, ts, ts+300L, events, 8UL, &cnt ) && cnt==1UL && events[ 0 ].event==FD_GUI_TIMELINE_EVENT_CATCH_UP );
+  FD_TEST( !fd_gui_timeline_events_collect( gui, ts+300L, ts+301L, events, 8UL, &cnt ) && cnt==1UL && events[ 0 ].event==FD_GUI_TIMELINE_EVENT_EPOCH_START );
+  FD_TEST( fd_gui_timeline_events_collect( gui, 0L, LONG_MAX-1L, events, 2UL, &cnt )==1 );
+
+  FD_TEST( !fd_gui_printf_timeline_query_events( gui, 0L, LONG_MAX-1L, 3UL ) );
+  char want[ 256 ];
+  FD_TEST( fd_cstr_printf_check( want, sizeof(want), NULL,
+           "\"event\":[6,7,5],\"slot\":[1020,1021,1024],\"ts\":[\"%ld\",\"%ld\",\"%ld\"],"
+           "\"identity_result\":[],\"identity_from\":[],\"identity_to\":[],\"identity_notes\":[]}}",
+           ts-sec_ns( 5UL ), ts, ts+300L ) );
+  check_suffix( gui, want );
+
+  test_http_close( gui, http_mem );
+  FD_LOG_NOTICE(( "test_timeline_lifecycle_events: boot, catch-up and epoch-start events: ok" ));
+}
+
 static void
 test_timeline_root( fd_gui_t * gui ) {
   void * http_mem = test_http_open( gui, FD_GUI_HTTP_MIN_SEND_BUFFER_SZ );
@@ -2117,6 +2172,63 @@ test_timeline_replayed_skips( fd_gui_t * gui ) {
   /* Rooted slots are final: a completion after rooting changes nothing. */
   put_slot( gui, 103UL, ts+50L );
   FD_TEST( !fd_gui_timeline_slots_collect( gui, ts, now, rows, 8UL, &cnt ) && cnt==5UL && rows[ 2 ].end_ns==ts+400L );
+
+  /* Identity commands are events too, by slot then time among the
+     skips, at the replay frontier.  One before the first replayed slot
+     is at the first slot after the snapshot. */
+  fd_admin_gui_event_t ev = { .kind=FD_ADMIN_GUI_EVENT_IDENTITY_TAKEOVER };
+  fd_memset( ev.from, 0x01, 32UL );
+  fd_memset( ev.to,   0x02, 32UL );
+  strcpy( ev.result, "holder_live" );
+  strcpy( ev.notes,  "This was the first attempt of a takeover, asking the other validator to hand over the staked identity." );
+  ev.ts_ns = ts+700L;
+  gui->summary.slot_estimated = 102UL;
+  fd_gui_handle_identity_event( gui, &ev );
+  fd_admin_gui_event_t ev2 = { .kind=FD_ADMIN_GUI_EVENT_IDENTITY_SET, .ts_ns=ts+800L };
+  strcpy( ev2.result, "success" );
+  gui->summary.slot_estimated = ULONG_MAX;
+  fd_gui_handle_identity_event( gui, &ev2 );
+  fd_admin_gui_event_t bad = { .kind=FD_GUI_TIMELINE_EVENT_CNT, .ts_ns=ts+900L };
+  fd_gui_handle_identity_event( gui, &bad );
+  FD_TEST( gui->identity_events.cnt==2UL );
+  gui->summary.boot_progress.loading_snapshot[ FD_GUI_BOOT_PROGRESS_FULL_SNAPSHOT_IDX        ].slot = ULONG_MAX;
+  gui->summary.boot_progress.loading_snapshot[ FD_GUI_BOOT_PROGRESS_INCREMENTAL_SNAPSHOT_IDX ].slot = ULONG_MAX;
+  FD_TEST( !fd_gui_timeline_events_collect( gui, ts, now, events, 8UL, &cnt ) && cnt==6UL );
+  FD_TEST( events[ 0 ].slot==0UL && events[ 0 ].event==FD_GUI_TIMELINE_EVENT_IDENTITY_SET ); /* no snapshot known yet */
+  gui->summary.boot_progress.loading_snapshot[ FD_GUI_BOOT_PROGRESS_FULL_SNAPSHOT_IDX        ].slot = 90UL;
+  FD_TEST( !fd_gui_timeline_events_collect( gui, ts, now, events, 8UL, &cnt ) && cnt==6UL );
+  FD_TEST( events[ 0 ].slot==91UL && events[ 0 ].event==FD_GUI_TIMELINE_EVENT_IDENTITY_SET ); /* after the full snapshot */
+  /* After the incremental snapshot at 104, rooted 105 is also the
+     catch-up slot, stamped at its start.  Boot is at process start,
+     outside this window. */
+  gui->summary.boot_progress.loading_snapshot[ FD_GUI_BOOT_PROGRESS_INCREMENTAL_SNAPSHOT_IDX ].slot = 104UL;
+  FD_TEST( !fd_gui_timeline_events_collect( gui, ts, now, events, 8UL, &cnt ) && cnt==7UL );
+  FD_TEST( events[ 1 ].slot==102UL && events[ 1 ].event==FD_GUI_TIMELINE_EVENT_LEADER_SKIP );
+  FD_TEST( events[ 2 ].slot==102UL && events[ 2 ].ts==ts+700L && events[ 2 ].event==FD_GUI_TIMELINE_EVENT_IDENTITY_TAKEOVER && events[ 2 ].identity==0UL );
+  FD_TEST( events[ 5 ].slot==105UL && events[ 5 ].ts==ts+500L && events[ 5 ].event==FD_GUI_TIMELINE_EVENT_CATCH_UP );
+  FD_TEST( events[ 6 ].slot==105UL && events[ 6 ].event==FD_GUI_TIMELINE_EVENT_IDENTITY_SET );
+  FD_TEST( fd_gui_timeline_events_collect( gui, ts, now, events, 5UL, &cnt )==1 );
+  FD_TEST( !fd_gui_timeline_events_collect( gui, ts+750L, now, events, 8UL, &cnt ) && cnt==1UL && events[ 0 ].event==FD_GUI_TIMELINE_EVENT_IDENTITY_SET );
+
+  FD_TEST( !fd_gui_printf_timeline_query_events( gui, ts+650L, now, 3UL ) );
+  char from[ FD_BASE58_ENCODED_32_SZ ]; fd_base58_encode_32( ev.from, NULL, from );
+  char to  [ FD_BASE58_ENCODED_32_SZ ]; fd_base58_encode_32( ev.to,   NULL, to   );
+  char want[ 512 ];
+  FD_TEST( fd_cstr_printf_check( want, sizeof(want), NULL,
+           "\"event\":[3,1],\"slot\":[102,105],\"ts\":[\"%ld\",\"%ld\"],"
+           "\"identity_result\":[\"holder_live\",\"success\"],\"identity_from\":[\"%s\",\"%s\"],\"identity_to\":[\"%s\",\"%s\"],"
+           "\"identity_notes\":[\"This was the first attempt of a takeover, asking the other validator to hand over the staked identity.\",\"\"]}}",
+           ts+700L, ts+800L, from, "11111111111111111111111111111111", to, "11111111111111111111111111111111" ) );
+  ulong len = fd_http_server_stage_len( gui->http );
+  char const * got = (char const *)gui->http->oring+gui->http->stage_off%gui->http->oring_sz;
+  ulong want_len = strlen( want );
+  if( FD_UNLIKELY( len<want_len || memcmp( got+len-want_len, want, want_len ) ) ) FD_LOG_ERR(( "got: %.*s", (int)len, got ));
+  fd_http_server_stage_trunc( gui->http, 0UL );
+
+  /* The ring keeps the last FD_GUI_IDENTITY_EVENT_MAX. */
+  for( ulong i=0UL; i<FD_GUI_IDENTITY_EVENT_MAX; i++ ) { ev2.ts_ns = ts+1000L+(long)i; fd_gui_handle_identity_event( gui, &ev2 ); }
+  FD_TEST( !fd_gui_timeline_events_collect( gui, ts+650L, ts+1000L, events, 8UL, &cnt ) && cnt==0UL );
+  gui->identity_events.cnt = 0UL;
 
   test_http_close( gui, http_mem );
   FD_LOG_NOTICE(( "test_timeline_replayed_skips: ok" ));
@@ -2288,6 +2400,10 @@ main( int     argc,
 
   store_open( s12, TEST_STORE_BYTES, 17 );
   test_timeline_root( s12->gui );
+  store_close( s12 );
+
+  store_open( s12, TEST_STORE_BYTES, 17 );
+  test_timeline_lifecycle_events( s12->gui );
   store_close( s12 );
 
   if( !run_all ) FD_LOG_NOTICE(( "skipped 7 expensive tests; pass --run-all to run them" ));

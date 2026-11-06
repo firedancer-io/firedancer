@@ -10,6 +10,7 @@ static fd_keyswitch_t      sign  [ TEST_SIGN_CNT ];
 static void
 setup( void ) {
   memset( &ctx, 0, sizeof(ctx) );
+  ctx.gui_out_idx = ULONG_MAX;
   ctx.voter_av_keyswitch  = fd_keyswitch_join( fd_keyswitch_new( voter,  FD_KEYSWITCH_STATE_UNLOCKED ) );
   FD_TEST( ctx.voter_av_keyswitch );
   for( ulong i=0UL; i<TEST_SIGN_CNT; i++ ) {
@@ -198,28 +199,57 @@ static uchar adminctl_mem[ 1UL<<18 ] __attribute__((aligned(FD_ADMINCTL_ALIGN)))
 /* With failover, set-identity changes the failover identity.  A switch
    request from before it gets STALE. */
 
+/* Out 0 is the failover bus, out 1 the GUI link. */
 static fd_frag_meta_t    bus_mcache[ 8 ];
-static ulong             bus_seq;
-static ulong             bus_depth = 8UL;
-static ulong             bus_cr_avail;
+static fd_frag_meta_t    gui_mcache[ 8 ];
+static ulong             bus_seqs[ 2 ];
+#define                  bus_seq (bus_seqs[ 0 ])
+#define                  gui_seq (bus_seqs[ 1 ])
+static ulong             bus_depths[ 2 ] = { 8UL, 8UL };
+static ulong             bus_cr_avails[ 2 ];
+#define                  bus_cr_avail (bus_cr_avails[ 0 ])
 static ulong             bus_min_cr_avail;
-static int               bus_reliable = 1;
-static fd_frag_meta_t *  bus_mcaches[ 1 ] = { bus_mcache };
+static int               bus_reliable[ 2 ] = { 1, 0 };
+static fd_frag_meta_t *  bus_mcaches[ 2 ] = { bus_mcache, gui_mcache };
 static fd_stem_context_t bus_stem[ 1 ];
 static uchar             bus_out[ 1024 ] __attribute__((aligned(128)));
+static uchar             gui_out[ sizeof(fd_admin_gui_event_t) ] __attribute__((aligned(128)));
 
 static void
 bus_setup( ulong credits ) {
   fd_memset( bus_mcache, 0, sizeof(bus_mcache) );
+  fd_memset( gui_mcache, 0, sizeof(gui_mcache) );
   bus_seq          = 0UL;
+  gui_seq          = 0UL;
   bus_cr_avail     = credits;
+  bus_cr_avails[1] = 8UL;
   bus_min_cr_avail = credits;
-  *bus_stem = (fd_stem_context_t){ .mcaches=bus_mcaches, .seqs=&bus_seq, .depths=&bus_depth,
-                                   .cr_avail=&bus_cr_avail, .min_cr_avail=&bus_min_cr_avail,
-                                   .cr_decrement_amount=1UL, .out_reliable=&bus_reliable };
+  *bus_stem = (fd_stem_context_t){ .mcaches=bus_mcaches, .seqs=bus_seqs, .depths=bus_depths,
+                                   .cr_avail=bus_cr_avails, .min_cr_avail=&bus_min_cr_avail,
+                                   .cr_decrement_amount=1UL, .out_reliable=bus_reliable };
   ctx.failov_out_idx    = 0UL;
   ctx.failov_out_mem    = (fd_wksp_t *)bus_out;
   ctx.failov_out_chunk0 = ctx.failov_out_wmark = ctx.failov_out_chunk = 0UL;
+  ctx.gui_out_idx       = 1UL;
+  ctx.gui_out_mem       = (fd_wksp_t *)gui_out;
+  ctx.gui_out_chunk0    = ctx.gui_out_wmark = ctx.gui_out_chunk = 0UL;
+  ctx.gui_pending       = 0;
+  ctx.failov_in_idx     = 0UL;
+}
+
+/* Delivers ctx.failov_in as a bus frame, as the stem would. */
+static void
+bus_deliver( ulong sig ) {
+  after_frag( &ctx, ctx.failov_in_idx, 0UL, sig, sizeof(fd_failover_bus_msg_t), 0UL, 0UL, bus_stem );
+}
+
+/* The last GUI event published. */
+static fd_admin_gui_event_t
+gui_last( void ) {
+  FD_TEST( gui_seq );
+  fd_admin_gui_event_t ev;
+  fd_memcpy( &ev, gui_out, sizeof(ev) );
+  return ev;
 }
 
 static fd_failover_operator_t
@@ -330,11 +360,32 @@ test_failover_command( ulong cmd_id,
       event_result = i ? FD_EVENT_ADMIN_COMMAND_RESULT_CUSTOM : FD_EVENT_ADMIN_COMMAND_RESULT_SUCCESS;
       ctx.failov_in.nonce  = ctx.failover_nonce;
       ctx.failov_in.result = result;
-      failover_response( &ctx );
+      fd_failover_cmd_resp_t resp = { .last_vote_slot=7UL, .bypassed=i ? 0UL : FD_FAILOVER_BYPASS_HOLDER_LIVE };
+      fd_memcpy( ctx.failov_in.payload, &resp, sizeof(resp) );
+      bus_deliver( FD_FAILOVER_BUS_RESPONSE );
     } else {
       FD_TEST( bus_seq==seq_before );
       result       = i==2UL ? FD_ADMINCTL_RESULT_ABI_SIZE_MISMATCH : FD_ADMINCTL_RESULT_UNKNOWN_COMMAND;
       event_result = i==2UL ? FD_EVENT_ADMIN_COMMAND_RESULT_ABI_SIZE_MISMATCH : FD_EVENT_ADMIN_COMMAND_RESULT_UNKNOWN_COMMAND;
+    }
+
+    /* Every command, refused or not, reaches the GUI once. */
+    FD_TEST( gui_seq==i+1UL );
+    fd_admin_gui_event_t gev = gui_last();
+    uint want_kind = (payload_cmd==FD_ADMINCTL_FAILOVER_CMD_PROMOTE || (flags & FD_ADMINCTL_FAILOVER_FLAG_TAKEOVER)) ?
+                     FD_ADMIN_GUI_EVENT_IDENTITY_TAKEOVER : FD_ADMIN_GUI_EVENT_IDENTITY_PROMOTE;
+    if( i!=2UL ) FD_TEST( gev.kind==want_kind );
+    FD_TEST( !strcmp( gev.result, fd_adminctl_result_name( result ) ) );
+    FD_TEST( fd_memeq( gev.from, ctx.identity_pubkey, 32UL ) && gev.ts_ns>0L );
+    if( i==2UL ) { /* unreadable: the unknown key */
+      char b58[ FD_BASE58_ENCODED_32_SZ ];
+      fd_base58_encode_32( gev.to, NULL, b58 );
+      FD_TEST( !strcmp( b58, "Unknown111111111111111111111111111111111111" ) );
+    }
+    if( i==3UL ) FD_TEST( fd_memeq( gev.to, ctx.failover_pubkey, 32UL ) ); /* refused: the failover target */
+    if( i==0UL ) {
+      int force = !!(flags & FD_ADMINCTL_FAILOVER_FLAG_FORCE);
+      FD_TEST( !!strstr( gev.notes, "only because of --force" )==force );
     }
     FD_TEST( fd_adminctl_wait( ctx.adminctl, slot_idx )==result );
     FD_TEST( event_seq==i+1UL );
@@ -399,6 +450,8 @@ test_failover_identity( void ) {
   FD_TEST( fd_adminctl_poll( ctx.adminctl, &poll_idx, &data, &data_sz )==FD_ADMINCTL_CMD_FAILOVER_PROMOTE );
   failover_request( &ctx, bus_stem, poll_idx, FD_ADMINCTL_CMD_FAILOVER_PROMOTE, data, data_sz );
   FD_TEST( bus_seq==1UL );
+  FD_TEST( ctx.gui_pending && !strcmp( ctx.gui_event.result, fd_adminctl_result_name( FD_FAILOVER_CONTROL_RESULT_BUSY ) ) );
+  ctx.gui_pending = 0; /* after_credit would publish it */
   FD_TEST( fd_adminctl_wait( ctx.adminctl, slot_idx )==FD_FAILOVER_CONTROL_RESULT_BUSY );
   bus_cr_avail = 8UL;
   failover_operator_notify( &ctx, bus_stem );
@@ -412,7 +465,14 @@ test_failover_identity( void ) {
   fd_failover_switch_req_t sreq = { .epoch=1UL };
   fd_memcpy( sreq.identity, third, 32UL );
   fd_memcpy( ctx.failov_in.payload, &sreq, sizeof(sreq) );
-  failover_switch_request( &ctx, bus_stem );
+  ctx.failover_slot_idx = ULONG_MAX;
+  ulong gui_before = gui_seq;
+  bus_deliver( FD_FAILOVER_BUS_SWITCH_REQ );
+  /* Not to the failover identity, so a handoff, refused as stale. */
+  FD_TEST( gui_seq==gui_before+1UL );
+  fd_admin_gui_event_t gev = gui_last();
+  FD_TEST( gev.kind==FD_ADMIN_GUI_EVENT_IDENTITY_HANDOFF && !strcmp( gev.result, "stale" ) );
+  FD_TEST( fd_memeq( gev.from, spare, 32UL ) && fd_memeq( gev.to, third, 32UL ) );
   fd_failover_switch_resp_t answer;
   fd_memcpy( &answer, ((fd_failover_bus_msg_t const *)bus_out)->payload, sizeof(answer) );
   FD_TEST( answer.result==FD_FAILOVER_SWITCH_ERR_STALE && answer.operator.epoch==2UL );
@@ -443,6 +503,46 @@ test_failover_identity( void ) {
   ctx.topo = NULL;
 }
 
+/* The GUI notes say what --force did and which step of a takeover a
+   command was. */
+
+static void
+test_gui_notes( void ) {
+  char notes[ FD_ADMIN_GUI_NOTES_MAX ];
+  ulong force = FD_ADMINCTL_FAILOVER_FLAG_TAKEOVER|FD_ADMINCTL_FAILOVER_FLAG_FORCE;
+
+  gui_failover_notes( notes, FD_ADMINCTL_FAILOVER_CMD_HANDOFF, 0UL, FD_ADMINCTL_RESULT_SUCCESS, 0UL, 0 );
+  FD_TEST( !strcmp( notes, "" ) );
+  gui_failover_notes( notes, FD_ADMINCTL_FAILOVER_CMD_HANDOFF, FD_ADMINCTL_FAILOVER_FLAG_TAKEOVER, FD_FAILOVER_CONTROL_RESULT_TIMEOUT, 0UL, 0 );
+  FD_TEST( !strcmp( notes, "This was the first attempt of a takeover, asking the other validator to hand over the staked identity." ) );
+  gui_failover_notes( notes, FD_ADMINCTL_FAILOVER_CMD_PROMOTE, force, FD_ADMINCTL_RESULT_SUCCESS,
+                      FD_FAILOVER_BYPASS_HOLDER_LIVE|FD_FAILOVER_BYPASS_HOLDER_SEEN|FD_FAILOVER_BYPASS_HISTORY_INCOMPLETE, 0 );
+  /* The longest notes fit. */
+  FD_TEST( !strcmp( notes, "This was the second attempt of a takeover, taking the staked identity without the other validator. "
+                           "It went ahead only because of --force, since the other validator still looked alive and was seen running the staked identity. "
+                           "This validator started voting without the other validator's record of past votes." ) );
+  gui_failover_notes( notes, FD_ADMINCTL_FAILOVER_CMD_PROMOTE, force, FD_ADMINCTL_RESULT_SUCCESS, 0UL, 0 );
+  FD_TEST( !strcmp( notes, "This was the second attempt of a takeover, taking the staked identity without the other validator. "
+                           "It was run with --force, but would have worked without it because the other validator already looked down." ) );
+  gui_failover_notes( notes, FD_ADMINCTL_FAILOVER_CMD_PROMOTE, force, FD_FAILOVER_CONTROL_RESULT_ADOPTION_FAILED, 0UL, 1 );
+  FD_TEST( !strcmp( notes, "This was the second attempt of a takeover, taking the staked identity without the other validator. It was run with --force. "
+                           "The failover target changed while the command was running." ) );
+  gui_failover_notes( notes, FD_ADMINCTL_FAILOVER_CMD_PREFLIGHT, FD_ADMINCTL_FAILOVER_FLAG_TAKEOVER, FD_FAILOVER_CONTROL_RESULT_NO_PEER, 0UL, 0 );
+  FD_TEST( !strcmp( notes, "This was the check a failover command runs first, and it refused before anything changed." ) );
+  FD_TEST( gui_failover_kind( FD_ADMINCTL_FAILOVER_CMD_HANDOFF, 0UL )==FD_ADMIN_GUI_EVENT_IDENTITY_PROMOTE );
+  FD_TEST( gui_failover_kind( FD_ADMINCTL_FAILOVER_CMD_HANDOFF, FD_ADMINCTL_FAILOVER_FLAG_TAKEOVER )==FD_ADMIN_GUI_EVENT_IDENTITY_TAKEOVER );
+  FD_TEST( gui_failover_kind( FD_ADMINCTL_FAILOVER_CMD_PROMOTE, force )==FD_ADMIN_GUI_EVENT_IDENTITY_TAKEOVER );
+
+  /* Every adminctl result has a name. */
+  ulong const results[] = { FD_ADMINCTL_RESULT_SUCCESS, FD_SET_IDENTITY_RESULT_KEYPAIR_MISMATCH, FD_FAILOVER_CONTROL_RESULT_BUSY,
+                            FD_FAILOVER_CONTROL_RESULT_HANDED_OFF };
+  for( ulong i=0UL; i<sizeof(results)/sizeof(results[0]); i++ ) FD_TEST( fd_adminctl_result_name( results[ i ] ) );
+  for( ulong r=FD_FAILOVER_CONTROL_RESULT_BUSY; r<=FD_FAILOVER_CONTROL_RESULT_HANDED_OFF; r++ ) {
+    char const * name = fd_adminctl_result_name( r );
+    FD_TEST( name && strlen( name )<FD_ADMIN_GUI_RESULT_MAX );
+  }
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -458,6 +558,7 @@ main( int     argc,
   test_failover_command( FD_ADMINCTL_CMD_FAILOVER_PROMOTE, FD_ADMINCTL_FAILOVER_CMD_PROMOTE,
                          FD_ADMINCTL_FAILOVER_FLAG_TAKEOVER, FD_EVENT_ADMIN_COMMAND_TYPE_FAILOVER_PROMOTE );
   test_failover_identity();
+  test_gui_notes();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

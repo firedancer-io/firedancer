@@ -82,6 +82,7 @@ static ulong const gui_db_type_idx[ FD_GUI_HIST_CNT ] = {
 #define IN_KIND_SNAPSV_OUT    (19UL) /* firedancer only */
 #define IN_KIND_DIAG          (20UL) /* firedancer only */
 #define IN_KIND_VOTOR_OUT     (21UL) /* firedancer only */
+#define IN_KIND_ADMIN_GUI     (22UL) /* firedancer only */
 
 FD_IMPORT_BINARY( firedancer_svg, "book/public/fire.svg" );
 
@@ -633,6 +634,7 @@ after_frag( fd_gui_ctx_t *      ctx,
       fd_gui_handle_diag_snapshot( ctx->gui, src, sig );
       break;
     }
+    case IN_KIND_ADMIN_GUI: break; /* handled in returnable_frag */
     default: FD_LOG_ERR(( "unexpected in_kind %lu", ctx->in_kind[ in_idx ] ));
   }
 }
@@ -642,13 +644,17 @@ returnable_frag( fd_gui_ctx_t *      ctx,
                  ulong               in_idx,
                  ulong               seq    FD_PARAM_UNUSED,
                  ulong               sig    FD_PARAM_UNUSED,
-                 ulong               chunk  FD_PARAM_UNUSED,
-                 ulong               sz     FD_PARAM_UNUSED,
+                 ulong               chunk,
+                 ulong               sz,
                  ulong               ctl    FD_PARAM_UNUSED,
                  ulong               tsorig FD_PARAM_UNUSED,
                  ulong               tspub  FD_PARAM_UNUSED,
                  fd_stem_context_t * stem   FD_PARAM_UNUSED ) {
   if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_REPLAY_OUT && !ctx->gui->epoch.has_epoch_schedule ) ) return 1; /* epoch info not received yet: defer polling */
+
+  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_ADMIN_GUI && sz==sizeof(fd_admin_gui_event_t) ) ) {
+    fd_gui_handle_identity_event( ctx->gui, fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk ) );
+  }
   return 0;
 }
 
@@ -1003,6 +1009,7 @@ unprivileged_init( fd_topo_t const *      topo,
     else if( FD_LIKELY( !strcmp( link->name, "bundle_status"  ) ) ) ctx->in_kind[ i ] = IN_KIND_BUNDLE;
     else if( FD_LIKELY( !strcmp( link->name, "diag_gui"       ) ) ) ctx->in_kind[ i ] = IN_KIND_DIAG;
     else if( FD_LIKELY( !strcmp( link->name, "votor_out"      ) ) ) ctx->in_kind[ i ] = IN_KIND_VOTOR_OUT;
+    else if( FD_LIKELY( !strcmp( link->name, "admin_gui"      ) ) ) ctx->in_kind[ i ] = IN_KIND_ADMIN_GUI;
     else FD_LOG_ERR(( "gui tile has unexpected input link %lu %s", i, link->name ));
 
     if( FD_LIKELY( !strcmp( link->name, "execle_poh" ) ) ) {

@@ -258,6 +258,7 @@ fd_gui_new( void *                   shmem,
   gui->summary.slot_repair                   = ULONG_MAX;
   gui->summary.slot_turbine                  = ULONG_MAX;
   gui->summary.slot_reset                    = ULONG_MAX;
+  gui->identity_events.cnt                   = 0UL;
   gui->summary.slot_storage                  = ULONG_MAX;
   gui->summary.slot_voted                    = ULONG_MAX;
   gui->summary.active_fork_cnt               = 1UL;
@@ -459,6 +460,19 @@ fd_gui_set_identity( fd_gui_t *    gui,
   fd_http_server_ws_broadcast( gui->http );
   fd_gui_printf_missed_vote_history( gui, gui->epoch.current_epoch );
   fd_http_server_ws_broadcast( gui->http );
+}
+
+void
+fd_gui_handle_identity_event( fd_gui_t *                   gui,
+                              fd_admin_gui_event_t const * event ) {
+  if( FD_UNLIKELY( event->kind<FD_GUI_TIMELINE_EVENT_IDENTITY_SET || event->kind>FD_GUI_TIMELINE_EVENT_IDENTITY_HANDOFF ) ) return;
+  ulong idx = gui->identity_events.cnt%FD_GUI_IDENTITY_EVENT_MAX;
+  fd_admin_gui_event_t * dst = &gui->identity_events.event[ idx ];
+  *dst = *event;
+  dst->result[ FD_ADMIN_GUI_RESULT_MAX-1UL ] = '\0';
+  dst->notes [ FD_ADMIN_GUI_NOTES_MAX -1UL ] = '\0';
+  gui->identity_events.slot[ idx ] = gui->summary.slot_estimated; /* ULONG_MAX before the first replayed slot */
+  gui->identity_events.cnt++;
 }
 
 void
