@@ -115,6 +115,21 @@
             }
         },
         "account_processed":          { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Accounts processed across all snapshots" },
-        "account_batch_processed":    { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Account batches processed across all snapshots" }
+        "account_batch_processed":    { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Account batches processed across all snapshots" },
+        "index_state": {
+            "type": "LowCardinality(String)",
+            "description": "Snapshot account index finalization stage; published synchronously by the lead inserter: 0=idle, 1=count (counting), 2=scatter (scattering), 3=build (building), 4=cleanup, 5=done",
+            "field_number": 421830292,
+            "variants": {
+                "idle":    { "description": "idle" },
+                "count":   { "description": "counting" },
+                "scatter": { "description": "scattering" },
+                "build":   { "description": "building" },
+                "cleanup": { "description": "cleanup" },
+                "done":    { "description": "done" }
+            }
+        },
+        "index_progress":             { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Completed index finalization work units (placement ranges, then cleanup); resets on each placement or snapshot attempt", "field_number": 511317753 },
+        "index_expected":             { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Expected index finalization work units (placement ranges plus one for cleanup); work progress is not elapsed-time progress", "field_number": 531162716 }
     }
 }

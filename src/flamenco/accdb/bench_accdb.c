@@ -649,7 +649,7 @@ bench_place( ulong        max_accounts,
   }
   fd_accdb_snapshot_placement_t out[1];
   dt = -fd_log_wallclock();
-  FD_TEST( !fd_accdb_snapshot_place( accdb, FD_ACCDB_PLACE_FULL, NULL, NULL, out ) );
+  FD_TEST( !fd_accdb_snapshot_place( accdb, FD_ACCDB_PLACE_FULL, NULL, NULL, NULL, NULL, out ) );
   dt += fd_log_wallclock();
   bench_place_stop = 1;
   for( ulong i=0UL; i<helper_cnt; i++ ) FD_TEST( !pthread_join( helper[ i ], NULL ) );
@@ -680,11 +680,11 @@ bench_place( ulong        max_accounts,
   dt += fd_log_wallclock();
   FD_LOG_NOTICE(( "bench_place: incremental staged in %.3f s", (double)dt/1e9 ));
   dt = -fd_log_wallclock();
-  FD_TEST( !fd_accdb_snapshot_place( accdb, FD_ACCDB_PLACE_INCR_CHECK, NULL, NULL, out ) );
+  FD_TEST( !fd_accdb_snapshot_place( accdb, FD_ACCDB_PLACE_INCR_CHECK, NULL, NULL, NULL, NULL, out ) );
   dt += fd_log_wallclock();
   FD_LOG_NOTICE(( "bench_place: INCR_CHECK %.3f s (%lu recs) dups=%lu", (double)dt/1e9, incr_cnt, out->duplicates ));
   dt = -fd_log_wallclock();
-  FD_TEST( !fd_accdb_snapshot_place( accdb, FD_ACCDB_PLACE_INCR_APPLY, NULL, NULL, out ) );
+  FD_TEST( !fd_accdb_snapshot_place( accdb, FD_ACCDB_PLACE_INCR_APPLY, NULL, NULL, NULL, NULL, out ) );
   dt += fd_log_wallclock();
   FD_LOG_NOTICE(( "bench_place: INCR_APPLY %.3f s loaded=%lu removed=%lu", (double)dt/1e9, out->loaded, out->removed ));
   FD_LOG_NOTICE(( "bench_place: accounts_total=%lu", shmem->shmetrics->accounts_total ));

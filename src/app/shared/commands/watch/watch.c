@@ -666,6 +666,33 @@ write_snapshots( config_t const * config,
       break;
   }
 
+  /* Index construction follows parsing and has its own 0-100% bar.
+     The lead publishes directly during the synchronous placement call;
+     parse bytes and stem regime counters do not advance during it. */
+  char const * state_str = fd_snapct_state_str( (int)state );
+  if( state==FD_SNAPCT_STATE_FLUSHING_FULL_FILE_DONE        ||
+      state==FD_SNAPCT_STATE_FLUSHING_FULL_HTTP_DONE        ||
+      state==FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_FILE_DONE ||
+      state==FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP_DONE ) {
+    ulong lead_idx = fd_topo_find_tile( &config->topo, "snapin", 0UL );
+    ulong const * lead = &cur_tile[ lead_idx*FD_METRICS_TOTAL_SZ ];
+    ulong index_stage = lead[ MIDX( GAUGE, SNAPIN, INDEX_STATE ) ];
+    ulong completed   = lead[ MIDX( GAUGE, SNAPIN, INDEX_PROGRESS ) ];
+    ulong total       = lead[ MIDX( GAUGE, SNAPIN, INDEX_EXPECTED ) ];
+    if( index_stage && total ) {
+      progress = 100.0*(double)fd_ulong_min( completed, total )/(double)total;
+      if( index_stage!=FD_METRICS_ENUM_SNAPSHOT_INDEX_STATE_V_DONE_IDX && progress>99.9 ) progress = 99.9;
+      switch( index_stage ) {
+        case FD_METRICS_ENUM_SNAPSHOT_INDEX_STATE_V_COUNT_IDX:   state_str = "index_count";   break;
+        case FD_METRICS_ENUM_SNAPSHOT_INDEX_STATE_V_SCATTER_IDX: state_str = "index_scatter"; break;
+        case FD_METRICS_ENUM_SNAPSHOT_INDEX_STATE_V_BUILD_IDX:   state_str = "index_build";   break;
+        case FD_METRICS_ENUM_SNAPSHOT_INDEX_STATE_V_CLEANUP_IDX: state_str = "index_cleanup"; break;
+        case FD_METRICS_ENUM_SNAPSHOT_INDEX_STATE_V_DONE_IDX:    state_str = "index_done";    break;
+        default: break;
+      }
+    }
+  }
+
   ulong snap_rx_sum = 0UL;
   ulong num_snap_rx_samples = fd_ulong_min( snapshot_rx_idx, sizeof(snapshot_rx_samples)/sizeof(snapshot_rx_samples[0]) );
   for( ulong i=0UL; i<num_snap_rx_samples; i++ ) snap_rx_sum += snapshot_rx_samples[ i ];
@@ -727,7 +754,7 @@ write_snapshots( config_t const * config,
          K( "busy" ),
     BAR( progress, 20UL ),
     progress,
-    fd_snapct_state_str( (int)state ),
+    state_str,
     megabytes_per_second,
     wr_megabytes_per_second,
     million_accounts_per_second );
