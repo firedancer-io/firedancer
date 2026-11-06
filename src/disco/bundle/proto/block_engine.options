@@ -1,1 +1,4 @@
 block_engine.BlockBuilderFeeInfoResponse.pubkey max_length:44
+
+block_engine.SubscribeBlocksRequest.version max_length:32
+block_engine.SubscribeBlocksRequest.commit_hash max_length:40

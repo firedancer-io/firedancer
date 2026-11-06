@@ -49,6 +49,10 @@ bundle_client_topo( config_t *   config ) {
 
   fd_cstr_ncpy( bundle_tile->bundle.url, config->tiles.bundle.url, sizeof(bundle_tile->bundle.url) );
   bundle_tile->bundle.url_len = strnlen( bundle_tile->bundle.url, sizeof(bundle_tile->bundle.url)-1UL );
+  bundle_tile->bundle.protocol = config->tiles.bundle.protocol_enum;
+  fd_cstr_ncpy( bundle_tile->bundle.fallback_url, config->tiles.bundle.fallback_url, sizeof(bundle_tile->bundle.fallback_url) );
+  bundle_tile->bundle.fallback_url_len = strnlen( bundle_tile->bundle.fallback_url, sizeof(bundle_tile->bundle.fallback_url)-1UL );
+  bundle_tile->bundle.strategy = config->tiles.bundle.strategy_enum;
   fd_cstr_ncpy( bundle_tile->bundle.sni, config->tiles.bundle.tls_domain_name, sizeof(bundle_tile->bundle.sni) );
   bundle_tile->bundle.sni_len = strnlen( bundle_tile->bundle.sni, sizeof(bundle_tile->bundle.sni)-1UL );
   fd_cstr_ncpy( bundle_tile->bundle.identity_key_path, config->paths.identity_key, sizeof(bundle_tile->bundle.identity_key_path) );

@@ -2015,6 +2015,10 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
   } else if( FD_UNLIKELY( !strcmp( tile->name, "bundle" ) ) ) {
     fd_cstr_ncpy( tile->bundle.url, config->tiles.bundle.url, sizeof(tile->bundle.url) );
     tile->bundle.url_len = strnlen( tile->bundle.url, sizeof(tile->bundle.url)-1UL );
+    tile->bundle.protocol = config->tiles.bundle.protocol_enum;
+    fd_cstr_ncpy( tile->bundle.fallback_url, config->tiles.bundle.fallback_url, sizeof(tile->bundle.fallback_url) );
+    tile->bundle.fallback_url_len = strnlen( tile->bundle.fallback_url, sizeof(tile->bundle.fallback_url)-1UL );
+    tile->bundle.strategy = config->tiles.bundle.strategy_enum;
     fd_cstr_ncpy( tile->bundle.sni, config->tiles.bundle.tls_domain_name, sizeof(tile->bundle.sni) );
     tile->bundle.sni_len = strnlen( tile->bundle.sni, sizeof(tile->bundle.sni)-1UL );
     fd_cstr_ncpy( tile->bundle.identity_key_path, identity_key_path, sizeof(tile->bundle.identity_key_path) );

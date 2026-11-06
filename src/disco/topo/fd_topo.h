@@ -346,6 +346,10 @@ struct fd_topo_tile {
     struct {
       char  url[ FD_URL_MAX ];
       ulong url_len;
+      int   protocol; /* FD_BUNDLE_PROTOCOL_* */
+      char  fallback_url[ FD_URL_MAX ];
+      ulong fallback_url_len;
+      int   strategy; /* FD_BUNDLE_STRATEGY_* */
       char  sni[ FD_SNI_BUF_MAX ];
       ulong sni_len;
       char  identity_key_path[ PATH_MAX ];

@@ -484,6 +484,9 @@ privileged_init( fd_topo_t const *      topo,
                  fd_topo_tile_t const * tile ) {
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
+  if( FD_UNLIKELY( tile->bundle.protocol!=FD_BUNDLE_PROTOCOL_JITO ) ) FD_LOG_ERR(( "bundle protocol %d is not supported yet", tile->bundle.protocol ));
+  if( FD_UNLIKELY( tile->bundle.fallback_url_len ) ) FD_LOG_ERR(( "[tiles.bundle.fallback_url] is not supported yet" ));
+
   ulong const pending_max = tile->bundle.out_depth;
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );

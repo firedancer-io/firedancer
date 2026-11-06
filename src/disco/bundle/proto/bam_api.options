@@ -1,0 +1,5 @@
+bam_api.AuthChallengeResponse.challenge_to_sign max_size:128
+
+# Callbacks to decode batches inside the nested oneofs
+bam_api.SchedulerResponse   submsg_callback:true
+bam_api.SchedulerResponseV0 submsg_callback:true

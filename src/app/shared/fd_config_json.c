@@ -12,7 +12,7 @@
    or knowingly skipped) before the constant is bumped.  String keys of
    the user's own file are separately forced through the classification
    lists below. */
-FD_STATIC_ASSERT( sizeof(fd_config_t)==24464616UL, update_fd_config_to_json_for_the_layout_change );
+FD_STATIC_ASSERT( sizeof(fd_config_t)==24464920UL, update_fd_config_to_json_for_the_layout_change );
 
 #define REDACTED "[redacted]"
 
@@ -131,6 +131,7 @@ static char const * const jw_redacted_keys[] = {
   "net.bind_address",
   "tiles.quic.ssl_key_log_file",
   "tiles.bundle.url",
+  "tiles.bundle.fallback_url",
   "tiles.event.url",
   "tiles.shred.additional_shred_destinations_retransmit",
   "tiles.shred.additional_shred_destinations_leader",
@@ -168,6 +169,8 @@ static char const * const jw_reported_keys[] = {
   "net.xdp.rss_queue_mode",
   "net.xdp.listen_gre",
   "net.xdp.native_bond",
+  "tiles.bundle.protocol",
+  "tiles.bundle.strategy",
   "tiles.bundle.tls_domain_name",
   "tiles.bundle.tip_distribution_program_addr",
   "tiles.bundle.tip_payment_program_addr",
@@ -578,6 +581,9 @@ fd_config_to_json( fd_config_t const * config,
     jw_obj_open( &w, "bundle" );
       jw_bool ( &w, "enabled",                       config->tiles.bundle.enabled );
       jw_url  ( &w, "url",                           config->tiles.bundle.url );
+      jw_str  ( &w, "protocol",                      config->tiles.bundle.protocol );
+      jw_url  ( &w, "fallback_url",                  config->tiles.bundle.fallback_url );
+      jw_str  ( &w, "strategy",                      config->tiles.bundle.strategy );
       jw_str  ( &w, "tls_domain_name",               config->tiles.bundle.tls_domain_name );
       jw_str  ( &w, "tip_distribution_program_addr", config->tiles.bundle.tip_distribution_program_addr );
       jw_str  ( &w, "tip_payment_program_addr",      config->tiles.bundle.tip_payment_program_addr );

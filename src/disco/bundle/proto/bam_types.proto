@@ -1,0 +1,207 @@
+syntax = "proto3";
+
+package bam_types;
+
+// The message the Validator sends to the builder to prove its identity
+// based on a challenge sent by the builder
+message AuthProof {
+  string challenge_to_sign = 1;
+  string validator_pubkey = 2;
+  string signature = 3;
+}
+
+// A time-stamped heartbeat message sent by the builder to the validator
+message BuilderHeartBeat {
+  uint64 time_sent_microseconds = 1; // unix-timestamp
+}
+
+// A time-stamped heartbeat message sent by the validator to the builder
+message ValidatorHeartBeat {
+  uint64 time_sent_microseconds = 1; // unix-timestamp
+}
+
+// A ping message sent from BAM to the validator.
+// Some validators have disabled ping on their boxes, which makes it difficult to find how far 
+// away they are from BAM.
+// BAM shall use a randommly generated number to mitigate frontrunning Pong with determinstic id
+// to make latency appear smaller than it is.
+message Ping {
+  uint32 id = 1;
+}
+
+// A pong message sent from the validator to BAM with the same ID it received originally.
+// See Ping message above for more context.
+message Pong {
+  uint32 id = 1;
+}
+
+message Socket {
+  string ip = 1;
+  uint32 port = 2;
+}
+
+// Sent by the validator to the builder when it becomes the leader
+// Used to inform the builder about the current leader state
+message LeaderState {
+  uint64 slot = 1;
+  uint32 tick = 2;
+  uint32 slot_cu_budget_remaining = 3;
+}
+
+// An 'atomic transaction batch' is a bundle of transactions that must be processed together
+message AtomicTxnBatch {
+  uint32 seq_id = 1; // unique for a single leader rotation
+  uint64 max_schedule_slot = 2; // slot for which this bundle is valid for execution
+  repeated Packet packets = 3;
+}
+
+// A a collection of disjoint atomic transaction batches;
+// meaning that batches can be evaluated independently from each other
+message MultipleAtomicTxnBatch {
+  repeated AtomicTxnBatch batches = 3;
+  bytes mss_padding = 15; // Ignored by receivers; pads the first message of a leader window to >= 2 MSS.
+}
+
+// The result of processing an atomic transaction batch
+message AtomicTxnBatchResult {
+  uint32 seq_id = 1; // unique for a single leader rotation (response to above Bundle message)
+  oneof result {
+    Committed committed = 2;
+    NotCommitted not_committed = 3;
+  }
+}
+
+// The result of processing multiple atomic transaction batches
+// Grouping is non-logical and does not imply anything
+// (does not correspond with a distinct MultipleAtomicTxnBatch, for example)
+message MultipleAtomicTxnBatchResult {
+  repeated AtomicTxnBatchResult results = 1;
+}
+
+// A Solana network packet
+message Packet {
+  bytes data = 1;
+  Meta meta = 2;
+}
+
+message Meta {
+  uint64 size = 1;
+  PacketFlags flags = 2;
+}
+
+message PacketFlags {
+  bool simple_vote_tx = 1;
+  bool revert_on_error = 2;
+}
+
+message Committed {
+  repeated TransactionCommittedResult transaction_results = 1;
+}
+message NotCommitted {
+  oneof reason {
+    TransactionError transaction_error = 1;
+    SchedulingError scheduling_error = 2;
+    GenericInvalid generic_invalid = 3;
+    DeserializationError deserialization_error = 4;
+  }
+}
+
+message DeserializationError {
+  uint32 index = 1; // index of the packet in the bundle
+  DeserializationErrorReason reason = 2; // reason for the error
+}
+
+enum DeserializationErrorReason {
+  EMPTY = 0;
+  INCONSISTENT_BUNDLE = 1;
+  BINCODE_ERROR = 2;
+  SIGNATURE_OVERFLOWED = 3;
+  SANITIZE_ERROR = 4;
+  PRIORITIZATION_FAILURE = 5;
+  VOTE_TRANSACTION_FAILURE = 6;
+  FILTER_FAILURE = 7;
+}
+
+message GenericInvalid {
+  string message = 1; // human-readable error message
+}
+
+enum SchedulingError {
+  POH_TIMEOUT = 0;
+  OUTSIDE_LEADER_SLOT = 1;
+  CONTAINER_FULL = 2;
+}
+
+message PohTimeout {}
+
+message TransactionError {
+  uint32 index = 1; // index of the transaction in the bundle
+  TransactionErrorReason reason = 2; // reason for the error
+}
+
+
+// Source: 
+enum TransactionErrorReason {
+  ACCOUNT_IN_USE = 0;
+  ACCOUNT_LOADED_TWICE = 1;
+  ACCOUNT_NOT_FOUND = 2;
+  PROGRAM_ACCOUNT_NOT_FOUND = 3;
+  INSUFFICIENT_FUNDS_FOR_FEE = 4;
+  INVALID_ACCOUNT_FOR_FEE = 5;
+  ALREADY_PROCESSED = 6;
+  BLOCKHASH_NOT_FOUND = 7;
+  INSTRUCTION_ERROR = 8;
+  CALL_CHAIN_TOO_DEEP = 9;
+  MISSING_SIGNATURE_FOR_FEE = 10;
+  INVALID_ACCOUNT_INDEX = 11;
+  SIGNATURE_FAILURE = 12;
+  INVALID_PROGRAM_FOR_EXECUTION = 13;
+  SANITIZE_FAILURE = 14;
+  CLUSTER_MAINTENANCE = 15;
+  ACCOUNT_BORROW_OUTSTANDING = 16;
+  WOULD_EXCEED_MAX_BLOCK_COST_LIMIT = 17;
+  UNSUPPORTED_VERSION = 18;
+  INVALID_WRITABLE_ACCOUNT = 19;
+  WOULD_EXCEED_MAX_ACCOUNT_COST_LIMIT = 20;
+  WOULD_EXCEED_ACCOUNT_DATA_BLOCK_LIMIT = 21;
+  TOO_MANY_ACCOUNT_LOCKS = 22;
+  ADDRESS_LOOKUP_TABLE_NOT_FOUND = 23;
+  INVALID_ADDRESS_LOOKUP_TABLE_OWNER = 24;
+  INVALID_ADDRESS_LOOKUP_TABLE_DATA = 25;
+  INVALID_ADDRESS_LOOKUP_TABLE_INDEX = 26;
+  INVALID_RENT_PAYING_ACCOUNT = 27;
+  WOULD_EXCEED_MAX_VOTE_COST_LIMIT = 28;
+  WOULD_EXCEED_ACCOUNT_DATA_TOTAL_LIMIT = 29;
+  DUPLICATE_INSTRUCTION = 30;
+  INSUFFICIENT_FUNDS_FOR_RENT = 31;
+  MAX_LOADED_ACCOUNTS_DATA_SIZE_EXCEEDED = 32;
+  INVALID_LOADED_ACCOUNTS_DATA_SIZE_LIMIT = 33;
+  RESANITIZATION_NEEDED = 34;
+  PROGRAM_EXECUTION_TEMPORARILY_RESTRICTED = 35;
+  UNBALANCED_TRANSACTION = 36;
+  PROGRAM_CACHE_HIT_MAX_LIMIT = 37;
+  COMMIT_CANCELLED = 38;
+}
+
+message TransactionCommittedResult {
+  uint32 cus_consumed = 1;
+  uint64 feepayer_balance_lamports = 2;
+  uint32 loaded_accounts_data_size = 3;
+  bool execution_success = 4;
+}
+
+// Configuration for the block-engine builder
+message BlockEngineBuilderConfig {
+  string builder_pubkey = 1;
+  // commission as a percentage (0-100)
+  uint32 builder_commission = 2;
+}
+
+// Configuration for the BAM node
+message BamConfig {
+  string prio_fee_recipient_pubkey = 1; // Recipient pubkey of the priority fee commission
+  uint32 commission_bps = 2; // Commission in basis points
+  bam_types.Socket tpu_sock = 3; // Socket for the TPU connection
+  bam_types.Socket tpu_fwd_sock = 4; // Socket for the TPU forward connection
+  repeated bam_types.Socket shred_socks = 5; // Socket(s) for forwarding leader and near-leader shreds
+}
