@@ -2438,6 +2438,7 @@ exists_inner( fd_accdb_t *       accdb,
               fd_accdb_fork_id_t fork_id,
               uchar const *      pubkey,
               int                include_zero_lamport ) {
+  fd_racesan_hook( "accdb_exists:pre_lookup" );
   FD_COMPILER_MFENCE();
   FD_VOLATILE( *accdb->my_epoch_slot ) = FD_VOLATILE_CONST( accdb->shmem->epoch );
   FD_HW_MFENCE();
