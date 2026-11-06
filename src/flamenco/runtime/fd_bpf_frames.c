@@ -18,6 +18,7 @@ struct __attribute__((aligned(FD_BPF_FRAMES_ALIGN))) fd_bpf_frames_shmem {
   fd_rwlock_t lock;
   ulong       has_owner;      /* 1 while some join is the owner, the one
                                  tile allowed into the owner's reserve */
+  ulong       owner_held;     /* shared frames the owner holds */
   ulong       joiner_cnt;
   ulong       joiner_cnt_max;
   ulong       local_cnt;
@@ -91,6 +92,7 @@ fd_bpf_frames_shmem_new( void * shmem,
   fd_bpf_frames_shmem_t * frames = (fd_bpf_frames_shmem_t *)shmem;
   fd_rwlock_new( &frames->lock );
   frames->has_owner      = 0UL;
+  frames->owner_held     = 0UL;
   frames->joiner_cnt     = 0UL;
   frames->joiner_cnt_max = joiner_cnt_max;
   frames->local_cnt      = local_cnt;
@@ -175,24 +177,27 @@ fd_bpf_frames_try_acquire( fd_bpf_frames_t * join,
 
   /* Become owner if you can. */
   if( !shmem->has_owner ) {
-    shmem->has_owner = 1UL;
-    join->is_owner   = 1;
+    shmem->has_owner  = 1UL;
+    shmem->owner_held = join->held_cnt;
+    join->is_owner    = 1;
   }
 
-  /* keep is how many free frames this call must leave for others.  The
+  /* keep is how many free frames this call must leave for others: what
+     the owner can still take plus the priority caller's reserve.  The
      owner never needs more than reserve_cnt frames, so it cannot run
      into the priority caller's reserve. */
   ulong keep;
   if( priority || join->is_owner ) {
     keep = 0UL;
   } else {
-    keep = 2UL*join->reserve_cnt; /* leave both reserves */
+    keep = 2UL*join->reserve_cnt-shmem->owner_held;
   }
 
   uchar * frame = NULL;
   if( FD_LIKELY( free_cnt>keep ) ) {
     frame = (uchar *)frame_pool_ele_acquire( join->pool );
     join->held_cnt++;
+    if( join->is_owner ) shmem->owner_held = join->held_cnt;
   }
 
   fd_rwlock_unwrite( &shmem->lock );
@@ -225,6 +230,7 @@ fd_bpf_frames_release( fd_bpf_frames_t * join,
   FD_TEST( join->held_cnt );
   frame_pool_ele_release( join->pool, (fd_bpf_frame_t *)frame );
   join->held_cnt--;
+  if( join->is_owner ) shmem->owner_held = join->held_cnt;
   if( !join->held_cnt && join->is_owner ) {
     shmem->has_owner = 0UL;
     join->is_owner   = 0;
