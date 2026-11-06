@@ -522,7 +522,6 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
                            fd_bmtree_node_t          * out_merkle_root,
                            fd_fec_resolver_spilled_t * out_spilled      ) {
   FD_TEST( source<=FD_FEC_RESOLVER_SHRED_SRC_BAD_REPAIR );
-  int is_repair = source==FD_FEC_RESOLVER_SHRED_SRC_REPAIR;
 
   /* Unpack variables */
   ulong partial_depth = resolver->partial_depth;
@@ -566,6 +565,19 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
       return FD_FEC_RESOLVER_SHRED_REJECTED;
     if( FD_UNLIKELY( shred->code.idx>=FD_FEC_SHRED_CNT            ) ) return FD_FEC_RESOLVER_SHRED_REJECTED;
     if( FD_UNLIKELY( shred->code.idx!=shred->idx%FD_FEC_SHRED_CNT ) ) return FD_FEC_RESOLVER_SHRED_REJECTED;
+    /* We want to ignore parity shreds corresponding to data shreds for
+       which the parent slot is something we've already pruned (see
+       below), but the parent offset is only a field in data shreds.  We
+       could do it at reconstruction time, but then there's not a good
+       return code.  It would be like a FEC_FATAL_REJECT, but returning
+       IGNORED.  So instead we just snoop into the parity data and pick
+       out the parent_off.  If all data shreds have the same value for
+       parent_off, then all parity shreds will have that same value at
+       the corresponding bytes.  If the data shreds have different
+       values, this comparison is non-sensical, but we'll reject the FEC
+       set later. */
+    ushort parent_off = FD_LOAD( ushort, fd_shred_code_payload( shred )+0x53UL-0x40UL );
+    if( FD_UNLIKELY( shred->slot-parent_off<resolver->slot_old ) ) return FD_FEC_RESOLVER_SHRED_IGNORED;
   } else {
     /* if the shred's parent is for a slot we've already pruned, ignore it. */
     if( FD_UNLIKELY( shred->slot-shred->data.parent_off<resolver->slot_old ) ) return FD_FEC_RESOLVER_SHRED_IGNORED;
@@ -611,6 +623,7 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
   if( FD_UNLIKELY( tree_depth!=FD_SHRED_MERKLE_LAYER_CNT-1UL ) ) return FD_FEC_RESOLVER_SHRED_REJECTED;
 
   /* Now we're done with all the simple, quick checks */
+  int is_repair = source==FD_FEC_RESOLVER_SHRED_SRC_REPAIR && is_data_shred;
 
   set_ctx_t * ctx = NULL;
 
