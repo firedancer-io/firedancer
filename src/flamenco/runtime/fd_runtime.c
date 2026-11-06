@@ -1890,6 +1890,13 @@ fd_runtime_block_execute_finalize( fd_bank_t *               bank,
                                    fd_block_footer_t const * footer,
                                    ushort                    shred_version,
                                    fd_footer_cache_t *       cache ) {
+  /* A leader bank hashes none of its writes as it executes.  Fold the
+     block's account changes in, then hash the end-of-block writers in
+     band, as replay_block_finalize does with the scheduler's delta. */
+  if( FD_UNLIKELY( bank->lthash_mode==FD_BANK_LTHASH_MODE_OOB_SKIP ) ) {
+    fd_hashes_fold_lthash( bank, accdb );
+    bank->lthash_mode = FD_BANK_LTHASH_MODE_INBAND;
+  }
   if( FD_UNLIKELY( footer && apply_footer( bank, accdb, capture_ctx, footer, 1, shred_version, cache ) ) ) return -1;
   fd_runtime_freeze_sysvars( bank, accdb, capture_ctx );
   fd_runtime_freeze_fees( bank, accdb, capture_ctx );

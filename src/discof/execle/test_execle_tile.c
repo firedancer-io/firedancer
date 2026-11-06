@@ -2171,6 +2171,110 @@ FD_UNIT_TEST( execle_cpi ) {
   test_env_destroy( env );
 }
 
+/* A leader bank (OOB_SKIP from its start) must finalize to the same
+   LtHash and bank hash as a sibling that hashed every commit in band,
+   for the same transactions: rewrites of one fee payer, creations at
+   and below the rent exempt minimum, a drain to zero and recreation,
+   failed and fees-only transactions, and a bundle.  The leader's
+   LtHash must not move before finalize. */
+
+#define LEADER_FOLD_USER_CNT (4UL)
+
+static void
+test_leader_fold_run( test_env_t *      env,
+                      ulong             bank_idx,
+                      fd_pubkey_t const users[ static LEADER_FOLD_USER_CNT ],
+                      fd_pubkey_t const fresh[ static 3 ],
+                      ulong             rent_min ) {
+  env->bank_idx = bank_idx;
+  fd_bank_t * bank = fd_svm_mini_bank( env->mini, bank_idx );
+  fd_pubkey_t const * payer = users+0;
+  ulong const fee = 5000UL;
+
+  /* users[ 0 ] pays for and funds most transactions */
+  for( ulong r=0UL; r<4UL; r++ ) {
+    fd_txn_p_t txns[ 5 ];
+    for( ulong i=0UL; i<5UL; i++ ) test_build_system_transfer_txn( txns+i, bank, *payer, users[ 1UL+(i%3UL) ], 1000UL+r*16UL+i );
+    test_execle_run( env, txns, 5UL, (uint)r, r*5UL, 0 );
+  }
+
+  fd_txn_p_t txns[ 5 ];
+  /* Creations: exactly rent exempt succeeds, one short fails */
+  test_build_system_transfer_txn( txns+0, bank, *payer, fresh[ 0 ], rent_min );
+  test_build_system_transfer_txn( txns+1, bank, *payer, fresh[ 1 ], rent_min-1UL );
+  /* Drain users[ 3 ] to zero, then recreate it */
+  ulong u3 = test_read_lamports( env, users+3 );
+  test_build_system_transfer_txn( txns+2, bank, users[ 3 ], fresh[ 2 ], u3-fee );
+  test_build_system_transfer_txn( txns+3, bank, *payer, users[ 3 ], rent_min+7UL );
+  /* Instruction error: users[ 2 ] pays the fee only */
+  test_build_system_transfer_txn( txns+4, bank, users[ 2 ], users[ 1 ], ULONG_MAX>>1 );
+  test_execle_run( env, txns, 5UL, 4U, 20UL, 0 );
+  FD_TEST( test_read_lamports( env, fresh+0 )==rent_min );
+  FD_TEST( test_read_lamports( env, fresh+1 )==0UL );
+  FD_TEST( test_read_lamports( env, users+3 )==rent_min+7UL );
+
+  /* Bundle */
+  test_build_system_transfer_txn( txns+0, bank, *payer, users[ 1 ], 4242UL );
+  test_build_system_transfer_txn( txns+1, bank, *payer, users[ 2 ], 4343UL );
+  test_execle_run( env, txns, 2UL, 5U, 25UL, 1 );
+}
+
+FD_UNIT_TEST( execle_leader_lthash_fold ) {
+  test_env_t * env = test_env_create();
+  fd_svm_mini_t * mini = env->mini;
+  fd_accdb_t *    accdb = mini->runtime->accdb;
+
+  fd_pubkey_t users[ LEADER_FOLD_USER_CNT ];
+  for( ulong i=0UL; i<LEADER_FOLD_USER_CNT; i++ ) users[ i ] = (fd_pubkey_t){ .ul = { 0x7100UL+i } };
+  fd_pubkey_t const fresh[ 3 ] = { { .ul = { 0x7200UL } }, { .ul = { 0x7201UL } }, { .ul = { 0x7202UL } } };
+  for( ulong i=0UL; i<LEADER_FOLD_USER_CNT; i++ ) {
+    test_put_account_rooted( env, users+i, &fd_solana_system_program_id, 1000000000UL+i, 0UL, 0, NULL, 0UL );
+  }
+
+  fd_bank_t * root   = fd_banks_root( mini->banks );
+  ulong       inband_idx = fd_svm_mini_attach_child       ( mini, root->idx, 2UL );
+  ulong       leader_idx = fd_svm_mini_attach_leader_child( mini, root->idx, 2UL );
+  fd_bank_t * inband = fd_svm_mini_bank( mini, inband_idx );
+  fd_bank_t * leader = fd_svm_mini_bank( mini, leader_idx );
+  FD_TEST( inband->lthash_mode==FD_BANK_LTHASH_MODE_INBAND   );
+  FD_TEST( leader->lthash_mode==FD_BANK_LTHASH_MODE_OOB_SKIP );
+  fd_bank_t * banks[ 2 ] = { inband, leader };
+  for( ulong b=0UL; b<2UL; b++ ) {
+    fd_blockhash_info_t * info = (fd_blockhash_info_t *)fd_blockhashes_peek_last( &banks[ b ]->f.block_hash_queue );
+    FD_TEST( info );
+    info->lamports_per_signature = 5000UL;
+  }
+
+  fd_rent_t rent_[1];
+  fd_rent_t const * rent = fd_sysvar_rent_read( accdb, leader->accdb_fork_id, rent_ );
+  FD_TEST( rent );
+  ulong rent_min = fd_rent_exempt_minimum_balance( rent, 0UL );
+
+  fd_lthash_value_t leader_start = leader->f.lthash;
+  test_leader_fold_run( env, inband_idx, users, fresh, rent_min );
+  test_leader_fold_run( env, leader_idx, users, fresh, rent_min );
+  FD_TEST( fd_lthash_eq( &leader->f.lthash, &leader_start ) );
+  FD_TEST( inband->f.txn_count==leader->f.txn_count );
+  FD_TEST( inband->f.capitalization==leader->f.capitalization );
+
+  fd_pubkey_t const * all[ LEADER_FOLD_USER_CNT+3UL ];
+  for( ulong i=0UL; i<LEADER_FOLD_USER_CNT; i++ ) all[ i ] = users+i;
+  for( ulong i=0UL; i<3UL; i++ ) all[ LEADER_FOLD_USER_CNT+i ] = fresh+i;
+  for( ulong i=0UL; i<LEADER_FOLD_USER_CNT+3UL; i++ ) {
+    FD_TEST( fd_accdb_lamports( accdb, inband->accdb_fork_id, all[ i ]->uc )==fd_accdb_lamports( accdb, leader->accdb_fork_id, all[ i ]->uc ) );
+  }
+
+  for( ulong b=0UL; b<2UL; b++ ) fd_memset( banks[ b ]->f.poh.hash, 0x5A, 32UL );
+  FD_TEST( !fd_runtime_block_execute_finalize( inband, accdb, NULL, NULL, 0, NULL ) );
+  FD_TEST( !fd_runtime_block_execute_finalize( leader, accdb, NULL, NULL, 0, NULL ) );
+  FD_TEST( leader->lthash_mode==FD_BANK_LTHASH_MODE_INBAND );
+  FD_TEST( !fd_lthash_eq( &leader->f.lthash, &leader_start ) );
+  FD_TEST( fd_lthash_eq( &inband->f.lthash, &leader->f.lthash ) );
+  FD_TEST( fd_hash_eq( &inband->f.bank_hash, &leader->f.bank_hash ) );
+
+  test_env_destroy( env );
+}
+
 int
 main( int     argc,
       char ** argv ) {
