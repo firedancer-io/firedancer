@@ -1103,6 +1103,81 @@ FD_UNIT_TEST( quic_rtt_sample ) {
 #undef SAMPLE
 }
 
+FD_UNIT_TEST( quic_pto_staggered_packets ) {
+  for( int loss=0; loss<2; loss++ ) {
+    fd_quic_sandbox_init( sandbox, FD_QUIC_ROLE_CLIENT );
+    fd_quic_t * quic = sandbox->quic;
+    fd_quic_state_t * state = fd_quic_get_state( quic );
+    fd_quic_conn_t * conn = fd_quic_sandbox_new_conn_established( sandbox, rng );
+    conn->rtt->smoothed_rtt = 80e6f;
+    conn->rtt->latest_rtt   = 80e6f;
+    conn->rtt->var_rtt      = 0.f;
+    conn->peer_max_ack_delay_ns = 19e6f;
+    conn->tx_max_datagram_frame_sz = 64UL;
+    long const start = state->now;
+    uchar pkt[128];
+    FD_TEST( fd_quic_conn_tx_dgram( conn, pkt, sizeof(pkt), NULL, 0UL, NULL ) );
+    state->now += 20000000L;
+    FD_TEST( fd_quic_conn_tx_dgram( conn, pkt, sizeof(pkt), NULL, 0UL, NULL ) );
+    FD_TEST( conn->used_pkt_meta==2UL );
+
+    state->now = start+100000000L;
+    fd_quic_pkt_meta_retry( quic, conn, 0UL, ~0U );
+    FD_TEST( conn->pto_count==1U );
+    FD_TEST( conn->used_pkt_meta==1UL );
+    FD_TEST( conn->pto_expiry==start+300000000L );
+
+    /* The second packet's old PTO must not advance the backoff.
+       A loss deadline remains independent of the PTO. */
+    if( loss ) conn->highest_acked[2] = conn->pkt_number[2];
+    state->now = start+120000000L;
+    fd_quic_pkt_meta_retry( quic, conn, 0UL, ~0U );
+    FD_TEST( conn->pto_count==1U );
+    FD_TEST( conn->used_pkt_meta==(ulong)!loss );
+    if( !loss ) {
+      state->now = conn->pto_expiry-1L;
+      fd_quic_pkt_meta_retry( quic, conn, 0UL, ~0U );
+      FD_TEST( conn->used_pkt_meta==1UL );
+      state->now++;
+      fd_quic_pkt_meta_retry( quic, conn, 0UL, ~0U );
+      FD_TEST( conn->pto_count==2U );
+      FD_TEST( !conn->used_pkt_meta );
+    }
+  }
+}
+
+FD_UNIT_TEST( quic_pto_duplicate_ack ) {
+  fd_quic_sandbox_init( sandbox, FD_QUIC_ROLE_CLIENT );
+  fd_quic_conn_t * conn = fd_quic_sandbox_new_conn_established( sandbox, rng );
+  fd_quic_state_t * state = fd_quic_get_state( sandbox->quic );
+  conn->tx_max_datagram_frame_sz = 64UL;
+  uchar pkt[128];
+  FD_TEST( fd_quic_conn_tx_dgram( conn, pkt, sizeof(pkt), NULL, 0UL, NULL ) );
+  uchar ack[] = {0x02,0x00,0x00,0x00,0x00};
+  fd_quic_sandbox_send_lone_frame( sandbox, conn, ack, sizeof(ack) );
+  FD_TEST( !conn->used_pkt_meta );
+  FD_TEST( fd_quic_conn_tx_dgram( conn, pkt, sizeof(pkt), NULL, 0UL, NULL ) );
+  conn->pto_count = 3U;
+  conn->pto_expiry = state->now+8000000000L;
+  fd_quic_sandbox_send_lone_frame( sandbox, conn, ack, sizeof(ack) );
+  FD_TEST( conn->pto_count==3U );
+  FD_TEST( conn->pto_expiry==state->now+8000000000L );
+  FD_TEST( conn->used_pkt_meta==1UL );
+
+  /* New progress in a lower ACK range must still reset backoff. */
+  FD_TEST( fd_quic_conn_tx_dgram( conn, pkt, sizeof(pkt), NULL, 0UL, NULL ) );
+  FD_TEST( fd_quic_conn_tx_dgram( conn, pkt, sizeof(pkt), NULL, 0UL, NULL ) );
+  ack[1] = 3;
+  fd_quic_sandbox_send_lone_frame( sandbox, conn, ack, sizeof(ack) );
+  conn->pto_count = 3U;
+  conn->pto_expiry = state->now+8000000000L;
+  uchar ranges[] = {0x02,0x03,0x00,0x01,0x00,0x00,0x00};
+  fd_quic_sandbox_send_lone_frame( sandbox, conn, ranges, sizeof(ranges) );
+  FD_TEST( conn->pto_count==0U );
+  FD_TEST( conn->pto_expiry==0L );
+  FD_TEST( conn->used_pkt_meta==1UL );
+}
+
 FD_UNIT_TEST( quic_ack_unsent_future_pktnum ) {
 
   fd_quic_sandbox_init( sandbox, FD_QUIC_ROLE_CLIENT );

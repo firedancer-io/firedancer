@@ -4763,6 +4763,8 @@ fd_quic_pkt_meta_retry( fd_quic_t      *  quic,
   long const pto_duration  = fd_quic_calc_expiry_duration( conn, 0, conn->server );
   long const loss_duration = fd_quic_calc_expiry_duration( conn, 1, conn->server );
 
+  int pto_expired = 0;
+
   while(1) {
     /* find earliest expiring pkt_meta, over smallest pkt number at each enc_level */
     fd_quic_pkt_meta_t * pkt_meta = NULL;
@@ -4779,6 +4781,9 @@ fd_quic_pkt_meta_retry( fd_quic_t      *  quic,
       long  const cand_duration = fd_long_if( pkt_meta_cand->key.pkt_num < highest_acked, loss_duration, pto_duration );
 
       pkt_meta_cand->expiry = fd_long_min( pkt_meta_cand->tx_time + cand_duration, pkt_meta_cand->expiry );
+      if( !conn->server && pkt_meta_cand->key.pkt_num>=highest_acked ) {
+        pkt_meta_cand->expiry = fd_long_max( pkt_meta_cand->expiry, conn->pto_expiry );
+      }
 
       if( !pkt_meta || pkt_meta_cand->expiry < expiry ) {
         pkt_meta = pkt_meta_cand;
@@ -4786,7 +4791,7 @@ fd_quic_pkt_meta_retry( fd_quic_t      *  quic,
       }
     }
 
-    if( !pkt_meta ) return;
+    if( !pkt_meta ) break;
 
     uint  const enc_level = pkt_meta->enc_level;
     ulong const pkt_num   = pkt_meta->key.pkt_num;
@@ -4795,8 +4800,11 @@ fd_quic_pkt_meta_retry( fd_quic_t      *  quic,
     if( !!(pkt_num >= force_below_pkt_num) & !!(expiry > now) ) {
       /* safe even when expiry is LONG_MAX, because prep_schedule takes min */
       fd_quic_svc_prep_schedule( conn, expiry );
-      return;
+      break;
     };
+
+    pto_expired |= (pkt_num >= force_below_pkt_num) &
+                   (pkt_num >= conn->highest_acked[ fd_quic_enc_level_to_pn_space( enc_level ) ]);
 
     uint type = pkt_meta->key.type;
     int  retx = type!=FD_QUIC_PKT_META_TYPE_DATAGRAM; /* a lost DATAGRAM is only reclaimed */
@@ -4905,6 +4913,12 @@ fd_quic_pkt_meta_retry( fd_quic_t      *  quic,
 
     fd_quic_pkt_meta_remove( &tracker->sent_pkt_metas[enc_level], pool, pkt_meta );
     conn->used_pkt_meta--;
+  }
+
+  /* RFC 9002 Section 6.2.1: back off the PTO once per timer expiration */
+  if( pto_expired ) {
+    conn->pto_count = fd_uint_min( conn->pto_count+1U, FD_QUIC_PTO_COUNT_MAX );
+    conn->pto_expiry = now + fd_quic_calc_expiry_duration( conn, 0, conn->server );
   }
 }
 
@@ -5095,7 +5109,7 @@ fd_quic_reclaim_pkt_meta( fd_quic_conn_t *     conn,
 
 /* process ack range
    applies to pkt_number in [largest_ack - ack_range, largest_ack] */
-void
+ulong
 fd_quic_process_ack_range( fd_quic_conn_t      * conn,
                            fd_quic_frame_ctx_t * context,
                            uint                  enc_level,
@@ -5129,9 +5143,11 @@ fd_quic_process_ack_range( fd_quic_conn_t      * conn,
     fd_quic_reclaim_pkt_meta( conn, e, enc_level );
   }
 
-  conn->used_pkt_meta -= fd_quic_pkt_meta_remove_range( sent, pool, lo, hi );
+  ulong acked = fd_quic_pkt_meta_remove_range( sent, pool, lo, hi );
+  conn->used_pkt_meta -= acked;
 
   if( enc_level==fd_quic_enc_level_appdata_id ) fd_quic_cb_ack_range( conn->quic, conn, lo, hi );
+  return acked;
 }
 
 static ulong
@@ -5200,7 +5216,7 @@ fd_quic_handle_ack_frame( fd_quic_frame_ctx_t * context,
 
   /* process ack range
      applies to pkt_number in [largest_ack - first_ack_range, largest_ack] */
-  fd_quic_process_ack_range( conn,
+  ulong acked = fd_quic_process_ack_range( conn,
                              context,
                              enc_level,
                              largest_ack,
@@ -5264,7 +5280,7 @@ fd_quic_handle_ack_frame( fd_quic_frame_ctx_t * context,
     low_ack_pkt_number = fd_ulong_min( low_ack_pkt_number, lo_pkt_number );
 
     /* process ack range */
-    fd_quic_process_ack_range( conn,
+    acked += fd_quic_process_ack_range( conn,
                                context,
                                enc_level,
                                cur_pkt_number - skip,
@@ -5279,6 +5295,11 @@ fd_quic_handle_ack_frame( fd_quic_frame_ctx_t * context,
     cur_pkt_number -= skip + length;
 
     p += rc;
+  }
+
+  if( acked ) {
+    conn->pto_count  = 0U;
+    conn->pto_expiry = 0L;
   }
 
   /* Process packets declared lost for either:
