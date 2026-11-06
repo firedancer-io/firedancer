@@ -23,6 +23,7 @@
 #include "templ/fd_quic_transport_params.h"
 #include "templ/fd_quic_parse_util.h"
 #include "tls/fd_quic_tls.h"
+#include "../tls/fd_tls_proto.h"
 
 #include "../../ballet/hex/fd_hex.h"
 #include "../../ballet/x509/fd_x509_mock.h"
@@ -3116,6 +3117,41 @@ fd_quic_handle_crypto_frame( fd_quic_frame_ctx_t *    context,
   if( FD_UNLIKELY( rcv_sz > p_sz ) ) {
     fd_quic_frame_error( context, FD_QUIC_CONN_REASON_FRAME_ENCODING_ERROR, __LINE__ );
     return FD_QUIC_PARSE_FAIL;
+  }
+
+  if( enc_level==fd_quic_enc_level_appdata_id && conn->handshake_complete ) {
+    if( rcv_off>conn->post_hs_rx_off ) {
+      context->pkt->ack_flag |= ACK_FLAG_CANCEL;
+      return rcv_sz;
+    }
+    ulong off = conn->post_hs_rx_off;
+    while( off<rcv_hi ) {
+      if( conn->post_hs_remaining ) {
+        uint skip = (uint)fd_ulong_min( conn->post_hs_remaining, rcv_hi-off );
+        conn->post_hs_remaining -= skip;
+        off += skip;
+        continue;
+      }
+      uchar byte = p[off-rcv_off];
+      if( !conn->post_hs_hdr_used ) {
+        /* Only clients can receive NewSessionTicket.  QUIC forbids
+           KeyUpdate (RFC 9001 Section 6). */
+        if( conn->server || byte!=4U ) {
+          fd_quic_frame_error( context, FD_QUIC_CONN_REASON_CRYPTO_BASE+FD_TLS_ALERT_UNEXPECTED_MESSAGE, __LINE__ );
+          return FD_QUIC_PARSE_FAIL;
+        }
+      } else {
+        conn->post_hs_length = (conn->post_hs_length<<8) | byte;
+      }
+      off++;
+      if( ++conn->post_hs_hdr_used==4U ) {
+        conn->post_hs_remaining = conn->post_hs_length;
+        conn->post_hs_length = 0U;
+        conn->post_hs_hdr_used = 0U;
+      }
+    }
+    conn->post_hs_rx_off = off;
+    return rcv_sz;
   }
 
   if( !tls_hs ) {
