@@ -303,6 +303,7 @@ struct fd_mlx5_caps {
   uint  max_recv_wr;
   uint  max_cqe;
   uchar eth_min_inline_hdr_sz;
+  int   cvlan_strip; /* Rx queue can strip vlan tags */
 };
 typedef struct fd_mlx5_caps fd_mlx5_caps_t;
 
@@ -865,6 +866,12 @@ fd_uverbs_query_device( fd_uverbs_ctx_t * ctx,
     return -1;
   }
 
+  ulong const raw_packet_caps_sz = offsetof( struct ib_uverbs_ex_query_device_resp, raw_packet_caps )+
+                                   sizeof(resp->core.raw_packet_caps);
+  caps->cvlan_strip = resp->core.response_length>=raw_packet_caps_sz &&
+                      !!(resp->core.raw_packet_caps & IB_UVERBS_RAW_PACKET_CAP_CVLAN_STRIPPING);
+  if( !caps->cvlan_strip ) FD_LOG_INFO(( "mlx5 VLAN offload is not available, tags will be stripped in software" ));
+
   ulong const tunnel_caps_sz = offsetof( struct mlx5_ib_query_device_resp, tunnel_offloads_caps )+
                                sizeof(resp->mlx5.tunnel_offloads_caps);
   ulong const required_hash_fields = FD_MLX5_RX_HASH_IPV4_UDP | FD_MLX5_RX_HASH_INNER;
@@ -1258,7 +1265,8 @@ static fd_mlx5_rx_wq_t *
 fd_uverbs_create_rx_wq( fd_uverbs_ctx_t * uverbs,
                         fd_mlx5_rx_wq_t * rx_wq,
                         fd_mlx5_pd_t *    pd,
-                        uint              rx_cq_handle ) {
+                        uint              rx_cq_handle,
+                        int               cvlan_strip ) {
   fd_uverbs_create_rx_wq_req_t  req [1];
   fd_uverbs_create_rx_wq_resp_t resp[1];
   fd_memset( req,  0, sizeof(req ) );
@@ -1270,6 +1278,8 @@ fd_uverbs_create_rx_wq( fd_uverbs_ctx_t * uverbs,
   req->core.cq_handle    = rx_cq_handle;
   req->core.max_wr       = rx_wq->rx_depth;
   req->core.max_sge      = 1U;
+  /* If available strip the VLAN tags in hardware. */
+  req->core.create_flags = cvlan_strip ? IB_UVERBS_WQ_FLAGS_CVLAN_STRIPPING : 0U;
   req->mlx5.buf_addr     = (ulong)rx_wq->rq;
   req->mlx5.db_addr      = (ulong)rx_wq->control;
   req->mlx5.rq_wqe_count = rx_wq->rx_depth;
@@ -1568,7 +1578,7 @@ fd_uverbs_init( fd_uverbs_ctx_t *       uverbs,
                      !fd_uverbs_register_mr( tile->lkey, pd, tile->packet_memory, tile->packet_memory_sz, tile->packet_iova, caps->max_mr_size ) ||
                      !fd_uverbs_create_tx_qp( uverbs, tx_qp, pd, tx_cq_handle, uar_page_id )                                                     ||
                      !fd_uverbs_start_tx_qp( uverbs, tx_qp )                                                                                     ||
-                     !fd_uverbs_create_rx_wq( uverbs, rx_wq, pd, rx_cq_handle )                                                                  ||
+                     !fd_uverbs_create_rx_wq( uverbs, rx_wq, pd, rx_cq_handle, caps->cvlan_strip )                                               ||
                      !fd_uverbs_start_rx_wq( uverbs, rx_wq ) ) ) {
       return NULL;
     }

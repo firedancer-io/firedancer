@@ -1150,6 +1150,47 @@ main( int     argc,
   FD_TEST( fd_seq_ne( fd_frag_meta_seq_query( rx_link->mcache+rx_seq ), rx_seq ) );
   FD_TEST( tile->net.metrics.rx_drop_cnt[ FD_METRICS_ENUM_PKT_RX_DROP_REASON_V_MALFORMED_IDX ]==rx_malformed_before+9UL );
 
+  /* VLAN RX strips a tag that reached software in place.  The NIC
+     normally strips C-tags, so this covers tags it did not strip. */
+  struct __attribute__((packed)) {
+    fd_eth_hdr_t  eth;
+    fd_vlan_tag_t vlan;
+    fd_ip4_hdr_t  ip4;
+    fd_udp_hdr_t  udp;
+  } const rx_vlan_pkt_templ = {
+    .eth  = { .net_type=fd_ushort_bswap( FD_ETH_HDR_TYPE_VLAN ) },
+    .vlan = { .net_vid=fd_ushort_bswap( 100 ), .net_type=fd_ushort_bswap( FD_ETH_HDR_TYPE_IP ) },
+    .ip4  = rx_pkt_templ.ip4,
+    .udp  = rx_pkt_templ.udp
+  };
+  ulong const rx_vlan_before = tile->net.metrics.rx_vlan_cnt;
+  rx_chunk  = rx_comp_one( mock, tile, FD_MLX5_CQE_OP_RX_OK, sizeof(rx_vlan_pkt_templ) );
+  rx_packet = fd_chunk_to_laddr( tile->net.pkt_buf_wksp_base, rx_chunk );
+  fd_memcpy( rx_packet, &rx_vlan_pkt_templ, sizeof(rx_vlan_pkt_templ) );
+  after_credit( tile, stem, &poll_in, &charge_busy );
+  fd_frag_meta_t const * vlan_mline = rx_link->mcache+fd_mcache_line_idx( rx_seq, link_depth );
+  FD_TEST( fd_seq_eq( vlan_mline->seq, rx_seq ) );
+  FD_TEST( vlan_mline->chunk==rx_chunk );
+  FD_TEST( vlan_mline->ctl==sizeof(fd_vlan_tag_t) );
+  FD_TEST( vlan_mline->sz==sizeof(rx_pkt_templ) );
+  uchar const * vlan_frame = (uchar const *)fd_chunk_to_laddr_const( tile->net.pkt_buf_wksp_base, vlan_mline->chunk )+vlan_mline->ctl;
+  FD_TEST( !memcmp( vlan_frame, &rx_pkt_templ, sizeof(rx_pkt_templ) ) );
+  FD_TEST( tile->net.metrics.rx_vlan_cnt==rx_vlan_before+1UL );
+  rx_seq++;
+
+  /* VLAN RX drops a tag carrying a non-IPv4 Ethertype. */
+  rx_chunk  = rx_comp_one( mock, tile, FD_MLX5_CQE_OP_RX_OK, sizeof(rx_vlan_pkt_templ) );
+  rx_packet = fd_chunk_to_laddr( tile->net.pkt_buf_wksp_base, rx_chunk );
+  fd_memcpy( rx_packet, &rx_vlan_pkt_templ, sizeof(rx_vlan_pkt_templ) );
+  ((fd_vlan_tag_t *)(rx_packet+sizeof(fd_eth_hdr_t)))->net_type = fd_ushort_bswap( FD_ETH_HDR_TYPE_ARP );
+  after_credit( tile, stem, &poll_in, &charge_busy );
+  FD_TEST( fd_seq_ne( fd_frag_meta_seq_query( rx_link->mcache+rx_seq ), rx_seq ) );
+  FD_TEST( tile->net.metrics.rx_drop_cnt[ FD_METRICS_ENUM_PKT_RX_DROP_REASON_V_MALFORMED_IDX ]==rx_malformed_before+10UL );
+  FD_TEST( tile->net.metrics.rx_vlan_cnt==rx_vlan_before+1UL );
+
+  metrics_write( tile );
+  FD_TEST( FD_MCNT_GET( MLX5, VLAN_PKT_RX )==tile->net.metrics.rx_vlan_cnt );
+
   /* Leave the first completion after the poll budget queued for the next poll. */
   for( ulong i=0UL; i<(ulong)batch_size+1UL; i++ )
     rx_comp_one( mock, tile, FD_MLX5_CQE_OP_RX_ERR, 0UL );

@@ -64,6 +64,7 @@ struct fd_iavf_vf_info {
   uint   rss_key_sz;
   uint   rss_lut_sz;
   int    wb_on_itr;
+  int    vlan_offload; /* set when VLAN Rx offload is available */
   uchar  mac_addr[ 6 ];
   /* link_usable is false until the PF reports an up link. */
   int    link_usable;
@@ -122,7 +123,8 @@ typedef struct fd_iavf_vfio_tile fd_iavf_vfio_tile_t;
 FD_PROTOTYPES_BEGIN
 
 /* fd_iavf_init opens and resets a VF, negotiates PF resources, maps each
-   tile's memory and configures queues, MAC delivery and RSS. adminq->dma_memory
+   tile's memory and configures queues, MAC delivery, RSS and, when the PF
+   allows it, VLAN tag stripping. adminq->dma_memory
    must hold fd_iavf_adminq_footprint() bytes. Queues remain disabled so callers
    can post RX buffers before fd_iavf_virtchnl_enable_queues. Returns 0 on
    success or -1 with errno set. After failure, the caller must exit. */
@@ -209,6 +211,15 @@ fd_iavf_virtchnl_enable_queues( fd_iavf_vfio_t *            vfio,
                                 fd_iavf_vf_info_t *         info,
                                 fd_iavf_vfio_tile_t const * tiles,
                                 uint                        queue_cnt );
+
+/* fd_iavf_virtchnl_enable_vlan_strip configures the NIC to strip VLAN
+   tags in hardware. If it's not supported or can't be enabled it will
+   fall back to software parsing. Returns -1 when errno indicates a PF
+   reset or closure and 0 otherwise. */
+int
+fd_iavf_virtchnl_enable_vlan_strip( fd_iavf_vfio_t *          vfio,
+                                    fd_iavf_adminq_t *        adminq,
+                                    fd_iavf_vf_info_t const * info );
 
 FD_PROTOTYPES_END
 #endif

@@ -159,10 +159,10 @@ test_virtchnl_setup( void ) {
   FD_TEST( info.link_usable );
   FD_TEST( info.vsi_id==1U && info.queue_pair_cnt==1U && info.vector_cnt==2U && info.max_mtu==2048U );
   FD_TEST( info.rss_key_sz==52U && info.rss_lut_sz==64U && info.mac_addr[0]==2U );
-  FD_TEST( info.wb_on_itr );
+  FD_TEST( info.wb_on_itr && !info.vlan_offload );
   uint requested_caps;
   fd_memcpy( &requested_caps, test_adminq_memory.send_buf[1], sizeof(requested_caps) );
-  FD_TEST( requested_caps==(1U|(1U<<5)|(1U<<19)) );
+  FD_TEST( requested_caps==(1U|(1U<<5)|(1U<<16)|(1U<<19)) );
 
   int changed = -1;
   event[2] = 0U;
@@ -182,6 +182,14 @@ test_virtchnl_setup( void ) {
   fd_memcpy( test_adminq_memory.recv_buf[0]+8UL, &unsupported_caps, sizeof(unsupported_caps) );
   FD_TEST( 0==fd_iavf_virtchnl_get_resources( &vfio, &adminq, &info ) );
   FD_TEST( !info.wb_on_itr );
+
+  /* A granted VLAN offload is recorded for the stripping request. */
+  test_adminq_init( &vfio, &adminq );
+  test_adminq_resources( 0 );
+  uint const vlan_caps = 1U|(1U<<16)|(1U<<19);
+  fd_memcpy( test_adminq_memory.recv_buf[0]+8UL, &vlan_caps, sizeof(vlan_caps) );
+  FD_TEST( 0==fd_iavf_virtchnl_get_resources( &vfio, &adminq, &info ) );
+  FD_TEST( info.vlan_offload );
 
   test_adminq_init( &vfio, &adminq );
   version[1] = 0U;
@@ -240,6 +248,46 @@ test_virtchnl_shutdown( void ) {
   int changed;
   FD_TEST( -1==fd_iavf_virtchnl_poll_link( &vfio, &adminq, &info, &changed ) && errno==ESHUTDOWN );
   FD_TEST( !info.link_usable );
+}
+
+static void
+test_virtchnl_vlan( void ) {
+  fd_iavf_vfio_t          vfio;
+  fd_iavf_adminq_t        adminq;
+  fd_iavf_vf_info_t const granted    = { .vlan_offload=1 };
+  fd_iavf_vf_info_t const not_granted = {0};
+  uint const *            atq_tail    = &test_adminq_regs[ 0x8400UL/sizeof(uint) ]; /* IAVF_VF_ATQT1 */
+
+  /* A granted offload sends one empty stripping request. */
+  test_adminq_init( &vfio, &adminq );
+  test_adminq_reply( 27U, 0, NULL, 0UL ); /* VIRTCHNL_OP_ENABLE_VLAN_STRIPPING */
+  FD_TEST( 0==fd_iavf_virtchnl_enable_vlan_strip( &vfio, &adminq, &granted ) );
+  FD_TEST( 1U==*atq_tail );
+  FD_TEST( test_adminq_memory.send_desc[2]==27U );
+  FD_TEST( (test_adminq_memory.send_desc[1] & 0xffffU)==0U ); /* datalen */
+
+  /* A PF rejection leaves stripping to software without failing. */
+  test_adminq_init( &vfio, &adminq );
+  test_adminq_reply( 27U, -5, NULL, 0UL ); /* VIRTCHNL_STATUS_ERR_PARAM */
+  FD_TEST( 0==fd_iavf_virtchnl_enable_vlan_strip( &vfio, &adminq, &granted ) );
+  FD_TEST( 1U==*atq_tail );
+
+  /* A reply for another request leaves the Admin Queue out of sync. */
+  test_adminq_init( &vfio, &adminq );
+  test_adminq_reply( 8U, 0, NULL, 0UL ); /* VIRTCHNL_OP_ENABLE_QUEUES */
+  FD_TEST( -1==fd_iavf_virtchnl_enable_vlan_strip( &vfio, &adminq, &granted ) && errno==EPROTO );
+
+  /* Without the capability no request is sent. */
+  test_adminq_init( &vfio, &adminq );
+  FD_TEST( 0==fd_iavf_virtchnl_enable_vlan_strip( &vfio, &adminq, &not_granted ) );
+  FD_TEST( 0U==*atq_tail );
+
+  /* A PF reset during the request is fatal. */
+  test_adminq_init( &vfio, &adminq );
+  uint const reset[4] = { 2U, 0U, 0U, 0U }; /* VIRTCHNL_EVENT_RESET_IMPENDING */
+  test_adminq_reply( 17U, 0, reset, sizeof(reset) );
+  test_adminq_reply( 27U, 0, NULL, 0UL );
+  FD_TEST( -1==fd_iavf_virtchnl_enable_vlan_strip( &vfio, &adminq, &granted ) && errno==ECONNRESET );
 }
 
 static void
@@ -523,6 +571,120 @@ test_rx_non_fd_packets( void ) {
     for( ulong r=0UL; r<FD_METRICS_ENUM_PKT_RX_DROP_REASON_CNT; r++ ) {
       FD_TEST( test_tile.net.metrics.rx_drop_cnt[r]==(ulong)(!cases[i].published && !cases[i].non_fd && r==cases[i].drop_reason) );
     }
+  }
+}
+
+/* recv_vlan_pkt receives one VLAN-tagged UDP packet. inner_type is the
+   VLAN tag's Ethertype in host order.  Asserts the RX descriptor was
+   consumed, no drop reason was counted, and the right buffer was recycled. 
+   If published, asserts the mline points at the frame with the tag
+   stripped in place.  If not, asserts nothing was published.  Returns
+   the size of the tagged frame received. */
+
+static ulong
+recv_vlan_pkt( ushort inner_type ) {
+  test_vfs_init();
+  test_tile.vf_cnt             = 1UL;
+  test_tile.batch_size         = 1U;
+  test_tile.net.dst_port_cnt   = 1UL;
+  test_tile.net.dst_ports[0]   = 9000U;
+  test_tile.net.dst_protos[0]  = DST_PROTO_SHRED;
+  test_tile.net.dst_out_idx[0] = 0UL;
+  test_tile.net.rx_out_cnt     = 1UL;
+  test_tile.net.pkt_buf_chunk0 = 1UL;
+  test_tile.net.pkt_buf_wmark  = 33UL;
+  uchar packet_memory[ 4096 ] __attribute__((aligned(64))) = {0};
+  test_tile.net.pkt_buf_wksp_base = packet_memory;
+
+  struct __attribute__((packed)) {
+    fd_eth_hdr_t  eth;
+    fd_vlan_tag_t vlan;
+    fd_ip4_hdr_t  ip4;
+    fd_udp_hdr_t  udp;
+  } const vlan_pkt = {
+    .eth  = { .dst={ 2,3,4,5,6,7 }, .src={ 8,9,10,11,12,13 },
+              .net_type=fd_ushort_bswap( FD_ETH_HDR_TYPE_VLAN ) },
+    .vlan = { .net_vid=fd_ushort_bswap( 100 ), .net_type=fd_ushort_bswap( inner_type ) },
+    .ip4  = { .verihl=FD_IP4_VERIHL( 4,5 ), .protocol=FD_IP4_HDR_PROTOCOL_UDP,
+              .net_tot_len=fd_ushort_bswap( 28U ), .saddr=FD_IP4_ADDR( 198,51,100,1 ) },
+    .udp  = { .net_sport=fd_ushort_bswap( 4321U ), .net_dport=fd_ushort_bswap( 9000U ),
+              .net_len=fd_ushort_bswap( 8U ) }
+  };
+
+  /* The expected published frame: the same packet without the tag */
+  struct __attribute__((packed)) {
+    fd_eth_hdr_t eth;
+    fd_ip4_hdr_t ip4;
+    fd_udp_hdr_t udp;
+  } stripped_pkt;
+  stripped_pkt.eth          = vlan_pkt.eth;
+  stripped_pkt.eth.net_type = vlan_pkt.vlan.net_type;
+  stripped_pkt.ip4          = vlan_pkt.ip4;
+  stripped_pkt.udp          = vlan_pkt.udp;
+  FD_TEST( sizeof(vlan_pkt)==sizeof(stripped_pkt)+sizeof(fd_vlan_tag_t) );
+
+  uchar * rx_frame = fd_chunk_to_laddr( packet_memory, 1UL );
+  fd_memcpy( rx_frame, &vlan_pkt, sizeof(vlan_pkt) );
+
+  fd_frag_meta_t mcache[ 128 ] __attribute__((aligned(128))) = {0};
+  mcache[0].chunk = 33U;
+  fd_frag_meta_t * mcaches[] = { mcache };
+  ulong seq=0UL, depth=128UL;
+  int reliable=0;
+  fd_stem_context_t stem = { .mcaches=mcaches, .seqs=&seq, .depths=&depth, .out_reliable=&reliable };
+  fd_iavf_hw_rx_desc_t desc[ 128 ] = {0};
+  uint chunks[ 128 ] = { 1U };
+  uint tail = 0U;
+  fd_iavf_tile_vf_t * vf = &test_tile.vfs[0];
+  vf->rx_queue = (fd_iavf_queue_t) { .ring=desc, .depth=128U, .tail=&tail, .prod=1UL, .posted=1UL };
+  vf->rx_desc_buf_chunk = chunks;
+  desc[0].qword[1] = FD_IAVF_RX_DESC_DONE | FD_IAVF_RX_DESC_END_OF_PACKET |
+                     ((ulong)sizeof(vlan_pkt)<<FD_IAVF_RX_DESC_LENGTH_SHIFT);
+  FD_TEST( fd_iavf_tile_poll_rx( &test_tile, &stem ) );
+
+  /* The RX descriptor was consumed and no drop reason was counted */
+  FD_TEST( vf->rx_queue.cons==1UL );
+  for( ulong r=0UL; r<FD_METRICS_ENUM_PKT_RX_DROP_REASON_CNT; r++ ) FD_TEST( !test_tile.net.metrics.rx_drop_cnt[ r ] );
+
+  if( inner_type==FD_ETH_HDR_TYPE_IP ) {
+    FD_TEST( seq==1UL );
+
+    /* The tag was stripped in place, so the frame starts 4 bytes in */
+    FD_TEST( mcache[0].chunk==1U );
+    FD_TEST( mcache[0].ctl==sizeof(fd_vlan_tag_t) );
+    FD_TEST( mcache[0].sz==sizeof(stripped_pkt) );
+    FD_TEST( 0==memcmp( rx_frame+mcache[0].ctl, &stripped_pkt, sizeof(stripped_pkt) ) );
+
+    /* The buffer previously held by the mline was recycled */
+    FD_TEST( chunks[1]==33U );
+  } else {
+    FD_TEST( seq==0UL );
+    FD_TEST( chunks[1]==1U );
+  }
+
+  return sizeof(vlan_pkt);
+}
+
+static void
+test_rx_vlan( void ) {
+  /* A VLAN-tagged IPv4 packet is published with the tag stripped and
+     counted as a VLAN packet. */
+  {
+    ulong vlan_pkt_sz = recv_vlan_pkt( FD_ETH_HDR_TYPE_IP );
+    FD_TEST( test_tile.net.metrics.rx_vlan_cnt   ==1UL                               );
+    FD_TEST( test_tile.net.metrics.rx_pkt_cnt    ==1UL                               );
+    FD_TEST( test_tile.net.metrics.rx_bytes_total==vlan_pkt_sz-sizeof(fd_vlan_tag_t) );
+    FD_TEST( test_tile.metrics.non_fd_pkt_cnt    ==0UL                               );
+  }
+
+  /* A VLAN-tagged packet with a non-IPv4 inner Ethertype is not for
+     Firedancer: it is counted as non-FD, not published, and not
+     counted as a VLAN packet. */
+  {
+    recv_vlan_pkt( FD_ETH_HDR_TYPE_ARP );
+    FD_TEST( test_tile.net.metrics.rx_vlan_cnt==0UL );
+    FD_TEST( test_tile.net.metrics.rx_pkt_cnt ==0UL );
+    FD_TEST( test_tile.metrics.non_fd_pkt_cnt ==1UL );
   }
 }
 
@@ -935,9 +1097,9 @@ test_hardware( char const * pci_addr,
   }
   FD_TEST( 0==posix_memalign( &adminq.dma_memory, FD_IAVF_PAGE_SZ, fd_iavf_adminq_footprint() ) );
   FD_TEST( 0==fd_iavf_init( &vfio, &adminq, &info, queues, queue_cnt, pci_addr, 2048U, 2048U ) );
-  FD_LOG_NOTICE(( "VF %s, VSI %hu, queue pairs %hu, vectors %hu, RSS key %u, RSS table %u",
+  FD_LOG_NOTICE(( "VF %s, VSI %hu, queue pairs %hu, vectors %hu, RSS key %u, RSS table %u, VLAN offload %i",
                   pci_addr, info.vsi_id, info.queue_pair_cnt, info.vector_cnt,
-                  info.rss_key_sz, info.rss_lut_sz ));
+                  info.rss_key_sz, info.rss_lut_sz, info.vlan_offload ));
 
   for( uint i=0U; i<queue_cnt; i++ ) {
     fd_iavf_tile_vf_t * vf = &tiles[i].vfs[0];
@@ -970,6 +1132,7 @@ main( int argc, char ** argv ) {
   test_virtchnl_setup();
   test_virtchnl_initial_link();
   test_virtchnl_shutdown();
+  test_virtchnl_vlan();
   test_queue_mapping_failure();
   test_tx_ring();
   test_tx_poll();
@@ -979,6 +1142,7 @@ main( int argc, char ** argv ) {
   test_bond_route();
   test_inactive_rx();
   test_rx_non_fd_packets();
+  test_rx_vlan();
   test_vf_batches();
   test_shared_links();
   test_packet_memory();

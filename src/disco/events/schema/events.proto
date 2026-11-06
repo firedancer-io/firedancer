@@ -9590,6 +9590,8 @@ message MetricsNet {
   uint64 gre_pkt_tx_submitted = 46;
   // IPv4 routes installed in the forwarding table
   MetricsNetRouteCount route_count = 47;
+  // VLAN-tagged packets with the tag stripped in software and published; subset of PktRx
+  uint64 vlan_pkt_rx = 48;
 }
 
 // Metrics of one mlx5 tile instance, one row per sweep
@@ -9666,6 +9668,8 @@ message MetricsMlx5 {
   uint64 tx_buffer_used = 35;
   // TX buffers available for a new transmit job
   uint64 tx_buffer_free = 36;
+  // VLAN-tagged packets with the tag stripped in software and published; subset of PktRx
+  uint64 vlan_pkt_rx = 37;
 }
 
 // Metrics of one sock tile instance, one row per sweep
@@ -13265,6 +13269,8 @@ message MetricsIavf {
   uint64 tx_buffer_free = 39;
   // Packets received by IAVF VFs that are not intended for Firedancer
   uint64 non_fd_pkt_rx = 40;
+  // VLAN-tagged packets with the tag stripped in software and published; subset of PktRx
+  uint64 vlan_pkt_rx = 41;
 }
 
 // Metrics of one failov tile instance, one row per sweep

@@ -61,7 +61,7 @@ static uint const state_snaprd_state[ 3 ] = { 1, 2, 3 };
 static uint const state_snapsv_state[ 3 ] = { 1, 2, 3 };
 static uint const state_motor_state[ 3 ] = { 1, 2, 3 };
 
-static fd_metrics_sample_field_t const fields_net[ 80 ] = {
+static fd_metrics_sample_field_t const fields_net[ 81 ] = {
   { FD_METRICS_GAUGE_TILE_PID_OFF, 8U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_GAUGE_TILE_TID_OFF, 9U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_GAUGE_TILE_LAST_CPU_INDEX_OFF, 10U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
@@ -142,9 +142,10 @@ static fd_metrics_sample_field_t const fields_net[ 80 ] = {
   { FD_METRICS_GAUGE_NET_ROUTE_COUNT_LOCAL_OFF, 1U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_GAUGE_NET_ROUTE_COUNT_MAIN_OFF, 2U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { 0, 0U, FD_METRICS_SAMPLE_CLOSE, NULL, 0UL },
+  { FD_METRICS_COUNTER_NET_VLAN_PKT_RX_OFF, 48U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
 };
 
-static fd_metrics_sample_field_t const fields_mlx5[ 66 ] = {
+static fd_metrics_sample_field_t const fields_mlx5[ 67 ] = {
   { FD_METRICS_GAUGE_TILE_PID_OFF, 8U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_GAUGE_TILE_TID_OFF, 9U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_GAUGE_TILE_LAST_CPU_INDEX_OFF, 10U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
@@ -193,6 +194,7 @@ static fd_metrics_sample_field_t const fields_mlx5[ 66 ] = {
   { FD_METRICS_COUNTER_MLX5_PKT_RX_DROPPED_GRE_UNCONFIGURED_OFF, 5U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { 0, 0U, FD_METRICS_SAMPLE_CLOSE, NULL, 0UL },
   { FD_METRICS_COUNTER_MLX5_GRE_PKT_RX_OFF, 28U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
+  { FD_METRICS_COUNTER_MLX5_VLAN_PKT_RX_OFF, 37U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_GAUGE_MLX5_RX_BUFFER_USED_OFF, 29U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_GAUGE_MLX5_RX_BUFFER_FREE_OFF, 30U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_COUNTER_MLX5_PKT_TX_COMPLETED_OFF, 31U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
@@ -213,7 +215,7 @@ static fd_metrics_sample_field_t const fields_mlx5[ 66 ] = {
   { FD_METRICS_GAUGE_MLX5_TX_BUFFER_FREE_OFF, 36U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
 };
 
-static fd_metrics_sample_field_t const fields_iavf[ 70 ] = {
+static fd_metrics_sample_field_t const fields_iavf[ 71 ] = {
   { FD_METRICS_GAUGE_TILE_PID_OFF, 8U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_GAUGE_TILE_TID_OFF, 9U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_GAUGE_TILE_LAST_CPU_INDEX_OFF, 10U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
@@ -263,6 +265,7 @@ static fd_metrics_sample_field_t const fields_iavf[ 70 ] = {
   { 0, 0U, FD_METRICS_SAMPLE_CLOSE, NULL, 0UL },
   { FD_METRICS_COUNTER_IAVF_PKT_RX_NO_LINK_DROPPED_OFF, 28U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_COUNTER_IAVF_GRE_PKT_RX_OFF, 29U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
+  { FD_METRICS_COUNTER_IAVF_VLAN_PKT_RX_OFF, 41U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_GAUGE_IAVF_RX_BUFFER_USED_OFF, 30U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_GAUGE_IAVF_RX_BUFFER_FREE_OFF, 31U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_COUNTER_IAVF_PKT_TX_COMPLETED_OFF, 32U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
@@ -4709,9 +4712,9 @@ static fd_metrics_sample_field_t const fields_link[ 9 ] = {
 };
 
 fd_metrics_sample_schema_t const fd_metrics_sample_tiles[] = {
-  { "net", 22U, fields_net, 80UL, 949UL },
-  { "mlx5", 23U, fields_mlx5, 66UL, 800UL },
-  { "iavf", 64U, fields_iavf, 70UL, 848UL },
+  { "net", 22U, fields_net, 81UL, 961UL },
+  { "mlx5", 23U, fields_mlx5, 67UL, 812UL },
+  { "iavf", 64U, fields_iavf, 71UL, 860UL },
   { "sock", 24U, fields_sock, 52UL, 657UL },
   { "quic", 25U, fields_quic, 197UL, 2110UL },
   { "bundle", 26U, fields_bundle, 75UL, 899UL },

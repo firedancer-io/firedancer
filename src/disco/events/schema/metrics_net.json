@@ -144,6 +144,7 @@
                 "local": { "type": "UInt64", "compression": "T64, ZSTD", "description": "Local" },
                 "main":  { "type": "UInt64", "compression": "T64, ZSTD", "description": "Main" }
             }
-        }
+        },
+        "vlan_pkt_rx":                       { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "VLAN-tagged packets with the tag stripped in software and published; subset of PktRx" }
     }
 }
