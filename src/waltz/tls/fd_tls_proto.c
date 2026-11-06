@@ -1152,13 +1152,22 @@ fd_tls_extract_cert_pubkey_( fd_tls_extract_cert_pubkey_res_t * res,
     if( FD_UNLIKELY( ext_sz ) ) return -(long)FD_TLS_ALERT_UNSUPPORTED_EXTENSION;
   }
 
-  if( FD_UNLIKELY( fd_x509_extract_pubkey( cert, cert_sz, &res->pubkey,
-                                           &res->pubkey_len, &res->key_type ) ) ) {
+  fd_x509_cert_info_t info;
+  if( FD_UNLIKELY( fd_x509_cert_parse( cert, cert_sz, &info ) ) ) {
     res->pubkey = NULL;
-    res->alert  = FD_TLS_ALERT_UNSUPPORTED_CERTIFICATE;
+    res->alert  = FD_TLS_ALERT_BAD_CERTIFICATE;
     res->reason = FD_TLS_REASON_X509_PARSE;
     return -1L;
   }
+  if( FD_UNLIKELY( info.key_type==FD_X509_KEY_UNKNOWN ) ) {
+    res->pubkey = NULL;
+    res->alert  = FD_TLS_ALERT_UNSUPPORTED_CERTIFICATE;
+    res->reason = FD_TLS_REASON_CERT_KEY_TYPE;
+    return -1L;
+  }
+  res->pubkey     = info.pubkey;
+  res->pubkey_len = info.pubkey_len;
+  res->key_type   = info.key_type;
 
   return 0L;
 }
