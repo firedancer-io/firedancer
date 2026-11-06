@@ -288,6 +288,9 @@ typedef struct fd_fec_resolver_spilled fd_fec_resolver_spilled_t;
    completes the FEC set.  In this case, the function populates any
    missing shreds in the FEC set stored in out_fec_set.
 
+   If shred is a parity shred, source will always be treated as not
+   REPAIR, even if REPAIR is passed in.
+
    Regardless of success/failure, if an in progress FEC set was evicted
    from the current map during this add_shred call, and the
    out_spilled_fec_set pointer is not NULL, the metadata of the evicted
