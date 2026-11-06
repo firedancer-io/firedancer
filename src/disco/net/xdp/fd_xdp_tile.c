@@ -642,6 +642,9 @@ before_frag( fd_net_ctx_t * ctx,
 
   if( kind_id!=0UL && kind_id!=target_idx ) return 1; /* ignore */
 
+  /* Tile 0 probes for loopback without counting another tile's route failures. */
+  if( kind_id!=target_idx &&
+      !fd_net_tx_probe_loopback( ctx->fib_local, ctx->fib_main, &ctx->netdev_tbl, dst_ip ) ) return 1;
 
   fd_net_tx_route_t * route = &ctx->net.tx_route;
   *route = (fd_net_tx_route_t){0};

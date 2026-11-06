@@ -841,6 +841,10 @@ before_frag( fd_mlx5_tile_t * ctx,
   if( kind_id!=0UL && kind_id!=target_idx ) return 1;
 
   uint dst_ip = fd_disco_netmux_sig_ip( sig );
+  /* Tile 0 probes for loopback without counting another tile's route failures. */
+  if( kind_id!=target_idx &&
+      !fd_net_tx_probe_loopback( ctx->router.fib_local, ctx->router.fib_main, &ctx->router.netdev_tbl, dst_ip ) ) return 1;
+
   fd_net_tx_route_t * route = &ctx->net.tx_route;
   /* Packets that fail userland routing are sent on net.sock in
      after_frag and routed by the kernel. */

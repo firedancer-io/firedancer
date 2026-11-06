@@ -1713,6 +1713,35 @@ main( int     argc,
     tile->net.tile_cnt = 1UL;
   }
 
+  /* A fallback packet owned by a nonzero tile counts its routing
+     failure once: tile 0 probes for loopback without counting. */
+  {
+    ulong fb_sig = fd_disco_netmux_sig( 0U, SHRED_PORT, no_route_ip4_addr, DST_PROTO_OUTGOING, 0UL );
+    for( ushort port=SHRED_PORT; 0UL==fd_disco_netmux_sig_hash( fb_sig )%2UL; port++ ) {
+      FD_TEST( port<SHRED_PORT+1000U );
+      fb_sig = fd_disco_netmux_sig( 0U, port, no_route_ip4_addr, DST_PROTO_OUTGOING, 0UL );
+    }
+
+    ulong route_fail_before[ FD_METRICS_ENUM_PKT_TX_ROUTING_FAILURE_REASON_CNT ];
+    fd_memcpy( route_fail_before, tile->net.metrics.tx_routing_failure_cnt, sizeof(route_fail_before) );
+    ulong const neigh_fail_before = tile->router.metrics.tx_neigh_fail_cnt;
+
+    tile->net.tile_cnt = 2UL;
+    tile->net.kind_id  = 0UL;
+    FD_TEST( 1==before_frag( tile, 0UL, tx_seq, fb_sig ) );
+    FD_TEST( 0==memcmp( route_fail_before, tile->net.metrics.tx_routing_failure_cnt, sizeof(route_fail_before) ) );
+    FD_TEST( tile->router.metrics.tx_neigh_fail_cnt==neigh_fail_before );
+
+    tile->net.kind_id  = 1UL;
+    FD_TEST( 0==before_frag( tile, 0UL, tx_seq, fb_sig ) );
+    route_fail_before[ FD_METRICS_ENUM_PKT_TX_ROUTING_FAILURE_REASON_V_NO_ROUTE_IDX ]++;
+    FD_TEST( 0==memcmp( route_fail_before, tile->net.metrics.tx_routing_failure_cnt, sizeof(route_fail_before) ) );
+    FD_TEST( tile->router.metrics.tx_neigh_fail_cnt==neigh_fail_before );
+
+    tile->net.kind_id  = 0UL;
+    tile->net.tile_cnt = 1UL;
+  }
+
   /* A GRE route whose outer endpoint fails routing is encapsulated in
      userland and sent on net.sock to the outer endpoint.  The outer
      source is the GRE device's source, else the fallback source of the
