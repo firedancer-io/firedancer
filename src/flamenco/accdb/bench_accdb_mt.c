@@ -47,8 +47,7 @@
                    size class (default 0: off)
    --preset hot    transfer mix, 4 hot read-only accounts, 512 accounts
                    per thread, 3 GiB cache: everything stays cached, so
-                   it measures only what the threads share (the workload
-                   of bench_accdb_scale on mmcgee/accdb-lazy-lines-2)
+                   it measures only what the threads share
 
    Reports per step total txn/s, per-thread acquire+release ns/txn,
    scaling against the first step, acquire/release ns per account and

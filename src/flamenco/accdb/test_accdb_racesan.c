@@ -3496,7 +3496,7 @@ test_clock_claim_vs_freed( void ) {
 
 /* test_hint_lost_update: a steal that finds a join's list empty and a
    push into that same empty list must not leave the hint bit clear with
-   a line on the list.  (Scenario from mmcgee/accdb-lazy-lines-2.)
+   a line on the list.
 
    Class 0 is marked fully initialized, so a join with an empty list
    must steal.  P and Q are on disk; ctl's class-0 list holds one line.
