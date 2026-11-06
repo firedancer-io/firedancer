@@ -25,6 +25,9 @@ FD_STATIC_ASSERT( FD_ACCDB_BOUNCE_SZ>=FD_RUNTIME_ACC_SZ_MAX+sizeof(fd_accdb_disk
 #define PREEVICT_STAGE_SZ (FD_RUNTIME_ACC_SZ_MAX+sizeof(fd_accdb_disk_meta_t))
 FD_STATIC_ASSERT( PREEVICT_BATCH_SZ<=PREEVICT_STAGE_SZ, batch_fits_stage );
 
+/* Default minimum ticks between background_preevict watermark scans. */
+#define FD_ACCDB_PREEVICT_SCAN_TICKS (100000L)
+
 #if FD_HAS_RACESAN
 /* Test-only telemetry: background_compact publishes the pubkey + dest
    offset of the record it is about to relocation-CAS at the
@@ -130,6 +133,7 @@ struct __attribute__((aligned(FD_ACCDB_ALIGN))) fd_accdb_private {
      reporting busy while a refill is pending, so the accdb tile does
      not park mid-refill. */
   long  preevict_ticks;
+  long  preevict_interval;
   int   preevict_pending;
 
   /* Reservation state (res_*), constant after join.  res_limit[c] is
@@ -362,8 +366,9 @@ fd_accdb_new( void *              ljoin,
   res_init( accdb, shmem, epoch_idx );
   accdb->free_idx         = epoch_idx;
   accdb->free_ring_ticks  = 0L;
-  accdb->preevict_ticks   = 0L;
-  accdb->preevict_pending = 0;
+  accdb->preevict_ticks    = 0L;
+  accdb->preevict_interval = FD_ACCDB_PREEVICT_SCAN_TICKS;
+  accdb->preevict_pending  = 0;
 
   accdb->external_epoch_slots = external_epoch_slots;
   accdb->external_epoch_cnt   = external_epoch_cnt;
@@ -478,7 +483,10 @@ fd_accdb_reset( fd_accdb_t * accdb ) {
     shmem->cache_class_init[ c ].val = 0UL;
     ulong worst = shmem->cache_min_reserved*shmem->joiner_cnt_max;
     shmem->cache_class_used[ c ].val = fd_ulong_if( shmem->cache_class_max[ c ]>=worst, ULONG_MAX, 0UL );
-    for( ulong w=0UL; w<FD_ACCDB_MAX_JOINERS/64UL; w++ ) shmem->cache_free_have[ c ].bits[ w ] = 0UL;
+    for( ulong w=0UL; w<FD_ACCDB_MAX_JOINERS/64UL; w++ ) {
+      shmem->cache_free_have  [ c ].bits[ w ] = 0UL;
+      shmem->cache_free_hungry[ c ].bits[ w ] = 0UL;
+    }
   }
   for( ulong j=0UL; j<FD_ACCDB_MAX_JOINERS; j++ ) {
     for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) {
@@ -984,20 +992,26 @@ evict_clear_acc_cache_ref( fd_accdb_accmeta_t * accmeta,
    line is on some list any join can steal from, so reservations still
    guarantee a line.
 
+   Pre-eviction (the accdb tile) pushes the lines it frees onto the
+   lists of the joins that recently ran short (cache_free_hungry), so in
+   steady state an exec tile pops its own list instead of every exec
+   tile stealing from the accdb tile's.  A list thus has one owner who
+   pops and pushes, plus the accdb tile pushing and stealers popping.
+
    cache_free_have lets a stealer skip empty lists.  The invariant is
    "list non-empty => bit set": a push into an empty list sets the bit;
    a stealer that finds a list empty clears the bit and then re-reads
    the list, setting the bit back if a push landed in between. */
 
-/* cache_free_push pushes a free line onto this join's class list.  The
+/* cache_free_push_to pushes a free line onto join j's class list.  The
    caller has already invalidated the line (generation and acc_idx
    UINT_MAX, persisted=1) and released refcnt to 0, in that order. */
 
 static inline void
-cache_free_push( fd_accdb_t *            accdb,
-                 ulong                   size_class,
-                 fd_accdb_cache_line_t * line ) {
-  ulong   j        = accdb->free_idx;
+cache_free_push_to( fd_accdb_t *            accdb,
+                    ulong                   j,
+                    ulong                   size_class,
+                    fd_accdb_cache_line_t * line ) {
   ulong * ver_top  = &accdb->shmem->cache_free[ j ].ver_top[ size_class ];
   ulong   line_idx = cache_line_idx( accdb, size_class, line );
   ulong   old_vt   = FD_VOLATILE_CONST( *ver_top );
@@ -1024,6 +1038,15 @@ cache_free_push( fd_accdb_t *            accdb,
     }
     old_vt = seen_vt; /* retry at once with the head the CAS returned */
   }
+}
+
+/* cache_free_push pushes a free line onto this join's class list. */
+
+static inline void
+cache_free_push( fd_accdb_t *            accdb,
+                 ulong                   size_class,
+                 fd_accdb_cache_line_t * line ) {
+  cache_free_push_to( accdb, accdb->free_idx, size_class, line );
 }
 
 /* cache_free_pop_from pops a line from join j's class list, or returns
@@ -1985,8 +2008,13 @@ popped:
   }
 
   /* Our list is empty and the class has no never-used line left: from
-     here on, free lines only come from pre-eviction or eviction, so
-     wake the accdb tile now. */
+     here on, free lines only come from pre-eviction or eviction, so ask
+     pre-eviction for a line next time and wake the accdb tile now. */
+  {
+    ulong * hungry = &accdb->shmem->cache_free_hungry[ size_class ].bits[ accdb->free_idx/64UL ];
+    ulong   bit    = 1UL<<( accdb->free_idx%64UL );
+    if( !( FD_VOLATILE_CONST( *hungry ) & bit ) ) FD_ATOMIC_FETCH_AND_OR( hungry, bit );
+  }
   cache_free_ring( accdb );
 
   /* Priority 3: another join's free list. */
@@ -1994,14 +2022,16 @@ popped:
   if( FD_LIKELY( result ) ) goto popped;
 
   /* Priority 4: CLOCK sweep ... scan forward giving second chances.
-     CLOCK skips free lines, so a line another join frees during the
-     sweep is invisible to it: after each fruitless lap, steal again.
-     (Our own list cannot refill meanwhile: only we push to it.) */
+     CLOCK skips free lines, so a line freed onto some list during the
+     sweep is invisible to it: after each fruitless lap, check our own
+     list (pre-eviction may have pushed to it) and steal again. */
   ulong swept = 0UL;
   for(;;) {
     if( FD_UNLIKELY( ++swept>max_c ) ) {
       fd_racesan_hook( "accdb_clock:lap" );
       swept  = 0UL;
+      result = cache_free_pop_from( accdb, accdb->free_idx, size_class );
+      if( result ) goto popped;
       result = cache_free_steal( accdb, size_class );
       if( result ) goto popped;
     }
@@ -4421,11 +4451,12 @@ fd_accdb_data_len( fd_accdb_t *       accdb,
 
 #define PREEVICT_TICK_BUDGET (256UL)
 
-/* cache_line_free invalidates a claimed line and returns it to its
-   class free list. */
+/* cache_line_free invalidates a claimed line and pushes it onto join
+   j's class free list. */
 
 static inline void
 cache_line_free( fd_accdb_t *            accdb,
+                 ulong                   j,
                  ulong                   size_class,
                  fd_accdb_cache_line_t * line ) {
   line->persisted      = 1;
@@ -4433,12 +4464,59 @@ cache_line_free( fd_accdb_t *            accdb,
   line->key.generation = UINT_MAX;
   FD_COMPILER_MFENCE();
   FD_VOLATILE( line->refcnt ) = 0;
-  cache_free_push( accdb, size_class, line );
+  cache_free_push_to( accdb, j, size_class, line );
+}
+
+/* preevict_hungry_t is pre-eviction's snapshot of a class's
+   cache_free_hungry bits (taken and cleared at the start of a class
+   pass).  preevict_target deals the lines the pass frees round-robin
+   to those joins' lists, or to the pre-evicting join's own list when
+   none ran short.  A join that ran short once gets as many as one that
+   ran short often; any surplus is stealable. */
+
+struct preevict_hungry {
+  ulong bits[ FD_ACCDB_MAX_JOINERS/64UL ];
+  ulong next; /* join to try first */
+};
+
+typedef struct preevict_hungry preevict_hungry_t;
+
+static void
+preevict_hungry_take( preevict_hungry_t * h,
+                      fd_accdb_shmem_t *  shmem,
+                      ulong               size_class,
+                      int                 force ) {
+  h->next = 0UL;
+  for( ulong w=0UL; w<FD_ACCDB_MAX_JOINERS/64UL; w++ ) {
+    ulong * bits = &shmem->cache_free_hungry[ size_class ].bits[ w ];
+    h->bits[ w ] = ( !force && FD_VOLATILE_CONST( *bits ) ) ? FD_ATOMIC_XCHG( bits, 0UL ) : 0UL;
+  }
+}
+
+static inline ulong
+preevict_hungry_find( preevict_hungry_t const * h,
+                      ulong                     from ) {
+  for( ulong w=from/64UL; w<FD_ACCDB_MAX_JOINERS/64UL; w++ ) {
+    ulong m = h->bits[ w ] & ( w==from/64UL ? ~0UL<<( from%64UL ) : ~0UL );
+    if( m ) return w*64UL + (ulong)fd_ulong_find_lsb( m );
+  }
+  return ULONG_MAX;
+}
+
+static inline ulong
+preevict_target( preevict_hungry_t * h,
+                 fd_accdb_t const *  accdb ) {
+  ulong j = preevict_hungry_find( h, h->next );
+  if( j==ULONG_MAX ) j = preevict_hungry_find( h, 0UL );
+  if( j==ULONG_MAX ) return accdb->free_idx;
+  h->next = j+1UL;
+  return j;
 }
 
 static void
 preevict_flush( fd_accdb_t *             accdb,
                 ulong                    size_class,
+                preevict_hungry_t *      hungry,
                 fd_accdb_cache_line_t ** pend_line,
                 ulong const *            pend_sz,
                 ulong                    pend_cnt,
@@ -4488,7 +4566,7 @@ preevict_flush( fd_accdb_t *             accdb,
     accmeta->offset_fork = fd_accdb_acc_pack_offset_fork( off, fd_accdb_acc_fork_id( accmeta ) );
     off += pend_sz[ i ];
     FD_COMPILER_MFENCE();
-    cache_line_free( accdb, size_class, line );
+    cache_line_free( accdb, preevict_target( hungry, accdb ), size_class, line );
   }
   accdb->metrics->accounts_preevicted                         += pend_cnt;
   accdb->metrics->accounts_preevicted_per_class[ size_class ] += pend_cnt;
@@ -4517,14 +4595,13 @@ preevict_flush( fd_accdb_t *             accdb,
   The watermark test sums every join's free-list count, reading a
   line each join writes on its hot path; so it runs at most once per
   FD_ACCDB_PREEVICT_SCAN_TICKS (tens of microseconds) instead of every
-  tick of an otherwise idle loop.
+  tick of an otherwise idle loop (per join, preevict_interval; tests
+  set it with fd_accdb_set_preevict_interval).
 
   force: when non-zero, ignore the watermark and sweep every line in
   every class.  Always 0 in normal operation; used only by
   test_accdb_racesan to deterministically exercise the writeback path
   without manufacturing real cache pressure. */
-
-#define FD_ACCDB_PREEVICT_SCAN_TICKS (100000L)
 
 static void
 background_preevict( fd_accdb_t * accdb,
@@ -4534,7 +4611,7 @@ background_preevict( fd_accdb_t * accdb,
 
   if( FD_LIKELY( !force ) ) {
     long now = fd_tickcount();
-    if( FD_LIKELY( now-accdb->preevict_ticks<FD_ACCDB_PREEVICT_SCAN_TICKS ) ) {
+    if( FD_LIKELY( now-accdb->preevict_ticks<accdb->preevict_interval ) ) {
       *charge_busy |= accdb->preevict_pending;
       return;
     }
@@ -4565,6 +4642,9 @@ background_preevict( fd_accdb_t * accdb,
     ulong budget  = force ? init : PREEVICT_TICK_BUDGET;
     ulong evicted = 0UL;
     if( FD_UNLIKELY( force ) ) target = max_c; /* sweep everything */
+
+    preevict_hungry_t hungry[1];
+    preevict_hungry_take( hungry, shmem, size_class, force );
 
     for( ulong tick=0UL; tick<budget && avail+evicted<target; tick++ ) {
       /* Only sweep the lazily initialized prefix.  cache_class_init
@@ -4604,7 +4684,7 @@ background_preevict( fd_accdb_t * accdb,
       }
       line->key.generation = UINT_MAX;
       if( FD_UNLIKELY( line->persisted || acc_idx==UINT_MAX ) ) {
-        cache_line_free( accdb, size_class, line );
+        cache_line_free( accdb, preevict_target( hungry, accdb ), size_class, line );
         evicted++;
         continue;
       }
@@ -4618,7 +4698,7 @@ background_preevict( fd_accdb_t * accdb,
       ulong entry_sz = sizeof(fd_accdb_disk_meta_t)+data_sz;
 
       if( FD_UNLIKELY( pend_cnt && ( stage_sz+entry_sz>batch_max || pend_cnt==PREEVICT_TICK_BUDGET ) ) ) {
-        preevict_flush( accdb, size_class, pend_line, pend_sz, pend_cnt, stage_sz );
+        preevict_flush( accdb, size_class, hungry, pend_line, pend_sz, pend_cnt, stage_sz );
         pend_cnt = 0UL;
         stage_sz = 0UL;
       }
@@ -4638,7 +4718,7 @@ background_preevict( fd_accdb_t * accdb,
     }
 
     if( pend_cnt ) {
-      preevict_flush( accdb, size_class, pend_line, pend_sz, pend_cnt, stage_sz );
+      preevict_flush( accdb, size_class, hungry, pend_line, pend_sz, pend_cnt, stage_sz );
       pend_cnt = 0UL;
       stage_sz = 0UL;
     }
@@ -4999,6 +5079,12 @@ fd_accdb_cache_class_occupancy( fd_accdb_t * accdb,
     }
     reserved[ c ] = res;
   }
+}
+
+void
+fd_accdb_set_preevict_interval( fd_accdb_t * accdb,
+                                long         ticks ) {
+  accdb->preevict_interval = ticks;
 }
 
 void

@@ -711,6 +711,16 @@ fd_accdb_cache_class_thresholds( fd_accdb_t * accdb,
                                  ulong *      free_target,
                                  ulong *      free_low_water );
 
+/* fd_accdb_set_preevict_interval sets the minimum ticks between this
+   join's background pre-eviction watermark scans (default ~100000; 0
+   scans on every fd_accdb_background call).  For tests: a
+   single-threaded test that calls fd_accdb_background once to refill
+   the free lists sets 0. */
+
+void
+fd_accdb_set_preevict_interval( fd_accdb_t * accdb,
+                                long         ticks );
+
 /* FD_ACCDB_METRICS_WRITE publishes the per-joiner accdb runtime metrics
    for tile prefix TILE.  TILE must be a tile that declares the
    AccdbAccountReadonlyAcquired/... counters in metrics.xml (e.g. EXECLE,

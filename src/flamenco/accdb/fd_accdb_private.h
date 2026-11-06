@@ -450,6 +450,12 @@ struct fd_accdb_shmem_private {
      is non-empty (it may also be set when empty). */
   struct __attribute__((aligned(64))) { ulong bits[ FD_ACCDB_MAX_JOINERS/64UL ]; } cache_free_have[ FD_ACCDB_CACHE_CLASS_CNT ];
 
+  /* Bit j of cache_free_hungry[c] is set when join j ran out of free
+     class-c lines (own list empty, no never-used line).  Pre-eviction
+     takes and clears the bits, and hands the lines it frees to those
+     joins' lists. */
+  struct __attribute__((aligned(64))) { ulong bits[ FD_ACCDB_MAX_JOINERS/64UL ]; } cache_free_hungry[ FD_ACCDB_CACHE_CLASS_CNT ];
+
   fd_accdb_fork_id_t root_fork_id;
 
   ulong seed;
