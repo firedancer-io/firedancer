@@ -1459,6 +1459,54 @@ FD_UNIT_TEST( quic_rng_reseed ) {
   FD_TEST( memcmp( state->_rng->key, key0, sizeof(key0) )!=0 );
 }
 
+FD_UNIT_TEST( quic_one_retry_per_datagram ) {
+  FD_TEST( fd_quic_sandbox_init( sandbox, FD_QUIC_ROLE_SERVER ) );
+  fd_quic_t * quic = sandbox->quic;
+  quic->config.retry = 1;
+  ulong cid = 0x4141414141414141UL;
+  fd_quic_crypto_secrets_t secrets;
+  fd_quic_gen_initial_secrets( &secrets, (uchar const *)&cid, sizeof(cid), 1 );
+  fd_quic_crypto_keys_t keys;
+  fd_quic_gen_keys( &keys, secrets.secret[fd_quic_enc_level_initial_id][0] );
+  uchar dgram[1228];
+  ulong off = 28UL;
+  for( uint j=0U; j<4U; j++ ) {
+    uchar payload[254] = { 0x01 };
+    fd_quic_initial_t initial = {
+      .h0=fd_quic_initial_h0(3), .version=1,
+      .dst_conn_id_len=8, .src_conn_id_len=8,
+      .len=4UL+sizeof(payload)+FD_QUIC_CRYPTO_TAG_SZ, .pkt_num=j
+    };
+    memcpy( initial.dst_conn_id, &cid, 8UL );
+    memcpy( initial.src_conn_id, &cid, 8UL );
+    uchar hdr[64];
+    ulong hdr_sz = fd_quic_encode_initial( hdr, sizeof(hdr), &initial );
+    FD_TEST( hdr_sz!=FD_QUIC_ENCODE_FAIL );
+    ulong sz = sizeof(dgram)-off;
+    FD_TEST( fd_quic_crypto_encrypt( dgram+off, &sz, hdr, hdr_sz, payload, sizeof(payload), &keys, &keys, j )==FD_QUIC_SUCCESS );
+    FD_TEST( sz==300UL );
+    off += sz;
+  }
+  FD_TEST( off==sizeof(dgram) );
+  fd_ip4_hdr_t ip4 = { .verihl=FD_IP4_VERIHL(4,5), .net_tot_len=(ushort)off,
+    .protocol=FD_IP4_HDR_PROTOCOL_UDP, .saddr=FD_QUIC_SANDBOX_PEER_IP4, .daddr=FD_QUIC_SANDBOX_SELF_IP4 };
+  fd_udp_hdr_t udp = { .net_sport=FD_QUIC_SANDBOX_PEER_PORT, .net_dport=FD_QUIC_SANDBOX_SELF_PORT, .net_len=(ushort)(off-20UL) };
+  FD_TEST( fd_quic_encode_ip4( dgram, 20UL, &ip4 )==20UL );
+  FD_TEST( fd_quic_encode_udp( dgram+20UL, 8UL, &udp )==8UL );
+  ulong before = quic->metrics.retry_tx_cnt;
+  for( ulong j=1UL; j<=2UL; j++ ) {
+    fd_quic_process_packet( quic, dgram, off, sandbox->wallclock );
+    FD_TEST( quic->metrics.retry_tx_cnt==before+j );
+    FD_TEST( !quic->metrics.conn_alloc_cnt );
+    fd_frag_meta_t const * frag = fd_quic_sandbox_next_packet( sandbox );
+    FD_TEST( frag && frag->sz>28UL );
+    uchar const * data = fd_quic_sandbox_packet_data( sandbox, frag );
+    FD_TEST( fd_quic_h0_long_packet_type(data[28])==FD_QUIC_PKT_TYPE_RETRY );
+    FD_TEST( !fd_quic_sandbox_next_packet( sandbox ) );
+  }
+  fd_quic_fini( quic );
+}
+
 /* RFC 9000 Section 17.2.5.2. Retry Packet
 
    > A client MUST accept and process at most one Retry packet for each

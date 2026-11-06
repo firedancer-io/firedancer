@@ -969,7 +969,7 @@ fd_quic_handle_v1_frame( fd_quic_t *       quic,
   }
   quic->metrics.frame_rx_cnt[ fd_quic_frame_metric_id[ id ] ]++;
 
-  pkt->ack_flag |= fd_uint_if( fd_quic_frame_type_flags[ id ]&FD_QUIC_FRAME_FLAG_N, 0U, ACK_FLAG_RQD );
+  pkt->ack_flag |= fd_quic_frame_type_flags[ id ]&FD_QUIC_FRAME_FLAG_N ? 0 : ACK_FLAG_RQD;
 
   /* tail call to frame handler */
   switch( id ) {
@@ -1599,6 +1599,7 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
               dcid, peer_scid, new_conn_id_u64 ) ) ) {
           return FD_QUIC_FAILED;
         }
+        pkt->retry_sent = 1U;
         return (initial->pkt_num_pnoff + initial->len);
       } else {
         /* This Initial packet is in response to our Retry.
@@ -2716,6 +2717,7 @@ fd_quic_process_packet_impl( fd_quic_t * quic,
 
       rc = fd_quic_process_quic_packet_v1( quic, &pkt, cur_ptr, cur_sz );
       svc_cnt_eq_alloc_conn( state->svc_timers, quic );
+      if( FD_UNLIKELY( pkt.retry_sent ) ) return;
 
       /* RFC 9000 Section 12.2: a packet that fails (e.g. Handshake after
          its keys are discarded) does not void the rest of the datagram.
@@ -5428,7 +5430,7 @@ fd_quic_handle_stream_frame(
   }
 
   int rx_res = fd_quic_cb_stream_rx( quic, conn, stream_id, offset, p, data_sz, fin );
-  pkt->ack_flag |= fd_uint_if( rx_res==FD_QUIC_SUCCESS, 0U, ACK_FLAG_CANCEL );
+  pkt->ack_flag |= rx_res==FD_QUIC_SUCCESS ? 0 : ACK_FLAG_CANCEL;
 
   /* packet bytes consumed */
   return data_sz;
