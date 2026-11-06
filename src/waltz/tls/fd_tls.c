@@ -510,6 +510,8 @@ fd_tls_server_hs_start( fd_tls_t const *      const server,
 
     /* Inform user of peer's QUIC transport parameters */
     server->quic_tp_peer_fn( handshake, ch.quic_tp.buf, ch.quic_tp.bufsz );
+  } else if( FD_UNLIKELY( ch.quic_tp.buf ) ) {
+    return fd_tls_alert( &handshake->base, FD_TLS_ALERT_UNSUPPORTED_EXTENSION, FD_TLS_REASON_CH_PARSE );
   }
 
   /* Reject connection if ALPN not advertised */

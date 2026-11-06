@@ -1167,6 +1167,32 @@ test_tls_receive_encryption_level( fd_rng_t * rng ) {
 }
 
 static void
+test_tls_tcp_quic_params( fd_rng_t * rng ) {
+  fd_tls_t client[1], server[1];
+  prepare_tls_pair( rng, client, server );
+  for( ulong len=0UL; len<2UL; len++ ) {
+    uchar tp[1] = {0};
+    uchar wire[1024];
+    fd_tls_client_hello_t ch = {
+      .signature_algorithms = { .ed25519=1 },
+      .quic_tp = { .buf=tp, .bufsz=len }
+    };
+    long sz = fd_tls_encode_client_hello( &ch, wire+4, sizeof(wire)-4UL );
+    FD_TEST( sz>0L );
+    wire[0] = FD_TLS_MSG_CLIENT_HELLO;
+    wire[1] = 0;
+    wire[2] = (uchar)((ulong)sz>>8);
+    wire[3] = (uchar)sz;
+    fd_tls_estate_srv_t hs[1];
+    FD_TEST( fd_tls_estate_srv_new( hs ) );
+    test_record_reset( &test_server_out );
+    FD_TEST( fd_tls_server_handshake( server, hs, wire, (ulong)sz+4UL, FD_TLS_LEVEL_INITIAL )==-FD_TLS_ALERT_UNSUPPORTED_EXTENSION );
+    FD_TEST( !test_record_recv( &test_server_out ) );
+    fd_tls_estate_srv_delete( hs );
+  }
+}
+
+static void
 test_tls_client_hello_sigalgs( fd_rng_t * rng ) {
 
   for( uint quic=0U; quic<2U; quic++ ) {
@@ -1699,6 +1725,7 @@ main( int     argc,
   test_tls_client_hello_sigalgs( rng );
   test_tls_client_rejects_oversz_sni( rng );
   test_tls_receive_encryption_level( rng );
+  test_tls_tcp_quic_params( rng );
   test_tls_client_quic_rejects_p256_cert( rng );
 #if FD_HAS_INT128
   test_tls_client_rsa_cert_verify( rng );
