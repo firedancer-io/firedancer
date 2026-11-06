@@ -79,6 +79,7 @@ fd_gossip_subtopo( config_t * config, ulong tile_to_cpu[ FD_TILE_MAX ] FD_PARAM_
   gossip_tile->gossip.ports.votor            = 0;
   gossip_tile->gossip.ports.repair           = 0;
   gossip_tile->gossip.ports.rserve           = 0;
+  gossip_tile->gossip.ports.rpc              = 0;
   gossip_tile->gossip.ports.tpu              = 0;
   gossip_tile->gossip.ports.tpu_quic         = 0;
   gossip_tile->gossip.ports.tvu              = 0;
