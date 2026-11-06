@@ -45,7 +45,9 @@ struct fd_net_tx_route {
   uint   gre_outer_src_ip;
   uint   gre_outer_dst_ip;
   /* routing_failure is set if userland routing failed.  The packet is
-     then sent on fd_net_tile_t::sock and routed by the kernel. */
+     then sent on fd_net_tile_t::sock and routed by the kernel.  For a
+     GRE route whose outer endpoint failed routing, use_gre is also set
+     and the encapsulated packet is sent to gre_outer_dst_ip. */
   int    routing_failure;
 };
 typedef struct fd_net_tx_route fd_net_tx_route_t;
@@ -262,7 +264,9 @@ fd_net_tx_pkt_prep( fd_net_tile_t * ctx,
 /* fd_net_tx_sock_send sends a prepared frame on ctx->sock.  frame
    points to the Ethernet header and frame_sz is the size of the whole
    frame.  The Ethernet header is not sent: the kernel routes the packet
-   and builds its own L2 header.  Returns 1 if the packet was sent and 0
+   to the daddr of the first IPv4 header and builds its own L2 header.
+   For GRE that is the outer header built by fd_net_tx_pkt_prep, so the
+   packet goes to the tunnel endpoint.  Returns 1 if the packet was sent and 0
    after counting a dropped packet.  The caller updates the packet and
    byte counters, because they differ between providers. */
 static inline int

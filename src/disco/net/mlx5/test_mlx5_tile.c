@@ -227,6 +227,51 @@ test_rx_routes( void ) {
 #define IF_IDX_ETH0 7U
 #define IF_IDX_ETH1 8U
 
+/* Mock net.sock ops.  mock_sock records the most recent sendto call.
+   If short_write is set, sendto reports one byte fewer than requested
+   to simulate a failed send. */
+
+#define MOCK_SOCK_FD (3)
+
+static struct {
+  ulong              sendto_cnt;
+  void const *       buf;
+  ulong              len;
+  int                flags;
+  struct sockaddr_in addr;
+  int                short_write;
+} mock_sock;
+
+static int
+mock_socket( int domain,
+             int type,
+             int protocol ) {
+  (void)domain; (void)type; (void)protocol;
+  return MOCK_SOCK_FD;
+}
+
+static long
+mock_sendto( int                     sock,
+             void const *            buf,
+             ulong                   len,
+             int                     flags,
+             struct sockaddr const * addr,
+             socklen_t               addr_len ) {
+  FD_TEST( sock==MOCK_SOCK_FD );
+  FD_TEST( addr_len==sizeof(struct sockaddr_in) );
+  mock_sock.sendto_cnt++;
+  mock_sock.buf   = buf;
+  mock_sock.len   = len;
+  mock_sock.flags = flags;
+  memcpy( &mock_sock.addr, addr, sizeof(struct sockaddr_in) );
+  return mock_sock.short_write ? (long)len-1L : (long)len;
+}
+
+static fd_net_sock_ops_t const mock_sock_ops = {
+  .socket = mock_socket,
+  .sendto = mock_sendto
+};
+
 struct fd_mlx5_tile_mock {
   uint rq_nic_cons;
   uint sq_nic_cons;
@@ -613,6 +658,92 @@ add_netdev( fd_netdev_tbl_join_t * tbl,
   tbl->hdr->dev_cnt = (ushort)(idx+1U);
 }
 
+/* send_fallback_pkt sends one UDP packet to dst_ip through before_frag,
+   during_frag and after_frag, using the TX input link position *tx_seq
+   / *tx_chunk (both advanced on return).  dst_ip must fail userland
+   routing.  If send_fail is non-zero, the mock sendto reports a short
+   write.  Asserts the behavior common to a successful and a failed
+   send: one sendto from the IPv4 header in the SQ buffer to dst_ip
+   with source address exp_src_ip, no WQE submitted to the SQ, and the
+   buffer left in the SQ slot.  Returns the size of the packet sent. */
+
+static ulong
+send_fallback_pkt( fd_mlx5_tile_t *            tile,
+                   fd_mlx5_tile_mock_t const * mock,
+                   fd_stem_context_t *         stem,
+                   ulong *                     tx_seq,
+                   ulong *                     tx_chunk,
+                   uint                        dst_ip,
+                   uint                        exp_src_ip,
+                   int                         send_fail ) {
+  struct __attribute__((packed)) {
+    fd_eth_hdr_t eth;
+    fd_ip4_hdr_t ip4;
+    fd_udp_hdr_t udp;
+    uchar        data[3];
+  } pkt = {
+    .eth = {
+      .net_type = fd_ushort_bswap( FD_ETH_HDR_TYPE_IP ),
+    },
+    .ip4 = {
+      .verihl      = FD_IP4_VERIHL( 4, 5 ),
+      .protocol    = FD_IP4_HDR_PROTOCOL_UDP,
+      .net_tot_len = fd_ushort_bswap( 31 ),
+      .daddr       = dst_ip
+    },
+    .udp = {
+      .net_len   = fd_ushort_bswap( 11 ),
+      .net_dport = fd_ushort_bswap( SHRED_PORT )
+    },
+    .data = {0xAA, 0xBB, (uchar)send_fail}
+  };
+  ulong const pkt_sz = sizeof(pkt);
+
+  uint const sq_prod_before = tile->tx_qp.sq_prod;
+  uint const wq_cnt_before  = test_tx_wq_cnt( mock, tile );
+  uint const chunk_before   = fd_mlx5_tile_tx_chunk( tile, sq_prod_before );
+
+  memset( &mock_sock, 0, sizeof(mock_sock) );
+  mock_sock.short_write = send_fail;
+
+  ulong sig = fd_disco_netmux_sig( 0, SHRED_PORT, dst_ip, DST_PROTO_OUTGOING, pkt_sz );
+  FD_TEST( before_frag( tile, 0UL, *tx_seq, sig )==0 );
+  FD_TEST( tile->net.tx_route.routing_failure );
+  FD_TEST( tile->net.tx_route.src_ip==exp_src_ip );
+  uchar * frame = fd_chunk_to_laddr( tile->net.pkt_buf_wksp_base, chunk_before );
+
+  fd_memcpy( fd_chunk_to_laddr( tile->net.in_dcache_ctx[ 0 ].wksp_base, *tx_chunk ), &pkt, pkt_sz );
+  during_frag( tile, 0UL, *tx_seq, sig, *tx_chunk, pkt_sz, 0UL );
+  after_frag ( tile, 0UL, *tx_seq, sig, pkt_sz, 0UL, 0UL, stem );
+
+  /* Sent once, from the IPv4 header in the SQ buffer */
+  FD_TEST( mock_sock.sendto_cnt==1UL );
+  FD_TEST( mock_sock.buf==frame+sizeof(fd_eth_hdr_t) );
+  FD_TEST( mock_sock.len==pkt_sz-sizeof(fd_eth_hdr_t) );
+  FD_TEST( mock_sock.flags==MSG_DONTWAIT );
+  FD_TEST( mock_sock.addr.sin_family==AF_INET );
+  FD_TEST( mock_sock.addr.sin_addr.s_addr==dst_ip );
+
+  /* fd_net_tx_pkt_prep filled the source address and checksum */
+  fd_ip4_hdr_t const * sent_ip4 = (fd_ip4_hdr_t const *)mock_sock.buf;
+  FD_TEST( sent_ip4->saddr==exp_src_ip );
+  FD_TEST( fd_ip4_hdr_check( sent_ip4 )==0 );
+
+  /* Nothing was submitted to the SQ */
+  FD_TEST( tile->tx_qp.sq_prod==sq_prod_before );
+  FD_TEST( test_tx_wq_cnt( mock, tile )==wq_cnt_before );
+
+  /* The buffer stays in the SQ slot */
+  FD_TEST( fd_mlx5_tile_tx_chunk( tile, tile->tx_qp.sq_prod )==chunk_before );
+
+  mock_sock.short_write = 0;
+  (*tx_seq)++;
+  *tx_chunk = fd_dcache_compact_next( *tx_chunk, pkt_sz,
+                                      tile->net.in_dcache_ctx[ 0 ].chunk0,
+                                      tile->net.in_dcache_ctx[ 0 ].wmark );
+  return pkt_sz;
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -793,6 +924,7 @@ main( int     argc,
   /* Initialize tile state (assigns frames) */
   fd_net_rx_dests_init( &tile->net, topo, topo_tile );
   unprivileged_init( topo, topo_tile );
+  FD_TEST( fd_net_sock_init_ops( &tile->net.sock, &mock_sock_ops )==&tile->net.sock );
   ulong const rx_fill_cnt = rxq_depth-batch_size;
 
   /* Housekeeping copies the netdev table only after a published
@@ -1213,21 +1345,32 @@ main( int     argc,
   FD_TEST( 1==before_frag( tile, 0UL, tx_seq,
            fd_disco_netmux_sig( 0U, 0, 0U, DST_PROTO_SHRED, 0UL ) ) );
 
+  /* Packets that fail userland routing are accepted for the kernel
+     socket fallback, with the routing failure still counted. */
+
   /* TX packet with non-routable IP */
-  FD_TEST( 1==before_frag( tile, 0UL, tx_seq,
+  FD_TEST( 0==before_frag( tile, 0UL, tx_seq,
            fd_disco_netmux_sig( 0U, 0, banned_ip4_addr, DST_PROTO_OUTGOING, 0UL ) ) );
+  FD_TEST( tile->net.tx_route.routing_failure );
+  FD_TEST( tile->net.tx_route.src_ip==public_ip4_addr );
 
   /* TX packet with no matching route */
-  FD_TEST( 1==before_frag( tile, 0UL, tx_seq,
+  FD_TEST( 0==before_frag( tile, 0UL, tx_seq,
            fd_disco_netmux_sig( 0U, 0, no_route_ip4_addr, DST_PROTO_OUTGOING, 0UL ) ) );
+  FD_TEST( tile->net.tx_route.routing_failure );
+  FD_TEST( tile->net.tx_route.src_ip==public_ip4_addr );
 
   /* TX packet whose route names a missing interface */
-  FD_TEST( 1==before_frag( tile, 0UL, tx_seq,
+  FD_TEST( 0==before_frag( tile, 0UL, tx_seq,
            fd_disco_netmux_sig( 0U, 0, missing_if_ip4_addr, DST_PROTO_OUTGOING, 0UL ) ) );
+  FD_TEST( tile->net.tx_route.routing_failure );
+  FD_TEST( tile->net.tx_route.src_ip==public_ip4_addr );
 
   /* TX packet targeting unsupported interface */
-  FD_TEST( 1==before_frag( tile, 0UL, tx_seq,
+  FD_TEST( 0==before_frag( tile, 0UL, tx_seq,
            fd_disco_netmux_sig( 0U, 0, path2_ip4_addr, DST_PROTO_OUTGOING, 0UL ) ) );
+  FD_TEST( tile->net.tx_route.routing_failure );
+  FD_TEST( tile->net.tx_route.src_ip==gre_inner_src_ip );
 
   /* A GRE route without a remote tunnel endpoint is rejected. */
   fd_netdev_t * eth1 = fd_netdev_tbl_query( &tile->router.netdev_tbl, IF_IDX_ETH1 );
@@ -1241,8 +1384,11 @@ main( int     argc,
   eth1->dev_type = ARPHRD_ETHER;
 
   /* TX packet targeting unknown neighbor */
-  FD_TEST( 1==before_frag( tile, 0UL, tx_seq,
+  FD_TEST( 0==before_frag( tile, 0UL, tx_seq,
            fd_disco_netmux_sig( 0U, 0, neigh1_ip4_addr, DST_PROTO_OUTGOING, 0UL ) ) );
+  FD_TEST( tile->net.tx_route.routing_failure );
+  FD_TEST( tile->net.tx_route.src_ip==site_ip4_addr );
+  FD_TEST( tile->router.solicit_ip==neigh1_ip4_addr );
   FD_TEST( tile->net.metrics.tx_routing_failure_cnt[ FD_METRICS_ENUM_PKT_TX_ROUTING_FAILURE_REASON_V_NO_ROUTE_IDX ]==
            tx_route_fail_before[ FD_METRICS_ENUM_PKT_TX_ROUTING_FAILURE_REASON_V_NO_ROUTE_IDX ]+1UL );
   FD_TEST( tile->net.metrics.tx_routing_failure_cnt[ FD_METRICS_ENUM_PKT_TX_ROUTING_FAILURE_REASON_V_UNSUPPORTED_ROUTE_IDX ]==
@@ -1253,12 +1399,14 @@ main( int     argc,
            tx_route_fail_before[ FD_METRICS_ENUM_PKT_TX_ROUTING_FAILURE_REASON_V_UNSUPPORTED_INTERFACE_IDX ]+1UL );
   FD_TEST( tile->router.metrics.tx_neigh_fail_cnt==tx_neigh_fail_before+1UL );
 
-  /* An unroutable outer endpoint is counted once, as NoRoute */
+  /* An unroutable outer endpoint is counted once, as NoRoute, and the
+     packet is accepted for the socket fallback. */
   eth1->dev_type   = ARPHRD_IPGRE;
   eth1->gre_dst_ip = no_route_ip4_addr;
   ulong const tx_no_route_before = tile->net.metrics.tx_routing_failure_cnt[ FD_METRICS_ENUM_PKT_TX_ROUTING_FAILURE_REASON_V_NO_ROUTE_IDX ];
-  FD_TEST( 1==before_frag( tile, 0UL, tx_seq,
+  FD_TEST( 0==before_frag( tile, 0UL, tx_seq,
            fd_disco_netmux_sig( 0U, 0, path2_ip4_addr, DST_PROTO_OUTGOING, 0UL ) ) );
+  FD_TEST( tile->net.tx_route.use_gre && tile->net.tx_route.routing_failure );
   FD_TEST( tile->net.metrics.tx_routing_failure_cnt[ FD_METRICS_ENUM_PKT_TX_ROUTING_FAILURE_REASON_V_NO_ROUTE_IDX ]==tx_no_route_before+1UL );
   FD_TEST( tile->net.metrics.tx_drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_GRE_NO_ROUTE_IDX ]==tx_gre_route_fail_before+1UL );
   eth1->gre_dst_ip = 0U;
@@ -1533,6 +1681,182 @@ main( int     argc,
   tile->router.bind_address = 0U;
   tile->net.bind_address    = 0U;
   rx_seq++;
+
+  /* Packets that fail userland routing are sent on net.sock and counted
+     as transmitted.  Each case exercises a different failure path. */
+  {
+    struct { uint dst_ip; uint src_ip; } const cases[] = {
+      { no_route_ip4_addr,   public_ip4_addr  }, /* no route         */
+      { banned_ip4_addr,     public_ip4_addr  }, /* unsupported type */
+      { missing_if_ip4_addr, public_ip4_addr  }, /* missing iface    */
+      { path2_ip4_addr,      gre_inner_src_ip }, /* iface!=if_virt   */
+      { neigh1_ip4_addr,     site_ip4_addr    }, /* neighbor miss    */
+    };
+    for( ulong i=0UL; i<sizeof(cases)/sizeof(cases[0]); i++ ) {
+      ulong * drop_cnt         = tile->net.metrics.tx_drop_cnt;
+      ulong   pkt_before       = tile->net.metrics.tx_pkt_cnt;
+      ulong   bytes_before     = tile->net.metrics.tx_bytes_total;
+      ulong   sock_before      = tile->net.metrics.tx_sock_cnt;
+      ulong   sock_fail_before = drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_SOCKET_SEND_FAILURE_IDX ];
+
+      ulong pkt_sz = send_fallback_pkt( tile, mock, stem, &tx_seq, &tx_chunk,
+                                        cases[ i ].dst_ip, cases[ i ].src_ip, /*send_fail=*/0 );
+
+      FD_TEST( tile->net.metrics.tx_pkt_cnt    ==pkt_before+1UL      );
+      FD_TEST( tile->net.metrics.tx_bytes_total==bytes_before+pkt_sz );
+      FD_TEST( tile->net.metrics.tx_sock_cnt   ==sock_before+1UL     );
+      FD_TEST( drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_SOCKET_SEND_FAILURE_IDX ]==sock_fail_before );
+    }
+    /* The neighbor miss still requests a solicitation */
+    FD_TEST( tile->router.solicit_ip==neigh1_ip4_addr );
+  }
+
+  /* A failed socket send is counted as a SocketSendFailure drop, and no
+     success metrics are counted. */
+  {
+    ulong * drop_cnt         = tile->net.metrics.tx_drop_cnt;
+    ulong   pkt_before       = tile->net.metrics.tx_pkt_cnt;
+    ulong   bytes_before     = tile->net.metrics.tx_bytes_total;
+    ulong   sock_before      = tile->net.metrics.tx_sock_cnt;
+    ulong   sock_fail_before = drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_SOCKET_SEND_FAILURE_IDX ];
+
+    send_fallback_pkt( tile, mock, stem, &tx_seq, &tx_chunk,
+                       no_route_ip4_addr, public_ip4_addr, /*send_fail=*/1 );
+
+    FD_TEST( tile->net.metrics.tx_pkt_cnt    ==pkt_before   );
+    FD_TEST( tile->net.metrics.tx_bytes_total==bytes_before );
+    FD_TEST( tile->net.metrics.tx_sock_cnt   ==sock_before  );
+    FD_TEST( drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_SOCKET_SEND_FAILURE_IDX ]==sock_fail_before+1UL );
+  }
+
+  /* Fallback packets share the SQ buffer accounting, so they are
+     dropped when no SQ WQE is available. */
+  {
+    ulong const fb_no_buffer_before = tile->metrics.tx_no_buffer_cnt;
+    uint  const fb_sq_prod          = tile->tx_qp.sq_prod;
+    tile->tx_qp.sq_prod = tile->tx_qp.sq_cons+tile->tx_qp.tx_depth;
+    FD_TEST( 1==before_frag( tile, 0UL, tx_seq,
+             fd_disco_netmux_sig( 0U, SHRED_PORT, no_route_ip4_addr, DST_PROTO_OUTGOING, 0UL ) ) );
+    tile->tx_qp.sq_prod = fb_sq_prod;
+    FD_TEST( tile->metrics.tx_no_buffer_cnt==fb_no_buffer_before+1UL );
+  }
+
+  /* Only the hash-target tile accepts a fallback packet. */
+  {
+    ulong const fb_sig    = fd_disco_netmux_sig( 0U, SHRED_PORT, no_route_ip4_addr, DST_PROTO_OUTGOING, 0UL );
+    ulong const fb_target = fd_disco_netmux_sig_hash( fb_sig ) % 2UL;
+    tile->net.tile_cnt = 2UL;
+    for( ulong kind_id=0UL; kind_id<2UL; kind_id++ ) {
+      tile->net.kind_id = kind_id;
+      FD_TEST( (int)(kind_id!=fb_target)==before_frag( tile, 0UL, tx_seq, fb_sig ) );
+    }
+    tile->net.kind_id  = 0UL;
+    tile->net.tile_cnt = 1UL;
+  }
+
+  /* A GRE route whose outer endpoint fails routing is encapsulated in
+     userland and sent on net.sock to the outer endpoint.  The outer
+     source is the GRE device's source, else the fallback source of the
+     failed outer route (here the default address). */
+  {
+    fd_netdev_t * gre_dev = fd_netdev_tbl_query( &tile->router.netdev_tbl, IF_IDX_ETH1 );
+    gre_dev->dev_type   = ARPHRD_IPGRE;
+    gre_dev->gre_dst_ip = no_route_ip4_addr;
+
+    struct { uint gre_src_ip; uint exp_outer_src_ip; } const cases[] = {
+      { FD_IP4_ADDR( 203,0,113,90 ), FD_IP4_ADDR( 203,0,113,90 ) }, /* device source  */
+      { 0U,                          public_ip4_addr             }, /* default source */
+    };
+    for( ulong i=0UL; i<sizeof(cases)/sizeof(cases[0]); i++ ) {
+      gre_dev->gre_src_ip = cases[ i ].gre_src_ip;
+
+      struct __attribute__((packed)) {
+        fd_eth_hdr_t eth;
+        fd_ip4_hdr_t ip4;
+        fd_udp_hdr_t udp;
+        uchar        data[2];
+      } const inner_pkt = {
+        .eth = { .net_type = fd_ushort_bswap( FD_ETH_HDR_TYPE_IP ) },
+        .ip4 = {
+          .verihl      = FD_IP4_VERIHL( 4, 5 ),
+          .protocol    = FD_IP4_HDR_PROTOCOL_UDP,
+          .net_tot_len = fd_ushort_bswap( 30 ),
+          .daddr       = path2_ip4_addr
+        },
+        .udp  = { .net_len = fd_ushort_bswap( 10 ), .net_dport = fd_ushort_bswap( SHRED_PORT ) },
+        .data = { 0x11, 0x22 }
+      };
+      ulong const inner_sz    = sizeof(inner_pkt);
+      ulong const inner_ip_sz = inner_sz-sizeof(fd_eth_hdr_t);
+
+      ulong const gre_before  = tile->net.metrics.tx_gre_cnt;
+      ulong const sock_before = tile->net.metrics.tx_sock_cnt;
+      ulong const pkt_before  = tile->net.metrics.tx_pkt_cnt;
+      uint  const sq_before   = tile->tx_qp.sq_prod;
+      uint  const wq_before   = test_tx_wq_cnt( mock, tile );
+      uchar const * frame     = fd_chunk_to_laddr_const( tile->net.pkt_buf_wksp_base,
+                                                         fd_mlx5_tile_tx_chunk( tile, sq_before ) );
+      memset( &mock_sock, 0, sizeof(mock_sock) );
+
+      ulong const sig = fd_disco_netmux_sig( 0U, SHRED_PORT, path2_ip4_addr, DST_PROTO_OUTGOING, 0UL );
+      FD_TEST( 0==before_frag( tile, 0UL, tx_seq, sig ) );
+      FD_TEST( tile->net.tx_route.use_gre && tile->net.tx_route.routing_failure );
+      fd_memcpy( fd_chunk_to_laddr( wksp, tx_chunk ), &inner_pkt, inner_sz );
+      during_frag( tile, 0UL, tx_seq, sig, tx_chunk, inner_sz, 0UL );
+      after_frag ( tile, 0UL, tx_seq, sig, inner_sz, 0UL, 0UL, stem );
+
+      /* Sent once: outer IPv4 + GRE + inner, to the tunnel endpoint */
+      ulong const outer_ip_sz = sizeof(fd_ip4_hdr_t)+sizeof(fd_gre_hdr_t)+inner_ip_sz;
+      FD_TEST( mock_sock.sendto_cnt==1UL );
+      FD_TEST( mock_sock.buf==frame+sizeof(fd_eth_hdr_t) );
+      FD_TEST( mock_sock.len==outer_ip_sz );
+      FD_TEST( mock_sock.flags==MSG_DONTWAIT );
+      FD_TEST( mock_sock.addr.sin_addr.s_addr==no_route_ip4_addr );
+
+      fd_ip4_hdr_t const * outer = (fd_ip4_hdr_t const *)mock_sock.buf;
+      fd_gre_hdr_t const * gre   = (fd_gre_hdr_t const *)(outer+1);
+      fd_ip4_hdr_t const * inner = (fd_ip4_hdr_t const *)(gre+1);
+      FD_TEST( outer->protocol==FD_IP4_HDR_PROTOCOL_GRE );
+      FD_TEST( outer->saddr==cases[ i ].exp_outer_src_ip );
+      FD_TEST( outer->daddr==no_route_ip4_addr );
+      FD_TEST( fd_ushort_bswap( outer->net_tot_len )==outer_ip_sz );
+      FD_TEST( fd_ip4_hdr_check( outer )==0 );
+      FD_TEST( gre->flags_version==FD_GRE_HDR_FLG_VER_BASIC );
+      FD_TEST( gre->protocol==fd_ushort_bswap( FD_ETH_HDR_TYPE_IP ) );
+      FD_TEST( inner->saddr==gre_inner_src_ip && inner->daddr==path2_ip4_addr );
+      FD_TEST( fd_ip4_hdr_check( inner )==0 );
+
+      /* Nothing was submitted to the SQ */
+      FD_TEST( tile->tx_qp.sq_prod==sq_before );
+      FD_TEST( test_tx_wq_cnt( mock, tile )==wq_before );
+
+      FD_TEST( tile->net.metrics.tx_gre_cnt ==gre_before+1UL  );
+      FD_TEST( tile->net.metrics.tx_sock_cnt==sock_before+1UL );
+      FD_TEST( tile->net.metrics.tx_pkt_cnt ==pkt_before+1UL  );
+
+      tx_seq++;
+      tx_chunk = fd_dcache_compact_next( tx_chunk, inner_sz, tx_chunk0, tx_wmark );
+    }
+
+    /* A nested tunnel (outer route is itself GRE) is still dropped. */
+    ulong const nested_before = tile->net.metrics.tx_drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_GRE_NO_ROUTE_IDX ];
+    gre_dev->gre_src_ip = gre_outer_src_ip;
+    gre_dev->gre_dst_ip = path2_ip4_addr;
+    FD_TEST( 1==before_frag( tile, 0UL, tx_seq,
+             fd_disco_netmux_sig( 0U, SHRED_PORT, path2_ip4_addr, DST_PROTO_OUTGOING, 0UL ) ) );
+    FD_TEST( tile->net.metrics.tx_drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_GRE_NO_ROUTE_IDX ]==nested_before+1UL );
+
+    gre_dev->gre_src_ip = 0U;
+    gre_dev->gre_dst_ip = 0U;
+    gre_dev->dev_type   = ARPHRD_ETHER;
+  }
+
+  metrics_write( tile );
+  FD_TEST( FD_MCNT_GET( MLX5, SOCKET_PKT_TX_SUBMITTED )==tile->net.metrics.tx_sock_cnt );
+  FD_TEST( FD_MCNT_GET( MLX5, GRE_PKT_TX_SUBMITTED    )==tile->net.metrics.tx_gre_cnt  );
+  FD_TEST( tile->net.metrics.tx_sock_cnt==7UL );
+  FD_TEST( fd_metrics_tl[ FD_METRICS_COUNTER_MLX5_PKT_TX_DROPPED_SOCKET_SEND_FAILURE_OFF ]==
+           tile->net.metrics.tx_drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_SOCKET_SEND_FAILURE_IDX ] );
 
   /* Clean up */
   fd_wksp_free_laddr( metrics_mem );

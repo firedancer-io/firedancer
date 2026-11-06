@@ -128,7 +128,7 @@
         },
         "pkt_tx_no_link_dropped":     { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Transmit jobs dropped because no configured VF or bond member can send traffic" },
         "pkt_tx_loopback_failed":     { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Loopback transmit jobs dropped because the socket send failed or accepted only part of a batch" },
-        "gre_pkt_tx_submitted":       { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "GRE transmit jobs submitted to the NIC" },
+        "gre_pkt_tx_submitted":       { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "GRE transmit jobs submitted to the NIC or a kernel socket" },
         "tx_buffer_used":             { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "TX buffers pending or submitted to the NIC" },
         "tx_buffer_free":             { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "TX buffers available for a new transmit job" },
         "non_fd_pkt_rx":              { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Packets received by IAVF VFs that are not intended for Firedancer" },
