@@ -169,6 +169,9 @@ test_tls_extension_rules( void ) {
   FD_TEST( encoded>0L );
   sz = (ulong)encoded;
   ulong const sh_ext_off = 38UL;
+  fd_memcpy( copy, wire, sz );
+  copy[37] = 1;
+  FD_TEST( fd_tls_decode_server_hello( &sh, copy, sz )==-FD_TLS_ALERT_ILLEGAL_PARAMETER );
   for( ulong off=sh_ext_off+2UL; off<sz; ) {
     ushort type = fd_ushort_bswap( FD_LOAD( ushort, wire+off ) );
     ushort len  = fd_ushort_bswap( FD_LOAD( ushort, wire+off+2UL ) );
@@ -186,6 +189,15 @@ test_tls_extension_rules( void ) {
     sh = (fd_tls_server_hello_t){0};
     FD_TEST( fd_tls_decode_server_hello( &sh, copy, sz-4UL-len )==
              (type==FD_TLS_EXT_SUPPORTED_VERSIONS ? -FD_TLS_ALERT_PROTOCOL_VERSION : -FD_TLS_ALERT_MISSING_EXTENSION) );
+    if( type==FD_TLS_EXT_SUPPORTED_VERSIONS ) {
+      copy[37] = 1;
+      sh = (fd_tls_server_hello_t){0};
+      FD_TEST( fd_tls_decode_server_hello( &sh, copy, sz-4UL-len )==-FD_TLS_ALERT_PROTOCOL_VERSION );
+      fd_memcpy( copy, wire, sz );
+      copy[off+5UL] = 3; /* TLS 1.2 in supported_versions */
+      sh = (fd_tls_server_hello_t){0};
+      FD_TEST( fd_tls_decode_server_hello( &sh, copy, sz )==-FD_TLS_ALERT_ILLEGAL_PARAMETER );
+    }
     off += 4UL+len;
   }
   ushort const sh_forbidden[] = {

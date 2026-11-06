@@ -375,8 +375,7 @@ fd_tls_decode_server_hello( fd_tls_server_hello_t * out,
     FD_TLS_DECODE_STATIC_BATCH( FIELDS )
 # undef FIELDS
 
-  if( FD_UNLIKELY( ( legacy_version != FD_TLS_VERSION_TLS12 )
-                 | ( legacy_compression_method != 0         ) ) )
+  if( FD_UNLIKELY( legacy_version != FD_TLS_VERSION_TLS12 ) )
     return -(long)FD_TLS_ALERT_PROTOCOL_VERSION;
 
   out->cipher_suite = cipher_suite;
@@ -422,7 +421,7 @@ fd_tls_decode_server_hello( fd_tls_server_hello_t * out,
       FD_TLS_DECODE_FIELD( &chosen_version, ushort );
       ext_parse_res = 2L;
       if( FD_UNLIKELY( chosen_version!=FD_TLS_VERSION_TLS13 ) )
-        return -(long)FD_TLS_ALERT_PROTOCOL_VERSION;
+        return -(long)FD_TLS_ALERT_ILLEGAL_PARAMETER;
       break;
     }
     case FD_TLS_EXT_KEY_SHARE:
@@ -458,6 +457,8 @@ fd_tls_decode_server_hello( fd_tls_server_hello_t * out,
 
   if( FD_UNLIKELY( !(seen & (1UL<<FD_TLS_EXT_SUPPORTED_VERSIONS)) ) )
     return -(long)FD_TLS_ALERT_PROTOCOL_VERSION;
+  if( FD_UNLIKELY( legacy_compression_method != 0 ) )
+    return -(long)FD_TLS_ALERT_ILLEGAL_PARAMETER;
   if( FD_UNLIKELY( !(seen & (1UL<<FD_TLS_EXT_KEY_SHARE)) ) )
     return -(long)FD_TLS_ALERT_MISSING_EXTENSION;
   if( FD_UNLIKELY( !out->key_share.has_x25519 ) )
