@@ -7,6 +7,9 @@
 
 /* Every record type must fit in one store region (header + record). */
 FD_STATIC_ASSERT( sizeof(fd_gui_shred_batch_t     )<=FD_GUI_STORE_MAX_REC_SZ, rec_fits );
+FD_STATIC_ASSERT( sizeof(fd_gui_fec_event_t              )<=FD_GUI_STORE_MAX_REC_SZ, rec_fits );
+FD_STATIC_ASSERT( sizeof(fd_gui_fec_event_batch_t        )<=FD_GUI_STORE_MAX_REC_SZ, rec_fits );
+FD_STATIC_ASSERT( sizeof(fd_gui_store_replay_txn_batch_t  )<=FD_GUI_STORE_MAX_REC_SZ, rec_fits );
 FD_STATIC_ASSERT( sizeof(fd_gui_tile_timers_hist_t)<=FD_GUI_STORE_MAX_REC_SZ, rec_fits );
 FD_STATIC_ASSERT( sizeof(fd_gui_scheduler_counts_t)<=FD_GUI_STORE_MAX_REC_SZ, rec_fits );
 FD_STATIC_ASSERT( sizeof(fd_gui_tile_stats_t      )<=FD_GUI_STORE_MAX_REC_SZ, rec_fits );
@@ -19,8 +22,12 @@ FD_STATIC_ASSERT( sizeof(fd_gui_leader_slot_t     )<=FD_GUI_STORE_MAX_REC_SZ, re
 FD_STATIC_ASSERT( sizeof(fd_gui_epoch_t           )<=FD_GUI_STORE_MAX_REC_SZ, rec_fits );
 FD_STATIC_ASSERT( sizeof(fd_gui_timeline_day_t     )<=FD_GUI_STORE_MAX_REC_SZ, rec_fits );
 FD_STATIC_ASSERT( sizeof(fd_gui_timeline_tile_day_t)<=FD_GUI_STORE_MAX_REC_SZ, rec_fits );
-FD_STATIC_ASSERT( sizeof(fd_gui_fec_event_t        )<=FD_GUI_STORE_MAX_REC_SZ, rec_fits );
-FD_STATIC_ASSERT( sizeof(fd_gui_fec_event_batch_t  )<=FD_GUI_STORE_MAX_REC_SZ, rec_fits );
+FD_STATIC_ASSERT( sizeof(fd_gui_store_replay_slot_state_t)<=FD_GUI_STORE_MAX_REC_SZ, rec_fits );
+FD_STATIC_ASSERT( sizeof(fd_gui_store_replay_lthash_t)<=FD_GUI_STORE_MAX_REC_SZ, rec_fits );
+FD_STATIC_ASSERT( sizeof(fd_gui_store_replay_lthash_t)==40UL, lthash_size );
+FD_STATIC_ASSERT( sizeof(fd_gui_store_replay_lthash_batch_t)<=FD_GUI_STORE_MAX_REC_SZ, rec_fits );
+FD_STATIC_ASSERT( sizeof(fd_gui_store_replay_lthash_batch_t)==40UL, lthash_batch_size );
+FD_STATIC_ASSERT( sizeof(fd_gui_timeline_tile_state_day_t)<=FD_GUI_STORE_MAX_REC_SZ, rec_fits );
 
 /* Each key type must alias the matching record field exactly. */
 FD_STATIC_ASSERT( offsetof( fd_gui_hist_slot_key_t,        slot     )==offsetof( fd_gui_slot_t,        slot     ), key_layout );
@@ -34,8 +41,8 @@ FD_STATIC_ASSERT( offsetof( fd_gui_hist_tile_day_key_t,    tile_idx )==offsetof(
 #define FD_GUI_HIST_KEYSHAPE_TIMESERIES (0) /* (ts, ...)        */
 #define FD_GUI_HIST_KEYSHAPE_SLOT_BANK  (1) /* (slot, bank_seq) */
 #define FD_GUI_HIST_KEYSHAPE_EPOCH      (2) /* (epoch)          */
-#define FD_GUI_HIST_KEYSHAPE_DAY_TILE   (3) /* (day_idx, tile_idx) */
-#define FD_GUI_HIST_KEYSHAPE_FEC        (4) /* (16-byte FEC event key) */
+#define FD_GUI_HIST_KEYSHAPE_FEC        (3) /* (16-byte FEC event key) */
+#define FD_GUI_HIST_KEYSHAPE_DAY_TILE   (4) /* (day_idx, tile_idx) */
 
 static inline long
 fd_gui_hist_dbi_res_ns( int dbi FD_PARAM_UNUSED ) {
@@ -45,6 +52,7 @@ fd_gui_hist_dbi_res_ns( int dbi FD_PARAM_UNUSED ) {
 static inline ulong
 fd_gui_hist_dbi_ts_off( int dbi ) {
   switch( dbi ) {
+    case FD_GUI_HIST_FEC_EVENT_ARCHIVE: return offsetof( fd_gui_fec_event_batch_t, insert_time_ns );
     case FD_GUI_HIST_SHRED_EVENTS:     return offsetof( fd_gui_shred_batch_t,      insert_time_ns    );
     case FD_GUI_HIST_TILE_TIMERS:      return offsetof( fd_gui_tile_timers_hist_t, sample_time_nanos );
     case FD_GUI_HIST_SCHEDULER_COUNTS: return offsetof( fd_gui_scheduler_counts_t, sample_time_ns    );
@@ -53,8 +61,11 @@ fd_gui_hist_dbi_ts_off( int dbi ) {
     case FD_GUI_HIST_TXN_START:        return offsetof( fd_gui_store_txn_start_t,  insert_time_ns    );
     case FD_GUI_HIST_TXN_END:          return offsetof( fd_gui_store_txn_end_t,    insert_time_ns    );
     case FD_GUI_HIST_REPLAY_TXN:       return offsetof( fd_gui_store_replay_txn_t, insert_time_ns    );
+    case FD_GUI_HIST_REPLAY_TXN_BATCH:  return offsetof( fd_gui_store_replay_txn_batch_t, insert_time_ns );
     case FD_GUI_HIST_TIMELINE_DAY:     return offsetof( fd_gui_timeline_day_t,     end_time_ns       );
-    case FD_GUI_HIST_FEC_EVENT_ARCHIVE: return offsetof( fd_gui_fec_event_batch_t, insert_time_ns    );
+    case FD_GUI_HIST_REPLAY_SLOT_STATE: return offsetof( fd_gui_store_replay_slot_state_t, insert_time_ns );
+    case FD_GUI_HIST_REPLAY_LTHASH:    return offsetof( fd_gui_store_replay_lthash_t, insert_time_ns );
+    case FD_GUI_HIST_REPLAY_LTHASH_BATCH: return offsetof( fd_gui_store_replay_lthash_batch_t, insert_time_ns );
     default:                           return 0UL;
   }
 }
@@ -67,6 +78,7 @@ fd_gui_hist_window( long ts_ns, long res_ns ) {
 static int
 fd_gui_hist_keyshape( int dbi ) {
   switch( dbi ) {
+    case FD_GUI_HIST_FEC_EVENT_ARCHIVE:
     case FD_GUI_HIST_SCHEDULER_COUNTS:
     case FD_GUI_HIST_TILE_TIMERS:
     case FD_GUI_HIST_TILE_STATS:
@@ -75,12 +87,16 @@ fd_gui_hist_keyshape( int dbi ) {
     case FD_GUI_HIST_TXN_START:
     case FD_GUI_HIST_TXN_END:          return FD_GUI_HIST_KEYSHAPE_TIMESERIES;
     case FD_GUI_HIST_REPLAY_TXN:
-    case FD_GUI_HIST_TIMELINE_DAY:
-    case FD_GUI_HIST_FEC_EVENT_ARCHIVE: return FD_GUI_HIST_KEYSHAPE_TIMESERIES;
+    case FD_GUI_HIST_REPLAY_TXN_BATCH:
+    case FD_GUI_HIST_REPLAY_SLOT_STATE:
+    case FD_GUI_HIST_REPLAY_LTHASH:
+    case FD_GUI_HIST_REPLAY_LTHASH_BATCH:
+    case FD_GUI_HIST_TIMELINE_DAY:     return FD_GUI_HIST_KEYSHAPE_TIMESERIES;
     case FD_GUI_HIST_SLOT:
     case FD_GUI_HIST_LEADER_SLOT:      return FD_GUI_HIST_KEYSHAPE_SLOT_BANK;
     case FD_GUI_HIST_EPOCH:            return FD_GUI_HIST_KEYSHAPE_EPOCH;
-    case FD_GUI_HIST_TIMELINE_TILE_DAY: return FD_GUI_HIST_KEYSHAPE_DAY_TILE;
+    case FD_GUI_HIST_TIMELINE_TILE_DAY:
+    case FD_GUI_HIST_TIMELINE_TILE_STATE_DAY: return FD_GUI_HIST_KEYSHAPE_DAY_TILE;
     case FD_GUI_HIST_FEC_EVENTS:       return FD_GUI_HIST_KEYSHAPE_FEC;
     default: FD_LOG_ERR(( "invalid dbi %d", dbi )); return -1;
   }
@@ -183,13 +199,18 @@ fd_gui_hist_rec_sz( int dbi ) {
     case FD_GUI_HIST_TXN_START:        return sizeof(fd_gui_store_txn_start_t);
     case FD_GUI_HIST_TXN_END:          return sizeof(fd_gui_store_txn_end_t);
     case FD_GUI_HIST_REPLAY_TXN:       return sizeof(fd_gui_store_replay_txn_t);
+    case FD_GUI_HIST_REPLAY_TXN_BATCH:  return sizeof(fd_gui_store_replay_txn_batch_t);
+    case FD_GUI_HIST_FEC_EVENT_ARCHIVE: return sizeof(fd_gui_fec_event_batch_t);
+    case FD_GUI_HIST_FEC_EVENTS:       return sizeof(fd_gui_fec_event_t);
     case FD_GUI_HIST_SLOT:             return sizeof(fd_gui_slot_t);
     case FD_GUI_HIST_LEADER_SLOT:      return sizeof(fd_gui_leader_slot_t);
     case FD_GUI_HIST_EPOCH:            return sizeof(fd_gui_epoch_t);
     case FD_GUI_HIST_TIMELINE_DAY:     return sizeof(fd_gui_timeline_day_t);
     case FD_GUI_HIST_TIMELINE_TILE_DAY: return sizeof(fd_gui_timeline_tile_day_t);
-    case FD_GUI_HIST_FEC_EVENTS:       return sizeof(fd_gui_fec_event_t);
-    case FD_GUI_HIST_FEC_EVENT_ARCHIVE: return sizeof(fd_gui_fec_event_batch_t);
+    case FD_GUI_HIST_REPLAY_SLOT_STATE: return sizeof(fd_gui_store_replay_slot_state_t);
+    case FD_GUI_HIST_REPLAY_LTHASH:    return sizeof(fd_gui_store_replay_lthash_t);
+    case FD_GUI_HIST_REPLAY_LTHASH_BATCH: return sizeof(fd_gui_store_replay_lthash_batch_t);
+    case FD_GUI_HIST_TIMELINE_TILE_STATE_DAY: return sizeof(fd_gui_timeline_tile_state_day_t);
     default:                           return 0UL;
   }
 }
@@ -204,7 +225,8 @@ fd_gui_hist_key_sz( int dbi ) {
     case FD_GUI_HIST_SLOT:        return sizeof(fd_gui_hist_slot_key_t);
     case FD_GUI_HIST_LEADER_SLOT: return sizeof(fd_gui_hist_leader_slot_key_t);
     case FD_GUI_HIST_EPOCH:       return sizeof(fd_gui_hist_epoch_key_t);
-    case FD_GUI_HIST_TIMELINE_TILE_DAY: return sizeof(fd_gui_hist_tile_day_key_t);
+    case FD_GUI_HIST_TIMELINE_TILE_DAY:
+    case FD_GUI_HIST_TIMELINE_TILE_STATE_DAY: return sizeof(fd_gui_hist_tile_day_key_t);
     case FD_GUI_HIST_FEC_EVENTS:  return sizeof(fd_gui_fec_event_key_t);
     default:                      return 0UL; /* TS DBs have no key */
   }
@@ -219,7 +241,8 @@ static inline ulong
     case FD_GUI_HIST_SLOT:        return fd_gui_hist_slot_key_hash;
     case FD_GUI_HIST_LEADER_SLOT: return fd_gui_hist_leader_slot_key_hash;
     case FD_GUI_HIST_EPOCH:       return fd_gui_hist_epoch_key_hash;
-    case FD_GUI_HIST_TIMELINE_TILE_DAY: return fd_gui_hist_tile_day_key_hash;
+    case FD_GUI_HIST_TIMELINE_TILE_DAY:
+    case FD_GUI_HIST_TIMELINE_TILE_STATE_DAY: return fd_gui_hist_tile_day_key_hash;
     case FD_GUI_HIST_FEC_EVENTS:  return fd_gui_hist_fec_key_hash;
     default:                      return NULL;
   }
@@ -231,7 +254,8 @@ static inline int
     case FD_GUI_HIST_SLOT:        return fd_gui_hist_slot_key_cmp;
     case FD_GUI_HIST_LEADER_SLOT: return fd_gui_hist_leader_slot_key_cmp;
     case FD_GUI_HIST_EPOCH:       return fd_gui_hist_epoch_key_cmp;
-    case FD_GUI_HIST_TIMELINE_TILE_DAY: return fd_gui_hist_tile_day_key_cmp;
+    case FD_GUI_HIST_TIMELINE_TILE_DAY:
+    case FD_GUI_HIST_TIMELINE_TILE_STATE_DAY: return fd_gui_hist_tile_day_key_cmp;
     case FD_GUI_HIST_FEC_EVENTS:  return fd_gui_hist_fec_key_cmp;
     default:                      return NULL;
   }
@@ -277,6 +301,9 @@ fd_gui_hist_base_regions( int dbi ) {
     case FD_GUI_HIST_EPOCH:             return fd_gui_hist_ceil_div( FD_GUI_HIST_MIN_EPOCHS, cap ) + 1UL;
     case FD_GUI_HIST_TIMELINE_DAY:      return 2UL;
     case FD_GUI_HIST_TIMELINE_TILE_DAY: return fd_gui_hist_ceil_div( 2UL*FD_TOPO_MAX_TILES, cap ) + 1UL;
+    /* Only execrp tiles and the replay tile have tile state records. */
+    case FD_GUI_HIST_TIMELINE_TILE_STATE_DAY:
+      return fd_gui_hist_ceil_div( 2UL*FD_GUI_TILE_STATE_POS_CNT, cap ) + 1UL;
     default:                            return 2UL;
   }
 }
@@ -290,6 +317,7 @@ fd_gui_hist_max_keys( int dbi ) {
     case FD_GUI_HIST_LEADER_SLOT:       return FD_GUI_HIST_MAX_EPOCHS*FD_GUI_HIST_MAX_LEADER_SLOTS_PER_EPOCH;
     case FD_GUI_HIST_EPOCH:             return FD_GUI_HIST_MAX_EPOCHS;
     case FD_GUI_HIST_TIMELINE_TILE_DAY: return FD_GUI_HIST_MAX_TIMELINE_DAYS*FD_TOPO_MAX_TILES;
+    case FD_GUI_HIST_TIMELINE_TILE_STATE_DAY: return FD_GUI_HIST_MAX_TIMELINE_DAYS*FD_TOPO_MAX_TILES;
     default: FD_LOG_ERR(( "invalid kv dbi %d", dbi )); return 0UL;
   }
 }
@@ -313,8 +341,10 @@ fd_gui_hist_db_descs( fd_gui_store_desc_t descs[ static FD_GUI_HIST_CNT ],
   static char const * const names[ FD_GUI_HIST_CNT ] = {
     "scheduler_counts", "tile_timers", "shred_events", "txn_start",
     "txn_end", "slot", "leader_slot", "epoch", "tile_stats",
-    "txn_waterfall", "timeline_day", "replay_txn", "timeline_tile_day",
-    "fec_events", "fec_event_archive"
+    "txn_waterfall", "timeline_day", "replay_txn", "replay_txn_batch",
+    "fec_events", "timeline_tile_day", "fec_event_archive",
+    "replay_slot_state", "timeline_tile_state_day", "replay_lthash",
+    "replay_lthash_batch"
   };
 
   for( int i=0; i<FD_GUI_HIST_CNT; i++ ) descs[ i ].base_regions = fd_gui_hist_base_regions( i );

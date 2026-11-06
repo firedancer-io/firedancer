@@ -10,6 +10,7 @@
 #include "../metrics/fd_metrics.h"
 #include "../../ballet/json/fd_jtok.h"
 #include "../../waltz/http/fd_http_server_private.h"
+#include "../pack/fd_pack_cost.h"
 #include "../../flamenco/runtime/fd_system_ids.h"
 
 #include <stdlib.h>
@@ -28,7 +29,7 @@
 #define C_END_SLOT   (C_START_SLOT+SLOT_CNT-1UL) /* 1029 */
 #define BANK_SEQ     (0UL)
 
-#define TEST_STORE_BYTES (4UL<<30) /* the [tiles.gui.db_size_gib] minimum */
+#define TEST_STORE_BYTES (8UL<<30) /* the [tiles.gui.db_size_gib] minimum */
 #define TEST_TILE_CNT    (44UL)
 
 /* test_descs returns the DB descriptors for a TEST_STORE_BYTES store. */
@@ -188,11 +189,25 @@ append_replay_txn( fd_gui_t * gui,
 }
 
 static void
+append_replay_txn_batch( fd_gui_t * gui,
+                         long       now_ns,
+                         long       ts_ns,
+                         ulong      slot ) {
+  fd_gui_store_replay_txn_batch_t rec[ 1 ];
+  memset( rec, 0, sizeof(*rec) );
+  rec->insert_time_ns      = now_ns;
+  rec->completion_time_ns  = ts_ns;
+  rec->slot                = slot;
+
+  FD_TEST( !fd_gui_hist_ts_append( gui, FD_GUI_HIST_REPLAY_TXN_BATCH, rec ) );
+}
+
+static void
 put_timeline_day( fd_gui_t * gui,
                   ulong      day ) {
   fd_gui_timeline_day_t * rec = aligned_alloc( alignof(fd_gui_timeline_day_t), sizeof(fd_gui_timeline_day_t) );
   FD_TEST( rec );
-  memset( rec, 0xFF, sizeof(*rec) );
+  memset( rec, 0xFF, sizeof(fd_gui_timeline_day_t) );
   rec->end_time_ns    = timeline_day_end_ns( day );
   rec->insert_time_ns = rec->end_time_ns+sec_ns( 100UL );
   FD_TEST( !fd_gui_hist_ts_append( gui, FD_GUI_HIST_TIMELINE_DAY, rec ) );
@@ -268,6 +283,7 @@ test_base_history_protected( fd_gui_t * gui ) {
     long ts_ns = epoch_slot_complete_ns( s );
     append_shred( gui, ts_ns, ts_ns, s );
     append_replay_txn( gui, ts_ns, ts_ns, s );
+    append_replay_txn_batch( gui, ts_ns, ts_ns, s );
   }
 
   append_shred( gui, sec_ns( 86420UL ), sec_ns( 86399UL ), B_START_SLOT );
@@ -292,6 +308,7 @@ test_base_history_protected( fd_gui_t * gui ) {
   FD_TEST( count_ts( gui, FD_GUI_HIST_SHRED_EVENTS,     ULONG_MAX )==31UL ); /* 30 slots + 1 boundary */
   FD_TEST( count_ts( gui, FD_GUI_HIST_SHRED_EVENTS,     B_START_SLOT )==2UL ); /* slot 1010: its own + boundary */
   FD_TEST( count_ts( gui, FD_GUI_HIST_REPLAY_TXN,       ULONG_MAX )==30UL );
+  FD_TEST( count_ts( gui, FD_GUI_HIST_REPLAY_TXN_BATCH, ULONG_MAX )==30UL );
 
   /* Exhaust shared capacity with a different writer, including repeated
      reclamation.  None of the base records may be removed. */
@@ -317,6 +334,7 @@ test_base_history_protected( fd_gui_t * gui ) {
 
   FD_TEST( count_ts( gui, FD_GUI_HIST_SCHEDULER_COUNTS, ULONG_MAX )==30UL );
   FD_TEST( count_ts( gui, FD_GUI_HIST_REPLAY_TXN,       ULONG_MAX )==30UL );
+  FD_TEST( count_ts( gui, FD_GUI_HIST_REPLAY_TXN_BATCH, ULONG_MAX )==30UL );
   FD_TEST( count_ts( gui, FD_GUI_HIST_SHRED_EVENTS, ULONG_MAX )==31UL );
   FD_TEST( count_ts( gui, FD_GUI_HIST_SHRED_EVENTS, B_START_SLOT )==2UL );
   FD_TEST( count_ts( gui, FD_GUI_HIST_SHRED_EVENTS, A_START_SLOT )==1UL );
@@ -384,7 +402,7 @@ static void
 test_timeline_rollover( fd_gui_t * gui ) {
   fd_gui_timeline_day_t * rec = aligned_alloc( alignof(fd_gui_timeline_day_t), sizeof(fd_gui_timeline_day_t) );
   FD_TEST( rec );
-  memset( rec, 0xFF, sizeof(*rec) );
+  memset( rec, 0xFF, sizeof(fd_gui_timeline_day_t) );
   ulong day_cnt = 0UL;
   ulong cap = FD_GUI_STORE_REGION_SZ / sizeof(fd_gui_timeline_day_t);
   ulong capacity = (fd_gui_store_shared_free_region_cnt( gui->db )+test_descs()[ FD_GUI_HIST_TIMELINE_DAY ].base_regions)*cap;
@@ -402,7 +420,7 @@ test_timeline_rollover( fd_gui_t * gui ) {
   fd_gui_hist_metrics_t hist_before = *fd_gui_hist_metrics( gui );
   fd_gui_timeline_day_t * regression = aligned_alloc( alignof(fd_gui_timeline_day_t), sizeof(fd_gui_timeline_day_t) );
   FD_TEST( regression );
-  memset( regression, 0, sizeof(*regression) );
+  memset( regression, 0, sizeof(fd_gui_timeline_day_t) );
   regression->insert_time_ns = sec_ns( day_cnt+1UL );
   regression->end_time_ns = timeline_day_end_ns( day_cnt-1UL )-1L;
   FD_TEST( fd_gui_hist_ts_append( gui, FD_GUI_HIST_TIMELINE_DAY, regression )==-1 );
@@ -451,7 +469,7 @@ test_resident_meta_mutation_survives_evict( fd_gui_t * gui ) {
   put_slot( gui, RM_NEW_START, slot_complete_ns( 2000UL ) );
   put_slot( gui, RM_NEW2_START, slot_complete_ns( 3000UL ) );
 
-  /* Resolve the newest (resident) epoch's record pointer and mutate the
+  /* Resolve the newer (resident) epoch's record pointer and mutate the
      per-epoch bookkeeping fields in place. */
   ulong cap = FD_GUI_STORE_REGION_SZ / fd_ulong_align_up( sizeof(fd_gui_epoch_t), 8UL );
   ulong max_cnt = test_descs()[ FD_GUI_HIST_EPOCH ].max_records;
@@ -574,23 +592,46 @@ test_timeline_db( fd_gui_t * gui ) {
   fd_gui_store_desc_t const * descs = test_descs();
   FD_TEST( FD_GUI_HIST_TIMELINE_DAY==10 );
   FD_TEST( FD_GUI_HIST_REPLAY_TXN==11 );
-  FD_TEST( FD_GUI_HIST_TIMELINE_TILE_DAY==12 );
+  FD_TEST( FD_GUI_HIST_REPLAY_TXN_BATCH==12 );
   FD_TEST( FD_GUI_HIST_FEC_EVENTS==13 );
-  FD_TEST( FD_GUI_HIST_FEC_EVENT_ARCHIVE==14 );
-  FD_TEST( FD_GUI_HIST_CNT==15 );
+  FD_TEST( FD_GUI_HIST_TIMELINE_TILE_DAY==14 );
+  FD_TEST( FD_GUI_HIST_FEC_EVENT_ARCHIVE==15 );
+  FD_TEST( FD_GUI_HIST_REPLAY_SLOT_STATE==16 );
+  FD_TEST( FD_GUI_HIST_TIMELINE_TILE_STATE_DAY==17 );
+  FD_TEST( FD_GUI_HIST_REPLAY_LTHASH==18 );
+  FD_TEST( FD_GUI_HIST_REPLAY_LTHASH_BATCH==19 );
+  FD_TEST( FD_GUI_HIST_CNT==20 );
+  FD_TEST( !strcmp( descs[ FD_GUI_HIST_REPLAY_LTHASH_BATCH ].name, "replay_lthash_batch" ) );
+  FD_TEST( descs[ FD_GUI_HIST_REPLAY_LTHASH_BATCH ].kind==FD_GUI_STORE_KIND_TS );
+  FD_TEST( descs[ FD_GUI_HIST_REPLAY_LTHASH_BATCH ].ts_off==offsetof(fd_gui_store_replay_lthash_batch_t,insert_time_ns) );
+  FD_TEST( !strcmp( descs[ FD_GUI_HIST_REPLAY_LTHASH ].name, "replay_lthash" ) );
+  FD_TEST( descs[ FD_GUI_HIST_REPLAY_LTHASH ].kind==FD_GUI_STORE_KIND_TS );
+  FD_TEST( descs[ FD_GUI_HIST_REPLAY_LTHASH ].ts_off==offsetof(fd_gui_store_replay_lthash_t,insert_time_ns) );
+  FD_TEST( !strcmp( descs[ FD_GUI_HIST_REPLAY_SLOT_STATE ].name, "replay_slot_state" ) );
+  FD_TEST( descs[ FD_GUI_HIST_REPLAY_SLOT_STATE ].kind==FD_GUI_STORE_KIND_TS );
+  FD_TEST( descs[ FD_GUI_HIST_REPLAY_SLOT_STATE ].ts_off==offsetof(fd_gui_store_replay_slot_state_t,insert_time_ns) );
+  FD_TEST( !strcmp( descs[ FD_GUI_HIST_TIMELINE_TILE_STATE_DAY ].name, "timeline_tile_state_day" ) );
+  FD_TEST( descs[ FD_GUI_HIST_TIMELINE_TILE_STATE_DAY ].kind==FD_GUI_STORE_KIND_KV );
+  FD_TEST( descs[ FD_GUI_HIST_TIMELINE_TILE_STATE_DAY ].key_sz==sizeof(fd_gui_hist_tile_day_key_t) );
+  /* Today and yesterday for every execrp and replay tile. */
+  FD_TEST( (descs[ FD_GUI_HIST_TIMELINE_TILE_STATE_DAY ].base_regions-1UL)*(FD_GUI_STORE_REGION_SZ/fd_ulong_align_up( sizeof(fd_gui_timeline_tile_state_day_t), 8UL ))>=
+           2UL*FD_GUI_TILE_STATE_POS_CNT );
   FD_TEST( !strcmp( descs[ FD_GUI_HIST_FEC_EVENTS        ].name, "fec_events"        ) );
   FD_TEST( !strcmp( descs[ FD_GUI_HIST_FEC_EVENT_ARCHIVE ].name, "fec_event_archive" ) );
   FD_TEST( descs[ FD_GUI_HIST_FEC_EVENTS ].kind==FD_GUI_STORE_KIND_KV );
   FD_TEST( descs[ FD_GUI_HIST_FEC_EVENTS ].key_sz==sizeof(fd_gui_fec_event_key_t) );
   FD_TEST( descs[ FD_GUI_HIST_FEC_EVENTS ].val_sz==sizeof(fd_gui_fec_event_t) );
   FD_TEST( descs[ FD_GUI_HIST_FEC_EVENTS ].max_records==FD_GUI_FEC_RECORD_MAX );
+  FD_TEST( fd_ulong_align_up( descs[ FD_GUI_HIST_FEC_EVENTS ].val_sz, descs[ FD_GUI_HIST_FEC_EVENTS ].val_align )<=32UL );
   FD_TEST( descs[ FD_GUI_HIST_FEC_EVENT_ARCHIVE ].kind==FD_GUI_STORE_KIND_TS );
   FD_TEST( descs[ FD_GUI_HIST_FEC_EVENT_ARCHIVE ].val_sz==sizeof(fd_gui_fec_event_batch_t) );
   FD_TEST( descs[ FD_GUI_HIST_FEC_EVENT_ARCHIVE ].ts_off==offsetof(fd_gui_fec_event_batch_t,insert_time_ns) );
   FD_TEST( !strcmp( descs[ FD_GUI_HIST_TIMELINE_DAY     ].name, "timeline_day"     ) );
   FD_TEST( !strcmp( descs[ FD_GUI_HIST_REPLAY_TXN       ].name, "replay_txn"       ) );
+  FD_TEST( !strcmp( descs[ FD_GUI_HIST_REPLAY_TXN_BATCH ].name, "replay_txn_batch" ) );
   FD_TEST( descs[ FD_GUI_HIST_SHRED_EVENTS     ].val_sz==sizeof(fd_gui_shred_batch_t) );
   FD_TEST( descs[ FD_GUI_HIST_TIMELINE_DAY     ].val_sz==sizeof(fd_gui_timeline_day_t) );
+  FD_TEST( sizeof(fd_gui_timeline_day_t)<=FD_GUI_STORE_MAX_REC_SZ );
   FD_TEST( !strcmp( descs[ FD_GUI_HIST_TIMELINE_TILE_DAY ].name, "timeline_tile_day" ) );
   FD_TEST( descs[ FD_GUI_HIST_TIMELINE_TILE_DAY ].val_sz==sizeof(fd_gui_timeline_tile_day_t) );
   FD_TEST( descs[ FD_GUI_HIST_TIMELINE_TILE_DAY ].kind==FD_GUI_STORE_KIND_KV );
@@ -603,12 +644,16 @@ test_timeline_db( fd_gui_t * gui ) {
   FD_TEST( (descs[ FD_GUI_HIST_LEADER_SLOT ].base_regions-1UL)*(FD_GUI_STORE_REGION_SZ/fd_ulong_align_up( descs[ FD_GUI_HIST_LEADER_SLOT ].val_sz, 8UL ))>=FD_GUI_HIST_MIN_EPOCHS*FD_GUI_HIST_MAX_LEADER_SLOTS_PER_EPOCH );
   FD_TEST( (descs[ FD_GUI_HIST_EPOCH       ].base_regions-1UL)*(FD_GUI_STORE_REGION_SZ/fd_ulong_align_up( descs[ FD_GUI_HIST_EPOCH       ].val_sz, 8UL ))>=FD_GUI_HIST_MIN_EPOCHS );
   FD_TEST( descs[ FD_GUI_HIST_TIMELINE_DAY ].base_regions>=2UL );
+  FD_TEST( offsetof(fd_gui_timeline_tile_day_t,day_idx )==offsetof(fd_gui_hist_tile_day_key_t,day_idx ) );
+  FD_TEST( offsetof(fd_gui_timeline_tile_day_t,tile_idx)==offsetof(fd_gui_hist_tile_day_key_t,tile_idx) );
+  FD_TEST( descs[ FD_GUI_HIST_REPLAY_TXN_BATCH ].val_sz==sizeof(fd_gui_store_replay_txn_batch_t) );
   FD_TEST( descs[ FD_GUI_HIST_TIMELINE_DAY ].kind==FD_GUI_STORE_KIND_TS );
   FD_TEST( descs[ FD_GUI_HIST_TIMELINE_DAY     ].ts_off==offsetof(fd_gui_timeline_day_t,end_time_ns) );
   FD_TEST( descs[ FD_GUI_HIST_SHRED_EVENTS     ].ts_off==offsetof(fd_gui_shred_batch_t,insert_time_ns) );
   FD_TEST( descs[ FD_GUI_HIST_TXN_START        ].ts_off==offsetof(fd_gui_store_txn_start_t,insert_time_ns) );
   FD_TEST( descs[ FD_GUI_HIST_TXN_END          ].ts_off==offsetof(fd_gui_store_txn_end_t,insert_time_ns) );
   FD_TEST( descs[ FD_GUI_HIST_REPLAY_TXN       ].ts_off==offsetof(fd_gui_store_replay_txn_t,insert_time_ns) );
+  FD_TEST( descs[ FD_GUI_HIST_REPLAY_TXN_BATCH ].ts_off==offsetof(fd_gui_store_replay_txn_batch_t,insert_time_ns) );
   FD_TEST( descs[ FD_GUI_HIST_SCHEDULER_COUNTS ].ts_off==offsetof(fd_gui_scheduler_counts_t,sample_time_ns) );
   FD_TEST( descs[ FD_GUI_HIST_TILE_TIMERS      ].ts_off==offsetof(fd_gui_tile_timers_hist_t,sample_time_nanos) );
   FD_TEST( descs[ FD_GUI_HIST_TILE_STATS       ].ts_off==offsetof(fd_gui_tile_stats_t,sample_time_nanos) );
@@ -684,6 +729,9 @@ test_range_live_timestamp_bounds( fd_gui_t * gui ) {
 
   fd_gui_shred_event_iter_t shred_it[ 1 ];
   fd_gui_shred_event_iter_begin( gui, shred_it, 0L, 0L );
+  FD_TEST( fd_gui_shred_event_iter_next( shred_it ) );
+  fd_gui_shred_event_iter_end( shred_it );
+  fd_gui_shred_event_iter_begin( gui, shred_it, -sec_ns( 2UL ), 0L );
   FD_TEST( fd_gui_shred_event_iter_next( shred_it ) );
   fd_gui_shred_event_t const * shred = &shred_it->event;
   FD_TEST( shred->event_time_ns==-sec_ns( 2UL ) && shred->insert_time_ns==0L && shred->slot==1UL );
@@ -1082,6 +1130,1095 @@ test_shred_epoch_retention( fd_gui_t * gui,
 
 /* ---- timeline queries ---------------------------------------------- */
 
+static void *
+timeline_http_open( fd_gui_t * gui ) {
+  fd_http_server_params_t params = {
+    .max_connection_cnt    = 1UL,
+    .max_ws_connection_cnt = 1UL,
+    .max_request_len       = 1024UL,
+    .max_ws_recv_frame_len = 1024UL,
+    .max_ws_send_frame_cnt = 4UL,
+    .outgoing_buffer_sz    = FD_GUI_HTTP_MIN_SEND_BUFFER_SZ
+  };
+  void * mem = aligned_alloc( fd_http_server_align(), fd_http_server_footprint( params ) );
+  FD_TEST( mem );
+  gui->http = fd_http_server_join( fd_http_server_new( mem, params, (fd_http_server_callbacks_t){0}, NULL ) );
+  FD_TEST( gui->http );
+  return mem;
+}
+
+/* Response slices borrow the HTTP staging buffer until the next write. */
+typedef struct {
+  char const * ptr;
+  ulong        sz;
+} test_json_t;
+
+static test_json_t
+test_json_field( test_json_t  json,
+                 char const * field ) {
+  fd_jtok_t j[ 1 ];
+  fd_jtok_init( j, json.ptr, json.sz );
+  fd_jtok_str_t key;
+  test_json_t result = {0};
+  fd_jtok_obj_enter( j );
+  while( fd_jtok_obj_next( j, &key ) ) {
+    if( fd_jtok_str_eq( &key, field ) ) fd_jtok_raw( j, &result.ptr, &result.sz );
+  }
+  FD_TEST( !fd_jtok_fini( j ) );
+  return result;
+}
+
+static test_json_t
+test_json_index( test_json_t json,
+                 int         index ) {
+  fd_jtok_t j[ 1 ];
+  fd_jtok_init( j, json.ptr, json.sz );
+  test_json_t result = {0};
+  int i = 0;
+  fd_jtok_arr_enter( j );
+  while( fd_jtok_arr_next( j ) ) {
+    if( i++==index ) fd_jtok_raw( j, &result.ptr, &result.sz );
+    if( result.ptr ) return result;
+  }
+  FD_TEST( !fd_jtok_fini( j ) && result.ptr );
+  return result;
+}
+
+static int
+test_json_count( test_json_t json ) {
+  fd_jtok_t j[ 1 ];
+  fd_jtok_init( j, json.ptr, json.sz );
+  int count = 0;
+  fd_jtok_arr_enter( j );
+  while( fd_jtok_arr_next( j ) ) count++;
+  FD_TEST( !fd_jtok_fini( j ) );
+  return count;
+}
+
+static int
+test_json_kind( test_json_t json ) {
+  fd_jtok_t j[ 1 ];
+  fd_jtok_init( j, json.ptr, json.sz );
+  return fd_jtok_peek( j );
+}
+
+static ulong
+test_json_ulong( test_json_t json ) {
+  fd_jtok_t j[ 1 ];
+  fd_jtok_init( j, json.ptr, json.sz );
+  ulong value = 0UL;
+  fd_jtok_ulong( j, &value );
+  FD_TEST( !fd_jtok_fini( j ) );
+  return value;
+}
+
+static int
+test_json_string_eq( test_json_t  json,
+                     char const * expected ) {
+  fd_jtok_t j[ 1 ];
+  fd_jtok_init( j, json.ptr, json.sz );
+  fd_jtok_str_t value;
+  fd_jtok_str( j, &value );
+  FD_TEST( !fd_jtok_fini( j ) );
+  return fd_jtok_str_eq( &value, expected );
+}
+
+static test_json_t
+timeline_response( fd_gui_t * gui ) {
+  FD_TEST( !gui->http->stage_err );
+  ulong len = fd_http_server_stage_len( gui->http );
+  FD_TEST( len && gui->http->stage_off%gui->http->oring_sz+len<=gui->http->oring_sz );
+  test_json_t json = { (char const *)gui->http->oring+gui->http->stage_off%gui->http->oring_sz, len };
+  fd_jtok_t j[ 1 ];
+  fd_jtok_init( j, json.ptr, json.sz );
+  FD_TEST( !fd_jtok_fini( j ) );
+  fd_http_server_stage_trunc( gui->http, 0UL );
+  return json;
+}
+
+static test_json_t
+timeline_value( test_json_t  json,
+                char const * field ) {
+  return test_json_field( test_json_field( json, "value" ), field );
+}
+
+static void
+test_timeline_batch_parity( fd_gui_t * gui ) {
+  long ts = sec_ns( 11UL );
+  fd_gui_store_replay_txn_t txns[ 128 ];
+  fd_gui_txn_batch_work_t oracle[ 128 ];
+  ulong appended = 0UL;
+  for( ulong fixture=0UL; fixture<4UL; fixture++ ) {
+    ulong target = fixture==0UL ? 17UL : fixture==1UL ? 5UL : 33UL;
+    ulong count  = 128UL/FD_GUI_TXN_BATCH_MAX_TXN;
+    long  start  = ts;
+    for( ulong i=0UL; i<128UL; i++ ) {
+      start += fixture==3UL ? 1000L+(long)(i*17UL%23UL)*100L : 1000L;
+      txns[ i ] = (fd_gui_store_replay_txn_t){
+        .insert_time_ns=ts, .completion_time_ns=start+800L, .slot=101UL+fixture, .txn_idx=i,
+        .txn_exec_idx=i%target, .sigverify_start_ns=start, .sigverify_end_ns=start+800L,
+        .txn_start_shred_idx=(uint)(127UL-i), .txn_end_shred_idx=(uint)(1000UL+i),
+        .load_start_ns=start+100L, .check_start_ns=start+200L, .exec_start_ns=start+300L,
+        .commit_start_ns=start+600L, .commit_end_ns=start+700L, .block_compute_unit_limit=ULONG_MAX
+      };
+      FD_TEST( !fd_gui_hist_ts_append( gui, FD_GUI_HIST_REPLAY_TXN, &txns[ i ] ) );
+    }
+    ulong const max = FD_GUI_TXN_BATCH_MAX_TXN;
+    for( ulong i=0UL; i<count; i++ ) {
+      oracle[ i ] = (fd_gui_txn_batch_work_t){
+        .first=max*i, .cnt=max, .representative_txn_idx=max*i,
+        .start_ns=txns[ max*i ].sigverify_start_ns, .end_ns=txns[ max*i+max-1UL ].sigverify_end_ns
+      };
+    }
+    while( count<target ) {
+      ulong best = ULONG_MAX;
+      for( ulong i=0UL; i<count; i++ ) {
+        if( oracle[ i ].cnt<=1UL ) continue;
+        long span = fd_long_sat_sub( oracle[ i ].end_ns, oracle[ i ].start_ns );
+        long old  = best==ULONG_MAX ? LONG_MIN : fd_long_sat_sub( oracle[ best ].end_ns, oracle[ best ].start_ns );
+        if( best==ULONG_MAX || span>old || (span==old && (oracle[ i ].cnt>oracle[ best ].cnt ||
+            (oracle[ i ].cnt==oracle[ best ].cnt && oracle[ i ].representative_txn_idx<oracle[ best ].representative_txn_idx))) ) {
+          best = i;
+        }
+      }
+      FD_TEST( best!=ULONG_MAX );
+      ulong off = 1UL;
+      long  gap = LONG_MIN;
+      for( ulong k=1UL; k<oracle[ best ].cnt; k++ ) {
+        long next = fd_long_sat_sub( txns[ oracle[ best ].first+k ].sigverify_start_ns,
+                                     txns[ oracle[ best ].first+k-1UL ].sigverify_end_ns );
+        ulong dist    = fd_long_abs( (long)(2UL*k)-(long)oracle[ best ].cnt );
+        ulong olddist = fd_long_abs( (long)(2UL*off)-(long)oracle[ best ].cnt );
+        if( next>gap || (next==gap && dist<olddist) ) {
+          gap = next;
+          off = k;
+        }
+      }
+      oracle[ count ] = oracle[ best ];
+      oracle[ count ].first += off;
+      oracle[ count ].cnt   -= off;
+      oracle[ best ].cnt     = off;
+      oracle[ best ].end_ns  = txns[ oracle[ best ].first+off-1UL ].sigverify_end_ns;
+      oracle[ count ].start_ns               = txns[ oracle[ count ].first ].sigverify_start_ns;
+      oracle[ count ].representative_txn_idx = oracle[ count ].first;
+      count++;
+    }
+    gui->slot_txn_scratch.max = 128UL;
+    FD_TEST( !fd_gui_materialize_replay_txn_batches( gui, 101UL+fixture, 0UL, ts, ts+sec_ns( 1UL ), 128UL, ts ) );
+    appended += target;
+    FD_TEST( count_ts( gui, FD_GUI_HIST_REPLAY_TXN_BATCH, ULONG_MAX )==appended );
+    for( ulong i=0UL; i<count; i++ ) {
+      fd_gui_store_replay_txn_batch_t const * rec = &gui->timeline_scratch.materialize.records[ i ];
+      FD_TEST( rec->batch_idx==i && rec->txn_idx==i );
+      if( i ) FD_TEST( gui->timeline_scratch.materialize.records[ i-1UL ].sigverify_txn_idx<rec->sigverify_txn_idx );
+      ulong j = 0UL;
+      while( j<count && oracle[ j ].first!=rec->sigverify_txn_idx ) j++;
+      FD_TEST( j<count && rec->sigverify_txn_cnt==oracle[ j ].cnt );
+      /* The lane ends with its last member and lasts their total time. */
+      long busy = 0L;
+      for( ulong k=0UL; k<oracle[ j ].cnt; k++ ) {
+        busy += txns[ oracle[ j ].first+k ].sigverify_end_ns - txns[ oracle[ j ].first+k ].sigverify_start_ns;
+      }
+      long want_start = fd_long_max( oracle[ j ].start_ns, oracle[ j ].end_ns-busy );
+      FD_TEST( rec->sigverify_start_ns==want_start && rec->sigverify_end_ns==oracle[ j ].end_ns );
+    }
+  }
+  ulong n = FD_MAX_TXN_PER_SLOT;
+  ts = sec_ns( 12UL );
+  /* Execution gaps exceed the merge gap, so every EXEC batch is a singleton. */
+  long const exec_step = FD_GUI_TXN_BATCH_GAP_NS+1000L;
+  for( ulong i=0UL; i<n; i++ ) {
+    fd_gui_store_replay_txn_t txn = { .insert_time_ns=ts, .slot=105UL, .txn_idx=i,
+      .txn_start_shred_idx=UINT_MAX, .txn_end_shred_idx=UINT_MAX,
+      .sigverify_start_ns=ts+(long)i*1000L, .sigverify_end_ns=ts+(long)i*1000L+800L,
+      .load_start_ns=ts+(long)i*exec_step, .check_start_ns=LONG_MAX, .exec_start_ns=LONG_MAX,
+      .commit_start_ns=LONG_MAX, .commit_end_ns=ts+(long)i*exec_step+700L,
+      .completion_time_ns=ts+(long)i*exec_step+800L, .block_compute_unit_limit=ULONG_MAX };
+    FD_TEST( !fd_gui_hist_ts_append( gui, FD_GUI_HIST_REPLAY_TXN, &txn ) );
+  }
+  gui->slot_txn_scratch.max = n;
+  FD_TEST( !fd_gui_materialize_replay_txn_batches( gui, 105UL, 0UL, ts, ts+(long)n*exec_step, n, ts ) );
+  ulong work = gui->timeline_scratch.materialize.normalize_work;
+  FD_TEST( work && work<n*128UL );
+  for( ulong i=0UL; i<n; i++ ) {
+    fd_gui_store_replay_txn_batch_t const * rec = &gui->timeline_scratch.materialize.records[ i ];
+    FD_TEST( rec->exec_txn_cnt==1U && rec->sigverify_txn_cnt==1U );
+    FD_TEST( rec->txn_idx==i && rec->sigverify_txn_idx==i );
+  }
+  FD_LOG_NOTICE(( "test_timeline_batch_parity: tie fixtures and %lu singleton EXEC / %lu-member SIG: %lu normalization work; ok",
+                  n, FD_GUI_TXN_BATCH_MAX_TXN, work ));
+}
+
+static void
+test_timeline_batches( fd_gui_t * gui ) {
+  void * http_mem = timeline_http_open( gui );
+  long const ts = sec_ns( 10UL );
+  ulong const max = FD_GUI_TXN_BATCH_MAX_TXN;
+  for( ulong i=0UL; i<2UL*max+1UL; i++ ) {
+    /* The first batch mixes error codes: 5 is the most frequent
+       (half the members), ahead of 3 and success (a quarter each), so it
+       wins despite the representative succeeding.  Neither the codes nor
+       success/failure split the batch. */
+    uint err = i>=max ? 0U : (i&1UL) ? 5U : (i&2UL) ? 3U : 0U;
+    fd_gui_store_replay_txn_t txn = {
+      .insert_time_ns=ts, .completion_time_ns=ts+(long)i*1000L+800L, .slot=100UL, .txn_idx=i,
+      .error_code=err, .txn_sigverify_exec_idx=1UL,
+      .sigverify_start_ns=ts+(long)i*1000L, .sigverify_end_ns=ts+(long)i*1000L+800L,
+      .load_start_ns=ts+(long)i*1000L+100L, .check_start_ns=ts+(long)i*1000L+200L,
+      .exec_start_ns=ts+(long)i*1000L+300L, .commit_start_ns=ts+(long)i*1000L+600L,
+      .commit_end_ns=ts+(long)i*1000L+700L, .block_compute_unit_limit=ULONG_MAX
+    };
+    FD_TEST( !fd_gui_hist_ts_append( gui, FD_GUI_HIST_REPLAY_TXN, &txn ) );
+  }
+  gui->slot_txn_scratch.max = max+1UL;
+  /* A replay of the same slot on another fork, overlapping in time, is
+     not mixed into this fork's batches. */
+  for( ulong i=0UL; i<4UL; i++ ) {
+    fd_gui_store_replay_txn_t txn = {
+      .insert_time_ns=ts, .completion_time_ns=ts+(long)i*1000L+900L, .slot=100UL, .bank_seq=1UL, .txn_idx=i,
+      .sigverify_start_ns=LONG_MAX, .sigverify_end_ns=LONG_MAX, .txn_sigverify_exec_idx=ULONG_MAX,
+      .load_start_ns=ts+(long)i*1000L+150L, .check_start_ns=LONG_MAX, .exec_start_ns=LONG_MAX,
+      .commit_start_ns=LONG_MAX, .commit_end_ns=ts+(long)i*1000L+750L, .block_compute_unit_limit=ULONG_MAX
+    };
+    FD_TEST( !fd_gui_hist_ts_append( gui, FD_GUI_HIST_REPLAY_TXN, &txn ) );
+  }
+  FD_TEST( !fd_gui_materialize_replay_txn_batches( gui, 100UL, 0UL, ts, ts+1000000L, 2UL*max+1UL, ts+1000000L ) );
+  FD_TEST( count_ts( gui, FD_GUI_HIST_REPLAY_TXN_BATCH, ULONG_MAX )==2UL );
+  fd_gui_hist_iter_t it;
+  FD_TEST( !fd_gui_hist_range_begin( gui, &it, FD_GUI_HIST_REPLAY_TXN_BATCH, ts, ts+1000000L, NULL, NULL ) );
+  for( ulong i=0UL; i<2UL; i++ ) {
+    FD_TEST( fd_gui_hist_range_next( &it ) );
+    fd_gui_store_replay_txn_batch_t const * b = it.rec;
+    FD_TEST( b->batch_idx==i && b->exec_txn_cnt==(i ? 1U : (uint)max) && b->sigverify_txn_cnt==b->exec_txn_cnt );
+    FD_TEST( b->txn_idx==i*max && b->sigverify_txn_idx==i*max );
+    FD_TEST( b->error_code==(i ? 0U : 5U) );
+    FD_TEST( b->completion_time_ns==ts+(long)(i ? max : max-1UL)*1000L+800L );
+    FD_TEST( b->load_start_ns<=b->check_start_ns && b->check_start_ns<=b->exec_start_ns );
+    FD_TEST( b->exec_start_ns<=b->commit_start_ns && b->commit_start_ns<=b->commit_end_ns );
+  }
+  FD_TEST( !fd_gui_hist_range_next( &it ) );
+  fd_gui_hist_range_end( &it );
+  /* Two execrp tiles: both batches execute on tile 0 and sigverify on
+     tile 1, with Idle around them. */
+  gui->tile_state.exec_cnt = 2UL;
+  gui->tile_state.pos_cnt  = 2UL;
+  FD_TEST( !fd_gui_printf_timeline_query_tile_states( gui, ts, ts+1000000L, 1, 7UL ) );
+  test_json_t json = timeline_response( gui );
+  FD_TEST( test_json_string_eq( timeline_value( json, "granularity" ), "txn_batch" ) );
+  FD_TEST( test_json_count( timeline_value( json, "state_cnt" ) )==2 );
+  FD_TEST( !test_json_count( timeline_value( json, "txn_idx" ) ) && !test_json_count( timeline_value( json, "slot_state_lo" ) ) );
+  int n = test_json_count( timeline_value( json, "state" ) );
+  FD_TEST( n==test_json_count( timeline_value( json, "dur" ) ) );
+  ulong total = 0UL; ulong sig_batch = 0UL;
+  ulong stage_cnt[ 4 ] = {0}; ulong stage_dur[ 4 ] = {0};
+  for( int i=0; i<n; i++ ) {
+    ulong state = test_json_ulong( test_json_index( timeline_value( json, "state" ), i ) );
+    ulong dur   = test_json_ulong( test_json_index( timeline_value( json, "dur" ), i ) );
+    FD_TEST( state==FD_GUI_TILE_STATE_IDLE || state==FD_GUI_TILE_STATE_SIGVERIFY_BATCH ||
+             ( state>=FD_GUI_TILE_STATE_LOAD_BATCH && state<=FD_GUI_TILE_STATE_POST_EXEC_BATCH ) );
+    sig_batch += state==FD_GUI_TILE_STATE_SIGVERIFY_BATCH;
+    if( state>=FD_GUI_TILE_STATE_LOAD_BATCH && state<=FD_GUI_TILE_STATE_POST_EXEC_BATCH ) {
+      stage_cnt[ state-FD_GUI_TILE_STATE_LOAD_BATCH ]++;
+      stage_dur[ state-FD_GUI_TILE_STATE_LOAD_BATCH ] += dur;
+    }
+    total += dur;
+  }
+  /* Each tile spans its first state's start to its last state's end,
+     with Idle only between states. */
+  FD_TEST( sig_batch==2UL );
+  ulong span = 0UL;
+  FD_TEST( !fd_gui_hist_range_begin( gui, &it, FD_GUI_HIST_REPLAY_TXN_BATCH, ts, ts+1000000L, NULL, NULL ) );
+  long lo[ 2 ] = { LONG_MAX, LONG_MAX }, hi[ 2 ] = { LONG_MIN, LONG_MIN };
+  while( fd_gui_hist_range_next( &it ) ) {
+    fd_gui_store_replay_txn_batch_t const * b = it.rec;
+    lo[ 0 ] = fd_long_min( lo[ 0 ], b->load_start_ns );      hi[ 0 ] = fd_long_max( hi[ 0 ], b->commit_end_ns );
+    lo[ 1 ] = fd_long_min( lo[ 1 ], b->sigverify_start_ns ); hi[ 1 ] = fd_long_max( hi[ 1 ], b->sigverify_end_ns );
+  }
+  fd_gui_hist_range_end( &it );
+  span = (ulong)(hi[ 0 ]-lo[ 0 ]) + (ulong)(hi[ 1 ]-lo[ 1 ]);
+  FD_TEST( total==span );
+  /* Each batch's stages are the batch record's proportional split. */
+  ulong want_dur[ 4 ] = {0};
+  FD_TEST( !fd_gui_hist_range_begin( gui, &it, FD_GUI_HIST_REPLAY_TXN_BATCH, ts, ts+1000000L, NULL, NULL ) );
+  while( fd_gui_hist_range_next( &it ) ) {
+    fd_gui_store_replay_txn_batch_t const * b = it.rec;
+    uchar st[ 4 ]; long sts[ 5 ];
+    ulong sn = fd_gui_txn_exec_states( b->load_start_ns, b->check_start_ns, b->exec_start_ns, b->commit_start_ns, b->commit_end_ns, st, sts );
+    for( ulong i=0UL; i<sn; i++ ) want_dur[ st[ i ]-FD_GUI_TILE_STATE_LOADING ] += (ulong)(sts[ i+1UL ]-sts[ i ]);
+  }
+  fd_gui_hist_range_end( &it );
+  for( ulong s=0UL; s<4UL; s++ ) {
+    FD_TEST( stage_cnt[ s ]==2UL ); /* every member reached every stage */
+    FD_TEST( stage_dur[ s ]==want_dur[ s ] && stage_dur[ s ] );
+  }
+  /* Members spend 100/100/300/100 ns per stage, so Exec is 3x the rest
+     (up to rounding of the batch boundaries). */
+  for( ulong s=0UL; s<4UL; s++ ) {
+    ulong want = (s==2UL ? 3UL : 1UL)*stage_dur[ 0 ];
+    FD_TEST( stage_dur[ s ]+4UL>=want && stage_dur[ s ]<=want+4UL );
+  }
+
+  /* A batch is inserted when its slot completes, which can be seconds
+     after the batch itself.  A narrow window around the batch still
+     finds it, up to the query margin. */
+  long const late = ts+sec_ns( 100UL );
+  append_replay_txn_batch( gui, late+FD_GUI_TXN_BATCH_QUERY_MARGIN_NS-sec_ns( 1UL ), late, 200UL );
+  append_replay_txn_batch( gui, late+FD_GUI_TXN_BATCH_QUERY_MARGIN_NS+sec_ns( 2UL ), late+1L, 201UL );
+  FD_TEST( !fd_gui_printf_timeline_query_tile_states( gui, late, late+2L, 1, 7UL ) );
+  json = timeline_response( gui );
+  /* Batches without a sigverify lane are leader batches and skipped. */
+  FD_TEST( test_json_kind( timeline_value( json, "reference_slot" ) )==FD_JTOK_NULL );
+  gui->tile_state.exec_cnt = 0UL;
+  gui->tile_state.pos_cnt  = 0UL;
+  FD_TEST( fd_http_server_delete( fd_http_server_leave( gui->http ) )==http_mem );
+  free( http_mem );
+  gui->http = NULL;
+  FD_LOG_NOTICE(( "test_timeline_batches: ok" ));
+}
+
+/* The replayed (non-leader) completion path bounds its scan by the
+   replay schedule, only rolls up the completed fork's transactions, and
+   counts a locally produced slot once however often it completes. */
+static void
+test_timeline_replay_batches( fd_gui_t * gui ) {
+  void * http_mem = timeline_http_open( gui );
+  long const  ts   = sec_ns( 10UL );
+  ulong const slot = 600UL;
+  gui->slot_txn_scratch.max                   = 8UL;
+  gui->summary.slot_caught_up                = ULONG_MAX;
+  for( ulong i=0UL; i<FD_GUI_TURBINE_SLOT_HISTORY_SZ; i++ ) gui->summary.slots_max_turbine[ i ].slot = ULONG_MAX;
+  /* Two transactions on fork 3, one on fork 4 at the same time, and one
+     on fork 3 past the scan margin. */
+  ulong forks[] = { 3UL, 3UL, 4UL, 3UL };
+  long  ends[]  = { ts+100L, ts+200L, ts+150L, ts+FD_GUI_TXN_BATCH_SCAN_MARGIN_NS+1000L };
+  for( ulong i=0UL; i<4UL; i++ ) {
+    fd_gui_store_replay_txn_t txn = {
+      .insert_time_ns=ts, .completion_time_ns=ends[ i ], .slot=slot, .bank_seq=forks[ i ], .txn_idx=i, .txn_exec_idx=i,
+      .txn_sigverify_exec_idx=ULONG_MAX, .sigverify_start_ns=LONG_MAX, .sigverify_end_ns=LONG_MAX,
+      .load_start_ns=ends[ i ]-50L, .check_start_ns=LONG_MAX, .exec_start_ns=LONG_MAX, .commit_start_ns=LONG_MAX,
+      .commit_end_ns=ends[ i ], .block_compute_unit_limit=ULONG_MAX
+    };
+    FD_TEST( !fd_gui_hist_ts_append( gui, FD_GUI_HIST_REPLAY_TXN, &txn ) );
+  }
+  fd_replay_slot_completed_t completed = { .slot=slot, .bank_seq=3UL, .parent_slot=ULONG_MAX, .parent_bank_seq=ULONG_MAX,
+    .first_transaction_scheduled_nanos=ts+50L, .completion_time_nanos=ts+300L,
+    .nonvote_success=3UL, .identity_balance=ULONG_MAX };
+  fd_gui_handle_replay_update( gui, &completed, ts+300L );
+  fd_http_server_stage_trunc( gui->http, 0UL );
+  FD_TEST( count_ts( gui, FD_GUI_HIST_REPLAY_TXN_BATCH, ULONG_MAX )==2UL );
+  fd_gui_hist_iter_t it;
+  FD_TEST( !fd_gui_hist_range_begin( gui, &it, FD_GUI_HIST_REPLAY_TXN_BATCH, ts, ts+sec_ns( 1UL ), NULL, NULL ) );
+  for( ulong i=0UL; i<2UL; i++ ) {
+    FD_TEST( fd_gui_hist_range_next( &it ) );
+    fd_gui_store_replay_txn_batch_t const * b = it.rec;
+    FD_TEST( b->slot==slot && b->exec_txn_cnt==1U && b->txn_idx==i );
+  }
+  FD_TEST( !fd_gui_hist_range_next( &it ) );
+  fd_gui_hist_range_end( &it );
+
+  /* A locally produced slot adds to MINE once, even when it completes
+     again. */
+  fd_gui_slot_t * meta = fd_gui_slot_get( gui, slot, 3UL );
+  FD_TEST( meta && !meta->timeline_mine_accounted );
+  ulong idx = (ulong)(ts+300L)/fd_gui_timeline_stored_granularity_ns[ FD_GUI_TIMELINE_GRANULARITY_250MS ];
+  ulong slot2 = slot+1UL;
+  completed.slot = slot2;
+  completed.first_transaction_scheduled_nanos = 0L;
+  fd_gui_slot_t * mine = fd_gui_slot_get_or_create( gui, slot2, ULONG_MAX, 3UL, ULONG_MAX );
+  FD_TEST( mine );
+  mine->mine = 1;
+  for( ulong i=0UL; i<2UL; i++ ) {
+    fd_gui_handle_replay_update( gui, &completed, ts+300L );
+    fd_http_server_stage_trunc( gui->http, 0UL );
+  }
+  FD_TEST( fd_gui_slot_get( gui, slot2, 3UL )->timeline_mine_accounted );
+  fd_gui_timeline_day_t const * day = fd_gui_timeline_day_get( gui, 0UL );
+  FD_TEST( day && fd_gui_timeline_field_get( day, FD_GUI_TIMELINE_GRANULARITY_250MS, FD_GUI_TIMELINE_FIELD_MINE, idx )==1UL );
+
+  FD_TEST( fd_http_server_delete( fd_http_server_leave( gui->http ) )==http_mem );
+  free( http_mem );
+  gui->http = NULL;
+  FD_LOG_NOTICE(( "test_timeline_replay_batches: fork filter, scan margin, mine counted once: ok" ));
+}
+
+static void
+test_timeline_limits( fd_gui_t * gui ) {
+  void * http_mem = timeline_http_open( gui );
+  long const ts = sec_ns( 10UL );
+  for( ulong i=0UL; i<FD_GUI_TIMELINE_QUERY_SHRED_MAX; i++ ) {
+    ulong slot = 100UL + i/65535UL;
+    fd_gui_shred_event_append( gui, slot, i%65535UL, FD_GUI_SLOT_SHRED_REPAIR_REQUEST, ts, ts );
+    fd_gui_fec_event_append( gui, slot, i%65535UL, FD_GUI_SLOT_SHRED_REPAIR_REQUEST, ts, ts );
+    if( i%65535UL==65534UL ) fd_gui_event_closed_slot_wmark_advance( gui, slot+1UL );
+  }
+  fd_gui_event_closed_slot_wmark_advance( gui, 109UL );
+  FD_TEST( !gui->shreds.dropped_event_cnt && !gui->shreds.dropped_fec_event_cnt );
+  for( int fec=0; fec<2; fec++ ) {
+    FD_TEST( !(fec ? fd_gui_printf_timeline_query_fec_events( gui, ts, ts+1L, 7UL )
+                  : fd_gui_printf_timeline_query_shreds( gui, ts, ts+1L, 7UL )) );
+    FD_TEST( fd_http_server_stage_len( gui->http )<(32UL<<20) );
+    test_json_t json = timeline_response( gui );
+    FD_TEST( test_json_count( timeline_value( json, "idx" ) )==(int)FD_GUI_TIMELINE_QUERY_SHRED_MAX );
+
+  }
+  fd_gui_shred_event_append( gui, 109UL, 0UL, FD_GUI_SLOT_SHRED_REPAIR_REQUEST, ts, ts );
+  fd_gui_fec_event_append( gui, 109UL, 0UL, FD_GUI_SLOT_SHRED_REPAIR_REQUEST, ts, ts );
+  fd_gui_event_closed_slot_wmark_advance( gui, 110UL );
+  for( int fec=0; fec<2; fec++ ) {
+    FD_TEST( !(fec ? fd_gui_printf_timeline_query_fec_events( gui, ts, ts+1L, 7UL )
+                  : fd_gui_printf_timeline_query_shreds( gui, ts, ts+1L, 7UL )) );
+    test_json_t json = timeline_response( gui );
+    FD_TEST( test_json_string_eq( test_json_field( test_json_field( json, "error" ), "code" ), "result_limit_exceeded" ) );
+
+  }
+
+  fd_gui_store_replay_txn_t txn = { .insert_time_ns=ts, .completion_time_ns=ts, .slot=100UL, .block_compute_unit_limit=ULONG_MAX,
+    .txn_start_shred_idx=UINT_MAX-1U, .txn_end_shred_idx=UINT_MAX-1U,
+    .load_start_ns=ts-1L, .check_start_ns=ts-1L, .exec_start_ns=ts-1L, .commit_start_ns=ts-1L, .commit_end_ns=ts };
+  fd_gui_store_replay_txn_batch_t tb = { .insert_time_ns=ts, .completion_time_ns=ts, .slot=100UL, .sigverify_txn_cnt=1U,
+    .load_start_ns=ts-1L, .commit_end_ns=ts };
+  gui->tile_state.exec_cnt = 1UL;
+  gui->tile_state.pos_cnt  = 1UL;
+  for( ulong i=0UL; i<FD_GUI_TIMELINE_QUERY_TXN_MAX; i++ ) {
+    txn.txn_idx = i;
+    tb.batch_idx = i;
+    FD_TEST( !fd_gui_hist_ts_append( gui, FD_GUI_HIST_REPLAY_TXN, &txn ) );
+    FD_TEST( !fd_gui_hist_ts_append( gui, FD_GUI_HIST_REPLAY_TXN_BATCH, &tb ) );
+  }
+  for( int kind=0; kind<3; kind++ ) {
+    FD_TEST( !(kind==1 ? fd_gui_printf_timeline_query_txn_meta( gui, ts, ts+1L, 7UL )
+                       : fd_gui_printf_timeline_query_tile_states( gui, ts, ts+1L, kind==2, 7UL )) );
+    FD_TEST( fd_http_server_stage_len( gui->http )<(32UL<<20) );
+    test_json_t json = timeline_response( gui );
+    /* The identical txn rows overlap on one tile, so only the first
+       is laid out; batch granularity reports states only. */
+    FD_TEST( test_json_count( timeline_value( json, "txn_idx" ) )==(kind==1 ? (int)FD_GUI_TIMELINE_QUERY_TXN_MAX : kind==0) );
+    if( kind==1 ) {
+      FD_TEST( test_json_count( timeline_value( json, "txn_start_shred_idx" ) )==(int)FD_GUI_TIMELINE_QUERY_TXN_MAX );
+      FD_TEST( test_json_count( timeline_value( json, "txn_end_shred_idx" ) )==(int)FD_GUI_TIMELINE_QUERY_TXN_MAX );
+    } else {
+      FD_TEST( !timeline_value( json, "txn_start_shred_idx" ).ptr && !timeline_value( json, "txn_end_shred_idx" ).ptr );
+    }
+
+  }
+  FD_TEST( !fd_gui_hist_ts_append( gui, FD_GUI_HIST_REPLAY_TXN, &txn ) );
+  FD_TEST( !fd_gui_hist_ts_append( gui, FD_GUI_HIST_REPLAY_TXN_BATCH, &tb ) );
+  for( int kind=0; kind<3; kind++ ) {
+    FD_TEST( !(kind==1 ? fd_gui_printf_timeline_query_txn_meta( gui, ts, ts+1L, 7UL )
+                       : fd_gui_printf_timeline_query_tile_states( gui, ts, ts+1L, kind==2, 7UL )) );
+    test_json_t json = timeline_response( gui );
+    FD_TEST( test_json_string_eq( test_json_field( test_json_field( json, "error" ), "code" ), "result_limit_exceeded" ) );
+
+  }
+  gui->tile_state.exec_cnt = 0UL;
+  gui->tile_state.pos_cnt  = 0UL;
+  put_epoch( gui, 0UL, 0UL, FD_GUI_TIMELINE_QUERY_SLOT_MAX+1UL );
+  gui->epoch.current_epoch = 0UL;
+  fd_gui_epoch_t * epoch = fd_gui_epoch( gui, 0UL );
+  epoch->timeline_slot_lo_idx = 0UL;
+  epoch->timeline_slot_hi_idx = FD_GUI_TIMELINE_QUERY_SLOT_MAX-1UL;
+  for( ulong i=0UL; i<=FD_GUI_TIMELINE_QUERY_SLOT_MAX; i++ ) {
+    epoch->timeline_slot_start_ns[ i ] = ts;
+    epoch->timeline_slot_end_ns[ i ]   = ts + 1L;
+    epoch->timeline_slot_state[ i ]    = FD_GUI_TIMELINE_SLOT_STATE_VALID;
+  }
+  epoch->timeline_slot_min_start_ns = ts;
+  epoch->timeline_slot_max_end_ns   = ts + 1L;
+  FD_TEST( !fd_gui_printf_timeline_query_slots( gui, ts, ts+1L, 7UL ) );
+  test_json_t json = timeline_response( gui );
+  FD_TEST( test_json_count( timeline_value( json, "slot_delta" ) )==(int)FD_GUI_TIMELINE_QUERY_SLOT_MAX );
+
+  epoch->timeline_slot_hi_idx++;
+  FD_TEST( !fd_gui_printf_timeline_query_slots( gui, ts, ts+1L, 7UL ) );
+  json = timeline_response( gui );
+  FD_TEST( test_json_string_eq( test_json_field( test_json_field( json, "error" ), "code" ), "result_limit_exceeded" ) );
+
+  FD_TEST( !fd_gui_printf_timeline_query_agg( gui, "query_agg_compute", "100ms", 2UL, ts, FD_GUI_TIMELINE_QUERY_MAX_BUCKETS, 7UL ) );
+  json = timeline_response( gui );
+  FD_TEST( test_json_count( timeline_value( json, "compute_units" ) )==(int)FD_GUI_TIMELINE_QUERY_MAX_BUCKETS );
+
+  /* Slot order need not match timestamp order.  The reference timestamp
+     must come from the earliest returned interval, not the first row. */
+  epoch->timeline_slot_lo_idx         = 10UL;
+  epoch->timeline_slot_hi_idx         = 12UL;
+  epoch->timeline_slot_start_ns[ 10 ] = 30L;
+  epoch->timeline_slot_end_ns[ 10 ]   = 40L;
+  epoch->timeline_slot_start_ns[ 11 ] = 10L;
+  epoch->timeline_slot_end_ns[ 11 ]   = 20L;
+  epoch->timeline_slot_start_ns[ 12 ] = 20L;
+  epoch->timeline_slot_end_ns[ 12 ]   = 30L;
+  epoch->timeline_slot_min_start_ns   = 10L;
+  epoch->timeline_slot_max_end_ns     = 40L;
+  FD_TEST( !fd_gui_printf_timeline_query_slots( gui, 0L, 50L, 7UL ) );
+  json = timeline_response( gui );
+  FD_TEST( test_json_ulong( timeline_value( json, "reference_slot" ) )==10UL );
+  FD_TEST( test_json_string_eq( timeline_value( json, "reference_ts" ), "10" ) );
+  FD_TEST( test_json_string_eq( timeline_value( json, "available_start_ns" ), "10" ) );
+  FD_TEST( test_json_string_eq( timeline_value( json, "available_end_ns" ), "40" ) );
+  char const * starts[] = { "20", "0", "10" };
+  char const * ends[]   = { "30", "10", "20" };
+  for( int i=0; i<3; i++ ) {
+    FD_TEST( test_json_ulong( test_json_index( timeline_value( json, "slot_delta" ), i ) )==(ulong)i );
+    FD_TEST( test_json_string_eq( test_json_index( timeline_value( json, "start_ts_delta" ), i ), starts[ i ] ) );
+    FD_TEST( test_json_string_eq( test_json_index( timeline_value( json, "end_ts_delta" ), i ), ends[ i ] ) );
+  }
+  /* Revenue columns come from the canonical block record: null without
+     one, and for skipped slots even with one. */
+  for( int i=0; i<3; i++ ) {
+    FD_TEST( test_json_kind( test_json_index( timeline_value( json, "txn_fees" ), i ) )==FD_JTOK_NULL );
+    FD_TEST( test_json_kind( test_json_index( timeline_value( json, "tips" ), i ) )==FD_JTOK_NULL );
+  }
+  ulong const rooted = gui->summary.slot_rooted;
+  gui->summary.slot_rooted = 100UL;
+  for( ulong s=10UL; s<=12UL; s++ ) {
+    put_slot( gui, s, 0L );
+    fd_gui_slot_t * rec = fd_gui_slot_get( gui, s, BANK_SEQ );
+    rec->skip            = FD_GUI_SKIP_STATUS_NOT_SKIPPED;
+    rec->transaction_fee = 5000UL*s;
+    rec->priority_fee    = s==11UL ? ULONG_MAX : 100UL*s;
+    rec->tips            = s;
+  }
+  epoch->timeline_slot_state[ 12 ] |= FD_GUI_TIMELINE_SLOT_STATE_SKIPPED;
+  FD_TEST( !fd_gui_printf_timeline_query_slots( gui, 0L, 50L, 7UL ) );
+  json = timeline_response( gui );
+  FD_TEST( test_json_string_eq( test_json_index( timeline_value( json, "txn_fees" ), 0 ), "50000" ) );
+  FD_TEST( test_json_string_eq( test_json_index( timeline_value( json, "prio_fees" ), 0 ), "1000" ) );
+  FD_TEST( test_json_string_eq( test_json_index( timeline_value( json, "tips" ), 0 ), "10" ) );
+  FD_TEST( test_json_string_eq( test_json_index( timeline_value( json, "txn_fees" ), 1 ), "55000" ) );
+  FD_TEST( test_json_kind( test_json_index( timeline_value( json, "prio_fees" ), 1 ) )==FD_JTOK_NULL );
+  FD_TEST( test_json_kind( test_json_index( timeline_value( json, "txn_fees" ), 2 ) )==FD_JTOK_NULL );
+  FD_TEST( test_json_kind( test_json_index( timeline_value( json, "tips" ), 2 ) )==FD_JTOK_NULL );
+  epoch->timeline_slot_state[ 12 ] &= (uchar)~FD_GUI_TIMELINE_SLOT_STATE_SKIPPED;
+  gui->summary.slot_rooted = rooted;
+  FD_TEST( !fd_gui_printf_timeline_query_slots( gui, 20L, 40L, 7UL ) );
+  json = timeline_response( gui );
+  FD_TEST( test_json_string_eq( timeline_value( json, "reference_ts" ), "20" ) );
+  FD_TEST( !fd_gui_printf_timeline_query_slots( gui, 40L, 50L, 7UL ) );
+  json = timeline_response( gui );
+  FD_TEST( test_json_kind( timeline_value( json, "reference_slot" ) )==FD_JTOK_NULL );
+  FD_TEST( test_json_kind( timeline_value( json, "reference_ts" ) )==FD_JTOK_NULL );
+  /* Epochs whose interval hull misses the window are not scanned, and
+     the availability bounds come from the hull alone. */
+  ulong rows = 0UL;
+  FD_TEST( !fd_gui_timeline_slots_collect( gui, 0L, 50L, gui->timeline_scratch.slots, 3UL, &rows ) && rows==3UL );
+  epoch->timeline_slot_min_start_ns = 100L;
+  epoch->timeline_slot_max_end_ns   = 200L;
+  FD_TEST( !fd_gui_timeline_slots_collect( gui, 0L, 50L, gui->timeline_scratch.slots, 3UL, &rows ) && !rows );
+  FD_TEST( !fd_gui_printf_timeline_query_slots( gui, 0L, 50L, 7UL ) );
+  json = timeline_response( gui );
+  FD_TEST( test_json_string_eq( timeline_value( json, "available_start_ns" ), "100" ) );
+  FD_TEST( test_json_string_eq( timeline_value( json, "available_end_ns" ), "200" ) );
+
+  /* query_events: leader_skip is a skipped slot scheduled to us, at
+     its interval midpoint.  Rotation 0 (slots 0-3) is ours, rotation 1
+     (slots 4-7) belongs to someone else. */
+  memset( gui->summary.identity_key->uc, 0xAB, 32UL );
+  memset( epoch->pub[ 0 ].uc, 0xAB, 32UL );
+  memset( epoch->pub[ 1 ].uc, 0xCD, 32UL );
+  epoch->pub_cnt = 2UL;
+  for( ulong i=0UL; i<=FD_GUI_TIMELINE_QUERY_EVENT_MAX; i++ ) {
+    epoch->timeline_slot_start_ns[ i ] = ts;
+    epoch->timeline_slot_end_ns[ i ]   = ts + 2L;
+    epoch->timeline_slot_state[ i ]    = FD_GUI_TIMELINE_SLOT_STATE_VALID | FD_GUI_TIMELINE_SLOT_STATE_SKIPPED;
+  }
+  epoch->timeline_slot_lo_idx       = 0UL;
+  epoch->timeline_slot_hi_idx       = FD_GUI_TIMELINE_QUERY_EVENT_MAX-1UL;
+  epoch->timeline_slot_min_start_ns = ts;
+  epoch->timeline_slot_max_end_ns   = ts + 2L;
+  FD_TEST( !fd_gui_printf_timeline_query_events( gui, ts, ts+2L, 7UL ) );
+  json = timeline_response( gui );
+  FD_TEST( test_json_count( timeline_value( json, "slot" ) )==(int)FD_GUI_TIMELINE_QUERY_EVENT_MAX );
+  epoch->timeline_slot_hi_idx++;
+  FD_TEST( !fd_gui_printf_timeline_query_events( gui, ts, ts+2L, 7UL ) );
+  json = timeline_response( gui );
+  FD_TEST( test_json_string_eq( test_json_field( test_json_field( json, "error" ), "code" ), "result_limit_exceeded" ) );
+
+  epoch->sched[ 1 ] = 1U;
+  epoch->timeline_slot_lo_idx = 0UL;
+  epoch->timeline_slot_hi_idx = 7UL;
+  for( ulong i=0UL; i<8UL; i++ ) {
+    epoch->timeline_slot_start_ns[ i ] = 10L*(long)i;
+    epoch->timeline_slot_end_ns[ i ]   = 10L*(long)i + 10L;
+  }
+  epoch->timeline_slot_state[ 1 ]   = FD_GUI_TIMELINE_SLOT_STATE_VALID;                                    /* landed */
+  epoch->timeline_slot_state[ 3 ]   = FD_GUI_TIMELINE_SLOT_STATE_SKIPPED;                                  /* unclassified */
+  epoch->timeline_slot_end_ns[ 2 ]  = 31L;                                                                 /* midpoint 25 */
+  epoch->timeline_slot_min_start_ns = 0L;
+  epoch->timeline_slot_max_end_ns   = 80L;
+  FD_TEST( !fd_gui_printf_timeline_query_events( gui, 0L, 100L, 7UL ) );
+  json = timeline_response( gui );
+  FD_TEST( test_json_string_eq( timeline_value( json, "available_start_ns" ), "0" ) );
+  FD_TEST( test_json_string_eq( timeline_value( json, "available_end_ns" ), "80" ) );
+  FD_TEST( test_json_count( timeline_value( json, "event" ) )==2 );
+  FD_TEST( test_json_count( timeline_value( json, "ts" ) )==2 );
+  FD_TEST( test_json_ulong( test_json_index( timeline_value( json, "event" ), 0 ) )==FD_GUI_TIMELINE_EVENT_LEADER_SKIP );
+  FD_TEST( test_json_ulong( test_json_index( timeline_value( json, "slot" ), 0 ) )==0UL );
+  FD_TEST( test_json_ulong( test_json_index( timeline_value( json, "slot" ), 1 ) )==2UL );
+  FD_TEST( test_json_string_eq( test_json_index( timeline_value( json, "ts" ), 0 ), "5" ) );
+  FD_TEST( test_json_string_eq( test_json_index( timeline_value( json, "ts" ), 1 ), "25" ) );
+  /* Half-open on the midpoint. */
+  FD_TEST( !fd_gui_printf_timeline_query_events( gui, 5L, 25L, 7UL ) );
+  json = timeline_response( gui );
+  FD_TEST( test_json_count( timeline_value( json, "slot" ) )==1 );
+  FD_TEST( test_json_ulong( test_json_index( timeline_value( json, "slot" ), 0 ) )==0UL );
+  FD_TEST( !fd_gui_printf_timeline_query_events( gui, 6L, 25L, 7UL ) );
+  json = timeline_response( gui );
+  FD_TEST( test_json_count( timeline_value( json, "event" ) )==0 );
+  FD_TEST( test_json_count( timeline_value( json, "slot" ) )==0 );
+  FD_TEST( test_json_count( timeline_value( json, "ts" ) )==0 );
+
+  FD_TEST( fd_http_server_delete( fd_http_server_leave( gui->http ) )==http_mem );
+  free( http_mem );
+  gui->http = NULL;
+  FD_LOG_NOTICE(( "test_timeline_limits: ok" ));
+}
+
+static void
+test_timeline_leader_txns( fd_gui_t * gui ) {
+  void * http_mem = timeline_http_open( gui );
+  long const  ts       = sec_ns( 10UL );
+  long const  now      = ts + 500000000L;
+  ulong const slot     = 500UL;
+  ulong const bank_seq = 7UL;
+  /* Make the local tick sample difference sub-nanosecond so absolute
+     timestamps are deterministic, independently of test execution speed. */
+  gui->tick_per_ns                           = 1e30;
+  gui->slot_txn_scratch.max                   = 8UL;
+  gui->summary.slot_caught_up                = ULONG_MAX;
+  for( ulong i=0UL; i<FD_GUI_TURBINE_SLOT_HISTORY_SZ; i++ ) gui->summary.slots_max_turbine[ i ].slot = ULONG_MAX;
+  fd_gui_became_leader( gui, slot, ts, ts+sec_ns( 1UL ), 60000000UL, 8UL, bank_seq );
+  FD_TEST( fd_gui_slot_leader_get( gui, slot, bank_seq )->max_compute_units==60000000UL );
+  FD_TEST( fd_gui_slot_leader_get_or_create( gui, slot+1UL, bank_seq )->max_compute_units==ULONG_MAX );
+
+  /* A parsed packet with a CU limit, a CU price and two precompile
+     signatures.  Execution results below are supplied by the mock trailer. */
+  fd_txn_p_t txn = {0};
+  txn.payload[ 0 ]  = 1U;
+  txn.payload[ 65 ] = 1U;
+  txn.payload[ 67 ] = 2U;
+  txn.payload[ 68 ] = 3U;
+  fd_memcpy( txn.payload+101UL, &fd_solana_compute_budget_program_id, 32UL );
+  fd_memcpy( txn.payload+133UL, &fd_solana_ed25519_sig_verify_program_id, 32UL );
+  txn.payload[ 197 ] = 3U;
+  uchar instrs[] = { 1U,0U,5U,2U,0xE8U,3U,0U,0U, /* CU limit 1000 */
+                   1U,0U,9U,3U,0x40U,0x42U,0x0FU,0U,0U,0U,0U,0U, /* price 1e6 */
+                   2U,0U,30U,2U,0U };
+  fd_memcpy( txn.payload+198UL, instrs, sizeof(instrs) );
+  txn.payload_sz = (ushort)(198UL+sizeof(instrs)+28UL);
+  FD_TEST( fd_txn_parse( txn.payload, txn.payload_sz, TXN( &txn ), NULL ) );
+  ulong priority   = 0UL;
+  ulong precompile = 0UL;
+  ulong requested  = fd_pack_compute_cost( TXN( &txn ), txn.payload, NULL, &priority, &precompile, NULL, NULL );
+  FD_TEST( requested && priority==1000UL && precompile==2UL );
+  fd_txn_ns_dt_t dt = { .load_start=10.4f, .check_start=20.6f, .exec_start=30.4f, .commit_start=60.6f, .commit_end=100.4f };
+  txn.pack_alloc = 0x12345678U; /* Not shred indices, despite sharing their union. */
+  for( ulong i=0UL; i<2UL; i++ ) {
+    txn.flags = FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
+    if( i ) txn.flags |= FD_TXN_P_FLAGS_FEES_ONLY | (200U<<24);
+    txn.execle_cu.actual_consumed_cus = 42U;
+    memset( txn.payload+1UL, (int)(i+1UL), FD_TXN_SIGNATURE_SZ );
+    fd_gui_microblock_execution_end( gui, now+1000L, 3UL, slot, 1UL, &txn, 17UL+i*3UL, dt, fd_tickcount(), 7UL, bank_seq, now );
+  }
+  /* Neither a non-landed transaction nor a missing commit tick produces a row. */
+  txn.flags = 0U;
+  fd_gui_microblock_execution_end( gui, now, 3UL, slot, 1UL, &txn, 21UL, dt, fd_tickcount(), 7UL, bank_seq, now );
+  txn.flags = FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
+  fd_gui_microblock_execution_end( gui, now, 3UL, slot, 1UL, &txn, 22UL, dt, LONG_MAX, 7UL, bank_seq, now );
+  FD_TEST( count_ts( gui, FD_GUI_HIST_REPLAY_TXN, ULONG_MAX )==2UL );
+  fd_gui_hist_iter_t it;
+  FD_TEST( !fd_gui_hist_range_begin( gui, &it, FD_GUI_HIST_REPLAY_TXN, now, now, NULL, NULL ) );
+  for( ulong i=0UL; i<2UL; i++ ) {
+    FD_TEST( fd_gui_hist_range_next( &it ) );
+    fd_gui_store_replay_txn_t const * rec = it.rec;
+    FD_TEST( rec->slot==slot && rec->txn_idx==17UL+i*3UL && rec->txn_exec_idx==3UL );
+    FD_TEST( rec->txn_sigverify_exec_idx==ULONG_MAX && rec->sigverify_start_ns==LONG_MAX && rec->sigverify_end_ns==LONG_MAX );
+    FD_TEST( rec->txn_start_shred_idx==UINT_MAX && rec->txn_end_shred_idx==UINT_MAX );
+    FD_TEST( rec->insert_time_ns==now && rec->completion_time_ns==now && rec->commit_end_ns==now );
+    FD_TEST( rec->load_start_ns==now-90L && rec->check_start_ns==now-79L && rec->exec_start_ns==now-70L && rec->commit_start_ns==now-39L );
+    FD_TEST( rec->block_compute_unit_limit==60000000UL && rec->compute_units_requested==requested && rec->compute_units_consumed==42U );
+    FD_TEST( rec->transaction_fee==15000UL && rec->priority_fee==1000UL && rec->tips==7UL );
+    FD_TEST( rec->is_committable && rec->is_fees_only==i && rec->error_code==i*200UL );
+    for( ulong j=0UL; j<FD_TXN_SIGNATURE_SZ; j++ ) FD_TEST( rec->signature[ j ]==i+1UL );
+  }
+  FD_TEST( !fd_gui_hist_range_next( &it ) );
+  fd_gui_hist_range_end( &it );
+
+  /* Leader rows index execle tiles and have no sigverify lane, so
+     query_tile_states skips them. */
+  gui->tile_state.exec_cnt = 4UL;
+  gui->tile_state.pos_cnt  = 4UL;
+  FD_TEST( !fd_gui_printf_timeline_query_tile_states( gui, now-100L, now+1L, 0, 7UL ) );
+  {
+    test_json_t json = timeline_response( gui );
+    FD_TEST( !test_json_count( timeline_value( json, "txn_idx" ) ) );
+    FD_TEST( !test_json_count( timeline_value( json, "state" ) ) ); /* tiles without states are empty */
+  }
+  for( int meta=1; meta<2; meta++ ) {
+    FD_TEST( !fd_gui_printf_timeline_query_txn_meta( gui, now, now+1L, 7UL ) );
+    test_json_t json = timeline_response( gui );
+    FD_TEST( test_json_count( timeline_value( json, "txn_idx" ) )==2 );
+    if( meta ) {
+      FD_TEST( test_json_count( timeline_value( json, "txn_start_shred_idx" ) )==2 );
+      FD_TEST( test_json_count( timeline_value( json, "txn_end_shred_idx" ) )==2 );
+    } else {
+      FD_TEST( !timeline_value( json, "txn_start_shred_idx" ).ptr && !timeline_value( json, "txn_end_shred_idx" ).ptr );
+    }
+    FD_TEST( test_json_string_eq( timeline_value( json, "reference_ts" ), "10499999910" ) );
+    for( int i=0; i<2; i++ ) {
+      FD_TEST( test_json_ulong( test_json_index( timeline_value( json, "txn_idx" ), i ) )==17UL+3UL*(ulong)i );
+      FD_TEST( test_json_ulong( test_json_index( timeline_value( json, "txn_exec_idx" ), i ) )==3UL );
+      FD_TEST( test_json_kind( test_json_index( timeline_value( json, "txn_sigverify_exec_idx" ), i ) )==FD_JTOK_NULL );
+      if( !meta ) {
+        FD_TEST( test_json_kind( test_json_index( timeline_value( json, "txn_sigverify_start_ts_delta" ), i ) )==FD_JTOK_NULL );
+        FD_TEST( test_json_kind( test_json_index( timeline_value( json, "txn_sigverify_end_ts_delta" ), i ) )==FD_JTOK_NULL );
+        FD_TEST( test_json_string_eq( test_json_index( timeline_value( json, "txn_commit_end_ts_delta" ), i ), "90" ) );
+      } else {
+        FD_TEST( test_json_string_eq( test_json_index( timeline_value( json, "txn_transaction_fee" ), i ), "15000" ) );
+        FD_TEST( test_json_string_eq( test_json_index( timeline_value( json, "txn_priority_fee" ), i ), "1000" ) );
+        FD_TEST( test_json_ulong( test_json_index( timeline_value( json, "txn_compute_units_requested" ), i ) )==requested );
+        FD_TEST( test_json_kind( test_json_index( timeline_value( json, "txn_start_shred_idx" ), i ) )==FD_JTOK_NULL );
+        FD_TEST( test_json_kind( test_json_index( timeline_value( json, "txn_end_shred_idx" ), i ) )==FD_JTOK_NULL );
+      }
+    }
+  }
+  /* Exercise the actual completion path with no replay scheduling times. */
+  fd_replay_slot_completed_t completed = { .slot=slot, .bank_seq=bank_seq, .parent_slot=ULONG_MAX, .parent_bank_seq=ULONG_MAX,
+    .completion_time_nanos=now+1L, .is_leader=1, .nonvote_success=1UL, .vote_failed=1UL, .identity_balance=ULONG_MAX };
+  fd_gui_handle_replay_update( gui, &completed, now+1L );
+  fd_http_server_stage_trunc( gui->http, 0UL );
+  /* The success and the error-200 failure share a tile and overlap, so
+     they merge into one batch; the 1-1 error-code tie picks success. */
+  FD_TEST( count_ts( gui, FD_GUI_HIST_REPLAY_TXN_BATCH, ULONG_MAX )==1UL );
+  FD_TEST( !gui->timeline_scratch.materialize.normalize_work );
+  FD_TEST( !fd_gui_hist_range_begin( gui, &it, FD_GUI_HIST_REPLAY_TXN_BATCH, now, now+1L, NULL, NULL ) );
+  while( fd_gui_hist_range_next( &it ) ) {
+    fd_gui_store_replay_txn_batch_t const * rec = it.rec;
+    FD_TEST( rec->sigverify_txn_cnt==0U && rec->exec_txn_cnt==2U && rec->error_code==0U );
+    FD_TEST( rec->sigverify_txn_idx==ULONG_MAX );
+    FD_TEST( rec->txn_sigverify_exec_idx==ULONG_MAX && rec->sigverify_start_ns==LONG_MAX && rec->sigverify_end_ns==LONG_MAX );
+    FD_TEST( rec->completion_time_ns==now );
+  }
+  fd_gui_hist_range_end( &it );
+  FD_TEST( !fd_gui_printf_timeline_query_tile_states( gui, now-100L, now+1L, 1, 7UL ) );
+  test_json_t json = timeline_response( gui );
+  FD_TEST( !test_json_count( timeline_value( json, "state" ) ) ); /* leader batch skipped */
+  gui->tile_state.exec_cnt = 0UL;
+  gui->tile_state.pos_cnt  = 0UL;
+
+  for( ulong g=0UL; g<FD_GUI_TIMELINE_GRANULARITY_CNT; g++ ) {
+    ulong ns = fd_gui_timeline_granularity_ns( g );
+    long ref = (long)((ulong)now/ns*ns);
+    char const * gran = fd_gui_timeline_granularities[ g ].name;
+    int stored; ulong merge_cnt;
+    if( fd_gui_timeline_tier( "query_agg_txn", g, &stored, &merge_cnt ) ) {
+      /* Below the minimum; compute and revenue also serve 100ms. */
+      FD_TEST( fd_gui_printf_timeline_query_agg( gui, "query_agg_txn", gran, g, ref, 1UL, 7UL )==-1 );
+      if( fd_gui_timeline_tier( "query_agg_revenue", g, &stored, &merge_cnt ) ) {
+        FD_TEST( fd_gui_printf_timeline_query_agg( gui, "query_agg_revenue", gran, g, ref, 1UL, 7UL )==-1 );
+        FD_TEST( fd_gui_printf_timeline_query_agg( gui, "query_agg_compute", gran, g, ref, 1UL, 7UL )==-1 );
+        continue;
+      }
+    } else {
+      FD_TEST( !fd_gui_printf_timeline_query_agg( gui, "query_agg_txn", gran, g, ref, 1UL, 7UL ) );
+      json = timeline_response( gui );
+      FD_TEST( test_json_ulong( test_json_index( timeline_value( json, "success_nonvote_transactions" ), 0 ) )==1UL );
+      FD_TEST( test_json_ulong( test_json_index( timeline_value( json, "failed_nonvote_transactions" ), 0 ) )==1UL );
+      FD_TEST( !test_json_ulong( test_json_index( timeline_value( json, "failed_vote_transactions" ), 0 ) ) );
+    }
+    FD_TEST( !fd_gui_printf_timeline_query_agg( gui, "query_agg_revenue", gran, g, ref, 1UL, 7UL ) );
+    json = timeline_response( gui );
+    FD_TEST( test_json_string_eq( test_json_index( timeline_value( json, "txn_fees" ), 0 ), "30000" ) );
+    FD_TEST( test_json_string_eq( test_json_index( timeline_value( json, "prio_fees" ), 0 ), "2000" ) );
+    /* Only the successful transaction pays its tip (7); the error-200
+       failure still pays fees but no tip.  The 100ms tier must agree
+       with the other stored day tiers. */
+    FD_TEST( test_json_string_eq( test_json_index( timeline_value( json, "tips" ), 0 ), "7" ) );
+    FD_TEST( !fd_gui_printf_timeline_query_agg( gui, "query_agg_compute", gran, g, ref, 1UL, 7UL ) );
+    json = timeline_response( gui );
+    FD_TEST( test_json_ulong( test_json_index( timeline_value( json, "compute_units" ), 0 ) )==84UL );
+    FD_TEST( test_json_ulong( timeline_value( json, "max_compute_units" ) )==60000000UL );
+  }
+  /* Also exercise a nonzero tick-to-nanosecond offset and a leader whose
+     becoming-leader notification (and block CU limit) was not received. */
+  gui->tick_per_ns = 1.0;
+  long later       = sec_ns( 20UL );
+  long tick_before = fd_tickcount();
+  long commit_tick = tick_before - 1000000L;
+  fd_gui_microblock_execution_end( gui, later, 4UL, slot+1UL, 1UL, &txn, 30UL, dt, commit_tick, 0UL, bank_seq, later );
+  long tick_after = fd_tickcount();
+  FD_TEST( !fd_gui_hist_range_begin( gui, &it, FD_GUI_HIST_REPLAY_TXN, later, later, NULL, NULL ) );
+  FD_TEST( fd_gui_hist_range_next( &it ) );
+  fd_gui_store_replay_txn_t const * rec = it.rec;
+  FD_TEST( rec->slot==slot+1UL && rec->txn_exec_idx==4UL && rec->block_compute_unit_limit==ULONG_MAX );
+  FD_TEST( rec->commit_end_ns>=later+commit_tick-tick_after && rec->commit_end_ns<=later+commit_tick-tick_before );
+  FD_TEST( rec->completion_time_ns==rec->commit_end_ns && rec->load_start_ns==rec->commit_end_ns-90L );
+  FD_TEST( !fd_gui_hist_range_next( &it ) );
+  fd_gui_hist_range_end( &it );
+  FD_TEST( fd_http_server_delete( fd_http_server_leave( gui->http ) )==http_mem );
+  free( http_mem );
+  gui->http = NULL;
+  FD_LOG_NOTICE(( "test_timeline_leader_txns: rows, nullable sigverify and shred indices, batches, all aggregate resolutions: ok" ));
+}
+
+static void
+test_timeline_queries( fd_gui_t * gui ) {
+  void * http_mem = timeline_http_open( gui );
+  void * db = gui->db;
+  void * hist = gui->hist;
+  gui->db = NULL;
+  gui->hist = NULL;
+  char const * keys[] = { "query_agg_slots", "query_agg_shreds", "query_agg_compute", "query_agg_revenue", "query_agg_txn" };
+  for( ulong i=0UL; i<5UL; i++ ) {
+    FD_TEST( !fd_gui_printf_timeline_query_agg( gui, keys[ i ], "250ms", 3UL, 0L, 1UL, 7UL ) );
+    test_json_t json = timeline_response( gui );
+    FD_TEST( (test_json_kind( timeline_value( json, "available_start_ns" ) )==FD_JTOK_NULL) );
+  }
+  gui->db = db;
+  gui->hist = hist;
+  char const * invalid[] = {
+    "{\"start_ns\":\"01\",\"end_ns\":\"2\",\"granularity\":\"shred\"}",
+    "{\"start_ns\":\"0\",\"end_ns\":\"9223372036854775807\",\"granularity\":\"shred\"}",
+    "{\"start_ns\":\"0\",\"end_ns\":\"9223372036854775808\",\"granularity\":\"shred\"}",
+    "{\"start_ns\":\"-1\",\"end_ns\":\"2\",\"granularity\":\"shred\"}",
+    "{\"start_ns\":0,\"end_ns\":\"2\",\"granularity\":\"shred\"}",
+    "{\"start_ns\":\"2\",\"end_ns\":\"2\",\"granularity\":\"shred\"}",
+    "{\"start_ns\":\"0\",\"end_ns\":\"2\"}",
+    "{\"start_ns\":\"0\",\"end_ns\":\"2\",\"granularity\":\"txn\"}"
+  };
+  for( ulong i=0UL; i<sizeof(invalid)/sizeof(invalid[ 0 ]); i++ ) {
+    char request[ 512 ];
+    fd_cstr_printf_check( request, sizeof(request), NULL, "{\"id\":7,\"topic\":\"timeline\",\"key\":\"query_shreds\",\"params\":%s}", invalid[ i ] );
+    FD_TEST( fd_gui_ws_message( gui, 0UL, (uchar const *)request, strlen(request) )==FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST );
+  }
+  char const * valid = "{\"id\":7,\"topic\":\"timeline\",\"key\":\"query_shreds\","
+                      "\"params\":{\"start_ns\":\"0\",\"end_ns\":\"1\",\"granularity\":\"fec\"}}";
+  FD_TEST( !fd_gui_ws_message( gui, 0UL, (uchar const *)valid, strlen(valid) ) );
+  char const * events_ok  = "{\"id\":7,\"topic\":\"timeline\",\"key\":\"query_events\",\"params\":{\"start_ns\":\"0\",\"end_ns\":\"1\"}}";
+  char const * events_bad = "{\"id\":7,\"topic\":\"timeline\",\"key\":\"query_events\",\"params\":{\"start_ns\":\"1\",\"end_ns\":\"1\"}}";
+  FD_TEST( !fd_gui_ws_message( gui, 0UL, (uchar const *)events_ok, strlen(events_ok) ) );
+  FD_TEST( fd_gui_ws_message( gui, 0UL, (uchar const *)events_bad, strlen(events_bad) )==FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST );
+  FD_TEST( fd_gui_printf_timeline_query_agg( gui, "query_agg_compute", "100ms", 2UL, 0L, FD_GUI_TIMELINE_QUERY_MAX_BUCKETS+1UL, 7UL )==-1 );
+  FD_TEST( fd_gui_printf_timeline_query_agg( gui, "query_agg_compute", "100ms", 2UL, LONG_MAX-1L, 1UL, 7UL )==-1 );
+
+  /* Granularities below each method's minimum, and names no longer
+     supported, are rejected on the request path. */
+  {
+    struct { char const * key; char const * gran; int ok; } const cases[] = {
+      { "query_agg_compute", "50ms",  0 }, { "query_agg_compute", "100ms", 1 },
+      { "query_agg_revenue", "50ms",  0 }, { "query_agg_revenue", "100ms", 1 },
+      { "query_agg_shreds",  "100ms", 0 }, { "query_agg_shreds",  "250ms", 1 },
+      { "query_agg_slots",   "100ms", 0 }, { "query_agg_slots",   "250ms", 1 },
+      { "query_agg_txn",     "100ms", 0 }, { "query_agg_txn",     "250ms", 1 },
+      { "query_agg_shreds",  "1ms",   0 }, { "query_agg_compute", "1ms",   0 },
+      { "query_agg_txn",     "10ms",  0 }, { "query_agg_cpu",     "1ms",   0 },
+      { "query_agg_tile_states", "100ms", 0 }
+    }; /* accepted CPU queries need reported tiles, see test_timeline_cpu */
+    for( ulong i=0UL; i<sizeof(cases)/sizeof(cases[ 0 ]); i++ ) {
+      char request[ 512 ];
+      fd_cstr_printf_check( request, sizeof(request), NULL,
+        "{\"id\":7,\"topic\":\"timeline\",\"key\":\"%s\",\"params\":{\"start_ns\":\"0\",\"end_ns\":\"1000000000\","
+        "\"granularity\":\"%s\",\"tiles\":[0]}}", cases[ i ].key, cases[ i ].gran );
+      int rc = fd_gui_ws_message( gui, 0UL, (uchar const *)request, strlen(request) );
+      if( FD_UNLIKELY( rc!=(cases[ i ].ok ? 0 : FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST) ) ) {
+        FD_LOG_ERR(( "FAIL: %s %s returned %d", cases[ i ].key, cases[ i ].gran, rc ));
+      }
+      fd_http_server_stage_trunc( gui->http, 0UL );
+    }
+    int stored; ulong merge_cnt;
+    FD_TEST( fd_gui_timeline_tier( "query_agg_compute", 1UL, &stored, &merge_cnt )==-1 ); /* 50ms */
+    FD_TEST( !fd_gui_timeline_tier( "query_agg_compute", 2UL, &stored, &merge_cnt ) && stored==FD_GUI_TIMELINE_GRANULARITY_100MS && merge_cnt==1UL );
+    FD_TEST( !fd_gui_timeline_tier( "query_agg_compute", 4UL, &stored, &merge_cnt ) && stored==FD_GUI_TIMELINE_GRANULARITY_250MS && merge_cnt==2UL );
+    FD_TEST( !fd_gui_timeline_tier( "query_agg_compute", 5UL, &stored, &merge_cnt ) && stored==FD_GUI_TIMELINE_GRANULARITY_250MS && merge_cnt==4UL );
+    FD_TEST( fd_gui_timeline_tier( "query_agg_txn", 2UL, &stored, &merge_cnt )==-1 ); /* 100ms */
+    FD_TEST( !fd_gui_timeline_tier( "query_agg_cpu", 1UL, &stored, &merge_cnt ) && stored==FD_GUI_TIMELINE_GRANULARITY_25MS && merge_cnt==2UL );
+    FD_TEST( !fd_gui_timeline_tier( "query_agg_cpu", 5UL, &stored, &merge_cnt ) && stored==FD_GUI_TIMELINE_GRANULARITY_250MS && merge_cnt==4UL );
+    FD_TEST( !fd_gui_timeline_tier( "query_agg_cpu", 7UL, &stored, &merge_cnt ) && stored==FD_GUI_TIMELINE_GRANULARITY_2S && merge_cnt==2UL );
+    FD_TEST( !fd_gui_timeline_tier( "query_agg_txn", 22UL, &stored, &merge_cnt ) && stored==FD_GUI_TIMELINE_GRANULARITY_12H && merge_cnt==2UL );
+    FD_TEST( fd_gui_timeline_tier( "query_agg_tile_states", 2UL, &stored, &merge_cnt )==-1 ); /* 100ms */
+    FD_TEST( !fd_gui_timeline_tier( "query_agg_tile_states", 5UL, &stored, &merge_cnt ) && stored==FD_GUI_TIMELINE_GRANULARITY_250MS && merge_cnt==4UL );
+    FD_TEST( !fd_gui_timeline_tier( "query_agg_tile_states", 7UL, &stored, &merge_cnt ) && stored==FD_GUI_TIMELINE_GRANULARITY_2S && merge_cnt==2UL );
+    FD_TEST( fd_gui_timeline_tier( "query_bogus", 22UL, &stored, &merge_cnt )==-1 );
+    FD_TEST( fd_gui_timeline_tier( "query_agg_txn", FD_GUI_TIMELINE_GRANULARITY_CNT, &stored, &merge_cnt )==-1 );
+  }
+
+  fd_gui_store_replay_txn_t txn = {
+    .insert_time_ns=sec_ns( 10UL ), .completion_time_ns=sec_ns( 10UL )+20L,
+    .slot=100UL, .txn_idx=3UL, .txn_exec_idx=1UL, .txn_sigverify_exec_idx=2UL,
+    .txn_start_shred_idx=UINT_MAX, .txn_end_shred_idx=UINT_MAX,
+    .sigverify_start_ns=sec_ns( 10UL ), .sigverify_end_ns=sec_ns( 10UL )+20L,
+    .load_start_ns=sec_ns( 10UL )+1L, .check_start_ns=LONG_MAX, .exec_start_ns=LONG_MAX,
+    .commit_start_ns=LONG_MAX, .commit_end_ns=sec_ns( 10UL )+10L,
+    .compute_units_requested=123U, .compute_units_consumed=42U, .block_compute_unit_limit=60000000UL,
+    .transaction_fee=5000UL, .priority_fee=1UL, .tips=2UL, .is_committable=1U
+  };
+  FD_TEST( !fd_gui_hist_ts_append( gui, FD_GUI_HIST_REPLAY_TXN, &txn ) );
+  fd_gui_timeline_handle_txn( gui, txn.slot, txn.commit_end_ns, txn.compute_units_consumed, txn.block_compute_unit_limit,
+    txn.transaction_fee, txn.priority_fee, txn.tips, 1, txn.insert_time_ns );
+  for( ulong g=0UL; g<FD_GUI_TIMELINE_GRANULARITY_CNT; g++ ) {
+    ulong ns = fd_gui_timeline_granularity_ns( g );
+    long ref = (long)((ulong)txn.commit_end_ns/ns*ns);
+    if( ns<100000000UL ) {
+      FD_TEST( fd_gui_printf_timeline_query_agg( gui, "query_agg_compute", fd_gui_timeline_granularities[ g ].name, g, ref, 1UL, 7UL )==-1 );
+      continue;
+    }
+    FD_TEST( !fd_gui_printf_timeline_query_agg( gui, "query_agg_compute", fd_gui_timeline_granularities[ g ].name, g, ref, 1UL, 7UL ) );
+    test_json_t json = timeline_response( gui );
+    FD_TEST( test_json_ulong( timeline_value( json, "max_compute_units" ) )==60000000UL );
+    FD_TEST( test_json_ulong( test_json_index( timeline_value( json, "compute_units" ), 0 ) )==42UL );
+  }
+
+  /* 100ms compute and revenue come from the 100ms tier: neighboring
+     100ms buckets of the same 250ms bucket stay separate. */
+  {
+    long base = sec_ns( 15UL );
+    fd_gui_timeline_handle_txn( gui, txn.slot, base+50000000L,  10U, 60000000UL, 100UL, 10UL, 1UL, 1, base+sec_ns( 1UL ) );
+    fd_gui_timeline_handle_txn( gui, txn.slot, base+150000000L, 20U, 50000000UL, 200UL, 20UL, 2UL, 1, base+sec_ns( 1UL ) );
+    fd_gui_timeline_day_t const * day = fd_gui_timeline_day_get( gui, 0UL );
+    FD_TEST( day );
+    ulong idx = (ulong)base/100000000UL;
+    FD_TEST( fd_gui_timeline_field_get( day, FD_GUI_TIMELINE_GRANULARITY_100MS, FD_GUI_TIMELINE_FIELD_COMPUTE_UNITS, idx     )==10UL );
+    FD_TEST( fd_gui_timeline_field_get( day, FD_GUI_TIMELINE_GRANULARITY_100MS, FD_GUI_TIMELINE_FIELD_COMPUTE_UNITS, idx+1UL )==20UL );
+    FD_TEST( fd_gui_timeline_field_get( day, FD_GUI_TIMELINE_GRANULARITY_100MS, FD_GUI_TIMELINE_FIELD_COMPUTE_UNITS, idx+2UL )==ULONG_MAX );
+    FD_TEST( fd_gui_timeline_tier_has_field( FD_GUI_TIMELINE_GRANULARITY_100MS, FD_GUI_TIMELINE_FIELD_TIPS ) );
+    FD_TEST( !fd_gui_timeline_tier_has_field( FD_GUI_TIMELINE_GRANULARITY_100MS, FD_GUI_TIMELINE_FIELD_TURBINE ) );
+    FD_TEST( !fd_gui_printf_timeline_query_agg( gui, "query_agg_compute", "100ms", 2UL, base, 3UL, 7UL ) );
+    test_json_t cj = timeline_response( gui );
+    test_json_t cu = timeline_value( cj, "compute_units" );
+    FD_TEST( test_json_count( cu )==3 );
+    FD_TEST( test_json_ulong( test_json_index( cu, 0 ) )==10UL );
+    FD_TEST( test_json_ulong( test_json_index( cu, 1 ) )==20UL );
+    FD_TEST( test_json_kind( test_json_index( cu, 2 ) )==FD_JTOK_NULL );
+    FD_TEST( test_json_ulong( timeline_value( cj, "max_compute_units" ) )==60000000UL );
+    FD_TEST( test_json_string_eq( timeline_value( cj, "available_start_ns" ), "0" ) );
+    FD_TEST( !fd_gui_printf_timeline_query_agg( gui, "query_agg_revenue", "100ms", 2UL, base, 3UL, 7UL ) );
+    cj = timeline_response( gui );
+    FD_TEST( test_json_string_eq( test_json_index( timeline_value( cj, "txn_fees" ), 0 ), "100" ) );
+    FD_TEST( test_json_string_eq( test_json_index( timeline_value( cj, "txn_fees" ), 1 ), "200" ) );
+    FD_TEST( test_json_string_eq( test_json_index( timeline_value( cj, "prio_fees" ), 1 ), "20" ) );
+    FD_TEST( test_json_string_eq( test_json_index( timeline_value( cj, "tips" ), 0 ), "1" ) );
+    FD_TEST( test_json_kind( test_json_index( timeline_value( cj, "tips" ), 2 ) )==FD_JTOK_NULL );
+    /* The 250ms tier holds both. */
+    FD_TEST( !fd_gui_printf_timeline_query_agg( gui, "query_agg_compute", "250ms", 3UL, base, 1UL, 7UL ) );
+    cj = timeline_response( gui );
+    FD_TEST( test_json_ulong( test_json_index( timeline_value( cj, "compute_units" ), 0 ) )==30UL );
+  }
+  /* Three execrp tiles: txn 3 loads on tile 1 over [1,10) and
+     sigverifies on tile 2 over [0,20), relative to the window start.
+     The window must include the sigverify end to own it. */
+  gui->tile_state.exec_cnt = 3UL;
+  gui->tile_state.pos_cnt  = 3UL;
+  FD_TEST( !fd_gui_printf_timeline_query_tile_states( gui, txn.sigverify_start_ns, txn.completion_time_ns+1L, 0, 7UL ) );
+  test_json_t json = timeline_response( gui );
+  {
+    FD_TEST( test_json_string_eq( timeline_value( json, "start_ts" ), "10000000000" ) );
+    FD_TEST( test_json_ulong( timeline_value( json, "reference_slot" ) )==100UL );
+    ulong const state_cnt[] = { 0UL, 1UL, 1UL };
+    ulong const state[]     = { FD_GUI_TILE_STATE_LOADING, FD_GUI_TILE_STATE_SIGVERIFY };
+    ulong const dur[]       = { 9UL, 20UL };
+    FD_TEST( test_json_count( timeline_value( json, "state_cnt" ) )==3 && test_json_count( timeline_value( json, "state" ) )==2 );
+    FD_TEST( test_json_string_eq( test_json_index( timeline_value( json, "tile_start_ts_delta" ), 1 ), "1" ) );
+    for( int i=0; i<3; i++ ) FD_TEST( test_json_ulong( test_json_index( timeline_value( json, "state_cnt" ), i ) )==state_cnt[ i ] );
+    for( int i=0; i<2; i++ ) {
+      FD_TEST( test_json_ulong( test_json_index( timeline_value( json, "state" ), i ) )==state[ i ] );
+      FD_TEST( test_json_ulong( test_json_index( timeline_value( json, "dur" ),   i ) )==dur[ i ] );
+    }
+    /* One exec and one sigverify segment for the same txn. */
+    FD_TEST( test_json_count( timeline_value( json, "txn_idx" ) )==2 );
+    FD_TEST( test_json_ulong( test_json_index( timeline_value( json, "txn_state_lo" ), 0 ) )==0UL );
+    FD_TEST( test_json_ulong( test_json_index( timeline_value( json, "txn_state_lo" ), 1 ) )==1UL );
+    FD_TEST( test_json_ulong( test_json_index( timeline_value( json, "txn_state_cnt" ), 0 ) )==1UL );
+    FD_TEST( test_json_ulong( test_json_index( timeline_value( json, "txn_idx" ), 1 ) )==3UL );
+    FD_TEST( test_json_ulong( test_json_index( timeline_value( json, "txn_slot_delta" ), 0 ) )==0UL );
+    FD_TEST( test_json_ulong( test_json_index( timeline_value( json, "txn_error_code" ), 0 ) )==0UL );
+    FD_TEST( test_json_kind( test_json_index( timeline_value( json, "txn_error_code" ), 1 ) )==FD_JTOK_NULL );
+    FD_TEST( !test_json_count( timeline_value( json, "slot_state_lo" ) ) );
+  }
+  /* A window after the txn's last state ended has no states. */
+  FD_TEST( !fd_gui_printf_timeline_query_tile_states( gui, txn.completion_time_ns+1L, txn.completion_time_ns+2L, 0, 7UL ) );
+  json = timeline_response( gui );
+  FD_TEST( !test_json_count( timeline_value( json, "txn_idx" ) ) && !test_json_count( timeline_value( json, "state" ) ) );
+  gui->tile_state.exec_cnt = 0UL;
+  gui->tile_state.pos_cnt  = 0UL;
+
+  FD_TEST( !fd_gui_printf_timeline_query_txn_meta( gui, txn.completion_time_ns, txn.completion_time_ns+1L, 7UL ) );
+  json = timeline_response( gui );
+  FD_TEST( test_json_ulong( test_json_index( timeline_value( json, "txn_compute_units_requested" ), 0 ) )==123UL );
+  FD_TEST( (test_json_kind( test_json_index( timeline_value( json, "txn_transaction_fee" ), 0 ) )==FD_JTOK_STR) );
+
+  /* Commit belongs to the preceding bucket even when sigverify completes
+     exactly at the next boundary.  Check each granularity up to one
+     second, with separate query windows. */
+  txn.insert_time_ns     = sec_ns( 20UL );
+  txn.completion_time_ns = sec_ns( 20UL );
+  txn.sigverify_start_ns = sec_ns( 20UL ) - 2L;
+  txn.sigverify_end_ns   = sec_ns( 20UL );
+  txn.load_start_ns      = sec_ns( 20UL ) - 2L;
+  txn.commit_end_ns      = sec_ns( 20UL ) - 1L;
+  FD_TEST( !fd_gui_hist_ts_append( gui, FD_GUI_HIST_REPLAY_TXN, &txn ) );
+  fd_gui_timeline_handle_txn( gui, txn.slot, txn.commit_end_ns, txn.compute_units_consumed, txn.block_compute_unit_limit,
+    txn.transaction_fee, txn.priority_fee, txn.tips, 1, txn.insert_time_ns );
+  for( ulong g=0UL; g<FD_GUI_TIMELINE_GRANULARITY_CNT; g++ ) {
+    ulong ns = fd_gui_timeline_granularity_ns( g );
+    if( ns>(ulong)FD_GUI_HIST_RES_1S_NS ) break;
+    if( ns<100000000UL ) continue; /* below the compute minimum */
+    long ref = (long)((ulong)txn.commit_end_ns/ns*ns);
+    FD_TEST( !fd_gui_printf_timeline_query_agg( gui, "query_agg_compute", fd_gui_timeline_granularities[ g ].name, g, ref, 1UL, 7UL ) );
+    json = timeline_response( gui );
+    FD_TEST( test_json_ulong( test_json_index( timeline_value( json, "compute_units" ), 0 ) )==42UL );
+    FD_TEST( !fd_gui_printf_timeline_query_agg( gui, "query_agg_compute", fd_gui_timeline_granularities[ g ].name, g, ref+(long)ns, 1UL, 7UL ) );
+    json = timeline_response( gui );
+    FD_TEST( test_json_kind( test_json_index( timeline_value( json, "compute_units" ), 0 ) )==FD_JTOK_NULL );
+  }
+
+  /* Replay's message carries the scheduler's shred indices verbatim,
+     including a saturated USHORT_MAX end rather than an unknown sentinel. */
+  long const replay_now = sec_ns( 30UL );
+  long const tick       = fd_tickcount();
+  gui->tick_per_ns = 1e30; /* Deterministic timestamps, as in the leader test. */
+  fd_replay_txn_executed_t executed = {
+    .slot=101UL, .exec_tile_idx=3UL, .sigverify_exec_tile_idx=4UL,
+    .tick_sigverify_disp=tick, .tick_sigverify_done=tick, .tick_load_start=tick,
+    .tick_check_start=LONG_MAX, .tick_exec_start=LONG_MAX, .tick_commit_start=LONG_MAX, .tick_commit_end=tick,
+    .is_committable=1, .max_compute_units=60000000UL
+  };
+  /* Minimal parsed legacy transaction: one signature, one account, no instructions. */
+  executed.txn->payload[ 0 ]  = 1U;
+  executed.txn->payload[ 65 ] = 1U;
+  executed.txn->payload[ 68 ] = 1U;
+  executed.txn->payload_sz    = 134U;
+  FD_TEST( fd_txn_parse( executed.txn->payload, executed.txn->payload_sz, TXN( executed.txn ), NULL ) );
+  ushort const starts[ 2 ] = { 0U, USHORT_MAX-1U };
+  ushort const ends[ 2 ]   = { 42U, USHORT_MAX };
+  for( ulong i=0UL; i<2UL; i++ ) {
+    executed.index_in_slot       = 5UL+i;
+    executed.txn->start_shred_idx = starts[ i ];
+    executed.txn->end_shred_idx   = ends[ i ];
+    fd_gui_handle_replay_txn( gui, &executed, replay_now );
+  }
+  {
+    FD_TEST( !fd_gui_printf_timeline_query_txn_meta( gui, replay_now, replay_now+1L, 7UL ) );
+    json = timeline_response( gui );
+    test_json_t start_indices = timeline_value( json, "txn_start_shred_idx" );
+    test_json_t end_indices   = timeline_value( json, "txn_end_shred_idx" );
+    FD_TEST( test_json_count( timeline_value( json, "txn_idx" ) )==2 );
+    FD_TEST( test_json_count( start_indices )==2 && test_json_count( end_indices )==2 );
+    FD_TEST( timeline_value( json, "txn_sigverify_exec_idx" ).ptr<start_indices.ptr && start_indices.ptr<end_indices.ptr );
+    for( int i=0; i<2; i++ ) {
+      FD_TEST( test_json_ulong( test_json_index( timeline_value( json, "txn_idx" ), i ) )==5UL+(ulong)i );
+      FD_TEST( test_json_kind( test_json_index( start_indices, i ) )==FD_JTOK_INT );
+      FD_TEST( test_json_kind( test_json_index( end_indices, i ) )==FD_JTOK_INT );
+      FD_TEST( test_json_ulong( test_json_index( start_indices, i ) )==starts[ i ] );
+      FD_TEST( test_json_ulong( test_json_index( end_indices, i ) )==ends[ i ] );
+    }
+  }
+
+  FD_TEST( fd_http_server_delete( fd_http_server_leave( gui->http ) )==http_mem );
+  free( http_mem );
+  gui->http = NULL;
+  FD_LOG_NOTICE(( "test_timeline_queries: ok" ));
+}
+
+
 /* check_response compares the staged websocket response to expected
    exactly, and discards it. */
 
@@ -1134,6 +2271,16 @@ static void
 test_timeline_shreds( fd_gui_t * gui ) {
   void * http_mem = test_http_open( gui, FD_GUI_HTTP_MIN_SEND_BUFFER_SZ );
 
+  /* Positive event-time skew within one second must fit the advertised
+     bounds, including insertion at the last nanosecond of a batch.
+     Events are appended before the slots complete, since shred events
+     for completed slots are dropped. */
+  long const now = sec_ns( 101UL )-1L;
+  long const event_ns = now+sec_ns( 1UL );
+  ulong const event_slots[] = { 101UL, 102UL, 113UL, 101UL };
+  for( ulong i=0UL; i<sizeof(event_slots)/sizeof(event_slots[ 0 ]); i++ )
+    fd_gui_shred_event_append( gui, event_slots[ i ], 0UL, FD_GUI_SLOT_SHRED_REPAIR_REQUEST, event_ns, now );
+
   /* Canonical lineage 100 -> 102 -> 110 -> 112 proves 101 was skipped,
      even though no slot record exists for it. */
   ulong const slots[] = { 100UL, 102UL, 110UL, 112UL };
@@ -1146,14 +2293,6 @@ test_timeline_shreds( fd_gui_t * gui ) {
   }
   gui->summary.slot_tower          = 112UL;
   gui->summary.slot_tower_bank_seq = BANK_SEQ;
-
-  /* Positive event-time skew within one second must fit the advertised
-     bounds, including insertion at the last nanosecond of a batch. */
-  long const now = sec_ns( 101UL )-1L;
-  long const event_ns = now+sec_ns( 1UL );
-  ulong const event_slots[] = { 101UL, 102UL, 113UL, 101UL };
-  for( ulong i=0UL; i<sizeof(event_slots)/sizeof(event_slots[ 0 ]); i++ )
-    fd_gui_shred_event_append( gui, event_slots[ i ], 0UL, FD_GUI_SLOT_SHRED_REPAIR_REQUEST, event_ns, now );
 
   for( int flushed=0; flushed<2; flushed++ ) {
     long lo, hi;
@@ -1196,10 +2335,6 @@ test_timeline_agg( fd_gui_t * gui ) {
   check_response( gui, "{\"topic\":\"timeline\",\"key\":\"query_agg_txn\",\"id\":7,\"value\":{\"granularity\":\"250ms\",\"reference_ts_ns\":\"0\","
                        "\"available_start_ns\": null,\"available_end_ns\": null,\"success_nonvote_transactions\":[null,null],\"failed_nonvote_transactions\":[null,null],"
                        "\"success_vote_transactions\":[null,null],\"failed_vote_transactions\":[null,null]}}" );
-  FD_TEST( !fd_gui_printf_timeline_query_agg( gui, "query_agg_shreds", "250ms", 3UL, 0L, 2UL, 7UL ) );
-  check_response( gui, "{\"topic\":\"timeline\",\"key\":\"query_agg_shreds\",\"id\":7,\"value\":{\"granularity\":\"250ms\",\"reference_ts_ns\":\"0\","
-                       "\"available_start_ns\": null,\"available_end_ns\": null,\"turbine\":[null,null],\"repair\":[null,null],"
-                       "\"reconstructed\":[null,null],\"published\":[null,null],\"slot_duration\":[null,null]}}" );
 
   /* Malformed requests: missing or unknown granularity, empty range, too many buckets. */
   char const * invalid[] = {
@@ -1208,7 +2343,7 @@ test_timeline_agg( fd_gui_t * gui ) {
     "{\"start_ns\":\"2\",\"end_ns\":\"2\",\"granularity\":\"250ms\"}",
     "{\"start_ns\":\"0\",\"end_ns\":\"1024000000001\",\"granularity\":\"250ms\"}"
   };
-  char const * keys[] = { "query_agg_compute", "query_agg_revenue", "query_agg_txn", "query_agg_shreds" };
+  char const * keys[] = { "query_agg_compute", "query_agg_revenue", "query_agg_txn" };
   for( ulong k=0UL; k<sizeof(keys)/sizeof(keys[ 0 ]); k++ ) {
     for( ulong i=0UL; i<sizeof(invalid)/sizeof(invalid[ 0 ]); i++ ) {
       char request[ 512 ];
@@ -1221,40 +2356,6 @@ test_timeline_agg( fd_gui_t * gui ) {
                           "\"params\":{\"start_ns\":\"0\",\"end_ns\":\"1024000000000\",\"granularity\":\"250ms\"}}", keys[ k ] );
     FD_TEST( !fd_gui_ws_message( gui, 0UL, (uchar const *)valid, strlen( valid ) ) );
     fd_http_server_stage_trunc( gui->http, 0UL );
-  }
-
-  /* Granularities below each method's minimum, and names no longer
-     supported, are rejected on the request path. */
-  {
-    struct { char const * key; char const * gran; int ok; } const cases[] = {
-      { "query_agg_compute", "100ms", 0 }, { "query_agg_compute", "250ms", 1 },
-      { "query_agg_revenue", "100ms", 0 }, { "query_agg_revenue", "250ms", 1 },
-      { "query_agg_txn",     "100ms", 0 }, { "query_agg_txn",     "250ms", 1 },
-      { "query_agg_shreds",  "100ms", 0 }, { "query_agg_shreds",  "250ms", 1 },
-      { "query_agg_compute", "1ms",   0 }, { "query_agg_txn",     "10ms",  0 },
-      { "query_agg_cpu",     "1ms",   0 }
-    }; /* accepted CPU queries need reported tiles, see test_timeline_cpu */
-    for( ulong i=0UL; i<sizeof(cases)/sizeof(cases[ 0 ]); i++ ) {
-      char request[ 512 ];
-      fd_cstr_printf_check( request, sizeof(request), NULL,
-        "{\"id\":7,\"topic\":\"timeline\",\"key\":\"%s\",\"params\":{\"start_ns\":\"0\",\"end_ns\":\"1000000000\","
-        "\"granularity\":\"%s\",\"tiles\":[0]}}", cases[ i ].key, cases[ i ].gran );
-      int rc = fd_gui_ws_message( gui, 0UL, (uchar const *)request, strlen(request) );
-      if( FD_UNLIKELY( rc!=(cases[ i ].ok ? 0 : FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST) ) ) {
-        FD_LOG_ERR(( "FAIL: %s %s returned %d", cases[ i ].key, cases[ i ].gran, rc ));
-      }
-      fd_http_server_stage_trunc( gui->http, 0UL );
-    }
-    int stored; ulong merge_cnt;
-    FD_TEST( fd_gui_timeline_tier( "query_agg_compute", 2UL, &stored, &merge_cnt )==-1 ); /* 100ms */
-    FD_TEST( !fd_gui_timeline_tier( "query_agg_compute", 4UL, &stored, &merge_cnt ) && stored==FD_GUI_TIMELINE_GRANULARITY_250MS && merge_cnt==2UL );
-    FD_TEST( !fd_gui_timeline_tier( "query_agg_compute", 5UL, &stored, &merge_cnt ) && stored==FD_GUI_TIMELINE_GRANULARITY_250MS && merge_cnt==4UL );
-    FD_TEST( !fd_gui_timeline_tier( "query_agg_cpu", 1UL, &stored, &merge_cnt ) && stored==FD_GUI_TIMELINE_GRANULARITY_25MS && merge_cnt==2UL );
-    FD_TEST( !fd_gui_timeline_tier( "query_agg_cpu", 5UL, &stored, &merge_cnt ) && stored==FD_GUI_TIMELINE_GRANULARITY_250MS && merge_cnt==4UL );
-    FD_TEST( !fd_gui_timeline_tier( "query_agg_cpu", 7UL, &stored, &merge_cnt ) && stored==FD_GUI_TIMELINE_GRANULARITY_2S && merge_cnt==2UL );
-    FD_TEST( !fd_gui_timeline_tier( "query_agg_txn", 22UL, &stored, &merge_cnt ) && stored==FD_GUI_TIMELINE_GRANULARITY_12H && merge_cnt==2UL );
-    FD_TEST( fd_gui_timeline_tier( "query_bogus", 22UL, &stored, &merge_cnt )==-1 );
-    FD_TEST( fd_gui_timeline_tier( "query_agg_txn", FD_GUI_TIMELINE_GRANULARITY_CNT, &stored, &merge_cnt )==-1 );
   }
 
   /* Replay producer: fees and tips are recorded at commit time. */
@@ -1373,7 +2474,7 @@ test_timeline_agg( fd_gui_t * gui ) {
 }
 
 /* test_min_footprint checks the store's minimum size: the per-DB base
-   regions, sized for the largest topology, fit the documented 4 GiB
+   regions, sized for the largest topology, fit the documented 8 GiB
    floor of [tiles.gui.db_size_gib] (src/app/shared/fd_config.c). */
 
 static void
@@ -1381,7 +2482,7 @@ test_min_footprint( void ) {
   fd_gui_store_desc_t const * descs = test_descs();
   ulong min_size = fd_gui_store_min_size( FD_GUI_HIST_CNT, descs );
   FD_LOG_NOTICE(( "GUI DB minimum: %lu MiB", min_size>>20 ));
-  FD_TEST( min_size<=(4UL<<30) );
+  FD_TEST( min_size<=TEST_STORE_BYTES );
   FD_TEST( !fd_gui_store_footprint( min_size-1UL, FD_GUI_HIST_CNT, descs ) );
   FD_TEST( fd_gui_store_footprint( min_size, FD_GUI_HIST_CNT, descs ) );
   FD_TEST( fd_gui_hist_store_footprint( TEST_STORE_BYTES )==fd_gui_store_footprint( TEST_STORE_BYTES, FD_GUI_HIST_CNT, descs ) );
@@ -1576,6 +2677,90 @@ test_timeline_cpu( fd_gui_t * gui ) {
   fd_cstr_printf_check( big+off, 8192UL-off, NULL, "]}}" );
   FD_TEST( fd_gui_ws_message( gui, 0UL, (uchar const *)big, strlen( big ) )==FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST );
   free( big );
+
+  /* Replay slot states land on the replay tile (topo tile 1, after
+     the single execrp tile 0): stored as rows for query_tile_states and
+     aggregated for query_agg_tile_states.  Ticks are converted against
+     the current tickcount, so allow a little slack. */
+  {
+    double tick_per_ns = gui->tick_per_ns;
+    gui->tick_per_ns = 1.0;
+    gui->tile_state.exec_cnt    = 1UL;
+    gui->tile_state.pos_cnt     = 2UL;
+    gui->tile_state.topo_idx[0] = 0UL;
+    gui->tile_state.topo_idx[1] = 1UL;
+    gui->tile_state.cur_day     = ULONG_MAX;
+    long now = 3L*FD_GUI_TIMELINE_DAY_NS + sec_ns( 10UL );
+    fd_replay_slot_states_t msg = { .cnt = 1UL };
+    long tick = fd_tickcount();
+    msg.states[ 0 ] = (fd_sched_slot_state_t){ .slot=42UL, .start_tick=tick-3000000000L, .end_tick=tick-1000000000L, .state=FD_SCHED_SLOT_STATE_BLOCKED_NETWORK };
+    fd_gui_handle_replay_slot_states( gui, &msg, now );
+    long slack = 10000000L; /* 10ms */
+
+    long  ref = 3L*FD_GUI_TIMELINE_DAY_NS + sec_ns( 6UL );
+    FD_TEST( !fd_gui_printf_timeline_query_agg_tile_states( gui, "2s", 6UL, ref, 2UL, 7UL ) );
+    test_json_t json = timeline_response( gui );
+    test_json_t ts   = timeline_value( json, "tile_states" );
+    FD_TEST( test_json_count( timeline_value( json, "tiles" ) )==2 );
+    FD_TEST( test_json_ulong( test_json_index( timeline_value( json, "tiles" ), 0 ) )==0UL );
+    FD_TEST( test_json_ulong( test_json_index( timeline_value( json, "tiles" ), 1 ) )==1UL );
+    FD_TEST( test_json_count( ts )==2 );
+    FD_TEST( test_json_kind( test_json_index( test_json_index( test_json_index( ts, 0 ), 0 ), 0 ) )==FD_JTOK_NULL ); /* no execrp record */
+    test_json_t replay = test_json_index( ts, 1 );
+    FD_TEST( test_json_count( replay )==(int)FD_GUI_TILE_STATE_CNT );
+    for( int b=0; b<2; b++ ) {
+      ulong net  = test_json_ulong( test_json_index( test_json_index( replay, FD_GUI_TILE_STATE_BLOCKED_ON_NETWORK ), b ) );
+      ulong idle = test_json_ulong( test_json_index( test_json_index( replay, FD_GUI_TILE_STATE_IDLE ), b ) );
+      ulong tile = test_json_ulong( test_json_index( test_json_index( replay, FD_GUI_TILE_STATE_BLOCKED_ON_TILES ), b ) );
+      FD_TEST( net+(ulong)(slack/1000L)>=1000000UL && net<=1000000UL+(ulong)(slack/1000L) ); /* 1s of each 2s bucket, in us */
+      FD_TEST( !tile && idle<=(ulong)(slack/1000L) ); /* outside the recorded span is unknown, not Idle */
+    }
+    /* The 250ms tier is exact ns too: the network state covers
+       [ref+1s,ref+3s), so of the 250ms buckets from ref+0.25s the first
+       three are empty and the next eight full, and 1s buckets sum them. */
+    FD_TEST( !fd_gui_printf_timeline_query_agg_tile_states( gui, "250ms", 3UL, ref+250000000L, 12UL, 7UL ) );
+    json   = timeline_response( gui );
+    replay = test_json_index( timeline_value( json, "tile_states" ), 1 );
+    for( int b=0; b<12; b++ ) {
+      test_json_t v    = test_json_index( test_json_index( replay, FD_GUI_TILE_STATE_BLOCKED_ON_NETWORK ), b );
+      ulong       want = ( b>=3 && b<11 ) ? 250000UL : 0UL;
+      if( test_json_kind( v )==FD_JTOK_NULL ) { FD_TEST( !want ); continue; } /* outside the recorded span */
+      ulong       net  = test_json_ulong( v );
+      FD_TEST( net+(ulong)(slack/1000L)>=want && net<=want+(ulong)(slack/1000L) );
+    }
+    FD_TEST( !fd_gui_printf_timeline_query_agg_tile_states( gui, "1s", 5UL, ref, 4UL, 7UL ) );
+    json   = timeline_response( gui );
+    replay = test_json_index( timeline_value( json, "tile_states" ), 1 );
+    for( int b=0; b<4; b++ ) {
+      test_json_t v    = test_json_index( test_json_index( replay, FD_GUI_TILE_STATE_BLOCKED_ON_NETWORK ), b );
+      ulong       want = ( b==1 || b==2 ) ? 1000000UL : 0UL;
+      if( test_json_kind( v )==FD_JTOK_NULL ) { FD_TEST( !want ); continue; }
+      ulong       net  = test_json_ulong( v );
+      FD_TEST( net+(ulong)(slack/1000L)>=want && net<=want+(ulong)(slack/1000L) );
+    }
+    FD_TEST( fd_gui_printf_timeline_query_agg_tile_states( gui, "100ms", 2UL, ref, 2UL, 7UL )==-1 ); /* 250ms minimum */
+
+    FD_TEST( !fd_gui_printf_timeline_query_tile_states( gui, ref, ref+sec_ns( 4UL ), 0, 7UL ) );
+    json = timeline_response( gui );
+    FD_TEST( test_json_ulong( timeline_value( json, "reference_slot" ) )==42UL );
+    FD_TEST( test_json_count( timeline_value( json, "tile" ) )==2 );
+    FD_TEST( test_json_ulong( test_json_index( timeline_value( json, "tile" ), 1 ) )==1UL );
+    FD_TEST( test_json_ulong( test_json_index( timeline_value( json, "state_cnt" ), 0 ) )==0UL );
+    FD_TEST( test_json_ulong( test_json_index( timeline_value( json, "state_cnt" ), 1 ) )==1UL ); /* network only, no Idle padding */
+    FD_TEST( test_json_kind( test_json_index( timeline_value( json, "tile_start_ts_delta" ), 0 ) )==FD_JTOK_NULL );
+    FD_TEST( test_json_ulong( test_json_index( timeline_value( json, "state" ), 0 ) )==FD_GUI_TILE_STATE_BLOCKED_ON_NETWORK );
+    long dur = (long)test_json_ulong( test_json_index( timeline_value( json, "dur" ), 0 ) );
+    FD_TEST( dur>=sec_ns( 2UL )-slack && dur<=sec_ns( 2UL )+slack );
+    FD_TEST( test_json_count( timeline_value( json, "slot_state_lo" ) )==1 );
+    FD_TEST( test_json_ulong( test_json_index( timeline_value( json, "slot_state_lo" ), 0 ) )==0UL );
+    FD_TEST( test_json_ulong( test_json_index( timeline_value( json, "slot_state_cnt" ), 0 ) )==1UL );
+    FD_TEST( test_json_ulong( test_json_index( timeline_value( json, "slot_delta" ), 0 ) )==0UL );
+    FD_TEST( !test_json_count( timeline_value( json, "txn_idx" ) ) );
+
+    gui->tile_state.exec_cnt = 0UL;
+    gui->tile_state.pos_cnt  = 0UL;
+    gui->tick_per_ns = tick_per_ns;
+  }
 
   gui->topo = NULL;
   free( topo );
@@ -1931,8 +3116,6 @@ test_timeline_agg_shreds( fd_gui_t * gui ) {
   FD_LOG_NOTICE(( "test_timeline_agg_shreds: ok" ));
 }
 
-/* ---- timeline queries ---------------------------------------------- */
-
 static void
 timeline_setup( fd_gui_t * gui,
                 ulong      epoch_cnt ) {
@@ -2105,7 +3288,8 @@ test_timeline_slot_intervals( fd_gui_t * gui ) {
   FD_TEST( !fd_gui_printf_timeline_query_slots( gui, ts+100L, ts+150L, 7UL ) );
   check_suffix( gui, "{\"available_start_ns\":\"10000000020\",\"available_end_ns\":\"10000000800\",\"reference_slot\":1022,"
                      "\"reference_ts\":\"10000000020\",\"slot_delta\":[0,1],\"start_ts_delta\":[\"30\",\"0\"],"
-                     "\"end_ts_delta\":[\"180\",\"280\"],\"shred_cnt\":[64,96],\"skipped\":[],\"mine\":[]}}" );
+                     "\"end_ts_delta\":[\"180\",\"280\"],\"shred_cnt\":[64,96],\"skipped\":[],\"mine\":[],"
+                     "\"txn_fees\":[\"0\",\"0\"],\"prio_fees\":[\"0\",\"0\"],\"tips\":[\"0\",\"0\"]}}" );
 
   fd_gui_timeline_query_slot_t rows[ 8 ];
   ulong cnt;
@@ -2262,6 +3446,10 @@ main( int     argc,
   ulong min_bytes = fd_gui_store_min_size( FD_GUI_HIST_CNT, test_descs() );
   test_store_t s4_[ 1 ];
   test_min_footprint();
+  test_store_t fec[ 1 ];
+  store_open( fec, TEST_STORE_BYTES, 28 );
+  test_timeline_leader_txns( fec->gui );
+  store_close( fec );
 
   if( run_all ) {
     test_store_t s0[ 1 ];
@@ -2388,6 +3576,10 @@ main( int     argc,
     test_shred_flush_full( s10->gui, 2 );
     store_close( s10 );
   }
+  test_store_t s11[ 1 ];
+  store_open( s11, TEST_STORE_BYTES, 16 );
+  test_timeline_queries( s11->gui );
+  store_close( s11 );
 
   test_store_t s12[ 1 ];
   store_open( s12, TEST_STORE_BYTES, 17 );
@@ -2405,6 +3597,25 @@ main( int     argc,
   store_open( s12, TEST_STORE_BYTES, 17 );
   test_timeline_lifecycle_events( s12->gui );
   store_close( s12 );
+
+  test_store_t s13[ 1 ];
+  store_open( s13, TEST_STORE_BYTES, 18 );
+  test_timeline_batches( s13->gui );
+  store_close( s13 );
+
+  store_open( s13, TEST_STORE_BYTES, 18 );
+  test_timeline_replay_batches( s13->gui );
+  store_close( s13 );
+
+  test_store_t s14[ 1 ];
+  store_open( s14, TEST_STORE_BYTES, 19 );
+  test_timeline_limits( s14->gui );
+  store_close( s14 );
+
+  test_store_t s17[ 1 ];
+  store_open( s17, TEST_STORE_BYTES, 22 );
+  test_timeline_batch_parity( s17->gui );
+  store_close( s17 );
 
   if( !run_all ) FD_LOG_NOTICE(( "skipped 7 expensive tests; pass --run-all to run them" ));
   FD_LOG_NOTICE(( "pass" ));

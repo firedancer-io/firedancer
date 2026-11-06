@@ -216,6 +216,9 @@ void
 fd_gui_event_closed_slot_wmark_advance( fd_gui_t * gui,
                                         ulong      wmark );
 
+/* fd_gui_shred_window_is_empty returns 1 if there are no recorded shred
+   events in [after_ns,before_ns], 0 otherwise. */
+
 int
 fd_gui_shred_window_is_empty( fd_gui_t * gui,
                               long       after_ns,
