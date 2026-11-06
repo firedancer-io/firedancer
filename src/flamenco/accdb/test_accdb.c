@@ -2512,6 +2512,80 @@ test_magazine( void ) {
   test_teardown( accdb, fd );
 }
 
+/* Per-join reservation credits: a join keeps idle credits after its
+   release, the shared counter equals the joins' idle credits when no
+   acquire is in flight, occupancy reports only in-flight reservations,
+   and a join that needs a class's whole reservable capacity gets it by
+   stealing another join's idle credits (without the steal this acquire
+   would spin forever). */
+
+static void
+test_reservation_credits( void ) {
+  int fd;
+  ulong joiners = 2UL;
+  /* min_reserved 32: the large classes get ~32 lines, tracked (32 <
+     32*joiners), with room for credits. */
+  fd_accdb_t * a = test_setup_ex( &fd, 1024UL, 8UL, 1024UL, 64UL, 11UL<<20UL, 400UL<<20, 32UL, joiners );
+  fd_accdb_t * b = test_join_writer( fd );
+  fd_accdb_shmem_t * sh = test_shmem_mem;
+  fd_accdb_fork_id_t root = fd_accdb_attach_child( a, SENTINEL );
+  fd_accdb_fork_id_t f    = fd_accdb_attach_child( a, root );
+
+  /* The bottleneck: the tracked class with the fewest reservable lines. */
+  ulong c = ULONG_MAX, limit = ULONG_MAX;
+  for( ulong k=0UL; k<FD_ACCDB_CACHE_CLASS_CNT; k++ ) {
+    if( sh->cache_class_used[ k ].val==ULONG_MAX || !fd_accdb_cred_max( sh->cache_class_max[ k ], joiners ) ) continue;
+    ulong l = sh->cache_class_max[ k ]-fd_accdb_mag_held( k, sh->cache_class_max[ k ], joiners );
+    if( l<limit ) { limit = l; c = k; }
+  }
+  FD_TEST( c!=ULONG_MAX && limit>=2UL && limit<=FD_ACCDB_MAX_TX_ACCOUNT_LOCKS );
+
+  /* a's writes leave it idle credits; nothing is in flight. */
+  uchar pk[ 32 ] = { 0x7C };
+  uchar data[ 165 ] = { 1 };
+  for( ulong i=0UL; i<8UL; i++ ) { pk[ 1 ] = (uchar)i; accdb_write( a, f, pk, 1UL+i, data, sizeof(data), owner2 ); }
+  FD_TEST( sh->join_cred[ 0 ].val[ c ]>=1UL );
+  for( ulong k=0UL; k<FD_ACCDB_CACHE_CLASS_CNT; k++ ) {
+    if( sh->cache_class_used[ k ].val==ULONG_MAX ) continue;
+    FD_TEST( sh->join_cred[ 0 ].val[ k ]<=fd_accdb_cred_max( sh->cache_class_max[ k ], joiners ) );
+    FD_TEST( sh->cache_class_used[ k ].val==sh->join_cred[ 0 ].val[ k ]+sh->join_cred[ 1 ].val[ k ] );
+  }
+  ulong used[ FD_ACCDB_CACHE_CLASS_CNT ], max[ FD_ACCDB_CACHE_CLASS_CNT ], res[ FD_ACCDB_CACHE_CLASS_CNT ];
+  fd_accdb_cache_class_occupancy( a, used, max, res );
+  FD_TEST( res[ c ]==0UL );
+
+  /* b acquires limit fresh writable accounts: every reservable line of
+     class c, so a's idle credits must be stolen. */
+  uchar         pks [ FD_ACCDB_MAX_TX_ACCOUNT_LOCKS ][ 32 ];
+  uchar const * pkp [ FD_ACCDB_MAX_TX_ACCOUNT_LOCKS ];
+  int           wr  [ FD_ACCDB_MAX_TX_ACCOUNT_LOCKS ];
+  fd_acc_t      accs[ FD_ACCDB_MAX_TX_ACCOUNT_LOCKS ];
+  for( ulong i=0UL; i<limit; i++ ) { fd_memset( pks[ i ], 0, 32UL ); pks[ i ][ 0 ] = 0x7D; pks[ i ][ 1 ] = (uchar)i; pkp[ i ] = pks[ i ]; wr[ i ] = 1; }
+  memset( accs, 0, sizeof(accs) );
+  ulong failed0 = fd_accdb_metrics( b )->acquire_failed;
+  fd_accdb_acquire( b, f, limit, pkp, wr, accs );
+  FD_TEST( fd_accdb_metrics( b )->acquire_failed>failed0 );
+  FD_TEST( sh->join_cred[ 0 ].val[ c ]==0UL );
+  FD_TEST( sh->cache_class_used[ c ].val==limit );
+  fd_accdb_cache_class_occupancy( b, used, max, res );
+  FD_TEST( res[ c ]==limit );
+  fd_accdb_release( b, limit, accs ); /* revert */
+
+  for( ulong k=0UL; k<FD_ACCDB_CACHE_CLASS_CNT; k++ ) {
+    if( sh->cache_class_used[ k ].val==ULONG_MAX ) continue;
+    FD_TEST( sh->cache_class_used[ k ].val==sh->join_cred[ 0 ].val[ k ]+sh->join_cred[ 1 ].val[ k ] );
+  }
+  ulong lamports;
+  pk[ 1 ] = 3; FD_TEST( accdb_read( b, f, pk, &lamports, NULL, NULL, NULL ) && lamports==4UL );
+
+  /* reset clears every credit */
+  fd_accdb_reset( a );
+  drain_background( a );
+  for( ulong j=0UL; j<joiners; j++ ) for( ulong k=0UL; k<FD_ACCDB_CACHE_CLASS_CNT; k++ ) FD_TEST( !sh->join_cred[ j ].val[ k ] );
+  free( b );
+  test_teardown( a, fd );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -2630,6 +2704,8 @@ main( int     argc,
 
   FD_LOG_NOTICE(( "test_magazine ..." ));
   test_magazine();
+  FD_LOG_NOTICE(( "test_reservation_credits ..." ));
+  test_reservation_credits();
 
   FD_LOG_NOTICE(( "test_release_alloc ..." ));
   test_release_alloc();

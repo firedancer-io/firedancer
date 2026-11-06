@@ -135,6 +135,15 @@ struct __attribute__((aligned(FD_ACCDB_ALIGN))) fd_accdb_private {
   ulong mag_max[ FD_ACCDB_CACHE_CLASS_CNT ];
   ulong mag_gen;   /* shmem->mag_gen the magazines were filled under */
 
+  /* Reservation state (see res_* below), constant after join.
+     res_limit[c] is the most class-c lines reservations may promise,
+     ULONG_MAX if class c is untracked (kept here so the hot path never
+     loads the contended counter line just to learn that).  cred points
+     at this join's shmem->join_cred line (NULL for readonly joins). */
+  ulong   res_limit[ FD_ACCDB_CACHE_CLASS_CNT ];
+  ulong   cred_max [ FD_ACCDB_CACHE_CLASS_CNT ];
+  ulong * cred;
+
   /* Track account addresses changed since a full snap.
      Used to determine which accounts should be packed into a full
      snapshot (including tombstones for accounts no longer present in
@@ -253,6 +262,7 @@ fd_accdb_ptr_in_region( fd_accdb_t const * accdb,
 #endif
 
 static void        mag_init ( fd_accdb_t * accdb, fd_accdb_shmem_t const * shmem );
+static void        res_init ( fd_accdb_t * accdb, fd_accdb_shmem_t * shmem, ulong joiner_idx );
 static inline void mag_check( fd_accdb_t * accdb );
 
 FD_FN_CONST ulong
@@ -356,6 +366,7 @@ fd_accdb_new( void *              ljoin,
   ulong epoch_idx = FD_ATOMIC_FETCH_AND_ADD( &shmem->joiner_cnt, 1UL );
   FD_TEST( epoch_idx<shmem->joiner_cnt_max );
   accdb->my_epoch_slot = &shmem->joiner_epochs[ epoch_idx ].val;
+  res_init( accdb, shmem, epoch_idx );
 
   accdb->external_epoch_slots = external_epoch_slots;
   accdb->external_epoch_cnt   = external_epoch_cnt;
@@ -443,6 +454,9 @@ fd_accdb_reset( fd_accdb_t * accdb ) {
     shmem->cache_class_init[ c ].val = 0UL;
     ulong worst = shmem->cache_min_reserved*shmem->joiner_cnt_max + fd_accdb_mag_held( c, shmem->cache_class_max[ c ], shmem->joiner_cnt_max );
     shmem->cache_class_used[ c ].val = fd_ulong_if( shmem->cache_class_max[ c ]>=worst, ULONG_MAX, 0UL );
+  }
+  for( ulong j=0UL; j<FD_ACCDB_MAX_JOINERS; j++ ) {
+    for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) shmem->join_cred[ j ].val[ c ] = 0UL;
   }
 
   /* Reset every cache slot's metadata to empty sentinels. */
@@ -1118,6 +1132,110 @@ mag_flush_if_pressured( fd_accdb_t * accdb ) {
       cache_free_push( accdb, c, cache_line( accdb, c, accdb->mag[ c ][ n ] ) );
     }
     FD_VOLATILE( accdb->shmem->mag_pressure[ c ].val ) = 0UL;
+  }
+}
+
+/* Per-join reservation credits.
+
+   Every writable acquire reserves a line in each tracked class on the
+   shared cache_class_used counters and release gives them back, so at
+   high join counts those few counter lines bounced between cores on
+   every transaction.  Each join instead keeps up to cred_max[c] idle
+   credits per class: reserved on the shared counter, not yet promised
+   to an acquire.  An acquire takes from its own credits first and goes
+   to the shared counter only when short, taking a chunk (cred_max/2)
+   with what it needs; release puts credits back locally and returns
+   the surplus over cred_max to the shared counter.
+
+   Idle credits must not starve another join (a join may sit idle
+   indefinitely).  A join whose reservation fails steals every join's
+   idle credits in that class back to the shared counter before it
+   retries, so a reservation still only ever waits for lines promised
+   to in-flight acquires, as before.  Credits live in shmem, one line
+   per join (join_cred): the owner's CAS / add hit its own line; only a
+   failing join's steal touches other joins' lines. */
+
+static void
+res_init( fd_accdb_t *       accdb,
+          fd_accdb_shmem_t * shmem,
+          ulong              joiner_idx ) {
+  for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) {
+    ulong max = shmem->cache_class_max[ c ];
+    int   tracked = FD_VOLATILE_CONST( shmem->cache_class_used[ c ].val )!=ULONG_MAX;
+    accdb->res_limit[ c ] = tracked ? max-fd_accdb_mag_held( c, max, shmem->joiner_cnt_max ) : ULONG_MAX;
+    accdb->cred_max [ c ] = tracked ? fd_accdb_cred_max( max, shmem->joiner_cnt_max ) : 0UL;
+  }
+  accdb->cred = shmem->join_cred[ joiner_idx ].val;
+}
+
+static inline int
+res_tracked( fd_accdb_t const * accdb,
+             ulong              c ) {
+  return accdb->res_limit[ c ]!=ULONG_MAX;
+}
+
+/* res_take reserves n lines of tracked class c.  Returns 1 on success, 0
+   if the class is full (the caller backs out and steals). */
+
+static inline int
+res_take( fd_accdb_t * accdb,
+          ulong        c,
+          ulong        n ) {
+  ulong * cred = &accdb->cred[ c ];
+  for(;;) {
+    ulong v = FD_VOLATILE_CONST( *cred );
+    if( v<n ) break;
+    if( FD_LIKELY( FD_ATOMIC_CAS( cred, v, v-n )==v ) ) return 1;
+  }
+  ulong * used   = &accdb->shmem->cache_class_used[ c ].val;
+  ulong   limit  = accdb->res_limit[ c ];
+  ulong   refill = accdb->cred_max[ c ]/2UL;
+  if( FD_LIKELY( refill ) ) {
+    if( FD_LIKELY( FD_ATOMIC_ADD_AND_FETCH( used, n+refill )<=limit ) ) {
+      FD_ATOMIC_FETCH_AND_ADD( cred, refill );
+      return 1;
+    }
+    FD_ATOMIC_FETCH_AND_SUB( used, n+refill );
+  }
+  if( FD_LIKELY( FD_ATOMIC_ADD_AND_FETCH( used, n )<=limit ) ) return 1;
+  FD_ATOMIC_FETCH_AND_SUB( used, n );
+  return 0;
+}
+
+/* res_give returns n reserved lines of tracked class c: to the join's
+   idle credits, and anything over cred_max[c] (down to half of it) to
+   the shared counter. */
+
+static inline void
+res_give( fd_accdb_t * accdb,
+          ulong        c,
+          ulong        n ) {
+  ulong * used = &accdb->shmem->cache_class_used[ c ].val;
+  ulong   max  = accdb->cred_max[ c ];
+  if( FD_UNLIKELY( !max ) ) { FD_ATOMIC_FETCH_AND_SUB( used, n ); return; }
+  ulong * cred = &accdb->cred[ c ];
+  if( FD_LIKELY( FD_ATOMIC_ADD_AND_FETCH( cred, n )<=max ) ) return;
+  ulong keep = max/2UL;
+  for(;;) {
+    ulong v = FD_VOLATILE_CONST( *cred );
+    if( v<=keep ) return; /* stolen meanwhile */
+    if( FD_LIKELY( FD_ATOMIC_CAS( cred, v, keep )==v ) ) { FD_ATOMIC_FETCH_AND_SUB( used, v-keep ); return; }
+  }
+}
+
+/* res_steal returns every join's idle class-c credits to the shared
+   counter.  Called by a join whose class-c reservation failed. */
+
+static void
+res_steal( fd_accdb_t * accdb,
+           ulong        c ) {
+  fd_accdb_shmem_t * shmem = accdb->shmem;
+  ulong joiner_cnt = fd_ulong_min( FD_VOLATILE_CONST( shmem->joiner_cnt ), FD_ACCDB_MAX_JOINERS );
+  for( ulong j=0UL; j<joiner_cnt; j++ ) {
+    ulong * cred = &shmem->join_cred[ j ].val[ c ];
+    if( FD_LIKELY( !FD_VOLATILE_CONST( *cred ) ) ) continue;
+    ulong s = FD_ATOMIC_XCHG( cred, 0UL );
+    if( s ) FD_ATOMIC_FETCH_AND_SUB( &shmem->cache_class_used[ c ].val, s );
   }
 }
 
@@ -2728,19 +2846,19 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
   if( FD_UNLIKELY( reservation_type==RESERVATION_TYPE_ALREADY_RESERVED ) ) {
     ulong refund[ FD_ACCDB_CACHE_CLASS_CNT ] = {0};
     for( ulong j=0UL; j<FD_ACCDB_CACHE_CLASS_CNT; j++ ) {
-      if( FD_LIKELY( accdb->shmem->cache_class_used[ j ].val!=ULONG_MAX ) ) refund[ j ] = reserved_cnt;
+      if( FD_LIKELY( res_tracked( accdb, j ) ) ) refund[ j ] = reserved_cnt;
     }
     for( ulong i=0UL; i<pubkeys_cnt; i++ ) {
       if( FD_LIKELY( accmetas[ i ] ) ) {
         ulong cls = fd_accdb_cache_class( FD_ACCDB_SIZE_DATA( accmetas[ i ]->executable_size ) );
-        if( FD_LIKELY( accdb->shmem->cache_class_used[ cls ].val!=ULONG_MAX ) ) {
+        if( FD_LIKELY( res_tracked( accdb, cls ) ) ) {
           FD_TEST( refund[ cls ]>0UL );
           refund[ cls ]--;
         }
       }
     }
     for( ulong k=0UL; k<FD_ACCDB_CACHE_CLASS_CNT; k++ ) {
-      if( FD_UNLIKELY( refund[ k ] ) ) FD_ATOMIC_FETCH_AND_SUB( &accdb->shmem->cache_class_used[ k ].val, refund[ k ] );
+      if( FD_UNLIKELY( refund[ k ] ) ) res_give( accdb, k, refund[ k ] );
     }
   }
 
@@ -2768,13 +2886,13 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
     for( ulong i=0UL; i<pubkeys_cnt; i++ ) {
       if( FD_LIKELY( accmetas[ i ] || writable[ i ] ) ) {
         if( FD_LIKELY( accmetas[ i ] ) ) {
-          if( FD_UNLIKELY( accdb->shmem->cache_class_used[ fd_accdb_cache_class( FD_ACCDB_SIZE_DATA( accmetas[ i ]->executable_size ) ) ].val!=ULONG_MAX ) ) {
+          if( FD_UNLIKELY( res_tracked( accdb, fd_accdb_cache_class( FD_ACCDB_SIZE_DATA( accmetas[ i ]->executable_size ) ) ) ) ) {
             requested_buckets[ fd_accdb_cache_class( FD_ACCDB_SIZE_DATA( accmetas[ i ]->executable_size ) ) ]++;
           }
         }
         if( FD_UNLIKELY( writable[ i ] ) ) {
           for( ulong j=0UL; j<FD_ACCDB_CACHE_CLASS_CNT; j++ ) {
-            if( FD_UNLIKELY( accdb->shmem->cache_class_used[ j ].val!=ULONG_MAX ) ) {
+            if( FD_UNLIKELY( res_tracked( accdb, j ) ) ) {
               requested_buckets[ j ]++;
             }
           }
@@ -2789,7 +2907,7 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
           gated on accmetas/writable) so that acquire_b can refund based on
           pubkeys_cnt without needing to re-derive the live-account set. */
         for( ulong j=0UL; j<FD_ACCDB_CACHE_CLASS_CNT; j++ ) {
-          if( FD_UNLIKELY( accdb->shmem->cache_class_used[ j ].val!=ULONG_MAX ) ) {
+          if( FD_UNLIKELY( res_tracked( accdb, j ) ) ) {
             requested_buckets[ j ]++;
           }
         }
@@ -2809,32 +2927,24 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
        writable account per acquire batch, lowering contention on the
        cache class counters and allowing smaller cache provisioning. */
 
-    /* Reserve cache slots by atomically incrementing the shared used
-       counters.  If any class exceeds its max, the reservation
-       overflowed — subtract back partial grabs and retry. */
+    /* Reserve cache slots from the join's credits, else the shared
+       counters (res_take).  If a class is full, give back the classes
+       already taken, return every join's idle credits in the full class
+       to the shared counter, and retry. */
     for(;;) {
-      int acquire_failed = 0;
-      ulong grabbed[ FD_ACCDB_CACHE_CLASS_CNT ] = {0};
+      ulong failed = ULONG_MAX;
       for( ulong i=0UL; i<FD_ACCDB_CACHE_CLASS_CNT; i++ ) {
         if( FD_LIKELY( !requested_buckets[ i ] ) ) continue;
-        ulong new_used = FD_ATOMIC_ADD_AND_FETCH( &accdb->shmem->cache_class_used[ i ].val, requested_buckets[ i ] );
-        if( FD_UNLIKELY( new_used>accdb->shmem->cache_class_max[ i ]-fd_accdb_mag_held( i, accdb->shmem->cache_class_max[ i ], accdb->shmem->joiner_cnt_max ) ) ) {
-          FD_ATOMIC_FETCH_AND_SUB( &accdb->shmem->cache_class_used[ i ].val, requested_buckets[ i ] );
-          acquire_failed = 1;
-        } else {
-          grabbed[ i ] = requested_buckets[ i ];
-        }
-        if( FD_UNLIKELY( acquire_failed ) ) {
-          accdb->metrics->acquire_failed++;
-          for( ulong j=0UL; j<i; j++ ) {
-            if( grabbed[ j ] ) FD_ATOMIC_FETCH_AND_SUB( &accdb->shmem->cache_class_used[ j ].val, grabbed[ j ] );
-          }
-          fd_racesan_hook( "accdb_acquire:reservation_retry" );
-          FD_SPIN_PAUSE();
-          break;
-        }
+        if( FD_UNLIKELY( !res_take( accdb, i, requested_buckets[ i ] ) ) ) { failed = i; break; }
       }
-      if( FD_LIKELY( !acquire_failed ) ) break;
+      if( FD_LIKELY( failed==ULONG_MAX ) ) break;
+      accdb->metrics->acquire_failed++;
+      for( ulong j=0UL; j<failed; j++ ) {
+        if( requested_buckets[ j ] ) res_give( accdb, j, requested_buckets[ j ] );
+      }
+      res_steal( accdb, failed );
+      fd_racesan_hook( "accdb_acquire:reservation_retry" );
+      FD_SPIN_PAUSE();
     }
   }
 
@@ -3889,27 +3999,26 @@ release_inner( fd_accdb_t * accdb,
 
   // STEP 3.
   //   Finally, we release the cache class reservations we took at the
-  //   beginning when we acquired these cache lines.  Credits return
-  //   directly to the shared pool so other threads can use them
-  //   immediately.
+  //   beginning when we acquired these cache lines.  They go back to
+  //   the join's credits (res_give), surplus to the shared counter.
 
   ulong refund[ FD_ACCDB_CACHE_CLASS_CNT ] = {0};
   for( ulong i=0UL; i<accs_cnt; i++ ) {
     if( FD_LIKELY( accs[ i ]._original_size_class!=ULONG_MAX ) ) {
-      if( FD_UNLIKELY( accdb->shmem->cache_class_used[ accs[ i ]._original_size_class ].val!=ULONG_MAX ) ) {
+      if( FD_UNLIKELY( res_tracked( accdb, accs[ i ]._original_size_class ) ) ) {
         refund[ accs[ i ]._original_size_class ]++;
       }
     }
     if( FD_UNLIKELY( accs[ i ]._writable ) ) {
       for( ulong j=0UL; j<FD_ACCDB_CACHE_CLASS_CNT; j++ ) {
-        if( FD_UNLIKELY( accdb->shmem->cache_class_used[ j ].val!=ULONG_MAX ) ) {
+        if( FD_UNLIKELY( res_tracked( accdb, j ) ) ) {
           refund[ j ]++;
         }
       }
     }
   }
   for( ulong k=0UL; k<FD_ACCDB_CACHE_CLASS_CNT; k++ ) {
-    if( FD_UNLIKELY( refund[ k ] ) ) FD_ATOMIC_FETCH_AND_SUB( &accdb->shmem->cache_class_used[ k ].val, refund[ k ] );
+    if( FD_UNLIKELY( refund[ k ] ) ) res_give( accdb, k, refund[ k ] );
   }
 
   mag_flush_if_pressured( accdb );
@@ -4894,7 +5003,14 @@ fd_accdb_cache_class_occupancy( fd_accdb_t * accdb,
     if( live>cap ) live = cap;
     max     [ c ] = cap;
     used    [ c ] = live;
-    reserved[ c ] = FD_VOLATILE_CONST( accdb->shmem->cache_class_used[ c ].val );
+    ulong res   = FD_VOLATILE_CONST( accdb->shmem->cache_class_used[ c ].val );
+    if( res!=ULONG_MAX ) { /* in-flight reservations only, not idle credits */
+      ulong joiner_cnt = fd_ulong_min( FD_VOLATILE_CONST( accdb->shmem->joiner_cnt ), FD_ACCDB_MAX_JOINERS );
+      ulong idle = 0UL;
+      for( ulong j=0UL; j<joiner_cnt; j++ ) idle += FD_VOLATILE_CONST( accdb->shmem->join_cred[ j ].val[ c ] );
+      res = res>idle ? res-idle : 0UL;
+    }
+    reserved[ c ] = res;
   }
 }
 
