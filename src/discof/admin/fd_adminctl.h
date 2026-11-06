@@ -89,6 +89,44 @@
 #define FD_FAILOVER_CONTROL_RESULT_ALREADY_HOLDS     (0x4011UL)
 #define FD_FAILOVER_CONTROL_RESULT_HANDED_OFF        (0x4012UL)
 
+/* fd_adminctl_result_name returns a short stable name for a command
+   result, "success" for FD_ADMINCTL_RESULT_SUCCESS and NULL for codes
+   it does not know.  The failover CLI and the GUI use the same names. */
+
+FD_FN_CONST static inline char const *
+fd_adminctl_result_name( ulong result ) {
+  switch( result ) {
+  case FD_ADMINCTL_RESULT_SUCCESS:                     return "success";
+  case FD_ADMINCTL_RESULT_UNKNOWN_COMMAND:             return "unknown_command";
+  case FD_ADMINCTL_RESULT_ABI_VERSION_MISMATCH:        return "abi_version_mismatch";
+  case FD_ADMINCTL_RESULT_ABI_SIZE_MISMATCH:           return "abi_size_mismatch";
+  case FD_ADMINCTL_RESULT_UNSUPPORTED:                 return "unsupported";
+  case FD_SET_IDENTITY_RESULT_KEYPAIR_MISMATCH:        return "keypair_mismatch";
+  case FD_SET_IDENTITY_RESULT_INVALID_VOTE_HISTORY:    return "invalid_vote_history";
+  case FD_SET_IDENTITY_RESULT_SAME_IDENTITY:           return "same_identity";
+  case FD_SET_IDENTITY_RESULT_AUTHORIZED_VOTER:        return "authorized_voter";
+  case FD_FAILOVER_CONTROL_RESULT_BUSY:                return "busy";
+  case FD_FAILOVER_CONTROL_RESULT_NOT_HOLDER:          return "not_holder";
+  case FD_FAILOVER_CONTROL_RESULT_IN_PROGRESS:         return "in_progress";
+  case FD_FAILOVER_CONTROL_RESULT_HANDOFF_ABORTED:     return "handoff_aborted";
+  case FD_FAILOVER_CONTROL_RESULT_PEER_HOLDS:          return "peer_holds";
+  case FD_FAILOVER_CONTROL_RESULT_NO_FINAL_HISTORY:    return "no_final_history";
+  case FD_FAILOVER_CONTROL_RESULT_NO_HOLDER_ADDRESS:   return "no_holder_address";
+  case FD_FAILOVER_CONTROL_RESULT_REPLAY_BEHIND:       return "replay_behind";
+  case FD_FAILOVER_CONTROL_RESULT_TIMEOUT:             return "timeout";
+  case FD_FAILOVER_CONTROL_RESULT_PEER_RESTARTED:      return "peer_restarted";
+  case FD_FAILOVER_CONTROL_RESULT_ADOPTION_FAILED:     return "adoption_failed";
+  case FD_FAILOVER_CONTROL_RESULT_SWITCH_FAILED:       return "switch_failed";
+  case FD_FAILOVER_CONTROL_RESULT_HOLDS_OTHER:         return "holds_other";
+  case FD_FAILOVER_CONTROL_RESULT_IDENTITY_CHANGED:    return "identity_changed";
+  case FD_FAILOVER_CONTROL_RESULT_HOLDER_LIVE:         return "holder_live";
+  case FD_FAILOVER_CONTROL_RESULT_NO_PEER:             return "no_peer";
+  case FD_FAILOVER_CONTROL_RESULT_ALREADY_HOLDS:       return "already_holds";
+  case FD_FAILOVER_CONTROL_RESULT_HANDED_OFF:          return "handed_off";
+  default:                                             return NULL;
+  }
+}
+
 struct fd_adminctl_add_auth_voter_v1 {
   ulong version; /* ==FD_ADMINCTL_ADD_AUTH_VOTER_PAYLOAD_VERSION */
   uchar keypair[ 64UL ];

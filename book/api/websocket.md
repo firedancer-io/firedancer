@@ -3017,12 +3017,28 @@ request window, ordered by slot.
 | start_ns | `string` | Inclusive lower bound, using the timestamp rules above |
 | end_ns   | `string` | Exclusive upper bound |
 
-Returns a sparse list of `(event, slot, ts)` tuples whose `ts` lies in
-the request window, ordered by slot. Empty results have empty arrays.
+Returns a sparse list of minimap events occuring in the request window,
+ordered by slot then `ts`. Empty results have empty arrays.
 
-| event | name          | meaning |
-|-------|---------------|---------|
-| 0     | `leader_skip` | A slot scheduled to this validator's current identity that was classified skipped, as described for `query_slots`. `ts` is the midpoint of the slot's `query_slots` interval |
+| event | name                | meaning |
+|-------|---------------------|---------|
+| 0     | `leader_skip`       | The key this validator currently runs was scheduled to produce a block in this slot and the slot was skipped. `ts` is the middle of the slot, as reported by `query_slots` |
+| 1     | `identity_set`      | An operator ran `set-identity` on this validator. This validator switched to the key it was given, without coordinating with any other validator |
+| 2     | `identity_promote`  | An operator ran `failover promote` on this validator to move the staked identity here. The other validator gives up the staked identity and switches to a dummy pubkey |
+| 3     | `identity_takeover` | An operator ran `failover takeover` on this validator to move the staked identity here, even if the other validator does not respond. It first tries the same exchange as `identity_promote`. If that fails, it takes the staked identity if the other validator appear dead. When run with the `--force` flag, it takes the staked identity even if the other validator appears alive. One takeover can therefore show as two events, one for each attempt |
+| 4     | `identity_handoff`  | An operator ran `failover promote` or `failover takeover` on the other validator. This validator gave up the staked identity and switched to a dummy key so the other validator could take it |
+| 5     | `epoch_start`       | The first slot of an epoch. `ts` is the start of that slot, as reported by `query_slots` |
+| 6     | `boot`              | This validator started. `slot` is the snapshot slot it booted from (the incremental snapshot's, if one was loaded) and `ts` is when the process started, before the snapshot was loaded |
+| 7     | `catch_up`          | This validator began replaying the chain after loading its snapshot. `slot` is the first slot after the snapshot and `ts` is the start of that slot, as reported by `query_slots` |
+
+In events 1 to 4, "this validator" is the one serving this API and "the
+other validator" is its failover partner. The staked identity is the
+key that votes and produces blocks. A dummy key is a random key that
+does neither, so two validators never run the staked identity at the
+same time.
+
+Events 1 to 4 also carry four `identity_*` columns. They are sparse:
+the `k`-th entry belongs to the `k`-th row whose event is 1 to 4.
 
 **`TimelineEvents`**
 | field              | type           | description |
@@ -3030,8 +3046,12 @@ the request window, ordered by slot. Empty results have empty arrays.
 | available_start_ns | `string\|null` | Same as `TimelineSlots` |
 | available_end_ns   | `string\|null` | Same as `TimelineSlots` |
 | event              | `number[]`     | Per row, event kind from the table above |
-| slot               | `number[]`     | Per row, slot number |
+| slot               | `number[]`     | Per row, effective slot number |
 | ts                 | `string[]`     | Per row, UNIX nanosecond event timestamp |
+| identity_result    | `string[]`     | Per event 1 to 4, `"success"`, or the reason it failed, using the same name the command line prints, such as `"busy"` (another identity command was running), `"timeout"`, `"holder_live"` (the other validator still looked alive, so a takeover refused to go ahead) or `"keypair_mismatch"`. `"stale"` means the other validator's request was dropped because this validator's identity had been changed in the meantime. A failure without a name is shown as a hex code |
+| identity_from      | `string[]`     | Per event 1 to 4, base58 key this validator had before the command |
+| identity_to        | `string[]`     | Per event 1 to 4, base58 key this validator switched to, or would have switched to had the command worked. For `identity_handoff` it is the dummy key. If the command could not be read, it is the placeholder `Unknown111111111111111111111111111111111111` |
+| identity_notes     | `string[]`     | Per event 1 to 4, a few short sentences explaining what happened, up to 1023 bytes, possibly empty. For example: "This was the second attempt of a takeover, taking the staked identity without the other validator. It went ahead only because of --force, since the other validator still looked alive." |
 
 ::: details Example
 
@@ -3055,9 +3075,13 @@ the request window, ordered by slot. Empty results have empty arrays.
     "value": {
         "available_start_ns": "1739650000000000000",
         "available_end_ns": "1739660000000000000",
-        "event": [0, 0],
-        "slot": [289245044, 289245448],
-        "ts": ["1739657041588242791", "1739657203188242791"]
+        "event": [0, 3, 0],
+        "slot": [289245044, 289245100, 289245448],
+        "ts": ["1739657041588242791", "1739657064120000000", "1739657203188242791"],
+        "identity_result": ["success"],
+        "identity_from": ["Fd7btgySsrjuo25CJCj7oE7VPMyezDhnx7pZkj2v69Nk"],
+        "identity_to": ["FDRPvqTZ6M3ftnNaWwyVz8yzcFmMdeDYiYLw7pHUPpyb"],
+        "identity_notes": ["This was the second attempt of a takeover, taking the staked identity without the other validator. It went ahead only because of --force, since the other validator still looked alive."]
     }
 }
 ```

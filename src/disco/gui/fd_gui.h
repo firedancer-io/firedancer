@@ -17,6 +17,7 @@
 #include "../../discof/restore/utils/fd_ssmsg.h"
 #include "../../discof/restore/utils/fd_wfs.h"
 #include "../../discof/replay/fd_replay_tile.h"
+#include "../../discof/admin/fd_admin_tile.h"
 #include "../../flamenco/leaders/fd_leaders.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h" /* fd_slot_to_epoch */
 #include "../../util/fd_util_base.h"
@@ -179,7 +180,24 @@ typedef struct fd_gui_rate_entry fd_gui_rate_entry_t;
 #define FD_GUI_TIMELINE_QUERY_EVENT_MAX        (65536UL)
 
 /* Event kinds returned by timeline.query_events. */
-#define FD_GUI_TIMELINE_EVENT_LEADER_SKIP      (0U)
+#define FD_GUI_TIMELINE_EVENT_LEADER_SKIP       (0U)
+#define FD_GUI_TIMELINE_EVENT_IDENTITY_SET      (FD_ADMIN_GUI_EVENT_IDENTITY_SET)
+#define FD_GUI_TIMELINE_EVENT_IDENTITY_PROMOTE  (FD_ADMIN_GUI_EVENT_IDENTITY_PROMOTE)
+#define FD_GUI_TIMELINE_EVENT_IDENTITY_TAKEOVER (FD_ADMIN_GUI_EVENT_IDENTITY_TAKEOVER)
+#define FD_GUI_TIMELINE_EVENT_IDENTITY_HANDOFF  (FD_ADMIN_GUI_EVENT_IDENTITY_HANDOFF)
+#define FD_GUI_TIMELINE_EVENT_EPOCH_START       (5U) /* first slot of an epoch, at its start */
+#define FD_GUI_TIMELINE_EVENT_BOOT              (6U) /* snapshot slot, at process start */
+#define FD_GUI_TIMELINE_EVENT_CATCH_UP          (7U) /* first slot after the snapshot, at its start */
+#define FD_GUI_TIMELINE_EVENT_CNT               (8U)
+
+/* If the first slot after the snapshot is rooted without an interval,
+   catch_up uses the next rooted slot's, up to
+   FD_GUI_TIMELINE_CATCH_UP_SEARCH slots on. */
+#define FD_GUI_TIMELINE_CATCH_UP_SEARCH         (64UL)
+
+/* Identity command events are kept in memory only, the last
+   FD_GUI_IDENTITY_EVENT_MAX of them. Older events aren't reported. */
+#define FD_GUI_IDENTITY_EVENT_MAX               (1024UL)
 /* At least one bucket per pixel on a 4K display, and enough to cover
    the widest raw txn_batch view (1.5h) at 2s in a single request. */
 #define FD_GUI_TIMELINE_QUERY_MAX_BUCKETS      (4096UL)
@@ -1248,7 +1266,8 @@ typedef struct fd_gui_timeline_query_slot fd_gui_timeline_query_slot_t;
 struct fd_gui_timeline_query_event {
   ulong slot;
   long  ts;
-  uint  event; /* one of FD_GUI_TIMELINE_EVENT_* */
+  uint  event;    /* one of FD_GUI_TIMELINE_EVENT_* */
+  ulong identity; /* identity events, the index into gui->identity_events, else ULONG_MAX */
 };
 typedef struct fd_gui_timeline_query_event fd_gui_timeline_query_event_t;
 
@@ -1404,6 +1423,12 @@ struct fd_gui {
     ulong                   pending_cnt;
     fd_gui_snapsv_pending_t pending[ FD_GUI_SNAPSV_PENDING_MAX ];
   } snapsv;
+
+  struct {
+    ulong                cnt;
+    ulong                slot [ FD_GUI_IDENTITY_EVENT_MAX ]; /* replay frontier when it arrived, ULONG_MAX if none yet */
+    fd_admin_gui_event_t event[ FD_GUI_IDENTITY_EVENT_MAX ];
+  } identity_events;
 };
 
 typedef struct fd_gui fd_gui_t;
@@ -1476,9 +1501,17 @@ fd_gui_timeline_slots_collect( fd_gui_t *                     gui,
 /* fd_gui_timeline_events_collect writes the events whose timestamp is
    in [start_ns,end_ns) into rows[0,max), in slot order, and the number
    written into *cnt.  Returns 0 on success, 1 if more than max events
-   match, or -1 for invalid arguments.  The only event is leader_skip: a
-   skipped slot scheduled to our current identity, stamped at the
-   midpoint of its interval. */
+   match, or -1 for invalid arguments.  Events are leader_skip, a
+   skipped slot scheduled to our current identity stamped at the
+   midpoint of its interval, identity commands, stamped when they
+   finished, at the slot replay had reached then, epoch_start, the
+   first slot of each epoch at the start of its interval, boot, the
+   snapshot slot at process start (once a snapshot is known), and
+   catch_up, the first slot after the snapshot at the start of its
+   interval.  epoch_start and catch_up need that slot's interval, so
+   they appear once it is rooted (and never for a slot before this
+   run's snapshot).  Rows are ordered by
+   slot then timestamp. */
 
 int
 fd_gui_timeline_events_collect( fd_gui_t *                      gui,
@@ -1566,6 +1599,13 @@ void
 fd_gui_handle_diag_snapshot( fd_gui_t *    gui,
                              void const *  data,
                              ulong         data_sz );
+
+/* fd_gui_handle_identity_event records an identity command the admin
+   tile ran for timeline.query_events. */
+
+void
+fd_gui_handle_identity_event( fd_gui_t *                   gui,
+                              fd_admin_gui_event_t const * event );
 
 void
 fd_gui_ws_open( fd_gui_t *  gui,
