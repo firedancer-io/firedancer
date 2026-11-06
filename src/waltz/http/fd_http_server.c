@@ -1628,9 +1628,9 @@ fd_http_ws_compress_maybe( fd_http_server_t * http ) {
 
   if( FD_UNLIKELY( http->stage_err ) ) return 0;
 
-  ulong compressed_sz = ZSTD_compress2( http->zstd_ctx, http->oring+(http->stage_off%http->oring_sz)+http->stage_len, worst_case_compressed_sz, http->oring+(http->stage_off%http->oring_sz), http->stage_len );
-  if( FD_UNLIKELY( ZSTD_isError( compressed_sz ) ) ) {
-    FD_LOG_WARNING(( "ZSTD_compress2 failed (%s)", ZSTD_getErrorName( compressed_sz ) ) );
+  ulong compressed_sz = fd_http_server_compress( http, http->oring+(http->stage_off%http->oring_sz)+http->stage_len, worst_case_compressed_sz, http->oring+(http->stage_off%http->oring_sz), http->stage_len );
+  if( FD_UNLIKELY( !compressed_sz ) ) {
+    FD_LOG_WARNING(( "ZSTD_compress2 failed" ));
     http->stage_err = 1;
     return 0;
   }
@@ -1662,12 +1662,17 @@ ws_frame_oversz( fd_http_server_t const * http ) {
   return 1;
 }
 
-int
-fd_http_server_ws_send( fd_http_server_t * http,
-                        ulong              ws_conn_id ) {
+/* ws_enqueue queues the staged message as one frame for ws_conn_id and
+   clears the staging area.  If compressed is set, the frame is the
+   stage_comp_len bytes that follow the plaintext when stage_comp_len is
+   non-zero (fd_http_ws_compress_maybe), or the staged bytes themselves
+   otherwise (already a zstd stream, fd_http_server_ws_send_compressed). */
+
+static int
+ws_enqueue( fd_http_server_t * http,
+            ulong              ws_conn_id,
+            int                compressed ) {
   struct fd_http_server_ws_connection * conn = &http->ws_conns[ ws_conn_id ];
-  int compressed = conn->compress_websocket;
-  if( FD_LIKELY( compressed ) ) compressed = fd_http_ws_compress_maybe( http );
 
   /* It is possible that ws_conn_id has already been closed by
      fd_http_server_reserve during staging.  If the staging buffer is
@@ -1701,9 +1706,10 @@ fd_http_server_ws_send( fd_http_server_t * http,
 
   /* A frame is compressed only if the connection is configured to do
      so, and if the compression step wasn't skipped (i.e. stage_len>200) */
+  int recompressed = compressed && http->stage_comp_len;
   fd_http_server_ws_frame_t frame = {
-    .off = fd_ulong_if(compressed, http->stage_off+http->stage_len, http->stage_off),
-    .len = (uint)fd_ulong_if(compressed, http->stage_comp_len, http->stage_len),
+    .off = fd_ulong_if(recompressed, http->stage_off+http->stage_len, http->stage_off),
+    .len = (uint)fd_ulong_if(recompressed, http->stage_comp_len, http->stage_len),
     .compressed = compressed,
   };
 
@@ -1721,6 +1727,53 @@ fd_http_server_ws_send( fd_http_server_t * http,
   http->stage_comp_len = 0;
 
   return 0;
+}
+
+int
+fd_http_server_ws_send( fd_http_server_t * http,
+                        ulong              ws_conn_id ) {
+  int compressed = http->ws_conns[ ws_conn_id ].compress_websocket;
+  if( FD_LIKELY( compressed ) ) compressed = fd_http_ws_compress_maybe( http );
+  return ws_enqueue( http, ws_conn_id, compressed );
+}
+
+int
+fd_http_server_ws_send_compressed( fd_http_server_t * http,
+                                   ulong              ws_conn_id ) {
+  if( FD_UNLIKELY( !http->ws_conns[ ws_conn_id ].compress_websocket || http->stage_comp_len ) ) {
+    fd_http_server_unstage( http );
+    return -1;
+  }
+  return ws_enqueue( http, ws_conn_id, 1 );
+}
+
+int
+fd_http_server_ws_compressed( fd_http_server_t const * http,
+                              ulong                    ws_conn_id ) {
+  return http->ws_conns[ ws_conn_id ].compress_websocket;
+}
+
+ulong
+fd_http_server_compress( fd_http_server_t * http,
+                         uchar *            dst,
+                         ulong              dst_max,
+                         uchar const *      src,
+                         ulong              src_sz ) {
+  ulong sz = ZSTD_compress2( http->zstd_ctx, dst, dst_max, src, src_sz );
+  if( FD_UNLIKELY( ZSTD_isError( sz ) ) ) return 0UL;
+  return sz;
+}
+
+ulong
+fd_http_server_stage_compress( fd_http_server_t * http,
+                               uchar *            dst,
+                               ulong              dst_max ) {
+  ulong sz = 0UL;
+  if( FD_LIKELY( !http->stage_err && !http->stage_comp_len ) ) {
+    sz = fd_http_server_compress( http, dst, dst_max, http->oring+(http->stage_off%http->oring_sz), http->stage_len );
+  }
+  fd_http_server_unstage( http );
+  return sz;
 }
 
 int

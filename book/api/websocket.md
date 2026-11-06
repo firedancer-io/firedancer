@@ -2821,7 +2821,7 @@ Value is a flat array of base58-encoded identity pubkeys that have gone
 offline (activity timeout expired) since the last message.
 
 ### timeline
-Historical shred, transaction, slot, event, and aggregate data
+Historical shred, transaction, slot, event, vote, and aggregate data
 recorded by the validator, queryable over UNIX nanosecond timestamp
 windows.
 
@@ -2832,7 +2832,7 @@ must be greater than `start_ns`.
 Windows are half-open: `[start_ns, end_ns)`.
 
 Each method states which rows a window returns. Rows that carry one
-timestamp (shred and FEC events, events, transactions and
+timestamp (shred and FEC events, votes, events, transactions and
 batches) are returned only by the window containing that timestamp, so
 adjacent windows never return the same row. States
 (`query_tile_states`) follow the same rule by their end: each state is
@@ -2846,26 +2846,79 @@ Every successful response includes `available_start_ns` and
 in the server's database. Both are `null` when the server is missing
 data needed for a non-empty response.
 
-Historical shred and transaction lookups use insertion-time indices
-with a one-second margin on either side, then filter by event time.
-An event inserted more than one second away from its event timestamp
-can be missed by a narrow query. Transaction batches are inserted when
-their slot completes replay, so batch lookups instead use a ten-second
-margin after the window and none before it; a batch whose slot took
-longer than that to complete can be missed. Slot states, account
-LtHash tasks and LtHash batches use the same margins.
+Historical lookups use insertion-time indices, then filter by event
+time. Rows are inserted at or shortly after their timestamp, so a
+lookup scans from the start of the window to one second after its end;
+a row inserted more than one second after its timestamp can be missed
+by a narrow query. Votes and vote markers carry the votor's clock, so
+their lookups also scan one second before the window. FEC events
+whose timestamp is more than one second from their insertion are
+clamped or dropped.
 
 The GUI's database is wiped on boot. When it reaches capacity, data is
 evicted approximately oldest-first.
 
+##### Chunked responses
+`query_shreds`, `query_tile_states`, `query_txn_meta` and
+`query_revenue` answer with a list of chunks instead of a single set of
+fields. Chunk `k` covers the absolute window
+`[k * 100ms, (k + 1) * 100ms)` and holds exactly what a query for that
+window returns: the fields described for the method, except
+`granularity`, `available_start_ns` and `available_end_ns`, which are
+given once for the whole response. Chunks are listed in time order and
+include empty ones.
+
+**`TimelineChunked`**
+| field              | type           | description |
+|--------------------|----------------|-------------|
+| granularity        | `string`       | Echoes the request, if the method has one |
+| available_start_ns | `string\|null` | As for the method |
+| available_end_ns   | `string\|null` | As for the method, but at most the end of the last returned chunk |
+| chunks             | `TimelineChunk[]` | Chunks overlapping the request, see below |
+
+**`TimelineChunk`**
+| field     | type     | description |
+|-----------|----------|-------------|
+| chunk_ts  | `string` | Start of the chunk window |
+| chunk_dur | `string` | Length of the chunk window in nanoseconds |
+| ...       |          | The method's fields for the chunk window |
+
+On connections that negotiated `compress-zstd`, the server only returns
+chunks that are final, meaning the server will not record more rows
+for them. A chunk is final 200 milliseconds after its end, which
+covers the time between a row's timestamp and the server recording it
+(at most one transaction duration; batches are recorded within 10
+milliseconds of their last member). A response therefore may cover less than
+the requested window: it ends at `available_end_ns`, and the client
+should request the rest later. A response returns at most 300 chunks
+(30 seconds), and fewer if their compressed size exceeds 16 MiB or more
+than 20 of them are not cached yet: each response builds at most 20
+missing chunks, so a client catching up on history receives it in
+steps. Final
+chunks are cached on the server and shared by all clients, so live
+clients following the present should request from the end of their
+previous response. Cached chunks never change: rows recorded late
+anyway (counted by the `gui_timeline_chunk_late` metric) are missing
+from the cached chunk, but are returned by uncached queries. The `skipped` field of `query_shreds` reflects the slot
+classification when the chunk was built.
+
+On connections without compression, or when a chunk would exceed a
+row limit, the response is a single uncached chunk for exactly the
+requested window, with `chunk_ts` equal to `start_ns` and
+`chunk_dur` equal to `end_ns - start_ns`, or the row limit error.
+
+The compressed response is a sequence of zstd frames, one per chunk
+plus framing, which decodes as a single JSON message.
+
 | query                  | maximum result | outcome if exceeded |
 |------------------------|----------------|---------------------|
-| `query_shreds`         | 262,144 rows   | error message       |
-| `query_tile_states`    | 65,536 rows of each kind | error message |
-| `query_txn_meta`       | 65,536 rows    | error message       |
-| `query_revenue`        | 65,536 rows    | error message       |
+| `query_shreds`         | 262,144 rows per chunk | error message |
+| `query_tile_states`    | 65,536 rows of each kind per chunk | error message |
+| `query_txn_meta`       | 65,536 rows per chunk | error message |
+| `query_revenue`        | 65,536 rows per chunk | error message |
 | `query_slots`          | 65,536 rows    | error message       |
 | `query_events`         | 65,536 rows    | error message       |
+| `query_votes`          | 262,144 rows   | error message       |
 | Each `query_agg_*`     | 4,096 buckets  | connection closed   |
 
 The server returns the following error message when response limits are
@@ -2902,6 +2955,9 @@ rooted; ordinary events arriving after closure are rejected at both
 granularities.
 
 Empty results have empty arrays and `null` reference fields.
+
+The response is chunked (see above); each chunk holds the fields
+below other than `granularity` and `available_*`.
 
 **`TimelineShreds`**
 | field              | type               | description |
@@ -2953,14 +3009,20 @@ list. Clients should not assume timestamps are ordered.
     "value": {
         "granularity": "shred",
         "available_start_ns": "1739657040000000000",
-        "available_end_ns": "1739657043000000000",
-        "reference_slot": 289245044,
-        "reference_ts": "1739657041588242791",
-        "slot_delta": [0, 0],
-        "idx": [1234, null],
-        "event": [0, 4],
-        "event_ts_delta": ["0", "100000"],
-        "skipped": []
+        "available_end_ns": "1739657041600000000",
+        "chunks": [
+            {
+                "chunk_ts": "1739657041500000000",
+                "chunk_dur": "100000000",
+                "reference_slot": 289245044,
+                "reference_ts": "1739657041588242791",
+                "slot_delta": [0, 0],
+                "idx": [1234, null],
+                "event": [0, 4],
+                "event_ts_delta": ["0", "100000"],
+                "skipped": []
+            }
+        ]
     }
 }
 ```
@@ -3016,6 +3078,10 @@ within one response the later state is then reported starting where the
 earlier one ends. Overlapping states returned by adjacent windows are
 not adjusted.
 
+The response is chunked (see [Chunked responses](#chunked-responses));
+each chunk holds the fields below other than `granularity` and
+`available_*`.
+
 **`TimelineTileStates`**
 | field              | type               | description |
 |--------------------|--------------------|-------------|
@@ -3047,20 +3113,29 @@ runs until the next present stage starts, and the last until commit or
 cancel ends.
 
 `txn_batch` keeps the same states but rolls up each tile's transaction
-work into batches. A batch's signature verification is one
-`SigverifyBatch` state. Its execution is split into `LoadBatch`,
-`ValidBatch`, `ExecBatch` and `PostExecBatch`, in that order, each
-lasting a share of the batch's span proportional to its members' total
-time in that stage. A stage no member reached is omitted. Gaps between
-members are excluded: each batch lane (signature verification, and
-execution) ends when its last member ends and lasts its members' total
-time in that lane, so the stage durations are the measured totals and
-a batch may start after its first member started. LtHash tasks are
-batched by the same rule (same tile and slot, each task starting at
-most 5ms after the previous one ends, at most 128 tasks) and each batch
+work into batches, built as transactions complete. Signature
+verification and execution are batched separately, per tile: a
+transaction joins its tile's open batch for that lane if it starts at
+most 20ms after the batch's last member ended, and the batch has fewer
+than 128 members and spans at most 100ms with it; otherwise the open
+batch is recorded and a new one starts. A batch is also recorded once
+idle for 40ms. Slots do not split batches, so a batch can hold members
+of adjacent slots; its slot is that of the member that ended last.
+20ms is about one pixel at the zoom where clients typically switch
+from `txn` to `txn_batch`, so merged gaps are not visible there. A signature
+verification batch is one `SigverifyBatch` state. An execution batch is
+split into `LoadBatch`, `ValidBatch`, `ExecBatch` and `PostExecBatch`,
+in that order, each lasting a share of the batch's span proportional
+to its members' total time in that stage. A stage no member reached is
+omitted. Gaps between members are excluded: each batch ends when its
+last member ends and lasts its members' total time, so the stage
+durations are the measured totals and a batch may start after its
+first member started. LtHash tasks are
+batched by the same rule (same tile, each task starting at most 20ms
+after the previous one ends, at most 128 tasks) and each batch
 is one `LthashBatch` state that likewise ends with its last task and
 lasts the tasks' total time; a batch is recorded once its tile's next task
-does not join it or it has been idle for 10ms. Slot states are
+does not join it or it has been idle for 40ms. Slot states are
 reported unchanged. The `slot_*`, `txn_*` and `lthash_*`
 arrays are empty, and `reference_slot` is `null`. `tile_start_ts_delta`
 is reported as for `txn`.
@@ -3129,6 +3204,10 @@ transaction completion time. Rows are ordered by `(slot, txn_idx)`.
 `reference_ts` is the earliest available stage timestamp across all
 returned rows. Deltas are non-negative and stages can precede
 `start_ns`. Empty results have empty arrays and `null` reference fields.
+
+The response is chunked (see [Chunked responses](#chunked-responses));
+each chunk holds the fields below other than `granularity` and
+`available_*`.
 
 **`TimelineTxnMeta`**
 | field                       | type               | description |
@@ -3200,8 +3279,15 @@ can include members the `txn` granularity omits. Rows are ordered by
 granularities share one shape. Empty results have empty arrays and
 `null` reference fields.
 
-Batches are the ones `query_tile_states` reports at `txn_batch`
-granularity and are available once their slot completes replay.
+Batches are the execution batches `query_tile_states` reports at
+`txn_batch` granularity, recorded within 40ms of their last member. A
+batch's fees are counted under its slot, the slot of its member that
+ended last; use `txn` granularity or `query_slots` for exact per-slot
+fees.
+
+The response is chunked (see [Chunked responses](#chunked-responses));
+each chunk holds the fields below other than `granularity` and
+`available_*`.
 
 **`TimelineRevenue`**
 | field              | type           | description |
@@ -3329,6 +3415,113 @@ request window, ordered by slot.
 
 :::
 
+#### `timeline.query_votes`
+| frequency | type            | example |
+|-----------|-----------------|---------|
+| *Request* | `TimelineVotes` | below   |
+
+| param       | type     | description |
+|-------------|----------|-------------|
+| start_ns    | `string` | Inclusive lower bound, using the timestamp rules above |
+| end_ns      | `string` | Exclusive upper bound |
+| granularity | `string` | Either `vote` (every vote) or `vote_batch` (vote batches). Required |
+
+Returns the Alpenglow vote activity whose timestamp lies in the request
+window as flat rows ordered by timestamp, like `query_shreds`.
+Timestamps are the votor's wall clock. Each row has an `event`:
+
+| event   | meaning |
+|---------|---------|
+| 0 - 4   | Votes of kind `event` (0 notar, 1 finalize, 2 skip, 3 notar fallback, 4 skip fallback) counted by this validator's votor, including its own; the only rows with `stake` |
+| 5 - 9   | A certificate of kind `event - 5` (0 finalize, 1 fast finalize, 2 notar, 3 notar fallback, 4 skip) was created or accepted |
+| 10 - 14 | This validator broadcast its vote of kind `event - 10` |
+| 15 - 19 | The reward leader acknowledged this validator's reward vote of kind `event - 15` (notar and skip only) |
+| 20      | The leader window starting at the slot became ParentReady |
+| 21 - 25 | A vote batch of kind `event - 21` (as for 0 - 4), with `stake` (`vote_batch` only) |
+
+Rows 5 - 20 are markers: only the first of each per slot is kept.
+
+With `vote_batch`, vote rows (0 - 4) are replaced by vote batch rows
+(21 - 25); markers are the same. A slot's votes of one kind, summed in
+timestamp order, form a cumulative stake curve. The vote batches are
+its breakpoints, simplified with Douglas-Peucker so that no vote is
+further than 20 ms or 1% of the total stake (in those units) from the
+straight lines through them; the first and last vote of each curve are
+kept. A batch's `stake` is the stake added since the previous
+breakpoint of its curve (the first carries its own vote's), so batch
+stakes sum like the votes they replace, and drawing straight lines
+between the cumulative sums approximates the stake-weighted vote curve.
+Votes of a slot are batched while the slot is among the 64 most recent
+voted ones, up to 200 ms after its last vote or 800 ms after its first,
+and recent slots are simplified at query time, so a later query may
+return different breakpoints for them. A vote arriving after its slot
+was batched is a batch of its own.
+
+Each vote row is one vote, counted once per voter and kind. If the
+response also has votes (or vote batches) for slots of the next epoch,
+`next_epoch_start_slot` is that epoch's first slot and
+`next_total_stake` its total stake; otherwise both are `null`.
+So the total stake for a vote row is `next_total_stake` if its slot is
+at least `next_epoch_start_slot` and `total_stake` otherwise.
+
+`reference_slot` is the lowest slot in the response and `reference_ts`
+the first timestamp. Both are `null` when the arrays are empty.
+
+**`TimelineVotes`**
+| field              | type                | description |
+|--------------------|---------------------|-------------|
+| granularity        | `string`            | Echoes `vote` or `vote_batch` |
+| available_start_ns | `string\|null`      | Inclusive beginning of retained votes (vote batches for `vote_batch`) |
+| available_end_ns   | `string\|null`      | Exclusive end of retained votes (vote batches for `vote_batch`) |
+| reference_slot     | `number\|null`      | Lowest slot in the response |
+| reference_ts       | `string\|null`      | First timestamp in the response |
+| slot_delta         | `number[]`          | Per row, `slot - reference_slot` |
+| event              | `number[]`          | Per row, the event above |
+| event_ts_delta     | `string[]`          | Per row, timestamp minus `reference_ts`, in nanoseconds |
+| stake              | `(string\|null)[]`  | Per vote row, the voter's stake in lamports; per vote batch row, the stake added since the previous breakpoint; `null` for markers |
+| total_stake        | `string\|null`      | Total stake in lamports of the epoch of the lowest voted slot; `null` without votes |
+| next_epoch_start_slot | `number\|null`   | First slot of the next epoch, if the response has votes for it |
+| next_total_stake   | `string\|null`      | Total stake in lamports of the next epoch, if the response has votes for it |
+
+::: details Example
+
+```json
+{
+    "topic": "timeline",
+    "key": "query_votes",
+    "id": 50,
+    "params": {
+        "start_ns": "1739657040000000000",
+        "end_ns": "1739657041000000000",
+        "granularity": "vote"
+    }
+}
+```
+
+```json
+{
+    "topic": "timeline",
+    "key": "query_votes",
+    "id": 50,
+    "value": {
+        "granularity": "vote",
+        "available_start_ns": "1739656000000000000",
+        "available_end_ns": "1739657100000000001",
+        "reference_slot": 1000,
+        "reference_ts": "1739657040010000000",
+        "slot_delta": [0, 0, 0, 0, 0],
+        "event": [0, 10, 0, 7, 1],
+        "event_ts_delta": ["0", "3000000", "5000000", "41000000", "45000000"],
+        "stake": ["4800000000000000", null, "136000000000000000", null, "32400000000000000"],
+        "total_stake": "400000000000000000",
+        "next_epoch_start_slot": null,
+        "next_total_stake": null
+    }
+}
+```
+
+:::
+
 #### `timeline.query_events`
 | frequency | type             | example |
 |-----------|------------------|---------|
@@ -3415,11 +3608,11 @@ the `k`-th entry belongs to the `k`-th row whose event is 1 to 4.
 |-----------|---------------|---------|
 | *Request* | `TimelineAgg` | below   |
 
-Seven methods share the following parameters and common response fields:
+Eight methods share the following parameters and common response fields:
 `timeline.query_agg_slots`, `timeline.query_agg_shreds`,
 `timeline.query_agg_compute`, `timeline.query_agg_revenue`,
-`timeline.query_agg_txn`, `timeline.query_agg_cpu`, and
-`timeline.query_agg_tile_states`.
+`timeline.query_agg_txn`, `timeline.query_agg_votes`,
+`timeline.query_agg_cpu`, and `timeline.query_agg_tile_states`.
 
 Compute, revenue, and transaction aggregates include locally produced
 blocks. Transactions are bucketed by commit time.
@@ -3442,6 +3635,7 @@ The granularities are `25ms`, `50ms`, `100ms`, `250ms`, `500ms`, `1s`,
 | `timeline.query_agg_shreds`  | `250ms` |
 | `timeline.query_agg_slots`   | `250ms` |
 | `timeline.query_agg_txn`     | `250ms` |
+| `timeline.query_agg_votes`   | `250ms` |
 | `timeline.query_agg_tile_states` | `250ms` |
 
 The request window is aligned to the request granularity bucket
@@ -3506,14 +3700,43 @@ They are `null` only outside the retained aggregates.
         "available_end_ns": "1739664000000000000",
         "start_slot": [289245044, 289245082, null, 289245157],
         "end_slot": [289245081, 289245119, null, 289245194],
-        "skipped": [2, 0, 0, 1],
-        "mine": [4, 0, 0, 0],
-        "mine_skipped": [1, 0, 0, 0]
+        "skipped": [2, 0, null, 1],
+        "mine": [4, 0, null, 0],
+        "mine_skipped": [1, 0, null, 0]
     }
 }
 ```
 
 :::
+
+##### `timeline.query_agg_votes`
+| field                     | type               | description |
+|---------------------------|--------------------|-------------|
+| missed_votes              | `(number\|null)[]` | Count of slots this validator was a voter for but whose reward certificates did not include its vote, attributed to when that became known (about eight slots after the slot) |
+| notarized_latency_ns      | `(number\|null)[]` | Average latency of a slot's first notarization (Notar or FastFinal certificate) |
+| notarized_cnt             | `number[]`         | Number of samples in `notarized_latency_ns` |
+| finalized_fast_latency_ns | `(number\|null)[]` | Average latency of FastFinal certificates (finalized in one round) |
+| finalized_fast_cnt        | `number[]`         | Number of samples in `finalized_fast_latency_ns` |
+| finalized_slow_latency_ns | `(number\|null)[]` | Average latency of slow finalization (finalized in two rounds): the Final certificate, or the slot's notarization if that arrived after the Final certificate |
+| finalized_slow_cnt        | `number[]`         | Number of samples in `finalized_slow_latency_ns` |
+| skipped_latency_ns        | `(number\|null)[]` | Average latency of Skip certificates |
+| skipped_cnt               | `number[]`         | Number of samples in `skipped_latency_ns` |
+| notar_fallback_latency_ns | `(number\|null)[]` | Average latency of NotarFallback certificates (a contested block that may still be built on; these never finalize the block directly) |
+| notar_fallback_cnt        | `number[]`         | Number of samples in `notar_fallback_latency_ns` |
+
+Latencies are measured from the slot's start to the arrival of the
+certificate at this validator, and each sample is bucketed by its
+arrival time. A slot starts at this validator's first ParentReady for
+its leader window plus the slot's offset in the window times the
+target slot duration, the same anchor Agave uses for its consensus
+metrics. The lines are independent: a slot contributes at most once
+to each line, and may contribute to several (a fast-finalized slot is
+also notarized and usually also receives a Final certificate). Slots
+finalized only implicitly through a descendant are not sampled.
+Certificates for a window whose ParentReady was not seen (for example
+before a restart or while catching up) are not sampled. A latency is
+`null` where the bucket has no samples, including sparse lines like
+`skipped_latency_ns`.
 
 ##### `timeline.query_agg_shreds`
 | field         | type               | description |

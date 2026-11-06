@@ -564,6 +564,7 @@
                 "sum": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Sum of samples (nanos)" }
             }
         },
-        "server_conn_retry_expired_rejected":  { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Initials with an expired Retry token, also counted in ServerConnRetryRejected. Each gets an INVALID_TOKEN close so the client reconnects" }
+        "server_conn_retry_expired_rejected":  { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Initials with an expired Retry token, also counted in ServerConnRetryRejected. Each gets an INVALID_TOKEN close so the client reconnects" },
+        "gui_record_dropped":                  { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Vote activity records for the GUI dropped because the votor_gui batch was full", "field_number": 344909437 }
     }
 }

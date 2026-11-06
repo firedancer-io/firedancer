@@ -480,6 +480,52 @@ int
 fd_http_server_ws_send( fd_http_server_t * http,
                         ulong              ws_conn_id ); /* An existing, open connection.  In [0, max_ws_connection_cnt) */
 
+/* fd_http_server_ws_send_compressed is fd_http_server_ws_send for a
+   staged message that is already a zstd stream (one or more
+   concatenated frames, e.g. from fd_http_server_compress).  It is sent
+   unchanged as one binary message.  Returns -1 and clears the staging
+   area if the connection did not negotiate compress-zstd (see
+   fd_http_server_ws_compressed), or on the same failures as
+   fd_http_server_ws_send. */
+
+int
+fd_http_server_ws_send_compressed( fd_http_server_t * http,
+                                   ulong              ws_conn_id );
+
+/* fd_http_server_ws_compressed returns 1 if the WebSocket connection
+   negotiated compress-zstd, so may be sent fd_http_server_ws_send_compressed
+   messages, and 0 otherwise. */
+
+int
+fd_http_server_ws_compressed( fd_http_server_t const * http,
+                              ulong                    ws_conn_id );
+
+/* fd_http_server_compress compresses src_sz bytes at src into a single
+   zstd frame at dst with the server's compression context and level,
+   the same encoding used for compressed WebSocket messages.  It does
+   not touch the staging area or the outgoing ring.  Returns the frame
+   size, or 0 on failure (including dst_max too small; ZSTD_compressBound
+   is always sufficient). */
+
+ulong
+fd_http_server_compress( fd_http_server_t * http,
+                         uchar *            dst,
+                         ulong              dst_max,
+                         uchar const *      src,
+                         ulong              src_sz );
+
+/* fd_http_server_stage_compress compresses the staged message into dst
+   like fd_http_server_compress, then clears the staging area without
+   sending it (it does not advance the ring and evicts no clients
+   beyond what staging already did).  Lets the staging printers build
+   reusable compressed payloads.  Returns the frame size, or 0 on
+   failure (including a staging error). */
+
+ulong
+fd_http_server_stage_compress( fd_http_server_t * http,
+                               uchar *            dst,
+                               ulong              dst_max );
+
 /* Broadcast the contents of the staging buffer as a WebSocket message
    to all connected clients.  The staging buffer is then cleared.
    Returns -1 on failure if the ring buffer is an error state, and then
