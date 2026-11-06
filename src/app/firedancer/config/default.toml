@@ -864,12 +864,14 @@ telemetry = true
     bpf_shared_frames = 12
 
     # Each execution tile can also keep some number of these frames
-    # local to itself for performance reasons.
+    # local to itself for performance reasons.  Instructions take only
+    # the space they need from them, so on mainnet a whole instruction
+    # stack fits in one.
     #
     # This value has been tuned for mainnet performance and it is not
     # recommended to decrease this value, except in development or test
     # environments to decrease memory usage or test edge cases.
-    bpf_local_frames = 2
+    bpf_local_frames = 1
     # Execute on-chain programs as native x86 code instead of in the
     # sBPF interpreter.  Each program is translated on first use and
     # cached per execution tile; results are identical to the
