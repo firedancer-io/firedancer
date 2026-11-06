@@ -162,7 +162,8 @@ struct snapsv_conn {
   fd_kernel_timespec_t idle_timeout;
 
   /* active_ts: last time this conn did work worth keeping it alive for:
-     accept or snapshot payload delivery.  In unix nanoseconds. */
+     accept, a completed request, or snapshot payload delivery.  In unix
+     nanoseconds. */
   long active_ts;
 
   fd_ip6_addr_t peer_ip;
@@ -886,6 +887,7 @@ conn_req_done( fd_snapsv_t *       ctx,
     conn_close( ctx, stem, conn_idx, now );
     return;
   }
+  ctx->conn0[ conn_idx ].active_ts = now;
   conn_req_next( ctx, conn_idx );
 }
 
