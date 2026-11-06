@@ -151,7 +151,7 @@ struct __attribute__((aligned(FD_TXNCACHE_SHMEM_ALIGN))) fd_txncache_shmem_priva
 
   ulong txn_per_slot_max;
   ulong active_slots_max;
-  ulong bucket_cnt; /* Hash buckets per blockcache, txn_per_slot_max/32 (load factor 16, as live forks hold at most txn_per_slot_max/2). */
+  ulong bucket_cnt; /* Hash buckets per blockcache, txn_per_slot_max/8 (load factor 4, as live forks hold at most txn_per_slot_max/2). */
   ulong txnpages_per_blockhash_max;
   ulong txnpages_max;
   ulong frames_max;
@@ -237,7 +237,7 @@ fd_txncache_max_txnpages( ulong max_active_slots,
 
 FD_FN_CONST static inline ulong
 fd_txncache_bucket_cnt( ulong max_txn_per_slot ) {
-  return fd_ulong_max( 1UL, (max_txn_per_slot+31UL)/32UL );
+  return fd_ulong_max( 1UL, (max_txn_per_slot+7UL)/8UL );
 }
 
 /* Snapshot support.  These let the snapshot writer read the rooted part
