@@ -364,7 +364,10 @@ fd_accdb_shmem_new( void * shmem,
     }
   }
   for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) {
-    for( ulong w=0UL; w<FD_ACCDB_MAX_JOINERS/64UL; w++ ) accdb->cache_free_have[ c ].bits[ w ] = 0UL;
+    for( ulong w=0UL; w<FD_ACCDB_MAX_JOINERS/64UL; w++ ) {
+      accdb->cache_free_have  [ c ].bits[ w ] = 0UL;
+      accdb->cache_free_hungry[ c ].bits[ w ] = 0UL;
+    }
   }
 
   for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) {
