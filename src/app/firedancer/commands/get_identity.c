@@ -73,6 +73,7 @@ action_t fd_action_get_identity = {
   .args           = get_identity_cmd_args,
   .fn             = get_identity_cmd_fn,
   .require_config = 0,
+  .no_topo        = 1,
   .perm           = NULL,
   .description    = "Get the current active identity of the running validator",
   .detail         = "Prints the base58 encoded identity public key the running validator is\n"

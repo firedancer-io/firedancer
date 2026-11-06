@@ -162,6 +162,7 @@ action_t fd_action_keys = {
   .name        = "keys",
   .args        = keys_cmd_args,
   .fn          = keys_cmd_fn,
+  .no_topo     = 1,
   .perm        = NULL,
   .description = "Generate new keypairs for use with the validator or print a public key",
   .detail      = "Local key file utility.  `new` creates a fresh validator or vote account\n"

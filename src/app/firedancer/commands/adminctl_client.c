@@ -1,6 +1,7 @@
 #define _GNU_SOURCE
 #include "adminctl_client.h"
 
+#include "../topology.h"
 #include "../../shared/fd_bootinfo.h"
 #include "../../../disco/topo/fd_topo.h"
 #include "../../../util/pod/fd_pod.h"
@@ -15,6 +16,8 @@
 
 static fd_adminctl_t *
 attach_from_config( config_t * config ) {
+  fd_topo_initialize( config );
+
   ulong admin_ctl_obj_id = fd_pod_query_ulong( config->topo.props, "adminctl", ULONG_MAX );
   if( FD_UNLIKELY( admin_ctl_obj_id==ULONG_MAX ) ) FD_LOG_ERR(( "The command could not communicate with the running Firedancer process. "
                                                                 "It is possible you are running the command from an older or newer "

@@ -18,6 +18,7 @@ fd_main_init( int *                      pargc,
               config_t   *               config,
               const char *               opt_user_config_path,
               int                        is_local_cluster,
+              int                        no_topo,
               char const *               log_path,
               fd_config_file_t * const * configs,
               int                        dev );

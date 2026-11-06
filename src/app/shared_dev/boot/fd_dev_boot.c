@@ -149,7 +149,7 @@ fd_dev_main( int                        argc,
 # if !FD_HAS_ASAN && !FD_HAS_MSAN
   fd_log_enable_signal_handler();
 # endif
-  int load_topo = fd_main_init( &argc, &argv, &config, opt_user_config_path, action->is_local_cluster, log_path, configs, 1 /* dev */ );
+  int load_topo = fd_main_init( &argc, &argv, &config, opt_user_config_path, action->is_local_cluster, action->no_topo, log_path, configs, 1 /* dev */ );
   if( FD_LIKELY( load_topo ) ) fd_cstr_ncpy( config.action, action->name, sizeof( config.action ) );
 
   if( FD_UNLIKELY( config.is_live_cluster && (no_clone || no_sandbox) ) )
@@ -157,10 +157,10 @@ fd_dev_main( int                        argc,
 
   config.development.no_clone = config.development.no_clone || no_clone;
   config.development.sandbox = config.development.sandbox && !no_sandbox && !config.development.no_clone;
+  if( FD_UNLIKELY( max_live_slots ) ) config.firedancer.runtime.max_live_slots = max_live_slots;
+  if( FD_UNLIKELY( efficient      ) ) fd_cstr_ncpy( config.firedancer.layout.mode, "efficient", sizeof(config.firedancer.layout.mode) );
 
   if( FD_LIKELY( load_topo ) ) {
-    if( FD_UNLIKELY( max_live_slots ) ) config.firedancer.runtime.max_live_slots = max_live_slots;
-    if( FD_UNLIKELY( efficient      ) ) fd_cstr_ncpy( config.firedancer.layout.mode, "efficient", sizeof(config.firedancer.layout.mode) );
     if( FD_LIKELY( action->topo ) ) action->topo( &config );
     else                            topo_init( &config );
   }

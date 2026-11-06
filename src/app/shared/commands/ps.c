@@ -50,6 +50,7 @@ action_t fd_action_ps = {
   .args           = ps_cmd_args,
   .fn             = ps_cmd_fn,
   .require_config = 0,
+  .no_topo        = 1,
   .perm           = NULL,
   .is_diagnostic  = 1,
   .description    = "List validators running on this host",
