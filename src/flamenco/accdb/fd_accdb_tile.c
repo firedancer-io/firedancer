@@ -78,6 +78,10 @@ metrics_write( fd_accdb_tile_ctx_t * ctx ) {
   FD_MCNT_SET( ACCDB, WRITEBACK_WRITTEN,         rt->write_ops         );
   FD_MCNT_SET( ACCDB, COMPACTION_WRITTEN,        rt->copy_ops          );
   FD_MCNT_SET( ACCDB, ACCOUNT_VERSION_REMOVED,   rt->accounts_deleted  );
+  FD_MCNT_SET( ACCDB, ROOT_APPLIED,              rt->roots_applied     );
+  FD_MCNT_SET( ACCDB, PURGE_APPLIED,             rt->purges_applied    );
+  FD_MCNT_SET( ACCDB, RECLAIM_WAITED,            rt->reclaim_wait_cnt  );
+  FD_MGAUGE_SET( ACCDB, ROOT_PENDING,            fd_accdb_root_lag( ctx->accdb ) );
 
   ulong cache_used    [ FD_ACCDB_CACHE_CLASS_CNT ];
   ulong cache_max     [ FD_ACCDB_CACHE_CLASS_CNT ];

@@ -469,6 +469,7 @@
         "stake_delegation_delta_spilled":          { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Stake delegation fork deltas written to disk because the in-memory delta pool was full" },
         "stake_delegation_disk_read":              { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Reads from the stake delegation spill file by all tiles" },
         "stake_delegation_disk_written":           { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Writes to the stake delegation spill file by all tiles" },
-        "stake_delegation_disk_duration_nanos":    { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Time all tiles spent in stake delegation spill file reads and writes" }
+        "stake_delegation_disk_duration_nanos":    { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Time all tiles spent in stake delegation spill file reads and writes" },
+        "accdb_fork_waited":                       { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Replay loop iterations that held a block start because every account database fork slot was retained awaiting background root/purge maintenance" }
     }
 }

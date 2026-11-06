@@ -216,6 +216,10 @@
                 "le4_mib":   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "2-4 MiB" },
                 "le11_mib":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "4-11 MiB" }
             }
-        }
+        },
+        "root_applied":               { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Requested root levels applied to the account database index" },
+        "purge_applied":              { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Requested fork purges applied to the account database index" },
+        "reclaim_waited":             { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Root or purge maintenance units that waited for reader epochs to release the previous retirement batch" },
+        "root_pending":               { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Requested root levels not yet applied to the account database index" }
     }
 }

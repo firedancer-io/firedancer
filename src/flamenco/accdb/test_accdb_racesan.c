@@ -4125,6 +4125,471 @@ test_reservation_wait_yields( void ) {
   test_shmem_delete();
 }
 
+/* ------------------------------------------------------------------ */
+/* asynchronous root / purge maintenance                              */
+/* ------------------------------------------------------------------ */
+
+int   fd_accdb_debug_descends_test( fd_accdb_t * accdb, ushort fork, ushort ancestor );
+int   fd_accdb_debug_fork_state   ( fd_accdb_t * accdb, ushort fork );
+ulong fd_accdb_debug_carry_sz     ( fd_accdb_t * accdb );
+
+/* read_lamports reads key on fork via acquire, nocache, lamports and
+   exists, checks they agree, and returns the lamports (0 if absent). */
+
+static ulong
+read_lamports( fd_accdb_t *       accdb,
+               fd_accdb_fork_id_t fork,
+               uchar const *      key ) {
+  uchar const * pks[1] = { key };
+  int wr[1] = { 0 };
+  fd_acc_t acc[1];
+  memset( acc, 0, sizeof(acc) );
+  fd_accdb_acquire( accdb, fork, 1UL, pks, wr, acc );
+  ulong a = acc[0].lamports;
+  fd_accdb_release( accdb, 1UL, acc );
+
+  ulong n = 0UL; int exe = 0; ulong dlen = 0UL; uchar owner[ 32UL ];
+  fd_accdb_read_one_nocache( accdb, fork, key, &n, &exe, owner, NULL, &dlen );
+  FD_TEST( n==a );
+  FD_TEST( fd_accdb_lamports( accdb, fork, key )==a );
+  FD_TEST( fd_accdb_exists( accdb, fork, key )==(a!=0UL) );
+  return a;
+}
+
+/* catch_up runs background passes until every request is applied and
+   the last retirement batch is reclaimed (no reader may be parked). */
+
+static void
+catch_up( fd_accdb_t * bg ) {
+  for( ulong i=0UL; i<64UL; i++ ) {
+    if( !fd_accdb_maint_pending( bg ) && !FD_VOLATILE_CONST( g_shmem->deferred_acc_buf_cnt ) ) return;
+    drain_background( bg );
+  }
+  FD_LOG_ERR(( "background did not catch up" ));
+}
+
+static fd_accdb_fork_id_t
+attach( fd_accdb_t *       accdb,
+        fd_accdb_fork_id_t parent ) {
+  fd_accdb_fork_id_t f;
+  FD_TEST( fd_accdb_attach_child_try( accdb, parent, &f )==FD_ACCDB_SUCCESS );
+  return f;
+}
+
+static void root ( fd_accdb_t * a, fd_accdb_fork_id_t f ) { FD_TEST( fd_accdb_advance_root_try( a, f )==FD_ACCDB_SUCCESS ); }
+static void purge( fd_accdb_t * a, fd_accdb_fork_id_t f ) { FD_TEST( fd_accdb_purge_try       ( a, f )==FD_ACCDB_SUCCESS ); }
+
+/* req fiber: T1 issues a purge (if purge.val!=USHORT_MAX) then a root
+   request, so its publication can be parked or woven against T2. */
+
+static struct {
+  fd_accdb_t *       accdb;
+  fd_accdb_fork_id_t purge;
+  fd_accdb_fork_id_t root;
+} g_req;
+
+static void
+fiber_req_exec( void * _ctx ) {
+  (void)_ctx;
+  if( g_req.purge.val!=USHORT_MAX ) purge( g_req.accdb, g_req.purge );
+  if( g_req.root.val !=USHORT_MAX ) root ( g_req.accdb, g_req.root  );
+}
+
+static fd_racesan_async_t *
+fiber_req( fiber_t *          fiber,
+           fd_accdb_t *       accdb,
+           fd_accdb_fork_id_t purge_fork,
+           fd_accdb_fork_id_t root_fork ) {
+  g_req.accdb = accdb; g_req.purge = purge_fork; g_req.root = root_fork;
+  fd_racesan_async_new( fiber->async, fiber->stack, FIBER_STACK_MAX, fiber_req_exec, NULL );
+  return fiber->async;
+}
+
+/* test_root_lag_parked_compaction: T2 is parked inside compaction while
+   T1 requests three roots, attaches and writes descendants, and purges
+   branches; none of it waits on T2, reads are correct against the
+   lagging applied root, illegal requests are rejected, and T2 catches
+   up exactly once resumed. */
+
+static void
+test_root_lag_parked_compaction( void ) {
+  test_shmem_new_smallpart();
+  fd_accdb_t * ctl = join_new();
+  fd_accdb_t * jc  = join_new();
+
+  fd_accdb_fork_id_t r = fd_accdb_attach_child( ctl, SENTINEL );
+  uchar K[ 32UL ]; mk_key( 5000UL, K );
+  uchar X[ 32UL ]; mk_key( 5001UL, X );
+  uchar Y[ 32UL ]; mk_key( 5002UL, Y );
+  epoch_setup_fragment( ctl, r, K, TAG_A, 0xAA ); /* compaction work */
+  seq_write( ctl, r, X, 10UL, NULL );
+
+  fd_racesan_async_t * bg = fiber_compact_loop( &g_fiber[0], jc, 64 );
+  FD_TEST( fd_racesan_async_step_until( bg, "accdb_compact:pre_offset_cas", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
+  fd_accdb_fork_id_t applied = g_shmem->root_fork_id;
+
+  /* r -> a -> b -> c -> d: L (sibling of b) loses, P (child of c) is
+     purged.  X: 20 on a, deleted on b, recreated on c. */
+  fd_accdb_fork_id_t a = attach( ctl, r ); seq_write( ctl, a, X, 20UL, NULL );
+  fd_accdb_fork_id_t b = attach( ctl, a ); seq_write( ctl, b, X, 0UL,  NULL );
+  fd_accdb_fork_id_t L = attach( ctl, a ); seq_write( ctl, L, Y, 99UL, NULL );
+  root( ctl, a );
+  fd_accdb_fork_id_t c = attach( ctl, b ); seq_write( ctl, c, X, 30UL, NULL );
+  root( ctl, b );
+  fd_accdb_fork_id_t P = attach( ctl, c ); seq_write( ctl, P, Y, 77UL, NULL );
+  purge( ctl, P );
+  root( ctl, c );
+  fd_accdb_fork_id_t d = attach( ctl, c ); seq_write( ctl, d, Y, 5UL, NULL );
+
+  fd_accdb_fork_id_t dummy;
+  FD_TEST( fd_accdb_advance_root_try( ctl, a )==FD_ACCDB_ERR_INVALID );         /* not a child of c */
+  FD_TEST( fd_accdb_attach_child_try( ctl, b, &dummy )==FD_ACCDB_ERR_INVALID ); /* ROOTED */
+  FD_TEST( fd_accdb_attach_child_try( ctl, L, &dummy )==FD_ACCDB_ERR_INVALID ); /* DEAD */
+  FD_TEST( fd_accdb_purge_try( ctl, c )==FD_ACCDB_ERR_INVALID );                /* requested root */
+  purge( ctl, L );                                                              /* already DEAD: no-op */
+
+  FD_TEST( g_shmem->root_fork_id.val==applied.val );
+  FD_TEST( fd_accdb_root_lag( ctl )==3UL );
+  for( int pass=0; pass<2; pass++ ) {
+    FD_TEST( read_lamports( ctl, c, X )==30UL );
+    FD_TEST( read_lamports( ctl, d, X )==30UL );
+    FD_TEST( read_lamports( ctl, d, Y )==5UL  );
+    FD_TEST( read_lamports( ctl, c, Y )==0UL  );
+    if( !pass ) {
+      FD_TEST( read_lamports( ctl, a, X )==20UL );
+      FD_TEST( read_lamports( ctl, b, X )==0UL  );
+      async_finish( bg );
+      fiber_done( &g_fiber[0] );
+      catch_up( jc );
+      FD_TEST( g_shmem->root_fork_id.val==c.val );
+    }
+  }
+  FD_TEST( read_lamports( ctl, c, K )==LAMP_A );
+
+  join_delete( ctl );
+  join_delete( jc );
+  test_shmem_delete();
+}
+
+/* test_root_publish_vs_maint: losing sibling B writes K, winner A does
+   not.  The root(A) request is published before T2 starts and while T2
+   is parked at each maintenance phase boundary.  A reader on A never
+   sees B's K, and a request published after T2 captured its frontier
+   is applied by the next pass. */
+
+static void
+test_root_publish_vs_maint( void ) {
+  static char const * hooks[] = { "accdb_maint:post_frontier", "accdb_maint:post_xchg", "accdb_root:pre_level" };
+  test_shmem_new();
+  fd_accdb_t * ctl = join_new();
+  fd_accdb_t * jb  = join_new();
+
+  uchar K[ 32UL ]; mk_key( 6000UL, K );
+  fd_accdb_fork_id_t p = fd_accdb_attach_child( ctl, SENTINEL );
+
+  for( ulong h=0UL; h<3UL; h++ ) {
+    for( int late=0; late<2; late++ ) {
+      fd_accdb_fork_id_t B = attach( ctl, p );
+      fd_accdb_fork_id_t A = attach( ctl, p );
+      seq_write( ctl, B, K, 1000UL+h, NULL );
+      purge( ctl, attach( ctl, p ) ); /* nonempty list, so post_xchg is reached */
+      if( !late ) root( ctl, A );
+
+      /* With the request late, the frontier excludes it: no level, so
+         pre_level is not reached in this pass. */
+      fd_racesan_async_t * bg = fiber_background( &g_fiber[0], jb );
+      int hit = fd_racesan_async_step_until( bg, hooks[ h ], STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK;
+      FD_TEST( hit==!( late && h==2UL ) );
+      if( late ) root( ctl, A );
+      FD_TEST( read_lamports( ctl, A, K )==0UL );
+      if( hit ) async_finish( bg );
+      fiber_done( &g_fiber[0] );
+
+      FD_TEST( read_lamports( ctl, A, K )==0UL );
+      catch_up( jb );
+      FD_TEST( g_shmem->root_fork_id.val==A.val );
+      FD_TEST( read_lamports( ctl, A, K )==0UL );
+      p = A;
+    }
+  }
+
+  join_delete( ctl );
+  join_delete( jb );
+  test_shmem_delete();
+}
+
+/* test_purge_push_vs_xchg: T1's purge push is parked between loading
+   the list head and its CAS; T2 exchanges the list away and processes
+   it, so the CAS fails and must retry.  F is collected exactly once and
+   a following root does not expose its accounts. */
+
+static void
+test_purge_push_vs_xchg( void ) {
+  test_shmem_new();
+  fd_accdb_t * ctl = join_new();
+  fd_accdb_t * jb  = join_new();
+
+  uchar K[ 32UL ]; mk_key( 7000UL, K );
+  fd_accdb_fork_id_t r = fd_accdb_attach_child( ctl, SENTINEL );
+  seq_write( ctl, r, K, 1UL, NULL );
+  fd_accdb_fork_id_t null = { .val = USHORT_MAX };
+
+  for( ulong i=0UL; i<8UL; i++ ) {
+    fd_accdb_fork_id_t H = attach( ctl, r ); seq_write( ctl, H, K, 100UL+i, NULL );
+    fd_accdb_fork_id_t F = attach( ctl, r ); seq_write( ctl, F, K, 200UL+i, NULL );
+    fd_accdb_fork_id_t W = attach( ctl, r );
+    purge( ctl, H );
+    ulong total0 = g_shmem->shmetrics->accounts_total;
+    ulong pseq0  = g_shmem->purge_req_seq;
+
+    fd_racesan_async_t * req = fiber_req( &g_fiber[0], ctl, F, null );
+    FD_TEST( fd_racesan_async_step_until( req, "accdb_purge_req:pre_cas", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
+    drain_background( jb ); /* takes and purges H */
+    FD_TEST( g_shmem->purge_head==USHORT_MAX && g_shmem->purge_done_seq==pseq0 );
+    FD_TEST( g_shmem->shmetrics->accounts_total==total0-1UL );
+
+    async_finish( req );
+    fiber_done( &g_fiber[0] );
+    FD_TEST( g_shmem->purge_head==F.val && g_shmem->purge_req_seq==pseq0+1UL );
+
+    root( ctl, W );
+    catch_up( jb );
+    FD_TEST( g_shmem->shmetrics->accounts_total==total0-2UL );
+    FD_TEST( read_lamports( ctl, W, K )==1UL );
+    r = W;
+  }
+
+  join_delete( ctl );
+  join_delete( jb );
+  test_shmem_delete();
+}
+
+/* test_reclaim_idle_recovery: a chain of requested roots fills the fork
+   pool, so attach reports FULL.  T2's only blocking wait is before new
+   work, on a batch a reader still holds.  With no pending request, idle
+   passes neither block nor create batches while the reader holds the
+   last batch, and stay busy; once it exits, one pass returns the slots
+   with no further request. */
+
+static void
+test_reclaim_idle_recovery( void ) {
+  test_shmem_new();
+  fd_accdb_t * ctl = join_new();
+  fd_accdb_t * jb  = join_new();
+  fd_accdb_t * jr  = join_new();
+
+  uchar K[ 32UL ]; mk_key( 8000UL, K );
+  fd_accdb_fork_id_t tip = fd_accdb_attach_child( ctl, SENTINEL );
+  ulong chain = 0UL;
+  for(;;) {
+    fd_accdb_fork_id_t n;
+    int err = fd_accdb_attach_child_try( ctl, tip, &n );
+    if( err==FD_ACCDB_ERR_FULL ) break;
+    FD_TEST( err==FD_ACCDB_SUCCESS );
+    seq_write( ctl, n, K, 10UL+chain, NULL );
+    root( ctl, n );
+    tip = n; chain++;
+  }
+  FD_TEST( chain==T_MAX_LIVE_SLOTS-1UL );
+  FD_TEST( !fd_accdb_fork_can_attach( ctl ) );
+  FD_TEST( fd_accdb_metrics( ctl )->fork_full_cnt==1UL );
+
+  /* A parked reader holds the batch of the first level T2 applies, so
+     T2 blocks before the second level. */
+  fd_racesan_async_t * rd = fiber_acquire( &g_fiber[0], jr, tip, K );
+  FD_TEST( fd_racesan_async_step_until( rd, "accdb_acquire:post_root_gen", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
+  fd_racesan_async_t * bg = fiber_compact_loop( &g_fiber[1], jb, 1 );
+  FD_TEST( fd_racesan_async_step_until( bg, "accdb_epoch_drain:wait", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
+  async_finish( rd );
+  fiber_done( &g_fiber[0] );
+  async_finish( bg );
+  fiber_done( &g_fiber[1] );
+  FD_TEST( fd_accdb_metrics( jb )->reclaim_wait_cnt==1UL );
+
+  /* Apply the rest with no reader, then retire one more level under a
+     parked reader: its batch (holding the old root's slot) stays
+     outstanding. */
+  catch_up( jb );
+  fd_accdb_fork_id_t prev = g_shmem->root_fork_id;
+  fd_accdb_fork_id_t n    = attach( ctl, tip );
+  seq_write( ctl, n, K, 10UL+chain, NULL );
+  root( ctl, n );
+  tip = n; chain++;
+  rd = fiber_acquire( &g_fiber[0], jr, tip, K );
+  FD_TEST( fd_racesan_async_step_until( rd, "accdb_acquire:post_root_gen", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
+  drain_background( jb );
+  FD_TEST( !fd_accdb_maint_pending( ctl ) );
+
+  ulong epoch0 = FD_VOLATILE_CONST( g_shmem->epoch );
+  FD_TEST( FD_VOLATILE_CONST( g_shmem->deferred_acc_buf_cnt ) );
+  FD_TEST( fd_accdb_debug_fork_state( ctl, prev.val )==FD_ACCDB_FORK_STATE_ROOTED );
+  for( ulong i=0UL; i<8UL; i++ ) {
+    int busy = 0;
+    fd_accdb_background( jb, &busy );
+    FD_TEST( busy );
+  }
+  FD_TEST( FD_VOLATILE_CONST( g_shmem->epoch )==epoch0 );
+  FD_TEST( FD_VOLATILE_CONST( g_shmem->deferred_acc_buf_cnt ) );
+
+  /* Reader exits: the next pass reclaims, with no new request. */
+  async_finish( rd );
+  fiber_done( &g_fiber[0] );
+  drain_background( jb );
+  FD_TEST( !FD_VOLATILE_CONST( g_shmem->deferred_acc_buf_cnt ) );
+  FD_TEST( fd_accdb_debug_fork_state( ctl, prev.val )==FD_ACCDB_FORK_STATE_FREE );
+  FD_TEST( read_lamports( ctl, attach( ctl, tip ), K )==10UL+chain-1UL );
+
+  join_delete( ctl );
+  join_delete( jb );
+  join_delete( jr );
+  test_shmem_delete();
+}
+
+/* test_slot_reuse_descends: slot X is purged, reclaimed and reused as Z
+   while a reader is mid-walk on an unrelated fork; reuse clears X's
+   stale descends bits.  Z is then retired too, without T2 ever seeing
+   it LIVE.  The reader's answer never changes. */
+
+static void
+test_slot_reuse_descends( void ) {
+  test_shmem_new();
+  fd_accdb_t * ctl = join_new();
+  fd_accdb_t * jb  = join_new();
+  fd_accdb_t * jr  = join_new();
+
+  uchar K[ 32UL ]; mk_key( 9000UL, K );
+  fd_accdb_fork_id_t r = fd_accdb_attach_child( ctl, SENTINEL );
+  seq_write( ctl, r, K, 1UL, NULL );
+
+  for( ulong i=0UL; i<ITER_DEFAULT/16UL; i++ ) {
+    fd_accdb_fork_id_t A  = attach( ctl, r );  seq_write( ctl, A, K, 100UL+i, NULL );
+    fd_accdb_fork_id_t A1 = attach( ctl, A );
+    fd_accdb_fork_id_t X  = attach( ctl, A );  seq_write( ctl, X, K, 999UL, NULL );
+    purge( ctl, X );
+    catch_up( jb );
+
+    fd_racesan_async_t * rd = fiber_acquire_expect( &g_fiber[0], jr, A1, K, 100UL+i );
+    FD_TEST( fd_racesan_async_step_until( rd, "accdb_acquire:post_root_gen", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
+    fd_accdb_fork_id_t Z = attach( ctl, A ); /* LIFO pool: X's slot */
+    FD_TEST( Z.val==X.val );
+    for( ulong f=0UL; f<T_MAX_LIVE_SLOTS; f++ ) FD_TEST( !fd_accdb_debug_descends_test( ctl, (ushort)f, Z.val ) );
+    seq_write( ctl, Z, K, 555UL, NULL );
+    async_finish( rd );
+    fiber_done( &g_fiber[0] );
+    FD_TEST( read_lamports( ctl, Z, K )==555UL );
+
+    purge( ctl, Z );
+    root( ctl, A );
+    root( ctl, A1 );
+    catch_up( jb );
+    FD_TEST( read_lamports( ctl, A1, K )==100UL+i );
+    r = A1;
+  }
+
+  join_delete( ctl );
+  join_delete( jb );
+  join_delete( jr );
+  test_shmem_delete();
+}
+
+/* test_root_weave_rand: seeded weave of a reader on A1, T2 maintenance
+   and T1 publishing purge(P) then root(A), with losing sibling B and
+   purged P both writing K.  The reader's answer is fixed by history. */
+
+static void
+test_root_weave_rand( void ) {
+  test_shmem_new();
+  fd_accdb_t * ctl = join_new();
+  fd_accdb_t * jb  = join_new();
+  fd_accdb_t * jr  = join_new();
+
+  uchar K[ 32UL ]; mk_key( 9500UL, K );
+  fd_accdb_fork_id_t r = fd_accdb_attach_child( ctl, SENTINEL );
+  seq_write( ctl, r, K, 1UL, NULL );
+
+  for( ulong i=0UL; i<ITER_DEFAULT/4UL; i++ ) {
+    fd_accdb_fork_id_t A  = attach( ctl, r );
+    fd_accdb_fork_id_t B  = attach( ctl, r );  seq_write( ctl, B, K, 2UL, NULL );
+    fd_accdb_fork_id_t A1 = attach( ctl, A );
+    fd_accdb_fork_id_t P  = attach( ctl, A );  seq_write( ctl, P, K, 3UL, NULL );
+    ulong want = fd_accdb_lamports( ctl, r, K );
+    if( i&1UL ) { want = 4UL+i; seq_write( ctl, A, K, want, NULL ); }
+
+    fd_racesan_weave_t w[1];
+    fd_racesan_weave_new( w );
+    fd_racesan_weave_add( w, fiber_acquire_expect( &g_fiber[0], jr, A1, K, want ) );
+    fd_racesan_weave_add( w, fiber_compact_loop( &g_fiber[1], jb, 3 ) );
+    fd_racesan_weave_add( w, fiber_req( &g_fiber[2], ctl, P, A ) );
+    fd_racesan_weave_exec_rand( w, fd_ulong_hash( (i+0x5151UL) ^ g_seed_base ), STEP_MAX );
+    FD_TEST( !w->rem_cnt );
+    fd_racesan_weave_delete( w );
+    for( ulong f=0UL; f<3UL; f++ ) fiber_done( &g_fiber[ f ] );
+
+    catch_up( jb );
+    FD_TEST( read_lamports( ctl, A1, K )==want );
+    root( ctl, A1 );
+    catch_up( jb );
+    r = A1;
+  }
+
+  join_delete( ctl );
+  join_delete( jb );
+  join_delete( jr );
+  test_shmem_delete();
+}
+
+/* test_reset_discards_carry: reset while compaction holds carried bytes
+   must not let them be reused at the same file offset after the
+   database is rebuilt with different contents.  Uses test_compact_batch's
+   layout, where one step leaves a carried tail. */
+
+static void
+reset_carry_fill( fd_accdb_t *       ctl,
+                  fd_accdb_fork_id_t root_fork,
+                  uchar              keys[][ 32UL ],
+                  ulong              base,
+                  uchar              fill ) {
+  for( ulong i=0UL; i<BATCH_REC_CNT; i++ ) seq_write_data( ctl, root_fork, keys[ i ], base+i, NULL, BATCH_REC_DATA, (uchar)(fill+i) );
+  for( ulong i=0UL; i<8UL; i++ ) {
+    uchar t[ 32UL ]; mk_key( 32000UL+i, t );
+    seq_write_data( ctl, root_fork, t, 1UL, NULL, BATCH_REC_DATA, 0xEE );
+  }
+  for( ulong i=1UL; i<BATCH_REC_CNT; i+=2UL ) seq_write_data( ctl, root_fork, keys[ i ], base+50UL+i, NULL, BATCH_REC_DATA, (uchar)(fill+0x20) );
+}
+
+static void
+test_reset_discards_carry( void ) {
+  test_shmem_new_cfg2( test_tiny_cache_footprint(), TEST_TINY_CACHE_MIN_RESERVED, 24UL<<20 );
+  fd_accdb_t * ctl = join_new();
+  fd_accdb_t * jc  = join_new();
+
+  uchar keys[ BATCH_REC_CNT ][ 32UL ];
+  for( ulong i=0UL; i<BATCH_REC_CNT; i++ ) mk_key( 31000UL+i, keys[ i ] );
+
+  reset_carry_fill( ctl, fd_accdb_attach_child( ctl, SENTINEL ), keys, 1UL, 0x10 );
+  for( ulong s=0UL; s<4UL && !fd_accdb_debug_carry_sz( jc ); s++ ) drain_background( jc );
+  FD_TEST( fd_accdb_debug_carry_sz( jc ) );
+
+  fd_accdb_reset( ctl );
+  fd_accdb_fork_id_t r = fd_accdb_attach_child( ctl, SENTINEL );
+  reset_carry_fill( ctl, r, keys, 100UL, 0x40 );
+  for( ulong s=0UL; s<64UL; s++ ) drain_background( jc );
+
+  for( ulong i=0UL; i<BATCH_REC_CNT; i++ ) {
+    ulong lamports = 0UL; int exe = 0; ulong dlen = 0UL; uchar owner[ 32UL ];
+    fd_accdb_read_one_nocache( ctl, r, keys[ i ], &lamports, &exe, owner, g_cold_data, &dlen );
+    int   rew  = (int)(i&1UL);
+    uchar fill = rew ? 0x60 : (uchar)(0x40+i);
+    FD_TEST( lamports==( rew ? 150UL+i : 100UL+i ) );
+    FD_TEST( dlen==BATCH_REC_DATA );
+    for( ulong z=0UL; z<dlen; z+=4093UL ) FD_TEST( g_cold_data[ z ]==fill );
+  }
+
+  join_delete( ctl );
+  join_delete( jc );
+  test_shmem_delete();
+}
+
 struct test_case { char const * name; void (*fn)( void ); };
 
 int
@@ -4178,6 +4643,13 @@ main( int     argc,
     TEST( test_pd_parent_read_vs_child_write ),
     TEST( test_pd_parent_hold_vs_advance_root ),
     TEST( test_coldload_evict_vs_snapshot_capture ),
+    TEST( test_root_lag_parked_compaction ),
+    TEST( test_root_publish_vs_maint ),
+    TEST( test_purge_push_vs_xchg ),
+    TEST( test_reclaim_idle_recovery ),
+    TEST( test_slot_reuse_descends ),
+    TEST( test_root_weave_rand ),
+    TEST( test_reset_discards_carry ),
     {0}
   };
 # undef TEST

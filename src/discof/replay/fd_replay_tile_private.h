@@ -636,6 +636,7 @@ struct fd_replay_tile {
     ulong leader_window_superseded;
     ulong fec_rooted_past;
     ulong storage_root_behind;
+    ulong accdb_fork_wait;
 
     ulong voted_slot; /* monotone, ULONG_MAX if none */
   } metrics;

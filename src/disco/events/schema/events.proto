@@ -10592,6 +10592,14 @@ message MetricsAccdb {
   uint64 progcache_preevicted_bytes = 47;
   // Program cache slots reclaimed by the background preevict pass, by size class
   MetricsAccdbProgcachePreevicted progcache_preevicted = 48;
+  // Requested root levels applied to the account database index
+  uint64 root_applied = 49;
+  // Requested fork purges applied to the account database index
+  uint64 purge_applied = 50;
+  // Root or purge maintenance units that waited for reader epochs to release the previous retirement batch
+  uint64 reclaim_waited = 51;
+  // Requested root levels not yet applied to the account database index
+  uint64 root_pending = 52;
 }
 
 // Metrics of one replay tile instance, one row per sweep
@@ -10922,6 +10930,8 @@ message MetricsReplay {
   uint64 stake_delegation_disk_written = 162;
   // Time all tiles spent in stake delegation spill file reads and writes
   uint64 stake_delegation_disk_duration_nanos = 163;
+  // Replay loop iterations that held a block start because every account database fork slot was retained awaiting background root/purge maintenance
+  uint64 accdb_fork_waited = 164;
 }
 
 // Metrics of one rotor tile instance, one row per sweep

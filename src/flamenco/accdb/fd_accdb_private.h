@@ -53,12 +53,40 @@ typedef struct fd_accdb_txn fd_accdb_txn_t;
 #define SET_IMPL_STYLE 1
 #include "../../util/tmpl/fd_set_dynamic.c"
 
+/* Fork lifecycle states (fd_accdb_fork_shmem_t::state).  Written by
+   the topology owner (T1), except FREE which the background owner (T2)
+   writes immediately before releasing the slot back to fork_pool.
+
+     FREE    slot is in fork_pool
+     LIVE    attachable fork, including the requested root
+     ROOTED  on the requested root path, behind the requested root.
+             Not attachable, so its child list is frozen.
+     DEAD    losing sibling subtree of a requested root, or a purged
+             subtree.  Not attachable, so its child list is frozen. */
+
+#define FD_ACCDB_FORK_STATE_FREE   (0)
+#define FD_ACCDB_FORK_STATE_LIVE   (1)
+#define FD_ACCDB_FORK_STATE_ROOTED (2)
+#define FD_ACCDB_FORK_STATE_DEAD   (3)
+
 struct fd_accdb_fork_shmem {
   uint generation;
 
   fd_accdb_fork_id_t parent_id;
   fd_accdb_fork_id_t child_id;
   fd_accdb_fork_id_t sibling_id;
+
+  /* root_next: when this fork is ROOTED (or the applied root), the
+     next fork on the requested root path, else USHORT_MAX.  Written by
+     T1 before it publishes root_req_seq.  Read by T2 while applying
+     roots; the slot holding the link is only retired by T2 itself.
+
+     next_purge: intrusive link of the purge request list (shmem
+     purge_head).  Written by T1 before the push publishes the fork. */
+  fd_accdb_fork_id_t root_next;
+  fd_accdb_fork_id_t next_purge;
+
+  uchar state; /* FD_ACCDB_FORK_STATE_* */
 
   struct {
     ulong next;
@@ -524,18 +552,35 @@ struct fd_accdb_shmem_private {
 
   fd_accdb_shmem_metrics_t shmetrics[1];
 
-  /* Command slot for T1 -> T2 offloading of advance_root / purge.
-     Padded to its own cache line to avoid false sharing with the
-     hot epoch / joiner_epochs fields above. */
+  /* Asynchronous root/purge request state.  The request side (T1
+     writes, T2 reads) and the applied side (T2 writes, everyone reads)
+     live on separate cache lines.
 
-#define FD_ACCDB_CMD_IDLE            (0U)
-#define FD_ACCDB_CMD_ADVANCE_ROOT    (1U)
-#define FD_ACCDB_CMD_PURGE           (2U)
-#define FD_ACCDB_CMD_CLEAR_DEFERRED  (3U)
-#define FD_ACCDB_CMD_DRAIN_DEFERRED  (4U)
+     root_req_seq   count of root levels requested.  T1 links the
+                    level via fork root_next before incrementing.
+     purge_req_seq  count of purge requests published.  T1 increments
+                    only after the push of the purged fork succeeds.
+     purge_head     head fork index of the intrusive purge list
+                    (USHORT_MAX when empty).  T1 pushes with a CAS
+                    retry loop; T2 takes the whole list with XCHG.
+     req_root_fork_id  latest requested root.  Equal to root_fork_id
+                    when T2 is caught up.  T1 only.
+     reset_gen      bumped by fd_accdb_reset after it clobbers state,
+                    so T2 discards stale local continuations.
 
-  uint   cmd_op       __attribute__((aligned(64))); /* FD_ACCDB_CMD_* */
-  ushort cmd_fork_id;                               /* argument       */
+     root_applied_seq  count of root levels T2 has applied and
+                       published via root_fork_id.
+     purge_done_seq    purge_req_seq value covered by completed purge
+                       passes (conservative). */
+
+  ulong  root_req_seq     __attribute__((aligned(64)));
+  ulong  purge_req_seq;
+  fd_accdb_fork_id_t req_root_fork_id; /* requested root, T1 only */
+  uint   purge_head;
+  ulong  reset_gen;
+
+  ulong  root_applied_seq __attribute__((aligned(64)));
+  ulong  purge_done_seq;
 
   /* T2-only side buffer for deferred acc unlinks.  Holds the indices of
      accs that have been CAS-unlinked from their map chains in the
@@ -544,8 +589,8 @@ struct fd_accdb_shmem_private {
      union alias.  After wait_for_epoch_drain the list is materialized
      into pool.next links and released via acc_pool_release_chain.
 
-     T2 is the sole writer (advance_root and purge both run on T2 via
-     the cmd offload above), so cnt is plain.  Capacity is
+     T2 is the sole writer (root and purge maintenance both run on
+     T2), so cnt is plain.  Capacity is
      txn_max = max_live_slots * max_account_writes_per_slot, the same
      bound used to size txn_pool.  Stored as a byte offset from shmem
      base. */
