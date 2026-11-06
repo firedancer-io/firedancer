@@ -205,6 +205,41 @@ test_carve( void ) {
   free( mem );
 }
 
+/* Non-owners share every frame past what the owner can still take and
+   the priority reserve. */
+
+static void
+test_keep( void ) {
+  ulong const rsv = DEPTH-1UL;
+  fd_bpf_frames_t t[3][1];
+  void * mem = pool_new( 3UL*rsv, 3UL, 1UL );
+  for( ulong i=0UL; i<3UL; i++ ) FD_TEST( fd_bpf_frames_join( t[ i ], mem ) );
+
+  uchar * f[3][ DEPTH ];
+  for( ulong i=0UL; i<3UL; i++ ) FD_TEST( (f[ i ][ 0 ] = fd_bpf_frames_try_acquire( t[ i ], FULL, 0 ))==t[ i ]->local );
+  for( ulong i=1UL; i<DEPTH; i++ ) FD_TEST( (f[ 0 ][ i ] = fd_bpf_frames_try_acquire( t[ 0 ], FULL, 0 )) );
+  FD_TEST( t[ 0 ]->is_owner && t[ 0 ]->shmem->owner_held==rsv );
+  for( ulong i=1UL; i<DEPTH; i++ ) FD_TEST( (f[ 1 ][ i ] = fd_bpf_frames_try_acquire( t[ 1 ], FULL, 0 )) );
+  FD_TEST( !t[ 1 ]->is_owner );
+  FD_TEST( !fd_bpf_frames_try_acquire( t[ 2 ], FULL, 0 ) );
+  for( ulong i=1UL; i<DEPTH; i++ ) FD_TEST( (f[ 2 ][ i ] = fd_bpf_frames_try_acquire( t[ 2 ], FULL, 1 )) );
+  FD_TEST( !fd_bpf_frames_try_acquire( t[ 2 ], FULL, 1 ) );
+
+  /* The owner can always take back what it released, and a non-owner
+     never gets the owner's or the priority caller's share. */
+  fd_bpf_frames_release( t[ 0 ], f[ 0 ][ DEPTH-1UL ] );
+  FD_TEST( t[ 0 ]->shmem->owner_held==rsv-1UL );
+  FD_TEST( !fd_bpf_frames_try_acquire( t[ 1 ], FULL, 0 ) );
+  fd_bpf_frames_release( t[ 2 ], f[ 2 ][ DEPTH-1UL ] );
+  FD_TEST( !fd_bpf_frames_try_acquire( t[ 1 ], FULL, 0 ) );
+  FD_TEST( (f[ 0 ][ DEPTH-1UL ] = fd_bpf_frames_try_acquire( t[ 0 ], FULL, 0 )) );
+  FD_TEST( (f[ 2 ][ DEPTH-1UL ] = fd_bpf_frames_try_acquire( t[ 2 ], FULL, 1 )) );
+
+  for( ulong j=0UL; j<3UL; j++ ) for( ulong i=DEPTH; i; i-- ) fd_bpf_frames_release( t[ j ], f[ j ][ i-1UL ] );
+  FD_TEST( frame_pool_free( t[ 0 ]->pool )==3UL*rsv && !t[ 0 ]->shmem->has_owner && !t[ 0 ]->shmem->owner_held );
+  free( mem );
+}
+
 /* Stress: threads join while others are already running, then run
    random nested stacks of random sizes and sometimes take an exclusive lock partway
    down, spinning for it while holding frames, and acquire as the
@@ -213,7 +248,7 @@ test_carve( void ) {
 
 #define STRESS_THREAD_CNT (12UL)
 #define STRESS_LOCAL      (1UL)
-#define STRESS_SHARED_CNT FD_BPF_FRAMES_HELD_CNT( STRESS_LOCAL )
+#define STRESS_SHARED_CNT (FD_BPF_FRAMES_HELD_CNT( STRESS_LOCAL )+2UL)
 #define STRESS_FRAME_CNT  (STRESS_THREAD_CNT*STRESS_LOCAL+STRESS_SHARED_CNT)
 #define STRESS_ITER_CNT   (20000UL)
 
@@ -297,7 +332,7 @@ test_stress( void ) {
 
   /* Every shared frame is back and the owner role is free. */
   FD_TEST( frame_pool_free( stress_join[ 0 ].pool )==STRESS_SHARED_CNT );
-  FD_TEST( !stress_join[ 0 ].shmem->has_owner );
+  FD_TEST( !stress_join[ 0 ].shmem->has_owner && !stress_join[ 0 ].shmem->owner_held );
 
   free( stress_mem );
 }
@@ -339,6 +374,7 @@ main( int     argc,
   test_pools();
   test_no_local();
   test_carve();
+  test_keep();
   test_stress();
   test_bench( bench_iter );
 
