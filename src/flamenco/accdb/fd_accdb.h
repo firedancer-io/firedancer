@@ -150,6 +150,19 @@ int
 fd_accdb_snapshot_recover_delta( fd_accdb_t *       accdb,
                                  fd_accdb_fork_id_t fork_id );
 
+/* fd_accdb_for_each_modified calls fn( ctx, pubkey ) once for every
+   account committed on fork_id, in no particular order.  Overwrites on
+   the same fork do not add calls.  Nothing may commit to fork_id
+   during the call.  fn may read accounts. */
+
+typedef void (*fd_accdb_modified_fn_t)( void * ctx, uchar const pubkey[ 32 ] );
+
+void
+fd_accdb_for_each_modified( fd_accdb_t *           accdb,
+                            fd_accdb_fork_id_t     fork_id,
+                            fd_accdb_modified_fn_t fn,
+                            void *                 ctx );
+
 /* fd_accdb_snapshot_recovery_t captures layer-0 write head metadata.
    Used by fd_accdb_snapshot_{save,revert}_whead to save and restore
    accdb state across an incremental snapshot attempt. */

@@ -2,6 +2,8 @@
 #include "fd_bank.h"
 #include "../../ballet/sha256/fd_sha256.h"
 #include "../capture/fd_capture_ctx.h"
+#include "../accdb/fd_accdb.h"
+#include "../../ballet/lthash/fd_lthash_adder.h"
 
 static fd_blake3_t *
 account_lthash_init( fd_blake3_t * b3,
@@ -158,6 +160,55 @@ fd_hashes_update_pair( uchar const        pubkey[ static FD_HASH_FOOTPRINT ],
   }
 
   fd_hashes_capture_account( pubkey, owner, lamports, executable, data, data_len, bank, capture_ctx );
+}
+
+struct fold_ctx {
+  fd_accdb_t *       accdb;
+  fd_accdb_fork_id_t pre_fork_id;
+  fd_accdb_fork_id_t post_fork_id;
+  fd_lthash_adder_t  adder_pre [1];
+  fd_lthash_adder_t  adder_post[1];
+  fd_lthash_value_t  sum_pre   [1];
+  fd_lthash_value_t  sum_post  [1];
+};
+
+static void
+fold_account( void *      _ctx,
+              uchar const pubkey[ 32 ] ) {
+  struct fold_ctx * ctx = _ctx;
+
+  fd_acc_t pre = fd_accdb_read_one( ctx->accdb, ctx->pre_fork_id, pubkey );
+  if( FD_LIKELY( pre.lamports ) ) fd_lthash_adder_push_solana_account( ctx->adder_pre, ctx->sum_pre, pubkey, pre.data, pre.data_len, pre.lamports, (uchar)!!pre.executable, pre.owner );
+  fd_accdb_unread_one( ctx->accdb, &pre );
+
+  fd_acc_t post = fd_accdb_read_one( ctx->accdb, ctx->post_fork_id, pubkey );
+  if( FD_LIKELY( post.lamports ) ) fd_lthash_adder_push_solana_account( ctx->adder_post, ctx->sum_post, pubkey, post.data, post.data_len, post.lamports, (uchar)!!post.executable, post.owner );
+  fd_accdb_unread_one( ctx->accdb, &post );
+}
+
+void
+fd_hashes_fold_lthash( fd_bank_t *  bank,
+                       fd_accdb_t * accdb ) {
+  FD_TEST( bank->parent_accdb_fork_id.val!=USHORT_MAX && bank->parent_accdb_fork_id.val!=bank->accdb_fork_id.val );
+
+  struct fold_ctx ctx[1];
+  ctx->accdb        = accdb;
+  ctx->pre_fork_id  = bank->parent_accdb_fork_id;
+  ctx->post_fork_id = bank->accdb_fork_id;
+  fd_lthash_adder_new( ctx->adder_pre  ); fd_lthash_zero( ctx->sum_pre  );
+  fd_lthash_adder_new( ctx->adder_post ); fd_lthash_zero( ctx->sum_post );
+
+  fd_accdb_for_each_modified( accdb, bank->accdb_fork_id, fold_account, ctx );
+
+  fd_lthash_adder_flush( ctx->adder_pre,  ctx->sum_pre  );
+  fd_lthash_adder_flush( ctx->adder_post, ctx->sum_post );
+  fd_lthash_adder_delete( ctx->adder_pre  );
+  fd_lthash_adder_delete( ctx->adder_post );
+
+  fd_lthash_value_t * bank_lthash = fd_bank_lthash_locking_modify( bank );
+  fd_lthash_sub( bank_lthash, ctx->sum_pre  );
+  fd_lthash_add( bank_lthash, ctx->sum_post );
+  fd_bank_lthash_end_locking_modify( bank );
 }
 
 void
