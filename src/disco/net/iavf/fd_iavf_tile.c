@@ -22,6 +22,7 @@
 #include <linux/rtnetlink.h>
 
 #include "../../../util/pod/fd_pod_format.h"
+#define FD_SOCKADDR_IN_SZ sizeof(struct sockaddr_in)
 #include "generated/fd_iavf_tile_seccomp.h"
 
 #define FD_IAVF_TX_FLUSH_TIMEOUT_NS         (  20000L)
@@ -469,7 +470,10 @@ before_frag( fd_iavf_tile_t * ctx,
   }
 
   fd_net_tx_route_t * route  = &ctx->net.tx_route;
-  if( FD_UNLIKELY( !fd_net_tx_route( &ctx->router, &ctx->net, dst_ip, route ) ) ) return 1;
+  /* Packets that fail userland routing are sent on net.sock in
+     after_frag and routed by the kernel. */
+  if( FD_UNLIKELY( !fd_net_tx_route( &ctx->router, &ctx->net, dst_ip, route ) &&
+                   !route->routing_failure ) ) return 1;
   if( FD_UNLIKELY( route->use_gre ) ) {
     fd_net_tx_route_t outer_route;
     uint const inner_src_ip = route->src_ip;
@@ -480,8 +484,11 @@ before_frag( fd_iavf_tile_t * ctx,
       ctx->net.metrics.tx_drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_GRE_NO_ROUTE_IDX ]++;
       return 1;
     }
-    /* fd_net_tx_route counts its own drop reason */
-    if( FD_UNLIKELY( !fd_net_tx_route( &ctx->router, &ctx->net, outer_dst_ip, &outer_route ) ) ) return 1;
+    /* fd_net_tx_route counts its own routing failure.  An unroutable
+       outer endpoint is encapsulated here and sent on net.sock, so the
+       kernel routes the outer packet. */
+    if( FD_UNLIKELY( !fd_net_tx_route( &ctx->router, &ctx->net, outer_dst_ip, &outer_route ) &&
+                     !outer_route.routing_failure ) ) return 1;
     if( FD_UNLIKELY( outer_route.use_gre || outer_route.use_loopback ) ) {
       ctx->net.metrics.tx_drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_GRE_NO_ROUTE_IDX ]++;
       return 1;
@@ -571,6 +578,18 @@ after_frag( fd_iavf_tile_t *    ctx,
   fd_iavf_queue_t *   tx_queue = &vf->tx_queue;
 
   if( FD_UNLIKELY( !fd_net_tx_pkt_prep( &ctx->net, frame, &frame_sz, in_idx ) ) ) return;
+
+  /* Packets that failed userland routing are sent on net.sock starting
+     at the IPv4 header, and the kernel builds the L2 header.  The send
+     is synchronous, so no descriptor is posted and the chunk is reused. */
+  if( FD_UNLIKELY( ctx->net.tx_route.routing_failure ) ) {
+    if( FD_LIKELY( fd_net_tx_sock_send( &ctx->net, frame, frame_sz ) ) ) {
+      ctx->net.metrics.tx_pkt_cnt++;
+      ctx->net.metrics.tx_bytes_total += frame_sz;
+      ctx->net.metrics.tx_gre_cnt     += (ulong)ctx->net.tx_route.use_gre;
+    }
+    return;
+  }
 
   if( FD_UNLIKELY( ctx->net.tx_route.use_loopback ) ) {
     fd_eth_hdr_t const * eth_hdr   = (fd_eth_hdr_t const *)frame;
@@ -1021,6 +1040,9 @@ privileged_init( fd_topo_t const *      topo,
 
   /* Only tile 0 sends loopback traffic */
   ctx->lo_tx_sock = 0UL==tile->kind_id ? fd_iavf_tile_lo_tx_socket() : -1;
+  if( FD_UNLIKELY( !fd_net_sock_init( &ctx->net.sock ) ) ) {
+    FD_LOG_ERR(( "fd_net_sock_init failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
 }
 
 FD_FN_UNUSED static void
@@ -1108,7 +1130,8 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
                           ulong                  out_cnt,
                           struct sock_filter *   out ) {
   fd_iavf_tile_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
-  populate_sock_filter_policy_fd_iavf_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)ctx->lo_tx_sock );
+  populate_sock_filter_policy_fd_iavf_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)ctx->lo_tx_sock,
+                                            (uint)ctx->net.sock.sock );
   return sock_filter_policy_fd_iavf_tile_instr_cnt;
 }
 
@@ -1118,10 +1141,11 @@ populate_allowed_fds( fd_topo_t const *      topo,
                       ulong                  out_fds_cnt,
                       int *                  out_fds ) {
   fd_iavf_tile_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
-  if( FD_UNLIKELY( out_fds_cnt<4UL+3UL*ctx->vf_cnt ) ) FD_LOG_ERR(( "allowed FD array capacity %lu, expected at least %lu", out_fds_cnt, 4UL+3UL*ctx->vf_cnt ));
+  if( FD_UNLIKELY( out_fds_cnt<5UL+3UL*ctx->vf_cnt ) ) FD_LOG_ERR(( "allowed FD array capacity %lu, expected at least %lu", out_fds_cnt, 5UL+3UL*ctx->vf_cnt ));
   ulong out_cnt = 0UL;
   out_fds[ out_cnt++ ] = 2;
   if( fd_log_private_logfile_fd()!=-1 ) out_fds[ out_cnt++ ] = fd_log_private_logfile_fd();
+  out_fds[ out_cnt++ ] = ctx->net.sock.sock; /* routing fallback socket */
   for( ulong vf_idx=0UL; vf_idx<ctx->vf_cnt; vf_idx++ ) {
     fd_iavf_vfio_t const * vfio = &ctx->vfs[vf_idx].vfio;
     out_fds[ out_cnt++ ] = vfio->container_fd;
