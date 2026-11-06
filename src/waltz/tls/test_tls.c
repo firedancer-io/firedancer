@@ -1148,6 +1148,9 @@ test_tls_receive_encryption_level( fd_rng_t * rng ) {
     hs->base.state = srv_states[i];
     FD_TEST( fd_tls_server_handshake( server, hs, NULL, 0UL, FD_TLS_LEVEL_APPLICATION )==-FD_TLS_ALERT_UNEXPECTED_MESSAGE );
     FD_TEST( hs->base.reason==FD_TLS_REASON_WRONG_ENC_LVL );
+    FD_TEST( hs->base.state==FD_TLS_HS_FAIL );
+    FD_TEST( fd_tls_server_handshake( server, hs, NULL, 0UL, FD_TLS_LEVEL_INITIAL )==-FD_TLS_ALERT_INTERNAL_ERROR );
+    FD_TEST( hs->base.reason==FD_TLS_REASON_WRONG_ENC_LVL );
     fd_tls_estate_srv_delete( hs );
   }
   for( ulong i=0UL; i<sizeof(cli_states); i++ ) {
@@ -1155,6 +1158,9 @@ test_tls_receive_encryption_level( fd_rng_t * rng ) {
     FD_TEST( fd_tls_estate_cli_new( hs ) );
     hs->base.state = cli_states[i];
     FD_TEST( fd_tls_client_handshake( client, hs, NULL, 0UL, FD_TLS_LEVEL_APPLICATION )==-FD_TLS_ALERT_UNEXPECTED_MESSAGE );
+    FD_TEST( hs->base.reason==FD_TLS_REASON_WRONG_ENC_LVL );
+    FD_TEST( hs->base.state==FD_TLS_HS_FAIL );
+    FD_TEST( fd_tls_client_handshake( client, hs, NULL, 0UL, FD_TLS_LEVEL_INITIAL )==-FD_TLS_ALERT_HANDSHAKE_FAILURE );
     FD_TEST( hs->base.reason==FD_TLS_REASON_WRONG_ENC_LVL );
     fd_tls_estate_cli_delete( hs );
   }

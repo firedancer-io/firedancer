@@ -208,6 +208,7 @@ static inline long __attribute__((warn_unused_result))
 fd_tls_alert( fd_tls_estate_base_t * hs,
               uint                   alert,
               ushort                 reason ) { /* hint if not yet set */
+  hs->state = FD_TLS_HS_FAIL;
   if( !hs->reason ) hs->reason = reason;
   return -(long)alert;
 }
