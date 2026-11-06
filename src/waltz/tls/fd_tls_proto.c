@@ -147,6 +147,12 @@ fd_tls_decode_client_hello( fd_tls_client_hello_t * out,
   out->has_signature_algorithms = !!( seen & (1UL<<FD_TLS_EXT_SIGNATURE_ALGORITHMS) );
   out->has_key_share            = !!( seen & (1UL<<FD_TLS_EXT_KEY_SHARE) );
 
+  /* RFC 8446 Section 4.2.9 requires modes whenever a PSK is offered,
+     even when the server does not select a PSK. */
+  if( FD_UNLIKELY( (seen & (1UL<<FD_TLS_EXT_PRE_SHARED_KEY)) &&
+                  !(seen & (1UL<<FD_TLS_EXT_PSK_KEY_EXCHANGE_MODES)) ) )
+    return -(long)FD_TLS_ALERT_MISSING_EXTENSION;
+
   return (long)( wire_laddr - (ulong)wire );
 }
 
