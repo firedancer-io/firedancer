@@ -360,9 +360,7 @@ struct fd_replay_tile {
      For the reference counting part, the replay tile is the sole entity
      that can update the refcnt.  This ensures that all refcnt increment
      and decrement attempts are serialized at the replay tile, and that
-     there are no racy resurrection of a soon-to-be-pruned block.  If a
-     refcnt increment request arrives after a block has been pruned,
-     replay simply rejects the request.
+     there is no racy resurrection of a soon-to-be-pruned block.
 
      A note on the implementation of the above ...
 
@@ -378,29 +376,20 @@ struct fd_replay_tile {
      No more transactions shall be dispatched for execution from dead
      blocks.
 
-     Blocks start out with a refcnt of 0.  Other tiles may send a
-     request to the replay tile for a reference on a block.  The
-     transaction dispatcher is another source of refcnt updates.  On
-     every dispatch of a transaction for block B, we increment the
-     refcnt for B.  And on every transaction finalization, we decrement
-     the refcnt for B.  This means that whenever the refcnt on a block
-     is 0, there is no more reference on that block from the execution
-     pipeline.  While it might be tempting to simply increment the
-     refcnt once when we start replaying a block, and decrement the
-     refcnt once when we finish a block, this more fine-grained refcnt
-     update strategy allows for aborting and potentially immediate
-     pruning of blocks under interleaved block replay.  Upon receiving a
-     new consensus root, we can simply look at the refcnt on minority
-     fork blocks, and a refcnt of 0 would imply that the block is safe
-     for pruning, even if we haven't finished replaying it.  Without the
-     fine-grained refcnt, we would need to first stop dispatching from
-     the aborted block, and then wait for a full drain of the execution
-     pipeline to know for sure that there are no more in-flight
-     transactions executing on the aborted block.  Note that this will
-     allow the refcnt on any block to transiently drop down to 0.  We
-     will not mistakenly prune an actively replaying block, aka a leaf
-     node, that is chaining off of the rooted fork, because the
-     consensus root is always an ancestor of the actively replaying tip.
+     Blocks start out with a refcnt of 0.  Replay increments refcnt before
+     publishing a bank reference to another tile; that tile notifies
+     replay when it releases the reference.  Each task dispatched to an
+     exec tile also holds a reference until its completion message.
+
+     The scheduler holds an additional reference from the first FEC set
+     until the block finishes replaying or is abandoned and its in-flight
+     tasks have drained.  This prevents an actively replaying bank from
+     being pruned between task dispatches.
+
+     Marking a minority fork dead stops further execution dispatch.  Once
+     the outstanding tasks drain and the scheduler and other consumers
+     release their references, the bank can be pruned even if it never
+     finished replaying.
      */
   fd_hash_t consensus_root;          /* finalized and replayed */
   ulong     consensus_root_slot;     /* slot number of the above. */

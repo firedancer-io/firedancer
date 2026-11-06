@@ -96,14 +96,10 @@ fd_stake_delegation_is_inactive( fd_stake_delegation_t const * delegation,
    identity) sorted by (stake descending, vote pubkey descending).
 
    iter_kind selects the vote stakes set: FD_VOTE_STAKES_ITER_T_1 (next
-   epoch), T_2 (current epoch) or T_3 (previous epoch).
+   epoch), T_2 (current epoch), T_3 (previous epoch), T_4 (two epochs ago)
+   or T_5 (three epochs ago).
 
-   weights points to an array suitable to hold ...
-
-     fd_vote_accounts_pair_t_map_size( accs->vote_accounts_pool,
-                                       accs->vote_accounts_root )
-
-   ... items.  On return, weights be an ordered list.
+   weights points to an array of MAX_STAKE_WEIGHTS items.
 
    Returns the number of items in weights (which is <= no of vote accs). */
 

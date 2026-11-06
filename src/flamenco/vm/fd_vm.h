@@ -211,7 +211,7 @@ struct __attribute__((aligned(FD_VM_HOST_REGION_ALIGN))) fd_vm {
   int   syscall_parameter_address_restrictions; /* If syscall_parameter_address_restrictions feature flag is enabled */
   int   virtual_address_space_adjustments;      /* If virtual_address_space_adjustments feature flag is enabled */
 
-  ulong stack_frame_sz;                  /* The size of a stack frame gap, in bytes. 0 if this is variable */
+  ulong stack_frame_sz;                  /* Stack frame size in bytes; 0 for manually adjusted stacks */
   ulong stack_push_frame_count;          /* The number of stack frames to adjust the stack by on every stack push */
 
   /* Agave uses the segv vaddr in several different cases, including:
@@ -232,10 +232,10 @@ struct __attribute__((aligned(FD_VM_HOST_REGION_ALIGN))) fd_vm {
      bottom/top.  Lazily initialized. */
   fd_vm_shadow_t shadow[ FD_VM_STACK_FRAME_MAX ] __attribute__((aligned(16)));
 
-  /* stack, indexed [0,FD_VM_STACK_MAX).  Divided into FD_VM_STACK_FRAME_MAX
-     frames.  Each frame has a FD_VM_STACK_GUARD_SZ region followed by a
-     FD_VM_STACK_FRAME_SZ region.  reg[10] gives the offset of the start of the
-     current stack frame. */
+  /* Stack storage, indexed [0,FD_VM_STACK_MAX).  Fixed stack frames
+     occupy FD_VM_STACK_FRAME_SZ bytes each.  When enabled, guard gaps
+     exist only in the VM address space, not in this host buffer.
+     reg[10] holds a VM stack address, not an offset into this array. */
   uchar stack[ FD_VM_STACK_MAX ] __attribute__((aligned(FD_VM_HOST_REGION_ALIGN)));
 
   /* syscall heap, [0,heap_sz) used, [heap_sz,heap_max) free. */

@@ -881,10 +881,9 @@ after_credit( fd_pack_ctx_t *     ctx,
              succeeded without knowing if that's true, but here's why
              it's safe:
 
-             From now until we get the rebate call for this initializer
-             bundle (which lets us know if it succeeded or failed), pack
-             will be in [Pending] state, which means peek_bundle_meta
-             will return NULL, so we won't read this state.
+             Until the initializer bundle is scheduled, peek_bundle_meta
+             returns NULL because the top bundle is an initializer.  Once
+             scheduled, [Pending] state keeps it NULL until the rebate.
 
              Then, if the initializer bundle failed, we'll go into
              [Failed] IB state until the end of the block, which will
@@ -1665,6 +1664,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
      It isn't possible to get a burst of 3, but a burst of 2 is possible
      in these situations.
 
+     B -> F
      C -> F
      D -> F
      D -> E
