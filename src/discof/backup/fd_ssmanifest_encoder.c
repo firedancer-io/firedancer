@@ -249,7 +249,9 @@ ENCODE_FN {
         .block_revenue_commission_bps            = { ele->block_revenue_commission_bps },
         .latest_vote                             = ULONG_MAX,
         .root_slot                               = ULONG_MAX,
-        .accumulated_lamports_len                = (uint)( ec_cnt-ec_skip )
+        .accumulated_lamports_len                = (uint)( ec_cnt-ec_skip ),
+        .rank_epoch                              = ULONG_MAX,
+        .rank                                    = USHORT_MAX
       };
       memcpy( v5.bls_pubkey_compressed, ele->bls_key, FD_BLS_PUB_COMPRESSED_SZ );
       for( ulong j=ec_skip; j<ec_cnt; j++ ) {
@@ -257,7 +259,7 @@ ENCODE_FN {
                                                                           ec->base_credits + (ulong)ec->credits_delta[j],
                                                                           ec->base_credits + (ulong)ec->prev_credits_delta[j] };
       }
-      typedef struct { uchar b[ FD_VOTE_STATE_V5_PAD_SZ ]; } v5_tail_t;
+      typedef struct { uchar b[ FD_VOTE_STATE_V5_SZ-sizeof(uint)-sizeof(fd_vote_state_v5_t) ]; } v5_tail_t;
       PUSH_VAL( uint,               fd_vote_state_versioned_enum_v5 );
       PUSH_VAL( fd_vote_state_v5_t, v5                              );
       PUSH_VAL( v5_tail_t,          (v5_tail_t){0}                  );

@@ -82,8 +82,9 @@ test_v5_update_matches_v4( fd_rng_t * rng ) {
 static void
 put_vote_account( fd_svm_mini_t *     mini,
                   fd_pubkey_t const * pubkey,
-                  uchar *             data ) {
-  fd_acc_t acc = { .lamports = 1000000000UL, .data = data, .data_len = FD_VOTE_STATE_V5_SZ };
+                  uchar *             data,
+                  ulong               data_len ) {
+  fd_acc_t acc = { .lamports = 1000000000UL, .data = data, .data_len = (uint)data_len };
   memcpy( acc.pubkey, pubkey->uc,                   32UL );
   memcpy( acc.owner,  fd_solana_vote_program_id.uc, 32UL );
   fd_svm_mini_put_account_rooted( mini, &acc );
@@ -127,9 +128,9 @@ test_v5_in_place( fd_svm_mini_t * mini,
   fd_pubkey_t key4   = { .ul = { 4UL } };
   fd_pubkey_t key5   = { .ul = { 5UL } };
   fd_pubkey_t keybad = { .ul = { 6UL } };
-  put_vote_account( mini, &key4,   data4 );
-  put_vote_account( mini, &key5,   data5 );
-  put_vote_account( mini, &keybad, bad5  );
+  put_vote_account( mini, &key4,   data4, sizeof(data4) );
+  put_vote_account( mini, &key5,   data5, sizeof(data5) );
+  put_vote_account( mini, &keybad, bad5,  sizeof(bad5)  );
 
   fd_bank_t *  bank  = fd_svm_mini_bank( mini, fd_svm_mini_attach_child( mini, root_idx, params->root_slot+1UL ) );
   fd_accdb_t * accdb = mini->runtime->accdb;
@@ -177,7 +178,8 @@ test_rewards_slices( fd_svm_mini_t * mini,
                      fd_rng_t *      rng ) {
   static fd_vote_state_versioned_t v4[1], v5[1];
   static uchar                     tmp [ FD_VOTE_STATE_V4_SZ ];
-  static uchar                     data[ SLICE_TEST_VAL_CNT ][ FD_VOTE_STATE_V5_SZ ];
+  static uchar                     data[ SLICE_TEST_VAL_CNT ][ FD_VOTE_STATE_V4_SZ ];
+  ulong                            data_sz[ SLICE_TEST_VAL_CNT ];
 
   fd_svm_mini_params_t params[1];
   fd_svm_mini_params_default( params );
@@ -187,11 +189,12 @@ test_rewards_slices( fd_svm_mini_t * mini,
   fd_pubkey_t vote[ SLICE_TEST_VAL_CNT ];
   for( ulong i=0UL; i<SLICE_TEST_VAL_CNT; i++ ) {
     vote[ i ] = (fd_pubkey_t){ .ul = { 0x5000UL+i, 7UL } };
-    memset( data[ i ], 0, FD_VOTE_STATE_V5_SZ );
+    memset( data[ i ], 0, FD_VOTE_STATE_V4_SZ );
     random_v4( v4, rng );
-    if( i&1UL ) { convert_copy( v4, v5, tmp ); FD_TEST( !fd_vote_state_versioned_serialize( v5, data[ i ], FD_VOTE_STATE_V5_SZ ) ); }
-    else        {                              FD_TEST( !fd_vote_state_versioned_serialize( v4, data[ i ], FD_VOTE_STATE_V4_SZ ) ); }
-    put_vote_account( mini, vote+i, data[ i ] );
+    data_sz[ i ] = fd_ulong_if( i&1UL, FD_VOTE_STATE_V5_SZ, FD_VOTE_STATE_V4_SZ );
+    if( i&1UL ) { convert_copy( v4, v5, tmp ); FD_TEST( !fd_vote_state_versioned_serialize( v5, data[ i ], data_sz[ i ] ) ); }
+    else        {                              FD_TEST( !fd_vote_state_versioned_serialize( v4, data[ i ], data_sz[ i ] ) ); }
+    put_vote_account( mini, vote+i, data[ i ], data_sz[ i ] );
   }
 
   fd_bank_t *        bank_a      = fd_svm_mini_bank( mini, fd_svm_mini_attach_child( mini, root_idx, params->root_slot+1UL ) );
@@ -247,7 +250,7 @@ test_rewards_slices( fd_svm_mini_t * mini,
   fd_alpenglow_rewards_apply_leader( bank_a, accdb, NULL, NULL, plan, credits_a, delta_a );
   for( ulong i=0UL; i<SLICE_TEST_VAL_CNT; i++ ) {
     fd_acc_t acc = fd_accdb_read_one( accdb, bank_a->accdb_fork_id, vote[ i ].uc );
-    FD_TEST( acc.data_len==FD_VOTE_STATE_V5_SZ && fd_memeq( acc.data, data[ i ], FD_VOTE_STATE_V5_SZ )==( i==7UL ) );
+    FD_TEST( acc.data_len==data_sz[ i ] && fd_memeq( acc.data, data[ i ], data_sz[ i ] )==( i==7UL ) );
     fd_accdb_unread_one( accdb, &acc );
   }
 
@@ -271,14 +274,14 @@ test_rewards_slices( fd_svm_mini_t * mini,
     FD_TEST( memo_cnt==( slice_cnt==2UL ? 0UL : SLICE_TEST_VAL_CNT-1UL ) );
     FD_TEST( fd_lthash_eq( delta_a, delta_b ) );
     for( ulong i=0UL; i<SLICE_TEST_VAL_CNT; i++ ) {
-      static uchar image_a[ FD_VOTE_STATE_V5_SZ ];
+      static uchar image_a[ FD_VOTE_STATE_V4_SZ ];
       fd_acc_t acc = fd_accdb_read_one( accdb, bank_a->accdb_fork_id, vote[ i ].uc );
       ulong lamports_a = acc.lamports;
-      FD_TEST( acc.data_len==FD_VOTE_STATE_V5_SZ );
-      fd_memcpy( image_a, acc.data, FD_VOTE_STATE_V5_SZ );
+      FD_TEST( acc.data_len==data_sz[ i ] );
+      fd_memcpy( image_a, acc.data, data_sz[ i ] );
       fd_accdb_unread_one( accdb, &acc );
       acc = fd_accdb_read_one( accdb, bank_b->accdb_fork_id, vote[ i ].uc );
-      FD_TEST( acc.lamports==lamports_a && acc.data_len==FD_VOTE_STATE_V5_SZ && fd_memeq( acc.data, image_a, FD_VOTE_STATE_V5_SZ ) );
+      FD_TEST( acc.lamports==lamports_a && acc.data_len==data_sz[ i ] && fd_memeq( acc.data, image_a, data_sz[ i ] ) );
       fd_accdb_unread_one( accdb, &acc );
     }
   }

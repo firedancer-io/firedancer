@@ -52,7 +52,7 @@
 #define FD_VOTE_STATE_V2_SZ (3731UL)
 #define FD_VOTE_STATE_V3_SZ (3762UL)
 #define FD_VOTE_STATE_V4_SZ (3762UL)
-#define FD_VOTE_STATE_V5_SZ (3762UL)
+#define FD_VOTE_STATE_V5_SZ (951UL)
 
 /* Maximum number of entries in a V5 commission schedule */
 #define FD_VOTE_STATE_V5_COMMISSION_MAX (4UL)
@@ -371,6 +371,9 @@ struct __attribute__((packed,aligned(4))) fd_vote_state_v5 {
   fd_vote_state_v5_authorized_voter_t authorized_voters[ MAX_AUTHORIZED_VOTERS ];
   fd_vote_epoch_credits_t             accumulated_lamports[ FD_VOTE_STATE_V5_ACCUMULATED_LAMPORTS_MAX ];
   fd_vote_block_timestamp_t           last_timestamp;
+  ulong                               rank_epoch;
+  ushort                              rank;
+  uchar                               _pad[ 2 ];
 };
 typedef struct fd_vote_state_v5 fd_vote_state_v5_t;
 
@@ -390,10 +393,13 @@ FD_STATIC_ASSERT( offsetof( fd_vote_state_v5_t, accumulated_lamports_len        
 FD_STATIC_ASSERT( offsetof( fd_vote_state_v5_t, authorized_voters                       )==308UL,  v5_layout );
 FD_STATIC_ASSERT( offsetof( fd_vote_state_v5_t, accumulated_lamports                    )==468UL,  v5_layout );
 FD_STATIC_ASSERT( offsetof( fd_vote_state_v5_t, last_timestamp                          )==588UL,  v5_layout );
-FD_STATIC_ASSERT( sizeof(fd_vote_state_v5_t)==604UL,                                               v5_layout );
+FD_STATIC_ASSERT( offsetof( fd_vote_state_v5_t, rank_epoch                              )==604UL,  v5_layout );
+FD_STATIC_ASSERT( offsetof( fd_vote_state_v5_t, rank                                    )==612UL,  v5_layout );
+FD_STATIC_ASSERT( offsetof( fd_vote_state_v5_t, _pad                                    )==614UL,  v5_layout );
+FD_STATIC_ASSERT( sizeof(fd_vote_state_v5_t)==616UL,                                               v5_layout );
 FD_STATIC_ASSERT( alignof(fd_vote_state_v5_t)==4UL,                                                v5_layout );
 
-#define FD_VOTE_STATE_V5_PAD_OFF (sizeof(uint)+sizeof(fd_vote_state_v5_t))
+#define FD_VOTE_STATE_V5_PAD_OFF (sizeof(uint)+offsetof( fd_vote_state_v5_t, _pad ))
 #define FD_VOTE_STATE_V5_PAD_SZ  (FD_VOTE_STATE_V5_SZ-FD_VOTE_STATE_V5_PAD_OFF)
 
 struct fd_vote_state_v5_commission {

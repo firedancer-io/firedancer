@@ -1110,8 +1110,10 @@ update_location( fd_exec_instr_ctx_t *           ctx,
 
   /* Convert the vote state account to a V5 vote account if it isn't already */
   if( versioned->kind!=fd_vote_state_versioned_enum_v5 ) {
-    if( FD_UNLIKELY( fd_borrowed_account_get_data_len( vote_account )!=FD_VOTE_STATE_V5_SZ ) ) return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
+    if( FD_UNLIKELY( fd_borrowed_account_get_data_len( vote_account )!=FD_VOTE_STATE_V4_SZ ) ) return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
     rc = fd_vsv_try_convert_to_v5( versioned, clock->epoch );
+    if( FD_UNLIKELY( rc ) ) return rc;
+    rc = fd_borrowed_account_set_data_length( vote_account, FD_VOTE_STATE_V5_SZ );
     if( FD_UNLIKELY( rc ) ) return rc;
   }
 

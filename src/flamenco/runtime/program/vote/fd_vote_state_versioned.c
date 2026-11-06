@@ -777,7 +777,9 @@ fd_vsv_try_convert_to_v5( fd_vote_state_versioned_t * self,
         .root_slot                                   = state->has_root_slot ? state->root_slot : ULONG_MAX,
         .authorized_voters_len                       = (uint)av_cnt,
         .accumulated_lamports_len                    = (uint)( ec_cnt-ec_skip ),
-        .last_timestamp                              = state->last_timestamp
+        .last_timestamp                              = state->last_timestamp,
+        .rank_epoch                                  = ULONG_MAX,
+        .rank                                        = USHORT_MAX
       };
       fd_memcpy( v5.bls_pubkey_compressed, state->bls_pubkey_compressed, FD_BLS_PUBKEY_COMPRESSED_SZ );
 

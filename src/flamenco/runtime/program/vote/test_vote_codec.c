@@ -76,7 +76,8 @@ test_v5_codec( void ) {
   FD_TEST( FD_LOAD( ulong, data+472 )==7UL && FD_LOAD( ulong, data+480 )==100UL && FD_LOAD( ulong, data+496 )==8UL && FD_LOAD( ulong, data+504 )==200UL );
   FD_TEST( fd_mem_iszero( data+472+2*24, 3*24 ) );
   FD_TEST( FD_LOAD( ulong, data+592 )==4242UL && FD_LOAD( long, data+600 )==1700000000L );
-  FD_TEST( fd_mem_iszero( data+608, FD_VOTE_STATE_V5_SZ-608UL ) );
+  FD_TEST( FD_LOAD( ulong, data+608 )==ULONG_MAX && FD_LOAD( ushort, data+616 )==USHORT_MAX );
+  FD_TEST( fd_mem_iszero( data+618, FD_VOTE_STATE_V5_SZ-618UL ) );
 
   FD_TEST( fd_vote_state_versioned_deserialize( out, data, sizeof(data) ) );
   FD_TEST( out->kind==fd_vote_state_versioned_enum_v5 );
@@ -99,7 +100,10 @@ test_v5_codec( void ) {
   BAD( FD_STORE( uint, data+308, 6U ) );
   BAD( FD_STORE( uint, data+308, 1U ) );
   BAD( data[ 472+4*24 ]=1 );
-  BAD( data[ 608 ]=1 );
+  BAD( FD_STORE( ulong, data+608, 5UL ) );
+  BAD( FD_STORE( ushort, data+616, 3 ) );
+  BAD( data[ 618 ]=1 );
+  BAD( data[ 619 ]=1 );
   BAD( FD_STORE( uint, data+152, 0U ) );
   BAD( FD_STORE( uint, data+152, 5U ) );
   BAD( FD_STORE( uint, data+152, 0x10002U ) );
@@ -112,7 +116,7 @@ test_v5_codec( void ) {
   BAD( FD_STORE( ushort, data+196, 1 ) );
   BAD( FD_STORE( ulong, data+208, 6UL ) );
   BAD( FD_STORE( ushort, data+234, 1 ) );
-  BAD( data[ 3761 ]=1 );
+  BAD( data[ FD_VOTE_STATE_V5_SZ-1UL ]=1 );
   BAD( FD_STORE( int, data+132, FD_VALIDATOR_LOCATION_COORD_MAX+1 ) );
   BAD( FD_STORE( int, data+136, -FD_VALIDATOR_LOCATION_COORD_MAX-1 ) );
   BAD( FD_STORE( int, data+140, INT_MIN ) );
@@ -134,6 +138,12 @@ test_v5_codec( void ) {
   FD_TEST( fd_vote_state_versioned_serialize( vsv, data, sizeof(data) )==1 );
   make_v5( vsv ); vsv->v5.block_revenue_commission_bps_len = (uint)( FD_VOTE_STATE_V5_COMMISSION_MAX+1UL );
   FD_TEST( fd_vote_state_versioned_serialize( vsv, data, sizeof(data) )==1 );
+  make_v5( vsv ); vsv->v5.rank_epoch = 5UL;
+  FD_TEST( fd_vote_state_versioned_serialize( vsv, data, sizeof(data) )==1 );
+  make_v5( vsv ); vsv->v5.rank = 3;
+  FD_TEST( fd_vote_state_versioned_serialize( vsv, data, sizeof(data) )==1 );
+  make_v5( vsv ); fd_memset( vsv->v5._pad, 0xFF, sizeof(vsv->v5._pad) );
+  FD_TEST( !fd_vote_state_versioned_serialize( vsv, data, sizeof(data) ) && fd_mem_iszero( data+618, FD_VOTE_STATE_V5_SZ-618UL ) );
   make_v5( vsv ); vsv->v5.inflation_rewards_commission_bps_epochs[ 1 ] = 5UL;
   FD_TEST( !fd_vote_state_versioned_serialize( vsv, data, sizeof(data) ) && fd_vote_account_is_valid_v5( data, sizeof(data) ) );
   make_v5( vsv );
@@ -150,6 +160,7 @@ test_v5_codec( void ) {
   vsv->v5.location = LOC;
   FD_TEST( !fd_vote_state_versioned_serialize( vsv, data, sizeof(data) ) && fd_vote_account_is_valid_v5( data, sizeof(data) ) );
   FD_TEST( vsv->v5.latest_vote==ULONG_MAX && vsv->v5.root_slot==ULONG_MAX );
+  FD_TEST( vsv->v5.rank_epoch==ULONG_MAX && vsv->v5.rank==USHORT_MAX );
 }
 
 static void
@@ -234,6 +245,13 @@ test_v5_accessors( void ) {
   uchar v4[ FD_VOTE_STATE_V4_SZ ] = {0};
   FD_STORE( uint, v4, fd_vote_state_versioned_enum_v4 );
   FD_TEST( !fd_vote_account_has_bls_pubkey( v4, sizeof(v4) ) );
+
+  fd_memset( v4, 0, sizeof(v4) );
+  make_v5( vsv );
+  FD_TEST( !fd_vote_state_versioned_serialize( vsv, v4, sizeof(v4) ) );
+  FD_TEST( fd_vote_account_is_valid_v5( v4, FD_VOTE_STATE_V5_SZ ) );
+  FD_TEST( !fd_vote_account_is_valid_v5( v4, sizeof(v4) ) );
+  FD_TEST( fd_vote_account_add_pending_delegator_rewards( v4, sizeof(v4), 1UL )==1 );
 }
 
 static void
