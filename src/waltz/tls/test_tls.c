@@ -1124,6 +1124,31 @@ test_tls_quic_tp_self( void *  handshake,
    web PKI certs. */
 
 static void
+test_tls_receive_encryption_level( fd_rng_t * rng ) {
+  fd_tls_t client[1], server[1];
+  prepare_tls_pair( rng, client, server );
+  uchar const srv_states[] = { FD_TLS_HS_START, FD_TLS_HS_WAIT_CERT, FD_TLS_HS_WAIT_CV, FD_TLS_HS_WAIT_FINISHED };
+  uchar const cli_states[] = { FD_TLS_HS_WAIT_SH, FD_TLS_HS_WAIT_EE, FD_TLS_HS_WAIT_CERT_CR,
+                              FD_TLS_HS_WAIT_CERT, FD_TLS_HS_WAIT_CV, FD_TLS_HS_WAIT_FINISHED };
+  for( ulong i=0UL; i<sizeof(srv_states); i++ ) {
+    fd_tls_estate_srv_t hs[1];
+    FD_TEST( fd_tls_estate_srv_new( hs ) );
+    hs->base.state = srv_states[i];
+    FD_TEST( fd_tls_server_handshake( server, hs, NULL, 0UL, FD_TLS_LEVEL_APPLICATION )==-FD_TLS_ALERT_UNEXPECTED_MESSAGE );
+    FD_TEST( hs->base.reason==FD_TLS_REASON_WRONG_ENC_LVL );
+    fd_tls_estate_srv_delete( hs );
+  }
+  for( ulong i=0UL; i<sizeof(cli_states); i++ ) {
+    fd_tls_estate_cli_t hs[1];
+    FD_TEST( fd_tls_estate_cli_new( hs ) );
+    hs->base.state = cli_states[i];
+    FD_TEST( fd_tls_client_handshake( client, hs, NULL, 0UL, FD_TLS_LEVEL_APPLICATION )==-FD_TLS_ALERT_UNEXPECTED_MESSAGE );
+    FD_TEST( hs->base.reason==FD_TLS_REASON_WRONG_ENC_LVL );
+    fd_tls_estate_cli_delete( hs );
+  }
+}
+
+static void
 test_tls_client_hello_sigalgs( fd_rng_t * rng ) {
 
   for( uint quic=0U; quic<2U; quic++ ) {
@@ -1655,6 +1680,7 @@ main( int     argc,
   test_tls_ee_solicitation( rng );
   test_tls_client_hello_sigalgs( rng );
   test_tls_client_rejects_oversz_sni( rng );
+  test_tls_receive_encryption_level( rng );
   test_tls_client_quic_rejects_p256_cert( rng );
 #if FD_HAS_INT128
   test_tls_client_rsa_cert_verify( rng );
