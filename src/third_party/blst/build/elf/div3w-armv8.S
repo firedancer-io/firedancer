@@ -1,3 +1,11 @@
+#if defined(__ARM_FEATURE_PAC_DEFAULT) && __ARM_FEATURE_PAC_DEFAULT==2
+# define PACI_HINT 27
+# define AUTI_HINT 31
+#else
+# define PACI_HINT 25
+# define AUTI_HINT 29
+#endif
+
 .text
 
 .globl	div_3_limbs
@@ -5,6 +13,7 @@
 .type	div_3_limbs,%function
 .align	5
 div_3_limbs:
+	hint	#34
 	ldp	x4,x5,[x0]	// load R
 	eor	x0,x0,x0	// Q = 0
 	mov	x3,#64		// loop counter
@@ -39,6 +48,7 @@ div_3_limbs:
 .type	quot_rem_128,%function
 .align	5
 quot_rem_128:
+	hint	#34
 	ldp	x3,x4,[x1]
 
 	mul	x5,x3,x2	// divisor[0:1} * quotient
@@ -76,6 +86,7 @@ quot_rem_128:
 .type	quot_rem_64,%function
 .align	5
 quot_rem_64:
+	hint	#34
 	ldr	x3,[x1]
 	ldr	x8,[x0]	// load 1 limb of the dividend
 
@@ -89,3 +100,13 @@ quot_rem_64:
 
 	ret
 .size	quot_rem_64,.-quot_rem_64
+
+#if defined(__ARM_FEATURE_BTI_DEFAULT) || defined(__ARM_FEATURE_PAC_DEFAULT)
+.section	.note.GNU-stack,"",@progbits
+.section	.note.gnu.property,"a",@note
+	.long	4,2f-1f,5
+	.byte	0x47,0x4E,0x55,0
+1:	.long	0xc0000000,4,3
+.align  3
+2:
+#endif

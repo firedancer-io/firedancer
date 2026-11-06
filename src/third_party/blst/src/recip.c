@@ -62,20 +62,11 @@ static void reciprocal_fp(vec384 out, const vec384 inp)
         TO_LIMB_T(0x39869507b587b120), TO_LIMB_T(0x23ba5c279c2895fb),
         TO_LIMB_T(0x58dd3db21a5d66bb), TO_LIMB_T(0xd0088f51cbff34d2)
     };
-#ifdef __BLST_NO_ASM__
-# define RRx4 BLS12_381_RR
-#else
-    static const vec384 RRx4 = {   /* (4<<768)%P */
-        TO_LIMB_T(0x5f7e7cd070d107c2), TO_LIMB_T(0xec839a9ac49c13c8),
-        TO_LIMB_T(0x6933786f44f4ef0b), TO_LIMB_T(0xd6bf8b9c676be983),
-        TO_LIMB_T(0xd3adaaaa4dcefb06), TO_LIMB_T(0x12601bc1d82bc175)
-    };
-#endif
     union { vec768 x; vec384 r[2]; } temp;
 
-    ct_inverse_mod_383(temp.x, inp, BLS12_381_P, Px8);
+    ct_inverse_mod_384(temp.x, inp, BLS12_381_P, Px8);
     redc_mont_384(temp.r[0], temp.x, BLS12_381_P, p0);
-    mul_mont_384(temp.r[0], temp.r[0], RRx4, BLS12_381_P, p0);
+    mul_mont_384(temp.r[0], temp.r[0], BLS12_381_RR, BLS12_381_P, p0);
 
 #ifndef FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION
     /* sign goes straight to flt_reciprocal */
@@ -88,7 +79,6 @@ static void reciprocal_fp(vec384 out, const vec384 inp)
 #else
     vec_copy(out, temp.r[0], sizeof(vec384));
 #endif
-#undef RRx4
 }
 
 void blst_fp_inverse(vec384 out, const vec384 inp)
@@ -129,7 +119,7 @@ static void reciprocal_fr(vec256 out, const vec256 inp)
 
     ct_inverse_mod_256(temp, inp, BLS12_381_r, rx2);
     redc_mont_256(out, temp, BLS12_381_r, r0);
-    mul_mont_sparse_256(out, out, BLS12_381_rRR, BLS12_381_r, r0);
+    mul_mont_sparse_256(out, BLS12_381_rRR, out, BLS12_381_r, r0);
 }
 
 void blst_fr_inverse(vec256 out, const vec256 inp)

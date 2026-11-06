@@ -85,9 +85,7 @@ typedef limb_t bool_t;
 # define from_mont_384 fromx_mont_384
 # define sgn0_pty_mont_384 sgn0x_pty_mont_384
 # define sgn0_pty_mont_384x sgn0x_pty_mont_384x
-# define ct_inverse_mod_383 ctx_inverse_mod_383
-#elif defined(__BLST_NO_ASM__)
-# define ct_inverse_mod_383 ct_inverse_mod_384
+# define ct_inverse_mod_384 ctx_inverse_mod_384
 #endif
 
 void mul_mont_sparse_256(vec256 ret, const vec256 a, const vec256 b,
@@ -137,7 +135,7 @@ void cneg_mod_384(vec384 ret, const vec384 a, bool_t flag, const vec384 p);
 void lshift_mod_384(vec384 ret, const vec384 a, size_t count, const vec384 p);
 void rshift_mod_384(vec384 ret, const vec384 a, size_t count, const vec384 p);
 void div_by_2_mod_384(vec384 ret, const vec384 a, const vec384 p);
-void ct_inverse_mod_383(vec768 ret, const vec384 inp, const vec384 mod,
+void ct_inverse_mod_384(vec768 ret, const vec384 inp, const vec384 mod,
                                                       const vec384 modx);
 void ct_inverse_mod_256(vec512 ret, const vec256 inp, const vec256 mod,
                                                       const vec256 modx);
@@ -146,7 +144,6 @@ bool_t ct_is_square_mod_384(const vec384 inp, const vec384 mod);
 #if defined(__ADX__) /* e.g. -march=broadwell */ && !defined(__BLST_PORTABLE__)
 # define mul_mont_384x mulx_mont_384x
 # define sqr_mont_384x sqrx_mont_384x
-# define sqr_mont_382x sqrx_mont_382x
 # define mul_382x mulx_382x
 # define sqr_382x sqrx_382x
 #endif
@@ -154,7 +151,6 @@ bool_t ct_is_square_mod_384(const vec384 inp, const vec384 mod);
 void mul_mont_384x(vec384x ret, const vec384x a, const vec384x b,
                    const vec384 p, limb_t n0);
 void sqr_mont_384x(vec384x ret, const vec384x a, const vec384 p, limb_t n0);
-void sqr_mont_382x(vec384x ret, const vec384x a, const vec384 p, limb_t n0);
 void mul_382x(vec768 ret[2], const vec384x a, const vec384x b, const vec384 p);
 void sqr_382x(vec768 ret[2], const vec384x a, const vec384 p);
 
@@ -407,7 +403,7 @@ static inline void vec_czero(void *ret, size_t num, bool_t cbit)
 #if defined(__INTEL_COMPILER)
 # pragma warning(disable:167)
 # pragma warning(disable:556)
-#elif defined(__GNUC__) && !defined(__clang__)
+#elif defined(__GNUC__) && !defined(__clang__) && (__STDC_VERSION__-0) < 202311
 # pragma GCC diagnostic ignored "-Wpedantic"
 #elif defined(_MSC_VER)
 # pragma warning(disable: 4127 4189)

@@ -7,9 +7,6 @@
 #include "fields.h"
 #include "point.h"
 
-/*
- * Infinite point among inputs would be devastating. Shall we change it?
- */
 #define POINTS_TO_AFFINE_IMPL(prefix, ptype, bits, field) \
 static void ptype##s_to_affine(ptype##_affine dst[], \
                                const ptype *const points[], size_t npoints) \
@@ -25,27 +22,36 @@ static void ptype##s_to_affine(ptype##_affine dst[], \
 \
         point = *points ? *points++ : point+1; \
         acc = (vec##bits *)dst; \
-        vec_copy(acc++, point->Z, sizeof(vec##bits)); \
-        for (i = 1; i < delta; i++, acc++) \
-            point = *points ? *points++ : point+1, \
-            mul_##field(acc[0], acc[-1], point->Z); \
+        vec_select(acc++, BLS12_381_Rx.p, point->Z, sizeof(vec##bits), \
+                          vec_is_zero(point->Z, sizeof(point->Z))); \
+        for (i = 1; i < delta; i++, acc++) { \
+            point = *points ? *points++ : point+1; \
+            vec_select(acc[0], BLS12_381_Rx.p, point->Z, sizeof(vec##bits), \
+                               vec_is_zero(point->Z, sizeof(point->Z))); \
+            mul_##field(acc[0], acc[0], acc[-1]); \
+        } \
 \
         --acc; reciprocal_##field(acc[0], acc[0]); \
 \
         walkback = points-1, p = point, --delta, dst += delta; \
         for (i = 0; i < delta; i++, acc--, dst--) { \
+            bool_t is_inf = vec_is_zero(p->Z, sizeof(p->Z)); \
             mul_##field(acc[-1], acc[-1], acc[0]);  /* 1/Z        */\
             sqr_##field(ZZ, acc[-1]);               /* 1/Z^2      */\
             mul_##field(ZZZ, ZZ, acc[-1]);          /* 1/Z^3      */\
-            mul_##field(acc[-1], p->Z, acc[0]);     \
+            vec_select(acc[-1], BLS12_381_Rx.p, p->Z, sizeof(vec##bits), \
+                                is_inf); \
+            mul_##field(acc[-1], acc[-1], acc[0]);  \
             mul_##field(dst->X,  p->X, ZZ);         /* X = X'/Z^2 */\
             mul_##field(dst->Y,  p->Y, ZZZ);        /* Y = Y'/Z^3 */\
+            vec_czero(dst, sizeof(*dst), is_inf); \
             p = (p == *walkback) ? *--walkback : p-1; \
         } \
         sqr_##field(ZZ, acc[0]);                    /* 1/Z^2      */\
         mul_##field(ZZZ, ZZ, acc[0]);               /* 1/Z^3      */\
         mul_##field(dst->X, p->X, ZZ);              /* X = X'/Z^2 */\
         mul_##field(dst->Y, p->Y, ZZZ);             /* Y = Y'/Z^3 */\
+        vec_czero(dst, sizeof(*dst), vec_is_zero(p->Z, sizeof(p->Z))); \
         ++delta, dst += delta, npoints -= delta; \
     } \
 } \
@@ -74,18 +80,23 @@ POINTS_TO_AFFINE_IMPL(blst_p2, POINTonE2, 384x, fp2)
 
 #define SCRATCH_SZ(ptype) (sizeof(ptype)==sizeof(POINTonE1) ? 8192 : 4096)
 
+/* The intermediate infinity points are encoded as [0, 0, 1]. */
+
 #define PRECOMPUTE_WBITS_IMPL(prefix, ptype, bits, field, one) \
-static void ptype##_precompute_row_wbits(ptype row[], size_t wbits, \
-                                         const ptype##_affine *point) \
+static void ptype##_precompute_row(ptype row[], size_t n, \
+                                   const ptype##_affine *point) \
 { \
-    size_t i, j, n = (size_t)1 << (wbits-1); \
+    size_t i, j; \
+    bool_t inf = vec_is_zero(point, sizeof(*point)); \
                                           /* row[-1] is implicit infinity */\
     vec_copy(&row[0], point, sizeof(*point));           /* row[0]=p*1     */\
     vec_copy(&row[0].Z, one, sizeof(row[0].Z));                             \
     ptype##_double(&row[1],  &row[0]);                  /* row[1]=p*(1+1) */\
+    vec_select(&row[1].Z, one, &row[1].Z, sizeof(row[1].Z), inf);           \
     for (i = 2, j = 1; i < n; i += 2, j++) \
         ptype##_add_affine(&row[i], &row[i-1], point),  /* row[2]=p*(2+1) */\
-        ptype##_double(&row[i+1], &row[j]);             /* row[3]=p*(2+2) */\
+        ptype##_double(&row[i+1], &row[j]),             /* row[3]=p*(2+2) */\
+        vec_select(&row[i+1].Z, one, &row[i+1].Z, sizeof(row[i+1].Z), inf); \
 }                                                       /* row[4] ...     */\
 \
 static void ptype##s_to_affine_row_wbits(ptype##_affine dst[], ptype src[], \
@@ -142,16 +153,44 @@ static void ptype##s_precompute_wbits(ptype##_affine table[], size_t wbits, \
         rows = row = (ptype *)(&table[top]); \
         for (i = 0; i < stride; i++, row += nwin) \
             point = *points ? *points++ : point+1, \
-            ptype##_precompute_row_wbits(row, wbits, point); \
+            ptype##_precompute_row(row, nwin, point); \
         ptype##s_to_affine_row_wbits(&table[top], rows, wbits, stride); \
         top += stride << (wbits-1); \
         npoints -= stride; \
     } \
-    rows = row = alloca(2*sizeof(ptype##_affine) * npoints * nwin); \
-    for (i = 0; i < npoints; i++, row += nwin) \
-        point = *points ? *points++ : point+1, \
-        ptype##_precompute_row_wbits(row, wbits, point); \
-    ptype##s_to_affine_row_wbits(&table[top], rows, wbits, npoints); \
+    if ((i = 2*sizeof(ptype##_affine)*npoints*nwin) <= SCRATCH_LIMIT) { \
+        rows = row = alloca(i); \
+        for (i = 0; i < npoints; i++, row += nwin) \
+            point = *points ? *points++ : point+1, \
+            ptype##_precompute_row(row, nwin, point); \
+        ptype##s_to_affine_row_wbits(&table[top], rows, wbits, npoints); \
+    } else { \
+        const ptype *pp[2]; \
+\
+        stride = SCRATCH_LIMIT / sizeof(ptype); \
+        stride -= stride % 2; \
+        if (stride > nwin) stride = nwin; \
+\
+        pp[0] = row = alloca(stride * sizeof(ptype)); \
+        pp[1] = NULL; \
+        for (i = 0; i < npoints; i++, top += nwin) { \
+            size_t j, k, n; \
+\
+            point = *points ? *points++ : point+1; \
+            ptype##_precompute_row(row, stride, point); \
+            ptype##s_to_affine(&table[top], pp, stride); \
+            for (j = stride; j < nwin; j += stride) { \
+                n = (j+stride) <= nwin ? stride : nwin-j; \
+                for (k = 0; k < n-1; k++) \
+                    ptype##_add_affine(&row[k], &row[stride-1], &table[top+k]); \
+                if (j == stride) \
+                    ptype##_double(&row[k], &row[stride-1]); \
+                else \
+                    ptype##_add_affine(&row[k], &row[stride-1], &table[top+k]); \
+                ptype##s_to_affine(&table[top+j], pp, n); \
+            } \
+        } \
+    } \
 } \
 \
 size_t prefix##s_mult_wbits_precompute_sizeof(size_t wbits, size_t npoints) \
@@ -202,7 +241,7 @@ static void ptype##s_mult_wbits(ptype *ret, const ptype##_affine table[], \
 \
     nbits -= window; \
     z = is_zero(nbits); \
-    wval = (get_wval_limb(scalar, nbits - (z^1), wbits + (z^1)) << z) & wmask; \
+    wval = (get_wval_limb(scalar, nbits - (z^1), window + (z^1)) << z) & wmask; \
     wval = booth_encode(wval, wbits); \
     ptype##_gather_booth_wbits(&scratch[0], row, wbits, wval); \
     row += nwin; \
@@ -232,7 +271,7 @@ static void ptype##s_mult_wbits(ptype *ret, const ptype##_affine table[], \
         if (j == scratch_sz) \
             ptype##s_accumulate(ret, scratch, j), j = 0; \
         scalar = *scalar_s ? *scalar_s++ : scalar+nbytes; \
-        wval = (get_wval_limb(scalar, 0, wbits) << 1) & wmask; \
+        wval = (get_wval_limb(scalar, 0, window) << 1) & wmask; \
         wval = booth_encode(wval, wbits); \
         ptype##_gather_booth_wbits(&scratch[j], row, wbits, wval); \
     } \
@@ -267,7 +306,14 @@ static size_t pippenger_window_size(size_t npoints)
 
     for (wbits=0; npoints>>=1; wbits++) ;
 
-    return wbits>12 ? wbits-3 : (wbits>4 ? wbits-2 : (wbits ? 2 : 1));
+    if (wbits > 12)
+        return wbits - 3;
+    else if (wbits > 8)
+        return wbits - 2;
+    else if (wbits > 4)
+        return wbits - 1;
+
+    return wbits ? 2 : 1;
 }
 
 #define DECLARE_PRIVATE_POINTXYZZ(ptype, bits) \
@@ -402,10 +448,11 @@ void prefix##s_mult_pippenger(ptype *ret, \
 { \
     if (npoints == 1) { \
         prefix##_from_affine(ret, points[0]); \
-        prefix##_mult(ret, ret, scalars[0], nbits); \
+        ptype##_mult_w5(ret, ret, scalars[0], nbits); \
         return; \
     } \
-    if ((npoints * sizeof(ptype##_affine) * 8 * 3) <= SCRATCH_LIMIT) { \
+    if ((npoints * sizeof(ptype##_affine) * 8 * 3) <= SCRATCH_LIMIT && \
+        npoints < 32) { \
         ptype##_affine *table = alloca(npoints * sizeof(ptype##_affine) * 8); \
         ptype##s_precompute_wbits(table, 4, points, npoints); \
         ptype##s_mult_wbits(ret, table, 4, npoints, scalars, nbits, NULL); \

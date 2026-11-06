@@ -1,10 +1,19 @@
+#if defined(__ARM_FEATURE_PAC_DEFAULT) && __ARM_FEATURE_PAC_DEFAULT==2
+# define PACI_HINT 27
+# define AUTI_HINT 31
+#else
+# define PACI_HINT 25
+# define AUTI_HINT 29
+#endif
+
 .text
 
 .globl	add_mod_384x384
+.hidden	add_mod_384x384
 .type	add_mod_384x384,%function
 .align	5
 add_mod_384x384:
-	.inst	0xd503233f
+	hint	#PACI_HINT
 	stp	x29,x30,[sp,#-8*__SIZEOF_POINTER__]!
 	add	x29,sp,#0
 	stp	x19,x20,[sp,#2*__SIZEOF_POINTER__]
@@ -22,7 +31,7 @@ add_mod_384x384:
 	ldp	x21,x22,[x29,#4*__SIZEOF_POINTER__]
 	ldp	x23,x24,[x29,#6*__SIZEOF_POINTER__]
 	ldr	x29,[sp],#8*__SIZEOF_POINTER__
-	.inst	0xd50323bf
+	hint	#AUTI_HINT
 	ret
 .size	add_mod_384x384,.-add_mod_384x384
 
@@ -82,10 +91,11 @@ __add_mod_384x384:
 .size	__add_mod_384x384,.-__add_mod_384x384
 
 .globl	sub_mod_384x384
+.hidden	sub_mod_384x384
 .type	sub_mod_384x384,%function
 .align	5
 sub_mod_384x384:
-	.inst	0xd503233f
+	hint	#PACI_HINT
 	stp	x29,x30,[sp,#-8*__SIZEOF_POINTER__]!
 	add	x29,sp,#0
 	stp	x19,x20,[sp,#2*__SIZEOF_POINTER__]
@@ -103,7 +113,7 @@ sub_mod_384x384:
 	ldp	x21,x22,[x29,#4*__SIZEOF_POINTER__]
 	ldp	x23,x24,[x29,#6*__SIZEOF_POINTER__]
 	ldr	x29,[sp],#8*__SIZEOF_POINTER__
-	.inst	0xd50323bf
+	hint	#AUTI_HINT
 	ret
 .size	sub_mod_384x384,.-sub_mod_384x384
 
@@ -239,7 +249,7 @@ __sub_mod_384:
 .type	mul_mont_384x,%function
 .align	5
 mul_mont_384x:
-	.inst	0xd503233f
+	hint	#PACI_HINT
 	stp	x29,x30,[sp,#-16*__SIZEOF_POINTER__]!
 	add	x29,sp,#0
 	stp	x19,x20,[sp,#2*__SIZEOF_POINTER__]
@@ -312,7 +322,7 @@ mul_mont_384x:
 	ldp	x25,x26,[x29,#8*__SIZEOF_POINTER__]
 	ldp	x27,x28,[x29,#10*__SIZEOF_POINTER__]
 	ldr	x29,[sp],#16*__SIZEOF_POINTER__
-	.inst	0xd50323bf
+	hint	#AUTI_HINT
 	ret
 .size	mul_mont_384x,.-mul_mont_384x
 
@@ -321,7 +331,7 @@ mul_mont_384x:
 .type	sqr_mont_384x,%function
 .align	5
 sqr_mont_384x:
-	.inst	0xd503233f
+	hint	#PACI_HINT
 	stp	x29,x30,[sp,#-16*__SIZEOF_POINTER__]!
 	add	x29,sp,#0
 	stp	x19,x20,[sp,#2*__SIZEOF_POINTER__]
@@ -397,7 +407,7 @@ sqr_mont_384x:
 	ldp	x25,x26,[x29,#8*__SIZEOF_POINTER__]
 	ldp	x27,x28,[x29,#10*__SIZEOF_POINTER__]
 	ldr	x29,[sp],#16*__SIZEOF_POINTER__
-	.inst	0xd50323bf
+	hint	#AUTI_HINT
 	ret
 .size	sqr_mont_384x,.-sqr_mont_384x
 
@@ -406,7 +416,7 @@ sqr_mont_384x:
 .type	mul_mont_384,%function
 .align	5
 mul_mont_384:
-	.inst	0xd503233f
+	hint	#PACI_HINT
 	stp	x29,x30,[sp,#-16*__SIZEOF_POINTER__]!
 	add	x29,sp,#0
 	stp	x19,x20,[sp,#2*__SIZEOF_POINTER__]
@@ -438,7 +448,7 @@ mul_mont_384:
 	ldp	x25,x26,[x29,#8*__SIZEOF_POINTER__]
 	ldp	x27,x28,[x29,#10*__SIZEOF_POINTER__]
 	ldr	x29,[sp],#16*__SIZEOF_POINTER__
-	.inst	0xd50323bf
+	hint	#AUTI_HINT
 	ret
 .size	mul_mont_384,.-mul_mont_384
 
@@ -819,7 +829,7 @@ __mul_mont_384:
 .type	sqr_mont_384,%function
 .align	5
 sqr_mont_384:
-	.inst	0xd503233f
+	hint	#PACI_HINT
 	stp	x29,x30,[sp,#-16*__SIZEOF_POINTER__]!
 	add	x29,sp,#0
 	stp	x19,x20,[sp,#2*__SIZEOF_POINTER__]
@@ -856,7 +866,7 @@ sqr_mont_384:
 	ldp	x25,x26,[x29,#8*__SIZEOF_POINTER__]
 	ldp	x27,x28,[x29,#10*__SIZEOF_POINTER__]
 	ldr	x29,[sp],#16*__SIZEOF_POINTER__
-	.inst	0xd50323bf
+	hint	#AUTI_HINT
 	ret
 .size	sqr_mont_384,.-sqr_mont_384
 
@@ -865,7 +875,7 @@ sqr_mont_384:
 .type	sqr_n_mul_mont_383,%function
 .align	5
 sqr_n_mul_mont_383:
-	.inst	0xd503233f
+	hint	#PACI_HINT
 	stp	x29,x30,[sp,#-16*__SIZEOF_POINTER__]!
 	add	x29,sp,#0
 	stp	x19,x20,[sp,#2*__SIZEOF_POINTER__]
@@ -921,7 +931,7 @@ sqr_n_mul_mont_383:
 	ldp	x25,x26,[x29,#8*__SIZEOF_POINTER__]
 	ldp	x27,x28,[x29,#10*__SIZEOF_POINTER__]
 	ldr	x29,[sp],#16*__SIZEOF_POINTER__
-	.inst	0xd50323bf
+	hint	#AUTI_HINT
 	ret
 .size	sqr_n_mul_mont_383,.-sqr_n_mul_mont_383
 .type	__sqr_384,%function
@@ -1042,7 +1052,7 @@ __sqr_384:
 .type	sqr_384,%function
 .align	5
 sqr_384:
-	.inst	0xd503233f
+	hint	#PACI_HINT
 	stp	x29,x30,[sp,#-16*__SIZEOF_POINTER__]!
 	add	x29,sp,#0
 	stp	x19,x20,[sp,#2*__SIZEOF_POINTER__]
@@ -1064,7 +1074,7 @@ sqr_384:
 	ldp	x25,x26,[x29,#8*__SIZEOF_POINTER__]
 	ldp	x27,x28,[x29,#10*__SIZEOF_POINTER__]
 	ldr	x29,[sp],#16*__SIZEOF_POINTER__
-	.inst	0xd50323bf
+	hint	#AUTI_HINT
 	ret
 .size	sqr_384,.-sqr_384
 
@@ -1073,7 +1083,7 @@ sqr_384:
 .type	redc_mont_384,%function
 .align	5
 redc_mont_384:
-	.inst	0xd503233f
+	hint	#PACI_HINT
 	stp	x29,x30,[sp,#-16*__SIZEOF_POINTER__]!
 	add	x29,sp,#0
 	stp	x19,x20,[sp,#2*__SIZEOF_POINTER__]
@@ -1097,7 +1107,7 @@ redc_mont_384:
 	ldp	x25,x26,[x29,#8*__SIZEOF_POINTER__]
 	ldp	x27,x28,[x29,#10*__SIZEOF_POINTER__]
 	ldr	x29,[sp],#16*__SIZEOF_POINTER__
-	.inst	0xd50323bf
+	hint	#AUTI_HINT
 	ret
 .size	redc_mont_384,.-redc_mont_384
 
@@ -1106,7 +1116,7 @@ redc_mont_384:
 .type	from_mont_384,%function
 .align	5
 from_mont_384:
-	.inst	0xd503233f
+	hint	#PACI_HINT
 	stp	x29,x30,[sp,#-16*__SIZEOF_POINTER__]!
 	add	x29,sp,#0
 	stp	x19,x20,[sp,#2*__SIZEOF_POINTER__]
@@ -1147,7 +1157,7 @@ from_mont_384:
 	ldp	x25,x26,[x29,#8*__SIZEOF_POINTER__]
 	ldp	x27,x28,[x29,#10*__SIZEOF_POINTER__]
 	ldr	x29,[sp],#16*__SIZEOF_POINTER__
-	.inst	0xd50323bf
+	hint	#AUTI_HINT
 	ret
 .size	from_mont_384,.-from_mont_384
 
@@ -1365,7 +1375,7 @@ __redc_tail_mont_384:
 .type	mul_384,%function
 .align	5
 mul_384:
-	.inst	0xd503233f
+	hint	#PACI_HINT
 	stp	x29,x30,[sp,#-16*__SIZEOF_POINTER__]!
 	add	x29,sp,#0
 	stp	x19,x20,[sp,#2*__SIZEOF_POINTER__]
@@ -1383,7 +1393,7 @@ mul_384:
 	ldp	x25,x26,[x29,#8*__SIZEOF_POINTER__]
 	ldp	x27,x28,[x29,#10*__SIZEOF_POINTER__]
 	ldr	x29,[sp],#16*__SIZEOF_POINTER__
-	.inst	0xd50323bf
+	hint	#AUTI_HINT
 	ret
 .size	mul_384,.-mul_384
 
@@ -1569,7 +1579,7 @@ __mul_384:
 .type	mul_382x,%function
 .align	5
 mul_382x:
-	.inst	0xd503233f
+	hint	#PACI_HINT
 	stp	x29,x30,[sp,#-16*__SIZEOF_POINTER__]!
 	add	x29,sp,#0
 	stp	x19,x20,[sp,#2*__SIZEOF_POINTER__]
@@ -1651,7 +1661,7 @@ mul_382x:
 	ldp	x25,x26,[x29,#8*__SIZEOF_POINTER__]
 	ldp	x27,x28,[x29,#10*__SIZEOF_POINTER__]
 	ldr	x29,[sp],#16*__SIZEOF_POINTER__
-	.inst	0xd50323bf
+	hint	#AUTI_HINT
 	ret
 .size	mul_382x,.-mul_382x
 
@@ -1660,7 +1670,7 @@ mul_382x:
 .type	sqr_382x,%function
 .align	5
 sqr_382x:
-	.inst	0xd503233f
+	hint	#PACI_HINT
 	stp	x29,x30,[sp,#-16*__SIZEOF_POINTER__]!
 	add	x29,sp,#0
 	stp	x19,x20,[sp,#2*__SIZEOF_POINTER__]
@@ -1751,480 +1761,16 @@ sqr_382x:
 	ldp	x25,x26,[x29,#8*__SIZEOF_POINTER__]
 	ldp	x27,x28,[x29,#10*__SIZEOF_POINTER__]
 	ldr	x29,[sp],#16*__SIZEOF_POINTER__
-	.inst	0xd50323bf
+	hint	#AUTI_HINT
 	ret
 .size	sqr_382x,.-sqr_382x
-
-.globl	sqr_mont_382x
-.hidden	sqr_mont_382x
-.type	sqr_mont_382x,%function
-.align	5
-sqr_mont_382x:
-	.inst	0xd503233f
-	stp	x29,x30,[sp,#-16*__SIZEOF_POINTER__]!
-	add	x29,sp,#0
-	stp	x19,x20,[sp,#2*__SIZEOF_POINTER__]
-	stp	x21,x22,[sp,#4*__SIZEOF_POINTER__]
-	stp	x23,x24,[sp,#6*__SIZEOF_POINTER__]
-	stp	x25,x26,[sp,#8*__SIZEOF_POINTER__]
-	stp	x27,x28,[sp,#10*__SIZEOF_POINTER__]
-	stp	x3,x0,[sp,#12*__SIZEOF_POINTER__]	// __mul_mont_384 wants them there
-	sub	sp,sp,#112		// space for two 384-bit vectors + word
-	mov	x4,x3		// adjust for missing b_ptr
-
-	ldp	x11,x12,[x1]
-	ldp	x13,x14,[x1,#16]
-	ldp	x15,x16,[x1,#32]
-
-	ldp	x17,x20,[x1,#48]
-	ldp	x21,x22,[x1,#64]
-	ldp	x23,x24,[x1,#80]
-
-	adds	x5,x11,x17	// t0 = a->re + a->im
-	adcs	x6,x12,x20
-	adcs	x7,x13,x21
-	adcs	x8,x14,x22
-	adcs	x9,x15,x23
-	adc	x10,x16,x24
-
-	subs	x19,x11,x17	// t1 = a->re - a->im
-	sbcs	x20,x12,x20
-	sbcs	x21,x13,x21
-	sbcs	x22,x14,x22
-	sbcs	x23,x15,x23
-	sbcs	x24,x16,x24
-	sbc	x25,xzr,xzr		// borrow flag as mask
-
-	stp	x5,x6,[sp]
-	stp	x7,x8,[sp,#16]
-	stp	x9,x10,[sp,#32]
-	stp	x19,x20,[sp,#48]
-	stp	x21,x22,[sp,#64]
-	stp	x23,x24,[sp,#80]
-	str	x25,[sp,#96]
-
-	ldp	x5,x6,[x2]
-	ldp	x7,x8,[x2,#16]
-	ldp	x9,x10,[x2,#32]
-
-	add	x2,x1,#48
-	bl	__mul_mont_383_nonred	// mul_mont_384(ret->im, a->re, a->im)
-
-	adds	x19,x11,x11	// add with itself
-	adcs	x20,x12,x12
-	adcs	x21,x13,x13
-	adcs	x22,x14,x14
-	adcs	x23,x15,x15
-	adc	x24,x16,x16
-
-	stp	x19,x20,[x2,#48]
-	stp	x21,x22,[x2,#64]
-	stp	x23,x24,[x2,#80]
-
-	ldp	x11,x12,[sp]
-	ldr	x17,[sp,#48]
-	ldp	x13,x14,[sp,#16]
-	ldp	x15,x16,[sp,#32]
-
-	add	x2,sp,#48
-	bl	__mul_mont_383_nonred	// mul_mont_384(ret->im, t0, t1)
-	ldr	x30,[x29,#__SIZEOF_POINTER__]
-
-	ldr	x25,[sp,#96]	// account for sign from a->re - a->im
-	ldp	x19,x20,[sp]
-	ldp	x21,x22,[sp,#16]
-	ldp	x23,x24,[sp,#32]
-
-	and	x19,x19,x25
-	and	x20,x20,x25
-	and	x21,x21,x25
-	and	x22,x22,x25
-	and	x23,x23,x25
-	and	x24,x24,x25
-
-	subs	x11,x11,x19
-	sbcs	x12,x12,x20
-	sbcs	x13,x13,x21
-	sbcs	x14,x14,x22
-	sbcs	x15,x15,x23
-	sbcs	x16,x16,x24
-	sbc	x25,xzr,xzr
-
-	and	x19,x5,x25
-	and	x20,x6,x25
-	and	x21,x7,x25
-	and	x22,x8,x25
-	and	x23,x9,x25
-	and	x24,x10,x25
-
-	adds	x11,x11,x19
-	adcs	x12,x12,x20
-	adcs	x13,x13,x21
-	adcs	x14,x14,x22
-	adcs	x15,x15,x23
-	adc	x16,x16,x24
-
-	stp	x11,x12,[x2]
-	stp	x13,x14,[x2,#16]
-	stp	x15,x16,[x2,#32]
-
-	add	sp,sp,#112
-	ldp	x19,x20,[x29,#2*__SIZEOF_POINTER__]
-	ldp	x21,x22,[x29,#4*__SIZEOF_POINTER__]
-	ldp	x23,x24,[x29,#6*__SIZEOF_POINTER__]
-	ldp	x25,x26,[x29,#8*__SIZEOF_POINTER__]
-	ldp	x27,x28,[x29,#10*__SIZEOF_POINTER__]
-	ldr	x29,[sp],#16*__SIZEOF_POINTER__
-	.inst	0xd50323bf
-	ret
-.size	sqr_mont_382x,.-sqr_mont_382x
-
-.type	__mul_mont_383_nonred,%function
-.align	5
-__mul_mont_383_nonred:
-	mul	x19,x11,x17
-	mul	x20,x12,x17
-	mul	x21,x13,x17
-	mul	x22,x14,x17
-	mul	x23,x15,x17
-	mul	x24,x16,x17
-	mul	x4,x4,x19
-
-	umulh	x26,x11,x17
-	umulh	x27,x12,x17
-	umulh	x28,x13,x17
-	umulh	x0,x14,x17
-	umulh	x1,x15,x17
-	umulh	x3,x16,x17
-
-	adds	x20,x20,x26
-	mul	x26,x5,x4
-	adcs	x21,x21,x27
-	mul	x27,x6,x4
-	adcs	x22,x22,x28
-	mul	x28,x7,x4
-	adcs	x23,x23,x0
-	mul	x0,x8,x4
-	adcs	x24,x24,x1
-	mul	x1,x9,x4
-	adc	x25,xzr,    x3
-	mul	x3,x10,x4
-	ldr	x17,[x2,8*1]
-	adds	x19,x19,x26
-	umulh	x26,x5,x4
-	adcs	x20,x20,x27
-	umulh	x27,x6,x4
-	adcs	x21,x21,x28
-	umulh	x28,x7,x4
-	adcs	x22,x22,x0
-	umulh	x0,x8,x4
-	adcs	x23,x23,x1
-	umulh	x1,x9,x4
-	adcs	x24,x24,x3
-	umulh	x3,x10,x4
-	adc	x25,x25,xzr
-
-	ldr	x4,[x29,#12*__SIZEOF_POINTER__]
-	adds	x19,x20,x26
-	mul	x26,x11,x17
-	adcs	x20,x21,x27
-	mul	x27,x12,x17
-	adcs	x21,x22,x28
-	mul	x28,x13,x17
-	adcs	x22,x23,x0
-	mul	x0,x14,x17
-	adcs	x23,x24,x1
-	mul	x1,x15,x17
-	adcs	x24,x25,x3
-	mul	x3,x16,x17
-	adc	x25,xzr,xzr
-
-	adds	x19,x19,x26
-	umulh	x26,x11,x17
-	adcs	x20,x20,x27
-	umulh	x27,x12,x17
-	adcs	x21,x21,x28
-	mul	x4,x4,x19
-	umulh	x28,x13,x17
-	adcs	x22,x22,x0
-	umulh	x0,x14,x17
-	adcs	x23,x23,x1
-	umulh	x1,x15,x17
-	adcs	x24,x24,x3
-	umulh	x3,x16,x17
-	adc	x25,x25,xzr
-
-	adds	x20,x20,x26
-	mul	x26,x5,x4
-	adcs	x21,x21,x27
-	mul	x27,x6,x4
-	adcs	x22,x22,x28
-	mul	x28,x7,x4
-	adcs	x23,x23,x0
-	mul	x0,x8,x4
-	adcs	x24,x24,x1
-	mul	x1,x9,x4
-	adc	x25,x25,x3
-	mul	x3,x10,x4
-	ldr	x17,[x2,8*2]
-	adds	x19,x19,x26
-	umulh	x26,x5,x4
-	adcs	x20,x20,x27
-	umulh	x27,x6,x4
-	adcs	x21,x21,x28
-	umulh	x28,x7,x4
-	adcs	x22,x22,x0
-	umulh	x0,x8,x4
-	adcs	x23,x23,x1
-	umulh	x1,x9,x4
-	adcs	x24,x24,x3
-	umulh	x3,x10,x4
-	adc	x25,x25,xzr
-
-	ldr	x4,[x29,#12*__SIZEOF_POINTER__]
-	adds	x19,x20,x26
-	mul	x26,x11,x17
-	adcs	x20,x21,x27
-	mul	x27,x12,x17
-	adcs	x21,x22,x28
-	mul	x28,x13,x17
-	adcs	x22,x23,x0
-	mul	x0,x14,x17
-	adcs	x23,x24,x1
-	mul	x1,x15,x17
-	adcs	x24,x25,x3
-	mul	x3,x16,x17
-	adc	x25,xzr,xzr
-
-	adds	x19,x19,x26
-	umulh	x26,x11,x17
-	adcs	x20,x20,x27
-	umulh	x27,x12,x17
-	adcs	x21,x21,x28
-	mul	x4,x4,x19
-	umulh	x28,x13,x17
-	adcs	x22,x22,x0
-	umulh	x0,x14,x17
-	adcs	x23,x23,x1
-	umulh	x1,x15,x17
-	adcs	x24,x24,x3
-	umulh	x3,x16,x17
-	adc	x25,x25,xzr
-
-	adds	x20,x20,x26
-	mul	x26,x5,x4
-	adcs	x21,x21,x27
-	mul	x27,x6,x4
-	adcs	x22,x22,x28
-	mul	x28,x7,x4
-	adcs	x23,x23,x0
-	mul	x0,x8,x4
-	adcs	x24,x24,x1
-	mul	x1,x9,x4
-	adc	x25,x25,x3
-	mul	x3,x10,x4
-	ldr	x17,[x2,8*3]
-	adds	x19,x19,x26
-	umulh	x26,x5,x4
-	adcs	x20,x20,x27
-	umulh	x27,x6,x4
-	adcs	x21,x21,x28
-	umulh	x28,x7,x4
-	adcs	x22,x22,x0
-	umulh	x0,x8,x4
-	adcs	x23,x23,x1
-	umulh	x1,x9,x4
-	adcs	x24,x24,x3
-	umulh	x3,x10,x4
-	adc	x25,x25,xzr
-
-	ldr	x4,[x29,#12*__SIZEOF_POINTER__]
-	adds	x19,x20,x26
-	mul	x26,x11,x17
-	adcs	x20,x21,x27
-	mul	x27,x12,x17
-	adcs	x21,x22,x28
-	mul	x28,x13,x17
-	adcs	x22,x23,x0
-	mul	x0,x14,x17
-	adcs	x23,x24,x1
-	mul	x1,x15,x17
-	adcs	x24,x25,x3
-	mul	x3,x16,x17
-	adc	x25,xzr,xzr
-
-	adds	x19,x19,x26
-	umulh	x26,x11,x17
-	adcs	x20,x20,x27
-	umulh	x27,x12,x17
-	adcs	x21,x21,x28
-	mul	x4,x4,x19
-	umulh	x28,x13,x17
-	adcs	x22,x22,x0
-	umulh	x0,x14,x17
-	adcs	x23,x23,x1
-	umulh	x1,x15,x17
-	adcs	x24,x24,x3
-	umulh	x3,x16,x17
-	adc	x25,x25,xzr
-
-	adds	x20,x20,x26
-	mul	x26,x5,x4
-	adcs	x21,x21,x27
-	mul	x27,x6,x4
-	adcs	x22,x22,x28
-	mul	x28,x7,x4
-	adcs	x23,x23,x0
-	mul	x0,x8,x4
-	adcs	x24,x24,x1
-	mul	x1,x9,x4
-	adc	x25,x25,x3
-	mul	x3,x10,x4
-	ldr	x17,[x2,8*4]
-	adds	x19,x19,x26
-	umulh	x26,x5,x4
-	adcs	x20,x20,x27
-	umulh	x27,x6,x4
-	adcs	x21,x21,x28
-	umulh	x28,x7,x4
-	adcs	x22,x22,x0
-	umulh	x0,x8,x4
-	adcs	x23,x23,x1
-	umulh	x1,x9,x4
-	adcs	x24,x24,x3
-	umulh	x3,x10,x4
-	adc	x25,x25,xzr
-
-	ldr	x4,[x29,#12*__SIZEOF_POINTER__]
-	adds	x19,x20,x26
-	mul	x26,x11,x17
-	adcs	x20,x21,x27
-	mul	x27,x12,x17
-	adcs	x21,x22,x28
-	mul	x28,x13,x17
-	adcs	x22,x23,x0
-	mul	x0,x14,x17
-	adcs	x23,x24,x1
-	mul	x1,x15,x17
-	adcs	x24,x25,x3
-	mul	x3,x16,x17
-	adc	x25,xzr,xzr
-
-	adds	x19,x19,x26
-	umulh	x26,x11,x17
-	adcs	x20,x20,x27
-	umulh	x27,x12,x17
-	adcs	x21,x21,x28
-	mul	x4,x4,x19
-	umulh	x28,x13,x17
-	adcs	x22,x22,x0
-	umulh	x0,x14,x17
-	adcs	x23,x23,x1
-	umulh	x1,x15,x17
-	adcs	x24,x24,x3
-	umulh	x3,x16,x17
-	adc	x25,x25,xzr
-
-	adds	x20,x20,x26
-	mul	x26,x5,x4
-	adcs	x21,x21,x27
-	mul	x27,x6,x4
-	adcs	x22,x22,x28
-	mul	x28,x7,x4
-	adcs	x23,x23,x0
-	mul	x0,x8,x4
-	adcs	x24,x24,x1
-	mul	x1,x9,x4
-	adc	x25,x25,x3
-	mul	x3,x10,x4
-	ldr	x17,[x2,8*5]
-	adds	x19,x19,x26
-	umulh	x26,x5,x4
-	adcs	x20,x20,x27
-	umulh	x27,x6,x4
-	adcs	x21,x21,x28
-	umulh	x28,x7,x4
-	adcs	x22,x22,x0
-	umulh	x0,x8,x4
-	adcs	x23,x23,x1
-	umulh	x1,x9,x4
-	adcs	x24,x24,x3
-	umulh	x3,x10,x4
-	adc	x25,x25,xzr
-
-	ldr	x4,[x29,#12*__SIZEOF_POINTER__]
-	adds	x19,x20,x26
-	mul	x26,x11,x17
-	adcs	x20,x21,x27
-	mul	x27,x12,x17
-	adcs	x21,x22,x28
-	mul	x28,x13,x17
-	adcs	x22,x23,x0
-	mul	x0,x14,x17
-	adcs	x23,x24,x1
-	mul	x1,x15,x17
-	adcs	x24,x25,x3
-	mul	x3,x16,x17
-	adc	x25,xzr,xzr
-
-	adds	x19,x19,x26
-	umulh	x26,x11,x17
-	adcs	x20,x20,x27
-	umulh	x27,x12,x17
-	adcs	x21,x21,x28
-	mul	x4,x4,x19
-	umulh	x28,x13,x17
-	adcs	x22,x22,x0
-	umulh	x0,x14,x17
-	adcs	x23,x23,x1
-	umulh	x1,x15,x17
-	adcs	x24,x24,x3
-	umulh	x3,x16,x17
-	adc	x25,x25,xzr
-
-	adds	x20,x20,x26
-	mul	x26,x5,x4
-	adcs	x21,x21,x27
-	mul	x27,x6,x4
-	adcs	x22,x22,x28
-	mul	x28,x7,x4
-	adcs	x23,x23,x0
-	mul	x0,x8,x4
-	adcs	x24,x24,x1
-	mul	x1,x9,x4
-	adc	x25,x25,x3
-	mul	x3,x10,x4
-	adds	x19,x19,x26
-	umulh	x26,x5,x4
-	adcs	x20,x20,x27
-	umulh	x27,x6,x4
-	adcs	x21,x21,x28
-	umulh	x28,x7,x4
-	adcs	x22,x22,x0
-	umulh	x0,x8,x4
-	adcs	x23,x23,x1
-	umulh	x1,x9,x4
-	adcs	x24,x24,x3
-	umulh	x3,x10,x4
-	adc	x25,x25,xzr
-	ldp	x4,x2,[x29,#12*__SIZEOF_POINTER__]		// pull r_ptr
-
-	adds	x11,x20,x26
-	adcs	x12,x21,x27
-	adcs	x13,x22,x28
-	adcs	x14,x23,x0
-	adcs	x15,x24,x1
-	adcs	x16,x25,x3
-
-	ret
-.size	__mul_mont_383_nonred,.-__mul_mont_383_nonred
 
 .globl	sgn0_pty_mont_384
 .hidden	sgn0_pty_mont_384
 .type	sgn0_pty_mont_384,%function
 .align	5
 sgn0_pty_mont_384:
-	.inst	0xd503233f
+	hint	#PACI_HINT
 	stp	x29,x30,[sp,#-16*__SIZEOF_POINTER__]!
 	add	x29,sp,#0
 	stp	x19,x20,[sp,#2*__SIZEOF_POINTER__]
@@ -2269,7 +1815,7 @@ sgn0_pty_mont_384:
 	ldp	x25,x26,[x29,#8*__SIZEOF_POINTER__]
 	ldp	x27,x28,[x29,#10*__SIZEOF_POINTER__]
 	ldr	x29,[sp],#16*__SIZEOF_POINTER__
-	.inst	0xd50323bf
+	hint	#AUTI_HINT
 	ret
 .size	sgn0_pty_mont_384,.-sgn0_pty_mont_384
 
@@ -2278,7 +1824,7 @@ sgn0_pty_mont_384:
 .type	sgn0_pty_mont_384x,%function
 .align	5
 sgn0_pty_mont_384x:
-	.inst	0xd503233f
+	hint	#PACI_HINT
 	stp	x29,x30,[sp,#-16*__SIZEOF_POINTER__]!
 	add	x29,sp,#0
 	stp	x19,x20,[sp,#2*__SIZEOF_POINTER__]
@@ -2367,6 +1913,16 @@ sgn0_pty_mont_384x:
 	ldp	x25,x26,[x29,#8*__SIZEOF_POINTER__]
 	ldp	x27,x28,[x29,#10*__SIZEOF_POINTER__]
 	ldr	x29,[sp],#16*__SIZEOF_POINTER__
-	.inst	0xd50323bf
+	hint	#AUTI_HINT
 	ret
 .size	sgn0_pty_mont_384x,.-sgn0_pty_mont_384x
+
+#if defined(__ARM_FEATURE_BTI_DEFAULT) || defined(__ARM_FEATURE_PAC_DEFAULT)
+.section	.note.GNU-stack,"",@progbits
+.section	.note.gnu.property,"a",@note
+	.long	4,2f-1f,5
+	.byte	0x47,0x4E,0x55,0
+1:	.long	0xc0000000,4,3
+.align  3
+2:
+#endif

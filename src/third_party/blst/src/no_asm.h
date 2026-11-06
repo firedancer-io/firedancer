@@ -635,58 +635,6 @@ void sqr_n_mul_mont_383(vec384 ret, const vec384 a, size_t count,
     mul_mont_n(ret, ret, b, p, n0, NLIMBS(384));
 }
 
-void sqr_mont_382x(vec384x ret, const vec384x a,
-                          const vec384 p, limb_t n0)
-{
-    llimb_t limbx;
-    limb_t mask, carry, borrow;
-    size_t i;
-    vec384 t0, t1;
-
-    /* "add_mod_n(t0, a[0], a[1], p, NLIMBS(384));" */
-    for (carry=0, i=0; i<NLIMBS(384); i++) {
-        limbx = a[0][i] + (a[1][i] + (llimb_t)carry);
-        t0[i] = (limb_t)limbx;
-        carry = (limb_t)(limbx >> LIMB_T_BITS);
-    }
-
-    /* "sub_mod_n(t1, a[0], a[1], p, NLIMBS(384));" */
-    for (borrow=0, i=0; i<NLIMBS(384); i++) {
-        limbx = a[0][i] - (a[1][i] + (llimb_t)borrow);
-        t1[i] = (limb_t)limbx;
-        borrow = (limb_t)(limbx >> LIMB_T_BITS) & 1;
-    }
-    mask = 0 - borrow;
-    launder(mask);
-
-    /* "mul_mont_n(ret[1], a[0], a[1], p, n0, NLIMBS(384));" */
-    mul_mont_nonred_n(ret[1], a[0], a[1], p, n0, NLIMBS(384));
-
-    /* "add_mod_n(ret[1], ret[1], ret[1], p, NLIMBS(384));" */
-    for (carry=0, i=0; i<NLIMBS(384); i++) {
-        limb_t a_i = ret[1][i];
-        ret[1][i] = a_i<<1 | carry;
-        carry = a_i>>(LIMB_T_BITS-1);
-    }
-
-    /* "mul_mont_n(ret[0], t0, t1, p, n0, NLIMBS(384));" */
-    mul_mont_nonred_n(ret[0], t0, t1, p, n0, NLIMBS(384));
-
-    /* account for t1's sign... */
-    for (borrow=0, i=0; i<NLIMBS(384); i++) {
-        limbx = ret[0][i] - ((t0[i] & mask) + (llimb_t)borrow);
-        ret[0][i] = (limb_t)limbx;
-        borrow = (limb_t)(limbx >> LIMB_T_BITS) & 1;
-    }
-    mask = 0 - borrow;
-    launder(mask);
-    for (carry=0, i=0; i<NLIMBS(384); i++) {
-        limbx = ret[0][i] + ((p[i] & mask) + (llimb_t)carry);
-        ret[0][i] = (limb_t)limbx;
-        carry = (limb_t)(limbx >> LIMB_T_BITS);
-    }
-}
-
 #if defined(__GNUC__) || defined(__clang__)
 # define MSB(x) ({ limb_t ret = (x) >> (LIMB_T_BITS-1); launder(ret); ret; })
 #else
