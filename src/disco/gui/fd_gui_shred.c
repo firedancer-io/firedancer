@@ -209,7 +209,7 @@ fd_gui_shred_event_iter_next( fd_gui_shred_event_iter_t * iter ) {
     }
   }
 
-  /* Staged FEC events, only set up by fd_gui_fec_event_iter_begin. */
+  /* Only fd_gui_fec_event_iter_begin activates this alternate backend. */
   while( fd_gui_store_kv_scan_next( &iter->_fec_iter ) ) {
     fd_gui_fec_event_t const * src = iter->_fec_iter.rec;
     if( src->insert_time_ns>=iter->_fec_insert_hi ) {
@@ -279,6 +279,7 @@ fd_gui_shred_event_append( fd_gui_t * gui,
   if( batch->event_cnt && batch->insert_time_ns!=window_ns ) batch_flush( gui );
   batch->insert_time_ns = window_ns;
   fd_gui_shred_event_t rec = { .insert_time_ns=now, .event_time_ns=timestamp, .slot=(uint)slot, .idx=(ushort)idx, .event=event };
+  fd_gui_chunk_note( &gui->chunk, FD_GUI_CHUNK_MASK( FD_GUI_CHUNK_KIND_SHREDS ), timestamp, timestamp );
   if( FD_UNLIKELY( !batch_append( builder, &rec ) ) ) {
     batch_flush( gui );
     FD_TEST( batch_append( builder, &rec ) );
@@ -356,6 +357,8 @@ fd_gui_fec_event_append( fd_gui_t * gui,
     return;
   }
   if( dst ) {
+    /* Moves the event to an earlier chunk, so both change. */
+    fd_gui_chunk_note( &gui->chunk, FD_GUI_CHUNK_MASK( FD_GUI_CHUNK_KIND_FEC ), timestamp, dst->event_time_ns );
     dst->event_time_ns = timestamp;
     return;
   }
@@ -366,6 +369,7 @@ fd_gui_fec_event_append( fd_gui_t * gui,
     return;
   }
   *dst = (fd_gui_fec_event_t){ .key=key, .insert_time_ns=now, .event_time_ns=timestamp };
+  fd_gui_chunk_note( &gui->chunk, FD_GUI_CHUNK_MASK( FD_GUI_CHUNK_KIND_FEC ), timestamp, timestamp );
   gui->shreds.fec_insert_time_ns = now;
 }
 
@@ -412,6 +416,25 @@ fd_gui_event_bounds( fd_gui_t * gui,
     int have = first!=LONG_MAX;
     *lo = have ? fd_long_max( 0L, fd_long_sat_sub( first, FD_GUI_FEC_EVENT_LAG_MAX_NS ) ) : LONG_MAX;
     *hi = have ? fd_long_min( LONG_MAX-1L, fd_long_sat_add( last, FD_GUI_FEC_EVENT_LAG_MAX_NS+1L ) ) : LONG_MIN;
+    return have;
+  }
+  if( dbi==FD_GUI_HIST_VOTES || dbi==FD_GUI_HIST_VOTE_EVENTS || dbi==FD_GUI_HIST_VOTE_BATCH ) {
+    /* The vote (or vote batch) and marker databases, with the margins
+       of fd_gui_timeline_scan: rows are inserted up to
+       FD_GUI_TIMELINE_SCAN_MARGIN_NS after their votor timestamp, or
+       that much before it. */
+    long first = LONG_MAX;
+    long last  = LONG_MIN;
+    int  dbs[ 2 ] = { dbi==FD_GUI_HIST_VOTE_BATCH ? FD_GUI_HIST_VOTE_BATCH : FD_GUI_HIST_VOTES, FD_GUI_HIST_VOTE_EVENTS };
+    for( int i=0; i<2; i++ ) {
+      long f, l;
+      if( !gui->db || !fd_gui_store_ts_live_timestamp_bounds( gui->db, (ulong)dbs[ i ], &f, &l ) ) continue;
+      first = fd_long_min( first, f );
+      last  = fd_long_max( last,  l );
+    }
+    int have = first!=LONG_MAX;
+    *lo = have ? fd_long_max( 0L, fd_long_sat_sub( first, FD_GUI_TIMELINE_SCAN_MARGIN_NS ) ) : LONG_MAX;
+    *hi = have ? fd_long_min( LONG_MAX-1L, fd_long_sat_add( last, FD_GUI_TIMELINE_SCAN_MARGIN_NS+1L ) ) : LONG_MIN;
     return have;
   }
   long first;

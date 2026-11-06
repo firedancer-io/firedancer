@@ -12,6 +12,7 @@
 #include <sys/socket.h>
 #include <sys/epoll.h>
 #include <unistd.h>
+#include <zstd.h>
 
 static int
 new_epoll( void ) {
@@ -879,6 +880,103 @@ test_ws_send_after_staging_eviction( void ) {
   ws_test_server_delete( http, scratch, client_fd );
 }
 
+/* recv_exact reads exactly sz bytes from fd. */
+
+static void
+recv_exact( int     fd,
+            uchar * buf,
+            ulong   sz ) {
+  ulong got = 0UL;
+  while( got<sz ) {
+    long n = recv( fd, buf+got, sz-got, 0 );
+    if( FD_UNLIKELY( n<0L && errno==EINTR ) ) continue;
+    FD_TEST( n>0L );
+    got += (ulong)n;
+  }
+}
+
+/* test_ws_send_compressed checks the pre-compressed send path used for
+   cached payloads: fd_http_server_compress / stage_compress produce
+   zstd frames, a staged concatenation of frames is sent unchanged as a
+   single binary message, and connections that did not negotiate
+   compress-zstd are refused. */
+
+static void
+test_ws_send_compressed( void ) {
+  FD_LOG_NOTICE(( "Testing WebSocket send of pre-compressed messages" ));
+
+  ws_msg_state_t state = {0};
+  uchar * scratch;
+  int client_fd;
+  fd_http_server_t * http = ws_test_server_new( &scratch, &state, &client_fd );
+
+  ws_connect( http, client_fd, &state );
+  FD_TEST( !fd_http_server_ws_compressed( http, 0UL ) );
+
+  /* Not negotiated: refused, staging cleared, nothing queued. */
+  fd_http_server_printf( http, "abc" );
+  FD_TEST( -1==fd_http_server_ws_send_compressed( http, 0UL ) );
+  FD_TEST( !http->stage_len && !http->stage_err );
+  FD_TEST( !http->ws_conns[ 0 ].send_frame_cnt );
+
+  http->ws_conns[ 0 ].compress_websocket = 1;
+  FD_TEST( fd_http_server_ws_compressed( http, 0UL ) );
+
+  /* stage_compress compresses the staged message and unstages it
+     without advancing the ring. */
+  char plain[ 600 ];
+  for( ulong i=0UL; i<sizeof(plain); i++ ) plain[ i ] = (char)( 'a'+(i%7UL) );
+  ulong off0 = http->stage_off;
+  fd_http_server_memcpy( http, (uchar const *)plain, 300UL );
+  uchar a[ 512 ];
+  ulong a_sz = fd_http_server_stage_compress( http, a, sizeof(a) );
+  FD_TEST( a_sz );
+  FD_TEST( !http->stage_len && !http->stage_comp_len && http->stage_off==off0 );
+
+  uchar b[ 512 ];
+  ulong b_sz = fd_http_server_compress( http, b, sizeof(b), (uchar const *)plain+300UL, 300UL );
+  FD_TEST( b_sz );
+  FD_TEST( !fd_http_server_compress( http, b, 4UL, (uchar const *)plain, 300UL ) );
+
+  /* A staged concatenation of frames is queued as one binary frame
+     with exactly the staged bytes. */
+  fd_http_server_memcpy( http, a, a_sz );
+  fd_http_server_memcpy( http, b, b_sz );
+  FD_TEST( !fd_http_server_ws_send_compressed( http, 0UL ) );
+  FD_TEST( http->ws_conns[ 0 ].send_frame_cnt==1UL );
+  fd_http_server_ws_frame_t const * frame = &http->ws_conns[ 0 ].send_frames[ http->ws_conns[ 0 ].send_frame_idx ];
+  FD_TEST( frame->compressed && frame->off==off0 && frame->len==a_sz+b_sz );
+  FD_TEST( http->stage_off==off0+a_sz+b_sz && !http->stage_len );
+
+  for( ulong i=0UL; i<200UL && http->ws_conns[ 0 ].send_frame_cnt; i++ ) poll_1ms( http );
+  FD_TEST( !http->ws_conns[ 0 ].send_frame_cnt );
+
+  uchar hdr[ 4 ];
+  recv_exact( client_fd, hdr, 2UL );
+  FD_TEST( hdr[ 0 ]==0x82 );
+  ulong len = hdr[ 1 ];
+  if( len==126UL ) { recv_exact( client_fd, hdr+2, 2UL ); len = ((ulong)hdr[ 2 ]<<8) | hdr[ 3 ]; }
+  FD_TEST( len==a_sz+b_sz );
+  uchar wire[ 1024 ];
+  recv_exact( client_fd, wire, len );
+  FD_TEST( !memcmp( wire, a, a_sz ) && !memcmp( wire+a_sz, b, b_sz ) );
+
+  /* Concatenated frames decode to the concatenated plaintext. */
+  char out[ 1024 ];
+  ulong out_sz = ZSTD_decompress( out, sizeof(out), wire, len );
+  FD_TEST( !ZSTD_isError( out_sz ) && out_sz==sizeof(plain) && !memcmp( out, plain, sizeof(plain) ) );
+
+  /* A message staged as plaintext and compressed by ws_send cannot be
+     re-sent as pre-compressed. */
+  http->compress_websocket = 1;
+  fd_http_server_memcpy( http, (uchar const *)plain, sizeof(plain) );
+  FD_TEST( !fd_http_server_ws_send( http, 0UL ) );
+  frame = &http->ws_conns[ 0 ].send_frames[ (http->ws_conns[ 0 ].send_frame_idx+http->ws_conns[ 0 ].send_frame_cnt-1UL) % http->max_ws_send_frame_cnt ];
+  FD_TEST( frame->compressed && frame->len<sizeof(plain) );
+
+  ws_test_server_delete( http, scratch, client_fd );
+}
+
 /* test_ws_fragmented_coalesced sends a multi-fragment WebSocket message
    in a single write. */
 
@@ -1695,6 +1793,7 @@ main( int     argc,
   test_treap_seed();
   test_poll_interest();
   test_ws_send_after_staging_eviction();
+  test_ws_send_compressed();
   test_location_raw_path();
   test_keep_alive();
   test_zero_length_status_body();

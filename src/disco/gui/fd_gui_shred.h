@@ -20,7 +20,7 @@ typedef struct fd_gui fd_gui_t;
    time, while queries select by event time.  Events skewed further than
    LAG_MAX are excluded from query responses and counted in
    clamped_fec_event_cnt. */
-#define FD_GUI_FEC_EVENT_LAG_MAX_NS (10L*1000L*1000L*1000L)
+#define FD_GUI_FEC_EVENT_LAG_MAX_NS (1000L*1000L*1000L)
 #define FD_GUI_FEC_BATCH_SPAN_NS    (1000L*1000L*1000L)
 
 #define FD_GUI_SLOT_SHRED_REPAIR_REQUEST         (0UL)

@@ -95,11 +95,10 @@ typedef struct fd_gui_store_private fd_gui_store_t;
    their metadata in the value), so FD_GUI_STORE_MAX_REC_SZ is the whole
    region size.  Callers that know their record types at compile time
    should static-assert sizeof(their largest record) <=
-   FD_GUI_STORE_MAX_REC_SZ.  68 MiB is the smallest MiB multiple that
-   fits the GUI's ~64.9 MiB timeline day record, and also packs the next
-   largest records tightly: 5 epochs (3.3% slack) and 15 tile days
-   (1.9%). */
-#define FD_GUI_STORE_REGION_SZ  (68UL<<20)
+   FD_GUI_STORE_MAX_REC_SZ.  96 MiB fits the GUI's ~79 MiB timeline
+   day record (including the vote latency tiers) with ~17 MiB of
+   headroom for further day fields. */
+#define FD_GUI_STORE_REGION_SZ  (96UL<<20)
 #define FD_GUI_STORE_MAX_REC_SZ (FD_GUI_STORE_REGION_SZ)
 
 /* Each ring has a protected rolling base of desc->base_regions (>=1)
