@@ -50,8 +50,9 @@
                    it measures only what the threads share
 
    Reports per step total txn/s, per-thread acquire+release ns/txn,
-   scaling against the first step, acquire/release ns per account and
-   reservation retries (acquire_failed). */
+   throughput speedup over the first step (perfect scaling from 1
+   thread reads as the thread count), acquire/release ns per account
+   and reservation retries (acquire_failed). */
 
 static uchar dummy_owner[ 32 ] = { 0xEE };
 
@@ -361,7 +362,7 @@ main( int     argc,
   worker_t * workers = aligned_alloc( alignof(worker_t), BENCH_MAX_THREADS*sizeof(worker_t) );
   FD_TEST( workers );
   pthread_t threads[ BENCH_MAX_THREADS ];
-  double    single = 0.0;
+  double    tps0 = 0.0;
 
   for( ulong s=0UL; s<sweep_cnt; s++ ) {
     g_threads = sweep[ s ];
@@ -402,11 +403,12 @@ main( int     argc,
     }
     double secs   = (double)elapsed/1e9;
     double ns_txn = ( acquire_ticks+release_ticks )/tick_per_ns/(double)txn_cnt; /* per thread */
-    if( !s ) single = ns_txn;
+    double tps    = (double)txn_cnt/secs;
+    if( !s ) tps0 = tps;
     FD_LOG_NOTICE(( "RESULT mix=%s threads=%lu accounts=%lu cache_gib=%.2f ro_hot=%lu per_thread=%lu data_sz2=%lu: "
                     "%.0f txn/s, per thread %.0f txn/s, %.0f ns/txn, scaling %.2fx, acquire %.0f ns/acc, release %.0f ns/acc, reserve retries %lu",
                     mix, g_threads, g_accounts, cache_gib, g_ro_hot, g_per_thread, g_data_sz2,
-                    (double)txn_cnt/secs, (double)txn_cnt/secs/(double)g_threads, ns_txn, single/ns_txn,
+                    tps, tps/(double)g_threads, ns_txn, tps/tps0,
                     acquire_ticks/tick_per_ns/(double)acc_cnt, release_ticks/tick_per_ns/(double)acc_cnt, failed-failed0 ));
   }
 
