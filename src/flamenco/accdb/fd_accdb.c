@@ -1079,6 +1079,7 @@ cache_free_pop_from( fd_accdb_t * accdb,
     uint old_ver = (uint)( old_vt>>32 );
     fd_accdb_cache_line_t * top = cache_line( accdb, size_class, old_top );
     uint  next    = FD_VOLATILE_CONST( top->next );
+    fd_racesan_hook( "accdb_freelist:pre_pop_cas" );
     ulong new_vt  = ( (ulong)( old_ver+1U )<<32 ) | next;
     ulong seen_vt = FD_ATOMIC_CAS( ver_top, old_vt, new_vt );
     if( FD_LIKELY( seen_vt==old_vt ) ) {
@@ -1190,6 +1191,7 @@ res_take( fd_accdb_t * accdb,
   ulong   refill = accdb->cred_max[ c ]/2UL;
   if( FD_LIKELY( refill ) ) {
     if( FD_LIKELY( FD_ATOMIC_ADD_AND_FETCH( used, n+refill )<=limit ) ) {
+      fd_racesan_hook( "accdb_res:post_refill" );
       FD_ATOMIC_FETCH_AND_ADD( cred, refill );
       return 1;
     }
@@ -1216,6 +1218,7 @@ res_give( fd_accdb_t * accdb,
   ulong keep = max/2UL;
   for(;;) {
     ulong v = FD_VOLATILE_CONST( *cred );
+    fd_racesan_hook( "accdb_res:pre_trim" );
     if( v<=keep ) return; /* stolen meanwhile */
     if( FD_LIKELY( FD_ATOMIC_CAS( cred, v, keep )==v ) ) { FD_ATOMIC_FETCH_AND_SUB( used, v-keep ); return; }
   }
@@ -2327,6 +2330,7 @@ release_take_line( fd_accdb_t * accdb,
       }
     }
     FD_ATOMIC_FETCH_AND_ADD( &shmem->shmetrics->disk_used_bytes, entry_sz );
+    fd_racesan_hook( "accdb_release_take:pre_publish" );
     FD_COMPILER_MFENCE();
     accmeta->offset_fork = fd_accdb_acc_pack_offset_fork( file_off, fd_accdb_acc_fork_id( accmeta ) );
   }
