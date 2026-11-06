@@ -12,6 +12,7 @@
 #include "../stem/fd_stem.h"
 #include "../topo/fd_topo.h"
 #include "../../waltz/mib/fd_netdev_tbl.h"
+#include "../../waltz/ip/fd_fib4.h"
 
 #include "../../waltz/ip/fd_iproute.h"
 #include "../../util/net/fd_eth.h"
@@ -124,6 +125,27 @@ fd_net_gre_tunnels_refresh( fd_net_tile_t *              ctx,
       ctx->gre_tunnel_ip[ gre_tunnel_cnt++ ] = netdev->gre_dst_ip;
     }
   }
+}
+
+/* fd_net_tx_probe_loopback returns 1 if dst_ip routes to a loopback
+   device and 0 otherwise.  It updates no metrics and requests no
+   neighbor solicit, so tile 0 can use it to find loopback packets
+   owned by another net tile without counting that tile's routing
+   failures. */
+
+static inline int
+fd_net_tx_probe_loopback( fd_fib4_t const *      fib_local,
+                          fd_fib4_t const *      fib_main,
+                          fd_netdev_tbl_join_t * netdev_tbl,
+                          uint                   dst_ip ) {
+  fd_fib4_hop_t hop[2];
+  hop[0] = fd_fib4_lookup( fib_local, dst_ip, 0UL );
+  hop[1] = fd_fib4_lookup( fib_main,  dst_ip, 0UL );
+  fd_fib4_hop_t const * next_hop = fd_fib4_hop_or( hop+0, hop+1 );
+  if( next_hop->rtype!=FD_FIB4_RTYPE_LOCAL && next_hop->rtype!=FD_FIB4_RTYPE_UNICAST ) return 0;
+  uint const if_idx = next_hop->rtype==FD_FIB4_RTYPE_LOCAL ? 1U : next_hop->if_idx;
+  fd_netdev_t const * netdev = fd_netdev_tbl_query( netdev_tbl, if_idx );
+  return NULL!=netdev && netdev->dev_type==ARPHRD_LOOPBACK;
 }
 
 /* fd_net_in_frag_validate checks input dcache bounds and TX packet length. */

@@ -457,17 +457,9 @@ before_frag( fd_iavf_tile_t * ctx,
   if( 0!=kind_id && kind_id!=target_idx ) return 1;
 
   uint const dst_ip = fd_disco_netmux_sig_ip( sig );
-  if( kind_id!=target_idx ) {
-    /* Tile 0 probes for loopback without counting another tile's route failures. */
-    fd_fib4_hop_t hop[2];
-    hop[0] = fd_fib4_lookup( ctx->router.fib_local, dst_ip, 0UL );
-    hop[1] = fd_fib4_lookup( ctx->router.fib_main,  dst_ip, 0UL );
-    fd_fib4_hop_t const * next_hop = fd_fib4_hop_or( hop+0, hop+1 );
-    if( next_hop->rtype!=FD_FIB4_RTYPE_LOCAL && next_hop->rtype!=FD_FIB4_RTYPE_UNICAST ) return 1;
-    uint const if_idx = next_hop->rtype==FD_FIB4_RTYPE_LOCAL ? 1U : next_hop->if_idx;
-    fd_netdev_t const * netdev = fd_netdev_tbl_query( &ctx->router.netdev_tbl, if_idx );
-    if( NULL==netdev || netdev->dev_type!=ARPHRD_LOOPBACK ) return 1;
-  }
+  /* Tile 0 probes for loopback without counting another tile's route failures. */
+  if( kind_id!=target_idx &&
+      !fd_net_tx_probe_loopback( ctx->router.fib_local, ctx->router.fib_main, &ctx->router.netdev_tbl, dst_ip ) ) return 1;
 
   fd_net_tx_route_t * route  = &ctx->net.tx_route;
   /* Packets that fail userland routing are sent on net.sock in
