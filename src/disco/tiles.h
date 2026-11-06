@@ -20,6 +20,7 @@ struct fd_became_leader {
      FEC set.  parent_dmr is the parent's double merkle root (block id),
      which goes in the block header.  parent_blockhash is the parent's
      last blockhash (its alpentick). */
+
   ulong     parent_slot;
   fd_hash_t parent_cmr;
   fd_hash_t parent_dmr;
