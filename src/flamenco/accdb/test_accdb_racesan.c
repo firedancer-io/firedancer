@@ -3577,6 +3577,81 @@ test_hint_lost_update( void ) {
   test_shmem_delete();
 }
 
+/* test_res_trim_vs_steal: res_give trims credits over the join's cap
+   back to the shared counter.  If res_steal takes the credits between
+   the trim's read and its CAS, the trim must neither recreate credits
+   nor subtract them from the counter a second time.  W starts one
+   class-0 credit over what a release can leave (3, cap 2), so its
+   release trims; the test steals at accdb_res:pre_trim. */
+
+static void
+test_res_trim_vs_steal( void ) {
+  test_shmem_new_cfg( 4UL*test_tiny_cache_footprint(), 32UL ); /* 32 lines per class: cred_max 2 */
+  fd_accdb_t * w = join_new();
+  FD_TEST( fd_accdb_cred_max( g_shmem->cache_class_max[ 0 ], T_JOINER_CNT )==2UL );
+  fd_accdb_fork_id_t root = fd_accdb_attach_child( w, SENTINEL );
+
+  ulong * cred = &g_shmem->join_cred[ 0 ].val[ 0 ];
+  ulong * used = &g_shmem->cache_class_used[ 0 ].val;
+  *cred = 3UL; *used = 3UL; /* idle credits are counted in used */
+
+  uchar k[ 32UL ]; mk_key( 600200UL, k );
+  fd_racesan_async_t * a = fiber_release_write( &g_fiber[0], w, root, k, 100UL );
+  FD_TEST( fd_racesan_async_step_until( a, "accdb_res:pre_trim", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
+  *used -= FD_ATOMIC_XCHG( cred, 0UL ); /* res_steal */
+  async_finish( a );
+  fiber_done( &g_fiber[0] );
+  FD_TEST( !*cred && !*used );
+
+  ulong lamports; uchar owner0;
+  seq_read_check( w, root, k, &lamports, &owner0 );
+  FD_TEST( lamports==100UL );
+  join_delete( w );
+  test_shmem_delete();
+}
+
+/* test_release_take_vs_reader: when release_take_line gets a line from
+   CLOCK with a dirty victim V, it writes V back before reusing the
+   line.  V's offset stays INVAL until that write is published, so a
+   reader of V must wait instead of reading the stale on-disk copy.
+   Class 0 is full of dirty accounts; W commits one more and parks at
+   accdb_release_take:pre_publish; a reader of V must then reach
+   accdb_acquire:offset_wait, and see V's value once W publishes. */
+
+static void
+test_release_take_vs_reader( void ) {
+  test_shmem_new_tiny();
+  fd_accdb_t * ctl = join_new();
+  fd_accdb_t * w   = join_new();
+  fd_accdb_fork_id_t root = fd_accdb_attach_child( ctl, SENTINEL );
+
+  ulong const n = TEST_TINY_CACHE_MIN_RESERVED;
+  FD_TEST( g_shmem->cache_class_max[ 0 ]==n );
+  uchar keys[ TEST_TINY_CACHE_MIN_RESERVED ][ 32UL ];
+  for( ulong i=0UL; i<n; i++ ) { mk_key( 610000UL+i, keys[ i ] ); seq_write( ctl, root, keys[ i ], 1000UL+i, NULL ); }
+
+  uchar q[ 32UL ]; mk_key( 619999UL, q );
+  fd_racesan_async_t * aw = fiber_release_write( &g_fiber[0], w, root, q, 77UL );
+  FD_TEST( fd_racesan_async_step_until( aw, "accdb_release_take:pre_publish", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
+
+  ulong v = 0UL, cls, idx;
+  while( fd_accdb_debug_find_line( ctl, keys[ v ], &cls, &idx ) ) FD_TEST( ++v<n ); /* V: the evicted one */
+
+  fd_racesan_async_t * ar = fiber_acquire_expect( &g_fiber[1], ctl, root, keys[ v ], 1000UL+v );
+  FD_TEST( fd_racesan_async_step_until( ar, "accdb_acquire:offset_wait", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
+  async_finish( aw );
+  async_finish( ar );
+  fiber_done( &g_fiber[0] );
+  fiber_done( &g_fiber[1] );
+
+  ulong lamports; uchar owner0;
+  seq_read_check( ctl, root, q, &lamports, &owner0 );
+  FD_TEST( lamports==77UL );
+  join_delete( w );
+  join_delete( ctl );
+  test_shmem_delete();
+}
+
 /* ------------------------------------------------------------------ */
 /* Store-ordering case: the markers must be published before refcnt=0  */
 /* ------------------------------------------------------------------ */
@@ -4276,6 +4351,8 @@ main( int     argc,
     TEST( test_pd_parent_hold_vs_advance_root ),
     TEST( test_coldload_evict_vs_snapshot_capture ),
     TEST( test_hint_lost_update ),
+    TEST( test_res_trim_vs_steal ),
+    TEST( test_release_take_vs_reader ),
     {0}
   };
 # undef TEST
