@@ -2,7 +2,12 @@
 #             open a log file on boot and write all messages there.
 #
 # lo_tx_fd: Send-only raw IPv4 socket bound to lo, owned by iavf:0.
-uint logfile_fd, uint lo_tx_fd
+#
+# net_sock_fd: Send-only raw IPPROTO_RAW socket for packets that fail
+#              userland routing.  The packet is sent starting at the
+#              IPv4 header and the kernel routes it and builds the L2
+#              header.
+uint logfile_fd, uint lo_tx_fd, uint net_sock_fd
 
 # logging: all log messages are written to a file and/or pipe
 #
@@ -26,3 +31,13 @@ fsync: (eq (arg 0) logfile_fd)
 sendmmsg: (and (eq (arg 0) lo_tx_fd)
                (<= (arg 2) 64)
                (eq (arg 3) MSG_DONTWAIT))
+
+# routing fallback: send packets that fail userland routing through a
+# raw socket so the kernel routes them
+#
+# fd_net_sock_send issues a single non-blocking sendto with a struct
+# sockaddr_in destination.  arg 0 is the raw socket, arg 3 (flags) is
+# always MSG_DONTWAIT and arg 5 is the size of struct sockaddr_in.
+sendto: (and (eq (arg 0) net_sock_fd)
+             (eq (arg 3) MSG_DONTWAIT)
+             (eq (arg 5) FD_SOCKADDR_IN_SZ))
