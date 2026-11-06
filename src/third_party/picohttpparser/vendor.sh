@@ -3,7 +3,7 @@ set -euo pipefail
 
 cd -- "$( dirname -- "${BASH_SOURCE[0]}" )"
 
-readonly PICOHTTP_COMMIT="66534e6a48d67a3d9ddfeb5bd2c922f498d314ae"
+readonly PICOHTTP_COMMIT="54413dc68acd3aca70317d3c0a8c1d45819c9de2"
 tmp="$( mktemp -d "${TMPDIR:-/tmp}/fd-picohttpparser-vendor.XXXXXX" )"
 trap 'rm -rf "$tmp"' EXIT
 
@@ -14,8 +14,8 @@ done
 (
   cd "$tmp"
   sha256sum -c <<'SHA256'
-177196a72fb3b480de80485a17b5509578f3e2c1e4343dcb1f2b2cf94255065a  picohttpparser.c
-0113b9f8c6237f7163d99b320a2390983b27c6d56e32700682b73302e183b347  picohttpparser.h
+8aacb701e60a3a5c600f51845d9554463773eafed88f9c4f47472ed5dac6a942  picohttpparser.c
+f19173fc3a60881d0e5f36fc5872d686b3ad288b8a439c6dc20bbaccec519d5d  picohttpparser.h
 SHA256
 )
 

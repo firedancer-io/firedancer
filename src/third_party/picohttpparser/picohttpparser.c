@@ -37,11 +37,19 @@
 #include "picohttpparser.h"
 
 #if __GNUC__ >= 3
+#ifndef likely
 #define likely(x) __builtin_expect(!!(x), 1)
+#endif
+#ifndef unlikely
 #define unlikely(x) __builtin_expect(!!(x), 0)
+#endif
 #else
+#ifndef likely
 #define likely(x) (x)
+#endif
+#ifndef unlikely
 #define unlikely(x) (x)
+#endif
 #endif
 
 #ifdef _MSC_VER
@@ -222,8 +230,8 @@ static const char *is_complete(const char *buf, const char *buf_end, size_t last
     return NULL;
 }
 
-#define PARSE_INT(valp_, mul_)                                                                                                     \
-    if (*buf < '0' || '9' < *buf) {                                                                                                \
+#define PARSE_INT(valp_, mul_, min_, max_)                                                                                         \
+    if (*buf < (min_) || (max_) < *buf) {                                                                                          \
         buf++;                                                                                                                     \
         *ret = -1;                                                                                                                 \
         return NULL;                                                                                                               \
@@ -233,11 +241,11 @@ static const char *is_complete(const char *buf, const char *buf_end, size_t last
 #define PARSE_INT_3(valp_)                                                                                                         \
     do {                                                                                                                           \
         int res_ = 0;                                                                                                              \
-        PARSE_INT(&res_, 100)                                                                                                      \
+        PARSE_INT(&res_, 100, '1', '5')                                                                                            \
         *valp_ = res_;                                                                                                             \
-        PARSE_INT(&res_, 10)                                                                                                       \
+        PARSE_INT(&res_, 10, '0', '9')                                                                                             \
         *valp_ += res_;                                                                                                            \
-        PARSE_INT(&res_, 1)                                                                                                        \
+        PARSE_INT(&res_, 1, '0', '9')                                                                                              \
         *valp_ += res_;                                                                                                            \
     } while (0)
 
@@ -291,7 +299,7 @@ static const char *parse_http_version(const char *buf, const char *buf_end, int 
     EXPECT_CHAR_NO_CHECK('/');
     EXPECT_CHAR_NO_CHECK('1');
     EXPECT_CHAR_NO_CHECK('.');
-    PARSE_INT(minor_version, 1);
+    PARSE_INT(minor_version, 1, '0', '9');
     return buf;
 }
 
@@ -521,8 +529,10 @@ int phr_parse_headers(const char *buf_start, size_t len, struct phr_header *head
 enum {
     CHUNKED_IN_CHUNK_SIZE,
     CHUNKED_IN_CHUNK_EXT,
+    CHUNKED_IN_CHUNK_HEADER_EXPECT_LF,
     CHUNKED_IN_CHUNK_DATA,
-    CHUNKED_IN_CHUNK_CRLF,
+    CHUNKED_IN_CHUNK_DATA_EXPECT_CR,
+    CHUNKED_IN_CHUNK_DATA_EXPECT_LF,
     CHUNKED_IN_TRAILERS_LINE_HEAD,
     CHUNKED_IN_TRAILERS_LINE_MIDDLE
 };
@@ -545,6 +555,8 @@ ssize_t phr_decode_chunked(struct phr_chunked_decoder *decoder, char *buf, size_
     size_t dst = 0, src = 0, bufsz = *_bufsz;
     ssize_t ret = -2; /* incomplete */
 
+    decoder->_total_read += bufsz;
+
     while (1) {
         switch (decoder->_state) {
         case CHUNKED_IN_CHUNK_SIZE:
@@ -554,6 +566,18 @@ ssize_t phr_decode_chunked(struct phr_chunked_decoder *decoder, char *buf, size_
                     goto Exit;
                 if ((v = decode_hex(buf[src])) == -1) {
                     if (decoder->_hex_count == 0) {
+                        ret = -1;
+                        goto Exit;
+                    }
+                    /* the only characters that may appear after the chunk size are BWS, semicolon, or CRLF */
+                    switch (buf[src]) {
+                    case ' ':
+                    case '\011':
+                    case ';':
+                    case '\012':
+                    case '\015':
+                        break;
+                    default:
                         ret = -1;
                         goto Exit;
                     }
@@ -574,8 +598,22 @@ ssize_t phr_decode_chunked(struct phr_chunked_decoder *decoder, char *buf, size_
             for (;; ++src) {
                 if (src == bufsz)
                     goto Exit;
-                if (buf[src] == '\012')
+                if (buf[src] == '\015') {
                     break;
+                } else if (buf[src] == '\012') {
+                    ret = -1;
+                    goto Exit;
+                }
+            }
+            ++src;
+            decoder->_state = CHUNKED_IN_CHUNK_HEADER_EXPECT_LF;
+        /* fallthru */
+        case CHUNKED_IN_CHUNK_HEADER_EXPECT_LF:
+            if (src == bufsz)
+                goto Exit;
+            if (buf[src] != '\012') {
+                ret = -1;
+                goto Exit;
             }
             ++src;
             if (decoder->bytes_left_in_chunk == 0) {
@@ -603,16 +641,22 @@ ssize_t phr_decode_chunked(struct phr_chunked_decoder *decoder, char *buf, size_
             src += decoder->bytes_left_in_chunk;
             dst += decoder->bytes_left_in_chunk;
             decoder->bytes_left_in_chunk = 0;
-            decoder->_state = CHUNKED_IN_CHUNK_CRLF;
+            decoder->_state = CHUNKED_IN_CHUNK_DATA_EXPECT_CR;
         }
         /* fallthru */
-        case CHUNKED_IN_CHUNK_CRLF:
-            for (;; ++src) {
-                if (src == bufsz)
-                    goto Exit;
-                if (buf[src] != '\015')
-                    break;
+        case CHUNKED_IN_CHUNK_DATA_EXPECT_CR:
+            if (src == bufsz)
+                goto Exit;
+            if (buf[src] != '\015') {
+                ret = -1;
+                goto Exit;
             }
+            ++src;
+            decoder->_state = CHUNKED_IN_CHUNK_DATA_EXPECT_LF;
+        /* fallthru */
+        case CHUNKED_IN_CHUNK_DATA_EXPECT_LF:
+            if (src == bufsz)
+                goto Exit;
             if (buf[src] != '\012') {
                 ret = -1;
                 goto Exit;
@@ -652,6 +696,12 @@ Exit:
     if (dst != src)
         memmove(buf + dst, buf + src, bufsz - src);
     *_bufsz = dst;
+    /* if incomplete but the overhead of the chunked encoding is >=100KB and >80%, signal an error */
+    if (ret == -2) {
+        decoder->_total_overhead += bufsz - dst;
+        if (decoder->_total_overhead >= 102400 && decoder->_total_read - decoder->_total_overhead < decoder->_total_read / 4)
+            ret = -1;
+    }
     return ret;
 }
 
