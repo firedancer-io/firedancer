@@ -235,6 +235,7 @@ setup_sock_tile( fd_topo_t *             topo,
                  ulong const *           tile_to_cpu,
                  fd_config_net_t const * net_cfg ) {
   fd_topo_tile_t * tile = fd_topob_tile( topo, "sock", "sock", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0, 0 );
+  tile->sleep_eventfd = topo->sleep_obj_id!=ULONG_MAX;
   tile->sock.net.bind_address = net_cfg->bind_address_parsed;
 
   if( FD_UNLIKELY( net_cfg->socket.receive_buffer_size>INT_MAX ) ) FD_LOG_ERR(( "invalid [net.socket.receive_buffer_size]" ));
@@ -598,6 +599,7 @@ fd_topos_sock_lo( fd_topo_t *            topo,
                   fd_topo_tile_t const * net_tile ) {
   fd_topob_wksp( topo, "sock" );
   fd_topo_tile_t * sock = fd_topob_tile( topo, "sock", "sock", "metric_in", ULONG_MAX, 0, 0, 0 );
+  sock->sleep_eventfd = topo->sleep_obj_id!=ULONG_MAX;
   sock->net = net_tile->net;
   sock->sock.only_recv_lo = 1;
   sock->sock.so_rcvbuf    = 32*1024*1024;
