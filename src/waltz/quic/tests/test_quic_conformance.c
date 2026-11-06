@@ -1554,6 +1554,50 @@ FD_UNIT_TEST( quic_datagram_frames ) {
   FD_TEST( datagram_rx_cnt==2UL );
 }
 
+static ulong test_conn_new_cnt;
+static int test_conn_new_close;
+
+static void
+test_conn_new_before_datagram( fd_quic_conn_t * conn, void * ctx FD_PARAM_UNUSED ) {
+  FD_TEST( conn->state==FD_QUIC_CONN_STATE_ACTIVE );
+  test_conn_new_cnt++;
+  if( test_conn_new_close ) fd_quic_conn_close( conn, 0U );
+}
+
+static void
+test_datagram_after_conn_new( fd_quic_conn_t * conn, uchar const * data, ulong data_sz, void * ctx ) {
+  FD_TEST( test_conn_new_cnt==1UL );
+  FD_TEST( conn->state==FD_QUIC_CONN_STATE_ACTIVE );
+  test_datagram_rx( conn, data, data_sz, ctx );
+}
+
+FD_UNIT_TEST( quic_notify_before_first_datagram ) {
+  for( int close=0; close<2; close++ ) {
+    fd_quic_sandbox_init( sandbox, FD_QUIC_ROLE_SERVER );
+    fd_quic_t * quic = sandbox->quic;
+    quic->config.max_datagram_frame_size = 64UL;
+    quic->cb.conn_new = test_conn_new_before_datagram;
+    quic->cb.datagram_rx = test_datagram_after_conn_new;
+    fd_quic_conn_t * conn = fd_quic_sandbox_new_conn_established( sandbox, rng );
+    conn->state = FD_QUIC_CONN_STATE_HANDSHAKE_COMPLETE;
+    conn->called_conn_new = 0;
+    test_conn_new_cnt = datagram_rx_cnt = 0UL;
+    test_conn_new_close = close;
+    uchar const frame[] = {0x31,3,'a','b','c'};
+    test_quic_send_protected_pkt( conn, fd_quic_enc_level_appdata_id, frame, sizeof(frame) );
+    FD_TEST( test_conn_new_cnt==1UL );
+    FD_TEST( datagram_rx_cnt==(ulong)!close );
+    FD_TEST( conn->state==(close ? FD_QUIC_CONN_STATE_CLOSE_PENDING : FD_QUIC_CONN_STATE_ACTIVE) );
+    if( !close ) {
+      fd_quic_conn_service( quic, conn, sandbox->wallclock );
+      FD_TEST( test_conn_new_cnt==1UL );
+    }
+    quic->cb.conn_new = NULL;
+    quic->cb.datagram_rx = NULL;
+    fd_quic_fini( quic );
+  }
+}
+
 FD_UNIT_TEST( quic_datagram_express_tx ) {
   fd_quic_t * quic = sandbox->quic;
   quic->config.max_datagram_frame_size = 64UL;

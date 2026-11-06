@@ -2239,6 +2239,30 @@ fd_quic_key_update_complete( fd_quic_conn_t * conn ) {
   FD_DEBUG( FD_LOG_DEBUG(( "key update completed" )); )
 }
 
+static void
+fd_quic_server_handshake_confirm( fd_quic_t *      quic,
+                                  fd_quic_conn_t * conn ) {
+  if( conn->state!=FD_QUIC_CONN_STATE_HANDSHAKE_COMPLETE || !conn->server ) return;
+  conn->handshake_done_send = 1;
+
+  /* move straight to ACTIVE */
+  fd_quic_set_conn_state( conn, FD_QUIC_CONN_STATE_ACTIVE );
+
+  /* RFC 9001 4.9.2. Discarding Handshake Keys
+     > An endpoint MUST discard its Handshake keys when the
+     > TLS handshake is confirmed
+     RFC 9001 4.1.2. Handshake Confirmed
+     > [...] the TLS handshake is considered confirmed at the
+     > server when the handshake completes */
+  fd_quic_abandon_enc_level( conn, fd_quic_enc_level_handshake_id );
+
+  /* user callback */
+  fd_quic_cb_conn_new( quic, conn );
+
+  /* clear out hs_data here, as we don't need it anymore */
+  if( conn->tls_hs ) fd_quic_tls_clear_hs_data( conn->tls_hs, fd_quic_enc_level_appdata_id );
+}
+
 ulong
 fd_quic_handle_v1_one_rtt( fd_quic_t *      quic,
                            fd_quic_conn_t * conn,
@@ -2354,6 +2378,11 @@ fd_quic_handle_v1_one_rtt( fd_quic_t *      quic,
        packets get reordered past the current incoming packet) */
     fd_quic_key_update_complete( conn );
   }
+
+  /* Notify the application before delivering the first 1-RTT frames. */
+  fd_quic_server_handshake_confirm( quic, conn );
+  if( FD_UNLIKELY( conn->state!=FD_QUIC_CONN_STATE_ACTIVE &&
+                   conn->state!=FD_QUIC_CONN_STATE_HANDSHAKE_COMPLETE ) ) return FD_QUIC_PARSE_FAIL;
 
   /* handle frames */
   ulong         payload_off = pn_offset + pkt_number_sz;
@@ -4330,26 +4359,7 @@ fd_quic_conn_service( fd_quic_t * quic, fd_quic_conn_t * conn, long now ) {
       {
         if( conn->tls_hs ) {
           /* if we're the server, we send "handshake-done" frame */
-          if( conn->state == FD_QUIC_CONN_STATE_HANDSHAKE_COMPLETE && conn->server ) {
-            conn->handshake_done_send = 1;
-
-            /* move straight to ACTIVE */
-            fd_quic_set_conn_state( conn, FD_QUIC_CONN_STATE_ACTIVE );
-
-            /* RFC 9001 4.9.2. Discarding Handshake Keys
-               > An endpoint MUST discard its Handshake keys when the
-               > TLS handshake is confirmed
-               RFC 9001 4.1.2. Handshake Confirmed
-               > [...] the TLS handshake is considered confirmed at the
-               > server when the handshake completes */
-            fd_quic_abandon_enc_level( conn, fd_quic_enc_level_handshake_id );
-
-            /* user callback */
-            fd_quic_cb_conn_new( quic, conn );
-
-            /* clear out hs_data here, as we don't need it anymore */
-            fd_quic_tls_clear_hs_data( conn->tls_hs, fd_quic_enc_level_appdata_id );
-          }
+          fd_quic_server_handshake_confirm( quic, conn );
 
           /* if we're the client, fd_quic_conn_tx will flush the hs
              buffer so we can receive the HANDSHAKE_DONE frame, and
