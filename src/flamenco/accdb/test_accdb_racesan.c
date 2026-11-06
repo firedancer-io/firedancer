@@ -4921,7 +4921,23 @@ test_residual_wait_vs_epoch_drain( void ) {
   fd_accdb_fork_id_t c = fd_accdb_attach_child( t2, tip );
   fd_accdb_advance_root( t2, c );
   drain_background( t2 );   /* cmd: epoch drain must not block */
-  drain_background( t2 );   /* serves the residual ring */
+  /* Pause T2 after publishing its warmed line, but before unpinning.
+     A reader can already pin the published line at this point. */
+  fd_racesan_async_t * bg = fiber_background( &g_fiber[0], t2 );
+  FD_TEST( fd_racesan_async_step_until( bg, "accdb_warm:pre_unpin", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
+  fd_accdb_t * reader = fd_accdb_join( fd_accdb_new( aligned_alloc( fd_accdb_align(), jfp ), shmem, fd, -1, 0UL, NULL, NULL, 0UL, 1, -1, -1, NULL ) );
+  FD_TEST( reader );
+  fd_acc_t held = fd_accdb_read_one( reader, c, key );
+  FD_TEST( held.lamports==77UL );
+  ulong warm_cls, warm_idx;
+  FD_TEST( fd_accdb_debug_find_line( t2, key, &warm_cls, &warm_idx ) );
+  fd_accdb_cache_line_t * warm_line = fd_accdb_debug_line_addr( t2, warm_cls, warm_idx );
+  FD_TEST( warm_line->refcnt==2U );
+  async_finish( bg );
+  fiber_done( &g_fiber[0] );
+  FD_TEST( warm_line->refcnt==1U ); /* T2 must not erase the reader's pin */
+  fd_accdb_unread_one( reader, &held );
+  FD_TEST( warm_line->refcnt==0U ); /* no underflow to EVICT_SENTINEL */
   async_finish( rf->async );
   FD_TEST( rf->lamports==77UL );
   fd_racesan_async_delete( rf->async );

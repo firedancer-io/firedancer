@@ -7282,7 +7282,11 @@ idx_warm_line( fd_accdb_t *         accdb,
     if( FD_LIKELY( FD_ATOMIC_CAS( &h->executable_size, c2, (c2 & ~FD_ACCDB_SIZE_CACHE_CLAIM_BIT)|FD_ACCDB_SIZE_CACHE_VALID_BIT )==c2 ) ) break;
   }
   FD_COMPILER_MFENCE();
-  FD_VOLATILE( l->refcnt ) = 0U;
+  /* VALID is published: foreground readers can already hold pins.
+     Drop only our pin, rather than erasing theirs (whose later unpin
+     would underflow to FD_ACCDB_EVICT_SENTINEL and stall all readers). */
+  fd_racesan_hook( "accdb_warm:pre_unpin" );
+  FD_ATOMIC_FETCH_AND_SUB( &l->refcnt, 1U );
   accdb->metrics->warmed++;
   return 1;
 }
