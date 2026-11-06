@@ -1580,6 +1580,11 @@ prepare_leader_bank( fd_replay_tile_t * ctx,
   ctx->leader_bank->accdb_fork_id        = fd_accdb_attach_child    ( ctx->accdb,     parent_bank->accdb_fork_id     );
   ctx->leader_bank->parent_accdb_fork_id = parent_bank->accdb_fork_id;
 
+  /* The leader bank hashes none of its writes, from start-of-block
+     processing through execution.  fd_runtime_block_execute_finalize
+     folds them in from the accdb fork. */
+  ctx->leader_bank->lthash_mode = FD_BANK_LTHASH_MODE_OOB_SKIP;
+
   int is_epoch_boundary = 0;
   fd_runtime_block_execute_prepare( ctx->banks, ctx->leader_bank, ctx->accdb, ctx->runtime_stack, ctx->capture_ctx, &is_epoch_boundary );
   FD_CHECK_CRIT( !is_epoch_boundary || FD_FEATURE_ACTIVE_BANK( ctx->leader_bank, alpenglow ), "alpenglow feature is not active" );
