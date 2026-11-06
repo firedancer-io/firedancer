@@ -110,6 +110,9 @@ size_t blst_p2_sizeof(void);
 size_t blst_p2_affine_sizeof(void);
 size_t blst_fp12_sizeof(void);
 
+void blst_fp_from_le_bytes(blst_fp *ret, const byte *in, size_t len);
+void blst_fp_from_be_bytes(blst_fp *ret, const byte *in, size_t len);
+
 /*
  * Single-shot SHA-256 hash function.
  */

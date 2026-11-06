@@ -1,3 +1,11 @@
+#if defined(__ARM_FEATURE_PAC_DEFAULT) && __ARM_FEATURE_PAC_DEFAULT==2
+# define PACI_HINT 27
+# define AUTI_HINT 31
+#else
+# define PACI_HINT 25
+# define AUTI_HINT 29
+#endif
+
 //
 // Copyright Supranational LLC
 // Licensed under the Apache License, Version 2.0, see LICENSE for details.
@@ -43,9 +51,11 @@
 .align	2
 .align	2
 .globl	blst_sha256_block_armv8
+.hidden	blst_sha256_block_armv8
 .type	blst_sha256_block_armv8,%function
 .align	6
 blst_sha256_block_armv8:
+	hint	#34
 .Lv8_entry:
 	stp	x29,x30,[sp,#-2*__SIZEOF_POINTER__]!
 	add	x29,sp,#0
@@ -182,9 +192,11 @@ blst_sha256_block_armv8:
 	ret
 .size	blst_sha256_block_armv8,.-blst_sha256_block_armv8
 .globl	blst_sha256_block_data_order
+.hidden	blst_sha256_block_data_order
 .type	blst_sha256_block_data_order,%function
 .align	4
 blst_sha256_block_data_order:
+	hint	#34
 	adrp	x16,__blst_platform_cap
 	ldr	w16,[x16,#:lo12:__blst_platform_cap]
 	tst	w16,#1
@@ -1034,6 +1046,7 @@ blst_sha256_block_data_order:
 .type	blst_sha256_emit,%function
 .align	4
 blst_sha256_emit:
+	hint	#34
 	ldp	x4,x5,[x1]
 	ldp	x6,x7,[x1,#16]
 #ifndef	__AARCH64EB__
@@ -1062,6 +1075,7 @@ blst_sha256_emit:
 .type	blst_sha256_bcopy,%function
 .align	4
 blst_sha256_bcopy:
+	hint	#34
 .Loop_bcopy:
 	ldrb	w3,[x1],#1
 	sub	x2,x2,#1
@@ -1075,9 +1089,20 @@ blst_sha256_bcopy:
 .type	blst_sha256_hcopy,%function
 .align	4
 blst_sha256_hcopy:
+	hint	#34
 	ldp	x4,x5,[x1]
 	ldp	x6,x7,[x1,#16]
 	stp	x4,x5,[x0]
 	stp	x6,x7,[x0,#16]
 	ret
 .size	blst_sha256_hcopy,.-blst_sha256_hcopy
+
+#if defined(__ARM_FEATURE_BTI_DEFAULT) || defined(__ARM_FEATURE_PAC_DEFAULT)
+.section	.note.GNU-stack,"",@progbits
+.section	.note.gnu.property,"a",@note
+	.long	4,2f-1f,5
+	.byte	0x47,0x4E,0x55,0
+1:	.long	0xc0000000,4,3
+.align  3
+2:
+#endif

@@ -1,3 +1,11 @@
+#if defined(__ARM_FEATURE_PAC_DEFAULT) && __ARM_FEATURE_PAC_DEFAULT==2
+# define PACI_HINT 27
+# define AUTI_HINT 31
+#else
+# define PACI_HINT 25
+# define AUTI_HINT 29
+#endif
+
 .text
 
 .globl	ct_is_square_mod_384
@@ -5,7 +13,7 @@
 .type	ct_is_square_mod_384, %function
 .align	5
 ct_is_square_mod_384:
-	.inst	0xd503233f
+	hint	#PACI_HINT
 	stp	x29, x30, [sp,#-16*__SIZEOF_POINTER__]!
 	add	x29, sp, #0
 	stp	x19, x20, [sp,#2*__SIZEOF_POINTER__]
@@ -84,7 +92,7 @@ ct_is_square_mod_384:
 	ldp	x25, x26, [x29,#8*__SIZEOF_POINTER__]
 	ldp	x27, x28, [x29,#10*__SIZEOF_POINTER__]
 	ldr	x29, [sp],#16*__SIZEOF_POINTER__
-	.inst	0xd50323bf
+	hint	#AUTI_HINT
 	ret
 .size	ct_is_square_mod_384,.-ct_is_square_mod_384
 
@@ -332,3 +340,13 @@ __inner_loop_48:
 
 	ret
 .size	__inner_loop_48,.-__inner_loop_48
+
+#if defined(__ARM_FEATURE_BTI_DEFAULT) || defined(__ARM_FEATURE_PAC_DEFAULT)
+.section	.note.GNU-stack,"",@progbits
+.section	.note.gnu.property,"a",@note
+	.long	4,2f-1f,5
+	.byte	0x47,0x4E,0x55,0
+1:	.long	0xc0000000,4,3
+.align  3
+2:
+#endif
