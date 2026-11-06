@@ -1697,11 +1697,6 @@ snap_pool_acquire( fd_snapmk_t *       ctx,
   }
 
   FD_LOG_INFO(( "evicting old snapshot file: %s", inode->name ));
-  if( FD_UNLIKELY( ftruncate( snap_fd, 0L ) ) ) {
-    FD_LOG_ERR(( "ftruncate(%s) failed: %s", inode->name, fd_io_strerror( errno ) ));
-  }
-  ctx->pool_sz[ snap_pool_idx ] = 0UL;
-
   char partial_name[ sizeof(inode->name) ];
   fd_snap_pool_partial_name( partial_name, snap_pool_idx );
   if( FD_UNLIKELY( syscall( SYS_renameat2, ctx->snap_dir_fd, inode->name,
@@ -1709,6 +1704,11 @@ snap_pool_acquire( fd_snapmk_t *       ctx,
     FD_LOG_ERR(( "renameat2(%s, %s) failed: %s", inode->name, partial_name, fd_io_strerror( errno ) ));
   }
   fd_cstr_ncpy( inode->name, partial_name, sizeof(inode->name) );
+
+  if( FD_UNLIKELY( ftruncate( snap_fd, 0L ) ) ) {
+    FD_LOG_ERR(( "ftruncate(%s) failed: %s", inode->name, fd_io_strerror( errno ) ));
+  }
+  ctx->pool_sz[ snap_pool_idx ] = 0UL;
   inode->full_slot = ULONG_MAX;
   inode->incr_slot = ULONG_MAX;
   return snap_pool_idx;
