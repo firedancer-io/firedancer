@@ -3213,7 +3213,7 @@ can_process_rotor_fec( fd_replay_tile_t       * ctx,
   /* Since fast boot streams do not serve all stake accounts, we must
      wait on the snapshot to finish loading before processing an epoch
      boundary. */
-  if( FD_UNLIKELY( ctx->snapshots_loading && fec->fec_set_idx==0U && fec->slot>ctx->epoch_end_slot ) ) {
+  if( FD_UNLIKELY( ctx->snapshots_loading && fec->fec_set_idx==fec->update_parent_fec_idx && fec->slot>ctx->epoch_end_slot ) ) {
     if( FD_UNLIKELY( !ctx->epoch_boundary_hold ) ) FD_LOG_NOTICE(( "holding replay at slot %lu until the snapshots are done loading", fec->slot ));
     ctx->epoch_boundary_hold = 1;
     return PROCESS_FEC_WAIT;

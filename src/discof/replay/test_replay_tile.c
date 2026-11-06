@@ -3715,6 +3715,12 @@ test_rotor_fec_holds_at_epoch_boundary( fd_wksp_t * wksp ) {
   publish( ctx, &info );
   FD_TEST( info.epoch_boundary_hold && !info.caught_up );
 
+  /* A block whose leader handed over starts at its UpdateParent FEC,
+     not at FEC 0: held the same way. */
+  fd_hash_t mr129 = { .ul = { 602 } };
+  FD_TEST( deliver_rotor_fec_up( ctx, 129UL, 32U, 32U, 5UL, &B, &mr129, 0, 0 )==1 );
+  FD_TEST( mock_sched_fec_ingest_cnt==ing0+1UL && ctx->epoch_boundary_hold );
+
   /* The snapshots are done loading: the block goes through. */
   finish_snapshot_load( ctx );
   FD_TEST( !ctx->snapshots_loading && !ctx->epoch_boundary_hold );
