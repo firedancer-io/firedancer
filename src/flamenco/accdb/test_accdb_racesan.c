@@ -164,6 +164,16 @@ test_shmem_delete( void ) {
    shmem.  Each fiber (and the control thread) gets its own join, so each
    claims its own epoch slot, exactly like a distinct tile would. */
 
+/* free_cnt_total is the number of free class-c lines on every join's
+   list. */
+
+static ulong
+free_cnt_total( ulong c ) {
+  ulong total = 0UL;
+  for( ulong j=0UL; j<FD_VOLATILE_CONST( g_shmem->joiner_cnt ); j++ ) total += FD_VOLATILE_CONST( g_shmem->cache_free_cnt[ j ].val[ c ] );
+  return total;
+}
+
 static fd_accdb_t *
 join_new( void ) {
   ulong accdb_fp = fd_accdb_footprint( T_MAX_LIVE_SLOTS, 1 );
@@ -3429,7 +3439,7 @@ test_clock_claim_vs_freed( void ) {
     uchar k[ 32UL ]; mk_key( 700000UL+i, k );
     seq_write( ctl, root, k, 100UL+i, owner );
   }
-  FD_TEST( !FD_VOLATILE_CONST( g_shmem->cache_free_cnt[ 0 ].val ) );
+  FD_TEST( !free_cnt_total( 0UL ) );
   FD_TEST( FD_VOLATILE_CONST( g_shmem->cache_class_init[ 0 ].val )>=max0 );
 
   /* W: writable acquire of a NEW account, so its class-0 destination
@@ -3454,7 +3464,7 @@ test_clock_claim_vs_freed( void ) {
   /* Free L out from under the parked sweeper. */
   fd_accdb_debug_clock_evict_line( ctl, 0UL, l_idx );
   FD_TEST( l->acc_idx==UINT_MAX && l->key.generation==UINT_MAX );
-  FD_TEST( FD_VOLATILE_CONST( g_shmem->cache_free_cnt[ 0 ].val )==1UL );
+  FD_TEST( free_cnt_total( 0UL )==1UL );
 
   for(;;) {
     int rc = fd_racesan_async_step( w );
@@ -3463,8 +3473,9 @@ test_clock_claim_vs_freed( void ) {
   }
   fiber_done( &g_fiber[0] );
 
-  /* Oracle: everything reachable from the free list is free. */
-  uint top = (uint)( FD_VOLATILE_CONST( g_shmem->cache_free[ 0 ].ver_top ) & (ulong)UINT_MAX );
+  /* Oracle: everything reachable from any join's free list is free. */
+  for( ulong j=0UL; j<FD_VOLATILE_CONST( g_shmem->joiner_cnt ); j++ ) {
+  uint top = (uint)( FD_VOLATILE_CONST( g_shmem->cache_free[ j ].ver_top[ 0 ] ) & (ulong)UINT_MAX );
   for( ulong guard=0UL; top!=UINT_MAX; guard++ ) {
     FD_TEST( guard<=max0 ); /* a line pushed twice makes the list cyclic */
     fd_accdb_cache_line_t * n = fd_accdb_debug_line_addr( ctl, 0UL, (ulong)top );
@@ -3475,10 +3486,93 @@ test_clock_claim_vs_freed( void ) {
     }
     top = FD_VOLATILE_CONST( n->next );
   }
+  }
   FD_LOG_NOTICE(( "sweeper declined the freed line %lu", l_idx ));
 
   join_delete( ctl );
   join_delete( jw );
+  test_shmem_delete();
+}
+
+/* test_hint_lost_update: a steal that finds a join's list empty and a
+   push into that same empty list must not leave the hint bit clear with
+   a line on the list.  (Scenario from mmcgee/accdb-lazy-lines-2.)
+
+   Class 0 is marked fully initialized, so a join with an empty list
+   must steal.  P and Q are on disk; ctl's class-0 list holds one line.
+     1. jt loads P: steals ctl's only class-0 line (ctl's hint bit stays
+        set, its list is now empty).
+     2. jt2 loads Q: visits ctl's list, finds it empty, and parks just
+        before clearing the hint.
+     3. ctl evicts P's line back onto its list: the list was empty but
+        the hint already reads set, so the push leaves it alone.
+     4. jt2 resumes: clears the bit, re-reads the list, finds the line,
+        sets the bit back and takes it.  Without the re-read the line
+        would sit on a list no hint points at; CLOCK skips free lines,
+        so jt2 would spin forever. */
+static void
+test_hint_lost_update( void ) {
+  test_shmem_new_tiny();
+  fd_accdb_t * ctl = join_new();
+  fd_accdb_t * jt  = join_new();
+  fd_accdb_t * jt2 = join_new();
+
+  fd_accdb_fork_id_t root = fd_accdb_attach_child( ctl, SENTINEL );
+  uchar key_P[ 32 ] = { 'P', 0 };
+  uchar key_Q[ 32 ] = { 'Q', 0 };
+  uchar owner[ 32 ] = { 0xAA, 0 };
+  ulong cls, idx;
+  write_acc( ctl, root, key_Q, 200UL, owner, NULL, 0UL );
+  FD_TEST( fd_accdb_debug_find_line( ctl, key_Q, &cls, &idx ) && cls==0UL );
+  fd_accdb_debug_clock_evict_line( ctl, cls, idx );
+  write_acc( ctl, root, key_P, 100UL, owner, NULL, 0UL );
+  FD_TEST( fd_accdb_debug_find_line( ctl, key_P, &cls, &idx ) && cls==0UL );
+  fd_accdb_debug_clock_evict_line( ctl, cls, idx );
+  /* Every other class-0 line ctl ever freed goes too, so ctl's list is
+     the only place a class-0 line can come from. */
+  while( free_cnt_total( 0UL )>1UL ) {
+    ulong vt = g_shmem->cache_free[ 0 ].ver_top[ 0 ];
+    fd_accdb_cache_line_t * l = fd_accdb_debug_line_addr( ctl, 0UL, (ulong)(uint)vt );
+    g_shmem->cache_free[ 0 ].ver_top[ 0 ] = ( vt & ~(ulong)UINT_MAX ) | (ulong)l->next;
+    g_shmem->cache_free_cnt[ 0 ].val[ 0 ]--;
+  }
+  FD_TEST( free_cnt_total( 0UL )==1UL );
+  g_shmem->cache_class_init[ 0 ].val = g_shmem->cache_class_max[ 0 ];
+
+  fd_racesan_async_t * t = fiber_acquire_expect( &g_fiber[0], jt, root, key_P, 100UL );
+  for(;;) {
+    int rc = fd_racesan_async_step( t );
+    if( rc==FD_RACESAN_ASYNC_RET_EXIT ) break;
+    FD_TEST( rc==FD_RACESAN_ASYNC_RET_HOOK );
+  }
+  fiber_done( &g_fiber[0] );
+  FD_TEST( fd_accdb_debug_find_line( ctl, key_P, &cls, &idx ) );
+  FD_TEST( free_cnt_total( 0UL )==0UL );
+  FD_TEST( g_shmem->cache_free_have[ 0 ].bits[ 0 ] & 1UL ); /* ctl is join 0: the stale set bit */
+
+  fd_racesan_async_t * t2 = fiber_acquire_expect( &g_fiber[1], jt2, root, key_Q, 200UL );
+  FD_TEST( fd_racesan_async_step_until( t2, "accdb_steal:pre_clear", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
+
+  fd_accdb_debug_clock_evict_line( ctl, cls, idx );
+  FD_TEST( free_cnt_total( 0UL )==1UL );
+
+  /* A lost hint leaves the line unreachable to jt2's steal: every line but the
+     free one is resident and evictable, so it would evict instead;
+     the re-read must find the line before CLOCK laps the class. */
+  for( ulong step=0UL;; step++ ) {
+    FD_TEST( step<STEP_MAX );
+    int rc = fd_racesan_async_step( t2 );
+    if( rc==FD_RACESAN_ASYNC_RET_EXIT ) break;
+    FD_TEST( rc==FD_RACESAN_ASYNC_RET_HOOK );
+    FD_TEST( !fd_racesan_async_hook_name_eq( t2, "accdb_clock:lap" ) ); /* found the line without a CLOCK lap */
+  }
+  fiber_done( &g_fiber[1] );
+  FD_TEST( fd_accdb_debug_find_line( ctl, key_Q, &cls, &idx ) );
+  FD_TEST( free_cnt_total( 0UL )==0UL );
+
+  join_delete( jt2 );
+  join_delete( jt );
+  join_delete( ctl );
   test_shmem_delete();
 }
 
@@ -4048,7 +4142,7 @@ test_coldload_evict_vs_snapshot_capture( void ) {
     uchar k[ 32UL ]; mk_key( 920000UL+i, k );
     seq_write( ctl, root, k, 1000UL+i, owner );
   }
-  FD_TEST( !FD_VOLATILE_CONST( g_shmem->cache_free_cnt[ 0 ].val ) );
+  FD_TEST( !free_cnt_total( 0UL ) );
   fd_accdb_fork_id_t f1 = fd_accdb_attach_child( ctl, root );
 
   /* Exec tile: read-only acquire of Z on a child of the root.  Park it
@@ -4542,6 +4636,7 @@ main( int     argc,
     TEST( test_initial_root_vs_pass ),
     TEST( test_slot_reuse_descends ),
     TEST( test_reset_vs_pass ),
+    TEST( test_hint_lost_update ),
     {0}
   };
 # undef TEST

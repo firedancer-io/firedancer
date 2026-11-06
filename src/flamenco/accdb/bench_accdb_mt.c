@@ -45,9 +45,10 @@
    --data-sz2 B    every committed write alternates the account between
                    BENCH_DATA_SZ and B bytes, so each release changes
                    size class (default 0: off)
-   --preset scale  transfer mix, 4 hot read-only accounts, 512 accounts
-                   per thread, 3 GiB cache (the workload of the
-                   bench_accdb_scale benchmark on the lazy-lines branch)
+   --preset hot    transfer mix, 4 hot read-only accounts, 512 accounts
+                   per thread, 3 GiB cache: everything stays cached, so
+                   it measures only what the threads share (the workload
+                   of bench_accdb_scale on mmcgee/accdb-lazy-lines-2)
 
    Reports per step total txn/s, per-thread acquire+release ns/txn,
    scaling against the first step, acquire/release ns per account and
@@ -245,17 +246,17 @@ main( int     argc,
   fd_boot( &argc, &argv );
 
   char const * preset = fd_env_strip_cmdline_cstr( &argc, &argv, "--preset", NULL, "" );
-  int scale = !strcmp( preset, "scale" );
-  if( FD_UNLIKELY( preset[0] && !scale ) ) FD_LOG_ERR(( "unknown --preset %s", preset ));
+  int hot = !strcmp( preset, "hot" );
+  if( FD_UNLIKELY( preset[0] && !hot ) ) FD_LOG_ERR(( "unknown --preset %s", preset ));
 
   g_accounts               = fd_env_strip_cmdline_ulong ( &argc, &argv, "--accounts",   NULL, 1000000UL           );
   char const * threads_str = fd_env_strip_cmdline_cstr  ( &argc, &argv, "--threads",    NULL, "4"                 );
   ulong        duration_s  = fd_env_strip_cmdline_ulong ( &argc, &argv, "--duration",   NULL, 10UL                );
-  double       cache_gib   = fd_env_strip_cmdline_double( &argc, &argv, "--cache-gib",  NULL, scale ? 3.0   : 4.0 );
+  double       cache_gib   = fd_env_strip_cmdline_double( &argc, &argv, "--cache-gib",  NULL, hot ? 3.0   : 4.0   );
   g_cpu0                   = fd_env_strip_cmdline_ulong ( &argc, &argv, "--cpu0",       NULL, 1UL                 );
   char const * mix         = fd_env_strip_cmdline_cstr  ( &argc, &argv, "--mix",        NULL, "transfer"          );
-  g_ro_hot                 = fd_env_strip_cmdline_ulong ( &argc, &argv, "--ro-hot",     NULL, scale ? 4UL   : 0UL );
-  g_per_thread             = fd_env_strip_cmdline_ulong ( &argc, &argv, "--per-thread", NULL, scale ? 512UL : 0UL );
+  g_ro_hot                 = fd_env_strip_cmdline_ulong ( &argc, &argv, "--ro-hot",     NULL, hot ? 4UL   : 0UL   );
+  g_per_thread             = fd_env_strip_cmdline_ulong ( &argc, &argv, "--per-thread", NULL, hot ? 512UL : 0UL   );
   g_data_sz2               = fd_env_strip_cmdline_ulong ( &argc, &argv, "--data-sz2",   NULL, 0UL                 );
 
   if(      !strcmp( mix, "mainnet"  ) ) { g_mix = MIX_MAINNET;  g_mix_cnt = MIX_MAINNET_CNT;  }

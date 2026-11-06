@@ -2581,72 +2581,111 @@ test_release_alloc( void ) {
 #undef RA_CNT
 }
 
-/* Per-join free-line magazines: writable acquire/release recycles
-   destination lines through the join's magazine; the shared free list
-   only sees the overflow.  Checks that (a) data stays correct across
-   many writable cycles, (b) the lines a join holds in magazines never
-   exceed its bound (occupancy = lines not on the shared free list), (c)
-   reservations still admit a full worst-case acquire on every class at
-   the smallest legal cache, and (d) fd_accdb_reset drops magazines. */
+/* Per-join free lists: a join's freed lines land on its own list, a
+   join with an empty list steals another's, data stays correct across
+   many writable cycles on both joins, and fd_accdb_reset empties every
+   list. */
+
+static ulong
+test_free_cnt( ulong j, ulong c ) {
+  return FD_VOLATILE_CONST( test_shmem_mem->cache_free_cnt[ j ].val[ c ] );
+}
 
 static void
-test_magazine( void ) {
+test_free_lists( void ) {
   int fd;
   ulong joiners = 2UL;
-  fd_accdb_t * accdb = test_setup_ex( &fd, 1024UL, 8UL, 1024UL, 64UL, 11UL<<20UL, 64UL<<20, TEST_CACHE_MIN_RESERVED, joiners );
-  fd_accdb_fork_id_t root = fd_accdb_attach_child( accdb, SENTINEL );
-  fd_accdb_fork_id_t f    = fd_accdb_attach_child( accdb, root );
+  fd_accdb_t * a = test_setup_ex( &fd, 1024UL, 8UL, 1024UL, 64UL, 11UL<<20UL, 64UL<<20, TEST_CACHE_MIN_RESERVED, joiners );
+  fd_accdb_t * b = test_join_writer( fd );
+  fd_accdb_shmem_t * sh = test_shmem_mem;
+  fd_accdb_fork_id_t root = fd_accdb_attach_child( a, SENTINEL );
+  fd_accdb_fork_id_t f    = fd_accdb_attach_child( a, root );
 
-  ulong used0[ FD_ACCDB_CACHE_CLASS_CNT ], max[ FD_ACCDB_CACHE_CLASS_CNT ], res[ FD_ACCDB_CACHE_CLASS_CNT ];
-  fd_accdb_cache_class_occupancy( accdb, used0, max, res );
-
+  /* a's writable cycles free their spare lines onto a's lists only. */
   uchar pk[ 32 ] = { 0x6A };
   uchar data[ 200 ];
   for( ulong i=0UL; i<500UL; i++ ) {
     fd_memset( data, (int)(i&0xFF), sizeof(data) );
-    accdb_write( accdb, f, pk, 1000UL+i, data, 165UL+(i%3UL)*10UL, owner2 );
+    accdb_write( a, f, pk, 1000UL+i, data, 165UL+(i%3UL)*10UL, owner2 );
     ulong lamports, data_len; uchar out[ 256 ];
-    FD_TEST( accdb_read( accdb, f, pk, &lamports, out, &data_len, NULL ) );
+    FD_TEST( accdb_read( a, f, pk, &lamports, out, &data_len, NULL ) );
     FD_TEST( lamports==1000UL+i && data_len==165UL+(i%3UL)*10UL && out[ 0 ]==(uchar)(i&0xFF) );
   }
+  FD_TEST( test_free_cnt( 0UL, 7UL )>=1UL );  /* the staging line */
+  for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) FD_TEST( !test_free_cnt( 1UL, c ) );
+  FD_TEST( sh->cache_free_have[ 7 ].bits[ 0 ] & 1UL );
 
-  /* Lines held outside the shared free list beyond the account's own
-     resident line are the magazines: bounded by fd_accdb_mag_max. */
-  ulong used1[ FD_ACCDB_CACHE_CLASS_CNT ];
-  fd_accdb_cache_class_occupancy( accdb, used1, max, res );
+  ulong max7 = sh->cache_class_max[ 7 ];
+  FD_TEST( sh->cache_class_init[ 7 ].val<=max7 );
+
+  /* b writes with an empty list of its own.  Mark class 7 fully
+     initialized (the lines past init just stay unused; they look free
+     to CLOCK) so b cannot lazy-init and must steal a's staging line,
+     which then ends on b's list. */
+  ulong steal0 = test_free_cnt( 0UL, 7UL );
+  sh->cache_class_init[ 7 ].val = max7;
+  uchar pkb[ 32 ] = { 0x6B };
+  accdb_write( b, f, pkb, 77UL, data, 165UL, owner2 );
+  FD_TEST( test_free_cnt( 1UL, 7UL )>=1UL );
+  ulong lamports;
+  FD_TEST( accdb_read( a, f, pkb, &lamports, NULL, NULL, NULL ) && lamports==77UL );
+  FD_TEST( test_free_cnt( 0UL, 7UL )<steal0 );
+
+  /* Free-line conservation: the per-join counts plus resident lines
+     never exceed what was initialized. */
+  ulong used[ FD_ACCDB_CACHE_CLASS_CNT ], max[ FD_ACCDB_CACHE_CLASS_CNT ], res[ FD_ACCDB_CACHE_CLASS_CNT ];
+  fd_accdb_cache_class_occupancy( a, used, max, res );
   for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) {
-    ulong held = used1[ c ]>used0[ c ] ? used1[ c ]-used0[ c ] : 0UL;
-    FD_TEST( held<=fd_accdb_mag_max( c, max[ c ], joiners )+1UL ); /* +1: the account's own line */
-    /* reservations never promise magazined capacity */
-    if( res[ c ]!=ULONG_MAX ) FD_TEST( res[ c ]+fd_accdb_mag_held( c, max[ c ], joiners )<=max[ c ] );
+    FD_TEST( test_free_cnt( 0UL, c )+test_free_cnt( 1UL, c )<=fd_ulong_min( sh->cache_class_init[ c ].val, max[ c ] ) );
   }
 
-  /* Class 6 gets no magazine, class 7 at most a couple of lines. */
-  FD_TEST( !fd_accdb_mag_max( 6UL, max[ 6 ], joiners ) );
-  FD_TEST( fd_accdb_mag_max( 7UL, max[ 7 ], joiners )<=FD_ACCDB_MAG_DEPTH_STAGING );
+  /* reset empties every list and hint; the engine still works. */
+  fd_accdb_reset( a );
+  drain_background( a );
+  for( ulong j=0UL; j<joiners; j++ ) for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) {
+    FD_TEST( !test_free_cnt( j, c ) );
+    FD_TEST( (uint)sh->cache_free[ j ].ver_top[ c ]==UINT_MAX );
+  }
+  for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) FD_TEST( !sh->cache_free_have[ c ].bits[ 0 ] );
+  root = fd_accdb_attach_child( a, SENTINEL );
+  f    = fd_accdb_attach_child( a, root );
+  accdb_write( a, f, pk, 7UL, data, 165UL, owner2 );
+  FD_TEST( accdb_read( b, f, pk, &lamports, NULL, NULL, NULL ) && lamports==7UL );
+  free( b );
+  test_teardown( a, fd );
+}
 
-  /* Pressure flush: mark every magazined class pressured (as a join's
-     CLOCK eviction would); the next release returns this join's
-     magazined lines, so occupancy drops back to the resident lines. */
-  for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) test_shmem_mem->mag_pressure[ c ].val = fd_accdb_mag_max( c, max[ c ], joiners ) ? 1UL : 0UL;
-  accdb_write( accdb, f, pk, 5UL, data, 165UL, owner2 );
-  for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) FD_TEST( !test_shmem_mem->mag_pressure[ c ].val );
-  ulong used2[ FD_ACCDB_CACHE_CLASS_CNT ];
-  fd_accdb_cache_class_occupancy( accdb, used2, max, res );
-  for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) if( c!=6UL ) FD_TEST( used2[ c ]<=used0[ c ]+1UL );
+/* Stealing under eviction: two joins share a cache too small for their
+   working set, so most acquires evict.  Alternating joins keep moving
+   lines between their lists by stealing; every value must survive. */
 
-  /* A reset drops magazines: occupancy returns to empty and the engine
-     still works. */
-  fd_accdb_reset( accdb );
-  drain_background( accdb ); /* reset posts a command for T2 */
-  fd_accdb_cache_class_occupancy( accdb, used1, max, res );
-  for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) FD_TEST( !used1[ c ] );
-  root = fd_accdb_attach_child( accdb, SENTINEL );
-  f    = fd_accdb_attach_child( accdb, root );
-  accdb_write( accdb, f, pk, 7UL, data, 165UL, owner2 );
-  ulong lamports;
-  FD_TEST( accdb_read( accdb, f, pk, &lamports, NULL, NULL, NULL ) && lamports==7UL );
-  test_teardown( accdb, fd );
+static void
+test_free_lists_evict( void ) {
+  int fd;
+  ulong joiners = 2UL;
+  fd_accdb_t * a = test_setup_ex( &fd, 4096UL, 8UL, 4096UL, 256UL, 11UL<<20UL, 64UL<<20, TEST_CACHE_MIN_RESERVED, joiners );
+  fd_accdb_t * b = test_join_writer( fd );
+  fd_accdb_t * j[ 2 ] = { a, b };
+  fd_accdb_fork_id_t root = fd_accdb_attach_child( a, SENTINEL );
+  fd_accdb_fork_id_t f    = fd_accdb_attach_child( a, root );
+  ulong n = fd_ulong_min( 3000UL, test_shmem_mem->cache_class_max[ 1 ]*3UL );
+  uchar data[ 400 ];
+  for( ulong r=0UL; r<3UL; r++ ) {
+    for( ulong i=0UL; i<n; i++ ) {
+      uchar pk[ 32 ] = { 0x5E }; FD_STORE( ulong, pk+8, i );
+      fd_memset( data, (int)((i+r)&0xFF), sizeof(data) );
+      accdb_write( j[ (i+r)&1UL ], f, pk, 1UL+i+r*n, data, 300UL, owner2 );
+      if( (i&63UL)==63UL ) drain_background( a );
+    }
+  }
+  for( ulong i=0UL; i<n; i++ ) {
+    uchar pk[ 32 ] = { 0x5E }; FD_STORE( ulong, pk+8, i );
+    ulong lamports, data_len; uchar out[ 400 ];
+    FD_TEST( accdb_read( j[ i&1UL ], f, pk, &lamports, out, &data_len, NULL ) );
+    FD_TEST( lamports==1UL+i+2UL*n && data_len==300UL && out[ 0 ]==(uchar)((i+2UL)&0xFF) );
+  }
+  free( b );
+  test_teardown( a, fd );
 }
 
 /* Per-join reservation credits: a join keeps idle credits after its
@@ -2672,7 +2711,7 @@ test_reservation_credits( void ) {
   ulong c = ULONG_MAX, limit = ULONG_MAX;
   for( ulong k=0UL; k<FD_ACCDB_CACHE_CLASS_CNT; k++ ) {
     if( sh->cache_class_used[ k ].val==ULONG_MAX || !fd_accdb_cred_max( sh->cache_class_max[ k ], joiners ) ) continue;
-    ulong l = sh->cache_class_max[ k ]-fd_accdb_mag_held( k, sh->cache_class_max[ k ], joiners );
+    ulong l = sh->cache_class_max[ k ];
     if( l<limit ) { limit = l; c = k; }
   }
   FD_TEST( c!=ULONG_MAX && limit>=2UL && limit<=FD_ACCDB_MAX_TX_ACCOUNT_LOCKS );
@@ -2849,8 +2888,10 @@ main( int     argc,
   FD_LOG_NOTICE(( "test_root_backlog_splits_pass ..." ));
   test_root_backlog_splits_pass();
 
-  FD_LOG_NOTICE(( "test_magazine ..." ));
-  test_magazine();
+  FD_LOG_NOTICE(( "test_free_lists ..." ));
+  test_free_lists();
+  FD_LOG_NOTICE(( "test_free_lists_evict ..." ));
+  test_free_lists_evict();
   FD_LOG_NOTICE(( "test_reservation_credits ..." ));
   test_reservation_credits();
 
