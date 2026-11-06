@@ -79,6 +79,8 @@ default_enable_features( fd_features_t * features ) {
   features->disable_turbine_fanout_experiments = 0UL;
   features->last_restart_slot_sysvar = 0UL;
   features->disable_fees_sysvar = 0UL;
+  features->raise_block_limits_to_100m = 0UL;
+  features->reduce_slot_time_to_200ms = 0UL;
 }
 
 /* Create a new genesis.bin file contents into the provided blob buffer
