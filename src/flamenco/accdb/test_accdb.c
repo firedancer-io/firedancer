@@ -2524,12 +2524,15 @@ static void
 test_free_lists_evict( void ) {
   int fd;
   ulong joiners = 2UL;
-  fd_accdb_t * a = test_setup_ex( &fd, 4096UL, 8UL, 4096UL, 256UL, 11UL<<20UL, 64UL<<20, TEST_CACHE_MIN_RESERVED, joiners );
+  fd_accdb_t * a = test_setup_ex( &fd, 4096UL, 8UL, 4096UL, 256UL, 11UL<<20UL, 24UL<<20, TEST_CACHE_MIN_RESERVED, joiners );
   fd_accdb_t * b = test_join_writer( fd );
   fd_accdb_t * j[ 2 ] = { a, b };
   fd_accdb_fork_id_t root = fd_accdb_attach_child( a, SENTINEL );
   fd_accdb_fork_id_t f    = fd_accdb_attach_child( a, root );
   ulong n = fd_ulong_min( 3000UL, test_shmem_mem->cache_class_max[ 1 ]*3UL );
+  /* The working set must overflow class 1 (300 B accounts), else
+     writes reuse their lines and nothing is evicted or stolen. */
+  FD_TEST( n>test_shmem_mem->cache_class_max[ 1 ] );
   uchar data[ 400 ];
   for( ulong r=0UL; r<3UL; r++ ) {
     for( ulong i=0UL; i<n; i++ ) {

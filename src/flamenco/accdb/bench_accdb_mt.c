@@ -276,17 +276,25 @@ main( int     argc,
     p = *end==',' ? end+1 : end;
   }
 
-  ulong max_rw = 0UL;
-  for( ulong i=0UL; i<g_mix_cnt; i++ ) max_rw = fd_ulong_max( max_rw, g_mix[ i ].rw_cnt );
+  /* Each txn picks distinct accounts: its writable ones and the
+     read-only ones beyond the hot set may all come from the worker's
+     partition, so the partition must hold that many for every
+     archetype (else the duplicate-rejection loop never ends). */
+  ulong max_part_cnt = 0UL;
+  for( ulong i=0UL; i<g_mix_cnt; i++ ) {
+    ulong ro_cold = (ulong)g_mix[ i ].ro_cnt - fd_ulong_min( (ulong)g_mix[ i ].ro_cnt, g_ro_hot );
+    max_part_cnt = fd_ulong_max( max_part_cnt, (ulong)g_mix[ i ].rw_cnt + ro_cold );
+  }
   if( g_per_thread ) {
     /* Hot read-only accounts, then one partition per thread; no
        never-written range. */
-    FD_TEST( g_per_thread>max_rw );
+    if( FD_UNLIKELY( g_per_thread<max_part_cnt ) ) FD_LOG_ERR(( "--per-thread %lu < %lu accounts some txn needs", g_per_thread, max_part_cnt ));
     g_accounts = g_ro_hot + max_threads*g_per_thread;
     g_ro0      = g_accounts;
   } else {
     g_ro0 = g_accounts - g_accounts/8UL;
-    FD_TEST( g_ro0>g_ro_hot && ( g_ro0-g_ro_hot )/max_threads>max_rw );
+    if( FD_UNLIKELY( g_ro0<=g_ro_hot || ( g_ro0-g_ro_hot )/max_threads<max_part_cnt ) )
+      FD_LOG_ERR(( "--accounts %lu too small: partitions need %lu accounts each", g_accounts, max_part_cnt ));
   }
 
   int fd = memfd_create( "accdb_mt", 0 );
