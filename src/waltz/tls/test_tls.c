@@ -220,6 +220,25 @@ test_tls_extension_rules( void ) {
 }
 
 static void
+test_tls_psk_last( void ) {
+  uchar const modes[] = { 1, 1 }; /* psk_dhe_ke */
+  uchar const psk[44] = { 0,7, 0,1,'x',0,0,0,0, 0,33,32 };
+  uchar wire[512];
+  fd_tls_client_hello_t ch = { .signature_algorithms = { .ed25519 = 1 } };
+  long encoded = fd_tls_encode_client_hello( &ch, wire, sizeof(wire) );
+  FD_TEST( encoded>0L );
+  /* Both orders carry modes so that the test isolates final position. */
+  ulong sz = test_tls_append_ext( wire, (ulong)encoded, 41UL, 45, modes, sizeof(modes) );
+  sz = test_tls_append_ext( wire, sz, 41UL, FD_TLS_EXT_PRE_SHARED_KEY, psk, sizeof(psk) );
+  ch = (fd_tls_client_hello_t){0};
+  FD_TEST( fd_tls_decode_client_hello( &ch, wire, sz )==(long)sz );
+  sz = test_tls_append_ext( wire, sz, 41UL, 0xfafa, NULL, 0 );
+  ch = (fd_tls_client_hello_t){0};
+  FD_TEST( fd_tls_decode_client_hello( &ch, wire, sz )==-FD_TLS_ALERT_ILLEGAL_PARAMETER );
+
+}
+
+static void
 test_tls_vectors( void ) {
   uchar const empty[] = {0,0};
   fd_tls_ext_signature_algorithms_t sig = {0};
@@ -1586,6 +1605,7 @@ main( int     argc,
 
   test_tls_proto();
   test_tls_extension_rules();
+  test_tls_psk_last();
   test_tls_vectors();
   test_tls_pair( rng );
   test_tls_client_hello_required_extensions( rng );

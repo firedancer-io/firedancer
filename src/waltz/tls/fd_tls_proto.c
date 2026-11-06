@@ -128,6 +128,12 @@ fd_tls_decode_client_hello( fd_tls_client_hello_t * out,
     case FD_TLS_EXT_ALPN:
       ext_parse_res = fd_tls_decode_ext_alpn( &out->alpn, ext_data, ext_sz );
       break;
+    case FD_TLS_EXT_PRE_SHARED_KEY:
+      /* RFC 8446 Section 4.2.11: pre_shared_key must be last. */
+      if( FD_UNLIKELY( wire_laddr+ext_sz!=list_stop ) )
+        return -(long)FD_TLS_ALERT_ILLEGAL_PARAMETER;
+      ext_parse_res = (long)ext_sz;
+      break;
     default:
       ext_parse_res = (long)ext_sz;
       break;
