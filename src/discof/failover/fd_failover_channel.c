@@ -48,6 +48,21 @@ FD_STATIC_ASSERT( FD_FAILOVER_CLIENT_HELLO_MAX+sizeof(fd_tlsrec_hdr_t)+sizeof(fd
 /* A HELLO whose identity does not match the key that was TLS authenticated */
 #define HELLO_ERR_TLS_KEY (-1)
 
+/* Logging: What the dialer specifically waits for during each phase. */
+static char const *
+awaited_cstr( int phase ) {
+  switch( phase ) {
+  case PHASE_CONNECT:        return "its TCP answer";
+  case PHASE_START_SEND:     return "our admission start to drain";
+  case PHASE_CHALLENGE_RECV: return "its admission challenge";
+  case PHASE_REQUEST_SIGN:   return "the sign tile to sign our admission proof";
+  case PHASE_REQUEST_SEND:   return "our admission proof to drain";
+  case PHASE_RESPONSE_RECV:  return "its answer to our admission proof";
+  case PHASE_TLS:            return "the TLS handshake to finish";
+  default:                   return "its HELLO";
+  }
+}
+
 struct candidate {
   int                               fd;          /* -1 for an unused candidate. */
   int                               phase;       /* PHASE_* */
@@ -368,6 +383,9 @@ lose( fd_failover_channel_t * ch,
   if( ch->paired_idx==(int)idx ) {
     FD_LOG_WARNING(( "lost the failover session with `" FD_IP4_ADDR_FMT "`, %s",
                      FD_IP4_ADDR_FMT_ARGS( ch->candidates[idx].address ), why ));
+  } else if( ch->candidates[idx].dialed ) {
+    FD_LOG_WARNING(( "the handshake with the failover peer at `" FD_IP4_ADDR_FMT "` ended, %s",
+                     FD_IP4_ADDR_FMT_ARGS( ch->candidates[idx].address ), why ));
   }
   drop( ch, idx, now );
 }
@@ -561,10 +579,6 @@ read_frame( fd_failover_channel_t * ch,
   if( c->rx_used>=max ) { drop( ch, idx, now ); return -1; }
   long n = fd_failover_tls_read( &s->tls, s->rx+c->rx_used, max-c->rx_used );
   if( n<0L ) {
-    if( FD_UNLIKELY( c->dialed && c->phase==PHASE_HELLO ) ) {
-      FD_LOG_WARNING(( "the failover peer at `" FD_IP4_ADDR_FMT "` closed the connection before answering our HELLO",
-                       FD_IP4_ADDR_FMT_ARGS( c->address ) ));
-    }
     if( ch->paired_idx==(int)idx && ch->expected_close && s->tls.peer_closed && !fd_failover_channel_tx_pending( ch ) ) {
       drop( ch, idx, now );
       return -1;
@@ -577,6 +591,9 @@ read_frame( fd_failover_channel_t * ch,
     } else if( s->tls.peer_closed ) {
       if( ch->paired_idx==(int)idx ) {
         FD_LOG_NOTICE(( "the failover peer at `" FD_IP4_ADDR_FMT "` closed the session", FD_IP4_ADDR_FMT_ARGS( c->address ) ));
+      } else if( c->dialed && c->phase==PHASE_HELLO ) {
+        FD_LOG_WARNING(( "the failover peer at `" FD_IP4_ADDR_FMT "` closed the connection before answering our HELLO",
+                         FD_IP4_ADDR_FMT_ARGS( c->address ) ));
       }
       drop( ch, idx, now );
     } else {
@@ -782,7 +799,9 @@ verify_credit( fd_failover_channel_t * ch, long now ) {
 static void
 service_admission( fd_failover_channel_t * ch, ulong idx, long now, int * busy ) {
   struct candidate * c = &ch->candidates[idx];
-  int rc;
+  int          rc      = 1;
+  int          refused = 0;
+  char const * why     = NULL;
   switch( c->phase ) {
   case PHASE_START_SEND:
   case PHASE_CHALLENGE_SEND:
@@ -818,7 +837,7 @@ service_admission( fd_failover_channel_t * ch, ulong idx, long now, int * busy )
           c->start.client_hello_sz<=sizeof(fd_tlsrec_hdr_t) ||
           c->start.client_hello_sz>sizeof(c->client_hello) ) break;
       int err = fd_failover_hello_check( &c->local_hello, &c->start.hello );
-      if( err ) { refuse_hello( ch, c, err, now ); break; }
+      if( err ) { refuse_hello( ch, c, err, now ); refused = 1; break; }
       return;
     }
     fd_memcpy( c->client_hello, c->rx+sizeof(c->start), c->start.client_hello_sz );
@@ -845,7 +864,7 @@ service_admission( fd_failover_channel_t * ch, ulong idx, long now, int * busy )
     fd_memcpy( &c->challenge, c->rx, sizeof(c->challenge) );
     if( c->challenge.magic!=FD_FAILOVER_ADMISSION_MAGIC ) break;
     int err = fd_failover_hello_check( &c->local_hello, &c->challenge.hello );
-    if( err ) { refuse_hello( ch, c, err, now ); break; }
+    if( err ) { refuse_hello( ch, c, err, now ); refused = 1; break; }
     c->hello = c->challenge.hello;
     fd_failover_admission_hash( &c->start, c->client_hello, &c->challenge, c->transcript );
     c->rx_used = 0UL;
@@ -854,7 +873,7 @@ service_admission( fd_failover_channel_t * ch, ulong idx, long now, int * busy )
     return;
   case PHASE_REQUEST_SIGN:
     if( !verify_credit( ch, now ) ) return;
-    if( !sign_admission_proof( ch, c, 0 ) ) break;
+    if( !sign_admission_proof( ch, c, 0 ) ) { why = "this machine could not sign the admission proof"; break; }
     fd_memcpy( c->client_proof, c->tx, sizeof(c->client_proof) );
     c->phase = PHASE_REQUEST_SEND;
     *busy = 1;
@@ -877,9 +896,10 @@ service_admission( fd_failover_channel_t * ch, ulong idx, long now, int * busy )
                                response.server_flight_sz, c->transcript );
     if( !verify_admission_proof( ch, c, 1, response.proof ) ) {
       refuse_hello( ch, c, FD_FAILOVER_HELLO_ERR_PROOF, now );
+      refused = 1;
       break;
     }
-    if( fd_failover_tls_accept_flight( &ch->sessions[ c->session ].tls, c->rx+sizeof(response), response.server_flight_sz ) ) break;
+    if( fd_failover_tls_accept_flight( &ch->sessions[ c->session ].tls, c->rx+sizeof(response), response.server_flight_sz ) ) { why = "its TLS server flight was rejected"; break; }
     c->phase = PHASE_TLS;
     c->rx_used = 0UL;
     *busy = 1;
@@ -891,6 +911,7 @@ service_admission( fd_failover_channel_t * ch, ulong idx, long now, int * busy )
     if( !rc || !verify_credit( ch, now ) ) return;
     if( !verify_admission_proof( ch, c, 0, c->rx ) ) {
       refuse_hello( ch, c, FD_FAILOVER_HELLO_ERR_PROOF, now );
+      refused = 1;
       break;
     }
     fd_memcpy( c->client_proof, c->rx, sizeof(c->client_proof) );
@@ -929,9 +950,16 @@ service_admission( fd_failover_channel_t * ch, ulong idx, long now, int * busy )
   default:
     break;
   }
-  if( c->dialed ) {
-    FD_LOG_WARNING(( "the failover peer at `" FD_IP4_ADDR_FMT "` did not complete admission",
-                     FD_IP4_ADDR_FMT_ARGS( c->address ) ));
+  if( c->dialed && !refused ) {
+    if( why ) {
+      FD_LOG_WARNING(( "the failover peer at `" FD_IP4_ADDR_FMT "` did not complete admission, %s", FD_IP4_ADDR_FMT_ARGS( c->address ), why ));
+    } else if( rc<0 ) {
+      FD_LOG_WARNING(( "the failover peer at `" FD_IP4_ADDR_FMT "` did not complete admission, the connection closed or failed while we waited for %s",
+                       FD_IP4_ADDR_FMT_ARGS( c->address ), awaited_cstr( c->phase ) ));
+    } else {
+      FD_LOG_WARNING(( "the failover peer at `" FD_IP4_ADDR_FMT "` did not complete admission, it sent an invalid message while we waited for %s",
+                       FD_IP4_ADDR_FMT_ARGS( c->address ), awaited_cstr( c->phase ) ));
+    }
   }
   drop( ch, idx, now );
 }
@@ -1059,12 +1087,17 @@ fd_failover_channel_poll( fd_failover_channel_t * ch,
     for( ulong i=0; i<FD_FAILOVER_CHANNEL_CANDIDATE_MAX; i++ ) {
       struct candidate * c = &ch->candidates[i];
       if( c->fd!=-1 && (int)i!=ch->paired_idx && ( now>=c->deadline || now>=c->admission_until ) ) {
-        if( c->dialed ) {
-          FD_LOG_WARNING(( "the failover peer at `" FD_IP4_ADDR_FMT "` did not finish the handshake in time",
-                           FD_IP4_ADDR_FMT_ARGS( c->address ) ));
-        }
+        int  dialed  = c->dialed;
+        int  phase   = c->phase;
+        uint address = c->address;
         drop( ch, i, now );
         *busy = 1;
+        if( dialed ) {
+          long tenths = ch->retry_at>now ? (ch->retry_at-now)/((long)FD_FAILOVER_NANOS_PER_SECOND/10L) : 0L;
+          FD_LOG_WARNING(( "the failover peer at `" FD_IP4_ADDR_FMT "` did not finish the handshake within %ld s, it was still waiting for %s, retrying in %ld.%ld s",
+                           FD_IP4_ADDR_FMT_ARGS( address ), FD_FAILOVER_CHANNEL_HELLO_TIMEOUT_NANOS/(long)FD_FAILOVER_NANOS_PER_SECOND,
+                           awaited_cstr( phase ), tenths/10L, tenths%10L ));
+        }
       }
     }
   }
