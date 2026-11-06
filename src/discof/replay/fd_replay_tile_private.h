@@ -481,6 +481,7 @@ struct fd_replay_tile {
      slot-ended message alone; no block id will ever arrive for it. */
   uint        is_leader : 1;
   uint        supports_leader : 1;
+  uint        leader_parent_unconfirmed : 1; /* the leader window, armed or led, is on an optimistic parent LEADER has not confirmed yet */
   int         recv_poh;
 
   ulong       leader_execution_fees;

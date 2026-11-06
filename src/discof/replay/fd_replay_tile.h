@@ -116,6 +116,10 @@
 #define REPLAY_SIG_MISSING_FEC    (13)
 #define REPLAY_SIG_NEXT_LEADER    (14)
 #define REPLAY_SIG_SLOT_STATES    (15)
+#define REPLAY_SIG_UPDATE_PARENT_KILL (16)
+#define REPLAY_SIG_CONFIRM_LEADER     (17)
+#define REPLAY_SIG_ABANDON_LEADER     (18)
+#define REPLAY_SIG_UPDATE_PARENT_BANK (19) /* a fd_became_leader_t, see update_parent_kill */
 
 /* replay_out mcache seq[i] slots */
 #define REPLAY_SYNC_SEQ  (0UL) /* mcache->seq[0]: recently published seq no */
@@ -315,6 +319,34 @@ struct fd_replay_next_leader {
 };
 typedef struct fd_replay_next_leader fd_replay_next_leader_t;
 
+/* fd_replay_update_parent_kill tells pack that we lead slot on an
+   optimistic parent and ParentReady named another: stop the slot's old
+   bank and drain it, it continues on a new bank built on parent_slot.
+   The block timer restarts from ParentReady.
+
+   REPLAY_SIG_UPDATE_PARENT_BANK then resumes the slot on that new bank,
+   as a fd_became_leader_t for the same slot on the new parent.  It only
+   goes to pack: it is not a new leader slot for anyone else. */
+
+struct fd_replay_update_parent_kill {
+  ulong slot;
+  ulong parent_slot;      /* the new parent */
+  uchar parent_dmr[ 32 ]; /* its block id, which the UpdateParent marker names */
+  long  slot_end_ns;
+};
+typedef struct fd_replay_update_parent_kill fd_replay_update_parent_kill_t;
+
+/* fd_replay_leader_slot tells pack how our slot on an optimistic parent
+   resolved.  REPLAY_SIG_CONFIRM_LEADER: ParentReady named the
+   optimistic parent, so pack may end the slot.  REPLAY_SIG_ABANDON_LEADER:
+   certs skipped our window before ParentReady named a parent, so pack
+   gives the slot up. */
+
+struct fd_replay_leader_slot {
+  ulong slot;
+};
+typedef struct fd_replay_leader_slot fd_replay_leader_slot_t;
+
 struct fd_replay_slot_states {
   ulong                 cnt;
   fd_sched_slot_state_t states[ FD_SCHED_SLOT_STATE_MAX ];
@@ -333,6 +365,8 @@ union fd_replay_message {
   fd_replay_leader_footer_t   leader_footer;
   fd_replay_next_leader_t     next_leader;
   fd_replay_slot_states_t     slot_states;
+  fd_replay_update_parent_kill_t update_parent_kill;
+  fd_replay_leader_slot_t        leader_slot;
 };
 
 typedef union fd_replay_message fd_replay_message_t;

@@ -223,6 +223,30 @@ typedef struct {
 
   fd_became_leader_t _became_leader[1];
 
+  /* Fast leader handover, sad path: replay switched our slot to a new
+     parent (UPDATE_PARENT_KILL).  Until every execle is idle, the old
+     bank's microblocks are still running: nothing is scheduled and the
+     slot does not end, then prefix_drained goes out naming the old bank.
+     The slot may have already ended on the old bank. */
+  int                      update_parent_pending;
+  fd_pack_prefix_drained_t prefix_drained[1];
+  fd_replay_update_parent_kill_t _update_parent_kill[1];
+
+  /* The new bank (REPLAY_SIG_UPDATE_PARENT_BANK), held until the old one
+     is drained, so none of its microblocks precede the UpdateParent. */
+  int                      update_parent_bank_pending;
+  fd_became_leader_t       _update_parent_bank[1];
+
+  /* Fast leader handover: the slot is built on an optimistic parent
+     replay has not confirmed (fd_became_leader_t parent_unconfirmed).
+     Such a slot does not end on time: at its end, pack stops scheduling
+     and holds done packing (slot_end_held, its FD_PACK_END_SLOT_REASON_*
+     in slot_end_held_reason) until replay resolves the parent. */
+  int                      slot_parent_unconfirmed;
+  int                      slot_end_held;
+  int                      slot_end_held_reason;
+  fd_replay_leader_slot_t  _leader_slot[1];
+
   /* The number of microblocks we have packed for the current leader
      slot.  Will always be <= slot_max_microblocks.  We must track
      this so that when we are done we can tell the PoH tile how many
@@ -662,6 +686,53 @@ auction_end( fd_pack_ctx_t * ctx,
   fd_pack_auction_end( ctx->pack );
 }
 
+/* end_slot ends our leader slot: it publishes done packing to motor,
+   with reason (FD_PACK_END_SLOT_REASON_*), and drains the execles. */
+
+static void
+end_slot( fd_pack_ctx_t *     ctx,
+          fd_stem_context_t * stem,
+          long                now,
+          int                 reason,
+          char const *        reason_str ) {
+  fd_done_packing_t * done_packing = fd_chunk_to_laddr( ctx->poh_out.mem, ctx->poh_out.chunk );
+  get_done_packing( ctx, done_packing, reason ); /* needs to be called before fd_pack_end_block */
+  log_end_block_metrics( ctx, now, reason_str, done_packing->limits_usage->block_cost ); /* reads gauges fd_pack_end_block resets */
+  fd_pack_end_block( ctx->pack );
+  fd_pack_get_top_writers( ctx->pack, done_packing->limits_usage->top_writers ); /* needs to be called after fd_pack_end_block */
+
+  metrics_write( ctx ); /* final for the slot before poh ends it */
+  fd_stem_publish( stem, ctx->poh_out.out_idx, fd_disco_execle_sig( ctx->leader_slot, ctx->pack_idx ), ctx->poh_out.chunk, sizeof(fd_done_packing_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+  ctx->poh_out.chunk = fd_dcache_compact_next( ctx->poh_out.chunk, sizeof(fd_done_packing_t), ctx->poh_out.chunk0, ctx->poh_out.wmark );
+  ctx->pack_idx++;
+
+  auction_end( ctx, now, FD_METRICS_ENUM_PACK_AUCTION_END_REASON_V_SLOT_END_IDX );
+  ctx->drain_execle        = 1;
+  ctx->leader_slot         = ULONG_MAX;
+  ctx->slot_microblock_cnt = 0UL;
+  ctx->slot_end_held       = 0;
+  remove_ib( ctx );
+}
+
+/* hold_slot_end stops our slot on an unconfirmed parent at its end,
+   without ending it: done packing waits for replay (see
+   slot_end_held). */
+
+static void
+hold_slot_end( fd_pack_ctx_t * ctx,
+               long            now,
+               int             reason ) {
+  auction_end( ctx, now, FD_METRICS_ENUM_PACK_AUCTION_END_REASON_V_SLOT_END_IDX );
+  remove_ib( ctx );
+  ctx->slot_end_held        = 1;
+  ctx->slot_end_held_reason = reason;
+}
+
+static void
+begin_slot( fd_pack_ctx_t * ctx,
+            long            now_ticks,
+            int             resume );
+
 static inline void
 auction_begin( fd_pack_ctx_t * ctx,
                long            now_tick ) {
@@ -758,27 +829,58 @@ after_credit( fd_pack_ctx_t *     ctx,
   }
 
 
+  /* Our slot is switching to a new parent: once every execle is idle,
+     no microblock of the old bank is left, so tell motor, in pack_idx
+     order.  Until then nothing is scheduled, and the slot doesn't end,
+     whether or not it had already ended on the old bank. */
+  if( FD_UNLIKELY( ctx->update_parent_pending ) ) {
+    if( FD_LIKELY( ctx->execle_idle_bitset==fd_ulong_mask_lsb( (int)execle_cnt ) ) ) {
+      fd_pack_prefix_drained_t * msg = fd_chunk_to_laddr( ctx->poh_out.mem, ctx->poh_out.chunk );
+      *msg = *ctx->prefix_drained;
+      fd_stem_publish( stem, ctx->poh_out.out_idx, fd_disco_execle_sig( msg->slot, ctx->pack_idx ), ctx->poh_out.chunk, sizeof(fd_pack_prefix_drained_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+      ctx->poh_out.chunk = fd_dcache_compact_next( ctx->poh_out.chunk, sizeof(fd_pack_prefix_drained_t), ctx->poh_out.chunk0, ctx->poh_out.wmark );
+      ctx->pack_idx++;
+      ctx->update_parent_pending = 0;
+      *charge_busy = 1;
+    }
+    return;
+  }
+
+  /* The old bank is drained and the new one is built: resume the slot
+     on it.  Motor continues the hash chain from the new parent before
+     taking any of its microblocks. */
+  if( FD_UNLIKELY( ctx->update_parent_bank_pending ) ) {
+    ctx->update_parent_bank_pending = 0;
+    *ctx->_became_leader = *ctx->_update_parent_bank;
+    begin_slot( ctx, now, 1 );
+
+    fd_pack_resume_t * msg = fd_chunk_to_laddr( ctx->poh_out.mem, ctx->poh_out.chunk );
+    msg->slot = ctx->leader_slot;
+    memcpy( msg->parent_blockhash, ctx->_became_leader->parent_blockhash.uc, sizeof(fd_hash_t) );
+    fd_stem_publish( stem, ctx->poh_out.out_idx, fd_disco_execle_sig( ctx->leader_slot, ctx->pack_idx ), ctx->poh_out.chunk, sizeof(fd_pack_resume_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+    ctx->poh_out.chunk = fd_dcache_compact_next( ctx->poh_out.chunk, sizeof(fd_pack_resume_t), ctx->poh_out.chunk0, ctx->poh_out.wmark );
+    ctx->pack_idx++;
+    *charge_busy = 1;
+    return;
+  }
+
+  /* A slot on an optimistic parent ended, and waits for replay to
+     confirm the parent (fast leader handover): nothing is scheduled.
+     The slot ends on REPLAY_SIG_CONFIRM_LEADER, goes on on a new bank
+     after REPLAY_SIG_UPDATE_PARENT_KILL, or is given up on
+     REPLAY_SIG_ABANDON_LEADER. */
+  if( FD_UNLIKELY( ctx->slot_end_held ) ) return;
+
   /* If we time out on our slot, then stop being leader. */
   if( FD_UNLIKELY( ctx->leader_slot!=ULONG_MAX &&
                    fd_clock_tile_tickcount_to_wallclock( ctx->clock, now )>=ctx->slot_end_ns ) ) {
     *charge_busy = 1;
 
-    fd_done_packing_t * done_packing = fd_chunk_to_laddr( ctx->poh_out.mem, ctx->poh_out.chunk );
-    get_done_packing( ctx, done_packing, FD_PACK_END_SLOT_REASON_TIME ); /* needs to be called before fd_pack_end_block */
-    log_end_block_metrics( ctx, now, "time", done_packing->limits_usage->block_cost ); /* reads gauges fd_pack_end_block resets */
-    fd_pack_end_block( ctx->pack );
-    fd_pack_get_top_writers( ctx->pack, done_packing->limits_usage->top_writers ); /* needs to be called after fd_pack_end_block */
-
-    metrics_write( ctx );
-    fd_stem_publish( stem, ctx->poh_out.out_idx, fd_disco_execle_sig( ctx->leader_slot, ctx->pack_idx ), ctx->poh_out.chunk, sizeof(fd_done_packing_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
-    ctx->poh_out.chunk = fd_dcache_compact_next( ctx->poh_out.chunk, sizeof(fd_done_packing_t), ctx->poh_out.chunk0, ctx->poh_out.wmark );
-    ctx->pack_idx++;
-
-    auction_end( ctx, now, FD_METRICS_ENUM_PACK_AUCTION_END_REASON_V_SLOT_END_IDX );
-    ctx->drain_execle        = 1;
-    ctx->leader_slot         = ULONG_MAX;
-    ctx->slot_microblock_cnt = 0UL;
-    remove_ib( ctx );
+    if( FD_UNLIKELY( ctx->slot_parent_unconfirmed ) ) {
+      hold_slot_end( ctx, now, FD_PACK_END_SLOT_REASON_TIME );
+      return;
+    }
+    end_slot( ctx, stem, now, FD_PACK_END_SLOT_REASON_TIME, "time" );
 
     update_metric_state( ctx, now, FD_PACK_METRIC_STATE_LEADER,       0 );
     update_metric_state( ctx, now, FD_PACK_METRIC_STATE_EXECLES,      0 );
@@ -1007,23 +1109,11 @@ after_credit( fd_pack_ctx_t *     ctx,
        increment it here. */
     FD_MCNT_INC( PACK, BLOCK_MICROBLOCK_LIMIT_REACHED, 1UL );
 
-    fd_done_packing_t * done_packing = fd_chunk_to_laddr( ctx->poh_out.mem, ctx->poh_out.chunk );
-    get_done_packing( ctx, done_packing, FD_PACK_END_SLOT_REASON_MICROBLOCK );
-    log_end_block_metrics( ctx, now, "microblock", done_packing->limits_usage->block_cost );
-    fd_pack_end_block( ctx->pack );
-    fd_pack_get_top_writers( ctx->pack, done_packing->limits_usage->top_writers );
-
-    metrics_write( ctx ); /* final for the slot before poh ends it */
-    fd_stem_publish( stem, ctx->poh_out.out_idx, fd_disco_execle_sig( ctx->leader_slot, ctx->pack_idx ), ctx->poh_out.chunk, sizeof(fd_done_packing_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
-    ctx->poh_out.chunk = fd_dcache_compact_next( ctx->poh_out.chunk, sizeof(fd_done_packing_t), ctx->poh_out.chunk0, ctx->poh_out.wmark );
-    ctx->pack_idx++;
-
-    auction_end( ctx, now, FD_METRICS_ENUM_PACK_AUCTION_END_REASON_V_SLOT_END_IDX );
-    ctx->drain_execle        = 1;
-    ctx->leader_slot         = ULONG_MAX;
-    ctx->slot_microblock_cnt = 0UL;
-    remove_ib( ctx );
-
+    if( FD_UNLIKELY( ctx->slot_parent_unconfirmed ) ) {
+      hold_slot_end( ctx, now, FD_PACK_END_SLOT_REASON_MICROBLOCK );
+      return;
+    }
+    end_slot( ctx, stem, now, FD_PACK_END_SLOT_REASON_MICROBLOCK, "microblock" );
     return;
   }
 }
@@ -1050,6 +1140,24 @@ during_frag( fd_pack_ctx_t * ctx,
       ctx->txn_committed = !!txn_executed->is_committable;
       if( FD_UNLIKELY( !txn_executed->is_committable ) ) return;
       memcpy( ctx->executed_txn_sig, fd_txn_get_signatures( TXN(txn_executed->txn), txn_executed->txn->payload ), FD_TXN_SIGNATURE_SZ );
+      return;
+    }
+    if( FD_UNLIKELY( sig==REPLAY_SIG_UPDATE_PARENT_KILL ) ) {
+      if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz!=sizeof(fd_replay_update_parent_kill_t) ) )
+        FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
+      fd_memcpy( ctx->_update_parent_kill, dcache_entry, sizeof(fd_replay_update_parent_kill_t) );
+      return;
+    }
+    if( FD_UNLIKELY( sig==REPLAY_SIG_UPDATE_PARENT_BANK ) ) {
+      if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz!=sizeof(fd_became_leader_t) ) )
+        FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
+      fd_memcpy( ctx->_update_parent_bank, dcache_entry, sizeof(fd_became_leader_t) );
+      return;
+    }
+    if( FD_UNLIKELY( sig==REPLAY_SIG_CONFIRM_LEADER || sig==REPLAY_SIG_ABANDON_LEADER ) ) {
+      if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz!=sizeof(fd_replay_leader_slot_t) ) )
+        FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
+      fd_memcpy( ctx->_leader_slot, dcache_entry, sizeof(fd_replay_leader_slot_t) );
       return;
     }
     if( FD_LIKELY( sig!=REPLAY_SIG_BECAME_LEADER ) ) return;
@@ -1162,6 +1270,134 @@ during_frag( fd_pack_ctx_t * ctx,
 }
 
 
+
+/* update_parent_kill stops our slot on its old bank, which replay
+   killed to switch the slot to a new parent.  The slot does not end:
+   no done packing goes out, it goes on on the new bank, so a held slot
+   end is dropped.  Nothing is scheduled until every execle is idle,
+   then after_credit sends prefix_drained.  A slot on an unconfirmed
+   parent never ends, so we are still leader for it. */
+
+static void
+update_parent_kill( fd_pack_ctx_t * ctx,
+                    long            now ) {
+  fd_replay_update_parent_kill_t const * kill = ctx->_update_parent_kill;
+  FD_LOG_INFO(( "pack_update_parent(slot=%lu,parent=%lu)", kill->slot, kill->parent_slot ));
+  FD_TEST( ctx->leader_slot==kill->slot && ctx->slot_parent_unconfirmed );
+
+  fd_pack_prefix_drained_t * drained = ctx->prefix_drained;
+  drained->slot        = kill->slot;
+  drained->parent_slot = kill->parent_slot;
+  drained->bank_idx    = ctx->leader_bank_idx;
+  drained->bank_seq    = ctx->leader_bank_seq;
+  memcpy( drained->parent_dmr, kill->parent_dmr, sizeof(fd_hash_t) );
+  ctx->update_parent_pending   = 1;
+  ctx->slot_parent_unconfirmed = 0;
+  ctx->slot_end_held           = 0;
+
+  auction_end( ctx, now, FD_METRICS_ENUM_PACK_AUCTION_END_REASON_V_SLOT_END_IDX );
+  remove_ib( ctx );
+}
+
+/* begin_slot starts packing for our leader slot as _became_leader
+   describes it: its bank, limits, timing and bundle crank state.  With
+   resume, the slot already started on another bank and switched parent
+   (REPLAY_SIG_UPDATE_PARENT_BANK): it goes on on this one, keeping its
+   start, with the old bank's block accounting cleared. */
+
+static void
+begin_slot( fd_pack_ctx_t * ctx,
+            long            now_ticks,
+            int             resume ) {
+  long now_ns = fd_log_wallclock();
+
+  ulong leader_slot = ctx->_became_leader->slot;
+  ctx->leader_slot = leader_slot;
+  ulong slots_left = 3UL - (leader_slot%4UL);
+  long  slot_ns    = (long)( ctx->_became_leader->ticks_per_slot*ctx->_became_leader->tick_duration_ns );
+  fd_pack_set_rotation_end_ns( ctx->pack, ctx->_became_leader->slot_end_ns + (long)slots_left*slot_ns );
+  ctx->block_height = ctx->_became_leader->block_height;
+
+  if( FD_LIKELY( !resume ) ) {
+    ctx->slot_pack_start_ns  = now_ns;
+    ctx->slot_bundle_txn_cnt = 0UL;
+  } else {
+    /* The old bank's block accounting is not the new bank's.  A slot
+       start does not need this, the last slot's end cleared it. */
+    fd_pack_end_block( ctx->pack );
+    ctx->slot_microblock_cnt = 0UL;
+  }
+
+  ulong exp_cnt = fd_pack_expire_before( ctx->pack, fd_ulong_max( ctx->block_height, TRANSACTION_LIFETIME_SLOTS )-TRANSACTION_LIFETIME_SLOTS );
+  FD_MCNT_INC( PACK, TXN_DROPPED_EXPIRED, exp_cnt );
+
+  ctx->leader_bank_idx         = ctx->_became_leader->bank_idx;
+  ctx->leader_bank_seq         = ctx->_became_leader->bank_seq;
+  ctx->slot_parent_unconfirmed = ctx->_became_leader->parent_unconfirmed;
+  ctx->slot_end_held           = 0;
+  ctx->slot_max_microblocks = ctx->_became_leader->max_microblocks_in_slot;
+
+  /* Cap pack's entry bytes at the worst case: how many entry bytes
+     fit in max_shred_idx given our shredding.  We fill a batch until
+     the next microblock would not fit in two FEC sets, then pad out
+     that batch.  Empty ticks are subtracted below. */
+  ulong shreds            = fd_ulong_max( ctx->_became_leader->limits.slot_max_data_shreds, ctx->bench_max_shreds_per_block );
+  ulong max_microblock_sz = sizeof(fd_entry_batch_header_t) + EFFECTIVE_TXN_PER_MICROBLOCK*FD_TPU_MTU;
+  ulong base_max_data     = fd_shred_batch_pack_data_max( shreds, max_microblock_sz );
+  FD_TEST( base_max_data );
+  /* Reserve some space in the block for ticks */
+  ctx->slot_max_data        = base_max_data
+                                    - 48UL*(ctx->_became_leader->ticks_per_slot+ctx->_became_leader->total_skipped_ticks);
+
+  ctx->limits.slot_max_cost                     = ctx->_became_leader->limits.slot_max_cost;
+  ctx->limits.slot_max_write_cost_per_acct      = ctx->_became_leader->limits.slot_max_write_cost_per_acct;
+  ctx->limits.slot_max_allocated_data_per_block = ctx->_became_leader->limits.slot_max_allocated_data_per_block;
+  ctx->limits.slot_max_data_shreds              = shreds;
+
+  double tick_per_ns = ctx->clock->epoch->w;
+  long end_ticks = now_ticks + (long)((double)fd_long_max( ctx->_became_leader->slot_end_ns - now_ns, 1L )*tick_per_ns);
+  /* We may still get overrun, but then we'll never use this and just
+     reinitialize it the next time when we actually become leader. */
+  fd_pack_pacing_init( ctx->pacer, now_ticks, end_ticks, (float)tick_per_ns, ctx->limits.slot_max_cost );
+
+  if( FD_UNLIKELY( ctx->crank->enabled ) ) {
+    /* If we get overrun, we'll just never use these values, but the
+       old values aren't really useful either. */
+    ctx->crank->epoch = ctx->_became_leader->epoch;
+    *(ctx->crank->prev_config) = *(ctx->_became_leader->bundle->config);
+    memcpy( ctx->crank->recent_blockhash,   ctx->_became_leader->bundle->last_blockhash,     32UL );
+    memcpy( ctx->crank->tip_receiver_owner, ctx->_became_leader->bundle->tip_receiver_owner, 32UL );
+  }
+
+  FD_LOG_INFO(( "pack_became_leader(slot=%lu,ends_at=%ld,resume=%d)", ctx->leader_slot, ctx->_became_leader->slot_end_ns, resume ));
+
+  update_metric_state( ctx, fd_tickcount(), FD_PACK_METRIC_STATE_LEADER, 1 );
+
+  /* If there is currently an auction running from a previous slot, end it. */
+  auction_end( ctx, now_ticks, FD_METRICS_ENUM_PACK_AUCTION_END_REASON_V_SLOT_END_IDX );
+
+  ctx->slot_end_ns                   = ctx->_became_leader->slot_end_ns;
+  if( FD_LIKELY( !resume ) ) ctx->leader_slot_start_tick = now_ticks + (long)((double)( ctx->_became_leader->slot_start_ns - now_ns )*tick_per_ns);
+  ctx->leader_slot_end_tick          = end_ticks;
+  ctx->auction_final_start_tick      = fd_long_if( ctx->leader_slot%4UL==3UL,
+                                                   end_ticks-(long)(tick_per_ns*(double)FD_PACK_AUCTION_FINAL_NS), LONG_MAX );
+  ctx->auction_last_attempt_tick     = now_ticks - ctx->auction_interval_tick;
+  ctx->auction_next_tick             = now_ticks;
+  ctx->slot_dynamic_max_microblocks  = ctx->slot_max_microblocks;
+  ctx->slot_mixin_per_tick           = fd_ulong_if( ctx->_became_leader->hashcnt_per_tick>1UL, ctx->_became_leader->hashcnt_per_tick-1UL, 0UL ); /* 0: low power / alpenglow, no hash budget */
+  ctx->slot_tick_duration_ns         = ctx->_became_leader->tick_duration_ns;
+  ctx->pending_reduce_mb_bound       = 0;
+  fd_pack_limits_t limits[ 1 ];
+  limits->max_cost_per_block = ctx->limits.slot_max_cost;
+  limits->max_data_bytes_per_block = ctx->slot_max_data;
+  limits->max_microblocks_per_block = ctx->slot_max_microblocks;
+  limits->max_write_cost_per_acct = ctx->limits.slot_max_write_cost_per_acct;
+  limits->max_txn_per_microblock = ULONG_MAX; /* unused */
+  limits->max_allocated_data_per_block = ctx->limits.slot_max_allocated_data_per_block;
+  fd_pack_set_block_limits( ctx->pack, limits );
+  fd_pack_pacing_update_consumed_cus( ctx->pacer, fd_pack_current_block_cost( ctx->pack ), now_ticks );
+}
+
 /* After the transaction has been fully received, and we know we were
    not overrun while reading it, insert it into pack. */
 
@@ -1178,7 +1414,6 @@ after_frag( fd_pack_ctx_t *     ctx,
   (void)sz;
   (void)tsorig;
   (void)tspub;
-  (void)stem;
 
   long now = fd_tickcount();
 
@@ -1189,6 +1424,27 @@ after_frag( fd_pack_ctx_t *     ctx,
         ulong deleted = fd_pack_delete_transaction( ctx->pack, fd_type_pun( ctx->executed_txn_sig ) );
         FD_MCNT_INC( PACK, TXN_DROPPED_ALREADY_EXECUTED, deleted );
         update_metric_state( ctx, now, FD_PACK_METRIC_STATE_TRANSACTIONS, fd_pack_avail_txn_cnt( ctx->pack )>0 );
+      }
+      if( FD_UNLIKELY( sig==REPLAY_SIG_UPDATE_PARENT_KILL ) ) {
+        update_parent_kill( ctx, now );
+        return;
+      }
+      if( FD_UNLIKELY( sig==REPLAY_SIG_UPDATE_PARENT_BANK ) ) {
+        FD_TEST( ctx->_update_parent_bank->slot==ctx->leader_slot );
+        ctx->update_parent_bank_pending = 1; /* after_credit resumes on it once the old bank drained */
+        return;
+      }
+      if( FD_UNLIKELY( sig==REPLAY_SIG_CONFIRM_LEADER ) ) {
+        if( FD_UNLIKELY( ctx->_leader_slot->slot!=ctx->leader_slot ) ) return;
+        ctx->slot_parent_unconfirmed = 0;
+        if( FD_UNLIKELY( ctx->slot_end_held ) ) end_slot( ctx, stem, now, ctx->slot_end_held_reason, "confirmed" );
+        return;
+      }
+      if( FD_UNLIKELY( sig==REPLAY_SIG_ABANDON_LEADER ) ) {
+        if( FD_UNLIKELY( ctx->_leader_slot->slot!=ctx->leader_slot ) ) return;
+        ctx->slot_parent_unconfirmed = 0;
+        end_slot( ctx, stem, now, FD_PACK_END_SLOT_REASON_ABANDONED, "abandoned" );
+        return;
       }
       if( FD_UNLIKELY( sig!=REPLAY_SIG_BECAME_LEADER ) ) return;
       leader_slot = ctx->_became_leader->slot;
@@ -1203,101 +1459,12 @@ after_frag( fd_pack_ctx_t *     ctx,
   switch( ctx->in_kind[ in_idx ] ) {
   case IN_KIND_REPLAY: {
     long now_ticks = fd_tickcount();
-    long now_ns    = fd_log_wallclock();
 
     if( FD_UNLIKELY( ctx->leader_slot!=ULONG_MAX ) ) {
-      fd_done_packing_t * done_packing = fd_chunk_to_laddr( ctx->poh_out.mem, ctx->poh_out.chunk );
-      get_done_packing( ctx, done_packing, FD_PACK_END_SLOT_REASON_ABANDONED );
-      log_end_block_metrics( ctx, now_ticks, "switch", done_packing->limits_usage->block_cost );
-      fd_pack_end_block( ctx->pack );
-      fd_pack_get_top_writers( ctx->pack, done_packing->limits_usage->top_writers );
-
-      metrics_write( ctx ); /* final for the slot before poh ends it */
-      fd_stem_publish( stem, ctx->poh_out.out_idx, fd_disco_execle_sig( ctx->leader_slot, ctx->pack_idx ), ctx->poh_out.chunk, sizeof(fd_done_packing_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
-      ctx->poh_out.chunk = fd_dcache_compact_next( ctx->poh_out.chunk, sizeof(fd_done_packing_t), ctx->poh_out.chunk0, ctx->poh_out.wmark );
-      ctx->pack_idx++;
-
       FD_LOG_WARNING(( "switching to slot %lu while packing for slot %lu. Draining execle tiles.", leader_slot, ctx->leader_slot ));
-      ctx->drain_execle        = 1;
-      ctx->leader_slot         = ULONG_MAX;
-      ctx->slot_microblock_cnt = 0UL;
-      remove_ib( ctx );
+      end_slot( ctx, stem, now_ticks, FD_PACK_END_SLOT_REASON_ABANDONED, "switch" );
     }
-    ctx->leader_slot = leader_slot;
-    ulong slots_left = 3UL - (leader_slot%4UL);
-    long  slot_ns    = (long)( ctx->_became_leader->ticks_per_slot*ctx->_became_leader->tick_duration_ns );
-    fd_pack_set_rotation_end_ns( ctx->pack, ctx->_became_leader->slot_end_ns + (long)slots_left*slot_ns );
-    ctx->block_height = ctx->_became_leader->block_height;
-
-    ctx->slot_pack_start_ns  = now_ns;
-    ctx->slot_bundle_txn_cnt = 0UL;
-
-    ulong exp_cnt = fd_pack_expire_before( ctx->pack, fd_ulong_max( ctx->block_height, TRANSACTION_LIFETIME_SLOTS )-TRANSACTION_LIFETIME_SLOTS );
-    FD_MCNT_INC( PACK, TXN_DROPPED_EXPIRED, exp_cnt );
-
-    ctx->leader_bank_idx      = ctx->_became_leader->bank_idx;
-    ctx->leader_bank_seq      = ctx->_became_leader->bank_seq;
-    ctx->slot_max_microblocks = ctx->_became_leader->max_microblocks_in_slot;
-
-    /* Cap pack's entry bytes at the worst case: how many entry bytes
-       fit in max_shred_idx given our shredding.  We fill a batch until
-       the next microblock would not fit in two FEC sets, then pad out
-       that batch.  Empty ticks are subtracted below. */
-    ulong shreds            = fd_ulong_max( ctx->_became_leader->limits.slot_max_data_shreds, ctx->bench_max_shreds_per_block );
-    ulong max_microblock_sz = sizeof(fd_entry_batch_header_t) + EFFECTIVE_TXN_PER_MICROBLOCK*FD_TPU_MTU;
-    ulong base_max_data     = fd_shred_batch_pack_data_max( shreds, max_microblock_sz );
-    FD_TEST( base_max_data );
-    /* Reserve some space in the block for ticks */
-    ctx->slot_max_data        = base_max_data
-                                      - 48UL*(ctx->_became_leader->ticks_per_slot+ctx->_became_leader->total_skipped_ticks);
-
-    ctx->limits.slot_max_cost                     = ctx->_became_leader->limits.slot_max_cost;
-    ctx->limits.slot_max_write_cost_per_acct      = ctx->_became_leader->limits.slot_max_write_cost_per_acct;
-    ctx->limits.slot_max_allocated_data_per_block = ctx->_became_leader->limits.slot_max_allocated_data_per_block;
-    ctx->limits.slot_max_data_shreds              = shreds;
-
-    double tick_per_ns = ctx->clock->epoch->w;
-    long end_ticks = now_ticks + (long)((double)fd_long_max( ctx->_became_leader->slot_end_ns - now_ns, 1L )*tick_per_ns);
-    /* We may still get overrun, but then we'll never use this and just
-       reinitialize it the next time when we actually become leader. */
-    fd_pack_pacing_init( ctx->pacer, now_ticks, end_ticks, (float)tick_per_ns, ctx->limits.slot_max_cost );
-
-    if( FD_UNLIKELY( ctx->crank->enabled ) ) {
-      /* If we get overrun, we'll just never use these values, but the
-         old values aren't really useful either. */
-      ctx->crank->epoch = ctx->_became_leader->epoch;
-      *(ctx->crank->prev_config) = *(ctx->_became_leader->bundle->config);
-      memcpy( ctx->crank->recent_blockhash,   ctx->_became_leader->bundle->last_blockhash,     32UL );
-      memcpy( ctx->crank->tip_receiver_owner, ctx->_became_leader->bundle->tip_receiver_owner, 32UL );
-    }
-
-    FD_LOG_INFO(( "pack_became_leader(slot=%lu,ends_at=%ld)", ctx->leader_slot, ctx->_became_leader->slot_end_ns ));
-
-    update_metric_state( ctx, fd_tickcount(), FD_PACK_METRIC_STATE_LEADER, 1 );
-
-    /* If there is currently an auction running from a previous slot, end it. */
-    auction_end( ctx, now_ticks, FD_METRICS_ENUM_PACK_AUCTION_END_REASON_V_SLOT_END_IDX );
-
-    ctx->slot_end_ns                   = ctx->_became_leader->slot_end_ns;
-    ctx->leader_slot_start_tick        = now_ticks + (long)((double)( ctx->_became_leader->slot_start_ns - now_ns )*tick_per_ns);
-    ctx->leader_slot_end_tick          = end_ticks;
-    ctx->auction_final_start_tick      = fd_long_if( ctx->leader_slot%4UL==3UL,
-                                                     end_ticks-(long)(tick_per_ns*(double)FD_PACK_AUCTION_FINAL_NS), LONG_MAX );
-    ctx->auction_last_attempt_tick     = now_ticks - ctx->auction_interval_tick;
-    ctx->auction_next_tick             = now_ticks;
-    ctx->slot_dynamic_max_microblocks  = ctx->slot_max_microblocks;
-    ctx->slot_mixin_per_tick           = fd_ulong_if( ctx->_became_leader->hashcnt_per_tick>1UL, ctx->_became_leader->hashcnt_per_tick-1UL, 0UL ); /* 0: low power / alpenglow, no hash budget */
-    ctx->slot_tick_duration_ns         = ctx->_became_leader->tick_duration_ns;
-    ctx->pending_reduce_mb_bound       = 0;
-    fd_pack_limits_t limits[ 1 ];
-    limits->max_cost_per_block = ctx->limits.slot_max_cost;
-    limits->max_data_bytes_per_block = ctx->slot_max_data;
-    limits->max_microblocks_per_block = ctx->slot_max_microblocks;
-    limits->max_write_cost_per_acct = ctx->limits.slot_max_write_cost_per_acct;
-    limits->max_txn_per_microblock = ULONG_MAX; /* unused */
-    limits->max_allocated_data_per_block = ctx->limits.slot_max_allocated_data_per_block;
-    fd_pack_set_block_limits( ctx->pack, limits );
-    fd_pack_pacing_update_consumed_cus( ctx->pacer, fd_pack_current_block_cost( ctx->pack ), now );
+    begin_slot( ctx, now_ticks, 0 );
 
     break;
   }
@@ -1504,6 +1671,10 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->auction_final_start_tick      = LONG_MAX;
   ctx->leader_bank_idx               = ULONG_MAX;
   ctx->leader_bank_seq               = ULONG_MAX;
+  ctx->update_parent_pending         = 0;
+  ctx->update_parent_bank_pending    = 0;
+  ctx->slot_parent_unconfirmed       = 0;
+  ctx->slot_end_held                 = 0;
   ctx->pack_idx                      = 0UL;
   ctx->slot_microblock_cnt           = 0UL;
   ctx->pack_txn_cnt                  = 0UL;

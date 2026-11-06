@@ -212,6 +212,41 @@ init_block( fd_motor_tile_t *          ctx,
   publish_shred( ctx, stem, prepare_header( ctx ), -1 );
 }
 
+static ulong
+prepare_update_parent( fd_motor_tile_t *                ctx,
+                       fd_pack_prefix_drained_t const * drained ) {
+  fd_block_marker_t marker[1];
+  marker->kind                          = FD_BLOCK_MARKER_KIND_UPDATE_PARENT;
+  marker->update_parent.new_parent_slot = drained->parent_slot;
+  memcpy( marker->update_parent.new_parent_block_id.uc, drained->parent_dmr, sizeof(fd_hash_t) );
+
+  ulong marker_sz = fd_block_marker_ser( marker, (uchar *)fd_chunk_to_laddr( ctx->shred_out->mem, ctx->shred_out->chunk )+sizeof(fd_entry_batch_meta_t) );
+  if( FD_UNLIKELY( !marker_sz ) ) FD_LOG_ERR(( "fd_block_marker_ser(UPDATE_PARENT) failed" ));
+  return marker_sz;
+}
+
+/* prefix_drained switches our slot to a new parent (fast leader
+   handover, sad path).  Pack sent it after every microblock of the old
+   bank, in pack_idx order, so they are already in the block: the
+   UpdateParent marker naming the new parent goes after them, as a batch
+   of its own, starting a FEC set.  parent_offset stays the header's for
+   the whole slot.  Replay then releases the old bank. */
+
+static void
+prefix_drained( fd_motor_tile_t *                ctx,
+                fd_stem_context_t *              stem,
+                fd_pack_prefix_drained_t const * drained ) {
+  publish_shred( ctx, stem, prepare_update_parent( ctx, drained ), -1 );
+
+  fd_poh_prefix_drained_t * dst = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
+  dst->slot     = drained->slot;
+  dst->bank_idx = drained->bank_idx;
+  dst->bank_seq = drained->bank_seq;
+  ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
+  fd_stem_publish( stem, ctx->replay_out->idx, FD_POH_SIG_PREFIX_DRAINED, ctx->replay_out->chunk, sizeof(fd_poh_prefix_drained_t), 0UL, 0UL, tspub );
+  ctx->replay_out->chunk = fd_dcache_compact_next( ctx->replay_out->chunk, sizeof(fd_poh_prefix_drained_t), ctx->replay_out->chunk0, ctx->replay_out->wmark );
+}
+
 static void
 fini_block( fd_motor_tile_t *                 ctx,
             fd_stem_context_t *               stem,
@@ -225,11 +260,14 @@ done_packing( fd_motor_tile_t *         ctx,
               fd_stem_context_t *       stem,
               fd_done_packing_t const * msg ) {
 
-  fd_sha256_hash( ctx->poh_hash.uc, sizeof(fd_hash_t), ctx->poh_hash.uc ); /* alpentick */
+  /* A slot pack gave up never gets its alpentick: replay drops it as
+     aborted. */
+  int completed = msg->end_slot_reason!=FD_PACK_END_SLOT_REASON_ABANDONED;
+  if( FD_LIKELY( completed ) ) fd_sha256_hash( ctx->poh_hash.uc, sizeof(fd_hash_t), ctx->poh_hash.uc ); /* alpentick */
 
   fd_poh_leader_slot_ended_t * dst = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
   fd_memset( dst, 0, sizeof(fd_poh_leader_slot_ended_t) );
-  dst->completed        = 1;
+  dst->completed        = completed;
   dst->slot             = ctx->slot;
   dst->timing_table_idx = ctx->timing_table_idx;
   memcpy( dst->blockhash, ctx->poh_hash.uc, sizeof(fd_hash_t) ); /* write the "alpentick" to the existing blockhash field */
@@ -358,6 +396,18 @@ returnable_frag( fd_motor_tile_t *   ctx,
       break;
     }
     case IN_KIND_PACK: {
+      if( FD_UNLIKELY( sz==sizeof(fd_pack_prefix_drained_t) ) ) {
+        prefix_drained( ctx, stem, fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk ) );
+        break;
+      }
+      if( FD_UNLIKELY( sz==sizeof(fd_pack_resume_t) ) ) {
+        /* Our slot resumes on its new bank: its entries chain from the
+           new parent's alpentick, as a follower replaying from the
+           UpdateParent checks them. */
+        fd_pack_resume_t const * resume = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
+        memcpy( ctx->poh_hash.uc, resume->parent_blockhash, sizeof(fd_hash_t) );
+        break;
+      }
       fd_done_packing_t const * msg = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
       done_packing( ctx, stem, msg );
       break;
@@ -452,7 +502,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
   return out_cnt;
 }
 
-#define STEM_BURST (2UL) /* footer + alpentick */
+#define STEM_BURST (2UL) /* footer + alpentick, or an UpdateParent marker + prefix drained */
 
 /* See explanation in fd_pack */
 #define STEM_LAZY  (128L*3000L)
