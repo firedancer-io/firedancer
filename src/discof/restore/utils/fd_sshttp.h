@@ -82,6 +82,12 @@ fd_sshttp_deadline( fd_sshttp_t const * http );
 
 #define FD_SSHTTP_IOV_MAX (2UL)
 
+/* SO_RCVBUF for download sockets.  Bypasses the net.ipv4.tcp_rmem
+   autotuning cap, which is too small for high bandwidth-delay links.
+   Clamped by net.core.rmem_max, which the sysctl stage raises. */
+
+#define FD_SSHTTP_SO_RCVBUF (128UL<<20)
+
 int
 fd_sshttp_advance( fd_sshttp_t *        http,
                    struct iovec const * iov,

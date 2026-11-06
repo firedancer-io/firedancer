@@ -349,6 +349,11 @@ fd_sshttp_init( fd_sshttp_t * http,
     return -1;
   }
 
+  int so_rcvbuf = (int)FD_SSHTTP_SO_RCVBUF;
+  if( FD_UNLIKELY( -1==setsockopt( http->sockfd, SOL_SOCKET, SO_RCVBUF, &so_rcvbuf, sizeof(int) ) ) ) {
+    FD_LOG_ERR(( "setsockopt(SOL_SOCKET,SO_RCVBUF,%i) failed (%i-%s)", so_rcvbuf, errno, fd_io_strerror( errno ) ));
+  }
+
   struct sockaddr_in addr_in = {
     .sin_family = AF_INET,
     .sin_port   = addr.port,

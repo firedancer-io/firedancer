@@ -46,6 +46,10 @@ socket: (and (eq (arg 0) "AF_INET")
              (eq (arg 1) "SOCK_STREAM|SOCK_NONBLOCK")
              (eq (arg 2) 0))
 
+# snapshot: set the receive buffer size of download sockets.
+setsockopt: (and (eq (arg 1) SOL_SOCKET)
+                 (eq (arg 2) SO_RCVBUF))
+
 # snapshot: need to be able to connect to a peer to download a snapshot
 # from and for snapshot slot resolution.
 #
