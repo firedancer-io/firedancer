@@ -10396,6 +10396,10 @@ message MetricsExecle {
   MetricsExecleTxncacheQueryDurationNanos txncache_query_duration_nanos = 66;
   // Duration of one transaction cache insert
   MetricsExecleTxncacheInsertDurationNanos txncache_insert_duration_nanos = 67;
+  // sBPF program invocations run as ahead-of-time transpiled code
+  uint64 transpiled_executed = 383688624;
+  // Transpiled invocations that bailed to the interpreter
+  uint64 transpiled_bailed = 429405858;
 }
 
 // Metrics of one shred tile instance, one row per sweep
@@ -12395,6 +12399,10 @@ message MetricsExecrp {
   MetricsExecrpTxncacheQueryDurationNanos txncache_query_duration_nanos = 68;
   // Duration of one transaction cache insert
   MetricsExecrpTxncacheInsertDurationNanos txncache_insert_duration_nanos = 69;
+  // sBPF program invocations run as ahead-of-time transpiled code
+  uint64 transpiled_executed = 524961366;
+  // Transpiled invocations that bailed to the interpreter
+  uint64 transpiled_bailed = 489446758;
 }
 
 // Metrics of one votor tile instance, one row per sweep
