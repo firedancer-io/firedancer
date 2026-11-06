@@ -728,6 +728,19 @@ fd_accdb_idx_busy( fd_accdb_t const * accdb );
 
 typedef void (* fd_accdb_place_tomb_fn_t)( void * ctx, uchar const pubkey[ 32 ], ulong slot, int cross );
 
+#define FD_ACCDB_PLACE_STAGE_COUNT   (1UL) /* unused: placement no longer counts/scatters */
+#define FD_ACCDB_PLACE_STAGE_SCATTER (2UL) /* unused */
+#define FD_ACCDB_PLACE_STAGE_BUILD   (3UL)
+#define FD_ACCDB_PLACE_STAGE_CLEANUP (4UL)
+#define FD_ACCDB_PLACE_STAGE_DONE    (5UL)
+
+/* Optional synchronous progress callback, called on the lead only.
+   completed/total counts placement ranges (done by the lead or by
+   helpers in fd_accdb_snapshot_place_help) plus one unit for final
+   cleanup; it is work, not elapsed time.  Stages run BUILD (0..R),
+   CLEANUP (R), DONE (R+1).  No callbacks in RAM-only mode. */
+typedef void (* fd_accdb_place_progress_fn_t)( void * ctx, ulong stage, ulong completed, ulong total );
+
 void
 fd_accdb_snapshot_stage_flush( fd_accdb_t * accdb );
 
@@ -736,6 +749,8 @@ fd_accdb_snapshot_place( fd_accdb_t *                    accdb,
                          int                             phase,
                          fd_accdb_place_tomb_fn_t        tomb_fn,
                          void *                          tomb_ctx,
+                         fd_accdb_place_progress_fn_t    progress_fn,
+                         void *                          progress_ctx,
                          fd_accdb_snapshot_placement_t * out );
 
 void

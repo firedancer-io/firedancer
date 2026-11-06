@@ -3102,7 +3102,7 @@ test_idx_place_equivalence( ulong seed,
     FD_TEST( !pthread_create( &helper[ i ], NULL, plt_helper, hj[ i ] ) );
   }
   fd_accdb_snapshot_placement_t out[1];
-  FD_TEST( !fd_accdb_snapshot_place( accdb, FD_ACCDB_PLACE_FULL, plt_tomb_fn, NULL, out ) );
+  FD_TEST( !fd_accdb_snapshot_place( accdb, FD_ACCDB_PLACE_FULL, plt_tomb_fn, NULL, NULL, NULL, out ) );
   plt_stop = 1;
   for( ulong i=0UL; i<helper_cnt; i++ ) { FD_TEST( !pthread_join( helper[ i ], NULL ) ); free( hj[ i ] ); free( hwin[ i ] ); }
 
@@ -3167,7 +3167,7 @@ test_idx_place_equivalence( ulong seed,
   /* check: capitalization inputs, no mutation, no frees */
   ulong fb = plt_bytes_freed();
   plt_tomb.n = 0UL;
-  FD_TEST( !fd_accdb_snapshot_place( accdb, FD_ACCDB_PLACE_INCR_CHECK, plt_tomb_fn, NULL, out ) );
+  FD_TEST( !fd_accdb_snapshot_place( accdb, FD_ACCDB_PLACE_INCR_CHECK, plt_tomb_fn, NULL, NULL, NULL, out ) );
   FD_TEST( out->duplicates==idups+cross_dups && out->dup_lamports==idup+cross_dup && !out->disk_freed && plt_bytes_freed()==fb && !plt_tomb.n );
   for( ulong id=0UL; id<PLT_KEYS; id++ ) {
     uchar key[ 32 ]; plt_key( key, id ); fd_accdb_idx_slot_t got;
@@ -3176,7 +3176,7 @@ test_idx_place_equivalence( ulong seed,
 
   /* apply */
   ulong total0 = test_shmem_mem->shmetrics->accounts_total;
-  FD_TEST( !fd_accdb_snapshot_place( accdb, FD_ACCDB_PLACE_INCR_APPLY, plt_tomb_fn, NULL, out ) );
+  FD_TEST( !fd_accdb_snapshot_place( accdb, FD_ACCDB_PLACE_INCR_APPLY, plt_tomb_fn, NULL, NULL, NULL, out ) );
   FD_TEST( out->loaded==iloaded && out->removed==iremoved );
   FD_TEST( out->disk_freed==ifreed+cross_freed+zfreed && plt_bytes_freed()-fb==out->disk_freed );
   FD_TEST( plt_tomb.n==itombs );

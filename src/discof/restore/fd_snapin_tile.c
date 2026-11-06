@@ -337,6 +337,9 @@ struct fd_snapin_tile {
     ulong total_accounts_processed;
     ulong total_account_batches_processed;
     ulong disk_bytes_written;
+    ulong index_stage;
+    ulong index_progress;
+    ulong index_expected;
   } metrics;
 
   struct {
@@ -439,6 +442,9 @@ static void
 metrics_write( fd_snapin_tile_t * ctx ) {
   fd_accdb_flush_metrics( ctx->accdb );
 
+  FD_MGAUGE_SET( SNAPIN, INDEX_STATE,    ctx->metrics.index_stage    );
+  FD_MGAUGE_SET( SNAPIN, INDEX_PROGRESS, ctx->metrics.index_progress );
+  FD_MGAUGE_SET( SNAPIN, INDEX_EXPECTED, ctx->metrics.index_expected );
   FD_MGAUGE_SET( SNAPIN, STREAM_STATE,                     (ulong)ctx->state                    );
   FD_MGAUGE_SET( SNAPIN, PARSE_PROGRESS_BYTES_FULL,        ctx->metrics.full_bytes_read         );
   FD_MGAUGE_SET( SNAPIN, PARSE_PROGRESS_BYTES_INCREMENTAL, ctx->metrics.incremental_bytes_read  );
@@ -1879,6 +1885,9 @@ handle_data_frag( fd_snapin_tile_t *  ctx,
 
 static void
 reset_attempt_state( fd_snapin_tile_t * ctx ) {
+  ctx->metrics.index_stage    = 0UL;
+  ctx->metrics.index_progress = 0UL;
+  ctx->metrics.index_expected = 0UL;
   for( ulong lane=0UL; lane<ctx->lane_cnt; lane++ ) {
     ctx->in[ lane ].pos = 0UL;
   }
@@ -1958,6 +1967,29 @@ place_tomb( void *      _ctx,
   fd_stake_delegations_fork_remove( ctx->stake_delegations, FD_VOLATILE_CONST( ctx->shmem->stake_fork ), slot, (fd_pubkey_t const *)pubkey, cross );
 }
 
+FD_STATIC_ASSERT( FD_ACCDB_PLACE_STAGE_COUNT  ==FD_METRICS_ENUM_SNAPSHOT_INDEX_STATE_V_COUNT_IDX,   index_stage );
+FD_STATIC_ASSERT( FD_ACCDB_PLACE_STAGE_SCATTER==FD_METRICS_ENUM_SNAPSHOT_INDEX_STATE_V_SCATTER_IDX, index_stage );
+FD_STATIC_ASSERT( FD_ACCDB_PLACE_STAGE_BUILD  ==FD_METRICS_ENUM_SNAPSHOT_INDEX_STATE_V_BUILD_IDX,   index_stage );
+FD_STATIC_ASSERT( FD_ACCDB_PLACE_STAGE_CLEANUP==FD_METRICS_ENUM_SNAPSHOT_INDEX_STATE_V_CLEANUP_IDX, index_stage );
+FD_STATIC_ASSERT( FD_ACCDB_PLACE_STAGE_DONE   ==FD_METRICS_ENUM_SNAPSHOT_INDEX_STATE_V_DONE_IDX,    index_stage );
+
+static void
+place_progress( void * _ctx,
+                ulong  stage,
+                ulong  completed,
+                ulong  total ) {
+  fd_snapin_tile_t * ctx = _ctx;
+  ctx->metrics.index_stage    = stage;
+  ctx->metrics.index_progress = completed;
+  ctx->metrics.index_expected = total;
+
+  /* Placement is synchronous: stem cannot run metrics_write until it
+     returns.  Publish here so watch/Prometheus see live progress. */
+  FD_MGAUGE_SET( SNAPIN, INDEX_EXPECTED, total     );
+  FD_MGAUGE_SET( SNAPIN, INDEX_PROGRESS, completed );
+  FD_MGAUGE_SET( SNAPIN, INDEX_STATE,    stage     );
+}
+
 static int
 snapin_place( fd_snapin_tile_t * ctx,
               int                phase ) {
@@ -1970,7 +2002,7 @@ snapin_place( fd_snapin_tile_t * ctx,
     fd_accdb_snapshot_pending_watch( ctx->accdb, FD_SYSVAR_CACHE_ENTRY_CNT+1UL, watch );
   }
   fd_accdb_snapshot_placement_t out[1];
-  if( FD_UNLIKELY( fd_accdb_snapshot_place( ctx->accdb, phase, place_tomb, ctx, out ) ) ) {
+  if( FD_UNLIKELY( fd_accdb_snapshot_place( ctx->accdb, phase, place_tomb, ctx, place_progress, ctx, out ) ) ) {
     FD_LOG_WARNING(( "corrupt snapshot: duplicate account version with equal slots" ));
     return -1;
   }

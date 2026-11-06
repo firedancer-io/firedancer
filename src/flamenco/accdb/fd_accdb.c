@@ -5420,6 +5420,9 @@ struct place_ctx {
   fd_accdb_t *                  accdb;
   fd_accdb_place_tomb_fn_t      tomb_fn;
   void *                        tomb_ctx;
+  fd_accdb_place_progress_fn_t  progress_fn;   /* lead only; NULL in helpers */
+  void *                        progress_ctx;
+  ulong                         progress_total;
   fd_accdb_snapshot_placement_t out[1];
   int                           incr;
   int                           apply;   /* incr phase B */
@@ -5435,6 +5438,13 @@ struct place_ctx {
 };
 
 typedef struct place_ctx place_ctx_t;
+
+static inline void
+place_progress( place_ctx_t * pc,
+                ulong         stage,
+                ulong         completed ) {
+  if( pc->progress_fn ) pc->progress_fn( pc->progress_ctx, stage, completed, pc->progress_total );
+}
 
 static inline void
 place_free_rec( place_ctx_t *                 pc,
@@ -5833,7 +5843,8 @@ place_job_work( place_ctx_t * pc ) {
     if( FD_UNLIKELY( place_range( pc, r ) ) ) FD_VOLATILE( shmem->place_job.err ) = 1UL;
     FD_COMPILER_MFENCE();
     FD_ATOMIC_FETCH_AND_OR( &shmem->place_done[ r>>6 ], 1UL<<(r&63UL) );
-    FD_ATOMIC_FETCH_AND_ADD( &shmem->place_job.done, 1UL );
+    ulong done = FD_ATOMIC_FETCH_AND_ADD( &shmem->place_job.done, 1UL )+1UL;
+    place_progress( pc, FD_ACCDB_PLACE_STAGE_BUILD, done );
   }
 }
 
@@ -5854,8 +5865,13 @@ place_all( place_ctx_t * pc ) {
   ulong R = place_range_cnt( accdb );
   FD_TEST( accdb->place_window );
   FD_TEST( R<=FD_ACCDB_PLACE_RANGE_MAX );
+  pc->progress_total = R+1UL; /* ranges plus cleanup */
+  place_progress( pc, FD_ACCDB_PLACE_STAGE_BUILD, 0UL );
   if( pc->incr ) {
-    for( ulong r=0UL; r<R; r++ ) if( FD_UNLIKELY( place_range( pc, r ) ) ) return -1;
+    for( ulong r=0UL; r<R; r++ ) {
+      if( FD_UNLIKELY( place_range( pc, r ) ) ) return -1;
+      place_progress( pc, FD_ACCDB_PLACE_STAGE_BUILD, r+1UL );
+    }
     return 0;
   }
   /* full: open a job the other snapin tiles join */
@@ -5866,7 +5882,13 @@ place_all( place_ctx_t * pc ) {
   FD_COMPILER_MFENCE();
   FD_VOLATILE( shmem->place_job.open ) = 1UL;
   place_job_work( pc );
-  while( FD_VOLATILE_CONST( shmem->place_job.done )<R && !FD_VOLATILE_CONST( shmem->place_job.err ) ) FD_SPIN_PAUSE();
+  /* helpers finish the ranges they claimed; report as they land */
+  for( ulong seen=0UL;; ) {
+    ulong done = FD_VOLATILE_CONST( shmem->place_job.done );
+    if( done>=R || FD_VOLATILE_CONST( shmem->place_job.err ) ) break;
+    if( done>seen ) { place_progress( pc, FD_ACCDB_PLACE_STAGE_BUILD, done ); seen = done; }
+    FD_SPIN_PAUSE();
+  }
   FD_VOLATILE( shmem->place_job.open ) = 0UL;
   FD_COMPILER_MFENCE();
   while( FD_VOLATILE_CONST( shmem->place_job.active ) ) FD_SPIN_PAUSE();
@@ -5902,11 +5924,14 @@ fd_accdb_snapshot_place( fd_accdb_t *                    accdb,
                          int                             phase,
                          fd_accdb_place_tomb_fn_t        tomb_fn,
                          void *                          tomb_ctx,
+                         fd_accdb_place_progress_fn_t    progress_fn,
+                         void *                          progress_ctx,
                          fd_accdb_snapshot_placement_t * out ) {
   memset( out, 0, sizeof(*out) );
   if( FD_LIKELY( !idx_enabled( accdb ) ) ) return 0;
   fd_accdb_shmem_t * shmem = accdb->shmem;
-  place_ctx_t pc[1] = {{ .accdb = accdb, .tomb_fn = tomb_fn, .tomb_ctx = tomb_ctx }};
+  place_ctx_t pc[1] = {{ .accdb = accdb, .tomb_fn = tomb_fn, .tomb_ctx = tomb_ctx,
+                         .progress_fn = progress_fn, .progress_ctx = progress_ctx }};
   pc->incr  = phase!=FD_ACCDB_PLACE_FULL;
   pc->apply = phase==FD_ACCDB_PLACE_INCR_APPLY;
   if( phase==FD_ACCDB_PLACE_INCR_CHECK ) memset( accdb->pend, 0, sizeof(accdb->pend) );
@@ -5920,6 +5945,7 @@ fd_accdb_snapshot_place( fd_accdb_t *                    accdb,
     shmem->shmetrics->accounts_total += out->loaded;
     shmem->shmetrics->accounts_total -= out->removed;
   }
+  place_progress( pc, FD_ACCDB_PLACE_STAGE_CLEANUP, pc->progress_total-1UL );
   if( phase!=FD_ACCDB_PLACE_INCR_CHECK ) {
     /* stage consumed: the accdb tile punches it after the load; a
        later stage fallocates again */
@@ -5930,6 +5956,7 @@ fd_accdb_snapshot_place( fd_accdb_t *                    accdb,
     memset( accdb->pend, 0, sizeof(accdb->pend) );
   }
   FD_ATOMIC_FETCH_AND_SUB( &shmem->shmetrics->disk_used_bytes, out->disk_freed );
+  place_progress( pc, FD_ACCDB_PLACE_STAGE_DONE, pc->progress_total );
   return 0;
 }
 

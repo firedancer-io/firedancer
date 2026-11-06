@@ -34,6 +34,7 @@ static uint const state_snapld_stream_state[ 5 ] = { 1, 2, 3, 4, 5 };
 static uint const state_snapdc_state[ 3 ] = { 1, 2, 3 };
 static uint const state_snapdc_stream_state[ 5 ] = { 1, 2, 3, 4, 5 };
 static uint const state_snapin_state[ 3 ] = { 1, 2, 3 };
+static uint const state_snapin_index_state[ 6 ] = { 1, 2, 3, 4, 5, 6 };
 static uint const state_snapin_stream_state[ 5 ] = { 1, 2, 3, 4, 5 };
 static uint const state_metric_state[ 3 ] = { 1, 2, 3 };
 static uint const state_rpc_state[ 3 ] = { 1, 2, 3 };
@@ -2903,7 +2904,7 @@ static fd_metrics_sample_field_t const fields_snapdc[ 47 ] = {
   { 0, 0U, FD_METRICS_SAMPLE_CLOSE, NULL, 0UL },
 };
 
-static fd_metrics_sample_field_t const fields_snapin[ 51 ] = {
+static fd_metrics_sample_field_t const fields_snapin[ 54 ] = {
   { FD_METRICS_GAUGE_TILE_PID_OFF, 8U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_GAUGE_TILE_TID_OFF, 9U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_GAUGE_TILE_LAST_CPU_INDEX_OFF, 10U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
@@ -2942,6 +2943,9 @@ static fd_metrics_sample_field_t const fields_snapin[ 51 ] = {
   { FD_METRICS_COUNTER_TILE_DEVICE_IRQ_OFF, 22U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_COUNTER_TILE_TLB_SHOOTDOWN_OFF, 23U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_COUNTER_TILE_TIMER_IRQ_OFF, 24U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
+  { FD_METRICS_GAUGE_SNAPIN_INDEX_STATE_OFF, 421830292U, FD_METRICS_SAMPLE_STATE, state_snapin_index_state, 6UL },
+  { FD_METRICS_GAUGE_SNAPIN_INDEX_PROGRESS_OFF, 511317753U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
+  { FD_METRICS_GAUGE_SNAPIN_INDEX_EXPECTED_OFF, 531162716U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_GAUGE_SNAPIN_STREAM_STATE_OFF, 25U, FD_METRICS_SAMPLE_STATE, state_snapin_stream_state, 5UL },
   { FD_METRICS_GAUGE_SNAPIN_PARSE_PROGRESS_BYTES_OFF, 26U, FD_METRICS_SAMPLE_OPEN, NULL, 0UL },
   { FD_METRICS_GAUGE_SNAPIN_PARSE_PROGRESS_BYTES_FULL_OFF, 1U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
@@ -4764,7 +4768,7 @@ fd_metrics_sample_schema_t const fd_metrics_sample_tiles[] = {
   { "snapct", 41U, fields_snapct, 56UL, 647UL },
   { "snapld", 42U, fields_snapld, 39UL, 519UL },
   { "snapdc", 43U, fields_snapdc, 47UL, 577UL },
-  { "snapin", 44U, fields_snapin, 51UL, 624UL },
+  { "snapin", 44U, fields_snapin, 54UL, 664UL },
   { "metric", 45U, fields_metric, 42UL, 560UL },
   { "rpc", 46U, fields_rpc, 126UL, 1397UL },
   { "diag", 47U, fields_diag, 94UL, 1076UL },

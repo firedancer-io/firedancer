@@ -1605,7 +1605,19 @@ deliberate exception with lint-allow="<rule id>")
     <gauge name="DecompressedProgressBytes" enum="SnapType" summary="Decompressed bytes of each snapshot produced in the current attempt; sum across snapdc tiles" />
 </tile>
 
+<enum name="SnapshotIndexState">
+    <int value="0" name="Idle" label="idle" />
+    <int value="1" name="Count" label="counting" />
+    <int value="2" name="Scatter" label="scattering" />
+    <int value="3" name="Build" label="building" />
+    <int value="4" name="Cleanup" label="cleanup" />
+    <int value="5" name="Done" label="done" />
+</enum>
+
 <tile name="snapin">
+    <gauge name="IndexState" states="SnapshotIndexState" summary="Snapshot account index finalization stage; published synchronously by the lead inserter" />
+    <gauge name="IndexProgress" summary="Completed index finalization work units (placement ranges, then cleanup); resets on each placement or snapshot attempt" />
+    <gauge name="IndexExpected" summary="Expected index finalization work units (placement ranges plus one for cleanup); work progress is not elapsed-time progress" />
     <gauge name="StreamState" states="SnapshotStreamState" summary="Snapshot inserter state" />
     <gauge name="ParseProgressBytes" enum="SnapType" summary="Decompressed bytes of each snapshot this tile parsed in the current attempt; every snapin tile parses the whole stream, so take the min across tiles" />
     <counter name="DiskWrittenBytes" summary="Bytes this tile has written to the accounts database file" />
