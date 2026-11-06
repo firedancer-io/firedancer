@@ -838,7 +838,7 @@ test_manifest_v5_vote_accounts( fd_svm_mini_t * mini,
   }
 
   memcpy( bad_buf, v5_buf, v5_sz );
-  FD_STORE( ulong, bad_buf+bad_len_off, FD_VOTE_STATE_V5_PAD_OFF-1UL );
+  FD_STORE( ulong, bad_buf+bad_len_off, sizeof(uint)+sizeof(fd_vote_state_v5_t)-1UL );
   FD_TEST( !parse_manifest( wksp, bad_buf, v5_sz, b ) );
 }
 

@@ -62,6 +62,7 @@ test_convert( void ) {
   FD_TEST( fd_mem_iszero( (uchar const *)( s->accumulated_lamports+2 ), (FD_VOTE_STATE_V5_ACCUMULATED_LAMPORTS_MAX-2UL)*sizeof(fd_vote_epoch_credits_t) ) );
   FD_TEST( s->last_timestamp.slot==91UL && s->last_timestamp.timestamp==1700000000L );
   FD_TEST( fd_mem_iszero( (uchar const *)( s->authorized_voters+1 ), (MAX_AUTHORIZED_VOTERS-1UL)*sizeof(fd_vote_state_v5_authorized_voter_t) ) );
+  FD_TEST( s->rank_epoch==ULONG_MAX && s->rank==USHORT_MAX && !s->_pad[ 0 ] && !s->_pad[ 1 ] );
 
   vsv->v5.location = LOC_FRA;
   uchar data[ FD_VOTE_STATE_V5_SZ ];

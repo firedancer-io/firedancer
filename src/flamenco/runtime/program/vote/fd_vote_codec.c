@@ -425,7 +425,6 @@ ser_epoch_credits( fd_vote_epoch_credits_t const * epoch_credits,
 /* Offset of a Vote State V5 field */
 #define V5_OFF( f ) (4UL+offsetof( fd_vote_state_v5_t, f ))
 
-FD_STATIC_ASSERT( FD_VOTE_STATE_V4_SZ==FD_VOTE_STATE_V5_SZ,                                             v5_size   );
 FD_STATIC_ASSERT( V5_OFF( node_pubkey                      )==WIRE_OFF_NODE_PUBKEY,                     v5_layout );
 FD_STATIC_ASSERT( V5_OFF( inflation_rewards_collector      )==WIRE_OFF_V4_INFLATION_REWARDS_COLLECTOR,  v5_layout );
 FD_STATIC_ASSERT( V5_OFF( block_revenue_collector          )==WIRE_OFF_V4_BLOCK_REVENUE_COLLECTOR,      v5_layout );
@@ -565,10 +564,10 @@ fd_vote_account_pending_delegator_rewards( uchar const * data,
 static ulong
 pending_delegator_rewards_off( uchar const * data,
                                ulong         data_sz ) {
-  if( data_sz!=FD_VOTE_STATE_V4_SZ ) return 0UL;
+  if( data_sz<4UL ) return 0UL;
   switch( FD_LOAD( uint, data ) ) {
-    case fd_vote_state_versioned_enum_v4: return WIRE_OFF_V4_PENDING_DELEGATOR_REWARDS;
-    case fd_vote_state_versioned_enum_v5: return V5_OFF( pending_delegator_rewards );
+    case fd_vote_state_versioned_enum_v4: return fd_ulong_if( data_sz==FD_VOTE_STATE_V4_SZ, WIRE_OFF_V4_PENDING_DELEGATOR_REWARDS, 0UL );
+    case fd_vote_state_versioned_enum_v5: return fd_ulong_if( data_sz==FD_VOTE_STATE_V5_SZ, V5_OFF( pending_delegator_rewards ), 0UL );
     default:                              return 0UL;
   }
 }
@@ -878,6 +877,8 @@ fd_vote_account_is_valid_v5( uchar const * data,
   uchar const * ec     = data+V5_OFF( accumulated_lamports );
   if( FD_UNLIKELY( ec_len>FD_VOTE_STATE_V5_ACCUMULATED_LAMPORTS_MAX ) ) return 0;
 
+  if( FD_UNLIKELY( FD_LOAD( ulong, data+V5_OFF( rank_epoch ) )!=ULONG_MAX || FD_LOAD( ushort, data+V5_OFF( rank ) )!=USHORT_MAX ) ) return 0;
+
   return fd_mem_iszero( av+av_len*WIRE_AUTH_VOTER_SZ, (MAX_AUTHORIZED_VOTERS-av_len)*WIRE_AUTH_VOTER_SZ ) &&
          fd_mem_iszero( ec+ec_len*sizeof(fd_vote_epoch_credits_t),
                         (FD_VOTE_STATE_V5_ACCUMULATED_LAMPORTS_MAX-ec_len)*sizeof(fd_vote_epoch_credits_t) ) &&
@@ -944,6 +945,8 @@ fd_vote_state_versioned_new( fd_vote_state_versioned_t * self,
       self->v5.block_revenue_commission_bps_len     = 1;
       self->v5.latest_vote                          = ULONG_MAX;
       self->v5.root_slot                            = ULONG_MAX;
+      self->v5.rank_epoch                           = ULONG_MAX;
+      self->v5.rank                                 = USHORT_MAX;
       break;
     default:
       return NULL;
@@ -1119,8 +1122,9 @@ fd_vote_state_versioned_serialize( fd_vote_state_versioned_t const * self,
       CHECK( fd_validator_location_is_valid( &location ) );
       CHECK( fd_vote_state_v5_commission_is_valid( &inflation_commission ) );
       CHECK( fd_vote_state_v5_commission_is_valid( &block_commission     ) );
-      fd_memcpy( out, &self->v5, sizeof(fd_vote_state_v5_t) );
-      fd_memset( out+sizeof(fd_vote_state_v5_t), 0, FD_VOTE_STATE_V5_PAD_SZ );
+      CHECK( self->v5.rank_epoch==ULONG_MAX && self->v5.rank==USHORT_MAX );
+      fd_memcpy( out, &self->v5, offsetof( fd_vote_state_v5_t, _pad ) );
+      fd_memset( out+offsetof( fd_vote_state_v5_t, _pad ), 0, FD_VOTE_STATE_V5_PAD_SZ );
       break;
     }
 
