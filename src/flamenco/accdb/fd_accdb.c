@@ -6772,9 +6772,10 @@ olog_purge_one( fd_accdb_t *                accdb,
   olog_drop_ram( accdb, f, rec );
   fd_accdb_idx_slot_t old;
   if( !fd_accdb_idx_delete( accdb->ovl, accdb->shmem->seed, rec->pubkey, f, UINT_MAX, &old ) ) return;
-  if( old.lamports ) {
-    ulong sz = sizeof(fd_accdb_disk_meta_t)+FD_ACCDB_SIZE_DATA( old.exec_size );
-    fd_accdb_shmem_bytes_freed( accdb->shmem, old.off_plus1-1UL, sz );
+  ulong lamports = old.lamports, exec_size = old.exec_size, off = old.off_plus1-1UL;
+  if( lamports ) {
+    ulong sz = sizeof(fd_accdb_disk_meta_t)+FD_ACCDB_SIZE_DATA( exec_size );
+    fd_accdb_shmem_bytes_freed( accdb->shmem, off, sz );
     FD_ATOMIC_FETCH_AND_SUB( &accdb->shmem->shmetrics->disk_used_bytes, sz );
   }
   FD_ATOMIC_FETCH_AND_SUB( &accdb->shmem->shmetrics->accounts_total, 1UL );
