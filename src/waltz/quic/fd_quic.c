@@ -1693,6 +1693,12 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
   }
 # endif /* FD_QUIC_DISABLE_CRYPTO */
 
+  /* Reserved bits are authenticated; check only after payload decryption. */
+  if( FD_UNLIKELY( cur_ptr[0] & 0x0c ) ) {
+    if( conn ) fd_quic_conn_error( conn, FD_QUIC_CONN_REASON_PROTOCOL_VIOLATION, __LINE__ );
+    return FD_QUIC_PARSE_FAIL;
+  }
+
   /* set packet number on the context */
   pkt->pkt_number = pkt_number;
 
@@ -2008,6 +2014,12 @@ fd_quic_handle_v1_handshake(
   }
 # endif /* FD_QUIC_DISABLE_CRYPTO */
 
+  /* Reserved bits are authenticated; check only after payload decryption. */
+  if( FD_UNLIKELY( cur_ptr[0] & 0x0c ) ) {
+    fd_quic_conn_error( conn, FD_QUIC_CONN_REASON_PROTOCOL_VIOLATION, __LINE__ );
+    return FD_QUIC_PARSE_FAIL;
+  }
+
   /* set packet number on the context */
   pkt->pkt_number = pkt_number;
 
@@ -2295,6 +2307,12 @@ fd_quic_handle_v1_one_rtt( fd_quic_t *      quic,
   }
 # endif /* !FD_QUIC_DISABLE_CRYPTO */
 
+  /* Reserved bits are authenticated; check only after payload decryption. */
+  if( FD_UNLIKELY( cur_ptr[0] & 0x18 ) ) {
+    fd_quic_conn_error( conn, FD_QUIC_CONN_REASON_PROTOCOL_VIOLATION, __LINE__ );
+    return FD_QUIC_PARSE_FAIL;
+  }
+
   /* set packet number on the context */
   pkt->pkt_number = pkt_number;
 
@@ -2382,6 +2400,9 @@ fd_quic_process_quic_packet_v1( fd_quic_t *     quic,
     quic->metrics.pkt_oversz_cnt++;
     return FD_QUIC_PARSE_FAIL;
   }
+
+  /* This entry point handles QUIC v1; Version Negotiation is dispatched separately. */
+  if( FD_UNLIKELY( !(cur_ptr[0] & 0x40) ) ) return FD_QUIC_PARSE_FAIL;
 
   pkt->ack_flag       = 0U;
   pkt->rtt_pkt_number = 0UL;

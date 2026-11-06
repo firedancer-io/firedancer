@@ -216,10 +216,12 @@ FD_UNIT_TEST( quic_sticky_peer_ip4_client ) {
 /* Inject a protected packet at the given encryption level. */
 
 static ulong
-test_quic_send_protected_pkt( fd_quic_conn_t * conn,
+test_quic_send_protected_pkt_ex( fd_quic_conn_t * conn,
                               uint             enc_level,
                               uchar const *    payload,
-                              ulong            payload_sz ) {
+                              ulong            payload_sz,
+                              uchar            header_xor,
+                              int              corrupt_tag ) {
   ulong pn_space = enc_level==fd_quic_enc_level_initial_id   ? 0UL :
                    enc_level==fd_quic_enc_level_handshake_id ? 1UL : 2UL;
   ulong pkt_num  = conn->exp_pkt_number[ pn_space ];
@@ -247,10 +249,14 @@ test_quic_send_protected_pkt( fd_quic_conn_t * conn,
   hdr[ hdr_sz++ ] = (uchar)( pkt_num>> 8 );
   hdr[ hdr_sz++ ] = (uchar)( pkt_num     );
 
+  hdr[0] ^= header_xor;
+
   uchar pkt_buf[ 256 ];
   ulong pkt_sz = sizeof(pkt_buf);
   fd_quic_crypto_keys_t const * keys = &conn->keys[ enc_level ][ 0 ];
   FD_TEST( fd_quic_crypto_encrypt( pkt_buf, &pkt_sz, hdr, hdr_sz, payload, payload_sz, keys, keys, pkt_num )==FD_QUIC_SUCCESS );
+
+  if( corrupt_tag ) pkt_buf[pkt_sz-1UL] ^= 1;
 
   fd_quic_pkt_t pkt = {
     .ip4 = {{
@@ -265,6 +271,14 @@ test_quic_send_protected_pkt( fd_quic_conn_t * conn,
     .datagram_sz = (uint)pkt_sz,
   };
   return fd_quic_process_quic_packet_v1( sandbox->quic, &pkt, pkt_buf, pkt_sz );
+}
+
+static ulong
+test_quic_send_protected_pkt( fd_quic_conn_t * conn,
+                              uint             enc_level,
+                              uchar const *    payload,
+                              ulong            payload_sz ) {
+  return test_quic_send_protected_pkt_ex( conn, enc_level, payload, payload_sz, 0, 0 );
 }
 
 static fd_quic_conn_t *
@@ -325,6 +339,37 @@ FD_UNIT_TEST( quic_frameless_pkt_handshake ) {
 
 FD_UNIT_TEST( quic_frameless_pkt_one_rtt ) {
   test_quic_frameless_pkt_( fd_quic_enc_level_appdata_id );
+}
+
+FD_UNIT_TEST( quic_authenticated_header_bits ) {
+  static uchar const ping[1] = { 0x01 };
+  uint const levels[] = { fd_quic_enc_level_initial_id, fd_quic_enc_level_handshake_id, fd_quic_enc_level_appdata_id };
+  for( ulong i=0UL; i<3UL; i++ ) {
+    uint level = levels[i];
+    uchar bit = level==fd_quic_enc_level_appdata_id ? 0x08 : 0x04;
+    for( uint bits=1U; bits<=3U; bits++ ) {
+      for( int corrupt=0; corrupt<=1; corrupt++ ) {
+        fd_quic_conn_t * conn = test_quic_frameless_conn( level );
+        ulong ack_before = test_quic_ack_tx_cnt();
+        long activity_before = conn->last_activity;
+        ulong decrypt_before = sandbox->quic->metrics.pkt_decrypt_fail_cnt[level];
+        FD_TEST( test_quic_send_protected_pkt_ex( conn, level, ping, sizeof(ping), (uchar)(bits*bit), corrupt )==FD_QUIC_PARSE_FAIL );
+        FD_TEST( conn->state==(corrupt ? FD_QUIC_CONN_STATE_ACTIVE : FD_QUIC_CONN_STATE_ABORT) );
+        if( !corrupt ) FD_TEST( conn->reason==FD_QUIC_CONN_REASON_PROTOCOL_VIOLATION );
+        FD_TEST( conn->last_activity==activity_before );
+        FD_TEST( test_quic_ack_tx_cnt()==ack_before );
+        FD_TEST( conn->exp_pkt_number[i]==0UL );
+        FD_TEST( sandbox->quic->metrics.pkt_decrypt_fail_cnt[level]==decrypt_before+(ulong)corrupt );
+      }
+    }
+    fd_quic_conn_t * conn = test_quic_frameless_conn( level );
+    ulong ack_before = test_quic_ack_tx_cnt();
+    FD_TEST( test_quic_send_protected_pkt_ex( conn, level, ping, sizeof(ping), 0x40, 0 )==FD_QUIC_PARSE_FAIL );
+    FD_TEST( conn->state==FD_QUIC_CONN_STATE_ACTIVE );
+    FD_TEST( conn->exp_pkt_number[i]==0UL );
+    FD_TEST( test_quic_ack_tx_cnt()==ack_before );
+    fd_quic_fini( sandbox->quic );
+  }
 }
 
 /* RFC 9001 Section 5.7. Receiving Out-of-Order Protected Packets
