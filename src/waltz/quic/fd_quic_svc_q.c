@@ -226,10 +226,12 @@ fd_quic_svc_timers_next( fd_quic_svc_timers_t * timers,
                          int                    pop ) {
   fd_quic_svc_event_t next = { .timeout = LONG_MAX, .conn = NULL };
 
-  /* Priority: INSTANT > DYNAMIC */
+  /* Service expired timers before INSTANT work so packet-driven work
+     cannot starve idle, PTO, or delayed-ACK deadlines. */
+  ulong dynamic_cnt = fd_quic_svc_queue_prq_cnt( timers->prq );
+  int   dynamic_due = dynamic_cnt && timers->prq[0].timeout<=now;
 
-  /* Check INSTANT queue first */
-  if( FD_LIKELY( timers->instant.cnt ) ) {
+  if( timers->instant.cnt && !dynamic_due ) {
     fd_quic_conn_t * conn = fd_quic_conn_at_idx( timers->state, timers->instant.head );
     next = (fd_quic_svc_event_t){.conn = conn, .timeout = fd_long_min( now, conn->svc_meta.next_timeout )};
 
@@ -242,7 +244,7 @@ fd_quic_svc_timers_next( fd_quic_svc_timers_t * timers,
   }
 
   /* Check DYNAMIC queue (heap) */
-  if( !fd_quic_svc_queue_prq_cnt( timers->prq ) ) return next;
+  if( !dynamic_cnt ) return next;
   else if( pop && now < timers->prq[0].timeout ) return next;
   else {
     next = timers->prq[0];
