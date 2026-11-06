@@ -1622,6 +1622,16 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
     }
   }
 
+  /* Reject an unavailable handshake slot before deriving Initial keys.
+     Eviction still waits for an authenticated packet. */
+  if( !conn && !fd_quic_tls_hs_pool_free( state->hs_pool ) ) {
+    fd_quic_tls_hs_t * oldest = fd_quic_tls_hs_cache_ele_peek_head( &state->hs_cache, state->hs_pool );
+    if( state->now < oldest->birthtime + quic->config.tls_hs_ttl ) {
+      metrics->hs_err_alloc_fail_cnt++;
+      return FD_QUIC_PARSE_FAIL;
+    }
+  }
+
   /* Determine decryption keys, related data */
 
   /* Placeholder for generated crypto material before allocating conn */

@@ -1988,6 +1988,40 @@ FD_UNIT_TEST( quic_coalesced_dcid_mismatch ) {
   fd_quic_fini( quic );
 }
 
+FD_UNIT_TEST( quic_initial_full_handshake_pool ) {
+  for( int expired=0; expired<2; expired++ ) {
+    fd_quic_sandbox_init( sandbox, FD_QUIC_ROLE_SERVER );
+    fd_quic_t * quic = sandbox->quic;
+    quic->config.retry = 0;
+    fd_quic_state_t * state = fd_quic_get_state( quic );
+    fd_quic_conn_t * held = fd_quic_sandbox_new_conn_established( sandbox, rng );
+    fd_quic_transport_params_t tp[1] = {0};
+    held->tls_hs = fd_quic_tls_hs_new( fd_quic_tls_hs_pool_ele_acquire( state->hs_pool ),
+        state->tls, held, 1, tp, state->now );
+    fd_quic_tls_hs_cache_ele_push_tail( &state->hs_cache, held->tls_hs, state->hs_pool );
+    FD_TEST( !fd_quic_tls_hs_pool_free( state->hs_pool ) );
+    if( expired ) state->now += quic->config.tls_hs_ttl;
+    fd_quic_initial_t initial = {
+      .h0=fd_quic_initial_h0(3), .version=1,
+      .dst_conn_id_len=8, .src_conn_id_len=8, .len=1200UL
+    };
+    uchar packet[1200] = {0};
+    ulong hdr_sz = fd_quic_encode_initial( packet, sizeof(packet), &initial );
+    FD_TEST( hdr_sz!=FD_QUIC_ENCODE_FAIL );
+    initial.len = 1200UL-(hdr_sz-4UL);
+    FD_TEST( fd_quic_encode_initial( packet, sizeof(packet), &initial )==hdr_sz );
+    fd_quic_pkt_t pkt = { .datagram_sz=1200U };
+    pkt.ip4->saddr = FD_QUIC_SANDBOX_PEER_IP4;
+    pkt.udp->net_sport = FD_QUIC_SANDBOX_PEER_PORT;
+    ulong before = quic->metrics.pkt_decrypt_fail_cnt[0];
+    fd_quic_process_quic_packet_v1( quic, &pkt, packet, sizeof(packet) );
+    FD_TEST( quic->metrics.hs_err_alloc_fail_cnt==(ulong)!expired );
+    FD_TEST( quic->metrics.pkt_decrypt_fail_cnt[0]==before+(ulong)expired );
+    FD_TEST( !quic->metrics.hs_evicted_cnt );
+    fd_quic_fini( quic );
+  }
+}
+
 FD_UNIT_TEST( quic_initial_datagram_size ) {
   uint const token_lengths[] = { 0U, 46U };
   for( ulong i=0UL; i<sizeof(token_lengths)/sizeof(token_lengths[0]); i++ ) {
