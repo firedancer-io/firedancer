@@ -1805,7 +1805,7 @@ try_optimistic_leader( fd_replay_tile_t * ctx,
     .slot            = slot,
     .parent_slot     = bank->f.slot,
     .parent_block_id = bank->f.block_id,
-    .parent_ready_ns = fd_clock_tile_now( ctx->clock ) /* the block timer starts at the freeze, as Agave's optimistic one */
+    .parent_ready_ns = fd_clock_tile_now( ctx->clock ) /* the block timer starts at the freeze */
   };
   ctx->next_leader_slot          = slot;
   ctx->leader_parent_unconfirmed = 1;
@@ -3076,11 +3076,19 @@ can_process_rotor_fec( fd_replay_tile_t       * ctx,
   /* We can process a FEC set if a few conditions are met:
      - sched has capacity
      - banks has capacity.  Evict if we don't (see below)
-     Our leader FECs bind to the existing leader bank and never enter
-     sched, so neither capacity gate applies to them.  One that is not
-     for the current leader slot has no bank to bind to. */
+     Our leader FECs are not replayed, so none of the checks below apply
+     to them.  Only the slot-complete one matters, for the block id.  It
+     ends with the footer, which replay only sends on the slot's last
+     leader bank, so that bank is still the leader bank when it arrives.
+     Every other one is skipped, including the prefix of a slot that
+     switched parent, so they never wait or ask for a redelivery. */
 
-  if( FD_UNLIKELY( fec->is_leader && ( !ctx->leader_bank || ctx->leader_bank->f.slot!=fec->slot ) ) ) return PROCESS_FEC_SKIP;
+  if( FD_UNLIKELY( fec->is_leader ) ) {
+    if( FD_LIKELY( !fec->slot_complete ) ) return PROCESS_FEC_SKIP;
+    if( FD_UNLIKELY( !ctx->leader_bank || ctx->leader_bank->f.slot!=fec->slot ) ) return PROCESS_FEC_SKIP;
+    if( FD_UNLIKELY( ctx->block_id_arr[ ctx->leader_bank->idx ].block_id_seen ) ) return PROCESS_FEC_SKIP; /* a redelivery */
+    return PROCESS_FEC_OK;
+  }
 
   /* The FEC sets before an UpdateParent are the abandoned prefix,
      built on the leader's optimistic parent.  The block replays from
@@ -3090,7 +3098,7 @@ can_process_rotor_fec( fd_replay_tile_t       * ctx,
     return PROCESS_FEC_SKIP;
   }
 
-  if( FD_UNLIKELY( !fec->is_leader && fd_sched_can_ingest_cnt( ctx->sched )==0UL ) ) {
+  if( FD_UNLIKELY( fd_sched_can_ingest_cnt( ctx->sched )==0UL ) ) {
     ctx->metrics.sched_full++;
     return PROCESS_FEC_WAIT;
   }
@@ -3241,7 +3249,7 @@ can_process_rotor_fec( fd_replay_tile_t       * ctx,
   }
 
   if( FD_UNLIKELY( !fd_banks_can_start_bank( ctx->banks ) ) ) {
-    int is_new_block = fec->fec_set_idx==fec->update_parent_fec_idx && !fec->is_leader;
+    int is_new_block = fec->fec_set_idx==fec->update_parent_fec_idx;
     if( FD_UNLIKELY( is_new_block ) ) {
       ctx->metrics.banks_full++;
       if( FD_UNLIKELY( fd_sched_is_drained( ctx->sched ) && !ctx->snapmk.active ) ) *evict_banks_out = 1; /* see can_process_fec */
@@ -3250,10 +3258,8 @@ can_process_rotor_fec( fd_replay_tile_t       * ctx,
   }
 
   /* A block's first FEC set needs a staging lane.  This comes after the
-     eviction decision so that a wait for a lane doesn't shadow it.  Our
-     own leader FECs never enter sched, so they don't need to wait for a
-     lane. */
-  if( FD_UNLIKELY( fec->fec_set_idx==0U && !fec->is_leader && fd_sched_fec_waits_for_lane( ctx->sched, parent_bank_idx, 1 ) ) ) {
+     eviction decision so that a wait for a lane doesn't shadow it. */
+  if( FD_UNLIKELY( fec->fec_set_idx==0U && fd_sched_fec_waits_for_lane( ctx->sched, parent_bank_idx, 1 ) ) ) {
     ctx->metrics.lane_wait++;
     return PROCESS_FEC_WAIT;
   }
@@ -3826,6 +3832,25 @@ process_rotor_fec( fd_replay_tile_t       * ctx,
     ctx->catch_up_tip_advance_cnt++;
   }
 
+  /* Our own slot-complete FEC set (see can_process_rotor_fec): its
+     merkle root chains the next slot, and its block id lets
+     try_fini_leader end the slot.  The block isn't replayed, so its
+     payload isn't read. */
+  if( FD_UNLIKELY( fec->is_leader ) ) {
+    fd_block_id_ele_t * ele = &ctx->block_id_arr[ ctx->leader_bank->idx ];
+    if( FD_LIKELY( ctx->leader_stats.slot==fec->slot ) ) ctx->leader_stats.first_fec_returned_nanos = fd_log_wallclock();
+    ele->latest_mr      = fec->mr;
+    ele->latest_fec_idx = fec->fec_set_idx;
+    ele->fec_cnt        = fec->fec_set_idx/FD_FEC_SHRED_CNT+1U; /* every FEC set of the block, an abandoned prefix included */
+    ele->block_id_seen  = 1;
+    ele->dmr            = fec->block_id;
+    ele->finalized      = !!fec->is_finalized;
+    ele->block_info     = fd_block_id( fec->slot, fec->block_id.uc );
+    fd_block_id_map_ele_remove( ctx->block_id_map, &ele->block_info, NULL, ctx->block_id_arr ); /* a stale, evicted copy */
+    FD_TEST( fd_block_id_map_ele_insert( ctx->block_id_map, ele, ctx->block_id_arr ) );
+    return;
+  }
+
   ulong parent_bank_idx = ULONG_MAX;
   if( FD_UNLIKELY( fec->fec_set_idx==fec->update_parent_fec_idx ) ) {
     fd_block_id_t parent_key = fd_block_id( fec->parent_slot, fec->parent_block_id.uc );
@@ -3887,7 +3912,7 @@ process_rotor_fec( fd_replay_tile_t       * ctx,
        fault, so its sched block is discarded, not invalid, and
        SLOT_DEAD is not published. */
     fd_block_id_t       prefix_key = fec->is_known ? fd_block_id( fec->slot, fec->block_id.uc ) : (fd_block_id_t){ .slot = fec->slot };
-    fd_block_id_ele_t * prefix     = fec->update_parent_fec_idx && !fec->is_leader ? live_block_id_ele( ctx, fd_block_id_map_ele_query( ctx->block_id_map, &prefix_key, NULL, ctx->block_id_arr ) ) : NULL;
+    fd_block_id_ele_t * prefix     = fec->update_parent_fec_idx ? live_block_id_ele( ctx, fd_block_id_map_ele_query( ctx->block_id_map, &prefix_key, NULL, ctx->block_id_arr ) ) : NULL;
     if( FD_UNLIKELY( prefix ) ) {
       ulong opt_idx = fd_block_id_ele_get_idx( ctx->block_id_arr, prefix );
       FD_TEST( fd_block_id_map_ele_remove( ctx->block_id_map, &prefix->block_info, NULL, ctx->block_id_arr )==prefix );
@@ -3903,10 +3928,7 @@ process_rotor_fec( fd_replay_tile_t       * ctx,
       FD_LOG_INFO(( "abandoned optimistic bank (idx=%lu, slot=%lu), replaying the slot from its UpdateParent", opt_idx, fec->slot ));
       try_prune_sched( ctx );
     }
-    bank = fec->is_leader ? ctx->leader_bank : fd_banks_new_bank( ctx->banks, parent_bank_idx, now, 0 );
-    if( FD_UNLIKELY( fec->is_leader && ctx->leader_stats.slot==fec->slot ) ) {
-      ctx->leader_stats.first_fec_returned_nanos = now;
-    }
+    bank = fd_banks_new_bank( ctx->banks, parent_bank_idx, now, 0 );
 
     block_id_ele = &ctx->block_id_arr[ bank->idx ];
     /* Clear the previous occupant of this reused bank idx  */
@@ -3969,12 +3991,6 @@ process_rotor_fec( fd_replay_tile_t       * ctx,
     block_id_ele->block_info = key;
     fd_block_id_map_ele_remove( ctx->block_id_map, &key, NULL, ctx->block_id_arr ); // evicted / stale entry
     FD_TEST( fd_block_id_map_ele_insert( ctx->block_id_map, block_id_ele, ctx->block_id_arr ) );
-  }
-
-  /* For leader FECs, don't insert the FEC into the scheduler. */
-  if( FD_UNLIKELY( fec->is_leader ) ) {
-    fd_store_fec_data_view_release( ctx->store, data_view );
-    return;
   }
 
   /* Forks form a partial ordering over FEC sets. The Rotor tile

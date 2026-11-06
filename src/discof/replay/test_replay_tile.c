@@ -3966,12 +3966,13 @@ test_ag_leader_abandon_on_root_past_leader_slot( fd_wksp_t * wksp ) {
   ulong leader_idx = leader->idx;
   ulong out_idx    = ctx->replay_out->idx;
 
-  /* FEC 0 of our block comes back, the rest never does. */
+  /* FEC 0 of our block comes back, the rest never does.  Only our
+     slot-complete FEC set is taken, so this one is skipped. */
   fd_hash_t zero    = {0};
   fd_hash_t mr2_0   = { .ul = { 2001UL } };
   fd_hash_t mr2_32  = { .ul = { 2002UL } };
   FD_TEST( !deliver_leader_fec( ctx, 2UL, 0U, 1UL, &id1, &zero, &mr2_0, 0 ) );
-  FD_TEST( fd_hash_eq( &ctx->block_id_arr[ leader_idx ].latest_mr, &mr2_0 ) );
+  FD_TEST( !ctx->block_id_arr[ leader_idx ].fec_cnt );
   FD_TEST( !ctx->block_id_arr[ leader_idx ].block_id_seen );
 
   /* An identity switch arrives mid-slot and is deferred. */
@@ -4363,19 +4364,25 @@ test_ag_leader_fec_not_gated( fd_wksp_t * wksp ) {
   FD_TEST( deliver_rotor_fec( ctx, 9UL, 0U, 1UL, &id1, &mr9, 0, 0 )==1 );
   mock_sched_capacity = 0UL;
 
-  /* Ours goes through, FEC 0 past the full bank pool and the rest past
-     the full sched, and the block id returns. */
+  /* Ours goes through past the full bank pool and the full sched: FEC 0
+     is skipped, not held, and the slot-complete one returns the block
+     id, with the block's FEC set count from its index. */
   fd_hash_t zero   = {0};
   fd_hash_t mr2_0  = { .ul = { 2001UL } };
   fd_hash_t mr2_32 = { .ul = { 2002UL } };
   ulong seq0 = test_stem_seqs[ ctx->replay_out->idx ];
   mock_sched_capacity = ULONG_MAX;
   FD_TEST( !deliver_leader_fec( ctx, 2UL, 0U,               1UL, &id1, &zero, &mr2_0,  0 ) );
-  FD_TEST( fd_hash_eq( &ctx->block_id_arr[ leader->idx ].latest_mr, &mr2_0 ) );
+  FD_TEST( !ctx->block_id_arr[ leader->idx ].fec_cnt );
   mock_sched_capacity = 0UL;
   FD_TEST( !deliver_leader_fec( ctx, 2UL, FD_FEC_SHRED_CNT, 1UL, &id1, &id2,  &mr2_32, 1 ) );
   fd_block_id_ele_t * ele = &ctx->block_id_arr[ leader->idx ];
   FD_TEST( ele->block_id_seen && fd_hash_eq( &ele->dmr, &id2 ) );
+  FD_TEST( fd_hash_eq( &ele->latest_mr, &mr2_32 ) && ele->fec_cnt==2U );
+
+  /* A redelivery of it is skipped. */
+  FD_TEST( !deliver_leader_fec( ctx, 2UL, FD_FEC_SHRED_CNT, 1UL, &id1, &id2,  &mr2_32, 1 ) );
+  FD_TEST( ele->fec_cnt==2U );
   fd_block_id_t key2 = fd_block_id( 2UL, id2.uc );
   FD_TEST( fd_block_id_map_ele_query( ctx->block_id_map, &key2, NULL, ctx->block_id_arr )==ele );
   FD_TEST( !ctx->drain_rotor_fecs && test_stem_seqs[ ctx->replay_out->idx ]==seq0 );
