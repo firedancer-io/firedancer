@@ -4,6 +4,8 @@
 #include "fd_bundle_auth.h"
 #include "fd_keepalive.h"
 #include "../fd_clock_tile.h"
+#include "../fd_txn_m.h"
+#include "../tiles.h"
 #include "../stem/fd_stem.h"
 #include "../keyguard/fd_keyswitch.h"
 #include "../keyguard/fd_keyguard_client.h"
@@ -19,7 +21,14 @@
    here.  after_credit drains one bundle per call by writing to dcache
    and calling fd_stem_publish.
 
-   Sized to match the bundle_verif output link depth. */
+   Sized to match the bundle_verif output link depth.  The client is
+   only stepped while the buffer is empty, and with default settings it
+   holds one gRPC buffer of minimum size transactions, so any single
+   Harmonic Block fits.  Two Blocks completing in one step can overflow
+   it, dropping the second.
+
+   TODO: Maybe size it for two gRPC buffers in Harmonic mode, if that
+   overflow shows up in practice. */
 
 struct fd_bundle_pending_txn {
   uchar  payload[ FD_TXN_MTU ];
@@ -31,6 +40,11 @@ struct fd_bundle_pending_txn {
   ulong  bundle_txn_cnt;
   uchar  commission;
   uchar  commission_pubkey[ 32 ];
+
+  ulong  block_slot;   /* fd_txn_m_t block_engine.slot */
+  ulong  block_seq;    /* fd_txn_m_t block_engine.seq */
+  uchar  atomic;       /* 1 if the bundle commits all or nothing */
+  uchar  want_result;  /* 1 if the block engine gets the execution result (BAM) */
 };
 
 typedef struct fd_bundle_pending_txn fd_bundle_pending_txn_t;
@@ -38,6 +52,32 @@ typedef struct fd_bundle_pending_txn fd_bundle_pending_txn_t;
 #define DEQUE_NAME pending_txn
 #define DEQUE_T    fd_bundle_pending_txn_t
 #include "../../util/tmpl/fd_deque_dynamic.c"
+
+/* fd_bundle_pending_txn_write writes txn to txnm as it is published to
+   verify, and returns the frag size. */
+
+static inline ulong
+fd_bundle_pending_txn_write( fd_txn_m_t *                    txnm,
+                             fd_bundle_pending_txn_t const * txn ) {
+  *txnm = (fd_txn_m_t) {
+    .payload_sz       = txn->payload_sz,
+    .source_ipv4      = txn->source_ipv4,
+    .source_tpu       = FD_TXN_M_TPU_SOURCE_BUNDLE,
+    .first_seen_nanos = txn->first_seen_nanos,
+    .block_engine     = {
+      .bundle_id      = txn->bundle_seq,
+      .bundle_txn_cnt = txn->bundle_txn_cnt,
+      .slot           = txn->block_slot,
+      .seq            = txn->block_seq,
+      .commission     = txn->commission,
+      .atomic         = txn->atomic,
+      .want_result    = txn->want_result,
+    },
+  };
+  fd_memcpy( txnm->block_engine.commission_pubkey, txn->commission_pubkey, 32UL );
+  fd_memcpy( fd_txn_m_payload( txnm ), txn->payload, txn->payload_sz );
+  return fd_txn_m_realized_footprint( txnm, 0, 0 );
+}
 
 /* Returns true if the drain loop should continue after popping an
    entry.  Bundles drain atomically (all txns with matching bundle_seq).
@@ -88,6 +128,90 @@ struct fd_bundle_metrics {
 
 typedef struct fd_bundle_metrics fd_bundle_metrics_t;
 
+typedef struct fd_bundle_tile fd_bundle_tile_t;
+
+/* fd_bundle_builder_t is the block builder whose tips the validator
+   cranks for a bundle, and when to next ask the server for it. */
+
+struct fd_bundle_builder {
+  uchar pubkey[ 32 ];
+  uchar commission; /* in [0,100] (percent) */
+  uchar avail;      /* known (potentially stale)? */
+  uchar wait;       /* request in flight? */
+  long  next;       /* when the next request is due */
+};
+
+typedef struct fd_bundle_builder fd_bundle_builder_t;
+
+/* Streams a Jito protocol session subscribes to */
+
+#define FD_BUNDLE_SUB_PACKETS (0) /* SubscribePackets */
+#define FD_BUNDLE_SUB_BUNDLES (1) /* SubscribeBundles or SubscribeBundles2 */
+#define FD_BUNDLE_SUB_BLOCKS  (2) /* SubscribeBlocks2, Harmonic only */
+#define FD_BUNDLE_SUB_CNT     (3)
+
+/* fd_bundle_conn_t is the state of one connection to a bundle server.
+   Its gRPC client's app_ctx is the conn. */
+
+struct fd_bundle_conn {
+  fd_bundle_tile_t * ctx;
+
+  /* Session state, reset with the conn (unused in BAM mode) */
+  fd_bundle_auther_t  auther;
+  fd_bundle_builder_t builder; /* refreshed every 5 minutes */
+
+  /* Subscriptions, indexed by FD_BUNDLE_SUB_* */
+  struct {
+    uchar live; /* stream open */
+    uchar wait; /* request in flight */
+  } sub[ FD_BUNDLE_SUB_CNT ];
+
+  /* Harmonic scheduling strategy, acknowledged once per connection */
+  uchar strategy_set  : 1;
+  uchar strategy_wait : 1;
+
+  /* TPU the server offers for gossip, kept across reconnects, zero if
+     none */
+  fd_bundle_tpu_t tpu;
+
+  /* Endpoint */
+  uint   is_ssl : 1;
+  char   server_fqdn[ FD_FQDN_BUF_MAX ]; /* cstr */
+  ulong  server_fqdn_len;
+  char   server_sni[ FD_SNI_BUF_MAX ]; /* cstr */
+  ulong  server_sni_len;
+  ushort server_tcp_port;
+  uint   server_ip4_addr; /* last DNS lookup result */
+
+  /* Native TLS, configured with this conn's server name */
+  fd_tls_t         tls[1];
+  fd_tlsrec_conn_t tls_conn[1];
+
+  /* TCP socket */
+  int  tcp_sock;
+  uint tcp_sock_connected : 1;
+  uint defer_reset : 1;
+  uint sock_in_epoll : 1;
+  uint epoll_out_armed : 1;
+  long conn_deadline;
+
+  /* Keepalive via HTTP/2 PINGs (randomized) */
+  fd_keepalive_t    keepalive[1];
+  fd_rtt_estimate_t rtt[1];
+
+  /* gRPC client */
+  void *                   grpc_client_mem;
+  fd_grpc_client_t *       grpc_client;
+  fd_grpc_client_metrics_t grpc_metrics[1];
+
+  /* Error backoff */
+  uint backoff_iter;
+  long backoff_until;
+  long backoff_reset;
+};
+
+typedef struct fd_bundle_conn fd_bundle_conn_t;
+
 /* fd_bundle_tile_t is the context object provided to callbacks from
    stem, and contains all state needed to progress the tile. */
 
@@ -98,77 +222,82 @@ struct fd_bundle_tile {
   /* Key guard */
   fd_keyguard_client_t keyguard_client[1];
 
-  uint is_ssl : 1;
-  int  keylog_fd;
+  int keylog_fd;
 
-  /* Native TLS */
-  fd_tls_t           tls[1];
+  /* Native TLS, shared by all conns */
   fd_chacha_rng_t    tls_rng[1];
-  fd_tlsrec_conn_t   tls_conn[1];
   fd_x509_ca_store_t ca_store[1];
 
   /* Config */
-  char   server_fqdn[ FD_FQDN_BUF_MAX ]; /* cstr */
-  ulong  server_fqdn_len;
-  char   server_sni[ FD_SNI_BUF_MAX ]; /* cstr */
-  ulong  server_sni_len;
-  ushort server_tcp_port;
+  int protocol; /* FD_BUNDLE_PROTOCOL_* */
+  int strategy; /* FD_BUNDLE_STRATEGY_*, harmonic only */
 
   /* Resolver */
   fd_netdb_fds_t netdb_fds[1];
-  uint server_ip4_addr; /* last DNS lookup result */
 
-  /* TCP socket */
-  int  tcp_sock;
-  int  so_rcvbuf;
-  uint tcp_sock_connected : 1;
-  uint defer_reset : 1;
-  uint sock_in_epoll : 1;
-  uint epoll_out_armed : 1;
-  long cached_ts;
-  long conn_deadline;
+  /* Bundle server connection
+
+     TODO: In BAM mode, add a second connection to the Jito block engine
+     at [tiles.bundle.fallback_url], used while BAM is down. */
+  fd_bundle_conn_t conn[1];
+  int              so_rcvbuf;
+  long             keepalive_interval;
+  ulong            grpc_buf_max;
+  ulong            map_seed;
+  long             cached_ts;
 
   ulong   waker_client_idx;
   ulong * waker_fseq;
   long    next_step_deadline;
 
-  /* Keepalive via HTTP/2 PINGs (randomized) */
-  long              keepalive_interval;
-  fd_keepalive_t    keepalive[1];
-  fd_rtt_estimate_t rtt[1];
-
-  /* gRPC client */
-  void *                   grpc_client_mem;
-  ulong                    grpc_buf_max;
-  fd_grpc_client_t *       grpc_client;
-  fd_grpc_client_metrics_t grpc_metrics[1];
-  ulong                    map_seed;
-
-  /* Bundle authenticator */
-  fd_bundle_auther_t auther;
-
-  /* Bundle block builder info */
-  uchar builder_pubkey[ 32 ];
-  uchar builder_commission;  /* in [0,100] (percent) */
-  uchar builder_info_avail : 1;  /* Block builder info available? (potentially stale) */
-  uchar builder_info_wait  : 1;  /* Request already in-flight? */
-  long  builder_info_valid_until;
-
-  /* Bundle subscriptions */
-  uchar packet_subscription_live : 1;  /* Want to subscribe to a stream? */
-  uchar packet_subscription_wait : 1;  /* Request already in-flight? */
-  uchar bundle_subscription_live : 1;
-  uchar bundle_subscription_wait : 1;
+  /* Validator identity, which BAM logs in as.  Each conn's auther
+     keeps its own copy. */
+  uchar identity_pubkey[ 32 ];
 
   /* Bundle state */
   ulong bundle_seq;
-  ulong bundle_txn_cnt;
 
-  /* Error backoff */
+  /* Bundle being decoded, its transactions at the tail of pending_txns
+     from index cnt0 */
+  struct {
+    fd_bundle_builder_t const * builder;
+    ulong cnt0;
+    ulong txn_cnt;     /* transactions seen, including dropped ones */
+    uchar atomic;
+    uchar want_result;
+    uchar invalid : 1; /* dropped on close */
+    uchar full    : 1; /* dropped on close, for lack of space */
+  } bundle;
+
+  /* Harmonic session, kept across resets */
+  struct {
+    /* Leader window notice, queued at the start of each leader slot and
+       dropped if not sent before the slot ends */
+    uchar leader_window_pending : 1;
+    ulong leader_window_slot;
+    long  leader_window_end_ns;
+
+    ulong block_seq;       /* bundles numbered so far in the current leader slot */
+    ulong block_bundle_id; /* bundle_id of the bundle being decoded */
+    ulong block_lost_slot; /* leader slot whose block a reset cut off, or ULONG_MAX */
+  } harmonic;
+
+  /* BAM session */
+  struct {
+    fd_grpc_h2_stream_t * stream;                   /* InitSchedulerStream, NULL until opened */
+    uchar                 challenge_wait       : 1; /* GetAuthChallenge in flight */
+    uchar                 stream_accepted      : 1; /* the node sent a message on the stream */
+    uchar                 pong_pending         : 1;
+    uchar                 leader_state_pending : 1; /* send ctx->leader_state, dropped once its slot ends */
+    uchar                 heartbeat_seen       : 1; /* a BuilderHeartBeat arrived on this stream */
+    uint                  pong_id;
+    long                  heartbeat_next;           /* next ValidatorHeartBeat */
+    long                  heartbeat_rx;             /* last BuilderHeartBeat, or stream open */
+    char                  challenge[ 128 ];         /* cstr, empty if none */
+    fd_bundle_builder_t   builder;                  /* from GetBuilderConfig, polled once the stream is accepted */
+  } bam;
+
   fd_rng_t rng[1];
-  uint     backoff_iter;
-  long     backoff_until;
-  long     backoff_reset;
 
   /* Stem publish */
   fd_stem_context_t *       stem;
@@ -178,6 +307,16 @@ struct fd_bundle_tile {
 
   /* App metrics */
   fd_bundle_metrics_t metrics;
+
+  /* 1 while connected (for BAM, logged in with a builder and heartbeats),
+     0 otherwise, for pack.  NULL if the topology has none. */
+  ulong * active_fseq;
+
+  /* tpu_advertised is the last TPU published to gossip, from a healthy
+     conn (zero for ours), tpu_dirty is set until it is. */
+  fd_bundle_tpu_t     tpu_advertised;
+  uchar               tpu_dirty;
+  fd_bundle_out_ctx_t tpu_out;
 
   /* Check engine light */
   uchar bundle_status_recent;  /* most recently observed 'check engine light' */
@@ -194,8 +333,11 @@ struct fd_bundle_tile {
   int   halt_signing;     /* 1 means signing is halted, 0 means signing is not halted */
 
   /* Staged values from during_frag, committed in after_frag */
-  ulong next_leader_slot_staged;
-  ulong reset_slot_staged;
+  ulong                  next_leader_slot_staged;
+  ulong                  reset_slot_staged;
+  fd_pack_leader_state_t leader_state_staged[1];
+
+  fd_pack_leader_state_t leader_state[1]; /* latest from pack, slot is ULONG_MAX before the first */
 
   int   in_kind[ 64 ];
   struct {
@@ -203,15 +345,24 @@ struct fd_bundle_tile {
     ulong       chunk0;
     ulong       wmark;
   } replay_in;
+  struct {
+    fd_wksp_t * mem;
+    ulong       chunk0;
+    ulong       wmark;
+  } pack_in;
 };
-
-typedef struct fd_bundle_tile fd_bundle_tile_t;
 
 /* Define 'request_ctx' IDs to identify different types of gRPC calls */
 
 #define FD_BUNDLE_CLIENT_REQ_Bundle_SubscribePackets            4
 #define FD_BUNDLE_CLIENT_REQ_Bundle_SubscribeBundles            5
 #define FD_BUNDLE_CLIENT_REQ_Bundle_GetBlockBuilderFeeInfo      6
+#define FD_BUNDLE_CLIENT_REQ_Bundle_SubscribeBlocks             7
+#define FD_BUNDLE_CLIENT_REQ_Bundle_SetStrategy                 8
+#define FD_BUNDLE_CLIENT_REQ_Bundle_SubmitLeaderWindowInfo      9
+#define FD_BUNDLE_CLIENT_REQ_Bam_GetAuthChallenge              10
+#define FD_BUNDLE_CLIENT_REQ_Bam_InitSchedulerStream           11
+#define FD_BUNDLE_CLIENT_REQ_Bam_GetBuilderConfig              12
 
 FD_PROTOTYPES_BEGIN
 
@@ -256,21 +407,21 @@ long
 fd_bundle_client_next_deadline( fd_bundle_tile_t const * ctx,
                                 long                     now );
 
-/* fd_bundle_tile_backoff is called whenever an error occurs.  Stalls
-   forward progress for a randomized amount of time to prevent error
-   floods. */
+/* fd_bundle_conn_backoff is called whenever an error occurs on conn.
+   Stalls its forward progress for a randomized amount of time to
+   prevent error floods. */
 
 void
-fd_bundle_tile_backoff( fd_bundle_tile_t * ctx,
+fd_bundle_conn_backoff( fd_bundle_conn_t * conn,
                         long               now );
 
-/* fd_bundle_tile_should_stall returns 1 if forward progress should be
-   temporarily prevented due to an error. */
+/* fd_bundle_conn_should_stall returns 1 if forward progress on conn
+   should be temporarily prevented due to an error. */
 
 FD_FN_PURE static inline int
-fd_bundle_tile_should_stall( fd_bundle_tile_t const * ctx,
+fd_bundle_conn_should_stall( fd_bundle_conn_t const * conn,
                              long                     now ) {
-  return now < ctx->backoff_until;
+  return now < conn->backoff_until;
 }
 
 /* fd_bundle_tile_housekeeping runs periodically at a low frequency. */
@@ -291,7 +442,7 @@ fd_bundle_client_grpc_rx_start(
 
 void
 fd_bundle_client_grpc_rx_msg(
-    void *       app_ctx,      /* (fd_bundle_tile_t *) */
+    void *       app_ctx,      /* (fd_bundle_conn_t *) */
     void const * protobuf,
     ulong        protobuf_sz,
     ulong        request_ctx   /* FD_BUNDLE_CLIENT_REQ_{...} */
@@ -335,17 +486,28 @@ fd_bundle_client_status( fd_bundle_tile_t const * ctx );
 FD_FN_CONST char const *
 fd_bundle_request_ctx_cstr( ulong request_ctx );
 
-/* fd_bundle_client_reset frees all connection-related resources. */
+/* fd_bundle_client_reset closes the block engine connection and resets
+   the session on it. */
 
 void
 fd_bundle_client_reset( fd_bundle_tile_t * ctx );
 
-/* fd_bundle_client_send_ping enqueues an HTTP/2 PING and starts the
-   keepalive deadline.  Does nothing if the connection is unavailable,
-   busy, or lacks TX ring space. */
+/* fd_bundle_conn_send_ping enqueues an HTTP/2 PING on conn and starts
+   the keepalive deadline.  Does nothing if the connection is
+   unavailable, busy, or lacks TX ring space. */
 
 void
-fd_bundle_client_send_ping( fd_bundle_tile_t * ctx );
+fd_bundle_conn_send_ping( fd_bundle_conn_t * conn );
+
+/* fd_bundle_client_leader_state_update is called for every leader state
+   update from pack, now in ctx->leader_state.  new_slot is set on the
+   first update of a leader slot.  Queues whatever the protocol sends in
+   response, and returns 1 if anything was queued (so the client should
+   be stepped soon), 0 otherwise. */
+
+int
+fd_bundle_client_leader_state_update( fd_bundle_tile_t * ctx,
+                                      int                new_slot );
 
 FD_PROTOTYPES_END
 

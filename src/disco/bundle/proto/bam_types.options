@@ -1,0 +1,24 @@
+# 46 bytes, made with format!("challenge-{}", uuid::Uuid::new_v4())
+bam_types.AuthProof.challenge_to_sign max_size:128
+
+# Base58 pubkeys are 44 chars
+bam_types.AuthProof.validator_pubkey max_size:64
+
+# 88-char base58 signature
+bam_types.AuthProof.signature max_size:128
+
+# IPv6 string max is 45 chars, 5 chars for port, and a colon
+bam_types.Socket.ip max_size:64
+
+# Transaction V1 raises the Solana transaction wire limit to 4096 bytes.
+bam_types.Packet.data max_size:4096
+
+bam_types.GenericInvalid.message max_size:256
+
+# Base58 pubkeys are 44 chars
+bam_types.BlockEngineBuilderConfig.builder_pubkey max_size:64
+
+# Base58 pubkeys are 44 chars
+bam_types.BamConfig.prio_fee_recipient_pubkey max_size:64
+
+bam_types.BamConfig.shred_socks max_count:32

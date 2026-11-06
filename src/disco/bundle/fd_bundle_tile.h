@@ -20,6 +20,15 @@ typedef struct fd_bundle_tile fd_bundle_tile_t;
 #define FD_BUNDLE_STATE_CONNECTED    (2)
 #define FD_BUNDLE_STATE_SLEEPING     (3)
 
+#define FD_BUNDLE_PROTOCOL_JITO     (0)
+#define FD_BUNDLE_PROTOCOL_HARMONIC (1)
+#define FD_BUNDLE_PROTOCOL_BAM      (2)
+
+/* Values match block_engine_SchedulingStrategy on the wire */
+#define FD_BUNDLE_STRATEGY_FIFO (1)
+#define FD_BUNDLE_STRATEGY_FBA  (2)
+#define FD_BUNDLE_STRATEGY_MREV (3)
+
 struct fd_bundle_block_engine_update {
   char name[ 16 ];
   char url[ FD_URL_MAX ];

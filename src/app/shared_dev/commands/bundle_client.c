@@ -5,6 +5,7 @@
 #include <sys/resource.h> /* RLIMIT_NOFILE */
 #include "../../../disco/topo/fd_topob.h"
 #include "../../../disco/fd_txn_m.h"
+#include "../../../disco/keyguard/fd_keyguard.h"
 
 #include <unistd.h> /* pause */
 
@@ -36,7 +37,7 @@ bundle_client_topo( config_t *   config ) {
 
   fd_topob_link( topo, "bundle_verif", "bundle", config->tiles.verify.receive_buffer_size, FD_TPU_PARSED_MTU, 1UL )
     ->permit_no_consumers = 1;
-  fd_topob_link( topo, "bundle_sign",  "bundle", 65536UL,  9UL, 1UL );
+  fd_topob_link( topo, "bundle_sign",  "bundle", 65536UL,  FD_KEYGUARD_BAM_AUTH_MTU, 1UL );
   fd_topob_link( topo, "sign_bundle",  "bundle", 128UL,   64UL, 1UL );
 
   fd_topob_tile_out( topo, "bundle", 0UL, "bundle_verif", 0UL );
@@ -49,6 +50,10 @@ bundle_client_topo( config_t *   config ) {
 
   fd_cstr_ncpy( bundle_tile->bundle.url, config->tiles.bundle.url, sizeof(bundle_tile->bundle.url) );
   bundle_tile->bundle.url_len = strnlen( bundle_tile->bundle.url, sizeof(bundle_tile->bundle.url)-1UL );
+  bundle_tile->bundle.protocol = config->tiles.bundle.protocol_enum;
+  fd_cstr_ncpy( bundle_tile->bundle.fallback_url, config->tiles.bundle.fallback_url, sizeof(bundle_tile->bundle.fallback_url) );
+  bundle_tile->bundle.fallback_url_len = strnlen( bundle_tile->bundle.fallback_url, sizeof(bundle_tile->bundle.fallback_url)-1UL );
+  bundle_tile->bundle.strategy = config->tiles.bundle.strategy_enum;
   fd_cstr_ncpy( bundle_tile->bundle.sni, config->tiles.bundle.tls_domain_name, sizeof(bundle_tile->bundle.sni) );
   bundle_tile->bundle.sni_len = strnlen( bundle_tile->bundle.sni, sizeof(bundle_tile->bundle.sni)-1UL );
   fd_cstr_ncpy( bundle_tile->bundle.identity_key_path, config->paths.identity_key, sizeof(bundle_tile->bundle.identity_key_path) );

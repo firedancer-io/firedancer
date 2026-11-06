@@ -1,0 +1,24 @@
+// Harmonic block stream received by the validator from the block engine.
+syntax = "proto3";
+
+package block;
+
+// An ordered list of transactions targeting a given slot.
+message Block {
+  // Slot target for these transactions.
+  uint64 slot = 1;
+  // Field numbers 2-14 left free for future block-level metadata.
+
+  // Transactions in execution order.
+  repeated Transaction transactions = 15;
+}
+
+// A single transaction; field numbers match builder-protos `block.Transaction`.
+message Transaction {
+  reserved 2, 4;
+  // Raw transaction bytes.
+  bytes transaction = 1;
+  // Bundle uuid; 0 == standalone transaction, nonzero == revert protected bundle.
+  // Consecutive transactions sharing the same bundle_id form one bundle, of any length.
+  uint64 bundle_id = 3;
+}

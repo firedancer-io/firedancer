@@ -73,7 +73,8 @@ test_bundle_env_create( test_bundle_env_t * env,
     .idx    = 0UL,
   };
 
-  state->tcp_sock        = -1;
+  state->conn->ctx             = state;
+  state->conn->tcp_sock        = -1;
   state->waker_fseq      = fd_fseq_join( fd_fseq_new( env->waker_fseq, 0UL ) );
   FD_TEST( state->waker_fseq );
   /* fd_waker_install pins the outer/inner epoll fds process-wide, so
@@ -82,10 +83,10 @@ test_bundle_env_create( test_bundle_env_t * env,
   if( !waker_installed ) { fd_waker_install( 1UL ); waker_installed = 1; }
   state->waker_client_idx = 0UL;
   state->grpc_buf_max    = 16384UL + sizeof(fd_h2_frame_hdr_t);
-  state->grpc_client_mem = fd_wksp_alloc_laddr( wksp, fd_grpc_client_align(), fd_grpc_client_footprint( state->grpc_buf_max ), 1UL );
-  FD_TEST( state->grpc_client_mem );
-  state->grpc_client     = fd_grpc_client_new( state->grpc_client_mem, &fd_bundle_client_grpc_callbacks, state->grpc_metrics, state, state->grpc_buf_max, 1UL );
-  fd_h2_conn_t * h2_conn = fd_grpc_client_h2_conn( state->grpc_client );
+  state->conn->grpc_client_mem = fd_wksp_alloc_laddr( wksp, fd_grpc_client_align(), fd_grpc_client_footprint( state->grpc_buf_max ), 1UL );
+  FD_TEST( state->conn->grpc_client_mem );
+  state->conn->grpc_client     = fd_grpc_client_new( state->conn->grpc_client_mem, &fd_bundle_client_grpc_callbacks, state->conn->grpc_metrics, state->conn, state->grpc_buf_max, 1UL );
+  fd_h2_conn_t * h2_conn = fd_grpc_client_h2_conn( state->conn->grpc_client );
   h2_conn->flags = 0;
   /* Clamp max_frame_size to buffer capacity so oversized frames are
      rejected by the H2 layer before filling the rx buffer. */
@@ -98,13 +99,17 @@ test_bundle_env_create( test_bundle_env_t * env,
   FD_TEST( env->deque_mem );
   state->pending_txns = pending_txn_join( pending_txn_new( env->deque_mem, pending_max ) );
   FD_TEST( state->pending_txns );
+  state->leader_state->slot       = ULONG_MAX;
+  state->harmonic.block_lost_slot = ULONG_MAX;
+  state->next_leader_slot         = ULONG_MAX;
+  state->reset_slot               = ULONG_MAX;
 
   FD_TEST( fd_rng_new( state->rng, 0U, 0UL ) );
   long ka_interval = (long)1e9;
   long ka_timeout  = (long)1e9;
   long now = fd_bundle_now( state );
-  FD_TEST( fd_keepalive_init( state->keepalive, state->rng, ka_interval, ka_timeout, now ) );
-  FD_TEST( state->keepalive->ts_next_tx >= now + (state->keepalive->interval>>1) );
+  FD_TEST( fd_keepalive_init( state->conn->keepalive, state->rng, ka_interval, ka_timeout, now ) );
+  FD_TEST( state->conn->keepalive->ts_next_tx >= now + (state->conn->keepalive->interval>>1) );
 
   return env;
 }
@@ -114,40 +119,40 @@ test_bundle_env_mock_conn_empty( test_bundle_env_t * env ) {
   fd_bundle_tile_t * ctx = env->state;
   long const ts_start = fd_bundle_now( ctx );
   fd_rng_new( ctx->rng, 42U, 42UL );
-  ctx->tcp_sock_connected    = 1;
-  ctx->auther.state          = FD_BUNDLE_AUTH_STATE_DONE_WAIT;
-  ctx->keepalive->ts_last_tx = ts_start;
-  ctx->keepalive->ts_last_rx = ts_start;
+  ctx->conn->tcp_sock_connected    = 1;
+  ctx->conn->auther.state          = FD_BUNDLE_AUTH_STATE_DONE_WAIT;
+  ctx->conn->keepalive->ts_last_tx = ts_start;
+  ctx->conn->keepalive->ts_last_rx = ts_start;
   fd_rng_new( ctx->rng, 42U, 42UL );
-  FD_TEST( !fd_keepalive_is_timeout( ctx->keepalive, ts_start ) );
-  FD_TEST( !fd_keepalive_should_tx ( ctx->keepalive, ts_start ) );
+  FD_TEST( !fd_keepalive_is_timeout( ctx->conn->keepalive, ts_start ) );
+  FD_TEST( !fd_keepalive_should_tx ( ctx->conn->keepalive, ts_start ) );
 
   int sockpair[2] = { -1, -1 };
   FD_TEST( 0==socketpair( AF_UNIX, SOCK_STREAM, 0, sockpair ) );
   env->server_sock = sockpair[0];
-  ctx->tcp_sock    = sockpair[1];
+  ctx->conn->tcp_sock    = sockpair[1];
 }
 
 FD_FN_UNUSED static void
 test_bundle_env_mock_h2_hs( fd_bundle_tile_t * ctx ) {
-  ctx->grpc_client->h2_hs_done  = 1;
-  FD_TEST( !fd_grpc_client_request_is_blocked( ctx->grpc_client ) );
+  ctx->conn->grpc_client->h2_hs_done  = 1;
+  FD_TEST( !fd_grpc_client_request_is_blocked( ctx->conn->grpc_client ) );
   long const ts_start = fd_bundle_now( ctx );
-  FD_TEST( !fd_bundle_tile_should_stall( ctx, ts_start ) );
+  FD_TEST( !fd_bundle_conn_should_stall( ctx->conn, ts_start ) );
 }
 
 FD_FN_UNUSED static void
 test_bundle_env_mock_builder_info( fd_bundle_tile_t * ctx ) {
-  ctx->builder_info_avail = 1;
-  ctx->builder_info_valid_until = fd_bundle_now( ctx ) + (long)( 60e9 * 5. );
+  ctx->conn->builder.avail = 1;
+  ctx->conn->builder.next  = fd_bundle_now( ctx ) + (long)( 60e9 * 5. );
   /* FIXME actually fill it in ... */
 }
 
 FD_FN_UNUSED static void
 test_bundle_env_mock_builder_info_req( fd_bundle_tile_t * ctx ) {
-  ctx->builder_info_wait = 1;
+  ctx->conn->builder.wait = 1;
 
-  fd_grpc_h2_stream_t * stream = fd_grpc_client_stream_acquire( ctx->grpc_client, FD_BUNDLE_CLIENT_REQ_Bundle_GetBlockBuilderFeeInfo );
+  fd_grpc_h2_stream_t * stream = fd_grpc_client_stream_acquire( ctx->conn->grpc_client, FD_BUNDLE_CLIENT_REQ_Bundle_GetBlockBuilderFeeInfo );
   FD_TEST( stream );
   stream->hdrs.h2_status     = 200;
   stream->hdrs.is_grpc_proto = 1;
@@ -155,9 +160,9 @@ test_bundle_env_mock_builder_info_req( fd_bundle_tile_t * ctx ) {
 
 FD_FN_UNUSED static void
 test_bundle_env_mock_bundle_stream( fd_bundle_tile_t * ctx ) {
-  ctx->bundle_subscription_live = 1;
+  ctx->conn->sub[ FD_BUNDLE_SUB_BUNDLES ].live = 1;
 
-  fd_grpc_h2_stream_t * stream = fd_grpc_client_stream_acquire( ctx->grpc_client, FD_BUNDLE_CLIENT_REQ_Bundle_SubscribeBundles );
+  fd_grpc_h2_stream_t * stream = fd_grpc_client_stream_acquire( ctx->conn->grpc_client, FD_BUNDLE_CLIENT_REQ_Bundle_SubscribeBundles );
   FD_TEST( stream );
   stream->hdrs.h2_status     = 200;
   stream->hdrs.is_grpc_proto = 1;
@@ -165,9 +170,9 @@ test_bundle_env_mock_bundle_stream( fd_bundle_tile_t * ctx ) {
 
 FD_FN_UNUSED static void
 test_bundle_env_mock_packet_stream( fd_bundle_tile_t * ctx ) {
-  ctx->packet_subscription_live = 1;
+  ctx->conn->sub[ FD_BUNDLE_SUB_PACKETS ].live = 1;
 
-  fd_grpc_h2_stream_t * stream = fd_grpc_client_stream_acquire( ctx->grpc_client, FD_BUNDLE_CLIENT_REQ_Bundle_SubscribePackets );
+  fd_grpc_h2_stream_t * stream = fd_grpc_client_stream_acquire( ctx->conn->grpc_client, FD_BUNDLE_CLIENT_REQ_Bundle_SubscribePackets );
   FD_TEST( stream );
   stream->hdrs.h2_status     = 200;
   stream->hdrs.is_grpc_proto = 1;
@@ -184,7 +189,7 @@ test_bundle_env_mock_conn( test_bundle_env_t * env ) {
   test_bundle_env_mock_packet_stream( ctx );
 
   FD_TEST( fd_bundle_client_status( ctx )==2 );
-  FD_TEST( fd_h2_rbuf_free_sz( ctx->grpc_client->frame_tx )>=2048UL );
+  FD_TEST( fd_h2_rbuf_free_sz( ctx->conn->grpc_client->frame_tx )>=2048UL );
 }
 
 static void
@@ -193,13 +198,13 @@ test_bundle_env_destroy( test_bundle_env_t * env ) {
     FD_TEST( 0==close( env->server_sock ) );
     env->server_sock = -1;
   }
-  if( env && env->state->tcp_sock>=0 ) {
-    FD_TEST( 0==close( env->state->tcp_sock ) );
-    env->state->tcp_sock = -1;
+  if( env && env->state->conn->tcp_sock>=0 ) {
+    FD_TEST( 0==close( env->state->conn->tcp_sock ) );
+    env->state->conn->tcp_sock = -1;
   }
   fd_wksp_free_laddr( fd_mcache_delete( fd_mcache_leave( env->out_mcache ) ) );
   fd_wksp_free_laddr( fd_dcache_delete( fd_dcache_leave( env->out_dcache ) ) );
-  fd_wksp_free_laddr( env->state->grpc_client_mem );
+  fd_wksp_free_laddr( env->state->conn->grpc_client_mem );
   fd_wksp_free_laddr( pending_txn_delete( pending_txn_leave( env->state->pending_txns ) ) );
   fd_memset( env, 0, sizeof(test_bundle_env_t) );
 }

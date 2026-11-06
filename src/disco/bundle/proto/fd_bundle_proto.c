@@ -1,5 +1,8 @@
 /* The nanopb message tables, compiled as one TU */
 #include "auth.pb.c"
+#include "bam_api.pb.c"
+#include "bam_types.pb.c"
+#include "block.pb.c"
 #include "block_engine.pb.c"
 #include "bundle.pb.c"
 #include "packet.pb.c"

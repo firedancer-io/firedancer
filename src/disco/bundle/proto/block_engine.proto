@@ -3,6 +3,8 @@ syntax = "proto3";
 import "packet.proto";
 import "shared.proto";
 import "bundle.proto";
+import "block.proto";
+import "timestamp.proto";
 
 package block_engine;
 
@@ -25,6 +27,40 @@ message BlockBuilderFeeInfoResponse {
   uint64 commission = 2;
 }
 
+// The messages below are Harmonic block engine extensions.
+
+message SubscribeBlocksRequest {
+  string version = 1;
+  string commit_hash = 2;
+}
+
+message SubmitLeaderWindowInfoRequest {
+  // When the leader request is sent.
+  google.protobuf.Timestamp start_timestamp = 1;
+  // The leader slot number.
+  uint64 slot = 2;
+  // When the leader slot ends.
+  google.protobuf.Timestamp end_timestamp = 3;
+}
+
+message SubmitLeaderWindowInfoResponse {}
+
+enum SchedulingStrategy {
+  SCHEDULING_STRATEGY_UNSPECIFIED = 0;
+  // First-in, first-out: continuous arrival-order sequencing.
+  SCHEDULING_STRATEGY_FIFO = 1;
+  // Frequent batch auction: discrete batches ordered by priority fees and tips.
+  SCHEDULING_STRATEGY_FBA = 2;
+  // Maximum revenue strategy: continuous streaming with revenue-prioritizing selection.
+  SCHEDULING_STRATEGY_MREV = 3;
+}
+
+message SetStrategyRequest {
+  SchedulingStrategy strategy = 1;
+}
+
+message SetStrategyResponse {}
+
 /// Validators can connect to Block Engines to receive packets and bundles.
 service BlockEngineValidator {
   /// Validators can subscribe to the block engine to receive a stream of packets
@@ -36,4 +72,16 @@ service BlockEngineValidator {
   // Block builders can optionally collect fees. This returns fee information if a block builder wants to
   // collect one.
   rpc GetBlockBuilderFeeInfo (BlockBuilderFeeInfoRequest) returns (BlockBuilderFeeInfoResponse) {}
+
+  // Harmonic: subscribe to bundles (v2).
+  rpc SubscribeBundles2 (SubscribeBundlesRequest) returns (stream SubscribeBundlesResponse) {}
+
+  // Harmonic: subscribe to blocks with explicit bundle boundaries.
+  rpc SubscribeBlocks2 (SubscribeBlocksRequest) returns (stream block.Block) {}
+
+  // Harmonic: report the validator's upcoming leader slot to the block engine.
+  rpc SubmitLeaderWindowInfo (SubmitLeaderWindowInfoRequest) returns (SubmitLeaderWindowInfoResponse) {}
+
+  // Harmonic: set the scheduling strategy for this validator session.
+  rpc SetStrategy (SetStrategyRequest) returns (SetStrategyResponse) {}
 }

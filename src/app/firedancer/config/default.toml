@@ -1683,6 +1683,27 @@ telemetry = true
         # The URL of the block engine to receive blocks from.
         url = ""
 
+        # The block building protocol spoken by the server at url.  One
+        # of "jito", "harmonic", or "bam".
+        protocol = "jito"
+
+        # The URL of a Jito block engine to receive bundles from while
+        # the server at url is unhealthy.  Only used with the "bam"
+        # protocol, and must be empty otherwise.  Not supported yet and
+        # rejected at startup.
+        fallback_url = ""
+
+        # The scheduling strategy the block engine runs for our leader
+        # slots.  Only used with the "harmonic" protocol.  One of:
+        #
+        #   "fba"  - Frequent batch auction: discrete batches ordered by
+        #            priority fees and tips
+        #   "fifo" - First-in, first-out: arrival order, without fee or
+        #            tip influence
+        #   "mrev" - Maximum revenue: continuous streaming with
+        #            revenue-prioritizing selection
+        strategy = "fba"
+
         # The domain name of the TLS certificate to use when verifying
         # the peer.  If none is provided, the domain from the URL above
         # will be used by default.
