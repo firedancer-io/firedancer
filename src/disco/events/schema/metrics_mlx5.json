@@ -122,7 +122,7 @@
                 "no_neighbor":           { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Next-hop neighbor unresolved" },
                 "ring_full":             { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "TX ring full or no TX buffer available" },
                 "gre_no_route":          { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "GRE tunnel addresses missing or outer route is itself tunnelled" },
-                "socket_send_failure":   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Socket send failed or failed to send the entire packet", "field_number": 482779610 }
+                "socket_send_failure":   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Socket send failed or failed to send the entire packet" }
             }
         },
         "gre_pkt_tx_submitted":       { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "GRE transmit jobs submitted to the NIC or a kernel socket" },
@@ -142,6 +142,6 @@
                 "unsupported_interface": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Interface type not supported" }
             }
         },
-        "socket_pkt_tx_submitted":    { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Packets sent via a kernel socket instead of the NIC", "field_number": 292288909 }
+        "socket_pkt_tx_submitted":    { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Packets sent via a kernel socket instead of the NIC" }
     }
 }
