@@ -1101,6 +1101,20 @@ fd_gossip_push_duplicate_shred( fd_gossip_t *                       gossip,
   return fd_gossip_push( gossip, &value );
 }
 
+int
+fd_gossip_push_snapshot_hashes( fd_gossip_t *                       gossip,
+                                fd_gossip_snapshot_hashes_t const * snapshot_hashes,
+                                long                                now ) {
+  fd_gossip_value_t value = {
+    .tag = FD_GOSSIP_VALUE_SNAPSHOT_HASHES,
+    .wallclock = (ulong)FD_NANOSEC_TO_MILLI( now ),
+  };
+  fd_memcpy( value.origin, gossip->identity_pubkey, 32UL );
+  *value.snapshot_hashes = *snapshot_hashes;
+
+  return fd_gossip_push( gossip, &value );
+}
+
 static void
 tx_ping( fd_gossip_t * gossip,
          long          now,
