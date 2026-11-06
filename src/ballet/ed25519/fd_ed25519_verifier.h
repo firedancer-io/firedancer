@@ -43,7 +43,11 @@ FD_STATIC_ASSERT( FD_ED25519_VERIFIER_BATCH<=FD_ED25519_VERIFIER_SIG_MAX, verifi
    implementation of the build verifies fastest: a caller that has it
    calls, one that has fewer waits for more unless none can come. */
 
+#if FD_ED25519_CRC && defined(FD_ED25519_CRC_IMPL_AVX512)
+#define FD_ED25519_VERIFIER_GROUP (FD_ED25519_VERIFIER_BATCH)
+#else
 #define FD_ED25519_VERIFIER_GROUP (1UL)
+#endif
 FD_STATIC_ASSERT( 1UL<=FD_ED25519_VERIFIER_GROUP && FD_ED25519_VERIFIER_GROUP<=FD_ED25519_VERIFIER_BATCH, verifier_group );
 
 /* A transaction verifier (the exec tiles') keeps the default cache. */
