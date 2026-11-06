@@ -13,12 +13,15 @@
 #include "../../disco/fd_txn_m.h"
 #include "../restore/utils/fd_ssmsg.h"
 #include "../restore/utils/fd_wfs.h"
+#include "../restore/utils/fd_ssarchive.h"
+#include "../backup/fd_snapmk_tile.h"
 
 #define IN_KIND_GOSSVF        (0)
 #define IN_KIND_SHRED_VERSION (1)
 #define IN_KIND_SIGN          (2)
 #define IN_KIND_EPOCH         (4)
 #define IN_KIND_SNAPIN_MANIF  (6)
+#define IN_KIND_SNAPMK        (7)
 
 FD_FN_CONST static inline ulong
 scratch_align( void ) {
@@ -266,6 +269,19 @@ metrics_write( fd_gossip_tile_ctx_t * ctx ) {
    infos — a strong convergence signal. */
 #define FD_GOSSIP_PEER_SAT_QUIET_NS (500L*1000L*1000L)
 
+/* Peers keep the value with the newest wallclock, so each push must
+   be newer than the one before even within a millisecond.  The push
+   is retried from after_credit until the signing queue takes it. */
+
+static void
+snap_push( fd_gossip_tile_ctx_t * ctx,
+           long                   now ) {
+  now = fd_long_max( now, ctx->snap_push_nanos+1000000L );
+  if( FD_UNLIKELY( fd_gossip_push_snapshot_hashes( ctx->gossip, ctx->snap, now ) ) ) return;
+  ctx->snap_push_nanos = now;
+  ctx->snap_dirty      = 0;
+}
+
 static void
 after_credit( fd_gossip_tile_ctx_t * ctx,
               fd_stem_context_t *    stem,
@@ -306,6 +322,7 @@ after_credit( fd_gossip_tile_ctx_t * ctx,
   /* The stem's tick, at most one loop iteration stale, saves an rdtsc
      per iteration. */
   long now = fd_clock_tile_tickcount_to_wallclock( ctx->clock, stem->now );
+  if( FD_UNLIKELY( ctx->snap_dirty ) ) snap_push( ctx, now );
   fd_gossip_advance( ctx->gossip, now, stem, charge_busy );
 
   /* Peer table saturation detection.  After fd_gossip_advance updates
@@ -397,12 +414,53 @@ handle_packet( fd_gossip_tile_ctx_t * ctx,
   }
 }
 
+/* snapmk reports every snapshot on disk, in any order at startup.
+   Advertise the newest full snapshot and the newest incremental built
+   on it, as Agave does. */
+
+static void
+handle_snapmk( fd_gossip_tile_ctx_t *  ctx,
+               ulong                   sig,
+               fd_snapmk_msg_t const * msg ) {
+  if( sig!=FD_SNAPMK_MSG_FOUND && sig!=FD_SNAPMK_MSG_CREATED ) return;
+
+  /* found and created messages share the slot, base_slot and name
+     fields */
+  ulong        slot      = msg->created.slot;
+  ulong        base_slot = msg->created.base_slot;
+  char const * name      = msg->created.name;
+
+  ulong full_slot;
+  ulong incr_slot;
+  uchar hash[ 32 ];
+  int   is_zstd;
+  if( FD_UNLIKELY( fd_ssarchive_parse_filename( name, &full_slot, &incr_slot, hash, &is_zstd ) ) ) {
+    FD_LOG_WARNING(( "ignoring snapshot with unexpected name %s", name ));
+    return;
+  }
+
+  if( base_slot==ULONG_MAX ) {
+    if( slot<=ctx->snap->full_slot ) return;
+    ctx->snap->full_slot = slot;
+    fd_memcpy( ctx->snap->full_hash, hash, 32UL );
+  } else {
+    if( slot<=ctx->snap->incremental[ 0 ].slot ) return;
+    ctx->snap->incremental[ 0 ].slot = slot;
+    fd_memcpy( ctx->snap->incremental[ 0 ].hash, hash, 32UL );
+    ctx->snap_incr_base_slot = base_slot;
+    /* The full snapshot it builds on has not been reported yet. */
+    if( base_slot!=ctx->snap->full_slot ) return;
+  }
+  ctx->snap->incremental_len = (ulong)( ctx->snap_incr_base_slot==ctx->snap->full_slot );
+  ctx->snap_dirty            = 1;
+}
+
 static inline int
 before_frag( fd_gossip_tile_ctx_t * ctx,
              ulong                  in_idx,
              ulong                  seq FD_PARAM_UNUSED,
              ulong                  sig FD_PARAM_UNUSED ) {
-  if( FD_UNLIKELY( ctx->in[ in_idx ].kind==IN_KIND_SIGN ) ) return 0;
+  if( FD_UNLIKELY( ctx->in[ in_idx ].kind==IN_KIND_SIGN || ctx->in[ in_idx ].kind==IN_KIND_SNAPMK ) ) return 0;
 
   /* Defer frag processing while switching identity or learning shred
      version */
@@ -490,6 +548,7 @@ returnable_frag( fd_gossip_tile_ctx_t * ctx,
   switch( ctx->in[ in_idx ].kind ) {
     case IN_KIND_SHRED_VERSION: handle_shred_version( ctx, sig ); break;
     case IN_KIND_EPOCH:         handle_epoch( ctx, fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk ) ); break;
+    case IN_KIND_SNAPMK:        handle_snapmk( ctx, sig, fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk ) ); break;
     case IN_KIND_SNAPIN_MANIF: {
       if( FD_LIKELY( ctx->wfs_state==FD_GOSSIP_WFS_STATE_DONE ) ) break;
 
@@ -631,6 +690,8 @@ unprivileged_init( fd_topo_t const *      topo,
       ctx->in[ i ].kind = IN_KIND_EPOCH;
     } else if( FD_UNLIKELY( !strcmp( link->name, "snapin_manif" ) ) ) {
       ctx->in[ i ].kind = IN_KIND_SNAPIN_MANIF;
+    } else if( FD_UNLIKELY( !strcmp( link->name, "snapmk_out" ) ) ) {
+      ctx->in[ i ].kind = IN_KIND_SNAPMK;
     } else {
       FD_LOG_ERR(( "unexpected input link name %s", link->name ));
     }
@@ -686,9 +747,9 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->my_contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_SERVE_REPAIR ]      = (fd_gossip_socket_t){ .is_ipv6 = 0, .ip4 = tile->gossip.ports.rserve   ? ctx->gossip_ip_addr : 0, .port = fd_ushort_bswap( tile->gossip.ports.rserve )   };
   ctx->my_contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_SERVE_REPAIR_QUIC ] = (fd_gossip_socket_t){ .is_ipv6 = 0, .ip4 = tile->gossip.ports.rserve   ? ctx->gossip_ip_addr : 0, .port = fd_ushort_bswap( tile->gossip.ports.rserve )   };
   ctx->my_contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_ALPENGLOW ]         = (fd_gossip_socket_t){ .is_ipv6 = 0, .ip4 = tile->gossip.ports.votor    ? ctx->gossip_ip_addr : 0, .port = fd_ushort_bswap( tile->gossip.ports.votor )    };
+  ctx->my_contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_RPC ]               = (fd_gossip_socket_t){ .is_ipv6 = 0, .ip4 = tile->gossip.ports.rpc      ? ctx->gossip_ip_addr : 0, .port = fd_ushort_bswap( tile->gossip.ports.rpc )      };
 
   ctx->my_contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_TVU_QUIC ]          = (fd_gossip_socket_t){ .is_ipv6 = 0, .ip4 = 0, .port = 0 };
-  ctx->my_contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_RPC ]               = (fd_gossip_socket_t){ .is_ipv6 = 0, .ip4 = 0, .port = 0 };
   ctx->my_contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_RPC_PUBSUB ]        = (fd_gossip_socket_t){ .is_ipv6 = 0, .ip4 = 0, .port = 0 };
 
   ctx->gossip = fd_gossip_join( fd_gossip_new( _gossip,

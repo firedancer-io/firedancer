@@ -320,6 +320,7 @@ struct fd_topo_tile {
         ushort repair;
         ushort rserve;
         ushort votor;
+        ushort rpc;
       } ports;
     } gossip;
 

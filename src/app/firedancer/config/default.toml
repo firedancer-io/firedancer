@@ -636,7 +636,9 @@ telemetry = true
 
         # The TCP port to listen on.
         # Firedancer runs a HTTP/1.1 server supporting Range requests on
-        # this port.
+        # this port.  The port is advertised on gossip as this node's
+        # RPC address so other Firedancer nodes can download snapshots
+        # from it.
         http_listen_port = 8902
 
         # The maximum number of concurrent snapshot downloads to allow.
