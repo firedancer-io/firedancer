@@ -140,6 +140,9 @@
 
 | Metric | Type | Description |
 |--------|------|-------------|
+| <span class="metrics-name">snapin_&#8203;index_&#8203;state</span> | gauge | Snapshot account index finalization stage; published synchronously by the lead inserter: 0=idle, 1=count (counting), 2=scatter (scattering), 3=build (building), 4=cleanup, 5=done |
+| <span class="metrics-name">snapin_&#8203;index_&#8203;progress</span> | gauge | Completed index finalization work units (placement ranges, then cleanup); resets on each placement or snapshot attempt |
+| <span class="metrics-name">snapin_&#8203;index_&#8203;expected</span> | gauge | Expected index finalization work units (placement ranges plus one for cleanup); work progress is not elapsed-time progress |
 | <span class="metrics-name">snapin_&#8203;stream_&#8203;state</span> | gauge | Snapshot inserter state: 0=idle, 1=processing, 2=finishing, 3=error, 4=shutdown |
 | <span class="metrics-name">snapin_&#8203;parse_&#8203;progress_&#8203;bytes</span><br/>{snap_&#8203;type="<span class="metrics-enum">full</span>"} | gauge | Decompressed bytes of each snapshot this tile parsed in the current attempt; every snapin tile parses the whole stream, so take the min across tiles (Full snapshot) |
 | <span class="metrics-name">snapin_&#8203;parse_&#8203;progress_&#8203;bytes</span><br/>{snap_&#8203;type="<span class="metrics-enum">incremental</span>"} | gauge | Decompressed bytes of each snapshot this tile parsed in the current attempt; every snapin tile parses the whole stream, so take the min across tiles (Incremental snapshot) |

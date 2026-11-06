@@ -502,12 +502,13 @@ idx_put( fd_snapin_tile_t * ctx,
          ulong              lamports,
          int                stake ) {
   uchar pubkey[ 32UL ] = {0};
+  uchar owner [ 32UL ] = {0x42};
   uchar data  [ FD_STAKE_STATE_SZ ];
   FD_STORE( ulong, pubkey, id );
   pubkey[ 31 ] = 0xD7U;
   if( stake ) idx_stake( data, (uchar)id );
   else        fd_memset( data, (int)(slot&0xFF), 16UL );
-  FD_TEST( !writer_append_account( ctx, pubkey, stake ? fd_solana_stake_program_id.uc : (uchar const *)"\x42", data, slot, lamports,
+  FD_TEST( !writer_append_account( ctx, pubkey, stake ? fd_solana_stake_program_id.uc : owner, data, slot, lamports,
                                    stake ? FD_STAKE_STATE_SZ : 16UL, 0 ) );
 }
 
@@ -657,10 +658,74 @@ test_snapin_index_mode_ranges( void ) {
   test_env_free( env );
 }
 
+typedef struct {
+  fd_snapin_tile_t * lead;
+  ulong stage;
+  ulong completed;
+  ulong total;
+  ulong seen;
+} test_index_progress_t;
+
+static void
+test_index_progress( void * _ctx,
+                     ulong  stage,
+                     ulong  completed,
+                     ulong  total ) {
+  test_index_progress_t * ctx = _ctx;
+  FD_TEST( stage>=ctx->stage && stage<=FD_ACCDB_PLACE_STAGE_DONE );
+  FD_TEST( completed>=ctx->completed && completed<=total );
+  if( !ctx->seen ) {
+    FD_TEST( stage==FD_ACCDB_PLACE_STAGE_BUILD && !completed && total>1UL );
+    ctx->total = total; /* placement ranges plus cleanup */
+  }
+  FD_TEST( total==ctx->total );
+  if( stage==FD_ACCDB_PLACE_STAGE_DONE ) FD_TEST( completed==total );
+  else                                 FD_TEST( completed<total );
+  ctx->stage     = stage;
+  ctx->completed = completed;
+  ctx->seen     |= 1UL<<stage;
+
+  /* Verify live publication without a stem metrics callback. */
+  place_progress( ctx->lead, stage, completed, total );
+  FD_TEST( FD_MGAUGE_GET( SNAPIN, INDEX_STATE )==stage );
+  FD_TEST( FD_MGAUGE_GET( SNAPIN, INDEX_PROGRESS )==completed );
+  FD_TEST( FD_MGAUGE_GET( SNAPIN, INDEX_EXPECTED )==total );
+}
+
+static void
+test_snapin_index_progress( void ) {
+  test_env_t env[1];
+  test_env_init_ex( env, 1UL, 4096UL );
+  fd_snapin_tile_t * lead = &env->worker[ 0 ];
+  idx_put( lead, 1UL, 10UL, 100UL, 0 );
+  idx_put( lead, 1UL, 20UL, 200UL, 0 );
+  idx_put( lead, 2UL, 10UL, 300UL, 0 );
+  idx_flush_all( env );
+
+  fd_accdb_snapshot_placement_t out[1];
+  test_index_progress_t progress = { .lead = lead };
+  FD_TEST( !fd_accdb_snapshot_place( lead->accdb, FD_ACCDB_PLACE_FULL, NULL, NULL, test_index_progress, &progress, out ) );
+  ulong full_total = progress.total;
+  FD_TEST( progress.seen==0x38UL && progress.completed==full_total );
+  FD_TEST( out->loaded==2UL && out->duplicates==1UL );
+  FD_TEST( idx_lamports( env, 1UL )==200UL && idx_lamports( env, 2UL )==300UL );
+
+  /* An empty incremental still reports every stage, without dividing
+     by zero.  A caller may also omit progress reporting entirely. */
+  progress = (test_index_progress_t){ .lead = lead };
+  FD_TEST( !fd_accdb_snapshot_place( lead->accdb, FD_ACCDB_PLACE_INCR_CHECK, NULL, NULL, test_index_progress, &progress, out ) );
+  FD_TEST( progress.seen==0x38UL && progress.total==full_total && progress.completed==full_total );
+  FD_TEST( !fd_accdb_snapshot_place( lead->accdb, FD_ACCDB_PLACE_INCR_APPLY, NULL, NULL, NULL, NULL, out ) );
+  fd_accdb_snapshot_load_end( lead->accdb );
+  test_env_free( env );
+}
+
 int
 main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
+  static ulong metrics[ FD_METRICS_TOTAL_SZ/sizeof(ulong) ];
+  fd_metrics_tl = metrics;
 
   test_snapin_accdb( 1UL );
   test_snapin_accdb( 9UL );
@@ -668,6 +733,7 @@ main( int     argc,
   test_capitalization_crafted_mismatch();
   test_snapin_index_mode();
   test_snapin_index_mode_ranges();
+  test_snapin_index_progress();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
