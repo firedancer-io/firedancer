@@ -304,8 +304,8 @@ metrics_write( fd_net_ctx_t * ctx ) {
   FD_MCNT_SET( NET, PKT_TX_SUBMITTED,        ctx->metrics.tx_submit_cnt         );
   FD_MCNT_SET( NET, PKT_TX_COMPLETED,        ctx->net.metrics.tx_pkt_cnt        );
   FD_MCNT_SET( NET, PKT_TX_SUBMITTED_BYTES,  ctx->net.metrics.tx_bytes_total    );
-  ctx->net.metrics.tx_drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_NO_NEIGHBOR_IDX ] = ctx->metrics.tx_neigh_fail_cnt;
-  ctx->net.metrics.tx_drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_RING_FULL_IDX   ] = ctx->metrics.tx_full_fail_cnt;
+  ctx->net.metrics.tx_routing_failure_cnt[ FD_METRICS_ENUM_PKT_TX_ROUTING_FAILURE_REASON_V_NO_NEIGHBOR_IDX ] = ctx->metrics.tx_neigh_fail_cnt;
+  ctx->net.metrics.tx_drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_RING_FULL_IDX ] = ctx->metrics.tx_full_fail_cnt;
   FD_MCNT_ENUM_COPY( NET, PKT_TX_DROPPED,    ctx->net.metrics.tx_drop_cnt       );
   FD_MCNT_ENUM_COPY( NET, PKT_TX_ROUTING_FAILED, ctx->net.metrics.tx_routing_failure_cnt );
 

@@ -227,6 +227,7 @@ deliberate exception with lint-allow="<rule id>")
     <int value="1" name="UnsupportedRoute" label="Unsupported route type" />
     <int value="2" name="InterfaceMissing" label="Interface not available" />
     <int value="3" name="UnsupportedInterface" label="Interface type not supported" />
+    <int value="4" name="NoNeighbor" label="Next-hop neighbor unresolved or inactive" />
 </enum>
 
 <tile name="net">

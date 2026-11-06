@@ -1444,6 +1444,8 @@ message MetricsNetPktTxRoutingFailed {
   uint64 interface_missing = 3;
   // Interface type not supported
   uint64 unsupported_interface = 4;
+  // Next-hop neighbor unresolved or inactive
+  uint64 no_neighbor = 5;
 }
 
 // IPv4 routes installed in the forwarding table
@@ -1550,6 +1552,8 @@ message MetricsMlx5PktTxRoutingFailed {
   uint64 interface_missing = 3;
   // Interface type not supported
   uint64 unsupported_interface = 4;
+  // Next-hop neighbor unresolved or inactive
+  uint64 no_neighbor = 5;
 }
 
 // Transmit jobs dropped, by reason
@@ -8152,6 +8156,8 @@ message MetricsIavfPktTxRoutingFailed {
   uint64 interface_missing = 3;
   // Interface type not supported
   uint64 unsupported_interface = 4;
+  // Next-hop neighbor unresolved or inactive
+  uint64 no_neighbor = 5;
 }
 
 // Transmit jobs dropped, by reason
