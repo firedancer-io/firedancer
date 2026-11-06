@@ -7,9 +7,11 @@
    while its caller keeps its own, so a tile holds up to one frame per
    instruction stack level.  This object allows for shared and
    tile-local frames for both tiles.  Each tile can keep some number of
-   frames local to itself for performance reasons.  The last shared
-   frames are held back so the pool cannot deadlock.  This is sized so
-   that contending transactions cannot starve each other for bpf frames.
+   frames local to itself for performance reasons, carved LIFO by the
+   size each level needs, so a typical whole stack fits in one.  A level
+   that does not fit takes a full shared frame.  The last shared frames
+   are held back so the pool cannot deadlock.  This is sized so that
+   contending transactions cannot starve each other for bpf frames.
 
    fd_bpf_frames_shmem_t is the pool and fd_bpf_frames_t is one user's
    local join to it. */
@@ -72,11 +74,13 @@ fd_bpf_frames_t *
 fd_bpf_frames_join( void * ljoin,
                     void * shframes );
 
-/* fd_bpf_frames_acquire takes a frame, spinning until one is
-   available.  priority is whether the caller is the priority caller. */
+/* fd_bpf_frames_acquire takes a frame of at least sz bytes, at most
+   BPF_LOADER_SERIALIZATION_FOOTPRINT, spinning until one is available.
+   priority is whether the caller is the priority caller. */
 
 uchar *
 fd_bpf_frames_acquire( fd_bpf_frames_t * join,
+                       ulong             sz,
                        int               priority );
 
 /* fd_bpf_frames_release returns a frame acquired through join.  A

@@ -8,6 +8,16 @@
 
 FD_PROTOTYPES_BEGIN
 
+/* fd_bpf_loader_input_serialize_sz bounds the bytes
+   fd_bpf_loader_input_serialize_parameters writes for ctx's
+   instruction, in any ABI or mapping mode, capped at
+   BPF_LOADER_SERIALIZATION_FOOTPRINT. */
+
+ulong
+fd_bpf_loader_input_serialize_sz( fd_exec_instr_ctx_t const * ctx,
+                                  int                         virtual_address_space_adjustments,
+                                  int                         direct_mapping );
+
 int
 fd_bpf_loader_input_serialize_parameters( fd_exec_instr_ctx_t *     instr_ctx,
                                           ulong *                   pre_lens,

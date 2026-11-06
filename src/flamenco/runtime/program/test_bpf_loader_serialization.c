@@ -529,13 +529,13 @@ setup_instr_ctx( fixture_input_t const * in,
      writes into the frame of the current stack level, so set stack_sz to
      1 and take that frame. */
   runtime->instr.stack_sz = 1;
-  runtime->bpf_loader_serialization.frame[ 0 ] = fd_bpf_frames_acquire( runtime->bpf_frames, 0 );
 
   fd_memset( instr_ctx, 0, sizeof(fd_exec_instr_ctx_t) );
   instr_ctx->instr   = g_info;
   instr_ctx->txn_in  = g_txn_in;
   instr_ctx->txn_out = g_txn_out;
   instr_ctx->runtime = runtime;
+  runtime->bpf_loader_serialization.frame[ 0 ] = fd_bpf_frames_acquire( runtime->bpf_frames, fd_bpf_loader_input_serialize_sz( instr_ctx, in->virtual_address_space_adj, in->direct_mapping ), 0 );
 
   *out_storage = storage;
 }
@@ -597,7 +597,22 @@ run_fixture( fd_svm_mini_t * mini,
   FD_LOG_NOTICE(( "  result=%d serialized_sz=%lu region_cnt=%u idata_offset=%lu",
                   result, serialized_sz, region_cnt, idata_offset ));
 
-  int ok = 1;
+  int   ok    = 1;
+  ulong bound = fd_bpf_loader_input_serialize_sz( ctx, in->virtual_address_space_adj, in->direct_mapping );
+  if( serialized_sz>bound ) {
+    FD_LOG_WARNING(( "serialized_sz %lu over bound %lu", serialized_sz, bound ));
+    ok = 0;
+  }
+  if( fill==0 && in->num_instr_accounts>=8UL ) {
+    ulong iter_cnt = 100000UL;
+    long  dt       = -fd_tickcount();
+    for( ulong i=0UL; i<iter_cnt; i++ ) {
+      ulong b = fd_bpf_loader_input_serialize_sz( ctx, in->virtual_address_space_adj, in->direct_mapping );
+      FD_COMPILER_FORGET( b );
+    }
+    dt += fd_tickcount();
+    FD_LOG_NOTICE(( "  bound %lu (%lu accounts): %.1f ticks", bound, in->num_instr_accounts, (double)dt/(double)iter_cnt ));
+  }
 
   if( out->result==0 ) {
     if( !check_result( result, 0 ) ) ok = 0;
