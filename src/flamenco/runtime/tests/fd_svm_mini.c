@@ -31,7 +31,7 @@
 #define TEST_PARTITION_CNT      (8192UL)
 #define TEST_PARTITION_SZ       (1UL<<30UL)
 #define TEST_WRITES_PER_SLOT    (8192UL)
-#define TEST_BPF_FRAMES_LOCAL   (2UL)
+#define TEST_BPF_FRAMES_LOCAL   (1UL)
 #define TEST_BPF_FRAMES_JOINS   (2UL) /* mini runtime and exec tile under test */
 
 #define SENTINEL ((fd_accdb_fork_id_t){ .val = USHORT_MAX })
