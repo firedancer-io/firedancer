@@ -6,6 +6,8 @@ typedef struct fd_sshttp_private fd_sshttp_t;
 
 #include "../../../util/net/fd_net_headers.h"
 
+#include <sys/uio.h>
+
 FD_PROTOTYPES_BEGIN
 
 FD_FN_CONST ulong
@@ -74,12 +76,19 @@ fd_sshttp_deadline( fd_sshttp_t const * http );
 #define FD_SSHTTP_ADVANCE_DATA  ( 1)
 #define FD_SSHTTP_ADVANCE_DONE  ( 2)
 
+/* fd_sshttp_advance drives the connection.  Body bytes fill iov
+   front to back; on ADVANCE_DATA *data_len is the total written.
+   Bytes received alongside headers only ever fill iov[0]. */
+
+#define FD_SSHTTP_IOV_MAX (2UL)
+
 int
-fd_sshttp_advance( fd_sshttp_t * http,
-                   ulong *       data_len,
-                   uchar *       data,
-                   int *         downloading,
-                   long          now );
+fd_sshttp_advance( fd_sshttp_t *        http,
+                   struct iovec const * iov,
+                   ulong                iov_cnt,
+                   ulong *              data_len,
+                   int *                downloading,
+                   long                 now );
 
 FD_PROTOTYPES_END
 

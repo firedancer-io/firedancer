@@ -15,6 +15,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <sys/socket.h>
+#include <sys/uio.h>
 
 #include <linux/futex.h>
 #include "generated/fd_snapld_tile_seccomp.h"
@@ -26,6 +27,8 @@
    slow download speeds where we may not get to 100 MiB downloaded for a
    while. */
 #define FD_SNAPLD_DOWNLOAD_WINDOW_NS (10L*1000L*1000L*1000L) /* 10 seconds */
+
+#define FD_SNAPLD_RX_BURST (16UL) /* data frags per receive syscall */
 
 /* The snapld tile is responsible for loading data from the local file
    or from an HTTP/TCP connection and sending it to the snapdc tile
@@ -243,6 +246,7 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->out_dc.mtu    = out_link->mtu;
 
   FD_TEST( sizeof(fd_ssctrl_meta_t)<=ctx->out_dc.mtu );
+  FD_TEST( fd_dcache_compact_next( 0UL, ctx->out_dc.mtu, 0UL, ULONG_MAX )*FD_CHUNK_SZ==ctx->out_dc.mtu );
 
   /* We can only close the temporary socket file descriptor after
      entering the sandbox because the sandbox checks all file
@@ -313,6 +317,38 @@ check_download_progress( fd_snapld_tile_t *  ctx,
   return 0;
 }
 
+/* rx_iov covers the next burst MTU sized frag slots with at most two
+   iovecs, split only at the wrap to chunk0.  Returns the iov count. */
+
+static ulong
+rx_iov( fd_snapld_tile_t * ctx,
+        struct iovec       iov[ static 2 ],
+        ulong              burst ) {
+  ulong mtu   = ctx->out_dc.mtu;
+  ulong step  = fd_dcache_compact_next( 0UL, mtu, 0UL, ULONG_MAX );
+  ulong pre   = fd_ulong_min( burst, (ctx->out_dc.wmark-ctx->out_dc.chunk)/step + 1UL );
+  iov[0].iov_base = fd_chunk_to_laddr( ctx->out_dc.mem, ctx->out_dc.chunk );
+  iov[0].iov_len  = pre*mtu;
+  iov[1].iov_base = fd_chunk_to_laddr( ctx->out_dc.mem, ctx->out_dc.chunk0 );
+  iov[1].iov_len  = (burst-pre)*mtu;
+  return 1UL + (burst>pre);
+}
+
+/* publish_data publishes sz bytes received via rx_iov as MTU sized
+   frags. */
+
+static void
+publish_data( fd_snapld_tile_t *  ctx,
+              fd_stem_context_t * stem,
+              ulong               sz ) {
+  while( sz ) {
+    ulong frag_sz = fd_ulong_min( sz, ctx->out_dc.mtu );
+    fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_DATA, ctx->out_dc.chunk, frag_sz, 0UL, 0UL, 0UL );
+    ctx->out_dc.chunk = fd_dcache_compact_next( ctx->out_dc.chunk, frag_sz, ctx->out_dc.chunk0, ctx->out_dc.wmark );
+    sz -= frag_sz;
+  }
+}
+
 static void
 after_credit( fd_snapld_tile_t *  ctx,
               fd_stem_context_t * stem,
@@ -342,7 +378,9 @@ after_credit( fd_snapld_tile_t *  ctx,
       ctx->out_dc.chunk = fd_dcache_compact_next( ctx->out_dc.chunk, sizeof(fd_ssctrl_meta_t), ctx->out_dc.chunk0, ctx->out_dc.wmark );
       return;
     }
-    long result = read( ctx->load_full ? ctx->local_full_fd : ctx->local_incr_fd, out, ctx->out_dc.mtu );
+    struct iovec iov[2];
+    ulong iov_cnt = rx_iov( ctx, iov, FD_SNAPLD_RX_BURST );
+    long result = readv( ctx->load_full ? ctx->local_full_fd : ctx->local_incr_fd, iov, (int)iov_cnt );
     if( FD_UNLIKELY( result<=0L ) ) {
       if( result==0L ) {
         FD_LOG_INFO(( "finished reading %s snapshot from local file", ctx->load_full ? "full" : "incremental" ));
@@ -354,18 +392,20 @@ after_credit( fd_snapld_tile_t *  ctx,
         return; /* verbose return */
       }
     } else {
-      fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_DATA, ctx->out_dc.chunk, (ulong)result, 0UL, 0UL, 0UL );
-      ctx->out_dc.chunk = fd_dcache_compact_next( ctx->out_dc.chunk, (ulong)result, ctx->out_dc.chunk0, ctx->out_dc.wmark );
+      publish_data( ctx, stem, (ulong)result );
       *charge_busy = 1;
       return; /* verbose return */
     }
   } else {
+    /* Single chunk until META is sent, see the swap below. */
+    struct iovec iov[2];
+    ulong iov_cnt     = rx_iov( ctx, iov, ctx->sent_meta ? FD_SNAPLD_RX_BURST : 1UL );
     int   downloading = 0;
-    ulong data_len    = ctx->out_dc.mtu;
+    ulong data_len    = 0UL;
     long  now         = fd_clock_tile_now( ctx->clock );
     int   fired       = fd_fseq_query( ctx->waker_fseq )==1UL;
     if( FD_LIKELY( fired ) ) fd_fseq_update( ctx->waker_fseq, 0UL );
-    int   result      = fd_sshttp_advance( ctx->sshttp, &data_len, out, &downloading, now );
+    int   result      = fd_sshttp_advance( ctx->sshttp, iov, iov_cnt, &data_len, &downloading, now );
     if( FD_LIKELY( fired ) ) fd_waker_client_rearm( ctx->waker_client_idx );
     switch( result ) {
       case FD_SSHTTP_ADVANCE_AGAIN:
@@ -444,8 +484,7 @@ after_credit( fd_snapld_tile_t *  ctx,
           ctx->out_dc.chunk = next_chunk;
         }
         if( FD_LIKELY( data_len!=0UL ) ) {
-          fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_DATA, ctx->out_dc.chunk, data_len, 0UL, 0UL, 0UL );
-          ctx->out_dc.chunk = fd_dcache_compact_next( ctx->out_dc.chunk, data_len, ctx->out_dc.chunk0, ctx->out_dc.wmark );
+          publish_data( ctx, stem, data_len );
           ctx->bytes_in_batch += data_len;
 
           /* measure download speed every 100 MiB */
@@ -615,8 +654,9 @@ returnable_frag( fd_snapld_tile_t *  ctx,
   return 0;
 }
 
-/* Up to two frags from after_credit plus one from returnable_frag */
-#define STEM_BURST 3UL
+/* META plus FD_SNAPLD_RX_BURST data frags from after_credit plus one
+   from returnable_frag */
+#define STEM_BURST (FD_SNAPLD_RX_BURST+2UL)
 
 #define STEM_LAZY (128L*3000L)
 
