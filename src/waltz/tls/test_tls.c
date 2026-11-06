@@ -449,6 +449,8 @@ test_tls_client_hello_required_extensions( fd_rng_t * rng ) {
       FD_TEST( res==(long)sz && hs->hello_retry );
       test_record_t * rec = test_record_recv( &test_server_out );
       FD_TEST( rec && rec->buf[0]==FD_TLS_MSG_SERVER_HELLO );
+      FD_TEST( fd_tls_server_handshake( server, hs, wire, sz, FD_TLS_LEVEL_INITIAL )==-FD_TLS_ALERT_ILLEGAL_PARAMETER );
+      FD_TEST( hs->base.reason==FD_TLS_REASON_CH_RETRY_KS );
     } else {
       FD_TEST( res==-FD_TLS_ALERT_HANDSHAKE_FAILURE );
       FD_TEST( !test_record_recv( &test_server_out ) );
