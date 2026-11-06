@@ -1500,16 +1500,15 @@ test_consensus_root_notification_handoff( fd_wksp_t * wksp ) {
   FD_TEST( root->parent_accdb_fork_id.val==37U );
   FD_TEST( mock_accdb_fork_id_next==0U );
 
-  /* Verify REPLAY_SIG_RESET was published (4th message after
-     SLOT_COMPLETED, NEXT_LEADER and ROOT_ADVANCED). */
-  FD_TEST( test_stem_seqs[ out_idx ]>=seq0+4UL );
-  fd_frag_meta_t const * reset_meta = test_stem_mcaches[ out_idx ]
-      + fd_mcache_line_idx( seq0+3UL, test_stem_depths[ out_idx ] );
-  FD_TEST( reset_meta->sig==REPLAY_SIG_RESET );
-  FD_TEST( reset_meta->sz ==sizeof(fd_poh_reset_t) );
-  fd_poh_reset_t const * reset = fd_chunk_to_laddr_const( ctx->replay_out->mem, reset_meta->chunk );
-  FD_TEST( reset->completed_slot==0UL );
-  FD_TEST( reset->ticks_per_slot==64UL );
+  /* Boot announces the next leader slot (2nd message, after
+     SLOT_COMPLETED and before ROOT_ADVANCED); no reset follows. */
+  FD_TEST( test_stem_seqs[ out_idx ]==seq0+3UL );
+  fd_frag_meta_t const * next_meta = test_stem_mcaches[ out_idx ]
+      + fd_mcache_line_idx( seq0+1UL, test_stem_depths[ out_idx ] );
+  FD_TEST( next_meta->sig==REPLAY_SIG_NEXT_LEADER );
+  FD_TEST( next_meta->sz ==sizeof(fd_replay_next_leader_t) );
+  fd_replay_next_leader_t const * next_leader = fd_chunk_to_laddr_const( ctx->replay_out->mem, next_meta->chunk );
+  FD_TEST( next_leader->slot==0UL );
 
   /* replay_slot carries the same slot events, in order, byte for byte. */
   FD_TEST( test_stem_seqs[ ctx->slot_out->idx ]-slot_seq0==test_stem_seqs[ out_idx ]-seq0 );
@@ -3924,7 +3923,7 @@ setup_ag_leader_ctx( fd_replay_tile_t * ctx,
   return b1;
 }
 
-/* process_poh_message's footer path reads accounts this ctx does not
+/* process_motor_done's footer path reads accounts this ctx does not
    have, so the footer finalize and producer time bounds are mocked. */
 
 static void
@@ -3932,7 +3931,7 @@ end_leader_slot( fd_replay_tile_t * ctx,
                  ulong              slot ) {
   fd_poh_leader_slot_ended_t slot_ended = { .completed = 1, .slot = slot };
   mock_footer_finalize = 1;
-  process_poh_message( ctx, test_stem, &slot_ended );
+  process_motor_done( ctx, test_stem, &slot_ended );
   mock_footer_finalize = 0;
   FD_TEST( ctx->recv_poh );
 }
@@ -4127,6 +4126,45 @@ test_ag_become_leader_refuses_settled_slot( fd_wksp_t * wksp ) {
   FD_TEST( fd_banks_pool_used_cnt( ctx->banks )==used );
 
   FD_LOG_NOTICE(( "pass: test_ag_become_leader_refuses_settled_slot" ));
+}
+
+/* Starting a leader slot publishes exactly one REPLAY_SIG_BECAME_LEADER
+   carrying the parent (no separate reset), and the same frag on
+   replay_slot. */
+
+static void
+test_ag_become_leader_publishes_parent( fd_wksp_t * wksp ) {
+  static fd_replay_tile_t ctx[ 1 ];
+  fd_hash_t root_id = { .ul = { 0xBEEFUL } };
+  fd_hash_t id1     = { .ul = { 201UL } };
+  fd_hash_t mr1     = { .ul = { 1001UL } };
+  fd_bank_t * b1 = setup_ag_leader_ctx( ctx, wksp, &root_id, &id1 );
+  ctx->block_id_arr[ b1->idx ].latest_mr = mr1;
+
+  ulong out_idx   = ctx->replay_out->idx;
+  ulong seq0      = test_stem_seqs[ out_idx ];
+  ulong slot_seq0 = test_stem_seqs[ ctx->slot_out->idx ];
+  FD_TEST( try_become_leader( ctx, test_stem, FD_METRICS_SAMPLE_REASON_LEADER_START, 0UL ) );
+  FD_TEST( test_stem_seqs[ out_idx ]==seq0+1UL );
+  FD_TEST( test_stem_seqs[ ctx->slot_out->idx ]==slot_seq0+1UL );
+
+  fd_frag_meta_t const * m = test_stem_mcaches[ out_idx ] + fd_mcache_line_idx( seq0, test_stem_depths[ out_idx ] );
+  FD_TEST( m->sig==REPLAY_SIG_BECAME_LEADER && m->sz==sizeof(fd_became_leader_t) );
+  fd_became_leader_t const * msg = fd_chunk_to_laddr_const( ctx->replay_out->mem, m->chunk );
+  fd_hash_t const * last_hash = fd_blockhashes_peek_last_hash( &b1->f.block_hash_queue );
+  FD_TEST( last_hash );
+  FD_TEST( msg->slot==2UL && msg->parent_slot==1UL );
+  FD_TEST( msg->bank_idx==ctx->leader_bank->idx );
+  FD_TEST( fd_hash_eq( &msg->parent_cmr,       &mr1      ) );
+  FD_TEST( fd_hash_eq( &msg->parent_dmr,       &id1      ) );
+  FD_TEST( fd_hash_eq( &msg->parent_blockhash, last_hash ) );
+  FD_TEST( ctx->reset_slot==1UL );
+
+  fd_frag_meta_t const * ms = test_stem_mcaches[ ctx->slot_out->idx ] + fd_mcache_line_idx( slot_seq0, test_stem_depths[ ctx->slot_out->idx ] );
+  FD_TEST( ms->sig==m->sig && ms->sz==m->sz );
+  FD_TEST( !memcmp( fd_chunk_to_laddr_const( ctx->slot_out->mem, ms->chunk ), msg, m->sz ) );
+
+  FD_LOG_NOTICE(( "pass: test_ag_become_leader_publishes_parent" ));
 }
 
 /* Our leader FECs bind to the existing leader bank and never enter
@@ -4500,8 +4538,8 @@ test_wfs_boot_publish_order( fd_wksp_t * wksp ) {
   static fd_replay_tile_t   ctx[1];
   static fd_runtime_stack_t stack[1];
 
-  /* The boot slot is announced unconditionally, completed before root
-     before reset.  Votor owns the WFS gate, so replay does not hold
+  /* The boot slot is announced unconditionally: completed, next
+     leader, then root.  Votor owns the WFS gate, so replay does not hold
      these back. */
 
   memset( ctx, 0, sizeof(*ctx) );
@@ -4522,9 +4560,9 @@ test_wfs_boot_publish_order( fd_wksp_t * wksp ) {
   mock_footer_finalize = 0;
 
   FD_TEST( !ctx->wfs_complete );
-  FD_TEST( test_stem_seqs[ out_idx ]==seq0+4UL );
-  ulong const expected[ 4 ] = { REPLAY_SIG_SLOT_COMPLETED, REPLAY_SIG_NEXT_LEADER, REPLAY_SIG_ROOT_ADVANCED, REPLAY_SIG_RESET };
-  for( ulong i=0UL; i<4UL; i++ ) {
+  FD_TEST( test_stem_seqs[ out_idx ]==seq0+3UL );
+  ulong const expected[ 3 ] = { REPLAY_SIG_SLOT_COMPLETED, REPLAY_SIG_NEXT_LEADER, REPLAY_SIG_ROOT_ADVANCED };
+  for( ulong i=0UL; i<3UL; i++ ) {
     fd_frag_meta_t const * f = test_stem_mcaches[ out_idx ] + fd_mcache_line_idx( seq0+i, test_stem_depths[ out_idx ] );
     FD_TEST( f->sig==expected[ i ] );
   }
@@ -4718,6 +4756,7 @@ main( int     argc,
   test_identity_switch_quiesces_replay( wksp );     fd_wksp_reset( wksp, 42U );
   test_ag_leader_abandon_on_root_past_leader_slot( wksp ); fd_wksp_reset( wksp, 42U );
   test_ag_become_leader_refuses_settled_slot( wksp ); fd_wksp_reset( wksp, 42U );
+  test_ag_become_leader_publishes_parent( wksp );   fd_wksp_reset( wksp, 42U );
   test_ag_leader_fec_not_gated( wksp );
   fd_wksp_reset( wksp, 42U );
   test_snapmk_start_leader_after_epoch_rollover( wksp );

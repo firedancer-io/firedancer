@@ -69,7 +69,6 @@ struct fd_motor_tile {
   ulong     parent_slot;
   fd_hash_t parent_cmr; /* required by shred to produce chained merkle shreds */
   fd_hash_t parent_dmr;
-  fd_hash_t parent_alpentick;
 
   /* Inherited from fd_poh_tile.c */
 
@@ -197,8 +196,11 @@ static void
 init_block( fd_motor_tile_t *          ctx,
             fd_stem_context_t *        stem,
             fd_became_leader_t const * became_leader ) {
-  ctx->slot     = became_leader->slot;
-  ctx->poh_hash = ctx->parent_alpentick;
+  ctx->slot        = became_leader->slot;
+  ctx->parent_slot = became_leader->parent_slot;
+  ctx->parent_cmr  = became_leader->parent_cmr;
+  ctx->parent_dmr  = became_leader->parent_dmr;
+  ctx->poh_hash    = became_leader->parent_blockhash;
 
   if( FD_LIKELY( ctx->timing_tables ) ) {
     ctx->timing_table_idx ^= 1UL;
@@ -301,8 +303,7 @@ before_frag( fd_motor_tile_t * ctx,
              ulong             seq FD_PARAM_UNUSED,
              ulong             sig ) {
   switch( ctx->in_kind[ in_idx ] ) {
-  case IN_KIND_REPLAY: return !( sig==REPLAY_SIG_RESET         ||
-                                 sig==REPLAY_SIG_BECAME_LEADER ||
+  case IN_KIND_REPLAY: return !( sig==REPLAY_SIG_BECAME_LEADER ||
                                  sig==REPLAY_SIG_LEADER_FOOTER );
   case IN_KIND_PACK:
     if( FD_UNLIKELY( sig==FD_PACK_MSG_DONE_DRAINING || sig==FD_PACK_MSG_REDUCE_MB_BOUND ) ) return 1;
@@ -353,12 +354,6 @@ returnable_frag( fd_motor_tile_t *   ctx,
       } else if( FD_UNLIKELY( sig==REPLAY_SIG_LEADER_FOOTER ) ) {
         fd_replay_leader_footer_t const * footer = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
         fini_block( ctx, stem, footer );
-      } else if( FD_LIKELY( sig==REPLAY_SIG_RESET ) ) {
-        fd_poh_reset_t const * reset = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
-        ctx->parent_slot = reset->completed_slot;
-        memcpy( ctx->parent_cmr.uc,       reset->completed_cmr,       sizeof(fd_hash_t) );
-        memcpy( ctx->parent_dmr.uc,       reset->completed_dmr,       sizeof(fd_hash_t) );
-        memcpy( ctx->parent_alpentick.uc, reset->completed_blockhash, sizeof(fd_hash_t) );
       }
       break;
     }

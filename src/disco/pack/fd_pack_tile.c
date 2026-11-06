@@ -1190,30 +1190,6 @@ after_frag( fd_pack_ctx_t *     ctx,
         FD_MCNT_INC( PACK, TXN_DROPPED_ALREADY_EXECUTED, deleted );
         update_metric_state( ctx, now, FD_PACK_METRIC_STATE_TRANSACTIONS, fd_pack_avail_txn_cnt( ctx->pack )>0 );
       }
-      if( FD_UNLIKELY( sig==REPLAY_SIG_RESET && ctx->leader_slot!=ULONG_MAX ) ) {
-        fd_done_packing_t * done_packing = fd_chunk_to_laddr( ctx->poh_out.mem, ctx->poh_out.chunk );
-        get_done_packing( ctx, done_packing, FD_PACK_END_SLOT_REASON_ABANDONED );
-        log_end_block_metrics( ctx, now, "reset", done_packing->limits_usage->block_cost );
-        fd_pack_end_block( ctx->pack );
-        fd_pack_get_top_writers( ctx->pack, done_packing->limits_usage->top_writers );
-
-        metrics_write( ctx ); /* final for the slot before poh ends it */
-        fd_stem_publish( stem, ctx->poh_out.out_idx, fd_disco_execle_sig( ctx->leader_slot, ctx->pack_idx ), ctx->poh_out.chunk, sizeof(fd_done_packing_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
-        ctx->poh_out.chunk = fd_dcache_compact_next( ctx->poh_out.chunk, sizeof(fd_done_packing_t), ctx->poh_out.chunk0, ctx->poh_out.wmark );
-        ctx->pack_idx++;
-
-        FD_LOG_WARNING(( "consensus reset while packing for slot %lu, ending block early", ctx->leader_slot ));
-        auction_end( ctx, now, FD_METRICS_ENUM_PACK_AUCTION_END_REASON_V_SLOT_END_IDX );
-        ctx->drain_execle        = 1;
-        ctx->leader_slot         = ULONG_MAX;
-        ctx->slot_microblock_cnt = 0UL;
-        remove_ib( ctx );
-
-        update_metric_state( ctx, now, FD_PACK_METRIC_STATE_LEADER,       0 );
-        update_metric_state( ctx, now, FD_PACK_METRIC_STATE_EXECLES,      0 );
-        update_metric_state( ctx, now, FD_PACK_METRIC_STATE_MICROBLOCKS,  0 );
-        return;
-      }
       if( FD_UNLIKELY( sig!=REPLAY_SIG_BECAME_LEADER ) ) return;
       leader_slot = ctx->_became_leader->slot;
 

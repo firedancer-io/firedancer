@@ -15,7 +15,6 @@
 #include <fcntl.h>
 #include "../genesis/fd_genesi_tile.h"
 #include "../poh/fd_poh.h"
-#include "../poh/fd_poh_tile.h"
 #include "../votor/fd_votor_tile.h"
 #include "../resolv/fd_resolv_tile.h"
 #include "../restore/utils/fd_ssload.h"
@@ -106,7 +105,7 @@
 #define IN_KIND_GENESIS    ( 1)
 #define IN_KIND_IPECHO     ( 2)
 #define IN_KIND_RESOLV     ( 4)
-#define IN_KIND_POH        ( 5)
+#define IN_KIND_MOTOR      ( 5)
 #define IN_KIND_EXECRP     ( 6)
 #define IN_KIND_REPAIR     ( 7)
 #define IN_KIND_TXSEND     ( 8)
@@ -1664,38 +1663,22 @@ try_become_leader( fd_replay_tile_t *  ctx,
 
   /* In Alpenglow, the "reset" block is signaled by ParentReady (a state
      transition in the Votor consensus logic).  ParentReady can occur
-     ahead of replay, so we publish reset here, once we know we are
-     certain we can build off the ParentReady bank. */
+     ahead of replay, so we reset here, once we know we are certain we
+     can build off the ParentReady bank.  The parent is published to
+     the leader pipeline as part of the became leader message below. */
 
-  ctx->reset_dmr             = *parent_block_id;
-  ctx->reset_slot            = parent_slot;
-  ctx->reset_timestamp_nanos = fd_clock_tile_now( ctx->clock );
+  ctx->reset_slot = parent_slot;
 
   FD_TEST( ctx->next_leader_slot>ctx->reset_slot );
   long now = fd_tickcount();
 
-  fd_poh_reset_t * reset = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
-
-  reset->bank_idx         = reset_bank->idx;
-  reset->timestamp        = ctx->reset_timestamp_nanos;
-  reset->completed_slot   = ctx->reset_slot;
-  reset->hashcnt_per_tick = reset_bank->f.slot_params.hashes_per_tick;
-  reset->ticks_per_slot   = reset_bank->f.ticks_per_slot;
-  reset->tick_duration_ns = reset_bank->f.slot_params.ns_per_slot_adjusted/reset->ticks_per_slot;
-
-  fd_memcpy( reset->completed_cmr, &block_id_ele->latest_mr, sizeof(fd_hash_t) );
-  fd_memcpy( reset->completed_dmr, parent_block_id,          sizeof(fd_hash_t) );
+  fd_hash_t parent_cmr = block_id_ele->latest_mr;
+  fd_hash_t parent_dmr = *parent_block_id;
 
   fd_blockhashes_t const * block_hash_queue = &reset_bank->f.block_hash_queue;
   fd_hash_t const * last_hash = fd_blockhashes_peek_last_hash( block_hash_queue );
   FD_TEST( last_hash );
-  fd_memcpy( reset->completed_blockhash, last_hash->uc, sizeof(fd_hash_t) );
-
-  reset->max_microblocks_in_slot = FD_POH_ALPENGLOW_MAX_MICROBLOCKS_PER_SLOT;
-  reset->next_leader_slot = ctx->next_leader_slot;
-  reset->wfs_paused       = !ctx->wfs_complete;
-
-  publish_replay_out( ctx, stem, REPLAY_SIG_RESET, sizeof(fd_poh_reset_t) );
+  fd_hash_t parent_blockhash = *last_hash;
 
   long now_nanos = fd_clock_epoch_y( ctx->clock->epoch, now );
 
@@ -1755,6 +1738,10 @@ try_become_leader( fd_replay_tile_t *  ctx,
 
   fd_became_leader_t * msg = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
   msg->slot                = ctx->next_leader_slot;
+  msg->parent_slot         = ctx->reset_slot;
+  msg->parent_cmr          = parent_cmr;
+  msg->parent_dmr          = parent_dmr;
+  msg->parent_blockhash    = parent_blockhash;
   msg->block_height        = bank->f.block_height;
   msg->slot_start_ns       = now_nanos;
   msg->slot_end_ns         = fd_long_max( slot_end_ns, now_nanos );
@@ -2355,9 +2342,9 @@ enforce_nanosecond_clock_bounds( fd_replay_tile_t * ctx,
 }
 
 static void
-process_poh_message( fd_replay_tile_t *                 ctx,
-                     fd_stem_context_t *                stem,
-                     fd_poh_leader_slot_ended_t const * slot_ended ) {
+process_motor_done( fd_replay_tile_t *                 ctx,
+                    fd_stem_context_t *                stem,
+                    fd_poh_leader_slot_ended_t const * slot_ended ) {
 
   FD_TEST( ctx->is_booted );
   FD_TEST( ctx->is_leader );
@@ -2505,12 +2492,10 @@ boot_genesis( fd_replay_tile_t *        ctx,
     ctx->snapmk.next_incremental_block_height = ((bank->f.block_height/interval)+1UL)*interval;
   }
 
-  ctx->reset_slot            = 0UL;
-  ctx->reset_dmr             = ctx->initial_block_id;
-  ctx->epoch_end_slot        = 0UL;
-  ctx->slots_per_epoch       = 0UL;
-  ctx->ns_per_slot           = 0UL;
-  ctx->reset_timestamp_nanos = fd_clock_tile_now( ctx->clock );
+  ctx->reset_slot      = 0UL;
+  ctx->epoch_end_slot  = 0UL;
+  ctx->slots_per_epoch = 0UL;
+  ctx->ns_per_slot     = 0UL;
 
   ctx->has_cluster_type = 1;
 
@@ -2541,30 +2526,6 @@ boot_genesis( fd_replay_tile_t *        ctx,
   publish_slot_completed( ctx, stem, bank, 1, 0 /* is_leader */, 0, 0, &footer );
   publish_root_advanced( ctx, stem, bank );
 
-  if( FD_LIKELY( ctx->replay_out->idx!=ULONG_MAX ) ) {
-    fd_poh_reset_t * reset = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
-
-    reset->bank_idx         = bank->idx;
-    reset->timestamp        = ctx->reset_timestamp_nanos;
-    reset->completed_slot   = ctx->reset_slot;
-    reset->hashcnt_per_tick = bank->f.slot_params.hashes_per_tick;
-    reset->ticks_per_slot   = bank->f.ticks_per_slot;
-    reset->tick_duration_ns = bank->f.slot_params.ns_per_slot_adjusted/reset->ticks_per_slot;
-
-    fd_memcpy( reset->completed_cmr, &block_id_ele->latest_mr, sizeof(fd_hash_t) );
-    fd_memcpy( reset->completed_dmr, &block_id_ele->dmr,       sizeof(fd_hash_t) );
-
-    fd_blockhashes_t const * block_hash_queue = &bank->f.block_hash_queue;
-    fd_hash_t const * last_hash = fd_blockhashes_peek_last_hash( block_hash_queue );
-    FD_TEST( last_hash );
-    fd_memcpy( reset->completed_blockhash, last_hash->uc, sizeof(fd_hash_t) );
-
-    reset->max_microblocks_in_slot = fd_poh_max_microblocks_per_slot( bank->f.ticks_per_slot, reset->hashcnt_per_tick );
-    reset->next_leader_slot = ctx->next_leader_slot;
-    reset->wfs_paused       = !ctx->wfs_complete;
-
-    publish_replay_out( ctx, stem, REPLAY_SIG_RESET, sizeof(fd_poh_reset_t) );
-  }
 }
 
 static inline void
@@ -2707,10 +2668,8 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
       ctx->snapmk.next_incremental_block_height = ((bank->f.block_height/interval)+1UL)*interval;
     }
 
-    ctx->reset_slot            = snapshot_slot;
-    ctx->reset_dmr             = manifest_block_id;
+    ctx->reset_slot = snapshot_slot;
     refresh_epoch_info( ctx, bank, snapshot_slot );
-    ctx->reset_timestamp_nanos = fd_clock_tile_now( ctx->clock );
 
     fd_sched_block_add_done( ctx->sched, bank->idx, ULONG_MAX, snapshot_slot );
     FD_TEST( bank->idx==0UL );
@@ -2737,30 +2696,6 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
 
     publish_boot_slot( ctx, stem, bank );
 
-    if( FD_LIKELY( ctx->replay_out->idx!=ULONG_MAX ) ) {
-      fd_poh_reset_t * reset = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
-
-      reset->bank_idx         = bank->idx;
-      reset->timestamp        = ctx->reset_timestamp_nanos;
-      reset->completed_slot   = ctx->reset_slot;
-      reset->hashcnt_per_tick = bank->f.slot_params.hashes_per_tick;
-      reset->ticks_per_slot   = bank->f.ticks_per_slot;
-      reset->tick_duration_ns = bank->f.slot_params.ns_per_slot_adjusted/reset->ticks_per_slot;
-
-      fd_memcpy( reset->completed_cmr, &block_id_ele->latest_mr, sizeof(fd_hash_t) );
-      fd_memcpy( reset->completed_dmr, &block_id_ele->dmr,       sizeof(fd_hash_t) );
-
-      fd_blockhashes_t const * block_hash_queue = &bank->f.block_hash_queue;
-      fd_hash_t const * last_hash = fd_blockhashes_peek_last_hash( block_hash_queue );
-      FD_TEST( last_hash );
-      fd_memcpy( reset->completed_blockhash, last_hash->uc, sizeof(fd_hash_t) );
-
-      reset->max_microblocks_in_slot = fd_poh_max_microblocks_per_slot( bank->f.ticks_per_slot, reset->hashcnt_per_tick );
-      reset->next_leader_slot = ctx->next_leader_slot;
-      reset->wfs_paused       = !ctx->wfs_complete;
-
-      publish_replay_out( ctx, stem, REPLAY_SIG_RESET, sizeof(fd_poh_reset_t) );
-    }
 
     return;
   }
@@ -4349,8 +4284,8 @@ returnable_frag( fd_replay_tile_t *  ctx,
       ctx->execrp_idle_cnt = 0UL;
       break;
     }
-    case IN_KIND_POH: {
-      process_poh_message( ctx, stem, fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ) );
+    case IN_KIND_MOTOR: {
+      process_motor_done( ctx, stem, fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ) );
       break;
     }
     case IN_KIND_RESOLV: {
@@ -4864,11 +4799,9 @@ unprivileged_init( fd_topo_t const *      topo,
     ctx->snapmk.incremental_interval_blocks = 0UL;
   }
   ctx->reset_slot            = 0UL;
-  ctx->reset_dmr             = ctx->initial_block_id;
   ctx->epoch_end_slot        = 0UL;
   ctx->slots_per_epoch       = 0UL;
   ctx->ns_per_slot           = 0UL;
-  ctx->reset_timestamp_nanos = 0UL;
   ctx->next_leader_slot      = ULONG_MAX;
   ctx->highwater_leader_slot = ULONG_MAX;
 
@@ -4928,7 +4861,7 @@ unprivileged_init( fd_topo_t const *      topo,
     else if( !strcmp( link->name, "ipecho_out"    ) ) ctx->in_kind[ i ] = IN_KIND_IPECHO;
     else if( !strcmp( link->name, "snapin_manif"  ) ) ctx->in_kind[ i ] = IN_KIND_SNAP;
     else if( !strcmp( link->name, "execrp_replay" ) ) ctx->in_kind[ i ] = IN_KIND_EXECRP;
-    else if( !strcmp( link->name, "poh_replay"    ) ) ctx->in_kind[ i ] = IN_KIND_POH;
+    else if( !strcmp( link->name, "poh_replay"    ) ) ctx->in_kind[ i ] = IN_KIND_MOTOR;
     else if( !strcmp( link->name, "resolv_replay" ) ) ctx->in_kind[ i ] = IN_KIND_RESOLV;
     else if( !strcmp( link->name, "shred_out"     ) ) ctx->in_kind[ i ] = IN_KIND_REPAIR;
     else if( !strcmp( link->name, "repair_out"    ) ) ctx->in_kind[ i ] = IN_KIND_REPAIR;
@@ -5089,9 +5022,9 @@ during_housekeeping( fd_replay_tile_t * ctx ) {
 
 /* Credits are checked against the out link with the fewest, so the
    burst is the most frags one stem iteration publishes to any one out
-   link: 4, from boot (slot completed, next leader, root advanced,
-   reset) or try_fini_leader chaining into the next leader slot (slot
-   completed, next leader, reset, became leader).  after_credit and
+   link: 3, from boot (slot completed, next leader, root advanced) or
+   from try_fini_leader chaining into the next leader slot (slot
+   completed, next leader, became leader).  after_credit and
    returnable_frag never both publish in one iteration: every
    after_credit path that publishes returns nonzero, which skips the
    input poll.  The exception is REPLAY_SIG_SLOT_STATES, which doesn't

@@ -515,8 +515,6 @@ struct fd_replay_tile {
   ulong       catch_up_tip_advance_cnt;
   long        boot_timestamp_nanos;
 
-  fd_hash_t   reset_dmr; /* double merkle root of the reset block */
-  long        reset_timestamp_nanos;
   fd_bank_t * leader_bank;
 
   struct {
