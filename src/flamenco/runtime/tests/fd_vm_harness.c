@@ -164,7 +164,7 @@ fd_solfuzz_pb_syscall_run( fd_solfuzz_runner_t * runner,
       goto error;
   }
   frame_level = ctx->runtime->instr.stack_sz-1UL;
-  ctx->runtime->bpf_loader_serialization.frame[ frame_level ] = fd_bpf_frames_acquire( ctx->runtime->bpf_frames, 0 );
+  ctx->runtime->bpf_loader_serialization.frame[ frame_level ] = fd_bpf_frames_acquire( ctx->runtime->bpf_frames, fd_bpf_loader_input_serialize_sz( ctx, virtual_address_space_adjustments, direct_mapping ), 0 );
 
   ulong instr_data_offset = 0UL;
   int err = fd_bpf_loader_input_serialize_parameters( ctx,
@@ -375,7 +375,7 @@ fd_solfuzz_pb_vm_serialize_run( fd_solfuzz_runner_t * runner,
   /* Push the instruction onto the stack */
   FD_TEST( !fd_instr_stack_push( ctx->runtime, ctx->txn_in, ctx->txn_out, (fd_instr_info_t *)ctx->instr ) );
   ulong   frame_level    = ctx->runtime->instr.stack_sz-1UL;
-  uchar * serialized_buf = fd_bpf_frames_acquire( ctx->runtime->bpf_frames, 0 );
+  uchar * serialized_buf = fd_bpf_frames_acquire( ctx->runtime->bpf_frames, fd_bpf_loader_input_serialize_sz( ctx, virtual_address_space_adjustments, direct_mapping ), 0 );
   ctx->runtime->bpf_loader_serialization.frame[ frame_level ] = serialized_buf;
 
   /* Call serialize_parameters */

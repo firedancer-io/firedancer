@@ -786,6 +786,25 @@ fd_bpf_loader_input_deserialize_for_abiv0( fd_exec_instr_ctx_t * ctx,
   return 0;
 }
 
+ulong
+fd_bpf_loader_input_serialize_sz( fd_exec_instr_ctx_t const * ctx,
+                                  int                         virtual_address_space_adjustments,
+                                  int                         direct_mapping ) {
+  int copy_data = !virtual_address_space_adjustments || !direct_mapping;
+  fd_instr_info_t const * instr = ctx->instr;
+  uchar seen[ FD_TXN_ACCT_ADDR_MAX ] = {0};
+  ulong sz = 2UL*sizeof(ulong) + instr->data_sz + sizeof(fd_pubkey_t) + (FD_BPF_ALIGN_OF_U128-1UL) + instr->acct_cnt*sizeof(ulong);
+  for( ushort i=0; i<instr->acct_cnt; i++ ) {
+    ushort idx = instr->accounts[i].index_in_transaction;
+    if( FD_UNLIKELY( idx>=FD_TXN_ACCT_ADDR_MAX ) ) return BPF_LOADER_SERIALIZATION_FOOTPRINT;
+    if( seen[ idx ] ) { sz += FD_BPF_LOADER_DUPLICATE_ACCOUNT_FOOTPRINT; continue; }
+    seen[ idx ] = 1;
+    sz += FD_BPF_LOADER_UNIQUE_ACCOUNT_FIXED_FOOTPRINT;
+    if( copy_data && idx<ctx->txn_out->accounts.cnt ) sz += ctx->txn_out->accounts.account[ idx ]->data_len;
+  }
+  return fd_ulong_min( sz, BPF_LOADER_SERIALIZATION_FOOTPRINT );
+}
+
 /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.3/program-runtime/src/serialization.rs#L222 */
 int
 fd_bpf_loader_input_serialize_parameters( fd_exec_instr_ctx_t *     instr_ctx,

@@ -239,7 +239,7 @@ fd_deploy_program( fd_exec_instr_ctx_t * instr_ctx,
   /* The loader runs as a builtin, so its stack level holds no frame and
      can borrow one under the same rules as fd_bpf_execute. */
   fd_runtime_t * runtime = instr_ctx->runtime;
-  uchar *        frame   = fd_bpf_frames_acquire( runtime->bpf_frames, fd_progcache_spill_held( runtime->progcache ) );
+  uchar *        frame   = fd_bpf_frames_acquire( runtime->bpf_frames, sizeof(fd_bpf_deploy_scratch_t), fd_progcache_spill_held( runtime->progcache ) );
   int err = deploy_program( instr_ctx, programdata, programdata_size, disable_sbpf_v0_v1_v2_deployment, (fd_bpf_deploy_scratch_t *)frame );
   fd_bpf_frames_release( runtime->bpf_frames, frame );
   return err;
@@ -752,7 +752,9 @@ fd_bpf_execute( fd_exec_instr_ctx_t * instr_ctx,
   /* Tiles holding frames can wait on the program cache spill lock, so
      its holder must never wait for a frame. */
   fd_runtime_t * runtime = instr_ctx->runtime;
-  uchar *        frame   = fd_bpf_frames_acquire( runtime->bpf_frames, fd_progcache_spill_held( runtime->progcache ) );
+  ulong          sz      = fd_bpf_loader_input_serialize_sz( instr_ctx, FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, virtual_address_space_adjustments ),
+                                                             FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, account_data_direct_mapping ) );
+  uchar *        frame   = fd_bpf_frames_acquire( runtime->bpf_frames, sz, fd_progcache_spill_held( runtime->progcache ) );
   runtime->bpf_loader_serialization.frame[ runtime->instr.stack_sz-1UL ] = frame;
   int err = bpf_execute( instr_ctx, cache_entry, is_deprecated );
   fd_bpf_frames_release( runtime->bpf_frames, frame );
