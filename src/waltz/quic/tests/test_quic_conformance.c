@@ -425,6 +425,51 @@ FD_UNIT_TEST( quic_one_rtt_before_handshake_complete ) {
 
 /* Test an ALPN failure when acting as a server */
 
+static void
+test_post_hs_crypto( fd_quic_conn_t * conn, uchar off, uchar const * data, uchar len ) {
+  uchar frame[64] = { 6, off, len };
+  FD_TEST( off<64U && len<sizeof(frame)-3UL );
+  memcpy( frame+3, data, len );
+  fd_quic_sandbox_send_lone_frame( sandbox, conn, frame, 3UL+len );
+}
+
+FD_UNIT_TEST( quic_tls_post_handshake_messages ) {
+  for( int server=0; server<2; server++ ) for( int live_hs=0; live_hs<2; live_hs++ ) {
+    fd_quic_sandbox_init( sandbox, server ? FD_QUIC_ROLE_SERVER : FD_QUIC_ROLE_CLIENT );
+    fd_quic_t * quic = sandbox->quic;
+    fd_quic_conn_t * conn = fd_quic_sandbox_new_conn_established( sandbox, rng );
+    if( live_hs ) {
+      fd_quic_state_t * state = fd_quic_get_state( quic );
+      fd_quic_transport_params_t tp[1] = {0};
+      conn->tls_hs = fd_quic_tls_hs_new( fd_quic_tls_hs_pool_ele_acquire( state->hs_pool ),
+          state->tls, conn, server, tp, state->now );
+      conn->tls_hs->hs.base.state = FD_TLS_HS_CONNECTED;
+      fd_quic_tls_hs_cache_ele_push_tail( &state->hs_cache, conn->tls_hs, state->hs_pool );
+    }
+    uchar const ticket[] = {4,0,0,3,24,0,0}; /* type 24 inside the ticket body */
+    if( !server ) {
+      /* A gap is not consumed or acknowledged. */
+      test_post_hs_crypto( conn, 1, ticket+1, 1 );
+      FD_TEST( conn->post_hs_rx_off==0UL );
+      /* Split every header byte, then overlap a retransmitted prefix. */
+      for( uchar i=0; i<4; i++ ) test_post_hs_crypto( conn, i, ticket+i, 1 );
+      test_post_hs_crypto( conn, 0, ticket, sizeof(ticket) );
+      FD_TEST( conn->state==FD_QUIC_CONN_STATE_ACTIVE );
+      FD_TEST( conn->post_hs_rx_off==sizeof(ticket) );
+      test_post_hs_crypto( conn, 0, ticket, sizeof(ticket) );
+      FD_TEST( conn->post_hs_rx_off==sizeof(ticket) );
+      uchar const next[] = {4,0,0,0,24,0,0,1,0}; /* empty ticket then KeyUpdate */
+      test_post_hs_crypto( conn, sizeof(ticket), next, sizeof(next) );
+    } else {
+      uchar const key_update[] = {24,0,0,1,0};
+      test_post_hs_crypto( conn, 0, key_update, sizeof(key_update) );
+    }
+    FD_TEST( conn->state==FD_QUIC_CONN_STATE_ABORT );
+    FD_TEST( conn->reason==FD_QUIC_CONN_REASON_CRYPTO_BASE+FD_TLS_ALERT_UNEXPECTED_MESSAGE );
+    fd_quic_fini( quic );
+  }
+}
+
 FD_UNIT_TEST( quic_server_alpn_fail ) {
   fd_quic_sandbox_init( sandbox, FD_QUIC_ROLE_SERVER );
 

@@ -166,6 +166,13 @@ struct fd_quic_conn {
   ulong exp_pkt_number[3];  /* different packet number spaces:
                                  INITIAL, HANDSHAKE and APPLICATION */
   ulong pkt_number[3];      /* tx packet number by pn space */
+
+  /* Incrementally skip unsupported NewSessionTickets in application
+     CRYPTO data, retaining enough framing to reject TLS KeyUpdate. */
+  ulong post_hs_rx_off;
+  uint  post_hs_remaining;
+  uint  post_hs_length;
+  uchar post_hs_hdr_used;
   ulong rx_pn_mask[3];      /* bit i set if exp_pkt_number-1-i was received */
   ulong highest_acked[3];   /* highest packet number acked (meaningless if 0) */
 
