@@ -241,6 +241,19 @@ fd_accdb_mag_held( ulong size_class,
   return fd_ulong_max( joiner_cnt, 1UL )*fd_accdb_mag_max( size_class, class_max, joiner_cnt );
 }
 
+/* Per-join reservation credits (fd_accdb.c res_*): each join holds at
+   most fd_accdb_cred_max idle credits per tracked class, taken from
+   cache_class_used in chunks of half that. */
+
+#define FD_ACCDB_CRED_MAX  (64UL) /* idle credits per join per class */
+#define FD_ACCDB_CRED_DIV  (2UL)  /* all joins' idle credits <= class_max/FD_ACCDB_CRED_DIV */
+
+static inline ulong
+fd_accdb_cred_max( ulong class_max,
+                   ulong joiner_cnt ) {
+  return fd_ulong_min( FD_ACCDB_CRED_MAX, class_max/( FD_ACCDB_CRED_DIV*fd_ulong_max( joiner_cnt, 1UL ) ) );
+}
+
 struct fd_accdb_cache_key {
   uchar pubkey[ 32UL ];
   uint generation;
@@ -534,9 +547,9 @@ struct fd_accdb_shmem_private {
      result exceeds cache_class_max[i] the reservation overflowed
      and the thread subtracts back and retries.  Release atomically
      decrements.  Each element is on its own cacheline to avoid
-     false sharing between classes.  Invariant:
-       used[i].val + available[i] == cache_class_max[i]
-     at all times. */
+     false sharing between classes.  The count includes the joins' idle
+     credits (join_cred), so used[i].val + available[i] ==
+     cache_class_max[i] at all times. */
   struct __attribute__((aligned(64))) { ulong val; } cache_class_used[ FD_ACCDB_CACHE_CLASS_CNT ];
 
   /* Per-layer write heads.  whead[0] is the hot (execution) write
@@ -609,6 +622,14 @@ struct fd_accdb_shmem_private {
      at its next release and clears the flag, so idle magazined lines
      return to circulation when another join is short of lines. */
   struct __attribute__((aligned(64))) { ulong val; } mag_pressure[ FD_ACCDB_CACHE_CLASS_CNT ];
+
+  /* join_cred[j].val[c] is joiner j's idle reservation credits in class
+     c: reserved in cache_class_used but not yet promised to an acquire.
+     Only joiner j adds to it; joiner j takes from it and any joiner
+     whose reservation failed steals it (atomic exchange to 0), so the
+     word is only CAS'd / exchanged, never written plainly.  One line
+     per joiner. */
+  struct __attribute__((aligned(64))) { ulong val[ FD_ACCDB_CACHE_CLASS_CNT ]; } join_cred[ FD_ACCDB_MAX_JOINERS ];
 
   fd_accdb_shmem_metrics_t shmetrics[1];
 

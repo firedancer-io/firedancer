@@ -440,6 +440,9 @@ fd_accdb_shmem_new( void * shmem,
 
   accdb->mag_gen = 0UL;
   for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) accdb->mag_pressure[ c ].val = 0UL;
+  for( ulong j=0UL; j<FD_ACCDB_MAX_JOINERS; j++ ) {
+    for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) accdb->join_cred[ j ].val[ c ] = 0UL;
+  }
 
   /* If a class has enough slots for every joiner's worst case
      simultaneously (cache_min_reserved per joiner), no reservation can
