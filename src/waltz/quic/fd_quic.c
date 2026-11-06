@@ -2220,8 +2220,10 @@ fd_quic_key_update_complete( fd_quic_conn_t * conn ) {
   /* Packet header encryption keys are not updated */
 
   /* Wind up for next key phase update */
-  conn->key_phase  = !conn->key_phase;
-  conn->key_update = 0;
+  conn->key_phase          = !conn->key_phase;
+  conn->key_update         = 0;
+  conn->key_phase_ack_sent = 0;
+  conn->key_phase_updated  = 1;
   fd_quic_key_update_derive1( conn );
 
   FD_DEBUG( FD_LOG_DEBUG(( "key update completed" )); )
@@ -2322,6 +2324,21 @@ fd_quic_handle_v1_one_rtt( fd_quic_t *      quic,
   }
 
   if( !current_key_phase ) {
+    /* RFC 9001 Section 6.2: If an endpoint detects a second update
+       before it has sent any packets with updated keys containing an
+       acknowledgment for the packet that initiated the key update, it
+       indicates that its peer has updated keys twice without awaiting
+       confirmation.  An endpoint MAY treat such consecutive key updates
+       as a connection error of type KEY_UPDATE_ERROR.
+
+       Enforcing this bounds the rate of (expensive) key derivations a
+       peer can trigger.  Key updates initiated by us are exempt. */
+    if( FD_UNLIKELY( conn->key_phase_updated && !conn->key_update && !conn->key_phase_ack_sent ) ) {
+      FD_DEBUG( FD_LOG_DEBUG(( "peer initiated consecutive key updates" )) );
+      fd_quic_conn_error( conn, FD_QUIC_CONN_REASON_KEY_UPDATE_ERROR, __LINE__ );
+      return FD_QUIC_PARSE_FAIL;
+    }
+
     /* Decryption succeeded.  Commit the key phase update and throw
        away the old keys.  (May cause a few decryption failures if old
        packets get reordered past the current incoming packet) */
@@ -3372,6 +3389,7 @@ fd_quic_conn_tx_dgram( fd_quic_conn_t * conn,
   }
 #endif
 
+  if( ack_sz ) conn->key_phase_ack_sent = 1;
   conn->pkt_number[ pn_space ] = pkt_num + 1UL;
   if( conn->ack_gen->head==conn->ack_gen->tail ) conn->unacked_sz = 0UL;
 
@@ -3893,8 +3911,12 @@ fd_quic_gen_frames( fd_quic_conn_t           * conn,
 
   fd_quic_pkt_meta_tracker_t * tracker = &conn->pkt_meta_tracker;
 
+  uchar * ack_ptr = payload_ptr;
   payload_ptr = fd_quic_gen_ack_frames( conn->ack_gen, payload_ptr, payload_end, pkt_meta_tmpl->enc_level, now, 0 );
   if( conn->ack_gen->head == conn->ack_gen->tail ) conn->unacked_sz = 0UL;
+  if( ( payload_ptr != ack_ptr ) & ( pkt_meta_tmpl->enc_level == fd_quic_enc_level_appdata_id ) ) {
+    conn->key_phase_ack_sent = 1;
+  }
 
   if( FD_UNLIKELY( closing ) ) {
     payload_ptr += fd_quic_gen_close_frame( conn, payload_ptr, payload_end, pkt_meta_tmpl, tracker );
