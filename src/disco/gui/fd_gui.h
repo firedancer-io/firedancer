@@ -4,6 +4,7 @@
 #include "fd_gui_peers.h"
 #include "fd_gui_shred.h"
 #include "fd_gui_ema.h"
+#include "fd_gui_chunk.h"
 
 #include "../topo/fd_topo.h"
 #include "../diag/fd_diag_tile.h"
@@ -17,6 +18,8 @@
 #include "../../discof/restore/utils/fd_ssmsg.h"
 #include "../../discof/restore/utils/fd_wfs.h"
 #include "../../discof/replay/fd_replay_tile.h"
+#include "../../discof/admin/fd_admin_tile.h"
+#include "../../discof/votor/fd_votor_tile.h"
 #include "../../flamenco/leaders/fd_leaders.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h" /* fd_slot_to_epoch */
 #include "../../util/fd_util_base.h"
@@ -170,19 +173,90 @@ typedef struct fd_gui_rate_entry fd_gui_rate_entry_t;
 #define FD_GUI_VOTE_STATE_VOTING     (1)
 #define FD_GUI_VOTE_STATE_DELINQUENT (2)
 
+/* Transaction batches.  Each replayed transaction joins the open batch
+   of its execrp tile's execution lane and of its sigverify tile's
+   sigverify lane (leader transactions only an execution lane of their
+   execle tile).  It joins if it starts at most FD_GUI_TXN_BATCH_GAP_NS
+   after the batch's last member ended, the batch has fewer than
+   FD_GUI_TXN_BATCH_MAX_TXN members and spans at most
+   FD_GUI_TXN_BATCH_SPAN_MAX_NS with it; otherwise the open batch is
+   written and a new one started.  Slots do not split batches: a batch's
+   slot is that of the member that ended last.  fd_gui_txn_batch_flush
+   writes batches idle for FD_GUI_TXN_BATCH_IDLE_NS.
+
+   Batching is a morphological closing of each tile's busy signal:
+   gaps up to FD_GUI_TXN_BATCH_GAP_NS are merged while durations stay
+   the members' busy time.  The gap is about one pixel where the
+   frontend switches to txn_batch (30 s over ~1500 px = 20 ms), so the
+   merged gaps are invisible at the switch and longer stalls remain.
+   Retune it with the frontend's switch threshold. */
+#define FD_GUI_TXN_BATCH_MAX_TXN              (128UL)
+#define FD_GUI_TXN_BATCH_GAP_NS               (20000000L)
+#define FD_GUI_TXN_BATCH_IDLE_NS              (2L*FD_GUI_TXN_BATCH_GAP_NS)
+#define FD_GUI_TXN_BATCH_SPAN_MAX_NS          (100000000L)
+#define FD_GUI_TXN_BATCH_TILE_MAX             (64UL)
+#define FD_GUI_TXN_BATCH_LANE_EXEC            (0UL)
+#define FD_GUI_TXN_BATCH_LANE_SIGVERIFY       (1UL)
+#define FD_GUI_TXN_BATCH_LANE_LEADER          (2UL)
+#define FD_GUI_TXN_BATCH_LANE_CNT             (3UL)
+/* Timeline rows are inserted after their timestamps (votes up to this
+   much before, for clock skew).  Queries find a row only if it was
+   inserted within this long after its timestamp. */
+#define FD_GUI_TIMELINE_SCAN_MARGIN_NS        (1000000000L)
+
+/* Rows and aggregates are written within FD_GUI_TIMELINE_WRITTEN_LAG_NS
+   of their timestamp (except slot data, written at root).  Responses
+   report available_end_ns no later than now minus this, so a client
+   can treat data before available_end_ns as complete. */
+
+#define FD_GUI_TIMELINE_WRITTEN_LAG_NS        (200000000L)
 #define FD_GUI_HTTP_MIN_SEND_BUFFER_SZ        (256UL<<20)
 
-#define FD_GUI_TIMELINE_STORED_GRANULARITY_CNT (8UL)
+#define FD_GUI_TIMELINE_STORED_GRANULARITY_CNT (9UL)
 #define FD_GUI_TIMELINE_GRANULARITY_CNT        (23UL)
 #define FD_GUI_TIMELINE_QUERY_SHRED_MAX        (262144UL)
+#define FD_GUI_TIMELINE_QUERY_TXN_MAX          (65536UL)
 #define FD_GUI_TIMELINE_QUERY_SLOT_MAX         (65536UL)
 #define FD_GUI_TIMELINE_QUERY_EVENT_MAX        (65536UL)
+#define FD_GUI_TIMELINE_QUERY_VOTE_MAX         (262144UL)
+/* query_tile_states: slot state and lthash rows, and intervals (up to
+   four stages and a sigverify per txn, one per slot state or lthash
+   task). */
+#define FD_GUI_TIMELINE_QUERY_SLOT_STATE_MAX   (65536UL)
+#define FD_GUI_TIMELINE_QUERY_LTHASH_MAX       (65536UL)
+#define FD_GUI_TIMELINE_QUERY_STATE_ENTRY_MAX  (5UL*FD_GUI_TIMELINE_QUERY_TXN_MAX+FD_GUI_TIMELINE_QUERY_SLOT_STATE_MAX+FD_GUI_TIMELINE_QUERY_LTHASH_MAX)
 
 /* Event kinds returned by timeline.query_events. */
-#define FD_GUI_TIMELINE_EVENT_LEADER_SKIP      (0U)
+#define FD_GUI_TIMELINE_EVENT_LEADER_SKIP       (0U)
+#define FD_GUI_TIMELINE_EVENT_IDENTITY_SET      (FD_ADMIN_GUI_EVENT_IDENTITY_SET)
+#define FD_GUI_TIMELINE_EVENT_IDENTITY_PROMOTE  (FD_ADMIN_GUI_EVENT_IDENTITY_PROMOTE)
+#define FD_GUI_TIMELINE_EVENT_IDENTITY_TAKEOVER (FD_ADMIN_GUI_EVENT_IDENTITY_TAKEOVER)
+#define FD_GUI_TIMELINE_EVENT_IDENTITY_HANDOFF  (FD_ADMIN_GUI_EVENT_IDENTITY_HANDOFF)
+#define FD_GUI_TIMELINE_EVENT_EPOCH_START       (5U) /* first slot of an epoch, at its start */
+#define FD_GUI_TIMELINE_EVENT_BOOT              (6U) /* snapshot slot, at process start */
+#define FD_GUI_TIMELINE_EVENT_CATCH_UP          (7U) /* first slot after the snapshot, at its start */
+#define FD_GUI_TIMELINE_EVENT_CNT               (8U)
+
+/* Every query_events event is kept in one in-memory ring, written
+   when the event becomes known: the last FD_GUI_TIMELINE_EVENT_MAX of
+   them. */
+#define FD_GUI_TIMELINE_EVENT_MAX               (FD_GUI_TIMELINE_QUERY_EVENT_MAX)
+
+/* Identity command events are kept in memory only, the last
+   FD_GUI_IDENTITY_EVENT_MAX of them. Older events aren't reported. */
+#define FD_GUI_IDENTITY_EVENT_MAX               (1024UL)
 /* At least one bucket per pixel on a 4K display, and enough to cover
    the widest raw txn_batch view (1.5h) at 2s in a single request. */
 #define FD_GUI_TIMELINE_QUERY_MAX_BUCKETS      (4096UL)
+
+/* A chunked response builds runs of up to FD_GUI_CHUNK_RUN_MAX missing
+   chunks from one history scan per db, holding at most
+   FD_GUI_CHUNK_RUN_ROW_MAX rows (a row counts once per chunk it shows
+   in).  A run that doesn't fit is halved; single chunks are built with
+   their own scan. */
+#define FD_GUI_CHUNK_RUN_MAX                   (30UL)
+#define FD_GUI_CHUNK_RUN_ROW_MAX               (131072UL)
+#define FD_GUI_CHUNK_RUN_SETS                  (3UL)
 
 /* fd_gui_timeline_granularities lists the bucket durations accepted by
    the timeline aggregate queries, in ascending order. */
@@ -204,20 +278,25 @@ fd_gui_timeline_granularity_ns( ulong g ) {
 }
 
 /* Stored timeline tiers, in ascending order.  The 25ms tier only exists
-   in the per-tile CPU record (fd_gui_timeline_tile_day_t); the day
-   record (fd_gui_timeline_day_t) holds the 250ms to 12h tiers. */
+   in the per-tile CPU record (fd_gui_timeline_tile_day_t) and the 100ms
+   tier only holds the compute and revenue fields of the day record.
+   The day record (fd_gui_timeline_day_t) is about 38.5 MiB for the
+   250ms to 12h tiers plus about 26.4 MiB for the 100ms tier, or
+   about 65 MiB in total. */
 #define FD_GUI_TIMELINE_DAY_NS                 (86400000000000L)
 
 #define FD_GUI_TIMELINE_GRANULARITY_25MS  (0)
-#define FD_GUI_TIMELINE_GRANULARITY_250MS (1)
-#define FD_GUI_TIMELINE_GRANULARITY_2S    (2)
-#define FD_GUI_TIMELINE_GRANULARITY_15S   (3)
-#define FD_GUI_TIMELINE_GRANULARITY_2M    (4)
-#define FD_GUI_TIMELINE_GRANULARITY_15M   (5)
-#define FD_GUI_TIMELINE_GRANULARITY_2H    (6)
-#define FD_GUI_TIMELINE_GRANULARITY_12H   (7)
+#define FD_GUI_TIMELINE_GRANULARITY_100MS (1)
+#define FD_GUI_TIMELINE_GRANULARITY_250MS (2)
+#define FD_GUI_TIMELINE_GRANULARITY_2S    (3)
+#define FD_GUI_TIMELINE_GRANULARITY_15S   (4)
+#define FD_GUI_TIMELINE_GRANULARITY_2M    (5)
+#define FD_GUI_TIMELINE_GRANULARITY_15M   (6)
+#define FD_GUI_TIMELINE_GRANULARITY_2H    (7)
+#define FD_GUI_TIMELINE_GRANULARITY_12H   (8)
 
 #define FD_GUI_TIMELINE_25MS_CNT  (FD_GUI_TIMELINE_DAY_NS / (              25L*1000L*1000L))
+#define FD_GUI_TIMELINE_100MS_CNT (FD_GUI_TIMELINE_DAY_NS / (             100L*1000L*1000L))
 #define FD_GUI_TIMELINE_250MS_CNT (FD_GUI_TIMELINE_DAY_NS / (             250L*1000L*1000L))
 #define FD_GUI_TIMELINE_2S_CNT    (FD_GUI_TIMELINE_DAY_NS / (         2L*1000L*1000L*1000L))
 #define FD_GUI_TIMELINE_15S_CNT   (FD_GUI_TIMELINE_DAY_NS / (        15L*1000L*1000L*1000L))
@@ -259,6 +338,7 @@ fd_gui_timeline_tier( char const * key,
   X( SKIPPED,         skipped,          ushort, ushort, ushort, ushort, ushort, ushort, uint   ) \
   X( MINE,            mine,             uint,   uint,   uint,   uint,   uint,   uint,   uint   ) \
   X( MINE_SKIPPED,    mine_skipped,     uint,   uint,   uint,   uint,   uint,   uint,   uint   ) \
+  X( MISSED_VOTE,     missed_vote,      ushort, ushort, ushort, ushort, ushort, ushort, uint   ) \
   X( DURATION_WALL,   duration_wall,    ulong,  ulong,  ulong,  ulong,  ulong,  ulong,  ulong  ) \
   X( DURATION_SLOTS,  duration_slots,   ulong,  ulong,  ulong,  ulong,  ulong,  ulong,  ulong  )
 
@@ -293,9 +373,65 @@ typedef struct fd_gui_timeline_12h   { FD_GUI_TIMELINE_FIELD_MAP( FD_GUI_TIMELIN
 #undef FD_GUI_TIMELINE_DECL_2H
 #undef FD_GUI_TIMELINE_DECL_12H
 
+/* The 100ms tier only holds the compute and revenue fields. */
+
+struct fd_gui_timeline_100ms {
+  uint  compute_units[ FD_GUI_TIMELINE_100MS_CNT ];
+  uint  max_compute  [ FD_GUI_TIMELINE_100MS_CNT ];
+  ulong txn_fees     [ FD_GUI_TIMELINE_100MS_CNT ];
+  ulong prio_fees    [ FD_GUI_TIMELINE_100MS_CNT ];
+  ulong tips         [ FD_GUI_TIMELINE_100MS_CNT ];
+};
+typedef struct fd_gui_timeline_100ms fd_gui_timeline_100ms_t;
+
+/* Vote latency lines reported by query_agg_votes.  A sample is the
+   time from a slot's start (its window's ParentReady plus the slot's
+   offset in the window times the target slot duration, as in Agave's
+   consensus metrics) to the arrival of a certificate, bucketed at the
+   arrival.  Lines are independent: a slot may contribute to several.
+
+     NOTAR          first notarization (Notar or FastFinal cert)
+     FAST_FINAL     FastFinal cert (one round)
+     SLOW_FINAL     Final cert, or the later notarization if the Final
+                    cert came first (two rounds)
+     SKIP           Skip cert
+     NOTAR_FALLBACK NotarFallback cert */
+
+#define FD_GUI_VOTE_LAT_NOTAR          (0UL)
+#define FD_GUI_VOTE_LAT_FAST_FINAL     (1UL)
+#define FD_GUI_VOTE_LAT_SLOW_FINAL     (2UL)
+#define FD_GUI_VOTE_LAT_SKIP           (3UL)
+#define FD_GUI_VOTE_LAT_NOTAR_FALLBACK (4UL)
+#define FD_GUI_VOTE_LAT_CNT            (5UL)
+
+/* Per-line latency sum (us) and sample count tiers (250ms and longer).
+   Sums saturate at their type maximum; counts stop at their type
+   maximum minus one (all ones is unset). */
+#define FD_GUI_TIMELINE_VOTE_LAT_MAP( X ) \
+  /* tier   sum    cnt    */            \
+  X( 250MS, uint,  ushort )             \
+  X( 2S,    uint,  ushort )             \
+  X( 15S,   ulong, uint   )             \
+  X( 2M,    ulong, uint   )             \
+  X( 15M,   ulong, uint   )             \
+  X( 2H,    ulong, uint   )             \
+  X( 12H,   ulong, uint   )
+
+#define FD_GUI_TIMELINE_VOTE_LAT_DECL( g, s, c ) \
+  s sum_##g[ FD_GUI_TIMELINE_##g##_CNT ];        \
+  c cnt_##g[ FD_GUI_TIMELINE_##g##_CNT ];
+
+struct fd_gui_timeline_vote_lat {
+  FD_GUI_TIMELINE_VOTE_LAT_MAP( FD_GUI_TIMELINE_VOTE_LAT_DECL )
+};
+typedef struct fd_gui_timeline_vote_lat fd_gui_timeline_vote_lat_t;
+
+#undef FD_GUI_TIMELINE_VOTE_LAT_DECL
+
 struct fd_gui_timeline_day {
   long insert_time_ns;
   long end_time_ns; /* exclusive UTC day end (the following midnight) */
+  fd_gui_timeline_100ms_t bucket_100ms;
   fd_gui_timeline_250ms_t bucket_250ms;
   fd_gui_timeline_2s_t    bucket_2s;
   fd_gui_timeline_15s_t   bucket_15s;
@@ -303,13 +439,299 @@ struct fd_gui_timeline_day {
   fd_gui_timeline_15m_t   bucket_15m;
   fd_gui_timeline_2h_t    bucket_2h;
   fd_gui_timeline_12h_t   bucket_12h;
+  fd_gui_timeline_vote_lat_t vote_lat[ FD_GUI_VOTE_LAT_CNT ]; /* zeroed on creation */
 };
 typedef struct fd_gui_timeline_day fd_gui_timeline_day_t;
+
+/* fd_gui_timeline_vote_lat_get reads the latency sum (us) and count of
+   line in bucket idx of stored tier granularity.  An unset count (all
+   ones) reads as no samples. */
+
+static inline void
+fd_gui_timeline_vote_lat_get( fd_gui_timeline_day_t const * day,
+                              ulong                         line,
+                              int                           granularity,
+                              ulong                         idx,
+                              ulong *                       sum,
+                              ulong *                       cnt ) {
+  fd_gui_timeline_vote_lat_t const * l = &day->vote_lat[ line ];
+  *sum = 0UL; *cnt = 0UL;
+  switch( granularity ) {
+#define FD_GUI_TIMELINE_VOTE_LAT_GET( g, s, c )                                \
+    case FD_GUI_TIMELINE_GRANULARITY_##g:                                      \
+      if( FD_UNLIKELY( idx>=FD_GUI_TIMELINE_##g##_CNT ) ) return;              \
+      if( FD_UNLIKELY( l->cnt_##g[ idx ]==(c)~(c)0 ) ) return;                 \
+      *sum = l->sum_##g[ idx ];                                                \
+      *cnt = l->cnt_##g[ idx ];                                                \
+      return;
+    FD_GUI_TIMELINE_VOTE_LAT_MAP( FD_GUI_TIMELINE_VOTE_LAT_GET )
+#undef FD_GUI_TIMELINE_VOTE_LAT_GET
+    default: return;
+  }
+}
+
+/* fd_gui_timeline_vote_lat_add folds one latency sample of lat_us into
+   every tier bucket of line covering day_ns. */
+
+static inline void
+fd_gui_timeline_vote_lat_add( fd_gui_timeline_day_t * day,
+                              ulong                   line,
+                              ulong                   day_ns,
+                              ulong                   lat_us ) {
+  fd_gui_timeline_vote_lat_t * l = &day->vote_lat[ line ];
+#define FD_GUI_TIMELINE_VOTE_LAT_ADD( g, s, c ) do {                                             \
+    ulong idx = day_ns/(ulong)(FD_GUI_TIMELINE_DAY_NS/FD_GUI_TIMELINE_##g##_CNT);                \
+    if( FD_LIKELY( l->cnt_##g[ idx ]<(c)((c)~(c)0-(c)1) ) ) {                                    \
+      l->sum_##g[ idx ] = (s)fd_ulong_min( fd_ulong_sat_add( l->sum_##g[ idx ], lat_us ), (ulong)(s)~(s)0 ); \
+      l->cnt_##g[ idx ]++;                                                                       \
+    }                                                                                            \
+  } while(0);
+  FD_GUI_TIMELINE_VOTE_LAT_MAP( FD_GUI_TIMELINE_VOTE_LAT_ADD )
+#undef FD_GUI_TIMELINE_VOTE_LAT_ADD
+}
+
+/* Tile states reported by query_tile_states and query_agg_tile_states.
+   Execrp tiles run transaction stages and account LtHash tasks, the
+   replay tile runs scheduler slot states.  Idle is whatever remains, it is never stored.  The
+   batch states only appear in txn_batch responses: each is the
+   transaction state 10 below it, rolled up over a batch, and a batch's
+   execution stages split its span in proportion to its members' time
+   in each stage. */
+
+#define FD_GUI_TILE_STATE_IDLE                 (0UL)
+#define FD_GUI_TILE_STATE_SIGVERIFY            (1UL)
+#define FD_GUI_TILE_STATE_LOADING              (2UL)
+#define FD_GUI_TILE_STATE_VALIDATE             (3UL)
+#define FD_GUI_TILE_STATE_EXECUTE              (4UL)
+#define FD_GUI_TILE_STATE_POST_EXECUTE         (5UL)
+#define FD_GUI_TILE_STATE_BLOCKED_ON_TILES     (6UL)
+#define FD_GUI_TILE_STATE_BLOCKED_ON_CONFLICTS (7UL)
+#define FD_GUI_TILE_STATE_BLOCKED_ON_NETWORK   (8UL)
+#define FD_GUI_TILE_STATE_SLOT_FINISH          (9UL)
+#define FD_GUI_TILE_STATE_LTHASH               (10UL)
+#define FD_GUI_TILE_STATE_CNT                  (11UL)
+#define FD_GUI_TILE_STATE_SIGVERIFY_BATCH      (11UL)
+#define FD_GUI_TILE_STATE_LOAD_BATCH           (12UL)
+#define FD_GUI_TILE_STATE_VALID_BATCH          (13UL)
+#define FD_GUI_TILE_STATE_EXEC_BATCH           (14UL)
+#define FD_GUI_TILE_STATE_POST_EXEC_BATCH      (15UL)
+#define FD_GUI_TILE_STATE_LTHASH_BATCH         (16UL)
+#define FD_GUI_TILE_STATE_BATCH_OFF            (10UL) /* batch state - txn state */
+
+FD_STATIC_ASSERT( FD_GUI_TILE_STATE_SIGVERIFY_BATCH==FD_GUI_TILE_STATE_SIGVERIFY   +FD_GUI_TILE_STATE_BATCH_OFF, batch_state_map );
+FD_STATIC_ASSERT( FD_GUI_TILE_STATE_LOAD_BATCH     ==FD_GUI_TILE_STATE_LOADING     +FD_GUI_TILE_STATE_BATCH_OFF, batch_state_map );
+FD_STATIC_ASSERT( FD_GUI_TILE_STATE_POST_EXEC_BATCH==FD_GUI_TILE_STATE_POST_EXECUTE+FD_GUI_TILE_STATE_BATCH_OFF, batch_state_map );
+FD_STATIC_ASSERT( FD_GUI_TILE_STATE_LTHASH_BATCH<=UCHAR_MAX, batch_state_fits );
+
+/* Tile state positions: execrp tiles by kind id, then the replay tile. */
+#define FD_GUI_TILE_STATE_POS_CNT (FD_SCHED_MAX_EXEC_TILE_CNT+1UL)
+
+FD_STATIC_ASSERT( FD_GUI_TILE_STATE_BLOCKED_ON_TILES-FD_SCHED_SLOT_STATE_BLOCKED_TILES==
+                  FD_GUI_TILE_STATE_SLOT_FINISH     -FD_SCHED_SLOT_STATE_FINISH, slot_state_map );
+FD_STATIC_ASSERT( FD_GUI_TILE_STATE_BLOCKED_ON_TILES-FD_SCHED_SLOT_STATE_BLOCKED_TILES==
+                  FD_GUI_TILE_STATE_BLOCKED_ON_NETWORK-FD_SCHED_SLOT_STATE_BLOCKED_NETWORK, slot_state_map );
+
+/* A replay scheduler slot state interval [start_ns,end_ns). */
+
+struct fd_gui_store_replay_slot_state {
+  long  insert_time_ns;
+  long  start_ns;
+  long  end_ns;
+  ulong slot;
+  ulong state; /* FD_GUI_TILE_STATE_{BLOCKED_ON_TILES,...,SLOT_FINISH} */
+};
+typedef struct fd_gui_store_replay_slot_state fd_gui_store_replay_slot_state_t;
+
+/* An execrp account LtHash task interval [start_ns,end_ns) on exec
+   tile exec_idx.  kind is 0 for removing the accounts' previous
+   versions and 1 for adding their new versions, cnt is the number of
+   accounts hashed. */
+
+#define FD_GUI_LTHASH_KIND_SUB (0)
+#define FD_GUI_LTHASH_KIND_ADD (1)
+
+struct fd_gui_store_replay_lthash {
+  long   insert_time_ns;
+  long   start_ns;
+  long   end_ns;
+  ulong  slot;
+  ushort exec_idx;
+  uchar  kind;
+  uchar  cnt;
+  uint   _pad;
+};
+typedef struct fd_gui_store_replay_lthash fd_gui_store_replay_lthash_t;
+
+/* LtHash tasks merged with the txn batching rule: a task joins its exec
+   tile's open batch if it starts at most
+   FD_GUI_TXN_BATCH_GAP_NS after the batch's previous task ended, and
+   the batch has fewer than FD_GUI_TXN_BATCH_MAX_TXN tasks.  [start_ns,
+   end_ns) ends with the last member and lasts the members' total time
+   (gaps between them excluded); they hashed acct_cnt accounts.  slot
+   is that of the task that ended last.  A batch is written when the tile's next task does not join it, or by
+   fd_gui_lthash_batch_flush once it has been idle for
+   FD_GUI_LTHASH_BATCH_IDLE_NS. */
+
+#define FD_GUI_LTHASH_BATCH_IDLE_NS (2L*FD_GUI_TXN_BATCH_GAP_NS)
+
+struct fd_gui_store_replay_lthash_batch {
+  long   insert_time_ns;
+  long   start_ns;
+  long   end_ns;
+  ulong  slot;
+  uint   acct_cnt;
+  ushort exec_idx;
+  uchar  task_cnt; /* 0 for a tile with no open batch */
+  uchar  _pad;
+};
+typedef struct fd_gui_store_replay_lthash_batch fd_gui_store_replay_lthash_batch_t;
+
+/* Votes track records.  Three time-series DBs share one row type:
+
+   FD_GUI_HIST_VOTES        every vote the votor counted.
+   FD_GUI_HIST_VOTE_EVENTS  per-slot markers (certs, our casts and acks,
+                            ParentReady), first of each per slot.
+   FD_GUI_HIST_VOTE_BATCH   vote batches: breakpoints of each (slot,
+                            vote kind) cumulative stake curve, simplified
+                            with Douglas-Peucker.  stake is the stake
+                            added since the previous breakpoint, so
+                            batch rows sum like the votes they replace.
+
+   ts_ns is the votor's wallclock at the vote or marker.  stake is the
+   voter's stake and total_stake the votor's total stake for the slot's
+   epoch, in lamports (0 for markers).  cum_stake is the slot's running
+   total stake of the row's vote kind up to and including the row
+   (FD_GUI_VOTE_CUM_UNKNOWN if the total is no longer tracked, 0 for
+   markers, see FD_GUI_VOTE_CUM_SLOT_CNT). */
+
+#define FD_GUI_VOTE_CUM_UNKNOWN (ULONG_MAX)
+
+#define FD_GUI_VOTE_KIND_CNT (5UL)  /* FD_VOTE_KIND_* */
+#define FD_GUI_VOTE_SLOT_CNT (64UL) /* recent slots tracked for marker dedup */
+
+/* Running vote stake totals are kept per slot and kind for the
+   FD_GUI_VOTE_CUM_SLOT_CNT most recent slots (indexed by
+   slot%FD_GUI_VOTE_CUM_SLOT_CNT).  A vote for an older slot has no
+   running total. */
+
+#define FD_GUI_VOTE_CUM_SLOT_CNT (4096UL)
+
+/* FD_GUI_VOTE_EVENT_VOTE+FD_VOTE_KIND_* (vote rows, the only ones with
+   stake), FD_GUI_VOTE_EVENT_CERT+FD_CERT_KIND_*, FD_GUI_VOTE_EVENT_CAST+
+   FD_VOTE_KIND_*, FD_GUI_VOTE_EVENT_ACK+FD_VOTE_KIND_* and
+   FD_GUI_VOTE_EVENT_PARENT_READY. */
+#define FD_GUI_VOTE_EVENT_VOTE         (0U)
+#define FD_GUI_VOTE_EVENT_CERT         (5U)
+#define FD_GUI_VOTE_EVENT_CAST         (10U)
+#define FD_GUI_VOTE_EVENT_ACK          (15U)
+#define FD_GUI_VOTE_EVENT_PARENT_READY (20U)
+#define FD_GUI_VOTE_EVENT_BATCH        (21U) /* +FD_VOTE_KIND_* */
+#define FD_GUI_VOTE_EVENT_CNT          (26U)
+
+/* fd_gui_vote_event_has_stake returns whether rows of event carry
+   stake (votes and vote batches, not markers). */
+
+static inline int
+fd_gui_vote_event_has_stake( uint event ) {
+  return event<FD_GUI_VOTE_EVENT_CERT || ( event>=FD_GUI_VOTE_EVENT_BATCH && event<FD_GUI_VOTE_EVENT_CNT );
+}
+
+/* Vote batching.  Votes of a recent slot are buffered (up to
+   FD_GUI_VOTE_BATCH_PTS_MAX), and flushed as batch rows when the slot
+   leaves the tracked slots, the buffer is full, the slot has had no
+   vote for FD_GUI_VOTE_BATCH_IDLE_NS or its oldest buffered vote is
+   FD_GUI_VOTE_BATCH_AGE_NS old.  A flush simplifies each kind's
+   cumulative stake curve (Douglas-Peucker) so that, with time scaled by
+   FD_GUI_VOTE_BATCH_EPS_TS_NS and stake by
+   FD_GUI_VOTE_BATCH_EPS_STAKE_BPS basis points of the total stake, no
+   vote is more than one unit from the polyline through the breakpoints.
+   Both ends of each flushed curve are kept.  A vote for a slot older
+   than the tracked one is recorded as a batch of itself.  Batch rows
+   are inserted at most about FD_GUI_VOTE_BATCH_AGE_NS after their
+   timestamp, within FD_GUI_TIMELINE_SCAN_MARGIN_NS. */
+
+#define FD_GUI_VOTE_BATCH_PTS_MAX         (4096UL)
+#define FD_GUI_VOTE_BATCH_IDLE_NS         (200L*1000L*1000L)
+#define FD_GUI_VOTE_BATCH_AGE_NS          (800L*1000L*1000L)
+#define FD_GUI_VOTE_BATCH_EPS_TS_NS       (20L*1000L*1000L)
+#define FD_GUI_VOTE_BATCH_EPS_STAKE_BPS   (100UL)
+
+struct fd_gui_vote_batch_pt {
+  long  ts_ns;
+  ulong stake;
+  ulong kind; /* FD_VOTE_KIND_* */
+};
+typedef struct fd_gui_vote_batch_pt fd_gui_vote_batch_pt_t;
+
+struct fd_gui_store_vote {
+  long  insert_time_ns;
+  long  ts_ns;
+  ulong slot;
+  ulong stake;
+  ulong cum_stake;
+  ulong total_stake;
+  uchar event; /* FD_GUI_VOTE_EVENT_* */
+};
+typedef struct fd_gui_store_vote fd_gui_store_vote_t;
+
+/* fd_gui_timeline_tile_state_day holds one tile's time per stored
+   state, bucketed per tier like the CPU records.  The 250ms and 2s
+   tiers are exact ns.  Coarser tiers are in us, accumulated from the
+   250ms buckets so rounding error stays below 1us per 250ms bucket.
+   [first_ns,last_ns) spans the recorded intervals, time outside it is
+   unknown. */
+
+#define FD_GUI_TIMELINE_TILE_STATE_MAP( X ) \
+  X( 250MS, uint,  1L    )                   \
+  X( 2S,  uint,  1L    )                     \
+  X( 15S, uint,  1000L )                     \
+  X( 2M,  uint,  1000L )                     \
+  X( 15M, uint,  1000L )                     \
+  X( 2H,  ulong, 1000L )                     \
+  X( 12H, ulong, 1000L )
+
+#define FD_GUI_TIMELINE_TILE_STATE_DECL( g, T, unit ) T dur_##g[ FD_GUI_TIMELINE_##g##_CNT ][ FD_GUI_TILE_STATE_CNT-1UL ];
+struct fd_gui_timeline_tile_state_day {
+  ulong day_idx;
+  ulong tile_idx;
+  long  insert_time_ns;
+  long  first_ns;
+  long  last_ns;
+  FD_GUI_TIMELINE_TILE_STATE_MAP( FD_GUI_TIMELINE_TILE_STATE_DECL )
+};
+typedef struct fd_gui_timeline_tile_state_day fd_gui_timeline_tile_state_day_t;
+#undef FD_GUI_TIMELINE_TILE_STATE_DECL
+
+/* fd_gui_txn_exec_states writes the execution stages present in t,
+   state[i] covering [ts[i],ts[i+1]).  An absent stage is skipped, so
+   the stage before it ends where the next present one starts.  Returns
+   the stage count. */
+
+static inline ulong
+fd_gui_txn_exec_states( long  load_start_ns,
+                        long  check_start_ns,
+                        long  exec_start_ns,
+                        long  commit_start_ns,
+                        long  commit_end_ns,
+                        uchar state[ 4 ],
+                        long  ts[ 5 ] ) {
+  long const start[ 4 ] = { load_start_ns, check_start_ns, exec_start_ns, commit_start_ns };
+  ulong n = 0UL;
+  for( ulong i=0UL; i<4UL; i++ ) {
+    if( start[ i ]==LONG_MAX ) continue;
+    state[ n ] = (uchar)(FD_GUI_TILE_STATE_LOADING+i);
+    ts   [ n ] = start[ i ];
+    n++;
+  }
+  ts[ n ] = commit_end_ns;
+  return n;
+}
 
 static inline ulong
 fd_gui_timeline_bucket_cnt( int granularity ) {
   switch( granularity ) {
     case FD_GUI_TIMELINE_GRANULARITY_25MS:  return FD_GUI_TIMELINE_25MS_CNT;
+    case FD_GUI_TIMELINE_GRANULARITY_100MS: return FD_GUI_TIMELINE_100MS_CNT;
     case FD_GUI_TIMELINE_GRANULARITY_250MS: return FD_GUI_TIMELINE_250MS_CNT;
     case FD_GUI_TIMELINE_GRANULARITY_2S:    return FD_GUI_TIMELINE_2S_CNT;
     case FD_GUI_TIMELINE_GRANULARITY_15S:   return FD_GUI_TIMELINE_15S_CNT;
@@ -321,6 +743,23 @@ fd_gui_timeline_bucket_cnt( int granularity ) {
   }
 }
 
+/* fd_gui_timeline_tier_has_field returns 1 if stored tier granularity
+   of the day record holds field, 0 otherwise.  The 25ms tier holds no
+   day record field and the 100ms tier only the compute and revenue
+   fields. */
+
+static inline int
+fd_gui_timeline_tier_has_field( int granularity,
+                                int field ) {
+  if( granularity==FD_GUI_TIMELINE_GRANULARITY_25MS ) return 0;
+  if( granularity==FD_GUI_TIMELINE_GRANULARITY_100MS ) {
+    return field==FD_GUI_TIMELINE_FIELD_COMPUTE_UNITS || field==FD_GUI_TIMELINE_FIELD_MAX_COMPUTE ||
+           field==FD_GUI_TIMELINE_FIELD_TXN_FEES      || field==FD_GUI_TIMELINE_FIELD_PRIO_FEES   ||
+           field==FD_GUI_TIMELINE_FIELD_TIPS;
+  }
+  return 1;
+}
+
 static inline void *
 fd_gui_timeline_field_ptr( fd_gui_timeline_day_t * day,
                            int                     granularity,
@@ -330,6 +769,16 @@ fd_gui_timeline_field_ptr( fd_gui_timeline_day_t * day,
   if( FD_UNLIKELY( !day ) ) FD_LOG_ERR(( "NULL timeline day" ));
   ulong bucket_cnt = fd_gui_timeline_bucket_cnt( granularity );
   if( FD_UNLIKELY( idx>=bucket_cnt ) ) FD_LOG_ERR(( "timeline bucket index %lu out of range [0,%lu)", idx, bucket_cnt ));
+  if( granularity==FD_GUI_TIMELINE_GRANULARITY_100MS ) {
+    switch( field ) {
+      case FD_GUI_TIMELINE_FIELD_COMPUTE_UNITS: *sz=sizeof(uint ); return &day->bucket_100ms.compute_units[ idx ];
+      case FD_GUI_TIMELINE_FIELD_MAX_COMPUTE:   *sz=sizeof(uint ); return &day->bucket_100ms.max_compute  [ idx ];
+      case FD_GUI_TIMELINE_FIELD_TXN_FEES:      *sz=sizeof(ulong); return &day->bucket_100ms.txn_fees     [ idx ];
+      case FD_GUI_TIMELINE_FIELD_PRIO_FEES:     *sz=sizeof(ulong); return &day->bucket_100ms.prio_fees    [ idx ];
+      case FD_GUI_TIMELINE_FIELD_TIPS:          *sz=sizeof(ulong); return &day->bucket_100ms.tips         [ idx ];
+      default: FD_LOG_ERR(( "timeline field %d has no 100ms tier", field ));
+    }
+  }
 #define FD_GUI_TIMELINE_FIELD_CASE( id, name, t0, t1, t2, t3, t4, t5, t6 ) \
   case FD_GUI_TIMELINE_FIELD_##id: \
     switch( granularity ) { \
@@ -417,7 +866,17 @@ fd_gui_timeline_field_accum( fd_gui_timeline_day_t * day,
 #define FD_GUI_CPU_UTIL_MAX           ((uchar)250)
 #define FD_GUI_CPU_UTIL_UNKNOWN       ((uchar)255)
 
-#define FD_GUI_CPU_UTIL_CREATE_MAX    (1UL)
+/* Day records (timeline day, per-tile CPU, per-tile state) are only
+   created by fd_gui_timeline_days_prepare from fd_gui_poll, never on
+   the frag path: today's at startup, tomorrow's during the last
+   FD_GUI_TIMELINE_PREPARE_AHEAD_NS of the day.  Initializing them
+   writes hundreds of MB, so at most FD_GUI_TIMELINE_PREPARE_BUDGET
+   bytes are written per poll.  A record being prepared has
+   insert_time_ns FD_GUI_TIMELINE_DAY_PREPARING and is invisible to
+   lookups and queries until complete. */
+#define FD_GUI_TIMELINE_PREPARE_AHEAD_NS (3600000000000L)
+#define FD_GUI_TIMELINE_PREPARE_BUDGET   (4UL<<20)
+#define FD_GUI_TIMELINE_DAY_PREPARING    (LONG_MIN)
 
 /* Per-tile CPU utilization sum/count tiers (250ms and longer).  Each
    holds an exact sample sum and count per bucket. */
@@ -708,6 +1167,9 @@ typedef struct fd_gui_slot_rankings fd_gui_slot_rankings_t;
 #define FD_GUI_TIMELINE_SLOT_STATE_MINE      ((uchar)4U)
 #define FD_GUI_TIMELINE_SLOT_STATE_STARTED   ((uchar)8U)  /* first_shred_ns is set */
 
+#define FD_GUI_TIMELINE_SLOT_BLK_SZ  (64UL)
+#define FD_GUI_TIMELINE_SLOT_BLK_CNT ((MAX_SLOTS_PER_EPOCH+FD_GUI_TIMELINE_SLOT_BLK_SZ-1UL)/FD_GUI_TIMELINE_SLOT_BLK_SZ)
+
 struct fd_gui_epoch {
   ulong epoch;
   /* Per-slot timeline intervals; idx is slot-start_slot. */
@@ -715,6 +1177,11 @@ struct fd_gui_epoch {
   ulong timeline_slot_hi_idx;                                  /* highest idx written (ULONG_MAX if none) */
   long  timeline_slot_min_start_ns;                            /* earliest start ever written (LONG_MAX if none) */
   long  timeline_slot_max_end_ns;                              /* latest end ever written (LONG_MIN if none) */
+  /* Interval hull of each block of FD_GUI_TIMELINE_SLOT_BLK_SZ slots, so
+     window queries skip blocks that cannot overlap.  Like the epoch
+     hull above, these only widen. */
+  long  timeline_blk_min_start_ns   [ FD_GUI_TIMELINE_SLOT_BLK_CNT ]; /* LONG_MAX if none */
+  long  timeline_blk_max_end_ns     [ FD_GUI_TIMELINE_SLOT_BLK_CNT ]; /* LONG_MIN if none */
   long  timeline_slot_first_shred_ns[ MAX_SLOTS_PER_EPOCH ];   /* first shred arrival, valid if STARTED */
   long  timeline_slot_start_ns      [ MAX_SLOTS_PER_EPOCH ];   /* interval start (LONG_MAX if unknown) */
   long  timeline_slot_end_ns        [ MAX_SLOTS_PER_EPOCH ];   /* replay completion, or interpolated if skipped and never replayed */
@@ -791,6 +1258,7 @@ struct fd_gui_store_replay_txn {
   long  completion_time_ns;
   ulong block_compute_unit_limit;
   ulong slot;
+  ulong bank_seq;
   ulong txn_idx;
   ulong txn_exec_idx;
   ulong txn_sigverify_exec_idx;
@@ -816,6 +1284,65 @@ struct fd_gui_store_replay_txn {
   uchar is_fees_only;
 };
 typedef struct fd_gui_store_replay_txn fd_gui_store_replay_txn_t;
+
+/* fd_gui_store_replay_txn_revenue returns the fees and tips a replayed
+   transaction actually paid.  Transactions that did not land pay
+   nothing, errors 5 and 6 (invalid fee payer) pay no fees or tips, and
+   failed transactions pay no tips.  The day writers use this so the
+   revenue aggregates agree with the per-transaction data. */
+
+static inline void
+fd_gui_store_replay_txn_revenue( fd_gui_store_replay_txn_t const * rec,
+                                 ulong *                           txn_fee,
+                                 ulong *                           prio_fee,
+                                 ulong *                           tips ) {
+  int landed    = !!rec->is_committable;
+  int fees_paid = landed && rec->error_code!=5U && rec->error_code!=6U;
+  int tips_paid = landed && !rec->error_code;
+  *txn_fee  = fees_paid ? rec->transaction_fee : 0UL;
+  *prio_fee = fees_paid ? rec->priority_fee    : 0UL;
+  *tips     = tips_paid ? rec->tips            : 0UL;
+}
+
+/* A transaction batch (see FD_GUI_TXN_BATCH_*): one lane of one tile,
+   either an execution lane (exec_txn_cnt members, sigverify_txn_cnt 0,
+   txn_sigverify_exec_idx ULONG_MAX) or a sigverify lane (the reverse,
+   no fees, stage times LONG_MAX).  The lane's span ends with its last
+   member and lasts the members' total time; execution stages split it
+   in proportion to the members' time in each.  completion_time_ns is
+   the span's end. */
+
+struct fd_gui_store_replay_txn_batch {
+  long  insert_time_ns;
+  long  completion_time_ns;
+  ulong slot;
+  ulong batch_idx;
+  ulong txn_idx;
+  ulong txn_exec_idx;
+  ulong txn_sigverify_exec_idx;
+  long  sigverify_start_ns;
+  long  sigverify_end_ns;
+  long  load_start_ns;
+  long  check_start_ns;
+  long  exec_start_ns;
+  long  commit_start_ns;
+  long  commit_end_ns;
+  /* Most frequent error code among execution-lane members; ties choose
+     the smallest code, so success wins a tie. */
+  uint  error_code;
+  uchar exec_txn_cnt;
+  uchar sigverify_txn_cnt;
+  uchar is_leader;         /* execution lane of leader transactions (execle tile) */
+  /* txn_idx of the first sigverify-lane member, ULONG_MAX if none. */
+  ulong sigverify_txn_idx;
+  /* Sums over the execution-lane members of what they paid, per
+     fd_gui_store_replay_txn_revenue. */
+  ulong txn_fees;
+  ulong prio_fees;
+  ulong tips;
+};
+typedef struct fd_gui_store_replay_txn_batch fd_gui_store_replay_txn_batch_t;
+FD_STATIC_ASSERT( FD_GUI_TXN_BATCH_MAX_TXN<=UCHAR_MAX, txn_batch_cnt_fits );
 
 struct fd_gui_slot_txn_join {
   fd_gui_store_txn_start_t const * start;
@@ -1242,32 +1769,78 @@ struct fd_gui_timeline_query_slot {
   uint  shred_cnt; /* data shreds, UINT_MAX if unknown */
   uchar skipped;
   uchar mine;
+  ulong fees[ 3 ];  /* txn, prio, tips; set by query_slots, ULONG_MAX if unknown */
 };
 typedef struct fd_gui_timeline_query_slot fd_gui_timeline_query_slot_t;
 
 struct fd_gui_timeline_query_event {
   ulong slot;
   long  ts;
-  uint  event; /* one of FD_GUI_TIMELINE_EVENT_* */
+  uint  event;    /* one of FD_GUI_TIMELINE_EVENT_* */
+  ulong identity; /* identity events, the index into gui->identity_events, else ULONG_MAX */
 };
 typedef struct fd_gui_timeline_query_event fd_gui_timeline_query_event_t;
+
+/* fd_gui_timeline_event_t is one entry of the event ring. */
+
+struct fd_gui_timeline_event {
+  long  ts;
+  ulong slot;     /* ULONG_MAX: identity event before the first replayed slot */
+  ulong identity; /* identity events, the sequence number in gui->identity_events, else ULONG_MAX */
+  uint  kind;     /* one of FD_GUI_TIMELINE_EVENT_* */
+};
+typedef struct fd_gui_timeline_event fd_gui_timeline_event_t;
 
 struct fd_gui_timeline_query_bucket {
   ulong fields[ FD_GUI_TIMELINE_FIELD_CNT ];
   ulong slot_duration;
   int   has_day;
+  ulong vote_lat_sum[ FD_GUI_VOTE_LAT_CNT ]; /* us */
+  ulong vote_lat_cnt[ FD_GUI_VOTE_LAT_CNT ];
 };
 typedef struct fd_gui_timeline_query_bucket fd_gui_timeline_query_bucket_t;
+
+/* An open transaction batch. */
+
+struct fd_gui_txn_batch_open {
+  fd_gui_store_replay_txn_batch_t r;     /* exec_txn_cnt+sigverify_txn_cnt 0 if none */
+  uint                            present; /* bit j: some member reached execution stage j */
+  ulong                           dur[ 4 ]; /* members' ns per stage (sigverify lane: dur[0]) */
+  uint                            codes[ FD_GUI_TXN_BATCH_MAX_TXN ];
+};
+typedef struct fd_gui_txn_batch_open fd_gui_txn_batch_open_t;
+
+/* A query_tile_states interval [lo,hi) of state on tile position pos.
+   row indexes the query's txn (lane 0 exec, 1 sigverify), slot state
+   (lane 2) or lthash (lane 3) rows. */
+
+struct fd_gui_timeline_state_entry {
+  long   lo;
+  long   hi;
+  uint   row;
+  ushort pos;
+  uchar  state;
+  uchar  lane;
+};
+typedef struct fd_gui_timeline_state_entry fd_gui_timeline_state_entry_t;
 
 /* Workspace for timeline queries.  The GUI tile is single threaded and
    each user runs to completion, so the members alias. */
 
 union fd_gui_timeline_scratch {
-  fd_gui_shred_event_t           events     [ FD_GUI_TIMELINE_QUERY_SHRED_MAX ];
-  fd_gui_timeline_query_slot_t   slots      [ FD_GUI_TIMELINE_QUERY_SLOT_MAX ];
-  fd_gui_timeline_query_event_t  slot_events[ FD_GUI_TIMELINE_QUERY_EVENT_MAX ];
-  fd_gui_timeline_query_bucket_t buckets    [ FD_GUI_TIMELINE_QUERY_MAX_BUCKETS ];
-  struct { uint sum; uint cnt; } cpu[ FD_GUI_TIMELINE_QUERY_MAX_BUCKETS ];
+  fd_gui_shred_event_t                    events     [ FD_GUI_TIMELINE_QUERY_SHRED_MAX ];
+  fd_gui_store_replay_txn_t const *       txns       [ FD_GUI_TIMELINE_QUERY_TXN_MAX ];
+  fd_gui_store_replay_txn_batch_t const * txn_batches[ FD_GUI_TIMELINE_QUERY_TXN_MAX ];
+  fd_gui_timeline_query_slot_t            slots      [ FD_GUI_TIMELINE_QUERY_SLOT_MAX ];
+  fd_gui_timeline_query_event_t           slot_events[ FD_GUI_TIMELINE_QUERY_EVENT_MAX ];
+  fd_gui_timeline_query_bucket_t          buckets    [ FD_GUI_TIMELINE_QUERY_MAX_BUCKETS ];
+  struct { uint sum; uint cnt; }          cpu        [ FD_GUI_TIMELINE_QUERY_MAX_BUCKETS ];
+  fd_gui_store_vote_t                     votes      [ FD_GUI_TIMELINE_QUERY_VOTE_MAX ];
+  struct { ulong ns[ FD_GUI_TILE_STATE_CNT ]; int have; } agg_tile_states[ FD_GUI_TIMELINE_QUERY_MAX_BUCKETS ];
+  struct {
+    void const *                  rows[ FD_GUI_TIMELINE_QUERY_TXN_MAX+FD_GUI_TIMELINE_QUERY_SLOT_STATE_MAX+FD_GUI_TIMELINE_QUERY_LTHASH_MAX ];
+    fd_gui_timeline_state_entry_t entries[ FD_GUI_TIMELINE_QUERY_STATE_ENTRY_MAX ];
+  } tile_states;
 };
 typedef union fd_gui_timeline_scratch fd_gui_timeline_scratch_t;
 
@@ -1298,8 +1871,69 @@ struct fd_gui {
     ulong total[ FD_TOPO_MAX_TILES ];
     ulong idle [ FD_TOPO_MAX_TILES ];
     ulong last_slot; /* absolute 25ms slot of the last sample, ULONG_MAX if none */
-    ulong cur_day;   /* newest day with a tile-day record, ULONG_MAX if unknown */
   } cpu_util;
+
+  /* Tile state positions (see FD_GUI_TILE_STATE_POS_CNT).  Positions
+     below exec_cnt are execrp tiles, exec_cnt is the replay tile if
+     pos_cnt>exec_cnt.  Records are only kept for positions below
+     pos_cnt. */
+  struct {
+    ulong exec_cnt;
+    ulong pos_cnt;
+    ulong topo_idx[ FD_GUI_TILE_STATE_POS_CNT ];
+    /* Open lthash batch per execrp tile, task_cnt 0 if none. */
+    fd_gui_store_replay_lthash_batch_t lthash_open[ FD_SCHED_MAX_EXEC_TILE_CNT ];
+    /* Open transaction batch per lane and tile. */
+    fd_gui_txn_batch_open_t txn_open[ FD_GUI_TXN_BATCH_LANE_CNT ][ FD_GUI_TXN_BATCH_TILE_MAX ];
+    ulong                   txn_batch_seq; /* batch_idx of the next written batch */
+    long                    txn_flush_ns;  /* no open batch is due before this (may be early) */
+  } tile_state;
+
+  /* Markers already recorded for recent slots, indexed by
+     slot%FD_GUI_VOTE_SLOT_CNT. */
+  struct {
+    struct {
+      ulong slot;   /* ULONG_MAX if unused */
+      uint  events; /* FD_GUI_VOTE_EVENT_* markers already recorded */
+      uint  lat;    /* FD_GUI_VOTE_LAT_* lines already sampled */
+      long  final_ts_ns; /* Final cert arrival awaiting notarization, LONG_MAX if none */
+    } slot[ FD_GUI_VOTE_SLOT_CNT ];
+    /* First ParentReady per leader window, indexed by
+       window%FD_GUI_VOTE_SLOT_CNT.  Anchors the vote latency lines. */
+    struct {
+      ulong slot;  /* first slot of the window, ULONG_MAX if unused */
+      long  ts_ns;
+    } parent_ready[ FD_GUI_VOTE_SLOT_CNT ];
+    ulong dropped_cnt;     /* malformed, or markers for a slot older than the tracked ones */
+    ulong lat_missing_cnt; /* certs not sampled: no ParentReady or slot duration for the window, or arrival before the slot start */
+    /* Buffered votes per recent slot, indexed by slot%FD_GUI_VOTE_SLOT_CNT
+       (see FD_GUI_VOTE_BATCH_*). */
+    struct {
+      ulong                  slot;        /* ULONG_MAX if unused */
+      ulong                  total_stake; /* of the latest buffered vote */
+      long                   first_ns;    /* receive time of the oldest buffered vote */
+      long                   last_ns;     /* receive time of the newest buffered vote */
+      long                   ts_lo;       /* min and max timestamp of the buffered votes */
+      long                   ts_hi;
+      ulong                  pt_cnt;
+      fd_gui_vote_batch_pt_t pt[ FD_GUI_VOTE_BATCH_PTS_MAX ];
+    } batch[ FD_GUI_VOTE_SLOT_CNT ];
+    long batch_flush_ns; /* no buffered batch is due before this (may be early) */
+    /* Running stake total per kind of the votes counted for a recent
+       slot, indexed by slot%FD_GUI_VOTE_CUM_SLOT_CNT.  A slot's batched
+       votes are a subset, so its flushed total is this less its
+       buffered votes. */
+    struct {
+      ulong slot; /* ULONG_MAX if unused */
+      ulong stake[ FD_GUI_VOTE_KIND_CNT ];
+    } cum[ FD_GUI_VOTE_CUM_SLOT_CNT ];
+    ulong batch_late_cnt; /* votes for a slot older than the tracked one, recorded alone */
+    /* Flush scratch */
+    ulong batch_cum  [ FD_GUI_VOTE_BATCH_PTS_MAX ];
+    ulong batch_stack[ 2UL*FD_GUI_VOTE_BATCH_PTS_MAX ];
+    uchar batch_keep [ FD_GUI_VOTE_BATCH_PTS_MAX ];
+    fd_gui_store_vote_t batch_rows[ FD_GUI_VOTE_BATCH_PTS_MAX ];
+  } votes;
 
   ulong leader_begin_slot;
   ulong leader_end_slot;
@@ -1404,6 +2038,59 @@ struct fd_gui {
     ulong                   pending_cnt;
     fd_gui_snapsv_pending_t pending[ FD_GUI_SNAPSV_PENDING_MAX ];
   } snapsv;
+
+  struct {
+    ulong                cnt;
+    ulong                slot [ FD_GUI_IDENTITY_EVENT_MAX ]; /* replay frontier when it arrived, ULONG_MAX if none yet */
+    fd_admin_gui_event_t event[ FD_GUI_IDENTITY_EVENT_MAX ];
+  } identity_events;
+
+  /* Ring of query_events events, written in the order they become
+     known (not timestamp order).  Zero initialized is empty. */
+  struct {
+    ulong                   cnt;          /* events ever written */
+    ulong                   boot;         /* 1 + sequence number of the boot event, 0 if none */
+    int                     catch_up;     /* catch_up written */
+    int                     evicted;      /* an event was overwritten */
+    long                    evicted_ts;   /* latest timestamp overwritten */
+    long                    max_ts;       /* latest timestamp written, LONG_MIN if none */
+    fd_gui_timeline_event_t ring[ FD_GUI_TIMELINE_EVENT_MAX ];
+  } events;
+  /* Day record preparation cursor (see fd_gui_timeline_days_prepare). */
+  struct {
+    ulong day;         /* day being prepared, ULONG_MAX if none */
+    ulong step;        /* record being prepared: 0 timeline day, then tiles, then tile state positions */
+    ulong off;         /* bytes of that record initialized */
+    ulong done;        /* newest fully prepared day, ULONG_MAX if none */
+    ulong missing_cnt; /* samples dropped because their day record was not prepared */
+    int   sync;        /* tests only: prepare a missing day synchronously on first use */
+  } day_prep;
+
+  fd_gui_chunk_t chunk; /* compressed timeline response cache */
+
+  /* chunk_run holds the rows of a run of consecutive chunks being
+     built for one chunked response, read with a single history scan
+     per db (fd_gui_printf.c fd_gui_chunk_run_collect).  Rows are
+     grouped by chunk: set s, chunk k0+i is rows[ off[ s ][ i ] ..
+     off[ s ][ i+1 ] ), in scan order.  Shred / FEC events are copied
+     the same way into ev. */
+  struct {
+    int   active;
+    ulong size[ FD_GUI_CHUNK_KIND_CNT ]; /* current run length per kind, 0 means FD_GUI_CHUNK_RUN_MAX */
+    ulong k0;
+    ulong k1;
+    int   dbi[ FD_GUI_CHUNK_RUN_SETS ]; /* -1 if unused */
+    ulong off[ FD_GUI_CHUNK_RUN_SETS ][ FD_GUI_CHUNK_RUN_MAX+1UL ];
+    ulong ev_off[ FD_GUI_CHUNK_RUN_MAX+1UL ];
+    union {
+      void const *         rows[ FD_GUI_CHUNK_RUN_ROW_MAX ];
+      fd_gui_shred_event_t ev  [ FD_GUI_CHUNK_RUN_ROW_MAX ];
+    };
+    union {
+      struct { void const * rec; uint ka; uint kb; } tmp[ FD_GUI_CHUNK_RUN_ROW_MAX ];
+      fd_gui_shred_event_t                           ev_tmp[ FD_GUI_CHUNK_RUN_ROW_MAX ];
+    };
+  } chunk_run;
 };
 
 typedef struct fd_gui fd_gui_t;
@@ -1423,6 +2110,22 @@ fd_gui_timeline_day_t *
 fd_gui_timeline_day_get( fd_gui_t * gui,
                          ulong      day_idx );
 
+/* fd_gui_timeline_day_prepare continues preparing all day records of
+   day_idx, writing at most budget bytes.  Returns 1 once every record
+   exists and is initialized.  fd_gui_timeline_days_prepare prepares
+   today's records and, near the end of the day, tomorrow's. */
+
+int
+fd_gui_timeline_day_prepare( fd_gui_t * gui,
+                             ulong      day_idx,
+                             long       now,
+                             ulong      budget );
+
+void
+fd_gui_timeline_days_prepare( fd_gui_t * gui,
+                              long       now,
+                              ulong      budget );
+
 /* fd_gui_timeline_tile_day_get returns the retained CPU record of
    tile_idx for calendar day day_idx, or NULL if not found. */
 
@@ -1430,6 +2133,22 @@ fd_gui_timeline_tile_day_t *
 fd_gui_timeline_tile_day_get( fd_gui_t * gui,
                               ulong      day_idx,
                               ulong      tile_idx );
+
+/* fd_gui_timeline_tile_state_day_get returns the retained tile state
+   record of tile_idx for calendar day day_idx, or NULL if not found. */
+
+fd_gui_timeline_tile_state_day_t *
+fd_gui_timeline_tile_state_day_get( fd_gui_t * gui,
+                                    ulong      day_idx,
+                                    ulong      tile_idx );
+
+/* fd_gui_timeline_tile_state_day_bounds is fd_gui_timeline_tile_day_bounds
+   for the per-tile state day records. */
+
+int
+fd_gui_timeline_tile_state_day_bounds( fd_gui_t * gui,
+                                       ulong *    lo_day,
+                                       ulong *    hi_day );
 
 /* fd_gui_timeline_tile_day_bounds scans the retained per-tile CPU day
    records.  Returns 1 and sets *lo_day / *hi_day to the oldest / newest
@@ -1439,6 +2158,95 @@ int
 fd_gui_timeline_tile_day_bounds( fd_gui_t * gui,
                                  ulong *    lo_day,
                                  ulong *    hi_day );
+
+/* fd_gui_handle_replay_txn records replay transaction metadata and adds
+   its stages to the tile state records. */
+
+void
+fd_gui_handle_replay_txn( fd_gui_t *                       gui,
+                          fd_replay_txn_executed_t const * txn,
+                          long                             now );
+
+/* fd_gui_handle_replay_slot_states records replay scheduler slot state
+   intervals and adds them to the replay tile's state records. */
+
+void
+fd_gui_handle_replay_slot_states( fd_gui_t *                      gui,
+                                  fd_replay_slot_states_t const * msg,
+                                  long                            now );
+
+/* fd_gui_handle_lthash_done records an execrp account LtHash task of
+   kind FD_GUI_LTHASH_KIND_{SUB,ADD} over cnt accounts, run by exec tile
+   exec_idx for slot from tickcount tick_start to tick_end, adds it to
+   the tile's state records and to the tile's open lthash batch.
+   fd_gui_lthash_record does the same for a task given as wallclock
+   [start_ns,end_ns). */
+
+void
+fd_gui_handle_lthash_done( fd_gui_t * gui,
+                           ulong      exec_idx,
+                           int        kind,
+                           ulong      slot,
+                           ulong      cnt,
+                           long       tick_start,
+                           long       tick_end,
+                           long       now );
+
+void
+fd_gui_lthash_record( fd_gui_t * gui,
+                      ulong      exec_idx,
+                      int        kind,
+                      ulong      slot,
+                      ulong      cnt,
+                      long       start_ns,
+                      long       end_ns,
+                      long       now );
+
+/* fd_gui_lthash_batch_flush writes open lthash batches idle for at
+   least FD_GUI_LTHASH_BATCH_IDLE_NS as of now. */
+
+void
+fd_gui_lthash_batch_flush( fd_gui_t * gui,
+                           long       now );
+
+/* fd_gui_handle_votor_gui records a votor_gui frag of rec_cnt records
+   for the Votes track (see fd_gui_store_vote_t).  fd_gui_handle_vote_event
+   records marker event (FD_GUI_VOTE_EVENT_*) of slot at votor time
+   ts_ns. */
+
+void
+fd_gui_handle_votor_gui( fd_gui_t *                 gui,
+                         fd_votor_gui_rec_t const * recs,
+                         ulong                      rec_cnt,
+                         long                       now );
+
+void
+fd_gui_handle_vote_event( fd_gui_t * gui,
+                          ulong      slot,
+                          uint       event,
+                          long       ts_ns,
+                          long       now );
+
+/* fd_gui_vote_batch_collect_open appends to rows (n in use, at most
+   max) the batch rows with ts_ns in [start,end) that the buffered
+   votes would flush to now, without flushing them.  Returns -1 past
+   max rows. */
+
+int
+fd_gui_vote_batch_collect_open( fd_gui_t *            gui,
+                                fd_gui_store_vote_t * rows,
+                                ulong *               n,
+                                ulong                 max,
+                                long                  start,
+                                long                  end );
+
+/* fd_gui_vote_batch_flush records the buffered votes of slots that are
+   due (all if force) as vote batches (see FD_GUI_VOTE_BATCH_*). */
+
+void
+fd_gui_vote_batch_flush( fd_gui_t * gui,
+                         long       now,
+                         int        force );
 
 /* fd_gui_timeline_handle_fec adds the shred counts of one completed FEC
    set to the calendar-day aggregates.  It ignores invalid input. */
@@ -1453,12 +2261,35 @@ fd_gui_timeline_handle_fec( fd_gui_t * gui,
                             ulong      reconstructed,
                             long       now );
 
-/* fd_gui_handle_replay_txn records replay transaction metadata. */
+/* fd_gui_timeline_handle_txn adds transaction costs and outcome to the
+   retained calendar-day aggregates. */
 
 void
-fd_gui_handle_replay_txn( fd_gui_t *                       gui,
-                          fd_replay_txn_executed_t const * txn,
-                          long                             now );
+fd_gui_timeline_handle_txn( fd_gui_t * gui,
+                            ulong      slot,
+                            long       timestamp_ns,
+                            ulong      compute_units,
+                            ulong      max_compute_units,
+                            ulong      transaction_fee,
+                            ulong      priority_fee,
+                            ulong      tips,
+                            int        txn_succeeded,
+                            long       now );
+
+/* fd_gui_txn_batch_add adds transaction rec, just recorded, to the open
+   batch of its execution lane (or leader lane, for leader transactions)
+   and, for replayed transactions, of its sigverify lane. */
+
+void
+fd_gui_txn_batch_add( fd_gui_t *                        gui,
+                      fd_gui_store_replay_txn_t const * rec );
+
+/* fd_gui_txn_batch_flush writes open transaction batches idle for at
+   least FD_GUI_TXN_BATCH_IDLE_NS at now. */
+
+void
+fd_gui_txn_batch_flush( fd_gui_t * gui,
+                        long       now );
 
 /* fd_gui_timeline_slots_collect writes the rooted slot intervals that
    overlap [start_ns,end_ns) into rows[0,max), in slot order, and the
@@ -1473,12 +2304,17 @@ fd_gui_timeline_slots_collect( fd_gui_t *                     gui,
                                ulong                          max,
                                ulong *                        cnt );
 
-/* fd_gui_timeline_events_collect writes the events whose timestamp is
-   in [start_ns,end_ns) into rows[0,max), in slot order, and the number
-   written into *cnt.  Returns 0 on success, 1 if more than max events
-   match, or -1 for invalid arguments.  The only event is leader_skip: a
-   skipped slot scheduled to our current identity, stamped at the
-   midpoint of its interval. */
+/* fd_gui_timeline_events_collect writes the events of the event ring
+   whose timestamp is in [start_ns,end_ns) into rows[0,max), ordered by
+   slot then timestamp, and the number written into *cnt.  Returns 0 on
+   success, 1 if more than max events match, or -1 for invalid
+   arguments.  Events are written when they become known: leader_skip
+   (a skipped slot scheduled to the identity at the time, stamped at
+   the midpoint of its interval) and epoch_start / catch_up (stamped at
+   the start of their slot's interval) when the slot is rooted, boot
+   (the snapshot slot, stamped at process start) once a snapshot is
+   known, and identity commands when they finish, at the slot replay
+   had reached then (the first slot after the snapshot if none yet). */
 
 int
 fd_gui_timeline_events_collect( fd_gui_t *                      gui,
@@ -1566,6 +2402,30 @@ void
 fd_gui_handle_diag_snapshot( fd_gui_t *    gui,
                              void const *  data,
                              ulong         data_sz );
+
+/* fd_gui_handle_identity_event records an identity command the admin
+   tile ran for timeline.query_events. */
+
+void
+fd_gui_handle_identity_event( fd_gui_t *                   gui,
+                              fd_admin_gui_event_t const * event );
+
+/* fd_gui_timeline_event_record appends an event to the event ring.
+   identity is the identity event's sequence number, else ULONG_MAX. */
+
+void
+fd_gui_timeline_event_record( fd_gui_t * gui,
+                              uint       kind,
+                              ulong      slot,
+                              long       ts,
+                              ulong      identity );
+
+/* fd_gui_timeline_boot_note writes the boot event once a snapshot slot
+   is known, at process start, or updates its slot if a later snapshot
+   (the incremental) was loaded. */
+
+void
+fd_gui_timeline_boot_note( fd_gui_t * gui );
 
 void
 fd_gui_ws_open( fd_gui_t *  gui,
@@ -1947,7 +2807,8 @@ fd_gui_slot_is_skipped( fd_gui_t * gui, ulong root, ulong des, ulong des_bank_se
    schedule is known yet or no record for that epoch is present. */
 
 /* fd_gui_epoch_timeline_slot_note widens epoch's retained slot range
-   and interval hull to include the interval at idx. */
+   and interval hulls (epoch and block) to include the interval at idx.
+   Every write of a slot interval must be followed by a note. */
 
 static inline void
 fd_gui_epoch_timeline_slot_note( fd_gui_epoch_t * epoch,
@@ -1959,6 +2820,19 @@ fd_gui_epoch_timeline_slot_note( fd_gui_epoch_t * epoch,
   if( rs<0L || re<=rs ) return;
   epoch->timeline_slot_min_start_ns = fd_long_min( epoch->timeline_slot_min_start_ns, rs );
   epoch->timeline_slot_max_end_ns   = fd_long_max( epoch->timeline_slot_max_end_ns,   re );
+  ulong blk = idx/FD_GUI_TIMELINE_SLOT_BLK_SZ;
+  epoch->timeline_blk_min_start_ns[ blk ] = fd_long_min( epoch->timeline_blk_min_start_ns[ blk ], rs );
+  epoch->timeline_blk_max_end_ns  [ blk ] = fd_long_max( epoch->timeline_blk_max_end_ns  [ blk ], re );
+}
+
+/* fd_gui_epoch_timeline_blk_init marks every block of epoch empty. */
+
+static inline void
+fd_gui_epoch_timeline_blk_init( fd_gui_epoch_t * epoch ) {
+  for( ulong i=0UL; i<FD_GUI_TIMELINE_SLOT_BLK_CNT; i++ ) {
+    epoch->timeline_blk_min_start_ns[ i ] = LONG_MAX;
+    epoch->timeline_blk_max_end_ns  [ i ] = LONG_MIN;
+  }
 }
 
 static inline fd_gui_epoch_t *

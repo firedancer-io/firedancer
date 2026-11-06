@@ -230,6 +230,7 @@ main( int     argc,
   config->firedancer.layout.snapzp_tile_count        = 1U;
   config->firedancer.layout.snapsv_tile_count        = 1U;
   config->firedancer.layout.snapsv_io_worker_count   = 1U;
+  config->firedancer.layout.gui_tile_count           = 1U;
   config->firedancer.snapshots.wait_for_peers_timeout_seconds = 1UL;
   config->firedancer.snapshots.server.idle_timeout_millis      = 100UL;
   config->firedancer.snapshots.server.send_timeout_millis      = 100UL;

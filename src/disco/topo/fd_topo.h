@@ -457,6 +457,7 @@ struct fd_topo_tile {
       int    schedule_strategy;
 
       int websocket_compression;
+      int reuse_port;
       ulong tile_cnt;
       ulong max_live_slots;
 

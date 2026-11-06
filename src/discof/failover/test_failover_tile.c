@@ -975,8 +975,10 @@ test_promote_flags( void ) {
   ctx->staked_seen_at = 1000L;
   FD_TEST( operator_promote( ctx, FD_ADMINCTL_FAILOVER_FLAG_TAKEOVER, fresh )==FD_FAILOVER_CONTROL_RESULT_HOLDER_LIVE );
   FD_TEST( ctx->action==FD_FAILOVER_ACTION_IDLE && !ctx->promotion.force );
+  FD_TEST( !ctx->cmd_bypassed );
   FD_TEST( operator_promote( ctx, FD_ADMINCTL_FAILOVER_FLAG_TAKEOVER|FD_ADMINCTL_FAILOVER_FLAG_FORCE, fresh )==FD_FAILOVER_CMD_PENDING );
   FD_TEST( ctx->action==FD_FAILOVER_ACTION_PROMOTE_WAIT_REPLAY && ctx->promotion.force && ctx->promotion.source==FD_FAILOVER_SOURCE_EMPTY );
+  FD_TEST( ctx->cmd_bypassed==FD_FAILOVER_BYPASS_HOLDER_LIVE ); /* --force went past a live holder */
   controller_fini( ctx );
 
   /* Stale in gossip. */
@@ -985,6 +987,7 @@ test_promote_flags( void ) {
   ctx->staked_seen_at = 1000L;
   FD_TEST( operator_promote( ctx, FD_ADMINCTL_FAILOVER_FLAG_TAKEOVER, stale )==FD_FAILOVER_CMD_PENDING );
   FD_TEST( ctx->action==FD_FAILOVER_ACTION_PROMOTE_WAIT_REPLAY && ctx->promotion.force && ctx->promotion.source==FD_FAILOVER_SOURCE_EMPTY );
+  FD_TEST( !ctx->cmd_bypassed );
   controller_fini( ctx );
 
   /* Paired with the peer running the identity, our request to it paused. */

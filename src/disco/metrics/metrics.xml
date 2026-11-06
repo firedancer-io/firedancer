@@ -1971,6 +1971,7 @@ deliberate exception with lint-allow="<rule id>")
     <counter name="BlsSignatureChecked" summary="Aggregate BLS signature checks of votes, certificates and reward certificates; a search for bad signers counts once" />
     <counter name="LeaderWindowSuperseded" summary="Leader windows given up because certificates already let a later window start, eg. while catching up after a restart" />
     <counter name="CertTxUnstakedSkipped" summary="Certificates and standstill votes not sent because we are not staked in their epoch" />
+    <counter name="GuiRecordDropped" summary="Vote activity records for the GUI dropped because the votor_gui batch was full" />
 
     <gauge name="VotingSlotUsed" summary="Slots tracked by the voting state machine" />
     <gauge name="VotingSlotFree" summary="Free entries in the voting state machine's slot table" />
@@ -2092,6 +2093,15 @@ deliberate exception with lint-allow="<rule id>")
     <counter name="DbRegionReleased" enum="GuiDbType" summary="Regions returned to the free list, by database" />
     <counter name="DbRecordDropped" enum="GuiDbType" summary="Records dropped because the database was full (MAP_FULL) or the KV index budget was exhausted (RING_FULL), by database" />
     <counter name="DbForcedEvictWriteCompleted" enum="GuiDbType" summary="Writes that evicted records before succeeding, by database" />
+
+    <counter name="VoteRecordDropped" summary="Votes track records dropped because they were malformed, or markers for a slot older than the recently tracked slots" />
+    <counter name="VoteLateRecorded" summary="Votes for a slot older than the recently tracked slots, recorded as a vote batch of their own" />
+
+    <counter name="TimelineChunkHit" summary="Timeline response chunks served from the chunk cache" />
+    <counter name="TimelineChunkMiss" summary="Timeline response chunks built, compressed and added to the chunk cache" />
+    <counter name="TimelineChunkLate" summary="Timeline rows recorded after their chunk was cached, so missing from the frozen cached chunk" />
+    <counter name="TimelineChunkFallback" summary="Raw timeline queries answered without the chunk cache (uncompressed connection, row limit, or oversized chunk)" />
+    <counter name="TimelineDayMissing" summary="Timeline samples dropped because their day record was not prepared yet" />
 </tile>
 
 <enum name="GuiDbType">
@@ -2108,9 +2118,17 @@ deliberate exception with lint-allow="<rule id>")
     <int value="10" name="TxnWaterfall" label="txn_waterfall" />
     <int value="11" name="TimelineDay" label="timeline_day" />
     <int value="12" name="ReplayTxn" label="replay_txn" />
-    <int value="13" name="TimelineTileDay" label="timeline_tile_day" />
+    <int value="13" name="ReplayTxnBatch" label="replay_txn_batch" />
     <int value="14" name="FecEvents" label="fec_events" />
-    <int value="15" name="FecEventArchive" label="fec_event_archive" />
+    <int value="15" name="TimelineTileDay" label="timeline_tile_day" />
+    <int value="16" name="FecEventArchive" label="fec_event_archive" />
+    <int value="17" name="ReplaySlotState" label="replay_slot_state" />
+    <int value="18" name="TimelineTileStateDay" label="timeline_tile_state_day" />
+    <int value="19" name="Votes" label="votes" />
+    <int value="20" name="VoteEvents" label="vote_events" />
+    <int value="21" name="ReplayLthash" label="replay_lthash" />
+    <int value="22" name="ReplayLthashBatch" label="replay_lthash_batch" />
+    <int value="23" name="VoteBatch" label="vote_batch" />
 </enum>
 
 <enum name="EventConnState">

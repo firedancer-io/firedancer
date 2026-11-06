@@ -2815,7 +2815,7 @@ Value is a flat array of base58-encoded identity pubkeys that have gone
 offline (activity timeout expired) since the last message.
 
 ### timeline
-Historical shred, slot, event, and aggregate data
+Historical shred, transaction, slot, event, vote, and aggregate data
 recorded by the validator, queryable over UNIX nanosecond timestamp
 windows.
 
@@ -2825,25 +2825,93 @@ nanosecond timestamps, encoded as decimal strings without leading zeros
 must be greater than `start_ns`.
 Windows are half-open: `[start_ns, end_ns)`.
 
+Each method states which rows a window returns. Rows that carry one
+timestamp (shred and FEC events, votes, events, transactions and
+batches) are returned only by the window containing that timestamp, so
+adjacent windows never return the same row. States
+(`query_tile_states`) follow the same rule by their end: each state is
+returned whole by the window containing its end, so it may begin before
+`start_ns`. Slot intervals (`query_slots`) are returned by every window
+they overlap.
+
 Every successful response includes `available_start_ns` and
 `available_end_ns`. These are method-specific half-open lookup bounds,
 `[available_start_ns, available_end_ns)`, reflecting the data available
 in the server's database. Both are `null` when the server is missing
-data needed for a non-empty response.
+data needed for a non-empty response. Where noted, `available_end_ns`
+is also a completeness edge: data before it will not change, so a
+client can stop re-requesting a window that ends at or before it.
 
-Historical shred lookups use insertion-time indices with a one-second
-margin on either side, then filter by event time. An event inserted more
-than one second away from its event timestamp can be missed by a narrow
-query.
+Historical lookups use insertion-time indices, then filter by event
+time. Rows are inserted at or shortly after their timestamp, so a
+lookup scans from the start of the window to one second after its end;
+a row inserted more than one second after its timestamp can be missed
+by a narrow query. Votes and vote markers carry the votor's clock, so
+their lookups also scan one second before the window. FEC events
+whose timestamp is more than one second from their insertion are
+clamped or dropped.
 
 The GUI's database is wiped on boot. When it reaches capacity, data is
 evicted approximately oldest-first.
 
+##### Chunked responses
+`query_shreds`, `query_tile_states`, `query_txn_meta` and
+`query_revenue` answer with a list of chunks instead of a single set of
+fields. Chunk `k` covers the absolute window
+`[k * 100ms, (k + 1) * 100ms)` and holds exactly what a query for that
+window returns: the fields described for the method, except
+`granularity`, `available_start_ns` and `available_end_ns`, which are
+given once for the whole response. Chunks are listed in time order and
+include empty ones.
+
+**`TimelineChunked`**
+| field              | type           | description |
+|--------------------|----------------|-------------|
+| granularity        | `string`       | Echoes the request, if the method has one |
+| available_start_ns | `string\|null` | As for the method |
+| available_end_ns   | `string\|null` | As for the method, but at most the end of the last returned chunk |
+| chunks             | `TimelineChunk[]` | Chunks overlapping the request, see below |
+
+**`TimelineChunk`**
+| field     | type     | description |
+|-----------|----------|-------------|
+| chunk_ts  | `string` | Start of the chunk window |
+| chunk_dur | `string` | Length of the chunk window in nanoseconds |
+| ...       |          | The method's fields for the chunk window |
+
+On connections that negotiated `compress-zstd`, the server only returns
+chunks that are final, meaning the server will not record more rows
+for them. A chunk is final 200 milliseconds after its end, which
+covers the time between a row's timestamp and the server recording it
+(at most one transaction duration; batches are recorded within 10
+milliseconds of their last member). A response therefore may cover less than
+the requested window: it ends at `available_end_ns`, and the client
+should request the rest later. A response returns at most 300 chunks
+(30 seconds), and fewer if their compressed size exceeds 16 MiB. Final
+chunks are cached on the server and shared by all clients, so live
+clients following the present should request from the end of their
+previous response. Cached chunks never change: rows recorded late
+anyway (counted by the `gui_timeline_chunk_late` metric) are missing
+from the cached chunk, but are returned by uncached queries. The `skipped` field of `query_shreds` reflects the slot
+classification when the chunk was built.
+
+On connections without compression, or when a chunk would exceed a
+row limit, the response is a single uncached chunk for exactly the
+requested window, with `chunk_ts` equal to `start_ns` and
+`chunk_dur` equal to `end_ns - start_ns`, or the row limit error.
+
+The compressed response is a sequence of zstd frames, one per chunk
+plus framing, which decodes as a single JSON message.
+
 | query                  | maximum result | outcome if exceeded |
 |------------------------|----------------|---------------------|
-| `query_shreds`         | 262,144 rows   | error message       |
+| `query_shreds`         | 262,144 rows per chunk | error message |
+| `query_tile_states`    | 65,536 rows of each kind per chunk | error message |
+| `query_txn_meta`       | 65,536 rows per chunk | error message |
+| `query_revenue`        | 65,536 rows per chunk | error message |
 | `query_slots`          | 65,536 rows    | error message       |
 | `query_events`         | 65,536 rows    | error message       |
+| `query_votes`          | 262,144 rows   | error message       |
 | Each `query_agg_*`     | 4,096 buckets  | connection closed   |
 
 The server returns the following error message when response limits are
@@ -2873,12 +2941,16 @@ exceeded. Narrow the window and retry.
 
 At `shred` granularity, returns one row per recorded shred event as it
 arrives, including events in the active, unflushed batch.
-
 At `fec` granularity, returns one row per FEC set and event kind,
 available as shred events arrive. Each timestamp is the min over all of
-the shreds in the fec set, for that event.
+the shreds in the fec set, for that event. A slot closes once it is
+rooted; ordinary events arriving after closure are rejected at both
+granularities.
 
 Empty results have empty arrays and `null` reference fields.
+
+The response is chunked (see above); each chunk holds the fields
+below other than `granularity` and `available_*`.
 
 **`TimelineShreds`**
 | field              | type               | description |
@@ -2930,14 +3002,346 @@ list. Clients should not assume timestamps are ordered.
     "value": {
         "granularity": "shred",
         "available_start_ns": "1739657040000000000",
-        "available_end_ns": "1739657043000000000",
+        "available_end_ns": "1739657041600000000",
+        "chunks": [
+            {
+                "chunk_ts": "1739657041500000000",
+                "chunk_dur": "100000000",
+                "reference_slot": 289245044,
+                "reference_ts": "1739657041588242791",
+                "slot_delta": [0, 0],
+                "idx": [1234, null],
+                "event": [0, 4],
+                "event_ts_delta": ["0", "100000"],
+                "skipped": []
+            }
+        ]
+    }
+}
+```
+
+:::
+
+#### `timeline.query_tile_states`
+| frequency | type                 | example |
+|-----------|----------------------|---------|
+| *Request* | `TimelineTileStates` | below   |
+
+| param       | type     | description |
+|-------------|----------|-------------|
+| start_ns    | `string` | Inclusive lower bound, using the timestamp rules above |
+| end_ns      | `string` | Exclusive upper bound |
+| granularity | `string` | Either `txn` or `txn_batch`. Required |
+
+Returns the states of each replay tile that end in `[start_ns, end_ns)`.
+Each state is returned whole, so a tile's first state may start before
+`start_ns`, and a state that ends at or after `end_ns` is left to the
+next window. Time a tile spent on nothing reported here, between its
+returned states, is `Idle`; no Idle is reported before a tile's first
+state or after its last.
+
+| state | name               | tile   | description |
+|-------|--------------------|--------|-------------|
+| 0     | Idle               | any    | Nothing reported |
+| 1     | Sigverify          | execrp | Transaction signature verification |
+| 2     | Loading            | execrp | Account loading |
+| 3     | Validate           | execrp | Validation checks |
+| 4     | Execute            | execrp | Execution |
+| 5     | PostExecute        | execrp | Commit or cancel |
+| 6     | BlockedOnTiles     | replay | No execrp tile is free (compute-bound) |
+| 7     | BlockedOnConflicts | replay | Transactions are queued and a tile is free, but every queued transaction waits on an earlier conflicting one |
+| 8     | BlockedOnNetwork   | replay | Replay has dispatched everything received so far and the end of the slot has not arrived |
+| 9     | SlotFinish         | replay | The end of the slot has arrived and nothing is queued; draining in-flight work and end-of-block processing |
+| 10    | Lthash             | execrp | Account LtHash computation, off the transaction critical path |
+| 11    | SigverifyBatch     | execrp | `txn_batch` only: a batch of signature verifications |
+| 12    | LoadBatch          | execrp | `txn_batch` only: account loading, over a batch |
+| 13    | ValidBatch         | execrp | `txn_batch` only: validation checks, over a batch |
+| 14    | ExecBatch          | execrp | `txn_batch` only: execution, over a batch |
+| 15    | PostExecBatch      | execrp | `txn_batch` only: commit or cancel, over a batch |
+| 16    | LthashBatch        | execrp | `txn_batch` only: a batch of account LtHash tasks |
+
+Slot states (6-9) cover each replayed block from its first dispatch to
+the end of its end-of-block processing, and include a 10µs debouncing
+period.
+
+An Lthash state is one task that hashes a batch of accounts written
+in a slot: either removing their previous versions or adding their new
+ones. It can overlap the end of a transaction's state on the same tile;
+within one response the later state is then reported starting where the
+earlier one ends. Overlapping states returned by adjacent windows are
+not adjusted.
+
+The response is chunked (see [Chunked responses](#chunked-responses));
+each chunk holds the fields below other than `granularity` and
+`available_*`.
+
+**`TimelineTileStates`**
+| field              | type               | description |
+|--------------------|--------------------|-------------|
+| granularity        | `string`           | Echoes `txn` or `txn_batch` |
+| available_start_ns | `string\|null`     | Inclusive approximate lookup start for the selected transaction history |
+| available_end_ns   | `string\|null`     | Exclusive approximate lookup end for the selected transaction history |
+| start_ts           | `string`           | Equals `start_ns`; reference for `tile_start_ts_delta` |
+| tile_start_ts_delta | `(string\|null)[]` | Per tile, the start of its first state, relative to `start_ts` (negative if before it), or `null` if the tile has no states |
+| reference_slot     | `number\|null`     | Smallest slot among the returned transactions, slot states and LtHash tasks (`txn_batch`: slot states and batches), or `null` if none |
+| tile               | `(number\|null)[]` | Per tile, its index into `summary.tiles`: the execrp tiles in order, then the replay tile |
+| state_cnt          | `number[]`         | Per tile, the number of its states. Tile `i`'s states start at the sum of the earlier tiles' counts |
+| state              | `number[]`         | All states, tile by tile and in time order, as listed above |
+| dur                | `number[]`         | Per state, its duration in nanoseconds. A tile's first state starts at `start_ts + tile_start_ts_delta`, and each later state where the tile's previous state ends |
+| slot_state_lo      | `number[]`         | Per slot segment, the index into `state` of its first state. A slot segment is a run of consecutive slot states for one slot on the replay tile |
+| slot_state_cnt     | `number[]`         | Per slot segment, the number of its states |
+| slot_delta         | `number[]`         | Per slot segment, `slot - reference_slot` |
+| txn_state_lo       | `number[]`         | Per transaction segment, the index into `state` of its first state. A transaction segment is a run of consecutive states for one transaction on one tile: one Sigverify state, or up to four execution stages |
+| txn_state_cnt      | `number[]`         | Per transaction segment, the number of its states |
+| txn_slot_delta     | `number[]`         | Per transaction segment, `slot - reference_slot` |
+| txn_idx            | `number[]`         | Per transaction segment, the transaction's index within its slot. A transaction usually has two segments, one for signature verification and one for execution |
+| txn_error_code     | `(number\|null)[]` | Per transaction segment, the runtime error code (0 on success), or `null` for signature verification |
+| lthash_state_lo    | `number[]`         | Per LtHash task, the index into `state` of its Lthash state |
+| lthash_slot_delta  | `number[]`         | Per LtHash task, `slot - reference_slot` |
+| lthash_kind        | `number[]`         | Per LtHash task, 0 if it removed the accounts' previous versions, 1 if it added their new versions |
+| lthash_acct_cnt    | `number[]`         | Per LtHash task, the number of accounts hashed |
+
+Execution stages that a transaction skipped are omitted. Each stage
+runs until the next present stage starts, and the last until commit or
+cancel ends.
+
+`txn_batch` keeps the same states but rolls up each tile's transaction
+work into batches, built as transactions complete. Signature
+verification and execution are batched separately, per tile: a
+transaction joins its tile's open batch for that lane if it starts at
+most 20ms after the batch's last member ended, and the batch has fewer
+than 128 members and spans at most 100ms with it; otherwise the open
+batch is recorded and a new one starts. A batch is also recorded once
+idle for 40ms. Slots do not split batches, so a batch can hold members
+of adjacent slots; its slot is that of the member that ended last.
+20ms is about one pixel at the zoom where clients typically switch
+from `txn` to `txn_batch`, so merged gaps are not visible there. A signature
+verification batch is one `SigverifyBatch` state. An execution batch is
+split into `LoadBatch`, `ValidBatch`, `ExecBatch` and `PostExecBatch`,
+in that order, each lasting a share of the batch's span proportional
+to its members' total time in that stage. A stage no member reached is
+omitted. Gaps between members are excluded: each batch ends when its
+last member ends and lasts its members' total time, so the stage
+durations are the measured totals and a batch may start after its
+first member started. LtHash tasks are
+batched by the same rule (same tile, each task starting at most 20ms
+after the previous one ends, at most 128 tasks) and each batch
+is one `LthashBatch` state that likewise ends with its last task and
+lasts the tasks' total time; a batch is recorded once its tile's next task
+does not join it or it has been idle for 40ms. Slot states are
+reported unchanged. `slot_state_lo`, `slot_state_cnt` and `slot_delta`
+map every non-idle state to a slot, on every tile: slot states (exact,
+as for `txn`), transaction batch states (`SigverifyBatch` to
+`PostExecBatch`) and `LthashBatch` states. A segment is a run of
+adjacent non-idle states of one tile in the same slot; `slot_state_lo`
+indexes the response-wide `state` array, segments of different tiles
+are interleaved in tile order, and Idle states are never covered. A
+batch's slot is the slot of its member that ended last, so batches near
+a slot boundary are approximate. `reference_slot` is the smallest of
+these slots (`null` if none). The `txn_*` and `lthash_*` arrays are
+empty.
+`tile_start_ts_delta` is reported as for `txn`.
+
+::: details Example
+
+```json
+{
+    "topic": "timeline",
+    "key": "query_tile_states",
+    "id": 40,
+    "params": {
+        "start_ns": "1739657041588000000",
+        "end_ns": "1739657041589000000",
+        "granularity": "txn"
+    }
+}
+```
+
+```json
+{
+    "topic": "timeline",
+    "key": "query_tile_states",
+    "id": 40,
+    "value": {
+        "granularity": "txn",
+        "available_start_ns": "1739657000000000000",
+        "available_end_ns": "1739657042000000000",
+        "start_ts": "1739657041588000000",
+        "tile_start_ts_delta": ["300000", "100000", "-50000"],
+        "reference_slot": 325000000,
+        "tile": [11, 12, 9],
+        "state_cnt": [1, 4, 3],
+        "state": [1,   2, 3, 4, 5,   6, 8, 9],
+        "dur": [200000,   50000, 20000, 400000, 30000,   300000, 600000, 150000],
+        "slot_state_lo": [5],
+        "slot_state_cnt": [3],
+        "slot_delta": [0],
+        "txn_state_lo": [0, 1],
+        "txn_state_cnt": [1, 4],
+        "txn_slot_delta": [0, 0],
+        "txn_idx": [17, 17],
+        "txn_error_code": [null, 0],
+        "lthash_state_lo": [],
+        "lthash_slot_delta": [],
+        "lthash_kind": [],
+        "lthash_acct_cnt": []
+    }
+}
+```
+
+:::
+
+#### `timeline.query_txn_meta`
+| frequency | type              | example |
+|-----------|-------------------|---------|
+| *Request* | `TimelineTxnMeta` | below   |
+
+| param    | type     | description |
+|----------|----------|-------------|
+| start_ns | `string` | Inclusive lower bound, using the timestamp rules above |
+| end_ns   | `string` | Exclusive upper bound |
+
+Returns replay and local leader transaction metadata selected by
+transaction completion time. Rows are ordered by `(slot, txn_idx)`.
+`reference_ts` is the earliest available stage timestamp across all
+returned rows. Deltas are non-negative and stages can precede
+`start_ns`. Empty results have empty arrays and `null` reference fields.
+
+The response is chunked (see [Chunked responses](#chunked-responses));
+each chunk holds the fields below other than `granularity` and
+`available_*`.
+
+**`TimelineTxnMeta`**
+| field                       | type               | description |
+|-----------------------------|--------------------|-------------|
+| available_start_ns          | `string\|null`     | Inclusive approximate lookup start for the transaction history |
+| available_end_ns            | `string\|null`     | Exclusive approximate lookup end for the transaction history |
+| reference_slot              | `number\|null`     | Smallest slot in the response |
+| reference_ts                | `string\|null`     | Earliest stage timestamp in the response |
+| slot_delta                  | `number[]`         | Per row, `slot - reference_slot` |
+| txn_idx                     | `number[]`         | Transaction index within its slot (pack index for locally produced blocks) |
+| txn_exec_idx                | `number[]`         | Execution tile index; execle tile index for locally produced blocks |
+| txn_sigverify_exec_idx      | `(number\|null)[]` | Signature-verification tile index, or `null` if absent |
+| txn_start_shred_idx         | `(number\|null)[]` | Index of the shred containing the transaction's first byte; `null` for locally produced blocks |
+| txn_end_shred_idx           | `(number\|null)[]` | Index of the shred containing the byte after the transaction's last byte (exclusive; capped at the block's last shred index); `null` for locally produced blocks |
+| txn_signature               | `string[]`         | Base58 transaction signature |
+| txn_compute_units_requested | `(number\|null)[]` | Total pack compute-cost estimate (legacy field name); `null` when unavailable. This is not the block CU limit |
+| txn_compute_units_consumed  | `number[]`         | Actual transaction compute cost, including consensus-relevant costs |
+| txn_transaction_fee         | `string[]`         | Base transaction fee in lamports |
+| txn_priority_fee            | `string[]`         | Priority fee in lamports |
+| txn_tips                    | `string[]`         | Tips in lamports |
+| txn_is_fees_only            | `boolean[]`        | Whether only fees were charged |
+| txn_load_start_ts_delta     | `string[]`         | Load start minus `reference_ts`, in nanoseconds |
+| txn_commit_end_ts_delta     | `string[]`         | Commit/cancel end minus `reference_ts`, in nanoseconds |
+| txn_error_code              | `number[]`         | Runtime error code, 0 on success |
+
+Rows from blocks produced by this validator are recorded from execle
+rather than replay and have null sigverify and shred fields. Their
+`txn_idx` is pack's monotonically increasing transaction index, not the
+transaction's position in the block (transactions that do not land can
+leave gaps). Ordering by `(slot, txn_idx)` still applies.
+
+::: details Example
+
+```json
+{
+    "topic": "timeline",
+    "key": "query_txn_meta",
+    "id": 41,
+    "params": {
+        "start_ns": "1739657041588000000",
+        "end_ns": "1739657041589000000"
+    }
+}
+```
+
+:::
+
+#### `timeline.query_revenue`
+| frequency | type              | example |
+|-----------|-------------------|---------|
+| *Request* | `TimelineRevenue` | below   |
+
+| param       | type     | description |
+|-------------|----------|-------------|
+| start_ns    | `string` | Inclusive lower bound, using the timestamp rules above |
+| end_ns      | `string` | Exclusive upper bound |
+| granularity | `string` | Either `txn` or `txn_batch`. Required |
+
+Returns what each transaction (`txn`) or transaction batch
+(`txn_batch`) paid, one row per transaction or batch whose completion
+timestamp is in `[start_ns, end_ns)`. The completion timestamp is the
+same one `query_txn_meta` selects by. Rows that paid nothing, and rows
+whose completion is not after their load start, are omitted. Fees count
+only what was actually paid: transactions that did not land pay
+nothing, invalid fee payers (errors 5 and 6) pay no fees or tips, and
+failed transactions pay no tips. A batch row sums its members, so it
+can include members the `txn` granularity omits. Rows are ordered by
+`(slot, txn_idx)` of the transaction or the batch's first member. Both
+granularities share one shape. Empty results have empty arrays and
+`null` reference fields.
+
+Batches are the execution batches `query_tile_states` reports at
+`txn_batch` granularity, recorded within 40ms of their last member. A
+batch's fees are counted under its slot, the slot of its member that
+ended last; use `txn` granularity or `query_slots` for exact per-slot
+fees.
+
+The response is chunked (see [Chunked responses](#chunked-responses));
+each chunk holds the fields below other than `granularity` and
+`available_*`.
+
+**`TimelineRevenue`**
+| field              | type           | description |
+|--------------------|----------------|-------------|
+| granularity        | `string`       | Echoes `txn` or `txn_batch` |
+| available_start_ns | `string\|null` | Inclusive approximate lookup start for the selected history |
+| available_end_ns   | `string\|null` | Exclusive approximate lookup end for the selected history |
+| reference_slot     | `number\|null` | Smallest slot in the response |
+| reference_ts       | `string\|null` | Smallest load start in the response |
+| slot_delta         | `number[]`     | Per row, `slot - reference_slot` |
+| exec_idx           | `number[]`     | Per row, the index of the execution tile (execrp for replay, execle for produced blocks) |
+| start_ts_delta     | `string[]`     | Per row, load start minus `reference_ts`, in nanoseconds |
+| end_ts_delta       | `string[]`     | Per row, completion minus `reference_ts`, in nanoseconds |
+| txn_fees           | `string[]`     | Per row, base transaction fees paid, in lamports |
+| prio_fees          | `string[]`     | Per row, priority fees paid, in lamports |
+| tips               | `string[]`     | Per row, tips paid, in lamports |
+| txn_cnt            | `number[]`     | Per row, the number of transactions; 1 at `txn` granularity |
+
+::: details Example
+
+```json
+{
+    "topic": "timeline",
+    "key": "query_revenue",
+    "id": 45,
+    "params": {
+        "start_ns": "1739657041588000000",
+        "end_ns": "1739657041589000000",
+        "granularity": "txn_batch"
+    }
+}
+```
+
+```json
+{
+    "topic": "timeline",
+    "key": "query_revenue",
+    "id": 45,
+    "value": {
+        "granularity": "txn_batch",
+        "available_start_ns": "1739657000000000000",
+        "available_end_ns": "1739657100000000000",
         "reference_slot": 289245044,
-        "reference_ts": "1739657041588242791",
+        "reference_ts": "1739657041587412000",
         "slot_delta": [0, 0],
-        "idx": [1234, null],
-        "event": [0, 4],
-        "event_ts_delta": ["0", "100000"],
-        "skipped": []
+        "exec_idx": [0, 3],
+        "start_ts_delta": ["0", "211000"],
+        "end_ts_delta": ["640000", "930000"],
+        "txn_fees": ["50000", "15000"],
+        "prio_fees": ["1204411", "88120"],
+        "tips": ["1000000", "0"],
+        "txn_cnt": [10, 3]
     }
 }
 ```
@@ -2961,7 +3365,7 @@ request window, ordered by slot.
 | field              | type           | description |
 |--------------------|----------------|-------------|
 | available_start_ns | `string\|null` | Inclusive beginning of retained cached slot intervals |
-| available_end_ns   | `string\|null` | Exclusive end of retained cached slot intervals |
+| available_end_ns   | `string\|null` | Exclusive end of retained cached slot intervals: the end of the newest rooted slot. Slots are written when they root, so this is also the completeness edge |
 | reference_slot     | `number\|null` | First slot in the response |
 | reference_ts       | `string\|null` | Minimum start timestamp across returned rows |
 | slot_delta         | `number[]`     | Per row, `slot - reference_slot` |
@@ -2970,6 +3374,9 @@ request window, ordered by slot.
 | shred_cnt          | `(number\|null)[]` | Per row, the number of data shreds in the replayed block whose completion ends the interval. `null` for interpolated skipped slots or when unknown. The last FEC set index is `shred_cnt/32 - 1` |
 | skipped            | `number[]`     | Sparse slot deltas for skipped rows |
 | mine               | `number[]`     | Sparse slot deltas for locally produced rows |
+| txn_fees           | `(string\|null)[]` | Per row, base transaction fees in the slot's canonical block, in lamports. `null` for skipped slots or when unknown |
+| prio_fees          | `(string\|null)[]` | Per row, priority fees in the slot's canonical block, in lamports. `null` for skipped slots or when unknown |
+| tips               | `(string\|null)[]` | Per row, tips in the slot's canonical block, in lamports. `null` for skipped slots or when unknown |
 
 ::: details Example
 
@@ -3000,7 +3407,134 @@ request window, ordered by slot.
         "end_ts_delta": ["412000000", "812000000", "1212000000"],
         "shred_cnt": [1536, null, 1408],
         "skipped": [1],
-        "mine": [0]
+        "mine": [0],
+        "txn_fees": ["7520000", null, "6980000"],
+        "prio_fees": ["41200311", null, "38877102"],
+        "tips": ["120000000", null, "98000000"]
+    }
+}
+```
+
+:::
+
+#### `timeline.query_votes`
+| frequency | type            | example |
+|-----------|-----------------|---------|
+| *Request* | `TimelineVotes` | below   |
+
+| param       | type     | description |
+|-------------|----------|-------------|
+| start_ns    | `string` | Inclusive lower bound, using the timestamp rules above |
+| end_ns      | `string` | Exclusive upper bound |
+| granularity | `string` | Either `vote` (every vote) or `vote_batch` (vote batches). Required |
+
+Returns the Alpenglow vote activity whose timestamp lies in the request
+window as flat rows ordered by timestamp, like `query_shreds`.
+Timestamps are the votor's wall clock. Each row has an `event`:
+
+| event   | meaning |
+|---------|---------|
+| 0 - 4   | Votes of kind `event` (0 notar, 1 finalize, 2 skip, 3 notar fallback, 4 skip fallback) counted by this validator's votor, including its own; the only rows with `stake` |
+| 5 - 9   | A certificate of kind `event - 5` (0 finalize, 1 fast finalize, 2 notar, 3 notar fallback, 4 skip) was created or accepted |
+| 10 - 14 | This validator broadcast its vote of kind `event - 10` |
+| 15 - 19 | The reward leader acknowledged this validator's reward vote of kind `event - 15` (notar and skip only) |
+| 20      | The leader window starting at the slot became ParentReady |
+| 21 - 25 | A vote batch of kind `event - 21` (as for 0 - 4), with `stake` (`vote_batch` only) |
+
+Rows 5 - 20 are markers: only the first of each per slot is kept.
+
+With `vote_batch`, vote rows (0 - 4) are replaced by vote batch rows
+(21 - 25); markers are the same. A slot's votes of one kind, summed in
+timestamp order, form a cumulative stake curve. The vote batches are
+its breakpoints, simplified with Douglas-Peucker so that no vote is
+further than 20 ms or 1% of the total stake (in those units) from the
+straight lines through them; the first and last vote of each curve are
+kept. A batch's `stake` is the stake added since the previous
+breakpoint of its curve (the first carries its own vote's), so batch
+stakes sum like the votes they replace, and drawing straight lines
+between the cumulative sums approximates the stake-weighted vote curve.
+Votes of a slot are batched while the slot is among the 64 most recent
+voted ones, up to 200 ms after its last vote or 800 ms after its first,
+and recent slots are simplified at query time, so a later query may
+return different breakpoints for them. A vote arriving after its slot
+was batched is a batch of its own.
+
+Summing `stake` only gives a slot's total when every row of the slot
+is summed exactly once, which fails when a slot's votes are split
+across requests: a recent slot's breakpoints can change between
+requests, so a later request can return a breakpoint carrying stake
+already counted in an earlier one. Each vote and vote batch row also
+has `cumulative_stake`, the slot's total stake of the row's kind up to
+and including the row. It is the same for a vote whichever request
+returns it, so the latest stake of a slot's kind is the largest
+`cumulative_stake` among its rows, regardless of how the slot was
+split into requests or whether it was fetched as votes or vote batches.
+For votes, the total is in the order the votor counted them, which can
+differ slightly from timestamp order. `cumulative_stake` is `null` for
+markers and for late votes of a slot whose total was dropped (totals
+are kept for about the 4096 most recent voted slots).
+
+Each vote row is one vote, counted once per voter and kind. If the
+response also has votes (or vote batches) for slots of the next epoch,
+`next_epoch_start_slot` is that epoch's first slot and
+`next_total_stake` its total stake; otherwise both are `null`.
+So the total stake for a vote row is `next_total_stake` if its slot is
+at least `next_epoch_start_slot` and `total_stake` otherwise.
+
+`reference_slot` is the lowest slot in the response and `reference_ts`
+the first timestamp. Both are `null` when the arrays are empty.
+
+**`TimelineVotes`**
+| field              | type                | description |
+|--------------------|---------------------|-------------|
+| granularity        | `string`            | Echoes `vote` or `vote_batch` |
+| available_start_ns | `string\|null`      | Inclusive beginning of retained votes (vote batches for `vote_batch`) |
+| available_end_ns   | `string\|null`      | Exclusive end of retained votes (vote batches for `vote_batch`), and the completeness edge: at most 200ms before now for votes, 1s for vote batches (which change until they flush) |
+| reference_slot     | `number\|null`      | Lowest slot in the response |
+| reference_ts       | `string\|null`      | First timestamp in the response |
+| slot_delta         | `number[]`          | Per row, `slot - reference_slot` |
+| event              | `number[]`          | Per row, the event above |
+| event_ts_delta     | `string[]`          | Per row, timestamp minus `reference_ts`, in nanoseconds |
+| stake              | `(string\|null)[]`  | Per vote row, the voter's stake in lamports; per vote batch row, the stake added since the previous breakpoint; `null` for markers |
+| cumulative_stake   | `(string\|null)[]`  | Per vote or vote batch row, the slot's total stake in lamports of the row's kind up to and including the row; `null` for markers or if unknown |
+| total_stake        | `string\|null`      | Total stake in lamports of the epoch of the lowest voted slot; `null` without votes |
+| next_epoch_start_slot | `number\|null`   | First slot of the next epoch, if the response has votes for it |
+| next_total_stake   | `string\|null`      | Total stake in lamports of the next epoch, if the response has votes for it |
+
+::: details Example
+
+```json
+{
+    "topic": "timeline",
+    "key": "query_votes",
+    "id": 50,
+    "params": {
+        "start_ns": "1739657040000000000",
+        "end_ns": "1739657041000000000",
+        "granularity": "vote"
+    }
+}
+```
+
+```json
+{
+    "topic": "timeline",
+    "key": "query_votes",
+    "id": 50,
+    "value": {
+        "granularity": "vote",
+        "available_start_ns": "1739656000000000000",
+        "available_end_ns": "1739657100000000001",
+        "reference_slot": 1000,
+        "reference_ts": "1739657040010000000",
+        "slot_delta": [0, 0, 0, 0, 0],
+        "event": [0, 10, 0, 7, 1],
+        "event_ts_delta": ["0", "3000000", "5000000", "41000000", "45000000"],
+        "stake": ["4800000000000000", null, "136000000000000000", null, "32400000000000000"],
+        "cumulative_stake": ["4800000000000000", null, "140800000000000000", null, "32400000000000000"],
+        "total_stake": "400000000000000000",
+        "next_epoch_start_slot": null,
+        "next_total_stake": null
     }
 }
 ```
@@ -3017,21 +3551,48 @@ request window, ordered by slot.
 | start_ns | `string` | Inclusive lower bound, using the timestamp rules above |
 | end_ns   | `string` | Exclusive upper bound |
 
-Returns a sparse list of `(event, slot, ts)` tuples whose `ts` lies in
-the request window, ordered by slot. Empty results have empty arrays.
+Returns a sparse list of minimap events occuring in the request window,
+ordered by slot then `ts`. Empty results have empty arrays. All event
+kinds are kept together in memory, the most recent 65,536 events since
+the process started, and each is recorded once it is known: slot events
+(`leader_skip`, `epoch_start`, `catch_up`) when their slot is rooted,
+`boot` once the snapshot slot is known, identity events when the command
+finishes.
 
-| event | name          | meaning |
-|-------|---------------|---------|
-| 0     | `leader_skip` | A slot scheduled to this validator's current identity that was classified skipped, as described for `query_slots`. `ts` is the midpoint of the slot's `query_slots` interval |
+| event | name                | meaning |
+|-------|---------------------|---------|
+| 0     | `leader_skip`       | The key this validator ran when the slot was rooted was scheduled to produce a block in this slot and the slot was skipped. `ts` is the middle of the slot, as reported by `query_slots` |
+| 1     | `identity_set`      | An operator ran `set-identity` on this validator. This validator switched to the key it was given, without coordinating with any other validator |
+| 2     | `identity_promote`  | An operator ran `failover promote` on this validator to move the staked identity here. The other validator gives up the staked identity and switches to a dummy pubkey |
+| 3     | `identity_takeover` | An operator ran `failover takeover` on this validator to move the staked identity here, even if the other validator does not respond. It first tries the same exchange as `identity_promote`. If that fails, it takes the staked identity if the other validator appear dead. When run with the `--force` flag, it takes the staked identity even if the other validator appears alive. One takeover can therefore show as two events, one for each attempt |
+| 4     | `identity_handoff`  | An operator ran `failover promote` or `failover takeover` on the other validator. This validator gave up the staked identity and switched to a dummy key so the other validator could take it |
+| 5     | `epoch_start`       | The first slot of an epoch. `ts` is the start of that slot, as reported by `query_slots` |
+| 6     | `boot`              | This validator started. `slot` is the snapshot slot it booted from (the incremental snapshot's, if one was loaded) and `ts` is when the process started, before the snapshot was loaded |
+| 7     | `catch_up`          | This validator began replaying the chain after loading its snapshot. `slot` is the first slot after the snapshot and `ts` is the start of that slot, as reported by `query_slots` |
+
+In events 1 to 4, "this validator" is the one serving this API and "the
+other validator" is its failover partner. In a failover, the promoted
+node is the one that ends up with the staked identity and the demoted
+node is the one that gives it up; `identity_notes` uses these terms. The staked identity is the
+key that votes and produces blocks. A dummy key is a random key that
+does neither, so two validators never run the staked identity at the
+same time.
+
+Events 1 to 4 also carry four `identity_*` columns. They are sparse:
+the `k`-th entry belongs to the `k`-th row whose event is 1 to 4.
 
 **`TimelineEvents`**
 | field              | type           | description |
 |--------------------|----------------|-------------|
-| available_start_ns | `string\|null` | Same as `TimelineSlots` |
-| available_end_ns   | `string\|null` | Same as `TimelineSlots` |
+| available_start_ns | `string\|null` | Inclusive start of the range the events cover: when the process started, or just after the newest event dropped once more than 65,536 were recorded |
+| available_end_ns   | `string\|null` | Exclusive end of the range the events cover: the end of the newest rooted slot, or just after the newest event if that is later. Events in a window past it may still appear later |
 | event              | `number[]`     | Per row, event kind from the table above |
-| slot               | `number[]`     | Per row, slot number |
+| slot               | `number[]`     | Per row, effective slot number |
 | ts                 | `string[]`     | Per row, UNIX nanosecond event timestamp |
+| identity_result    | `string[]`     | Per event 1 to 4, `"success"`, or the reason it failed, using the same name the command line prints, such as `"busy"` (another identity command was running), `"timeout"`, `"holder_live"` (the other validator still looked alive, so a takeover refused to go ahead) or `"keypair_mismatch"`. `"stale"` means the other validator's request was dropped because this validator's identity had been changed in the meantime. A failure without a name is shown as a hex code |
+| identity_from      | `string[]`     | Per event 1 to 4, base58 key this validator had before the command |
+| identity_to        | `string[]`     | Per event 1 to 4, base58 key this validator switched to, or would have switched to had the command worked. For `identity_handoff` it is the dummy key. If the command could not be read, it is the placeholder `Unknown111111111111111111111111111111111111` |
+| identity_notes     | `string[]`     | Per event 1 to 4. A few short sentences explaining what happened, possibly none. When `identity_result` is `"success"`, they are followed by the stake change from `identity_from` to `identity_to` in the current epoch, such as `"1.3M Sol Stake -> 0 Sol Stake"` (K, M and B suffixes with one decimal; `"Unknown Stake"` before the first epoch is known), which is always kept whole. Up to 1023 bytes. For example: "This was the second attempt of a takeover: the promoted node took the staked identity without help from the demoted node. It went ahead only because of --force: the demoted node still looked alive." |
 
 ::: details Example
 
@@ -3055,9 +3616,13 @@ the request window, ordered by slot. Empty results have empty arrays.
     "value": {
         "available_start_ns": "1739650000000000000",
         "available_end_ns": "1739660000000000000",
-        "event": [0, 0],
-        "slot": [289245044, 289245448],
-        "ts": ["1739657041588242791", "1739657203188242791"]
+        "event": [0, 3, 0],
+        "slot": [289245044, 289245100, 289245448],
+        "ts": ["1739657041588242791", "1739657064120000000", "1739657203188242791"],
+        "identity_result": ["success"],
+        "identity_from": ["Fd7btgySsrjuo25CJCj7oE7VPMyezDhnx7pZkj2v69Nk"],
+        "identity_to": ["FDRPvqTZ6M3ftnNaWwyVz8yzcFmMdeDYiYLw7pHUPpyb"],
+        "identity_notes": ["This was the second attempt of a takeover: the promoted node took the staked identity without help from the demoted node. It went ahead only because of --force: the demoted node still looked alive."]
     }
 }
 ```
@@ -3069,10 +3634,14 @@ the request window, ordered by slot. Empty results have empty arrays.
 |-----------|---------------|---------|
 | *Request* | `TimelineAgg` | below   |
 
-Six methods share the following parameters and common response fields:
+Eight methods share the following parameters and common response fields:
 `timeline.query_agg_slots`, `timeline.query_agg_shreds`,
 `timeline.query_agg_compute`, `timeline.query_agg_revenue`,
-`timeline.query_agg_txn`, and `timeline.query_agg_cpu`.
+`timeline.query_agg_txn`, `timeline.query_agg_votes`,
+`timeline.query_agg_cpu`, and `timeline.query_agg_tile_states`.
+
+Compute, revenue, and transaction aggregates include locally produced
+blocks. Transactions are bucketed by commit time.
 
 | param       | type     | description |
 |-------------|----------|-------------|
@@ -3087,21 +3656,18 @@ The granularities are `25ms`, `50ms`, `100ms`, `250ms`, `500ms`, `1s`,
 | method                       | minimum granularity |
 |------------------------------|---------------------|
 | `timeline.query_agg_cpu`     | `25ms`  |
-| `timeline.query_agg_compute` | `250ms` |
-| `timeline.query_agg_revenue` | `250ms` |
-| `timeline.query_agg_txn`     | `250ms` |
+| `timeline.query_agg_compute` | `100ms` |
+| `timeline.query_agg_revenue` | `100ms` |
 | `timeline.query_agg_shreds`  | `250ms` |
 | `timeline.query_agg_slots`   | `250ms` |
+| `timeline.query_agg_txn`     | `250ms` |
+| `timeline.query_agg_votes`   | `250ms` |
+| `timeline.query_agg_tile_states` | `250ms` |
 
 The request window is aligned to the request granularity bucket
 boundaries. At most 4,096 buckets may be requested, and the aligned
 exclusive end must also be less than `9223372036854775807`. The
 connection is closed if either limit is exceeded.
-
-Compute, revenue, and transaction aggregates include locally produced
-blocks. Transactions are bucketed by commit time into cached
-calendar-day aggregates, retained independently of detailed transaction
-history.
 
 **Common `TimelineAgg` fields**
 | field              | type           | description |
@@ -3109,12 +3675,13 @@ history.
 | granularity        | `string`       | Echoes the requested granularity |
 | reference_ts_ns    | `string`       | Start of the first aligned response bucket |
 | available_start_ns | `string\|null` | Inclusive start of the retained calendar-day aggregates |
-| available_end_ns   | `string\|null` | Exclusive end of the retained calendar-day aggregates |
+| available_end_ns   | `string\|null` | Exclusive end of the retained calendar-day aggregates, and the completeness edge: at most 200ms before now, and for `query_agg_slots` no later than the end of the newest rooted slot (slot counts are written when slots root) |
 
 Each array has one entry per aligned bucket. Bucket `i` covers
 `[reference_ts_ns + i*duration, reference_ts_ns + (i+1)*duration)`.
 An entry is `null` when the field is unknown, distinct from a known
-zero. `null` values are ignored when computing rolled-up aggregates.
+zero. `null` values are ignored when computing rolled-up aggregates,
+except that an unknown slot-duration sum or count makes its average unknown.
 
 ##### `timeline.query_agg_slots`
 | field        | type               | description |
@@ -3159,14 +3726,43 @@ They are `null` only outside the retained aggregates.
         "available_end_ns": "1739664000000000000",
         "start_slot": [289245044, 289245082, null, 289245157],
         "end_slot": [289245081, 289245119, null, 289245194],
-        "skipped": [2, 0, 0, 1],
-        "mine": [4, 0, 0, 0],
-        "mine_skipped": [1, 0, 0, 0]
+        "skipped": [2, 0, null, 1],
+        "mine": [4, 0, null, 0],
+        "mine_skipped": [1, 0, null, 0]
     }
 }
 ```
 
 :::
+
+##### `timeline.query_agg_votes`
+| field                     | type               | description |
+|---------------------------|--------------------|-------------|
+| missed_votes              | `(number\|null)[]` | Count of slots this validator was a voter for but whose reward certificates did not include its vote, attributed to when that became known (about eight slots after the slot) |
+| notarized_latency_ns      | `(number\|null)[]` | Average latency of a slot's first notarization (Notar or FastFinal certificate) |
+| notarized_cnt             | `number[]`         | Number of samples in `notarized_latency_ns` |
+| finalized_fast_latency_ns | `(number\|null)[]` | Average latency of FastFinal certificates (finalized in one round) |
+| finalized_fast_cnt        | `number[]`         | Number of samples in `finalized_fast_latency_ns` |
+| finalized_slow_latency_ns | `(number\|null)[]` | Average latency of slow finalization (finalized in two rounds): the Final certificate, or the slot's notarization if that arrived after the Final certificate |
+| finalized_slow_cnt        | `number[]`         | Number of samples in `finalized_slow_latency_ns` |
+| skipped_latency_ns        | `(number\|null)[]` | Average latency of Skip certificates |
+| skipped_cnt               | `number[]`         | Number of samples in `skipped_latency_ns` |
+| notar_fallback_latency_ns | `(number\|null)[]` | Average latency of NotarFallback certificates (a contested block that may still be built on; these never finalize the block directly) |
+| notar_fallback_cnt        | `number[]`         | Number of samples in `notar_fallback_latency_ns` |
+
+Latencies are measured from the slot's start to the arrival of the
+certificate at this validator, and each sample is bucketed by its
+arrival time. A slot starts at this validator's first ParentReady for
+its leader window plus the slot's offset in the window times the
+target slot duration, the same anchor Agave uses for its consensus
+metrics. The lines are independent: a slot contributes at most once
+to each line, and may contribute to several (a fast-finalized slot is
+also notarized and usually also receives a Final certificate). Slots
+finalized only implicitly through a descendant are not sampled.
+Certificates for a window whose ParentReady was not seen (for example
+before a restart or while catching up) are not sampled. A latency is
+`null` where the bucket has no samples, including sparse lines like
+`skipped_latency_ns`.
 
 ##### `timeline.query_agg_shreds`
 | field         | type               | description |
@@ -3317,7 +3913,8 @@ transaction budget.
 | success_vote_transactions    | `(number\|null)[]` | Deprecated, always `0` since Firedancer v26.11. |
 | failed_vote_transactions     | `(number\|null)[]` | Deprecated, always `0` since Firedancer v26.11. |
 
-Success means runtime error code 0. Alpenglow consensus votes are not
+Success means runtime error code 0. These four fields retain their
+names in both consensus modes. Alpenglow consensus votes are not
 transactions and are not counted here.
 
 ::: details Example
@@ -3397,6 +3994,73 @@ unknown or repeated tile index closes the connection.
         "utilization": [
             [212, 250, 198, null],
             [3, 4, 2, null]
+        ]
+    }
+}
+```
+
+:::
+
+##### `timeline.query_agg_tile_states`
+| field       | type                           | description |
+|-------------|--------------------------------|-------------|
+| tiles       | `(number\|null)[]`             | The tiles that record states, as indices into `summary.tiles`: the execrp tiles followed by the replay tile. Same as `tile` in `timeline.query_tile_states` |
+| tile_states | `((number\|null)[]\|null)[][]` | One array per entry of `tiles`, in the same order, holding one entry per state `0` to `10` (see `timeline.query_tile_states`). Each entry is an array of the per-bucket time in that state, in microseconds, or `null` if the state is deprecated |
+
+::: details Example
+
+```json
+{
+    "topic": "timeline",
+    "key": "query_agg_tile_states",
+    "id": 52,
+    "params": {
+        "start_ns": "1739657040000000000",
+        "end_ns": "1739657044000000000",
+        "granularity": "2s"
+    }
+}
+```
+
+```json
+{
+    "topic": "timeline",
+    "key": "query_agg_tile_states",
+    "id": 52,
+    "value": {
+        "granularity": "2s",
+        "reference_ts_ns": "1739657040000000000",
+        "available_start_ns": "1739577600000000000",
+        "available_end_ns": "1739664000000000000",
+        "tiles": [11, 12, 9],
+        "tile_states": [
+            [
+                [1150000, 1240000],
+                [100000, 50000],
+                [200000, 150000],
+                [400000, 400000],
+                [100000, 100000],
+                [0, 0], [0, 0], [0, 0], [0, 0],
+                [50000, 60000]
+            ],
+            [
+                [1060000, 1200000],
+                [150000, 100000],
+                [200000, 150000],
+                [450000, 400000],
+                [100000, 100000],
+                [0, 0], [0, 0], [0, 0], [0, 0],
+                [40000, 50000]
+            ],
+            [
+                [400000, 350000],
+                [0, 0], [0, 0], [0, 0], [0, 0], [0, 0],
+                [900000, 1100000],
+                [200000, 150000],
+                [300000, 250000],
+                [200000, 150000],
+                [0, 0]
+            ]
         ]
     }
 }

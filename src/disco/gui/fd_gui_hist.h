@@ -40,22 +40,30 @@ typedef struct fd_gui fd_gui_t;
    of calendar days, about the span of FD_GUI_HIST_MAX_EPOCHS epochs. */
 #define FD_GUI_HIST_MAX_TIMELINE_DAYS (64UL)
 
-#define FD_GUI_HIST_SCHEDULER_COUNTS  (0)  /* (ts, type)            */
-#define FD_GUI_HIST_TILE_TIMERS       (1)  /* (ts, type)            */
-#define FD_GUI_HIST_SHRED_EVENTS      (2)
-#define FD_GUI_HIST_TXN_START         (3)  /* (ts, type, bank, txn) */
-#define FD_GUI_HIST_TXN_END           (4)  /* (ts, type, bank, txn) */
-#define FD_GUI_HIST_SLOT              (5)  /* (slot, bank_seq)      */
-#define FD_GUI_HIST_LEADER_SLOT       (6)  /* (slot, bank_seq)      */
-#define FD_GUI_HIST_EPOCH             (7)  /* (epoch)               */
-#define FD_GUI_HIST_TILE_STATS        (8)  /* (ts, type)            */
-#define FD_GUI_HIST_TXN_WATERFALL     (9)  /* (ts, type)            */
-#define FD_GUI_HIST_TIMELINE_DAY      (10)
-#define FD_GUI_HIST_REPLAY_TXN        (11)
-#define FD_GUI_HIST_TIMELINE_TILE_DAY (12) /* (day_idx, tile_idx)  */
-#define FD_GUI_HIST_FEC_EVENTS        (13) /* (FEC event key)      */
-#define FD_GUI_HIST_FEC_EVENT_ARCHIVE (14) /* (ts, ...)            */
-#define FD_GUI_HIST_CNT               (15)
+#define FD_GUI_HIST_SCHEDULER_COUNTS        (0) /* (ts, type)            */
+#define FD_GUI_HIST_TILE_TIMERS             (1) /* (ts, type)            */
+#define FD_GUI_HIST_SHRED_EVENTS            (2)
+#define FD_GUI_HIST_TXN_START               (3) /* (ts, type, bank, txn) */
+#define FD_GUI_HIST_TXN_END                 (4) /* (ts, type, bank, txn) */
+#define FD_GUI_HIST_SLOT                    (5) /* (slot, bank_seq)      */
+#define FD_GUI_HIST_LEADER_SLOT             (6) /* (slot, bank_seq)      */
+#define FD_GUI_HIST_EPOCH                   (7) /* (epoch)               */
+#define FD_GUI_HIST_TILE_STATS              (8) /* (ts, type)            */
+#define FD_GUI_HIST_TXN_WATERFALL           (9) /* (ts, type)            */
+#define FD_GUI_HIST_TIMELINE_DAY            (10)
+#define FD_GUI_HIST_REPLAY_TXN              (11)
+#define FD_GUI_HIST_REPLAY_TXN_BATCH        (12) /* (ts, ...)            */
+#define FD_GUI_HIST_FEC_EVENTS              (13) /* (FEC event key)      */
+#define FD_GUI_HIST_TIMELINE_TILE_DAY       (14) /* (day_idx, tile_idx)  */
+#define FD_GUI_HIST_FEC_EVENT_ARCHIVE       (15) /* immutable event batches */
+#define FD_GUI_HIST_REPLAY_SLOT_STATE       (16) /* (ts, ...)            */
+#define FD_GUI_HIST_TIMELINE_TILE_STATE_DAY (17) /* (day_idx, tile_idx) */
+#define FD_GUI_HIST_VOTES                   (18) /* (ts, ...)            */
+#define FD_GUI_HIST_VOTE_EVENTS             (19) /* (ts, ...)            */
+#define FD_GUI_HIST_REPLAY_LTHASH           (20) /* (ts, ...)            */
+#define FD_GUI_HIST_REPLAY_LTHASH_BATCH     (21) /* (ts, ...)            */
+#define FD_GUI_HIST_VOTE_BATCH              (22) /* (ts, ...)            */
+#define FD_GUI_HIST_CNT                     (23)
 
 struct fd_gui_hist_metrics {
   /* Writes dropped after exhausting region or KV index capacity. */
@@ -124,8 +132,8 @@ fd_gui_hist_footprint( void );
 
 /* fd_gui_hist_new formats the workspace region `mem`
    (>= fd_gui_hist_footprint bytes, fd_gui_hist_align aligned) as the
-   history semantics layer over the store `db`. Returns `mem` on success
-   or NULL on failure (logged). */
+   history semantics layer over the store `db`.  Returns `mem` on
+   success or NULL on failure (logged). */
 
 void *
 fd_gui_hist_new( void *                 mem,
@@ -143,22 +151,33 @@ fd_gui_hist_leave( fd_gui_hist_t * hist );
 void *
 fd_gui_hist_delete( void * mem );
 
+/* FD_GUI_HIST_PREPARED_DAYS is the number of calendar days of
+   per-day records (timeline_day, timeline_tile_day and
+   timeline_tile_state_day) the store always keeps: yesterday, today and
+   tomorrow, which is prepared ahead of midnight. */
+
+#define FD_GUI_HIST_PREPARED_DAYS (3UL)
+
 /* fd_gui_hist_db_descs fills descs with the FD_GUI_HIST_CNT DB
-   descriptors for a store of store_bytes, and returns descs. */
+   descriptors for a store of store_bytes serving a topology of tile_cnt
+   tiles, and returns descs.  tile_cnt sizes the reserved regions of the
+   per-tile day DBs. */
 
 fd_gui_store_desc_t *
 fd_gui_hist_db_descs( fd_gui_store_desc_t descs[ static FD_GUI_HIST_CNT ],
-                      ulong               store_bytes );
+                      ulong               store_bytes,
+                      ulong               tile_cnt );
 
 FD_FN_CONST static inline ulong
 fd_gui_hist_db_cnt( void ) { return FD_GUI_HIST_CNT; }
 
 /* fd_gui_hist_store_footprint returns the footprint of a store of
-   store_bytes holding the history DBs, or 0 if store_bytes is too
-   small. */
+   store_bytes holding the history DBs of a topology of tile_cnt tiles,
+   or 0 if store_bytes is too small. */
 
 ulong
-fd_gui_hist_store_footprint( ulong store_bytes );
+fd_gui_hist_store_footprint( ulong store_bytes,
+                             ulong tile_cnt );
 
 /* fd_gui_hist_store_new formats mem as a store of store_bytes backed
    by path, holding the history DBs.  The result is ready to join and
@@ -169,6 +188,7 @@ void *
 fd_gui_hist_store_new( void *       mem,
                        char const * path,
                        ulong        store_bytes,
+                       ulong        tile_cnt,
                        ulong        seed );
 
 fd_gui_hist_metrics_t const *

@@ -4,6 +4,7 @@
 #include "../../disco/keyguard/fd_keyload.h"
 
 #include "fd_adminctl.h"
+#include "fd_admin_tile.h"
 #include "../failover/fd_failover_bus.h"
 #include <linux/futex.h>
 #include "generated/fd_admin_tile_seccomp.h"
@@ -54,6 +55,18 @@ struct fd_admin_tile_ctx {
   ulong                 failover_args_json_len;
   char                  failover_cmd_cstr[ 48 ];  /* the parked command and its flags for the log */
   int                   failover_retargeted;      /* the parked command changed the failover target before it was forwarded */
+  ulong                 failover_slot_flags;      /* FD_ADMINCTL_FAILOVER_FLAG_* of the parked command */
+  uchar                 failover_slot_from[ 32 ]; /* identity when the parked command was forwarded */
+  uchar                 failover_slot_to  [ 32 ]; /* identity the parked command is switching to */
+
+  /* Identity commands are reported to the GUI, when there is one. */
+  ulong                 gui_out_idx;              /* admin_gui stem out index, or ULONG_MAX */
+  fd_wksp_t *           gui_out_mem;
+  ulong                 gui_out_chunk0;
+  ulong                 gui_out_wmark;
+  ulong                 gui_out_chunk;
+  int                   gui_pending;              /* gui_event is staged, the stem callback publishes it */
+  fd_admin_gui_event_t  gui_event;
 };
 
 typedef struct fd_admin_tile_ctx fd_admin_tile_ctx_t;
@@ -95,6 +108,90 @@ report_admin_command_custom_result( fd_event_admin_command_t * event,
                                  "%s",
                                  custom_result ) );
   report_admin_command( event, FD_EVENT_ADMIN_COMMAND_RESULT_CUSTOM );
+}
+
+/* gui_report stages a GUI event for an identity command in
+   ctx->gui_event, and the stem callback that ran the command publishes
+   it (gui_publish).  from and to are never NULL: a command refused
+   before its target was known reports the identity it would have
+   switched to as far as known here, or a placeholder key
+   (gui_unknown_key) if the command could not be read.  result is an
+   adminctl result code, or result_cstr names the result if non-NULL.
+   At most one event is staged per callback. */
+
+static uchar const gui_unknown_key[ 32 ] = { /* base58 Unknown111111111111111111111111111111111111 */
+  0x07, 0x1e, 0x6a, 0xcc, 0xa1, 0x12, 0x9d, 0xcf,
+  0x2f, 0x10, 0xd7, 0xb1, 0xee, 0xcb, 0x94, 0x50,
+  0xad, 0x22, 0x6f, 0xf0, 0xdb, 0x0e, 0xc1, 0x22,
+  0x20, 0xd5, 0xc4, 0x90, 0x00, 0x00, 0x00, 0x00 };
+
+static void
+gui_report( fd_admin_tile_ctx_t * ctx,
+            uint                  kind,
+            uchar const *         from,
+            uchar const *         to,
+            ulong                 result,
+            char const *          result_cstr,
+            char const *          notes ) {
+  if( FD_LIKELY( ctx->gui_out_idx==ULONG_MAX ) ) return;
+  FD_TEST( !ctx->gui_pending );
+  fd_admin_gui_event_t * ev = &ctx->gui_event;
+  fd_memset( ev, 0, sizeof(*ev) );
+  ev->ts_ns    = fd_log_wallclock();
+  ev->kind     = kind;
+  fd_memcpy( ev->from, from, 32UL );
+  fd_memcpy( ev->to,   to,   32UL );
+  if( !result_cstr ) result_cstr = fd_adminctl_result_name( result );
+  if( result_cstr ) fd_cstr_ncpy( ev->result, result_cstr, sizeof(ev->result) );
+  else              FD_TEST( fd_cstr_printf_check( ev->result, sizeof(ev->result), NULL, "%#lx", result ) );
+  if( notes ) fd_cstr_ncpy( ev->notes, notes, sizeof(ev->notes) );
+  ctx->gui_pending = 1;
+}
+
+/* The GUI event kind of a failover command.  On this machine a takeover
+   runs as a handoff request with the takeover flag and, if that fails,
+   a promote request. */
+
+FD_FN_CONST static inline uint
+gui_failover_kind( ulong cmd,
+                   ulong flags ) {
+  if( cmd==FD_ADMINCTL_FAILOVER_CMD_PROMOTE || (flags & FD_ADMINCTL_FAILOVER_FLAG_TAKEOVER) ) return FD_ADMIN_GUI_EVENT_IDENTITY_TAKEOVER;
+  return FD_ADMIN_GUI_EVENT_IDENTITY_PROMOTE;
+}
+
+/* gui_failover_notes describes a finished failover command. */
+
+static void
+gui_failover_notes( char *  notes,
+                    ulong   cmd,
+                    ulong   flags,
+                    ulong   result,
+                    ulong   bypassed,
+                    int     retargeted ) {
+  int force = !!(flags & FD_ADMINCTL_FAILOVER_FLAG_FORCE);
+  int ok    = result==FD_ADMINCTL_RESULT_SUCCESS || result==FD_FAILOVER_CONTROL_RESULT_ALREADY_HOLDS;
+  ulong len = 0UL;
+  char * p  = fd_cstr_init( notes );
+# define NOTE( s ) do { char const * _s = (s); ulong _l = strlen( _s ); \
+                        if( len && len+1UL<FD_ADMIN_GUI_NOTES_MAX ) { p = fd_cstr_append_char( p, ' ' ); len += 1UL; } \
+                        _l = fd_ulong_min( _l, FD_ADMIN_GUI_NOTES_MAX-1UL-len ); \
+                        p = fd_cstr_append_text( p, _s, _l ); len += _l; } while(0)
+  if(      cmd==FD_ADMINCTL_FAILOVER_CMD_PREFLIGHT ) NOTE( "This was the check a failover command runs first, and it refused before anything changed." );
+  else if( cmd==FD_ADMINCTL_FAILOVER_CMD_PROMOTE   ) NOTE( "This was the second attempt of a takeover: the promoted node took the staked identity without help from the demoted node." );
+  else if( flags & FD_ADMINCTL_FAILOVER_FLAG_TAKEOVER ) NOTE( "This was the first attempt of a takeover: the promoted node asked the demoted node to hand over the staked identity." );
+  if( force ) {
+    int live = !!(bypassed & FD_FAILOVER_BYPASS_HOLDER_LIVE);
+    int seen = !!(bypassed & FD_FAILOVER_BYPASS_HOLDER_SEEN);
+    if(      live && seen ) NOTE( "It went ahead only because of --force: the demoted node still looked alive and was seen running the staked identity." );
+    else if( live         ) NOTE( "It went ahead only because of --force: the demoted node still looked alive." );
+    else if( seen         ) NOTE( "It went ahead only because of --force: the demoted node was seen running the staked identity." );
+    else if( ok && cmd!=FD_ADMINCTL_FAILOVER_CMD_PREFLIGHT ) NOTE( "It was run with --force, but would have worked without it because the demoted node already looked down." );
+    else                    NOTE( "It was run with --force." );
+  }
+  if( bypassed & FD_FAILOVER_BYPASS_HISTORY_INCOMPLETE ) NOTE( "The promoted node started voting without the demoted node's record of past votes." );
+  if( retargeted && !ok ) NOTE( "The failover target changed while the command was running." );
+# undef NOTE
+  fd_cstr_fini( p );
 }
 
 FD_FN_CONST static inline ulong
@@ -142,6 +239,15 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->failover_enabled     = fd_topo_find_tile( topo, "failov", 0UL )!=ULONG_MAX;
   ctx->failover_slot_idx    = ULONG_MAX;
   ctx->topo                 = topo;
+
+  ctx->gui_out_idx = fd_topo_find_tile_out_link( topo, tile, "admin_gui", 0UL );
+  if( FD_LIKELY( ctx->gui_out_idx!=ULONG_MAX ) ) {
+    fd_topo_link_t const * gui_link = &topo->links[ tile->out_link_id[ ctx->gui_out_idx ] ];
+    ctx->gui_out_mem    = topo->workspaces[ topo->objs[ gui_link->dcache_obj_id ].wksp_id ].wksp;
+    ctx->gui_out_chunk0 = fd_dcache_compact_chunk0( ctx->gui_out_mem, gui_link->dcache );
+    ctx->gui_out_wmark  = fd_dcache_compact_wmark ( ctx->gui_out_mem, gui_link->dcache, gui_link->mtu );
+    ctx->gui_out_chunk  = ctx->gui_out_chunk0;
+  }
 
   fd_topo_obj_t const * adminctl_obj = fd_topo_find_tile_obj( topo, tile, "adminctl" );
   FD_TEST( adminctl_obj );
@@ -745,6 +851,7 @@ set_identity( fd_admin_tile_ctx_t * ctx,
 
   if( FD_UNLIKELY( data_sz<sizeof(ulong) ) ) {
     FD_LOG_WARNING(( "adminctl set-identity payload too small: %lu", data_sz ));
+    gui_report( ctx, FD_ADMIN_GUI_EVENT_IDENTITY_SET, ctx->identity_pubkey, gui_unknown_key, FD_ADMINCTL_RESULT_ABI_SIZE_MISMATCH, NULL, NULL );
     report_admin_command( &event, FD_EVENT_ADMIN_COMMAND_RESULT_ABI_SIZE_MISMATCH );
     fd_adminctl_complete( adminctl, slot_idx, FD_ADMINCTL_RESULT_ABI_SIZE_MISMATCH );
     return;
@@ -753,6 +860,7 @@ set_identity( fd_admin_tile_ctx_t * ctx,
   ulong version = FD_LOAD( ulong, data );
   if( FD_UNLIKELY( version!=FD_ADMINCTL_SET_IDENTITY_PAYLOAD_VERSION ) ) {
     FD_LOG_WARNING(( "unsupported adminctl set-identity payload version %lu", version ));
+    gui_report( ctx, FD_ADMIN_GUI_EVENT_IDENTITY_SET, ctx->identity_pubkey, gui_unknown_key, FD_ADMINCTL_RESULT_ABI_VERSION_MISMATCH, NULL, NULL );
     report_admin_command( &event, FD_EVENT_ADMIN_COMMAND_RESULT_ABI_VERSION_MISMATCH );
     fd_adminctl_complete( adminctl, slot_idx, FD_ADMINCTL_RESULT_ABI_VERSION_MISMATCH );
     return;
@@ -760,6 +868,7 @@ set_identity( fd_admin_tile_ctx_t * ctx,
 
   if( FD_UNLIKELY( data_sz!=sizeof(fd_adminctl_set_identity_t) ) ) {
     FD_LOG_WARNING(( "unexpected adminctl set-identity payload_sz %lu", data_sz ));
+    gui_report( ctx, FD_ADMIN_GUI_EVENT_IDENTITY_SET, ctx->identity_pubkey, gui_unknown_key, FD_ADMINCTL_RESULT_ABI_SIZE_MISMATCH, NULL, NULL );
     report_admin_command( &event, FD_EVENT_ADMIN_COMMAND_RESULT_ABI_SIZE_MISMATCH );
     fd_adminctl_complete( adminctl, slot_idx, FD_ADMINCTL_RESULT_ABI_SIZE_MISMATCH );
     return;
@@ -771,6 +880,8 @@ set_identity( fd_admin_tile_ctx_t * ctx,
   fd_ed25519_public_from_private( public_key.uc, req->keypair, ctx->sha512 );
   if( FD_UNLIKELY( memcmp( public_key.uc, req->keypair+32UL, 32UL ) ) ) {
     FD_LOG_WARNING(( "set-identity failed: public key in key file does not match private key" ));
+    gui_report( ctx, FD_ADMIN_GUI_EVENT_IDENTITY_SET, ctx->identity_pubkey, req->keypair+32UL, FD_SET_IDENTITY_RESULT_KEYPAIR_MISMATCH, NULL,
+                "The public key in the key file does not match its private key." );
     report_admin_command_custom_result( &event, "keypair_mismatch" );
     fd_adminctl_complete( adminctl, slot_idx, FD_SET_IDENTITY_RESULT_KEYPAIR_MISMATCH );
     return;
@@ -778,6 +889,7 @@ set_identity( fd_admin_tile_ctx_t * ctx,
 
   if( FD_UNLIKELY( !memcmp( public_key.uc, ctx->identity_pubkey, 32UL ) ) ) {
     FD_LOG_WARNING(( "set-identity failed: the validator is already running as the identity" ));
+    gui_report( ctx, FD_ADMIN_GUI_EVENT_IDENTITY_SET, ctx->identity_pubkey, public_key.uc, FD_SET_IDENTITY_RESULT_SAME_IDENTITY, NULL, NULL );
     report_admin_command_custom_result( &event, "same_identity" );
     fd_adminctl_complete( adminctl, slot_idx, FD_SET_IDENTITY_RESULT_SAME_IDENTITY );
     return;
@@ -791,9 +903,12 @@ set_identity( fd_admin_tile_ctx_t * ctx,
     if( FD_UNLIKELY( poll_set_identity( ctx, &state, identity_outset, req->keypair, req->vote_history_slot ) ) ) break;
   }
 
-  memcpy( ctx->identity_pubkey, req->keypair+32UL, 32UL );
+  uchar old_pubkey[ 32 ];
+  memcpy( old_pubkey,           ctx->identity_pubkey, 32UL );
+  memcpy( ctx->identity_pubkey, req->keypair+32UL,    32UL );
   if( FD_UNLIKELY( ctx->failover_enabled ) ) failover_operator_notify( ctx, stem );
 
+  gui_report( ctx, FD_ADMIN_GUI_EVENT_IDENTITY_SET, old_pubkey, ctx->identity_pubkey, FD_ADMINCTL_RESULT_SUCCESS, NULL, NULL );
   report_admin_command( &event, FD_EVENT_ADMIN_COMMAND_RESULT_SUCCESS );
   fd_adminctl_complete( adminctl, slot_idx, FD_ADMINCTL_RESULT_SUCCESS );
 }
@@ -1362,8 +1477,17 @@ failover_event_args( fd_admin_tile_ctx_t const * ctx,
 static void
 failover_complete( fd_admin_tile_ctx_t * ctx,
                    ulong                 result,
-                   ulong                 slot ) {
+                   ulong                 slot,
+                   ulong                 bypassed ) {
   int preflight = ctx->failover_slot_cmd==FD_ADMINCTL_FAILOVER_CMD_PREFLIGHT;
+  /* A preflight is reported only when it refused. */
+  if( FD_LIKELY( !preflight || result!=FD_ADMINCTL_RESULT_SUCCESS ) ) {
+    char notes[ FD_ADMIN_GUI_NOTES_MAX ];
+    gui_failover_notes( notes, ctx->failover_slot_cmd, ctx->failover_slot_flags, result, bypassed, ctx->failover_retargeted );
+    int ok = result==FD_ADMINCTL_RESULT_SUCCESS || result==FD_FAILOVER_CONTROL_RESULT_ALREADY_HOLDS;
+    gui_report( ctx, gui_failover_kind( ctx->failover_slot_cmd, ctx->failover_slot_flags ), ctx->failover_slot_from,
+                ok ? ctx->identity_pubkey : ctx->failover_slot_to, result, NULL, notes );
+  }
   if( FD_LIKELY( !preflight ) ) {
     fd_event_admin_command_t event = {
       .type                = FD_EVENT_ADMIN_COMMAND_TYPE_FAILOVER_PROMOTE,
@@ -1404,6 +1528,7 @@ failover_complete( fd_admin_tile_ctx_t * ctx,
     FD_LOG_WARNING(( "`%s` failed (result %#lx), this machine runs `%s`", ctx->failover_cmd_cstr, result, identity ));
   }
   ctx->failover_retargeted    = 0;
+  ctx->failover_slot_flags    = 0UL;
   ctx->failover_slot_idx      = ULONG_MAX;
   ctx->failover_start_time    = 0UL;
   ctx->failover_args_json_len = 0UL;
@@ -1453,6 +1578,7 @@ failover_request( fd_admin_tile_ctx_t * ctx,
 
   if( FD_UNLIKELY( data_sz<sizeof(ulong) ) ) {
     FD_LOG_WARNING(( "adminctl failover payload too small: %lu", data_sz ));
+    gui_report( ctx, FD_ADMIN_GUI_EVENT_IDENTITY_PROMOTE, ctx->identity_pubkey, gui_unknown_key, FD_ADMINCTL_RESULT_ABI_SIZE_MISMATCH, NULL, "The command could not be read, likely because the command line tool and the validator are different versions." );
     report_admin_command( &event, FD_EVENT_ADMIN_COMMAND_RESULT_ABI_SIZE_MISMATCH );
     fd_adminctl_complete( adminctl, slot_idx, FD_ADMINCTL_RESULT_ABI_SIZE_MISMATCH );
     return;
@@ -1461,6 +1587,7 @@ failover_request( fd_admin_tile_ctx_t * ctx,
   ulong version = FD_LOAD( ulong, data );
   if( FD_UNLIKELY( version!=FD_ADMINCTL_FAILOVER_PAYLOAD_VERSION ) ) {
     FD_LOG_WARNING(( "unsupported adminctl failover payload version %lu", version ));
+    gui_report( ctx, FD_ADMIN_GUI_EVENT_IDENTITY_PROMOTE, ctx->identity_pubkey, gui_unknown_key, FD_ADMINCTL_RESULT_ABI_VERSION_MISMATCH, NULL, "The command could not be read, likely because the command line tool and the validator are different versions." );
     report_admin_command( &event, FD_EVENT_ADMIN_COMMAND_RESULT_ABI_VERSION_MISMATCH );
     fd_adminctl_complete( adminctl, slot_idx, FD_ADMINCTL_RESULT_ABI_VERSION_MISMATCH );
     return;
@@ -1469,6 +1596,7 @@ failover_request( fd_admin_tile_ctx_t * ctx,
   int prepare = data_sz==sizeof(fd_adminctl_failover_prepare_t);
   if( FD_UNLIKELY( data_sz!=sizeof(fd_adminctl_failover_req_t) && !prepare ) ) {
     FD_LOG_WARNING(( "unexpected adminctl failover payload_sz %lu", data_sz ));
+    gui_report( ctx, FD_ADMIN_GUI_EVENT_IDENTITY_PROMOTE, ctx->identity_pubkey, gui_unknown_key, FD_ADMINCTL_RESULT_ABI_SIZE_MISMATCH, NULL, "The command could not be read, likely because the command line tool and the validator are different versions." );
     report_admin_command( &event, FD_EVENT_ADMIN_COMMAND_RESULT_ABI_SIZE_MISMATCH );
     fd_adminctl_complete( adminctl, slot_idx, FD_ADMINCTL_RESULT_ABI_SIZE_MISMATCH );
     return;
@@ -1479,15 +1607,28 @@ failover_request( fd_admin_tile_ctx_t * ctx,
   int force     = !!(req.flags & FD_ADMINCTL_FAILOVER_FLAG_FORCE);
   int takeover  = !!(req.flags & FD_ADMINCTL_FAILOVER_FLAG_TAKEOVER);
   int preflight = req.cmd==FD_ADMINCTL_FAILOVER_CMD_PREFLIGHT;
+  uint gui_kind = gui_failover_kind( req.cmd, req.flags );
+  /* The identity the command would switch to, as far as it is known
+     here.  A preflight names it, one with a key file names the file's
+     key, the others go to the failover target. */
+  uchar gui_to[ 32 ];
+  if(      preflight ) fd_memcpy( gui_to, req.target,                                                   32UL );
+  else if( prepare   ) fd_memcpy( gui_to, ((fd_adminctl_failover_prepare_t const *)data)->keypair+32UL, 32UL ); /* the key the file claims */
+  else                 fd_memcpy( gui_to, ctx->failover_pubkey,                                         32UL );
+  char gui_notes[ FD_ADMIN_GUI_NOTES_MAX ];
   char const * invalid = NULL;
-  if(      req.cmd>=FD_ADMINCTL_FAILOVER_CMD_CNT )                                           invalid = "unknown command";
-  else if( req.flags & ~(FD_ADMINCTL_FAILOVER_FLAG_YES|FD_ADMINCTL_FAILOVER_FLAG_FORCE|FD_ADMINCTL_FAILOVER_FLAG_TAKEOVER) ) invalid = "unknown flags";
-  else if( force && !takeover )                                                              invalid = "--force goes with a takeover";
-  else if( req.cmd==FD_ADMINCTL_FAILOVER_CMD_PROMOTE && !takeover )                          invalid = "a promote request is only sent by a takeover";
-  else if( req.cmd!=FD_ADMINCTL_FAILOVER_CMD_HANDOFF && (req.addr || req.port) )             invalid = "an address or port goes only with a handoff";
-  else if( preflight && prepare )                                                            invalid = "a preflight carries no keypair";
+  char const * gui_invalid = NULL;
+# define INVALID( log, gui ) do { invalid = (log); gui_invalid = (gui); } while(0)
+  if(      req.cmd>=FD_ADMINCTL_FAILOVER_CMD_CNT )                                           INVALID( "unknown command", "The command was refused because this validator does not know it." );
+  else if( req.flags & ~(FD_ADMINCTL_FAILOVER_FLAG_YES|FD_ADMINCTL_FAILOVER_FLAG_FORCE|FD_ADMINCTL_FAILOVER_FLAG_TAKEOVER) ) INVALID( "unknown flags", "The command was refused because it had options this validator does not know." );
+  else if( force && !takeover )                                                              INVALID( "--force goes with a takeover", "The command was refused because --force can only be used with failover takeover." );
+  else if( req.cmd==FD_ADMINCTL_FAILOVER_CMD_PROMOTE && !takeover )                          INVALID( "a promote request is only sent by a takeover", "The command was refused because it asked to take the identity without being a takeover." );
+  else if( req.cmd!=FD_ADMINCTL_FAILOVER_CMD_HANDOFF && (req.addr || req.port) )             INVALID( "an address or port goes only with a handoff", "The command was refused because it gave a node address where none is used." );
+  else if( preflight && prepare )                                                            INVALID( "a preflight carries no keypair", "The command was refused because its first check carried a key file." );
+# undef INVALID
   if( FD_UNLIKELY( invalid ) ) {
     FD_LOG_WARNING(( "refusing adminctl failover cmd %lu flags %lu, %s", req.cmd, req.flags, invalid ));
+    gui_report( ctx, gui_kind, ctx->identity_pubkey, gui_to, FD_ADMINCTL_RESULT_UNKNOWN_COMMAND, NULL, gui_invalid );
     report_admin_command( &event, FD_EVENT_ADMIN_COMMAND_RESULT_UNKNOWN_COMMAND );
     fd_adminctl_complete( adminctl, slot_idx, FD_ADMINCTL_RESULT_UNKNOWN_COMMAND );
     return;
@@ -1503,6 +1644,7 @@ failover_request( fd_admin_tile_ctx_t * ctx,
 
   if( FD_UNLIKELY( ctx->failov_out_idx==ULONG_MAX ) ) {
     FD_LOG_WARNING(( "`%s` refused, the admin tile has no failover bus link", cmd_cstr ));
+    gui_report( ctx, gui_kind, ctx->identity_pubkey, gui_to, FD_ADMINCTL_RESULT_UNSUPPORTED, NULL, "Failover is not enabled on this validator." );
     report_admin_command( &event, FD_EVENT_ADMIN_COMMAND_RESULT_UNSUPPORTED );
     fd_adminctl_complete( adminctl, slot_idx, FD_ADMINCTL_RESULT_UNSUPPORTED );
     return;
@@ -1511,6 +1653,8 @@ failover_request( fd_admin_tile_ctx_t * ctx,
   /* Keep one command outstanding until the failover tile responds. */
   if( FD_UNLIKELY( ctx->failover_answered!=ctx->failover_nonce || ctx->failover_pending ) ) {
     FD_LOG_WARNING(( "`%s` refused, another failover command is still running on the failover tile", cmd_cstr ));
+    gui_failover_notes( gui_notes, req.cmd, req.flags, FD_FAILOVER_CONTROL_RESULT_BUSY, 0UL, 0 );
+    gui_report( ctx, gui_kind, ctx->identity_pubkey, gui_to, FD_FAILOVER_CONTROL_RESULT_BUSY, NULL, gui_notes );
     report_admin_command_custom_result( &event, "busy" );
     fd_adminctl_complete( adminctl, slot_idx, FD_FAILOVER_CONTROL_RESULT_BUSY );
     return;
@@ -1523,6 +1667,8 @@ failover_request( fd_admin_tile_ctx_t * ctx,
       char custom[ 24 ];
       FD_TEST( fd_cstr_printf_check( custom, sizeof(custom), NULL, "%#lx", result ) );
       FD_LOG_WARNING(( "`%s` refused before it reached the failover tile (result %s), nothing was done", cmd_cstr, custom ));
+      gui_failover_notes( gui_notes, req.cmd, req.flags, result, 0UL, 0 );
+      gui_report( ctx, gui_kind, ctx->identity_pubkey, gui_to, result, NULL, gui_notes );
       report_admin_command_custom_result( &event, custom );
       fd_adminctl_complete( adminctl, slot_idx, result );
       return;
@@ -1531,6 +1677,8 @@ failover_request( fd_admin_tile_ctx_t * ctx,
 
   if( prepare ) {
     if( FD_UNLIKELY( stem->cr_avail[ ctx->failov_out_idx ]<4UL ) ) {
+      gui_failover_notes( gui_notes, req.cmd, req.flags, FD_FAILOVER_CONTROL_RESULT_BUSY, 0UL, 0 );
+      gui_report( ctx, gui_kind, ctx->identity_pubkey, gui_to, FD_FAILOVER_CONTROL_RESULT_BUSY, NULL, gui_notes );
       report_admin_command_custom_result( &event, "busy" );
       fd_adminctl_complete( adminctl, slot_idx, FD_FAILOVER_CONTROL_RESULT_BUSY );
       return;
@@ -1541,6 +1689,8 @@ failover_request( fd_admin_tile_ctx_t * ctx,
     fd_memzero_explicit( payload->keypair, sizeof(payload->keypair) );
     if( FD_UNLIKELY( result!=FD_ADMINCTL_RESULT_SUCCESS ) ) {
       FD_LOG_WARNING(( "`%s` refused before it reached the failover tile (result %#lx), nothing was done", cmd_cstr, result ));
+      gui_failover_notes( gui_notes, req.cmd, req.flags, result, 0UL, 0 );
+      gui_report( ctx, gui_kind, ctx->identity_pubkey, gui_to, result, NULL, gui_notes );
       report_admin_command_custom_result( &event, "target_refused" );
       fd_adminctl_complete( adminctl, slot_idx, result );
       return;
@@ -1568,7 +1718,10 @@ failover_request( fd_admin_tile_ctx_t * ctx,
 
   ctx->failover_slot_idx   = slot_idx;
   ctx->failover_slot_cmd   = req.cmd;
+  ctx->failover_slot_flags = req.flags;
   ctx->failover_start_time = event.start_time;
+  fd_memcpy( ctx->failover_slot_from, ctx->identity_pubkey, 32UL );
+  fd_memcpy( ctx->failover_slot_to,   gui_to,               32UL );
 }
 
 static void
@@ -1588,7 +1741,9 @@ failover_response( fd_admin_tile_ctx_t * ctx ) {
     FD_LOG_WARNING(( "dropping a stale failover command response" ));
     return;
   }
-  failover_complete( ctx, msg->result, FD_LOAD( ulong, msg->payload ) );
+  fd_failover_cmd_resp_t resp;
+  fd_memcpy( &resp, msg->payload, sizeof(resp) );
+  failover_complete( ctx, msg->result, resp.last_vote_slot, resp.bypassed );
 }
 
 /* The failover tile asked for an identity switch.  We only pass the
@@ -1604,11 +1759,25 @@ failover_switch_request( fd_admin_tile_ctx_t * ctx,
   fd_failover_switch_req_t req;
   fd_memcpy( &req, ctx->failov_in.payload, sizeof(req) );
 
+  /* Switches for a command parked here are reported with the command.
+     Otherwise the peer's failover drives the switch: to the failover
+     identity a promotion it handed us, to anything else (the junk key)
+     a handoff giving the identity up. */
+  int  gui_own  = ctx->failover_slot_idx!=ULONG_MAX;
+  int  gui_up   = !memcmp( req.identity, ctx->failover_pubkey, 32UL );
+  uint gui_kind = gui_up ? FD_ADMIN_GUI_EVENT_IDENTITY_PROMOTE : FD_ADMIN_GUI_EVENT_IDENTITY_HANDOFF;
+  /* Only refusals carry a note. */
+  char const * gui_note = gui_up ? "The demoted node handed over the staked identity after a failover command was run on it." :
+                                   "A failover command on the promoted node asked this node, the demoted node, to hand over the staked identity and switch to a dummy key.";
+  uchar gui_from[ 32 ];
+  fd_memcpy( gui_from, ctx->identity_pubkey, 32UL );
+
   fd_failover_switch_resp_t response;
   fd_memset( &response, 0, sizeof(response) );
   response.result = FD_FAILOVER_SWITCH_ERR_DISABLED;
   if( FD_UNLIKELY( ctx->failover_enabled && req.epoch!=ctx->failover_epoch ) ) {
     FD_LOG_WARNING(( "refusing the failover tile's identity switch, set-identity ran since it asked" ));
+    if( !gui_own ) gui_report( ctx, gui_kind, gui_from, req.identity, 0UL, "stale", "The failover request was dropped because set-identity changed this node's identity after the request was made." );
     response.result         = FD_FAILOVER_SWITCH_ERR_STALE;
     response.operator.epoch = ctx->failover_epoch;
     fd_memcpy( response.operator.identity,          ctx->identity_pubkey, 32UL );
@@ -1616,6 +1785,7 @@ failover_switch_request( fd_admin_tile_ctx_t * ctx,
   } else if( FD_UNLIKELY( ctx->failover_enabled && failover_identity_check( ctx, req.identity )!=FD_ADMINCTL_RESULT_SUCCESS ) ) {
     FD_BASE58_ENCODE_32_BYTES( req.identity, target );
     FD_LOG_WARNING(( "refusing the failover tile's identity switch to `%s`, it is one of the authorized voters, remove it with remove-all-authorized-voters first", target ));
+    if( !gui_own ) gui_report( ctx, gui_kind, gui_from, req.identity, FD_SET_IDENTITY_RESULT_AUTHORIZED_VOTER, NULL, gui_note );
     response.result = FD_FAILOVER_SWITCH_ERR_AUTHORIZED_VOTER;
   } else if( FD_LIKELY( ctx->failover_enabled ) ) {
     fd_event_admin_command_t event = prepare_admin_command( FD_EVENT_ADMIN_COMMAND_TYPE_SET_IDENTITY, NULL, 0UL );
@@ -1644,6 +1814,9 @@ failover_switch_request( fd_admin_tile_ctx_t * ctx,
     response.result            = FD_FAILOVER_SWITCH_OK;
     response.history_watermark = find_identity_keyswitch( ctx, "votor" )->result;
     report_admin_command( &event, FD_EVENT_ADMIN_COMMAND_RESULT_SUCCESS );
+    /* The regular handoff/promotion path needs no explanation: the
+       gui adds the stake change. */
+    if( !gui_own ) gui_report( ctx, gui_kind, gui_from, req.identity, FD_ADMINCTL_RESULT_SUCCESS, NULL, "" );
     FD_LOG_NOTICE(( "failover: every tile switched to `%s`, votor halted signing at sequence %lu", new_identity, response.history_watermark ));
   } else {
     FD_LOG_WARNING(( "the failover tile asked for an identity switch but failover is off, refusing" ));
@@ -1711,6 +1884,14 @@ after_credit( fd_admin_tile_ctx_t * ctx,
       FD_LOG_WARNING(( "unexpected adminctl cmd %lu", cmd_id ));
       fd_adminctl_complete( adminctl, slot_idx, FD_ADMINCTL_RESULT_UNKNOWN_COMMAND );
   }
+
+  if( FD_UNLIKELY( ctx->gui_pending ) ) {
+    ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
+    fd_memcpy( fd_chunk_to_laddr( ctx->gui_out_mem, ctx->gui_out_chunk ), &ctx->gui_event, sizeof(fd_admin_gui_event_t) );
+    fd_stem_publish( stem, ctx->gui_out_idx, 0UL, ctx->gui_out_chunk, sizeof(fd_admin_gui_event_t), 0UL, tspub, tspub );
+    ctx->gui_out_chunk = fd_dcache_compact_next( ctx->gui_out_chunk, sizeof(fd_admin_gui_event_t), ctx->gui_out_chunk0, ctx->gui_out_wmark );
+    ctx->gui_pending   = 0;
+  }
 }
 
 static void
@@ -1760,6 +1941,14 @@ after_frag( fd_admin_tile_ctx_t * ctx,
       FD_LOG_WARNING(( "unexpected failover bus frame %lu", sig ));
       break;
   }
+
+  if( FD_UNLIKELY( ctx->gui_pending ) ) {
+    ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
+    fd_memcpy( fd_chunk_to_laddr( ctx->gui_out_mem, ctx->gui_out_chunk ), &ctx->gui_event, sizeof(fd_admin_gui_event_t) );
+    fd_stem_publish( stem, ctx->gui_out_idx, 0UL, ctx->gui_out_chunk, sizeof(fd_admin_gui_event_t), 0UL, tspub, tspub );
+    ctx->gui_out_chunk = fd_dcache_compact_next( ctx->gui_out_chunk, sizeof(fd_admin_gui_event_t), ctx->gui_out_chunk0, ctx->gui_out_wmark );
+    ctx->gui_pending   = 0;
+  }
 }
 
 static ulong
@@ -1787,7 +1976,7 @@ populate_allowed_fds( fd_topo_t const *      topo FD_PARAM_UNUSED,
   return out_cnt;
 }
 
-#define STEM_BURST (2UL)
+#define STEM_BURST (3UL) /* two failover bus frames and a GUI event */
 #define STEM_LAZY  ((long)1e6) /* 1ms */
 #define STEM_ALWAYS_PARK 1
 

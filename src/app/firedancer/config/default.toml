@@ -273,19 +273,23 @@ telemetry = true
     # Firedancer instance.
     shredb = ""
 
-    # File path to the GUI database file.
+    # File paths to the GUI database files, one per GUI tile (see
+    # [layout.gui_tile_count]).  Listing them explicitly can be used to
+    # spread the databases across different disks.
     #
-    # The GUI tile maintains an on-disk event database holding past
-    # slot, transaction, and metrics data served to WebSocket clients.
+    # Each GUI tile maintains its own on-disk event database holding
+    # past slot, transaction, and metrics data served to WebSocket
+    # clients.  The database is truncated when the tile starts.
     #
-    # If no path is provided, it defaults to the `gui.db` path within the
-    # base directory above.
+    # If empty, GUI tile i uses `gui.<i>.db` within the base directory
+    # above, so `gui.0.db`, `gui.1.db`, ...  If set, it must have exactly
+    # [layout.gui_tile_count] entries, all distinct.
     #
-    # Two substitutions will be performed on this string.  If "{user}"
+    # Two substitutions will be performed on each entry.  If "{user}"
     # is present it will be replaced with the user running Firedancer,
     # as above, and "{name}" will be replaced with the name of the
     # Firedancer instance.
-    guidb = ""
+    guidbs = []
 
     # Absolute directory path for the vote history file used for safe
     # identity switching.  If no path is provided, it defaults to the
@@ -1171,6 +1175,18 @@ telemetry = true
     # How many snapshot server io_uring worker kernel threads to run.
     snapsv_io_worker_count = 1
 
+    # How many GUI tiles to run, if the GUI is enabled.  Each GUI tile
+    # receives the full validator data stream and keeps an independent
+    # copy of all GUI state, including its own GUI database file.  All
+    # GUI tiles listen on the same [tiles.gui.gui_listen_port] using
+    # SO_REUSEPORT, and the kernel distributes incoming client
+    # connections between them.  Increase this if the GUI tile is CPU
+    # bound serving many clients.  Note that memory and disk use, such
+    # as [tiles.gui.send_buffer_size_mb] and [tiles.gui.db_size_gib],
+    # are per GUI tile.  See [paths.guidbs] for where each tile's
+    # database is stored.
+    gui_tile_count = 1
+
     # How many shred tiles to run.  Should be set to 2, however can be
     # lowered to 1 if running an low staked or unstaked node.  This is
     # configurable and designed to scale out for future network
@@ -1986,7 +2002,7 @@ telemetry = true
         # with an empty database and grow the storage file on disk up to
         # the limit as needed.  When the database is full, the oldest
         # values are evicted to make space for new data.  Must be at
-        # least 4 GiB.
+        # least 10 GiB.
         db_size_gib = 100
 
     [tiles.rpc]
