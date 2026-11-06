@@ -3136,7 +3136,7 @@ fd_quic_handle_crypto_frame( fd_quic_frame_ctx_t *    context,
       if( !conn->post_hs_hdr_used ) {
         /* Only clients can receive NewSessionTicket.  QUIC forbids
            KeyUpdate (RFC 9001 Section 6). */
-        if( conn->server || byte!=4U ) {
+        if( conn->server || byte!=FD_TLS_MSG_NEW_SESSION_TICKET ) {
           fd_quic_frame_error( context, FD_QUIC_CONN_REASON_CRYPTO_BASE+FD_TLS_ALERT_UNEXPECTED_MESSAGE, __LINE__ );
           return FD_QUIC_PARSE_FAIL;
         }
@@ -3199,7 +3199,9 @@ fd_quic_handle_crypto_frame( fd_quic_frame_ctx_t *    context,
     uint alert  = conn->tls_hs->alert;
     uint reason = conn->tls_hs->hs.base.reason;
     FD_DTRACE_PROBE_3( quic_handle_crypto_frame, conn->our_conn_id, alert, reason );
-    if( alert == 0u ) {
+    if( reason==FD_TLS_REASON_CH_SESSION_ID ) {
+      fd_quic_frame_error( context, FD_QUIC_CONN_REASON_PROTOCOL_VIOLATION, __LINE__ );
+    } else if( alert == 0u ) {
       fd_quic_frame_error( context, FD_QUIC_CONN_REASON_INTERNAL_ERROR, __LINE__ );
     } else {
       FD_DEBUG(
