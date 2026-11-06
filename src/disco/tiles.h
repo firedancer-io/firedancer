@@ -92,6 +92,17 @@ struct fd_pack_leader_state {
 };
 typedef struct fd_pack_leader_state fd_pack_leader_state_t;
 
+/* fd_bundle_tpu is published by the bundle tile to gossip whenever the
+   TPU to advertise changes: a block engine's TPU while connected to it,
+   or all zero to advertise our own.  Ports are in host byte order. */
+struct fd_bundle_tpu {
+  uint   ip4;
+  ushort port;
+  uint   fwd_ip4;
+  ushort fwd_port;
+};
+typedef struct fd_bundle_tpu fd_bundle_tpu_t;
+
 /* fd_txn_ns_dt contains nanosecond offsets for an executed solana
    transaction relative to the publish event by pack for its
    corresponding microblock.  These states align with the struct

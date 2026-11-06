@@ -147,6 +147,7 @@ fd_bundle_tile_housekeeping( fd_bundle_tile_t * ctx ) {
   if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->keyswitch )==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
     if( ctx->conn->tcp_sock>=0 ) fd_bundle_client_reset( ctx );
     ctx->halt_signing = 1;
+    fd_memcpy( ctx->identity_pubkey,     ctx->keyswitch->bytes, 32UL );
     fd_memcpy( ctx->conn->auther.pubkey, ctx->keyswitch->bytes, 32UL );
     fd_keyswitch_state( ctx->keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
   }
@@ -163,6 +164,12 @@ fd_bundle_tile_housekeeping( fd_bundle_tile_t * ctx ) {
 
   int const active = fd_bundle_client_status( ctx )==FD_BUNDLE_STATE_CONNECTED;
   if( ctx->active_fseq && FD_UNLIKELY( fd_fseq_query( ctx->active_fseq )!=(ulong)active ) ) fd_fseq_update( ctx->active_fseq, (ulong)active );
+
+  fd_bundle_tpu_t const tpu = active ? ctx->conn->tpu : (fd_bundle_tpu_t){0};
+  if( FD_UNLIKELY( memcmp( &tpu, &ctx->tpu_advertised, sizeof(fd_bundle_tpu_t) ) ) ) {
+    ctx->tpu_advertised = tpu;
+    ctx->tpu_dirty      = 1;
+  }
 }
 
 static void
@@ -346,6 +353,14 @@ after_credit( fd_bundle_tile_t *  ctx,
       *charge_busy = 1;
     }
   }
+
+  if( FD_UNLIKELY( ctx->tpu_dirty ) && ctx->tpu_out.mem ) {
+    *(fd_bundle_tpu_t *)fd_chunk_to_laddr( ctx->tpu_out.mem, ctx->tpu_out.chunk ) = ctx->tpu_advertised;
+    fd_stem_publish( stem, ctx->tpu_out.idx, 0UL, ctx->tpu_out.chunk, sizeof(fd_bundle_tpu_t), 0UL, 0UL, 0UL );
+    ctx->tpu_out.chunk = fd_dcache_compact_next( ctx->tpu_out.chunk, sizeof(fd_bundle_tpu_t), ctx->tpu_out.chunk0, ctx->tpu_out.wmark );
+    ctx->tpu_dirty = 0;
+    *charge_busy = 1;
+  }
 }
 
 static void
@@ -491,7 +506,6 @@ privileged_init( fd_topo_t const *      topo,
                  fd_topo_tile_t const * tile ) {
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
-  if( FD_UNLIKELY( tile->bundle.protocol==FD_BUNDLE_PROTOCOL_BAM ) ) FD_LOG_ERR(( "bundle protocol %d is not supported yet", tile->bundle.protocol ));
   if( FD_UNLIKELY( tile->bundle.fallback_url_len ) ) FD_LOG_ERR(( "[tiles.bundle.fallback_url] is not supported yet" ));
 
   ulong const pending_max = tile->bundle.out_depth;
@@ -517,6 +531,7 @@ privileged_init( fd_topo_t const *      topo,
 
   fd_bundle_auther_init( &ctx->conn->auther );
   uchar const * public_key = fd_keyload_load( tile->bundle.identity_key_path, 1 /* public key only */ );
+  fd_memcpy( ctx->identity_pubkey,     public_key, 32UL );
   fd_memcpy( ctx->conn->auther.pubkey, public_key, 32UL );
 
   ctx->keylog_fd = -1;
@@ -622,6 +637,11 @@ unprivileged_init( fd_topo_t const *      topo,
     ctx->plugin_out = bundle_out_link( topo, &topo->links[ tile->out_link_id[ plugin_out_idx ] ], plugin_out_idx );
   } else {
     ctx->plugin_out = (fd_bundle_out_ctx_t){ .idx=ULONG_MAX };
+  }
+
+  ulong tpu_out_idx = fd_topo_find_tile_out_link( topo, tile, "bundle_tpu", tile->kind_id );
+  if( tpu_out_idx!=ULONG_MAX ) {
+    ctx->tpu_out = bundle_out_link( topo, &topo->links[ tile->out_link_id[ tpu_out_idx ] ], tpu_out_idx );
   }
 
   ulong active_obj_id = fd_pod_query_ulong( topo->props, "bundle_active", ULONG_MAX );

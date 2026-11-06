@@ -519,6 +519,17 @@ test_pack_leader_state( void ) {
   FD_TEST( ctx->harmonic.leader_window_pending );
   FD_TEST( ctx->harmonic.leader_window_slot==501UL && ctx->harmonic.leader_window_end_ns==3000L );
 
+  /* BAM forwards every leader state, but sends no leader window
+     notice */
+  ctx->protocol                       = FD_BUNDLE_PROTOCOL_BAM;
+  ctx->harmonic.leader_window_pending = 0;
+  ctx->next_step_deadline             = LONG_MAX;
+  state.slot                          = 502UL;
+  inject_pack_leader_state( ctx, in_idx, &state );
+  FD_TEST( ctx->leader_state->slot==502UL );
+  FD_TEST( !ctx->harmonic.leader_window_pending );
+  FD_TEST( ctx->bam.leader_state_pending && ctx->next_step_deadline==0L );
+
   free( wksp );
 }
 

@@ -156,7 +156,7 @@ typedef struct fd_bundle_builder fd_bundle_builder_t;
 struct fd_bundle_conn {
   fd_bundle_tile_t * ctx;
 
-  /* Session state, reset with the conn */
+  /* Session state, reset with the conn (unused in BAM mode) */
   fd_bundle_auther_t  auther;
   fd_bundle_builder_t builder; /* refreshed every 5 minutes */
 
@@ -169,6 +169,10 @@ struct fd_bundle_conn {
   /* Harmonic scheduling strategy, acknowledged once per connection */
   uchar strategy_set  : 1;
   uchar strategy_wait : 1;
+
+  /* TPU the server offers for gossip, kept across reconnects, zero if
+     none */
+  fd_bundle_tpu_t tpu;
 
   /* Endpoint */
   uint   is_ssl : 1;
@@ -231,7 +235,10 @@ struct fd_bundle_tile {
   /* Resolver */
   fd_netdb_fds_t netdb_fds[1];
 
-  /* Bundle server connection */
+  /* Bundle server connection
+
+     TODO: In BAM mode, add a second connection to the Jito block engine
+     at [tiles.bundle.fallback_url], used while BAM is down. */
   fd_bundle_conn_t conn[1];
   int              so_rcvbuf;
   long             keepalive_interval;
@@ -242,6 +249,10 @@ struct fd_bundle_tile {
   ulong   waker_client_idx;
   ulong * waker_fseq;
   long    next_step_deadline;
+
+  /* Validator identity, which BAM logs in as.  Each conn's auther
+     keeps its own copy. */
+  uchar identity_pubkey[ 32 ];
 
   /* Bundle state */
   ulong bundle_seq;
@@ -271,6 +282,21 @@ struct fd_bundle_tile {
     ulong block_lost_slot; /* leader slot whose block a reset cut off, or ULONG_MAX */
   } harmonic;
 
+  /* BAM session */
+  struct {
+    fd_grpc_h2_stream_t * stream;                   /* InitSchedulerStream, NULL until opened */
+    uchar                 challenge_wait       : 1; /* GetAuthChallenge in flight */
+    uchar                 stream_accepted      : 1; /* the node sent a message on the stream */
+    uchar                 pong_pending         : 1;
+    uchar                 leader_state_pending : 1; /* send ctx->leader_state, dropped once its slot ends */
+    uchar                 heartbeat_seen       : 1; /* a BuilderHeartBeat arrived on this stream */
+    uint                  pong_id;
+    long                  heartbeat_next;           /* next ValidatorHeartBeat */
+    long                  heartbeat_rx;             /* last BuilderHeartBeat, or stream open */
+    char                  challenge[ 128 ];         /* cstr, empty if none */
+    fd_bundle_builder_t   builder;                  /* from GetBuilderConfig, polled once the stream is accepted */
+  } bam;
+
   fd_rng_t rng[1];
 
   /* Stem publish */
@@ -282,9 +308,15 @@ struct fd_bundle_tile {
   /* App metrics */
   fd_bundle_metrics_t metrics;
 
-  /* 1 while connected, 0 otherwise, for pack.  NULL if the topology has
-     none. */
+  /* 1 while connected (for BAM, logged in with a builder and heartbeats),
+     0 otherwise, for pack.  NULL if the topology has none. */
   ulong * active_fseq;
+
+  /* tpu_advertised is the last TPU published to gossip, from a healthy
+     conn (zero for ours), tpu_dirty is set until it is. */
+  fd_bundle_tpu_t     tpu_advertised;
+  uchar               tpu_dirty;
+  fd_bundle_out_ctx_t tpu_out;
 
   /* Check engine light */
   uchar bundle_status_recent;  /* most recently observed 'check engine light' */
@@ -328,6 +360,9 @@ struct fd_bundle_tile {
 #define FD_BUNDLE_CLIENT_REQ_Bundle_SubscribeBlocks             7
 #define FD_BUNDLE_CLIENT_REQ_Bundle_SetStrategy                 8
 #define FD_BUNDLE_CLIENT_REQ_Bundle_SubmitLeaderWindowInfo      9
+#define FD_BUNDLE_CLIENT_REQ_Bam_GetAuthChallenge              10
+#define FD_BUNDLE_CLIENT_REQ_Bam_InitSchedulerStream           11
+#define FD_BUNDLE_CLIENT_REQ_Bam_GetBuilderConfig              12
 
 FD_PROTOTYPES_BEGIN
 

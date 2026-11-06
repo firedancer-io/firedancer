@@ -5,6 +5,7 @@
 #include <sys/resource.h> /* RLIMIT_NOFILE */
 #include "../../../disco/topo/fd_topob.h"
 #include "../../../disco/fd_txn_m.h"
+#include "../../../disco/keyguard/fd_keyguard.h"
 
 #include <unistd.h> /* pause */
 
@@ -36,7 +37,7 @@ bundle_client_topo( config_t *   config ) {
 
   fd_topob_link( topo, "bundle_verif", "bundle", config->tiles.verify.receive_buffer_size, FD_TPU_PARSED_MTU, 1UL )
     ->permit_no_consumers = 1;
-  fd_topob_link( topo, "bundle_sign",  "bundle", 65536UL,  9UL, 1UL );
+  fd_topob_link( topo, "bundle_sign",  "bundle", 65536UL,  FD_KEYGUARD_BAM_AUTH_MTU, 1UL );
   fd_topob_link( topo, "sign_bundle",  "bundle", 128UL,   64UL, 1UL );
 
   fd_topob_tile_out( topo, "bundle", 0UL, "bundle_verif", 0UL );

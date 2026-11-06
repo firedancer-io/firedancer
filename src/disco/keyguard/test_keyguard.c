@@ -65,6 +65,58 @@ test_failov_message( void ) {
   FD_TEST( !fd_keyguard_payload_authorize( &authority, other, 162UL, FD_KEYGUARD_ROLE_FAILOV, FD_KEYGUARD_SIGN_TYPE_ED25519 ) );
 }
 
+/* test_bam_auth: the bundle role signs a BAM login challenge after the
+   BAM label, as well as a Jito login challenge. */
+
+static void
+test_bam_auth( void ) {
+  fd_keyguard_authority_t authority   = {0};
+  ulong const             label_sz    = FD_KEYGUARD_BAM_AUTH_LABEL_SZ;
+  char const              challenge[] = "challenge-6f1c2a9e-3b4d-4e8f-9a1b-2c3d4e5f6a7b";
+  ulong const             sz          = label_sz+strlen( challenge );
+  uchar                   msg[ FD_KEYGUARD_BAM_AUTH_MTU+1UL ];
+  fd_memcpy( msg, FD_KEYGUARD_BAM_AUTH_LABEL, label_sz );
+  fd_memset( msg+label_sz, 'a', sizeof(msg)-label_sz );
+  fd_memcpy( msg+label_sz, challenge, strlen( challenge ) );
+
+  FD_TEST( fd_keyguard_payload_match( msg, sz, FD_KEYGUARD_SIGN_TYPE_ED25519 )==FD_KEYGUARD_PAYLOAD_BAM );
+  FD_TEST(  fd_keyguard_payload_authorize( &authority, msg, sz,                           FD_KEYGUARD_ROLE_BUNDLE, FD_KEYGUARD_SIGN_TYPE_ED25519               ) );
+  /* a challenge of 1 to 127 bytes */
+  FD_TEST(  fd_keyguard_payload_authorize( &authority, msg, label_sz+1UL,                 FD_KEYGUARD_ROLE_BUNDLE, FD_KEYGUARD_SIGN_TYPE_ED25519               ) );
+  FD_TEST(  fd_keyguard_payload_authorize( &authority, msg, FD_KEYGUARD_BAM_AUTH_MTU,     FD_KEYGUARD_ROLE_BUNDLE, FD_KEYGUARD_SIGN_TYPE_ED25519               ) );
+  FD_TEST( !fd_keyguard_payload_authorize( &authority, msg, label_sz,                     FD_KEYGUARD_ROLE_BUNDLE, FD_KEYGUARD_SIGN_TYPE_ED25519               ) );
+  FD_TEST( !fd_keyguard_payload_authorize( &authority, msg, FD_KEYGUARD_BAM_AUTH_MTU+1UL, FD_KEYGUARD_ROLE_BUNDLE, FD_KEYGUARD_SIGN_TYPE_ED25519               ) );
+  /* wrong sign type */
+  FD_TEST( !fd_keyguard_payload_authorize( &authority, msg, sz,                           FD_KEYGUARD_ROLE_BUNDLE, FD_KEYGUARD_SIGN_TYPE_SHA256_ED25519        ) );
+  FD_TEST( !fd_keyguard_payload_authorize( &authority, msg, sz,                           FD_KEYGUARD_ROLE_BUNDLE, FD_KEYGUARD_SIGN_TYPE_PUBKEY_CONCAT_ED25519 ) );
+  /* altered label, label without its NUL, NUL in the challenge */
+  ulong const flip[ 3 ] = { 0UL, label_sz-1UL, sz-1UL };
+  uchar const val [ 3 ] = { 'Y', '_',          0       };
+  for( ulong i=0UL; i<3UL; i++ ) {
+    uchar b = msg[ flip[ i ] ];
+    msg[ flip[ i ] ] = val[ i ];
+    FD_TEST( !fd_keyguard_payload_authorize( &authority, msg, sz,                         FD_KEYGUARD_ROLE_BUNDLE, FD_KEYGUARD_SIGN_TYPE_ED25519               ) );
+    msg[ flip[ i ] ] = b;
+  }
+
+  /* No other role signs it */
+  for( int role=0; role<FD_KEYGUARD_ROLE_CNT; role++ ) {
+    if( role==FD_KEYGUARD_ROLE_BUNDLE ) continue;
+    FD_TEST( !fd_keyguard_payload_authorize( &authority, msg, sz, role, FD_KEYGUARD_SIGN_TYPE_ED25519 ) );
+  }
+
+  /* The bundle role signs a Jito login challenge, but not a ping or a
+     transaction */
+  uchar other[ 32 ];
+  fd_memset( other, 0x5a, sizeof(other) );
+  FD_TEST(  fd_keyguard_payload_authorize( &authority, other, 9UL,  FD_KEYGUARD_ROLE_BUNDLE, FD_KEYGUARD_SIGN_TYPE_PUBKEY_CONCAT_ED25519 ) );
+  fd_memcpy( other, "SOLANA_PING_PONG", 16UL );
+  FD_TEST( !fd_keyguard_payload_authorize( &authority, other, 32UL, FD_KEYGUARD_ROLE_BUNDLE, FD_KEYGUARD_SIGN_TYPE_ED25519               ) );
+  ulong msg_sz;
+  build_txn_v1( v1_buf, 1UL, 1UL, 0UL, &msg_sz );
+  FD_TEST( !fd_keyguard_payload_authorize( &authority, v1_buf, msg_sz, FD_KEYGUARD_ROLE_BUNDLE, FD_KEYGUARD_SIGN_TYPE_ED25519 ) );
+}
+
 static ulong
 build_txn_v1( uchar * buf,
               ulong   sig_cnt,
@@ -411,6 +463,7 @@ main( int     argc,
   test_tower_match();
   test_vote_history_authorize();
   test_failov_message();
+  test_bam_auth();
   FD_LOG_NOTICE(( "pass" ));
   return 0;
 }

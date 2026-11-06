@@ -915,18 +915,22 @@ fd_topo_initialize( config_t * config ) {
     fd_topob_wksp( topo, "sign_bundle"  );
     fd_topob_wksp( topo, "pack_sign"    );
     fd_topob_wksp( topo, "sign_pack"    );
+    fd_topob_wksp( topo, "bundle_tpu"   );
     fd_topob_wksp( topo, "bundle"       );
 
     /**/                 fd_topob_link( topo, "bundle_verif", "bundle_verif", config->tiles.verify.receive_buffer_size, FD_TPU_PARSED_MTU,         1UL );
-    /**/                 fd_topob_link( topo, "bundle_sign",  "bundle_sign",  65536UL,                                  9UL,                       1UL );
+    /**/                 fd_topob_link( topo, "bundle_sign",  "bundle_sign",  65536UL,                                  FD_KEYGUARD_BAM_AUTH_MTU,  1UL );
     /**/                 fd_topob_link( topo, "sign_bundle",  "sign_bundle",  128UL,                                    64UL,                      1UL );
     /**/                 fd_topob_link( topo, "pack_sign",    "pack_sign",    65536UL,                                  1232UL,                    1UL );
     /**/                 fd_topob_link( topo, "sign_pack",    "sign_pack",    128UL,                                    64UL,                      1UL );
+    /**/                 fd_topob_link( topo, "bundle_tpu",   "bundle_tpu",   128UL,                                    sizeof(fd_bundle_tpu_t),   1UL );
 
     /**/                 fd_topob_tile( topo, "bundle",  "bundle",  "metric_in", tile_to_cpu[ topo->tile_cnt ], 1, 0, 1 );
 
     /**/                 fd_topob_tile_out( topo, "bundle", 0UL, "bundle_verif", 0UL );
     FOR(verify_tile_cnt) fd_topob_tile_in(  topo, "verify", i,             "metric_in", "bundle_verif",   0UL,        FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
+    /**/                 fd_topob_tile_out( topo, "bundle", 0UL, "bundle_tpu",   0UL );
+    /**/                 fd_topob_tile_in(  topo, "gossip", 0UL,           "metric_in", "bundle_tpu",     0UL,        FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
 
     /**/                 fd_topob_tile_in(  topo, "sign",   0UL,           "metric_in", "bundle_sign",    0UL,        FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
     /**/                 fd_topob_tile_out( topo, "bundle", 0UL,                        "bundle_sign",    0UL                                                );
