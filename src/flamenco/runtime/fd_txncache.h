@@ -28,11 +28,10 @@
    The txn cache is somewhat CPU and memory sensitive.  To store message
    hashes requires 20 bytes (only the first 20 of the 32 bytes of the
    hash are used, since this is sufficient to avoid collisions).
-   Without any other overhead, and 31 unrooted blocks with 41,019
-   transactions each (the current maximum), the txn cache would need to
-   store
+   For example, without any other overhead, 31 unrooted blocks with
+   49,019 transactions each would require the txn cache to store
 
-     31 * 41,019 * 20 = 0.025 GB
+     31 * 49,019 * 20 = 0.030 GB
 
    Of memory.  But, we can't query, insert, and remove quickly from a
    flat array.  We make a few trade-offs to achieve good performance
@@ -60,9 +59,9 @@
    level map.
 
    This adds additional memory overhead, a blockhash with only one
-   transaction in it will still consume a full page (16,384) of
+   transaction in it will still consume a full page (8,192) of
    transactions of memory.  Allocating a new transaction page to a
-   chained map is rare (once every 16,384 inserts) so the cost amortizes
+   chained map is rare (once every 8,192 inserts) so the cost amortizes
    to zero.  Creating a blockhash happens once per blockhash, so also
    amortizes to zero, the only operation we care about is then the
    simple insert case with an unfull transaction page into an existing

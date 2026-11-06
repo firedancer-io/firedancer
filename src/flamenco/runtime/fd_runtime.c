@@ -1030,8 +1030,7 @@ fd_runtime_pre_execute_check( fd_runtime_t *      runtime,
                               fd_txn_in_t const * txn_in,
                               fd_txn_out_t *      txn_out ) {
 
-  /* Verify the transaction. For now, this step only involves processing
-     the compute budget instructions. */
+  /* Check the transaction version and compute budget configuration. */
   int err = fd_executor_verify_transaction( bank, txn_in, txn_out );
   if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
     txn_out->err.is_committable = 0;

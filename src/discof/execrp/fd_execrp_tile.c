@@ -44,7 +44,7 @@ struct fd_execrp_tile {
 
   /* link-related data structures. */
   link_ctx_t            replay_in[ 1 ];
-  link_ctx_t            execrp_replay_out[ 1 ]; /* TODO: Remove with solcap v2 */
+  link_ctx_t            execrp_replay_out[ 1 ];
 
   fd_sha512_t           sha_mem[ FD_TXN_SIG_MAX ];
   fd_sha512_t *         sha_lj[  FD_TXN_SIG_MAX ];

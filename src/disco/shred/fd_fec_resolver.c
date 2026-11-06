@@ -988,12 +988,11 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
   }
 
   if( FD_UNLIKELY( FD_REEDSOL_SUCCESS != fd_reedsol_recover_fini( reedsol ) ) ) {
-    /* A few lines up, we already checked to make sure it wasn't the
-       insufficient case, so it must be the inconsistent case.  That
-       means the leader signed a shred with invalid Reed-Solomon FEC
-       set.  This shouldn't happen in practice, but we need to handle it
-       for the malicious leader case.  This should probably be a
-       slash-able offense. */
+    /* Exactly FD_FEC_SHRED_CNT shreds are present.  Any such subset
+       defines a codeword, so recovery cannot detect an inconsistent
+       FEC set here.  A malicious leader's inconsistent shreds are caught
+       by checking the recovered shreds against the signed Merkle root
+       below. */
     ctx_list_ele_push_tail( free_list, ctx, ctx_pool );
     resolver->free_list_cnt++;
     FD_MCNT_INC( SHRED, FEC_FATAL_REJECTED, 1UL );

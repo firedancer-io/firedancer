@@ -130,9 +130,9 @@ fd_shredder_t * fd_shredder_skip_batch( fd_shredder_t * shredder,
    shreds, including the parity information and Merkle proofs; the
    signature field of each shred is clobbered (its tail holds the
    Merkle leaf prefix) and must be overwritten by the caller.  Stores
-   the generated FEC set in result, which is clobbered.  Populates all
-   fields of result except for {data,parity}_shred_present (which is
-   only used for reconstruction).
+   the generated shreds in result.  The received-shred bitmaps
+   data_shred_rcvd, parity_shred_rcvd, turbine_shred_rcvd and
+   repair_shred_rcvd are left unchanged.
 
    shredder must be a valid local join.  chained_merkle_root is a
    pointer to a 32-byte buffer containing the chained merkle root (the

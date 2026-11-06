@@ -18,7 +18,7 @@ FD_PROTOTYPES_BEGIN
           The zero byte is not considered a code point.
      1.2. 2-byte code points must be in [U+0080,U+0800)
      1.3. 3-byte code points must be in [U+0800,U+10000)
-           excluding UTF-16 surrogates [U+D800,U+D900)
+           excluding UTF-16 surrogates [U+D800,U+E000)
      1.4. 4-byte code points must be in [U+10000,U+110000)
 
      2. Zero bytes are treated as a one byte code point (notably, zero
