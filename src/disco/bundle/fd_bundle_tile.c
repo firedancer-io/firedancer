@@ -249,7 +249,9 @@ after_frag( fd_bundle_tile_t *  ctx,
             fd_stem_context_t * stem   FD_PARAM_UNUSED ) {
 
   if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_PACK_LEADER ) ) {
+    int new_slot = ctx->leader_state_staged->slot!=ctx->leader_state->slot;
     *ctx->leader_state = *ctx->leader_state_staged;
+    if( FD_UNLIKELY( fd_bundle_client_leader_state_update( ctx, new_slot ) ) ) ctx->next_step_deadline = 0L;
     return;
   }
 
@@ -489,7 +491,7 @@ privileged_init( fd_topo_t const *      topo,
                  fd_topo_tile_t const * tile ) {
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
-  if( FD_UNLIKELY( tile->bundle.protocol!=FD_BUNDLE_PROTOCOL_JITO ) ) FD_LOG_ERR(( "bundle protocol %d is not supported yet", tile->bundle.protocol ));
+  if( FD_UNLIKELY( tile->bundle.protocol==FD_BUNDLE_PROTOCOL_BAM ) ) FD_LOG_ERR(( "bundle protocol %d is not supported yet", tile->bundle.protocol ));
   if( FD_UNLIKELY( tile->bundle.fallback_url_len ) ) FD_LOG_ERR(( "[tiles.bundle.fallback_url] is not supported yet" ));
 
   ulong const pending_max = tile->bundle.out_depth;
@@ -505,6 +507,7 @@ privileged_init( fd_topo_t const *      topo,
 
   memset( ctx, 0, sizeof(fd_bundle_tile_t) );
   ctx->protocol               = tile->bundle.protocol;
+  ctx->strategy               = tile->bundle.strategy;
   ctx->conn->ctx              = ctx;
   ctx->conn->grpc_client_mem  = grpc_mem;
   ctx->grpc_buf_max           = tile->bundle.buf_sz;
@@ -665,12 +668,13 @@ unprivileged_init( fd_topo_t const *      topo,
     polled_in_idx++;
   }
 
-  ctx->next_leader_slot   = ULONG_MAX;
-  ctx->reset_slot         = ULONG_MAX;
-  ctx->leader_state->slot = ULONG_MAX;
-  ctx->sleep_mode         = has_replay_in; /* start asleep until we learn leader schedule */
-  ctx->sleep_check_ns     = 0;
-  ctx->halt_signing       = 0;
+  ctx->next_leader_slot           = ULONG_MAX;
+  ctx->reset_slot                 = ULONG_MAX;
+  ctx->leader_state->slot         = ULONG_MAX;
+  ctx->harmonic.block_lost_slot   = ULONG_MAX;
+  ctx->sleep_mode                 = has_replay_in; /* start asleep until we learn leader schedule */
+  ctx->sleep_check_ns             = 0;
+  ctx->halt_signing               = 0;
   if( !has_replay_in ) memset( &ctx->replay_in, 0, sizeof(ctx->replay_in) );
 
   ctx->conn->grpc_client = fd_grpc_client_new( ctx->conn->grpc_client_mem, &fd_bundle_client_grpc_callbacks, ctx->conn->grpc_metrics, ctx->conn, ctx->grpc_buf_max, ctx->map_seed );

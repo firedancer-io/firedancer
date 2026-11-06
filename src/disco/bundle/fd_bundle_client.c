@@ -29,12 +29,18 @@
 #define FD_BUNDLE_CLIENT_REQUEST_TIMEOUT ((long)8e9) /* 8 seconds */
 #define FD_BUNDLE_CONN_TIMEOUT_NS        ((long)3e9) /* TCP connect plus TLS and HTTP/2 setup */
 
+FD_STATIC_ASSERT( FD_BUNDLE_STRATEGY_FIFO==block_engine_SchedulingStrategy_SCHEDULING_STRATEGY_FIFO, strategy_wire );
+FD_STATIC_ASSERT( FD_BUNDLE_STRATEGY_FBA ==block_engine_SchedulingStrategy_SCHEDULING_STRATEGY_FBA,  strategy_wire );
+FD_STATIC_ASSERT( FD_BUNDLE_STRATEGY_MREV==block_engine_SchedulingStrategy_SCHEDULING_STRATEGY_MREV, strategy_wire );
+
 /* fd_bundle_protocols describes what each block engine protocol does
    after login. */
 
 struct fd_bundle_protocol {
-  ulong        subs;         /* FD_BUNDLE_SUB_* streams, all required for a healthy connection */
+  ulong        subs;          /* FD_BUNDLE_SUB_* streams, all required for a healthy connection */
   char const * bundles_path;
+  int          set_strategy;  /* SetStrategy, acknowledged before subscribing */
+  int          leader_window; /* SubmitLeaderWindowInfo at the start of each leader slot */
 };
 
 typedef struct fd_bundle_protocol fd_bundle_protocol_t;
@@ -43,8 +49,15 @@ typedef struct fd_bundle_protocol fd_bundle_protocol_t;
 
 static fd_bundle_protocol_t const fd_bundle_protocols[] = {
   [ FD_BUNDLE_PROTOCOL_JITO ] = {
-    .subs         = SUB( PACKETS )|SUB( BUNDLES ),
-    .bundles_path = "/block_engine.BlockEngineValidator/SubscribeBundles",
+    .subs          = SUB( PACKETS )|SUB( BUNDLES ),
+    .bundles_path  = "/block_engine.BlockEngineValidator/SubscribeBundles",
+  },
+  [ FD_BUNDLE_PROTOCOL_HARMONIC ] = {
+    .subs          = SUB( PACKETS )|SUB( BUNDLES )|SUB( BLOCKS ),
+    /* Harmonic serves bundles on SubscribeBundles2 only */
+    .bundles_path  = "/block_engine.BlockEngineValidator/SubscribeBundles2",
+    .set_strategy  = 1,
+    .leader_window = 1,
   },
 };
 
@@ -60,6 +73,7 @@ static struct {
 } const fd_bundle_subs[ FD_BUNDLE_SUB_CNT ] = {
   [ FD_BUNDLE_SUB_PACKETS ] = { FD_BUNDLE_CLIENT_REQ_Bundle_SubscribePackets, "/block_engine.BlockEngineValidator/SubscribePackets", &block_engine_SubscribePacketsRequest_msg },
   [ FD_BUNDLE_SUB_BUNDLES ] = { FD_BUNDLE_CLIENT_REQ_Bundle_SubscribeBundles, NULL,                                                   &block_engine_SubscribeBundlesRequest_msg },
+  [ FD_BUNDLE_SUB_BLOCKS  ] = { FD_BUNDLE_CLIENT_REQ_Bundle_SubscribeBlocks,  "/block_engine.BlockEngineValidator/SubscribeBlocks2", &block_engine_SubscribeBlocksRequest_msg  },
 };
 
 /* fd_bundle_sub_idx returns the FD_BUNDLE_SUB_* of a subscription
@@ -92,6 +106,8 @@ static void
 fd_bundle_conn_close( fd_bundle_conn_t * conn ) {
   fd_bundle_auther_reset( &conn->auther );
   conn->builder       = (fd_bundle_builder_t){0};
+  conn->strategy_set  = 0;
+  conn->strategy_wait = 0;
   fd_memset( conn->sub, 0, sizeof(conn->sub) );
 
   if( FD_UNLIKELY( conn->tcp_sock >= 0 ) ) {
@@ -109,7 +125,8 @@ fd_bundle_conn_close( fd_bundle_conn_t * conn ) {
   fd_grpc_client_reset( conn->grpc_client );
 }
 
-/* fd_bundle_conn_reset closes conn and resets the session on it. */
+/* fd_bundle_conn_reset closes conn and resets the session on it, which
+   for the block engine conn includes its Harmonic block state. */
 
 static void
 fd_bundle_conn_reset( fd_bundle_conn_t * conn ) {
@@ -119,6 +136,15 @@ fd_bundle_conn_reset( fd_bundle_conn_t * conn ) {
 
 void
 fd_bundle_client_reset( fd_bundle_tile_t * ctx ) {
+  /* A reset while our block is streaming can lose part of it, and a new
+     stream does not say where it resumes, so the rest is dropped */
+  if( FD_UNLIKELY( ctx->conn->sub[ FD_BUNDLE_SUB_BLOCKS ].live &&
+                   ctx->leader_state->slot!=ULONG_MAX &&
+                   fd_bundle_now( ctx )<ctx->leader_state->slot_end_ns ) ) {
+    FD_LOG_WARNING(( "Block engine connection reset during leader slot %lu, dropping the rest of its block", ctx->leader_state->slot ));
+    ctx->harmonic.block_lost_slot = ctx->leader_state->slot;
+  }
+
   fd_bundle_conn_close( ctx->conn );
 }
 
@@ -282,8 +308,10 @@ fd_bundle_client_subscribe( fd_bundle_conn_t * conn,
                             ulong              sub ) {
   if( FD_UNLIKELY( fd_grpc_client_request_is_blocked( conn->grpc_client ) ) ) return;
 
-  /* The packets and bundles requests have no fields */
-  block_engine_SubscribePacketsRequest req = block_engine_SubscribePacketsRequest_init_default;
+  /* Only the blocks request has fields */
+  block_engine_SubscribeBlocksRequest req = block_engine_SubscribeBlocksRequest_init_default;
+  fd_cstr_ncpy( req.version,     fd_version_cstr,    sizeof(req.version)     );
+  fd_cstr_ncpy( req.commit_hash, fd_commit_ref_cstr, sizeof(req.commit_hash) );
 
   char const * path = fd_bundle_subs[ sub ].path ? fd_bundle_subs[ sub ].path : fd_bundle_client_protocol( conn->ctx )->bundles_path;
   fd_grpc_h2_stream_t * request = fd_grpc_client_request_start(
@@ -301,6 +329,83 @@ fd_bundle_client_subscribe( fd_bundle_conn_t * conn,
       fd_log_wallclock() + FD_BUNDLE_CLIENT_REQUEST_TIMEOUT );
 
   conn->sub[ sub ].wait = 1;
+}
+
+static void
+fd_bundle_client_set_strategy( fd_bundle_conn_t * conn ) {
+  if( FD_UNLIKELY( fd_grpc_client_request_is_blocked( conn->grpc_client ) ) ) return;
+
+  block_engine_SetStrategyRequest req = { .strategy = (block_engine_SchedulingStrategy)conn->ctx->strategy };
+  static char const path[] = "/block_engine.BlockEngineValidator/SetStrategy";
+  fd_grpc_h2_stream_t * request = fd_grpc_client_request_start(
+      conn->grpc_client,
+      path, sizeof(path)-1,
+      FD_BUNDLE_CLIENT_REQ_Bundle_SetStrategy,
+      &block_engine_SetStrategyRequest_msg, &req,
+      conn->auther.access_token, conn->auther.access_token_sz,
+      0 /* is_streaming */
+  );
+  if( FD_UNLIKELY( !request ) ) return;
+  fd_grpc_client_deadline_set(
+      request,
+      FD_GRPC_DEADLINE_RX_END,
+      fd_log_wallclock() + FD_BUNDLE_CLIENT_REQUEST_TIMEOUT );
+
+  conn->strategy_wait = 1;
+}
+
+/* fd_bundle_client_submit_leader_window_info sends the queued leader
+   window notice.  Returns 1 if sent, 0 if the client is busy. */
+
+static int
+fd_bundle_client_submit_leader_window_info( fd_bundle_tile_t * ctx,
+                                            long               now ) {
+  if( FD_UNLIKELY( fd_grpc_client_request_is_blocked( ctx->conn->grpc_client ) ) ) return 0;
+
+  /* start_timestamp is the send time, which only measures latency */
+  block_engine_SubmitLeaderWindowInfoRequest req = block_engine_SubmitLeaderWindowInfoRequest_init_default;
+  req.slot                    = ctx->harmonic.leader_window_slot;
+  req.has_start_timestamp     = 1;
+  req.start_timestamp.seconds = now/(long)1e9;
+  req.start_timestamp.nanos   = (int)( now%(long)1e9 );
+  req.has_end_timestamp       = 1;
+  req.end_timestamp.seconds   = ctx->harmonic.leader_window_end_ns/(long)1e9;
+  req.end_timestamp.nanos     = (int)( ctx->harmonic.leader_window_end_ns%(long)1e9 );
+
+  static char const path[] = "/block_engine.BlockEngineValidator/SubmitLeaderWindowInfo";
+  fd_grpc_h2_stream_t * request = fd_grpc_client_request_start(
+      ctx->conn->grpc_client,
+      path, sizeof(path)-1,
+      FD_BUNDLE_CLIENT_REQ_Bundle_SubmitLeaderWindowInfo,
+      &block_engine_SubmitLeaderWindowInfoRequest_msg, &req,
+      ctx->conn->auther.access_token, ctx->conn->auther.access_token_sz,
+      0 /* is_streaming */
+  );
+  if( FD_UNLIKELY( !request ) ) return 0;
+  fd_grpc_client_deadline_set(
+      request,
+      FD_GRPC_DEADLINE_RX_END,
+      fd_log_wallclock() + FD_BUNDLE_CLIENT_REQUEST_TIMEOUT );
+
+  ctx->harmonic.leader_window_pending = 0;
+  FD_LOG_INFO(( "Submitted leader window info for slot %lu", ctx->harmonic.leader_window_slot ));
+  return 1;
+}
+
+int
+fd_bundle_client_leader_state_update( fd_bundle_tile_t * ctx,
+                                      int                new_slot ) {
+  if( !new_slot ) return 0;
+  ctx->harmonic.block_seq = 0UL;
+  if( !fd_bundle_client_protocol( ctx )->leader_window ) return 0;
+  if( FD_UNLIKELY( ctx->harmonic.leader_window_pending ) ) {
+    FD_LOG_WARNING(( "Leader window info for slot %lu was never sent (superseded by slot %lu)",
+                     ctx->harmonic.leader_window_slot, ctx->leader_state->slot ));
+  }
+  ctx->harmonic.leader_window_pending = 1;
+  ctx->harmonic.leader_window_slot    = ctx->leader_state->slot;
+  ctx->harmonic.leader_window_end_ns  = ctx->leader_state->slot_end_ns;
+  return 1;
 }
 
 void
@@ -386,17 +491,37 @@ fd_bundle_client_step_reconnect( fd_bundle_tile_t * ctx,
   }
   if( FD_UNLIKELY( conn->auther.state!=FD_BUNDLE_AUTH_STATE_DONE_WAIT ) ) return 0;
 
+  /* The leader window notice is time critical, and is only useful while
+     the block stream is live and the slot has not ended */
+  if( FD_UNLIKELY( ctx->harmonic.leader_window_pending ) ) {
+    if( FD_UNLIKELY( now>=ctx->harmonic.leader_window_end_ns ) ) {
+      FD_LOG_WARNING(( "Leader window info for slot %lu was never sent (slot ended)", ctx->harmonic.leader_window_slot ));
+      ctx->harmonic.leader_window_pending = 0;
+    } else if( conn->sub[ FD_BUNDLE_SUB_BLOCKS ].live && fd_bundle_client_submit_leader_window_info( ctx, now ) ) {
+      return 1;
+    }
+  }
+
   /* Request block builder info */
   if( FD_UNLIKELY( fd_bundle_builder_due( &conn->builder, now ) ) ) {
     fd_bundle_client_request_builder_info( conn );
     return 1;
   }
 
-  ulong const subs = fd_bundle_client_protocol( ctx )->subs;
-  for( ulong sub=0UL; sub<FD_BUNDLE_SUB_CNT; sub++ ) {
-    if( FD_UNLIKELY( fd_ulong_extract_bit( subs, (int)sub ) && !conn->sub[ sub ].live && !conn->sub[ sub ].wait ) ) {
-      fd_bundle_client_subscribe( conn, sub );
+  fd_bundle_protocol_t const * protocol = fd_bundle_client_protocol( ctx );
+
+  if( FD_UNLIKELY( protocol->set_strategy && !conn->strategy_set ) ) {
+    /* Set the scheduling strategy before subscribing */
+    if( !conn->strategy_wait ) {
+      fd_bundle_client_set_strategy( conn );
       return 1;
+    }
+  } else {
+    for( ulong sub=0UL; sub<FD_BUNDLE_SUB_CNT; sub++ ) {
+      if( FD_UNLIKELY( fd_ulong_extract_bit( protocol->subs, (int)sub ) && !conn->sub[ sub ].live && !conn->sub[ sub ].wait ) ) {
+        fd_bundle_client_subscribe( conn, sub );
+        return 1;
+      }
     }
   }
 
@@ -597,9 +722,10 @@ fd_bundle_txn_sz_valid( ulong txn_sz ) {
   return txn_sz && txn_sz<=FD_TXN_MTU;
 }
 
-/* Every bundle source buffers a bundle with bundle_open, bundle_push
-   for each transaction and bundle_close.  A bundle that is too large,
-   has an invalid transaction or does not fit is dropped whole on close.
+/* Every bundle source (Jito and Harmonic bundles, and Harmonic blocks)
+   buffers a bundle with bundle_open, bundle_push for each transaction
+   and bundle_close.  A bundle that is too large, has an invalid
+   transaction or does not fit is dropped whole on close.
    bundle_abort drops a bundle that failed to decode. */
 
 static void
@@ -838,6 +964,72 @@ fd_bundle_client_handle_packet_batch(
   fd_bundle_client_sample_rx_delay( ctx, &res.header.ts );
 }
 
+/* Called for each Transaction in a Block.  Consecutive transactions
+   with the same nonzero bundle_id form a bundle, every other
+   transaction is a bundle of one.  A dropped bundle keeps its block_seq
+   so the gap is visible downstream. */
+
+static bool
+fd_bundle_client_visit_pb_block_txn(
+    pb_istream_t *     istream,
+    pb_field_t const * field,
+    void **            arg
+) {
+  (void)field;
+  fd_bundle_conn_t * conn = *arg;
+  fd_bundle_tile_t * ctx  = conn->ctx;
+
+  block_Transaction txn = block_Transaction_init_default;
+  if( FD_UNLIKELY( !pb_decode( istream, &block_Transaction_msg, &txn ) ) ) return false;
+
+  if( !txn.bundle_id || txn.bundle_id!=ctx->harmonic.block_bundle_id ) {
+    fd_bundle_client_bundle_close( ctx, ctx->leader_state->slot, ctx->harmonic.block_seq );
+    fd_bundle_client_bundle_open( ctx, &conn->builder, !!txn.bundle_id, 0 );
+    ctx->harmonic.block_bundle_id = txn.bundle_id;
+    ctx->harmonic.block_seq++;
+  }
+  fd_bundle_client_bundle_push( ctx, txn.transaction.bytes, txn.transaction.size, conn->server_ip4_addr );
+  return true;
+}
+
+/* Handle a Block from a SubscribeBlocks2 stream.  A Block that is not
+   for our current leader slot, is for a slot a reset cut off, or fails
+   to decode, is dropped whole. */
+
+static void
+fd_bundle_client_handle_block(
+    fd_bundle_conn_t * conn,
+    pb_istream_t *     istream
+) {
+  fd_bundle_tile_t * ctx = conn->ctx;
+  ulong const txn_cnt0 = pending_txn_cnt( ctx->pending_txns );
+  ulong const seq0     = ctx->harmonic.block_seq;
+  ctx->harmonic.block_bundle_id = 0UL;
+  ctx->bundle.txn_cnt           = 0UL;
+
+  block_Block block = block_Block_init_default;
+  block.transactions = (pb_callback_t) {
+    .funcs.decode = fd_bundle_client_visit_pb_block_txn,
+    .arg          = conn
+  };
+  int const decoded = pb_decode( istream, &block_Block_msg, &block );
+  if( FD_LIKELY( decoded && block.slot==ctx->leader_state->slot && block.slot!=ctx->harmonic.block_lost_slot ) ) {
+    fd_bundle_client_bundle_close( ctx, block.slot, ctx->harmonic.block_seq );
+    return;
+  }
+
+  if( FD_UNLIKELY( !decoded ) ) {
+    ctx->metrics.decode_fail_cnt++;
+    FD_LOG_WARNING(( "Protobuf decode of (block.Block) failed: %s", istream->errmsg ));
+  } else if( block.slot==ctx->harmonic.block_lost_slot ) {
+    FD_LOG_DEBUG(( "Dropping block for slot %lu, cut off by a reset", block.slot ));
+  } else {
+    FD_LOG_INFO(( "Dropping block for slot %lu while leader for slot %lu", block.slot, ctx->leader_state->slot ));
+    ctx->harmonic.block_seq = seq0; /* a Block for another slot does not use up this slot's sequence */
+  }
+  while( pending_txn_cnt( ctx->pending_txns )>txn_cnt0 ) pending_txn_pop_tail_nocopy( ctx->pending_txns );
+}
+
 /* fd_bundle_client_set_builder applies the block builder's base58
    pubkey and its commission in percent to builder.  Returns 1 on
    success, 0 if either is invalid. */
@@ -941,6 +1133,12 @@ fd_bundle_client_grpc_rx_msg(
   case FD_BUNDLE_CLIENT_REQ_Bundle_GetBlockBuilderFeeInfo:
     fd_bundle_client_handle_builder_fee_info( conn, &istream );
     break;
+  case FD_BUNDLE_CLIENT_REQ_Bundle_SubscribeBlocks:
+    fd_bundle_client_handle_block( conn, &istream );
+    break;
+  case FD_BUNDLE_CLIENT_REQ_Bundle_SetStrategy:
+  case FD_BUNDLE_CLIENT_REQ_Bundle_SubmitLeaderWindowInfo:
+    break;
   default:
     FD_LOG_ERR(( "Received unexpected gRPC message (request_ctx=%lu)", request_ctx ));
   }
@@ -960,12 +1158,16 @@ fd_bundle_client_request_failed( fd_bundle_conn_t * conn,
     conn->builder.wait = 0;
     break;
   case FD_BUNDLE_CLIENT_REQ_Bundle_SubscribePackets:
-  case FD_BUNDLE_CLIENT_REQ_Bundle_SubscribeBundles: {
+  case FD_BUNDLE_CLIENT_REQ_Bundle_SubscribeBundles:
+  case FD_BUNDLE_CLIENT_REQ_Bundle_SubscribeBlocks: {
     ulong sub = fd_bundle_sub_idx( request_ctx );
     conn->sub[ sub ].live = 0;
     conn->sub[ sub ].wait = 0;
     break;
   }
+  case FD_BUNDLE_CLIENT_REQ_Bundle_SetStrategy:
+    conn->strategy_wait = 0;
+    break;
   }
 }
 
@@ -993,7 +1195,8 @@ fd_bundle_client_grpc_rx_end(
 
   switch( request_ctx ) {
   case FD_BUNDLE_CLIENT_REQ_Bundle_SubscribePackets:
-  case FD_BUNDLE_CLIENT_REQ_Bundle_SubscribeBundles: {
+  case FD_BUNDLE_CLIENT_REQ_Bundle_SubscribeBundles:
+  case FD_BUNDLE_CLIENT_REQ_Bundle_SubscribeBlocks: {
     ulong sub = fd_bundle_sub_idx( request_ctx );
     conn->sub[ sub ].live = 0;
     conn->sub[ sub ].wait = 0;
@@ -1006,6 +1209,10 @@ fd_bundle_client_grpc_rx_end(
   }
   case FD_BUNDLE_CLIENT_REQ_Bundle_GetBlockBuilderFeeInfo:
     conn->builder.wait = 0;
+    break;
+  case FD_BUNDLE_CLIENT_REQ_Bundle_SetStrategy:
+    conn->strategy_wait = 0;
+    conn->strategy_set  = resp->grpc_status==FD_GRPC_STATUS_OK;
     break;
   default:
     break;
@@ -1137,6 +1344,12 @@ fd_bundle_request_ctx_cstr( ulong request_ctx ) {
     return "SubscribeBundles";
   case FD_BUNDLE_CLIENT_REQ_Bundle_GetBlockBuilderFeeInfo:
     return "GetBlockBuilderFeeInfo";
+  case FD_BUNDLE_CLIENT_REQ_Bundle_SubscribeBlocks:
+    return "SubscribeBlocks2";
+  case FD_BUNDLE_CLIENT_REQ_Bundle_SetStrategy:
+    return "SetStrategy";
+  case FD_BUNDLE_CLIENT_REQ_Bundle_SubmitLeaderWindowInfo:
+    return "SubmitLeaderWindowInfo";
   default:
     return "unknown";
   }

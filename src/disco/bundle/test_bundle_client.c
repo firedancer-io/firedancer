@@ -539,6 +539,10 @@ FD_UNIT_TEST( bundle_client_reset ) {
   FD_TEST( state->conn->auther.needs_poll==0 );
   FD_TEST( state->conn->grpc_client->h2_hs_done==1 );
   FD_TEST( state->conn->grpc_client->stream_cnt==2 );
+  state->conn->sub[ FD_BUNDLE_SUB_BLOCKS ].live = 1;
+  state->conn->sub[ FD_BUNDLE_SUB_BLOCKS ].wait = 1;
+  state->conn->strategy_set                     = 1;
+  state->conn->strategy_wait                    = 1;
 
   fd_bundle_client_reset( state );
 
@@ -551,6 +555,10 @@ FD_UNIT_TEST( bundle_client_reset ) {
   FD_TEST( state->conn->sub[ FD_BUNDLE_SUB_PACKETS ].wait==0 );
   FD_TEST( state->conn->sub[ FD_BUNDLE_SUB_BUNDLES ].live==0 );
   FD_TEST( state->conn->sub[ FD_BUNDLE_SUB_BUNDLES ].wait==0 );
+  FD_TEST( state->conn->sub[ FD_BUNDLE_SUB_BLOCKS ].live==0 );
+  FD_TEST( state->conn->sub[ FD_BUNDLE_SUB_BLOCKS ].wait==0 );
+  FD_TEST( state->conn->strategy_set==0 );
+  FD_TEST( state->conn->strategy_wait==0 );
   FD_TEST( state->conn->rtt->is_rtt_valid==0 );
   FD_TEST( state->conn->auther.state==FD_BUNDLE_AUTH_STATE_REQ_CHALLENGE );
   FD_TEST( state->conn->auther.needs_poll==1 );
@@ -889,6 +897,349 @@ FD_UNIT_TEST( bundle_client_subscribe_bundles ) {
   test_bundle_env_destroy( env );
 }
 
+/* Pops the header frame of a request for path off the wire */
+
+static void
+expect_request_hdr( fd_h2_rbuf_t * wire,
+                    ulong          stream_id,
+                    char const *   path ) {
+  char const * const hdrs[] = {
+    ":method",      "POST",
+    ":scheme",      "https",
+    ":path",        path,
+    "te",           "trailers",
+    "content-type", "application/grpc+proto",
+    "user-agent",   "grpc-firedancer/0.0.0",
+    NULL
+  };
+  expect_h2_hdr( wire, stream_id, hdrs );
+}
+
+/* Pops one DATA frame holding a single gRPC message off the wire and
+   decodes the message into msg */
+
+static void
+expect_msg( fd_h2_rbuf_t *       wire,
+            ulong                stream_id,
+            uint                 flags,
+            pb_msgdesc_t const * fields,
+            void *               msg ) {
+  fd_h2_frame_hdr_t frame_hdr;
+  FD_TEST( fd_h2_rbuf_used_sz( wire )>=sizeof(fd_h2_frame_hdr_t) );
+  fd_h2_rbuf_pop_copy( wire, &frame_hdr, sizeof(fd_h2_frame_hdr_t) );
+  FD_TEST( fd_h2_frame_type( frame_hdr.typlen )==FD_H2_FRAME_TYPE_DATA );
+  FD_TEST( fd_uint_bswap( frame_hdr.r_stream_id )==stream_id );
+  FD_TEST( frame_hdr.flags==flags );
+
+  fd_grpc_hdr_t grpc_hdr;
+  FD_TEST( fd_h2_rbuf_used_sz( wire )>=sizeof(fd_grpc_hdr_t) );
+  fd_h2_rbuf_pop_copy( wire, &grpc_hdr, sizeof(fd_grpc_hdr_t) );
+  FD_TEST( grpc_hdr.compressed==0 );
+  ulong msg_sz = fd_uint_bswap( grpc_hdr.msg_sz );
+  FD_TEST( fd_h2_frame_length( frame_hdr.typlen )==sizeof(fd_grpc_hdr_t)+msg_sz );
+
+  uchar body[ 256 ];
+  FD_TEST( msg_sz<=sizeof(body) && fd_h2_rbuf_used_sz( wire )>=msg_sz );
+  fd_h2_rbuf_pop_copy( wire, body, msg_sz );
+  pb_istream_t istream = pb_istream_from_buffer( body, msg_sz );
+  FD_TEST( pb_decode( &istream, fields, msg ) );
+}
+
+/* Pops a unary request off the wire and decodes its message into msg */
+
+static void
+expect_request( fd_h2_rbuf_t *       wire,
+                ulong                stream_id,
+                char const *         path,
+                pb_msgdesc_t const * fields,
+                void *               msg ) {
+  expect_request_hdr( wire, stream_id, path );
+  expect_msg( wire, stream_id, FD_H2_FLAG_END_STREAM, fields, msg );
+}
+
+/* Verify that a Harmonic client sets the scheduling strategy, and only
+   subscribes once the block engine acknowledged it */
+
+FD_UNIT_TEST( bundle_client_harmonic_set_strategy ) {
+  test_bundle_env_t env[1];
+  test_bundle_env_create( env, wksp );
+  test_bundle_env_mock_conn( env );
+  fd_bundle_tile_t * const state = env->state;
+  state->protocol                                = FD_BUNDLE_PROTOCOL_HARMONIC;
+  state->strategy                                = FD_BUNDLE_STRATEGY_MREV;
+  state->conn->sub[ FD_BUNDLE_SUB_PACKETS ].live = 0;
+
+  int charge_busy = 0;
+  fd_bundle_client_step( state, &charge_busy );
+  FD_TEST( state->conn->strategy_wait==1 );
+  FD_TEST( state->conn->sub[ FD_BUNDLE_SUB_PACKETS ].wait==0 );
+
+  ulong const stream_id = state->conn->grpc_client->stream_ids[ 2 ];
+  FD_TEST( state->conn->grpc_client->stream_pool[ 2 ].request_ctx==FD_BUNDLE_CLIENT_REQ_Bundle_SetStrategy );
+  block_engine_SetStrategyRequest req = block_engine_SetStrategyRequest_init_default;
+  expect_request( wire_rx( env ), stream_id, "/block_engine.BlockEngineValidator/SetStrategy",
+                  &block_engine_SetStrategyRequest_msg, &req );
+  FD_TEST( req.strategy==block_engine_SchedulingStrategy_SCHEDULING_STRATEGY_MREV );
+
+  fd_bundle_client_step( state, &charge_busy );
+  FD_TEST( state->conn->sub[ FD_BUNDLE_SUB_PACKETS ].wait==0 );
+
+  /* A rejected strategy is retried */
+  fd_grpc_resp_hdrs_t hdrs = { .h2_status = 200, .grpc_status = FD_GRPC_STATUS_INVALID_ARGUMENT };
+  fd_bundle_client_grpc_rx_end( state->conn, FD_BUNDLE_CLIENT_REQ_Bundle_SetStrategy, &hdrs );
+  FD_TEST( state->conn->strategy_wait==0 && state->conn->strategy_set==0 );
+
+  state->conn->strategy_wait = 1;
+  hdrs.grpc_status = FD_GRPC_STATUS_OK;
+  fd_bundle_client_grpc_rx_end( state->conn, FD_BUNDLE_CLIENT_REQ_Bundle_SetStrategy, &hdrs );
+  FD_TEST( state->conn->strategy_wait==0 && state->conn->strategy_set==1 );
+
+  test_bundle_env_destroy( env );
+}
+
+/* Verify that a Harmonic client subscribes to blocks, and that the
+   connection is only healthy while the block stream is live */
+
+FD_UNIT_TEST( bundle_client_harmonic_subscribe_blocks ) {
+  test_bundle_env_t env[1];
+  test_bundle_env_create( env, wksp );
+  test_bundle_env_mock_conn( env );
+  fd_bundle_tile_t * const state = env->state;
+  state->protocol           = FD_BUNDLE_PROTOCOL_HARMONIC;
+  state->conn->strategy_set = 1;
+  FD_TEST( fd_bundle_client_status( state )==FD_BUNDLE_STATE_CONNECTING );
+
+  int charge_busy = 0;
+  fd_bundle_client_step( state, &charge_busy );
+  FD_TEST( state->conn->sub[ FD_BUNDLE_SUB_BLOCKS ].wait==1 );
+
+  ulong const stream_id = state->conn->grpc_client->stream_ids[ 2 ];
+  FD_TEST( state->conn->grpc_client->stream_pool[ 2 ].request_ctx==FD_BUNDLE_CLIENT_REQ_Bundle_SubscribeBlocks );
+  block_engine_SubscribeBlocksRequest req = block_engine_SubscribeBlocksRequest_init_default;
+  expect_request( wire_rx( env ), stream_id, "/block_engine.BlockEngineValidator/SubscribeBlocks2",
+                  &block_engine_SubscribeBlocksRequest_msg, &req );
+  FD_TEST( !strncmp( req.version,     fd_version_cstr,    sizeof(req.version)-1     ) );
+  FD_TEST( !strncmp( req.commit_hash, fd_commit_ref_cstr, sizeof(req.commit_hash)-1 ) );
+
+  fd_bundle_client_grpc_rx_start( state->conn, FD_BUNDLE_CLIENT_REQ_Bundle_SubscribeBlocks );
+  FD_TEST( state->conn->sub[ FD_BUNDLE_SUB_BLOCKS ].live==1 && state->conn->sub[ FD_BUNDLE_SUB_BLOCKS ].wait==0 );
+  FD_TEST( fd_bundle_client_status( state )==FD_BUNDLE_STATE_CONNECTED );
+
+  /* The block stream ending forces a reconnect */
+  fd_grpc_resp_hdrs_t hdrs = { .h2_status = 200, .grpc_status = FD_GRPC_STATUS_OK };
+  fd_bundle_client_grpc_rx_end( state->conn, FD_BUNDLE_CLIENT_REQ_Bundle_SubscribeBlocks, &hdrs );
+  FD_TEST( state->conn->sub[ FD_BUNDLE_SUB_BLOCKS ].live==0 );
+  FD_TEST( state->conn->defer_reset==1 );
+
+  test_bundle_env_destroy( env );
+}
+
+/* Verify that a Harmonic client sends the queued leader window notice
+   ahead of other requests once the block stream is live, and drops it
+   once the slot has ended */
+
+FD_UNIT_TEST( bundle_client_harmonic_leader_window ) {
+  test_bundle_env_t env[1];
+  test_bundle_env_create( env, wksp );
+  test_bundle_env_mock_conn( env );
+  fd_bundle_tile_t * const state = env->state;
+  state->protocol                               = FD_BUNDLE_PROTOCOL_HARMONIC;
+  state->conn->strategy_set                     = 1;
+  state->conn->sub[ FD_BUNDLE_SUB_BLOCKS ].live = 1;
+
+  long const end_ns = g_clock + (long)1e9 + 7L;
+  state->harmonic.leader_window_pending = 1;
+  state->harmonic.leader_window_slot    = 500UL;
+  state->harmonic.leader_window_end_ns  = end_ns;
+
+  int charge_busy = 0;
+  fd_bundle_client_step( state, &charge_busy );
+  FD_TEST( !state->harmonic.leader_window_pending );
+
+  ulong const stream_id = state->conn->grpc_client->stream_ids[ 2 ];
+  FD_TEST( state->conn->grpc_client->stream_pool[ 2 ].request_ctx==FD_BUNDLE_CLIENT_REQ_Bundle_SubmitLeaderWindowInfo );
+  block_engine_SubmitLeaderWindowInfoRequest req = block_engine_SubmitLeaderWindowInfoRequest_init_default;
+  expect_request( wire_rx( env ), stream_id, "/block_engine.BlockEngineValidator/SubmitLeaderWindowInfo",
+                  &block_engine_SubmitLeaderWindowInfoRequest_msg, &req );
+  FD_TEST( req.slot==500UL );
+  FD_TEST( req.has_start_timestamp );
+  FD_TEST( req.has_end_timestamp );
+  FD_TEST( req.end_timestamp.seconds==end_ns/(long)1e9 && req.end_timestamp.nanos==(int)( end_ns%(long)1e9 ) );
+
+  /* The empty response is accepted */
+  fd_bundle_client_grpc_rx_msg( state->conn, NULL, 0UL, FD_BUNDLE_CLIENT_REQ_Bundle_SubmitLeaderWindowInfo );
+
+  /* A notice for a slot that already ended is dropped unsent */
+  ulong stream_cnt = state->conn->grpc_client->stream_cnt;
+  state->harmonic.leader_window_pending = 1;
+  state->harmonic.leader_window_slot    = 501UL;
+  state->harmonic.leader_window_end_ns  = g_clock;
+  fd_bundle_client_step( state, &charge_busy );
+  FD_TEST( !state->harmonic.leader_window_pending );
+  FD_TEST( state->conn->grpc_client->stream_cnt==stream_cnt );
+
+  /* A notice waits for the block stream */
+  state->conn->sub[ FD_BUNDLE_SUB_BLOCKS ].live = 0;
+  state->harmonic.leader_window_pending         = 1;
+  state->harmonic.leader_window_slot            = 502UL;
+  state->harmonic.leader_window_end_ns          = end_ns;
+  fd_bundle_client_step( state, &charge_busy );
+  FD_TEST( state->harmonic.leader_window_pending );
+  FD_TEST( state->conn->sub[ FD_BUNDLE_SUB_BLOCKS ].wait );
+
+  test_bundle_env_destroy( env );
+}
+
+/* Hands the client a Block for slot as a SubscribeBlocks2 message.
+   Transaction i is the single byte i, in bundle bundle_ids[ i ]. */
+
+typedef struct {
+  ulong const * bundle_ids;
+  ulong         cnt;
+} test_block_txns_t;
+
+static bool
+test_encode_block_txns( pb_ostream_t *     stream,
+                        pb_field_t const * field,
+                        void * const *     arg ) {
+  test_block_txns_t const * txns = *arg;
+  for( ulong i=0UL; i<txns->cnt; i++ ) {
+    block_Transaction txn = block_Transaction_init_default;
+    txn.transaction.bytes[ 0 ] = (uchar)i;
+    txn.transaction.size       = 1U;
+    txn.bundle_id              = txns->bundle_ids[ i ];
+    if( !pb_encode_tag_for_field( stream, field ) || !pb_encode_submessage( stream, &block_Transaction_msg, &txn ) ) return false;
+  }
+  return true;
+}
+
+static void
+test_rx_block( fd_bundle_tile_t * state,
+               ulong              slot,
+               ulong const *      bundle_ids,
+               ulong              cnt ) {
+  test_block_txns_t txns  = { .bundle_ids = bundle_ids, .cnt = cnt };
+  block_Block       block = block_Block_init_default;
+  block.slot         = slot;
+  block.transactions = (pb_callback_t) { .funcs.encode = test_encode_block_txns, .arg = &txns };
+  static uchar buf[ 4096 ];
+  pb_ostream_t ostream = pb_ostream_from_buffer( buf, sizeof(buf) );
+  FD_TEST( pb_encode( &ostream, &block_Block_msg, &block ) );
+  fd_bundle_client_grpc_rx_msg( state->conn, buf, ostream.bytes_written, FD_BUNDLE_CLIENT_REQ_Bundle_SubscribeBlocks );
+}
+
+/* Verify that Block transactions are grouped into numbered bundles */
+
+FD_UNIT_TEST( bundle_client_harmonic_block ) {
+  test_bundle_env_t env[1];
+  test_bundle_env_create( env, wksp );
+  fd_bundle_tile_t * const state = env->state;
+  state->protocol           = FD_BUNDLE_PROTOCOL_HARMONIC;
+  state->leader_state->slot = 500UL;
+  ulong const seq0 = state->bundle_seq;
+
+  /* A standalone transaction, a two transaction bundle, and another
+     standalone transaction */
+  ulong const ids[] = { 0UL, 7UL, 7UL, 0UL };
+  test_rx_block( state, 500UL, ids, 4UL );
+  FD_TEST( pending_txn_cnt( state->pending_txns )==4UL );
+  static struct { ulong seq; ulong txn_cnt; uchar atomic; } const want[] = {
+    { 1UL, 1UL, 0 }, { 2UL, 2UL, 1 }, { 2UL, 2UL, 1 }, { 3UL, 1UL, 0 }
+  };
+  for( ulong i=0UL; i<4UL; i++ ) {
+    fd_bundle_pending_txn_t const * e = pending_txn_peek_index_const( state->pending_txns, i );
+    FD_TEST( e->payload_sz==1 && e->payload[ 0 ]==(uchar)i && e->sig==1UL );
+    FD_TEST( e->bundle_seq==seq0+want[ i ].seq && e->bundle_txn_cnt==want[ i ].txn_cnt );
+    FD_TEST( e->block_slot==500UL && e->block_seq==want[ i ].seq && e->atomic==want[ i ].atomic );
+  }
+
+  /* A Block for another slot is dropped, without using up this slot's
+     sequence */
+  test_rx_block( state, 499UL, ids, 4UL );
+  FD_TEST( pending_txn_cnt( state->pending_txns )==4UL );
+  FD_TEST( state->harmonic.block_seq==3UL );
+
+  /* A bundle too large for pack is dropped, keeping its sequence number */
+  ulong const big[] = { 9UL, 9UL, 9UL, 9UL, 9UL, 9UL, 0UL };
+  test_rx_block( state, 500UL, big, 7UL );
+  FD_TEST( pending_txn_cnt( state->pending_txns )==5UL );
+  fd_bundle_pending_txn_t const * last = pending_txn_peek_index_const( state->pending_txns, 4UL );
+  FD_TEST( last->payload[ 0 ]==6 && last->block_seq==5UL && last->bundle_txn_cnt==1UL );
+
+  /* A new leader slot restarts the sequence */
+  state->leader_state->slot = 501UL;
+  fd_bundle_client_leader_state_update( state, 1 );
+  FD_TEST( state->harmonic.block_seq==0UL );
+
+  test_bundle_env_destroy( env );
+}
+
+/* Verify that a reset while the block is streaming drops the rest of
+   that slot's block, but not later slots */
+
+FD_UNIT_TEST( bundle_client_harmonic_block_reset ) {
+  test_bundle_env_t env[1];
+  test_bundle_env_create( env, wksp );
+  test_bundle_env_mock_conn( env );
+  fd_bundle_tile_t * const state = env->state;
+  state->protocol                    = FD_BUNDLE_PROTOCOL_HARMONIC;
+  state->leader_state->slot          = 500UL;
+  state->leader_state->slot_end_ns   = g_clock + (long)1e9;
+  ulong const ids[] = { 0UL };
+
+  /* After the slot ends, a reset loses nothing */
+  state->conn->sub[ FD_BUNDLE_SUB_BLOCKS ].live = 1;
+  state->leader_state->slot_end_ns              = g_clock;
+  fd_bundle_client_reset( state );
+  FD_TEST( state->harmonic.block_lost_slot==ULONG_MAX );
+
+  /* Without a live block stream, a reset loses nothing */
+  state->leader_state->slot_end_ns = g_clock + (long)1e9;
+  fd_bundle_client_reset( state );
+  FD_TEST( state->harmonic.block_lost_slot==ULONG_MAX );
+
+  state->conn->sub[ FD_BUNDLE_SUB_BLOCKS ].live = 1;
+  fd_bundle_client_reset( state );
+  FD_TEST( state->harmonic.block_lost_slot==500UL );
+  FD_TEST( !state->conn->sub[ FD_BUNDLE_SUB_BLOCKS ].live );
+
+  test_rx_block( state, 500UL, ids, 1UL );
+  FD_TEST( pending_txn_empty( state->pending_txns ) );
+
+  state->leader_state->slot = 501UL;
+  fd_bundle_client_leader_state_update( state, 1 );
+  test_rx_block( state, 501UL, ids, 1UL );
+  FD_TEST( pending_txn_cnt( state->pending_txns )==1UL );
+
+  test_bundle_env_destroy( env );
+}
+
+/* Verify that a Harmonic client subscribes to bundles with
+   SubscribeBundles2 */
+
+FD_UNIT_TEST( bundle_client_harmonic_subscribe_bundles ) {
+  test_bundle_env_t env[1];
+  test_bundle_env_create( env, wksp );
+  test_bundle_env_mock_conn( env );
+  fd_bundle_tile_t * const state = env->state;
+  state->protocol                                = FD_BUNDLE_PROTOCOL_HARMONIC;
+  state->conn->strategy_set                      = 1;
+  state->conn->sub[ FD_BUNDLE_SUB_BLOCKS ].live  = 1;
+  state->conn->sub[ FD_BUNDLE_SUB_BUNDLES ].live = 0;
+
+  int charge_busy = 0;
+  fd_bundle_client_step( state, &charge_busy );
+  FD_TEST( state->conn->sub[ FD_BUNDLE_SUB_BUNDLES ].wait==1 );
+
+  ulong const stream_id = state->conn->grpc_client->stream_ids[ 2 ];
+  FD_TEST( state->conn->grpc_client->stream_pool[ 2 ].request_ctx==FD_BUNDLE_CLIENT_REQ_Bundle_SubscribeBundles );
+  block_engine_SubscribeBundlesRequest req = block_engine_SubscribeBundlesRequest_init_default;
+  expect_request( wire_rx( env ), stream_id, "/block_engine.BlockEngineValidator/SubscribeBundles2",
+                  &block_engine_SubscribeBundlesRequest_msg, &req );
+
+  test_bundle_env_destroy( env );
+}
+
 #define TEST_STEM_BURST (5UL)
 
 typedef struct {
@@ -1126,6 +1477,38 @@ FD_UNIT_TEST( packet_publish_after_credit ) {
   FD_TEST( published_txn_cnt( env )==2UL );
   expect_published_txn( env, 0UL, 0UL, payload0, sizeof(payload0), 0UL, 1UL, 0U, zero_pubkey );
   expect_published_txn( env, 1UL, 0UL, payload1, sizeof(payload1), 0UL, 1UL, 0U, zero_pubkey );
+
+  test_bundle_env_destroy( env );
+}
+
+/* Verify that Block bundles are published in order with their slot,
+   position, and atomicity */
+
+FD_UNIT_TEST( harmonic_block_publish ) {
+  test_bundle_env_t env[1];
+  test_bundle_env_create( env, wksp );
+  fd_bundle_tile_t * state = env->state;
+  state->protocol           = FD_BUNDLE_PROTOCOL_HARMONIC;
+  state->leader_state->slot = 500UL;
+
+  ulong const ids[] = { 0UL, 7UL, 7UL };
+  test_rx_block( state, 500UL, ids, 3UL );
+  FD_TEST( publish_after_credit( state )==1UL );
+  FD_TEST( publish_after_credit( state )==2UL );
+  FD_TEST( published_txn_cnt( env )==3UL );
+
+  static struct { ulong seq; ulong txn_cnt; uchar atomic; } const want[] = {
+    { 1UL, 1UL, 0 }, { 2UL, 2UL, 1 }, { 2UL, 2UL, 1 }
+  };
+  for( ulong i=0UL; i<3UL; i++ ) {
+    fd_frag_meta_t const * meta = NULL;
+    fd_txn_m_t const * txnm = published_txn( env, i, &meta );
+    FD_TEST( meta->sig==1UL && fd_txn_m_payload_const( txnm )[ 0 ]==(uchar)i );
+    FD_TEST( txnm->block_engine.bundle_id && txnm->block_engine.bundle_txn_cnt==want[ i ].txn_cnt );
+    FD_TEST( txnm->block_engine.slot==500UL && txnm->block_engine.seq==want[ i ].seq );
+    FD_TEST( txnm->block_engine.atomic==want[ i ].atomic );
+    FD_TEST( !txnm->block_engine.want_result && !txnm->block_engine.preprocess_failed );
+  }
 
   test_bundle_env_destroy( env );
 }

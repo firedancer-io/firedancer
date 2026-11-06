@@ -1684,8 +1684,8 @@ telemetry = true
         url = ""
 
         # The block building protocol spoken by the server at url.  One
-        # of "jito", "harmonic", or "bam".  "harmonic" and "bam" are not
-        # supported yet and are rejected at startup.
+        # of "jito", "harmonic", or "bam".  "bam" is not supported yet
+        # and is rejected at startup.
         protocol = "jito"
 
         # The URL of a Jito block engine to receive bundles from while

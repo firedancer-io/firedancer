@@ -21,7 +21,14 @@
    here.  after_credit drains one bundle per call by writing to dcache
    and calling fd_stem_publish.
 
-   Sized to match the bundle_verif output link depth. */
+   Sized to match the bundle_verif output link depth.  The client is
+   only stepped while the buffer is empty, and with default settings it
+   holds one gRPC buffer of minimum size transactions, so any single
+   Harmonic Block fits.  Two Blocks completing in one step can overflow
+   it, dropping the second.
+
+   TODO: Maybe size it for two gRPC buffers in Harmonic mode, if that
+   overflow shows up in practice. */
 
 struct fd_bundle_pending_txn {
   uchar  payload[ FD_TXN_MTU ];
@@ -139,8 +146,9 @@ typedef struct fd_bundle_builder fd_bundle_builder_t;
 /* Streams a Jito protocol session subscribes to */
 
 #define FD_BUNDLE_SUB_PACKETS (0) /* SubscribePackets */
-#define FD_BUNDLE_SUB_BUNDLES (1) /* SubscribeBundles */
-#define FD_BUNDLE_SUB_CNT     (2)
+#define FD_BUNDLE_SUB_BUNDLES (1) /* SubscribeBundles or SubscribeBundles2 */
+#define FD_BUNDLE_SUB_BLOCKS  (2) /* SubscribeBlocks2, Harmonic only */
+#define FD_BUNDLE_SUB_CNT     (3)
 
 /* fd_bundle_conn_t is the state of one connection to a bundle server.
    Its gRPC client's app_ctx is the conn. */
@@ -157,6 +165,10 @@ struct fd_bundle_conn {
     uchar live; /* stream open */
     uchar wait; /* request in flight */
   } sub[ FD_BUNDLE_SUB_CNT ];
+
+  /* Harmonic scheduling strategy, acknowledged once per connection */
+  uchar strategy_set  : 1;
+  uchar strategy_wait : 1;
 
   /* Endpoint */
   uint   is_ssl : 1;
@@ -214,6 +226,7 @@ struct fd_bundle_tile {
 
   /* Config */
   int protocol; /* FD_BUNDLE_PROTOCOL_* */
+  int strategy; /* FD_BUNDLE_STRATEGY_*, harmonic only */
 
   /* Resolver */
   fd_netdb_fds_t netdb_fds[1];
@@ -244,6 +257,19 @@ struct fd_bundle_tile {
     uchar invalid : 1; /* dropped on close */
     uchar full    : 1; /* dropped on close, for lack of space */
   } bundle;
+
+  /* Harmonic session, kept across resets */
+  struct {
+    /* Leader window notice, queued at the start of each leader slot and
+       dropped if not sent before the slot ends */
+    uchar leader_window_pending : 1;
+    ulong leader_window_slot;
+    long  leader_window_end_ns;
+
+    ulong block_seq;       /* bundles numbered so far in the current leader slot */
+    ulong block_bundle_id; /* bundle_id of the bundle being decoded */
+    ulong block_lost_slot; /* leader slot whose block a reset cut off, or ULONG_MAX */
+  } harmonic;
 
   fd_rng_t rng[1];
 
@@ -299,6 +325,9 @@ struct fd_bundle_tile {
 #define FD_BUNDLE_CLIENT_REQ_Bundle_SubscribePackets            4
 #define FD_BUNDLE_CLIENT_REQ_Bundle_SubscribeBundles            5
 #define FD_BUNDLE_CLIENT_REQ_Bundle_GetBlockBuilderFeeInfo      6
+#define FD_BUNDLE_CLIENT_REQ_Bundle_SubscribeBlocks             7
+#define FD_BUNDLE_CLIENT_REQ_Bundle_SetStrategy                 8
+#define FD_BUNDLE_CLIENT_REQ_Bundle_SubmitLeaderWindowInfo      9
 
 FD_PROTOTYPES_BEGIN
 
@@ -434,6 +463,16 @@ fd_bundle_client_reset( fd_bundle_tile_t * ctx );
 
 void
 fd_bundle_conn_send_ping( fd_bundle_conn_t * conn );
+
+/* fd_bundle_client_leader_state_update is called for every leader state
+   update from pack, now in ctx->leader_state.  new_slot is set on the
+   first update of a leader slot.  Queues whatever the protocol sends in
+   response, and returns 1 if anything was queued (so the client should
+   be stepped soon), 0 otherwise. */
+
+int
+fd_bundle_client_leader_state_update( fd_bundle_tile_t * ctx,
+                                      int                new_slot );
 
 FD_PROTOTYPES_END
 
