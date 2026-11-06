@@ -124,7 +124,8 @@ struct fd_quic_pkt {
   long               rcv_time;    /* time packet was received */
   uint               enc_level;   /* encryption level */
   uint               datagram_sz; /* length of the original datagram */
-  uint               ack_flag;    /* ORed together: 0-don't ack  1-ack  2-cancel ack */
+  uint               ack_flag   : 2; /* ORed together: 0-don't ack  1-ack  2-cancel ack */
+  uint               retry_sent : 1; /* stop processing this datagram after Retry */
 # define ACK_FLAG_RQD     1
 # define ACK_FLAG_CANCEL  2
 
