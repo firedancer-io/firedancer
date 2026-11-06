@@ -604,13 +604,17 @@ fd_bundle_txn_sz_valid( ulong txn_sz ) {
 
 static void
 fd_bundle_client_bundle_open( fd_bundle_tile_t *          ctx,
-                              fd_bundle_builder_t const * builder ) {
+                              fd_bundle_builder_t const * builder,
+                              int                         atomic,
+                              int                         want_result ) {
   ctx->bundle_seq++;
-  ctx->bundle.builder = builder;
-  ctx->bundle.cnt0    = pending_txn_cnt( ctx->pending_txns );
-  ctx->bundle.txn_cnt = 0UL;
-  ctx->bundle.invalid = 0;
-  ctx->bundle.full    = 0;
+  ctx->bundle.builder     = builder;
+  ctx->bundle.cnt0        = pending_txn_cnt( ctx->pending_txns );
+  ctx->bundle.txn_cnt     = 0UL;
+  ctx->bundle.atomic      = (uchar)atomic;
+  ctx->bundle.want_result = (uchar)want_result;
+  ctx->bundle.invalid     = 0;
+  ctx->bundle.full        = 0;
 }
 
 static void
@@ -631,6 +635,7 @@ fd_bundle_client_bundle_push( fd_bundle_tile_t * ctx,
     .sig              = 1UL,
     .bundle_seq       = ctx->bundle_seq,
     .commission       = ctx->bundle.builder->commission,
+    .want_result      = ctx->bundle.want_result,
   };
   fd_memcpy( entry->payload, txn, txn_sz );
   fd_memcpy( entry->commission_pubkey, ctx->bundle.builder->pubkey, 32UL );
@@ -643,19 +648,28 @@ fd_bundle_client_bundle_abort( fd_bundle_tile_t * ctx ) {
   ctx->bundle.txn_cnt = 0UL;
 }
 
-/* bundle_close returns 1 if the bundle was kept, 0 if dropped. */
+/* bundle_close sets the bundle's slot and seq (see fd_txn_m_t), and
+   returns 1 if it was kept, 0 if dropped. */
 
 static int
-fd_bundle_client_bundle_close( fd_bundle_tile_t * ctx ) {
+fd_bundle_client_bundle_close( fd_bundle_tile_t * ctx,
+                               ulong              slot,
+                               ulong              seq ) {
   ulong const n = ctx->bundle.txn_cnt;
   if( FD_UNLIKELY( !n ) ) return 0;
   if( FD_UNLIKELY( ctx->bundle.invalid | ctx->bundle.full | (n>FD_BUNDLE_CLIENT_MAX_TXN_PER_BUNDLE) ) ) {
     if( ctx->bundle.full ) ctx->metrics.backpressure_drop_cnt += n;
-    else                   FD_LOG_DEBUG(( "Dropping bundle %lu with %lu transactions", ctx->bundle_seq, n ));
+    else                   FD_LOG_DEBUG(( "Dropping bundle %lu with %lu transactions", seq, n ));
     fd_bundle_client_bundle_abort( ctx );
     return 0;
   }
-  for( ulong i=ctx->bundle.cnt0; i<ctx->bundle.cnt0+n; i++ ) pending_txn_peek_index( ctx->pending_txns, i )->bundle_txn_cnt = n;
+  for( ulong i=ctx->bundle.cnt0; i<ctx->bundle.cnt0+n; i++ ) {
+    fd_bundle_pending_txn_t * entry = pending_txn_peek_index( ctx->pending_txns, i );
+    entry->bundle_txn_cnt = n;
+    entry->block_slot     = slot;
+    entry->block_seq      = seq;
+    entry->atomic         = ctx->bundle.atomic;
+  }
   ctx->bundle.txn_cnt = 0UL;
   return 1;
 }
@@ -729,7 +743,7 @@ fd_bundle_client_visit_pb_bundle_uuid(
   fd_bundle_conn_t * conn = *arg;
   fd_bundle_tile_t * ctx  = conn->ctx;
 
-  fd_bundle_client_bundle_open( ctx, &conn->builder );
+  fd_bundle_client_bundle_open( ctx, &conn->builder, 1, 0 );
   bundle_BundleUuid bundle = bundle_BundleUuid_init_default;
   bundle.bundle.packets = (pb_callback_t) {
     .funcs.decode = fd_bundle_client_visit_pb_bundle_txn,
@@ -742,7 +756,7 @@ fd_bundle_client_visit_pb_bundle_uuid(
     return false;
   }
 
-  if( fd_bundle_client_bundle_close( ctx ) ) ctx->metrics.bundle_received_cnt++;
+  if( fd_bundle_client_bundle_close( ctx, 0UL, 0UL ) ) ctx->metrics.bundle_received_cnt++;
   fd_bundle_client_sample_rx_delay( ctx, &bundle.bundle.header.ts );
   return true;
 }

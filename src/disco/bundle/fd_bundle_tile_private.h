@@ -5,6 +5,7 @@
 #include "fd_keepalive.h"
 #include "../fd_clock_tile.h"
 #include "../fd_txn_m.h"
+#include "../tiles.h"
 #include "../stem/fd_stem.h"
 #include "../keyguard/fd_keyswitch.h"
 #include "../keyguard/fd_keyguard_client.h"
@@ -32,6 +33,11 @@ struct fd_bundle_pending_txn {
   ulong  bundle_txn_cnt;
   uchar  commission;
   uchar  commission_pubkey[ 32 ];
+
+  ulong  block_slot;   /* fd_txn_m_t block_engine.slot */
+  ulong  block_seq;    /* fd_txn_m_t block_engine.seq */
+  uchar  atomic;       /* 1 if the bundle commits all or nothing */
+  uchar  want_result;  /* 1 if the block engine gets the execution result (BAM) */
 };
 
 typedef struct fd_bundle_pending_txn fd_bundle_pending_txn_t;
@@ -54,7 +60,11 @@ fd_bundle_pending_txn_write( fd_txn_m_t *                    txnm,
     .block_engine     = {
       .bundle_id      = txn->bundle_seq,
       .bundle_txn_cnt = txn->bundle_txn_cnt,
+      .slot           = txn->block_slot,
+      .seq            = txn->block_seq,
       .commission     = txn->commission,
+      .atomic         = txn->atomic,
+      .want_result    = txn->want_result,
     },
   };
   fd_memcpy( txnm->block_engine.commission_pubkey, txn->commission_pubkey, 32UL );
@@ -229,6 +239,8 @@ struct fd_bundle_tile {
     fd_bundle_builder_t const * builder;
     ulong cnt0;
     ulong txn_cnt;     /* transactions seen, including dropped ones */
+    uchar atomic;
+    uchar want_result;
     uchar invalid : 1; /* dropped on close */
     uchar full    : 1; /* dropped on close, for lack of space */
   } bundle;
@@ -243,6 +255,10 @@ struct fd_bundle_tile {
 
   /* App metrics */
   fd_bundle_metrics_t metrics;
+
+  /* 1 while connected, 0 otherwise, for pack.  NULL if the topology has
+     none. */
+  ulong * active_fseq;
 
   /* Check engine light */
   uchar bundle_status_recent;  /* most recently observed 'check engine light' */
@@ -259,8 +275,11 @@ struct fd_bundle_tile {
   int   halt_signing;     /* 1 means signing is halted, 0 means signing is not halted */
 
   /* Staged values from during_frag, committed in after_frag */
-  ulong next_leader_slot_staged;
-  ulong reset_slot_staged;
+  ulong                  next_leader_slot_staged;
+  ulong                  reset_slot_staged;
+  fd_pack_leader_state_t leader_state_staged[1];
+
+  fd_pack_leader_state_t leader_state[1]; /* latest from pack, slot is ULONG_MAX before the first */
 
   int   in_kind[ 64 ];
   struct {
@@ -268,6 +287,11 @@ struct fd_bundle_tile {
     ulong       chunk0;
     ulong       wmark;
   } replay_in;
+  struct {
+    fd_wksp_t * mem;
+    ulong       chunk0;
+    ulong       wmark;
+  } pack_in;
 };
 
 /* Define 'request_ctx' IDs to identify different types of gRPC calls */

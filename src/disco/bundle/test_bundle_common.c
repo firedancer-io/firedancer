@@ -99,8 +99,9 @@ test_bundle_env_create( test_bundle_env_t * env,
   FD_TEST( env->deque_mem );
   state->pending_txns = pending_txn_join( pending_txn_new( env->deque_mem, pending_max ) );
   FD_TEST( state->pending_txns );
-  state->next_leader_slot = ULONG_MAX;
-  state->reset_slot       = ULONG_MAX;
+  state->leader_state->slot = ULONG_MAX;
+  state->next_leader_slot   = ULONG_MAX;
+  state->reset_slot         = ULONG_MAX;
 
   FD_TEST( fd_rng_new( state->rng, 0U, 0UL ) );
   long ka_interval = (long)1e9;

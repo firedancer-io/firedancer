@@ -1040,6 +1040,9 @@ expect_published_txn( test_bundle_env_t const * env,
   FD_TEST( txnm->block_engine.bundle_txn_cnt==bundle_txn_cnt );
   FD_TEST( txnm->block_engine.commission==commission );
   FD_TEST( 0==memcmp( txnm->block_engine.commission_pubkey, commission_pubkey, 32UL ) );
+  FD_TEST( txnm->block_engine.slot==0UL && txnm->block_engine.seq==0UL );
+  FD_TEST( txnm->block_engine.atomic==!!bundle_id );
+  FD_TEST( !txnm->block_engine.want_result && !txnm->block_engine.preprocess_failed );
   FD_TEST( 0==memcmp( fd_txn_m_payload_const( txnm ), payload, payload_sz ) );
 }
 

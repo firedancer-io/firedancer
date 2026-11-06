@@ -8,6 +8,7 @@
 #include "../waker/fd_waker.h"
 #include "../../waltz/http/fd_url.h"
 #include "../../ballet/hex/fd_hex.h"
+#include "../../util/pod/fd_pod_format.h"
 #include <errno.h>
 
 #include <dirent.h> /* opendir */
@@ -24,7 +25,8 @@
 #include <linux/futex.h>
 #include "generated/fd_bundle_tile_seccomp.h"
 
-#define IN_KIND_REPLAY_OUT (1)
+#define IN_KIND_REPLAY_OUT  (1)
+#define IN_KIND_PACK_LEADER (2)
 
 #define STEM_BURST (5UL)
 FD_STATIC_ASSERT( FD_BUNDLE_CLIENT_MAX_TXN_PER_BUNDLE<=STEM_BURST, stem_burst );
@@ -158,6 +160,9 @@ fd_bundle_tile_housekeeping( fd_bundle_tile_t * ctx ) {
   }
 
   fd_bundle_tile_maybe_sleep( ctx, now_ns );
+
+  int const active = fd_bundle_client_status( ctx )==FD_BUNDLE_STATE_CONNECTED;
+  if( ctx->active_fseq && FD_UNLIKELY( fd_fseq_query( ctx->active_fseq )!=(ulong)active ) ) fd_fseq_update( ctx->active_fseq, (ulong)active );
 }
 
 static void
@@ -206,6 +211,13 @@ during_frag( fd_bundle_tile_t * ctx,
              ulong              sz     FD_PARAM_UNUSED,
              ulong              ctl    FD_PARAM_UNUSED ) {
 
+  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_PACK_LEADER ) ) {
+    if( FD_UNLIKELY( chunk<ctx->pack_in.chunk0 || chunk>ctx->pack_in.wmark || sz!=sizeof(fd_pack_leader_state_t) ) )
+      FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->pack_in.chunk0, ctx->pack_in.wmark ));
+    *ctx->leader_state_staged = *(fd_pack_leader_state_t const *)fd_chunk_to_laddr_const( ctx->pack_in.mem, chunk );
+    return;
+  }
+
   if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_REPLAY_OUT ) ) {
     if( FD_LIKELY( sig!=REPLAY_SIG_RESET && sig!=REPLAY_SIG_NEXT_LEADER ) ) return;
     ulong want_sz = sig==REPLAY_SIG_RESET ? sizeof(fd_poh_reset_t) : sizeof(fd_replay_next_leader_t);
@@ -235,6 +247,11 @@ after_frag( fd_bundle_tile_t *  ctx,
             ulong               tsorig FD_PARAM_UNUSED,
             ulong               tspub  FD_PARAM_UNUSED,
             fd_stem_context_t * stem   FD_PARAM_UNUSED ) {
+
+  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_PACK_LEADER ) ) {
+    *ctx->leader_state = *ctx->leader_state_staged;
+    return;
+  }
 
   if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_REPLAY_OUT ) ) {
     if( FD_LIKELY( sig!=REPLAY_SIG_RESET && sig!=REPLAY_SIG_NEXT_LEADER ) ) return;
@@ -604,6 +621,13 @@ unprivileged_init( fd_topo_t const *      topo,
     ctx->plugin_out = (fd_bundle_out_ctx_t){ .idx=ULONG_MAX };
   }
 
+  ulong active_obj_id = fd_pod_query_ulong( topo->props, "bundle_active", ULONG_MAX );
+  if( active_obj_id!=ULONG_MAX ) {
+    ctx->active_fseq = fd_fseq_join( fd_topo_obj_laddr( topo, active_obj_id ) );
+    FD_TEST( ctx->active_fseq );
+    fd_fseq_update( ctx->active_fseq, 0UL );
+  }
+
   /* Set socket receive buffer size */
   ulong so_rcvbuf = tile->bundle.buf_sz;
   if( FD_UNLIKELY( so_rcvbuf < 2048UL  ) ) FD_LOG_ERR(( "Invalid [development.bundle.buffer_size_kib]: too small" ));
@@ -631,15 +655,22 @@ unprivileged_init( fd_topo_t const *      topo,
       ctx->replay_in.chunk0 = fd_dcache_compact_chunk0( ctx->replay_in.mem, link->dcache );
       ctx->replay_in.wmark  = fd_dcache_compact_wmark ( ctx->replay_in.mem, link->dcache, link->mtu );
       has_replay_in = 1;
+    } else if( !strcmp( link->name, "pack_bundle" ) ) {
+      ctx->in_kind[ polled_in_idx ] = IN_KIND_PACK_LEADER;
+      fd_topo_wksp_t const * link_wksp = &topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ];
+      ctx->pack_in.mem    = link_wksp->wksp;
+      ctx->pack_in.chunk0 = fd_dcache_compact_chunk0( ctx->pack_in.mem, link->dcache );
+      ctx->pack_in.wmark  = fd_dcache_compact_wmark ( ctx->pack_in.mem, link->dcache, link->mtu );
     }
     polled_in_idx++;
   }
 
-  ctx->next_leader_slot = ULONG_MAX;
-  ctx->reset_slot       = ULONG_MAX;
-  ctx->sleep_mode       = has_replay_in; /* start asleep until we learn leader schedule */
-  ctx->sleep_check_ns   = 0;
-  ctx->halt_signing     = 0;
+  ctx->next_leader_slot   = ULONG_MAX;
+  ctx->reset_slot         = ULONG_MAX;
+  ctx->leader_state->slot = ULONG_MAX;
+  ctx->sleep_mode         = has_replay_in; /* start asleep until we learn leader schedule */
+  ctx->sleep_check_ns     = 0;
+  ctx->halt_signing       = 0;
   if( !has_replay_in ) memset( &ctx->replay_in, 0, sizeof(ctx->replay_in) );
 
   ctx->conn->grpc_client = fd_grpc_client_new( ctx->conn->grpc_client_mem, &fd_bundle_client_grpc_callbacks, ctx->conn->grpc_metrics, ctx->conn, ctx->grpc_buf_max, ctx->map_seed );

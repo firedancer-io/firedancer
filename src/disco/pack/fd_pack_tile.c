@@ -173,6 +173,9 @@ static char const * const schedule_strategy_strings[3] = { "PRF", "BAL", "AUC" }
    chance of being scheduled. */
 #define FD_PACK_AUCTION_FINAL_NS          (10000000L)
 
+/* Minimum spacing between leader state updates to the bundle tile */
+#define FD_PACK_LEADER_STATE_INTERVAL_NS  ( 5000000L)
+
 
 typedef struct {
   fd_acct_addr_t commission_pubkey[1];
@@ -344,6 +347,13 @@ typedef struct {
 
   fd_pack_out_ctx_t execle_out[ FD_PACK_MAX_EXECLE_TILES ];
   fd_pack_out_ctx_t poh_out;
+  fd_pack_out_ctx_t bundle_out; /* out_idx ULONG_MAX if there is no bundle tile */
+
+  /* Leader state published to the bundle tile, kept here since
+     _became_leader may be overwritten by an overrun frag mid slot */
+  fd_pack_leader_state_t leader_state[1];
+  ulong                  leader_ticks_per_slot;
+  long                   leader_state_next_tick;
 
   ulong      insert_result[ FD_PACK_INSERT_RETVAL_CNT ];
   fd_histf_t schedule_duration[ 1 ];
@@ -682,11 +692,28 @@ auction_begin( fd_pack_ctx_t * ctx,
   fd_pack_auction_begin( ctx->pack );
 }
 
+static void
+publish_leader_state( fd_pack_ctx_t *     ctx,
+                      fd_stem_context_t * stem,
+                      long                now_tick ) {
+  fd_pack_leader_state_t * state = ctx->leader_state;
+  long elapsed_ns = fd_long_max( fd_clock_tile_tickcount_to_wallclock( ctx->clock, now_tick )-state->slot_start_ns, 0L );
+  state->tick          = ctx->slot_tick_duration_ns ? fd_ulong_min( (ulong)elapsed_ns/ctx->slot_tick_duration_ns, ctx->leader_ticks_per_slot ) : 0UL;
+  state->cus_remaining = fd_ulong_sat_sub( ctx->limits.slot_max_cost, fd_pack_current_block_cost( ctx->pack ) );
+
+  *(fd_pack_leader_state_t *)fd_chunk_to_laddr( ctx->bundle_out.mem, ctx->bundle_out.chunk ) = *state;
+  fd_stem_publish( stem, ctx->bundle_out.out_idx, state->slot, ctx->bundle_out.chunk, sizeof(fd_pack_leader_state_t), 0UL, 0UL, fd_frag_meta_ts_comp( now_tick ) );
+  ctx->bundle_out.chunk = fd_dcache_compact_next( ctx->bundle_out.chunk, sizeof(fd_pack_leader_state_t), ctx->bundle_out.chunk0, ctx->bundle_out.wmark );
+
+  ctx->leader_state_next_tick = now_tick + (long)( (double)FD_PACK_LEADER_STATE_INTERVAL_NS*ctx->clock->epoch->w );
+}
+
 static inline long
 next_deadline( fd_pack_ctx_t * ctx ) {
   if( FD_LIKELY( ctx->leader_slot==ULONG_MAX ) ) return LONG_MAX;
   long now      = fd_tickcount();
   long deadline = fd_clock_tile_wallclock_to_tickcount( ctx->clock, ctx->slot_end_ns );
+  if( FD_UNLIKELY( ctx->bundle_out.out_idx!=ULONG_MAX ) ) deadline = fd_long_min( deadline, ctx->leader_state_next_tick );
   if( ctx->strategy==FD_PACK_STRATEGY_AUCTION ) {
     if( now<ctx->auction_final_start_tick ) {
       deadline = fd_long_min( deadline, fd_long_min( ctx->auction_next_tick, ctx->auction_final_start_tick ) );
@@ -804,6 +831,11 @@ after_credit( fd_pack_ctx_t *     ctx,
   /* Am I leader? */
   if( FD_UNLIKELY( ctx->leader_slot==ULONG_MAX ) ) {
     return;
+  }
+
+  if( FD_UNLIKELY( ctx->bundle_out.out_idx!=ULONG_MAX && now>=ctx->leader_state_next_tick ) ) {
+    publish_leader_state( ctx, stem, now );
+    *charge_busy = 1;
   }
 
   if( ctx->strategy==FD_PACK_STRATEGY_AUCTION ) {
@@ -1324,6 +1356,14 @@ after_frag( fd_pack_ctx_t *     ctx,
     fd_pack_set_block_limits( ctx->pack, limits );
     fd_pack_pacing_update_consumed_cus( ctx->pacer, fd_pack_current_block_cost( ctx->pack ), now );
 
+    if( FD_UNLIKELY( ctx->bundle_out.out_idx!=ULONG_MAX ) ) {
+      ctx->leader_state->slot          = ctx->leader_slot;
+      ctx->leader_state->slot_start_ns = ctx->_became_leader->slot_start_ns;
+      ctx->leader_state->slot_end_ns   = ctx->_became_leader->slot_end_ns;
+      ctx->leader_ticks_per_slot       = ctx->_became_leader->ticks_per_slot;
+      publish_leader_state( ctx, stem, now_ticks );
+    }
+
     break;
   }
   case IN_KIND_EXECLE: {
@@ -1595,6 +1635,15 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->poh_out.chunk0 = fd_dcache_compact_chunk0( ctx->poh_out.mem, poh_out_link->dcache );
   ctx->poh_out.wmark  = fd_dcache_compact_wmark ( ctx->poh_out.mem, poh_out_link->dcache, poh_out_link->mtu );
   ctx->poh_out.chunk  = ctx->poh_out.chunk0;
+
+  ctx->bundle_out.out_idx = fd_topo_find_tile_out_link( topo, tile, "pack_bundle", 0UL );
+  if( FD_UNLIKELY( ctx->bundle_out.out_idx!=ULONG_MAX ) ) {
+    fd_topo_link_t const * bundle_out_link = &topo->links[ tile->out_link_id[ ctx->bundle_out.out_idx ] ];
+    ctx->bundle_out.mem    = topo->workspaces[ topo->objs[ bundle_out_link->dcache_obj_id ].wksp_id ].wksp;
+    ctx->bundle_out.chunk0 = fd_dcache_compact_chunk0( ctx->bundle_out.mem, bundle_out_link->dcache );
+    ctx->bundle_out.wmark  = fd_dcache_compact_wmark ( ctx->bundle_out.mem, bundle_out_link->dcache, bundle_out_link->mtu );
+    ctx->bundle_out.chunk  = ctx->bundle_out.chunk0;
+  }
 
   /* Initialize metrics storage */
   memset( ctx->insert_result, '\0', FD_PACK_INSERT_RETVAL_CNT * sizeof(ulong) );
