@@ -3710,6 +3710,7 @@ test_ag_leader_abandon_on_root_past_leader_slot( fd_wksp_t * wksp ) {
   FD_TEST( try_become_leader( ctx, test_stem, FD_METRICS_SAMPLE_REASON_LEADER_START, 0UL ) );
   fd_bank_t * leader = ctx->leader_bank;
   FD_TEST( ctx->is_leader && leader && leader->f.slot==2UL && leader->refcnt==1UL );
+  FD_TEST( leader->lthash_mode==FD_BANK_LTHASH_MODE_OOB_SKIP ); /* folded at finalize */
   ulong leader_idx = leader->idx;
   ulong out_idx    = ctx->replay_out->idx;
 

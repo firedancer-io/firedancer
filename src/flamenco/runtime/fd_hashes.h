@@ -2,6 +2,7 @@
 #define HEADER_fd_src_flamenco_runtime_fd_hashes_h
 
 #include "../fd_flamenco_base.h"
+#include "../accdb/fd_accdb_base.h"
 #include "../../ballet/lthash/fd_lthash.h"
 
 /* fd_hashes.h provides functions for computing and updating the bank
@@ -103,6 +104,16 @@ fd_hashes_update_pair( uchar const        pubkey[ static FD_HASH_FOOTPRINT ],
                        ulong              data_len,
                        fd_bank_t *        bank,
                        fd_capture_ctx_t * capture_ctx );
+
+/* fd_hashes_fold_lthash moves the bank's LtHash by the change of every
+   account committed on the bank's accdb fork, from the account as it is
+   on the parent fork to as it is now.  This settles the LtHash of a
+   bank that hashed none of its writes (OOB_SKIP mode from its start).
+   Nothing may commit to the bank's fork during the call. */
+
+void
+fd_hashes_fold_lthash( fd_bank_t *  bank,
+                       fd_accdb_t * accdb );
 
 /* fd_hashes_capture_account records the state of a modified account to
    the solcap capture.  It does nothing unless capture_ctx is non-NULL,

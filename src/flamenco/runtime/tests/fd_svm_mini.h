@@ -240,6 +240,16 @@ fd_svm_mini_attach_child( fd_svm_mini_t * mini,
                           ulong           parent_bank_idx,
                           ulong           child_slot );
 
+/* fd_svm_mini_attach_leader_child is fd_svm_mini_attach_child for a
+   leader bank: the bank hashes none of its writes (OOB_SKIP) from
+   start-of-block processing on, and fd_svm_mini_freeze folds them in,
+   as the replay tile does for the blocks it produces. */
+
+ulong
+fd_svm_mini_attach_leader_child( fd_svm_mini_t * mini,
+                                 ulong           parent_bank_idx,
+                                 ulong           child_slot );
+
 /* fd_svm_mini_freeze freezes the bank identified by bank_idx.  Runs
    slot boundary logic (registers POH hash into blockhash queue, updates
    sysvars, settles fees, etc). */

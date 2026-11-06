@@ -710,10 +710,11 @@ fd_svm_mini_reset( fd_svm_mini_t *        mini,
   return bank_idx;
 }
 
-ulong
-fd_svm_mini_attach_child( fd_svm_mini_t * mini,
-                          ulong           parent_bank_idx,
-                          ulong           child_slot ) {
+static ulong
+attach_child( fd_svm_mini_t * mini,
+              ulong           parent_bank_idx,
+              ulong           child_slot,
+              uchar           lthash_mode ) {
 
   fd_bank_t * parent_bank = fd_banks_bank_query( mini->banks, parent_bank_idx );
   if( FD_UNLIKELY( !parent_bank ) ) FD_LOG_ERR(( "invalid parent_bank_idx" ));
@@ -733,11 +734,26 @@ fd_svm_mini_attach_child( fd_svm_mini_t * mini,
   bank->txncache_fork_id     = fd_txncache_attach_child ( mini->txncache,        parent_bank->txncache_fork_id  );
   bank->accdb_fork_id        = fd_accdb_attach_child    ( accdb,                 parent_bank->accdb_fork_id     );
   bank->parent_accdb_fork_id = parent_bank->accdb_fork_id;
+  bank->lthash_mode          = lthash_mode;
 
   int is_epoch_boundary = 0;
   fd_runtime_block_execute_prepare( mini->banks, bank, accdb, mini->runtime_stack, NULL, &is_epoch_boundary );
 
   return bank_idx;
+}
+
+ulong
+fd_svm_mini_attach_child( fd_svm_mini_t * mini,
+                          ulong           parent_bank_idx,
+                          ulong           child_slot ) {
+  return attach_child( mini, parent_bank_idx, child_slot, FD_BANK_LTHASH_MODE_INBAND );
+}
+
+ulong
+fd_svm_mini_attach_leader_child( fd_svm_mini_t * mini,
+                                 ulong           parent_bank_idx,
+                                 ulong           child_slot ) {
+  return attach_child( mini, parent_bank_idx, child_slot, FD_BANK_LTHASH_MODE_OOB_SKIP );
 }
 
 void
