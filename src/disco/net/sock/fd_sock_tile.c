@@ -3,6 +3,7 @@
 #include "../../fd_disco_base.h"
 #include "../../topo/fd_topo.h"
 #include "../fd_net_tile.h"
+#include "../../sleep/fd_sleep.h"
 #include "../../../util/net/fd_eth.h"
 #include "../../../util/net/fd_ip4.h"
 #include "../../../util/net/fd_udp.h"
@@ -14,6 +15,7 @@
 #include <netinet/in.h> /* sockaddr_in */
 #include <net/if.h> /* if_nametoindex */
 #include <linux/filter.h> /* SO_ATTACH_FILTER */
+#include <sys/epoll.h> /* epoll_create1 */
 #include <sys/socket.h> /* socket */
 #include "../../metrics/fd_metrics.h"
 
@@ -31,6 +33,9 @@
    Must be aligned by alignof(struct cmsghdr) */
 #define FD_SOCK_CMSG_MAX (64UL)
 
+/* The seccomp policy pins the epoll_pwait event array size */
+FD_STATIC_ASSERT( FD_SOCK_EPOLL_EV_MAX==10, seccomp );
+
 /* Musl's CMSG_NXTHDR macro compares size_t against ptrdiff_t,
    triggering -Wsign-compare. */
 #pragma GCC diagnostic push
@@ -43,7 +48,7 @@ fd_cmsg_nxthdr( struct msghdr *   mhdr,
 }
 #pragma GCC diagnostic pop
 
-static ulong
+FD_FN_UNUSED static ulong
 populate_allowed_seccomp( fd_topo_t const *      topo,
                           fd_topo_tile_t const * tile,
                           ulong                  out_cnt,
@@ -51,11 +56,11 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
   FD_SCRATCH_ALLOC_INIT( l, fd_topo_obj_laddr( topo, tile->tile_obj_id ) );
   fd_sock_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_sock_tile_t), sizeof(fd_sock_tile_t) );
 
-  populate_sock_filter_policy_fd_sock_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)ctx->tx_sock, RX_SOCK_FD_MIN, RX_SOCK_FD_MIN+(uint)ctx->sock_cnt );
+  populate_sock_filter_policy_fd_sock_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)ctx->tx_sock, RX_SOCK_FD_MIN, RX_SOCK_FD_MIN+(uint)ctx->sock_cnt, (uint)ctx->epoll_fd );
   return sock_filter_policy_fd_sock_tile_instr_cnt;
 }
 
-static ulong
+FD_FN_UNUSED static ulong
 populate_allowed_fds( fd_topo_t const *      topo,
                       fd_topo_tile_t const * tile,
                       ulong                  out_fds_cnt,
@@ -65,7 +70,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
   fd_sock_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_sock_tile_t), sizeof(fd_sock_tile_t) );
 
   ulong sock_cnt = ctx->sock_cnt;
-  if( FD_UNLIKELY( out_fds_cnt<sock_cnt+3UL ) ) {
+  if( FD_UNLIKELY( out_fds_cnt<sock_cnt+5UL ) ) {
     FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
   }
 
@@ -78,6 +83,10 @@ populate_allowed_fds( fd_topo_t const *      topo,
   if( -1!=ctx->tx_sock ) out_fds[ out_cnt++ ] = ctx->tx_sock;
   for( ulong j=0UL; j<sock_cnt; j++ ) {
     out_fds[ out_cnt++ ] = ctx->pollfd[ j ].fd;
+  }
+  if( FD_UNLIKELY( tile->sleep_eventfd ) ) {
+    out_fds[ out_cnt++ ] = ctx->epoll_fd;
+    out_fds[ out_cnt++ ] = FD_SLEEP_EVENTFD( tile->id );
   }
   return out_cnt;
 }
@@ -179,7 +188,7 @@ create_udp_socket( int    sock_fd,
   }
 }
 
-static void
+FD_FN_UNUSED static void
 privileged_init( fd_topo_t const *      topo,
                  fd_topo_tile_t const * tile ) {
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
@@ -209,6 +218,8 @@ privileged_init( fd_topo_t const *      topo,
   ctx->tx_scratch1 = tx_scratch + tx_sz;
   ctx->tx_ptr      = tx_scratch;
   ctx->tx_sock = -1;
+  ctx->epoll_fd = -1;
+  ctx->rx_ready = 0U;
   ctx->bind_address = tile->sock.net.bind_address;
   ctx->tick_per_ns  = fd_tempo_tick_per_ns( NULL );
   if( tile->sock.only_recv_lo ) {
@@ -281,6 +292,28 @@ privileged_init( fd_topo_t const *      topo,
     ctx->sock_cnt++;
   }
 
+  /* Efficient mode: the tile parks in epoll on its sleep doorbell
+     (edge triggered, never read, see fd_sleep.h) and on its RX sockets
+     (level triggered, so a datagram that arrived since the last poll
+     ends the park at once).  The data of a socket is its pollfd index. */
+
+  if( FD_UNLIKELY( tile->sleep_eventfd ) ) {
+    ctx->epoll_fd = epoll_create1( EPOLL_CLOEXEC );
+    if( FD_UNLIKELY( ctx->epoll_fd<0 ) ) {
+      FD_LOG_ERR(( "epoll_create1() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    }
+    struct epoll_event doorbell_ev = { .events = EPOLLIN|EPOLLET, .data.u64 = FD_SLEEP_EPOLL_DOORBELL };
+    if( FD_UNLIKELY( -1==epoll_ctl( ctx->epoll_fd, EPOLL_CTL_ADD, FD_SLEEP_EVENTFD( tile->id ), &doorbell_ev ) ) ) {
+      FD_LOG_ERR(( "epoll_ctl(ADD,sleep_eventfd) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    }
+    for( uint j=0U; j<ctx->sock_cnt; j++ ) {
+      struct epoll_event rx_ev = { .events = EPOLLIN, .data.u64 = (ulong)j };
+      if( FD_UNLIKELY( -1==epoll_ctl( ctx->epoll_fd, EPOLL_CTL_ADD, ctx->pollfd[ j ].fd, &rx_ev ) ) ) {
+        FD_LOG_ERR(( "epoll_ctl(ADD,%d) failed (%i-%s)", ctx->pollfd[ j ].fd, errno, fd_io_strerror( errno ) ));
+      }
+    }
+  }
+
   if( tile->sock.only_recv_lo ) return;
 
   /* Create transmit socket */
@@ -303,7 +336,7 @@ privileged_init( fd_topo_t const *      topo,
   ctx->bind_address = tile->sock.net.bind_address;
 }
 
-static void
+FD_FN_UNUSED static void
 unprivileged_init( fd_topo_t const *      topo,
                    fd_topo_tile_t const * tile ) {
   fd_sock_tile_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
@@ -332,6 +365,16 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->shred_rx_cnt = fd_topo_net_shred_outs( topo, tile, ctx->shred_rx );
 
   FD_CHECK_ERR( tile->in_cnt<=MAX_NET_INS, "too many input links" );
+
+  /* A parked sock tile is woken by its RX sockets regardless of out
+     credit, so a backpressured park would spin on a readable socket.
+     Net RX links have no reliable consumers, so it never is. */
+  if( FD_UNLIKELY( topo->sleep_obj_id!=ULONG_MAX && !tile->sleep_eventfd ) ) {
+    FD_LOG_ERR(( "sock tile needs sleep_eventfd in efficient mode" ));
+  }
+  if( FD_UNLIKELY( tile->sleep_eventfd && fd_topo_tile_reliable_consumer_cnt( topo, tile ) ) ) {
+    FD_LOG_ERR(( "sock tile cannot park with reliable consumers" ));
+  }
 
   /* The loopback-only sock tile has no TX links and is not counted */
   ctx->tx_tile_idx = 0UL;
@@ -525,6 +568,30 @@ poll_rx( fd_sock_tile_t *    ctx,
       );
     }
     ctx->pollfd[ j ].revents = 0;
+  }
+  return pkt_cnt;
+}
+
+/* poll_rx_ready receives from the sockets park_wait reported readable
+   (efficient mode only).  A socket stays marked while it fills whole
+   batches, so a busy socket is drained without going back to epoll.
+   Whatever arrives after it is unmarked ends the next park at once
+   (level triggered).  Returns the number of packets received. */
+
+static ulong
+poll_rx_ready( fd_sock_tile_t *    ctx,
+               fd_stem_context_t * stem ) {
+  if( FD_UNLIKELY( ctx->batch_cnt ) ) {
+    FD_LOG_ERR(( "Batch is not clean" ));
+  }
+  ulong pkt_cnt = 0UL;
+  uint  ready   = ctx->rx_ready;
+  while( ready ) {
+    uint j = (uint)fd_uint_find_lsb( ready );
+    ready &= ready-1U;
+    ulong cnt = poll_rx_socket( ctx, stem, j, ctx->pollfd[ j ].fd, ctx->proto_id[ j ] );
+    if( cnt<STEM_BURST ) ctx->rx_ready &= ~(1U<<j); /* drained */
+    pkt_cnt += cnt;
   }
   return pkt_cnt;
 }
@@ -753,7 +820,19 @@ after_credit( fd_sock_tile_t *    ctx,
               fd_stem_context_t * stem,
               int *               poll_in FD_PARAM_UNUSED,
               int *               charge_busy ) {
+  if( FD_UNLIKELY( ctx->rx_ready ) ) {
+    /* Efficient mode: a park ended on readable RX sockets, receive now
+       rather than after the TX idle gate.  RX reuses the TX batch
+       arrays, so flush first. */
+    if( ctx->batch_cnt ) {
+      flush_tx_batch( ctx );
+    }
+    *charge_busy |= poll_rx_ready( ctx, stem )!=0UL;
+  }
   if( ctx->lo_ifindex ) {
+    /* Efficient mode: no blocking ppoll, the tile parks in epoll and
+       the stem does housekeeping around the park. */
+    if( ctx->epoll_fd>=0 ) return;
     /* Housekeeping cannot publish progress while the tile sleeps. */
     FD_COMPILER_MFENCE();
     metrics_write( ctx );
@@ -770,19 +849,51 @@ after_credit( fd_sock_tile_t *    ctx,
       flush_tx_batch( ctx );
     }
     ulong pkt_cnt = poll_rx( ctx, stem );
-    *charge_busy = pkt_cnt!=0;
+    *charge_busy |= pkt_cnt!=0;
   }
   ctx->tx_idle_cnt++;
 }
 
-static ulong
+/* prevent_park sends a partial TX batch before the tile parks, so no
+   packet waits for the next wake.  RX still marked readable (a socket
+   that filled its last batch) keeps the tile awake. */
+
+static inline int
+prevent_park( fd_sock_tile_t * ctx ) {
+  if( FD_UNLIKELY( ctx->batch_cnt ) ) flush_tx_batch( ctx );
+  return !!ctx->rx_ready;
+}
+
+/* park_wait parks in epoll until the doorbell rings (TX frags, the
+   sweep, a deadline) or an RX socket is readable, and marks the
+   readable sockets for after_credit.
+
+   FIXME Every non-loopback sock tile polls every TX link and keeps
+   only its shard (before_frag), so a TX frag wakes all parked sock
+   tiles and the non-owners park again. */
+
+static inline int
+park_wait( fd_sock_tile_t * ctx,
+           ulong *          word,
+           long             deadline,
+           double           tick_per_ns ) {
+  struct epoll_event evs[ FD_SOCK_EPOLL_EV_MAX ];
+  int ev_cnt;
+  int cause = fd_sleep_park_wait_epoll( ctx->epoll_fd, word, evs, FD_SOCK_EPOLL_EV_MAX, &ev_cnt, deadline, tick_per_ns );
+  for( int i=0; i<ev_cnt; i++ ) {
+    ulong data = evs[ i ].data.u64;
+    if( FD_LIKELY( data<(ulong)ctx->sock_cnt ) ) ctx->rx_ready |= 1U<<data;
+  }
+  return cause;
+}
+
+FD_FN_UNUSED static ulong
 rlimit_file_cnt( fd_topo_t const *      topo,
                  fd_topo_tile_t const * tile ) {
   fd_sock_tile_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   return RX_SOCK_FD_MIN + ctx->sock_cnt;
 }
 
-#define STEM_NEVER_PARK             1
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_sock_tile_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_sock_tile_t)
 
@@ -793,9 +904,12 @@ rlimit_file_cnt( fd_topo_t const *      topo,
 #define STEM_CALLBACK_BEFORE_FRAG         before_frag
 #define STEM_CALLBACK_DURING_FRAG         during_frag
 #define STEM_CALLBACK_AFTER_FRAG          after_frag
+#define STEM_CALLBACK_PREVENT_PARK        prevent_park
+#define STEM_CALLBACK_PARK_WAIT           park_wait
 
 #include "../../stem/fd_stem.c"
 
+#ifndef FD_TILE_TEST
 fd_topo_run_tile_t fd_tile_sock = {
   .name                     = "sock",
   .rlimit_file_cnt_fn       = rlimit_file_cnt,
@@ -807,3 +921,4 @@ fd_topo_run_tile_t fd_tile_sock = {
   .unprivileged_init        = unprivileged_init,
   .run                      = stem_run,
 };
+#endif
