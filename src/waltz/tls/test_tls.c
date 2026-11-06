@@ -774,6 +774,36 @@ test_tls_truncated_cert_extract( void ) {
 }
 
 static void
+test_tls_certificate_der_alert( void ) {
+  uchar cert[FD_X509_MOCK_CERT_SZ];
+  uchar pubkey[32] = {0};
+  uchar wire[FD_TLS_SERVER_CERT_MSG_SZ_MAX];
+  for( uint kind=0U; kind<3U; kind++ ) {
+    fd_x509_mock_cert( cert, pubkey );
+    if( kind==1U ) cert[0] = 0x31; /* Invalid outer Certificate tag. */
+    if( kind==2U ) {
+      /* Change only the mock SPKI algorithm OID to an unknown one. */
+      FD_TEST( cert[96]==0x70 );
+      cert[96] = 0x71;
+      fd_x509_cert_info_t info;
+      FD_TEST( !fd_x509_cert_parse( cert, sizeof(cert), &info ) );
+      FD_TEST( info.key_type==FD_X509_KEY_UNKNOWN );
+    }
+    long sz = fd_tls_encode_cert_x509( cert, sizeof(cert), wire, sizeof(wire) );
+    FD_TEST( sz>4L );
+    fd_tls_extract_cert_pubkey_res_t res = fd_tls_extract_cert_pubkey( wire+4UL, (ulong)sz-4UL );
+    if( !kind ) {
+      FD_TEST( res.pubkey && res.pubkey_len==32UL && res.key_type==FD_TLS_KEY_ED25519 );
+      FD_TEST( !res.alert && !res.reason );
+    } else {
+      FD_TEST( !res.pubkey );
+      FD_TEST( res.alert==(kind==1U ? FD_TLS_ALERT_BAD_CERTIFICATE : FD_TLS_ALERT_UNSUPPORTED_CERTIFICATE) );
+      FD_TEST( res.reason==(kind==1U ? FD_TLS_REASON_X509_PARSE : FD_TLS_REASON_CERT_KEY_TYPE) );
+    }
+  }
+}
+
+static void
 test_tls_truncated_cert_handshake( fd_rng_t * rng ) {
 
   fd_tls_t _client[1]; fd_tls_t * client = fd_tls_join( fd_tls_new( _client ) );
@@ -1615,6 +1645,7 @@ main( int     argc,
   test_tls_server_session_id_mismatch( rng, 0 );
   test_tls_server_session_id_mismatch( rng, 1 );
   test_tls_truncated_cert_extract();
+  test_tls_certificate_der_alert();
   test_tls_truncated_cert_handshake( rng );
   test_tls_certificate_length_reason( rng );
   test_tls_client_unsolicited_cert_type( rng );
