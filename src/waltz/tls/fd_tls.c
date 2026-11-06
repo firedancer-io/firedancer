@@ -323,7 +323,7 @@ fd_tls_server_hs_retry( fd_tls_t const *              server,
 
   if( FD_UNLIKELY( handshake->hello_retry ) ) {
     /* Already retried but still no X25519 share */
-    return fd_tls_alert( &handshake->base, FD_TLS_ALERT_ILLEGAL_PARAMETER, FD_TLS_REASON_SENDMSG_FAIL );
+    return fd_tls_alert( &handshake->base, FD_TLS_ALERT_ILLEGAL_PARAMETER, FD_TLS_REASON_CH_RETRY_KS );
   }
   handshake->hello_retry = 1;
 
