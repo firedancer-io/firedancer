@@ -237,7 +237,7 @@ FD_PROTOTYPES_BEGIN
 
 #define FD_BANK_LTHASH_MODE_INBAND     (0) /* Hash every write into f.lthash. */
 #define FD_BANK_LTHASH_MODE_OOB_RECORD (1) /* Start of block.  Record the pubkey in lthash_rec instead of hashing. */
-#define FD_BANK_LTHASH_MODE_OOB_SKIP   (2) /* Transaction execution.  Neither hash nor record. */
+#define FD_BANK_LTHASH_MODE_OOB_SKIP   (2) /* Transaction execution, or a whole leader block.  Neither hash nor record. */
 
 /* This is the list of pubkeys written while the bank was in OOB_RECORD
    mode, one entry per write, in write order and not deduplicated.  keys

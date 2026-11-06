@@ -605,6 +605,24 @@ fd_accdb_snapshot_recover_delta( fd_accdb_t *       accdb,
 }
 
 void
+fd_accdb_for_each_modified( fd_accdb_t *           accdb,
+                            fd_accdb_fork_id_t     fork_id,
+                            fd_accdb_modified_fn_t fn,
+                            void *                 ctx ) {
+  if( FD_UNLIKELY( fork_id.val>=fork_pool_ele_max( accdb->fork_shmem_pool ) ) ) {
+    FD_LOG_CRIT(( "fd_accdb_for_each_modified: invalid fork id %u (capacity %lu)",
+                  (uint)fork_id.val, fork_pool_ele_max( accdb->fork_shmem_pool ) ));
+  }
+
+  uint txn_idx = accdb->fork_pool[ fork_id.val ].shmem->txn_head;
+  while( txn_idx!=UINT_MAX ) {
+    fd_accdb_txn_t const * txn = txn_pool_ele( accdb->txn_pool, (ulong)txn_idx );
+    fn( ctx, accdb->acc_pool[ txn->acc_pool_idx ].key.pubkey );
+    txn_idx = txn->fork.next;
+  }
+}
+
+void
 fd_accdb_snapshot_save_whead( fd_accdb_t *                   accdb,
                               fd_accdb_snapshot_recovery_t * out ) {
   /* Flush metrics to update disk_current_bytes. */
