@@ -118,9 +118,10 @@ LLVMFuzzerTestOneInput( uchar const * data,
         write_done = 1;
       }
     } else {
-      buffer_sz = sizeof(buffer);
+      struct iovec iov = { .iov_base = buffer, .iov_len = sizeof(buffer) };
+      buffer_sz = 0UL;
       ulong prev_sent_sz = http->request_sent;
-      int result = fd_sshttp_advance( http, &buffer_sz, buffer, &downloading, 0L );
+      int result = fd_sshttp_advance( http, &iov, 1UL, &buffer_sz, &downloading, 0L );
       if( prev_sent_sz != http->request_sent ) {
         uchar discard_buf[1024];
         long n;

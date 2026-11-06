@@ -31,6 +31,9 @@ fsync: (eq (arg 0) logfile_fd)
 read: (or (eq (arg 0) in_full_fd)
           (eq (arg 0) in_incr_fd)
           (eq (arg 0) sockfd))
+readv: (or (eq (arg 0) in_full_fd)
+           (eq (arg 0) in_incr_fd)
+           (eq (arg 0) sockfd))
 
 # snapshot: Uses lseek to reset position in input file
 lseek: (and (or (eq (arg 0) in_full_fd)
