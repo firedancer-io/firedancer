@@ -2,6 +2,7 @@
 #include "../fd_accdb_svm.h"
 #include "../fd_bank.h"
 #include "../fd_hashes.h"
+#include "../fd_runtime.h"
 #include "../../../ballet/lthash/fd_lthash.h"
 
 static const fd_pubkey_t acct_a = {{ 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,
@@ -549,6 +550,121 @@ test_lthash_modes( fd_svm_mini_t *        mini,
   FD_LOG_NOTICE(( "test_lthash_modes passed" ));
 }
 
+/* A leader bank hashes none of its writes and folds them in at
+   finalize.  Its LtHash and bank hash must match those of a sibling
+   that hashed every write in band, for the same writes: creations,
+   deletions and recreations, many rewrites of one account, rewrites
+   back to the parent's image, and data sizes across the blake3 chunk
+   and lthash adder batch boundaries. */
+
+#define FOLD_KEY_CNT (6UL)
+
+static void
+fold_apply_ops( fd_bank_t *        bank,
+                fd_accdb_t *       accdb,
+                fd_pubkey_t const  keys[ static FOLD_KEY_CNT ],
+                uint               seed ) {
+  fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, seed, 0UL ) );
+  static uchar data[ 10240 ];
+  static ulong const sz_tbl[] = { 0UL, 1UL, 439UL, 440UL, 951UL, 952UL, 1024UL, 2000UL, 4096UL, 10240UL };
+
+  for( ulong iter=0UL; iter<512UL; iter++ ) {
+    /* Key 0 takes half of the writes */
+    fd_pubkey_t const * key = keys + ( fd_rng_uint_roll( rng, 2U ) ? 0UL : fd_rng_ulong_roll( rng, FOLD_KEY_CNT ) );
+    ulong sz = sz_tbl[ fd_rng_ulong_roll( rng, sizeof(sz_tbl)/sizeof(sz_tbl[0]) ) ];
+    for( ulong i=0UL; i<sz; i++ ) data[ i ] = fd_rng_uchar( rng );
+    switch( fd_rng_uint_roll( rng, 5U ) ) {
+    case 0U: case 1U:
+      fd_accdb_svm_write( bank, accdb, NULL, key, fd_rng_uint_roll( rng, 2U ) ? &owner1 : &owner2, data, sz,
+                          1UL+fd_rng_ulong_roll( rng, 3000UL ), (int)fd_rng_uint_roll( rng, 2U ), 0 );
+      break;
+    case 2U:
+      fd_accdb_svm_credit( bank, accdb, NULL, key, 1UL+fd_rng_ulong_roll( rng, 1000UL ), 0 );
+      break;
+    case 3U:
+      fd_accdb_svm_remove( bank, accdb, NULL, key );
+      break;
+    case 4U: {
+      fd_accdb_svm_update_t update[1];
+      fd_acc_t rw = fd_accdb_svm_open_rw( bank, accdb, update, key, 0 );
+      if( rw.lamports ) {
+        rw.lamports = 1UL+fd_rng_ulong_roll( rng, rw.lamports );
+        fd_accdb_svm_close_rw( bank, accdb, NULL, &rw, update );
+      }
+      break;
+    }
+    }
+  }
+
+  /* Back to the parent's image: write, then restore */
+  fd_acc_t acc = fd_accdb_read_one( accdb, bank->parent_accdb_fork_id, keys[ 1 ].uc );
+  ulong     lamports = acc.lamports;
+  ulong     data_len = acc.data_len;
+  int       exec     = acc.executable;
+  fd_pubkey_t owner; fd_memcpy( owner.uc, acc.owner, 32UL );
+  fd_memcpy( data, acc.data, data_len );
+  fd_accdb_unread_one( accdb, &acc );
+  fd_accdb_svm_write ( bank, accdb, NULL, keys+1, &owner1, data, 7UL, lamports+5UL, 1, 0 );
+  fd_accdb_svm_update_t update[1];
+  fd_acc_t rw = fd_accdb_svm_open_rw( bank, accdb, update, keys+1, 1 );
+  rw.lamports   = lamports;
+  rw.data_len   = data_len;
+  rw.executable = exec;
+  fd_memcpy( rw.owner, owner.uc, 32UL );
+  fd_memcpy( rw.data, data, data_len );
+  fd_accdb_svm_close_rw( bank, accdb, NULL, &rw, update );
+
+  fd_rng_delete( fd_rng_leave( rng ) );
+}
+
+static void
+test_leader_fold( fd_svm_mini_t *        mini,
+                  fd_svm_mini_params_t * params ) {
+  fd_accdb_t * accdb = mini->runtime->accdb;
+  fd_pubkey_t const keys[ FOLD_KEY_CNT ] = { acct_a, acct_b, acct_c, acct_d, owner1, acct_missing };
+
+  for( uint seed=1U; seed<=8U; seed++ ) {
+    ulong root_idx = fd_svm_mini_reset( mini, params );
+
+    /* Seed the parent so writes see prior images from an ancestor */
+    ulong seed_idx = fd_svm_mini_attach_child( mini, root_idx, 11UL );
+    fd_bank_t * seed_bank = fd_svm_mini_bank( mini, seed_idx );
+    static uchar init[ 3000 ];
+    for( ulong i=0UL; i<sizeof(init); i++ ) init[ i ] = (uchar)(i*seed);
+    for( ulong k=0UL; k<FOLD_KEY_CNT-1UL; k++ ) fd_accdb_svm_write( seed_bank, accdb, NULL, keys+k, &owner2, init, 100UL*k*seed, 1000UL+k, 0, 0 );
+    fd_svm_mini_freeze( mini, seed_idx );
+
+    ulong inband_idx = fd_svm_mini_attach_child       ( mini, seed_idx, 12UL );
+    ulong leader_idx = fd_svm_mini_attach_leader_child( mini, seed_idx, 12UL );
+    fd_bank_t * inband = fd_svm_mini_bank( mini, inband_idx );
+    fd_bank_t * leader = fd_svm_mini_bank( mini, leader_idx );
+    FD_TEST( inband->lthash_mode==FD_BANK_LTHASH_MODE_INBAND   );
+    FD_TEST( leader->lthash_mode==FD_BANK_LTHASH_MODE_OOB_SKIP );
+
+    /* Start-of-block sysvar writes were hashed in band only */
+    FD_TEST(  fd_lthash_eq( &leader->f.lthash, &seed_bank->f.lthash ) );
+    FD_TEST( !fd_lthash_eq( &inband->f.lthash, &seed_bank->f.lthash ) );
+
+    fold_apply_ops( inband, accdb, keys, seed );
+    fold_apply_ops( leader, accdb, keys, seed );
+    FD_TEST( fd_lthash_eq( &leader->f.lthash, &seed_bank->f.lthash ) );
+    FD_TEST( inband->f.capitalization==leader->f.capitalization );
+
+    /* Same block: same PoH, so the bank hashes compare too */
+    fd_memset( inband->f.poh.hash, (int)seed, 32UL );
+    fd_memset( leader->f.poh.hash, (int)seed, 32UL );
+    FD_TEST( !fd_runtime_block_execute_finalize( inband, accdb, NULL, NULL, 0, NULL ) );
+    FD_TEST( !fd_runtime_block_execute_finalize( leader, accdb, NULL, NULL, 0, NULL ) );
+    FD_TEST( leader->lthash_mode==FD_BANK_LTHASH_MODE_INBAND );
+    FD_TEST( fd_lthash_eq( &inband->f.lthash, &leader->f.lthash ) );
+    FD_TEST( fd_hash_eq( &inband->f.bank_hash, &leader->f.bank_hash ) );
+    FD_TEST( inband->f.capitalization==leader->f.capitalization );
+    FD_TEST( !fd_lthash_eq( &leader->f.lthash, &seed_bank->f.lthash ) );
+  }
+
+  FD_LOG_NOTICE(( "test_leader_fold passed" ));
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -595,6 +711,7 @@ main( int     argc,
   root_idx = fd_svm_mini_reset( mini, params );
   test_write_lthash( mini, root_idx );
   test_lthash_modes( mini, params );
+  test_leader_fold( mini, params );
 
   FD_LOG_NOTICE(( "pass" ));
   fd_svm_test_halt( mini );
