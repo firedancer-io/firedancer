@@ -1250,7 +1250,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
   return out_cnt;
 }
 
-#define STEM_BURST (17UL/*FD_GOSSIP_MSG_MAX_CRDS*/+1UL)
+#define STEM_BURST (FD_GOSSIP_MESSAGE_MAX_CRDS+1UL)
 
 #define STEM_LAZY  (128L*3000L)
 
