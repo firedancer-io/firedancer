@@ -133,7 +133,7 @@ test_sysvar_map( void ) {
 
   for( ulong j=0UL; j<256; j++ ) {
     fd_pubkey_t pk;
-    for( ulong j=0UL; j<32UL; j++ ) pk.uc[j] = (uchar)j;
+    for( ulong i=0UL; i<32UL; i++ ) pk.uc[i] = (uchar)j;
     FD_TEST( !sysvar_map_query( &pk, NULL ) );
   }
 }
