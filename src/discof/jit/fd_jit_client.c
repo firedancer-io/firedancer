@@ -20,30 +20,38 @@ fd_jit_client_privileged_init( fd_topo_t const * topo,
     FD_LOG_ERR(( "mprotect(jit arena,%s) failed (%i-%s)", prot&PROT_WRITE ? "rwx" : "r-x", errno, fd_io_strerror( errno ) ));
 }
 
-/* jit_req runs inside fd_progcache_pull on the exec tile, right after
-   a program loaded.  It copies the record header and value slot into
-   one exec_jit frag.  The link is unreliable and raw (not through
-   stem, since the hook fires deep in runtime code): a slow jit tile is
-   simply overrun and the program stays interpreted. */
+/* jit_req runs on the exec tile when a program with no binding is
+   about to execute.  It copies the record header and value slot into
+   one exec_jit frag and marks the record pending so it is sent once.
+   The jit tile is a plain unreliable consumer, but we never overrun
+   it: if its fseq shows the link full the request is refused and the
+   record stays unmarked, so the next execution asks again.  Spill
+   records have no stable index and are skipped. */
 
 static void
-jit_req( void *                     _client,
-         fd_progcache_rec_t const * rec,
-         uint                       rec_idx,
-         fd_features_t const *      features ) {
+jit_req( void *                _client,
+         fd_progcache_rec_t *  rec,
+         fd_features_t const * features ) {
   fd_jit_client_t * client = _client;
-  if( FD_UNLIKELY( !rec->data_gaddr ) ) return;
+  if( FD_UNLIKELY( !rec->data_gaddr || rec<client->rec0 || (ulong)( rec-client->rec0 )>=client->rec_max ) ) return;
 
   ulong val_sz = fd_ulong_min( (ulong)rec->rodata_off + fd_ulong_max( (ulong)rec->rodata_sz, (ulong)rec->text_off+(ulong)rec->text_cnt*8UL ), (ulong)rec->data_max );
   ulong sz     = sizeof(fd_jit_req_t) + val_sz;
-  if( FD_UNLIKELY( sz>FD_JIT_REQ_MTU ) ) { client->dropped++; return; }
+  if( FD_UNLIKELY( sz>FD_JIT_REQ_MTU ) ) {
+    FD_VOLATILE( rec->transpiled_idx ) = FD_TRANSPILE_BIND_HOLD; /* never fits; stop asking */
+    return;
+  }
+  if( FD_UNLIKELY( fd_seq_diff( client->seq, fd_fseq_query( client->fseq ) )>=(long)client->depth ) ) {
+    client->refused++;
+    return;
+  }
 
   fd_jit_req_t * req = fd_chunk_to_laddr( client->mem, client->chunk );
   *req = (fd_jit_req_t) {
     .key           = rec->pair,
     .feature_slot  = rec->feature_slot,
     .deploy_slot   = rec->deploy_slot,
-    .rec_idx       = rec_idx,
+    .rec_idx       = (uint)( rec-client->rec0 ),
     .data_max      = rec->data_max,
     .entry_pc      = rec->entry_pc,
     .text_cnt      = rec->text_cnt,
@@ -64,6 +72,7 @@ jit_req( void *                     _client,
   client->chunk = fd_dcache_compact_next( client->chunk, sz, client->chunk0, client->wmark );
   client->seq   = fd_seq_inc( client->seq, 1UL );
   client->sent++;
+  FD_VOLATILE( rec->transpiled_idx ) = FD_TRANSPILE_BIND_HOLD;
 }
 
 int
@@ -87,12 +96,24 @@ fd_jit_client_init( fd_jit_client_t *      client,
   client->wmark    = fd_dcache_compact_wmark( client->mem, link->dcache, link->mtu );
   client->chunk    = client->chunk0;
   client->pc_wksp  = (fd_wksp_t *)progcache->join->data_base;
+  client->rec0     = progcache->join->rec.ele;
+  client->rec_max  = progcache->join->rec.max;
   client->tile_idx = tile_idx;
 
-  client->bind->arena = fd_jit_arena_join( fd_topo_obj_laddr( topo, jit_arena_obj_id ) );
-  FD_TEST( client->bind->arena );
+  /* The jit tile's fseq for this link */
+  fd_topo_tile_t const * jit_tile = &topo->tiles[ fd_topo_find_tile( topo, "jit", 0UL ) ];
+  client->fseq = NULL;
+  for( ulong j=0UL; j<jit_tile->in_cnt; j++ ) {
+    if( jit_tile->in_link_id[ j ]==link->id ) {
+      client->fseq = fd_fseq_join( fd_topo_obj_laddr( topo, jit_tile->in_link_fseq_obj_id[ j ] ) );
+      break;
+    }
+  }
+  FD_TEST( client->fseq );
 
-  progcache->jit_req     = jit_req;
-  progcache->jit_req_ctx = client;
+  client->bind->arena   = fd_jit_arena_join( fd_topo_obj_laddr( topo, jit_arena_obj_id ) );
+  FD_TEST( client->bind->arena );
+  client->bind->req     = jit_req;
+  client->bind->req_ctx = client;
   return 1;
 }

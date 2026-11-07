@@ -19,16 +19,23 @@
 
 #include "fd_transpile_runtime.h"
 #include "../../progcache/fd_progcache_rec.h"
+#include "../../features/fd_features.h"
 
-#define FD_TRANSPILE_BIND_JIT (0x80000000U)
+#define FD_TRANSPILE_BIND_JIT         (0x80000000U)
+#define FD_TRANSPILE_BIND_HOLD        (0x40000000U) /* interpreter, and do not ask the JIT: request in flight, compile failed, or bailed */
 
 struct fd_jit_arena;
 
 /* fd_transpile_bind_t is the per-tile view of the transpiled program
-   sources.  arena is NULL when JIT is disabled. */
+   sources.  arena is NULL when JIT is disabled.  req is called from
+   the exec path for a record with transpiled_idx 0 (never requested,
+   or a request was refused for lack of link space) and may set
+   FD_TRANSPILE_BIND_HOLD. */
 
 struct fd_transpile_bind {
   struct fd_jit_arena const * arena;
+  void (* req)( void * ctx, fd_progcache_rec_t * rec, fd_features_t const * features );
+  void *  req_ctx;
 };
 
 typedef struct fd_transpile_bind fd_transpile_bind_t;
@@ -48,7 +55,8 @@ fd_transpile_bind_lookup( fd_pubkey_t const * prog_id,
 
 fd_vm_transpiled_exec_func_t
 fd_transpile_bind_exec( fd_transpile_bind_t const * bind,
-                        fd_progcache_rec_t const *  rec );
+                        fd_progcache_rec_t *        rec,
+                        fd_features_t const *       features );
 
 /* fd_transpile_bind_unbind permanently falls back to the interpreter
    for rec (e.g. after transpiled code bailed). */

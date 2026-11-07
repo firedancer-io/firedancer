@@ -175,6 +175,7 @@ metrics_write( fd_execrp_tile_t * ctx ) {
   FD_MCNT_SET( EXECRP, TRANSPILED_EXECUTED,  runtime->metrics.transpiled_exec_cnt );
   FD_MCNT_SET( EXECRP, TRANSPILED_BAILED,    runtime->metrics.transpiled_bail_cnt );
   FD_MCNT_SET( EXECRP, JIT_REQUESTED,        ctx->jit->sent );
+  FD_MCNT_SET( EXECRP, JIT_REQUEST_REFUSED,  ctx->jit->refused );
 
   fd_txncache_join_metrics_t const * txncache = fd_txncache_join_metrics( ctx->txncache );
   FD_MCNT_SET  ( EXECRP, TXNCACHE_QUERY_MISS,             txncache->query_miss_cnt  );

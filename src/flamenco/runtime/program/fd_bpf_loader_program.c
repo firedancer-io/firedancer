@@ -560,7 +560,7 @@ bpf_execute( fd_exec_instr_ctx_t * instr_ctx,
 
   long const regime1 = fd_tickcount();
 
-  fd_vm_transpiled_exec_func_t transpiled = vm->trace ? NULL : fd_transpile_bind_exec( instr_ctx->runtime->transpile, cache_entry );
+  fd_vm_transpiled_exec_func_t transpiled = vm->trace ? NULL : fd_transpile_bind_exec( instr_ctx->runtime->transpile, cache_entry, &instr_ctx->bank->f.features );
   int exec_err;
   if( transpiled ) {
     vm->transpiled.rt = &fd_transpile_rt;

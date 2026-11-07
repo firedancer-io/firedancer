@@ -135,6 +135,7 @@ metrics_write( fd_execle_tile_t * ctx ) {
   FD_MCNT_SET( EXECLE, TRANSPILED_EXECUTED,    ctx->runtime->metrics.transpiled_exec_cnt );
   FD_MCNT_SET( EXECLE, TRANSPILED_BAILED,      ctx->runtime->metrics.transpiled_bail_cnt );
   FD_MCNT_SET( EXECLE, JIT_REQUESTED,          ctx->jit->sent );
+  FD_MCNT_SET( EXECLE, JIT_REQUEST_REFUSED,    ctx->jit->refused );
 
   FD_MCNT_SET( EXECLE, CU_CONSUMED, ctx->runtime->metrics.cu_cum );
 

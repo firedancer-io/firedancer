@@ -17,8 +17,7 @@
    mcache size field allows, so frags are published with sz 0 and each
    header states its own length. */
 
-#include "fd_transpile_runtime.h"
-#include "../../../ballet/elf/fd_elf64.h"
+#include "fd_transpile.h"
 #include "../../features/fd_features.h"
 #include "../../progcache/fd_progcache_rec.h"
 
@@ -75,14 +74,12 @@ struct __attribute__((aligned(64))) fd_jit_res {
 
 typedef struct fd_jit_res fd_jit_res_t;
 
-/* Bounds a jit_jitmap frag.  Real programs stay far below the
-   transpiler's internal maxima; this caps the dcache without wasting
-   the full 16 MiB code buffer per slot. */
+/* Bounds a jit_jitmap frag: whatever the transpiler can emit. */
 
-#define FD_JIT_RES_CODE_MAX         (1UL<<23)
-#define FD_JIT_RES_RODATA_MAX       (1UL<<21)
-#define FD_JIT_RES_RELOC_MAX        (1UL<<16) /* calls out of code: one per syscall/helper site */
-#define FD_JIT_RES_RODATA_RELOC_MAX (1UL<<18) /* callx table: one per basic block */
+#define FD_JIT_RES_CODE_MAX         FD_TRANSPILER_CODE_MAX
+#define FD_JIT_RES_RODATA_MAX       FD_TRANSPILER_RODATA_MAX
+#define FD_JIT_RES_RELOC_MAX        FD_TRANSPILER_RELOC_MAX /* calls out of code */
+#define FD_JIT_RES_RODATA_RELOC_MAX FD_TRANSPILER_BB_MAX    /* callx table: one per basic block */
 #define FD_JIT_RES_MTU ( sizeof(fd_jit_res_t) + FD_JIT_RES_CODE_MAX + FD_JIT_RES_RODATA_MAX + \
                          ( FD_JIT_RES_RELOC_MAX + FD_JIT_RES_RODATA_RELOC_MAX )*sizeof(fd_elf64_rela) + 64UL )
 

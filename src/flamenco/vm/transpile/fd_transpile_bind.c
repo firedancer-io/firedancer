@@ -31,9 +31,14 @@ fd_transpile_bind_lookup( fd_pubkey_t const * prog_id,
 
 fd_vm_transpiled_exec_func_t
 fd_transpile_bind_exec( fd_transpile_bind_t const * bind,
-                        fd_progcache_rec_t const *  rec ) {
+                        fd_progcache_rec_t *        rec,
+                        fd_features_t const *       features ) {
   uint idx = FD_VOLATILE_CONST( rec->transpiled_idx );
-  if( FD_LIKELY( !idx ) ) return NULL;
+  if( FD_UNLIKELY( !idx ) ) {
+    if( bind && bind->req ) bind->req( bind->req_ctx, rec, features );
+    return NULL;
+  }
+  if( idx & FD_TRANSPILE_BIND_HOLD ) return NULL;
   if( idx & FD_TRANSPILE_BIND_JIT ) {
     if( FD_UNLIKELY( !bind || !bind->arena ) ) return NULL;
     ulong slot = idx & ~FD_TRANSPILE_BIND_JIT;
@@ -46,7 +51,7 @@ fd_transpile_bind_exec( fd_transpile_bind_t const * bind,
 void
 fd_transpile_bind_unbind( fd_progcache_rec_t * rec,
                           char const *         reason ) {
-  FD_VOLATILE( rec->transpiled_idx ) = 0U;
+  FD_VOLATILE( rec->transpiled_idx ) = FD_TRANSPILE_BIND_HOLD;
   FD_BASE58_ENCODE_32_BYTES( rec->pair.prog.uc, prog_id_b58 );
   FD_LOG_NOTICE(( "transpiled program %s unbound (%s)", prog_id_b58, reason ));
 }

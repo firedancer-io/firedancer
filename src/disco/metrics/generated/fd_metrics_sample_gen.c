@@ -1118,7 +1118,7 @@ static fd_metrics_sample_field_t const fields_pack[ 316 ] = {
   { 0, 0U, FD_METRICS_SAMPLE_CLOSE, NULL, 0UL },
 };
 
-static fd_metrics_sample_field_t const fields_execle[ 250 ] = {
+static fd_metrics_sample_field_t const fields_execle[ 251 ] = {
   { FD_METRICS_GAUGE_TILE_PID_OFF, 8U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_GAUGE_TILE_TID_OFF, 9U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_GAUGE_TILE_LAST_CPU_INDEX_OFF, 10U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
@@ -1206,6 +1206,7 @@ static fd_metrics_sample_field_t const fields_execle[ 250 ] = {
   { FD_METRICS_COUNTER_EXECLE_TRANSPILED_EXECUTED_OFF, 68U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_COUNTER_EXECLE_TRANSPILED_BAILED_OFF, 69U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_COUNTER_EXECLE_JIT_REQUESTED_OFF, 449213385U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
+  { FD_METRICS_COUNTER_EXECLE_JIT_REQUEST_REFUSED_OFF, 365775702U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_COUNTER_EXECLE_TXN_REGIME_DURATION_NANOS_OFF, 32U, FD_METRICS_SAMPLE_OPEN, NULL, 0UL },
   { FD_METRICS_COUNTER_EXECLE_TXN_REGIME_DURATION_NANOS_LOAD_OFF, 1U, FD_METRICS_SAMPLE_NS, NULL, 0UL },
   { FD_METRICS_COUNTER_EXECLE_TXN_REGIME_DURATION_NANOS_EXECUTE_OFF, 2U, FD_METRICS_SAMPLE_NS, NULL, 0UL },
@@ -3485,7 +3486,7 @@ static fd_metrics_sample_field_t const fields_ipecho[ 55 ] = {
   { FD_METRICS_GAUGE_IPECHO_PORT_CHECK_TCP_IN_FLIGHT_OFF, 31U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
 };
 
-static fd_metrics_sample_field_t const fields_execrp[ 247 ] = {
+static fd_metrics_sample_field_t const fields_execrp[ 248 ] = {
   { FD_METRICS_GAUGE_TILE_PID_OFF, 8U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_GAUGE_TILE_TID_OFF, 9U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_GAUGE_TILE_LAST_CPU_INDEX_OFF, 10U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
@@ -3569,6 +3570,7 @@ static fd_metrics_sample_field_t const fields_execrp[ 247 ] = {
   { FD_METRICS_COUNTER_EXECRP_TRANSPILED_EXECUTED_OFF, 70U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_COUNTER_EXECRP_TRANSPILED_BAILED_OFF, 71U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_COUNTER_EXECRP_JIT_REQUESTED_OFF, 443668334U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
+  { FD_METRICS_COUNTER_EXECRP_JIT_REQUEST_REFUSED_OFF, 300566068U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_COUNTER_EXECRP_TXN_REGIME_DURATION_NANOS_OFF, 33U, FD_METRICS_SAMPLE_OPEN, NULL, 0UL },
   { FD_METRICS_COUNTER_EXECRP_TXN_REGIME_DURATION_NANOS_LOAD_OFF, 1U, FD_METRICS_SAMPLE_NS, NULL, 0UL },
   { FD_METRICS_COUNTER_EXECRP_TXN_REGIME_DURATION_NANOS_EXECUTE_OFF, 2U, FD_METRICS_SAMPLE_NS, NULL, 0UL },
@@ -4820,7 +4822,7 @@ fd_metrics_sample_schema_t const fd_metrics_sample_tiles[] = {
   { "dedup", 28U, fields_dedup, 43UL, 552UL },
   { "resolv", 29U, fields_resolv, 81UL, 915UL },
   { "pack", 30U, fields_pack, 316UL, 3355UL },
-  { "execle", 31U, fields_execle, 250UL, 2638UL },
+  { "execle", 31U, fields_execle, 251UL, 2653UL },
   { "shred", 32U, fields_shred, 177UL, 1962UL },
   { "accdb", 33U, fields_accdb, 132UL, 1361UL },
   { "replay", 34U, fields_replay, 307UL, 3296UL },
@@ -4843,7 +4845,7 @@ fd_metrics_sample_schema_t const fd_metrics_sample_tiles[] = {
   { "waker", 50U, fields_waker, 40UL, 536UL },
   { "mwaitx", 51U, fields_mwaitx, 44UL, 564UL },
   { "ipecho", 52U, fields_ipecho, 55UL, 674UL },
-  { "execrp", 53U, fields_execrp, 247UL, 2614UL },
+  { "execrp", 53U, fields_execrp, 248UL, 2629UL },
   { "votor", 54U, fields_votor, 357UL, 3719UL },
   { "gui", 55U, fields_gui, 298UL, 3184UL },
   { "event", 56U, fields_event, 54UL, 699UL },
