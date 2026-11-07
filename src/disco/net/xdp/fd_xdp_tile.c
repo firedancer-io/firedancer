@@ -597,6 +597,22 @@ net_tx_route( fd_net_ctx_t * ctx,
   return 1;
 }
 
+static inline int
+net_tx_is_loopback( fd_net_ctx_t * ctx,
+                    uint           dst_ip ) {
+  fd_fib4_hop_t hop[2] = {0};
+  hop[0] = fd_fib4_lookup( ctx->fib_local, dst_ip, 0UL );
+  hop[1] = fd_fib4_lookup( ctx->fib_main,  dst_ip, 0UL );
+  fd_fib4_hop_t const * next_hop = fd_fib4_hop_or( hop+0, hop+1 );
+
+  uint rtype  = next_hop->rtype;
+  uint if_idx = next_hop->if_idx;
+  if( rtype==FD_FIB4_RTYPE_LOCAL ) if_idx = 1;
+  else if( rtype!=FD_FIB4_RTYPE_UNICAST ) return 0;
+  fd_netdev_t * netdev = fd_netdev_tbl_query( &ctx->netdev_tbl, if_idx );
+  return netdev && netdev->dev_type==ARPHRD_LOOPBACK && if_idx!=ctx->if_virt;
+}
+
 /* before_frag is called when a new metadata descriptor for a TX job is
    found.  This callback determines whether this net tile is responsible
    for the TX job.  If so, it prepares the TX op for the during_frag and
@@ -623,10 +639,12 @@ before_frag( fd_net_ctx_t * ctx,
   uint  dst_ip     = fd_disco_netmux_sig_ip( sig );
 
   /* Skip if another net tile is responsible for this packet.
-     Fast path for net tiles other than net_tile 0. */
+     Net tile 0 is responsible for packets targeted to it, plus any
+     loopback packets (as only net tile 0 has an XSK on loopback). */
 
-  if( kind_id!=0UL && kind_id!=target_idx ) return 1; /* ignore */
-
+  if( kind_id!=target_idx ) {
+    if( kind_id!=0UL || !net_tx_is_loopback( ctx, dst_ip ) ) return 1; /* ignore */
+  }
 
   fd_net_tx_route_t * route = &ctx->net.tx_route;
   *route = (fd_net_tx_route_t){0};
