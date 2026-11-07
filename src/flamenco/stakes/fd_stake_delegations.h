@@ -275,8 +275,8 @@ fd_stake_delegations_align( void );
 
 /* fd_stake_delegations_footprint returns the footprint of the stake
    delegations struct for the given root pool capacity and max live
-   slots.  The in-memory delta pool holds half as many elements, with a
-   minimum capacity of one; further deltas spill to disk. */
+   slots.  The in-memory delta pool has the same capacity as the root
+   pool (max_stake_accounts); further deltas spill to disk. */
 
 ulong
 fd_stake_delegations_footprint( ulong max_stake_accounts,
