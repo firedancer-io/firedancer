@@ -867,7 +867,7 @@ fd_toml_parse_array( fd_toml_parser_t * parser ) {
   uint key_len = parser->key_len;
 
   EXPECT_CHAR( '[' );
-  fd_toml_upsert_empty_pod( parser );
+  if( FD_UNLIKELY( !fd_toml_upsert_empty_pod( parser ) ) ) return 0;
   SUB_PARSE( fd_toml_parse_array_values      ( parser ) );
   SUB_PARSE( fd_toml_parse_ws_comment_newline( parser ) );
   EXPECT_CHAR( ']' );
@@ -1295,7 +1295,7 @@ fd_float_parse_float_special( fd_toml_parser_t * parser ) {
   if( 0==strncasecmp( str, "nan", 3 ) ) {
     FD_LOG_WARNING(( "TOML parse error: float NaN is unsupported" ));
     parser->error = FD_TOML_ERR_RANGE;
-    return 1;
+    return 0;
   }
 
   return 0;
@@ -1435,7 +1435,7 @@ fd_toml_parse_table( fd_toml_parser_t * parser ) {
   if( SUB_PARSE( fd_toml_parse_std_table  ( parser ) ) ) goto add;
   return 0;
 add:
-  fd_toml_upsert_empty_pod( parser );
+  if( FD_UNLIKELY( !fd_toml_upsert_empty_pod( parser ) ) ) return 0;
   /* Add trailing dot */
   if( parser->key_len + 2 > sizeof(parser->key) ) {
     parser->error = FD_TOML_ERR_KEY;
@@ -1517,7 +1517,7 @@ fd_toml_parse( void const *         toml,
   int ok = fd_toml_parse_toml( parser );
   opt_err->line = parser->c.lineno;
 
-  if( FD_UNLIKELY( (!ok) | (fd_toml_avail( parser ) > 0) ) ) {
+  if( FD_UNLIKELY( (!ok) | (fd_toml_avail( parser ) > 0) | (!!parser->error) ) ) {
     return fd_int_if( !!parser->error, parser->error, FD_TOML_ERR_PARSE );
   }
 
