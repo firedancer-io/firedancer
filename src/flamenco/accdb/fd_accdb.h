@@ -343,9 +343,9 @@ fd_accdb_purge( fd_accdb_t *       accdb,
 
    out_accs is an array of pubkeys_cnt cache accs to be filled in
    with the acquired accounts.  The cache will fill the owner, lamports,
-   data_len, and data fields of each acc if the acquire is successful,
-   and the account exists.  If the account does not exist, the lamports
-   field will be set to zero and other fields are undefined. */
+   data_len, executable, and data fields of each acc.  A missing or
+   zero-lamport account is returned as the default account.  data is
+   NULL for a read-only acquire of a missing account. */
 
 void
 fd_accdb_acquire( fd_accdb_t *          accdb,
