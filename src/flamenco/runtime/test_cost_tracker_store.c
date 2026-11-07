@@ -96,14 +96,25 @@ test_release_fresh( int fd ) {
   fd_cost_tracker_store_t * store = store_create( &mem, fd, 2UL, 1UL );
 
   ushort a = fd_cost_tracker_store_new_fork( store, USHORT_MAX );
-  fd_cost_tracker_store_pin( store, a )->block_cost = 77UL;
+  fd_cost_tracker_t * ct = fd_cost_tracker_store_pin( store, a );
+  ct->block_cost                   = 77UL;
+  ct->allocated_accounts_data_size = 78UL;
+  ct->block_cost_limit             = 79UL;
+  ct->account_cost_limit           = 80UL;
+  ct->data_size_limit              = 81UL;
   fd_cost_tracker_store_unpin( store, a );
   ushort b = fd_cost_tracker_store_new_fork( store, USHORT_MAX ); /* evicts a */
   FD_TEST( b!=a );
 
   ushort c = fd_cost_tracker_store_new_fork( store, a );
   FD_TEST( c==a );
-  FD_TEST( fd_cost_tracker_store_pin( store, c )->bench_max_cost_per_block==123UL );
+  ct = fd_cost_tracker_store_pin( store, c );
+  FD_TEST( ct->block_cost==0UL );
+  FD_TEST( ct->allocated_accounts_data_size==0UL );
+  FD_TEST( ct->block_cost_limit==0UL );
+  FD_TEST( ct->account_cost_limit==0UL );
+  FD_TEST( ct->data_size_limit==0UL );
+  FD_TEST( ct->bench_max_cost_per_block==123UL );
   fd_cost_tracker_store_unpin( store, c );
 
   fd_cost_tracker_store_reset( store );
