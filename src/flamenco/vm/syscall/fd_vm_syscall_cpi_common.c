@@ -529,9 +529,7 @@ VM_SYSCALL_CPI_UPDATE_CALLER_ACC_FUNC( fd_vm_t *                          vm,
 
   /* Update the caller account owner with the value from the callee
      https://github.com/anza-xyz/agave/blob/v3.0.4/syscalls/src/cpi.rs#L1192 */
-  fd_pubkey_t const * updated_owner = (fd_pubkey_t const *)borrowed_callee_acc->acc->owner;
-  if( updated_owner ) *caller_account->owner = *updated_owner;
-  else                fd_memset( caller_account->owner, 0,             sizeof(fd_pubkey_t) );
+  fd_memcpy( caller_account->owner, borrowed_callee_acc->acc->owner, sizeof(fd_pubkey_t) );
 
   /* Update the caller account data with the value from the callee
      https://github.com/anza-xyz/agave/blob/v3.0.4/syscalls/src/cpi.rs#L1194-L1195 */
