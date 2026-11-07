@@ -973,6 +973,7 @@ handle_accept( fd_snapsv_t * ctx,
   }
 
   conn->active_ts = now;
+  conn->state = CONN_STATE_REQ_PEEK;
 
   prep_peek( ctx, conn_idx );
   if( FD_LIKELY( ctx->conn_cnt<ctx->conn_max ) ) {
@@ -1810,6 +1811,7 @@ handle_consume_frag_comp( fd_snapsv_t *       ctx,
   snapsv_conn_t * conn = &ctx->conn0[ conn_idx ];
   FD_CHECK_ERR( conn->state==CONN_STATE_REQ_SKIP, "conn state confusion" );
   conn->req.len += consume_len;
+  conn->state = CONN_STATE_REQ_PEEK;
   prep_peek( ctx, conn_idx );
 }
 
