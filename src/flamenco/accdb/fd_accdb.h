@@ -526,8 +526,7 @@ fd_accdb_data_len( fd_accdb_t *       accdb,
 
 /* fd_accdb_reset reinitializes the accdb to the state immediately after
    fd_accdb_new.  All in-memory index state is cleared and all pool
-   joins are re-established.  The caller is responsible for truncating
-   the on-disk file separately (e.g. via the snapin tiles).
+   joins are re-established.  The on-disk file is not truncated.
 
    The caller must guarantee that no other thread is concurrently
    accessing the accdb (no outstanding acquires, no background work). */
