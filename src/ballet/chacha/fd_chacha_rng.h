@@ -280,7 +280,7 @@ fd_chacha_rng_ulong_roll( fd_chacha_rng_t * rng,
 /* fd_chacha_rng_ulong_roll_decreasing is an optimized version of
    for( ulong i=0UL; i<cnt; i++ )
      out[i] = fd_chacha_rng_ulong_roll( rng, n_initial-i );
-   cnt must be in [0, n_initial). rng==NULL is not allowed, even if
+   cnt must be in [0, n_initial]. rng==NULL is not allowed, even if
    cnt==0. */
 void
 fd_chacha_rng_ulong_roll_decreasing( fd_chacha_rng_t * rng,
