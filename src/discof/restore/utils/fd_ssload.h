@@ -9,8 +9,8 @@ FD_PROTOTYPES_BEGIN
    structural issues that the parser does not catch: epoch schedule
    consistency, blockhash queue bounds (entry count, duplicate
    hash_index, wraparound), array bounds (hard forks, epoch stakes),
-   epoch credits downcasting safety (epoch fits ushort, credit deltas
-   fit uint), and epoch stakes index bounds.
+   epoch credits downcasting safety (epoch fits ushort), and epoch
+   stakes index bounds.
    max_vote_accounts must equal FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS and
    max_stake_accounts must be nonzero; mismatches are rejected as a
    configuration error.
