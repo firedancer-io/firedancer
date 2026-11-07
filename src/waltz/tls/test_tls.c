@@ -169,6 +169,9 @@ test_tls_extension_rules( void ) {
   FD_TEST( encoded>0L );
   sz = (ulong)encoded;
   ulong const sh_ext_off = 38UL;
+  fd_memcpy( copy, wire, sz );
+  copy[37] = 1;
+  FD_TEST( fd_tls_decode_server_hello( &sh, copy, sz )==-FD_TLS_ALERT_ILLEGAL_PARAMETER );
   for( ulong off=sh_ext_off+2UL; off<sz; ) {
     ushort type = fd_ushort_bswap( FD_LOAD( ushort, wire+off ) );
     ushort len  = fd_ushort_bswap( FD_LOAD( ushort, wire+off+2UL ) );
@@ -186,6 +189,15 @@ test_tls_extension_rules( void ) {
     sh = (fd_tls_server_hello_t){0};
     FD_TEST( fd_tls_decode_server_hello( &sh, copy, sz-4UL-len )==
              (type==FD_TLS_EXT_SUPPORTED_VERSIONS ? -FD_TLS_ALERT_PROTOCOL_VERSION : -FD_TLS_ALERT_MISSING_EXTENSION) );
+    if( type==FD_TLS_EXT_SUPPORTED_VERSIONS ) {
+      copy[37] = 1;
+      sh = (fd_tls_server_hello_t){0};
+      FD_TEST( fd_tls_decode_server_hello( &sh, copy, sz-4UL-len )==-FD_TLS_ALERT_PROTOCOL_VERSION );
+      fd_memcpy( copy, wire, sz );
+      copy[off+5UL] = 3; /* TLS 1.2 in supported_versions */
+      sh = (fd_tls_server_hello_t){0};
+      FD_TEST( fd_tls_decode_server_hello( &sh, copy, sz )==-FD_TLS_ALERT_ILLEGAL_PARAMETER );
+    }
     off += 4UL+len;
   }
   ushort const sh_forbidden[] = {
@@ -217,6 +229,25 @@ test_tls_extension_rules( void ) {
   }
   sz = test_tls_append_ext( wire, 2UL, 0UL, 0xfafa, NULL, 0 );
   FD_TEST( fd_tls_decode_enc_ext( &ee, wire, sz )==-FD_TLS_ALERT_UNSUPPORTED_EXTENSION );
+}
+
+static void
+test_tls_psk_last( void ) {
+  uchar const modes[] = { 1, 1 }; /* psk_dhe_ke */
+  uchar const psk[44] = { 0,7, 0,1,'x',0,0,0,0, 0,33,32 };
+  uchar wire[512];
+  fd_tls_client_hello_t ch = { .signature_algorithms = { .ed25519 = 1 } };
+  long encoded = fd_tls_encode_client_hello( &ch, wire, sizeof(wire) );
+  FD_TEST( encoded>0L );
+  /* Both orders carry modes so that the test isolates final position. */
+  ulong sz = test_tls_append_ext( wire, (ulong)encoded, 41UL, 45, modes, sizeof(modes) );
+  sz = test_tls_append_ext( wire, sz, 41UL, FD_TLS_EXT_PRE_SHARED_KEY, psk, sizeof(psk) );
+  ch = (fd_tls_client_hello_t){0};
+  FD_TEST( fd_tls_decode_client_hello( &ch, wire, sz )==(long)sz );
+  sz = test_tls_append_ext( wire, sz, 41UL, 0xfafa, NULL, 0 );
+  ch = (fd_tls_client_hello_t){0};
+  FD_TEST( fd_tls_decode_client_hello( &ch, wire, sz )==-FD_TLS_ALERT_ILLEGAL_PARAMETER );
+
 }
 
 static void
@@ -449,6 +480,8 @@ test_tls_client_hello_required_extensions( fd_rng_t * rng ) {
       FD_TEST( res==(long)sz && hs->hello_retry );
       test_record_t * rec = test_record_recv( &test_server_out );
       FD_TEST( rec && rec->buf[0]==FD_TLS_MSG_SERVER_HELLO );
+      FD_TEST( fd_tls_server_handshake( server, hs, wire, sz, FD_TLS_LEVEL_INITIAL )==-FD_TLS_ALERT_ILLEGAL_PARAMETER );
+      FD_TEST( hs->base.reason==FD_TLS_REASON_CH_RETRY_KS );
     } else {
       FD_TEST( res==-FD_TLS_ALERT_HANDSHAKE_FAILURE );
       FD_TEST( !test_record_recv( &test_server_out ) );
@@ -525,6 +558,43 @@ static uchar const test_sh_template[] =
 
 #define TEST_SH_SESSION_ID_OFF (39UL)
 #define TEST_SH_CIPHER_OFF     (71UL)
+
+static void
+test_tls_psk_requires_modes( fd_rng_t * rng ) {
+  uchar const modes[] = { 1, 1 }; /* psk_dhe_ke */
+  uchar const psk[44] = { 0,7, 0,1,'x',0,0,0,0, 0,33,32 };
+  for( uint mask=0U; mask<4U; mask++ ) {
+    fd_tls_t client[1], server[1];
+    prepare_tls_pair( rng, client, server );
+    fd_tls_estate_srv_t hs[1];
+    FD_TEST( fd_tls_estate_srv_new( hs ) );
+    test_server_hs = hs;
+    test_record_reset( &test_server_out );
+
+    uchar wire[512];
+    fd_tls_client_hello_t ch = { .signature_algorithms = { .ed25519 = 1 } };
+    fd_memcpy( ch.key_share.x25519, client->kex_public_key, 32UL );
+    long body_sz = fd_tls_encode_client_hello( &ch, wire+4UL, sizeof(wire)-4UL );
+    FD_TEST( body_sz>0L );
+    ulong sz = (ulong)body_sz;
+    if( mask&2U ) sz = test_tls_append_ext( wire+4UL, sz, 41UL, FD_TLS_EXT_PSK_KEY_EXCHANGE_MODES, modes, sizeof(modes) );
+    if( mask&1U ) sz = test_tls_append_ext( wire+4UL, sz, 41UL, FD_TLS_EXT_PRE_SHARED_KEY, psk, sizeof(psk) );
+    fd_tls_msg_hdr_t hdr = { .type = FD_TLS_MSG_CLIENT_HELLO, .sz = fd_uint_to_tls_u24( (uint)sz ) };
+    FD_TEST( fd_tls_encode_msg_hdr( &hdr, wire, 4UL )==4L );
+    long res = fd_tls_server_handshake( server, hs, wire, sz+4UL, FD_TLS_LEVEL_INITIAL );
+    if( mask==1U ) {
+      FD_TEST( res==-FD_TLS_ALERT_MISSING_EXTENSION );
+      FD_TEST( hs->base.reason==FD_TLS_REASON_CH_PARSE );
+      FD_TEST( !test_server_out.send );
+    } else {
+      FD_TEST( res==(long)(sz+4UL) );
+      FD_TEST( !hs->base.reason );
+    }
+    test_record_reset( &test_server_out );
+    test_server_hs = NULL;
+    fd_tls_estate_srv_delete( hs );
+  }
+}
 
 static void
 test_tls_server_wrong_ciphersuite( fd_rng_t * rng ) {
@@ -713,6 +783,36 @@ test_tls_truncated_cert_extract( void ) {
   fd_memcpy( wire+1, &list_sz, 3UL );
   fd_memset( wire+sz, 0, 3UL );
   FD_TEST( fd_tls_extract_cert_pubkey( wire, sz+3UL ).alert==FD_TLS_ALERT_DECODE_ERROR );
+}
+
+static void
+test_tls_certificate_der_alert( void ) {
+  uchar cert[FD_X509_MOCK_CERT_SZ];
+  uchar pubkey[32] = {0};
+  uchar wire[FD_TLS_SERVER_CERT_MSG_SZ_MAX];
+  for( uint kind=0U; kind<3U; kind++ ) {
+    fd_x509_mock_cert( cert, pubkey );
+    if( kind==1U ) cert[0] = 0x31; /* Invalid outer Certificate tag. */
+    if( kind==2U ) {
+      /* Change only the mock SPKI algorithm OID to an unknown one. */
+      FD_TEST( cert[96]==0x70 );
+      cert[96] = 0x71;
+      fd_x509_cert_info_t info;
+      FD_TEST( !fd_x509_cert_parse( cert, sizeof(cert), &info ) );
+      FD_TEST( info.key_type==FD_X509_KEY_UNKNOWN );
+    }
+    long sz = fd_tls_encode_cert_x509( cert, sizeof(cert), wire, sizeof(wire) );
+    FD_TEST( sz>4L );
+    fd_tls_extract_cert_pubkey_res_t res = fd_tls_extract_cert_pubkey( wire+4UL, (ulong)sz-4UL );
+    if( !kind ) {
+      FD_TEST( res.pubkey && res.pubkey_len==32UL && res.key_type==FD_TLS_KEY_ED25519 );
+      FD_TEST( !res.alert && !res.reason );
+    } else {
+      FD_TEST( !res.pubkey );
+      FD_TEST( res.alert==(kind==1U ? FD_TLS_ALERT_BAD_CERTIFICATE : FD_TLS_ALERT_UNSUPPORTED_CERTIFICATE) );
+      FD_TEST( res.reason==(kind==1U ? FD_TLS_REASON_X509_PARSE : FD_TLS_REASON_CERT_KEY_TYPE) );
+    }
+  }
 }
 
 static void
@@ -1034,6 +1134,63 @@ test_tls_quic_tp_self( void *  handshake,
 /* test_tls_client_hello_sigalgs checks that QUIC clients only advertise
    Ed25519, whereas TCP clients also accept the ECDSA schemes used by
    web PKI certs. */
+
+static void
+test_tls_receive_encryption_level( fd_rng_t * rng ) {
+  fd_tls_t client[1], server[1];
+  prepare_tls_pair( rng, client, server );
+  uchar const srv_states[] = { FD_TLS_HS_START, FD_TLS_HS_WAIT_CERT, FD_TLS_HS_WAIT_CV, FD_TLS_HS_WAIT_FINISHED };
+  uchar const cli_states[] = { FD_TLS_HS_WAIT_SH, FD_TLS_HS_WAIT_EE, FD_TLS_HS_WAIT_CERT_CR,
+                              FD_TLS_HS_WAIT_CERT, FD_TLS_HS_WAIT_CV, FD_TLS_HS_WAIT_FINISHED };
+  for( ulong i=0UL; i<sizeof(srv_states); i++ ) {
+    fd_tls_estate_srv_t hs[1];
+    FD_TEST( fd_tls_estate_srv_new( hs ) );
+    hs->base.state = srv_states[i];
+    FD_TEST( fd_tls_server_handshake( server, hs, NULL, 0UL, FD_TLS_LEVEL_APPLICATION )==-FD_TLS_ALERT_UNEXPECTED_MESSAGE );
+    FD_TEST( hs->base.reason==FD_TLS_REASON_WRONG_ENC_LVL );
+    FD_TEST( hs->base.state==FD_TLS_HS_FAIL );
+    FD_TEST( fd_tls_server_handshake( server, hs, NULL, 0UL, FD_TLS_LEVEL_INITIAL )==-FD_TLS_ALERT_INTERNAL_ERROR );
+    FD_TEST( hs->base.reason==FD_TLS_REASON_WRONG_ENC_LVL );
+    fd_tls_estate_srv_delete( hs );
+  }
+  for( ulong i=0UL; i<sizeof(cli_states); i++ ) {
+    fd_tls_estate_cli_t hs[1];
+    FD_TEST( fd_tls_estate_cli_new( hs ) );
+    hs->base.state = cli_states[i];
+    FD_TEST( fd_tls_client_handshake( client, hs, NULL, 0UL, FD_TLS_LEVEL_APPLICATION )==-FD_TLS_ALERT_UNEXPECTED_MESSAGE );
+    FD_TEST( hs->base.reason==FD_TLS_REASON_WRONG_ENC_LVL );
+    FD_TEST( hs->base.state==FD_TLS_HS_FAIL );
+    FD_TEST( fd_tls_client_handshake( client, hs, NULL, 0UL, FD_TLS_LEVEL_INITIAL )==-FD_TLS_ALERT_HANDSHAKE_FAILURE );
+    FD_TEST( hs->base.reason==FD_TLS_REASON_WRONG_ENC_LVL );
+    fd_tls_estate_cli_delete( hs );
+  }
+}
+
+static void
+test_tls_tcp_quic_params( fd_rng_t * rng ) {
+  fd_tls_t client[1], server[1];
+  prepare_tls_pair( rng, client, server );
+  for( ulong len=0UL; len<2UL; len++ ) {
+    uchar tp[1] = {0};
+    uchar wire[1024];
+    fd_tls_client_hello_t ch = {
+      .signature_algorithms = { .ed25519=1 },
+      .quic_tp = { .buf=tp, .bufsz=len }
+    };
+    long sz = fd_tls_encode_client_hello( &ch, wire+4, sizeof(wire)-4UL );
+    FD_TEST( sz>0L );
+    wire[0] = FD_TLS_MSG_CLIENT_HELLO;
+    wire[1] = 0;
+    wire[2] = (uchar)((ulong)sz>>8);
+    wire[3] = (uchar)sz;
+    fd_tls_estate_srv_t hs[1];
+    FD_TEST( fd_tls_estate_srv_new( hs ) );
+    test_record_reset( &test_server_out );
+    FD_TEST( fd_tls_server_handshake( server, hs, wire, (ulong)sz+4UL, FD_TLS_LEVEL_INITIAL )==-FD_TLS_ALERT_UNSUPPORTED_EXTENSION );
+    FD_TEST( !test_record_recv( &test_server_out ) );
+    fd_tls_estate_srv_delete( hs );
+  }
+}
 
 static void
 test_tls_client_hello_sigalgs( fd_rng_t * rng ) {
@@ -1547,14 +1704,17 @@ main( int     argc,
 
   test_tls_proto();
   test_tls_extension_rules();
+  test_tls_psk_last();
   test_tls_vectors();
   test_tls_pair( rng );
   test_tls_client_hello_required_extensions( rng );
   test_tls_client_wrong_ciphersuite( rng );
   test_tls_server_wrong_ciphersuite( rng );
+  test_tls_psk_requires_modes( rng );
   test_tls_server_session_id_mismatch( rng, 0 );
   test_tls_server_session_id_mismatch( rng, 1 );
   test_tls_truncated_cert_extract();
+  test_tls_certificate_der_alert();
   test_tls_truncated_cert_handshake( rng );
   test_tls_certificate_length_reason( rng );
   test_tls_client_unsolicited_cert_type( rng );
@@ -1564,6 +1724,8 @@ main( int     argc,
   test_tls_ee_solicitation( rng );
   test_tls_client_hello_sigalgs( rng );
   test_tls_client_rejects_oversz_sni( rng );
+  test_tls_receive_encryption_level( rng );
+  test_tls_tcp_quic_params( rng );
   test_tls_client_quic_rejects_p256_cert( rng );
 #if FD_HAS_INT128
   test_tls_client_rsa_cert_verify( rng );

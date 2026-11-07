@@ -184,6 +184,21 @@ test_quic_key_update( void ) {
 #define BENCH_ITER   10000UL
 #endif
 
+static void
+test_quic_header_sample_bounds( void ) {
+  fd_quic_crypto_keys_t keys = {0};
+  uchar hdr[8] = {0};
+  uchar payload[4] = {0};
+  uchar out[64];
+  for( uint pn_sz=1U; pn_sz<=4U; pn_sz++ ) for( ulong sz=0UL; sz<=4UL; sz++ ) {
+    hdr[0] = (uchar)(0xc0U+pn_sz-1U);
+    ulong out_sz = sizeof(out);
+    int rc = fd_quic_crypto_encrypt( out, &out_sz, hdr, sizeof(hdr), payload, sz, &keys, &keys, 0UL );
+    FD_TEST( rc==(sz+pn_sz>=4UL ? FD_QUIC_SUCCESS : FD_QUIC_FAILED) );
+    if( rc==FD_QUIC_SUCCESS ) FD_TEST( out_sz==sizeof(hdr)+sz+FD_QUIC_CRYPTO_TAG_SZ );
+  }
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -431,6 +446,7 @@ main( int     argc,
     FD_LOG_NOTICE(( "~%6.3f Gbps Ethernet equiv throughput / core (sz %4lu)", (double)gbps, out_sz ));
   } while(0);
 
+  test_quic_header_sample_bounds();
   test_quic_short_pn();
   test_quic_nonce();
   test_quic_key_update();

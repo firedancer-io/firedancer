@@ -578,6 +578,10 @@ main( int     argc,
     info.san_general_names_len = der_tlv( general_names, FD_DER_TAG_CONTEXT_PRIM(7), ip_192_0_2_1, 4UL );
     info.has_subject_alt_name  = 1;
     FD_TEST( fd_x509_san_matches( &info, "192.0.2.1", 9UL )==1 );
+    FD_TEST( fd_x509_san_matches( &info, "0192.0.2.1", 10UL )==0 );
+    FD_TEST( fd_x509_san_matches( &info, "192.00.2.1", 10UL )==0 );
+    FD_TEST( fd_x509_san_matches( &info, "192.0.02.1", 10UL )==0 );
+    FD_TEST( fd_x509_san_matches( &info, "192.0.2.01", 10UL )==0 );
 
     /* reject: different iPAddress */
     FD_TEST( fd_x509_san_matches( &info, "192.0.2.2", 9UL )==0 );

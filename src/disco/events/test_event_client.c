@@ -171,6 +171,8 @@ FD_UNIT_TEST( conn_tls_lifecycle ) {
   fd_event_client_poll( client, fd_log_wallclock(), &poll_busy );
   FD_TEST( client->state==FD_EVENT_CLIENT_STATE_DISCONNECTED );
   FD_TEST( client->defer_disconnect==INT_MAX );
+  static uchar const zero_conn[ sizeof(fd_tlsrec_conn_t) ] = {0};
+  FD_TEST( 0==memcmp( client->tls_conn, zero_conn, sizeof(zero_conn) ) );
   FD_TEST( client->sockfd==-1 );
 
   close( sv[1] );

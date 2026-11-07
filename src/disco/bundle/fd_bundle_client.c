@@ -46,6 +46,8 @@ fd_bundle_client_reset( fd_bundle_tile_t * ctx ) {
     ctx->sock_in_epoll = 0;
     ctx->epoll_out_armed = 0;
   }
+  fd_tlsrec_conn_fini( ctx->tls_conn );
+  fd_memzero_explicit( ctx->tls->kex_private_key, 32UL );
   ctx->defer_reset = 0;
 
   ctx->builder_info_avail       = 0;
