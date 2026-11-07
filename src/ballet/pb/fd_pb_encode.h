@@ -135,12 +135,13 @@ fd_pb_lp_open( fd_pb_encoder_t * encoder,
                    (fd_pb_varint32_sz_max + fd_pb_varint32_sz_max) ) ) {
     return NULL;
   }
-  uint depth = encoder->depth++;
+  uint depth = encoder->depth;
   if( FD_UNLIKELY( depth >= FD_PB_ENCODER_DEPTH_MAX ) ) {
     /* unreachable for well-written clients */
     FD_LOG_WARNING(( "pb_encode failed: submessage nesting depth exceeded" ));
     return NULL;
   }
+  encoder->depth++;
   /* Add tag, reserve worst-case space for length-prefix */
   uint tag = fd_pb_tag( FD_PB_WIRE_TYPE_LEN, field_id );
   encoder->cur              = fd_pb_append_tag( encoder->cur, tag );
@@ -156,6 +157,7 @@ fd_pb_lp_open( fd_pb_encoder_t * encoder,
 static FD_FN_UNUSED fd_pb_encoder_t *
 fd_pb_lp_close( fd_pb_encoder_t * encoder ) {
   FD_CHECK_CRIT( encoder->depth, "unmatched lp_close" );
+  FD_CHECK_CRIT( encoder->depth<=FD_PB_ENCODER_DEPTH_MAX, "corrupt submessage depth" );
   uint    depth = --encoder->depth;
   uchar * lp    = encoder->buf0 + encoder->lp_off[ depth ];
   uchar * sub0  = lp + fd_pb_varint32_sz_max;
