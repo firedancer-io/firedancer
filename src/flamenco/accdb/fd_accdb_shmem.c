@@ -318,6 +318,12 @@ fd_accdb_shmem_new( void * shmem,
   FD_TEST( fork_pool_join( _fork_pool_join, accdb->fork_pool, _fork_pool_ele, max_live_slots ) );
   fork_pool_reset( _fork_pool_join );
   fork_pool_leave( _fork_pool_join );
+  for( ulong i=0UL; i<max_live_slots; i++ ) {
+    fd_accdb_fork_shmem_t * f = (fd_accdb_fork_shmem_t *)_fork_pool_ele + i;
+    f->state      = FD_ACCDB_FORK_STATE_FREE;
+    f->root_next  = (fd_accdb_fork_id_t){ .val = USHORT_MAX };
+    f->next_purge = (fd_accdb_fork_id_t){ .val = USHORT_MAX };
+  }
 
   ulong descends_set_fp = descends_set_footprint( max_live_slots );
   for( ulong i=0UL; i<max_live_slots; i++ ) {
@@ -456,8 +462,13 @@ fd_accdb_shmem_new( void * shmem,
   memset( accdb->shmetrics, 0, sizeof( fd_accdb_shmem_metrics_t ) );
   accdb->shmetrics->accounts_capacity = max_accounts;
 
-  accdb->cmd_op      = FD_ACCDB_CMD_IDLE;
-  accdb->cmd_fork_id = USHORT_MAX;
+  accdb->root_req_seq     = 0UL;
+  accdb->purge_req_seq    = 0UL;
+  accdb->purge_head       = USHORT_MAX;
+  accdb->req_root_fork_id = (fd_accdb_fork_id_t){ .val = USHORT_MAX };
+  accdb->reset_gen        = 0UL;
+  accdb->root_applied_seq = 0UL;
+  accdb->purge_done_seq   = 0UL;
 
   FD_COMPILER_MFENCE();
   FD_VOLATILE( accdb->magic ) = FD_ACCDB_SHMEM_MAGIC;

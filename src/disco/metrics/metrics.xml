@@ -905,6 +905,10 @@ deliberate exception with lint-allow="<rule id>")
     <counter name="WritebackWritten" summary="Write syscalls that wrote evicted cache lines back to the account database file" />
     <counter name="CompactionWritten" summary="Writes that relocated a batch of records during compaction" />
     <counter name="AccountVersionRemoved" summary="Account versions removed from the account database index" />
+    <counter name="RootApplied" summary="Requested root levels applied to the account database index" />
+    <counter name="PurgeApplied" summary="Requested fork purges applied to the account database index" />
+    <counter name="ReclaimWaited" summary="Root or purge maintenance units that waited for reader epochs to release the previous retirement batch" />
+    <gauge name="RootPending" summary="Requested root levels not yet applied to the account database index" />
 
     <gauge name="CacheClassUsed" enum="AccdbCacheClass" summary="Cache lines in use, by size class" />
     <gauge name="CacheClassCapacity" enum="AccdbCacheClass" summary="Cache line capacity, by size class" />
@@ -1121,6 +1125,7 @@ deliberate exception with lint-allow="<rule id>")
     <counter name="FecParentMissingDropped" summary="FEC sets dropped because replay could not resolve the block's parent (Alpenglow), which was dropped on a dead lineage, evicted with its tracking slot reused, or rooted past" />
     <counter name="FecRootedPastSkipped" summary="Repair FEC sets of a slot at or below the published root, or of a block whose parent is below it, skipped rather than dropped: no redelivery can replay them" />
     <counter name="RootAdvanceDeferred" summary="Times the storage root could not advance to the consensus root yet" />
+    <counter name="AccdbForkWaited" summary="Replay loop iterations that held a block start because every account database fork slot was retained awaiting background root/purge maintenance" />
     <counter name="LeaderWindowAlreadyProduced" summary="Leader windows given up because the cluster already produced one of their slots, eg. our own past slots replayed after a restart (Alpenglow)" />
     <counter name="LeaderWindowSuperseded" summary="Leader windows given up after votor sent them because certificates already let a later window start (Alpenglow)" />
 

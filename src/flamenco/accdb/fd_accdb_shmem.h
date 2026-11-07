@@ -58,6 +58,12 @@ struct fd_accdb_metrics {
   ulong copy_ops;
 
   ulong bytes_copied;
+
+  /* Root/purge maintenance (writer and background joiners). */
+  ulong fork_full_cnt;      /* attach_child_try returned FULL */
+  ulong roots_applied;      /* root levels applied (background) */
+  ulong purges_applied;     /* purge requests applied (background) */
+  ulong reclaim_wait_cnt;   /* maintenance blocked on a prior batch */
 };
 
 typedef struct fd_accdb_metrics fd_accdb_metrics_t;

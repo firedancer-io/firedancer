@@ -1251,6 +1251,7 @@
 | <span class="metrics-name">replay_&#8203;fec_&#8203;parent_&#8203;missing_&#8203;dropped</span> | counter | FEC sets dropped because replay could not resolve the block's parent (Alpenglow), which was dropped on a dead lineage, evicted with its tracking slot reused, or rooted past |
 | <span class="metrics-name">replay_&#8203;fec_&#8203;rooted_&#8203;past_&#8203;skipped</span> | counter | Repair FEC sets of a slot at or below the published root, or of a block whose parent is below it, skipped rather than dropped: no redelivery can replay them |
 | <span class="metrics-name">replay_&#8203;root_&#8203;advance_&#8203;deferred</span> | counter | Times the storage root could not advance to the consensus root yet |
+| <span class="metrics-name">replay_&#8203;accdb_&#8203;fork_&#8203;waited</span> | counter | Replay loop iterations that held a block start because every account database fork slot was retained awaiting background root/purge maintenance |
 | <span class="metrics-name">replay_&#8203;leader_&#8203;window_&#8203;already_&#8203;produced</span> | counter | Leader windows given up because the cluster already produced one of their slots, eg. our own past slots replayed after a restart (Alpenglow) |
 | <span class="metrics-name">replay_&#8203;leader_&#8203;window_&#8203;superseded</span> | counter | Leader windows given up after votor sent them because certificates already let a later window start (Alpenglow) |
 | <span class="metrics-name">replay_&#8203;progcache_&#8203;rooted</span> | counter | Program cache entries rooted |
@@ -1506,6 +1507,10 @@
 | <span class="metrics-name">accdb_&#8203;writeback_&#8203;written</span> | counter | Write syscalls that wrote evicted cache lines back to the account database file |
 | <span class="metrics-name">accdb_&#8203;compaction_&#8203;written</span> | counter | Writes that relocated a batch of records during compaction |
 | <span class="metrics-name">accdb_&#8203;account_&#8203;version_&#8203;removed</span> | counter | Account versions removed from the account database index |
+| <span class="metrics-name">accdb_&#8203;root_&#8203;applied</span> | counter | Requested root levels applied to the account database index |
+| <span class="metrics-name">accdb_&#8203;purge_&#8203;applied</span> | counter | Requested fork purges applied to the account database index |
+| <span class="metrics-name">accdb_&#8203;reclaim_&#8203;waited</span> | counter | Root or purge maintenance units that waited for reader epochs to release the previous retirement batch |
+| <span class="metrics-name">accdb_&#8203;root_&#8203;pending</span> | gauge | Requested root levels not yet applied to the account database index |
 | <span class="metrics-name">accdb_&#8203;cache_&#8203;class_&#8203;used</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">le128_&#8203;b</span>"} | gauge | Cache lines in use, by size class (0-128 B) |
 | <span class="metrics-name">accdb_&#8203;cache_&#8203;class_&#8203;used</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">le512_&#8203;b</span>"} | gauge | Cache lines in use, by size class (129-512 B) |
 | <span class="metrics-name">accdb_&#8203;cache_&#8203;class_&#8203;used</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">le2_&#8203;kib</span>"} | gauge | Cache lines in use, by size class (513 B-2 KiB) |

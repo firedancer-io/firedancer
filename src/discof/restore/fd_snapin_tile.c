@@ -2089,6 +2089,8 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
         /* ensure that snapin tile sees all delta changes before rooting */
         __atomic_thread_fence( __ATOMIC_SEQ_CST );
         fd_accdb_advance_root( ctx->accdb, ctx->lead.accdb_incr_fork_id );
+        /* Boot consumers expect the applied root to be the loaded slot. */
+        fd_accdb_drain( ctx->accdb );
         ctx->lead.accdb_root_fork_id = ctx->lead.accdb_incr_fork_id;
         ctx->lead.accdb_incr_fork_id = (fd_accdb_fork_id_t){ .val = USHORT_MAX };
         ushort stake_fork = FD_VOLATILE_CONST( ctx->shmem->stake_fork );

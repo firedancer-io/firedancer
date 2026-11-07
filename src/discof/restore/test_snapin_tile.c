@@ -163,6 +163,7 @@ test_stem_publish( fd_stem_context_t * stem,
 #define fd_accdb_attach_child                        mock_accdb_attach_child
 #define fd_accdb_purge                               mock_accdb_purge
 #define fd_accdb_advance_root                        mock_accdb_advance_root
+#define fd_accdb_drain                               mock_accdb_drain
 #define fd_accdb_snapshot_load_begin                 mock_accdb_snapshot_load_begin
 #define fd_accdb_snapshot_load_end                   mock_accdb_snapshot_load_end
 #define fd_accdb_flush_metrics                       mock_accdb_flush_metrics
@@ -220,6 +221,7 @@ test_padded_sz( ulong used ) {
 #undef fd_accdb_snapshot_load_end
 #undef fd_accdb_snapshot_load_begin
 #undef fd_accdb_advance_root
+#undef fd_accdb_drain
 #undef fd_accdb_purge
 #undef fd_accdb_attach_child
 #undef fd_accdb_reset
@@ -296,6 +298,11 @@ mock_accdb_advance_root( fd_accdb_t *       accdb,
   (void)accdb;
   (void)fork_id;
   test_accdb_advance_root_cnt++;
+}
+
+void
+mock_accdb_drain( fd_accdb_t * accdb ) {
+  (void)accdb;
 }
 
 void mock_accdb_snapshot_load_begin( fd_accdb_t * accdb ) { (void)accdb; test_accdb_load_begin_cnt++; }

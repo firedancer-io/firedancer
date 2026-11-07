@@ -176,9 +176,9 @@ fd_accdb_snapshot_save_whead( fd_accdb_t *                   accdb,
 /* fd_accdb_snapshot_revert_whead restores the layer-0 write head to a
    previously saved position.
 
-   It internally waits for the pending background purge command to
-   complete on T2 before releasing partitions, so the caller does not
-   need to insert a separate wait_cmd barrier.
+   It internally waits (fd_accdb_drain) for requested purges to be
+   applied by the background joiner before releasing partitions, so
+   the caller does not need a separate barrier.
 
    Previously allocated partitions (with indices in the range
    [saved_partition_max, current partition_max)) are released back
@@ -190,8 +190,16 @@ void
 fd_accdb_snapshot_revert_whead( fd_accdb_t *                         accdb,
                                 fd_accdb_snapshot_recovery_t const * recover );
 
-/* fd_accdb_attach_child allocates a new fork as a child of
-   parent_fork_id and returns the new fork's id.  This must be done
+/* Return codes of the nonblocking fork operations.  On any error the
+   caller-visible accdb state is unchanged. */
+
+#define FD_ACCDB_SUCCESS      ( 0)
+#define FD_ACCDB_ERR_FULL     (-1) /* no free fork slot; retry after background progress */
+#define FD_ACCDB_ERR_INVALID  (-2) /* fork id/state does not permit the operation */
+#define FD_ACCDB_ERR_SNAPSHOT (-3) /* rejected during snapshot production */
+
+/* fd_accdb_attach_child_try allocates a new fork as a child of
+   parent_fork_id and stores its id in *out_fork_id.  This must be done
    any time a new fork is being inserted into the accounts database,
    so that the accounts database can maintain ancestry information
    in order to support queries correctly.
@@ -200,59 +208,116 @@ fd_accdb_snapshot_revert_whead( fd_accdb_t *                         accdb,
    val==USHORT_MAX as parent_fork_id.  This must be done exactly
    once, before any other fork operations.
 
-   For non-root forks, parent_fork_id must refer to a fork that has
-   already been attached.  The ancestry must form a tree and it is
-   undefined behavior to create cycles.
+   For non-root forks, parent_fork_id must be a live fork: attached,
+   and neither requested as a root ancestor (only the latest requested
+   root itself may be extended) nor purged.  Returns
+   FD_ACCDB_ERR_INVALID otherwise.
 
-   If the fork pool is full but contains deferred forks, this call
-   blocks until reader epochs drain and a deferred slot can be reused.
-   The caller should never call this function unless there are either
-   free fork ids or deferred ones. */
+   Fork slots are retained until the background joiner applies the
+   root/purge work that retires them and readers drain.  If none is
+   free, returns FD_ACCDB_ERR_FULL without blocking.
+
+   Must be called only from the writer thread (T1), which owns fork
+   topology. */
+
+int
+fd_accdb_attach_child_try( fd_accdb_t *         accdb,
+                           fd_accdb_fork_id_t   parent_fork_id,
+                           fd_accdb_fork_id_t * out_fork_id );
+
+/* fd_accdb_attach_child is fd_accdb_attach_child_try, spinning while
+   the fork pool is full.  Crashes on an invalid parent. */
 
 fd_accdb_fork_id_t
 fd_accdb_attach_child( fd_accdb_t *       accdb,
                        fd_accdb_fork_id_t parent_fork_id );
 
-/* fd_accdb_advance_root advances the root of the accounts database to
-   the given fork_id.  fork_id must be a direct child of the current
-   root (i.e. fork->parent_id equals the current root_fork_id).
+/* fd_accdb_fork_can_attach returns 1 if attach_child_try would find a
+   free fork slot.  The answer stays valid until the writer attaches.
+   Writer thread only. */
 
-   Any competing sibling forks (and their entire subtrees) are removed.
+int
+fd_accdb_fork_can_attach( fd_accdb_t const * accdb );
+
+/* fd_accdb_advance_root_try requests advancing the root to fork_id
+   without waiting for background work.  fork_id must be a live direct
+   child of the latest requested root (the requested root moves one
+   level per call; the background joiner applies requested levels in
+   order).  Returns FD_ACCDB_ERR_INVALID otherwise, or
+   FD_ACCDB_ERR_SNAPSHOT during snapshot production.  Never fails for
+   lack of capacity.
+
+   Any competing sibling forks (and their entire subtrees) become
+   unattachable immediately and are removed when the level is applied.
    For accounts updated on the newly rooted fork, any older versions on
    ancestor forks are tombstoned for later compaction.
 
-   Completion is asynchronous; use fd_accdb_cmd_pending to check it.
-   The old root fork slot is recycled after reader epochs drain.
+   Completion is asynchronous.  fd_accdb_root_lag reports how many
+   requested levels are not yet applied.  Until applied, reads continue
+   to resolve against the previous applied root and retained ancestry,
+   with identical results.  The retired fork slots are recycled after
+   the level is applied and reader epochs drain.
 
    IMPORTANT: The caller must guarantee that all outstanding
    acquire/release pairs on every sibling of fork_id (and their entire
    subtrees) have completed before calling advance_root.  advance_root
    implicitly purges those sibling subtrees, which frees their fork pool
-   slots for recycling.
+   slots for recycling.  Read-only acquires on fork_id and its
+   ancestors may continue.
 
-   Once a fork is rooted, its generation becomes the new
+   Once a level is applied, its generation becomes the new
    root_generation.  Concurrent acquires that observe the new root will
    use the generation fast path (generation <= root_generation) for all
    accounts from that fork and its ancestors, bypassing descends_set
    entirely.  This is what makes fork pool slot recycling safe: by the
    time a slot is freed and reusable, no reader will ever consult
-   descends_set for the old fork_id. */
+   descends_set for the old fork_id.
+
+   Writer thread (T1) only. */
+
+int
+fd_accdb_advance_root_try( fd_accdb_t *       accdb,
+                           fd_accdb_fork_id_t fork_id );
+
+/* fd_accdb_advance_root is fd_accdb_advance_root_try, crashing on
+   error. */
 
 void
 fd_accdb_advance_root( fd_accdb_t *       accdb,
                        fd_accdb_fork_id_t fork_id );
 
-/* fd_accdb_cmd_pending returns 1 if the accdb tile has not finished
-   the last submitted background command (e.g. advance_root), so the
-   next advance_root or purge would block, 0 otherwise. */
+/* fd_accdb_root_lag returns the number of requested root levels the
+   background joiner has not yet applied. */
+
+ulong
+fd_accdb_root_lag( fd_accdb_t const * accdb );
+
+/* fd_accdb_maint_pending returns 1 if any requested root level or
+   purge has not yet been applied by the background joiner. */
 
 int
-fd_accdb_cmd_pending( fd_accdb_t const * accdb );
+fd_accdb_maint_pending( fd_accdb_t const * accdb );
 
-/* fd_accdb_purge removes the provided fork and all of its descendants
-   from the accounts database.  This is an extremely rare operation,
-   used to handle cases where a leader equivocated and produced two
-   competing blocks for the same slot.
+/* fd_accdb_drain spins until every root level and purge requested so
+   far has been applied.  Used by recovery paths that need completed
+   index work (snapshot rollback, reset, shutdown).  The background
+   joiner must be running.  Must not be called while the caller holds
+   an accdb epoch (e.g. inside an acquire/release pair). */
+
+void
+fd_accdb_drain( fd_accdb_t * accdb );
+
+/* fd_accdb_purge_try requests removal of the provided fork and all of
+   its descendants from the accounts database, without waiting for
+   background work.  Used to drop dead or cancelled forks, and to
+   revert a failed incremental snapshot load.
+
+   The fork must be live with a live parent, and must not be the latest
+   requested root (FD_ACCDB_ERR_INVALID otherwise).  If the fork is
+   already scheduled for removal (a losing sibling of a requested root,
+   or inside a purged subtree) this is a successful no-op.  Never fails
+   for lack of capacity.  The fork becomes unattachable immediately;
+   index removal completes asynchronously (fd_accdb_drain).
 
    All accounts written on the purged fork and any child or
    grandchild forks are removed from the index, and their disk
@@ -263,6 +328,12 @@ fd_accdb_cmd_pending( fd_accdb_t const * accdb );
    acquire/release pairs on the purged fork and every descendant
    have completed before calling purge.  The same fork pool slot
    recycling hazard described for advance_root applies here. */
+
+int
+fd_accdb_purge_try( fd_accdb_t *       accdb,
+                    fd_accdb_fork_id_t fork_id );
+
+/* fd_accdb_purge is fd_accdb_purge_try, crashing on error. */
 
 void
 fd_accdb_purge( fd_accdb_t *       accdb,
@@ -529,8 +600,11 @@ fd_accdb_data_len( fd_accdb_t *       accdb,
    joins are re-established.  The caller is responsible for truncating
    the on-disk file separately (e.g. via the snapin tiles).
 
-   The caller must guarantee that no other thread is concurrently
-   accessing the accdb (no outstanding acquires, no background work). */
+   The caller must first apply all requested root/purge work while the
+   background joiner is running (fd_accdb_drain), then guarantee that
+   no other thread is concurrently accessing the accdb (no outstanding
+   acquires, no background work).  The background joiner discards its
+   stale local state on its next call. */
 
 void
 fd_accdb_reset( fd_accdb_t * accdb );
@@ -612,12 +686,17 @@ fd_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
    The accdb API is split across three thread roles:
 
      T1 (replay): calls attach_child, advance_root, purge, acquire, and
-         release.  attach_child runs inline on T1. advance_root and
-         purge submit a command into a shared- memory slot and return
-         immediately; the heavy work is deferred to T2.
+         release.  T1 owns fork topology: attach_child, advance_root and
+         purge run inline on T1, update fork state and child lists, and
+         publish the work through monotonic request counters (and, for
+         purge, an intrusive list) without waiting for T2.
 
      T2 (accdb tile / background): calls fd_accdb_background repeatedly.
-         This is the only function T2 should call.
+         This is the only function T2 should call.  T2 owns the account
+         index and storage maintenance: it applies requested root levels
+         in order and requested purges, publishes the applied root, and
+         recycles retired fork slots after reader epochs drain.  T2 only
+         walks child lists of forks that are no longer attachable.
 
      T3 (executor tiles, 1..N): call acquire and release.
 
@@ -632,10 +711,13 @@ fd_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
 
    BEHAVIOR
 
-   Processes pending commands and snapshot state changes first.  During
-   snapshot production, pre-evicts cache lines without compacting.  Otherwise
-   pre-evicts, grows the file if needed, and attempts compaction at each
-   layer.  Sets *charge_busy when work is done. */
+   Releases the previous retirement batch once its grace period has
+   passed, then applies requested purges and root levels (root levels
+   are held during snapshot production), then handles snapshot state
+   changes.  During snapshot production, pre-evicts cache lines without
+   compacting.  Otherwise pre-evicts, grows the file if needed, and
+   attempts compaction at each layer.  Sets *charge_busy when work is
+   done or retired resources are still awaiting reclamation. */
 
 void
 fd_accdb_background( fd_accdb_t * accdb,

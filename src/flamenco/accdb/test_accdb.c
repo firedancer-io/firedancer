@@ -1253,9 +1253,9 @@ test_reset( void ) {
   FD_TEST( shmetrics->accounts_total>0UL );
   FD_TEST( shmetrics->accounts_capacity==1024UL );
 
-  /* Reset the accdb. */
+  /* Reset the accdb.  No background call is needed: the background
+     joiner discards its stale local state on its next call. */
   fd_accdb_reset( accdb );
-  drain_background( accdb );
 
   /* Post-reset invariants. */
   FD_TEST( shmetrics->accounts_total      == 0UL );
@@ -2230,11 +2230,16 @@ test_incremental_retry_reuses_acc_pool( void ) {
   pthread_t bg_thread;
   FD_TEST( !pthread_create( &bg_thread, NULL, run_background, &bg_ctx ) );
 
+  /* The first failed attempt writes 4 accounts, exhausting lazy
+     allocation (capacity 5, one used by full_pk).  Its batch is
+     reclaimed onto the free stack before the second attempt, which
+     reuses 2 of those entries. */
   for( ulong attempt=0UL; attempt<2UL; attempt++ ) {
     fd_accdb_fork_id_t failed = fd_accdb_attach_child( accdb, root );
-    for( ulong i=0UL; i<2UL; i++ ) {
+    ulong cnt = attempt ? 2UL : 4UL;
+    for( ulong i=0UL; i<cnt; i++ ) {
       uchar failed_pk[ 32UL ] = {0};
-      failed_pk[ 0 ] = (uchar)(0xD0UL + 2UL*attempt + i);
+      failed_pk[ 0 ] = (uchar)(0xD0UL + 4UL*attempt + i);
       FD_TEST( test_snapshot_write_one( accdb, failed, failed_pk,
                                         20UL+attempt, 2UL+i, 0UL, 0,
                                         &replaced_lamports )==1 );
@@ -2242,13 +2247,14 @@ test_incremental_retry_reuses_acc_pool( void ) {
     fd_accdb_purge( accdb, failed );
     fd_accdb_snapshot_revert_whead( accdb, &recovery );
     FD_TEST( shmetrics->accounts_total==1UL );
+    while( FD_VOLATILE_CONST( test_shmem_mem->deferred_acc_buf_cnt ) ) FD_SPIN_PAUSE();
+    FD_COMPILER_MFENCE();
   }
 
   ulong top_before  = FD_VOLATILE_CONST( pool->ver_top  );
   ulong lazy_before = FD_VOLATILE_CONST( pool->ver_lazy );
   FD_TEST( acc_pool_private_vidx_idx( top_before  )<5UL );
   FD_TEST( acc_pool_private_vidx_idx( lazy_before )==acc_pool_idx_null() );
-  FD_TEST( test_shmem_mem->deferred_acc_buf_cnt==2UL );
 
   fd_accdb_fork_id_t success = fd_accdb_attach_child( accdb, root );
   uchar success_pk[ 32UL ] = { 0xE0 };
@@ -2256,20 +2262,25 @@ test_incremental_retry_reuses_acc_pool( void ) {
   FD_TEST( test_snapshot_write_one( accdb, success, full_pk,    30UL, 10UL, 0UL, 0, &replaced_lamports )==2 );
   FD_TEST( replaced_lamports==1UL );
   FD_TEST( test_snapshot_write_one( accdb, success, success_pk, 30UL, 20UL, 0UL, 0, &replaced_lamports )==1 );
-  FD_TEST( acc_pool_private_vidx_idx( FD_VOLATILE_CONST( pool->ver_top ) )==acc_pool_idx_null() );
+  /* Both writes came off the free stack, not lazy allocation. */
+  FD_TEST( acc_pool_private_vidx_idx( FD_VOLATILE_CONST( pool->ver_top ) )<5UL );
   FD_TEST( FD_VOLATILE_CONST( pool->ver_lazy )==lazy_before );
 
   fd_accdb_advance_root( accdb, success );
   fd_accdb_snapshot_load_end( accdb );
 
+  /* Attaching does not wait for the root to be applied. */
   fd_accdb_fork_id_t next = fd_accdb_attach_child( accdb, success );
+  fd_accdb_drain( accdb );
   FD_TEST( shmetrics->accounts_total==2UL );
 
   /* Drain the replaced full-snapshot account. */
   fd_accdb_advance_root( accdb, next );
-  while( FD_VOLATILE_CONST( test_shmem_mem->cmd_op )!=FD_ACCDB_CMD_IDLE ) FD_SPIN_PAUSE();
+  fd_accdb_drain( accdb );
+  /* The batch is released by the background thread's reclamation poll
+     once its grace period passes (no reader is active here). */
+  while( FD_VOLATILE_CONST( test_shmem_mem->deferred_acc_buf_cnt ) ) FD_SPIN_PAUSE();
   FD_COMPILER_MFENCE();
-  FD_TEST( !test_shmem_mem->deferred_acc_buf_cnt );
 
   FD_VOLATILE( bg_ctx.stop ) = 1;
   FD_TEST( !pthread_join( bg_thread, NULL ) );
