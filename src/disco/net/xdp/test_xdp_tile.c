@@ -540,6 +540,35 @@ main( int     argc,
     ctx->net.tile_cnt = 1UL;
   }
 
+  /* Test: Tile 0 must not double-count route failures for packets owned by Tile 1 */
+  {
+    ctx->net.tile_cnt = 2UL;
+
+    /* Find a signature for banned_ip (7.0.0.1) that hashes to Tile 1 (hash % 2 == 1) */
+    ulong sig = 0UL;
+    for( ushort port=1; ; port++ ) {
+      sig = fd_disco_netmux_sig( 0, port, banned_ip, DST_PROTO_OUTGOING, 42UL );
+      if( fd_disco_netmux_sig_hash( sig )%2UL==1UL ) break;
+    }
+
+    ulong * fail_cnt = ctx->net.metrics.tx_drop_cnt;
+    ulong   before   = fail_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_UNSUPPORTED_ROUTE_IDX ];
+
+    /* Tile 0 does NOT own this packet (it is hashed to Tile 1 and is not loopback).
+       Tile 0 should ignore it and MUST NOT increment fail_cnt! */
+    ctx->net.kind_id = 0UL;
+    FD_TEST( before_frag( ctx, 0UL, 0UL, sig )==1 );
+    FD_TEST( fail_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_UNSUPPORTED_ROUTE_IDX ]==before );
+
+    /* Tile 1 DOES own this packet. Tile 1 should drop it and increment fail_cnt by 1. */
+    ctx->net.kind_id = 1UL;
+    FD_TEST( before_frag( ctx, 0UL, 0UL, sig )==1 );
+    FD_TEST( fail_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_UNSUPPORTED_ROUTE_IDX ]==before+1UL );
+
+    ctx->net.kind_id = 0UL;
+    ctx->net.tile_cnt = 1UL;
+  }
+
   /* ctx->net.in_dcache_ctx */
   ctx->net.in_dcache_ctx[ 0 ].wksp_base = fd_wksp_containing( app_tx_dcache_mem );
   ctx->net.in_dcache_ctx[ 0 ].chunk0    = tx_chunk0;
