@@ -123,6 +123,30 @@ main( int     argc,
   FD_TEST( fd_genesis_parse( exact, result_mem, result_sz ) );
   FD_TEST( exact->account_cnt==genesis->account_cnt );
 
+  /* The creator emits empty native-processor and reward-pool vectors.
+     Mutate the following Duration in the otherwise valid genesis. */
+  ulong vectors_off = genesis->account[ genesis->account_cnt-1UL ].owner_off+32UL+1UL+8UL;
+  FD_TEST( FD_LOAD( ulong, result_mem+vectors_off     )==0UL );
+  FD_TEST( FD_LOAD( ulong, result_mem+vectors_off+8UL )==0UL );
+  ulong duration_off = vectors_off+32UL;
+  ulong saved_seconds = FD_LOAD( ulong, result_mem+duration_off );
+  uint saved_nanos = FD_LOAD( uint, result_mem+duration_off+8UL );
+  ulong seconds[] = { 0UL, ULONG_MAX-1UL, ULONG_MAX };
+  uint nanos[] = { 999999999U, 1000000000U, UINT_MAX };
+  for( ulong i=0UL; i<sizeof(seconds)/sizeof(seconds[0]); i++ ) {
+    for( ulong j=0UL; j<sizeof(nanos)/sizeof(nanos[0]); j++ ) {
+      FD_STORE( ulong, result_mem+duration_off,     seconds[i] );
+      FD_STORE( uint,  result_mem+duration_off+8UL, nanos[j] );
+      FD_TEST( !!fd_genesis_parse( exact, result_mem, result_sz )==(j==0UL) );
+      if( !j ) {
+        FD_TEST( exact->poh.tick_duration_secs==seconds[i] );
+        FD_TEST( exact->poh.tick_duration_ns==nanos[j] );
+      }
+    }
+  }
+  FD_STORE( ulong, result_mem+duration_off,     saved_seconds );
+  FD_STORE( uint,  result_mem+duration_off+8UL, saved_nanos );
+
   /* Verify POH config */
 
   FD_TEST( genesis->poh.ticks_per_slot == options->ticks_per_slot );
