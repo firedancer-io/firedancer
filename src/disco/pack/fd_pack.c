@@ -1156,6 +1156,8 @@ fd_pack_validate_durable_nonce( fd_txn_e_t * txne ) {
   /* The program has to be a static account */
   fd_acct_addr_t const * accts = fd_txn_get_acct_addrs( txn, txne->txnp->payload );
   if( FD_UNLIKELY( !fd_memeq( accts[ txn->instr[ 0 ].program_id ].b, null_addr.b, 32UL       ) ) ) return 1;
+  /* SIMD-0242 requires the nonce account to be static. */
+  if( FD_UNLIKELY( txne->txnp->payload[ txn->instr[ 0 ].acct_off ]>=txn->acct_addr_cnt ) ) return 1;
   if( FD_UNLIKELY( !fd_txn_is_writable( txn, txne->txnp->payload[ txn->instr[ 0 ].acct_off ] ) ) ) return 1;
   if( FD_UNLIKELY( !fd_txn_is_signer( txn, txne->txnp->payload[ txn->instr[ 0 ].acct_off+2 ] ) ) ) return 0;
   /* We could check recent blockhash, but it's not necessary */

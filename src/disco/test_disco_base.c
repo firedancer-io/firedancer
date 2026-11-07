@@ -32,12 +32,14 @@ main( int     argc,
   txn->readonly_unsigned_cnt = 2;
   FD_TEST( !fd_disco_tpu_is_durable_nonce( txn, payload ) );
 
-  /* The nonce may be loaded from an address lookup table. */
+  /* The nonce must be static, even for versioned transactions. */
   txn->transaction_version = FD_TXN_V0;
   txn->addr_table_adtl_cnt = 2;
   txn->addr_table_adtl_writable_cnt = 1;
-  payload[ txn->instr[0].acct_off ] = 3;
+  txn->readonly_unsigned_cnt = 1;
   FD_TEST( fd_disco_tpu_is_durable_nonce( txn, payload ) );
+  payload[ txn->instr[0].acct_off ] = 3;
+  FD_TEST( !fd_disco_tpu_is_durable_nonce( txn, payload ) );
   payload[ txn->instr[0].acct_off ] = 4;
   FD_TEST( !fd_disco_tpu_is_durable_nonce( txn, payload ) );
 
