@@ -25,6 +25,9 @@ FD_STATIC_ASSERT( FD_ACCDB_BOUNCE_SZ>=FD_RUNTIME_ACC_SZ_MAX+sizeof(fd_accdb_disk
 #define PREEVICT_STAGE_SZ (FD_RUNTIME_ACC_SZ_MAX+sizeof(fd_accdb_disk_meta_t))
 FD_STATIC_ASSERT( PREEVICT_BATCH_SZ<=PREEVICT_STAGE_SZ, batch_fits_stage );
 
+/* Default minimum ticks between background_preevict watermark scans. */
+#define FD_ACCDB_PREEVICT_SCAN_TICKS (100000L)
+
 #if FD_HAS_RACESAN
 /* Test-only telemetry: background_compact publishes the pubkey + dest
    offset of the record it is about to relocation-CAS at the
@@ -127,6 +130,28 @@ struct __attribute__((aligned(FD_ACCDB_ALIGN))) fd_accdb_private {
 
   /* Preevict write staging, PREEVICT_STAGE_SZ bytes. */
   uchar * stage;
+
+  /* This join's index into shmem->cache_free / cache_free_cnt, and the
+     last time it woke the accdb tile (cache_free_ring). */
+  ulong free_idx;
+  long  free_ring_ticks;
+
+  /* Last time background_preevict scanned the watermarks (it reads
+     every join's free-list counts, so it is rate-limited), and whether
+     that scan left a class short of its target.  Throttled calls keep
+     reporting busy while a refill is pending, so the accdb tile does
+     not park mid-refill. */
+  long  preevict_ticks;
+  long  preevict_interval;
+  int   preevict_pending;
+
+  /* Reservation state (res_*), constant after join.  res_limit[c] is
+     ULONG_MAX if class c is untracked, so the hot path never loads the
+     shared counter just to learn that.  cred points at this join's
+     shmem->join_cred line. */
+  ulong   res_limit[ FD_ACCDB_CACHE_CLASS_CNT ];
+  ulong   cred_max [ FD_ACCDB_CACHE_CLASS_CNT ];
+  ulong * cred;
 
   /* Track account addresses changed since a full snap.
      Used to determine which accounts should be packed into a full
@@ -245,6 +270,8 @@ fd_accdb_ptr_in_region( fd_accdb_t const * accdb,
 }
 #endif
 
+static void        res_init ( fd_accdb_t * accdb, fd_accdb_shmem_t * shmem, ulong joiner_idx );
+
 FD_FN_CONST ulong
 fd_accdb_align( void ) {
   return FD_ACCDB_ALIGN;
@@ -345,6 +372,12 @@ fd_accdb_new( void *              ljoin,
   ulong epoch_idx = FD_ATOMIC_FETCH_AND_ADD( &shmem->joiner_cnt, 1UL );
   FD_TEST( epoch_idx<shmem->joiner_cnt_max );
   accdb->my_epoch_slot = &shmem->joiner_epochs[ epoch_idx ].val;
+  res_init( accdb, shmem, epoch_idx );
+  accdb->free_idx         = epoch_idx;
+  accdb->free_ring_ticks  = 0L;
+  accdb->preevict_ticks    = 0L;
+  accdb->preevict_interval = FD_ACCDB_PREEVICT_SCAN_TICKS;
+  accdb->preevict_pending  = 0;
 
   accdb->external_epoch_slots = external_epoch_slots;
   accdb->external_epoch_cnt   = external_epoch_cnt;
@@ -424,13 +457,22 @@ fd_accdb_reset( fd_accdb_t * accdb ) {
   /* Cache state */
   for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) {
     shmem->clock_hand[ c ].val       = 0UL;
-    shmem->cache_free[ c ].ver_top   = (ulong)UINT_MAX;
-    shmem->cache_free_cnt[ c ].val   = 0UL;
     shmem->cache_class_init[ c ].val = 0UL;
-    if( shmem->cache_class_max[ c ]>=shmem->cache_min_reserved*shmem->joiner_cnt_max )
-      shmem->cache_class_used[ c ].val = ULONG_MAX;
-    else
-      shmem->cache_class_used[ c ].val = 0UL;
+    ulong worst = shmem->cache_min_reserved*shmem->joiner_cnt_max;
+    shmem->cache_class_used[ c ].val = fd_ulong_if( shmem->cache_class_max[ c ]>=worst, ULONG_MAX, 0UL );
+    for( ulong w=0UL; w<FD_ACCDB_MAX_JOINERS/64UL; w++ ) {
+      shmem->cache_free_have  [ c ].bits[ w ] = 0UL;
+      shmem->cache_free_hungry[ c ].bits[ w ] = 0UL;
+    }
+  }
+  for( ulong j=0UL; j<FD_ACCDB_MAX_JOINERS; j++ ) {
+    for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) {
+      shmem->cache_free    [ j ].ver_top[ c ] = (ulong)UINT_MAX;
+      shmem->cache_free_cnt[ j ].val    [ c ] = 0UL;
+    }
+  }
+  for( ulong j=0UL; j<FD_ACCDB_MAX_JOINERS; j++ ) {
+    for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) shmem->join_cred[ j ].val[ c ] = 0UL;
   }
 
   /* Reset every cache slot's metadata to empty sentinels. */
@@ -954,57 +996,260 @@ evict_clear_acc_cache_ref( fd_accdb_accmeta_t * accmeta,
   FD_ATOMIC_FETCH_AND_AND( &accmeta->executable_size, ~FD_ACCDB_SIZE_CACHE_CLAIM_BIT );
 }
 
-/* cache_free_push pushes a fully-freed cache line onto the per-class
-   CAS free list (Treiber stack).  The caller must have already
-   invalidated the line (key.generation==UINT_MAX, acc_idx==UINT_MAX)
-   and set persisted=1 before pushing.  Those stores must also be
-   ordered before the store that releases refcnt to 0. */
+/* Per-join cache free lists.
+
+   Each join pushes freed lines onto its own list per class and pops
+   from it first, so the common case touches no other join's lines.  A
+   join whose list is empty takes a never-used line, then steals from
+   another join's list, then evicts (acquire_cache_line).  Every free
+   line is on some list any join can steal from, so reservations still
+   guarantee a line.
+
+   Pre-eviction (the accdb tile) pushes the lines it frees onto the
+   lists of the joins that recently ran short (cache_free_hungry), so in
+   steady state an exec tile pops its own list instead of every exec
+   tile stealing from the accdb tile's.  A list thus has one owner who
+   pops and pushes, plus the accdb tile pushing and stealers popping.
+
+   cache_free_have lets a stealer skip empty lists.  The invariant is
+   "list non-empty => bit set": a push into an empty list sets the bit;
+   a stealer that finds a list empty clears the bit and then re-reads
+   the list, setting the bit back if a push landed in between. */
+
+/* cache_free_push_to pushes a free line onto join j's class list.  The
+   caller has already invalidated the line (generation and acc_idx
+   UINT_MAX, persisted=1) and released refcnt to 0, in that order. */
 
 static inline void
-cache_free_push( fd_accdb_t * accdb,
-                 ulong        size_class,
-                 fd_accdb_cache_line_t * line ) {
-  ulong line_idx = cache_line_idx( accdb, size_class, line );
+cache_free_push_to( fd_accdb_t *            accdb,
+                    ulong                   j,
+                    ulong                   size_class,
+                    fd_accdb_cache_line_t * line ) {
+  ulong * ver_top  = &accdb->shmem->cache_free[ j ].ver_top[ size_class ];
+  ulong   line_idx = cache_line_idx( accdb, size_class, line );
+  ulong   old_vt   = FD_VOLATILE_CONST( *ver_top );
   for(;;) {
-    ulong old_vt  = FD_VOLATILE_CONST( accdb->shmem->cache_free[ size_class ].ver_top );
-    uint  old_top = (uint)( old_vt & (ulong)UINT_MAX );
-    uint  old_ver = (uint)( old_vt >> 32 );
+    uint old_top = (uint)old_vt;
+    uint old_ver = (uint)( old_vt>>32 );
     line->next = old_top;
     FD_COMPILER_MFENCE();
-    ulong new_vt = ((ulong)(uint)( old_ver+1U ) << 32) | (ulong)(uint)line_idx;
-    if( FD_LIKELY( FD_ATOMIC_CAS( &accdb->shmem->cache_free[ size_class ].ver_top, old_vt, new_vt )==old_vt ) ) {
-      FD_ATOMIC_FETCH_AND_ADD( &accdb->shmem->cache_free_cnt[ size_class ].val, 1UL );
+    ulong new_vt  = ( (ulong)( old_ver+1U )<<32 ) | line_idx;
+    ulong seen_vt = FD_ATOMIC_CAS( ver_top, old_vt, new_vt );
+    if( FD_LIKELY( seen_vt==old_vt ) ) {
+      FD_ATOMIC_FETCH_AND_ADD( &accdb->shmem->cache_free_cnt[ j ].val[ size_class ], 1UL );
+      if( FD_UNLIKELY( old_top==UINT_MAX ) ) {
+        /* Into an empty list: keep the hint invariant.  The CAS above
+           is a full barrier, so this load sees any stealer's clear
+           that the stealer's re-read would miss. */
+        FD_COMPILER_MFENCE();
+        fd_racesan_hook( "accdb_push:pre_hint" );
+        ulong * have = &accdb->shmem->cache_free_have[ size_class ].bits[ j/64UL ];
+        ulong   bit  = 1UL<<( j%64UL );
+        if( !( FD_VOLATILE_CONST( *have ) & bit ) ) FD_ATOMIC_FETCH_AND_OR( have, bit );
+      }
       return;
     }
-    FD_SPIN_PAUSE();
+    old_vt = seen_vt; /* retry at once with the head the CAS returned */
   }
 }
 
-/* cache_free_pop pops a line from the per-class CAS free list.  Returns
-   NULL if the list is empty. */
+/* cache_free_push pushes a free line onto this join's class list. */
+
+static inline void
+cache_free_push( fd_accdb_t *            accdb,
+                 ulong                   size_class,
+                 fd_accdb_cache_line_t * line ) {
+  cache_free_push_to( accdb, accdb->free_idx, size_class, line );
+}
+
+/* cache_free_pop_from pops a line from join j's class list, or returns
+   NULL if it is empty.  When stealing (j is another join), an empty
+   list gets its hint bit cleared. */
 
 static inline fd_accdb_cache_line_t *
-cache_free_pop( fd_accdb_t * accdb,
-                ulong        size_class ) {
+cache_free_pop_from( fd_accdb_t * accdb,
+                     ulong        j,
+                     ulong        size_class ) {
+  ulong * ver_top = &accdb->shmem->cache_free[ j ].ver_top[ size_class ];
+  ulong   old_vt  = FD_VOLATILE_CONST( *ver_top );
   for(;;) {
-    ulong old_vt  = FD_VOLATILE_CONST( accdb->shmem->cache_free[ size_class ].ver_top );
-    uint  old_top = (uint)( old_vt & (ulong)UINT_MAX );
-    if( FD_UNLIKELY( old_top==UINT_MAX ) ) return NULL;
-    uint  old_ver = (uint)( old_vt >> 32 );
-    fd_accdb_cache_line_t * top = cache_line( accdb, size_class, (ulong)old_top );
-    uint next = FD_VOLATILE_CONST( top->next );
-    ulong new_vt = ((ulong)(uint)( old_ver+1U ) << 32) | (ulong)next;
-    if( FD_LIKELY( FD_ATOMIC_CAS( &accdb->shmem->cache_free[ size_class ].ver_top, old_vt, new_vt )==old_vt ) ) {
-      ulong freec = FD_ATOMIC_FETCH_AND_SUB( &accdb->shmem->cache_free_cnt[ size_class ].val, 1UL )-1UL;
-      if( FD_UNLIKELY( accdb->sleep ) ) {
-        ulong max_c = accdb->shmem->cache_class_max[ size_class ];
-        ulong init  = fd_ulong_min( FD_VOLATILE_CONST( accdb->shmem->cache_class_init[ size_class ].val ), max_c );
-        ulong avail = max_c-(init>freec ? init-freec : 0UL);
-        if( FD_UNLIKELY( avail+1UL==accdb->shmem->cache_free_low_water[ size_class ] ) ) fd_sleep_ring( accdb->sleep, accdb->sleep_tile_id );
-      }
+    uint old_top = (uint)old_vt;
+    if( FD_UNLIKELY( old_top==UINT_MAX ) ) {
+      if( j==accdb->free_idx ) return NULL;
+      /* Clear the bit, then re-read the list: a push that saw the bit
+         still set is visible to the re-read (the clear is a locked
+         RMW, a full barrier on x86). */
+      fd_racesan_hook( "accdb_steal:pre_clear" );
+      ulong * have = &accdb->shmem->cache_free_have[ size_class ].bits[ j/64UL ];
+      ulong   bit  = 1UL<<( j%64UL );
+      FD_ATOMIC_FETCH_AND_AND( have, ~bit );
+      FD_COMPILER_MFENCE();
+      old_vt = FD_VOLATILE_CONST( *ver_top );
+      if( FD_LIKELY( (uint)old_vt==UINT_MAX ) ) return NULL;
+      FD_ATOMIC_FETCH_AND_OR( have, bit );
+      continue;
+    }
+    uint old_ver = (uint)( old_vt>>32 );
+    fd_accdb_cache_line_t * top = cache_line( accdb, size_class, old_top );
+    uint  next    = FD_VOLATILE_CONST( top->next );
+    fd_racesan_hook( "accdb_freelist:pre_pop_cas" );
+    ulong new_vt  = ( (ulong)( old_ver+1U )<<32 ) | next;
+    ulong seen_vt = FD_ATOMIC_CAS( ver_top, old_vt, new_vt );
+    if( FD_LIKELY( seen_vt==old_vt ) ) {
+      FD_ATOMIC_FETCH_AND_SUB( &accdb->shmem->cache_free_cnt[ j ].val[ size_class ], 1UL );
       return top;
     }
-    FD_SPIN_PAUSE();
+    old_vt = seen_vt;
+  }
+}
+
+/* cache_free_steal pops a line from another join's class list, or
+   returns NULL if every other list is empty. */
+
+static fd_accdb_cache_line_t *
+cache_free_steal( fd_accdb_t * accdb,
+                  ulong        size_class ) {
+  ulong own        = accdb->free_idx;
+  ulong joiner_cnt = fd_ulong_min( FD_VOLATILE_CONST( accdb->shmem->joiner_cnt ), FD_ACCDB_MAX_JOINERS );
+  for( ulong w=0UL; w*64UL<joiner_cnt; w++ ) {
+    ulong bits = FD_VOLATILE_CONST( accdb->shmem->cache_free_have[ size_class ].bits[ w ] );
+    while( bits ) {
+      ulong j = w*64UL + (ulong)fd_ulong_find_lsb( bits );
+      bits &= bits-1UL;
+      if( FD_UNLIKELY( j==own ) ) continue;
+      fd_accdb_cache_line_t * line = cache_free_pop_from( accdb, j, size_class );
+      if( FD_LIKELY( line ) ) return line;
+    }
+  }
+  return NULL;
+}
+
+/* cache_free_total is the approximate free line count of the class,
+   over all joins' lists. */
+
+static inline ulong
+cache_free_total( fd_accdb_shmem_t const * shmem,
+                  ulong                    size_class ) {
+  ulong joiner_cnt = fd_ulong_min( FD_VOLATILE_CONST( shmem->joiner_cnt ), FD_ACCDB_MAX_JOINERS );
+  ulong total = 0UL;
+  for( ulong j=0UL; j<joiner_cnt; j++ ) total += FD_VOLATILE_CONST( shmem->cache_free_cnt[ j ].val[ size_class ] );
+  return total;
+}
+
+/* cache_free_ring wakes the accdb tile, which parks when idle in
+   efficient mode, so pre-eviction refills the free lists.  The shared
+   free list used to ring at its low-water mark; with per-join lists
+   there is no cheap global count on the pop path, so a join rings when
+   its own list is empty and the class has no never-used line left,
+   rate-limited per join. */
+
+#define FD_ACCDB_FREE_RING_TICKS (100000L)
+
+static inline void
+cache_free_ring( fd_accdb_t * accdb ) {
+  if( FD_LIKELY( !accdb->sleep ) ) return;
+  long now = fd_tickcount();
+  if( FD_LIKELY( now-accdb->free_ring_ticks<FD_ACCDB_FREE_RING_TICKS ) ) return;
+  accdb->free_ring_ticks = now;
+  fd_sleep_ring( accdb->sleep, accdb->sleep_tile_id );
+}
+
+/* Per-join reservation credits.
+
+   Each join keeps up to cred_max[c] idle credits per tracked class:
+   lines reserved on the shared cache_class_used counter but not yet
+   promised to an acquire.  Acquire spends its own credits first and
+   takes a chunk (cred_max/2) from the shared counter when short;
+   release returns credits locally and the surplus to the counter.
+
+   A join whose reservation fails steals every join's idle credits in
+   that class back to the counter before retrying, so idle credits
+   never starve anyone and a reservation still only waits for lines
+   promised to in-flight acquires. */
+
+static void
+res_init( fd_accdb_t *       accdb,
+          fd_accdb_shmem_t * shmem,
+          ulong              joiner_idx ) {
+  for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) {
+    ulong max = shmem->cache_class_max[ c ];
+    int   tracked = FD_VOLATILE_CONST( shmem->cache_class_used[ c ].val )!=ULONG_MAX;
+    accdb->res_limit[ c ] = tracked ? max : ULONG_MAX;
+    accdb->cred_max [ c ] = tracked ? fd_accdb_cred_max( max, shmem->joiner_cnt_max ) : 0UL;
+  }
+  accdb->cred = shmem->join_cred[ joiner_idx ].val;
+}
+
+static inline int
+res_tracked( fd_accdb_t const * accdb,
+             ulong              c ) {
+  return accdb->res_limit[ c ]!=ULONG_MAX;
+}
+
+/* res_take reserves n lines of tracked class c.  Returns 1 on success, 0
+   if the class is full (the caller backs out and steals). */
+
+static inline int
+res_take( fd_accdb_t * accdb,
+          ulong        c,
+          ulong        n ) {
+  ulong * cred = &accdb->cred[ c ];
+  for(;;) {
+    ulong v = FD_VOLATILE_CONST( *cred );
+    if( v<n ) break;
+    if( FD_LIKELY( FD_ATOMIC_CAS( cred, v, v-n )==v ) ) return 1;
+  }
+  ulong * used   = &accdb->shmem->cache_class_used[ c ].val;
+  ulong   limit  = accdb->res_limit[ c ];
+  ulong   refill = accdb->cred_max[ c ]/2UL;
+  if( FD_LIKELY( refill ) ) {
+    if( FD_LIKELY( FD_ATOMIC_ADD_AND_FETCH( used, n+refill )<=limit ) ) {
+      fd_racesan_hook( "accdb_res:post_refill" );
+      FD_ATOMIC_FETCH_AND_ADD( cred, refill );
+      return 1;
+    }
+    FD_ATOMIC_FETCH_AND_SUB( used, n+refill );
+  }
+  if( FD_LIKELY( FD_ATOMIC_ADD_AND_FETCH( used, n )<=limit ) ) return 1;
+  FD_ATOMIC_FETCH_AND_SUB( used, n );
+  return 0;
+}
+
+/* res_give returns n reserved lines of tracked class c: to the join's
+   idle credits, and anything over cred_max[c] (down to half of it) to
+   the shared counter. */
+
+static inline void
+res_give( fd_accdb_t * accdb,
+          ulong        c,
+          ulong        n ) {
+  ulong * used = &accdb->shmem->cache_class_used[ c ].val;
+  ulong   max  = accdb->cred_max[ c ];
+  if( FD_UNLIKELY( !max ) ) { FD_ATOMIC_FETCH_AND_SUB( used, n ); return; }
+  ulong * cred = &accdb->cred[ c ];
+  if( FD_LIKELY( FD_ATOMIC_ADD_AND_FETCH( cred, n )<=max ) ) return;
+  ulong keep = max/2UL;
+  for(;;) {
+    ulong v = FD_VOLATILE_CONST( *cred );
+    fd_racesan_hook( "accdb_res:pre_trim" );
+    if( v<=keep ) return; /* stolen meanwhile */
+    if( FD_LIKELY( FD_ATOMIC_CAS( cred, v, keep )==v ) ) { FD_ATOMIC_FETCH_AND_SUB( used, v-keep ); return; }
+  }
+}
+
+/* res_steal returns every join's idle class-c credits to the shared
+   counter.  Called by a join whose class-c reservation failed. */
+
+static void
+res_steal( fd_accdb_t * accdb,
+           ulong        c ) {
+  fd_accdb_shmem_t * shmem = accdb->shmem;
+  ulong joiner_cnt = fd_ulong_min( FD_VOLATILE_CONST( shmem->joiner_cnt ), FD_ACCDB_MAX_JOINERS );
+  for( ulong j=0UL; j<joiner_cnt; j++ ) {
+    ulong * cred = &shmem->join_cred[ j ].val[ c ];
+    if( FD_LIKELY( !FD_VOLATILE_CONST( *cred ) ) ) continue;
+    ulong s = FD_ATOMIC_XCHG( cred, 0UL );
+    if( s ) FD_ATOMIC_FETCH_AND_SUB( &shmem->cache_class_used[ c ].val, s );
   }
 }
 
@@ -1746,10 +1991,10 @@ static inline fd_accdb_cache_line_t *
 acquire_cache_line( fd_accdb_t * accdb,
                     ulong        size_class,
                     uint *       out_evicted_acc_idx ) {
-  /* Priority 1: CAS free list — already invalidated,
-     persisted==1, generation==UINT_MAX.  Cheapest path. */
-  fd_accdb_cache_line_t * result = cache_free_pop( accdb, size_class );
+  /* Priority 1: this join's free list (lines already invalidated). */
+  fd_accdb_cache_line_t * result = cache_free_pop_from( accdb, accdb->free_idx, size_class );
   if( FD_LIKELY( result ) ) {
+popped:
     while( FD_UNLIKELY( FD_ATOMIC_CAS( &result->refcnt, 0U, 1U )!=0U ) ) {
       fd_racesan_hook( "accdb_freepop:refcnt_wait" );
       FD_SPIN_PAUSE();
@@ -1761,10 +2006,16 @@ acquire_cache_line( fd_accdb_t * accdb,
     return result;
   }
 
-  /* Priority 2: Lazy initial allocation — atomic FAA with undo on
-     overflow.  Safe for concurrent callers. */
-  ulong old_init = FD_ATOMIC_FETCH_AND_ADD( &accdb->shmem->cache_class_init[ size_class ].val, 1UL );
-  if( FD_LIKELY( old_init<accdb->shmem->cache_class_max[ size_class ] ) ) {
+  /* Priority 2: a never-used line (FAA with undo on overflow), before
+     stealing, so each join comes to own the lines it cycles through.
+     Load first: once the class is full the counter stops changing. */
+  ulong max_c = accdb->shmem->cache_class_max[ size_class ];
+  ulong old_init = max_c;
+  if( FD_UNLIKELY( FD_VOLATILE_CONST( accdb->shmem->cache_class_init[ size_class ].val )<max_c ) ) {
+    old_init = FD_ATOMIC_FETCH_AND_ADD( &accdb->shmem->cache_class_init[ size_class ].val, 1UL );
+    if( FD_UNLIKELY( old_init>=max_c ) ) FD_ATOMIC_FETCH_AND_SUB( &accdb->shmem->cache_class_init[ size_class ].val, 1UL );
+  }
+  if( FD_LIKELY( old_init<max_c ) ) {
     result = cache_line( accdb, size_class, old_init );
     result->refcnt         = 1;
     result->persisted      = 1;
@@ -1774,10 +2025,35 @@ acquire_cache_line( fd_accdb_t * accdb,
     *out_evicted_acc_idx   = UINT_MAX;
     return result;
   }
-  FD_ATOMIC_FETCH_AND_SUB( &accdb->shmem->cache_class_init[ size_class ].val, 1UL );
 
-  /* Priority 3: CLOCK sweep ... scan forward giving second chances. */
+  /* Our list is empty and the class has no never-used line left: from
+     here on, free lines only come from pre-eviction or eviction, so ask
+     pre-eviction for a line next time and wake the accdb tile now. */
+  {
+    ulong * hungry = &accdb->shmem->cache_free_hungry[ size_class ].bits[ accdb->free_idx/64UL ];
+    ulong   bit    = 1UL<<( accdb->free_idx%64UL );
+    if( !( FD_VOLATILE_CONST( *hungry ) & bit ) ) FD_ATOMIC_FETCH_AND_OR( hungry, bit );
+  }
+  cache_free_ring( accdb );
+
+  /* Priority 3: another join's free list. */
+  result = cache_free_steal( accdb, size_class );
+  if( FD_LIKELY( result ) ) goto popped;
+
+  /* Priority 4: CLOCK sweep ... scan forward giving second chances.
+     CLOCK skips free lines, so a line freed onto some list during the
+     sweep is invisible to it: after each fruitless lap, check our own
+     list (pre-eviction may have pushed to it) and steal again. */
+  ulong swept = 0UL;
   for(;;) {
+    if( FD_UNLIKELY( ++swept>max_c ) ) {
+      fd_racesan_hook( "accdb_clock:lap" );
+      swept  = 0UL;
+      result = cache_free_pop_from( accdb, accdb->free_idx, size_class );
+      if( result ) goto popped;
+      result = cache_free_steal( accdb, size_class );
+      if( result ) goto popped;
+    }
     ulong hand = FD_ATOMIC_FETCH_AND_ADD( &accdb->shmem->clock_hand[ size_class ].val, 1UL ) % accdb->shmem->cache_class_max[ size_class ];
     fd_accdb_cache_line_t * line = cache_line( accdb, size_class, hand );
 
@@ -2007,6 +2283,76 @@ allocate_next_write( fd_accdb_t * accdb,
   accdb->write_stats.bytes         += sz;
   accdb->write_stats.num_ops++;
   return file_offset;
+}
+
+/* release_take_line takes a line of size_class for a commit at release
+   time (writable acquires reserve every class but only materialize the
+   staging line; the final class is known only after execution).  The
+   caller holds a reservation for size_class, so a line exists.  If the
+   line came from CLOCK with a dirty victim, the victim is written back
+   and its offset published before the line is returned, exactly as
+   acquire's steps 5-10 do (victim offset xchg'd to INVAL first, so
+   concurrent readers wait for the publish).  Returns the line pinned
+   (refcnt 1), persisted, owned by no account.  The caller holds its
+   epoch, which keeps the victim's accmeta from being recycled. */
+
+static fd_accdb_cache_line_t *
+release_take_line( fd_accdb_t * accdb,
+                   ulong        size_class ) {
+  fd_accdb_shmem_t * shmem = accdb->shmem;
+  uint victim = UINT_MAX;
+  fd_accdb_cache_line_t * line = acquire_cache_line( accdb, size_class, &victim );
+  if( FD_UNLIKELY( victim!=UINT_MAX ) ) {
+    fd_accdb_accmeta_t * accmeta  = &accdb->acc_pool[ victim ];
+    ulong                data_sz  = (ulong)FD_ACCDB_SIZE_DATA( accmeta->executable_size );
+    ulong                entry_sz = sizeof(fd_accdb_disk_meta_t)+data_sz;
+    accdb->metrics->accounts_evicted++;
+    accdb->metrics->accounts_evicted_per_class[ size_class ]++;
+
+    ulong old_offset = fd_accdb_acc_xchg_offset( accmeta, FD_ACCDB_OFF_INVAL );
+    if( FD_LIKELY( old_offset!=FD_ACCDB_OFF_INVAL ) ) {
+      fd_accdb_shmem_bytes_freed( shmem, old_offset, entry_sz );
+      FD_ATOMIC_FETCH_AND_SUB( &shmem->shmetrics->disk_used_bytes, entry_sz );
+    }
+
+    fd_accdb_disk_meta_t meta;
+    fd_memcpy( meta.pubkey, accmeta->key.pubkey, 32UL );
+    meta.size       = (uint)data_sz;
+    meta.generation = accmeta->key.generation;
+    fd_memcpy( meta.owner, line->owner, 32UL );
+
+    struct iovec iovs[ 2UL ] = {
+      { .iov_base = &meta,              .iov_len = sizeof(fd_accdb_disk_meta_t) },
+      { .iov_base = (void *)(line+1UL), .iov_len = data_sz                      }
+    };
+    ulong file_off = allocate_next_write( accdb, entry_sz );
+    ulong written  = 0UL;
+    while( written<entry_sz ) {
+      long result = pwritev2( accdb->fd, iovs, 2, (long)(file_off+written), 0 );
+      if( FD_UNLIKELY( -1==result && (errno==EINTR || errno==EAGAIN || errno==EWOULDBLOCK) ) ) continue;
+      else if( FD_UNLIKELY( result<=0 ) ) FD_LOG_ERR(( "pwritev2() failed (%d-%s)", errno, fd_io_strerror( errno ) ));
+      written += (ulong)result;
+      accdb->metrics->bytes_written += (ulong)result;
+      accdb->metrics->write_ops++;
+      for( int v=0; v<2; v++ ) {
+        if( (ulong)result>=iovs[ v ].iov_len ) {
+          result -= (long)iovs[ v ].iov_len;
+          iovs[ v ].iov_len = 0UL;
+        } else {
+          iovs[ v ].iov_base = (uchar *)iovs[ v ].iov_base + result;
+          iovs[ v ].iov_len -= (ulong)result;
+          break;
+        }
+      }
+    }
+    FD_ATOMIC_FETCH_AND_ADD( &shmem->shmetrics->disk_used_bytes, entry_sz );
+    fd_racesan_hook( "accdb_release_take:pre_publish" );
+    FD_COMPILER_MFENCE();
+    accmeta->offset_fork = fd_accdb_acc_pack_offset_fork( file_off, fd_accdb_acc_fork_id( accmeta ) );
+  }
+  line->persisted = 1;
+  line->acc_idx   = UINT_MAX;
+  return line;
 }
 
 ulong
@@ -2538,19 +2884,19 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
   if( FD_UNLIKELY( reservation_type==RESERVATION_TYPE_ALREADY_RESERVED ) ) {
     ulong refund[ FD_ACCDB_CACHE_CLASS_CNT ] = {0};
     for( ulong j=0UL; j<FD_ACCDB_CACHE_CLASS_CNT; j++ ) {
-      if( FD_LIKELY( accdb->shmem->cache_class_used[ j ].val!=ULONG_MAX ) ) refund[ j ] = reserved_cnt;
+      if( FD_LIKELY( res_tracked( accdb, j ) ) ) refund[ j ] = reserved_cnt;
     }
     for( ulong i=0UL; i<pubkeys_cnt; i++ ) {
       if( FD_LIKELY( accmetas[ i ] ) ) {
         ulong cls = fd_accdb_cache_class( FD_ACCDB_SIZE_DATA( accmetas[ i ]->executable_size ) );
-        if( FD_LIKELY( accdb->shmem->cache_class_used[ cls ].val!=ULONG_MAX ) ) {
+        if( FD_LIKELY( res_tracked( accdb, cls ) ) ) {
           FD_TEST( refund[ cls ]>0UL );
           refund[ cls ]--;
         }
       }
     }
     for( ulong k=0UL; k<FD_ACCDB_CACHE_CLASS_CNT; k++ ) {
-      if( FD_UNLIKELY( refund[ k ] ) ) FD_ATOMIC_FETCH_AND_SUB( &accdb->shmem->cache_class_used[ k ].val, refund[ k ] );
+      if( FD_UNLIKELY( refund[ k ] ) ) res_give( accdb, k, refund[ k ] );
     }
   }
 
@@ -2578,13 +2924,13 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
     for( ulong i=0UL; i<pubkeys_cnt; i++ ) {
       if( FD_LIKELY( accmetas[ i ] || writable[ i ] ) ) {
         if( FD_LIKELY( accmetas[ i ] ) ) {
-          if( FD_UNLIKELY( accdb->shmem->cache_class_used[ fd_accdb_cache_class( FD_ACCDB_SIZE_DATA( accmetas[ i ]->executable_size ) ) ].val!=ULONG_MAX ) ) {
+          if( FD_UNLIKELY( res_tracked( accdb, fd_accdb_cache_class( FD_ACCDB_SIZE_DATA( accmetas[ i ]->executable_size ) ) ) ) ) {
             requested_buckets[ fd_accdb_cache_class( FD_ACCDB_SIZE_DATA( accmetas[ i ]->executable_size ) ) ]++;
           }
         }
         if( FD_UNLIKELY( writable[ i ] ) ) {
           for( ulong j=0UL; j<FD_ACCDB_CACHE_CLASS_CNT; j++ ) {
-            if( FD_UNLIKELY( accdb->shmem->cache_class_used[ j ].val!=ULONG_MAX ) ) {
+            if( FD_UNLIKELY( res_tracked( accdb, j ) ) ) {
               requested_buckets[ j ]++;
             }
           }
@@ -2599,7 +2945,7 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
           gated on accmetas/writable) so that acquire_b can refund based on
           pubkeys_cnt without needing to re-derive the live-account set. */
         for( ulong j=0UL; j<FD_ACCDB_CACHE_CLASS_CNT; j++ ) {
-          if( FD_UNLIKELY( accdb->shmem->cache_class_used[ j ].val!=ULONG_MAX ) ) {
+          if( FD_UNLIKELY( res_tracked( accdb, j ) ) ) {
             requested_buckets[ j ]++;
           }
         }
@@ -2619,32 +2965,24 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
        writable account per acquire batch, lowering contention on the
        cache class counters and allowing smaller cache provisioning. */
 
-    /* Reserve cache slots by atomically incrementing the shared used
-       counters.  If any class exceeds its max, the reservation
-       overflowed — subtract back partial grabs and retry. */
+    /* Reserve cache slots from the join's credits, else the shared
+       counters (res_take).  If a class is full, give back the classes
+       already taken, return every join's idle credits in the full class
+       to the shared counter, and retry. */
     for(;;) {
-      int acquire_failed = 0;
-      ulong grabbed[ FD_ACCDB_CACHE_CLASS_CNT ] = {0};
+      ulong failed = ULONG_MAX;
       for( ulong i=0UL; i<FD_ACCDB_CACHE_CLASS_CNT; i++ ) {
         if( FD_LIKELY( !requested_buckets[ i ] ) ) continue;
-        ulong new_used = FD_ATOMIC_ADD_AND_FETCH( &accdb->shmem->cache_class_used[ i ].val, requested_buckets[ i ] );
-        if( FD_UNLIKELY( new_used>accdb->shmem->cache_class_max[ i ] ) ) {
-          FD_ATOMIC_FETCH_AND_SUB( &accdb->shmem->cache_class_used[ i ].val, requested_buckets[ i ] );
-          acquire_failed = 1;
-        } else {
-          grabbed[ i ] = requested_buckets[ i ];
-        }
-        if( FD_UNLIKELY( acquire_failed ) ) {
-          accdb->metrics->acquire_failed++;
-          for( ulong j=0UL; j<i; j++ ) {
-            if( grabbed[ j ] ) FD_ATOMIC_FETCH_AND_SUB( &accdb->shmem->cache_class_used[ j ].val, grabbed[ j ] );
-          }
-          fd_racesan_hook( "accdb_acquire:reservation_retry" );
-          FD_SPIN_PAUSE();
-          break;
-        }
+        if( FD_UNLIKELY( !res_take( accdb, i, requested_buckets[ i ] ) ) ) { failed = i; break; }
       }
-      if( FD_LIKELY( !acquire_failed ) ) break;
+      if( FD_LIKELY( failed==ULONG_MAX ) ) break;
+      accdb->metrics->acquire_failed++;
+      for( ulong j=0UL; j<failed; j++ ) {
+        if( requested_buckets[ j ] ) res_give( accdb, j, requested_buckets[ j ] );
+      }
+      res_steal( accdb, failed );
+      fd_racesan_hook( "accdb_acquire:reservation_retry" );
+      FD_SPIN_PAUSE();
     }
   }
 
@@ -2702,7 +3040,12 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
     exists_in_cache[ i ] = original_cache_line[ i ]!=NULL;
 
     if( FD_UNLIKELY( writable[ i ] ) ) {
-      for( ulong j=0UL; j<FD_ACCDB_CACHE_CLASS_CNT; j++ ) destination_cache_lines[ i ][ j ] = acquire_cache_line( accdb, j, &evicted_dest_acc[ i ][ j ] );
+      /* Only the 10 MiB staging line is materialized now; the final
+         class is known after execution, and release takes that line
+         then (release_take_line).  Every class is still reserved
+         (step 3), so release can always get one. */
+      for( ulong j=0UL; j<FD_ACCDB_CACHE_CLASS_CNT-1UL; j++ ) { destination_cache_lines[ i ][ j ] = NULL; evicted_dest_acc[ i ][ j ] = UINT_MAX; }
+      destination_cache_lines[ i ][ 7UL ] = acquire_cache_line( accdb, 7UL, &evicted_dest_acc[ i ][ 7UL ] );
       if( FD_UNLIKELY( accmetas[ i ] && !original_cache_line[ i ] ) ) {
         original_cache_line[ i ] = cold_load_acc( accdb, accmetas[ i ], pubkeys[ i ], &exists_in_cache[ i ], &evicted_orig_acc[ i ] );
       }
@@ -2966,9 +3309,8 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
     }
 
     if( FD_UNLIKELY( writable[ i ] ) ) {
-      for( ulong j=0UL; j<FD_ACCDB_CACHE_CLASS_CNT; j++ ) {
-        out_accs[ i ]._write.destination_cache_idx[ j ] = cache_line_idx( accdb, j, destination_cache_lines[ i ][ j ] );
-      }
+      for( ulong j=0UL; j<FD_ACCDB_CACHE_CLASS_CNT-1UL; j++ ) out_accs[ i ]._write.destination_cache_idx[ j ] = ULONG_MAX;
+      out_accs[ i ]._write.destination_cache_idx[ 7UL ] = cache_line_idx( accdb, 7UL, destination_cache_lines[ i ][ 7UL ] );
     }
   }
 
@@ -3305,8 +3647,14 @@ release_inner( fd_accdb_t * accdb,
     if( FD_UNLIKELY( new_size_class==7UL ) ) continue;
 
     fd_accdb_cache_line_t * target_cache_line;
-    if( FD_LIKELY( original_size_class==new_size_class && accs[ i ]._overwrite ) ) target_cache_line = cache_line( accdb, original_size_class, accs[ i ]._original_cache_idx );
-    else                                                                              target_cache_line = cache_line( accdb, new_size_class, accs[ i ]._write.destination_cache_idx[ new_size_class ] );
+    if( FD_LIKELY( original_size_class==new_size_class && accs[ i ]._overwrite ) ) {
+      target_cache_line = cache_line( accdb, original_size_class, accs[ i ]._original_cache_idx );
+    } else {
+      /* The final class's line is taken now (acquire only reserved
+         it).  Step 2 finds it in destination_cache_idx. */
+      target_cache_line = release_take_line( accdb, new_size_class );
+      accs[ i ]._write.destination_cache_idx[ new_size_class ] = cache_line_idx( accdb, new_size_class, target_cache_line );
+    }
 
     fd_accdb_cache_line_t * staging_line = cache_line( accdb, 7UL, accs[ i ]._write.destination_cache_idx[ 7UL ] );
 
@@ -3364,7 +3712,10 @@ release_inner( fd_accdb_t * accdb,
     }
 
     fd_accdb_cache_line_t * destination_cache_lines[ FD_ACCDB_CACHE_CLASS_CNT ];
-    for( ulong j=0UL; j<FD_ACCDB_CACHE_CLASS_CNT; j++ ) destination_cache_lines[ j ] = cache_line( accdb, j, accs[ i ]._write.destination_cache_idx[ j ] );
+    for( ulong j=0UL; j<FD_ACCDB_CACHE_CLASS_CNT; j++ ) {
+      ulong idx = accs[ i ]._write.destination_cache_idx[ j ];
+      destination_cache_lines[ j ] = idx==ULONG_MAX ? NULL : cache_line( accdb, j, idx );
+    }
     int destination_committed[ FD_ACCDB_CACHE_CLASS_CNT ] = {0};
 
     if( FD_LIKELY( !accs[ i ].commit ) ) {
@@ -3375,6 +3726,7 @@ release_inner( fd_accdb_t * accdb,
          recently used. */
       if( FD_LIKELY( original_cache_line ) ) original_cache_line->referenced = 1;
       for( ulong j=0UL; j<FD_ACCDB_CACHE_CLASS_CNT; j++ ) {
+        if( !destination_cache_lines[ j ] ) continue; /* never materialized */
         /* acquire_cache_line via CLOCK leaves line->acc_idx pointing
            at the prior owner.  cache_free_push consumers (CLOCK,
            background_preevict) skip lines only when acc_idx==UINT_MAX
@@ -3535,6 +3887,7 @@ release_inner( fd_accdb_t * accdb,
        unpin happens after the publish below), uncommitted ones are
        fully freed to the CAS free list. */
     for( ulong j=0UL; j<FD_ACCDB_CACHE_CLASS_CNT; j++ ) {
+      if( !destination_cache_lines[ j ] ) continue; /* never materialized */
       if( destination_committed[ j ] ) {
         destination_cache_lines[ j ]->referenced = 1;
       } else {
@@ -3683,27 +4036,26 @@ release_inner( fd_accdb_t * accdb,
 
   // STEP 3.
   //   Finally, we release the cache class reservations we took at the
-  //   beginning when we acquired these cache lines.  Credits return
-  //   directly to the shared pool so other threads can use them
-  //   immediately.
+  //   beginning when we acquired these cache lines.  They go back to
+  //   the join's credits (res_give), surplus to the shared counter.
 
   ulong refund[ FD_ACCDB_CACHE_CLASS_CNT ] = {0};
   for( ulong i=0UL; i<accs_cnt; i++ ) {
     if( FD_LIKELY( accs[ i ]._original_size_class!=ULONG_MAX ) ) {
-      if( FD_UNLIKELY( accdb->shmem->cache_class_used[ accs[ i ]._original_size_class ].val!=ULONG_MAX ) ) {
+      if( FD_UNLIKELY( res_tracked( accdb, accs[ i ]._original_size_class ) ) ) {
         refund[ accs[ i ]._original_size_class ]++;
       }
     }
     if( FD_UNLIKELY( accs[ i ]._writable ) ) {
       for( ulong j=0UL; j<FD_ACCDB_CACHE_CLASS_CNT; j++ ) {
-        if( FD_UNLIKELY( accdb->shmem->cache_class_used[ j ].val!=ULONG_MAX ) ) {
+        if( FD_UNLIKELY( res_tracked( accdb, j ) ) ) {
           refund[ j ]++;
         }
       }
     }
   }
   for( ulong k=0UL; k<FD_ACCDB_CACHE_CLASS_CNT; k++ ) {
-    if( FD_UNLIKELY( refund[ k ] ) ) FD_ATOMIC_FETCH_AND_SUB( &accdb->shmem->cache_class_used[ k ].val, refund[ k ] );
+    if( FD_UNLIKELY( refund[ k ] ) ) res_give( accdb, k, refund[ k ] );
   }
 
   FD_COMPILER_MFENCE();
@@ -4118,11 +4470,12 @@ fd_accdb_data_len( fd_accdb_t *       accdb,
 
 #define PREEVICT_TICK_BUDGET (256UL)
 
-/* cache_line_free invalidates a claimed line and returns it to its
-   class free list. */
+/* cache_line_free invalidates a claimed line and pushes it onto join
+   j's class free list. */
 
 static inline void
 cache_line_free( fd_accdb_t *            accdb,
+                 ulong                   j,
                  ulong                   size_class,
                  fd_accdb_cache_line_t * line ) {
   line->persisted      = 1;
@@ -4130,12 +4483,59 @@ cache_line_free( fd_accdb_t *            accdb,
   line->key.generation = UINT_MAX;
   FD_COMPILER_MFENCE();
   FD_VOLATILE( line->refcnt ) = 0;
-  cache_free_push( accdb, size_class, line );
+  cache_free_push_to( accdb, j, size_class, line );
+}
+
+/* preevict_hungry_t is pre-eviction's snapshot of a class's
+   cache_free_hungry bits (taken and cleared at the start of a class
+   pass).  preevict_target deals the lines the pass frees round-robin
+   to those joins' lists, or to the pre-evicting join's own list when
+   none ran short.  A join that ran short once gets as many as one that
+   ran short often; any surplus is stealable. */
+
+struct preevict_hungry {
+  ulong bits[ FD_ACCDB_MAX_JOINERS/64UL ];
+  ulong next; /* join to try first */
+};
+
+typedef struct preevict_hungry preevict_hungry_t;
+
+static void
+preevict_hungry_take( preevict_hungry_t * h,
+                      fd_accdb_shmem_t *  shmem,
+                      ulong               size_class,
+                      int                 force ) {
+  h->next = 0UL;
+  for( ulong w=0UL; w<FD_ACCDB_MAX_JOINERS/64UL; w++ ) {
+    ulong * bits = &shmem->cache_free_hungry[ size_class ].bits[ w ];
+    h->bits[ w ] = ( !force && FD_VOLATILE_CONST( *bits ) ) ? FD_ATOMIC_XCHG( bits, 0UL ) : 0UL;
+  }
+}
+
+static inline ulong
+preevict_hungry_find( preevict_hungry_t const * h,
+                      ulong                     from ) {
+  for( ulong w=from/64UL; w<FD_ACCDB_MAX_JOINERS/64UL; w++ ) {
+    ulong m = h->bits[ w ] & ( w==from/64UL ? ~0UL<<( from%64UL ) : ~0UL );
+    if( m ) return w*64UL + (ulong)fd_ulong_find_lsb( m );
+  }
+  return ULONG_MAX;
+}
+
+static inline ulong
+preevict_target( preevict_hungry_t * h,
+                 fd_accdb_t const *  accdb ) {
+  ulong j = preevict_hungry_find( h, h->next );
+  if( j==ULONG_MAX ) j = preevict_hungry_find( h, 0UL );
+  if( j==ULONG_MAX ) return accdb->free_idx;
+  h->next = j+1UL;
+  return j;
 }
 
 static void
 preevict_flush( fd_accdb_t *             accdb,
                 ulong                    size_class,
+                preevict_hungry_t *      hungry,
                 fd_accdb_cache_line_t ** pend_line,
                 ulong const *            pend_sz,
                 ulong                    pend_cnt,
@@ -4185,7 +4585,7 @@ preevict_flush( fd_accdb_t *             accdb,
     accmeta->offset_fork = fd_accdb_acc_pack_offset_fork( off, fd_accdb_acc_fork_id( accmeta ) );
     off += pend_sz[ i ];
     FD_COMPILER_MFENCE();
-    cache_line_free( accdb, size_class, line );
+    cache_line_free( accdb, preevict_target( hungry, accdb ), size_class, line );
   }
   accdb->metrics->accounts_preevicted                         += pend_cnt;
   accdb->metrics->accounts_preevicted_per_class[ size_class ] += pend_cnt;
@@ -4194,22 +4594,28 @@ preevict_flush( fd_accdb_t *             accdb,
   FD_VOLATILE( *accdb->my_epoch_slot ) = ULONG_MAX;
 }
 
-/* cache_bg_evict pre-evicts cache lines in the background to keep the
-   per-class CAS free lists populated ahead of demand.  For each class
+/* background_preevict pre-evicts cache lines in the background to keep
+   the per-join free lists populated ahead of demand.  For each class
   whose immediately available capacity has dropped below low_water,
   a bounded CLOCK sweep claims lines, writes dirty ones to disk, and
   pushes them onto the free list until available capacity reaches
-  target.  Immediately available capacity includes both the CAS free
-  list and the never-initialized tail of the class, since foreground
+  target.  Immediately available capacity includes both the free
+  lists and the never-initialized tail of the class, since foreground
   allocators can consume either path without evicting resident data.
 
-  Budget: at most 256 CLOCK ticks per class per invocation to keep the
-  background loop responsive.  The function is called every tick of
+  Budget: at most PREEVICT_TICK_BUDGET CLOCK ticks per class per call
+  to keep the background loop responsive.  The function is called every tick of
   fd_accdb_background, so large refills happen across several ticks
   rather than blocking.  The low_water / target thresholds are static
   per-class watermarks computed at initialization; pre-eviction only
   converts resident lines into free-list entries and does not consume
   cache-slot reservations.
+
+  The watermark test sums every join's free-list count, reading a
+  line each join writes on its hot path; so it runs at most once per
+  FD_ACCDB_PREEVICT_SCAN_TICKS (tens of microseconds) instead of every
+  tick of an otherwise idle loop (per join, preevict_interval; tests
+  set it with fd_accdb_set_preevict_interval).
 
   force: when non-zero, ignore the watermark and sweep every line in
   every class.  Always 0 in normal operation; used only by
@@ -4221,6 +4627,16 @@ background_preevict( fd_accdb_t * accdb,
                      int *        charge_busy,
                      int          force ) {
   fd_accdb_shmem_t * shmem = accdb->shmem;
+
+  if( FD_LIKELY( !force ) ) {
+    long now = fd_tickcount();
+    if( FD_LIKELY( now-accdb->preevict_ticks<accdb->preevict_interval ) ) {
+      *charge_busy |= accdb->preevict_pending;
+      return;
+    }
+    accdb->preevict_ticks   = now;
+    accdb->preevict_pending = 0;
+  }
 
   /* A batch has to fit one disk partition. */
   FD_TEST( accdb->stage );
@@ -4235,7 +4651,7 @@ background_preevict( fd_accdb_t * accdb,
     ulong target = shmem->cache_free_target[ size_class ];
     ulong max_c  = shmem->cache_class_max[ size_class ];
     ulong init   = fd_ulong_min( FD_VOLATILE_CONST( shmem->cache_class_init[ size_class ].val ), max_c );
-    ulong freec  = FD_VOLATILE_CONST( shmem->cache_free_cnt[ size_class ].val );
+    ulong freec  = cache_free_total( shmem, size_class );
     ulong live   = init>freec ? init-freec : 0UL;
     ulong avail  = max_c-live;
     if( FD_LIKELY( !force && avail>=shmem->cache_free_low_water[ size_class ] ) ) continue;
@@ -4245,6 +4661,9 @@ background_preevict( fd_accdb_t * accdb,
     ulong budget  = force ? init : PREEVICT_TICK_BUDGET;
     ulong evicted = 0UL;
     if( FD_UNLIKELY( force ) ) target = max_c; /* sweep everything */
+
+    preevict_hungry_t hungry[1];
+    preevict_hungry_take( hungry, shmem, size_class, force );
 
     for( ulong tick=0UL; tick<budget && avail+evicted<target; tick++ ) {
       /* Only sweep the lazily initialized prefix.  cache_class_init
@@ -4284,7 +4703,7 @@ background_preevict( fd_accdb_t * accdb,
       }
       line->key.generation = UINT_MAX;
       if( FD_UNLIKELY( line->persisted || acc_idx==UINT_MAX ) ) {
-        cache_line_free( accdb, size_class, line );
+        cache_line_free( accdb, preevict_target( hungry, accdb ), size_class, line );
         evicted++;
         continue;
       }
@@ -4298,7 +4717,7 @@ background_preevict( fd_accdb_t * accdb,
       ulong entry_sz = sizeof(fd_accdb_disk_meta_t)+data_sz;
 
       if( FD_UNLIKELY( pend_cnt && ( stage_sz+entry_sz>batch_max || pend_cnt==PREEVICT_TICK_BUDGET ) ) ) {
-        preevict_flush( accdb, size_class, pend_line, pend_sz, pend_cnt, stage_sz );
+        preevict_flush( accdb, size_class, hungry, pend_line, pend_sz, pend_cnt, stage_sz );
         pend_cnt = 0UL;
         stage_sz = 0UL;
       }
@@ -4318,9 +4737,16 @@ background_preevict( fd_accdb_t * accdb,
     }
 
     if( pend_cnt ) {
-      preevict_flush( accdb, size_class, pend_line, pend_sz, pend_cnt, stage_sz );
+      preevict_flush( accdb, size_class, hungry, pend_line, pend_sz, pend_cnt, stage_sz );
       pend_cnt = 0UL;
       stage_sz = 0UL;
+    }
+
+    /* Still below low water (budget ran out or too little was
+       evictable): the next scan will sweep this class again, so stay
+       busy until then rather than letting the tile park. */
+    if( FD_UNLIKELY( !force && avail+evicted<shmem->cache_free_low_water[ size_class ] ) ) {
+      accdb->preevict_pending = 1;
     }
   }
 }
@@ -4681,13 +5107,26 @@ fd_accdb_cache_class_occupancy( fd_accdb_t * accdb,
   for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) {
     ulong cap   = accdb->shmem->cache_class_max[ c ];
     ulong init  = FD_VOLATILE_CONST( accdb->shmem->cache_class_init[ c ].val );
-    ulong freec = FD_VOLATILE_CONST( accdb->shmem->cache_free_cnt  [ c ].val );
+    ulong freec = cache_free_total( accdb->shmem, c );
     ulong live  = init>freec ? init-freec : 0UL;
     if( live>cap ) live = cap;
     max     [ c ] = cap;
     used    [ c ] = live;
-    reserved[ c ] = FD_VOLATILE_CONST( accdb->shmem->cache_class_used[ c ].val );
+    ulong res   = FD_VOLATILE_CONST( accdb->shmem->cache_class_used[ c ].val );
+    if( res!=ULONG_MAX ) { /* in-flight reservations only, not idle credits */
+      ulong joiner_cnt = fd_ulong_min( FD_VOLATILE_CONST( accdb->shmem->joiner_cnt ), FD_ACCDB_MAX_JOINERS );
+      ulong idle = 0UL;
+      for( ulong j=0UL; j<joiner_cnt; j++ ) idle += FD_VOLATILE_CONST( accdb->shmem->join_cred[ j ].val[ c ] );
+      res = res>idle ? res-idle : 0UL;
+    }
+    reserved[ c ] = res;
   }
+}
+
+void
+fd_accdb_set_preevict_interval( fd_accdb_t * accdb,
+                                long         ticks ) {
+  accdb->preevict_interval = ticks;
 }
 
 void
