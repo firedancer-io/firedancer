@@ -70,9 +70,9 @@ fd_executor_check_static_account_rent_state_transition( ulong             pre_ex
    instruction processing.  Returns an error code in
    FD_EXECUTOR_INSTR_{ERR_{...},SUCCESS}.
 
-   IMPORTANT: instr_info must have the same lifetime as txn_ctx. This can
-   be achieved by using fd_executor_acquire_instr_info_elem( txn_ctx ) to
-   acquire an fd_instr_info_t element with the same lifetime as the txn_ctx */
+   instr_info must remain valid for the transaction.  The caller allocates
+   it from runtime->instr.trace and increments runtime->instr.trace_length
+   before calling fd_execute_instr. */
 
 int
 fd_execute_instr( fd_runtime_t *      runtime,

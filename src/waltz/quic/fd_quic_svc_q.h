@@ -100,7 +100,8 @@ void
 fd_quic_svc_timers_cancel( fd_quic_svc_timers_t * timers,
                            fd_quic_conn_t       * conn );
 
-/* fd_quic_svc_timers_next returns next event. If 'pop' is true,
+/* fd_quic_svc_timers_next returns the next event, preferring expired
+   DYNAMIC timers over INSTANT work. If 'pop' is true,
    the event (if in past) is popped from the queue, and next_timeout
    is reset to ULONG_MAX. If next event is in the future with pop=true,
    will return none! If pop is false, event will remain enqueued and

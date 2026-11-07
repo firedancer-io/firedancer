@@ -93,6 +93,8 @@ struct fd_quic_conn {
   uint               visited : 1;         /* scratch bit, no strict definition */
   uint               key_phase : 1;
   uint               key_update : 1;
+  uint               key_phase_updated  : 1; /* completed at least one key update? */
+  uint               key_phase_ack_sent : 1; /* sent a 1-RTT ACK since the last key update? */
 
   /* metadata used by service queue */
   fd_quic_svc_timers_conn_meta_t svc_meta;
@@ -164,6 +166,13 @@ struct fd_quic_conn {
   ulong exp_pkt_number[3];  /* different packet number spaces:
                                  INITIAL, HANDSHAKE and APPLICATION */
   ulong pkt_number[3];      /* tx packet number by pn space */
+
+  /* Incrementally skip unsupported NewSessionTickets in application
+     CRYPTO data, retaining enough framing to reject TLS KeyUpdate. */
+  ulong post_hs_rx_off;
+  uint  post_hs_remaining;
+  uint  post_hs_length;
+  uchar post_hs_hdr_used;
   ulong rx_pn_mask[3];      /* bit i set if exp_pkt_number-1-i was received */
   ulong highest_acked[3];   /* highest packet number acked (meaningless if 0) */
 
@@ -220,6 +229,8 @@ struct fd_quic_conn {
   float rtt_period_ns;         /* bound on time between RTT measurements */
   float peer_ack_delay_scale;  /* convert ACK delay units to nanoseconds */
   float peer_max_ack_delay_ns; /* peer max ack delay in nanoseconds */
+  uint  pto_count;             /* consecutive PTO expirations without a new ACK */
+  long  pto_expiry;            /* earliest next PTO after backing off */
 
   ulong token_len;
   uchar token[ FD_QUIC_RETRY_MAX_TOKEN_SZ ];

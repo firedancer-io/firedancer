@@ -1282,8 +1282,8 @@ interp_halt:
      The IM, depending on where we are in the execution, either represents:
         1. IM => The number of instructions remaining before exhausting CU
         budget. This is analogous to vm->cu in our interpreter.
-        2. IM' => The last pc you can execute in the current linear run before
-        exhausting CU budget.  Mathematically, IM' = IM + pc0
+        2. IM' => The first pc you cannot execute in the current linear run
+        with the remaining CU budget.  Mathematically, IM' = IM + pc0
         where pc0, just like our definition, is the start of the linear run.
 
         Note: IM' can go past the actual basic block/segment. In-fact,
@@ -1295,8 +1295,8 @@ interp_halt:
         - in post-VM cleanup (updates EbpfVm::previous_instruction_meter).
 
       When a branch instruction is encountered, the JIT checks
-      for CU exhaustion with pc > IM', and throws an exception if so. This is valid,
-      because as described above, IM' is the largest PC you can reach.
+      for CU exhaustion with pc >= IM', and throws an exception if so. This is valid,
+      because as described above, IM' is the first PC beyond the budget.
 
       If we haven't exhausted our CU limit, it updates IM':
         1. IM = IM' - (pc + 1)  # Note that IM' at this point is IM + pc0',
@@ -1357,7 +1357,7 @@ interp_halt:
     }
     ```
 
-    Breaking down the IM' < pc check:
+    Breaking down the IM' <= pc check:
     - IM' = IM + pc0
     - pc  = ic + pc0, where (ic + 1) is the number of instructions executed in the current linear run
 

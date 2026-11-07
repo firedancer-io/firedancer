@@ -538,7 +538,13 @@ FD_UNIT_TEST( bundle_client_reset ) {
   FD_TEST( state->grpc_client->h2_hs_done==1 );
   FD_TEST( state->grpc_client->stream_cnt==2 );
 
+  fd_memset( state->tls_conn, 0xa5, sizeof(*state->tls_conn) );
+  fd_memset( state->tls->kex_private_key, 0xa5, 32UL );
   fd_bundle_client_reset( state );
+  static uchar const zero_conn[ sizeof(fd_tlsrec_conn_t) ] = {0};
+  static uchar const zero_key[ 32 ] = {0};
+  FD_TEST( 0==memcmp( state->tls_conn, zero_conn, sizeof(zero_conn) ) );
+  FD_TEST( 0==memcmp( state->tls->kex_private_key, zero_key, sizeof(zero_key) ) );
 
   FD_TEST( state->tcp_sock==-1 );
   FD_TEST( state->tcp_sock_connected==0 );

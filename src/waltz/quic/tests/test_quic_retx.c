@@ -237,6 +237,42 @@ test_retx_pto( fd_quic_conn_t * client_conn, fd_quic_t * server_quic FD_PARAM_UN
   }
 }
 
+/* consecutive PTO expirations back off exponentially (RFC 9002 Section 6.2.1) */
+static void
+test_retx_pto_backoff( fd_quic_conn_t * client_conn, fd_quic_t * server_quic ) {
+  fd_quic_t * client_quic = client_conn->quic;
+
+  FD_TEST( client_conn->pto_count==0U );
+  long const base_pto = fd_quic_calc_expiry_duration( client_conn, 0, 0 );
+
+  fd_quic_netem_set_drop( client_netem, ~0UL );
+  long send_time = now;
+  send_packet( client_conn );
+
+  for( uint j=0U; j<4U; j++ ) {
+    while( fd_quic_get_next_wakeup( client_quic )<=now ) fd_quic_service( client_quic, now );
+    long next = fd_quic_get_next_wakeup( client_quic );
+    FD_TEST( next-send_time >= (base_pto<<j) );
+    FD_TEST( next-send_time <  (base_pto<<j) + 1000L );
+    ulong orig_retx_cnt = client_quic->metrics.pkt_retransmissions_cnt[3];
+    now = next;
+    send_time = now;
+    fd_quic_service( client_quic, now );
+    FD_TEST( client_quic->metrics.pkt_retransmissions_cnt[3] > orig_retx_cnt );
+    FD_TEST( client_conn->pto_count==j+1U );
+  }
+
+  /* an ACK resets the backoff */
+  while( fd_quic_get_next_wakeup( client_quic )<=now ) fd_quic_service( client_quic, now );
+  fd_quic_netem_set_drop( client_netem, 0UL );
+  now = fd_quic_get_next_wakeup( client_quic );
+  while( fd_quic_get_next_wakeup( client_quic )<=now ) fd_quic_service( client_quic, now );
+  ack_inflight( client_conn, server_quic );
+  FD_TEST( client_conn->pto_count==0U );
+  FD_TEST( fd_quic_calc_expiry_duration( client_conn, 0, 0 )<2L*base_pto );
+  FD_LOG_NOTICE(( "test_retx_pto_backoff: pass" ));
+}
+
 static void
 test_loss_time_threshold( fd_quic_conn_t * client_conn, fd_quic_t * server_quic ) {
   fd_quic_t * client_quic = client_conn->quic;
@@ -459,6 +495,7 @@ main( int     argc,
 
   test_rtt_update(          client_conn, server_quic );
   test_retx_pto(            client_conn, server_quic );
+  test_retx_pto_backoff(    client_conn, server_quic );
   test_loss_time_threshold( client_conn, server_quic );
   test_loss_skip_threshold( client_conn, server_quic );
   test_stream_retx_multi_packet( client_conn, server_quic );

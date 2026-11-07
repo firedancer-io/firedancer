@@ -779,7 +779,7 @@ test_start_after_init_acks( void ) {
   void * sel = aligned_alloc( fd_sspeer_selector_align(), fd_sspeer_selector_footprint( TOTAL_PEERS_MAX ) ); FD_TEST( sel );
   gossip_ci_entry_t * ci_table = aligned_alloc( alignof(gossip_ci_entry_t), sizeof(gossip_ci_entry_t)*GOSSIP_PEERS_MAX ); FD_TEST( ci_table );
   void * ci_map = aligned_alloc( gossip_ci_map_align(), gossip_ci_map_footprint( gossip_ci_map_chain_cnt_est( GOSSIP_PEERS_MAX ) ) ); FD_TEST( ci_map );
-  for( int file=0; file<2; file++ ) {
+  for( int source=0; source<3; source++ ) for( int file=0; file<2; file++ ) {
     for( int full=0; full<2; full++ ) {
       fd_memset( ctx, 0, sizeof(*ctx) );
       test_ctx_wake_init( ctx );
@@ -805,14 +805,22 @@ test_start_after_init_acks( void ) {
       /* Committing an incremental source also queues an expected slot,
          drained by the first after_credit. */
       ulong pre_start_cnt = full ? 1UL : 2UL;
-      ctx->peer.addr                       = test_addr( 0x7f000001U, 8899 );
+      ctx->peer.addr                    = test_addr( 0x7f000001U, 8899 );
       ctx->peer.incr_hash[ 0 ]             = 1;
       ctx->predicted_incremental.full_slot = 100UL;
       ctx->predicted_incremental.slot      = 200UL;
-      ctx->resolved_servers_cnt            = 1UL;
-      ctx->resolved_servers[ 0 ].addr      = ctx->peer.addr;
-      ctx->resolved_servers[ 0 ].is_https  = 1;
-      fd_cstr_ncpy( ctx->resolved_servers[ 0 ].hostname, "snapshots.example", FD_FQDN_BUF_MAX );
+      ctx->resolved_servers_cnt          = 2UL;
+      ctx->resolved_servers[ 0 ].addr     = ctx->peer.addr;
+      ctx->resolved_servers[ 0 ].is_https = 0;
+      fd_cstr_ncpy( ctx->resolved_servers[ 0 ].hostname, "alpha.example", FD_FQDN_BUF_MAX );
+      ctx->resolved_servers[ 1 ].addr     = ctx->peer.addr;
+      ctx->resolved_servers[ 1 ].is_https = 1;
+      fd_cstr_ncpy( ctx->resolved_servers[ 1 ].hostname, "beta.example", FD_FQDN_BUF_MAX );
+      ctx->peer.key.is_url = source!=0;
+      if( source ) {
+        ctx->peer.key.url.resolved_addr = ctx->peer.addr;
+        fd_cstr_ncpy( ctx->peer.key.url.hostname, source==1 ? "alpha.example" : "beta.example", FD_FQDN_BUF_MAX );
+      }
       ulong sig  = full ? FD_SNAPSHOT_MSG_CTRL_INIT_FULL : FD_SNAPSHOT_MSG_CTRL_INIT_INCR;
       int   busy = 0;
       for( int ack=0; ack<ctx->flush_ack_cnt; ack++ ) {
@@ -828,8 +836,8 @@ test_start_after_init_acks( void ) {
       FD_TEST( test_publish_chunk!=init_chunk );
       FD_TEST( !memcmp( output, &saved_init, sizeof(saved_init) ) );
       if( !file ) {
-        FD_TEST( test_start.addr.l==ctx->peer.addr.l && test_start.is_https );
-        FD_TEST( !strcmp( test_start.hostname, "snapshots.example" ) );
+        FD_TEST( test_start.addr.l==ctx->peer.addr.l && test_start.is_https==(source==2) );
+        FD_TEST( !strcmp( test_start.hostname, source==0 ? "" : source==1 ? "alpha.example" : "beta.example" ) );
         if( full ) {
           FD_TEST( !strcmp( test_start.path, "/snapshot.tar.bz2" ) );
         } else {
