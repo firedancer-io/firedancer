@@ -12,7 +12,7 @@
    or knowingly skipped) before the constant is bumped.  String keys of
    the user's own file are separately forced through the classification
    lists below. */
-FD_STATIC_ASSERT( sizeof(fd_config_t)==24464616UL, update_fd_config_to_json_for_the_layout_change );
+FD_STATIC_ASSERT( sizeof(fd_config_t)==24464632UL, update_fd_config_to_json_for_the_layout_change );
 
 #define REDACTED "[redacted]"
 
@@ -504,6 +504,10 @@ fd_config_to_json( fd_config_t const * config,
     jw_obj_open( &w, "backtest" );
       jw_str  ( &w, "affinity",      f->development.backtest.affinity );
       jw_ulong( &w, "root_distance", f->development.backtest.root_distance );
+    jw_obj_close( &w );
+    jw_obj_open( &w, "jit" );
+      jw_bool ( &w, "enabled",        f->development.jit.enabled );
+      jw_ulong( &w, "arena_size_mib", f->development.jit.arena_size_mib );
     jw_obj_close( &w );
     jw_obj_open( &w, "bench" );
       jw_ulong( &w, "benchg_tile_count",            config->development.bench.benchg_tile_count );

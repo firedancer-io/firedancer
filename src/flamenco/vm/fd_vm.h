@@ -161,6 +161,10 @@ struct __attribute__((aligned(FD_VM_HOST_REGION_ALIGN))) fd_vm {
 
     /* materialized CU state */
     ulong ic_cu_anchor; /* BPF instructions executed + CU remaining */
+
+    /* runtime helper table for JIT compiled code (see
+       fd_transpile_runtime.h); unused by AOT linked programs */
+    struct fd_transpile_rt const * rt;
   } transpiled;
 
   /* VM memory */
@@ -275,7 +279,7 @@ FD_PROTOTYPES_BEGIN
    integer power of 2.  FOOTPRINT is a multiple of align.
    These are provided to facilitate compile time declarations. */
 #define FD_VM_ALIGN     FD_VM_HOST_REGION_ALIGN
-#define FD_VM_FOOTPRINT (527920UL)
+#define FD_VM_FOOTPRINT (527936UL)
 
 /* fd_vm_{align,footprint} give the needed alignment and footprint
    of a memory region suitable to hold an fd_vm_t.

@@ -1,6 +1,7 @@
 #include "../execle/fd_execle_err.h"
 #include "../../util/pod/fd_pod_format.h"
 #include "../../disco/metrics/fd_metrics.h"
+#include "../jit/fd_jit_client.h"
 
 #include "../../discof/fd_startup.h"
 #include "../../discof/replay/fd_execrp.h"
@@ -66,6 +67,7 @@ struct fd_execrp_tile {
   fd_txncache_t * txncache;
   fd_progcache_t  progcache[1];
   fd_bpf_frames_t * bpf_frames;
+  fd_jit_client_t   jit[1];
 
   ulong txn_idx;
   ulong slot;
@@ -172,6 +174,7 @@ metrics_write( fd_execrp_tile_t * ctx ) {
   FD_MCNT_SET( EXECRP, BANK_SWITCHED, runtime->metrics.bank_switch_cnt );
   FD_MCNT_SET( EXECRP, TRANSPILED_EXECUTED,  runtime->metrics.transpiled_exec_cnt );
   FD_MCNT_SET( EXECRP, TRANSPILED_BAILED,    runtime->metrics.transpiled_bail_cnt );
+  FD_MCNT_SET( EXECRP, JIT_REQUESTED,        ctx->jit->sent );
 
   fd_txncache_join_metrics_t const * txncache = fd_txncache_join_metrics( ctx->txncache );
   FD_MCNT_SET  ( EXECRP, TXNCACHE_QUERY_MISS,             txncache->query_miss_cnt  );
@@ -441,6 +444,7 @@ privileged_init( fd_topo_t const *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_execrp_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_execrp_tile_t), sizeof(fd_execrp_tile_t) );
   FD_TEST( fd_rng_secure( &ctx->ed25519_cache_seed, sizeof(ulong) ) );
+  fd_jit_client_privileged_init( topo, tile->execrp.jit_arena_obj_id );
 }
 
 static void
@@ -500,6 +504,7 @@ unprivileged_init( fd_topo_t const *      topo,
 
   FD_TEST( fd_progcache_join( ctx->progcache, fd_topo_obj_laddr( topo, tile->execrp.progcache_obj_id ), pc_scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT ) );
   FD_TEST( (ctx->bpf_frames = fd_bpf_frames_join( _bpf_frames, fd_topo_obj_laddr( topo, tile->execrp.bpf_frames_obj_id ) )) );
+  int jit = fd_jit_client_init( ctx->jit, topo, tile, ctx->tile_idx, tile->execrp.jit_arena_obj_id, ctx->progcache );
 
   void * _txncache_shmem = fd_topo_obj_laddr( topo, tile->execrp.txncache_obj_id );
   fd_txncache_shmem_t * txncache_shmem = fd_txncache_shmem_join( _txncache_shmem );
@@ -611,6 +616,7 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->runtime->sysvar_bank_seq          = 0UL;
   ctx->runtime->progcache                = ctx->progcache;
   ctx->runtime->bpf_frames               = ctx->bpf_frames;
+  ctx->runtime->transpile                = jit ? ctx->jit->bind : NULL;
   ctx->runtime->status_cache             = ctx->txncache;
   memset( &ctx->runtime->log, 0, sizeof(ctx->runtime->log) );
   ctx->runtime->log.log_collector        = &ctx->log_collector;

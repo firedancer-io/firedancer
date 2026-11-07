@@ -12,7 +12,7 @@
 /* FD_TRANSPILE_ABI_VERSION is incremented anytime anything in this ABI
    changes.  (e.g. transpile_obj, transpile_runtime, or fd_vm) */
 
-#define FD_TRANSPILE_ABI_VERSION (1UL)
+#define FD_TRANSPILE_ABI_VERSION (2UL)
 
 /* FD_VM_TRANSPILE_SYM_* give ELF symbol IDs for use in relocations. */
 

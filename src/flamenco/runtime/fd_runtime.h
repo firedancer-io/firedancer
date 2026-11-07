@@ -79,6 +79,7 @@ struct fd_runtime {
   fd_txncache_t *   status_cache;
   fd_progcache_t *  progcache;
   fd_bpf_frames_t * bpf_frames;
+  struct fd_transpile_bind * transpile; /* NULL: AOT programs only */
 
   /* Sysvars of the bank with sequence number sysvar_bank_seq (0 if
      none).  Refilled by fd_runtime_sysvar_cache_refresh. */

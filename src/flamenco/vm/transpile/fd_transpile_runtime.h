@@ -84,6 +84,20 @@ fd_vm_transpiled_frame_init( fd_vm_t * vm );
 
 extern fd_transpile_export_t const * const fd_transpiled_ext[];
 
+/* fd_transpile_rt_t is the table of runtime helpers JIT compiled code
+   calls through vm->transpiled.rt.  AOT linked programs bind these
+   symbols at link time instead.  Field offsets are baked into veneers
+   by fd_jit_arena_place. */
+
+struct fd_transpile_rt {
+  long (* mmu_translate)( fd_vm_t * vm, ulong vaddr, ulong access_width, uchar is_write );
+  void (* frame_init   )( fd_vm_t * vm );
+};
+
+typedef struct fd_transpile_rt fd_transpile_rt_t;
+
+extern fd_transpile_rt_t const fd_transpile_rt;
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_vm_transpile_fd_transpile_runtime_h */

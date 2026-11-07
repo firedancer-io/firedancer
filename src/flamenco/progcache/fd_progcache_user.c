@@ -532,6 +532,9 @@ fd_progcache_insert( fd_progcache_t *        cache,
       fd_progcache_rec_nx( rec );
     } else {
       rec->transpiled_idx = fd_transpile_bind_lookup( &params->prog_addr, params->bin, params->bin_sz );
+      if( !rec->transpiled_idx && cache->jit_req && !from_spill ) {
+        cache->jit_req( cache->jit_req_ctx, rec, (uint)( rec - ljoin->rec.ele ), params->features );
+      }
     }
     dt += fd_tickcount();
     cache->metrics->cum_load_ticks += (ulong)dt;

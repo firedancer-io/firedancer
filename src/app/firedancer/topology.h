@@ -41,6 +41,21 @@ setup_topo_progcache( fd_topo_t *  topo,
                       ulong        txn_max,
                       ulong        wksp_size );
 
+/* setup_topo_jit adds the jit and jitmap tiles, the JIT code arena and
+   the links between them and the exec tiles named by exec_name
+   (exec_cnt instances, each already in the topology).  No-op unless
+   [development.jit] is enabled. */
+
+void
+setup_topo_jit( fd_topo_t *    topo,
+                fd_config_t *  config,
+                char const *   exec_name,
+                ulong          exec_cnt,
+                char const *   exec_name2,
+                ulong          exec_cnt2,
+                ulong          cpu_idx_jit,
+                ulong          cpu_idx_jitmap );
+
 fd_topo_obj_t *
 setup_topo_bpf_frames( fd_topo_t *  topo,
                        char const * wksp_name,

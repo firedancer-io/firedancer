@@ -6,6 +6,7 @@
 #include "../../ballet/blake3/fd_blake3.h"
 #include "../../ballet/bmtree/fd_bmtree.h"
 #include "../../disco/metrics/fd_metrics.h"
+#include "../jit/fd_jit_client.h"
 #include "../../disco/events/generated/fd_event_gen.h"
 #include "../../util/pod/fd_pod_format.h"
 #include "../../disco/pack/fd_pack_rebate_sum.h"
@@ -72,6 +73,7 @@ struct fd_execle_tile {
 
   fd_progcache_t  progcache[1];
   fd_bpf_frames_t * bpf_frames;
+  fd_jit_client_t   jit[1];
 
   fd_runtime_t runtime[1];
 
@@ -132,6 +134,7 @@ metrics_write( fd_execle_tile_t * ctx ) {
   FD_MCNT_SET( EXECLE, BANK_SWITCHED,          ctx->runtime->metrics.bank_switch_cnt );
   FD_MCNT_SET( EXECLE, TRANSPILED_EXECUTED,    ctx->runtime->metrics.transpiled_exec_cnt );
   FD_MCNT_SET( EXECLE, TRANSPILED_BAILED,      ctx->runtime->metrics.transpiled_bail_cnt );
+  FD_MCNT_SET( EXECLE, JIT_REQUESTED,          ctx->jit->sent );
 
   FD_MCNT_SET( EXECLE, CU_CONSUMED, ctx->runtime->metrics.cu_cum );
 
@@ -781,6 +784,7 @@ privileged_init( fd_topo_t const *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_execle_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_execle_tile_t), sizeof(fd_execle_tile_t) );
   FD_TEST( fd_rng_secure( &ctx->rebate_seed, sizeof(ctx->rebate_seed) ) );
+  fd_jit_client_privileged_init( topo, tile->execle.jit_arena_obj_id );
 }
 
 static void
@@ -816,6 +820,7 @@ unprivileged_init( fd_topo_t const *      topo,
       fd_topo_obj_laddr( topo, tile->execle.progcache_obj_id ),
       pc_scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT ) );
   FD_TEST( (ctx->bpf_frames = fd_bpf_frames_join( _bpf_frames, fd_topo_obj_laddr( topo, tile->execle.bpf_frames_obj_id ) )) );
+  int jit = fd_jit_client_init( ctx->jit, topo, tile, ctx->kind_id, tile->execle.jit_arena_obj_id, ctx->progcache );
 
   void * _txncache_shmem = fd_topo_obj_laddr( topo, tile->execle.txncache_obj_id );
   fd_txncache_shmem_t * txncache_shmem = fd_txncache_shmem_join( _txncache_shmem );
@@ -842,6 +847,7 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->runtime->sysvar_bank_seq          = 0UL;
   ctx->runtime->progcache                = ctx->progcache;
   ctx->runtime->bpf_frames               = ctx->bpf_frames;
+  ctx->runtime->transpile                = jit ? ctx->jit->bind : NULL;
   ctx->runtime->status_cache             = txncache;
   memset( &ctx->runtime->log, 0, sizeof(ctx->runtime->log) );
   ctx->runtime->log.log_collector        = ctx->log_collector;

@@ -2442,6 +2442,20 @@ telemetry = true
         # Delays rooting by the given number of slots.
         root_distance = 32
 
+    # Experimental, firedancer-dev only: compile sBPF programs to x86
+    # at run time.  Adds a jit tile (untrusted compiler, sees only
+    # verified bytecode) and a jitmap tile (owns the executable code
+    # arena and binds compiled programs into the program cache).
+    # Programs the ahead-of-time transpiled archive already covers are
+    # not recompiled.
+    [development.jit]
+        enabled = false
+
+        # Size of the code arena in MiB.  Compiled programs are never
+        # evicted; once the arena is full new programs stay on the
+        # interpreter.
+        arena_size_mib = 1024
+
     # Tuning for the accounts database.  These options are for advanced
     # users and should not be changed in production.
     [development.accdb]

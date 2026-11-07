@@ -146,6 +146,11 @@ backtest_topo( config_t * config ) {
   fd_topo_obj_t * bpf_frames_obj = setup_topo_bpf_frames( topo, "bpf_frames", config->firedancer.runtime.bpf_shared_frames, config->firedancer.runtime.bpf_local_frames, execrp_tile_cnt );
   FOR(execrp_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "execrp", i ) ], bpf_frames_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
 
+  if( FD_UNLIKELY( config->firedancer.development.jit.enabled ) ) {
+    ulong jit_cpu = NEXT_CPU; ulong jitmap_cpu = NEXT_CPU;
+    setup_topo_jit( topo, config, "execrp", execrp_tile_cnt, NULL, 0UL, jit_cpu, jitmap_cpu );
+  }
+
   /**********************************************************************/
   /* Add the capture tile to topo                                       */
   /**********************************************************************/

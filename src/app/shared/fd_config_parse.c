@@ -102,6 +102,9 @@ fd_config_extract_podf( uchar *        pod,
   CFG_POP      ( cstr,   development.backtest.affinity                       );
   CFG_POP      ( ulong,  development.backtest.root_distance                  );
 
+  CFG_POP      ( bool,   development.jit.enabled                             );
+  CFG_POP      ( ulong,  development.jit.arena_size_mib                      );
+
 
   return config;
 }

@@ -118,6 +118,11 @@ struct fd_configf {
       char  affinity[ AFFINITY_SZ ];
       ulong root_distance;
     } backtest;
+
+    struct {
+      int   enabled;
+      ulong arena_size_mib;
+    } jit;
   } development;
 
   struct {

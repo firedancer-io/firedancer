@@ -39,6 +39,7 @@
 #include "../../flamenco/capture/fd_solcap_writer.h"
 #include "../../flamenco/events/fd_event_runtime.h"
 #include "../../flamenco/progcache/fd_progcache.h"
+#include "../../flamenco/vm/transpile/fd_jit_proto.h"
 #include "../../flamenco/runtime/fd_bpf_frames.h"
 #include "../../flamenco/runtime/fd_cost_tracker.h"
 
@@ -196,6 +197,58 @@ setup_topo_progcache( fd_topo_t *  topo,
 
   FD_TEST( fd_pod_insertf_ulong( topo->props, txn_max, "obj.%lu.txn_max", obj->id ) );
   FD_TEST( fd_pod_insertf_ulong( topo->props, progcache_sz, "obj.%lu.progcache_sz", obj->id ) );
+}
+
+void
+setup_topo_jit( fd_topo_t *    topo,
+                fd_config_t *  config,
+                char const *   exec_name,
+                ulong          exec_cnt,
+                char const *   exec_name2,
+                ulong          exec_cnt2,
+                ulong          cpu_idx_jit,
+                ulong          cpu_idx_jitmap ) {
+  if( FD_LIKELY( !config->firedancer.development.jit.enabled ) ) return;
+  ulong code_max = config->firedancer.development.jit.arena_size_mib<<20;
+  if( FD_UNLIKELY( !code_max ) ) FD_LOG_ERR(( "[development.jit.arena_size_mib] must be positive" ));
+
+  fd_topob_wksp( topo, "jit"       );
+  fd_topob_wksp( topo, "jitmap"    );
+  fd_topob_wksp( topo, "jit_arena" );
+  fd_topob_wksp( topo, "exec_jit"  );
+  fd_topob_wksp( topo, "jit_jitmap" );
+
+  /**/                           fd_topob_tile( topo, "jit",    "jit",    "metric_in", cpu_idx_jit,    0, 0, 0 );
+  fd_topo_tile_t * jitmap_tile = fd_topob_tile( topo, "jitmap", "jitmap", "metric_in", cpu_idx_jitmap, 0, 0, 0 );
+
+  fd_topo_obj_t * arena_obj = fd_topob_obj( topo, "jit_arena", "jit_arena" );
+  FD_TEST( fd_pod_insert_ulong(  topo->props, "jit_arena", arena_obj->id ) );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, code_max, "obj.%lu.code_max", arena_obj->id ) );
+  fd_topob_tile_uses( topo, jitmap_tile, arena_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+
+  ulong progcache_obj_id = fd_pod_query_ulong( topo->props, "progcache", ULONG_MAX );
+  FD_TEST( progcache_obj_id!=ULONG_MAX );
+  fd_topob_tile_uses( topo, jitmap_tile, &topo->objs[ progcache_obj_id ], FD_SHMEM_JOIN_MODE_READ_WRITE );
+
+  /* One request link per exec tile (a request can be 10 MiB, so depth
+     stays small); one result link.  All unreliable: a backed up
+     compiler drops requests rather than stalling execution. */
+  ulong link_idx = 0UL;
+  char const * names[ 2 ] = { exec_name, exec_name2 };
+  ulong        cnts [ 2 ] = { exec_cnt,  exec_cnt2  };
+  for( ulong n=0UL; n<2UL; n++ ) {
+    if( !names[ n ] ) continue;
+    for( ulong i=0UL; i<cnts[ n ]; i++ ) {
+      fd_topob_link( topo, "exec_jit", "exec_jit", 4UL, FD_JIT_REQ_MTU, 1UL );
+      fd_topob_tile_out( topo, names[ n ], i, "exec_jit", link_idx );
+      fd_topob_tile_in( topo, "jit", 0UL, "metric_in", "exec_jit", link_idx, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
+      fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, names[ n ], i ) ], arena_obj, FD_SHMEM_JOIN_MODE_READ_ONLY );
+      link_idx++;
+    }
+  }
+  fd_topob_link( topo, "jit_jitmap", "jit_jitmap", 4UL, FD_JIT_RES_MTU, 1UL );
+  fd_topob_tile_out( topo, "jit", 0UL, "jit_jitmap", 0UL );
+  fd_topob_tile_in( topo, "jitmap", 0UL, "metric_in", "jit_jitmap", 0UL, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
 }
 
 fd_topo_obj_t *
@@ -1112,6 +1165,8 @@ fd_topo_initialize( config_t * config ) {
   FOR(execrp_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "execrp", i   ) ], bpf_frames_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FOR(execle_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "execle", i   ) ], bpf_frames_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
 
+  setup_topo_jit( topo, config, "execrp", execrp_tile_cnt, "execle", execle_tile_cnt, tile_to_cpu[ topo->tile_cnt ], tile_to_cpu[ topo->tile_cnt+1UL ] );
+
   if( FD_LIKELY( config->tiles.gui.enabled ) ) {
     fd_topob_wksp( topo, "gui"        );
 
@@ -1772,6 +1827,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->execrp.progcache_obj_id = fd_pod_query_ulong( config->topo.props, "progcache", ULONG_MAX ); FD_TEST( tile->execrp.progcache_obj_id!=ULONG_MAX );
     tile->execrp.accdb_obj_id     = fd_pod_query_ulong( config->topo.props, "accdb",     ULONG_MAX ); FD_TEST( tile->execrp.accdb_obj_id    !=ULONG_MAX );
     tile->execrp.bpf_frames_obj_id = fd_pod_query_ulong( config->topo.props, "bpf_frames", ULONG_MAX ); FD_TEST( tile->execrp.bpf_frames_obj_id!=ULONG_MAX );
+    tile->execrp.jit_arena_obj_id  = fd_pod_query_ulong( config->topo.props, "jit_arena",  ULONG_MAX );
 
     tile->execrp.max_live_slots  = config->firedancer.runtime.max_live_slots;
 
@@ -1888,6 +1944,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->execle.progcache_obj_id   = fd_pod_query_ulong( config->topo.props, "progcache", ULONG_MAX ); FD_TEST( tile->execle.progcache_obj_id!=ULONG_MAX );
     tile->execle.accdb_obj_id       = fd_pod_query_ulong( config->topo.props, "accdb",     ULONG_MAX ); FD_TEST( tile->execle.accdb_obj_id    !=ULONG_MAX );
     tile->execle.bpf_frames_obj_id  = fd_pod_query_ulong( config->topo.props, "bpf_frames", ULONG_MAX ); FD_TEST( tile->execle.bpf_frames_obj_id!=ULONG_MAX );
+    tile->execle.jit_arena_obj_id   = fd_pod_query_ulong( config->topo.props, "jit_arena",  ULONG_MAX );
     tile->execle.max_live_slots     = config->firedancer.runtime.max_live_slots;
     tile->execle.report_runtime_diffs = config->development.event.report_runtime_diffs;
 
@@ -2084,6 +2141,13 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     FD_CHECK_ERR( listen_port && listen_port<=USHORT_MAX,
                   "[snapshots.server.http_listen_port] must be in [1,65535]" );
     tile->snapsv.listen_port = (ushort)listen_port;
+
+  } else if( FD_UNLIKELY( !strcmp( tile->name, "jit" ) ) ) {
+
+  } else if( FD_UNLIKELY( !strcmp( tile->name, "jitmap" ) ) ) {
+
+    tile->jitmap.jit_arena_obj_id = fd_pod_query_ulong( config->topo.props, "jit_arena", ULONG_MAX ); FD_TEST( tile->jitmap.jit_arena_obj_id!=ULONG_MAX );
+    tile->jitmap.progcache_obj_id = fd_pod_query_ulong( config->topo.props, "progcache", ULONG_MAX ); FD_TEST( tile->jitmap.progcache_obj_id!=ULONG_MAX );
 
   } else {
     FD_LOG_ERR(( "unknown tile name `%s`", tile->name ));

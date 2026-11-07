@@ -11,6 +11,7 @@
 #include "../../discof/backup/fd_backup_shmem.h"
 
 #include "../../discof/admin/fd_adminctl.h"
+#include "../../flamenco/vm/transpile/fd_jit_arena.h"
 
 #define VAL(name) (__extension__({                                                             \
   ulong __x = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "obj.%lu.%s", obj->id, name );      \
@@ -304,6 +305,31 @@ fd_topo_obj_callbacks_t fd_obj_cb_backup = {
   .footprint = backup_footprint_cb,
   .align     = backup_align_cb,
   .new       = backup_new_cb,
+};
+
+static ulong
+jit_arena_footprint( fd_topo_t const *     topo,
+                     fd_topo_obj_t const * obj ) {
+  return fd_jit_arena_footprint( VAL("code_max") );
+}
+
+static ulong
+jit_arena_align( fd_topo_t const *     topo FD_FN_UNUSED,
+                 fd_topo_obj_t const * obj  FD_FN_UNUSED ) {
+  return fd_jit_arena_align();
+}
+
+static void
+jit_arena_new( fd_topo_t const *     topo,
+               fd_topo_obj_t const * obj ) {
+  FD_TEST( fd_jit_arena_new( fd_topo_obj_laddr( topo, obj->id ), VAL("code_max") ) );
+}
+
+fd_topo_obj_callbacks_t fd_obj_cb_jit_arena = {
+  .name      = "jit_arena",
+  .footprint = jit_arena_footprint,
+  .align     = jit_arena_align,
+  .new       = jit_arena_new,
 };
 
 #undef VAL

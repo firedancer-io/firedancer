@@ -92,6 +92,11 @@ struct fd_progcache {
   ulong   scratch_sz;
 
   uint spill_active;
+
+  /* Called after a program loads that no AOT transpiled program covers
+     (NULL: never).  Set by tiles that feed a JIT. */
+  void (* jit_req)( void * ctx, fd_progcache_rec_t const * rec, uint rec_idx, fd_features_t const * features );
+  void *  jit_req_ctx;
 };
 
 /* fd_progcache_spill_held returns 1 if cache holds the spill buffer

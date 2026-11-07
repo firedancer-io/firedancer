@@ -49,6 +49,8 @@ class Tile(Enum):
     MWAITX = 43
     IAVF = 44
     FAILOV = 45
+    JIT = 46
+    JITMAP = 47
 
     SNAPMK = 50
     SNAPZP = 51

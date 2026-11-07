@@ -792,6 +792,7 @@ deliberate exception with lint-allow="<rule id>")
     <counter name="CuConsumed" summary="Compute units consumed by executed transactions" />
     <counter name="TranspiledExecuted" summary="sBPF program invocations run as ahead-of-time transpiled code" />
     <counter name="TranspiledBailed" summary="Transpiled invocations that bailed to the interpreter" />
+    <counter name="JitRequested" summary="Program loads sent to the JIT compiler" />
 
     <counter name="TxnRegimeDurationNanos" enum="TxnRegime" source="ticks" summary="Time per transaction, by phase; a phase counts only once the next phase starts, so dropped, fees-only and no-op transactions lose their trailing phases" />
     <counter name="VmRegimeDurationNanos" enum="VmRegime" source="ticks" summary="Time in top-level BPF invocations, by phase, with CPI setup and commit split out; nested programs, including native CPIs, count as Interpreter; subset of TxnRegime Execute" />
@@ -1848,6 +1849,7 @@ deliberate exception with lint-allow="<rule id>")
     <counter name="BankSwitched" summary="Cache invalidations due to transaction execution from a different block" />
     <counter name="TranspiledExecuted" summary="sBPF program invocations run as ahead-of-time transpiled code" />
     <counter name="TranspiledBailed" summary="Transpiled invocations that bailed to the interpreter" />
+    <counter name="JitRequested" summary="Program loads sent to the JIT compiler" />
 
     <counter name="TxnRegimeDurationNanos" enum="TxnRegime" source="ticks" summary="Time per transaction, by phase; a phase counts only once the next phase starts, so dropped, fees-only and no-op transactions lose their trailing phases" />
     <counter name="VmRegimeDurationNanos" enum="VmRegime" source="ticks" summary="Time in top-level BPF invocations, by phase, with CPI setup and commit split out; nested programs, including native CPIs, count as Interpreter; subset of TxnRegime Execute" />
@@ -2192,6 +2194,23 @@ deliberate exception with lint-allow="<rule id>")
 </tile>
 
 <tile name="solcap" telemetry="false">
+</tile>
+
+<tile name="jit">
+    <counter name="ProgramCompiled" summary="sBPF programs transpiled to x86" />
+    <counter name="ProgramFailed" summary="Compile requests the transpiler could not complete" />
+    <counter name="RequestOverrunDropped" summary="Compile requests lost because the tile fell behind" />
+</tile>
+
+<tile name="jitmap">
+    <counter name="ProgramPlaced" summary="Programs placed into the JIT code arena" />
+    <counter name="ProgramDuplicateHit" summary="Compile results that matched a program already in the arena" />
+    <counter name="ProgramRejected" summary="Compile results that failed validation or did not fit the arena" />
+    <counter name="ProgramStaleDropped" summary="Compile results whose program cache record had moved on" />
+    <counter name="ResultOverrunDropped" summary="Compile results lost because the tile fell behind" />
+    <gauge name="ArenaUsedBytes" summary="Bytes of JIT code arena in use" />
+    <gauge name="ArenaCapacityBytes" summary="Bytes of JIT code arena" />
+    <gauge name="ProgramCount" summary="Distinct programs in the JIT code arena" />
 </tile>
 
 </metrics>

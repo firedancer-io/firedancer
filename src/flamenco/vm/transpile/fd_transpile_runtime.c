@@ -1,6 +1,11 @@
 #include "fd_transpile_runtime.h"
 #include "../fd_vm_private.h"
 
+fd_transpile_rt_t const fd_transpile_rt = {
+  .mmu_translate = fd_vm_transpiled_mmu_translate,
+  .frame_init    = fd_vm_transpiled_frame_init,
+};
+
 long
 fd_vm_transpiled_mmu_translate( fd_vm_t * vm,
                                 ulong     vaddr,

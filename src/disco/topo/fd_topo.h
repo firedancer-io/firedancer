@@ -555,6 +555,7 @@ struct fd_topo_tile {
       ulong progcache_obj_id;
       ulong accdb_obj_id;
       ulong bpf_frames_obj_id;
+      ulong jit_arena_obj_id; /* ULONG_MAX: JIT disabled */
 
       ulong max_live_slots;
 
@@ -731,8 +732,14 @@ struct fd_topo_tile {
       ulong progcache_obj_id;
       ulong accdb_obj_id;
       ulong bpf_frames_obj_id;
+      ulong jit_arena_obj_id; /* ULONG_MAX: JIT disabled */
       int   report_runtime_diffs;
     } execle;
+
+    struct {
+      ulong jit_arena_obj_id;
+      ulong progcache_obj_id;
+    } jitmap;
 
     struct {
       int validate_genesis_hash;

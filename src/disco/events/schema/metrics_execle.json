@@ -410,6 +410,7 @@
             }
         },
         "transpiled_executed":           { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "sBPF program invocations run as ahead-of-time transpiled code" },
-        "transpiled_bailed":             { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Transpiled invocations that bailed to the interpreter" }
+        "transpiled_bailed":             { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Transpiled invocations that bailed to the interpreter" },
+        "jit_requested":                 { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Program loads sent to the JIT compiler", "field_number": 449213385 }
     }
 }

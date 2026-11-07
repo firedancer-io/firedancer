@@ -1,5 +1,6 @@
 #include "fd_transpile_bind.h"
 #include "fd_transpile.h"
+#include "fd_jit_arena.h"
 #include "../../../ballet/base58/fd_base58.h"
 #include "../../../ballet/blake3/fd_blake3.h"
 
@@ -26,6 +27,20 @@ fd_transpile_bind_lookup( fd_pubkey_t const * prog_id,
     return (uint)( i+1UL );
   }
   return 0U;
+}
+
+fd_vm_transpiled_exec_func_t
+fd_transpile_bind_exec( fd_transpile_bind_t const * bind,
+                        fd_progcache_rec_t const *  rec ) {
+  uint idx = FD_VOLATILE_CONST( rec->transpiled_idx );
+  if( FD_LIKELY( !idx ) ) return NULL;
+  if( idx & FD_TRANSPILE_BIND_JIT ) {
+    if( FD_UNLIKELY( !bind || !bind->arena ) ) return NULL;
+    ulong slot = idx & ~FD_TRANSPILE_BIND_JIT;
+    if( FD_UNLIKELY( slot>=FD_VOLATILE_CONST( bind->arena->slot_cnt ) ) ) return NULL;
+    return fd_jit_arena_exec( bind->arena, slot );
+  }
+  return fd_transpiled_ext[ idx-1U ]->exec;
 }
 
 void
