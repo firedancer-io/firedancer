@@ -810,7 +810,17 @@ test_pb_encode_nested_overflow( void ) {
   for( ulong i=0UL; i<depth; i++ ) {
     FD_TEST( fd_pb_submsg_open( enc, 1U ) );
   }
-  FD_TEST( !fd_pb_submsg_open( enc, 1U ) ); /* overflow */
+  uchar * cur = enc->cur;
+  for( ulong i=0UL; i<2UL; i++ ) {
+    FD_TEST( !fd_pb_submsg_open( enc, 1U ) ); /* overflow */
+    FD_TEST( enc->depth==depth );
+    FD_TEST( enc->cur==cur );
+  }
+  for( ulong i=0UL; i<depth; i++ ) {
+    FD_TEST( fd_pb_submsg_close( enc ) );
+  }
+  FD_TEST( !enc->depth );
+  FD_TEST( fd_pb_encoder_fini( enc ) );
 }
 
 static void
