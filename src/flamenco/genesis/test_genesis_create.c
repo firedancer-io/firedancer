@@ -138,9 +138,10 @@ main( int     argc,
   FD_TEST( genesis->epoch_schedule.slots_per_epoch == 8192UL );
   FD_TEST( genesis->epoch_schedule.leader_schedule_slot_offset == 8192UL );
 
-  /* Verify rent defaults (Solana mainnet defaults) */
+  /* Verify rent defaults match Agave's Rent::default() */
 
-  FD_TEST( genesis->rent.lamports_per_uint8_year == 3480UL );
+  FD_TEST( genesis->rent.lamports_per_uint8_year == 6960UL );
+  FD_TEST( genesis->rent.exemption_threshold     == 1.0    );
   FD_TEST( genesis->rent.burn_percent            == 50     );
 
   /* Verify cluster type (development) */
