@@ -240,7 +240,7 @@
   {"name":"enable_extend_program_checked","implemented":0,"pubkey":"ExtendProgCheckedWi11BeDe1eted11111111111111","reverted":1},
   {"name":"require_static_nonce_account","implemented":1,"pubkey":"7VVhpg5oAjAmnmz1zCcSHb2Z9ecZB2FQqpnEwReka9Zm","cleaned_up":1,"hardcode_for_fuzzing":1},
   {"name":"enable_vote_address_leader_schedule","implemented":1,"pubkey":"5JsG4NWH8Jbrqdd8uL6BNwnyZK3dQSoieRXG5vmofj9y","cleaned_up":1,"hardcode_for_fuzzing":1},
-  {"name":"enshrine_slashing_program","implemented":1,"pubkey":"sProgVaNWkYdP2eTRAy1CPrgb3b9p8yXCASrPEqo6VJ"},
+  {"name":"enshrine_slashing_program","implemented":0,"pubkey":"sProgVaNWkYdP2eTRAy1CPrgb3b9p8yXCASrPEqo6VJ"},
   {"name":"raise_account_cu_limit","implemented":1,"pubkey":"htsptAwi2yRoZH83SKaUXykeZGtZHgxkS2QwW1pssR8","cleaned_up":1,"hardcode_for_fuzzing":1},
   {"name":"syscall_parameter_address_restrictions","implemented":1,"pubkey":"EDGMC5kxFxGk4ixsNkGt8bW7QL5hDMXnbwaZvYMwNfzF","hardcode_for_fuzzing":1},
   {"name":"virtual_address_space_adjustments","implemented":1,"pubkey":"7VgiehxNxu53KdxgLspGQY8myE6f7UokaWa4jsGcaSz"},

@@ -60,7 +60,6 @@ Note that for `alpenglow` the "Alpenswitch" - the Tower->Alpenglow migration its
 | `7VgiehxNxu53KdxgLspGQY8myE6f7UokaWa4jsGcaSz` | `virtual_address_space_adjustments` |
 | `EDGMC5kxFxGk4ixsNkGt8bW7QL5hDMXnbwaZvYMwNfzF` | `syscall_parameter_address_restrictions` |
 | `htsptAwi2yRoZH83SKaUXykeZGtZHgxkS2QwW1pssR8` | `raise_account_cu_limit` |
-| `sProgVaNWkYdP2eTRAy1CPrgb3b9p8yXCASrPEqo6VJ` | `enshrine_slashing_program` |
 | `5JsG4NWH8Jbrqdd8uL6BNwnyZK3dQSoieRXG5vmofj9y` | `enable_vote_address_leader_schedule` |
 | `7VVhpg5oAjAmnmz1zCcSHb2Z9ecZB2FQqpnEwReka9Zm` | `require_static_nonce_account` |
 | `DeS7sR48ZcFTUmt5FFEVDr1v1bh73aAbZiZq3SYr8Eh8` | `formalize_loaded_transaction_data_size` |
