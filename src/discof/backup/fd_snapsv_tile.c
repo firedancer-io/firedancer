@@ -1617,8 +1617,6 @@ handle_peek( fd_snapsv_t *       ctx,
   }
   uint peek_len = (uint)res;
 
-  FD_MCNT_INC( SNAPSV, HTTP_RX_BYTES, (ulong)res );
-
   char const * method;  ulong method_len;
   char const * path;    ulong path_len;
   int minor_version;
@@ -1641,6 +1639,7 @@ handle_peek( fd_snapsv_t *       ctx,
       return;
     }
     /* avoid copying the same data again */
+    FD_MCNT_INC( SNAPSV, HTTP_RX_BYTES, peek_len );
     prep_consume( ctx, conn_idx, peek_len, UDATA_OP_CONSUME_FRAG );
     conn->state = CONN_STATE_REQ_SKIP;
     return;
@@ -1648,6 +1647,7 @@ handle_peek( fd_snapsv_t *       ctx,
 
   if( FD_UNLIKELY( parsed<0 ) ) { /* malformed request head */
     FD_LOG_DEBUG(( "conn %u: malformed request", conn_idx ));
+    FD_MCNT_INC( SNAPSV, HTTP_RX_BYTES, peek_len );
     conn_close( ctx, stem, conn_idx, now );
     return;
   }
@@ -1655,6 +1655,7 @@ handle_peek( fd_snapsv_t *       ctx,
   /* valid request at this point */
 
   FD_CHECK_ERR( (uint)parsed > conn->req.len, "request head shrank" );
+  FD_MCNT_INC( SNAPSV, HTTP_RX_BYTES, (uint)parsed - conn->req.len );
   prep_consume( ctx, conn_idx, (uint)parsed - conn->req.len, UDATA_OP_CONSUME_TAIL );
   conn->state       = CONN_STATE_REQ_DONE;
   conn->req.len     = (uint)parsed - conn->req.len;
