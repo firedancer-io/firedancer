@@ -29,10 +29,7 @@
 #define IN_KIND_SIGN         (3UL)
 #define IN_KIND_REPLAY       (4UL)
 
-/* Pace microblocks, but only slightly.  This helps keep performance
-   more stable.  This limit is 2,000 microblocks/second/execle.  At
-   MAX_TXN_PER_MICROBLOCK transactions/microblock, that's
-   2000*MAX_TXN_PER_MICROBLOCK txn/sec/execle. */
+/* Minimum time between microblocks per execle.  Zero disables pacing. */
 #define MICROBLOCK_DURATION_NS  (0L)
 
 /* There are 151 accepted blockhashes.  The execle tile does the final
