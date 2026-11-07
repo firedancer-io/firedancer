@@ -37,6 +37,9 @@ typedef struct fd_vm_input_region fd_vm_input_region_t;
    region location. */
 
 struct __attribute((aligned(8UL))) fd_vm_acc_region_meta {
+   /* Metadata region index, or UINT_MAX without virtual address space
+      adjustments.  The data region follows at region_idx+1 if address
+      space is reserved for account data. */
    uint       region_idx;
    /* FIXME: We can get rid of this field once DM is activated.  This is
       only a hack to make the non-DM code path happy.  When DM is
@@ -196,7 +199,7 @@ struct __attribute__((aligned(FD_VM_HOST_REGION_ALIGN))) fd_vm {
   uint                      input_mem_regions_cnt;
   fd_vm_acc_region_meta_t * acc_region_metas;                /* Represents a mapping from the instruction account indices
                                                                 from the instruction context to the input memory region index
-                                                                of the account's data region in the input space. */
+                                                                of the account's metadata region in the input space. */
   uchar                     is_deprecated;                   /* The vm requires additional checks in certain CPIs if the
                                                                 vm's current instance was initialized by a deprecated program. */
 
