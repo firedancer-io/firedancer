@@ -2091,10 +2091,16 @@ fd_gui_try_insert_ranking( fd_gui_t               * gui,
 
     ulong dur = fd_gui_slot_duration( gui, slot );
     if( FD_LIKELY( dur!=ULONG_MAX ) ) TRY_INSERT_SLOT( duration, slot->slot, dur                         );
-    TRY_INSERT_SLOT( tips,           slot->slot, slot->tips                                              );
-    TRY_INSERT_SLOT( fees,           slot->slot, slot->priority_fee + slot->transaction_fee              );
-    TRY_INSERT_SLOT( rewards,        slot->slot, slot->tips + slot->priority_fee + slot->transaction_fee );
-    TRY_INSERT_SLOT( rewards_per_cu, slot->slot, slot->compute_units==0UL ? 0UL : (slot->tips + slot->priority_fee + slot->transaction_fee) / slot->compute_units );
+    if( FD_LIKELY( slot->tips!=ULONG_MAX ) ) TRY_INSERT_SLOT( tips, slot->slot, slot->tips );
+    if( FD_LIKELY( slot->priority_fee!=ULONG_MAX && slot->transaction_fee!=ULONG_MAX ) ) {
+      ulong fees = slot->priority_fee + slot->transaction_fee;
+      TRY_INSERT_SLOT( fees, slot->slot, fees );
+      if( FD_LIKELY( slot->tips!=ULONG_MAX ) ) {
+        ulong rewards = slot->tips + fees;
+        TRY_INSERT_SLOT( rewards,        slot->slot, rewards );
+        TRY_INSERT_SLOT( rewards_per_cu, slot->slot, slot->compute_units==0UL ? 0UL : rewards / slot->compute_units );
+      }
+    }
     TRY_INSERT_SLOT( compute_units,  slot->slot, slot->compute_units                                     );
 #undef TRY_INSERT_SLOT
 }
