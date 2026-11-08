@@ -18,6 +18,48 @@ test_vm_syscall_toggle_direct_mapping( fd_vm_t * vm_ctx, int enable ) {
 }
 
 static void
+test_vm_syscall_sysvar_errors( fd_vm_t * vm ) {
+  fd_sbpf_syscall_func_t getters[] = {
+    fd_vm_syscall_sol_get_clock_sysvar,
+    fd_vm_syscall_sol_get_epoch_schedule_sysvar,
+    fd_vm_syscall_sol_get_rent_sysvar,
+    fd_vm_syscall_sol_get_last_restart_slot_sysvar,
+    fd_vm_syscall_sol_get_epoch_rewards_sysvar,
+  };
+  vm->syscall_parameter_address_restrictions = 1;
+  for( ulong i=0UL; i<sizeof(getters)/sizeof(getters[0]); i++ ) {
+    test_vm_clear_txn_ctx_err( vm->instr_ctx->txn_out );
+    FD_TEST( getters[i]( vm, FD_VM_MEM_MAP_INPUT_REGION_START, 0UL, 0UL, 0UL, 0UL )==FD_VM_SYSCALL_ERR_INVALID_POINTER );
+    FD_TEST( vm->instr_ctx->txn_out->err.exec_err_kind==FD_EXECUTOR_ERR_KIND_SYSCALL );
+    FD_TEST( vm->instr_ctx->txn_out->err.exec_err==FD_VM_SYSCALL_ERR_INVALID_POINTER );
+  }
+  test_vm_clear_txn_ctx_err( vm->instr_ctx->txn_out );
+  FD_TEST( fd_vm_syscall_sol_get_sysvar( vm, FD_VM_MEM_MAP_HEAP_REGION_START,
+                                      FD_VM_MEM_MAP_INPUT_REGION_START, 0UL, 8UL, 0UL )==FD_VM_SYSCALL_ERR_INVALID_POINTER );
+  FD_TEST( vm->instr_ctx->txn_out->err.exec_err_kind==FD_EXECUTOR_ERR_KIND_SYSCALL );
+  FD_TEST( vm->instr_ctx->txn_out->err.exec_err==FD_VM_SYSCALL_ERR_INVALID_POINTER );
+
+  fd_sysvar_cache_t cache[1];
+  FD_TEST( fd_sysvar_cache_new( cache ) );
+  fd_sysvar_cache_t const * saved_cache = vm->instr_ctx->sysvar_cache;
+  vm->instr_ctx->sysvar_cache = cache;
+  fd_sbpf_syscall_func_t optional_getters[] = {
+    fd_vm_syscall_sol_get_epoch_schedule_sysvar,
+    fd_vm_syscall_sol_get_last_restart_slot_sysvar,
+    fd_vm_syscall_sol_get_epoch_rewards_sysvar,
+  };
+  for( ulong i=0UL; i<sizeof(optional_getters)/sizeof(optional_getters[0]); i++ ) {
+    test_vm_clear_txn_ctx_err( vm->instr_ctx->txn_out );
+    FD_TEST( optional_getters[i]( vm, FD_VM_MEM_MAP_HEAP_REGION_START, 0UL, 0UL, 0UL, 0UL )==FD_VM_SYSCALL_ERR_INSTR_ERR );
+    FD_TEST( vm->instr_ctx->txn_out->err.exec_err_kind==FD_EXECUTOR_ERR_KIND_INSTR );
+    FD_TEST( vm->instr_ctx->txn_out->err.exec_err==FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR );
+  }
+  vm->instr_ctx->sysvar_cache = saved_cache;
+  vm->syscall_parameter_address_restrictions = 0;
+  test_vm_clear_txn_ctx_err( vm->instr_ctx->txn_out );
+}
+
+static void
 test_vm_syscall_sol_memset( char const * test_case_name,
                             fd_vm_t *    vm,
                             ulong        dst_vaddr,
@@ -439,6 +481,8 @@ main( int     argc,
   );
   FD_TEST( vm_ok );
   fd_vm_mem_init_full( vm );
+
+  test_vm_syscall_sysvar_errors( vm );
 
   /* Run relevant tests with and without direct mapping enabled */
   test_vm_syscall_toggle_direct_mapping( vm, 0 ); /* disable direct mapping */
