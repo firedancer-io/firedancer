@@ -52,6 +52,9 @@ struct fd_became_leader {
 
   ulong tick_duration_ns;
 
+  /* Full slot duration, before the leader's early cutoff. */
+  ulong slot_duration_ns;
+
   /* The number of ticks that the PoH tile has skipped, but needs to
      publish to show peers they were skipped correctly.  This is used
      to adjust some pack limits. */

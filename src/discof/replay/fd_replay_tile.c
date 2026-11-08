@@ -1750,6 +1750,7 @@ try_become_leader( fd_replay_tile_t *  ctx,
   msg->ticks_per_slot      = bank->f.ticks_per_slot;
   msg->hashcnt_per_tick    = 1UL; /* one tick per block, no hash budget (see replay_block_start) */
   msg->tick_duration_ns    = bank->f.slot_params.ns_per_slot_adjusted/msg->ticks_per_slot;
+  msg->slot_duration_ns    = bank->f.slot_params.ns_per_slot;
   msg->bundle->config[0]   = config[0];
   memcpy( msg->bundle->last_blockhash,     bank->f.poh.hash,      sizeof(fd_hash_t)   );
   memcpy( msg->bundle->tip_receiver_owner, tip_receiver_owner.uc, sizeof(fd_pubkey_t) );
