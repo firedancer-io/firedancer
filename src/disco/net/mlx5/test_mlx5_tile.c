@@ -1117,6 +1117,30 @@ main( int     argc,
   FD_TEST( fd_seq_ne( fd_frag_meta_seq_query( rx_link->mcache+rx_seq ), rx_seq ) );
   FD_TEST( tile->net.metrics.rx_drop_cnt[ FD_METRICS_ENUM_PKT_RX_DROP_REASON_V_MALFORMED_IDX ]==rx_malformed_before+7UL );
 
+  /* An otherwise valid packet with IPv4 options must be rejected.  Keep
+     the UDP header after the options and both lengths consistent so the
+     pre-options-policy parser would accept this packet. */
+  struct {
+    fd_eth_hdr_t eth;
+    fd_ip4_hdr_t ip4;
+    uchar        options[4];
+    fd_udp_hdr_t udp;
+  } rx_options_pkt = {
+    .eth     = rx_pkt_templ.eth,
+    .ip4     = rx_pkt_templ.ip4,
+    .options = { 1U, 1U, 1U, 1U }, /* NOP options */
+    .udp     = rx_pkt_templ.udp
+  };
+  rx_options_pkt.ip4.verihl      = FD_IP4_VERIHL( 4,6 );
+  rx_options_pkt.ip4.net_tot_len = fd_ushort_bswap( sizeof(rx_options_pkt)-sizeof(fd_eth_hdr_t) );
+  rx_options_pkt.ip4.check       = fd_ip4_hdr_check( &rx_options_pkt.ip4 );
+  rx_chunk  = rx_comp_one( mock, tile, FD_MLX5_CQE_OP_RX_OK, sizeof(rx_options_pkt) );
+  rx_packet = fd_chunk_to_laddr( tile->net.pkt_buf_wksp_base, rx_chunk );
+  fd_memcpy( rx_packet, &rx_options_pkt, sizeof(rx_options_pkt) );
+  after_credit( tile, stem, &poll_in, &charge_busy );
+  FD_TEST( fd_seq_ne( fd_frag_meta_seq_query( rx_link->mcache+rx_seq ), rx_seq ) );
+  FD_TEST( tile->net.metrics.rx_drop_cnt[ FD_METRICS_ENUM_PKT_RX_DROP_REASON_V_MALFORMED_IDX ]==rx_malformed_before+8UL );
+
   /* RX packet with invalid Ethertype */
   rx_packet = fd_chunk_to_laddr( tile->net.pkt_buf_wksp_base, rx_comp_one( mock, tile, FD_MLX5_CQE_OP_RX_OK, 64UL ) );
   fd_memset( rx_packet, 0, FD_NET_MTU );
@@ -1124,7 +1148,7 @@ main( int     argc,
   FD_STORE( fd_eth_hdr_t, rx_packet, eth_hdr );
   after_credit( tile, stem, &poll_in, &charge_busy );
   FD_TEST( fd_seq_ne( fd_frag_meta_seq_query( rx_link->mcache+rx_seq ), rx_seq ) );
-  FD_TEST( tile->net.metrics.rx_drop_cnt[ FD_METRICS_ENUM_PKT_RX_DROP_REASON_V_MALFORMED_IDX ]==rx_malformed_before+8UL );
+  FD_TEST( tile->net.metrics.rx_drop_cnt[ FD_METRICS_ENUM_PKT_RX_DROP_REASON_V_MALFORMED_IDX ]==rx_malformed_before+9UL );
 
   /* Leave the first completion after the poll budget queued for the next poll. */
   for( ulong i=0UL; i<(ulong)batch_size+1UL; i++ )

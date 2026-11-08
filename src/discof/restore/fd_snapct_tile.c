@@ -993,7 +993,9 @@ after_credit( fd_snapct_tile_t *  ctx,
       out->is_https    = 0;
       out->hostname[0] = '\0';
       for( ulong i=0UL; i<ctx->resolved_servers_cnt; i++ ) {
-        if( FD_UNLIKELY( ctx->peer.addr.l==ctx->resolved_servers[ i ].addr.l ) ) {
+        if( FD_UNLIKELY( ctx->peer.key.is_url &&
+                         ctx->peer.key.url.resolved_addr.l==ctx->resolved_servers[ i ].addr.l &&
+                         !strcmp( ctx->peer.key.url.hostname, ctx->resolved_servers[ i ].hostname ) ) ) {
           fd_cstr_ncpy( out->hostname, ctx->resolved_servers[ i ].hostname, sizeof(out->hostname) );
           out->is_https = ctx->resolved_servers[ i ].is_https;
           break;

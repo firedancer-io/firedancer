@@ -1136,14 +1136,14 @@ write_repair( config_t const * config,
               ulong const *    cur_tile,
               ulong const *    cur_link,
               ulong const *    prev_link ) {
-  ulong repair_tile_idx = fd_topo_find_tile( &config->topo, "rotor", 0UL );
-  char const * repair_label = "rotor       ";
+  ulong repair_tile_idx = fd_topo_find_tile( &config->topo, "repair", 0UL );
+  char const * repair_label = "repair      ";
   if( repair_tile_idx==ULONG_MAX ) return 0U;
-  ulong highest_off  = MIDX( GAUGE, ROTOR, HIGHEST_DELIVERED_SLOT );
-  ulong current_off  = MIDX( GAUGE, ROTOR, HIGHEST_RECEIVED_SLOT  );
+  ulong highest_off  = MIDX( GAUGE, REPAIR, HIGHEST_DELIVERED_SLOT );
+  ulong current_off  = MIDX( GAUGE, REPAIR, HIGHEST_RECEIVED_SLOT  );
   ulong repair_slot  = cur_tile[ repair_tile_idx*FD_METRICS_TOTAL_SZ+highest_off ];
   ulong turbine_slot = cur_tile[ repair_tile_idx*FD_METRICS_TOTAL_SZ+current_off ];
-  turbine_slot = fd_ulong_max( turbine_slot, cur_tile[ repair_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, ROTOR, CATCHUP_SLOT ) ] );
+  turbine_slot = fd_ulong_max( turbine_slot, cur_tile[ repair_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, REPAIR, CATCHUP_SLOT ) ] );
   long repair_lag = (long)repair_slot-(long)turbine_slot;
   PRINT( ROWH( "▲", RED, "%s" )
          K( "rx" ) "%s"
@@ -1151,7 +1151,7 @@ write_repair( config_t const * config,
          K( "repair slot" ) "%lu %s%+03ld" RESET
          K( "turbine slot" ) "%lu" CLEARLN "\n",
     repair_label,
-    DIFF_LINK_BYTES( "shred_rotor", COUNTER, LINK, FRAG_CONSUMED_BYTES ),
+    DIFF_LINK_BYTES( "shred_repair", COUNTER, LINK, FRAG_CONSUMED_BYTES ),
     DIFF_LINK_BYTES( "repair_net", COUNTER, LINK, FRAG_CONSUMED_BYTES ),
     repair_slot,
     repair_lag<-4L ? RED : DIM,
@@ -1243,7 +1243,7 @@ write_rserve( config_t const * config,
 static uint
 write_replay( config_t const * config,
               ulong const *    cur_tile ) {
-  ulong repair_tile_idx  = fd_topo_find_tile( &config->topo, "rotor", 0UL );
+  ulong repair_tile_idx  = fd_topo_find_tile( &config->topo, "repair", 0UL );
   ulong replay_tile_idx = fd_topo_find_tile( &config->topo, "replay", 0UL );
   if( replay_tile_idx==ULONG_MAX ) return 0U;
 
@@ -1254,8 +1254,8 @@ write_replay( config_t const * config,
 
   ulong turbine_slot;
   if( repair_tile_idx!=ULONG_MAX ) {
-    turbine_slot = cur_tile[ repair_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, ROTOR, HIGHEST_RECEIVED_SLOT ) ];
-    turbine_slot = fd_ulong_max( turbine_slot, cur_tile[ repair_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, ROTOR, CATCHUP_SLOT ) ] );
+    turbine_slot = cur_tile[ repair_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, REPAIR, HIGHEST_RECEIVED_SLOT ) ];
+    turbine_slot = fd_ulong_max( turbine_slot, cur_tile[ repair_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, REPAIR, CATCHUP_SLOT ) ] );
   } else {
     turbine_slot = reset_slot;
   }

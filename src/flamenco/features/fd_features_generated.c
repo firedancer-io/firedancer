@@ -2322,8 +2322,8 @@ fd_feature_id_t const ids[] = {
     .cleaned_up                = 0 },
 
   { .index                     = offsetof(fd_features_t, alpenglow_fast_leader_handover)>>3,
-    .id                        = {"\xd4\xf4\xa4\xc0\x39\x75\xd5\x77\xdd\xb8\x3a\x01\x0c\x3b\xa2\xd6\x22\xb5\x09\x29\xa3\x03\xa3\xad\xc1\xcc\x96\x94\xfa\xf1\x74\xa8"},
-                                 /* FLHoAWBDjNh6zwmJ5i1NKK4KyD8otAiv7XxvmnFnVnKH */
+    .id                        = {"\xd5\x0e\xea\x2c\xcd\x47\x3d\xc1\x80\x09\x8b\x58\xd5\x94\xc9\xf5\x95\xde\x93\xa9\x57\xd1\x2d\x6f\xfb\x37\x91\xfa\x96\x34\xe1\x96"},
+                                 /* FLh2kvwNhDNN6kkQrwdDQ4p5FrgdqxnwykgMUryABRwT */
     .name                      = "alpenglow_fast_leader_handover",
     .implemented               = 0,
     .cleaned_up                = 0 },
@@ -2417,6 +2417,13 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\x0c\x30\x9d\xda\x37\x8a\x9f\x53\x03\xe7\x87\xea\x4a\xf3\x90\xce\x9a\x0b\x48\xd6\xb7\xbf\x4b\xc5\x79\x4e\xef\x3e\x32\xfb\x76\x18"},
                                  /* pata6uFabFDejC1U7rpmFj9s1FhmiPyWk6D51U1ksx3 */
     .name                      = "replace_ata_with_p_ata",
+    .implemented               = 1,
+    .cleaned_up                = 0 },
+
+  { .index                     = offsetof(fd_features_t, loaderv3_programdata_size_floor)>>3,
+    .id                        = {"\x76\x05\x3e\x2b\x81\x42\xe6\xb0\xea\x46\x37\x4e\x67\xc6\x47\x63\xc6\x6f\x2c\xce\x1a\x0f\xd4\x2d\x14\x1d\xf1\xa4\x48\x46\x76\x22"},
+                                 /* 8whkDenELnfwYLirBc4Wb4H2Z1z5K7tiykpdxJS7cWg1 */
+    .name                      = "loaderv3_programdata_size_floor",
     .implemented               = 1,
     .cleaned_up                = 0 },
 
@@ -2731,7 +2738,7 @@ typedef struct fd_feature_id_lookup_entry fd_feature_id_lookup_entry_t;
 #define MAP_PERFECT_292 0x3d030a2e7e893d06UL, .val = &ids[292]
 #define MAP_PERFECT_293 0xb2513619e40fef85UL, .val = &ids[293]
 #define MAP_PERFECT_294 0x1e7f253e967667d3UL, .val = &ids[294]
-#define MAP_PERFECT_295 0x77d57539c0a4f4d4UL, .val = &ids[295]
+#define MAP_PERFECT_295 0xc13d47cd2cea0ed5UL, .val = &ids[295]
 #define MAP_PERFECT_296 0x76648e7186624c0dUL, .val = &ids[296]
 #define MAP_PERFECT_297 0x5b36f5cc4a5925b0UL, .val = &ids[297]
 #define MAP_PERFECT_298 0x351933dc20486107UL, .val = &ids[298]
@@ -2745,6 +2752,7 @@ typedef struct fd_feature_id_lookup_entry fd_feature_id_lookup_entry_t;
 #define MAP_PERFECT_306 0x30641c596cbeb55bUL, .val = &ids[306]
 #define MAP_PERFECT_307 0x6b23805438010ed3UL, .val = &ids[307]
 #define MAP_PERFECT_308 0x539f8a37da9d300cUL, .val = &ids[308]
+#define MAP_PERFECT_309 0xb0e642812b3e0576UL, .val = &ids[309]
 
 #include "../../util/tmpl/fd_map_perfect.c"
 
@@ -3064,4 +3072,5 @@ FD_STATIC_ASSERT( offsetof( fd_features_t, stricter_shred_validation            
 FD_STATIC_ASSERT( offsetof( fd_features_t, remove_runtime_float_ops                                )>>3==306UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, core_bpf_hash_validation                                )>>3==307UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, replace_ata_with_p_ata                                  )>>3==308UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, loaderv3_programdata_size_floor                         )>>3==309UL, layout );
 FD_STATIC_ASSERT( sizeof( fd_features_t )>>3==FD_FEATURE_ID_CNT, layout );

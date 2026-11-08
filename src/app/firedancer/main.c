@@ -27,6 +27,7 @@ extern fd_topo_obj_callbacks_t fd_obj_cb_backup;
 extern fd_topo_obj_callbacks_t fd_obj_cb_snapin_shmem;
 extern fd_topo_obj_callbacks_t fd_obj_cb_banks;
 extern fd_topo_obj_callbacks_t fd_obj_cb_progcache;
+extern fd_topo_obj_callbacks_t fd_obj_cb_bpf_frames;
 extern fd_topo_obj_callbacks_t fd_obj_cb_rnonce_ss;
 extern fd_topo_obj_callbacks_t fd_obj_cb_footer_cache;
 extern fd_topo_obj_callbacks_t fd_obj_cb_adminctl;
@@ -53,6 +54,7 @@ fd_topo_obj_callbacks_t * CALLBACKS[] = {
   &fd_obj_cb_snapin_shmem,
   &fd_obj_cb_banks,
   &fd_obj_cb_progcache,
+  &fd_obj_cb_bpf_frames,
   &fd_obj_cb_rnonce_ss,
   &fd_obj_cb_footer_cache,
   &fd_obj_cb_adminctl,
@@ -114,7 +116,7 @@ extern fd_topo_run_tile_t fd_tile_failov;
 
 extern fd_topo_run_tile_t fd_tile_gossvf;
 extern fd_topo_run_tile_t fd_tile_gossip;
-extern fd_topo_run_tile_t fd_tile_rotor;
+extern fd_topo_run_tile_t fd_tile_repair;
 extern fd_topo_run_tile_t fd_tile_rserve;
 extern fd_topo_run_tile_t fd_tile_replay;
 extern fd_topo_run_tile_t fd_tile_execrp;
@@ -155,7 +157,7 @@ fd_topo_run_tile_t * TILES[] = {
   &fd_tile_bundle,
   &fd_tile_gossvf,
   &fd_tile_gossip,
-  &fd_tile_rotor,
+  &fd_tile_repair,
   &fd_tile_rserve,
   &fd_tile_replay,
   &fd_tile_execrp,

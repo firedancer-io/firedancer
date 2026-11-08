@@ -74,15 +74,7 @@ fd_prog_versions( fd_features_t const * features,
 fd_prog_load_env_t *
 fd_prog_load_env_from_bank( fd_prog_load_env_t * env,
                             fd_bank_t const *    bank ) {
-  fd_features_t const * features     = &bank->f.features;
-  ulong                 feature_slot = 0UL;
-
-#if FD_PROGCACHE_EB_ALWAYS_INVALIDATE
-
-  /* Valid for FD_FEATURE_ACTIVE only because activations land on epoch starts. */
-  feature_slot = fd_epoch_slot0( &bank->f.epoch_schedule, bank->f.epoch );
-
-#else
+  fd_features_t const * features = &bank->f.features;
 
   /* Max activation slot <= bank_slot.  Signed so DISABLED (ULONG_MAX) compares
      as -1 and never wins the max. */
@@ -94,8 +86,11 @@ fd_prog_load_env_from_bank( fd_prog_load_env_t * env,
     long v = (s<=limit) ? s : 0L; /* a not-yet-active feature must not win */
     acc = v>acc ? v : acc;
   }
-  feature_slot = (ulong)acc;
+  ulong feature_slot = (ulong)acc;
 
+#if FD_PROGCACHE_EB_ALWAYS_INVALIDATE
+  /* Activation slot may exceed slot0 when slot0 is skipped. */
+  feature_slot = fd_ulong_max( feature_slot, fd_epoch_slot0( &bank->f.epoch_schedule, bank->f.epoch ) );
 #endif
 
   *env = (fd_prog_load_env_t) {

@@ -33,7 +33,7 @@ static void HMAC_init(HMAC_SHA256_CTX *ctx, const void *K, size_t K_len)
         sha256_init(&ctx->ctx);
         sha256_update(&ctx->ctx, K, K_len);
         sha256_final(ctx->tail.c, &ctx->ctx);
-    } else {
+    } else if (K_len != 0) {
         sha256_bcopy(ctx->tail.c, K, K_len);
     }
 

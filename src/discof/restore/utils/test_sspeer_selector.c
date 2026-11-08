@@ -2506,6 +2506,138 @@ test_noop_readd( fd_sspeer_selector_t * selector,
   FD_LOG_NOTICE(( "... pass" ));
 }
 
+static void
+test_bad_max_peers( void * shmem ) {
+  FD_LOG_NOTICE(( "testing bad max_peers" ));
+
+  ulong const bad[] = { 0UL, ULONG_MAX/2UL+1UL, ULONG_MAX };
+  for( ulong i=0UL; i<sizeof(bad)/sizeof(ulong); i++ ) {
+    FD_TEST( !fd_sspeer_selector_footprint( bad[i] ) );
+    FD_TEST( !fd_sspeer_selector_new( shmem, bad[i], 1UL ) );
+  }
+
+  /* The largest accepted max_peers must not overflow the footprint. */
+  ulong lo = 1UL;
+  ulong hi = ULONG_MAX;
+  while( hi-lo>1UL ) {
+    ulong mid = lo + (hi-lo)/2UL;
+    if( fd_sspeer_selector_footprint( mid ) ) lo = mid;
+    else                                      hi = mid;
+  }
+  FD_TEST( !fd_sspeer_selector_footprint( lo+1UL ) );
+  FD_TEST( fd_sspeer_selector_footprint( lo )>fd_sspeer_selector_footprint( lo/2UL ) );
+  FD_TEST( fd_sspeer_selector_footprint( lo/2UL )>fd_sspeer_selector_footprint( 1UL ) );
+
+  FD_LOG_NOTICE(( "... pass" ));
+}
+
+static void
+verify_rescored( fd_sspeer_selector_t * selector,
+                 ulong                  peer_cnt,
+                 ulong                  max_slot,
+                 fd_ip4_port_t          best_addr,
+                 ulong                  latency ) {
+  FD_TEST( peer_cnt==fd_sspeer_selector_peer_map_by_key_ele_cnt ( selector ) );
+  FD_TEST( peer_cnt==fd_sspeer_selector_peer_map_by_addr_ele_cnt( selector ) );
+  FD_TEST( fd_sspeer_selector_cluster_slot( selector ).full==max_slot );
+  fd_sspeer_t best = fd_sspeer_selector_best( selector, 0, FD_SSPEER_SLOT_UNKNOWN, 0UL );
+  FD_TEST( best.addr.l==best_addr.l );
+  FD_TEST( best.full_slot==max_slot );
+  FD_TEST( best.score==latency );
+}
+
+static void
+test_rescore_pool_span( fd_wksp_t * wksp,
+                        fd_rng_t *  rng ) {
+  FD_LOG_NOTICE(( "testing rescore pool span" ));
+
+  /* Rescoring clones every peer into the shared pool, so treap
+     elements span all 2*max_peers pool indices.  After the first fill
+     loop, the selector stays at capacity. */
+
+  ulong const max_peers_list[] = { 1UL, 2UL, 3UL, 32UL };
+  ulong const latency          = 1000UL*1000UL;
+
+  for( ulong t=0UL; t<sizeof(max_peers_list)/sizeof(ulong); t++ ) {
+    ulong max_peers = max_peers_list[ t ];
+    void * shmem = fd_wksp_alloc_laddr( wksp, fd_sspeer_selector_align(), fd_sspeer_selector_footprint( max_peers ), 1UL );
+    fd_sspeer_selector_t * selector = fd_sspeer_selector_join( fd_sspeer_selector_new( shmem, max_peers, fd_rng_ulong( rng ) ) );
+    FD_TEST( selector );
+
+    fd_sspeer_key_t keys [ 33 ];
+    fd_ip4_port_t   addrs[ 33 ];
+    FD_TEST( max_peers<33UL );
+    for( ulong i=0UL; i<=max_peers; i++ ) {
+      FD_TEST( generate_rand_sspeer_key( &keys[i], rng, fd_rng_uint( rng )&0x1 ) );
+      FD_TEST( generate_rand_addr_non_zero( &addrs[i], rng ) );
+    }
+
+    /* Rescore at every fill level. */
+    ulong slot = 1000UL;
+    for( ulong i=0UL; i<max_peers; i++ ) {
+      slot++;
+      FD_TEST( add_peer( selector, &keys[i], addrs[i], slot, FD_SSPEER_SLOT_UNKNOWN, latency )!=FD_SSPEER_SCORE_INVALID );
+      fd_sspeer_selector_process_cluster_slot( selector );
+      verify_rescored( selector, i+1UL, slot, addrs[i], latency );
+    }
+
+    FD_TEST( add_peer( selector, &keys[max_peers], addrs[max_peers], slot, FD_SSPEER_SLOT_UNKNOWN, latency )==FD_SSPEER_SCORE_INVALID );
+
+    /* Repeated rescores. */
+    for( ulong r=0UL; r<2UL*max_peers; r++ ) {
+      ulong i = r%max_peers;
+      slot++;
+      FD_TEST( add_peer( selector, &keys[i], addrs[i], slot, FD_SSPEER_SLOT_UNKNOWN, latency )!=FD_SSPEER_SCORE_INVALID );
+      fd_sspeer_selector_process_cluster_slot( selector );
+      verify_rescored( selector, max_peers, slot, addrs[i], latency );
+    }
+
+    /* Remove and re-add. */
+    for( ulong i=0UL; i<max_peers; i++ ) {
+      if( i&1UL ) fd_sspeer_selector_remove_by_addr( selector, addrs[i] );
+      else        fd_sspeer_selector_remove        ( selector, &keys[i] );
+      fd_sspeer_selector_process_cluster_slot( selector );
+      FD_TEST( max_peers-1UL==fd_sspeer_selector_peer_map_by_key_ele_cnt( selector ) );
+      slot++;
+      FD_TEST( add_peer( selector, &keys[i], addrs[i], slot, FD_SSPEER_SLOT_UNKNOWN, latency )!=FD_SSPEER_SCORE_INVALID );
+      fd_sspeer_selector_process_cluster_slot( selector );
+      verify_rescored( selector, max_peers, slot, addrs[i], latency );
+    }
+
+    FD_TEST( add_peer( selector, &keys[max_peers], addrs[max_peers], slot, FD_SSPEER_SLOT_UNKNOWN, latency )==FD_SSPEER_SCORE_INVALID );
+
+    /* Pings and incremental slots. */
+    ulong max_full = slot;
+    for( ulong i=0UL; i<max_peers; i++ ) {
+      slot++;
+      FD_TEST( add_peer( selector, &keys[i], addrs[i], FD_SSPEER_SLOT_UNKNOWN, slot, FD_SSPEER_LATENCY_UNKNOWN )!=FD_SSPEER_SCORE_INVALID );
+      fd_sspeer_selector_process_cluster_slot( selector );
+      FD_TEST( 1UL==fd_sspeer_selector_update_on_ping( selector, addrs[i], latency/2UL ) );
+      fd_sscluster_slot_t cs = fd_sspeer_selector_cluster_slot( selector );
+      FD_TEST( cs.full==max_full );
+      FD_TEST( cs.incremental==slot );
+      fd_sspeer_t best = fd_sspeer_selector_best( selector, 0, FD_SSPEER_SLOT_UNKNOWN, 0UL );
+      FD_TEST( best.addr.l==addrs[i].l );
+      FD_TEST( best.incr_slot==slot );
+      FD_TEST( best.score==latency/2UL );
+      best = fd_sspeer_selector_best( selector, 1, best.full_slot, 0UL );
+      FD_TEST( best.addr.l==addrs[i].l );
+      FD_TEST( max_peers==fd_sspeer_selector_peer_map_by_key_ele_cnt ( selector ) );
+      FD_TEST( max_peers==fd_sspeer_selector_peer_map_by_addr_ele_cnt( selector ) );
+    }
+
+    for( ulong i=0UL; i<max_peers; i++ ) fd_sspeer_selector_remove( selector, &keys[i] );
+    fd_sspeer_selector_process_cluster_slot( selector );
+    FD_TEST( !fd_sspeer_selector_peer_map_by_key_ele_cnt ( selector ) );
+    FD_TEST( !fd_sspeer_selector_peer_map_by_addr_ele_cnt( selector ) );
+    FD_TEST( !fd_sspeer_selector_best( selector, 0, FD_SSPEER_SLOT_UNKNOWN, 0UL ).addr.l );
+
+    fd_wksp_free_laddr( fd_sspeer_selector_delete( fd_sspeer_selector_leave( selector ) ) );
+  }
+
+  FD_LOG_NOTICE(( "... pass" ));
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -2657,6 +2789,9 @@ main( int     argc,
 
   test_wksp_reinit( &t_wksp_base );
   test_noop_readd( t_wksp_base.selector, rng );
+
+  test_bad_max_peers( t_wksp_small.shmem );
+  test_rescore_pool_span( wksp, rng );
 
   /* Cleanup. */
 

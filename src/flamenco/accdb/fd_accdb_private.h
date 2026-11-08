@@ -409,10 +409,10 @@ struct fd_accdb_shmem_private {
   ulong seed;
 
   /* generation is a monotonically increasing counter assigned to each
-     fork on creation.  When a fork is rooted, its pool slot (fork_id)
-     is freed and may be recycled by a new fork, making fork_id in
-     on-disk metadata useless for identifying entries from that freed
-     fork.  But generation persists in disk metadata and is never
+     fork on creation.  When the root advances past a fork, its pool
+     slot (fork_id) is retired and may be recycled by a new fork, making
+     on-disk fork_id values useless for identifying entries from that
+     retired fork.  But generation persists in disk metadata and is never
      recycled.
 
      Any rooted fork is by definition an ancestor of all live forks, so
@@ -498,20 +498,15 @@ struct fd_accdb_shmem_private {
      into layer k+1, or into layer k itself for the deepest layer. */
   ulong compaction_dlist_off[ FD_ACCDB_COMPACTION_LAYER_CNT ];
 
-  /* Epoch-based safe reclamation for compacted partitions.
+  /* Epoch-based grace periods for compaction and resource reclamation.
 
-     epoch is a monotonically increasing counter incremented by the
-     compaction tile each time a partition finishes compaction.  The
-     completed partition is tagged with the current epoch and pushed
-     onto a deferred-free list instead of being released immediately.
+     Writers advance epoch when enqueueing compaction or retiring resources.
+     Compaction and resource reuse wait for the corresponding grace period.
 
      joiner_epochs[i] holds the epoch observed by joiner i at the start
      of its epoch-protected critical section, or ULONG_MAX when idle.
-     The compaction tile scans this array to find the minimum observed
-     epoch; any deferred partition tagged with an epoch strictly less
-     than that minimum is safe to release, because every epoch-protected
-     operation that could have snapshotted an offset into that partition
-     has since exited its critical section.
+     A tagged epoch has passed when all published writer and external
+     reader epochs are strictly greater than it.
 
      joiner_cnt is claimed via atomic fetch-and-add in fd_accdb_new
      and never decremented. */

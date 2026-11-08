@@ -835,6 +835,25 @@ telemetry = true
     # or test environments to decrease memory usage to test edge cases.
     transaction_cache_size_mib = 480
 
+    # Transactions that execute in the VM require large worst-case
+    # buffers called bpf serialization frames.  A new frame is required
+    # for each instruction that invokes a BPF program and for each
+    # nested cross-program invocation (CPI).  These frames are shared
+    # among different executing tiles.
+    #
+    # This value has been tuned for mainnet performance and it is not
+    # recommended to decrease this value, except in development or test
+    # environments to decrease memory usage or test edge cases.
+    bpf_shared_frames = 12
+
+    # Each execution tile can also keep some number of these frames
+    # local to itself for performance reasons.
+    #
+    # This value has been tuned for mainnet performance and it is not
+    # recommended to decrease this value, except in development or test
+    # environments to decrease memory usage or test edge cases.
+    bpf_local_frames = 2
+
 # CPU cores in Firedancer are carefully managed.  Where a typical
 # program lets the operating system scheduler determine which threads to
 # run on which cores and for how long, Firedancer overrides most of this
@@ -1877,13 +1896,6 @@ telemetry = true
         # requests.  This port must be open and accessible from the
         # network.
         repair_client_listen_port = 8701
-
-        # Slot max is the maximum number of slots that repair tile can
-        # maintain at once.  This is expected to be the largest at
-        # startup, when the validator is catching up from the snapshot
-        # slot, but still maintaining and receiving new turbine slots.
-        # Must be power of 2
-        slot_max = 4096
 
     [tiles.rserve]
         # If the repair server is enabled.

@@ -1,3 +1,11 @@
+#if defined(__ARM_FEATURE_PAC_DEFAULT) && __ARM_FEATURE_PAC_DEFAULT==2
+# define PACI_HINT 27
+# define AUTI_HINT 31
+#else
+# define PACI_HINT 25
+# define AUTI_HINT 29
+#endif
+
 .text
 
 .globl	add_mod_256
@@ -5,6 +13,7 @@
 .type	add_mod_256,%function
 .align	5
 add_mod_256:
+	hint	#34
 	ldp	x8,x9,[x1]
 	ldp	x12,x13,[x2]
 
@@ -39,6 +48,7 @@ add_mod_256:
 .type	mul_by_3_mod_256,%function
 .align	5
 mul_by_3_mod_256:
+	hint	#34
 	ldp	x12,x13,[x1]
 	ldp	x14,x15,[x1,#16]
 
@@ -88,6 +98,7 @@ mul_by_3_mod_256:
 .type	lshift_mod_256,%function
 .align	5
 lshift_mod_256:
+	hint	#34
 	ldp	x8,x9,[x1]
 	ldp	x10,x11,[x1,#16]
 
@@ -126,6 +137,7 @@ lshift_mod_256:
 .type	rshift_mod_256,%function
 .align	5
 rshift_mod_256:
+	hint	#34
 	ldp	x8,x9,[x1]
 	ldp	x10,x11,[x1,#16]
 
@@ -377,3 +389,13 @@ sub_n_check_mod_256:
 
 	ret
 .size	sub_n_check_mod_256,.-sub_n_check_mod_256
+
+#if defined(__ARM_FEATURE_BTI_DEFAULT) || defined(__ARM_FEATURE_PAC_DEFAULT)
+.section	.note.GNU-stack,"",@progbits
+.section	.note.gnu.property,"a",@note
+	.long	4,2f-1f,5
+	.byte	0x47,0x4E,0x55,0
+1:	.long	0xc0000000,4,3
+.align  3
+2:
+#endif

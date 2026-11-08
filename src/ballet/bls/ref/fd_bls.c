@@ -176,6 +176,7 @@ int
 fd_bls_sig_de( fd_bls_sig_t * sig,
                    uchar const    buf[ static FD_BLS_SIG_SZ ] ) {
   blst_p2_affine a[1];
+  if( FD_UNLIKELY( buf[0]&0xA0U ) )                                return -1;
   if( FD_UNLIKELY( blst_p2_deserialize( a, buf )!=BLST_SUCCESS ) ) return -1;
   if( FD_UNLIKELY( !blst_p2_affine_in_g2( a ) ) )                  return -1;
   blst_p2_from_affine( sig, a );
@@ -186,6 +187,7 @@ int
 fd_bls_sig_de_unchecked( fd_bls_sig_t * sig,
                          uchar const    buf[ static FD_BLS_SIG_SZ ] ) {
   blst_p2_affine a[1];
+  if( FD_UNLIKELY( buf[0]&0xA0U ) )                                return -1;
   if( FD_UNLIKELY( blst_p2_deserialize( a, buf )!=BLST_SUCCESS ) ) return -1;
   blst_p2_from_affine( sig, a );
   return 0;

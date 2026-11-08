@@ -29,6 +29,7 @@ extern fd_topo_obj_callbacks_t fd_obj_cb_backup;
 extern fd_topo_obj_callbacks_t fd_obj_cb_snapin_shmem;
 extern fd_topo_obj_callbacks_t fd_obj_cb_banks;
 extern fd_topo_obj_callbacks_t fd_obj_cb_progcache;
+extern fd_topo_obj_callbacks_t fd_obj_cb_bpf_frames;
 extern fd_topo_obj_callbacks_t fd_obj_cb_rnonce_ss;
 extern fd_topo_obj_callbacks_t fd_obj_cb_footer_cache;
 
@@ -55,6 +56,7 @@ fd_topo_obj_callbacks_t * CALLBACKS[] = {
   &fd_obj_cb_snapin_shmem,
   &fd_obj_cb_banks,
   &fd_obj_cb_progcache,
+  &fd_obj_cb_bpf_frames,
   &fd_obj_cb_rnonce_ss,
   &fd_obj_cb_footer_cache,
   NULL,
@@ -125,7 +127,7 @@ extern fd_topo_run_tile_t fd_tile_failov;
 
 extern fd_topo_run_tile_t fd_tile_gossvf;
 extern fd_topo_run_tile_t fd_tile_gossip;
-extern fd_topo_run_tile_t fd_tile_rotor;
+extern fd_topo_run_tile_t fd_tile_repair;
 extern fd_topo_run_tile_t fd_tile_rserve;
 extern fd_topo_run_tile_t fd_tile_replay;
 extern fd_topo_run_tile_t fd_tile_execrp;
@@ -171,7 +173,7 @@ fd_topo_run_tile_t * TILES[] = {
   &fd_tile_bundle,
   &fd_tile_gossvf,
   &fd_tile_gossip,
-  &fd_tile_rotor,
+  &fd_tile_repair,
   &fd_tile_rserve,
   &fd_tile_replay,
   &fd_tile_execrp,
@@ -230,7 +232,6 @@ extern action_t fd_action_wksp;
 extern action_t fd_action_gossip;
 extern action_t fd_action_backtest;
 extern action_t fd_action_snapshot_load;
-extern action_t fd_action_rotor;
 extern action_t fd_action_shred_version;
 extern action_t fd_action_ipecho_server;
 extern action_t fd_action_gossip_dump;
@@ -273,7 +274,6 @@ action_t * ACTIONS[] = {
   &fd_action_gossip,
   &fd_action_backtest,
   &fd_action_snapshot_load,
-  &fd_action_rotor,
   &fd_action_shred_version,
   &fd_action_ipecho_server,
   &fd_action_gossip_dump,

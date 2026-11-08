@@ -28,16 +28,15 @@ privilege checks, for example ensuring the necessary signatures are present.
 TODO: instruction calling convention: const parameters after non-const.
 
 Assumptions:
-- We do not have more than 256 unique accounts in the callee_instr.
-  This limit comes from the fact that a Solana transaction cannot
-  refefence more than 256 unique accounts, due to the transaction
-  serialization format.
-- callee_instr is not null.
-- callee_instr->acct_pubkeys is at least as long as callee_instr->acct_cnt
-- instr_ctx->txn_ctx->accounts_cnt is less than UCHAR_MAX.
-  This is likely because the transaction is limited to 256 accounts.
-- callee_instr->program_id is set to UCHAR_MAX if account is not in instr_ctx->txn_ctx.
-- instruction_accounts is a 256-length empty array.
+- callee_instr and instr_ctx are valid.
+- callee_instr->acct_cnt is at most FD_TXN_INSTR_ACCT_MAX.
+- instr_acct_keys has at least callee_instr->acct_cnt entries.
+- Account index_in_transaction values are USHORT_MAX for missing accounts
+  or valid transaction indices below MAX_TX_ACCOUNT_LOCKS.
+- Account index_in_caller values are USHORT_MAX for missing accounts
+  or valid indices into the caller instruction.
+- callee_instr->program_id is UCHAR_MAX if the program is not in the transaction.
+- instruction_accounts has room for FD_TXN_INSTR_ACCT_MAX entries.
 
 Parameters:
 - callee_instr

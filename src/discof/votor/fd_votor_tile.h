@@ -68,8 +68,8 @@ struct fd_votor_leader {
 typedef struct fd_votor_leader fd_votor_leader_t;
 
 /* fd_votor_repair names a block the pool has certs or votes for but
-   replay has not completed, so rotor fetches it.  A slot past the pool
-   window has a verified cert and a null block_id, so rotor
+   replay has not completed, so repair fetches it.  A slot past the pool
+   window has a verified cert and a null block_id, so repair
    catches up toward it. */
 
 struct fd_votor_repair {

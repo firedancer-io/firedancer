@@ -98,10 +98,10 @@
         },
         "vote_state": {
             "type": "LowCardinality(String)",
-            "description": "Vote subsystem state: 0=disabled (Non-voting or no tower tile), 1=not_started (Tower tile not running or no votes cast yet), 2=delinquent (Vote distance exceeds threshold or vote stalled), 3=voting (Voting normally), 4=inadmissible (Voting, but the vote account fails the validator admission ticket filter)",
+            "description": "Vote subsystem state: 0=disabled (Non-voting or no votor tile), 1=not_started (Votor tile not running or no votes cast yet), 2=delinquent (Vote distance exceeds threshold or vote stalled), 3=voting (Voting normally), 4=inadmissible (Voting, but the vote account fails the validator admission ticket filter)",
             "variants": {
-                "disabled":     { "description": "Non-voting or no tower tile" },
-                "not_started":  { "description": "Tower tile not running or no votes cast yet" },
+                "disabled":     { "description": "Non-voting or no votor tile" },
+                "not_started":  { "description": "Votor tile not running or no votes cast yet" },
                 "delinquent":   { "description": "Vote distance exceeds threshold or vote stalled" },
                 "voting":       { "description": "Voting normally" },
                 "inadmissible": { "description": "Voting, but the vote account fails the validator admission ticket filter" }

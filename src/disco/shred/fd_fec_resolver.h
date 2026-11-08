@@ -130,7 +130,7 @@ FD_FN_CONST ulong fd_fec_resolver_align    ( void );
    shreds they point to are the only values that will be returned in the
    out_shred and out_fec_set output parameters of add_shred. seed is an
    arbitrary ulong used to seed various data structures.  It should be
-   set to a validator independent value.
+   set to a different value on each validator.
 
    Resigned shreds are copied out with a zero retransmitter signature,
    received and recovered alike: the resolver does not sign.
@@ -243,32 +243,36 @@ typedef struct fd_fec_resolver_spilled fd_fec_resolver_spilled_t;
    may be rejected with return value SHRED_EQUIVOC.  In general (other
    than if done_depth is too small), the FEC resolver will return
    SHRED_EQUIVOC for the first equivocating shred with that slot and FEC
-   index and SHRED_IGNORED for any subsequent ones.  Additionally, the
-   FEC resolver has a limited memory and uses a probabilistic scheme
-   with (per-validator independent) probability 2^-31 of returning
-   SHRED_IGNORED instead of SHRED_EQUIVOC, which is why equivocation
-   detection cannot be guaranteed.  Note that these checks are bypassed
-   if source is REPAIR.  Similar to SHRED_{OKAY,COMPLETES},
-   out_merkle_root will be populated on SHRED_EQUIVOC if non-NULL.  Note
-   that there are forms of equivocation not covered by this strict
-   check.
+   index and SHRED_IGNORED any subsequent shreds for that slot.
+   Additionally, the FEC resolver has a limited memory and uses a
+   probabilistic scheme for matching shreds with completed FEC sets that
+   has a (per-validator independent) probability of about 2^-14 of
+   returning SHRED_IGNORED instead of SHRED_EQUIVOC, which is why
+   equivocation detection cannot be guaranteed.  Note that these checks
+   are bypassed if is_repair is non-zero.  Similar to
+   SHRED_{OKAY,COMPLETES}, out_merkle_root will be populated on
+   SHRED_EQUIVOC if non-NULL.  Note that there are forms of equivocation
+   not covered by this strict check, and there's one specific type of
+   equivocation detailed in fd_fec_samp.h for which the detection rate
+   is much lower.
 
-   If the shred has the same slot, shred index, and signature as a shred
-   that has already been successfully completed in a FEC by the FEC
-   resolver, or if the shred is for a slot older than slot_old, returns
-   SHRED_IGNORED and does not write to out_{fec_set,shred,merkle_root}.
-   Note that "successfully completed in a FEC by the FEC resolver" above
-   includes shreds that are reconstructed when returning
-   SHRED_COMPLETES, so for example, after returning SHRED_COMPLETES for
-   a FEC set, adding any shred for that FEC set will return
-   SHRED_IGNORED, even if that particular shred hadn't been received.
+   If the shred has the same slot, shred index, and Merkle root as a
+   shred that has already been successfully completed in a FEC by the
+   FEC resolver, or if the shred is for a slot older than slot_old,
+   returns SHRED_IGNORED and does not write to
+   out_{fec_set,shred,merkle_root}.  Note that "successfully completed
+   in a FEC by the FEC resolver" above includes shreds that are
+   reconstructed when returning SHRED_COMPLETES, so for example, after
+   returning SHRED_COMPLETES for a FEC set, adding any shred for that
+   FEC set will return SHRED_IGNORED, even if that particular shred
+   hadn't been received.
 
    However, if the shred is part of an in progress FEC set but has
    already been received: if source is REPAIR, FEC resolver returns
    SHRED_DUPLICATE and populates out_merkle_root if it is non-NULL, and
    out_shred is populated similarly to when returning SHRED_OKAY.  For
-   any other source it returns SHRED_IGNORED without validating the
-   shred or writing to out_{fec_set,shred,merkle_root}.
+   any other source it returns SHRED_IGNORED and writes
+   out_{shred,merkle_root}.
 
    If the shred fails validation for any other reason, returns
    SHRED_REJECTED and does not write to out_{fec_set,shred}. If
@@ -283,6 +287,9 @@ typedef struct fd_fec_resolver_spilled fd_fec_resolver_spilled_t;
    This function returns SHRED_COMPLETES when the received shred
    completes the FEC set.  In this case, the function populates any
    missing shreds in the FEC set stored in out_fec_set.
+
+   If shred is a parity shred, source will always be treated as not
+   REPAIR, even if REPAIR is passed in.
 
    Regardless of success/failure, if an in progress FEC set was evicted
    from the current map during this add_shred call, and the

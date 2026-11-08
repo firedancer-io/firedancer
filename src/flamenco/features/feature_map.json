@@ -294,7 +294,7 @@
   {"name":"remove_inactive_stakes","implemented":1,"pubkey":"RMsTKfD6hZnBhhNvgGBeKNrqCNkeoP3DYYxNtcuWtRg"},
   {"name":"alpenglow","implemented":1,"pubkey":"A1pengvuM6JEcyNuTnMqepBKhwHE3N6PmUrdATGawhJS","old":"A1PeNGc3D8SQmKwdYf4qj1XG7XgWVSuFQaiJSCQj775h","hardcode_for_fuzzing":1,"comment":"the tower to alpenglow migration itself is not supported"},
   {"name":"relax_fee_payer_constraint","implemented":1,"pubkey":"FEEXbxUuKobtrt1qNK5pjtzbPQhsppBTrNNG74xu4mai"},
-  {"name":"alpenglow_fast_leader_handover","implemented":0,"pubkey":"FLHoAWBDjNh6zwmJ5i1NKK4KyD8otAiv7XxvmnFnVnKH"},
+  {"name":"alpenglow_fast_leader_handover","implemented":0,"pubkey":"FLh2kvwNhDNN6kkQrwdDQ4p5FrgdqxnwykgMUryABRwT","old":"FastLeaderHandover11111111111111111111111111"},
   {"name":"enforce_correct_proof_size","implemented":1,"pubkey":"turbzzBJLGMJJikLvgCCJu9e1hTmfxwarrbLndYAsK5","comment":"no-op for firedancer"},
   {"name":"block_revenue_sharing","implemented":1,"pubkey":"Crbnc267wkJvFhYakqwWWX57sx5bkrftJLekzy6yWKLT"},
   {"name":"vote_account_initialize_v2","implemented":0,"pubkey":"VoteAccount1nitia1izeV211111111111111111111"},
@@ -307,5 +307,6 @@
   {"name":"stricter_shred_validation","implemented":1,"pubkey":"s5o4YoA9zUrw9j4v335ncdG5PpznDBsrgM6CvUGrasA","hardcode_for_fuzzing":1,"comment":"no-op for firedancer"},
   {"name":"remove_runtime_float_ops","implemented":1,"pubkey":"7AzqUCKQjoCKhWDDHgEYkTY8iRwWtuuxHogcmx1UJzR8"},
   {"name":"core_bpf_hash_validation","implemented":1,"pubkey":"FCsQnd4V52NESBhVURWYSWBbmLFzgxEZVC2WngzHzp1u","comment":"firedancer assumes this feature gate is activated for all migrations, which is safe because of the feature-gate schedule ordering"},
-  {"name":"replace_ata_with_p_ata","implemented":1,"pubkey":"pata6uFabFDejC1U7rpmFj9s1FhmiPyWk6D51U1ksx3","comment":"core_bpf_hash_validation will be activated first"}
+  {"name":"replace_ata_with_p_ata","implemented":1,"pubkey":"pata6uFabFDejC1U7rpmFj9s1FhmiPyWk6D51U1ksx3","comment":"core_bpf_hash_validation will be activated first"},
+  {"name":"loaderv3_programdata_size_floor","implemented":1,"pubkey":"8whkDenELnfwYLirBc4Wb4H2Z1z5K7tiykpdxJS7cWg1"}
 ]

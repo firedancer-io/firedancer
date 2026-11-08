@@ -1,7 +1,7 @@
 This directory contains a subset of the blst library at
 https://github.com/supranational/blst
 
-Files are copied exactly from tag v0.3.13, with no Firedancer
+Files are copied exactly from tag v0.3.17, with no Firedancer
 specific modifications.  Do not edit vendored files locally; update
 by re-running `vendor.sh` against a new pinned tag.
 

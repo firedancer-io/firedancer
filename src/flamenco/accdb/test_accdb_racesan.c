@@ -1316,8 +1316,7 @@ static void
 test_read_vs_overwrite( void ) {
   /* Demonstration repro that intentionally FAILS (it violates the accdb
      API contract on purpose).  Skip unless named explicitly so a default
-     "run all" stays green.  See the reframe in ACCDB_BANKHASH_BUG_REPORT.md:
-     the multi-read tear is a real fragility but NOT the production bug. */
+     "run all" stays green. */
   if( FD_UNLIKELY( !g_explicit ) ) {
     FD_LOG_NOTICE(( "  (skipped: contract-violating demo; run by name to exercise)" ));
     return;
@@ -1543,8 +1542,7 @@ test_nocache_vs_compaction( void ) {
 /* ===================================================================
    COMPACTION RELOCATION TESTS
 
-   The top remaining un-dispositioned suspect (see ACCDB_BANKHASH_BUG_
-   REPORT.md 0.6/0.7): background_compact relocates a record
+   background_compact relocates a record
    (copy_file_range to a new layer) and CAS-republishes offset_fork from
    the snapshotted source offset to the destination.  Two races:
 
@@ -1608,8 +1606,8 @@ static uchar g_cold_data[ 10UL<<20 ];
         small), or over-copies would surface as a wrong/zero data byte.
 
    This does NOT self-heal (unlike the in-place-overwrite-vs-CAS race,
-   which leaves offset=INVAL and is repaired by the next persist — see
-   ACCDB_BANKHASH_BUG_REPORT.md): the relocation publishes a real
+   which leaves offset=INVAL and is repaired by the next persist):
+   the relocation publishes a real
    dest_offset whose bytes are whatever copy_file_range wrote, and the
    cold read dereferences exactly that. */
 static void
@@ -4100,6 +4098,32 @@ test_coldload_evict_vs_snapshot_capture( void ) {
   test_shmem_delete();
 }
 
+static void
+test_reservation_wait_yields( void ) {
+  test_shmem_new_tiny();
+  fd_accdb_t * ctl = join_new();
+  fd_accdb_t * reader = join_new();
+  fd_accdb_fork_id_t root = fd_accdb_attach_child( ctl, SENTINEL );
+  uchar keys[ TEST_TINY_CACHE_MIN_RESERVED ][ 32 ];
+  uchar const * pubkeys[ TEST_TINY_CACHE_MIN_RESERVED ];
+  int writable[ TEST_TINY_CACHE_MIN_RESERVED ] = {0};
+  fd_acc_t held[ TEST_TINY_CACHE_MIN_RESERVED ] = {0};
+  for( ulong i=0UL; i<TEST_TINY_CACHE_MIN_RESERVED; i++ ) {
+    mk_key( 1000UL+i, keys[i] );
+    pubkeys[i] = keys[i];
+    seq_write( ctl, root, keys[i], 5000UL+i, NULL );
+  }
+  fd_accdb_acquire( ctl, root, TEST_TINY_CACHE_MIN_RESERVED, pubkeys, writable, held );
+  fd_racesan_async_t * a = fiber_acquire_expect( &g_fiber[0], reader, root, keys[0], 5000UL );
+  FD_TEST( fd_racesan_async_step_until( a, "accdb_acquire:reservation_retry", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
+  fd_accdb_release( ctl, TEST_TINY_CACHE_MIN_RESERVED, held );
+  async_finish( a );
+  fiber_done( &g_fiber[0] );
+  join_delete( reader );
+  join_delete( ctl );
+  test_shmem_delete();
+}
+
 struct test_case { char const * name; void (*fn)( void ); };
 
 int
@@ -4112,6 +4136,7 @@ main( int     argc,
 
 # define TEST( name ) { #name, name }
   struct test_case cases[] = {
+    TEST( test_reservation_wait_yields ),
     TEST( test_acquire_vs_advance ),
     TEST( test_acquire_vs_advance_sibling ),
     TEST( test_acquire_interior_unlink ),

@@ -27,7 +27,7 @@
 #define IN_KIND_NET    (0)
 #define IN_KIND_SIGN   (1)
 #define IN_KIND_SHRED  (2)
-#define IN_KIND_ROTOR  (3)
+#define IN_KIND_REPAIR (3)
 
 #define MAX_IN_LINKS FD_TOPO_MAX_TILE_IN_LINKS
 
@@ -99,11 +99,11 @@ typedef struct ctx {
   fd_pubkey_t identity_public_key;
   int halt_signing;
 
-  fd_ip4_udp_hdrs_t serve_hdr[1];
-  ushort            net_id;
+  fd_ip4_udp_hdrs_t   serve_hdr[1];
+  ushort              net_id;
 
-  uchar             net_buf[ FD_NET_MTU ];
-  fd_repair_block_t rotor_buf[1];
+  uchar               net_buf[ FD_NET_MTU ];
+  fd_repair_out_blk_t repair_buf[1];
 
   struct {
     ulong received_request_count[FD_METRICS_ENUM_REPAIR_REQUEST_TYPE_CNT];
@@ -586,11 +586,11 @@ during_frag( ctx_t * ctx,
     fd_memcpy( ctx->net_buf, buffer, sz );
     break;
   }
-  case IN_KIND_ROTOR: {
-    if( FD_UNLIKELY( sig!=REPAIR_SIG_BLOCK ) ) break;
-    if( FD_UNLIKELY( sz<FD_REPAIR_BLOCK_SZ( 0 ) || sz>sizeof(fd_repair_block_t) || chunk<in_ctx->chunk0 || chunk>in_ctx->wmark ) )
-      FD_LOG_ERR(( "rotor_rserve chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, in_ctx->chunk0, in_ctx->wmark ));
-    fd_memcpy( ctx->rotor_buf, fd_chunk_to_laddr_const( in_ctx->mem, chunk ), sz );
+  case IN_KIND_REPAIR: {
+    if( FD_UNLIKELY( sig!=REPAIR_SIG_BLK ) ) break;
+    if( FD_UNLIKELY( sz<offsetof(fd_repair_out_blk_t, merkle_roots) || sz>sizeof(fd_repair_out_blk_t) || chunk<in_ctx->chunk0 || chunk>in_ctx->wmark ) )
+      FD_LOG_ERR(( "repair_rserve chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, in_ctx->chunk0, in_ctx->wmark ));
+    fd_memcpy( ctx->repair_buf, fd_chunk_to_laddr_const( in_ctx->mem, chunk ), sz );
     break;
   }
   default: break;
@@ -607,11 +607,11 @@ after_frag( ctx_t *             ctx,
             ulong               tspub  FD_PARAM_UNUSED,
             fd_stem_context_t * stem ) {
   uint in_kind = ctx->in_kind[ in_idx ];
-  if( FD_UNLIKELY( in_kind==IN_KIND_ROTOR ) ) {
-    if( FD_UNLIKELY( sig!=REPAIR_SIG_BLOCK ) ) return;
-    fd_repair_block_t const * msg = ctx->rotor_buf;
-    if( FD_UNLIKELY( sz!=FD_REPAIR_BLOCK_SZ( msg->fec_set_cnt ) ) )
-      FD_LOG_ERR(( "rotor_rserve frag sz %lu does not match fec_set_cnt %u", sz, msg->fec_set_cnt ));
+  if( FD_UNLIKELY( in_kind==IN_KIND_REPAIR ) ) {
+    if( FD_UNLIKELY( sig!=REPAIR_SIG_BLK ) ) return;
+    fd_repair_out_blk_t const * msg = ctx->repair_buf;
+    if( FD_UNLIKELY( sz!=offsetof(fd_repair_out_blk_t, merkle_roots) + (ulong)msg->fec_set_cnt*FD_SHRED_MERKLE_NODE_SZ ) )
+      FD_LOG_ERR(( "repair_rserve frag sz %lu does not match fec_set_cnt %u", sz, msg->fec_set_cnt ));
     FD_TEST( fd_blockdb_insert( ctx->blockdb, msg->slot, &msg->block_id, msg->parent_slot, &msg->parent_block_id,
                                 msg->fec_set_cnt, (uchar const *)msg->merkle_roots ) );
     return;
@@ -667,7 +667,7 @@ returnable_frag( ctx_t             * ctx,
     } else if( FD_UNLIKELY( result==FD_STORE_DISK_INSERT_ERR ) ) ctx->metrics->disk_write_failed++;
     return 0;
   }
-  case IN_KIND_ROTOR: return 0; /* after_frag */
+  case IN_KIND_REPAIR: return 0; /* after_frag */
   default: FD_LOG_ERR(( "unexpected input kind (%u)", in_kind ));
   }
 }
@@ -872,9 +872,9 @@ unprivileged_init( fd_topo_t      const * topo,
     }
     else if( 0==strcmp( link->name, "sign_rserve" ) ) ctx->in_kind[ in_idx ] = IN_KIND_SIGN;
     else if( 0==strcmp( link->name, "shred_out" ) )   ctx->in_kind[ in_idx ] = IN_KIND_SHRED;
-    else if( 0==strcmp( link->name, "rotor_rserve" ) ) {
-      if( FD_UNLIKELY( !ctx->blockdb ) ) FD_LOG_ERR(( "rserve has a rotor_rserve link but blockdb_max is 0" ));
-      ctx->in_kind[ in_idx ] = IN_KIND_ROTOR;
+    else if( 0==strcmp( link->name, "repair_rserve" ) ) {
+      if( FD_UNLIKELY( !ctx->blockdb ) ) FD_LOG_ERR(( "rserve has a repair_rserve link but blockdb_max is 0" ));
+      ctx->in_kind[ in_idx ] = IN_KIND_REPAIR;
     }
     else FD_LOG_ERR(( "rserve tile has unexpected input link: %s", link->name ));
 

@@ -201,7 +201,7 @@ fd_compute_budget_program_finalize( fd_compute_budget_program_state_t const * st
 
   ulong total_fee = 0UL;
 
-  /* We need to compute max(ceil((cu_limit * micro_lamports_per_cu)/10^6),
+  /* We need to compute min(ceil((cu_limit * micro_lamports_per_cu)/10^6),
      ULONG_MAX).  Unfortunately, the product can overflow.  Solana solves
      this by doing the arithmetic with ultra-wide integers, but that puts a
      128-bit division on the critical path.  Gross.  It's frustrating because

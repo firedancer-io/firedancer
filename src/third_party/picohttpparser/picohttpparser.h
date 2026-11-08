@@ -27,6 +27,7 @@
 #ifndef picohttpparser_h
 #define picohttpparser_h
 
+#include <stdint.h>
 #include <sys/types.h>
 
 #ifdef _MSC_VER
@@ -36,6 +37,12 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+/* Users of the library are recommended to use the up-to-date master branch. But for those who prefer using versions, the release
+ * branch is also updated each time a new commit is pushed to the master branch; incrementing the minor version by one. */
+#define PICOHTTPPARSER_VERSION "1.5"
+#define PICOHTTPPARSER_VERSION_MAJOR 1
+#define PICOHTTPPARSER_VERSION_MINOR 5
 
 /* contains name and value of a header (name == NULL if is a continuing line
  * of a multiline header */
@@ -64,6 +71,8 @@ struct phr_chunked_decoder {
     char consume_trailer;       /* if trailing headers should be consumed */
     char _hex_count;
     char _state;
+    uint64_t _total_read;
+    uint64_t _total_overhead;
 };
 
 /* the function rewrites the buffer given as (buf, bufsz) removing the chunked-

@@ -416,26 +416,11 @@ fd_ssload_recover_apply( fd_snapshot_manifest_t * manifest,
       bank->f.cluster_type = FD_CLUSTER_UNKNOWN;
   }
 
-  /* Update last restart slot
-     https://github.com/solana-labs/solana/blob/30531d7a5b74f914dde53bfbb0bc2144f2ac92bb/runtime/src/bank.rs#L2152
-
-     old_bank->hard_forks is sorted ascending by slot number.
-     To find the last restart slot, take the highest hard fork slot
-     number that is less or equal than the current slot number.
-     (There might be some hard forks in the future, ignore these)
-
-     SIMD-0047: The first restart slot should be `0` */
+  /* Restore the hard fork list. */
   bank->f.hard_fork_cnt = manifest->hard_fork_cnt;
   if( FD_LIKELY( manifest->hard_fork_cnt ) ) {
     for( ulong i=0UL; i<manifest->hard_fork_cnt; i++ ) {
       bank->f.hard_forks[ i ] = manifest->hard_forks[ i ];
-    }
-
-    for( ulong i=0UL; i<manifest->hard_fork_cnt; i++ ) {
-      ulong slot = manifest->hard_forks[ manifest->hard_fork_cnt-1UL-i ].slot;
-      if( FD_LIKELY( slot<=manifest->slot ) ) {
-        break;
-      }
     }
   }
 

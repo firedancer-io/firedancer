@@ -210,11 +210,11 @@ STEM_(STEM_RUN1_NAME)( ulong                        in_cnt,
       ulong event_idx = (ulong)event_map[ event_seq ];
 
       /* Do the next async event.  event_idx:
-            <out_cnt - receive credits from out event_idx
-           ==out_cnt - housekeeping
-            >out_cnt - send credits to in event_idx - out_cnt - 1.
+            <cons_cnt - receive credits from consumer event_idx
+           ==cons_cnt - housekeeping
+            >cons_cnt - send credits to in event_idx - cons_cnt - 1.
          Branch hints and order are optimized for the case:
-           out_cnt >~ in_cnt >~ 1. */
+           cons_cnt >~ in_cnt >~ 1. */
 
       if( FD_LIKELY( event_idx<cons_cnt ) ) { /* cons fctl for cons cons_idx */
         ulong cons_idx = event_idx;

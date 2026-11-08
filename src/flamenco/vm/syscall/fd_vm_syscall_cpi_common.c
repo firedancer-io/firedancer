@@ -45,8 +45,9 @@ Parameters:
 - vm: handle to the vm
 - cpi_instr: instruction to execute laid out in the CPI ABI format (Rust or C)
 - cpi_acc_metas: list of account metas, again in the CPI ABI format
-- signers: derived signers for this CPI call
-- signers_cnt: length of the signers list
+- program_id: translated program pubkey
+- out_instr: output instruction
+- out_instr_acct_keys: output instruction account pubkeys
 - cpi_instr_data: instruction data in host address space
 
 TODO: return codes/errors?
@@ -123,9 +124,9 @@ callee account we look up the account in the borrowed accounts cache and update 
 
 Parameters:
 - vm: pointer to the virtual machine handle
-- account_info: account info object
-- callee_acc_pubkey: pubkey of the account. this is used to look up the account in the borrowed accounts cache
-  (TODO: this seems redundant? we can probably remove this, as the account_info contains the pubkey)
+- caller_account: translated caller account
+- callee_acc: borrowed callee account
+- out_must_update_caller: set when caller metadata must be updated after CPI
 */
 #define VM_SYCALL_CPI_UPDATE_CALLEE_ACC_FUNC FD_EXPAND_THEN_CONCAT2(fd_vm_syscall_cpi_update_callee_acc_, VM_SYSCALL_CPI_ABI)
 static int
@@ -229,9 +230,9 @@ fd_vm_syscall_cpi_translate_and_update_accounts_ mirrors the behaviour of
 solana_program_runtime::cpi::SyscallInvokeSigned::translate_accounts_common:
 https://github.com/anza-xyz/agave/blob/v4.0.0-beta.7/program-runtime/src/cpi.rs#L1049-L1193
 
-It translates the caller accounts to the host address space, and then calls
-fd_vm_syscall_cpi_update_callee_acc to update the callee borrowed account with any changes
-the caller has made to the account during execution before this CPI call.
+It translates the caller accounts to the host address space.  Without
+SIMD-0339, it also updates callee accounts here.  With SIMD-0339, those
+updates are deferred to the syscall entrypoint after translation.
 
 Parameters:
 - vm: pointer to the virtual machine handle
@@ -513,7 +514,7 @@ Those changes will be in the instructions borrowed accounts cache.
 
 Parameters:
 - vm: handle to the vm
-- caller_acc_info: caller account info object, which should be updated
+- caller_account: translated caller account to update
 - borrowed_callee_acc: already-borrowed callee account
 */
 #define VM_SYSCALL_CPI_UPDATE_CALLER_ACC_FUNC FD_EXPAND_THEN_CONCAT2(fd_vm_cpi_update_caller_acc_, VM_SYSCALL_CPI_ABI)
@@ -528,9 +529,7 @@ VM_SYSCALL_CPI_UPDATE_CALLER_ACC_FUNC( fd_vm_t *                          vm,
 
   /* Update the caller account owner with the value from the callee
      https://github.com/anza-xyz/agave/blob/v3.0.4/syscalls/src/cpi.rs#L1192 */
-  fd_pubkey_t const * updated_owner = (fd_pubkey_t const *)borrowed_callee_acc->acc->owner;
-  if( updated_owner ) *caller_account->owner = *updated_owner;
-  else                fd_memset( caller_account->owner, 0,             sizeof(fd_pubkey_t) );
+  fd_memcpy( caller_account->owner, borrowed_callee_acc->acc->owner, sizeof(fd_pubkey_t) );
 
   /* Update the caller account data with the value from the callee
      https://github.com/anza-xyz/agave/blob/v3.0.4/syscalls/src/cpi.rs#L1194-L1195 */
@@ -636,7 +635,6 @@ VM_SYSCALL_CPI_UPDATE_CALLER_ACC_FUNC( fd_vm_t *                          vm,
 
 The bulk of the high-level logic mirrors Solana's cpi_common entrypoint function at
 https://github.com/anza-xyz/agave/blob/v4.0.0-beta.7/program-runtime/src/cpi.rs#L847-L977
-The only differences should be in the order of the error checks, which does not affect consensus.
 
 100-foot flow:
 - Translate the CPI ABI structures to the FD runtime's instruction format

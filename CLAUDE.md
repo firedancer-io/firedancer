@@ -56,6 +56,9 @@ Integration tests can change host configuration.
   ```
   Regenerates all files in `src/disco/metrics/generated/` and `book/api/metrics-generated.md`.
 
+- **Events:** After changing `src/disco/events/schema/*.json`, run
+  `python3 src/disco/events/gen_events.py`.
+
 - **Features:** After changing `feature_map.json`, run:
   ```bash
   cd src/flamenco/features && make generate
@@ -67,6 +70,9 @@ Integration tests can change host configuration.
   make -C src/flamenco/runtime/tests protobufs
   ```
   Regenerates all files in `src/flamenco/runtime/tests/generated/`.
+
+CI reruns all but the protobuf generator (`.github/workflows/check_generated.yml`)
+and fails on any diff.
 
 ## Code Style
 

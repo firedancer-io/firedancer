@@ -191,7 +191,7 @@
 |--------|------|-------------|
 | <span class="metrics-name">net_&#8203;pkt_&#8203;rx</span> | counter | Packets successfully published to output links |
 | <span class="metrics-name">net_&#8203;pkt_&#8203;rx_&#8203;bytes</span> | counter | Bytes of packets successfully published to output links |
-| <span class="metrics-name">net_&#8203;pkt_&#8203;rx_&#8203;dropped</span><br/>{pkt_&#8203;rx_&#8203;drop_&#8203;reason="<span class="metrics-enum">malformed</span>"} | counter | Received packets dropped, by reason (Undersized, oversized, or malformed Ethernet, IPv4 or UDP headers) |
+| <span class="metrics-name">net_&#8203;pkt_&#8203;rx_&#8203;dropped</span><br/>{pkt_&#8203;rx_&#8203;drop_&#8203;reason="<span class="metrics-enum">malformed</span>"} | counter | Received packets dropped, by reason (Undersized, oversized, or malformed Ethernet, IPv4 or UDP headers, or IPv4 options present) |
 | <span class="metrics-name">net_&#8203;pkt_&#8203;rx_&#8203;dropped</span><br/>{pkt_&#8203;rx_&#8203;drop_&#8203;reason="<span class="metrics-enum">dst_&#8203;ip_&#8203;mismatch</span>"} | counter | Received packets dropped, by reason (Destination IP does not match the bind address) |
 | <span class="metrics-name">net_&#8203;pkt_&#8203;rx_&#8203;dropped</span><br/>{pkt_&#8203;rx_&#8203;drop_&#8203;reason="<span class="metrics-enum">dst_&#8203;port_&#8203;unbound</span>"} | counter | Received packets dropped, by reason (No output link for the destination UDP port) |
 | <span class="metrics-name">net_&#8203;pkt_&#8203;rx_&#8203;dropped</span><br/>{pkt_&#8203;rx_&#8203;drop_&#8203;reason="<span class="metrics-enum">gre_&#8203;invalid</span>"} | counter | Received packets dropped, by reason (GRE tunnel peer or headers invalid) |
@@ -965,6 +965,73 @@
 
 </div>
 
+## Repair Tile
+
+<div class="metrics">
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| <span class="metrics-name">repair_&#8203;pkt_&#8203;tx</span> | counter | Network packets sent, including requests, pings and pongs |
+| <span class="metrics-name">repair_&#8203;request_&#8203;tx</span><br/>{repair_&#8203;request_&#8203;type="<span class="metrics-enum">pong</span>"} | counter | Signed repair messages queued, by type; window types send one per missing shred (up to 32), others one per attempt (Pong) |
+| <span class="metrics-name">repair_&#8203;request_&#8203;tx</span><br/>{repair_&#8203;request_&#8203;type="<span class="metrics-enum">window_&#8203;index</span>"} | counter | Signed repair messages queued, by type; window types send one per missing shred (up to 32), others one per attempt (Shred at an index) |
+| <span class="metrics-name">repair_&#8203;request_&#8203;tx</span><br/>{repair_&#8203;request_&#8203;type="<span class="metrics-enum">highest_&#8203;window_&#8203;index</span>"} | counter | Signed repair messages queued, by type; window types send one per missing shred (up to 32), others one per attempt (Highest shred at or above an index) |
+| <span class="metrics-name">repair_&#8203;request_&#8203;tx</span><br/>{repair_&#8203;request_&#8203;type="<span class="metrics-enum">orphan</span>"} | counter | Signed repair messages queued, by type; window types send one per missing shred (up to 32), others one per attempt (Ancestors of an orphan slot) |
+| <span class="metrics-name">repair_&#8203;request_&#8203;tx</span><br/>{repair_&#8203;request_&#8203;type="<span class="metrics-enum">parent_&#8203;fec_&#8203;set_&#8203;count</span>"} | counter | Signed repair messages queued, by type; window types send one per missing shred (up to 32), others one per attempt (Parent and FEC set count of a block (Alpenglow)) |
+| <span class="metrics-name">repair_&#8203;request_&#8203;tx</span><br/>{repair_&#8203;request_&#8203;type="<span class="metrics-enum">fec_&#8203;set_&#8203;root</span>"} | counter | Signed repair messages queued, by type; window types send one per missing shred (up to 32), others one per attempt (Merkle root of a FEC set (Alpenglow)) |
+| <span class="metrics-name">repair_&#8203;request_&#8203;tx</span><br/>{repair_&#8203;request_&#8203;type="<span class="metrics-enum">window_&#8203;index_&#8203;for_&#8203;block_&#8203;id</span>"} | counter | Signed repair messages queued, by type; window types send one per missing shred (up to 32), others one per attempt (Shred at an index of a specific block (Alpenglow)) |
+| <span class="metrics-name">repair_&#8203;highest_&#8203;delivered_&#8203;slot</span> | gauge | Highest slot fully delivered to replay, 0 if none |
+| <span class="metrics-name">repair_&#8203;highest_&#8203;received_&#8203;slot</span> | gauge | Highest slot a shred was received for, 0 if none |
+| <span class="metrics-name">repair_&#8203;first_&#8203;turbine_&#8203;slot</span> | gauge | First turbine slot seen, the catchup target, 0 if none |
+| <span class="metrics-name">repair_&#8203;catchup_&#8203;slot</span> | gauge | Highest slot past the window with a verified cert, the staked catchup target, 0 if none |
+| <span class="metrics-name">repair_&#8203;block_&#8203;pending</span> | gauge | Blocks in the eager, notar and final block treaps, waiting for discovery |
+| <span class="metrics-name">repair_&#8203;request_&#8203;in_&#8203;flight</span> | gauge | Pending request attempts awaiting a response; a hedge is another attempt |
+| <span class="metrics-name">repair_&#8203;fec_&#8203;delivered</span> | counter | FEC sets published to replay |
+| <span class="metrics-name">repair_&#8203;shred_&#8203;old_&#8203;ignored</span> | counter | Shreds received at or below the root, ignored |
+| <span class="metrics-name">repair_&#8203;shred_&#8203;rx</span><br/>{shred_&#8203;response_&#8203;match_&#8203;result="<span class="metrics-enum">for_&#8203;block_&#8203;id</span>"} | counter | Data shreds received as repair responses, by the pending request they matched (Response to a pending WindowIndexForBlockId request) |
+| <span class="metrics-name">repair_&#8203;shred_&#8203;rx</span><br/>{shred_&#8203;response_&#8203;match_&#8203;result="<span class="metrics-enum">slot_&#8203;index</span>"} | counter | Data shreds received as repair responses, by the pending request they matched (Response to a pending WindowIndex or HighestWindowIndex request) |
+| <span class="metrics-name">repair_&#8203;shred_&#8203;rx</span><br/>{shred_&#8203;response_&#8203;match_&#8203;result="<span class="metrics-enum">unmatched</span>"} | counter | Data shreds received as repair responses, by the pending request they matched (Matched no pending request: a duplicate, or an answer to an expired or evicted request) |
+| <span class="metrics-name">repair_&#8203;shred_&#8203;rx</span><br/>{shred_&#8203;response_&#8203;match_&#8203;result="<span class="metrics-enum">eqvoc</span>"} | counter | Data shreds received as repair responses, by the pending request they matched (Repair response that showed the slot's leader equivocating, dropped before matching; only unverified-nonce HighestWindowIndex or Orphan replies) |
+| <span class="metrics-name">repair_&#8203;meta_&#8203;rx</span> | counter | Alpenglow repair metadata responses received |
+| <span class="metrics-name">repair_&#8203;meta_&#8203;malformed_&#8203;rejected</span> | counter | Metadata responses that failed to decode |
+| <span class="metrics-name">repair_&#8203;meta_&#8203;unsolicited_&#8203;rejected</span> | counter | Metadata responses matching no outstanding request |
+| <span class="metrics-name">repair_&#8203;parent_&#8203;fec_&#8203;set_&#8203;count_&#8203;accepted</span> | counter | ParentFecSetCount responses accepted |
+| <span class="metrics-name">repair_&#8203;parent_&#8203;fec_&#8203;set_&#8203;count_&#8203;failed</span> | counter | ParentFecSetCount responses that failed verification |
+| <span class="metrics-name">repair_&#8203;fec_&#8203;set_&#8203;root_&#8203;accepted</span> | counter | FecSetRoot responses accepted |
+| <span class="metrics-name">repair_&#8203;fec_&#8203;set_&#8203;root_&#8203;failed</span> | counter | FecSetRoot responses that failed verification |
+| <span class="metrics-name">repair_&#8203;replay_&#8203;root_&#8203;advanced_&#8203;rx</span> | counter | Root advanced messages received from replay |
+| <span class="metrics-name">repair_&#8203;replay_&#8203;missing_&#8203;fec_&#8203;rx</span> | counter | Missing FEC messages received from replay, each a from-root reconsume |
+| <span class="metrics-name">repair_&#8203;ping_&#8203;rejected</span><br/>{ping_&#8203;reject_&#8203;reason="<span class="metrics-enum">malformed</span>"} | counter | Pings rejected, by reason (Failed to decode) |
+| <span class="metrics-name">repair_&#8203;ping_&#8203;rejected</span><br/>{ping_&#8203;reject_&#8203;reason="<span class="metrics-enum">unknown_&#8203;peer</span>"} | counter | Pings rejected, by reason (Sender is not a known peer) |
+| <span class="metrics-name">repair_&#8203;ping_&#8203;rejected</span><br/>{ping_&#8203;reject_&#8203;reason="<span class="metrics-enum">signature_&#8203;failed</span>"} | counter | Pings rejected, by reason (Signature did not verify) |
+| <span class="metrics-name">repair_&#8203;ping_&#8203;rejected</span><br/>{ping_&#8203;reject_&#8203;reason="<span class="metrics-enum">sign_&#8203;unavailable</span>"} | counter | Pings rejected, by reason (Pong not sent: signing halted for an identity switch, or no free sign slot) |
+| <span class="metrics-name">repair_&#8203;ping_&#8203;rejected</span><br/>{ping_&#8203;reject_&#8203;reason="<span class="metrics-enum">address_&#8203;mismatch</span>"} | counter | Pings rejected, by reason (Pong not sent: sender address differs from the peer's gossip address) |
+| <span class="metrics-name">repair_&#8203;ping_&#8203;rejected</span><br/>{ping_&#8203;reject_&#8203;reason="<span class="metrics-enum">unsolicited</span>"} | counter | Pings rejected, by reason (Pong not sent: no request was sent to the peer within the ping TTL) |
+| <span class="metrics-name">repair_&#8203;response_&#8203;latency_&#8203;nanos</span> | histogram | Time from sending a repair request to receiving its response |
+| <span class="metrics-name">repair_&#8203;retry_&#8203;delay_&#8203;nanos</span> | histogram | Delay scheduled before a request's next attempt: its peer's hedge time, 16.8 ms to 100 ms, 16.8 ms after an escape |
+| <span class="metrics-name">repair_&#8203;timeout_&#8203;pending</span> | gauge | Timeouts in the eager, notar and final timeout queues |
+| <span class="metrics-name">repair_&#8203;timeout_&#8203;cancelled</span> | counter | Timeouts dropped because their block is gone or their work is done |
+| <span class="metrics-name">repair_&#8203;timeout_&#8203;no_&#8203;peer_&#8203;deferred</span> | counter | Timeouts deferred because no peer could be picked |
+| <span class="metrics-name">repair_&#8203;request_&#8203;hedged</span> | counter | Request attempts after the first for the same timer |
+| <span class="metrics-name">repair_&#8203;request_&#8203;expired</span> | counter | Pending requests with no response after about 1 s (PENDING_TTL); a peer is banned for 10 s after 32 in a row, pending-pool evictions not counted |
+| <span class="metrics-name">repair_&#8203;request_&#8203;by_&#8203;id_&#8203;expired</span> | counter | WindowIndexForBlockId requests that expired unanswered, at or above the root |
+| <span class="metrics-name">repair_&#8203;request_&#8203;stuck_&#8203;escaped</span> | counter | Retries sent to a random staked peer because 3 attempts in a row brought no new shred of the FEC set |
+| <span class="metrics-name">repair_&#8203;request_&#8203;late_&#8203;retried</span> | counter | Request attempts sent after 3 or more earlier attempts for the same timer |
+| <span class="metrics-name">repair_&#8203;escape_&#8203;peer_&#8203;hedge_&#8203;delay_&#8203;nanos</span> | histogram | Uncapped hedge time (srtt+4*rttvar, 100 ms if unmeasured) of each staked peer an escaped retry was sent to |
+| <span class="metrics-name">repair_&#8203;peer_&#8203;by_&#8203;id_&#8203;banned</span> | counter | Peers banned for 10 s after 4 WindowIndexForBlockId requests in a row expired, whatever their other replies |
+| <span class="metrics-name">repair_&#8203;ping_&#8203;probe_&#8203;tx</span> | counter | Requests sent to elicit a ping from a peer with a new address |
+| <span class="metrics-name">repair_&#8203;eager_&#8203;delay_&#8203;nanos</span> | gauge | Cluster-wide wait for turbine before a missing FEC set is repaired (srtt+4*rttvar, clamped to 20-250 ms; 250 ms until sampled) |
+| <span class="metrics-name">repair_&#8203;sign_&#8203;request_&#8203;pending</span> | gauge | Messages in the sign pool waiting for a signature from the sign tiles |
+| <span class="metrics-name">repair_&#8203;timeout_&#8203;no_&#8203;staked_&#8203;peer_&#8203;deferred</span> | counter | Of TimeoutNoPeerDeferred, retries of a block not known only from turbine, which pick only staked peers: every staked peer was banned, without an address or at its in-flight limit |
+| <span class="metrics-name">repair_&#8203;timeout_&#8203;deferred</span><br/>{timeout_&#8203;defer_&#8203;reason="<span class="metrics-enum">turbine_&#8203;active</span>"} | counter | Timeouts put back without sending a request, by reason, one per deferral (HighestWindowIndex put back: turbine delivered a FEC set of the slot within the eager wait) |
+| <span class="metrics-name">repair_&#8203;timeout_&#8203;deferred</span><br/>{timeout_&#8203;defer_&#8203;reason="<span class="metrics-enum">all_&#8203;received</span>"} | counter | Timeouts put back without sending a request, by reason, one per deferral (FEC set request put back: every data shred arrived, the set has not completed) |
+| <span class="metrics-name">repair_&#8203;timeout_&#8203;queue_&#8203;full_&#8203;dropped</span> | counter | Timeouts dropped because their role's timeout queue was full; the block goes back to its treap and the work is discovered again |
+| <span class="metrics-name">repair_&#8203;timeout_&#8203;queue_&#8203;full_&#8203;paused</span> | counter | Blocks whose discovery stopped because their role's timeout queue filled; the block goes back to its treap and its remaining FEC sets are queued later |
+| <span class="metrics-name">repair_&#8203;signing_&#8203;halted</span> | counter | Identity switches that halted signing; no request, ping or pong is signed until the switch completes and unhalts |
+| <span class="metrics-name">repair_&#8203;timeout_&#8203;overdue_&#8203;nanos</span> | gauge | Time the earliest due timeout has waited past its due time when metrics were written, 0 if none is due; grows while signing is halted or fewer than 40 sign slots are free |
+| <span class="metrics-name">repair_&#8203;first_&#8203;cert_&#8203;slot</span> | gauge | First certified slot in the window seen by a staked node, which starts its catchup, 0 if none yet |
+
+</div>
+
 ## Rserve Tile
 
 <div class="metrics">
@@ -1044,7 +1111,7 @@
 | <span class="metrics-name">replay_&#8203;cluster_&#8203;active_&#8203;stake_&#8203;lamports</span> | gauge | Cluster active stake at the optimistically confirmed slot, or the finalized slot under Alpenglow |
 | <span class="metrics-name">replay_&#8203;epoch_&#8203;credits</span> | gauge | Credits our vote account earned this epoch, as of the optimistically confirmed slot, or the finalized slot under Alpenglow, where they are lamport-denominated reward credits |
 | <span class="metrics-name">replay_&#8203;is_&#8203;vote_&#8203;account_&#8203;inadmissible</span> | gauge | Whether our vote account's stake is not admitted: at the optimistically confirmed slot it fails the validator admission ticket filter (missing, below the V4 rent-exempt minimum, or not V4 with a BLS pubkey), or it passes but has not yet been admitted at an epoch boundary |
-| <span class="metrics-name">replay_&#8203;last_&#8203;rewarded_&#8203;vote_&#8203;slot</span> | gauge | Latest slot for which our vote appears in a reward certificate, 0 if none observed (always 0 under Tower) |
+| <span class="metrics-name">replay_&#8203;last_&#8203;rewarded_&#8203;vote_&#8203;slot</span> | gauge | Latest slot for which our vote appears in a reward certificate, 0 if none observed |
 | <span class="metrics-name">replay_&#8203;store_&#8203;query_&#8203;duration_&#8203;nanos</span> | histogram | Duration of ingesting one queried FEC set into the scheduler |
 | <span class="metrics-name">replay_&#8203;store_&#8203;fec_&#8203;queried</span> | counter | FEC sets queried from the store |
 | <span class="metrics-name">replay_&#8203;store_&#8203;fec_&#8203;query_&#8203;missed</span> | counter | FEC set store queries that found no entry |
@@ -1066,12 +1133,23 @@
 | <span class="metrics-name">replay_&#8203;txncache_&#8203;page_&#8203;capacity</span> | gauge | Maximum transaction cache logical pages |
 | <span class="metrics-name">replay_&#8203;txncache_&#8203;frame_&#8203;used</span> | gauge | Transaction cache in-memory frames holding a page |
 | <span class="metrics-name">replay_&#8203;txncache_&#8203;frame_&#8203;capacity</span> | gauge | Transaction cache in-memory frames, from runtime.transaction_cache_size_mib |
+| <span class="metrics-name">replay_&#8203;stake_&#8203;delegation_&#8203;root_&#8203;used</span> | gauge | Rooted stake delegations held in memory |
+| <span class="metrics-name">replay_&#8203;stake_&#8203;delegation_&#8203;root_&#8203;capacity</span> | gauge | Rooted stake delegations that fit in memory, from runtime.stake_delegation_cache_cnt |
+| <span class="metrics-name">replay_&#8203;stake_&#8203;delegation_&#8203;root_&#8203;disk_&#8203;count</span> | gauge | Rooted stake delegations currently spilled to disk |
+| <span class="metrics-name">replay_&#8203;stake_&#8203;delegation_&#8203;delta_&#8203;used</span> | gauge | Unrooted stake delegation fork deltas held in memory |
+| <span class="metrics-name">replay_&#8203;stake_&#8203;delegation_&#8203;delta_&#8203;capacity</span> | gauge | Unrooted stake delegation fork deltas that fit in memory |
+| <span class="metrics-name">replay_&#8203;stake_&#8203;delegation_&#8203;delta_&#8203;disk_&#8203;count</span> | gauge | Unrooted stake delegation fork deltas currently spilled to disk |
+| <span class="metrics-name">replay_&#8203;stake_&#8203;delegation_&#8203;root_&#8203;spilled</span> | counter | Rooted stake delegations written to disk because the in-memory root pool was full |
+| <span class="metrics-name">replay_&#8203;stake_&#8203;delegation_&#8203;delta_&#8203;spilled</span> | counter | Stake delegation fork deltas written to disk because the in-memory delta pool was full |
+| <span class="metrics-name">replay_&#8203;stake_&#8203;delegation_&#8203;disk_&#8203;read</span> | counter | Reads from the stake delegation spill file by all tiles |
+| <span class="metrics-name">replay_&#8203;stake_&#8203;delegation_&#8203;disk_&#8203;written</span> | counter | Writes to the stake delegation spill file by all tiles |
+| <span class="metrics-name">replay_&#8203;stake_&#8203;delegation_&#8203;disk_&#8203;duration_&#8203;nanos</span> | counter | Time all tiles spent in stake delegation spill file reads and writes |
 | <span class="metrics-name">replay_&#8203;is_&#8203;caught_&#8203;up</span> | gauge | Whether replay has caught up to the cluster tip; set once per run, never cleared |
 | <span class="metrics-name">replay_&#8203;root_&#8203;slot</span> | gauge | Most recent consensus root, 0 if none |
 | <span class="metrics-name">replay_&#8203;root_&#8203;slot_&#8203;distance</span> | gauge | Slots between the current reset slot and our root |
 | <span class="metrics-name">replay_&#8203;leader_&#8203;slot</span> | gauge | Slot at which we are currently leader, or 0 if none |
 | <span class="metrics-name">replay_&#8203;next_&#8203;leader_&#8203;slot</span> | gauge | Slot at which we are next leader, or 0 if none. If we are currently leader, this is the same as the current leader slot |
-| <span class="metrics-name">replay_&#8203;reset_&#8203;slot</span> | gauge | Slot replay last reset to (Tower reset slot; under Alpenglow the newest replayed slot or parent-ready parent); can decrease |
+| <span class="metrics-name">replay_&#8203;reset_&#8203;slot</span> | gauge | Slot replay last reset to (the newest replayed slot or parent-ready parent); can decrease |
 | <span class="metrics-name">replay_&#8203;bank_&#8203;capacity</span> | gauge | Maximum number of banks we can have alive |
 | <span class="metrics-name">replay_&#8203;bank_&#8203;used</span> | gauge | Banks we currently have alive |
 | <span class="metrics-name">replay_&#8203;last_&#8203;reassembly_&#8203;dequeued_&#8203;slot</span> | gauge | Slot of the FEC set most recently dequeued from reassembly for replay, 0 if none |
@@ -1171,7 +1249,7 @@
 | <span class="metrics-name">replay_&#8203;fec_&#8203;poll_&#8203;skipped</span><br/>{fec_&#8203;poll_&#8203;skip_&#8203;reason="<span class="metrics-enum">bank_&#8203;full</span>"} | counter | Replay loop iterations that processed no FEC set, by reason (The bank pool was full) |
 | <span class="metrics-name">replay_&#8203;fec_&#8203;poll_&#8203;skipped</span><br/>{fec_&#8203;poll_&#8203;skip_&#8203;reason="<span class="metrics-enum">lane_&#8203;wait</span>"} | counter | Replay loop iterations that processed no FEC set, by reason (A block's first FEC set waited for a staging lane) |
 | <span class="metrics-name">replay_&#8203;fec_&#8203;parent_&#8203;missing_&#8203;dropped</span> | counter | FEC sets dropped because replay could not resolve the block's parent (Alpenglow), which was dropped on a dead lineage, evicted with its tracking slot reused, or rooted past |
-| <span class="metrics-name">replay_&#8203;fec_&#8203;rooted_&#8203;past_&#8203;skipped</span> | counter | Rotor FEC sets of a slot at or below the published root, or of a block whose parent is below it, skipped rather than dropped: no redelivery can replay them |
+| <span class="metrics-name">replay_&#8203;fec_&#8203;rooted_&#8203;past_&#8203;skipped</span> | counter | Repair FEC sets of a slot at or below the published root, or of a block whose parent is below it, skipped rather than dropped: no redelivery can replay them |
 | <span class="metrics-name">replay_&#8203;root_&#8203;advance_&#8203;deferred</span> | counter | Times the storage root could not advance to the consensus root yet |
 | <span class="metrics-name">replay_&#8203;leader_&#8203;window_&#8203;already_&#8203;produced</span> | counter | Leader windows given up because the cluster already produced one of their slots, eg. our own past slots replayed after a restart (Alpenglow) |
 | <span class="metrics-name">replay_&#8203;leader_&#8203;window_&#8203;superseded</span> | counter | Leader windows given up after votor sent them because certificates already let a later window start (Alpenglow) |
@@ -1493,7 +1571,7 @@
 | Metric | Type | Description |
 |--------|------|-------------|
 | <span class="metrics-name">diag_&#8203;bundle_&#8203;state</span> | gauge | Bundle subsystem state: 0=disconnected (All bundle tiles disconnected), 1=connecting (At least one bundle tile connecting, none connected or sleeping), 2=connected (At least one bundle tile connected), 3=sleeping (At least one bundle tile sleeping, none connected), 4=disabled (No bundle tiles configured) |
-| <span class="metrics-name">diag_&#8203;vote_&#8203;state</span> | gauge | Vote subsystem state: 0=disabled (Non-voting or no tower tile), 1=not_started (Tower tile not running or no votes cast yet), 2=delinquent (Vote distance exceeds threshold or vote stalled), 3=voting (Voting normally), 4=inadmissible (Voting, but the vote account fails the validator admission ticket filter) |
+| <span class="metrics-name">diag_&#8203;vote_&#8203;state</span> | gauge | Vote subsystem state: 0=disabled (Non-voting or no votor tile), 1=not_started (Votor tile not running or no votes cast yet), 2=delinquent (Vote distance exceeds threshold or vote stalled), 3=voting (Voting normally), 4=inadmissible (Voting, but the vote account fails the validator admission ticket filter) |
 | <span class="metrics-name">diag_&#8203;replay_&#8203;state</span> | gauge | Replay subsystem state: 0=disabled (No replay tile), 1=not_started (Replay tile not running or slots are zero), 2=behind (Replay lagging behind turbine or reset slot stalled), 3=running (Replay keeping up) |
 | <span class="metrics-name">diag_&#8203;turbine_&#8203;state</span> | gauge | Turbine subsystem state: 0=disabled (No shred or replay tiles), 1=not_started (Tiles not all running or turbine slot is zero), 2=stalled (Turbine slot not advancing), 3=repair_outpacing (Repair byte throughput exceeds turbine), 4=running (Turbine receiving normally) |
 | <span class="metrics-name">diag_&#8203;builder_&#8203;state</span> | gauge | External block builder subsystem state: 0=disabled (No block builder configured), 1=disconnected (Block builder disconnected), 2=connecting (Block builder connection in progress), 3=unhealthy (Connected, but the block builder is not in a usable state), 4=connected (Block builder connected and healthy) |
@@ -1897,7 +1975,7 @@
 |--------|------|-------------|
 | <span class="metrics-name">mlx5_&#8203;pkt_&#8203;rx</span> | counter | Packets successfully published to output links |
 | <span class="metrics-name">mlx5_&#8203;pkt_&#8203;rx_&#8203;bytes</span> | counter | Bytes of packets successfully published to output links |
-| <span class="metrics-name">mlx5_&#8203;pkt_&#8203;rx_&#8203;dropped</span><br/>{pkt_&#8203;rx_&#8203;drop_&#8203;reason="<span class="metrics-enum">malformed</span>"} | counter | Received packets dropped, by reason (Undersized, oversized, or malformed Ethernet, IPv4 or UDP headers) |
+| <span class="metrics-name">mlx5_&#8203;pkt_&#8203;rx_&#8203;dropped</span><br/>{pkt_&#8203;rx_&#8203;drop_&#8203;reason="<span class="metrics-enum">malformed</span>"} | counter | Received packets dropped, by reason (Undersized, oversized, or malformed Ethernet, IPv4 or UDP headers, or IPv4 options present) |
 | <span class="metrics-name">mlx5_&#8203;pkt_&#8203;rx_&#8203;dropped</span><br/>{pkt_&#8203;rx_&#8203;drop_&#8203;reason="<span class="metrics-enum">dst_&#8203;ip_&#8203;mismatch</span>"} | counter | Received packets dropped, by reason (Destination IP does not match the bind address) |
 | <span class="metrics-name">mlx5_&#8203;pkt_&#8203;rx_&#8203;dropped</span><br/>{pkt_&#8203;rx_&#8203;drop_&#8203;reason="<span class="metrics-enum">dst_&#8203;port_&#8203;unbound</span>"} | counter | Received packets dropped, by reason (No output link for the destination UDP port) |
 | <span class="metrics-name">mlx5_&#8203;pkt_&#8203;rx_&#8203;dropped</span><br/>{pkt_&#8203;rx_&#8203;drop_&#8203;reason="<span class="metrics-enum">gre_&#8203;invalid</span>"} | counter | Received packets dropped, by reason (GRE tunnel peer or headers invalid) |
@@ -1954,7 +2032,7 @@
 |--------|------|-------------|
 | <span class="metrics-name">iavf_&#8203;pkt_&#8203;rx</span> | counter | Packets successfully published to output links |
 | <span class="metrics-name">iavf_&#8203;pkt_&#8203;rx_&#8203;bytes</span> | counter | Bytes of packets successfully published to output links |
-| <span class="metrics-name">iavf_&#8203;pkt_&#8203;rx_&#8203;dropped</span><br/>{pkt_&#8203;rx_&#8203;drop_&#8203;reason="<span class="metrics-enum">malformed</span>"} | counter | Received packets dropped, by reason (Undersized, oversized, or malformed Ethernet, IPv4 or UDP headers) |
+| <span class="metrics-name">iavf_&#8203;pkt_&#8203;rx_&#8203;dropped</span><br/>{pkt_&#8203;rx_&#8203;drop_&#8203;reason="<span class="metrics-enum">malformed</span>"} | counter | Received packets dropped, by reason (Undersized, oversized, or malformed Ethernet, IPv4 or UDP headers, or IPv4 options present) |
 | <span class="metrics-name">iavf_&#8203;pkt_&#8203;rx_&#8203;dropped</span><br/>{pkt_&#8203;rx_&#8203;drop_&#8203;reason="<span class="metrics-enum">dst_&#8203;ip_&#8203;mismatch</span>"} | counter | Received packets dropped, by reason (Destination IP does not match the bind address) |
 | <span class="metrics-name">iavf_&#8203;pkt_&#8203;rx_&#8203;dropped</span><br/>{pkt_&#8203;rx_&#8203;drop_&#8203;reason="<span class="metrics-enum">dst_&#8203;port_&#8203;unbound</span>"} | counter | Received packets dropped, by reason (No output link for the destination UDP port) |
 | <span class="metrics-name">iavf_&#8203;pkt_&#8203;rx_&#8203;dropped</span><br/>{pkt_&#8203;rx_&#8203;drop_&#8203;reason="<span class="metrics-enum">gre_&#8203;invalid</span>"} | counter | Received packets dropped, by reason (GRE tunnel peer or headers invalid) |
@@ -1980,6 +2058,15 @@
 | <span class="metrics-name">iavf_&#8203;tx_&#8203;buffer_&#8203;used</span> | gauge | TX buffers pending or submitted to the NIC |
 | <span class="metrics-name">iavf_&#8203;tx_&#8203;buffer_&#8203;free</span> | gauge | TX buffers available for a new transmit job |
 | <span class="metrics-name">iavf_&#8203;non_&#8203;fd_&#8203;pkt_&#8203;rx</span> | counter | Packets received by IAVF VFs that are not intended for Firedancer |
+
+</div>
+
+## Failov Tile
+
+<div class="metrics">
+
+| Metric | Type | Description |
+|--------|------|-------------|
 
 </div>
 
@@ -2074,73 +2161,6 @@
 |--------|------|-------------|
 | <span class="metrics-name">benchs_&#8203;txn_&#8203;tx</span> | counter | Benchmark transactions sent |
 | <span class="metrics-name">benchs_&#8203;txn_&#8203;dropped</span> | counter | Benchmark transactions dropped because no QUIC connection was established or it had no free stream |
-
-</div>
-
-## Rotor Tile
-
-<div class="metrics">
-
-| Metric | Type | Description |
-|--------|------|-------------|
-| <span class="metrics-name">rotor_&#8203;pkt_&#8203;tx</span> | counter | Network packets sent, including requests, pings and pongs |
-| <span class="metrics-name">rotor_&#8203;request_&#8203;tx</span><br/>{repair_&#8203;request_&#8203;type="<span class="metrics-enum">pong</span>"} | counter | Signed repair messages queued, by type; window types send one per missing shred (up to 32), others one per attempt (Pong) |
-| <span class="metrics-name">rotor_&#8203;request_&#8203;tx</span><br/>{repair_&#8203;request_&#8203;type="<span class="metrics-enum">window_&#8203;index</span>"} | counter | Signed repair messages queued, by type; window types send one per missing shred (up to 32), others one per attempt (Shred at an index) |
-| <span class="metrics-name">rotor_&#8203;request_&#8203;tx</span><br/>{repair_&#8203;request_&#8203;type="<span class="metrics-enum">highest_&#8203;window_&#8203;index</span>"} | counter | Signed repair messages queued, by type; window types send one per missing shred (up to 32), others one per attempt (Highest shred at or above an index) |
-| <span class="metrics-name">rotor_&#8203;request_&#8203;tx</span><br/>{repair_&#8203;request_&#8203;type="<span class="metrics-enum">orphan</span>"} | counter | Signed repair messages queued, by type; window types send one per missing shred (up to 32), others one per attempt (Ancestors of an orphan slot) |
-| <span class="metrics-name">rotor_&#8203;request_&#8203;tx</span><br/>{repair_&#8203;request_&#8203;type="<span class="metrics-enum">parent_&#8203;fec_&#8203;set_&#8203;count</span>"} | counter | Signed repair messages queued, by type; window types send one per missing shred (up to 32), others one per attempt (Parent and FEC set count of a block (Alpenglow)) |
-| <span class="metrics-name">rotor_&#8203;request_&#8203;tx</span><br/>{repair_&#8203;request_&#8203;type="<span class="metrics-enum">fec_&#8203;set_&#8203;root</span>"} | counter | Signed repair messages queued, by type; window types send one per missing shred (up to 32), others one per attempt (Merkle root of a FEC set (Alpenglow)) |
-| <span class="metrics-name">rotor_&#8203;request_&#8203;tx</span><br/>{repair_&#8203;request_&#8203;type="<span class="metrics-enum">window_&#8203;index_&#8203;for_&#8203;block_&#8203;id</span>"} | counter | Signed repair messages queued, by type; window types send one per missing shred (up to 32), others one per attempt (Shred at an index of a specific block (Alpenglow)) |
-| <span class="metrics-name">rotor_&#8203;highest_&#8203;delivered_&#8203;slot</span> | gauge | Highest slot fully delivered to replay, 0 if none |
-| <span class="metrics-name">rotor_&#8203;highest_&#8203;received_&#8203;slot</span> | gauge | Highest slot a shred was received for, 0 if none |
-| <span class="metrics-name">rotor_&#8203;first_&#8203;turbine_&#8203;slot</span> | gauge | First turbine slot seen, the catchup target, 0 if none |
-| <span class="metrics-name">rotor_&#8203;catchup_&#8203;slot</span> | gauge | Highest slot past the window with a verified cert, the staked catchup target, 0 if none |
-| <span class="metrics-name">rotor_&#8203;block_&#8203;pending</span> | gauge | Blocks in the eager, notar and final block treaps, waiting for discovery |
-| <span class="metrics-name">rotor_&#8203;request_&#8203;in_&#8203;flight</span> | gauge | Pending request attempts awaiting a response; a hedge is another attempt |
-| <span class="metrics-name">rotor_&#8203;fec_&#8203;delivered</span> | counter | FEC sets published to replay |
-| <span class="metrics-name">rotor_&#8203;shred_&#8203;old_&#8203;ignored</span> | counter | Shreds received at or below the root, ignored |
-| <span class="metrics-name">rotor_&#8203;shred_&#8203;rx</span><br/>{shred_&#8203;response_&#8203;match_&#8203;result="<span class="metrics-enum">for_&#8203;block_&#8203;id</span>"} | counter | Data shreds received as repair responses, by the pending request they matched (Response to a pending WindowIndexForBlockId request) |
-| <span class="metrics-name">rotor_&#8203;shred_&#8203;rx</span><br/>{shred_&#8203;response_&#8203;match_&#8203;result="<span class="metrics-enum">slot_&#8203;index</span>"} | counter | Data shreds received as repair responses, by the pending request they matched (Response to a pending WindowIndex or HighestWindowIndex request) |
-| <span class="metrics-name">rotor_&#8203;shred_&#8203;rx</span><br/>{shred_&#8203;response_&#8203;match_&#8203;result="<span class="metrics-enum">unmatched</span>"} | counter | Data shreds received as repair responses, by the pending request they matched (Matched no pending request: a duplicate, or an answer to an expired or evicted request) |
-| <span class="metrics-name">rotor_&#8203;shred_&#8203;rx</span><br/>{shred_&#8203;response_&#8203;match_&#8203;result="<span class="metrics-enum">eqvoc</span>"} | counter | Data shreds received as repair responses, by the pending request they matched (Repair response that showed the slot's leader equivocating, dropped before matching; only unverified-nonce HighestWindowIndex or Orphan replies) |
-| <span class="metrics-name">rotor_&#8203;meta_&#8203;rx</span> | counter | Alpenglow repair metadata responses received |
-| <span class="metrics-name">rotor_&#8203;meta_&#8203;malformed_&#8203;rejected</span> | counter | Metadata responses that failed to decode |
-| <span class="metrics-name">rotor_&#8203;meta_&#8203;unsolicited_&#8203;rejected</span> | counter | Metadata responses matching no outstanding request |
-| <span class="metrics-name">rotor_&#8203;parent_&#8203;fec_&#8203;set_&#8203;count_&#8203;accepted</span> | counter | ParentFecSetCount responses accepted |
-| <span class="metrics-name">rotor_&#8203;parent_&#8203;fec_&#8203;set_&#8203;count_&#8203;failed</span> | counter | ParentFecSetCount responses that failed verification |
-| <span class="metrics-name">rotor_&#8203;fec_&#8203;set_&#8203;root_&#8203;accepted</span> | counter | FecSetRoot responses accepted |
-| <span class="metrics-name">rotor_&#8203;fec_&#8203;set_&#8203;root_&#8203;failed</span> | counter | FecSetRoot responses that failed verification |
-| <span class="metrics-name">rotor_&#8203;replay_&#8203;root_&#8203;advanced_&#8203;rx</span> | counter | Root advanced messages received from replay |
-| <span class="metrics-name">rotor_&#8203;replay_&#8203;missing_&#8203;fec_&#8203;rx</span> | counter | Missing FEC messages received from replay, each a from-root reconsume |
-| <span class="metrics-name">rotor_&#8203;ping_&#8203;rejected</span><br/>{ping_&#8203;reject_&#8203;reason="<span class="metrics-enum">malformed</span>"} | counter | Pings rejected, by reason (Failed to decode) |
-| <span class="metrics-name">rotor_&#8203;ping_&#8203;rejected</span><br/>{ping_&#8203;reject_&#8203;reason="<span class="metrics-enum">unknown_&#8203;peer</span>"} | counter | Pings rejected, by reason (Sender is not a known peer) |
-| <span class="metrics-name">rotor_&#8203;ping_&#8203;rejected</span><br/>{ping_&#8203;reject_&#8203;reason="<span class="metrics-enum">signature_&#8203;failed</span>"} | counter | Pings rejected, by reason (Signature did not verify) |
-| <span class="metrics-name">rotor_&#8203;ping_&#8203;rejected</span><br/>{ping_&#8203;reject_&#8203;reason="<span class="metrics-enum">sign_&#8203;unavailable</span>"} | counter | Pings rejected, by reason (Pong not sent: signing halted for an identity switch, or no free sign slot) |
-| <span class="metrics-name">rotor_&#8203;ping_&#8203;rejected</span><br/>{ping_&#8203;reject_&#8203;reason="<span class="metrics-enum">address_&#8203;mismatch</span>"} | counter | Pings rejected, by reason (Pong not sent: sender address differs from the peer's gossip address) |
-| <span class="metrics-name">rotor_&#8203;ping_&#8203;rejected</span><br/>{ping_&#8203;reject_&#8203;reason="<span class="metrics-enum">unsolicited</span>"} | counter | Pings rejected, by reason (Pong not sent: no request was sent to the peer within the ping TTL) |
-| <span class="metrics-name">rotor_&#8203;response_&#8203;latency_&#8203;nanos</span> | histogram | Time from sending a repair request to receiving its response |
-| <span class="metrics-name">rotor_&#8203;retry_&#8203;delay_&#8203;nanos</span> | histogram | Delay scheduled before a request's next attempt: its peer's hedge time, 16.8 ms to 100 ms, 16.8 ms after an escape |
-| <span class="metrics-name">rotor_&#8203;timeout_&#8203;pending</span> | gauge | Timeouts in the eager, notar and final timeout queues |
-| <span class="metrics-name">rotor_&#8203;timeout_&#8203;cancelled</span> | counter | Timeouts dropped because their block is gone or their work is done |
-| <span class="metrics-name">rotor_&#8203;timeout_&#8203;no_&#8203;peer_&#8203;deferred</span> | counter | Timeouts deferred because no peer could be picked |
-| <span class="metrics-name">rotor_&#8203;request_&#8203;hedged</span> | counter | Request attempts after the first for the same timer |
-| <span class="metrics-name">rotor_&#8203;request_&#8203;expired</span> | counter | Pending requests with no response after about 1 s (PENDING_TTL); a peer is banned for 10 s after 32 in a row, pending-pool evictions not counted |
-| <span class="metrics-name">rotor_&#8203;request_&#8203;by_&#8203;id_&#8203;expired</span> | counter | WindowIndexForBlockId requests that expired unanswered, at or above the root |
-| <span class="metrics-name">rotor_&#8203;request_&#8203;stuck_&#8203;escaped</span> | counter | Retries sent to a random staked peer because 3 attempts in a row brought no new shred of the FEC set |
-| <span class="metrics-name">rotor_&#8203;request_&#8203;late_&#8203;retried</span> | counter | Request attempts sent after 3 or more earlier attempts for the same timer |
-| <span class="metrics-name">rotor_&#8203;escape_&#8203;peer_&#8203;hedge_&#8203;delay_&#8203;nanos</span> | histogram | Uncapped hedge time (srtt+4*rttvar, 100 ms if unmeasured) of each staked peer an escaped retry was sent to |
-| <span class="metrics-name">rotor_&#8203;peer_&#8203;by_&#8203;id_&#8203;banned</span> | counter | Peers banned for 10 s after 4 WindowIndexForBlockId requests in a row expired, whatever their other replies |
-| <span class="metrics-name">rotor_&#8203;ping_&#8203;probe_&#8203;tx</span> | counter | Requests sent to elicit a ping from a peer with a new address |
-| <span class="metrics-name">rotor_&#8203;eager_&#8203;delay_&#8203;nanos</span> | gauge | Cluster-wide wait for turbine before a missing FEC set is repaired (srtt+4*rttvar, clamped to 20-250 ms; 250 ms until sampled) |
-| <span class="metrics-name">rotor_&#8203;sign_&#8203;request_&#8203;pending</span> | gauge | Messages in the sign pool waiting for a signature from the sign tiles |
-| <span class="metrics-name">rotor_&#8203;timeout_&#8203;no_&#8203;staked_&#8203;peer_&#8203;deferred</span> | counter | Of TimeoutNoPeerDeferred, retries of a block not known only from turbine, which pick only staked peers: every staked peer was banned, without an address or at its in-flight limit |
-| <span class="metrics-name">rotor_&#8203;timeout_&#8203;deferred</span><br/>{timeout_&#8203;defer_&#8203;reason="<span class="metrics-enum">turbine_&#8203;active</span>"} | counter | Timeouts put back without sending a request, by reason, one per deferral (HighestWindowIndex put back: turbine delivered a FEC set of the slot within the eager wait) |
-| <span class="metrics-name">rotor_&#8203;timeout_&#8203;deferred</span><br/>{timeout_&#8203;defer_&#8203;reason="<span class="metrics-enum">all_&#8203;received</span>"} | counter | Timeouts put back without sending a request, by reason, one per deferral (FEC set request put back: every data shred arrived, the set has not completed) |
-| <span class="metrics-name">rotor_&#8203;timeout_&#8203;queue_&#8203;full_&#8203;dropped</span> | counter | Timeouts dropped because their role's timeout queue was full; the block goes back to its treap and the work is discovered again |
-| <span class="metrics-name">rotor_&#8203;timeout_&#8203;queue_&#8203;full_&#8203;paused</span> | counter | Blocks whose discovery stopped because their role's timeout queue filled; the block goes back to its treap and its remaining FEC sets are queued later |
-| <span class="metrics-name">rotor_&#8203;signing_&#8203;halted</span> | counter | Identity switches that halted signing; no request, ping or pong is signed until the switch completes and unhalts |
-| <span class="metrics-name">rotor_&#8203;timeout_&#8203;overdue_&#8203;nanos</span> | gauge | Time the earliest due timeout has waited past its due time when metrics were written, 0 if none is due; grows while signing is halted or fewer than 40 sign slots are free |
-| <span class="metrics-name">rotor_&#8203;first_&#8203;cert_&#8203;slot</span> | gauge | First certified slot in the window seen by a staked node, which starts its catchup, 0 if none yet |
 
 </div>
 

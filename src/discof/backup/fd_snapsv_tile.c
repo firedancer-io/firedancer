@@ -162,7 +162,8 @@ struct snapsv_conn {
   fd_kernel_timespec_t idle_timeout;
 
   /* active_ts: last time this conn did work worth keeping it alive for:
-     accept or snapshot payload delivery.  In unix nanoseconds. */
+     accept, a completed request, or snapshot payload delivery.  In unix
+     nanoseconds. */
   long active_ts;
 
   fd_ip6_addr_t peer_ip;
@@ -800,6 +801,7 @@ conn_req_next( fd_snapsv_t * ctx,
   memset( &conn->req,  0, sizeof(conn->req ) );
   memset( &conn->res,  0, sizeof(conn->res ) );
   memset( &conn->snap, 0, sizeof(conn->snap) );
+  conn->snap.key = (snap_key_t){ ULONG_MAX, ULONG_MAX };
   conn->state = CONN_STATE_REQ_PEEK;
   prep_peek( ctx, conn_idx );
 }
@@ -885,6 +887,7 @@ conn_req_done( fd_snapsv_t *       ctx,
     conn_close( ctx, stem, conn_idx, now );
     return;
   }
+  ctx->conn0[ conn_idx ].active_ts = now;
   conn_req_next( ctx, conn_idx );
 }
 
@@ -973,6 +976,7 @@ handle_accept( fd_snapsv_t * ctx,
   }
 
   conn->active_ts = now;
+  conn->state = CONN_STATE_REQ_PEEK;
 
   prep_peek( ctx, conn_idx );
   if( FD_LIKELY( ctx->conn_cnt<ctx->conn_max ) ) {
@@ -1614,8 +1618,6 @@ handle_peek( fd_snapsv_t *       ctx,
   }
   uint peek_len = (uint)res;
 
-  FD_MCNT_INC( SNAPSV, HTTP_RX_BYTES, (ulong)res );
-
   char const * method;  ulong method_len;
   char const * path;    ulong path_len;
   int minor_version;
@@ -1638,6 +1640,7 @@ handle_peek( fd_snapsv_t *       ctx,
       return;
     }
     /* avoid copying the same data again */
+    FD_MCNT_INC( SNAPSV, HTTP_RX_BYTES, peek_len );
     prep_consume( ctx, conn_idx, peek_len, UDATA_OP_CONSUME_FRAG );
     conn->state = CONN_STATE_REQ_SKIP;
     return;
@@ -1645,6 +1648,7 @@ handle_peek( fd_snapsv_t *       ctx,
 
   if( FD_UNLIKELY( parsed<0 ) ) { /* malformed request head */
     FD_LOG_DEBUG(( "conn %u: malformed request", conn_idx ));
+    FD_MCNT_INC( SNAPSV, HTTP_RX_BYTES, peek_len );
     conn_close( ctx, stem, conn_idx, now );
     return;
   }
@@ -1652,6 +1656,7 @@ handle_peek( fd_snapsv_t *       ctx,
   /* valid request at this point */
 
   FD_CHECK_ERR( (uint)parsed > conn->req.len, "request head shrank" );
+  FD_MCNT_INC( SNAPSV, HTTP_RX_BYTES, (uint)parsed - conn->req.len );
   prep_consume( ctx, conn_idx, (uint)parsed - conn->req.len, UDATA_OP_CONSUME_TAIL );
   conn->state       = CONN_STATE_REQ_DONE;
   conn->req.len     = (uint)parsed - conn->req.len;
@@ -1726,7 +1731,6 @@ handle_peek( fd_snapsv_t *       ctx,
   }
 
   conn->snap.range    = 0U;
-  conn->snap.key      = (snap_key_t){ ULONG_MAX, ULONG_MAX };
   conn->snap.req_off0 = 0UL;
   conn->snap.req_off1 = 0UL;
 
@@ -1810,6 +1814,7 @@ handle_consume_frag_comp( fd_snapsv_t *       ctx,
   snapsv_conn_t * conn = &ctx->conn0[ conn_idx ];
   FD_CHECK_ERR( conn->state==CONN_STATE_REQ_SKIP, "conn state confusion" );
   conn->req.len += consume_len;
+  conn->state = CONN_STATE_REQ_PEEK;
   prep_peek( ctx, conn_idx );
 }
 

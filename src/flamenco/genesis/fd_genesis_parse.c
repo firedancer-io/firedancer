@@ -70,7 +70,7 @@ fd_genesis_parse( fd_genesis_t * genesis,
     CHECK_LEFT(  8UL );                                            INC(  8UL ); /* lamports */
     CHECK_LEFT(  8UL ); ulong data_len = FD_LOAD( ulong, CURSOR ); INC(  8UL );
     if( FD_UNLIKELY( data_len>FD_RUNTIME_ACC_SZ_MAX ) ) {
-      FD_LOG_WARNING(( "genesis builtin account data length %lu exceeds max size %lu", data_len, FD_RUNTIME_ACC_SZ_MAX ));
+      FD_LOG_WARNING(( "genesis account data length %lu exceeds max size %lu", data_len, FD_RUNTIME_ACC_SZ_MAX ));
       return NULL;
     }
     CHECK_LEFT( data_len ); INC( data_len ); /* data */
@@ -122,6 +122,7 @@ fd_genesis_parse( fd_genesis_t * genesis,
 
   CHECK_LEFT( 8UL ); genesis->poh.tick_duration_secs = FD_LOAD( ulong, CURSOR ); INC( 8UL );
   CHECK_LEFT( 4UL ); genesis->poh.tick_duration_ns   = FD_LOAD( uint,  CURSOR ); INC( 4UL );
+  CHECK( genesis->poh.tick_duration_ns<1000000000U );
   CHECK_LEFT( 1UL ); int has_target_tick_count       = FD_LOAD( uchar, CURSOR ); INC( 1UL );
   CHECK( has_target_tick_count<=1 );
   if( has_target_tick_count ) { CHECK_LEFT( 8UL ); genesis->poh.target_tick_count = FD_LOAD( ulong, CURSOR ); INC( 8UL ); }

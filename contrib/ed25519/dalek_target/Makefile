@@ -6,7 +6,7 @@ RUSTFLAGS+=-Cllvm-args=-sanitizer-coverage-pc-table
 RUSTFLAGS+=-Clink-dead-code
 RUSTFLAGS+=-Cforce-frame-pointers=yes
 
-RUST_VERSION:=1.76.0
+RUST_VERSION:=1.85.1
 
 CARGO?=cargo
 

@@ -94,7 +94,7 @@
                 "all": ["malformed", "dst_ip_mismatch", "dst_port_unbound", "gre_invalid", "gre_unconfigured"]
             },
             "fields": {
-                "malformed":        { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Undersized, oversized, or malformed Ethernet, IPv4 or UDP headers" },
+                "malformed":        { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Undersized, oversized, or malformed Ethernet, IPv4 or UDP headers, or IPv4 options present" },
                 "dst_ip_mismatch":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Destination IP does not match the bind address" },
                 "dst_port_unbound": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "No output link for the destination UDP port" },
                 "gre_invalid":      { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "GRE tunnel peer or headers invalid" },

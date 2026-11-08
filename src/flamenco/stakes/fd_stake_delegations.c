@@ -43,6 +43,14 @@ struct fd_stake_delegations {
   uint  disk_root_gen_;           /* buckets with an older generation are empty */
   uint  disk_delta_gen_;
 
+  /* Spill metrics.  Counts only grow; disk_ticks_ is in fd_tickcount()
+     units. */
+  ulong root_spilled_cnt_;
+  ulong delta_spilled_cnt_;
+  ulong disk_read_cnt_;
+  ulong disk_written_cnt_;
+  ulong disk_ticks_;
+
   /* Stake totals for the current root. */
   ulong effective_stake;
   ulong activating_stake;
@@ -209,6 +217,18 @@ disk_delta_record_off( fd_stake_delegations_t const * stake_delegations ) {
                             alignof(disk_delta_t) );
 }
 
+/* Iteration reads the spill file through a const join. */
+
+static inline void
+disk_metrics_add( fd_stake_delegations_t const * stake_delegations,
+                  int                            write,
+                  long                           t0 ) {
+  fd_stake_delegations_t * metrics = (fd_stake_delegations_t *)stake_delegations;
+  if( write ) metrics->disk_written_cnt_++;
+  else        metrics->disk_read_cnt_++;
+  metrics->disk_ticks_ += (ulong)(fd_tickcount()-t0);
+}
+
 /* Reads short at EOF zero-fill.  The spill file is sparse and is not
    required to be pre-sized. */
 
@@ -217,6 +237,7 @@ disk_read( fd_stake_delegations_t const * stake_delegations,
            void *                         dst,
            ulong                          off,
            ulong                          sz ) {
+  long  t0  = fd_tickcount();
   ulong got = 0UL;
   while( got<sz ) {
     long n = pread( stake_delegations->disk_fd_, (uchar *)dst+got, sz-got, (long)(off+got) );
@@ -228,6 +249,7 @@ disk_read( fd_stake_delegations_t const * stake_delegations,
     got += (ulong)n;
   }
   if( FD_UNLIKELY( got<sz ) ) fd_memset( (uchar *)dst+got, 0, sz-got );
+  disk_metrics_add( stake_delegations, 0, t0 );
 }
 
 static void
@@ -235,6 +257,7 @@ disk_write( fd_stake_delegations_t const * stake_delegations,
             void const *                   src,
             ulong                          off,
             ulong                          sz ) {
+  long  t0  = fd_tickcount();
   ulong put = 0UL;
   while( put<sz ) {
     long n = pwrite( stake_delegations->disk_fd_, (uchar const *)src+put, sz-put, (long)(off+put) );
@@ -243,6 +266,7 @@ disk_write( fd_stake_delegations_t const * stake_delegations,
     if( FD_UNLIKELY( !n ) ) errno = EIO;
     FD_LOG_CRIT(( "pwrite(stake delegation spill file, fd=%d) failed (%i-%s)", stake_delegations->disk_fd_, errno, fd_io_strerror( errno ) ));
   }
+  disk_metrics_add( stake_delegations, 1, t0 );
 }
 
 static inline int
@@ -522,6 +546,7 @@ disk_root_insert( fd_stake_delegations_t *      stake_delegations,
   disk_bucket_store( stake_delegations, 0UL, free_bucket_idx,
                      stake_delegations->disk_root_gen_, idx );
   stake_delegations->disk_root_cnt_++;
+  stake_delegations->root_spilled_cnt_++;
 }
 
 static void
@@ -582,6 +607,7 @@ disk_delta_insert( fd_stake_delegations_t *      stake_delegations,
                      stake_delegations->disk_delta_gen_, idx );
   fork->disk_delta_head = idx;
   stake_delegations->disk_delta_cnt_++;
+  stake_delegations->delta_spilled_cnt_++;
 }
 
 static void
@@ -645,23 +671,17 @@ fd_stake_delegations_align( void ) {
   return FD_STAKE_DELEGATIONS_ALIGN;
 }
 
-static inline ulong
-fd_stake_delegations_delta_pool_ele_max( ulong root_ele_max ) {
-  return fd_ulong_max( root_ele_max/FD_STAKE_DELEGATIONS_DELTA_POOL_DIVISOR, 1UL );
-}
-
 ulong
 fd_stake_delegations_footprint( ulong max_stake_accounts,
                                 ulong max_live_slots ) {
   ulong map_chain_cnt       = root_map_chain_cnt_est( max_stake_accounts );
-  ulong delta_ele_max       = fd_stake_delegations_delta_pool_ele_max( max_stake_accounts );
-  ulong delta_map_chain_cnt = delta_map_chain_cnt_est( delta_ele_max );
+  ulong delta_map_chain_cnt = delta_map_chain_cnt_est( max_stake_accounts );
 
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, fd_stake_delegations_align(), sizeof(fd_stake_delegations_t) );
   l = FD_LAYOUT_APPEND( l, root_pool_align(),            root_pool_footprint( max_stake_accounts ) );
   l = FD_LAYOUT_APPEND( l, root_map_align(),             root_map_footprint( map_chain_cnt ) );
-  l = FD_LAYOUT_APPEND( l, delta_pool_align(),           delta_pool_footprint( delta_ele_max ) );
+  l = FD_LAYOUT_APPEND( l, delta_pool_align(),           delta_pool_footprint( max_stake_accounts ) );
   l = FD_LAYOUT_APPEND( l, fork_pool_align(),            fork_pool_footprint( max_live_slots ) );
   l = FD_LAYOUT_APPEND( l, delta_map_align(),            delta_map_footprint( delta_map_chain_cnt ) );
 
@@ -718,14 +738,13 @@ fd_stake_delegations_new( void * mem,
   }
 
   ulong map_chain_cnt       = root_map_chain_cnt_est( max_stake_accounts );
-  ulong delta_ele_max       = fd_stake_delegations_delta_pool_ele_max( max_stake_accounts );
-  ulong delta_map_chain_cnt = delta_map_chain_cnt_est( delta_ele_max );
+  ulong delta_map_chain_cnt = delta_map_chain_cnt_est( max_stake_accounts );
 
   FD_SCRATCH_ALLOC_INIT( l, mem );
   fd_stake_delegations_t * stake_delegations = FD_SCRATCH_ALLOC_APPEND( l, fd_stake_delegations_align(), sizeof(fd_stake_delegations_t) );
   void *                   pool_mem          = FD_SCRATCH_ALLOC_APPEND( l, root_pool_align(),            root_pool_footprint( max_stake_accounts ) );
   void *                   map_mem           = FD_SCRATCH_ALLOC_APPEND( l, root_map_align(),             root_map_footprint( map_chain_cnt ) );
-  void *                   delta_pool_mem    = FD_SCRATCH_ALLOC_APPEND( l, delta_pool_align(),           delta_pool_footprint( delta_ele_max ) );
+  void *                   delta_pool_mem    = FD_SCRATCH_ALLOC_APPEND( l, delta_pool_align(),           delta_pool_footprint( max_stake_accounts ) );
   void *                   fork_pool_mem     = FD_SCRATCH_ALLOC_APPEND( l, fork_pool_align(),            fork_pool_footprint( max_live_slots ) );
   void *                   delta_map_mem     = FD_SCRATCH_ALLOC_APPEND( l, delta_map_align(),            delta_map_footprint( delta_map_chain_cnt ) );
 
@@ -746,7 +765,7 @@ fd_stake_delegations_new( void * mem,
     return NULL;
   }
 
-  fd_stake_delegation_t * delta_pool = delta_pool_join( delta_pool_new( delta_pool_mem, delta_ele_max ) );
+  fd_stake_delegation_t * delta_pool = delta_pool_join( delta_pool_new( delta_pool_mem, max_stake_accounts ) );
   if( FD_UNLIKELY( !delta_pool ) ) {
     FD_LOG_WARNING(( "Failed to create stake delegation delta pool" ));
     return NULL;
@@ -783,6 +802,11 @@ fd_stake_delegations_new( void * mem,
   stake_delegations->disk_delta_tombstone_cnt_ = 0UL;
   stake_delegations->disk_root_gen_            = 1U;
   stake_delegations->disk_delta_gen_           = 1U;
+  stake_delegations->root_spilled_cnt_         = 0UL;
+  stake_delegations->delta_spilled_cnt_        = 0UL;
+  stake_delegations->disk_read_cnt_            = 0UL;
+  stake_delegations->disk_written_cnt_         = 0UL;
+  stake_delegations->disk_ticks_               = 0UL;
 
   stake_delegations->effective_stake      = 0UL;
   stake_delegations->activating_stake     = 0UL;
@@ -989,6 +1013,24 @@ fd_stake_delegations_totals( fd_stake_delegations_t const * stake_delegations ) 
     .activating   = stake_delegations->activating_stake,
     .deactivating = stake_delegations->deactivating_stake,
   };
+}
+
+void
+fd_stake_delegations_metrics_snap( fd_stake_delegations_t const *   stake_delegations,
+                                   fd_stake_delegations_metrics_t * out ) {
+  fd_stake_delegation_t const * root_pool  = get_root_pool ( stake_delegations );
+  fd_stake_delegation_t const * delta_pool = get_delta_pool( stake_delegations );
+  out->root_used         = root_pool_used ( root_pool  );
+  out->root_capacity     = root_pool_max  ( root_pool  );
+  out->root_disk_cnt     = FD_VOLATILE_CONST( stake_delegations->disk_root_cnt_     );
+  out->delta_used        = delta_pool_used( delta_pool );
+  out->delta_capacity    = delta_pool_max ( delta_pool );
+  out->delta_disk_cnt    = FD_VOLATILE_CONST( stake_delegations->disk_delta_cnt_    );
+  out->root_spilled_cnt  = FD_VOLATILE_CONST( stake_delegations->root_spilled_cnt_  );
+  out->delta_spilled_cnt = FD_VOLATILE_CONST( stake_delegations->delta_spilled_cnt_ );
+  out->disk_read_cnt     = FD_VOLATILE_CONST( stake_delegations->disk_read_cnt_     );
+  out->disk_written_cnt  = FD_VOLATILE_CONST( stake_delegations->disk_written_cnt_  );
+  out->disk_ticks        = FD_VOLATILE_CONST( stake_delegations->disk_ticks_        );
 }
 
 void

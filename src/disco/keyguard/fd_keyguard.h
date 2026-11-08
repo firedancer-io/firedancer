@@ -35,9 +35,8 @@ FD_STATIC_ASSERT( FD_KEYGUARD_AUTH_VOTERS_MAX<=16UL, auth_voters_max_fits_sign_r
 #define FD_KEYGUARD_ROLE_BUNDLE_CRANK (7)  /* Sign cranking transactions for bundle tips */
 #define FD_KEYGUARD_ROLE_RSERVE       (8)  /* Repair server tile */
 #define FD_KEYGUARD_ROLE_VOTOR        (9)  /* Alpenglow votor tile (QUIC TLS, vote history file) */
-#define FD_KEYGUARD_ROLE_TOWER        (10) /* Tower tile (tower file) */
-#define FD_KEYGUARD_ROLE_FAILOV       (11) /* Failover admission proof and TLS */
-#define FD_KEYGUARD_ROLE_CNT          (12) /* number of known roles */
+#define FD_KEYGUARD_ROLE_FAILOV       (10) /* Failover admission proof and TLS */
+#define FD_KEYGUARD_ROLE_CNT          (11) /* number of known roles */
 
 /* The failover identity signs admission proofs, TLS, and the
    admission payload. */
@@ -60,7 +59,6 @@ FD_STATIC_ASSERT( FD_KEYGUARD_AUTH_VOTERS_MAX<=16UL, auth_voters_max_fits_sign_r
 #define FD_KEYGUARD_PAYLOAD_LG_PONG         (10)  /* Gossip/Repair ping/pong protocol */
 #define FD_KEYGUARD_PAYLOAD_LG_AG_VOTE      (11)  /* Alpenglow BLS vote */
 #define FD_KEYGUARD_PAYLOAD_LG_BLS_PUBKEY   (12)  /* Alpenglow BLS public key query */
-#define FD_KEYGUARD_PAYLOAD_LG_TOWER        (13)  /* Tower file */
 #define FD_KEYGUARD_PAYLOAD_LG_VOTE_HISTORY (14)  /* Alpenglow vote history file */
 #define FD_KEYGUARD_PAYLOAD_LG_FAILOV       (15)  /* Failover admission proof */
 
@@ -76,7 +74,6 @@ FD_STATIC_ASSERT( FD_KEYGUARD_AUTH_VOTERS_MAX<=16UL, auth_voters_max_fits_sign_r
 #define FD_KEYGUARD_PAYLOAD_PONG         (1UL<<FD_KEYGUARD_PAYLOAD_LG_PONG        )
 #define FD_KEYGUARD_PAYLOAD_AG_VOTE      (1UL<<FD_KEYGUARD_PAYLOAD_LG_AG_VOTE     )
 #define FD_KEYGUARD_PAYLOAD_BLS_PUBKEY   (1UL<<FD_KEYGUARD_PAYLOAD_LG_BLS_PUBKEY  )
-#define FD_KEYGUARD_PAYLOAD_TOWER        (1UL<<FD_KEYGUARD_PAYLOAD_LG_TOWER       )
 #define FD_KEYGUARD_PAYLOAD_VOTE_HISTORY (1UL<<FD_KEYGUARD_PAYLOAD_LG_VOTE_HISTORY)
 #define FD_KEYGUARD_PAYLOAD_FAILOV       (1UL<<FD_KEYGUARD_PAYLOAD_LG_FAILOV      )
 

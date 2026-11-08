@@ -578,6 +578,10 @@ main( int     argc,
     info.san_general_names_len = der_tlv( general_names, FD_DER_TAG_CONTEXT_PRIM(7), ip_192_0_2_1, 4UL );
     info.has_subject_alt_name  = 1;
     FD_TEST( fd_x509_san_matches( &info, "192.0.2.1", 9UL )==1 );
+    FD_TEST( fd_x509_san_matches( &info, "0192.0.2.1", 10UL )==0 );
+    FD_TEST( fd_x509_san_matches( &info, "192.00.2.1", 10UL )==0 );
+    FD_TEST( fd_x509_san_matches( &info, "192.0.02.1", 10UL )==0 );
+    FD_TEST( fd_x509_san_matches( &info, "192.0.2.01", 10UL )==0 );
 
     /* reject: different iPAddress */
     FD_TEST( fd_x509_san_matches( &info, "192.0.2.2", 9UL )==0 );
@@ -705,6 +709,19 @@ main( int     argc,
     rewrite_tmp_file( tmp_fd, pem, pem_len );
     FD_TEST( fd_x509_ca_store_load( &ca_store, path )==0L );
     FD_TEST( !ca_store.cnt );
+
+    /* Legacy roots with non-critical cA=TRUE are trust anchors anyway */
+    ca_ext_len = mk_ext( ca_ext, oid_bc_tlv, sizeof(oid_bc_tlv),
+                         bc_ca_true_val, sizeof(bc_ca_true_val) );
+    tbs_len = mk_tbs( tbs, root_name, root_name_len, root_name, root_name_len, zero,
+                      "750101000000Z", FD_DER_TAG_UTC_TIME,
+                      "40960101000000Z", FD_DER_TAG_GENERALIZED_TIME,
+                      ca_ext, ca_ext_len );
+    uchar legacy_ca_cert[ 1200 ]; ulong legacy_ca_cert_len = wrap_cert( legacy_ca_cert, tbs, tbs_len, zero );
+    pem_len = append_pem_cert( pem, legacy_ca_cert, legacy_ca_cert_len );
+    rewrite_tmp_file( tmp_fd, pem, pem_len );
+    FD_TEST( fd_x509_ca_store_load( &ca_store, path )==1L );
+    FD_TEST( ca_store.cnt==1UL );
 
     uchar bad_der[] = { 0x30,0x03,0x02,0x01,0x00 };
     pem_len = append_pem_cert( pem, bad_der, sizeof(bad_der) );
@@ -2495,13 +2512,21 @@ main( int     argc,
       }
     }
 
-    /* cA=TRUE requires critical basicConstraints. */
+    /* Non-critical cA=TRUE parses (legacy roots such as Go Daddy Class 2
+       and ePKI Root CA use it) but is flagged for the chain verifier. */
     uchar exts[ 256 ];
     ulong exts_len = mk_ext( exts, oid_bc_tlv, sizeof(oid_bc_tlv),
                              bc_ca_true_val, sizeof(bc_ca_true_val) );
     uchar cert[ 1024 ]; ulong cert_len = mk_cert( cert, exts, exts_len );
     fd_x509_cert_info_t info;
-    FD_TEST( fd_x509_cert_parse( cert, cert_len, &info )!=0 );
+    FD_TEST( fd_x509_cert_parse( cert, cert_len, &info )==0 );
+    FD_TEST( info.is_ca==1 );
+    FD_TEST( info.basic_constraints_noncritical==1 );
+    exts_len = mk_ext_critical( exts, oid_bc_tlv, sizeof(oid_bc_tlv),
+                                0xFF, bc_ca_true_val, sizeof(bc_ca_true_val) );
+    cert_len = mk_cert( cert, exts, exts_len );
+    FD_TEST( fd_x509_cert_parse( cert, cert_len, &info )==0 );
+    FD_TEST( info.basic_constraints_noncritical==0 );
 
     /* A certificate must not contain basicConstraints twice. */
     exts_len  = mk_ext_critical( exts, oid_bc_tlv, sizeof(oid_bc_tlv),
@@ -2964,13 +2989,17 @@ main( int     argc,
       { "cA with serverAuth",      ku_certsign,sizeof(ku_certsign), eku_server,sizeof(eku_server), 1, FD_X509_VERIFY_OK                },
       { "cA with clientAuth only", ku_certsign,sizeof(ku_certsign), eku_client,sizeof(eku_client), 1, FD_X509_VERIFY_ERR_EXT_KEY_USAGE },
       { "keyCertSign but no cA",   ku_certsign,sizeof(ku_certsign), NULL,0UL,                      0, FD_X509_VERIFY_ERR_PARSE         },
+      { "non-critical cA",         ku_certsign,sizeof(ku_certsign), NULL,0UL,                      2, FD_X509_VERIFY_ERR_CA_FLAG       },
     };
 
     for( ulong i=0UL; i<sizeof(inter_cases)/sizeof(inter_cases[0]); i++ ) {
       uchar exts[ 256 ]; ulong exts_len = 0UL;
-      if( inter_cases[i].ca )
+      if( inter_cases[i].ca==1 )
         exts_len += mk_ext_critical( exts+exts_len, oid_bc_tlv, sizeof(oid_bc_tlv),
                                      0xFF, bc_ca_true_val, sizeof(bc_ca_true_val) );
+      else if( inter_cases[i].ca==2 )
+        exts_len += mk_ext( exts+exts_len, oid_bc_tlv, sizeof(oid_bc_tlv),
+                            bc_ca_true_val, sizeof(bc_ca_true_val) );
       if( inter_cases[i].ku )
         exts_len += mk_ext( exts+exts_len, oid_ku_tlv, sizeof(oid_ku_tlv),
                             inter_cases[i].ku, inter_cases[i].ku_len );

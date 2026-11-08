@@ -170,11 +170,11 @@ fd_blake3_sve2_xof4( uchar const * restrict root_msg,  /* len==block_sz */
 
 void
 fd_blake3_avx_compress8( ulong                   batch_cnt,
-                         void   const * restrict _batch_data,   /* align==32 len in [1,8) */
-                         uint   const * restrict batch_sz,      /* len in [1,8] */
+                         void   const * restrict _batch_data,   /* align==32 len==8 */
+                         uint   const * restrict batch_sz,      /* align==4 len==8 */
                          ulong  const * restrict ctr_vec,       /* len==8 */
-                         uint   const * restrict batch_flags,   /* align==32 len==8 */
-                         void * const * restrict _batch_hash,   /* align==32 len in [1,8) */
+                         uint   const * restrict batch_flags,   /* align==4 len==8 */
+                         void * const * restrict _batch_hash,   /* align==32 len==batch_cnt */
                          ushort *       restrict lthash,        /* align==32 byte_sz=2048 */
                          uint                    out_sz,        /* 32 or 64 */
                          void const *   restrict batch_cv );    /* align==8 len==8 ele_align==32 optional */

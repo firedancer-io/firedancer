@@ -442,7 +442,12 @@ fd_x509_verify_chain( uchar const * const *        chain_der,
         continue;
 
       int err = fd_x509_check_validity( cand, unix_seconds );
-      if( !err && !cand->is_ca ) err = FD_X509_VERIFY_ERR_CA_FLAG;
+      /* RFC 5280 Section 4.2.1.9 requires CA certs to mark
+         basicConstraints critical.  Several pre-2003 roots in the
+         Mozilla bundle do not; they are accepted as trust anchors by
+         the CA store loader, but intermediates must comply. */
+      if( !err && ( !cand->is_ca || cand->basic_constraints_noncritical ) )
+        err = FD_X509_VERIFY_ERR_CA_FLAG;
 
       /* pathLenConstraint counts non-self-issued intermediate CA certs
          between this issuer and the leaf.  The leaf itself never counts. */

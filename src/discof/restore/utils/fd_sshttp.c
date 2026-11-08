@@ -16,6 +16,7 @@ FD_STATIC_ASSERT( FD_HASH_FOOTPRINT==32UL, resolved_hash_sz );
 
 #include <sys/epoll.h>
 #include <sys/socket.h>
+#include <sys/uio.h>
 #include <sys/random.h>
 #include <netinet/in.h>
 
@@ -126,14 +127,27 @@ http_send_tls( fd_sshttp_t * http,
   return (long)consumed;
 }
 
+static ulong
+tls_rx_pop_iov( fd_sshttp_t *        http,
+                struct iovec const * iov,
+                ulong                iov_cnt ) {
+  ulong n = 0UL;
+  for( ulong i=0UL; i<iov_cnt; i++ ) {
+    ulong sz = fd_tlsrec_sock_rx_pop( http->tls_sock, iov[i].iov_base, iov[i].iov_len );
+    n += sz;
+    if( sz<iov[i].iov_len ) break;
+  }
+  return n;
+}
+
 static long
-http_recv_tls( fd_sshttp_t * http,
-               void *        buf,
-               ulong         bufsz ) {
+http_recv_tls( fd_sshttp_t *        http,
+               struct iovec const * iov,
+               ulong                iov_cnt ) {
 
   /* Drain any buffered plaintext from a previous call */
 
-  ulong n = fd_tlsrec_sock_rx_pop( http->tls_sock, buf, bufsz );
+  ulong n = tls_rx_pop_iov( http, iov, iov_cnt );
   if( n ) {
     return (long)n;
   }
@@ -160,7 +174,7 @@ http_recv_tls( fd_sshttp_t * http,
   }
   if( !tcp_rx_sz ) return FD_SSHTTP_ADVANCE_AGAIN;
 
-  n = fd_tlsrec_sock_rx_pop( http->tls_sock, buf, bufsz );
+  n = tls_rx_pop_iov( http, iov, iov_cnt );
   if( !n ) return FD_SSHTTP_ADVANCE_AGAIN;
   return (long)n;
 }
@@ -335,6 +349,11 @@ fd_sshttp_init( fd_sshttp_t * http,
     return -1;
   }
 
+  int so_rcvbuf = (int)FD_SSHTTP_SO_RCVBUF;
+  if( FD_UNLIKELY( -1==setsockopt( http->sockfd, SOL_SOCKET, SO_RCVBUF, &so_rcvbuf, sizeof(int) ) ) ) {
+    FD_LOG_ERR(( "setsockopt(SOL_SOCKET,SO_RCVBUF,%i) failed (%i-%s)", so_rcvbuf, errno, fd_io_strerror( errno ) ));
+  }
+
   struct sockaddr_in addr_in = {
     .sin_family = AF_INET,
     .sin_port   = addr.port,
@@ -394,6 +413,8 @@ fd_sshttp_cancel( fd_sshttp_t * http ) {
   http->state = FD_SSHTTP_STATE_INIT;
 
   /* Clean up native TLS state */
+  fd_tlsrec_conn_fini( &http->tls_conn );
+  fd_memzero_explicit( http->tls.kex_private_key, 32UL );
   fd_tlsrec_sock_init( http->tls_sock );
 }
 
@@ -417,18 +438,31 @@ http_send( fd_sshttp_t * http,
   return sent;
 }
 
-static long
-http_recv( fd_sshttp_t * http,
-           void *        buf,
-           ulong         bufsz ) {
-  if( FD_LIKELY( http->is_https ) )
-    return http_recv_tls( http, buf, bufsz );
+/* http_recv receives at most max bytes scattered into iov. */
 
-  long read = recvfrom( http->sockfd, buf, bufsz, 0, NULL, NULL );
+static long
+http_recv( fd_sshttp_t *        http,
+           struct iovec const * iov,
+           ulong                iov_cnt,
+           ulong                max ) {
+  struct iovec clamped[ FD_SSHTTP_IOV_MAX ];
+  ulong cnt = 0UL;
+  for( ; cnt<iov_cnt && max; cnt++ ) {
+    ulong len = fd_ulong_min( iov[ cnt ].iov_len, max );
+    clamped[ cnt ].iov_base = iov[ cnt ].iov_base;
+    clamped[ cnt ].iov_len  = len;
+    max -= len;
+  }
+  if( FD_UNLIKELY( !cnt ) ) return FD_SSHTTP_ADVANCE_AGAIN;
+
+  if( FD_LIKELY( http->is_https ) )
+    return http_recv_tls( http, clamped, cnt );
+
+  long read = readv( http->sockfd, clamped, (int)cnt );
   if( FD_UNLIKELY( -1==read && errno==EAGAIN ) ) {
     return FD_SSHTTP_ADVANCE_AGAIN;
   } else if( FD_UNLIKELY( -1==read ) ) {
-    FD_LOG_WARNING(( "recv() failed (%d-%s) from " FD_IP4_ADDR_FMT ":%hu", errno, fd_io_strerror( errno ),
+    FD_LOG_WARNING(( "readv() failed (%d-%s) from " FD_IP4_ADDR_FMT ":%hu", errno, fd_io_strerror( errno ),
                      FD_IP4_ADDR_FMT_ARGS( http->addr.addr ), fd_ushort_bswap( http->addr.port ) ));
     fd_sshttp_cancel( http );
     return FD_SSHTTP_ADVANCE_ERROR;
@@ -595,10 +629,10 @@ follow_redirect( fd_sshttp_t *        http,
 }
 
 static int
-read_response( fd_sshttp_t * http,
-               ulong *       data_len,
-               uchar *       data,
-               long          now ) {
+read_response( fd_sshttp_t *        http,
+               struct iovec const * iov,
+               ulong *              data_len,
+               long                 now ) {
   if( FD_UNLIKELY( now>http->deadline ) ) {
     FD_LOG_WARNING(( "timeout reading response from " FD_IP4_ADDR_FMT ":%hu",
                      FD_IP4_ADDR_FMT_ARGS( http->addr.addr ), fd_ushort_bswap( http->addr.port ) ));
@@ -613,7 +647,8 @@ read_response( fd_sshttp_t * http,
     return FD_SSHTTP_ADVANCE_ERROR;
   }
 
-  long read = http_recv( http, http->response+http->response_len, sizeof(http->response)-http->response_len );
+  struct iovec resp_iov = { .iov_base = http->response+http->response_len, .iov_len = sizeof(http->response)-http->response_len };
+  long read = http_recv( http, &resp_iov, 1UL, resp_iov.iov_len );
   if( FD_UNLIKELY( read<=0 ) ) return (int)read;
 
   http->response_len += (ulong)read;
@@ -683,8 +718,8 @@ read_response( fd_sshttp_t * http,
        response_len repurposed as the residual length, drained by
        read_body before it reads the socket again. */
     ulong leftover = fd_ulong_min( http->response_len - (ulong)parsed, http->content_len );
-    ulong copy_len = fd_ulong_min( leftover, *data_len );
-    fd_memcpy( data, http->response+parsed, copy_len );
+    ulong copy_len = fd_ulong_min( leftover, iov[0].iov_len );
+    fd_memcpy( iov[0].iov_base, http->response+parsed, copy_len );
     memmove( http->response, http->response+(ulong)parsed+copy_len, leftover-copy_len );
     http->response_len  = leftover-copy_len;
     http->content_read += copy_len;
@@ -698,10 +733,11 @@ read_response( fd_sshttp_t * http,
 }
 
 static int
-read_body( fd_sshttp_t * http,
-           ulong *       data_len,
-           uchar *       data,
-           long          now ) {
+read_body( fd_sshttp_t *        http,
+           struct iovec const * iov,
+           ulong                iov_cnt,
+           ulong *              data_len,
+           long                 now ) {
   if( FD_UNLIKELY( http->content_read>=http->content_len ) ) {
     if( FD_UNLIKELY( http->is_https ) ) {
       http->state = FD_SSHTTP_STATE_DONE;
@@ -717,8 +753,8 @@ read_body( fd_sshttp_t * http,
   FD_TEST( http->content_read<http->content_len );
 
   if( FD_UNLIKELY( http->response_len ) ) { /* residual body bytes from read_response */
-    ulong copy_len = fd_ulong_min( http->response_len, *data_len );
-    fd_memcpy( data, http->response, copy_len );
+    ulong copy_len = fd_ulong_min( http->response_len, iov[0].iov_len );
+    fd_memcpy( iov[0].iov_base, http->response, copy_len );
     memmove( http->response, http->response+copy_len, http->response_len-copy_len );
     http->response_len  -= copy_len;
     http->content_read  += copy_len;
@@ -726,7 +762,7 @@ read_body( fd_sshttp_t * http,
     return FD_SSHTTP_ADVANCE_DATA;
   }
 
-  long read = http_recv( http, data, fd_ulong_min( *data_len, http->content_len-http->content_read ) );
+  long read = http_recv( http, iov, iov_cnt, http->content_len-http->content_read );
   if( FD_UNLIKELY( read<=0 ) ) return (int)read;
 
   *data_len = (ulong)read;
@@ -756,11 +792,13 @@ fd_sshttp_resolved_hash( fd_sshttp_t const * http ) {
 }
 
 int
-fd_sshttp_advance( fd_sshttp_t * http,
-                   ulong *       data_len,
-                   uchar *       data,
-                   int *         downloading,
-                   long          now ) {
+fd_sshttp_advance( fd_sshttp_t *        http,
+                   struct iovec const * iov,
+                   ulong                iov_cnt,
+                   ulong *              data_len,
+                   int *                downloading,
+                   long                 now ) {
+  FD_TEST( iov_cnt>=1UL && iov_cnt<=FD_SSHTTP_IOV_MAX );
   *downloading = 0;
   int res;
   switch( http->state ) {
@@ -768,8 +806,8 @@ fd_sshttp_advance( fd_sshttp_t * http,
     case FD_SSHTTP_STATE_CONNECT:  res = http_connect_tls( http, now ); break;
     case FD_SSHTTP_STATE_REDIRECT: res = setup_redirect_tls( http, now ); break;
     case FD_SSHTTP_STATE_REQ:      res = send_request( http, now ); break;
-    case FD_SSHTTP_STATE_RESP:     res = read_response( http, data_len, data, now ); break;
-    case FD_SSHTTP_STATE_DL:       *downloading = 1; res = read_body( http, data_len, data, now ); break;
+    case FD_SSHTTP_STATE_RESP:     res = read_response( http, iov, data_len, now ); break;
+    case FD_SSHTTP_STATE_DL:       *downloading = 1; res = read_body( http, iov, iov_cnt, data_len, now ); break;
     case FD_SSHTTP_STATE_DONE:
       fd_sshttp_cancel( http );
       http->state = FD_SSHTTP_STATE_INIT;

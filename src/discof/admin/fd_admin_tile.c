@@ -212,8 +212,8 @@ unprivileged_init( fd_topo_t const *      topo,
    except direct forward steps, except in emergency recovery cases an
    operator can force the state past the initial lock.
 
-   Votor is referred to as the Voter tile and Rotor takes the place of
-   Repair for the purposes of the identity switch.
+   Votor is referred to as the Voter tile for the purposes of the
+   identity switch.
 
    The states follow, in order. */
 
@@ -435,7 +435,7 @@ poll_set_identity( fd_admin_tile_ctx_t * ctx,
       for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
         fd_topo_tile_t const * tile = &topo->tiles[ i ];
         if( FD_LIKELY( tile->id_keyswitch_obj_id==ULONG_MAX ) ) continue;
-        if( strcmp( tile->name, "rotor" ) &&
+        if( strcmp( tile->name, "repair" ) &&
             strcmp( tile->name, "gossip" ) &&
             strcmp( tile->name, "bundle" ) &&
             strcmp( tile->name, "rserve" ) &&
@@ -459,7 +459,7 @@ poll_set_identity( fd_admin_tile_ctx_t * ctx,
       for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
         fd_topo_tile_t const * tile = &topo->tiles[ i ];
         if( FD_LIKELY( tile->id_keyswitch_obj_id==ULONG_MAX ) ) continue;
-        if( strcmp( tile->name, "rotor" ) &&
+        if( strcmp( tile->name, "repair" ) &&
             strcmp( tile->name, "gossip" ) &&
             strcmp( tile->name, "bundle" ) &&
             strcmp( tile->name, "rserve" ) &&
@@ -506,7 +506,7 @@ poll_set_identity( fd_admin_tile_ctx_t * ctx,
         if( FD_LIKELY( tile->id_keyswitch_obj_id==ULONG_MAX ) ) continue;
         if( FD_LIKELY( !strcmp( tile->name, "sign" ) ||
                        !strcmp( tile->name, "replay" ) ||
-                       !strcmp( tile->name, "rotor" ) ||
+                       !strcmp( tile->name, "repair" ) ||
                        !strcmp( tile->name, "gossip" ) ||
                        !strcmp( tile->name, "votor" ) ||
                        !strcmp( tile->name, "bundle" ) ||
@@ -531,7 +531,7 @@ poll_set_identity( fd_admin_tile_ctx_t * ctx,
         fd_topo_tile_t const * tile = &topo->tiles[ i ];
         if( FD_LIKELY( tile->id_keyswitch_obj_id==ULONG_MAX ) ) continue;
         if( FD_LIKELY( !strcmp( tile->name, "replay" ) ||
-                       !strcmp( tile->name, "rotor"  ) ||
+                       !strcmp( tile->name, "repair" ) ||
                        !strcmp( tile->name, "gossip" ) ||
                        !strcmp( tile->name, "votor"  ) ||
                        !strcmp( tile->name, "bundle" ) ||
@@ -566,7 +566,7 @@ poll_set_identity( fd_admin_tile_ctx_t * ctx,
       for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
         fd_topo_tile_t const * tile = &topo->tiles[ i ];
         if( FD_LIKELY( tile->id_keyswitch_obj_id==ULONG_MAX ) ) continue;
-        if( strcmp( tile->name, "rotor" ) &&
+        if( strcmp( tile->name, "repair" ) &&
             strcmp( tile->name, "gossip" ) &&
             strcmp( tile->name, "votor" ) &&
             strcmp( tile->name, "bundle" ) &&
@@ -590,7 +590,7 @@ poll_set_identity( fd_admin_tile_ctx_t * ctx,
       for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
         fd_topo_tile_t const * tile = &topo->tiles[ i ];
         if( FD_LIKELY( tile->id_keyswitch_obj_id==ULONG_MAX ) ) continue;
-        if( strcmp( tile->name, "rotor" ) &&
+        if( strcmp( tile->name, "repair" ) &&
             strcmp( tile->name, "gossip" ) &&
             strcmp( tile->name, "votor" ) &&
             strcmp( tile->name, "bundle" ) &&

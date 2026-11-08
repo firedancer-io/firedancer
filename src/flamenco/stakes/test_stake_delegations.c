@@ -262,7 +262,7 @@ test_shared_forks( ulong max_stake_accounts ) {
   ulong warmup_cooldown_rate_epoch = ULONG_MAX;
   fd_pubkey_t shared_key = { .ul = { 42UL, 17UL, 99UL, 1UL } };
   fd_pubkey_t vote_key   = { .ul = { 43UL, 18UL, 98UL, 3UL } };
-  ulong delta_max  = max_stake_accounts/FD_STAKE_DELEGATIONS_DELTA_POOL_DIVISOR;
+  ulong delta_max  = fd_ulong_min( max_stake_accounts, 64UL );
   ulong bucket_cnt = fd_ulong_pow2_up( delta_max );
   ulong candidate  = 2UL;
 
@@ -393,6 +393,11 @@ test_disk_iterator_batches( void ) {
     stake_delegations->effective_stake += i+1UL;
   }
   FD_TEST( stake_delegations->disk_root_cnt_==259UL );
+  fd_stake_delegations_metrics_t metrics[1];
+  fd_stake_delegations_metrics_snap( stake_delegations, metrics );
+  FD_TEST( metrics->root_used==8UL && metrics->root_capacity==8UL );
+  FD_TEST( metrics->root_disk_cnt==259UL && metrics->root_spilled_cnt==259UL );
+  FD_TEST( metrics->disk_written_cnt>=2UL*259UL );
 
   fd_stake_history_t history[1] = {0};
   for( ulong phase=0UL; phase<3UL; phase++ ) {
@@ -474,14 +479,16 @@ test_disk_delta_links( void ) {
       fd_stake_delegations_new( mem, spill_fd, 19UL, 2UL, 64UL, 4UL ), spill_fd );
   FD_TEST( stake_delegations );
   fd_pubkey_t vote_key = { .ul = { 19UL, 23UL } };
-  fd_pubkey_t filler_key = { .ul = { 29UL, 31UL } };
+  fd_pubkey_t filler_keys[ 2 ] = { { .ul = { 29UL, 31UL } }, { .ul = { 30UL, 31UL } } };
   fd_stake_history_t history[1] = {0};
   ulong candidate = 1UL;
 
   for( ulong round=0UL; round<3UL; round++ ) {
     fd_stake_delegations_reset( stake_delegations );
     ushort filler = fd_stake_delegations_new_fork( stake_delegations, USHORT_MAX );
-    fd_stake_delegations_fork_update( stake_delegations, filler, 0UL, &filler_key, &vote_key, 1UL, ULONG_MAX, ULONG_MAX, 0UL, TEST_STAKE_DELEGATION_LAMPORTS, TEST_STAKE_DELEGATION_ACC_DLEN );
+    for( ulong i=0UL; i<2UL; i++ ) {
+      fd_stake_delegations_fork_update( stake_delegations, filler, 0UL, &filler_keys[ i ], &vote_key, 1UL, ULONG_MAX, ULONG_MAX, 0UL, TEST_STAKE_DELEGATION_LAMPORTS, TEST_STAKE_DELEGATION_ACC_DLEN );
+    }
     ushort forks[ 3 ];
     fd_pubkey_t keys[ 3 ][ 3 ];
     ulong stakes[ 3 ][ 3 ];
@@ -701,8 +708,7 @@ int main( int argc, char ** argv ) {
   /* Test stake delegations where is_tombstone == 0 */
 
   ulong const max_stake_accounts = 10UL;
-  ulong const max_delta_accounts = fd_ulong_max(
-      max_stake_accounts/FD_STAKE_DELEGATIONS_DELTA_POOL_DIVISOR, 1UL );
+  ulong const max_delta_accounts = max_stake_accounts;
 
   /* Sets disk-delta capacity and derives disk-root capacity. */
   ulong const max_disk_records = 512UL;
@@ -747,8 +753,17 @@ int main( int argc, char ** argv ) {
       fd_stake_delegations_fork_update( stake_delegations, fork_idx, 0UL, &key, &voter_pubkey_0, i+1UL, 0UL, 0UL, 0UL, TEST_STAKE_DELEGATION_LAMPORTS, TEST_STAKE_DELEGATION_ACC_DLEN );
     }
     FD_TEST( stake_delegations->disk_delta_cnt_==1UL );
+    fd_stake_delegations_metrics_t metrics[1];
+    fd_stake_delegations_metrics_snap( stake_delegations, metrics );
+    FD_TEST( metrics->delta_used==max_delta_accounts && metrics->delta_capacity==max_delta_accounts );
+    FD_TEST( metrics->delta_disk_cnt==1UL && metrics->delta_spilled_cnt==1UL );
+    FD_TEST( metrics->root_capacity==max_stake_accounts && !metrics->root_used );
+    FD_TEST( !metrics->root_disk_cnt && !metrics->root_spilled_cnt );
+    FD_TEST( metrics->disk_written_cnt && metrics->disk_read_cnt );
     fd_stake_delegations_evict_fork( stake_delegations, fork_idx );
     FD_TEST( !stake_delegations->disk_delta_cnt_ );
+    fd_stake_delegations_metrics_snap( stake_delegations, metrics );
+    FD_TEST( !metrics->delta_used && !metrics->delta_disk_cnt && metrics->delta_spilled_cnt==1UL );
   }
 
   FD_TEST( test_stake_delegations_base_cnt( stake_delegations ) == 0UL );

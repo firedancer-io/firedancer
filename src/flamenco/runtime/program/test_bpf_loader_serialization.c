@@ -525,9 +525,11 @@ setup_instr_ctx( fixture_input_t const * in,
   }
 
   /* This test calls fd_bpf_loader_input_serialize_parameters directly,
-     bypassing fd_instr_stack_push.  The serializer reads stack_sz to
-     index the per-frame serialization scratch buffer, so set it to 1. */
+     bypassing fd_instr_stack_push and fd_bpf_execute.  The serializer
+     writes into the frame of the current stack level, so set stack_sz to
+     1 and take that frame. */
   runtime->instr.stack_sz = 1;
+  runtime->bpf_loader_serialization.frame[ 0 ] = fd_bpf_frames_acquire( runtime->bpf_frames, 0 );
 
   fd_memset( instr_ctx, 0, sizeof(fd_exec_instr_ctx_t) );
   instr_ctx->instr   = g_info;
@@ -583,7 +585,7 @@ run_fixture( fd_svm_mini_t * mini,
   fd_memset( regions,   fill, sizeof(regions)   );
   fd_memset( acc_metas, fill, sizeof(acc_metas) );
 
-  uchar * serialized = ctx->runtime->bpf_loader_serialization.serialization_mem[ ctx->runtime->instr.stack_sz-1UL ];
+  uchar * serialized = ctx->runtime->bpf_loader_serialization.frame[ ctx->runtime->instr.stack_sz-1UL ];
 
   int result = fd_bpf_loader_input_serialize_parameters(
       ctx, pre_lens, regions, &region_cnt, acc_metas,
@@ -640,6 +642,7 @@ run_fixture( fd_svm_mini_t * mini,
     }
   }
 
+  fd_bpf_frames_release( ctx->runtime->bpf_frames, ctx->runtime->bpf_loader_serialization.frame[ 0 ] );
   cleanup_instr_ctx( in, alloc, storage );
 
   return ok ? 0 : -1;
@@ -717,7 +720,7 @@ test_touched_case( fd_svm_mini_t * mini,
   fd_memset( regions,  0xA5, sizeof(regions)  );
   fd_memset( metas,    0xA5, sizeof(metas)    );
   FD_TEST( !fd_bpf_loader_input_serialize_parameters( ctx, pre_lens, regions, &region_cnt, metas, vasa, dm, 0, 0, &idata_off, &ser_sz ) );
-  uchar * ser = ctx->runtime->bpf_loader_serialization.serialization_mem[ ctx->runtime->instr.stack_sz-1UL ];
+  uchar * ser = ctx->runtime->bpf_loader_serialization.frame[ ctx->runtime->instr.stack_sz-1UL ];
 
   for( ulong i=0UL; i<4UL; i++ ) FD_TEST( !ctx->txn_out->accounts.touched[ i ] );
 
@@ -753,6 +756,7 @@ test_touched_case( fd_svm_mini_t * mini,
       FD_LOG_ERR(( "vasa=%d dm=%d action=%d: account %lu touched=%d, expected %d", vasa, dm, action, i, got, expect[ i ] ));
     }
   }
+  fd_bpf_frames_release( ctx->runtime->bpf_frames, ctx->runtime->bpf_loader_serialization.frame[ 0 ] );
   cleanup_instr_ctx( &in, alloc, storage );
 }
 

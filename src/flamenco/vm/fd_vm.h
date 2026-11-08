@@ -37,6 +37,9 @@ typedef struct fd_vm_input_region fd_vm_input_region_t;
    region location. */
 
 struct __attribute((aligned(8UL))) fd_vm_acc_region_meta {
+   /* Metadata region index, or UINT_MAX without virtual address space
+      adjustments.  The data region follows at region_idx+1 if address
+      space is reserved for account data. */
    uint       region_idx;
    /* FIXME: We can get rid of this field once DM is activated.  This is
       only a hack to make the non-DM code path happy.  When DM is
@@ -196,7 +199,7 @@ struct __attribute__((aligned(FD_VM_HOST_REGION_ALIGN))) fd_vm {
   uint                      input_mem_regions_cnt;
   fd_vm_acc_region_meta_t * acc_region_metas;                /* Represents a mapping from the instruction account indices
                                                                 from the instruction context to the input memory region index
-                                                                of the account's data region in the input space. */
+                                                                of the account's metadata region in the input space. */
   uchar                     is_deprecated;                   /* The vm requires additional checks in certain CPIs if the
                                                                 vm's current instance was initialized by a deprecated program. */
 
@@ -211,7 +214,7 @@ struct __attribute__((aligned(FD_VM_HOST_REGION_ALIGN))) fd_vm {
   int   syscall_parameter_address_restrictions; /* If syscall_parameter_address_restrictions feature flag is enabled */
   int   virtual_address_space_adjustments;      /* If virtual_address_space_adjustments feature flag is enabled */
 
-  ulong stack_frame_sz;                  /* The size of a stack frame gap, in bytes. 0 if this is variable */
+  ulong stack_frame_sz;                  /* Stack frame size in bytes; 0 for manually adjusted stacks */
   ulong stack_push_frame_count;          /* The number of stack frames to adjust the stack by on every stack push */
 
   /* Agave uses the segv vaddr in several different cases, including:
@@ -232,10 +235,10 @@ struct __attribute__((aligned(FD_VM_HOST_REGION_ALIGN))) fd_vm {
      bottom/top.  Lazily initialized. */
   fd_vm_shadow_t shadow[ FD_VM_STACK_FRAME_MAX ] __attribute__((aligned(16)));
 
-  /* stack, indexed [0,FD_VM_STACK_MAX).  Divided into FD_VM_STACK_FRAME_MAX
-     frames.  Each frame has a FD_VM_STACK_GUARD_SZ region followed by a
-     FD_VM_STACK_FRAME_SZ region.  reg[10] gives the offset of the start of the
-     current stack frame. */
+  /* Stack storage, indexed [0,FD_VM_STACK_MAX).  Fixed stack frames
+     occupy FD_VM_STACK_FRAME_SZ bytes each.  When enabled, guard gaps
+     exist only in the VM address space, not in this host buffer.
+     reg[10] holds a VM stack address, not an offset into this array. */
   uchar stack[ FD_VM_STACK_MAX ] __attribute__((aligned(FD_VM_HOST_REGION_ALIGN)));
 
   /* syscall heap, [0,heap_sz) used, [heap_sz,heap_max) free. */
@@ -368,95 +371,16 @@ fd_vm_is_check_size_enabled( fd_vm_t const * vm ) {
    fault, appending an execution trace if vm is attached to a trace.
    vm must be successfully initialized with fd_vm_init before each call.
 
-   Returns FD_VM_SUCCESS (0) on success and an FD_VM_ERR code (negative)
-   on failure.  Reasons for failure include:
+   Returns FD_VM_SUCCESS on success and an FD_VM_ERR_EBPF_* code on
+   failure.  A syscall failure returns FD_VM_ERR_EBPF_SYSCALL_ERROR.
 
-     SIGTEXT   - A jump/call set the program counter outside the text
-                 region or the program counter incremented beyond the
-                 text region.  pc will be at the out of bounds location.
-                 ic and cu will not include the out of bounds location.
-                 For a call, the call stack frame was allocated.
-
-     SIGSPLIT  - A jump/call set the program counter into the middle of
-                 a multiword instruction or a multiword instruction went
-                 past the text region end.  pc will be at the split.  ic
-                 and cu will not include the split.  For a call, the
-                 call stack frame was allocated.
-
-     SIGCALL   - A call set the program counter to a non-function
-                 location.  pc will be at the non-function location.  ic
-                 and cu will include the call but not include the
-                 non-function location.  The call stack frame was
-                 allocated.
-
-     SIGSTACK  - The call depth limit was exceeded.  pc will be at the
-                 call.  ic and cu will include the call but not the call
-                 target.  The call stack frame was not allocated.
-
-     SIGILL    - An invalid instruction was encountered (including an
-                 invalid opcode and an endian swap with an invalid bit
-                 width).  pc will be at the invalid instruction.  ic and
-                 cu will not include the invalid instruction.
-
-     SIGSEGV   - An invalid memory access (outside the program memory
-                 map) was encountered.  pc will be at the faulting
-                 instruction.  ic and cu will not include the faulting
-                 instruction.
-
-     SIGBUS    - An unaligned memory access was encountered.  pc will be
-                 at the faulting instruction.  ic and cu will not
-                 include the faulting instruction.  (Note: currently
-                 mapped to SIGSEGV and then only if check_align is
-                 enabled.)
-
-     SIGRDONLY - A write to read-only memory address was encountered.
-                 pc will be at the faulting instruction.  ic and cu will
-                 not include the faulting instruction.  (Note: currently
-                 mapped to SIGSEGV.)
-
-     SIGCOST   - The compute limit was exceeded.  pc will be at the
-                 first non-executed instruction (if pc is a syscall, the
-                 syscall might have been partially executed when it ran
-                 out of budget .. see safety tip below).  ic will cover
-                 all executed instructions.  cu will be zero.
-
-   This will considers any error returned by a syscall as a fault and
-   returns the syscall error code here.  See syscall documentation for
-   details here.  When a syscall faults, pc will be at the syscall, ic
-   will include the syscall and cu will include the syscall and any
-   additional costs the syscall might have incurred up to that point of
-   the fault.
-
-   IMPORTANT SAFETY TIP!  Ideally, a syscall should only modify vm's
-   state when it knows its overall syscall will be successful.
-   Unfortunately, this is often not practical (e.g. a syscall starts
-   processing a list of user provided commands and discovers an error
-   condition late in the command list that did not exist at syscall
-   start because the error condition was created by successfully
-   executed commands earlier in the list).  As such, vm's state on a
-   faulting syscall may not be clean.
-
-   FIXME: SINCE MOST SYSCALLS CAN BE IMPLEMENTED TO HAVE CLEAN FAULTING
-   BEHAVIOR, PROVIDE A MECHANISM SO USERS CAN EASILY DETECT UNCLEAN
-   SYSCALL FAULTS?
-
-   For SIGCOST, note that the vm can speculate ahead when processing
-   instructions.  This makes it is possible to have a situation where
-   a vm faults with, for example, SIGSEGV from a speculatively
-   executed memory access while a non-speculative execution would have
-   faulted with SIGCOST on an earlier instruction.  In these situations,
-   pc will be at the faulting speculatively executed instruction, ic
-   will include all the speculatively executed instructions, cu will be
-   zero and vm's state will include the impact of all the speculation.
-
-   IMPORTANT SAFETY TIP!  While different vm implementations can
-   disagree on why a program faulted (e.g. SIGCOST versus SIGSEGV in the
-   example above), they cannot disagree on whether or not a program
-   faulted.  As a result, the specific fault reason must never be
-   allowed to be part of consensus.
+   On failure, pc, ic and cu reflect the interpreter halt path.  A
+   compute-budget failure sets cu to zero.  The reported ic need not
+   count every instruction attempted before a budget failure.  Syscalls
+   may have partially modified VM state before returning an error.
 
    fd_vm_exec_trace runs with tracing and requires vm to be attached to
-   a trace.  fd_vm_exec_notrace runs without without tracing even if vm
+   a trace.  fd_vm_exec_notrace runs without tracing even if vm
    is attached to a trace. */
 
 int

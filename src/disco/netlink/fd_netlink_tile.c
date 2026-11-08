@@ -154,12 +154,6 @@ privileged_init( fd_topo_t const *      topo,
   float const probe_delay_seconds   =  15.f;
   fd_neigh4_prober_init( ctx->prober, max_probes_per_second, max_probe_burst, probe_delay_seconds );
 
-  /* Set duration of blocking reads in after_credit */
-  struct timeval tv = { .tv_usec = 2000 }; /* 2ms */
-  if( FD_UNLIKELY( 0!=setsockopt( ctx->nl_monitor->fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(struct timeval) ) ) ) {
-    FD_LOG_ERR(( "setsockopt(sock,SOL_SOCKET,SO_RCVTIMEO) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-  }
-
   ctx->waker_client_idx = tile->waker_client_idx;
   FD_TEST( ctx->waker_client_idx!=ULONG_MAX );
 
@@ -226,9 +220,6 @@ metrics_write( fd_netlink_tile_ctx_t * ctx ) {
   FD_MGAUGE_SET(     NETLNK, INTERFACE_COUNT,          ctx->netdev_tbl->hdr->dev_cnt  );
   FD_MCNT_ENUM_COPY( NETLNK, NEIGHBOR_PROBE_REQUESTED, ctx->metrics.neigh_probe       );
 }
-
-/* netlink_monitor_read calls recvfrom to process a link, route, or
-   neighbor update.  Returns 1 if a message was read, 0 otherwise. */
 
 static void
 iproute_publish( fd_netlink_tile_ctx_t * ctx,

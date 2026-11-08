@@ -73,7 +73,7 @@ fd_zksdk_verify_proof_direct_grouped_ciphertext_3_handles_validity(
   int   const                              batched,
   fd_zksdk_transcript_t *                  transcript ) {
   /*
-    When batched==false, C, h1, h2 are given and C_hi, h1_hi, h2_hi, h3_hi are NULL.
+    When batched==false, C, h1, h2, h3 are given and C_hi, h1_hi, h2_hi, h3_hi, challenge_t are NULL.
     When batched==true, they are computed as C = C_lo + t C_hi.
 
     We store points and scalars in the following arrays:

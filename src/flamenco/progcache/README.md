@@ -121,8 +121,8 @@ Epoch boundaries may introduce breaking VM changes via feature
 activations.  For example, a feature could alter the program loader,
 producing a different read-only image for the same executable.
 
-The cache therefore maintains distinct records before and after an
-epoch boundary, even if they refer to the same program account
+The cache therefore maintains distinct records before and after a
+feature activation, even if they refer to the same program account
 revision.
 
 Future versions of Firedancer could relax this mechanism by only
@@ -159,7 +159,7 @@ loaded program visible to those waiters.
 
 All revisions of a program are stored in the same hash map bucket.
 Lookup walks the bucket chain and takes the first exact match on key,
-feature_slot and deploy_slot.
+feature_slot and deploy_slot that is visible in the querying fork lineage.
 
 ### Record deletion
 

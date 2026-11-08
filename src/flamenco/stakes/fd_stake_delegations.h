@@ -67,9 +67,8 @@
    to disk.  The disk root capacity is max_stake_accounts plus twice
    max_disk_records. */
 
-#define FD_STAKE_DELEGATIONS_ALIGN              (128UL)
-#define FD_STAKE_DELEGATIONS_FORK_MAX           (65534UL)
-#define FD_STAKE_DELEGATIONS_DELTA_POOL_DIVISOR (2UL)
+#define FD_STAKE_DELEGATIONS_ALIGN    (128UL)
+#define FD_STAKE_DELEGATIONS_FORK_MAX (65534UL)
 
 /* 123454 is vote stakes, 123455 is cost tracker, 123456 is epoch
    credits, 123458/123459 are store, 123460/123461 are accdb, and
@@ -276,8 +275,8 @@ fd_stake_delegations_align( void );
 
 /* fd_stake_delegations_footprint returns the footprint of the stake
    delegations struct for the given root pool capacity and max live
-   slots.  The in-memory delta pool holds half as many elements, with a
-   minimum capacity of one; further deltas spill to disk. */
+   slots.  The in-memory delta pool has the same capacity as the root
+   pool (max_stake_accounts); further deltas spill to disk. */
 
 ulong
 fd_stake_delegations_footprint( ulong max_stake_accounts,
@@ -319,6 +318,34 @@ fd_stake_delegations_reset( fd_stake_delegations_t * stake_delegations );
 
 fd_stake_history_entry_t
 fd_stake_delegations_totals( fd_stake_delegations_t const * stake_delegations );
+
+/* fd_stake_delegations_metrics_t holds the in-memory occupancy and disk
+   spill metrics.  *_spilled_cnt and disk_* only grow; disk_ticks is in
+   fd_tickcount() units. */
+
+struct fd_stake_delegations_metrics {
+  ulong root_used;
+  ulong root_capacity;
+  ulong root_disk_cnt;
+  ulong delta_used;
+  ulong delta_capacity;
+  ulong delta_disk_cnt;
+  ulong root_spilled_cnt;
+  ulong delta_spilled_cnt;
+  ulong disk_read_cnt;
+  ulong disk_written_cnt;
+  ulong disk_ticks;
+};
+
+typedef struct fd_stake_delegations_metrics fd_stake_delegations_metrics_t;
+
+/* fd_stake_delegations_metrics_snap copies the metrics of
+   stake_delegations into out without taking the lock, so values from
+   different fields may be slightly out of step. */
+
+void
+fd_stake_delegations_metrics_snap( fd_stake_delegations_t const *   stake_delegations,
+                                   fd_stake_delegations_metrics_t * out );
 
 /* Replace aggregate totals when the root crosses an epoch boundary.
    Acquires the store write lock; do not call inside a frontier query. */

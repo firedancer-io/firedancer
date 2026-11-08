@@ -187,8 +187,8 @@ put_vote_account_v4( test_env_t *        env,
   acc.lamports   = lamports;
   acc.executable = 0;
   fd_memcpy( acc.owner, fd_solana_vote_program_id.key, sizeof(fd_pubkey_t) );
-  acc.data_len   = sizeof(vote_state_data);
-  fd_memcpy( acc.data, vote_state_data, sizeof(vote_state_data) );
+  acc.data_len   = fd_ulong_if( v5, FD_VOTE_STATE_V5_SZ, sizeof(vote_state_data) );
+  fd_memcpy( acc.data, vote_state_data, acc.data_len );
   acc.commit     = 1;
   fd_accdb_unwrite_one( env->accdb, &acc );
 }
@@ -601,7 +601,20 @@ test_vat_path_v5_voter( fd_wksp_t * wksp ) {
 
   fd_pubkey_t v = vote_key( 0UL );
   fd_acc_t ro = fd_accdb_read_one( env->accdb, env->bank->accdb_fork_id, v.uc );
-  FD_TEST( FD_LOAD( uint, ro.data )==fd_vote_state_versioned_enum_v5 );
+  FD_TEST( FD_LOAD( uint, ro.data )==fd_vote_state_versioned_enum_v5 && ro.data_len==FD_VOTE_STATE_V5_SZ );
+  ulong burn = fd_slot_params_at_slot( env->bank, env->bank->f.slot ).vat_to_burn_per_epoch;
+  ulong min5 = fd_rent_exempt_minimum_balance( &env->bank->f.rent, FD_VOTE_STATE_V5_SZ ) + burn;
+  FD_TEST(  fd_stakes_vote_account_is_admissible( env->bank, min5,     ro.owner, ro.data, ro.data_len ) );
+  FD_TEST( !fd_stakes_vote_account_is_admissible( env->bank, min5-1UL, ro.owner, ro.data, ro.data_len ) );
+  fd_accdb_unread_one( env->accdb, &ro );
+
+  fd_pubkey_t v1 = vote_key( 1UL );
+  ro = fd_accdb_read_one( env->accdb, env->bank->accdb_fork_id, v1.uc );
+  FD_TEST( FD_LOAD( uint, ro.data )==fd_vote_state_versioned_enum_v4 && ro.data_len==FD_VOTE_STATE_V4_SZ );
+  ulong min4 = fd_rent_exempt_minimum_balance( &env->bank->f.rent, FD_VOTE_STATE_V4_SZ ) + burn;
+  FD_TEST( min4>min5 );
+  FD_TEST(  fd_stakes_vote_account_is_admissible( env->bank, min4,     ro.owner, ro.data, ro.data_len ) );
+  FD_TEST( !fd_stakes_vote_account_is_admissible( env->bank, min4-1UL, ro.owner, ro.data, ro.data_len ) );
   fd_accdb_unread_one( env->accdb, &ro );
 
   FD_TEST( vote_stakes_t1_cnt( env->bank )==NUM_VAT_ELIGIBLE );

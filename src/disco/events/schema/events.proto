@@ -177,9 +177,11 @@ enum BlockCompletedDeadReason {
   BLOCK_COMPLETED_DEAD_REASON_ENTRY_AFTER_BLOCK_FOOTER = 33;  // An Alpenglow block carried an entry batch other than the alpentick after its footer.
   BLOCK_COMPLETED_DEAD_REASON_INVALID_ALPENTICK_POSITION = 34;  // An Alpenglow block ended without the alpentick directly after its footer.
   BLOCK_COMPLETED_DEAD_REASON_MISSING_BLOCK_FOOTER = 35;  // An Alpenglow block ended without a block footer.
-  BLOCK_COMPLETED_DEAD_REASON_SPURIOUS_UPDATE_PARENT = 36;  // An Alpenglow block carried an UpdateParent marker where none is valid: before the header or after the footer.
+  BLOCK_COMPLETED_DEAD_REASON_SPURIOUS_UPDATE_PARENT = 36;  // An Alpenglow block started on a UpdateParent marker, or found one after its footer.
   BLOCK_COMPLETED_DEAD_REASON_BAD_BLOCK_MARKER = 37;  // An Alpenglow block marker (header, footer, genesis certificate or update parent) failed to parse or had an unknown kind.
   BLOCK_COMPLETED_DEAD_REASON_TOO_MANY_WRITABLE_ACCOUNTS = 38;  // The block's transactions declare more writable accounts than a valid block can afford.
+  BLOCK_COMPLETED_DEAD_REASON_MULTIPLE_UPDATE_PARENTS = 39;  // An Alpenglow block carried more than one UpdateParent marker.
+  BLOCK_COMPLETED_DEAD_REASON_UPDATE_PARENT_MISMATCH = 40;  // An Alpenglow block's initial UpdateParent named a parent other than the one replay built it on.
 }
 
 // Why this validator gave up on the block before it completed; not_abandoned otherwise. Independent of dead.
@@ -189,6 +191,7 @@ enum BlockCompletedAbandonedReason {
   BLOCK_COMPLETED_ABANDONED_REASON_PRUNED = 2;  // A block on another fork was rooted, discarding this fork before replay finished.
   BLOCK_COMPLETED_ABANDONED_REASON_EVICTED = 3;  // Dropped for lack of room to track in-progress blocks. The row is emitted once the block's in-flight verification has drained without ruling it invalid; a block ruled invalid while draining emits a dead row instead. May be replayed later, producing a second row for the same slot and block id under a new bank_seq; the retry usually completes but can itself end dead, evicted, or pruned. Blocks evicted after freezing already emitted a completed row and emit nothing further. Dedup on slot and block_id, keeping the highest bank_seq.
   BLOCK_COMPLETED_ABANDONED_REASON_RESET = 4;  // Production of this leader block was abandoned mid-slot: consensus reset block production onto another fork before the slot completed. Only on blocks this validator produced; pack_end_reason is abandoned on the same row. The partial block never finished shredding, so block_id holds the merkle root of the last piece that had returned through reassembly when production was abandoned (may trail the last piece actually shredded), or 0 if none had.
+  BLOCK_COMPLETED_ABANDONED_REASON_REPARENTED = 5;  // Prefix of a block we executed before detecting an UpdateParent marker. The prefix execution is abandoned, and the block execution after the UpdateParent marker shows up as new row.
 }
 
 // Why block production stopped; not_leader for blocks this validator did not produce.
@@ -511,6 +514,7 @@ enum BlockReceivedCancelledReason {
   BLOCK_RECEIVED_CANCELLED_REASON_PARENT_OFF_MISMATCH = 5;  // A data shred's parent_off disagreed with the slot's other shreds or with its block header.
   BLOCK_RECEIVED_CANCELLED_REASON_INVALID_BLOCK_HEADER = 6;  // Shred 0 did not carry a valid block header.
   BLOCK_RECEIVED_CANCELLED_REASON_SLOT_COMPLETE_MISMATCH = 7;  // A data shred's slot complete flag disagreed with the slot's other shreds.
+  BLOCK_RECEIVED_CANCELLED_REASON_INVALID_UPDATE_PARENT = 8;  // An UpdateParent marker broke a rule: not in the first slot of its leader window, a second UpdateParent, a parent below the root or newer than the header's, a null parent block id, or naming the header's own parent.
 }
 
 // The source of the final shred that completed the FEC set.
@@ -827,11 +831,11 @@ enum MetricsDiagBundleState {
   METRICS_DIAG_BUNDLE_STATE_DISABLED = 5;  // No bundle tiles configured
 }
 
-// Vote subsystem state: 0=disabled (Non-voting or no tower tile), 1=not_started (Tower tile not running or no votes cast yet), 2=delinquent (Vote distance exceeds threshold or vote stalled), 3=voting (Voting normally), 4=inadmissible (Voting, but the vote account fails the validator admission ticket filter)
+// Vote subsystem state: 0=disabled (Non-voting or no votor tile), 1=not_started (Votor tile not running or no votes cast yet), 2=delinquent (Vote distance exceeds threshold or vote stalled), 3=voting (Voting normally), 4=inadmissible (Voting, but the vote account fails the validator admission ticket filter)
 enum MetricsDiagVoteState {
   METRICS_DIAG_VOTE_STATE_UNSPECIFIED = 0;
-  METRICS_DIAG_VOTE_STATE_DISABLED = 1;  // Non-voting or no tower tile
-  METRICS_DIAG_VOTE_STATE_NOT_STARTED = 2;  // Tower tile not running or no votes cast yet
+  METRICS_DIAG_VOTE_STATE_DISABLED = 1;  // Non-voting or no votor tile
+  METRICS_DIAG_VOTE_STATE_NOT_STARTED = 2;  // Votor tile not running or no votes cast yet
   METRICS_DIAG_VOTE_STATE_DELINQUENT = 3;  // Vote distance exceeds threshold or vote stalled
   METRICS_DIAG_VOTE_STATE_VOTING = 4;  // Voting normally
   METRICS_DIAG_VOTE_STATE_INADMISSIBLE = 5;  // Voting, but the vote account fails the validator admission ticket filter
@@ -1066,6 +1070,22 @@ enum MetricsIavfState {
   METRICS_IAVF_STATE_BOOTING = 1;  // Booting
   METRICS_IAVF_STATE_RUNNING = 2;  // Running
   METRICS_IAVF_STATE_SHUTDOWN = 3;  // Shutdown
+}
+
+// Tile lifecycle state: 0=booting, 1=running, 2=shutdown
+enum MetricsFailovState {
+  METRICS_FAILOV_STATE_UNSPECIFIED = 0;
+  METRICS_FAILOV_STATE_BOOTING = 1;  // Booting
+  METRICS_FAILOV_STATE_RUNNING = 2;  // Running
+  METRICS_FAILOV_STATE_SHUTDOWN = 3;  // Shutdown
+}
+
+// Tile lifecycle state: 0=booting, 1=running, 2=shutdown
+enum MetricsRepairState {
+  METRICS_REPAIR_STATE_UNSPECIFIED = 0;
+  METRICS_REPAIR_STATE_BOOTING = 1;  // Booting
+  METRICS_REPAIR_STATE_RUNNING = 2;  // Running
+  METRICS_REPAIR_STATE_SHUTDOWN = 3;  // Shutdown
 }
 
 // Slot that was voted on
@@ -1446,7 +1466,7 @@ message MetricsNetPktTxDropped {
 
 // Received packets dropped, by reason
 message MetricsNetPktRxDropped {
-  // Undersized, oversized, or malformed Ethernet, IPv4 or UDP headers
+  // Undersized, oversized, or malformed Ethernet, IPv4 or UDP headers, or IPv4 options present
   uint64 malformed = 1;
   // Destination IP does not match the bind address
   uint64 dst_ip_mismatch = 2;
@@ -1530,7 +1550,7 @@ message MetricsMlx5PktTxDropped {
 
 // Received packets dropped, by reason
 message MetricsMlx5PktRxDropped {
-  // Undersized, oversized, or malformed Ethernet, IPv4 or UDP headers
+  // Undersized, oversized, or malformed Ethernet, IPv4 or UDP headers, or IPv4 options present
   uint64 malformed = 1;
   // Destination IP does not match the bind address
   uint64 dst_ip_mismatch = 2;
@@ -8118,7 +8138,7 @@ message MetricsIavfPktTxDropped {
 
 // Received packets dropped, by reason
 message MetricsIavfPktRxDropped {
-  // Undersized, oversized, or malformed Ethernet, IPv4 or UDP headers
+  // Undersized, oversized, or malformed Ethernet, IPv4 or UDP headers, or IPv4 options present
   uint64 malformed = 1;
   // Destination IP does not match the bind address
   uint64 dst_ip_mismatch = 2;
@@ -8156,6 +8176,270 @@ message MetricsIavfThreadDurationNanos {
 
 // Tile wall time, by regime; regimes are exhaustive and groups Busy, Idle, Backpressure and Housekeeping partition it
 message MetricsIavfRegimeDurationNanos {
+  // Caught up + Housekeeping
+  uint64 caught_up_housekeeping = 1;
+  // Processing + Housekeeping
+  uint64 processing_housekeeping = 2;
+  // Backpressure + Housekeeping
+  uint64 backpressure_housekeeping = 3;
+  // Caught up + Prefrag
+  uint64 caught_up_prefrag = 4;
+  // Processing + Prefrag
+  uint64 processing_prefrag = 5;
+  // Backpressure + Prefrag
+  uint64 backpressure_prefrag = 6;
+  // Caught up + Postfrag
+  uint64 caught_up_postfrag = 7;
+  // Processing + Postfrag
+  uint64 processing_postfrag = 8;
+  // Caught up + Sleeping
+  uint64 caught_up_sleeping = 9;
+  // Backpressure + Sleeping
+  uint64 backpressure_sleeping = 10;
+}
+
+// Times the tile tried to park while idle (efficient mode), by result
+message MetricsFailovParkAttempted {
+  // Woken by a doorbell ring
+  uint64 ring = 1;
+  // Deadline or park cap lapsed
+  uint64 deadline = 2;
+  // Pre-park recheck found work, did not park
+  uint64 pending = 3;
+}
+
+// Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless it is the only live tile pinned to its CPU
+message MetricsFailovThreadDurationNanos {
+  // Wait (task was runnable but not scheduled)
+  uint64 wait = 1;
+  // Idle (task was not runnable)
+  uint64 idle = 2;
+  // User (task was scheduled and executing in user mode)
+  uint64 user = 3;
+  // System (task was scheduled and executing in kernel mode)
+  uint64 system = 4;
+  // Interrupt (CPU time stolen by hardirq/softirq handlers or a hypervisor; fixed tiles only)
+  uint64 interrupt = 5;
+}
+
+// Tile wall time, by regime; regimes are exhaustive and groups Busy, Idle, Backpressure and Housekeeping partition it
+message MetricsFailovRegimeDurationNanos {
+  // Caught up + Housekeeping
+  uint64 caught_up_housekeeping = 1;
+  // Processing + Housekeeping
+  uint64 processing_housekeeping = 2;
+  // Backpressure + Housekeeping
+  uint64 backpressure_housekeeping = 3;
+  // Caught up + Prefrag
+  uint64 caught_up_prefrag = 4;
+  // Processing + Prefrag
+  uint64 processing_prefrag = 5;
+  // Backpressure + Prefrag
+  uint64 backpressure_prefrag = 6;
+  // Caught up + Postfrag
+  uint64 caught_up_postfrag = 7;
+  // Processing + Postfrag
+  uint64 processing_postfrag = 8;
+  // Caught up + Sleeping
+  uint64 caught_up_sleeping = 9;
+  // Backpressure + Sleeping
+  uint64 backpressure_sleeping = 10;
+}
+
+// Timeouts put back without sending a request, by reason, one per deferral
+message MetricsRepairTimeoutDeferred {
+  // HighestWindowIndex put back: turbine delivered a FEC set of the slot within the eager wait
+  uint64 turbine_active = 1;
+  // FEC set request put back: every data shred arrived, the set has not completed
+  uint64 all_received = 2;
+}
+
+// Uncapped hedge time (srtt+4*rttvar, 100 ms if unmeasured) of each staked peer an escaped retry was sent to
+message MetricsRepairEscapePeerHedgeDelayNanos {
+  // [0, 10000000) nanos
+  uint64 b0 = 1;
+  // [10000000, 16378937) nanos
+  uint64 b1 = 2;
+  // [16378937, 26826958) nanos
+  uint64 b2 = 3;
+  // [26826958, 43939706) nanos
+  uint64 b3 = 4;
+  // [43939706, 71968568) nanos
+  uint64 b4 = 5;
+  // [71968568, 117876865) nanos
+  uint64 b5 = 6;
+  // [117876865, 193069775) nanos
+  uint64 b6 = 7;
+  // [193069775, 316227769) nanos
+  uint64 b7 = 8;
+  // [316227769, 517947472) nanos
+  uint64 b8 = 9;
+  // [517947472, 848342904) nanos
+  uint64 b9 = 10;
+  // [848342904, 1389495502) nanos
+  uint64 b10 = 11;
+  // [1389495502, 2275845935) nanos
+  uint64 b11 = 12;
+  // [2275845935, 3727593730) nanos
+  uint64 b12 = 13;
+  // [3727593730, 6105402305) nanos
+  uint64 b13 = 14;
+  // [6105402305, 10000000000) nanos
+  uint64 b14 = 15;
+  // [10000000000, inf) nanos
+  uint64 b15 = 16;
+  // Sum of samples (nanos)
+  uint64 sum = 17;
+}
+
+// Delay scheduled before a request's next attempt: its peer's hedge time, 16.8 ms to 100 ms, 16.8 ms after an escape
+message MetricsRepairRetryDelayNanos {
+  // [0, 10000000) nanos
+  uint64 b0 = 1;
+  // [10000000, 18615210) nanos
+  uint64 b1 = 2;
+  // [18615210, 34652605) nanos
+  uint64 b2 = 3;
+  // [34652605, 64506553) nanos
+  uint64 b3 = 4;
+  // [64506553, 120080305) nanos
+  uint64 b4 = 5;
+  // [120080305, 223532013) nanos
+  uint64 b5 = 6;
+  // [223532013, 416109543) nanos
+  uint64 b6 = 7;
+  // [416109543, 774596665) nanos
+  uint64 b7 = 8;
+  // [774596665, 1441927981) nanos
+  uint64 b8 = 9;
+  // [1441927981, 2684179260) nanos
+  uint64 b9 = 10;
+  // [2684179260, 4996656140) nanos
+  uint64 b10 = 11;
+  // [4996656140, 9301380482) nanos
+  uint64 b11 = 12;
+  // [9301380482, 17314715371) nanos
+  uint64 b12 = 13;
+  // [17314715371, 32231706785) nanos
+  uint64 b13 = 14;
+  // [32231706785, 60000000000) nanos
+  uint64 b14 = 15;
+  // [60000000000, inf) nanos
+  uint64 b15 = 16;
+  // Sum of samples (nanos)
+  uint64 sum = 17;
+}
+
+// Time from sending a repair request to receiving its response
+message MetricsRepairResponseLatencyNanos {
+  // [0, 10000000) nanos
+  uint64 b0 = 1;
+  // [10000000, 13894955) nanos
+  uint64 b1 = 2;
+  // [13894955, 19306977) nanos
+  uint64 b2 = 3;
+  // [19306977, 26826958) nanos
+  uint64 b3 = 4;
+  // [26826958, 37275937) nanos
+  uint64 b4 = 5;
+  // [37275937, 51794747) nanos
+  uint64 b5 = 6;
+  // [51794747, 71968568) nanos
+  uint64 b6 = 7;
+  // [71968568, 100000001) nanos
+  uint64 b7 = 8;
+  // [100000001, 138949551) nanos
+  uint64 b8 = 9;
+  // [138949551, 193069775) nanos
+  uint64 b9 = 10;
+  // [193069775, 268269582) nanos
+  uint64 b10 = 11;
+  // [268269582, 372759375) nanos
+  uint64 b11 = 12;
+  // [372759375, 517947471) nanos
+  uint64 b12 = 13;
+  // [517947471, 719685675) nanos
+  uint64 b13 = 14;
+  // [719685675, 1000000000) nanos
+  uint64 b14 = 15;
+  // [1000000000, inf) nanos
+  uint64 b15 = 16;
+  // Sum of samples (nanos)
+  uint64 sum = 17;
+}
+
+// Pings rejected, by reason
+message MetricsRepairPingRejected {
+  // Failed to decode
+  uint64 malformed = 1;
+  // Sender is not a known peer
+  uint64 unknown_peer = 2;
+  // Signature did not verify
+  uint64 signature_failed = 3;
+  // Pong not sent: signing halted for an identity switch, or no free sign slot
+  uint64 sign_unavailable = 4;
+  // Pong not sent: sender address differs from the peer's gossip address
+  uint64 address_mismatch = 5;
+  // Pong not sent: no request was sent to the peer within the ping TTL
+  uint64 unsolicited = 6;
+}
+
+// Data shreds received as repair responses, by the pending request they matched
+message MetricsRepairShredRx {
+  // Response to a pending WindowIndexForBlockId request
+  uint64 for_block_id = 1;
+  // Response to a pending WindowIndex or HighestWindowIndex request
+  uint64 slot_index = 2;
+  // Matched no pending request: a duplicate, or an answer to an expired or evicted request
+  uint64 unmatched = 3;
+  // Repair response that showed the slot's leader equivocating, dropped before matching; only unverified-nonce HighestWindowIndex or Orphan replies
+  uint64 eqvoc = 4;
+}
+
+// Signed repair messages queued, by type; window types send one per missing shred (up to 32), others one per attempt
+message MetricsRepairRequestTx {
+  // Pong
+  uint64 pong = 1;
+  // Shred at an index
+  uint64 window_index = 2;
+  // Highest shred at or above an index
+  uint64 highest_window_index = 3;
+  // Ancestors of an orphan slot
+  uint64 orphan = 4;
+  // Parent and FEC set count of a block (Alpenglow)
+  uint64 parent_fec_set_count = 5;
+  // Merkle root of a FEC set (Alpenglow)
+  uint64 fec_set_root = 6;
+  // Shred at an index of a specific block (Alpenglow)
+  uint64 window_index_for_block_id = 7;
+}
+
+// Times the tile tried to park while idle (efficient mode), by result
+message MetricsRepairParkAttempted {
+  // Woken by a doorbell ring
+  uint64 ring = 1;
+  // Deadline or park cap lapsed
+  uint64 deadline = 2;
+  // Pre-park recheck found work, did not park
+  uint64 pending = 3;
+}
+
+// Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless it is the only live tile pinned to its CPU
+message MetricsRepairThreadDurationNanos {
+  // Wait (task was runnable but not scheduled)
+  uint64 wait = 1;
+  // Idle (task was not runnable)
+  uint64 idle = 2;
+  // User (task was scheduled and executing in user mode)
+  uint64 user = 3;
+  // System (task was scheduled and executing in kernel mode)
+  uint64 system = 4;
+  // Interrupt (CPU time stolen by hardirq/softirq handlers or a hypervisor; fixed tiles only)
+  uint64 interrupt = 5;
+}
+
+// Tile wall time, by regime; regimes are exhaustive and groups Busy, Idle, Backpressure and Housekeeping partition it
+message MetricsRepairRegimeDurationNanos {
   // Caught up + Housekeeping
   uint64 caught_up_housekeeping = 1;
   // Processing + Housekeeping
@@ -9160,7 +9444,7 @@ message BlockReceived {
   bool notarized = 8;
   // Whether the block was produced as leader.
   bool is_leader = 9;
-  // Whether the validator considered itself caught up to the cluster when the row was emitted. False from boot until rotor/repair closes on the network tip (set immediately for genesis bootstrap); otherwise during regular operation is set to True if the highest slot the validator has received completely is no more than one leader window behind its view of the current cluster slot.
+  // Whether the validator considered itself caught up to the cluster when the row was emitted. False from boot until repair closes on the network tip (set immediately for genesis bootstrap); otherwise during regular operation is set to True if the highest slot the validator has received completely is no more than one leader window behind its view of the current cluster slot.
   bool caught_up = 10;
   // Number of FEC sets in the block; for blocks that never completed reception, this could be 0 if the shred with the slot_complete flag never arrived.
   uint64 fec_set_count = 11;
@@ -9172,7 +9456,7 @@ message BlockReceived {
   uint64 first_repair_request_time = 14;
   // Network arrival at the shred tile of the last repair response matched to an outstanding specific-shred request; other responses do not stamp this. 0 if none was matched; always 0 for leader blocks.
   uint64 last_repair_received_time = 15;
-  // Network arrival at the rotor tile of the block's first verified getParentAndFecCount or FecRoot response, including a FecRoot answer for a FEC set already held. 0 if no verified metadata response was received.
+  // Network arrival at the repair tile of the block's first verified getParentAndFecCount or FecRoot response, including a FecRoot answer for a FEC set already held. 0 if no verified metadata response was received.
   uint64 first_meta_received_time = 16;
   // Shreds received over the network via turbine, plus repair deliveries whose provenance could not be verified (failed nonce) and coding shreds. Near 0 for leader blocks.
   uint32 turbine_shred_received = 17;
@@ -10370,7 +10654,7 @@ message MetricsReplay {
   uint64 epoch_credits = 28;
   // Whether our vote account's stake is not admitted: at the optimistically confirmed slot it fails the validator admission ticket filter (missing, below the V4 rent-exempt minimum, or not V4 with a BLS pubkey), or it passes but has not yet been admitted at an epoch boundary
   bool is_vote_account_inadmissible = 29;
-  // Latest slot for which our vote appears in a reward certificate, 0 if none observed (always 0 under Tower)
+  // Latest slot for which our vote appears in a reward certificate, 0 if none observed
   uint64 last_rewarded_vote_slot = 30;
   // Duration of ingesting one queried FEC set into the scheduler
   MetricsReplayStoreQueryDurationNanos store_query_duration_nanos = 31;
@@ -10402,7 +10686,7 @@ message MetricsReplay {
   uint64 leader_slot = 44;
   // Slot at which we are next leader, or 0 if none. If we are currently leader, this is the same as the current leader slot
   uint64 next_leader_slot = 45;
-  // Slot replay last reset to (Tower reset slot; under Alpenglow the newest replayed slot or parent-ready parent); can decrease
+  // Slot replay last reset to (the newest replayed slot or parent-ready parent); can decrease
   uint64 reset_slot = 46;
   // Maximum number of banks we can have alive
   uint64 bank_capacity = 47;
@@ -10544,7 +10828,7 @@ message MetricsReplay {
   uint64 accdb_copied_bytes = 115;
   // Whether the runtime has loaded a bank and can replay
   bool is_runtime_loaded = 116;
-  // Rotor FEC sets of a slot at or below the published root, or of a block whose parent is below it, skipped rather than dropped: no redelivery can replay them
+  // Repair FEC sets of a slot at or below the published root, or of a block whose parent is below it, skipped rather than dropped: no redelivery can replay them
   uint64 fec_rooted_past_skipped = 117;
   // Leader windows given up because the cluster already produced one of their slots, eg. our own past slots replayed after a restart (Alpenglow)
   uint64 leader_window_already_produced = 118;
@@ -10616,10 +10900,33 @@ message MetricsReplay {
   uint64 sched_lthash_batch_held = 151;
   // Dispatch polls that held an out-of-band lthash addition batch because too few exec tiles were idle
   uint64 sched_lthash_batch_idle_waited = 152;
+  // Rooted stake delegations held in memory
+  uint64 stake_delegation_root_used = 153;
+  // Rooted stake delegations that fit in memory, from runtime.stake_delegation_cache_cnt
+  uint64 stake_delegation_root_capacity = 154;
+  // Rooted stake delegations currently spilled to disk
+  uint64 stake_delegation_root_disk_count = 155;
+  // Unrooted stake delegation fork deltas held in memory
+  uint64 stake_delegation_delta_used = 156;
+  // Unrooted stake delegation fork deltas that fit in memory
+  uint64 stake_delegation_delta_capacity = 157;
+  // Unrooted stake delegation fork deltas currently spilled to disk
+  uint64 stake_delegation_delta_disk_count = 158;
+  // Rooted stake delegations written to disk because the in-memory root pool was full
+  uint64 stake_delegation_root_spilled = 159;
+  // Stake delegation fork deltas written to disk because the in-memory delta pool was full
+  uint64 stake_delegation_delta_spilled = 160;
+  // Reads from the stake delegation spill file by all tiles
+  uint64 stake_delegation_disk_read = 161;
+  // Writes to the stake delegation spill file by all tiles
+  uint64 stake_delegation_disk_written = 162;
+  // Time all tiles spent in stake delegation spill file reads and writes
+  uint64 stake_delegation_disk_duration_nanos = 163;
 }
 
 // Metrics of one rotor tile instance, one row per sweep
 message MetricsRotor {
+  option deprecated = true;
   // Identifier shared by every row of one sweep
   uint64 sample_id = 1;
   // Why a metrics sweep was taken
@@ -11592,7 +11899,7 @@ message MetricsDiag {
   uint64 timer_irq = 24;
   // Bundle subsystem state: 0=disconnected (All bundle tiles disconnected), 1=connecting (At least one bundle tile connecting, none connected or sleeping), 2=connected (At least one bundle tile connected), 3=sleeping (At least one bundle tile sleeping, none connected), 4=disabled (No bundle tiles configured)
   MetricsDiagBundleState bundle_state = 25;
-  // Vote subsystem state: 0=disabled (Non-voting or no tower tile), 1=not_started (Tower tile not running or no votes cast yet), 2=delinquent (Vote distance exceeds threshold or vote stalled), 3=voting (Voting normally), 4=inadmissible (Voting, but the vote account fails the validator admission ticket filter)
+  // Vote subsystem state: 0=disabled (Non-voting or no votor tile), 1=not_started (Votor tile not running or no votes cast yet), 2=delinquent (Vote distance exceeds threshold or vote stalled), 3=voting (Voting normally), 4=inadmissible (Voting, but the vote account fails the validator admission ticket filter)
   MetricsDiagVoteState vote_state = 26;
   // Replay subsystem state: 0=disabled (No replay tile), 1=not_started (Replay tile not running or slots are zero), 2=behind (Replay lagging behind turbine or reset slot stalled), 3=running (Replay keeping up)
   MetricsDiagReplayState replay_state = 27;
@@ -12842,7 +13149,7 @@ message MetricsMotor {
   uint64 timer_irq = 24;
 }
 
-// One repair request message this validator sent to a peer, reported once when it settles: its answer arrived, its metadata reply was checked, the deadline passed (PENDING_TTL, about 1 s after req_time), or it was evicted. Each message asks for one thing: a window_index or window_index_for_block_id pick sends one message per missing shred of the FEC set, so one row each, sharing peer, req_time, attempt and pick; the other kinds are one message per pick. A hedge or retry to another peer is another pick. Messages never sent have no row; see the rotor tile's Timeout* and SigningHalted metrics, and TimeoutOverdueNanos for sign slot starvation. Emitted by the rotor tile.
+// One repair request message this validator sent to a peer, reported once when it settles: its answer arrived, its metadata reply was checked, the deadline passed (PENDING_TTL, about 1 s after req_time), or it was evicted. Each message asks for one thing: a window_index or window_index_for_block_id pick sends one message per missing shred of the FEC set, so one row each, sharing peer, req_time, attempt and pick; the other kinds are one message per pick. A hedge or retry to another peer is another pick. Messages never sent have no row; see the repair tile's Timeout* and SigningHalted metrics, and TimeoutOverdueNanos for sign slot starvation. Emitted by the repair tile.
 message RepairRequest {
   // Validator identity of the peer asked.
   bytes peer_identity = 1;
@@ -12960,6 +13267,196 @@ message MetricsIavf {
   uint64 non_fd_pkt_rx = 40;
 }
 
+// Metrics of one failov tile instance, one row per sweep
+message MetricsFailov {
+  // Identifier shared by every row of one sweep
+  uint64 sample_id = 1;
+  // Why a metrics sweep was taken
+  MetricsSampleReason sample_reason = 2;
+  // Slot that triggered the sweep, 0 for periodic sweeps
+  uint64 sample_slot = 3;
+  // Snapshot load state
+  MetricsSnapctLoadState sample_snapct_state = 4;
+  // Whether replay had caught up to the cluster tip when the sweep was taken (replay IsCaughtUp); set once per run, never cleared
+  bool sample_caught_up = 5;
+  // Tile instances in the sweep, to detect partial sweeps
+  uint64 sample_tile_cnt = 6;
+  // Index of this tile instance among tiles of its kind
+  uint64 kind_id = 7;
+  // Process ID of the tile
+  uint64 pid = 8;
+  // Thread ID of the tile. Same as Pid in production, but might differ in development
+  uint64 tid = 9;
+  // CPU the tile last ran on
+  uint64 last_cpu_index = 10;
+  // counter: cumulative since tile start, query deltas. Involuntary context switches
+  uint64 context_switch_involuntary = 11;
+  // counter: cumulative since tile start, query deltas. Voluntary context switches
+  uint64 context_switch_voluntary = 12;
+  // counter: cumulative since tile start, query deltas. Major page faults
+  uint64 page_fault_major = 13;
+  // counter: cumulative since tile start, query deltas. Minor page faults
+  uint64 page_fault_minor = 14;
+  // Tile lifecycle state: 0=booting, 1=running, 2=shutdown
+  MetricsFailovState state = 15;
+  // Last wall-clock time the tile heartbeated
+  uint64 heartbeat_time = 16;
+  // Whether the tile is currently backpressured
+  bool is_backpressured = 17;
+  // counter: cumulative since tile start, query deltas. Times the tile waited for one or more consumers to catch up to resume publishing
+  uint64 backpressure = 18;
+  // Tile wall time, by regime; regimes are exhaustive and groups Busy, Idle, Backpressure and Housekeeping partition it
+  MetricsFailovRegimeDurationNanos regime_duration_nanos = 19;
+  // Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless it is the only live tile pinned to its CPU
+  MetricsFailovThreadDurationNanos thread_duration_nanos = 20;
+  // Times the tile tried to park while idle (efficient mode), by result
+  MetricsFailovParkAttempted park_attempted = 21;
+  // counter: cumulative since tile start, query deltas. Device IRQs on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
+  uint64 device_irq = 22;
+  // counter: cumulative since tile start, query deltas. TLB shootdowns on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
+  uint64 tlb_shootdown = 23;
+  // counter: cumulative since tile start, query deltas. Local timer interrupts (LOC) on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
+  uint64 timer_irq = 24;
+}
+
+// Metrics of one repair tile instance, one row per sweep
+message MetricsRepair {
+  // Identifier shared by every row of one sweep
+  uint64 sample_id = 1;
+  // Why a metrics sweep was taken
+  MetricsSampleReason sample_reason = 2;
+  // Slot that triggered the sweep, 0 for periodic sweeps
+  uint64 sample_slot = 3;
+  // Snapshot load state
+  MetricsSnapctLoadState sample_snapct_state = 4;
+  // Whether replay had caught up to the cluster tip when the sweep was taken (replay IsCaughtUp); set once per run, never cleared
+  bool sample_caught_up = 5;
+  // Tile instances in the sweep, to detect partial sweeps
+  uint64 sample_tile_cnt = 6;
+  // Index of this tile instance among tiles of its kind
+  uint64 kind_id = 7;
+  // Process ID of the tile
+  uint64 pid = 8;
+  // Thread ID of the tile. Same as Pid in production, but might differ in development
+  uint64 tid = 9;
+  // CPU the tile last ran on
+  uint64 last_cpu_index = 10;
+  // counter: cumulative since tile start, query deltas. Involuntary context switches
+  uint64 context_switch_involuntary = 11;
+  // counter: cumulative since tile start, query deltas. Voluntary context switches
+  uint64 context_switch_voluntary = 12;
+  // counter: cumulative since tile start, query deltas. Major page faults
+  uint64 page_fault_major = 13;
+  // counter: cumulative since tile start, query deltas. Minor page faults
+  uint64 page_fault_minor = 14;
+  // Tile lifecycle state: 0=booting, 1=running, 2=shutdown
+  MetricsRepairState state = 15;
+  // Last wall-clock time the tile heartbeated
+  uint64 heartbeat_time = 16;
+  // Whether the tile is currently backpressured
+  bool is_backpressured = 17;
+  // counter: cumulative since tile start, query deltas. Times the tile waited for one or more consumers to catch up to resume publishing
+  uint64 backpressure = 18;
+  // Tile wall time, by regime; regimes are exhaustive and groups Busy, Idle, Backpressure and Housekeeping partition it
+  MetricsRepairRegimeDurationNanos regime_duration_nanos = 19;
+  // Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless it is the only live tile pinned to its CPU
+  MetricsRepairThreadDurationNanos thread_duration_nanos = 20;
+  // Times the tile tried to park while idle (efficient mode), by result
+  MetricsRepairParkAttempted park_attempted = 21;
+  // counter: cumulative since tile start, query deltas. Device IRQs on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
+  uint64 device_irq = 22;
+  // counter: cumulative since tile start, query deltas. TLB shootdowns on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
+  uint64 tlb_shootdown = 23;
+  // counter: cumulative since tile start, query deltas. Local timer interrupts (LOC) on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
+  uint64 timer_irq = 24;
+  // Network packets sent, including requests, pings and pongs
+  uint64 pkt_tx = 25;
+  // Signed repair messages queued, by type; window types send one per missing shred (up to 32), others one per attempt
+  MetricsRepairRequestTx request_tx = 26;
+  // Highest slot fully delivered to replay, 0 if none
+  uint64 highest_delivered_slot = 27;
+  // Highest slot a shred was received for, 0 if none
+  uint64 highest_received_slot = 28;
+  // First turbine slot seen, the catchup target, 0 if none
+  uint64 first_turbine_slot = 29;
+  // Highest slot past the window with a verified cert, the staked catchup target, 0 if none
+  uint64 catchup_slot = 30;
+  // Blocks in the eager, notar and final block treaps, waiting for discovery
+  uint64 block_pending = 31;
+  // Pending request attempts awaiting a response; a hedge is another attempt
+  uint64 request_in_flight = 32;
+  // FEC sets published to replay
+  uint64 fec_delivered = 33;
+  // Shreds received at or below the root, ignored
+  uint64 shred_old_ignored = 34;
+  // Data shreds received as repair responses, by the pending request they matched
+  MetricsRepairShredRx shred_rx = 35;
+  // Alpenglow repair metadata responses received
+  uint64 meta_rx = 36;
+  // Metadata responses that failed to decode
+  uint64 meta_malformed_rejected = 37;
+  // Metadata responses matching no outstanding request
+  uint64 meta_unsolicited_rejected = 38;
+  // ParentFecSetCount responses accepted
+  uint64 parent_fec_set_count_accepted = 39;
+  // ParentFecSetCount responses that failed verification
+  uint64 parent_fec_set_count_failed = 40;
+  // FecSetRoot responses accepted
+  uint64 fec_set_root_accepted = 41;
+  // FecSetRoot responses that failed verification
+  uint64 fec_set_root_failed = 42;
+  // Root advanced messages received from replay
+  uint64 replay_root_advanced_rx = 43;
+  // Missing FEC messages received from replay, each a from-root reconsume
+  uint64 replay_missing_fec_rx = 44;
+  // Pings rejected, by reason
+  MetricsRepairPingRejected ping_rejected = 45;
+  // Time from sending a repair request to receiving its response
+  MetricsRepairResponseLatencyNanos response_latency_nanos = 46;
+  // Delay scheduled before a request's next attempt: its peer's hedge time, 16.8 ms to 100 ms, 16.8 ms after an escape
+  MetricsRepairRetryDelayNanos retry_delay_nanos = 47;
+  // Timeouts in the eager, notar and final timeout queues
+  uint64 timeout_pending = 48;
+  // Timeouts dropped because their block is gone or their work is done
+  uint64 timeout_cancelled = 49;
+  // Timeouts deferred because no peer could be picked
+  uint64 timeout_no_peer_deferred = 50;
+  // Request attempts after the first for the same timer
+  uint64 request_hedged = 51;
+  // Pending requests with no response after about 1 s (PENDING_TTL); a peer is banned for 10 s after 32 in a row, pending-pool evictions not counted
+  uint64 request_expired = 52;
+  // WindowIndexForBlockId requests that expired unanswered, at or above the root
+  uint64 request_by_id_expired = 53;
+  // Retries sent to a random staked peer because 3 attempts in a row brought no new shred of the FEC set
+  uint64 request_stuck_escaped = 54;
+  // Request attempts sent after 3 or more earlier attempts for the same timer
+  uint64 request_late_retried = 55;
+  // Uncapped hedge time (srtt+4*rttvar, 100 ms if unmeasured) of each staked peer an escaped retry was sent to
+  MetricsRepairEscapePeerHedgeDelayNanos escape_peer_hedge_delay_nanos = 56;
+  // Peers banned for 10 s after 4 WindowIndexForBlockId requests in a row expired, whatever their other replies
+  uint64 peer_by_id_banned = 57;
+  // Requests sent to elicit a ping from a peer with a new address
+  uint64 ping_probe_tx = 58;
+  // Cluster-wide wait for turbine before a missing FEC set is repaired (srtt+4*rttvar, clamped to 20-250 ms; 250 ms until sampled)
+  uint64 eager_delay_nanos = 59;
+  // Messages in the sign pool waiting for a signature from the sign tiles
+  uint64 sign_request_pending = 60;
+  // Of TimeoutNoPeerDeferred, retries of a block not known only from turbine, which pick only staked peers: every staked peer was banned, without an address or at its in-flight limit
+  uint64 timeout_no_staked_peer_deferred = 61;
+  // Timeouts put back without sending a request, by reason, one per deferral
+  MetricsRepairTimeoutDeferred timeout_deferred = 62;
+  // Timeouts dropped because their role's timeout queue was full; the block goes back to its treap and the work is discovered again
+  uint64 timeout_queue_full_dropped = 63;
+  // Blocks whose discovery stopped because their role's timeout queue filled; the block goes back to its treap and its remaining FEC sets are queued later
+  uint64 timeout_queue_full_paused = 64;
+  // Identity switches that halted signing; no request, ping or pong is signed until the switch completes and unhalts
+  uint64 signing_halted = 65;
+  // Time the earliest due timeout has waited past its due time when metrics were written, 0 if none is due; grows while signing is halted or fewer than 40 sign slots are free
+  uint64 timeout_overdue_nanos = 66;
+  // First certified slot in the window seen by a staked node, which starts its catchup, 0 if none yet
+  uint64 first_cert_slot = 67;
+}
+
 // Combined event type
 message Event {
   oneof event {
@@ -13027,5 +13524,7 @@ message Event {
     MetricsMotor metrics_motor = 62;
     RepairRequest repair_request = 63;
     MetricsIavf metrics_iavf = 64;
+    MetricsFailov metrics_failov = 65;
+    MetricsRepair metrics_repair = 66;
   }
 }

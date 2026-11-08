@@ -96,7 +96,6 @@
    that have already been replayed, or send multiple signals to rotor to
    re-deliver. */
 
-#include "../poh/fd_poh_tile.h"
 #include "../../disco/tiles.h"
 #include "../../choreo/votor/fd_cert.h"
 #include "../../flamenco/alpenglow/fd_block_marker.h"
@@ -105,7 +104,6 @@
 #define REPLAY_SIG_SLOT_COMPLETED (0)
 #define REPLAY_SIG_SLOT_DEAD      (1)
 #define REPLAY_SIG_ROOT_ADVANCED  (2)
-#define REPLAY_SIG_RESET          (3)
 #define REPLAY_SIG_BECAME_LEADER  (4)
 #define REPLAY_SIG_OC_ADVANCED    (5)
 #define REPLAY_SIG_TXN_EXECUTED   (6)
@@ -208,6 +206,7 @@ typedef struct fd_replay_slot_completed fd_replay_slot_completed_t;
 struct fd_replay_slot_dead {
   ulong             slot;
   fd_hash_t         block_id;
+  uint              latest_fec_idx; /* highest fec_set_idx ingested by the dead slot, >= fec with the dead transaction.  UINT_MAX if alpenglow_fast_leader_handover is not active on the dead bank */
 
   /* Agave can finalize off the certs in a dead block's footer.
 
@@ -327,7 +326,6 @@ union fd_replay_message {
   fd_replay_slot_dead_t       slot_dead;
   fd_replay_root_advanced_t   root_advanced;
   fd_replay_oc_advanced_t     oc_advanced;
-  fd_poh_reset_t              reset;
   fd_became_leader_t          became_leader;
   fd_replay_txn_executed_t    txn_executed;
   fd_replay_fec_evicted_t     reasm_evicted;

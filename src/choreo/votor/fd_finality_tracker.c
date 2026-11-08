@@ -190,8 +190,6 @@ handle_implicitly_finalized( fd_finality_tracker_t *   self,
           FD_CHECK_CRIT( 0==memcmp( status_hash( &ele->status ), block_hash, sizeof(fd_block_hash_t) ), "consensus safety violation" );
           return;
         case FD_FINALIZATION_STATUS_NOTARIZED:
-          FD_CHECK_CRIT( 0==memcmp( status_hash( &ele->status ), block_hash, sizeof(fd_block_hash_t) ), "consensus safety violation" );
-          break;
         case FD_FINALIZATION_STATUS_FINAL_PENDING_NOTAR:
           break;
         case FD_FINALIZATION_STATUS_IMPLICITLY_SKIPPED:
@@ -450,9 +448,9 @@ fd_finality_tracker_mark_notarized( fd_finality_tracker_t *   self,
   switch( ele->status.kind ) {
     case FD_FINALIZATION_STATUS_NOTARIZED:
     case FD_FINALIZATION_STATUS_FINALIZED:
-    case FD_FINALIZATION_STATUS_IMPLICITLY_FINALIZED:
       FD_CHECK_CRIT( 0==memcmp( status_hash( &ele->status ), &block->hash, sizeof(fd_block_hash_t) ), "consensus safety violation" );
       return;
+    case FD_FINALIZATION_STATUS_IMPLICITLY_FINALIZED:
     case FD_FINALIZATION_STATUS_IMPLICITLY_SKIPPED:
       return;
     case FD_FINALIZATION_STATUS_FINAL_PENDING_NOTAR: {

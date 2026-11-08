@@ -137,8 +137,8 @@ FD_PROTOTYPES_BEGIN
     if the bank has finished executing all of its transactions or if the
     bank is marked as dead and has no outstanding references.  A bank
     can only be copied from a parent bank (fd_banks_clone_from_parent)
-    if the parent bank has been frozen.  The program will crash if this
-    invariant is violated.
+    if the parent bank is frozen or prunable.  The program will crash
+    if this invariant is violated.
   - Prunable: This bank has been marked for pruning away due to memory
     pressure on the banks.  Additional references on the bank should not
     be accumulated after the bank has been marked prunable and once
@@ -159,7 +159,7 @@ FD_PROTOTYPES_BEGIN
    To clone bank from parent banks.  This makes a bank replayable by
    copying over the state from the parent bank into the child.  It
    assumes that the bank index has been previously provisioned by a call
-   to fd_banks_new_bank and that the parent bank index has been frozen.
+   to fd_banks_new_bank and that the parent bank is frozen or prunable.
    fd_bank_t * bank_clone = fd_banks_clone_from_parent( banks, bank_index );
 
    To ensure that the bank index we want to advance our root to is safe
@@ -405,14 +405,8 @@ struct fd_banks {
 
   ulong epoch_credits_offset;
 
-  /* The set of epoch leaders for the current and previous epochs is
-     allocated out-of-line and tracked by epoch_leaders_offset.  Only
-     two need to be stored because in the worst case we will have a root
-     that sits behind an epoch boundary, with leaf banks executing into
-     the next epoch.  All banks that execute behind the boundary, will
-     use the previous epoch's leader schedule, and all nodes after the
-     epoch boundary are guaranteed to produce identical leader
-     schedules. */
+  /* Leader schedules for two adjacent epochs are allocated out-of-line.
+     Computing a new schedule replaces the older of the two. */
 
   ulong epoch_leaders_offset;
   ulong epoch_leaders_footprint;
@@ -576,8 +570,9 @@ fd_banks_get_parent( fd_banks_t * banks,
    This function links the child bank to its parent bank and copies
    over the data from the parent bank to the child.  This function
    assumes that the child and parent banks both have been allocated.
-   The parent bank must be frozen and the child bank must be initialized
-   but not yet used.  It also assumes that the parent bank is not dead.
+   The parent bank must be frozen or prunable and the child bank must be
+   initialized but not yet used.  It also assumes that the parent bank
+   is not dead.
 
    A more detailed note: not all of the data is copied over and this
    is a shallow clone.  All of the CoW fields are not copied over and

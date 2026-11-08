@@ -23,6 +23,7 @@
 #include "templ/fd_quic_transport_params.h"
 #include "templ/fd_quic_parse_util.h"
 #include "tls/fd_quic_tls.h"
+#include "../tls/fd_tls_proto.h"
 
 #include "../../ballet/hex/fd_hex.h"
 #include "../../ballet/x509/fd_x509_mock.h"
@@ -969,7 +970,7 @@ fd_quic_handle_v1_frame( fd_quic_t *       quic,
   }
   quic->metrics.frame_rx_cnt[ fd_quic_frame_metric_id[ id ] ]++;
 
-  pkt->ack_flag |= fd_uint_if( fd_quic_frame_type_flags[ id ]&FD_QUIC_FRAME_FLAG_N, 0U, ACK_FLAG_RQD );
+  pkt->ack_flag |= fd_quic_frame_type_flags[ id ]&FD_QUIC_FRAME_FLAG_N ? 0 : ACK_FLAG_RQD;
 
   /* tail call to frame handler */
   switch( id ) {
@@ -1599,6 +1600,7 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
               dcid, peer_scid, new_conn_id_u64 ) ) ) {
           return FD_QUIC_FAILED;
         }
+        pkt->retry_sent = 1U;
         return (initial->pkt_num_pnoff + initial->len);
       } else {
         /* This Initial packet is in response to our Retry.
@@ -1618,6 +1620,16 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
           return FD_QUIC_PARSE_FAIL;
         };
       }
+    }
+  }
+
+  /* Reject an unavailable handshake slot before deriving Initial keys.
+     Eviction still waits for an authenticated packet. */
+  if( !conn && !fd_quic_tls_hs_pool_free( state->hs_pool ) ) {
+    fd_quic_tls_hs_t * oldest = fd_quic_tls_hs_cache_ele_peek_head( &state->hs_cache, state->hs_pool );
+    if( state->now < oldest->birthtime + quic->config.tls_hs_ttl ) {
+      metrics->hs_err_alloc_fail_cnt++;
+      return FD_QUIC_PARSE_FAIL;
     }
   }
 
@@ -1691,6 +1703,12 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
     return FD_QUIC_PARSE_FAIL;
   }
 # endif /* FD_QUIC_DISABLE_CRYPTO */
+
+  /* Reserved bits are authenticated; check only after payload decryption. */
+  if( FD_UNLIKELY( cur_ptr[0] & 0x0c ) ) {
+    if( conn ) fd_quic_conn_error( conn, FD_QUIC_CONN_REASON_PROTOCOL_VIOLATION, __LINE__ );
+    return FD_QUIC_PARSE_FAIL;
+  }
 
   /* set packet number on the context */
   pkt->pkt_number = pkt_number;
@@ -2007,6 +2025,12 @@ fd_quic_handle_v1_handshake(
   }
 # endif /* FD_QUIC_DISABLE_CRYPTO */
 
+  /* Reserved bits are authenticated; check only after payload decryption. */
+  if( FD_UNLIKELY( cur_ptr[0] & 0x0c ) ) {
+    fd_quic_conn_error( conn, FD_QUIC_CONN_REASON_PROTOCOL_VIOLATION, __LINE__ );
+    return FD_QUIC_PARSE_FAIL;
+  }
+
   /* set packet number on the context */
   pkt->pkt_number = pkt_number;
 
@@ -2207,11 +2231,37 @@ fd_quic_key_update_complete( fd_quic_conn_t * conn ) {
   /* Packet header encryption keys are not updated */
 
   /* Wind up for next key phase update */
-  conn->key_phase  = !conn->key_phase;
-  conn->key_update = 0;
+  conn->key_phase          = !conn->key_phase;
+  conn->key_update         = 0;
+  conn->key_phase_ack_sent = 0;
+  conn->key_phase_updated  = 1;
   fd_quic_key_update_derive1( conn );
 
   FD_DEBUG( FD_LOG_DEBUG(( "key update completed" )); )
+}
+
+static void
+fd_quic_server_handshake_confirm( fd_quic_t *      quic,
+                                  fd_quic_conn_t * conn ) {
+  if( conn->state!=FD_QUIC_CONN_STATE_HANDSHAKE_COMPLETE || !conn->server ) return;
+  conn->handshake_done_send = 1;
+
+  /* move straight to ACTIVE */
+  fd_quic_set_conn_state( conn, FD_QUIC_CONN_STATE_ACTIVE );
+
+  /* RFC 9001 4.9.2. Discarding Handshake Keys
+     > An endpoint MUST discard its Handshake keys when the
+     > TLS handshake is confirmed
+     RFC 9001 4.1.2. Handshake Confirmed
+     > [...] the TLS handshake is considered confirmed at the
+     > server when the handshake completes */
+  fd_quic_abandon_enc_level( conn, fd_quic_enc_level_handshake_id );
+
+  /* user callback */
+  fd_quic_cb_conn_new( quic, conn );
+
+  /* clear out hs_data here, as we don't need it anymore */
+  if( conn->tls_hs ) fd_quic_tls_clear_hs_data( conn->tls_hs, fd_quic_enc_level_appdata_id );
 }
 
 ulong
@@ -2294,6 +2344,12 @@ fd_quic_handle_v1_one_rtt( fd_quic_t *      quic,
   }
 # endif /* !FD_QUIC_DISABLE_CRYPTO */
 
+  /* Reserved bits are authenticated; check only after payload decryption. */
+  if( FD_UNLIKELY( cur_ptr[0] & 0x18 ) ) {
+    fd_quic_conn_error( conn, FD_QUIC_CONN_REASON_PROTOCOL_VIOLATION, __LINE__ );
+    return FD_QUIC_PARSE_FAIL;
+  }
+
   /* set packet number on the context */
   pkt->pkt_number = pkt_number;
 
@@ -2303,11 +2359,31 @@ fd_quic_handle_v1_one_rtt( fd_quic_t *      quic,
   }
 
   if( !current_key_phase ) {
+    /* RFC 9001 Section 6.2: If an endpoint detects a second update
+       before it has sent any packets with updated keys containing an
+       acknowledgment for the packet that initiated the key update, it
+       indicates that its peer has updated keys twice without awaiting
+       confirmation.  An endpoint MAY treat such consecutive key updates
+       as a connection error of type KEY_UPDATE_ERROR.
+
+       Enforcing this bounds the rate of (expensive) key derivations a
+       peer can trigger.  Key updates initiated by us are exempt. */
+    if( FD_UNLIKELY( conn->key_phase_updated && !conn->key_update && !conn->key_phase_ack_sent ) ) {
+      FD_DEBUG( FD_LOG_DEBUG(( "peer initiated consecutive key updates" )) );
+      fd_quic_conn_error( conn, FD_QUIC_CONN_REASON_KEY_UPDATE_ERROR, __LINE__ );
+      return FD_QUIC_PARSE_FAIL;
+    }
+
     /* Decryption succeeded.  Commit the key phase update and throw
        away the old keys.  (May cause a few decryption failures if old
        packets get reordered past the current incoming packet) */
     fd_quic_key_update_complete( conn );
   }
+
+  /* Notify the application before delivering the first 1-RTT frames. */
+  fd_quic_server_handshake_confirm( quic, conn );
+  if( FD_UNLIKELY( conn->state!=FD_QUIC_CONN_STATE_ACTIVE &&
+                   conn->state!=FD_QUIC_CONN_STATE_HANDSHAKE_COMPLETE ) ) return FD_QUIC_PARSE_FAIL;
 
   /* handle frames */
   ulong         payload_off = pn_offset + pkt_number_sz;
@@ -2381,6 +2457,9 @@ fd_quic_process_quic_packet_v1( fd_quic_t *     quic,
     quic->metrics.pkt_oversz_cnt++;
     return FD_QUIC_PARSE_FAIL;
   }
+
+  /* This entry point handles QUIC v1; Version Negotiation is dispatched separately. */
+  if( FD_UNLIKELY( !(cur_ptr[0] & 0x40) ) ) return FD_QUIC_PARSE_FAIL;
 
   pkt->ack_flag       = 0U;
   pkt->rtt_pkt_number = 0UL;
@@ -2716,6 +2795,7 @@ fd_quic_process_packet_impl( fd_quic_t * quic,
 
       rc = fd_quic_process_quic_packet_v1( quic, &pkt, cur_ptr, cur_sz );
       svc_cnt_eq_alloc_conn( state->svc_timers, quic );
+      if( FD_UNLIKELY( pkt.retry_sent ) ) return;
 
       /* RFC 9000 Section 12.2: a packet that fails (e.g. Handshake after
          its keys are discarded) does not void the rest of the datagram.
@@ -3039,6 +3119,41 @@ fd_quic_handle_crypto_frame( fd_quic_frame_ctx_t *    context,
     return FD_QUIC_PARSE_FAIL;
   }
 
+  if( enc_level==fd_quic_enc_level_appdata_id && conn->handshake_complete ) {
+    if( rcv_off>conn->post_hs_rx_off ) {
+      context->pkt->ack_flag |= ACK_FLAG_CANCEL;
+      return rcv_sz;
+    }
+    ulong off = conn->post_hs_rx_off;
+    while( off<rcv_hi ) {
+      if( conn->post_hs_remaining ) {
+        uint skip = (uint)fd_ulong_min( conn->post_hs_remaining, rcv_hi-off );
+        conn->post_hs_remaining -= skip;
+        off += skip;
+        continue;
+      }
+      uchar byte = p[off-rcv_off];
+      if( !conn->post_hs_hdr_used ) {
+        /* Only clients can receive NewSessionTicket.  QUIC forbids
+           KeyUpdate (RFC 9001 Section 6). */
+        if( conn->server || byte!=FD_TLS_MSG_NEW_SESSION_TICKET ) {
+          fd_quic_frame_error( context, FD_QUIC_CONN_REASON_CRYPTO_BASE+FD_TLS_ALERT_UNEXPECTED_MESSAGE, __LINE__ );
+          return FD_QUIC_PARSE_FAIL;
+        }
+      } else {
+        conn->post_hs_length = (conn->post_hs_length<<8) | byte;
+      }
+      off++;
+      if( ++conn->post_hs_hdr_used==4U ) {
+        conn->post_hs_remaining = conn->post_hs_length;
+        conn->post_hs_length = 0U;
+        conn->post_hs_hdr_used = 0U;
+      }
+    }
+    conn->post_hs_rx_off = off;
+    return rcv_sz;
+  }
+
   if( !tls_hs ) {
     /* Handshake already completed. Ignore frame */
     /* TODO consider aborting conn if too many unsolicited crypto frames arrive */
@@ -3084,7 +3199,9 @@ fd_quic_handle_crypto_frame( fd_quic_frame_ctx_t *    context,
     uint alert  = conn->tls_hs->alert;
     uint reason = conn->tls_hs->hs.base.reason;
     FD_DTRACE_PROBE_3( quic_handle_crypto_frame, conn->our_conn_id, alert, reason );
-    if( alert == 0u ) {
+    if( reason==FD_TLS_REASON_CH_SESSION_ID ) {
+      fd_quic_frame_error( context, FD_QUIC_CONN_REASON_PROTOCOL_VIOLATION, __LINE__ );
+    } else if( alert == 0u ) {
       fd_quic_frame_error( context, FD_QUIC_CONN_REASON_INTERNAL_ERROR, __LINE__ );
     } else {
       FD_DEBUG(
@@ -3349,6 +3466,7 @@ fd_quic_conn_tx_dgram( fd_quic_conn_t * conn,
   }
 #endif
 
+  if( ack_sz ) conn->key_phase_ack_sent = 1;
   conn->pkt_number[ pn_space ] = pkt_num + 1UL;
   if( conn->ack_gen->head==conn->ack_gen->tail ) conn->unacked_sz = 0UL;
 
@@ -3500,10 +3618,17 @@ fd_quic_gen_close_frame( fd_quic_conn_t             * conn,
   if( conn->flags & FD_QUIC_CONN_FLAGS_CLOSE_SENT ) return 0UL;
   conn->flags |= FD_QUIC_CONN_FLAGS_CLOSE_SENT;
 
+  uint reason = conn->reason;
+  if( !reason && conn->state!=FD_QUIC_CONN_STATE_PEER_CLOSE &&
+      ( pkt_meta_tmpl->enc_level==fd_quic_enc_level_initial_id ||
+        pkt_meta_tmpl->enc_level==fd_quic_enc_level_handshake_id ) ) {
+    reason = FD_QUIC_CONN_REASON_APPLICATION_ERROR;
+  }
+
   ulong frame_sz;
-  if( conn->reason != 0u || conn->state == FD_QUIC_CONN_STATE_PEER_CLOSE ) {
+  if( reason != 0u || conn->state == FD_QUIC_CONN_STATE_PEER_CLOSE ) {
     fd_quic_conn_close_0_frame_t frame = {
-      .error_code           = conn->reason,
+      .error_code           = reason,
       .frame_type           = 0u, /* we do not know the frame in question */
       .reason_phrase_length = 0u  /* no reason phrase */
     };
@@ -3870,8 +3995,12 @@ fd_quic_gen_frames( fd_quic_conn_t           * conn,
 
   fd_quic_pkt_meta_tracker_t * tracker = &conn->pkt_meta_tracker;
 
+  uchar * ack_ptr = payload_ptr;
   payload_ptr = fd_quic_gen_ack_frames( conn->ack_gen, payload_ptr, payload_end, pkt_meta_tmpl->enc_level, now, 0 );
   if( conn->ack_gen->head == conn->ack_gen->tail ) conn->unacked_sz = 0UL;
+  if( ( payload_ptr != ack_ptr ) & ( pkt_meta_tmpl->enc_level == fd_quic_enc_level_appdata_id ) ) {
+    conn->key_phase_ack_sent = 1;
+  }
 
   if( FD_UNLIKELY( closing ) ) {
     payload_ptr += fd_quic_gen_close_frame( conn, payload_ptr, payload_end, pkt_meta_tmpl, tracker );
@@ -4268,26 +4397,7 @@ fd_quic_conn_service( fd_quic_t * quic, fd_quic_conn_t * conn, long now ) {
       {
         if( conn->tls_hs ) {
           /* if we're the server, we send "handshake-done" frame */
-          if( conn->state == FD_QUIC_CONN_STATE_HANDSHAKE_COMPLETE && conn->server ) {
-            conn->handshake_done_send = 1;
-
-            /* move straight to ACTIVE */
-            fd_quic_set_conn_state( conn, FD_QUIC_CONN_STATE_ACTIVE );
-
-            /* RFC 9001 4.9.2. Discarding Handshake Keys
-               > An endpoint MUST discard its Handshake keys when the
-               > TLS handshake is confirmed
-               RFC 9001 4.1.2. Handshake Confirmed
-               > [...] the TLS handshake is considered confirmed at the
-               > server when the handshake completes */
-            fd_quic_abandon_enc_level( conn, fd_quic_enc_level_handshake_id );
-
-            /* user callback */
-            fd_quic_cb_conn_new( quic, conn );
-
-            /* clear out hs_data here, as we don't need it anymore */
-            fd_quic_tls_clear_hs_data( conn->tls_hs, fd_quic_enc_level_appdata_id );
-          }
+          fd_quic_server_handshake_confirm( quic, conn );
 
           /* if we're the client, fd_quic_conn_tx will flush the hs
              buffer so we can receive the HANDSHAKE_DONE frame, and
@@ -4761,6 +4871,8 @@ fd_quic_pkt_meta_retry( fd_quic_t      *  quic,
   long const pto_duration  = fd_quic_calc_expiry_duration( conn, 0, conn->server );
   long const loss_duration = fd_quic_calc_expiry_duration( conn, 1, conn->server );
 
+  int pto_expired = 0;
+
   while(1) {
     /* find earliest expiring pkt_meta, over smallest pkt number at each enc_level */
     fd_quic_pkt_meta_t * pkt_meta = NULL;
@@ -4777,6 +4889,9 @@ fd_quic_pkt_meta_retry( fd_quic_t      *  quic,
       long  const cand_duration = fd_long_if( pkt_meta_cand->key.pkt_num < highest_acked, loss_duration, pto_duration );
 
       pkt_meta_cand->expiry = fd_long_min( pkt_meta_cand->tx_time + cand_duration, pkt_meta_cand->expiry );
+      if( !conn->server && pkt_meta_cand->key.pkt_num>=highest_acked ) {
+        pkt_meta_cand->expiry = fd_long_max( pkt_meta_cand->expiry, conn->pto_expiry );
+      }
 
       if( !pkt_meta || pkt_meta_cand->expiry < expiry ) {
         pkt_meta = pkt_meta_cand;
@@ -4784,7 +4899,7 @@ fd_quic_pkt_meta_retry( fd_quic_t      *  quic,
       }
     }
 
-    if( !pkt_meta ) return;
+    if( !pkt_meta ) break;
 
     uint  const enc_level = pkt_meta->enc_level;
     ulong const pkt_num   = pkt_meta->key.pkt_num;
@@ -4793,8 +4908,11 @@ fd_quic_pkt_meta_retry( fd_quic_t      *  quic,
     if( !!(pkt_num >= force_below_pkt_num) & !!(expiry > now) ) {
       /* safe even when expiry is LONG_MAX, because prep_schedule takes min */
       fd_quic_svc_prep_schedule( conn, expiry );
-      return;
+      break;
     };
+
+    pto_expired |= (pkt_num >= force_below_pkt_num) &
+                   (pkt_num >= conn->highest_acked[ fd_quic_enc_level_to_pn_space( enc_level ) ]);
 
     uint type = pkt_meta->key.type;
     int  retx = type!=FD_QUIC_PKT_META_TYPE_DATAGRAM; /* a lost DATAGRAM is only reclaimed */
@@ -4903,6 +5021,12 @@ fd_quic_pkt_meta_retry( fd_quic_t      *  quic,
 
     fd_quic_pkt_meta_remove( &tracker->sent_pkt_metas[enc_level], pool, pkt_meta );
     conn->used_pkt_meta--;
+  }
+
+  /* RFC 9002 Section 6.2.1: back off the PTO once per timer expiration */
+  if( pto_expired ) {
+    conn->pto_count = fd_uint_min( conn->pto_count+1U, FD_QUIC_PTO_COUNT_MAX );
+    conn->pto_expiry = now + fd_quic_calc_expiry_duration( conn, 0, conn->server );
   }
 }
 
@@ -5093,7 +5217,7 @@ fd_quic_reclaim_pkt_meta( fd_quic_conn_t *     conn,
 
 /* process ack range
    applies to pkt_number in [largest_ack - ack_range, largest_ack] */
-void
+ulong
 fd_quic_process_ack_range( fd_quic_conn_t      * conn,
                            fd_quic_frame_ctx_t * context,
                            uint                  enc_level,
@@ -5127,9 +5251,11 @@ fd_quic_process_ack_range( fd_quic_conn_t      * conn,
     fd_quic_reclaim_pkt_meta( conn, e, enc_level );
   }
 
-  conn->used_pkt_meta -= fd_quic_pkt_meta_remove_range( sent, pool, lo, hi );
+  ulong acked = fd_quic_pkt_meta_remove_range( sent, pool, lo, hi );
+  conn->used_pkt_meta -= acked;
 
   if( enc_level==fd_quic_enc_level_appdata_id ) fd_quic_cb_ack_range( conn->quic, conn, lo, hi );
+  return acked;
 }
 
 static ulong
@@ -5198,7 +5324,7 @@ fd_quic_handle_ack_frame( fd_quic_frame_ctx_t * context,
 
   /* process ack range
      applies to pkt_number in [largest_ack - first_ack_range, largest_ack] */
-  fd_quic_process_ack_range( conn,
+  ulong acked = fd_quic_process_ack_range( conn,
                              context,
                              enc_level,
                              largest_ack,
@@ -5262,7 +5388,7 @@ fd_quic_handle_ack_frame( fd_quic_frame_ctx_t * context,
     low_ack_pkt_number = fd_ulong_min( low_ack_pkt_number, lo_pkt_number );
 
     /* process ack range */
-    fd_quic_process_ack_range( conn,
+    acked += fd_quic_process_ack_range( conn,
                                context,
                                enc_level,
                                cur_pkt_number - skip,
@@ -5277,6 +5403,11 @@ fd_quic_handle_ack_frame( fd_quic_frame_ctx_t * context,
     cur_pkt_number -= skip + length;
 
     p += rc;
+  }
+
+  if( acked ) {
+    conn->pto_count  = 0U;
+    conn->pto_expiry = 0L;
   }
 
   /* Process packets declared lost for either:
@@ -5428,7 +5559,7 @@ fd_quic_handle_stream_frame(
   }
 
   int rx_res = fd_quic_cb_stream_rx( quic, conn, stream_id, offset, p, data_sz, fin );
-  pkt->ack_flag |= fd_uint_if( rx_res==FD_QUIC_SUCCESS, 0U, ACK_FLAG_CANCEL );
+  pkt->ack_flag |= rx_res==FD_QUIC_SUCCESS ? 0 : ACK_FLAG_CANCEL;
 
   /* packet bytes consumed */
   return data_sz;

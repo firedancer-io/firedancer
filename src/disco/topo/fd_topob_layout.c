@@ -43,7 +43,7 @@ static struct { char const * name; uint flags; } const TILE_CLASS[] = {
   { "rpc",    ALWAYS                       },
   { "gossvf", ALWAYS                       },
   { "gossip", ALWAYS                       },
-  { "rotor",  ALWAYS                       },
+  { "repair", ALWAYS                       },
   { "rserve", ALWAYS                       },
   { "replay", ALWAYS|THRUPUT               },
   { "votor",  ALWAYS                       },
@@ -574,7 +574,7 @@ smt_rank( fd_topo_tile_t const * tile,
           ulong                  execrp_floor,
           int                    replay_first ) {
   static char const * const T4[] = { "votor", "shred", "net", "mlx5", "sock", "accdb", NULL };
-  static char const * const T5[] = { "rotor", NULL };
+  static char const * const T5[] = { "repair", NULL };
   static char const * const T6[] = { "execle", "dedup", "sign", "resolv", "quic", "verify", "bundle", "shred", "net", "mlx5", "sock", NULL };
   static char const * const T7[] = { "gui", "rpc", "event", "rserve", "gossip", "gossvf", NULL };
 

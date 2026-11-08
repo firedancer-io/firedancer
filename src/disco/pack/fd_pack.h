@@ -403,8 +403,7 @@ void fd_pack_get_pending_smallest( fd_pack_t * pack, fd_pack_smallest_t * opt_pe
     * ACCT_BLOCKLIST: the transaction included an account address in the
       account blocklist.
     * NONCE_CONFLICT: bundle with two transactions that attempt to lock
-      the exact same durable nonce (nonce account, authority, and block
-      hash).
+      the same durable nonce account and authority.
     * INSTR_ACCT_CNT: the transaction includes an instruction that
       references too many accounts.
 

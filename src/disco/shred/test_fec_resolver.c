@@ -174,8 +174,9 @@ test_one_batch( void ) {
     for( ulong j=0UL; j<10UL; j++ )  ADD_SHRED_SRC( r2, set->parity_shreds[ j ], FD_FEC_RESOLVER_SHRED_SRC_TURBINE,    OKAY );
     for( ulong j=10UL; j<20UL; j++ ) ADD_SHRED_SRC( r2, set->parity_shreds[ j ], FD_FEC_RESOLVER_SHRED_SRC_REPAIR,     OKAY );
     for( ulong j=20UL; j<31UL; j++ ) ADD_SHRED_SRC( r2, set->parity_shreds[ j ], FD_FEC_RESOLVER_SHRED_SRC_BAD_REPAIR, OKAY );
-    for( ulong j=0UL; j<5UL; j++ )   ADD_SHRED_SRC( r2, set->parity_shreds[ j ], FD_FEC_RESOLVER_SHRED_SRC_REPAIR,     DUPLICATE );
-    for( ulong j=5UL; j<10UL; j++ )  ADD_SHRED_SRC( r2, set->parity_shreds[ j ], FD_FEC_RESOLVER_SHRED_SRC_BAD_REPAIR, IGNORED   ); /* only repair duplicates are walked */
+    /* only repair can return duplicate, and parity shreds are never treated as repair */
+    for( ulong j=0UL; j<5UL; j++ )   ADD_SHRED_SRC( r2, set->parity_shreds[ j ], FD_FEC_RESOLVER_SHRED_SRC_REPAIR,     IGNORED   );
+    for( ulong j=5UL; j<10UL; j++ )  ADD_SHRED_SRC( r2, set->parity_shreds[ j ], FD_FEC_RESOLVER_SHRED_SRC_BAD_REPAIR, IGNORED   );
     ADD_SHRED_SRC( r2, set->data_shreds[ 0 ], FD_FEC_RESOLVER_SHRED_SRC_REPAIR, COMPLETES );
 
     FD_TEST( *out_fec==out_sets+4UL+(i%4UL) );
@@ -571,7 +572,8 @@ test_shred_reject( void ) {
      cache entry is warm: a corrupt signature, a signature by another
      key, and a mismatched pubkey are still rejected, and the intact
      shred still accepted. */
-  shred = set->parity_shreds[ 4 ].s;
+  shred = set->data_shreds[ 6 ].s;
+  shred->slot++; /* Change slot to avoid equivocation detection */
   fake_resign( shred, signer_ctx );
   shred->signature[ 5 ]++;
   FD_TEST( FD_FEC_RESOLVER_SHRED_REJECTED==fd_fec_resolver_add_shred( r, shred, 2048UL, MAX, FD_FEC_RESOLVER_SHRED_SRC_TURBINE, pubkey, out_fec, out_shred, out_merkle_root, NULL ) );
@@ -579,13 +581,14 @@ test_shred_reject( void ) {
   uchar other_key[ 64 ]; for( ulong i=0UL; i<64UL; i++ ) other_key[ i ] = (uchar)(i*37UL+11UL);
   fd_sha512_t _sha[1]; fd_sha512_t * sha = fd_sha512_join( fd_sha512_new( _sha ) );
   fd_ed25519_public_from_private( other_key+32UL, other_key, sha );
-  FD_TEST( FD_FEC_RESOLVER_SHRED_REJECTED==fd_fec_resolver_add_shred( r, shred, 2048UL, MAX, FD_FEC_RESOLVER_SHRED_SRC_TURBINE, other_key+32UL, out_fec, out_shred, out_merkle_root, NULL ) );
-  FD_TEST( FD_FEC_RESOLVER_SHRED_OKAY    ==fd_fec_resolver_add_shred( r, shred, 2048UL, MAX, FD_FEC_RESOLVER_SHRED_SRC_TURBINE, pubkey,         out_fec, out_shred, out_merkle_root, NULL ) );
+  FD_TEST( FD_FEC_RESOLVER_SHRED_REJECTED ==fd_fec_resolver_add_shred( r, shred, 2048UL, MAX, FD_FEC_RESOLVER_SHRED_SRC_TURBINE, other_key+32UL, out_fec, out_shred, out_merkle_root, NULL ) );
+  FD_TEST( FD_FEC_RESOLVER_SHRED_OKAY     ==fd_fec_resolver_add_shred( r, shred, 2048UL, MAX, FD_FEC_RESOLVER_SHRED_SRC_TURBINE, pubkey,         out_fec, out_shred, out_merkle_root, NULL ) );
+  FD_TEST( FD_FEC_RESOLVER_SHRED_DUPLICATE==fd_fec_resolver_add_shred( r, shred, 2048UL, MAX, FD_FEC_RESOLVER_SHRED_SRC_REPAIR,  pubkey,         out_fec, out_shred, out_merkle_root, NULL ) );
   shred = set->parity_shreds[ 5 ].s;
   signer_ctx_t other_signer[ 1 ];
   signer_ctx_init( other_signer, other_key );
   fake_resign( shred, other_signer );
-  FD_TEST( FD_FEC_RESOLVER_SHRED_REJECTED==fd_fec_resolver_add_shred( r, shred, 2048UL, MAX, FD_FEC_RESOLVER_SHRED_SRC_TURBINE, pubkey, out_fec, out_shred, out_merkle_root, NULL ) );
+  FD_TEST( FD_FEC_RESOLVER_SHRED_REJECTED==fd_fec_resolver_add_shred( r, shred, 2048UL, MAX, FD_FEC_RESOLVER_SHRED_SRC_REPAIR,  pubkey, out_fec, out_shred, out_merkle_root, NULL ) );
   fd_sha512_delete( fd_sha512_leave( sha ) );
 }
 
@@ -636,15 +639,15 @@ test_merkle_root( void ) {
   FD_TEST( FD_FEC_RESOLVER_SHRED_REJECTED==fd_fec_resolver_add_shred( r, shred, 2048UL, MAX, FD_FEC_RESOLVER_SHRED_SRC_TURBINE, pubkey, out_fec, out_shred, &actual, NULL ) );
   FD_TEST( 0==memcmp( &actual, &expected, sizeof(fd_bmtree_node_t) ) );
 
-  /* A corrupted copy at an index the set already holds: turbine is
-     ignored before the walk, repair is walked and rejected, and
-     neither writes the merkle root. */
+  /* A corrupted copy at an index the in progress set already holds:
+     rejected from both repair and Turbine, and neither writes the
+     merkle root. */
 
   shred = set->data_shreds[ 0 ].s;
   (*(uchar *)fd_shred_data_payload( shred ))++;
   memset( &actual, 0, sizeof(fd_bmtree_node_t) );
   memset( &expected, 0, sizeof(fd_bmtree_node_t) );
-  FD_TEST( FD_FEC_RESOLVER_SHRED_IGNORED ==fd_fec_resolver_add_shred( r, shred, 2048UL, MAX, FD_FEC_RESOLVER_SHRED_SRC_TURBINE, pubkey, out_fec, out_shred, &actual, NULL ) );
+  FD_TEST( FD_FEC_RESOLVER_SHRED_REJECTED==fd_fec_resolver_add_shred( r, shred, 2048UL, MAX, FD_FEC_RESOLVER_SHRED_SRC_TURBINE, pubkey, out_fec, out_shred, &actual, NULL ) );
   FD_TEST( 0==memcmp( &actual, &expected, sizeof(fd_bmtree_node_t) ) );
   FD_TEST( FD_FEC_RESOLVER_SHRED_REJECTED==fd_fec_resolver_add_shred( r, shred, 2048UL, MAX, FD_FEC_RESOLVER_SHRED_SRC_REPAIR,  pubkey, out_fec, out_shred, &actual, NULL ) );
   FD_TEST( 0==memcmp( &actual, &expected, sizeof(fd_bmtree_node_t) ) );
@@ -786,6 +789,15 @@ test_slot_old( void ) {
   }
   fd_shredder_fini_batch( shredder );
 
+  /* Parent slot is before slot_old */
+  meta->parent_offset = 4UL;
+  fd_shredder_init_batch( shredder, perf_test_entry_batch, PERF_TEST_SZ, 4UL, meta );
+  set = next_fec_set_signed( shredder, _set, chained_merkle_root, signer_ctx );
+  for( ulong i=0UL; i<FD_FEC_SHRED_CNT; i++ ) {
+    ADD_SHRED( resolver, set->data_shreds  [ i ], IGNORED );
+    ADD_SHRED( resolver, set->parity_shreds[ i ], IGNORED );
+  }
+
   /* Insert depth more (without spilling) which shows that it was actually
      evicted. Repeat 4 times to fill the done_map. */
   meta->parent_offset = 1UL;
@@ -800,7 +812,7 @@ test_slot_old( void ) {
     ADD_SHRED(   resolver, set0->data_shreds  [ FD_FEC_SHRED_CNT-1UL ], COMPLETES );
     ADD_SHRED(   resolver, set1->data_shreds  [ FD_FEC_SHRED_CNT-1UL ], COMPLETES );
   }
-  /* Now donemap is full with slot1 entries */
+  /* Now donemap is full with slot 2 entries */
   for( ulong j=0UL; j<8UL; j++ ) ADD_SHRED( resolver, _set[j].parity_shreds[ FD_FEC_SHRED_CNT-1UL ], IGNORED );
 
   /* Complete one more */

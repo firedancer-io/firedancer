@@ -6,10 +6,11 @@
 
 /* Referenced by fdctl_shared's help/action machinery, unused here. */
 
-char const *         FD_APP_NAME    = "Firedancer";
-char const *         FD_BINARY_NAME = "firedancer";
-action_t *           ACTIONS[]      = { NULL };
-fd_topo_run_tile_t * TILES[]        = { NULL };
+char const *              FD_APP_NAME    = "Firedancer";
+char const *              FD_BINARY_NAME = "firedancer";
+action_t *                ACTIONS[]      = { NULL };
+fd_topo_run_tile_t *      TILES[]        = { NULL };
+fd_topo_obj_callbacks_t * CALLBACKS[]    = { NULL };
 
 int
 main( int     argc,

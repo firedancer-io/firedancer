@@ -111,6 +111,7 @@ fd_tlsrec_update_traffic_secret( fd_aes_gcm_t * gcm,
   uchar next_secret[ 32 ];
   fd_tls_hkdf_expand_label( next_secret, 32UL, secret, "traffic upd", 11UL, NULL, 0UL );
   fd_memcpy( secret, next_secret, 32UL );
+  fd_memzero_explicit( next_secret, sizeof(next_secret) );
   fd_tlsrec_derive_traffic_key( gcm, key, iv, secret );
 }
 
@@ -605,7 +606,7 @@ fd_tlsrec_rx( fd_tlsrec_conn_t * conn, fd_tlsrec_slice_t * tcp_rx, fd_tlsrec_sli
 
 fd_tlsrec_conn_t *
 fd_tlsrec_conn_init( fd_tlsrec_conn_t * conn, fd_tls_t const * tls, int is_server ) {
-  fd_memset( conn, 0, sizeof(*conn) );
+  fd_memzero_explicit( conn, sizeof(*conn) );
   fd_memcpy( &conn->tls, tls, sizeof(*tls) );
   conn->secrets_fn       = conn->tls.secrets_fn;
   conn->tls.quic         = 0;
@@ -614,6 +615,11 @@ fd_tlsrec_conn_init( fd_tlsrec_conn_t * conn, fd_tls_t const * tls, int is_serve
   if( is_server ) fd_tls_estate_srv_new( &conn->hs.srv );
   else            fd_tls_estate_cli_new( &conn->hs.cli );
   return conn;
+}
+
+void
+fd_tlsrec_conn_fini( fd_tlsrec_conn_t * conn ) {
+  fd_memzero_explicit( conn, sizeof(*conn) );
 }
 
 int

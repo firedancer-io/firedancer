@@ -12,7 +12,7 @@ set -euo pipefail
 
 cd -- "$( dirname -- "${BASH_SOURCE[0]}" )"
 
-readonly BLST_TAG="v0.3.13"
+readonly BLST_TAG="v0.3.17"
 readonly BLST_URL="https://github.com/supranational/blst"
 
 tmp="$( mktemp -d "${TMPDIR:-/tmp}/fd-blst-vendor.XXXXXX" )"

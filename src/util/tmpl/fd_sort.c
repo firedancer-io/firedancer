@@ -1250,7 +1250,7 @@ SORT_(fast_para)( fd_tpool_t * tpool, ulong t0, ulong t1,
        if the seed provided is non-deterministic. */
 
   ulong        sample_cnt = t_cnt*(ulong)SORT_OVERSAMPLE_RATIO;
-  SORT_KEY_T * pivot      = fd_alloca( alignof(ulong), sizeof(ulong)*sample_cnt );
+  SORT_KEY_T * pivot      = fd_alloca( alignof(SORT_KEY_T), sizeof(SORT_KEY_T)*sample_cnt );
 
   for( ulong i=0UL; i<sample_cnt; i++ ) pivot[i] = key[ fd_ulong_hash( seed ^ i ) % cnt ];
 

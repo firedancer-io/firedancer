@@ -47,14 +47,14 @@ static int __blst_cpuid(void)
     return 0;
 }
 
-# if defined(_MSC_VER) && !defined(__clang__)
+# if defined(_MSC_VER) && !defined(__clang__) && !defined(__BLST_DLL_MAIN__)
 #  pragma section(".CRT$XCU",read)
 __declspec(allocate(".CRT$XCU")) static int (*p)(void) = __blst_cpuid;
 # elif defined(__SUNPRO_C)
 #  pragma init(__blst_cpuid)
 # endif
 
-#elif defined(__aarch64__) || defined(__aarch64) || defined(_M_ARM64)
+#elif defined(__aarch64__) || defined(__aarch64) || defined(_M_ARM64) || defined(_M_ARM64EC)
 
 # if defined(__linux__) && (defined(__GNUC__) || defined(__clang__))
 extern unsigned long getauxval(unsigned long type) __attribute__ ((weak));
@@ -105,10 +105,56 @@ static int __blst_cpuid(void)
     return 0;
 }
 
-#  if defined(_MSC_VER) && !defined(__clang__)
+#  if defined(_MSC_VER) && !defined(__clang__) && !defined(__BLST_DLL_MAIN__)
 #   pragma section(".CRT$XCU",read)
 __declspec(allocate(".CRT$XCU")) static int (*p)(void) = __blst_cpuid;
 #  endif
 # endif
 
+#endif
+
+#if defined(_WIN64) && defined(__BLST_DLL_MAIN__)
+# define IsProcessorFeaturePresent mask_IsProcessorFeaturePresent
+# define WIN32_LEAN_AND_MEAN
+# include <windows.h>
+
+BOOL WINAPI DllMain(HINSTANCE hinstDLL, DWORD dwReason, LPVOID lpvReserved)
+{
+    if (dwReason == DLL_PROCESS_ATTACH) {
+        DisableThreadLibraryCalls(hinstDLL);
+        __blst_cpuid();
+    }
+
+    return TRUE;
+
+    (void)lpvReserved;
+}
+
+# if defined(_MSC_VER)
+/*
+ * Even though we don't have memcpy/memset anywhere, MSVC compiler
+ * generates calls to them as it recognizes corresponding patterns.
+ */
+#pragma function(memcpy)
+void *memcpy(unsigned char *dst, const unsigned char *src, size_t n)
+{
+    void *ret = dst;
+
+    while(n--)
+        *dst++ = *src++;
+
+    return ret;
+}
+
+#pragma function(memset)
+void *memset(unsigned char *dst, int c, size_t n)
+{
+    void *ret = dst;
+
+    while(n--)
+        *dst++ = (unsigned char)c;
+
+    return ret;
+}
+# endif
 #endif

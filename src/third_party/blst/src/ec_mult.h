@@ -210,8 +210,7 @@ static void ptype##_mult_w##SZ(ptype *ret, const ptype *point, \
         wval &= wmask; \
         wval = booth_encode(wval, SZ); \
         row_is_inf = ptype##_gather_booth_w##SZ(row, table, wval); \
-        if (bits > 0) ptype##_add(sum, ret, row); \
-        else          ptype##_dadd(sum, ret, row, NULL); \
+        ptype##_dadd(sum, ret, row, NULL); \
         ptype##_ccopy(ret, sum, (ret_is_inf | row_is_inf) ^ 1); \
         sum_is_inf = vec_is_zero(ret->Z, sizeof(ret->Z)); \
         ret_is_inf |= sum_is_inf; \

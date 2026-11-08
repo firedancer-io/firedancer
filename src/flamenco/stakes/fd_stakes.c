@@ -533,10 +533,10 @@ fd_stakes_vote_account_is_admissible( fd_bank_t const * bank,
                                       uchar const *     owner,
                                       uchar const *     data,
                                       ulong             data_len ) {
-  /* Agave's VAT filter also checks lamports against the VoteStateV4
-     rent-exempt minimum, plus one epoch's VAT burn. */
+  /* The VAT filter also checks lamports against the rent-exempt
+     minimum for the account's size, plus one epoch's VAT burn. */
   ulong vat_to_burn_per_epoch = fd_slot_params_at_slot( bank, bank->f.slot ).vat_to_burn_per_epoch;
-  ulong minimum_balance       = fd_rent_exempt_minimum_balance( &bank->f.rent, FD_VOTE_STATE_V4_SZ ) + vat_to_burn_per_epoch;
+  ulong minimum_balance       = fd_rent_exempt_minimum_balance( &bank->f.rent, data_len ) + vat_to_burn_per_epoch;
   return lamports>=minimum_balance &&
          fd_vsv_is_correct_size_owner_and_init( owner, data, data_len ) &&
          fd_vote_account_has_bls_pubkey( data, data_len ) &&

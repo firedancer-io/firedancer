@@ -349,9 +349,9 @@ fd_net_rx_pkt( fd_net_tile_t *     ctx,
   }
 
   fd_ip4_hdr_t * ip4_hdr = (fd_ip4_hdr_t *)(eth_hdr+1);
-  ulong ip4_hdr_sz = FD_IP4_GET_LEN( *ip4_hdr );
+  ulong const ip4_hdr_sz = sizeof(fd_ip4_hdr_t);
   ulong ip4_total_sz = fd_ushort_bswap( ip4_hdr->net_tot_len );
-  if( FD_UNLIKELY( FD_IP4_GET_VERSION( *ip4_hdr )!=4 || ip4_hdr_sz<sizeof(fd_ip4_hdr_t) ) ) {
+  if( FD_UNLIKELY( ip4_hdr->verihl!=FD_IP4_VERIHL( 4,5 ) ) ) {
     ctx->metrics.rx_drop_cnt[ FD_METRICS_ENUM_PKT_RX_DROP_REASON_V_MALFORMED_IDX ]++;
     return 0;
   }
@@ -392,12 +392,11 @@ fd_net_rx_pkt( fd_net_tile_t *     ctx,
     ctl         += overhead;
     eth_hdr      = (fd_eth_hdr_t *)frame;
     ip4_hdr      = (fd_ip4_hdr_t *)(eth_hdr+1);
-    ip4_hdr_sz   = FD_IP4_GET_LEN( *ip4_hdr );
     ip4_total_sz = fd_ushort_bswap( ip4_hdr->net_tot_len );
   }
 
-  if( FD_UNLIKELY( FD_IP4_GET_VERSION( *ip4_hdr )!=4 ||
-                   ip4_hdr_sz<sizeof(fd_ip4_hdr_t) || ip4_total_sz<ip4_hdr_sz ||
+  if( FD_UNLIKELY( ip4_hdr->verihl!=FD_IP4_VERIHL( 4,5 ) ||
+                   ip4_total_sz<ip4_hdr_sz ||
                    sizeof(fd_eth_hdr_t)+ip4_total_sz>byte_len ) ) {
     ctx->metrics.rx_drop_cnt[ FD_METRICS_ENUM_PKT_RX_DROP_REASON_V_MALFORMED_IDX ]++;
     return 0;

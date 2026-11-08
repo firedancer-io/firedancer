@@ -1208,12 +1208,8 @@ interp_exec:
      as per the accounting described above. +1 to include the faulting
      instruction itself.
 
-     Note that, for a sigtext caused by a branch instruction, pc0==pc
-     (from the BRANCH_END) and ic_correction==0 (from the BRANCH_BEGIN)
-     such that the below does not change the already current values in
-     ic and cu.  Thus it also "does the right thing" in both the
-     non-branching and branching cases for sigtext.  The same applies to
-     sigsplit. */
+     Branch faults use separate halt paths (such as sigtextbr) after
+     branch accounting, and do not invoke this macro. */
 
 #define FD_VM_INTERP_FAULT                                                                 \
   ic_correction = pc - pc0 + 1UL - ic_correction;                                          \
@@ -1288,8 +1284,8 @@ interp_halt:
      The IM, depending on where we are in the execution, either represents:
         1. IM => The number of instructions remaining before exhausting CU
         budget. This is analogous to vm->cu in our interpreter.
-        2. IM' => The last pc you can execute in the current linear run before
-        exhausting CU budget.  Mathematically, IM' = IM + pc0
+        2. IM' => The first pc you cannot execute in the current linear run
+        with the remaining CU budget.  Mathematically, IM' = IM + pc0
         where pc0, just like our definition, is the start of the linear run.
 
         Note: IM' can go past the actual basic block/segment. In-fact,
@@ -1301,8 +1297,8 @@ interp_halt:
         - in post-VM cleanup (updates EbpfVm::previous_instruction_meter).
 
       When a branch instruction is encountered, the JIT checks
-      for CU exhaustion with pc > IM', and throws an exception if so. This is valid,
-      because as described above, IM' is the largest PC you can reach.
+      for CU exhaustion with pc >= IM', and throws an exception if so. This is valid,
+      because as described above, IM' is the first PC beyond the budget.
 
       If we haven't exhausted our CU limit, it updates IM':
         1. IM = IM' - (pc + 1)  # Note that IM' at this point is IM + pc0',
@@ -1363,7 +1359,7 @@ interp_halt:
     }
     ```
 
-    Breaking down the IM' < pc check:
+    Breaking down the IM' <= pc check:
     - IM' = IM + pc0
     - pc  = ic + pc0, where (ic + 1) is the number of instructions executed in the current linear run
 

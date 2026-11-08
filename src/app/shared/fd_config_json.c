@@ -12,7 +12,7 @@
    or knowingly skipped) before the constant is bumped.  String keys of
    the user's own file are separately forced through the classification
    lists below. */
-FD_STATIC_ASSERT( sizeof(fd_config_t)==24464600UL, update_fd_config_to_json_for_the_layout_change );
+FD_STATIC_ASSERT( sizeof(fd_config_t)==24464608UL, update_fd_config_to_json_for_the_layout_change );
 
 #define REDACTED "[redacted]"
 
@@ -389,6 +389,8 @@ fd_config_to_json( fd_config_t const * config,
     jw_ulong( &w, "program_cache_size_mib", f->runtime.program_cache_size_mib );
     jw_ulong( &w, "bank_cache_cnt", f->runtime.bank_cache_cnt );
     jw_ulong( &w, "transaction_cache_size_mib", f->runtime.transaction_cache_size_mib );
+    jw_ulong( &w, "bpf_shared_frames", f->runtime.bpf_shared_frames );
+    jw_ulong( &w, "bpf_local_frames", f->runtime.bpf_local_frames );
   jw_obj_close( &w );
 
   jw_obj_open( &w, "snapshots" );
@@ -624,7 +626,6 @@ fd_config_to_json( fd_config_t const * config,
     jw_obj_close( &w );
     jw_obj_open( &w, "repair" );
       jw_ulong( &w, "repair_client_listen_port", config->tiles.repair.repair_client_listen_port );
-      jw_ulong( &w, "slot_max",                  config->tiles.repair.slot_max );
     jw_obj_close( &w );
     jw_obj_open( &w, "rserve" );
       jw_bool ( &w, "enabled",                   config->tiles.rserve.enabled );

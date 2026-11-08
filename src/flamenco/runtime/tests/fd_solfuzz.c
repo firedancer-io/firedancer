@@ -150,6 +150,13 @@ fd_solfuzz_runner_new( fd_wksp_t *                         wksp,
   runner->runtime->accounts.executable_cnt = 0UL;
   runner->runtime->accounts.account_cnt    = 0UL;
   runner->runtime->sysvar_bank_seq         = 0UL;
+  ulong  bpf_frames_local = 2UL;
+  ulong  bpf_frames_cnt   = FD_BPF_FRAMES_HELD_CNT( bpf_frames_local );
+  void * bpf_frames_shmem = fd_wksp_alloc_laddr( wksp, fd_bpf_frames_shmem_align(), fd_bpf_frames_shmem_footprint( bpf_frames_cnt, 1UL, bpf_frames_local ), wksp_tag );
+  void * bpf_frames_join  = fd_wksp_alloc_laddr( wksp, fd_bpf_frames_align(),       fd_bpf_frames_footprint(),                                        wksp_tag );
+  if( FD_UNLIKELY( !bpf_frames_shmem || !bpf_frames_join ) ) goto bail2;
+  runner->runtime->bpf_frames = fd_bpf_frames_join( bpf_frames_join, fd_bpf_frames_shmem_new( bpf_frames_shmem, bpf_frames_cnt, 1UL, bpf_frames_local ) );
+  if( FD_UNLIKELY( !runner->runtime->bpf_frames ) ) goto bail2;
   runner->runtime_stack = fd_wksp_alloc_laddr( wksp, fd_runtime_stack_align(), fd_runtime_stack_footprint( 2048UL, 2048UL, 2048UL ), wksp_tag );
   if( FD_UNLIKELY( !runner->runtime_stack ) ) goto bail2;
   if( FD_UNLIKELY( !fd_runtime_stack_join( fd_runtime_stack_new( runner->runtime_stack, 2048UL, 2048UL, 2048UL, 999UL ) ) ) ) goto bail2;

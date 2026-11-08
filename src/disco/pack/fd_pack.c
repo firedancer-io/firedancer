@@ -333,8 +333,7 @@ noncemap_extract( fd_txn_e_t const   * k,
 
   ulong imm_cnt = fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_IMM );
   fd_acct_addr_t const * accts   = fd_txn_get_acct_addrs( txn, k->txnp->payload );
-  fd_acct_addr_t const * alt_adj = k->alt_accts - imm_cnt;
-  out->nonce_acct = fd_ptr_if( nonce_idx<imm_cnt, accts, alt_adj )+nonce_idx;
+  out->nonce_acct = nonce_idx<imm_cnt ? accts+nonce_idx : k->alt_accts+(nonce_idx-imm_cnt);
   /* The nonce authority must be a signer, so it must be an immediate
      account. */
   out->nonce_auth = accts+autho_idx;
@@ -728,7 +727,7 @@ struct fd_pack_private {
   wrapped_acct_t        acct_blocklist[ 2*FD_PACK_ACCT_BLOCKLIST_MAX ];
 
   /* Noncemap is a map_chain that maps from tuples (nonce account,
-     recent blockhash value, nonce authority) to a transaction.  This
+     nonce authority) to a transaction.  This
      map stores exactly the transactions in pool that have the nonce
      flag set. */
   noncemap_t * noncemap;
@@ -1157,6 +1156,8 @@ fd_pack_validate_durable_nonce( fd_txn_e_t * txne ) {
   /* The program has to be a static account */
   fd_acct_addr_t const * accts = fd_txn_get_acct_addrs( txn, txne->txnp->payload );
   if( FD_UNLIKELY( !fd_memeq( accts[ txn->instr[ 0 ].program_id ].b, null_addr.b, 32UL       ) ) ) return 1;
+  /* SIMD-0242 requires the nonce account to be static. */
+  if( FD_UNLIKELY( txne->txnp->payload[ txn->instr[ 0 ].acct_off ]>=txn->acct_addr_cnt ) ) return 1;
   if( FD_UNLIKELY( !fd_txn_is_writable( txn, txne->txnp->payload[ txn->instr[ 0 ].acct_off ] ) ) ) return 1;
   if( FD_UNLIKELY( !fd_txn_is_signer( txn, txne->txnp->payload[ txn->instr[ 0 ].acct_off+2 ] ) ) ) return 0;
   /* We could check recent blockhash, but it's not necessary */
@@ -1199,15 +1200,13 @@ void         fd_pack_insert_txn_cancel( fd_pack_t * pack, fd_txn_e_t * txn ) { t
                            return FD_PACK_INSERT_REJECT_ ## reason; \
                          } while( 0 )
 
-/* These require txn, accts, and alt_adj to be defined as per usual */
+/* These require txn, accts, and alt to be defined as per usual */
 #define ACCT_IDX_TO_PTR( idx ) (__extension__( {                                               \
       ulong __idx = (ulong)(idx);                                                              \
-      fd_ptr_if( __idx<fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_IMM ), accts, alt_adj )+__idx; \
+      ulong __imm = fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_IMM );                            \
+      __idx<__imm ? accts+__idx : alt+(__idx-__imm);                                           \
       }))
-#define ACCT_ITER_TO_PTR( iter ) (__extension__( {                                             \
-      ulong __idx = fd_txn_acct_iter_idx( iter );                                              \
-      fd_ptr_if( __idx<fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_IMM ), accts, alt_adj )+__idx; \
-      }))
+#define ACCT_ITER_TO_PTR( iter ) ACCT_IDX_TO_PTR( fd_txn_acct_iter_idx( iter ) )
 
 
 /* Tries to find the worst transaction in any treap in pack.  If that
@@ -1327,7 +1326,7 @@ delete_worst( fd_pack_t * pack,
       case FD_ORD_TXN_ROOT_PENALTY( 0 ): {
         fd_txn_t * txn = TXN( sample->txn );
         fd_acct_addr_t const * accts   = fd_txn_get_acct_addrs( txn, sample->txn->payload );
-        fd_acct_addr_t const * alt_adj = sample->txn_e->alt_accts - fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_IMM );
+        fd_acct_addr_t const * alt     = sample->txn_e->alt_accts;
         fd_acct_addr_t penalty_acct = *ACCT_IDX_TO_PTR( FD_ORD_TXN_ROOT_PENALTY_ACCT_IDX( root_idx ) );
         fd_pack_penalty_treap_t * q = penalty_map_query( pack->penalty_treaps, penalty_acct, NULL );
         FD_TEST( q );
@@ -1373,7 +1372,7 @@ validate_transaction( fd_pack_t               * pack,
                       fd_pack_ord_txn_t const * ord,
                       fd_txn_t          const * txn,
                       fd_acct_addr_t    const * accts,
-                      fd_acct_addr_t    const * alt_adj,
+                      fd_acct_addr_t    const * alt,
                       int                       check_bundle_blacklist ) {
   int writes_to_sysvar = 0;
   for( fd_txn_acct_iter_t iter=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_WRITABLE );
@@ -1392,7 +1391,6 @@ validate_transaction( fd_pack_t               * pack,
                         !!acct_blocklist_query( pack->acct_blocklist, *ACCT_ITER_TO_PTR( iter ), NULL );
   }
 
-  fd_acct_addr_t const * alt     = ord->txn_e->alt_accts;
   fd_chkdup_t * chkdup = pack->chkdup;
   ulong imm_cnt = fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_IMM );
   ulong alt_cnt = fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_ALT );
@@ -1433,10 +1431,7 @@ populate_bitsets( fd_pack_t         * pack,
   uchar * payload  = ord->txn->payload;
 
   fd_acct_addr_t const * accts   = fd_txn_get_acct_addrs( txn, payload );
-  /* alt_adj is the pointer to the ALT expansion, adjusted so that if
-     account address n is the first that comes from the ALT, it can be
-     accessed with adj_lut[n]. */
-  fd_acct_addr_t const * alt_adj = ord->txn_e->alt_accts - fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_IMM );
+  fd_acct_addr_t const * alt     = ord->txn_e->alt_accts;
 
   ulong  cumulative_penalty = 0UL;
   ulong  penalty_i          = 0UL;
@@ -1523,7 +1518,7 @@ insert_txn( fd_pack_t         * pack,
 
   fd_txn_t *             txn     = TXN( ord->txn );
   fd_acct_addr_t const * accts   = fd_txn_get_acct_addrs( txn, ord->txn->payload );
-  fd_acct_addr_t const * alt_adj = ord->txn_e->alt_accts - fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_IMM );
+  fd_acct_addr_t const * alt     = ord->txn_e->alt_accts;
 
   /* Since the pool uses ushorts, the size of the pool is < USHORT_MAX.
      Each transaction can reference an account at most once, which means
@@ -1575,10 +1570,7 @@ fd_pack_insert_txn_fini( fd_pack_t  * pack,
   uchar * payload  = txne->txnp->payload;
 
   fd_acct_addr_t const * accts   = fd_txn_get_acct_addrs( txn, payload );
-  /* alt_adj is the pointer to the ALT expansion, adjusted so that if
-     account address n is the first that comes from the ALT, it can be
-     accessed with adj_lut[n]. */
-  fd_acct_addr_t const * alt_adj = ord->txn_e->alt_accts - fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_IMM );
+  fd_acct_addr_t const * alt     = ord->txn_e->alt_accts;
 
   int est_result = fd_pack_estimate_rewards_and_compute( txne, ord, pack->lim );
   if( FD_UNLIKELY( !est_result ) ) REJECT( ESTIMATION_FAIL );
@@ -1589,7 +1581,7 @@ fd_pack_insert_txn_fini( fd_pack_t  * pack,
   ord->txn->flags &= ~FD_TXN_P_FLAGS_DURABLE_NONCE;
   ord->txn->flags |= fd_uint_if( is_durable_nonce, FD_TXN_P_FLAGS_DURABLE_NONCE, 0U );
 
-  int validation_result = validate_transaction( pack, ord, txn, accts, alt_adj, !!pack->bundle_meta_sz );
+  int validation_result = validate_transaction( pack, ord, txn, accts, alt, !!pack->bundle_meta_sz );
   if( FD_UNLIKELY( validation_result ) ) {
     trp_pool_ele_release( pack->pool, ord );
     return validation_result;
@@ -1683,7 +1675,7 @@ bundle_txn_declared_tip( fd_pack_ord_txn_t const * ord ) {
   fd_txn_t       const * txn     = TXN( ord->txn );
   uchar          const * payload = ord->txn->payload;
   fd_acct_addr_t const * accts   = fd_txn_get_acct_addrs( txn, payload );
-  fd_acct_addr_t const * alt_adj = ord->txn_e->alt_accts - fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_IMM );
+  fd_acct_addr_t const * alt     = ord->txn_e->alt_accts;
 
   ulong tip = 0UL;
   for( ulong i=0UL; i<(ulong)txn->instr_cnt; i++ ) {
@@ -1808,7 +1800,7 @@ fd_pack_insert_bundle_fini( fd_pack_t          * pack,
     uchar    const * payload = bundle[ i ]->txnp->payload;
 
     fd_acct_addr_t const * accts   = fd_txn_get_acct_addrs( txn, payload );
-    fd_acct_addr_t const * alt_adj = ord->txn_e->alt_accts - fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_IMM );
+    fd_acct_addr_t const * alt     = ord->txn_e->alt_accts;
 
     int est_result = fd_pack_estimate_rewards_and_compute( bundle[ i ], ord, pack->lim );
     if( FD_UNLIKELY( est_result==0 ) ) { err = FD_PACK_INSERT_REJECT_ESTIMATION_FAIL;  break; }
@@ -1859,7 +1851,7 @@ fd_pack_insert_bundle_fini( fd_pack_t          * pack,
       }
     }
 
-    int validation_result = validate_transaction( pack, ord, txn, accts, alt_adj, !initializer_bundle );
+    int validation_result = validate_transaction( pack, ord, txn, accts, alt, !initializer_bundle );
     if( FD_UNLIKELY( validation_result ) ) { err = validation_result; break; }
   }
 
@@ -2004,8 +1996,8 @@ fd_pack_insert_bundle_fini( fd_pack_t          * pack,
      that we require N, since it limits our capacity, but it's necessary
      in any system that tries to compute priorities to enforce a FIFO
      order.  If we've inserted more than N bundles without ever having
-     the bundle treap go empty, we'll briefly break the FIFO ordering as
-     we underflow.
+     the bundle treap go empty, we renumber the pending bundles to make
+     room, since bundles can't share an ordinal.
 
      Thus, we'd like to make N as big as possible, avoiding overflow.
      r_0, ..., r_4 are all uints, and taking the bounds from above,
@@ -2032,9 +2024,25 @@ fd_pack_insert_bundle_fini( fd_pack_t          * pack,
 #define BUNDLE_N       313721UL
 
   if( FD_UNLIKELY( pack->relative_bundle_idx>BUNDLE_N ) ) {
-    FD_LOG_WARNING(( "Too many bundles inserted without allowing pending bundles to go empty. "
-                     "Ordering of bundles may be incorrect." ));
-    pack->relative_bundle_idx = 1UL;
+    /* Walk worst to best, which is last to first within each bundle.
+       Only an initializer bundle has ordinal 0, and it keeps it. */
+    ulong new_ordinal = pack->relative_bundle_idx = pending_b_txn_cnt+1UL;
+    ulong old_ordinal = ULONG_MAX;
+    ulong prev_reward = 0UL;
+    ulong prev_cost   = 0UL;
+    for( treap_fwd_iter_t _cur=treap_fwd_iter_init( pack->pending_bundles, pack->pool );
+        !treap_fwd_iter_done( _cur ); _cur=treap_fwd_iter_next( _cur, pack->pool ) ) {
+      fd_pack_ord_txn_t * cur = treap_fwd_iter_ele( _cur, pack->pool );
+      ulong this_ordinal = RC_TO_REL_BUNDLE_IDX( cur->rewards, cur->compute_est );
+      if( this_ordinal!=old_ordinal ) {
+        old_ordinal = this_ordinal;
+        prev_reward = BUNDLE_L_PRIME * (BUNDLE_N - (this_ordinal ? --new_ordinal : 0UL)) - 1UL;
+        prev_cost   = 1UL<<32;
+      }
+      cur->rewards = (uint)(((ulong)cur->compute_est * (prev_reward + 1UL) + prev_cost-1UL)/prev_cost);
+      prev_reward  = cur->rewards;
+      prev_cost    = cur->compute_est;
+    }
   }
   ulong bundle_idx = fd_ulong_if( initializer_bundle, 0UL, pack->relative_bundle_idx );
   insert_bundle_impl( pack, bundle_idx, txn_cnt, (fd_pack_ord_txn_t * *)bundle, expires_at );
@@ -2345,7 +2353,7 @@ fd_pack_schedule_impl( fd_pack_t          * pack,
 
     fd_txn_t const * txn = TXN(cur->txn);
     fd_acct_addr_t const * accts   = fd_txn_get_acct_addrs( txn, cur->txn->payload );
-    fd_acct_addr_t const * alt_adj = cur->txn_e->alt_accts - fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_IMM );
+    fd_acct_addr_t const * alt     = cur->txn_e->alt_accts;
     /* Check conflicts between this transaction's writable accounts and
        current readers */
     for( fd_txn_acct_iter_t iter=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_WRITABLE );
@@ -2767,7 +2775,7 @@ fd_pack_try_schedule_bundle( fd_pack_t  * pack,
 
     fd_txn_t const * txn = TXN(cur->txn);
     fd_acct_addr_t const * accts   = fd_txn_get_acct_addrs( txn, cur->txn->payload );
-    fd_acct_addr_t const * alt_adj = cur->txn_e->alt_accts - fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_IMM );
+    fd_acct_addr_t const * alt     = cur->txn_e->alt_accts;
 
     /* Check conflicts between this transaction's writable accounts and
        current readers */
@@ -3276,7 +3284,7 @@ fd_pack_clear_all( fd_pack_t * pack ) {
       fd_pack_ord_txn_t * const del = pack->pool + i;
       fd_txn_t * txn = TXN( del->txn );
       fd_acct_addr_t const * accts   = fd_txn_get_acct_addrs( txn, del->txn->payload );
-      fd_acct_addr_t const * alt_adj = del->txn_e->alt_accts - fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_IMM );
+      fd_acct_addr_t const * alt     = del->txn_e->alt_accts;
       fd_acct_addr_t penalty_acct = *ACCT_IDX_TO_PTR( FD_ORD_TXN_ROOT_PENALTY_ACCT_IDX( del->root ) );
       fd_pack_penalty_treap_t * penalty_treap = penalty_map_query( pack->penalty_treaps, penalty_acct, NULL );
       FD_TEST( penalty_treap );
@@ -3324,7 +3332,7 @@ delete_transaction( fd_pack_t         * pack,
 
   fd_txn_t * txn = TXN( containing->txn );
   fd_acct_addr_t const * accts   = fd_txn_get_acct_addrs( txn, containing->txn->payload );
-  fd_acct_addr_t const * alt_adj = containing->txn_e->alt_accts - fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_IMM );
+  fd_acct_addr_t const * alt     = containing->txn_e->alt_accts;
 
   treap_t * root = NULL;
   int root_idx = containing->root;
@@ -3587,7 +3595,7 @@ fd_pack_verify( fd_pack_t * pack,
       fd_pack_ord_txn_t const * cur = treap_rev_iter_ele_const( _cur, pool );
       fd_txn_t const * txn = TXN(cur->txn);
       fd_acct_addr_t const * accts   = fd_txn_get_acct_addrs( txn, cur->txn->payload );
-      fd_acct_addr_t const * alt_adj = cur->txn_e->alt_accts - fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_IMM );
+      fd_acct_addr_t const * alt     = cur->txn_e->alt_accts;
 
       fd_pack_ord_txn_t const * in_tbl = sig2txn_ele_query_const( pack->signature_map, &cur->_txn_e, NULL, pool );
       VERIFY_TEST( in_tbl, "signature missing from sig2txn" );

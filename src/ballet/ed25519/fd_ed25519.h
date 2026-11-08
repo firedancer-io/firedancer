@@ -126,9 +126,8 @@ fd_ed25519_sign_batch8( uchar               sig[],        /* n*64 */
    sha is a handle of a local join to a sha512 calculator.
 
    Does no input argument checking.  This function takes a write
-   interest in sig and sha and a read interest in msg, public_key and
-   private_key for the duration the call.  Sanitizes the sha and stack
-   to minimize risk of leaking private key info after return.  Returns
+   interest in sha and a read interest in msg, sig and public_key for
+   the duration of the call.  Returns
    FD_ED25519_SUCCESS (0) if the message verified successfully or a
    FD_ED25519_ERR_* code indicating the failure reason otherwise. */
 

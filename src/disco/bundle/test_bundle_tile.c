@@ -12,7 +12,7 @@ fd_bundle_now( fd_bundle_tile_t const * ctx ) {
 
 static void *
 mock_replay_wksp_new( void ) {
-  ulong alloc_sz = fd_ulong_align_up( 2UL*FD_CHUNK_FOOTPRINT + sizeof(fd_poh_reset_t), FD_CHUNK_ALIGN );
+  ulong alloc_sz = fd_ulong_align_up( 2UL*FD_CHUNK_FOOTPRINT + fd_ulong_max( sizeof(fd_replay_next_leader_t), sizeof(fd_became_leader_t) ), FD_CHUNK_ALIGN );
   void * mem = aligned_alloc( FD_CHUNK_ALIGN, alloc_sz );
   FD_TEST( mem );
   memset( mem, 0, alloc_sz );
@@ -60,26 +60,17 @@ test_replay_frag_ingest( void ) {
   FD_TEST( ctx->next_leader_slot==500UL );
   FD_TEST( ctx->reset_slot==100UL );
 
-  /* Boot publishes next leader, then a reset that under Alpenglow
-     carries no next leader slot.  The reset must not clobber it. */
-  fd_poh_reset_t * reset = (fd_poh_reset_t *)fd_chunk_to_laddr( wksp, 1UL );
-  memset( reset, 0, sizeof(fd_poh_reset_t) );
-  reset->completed_slot   = 100UL;
-  reset->next_leader_slot = ULONG_MAX;
-  during_frag( ctx, in_idx, 0UL, REPLAY_SIG_RESET, 1UL, sizeof(fd_poh_reset_t), 0UL );
-  after_frag( ctx, in_idx, 0UL, REPLAY_SIG_RESET, sizeof(fd_poh_reset_t), 0UL, 0UL, NULL );
-  FD_TEST( ctx->next_leader_slot==500UL );
-  FD_TEST( ctx->reset_slot==100UL );
-
-  /* A Tower reset to an earlier fork carries its own schedule and
-     replaces one announced from a completed slot on another fork. */
-  inject_replay_frag( ctx, in_idx, 0UL, 1004UL, 2000UL );
-  reset->completed_slot   = 999UL;
-  reset->next_leader_slot = 1000UL;
-  during_frag( ctx, in_idx, 0UL, REPLAY_SIG_RESET, 1UL, sizeof(fd_poh_reset_t), 0UL );
-  after_frag( ctx, in_idx, 0UL, REPLAY_SIG_RESET, sizeof(fd_poh_reset_t), 0UL, 0UL, NULL );
-  FD_TEST( ctx->next_leader_slot==1000UL );
-  FD_TEST( ctx->reset_slot==999UL );
+  /* Becoming leader resets to the parent of the leader slot, which may
+     be behind the slot announced by the last next leader message. */
+  inject_replay_frag( ctx, in_idx, 0UL, 1010UL, 1012UL );
+  fd_became_leader_t * leader = (fd_became_leader_t *)fd_chunk_to_laddr( wksp, 1UL );
+  memset( leader, 0, sizeof(fd_became_leader_t) );
+  leader->slot        = 1012UL;
+  leader->parent_slot = 1008UL;
+  during_frag( ctx, in_idx, 0UL, REPLAY_SIG_BECAME_LEADER, 1UL, sizeof(fd_became_leader_t), 0UL );
+  after_frag( ctx, in_idx, 0UL, REPLAY_SIG_BECAME_LEADER, sizeof(fd_became_leader_t), 0UL, 0UL, NULL );
+  FD_TEST( ctx->next_leader_slot==1012UL );
+  FD_TEST( ctx->reset_slot==1008UL );
 
   /* Other replay signals should be ignored */
   ulong prev_next = ctx->next_leader_slot;

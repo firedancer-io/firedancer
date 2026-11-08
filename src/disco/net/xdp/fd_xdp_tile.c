@@ -744,7 +744,7 @@ after_frag( fd_net_ctx_t *      ctx,
     else if( msg->table_id==RT_TABLE_MAIN ) fib = ctx->fib_main;
     else return;
     if( msg->op==FD_IPROUTE_OP_UPSERT && FD_UNLIKELY( !fd_fib4_insert( fib, msg->dst_addr, msg->prefix, msg->prio, &msg->hop ) ) ) {
-      FD_LOG_WARNING(( "route update dropped: route table full (increase [net.max_routes] or [net.max_peer_routes])" ));
+      FD_LOG_WARNING(( "route update dropped: route table full (increase [tiles.netlink].max_routes or [tiles.netlink].max_peer_routes)" ));
       if( FD_UNLIKELY( ctx->net.kind_id==0UL ) ) {
         fd_stem_publish( stem, ctx->netlnk_out_idx, FD_NETLINK_ROUTE4_SYNC_SIG, 0UL, 0UL, 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
       }
@@ -765,7 +765,7 @@ after_frag( fd_net_ctx_t *      ctx,
 
      Invariant for ring_tx: prod-cons<length
      (This invariant breaks if any other packet is sent over this ring
-     between before_frag and this point, e.g. send_arp_probe.) */
+     between before_frag and this point.) */
 
   fd_xsk_t      * xsk     = &ctx->xsk[ xsk_idx ];
   fd_xdp_ring_t * tx_ring = &xsk->ring_tx;
@@ -1090,8 +1090,9 @@ interface_addrs( const char * interface,
    - Register UMEM data region with socket
    - Insert AF_XDP socket into xsk_map
 
-   Net tile 0 also runs fd_xdp_install and repeats the above step for
-   the loopback device.  (Unless the main interface is already loopback)
+   Net tile 0 repeats these steps for the loopback device, unless the
+   main interface is already loopback.  XDP programs are installed before
+   tiles start.
 
    Kernel object references:
 

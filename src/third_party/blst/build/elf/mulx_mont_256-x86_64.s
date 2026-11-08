@@ -202,17 +202,14 @@ __mulx_mont_sparse_256:
 	mulxq	24+128(%rcx),%rbp,%r9
 	movq	16(%rbx),%rdx
 	adcxq	%rbp,%r13
-	adoxq	%r9,%r14
-	adcxq	%r10,%r14
-	adoxq	%r10,%r15
+	adoxq	%r10,%r9
+	adcxq	%r9,%r14
 	adcxq	%r10,%r15
-	adoxq	%r10,%r10
-	adcq	$0,%r10
 	movq	%rax,%r11
 	imulq	%r8,%rax
 
 
-	xorq	%rbp,%rbp
+	xorq	%r10,%r10
 	mulxq	0+128(%rsi),%rbp,%r9
 	adoxq	%rbp,%r12
 	adcxq	%r9,%r13
@@ -247,17 +244,14 @@ __mulx_mont_sparse_256:
 	mulxq	24+128(%rcx),%rbp,%r9
 	movq	24(%rbx),%rdx
 	adcxq	%rbp,%r14
-	adoxq	%r9,%r15
-	adcxq	%r11,%r15
-	adoxq	%r11,%r10
+	adoxq	%r11,%r9
+	adcxq	%r9,%r15
 	adcxq	%r11,%r10
-	adoxq	%r11,%r11
-	adcq	$0,%r11
 	movq	%rax,%r12
 	imulq	%r8,%rax
 
 
-	xorq	%rbp,%rbp
+	xorq	%r11,%r11
 	mulxq	0+128(%rsi),%rbp,%r9
 	adoxq	%rbp,%r13
 	adcxq	%r9,%r14
@@ -292,16 +286,13 @@ __mulx_mont_sparse_256:
 	mulxq	24+128(%rcx),%rbp,%r9
 	movq	%rax,%rdx
 	adcxq	%rbp,%r15
-	adoxq	%r9,%r10
-	adcxq	%r12,%r10
-	adoxq	%r12,%r11
+	adoxq	%r12,%r9
+	adcxq	%r9,%r10
 	adcxq	%r12,%r11
-	adoxq	%r12,%r12
-	adcq	$0,%r12
 	imulq	%r8,%rdx
 
 
-	xorq	%rbp,%rbp
+	xorq	%r12,%r12
 	mulxq	0+128(%rcx),%r13,%r9
 	adcxq	%rax,%r13
 	adoxq	%r9,%r14
@@ -318,11 +309,10 @@ __mulx_mont_sparse_256:
 	movq	%r14,%rdx
 	leaq	128(%rcx),%rcx
 	adcxq	%rbp,%r10
-	adoxq	%r9,%r11
+	adoxq	%r13,%r9
 	movq	%r15,%rax
-	adcxq	%r13,%r11
-	adoxq	%r13,%r12
-	adcq	$0,%r12
+	adcxq	%r9,%r11
+	adcxq	%r13,%r12
 
 
 

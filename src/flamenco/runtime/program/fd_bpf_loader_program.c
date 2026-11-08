@@ -113,11 +113,23 @@ calculate_heap_cost( ulong heap_size, ulong heap_cost ) {
 
    As a concrete example, our version of deploy_program does not have the
    'account_size' argument because we do not update the record here. */
-int
-fd_deploy_program( fd_exec_instr_ctx_t * instr_ctx,
-                   uchar const *         programdata,
-                   ulong                 programdata_size,
-                   int                   disable_sbpf_v0_v1_v2_deployment ) {
+
+struct fd_bpf_deploy_scratch {
+  uchar rodata        [ FD_RUNTIME_ACC_SZ_MAX     ] __attribute__((aligned(FD_SBPF_PROG_RODATA_ALIGN)));
+  uchar sbpf_footprint[ FD_SBPF_PROGRAM_FOOTPRINT ] __attribute__((aligned(alignof(fd_sbpf_program_t))));
+  uchar programdata   [ FD_RUNTIME_ACC_SZ_MAX     ] __attribute__((aligned(FD_ACCOUNT_REC_ALIGN)));
+};
+typedef struct fd_bpf_deploy_scratch fd_bpf_deploy_scratch_t;
+
+FD_STATIC_ASSERT( sizeof (fd_bpf_deploy_scratch_t)<=BPF_LOADER_SERIALIZATION_FOOTPRINT, bpf_deploy_scratch_sz    );
+FD_STATIC_ASSERT( alignof(fd_bpf_deploy_scratch_t)<=FD_BPF_FRAMES_ALIGN,                bpf_deploy_scratch_align );
+
+static int
+deploy_program( fd_exec_instr_ctx_t *     instr_ctx,
+                uchar const *             programdata,
+                ulong                     programdata_size,
+                int                       disable_sbpf_v0_v1_v2_deployment,
+                fd_bpf_deploy_scratch_t * scratch ) {
   int deploy_mode                            = 1;
   int direct_mapping                         = FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, account_data_direct_mapping );
   int syscall_parameter_address_restrictions = FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, syscall_parameter_address_restrictions );
@@ -164,21 +176,13 @@ fd_deploy_program( fd_exec_instr_ctx_t * instr_ctx,
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   }
 
-  /* Allocate rodata segment */
-  void * rodata = instr_ctx->runtime->bpf_loader_program.rodata;
-  if( FD_UNLIKELY( !rodata ) ) {
-    return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
-  }
-
-  /* Allocate program buffer */
-  fd_sbpf_program_t * prog = fd_sbpf_program_new( instr_ctx->runtime->bpf_loader_program.sbpf_footprint, elf_info, rodata );
+  fd_sbpf_program_t * prog = fd_sbpf_program_new( scratch->sbpf_footprint, elf_info, scratch->rodata );
   if( FD_UNLIKELY( !prog ) ) {
     FD_LOG_ERR(( "fd_sbpf_program_new() failed" ));
   }
 
   /* Load program */
-  void * scratch = instr_ctx->runtime->bpf_loader_program.programdata;
-  int err = fd_sbpf_program_load( prog, programdata, programdata_size, syscalls, &config, scratch, programdata_size );
+  int err = fd_sbpf_program_load( prog, programdata, programdata_size, syscalls, &config, scratch->programdata, programdata_size );
   if( FD_UNLIKELY( err ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   }
@@ -224,6 +228,20 @@ fd_deploy_program( fd_exec_instr_ctx_t * instr_ctx,
   }
 
   return FD_EXECUTOR_INSTR_SUCCESS;
+}
+
+int
+fd_deploy_program( fd_exec_instr_ctx_t * instr_ctx,
+                   uchar const *         programdata,
+                   ulong                 programdata_size,
+                   int                   disable_sbpf_v0_v1_v2_deployment ) {
+  /* The loader runs as a builtin, so its stack level holds no frame and
+     can borrow one under the same rules as fd_bpf_execute. */
+  fd_runtime_t * runtime = instr_ctx->runtime;
+  uchar *        frame   = fd_bpf_frames_acquire( runtime->bpf_frames, fd_progcache_spill_held( runtime->progcache ) );
+  int err = deploy_program( instr_ctx, programdata, programdata_size, disable_sbpf_v0_v1_v2_deployment, (fd_bpf_deploy_scratch_t *)frame );
+  fd_bpf_frames_release( runtime->bpf_frames, frame );
+  return err;
 }
 
 /* SIMD-0500 finalize gate: when the feature is active and the ELF
@@ -428,10 +446,10 @@ common_close_account( fd_pubkey_t *         authority_address,
 /* Every loader-owned BPF program goes through this function, which goes into the VM.
 
    https://github.com/anza-xyz/agave/blob/574bae8fefc0ed256b55340b9d87b7689bcdf222/programs/bpf_loader/src/lib.rs#L1332-L1501 */
-int
-fd_bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
-                fd_progcache_rec_t const * cache_entry,
-                uchar                      is_deprecated ) {
+static int
+bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
+             fd_progcache_rec_t const * cache_entry,
+             uchar                      is_deprecated ) {
   long const regime0 = fd_tickcount();
 
   int err = FD_EXECUTOR_INSTR_SUCCESS;
@@ -463,7 +481,7 @@ fd_bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
   ulong instruction_data_offset = 0UL;
   /* 16-byte aligned buffer:
      https://github.com/anza-xyz/agave/blob/v3.0.0/program-runtime/src/serialization.rs#L60 */
-  uchar * input = instr_ctx->runtime->bpf_loader_serialization.serialization_mem[ instr_ctx->runtime->instr.stack_sz-1UL ];
+  uchar * input = instr_ctx->runtime->bpf_loader_serialization.frame[ instr_ctx->runtime->instr.stack_sz-1UL ];
   err = fd_bpf_loader_input_serialize_parameters( instr_ctx, pre_lens,
                                                   input_mem_regions, &input_mem_regions_cnt,
                                                   acc_region_metas, virtual_address_space_adjustments, direct_mapping,
@@ -699,6 +717,20 @@ fd_bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
     instr_ctx->runtime->metrics.cpi_commit_cum_ticks  += (ulong)( regime3-regime2 );
   }
 
+  return err;
+}
+
+int
+fd_bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
+                fd_progcache_rec_t const * cache_entry,
+                uchar                      is_deprecated ) {
+  /* Tiles holding frames can wait on the program cache spill lock, so
+     its holder must never wait for a frame. */
+  fd_runtime_t * runtime = instr_ctx->runtime;
+  uchar *        frame   = fd_bpf_frames_acquire( runtime->bpf_frames, fd_progcache_spill_held( runtime->progcache ) );
+  runtime->bpf_loader_serialization.frame[ runtime->instr.stack_sz-1UL ] = frame;
+  int err = bpf_execute( instr_ctx, cache_entry, is_deprecated );
+  fd_bpf_frames_release( runtime->bpf_frames, frame );
   return err;
 }
 
@@ -2122,13 +2154,9 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
           if( FD_UNLIKELY( err ) ) return err; /* unreachable */
           instr_ctx->txn_out->accounts.account[ pd_idx_in_txn ]->pd_write = 1;
 
-          /* The Agave client updates the account state upon closing an account
-             in their loaded program cache. Checking for a program can be
-             checked by checking to see if the programdata account's loader state
-             is uninitialized. The firedancer implementation also removes closed
-             accounts from the loaded program cache at the end of a slot. Closed
-             accounts are not checked from the cache, instead the account state
-             is looked up. */
+          /* Execution validates ProgramData and rejects a parent copy
+             if pd_write_this_slot is set, before consulting the program
+             cache. */
 
         } else {
           fd_log_collector_msg_literal( instr_ctx, "Invalid Program account" );

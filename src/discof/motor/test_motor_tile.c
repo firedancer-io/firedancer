@@ -91,15 +91,28 @@ main( int     argc,
     FD_TEST( before_frag( ctx, 1UL, 0UL, FD_PACK_MSG_DONE_DRAINING )==1 );
     FD_TEST( before_frag( ctx, 1UL, 0UL, FD_PACK_MSG_REDUCE_MB_BOUND )==1 );
 
-    fd_poh_reset_t * reset = replay_frag;
-    fd_memset( reset, 0, sizeof(*reset) );
-    reset->completed_slot = slot-1UL;
-    FD_TEST( !returnable_frag( ctx, 2UL, 0UL, REPLAY_SIG_RESET, replay_chunk, sizeof(*reset), 0UL, 0UL, 0UL, stem ) );
+    /* The leader notice carries the parent: the header names it, the
+       first entry batch chains to its last FEC set, and its blockhash
+       seeds the PoH hash. */
     fd_became_leader_t * leader = replay_frag;
     fd_memset( leader, 0, sizeof(*leader) );
-    leader->slot = slot;
+    leader->slot        = slot;
+    leader->parent_slot = slot-1UL;
+    fd_memset( leader->parent_cmr.uc,       (int)( 0x10UL+slot ), sizeof(fd_hash_t) );
+    fd_memset( leader->parent_dmr.uc,       (int)( 0x20UL+slot ), sizeof(fd_hash_t) );
+    fd_memset( leader->parent_blockhash.uc, (int)( 0x30UL+slot ), sizeof(fd_hash_t) );
     FD_TEST( !returnable_frag( ctx, 2UL, 0UL, REPLAY_SIG_BECAME_LEADER, replay_chunk, sizeof(*leader), 0UL, 0UL, 0UL, stem ) );
     FD_TEST( ctx->slot==slot && ctx->expect_pack_idx==pack_idx );
+    FD_TEST( ctx->parent_slot==slot-1UL );
+    FD_TEST( fd_hash_eq( &ctx->poh_hash, &leader->parent_blockhash ) );
+    fd_frag_meta_t const *        header_frag = mcaches[0] + fd_mcache_line_idx( 4UL*(slot-1UL), depth );
+    fd_entry_batch_meta_t const * header_meta = fd_chunk_to_laddr_const( wksp, header_frag->chunk );
+    FD_TEST( header_meta->parent_offset==1UL && header_meta->parent_block_id_valid );
+    FD_TEST( !memcmp( header_meta->parent_block_id, leader->parent_cmr.uc, sizeof(fd_hash_t) ) );
+    fd_block_marker_t header[1];
+    FD_TEST( fd_block_marker_de( header, (uchar const *)( header_meta+1 ), header_frag->sz-sizeof(fd_entry_batch_meta_t) )==FD_BLOCK_MARKER_DE_SUCCESS );
+    FD_TEST( header->kind==FD_BLOCK_MARKER_KIND_HEADER && header->header.parent_slot==slot-1UL );
+    FD_TEST( fd_hash_eq( &header->header.parent_block_id, &leader->parent_dmr ) );
 
     /* Stale work consumes its pack_idx without being processed. */
     ulong stale_sig = fd_disco_execle_sig( slot-1UL, pack_idx );

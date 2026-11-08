@@ -1410,7 +1410,7 @@ fd_gui_sparkline_push( char *  text,
 }
 
 void
-fd_gui_printf_accounts_stats( fd_gui_t * gui ) {
+fd_gui_accounts_stats_window_push( fd_gui_t * gui ) {
   fd_gui_accounts_stats_t const * cur  = gui->summary.accounts_stats_current;
   fd_gui_accounts_stats_t const * prev = gui->summary.accounts_stats_reference;
   int have_ref = gui->summary.accounts_stats_have_reference;
@@ -1548,6 +1548,11 @@ fd_gui_printf_accounts_stats( fd_gui_t * gui ) {
     if( gui->summary.accdb->accdb_win_count<FD_GUI_ACCDB_WIN_SAMPLES )
       gui->summary.accdb->accdb_win_count++;
   }
+}
+
+void
+fd_gui_printf_accounts_stats( fd_gui_t * gui ) {
+  fd_gui_accounts_stats_t const * cur = gui->summary.accounts_stats_current;
 
   /* Compute weighted denominator once: sum(weight * dt_sec).  Newest
      sample has weight n, oldest has weight 1.  If unfilled, only the
@@ -3451,6 +3456,216 @@ fd_gui_timeline_day_bounds( fd_gui_t * gui,
   return 1;
 }
 
+/* fd_gui_timeline_epoch_in_window returns epoch e if its record is
+   sane and its timeline slot range overlaps [start,end), else NULL. */
+
+static fd_gui_epoch_t const *
+fd_gui_timeline_epoch_in_window( fd_gui_t * gui,
+                                 ulong      e,
+                                 long       start,
+                                 long       end ) {
+  fd_gui_epoch_t const * epoch = fd_gui_epoch( gui, e );
+  if( epoch && epoch->epoch==e && epoch->slot_cnt && epoch->slot_cnt<=MAX_SLOTS_PER_EPOCH &&
+      epoch->start_slot<=ULONG_MAX-(epoch->slot_cnt-1UL) && epoch->timeline_slot_lo_idx<=epoch->timeline_slot_hi_idx &&
+      epoch->timeline_slot_hi_idx<epoch->slot_cnt &&
+      epoch->timeline_slot_min_start_ns<end && epoch->timeline_slot_max_end_ns>start ) return epoch;
+  return NULL;
+}
+
+int
+fd_gui_timeline_slots_collect( fd_gui_t *                     gui,
+                               long                           start,
+                               long                           end,
+                               fd_gui_timeline_query_slot_t * rows,
+                               ulong                          max,
+                               ulong *                        cnt ) {
+  if( FD_UNLIKELY( !gui || !cnt || start<0L || end<=start || end==LONG_MAX || (max && !rows) ) ) return -1;
+  *cnt = 0UL;
+  if( !gui->db || gui->epoch.current_epoch==ULONG_MAX ) return 0;
+  ulong hi = gui->epoch.current_epoch==ULONG_MAX-1UL ? ULONG_MAX : gui->epoch.current_epoch+1UL;
+  ulong lo = hi>FD_GUI_HIST_MAX_EPOCHS ? hi-FD_GUI_HIST_MAX_EPOCHS : 0UL;
+  for( ulong e=lo;; e++ ) {
+    fd_gui_epoch_t const * epoch = fd_gui_timeline_epoch_in_window( gui, e, start, end );
+    if( epoch ) {
+      for( ulong i=epoch->timeline_slot_lo_idx; i<=epoch->timeline_slot_hi_idx; i++ ) {
+        uchar state = epoch->timeline_slot_state[ i ];
+        long  rs    = epoch->timeline_slot_start_ns[ i ];
+        long  re    = epoch->timeline_slot_end_ns[ i ];
+        if( !(state & FD_GUI_TIMELINE_SLOT_STATE_VALID) || rs<0L || re<=rs || rs>=end || re<=start ) continue;
+        if( FD_UNLIKELY( *cnt==max ) ) return 1;
+        rows[ (*cnt)++ ] = (fd_gui_timeline_query_slot_t){
+          .slot     = epoch->start_slot + i,
+          .start_ns = rs,
+          .end_ns   = re,
+          .shred_cnt= epoch->timeline_slot_shred_cnt[ i ],
+          .skipped  = (uchar)!!(state & FD_GUI_TIMELINE_SLOT_STATE_SKIPPED),
+          .mine     = (uchar)!!(state & FD_GUI_TIMELINE_SLOT_STATE_MINE)
+        };
+      }
+    }
+    if( e==hi ) break;
+  }
+  return 0;
+}
+
+int
+fd_gui_timeline_events_collect( fd_gui_t *                      gui,
+                                long                            start,
+                                long                            end,
+                                fd_gui_timeline_query_event_t * rows,
+                                ulong                           max,
+                                ulong *                         cnt ) {
+  if( FD_UNLIKELY( !gui || !cnt || start<0L || end<=start || end==LONG_MAX || (max && !rows) ) ) return -1;
+  *cnt = 0UL;
+  if( !gui->db || gui->epoch.current_epoch==ULONG_MAX ) return 0;
+  ulong hi = gui->epoch.current_epoch==ULONG_MAX-1UL ? ULONG_MAX : gui->epoch.current_epoch+1UL;
+  ulong lo = hi>FD_GUI_HIST_MAX_EPOCHS ? hi-FD_GUI_HIST_MAX_EPOCHS : 0UL;
+  for( ulong e=lo;; e++ ) {
+    fd_gui_epoch_t const * epoch = fd_gui_timeline_epoch_in_window( gui, e, start, end );
+    if( epoch ) {
+      for( ulong i=epoch->timeline_slot_lo_idx; i<=epoch->timeline_slot_hi_idx; i++ ) {
+        uchar state = epoch->timeline_slot_state[ i ];
+        long  rs    = epoch->timeline_slot_start_ns[ i ];
+        long  re    = epoch->timeline_slot_end_ns[ i ];
+        if( (state & (FD_GUI_TIMELINE_SLOT_STATE_VALID|FD_GUI_TIMELINE_SLOT_STATE_SKIPPED))!=
+            (FD_GUI_TIMELINE_SLOT_STATE_VALID|FD_GUI_TIMELINE_SLOT_STATE_SKIPPED) || rs<0L || re<=rs ) continue;
+        long mid = rs + (re-rs)/2L;
+        if( mid<start || mid>=end ) continue;
+        /* STATE_MINE only means our block replayed; a leader slot we never
+           produced must still count, so check the schedule. */
+        fd_pubkey_t const * leader = fd_gui_get_slot_leader( epoch, epoch->start_slot+i );
+        if( !leader || memcmp( leader->uc, gui->summary.identity_key->uc, 32UL ) ) continue;
+        if( FD_UNLIKELY( *cnt==max ) ) return 1;
+        rows[ (*cnt)++ ] = (fd_gui_timeline_query_event_t){
+          .slot  = epoch->start_slot + i,
+          .ts    = mid,
+          .event = FD_GUI_TIMELINE_EVENT_LEADER_SKIP
+        };
+      }
+    }
+    if( e==hi ) break;
+  }
+  return 0;
+}
+
+static void
+fd_gui_timeline_slot_bounds( fd_gui_t * gui ) {
+  long first = LONG_MAX;
+  long last  = LONG_MIN;
+  if( gui->db && gui->epoch.current_epoch!=ULONG_MAX ) {
+    ulong hi = gui->epoch.current_epoch==ULONG_MAX-1UL ? ULONG_MAX : gui->epoch.current_epoch+1UL;
+    ulong lo = hi>FD_GUI_HIST_MAX_EPOCHS ? hi-FD_GUI_HIST_MAX_EPOCHS : 0UL;
+    for( ulong e=lo;; e++ ) {
+      fd_gui_epoch_t const * epoch = fd_gui_epoch( gui, e );
+      if( epoch && epoch->timeline_slot_lo_idx<=epoch->timeline_slot_hi_idx && epoch->timeline_slot_hi_idx<epoch->slot_cnt ) {
+        /* Arrival order need not match slot order, so use the hull of
+           every interval written rather than the range endpoints. */
+        first = fd_long_min( first, epoch->timeline_slot_min_start_ns );
+        last  = fd_long_max( last,  epoch->timeline_slot_max_end_ns   );
+      }
+      if( e==hi ) break;
+    }
+  }
+  if( first<last ) {
+    jsonp_long_as_str( gui->http, "available_start_ns", first );
+    jsonp_long_as_str( gui->http, "available_end_ns", last );
+  } else {
+    jsonp_null( gui->http, "available_start_ns" );
+    jsonp_null( gui->http, "available_end_ns" );
+  }
+}
+
+int
+fd_gui_printf_timeline_query_slots( fd_gui_t * gui,
+                                    long       start,
+                                    long       end,
+                                    ulong      id ) {
+  if( FD_UNLIKELY( start<0L || end<=start || end==LONG_MAX ) ) return -1;
+  fd_gui_timeline_query_slot_t * rows = gui->timeline_scratch.slots;
+  ulong n  = 0UL;
+  int   rc = fd_gui_timeline_slots_collect( gui, start, end, rows, FD_GUI_TIMELINE_QUERY_SLOT_MAX, &n );
+  if( FD_UNLIKELY( rc<0 ) ) goto done;
+  if( FD_UNLIKELY( rc>0 ) ) {
+    fd_gui_timeline_limit( gui, "query_slots", id );
+    rc = 0;
+    goto done;
+  }
+  long reference_ts = LONG_MAX;
+  for( ulong i=0UL; i<n; i++ ) reference_ts = fd_long_min( reference_ts, rows[ i ].start_ns );
+  jsonp_open_envelope( gui->http, "timeline", "query_slots" );
+  jsonp_ulong( gui->http, "id", id );
+  jsonp_open_object( gui->http, "value" );
+  fd_gui_timeline_slot_bounds( gui );
+  if( n ) {
+    jsonp_ulong( gui->http, "reference_slot", rows[ 0 ].slot );
+    jsonp_long_as_str( gui->http, "reference_ts", reference_ts );
+  } else {
+    jsonp_null( gui->http, "reference_slot" );
+    jsonp_null( gui->http, "reference_ts" );
+  }
+  jsonp_open_array( gui->http, "slot_delta" );
+  for( ulong i=0UL; i<n; i++ ) jsonp_ulong( gui->http, NULL, rows[ i ].slot-rows[ 0 ].slot );
+  jsonp_close_array( gui->http );
+  jsonp_open_array( gui->http, "start_ts_delta" );
+  for( ulong i=0UL; i<n; i++ ) jsonp_long_as_str( gui->http, NULL, rows[ i ].start_ns-reference_ts );
+  jsonp_close_array( gui->http );
+  jsonp_open_array( gui->http, "end_ts_delta" );
+  for( ulong i=0UL; i<n; i++ ) jsonp_long_as_str( gui->http, NULL, rows[ i ].end_ns-reference_ts );
+  jsonp_close_array( gui->http );
+  jsonp_open_array( gui->http, "shred_cnt" );
+  for( ulong i=0UL; i<n; i++ ) {
+    if( FD_UNLIKELY( rows[ i ].shred_cnt==UINT_MAX ) ) jsonp_null( gui->http, NULL );
+    else                                               jsonp_ulong( gui->http, NULL, rows[ i ].shred_cnt );
+  }
+  jsonp_close_array( gui->http );
+  jsonp_open_array( gui->http, "skipped" );
+  for( ulong i=0UL; i<n; i++ ) {
+    if( rows[ i ].skipped ) jsonp_ulong( gui->http, NULL, rows[ i ].slot-rows[ 0 ].slot );
+  }
+  jsonp_close_array( gui->http );
+  jsonp_open_array( gui->http, "mine" );
+  for( ulong i=0UL; i<n; i++ ) {
+    if( rows[ i ].mine ) jsonp_ulong( gui->http, NULL, rows[ i ].slot-rows[ 0 ].slot );
+  }
+  jsonp_close_array( gui->http );
+  jsonp_close_object( gui->http );
+  jsonp_close_envelope( gui->http );
+ done:
+  return rc;
+}
+
+int
+fd_gui_printf_timeline_query_events( fd_gui_t * gui,
+                                     long       start,
+                                     long       end,
+                                     ulong      id ) {
+  if( FD_UNLIKELY( start<0L || end<=start || end==LONG_MAX ) ) return -1;
+  fd_gui_timeline_query_event_t * rows = gui->timeline_scratch.slot_events;
+  ulong n  = 0UL;
+  int   rc = fd_gui_timeline_events_collect( gui, start, end, rows, FD_GUI_TIMELINE_QUERY_EVENT_MAX, &n );
+  if( FD_UNLIKELY( rc<0 ) ) return rc;
+  if( FD_UNLIKELY( rc>0 ) ) {
+    fd_gui_timeline_limit( gui, "query_events", id );
+    return 0;
+  }
+  jsonp_open_envelope( gui->http, "timeline", "query_events" );
+  jsonp_ulong( gui->http, "id", id );
+  jsonp_open_object( gui->http, "value" );
+  fd_gui_timeline_slot_bounds( gui );
+  jsonp_open_array( gui->http, "event" );
+  for( ulong i=0UL; i<n; i++ ) jsonp_ulong( gui->http, NULL, rows[ i ].event );
+  jsonp_close_array( gui->http );
+  jsonp_open_array( gui->http, "slot" );
+  for( ulong i=0UL; i<n; i++ ) jsonp_ulong( gui->http, NULL, rows[ i ].slot );
+  jsonp_close_array( gui->http );
+  jsonp_open_array( gui->http, "ts" );
+  for( ulong i=0UL; i<n; i++ ) jsonp_long_as_str( gui->http, NULL, rows[ i ].ts );
+  jsonp_close_array( gui->http );
+  jsonp_close_object( gui->http );
+  jsonp_close_envelope( gui->http );
+  return 0;
+}
+
 /* fd_gui_timeline_duration_query calculates the slot duration of each
    bucket. */
 
@@ -3487,6 +3702,7 @@ fd_gui_printf_timeline_query_agg( fd_gui_t *   gui,
   for( ulong i=0UL; i<count; i++ ) {
     memset( b[ i ].fields, 0xFF, sizeof(b[ i ].fields) );
     b[ i ].slot_duration = ULONG_MAX;
+    b[ i ].has_day       = 0;
   }
 
   /* The buckets are visited in ascending time order, so the record for
@@ -3505,6 +3721,7 @@ fd_gui_printf_timeline_query_agg( fd_gui_t *   gui,
         cur_day     = fd_gui_timeline_day_get( gui, day_idx );
       }
       if( FD_UNLIKELY( !cur_day ) ) continue;
+      b[ i ].has_day = 1;
       ulong idx = (ts%(ulong)FD_GUI_TIMELINE_DAY_NS) / step;
       for( int f=0; f<FD_GUI_TIMELINE_FIELD_CNT; f++ ) {
         b[ i ].fields[ f ] = fd_gui_timeline_combine( b[ i ].fields[ f ], fd_gui_timeline_field_get( cur_day, (int)stored, f, idx ), f );
@@ -3512,6 +3729,17 @@ fd_gui_printf_timeline_query_agg( fd_gui_t *   gui,
     }
   }
   if( !strcmp( key, "query_agg_shreds" ) ) fd_gui_timeline_duration_query( b, count );
+  if( !strcmp( key, "query_agg_slots" ) ) {
+    /* Counts are zero, not unknown, wherever a day record exists. */
+    int counts[ 3 ] = { FD_GUI_TIMELINE_FIELD_SKIPPED, FD_GUI_TIMELINE_FIELD_MINE, FD_GUI_TIMELINE_FIELD_MINE_SKIPPED };
+    for( ulong i=0UL; i<count; i++ ) {
+      if( !b[ i ].has_day ) continue;
+      for( int j=0; j<3; j++ ) b[ i ].fields[ counts[ j ] ] = fd_ulong_if( b[ i ].fields[ counts[ j ] ]==ULONG_MAX, 0UL, b[ i ].fields[ counts[ j ] ] );
+      /* An identity switch between replay and rooting can count a skip
+         that mine missed. */
+      b[ i ].fields[ FD_GUI_TIMELINE_FIELD_MINE_SKIPPED ] = fd_ulong_min( b[ i ].fields[ FD_GUI_TIMELINE_FIELD_MINE_SKIPPED ], b[ i ].fields[ FD_GUI_TIMELINE_FIELD_MINE ] );
+    }
+  }
 
   jsonp_open_envelope( gui->http, "timeline", key );
   jsonp_ulong( gui->http, "id", id );
@@ -3536,7 +3764,13 @@ fd_gui_printf_timeline_query_agg( fd_gui_t *   gui,
   } \
   jsonp_close_array( gui->http ); \
 } while(0)
-  if( !strcmp( key, "query_agg_shreds" ) ) {
+  if( !strcmp( key, "query_agg_slots" ) ) {
+    AGG_ARRAY( "start_slot", START_SLOT, 0 );
+    AGG_ARRAY( "end_slot", END_SLOT, 0 );
+    AGG_ARRAY( "skipped", SKIPPED, 0 );
+    AGG_ARRAY( "mine", MINE, 0 );
+    AGG_ARRAY( "mine_skipped", MINE_SKIPPED, 0 );
+  } else if( !strcmp( key, "query_agg_shreds" ) ) {
     AGG_ARRAY( "turbine", TURBINE, 0 );
     AGG_ARRAY( "repair", REPAIR, 0 );
     AGG_ARRAY( "reconstructed", RECONSTRUCTED, 0 );

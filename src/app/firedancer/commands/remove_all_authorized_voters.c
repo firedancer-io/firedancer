@@ -64,6 +64,7 @@ action_t fd_action_remove_all_authorized_voters = {
   .args           = remove_all_authorized_voters_cmd_args,
   .fn             = remove_all_authorized_voters_cmd_fn,
   .require_config = 0,
+  .no_topo        = 1,
   .perm           = NULL,
   .description    = "Remove all authorized voters from the validator",
   .detail         = "Removes every authorized voter key from an already running validator,\n"

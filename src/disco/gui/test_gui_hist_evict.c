@@ -112,7 +112,12 @@ put_epoch( fd_gui_t * gui, ulong epoch, ulong start_slot, ulong slot_cnt ) {
   rec->epoch      = epoch;
   rec->start_slot = start_slot;
   rec->slot_cnt   = slot_cnt;
+  rec->timeline_slot_min_start_ns = LONG_MAX;
+  rec->timeline_slot_max_end_ns   = LONG_MIN;
+  rec->timeline_slot_lo_idx       = ULONG_MAX;
+  rec->timeline_slot_hi_idx       = ULONG_MAX;
   memset( rec->vote_count, 0xFF, sizeof(rec->vote_count) );
+  memset( rec->timeline_slot_shred_cnt, 0xFF, sizeof(rec->timeline_slot_shred_cnt) );
 
 }
 
@@ -1784,12 +1789,23 @@ test_fec_staging_pressure( fd_gui_t * gui ) {
    response ends with expected. */
 
 static void
+check_suffix( fd_gui_t *   gui,
+              char const * expected );
+
+static void
 check_shreds( fd_gui_t *   gui,
               ulong        g,
               long         reference,
               ulong        cnt,
               char const * expected ) {
   FD_TEST( !fd_gui_printf_timeline_query_agg( gui, "query_agg_shreds", fd_gui_timeline_granularities[ g ].name, g, reference, cnt, 7UL ) );
+  check_suffix( gui, expected );
+}
+
+static void
+check_suffix( fd_gui_t *   gui,
+              char const * expected ) {
+  FD_TEST( !gui->http->stage_err );
   ulong len = fd_http_server_stage_len( gui->http );
   ulong off = gui->http->stage_off%gui->http->oring_sz;
   ulong n   = strlen( expected );
@@ -1913,6 +1929,197 @@ test_timeline_agg_shreds( fd_gui_t * gui ) {
 
   test_http_close( gui, http_mem );
   FD_LOG_NOTICE(( "test_timeline_agg_shreds: ok" ));
+}
+
+/* ---- timeline queries ---------------------------------------------- */
+
+static void
+timeline_setup( fd_gui_t * gui,
+                ulong      epoch_cnt ) {
+  FD_TEST( fd_epoch_schedule_derive( &gui->epoch.epoch_schedule, 1024UL, 1024UL, 0 ) );
+  gui->epoch.has_epoch_schedule = 1;
+  gui->epoch.current_epoch      = epoch_cnt-1UL;
+  gui->summary.slot_rooted      = ULONG_MAX;
+  for( ulong e=0UL; e<epoch_cnt; e++ ) put_epoch( gui, e, e*1024UL, 1024UL );
+}
+
+/* put_block creates a replayed block of slot on top of parent
+   (ULONG_MAX for none, or a slot with no record). */
+
+static fd_gui_slot_t *
+put_block( fd_gui_t * gui,
+           ulong      slot,
+           ulong      parent,
+           long       completed ) {
+  fd_gui_slot_t const * p = parent==ULONG_MAX ? NULL : fd_gui_slot_get( gui, parent, BANK_SEQ );
+  long parent_completed = p ? p->completed_time : LONG_MAX;
+  put_slot( gui, slot, completed );
+  fd_gui_slot_t * c = fd_gui_slot_get( gui, slot, BANK_SEQ );
+  c->parent_slot           = parent;
+  c->parent_bank_seq       = parent==ULONG_MAX ? ULONG_MAX : BANK_SEQ;
+  c->parent_completed_time = parent_completed;
+  return c;
+}
+
+static void
+test_timeline_root( fd_gui_t * gui ) {
+  void * http_mem = test_http_open( gui, FD_GUI_HTTP_MIN_SEND_BUFFER_SZ );
+  long const ts = sec_ns( 10UL );
+  timeline_setup( gui, 1UL );
+
+  /* Rooting 100 -> 103 records 103's observed interval, and splits the
+     gap evenly between 101 and 102, which never replayed. */
+  put_block( gui, 100UL, ULONG_MAX, ts );
+  fd_gui_shred_event_append( gui, 103UL, 0UL, FD_GUI_SLOT_SHRED_SHRED_PUBLISHED, ts+200L, ts );
+  put_block( gui, 103UL, 100UL, ts+300L )->mine = 1;
+  fd_gui_handle_root_advanced( gui, 103UL, BANK_SEQ, ts+300L );
+  fd_gui_timeline_query_slot_t rows[ 4 ];
+  ulong cnt;
+  FD_TEST( !fd_gui_timeline_slots_collect( gui, ts, ts+300L, rows, 4UL, &cnt ) && cnt==3UL );
+  for( ulong i=0UL; i<3UL; i++ ) {
+    FD_TEST( rows[ i ].slot==101UL+i && rows[ i ].start_ns==ts+100L*(long)i && rows[ i ].end_ns==ts+100L*(long)(i+1UL) );
+    FD_TEST( rows[ i ].skipped==(i<2UL) && rows[ i ].mine==(i==2UL) );
+  }
+  FD_TEST( fd_gui_timeline_slots_collect( gui, ts, ts+300L, rows, 2UL, &cnt )==1 );
+  /* The next root counts only its own skips (104, 105).  A bucket
+     with a day record but no skips reads 0; one without reads null. */
+  put_block( gui, 106UL, 103UL, ts+sec_ns( 1UL )+300L );
+  fd_gui_handle_root_advanced( gui, 106UL, BANK_SEQ, ts+sec_ns( 1UL ) );
+  FD_TEST( !fd_gui_printf_timeline_query_agg( gui, "query_agg_slots", "250ms", 3UL, ts, 4UL, 7UL ) );
+  check_suffix( gui, "\"skipped\":[3,0,1,0],\"mine\":[0,0,0,0],\"mine_skipped\":[0,0,0,0]}}" );
+  FD_TEST( !fd_gui_printf_timeline_query_agg( gui, "query_agg_slots", "1d", 22UL, FD_GUI_TIMELINE_DAY_NS, 1UL, 7UL ) );
+  check_suffix( gui, "\"skipped\":[null],\"mine\":[null],\"mine_skipped\":[null]}}" );
+
+  /* Our block for 107 replays twice but counts once in mine.  Rooting
+     108 on 106 skips it, so it also counts in mine_skipped at its
+     completion, at both a stored and a rolled-up granularity. */
+  fd_gui_epoch( gui, 0UL )->pub_cnt = 1UL; /* every slot is scheduled to our (zero) identity */
+  gui->summary.slot_caught_up = ULONG_MAX;
+  for( ulong i=0UL; i<FD_GUI_TURBINE_SLOT_HISTORY_SZ; i++ ) gui->summary.slots_max_turbine[ i ].slot = ULONG_MAX;
+  replay_duration( gui, 107UL, 106UL, BANK_SEQ+1UL, ts+sec_ns( 1UL )+300L, ts+sec_ns( 2UL ) );
+  replay_duration( gui, 107UL, 106UL, BANK_SEQ+1UL, ts+sec_ns( 1UL )+300L, ts+sec_ns( 2UL ) );
+  put_block( gui, 108UL, 106UL, ts+sec_ns( 3UL ) );
+  fd_gui_handle_root_advanced( gui, 108UL, BANK_SEQ, ts+sec_ns( 3UL ) );
+  FD_TEST( !fd_gui_printf_timeline_query_agg( gui, "query_agg_slots", "250ms", 3UL, ts+sec_ns( 2UL ), 1UL, 7UL ) );
+  check_suffix( gui, "\"mine\":[1],\"mine_skipped\":[1]}}" );
+  FD_TEST( !fd_gui_printf_timeline_query_agg( gui, "query_agg_slots", "1s", 5UL, ts+sec_ns( 2UL ), 1UL, 7UL ) );
+  check_suffix( gui, "\"mine\":[1],\"mine_skipped\":[1]}}" );
+
+  test_http_close( gui, http_mem );
+  FD_LOG_NOTICE(( "test_timeline_root: ok" ));
+}
+
+static void
+test_timeline_slot_intervals( fd_gui_t * gui ) {
+  void * http_mem = test_http_open( gui, FD_GUI_HTTP_MIN_SEND_BUFFER_SZ );
+  long ts  = sec_ns( 10UL );
+  long now = ts+1000L;
+  timeline_setup( gui, 2UL );
+
+  /* A repair request is not receipt.  Index zero need not arrive first,
+     and the earlier producer timestamp can reach the GUI later. */
+  fd_gui_handle_repair_request( gui, 1022UL, 0UL, ts+1L, now );
+  fd_gui_handle_shred( gui, 1022UL, 7UL, 0UL, 1, ts+60L, now );
+  fd_gui_handle_shred( gui, 1022UL, 9UL, 0UL, 0, ts+50L, now );
+  fd_gui_handle_shred( gui, 1022UL, 0UL, 0UL, 1, ts+70L, now );
+  fd_gui_handle_shred( gui, 1023UL, 3UL, 0UL, 0, ts+20L, now );
+  fd_gui_handle_leader_fec( gui, 1024UL, 32UL, 0, ts+250L, now );
+  fd_gui_handle_leader_fec( gui, 1024UL, 32UL, 1, ts+280L, now );
+  fd_gui_handle_repair_request( gui, 1025UL, 0UL, ts+2L, now );
+  fd_gui_handle_shred( gui, 1026UL, 0UL, 0UL, 1, ts+700L, now ); /* start after completion */
+  fd_gui_handle_shred( gui, 1028UL, 0UL, 0UL, 1, ts+610L, now );
+
+  ulong slots[]   = { 1021UL, 1022UL, 1023UL, 1024UL, 1025UL, 1026UL, 1028UL, 1029UL };
+  long complete[] = { 10L, 200L, 300L, 400L, 500L, 600L, 800L, 900L };
+  for( ulong i=0UL; i<8UL; i++ ) {
+    fd_gui_slot_t * slot = put_block( gui, slots[ i ], i ? slots[ i-1UL ] : ULONG_MAX, ts+complete[ i ] );
+    slot->mine           = slots[ i ]==1024UL;
+    slot->shred_cnt      = (uint)(32UL*(i+1UL));
+  }
+  /* A closed slot cannot have its start revised by late traffic. */
+  fd_gui_event_closed_slot_wmark_advance( gui, 1023UL );
+  fd_gui_handle_shred( gui, 1022UL, 10UL, 0UL, 1, ts+5L, now );
+
+  /* Arrival timestamps survive raw event eviction before classification. */
+  fd_gui_shred_flush( gui, ts+sec_ns( 1UL ) );
+  ulong budget = ULONG_MAX;
+  int drained;
+  FD_TEST( !fd_gui_store_ts_evict( gui->db, FD_GUI_HIST_SHRED_EVENTS, ULONG_MAX, &budget, &drained ) );
+  fd_gui_handle_root_advanced( gui, 1029UL, BANK_SEQ, now );
+
+  FD_TEST( !fd_gui_printf_timeline_query_slots( gui, ts+100L, ts+150L, 7UL ) );
+  check_suffix( gui, "{\"available_start_ns\":\"10000000020\",\"available_end_ns\":\"10000000800\",\"reference_slot\":1022,"
+                     "\"reference_ts\":\"10000000020\",\"slot_delta\":[0,1],\"start_ts_delta\":[\"30\",\"0\"],"
+                     "\"end_ts_delta\":[\"180\",\"280\"],\"shred_cnt\":[64,96],\"skipped\":[],\"mine\":[]}}" );
+
+  fd_gui_timeline_query_slot_t rows[ 8 ];
+  ulong cnt;
+  FD_TEST( !fd_gui_timeline_slots_collect( gui, ts, now, rows, 8UL, &cnt ) && cnt==5UL );
+  FD_TEST( rows[ 2 ].slot==1024UL && rows[ 2 ].mine && rows[ 2 ].start_ns==ts+250L && rows[ 2 ].end_ns==ts+400L );
+  FD_TEST( rows[ 3 ].slot==1027UL && rows[ 3 ].skipped && rows[ 3 ].start_ns==ts+600L && rows[ 3 ].end_ns==ts+700L );
+  FD_TEST( rows[ 4 ].slot==1028UL && !rows[ 4 ].skipped && rows[ 4 ].start_ns==ts+610L && rows[ 4 ].end_ns==ts+800L );
+  FD_TEST( rows[ 2 ].shred_cnt==128U && rows[ 3 ].shred_cnt==UINT_MAX && rows[ 4 ].shred_cnt==224U );
+  FD_TEST( !fd_gui_timeline_slots_collect( gui, ts+200L, ts+250L, rows, 8UL, &cnt ) && cnt==1UL && rows[ 0 ].slot==1023UL );
+  FD_TEST( !fd_gui_timeline_slots_collect( gui, ts+400L, ts+600L, rows, 8UL, &cnt ) && !cnt );
+
+  test_http_close( gui, http_mem );
+  FD_LOG_NOTICE(( "test_timeline_slot_intervals: overlapping arrivals, leader publication, skipped slots, missing starts, eviction: ok" ));
+}
+
+static void
+test_timeline_replayed_skips( fd_gui_t * gui ) {
+  void * http_mem = test_http_open( gui, FD_GUI_HTTP_MIN_SEND_BUFFER_SZ );
+  long ts  = sec_ns( 10UL );
+  long now = ts+1000L;
+  timeline_setup( gui, 1UL );
+  fd_gui_epoch_t * epoch = fd_gui_epoch( gui, 0UL );
+  epoch->pub_cnt = 1UL; /* every slot is scheduled to our (zero) identity */
+
+  /* Root 100 -> 105.  101 replayed on two losing forks; 102 replayed
+     but never completed; 103 and 104 never replayed. */
+  fd_gui_handle_shred( gui, 101UL, 0UL, 0UL, 1, ts+150L, now );
+  put_slot( gui, 101UL, ts+450L );
+  fd_gui_slot_get( gui, 101UL, BANK_SEQ )->shred_cnt = 64U;
+  fd_gui_hist_slot_key_t key = { .slot=101UL, .bank_seq=BANK_SEQ+1UL };
+  fd_gui_slot_t * fork = fd_gui_hist_kv_get_or_create( gui, FD_GUI_HIST_SLOT, &key );
+  memset( fork, 0, sizeof(*fork) );
+  fork->slot           = 101UL;
+  fork->bank_seq       = BANK_SEQ+1UL;
+  fork->completed_time = ts+400L;
+  fork->shred_cnt      = 96U;
+  put_slot( gui, 102UL, LONG_MAX );
+  fd_gui_handle_shred( gui, 105UL, 0UL, 0UL, 1, ts+500L, now );
+  put_block( gui, 100UL, ULONG_MAX, ts+100L );
+  put_block( gui, 105UL, 100UL, ts+600L )->shred_cnt = 128U;
+  fd_gui_handle_root_advanced( gui, 105UL, BANK_SEQ, now );
+
+  /* 101 uses its earliest fork completion and that fork's shred count.
+     The rest of the skips share the gap; 105 landed. */
+  fd_gui_timeline_query_slot_t rows[ 8 ];
+  ulong cnt;
+  FD_TEST( !fd_gui_timeline_slots_collect( gui, ts, now, rows, 8UL, &cnt ) && cnt==5UL );
+  FD_TEST( rows[ 0 ].slot==101UL && rows[ 0 ].skipped && rows[ 0 ].mine && rows[ 0 ].start_ns==ts+150L && rows[ 0 ].end_ns==ts+400L && rows[ 0 ].shred_cnt==96U );
+  for( ulong i=1UL; i<4UL; i++ ) {
+    FD_TEST( rows[ i ].slot==101UL+i && rows[ i ].skipped && !rows[ i ].mine && rows[ i ].shred_cnt==UINT_MAX );
+    FD_TEST( rows[ i ].start_ns==ts+100L+100L*(long)i && rows[ i ].end_ns==ts+200L+100L*(long)i );
+  }
+  FD_TEST( rows[ 4 ].slot==105UL && !rows[ 4 ].skipped && rows[ 4 ].start_ns==ts+500L && rows[ 4 ].end_ns==ts+600L && rows[ 4 ].shred_cnt==128U );
+
+  /* Only our completed skipped block counts in mine_skipped.  Each
+     skipped slot is a leader_skip event at its midpoint. */
+  fd_gui_timeline_day_t const * day = fd_gui_timeline_day_get( gui, 0UL );
+  FD_TEST( fd_gui_timeline_field_get( day, FD_GUI_TIMELINE_GRANULARITY_250MS, FD_GUI_TIMELINE_FIELD_MINE_SKIPPED, 40UL )==1UL );
+  fd_gui_timeline_query_event_t events[ 8 ];
+  FD_TEST( !fd_gui_timeline_events_collect( gui, ts, now, events, 8UL, &cnt ) && cnt==4UL );
+  FD_TEST( events[ 0 ].slot==101UL && events[ 0 ].ts==ts+275L && events[ 0 ].event==FD_GUI_TIMELINE_EVENT_LEADER_SKIP );
+  FD_TEST( fd_gui_timeline_events_collect( gui, ts, now, events, 3UL, &cnt )==1 );
+
+  /* Rooted slots are final: a completion after rooting changes nothing. */
+  put_slot( gui, 103UL, ts+50L );
+  FD_TEST( !fd_gui_timeline_slots_collect( gui, ts, now, rows, 8UL, &cnt ) && cnt==5UL && rows[ 2 ].end_ns==ts+400L );
+
+  test_http_close( gui, http_mem );
+  FD_LOG_NOTICE(( "test_timeline_replayed_skips: ok" ));
 }
 
 int
@@ -2069,6 +2276,19 @@ main( int     argc,
     test_shred_flush_full( s10->gui, 2 );
     store_close( s10 );
   }
+
+  test_store_t s12[ 1 ];
+  store_open( s12, TEST_STORE_BYTES, 17 );
+  test_timeline_slot_intervals( s12->gui );
+  store_close( s12 );
+
+  store_open( s12, TEST_STORE_BYTES, 17 );
+  test_timeline_replayed_skips( s12->gui );
+  store_close( s12 );
+
+  store_open( s12, TEST_STORE_BYTES, 17 );
+  test_timeline_root( s12->gui );
+  store_close( s12 );
 
   if( !run_all ) FD_LOG_NOTICE(( "skipped 7 expensive tests; pass --run-all to run them" ));
   FD_LOG_NOTICE(( "pass" ));

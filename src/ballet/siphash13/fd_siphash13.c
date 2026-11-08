@@ -44,7 +44,7 @@ fd_siphash1N_core( ulong         v[ static 4 ],
                    ulong         n ) {
   ulong m;
   for( ulong i=0UL; i<n; i++ ) {
-    m = ((ulong const *)buf)[ i ];
+    m = FD_LOAD( ulong, buf + 8UL*i );
     v[ 3 ] ^= m;
     FD_SIPHASH_ROUND( v );
     v[ 0 ] ^= m;

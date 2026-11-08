@@ -72,6 +72,7 @@ SYSCALL_ARGS = {
     "pwrite64":        (  "int", "long",  "long", "long",   None,    None  ),
     "pwritev2":        (  "int", "long",   "int", "long", "long",   "int"  ),
     "read":            (  "int", "long",  "long",   None,   None,    None  ),
+    "readv":           (  "int", "long",   "int",   None,   None,    None  ),
     "recvfrom":        (  "int", "long",  "long",  "int", "long",  "long"  ),
     "recvmmsg":        (  "int", "long",   "int",  "int", "long",    None  ),
     "recvmsg":         (  "int", "long",   "int",   None,   None,    None  ),

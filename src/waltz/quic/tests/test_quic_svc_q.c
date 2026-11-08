@@ -150,7 +150,7 @@ test_multiple_connections( fd_quic_limits_t * limits ) {
 
   /* Schedule connections in order */
   for( int i=0; i<10; i++ ) {
-    conns[i]->svc_meta.next_timeout = now + (long)(i * 10);
+    conns[i]->svc_meta.next_timeout = now + (long)((i + 1) * 10);
     fd_quic_svc_timers_schedule( timers, conns[i], now );
   }
 
@@ -158,7 +158,7 @@ test_multiple_connections( fd_quic_limits_t * limits ) {
   for( int i=0; i<10; i++ ) {
     fd_quic_svc_event_t next = fd_quic_svc_timers_next( timers, now + 100L, 1 );
     FD_TEST( next.conn    == conns[i] );
-    FD_TEST( next.timeout == now + (long)(i * 10) );
+    FD_TEST( next.timeout == now + (long)((i + 1) * 10) );
   }
 
   /* Queue should be empty now */
@@ -167,7 +167,7 @@ test_multiple_connections( fd_quic_limits_t * limits ) {
 
   /* Schedule out of order and verify they come out in order */
   for( int i=9; i>=0; i-- ) {
-    conns[i]->svc_meta.next_timeout = now + (long)(i * 10);
+    conns[i]->svc_meta.next_timeout = now + (long)((i + 1) * 10);
     fd_quic_svc_timers_schedule( timers, conns[i], now );
   }
 
@@ -193,7 +193,7 @@ test_multiple_connections( fd_quic_limits_t * limits ) {
   for( int i=0; i<10; i++ ) {
     fd_quic_svc_event_t next = fd_quic_svc_timers_next( timers, now + 100L, 1 );
     FD_TEST( next.conn    == conns[i] );
-    FD_TEST( next.timeout == now + (long)(i * 10) );
+    FD_TEST( next.timeout == now + (long)((i + 1) * 10) );
   }
 
   /* Queue should be empty now */
@@ -204,6 +204,31 @@ test_multiple_connections( fd_quic_limits_t * limits ) {
   free( timer_base );
 
   FD_LOG_NOTICE(( "Multiple connections test passed" ));
+}
+
+static void
+test_expired_timer_priority( fd_quic_limits_t * limits ) {
+  uchar * conns = create_mock_conns( limits, 2UL );
+  ulong conn_sz = fd_quic_conn_footprint( limits );
+  fd_quic_conn_t * instant = (fd_quic_conn_t *)conns;
+  fd_quic_conn_t * dynamic = (fd_quic_conn_t *)(conns+conn_sz);
+  instant->state = dynamic->state = FD_QUIC_CONN_STATE_ACTIVE;
+  fd_quic_state_t state = { .conn_base=(ulong)conns, .conn_sz=conn_sz };
+  uchar * timer_base;
+  fd_quic_svc_timers_t * timers = test_svc_timers_init( 2UL, &state, &timer_base );
+  long now = 1000L;
+  instant->svc_meta.next_timeout = now;
+  dynamic->svc_meta.next_timeout = now+10L;
+  fd_quic_svc_timers_schedule( timers, instant, now );
+  fd_quic_svc_timers_schedule( timers, dynamic, now );
+  FD_TEST( fd_quic_svc_timers_next( timers, now, 1 ).conn==instant );
+  instant->svc_meta.next_timeout = now;
+  fd_quic_svc_timers_schedule( timers, instant, now );
+  FD_TEST( fd_quic_svc_timers_next( timers, now+10L, 1 ).conn==dynamic );
+  FD_TEST( fd_quic_svc_timers_next( timers, now+10L, 1 ).conn==instant );
+  FD_TEST( !fd_quic_svc_timers_cnt_events( timers ) );
+  free( conns );
+  free( timer_base );
 }
 
 int
@@ -243,6 +268,7 @@ main( int argc, char ** argv ) {
   }
 
   test_multiple_connections( &limits );
+  test_expired_timer_priority( &limits );
 
   FD_LOG_NOTICE(( "All fd_quic_svc_q tests passed" ));
 

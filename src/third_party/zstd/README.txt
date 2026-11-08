@@ -9,8 +9,8 @@ Compiled single-threaded (no ZSTD_MULTITHREAD; the pool/threading and
 zstdmt sources are not imported).  dictBuilder is not
 imported; first-party code uses no ZDICT API.  Consumers use
 ZSTD_STATIC_LINKING_ONLY static-allocation APIs, which upstream marks
-unstable -- version bumps must re-audit those call sites (fd_zstd.c,
-snapdc).
+unstable -- version bumps must re-audit all first-party
+ZSTD_STATIC_LINKING_ONLY call sites.
 
 zstd is dual-licensed BSD-3-Clause OR GPL-2.0; it is taken here
 under BSD-3-Clause only (LICENSE in this directory; upstream's

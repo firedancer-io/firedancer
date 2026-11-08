@@ -92,7 +92,7 @@ fd_failover_tls_fini( fd_failover_tls_t * tls ) {
   if( FD_LIKELY( tls->fd!=-1 && fd_tlsrec_conn_is_ready( &tls->conn ) && !tls->conn.tx_closed ) ) {
     (void)fd_tlsrec_sock_close( &tls->sock, &tls->conn, tls->fd );
   }
-  fd_memzero_explicit( &tls->conn, sizeof(tls->conn) );
+  fd_tlsrec_conn_fini( &tls->conn );
   fd_memzero_explicit( &tls->sock, sizeof(tls->sock) );
   tls->fd       = -1;
   tls->verified = 0;

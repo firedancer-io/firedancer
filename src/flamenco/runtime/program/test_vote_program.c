@@ -898,7 +898,7 @@ test_update_commission_collector_v5_state( fd_svm_mini_t * mini ) {
   vsv->v5.location    = LOC_FRA;
   vsv->v5.latest_vote = 1234UL;
   FD_TEST( !fd_vote_state_versioned_serialize( vsv, data, sizeof(data) ) );
-  create_account_raw( env->mini->runtime->accdb, env->bank->accdb_fork_id, vote5, 1000000000UL, 3762UL, data, &fd_solana_vote_program_id );
+  create_account_raw( env->mini->runtime->accdb, env->bank->accdb_fork_id, vote5, 1000000000UL, FD_VOTE_STATE_V5_SZ, data, &fd_solana_vote_program_id );
 
   char hex[ 4096 ];
   build_update_collector_hex( hex, '1', "010001", HEX_VOTE5, HEX_COLLECTOR,
@@ -982,7 +982,7 @@ test_update_commission_bps_v5_state( fd_svm_mini_t * mini ) {
   fd_vote_state_v5_commission_t block_before;
   fd_vote_state_v5_commission_get( &vsv->v5, fd_commission_kind_enum_block_revenue, &block_before );
   FD_TEST( !fd_vote_state_versioned_serialize( vsv, data, sizeof(data) ) );
-  create_account_raw( env->mini->runtime->accdb, env->bank->accdb_fork_id, vote5, 1000000000UL, 3762UL, data, &fd_solana_vote_program_id );
+  create_account_raw( env->mini->runtime->accdb, env->bank->accdb_fork_id, vote5, 1000000000UL, FD_VOTE_STATE_V5_SZ, data, &fd_solana_vote_program_id );
 
   fd_sol_sysvar_clock_t clock[1];
   FD_TEST( fd_sysvar_clock_read( env->mini->runtime->accdb, env->bank->accdb_fork_id, clock ) );
@@ -1063,9 +1063,9 @@ test_tower_votes_rejected_on_v5_state( fd_svm_mini_t * mini ) {
   create_account_raw( env->mini->runtime->accdb, env->bank->accdb_fork_id, vote4, 1000000000UL, 3762UL, v4_data, &fd_solana_vote_program_id );
   FD_TEST( !fd_vsv_try_convert_to_v5( vsv, 0UL ) );
   vsv->v5.location = LOC_FRA;
-  uchar v5_data[ 3762UL ] = { 0 };
+  uchar v5_data[ FD_VOTE_STATE_V5_SZ ] = { 0 };
   FD_TEST( !fd_vote_state_versioned_serialize( vsv, v5_data, sizeof(v5_data) ) );
-  create_account_raw( env->mini->runtime->accdb, env->bank->accdb_fork_id, vote5, 1000000000UL, 3762UL, v5_data, &fd_solana_vote_program_id );
+  create_account_raw( env->mini->runtime->accdb, env->bank->accdb_fork_id, vote5, 1000000000UL, FD_VOTE_STATE_V5_SZ, v5_data, &fd_solana_vote_program_id );
 
   uchar tower_sync[ 4+8+1+32+1+32 ] = { 0 };
   tower_sync[ 0 ] = 14;
@@ -1214,6 +1214,11 @@ test_update_location_success( fd_svm_mini_t * mini ) {
   read_account( env, vote, after1, &sz1 );
   FD_TEST( sz1==FD_VOTE_STATE_V5_SZ && FD_LOAD( uint, after1 )==fd_vote_state_versioned_enum_v5 );
   FD_TEST( fd_vote_account_is_valid_v5( after1, sz1 ) );
+  fd_acc_t acc = fd_accdb_read_one( env->mini->runtime->accdb, env->bank->accdb_fork_id, vote->key );
+  FD_TEST( acc.lamports==1000000000UL );
+  fd_accdb_unread_one( env->mini->runtime->accdb, &acc );
+  FD_TEST( FD_LOAD( ulong, after1+608 )==ULONG_MAX && FD_LOAD( ushort, after1+616 )==USHORT_MAX );
+  FD_TEST( fd_mem_iszero( after1+618, FD_VOTE_STATE_V5_SZ-618UL ) );
   FD_TEST( FD_LOAD( int, after1+132 )==LOC_FRA.x && FD_LOAD( int, after1+136 )==LOC_FRA.y && FD_LOAD( int, after1+140 )==LOC_FRA.z );
   FD_TEST( fd_memeq( after1+4,   payer->key, 32UL ) );
   FD_TEST( fd_memeq( after1+36,  payer->key, 32UL ) );
@@ -1258,12 +1263,14 @@ test_update_location_errors( fd_svm_mini_t * mini ) {
   fd_pubkey_t sys[1];      fd_memset( sys,      0x85, 32UL );
   fd_pubkey_t other[1];    fd_memset( other,    0x86, 32UL );
   fd_pubkey_t uninit[1];   fd_memset( uninit,   0x87, 32UL );
+  fd_pubkey_t v4_small[1]; fd_memset( v4_small, 0x88, 32UL );
 
   uchar data[ 4000 ];
   fd_memset( data, 0, sizeof(data) ); build_v4_vote_state( data, payer, payer, collector, collector, bls );
   create_account_raw( env->mini->runtime->accdb, env->bank->accdb_fork_id, v4_bls,   1000000000UL, FD_VOTE_STATE_V4_SZ, data, &fd_solana_vote_program_id );
   create_account_raw( env->mini->runtime->accdb, env->bank->accdb_fork_id, sys,      1000000000UL, FD_VOTE_STATE_V4_SZ, data, &fd_solana_system_program_id );
   create_account_raw( env->mini->runtime->accdb, env->bank->accdb_fork_id, v4_big,   1000000000UL, 4000UL,              data, &fd_solana_vote_program_id );
+  create_account_raw( env->mini->runtime->accdb, env->bank->accdb_fork_id, v4_small, 1000000000UL, FD_VOTE_STATE_V5_SZ, data, &fd_solana_vote_program_id );
   fd_memset( data, 0, sizeof(data) ); build_v4_vote_state( data, payer, payer, collector, collector, NULL );
   create_account_raw( env->mini->runtime->accdb, env->bank->accdb_fork_id, v4_nobls, 1000000000UL, FD_VOTE_STATE_V4_SZ, data, &fd_solana_vote_program_id );
   fd_memset( data, 0, sizeof(data) ); build_v3_vote_state( data, payer, payer, payer, 1UL, 10 );
@@ -1300,6 +1307,7 @@ test_update_location_errors( fd_svm_mini_t * mini ) {
   send_update_location( env, 0x35, payer, v4_big,   &LOC_FRA,  0UL, 0, FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA );
   send_update_location( env, 0x36, payer, sys,      &LOC_FRA,  0UL, 0, FD_EXECUTOR_INSTR_ERR_INVALID_ACC_OWNER );
   send_update_location( env, 0x37, payer, uninit,   &LOC_FRA,  0UL, 0, FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA );
+  send_update_location( env, 0x38, payer, v4_small, &LOC_FRA,  0UL, 0, FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA );
 
   uchar ix[ 16 ];
   update_location_ix( ix, &LOC_FRA );

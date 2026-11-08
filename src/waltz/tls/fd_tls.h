@@ -262,7 +262,8 @@ struct fd_tls {
      identity key used by the signer function above. */
   uchar cert_public_key [ 32 ];
 
-  /* X.509 certificate to present to peer (optional).
+  /* X.509 certificate to present to peer (required for servers,
+     optional for clients).
      SubjectPublicKeyInfo must be Ed25519 and match cert_public_key. */
   uchar cert_x509[ FD_TLS_SERVER_CERT_MSG_SZ_MAX ];
   ulong cert_x509_sz;
@@ -315,6 +316,7 @@ typedef struct fd_tls fd_tls_t;
 #define FD_TLS_REASON_CH_NEG_KX      (109)  /* Unsupported key exchange alg */
 #define FD_TLS_REASON_CH_NEG_SIG     (110)  /* Unsupported signature alg */
 #define FD_TLS_REASON_CH_NEG_CIPHER  (111)  /* Unsupported cipher suite */
+#define FD_TLS_REASON_CH_SESSION_ID  (112)  /* QUIC ClientHello requested compatibility mode */
 
 #define FD_TLS_REASON_SH_EXPECTED    (201)  /* wanted ServerHello, got another msg type */
 #define FD_TLS_REASON_SH_PARSE       (203)  /* failed to parse ServerHello */

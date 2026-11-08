@@ -51,10 +51,11 @@ connect_pair( fd_sshttp_t * http ) {
 static int
 advance_until_terminal( fd_sshttp_t * http ) {
   uchar buf[ 4096 ];
+  struct iovec iov = { .iov_base = buf, .iov_len = sizeof(buf) };
   for( ulong i=0UL; i<1024UL; i++ ) {
-    ulong data_len   = sizeof(buf);
+    ulong data_len   = 0UL;
     int   downloading = 0;
-    int   res = fd_sshttp_advance( http, &data_len, buf, &downloading, 0L );
+    int   res = fd_sshttp_advance( http, &iov, 1UL, &data_len, &downloading, 0L );
     if( FD_LIKELY( res!=FD_SSHTTP_ADVANCE_AGAIN && res!=FD_SSHTTP_ADVANCE_DATA ) ) return res;
   }
   FD_LOG_ERR(( "fd_sshttp_advance never terminated" ));
@@ -130,6 +131,7 @@ test_headers_too_large( void ) {
   fd_memcpy( junk, "HTTP/1.1 200 OK\r\nX-Pad: ", 24UL );
 
   uchar buf[ 4096 ];
+  struct iovec iov = { .iov_base = buf, .iov_len = sizeof(buf) };
   ulong sent = 0UL;
   int   res  = FD_SSHTTP_ADVANCE_AGAIN;
   for( ulong i=0UL; i<4096UL; i++ ) {
@@ -139,9 +141,9 @@ test_headers_too_large( void ) {
       else if( FD_UNLIKELY( n<0L && errno!=EAGAIN && errno!=EINTR ) ) FD_LOG_ERR(( "send() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     }
 
-    ulong data_len    = sizeof(buf);
+    ulong data_len    = 0UL;
     int   downloading = 0;
-    res = fd_sshttp_advance( http, &data_len, buf, &downloading, 0L );
+    res = fd_sshttp_advance( http, &iov, 1UL, &data_len, &downloading, 0L );
     if( FD_UNLIKELY( res!=FD_SSHTTP_ADVANCE_AGAIN ) ) break;
   }
   FD_TEST( res==FD_SSHTTP_ADVANCE_ERROR );
@@ -175,9 +177,10 @@ test_plaintext_host( char const * hostname,
   ulong request_len = 0UL;
   for( ulong i=0UL; i<1024UL; i++ ) {
     uchar buf[1];
-    ulong buf_sz = sizeof(buf);
+    struct iovec iov = { .iov_base = buf, .iov_len = sizeof(buf) };
+    ulong buf_sz = 0UL;
     int downloading = 0;
-    FD_TEST( FD_SSHTTP_ADVANCE_AGAIN==fd_sshttp_advance( http, &buf_sz, buf, &downloading, 0L ) );
+    FD_TEST( FD_SSHTTP_ADVANCE_AGAIN==fd_sshttp_advance( http, &iov, 1UL, &buf_sz, &downloading, 0L ) );
     long n = recv( server, request+request_len, sizeof(request)-1UL-request_len, 0 );
     if( n>0L ) request_len += (ulong)n;
     else FD_TEST( n<0L && (errno==EAGAIN || errno==EINTR) );

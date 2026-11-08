@@ -126,6 +126,7 @@ action_t fd_action_add_authorized_voter = {
   .args           = add_authorized_voter_cmd_args,
   .fn             = add_authorized_voter_cmd_fn,
   .require_config = 0,
+  .no_topo        = 1,
   .perm           = NULL,
   .description    = "Add an authorized voter to the validator",
   .detail         = "Registers an additional authorized voter key with an already running\n"

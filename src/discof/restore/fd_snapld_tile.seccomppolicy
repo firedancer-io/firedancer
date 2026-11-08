@@ -31,6 +31,9 @@ fsync: (eq (arg 0) logfile_fd)
 read: (or (eq (arg 0) in_full_fd)
           (eq (arg 0) in_incr_fd)
           (eq (arg 0) sockfd))
+readv: (or (eq (arg 0) in_full_fd)
+           (eq (arg 0) in_incr_fd)
+           (eq (arg 0) sockfd))
 
 # snapshot: Uses lseek to reset position in input file
 lseek: (and (or (eq (arg 0) in_full_fd)
@@ -42,6 +45,10 @@ lseek: (and (or (eq (arg 0) in_full_fd)
 socket: (and (eq (arg 0) "AF_INET")
              (eq (arg 1) "SOCK_STREAM|SOCK_NONBLOCK")
              (eq (arg 2) 0))
+
+# snapshot: set the receive buffer size of download sockets.
+setsockopt: (and (eq (arg 1) SOL_SOCKET)
+                 (eq (arg 2) SO_RCVBUF))
 
 # snapshot: need to be able to connect to a peer to download a snapshot
 # from and for snapshot slot resolution.

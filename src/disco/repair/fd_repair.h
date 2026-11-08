@@ -1,61 +1,144 @@
 #ifndef HEADER_fd_src_disco_repair_fd_repair_h
 #define HEADER_fd_src_disco_repair_fd_repair_h
 
+/* fd_repair tracks the root and the blocks of the slots after it as
+   they are received over the network via Turbine and Repair, keeps the
+   blocks that still need repair for the tile to request, and queues
+   their FEC sets for replay on the reasm deque.
+
+   A slot can have more than one block (blk).  The eager blk is built by
+   position from every shred of the slot, before its block id is known,
+   and gets its block id (the double merkle root, dmr) when it
+   completes.  Named blks carry a dmr from a cert, a votor repair event
+   or a child's block header, and are repaired by that id.  When the
+   eager blk completes with the dmr of a named blk, they are the same
+   block and are merged.
+
+   Every blk but the root has a parent (the blk its block header names
+   by parent slot and dmr, known from shred 0 or a ParentAndFecCount
+   response) and children (the blks linked under it).  A blk is linked
+   under its parent once the parent is held.  A named blk creates its
+   parent if it is missing, an eager blk waits unlinked as an orphan.
+
+   fd_repair always queues a parent before its child: a blk's first FEC
+   set is queued only after its parent's last (the root counts as
+   delivered), then its complete FEC sets are queued in index order.
+   This guarantees that every fork will be delivered in-order, except
+   that our own leader blk goes to the head of the deque, and so does a
+   chain that replay asks to be delivered again from the root.  Forks
+   are treated as concurrent, and thus fd_repair only provides a partial
+   ordering such that it makes no guarantees about the delivery order of
+   FEC sets across forks, but in general this will be the order in which
+   they become ready.
+
+   Forks manifest in fd_repair as a blk with more than one child, and
+   mostly occur across slots due to leader skipping.  For example, the
+   leader for slot 14 forks slot 9 when another leader already built
+   slot 10 from slot 9, so now the blk of slot 9 has two child blks ie.
+   the blk of slot 10 and the blk of slot 14.
+
+   There is a protocol violation called equivocation (also known as
+   "duplicates") that can also cause forks.  Unlike skips, equivocation
+   is not honest behavior and only happens when validators are behaving
+   maliciously or their software has a bug.  Equivocation can result in
+   two or more blks for the _same_ slot.  Moreover, there might be two
+   FEC sets with the same slot and FEC set index but different payloads.
+
+   fd_repair invalidates the slot when the shreds of the eager blk
+   conflict (multiple merkle roots for the same FEC set idx, a parent
+   slot mismatch, a bad block header, or multiple shreds marked
+   slot_complete), when a proven FEC set root disagrees with it, or when
+   replay marks it dead.  The eager blk is then no longer repaired, no
+   more of its FEC sets are queued unless it completed first, and the
+   slot is only reachable by block id. */
+
 #include "../../disco/fd_disco_base.h"
 #include "../../disco/shred/fd_fec_set.h"
 #include "../../choreo/votor/fd_votor_base.h"
 #include "../../choreo/fd_choreo_base.h"
+#include "../../flamenco/alpenglow/fd_block_marker.h"
 
 struct fd_mr20 {
-  uchar uc[ FD_SHRED_MERKLE_NODE_SZ ];
+  uchar uc[ 20 ];
 };
 typedef struct fd_mr20 fd_mr20_t;
 
-typedef fd_hash_t fd_mr32_t;
+struct fd_mr32 {
+  uchar uc[ 32 ];
+};
+typedef struct fd_mr32 fd_mr32_t;
+
+union fd_mr {
+  fd_mr20_t mr20;
+  fd_mr32_t mr32;
+};
+typedef union fd_mr fd_mr_t;
 
 typedef struct fd_repair_blk fd_repair_blk_t;
 
 struct fd_repair_fec {
-  fd_mr20_t key;
-  fd_mr32_t mr32;
-  uint      fec_idx;
+  fd_mr_t   mr;
   ulong     slot;
-  uint      rcvd;
-  uchar     complete      : 1;
-  uchar     data_complete : 1;
-  uchar     is_leader     : 1;
-  uchar     notarized     : 1;
-  ulong     next;
-  ulong     prev;
-  uint      data_rcvd;     /* shred tile masks at first completion: bit j set if the data shred with in-type index j was received (vs recovered) */
+  uint      fec_idx;
+  uint      next;
+  uint      prev;
+  uint      data_rcvd;     /* bit j set if repair holds data shred j, until it completes.  then the shred tile masks: bit j set if the data shred with in-type index j was received (vs recovered) */
   uint      parity_rcvd;   /* ... if the parity shred with in-type index j was received */
   uint      repair_rcvd;   /* ... if the data shred with in-type index j arrived by repair */
+  uchar     fec_complete  : 1;
+  uchar     data_complete : 1;
+  uchar     is_leader     : 1;
+  uchar     is_notar      : 1;
 
-  int       final_src;     /* FD_EVENT_BLOCK_RECEIVED_FEC_SETS_FINAL_SHRED_SOURCE_* of the last data shred received before it completed, 0 if none */
+  /* block marker */
+
+  fd_update_parent_t update_parent;
+
+  /* metrics */
+
   long      first_ts;      /* when its first shred arrived, 0 if none yet */
   long      cmpl_ts;       /* when it first completed, 0 if not yet */
 };
 typedef struct fd_repair_fec fd_repair_fec_t;
-FD_STATIC_ASSERT( sizeof(fd_repair_fec_t)==120UL, fd_repair_fec );
+FD_STATIC_ASSERT( sizeof(fd_repair_fec_t)==128UL, fd_repair_fec );
 
-#define POOL_NAME fd_repair_fec_pool
-#define POOL_T    fd_repair_fec_t
+#define POOL_NAME  fd_repair_fec_pool
+#define POOL_T     fd_repair_fec_t
+#define POOL_IDX_T uint
 #include "../../util/tmpl/fd_pool.c"
 
 #define MAP_NAME               fd_repair_fec_map
 #define MAP_ELE_T              fd_repair_fec_t
-#define MAP_KEY_T              fd_mr20_t
-#define MAP_KEY                key
-#define MAP_KEY_EQ(k0,k1)      (!memcmp((k0),(k1),sizeof(fd_mr20_t)))
-#define MAP_KEY_HASH(key,seed) fd_ulong_hash((seed)^FD_LOAD(ulong,(key)->uc))
+#define MAP_IDX_T              uint
+#define MAP_KEY_T              fd_mr_t
+#define MAP_KEY                mr
+#define MAP_KEY_EQ(k0,k1)      (!memcmp((k0)->mr20.uc,(k1)->mr20.uc,sizeof(fd_mr20_t)))
+#define MAP_KEY_HASH(key,seed) fd_ulong_hash((seed)^FD_LOAD(ulong,(key)->mr20.uc))
 #define MAP_OPTIMIZE_RANDOM_ACCESS_REMOVAL 1
 #include "../../util/tmpl/fd_map_chain.c"
 
 struct fd_repair_blk {
   ulong     slot;
   fd_mr32_t dmr;
-  ulong     prev;
-  ulong     next;
+
+  /* blk_map */
+
+  ulong prev;
+  ulong next;
+
+  /* blk_orphan_map */
+
+  ulong orphan_prev;
+  ulong orphan_next;
+
+  /* {eager, notar, final}_treap */
+
+  struct {
+    ulong parent;
+    ulong left;
+    ulong right;
+    ulong prio;  /* seeded once at pool creation */
+  } treap;
 
   /* blks form a left-child, right-sibling tree at root. */
 
@@ -66,17 +149,16 @@ struct fd_repair_blk {
   uint cmpl_fec_cnt; /* FEC set count of the slot, 0 if not yet known */
   uint rcvd_fec_cnt; /* one past the highest FEC set received, there can be gaps below */
   uint buff_fec_cnt; /* FEC sets [0,buff_fec_cnt) are complete */
-  uint cons_fec_cnt; /* FEC sets [0,cons_fec_cnt) are consumed by replay, 0 until the parent is consumed in full */
+  uint cons_fec_cnt; /* FEC sets [init_fec_cnt,cons_fec_cnt) are consumed by replay, init_fec_cnt until the parent is consumed in full */
   uint wait_fec_cnt; /* FEC sets [0,wait_fec_cnt) are complete or have a repair req waiting, kept by the tile */
+  uint init_fec_cnt; /* FEC set of its UpdateParent, replay starts there, 0 if none */
 
-  ulong     parent_slot;
-  fd_mr32_t parent_blk_mr;
-  ulong     orphan_next; /* orphan_map chain, while the blk waits for the blk named by parent_blk_mr */
-  ulong     orphan_prev;
+  ulong     parent_slot;      /* the parent slot, potentially changed during the block by UpdateParent */
+  fd_mr32_t parent_dmr;       /* the parent dmr */
+  ulong     init_parent_slot; /* the initial parent slot before any UpdateParent. */
 
   /* repair, the treap is the blk's role in its slot_meta */
 
-  uchar in_blk_treap : 1; /* in its role's treap */
   uchar eager        : 1; /* the slot's eager blk, and may be repaired by position */
   uchar meta_req     : 1; /* tile: a META req was made */
   uchar highest_req  : 1; /* tile: a HIGHEST req was made */
@@ -84,18 +166,12 @@ struct fd_repair_blk {
 
   ulong * fecs; /* fec_pool idx of each FEC set, null if none, fec_blk_max of them */
 
-  long rcvd_fec_ts; /* when rcvd_fec_cnt last grew */
-  struct {
-    ulong parent;
-    ulong left;
-    ulong right;
-    ulong prio;  /* seeded once at pool creation */
-  } treap;
+  long eager_ts; /* eager_ts + eager_delta signals when to start eagerly repairing */
 
   struct {
-    uchar cancelled_reason; /* FD_EVENT_BLOCK_RECEIVED_CANCELLED_REASON_*, 0 if never cancelled */
-    uchar reported;         /* given to the report callback, at completion or when freed */
-    long  cancelled_ts;     /* when cancelled_reason was first set, 0 if never cancelled */
+    uchar cancelled_reason;     /* FD_EVENT_BLOCK_RECEIVED_CANCELLED_REASON_*, 0 if never cancelled */
+    uchar reported;             /* given to the report callback, at completion or when freed */
+    long  cancelled_ts;         /* when cancelled_reason was first set, 0 if never cancelled */
     uint  last_cmpl_fec_idx;    /* fec_set_idx of the FEC set that most recently completed, UINT_MAX if none */
     long  last_shred_ts;        /* when the blk became contiguous through a FEC set completion, 0 if it has not */
     uint  turbine_shred_cnt;    /* turbine data and coding shreds of its FEC sets, as counted by the shred tile */
@@ -125,8 +201,9 @@ typedef struct fd_repair_blk fd_repair_blk_t;
 
 /* blk_map is keyed by slot and holds every blk of a slot. */
 
-#define POOL_NAME fd_repair_blk_pool
-#define POOL_T    fd_repair_blk_t
+#define POOL_NAME  fd_repair_blk_pool
+#define POOL_T     fd_repair_blk_t
+#define POOL_IDX_T uint
 #include "../../util/tmpl/fd_pool.c"
 
 #define MAP_NAME  fd_repair_blk_map
@@ -136,20 +213,13 @@ typedef struct fd_repair_blk fd_repair_blk_t;
 #define MAP_OPTIMIZE_RANDOM_ACCESS_REMOVAL 1
 #include "../../util/tmpl/fd_map_chain.c"
 
-/* orphan_map is keyed by parent_blk_mr and holds every unlinked blk
-   that names a parent, ie. parent==null && parent_blk_mr!=hash_null,
-   except the root blk.  The blk named may not be held yet, be held
-   under a different dmr (an eager blk) or never come.  The key is the
-   dmr alone, the parent slot is checked when linking.
+/* every unlinked blk but the root waits in the orphan map, keyed by
+   the dmr of the parent it names, null until it names one. */
 
-   Each call site of add/remove should gate on the blk's state before
-   its transition, the root blk is never in the map: it keeps the
-   parent_blk_mr it was received with, but waits for nothing. */
-
-#define MAP_NAME               fd_repair_orphan_map
+#define MAP_NAME               fd_repair_blk_orphan_map
 #define MAP_ELE_T              fd_repair_blk_t
 #define MAP_KEY_T              fd_mr32_t
-#define MAP_KEY                parent_blk_mr
+#define MAP_KEY                parent_dmr
 #define MAP_NEXT               orphan_next
 #define MAP_PREV               orphan_prev
 #define MAP_KEY_EQ(k0,k1)      (!memcmp((k0),(k1),sizeof(fd_mr32_t)))
@@ -160,8 +230,8 @@ typedef struct fd_repair_blk fd_repair_blk_t;
 
 #define TREAP_NAME      fd_repair_treap
 #define TREAP_T         fd_repair_blk_t
-#define TREAP_QUERY_T   ulong
-#define TREAP_CMP(q,e)  ((int)((q)>(e)->slot) - (int)((q)<(e)->slot))
+#define TREAP_QUERY_T   fd_repair_blk_t const *
+#define TREAP_CMP(q,e)  ((int)((q)->slot>(e)->slot || ((q)->slot==(e)->slot && (q)>(e))) - (int)((q)->slot<(e)->slot || ((q)->slot==(e)->slot && (q)<(e))))
 #define TREAP_LT(e0,e1) ((e0)->slot<(e1)->slot || ((e0)->slot==(e1)->slot && (e0)<(e1)))
 #define TREAP_PARENT    treap.parent
 #define TREAP_LEFT      treap.left
@@ -171,16 +241,17 @@ typedef struct fd_repair_blk fd_repair_blk_t;
 
 /* slot_meta is a circular buffer. */
 
-struct fd_repair_slot_meta {
+struct __attribute__((aligned(32UL))) fd_repair_slot_meta {
   ulong slot;            /* ULONG_MAX if none */
-  ulong eager;           /* blk_pool idx of the eager blk, null if none */
-  ulong notar;           /* blk_pool idx of the first notar or stronger blk, null if none */
-  ulong final;           /* blk_pool idx of the finalized blk, null if none */
-  uint  invalidated : 1; /* leader misbehaved: equivocated, conflicting parents, bad block header, etc. */
-  uint  skipped     : 1; /* the slot is finalized as skipped */
-  uint  leader      : 1; /* we are the slot's leader */
+  uint  eager_blk_idx;   /* blk_pool idx of the eager blk, null if none */
+  uint  notar_blk_idx;   /* blk_pool idx of the first notar or stronger blk, null if none */
+  uint  final_blk_idx;   /* blk_pool idx of the finalized blk, null if none */
+  uchar invalidated : 1; /* leader misbehaved: equivocated, conflicting parents, bad block header, etc. */
+  uchar skipped     : 1; /* the slot is finalized as skipped */
+  uchar leader      : 1; /* we are the slot's leader */
 };
 typedef struct fd_repair_slot_meta fd_repair_slot_meta_t;
+FD_STATIC_ASSERT( sizeof(fd_repair_slot_meta_t)==32UL, fd_repair_slot_meta );
 
 struct fd_repair_deque {
   uint blk_idx;
@@ -202,16 +273,16 @@ struct fd_repair {
   ulong             slot_max;
   ulong             fec_blk_max;  /* FEC sets per blk */
 
-  fd_repair_slot_meta_t * slot_meta;   /* indexed by slot % slot_max */
-  fd_repair_blk_t *       blk_pool;
-  fd_repair_blk_map_t *   blk_map;
-  fd_repair_orphan_map_t * orphan_map;
-  fd_repair_fec_t *       fec_pool;
-  fd_repair_fec_map_t *   fec_map;
-  fd_repair_deque_t *     reasm_deque;
-  fd_repair_treap_t *     eager_treap; /* a blk is in its role's treap iff in_blk_treap */
-  fd_repair_treap_t *     notar_treap;
-  fd_repair_treap_t *     final_treap;
+  fd_repair_slot_meta_t *      slot_meta;   /* indexed by slot % slot_max */
+  fd_repair_blk_t *            blk_pool;
+  fd_repair_blk_map_t *        blk_map;
+  fd_repair_blk_orphan_map_t * orphan_map;
+  fd_repair_fec_t *            fec_pool;
+  fd_repair_fec_map_t *        fec_map;
+  fd_repair_deque_t *          reasm_deque;
+  fd_repair_treap_t *          eager_treap;
+  fd_repair_treap_t *          notar_treap;
+  fd_repair_treap_t *          final_treap;
 
   struct {
     fd_repair_report_fn_t report; /* called once per blk, when it completes or when it is freed incomplete, NULL disables */
@@ -262,12 +333,18 @@ fd_repair_fini( fd_repair_t * self );
    invalidated so turbine can't rebuild it.  We do not prune the blk. If
    this blk gets finalized, we want to keep the block data so that if it
    gets re-delivered, we can notify replay that it is a finalized block
-   so replay can detect a hard fork.  */
+   so replay can detect a hard fork.
+
+   latest_fec_idx is the highest fec_set_idx the dead bank held, not
+   necessarily the one that failed.  UINT_MAX means the death is final
+   (alpenglow_fast_leader_handover is not active on the dead bank), so
+   the blk is never exempted as an optimistic prefix.  */
 
 void
 fd_repair_blk_dead( fd_repair_t *     self,
                     ulong             slot,
-                    fd_mr32_t const * blk_mr );
+                    fd_mr32_t const * blk_mr,
+                    uint              latest_fec_idx );
 
 /* votor_out     FD_VOTOR_SIG_CERTED FINAL, FAST_FINAL
    votor_out     FD_VOTOR_SIG_QUORUM IMPLICITLY_FINALIZED
@@ -303,7 +380,7 @@ fd_repair_blk_parented( fd_repair_t *     self,
                         ulong             slot,
                         fd_mr32_t const * blk_mr,
                         ulong             parent_slot,
-                        fd_mr32_t const * parent_blk_mr,
+                        fd_mr32_t const * parent_dmr,
                         uint              fec_set_cnt,
                         long              ts );
 
@@ -352,7 +429,7 @@ void
 fd_repair_fec_evicted( fd_repair_t *     self,
                        ulong             slot,
                        uint              fec_set_idx,
-                       fd_mr20_t const * fec_mr );
+                       fd_mr_t const *   fec_mr );
 
 /* net_repair    FecSetRoot response
 
@@ -365,7 +442,7 @@ fd_repair_fec_notarized( fd_repair_t *     self,
                          ulong             slot,
                          fd_mr32_t const * blk_mr,
                          uint              fec_set_idx,
-                         fd_mr20_t const * fec_mr,
+                         fd_mr_t const *   fec_mr,
                          long              ts );
 
 /* replay_slot   REPLAY_SIG_ROOT_ADVANCED
@@ -381,16 +458,12 @@ fd_repair_root_advanced( fd_repair_t *     self,
 /* shred_out     SHRED_SIG_SRC_* data shreds
 
    special handling for idx 0 and the last shred idx.  also called by
-   fd_repair_fec_complete.  src is the FD_EVENT_BLOCK_RECEIVED_FEC_SETS_
-   FINAL_SHRED_SOURCE_* the shred arrived by, it becomes the FEC set's
-   final_src until the set completes, 0 leaves final_src alone (eg. a
-   reconstructed shred). */
+   fd_repair_fec_complete. */
 
 void
 fd_repair_shred_insert( fd_repair_t *      self,
                         fd_shred_t const * shred,
                         fd_mr32_t const *  fec_mr,
-                        int                src,
                         long               ts );
 
 /* shred_out     SHRED_SIG_RESULT_EQVOC
@@ -421,6 +494,14 @@ fd_repair_slot_meta( fd_repair_t * self,
 void
 fd_repair_slot_skipped( fd_repair_t * self,
                         ulong         slot );
+
+/* fd_repair_blk_treap_insert queues blk in its role's treap for the
+   tile to discover its work.  Returns 0 if already queued, or blk is an
+   eager blk that is never repaired. */
+
+int
+fd_repair_blk_treap_insert( fd_repair_t *     self,
+                            fd_repair_blk_t * blk );
 
 FD_PROTOTYPES_END
 

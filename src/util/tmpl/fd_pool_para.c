@@ -759,6 +759,7 @@ POOL_(acquire)( POOL_(t) * join ) {
            only signal ERR_CORRUPT if the version number hasn't changed
            since we read it. */
 
+        FD_HW_MFENCE_LD();
         if( FD_UNLIKELY( POOL_(private_vidx_ver)( *_v )==ver ) ) {
           FD_LOG_CRIT(( "corruption detected (ele_nxt=%lu ele_max=%lu)", ele_nxt, ele_max ));
         }
@@ -911,6 +912,7 @@ POOL_(acquire_batch)( POOL_(t) *   join,
 
           /* As in acquire: only corruption if the stack did not change */
 
+          FD_HW_MFENCE_LD();
           if( FD_UNLIKELY( POOL_(private_vidx_ver)( *_v )==ver ) ) {
             FD_LOG_CRIT(( "corruption detected (ele_nxt=%lu ele_max=%lu)", ele_nxt, ele_max ));
           }

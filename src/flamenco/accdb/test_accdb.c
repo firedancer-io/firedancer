@@ -47,16 +47,20 @@ test_setup_ex( int * out_fd,
                ulong cache_min_reserved,
                ulong joiner_cnt ) {
   int fd = fd_accdb_test_file_create( "accdb_test" );
+               ulong joiner_cnt,
+               ulong max_incremental_accounts ) {
+  int fd = memfd_create( "accdb_test", 0 );
+  if( FD_UNLIKELY( fd<0 ) ) FD_LOG_ERR(( "memfd_create failed" ));
   *out_fd = fd;
 
-  ulong shmem_fp = fd_accdb_shmem_footprint( max_accounts, max_live_slots, max_account_writes_per_slot, partition_cnt, cache_fp, cache_min_reserved, joiner_cnt, 0UL );
+  ulong shmem_fp = fd_accdb_shmem_footprint( max_accounts, max_live_slots, max_account_writes_per_slot, partition_cnt, cache_fp, cache_min_reserved, joiner_cnt, max_incremental_accounts );
   FD_TEST( shmem_fp );
   void * shmem_mem = aligned_alloc( fd_accdb_shmem_align(), shmem_fp );
   FD_TEST( shmem_mem );
   fd_accdb_shmem_t * shmem = fd_accdb_shmem_join(
       fd_accdb_shmem_new( shmem_mem, max_accounts, max_live_slots,
                           max_account_writes_per_slot, partition_cnt,
-                          partition_sz, cache_fp, cache_min_reserved, 0, 42UL, joiner_cnt, 0UL ) );
+                          partition_sz, cache_fp, cache_min_reserved, 0, 42UL, joiner_cnt, max_incremental_accounts ) );
   FD_TEST( shmem );
   test_shmem_mem = shmem_mem;
 
@@ -77,7 +81,7 @@ test_setup( int * out_fd,
             ulong partition_cnt,
             ulong partition_sz ) {
   return test_setup_ex( out_fd, max_accounts, max_live_slots, max_account_writes_per_slot,
-                        partition_cnt, partition_sz, TEST_CACHE_FOOTPRINT, TEST_CACHE_MIN_RESERVED, 1UL );
+                        partition_cnt, partition_sz, TEST_CACHE_FOOTPRINT, TEST_CACHE_MIN_RESERVED, 1UL, 0UL );
 }
 
 static fd_accdb_t *
@@ -342,7 +346,7 @@ test_cache_line_seq_on_reuse( void ) {
   for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) cache_fp += 2UL*fd_accdb_cache_slot_sz[ c ];
 
   int fd;
-  fd_accdb_t * accdb = test_setup_ex( &fd, 1024UL, 64UL, 8192UL, 8192UL, 1UL<<30UL, cache_fp, 2UL, 1UL );
+  fd_accdb_t * accdb = test_setup_ex( &fd, 1024UL, 64UL, 8192UL, 8192UL, 1UL<<30UL, cache_fp, 2UL, 1UL, 0UL );
 
   fd_accdb_fork_id_t root = fd_accdb_attach_child( accdb, SENTINEL );
 
@@ -1174,7 +1178,7 @@ static void
 test_acquire_b_refund_accounting( void ) {
   int fd;
   fd_accdb_t * accdb = test_setup_ex( &fd, 256UL, 16UL, 1024UL, 1024UL, 1UL<<30UL,
-                                      TEST_CACHE_FOOTPRINT, TEST_CACHE_MIN_RESERVED, 2UL );
+                                      TEST_CACHE_FOOTPRINT, TEST_CACHE_MIN_RESERVED, 2UL, 0UL );
 
   fd_accdb_fork_id_t root0 = fd_accdb_attach_child( accdb, SENTINEL );
 
@@ -1229,9 +1233,13 @@ test_acquire_b_refund_accounting( void ) {
    must zero the gauges (except accounts_capacity), make old accounts
    invisible, and leave the accdb fully operational for new writes. */
 static void
-test_reset( void ) {
+test_reset( ulong delta_max ) {
   int fd;
-  fd_accdb_t * accdb = test_setup( &fd, 1024UL, 64UL, 8192UL, 8192UL, 1UL<<30UL );
+  fd_accdb_t * accdb = test_setup_ex( &fd, 1024UL, 64UL, 8192UL, 8192UL, 1UL<<30UL,
+                                      TEST_CACHE_FOOTPRINT, TEST_CACHE_MIN_RESERVED, 1UL, delta_max );
+
+  uint * delta_chains = (uint *)( (uchar *)test_shmem_mem+test_shmem_mem->delta.chain_off );
+  fd_accdb_delta_t * delta_pool = (fd_accdb_delta_t *)( (uchar *)test_shmem_mem+test_shmem_mem->delta.ele_off );
 
   ulong lamports;
   uchar d;
@@ -1253,9 +1261,17 @@ test_reset( void ) {
   FD_TEST( shmetrics->accounts_total>0UL );
   FD_TEST( shmetrics->accounts_capacity==1024UL );
 
+  if( delta_max ) {
+    FD_TEST( !fd_accdb_snapshot_recover_delta( accdb, root ) );
+    FD_TEST( test_shmem_mem->delta.head==2UL );
+  }
+
   /* Reset the accdb. */
   fd_accdb_reset( accdb );
   drain_background( accdb );
+
+  FD_TEST( !test_shmem_mem->delta.head );
+  for( ulong i=0UL; i<test_shmem_mem->delta.chain_cnt; i++ ) FD_TEST( delta_chains[ i ]==UINT_MAX );
 
   /* Post-reset invariants. */
   FD_TEST( shmetrics->accounts_total      == 0UL );
@@ -1277,6 +1293,12 @@ test_reset( void ) {
   FD_TEST( accdb_read( accdb, new_root, pk_new, &lamports, &d, &data_len, owner ) );
   FD_TEST( lamports==999UL );
   FD_TEST( !memcmp( owner, owner3, 32UL ) );
+
+  if( delta_max ) {
+    FD_TEST( !fd_accdb_snapshot_recover_delta( accdb, new_root ) );
+    FD_TEST( test_shmem_mem->delta.head==1UL );
+    FD_TEST( !memcmp( delta_pool[ 0 ].pubkey, pk_new, 32UL ) );
+  }
 
   test_teardown( accdb, fd );
 }
@@ -1542,7 +1564,7 @@ test_deferred_write_stats_two_joiners( void ) {
   int fd;
   ulong psz = 11UL<<20UL;
   fd_accdb_t * accdb_a = test_setup_ex( &fd, 1024UL, 64UL, 8192UL, 8192UL, psz,
-                                        TEST_CACHE_FOOTPRINT, TEST_CACHE_MIN_RESERVED, 2UL );
+                                        TEST_CACHE_FOOTPRINT, TEST_CACHE_MIN_RESERVED, 2UL, 0UL );
   fd_accdb_t * accdb_b = test_join_writer( fd );
 
   fd_accdb_attach_child( accdb_a, SENTINEL );
@@ -1813,7 +1835,7 @@ test_snapshot_equal_slot_rejected( void ) {
   int fd;
   ulong max_accounts = 64UL;
   fd_accdb_t * accdb = test_setup_ex( &fd, max_accounts, 64UL, 1024UL, 64UL, 11UL<<20UL,
-                                      TEST_CACHE_FOOTPRINT, TEST_CACHE_MIN_RESERVED, 1UL );
+                                      TEST_CACHE_FOOTPRINT, TEST_CACHE_MIN_RESERVED, 1UL, 0UL );
 
   fd_accdb_fork_id_t root = fd_accdb_attach_child( accdb, SENTINEL );
   fd_accdb_snapshot_load_begin( accdb );
@@ -1859,7 +1881,7 @@ test_snapshot_chain_locked_writers( void ) {
   ulong max_accounts = 16384UL;
   fd_accdb_t * accdb = test_setup_ex( &fd, max_accounts, 64UL, 1024UL, 64UL, psz,
                                       TEST_CACHE_FOOTPRINT, TEST_CACHE_MIN_RESERVED,
-                                      PAR_THREADS+1UL );
+                                      PAR_THREADS+1UL, 0UL );
 
   fd_accdb_fork_id_t root = fd_accdb_attach_child( accdb, SENTINEL );
   fd_accdb_snapshot_load_begin( accdb );
@@ -1986,7 +2008,7 @@ test_snapshot_chain_locked_writers_incremental( void ) {
   ulong max_accounts = 4096UL;
   fd_accdb_t * reader = test_setup_ex( &fd, max_accounts, 64UL, 1024UL, 64UL, psz,
                                       TEST_CACHE_FOOTPRINT, TEST_CACHE_MIN_RESERVED,
-                                      PAR_THREADS+1UL );
+                                      PAR_THREADS+1UL, 0UL );
   fd_accdb_shmem_metrics_t const * shmetrics = fd_accdb_shmetrics( reader );
 
   fd_accdb_fork_id_t root = fd_accdb_attach_child( reader, SENTINEL );
@@ -2211,7 +2233,7 @@ static void
 test_incremental_retry_reuses_acc_pool( void ) {
   int fd;
   fd_accdb_t * accdb = test_setup_ex( &fd, 5UL, 8UL, 64UL, 64UL, 1UL<<30UL,
-                                      TEST_CACHE_FOOTPRINT, TEST_CACHE_MIN_RESERVED, 2UL );
+                                      TEST_CACHE_FOOTPRINT, TEST_CACHE_MIN_RESERVED, 2UL, 0UL );
   fd_accdb_t * background = test_join_writer( fd );
   fd_accdb_shmem_metrics_t const * shmetrics = fd_accdb_shmetrics( accdb );
   acc_pool_shmem_t * pool = test_shmem_mem->acc_pool;
@@ -2449,7 +2471,8 @@ main( int     argc,
   test_sentinel_index_wrap();
 
   FD_LOG_NOTICE(( "test_reset ..." ));
-  test_reset();
+  test_reset( 0UL );
+  test_reset( 16UL );
 
   FD_LOG_NOTICE(( "test_revert_whead ..." ));
   test_revert_whead();

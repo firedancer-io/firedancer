@@ -4,202 +4,32 @@
 #include "../../disco/tiles.h"
 #include "../../disco/shred/fd_shred_tile.h"
 
-/* Repair OUTPUTS
+#define REPAIR_SIG_FEC (0UL)
+#define REPAIR_SIG_BLK (1UL)
 
-   Repair tile forwards FECs in replay order to replay tile with sig
-   REPAIR_SIG_FEC_REPLAY.
-
-   It shares the sig space with the legacy repair sigs below, so it must
-   not clobber them:
-
-   #define REPAIR_SIG_FEC_INVALID (2UL)
-   #define REPAIR_SIG_FEC_LEADER  (1UL)
-   #define REPAIR_SIG_FEC         (0UL)
-
-   FECs are delivered in replay order. Blocks that were not repaired
-   through verified (i.e., received through turbine) means are delivered
-   with block_id = {0} until the last FEC in the block, in which the
-   block_id is set to the computed DMR of the previously delivered FECs.
-
-   Blocks that were repaired through verified means (i.e. using ag block
-   id repair from a votor event) know the block_id immediately before
-   the first FEC is delivered, so the block_id on the FECs of this slot
-   is set to the correct value starting from fec 0. For these blocks,
-   the verified bit is 1.
-
-   A slot's turbine version (the eager blk, keyed {slot, 0} by replay)
-   and its votor-driven versions (notar blks, keyed {slot, block_id})
-   coexist, each delivered as its FECs complete.  FEC sets with the
-   same merkle root are shared between versions.  When the turbine
-   version completes and its DMR matches a notar blk, the notar blk is
-   merged into it and freed (see dedup in fd_repair.c).  So in time of
-   network blips replay may allocate two banks for the same block; the
-   notar one never completes and is eventually evicted or pruned.
-
-   INPUTS: REPLAY
-
-   Repair tile consumes from replay tile the sigs
-   REPLAY_SIG_ROOT_ADVANCED, REPLAY_SIG_SLOT_DEAD and
-   REPLAY_SIG_MISSING_FEC.  REPLAY_SIG_SLOT_DEAD frees the dead blk; if
-   it was the turbine version, turbine does not rebuild it.
-
-   Pruning:
-
-   Rooting is not done off of votor rooting messages, but by replay root
-   advance updates.  Consider the following case:
-
-   The cluster is having trouble rooting, and so we have a long chain of
-   unfinalized slots. Banks begins to evict arbitrarily. It evicts slot
-   N and begins executing down a different fork, but then soon after a
-   finalization arrives for slot N.
-
-   Replay tile updates its consensus root, but can't advance to it yet,
-   because the bank for it has not been executed.  Repair never evicts a
-   blk, and thus could root from the finalized message immediately.
-   This is clearly a problem; replay needs the consensus root data
-   re-delivered for execution, so repair cannot immediately prune based
-   on the finalized message.
-
-   Instead replay already does its own bookkeeping.  It has a highest
-   known consensus root, a storage root that is the earliest slot data
-   maintained, and a notified root that is the highest consensus root
-   that replay verifies is live and can't be evicted.
-
-   Repair can safely assume anything below the notified root is no
-   longer needed.
-
-   Eviction:
-
-   Replay can evict leaf banks at will, without repair's knowledge.
-   This means repair may continue deliverying down a lineage that banks
-   cannot immediately replay, since it has evicted an ancestor.  When
-   that occurs, replay should drain the repair in-link dcache and send a
-   REPLAY_SIG_MISSING_FEC to repair.  Repair then sends it's next FEC
-   set with the full lineage starting from the repair root.  It does
-   this only for the next FEC set to deliver.  If repeated evictions
-   occur, repair can expect repeated REPLAY_SIG_MISSING_FEC messages to
-   arrive, and many redundant FECs to be delivered.
-
-   We assume currently that repair will not require eviction.  The
-   default size is bounded to the Agave cap on future certs it tracks.
-   We can bound repair even tighter once dynamic vote timeouts are
-   implemented, and thus repair should always have all the data replay
-   needs.
-
-   INPUTS: NET
-
-   Alpenglow introduces three new repair types: ShredForBlockId,
-   ParentAndFecCount, and FecRoot.  ShredForBlockId response type is a
-   regular shred, similar to the legacy repair types, so those responses
-   get routed through the shred tile and are matched by nonce for
-   verification.
-
-   ParentAndFecCount and FecRoot response types are metadata, not
-   regular shreds. Thus the net tile routes them directly to the repair
-   tile.  The routing is done entirely by packet size, so repair tile
-   filters and validates aggressively.  The responses are matches by
-   nonce and verified before being ingested by repair. */
-
-/* keep in line with repair tile sigs */
-#define REPAIR_SIG_FEC         (0UL)
-#define REPAIR_SIG_FEC_LEADER  (1UL)
-#define REPAIR_SIG_FEC_INVALID (2UL)
-/* alpenglow type - replayable fec */
-#define REPAIR_SIG_FEC_REPLAY  (3UL)
-/* alpenglow type - completed block metadata, on rotor_rserve */
-#define REPAIR_SIG_BLOCK       (4UL)
-
-struct fd_repair_fec_metrics {
-  uint  stats_valid;         /* 1 if the counters below are populated */
-
-  /* 1 if the FEC was delivered under a votor-driven version of its slot
-     -- one the repair created from a cert and filled by block id
-     repair -- and 0 if it was delivered under the slot's turbine
-     version, our own leader blocks included. */
-  uchar votor_repaired;
-
-  uint  blk_turbine_cnt;            /* block: data shreds received via turbine, plus every coding shred */
-  uint  blk_repair_cnt;             /* block: data shreds received via repair */
-  uint  blk_recovered_cnt;          /* block: shreds recovered via reed-solomon */
-  uint  blk_data_cnt;               /* block: data shreds held */
-  uint  blk_parity_cnt;             /* block: coding shreds received */
-  uchar blk_slot_complete;          /* block: 1 if the end of the block is known */
-  uint  blk_last_completed_fec_idx; /* block: fec_set_idx of the set that most recently completed reception, UINT_MAX if none */
-
-  uint  blk_req_window_cnt;     /* block: positional specific-shred requests sent */
-  uint  blk_req_highest_cnt;    /* block: highest-shred requests sent */
-  uint  blk_req_orphan_cnt;     /* block: orphan requests sent */
-  uint  blk_req_shred_bid_cnt;  /* block: ShredForBlockId requests sent */
-  uint  blk_req_parent_cnt;     /* block: ParentAndFecCount requests sent */
-  uint  blk_req_fec_root_cnt;   /* block: FecRoot requests sent */
-  uint  blk_req_retransmit_cnt; /* block: requests re-issued after a timeout or bad response */
-  uint  blk_repair_responses;   /* block: repair responses matched to an outstanding request */
-
-  ulong blk_first_shred_ts_nanos;      /* block: when the first shred arrived, 0 if never stamped */
-  ulong blk_last_shred_ts_nanos;       /* block: when the block became contiguous, 0 if it has not */
-  ulong blk_first_req_ts_nanos;        /* block: when the first specific-shred repair request was sent, 0 if none */
-  ulong blk_last_repair_resp_ts_nanos; /* block: when the most recent matched repair response arrived, 0 if none */
-
-  long  fec_completed_ts_nanos; /* this FEC: network arrival (wallclock ns) of the shred that completed it, 0 if unavailable */
-
-  /* Highest slot repair has completed a FEC set for off the network, our
-     own leader FEC sets excluded: the cluster tip.  Not a per-block
-     figure like the rest of these metrics. */
-  ulong highest_fec_complete_slot;
-};
-typedef struct fd_repair_fec_metrics fd_repair_fec_metrics_t;
-
-struct fd_repair_replay_fec {
+struct fd_repair_out_fec {
    ulong     slot;
    uint      fec_set_idx;
    fd_hash_t mr;
-
-   /* conditional fields */
-
-   ulong     parent_slot;     /* only present if fec_set_idx is 0 or has
-                                 parentUpdate. TBD, could also just have
-                                 replay do parent reparsing */
+   fd_hash_t block_id;
+   ulong     parent_slot;
    fd_hash_t parent_block_id;
-
+   uint      update_parent_fec_idx; /* the fec_set_idx of the detected parentUpdate in the slot, 0 if none or undetected. */
    uchar     slot_complete : 1;
    uchar     data_complete : 1;
    uchar     is_leader     : 1;
+   uchar     is_known      : 1; /* 0 if it's an eager repair blk, otherwise 1. */
+   uchar     is_finalized  : 1;
 
-   /* known_id.  This is not the same as slot_complete = 1. known_id
-      should be set always to 1 if the block id was known from the
-      start, i.e. these FECs were recovered through block_id repair of a
-      votor event. known_id should be 0 always for blocks that were received
-      through turbine.
+   /* metrics */
 
-      In other words, known_id is a keying instruction, not a statement about whether the block id is known:
-      - known_id set: Replay keys the block by {slot, block_id} starting at FEC 0 and looks up its parent element by that key for every later FEC.
-      - known_id clear: the block is a turbine version. Replay keys it by {slot, 0} until it processes the slot-complete FEC, then re-keys it to {slot, dmr}.
-                        This holds for every FEC of the block, including redelivered copies, so all FECs of one block always resolve to the same element.
-
-      This exists currently because replay keys incoming FECs by {slot,
-      block_id} to lookup its parent element. For blocks where known_id
-      is 1 (block_id) known from the beginning, it must always use the
-      block_id key. Otherwise, for a turbine block whose known_id is 0,
-      it should always lookup by {slot, 0}.
-
-      Redelivery from root never changes known_id. It only affects
-      block_id. Neither does a merge: when a turbine copy completes as
-      a block whose repaired copy is also delivering, the surviving
-      turbine copy keeps known_id 0, and replay keeps building its
-      {slot, 0} bank, abandoning the notarized copy's bank. */
-   uchar     known_id : 1;
-   fd_hash_t block_id; /* always populated if known_id is 1, or if slot_complete is 1.  Otherwise could be populated on redelivery or as soon as the block_id is computed.  */
-   uchar     finalized : 1; /* Known pre-execution that this block is finalized. 1 iff slot_complete and block is finalized. */
-
-   fd_repair_fec_metrics_t metrics;
+   uchar     votor_repaired;            /* 1 if the FEC was delivered under a repaired by-id version of its slot, 0 under its turbine version, our leader blocks included */
+   long      fec_completed_ts_nanos;    /* network arrival (wallclock ns) of the shred that completed this FEC, 0 if unavailable */
+   ulong     highest_fec_complete_slot; /* highest slot with a FEC completed off the network, our leader FECs excluded: the cluster tip */
 };
-typedef struct fd_repair_replay_fec fd_repair_replay_fec_t;
+typedef struct fd_repair_out_fec fd_repair_out_fec_t;
 
-/* fd_repair_block is published to rserve when a block's slot-complete
-   FEC is delivered.  merkle_roots holds the first 20B of each FEC
-   root.  The frag is variable length, see FD_REPAIR_BLOCK_SZ. */
-
-struct fd_repair_block {
+struct fd_repair_out_blk {
   ulong     slot;
   fd_hash_t block_id;
   ulong     parent_slot;
@@ -207,8 +37,6 @@ struct fd_repair_block {
   uint      fec_set_cnt;
   uchar     merkle_roots[ FD_FEC_BLK_MAX ][ FD_SHRED_MERKLE_NODE_SZ ];
 };
-typedef struct fd_repair_block fd_repair_block_t;
-
-#define FD_REPAIR_BLOCK_SZ(fec_set_cnt) (offsetof(fd_repair_block_t, merkle_roots) + (ulong)(fec_set_cnt)*FD_SHRED_MERKLE_NODE_SZ)
+typedef struct fd_repair_out_blk fd_repair_out_blk_t;
 
 #endif /* HEADER_fd_src_disco_repair_fd_repair_tile_h */
