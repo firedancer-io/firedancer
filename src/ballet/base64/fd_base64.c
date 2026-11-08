@@ -124,7 +124,7 @@ fd_base64_encode( char *       encoded,
 
   uchar const * data = fd_type_pun_const( _data );
 
-  uint encoded_len = 0;
+  ulong encoded_len = 0UL;
   uint accumulator = 0;
   int bits_collected = 0;
 
