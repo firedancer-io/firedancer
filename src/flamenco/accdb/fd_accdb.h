@@ -250,9 +250,7 @@ int
 fd_accdb_cmd_pending( fd_accdb_t const * accdb );
 
 /* fd_accdb_purge removes the provided fork and all of its descendants
-   from the accounts database.  This is an extremely rare operation,
-   used to handle cases where a leader equivocated and produced two
-   competing blocks for the same slot.
+   from the accounts database.
 
    All accounts written on the purged fork and any child or
    grandchild forks are removed from the index, and their disk
