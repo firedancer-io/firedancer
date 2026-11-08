@@ -571,6 +571,9 @@ fd_config_validate( fd_config_t const * config ) {
   if( FD_UNLIKELY( config->tiles.gui.enabled && config->tiles.gui.db_size_gib<4UL ) )
     FD_LOG_ERR(( "invalid [tiles.gui.db_size_gib]: must be at least 4 GiB" ));
 
+  if( FD_UNLIKELY( config->tiles.bundle.enabled && !config->tiles.pack.use_consumed_cus ) )
+    FD_LOG_ERR(( "[tiles.bundle.enabled] requires [tiles.pack.use_consumed_cus]" ));
+
   CFG_HAS_NON_EMPTY( name );
   CFG_HAS_NON_EMPTY( paths.base );
 
