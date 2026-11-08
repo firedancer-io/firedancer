@@ -1097,7 +1097,7 @@ fd_gui_peers_request_scroll( fd_gui_peers_ctx_t * peers,
   }
   if( FD_UNLIKELY( fd_jtok_fini( j ) || !has_start_row || !has_row_cnt ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
 
-  if( FD_UNLIKELY( _row_cnt > FD_GUI_PEERS_WS_VIEWPORT_MAX_SZ || _start_row > fd_gui_peers_live_table_ele_cnt( peers->live_table )-_row_cnt ) ) {
+  if( FD_UNLIKELY( _row_cnt > FD_GUI_PEERS_WS_VIEWPORT_MAX_SZ || _start_row > fd_ulong_sat_sub( fd_gui_peers_live_table_ele_cnt( peers->live_table ), _row_cnt ) ) ) {
     fd_gui_printf_null_query_response( peers->http, "gossip", "query_scroll", request_id );
     FD_TEST( !fd_http_server_ws_send( peers->http, ws_conn_id ) );
     return 0;
