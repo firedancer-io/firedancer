@@ -133,6 +133,13 @@ test_translate_attributes( void ) {
   FD_TEST( fd_fib4_netlink_translate( &msg.nlh, RT_TABLE_MAIN, &route ) );
   FD_TEST( !route.dst_addr && !route.prefix );
   FD_TEST( !fd_fib4_netlink_translate( &msg.nlh, RT_TABLE_LOCAL, &route ) );
+  fd_iproute_msg_t saved = route;
+  msg.rtm.rtm_tos = 0x10;
+  FD_TEST( !fd_fib4_netlink_translate( &msg.nlh, RT_TABLE_MAIN, &route ) );
+  FD_TEST( !memcmp( &route, &saved, sizeof(route) ) );
+  msg.nlh.nlmsg_type = RTM_DELROUTE;
+  FD_TEST( !fd_fib4_netlink_translate( &msg.nlh, RT_TABLE_MAIN, &route ) );
+  FD_TEST( !memcmp( &route, &saved, sizeof(route) ) );
 }
 
 int
