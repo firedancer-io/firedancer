@@ -95,7 +95,7 @@ fd_vm_syscall_sol_get_clock_sysvar( /**/            void *  _vm,
 
   if( FD_UNLIKELY( vm->syscall_parameter_address_restrictions && out_vaddr>=FD_VM_MEM_MAP_INPUT_REGION_START ) ) {
     FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_INVALID_POINTER );
-    return FD_VM_ERR_INVAL;
+    return FD_VM_SYSCALL_ERR_INVALID_POINTER;
   }
 
   fd_vm_haddr_query_t var_query = {
@@ -136,7 +136,7 @@ fd_vm_syscall_sol_get_epoch_schedule_sysvar( /**/            void *  _vm,
 
   if( FD_UNLIKELY( vm->syscall_parameter_address_restrictions && out_vaddr>=FD_VM_MEM_MAP_INPUT_REGION_START ) ) {
     FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_INVALID_POINTER );
-    return FD_VM_ERR_INVAL;
+    return FD_VM_SYSCALL_ERR_INVALID_POINTER;
   }
 
   fd_vm_haddr_query_t var_query = {
@@ -152,7 +152,7 @@ fd_vm_syscall_sol_get_epoch_schedule_sysvar( /**/            void *  _vm,
   fd_epoch_schedule_t schedule;
   if( FD_UNLIKELY( !fd_sysvar_cache_epoch_schedule_read( instr_ctx->sysvar_cache, &schedule ) ) ) {
     FD_TXN_ERR_FOR_LOG_INSTR( vm->instr_ctx->txn_out, FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR, vm->instr_ctx->txn_out->err.exec_err_idx );
-    return FD_VM_ERR_INVAL;
+    return FD_VM_SYSCALL_ERR_INSTR_ERR;
   }
 
   /* Returned value has padding which must be zeroed out. */
@@ -194,7 +194,7 @@ fd_vm_syscall_sol_get_rent_sysvar( /**/            void *  _vm,
 
   if( FD_UNLIKELY( vm->syscall_parameter_address_restrictions && out_vaddr>=FD_VM_MEM_MAP_INPUT_REGION_START ) ) {
     FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_INVALID_POINTER );
-    return FD_VM_ERR_INVAL;
+    return FD_VM_SYSCALL_ERR_INVALID_POINTER;
   }
 
   fd_vm_haddr_query_t var_query = {
@@ -244,7 +244,7 @@ fd_vm_syscall_sol_get_last_restart_slot_sysvar( /**/            void *  _vm,
 
   if( FD_UNLIKELY( vm->syscall_parameter_address_restrictions && out_vaddr>=FD_VM_MEM_MAP_INPUT_REGION_START ) ) {
     FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_INVALID_POINTER );
-    return FD_VM_ERR_INVAL;
+    return FD_VM_SYSCALL_ERR_INVALID_POINTER;
   }
 
   fd_vm_haddr_query_t var_query = {
@@ -260,7 +260,7 @@ fd_vm_syscall_sol_get_last_restart_slot_sysvar( /**/            void *  _vm,
   ulong const * last_restart_slot = fd_sysvar_cache_last_restart_slot_read( vm->instr_ctx->sysvar_cache );
   if( FD_UNLIKELY( last_restart_slot==NULL ) ) {
     FD_TXN_ERR_FOR_LOG_INSTR( vm->instr_ctx->txn_out, FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR, vm->instr_ctx->txn_out->err.exec_err_idx );
-    return FD_VM_ERR_INVAL;
+    return FD_VM_SYSCALL_ERR_INSTR_ERR;
   }
 
   memcpy( var_query.haddr, last_restart_slot, sizeof(ulong) );
@@ -294,7 +294,7 @@ fd_vm_syscall_sol_get_sysvar( /**/            void *  _vm,
 
   if( FD_UNLIKELY( vm->syscall_parameter_address_restrictions && out_vaddr>=FD_VM_MEM_MAP_INPUT_REGION_START ) ) {
     FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_INVALID_POINTER );
-    return FD_VM_ERR_INVAL;
+    return FD_VM_SYSCALL_ERR_INVALID_POINTER;
   }
 
   /* https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/syscalls/sysvar.rs#L207-L211 */
@@ -708,7 +708,7 @@ fd_vm_syscall_sol_get_epoch_rewards_sysvar( /**/            void *  _vm,
 
   if( FD_UNLIKELY( vm->syscall_parameter_address_restrictions && out_vaddr>=FD_VM_MEM_MAP_INPUT_REGION_START ) ) {
     FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_INVALID_POINTER );
-    return FD_VM_ERR_INVAL;
+    return FD_VM_SYSCALL_ERR_INVALID_POINTER;
   }
 
   uchar * out = FD_VM_MEM_HADDR_ST( vm, out_vaddr, FD_VM_ALIGN_RUST_SYSVAR_EPOCH_REWARDS, sizeof(fd_vm_epoch_rewards_t) );
@@ -716,7 +716,7 @@ fd_vm_syscall_sol_get_epoch_rewards_sysvar( /**/            void *  _vm,
   fd_sysvar_epoch_rewards_t epoch_rewards;
   if( FD_UNLIKELY( !fd_sysvar_cache_epoch_rewards_read( instr_ctx->sysvar_cache, &epoch_rewards ) ) ) {
     FD_TXN_ERR_FOR_LOG_INSTR( vm->instr_ctx->txn_out, FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR, vm->instr_ctx->txn_out->err.exec_err_idx );
-    return FD_VM_ERR_INVAL;
+    return FD_VM_SYSCALL_ERR_INSTR_ERR;
   }
 
   fd_vm_epoch_rewards_t * vm_epoch_rewards = (fd_vm_epoch_rewards_t *)out;
