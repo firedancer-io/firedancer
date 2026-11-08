@@ -188,6 +188,7 @@ fd_grpc_client_stream_acquire( fd_grpc_client_t * client,
   client->stream_ids[ client->stream_cnt ] = stream_id;
   client->streams   [ client->stream_cnt ] = stream;
   client->stream_cnt++;
+  client->metrics->streams_active++;
 
   return stream;
 }
@@ -216,6 +217,7 @@ fd_grpc_client_stream_release( fd_grpc_client_t *    client,
     client->streams   [ map_idx ] = client->streams   [ client->stream_cnt-1 ];
   }
   client->stream_cnt--;
+  client->metrics->streams_active--;
 
   fd_grpc_h2_stream_pool_ele_release( client->stream_pool, stream );
 }
@@ -635,7 +637,6 @@ fd_grpc_client_request_start(
   fd_h2_tx_op_init( client->request_tx_op, client->nanopb_tx, payload_sz, flags );
   fd_grpc_client_request_continue1( client );
   client->metrics->requests_sent++;
-  client->metrics->streams_active++;
 
   FD_LOG_DEBUG(( "gRPC request path=%.*s sz=%lu streaming=%d", (int)path_len, path, serialized_sz, is_streaming ));
 
@@ -712,8 +713,6 @@ fd_grpc_client_request_start1(
     return NULL;
   }
   fd_h2_tx_commit( client->conn, client->frame_tx );
-
-  client->metrics->streams_active++;
 
   if( FD_UNLIKELY( headers_only ) ) {
     client->request_stream = NULL;
