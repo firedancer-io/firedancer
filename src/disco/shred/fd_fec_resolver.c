@@ -937,10 +937,11 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
   else                                            ctx->set->repair_shred_rcvd  |= shred_bit;
   ctx->total_rx_shred_cnt++;
 
-  *out_shred = (fd_shred_t const *)dst;
-
   /* Do we have enough to begin reconstruction? */
-  if( FD_LIKELY( ctx->total_rx_shred_cnt < FD_FEC_SHRED_CNT ) ) return FD_FEC_RESOLVER_SHRED_OKAY;
+  if( FD_LIKELY( ctx->total_rx_shred_cnt < FD_FEC_SHRED_CNT ) ) {
+    *out_shred = (fd_shred_t const *)dst;
+    return FD_FEC_RESOLVER_SHRED_OKAY;
+  }
 
   /* At this point, the FEC set is either valid or permanently invalid,
      so we can consider it done either way. */
@@ -1174,6 +1175,7 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
   resolver->free_list_cnt++;
 
   *out_fec_set = set;
+  *out_shred   = (fd_shred_t const *)dst;
 
   return FD_FEC_RESOLVER_SHRED_COMPLETES;
 }
