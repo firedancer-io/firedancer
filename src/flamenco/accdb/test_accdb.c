@@ -38,22 +38,22 @@ static fd_accdb_shmem_t * test_shmem_mem;
 
 static fd_accdb_t *
 test_setup_ex( int * out_fd,
-               ulong max_accounts,
-               ulong max_live_slots,
-               ulong max_account_writes_per_slot,
-               ulong partition_cnt,
-               ulong partition_sz,
-               ulong cache_fp,
-               ulong cache_min_reserved,
-               ulong joiner_cnt ) {
+              ulong max_accounts,
+              ulong max_live_slots,
+              ulong max_account_writes_per_slot,
+              ulong partition_cnt,
+              ulong partition_sz,
+              ulong cache_fp,
+              ulong cache_min_reserved,
+              ulong joiner_cnt,
+              ulong max_incremental_accounts ) {
   int fd = fd_accdb_test_file_create( "accdb_test" );
-               ulong joiner_cnt,
-               ulong max_incremental_accounts ) {
-  int fd = memfd_create( "accdb_test", 0 );
-  if( FD_UNLIKELY( fd<0 ) ) FD_LOG_ERR(( "memfd_create failed" ));
   *out_fd = fd;
 
-  ulong shmem_fp = fd_accdb_shmem_footprint( max_accounts, max_live_slots, max_account_writes_per_slot, partition_cnt, cache_fp, cache_min_reserved, joiner_cnt, max_incremental_accounts );
+  ulong shmem_fp = fd_accdb_shmem_footprint(
+      max_accounts, max_live_slots, max_account_writes_per_slot,
+      partition_cnt, cache_fp, cache_min_reserved,
+      joiner_cnt, max_incremental_accounts );
   FD_TEST( shmem_fp );
   void * shmem_mem = aligned_alloc( fd_accdb_shmem_align(), shmem_fp );
   FD_TEST( shmem_mem );
