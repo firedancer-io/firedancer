@@ -159,6 +159,21 @@ main( int     argc,
   out_len = out_max;
   FD_TEST( fd_vm_disasm_instr( text, 1UL, 0UL, NULL, out,  out_max, &out_len )==FD_VM_ERR_INVAL ); /* bad _out_len  */
 
+  struct { ulong instr; char const * expected; } const endian_tests[] = {
+    { 0x00000010000004d4UL, "le16 r4" },
+    { 0x00000020000004d4UL, "le32 r4" },
+    { 0x00000040000004d4UL, "le64 r4" },
+    { 0x00000010000005dcUL, "be16 r5" },
+    { 0x00000020000005dcUL, "be32 r5" },
+    { 0x00000040000005dcUL, "be64 r5" }
+  };
+  for( ulong i=0UL; i<sizeof(endian_tests)/sizeof(endian_tests[0]); i++ ) {
+    text[0] = endian_tests[i].instr;
+    out_len = 0UL;
+    FD_TEST( fd_vm_disasm_instr( text, 1UL, 0UL, NULL, out, out_max, &out_len )==FD_VM_SUCCESS );
+    FD_TEST( !strcmp( out, endian_tests[i].expected ) );
+  }
+
   for( ulong iter=0UL; iter<10000000UL; iter++ ) {
     text[0] = fd_rng_ulong( rng );
     text[1] = fd_rng_ulong( rng );
