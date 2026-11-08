@@ -2961,6 +2961,16 @@ fd_pack_try_schedule_bundle( fd_pack_t  * pack,
     acct_uses_remove( pack->bundle_temp_map, addr_use );
   }
 
+  /* Remove empty partitions so boundaries are strictly increasing, if this
+   is not done, the invariant use_by_bank_txn[i][j] - use_by_bank_txn[i][j-1] >= 1
+   will fail when all of a txn's accounts are reused by a later transaction*/
+  ulong out_idx = 0UL;
+  for( ulong k=0UL; k<txn_cnt; k++ ) {
+    if( FD_LIKELY( last_use_in_txn_cnt[ k+1UL ]>0UL ) ) {
+      use_by_bank_txn[ out_idx++ ] = use_by_bank_txn[ k ];
+    }
+  }
+
   FD_PACK_BITSET_COPY( pack->bitset_rw_in_use, bitset_rw_in_use );
   FD_PACK_BITSET_COPY( pack->bitset_w_in_use,  bitset_w_in_use  );
 

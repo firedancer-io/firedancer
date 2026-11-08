@@ -2272,6 +2272,206 @@ test_bundle_ordinal_limit( void ) {
   FD_TEST( !fd_pack_verify( pack, pack_verify_scratch ) );
 }
 
+/* Tests boundary collapse scenarios in bundles and ensures penalty-treap
+   promotions are never dropped on boundary collapses. */
+static ulong
+make_hot_and_penalize( fd_pack_t * pack,
+                       ulong     * id_seq,
+                       char        acct_char ) {
+  char writes[2] = { acct_char, '\0' };
+  /* Insert 65 transactions writing to acct_char so ref_cnt > PENALTY_TREAP_THRESHOLD (64) */
+  for( ulong j=0UL; j<65UL; j++ ) {
+    ulong id = (*id_seq)++;
+    make_transaction( id, 1000U, 100U, 1.0, writes, "", NULL, NULL );
+    FD_TEST( insert( id, pack ) >= 0 );
+  }
+  /* Now insert 1 more transaction with higher priority writing to acct_char.
+     Because ref_cnt == 65 > 64, it will be placed into the penalty treap. */
+  ulong penalized_id = (*id_seq)++;
+  make_transaction( penalized_id, 1000U, 100U, 10.0, writes, "", NULL, NULL );
+  FD_TEST( insert( penalized_id, pack ) >= 0 );
+  return penalized_id;
+}
+
+/* Helper to set the fee-payer signer of a transaction to allow bundle
+   transactions to share the same fee payer while maintaining distinct signatures. */
+static inline void
+set_bundle_signer( fd_txn_p_t * txnp,
+                   ulong        signer_id ) {
+  uchar * signer = txnp->payload + TXN( txnp )->acct_addr_off;
+  fd_memcpy( signer + 1, &signer_id, sizeof(ulong) );
+}
+
+static void
+verify_bundle_promotion( fd_pack_t *          pack,
+                         fd_txn_e_t * const * bundle,
+                         ulong                txn_cnt,
+                         ulong                penalized_id ) {
+  ulong _deleted;
+  FD_TEST( fd_pack_insert_bundle_fini( pack, bundle, txn_cnt, 1000UL, 0, NULL, &_deleted ) >= 0 );
+
+  ulong scheduled = fd_pack_schedule_next_microblock( pack, FD_PACK_TEST_MAX_COST_PER_BLOCK, 0UL, FD_PACK_SCHEDULE_BUNDLE, outcome.results );
+  FD_TEST( scheduled == txn_cnt );
+
+  FD_TEST( fd_pack_microblock_complete( pack, 0UL ) );
+
+  scheduled = fd_pack_schedule_next_microblock( pack, FD_PACK_TEST_MAX_COST_PER_BLOCK, 0UL, FD_PACK_SCHEDULE_TXN, outcome.results );
+  FD_TEST( scheduled >= 1UL );
+  ulong scheduled_sig_id = *(ulong const *)( outcome.results[0].txnp->payload + 1 );
+  FD_TEST( scheduled_sig_id == penalized_id );
+  FD_TEST( !fd_pack_verify( pack, pack_verify_scratch ) );
+
+  fd_pack_delete( fd_pack_leave( pack ) );
+}
+
+static void
+test_bundle_boundary_collapse( void ) {
+  FD_LOG_NOTICE(( "TEST BUNDLE BOUNDARY COLLAPSE" ));
+  ulong const pack_depth = 1024UL;
+  fd_txn_e_t * _bundle[ FD_PACK_MAX_TXN_PER_BUNDLE ];
+
+  /* -------------------------------------------------------------
+     Case A: Leading Prefix Collapse
+     Bundle:
+       Tx 0: A, B
+       Tx 1: A, B, C
+     All accounts in Tx 0 are in Tx 1, so the number of accounts whose
+     last use is in Tx 0 is 0.
+     ------------------------------------------------------------- */
+  {
+    fd_pack_t * pack = init_all( pack_depth, 1UL, 32UL, &outcome );
+    fd_pack_set_initializer_bundles_ready( pack );
+
+    ulong id = 1UL;
+    ulong penalized_id = make_hot_and_penalize( pack, &id, 'C' );
+
+    fd_txn_e_t * const * bundle = fd_pack_insert_bundle_init( pack, _bundle, 2UL );
+    make_transaction1( bundle[0]->txnp, id++, 1000U, 100U, 12.0, "AB",  "", NULL, NULL );
+    set_bundle_signer( bundle[0]->txnp, 900UL );
+    make_transaction1( bundle[1]->txnp, id++, 1000U, 100U, 12.0, "ABC", "", NULL, NULL );
+    set_bundle_signer( bundle[1]->txnp, 900UL );
+
+    verify_bundle_promotion( pack, bundle, 2UL, penalized_id );
+  }
+
+  /* -------------------------------------------------------------
+     Case B: Interior Non-Zero Collision
+     Bundle:
+       Tx 0: A
+       Tx 1: C, D
+       Tx 2: E, C, D
+     All accounts in Tx 1 are in Tx 2, so the number of accounts whose
+     last use is in Tx 1 is 0.
+     ------------------------------------------------------------- */
+  {
+    fd_pack_t * pack = init_all( pack_depth, 1UL, 32UL, &outcome );
+    fd_pack_set_initializer_bundles_ready( pack );
+
+    ulong id = 1UL;
+    ulong penalized_id = make_hot_and_penalize( pack, &id, 'E' );
+
+    fd_txn_e_t * const * bundle = fd_pack_insert_bundle_init( pack, _bundle, 3UL );
+    make_transaction1( bundle[0]->txnp, id++, 1000U, 100U, 12.0, "A",   "", NULL, NULL );
+    set_bundle_signer( bundle[0]->txnp, 900UL );
+    make_transaction1( bundle[1]->txnp, id++, 1000U, 100U, 12.0, "CD",  "", NULL, NULL );
+    set_bundle_signer( bundle[1]->txnp, 901UL );
+    make_transaction1( bundle[2]->txnp, id++, 1000U, 100U, 12.0, "ECD", "", NULL, NULL );
+    set_bundle_signer( bundle[2]->txnp, 901UL );
+
+    verify_bundle_promotion( pack, bundle, 3UL, penalized_id );
+  }
+
+  /* -------------------------------------------------------------
+     Case C: Distributed Subset Across Multiple Later Txns
+     (Tx 0 subset of Tx 1 union Tx 2)
+     Bundle:
+       Tx 0: A, B (signer 900)
+       Tx 1: A, C (signer 900)
+       Tx 2: B, D (signer 902)
+     Neither Tx 1 nor Tx 2 contains all accounts of Tx 0 individually,
+     but all accounts in Tx 0 are in the union of Tx 1 and Tx 2, so the
+     number of accounts whose last use is in Tx 0 is 0.
+     ------------------------------------------------------------- */
+  {
+    fd_pack_t * pack = init_all( pack_depth, 1UL, 32UL, &outcome );
+    fd_pack_set_initializer_bundles_ready( pack );
+
+    ulong id = 1UL;
+    ulong penalized_id = make_hot_and_penalize( pack, &id, 'D' );
+
+    fd_txn_e_t * const * bundle = fd_pack_insert_bundle_init( pack, _bundle, 3UL );
+    make_transaction1( bundle[0]->txnp, id++, 1000U, 100U, 12.0, "AB", "", NULL, NULL );
+    set_bundle_signer( bundle[0]->txnp, 900UL );
+    make_transaction1( bundle[1]->txnp, id++, 1000U, 100U, 12.0, "AC", "", NULL, NULL );
+    set_bundle_signer( bundle[1]->txnp, 900UL );
+    make_transaction1( bundle[2]->txnp, id++, 1000U, 100U, 12.0, "BD", "", NULL, NULL );
+    set_bundle_signer( bundle[2]->txnp, 902UL );
+
+    verify_bundle_promotion( pack, bundle, 3UL, penalized_id );
+  }
+
+  /* -------------------------------------------------------------
+     Case D: Consecutive Multi-Transaction Collapse (Leading Empty Transactions)
+     Bundle:
+       Tx 0 .. Tx 3: A (signer 900)
+       Tx 4:         A, B (signer 900)
+     All accounts in Tx 0 through Tx 3 are in Tx 4, so the number of
+     accounts whose last use is in each of Tx 0 through Tx 3 is 0.
+     ------------------------------------------------------------- */
+  {
+    fd_pack_t * pack = init_all( pack_depth, 1UL, 32UL, &outcome );
+    fd_pack_set_initializer_bundles_ready( pack );
+
+    ulong id = 1UL;
+    ulong penalized_id = make_hot_and_penalize( pack, &id, 'B' );
+
+    ulong collapse_cnt = FD_PACK_MAX_TXN_PER_BUNDLE - 1UL; /* 4 */
+    ulong total_txn    = FD_PACK_MAX_TXN_PER_BUNDLE;       /* 5 */
+
+    fd_txn_e_t * const * bundle = fd_pack_insert_bundle_init( pack, _bundle, total_txn );
+    for( ulong j=0UL; j<collapse_cnt; j++ ) {
+      make_transaction1( bundle[j]->txnp, id++, 1000U, 100U, 12.0, "A", "", NULL, NULL );
+      set_bundle_signer( bundle[j]->txnp, 900UL );
+    }
+    make_transaction1( bundle[collapse_cnt]->txnp, id++, 1000U, 100U, 12.0, "AB", "", NULL, NULL );
+    set_bundle_signer( bundle[collapse_cnt]->txnp, 900UL );
+
+    verify_bundle_promotion( pack, bundle, total_txn, penalized_id );
+  }
+
+  /* -------------------------------------------------------------
+     Case D2: Consecutive Multi-Transaction Collapse (Interior Empty Transactions)
+     Bundle:
+       Tx 0:         A (signer 900)
+       Tx 1 .. Tx 3: B (signer 901)
+       Tx 4:         B, C (signer 901)
+     All accounts in Tx 1, Tx 2, and Tx 3 are in Tx 4, so the number of
+     accounts whose last use is in each of Tx 1, Tx 2, and Tx 3 is 0.
+     ------------------------------------------------------------- */
+  {
+    fd_pack_t * pack = init_all( pack_depth, 1UL, 32UL, &outcome );
+    fd_pack_set_initializer_bundles_ready( pack );
+
+    ulong id = 1UL;
+    ulong penalized_id = make_hot_and_penalize( pack, &id, 'C' );
+
+    ulong total_txn = 5UL; /* FD_PACK_MAX_TXN_PER_BUNDLE */
+    fd_txn_e_t * const * bundle = fd_pack_insert_bundle_init( pack, _bundle, total_txn );
+    make_transaction1( bundle[0]->txnp, id++, 1000U, 100U, 12.0, "A",  "", NULL, NULL );
+    set_bundle_signer( bundle[0]->txnp, 900UL );
+    make_transaction1( bundle[1]->txnp, id++, 1000U, 100U, 12.0, "B",  "", NULL, NULL );
+    set_bundle_signer( bundle[1]->txnp, 901UL );
+    make_transaction1( bundle[2]->txnp, id++, 1000U, 100U, 12.0, "B",  "", NULL, NULL );
+    set_bundle_signer( bundle[2]->txnp, 901UL );
+    make_transaction1( bundle[3]->txnp, id++, 1000U, 100U, 12.0, "B",  "", NULL, NULL );
+    set_bundle_signer( bundle[3]->txnp, 901UL );
+    make_transaction1( bundle[4]->txnp, id++, 1000U, 100U, 12.0, "BC", "", NULL, NULL );
+    set_bundle_signer( bundle[4]->txnp, 901UL );
+
+    verify_bundle_promotion( pack, bundle, total_txn, penalized_id );
+  }
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -2303,6 +2503,7 @@ main( int     argc,
   test_pre_rotation_bundle_size_limit();
   test_bundle_ordinal_limit();
   test_next_auction();
+  test_bundle_boundary_collapse();
   if( extra_benchmark ) {
     performance_test( extra_benchmark );
     performance_test2();
