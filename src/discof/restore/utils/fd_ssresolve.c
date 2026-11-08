@@ -186,16 +186,16 @@ fd_ssresolve_render_req( fd_ssresolve_t * ssresolve ) {
            "User-Agent: Firedancer\r\n"
            "Accept: */*\r\n"
            "Accept-Encoding: identity\r\n"
-           "Host: %s\r\n\r\n",
-           path, ssresolve->hostname ) );
+           "Host: %s:%hu\r\n\r\n",
+           path, ssresolve->hostname, fd_ushort_bswap( ssresolve->addr.port ) ) );
   } else {
     FD_TEST( fd_cstr_printf_check( ssresolve->request, sizeof(ssresolve->request), &ssresolve->request_len,
            "HEAD %s HTTP/1.1\r\n"
            "User-Agent: Firedancer\r\n"
            "Accept: */*\r\n"
            "Accept-Encoding: identity\r\n"
-           "Host: " FD_IP4_ADDR_FMT "\r\n\r\n",
-           path, FD_IP4_ADDR_FMT_ARGS( ssresolve->addr.addr ) ) );
+           "Host: " FD_IP4_ADDR_FMT ":%hu\r\n\r\n",
+           path, FD_IP4_ADDR_FMT_ARGS( ssresolve->addr.addr ), fd_ushort_bswap( ssresolve->addr.port ) ) );
   }
 }
 

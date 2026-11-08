@@ -153,8 +153,7 @@ test_headers_too_large( void ) {
 }
 
 static void
-test_plaintext_host( char const * hostname,
-                     char const * host_header ) {
+test_plaintext_host( char const * hostname ) {
   int listener = socket( AF_INET, SOCK_STREAM, 0 );
   FD_TEST( listener!=-1 );
   struct sockaddr_in addr = {
@@ -188,6 +187,9 @@ test_plaintext_host( char const * hostname,
     if( strstr( request, "\r\n\r\n" ) ) break;
   }
   FD_TEST( strstr( request, "GET /snapshot.tar.bz2 HTTP/1.1\r\n" )==request );
+  char host_header[256];
+  FD_TEST( fd_cstr_printf_check( host_header, sizeof(host_header), NULL, "\r\nHost: %s:%hu\r\n\r\n",
+                                hostname[0] ? hostname : "127.0.0.1", fd_ushort_bswap( peer.port ) ) );
   FD_TEST( strstr( request, host_header ) );
   FD_TEST( strstr( request, "\r\n\r\n" ) );
   fd_sshttp_cancel( http );
@@ -203,8 +205,8 @@ main( int     argc,
   test_epoll_fd = epoll_create1( 0 );
   FD_TEST( test_epoll_fd!=-1 );
 
-  test_plaintext_host( "snapshots.example.com", "\r\nHost: snapshots.example.com\r\n\r\n" );
-  test_plaintext_host( "", "\r\nHost: 127.0.0.1\r\n\r\n" );
+  test_plaintext_host( "snapshots.example.com" );
+  test_plaintext_host( "" );
   test_eof_during_body();
   test_eof_during_headers();
   test_eof_immediate();
