@@ -87,18 +87,23 @@ fd_netdev_netlink_load_table( fd_netdev_tbl_join_t * tbl,
   }
 
   int err = 0;
+  int dump_intr = 0;
 
   uchar buf[ 4096 ];
   fd_netlink_iter_t iter[1];
+recv_dump:
   for( fd_netlink_iter_init( iter, netlink, buf, sizeof(buf) );
        !fd_netlink_iter_done( iter );
        fd_netlink_iter_next( iter, netlink ) ) {
     struct nlmsghdr const * nlh = fd_netlink_iter_msg( iter );
+    if( FD_UNLIKELY( nlh->nlmsg_seq!=seq ) ) continue;
+    if( FD_UNLIKELY( nlh->nlmsg_flags & NLM_F_DUMP_INTR ) ) dump_intr = 1;
     if( FD_UNLIKELY( nlh->nlmsg_type==NLMSG_ERROR ) ) {
-      struct nlmsgerr * err = NLMSG_DATA( nlh );
-      int nl_err = -err->error;
-      FD_LOG_WARNING(( "netlink RTM_GETLINK,NLM_F_REQUEST|NLM_F_DUMP failed (%d-%s)", nl_err, fd_io_strerror( nl_err ) ));
-      return nl_err;
+      struct nlmsgerr const * nlerr = NLMSG_DATA( nlh );
+      err = -nlerr->error;
+      if( !err ) continue;
+      FD_LOG_WARNING(( "netlink RTM_GETLINK,NLM_F_REQUEST|NLM_F_DUMP failed (%d-%s)", err, fd_io_strerror( err ) ));
+      goto reset;
     }
     if( FD_UNLIKELY( nlh->nlmsg_type!=RTM_NEWLINK ) ) {
       FD_LOG_DEBUG(( "unexpected nlmsg_type %u", nlh->nlmsg_type ));
@@ -109,7 +114,7 @@ fd_netdev_netlink_load_table( fd_netdev_tbl_join_t * tbl,
     if( FD_UNLIKELY( ifi->ifi_index<0 ) ) {
       FD_LOG_WARNING(( "Error reading interface table: interface %d has invalid index", ifi->ifi_index ));
       err = EPROTO;
-      break;
+      goto fail;
     }
 
     ushort ifi_type = ifi->ifi_type;
@@ -234,12 +239,28 @@ fd_netdev_netlink_load_table( fd_netdev_tbl_join_t * tbl,
         FD_LOG_WARNING(( "Error reading interface table: tracked interface limit %u reached (dropping ifindex %i)",
                          tbl->hdr->dev_max, ifi->ifi_index ));
         err = ENOSPC;
-        break;
+        goto fail;
       }
       dst = &tbl->dev_tbl[ tbl->hdr->dev_cnt ]; // alloc new entry
       tbl->hdr->dev_cnt = (ushort)(tbl->hdr->dev_cnt + 1);
     }
     *dst = *netdev;
+  }
+
+  if( FD_UNLIKELY( iter->err>0 ) ) {
+    err = iter->err;
+    goto fail;
+  }
+
+  if( FD_UNLIKELY( iter->err ) ) {
+    err = EPROTO;
+    goto fail;
+  }
+  struct nlmsghdr const * done = fd_netlink_iter_msg( iter );
+  if( FD_UNLIKELY( done->nlmsg_seq!=seq ) ) goto recv_dump;
+  if( FD_UNLIKELY( dump_intr || (done->nlmsg_flags & NLM_F_DUMP_INTR) ) ) {
+    err = EINTR;
+    goto fail;
   }
 
   /* Walk the table again to index the bond master => slave mapping */
@@ -281,6 +302,14 @@ fd_netdev_netlink_load_table( fd_netdev_tbl_join_t * tbl,
   return 0;
 
 fail:
-  fd_netlink_iter_drain( iter, netlink );
+  /* A malformed datagram must not leave the dump tail for the next request. */
+  for(;;) {
+    fd_netlink_iter_drain( iter, netlink );
+    if( iter->err && iter->err!=EPROTO ) break;
+    if( !iter->err && fd_netlink_iter_msg( iter )->nlmsg_seq==seq ) break;
+    fd_netlink_iter_init( iter, netlink, buf, sizeof(buf) );
+  }
+reset:
+  fd_netdev_tbl_reset( tbl );
   return err;
 }

@@ -399,10 +399,11 @@ during_housekeeping( fd_netlink_tile_ctx_t * ctx ) {
     if( now < ctx->link_update_ts ) return;
     ctx->action &= ~FD_NET_TILE_ACTION_LINK_UPDATE;
     fd_seqlock_write_lock( &ctx->netdev_tbl->hdr->seqlock );
-    fd_netdev_netlink_load_table( ctx->netdev_tbl, ctx->nl_req );
+    int err = fd_netdev_netlink_load_table( ctx->netdev_tbl, ctx->nl_req );
     fd_seqlock_write_unlock( &ctx->netdev_tbl->hdr->seqlock );
     ctx->link_update_ts = now+ctx->update_backoff;
-    ctx->metrics.link_full_syncs++;
+    if( FD_UNLIKELY( err ) ) ctx->action |= FD_NET_TILE_ACTION_LINK_UPDATE;
+    else                    ctx->metrics.link_full_syncs++;
   }
   if( !ctx->dump_table_id && (ctx->action & FD_NET_TILE_ACTION_NEIGH_UPDATE) ) {
     ctx->action &= ~FD_NET_TILE_ACTION_NEIGH_UPDATE;
