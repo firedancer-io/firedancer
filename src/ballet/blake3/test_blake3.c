@@ -218,6 +218,10 @@ test_avx_compress8_xof2048_seq( void ) {
     ushort xof2048[ 1024 ] __attribute__((aligned(32)));
     void * batch_hash [ 32 ]; for( uint i=0; i<32; i++ ) batch_hash [i] = xof2048 + 32*i; /* 64 byte stride */
     fd_blake3_avx_compress8( 8UL, batch_data, batch_sz, ctr_vec,    batch_flags, batch_hash,    NULL, 64U, batch_cv );
+    uchar single[64] __attribute__((aligned(64)));
+    void * single_hash[1] __attribute__((aligned(64))) = { single };
+    fd_blake3_avx_compress8( 1UL, batch_data, batch_sz, ctr_vec, batch_flags, single_hash, NULL, 64U, batch_cv );
+    FD_TEST( fd_memeq( single, xof2048, sizeof(single) ) );
     fd_blake3_avx_compress8( 8UL, batch_data, batch_sz, ctr_vec+ 8, batch_flags, batch_hash+ 8, NULL, 64U, batch_cv );
     fd_blake3_avx_compress8( 8UL, batch_data, batch_sz, ctr_vec+16, batch_flags, batch_hash+16, NULL, 64U, batch_cv );
     fd_blake3_avx_compress8( 8UL, batch_data, batch_sz, ctr_vec+24, batch_flags, batch_hash+24, NULL, 64U, batch_cv );
@@ -322,6 +326,10 @@ test_avx512_compress16_xof2048_seq( void ) {
     ushort xof2048[ 1024 ] __attribute__((aligned(64)));
     void * batch_hash [ 32 ]; for( uint i=0; i<32; i++ ) batch_hash [i] = xof2048 + 32*i; /* 64 byte stride */
     fd_blake3_avx512_compress16( 16UL, batch_data, batch_sz, ctr_vec,    batch_flags, batch_hash,    NULL, 64U, batch_cv );
+    uchar single[64] __attribute__((aligned(64)));
+    void * single_hash[1] __attribute__((aligned(64))) = { single };
+    fd_blake3_avx512_compress16( 1UL, batch_data, batch_sz, ctr_vec, batch_flags, single_hash, NULL, 64U, batch_cv );
+    FD_TEST( fd_memeq( single, xof2048, sizeof(single) ) );
     fd_blake3_avx512_compress16( 16UL, batch_data, batch_sz, ctr_vec+16, batch_flags, batch_hash+16, NULL, 64U, batch_cv );
     for( ulong i=0UL; i<1024UL; i++ ) lthash[i] = (ushort)( lthash[i] + xof2048[i] );
   }
