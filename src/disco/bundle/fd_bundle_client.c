@@ -292,11 +292,18 @@ fd_bundle_client_next_deadline( fd_bundle_tile_t const * ctx,
                    fd_grpc_client_tls_rx_pending( ctx->grpc_client ) &&
                    !fd_grpc_client_tls_tx_pending( ctx->grpc_client ) ) ) return now;
 
+  int request_ready = ctx->backoff_until<=now &&
+                      !fd_grpc_client_request_is_blocked( ctx->grpc_client ) &&
+                      !ctx->auther.needs_poll &&
+                      ctx->auther.state==FD_BUNDLE_AUTH_STATE_DONE_WAIT;
   long deadline = fd_grpc_client_next_deadline( ctx->grpc_client );
-  if( FD_LIKELY( ctx->keepalive->interval ) )
-    deadline = fd_long_min( deadline, ctx->keepalive->inflight ? ctx->keepalive->ts_deadline
-                                                               : ctx->keepalive->ts_next_tx );
-  if( FD_LIKELY( ctx->builder_info_avail & !ctx->builder_info_wait ) )
+  if( FD_LIKELY( ctx->keepalive->interval ) ) {
+    if( ctx->keepalive->inflight )
+      deadline = fd_long_min( deadline, ctx->keepalive->ts_deadline );
+    else if( request_ready && !fd_grpc_client_h2_conn( ctx->grpc_client )->flags )
+      deadline = fd_long_min( deadline, ctx->keepalive->ts_next_tx );
+  }
+  if( FD_LIKELY( request_ready && ctx->builder_info_avail && !ctx->builder_info_wait ) )
     deadline = fd_long_min( deadline, ctx->builder_info_valid_until );
   if( FD_UNLIKELY( ctx->backoff_until>now ) )
     deadline = fd_long_min( deadline, ctx->backoff_until );
