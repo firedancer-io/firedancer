@@ -2312,13 +2312,13 @@ verify_bundle_promotion( fd_pack_t *          pack,
 
   ulong scheduled = fd_pack_schedule_next_microblock( pack, FD_PACK_TEST_MAX_COST_PER_BLOCK, 0UL, FD_PACK_SCHEDULE_BUNDLE, outcome.results );
   FD_TEST( scheduled == txn_cnt );
+  FD_TEST( !fd_pack_verify( pack, pack_verify_scratch ) );
 
   FD_TEST( fd_pack_microblock_complete( pack, 0UL ) );
 
   scheduled = fd_pack_schedule_next_microblock( pack, FD_PACK_TEST_MAX_COST_PER_BLOCK, 0UL, FD_PACK_SCHEDULE_TXN, outcome.results );
   FD_TEST( scheduled >= 1UL );
-  ulong scheduled_sig_id = *(ulong const *)( outcome.results[0].txnp->payload + 1 );
-  FD_TEST( scheduled_sig_id == penalized_id );
+  FD_TEST( result_id( outcome.results ) == penalized_id );
   FD_TEST( !fd_pack_verify( pack, pack_verify_scratch ) );
 
   fd_pack_delete( fd_pack_leave( pack ) );
