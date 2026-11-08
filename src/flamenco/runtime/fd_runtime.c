@@ -1315,7 +1315,7 @@ fd_runtime_cancel_txn( fd_runtime_t *      runtime,
 
   if( FD_UNLIKELY( bank && fd_bank_report_runtime_diffs( bank ) ) ) fd_event_runtime_txn_emit( txn_in, txn_out, bank );
 
-  if( FD_UNLIKELY( !txn_out->accounts.is_setup ) ) return;
+  if( FD_UNLIKELY( !txn_out->accounts.is_setup || txn_out->accounts.is_bundle ) ) return;
 
   fd_accdb_release_ab( runtime->accdb,
                        runtime->accounts.account_cnt, runtime->accounts.account,

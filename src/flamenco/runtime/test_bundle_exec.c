@@ -1452,6 +1452,60 @@ test_execute_bundles( fd_svm_mini_t * mini ) {
 }
 
 static void
+test_cancel_bundle( fd_svm_mini_t * mini ) {
+  setup_env( env, mini );
+  fd_pubkey_t keys[3] = { { .ul[0]=1UL }, { .ul[0]=2UL }, { .ul[0]=3UL } };
+  for( ulong i=0UL; i<3UL; i++ ) {
+    create_test_account( env->runtime->accdb, env->fork_id, &keys[i], 1000000UL, 0UL, NULL, &fd_solana_system_program_id );
+  }
+
+  fd_txn_p_t txns[2] = {0};
+  fd_txn_in_t ins[2] = {0};
+  fd_signature_t signature = {0};
+  fd_hash_t blockhash;
+  fd_memset( blockhash.uc, 0xAB, sizeof(blockhash) );
+  for( ulong i=0UL; i<2UL; i++ ) {
+    fd_pubkey_t txn_keys[2] = { keys[0], keys[i+1UL] };
+    ulong sz = txn_serialize( txns[i].payload, 1UL, &signature, 1UL, 0UL, 1UL, 2UL, txn_keys, &blockhash );
+    txns[i].payload_sz = (ushort)sz;
+    FD_TEST( fd_txn_parse( txns[i].payload, sz, TXN( &txns[i] ), NULL ) );
+    ins[i].txn                 = &txns[i];
+    ins[i].bundle.is_bundle    = 1;
+    ins[i].bundle.prev_txn_cnt = i;
+    if( i ) ins[i].bundle.prev_txn_outs[0] = &env->txn_out[0];
+  }
+
+  /* The shared union is larger than either member's account list.
+     Cancel every executed member, release once, and acquire it again. */
+  for( ulong round=0UL; round<2UL; round++ ) {
+    FD_TEST( fd_runtime_prepare_bundle_accounts( env->runtime, env->bank, ins, env->txn_out, 2UL )==FD_RUNTIME_EXECUTE_SUCCESS );
+    FD_TEST( env->runtime->accounts.account_cnt==3UL );
+    for( ulong i=0UL; i<2UL; i++ ) {
+      fd_runtime_prepare_and_execute_txn( env->runtime, env->bank, &ins[i], &env->txn_out[i] );
+      FD_TEST( env->txn_out[i].accounts.is_setup );
+      FD_TEST( env->txn_out[i].accounts.is_bundle );
+      FD_TEST( env->txn_out[i].err.is_committable );
+      FD_TEST( env->txn_out[i].err.txn_err==FD_RUNTIME_EXECUTE_SUCCESS );
+    }
+    FD_TEST( env->txn_out[0].accounts.account[0]==env->txn_out[1].accounts.account[0] );
+    env->txn_out[0].accounts.account[0]->lamports = 900000UL;
+    for( ulong i=0UL; i<2UL; i++ ) {
+      env->txn_out[i].err.is_committable = 0;
+      fd_runtime_cancel_txn( env->runtime, NULL, NULL, &env->txn_out[i] );
+    }
+    fd_runtime_fini_bundle( env->runtime );
+    FD_TEST( !env->runtime->accounts.account_cnt );
+    FD_TEST( !env->runtime->accounts.executable_cnt );
+
+    fd_acc_t acc = fd_accdb_read_one( env->runtime->accdb, env->fork_id, keys[0].uc );
+    FD_TEST( acc.lamports==1000000UL );
+    fd_accdb_unread_one( env->runtime->accdb, &acc );
+  }
+
+  FD_LOG_NOTICE(( "test bundle cancel... ok" ));
+}
+
+static void
 test_inactive_stake_update( fd_svm_mini_t * mini ) {
   struct {
     ulong activation_epoch;
@@ -1535,6 +1589,7 @@ main( int     argc,
   fd_svm_mini_t * mini = fd_svm_test_boot( &argc, &argv, limits );
 
   test_execute_bundles( mini );
+  test_cancel_bundle( mini );
   test_inactive_stake_update( mini );
 
   FD_LOG_NOTICE(( "pass" ));
