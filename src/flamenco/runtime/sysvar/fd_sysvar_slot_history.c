@@ -46,9 +46,23 @@ fd_sysvar_slot_history_update( fd_bank_t *        bank,
                                fd_accdb_t *       accdb,
                                fd_capture_ctx_t * capture_ctx ) {
   fd_accdb_svm_update_t update[1];
-  fd_acc_t acc = fd_accdb_svm_open_rw( bank, accdb, update, &fd_sysvar_slot_history_id, 0 );
-  FD_TEST( acc.lamports ); /* Slot history account must exist */
+  fd_acc_t acc = fd_accdb_svm_open_rw( bank, accdb, update, &fd_sysvar_slot_history_id, 1 );
+  if( FD_UNLIKELY( !acc.lamports ) ) {
+    /* SlotHistory::default() contains slot zero, with next_slot=1. */
+    acc.data_len = FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ;
+    acc.executable = 0;
+    fd_memcpy( acc.owner, fd_sysvar_owner_id.uc, sizeof(fd_pubkey_t) );
+    fd_memset( acc.data, 0, acc.data_len );
+    acc.data[0] = 1;
+    FD_STORE( ulong, acc.data+1UL, FD_SLOT_HISTORY_BLOCKS_LEN );
+    FD_STORE( ulong, acc.data+9UL, 1UL );
+    FD_STORE( ulong, acc.data+9UL+FD_SLOT_HISTORY_BLOCKS_LEN*sizeof(ulong), FD_SLOT_HISTORY_MAX_ENTRIES );
+    FD_STORE( ulong, acc.data+17UL+FD_SLOT_HISTORY_BLOCKS_LEN*sizeof(ulong), 1UL );
+  }
   FD_TEST( !memcmp( acc.owner, fd_sysvar_owner_id.uc, sizeof(fd_pubkey_t) ) ); /* Slot history account must be owned by sysvar owner */
+  if( FD_UNLIKELY( !fd_sysvar_slot_history_validate( acc.data, acc.data_len ) ) ) {
+    FD_LOG_HEXDUMP_ERR(( "invalid slot history sysvar", acc.data, acc.data_len ));
+  }
 
   if( FD_UNLIKELY( acc.data[ 0 ]!=1 ) ) {
     /* initialize if !has_bits */
