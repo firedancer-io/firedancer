@@ -2721,6 +2721,8 @@ fd_gui_printf_slot_request_detailed( fd_gui_t *            gui,
                   fd_gui_printf_ts_tile_timers( gui, cur_sample_ts, sample );
                   have_sample = 0;
                 }
+                /* Eviction can leave only part of a sample. */
+                if( !have_sample ) memset( sample, 0xFF, sizeof(sample) );
                 cur_sample_ts = row->sample_time_nanos;
                 sample[ row->tile_idx ] = *row;
                 have_sample = 1;
