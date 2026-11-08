@@ -32,6 +32,7 @@
 #define _GNU_SOURCE
 
 #include "fd_accdb.h"
+#include "fd_accdb_test_util.h"
 #include "fd_accdb_cache.h"
 #include "fd_accdb_private.h"
 #include "../../util/fd_util.h"
@@ -85,8 +86,7 @@ static fd_accdb_shmem_t *
 test_shmem_new_cfg2( ulong cache_fp,
                      ulong cache_min_reserved,
                      ulong partition_sz ) {
-  g_fd = memfd_create( "accdb_racesan", 0 );
-  if( FD_UNLIKELY( g_fd<0 ) ) FD_LOG_ERR(( "memfd_create failed" ));
+  g_fd = fd_accdb_test_file_create( "accdb_racesan" );
 
   ulong shmem_fp = fd_accdb_shmem_footprint( T_MAX_ACCOUNTS, T_MAX_LIVE_SLOTS, T_WRITES_PER_SLOT, T_PARTITION_CNT, cache_fp, cache_min_reserved, T_JOINER_CNT, 0UL );
   FD_TEST( shmem_fp );
@@ -2010,8 +2010,7 @@ test_setup( int * out_fd,
             ulong max_account_writes_per_slot,
             ulong partition_cnt,
             ulong partition_sz ) {
-  int fd = memfd_create( "accdb_racesan", 0 );
-  if( FD_UNLIKELY( fd<0 ) ) FD_LOG_ERR(( "memfd_create failed" ));
+  int fd = fd_accdb_test_file_create( "accdb_racesan" );
   *out_fd = fd;
   test_fd  = fd;
   test_max_live_slots = max_live_slots;

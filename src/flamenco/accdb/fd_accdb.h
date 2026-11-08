@@ -458,12 +458,12 @@ fd_accdb_probe_pd_this_fork( fd_accdb_t *       accdb,
    to a separate writable fseq supplied at join time and scanned via
    external_epoch_slots.
 
-   out_owner must point at a 32-byte buffer.  If non-NULL, out_data must
-   point at a buffer of at least FD_RUNTIME_ACC_SZ_MAX (10 MiB) bytes,
-   the maximum account data size; the function does not bound-check
-   against the account's actual length.  On a cache hit the bytes are
-   memcpy'd from the cache slot using a try-read-test (ABA) loop; on a miss the owner
-   and data are preadv2'd from the disk fd passed at join time, scattered
+   out_owner must point at a 32-byte buffer.  out_data must point at a
+   buffer of at least FD_RUNTIME_ACC_SZ_MAX (10 MiB) bytes, the maximum
+   account data size; the function does not bound-check against the
+   account's actual length.  On a cache hit the bytes are memcpy'd from
+   the cache slot using a try-read-test (ABA) loop; on a miss the owner
+   and data are read from the disk fd passed at join time, scattered
    into out_owner and out_data via iovec (looping on short reads).
 
    If out_data is NULL, only account metadata is read: no account data

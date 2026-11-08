@@ -1,6 +1,7 @@
 #define _GNU_SOURCE
 
 #include "fd_accdb.h"
+#include "fd_accdb_test_util.h"
 #include "../../util/fd_util.h"
 
 #include <stdlib.h>
@@ -45,8 +46,7 @@ bench_setup( ulong writes_per_slot ) {
   ulong max_accounts = 5UL*writes_per_slot + 1024UL;
   ulong max_writes   = writes_per_slot + 16UL;
 
-  int fd = memfd_create( "accdb_cleanup_bench", 0 );
-  if( FD_UNLIKELY( fd<0 ) ) FD_LOG_ERR(( "memfd_create failed" ));
+  int fd = fd_accdb_test_file_create( "accdb_cleanup_bench" );
 
   ulong shmem_fp = fd_accdb_shmem_footprint( max_accounts,
                                               BENCH_MAX_LIVE_SLOTS,
