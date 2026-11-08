@@ -120,6 +120,20 @@ test_rx_frame( uint          type,
             client->frame_scratch_max, &fd_grpc_client_h2_callbacks );
 }
 
+FD_UNIT_TEST( streams_active ) {
+  fd_grpc_client_reset( client );
+  test_grpc_client_mock_conn( client );
+  FD_TEST( client->metrics->streams_active==0L );
+  fd_grpc_h2_stream_t * stream = fd_grpc_client_stream_acquire( client, 0UL );
+  fd_grpc_client_stream_acquire( client, 1UL );
+  FD_TEST( client->metrics->streams_active==2L );
+  fd_h2_stream_reset( &stream->s, client->conn );
+  fd_grpc_client_stream_release( client, stream );
+  FD_TEST( client->metrics->streams_active==1L );
+  fd_grpc_client_reset( client );
+  FD_TEST( client->metrics->streams_active==0L );
+}
+
 FD_UNIT_TEST( header_deadline ) {
   fd_grpc_client_reset( client );
   test_grpc_client_mock_conn( client );
@@ -597,6 +611,7 @@ FD_UNIT_TEST( data_end_stream_before_callbacks ) {
     }
     test_rx_frame( FD_H2_FRAME_TYPE_DATA, FD_H2_FLAG_END_STREAM, stream->s.stream_id, response, response_sz );
     FD_TEST( !client->conn->conn_error && !client->stream_cnt && !client->conn->stream_active_cnt[1] );
+    FD_TEST( client->metrics->streams_active==0L );
     FD_TEST( g_rx_msg_cnt==( c==2 ? 0UL : c==3 ? 1UL : 2UL ) && g_rx_end_cnt==1UL );
     FD_TEST( !client->request_stream && !client->request_tx_op->chunk_sz );
 
