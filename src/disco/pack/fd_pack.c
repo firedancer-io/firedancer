@@ -1092,8 +1092,6 @@ fd_pack_estimate_rewards_and_compute( fd_txn_e_t             * txne,
 
   if( FD_UNLIKELY( !cost_estimate ) ) return 0;
 
-  /* precompile_sigs <= 16320, so after the addition,
-     sig_rewards < 83,000,000 */
   sig_rewards += FD_PACK_FEE_PER_SIGNATURE * precompile_sigs;
   sig_rewards = sig_rewards * FD_PACK_TXN_FEE_BURN_PCT / 100UL;
 
