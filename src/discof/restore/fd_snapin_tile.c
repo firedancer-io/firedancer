@@ -1038,15 +1038,10 @@ populate_txncache( fd_snapin_tile_t *                     ctx,
 
     From there we are done.
 
-    Well almost ...  The Agave status cache decided to only store 20
-    bytes for 32 byte transaction hashes to save on memory.  That's OK,
-    but they didn't just take the first 20 bytes.  They instead, for
-    each blockhash, take a random offset between 0 and 11, and store
-    bytes [ offset, offset+20 ) of the transaction hash.  We need to
-    know this offset to be able to query the txncache later, so we
-    retrieve it from the slot_deltas groups and key it into the bank of
-    the referenced blockhash in our chain, checking that every group for
-    a blockhash agrees on it. */
+    The Agave status cache stores 20 bytes of each transaction hash.
+    We retrieve the offset from the slot_deltas groups and key it into
+    the bank of the referenced blockhash in our chain, checking that
+    every group for a blockhash agrees on it. */
 
   if( FD_UNLIKELY( blockhashes_len>FD_BLOCKHASHES_MAX ) ) {
     FD_LOG_WARNING(( "corrupt snapshot: blockhash queue length %lu exceeds maximum %lu", blockhashes_len, FD_BLOCKHASHES_MAX ));
@@ -1187,8 +1182,7 @@ populate_txncache( fd_snapin_tile_t *                     ctx,
      ULONG_MAX this is valid, it means the blockhash had no transactions
      in it, so there's nothing in the status cache under that blockhash.
 
-     Just set the offset to 0 in this case, it doesn't matter, but
-     should be valid between 0 and 11 inclusive. */
+     Just set the offset to 0 in this case. */
   for( ulong i=0UL; i<chain_len; i++ ) {
     ulong txnhash_offset = banks[ chain_len-1UL-i ].txnhash_offset==ULONG_MAX ? 0UL : banks[ chain_len-1UL-i ].txnhash_offset;
     fd_txncache_finalize_fork( ctx->lead.txncache, banks[ chain_len-1UL-i ].fork_id, txnhash_offset, banks[ chain_len-1UL-i ].blockhash );
