@@ -4289,8 +4289,18 @@ test_timeline_replayed_skips( fd_gui_t * gui ) {
   fd_gui_handle_identity_event( gui, &ev );
   fd_admin_gui_event_t ev2 = { .kind=FD_ADMIN_GUI_EVENT_IDENTITY_SET, .ts_ns=ts+800L };
   strcpy( ev2.result, "success" );
+  strcpy( ev2.notes,  "replaced by the stake change" );
+  fd_memset( ev2.to, 0x03, 32UL );
+  fd_gui_epoch_t * stake_epoch = fd_gui_current_epoch( gui );
+  FD_TEST( stake_epoch );
+  ulong stakes_cnt0 = stake_epoch->stakes_cnt;
+  stake_epoch->stakes_cnt = 2UL;
+  fd_memset( stake_epoch->stakes[ 0 ].id_key.uc, 0x00, 32UL ); stake_epoch->stakes[ 0 ].stake = 1000000000000000UL;
+  fd_memset( stake_epoch->stakes[ 1 ].id_key.uc, 0x00, 32UL ); stake_epoch->stakes[ 1 ].stake =  300000000000000UL;
   gui->summary.slot_estimated = ULONG_MAX;
   fd_gui_handle_identity_event( gui, &ev2 );
+  stake_epoch->stakes_cnt = stakes_cnt0;
+  FD_TEST( !strcmp( gui->identity_events.event[ 1 ].notes, "1.3M Sol Stake -> 0 Sol Stake" ) );
   fd_admin_gui_event_t bad = { .kind=FD_GUI_TIMELINE_EVENT_CNT, .ts_ns=ts+900L };
   fd_gui_handle_identity_event( gui, &bad );
   FD_TEST( gui->identity_events.cnt==2UL );
@@ -4316,12 +4326,13 @@ test_timeline_replayed_skips( fd_gui_t * gui ) {
   FD_TEST( !fd_gui_printf_timeline_query_events( gui, ts+650L, now, 3UL ) );
   char from[ FD_BASE58_ENCODED_32_SZ ]; fd_base58_encode_32( ev.from, NULL, from );
   char to  [ FD_BASE58_ENCODED_32_SZ ]; fd_base58_encode_32( ev.to,   NULL, to   );
+  char to2 [ FD_BASE58_ENCODED_32_SZ ]; fd_base58_encode_32( ev2.to,  NULL, to2  );
   char want[ 512 ];
   FD_TEST( fd_cstr_printf_check( want, sizeof(want), NULL,
            "\"event\":[3,1],\"slot\":[102,105],\"ts\":[\"%ld\",\"%ld\"],"
            "\"identity_result\":[\"holder_live\",\"success\"],\"identity_from\":[\"%s\",\"%s\"],\"identity_to\":[\"%s\",\"%s\"],"
-           "\"identity_notes\":[\"This was the first attempt of a takeover, asking the other validator to hand over the staked identity.\",\"\"]}}",
-           ts+700L, ts+800L, from, "11111111111111111111111111111111", to, "11111111111111111111111111111111" ) );
+           "\"identity_notes\":[\"This was the first attempt of a takeover, asking the other validator to hand over the staked identity.\",\"1.3M Sol Stake -> 0 Sol Stake\"]}}",
+           ts+700L, ts+800L, from, "11111111111111111111111111111111", to, to2 ) );
   ulong len = fd_http_server_stage_len( gui->http );
   char const * got = (char const *)gui->http->oring+gui->http->stage_off%gui->http->oring_sz;
   ulong want_len = strlen( want );

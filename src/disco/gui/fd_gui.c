@@ -493,6 +493,28 @@ fd_gui_set_identity( fd_gui_t *    gui,
   fd_http_server_ws_broadcast( gui->http );
 }
 
+/* fd_gui_identity_stake_cstr prints the active stake of identity in the
+   current epoch as e.g. "1.3M Sol Stake" or "0 Sol Stake", or
+   "Unknown Stake" before the first epoch is known. */
+
+static void
+fd_gui_identity_stake_cstr( fd_gui_t *    gui,
+                            uchar const * identity,
+                            char *        buf,
+                            ulong         buf_sz ) {
+  fd_gui_epoch_t const * epoch = fd_gui_current_epoch( gui );
+  if( FD_UNLIKELY( !epoch ) ) { fd_cstr_printf( buf, buf_sz, NULL, "Unknown Stake" ); return; }
+  ulong lamports = 0UL;
+  for( ulong i=0UL; i<epoch->stakes_cnt; i++ ) {
+    if( !memcmp( epoch->stakes[ i ].id_key.uc, identity, 32UL ) ) lamports = fd_ulong_sat_add( lamports, epoch->stakes[ i ].stake );
+  }
+  double sol = (double)lamports/1e9;
+  if(      sol>=1e9 ) fd_cstr_printf( buf, buf_sz, NULL, "%.1fB Sol Stake", sol/1e9 );
+  else if( sol>=1e6 ) fd_cstr_printf( buf, buf_sz, NULL, "%.1fM Sol Stake", sol/1e6 );
+  else if( sol>=1e3 ) fd_cstr_printf( buf, buf_sz, NULL, "%.1fK Sol Stake", sol/1e3 );
+  else                fd_cstr_printf( buf, buf_sz, NULL, "%.0f Sol Stake",  sol     );
+}
+
 void
 fd_gui_handle_identity_event( fd_gui_t *                   gui,
                               fd_admin_gui_event_t const * event ) {
@@ -502,6 +524,14 @@ fd_gui_handle_identity_event( fd_gui_t *                   gui,
   *dst = *event;
   dst->result[ FD_ADMIN_GUI_RESULT_MAX-1UL ] = '\0';
   dst->notes [ FD_ADMIN_GUI_NOTES_MAX -1UL ] = '\0';
+  /* Successful identity changes are summarized by the stake change;
+     the admin tile's explanation is only kept for failures. */
+  if( !strcmp( dst->result, "success" ) ) {
+    char from[ 64 ]; char to[ 64 ];
+    fd_gui_identity_stake_cstr( gui, dst->from, from, sizeof(from) );
+    fd_gui_identity_stake_cstr( gui, dst->to,   to,   sizeof(to)   );
+    fd_cstr_printf( dst->notes, FD_ADMIN_GUI_NOTES_MAX, NULL, "%s -> %s", from, to );
+  }
   gui->identity_events.slot[ idx ] = gui->summary.slot_estimated; /* ULONG_MAX before the first replayed slot */
   gui->identity_events.cnt++;
 }
