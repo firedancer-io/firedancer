@@ -2101,6 +2101,7 @@ deliberate exception with lint-allow="<rule id>")
     <counter name="TimelineChunkMiss" summary="Timeline response chunks built, compressed and added to the chunk cache" />
     <counter name="TimelineChunkLate" summary="Timeline rows recorded after their chunk was cached, so missing from the frozen cached chunk" />
     <counter name="TimelineChunkFallback" summary="Raw timeline queries answered without the chunk cache (uncompressed connection, row limit, or oversized chunk)" />
+    <counter name="TimelineDayMissing" summary="Timeline samples dropped because their day record was not prepared yet" />
 </tile>
 
 <enum name="GuiDbType">

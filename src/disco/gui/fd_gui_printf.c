@@ -3392,6 +3392,12 @@ fd_gui_timeline_day_bounds( fd_gui_t * gui,
                    !fd_gui_store_ts_live_timestamp_bounds( gui->db, FD_GUI_HIST_TIMELINE_DAY, &first, &last ) ||
                    first<FD_GUI_TIMELINE_DAY_NS ) ) return 0;
 
+  /* Tomorrow's record may already be prepared (see
+     fd_gui_timeline_days_prepare); it is not available yet. */
+  long now = gui->chunk.now;
+  if( FD_LIKELY( now>0L ) ) last = fd_long_min( last, (now/FD_GUI_TIMELINE_DAY_NS+1L)*FD_GUI_TIMELINE_DAY_NS );
+  if( FD_UNLIKELY( last<=first-FD_GUI_TIMELINE_DAY_NS ) ) return 0;
+
   *start = first-FD_GUI_TIMELINE_DAY_NS;
   *end   = last;
   return 1;
@@ -3423,23 +3429,33 @@ fd_gui_timeline_query_events( fd_gui_t * gui,
                               int        fec ) {
   if( FD_UNLIKELY( start<0L || end<=start || end==LONG_MAX ) ) return -1;
   fd_gui_shred_event_t * events = gui->timeline_scratch.events;
-  fd_gui_shred_event_iter_t it;
-  if( fec ) fd_gui_fec_event_iter_begin( gui, &it, start, end );
-  else      fd_gui_shred_event_hist_iter_begin( gui, &it, start, end );
   ulong n              = 0UL;
   ulong reference_slot = ULONG_MAX;
   long  reference_ts   = LONG_MAX;
   int   limit          = 0;
-  /* Rare duplicate slot-complete markers are acceptable for monitoring;
-     return each recorded event in the requested window. */
-  while( fd_gui_shred_event_iter_next( &it ) ) {
-    if( FD_UNLIKELY( n==FD_GUI_TIMELINE_QUERY_SHRED_MAX ) ) {
-      limit = 1;
-      break;
+  __typeof__(gui->chunk_run) const * run = &gui->chunk_run;
+  if( run->active && end-start==FD_GUI_CHUNK_NS && !(start%FD_GUI_CHUNK_NS) &&
+      (ulong)(start/FD_GUI_CHUNK_NS)>=run->k0 && (ulong)(start/FD_GUI_CHUNK_NS)<run->k1 ) {
+    /* The events of this chunk were read for the whole run. */
+    ulong i = (ulong)(start/FD_GUI_CHUNK_NS)-run->k0;
+    n = run->ev_off[ i+1UL ]-run->ev_off[ i ];
+    if( FD_UNLIKELY( n>FD_GUI_TIMELINE_QUERY_SHRED_MAX ) ) limit = 1;
+    else fd_memcpy( events, run->ev+run->ev_off[ i ], n*sizeof(fd_gui_shred_event_t) );
+  } else {
+    fd_gui_shred_event_iter_t it;
+    if( fec ) fd_gui_fec_event_iter_begin( gui, &it, start, end );
+    else      fd_gui_shred_event_hist_iter_begin( gui, &it, start, end );
+    /* Rare duplicate slot-complete markers are acceptable for
+       monitoring; return each recorded event in the requested window. */
+    while( fd_gui_shred_event_iter_next( &it ) ) {
+      if( FD_UNLIKELY( n==FD_GUI_TIMELINE_QUERY_SHRED_MAX ) ) {
+        limit = 1;
+        break;
+      }
+      events[ n++ ] = it.event;
     }
-    events[ n++ ] = it.event;
+    fd_gui_shred_event_iter_end( &it );
   }
-  fd_gui_shred_event_iter_end( &it );
   if( FD_UNLIKELY( limit ) ) {
     fd_gui_timeline_limit( gui, "query_shreds", id );
     goto done;
@@ -3529,6 +3545,64 @@ fd_gui_timeline_scan( fd_gui_t *           gui,
   return fd_gui_hist_range_begin( gui, it, dbi, fd_long_max( LONG_MIN+1L, lo ), fd_long_min( LONG_MAX-1L, hi ), NULL, NULL );
 }
 
+/* fd_gui_timeline_rows_t reads the rows of one db for a window: from
+   the current chunk run (see fd_gui_chunk_run_collect) when the window
+   is one of its chunks, else by scanning the history.  A run yields
+   the same rows in the same order as the scan would, minus rows the
+   printer would skip anyway. */
+
+struct fd_gui_timeline_rows {
+  void const *         rec;
+  void const * const * run;
+  ulong                run_i;
+  ulong                run_n;
+  fd_gui_hist_iter_t   it;
+};
+typedef struct fd_gui_timeline_rows fd_gui_timeline_rows_t;
+
+static int
+fd_gui_timeline_rows_begin( fd_gui_t *               gui,
+                            fd_gui_timeline_rows_t * r,
+                            int                      dbi,
+                            long                     start,
+                            long                     end ) {
+  r->rec   = NULL;
+  r->run   = NULL;
+  r->run_i = 0UL;
+  r->run_n = 0UL;
+  __typeof__(gui->chunk_run) const * run = &gui->chunk_run;
+  if( run->active && end-start==FD_GUI_CHUNK_NS && !(start%FD_GUI_CHUNK_NS) ) {
+    ulong k = (ulong)(start/FD_GUI_CHUNK_NS);
+    if( k>=run->k0 && k<run->k1 ) {
+      for( ulong s=0UL; s<FD_GUI_CHUNK_RUN_SETS; s++ ) {
+        if( run->dbi[ s ]!=dbi ) continue;
+        ulong const * off = run->off[ s ];
+        r->run   = run->rows + off[ k-run->k0 ];
+        r->run_n = off[ k-run->k0+1UL ] - off[ k-run->k0 ];
+        return 0;
+      }
+    }
+  }
+  return fd_gui_timeline_scan( gui, &r->it, dbi, start, end );
+}
+
+static int
+fd_gui_timeline_rows_next( fd_gui_timeline_rows_t * r ) {
+  if( r->run ) {
+    if( r->run_i==r->run_n ) return 0;
+    r->rec = r->run[ r->run_i++ ];
+    return 1;
+  }
+  if( !fd_gui_hist_range_next( &r->it ) ) return 0;
+  r->rec = r->it.rec;
+  return 1;
+}
+
+static void
+fd_gui_timeline_rows_end( fd_gui_timeline_rows_t * r ) {
+  if( !r->run ) fd_gui_hist_range_end( &r->it );
+}
+
 int
 fd_gui_printf_timeline_query_txn_meta( fd_gui_t * gui,
                                        long       start,
@@ -3543,10 +3617,10 @@ fd_gui_printf_timeline_query_txn_meta( fd_gui_t * gui,
   int   rc      = 0;
   int   limit   = 0;
   if( gui->db && gui->hist ) {
-    fd_gui_hist_iter_t it;
-    rc = fd_gui_timeline_scan( gui, &it, FD_GUI_HIST_REPLAY_TXN, start, end );
+    fd_gui_timeline_rows_t it;
+    rc = fd_gui_timeline_rows_begin( gui, &it, FD_GUI_HIST_REPLAY_TXN, start, end );
     if( FD_UNLIKELY( rc ) ) goto done;
-    while( fd_gui_hist_range_next( &it ) ) {
+    while( fd_gui_timeline_rows_next( &it ) ) {
       fd_gui_store_replay_txn_t const * t = it.rec;
       if( t->completion_time_ns<start || t->completion_time_ns>=end ) continue;
       if( FD_UNLIKELY( n==FD_GUI_TIMELINE_QUERY_TXN_MAX ) ) {
@@ -3559,7 +3633,7 @@ fd_gui_printf_timeline_query_txn_meta( fd_gui_t * gui,
                                 t->exec_start_ns, t->commit_start_ns, t->commit_end_ns };
       for( ulong i=0UL; i<7UL; i++ ) if( stage[ i ]!=LONG_MAX ) refts = fd_long_min( refts, stage[ i ] );
     }
-    fd_gui_hist_range_end( &it );
+    fd_gui_timeline_rows_end( &it );
   }
   if( FD_UNLIKELY( limit ) ) {
     fd_gui_timeline_limit( gui, key, id );
@@ -3662,10 +3736,10 @@ fd_gui_printf_timeline_query_revenue( fd_gui_t * gui,
   int           rc      = 0;
   int           limit   = 0;
   if( gui->db && gui->hist ) {
-    fd_gui_hist_iter_t it;
-    rc = fd_gui_timeline_scan( gui, &it, dbi, start, end );
+    fd_gui_timeline_rows_t it;
+    rc = fd_gui_timeline_rows_begin( gui, &it, dbi, start, end );
     if( FD_UNLIKELY( rc ) ) goto done;
-    while( fd_gui_hist_range_next( &it ) ) {
+    while( fd_gui_timeline_rows_next( &it ) ) {
       ulong slot, exec_idx, fees[ 3 ], txn_cnt;
       long  lo, hi;
       if( !fd_gui_timeline_revenue_row( it.rec, batch, &slot, &exec_idx, &lo, &hi, fees, &txn_cnt ) ) continue;
@@ -3681,7 +3755,7 @@ fd_gui_printf_timeline_query_revenue( fd_gui_t * gui,
       refslot = fd_ulong_min( refslot, slot );
       refts   = fd_long_min( refts, lo );
     }
-    fd_gui_hist_range_end( &it );
+    fd_gui_timeline_rows_end( &it );
   }
   if( FD_UNLIKELY( limit ) ) {
     fd_gui_timeline_limit( gui, key, id );
@@ -3910,10 +3984,10 @@ fd_gui_printf_timeline_query_tile_states( fd_gui_t * gui,
   if( gui->db && gui->hist ) {
     /* Only replay rows: leader rows have no sigverify lane and index
        execle tiles. */
-    fd_gui_hist_iter_t it;
-    rc = fd_gui_timeline_scan( gui, &it, dbi, start, end );
+    fd_gui_timeline_rows_t it;
+    rc = fd_gui_timeline_rows_begin( gui, &it, dbi, start, end );
     if( FD_UNLIKELY( rc ) ) goto done;
-    while( fd_gui_hist_range_next( &it ) ) {
+    while( fd_gui_timeline_rows_next( &it ) ) {
       if( batch ) {
         fd_gui_store_replay_txn_batch_t const * b = it.rec;
         if( b->is_leader || b->completion_time_ns<start ||
@@ -3960,15 +4034,15 @@ fd_gui_printf_timeline_query_tile_states( fd_gui_t * gui,
         rows[ row_cnt++ ] = t;
       }
     }
-    fd_gui_hist_range_end( &it );
+    fd_gui_timeline_rows_end( &it );
     if( FD_UNLIKELY( limit ) ) goto done;
 
     /* Lthash tasks run on execrp tiles between txns.  Batch granularity
        reads their batches instead. */
     ulong lthash_cnt = 0UL;
-    rc = fd_gui_timeline_scan( gui, &it, batch ? FD_GUI_HIST_REPLAY_LTHASH_BATCH : FD_GUI_HIST_REPLAY_LTHASH, start, end );
+    rc = fd_gui_timeline_rows_begin( gui, &it, batch ? FD_GUI_HIST_REPLAY_LTHASH_BATCH : FD_GUI_HIST_REPLAY_LTHASH, start, end );
     if( FD_UNLIKELY( rc ) ) goto done;
-    while( fd_gui_hist_range_next( &it ) ) {
+    while( fd_gui_timeline_rows_next( &it ) ) {
       long  l_start, l_end;
       ulong l_pos;
       if( batch ) {
@@ -3986,14 +4060,14 @@ fd_gui_printf_timeline_query_tile_states( fd_gui_t * gui,
       rows[ row_cnt++ ] = it.rec;
       lthash_cnt++;
     }
-    fd_gui_hist_range_end( &it );
+    fd_gui_timeline_rows_end( &it );
     if( FD_UNLIKELY( limit ) ) goto done;
 
     if( gui->tile_state.pos_cnt>exec_cnt ) {
       ulong slot_cnt = 0UL;
-      rc = fd_gui_timeline_scan( gui, &it, FD_GUI_HIST_REPLAY_SLOT_STATE, start, end );
+      rc = fd_gui_timeline_rows_begin( gui, &it, FD_GUI_HIST_REPLAY_SLOT_STATE, start, end );
       if( FD_UNLIKELY( rc ) ) goto done;
-      while( fd_gui_hist_range_next( &it ) ) {
+      while( fd_gui_timeline_rows_next( &it ) ) {
         fd_gui_store_replay_slot_state_t const * s = it.rec;
         if( s->start_ns>=s->end_ns || s->end_ns<start || s->end_ns>=end ) continue;
         if( FD_UNLIKELY( slot_cnt==FD_GUI_TIMELINE_QUERY_SLOT_STATE_MAX ) ) { limit = 1; break; }
@@ -4002,7 +4076,7 @@ fd_gui_printf_timeline_query_tile_states( fd_gui_t * gui,
         rows[ row_cnt++ ] = s;
         slot_cnt++;
       }
-      fd_gui_hist_range_end( &it );
+      fd_gui_timeline_rows_end( &it );
     }
   }
  done:
@@ -4148,6 +4222,167 @@ fd_gui_chunk_stage_plain( fd_gui_t * gui,
   return 0;
 }
 
+/* fd_gui_chunk_run_span returns in [*ka,*kb] the chunks of kind whose
+   window may show rec (a row of set s of kind), 0 if none. */
+
+static int
+fd_gui_chunk_run_span( int              kind,
+                       ulong            s,
+                       void const *     rec,
+                       ulong *          ka,
+                       ulong *          kb ) {
+  long lo, hi;
+  if( s==0UL ) {
+    switch( kind ) {
+      case FD_GUI_CHUNK_KIND_TXN_META: {
+        fd_gui_store_replay_txn_t const * t = rec;
+        lo = hi = t->completion_time_ns;
+        break;
+      }
+      case FD_GUI_CHUNK_KIND_REVENUE_TXN:
+      case FD_GUI_CHUNK_KIND_REVENUE_BATCH: {
+        ulong slot, exec_idx, fees[ 3 ], txn_cnt;
+        if( !fd_gui_timeline_revenue_row( rec, kind==FD_GUI_CHUNK_KIND_REVENUE_BATCH, &slot, &exec_idx, &lo, &hi, fees, &txn_cnt ) ) return 0;
+        lo = hi;
+        break;
+      }
+      case FD_GUI_CHUNK_KIND_TILE_STATES_TXN: {
+        fd_gui_store_replay_txn_t const * t = rec;
+        if( t->txn_sigverify_exec_idx==ULONG_MAX ) return 0;
+        lo = fd_long_min( t->sigverify_start_ns, t->load_start_ns ); hi = t->completion_time_ns;
+        break;
+      }
+      default: { /* FD_GUI_CHUNK_KIND_TILE_STATES_BATCH */
+        fd_gui_store_replay_txn_batch_t const * b = rec;
+        if( b->is_leader ) return 0;
+        lo = fd_long_min( b->sigverify_start_ns, b->load_start_ns ); hi = b->completion_time_ns;
+        break;
+      }
+    }
+  } else {
+    /* Lthash tasks and slot states (and their batches) show in the
+       window of their end. */
+    fd_gui_store_replay_slot_state_t const * st = rec;
+    FD_STATIC_ASSERT( offsetof( fd_gui_store_replay_slot_state_t,   end_ns )==offsetof( fd_gui_store_replay_lthash_t, end_ns ), layout );
+    FD_STATIC_ASSERT( offsetof( fd_gui_store_replay_lthash_batch_t, end_ns )==offsetof( fd_gui_store_replay_lthash_t, end_ns ), layout );
+    lo = hi = st->end_ns;
+  }
+  if( hi<0L || hi<lo ) return 0;
+  lo = fd_long_max( lo, 0L );
+  *ka = (ulong)(lo/FD_GUI_CHUNK_NS);
+  *kb = (ulong)(hi/FD_GUI_CHUNK_NS);
+  /* A single chunk's scan reaches rows inserted up to
+     FD_GUI_TIMELINE_SCAN_MARGIN_NS (in history windows) after it ends;
+     leave the row out of earlier chunks the same way.  Every db read
+     here leads with insert_time_ns. */
+  long ins_w = *(long const *)rec / FD_GUI_HIST_RES_1S_NS;
+  while( *ka<=*kb && fd_long_sat_add( (long)(*ka+1UL)*FD_GUI_CHUNK_NS-1L, FD_GUI_TIMELINE_SCAN_MARGIN_NS )/FD_GUI_HIST_RES_1S_NS<ins_w ) (*ka)++;
+  return *ka<=*kb;
+}
+
+/* fd_gui_chunk_run_collect reads the rows of chunks [k0,k1) of kind
+   into gui->chunk_run with one history scan per db, so building each
+   chunk doesn't rescan the history (and its margin) on its own.
+   Returns 0 on success, -1 if they don't fit (try a shorter run). */
+
+static int
+fd_gui_chunk_run_collect( fd_gui_t * gui,
+                          int        kind,
+                          ulong      k0,
+                          ulong      k1 ) {
+  __typeof__(gui->chunk_run) * run = &gui->chunk_run;
+  ulong cnt = k1-k0;
+  long  start = (long)k0*FD_GUI_CHUNK_NS;
+  long  end   = (long)k1*FD_GUI_CHUNK_NS;
+  run->k0 = k0;
+  run->k1 = k1;
+
+  if( kind==FD_GUI_CHUNK_KIND_SHREDS || kind==FD_GUI_CHUNK_KIND_FEC ) {
+    for( ulong s=0UL; s<FD_GUI_CHUNK_RUN_SETS; s++ ) run->dbi[ s ] = -1;
+    ulong n = 0UL;
+    int   full = 0;
+    fd_gui_shred_event_iter_t it;
+    if( kind==FD_GUI_CHUNK_KIND_FEC ) fd_gui_fec_event_iter_begin( gui, &it, start, end );
+    else                              fd_gui_shred_event_hist_iter_begin( gui, &it, start, end );
+    while( fd_gui_shred_event_iter_next( &it ) ) {
+      if( FD_UNLIKELY( n==FD_GUI_CHUNK_RUN_ROW_MAX ) ) { full = 1; break; }
+      run->ev_tmp[ n++ ] = it.event;
+    }
+    fd_gui_shred_event_iter_end( &it );
+    if( FD_UNLIKELY( full ) ) return -1;
+    /* Group by chunk, keeping the iteration order within each. */
+    ulong * off = run->ev_off;
+    for( ulong i=0UL; i<=cnt; i++ ) off[ i ] = 0UL;
+    for( ulong i=0UL; i<n; i++ ) off[ (ulong)(run->ev_tmp[ i ].event_time_ns/FD_GUI_CHUNK_NS)-k0+1UL ]++;
+    for( ulong i=0UL; i<cnt; i++ ) off[ i+1UL ] += off[ i ];
+    ulong pos[ FD_GUI_CHUNK_RUN_MAX ];
+    for( ulong i=0UL; i<cnt; i++ ) pos[ i ] = off[ i ];
+    for( ulong i=0UL; i<n; i++ ) run->ev[ pos[ (ulong)(run->ev_tmp[ i ].event_time_ns/FD_GUI_CHUNK_NS)-k0 ]++ ] = run->ev_tmp[ i ];
+    return 0;
+  }
+
+  int dbi[ FD_GUI_CHUNK_RUN_SETS ] = { -1, -1, -1 };
+  switch( kind ) {
+    case FD_GUI_CHUNK_KIND_TILE_STATES_TXN:
+      dbi[ 0 ] = FD_GUI_HIST_REPLAY_TXN;
+      dbi[ 1 ] = FD_GUI_HIST_REPLAY_LTHASH;
+      if( gui->tile_state.pos_cnt>gui->tile_state.exec_cnt ) dbi[ 2 ] = FD_GUI_HIST_REPLAY_SLOT_STATE;
+      break;
+    case FD_GUI_CHUNK_KIND_TILE_STATES_BATCH:
+      dbi[ 0 ] = FD_GUI_HIST_REPLAY_TXN_BATCH;
+      dbi[ 1 ] = FD_GUI_HIST_REPLAY_LTHASH_BATCH;
+      if( gui->tile_state.pos_cnt>gui->tile_state.exec_cnt ) dbi[ 2 ] = FD_GUI_HIST_REPLAY_SLOT_STATE;
+      break;
+    case FD_GUI_CHUNK_KIND_TXN_META:      dbi[ 0 ] = FD_GUI_HIST_REPLAY_TXN;       break;
+    case FD_GUI_CHUNK_KIND_REVENUE_TXN:   dbi[ 0 ] = FD_GUI_HIST_REPLAY_TXN;       break;
+    case FD_GUI_CHUNK_KIND_REVENUE_BATCH: dbi[ 0 ] = FD_GUI_HIST_REPLAY_TXN_BATCH; break;
+    default: return -1;
+  }
+
+  ulong n = 0UL; /* tmp entries, over all sets */
+  for( ulong s=0UL; s<FD_GUI_CHUNK_RUN_SETS; s++ ) {
+    run->dbi[ s ] = dbi[ s ];
+    if( dbi[ s ]<0 ) continue;
+    ulong n0 = n;
+    fd_gui_hist_iter_t it;
+    if( FD_UNLIKELY( fd_gui_timeline_scan( gui, &it, dbi[ s ], start, end ) ) ) return -1;
+    int full = 0;
+    while( fd_gui_hist_range_next( &it ) ) {
+      ulong ka, kb;
+      if( !fd_gui_chunk_run_span( kind, s, it.rec, &ka, &kb ) ) continue;
+      if( kb<k0 || ka>=k1 ) continue;
+      ka = fd_ulong_max( ka, k0 );
+      kb = fd_ulong_min( kb, k1-1UL );
+      if( ka>kb ) continue;
+      if( FD_UNLIKELY( n+(kb-ka+1UL)>FD_GUI_CHUNK_RUN_ROW_MAX ) ) { full = 1; break; }
+      run->tmp[ n++ ] = (__typeof__(run->tmp[0])){ .rec=it.rec, .ka=(uint)(ka-k0), .kb=(uint)(kb-k0) };
+      n += kb-ka; /* reserve the extra slots in rows */
+    }
+    fd_gui_hist_range_end( &it );
+    if( FD_UNLIKELY( full ) ) return -1;
+    /* Group set s by chunk, keeping scan order within each.  A row
+       showing in several chunks is listed in each. */
+    ulong * off = run->off[ s ];
+    for( ulong i=0UL; i<=cnt; i++ ) off[ i ] = 0UL;
+    for( ulong i=n0; i<n; ) {
+      for( ulong j=run->tmp[ i ].ka; j<=run->tmp[ i ].kb; j++ ) off[ j+1UL ]++;
+      i += 1UL+run->tmp[ i ].kb-run->tmp[ i ].ka;
+    }
+    off[ 0 ] = n0;
+    for( ulong i=0UL; i<cnt; i++ ) off[ i+1UL ] += off[ i ];
+    ulong pos[ FD_GUI_CHUNK_RUN_MAX ];
+    for( ulong i=0UL; i<cnt; i++ ) pos[ i ] = off[ i ];
+    /* tmp entries are read in order and rows written at positions >=
+       the entry being read, never ahead of an unread entry: both sit
+       in separate arrays. */
+    for( ulong i=n0; i<n; ) {
+      for( ulong j=run->tmp[ i ].ka; j<=run->tmp[ i ].kb; j++ ) run->rows[ pos[ j ]++ ] = run->tmp[ i ].rec;
+      i += 1UL+run->tmp[ i ].kb-run->tmp[ i ].ka;
+    }
+  }
+  return 0;
+}
+
 int
 fd_gui_printf_timeline_query_chunked( fd_gui_t * gui,
                                       int        compressed,
@@ -4174,6 +4409,7 @@ fd_gui_printf_timeline_query_chunked( fd_gui_t * gui,
   ulong k1 = fd_ulong_min( (ulong)((end-1L)/FD_GUI_CHUNK_NS)+1UL, fd_gui_chunk_edge( c, kind ) );
   k1 = fd_ulong_max( k0, fd_ulong_min( k1, k0+FD_GUI_CHUNK_QUERY_MAX ) );
 
+  __typeof__(gui->chunk_run) * run = &gui->chunk_run;
   ulong sz = 0UL;
   ulong k  = k0;
   for( ; k<k1; k++ ) {
@@ -4182,6 +4418,24 @@ fd_gui_printf_timeline_query_chunked( fd_gui_t * gui,
       c->hit_cnt++;
     } else {
       c->miss_cnt++;
+      if( !run->active || k>=run->k1 ) {
+        /* Read the rows of this and the following missing chunks
+           together, halving the run until they fit. */
+        run->active = 0;
+        ulong size = run->size[ kind ] ? run->size[ kind ] : FD_GUI_CHUNK_RUN_MAX;
+        for(;;) {
+          ulong kr = k+1UL;
+          while( kr<k1 && kr<k+size && !fd_gui_chunk_get( c, kind, kr ) ) kr++;
+          if( kr==k+1UL ) break; /* a single chunk scans on its own */
+          if( FD_LIKELY( !fd_gui_chunk_run_collect( gui, kind, k, kr ) ) ) {
+            run->active = 1;
+            size = fd_ulong_min( 2UL*size, FD_GUI_CHUNK_RUN_MAX ); /* grow back */
+            break;
+          }
+          size = fd_ulong_max( 1UL, (kr-k)/2UL );
+        }
+        run->size[ kind ] = size;
+      }
       c->mode = 1;
       int err = fd_gui_chunk_print( gui, kind, (long)k*FD_GUI_CHUNK_NS, (long)(k+1UL)*FD_GUI_CHUNK_NS );
       c->mode = 0;
@@ -4190,13 +4444,17 @@ fd_gui_printf_timeline_query_chunked( fd_gui_t * gui,
       else                    fd_http_server_unstage( gui->http );
       /* Row limit or a huge chunk: answer the whole request without
          the cache (with a limit error if that is what it was). */
-      if( FD_UNLIKELY( !len ) ) return fd_gui_chunk_stage_plain( gui, kind, start, end, id );
+      if( FD_UNLIKELY( !len ) ) {
+        run->active = 0;
+        return fd_gui_chunk_stage_plain( gui, kind, start, end, id );
+      }
       fd_gui_chunk_publish( c, kind, k, len );
       e = fd_gui_chunk_get( c, kind, k );
     }
     if( FD_UNLIKELY( k>k0 && sz+e->len+c->sep_sz>FD_GUI_CHUNK_RESPONSE_MAX ) ) break;
     sz += e->len+c->sep_sz;
   }
+  run->active = 0;
   k1 = k;
 
   /* Building chunks may have overwritten earlier chunks of this

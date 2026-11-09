@@ -151,22 +151,33 @@ fd_gui_hist_leave( fd_gui_hist_t * hist );
 void *
 fd_gui_hist_delete( void * mem );
 
+/* FD_GUI_HIST_PREPARED_DAYS is the number of calendar days of
+   per-day records (timeline_day, timeline_tile_day and
+   timeline_tile_state_day) the store always keeps: yesterday, today and
+   tomorrow, which is prepared ahead of midnight. */
+
+#define FD_GUI_HIST_PREPARED_DAYS (3UL)
+
 /* fd_gui_hist_db_descs fills descs with the FD_GUI_HIST_CNT DB
-   descriptors for a store of store_bytes, and returns descs. */
+   descriptors for a store of store_bytes serving a topology of tile_cnt
+   tiles, and returns descs.  tile_cnt sizes the reserved regions of the
+   per-tile day DBs. */
 
 fd_gui_store_desc_t *
 fd_gui_hist_db_descs( fd_gui_store_desc_t descs[ static FD_GUI_HIST_CNT ],
-                      ulong               store_bytes );
+                      ulong               store_bytes,
+                      ulong               tile_cnt );
 
 FD_FN_CONST static inline ulong
 fd_gui_hist_db_cnt( void ) { return FD_GUI_HIST_CNT; }
 
 /* fd_gui_hist_store_footprint returns the footprint of a store of
-   store_bytes holding the history DBs, or 0 if store_bytes is too
-   small. */
+   store_bytes holding the history DBs of a topology of tile_cnt tiles,
+   or 0 if store_bytes is too small. */
 
 ulong
-fd_gui_hist_store_footprint( ulong store_bytes );
+fd_gui_hist_store_footprint( ulong store_bytes,
+                             ulong tile_cnt );
 
 /* fd_gui_hist_store_new formats mem as a store of store_bytes backed
    by path, holding the history DBs.  The result is ready to join and
@@ -177,6 +188,7 @@ void *
 fd_gui_hist_store_new( void *       mem,
                        char const * path,
                        ulong        store_bytes,
+                       ulong        tile_cnt,
                        ulong        seed );
 
 fd_gui_hist_metrics_t const *

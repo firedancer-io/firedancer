@@ -514,18 +514,18 @@ test_gui_notes( void ) {
   gui_failover_notes( notes, FD_ADMINCTL_FAILOVER_CMD_HANDOFF, 0UL, FD_ADMINCTL_RESULT_SUCCESS, 0UL, 0 );
   FD_TEST( !strcmp( notes, "" ) );
   gui_failover_notes( notes, FD_ADMINCTL_FAILOVER_CMD_HANDOFF, FD_ADMINCTL_FAILOVER_FLAG_TAKEOVER, FD_FAILOVER_CONTROL_RESULT_TIMEOUT, 0UL, 0 );
-  FD_TEST( !strcmp( notes, "This was the first attempt of a takeover, asking the other validator to hand over the staked identity." ) );
+  FD_TEST( !strcmp( notes, "This was the first attempt of a takeover: the promoted node asked the demoted node to hand over the staked identity." ) );
   gui_failover_notes( notes, FD_ADMINCTL_FAILOVER_CMD_PROMOTE, force, FD_ADMINCTL_RESULT_SUCCESS,
                       FD_FAILOVER_BYPASS_HOLDER_LIVE|FD_FAILOVER_BYPASS_HOLDER_SEEN|FD_FAILOVER_BYPASS_HISTORY_INCOMPLETE, 0 );
   /* The longest notes fit. */
-  FD_TEST( !strcmp( notes, "This was the second attempt of a takeover, taking the staked identity without the other validator. "
-                           "It went ahead only because of --force, since the other validator still looked alive and was seen running the staked identity. "
-                           "This validator started voting without the other validator's record of past votes." ) );
+  FD_TEST( !strcmp( notes, "This was the second attempt of a takeover: the promoted node took the staked identity without help from the demoted node. "
+                           "It went ahead only because of --force: the demoted node still looked alive and was seen running the staked identity. "
+                           "The promoted node started voting without the demoted node's record of past votes." ) );
   gui_failover_notes( notes, FD_ADMINCTL_FAILOVER_CMD_PROMOTE, force, FD_ADMINCTL_RESULT_SUCCESS, 0UL, 0 );
-  FD_TEST( !strcmp( notes, "This was the second attempt of a takeover, taking the staked identity without the other validator. "
-                           "It was run with --force, but would have worked without it because the other validator already looked down." ) );
+  FD_TEST( !strcmp( notes, "This was the second attempt of a takeover: the promoted node took the staked identity without help from the demoted node. "
+                           "It was run with --force, but would have worked without it because the demoted node already looked down." ) );
   gui_failover_notes( notes, FD_ADMINCTL_FAILOVER_CMD_PROMOTE, force, FD_FAILOVER_CONTROL_RESULT_ADOPTION_FAILED, 0UL, 1 );
-  FD_TEST( !strcmp( notes, "This was the second attempt of a takeover, taking the staked identity without the other validator. It was run with --force. "
+  FD_TEST( !strcmp( notes, "This was the second attempt of a takeover: the promoted node took the staked identity without help from the demoted node. It was run with --force. "
                            "The failover target changed while the command was running." ) );
   gui_failover_notes( notes, FD_ADMINCTL_FAILOVER_CMD_PREFLIGHT, FD_ADMINCTL_FAILOVER_FLAG_TAKEOVER, FD_FAILOVER_CONTROL_RESULT_NO_PEER, 0UL, 0 );
   FD_TEST( !strcmp( notes, "This was the check a failover command runs first, and it refused before anything changed." ) );

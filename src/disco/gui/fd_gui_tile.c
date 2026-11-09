@@ -253,7 +253,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, fd_http_server_align(),  http_fp );
   l = FD_LAYOUT_APPEND( l, fd_gui_peers_align(),    fd_gui_peers_footprint( http_param.max_ws_connection_cnt ) );
   l = FD_LAYOUT_APPEND( l, fd_gui_align(),          fd_gui_footprint( tile->gui.tile_cnt, tile->gui.max_live_slots, tile->gui.max_txn_per_slot ) );
-  l = FD_LAYOUT_APPEND( l, fd_gui_store_align(),    fd_gui_hist_store_footprint( tile->gui.db_size_gib<<30 ) );
+  l = FD_LAYOUT_APPEND( l, fd_gui_store_align(),    fd_gui_hist_store_footprint( tile->gui.db_size_gib<<30, tile->gui.tile_cnt ) );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -293,6 +293,7 @@ metrics_write( fd_gui_ctx_t * ctx ) {
   FD_MCNT_SET( GUI, TIMELINE_CHUNK_MISS,     ctx->gui->chunk.miss_cnt     );
   FD_MCNT_SET( GUI, TIMELINE_CHUNK_LATE,     ctx->gui->chunk.late_cnt     );
   FD_MCNT_SET( GUI, TIMELINE_CHUNK_FALLBACK, ctx->gui->chunk.fallback_cnt );
+  FD_MCNT_SET( GUI, TIMELINE_DAY_MISSING, ctx->gui->day_prep.missing_cnt );
 
   ulong db_cnt = fd_gui_store_cnt( ctx->db );
 
@@ -886,7 +887,7 @@ privileged_init( fd_topo_t const *      topo,
   fd_http_server_t * _gui = FD_SCRATCH_ALLOC_APPEND( l, fd_http_server_align(), fd_http_server_footprint( http_param ) );
                      FD_SCRATCH_ALLOC_APPEND( l, fd_gui_peers_align(),    fd_gui_peers_footprint( http_param.max_ws_connection_cnt ) );
                      FD_SCRATCH_ALLOC_APPEND( l, fd_gui_align(),          fd_gui_footprint( tile->gui.tile_cnt, tile->gui.max_live_slots, tile->gui.max_txn_per_slot ) );
-  void * _db       = FD_SCRATCH_ALLOC_APPEND( l, fd_gui_store_align(),       fd_gui_hist_store_footprint( tile->gui.db_size_gib<<30 ) );
+  void * _db       = FD_SCRATCH_ALLOC_APPEND( l, fd_gui_store_align(),       fd_gui_hist_store_footprint( tile->gui.db_size_gib<<30, tile->gui.tile_cnt ) );
 
   fd_http_server_callbacks_t gui_callbacks = {
     .request    = gui_http_request,
@@ -902,7 +903,7 @@ privileged_init( fd_topo_t const *      topo,
 
   FD_LOG_NOTICE(( "gui server listening at %shttp://" FD_IP4_ADDR_FMT ":%u%s", fd_log_style_bold(), FD_IP4_ADDR_FMT_ARGS( tile->gui.listen_addr ), tile->gui.listen_port, fd_log_style_normal() ));
 
-  ctx->db = fd_gui_store_join( fd_gui_hist_store_new( _db, tile->gui.gui_database_path, tile->gui.db_size_gib<<30, ctx->seed ) );
+  ctx->db = fd_gui_store_join( fd_gui_hist_store_new( _db, tile->gui.gui_database_path, tile->gui.db_size_gib<<30, tile->gui.tile_cnt, ctx->seed ) );
   if( FD_UNLIKELY( !ctx->db ) ) FD_LOG_ERR(( "fd_gui_hist_store_new(%s) failed; gui tile cannot start", tile->gui.gui_database_path ));
 
   if( FD_UNLIKELY( !strcmp( tile->gui.identity_key_path, "" ) ) )
@@ -967,7 +968,7 @@ unprivileged_init( fd_topo_t const *      topo,
                        FD_SCRATCH_ALLOC_APPEND( l, fd_http_server_align(),  fd_http_server_footprint( http_param )                    );
   void * _peers      = FD_SCRATCH_ALLOC_APPEND( l, fd_gui_peers_align(),    fd_gui_peers_footprint( http_param.max_ws_connection_cnt) );
   void * _gui        = FD_SCRATCH_ALLOC_APPEND( l, fd_gui_align(),          fd_gui_footprint( tile->gui.tile_cnt, tile->gui.max_live_slots, tile->gui.max_txn_per_slot ) );
-                       FD_SCRATCH_ALLOC_APPEND( l, fd_gui_store_align(),       fd_gui_hist_store_footprint( tile->gui.db_size_gib<<30 ) );
+                       FD_SCRATCH_ALLOC_APPEND( l, fd_gui_store_align(),       fd_gui_hist_store_footprint( tile->gui.db_size_gib<<30, tile->gui.tile_cnt ) );
 
   fd_http_static_file_t const * index_html = index_html_etag_init( ctx );
 

@@ -288,14 +288,17 @@ fd_gui_hist_kv_cap( int dbi ) {
 }
 
 /* fd_gui_hist_base_regions returns the number of regions DB `dbi` is
-   guaranteed to keep (see fd_gui_store_desc_t::base_regions).  The
-   retention floors are:
+   guaranteed to keep in a store for a topology of tile_cnt tiles (see
+   fd_gui_store_desc_t::base_regions).  The retention floors are:
      - TS DBs: the newest full region plus the head being filled.
      - slot/leader_slot/epoch: at least FD_GUI_HIST_MIN_EPOCHS epochs of
        records plus one partially filled head region.
-     - timeline_day: today and yesterday (one record per region).
-     - timeline_tile_day: today's and yesterday's record for every tile
-       plus one partially filled head region.
+     - timeline_day: yesterday, today and tomorrow (one record per
+       region).  Tomorrow's record is prepared ahead of midnight (see
+       fd_gui_timeline_days_prepare).
+     - timeline_tile_day / timeline_tile_state_day: yesterday's, today's
+       and tomorrow's record for every tile that has one, plus one
+       partially filled head region.
    Everything above these floors comes from the shared pool, which is
    reclaimed oldest region first across DBs. */
 static inline ulong
@@ -304,17 +307,18 @@ fd_gui_hist_ceil_div( ulong a, ulong b ) {
 }
 
 static ulong
-fd_gui_hist_base_regions( int dbi ) {
+fd_gui_hist_base_regions( int   dbi,
+                          ulong tile_cnt ) {
   ulong cap = fd_gui_hist_kv_cap( dbi );
   switch( dbi ) {
     case FD_GUI_HIST_SLOT:              return fd_gui_hist_ceil_div( FD_GUI_HIST_MIN_EPOCHS*MAX_SLOTS_PER_EPOCH, cap ) + 1UL;
     case FD_GUI_HIST_LEADER_SLOT:       return fd_gui_hist_ceil_div( FD_GUI_HIST_MIN_EPOCHS*FD_GUI_HIST_MAX_LEADER_SLOTS_PER_EPOCH, cap ) + 1UL;
     case FD_GUI_HIST_EPOCH:             return fd_gui_hist_ceil_div( FD_GUI_HIST_MIN_EPOCHS, cap ) + 1UL;
-    case FD_GUI_HIST_TIMELINE_DAY:      return 2UL;
-    case FD_GUI_HIST_TIMELINE_TILE_DAY: return fd_gui_hist_ceil_div( 2UL*FD_TOPO_MAX_TILES, cap ) + 1UL;
+    case FD_GUI_HIST_TIMELINE_DAY:      return FD_GUI_HIST_PREPARED_DAYS;
+    case FD_GUI_HIST_TIMELINE_TILE_DAY: return fd_gui_hist_ceil_div( FD_GUI_HIST_PREPARED_DAYS*tile_cnt, cap ) + 1UL;
     /* Only execrp tiles and the replay tile have tile state records. */
     case FD_GUI_HIST_TIMELINE_TILE_STATE_DAY:
-      return fd_gui_hist_ceil_div( 2UL*FD_GUI_TILE_STATE_POS_CNT, cap ) + 1UL;
+      return fd_gui_hist_ceil_div( FD_GUI_HIST_PREPARED_DAYS*fd_ulong_min( tile_cnt, FD_GUI_TILE_STATE_POS_CNT ), cap ) + 1UL;
     default:                            return 2UL;
   }
 }
@@ -348,7 +352,8 @@ fd_gui_hist_kv_max_records( int   dbi,
 
 fd_gui_store_desc_t *
 fd_gui_hist_db_descs( fd_gui_store_desc_t descs[ static FD_GUI_HIST_CNT ],
-                      ulong               store_bytes ) {
+                      ulong               store_bytes,
+                      ulong               tile_cnt ) {
   static char const * const names[ FD_GUI_HIST_CNT ] = {
     "scheduler_counts", "tile_timers", "shred_events", "txn_start",
     "txn_end", "slot", "leader_slot", "epoch", "tile_stats",
@@ -358,7 +363,7 @@ fd_gui_hist_db_descs( fd_gui_store_desc_t descs[ static FD_GUI_HIST_CNT ],
     "replay_lthash_batch", "vote_batch"
   };
 
-  for( int i=0; i<FD_GUI_HIST_CNT; i++ ) descs[ i ].base_regions = fd_gui_hist_base_regions( i );
+  for( int i=0; i<FD_GUI_HIST_CNT; i++ ) descs[ i ].base_regions = fd_gui_hist_base_regions( i, tile_cnt );
   ulong shared = fd_ulong_sat_sub( store_bytes, fd_gui_store_min_size( FD_GUI_HIST_CNT, descs ) ) / FD_GUI_STORE_REGION_SZ;
 
   for( int i=0; i<FD_GUI_HIST_CNT; i++ ) {
@@ -384,18 +389,20 @@ fd_gui_hist_db_descs( fd_gui_store_desc_t descs[ static FD_GUI_HIST_CNT ],
 }
 
 ulong
-fd_gui_hist_store_footprint( ulong store_bytes ) {
+fd_gui_hist_store_footprint( ulong store_bytes,
+                             ulong tile_cnt ) {
   fd_gui_store_desc_t descs[ FD_GUI_HIST_CNT ];
-  return fd_gui_store_footprint( store_bytes, FD_GUI_HIST_CNT, fd_gui_hist_db_descs( descs, store_bytes ) );
+  return fd_gui_store_footprint( store_bytes, FD_GUI_HIST_CNT, fd_gui_hist_db_descs( descs, store_bytes, tile_cnt ) );
 }
 
 void *
 fd_gui_hist_store_new( void *       mem,
                        char const * path,
                        ulong        store_bytes,
+                       ulong        tile_cnt,
                        ulong        seed ) {
   fd_gui_store_desc_t descs[ FD_GUI_HIST_CNT ];
-  return fd_gui_store_new( mem, path, store_bytes, FD_GUI_HIST_CNT, seed, fd_gui_hist_db_descs( descs, store_bytes ) );
+  return fd_gui_store_new( mem, path, store_bytes, FD_GUI_HIST_CNT, seed, fd_gui_hist_db_descs( descs, store_bytes, tile_cnt ) );
 }
 
 /* Maximum number of records deleted per eviction iteration. */

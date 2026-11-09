@@ -689,6 +689,141 @@ test_chunks( fd_gui_t * gui ) {
   free( mem );
 }
 
+/* test_chunk_runs checks that chunks built from one scan over a run of
+   missing chunks are byte for byte the chunks built one scan at a time,
+   for every kind, with rows that span chunks, rows inserted late (up
+   to the scan margin and past it) and runs broken up by cached chunks. */
+
+typedef struct { long ins; int db; ulong i; } run_row_t;
+
+static void
+test_chunk_runs( fd_gui_t * gui ) {
+  long const base = 100000000000L; /* chunk 1000 */
+  ulong const n   = 400UL;
+  gui->tile_state.exec_cnt = 2UL;
+  gui->tile_state.pos_cnt  = 3UL;
+
+  /* Rows every 10 ms, inserted 0 to 1.6 s after they end, appended in
+     insertion order per db. */
+  static run_row_t rows[ 4UL*400UL ];
+  ulong rn = 0UL;
+  for( ulong i=0UL; i<n; i++ ) {
+    long t    = base+(long)i*10000000L;
+    long late = (long)(i%9UL)*200000000L;
+    rows[ rn++ ] = (run_row_t){ t+5000000L+late, 0, i };
+    if( !(i%4UL) ) rows[ rn++ ] = (run_row_t){ t+5000000L+late, 1, i };
+    rows[ rn++ ] = (run_row_t){ t+3000000L+late, 2, i };
+    if( !(i%10UL) ) rows[ rn++ ] = (run_row_t){ t+late, 3, i };
+  }
+  for( ulong a=1UL; a<rn; a++ ) { /* stable insertion sort by ins */
+    run_row_t r = rows[ a ]; ulong b = a;
+    while( b && rows[ b-1UL ].ins>r.ins ) { rows[ b ] = rows[ b-1UL ]; b--; }
+    rows[ b ] = r;
+  }
+  for( ulong j=0UL; j<rn; j++ ) {
+    ulong i = rows[ j ].i;
+    long  t = base+(long)i*10000000L;
+    long  ins = rows[ j ].ins;
+    switch( rows[ j ].db ) {
+    case 0: {
+      fd_gui_store_replay_txn_t txn = {
+        .insert_time_ns=ins, .completion_time_ns=t+5000000L, .slot=300UL+i/40UL, .txn_idx=i,
+        .txn_exec_idx=i%2UL, .txn_sigverify_exec_idx=(i%11UL) ? (i+1UL)%2UL : ULONG_MAX,
+        .sigverify_start_ns=t-80000000L, .sigverify_end_ns=t-60000000L, .load_start_ns=t-50000000L,
+        .check_start_ns=t-40000000L, .exec_start_ns=t-30000000L, .commit_start_ns=t-10000000L, .commit_end_ns=t+5000000L,
+        .transaction_fee=5000UL+i, .priority_fee=i, .tips=(i%3UL) ? 0UL : 7UL, .is_committable=1, .error_code=(uint)(i%5UL==0UL)
+      };
+      FD_TEST( !fd_gui_hist_ts_append( gui, FD_GUI_HIST_REPLAY_TXN, &txn ) );
+      fd_gui_store_replay_txn_batch_t b = {
+        .insert_time_ns=ins, .completion_time_ns=t+5000000L, .slot=300UL+i/40UL, .batch_idx=i, .txn_idx=i,
+        .txn_exec_idx=(i%3UL) ? i%2UL : ULONG_MAX, .txn_sigverify_exec_idx=(i%3UL) ? ULONG_MAX : i%2UL,
+        .sigverify_start_ns=(i%3UL) ? LONG_MAX : t-150000000L, .sigverify_end_ns=(i%3UL) ? LONG_MAX : t+5000000L,
+        .load_start_ns=(i%3UL) ? t-150000000L : LONG_MAX, .check_start_ns=(i%3UL) ? t-90000000L : LONG_MAX,
+        .exec_start_ns=(i%3UL) ? t-60000000L : LONG_MAX, .commit_start_ns=(i%3UL) ? t-20000000L : LONG_MAX,
+        .commit_end_ns=(i%3UL) ? t+5000000L : LONG_MAX, .exec_txn_cnt=(uchar)((i%3UL) ? 4 : 0),
+        .sigverify_txn_cnt=(uchar)((i%3UL) ? 0 : 4), .is_leader=(uchar)(i%13UL==0UL),
+        .sigverify_txn_idx=(i%3UL) ? ULONG_MAX : i, .txn_fees=(i%3UL) ? 20000UL+i : 0UL, .prio_fees=i, .tips=1UL
+      };
+      FD_TEST( !fd_gui_hist_ts_append( gui, FD_GUI_HIST_REPLAY_TXN_BATCH, &b ) );
+      break;
+    }
+    case 1: {
+      fd_gui_store_replay_lthash_batch_t lb = { .insert_time_ns=ins, .start_ns=t-30000000L, .end_ns=t+5000000L,
+                                                .slot=300UL+i/40UL, .acct_cnt=(uint)(10UL+i), .exec_idx=(ushort)(i%2UL), .task_cnt=3 };
+      FD_TEST( !fd_gui_hist_ts_append( gui, FD_GUI_HIST_REPLAY_LTHASH_BATCH, &lb ) );
+      break;
+    }
+    case 2: {
+      fd_gui_store_replay_lthash_t l = { .insert_time_ns=ins, .start_ns=t-20000000L, .end_ns=t+3000000L, .slot=300UL+i/40UL,
+                                         .exec_idx=(ushort)(i%2UL), .kind=(uchar)(i%2UL ? FD_GUI_LTHASH_KIND_ADD : FD_GUI_LTHASH_KIND_SUB), .cnt=(uchar)(i%50UL) };
+      FD_TEST( !fd_gui_hist_ts_append( gui, FD_GUI_HIST_REPLAY_LTHASH, &l ) );
+      break;
+    }
+    case 3: {
+      fd_gui_store_replay_slot_state_t st = { .insert_time_ns=ins, .start_ns=t-150000000L, .end_ns=t,
+                                              .slot=300UL+i/40UL, .state=FD_GUI_TILE_STATE_BLOCKED_ON_TILES+(i/10UL)%4UL };
+      FD_TEST( !fd_gui_hist_ts_append( gui, FD_GUI_HIST_REPLAY_SLOT_STATE, &st ) );
+      break;
+    }
+    }
+  }
+  /* Shred and FEC events, timestamps up to 0.9 s before admission. */
+  for( ulong i=0UL; i<n; i++ ) {
+    long now = base+(long)i*10000000L+900000000L;
+    long t   = now-(long)(i%10UL)*90000000L;
+    fd_gui_shred_event_append( gui, 300UL+i/40UL, i, FD_GUI_SLOT_SHRED_SHRED_RECEIVED_TURBINE, t, now );
+    fd_gui_fec_event_append( gui, 300UL+i/40UL, i, FD_GUI_SLOT_SHRED_SHRED_RECEIVED_TURBINE, t, now );
+  }
+  fd_gui_shred_flush( gui, base+20000000000L );
+
+  void * mem = aligned_alloc( 64UL, FD_GUI_CHUNK_CACHE_SZ );
+  FD_TEST( mem );
+  fd_gui_chunk_t * c = &gui->chunk;
+  static char want[ 1UL<<20 ];
+  ulong const k0 = (ulong)(base/FD_GUI_CHUNK_NS);
+  long  const s0 = base-200000000L;
+  long  const e0 = base+(long)n*10000000L+300000000L; /* 46 chunks */
+  ulong const kend = (ulong)(e0/FD_GUI_CHUNK_NS);
+  for( int kind=0; kind<FD_GUI_CHUNK_KIND_CNT; kind++ ) {
+    for( int pre=0; pre<2; pre++ ) {
+      /* One chunk at a time. */
+      fd_gui_chunk_init( c, mem );
+      c->now = base+60000000000L;
+      gui->chunk_run.size[ kind ] = 1UL;
+      int rc;
+      json_t json = chunked( gui, 1, kind, s0, e0, &rc );
+      FD_TEST( rc==1 && json.sz<=sizeof(want) );
+      FD_TEST( count( field( field( json, "value" ), "chunks" ) )==kend-(k0-2UL) );
+      fd_memcpy( want, json.ptr, json.sz );
+      ulong want_sz = json.sz;
+
+      /* Runs, broken up by a few chunks cached first when pre. */
+      fd_gui_chunk_init( c, mem );
+      c->now = base+60000000000L;
+      gui->chunk_run.size[ kind ] = 0UL;
+      if( pre ) {
+        chunked( gui, 1, kind, base+500000000L, base+700000000L, &rc );
+        FD_TEST( rc==1 );
+      }
+      json = chunked( gui, 1, kind, s0, e0, &rc );
+      FD_TEST( rc==1 );
+      FD_TEST( gui->chunk_run.k1>k0 ); /* built from runs */
+      FD_TEST( !gui->chunk_run.active );
+      FD_TEST( json.sz==want_sz && !memcmp( json.ptr, want, want_sz ) );
+    }
+  }
+  /* Rows were found at all. */
+  json_t value = field( chunked( gui, 1, FD_GUI_CHUNK_KIND_TXN_META, base, base+FD_GUI_CHUNK_NS, &(int){0} ), "value" );
+  FD_TEST( count( field( element( field( value, "chunks" ), 0UL ), "txn_idx" ) )==10UL );
+  value = field( chunked( gui, 1, FD_GUI_CHUNK_KIND_FEC, base+2L*FD_GUI_CHUNK_NS, base+3L*FD_GUI_CHUNK_NS, &(int){0} ), "value" );
+  FD_TEST( count( field( element( field( value, "chunks" ), 0UL ), "event" ) ) );
+
+  fd_gui_chunk_init( c, NULL );
+  free( mem );
+  gui->tile_state.exec_cnt = 0UL;
+  gui->tile_state.pos_cnt  = 0UL;
+}
+
 static void
 test_limit( fd_gui_t * gui ) {
   long const ts = 40000000000L;
@@ -733,9 +868,9 @@ main( int argc, char ** argv ) {
   char path[128];
   fd_cstr_printf_check( path, sizeof(path), NULL, "/tmp/fd_gui_timeline_txn.%i", (int)getpid() );
   ulong bytes = 10UL<<30;
-  void * db_mem = aligned_alloc( fd_gui_store_align(), fd_ulong_align_up( fd_gui_hist_store_footprint( bytes ), fd_gui_store_align() ) );
+  void * db_mem = aligned_alloc( fd_gui_store_align(), fd_ulong_align_up( fd_gui_hist_store_footprint( bytes, 1UL ), fd_gui_store_align() ) );
   FD_TEST( db_mem );
-  gui->db = fd_gui_store_join( fd_gui_hist_store_new( db_mem, path, bytes, 0UL ) );
+  gui->db = fd_gui_store_join( fd_gui_hist_store_new( db_mem, path, bytes, 1UL, 0UL ) );
   FD_TEST( gui->db );
   void * hist_mem = aligned_alloc( fd_gui_hist_align(), fd_ulong_align_up( fd_gui_hist_footprint(), fd_gui_hist_align() ) );
   FD_TEST( hist_mem );
@@ -756,6 +891,7 @@ main( int argc, char ** argv ) {
   test_lthash_batch( gui );
   test_revenue( gui );
   test_chunks( gui );
+  test_chunk_runs( gui ); /* after test_chunks: rows after its windows */
   fd_http_server_delete( fd_http_server_leave( gui->http ) );
   fd_gui_hist_delete( fd_gui_hist_leave( gui->hist ) );
   fd_gui_store_delete( fd_gui_store_leave( gui->db ) );

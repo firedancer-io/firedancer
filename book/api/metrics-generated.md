@@ -2006,6 +2006,7 @@
 | <span class="metrics-name">gui_&#8203;timeline_&#8203;chunk_&#8203;miss</span> | counter | Timeline response chunks built, compressed and added to the chunk cache |
 | <span class="metrics-name">gui_&#8203;timeline_&#8203;chunk_&#8203;late</span> | counter | Timeline rows recorded after their chunk was cached, so missing from the frozen cached chunk |
 | <span class="metrics-name">gui_&#8203;timeline_&#8203;chunk_&#8203;fallback</span> | counter | Raw timeline queries answered without the chunk cache (uncompressed connection, row limit, or oversized chunk) |
+| <span class="metrics-name">gui_&#8203;timeline_&#8203;day_&#8203;missing</span> | counter | Timeline samples dropped because their day record was not prepared yet |
 
 </div>
 

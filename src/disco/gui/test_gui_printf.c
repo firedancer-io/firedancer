@@ -399,9 +399,9 @@ test_shreds_window( void ) {
   memset( gui, 0, fd_gui_footprint( 1UL, 1UL, 1UL ) );
 
   ulong map_bytes = 10UL<<30;
-  void * db_mem = aligned_alloc( fd_gui_store_align(), fd_ulong_align_up( fd_gui_hist_store_footprint( map_bytes ), fd_gui_store_align() ) );
+  void * db_mem = aligned_alloc( fd_gui_store_align(), fd_ulong_align_up( fd_gui_hist_store_footprint( map_bytes, 1UL ), fd_gui_store_align() ) );
   FD_TEST( db_mem );
-  gui->db = fd_gui_store_join( fd_gui_hist_store_new( db_mem, path, map_bytes, 0x0123456789abcdefUL ) );
+  gui->db = fd_gui_store_join( fd_gui_hist_store_new( db_mem, path, map_bytes, 1UL, 0x0123456789abcdefUL ) );
   FD_TEST( gui->db );
   void * hist_mem = aligned_alloc( fd_gui_hist_align(), fd_ulong_align_up( fd_gui_hist_footprint(), fd_gui_hist_align() ) );
   FD_TEST( hist_mem );
@@ -489,9 +489,9 @@ test_exec_done_dedupe( void ) {
   FD_TEST( gui );
   memset( gui, 0, fd_gui_footprint( 1UL, 1UL, 1UL ) );
   ulong map_bytes = 10UL<<30;
-  void * db_mem = aligned_alloc( fd_gui_store_align(), fd_ulong_align_up( fd_gui_hist_store_footprint( map_bytes ), fd_gui_store_align() ) );
+  void * db_mem = aligned_alloc( fd_gui_store_align(), fd_ulong_align_up( fd_gui_hist_store_footprint( map_bytes, 1UL ), fd_gui_store_align() ) );
   FD_TEST( db_mem );
-  gui->db = fd_gui_store_join( fd_gui_hist_store_new( db_mem, path, map_bytes, 0x0123456789abcdefUL ) );
+  gui->db = fd_gui_store_join( fd_gui_hist_store_new( db_mem, path, map_bytes, 1UL, 0x0123456789abcdefUL ) );
   FD_TEST( gui->db );
   void * hist_mem = aligned_alloc( fd_gui_hist_align(), fd_ulong_align_up( fd_gui_hist_footprint(), fd_gui_hist_align() ) );
   FD_TEST( hist_mem );
