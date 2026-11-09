@@ -371,8 +371,19 @@ fd_net_tx_ip4_fill( fd_ip4_hdr_t * ip4_hdr,
   }
 }
 
-/* fd_net_tx_pkt_prep updates *frame_sz for GRE encapsulation.
-   Returns 1 on success or 0 after counting a dropped packet. */
+/* fd_net_tx_pkt_prep checks for IPv4 EtherType, IP version 4, and an IPv4
+   header length of at least 20 bytes that fits within the packet.
+   Sets Ethernet src and dst MAC addresses from ctx->tx_route.mac_addrs.
+   If the IPv4 src address is zero, sets it from ctx->tx_route.src_ip
+   and recomputes the IPv4 checksum.
+
+   For GRE, that source address update applies to the inner IPv4 header.
+   Constructs an outer IPv4 header using ctx->tx_route.gre_outer_src_ip
+   and ctx->tx_route.gre_outer_dst_ip, computes its checksum, and writes
+   a GRE header.  Updates *frame_sz to include the outer IPv4 and GRE
+   headers.
+
+   Returns 1 on success, 0 on failure. */
 static inline int
 fd_net_tx_pkt_prep( fd_net_tile_t * ctx,
                     uchar *         frame,
