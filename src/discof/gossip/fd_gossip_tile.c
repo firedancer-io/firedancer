@@ -269,17 +269,17 @@ metrics_write( fd_gossip_tile_ctx_t * ctx ) {
    infos — a strong convergence signal. */
 #define FD_GOSSIP_PEER_SAT_QUIET_NS (500L*1000L*1000L)
 
-/* Peers keep the value with the newest wallclock, so each push must
-   be newer than the one before even within a millisecond.  The push
-   is retried from after_credit until the signing queue takes it. */
+/* Peers keep the value with the newest wallclock, which is in
+   milliseconds.  Two pushes in the same millisecond would tie, so
+   each push is dated at least one millisecond after the last. */
 
 static void
-snap_push( fd_gossip_tile_ctx_t * ctx,
-           long                   now ) {
-  now = fd_long_max( now, ctx->snap_push_nanos+1000000L );
+publish_snap( fd_gossip_tile_ctx_t * ctx,
+              long                   now ) {
+  now = fd_long_max( now, ctx->snap_publish_nanos+1000000L /* 1 ms */ );
   if( FD_UNLIKELY( fd_gossip_push_snapshot_hashes( ctx->gossip, ctx->snap, now ) ) ) return;
-  ctx->snap_push_nanos = now;
-  ctx->snap_dirty      = 0;
+  ctx->snap_publish_nanos = now;
+  ctx->snap_publish       = 0;
 }
 
 static void
@@ -322,7 +322,8 @@ after_credit( fd_gossip_tile_ctx_t * ctx,
   /* The stem's tick, at most one loop iteration stale, saves an rdtsc
      per iteration. */
   long now = fd_clock_tile_tickcount_to_wallclock( ctx->clock, stem->now );
-  if( FD_UNLIKELY( ctx->snap_dirty ) ) snap_push( ctx, now );
+  if( FD_UNLIKELY( ctx->snap_publish ) ) publish_snap( ctx, now );
+
   fd_gossip_advance( ctx->gossip, now, stem, charge_busy );
 
   /* Peer table saturation detection.  After fd_gossip_advance updates
@@ -416,7 +417,7 @@ handle_packet( fd_gossip_tile_ctx_t * ctx,
 
 /* snapmk reports every snapshot on disk, in any order at startup.
    Advertise the newest full snapshot and the newest incremental built
-   on it, as Agave does. */
+   on it. */
 
 static void
 handle_snapmk( fd_gossip_tile_ctx_t *  ctx,
@@ -424,14 +425,13 @@ handle_snapmk( fd_gossip_tile_ctx_t *  ctx,
                fd_snapmk_msg_t const * msg ) {
   if( sig!=FD_SNAPMK_MSG_FOUND && sig!=FD_SNAPMK_MSG_CREATED ) return;
 
-  /* found and created messages share the slot, base_slot and name
-     fields */
-  ulong        slot      = msg->created.slot;
-  ulong        base_slot = msg->created.base_slot;
-  char const * name      = msg->created.name;
-
-  ulong full_slot;
-  ulong incr_slot;
+  /* found and created messages carry the file name at the same place.
+     The name holds the slots and the hash, for example
+       snapshot-100-<hash>.tar.zst
+       incremental-snapshot-100-110-<hash>.tar.zst */
+  char const * name = msg->created.name;
+  ulong full_slot; /* slot of the full snapshot, or the base of an incremental */
+  ulong incr_slot; /* slot of the incremental, ULONG_MAX for a full snapshot */
   uchar hash[ 32 ];
   int   is_zstd;
   if( FD_UNLIKELY( fd_ssarchive_parse_filename( name, &full_slot, &incr_slot, hash, &is_zstd ) ) ) {
@@ -439,20 +439,22 @@ handle_snapmk( fd_gossip_tile_ctx_t *  ctx,
     return;
   }
 
-  if( base_slot==ULONG_MAX ) {
-    if( slot<=ctx->snap->full_slot ) return;
-    ctx->snap->full_slot = slot;
-    fd_memcpy( ctx->snap->full_hash, hash, 32UL );
+  fd_gossip_snapshot_hashes_t * snap = ctx->snap;
+  int is_full = incr_slot==ULONG_MAX;
+  if( is_full ) {
+    if( full_slot<=snap->full_slot ) return;
+    snap->full_slot = full_slot;
+    fd_memcpy( snap->full_hash, hash, 32UL );
   } else {
-    if( slot<=ctx->snap->incremental[ 0 ].slot ) return;
-    ctx->snap->incremental[ 0 ].slot = slot;
-    fd_memcpy( ctx->snap->incremental[ 0 ].hash, hash, 32UL );
-    ctx->snap_incr_base_slot = base_slot;
+    if( incr_slot<=snap->incremental[ 0 ].slot ) return;
+    snap->incremental[ 0 ].slot = incr_slot;
+    fd_memcpy( snap->incremental[ 0 ].hash, hash, 32UL );
+    ctx->snap_incr_base_slot = full_slot;
     /* The full snapshot it builds on has not been reported yet. */
-    if( base_slot!=ctx->snap->full_slot ) return;
+    if( full_slot!=snap->full_slot ) return;
   }
-  ctx->snap->incremental_len = (ulong)( ctx->snap_incr_base_slot==ctx->snap->full_slot );
-  ctx->snap_dirty            = 1;
+  snap->incremental_len = (ulong)( ctx->snap_incr_base_slot==snap->full_slot );
+  ctx->snap_publish     = 1;
 }
 
 static inline int
