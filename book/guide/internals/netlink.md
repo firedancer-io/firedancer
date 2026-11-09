@@ -30,10 +30,9 @@ The reasons netlink requests are done in a separate tile are:
 
 ### "Netbase" shared memory region
 
-The netlink tile keeps a read-only cache of the following information:
+The netlink tile maintains shared caches of the following information:
 
 - Interface table
-- IPv4 route tables `local` and `main`
 - Neighbor tables (only for XDP-enabled Ethernet interfaces)
 
 The objects containing the above information are stored in the "netbase"
@@ -64,8 +63,12 @@ inputs.
    a system daemon).
 
 - `[netlink tile] --> [netbase]` <br/>
-   The netlink tile writes neighbor and route table updates to a shared
-   memory region.
+   The netlink tile writes interface and neighbor table updates to a
+   shared memory region.
+
+- `[netlink tile] --> [iproute_out] --> [net tiles]` <br/>
+   Each net tile maintains private IPv4 route tables, updated by
+   messages from the netlink tile.
 
 - `[neighbor discovery] --> [netlink] --> [netlink tile]` <br/>
    Neighbor table updates are forwarded ot the netlink tile.  This path
