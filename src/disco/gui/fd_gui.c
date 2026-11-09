@@ -300,6 +300,7 @@ fd_gui_new( void *                   shmem,
     gui->votes.batch[ i ].slot   = ULONG_MAX;
     gui->votes.batch[ i ].pt_cnt = 0UL;
   }
+  for( ulong i=0UL; i<FD_GUI_VOTE_CUM_SLOT_CNT; i++ ) gui->votes.cum[ i ].slot = ULONG_MAX;
   gui->votes.dropped_cnt     = 0UL;
   gui->votes.lat_missing_cnt = 0UL;
   gui->votes.batch_late_cnt  = 0UL;
@@ -4299,9 +4300,39 @@ fd_gui_vote_batch_dist2( double ax, double ay,
   return ex*ex + ey*ey;
 }
 
+/* fd_gui_vote_cum_add adds stake to the running total of slot's votes
+   of kind and returns the new total, or FD_GUI_VOTE_CUM_UNKNOWN if the
+   slot is older than the one tracked in its entry.  fd_gui_vote_cum_get
+   returns the total without adding. */
+
+static ulong
+fd_gui_vote_cum_add( fd_gui_t * gui,
+                     ulong      slot,
+                     ulong      kind,
+                     ulong      stake ) {
+  __typeof__(gui->votes.cum[0]) * e = &gui->votes.cum[ slot%FD_GUI_VOTE_CUM_SLOT_CNT ];
+  if( FD_UNLIKELY( e->slot!=slot ) ) {
+    if( FD_UNLIKELY( e->slot!=ULONG_MAX && e->slot>slot ) ) return FD_GUI_VOTE_CUM_UNKNOWN;
+    e->slot = slot;
+    for( ulong k=0UL; k<FD_GUI_VOTE_KIND_CNT; k++ ) e->stake[ k ] = 0UL;
+  }
+  e->stake[ kind ] = fd_ulong_sat_add( e->stake[ kind ], stake );
+  return e->stake[ kind ];
+}
+
+static ulong
+fd_gui_vote_cum_get( fd_gui_t const * gui,
+                     ulong            slot,
+                     ulong            kind ) {
+  __typeof__(gui->votes.cum[0]) const * e = &gui->votes.cum[ slot%FD_GUI_VOTE_CUM_SLOT_CNT ];
+  return e->slot==slot ? e->stake[ kind ] : FD_GUI_VOTE_CUM_UNKNOWN;
+}
+
 /* fd_gui_vote_batch_rows simplifies the buffered votes of b into
    gui->votes.batch_rows and returns the row count.  It reorders b's
-   points. */
+   points.  A row's cum_stake continues from the slot's votes of the
+   kind outside the buffer (flushed earlier, or recorded alone), which
+   are the running total less the buffered votes. */
 
 static ulong
 fd_gui_vote_batch_rows( fd_gui_t *                        gui,
@@ -4349,7 +4380,9 @@ fd_gui_vote_batch_rows( fd_gui_t *                        gui,
       if( split-i>1UL ) { stack[ sp++ ] = i;     stack[ sp++ ] = split; }
       if( j-split>1UL ) { stack[ sp++ ] = split; stack[ sp++ ] = j;     }
     }
-    ulong prev = 0UL;
+    ulong total = fd_gui_vote_cum_get( gui, b->slot, pt[ lo ].kind );
+    ulong base  = total!=FD_GUI_VOTE_CUM_UNKNOWN && total>=sum ? total-sum : FD_GUI_VOTE_CUM_UNKNOWN;
+    ulong prev  = 0UL;
     for( ulong k=lo; k<hi; k++ ) {
       if( !keep[ k ] ) continue;
       rows[ row_cnt++ ] = (fd_gui_store_vote_t){
@@ -4357,6 +4390,7 @@ fd_gui_vote_batch_rows( fd_gui_t *                        gui,
         .ts_ns          = pt[ k ].ts_ns,
         .slot           = b->slot,
         .stake          = cum[ k ]-prev,
+        .cum_stake      = base!=FD_GUI_VOTE_CUM_UNKNOWN ? fd_ulong_sat_add( base, cum[ k ] ) : FD_GUI_VOTE_CUM_UNKNOWN,
         .total_stake    = b->total_stake,
         .event          = (uchar)(FD_GUI_VOTE_EVENT_BATCH+pt[ k ].kind)
       };
@@ -4414,32 +4448,39 @@ fd_gui_vote_batch_collect_open( fd_gui_t *            gui,
   return 0;
 }
 
-/* fd_gui_vote_batch_add buffers vote r of kind for its slot's batch. */
+/* fd_gui_vote_batch_add adds vote r to its slot's running total and
+   buffers it for the slot's batch.  Returns the running total of the
+   kind including r (see fd_gui_vote_cum_add).  Batches are flushed
+   before the total is updated, so they continue from the total of the
+   votes outside the buffer. */
 
-static void
+static ulong
 fd_gui_vote_batch_add( fd_gui_t *                 gui,
                        fd_votor_gui_rec_t const * r,
                        long                       now ) {
   __typeof__(gui->votes.batch[0]) * b = &gui->votes.batch[ r->slot%FD_GUI_VOTE_SLOT_CNT ];
   if( FD_UNLIKELY( b->slot!=r->slot ) ) {
     if( FD_UNLIKELY( b->slot!=ULONG_MAX && b->slot>r->slot ) ) {
+      ulong cum = fd_gui_vote_cum_add( gui, r->slot, r->sub, r->stake );
       /* The slot left the tracked ones, record the vote alone. */
       fd_gui_store_vote_t row = {
         .insert_time_ns = now,
         .ts_ns          = r->ts_ns,
         .slot           = r->slot,
         .stake          = r->stake,
+        .cum_stake      = cum,
         .total_stake    = r->total_stake,
         .event          = (uchar)(FD_GUI_VOTE_EVENT_BATCH+r->sub)
       };
       fd_gui_hist_ts_append( gui, FD_GUI_HIST_VOTE_BATCH, &row );
       gui->votes.batch_late_cnt++;
-      return;
+      return cum;
     }
     fd_gui_vote_batch_flush_one( gui, b, now );
     b->slot = r->slot;
   }
   if( FD_UNLIKELY( b->pt_cnt==FD_GUI_VOTE_BATCH_PTS_MAX ) ) fd_gui_vote_batch_flush_one( gui, b, now );
+  ulong cum = fd_gui_vote_cum_add( gui, r->slot, r->sub, r->stake );
   if( !b->pt_cnt ) {
     b->first_ns = now;
     b->ts_lo    = r->ts_ns;
@@ -4450,6 +4491,7 @@ fd_gui_vote_batch_add( fd_gui_t *                 gui,
   b->ts_hi       = fd_long_max( b->ts_hi, r->ts_ns );
   b->total_stake = r->total_stake;
   b->pt[ b->pt_cnt++ ] = (fd_gui_vote_batch_pt_t){ .ts_ns = r->ts_ns, .stake = r->stake, .kind = r->sub };
+  return cum;
 }
 
 void
@@ -4472,16 +4514,17 @@ fd_gui_handle_votor_gui( fd_gui_t *                 gui,
        the voter's stake.  shortcut: a voter's notar fallback votes for
        up to three block hashes in a slot each add its stake, and the
        block hash is not kept, so per-kind sums can double count. */
+    ulong cum = fd_gui_vote_batch_add( gui, r, now );
     fd_gui_store_vote_t row = {
       .insert_time_ns = now,
       .ts_ns          = r->ts_ns,
       .slot           = r->slot,
       .stake          = r->stake,
+      .cum_stake      = cum,
       .total_stake    = r->total_stake,
       .event          = (uchar)(FD_GUI_VOTE_EVENT_VOTE+r->sub)
     };
     fd_gui_hist_ts_append( gui, FD_GUI_HIST_VOTES, &row );
-    fd_gui_vote_batch_add( gui, r, now );
   }
 }
 

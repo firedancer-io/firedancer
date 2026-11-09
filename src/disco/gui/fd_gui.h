@@ -592,10 +592,22 @@ typedef struct fd_gui_store_replay_lthash_batch fd_gui_store_replay_lthash_batch
 
    ts_ns is the votor's wallclock at the vote or marker.  stake is the
    voter's stake and total_stake the votor's total stake for the slot's
-   epoch, in lamports (0 for markers). */
+   epoch, in lamports (0 for markers).  cum_stake is the slot's running
+   total stake of the row's vote kind up to and including the row
+   (FD_GUI_VOTE_CUM_UNKNOWN if the total is no longer tracked, 0 for
+   markers, see FD_GUI_VOTE_CUM_SLOT_CNT). */
+
+#define FD_GUI_VOTE_CUM_UNKNOWN (ULONG_MAX)
 
 #define FD_GUI_VOTE_KIND_CNT (5UL)  /* FD_VOTE_KIND_* */
 #define FD_GUI_VOTE_SLOT_CNT (64UL) /* recent slots tracked for marker dedup */
+
+/* Running vote stake totals are kept per slot and kind for the
+   FD_GUI_VOTE_CUM_SLOT_CNT most recent slots (indexed by
+   slot%FD_GUI_VOTE_CUM_SLOT_CNT).  A vote for an older slot has no
+   running total. */
+
+#define FD_GUI_VOTE_CUM_SLOT_CNT (4096UL)
 
 /* FD_GUI_VOTE_EVENT_VOTE+FD_VOTE_KIND_* (vote rows, the only ones with
    stake), FD_GUI_VOTE_EVENT_CERT+FD_CERT_KIND_*, FD_GUI_VOTE_EVENT_CAST+
@@ -649,6 +661,7 @@ struct fd_gui_store_vote {
   long  ts_ns;
   ulong slot;
   ulong stake;
+  ulong cum_stake;
   ulong total_stake;
   uchar event; /* FD_GUI_VOTE_EVENT_* */
 };
@@ -1879,6 +1892,14 @@ struct fd_gui {
       ulong                  pt_cnt;
       fd_gui_vote_batch_pt_t pt[ FD_GUI_VOTE_BATCH_PTS_MAX ];
     } batch[ FD_GUI_VOTE_SLOT_CNT ];
+    /* Running stake total per kind of the votes counted for a recent
+       slot, indexed by slot%FD_GUI_VOTE_CUM_SLOT_CNT.  A slot's batched
+       votes are a subset, so its flushed total is this less its
+       buffered votes. */
+    struct {
+      ulong slot; /* ULONG_MAX if unused */
+      ulong stake[ FD_GUI_VOTE_KIND_CNT ];
+    } cum[ FD_GUI_VOTE_CUM_SLOT_CNT ];
     ulong batch_late_cnt; /* votes for a slot older than the tracked one, recorded alone */
     /* Flush scratch */
     ulong batch_cum  [ FD_GUI_VOTE_BATCH_PTS_MAX ];

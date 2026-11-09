@@ -4862,6 +4862,12 @@ fd_gui_printf_timeline_query_votes( fd_gui_t * gui,
     else                                                 jsonp_null( gui->http, NULL );
   }
   jsonp_close_array( gui->http );
+  jsonp_open_array( gui->http, "cumulative_stake" );
+  for( ulong i=0UL; i<n; i++ ) {
+    if( fd_gui_vote_event_has_stake( rows[ i ].event ) && rows[ i ].cum_stake!=FD_GUI_VOTE_CUM_UNKNOWN ) jsonp_ulong_as_str( gui->http, NULL, rows[ i ].cum_stake );
+    else                                                                                                  jsonp_null( gui->http, NULL );
+  }
+  jsonp_close_array( gui->http );
   /* Total stake only changes at epoch boundaries, so it is reported
      once for the epoch of the lowest voted slot and, if the window
      crosses into the next epoch, once more for votes from

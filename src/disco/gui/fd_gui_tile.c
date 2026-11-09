@@ -121,8 +121,8 @@ FD_STATIC_ASSERT( FD_GUI_TIMELINE_QUERY_SHRED_MAX*56UL+4096UL<=FD_GUI_TIMELINE_R
    skipped and mine 21 each, three fee strings 23 = 187 bytes. */
 FD_STATIC_ASSERT( FD_GUI_TIMELINE_QUERY_SLOT_MAX*192UL+4096UL<=FD_GUI_TIMELINE_RAW_RESPONSE_MAX, slot_response_bound );
 /* query_votes: per row slot_delta 21, event 3, event_ts_delta string 22,
-   stake string 23 bytes including commas. */
-FD_STATIC_ASSERT( FD_GUI_TIMELINE_QUERY_VOTE_MAX*69UL+4096UL<=FD_GUI_TIMELINE_RAW_RESPONSE_MAX, vote_response_bound );
+   stake and cumulative_stake strings 23 each, bytes including commas. */
+FD_STATIC_ASSERT( FD_GUI_TIMELINE_QUERY_VOTE_MAX*92UL+4096UL<=FD_GUI_TIMELINE_RAW_RESPONSE_MAX, vote_response_bound );
 /* Agg shreds has five numeric arrays: four counts and slot_duration.
    Agg txn has four numeric arrays.  Agg revenue has three ulong-string
    arrays.  With commas, these use at most 5*21=105, 4*21=84 and

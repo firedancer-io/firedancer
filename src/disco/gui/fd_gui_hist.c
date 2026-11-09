@@ -29,7 +29,7 @@ FD_STATIC_ASSERT( sizeof(fd_gui_store_replay_lthash_batch_t)<=FD_GUI_STORE_MAX_R
 FD_STATIC_ASSERT( sizeof(fd_gui_store_replay_lthash_batch_t)==40UL, lthash_batch_size );
 FD_STATIC_ASSERT( sizeof(fd_gui_timeline_tile_state_day_t)<=FD_GUI_STORE_MAX_REC_SZ, rec_fits );
 FD_STATIC_ASSERT( sizeof(fd_gui_store_vote_t)<=FD_GUI_STORE_MAX_REC_SZ, rec_fits );
-FD_STATIC_ASSERT( sizeof(fd_gui_store_vote_t)==48UL, vote_size );
+FD_STATIC_ASSERT( sizeof(fd_gui_store_vote_t)==56UL, vote_size );
 
 /* Each key type must alias the matching record field exactly. */
 FD_STATIC_ASSERT( offsetof( fd_gui_hist_slot_key_t,        slot     )==offsetof( fd_gui_slot_t,        slot     ), key_layout );
