@@ -138,7 +138,7 @@ struct __attribute__((aligned(FD_VM_HOST_REGION_ALIGN))) fd_vm {
 
   ulong pc;        /* The current instruction, in [0,text_cnt) in normal execution, may be out of bounds in a fault */
   ulong ic;        /* The number of instructions which have been executed */
-  ulong cu;        /* The remaining CUs left for the transaction, positive in normal execution, may be zero in a fault */
+  ulong cu;        /* The remaining CUs left for the transaction */
   ulong frame_cnt; /* The current number of stack frames pushed, in [0,frame_max] */
 
   ulong heap_sz;     /* Heap size in bytes, in [0,heap_max] */
