@@ -951,7 +951,7 @@ fd_tls_handle_cert_verify( fd_tls_estate_base_t *    hs,
 
   /* Verify signature *************************************************/
 
-  /* Export transcript hash ClientHello..server Certificate
+  /* Export transcript hash ClientHello..peer Certificate
      And recover message that was signed */
 
   uchar sign_msg[ FD_TLS_CV_SIGN_SZ ];
