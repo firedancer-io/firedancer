@@ -25,8 +25,9 @@
    a superblock page followed by a pool of uniform REGION_SZ regions;
    regions are claimed/released on demand from a shared LIFO free list
    (so a given ring has composite regions that are generally
-   discontiguous) and the file is allocated up to the highest claimed
-   region with fallocate as needed, never exceeding size_bytes.  Region
+   discontiguous).  The whole file is fallocated when the store is
+   created (creation fails if the disk can't hold it), so writers
+   never wait on or fail for disk space.  Region
    ownership and the free list are in-memory; only the superblock
    persists.
 
@@ -36,7 +37,7 @@
      | magic,size,ring[MAX_RINGS] |   0    |   1    |   2    |    | cnt-1  |
      +----------------------------+--------+--------+--------+-  -+--------+
      |<-- data_off (page 0..N) -->|<---------- REGION_SZ each ------------>|
-     (allocated to highest claimed region)
+     (all allocated at creation)
 
    ---- rings ----------------------------------------------------------
 
@@ -179,8 +180,8 @@ fd_gui_store_live_bytes( fd_gui_store_t * db );
 ulong
 fd_gui_store_size( fd_gui_store_t const * db );
 
-/* fd_gui_store_file_sz returns the logical allocated length of the
-   backing file. */
+/* fd_gui_store_file_sz returns the allocated length of the backing
+   file, the full mapped size since creation. */
 
 ulong
 fd_gui_store_file_sz( fd_gui_store_t const * db );

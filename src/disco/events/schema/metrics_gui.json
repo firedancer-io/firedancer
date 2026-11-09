@@ -548,6 +548,7 @@
         "timeline_chunk_hit":         { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Timeline response chunks served from the chunk cache", "field_number": 283824574 },
         "timeline_chunk_miss":        { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Timeline response chunks built, compressed and added to the chunk cache", "field_number": 439231069 },
         "timeline_chunk_late":        { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Timeline rows recorded after their chunk was cached, so missing from the frozen cached chunk", "field_number": 334971405 },
-        "timeline_chunk_fallback":    { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Raw timeline queries answered without the chunk cache (uncompressed connection, row limit, or oversized chunk)", "field_number": 445413164 }
+        "timeline_chunk_fallback":    { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Raw timeline queries answered without the chunk cache (uncompressed connection, row limit, or oversized chunk)", "field_number": 445413164 },
+        "timeline_day_missing":       { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Timeline samples dropped because their day record was not prepared yet", "field_number": 507006402 }
     }
 }

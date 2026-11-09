@@ -242,6 +242,15 @@ typedef struct fd_gui_rate_entry fd_gui_rate_entry_t;
    the widest raw txn_batch view (1.5h) at 2s in a single request. */
 #define FD_GUI_TIMELINE_QUERY_MAX_BUCKETS      (4096UL)
 
+/* A chunked response builds runs of up to FD_GUI_CHUNK_RUN_MAX missing
+   chunks from one history scan per db, holding at most
+   FD_GUI_CHUNK_RUN_ROW_MAX rows (a row counts once per chunk it shows
+   in).  A run that doesn't fit is halved; single chunks are built with
+   their own scan. */
+#define FD_GUI_CHUNK_RUN_MAX                   (30UL)
+#define FD_GUI_CHUNK_RUN_ROW_MAX               (131072UL)
+#define FD_GUI_CHUNK_RUN_SETS                  (3UL)
+
 /* fd_gui_timeline_granularities lists the bucket durations accepted by
    the timeline aggregate queries, in ascending order. */
 
@@ -837,8 +846,17 @@ fd_gui_timeline_field_accum( fd_gui_timeline_day_t * day,
 #define FD_GUI_CPU_UTIL_MAX           ((uchar)250)
 #define FD_GUI_CPU_UTIL_UNKNOWN       ((uchar)255)
 
-#define FD_GUI_CPU_UTIL_CREATE_MAX    (1UL)
-#define FD_GUI_TILE_STATE_CREATE_MAX  (4UL)
+/* Day records (timeline day, per-tile CPU, per-tile state) are only
+   created by fd_gui_timeline_days_prepare from fd_gui_poll, never on
+   the frag path: today's at startup, tomorrow's during the last
+   FD_GUI_TIMELINE_PREPARE_AHEAD_NS of the day.  Initializing them
+   writes hundreds of MB, so at most FD_GUI_TIMELINE_PREPARE_BUDGET
+   bytes are written per poll.  A record being prepared has
+   insert_time_ns FD_GUI_TIMELINE_DAY_PREPARING and is invisible to
+   lookups and queries until complete. */
+#define FD_GUI_TIMELINE_PREPARE_AHEAD_NS (3600000000000L)
+#define FD_GUI_TIMELINE_PREPARE_BUDGET   (4UL<<20)
+#define FD_GUI_TIMELINE_DAY_PREPARING    (LONG_MIN)
 
 /* Per-tile CPU utilization sum/count tiers (250ms and longer).  Each
    holds an exact sample sum and count per bucket. */
@@ -1815,7 +1833,6 @@ struct fd_gui {
     ulong total[ FD_TOPO_MAX_TILES ];
     ulong idle [ FD_TOPO_MAX_TILES ];
     ulong last_slot; /* absolute 25ms slot of the last sample, ULONG_MAX if none */
-    ulong cur_day;   /* newest day with a tile-day record, ULONG_MAX if unknown */
   } cpu_util;
 
   /* Tile state positions (see FD_GUI_TILE_STATE_POS_CNT).  Positions
@@ -1826,12 +1843,6 @@ struct fd_gui {
     ulong exec_cnt;
     ulong pos_cnt;
     ulong topo_idx[ FD_GUI_TILE_STATE_POS_CNT ];
-    ulong cur_day;   /* newest day with a tile state record, ULONG_MAX if unknown */
-    /* Records created since the last fd_gui_poll.  Creating one writes
-       ~16 MB, so a day rollover is spread over polls: at most
-       FD_GUI_TILE_STATE_CREATE_MAX per poll, a tile drops its samples
-       until its record exists. */
-    ulong create_cnt;
     /* Open lthash batch per execrp tile, task_cnt 0 if none. */
     fd_gui_store_replay_lthash_batch_t lthash_open[ FD_SCHED_MAX_EXEC_TILE_CNT ];
     /* Open transaction batch per lane and tile. */
@@ -1985,7 +1996,41 @@ struct fd_gui {
     ulong                slot [ FD_GUI_IDENTITY_EVENT_MAX ]; /* replay frontier when it arrived, ULONG_MAX if none yet */
     fd_admin_gui_event_t event[ FD_GUI_IDENTITY_EVENT_MAX ];
   } identity_events;
+  /* Day record preparation cursor (see fd_gui_timeline_days_prepare). */
+  struct {
+    ulong day;         /* day being prepared, ULONG_MAX if none */
+    ulong step;        /* record being prepared: 0 timeline day, then tiles, then tile state positions */
+    ulong off;         /* bytes of that record initialized */
+    ulong done;        /* newest fully prepared day, ULONG_MAX if none */
+    ulong missing_cnt; /* samples dropped because their day record was not prepared */
+    int   sync;        /* tests only: prepare a missing day synchronously on first use */
+  } day_prep;
+
   fd_gui_chunk_t chunk; /* compressed timeline response cache */
+
+  /* chunk_run holds the rows of a run of consecutive chunks being
+     built for one chunked response, read with a single history scan
+     per db (fd_gui_printf.c fd_gui_chunk_run_collect).  Rows are
+     grouped by chunk: set s, chunk k0+i is rows[ off[ s ][ i ] ..
+     off[ s ][ i+1 ] ), in scan order.  Shred / FEC events are copied
+     the same way into ev. */
+  struct {
+    int   active;
+    ulong size[ FD_GUI_CHUNK_KIND_CNT ]; /* current run length per kind, 0 means FD_GUI_CHUNK_RUN_MAX */
+    ulong k0;
+    ulong k1;
+    int   dbi[ FD_GUI_CHUNK_RUN_SETS ]; /* -1 if unused */
+    ulong off[ FD_GUI_CHUNK_RUN_SETS ][ FD_GUI_CHUNK_RUN_MAX+1UL ];
+    ulong ev_off[ FD_GUI_CHUNK_RUN_MAX+1UL ];
+    union {
+      void const *         rows[ FD_GUI_CHUNK_RUN_ROW_MAX ];
+      fd_gui_shred_event_t ev  [ FD_GUI_CHUNK_RUN_ROW_MAX ];
+    };
+    union {
+      struct { void const * rec; uint ka; uint kb; } tmp[ FD_GUI_CHUNK_RUN_ROW_MAX ];
+      fd_gui_shred_event_t                           ev_tmp[ FD_GUI_CHUNK_RUN_ROW_MAX ];
+    };
+  } chunk_run;
 };
 
 typedef struct fd_gui fd_gui_t;
@@ -2004,6 +2049,22 @@ fd_gui_cpu_util_snap( fd_gui_t * gui,
 fd_gui_timeline_day_t *
 fd_gui_timeline_day_get( fd_gui_t * gui,
                          ulong      day_idx );
+
+/* fd_gui_timeline_day_prepare continues preparing all day records of
+   day_idx, writing at most budget bytes.  Returns 1 once every record
+   exists and is initialized.  fd_gui_timeline_days_prepare prepares
+   today's records and, near the end of the day, tomorrow's. */
+
+int
+fd_gui_timeline_day_prepare( fd_gui_t * gui,
+                             ulong      day_idx,
+                             long       now,
+                             ulong      budget );
+
+void
+fd_gui_timeline_days_prepare( fd_gui_t * gui,
+                              long       now,
+                              ulong      budget );
 
 /* fd_gui_timeline_tile_day_get returns the retained CPU record of
    tile_idx for calendar day day_idx, or NULL if not found. */

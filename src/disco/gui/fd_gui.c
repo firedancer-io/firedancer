@@ -285,7 +285,12 @@ fd_gui_new( void *                   shmem,
   memset( gui->cpu_util.total, 0, sizeof(gui->cpu_util.total) );
   memset( gui->cpu_util.idle,  0, sizeof(gui->cpu_util.idle)  );
   gui->cpu_util.last_slot = ULONG_MAX;
-  gui->cpu_util.cur_day   = ULONG_MAX;
+  gui->day_prep.day         = ULONG_MAX;
+  gui->day_prep.step        = 0UL;
+  gui->day_prep.off         = 0UL;
+  gui->day_prep.done        = ULONG_MAX;
+  gui->day_prep.missing_cnt = 0UL;
+  gui->day_prep.sync        = 0;
 
   for( ulong i=0UL; i<FD_GUI_VOTE_SLOT_CNT; i++ ) {
     gui->votes.slot[ i ].slot         = ULONG_MAX;
@@ -301,11 +306,9 @@ fd_gui_new( void *                   shmem,
 
   gui->tile_state.exec_cnt = fd_ulong_min( gui->summary.execrp_tile_cnt, FD_SCHED_MAX_EXEC_TILE_CNT );
   gui->tile_state.pos_cnt  = gui->tile_state.exec_cnt;
-  gui->tile_state.cur_day  = ULONG_MAX;
   memset( gui->tile_state.lthash_open, 0, sizeof(gui->tile_state.lthash_open) );
   memset( gui->tile_state.txn_open,    0, sizeof(gui->tile_state.txn_open)    );
   gui->tile_state.txn_batch_seq = 0UL;
-  gui->tile_state.create_cnt    = 0UL;
   for( ulong i=0UL; i<gui->tile_state.exec_cnt; i++ ) gui->tile_state.topo_idx[ i ] = fd_topo_find_tile( gui->topo, "execrp", i );
   ulong replay_idx = fd_topo_find_tile( gui->topo, "replay", 0UL );
   if( FD_LIKELY( replay_idx!=ULONG_MAX ) ) {
@@ -524,13 +527,22 @@ fd_gui_handle_identity_event( fd_gui_t *                   gui,
   *dst = *event;
   dst->result[ FD_ADMIN_GUI_RESULT_MAX-1UL ] = '\0';
   dst->notes [ FD_ADMIN_GUI_NOTES_MAX -1UL ] = '\0';
-  /* Successful identity changes are summarized by the stake change;
-     the admin tile's explanation is only kept for failures. */
+  /* Successful identity changes end with the stake change, after the
+     admin tile's notes (e.g. why --force was needed).  The notes are
+     cut, never the stake line. */
   if( !strcmp( dst->result, "success" ) ) {
-    char from[ 64 ]; char to[ 64 ];
+    char from[ 64 ]; char to[ 64 ]; char line[ 160 ];
     fd_gui_identity_stake_cstr( gui, dst->from, from, sizeof(from) );
     fd_gui_identity_stake_cstr( gui, dst->to,   to,   sizeof(to)   );
-    fd_cstr_printf( dst->notes, FD_ADMIN_GUI_NOTES_MAX, NULL, "%s -> %s", from, to );
+    ulong line_len;
+    fd_cstr_printf( line, sizeof(line), &line_len, "%s -> %s", from, to );
+    ulong len = strlen( dst->notes );
+    ulong max = FD_ADMIN_GUI_NOTES_MAX-1UL-line_len;
+    if( len ) {
+      len = fd_ulong_min( len, max-1UL );
+      dst->notes[ len++ ] = ' ';
+    }
+    fd_memcpy( dst->notes+len, line, line_len+1UL );
   }
   gui->identity_events.slot[ idx ] = gui->summary.slot_estimated; /* ULONG_MAX before the first replayed slot */
   gui->identity_events.cnt++;
@@ -1876,7 +1888,7 @@ fd_gui_next_deadline( fd_gui_t const * gui ) {
 int
 fd_gui_poll( fd_gui_t * gui, long now ) {
   gui->chunk.now = fd_long_max( gui->chunk.now, now );
-  gui->tile_state.create_cnt = 0UL;
+  fd_gui_timeline_days_prepare( gui, now, FD_GUI_TIMELINE_PREPARE_BUDGET );
   fd_gui_lthash_batch_flush( gui, now );
   fd_gui_txn_batch_flush( gui, now );
   fd_gui_vote_batch_flush( gui, now, 0 );
@@ -3108,9 +3120,29 @@ fd_gui_timeline_day_end_ns( ulong day_idx ) {
   return (long)((day_idx+1UL)*(ulong)FD_GUI_TIMELINE_DAY_NS);
 }
 
-fd_gui_timeline_day_t *
-fd_gui_timeline_day_get( fd_gui_t * gui,
-                         ulong      day_idx ) {
+/* fd_gui_timeline_day_rec_preparing returns 1 if the per-tile day
+   record at rec (key first, then insert_time_ns) is still being
+   prepared.  fd_gui_timeline_day_rec_preparing_kind does the same for a
+   record of any day DB. */
+
+static inline int
+fd_gui_timeline_day_rec_preparing( void const * rec ) {
+  return *(long const *)((uchar const *)rec+sizeof(fd_gui_hist_tile_day_key_t))==FD_GUI_TIMELINE_DAY_PREPARING;
+}
+
+static inline int
+fd_gui_timeline_day_rec_preparing_kind( void const * rec,
+                                        int          kind ) {
+  if( kind==FD_GUI_HIST_TIMELINE_DAY ) return ((fd_gui_timeline_day_t const *)rec)->insert_time_ns==FD_GUI_TIMELINE_DAY_PREPARING;
+  return fd_gui_timeline_day_rec_preparing( rec );
+}
+
+/* fd_gui_timeline_day_lookup returns the record for day_idx, including
+   one still being prepared, or NULL. */
+
+static fd_gui_timeline_day_t *
+fd_gui_timeline_day_lookup( fd_gui_t * gui,
+                            ulong      day_idx ) {
   long end_time_ns = fd_gui_timeline_day_end_ns( day_idx );
   if( FD_UNLIKELY( !gui->db || !gui->hist || end_time_ns==LONG_MAX ) ) return NULL;
 
@@ -3121,69 +3153,30 @@ fd_gui_timeline_day_get( fd_gui_t * gui,
   return day;
 }
 
-/* fd_gui_timeline_cur_day returns the index of the newest day record
-   in the store, or ULONG_MAX if there is none. */
-
-static ulong
-fd_gui_timeline_cur_day( fd_gui_t * gui ) {
-  long first, last;
-  if( FD_UNLIKELY( !fd_gui_store_ts_live_timestamp_bounds( gui->db, FD_GUI_HIST_TIMELINE_DAY, &first, &last ) ) ) return ULONG_MAX;
-  return (ulong)last/(ulong)FD_GUI_TIMELINE_DAY_NS-1UL;
+fd_gui_timeline_day_t *
+fd_gui_timeline_day_get( fd_gui_t * gui,
+                         ulong      day_idx ) {
+  fd_gui_timeline_day_t * day = fd_gui_timeline_day_lookup( gui, day_idx );
+  return day && day->insert_time_ns!=FD_GUI_TIMELINE_DAY_PREPARING ? day : NULL;
 }
 
-/* fd_gui_timeline_day_create_ok returns 1 if a new day record may be
-   created for day_idx, 0 otherwise. */
-
-static inline int
-fd_gui_timeline_day_create_ok( ulong day_idx,
-                               ulong cur_day,
-                               long  now ) {
-  if( FD_UNLIKELY( fd_gui_timeline_day_end_ns( day_idx )==LONG_MAX ) ) return 0;
-  if( FD_UNLIKELY( now<0L || day_idx>(ulong)now/(ulong)FD_GUI_TIMELINE_DAY_NS+1UL ) ) return 0;
-  return cur_day==ULONG_MAX || day_idx>cur_day;
-}
-
-/* fd_gui_timeline_day_create returns the record for day_idx, creating
-   an empty one if it does not exist yet. Returns NULL if the
-   day cannot be created. */
-
-static fd_gui_timeline_day_t *
-fd_gui_timeline_day_create( fd_gui_t * gui,
-                            ulong      day_idx,
-                            long       now ) {
-  long end_time_ns = fd_gui_timeline_day_end_ns( day_idx );
-  if( FD_UNLIKELY( !gui->db || !gui->hist || end_time_ns==LONG_MAX ) ) return NULL;
-  if( FD_UNLIKELY( !fd_gui_timeline_day_create_ok( day_idx, ULONG_MAX, now ) ) ) return NULL;
-
-  fd_gui_timeline_day_t * day = fd_gui_timeline_day_get( gui, day_idx );
-  if( day ) return day;
-  if( FD_UNLIKELY( !fd_gui_timeline_day_create_ok( day_idx, fd_gui_timeline_cur_day( gui ), now ) ) ) return NULL;
-
-  fd_gui_timeline_day_t * seed = fd_gui_hist_ts_emplace( gui, FD_GUI_HIST_TIMELINE_DAY, end_time_ns );
-  if( FD_UNLIKELY( !seed ) ) return NULL;
-  memset( seed, 0xFF, sizeof(fd_gui_timeline_day_t) ); /* all tiers, including 100ms, start unknown */
-  memset( seed->vote_lat, 0, sizeof(seed->vote_lat) ); /* sum/count tiers start empty */
-
-  seed->insert_time_ns = now;
-  seed->end_time_ns    = end_time_ns;
-  return fd_gui_timeline_day_get( gui, day_idx );
-}
-
-/* fd_gui_timeline_day_for_event returns the record for the day an event
-   belongs to, creating it if needed. Returns NULL if the day is unavailable. */
+/* fd_gui_timeline_day_for_event returns the record for the day an
+   event belongs to, or NULL (counted) if it is not prepared.  Records
+   are only created by fd_gui_timeline_day_prepare, never on the frag
+   path. */
 
 static fd_gui_timeline_day_t *
 fd_gui_timeline_day_for_event( fd_gui_t * gui,
                                ulong      day_idx,
                                long       now ) {
-  fd_gui_timeline_day_t * day = fd_gui_timeline_day_get( gui, day_idx );
-  if( FD_LIKELY( day ) ) return day;
   if( FD_UNLIKELY( !gui->db || !gui->hist ) ) return NULL;
-  ulong cur_day = fd_gui_timeline_cur_day( gui );
-  if( FD_UNLIKELY( day_idx && (cur_day==ULONG_MAX || day_idx>cur_day+1UL) ) ) {
-    fd_gui_timeline_day_create( gui, day_idx-1UL, now );
+  fd_gui_timeline_day_t * day = fd_gui_timeline_day_get( gui, day_idx );
+  if( FD_UNLIKELY( !day && gui->day_prep.sync ) ) {
+    fd_gui_timeline_day_prepare( gui, day_idx, now, ULONG_MAX );
+    day = fd_gui_timeline_day_get( gui, day_idx );
   }
-  return fd_gui_timeline_day_create( gui, day_idx, now );
+  if( FD_UNLIKELY( !day ) ) gui->day_prep.missing_cnt++;
+  return day;
 }
 
 /* fd_gui_timeline_count_add adds 1 to field in the bucket containing
@@ -3369,7 +3362,8 @@ fd_gui_timeline_tile_day_get( fd_gui_t * gui,
                               ulong      tile_idx ) {
   if( FD_UNLIKELY( !gui->db || !gui->hist ) ) return NULL;
   fd_gui_hist_tile_day_key_t key = { .day_idx=day_idx, .tile_idx=tile_idx };
-  return fd_gui_hist_kv_get( gui, FD_GUI_HIST_TIMELINE_TILE_DAY, &key );
+  fd_gui_timeline_tile_day_t * rec = fd_gui_hist_kv_get( gui, FD_GUI_HIST_TIMELINE_TILE_DAY, &key );
+  return rec && rec->insert_time_ns!=FD_GUI_TIMELINE_DAY_PREPARING ? rec : NULL;
 }
 
 int
@@ -3383,6 +3377,8 @@ fd_gui_timeline_tile_day_bounds( fd_gui_t * gui,
   fd_gui_store_kv_scan_begin( gui->db, &it, FD_GUI_HIST_TIMELINE_TILE_DAY );
   while( fd_gui_store_kv_scan_next( &it ) ) {
     fd_gui_hist_tile_day_key_t const * key = it.rec; /* records start with their key */
+    if( FD_UNLIKELY( fd_gui_timeline_day_rec_preparing( it.rec ) ) ) continue;
+    if( FD_UNLIKELY( gui->chunk.now>0L && key->day_idx>(ulong)gui->chunk.now/(ulong)FD_GUI_TIMELINE_DAY_NS ) ) continue; /* tomorrow's, prepared ahead */
     lo = fd_ulong_min( lo, key->day_idx );
     hi = fd_ulong_max( hi, key->day_idx );
   }
@@ -3390,40 +3386,6 @@ fd_gui_timeline_tile_day_bounds( fd_gui_t * gui,
   *lo_day = lo;
   *hi_day = hi;
   return 1;
-}
-
-/* fd_gui_timeline_tile_day_create creates the empty CPU record of
-   tile_idx for day_idx, which must not exist yet, under the same day
-   rules as the timeline day records.  Returns NULL if the day is
-   unavailable.  The ring's base regions hold today's and yesterday's
-   record for every tile, so today's records are never evicted (see
-   fd_gui_hist_base_regions). */
-
-static fd_gui_timeline_tile_day_t *
-fd_gui_timeline_tile_day_create( fd_gui_t * gui,
-                                 ulong      day_idx,
-                                 ulong      tile_idx,
-                                 long       now ) {
-  if( FD_UNLIKELY( !gui->db || !gui->hist ) ) return NULL;
-  ulong * cur_day = &gui->cpu_util.cur_day;
-  if( FD_UNLIKELY( *cur_day==ULONG_MAX ) ) {
-    ulong lo;
-    if( !fd_gui_timeline_tile_day_bounds( gui, &lo, cur_day ) ) *cur_day = ULONG_MAX;
-  }
-  /* Other tiles may still join the newest day; earlier days are closed. */
-  ulong closed_day = *cur_day==ULONG_MAX || !*cur_day ? ULONG_MAX : *cur_day-1UL;
-  if( FD_UNLIKELY( !fd_gui_timeline_day_create_ok( day_idx, closed_day, now ) ) ) return NULL;
-
-  fd_gui_hist_tile_day_key_t key = { .day_idx=day_idx, .tile_idx=tile_idx };
-  fd_gui_timeline_tile_day_t * rec = fd_gui_hist_kv_get_or_create( gui, FD_GUI_HIST_TIMELINE_TILE_DAY, &key );
-  if( FD_UNLIKELY( !rec ) ) return NULL;
-  /* Creation can evict records, but never the newly reserved one.  The
-     store sets the key; every other byte is written once. */
-  rec->insert_time_ns = now;
-  memset( rec->util_25ms, FD_GUI_CPU_UTIL_UNKNOWN, sizeof(rec->util_25ms) );
-  memset( rec->sum_250MS, 0, sizeof(fd_gui_timeline_tile_day_t)-offsetof( fd_gui_timeline_tile_day_t, sum_250MS ) );
-  *cur_day = fd_ulong_max( *cur_day==ULONG_MAX ? 0UL : *cur_day, day_idx );
-  return rec;
 }
 
 void
@@ -3436,7 +3398,6 @@ fd_gui_cpu_util_snap( fd_gui_t * gui, long now ) {
   ulong start_ns = slot*(ulong)FD_GUI_CPU_UTIL_SAMPLE_NS;
   ulong day_idx  = start_ns/(ulong)FD_GUI_TIMELINE_DAY_NS;
   ulong day_ns   = start_ns%(ulong)FD_GUI_TIMELINE_DAY_NS;
-  ulong create_cnt = 0UL;
   for( ulong i=0UL; i<gui->tile_cnt; i++ ) {
     fd_topo_tile_t const * tile = &gui->topo->tiles[ i ];
     if( FD_UNLIKELY( !tile->metrics ) ) continue;
@@ -3456,17 +3417,16 @@ fd_gui_cpu_util_snap( fd_gui_t * gui, long now ) {
       continue;
     }
 
-    /* Creating a record writes several MiB, so a day rollover is
-       spread over ticks. */
+    /* Records are prepared by fd_gui_timeline_day_prepare; a tile
+       without one drops the sample. */
     fd_gui_timeline_tile_day_t * rec = fd_gui_timeline_tile_day_get( gui, day_idx, i );
-    if( FD_UNLIKELY( !rec ) ) {
-      if( FD_UNLIKELY( create_cnt>=FD_GUI_CPU_UTIL_CREATE_MAX ) ) continue;
-      create_cnt++;
-      rec = fd_gui_timeline_tile_day_create( gui, day_idx, i, now );
+    if( FD_UNLIKELY( !rec && gui->day_prep.sync ) ) {
+      fd_gui_timeline_day_prepare( gui, day_idx, now, ULONG_MAX );
+      rec = fd_gui_timeline_tile_day_get( gui, day_idx, i );
     }
     gui->cpu_util.total[ i ] = total;
     gui->cpu_util.idle [ i ] = idle;
-    if( FD_UNLIKELY( !rec ) ) continue;
+    if( FD_UNLIKELY( !rec ) ) { gui->day_prep.missing_cnt++; continue; }
     ulong busy = dt - fd_ulong_min( di, dt );
     uchar util = (uchar)( ( busy*FD_GUI_CPU_UTIL_MAX + dt/2UL )/dt );
     ulong idx = day_ns/(ulong)FD_GUI_CPU_UTIL_SAMPLE_NS;
@@ -3482,7 +3442,8 @@ fd_gui_timeline_tile_state_day_get( fd_gui_t * gui,
                                     ulong      tile_idx ) {
   if( FD_UNLIKELY( !gui->db || !gui->hist ) ) return NULL;
   fd_gui_hist_tile_day_key_t key = { .day_idx=day_idx, .tile_idx=tile_idx };
-  return fd_gui_hist_kv_get( gui, FD_GUI_HIST_TIMELINE_TILE_STATE_DAY, &key );
+  fd_gui_timeline_tile_state_day_t * rec = fd_gui_hist_kv_get( gui, FD_GUI_HIST_TIMELINE_TILE_STATE_DAY, &key );
+  return rec && rec->insert_time_ns!=FD_GUI_TIMELINE_DAY_PREPARING ? rec : NULL;
 }
 
 int
@@ -3496,6 +3457,8 @@ fd_gui_timeline_tile_state_day_bounds( fd_gui_t * gui,
   fd_gui_store_kv_scan_begin( gui->db, &it, FD_GUI_HIST_TIMELINE_TILE_STATE_DAY );
   while( fd_gui_store_kv_scan_next( &it ) ) {
     fd_gui_hist_tile_day_key_t const * key = it.rec; /* records start with their key */
+    if( FD_UNLIKELY( fd_gui_timeline_day_rec_preparing( it.rec ) ) ) continue;
+    if( FD_UNLIKELY( gui->chunk.now>0L && key->day_idx>(ulong)gui->chunk.now/(ulong)FD_GUI_TIMELINE_DAY_NS ) ) continue; /* tomorrow's, prepared ahead */
     lo = fd_ulong_min( lo, key->day_idx );
     hi = fd_ulong_max( hi, key->day_idx );
   }
@@ -3505,10 +3468,9 @@ fd_gui_timeline_tile_state_day_bounds( fd_gui_t * gui,
   return 1;
 }
 
-/* fd_gui_timeline_tile_state_day_rec returns the tile state record of
-   tile_idx for day_idx, creating an empty one under the same day rules
-   as the CPU records (see fd_gui_timeline_tile_day_create).  Returns
-   NULL if the day is unavailable. */
+/* fd_gui_timeline_tile_state_day_rec returns the prepared tile state
+   record of tile_idx for day_idx, or NULL (counted) if there is none
+   (see fd_gui_timeline_day_prepare). */
 
 static fd_gui_timeline_tile_state_day_t *
 fd_gui_timeline_tile_state_day_rec( fd_gui_t * gui,
@@ -3516,26 +3478,167 @@ fd_gui_timeline_tile_state_day_rec( fd_gui_t * gui,
                                     ulong      tile_idx,
                                     long       now ) {
   fd_gui_timeline_tile_state_day_t * rec = fd_gui_timeline_tile_state_day_get( gui, day_idx, tile_idx );
-  if( FD_LIKELY( rec || !gui->db || !gui->hist ) ) return rec;
-  ulong * cur_day = &gui->tile_state.cur_day;
-  if( FD_UNLIKELY( *cur_day==ULONG_MAX ) ) {
-    ulong lo;
-    if( !fd_gui_timeline_tile_state_day_bounds( gui, &lo, cur_day ) ) *cur_day = ULONG_MAX;
+  if( FD_UNLIKELY( !rec && gui->day_prep.sync && gui->db && gui->hist ) ) {
+    fd_gui_timeline_day_prepare( gui, day_idx, now, ULONG_MAX );
+    rec = fd_gui_timeline_tile_state_day_get( gui, day_idx, tile_idx );
   }
-  ulong closed_day = *cur_day==ULONG_MAX || !*cur_day ? ULONG_MAX : *cur_day-1UL;
-  if( FD_UNLIKELY( !fd_gui_timeline_day_create_ok( day_idx, closed_day, now ) ) ) return NULL;
-  if( FD_UNLIKELY( gui->tile_state.create_cnt>=FD_GUI_TILE_STATE_CREATE_MAX ) ) return NULL;
-  gui->tile_state.create_cnt++;
-
-  fd_gui_hist_tile_day_key_t key = { .day_idx=day_idx, .tile_idx=tile_idx };
-  rec = fd_gui_hist_kv_get_or_create( gui, FD_GUI_HIST_TIMELINE_TILE_STATE_DAY, &key );
-  if( FD_UNLIKELY( !rec ) ) return NULL;
-  memset( (uchar *)rec+sizeof(key), 0, sizeof(fd_gui_timeline_tile_state_day_t)-sizeof(key) );
-  rec->insert_time_ns = now;
-  rec->first_ns       = LONG_MAX;
-  rec->last_ns        = 0L;
-  *cur_day = fd_ulong_max( *cur_day==ULONG_MAX ? 0UL : *cur_day, day_idx );
+  if( FD_UNLIKELY( !rec && gui->db && gui->hist ) ) gui->day_prep.missing_cnt++;
   return rec;
+}
+
+/* fd_gui_timeline_prep_fill initializes bytes [lo,hi) of rec to c,
+   resuming at *off and writing at most *budget bytes.  Returns 1 once
+   the segment is complete. */
+
+static int
+fd_gui_timeline_prep_fill( uchar * rec,
+                           ulong   lo,
+                           ulong   hi,
+                           int     c,
+                           ulong * off,
+                           ulong * budget ) {
+  if( *off<lo ) *off = lo;
+  if( *off>=hi ) return 1;
+  ulong sz = fd_ulong_min( hi-*off, *budget );
+  memset( rec+*off, c, sz );
+  *off    += sz;
+  *budget -= sz;
+  return *off>=hi;
+}
+
+/* fd_gui_timeline_prep_record returns the record of step `step` of the
+   preparation of day_idx, creating it (marked preparing) if absent.
+   Steps are the timeline day, then a CPU record per tile with metrics,
+   then a tile state record per tile state position.  Sets *kind to the
+   record's DB.  Returns NULL if the step has no record (a tile without
+   metrics, or a day that can no longer be appended). */
+
+static void *
+fd_gui_timeline_prep_record( fd_gui_t * gui,
+                             ulong      day_idx,
+                             ulong      step,
+                             int *      kind ) {
+  if( !step ) {
+    *kind = FD_GUI_HIST_TIMELINE_DAY;
+    fd_gui_timeline_day_t * day = fd_gui_timeline_day_lookup( gui, day_idx );
+    if( day ) return day;
+    long end_time_ns = fd_gui_timeline_day_end_ns( day_idx );
+    if( FD_UNLIKELY( end_time_ns==LONG_MAX ) ) return NULL;
+    long first, last;
+    if( fd_gui_store_ts_live_timestamp_bounds( gui->db, FD_GUI_HIST_TIMELINE_DAY, &first, &last ) && last>end_time_ns ) return NULL;
+    day = fd_gui_hist_ts_emplace( gui, FD_GUI_HIST_TIMELINE_DAY, end_time_ns );
+    if( FD_UNLIKELY( !day ) ) return NULL;
+    day->insert_time_ns = FD_GUI_TIMELINE_DAY_PREPARING;
+    day->end_time_ns    = end_time_ns;
+    return day;
+  }
+  step--;
+
+  ulong tile_idx;
+  if( step<gui->tile_cnt ) {
+    *kind = FD_GUI_HIST_TIMELINE_TILE_DAY;
+    if( FD_UNLIKELY( !gui->topo || !gui->topo->tiles[ step ].metrics ) ) return NULL;
+    tile_idx = step;
+  } else {
+    *kind = FD_GUI_HIST_TIMELINE_TILE_STATE_DAY;
+    tile_idx = gui->tile_state.topo_idx[ step-gui->tile_cnt ];
+  }
+  fd_gui_hist_tile_day_key_t key = { .day_idx=day_idx, .tile_idx=tile_idx };
+  void * rec = fd_gui_hist_kv_get( gui, *kind, &key );
+  if( rec ) return rec;
+  /* Creation can evict older records, but never the newly reserved
+     one.  The store sets the key. */
+  rec = fd_gui_hist_kv_get_or_create( gui, *kind, &key );
+  if( FD_UNLIKELY( !rec ) ) return NULL;
+  *(long *)((uchar *)rec+sizeof(key)) = FD_GUI_TIMELINE_DAY_PREPARING; /* insert_time_ns */
+  return rec;
+}
+
+/* fd_gui_timeline_prep_init continues initializing rec, a record of DB
+   kind being prepared, from *off within *budget bytes.  Returns 1 and
+   publishes the record (insert_time_ns written last) once complete. */
+
+static int
+fd_gui_timeline_prep_init( void *  _rec,
+                           int     kind,
+                           long    now,
+                           ulong * off,
+                           ulong * budget ) {
+  uchar * rec = _rec;
+  switch( kind ) {
+    case FD_GUI_HIST_TIMELINE_DAY: {
+      fd_gui_timeline_day_t * day = _rec;
+      /* All tiers, including 100ms, start unknown; the vote latency
+         sum/count tiers start empty. */
+      if( !fd_gui_timeline_prep_fill( rec, offsetof( fd_gui_timeline_day_t, bucket_100ms ), offsetof( fd_gui_timeline_day_t, vote_lat ), 0xFF, off, budget ) ) return 0;
+      if( !fd_gui_timeline_prep_fill( rec, offsetof( fd_gui_timeline_day_t, vote_lat ), sizeof(fd_gui_timeline_day_t), 0, off, budget ) ) return 0;
+      FD_COMPILER_MFENCE();
+      day->insert_time_ns = now;
+      return 1;
+    }
+    case FD_GUI_HIST_TIMELINE_TILE_DAY: {
+      fd_gui_timeline_tile_day_t * t = _rec;
+      if( !fd_gui_timeline_prep_fill( rec, offsetof( fd_gui_timeline_tile_day_t, util_25ms ), offsetof( fd_gui_timeline_tile_day_t, sum_250MS ), FD_GUI_CPU_UTIL_UNKNOWN, off, budget ) ) return 0;
+      if( !fd_gui_timeline_prep_fill( rec, offsetof( fd_gui_timeline_tile_day_t, sum_250MS ), sizeof(fd_gui_timeline_tile_day_t), 0, off, budget ) ) return 0;
+      FD_COMPILER_MFENCE();
+      t->insert_time_ns = now;
+      return 1;
+    }
+    default: {
+      fd_gui_timeline_tile_state_day_t * t = _rec;
+      if( !fd_gui_timeline_prep_fill( rec, offsetof( fd_gui_timeline_tile_state_day_t, dur_250MS ), sizeof(fd_gui_timeline_tile_state_day_t), 0, off, budget ) ) return 0;
+      t->first_ns = LONG_MAX;
+      t->last_ns  = 0L;
+      FD_COMPILER_MFENCE();
+      t->insert_time_ns = now;
+      return 1;
+    }
+  }
+}
+
+int
+fd_gui_timeline_day_prepare( fd_gui_t * gui,
+                             ulong      day_idx,
+                             long       now,
+                             ulong      budget ) {
+  if( FD_UNLIKELY( !gui->db || !gui->hist ) ) return 1;
+  if( gui->day_prep.day!=day_idx ) {
+    gui->day_prep.day  = day_idx;
+    gui->day_prep.step = 0UL;
+    gui->day_prep.off  = 0UL;
+  }
+  ulong step_cnt = 1UL+gui->tile_cnt+gui->tile_state.pos_cnt;
+  while( gui->day_prep.step<step_cnt ) {
+    int    kind;
+    void * rec = fd_gui_timeline_prep_record( gui, day_idx, gui->day_prep.step, &kind );
+    /* A ready record, or a step with none, is skipped; a record still
+       preparing is resumed at day_prep.off. */
+    if( rec && fd_gui_timeline_day_rec_preparing_kind( rec, kind ) ) {
+      if( !budget ) return 0;
+      if( !fd_gui_timeline_prep_init( rec, kind, now, &gui->day_prep.off, &budget ) ) return 0;
+    }
+    gui->day_prep.step++;
+    gui->day_prep.off = 0UL;
+  }
+  return 1;
+}
+
+void
+fd_gui_timeline_days_prepare( fd_gui_t * gui,
+                              long       now,
+                              ulong      budget ) {
+  if( FD_UNLIKELY( now<0L ) ) return;
+  ulong today = (ulong)now/(ulong)FD_GUI_TIMELINE_DAY_NS;
+  ulong done  = gui->day_prep.done;
+  if( done==ULONG_MAX || done<today ) {
+    if( fd_gui_timeline_day_prepare( gui, today, now, budget ) ) gui->day_prep.done = today;
+    return;
+  }
+  /* Tomorrow's records are prepared during the last hour of the day,
+     so midnight does not drop data. */
+  if( done==today && (ulong)now%(ulong)FD_GUI_TIMELINE_DAY_NS>=(ulong)(FD_GUI_TIMELINE_DAY_NS-FD_GUI_TIMELINE_PREPARE_AHEAD_NS) ) {
+    if( fd_gui_timeline_day_prepare( gui, today+1UL, now, budget ) ) gui->day_prep.done = today+1UL;
+  }
 }
 
 /* fd_gui_tile_state_add adds [lo,hi) of state to the tile state records

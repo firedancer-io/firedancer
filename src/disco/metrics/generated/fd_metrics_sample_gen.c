@@ -4088,7 +4088,7 @@ static fd_metrics_sample_field_t const fields_votor[ 358 ] = {
   { FD_METRICS_GAUGE_VOTOR_WAIT_TO_VOTE_SLOT_OFF, 41U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
 };
 
-static fd_metrics_sample_field_t const fields_gui[ 416 ] = {
+static fd_metrics_sample_field_t const fields_gui[ 417 ] = {
   { FD_METRICS_GAUGE_TILE_PID_OFF, 8U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_GAUGE_TILE_TID_OFF, 9U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_GAUGE_TILE_LAST_CPU_INDEX_OFF, 10U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
@@ -4505,6 +4505,7 @@ static fd_metrics_sample_field_t const fields_gui[ 416 ] = {
   { FD_METRICS_COUNTER_GUI_TIMELINE_CHUNK_MISS_OFF, 439231069U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_COUNTER_GUI_TIMELINE_CHUNK_LATE_OFF, 334971405U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_COUNTER_GUI_TIMELINE_CHUNK_FALLBACK_OFF, 445413164U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
+  { FD_METRICS_COUNTER_GUI_TIMELINE_DAY_MISSING_OFF, 507006402U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
 };
 
 static fd_metrics_sample_field_t const fields_event[ 54 ] = {
@@ -4863,7 +4864,7 @@ fd_metrics_sample_schema_t const fd_metrics_sample_tiles[] = {
   { "ipecho", 52U, fields_ipecho, 55UL, 674UL },
   { "execrp", 53U, fields_execrp, 244UL, 2575UL },
   { "votor", 54U, fields_votor, 358UL, 3734UL },
-  { "gui", 55U, fields_gui, 416UL, 5052UL },
+  { "gui", 55U, fields_gui, 417UL, 5067UL },
   { "event", 56U, fields_event, 54UL, 699UL },
   { "snapmk", 57U, fields_snapmk, 66UL, 767UL },
   { "snapzp", 58U, fields_snapzp, 44UL, 584UL },

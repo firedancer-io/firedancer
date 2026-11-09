@@ -177,18 +177,18 @@ gui_failover_notes( char *  notes,
                         _l = fd_ulong_min( _l, FD_ADMIN_GUI_NOTES_MAX-1UL-len ); \
                         p = fd_cstr_append_text( p, _s, _l ); len += _l; } while(0)
   if(      cmd==FD_ADMINCTL_FAILOVER_CMD_PREFLIGHT ) NOTE( "This was the check a failover command runs first, and it refused before anything changed." );
-  else if( cmd==FD_ADMINCTL_FAILOVER_CMD_PROMOTE   ) NOTE( "This was the second attempt of a takeover, taking the staked identity without the other validator." );
-  else if( flags & FD_ADMINCTL_FAILOVER_FLAG_TAKEOVER ) NOTE( "This was the first attempt of a takeover, asking the other validator to hand over the staked identity." );
+  else if( cmd==FD_ADMINCTL_FAILOVER_CMD_PROMOTE   ) NOTE( "This was the second attempt of a takeover: the promoted node took the staked identity without help from the demoted node." );
+  else if( flags & FD_ADMINCTL_FAILOVER_FLAG_TAKEOVER ) NOTE( "This was the first attempt of a takeover: the promoted node asked the demoted node to hand over the staked identity." );
   if( force ) {
     int live = !!(bypassed & FD_FAILOVER_BYPASS_HOLDER_LIVE);
     int seen = !!(bypassed & FD_FAILOVER_BYPASS_HOLDER_SEEN);
-    if(      live && seen ) NOTE( "It went ahead only because of --force, since the other validator still looked alive and was seen running the staked identity." );
-    else if( live         ) NOTE( "It went ahead only because of --force, since the other validator still looked alive." );
-    else if( seen         ) NOTE( "It went ahead only because of --force, since the other validator was seen running the staked identity." );
-    else if( ok && cmd!=FD_ADMINCTL_FAILOVER_CMD_PREFLIGHT ) NOTE( "It was run with --force, but would have worked without it because the other validator already looked down." );
+    if(      live && seen ) NOTE( "It went ahead only because of --force: the demoted node still looked alive and was seen running the staked identity." );
+    else if( live         ) NOTE( "It went ahead only because of --force: the demoted node still looked alive." );
+    else if( seen         ) NOTE( "It went ahead only because of --force: the demoted node was seen running the staked identity." );
+    else if( ok && cmd!=FD_ADMINCTL_FAILOVER_CMD_PREFLIGHT ) NOTE( "It was run with --force, but would have worked without it because the demoted node already looked down." );
     else                    NOTE( "It was run with --force." );
   }
-  if( bypassed & FD_FAILOVER_BYPASS_HISTORY_INCOMPLETE ) NOTE( "This validator started voting without the other validator's record of past votes." );
+  if( bypassed & FD_FAILOVER_BYPASS_HISTORY_INCOMPLETE ) NOTE( "The promoted node started voting without the demoted node's record of past votes." );
   if( retargeted && !ok ) NOTE( "The failover target changed while the command was running." );
 # undef NOTE
   fd_cstr_fini( p );
@@ -1623,7 +1623,7 @@ failover_request( fd_admin_tile_ctx_t * ctx,
   else if( req.flags & ~(FD_ADMINCTL_FAILOVER_FLAG_YES|FD_ADMINCTL_FAILOVER_FLAG_FORCE|FD_ADMINCTL_FAILOVER_FLAG_TAKEOVER) ) INVALID( "unknown flags", "The command was refused because it had options this validator does not know." );
   else if( force && !takeover )                                                              INVALID( "--force goes with a takeover", "The command was refused because --force can only be used with failover takeover." );
   else if( req.cmd==FD_ADMINCTL_FAILOVER_CMD_PROMOTE && !takeover )                          INVALID( "a promote request is only sent by a takeover", "The command was refused because it asked to take the identity without being a takeover." );
-  else if( req.cmd!=FD_ADMINCTL_FAILOVER_CMD_HANDOFF && (req.addr || req.port) )             INVALID( "an address or port goes only with a handoff", "The command was refused because it gave the other validator's address where none is used." );
+  else if( req.cmd!=FD_ADMINCTL_FAILOVER_CMD_HANDOFF && (req.addr || req.port) )             INVALID( "an address or port goes only with a handoff", "The command was refused because it gave a node address where none is used." );
   else if( preflight && prepare )                                                            INVALID( "a preflight carries no keypair", "The command was refused because its first check carried a key file." );
 # undef INVALID
   if( FD_UNLIKELY( invalid ) ) {
@@ -1766,8 +1766,8 @@ failover_switch_request( fd_admin_tile_ctx_t * ctx,
   int  gui_own  = ctx->failover_slot_idx!=ULONG_MAX;
   int  gui_up   = !memcmp( req.identity, ctx->failover_pubkey, 32UL );
   uint gui_kind = gui_up ? FD_ADMIN_GUI_EVENT_IDENTITY_PROMOTE : FD_ADMIN_GUI_EVENT_IDENTITY_HANDOFF;
-  char const * gui_note = gui_up ? "The other validator handed over the staked identity after a failover command was run on it." :
-                                   "A failover command on the other validator asked this validator to hand over the staked identity and switch to a dummy key.";
+  char const * gui_note = gui_up ? "The demoted node handed over the staked identity after a failover command was run on it." :
+                                   "A failover command on the promoted node asked this node, the demoted node, to hand over the staked identity and switch to a dummy key.";
   uchar gui_from[ 32 ];
   fd_memcpy( gui_from, ctx->identity_pubkey, 32UL );
 
@@ -1776,7 +1776,7 @@ failover_switch_request( fd_admin_tile_ctx_t * ctx,
   response.result = FD_FAILOVER_SWITCH_ERR_DISABLED;
   if( FD_UNLIKELY( ctx->failover_enabled && req.epoch!=ctx->failover_epoch ) ) {
     FD_LOG_WARNING(( "refusing the failover tile's identity switch, set-identity ran since it asked" ));
-    if( !gui_own ) gui_report( ctx, gui_kind, gui_from, req.identity, 0UL, "stale", "The other validator's request was dropped because set-identity changed this validator's identity after the request was made." );
+    if( !gui_own ) gui_report( ctx, gui_kind, gui_from, req.identity, 0UL, "stale", "The failover request was dropped because set-identity changed this node's identity after the request was made." );
     response.result         = FD_FAILOVER_SWITCH_ERR_STALE;
     response.operator.epoch = ctx->failover_epoch;
     fd_memcpy( response.operator.identity,          ctx->identity_pubkey, 32UL );

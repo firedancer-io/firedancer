@@ -38,7 +38,7 @@
 static fd_gui_store_desc_t const *
 test_descs( void ) {
   static fd_gui_store_desc_t descs[ FD_GUI_HIST_CNT ];
-  return fd_gui_hist_db_descs( descs, TEST_STORE_BYTES );
+  return fd_gui_hist_db_descs( descs, TEST_STORE_BYTES, TEST_TILE_CNT );
 }
 
 /* test_http_open joins gui to a fresh single-connection HTTP server
@@ -564,13 +564,15 @@ store_open( test_store_t * s, ulong map_bytes, int instance ) {
   s->gui->tile_cnt = TEST_TILE_CNT;
   s->gui->cpu_util.last_slot = ULONG_MAX;
   for( ulong i=0UL; i<FD_GUI_BOOT_PROGRESS_SNAPSHOT_CNT; i++ ) s->gui->summary.boot_progress.loading_snapshot[ i ].slot = ULONG_MAX; /* as fd_gui_new */
-  s->gui->cpu_util.cur_day   = ULONG_MAX;
+  s->gui->day_prep.day  = ULONG_MAX;
+  s->gui->day_prep.done = ULONG_MAX;
+  s->gui->day_prep.sync = 1; /* day records on first use, as before paced preparation */
   for( ulong i=0UL; i<FD_GUI_VOTE_SLOT_CNT; i++ ) s->gui->votes.slot[ i ].slot = ULONG_MAX;
 
   s->db_mem = aligned_alloc( fd_gui_store_align(),
-                             fd_ulong_align_up( fd_gui_hist_store_footprint( map_bytes ), fd_gui_store_align() ) );
+                             fd_ulong_align_up( fd_gui_hist_store_footprint( map_bytes, TEST_TILE_CNT ), fd_gui_store_align() ) );
   FD_TEST( s->db_mem );
-  s->gui->db = fd_gui_store_join( fd_gui_hist_store_new( s->db_mem, s->path, map_bytes, 0x0123456789abcdefUL ) );
+  s->gui->db = fd_gui_store_join( fd_gui_hist_store_new( s->db_mem, s->path, map_bytes, TEST_TILE_CNT, 0x0123456789abcdefUL ) );
   FD_TEST( s->gui->db );
 
   s->hist_mem = aligned_alloc( fd_gui_hist_align(),
@@ -622,9 +624,10 @@ test_timeline_db( fd_gui_t * gui ) {
   FD_TEST( !strcmp( descs[ FD_GUI_HIST_TIMELINE_TILE_STATE_DAY ].name, "timeline_tile_state_day" ) );
   FD_TEST( descs[ FD_GUI_HIST_TIMELINE_TILE_STATE_DAY ].kind==FD_GUI_STORE_KIND_KV );
   FD_TEST( descs[ FD_GUI_HIST_TIMELINE_TILE_STATE_DAY ].key_sz==sizeof(fd_gui_hist_tile_day_key_t) );
-  /* Today and yesterday for every execrp and replay tile. */
+  /* Yesterday, today and tomorrow (prepared ahead) for every tile
+     state position. */
   FD_TEST( (descs[ FD_GUI_HIST_TIMELINE_TILE_STATE_DAY ].base_regions-1UL)*(FD_GUI_STORE_REGION_SZ/fd_ulong_align_up( sizeof(fd_gui_timeline_tile_state_day_t), 8UL ))>=
-           2UL*FD_GUI_TILE_STATE_POS_CNT );
+           FD_GUI_HIST_PREPARED_DAYS*fd_ulong_min( TEST_TILE_CNT, FD_GUI_TILE_STATE_POS_CNT ) );
   FD_TEST( !strcmp( descs[ FD_GUI_HIST_FEC_EVENTS        ].name, "fec_events"        ) );
   FD_TEST( !strcmp( descs[ FD_GUI_HIST_FEC_EVENT_ARCHIVE ].name, "fec_event_archive" ) );
   FD_TEST( descs[ FD_GUI_HIST_FEC_EVENTS ].kind==FD_GUI_STORE_KIND_KV );
@@ -645,14 +648,14 @@ test_timeline_db( fd_gui_t * gui ) {
   FD_TEST( descs[ FD_GUI_HIST_TIMELINE_TILE_DAY ].val_sz==sizeof(fd_gui_timeline_tile_day_t) );
   FD_TEST( descs[ FD_GUI_HIST_TIMELINE_TILE_DAY ].kind==FD_GUI_STORE_KIND_KV );
   FD_TEST( descs[ FD_GUI_HIST_TIMELINE_TILE_DAY ].key_sz==sizeof(fd_gui_hist_tile_day_key_t) );
-  /* Retention floors: today and yesterday for every tile, and
+  /* Retention floors: yesterday, today and tomorrow for every tile, and
      FD_GUI_HIST_MIN_EPOCHS epochs of slot/leader/epoch records, survive
      with a full head region. */
-  FD_TEST( (descs[ FD_GUI_HIST_TIMELINE_TILE_DAY ].base_regions-1UL)*(FD_GUI_STORE_REGION_SZ/sizeof(fd_gui_timeline_tile_day_t))>=2UL*FD_TOPO_MAX_TILES );
+  FD_TEST( (descs[ FD_GUI_HIST_TIMELINE_TILE_DAY ].base_regions-1UL)*(FD_GUI_STORE_REGION_SZ/sizeof(fd_gui_timeline_tile_day_t))>=FD_GUI_HIST_PREPARED_DAYS*TEST_TILE_CNT );
   FD_TEST( (descs[ FD_GUI_HIST_SLOT        ].base_regions-1UL)*(FD_GUI_STORE_REGION_SZ/fd_ulong_align_up( descs[ FD_GUI_HIST_SLOT        ].val_sz, 8UL ))>=FD_GUI_HIST_MIN_EPOCHS*MAX_SLOTS_PER_EPOCH );
   FD_TEST( (descs[ FD_GUI_HIST_LEADER_SLOT ].base_regions-1UL)*(FD_GUI_STORE_REGION_SZ/fd_ulong_align_up( descs[ FD_GUI_HIST_LEADER_SLOT ].val_sz, 8UL ))>=FD_GUI_HIST_MIN_EPOCHS*FD_GUI_HIST_MAX_LEADER_SLOTS_PER_EPOCH );
   FD_TEST( (descs[ FD_GUI_HIST_EPOCH       ].base_regions-1UL)*(FD_GUI_STORE_REGION_SZ/fd_ulong_align_up( descs[ FD_GUI_HIST_EPOCH       ].val_sz, 8UL ))>=FD_GUI_HIST_MIN_EPOCHS );
-  FD_TEST( descs[ FD_GUI_HIST_TIMELINE_DAY ].base_regions>=2UL );
+  FD_TEST( descs[ FD_GUI_HIST_TIMELINE_DAY ].base_regions>=FD_GUI_HIST_PREPARED_DAYS );
   FD_TEST( offsetof(fd_gui_timeline_tile_day_t,day_idx )==offsetof(fd_gui_hist_tile_day_key_t,day_idx ) );
   FD_TEST( offsetof(fd_gui_timeline_tile_day_t,tile_idx)==offsetof(fd_gui_hist_tile_day_key_t,tile_idx) );
   FD_TEST( descs[ FD_GUI_HIST_REPLAY_TXN_BATCH ].val_sz==sizeof(fd_gui_store_replay_txn_batch_t) );
@@ -1724,7 +1727,7 @@ test_fec_archive( fd_gui_t * gui ) {
 static void
 test_fec_footprint( ulong bytes ) {
   fd_gui_store_desc_t descs[ FD_GUI_HIST_CNT ];
-  fd_gui_hist_db_descs( descs, bytes );
+  fd_gui_hist_db_descs( descs, bytes, TEST_TILE_CNT );
   /* The floor itself is checked by test_min_footprint. */
   ulong current = fd_gui_store_footprint( bytes, FD_GUI_HIST_CNT, descs );
   descs[ FD_GUI_HIST_FEC_EVENTS ].kind        = FD_GUI_STORE_KIND_TS;
@@ -3398,8 +3401,8 @@ test_min_footprint( void ) {
   FD_TEST( min_size<=TEST_STORE_BYTES );
   FD_TEST( !fd_gui_store_footprint( min_size-1UL, FD_GUI_HIST_CNT, descs ) );
   FD_TEST( fd_gui_store_footprint( min_size, FD_GUI_HIST_CNT, descs ) );
-  FD_TEST( fd_gui_hist_store_footprint( TEST_STORE_BYTES )==fd_gui_store_footprint( TEST_STORE_BYTES, FD_GUI_HIST_CNT, descs ) );
-  FD_TEST( !fd_gui_hist_store_footprint( min_size-1UL ) );
+  FD_TEST( fd_gui_hist_store_footprint( TEST_STORE_BYTES, TEST_TILE_CNT )==fd_gui_store_footprint( TEST_STORE_BYTES, FD_GUI_HIST_CNT, descs ) );
+  FD_TEST( !fd_gui_hist_store_footprint( min_size-1UL, TEST_TILE_CNT ) );
 }
 
 /* In a minimum-size store with every other DB's base full, day rollover
@@ -3431,6 +3434,90 @@ test_tile_day_minimum_store( fd_gui_t * gui ) {
    missing tile record and the availability bounds.  Tile 0 is fully
    busy for two seconds then idle for two; tile 1 is fully busy for two
    seconds then stops publishing; tile 2 has no metrics. */
+
+/* Day records are prepared from fd_gui_poll in budgeted steps and are
+   invisible until complete; the frag path never creates them. */
+
+static void
+test_day_prepare( fd_gui_t * gui ) {
+  gui->day_prep.sync = 0;
+  fd_topo_t * topo = calloc( 1UL, sizeof(fd_topo_t) );
+  FD_TEST( topo );
+  topo->tile_cnt = TEST_TILE_CNT;
+  static ulong metrics[ 2 ][ 1UL+FD_METRICS_TOTAL_SZ/sizeof(ulong) ];
+  memset( metrics, 0, sizeof(metrics) );
+  topo->tiles[ 0 ].metrics = metrics[ 0 ];
+  topo->tiles[ 1 ].metrics = metrics[ 1 ];
+  gui->topo = topo;
+  gui->tile_state.exec_cnt    = 1UL;
+  gui->tile_state.pos_cnt     = 2UL;
+  gui->tile_state.topo_idx[0] = 0UL;
+  gui->tile_state.topo_idx[1] = 1UL;
+
+  long  const day = FD_GUI_TIMELINE_DAY_NS;
+  long        now = 5L*day + sec_ns( 10UL );
+
+  /* Nothing is created on use. */
+  volatile ulong * busy0 = fd_metrics_tile( metrics[ 0 ] ) + MIDX( COUNTER, TILE, REGIME_DURATION_NANOS ) + FD_METRICS_ENUM_TILE_REGIME_V_PROCESSING_PREFRAG_IDX;
+  *busy0 = 1UL;
+  fd_gui_cpu_util_snap( gui, now );
+  *busy0 += 25000000UL;
+  fd_gui_cpu_util_snap( gui, now+FD_GUI_CPU_UTIL_SAMPLE_NS );
+  FD_TEST( !fd_gui_timeline_tile_day_get( gui, 5UL, 0UL ) );
+  FD_TEST( gui->day_prep.missing_cnt==1UL );
+
+  /* Today is prepared in steps of at most the budget, and no record is
+     visible before it is complete. */
+  ulong const budget = 16UL<<20;
+  ulong       polls  = 0UL;
+  /* Each record becomes visible once its own initialization is
+     complete. */
+  while( gui->day_prep.done!=5UL ) {
+    fd_gui_timeline_days_prepare( gui, now, budget );
+    polls++;
+    FD_TEST( polls<64UL );
+    if( gui->day_prep.done==5UL ) break;
+    ulong step = gui->day_prep.step;
+    FD_TEST( !fd_gui_timeline_day_get( gui, 5UL )==!step );
+    if( step>=1UL && step<=2UL ) FD_TEST( !fd_gui_timeline_tile_day_get( gui, 5UL, step-1UL ) );
+  }
+  ulong const total = sizeof(fd_gui_timeline_day_t) + 2UL*sizeof(fd_gui_timeline_tile_day_t) + 2UL*sizeof(fd_gui_timeline_tile_state_day_t);
+  FD_TEST( polls>=total/budget );
+  fd_gui_timeline_day_t const * d5 = fd_gui_timeline_day_get( gui, 5UL );
+  FD_TEST( d5 && d5->insert_time_ns==now && d5->end_time_ns==6L*day );
+  FD_TEST( d5->bucket_12h.skipped[ 0 ]==UINT_MAX );
+  FD_TEST( fd_gui_timeline_tile_day_get( gui, 5UL, 0UL ) && fd_gui_timeline_tile_day_get( gui, 5UL, 1UL ) );
+  FD_TEST( !fd_gui_timeline_tile_day_get( gui, 5UL, 2UL ) ); /* no metrics */
+  fd_gui_timeline_tile_state_day_t const * ts = fd_gui_timeline_tile_state_day_get( gui, 5UL, 1UL );
+  FD_TEST( ts && ts->first_ns==LONG_MAX && !ts->last_ns && ts->insert_time_ns==now );
+
+  /* Samples now land. */
+  ulong missing = gui->day_prep.missing_cnt;
+  *busy0 += 25000000UL;
+  fd_gui_cpu_util_snap( gui, now+2L*FD_GUI_CPU_UTIL_SAMPLE_NS );
+  FD_TEST( gui->day_prep.missing_cnt==missing );
+
+  /* Tomorrow is not prepared before the last hour of the day, then is
+     prepared without becoming available. */
+  fd_gui_timeline_days_prepare( gui, 6L*day-FD_GUI_TIMELINE_PREPARE_AHEAD_NS-1L, ULONG_MAX );
+  FD_TEST( gui->day_prep.done==5UL && !fd_gui_timeline_day_get( gui, 6UL ) );
+  now = 6L*day-FD_GUI_TIMELINE_PREPARE_AHEAD_NS;
+  gui->chunk.now = now;
+  fd_gui_timeline_days_prepare( gui, now, ULONG_MAX );
+  FD_TEST( gui->day_prep.done==6UL && fd_gui_timeline_day_get( gui, 6UL ) );
+  FD_TEST( fd_gui_timeline_tile_state_day_get( gui, 6UL, 0UL ) );
+  ulong lo_day, hi_day;
+  FD_TEST( fd_gui_timeline_tile_day_bounds( gui, &lo_day, &hi_day ) && lo_day==5UL && hi_day==5UL );
+  FD_TEST( fd_gui_timeline_tile_state_day_bounds( gui, &lo_day, &hi_day ) && hi_day==5UL );
+  gui->chunk.now = 6L*day+1L;
+  FD_TEST( fd_gui_timeline_tile_day_bounds( gui, &lo_day, &hi_day ) && hi_day==6UL );
+  gui->chunk.now = 0L;
+
+  gui->topo = NULL;
+  free( topo );
+  gui->day_prep.sync = 1;
+  FD_LOG_NOTICE(( "test_day_prepare: %lu polls of %lu MiB for %lu MiB: ok", polls, budget>>20, total>>20 ));
+}
 
 static void
 test_timeline_cpu( fd_gui_t * gui ) {
@@ -3516,12 +3603,12 @@ test_timeline_cpu( fd_gui_t * gui ) {
   check_response( gui, CPU_RESPONSE( "8s", "8000000000", "[[125],[250]]" ) );
 #undef CPU_RESPONSE
 
-  /* Only tile 0 publishes into day 1, so tile 1 has no record there:
-     its day 1 buckets are null while tile 0's are not. */
+  /* Only tile 0 publishes into day 1.  Preparing day 1 created tile
+     1's record too, but its buckets stay null while tile 0's are not. */
   *busy0 += 1000UL;
   *idle0 += 1000UL;
   fd_gui_cpu_util_snap( gui, FD_GUI_TIMELINE_DAY_NS + sec_ns( 1UL ) + 1L );
-  FD_TEST( fd_gui_timeline_tile_day_get( gui, 1UL, 0UL ) && !fd_gui_timeline_tile_day_get( gui, 1UL, 1UL ) );
+  FD_TEST( fd_gui_timeline_tile_day_get( gui, 1UL, 0UL ) && fd_gui_timeline_tile_day_get( gui, 1UL, 1UL ) );
   FD_TEST( fd_gui_timeline_tile_day_bounds( gui, &lo_day, &hi_day ) && lo_day==0UL && hi_day==1UL );
   FD_TEST( !fd_gui_printf_timeline_query_agg_cpu( gui, "1s", 5UL, FD_GUI_TIMELINE_DAY_NS, 1UL, tiles, 2UL, 7UL ) );
   check_response( gui, "{\"topic\":\"timeline\",\"key\":\"query_agg_cpu\",\"id\":7,\"value\":{\"granularity\":\"1s\",\"reference_ts_ns\":\"86400000000000\","
@@ -3529,23 +3616,6 @@ test_timeline_cpu( fd_gui_t * gui ) {
   FD_TEST( !fd_gui_printf_timeline_query_agg_cpu( gui, "1d", 22UL, 0L, 2UL, tiles, 2UL, 7UL ) );
   check_response( gui, "{\"topic\":\"timeline\",\"key\":\"query_agg_cpu\",\"id\":7,\"value\":{\"granularity\":\"1d\",\"reference_ts_ns\":\"0\","
                        "\"available_start_ns\":\"0\",\"available_end_ns\":\"172800000000000\",\"utilization\":[[125,125],[250,null]]}}" );
-
-  /* Day rollover creates at most FD_GUI_CPU_UTIL_CREATE_MAX records per
-     tick.  The deferred tile keeps its reference, so its first sample
-     of the day covers both ticks. */
-  FD_TEST( FD_GUI_CPU_UTIL_CREATE_MAX==1UL );
-  long const d2 = 2L*FD_GUI_TIMELINE_DAY_NS + sec_ns( 1UL );
-  *busy0 += 25000000UL; *busy1 += 25000000UL;
-  fd_gui_cpu_util_snap( gui, d2 + 1L );
-  FD_TEST( fd_gui_timeline_tile_day_get( gui, 2UL, 0UL ) && !fd_gui_timeline_tile_day_get( gui, 2UL, 1UL ) );
-  *busy0 += 25000000UL; *busy1 += 25000000UL;
-  fd_gui_cpu_util_snap( gui, d2 + FD_GUI_CPU_UTIL_SAMPLE_NS + 1L );
-  fd_gui_timeline_tile_day_t const * rec1d2 = fd_gui_timeline_tile_day_get( gui, 2UL, 1UL );
-  FD_TEST( rec1d2 && rec1d2->insert_time_ns==d2 + FD_GUI_CPU_UTIL_SAMPLE_NS + 1L );
-  ulong i2 = (ulong)sec_ns( 1UL )/(ulong)FD_GUI_CPU_UTIL_SAMPLE_NS;
-  FD_TEST( rec1d2->util_25ms[ i2-1UL ]==FD_GUI_CPU_UTIL_UNKNOWN );
-  FD_TEST( rec1d2->util_25ms[ i2     ]==FD_GUI_CPU_UTIL_MAX );
-  FD_TEST( rec1d2->sum_2S[ 0 ]==FD_GUI_CPU_UTIL_MAX && rec1d2->cnt_2S[ 0 ]==1 && !rec1d2->cnt_2S[ 1 ] && !rec1d2->cnt_12H[ 1 ] );
 
   ulong bad[ 1 ] = { TEST_TILE_CNT };
   FD_TEST( fd_gui_printf_timeline_query_agg_cpu( gui, "1s", 5UL, t0, 1UL, bad, 1UL, 7UL )==-1 );
@@ -3602,7 +3672,6 @@ test_timeline_cpu( fd_gui_t * gui ) {
     gui->tile_state.pos_cnt     = 2UL;
     gui->tile_state.topo_idx[0] = 0UL;
     gui->tile_state.topo_idx[1] = 1UL;
-    gui->tile_state.cur_day     = ULONG_MAX;
     long now = 3L*FD_GUI_TIMELINE_DAY_NS + sec_ns( 10UL );
     fd_replay_slot_states_t msg = { .cnt = 1UL };
     long tick = fd_tickcount();
@@ -4283,13 +4352,13 @@ test_timeline_replayed_skips( fd_gui_t * gui ) {
   fd_memset( ev.from, 0x01, 32UL );
   fd_memset( ev.to,   0x02, 32UL );
   strcpy( ev.result, "holder_live" );
-  strcpy( ev.notes,  "This was the first attempt of a takeover, asking the other validator to hand over the staked identity." );
+  strcpy( ev.notes,  "This was the first attempt of a takeover: the promoted node asked the demoted node to hand over the staked identity." );
   ev.ts_ns = ts+700L;
   gui->summary.slot_estimated = 102UL;
   fd_gui_handle_identity_event( gui, &ev );
   fd_admin_gui_event_t ev2 = { .kind=FD_ADMIN_GUI_EVENT_IDENTITY_SET, .ts_ns=ts+800L };
   strcpy( ev2.result, "success" );
-  strcpy( ev2.notes,  "replaced by the stake change" );
+  ev2.notes[ 0 ] = '\0'; /* a plain success: just the stake change */
   fd_memset( ev2.to, 0x03, 32UL );
   fd_gui_epoch_t * stake_epoch = fd_gui_current_epoch( gui );
   FD_TEST( stake_epoch );
@@ -4299,8 +4368,26 @@ test_timeline_replayed_skips( fd_gui_t * gui ) {
   fd_memset( stake_epoch->stakes[ 1 ].id_key.uc, 0x00, 32UL ); stake_epoch->stakes[ 1 ].stake =  300000000000000UL;
   gui->summary.slot_estimated = ULONG_MAX;
   fd_gui_handle_identity_event( gui, &ev2 );
-  stake_epoch->stakes_cnt = stakes_cnt0;
   FD_TEST( !strcmp( gui->identity_events.event[ 1 ].notes, "1.3M Sol Stake -> 0 Sol Stake" ) );
+  /* A forced success keeps its notes, followed by the stake change.
+     Notes too long to fit are cut, the stake change never is.  A
+     failure keeps its notes unchanged (event 0). */
+  {
+    fd_admin_gui_event_t fe = ev2;
+    strcpy( fe.notes, "It went ahead only because of --force: the demoted node still looked alive." );
+    fd_gui_handle_identity_event( gui, &fe );
+    FD_TEST( !strcmp( gui->identity_events.event[ 2 ].notes,
+                      "It went ahead only because of --force: the demoted node still looked alive. 1.3M Sol Stake -> 0 Sol Stake" ) );
+    fd_memset( fe.notes, 'x', FD_ADMIN_GUI_NOTES_MAX-1UL ); fe.notes[ FD_ADMIN_GUI_NOTES_MAX-1UL ] = '\0';
+    fd_gui_handle_identity_event( gui, &fe );
+    char const * n = gui->identity_events.event[ 3 ].notes;
+    ulong nl = strlen( n );
+    char const * tail = " 1.3M Sol Stake -> 0 Sol Stake";
+    FD_TEST( nl==FD_ADMIN_GUI_NOTES_MAX-1UL && !strcmp( n+nl-strlen( tail ), tail ) && n[ 0 ]=='x' );
+    gui->identity_events.cnt = 2UL;
+  }
+  stake_epoch->stakes_cnt = stakes_cnt0;
+  FD_TEST( !strcmp( gui->identity_events.event[ 0 ].notes, "This was the first attempt of a takeover: the promoted node asked the demoted node to hand over the staked identity." ) );
   fd_admin_gui_event_t bad = { .kind=FD_GUI_TIMELINE_EVENT_CNT, .ts_ns=ts+900L };
   fd_gui_handle_identity_event( gui, &bad );
   FD_TEST( gui->identity_events.cnt==2UL );
@@ -4331,7 +4418,7 @@ test_timeline_replayed_skips( fd_gui_t * gui ) {
   FD_TEST( fd_cstr_printf_check( want, sizeof(want), NULL,
            "\"event\":[3,1],\"slot\":[102,105],\"ts\":[\"%ld\",\"%ld\"],"
            "\"identity_result\":[\"holder_live\",\"success\"],\"identity_from\":[\"%s\",\"%s\"],\"identity_to\":[\"%s\",\"%s\"],"
-           "\"identity_notes\":[\"This was the first attempt of a takeover, asking the other validator to hand over the staked identity.\",\"1.3M Sol Stake -> 0 Sol Stake\"]}}",
+           "\"identity_notes\":[\"This was the first attempt of a takeover: the promoted node asked the demoted node to hand over the staked identity.\",\"1.3M Sol Stake -> 0 Sol Stake\"]}}",
            ts+700L, ts+800L, from, "11111111111111111111111111111111", to, to2 ) );
   ulong len = fd_http_server_stage_len( gui->http );
   char const * got = (char const *)gui->http->oring+gui->http->stage_off%gui->http->oring_sz;
@@ -4887,6 +4974,10 @@ main( int     argc,
 
   store_open( rv, TEST_STORE_BYTES, 32 );
   test_timeline_cpu( rv->gui );
+  store_close( rv );
+
+  store_open( rv, TEST_STORE_BYTES, 32 );
+  test_day_prepare( rv->gui );
   store_close( rv );
 
   store_open( rv, TEST_STORE_BYTES, 34 );
