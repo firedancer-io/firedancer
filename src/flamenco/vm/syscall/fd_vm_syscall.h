@@ -120,11 +120,11 @@ FD_VM_SYSCALL_DECL( abort );
 
    Inputs:
 
-     r1 - msg, byte VM pointer, indexed [0,msg_sz), msg doesn't have to
-     be \0 terminated and can contain \0 within,
-     r2 - msg_sz, may be 0,
-     r3 - ignored
-     r4 - ignored
+     r1 - file, byte VM pointer, indexed [0,file_sz), not necessarily
+          \0 terminated and may contain \0 within,
+     r2 - file_sz, may be 0,
+     r3 - line (currently ignored)
+     r4 - column (currently ignored)
      r5 - ignored
 
    Return:
@@ -132,7 +132,11 @@ FD_VM_SYSCALL_DECL( abort );
      FD_VM_SYSCALL_ERR_COMPUTE_BUDGET_EXCEEDED: insufficient compute
      budget.  vm->reg[0] unchanged.  vm->cu==0.
 
-     FD_VM_SYSCALL_ERR_INVALID_STRING: Bad filepath string, msg is not
+     FD_VM_SYSCALL_ERR_SEGFAULT: invalid file address range.
+
+     FD_VM_SYSCALL_ERR_INVALID_LENGTH: file_sz exceeds LONG_MAX.
+
+     FD_VM_SYSCALL_ERR_INVALID_STRING: Bad filepath string, file is not
      a valid sequence of utf8 bytes.  vm->reg[0] unchanged and vm->cu>=0.
 
      FD_VM_SYSCALL_ERR_PANIC: vm->reg[0] unchanged.  vm->cu
@@ -156,6 +160,10 @@ FD_VM_SYSCALL_DECL( sol_panic );
 
      FD_VM_SYSCALL_ERR_COMPUTE_BUDGET_EXCEEDED: insufficient compute
      budget.  vm->reg[0] unchanged.  vm->cu==0.
+
+     FD_VM_SYSCALL_ERR_SEGFAULT: invalid message address range.
+
+     FD_VM_SYSCALL_ERR_INVALID_LENGTH: msg_sz exceeds LONG_MAX.
 
      FD_VM_SYSCALL_ERR_INVALID_STRING: bad message string.  vm->reg[0]
      unchanged. vm->cu decremented and vm->cu>=0.
