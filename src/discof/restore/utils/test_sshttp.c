@@ -154,7 +154,7 @@ test_headers_too_large( void ) {
 
 static void
 test_plaintext_host( char const * hostname,
-                     char const * host_header ) {
+                     char const * host_header_fmt ) {
   int listener = socket( AF_INET, SOCK_STREAM, 0 );
   FD_TEST( listener!=-1 );
   struct sockaddr_in addr = {
@@ -188,6 +188,8 @@ test_plaintext_host( char const * hostname,
     if( strstr( request, "\r\n\r\n" ) ) break;
   }
   FD_TEST( strstr( request, "GET /snapshot.tar.bz2 HTTP/1.1\r\n" )==request );
+  char host_header[ 128 ];
+  FD_TEST( fd_cstr_printf_check( host_header, sizeof(host_header), NULL, host_header_fmt, fd_ushort_bswap( addr.sin_port ) ) );
   FD_TEST( strstr( request, host_header ) );
   FD_TEST( strstr( request, "\r\n\r\n" ) );
   fd_sshttp_cancel( http );
@@ -241,10 +243,15 @@ test_redirect_location( void ) {
   FD_TEST( strstr( http->request, request )==http->request );
   fd_sshttp_cancel( http );
 
-  /* Full URL naming the host we connected to, default port. */
-  FD_TEST( fd_cstr_printf_check( location, sizeof(location), NULL, "http://localhost/%s", file ) );
+  /* Full URL naming the host we connected to, default port.  Names
+     compare without case and IPs as numbers. */
+  FD_TEST( fd_cstr_printf_check( location, sizeof(location), NULL, "http://LocalHost/%s", file ) );
   FD_TEST( FD_SSHTTP_ADVANCE_AGAIN==redirect_to( http, location ) );
   FD_TEST( http->addr.addr==FD_IP4_ADDR( 127, 0, 0, 1 ) && http->addr.port==fd_ushort_bswap( 80 ) );
+  fd_sshttp_cancel( http );
+  FD_TEST( fd_cstr_printf_check( location, sizeof(location), NULL, "http://127.000.000.001:8902/%s", file ) );
+  FD_TEST( FD_SSHTTP_ADVANCE_AGAIN==redirect_to( http, location ) );
+  FD_TEST( http->addr.port==fd_ushort_bswap( 8902 ) );
   fd_sshttp_cancel( http );
 
   /* The rpc tile sends the generic path to the snapshot server, which
@@ -282,8 +289,8 @@ main( int     argc,
   test_epoll_fd = epoll_create1( 0 );
   FD_TEST( test_epoll_fd!=-1 );
 
-  test_plaintext_host( "snapshots.example.com", "\r\nHost: snapshots.example.com\r\n\r\n" );
-  test_plaintext_host( "", "\r\nHost: 127.0.0.1\r\n\r\n" );
+  test_plaintext_host( "snapshots.example.com", "\r\nHost: snapshots.example.com:%u\r\n\r\n" );
+  test_plaintext_host( "", "\r\nHost: 127.0.0.1:%u\r\n\r\n" );
   test_eof_during_body();
   test_eof_during_headers();
   test_eof_immediate();

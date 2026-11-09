@@ -322,16 +322,16 @@ fd_sshttp_init( fd_sshttp_t * http,
       "User-Agent: Firedancer\r\n"
       "Accept: */*\r\n"
       "Accept-Encoding: identity\r\n"
-      "Host: %s\r\n\r\n",
-      (int)path_len, path, hostname );
+      "Host: %s:%u\r\n\r\n",
+      (int)path_len, path, hostname, fd_ushort_bswap( addr.port ) );
   } else {
     fmt_ok = fd_cstr_printf_check( http->request, sizeof(http->request), &http->request_len,
       "GET %.*s HTTP/1.1\r\n"
       "User-Agent: Firedancer\r\n"
       "Accept: */*\r\n"
       "Accept-Encoding: identity\r\n"
-      "Host: " FD_IP4_ADDR_FMT "\r\n\r\n",
-      (int)path_len, path, FD_IP4_ADDR_FMT_ARGS( addr.addr ) );
+      "Host: " FD_IP4_ADDR_FMT ":%u\r\n\r\n",
+      (int)path_len, path, FD_IP4_ADDR_FMT_ARGS( addr.addr ), fd_ushort_bswap( addr.port ) );
   }
   if( FD_UNLIKELY( !fmt_ok ) ) {
     FD_LOG_WARNING(( "HTTP request too long for %.*s", (int)path_len, path ));
@@ -518,10 +518,12 @@ parse_redirect_url( fd_sshttp_t const * http,
   if( FD_UNLIKELY( is_ssl!=(_Bool)http->is_https ) ) return NULL;
   if( FD_UNLIKELY( !parsed->tail_len || parsed->tail[ 0 ]!='/' ) ) return NULL;
 
-  char ip[ 16 ];
-  fd_cstr_printf( ip, sizeof(ip), NULL, FD_IP4_ADDR_FMT, FD_IP4_ADDR_FMT_ARGS( http->addr.addr ) );
-  int same_ip   = parsed->host_len==strlen( ip ) && !memcmp( parsed->host, ip, parsed->host_len );
-  int same_name = http->hostname[ 0 ] && parsed->host_len==strlen( http->hostname ) && !memcmp( parsed->host, http->hostname, parsed->host_len );
+  char host[ FD_FQDN_BUF_MAX ];
+  fd_memcpy( host, parsed->host, parsed->host_len );
+  host[ parsed->host_len ] = '\0';
+  uint ip4;
+  int same_ip   = fd_cstr_to_ip4_addr( host, &ip4 ) && ip4==http->addr.addr;
+  int same_name = http->hostname[ 0 ] && !strcasecmp( host, http->hostname );
   if( FD_UNLIKELY( !same_ip && !same_name ) ) return NULL;
 
   *len = parsed->tail_len;
@@ -611,7 +613,6 @@ follow_redirect( fd_sshttp_t *        http,
     fd_sshttp_cancel( http );
     return FD_SSHTTP_ADVANCE_ERROR;
   }
-  http->addr.port = fd_ushort_bswap( port );
 
   /* Pre-validate that the redirect request will fit in the request
      buffer.  The request is rebuilt from scratch by fd_sshttp_init
@@ -624,16 +625,16 @@ follow_redirect( fd_sshttp_t *        http,
       "User-Agent: Firedancer\r\n"
       "Accept: */*\r\n"
       "Accept-Encoding: identity\r\n"
-      "Host: %s\r\n\r\n",
-      (int)location_len, location, http->hostname );
+      "Host: %s:%u\r\n\r\n",
+      (int)location_len, location, http->hostname, port );
   } else {
     pre_check = fd_cstr_printf_check( http->request, sizeof(http->request), &http->request_len,
       "GET %.*s HTTP/1.1\r\n"
       "User-Agent: Firedancer\r\n"
       "Accept: */*\r\n"
       "Accept-Encoding: identity\r\n"
-      "Host: " FD_IP4_ADDR_FMT "\r\n\r\n",
-      (int)location_len, location, FD_IP4_ADDR_FMT_ARGS( http->addr.addr ) );
+      "Host: " FD_IP4_ADDR_FMT ":%u\r\n\r\n",
+      (int)location_len, location, FD_IP4_ADDR_FMT_ARGS( http->addr.addr ), port );
   }
   if( FD_UNLIKELY( !pre_check ) ) {
     FD_LOG_WARNING(( "redirect request too long `%.*s` from " FD_IP4_ADDR_FMT ":%hu", (int)location_len, location,
@@ -642,6 +643,7 @@ follow_redirect( fd_sshttp_t *        http,
     return FD_SSHTTP_ADVANCE_ERROR;
   }
 
+  http->addr.port = fd_ushort_bswap( port );
   FD_LOG_INFO(( "following redirect to %s://" FD_IP4_ADDR_FMT ":%hu%.*s", http->is_https ? "https" : "http",
                 FD_IP4_ADDR_FMT_ARGS( http->addr.addr ), fd_ushort_bswap( http->addr.port ),
                 (int)location_len, location ));
