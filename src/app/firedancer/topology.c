@@ -1637,14 +1637,20 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->gossip.ports.rserve           = fd_ushort_if( config->tiles.rserve.enabled, config->tiles.rserve.repair_serve_listen_port, 0 );
     tile->gossip.ports.votor            = config->firedancer.development.votor.quic_server_listen_port;
 
-    /* The snapshot server is reached through the RPC socket. */
+    /* Peers download snapshots through the RPC socket.  The rpc tile
+       answers their JSON-RPC checks and redirects snapshot requests to
+       the snapshot server.  Without an rpc tile the snapshot server is
+       advertised directly, which only Firedancer peers can use. */
     tile->gossip.ports.rpc              = 0;
     if( fd_topo_find_tile( &config->topo, "snapsv", 0UL )!=ULONG_MAX ) {
-      char const * listen_address = config->firedancer.snapshots.server.http_listen_address;
-      if( !listen_address[0] ) listen_address = config->tiles.rpc.rpc_listen_address;
+      char const * listen_address = config->tiles.rpc.rpc_listen_address;
+      ushort       listen_port    = (ushort)config->tiles.rpc.rpc_listen_port;
+      if( !config->tiles.rpc.enabled ) {
+        if( config->firedancer.snapshots.server.http_listen_address[0] ) listen_address = config->firedancer.snapshots.server.http_listen_address;
+        listen_port = (ushort)config->firedancer.snapshots.server.http_listen_port;
+      }
       fd_ip6_addr_t listen_addr;
-      parse_listen_addr( listen_address, "snapshots.server.http_listen_address", &listen_addr );
-      if( !listen_addr_is_loopback( &listen_addr ) ) tile->gossip.ports.rpc = (ushort)config->firedancer.snapshots.server.http_listen_port;
+      if( fd_cstr_to_ip46_addr( listen_address, &listen_addr ) && !listen_addr_is_loopback( &listen_addr ) ) tile->gossip.ports.rpc = listen_port;
     }
 
     tile->gossip.entrypoints_cnt        = config->gossip.entrypoints_cnt;
