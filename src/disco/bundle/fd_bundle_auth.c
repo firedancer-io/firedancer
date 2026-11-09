@@ -7,7 +7,7 @@
 
 #define FD_BUNDLE_AUTH_REQUEST_TIMEOUT ((long)5e9) /* 5 seconds */
 
-/* fd_bundle_auther_t generates auth tokens and keeps them refreshed. */
+/* fd_bundle_auther_t generates auth tokens. */
 
 /* FIXME consider rewriting this with coroutines or light threads */
 

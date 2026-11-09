@@ -185,9 +185,9 @@ fd_accdb_shmem_new( void * shmem,
   }
 
   /* Partition offsets are packed into the low 51 bits of accdb_offset_t
-     (see FD_ACCDB_PARTITION_OFF_BITS in fd_accdb.c).  partition_sz must
+     (see FD_ACCDB_PARTITION_OFF_BITS).  partition_sz must
      be small enough that speculative fetch-and-adds from up to
-     FD_ACCDB_MAX_JOINERS concurrent threads in allocate_next_write
+     FD_ACCDB_MAX_JOINERS concurrent threads in reserve_next_write
      can never carry the offset field into the partition_idx bits.
      Worst case: all joiners each do one FETCH_AND_ADD of partition_sz
      before the partition switch completes, starting from an offset of

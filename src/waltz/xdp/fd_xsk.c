@@ -52,7 +52,7 @@ fd_xsk_mmap_offset_cstr( long mmap_off ) {
 }
 
 /* fd_xsk_mmap_ring maps the given XSK ring into the local address space
-   and populates fd_ring_desc_t.  Every successful call to this function
+   and populates fd_xdp_ring_t.  Every successful call to this function
    should eventually be paired with a call to fd_xsk_munmap_ring(). */
 static int
 fd_xsk_mmap_ring( fd_xdp_ring_t * ring,
@@ -104,7 +104,7 @@ fd_xsk_mmap_ring( fd_xdp_ring_t * ring,
 }
 
 /* fd_xsk_munmap_ring unmaps the given XSK ring from the local address
-   space and zeroes fd_ring_desc_t. */
+   space and zeroes fd_xdp_ring_t. */
 static void
 fd_xsk_munmap_ring( fd_xdp_ring_t * ring,
                     long             map_off ) {

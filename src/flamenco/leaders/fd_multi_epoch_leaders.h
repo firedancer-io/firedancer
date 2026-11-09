@@ -151,16 +151,16 @@ fd_multi_epoch_leaders_get_next_slot( fd_multi_epoch_leaders_t const * mleaders,
 
 /* ********    STAKE INFO UPDATE METHODS    ******** */
 
-/* fd_stake_ci_stake_msg_{init, fini} are used to handle messages
-   containing stake weight updates from the Rust side of the splice,.
+/* fd_multi_epoch_leaders_stake_msg_{init, fini} handle messages
+   containing stake weight updates.
    Since these messages arrive on a dcache and can get overrun, both
    expose a init/fini model. Calling init multiple times without calling
    fini will not leak any resources.
 
    msg should be a pointer to the first byte of the dcache entry
-   containing the stakes update.  msg will be accessed
-   msg->weights[i] for i in [0, msg->staked_cnt).  msg->weights
-   must contain at least one staked pubkey, and the pubkeys must be
+   containing the stakes update.  The weights are accessed via
+   fd_stake_weight_msg_stake_weights(msg), with msg->staked_vote_cnt
+   entries.  At least one pubkey must be staked.  Pubkeys must be
    sorted in the usual way (by stake descending, ties broken by pubkey
    ascending). multi_epoch_leaders will only use the staked node.
 

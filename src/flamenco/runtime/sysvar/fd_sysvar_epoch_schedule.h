@@ -15,7 +15,7 @@
 
    In the warmup period, the length of an epoch starts small and
    exponentially increases.  The length of each epoch in the warmup
-   period is 2^x where x is (epoch_number - min_exp).  min_exp is
+   period is 2^x where x is (epoch_number + min_exp).  min_exp is
    ceil(log2(FD_EPOCH_LEN_MIN)).
 
    In the constant period, the length of each epoch stays the same.

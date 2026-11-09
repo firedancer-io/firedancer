@@ -607,10 +607,8 @@ bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
       instr_ctx->txn_out->details.compute_budget.compute_meter = 0UL;
     }
 
-    /* Direct mapping access violation case
-       Edge case with error codes: if direct mapping is enabled, the EBPF error is an access violation,
-       and the access type was a store, a different error code is returned to give developers more insight
-       as to what caused the error.
+    /* With virtual_address_space_adjustments, remap load and store
+       access violations to more specific account errors.
        https://github.com/anza-xyz/agave/blob/v3.0.4/programs/bpf_loader/src/lib.rs#L1556-L1618 */
     if( FD_UNLIKELY( virtual_address_space_adjustments &&
                      ( exec_err==FD_VM_ERR_EBPF_ACCESS_VIOLATION || instr_ctx->txn_out->err.exec_err==FD_VM_ERR_EBPF_ACCESS_VIOLATION ) &&

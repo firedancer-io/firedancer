@@ -453,26 +453,9 @@ fd_executor_verify_transaction( fd_bank_t const *   bank,
   return FD_RUNTIME_EXECUTE_SUCCESS;
 }
 
-/* This function contains special casing for loading and collecting rent from
-   each transaction account. The logic is as follows:
-     1. If the account is the instructions sysvar, then load in the compiled
-        instructions from the transactions into the sysvar's data.
-     2. If the account is a fee payer, then it is already loaded.
-     3. Otherwise load in the account from the accounts DB. If the account is
-        writable and exists, try to collect rent from it.
-
-   Returns the loaded transaction account size, which is the value that
-   must be used when accumulating and checking against the
-   transactions's loaded account data size limit.
-
-   Agave relies on this function to actually load accounts from their
-   accounts db. However, since our accounts model is slightly different,
-   our account loading logic is handled earlier in the transaction
-   execution pipeline within `fd_executor_setup_accounts_for_txn()`.
-   Therefore, the name of this function is slightly misleading - we
-   don't actually load accounts here, but we still need to collect
-   rent from writable accounts and accumulate the transaction's
-   total loaded account size.
+/* load_transaction_account serializes the instructions sysvar and
+   reports the account's contribution to the loaded account data size.
+   Accounts are already loaded by fd_executor_setup_accounts_for_txn().
 
    https://github.com/anza-xyz/agave/blob/v2.3.1/svm/src/account_loader.rs#L199-L228 */
 static int
@@ -498,11 +481,6 @@ load_transaction_account( fd_bank_t *         bank,
     return FD_RUNTIME_EXECUTE_SUCCESS;
   }
 
-  /* This next block calls `account_loader::load_transaction_account()`
-     which loads the account from the accounts db. If the account exists
-     and is writable, collect rent from it.
-
-     https://github.com/anza-xyz/agave/blob/v2.3.1/svm/src/account_loader.rs#L828-L835 */
   if( FD_LIKELY( !unknown_acc ) ) {
     /* SIMD-0186 introduces a base account size of 64 bytes for all
        transaction counts that exist prior to the transaction's
@@ -681,11 +659,8 @@ fd_collect_loaded_account( fd_txn_out_t *   txn_out,
    - Calculates the loaded data size for each transaction account
    - Calculates the loaded data size for each v3 programdata account
      not directly referenced in the transaction accounts
-   - Collects rent from all referenced transaction accounts (excluding
-     the fee payer)
    - Validates that each program invoked in a top-level instruction
-     exists, is executable, and is owned by either the native loader
-     or a bpf loader
+     exists and is owned by either the native loader or a bpf loader
 
    https://github.com/anza-xyz/agave/blob/v2.3.1/svm/src/account_loader.rs#L550-L689
    https://github.com/anza-xyz/agave/blob/v2.3.1/svm/src/account_loader.rs#L518-L548 */
@@ -1031,9 +1006,8 @@ fd_txn_ctx_push( fd_runtime_t *      runtime,
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
 
-/* Pushes a new instruction onto the instruction stack and trace. This check loops through all instructions in the current call stack
-   and checks for reentrancy violations. If successful, simply increments the instruction stack and trace size and returns. It is
-   the responsibility of the caller to populate the newly pushed instruction fields, which are undefined otherwise.
+/* fd_instr_stack_push checks for reentrancy violations and pushes the
+   already-populated instr onto the instruction stack.
 
    https://github.com/anza-xyz/agave/blob/v2.0.0/program-runtime/src/invoke_context.rs#L246-L290 */
 int
@@ -1082,7 +1056,7 @@ fd_instr_stack_push( fd_runtime_t *      runtime,
       return FD_EXECUTOR_INSTR_ERR_REENTRANCY_NOT_ALLOWED;
     }
   }
-  /* "Push" a new instruction onto the stack by simply incrementing the stack and trace size counters
+  /* Push the instruction onto the stack
      https://github.com/anza-xyz/agave/blob/v2.0.0/program-runtime/src/invoke_context.rs#L289 */
   return fd_txn_ctx_push( runtime, txn_in, txn_out, instr );
 }
