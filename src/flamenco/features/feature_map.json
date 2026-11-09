@@ -304,7 +304,7 @@
   {"name":"enforce_validator_location_registration","implemented":1,"pubkey":"EnforceVa1idatorLocat1onRegistrat1on1111111","comment":"placeholder pubkey"},
   {"name":"geo_aware_leader_schedule","implemented":1,"pubkey":"GeoAwareLeaderSchedu1e111111111111111111111","comment":"placeholder pubkey"},
   {"name":"secp256r1_syscall_enabled","implemented":1,"pubkey":"SeRjtX7Abiq5hQYbzdCny266oveDseHZh9tnrs2cdVC"},
-  {"name":"stricter_shred_validation","implemented":1,"pubkey":"s5o4YoA9zUrw9j4v335ncdG5PpznDBsrgM6CvUGrasA","hardcode_for_fuzzing":1,"comment":"no-op for firedancer"},
+  {"name":"stricter_shred_validation","implemented":1,"pubkey":"s5o4YoA9zUrw9j4v335ncdG5PpznDBsrgM6CvUGrasA","comment":"no-op for firedancer"},
   {"name":"remove_runtime_float_ops","implemented":1,"pubkey":"7AzqUCKQjoCKhWDDHgEYkTY8iRwWtuuxHogcmx1UJzR8"},
   {"name":"core_bpf_hash_validation","implemented":1,"pubkey":"FCsQnd4V52NESBhVURWYSWBbmLFzgxEZVC2WngzHzp1u","comment":"firedancer assumes this feature gate is activated for all migrations, which is safe because of the feature-gate schedule ordering"},
   {"name":"replace_ata_with_p_ata","implemented":1,"pubkey":"pata6uFabFDejC1U7rpmFj9s1FhmiPyWk6D51U1ksx3","comment":"core_bpf_hash_validation will be activated first"},

@@ -2396,8 +2396,7 @@ fd_feature_id_t const ids[] = {
                                  /* s5o4YoA9zUrw9j4v335ncdG5PpznDBsrgM6CvUGrasA */
     .name                      = "stricter_shred_validation",
     .implemented               = 1,
-    .cleaned_up                = 0,
-    .hardcode_for_fuzzing      = 1 },
+    .cleaned_up                = 0 },
 
   { .index                     = offsetof(fd_features_t, remove_runtime_float_ops)>>3,
     .id                        = {"\x5b\xb5\xbe\x6c\x59\x1c\x64\x30\xc9\x7c\x8a\xd9\xdf\x40\xb8\xaa\xd9\xe2\x2b\x23\x24\x34\x2d\x80\x27\xe1\x22\x4b\xe2\xa2\x56\x93"},
