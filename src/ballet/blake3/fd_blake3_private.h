@@ -200,7 +200,7 @@ fd_blake3_avx512_compress16( ulong                   batch_cnt,
                              ulong const  * restrict ctr_vec,       /* align= 8 len=16 */
                              uint const   * restrict batch_flags,   /* align= 4 len=16 */
                              void * const * restrict _batch_hash,   /* align=64 len=16 */
-                             ushort *       restrict lthash,        /* align=32 byte_sz=2048 */
+                             ushort *       restrict lthash,        /* align=64 byte_sz=2048 */
                              uint                    out_sz,        /* 32 or 64 */
                              void const *   restrict batch_cv );    /* align= 8 len=16 ele_align=16 optional */
 
