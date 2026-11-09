@@ -498,10 +498,11 @@ during_housekeeping( fd_net_ctx_t * ctx ) {
 
 /* net_tx_route resolves the src IP address and for non-GRE routes the XSK
    index and MAC addresses.  Returns 1 on success, 0 on failure.
-   On success, tx_op.xsk_idx and net.tx_route.src_ip are set, and if the dst_ip
-   belongs to a GRE interface, is_gre_inf will set to 1 and net.tx_route.gre_outer_src_ip
-   and net.tx_route.gre_outer_dst_ip will be loaded from the netdev
-   table. is_gre_inf is set to 0 if dst_ip doesn't belong to a GRE interface. */
+   On success, net.tx_route.src_ip is set.  For GRE interfaces,
+   is_gre_inf is set to 1 and net.tx_route.gre_outer_src_ip and
+   net.tx_route.gre_outer_dst_ip are loaded from the netdev table;
+   tx_op.xsk_idx remains UINT_MAX until the outer route lookup.
+   Otherwise, is_gre_inf is set to 0 and tx_op.xsk_idx is set. */
 
 static int
 net_tx_route( fd_net_ctx_t * ctx,
