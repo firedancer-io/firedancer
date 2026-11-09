@@ -1367,6 +1367,7 @@ unprivileged_init( fd_topo_t const *      topo,
 
   for( ulong i=0UL; i<(tile->out_cnt); i++ ) {
     fd_topo_link_t const * out_link = &topo->links[ tile->out_link_id[ i  ] ];
+    if( !out_link->mtu ) continue;
     fd_frag_meta_t * mcache = out_link->mcache;
     for( ulong j=0UL; j<fd_mcache_depth( mcache ); j++ ) {
       mcache[ j ].chunk = (uint)( ctx->net.pkt_buf_chunk0 + (frame_off>>FD_CHUNK_LG_SZ) );

@@ -480,6 +480,7 @@ fd_topos_xdp_setup_mem( fd_topo_t *      topo,
 
   for( ulong j=0UL; j<(net_tile->out_cnt); j++ ) {
     ulong link_id       = net_tile->out_link_id[ j ];
+    if( !topo->links[ link_id ].mtu ) continue;
     ulong mcache_obj_id = topo->links[ link_id ].mcache_obj_id;
     ulong depth = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "obj.%lu.depth", mcache_obj_id );
     if( FD_UNLIKELY( depth==ULONG_MAX ) ) FD_LOG_ERR(( "Didn't find depth for mcache %s", topo->links[ link_id ].name ));
