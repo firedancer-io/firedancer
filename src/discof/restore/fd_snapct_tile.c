@@ -103,11 +103,11 @@ typedef struct gossip_ci_entry gossip_ci_entry_t;
 /* Standalone blacklist keyed on fd_sspeer_key_t (peer identity).
    Keying on identity rather than network address is intentional:
    a peer's address can change freely, but its identity cannot.
-   For gossip peers the identity is the pubkey; for URL peers it is
-   the (hostname, resolved_addr) pair.  Blacklisted peers are
-   permanently banned for the bootstrap lifetime.  The blacklist uses
-   its own dedicated pool so entries are never evicted by pool
-   pressure, unlike the ssping peer pool. */
+   The identity is the gossip pubkey.  Blacklisted peers are
+   permanently banned for the bootstrap lifetime.  Servers the
+   operator listed in the config are never blacklisted.  The
+   blacklist uses its own dedicated pool so entries are never evicted
+   by pool pressure, unlike the ssping peer pool. */
 
 struct fd_sspeer_blacklist_entry {
   fd_sspeer_key_t key;
@@ -807,13 +807,14 @@ log_completion( fd_snapct_tile_t * ctx,
   else       FD_LOG_INFO(( "incremental snapshot load completed in %.3f seconds", elapsed ));
 }
 
-/* Blacklist the current peer: invalidate in ssping, remove from the
-   selector, and add to the dedicated blacklist map.  Skips the insert
-   if the peer is already blacklisted (dedup).  Warns if the pool is
-   full (the ssping ban still provides temporary protection). */
+/* Blacklist the current peer: remove it from the selector, invalidate
+   it in ssping, and add it to the dedicated blacklist map.  Skips the
+   insert if the peer is already blacklisted (dedup).  Warns if the
+   pool is full (the ssping ban still provides temporary protection).
+   A server the operator listed is only removed from the selector; the
+   resolver offers it again on its next check. */
 static void
 blacklist_peer( fd_snapct_tile_t * ctx ) {
-  fd_ssping_invalidate( ctx->ssping, ctx->peer.addr, fd_clock_tile_now( ctx->clock ) );
   fd_sspeer_selector_remove_by_addr( ctx->selector, ctx->peer.addr );
   fd_sspeer_selector_process_cluster_slot( ctx->selector );
 
@@ -822,18 +823,17 @@ blacklist_peer( fd_snapct_tile_t * ctx ) {
     ctx->predicted_incremental.peer.addr.l = 0UL;
   }
 
+  if( ctx->peer.key.is_url ) return;
+
+  fd_ssping_invalidate( ctx->ssping, ctx->peer.addr, fd_clock_tile_now( ctx->clock ) );
+
   if( FD_UNLIKELY( blacklist_map_ele_query( ctx->blacklist_map, &ctx->peer.key, NULL, ctx->blacklist_pool ) ) ) return;
   if( FD_LIKELY( blacklist_pool_free( ctx->blacklist_pool ) ) ) {
     fd_sspeer_blacklist_entry_t * bl = blacklist_pool_ele_acquire( ctx->blacklist_pool );
     bl->key = ctx->peer.key;
     blacklist_map_ele_insert( ctx->blacklist_map, bl, ctx->blacklist_pool );
-    if( FD_UNLIKELY( !ctx->peer.key.is_url ) ) {
-      FD_BASE58_ENCODE_32_BYTES( ctx->peer.key.pubkey->uc, pubkey_b58 );
-      FD_LOG_WARNING(( "permanently blacklisted peer identity %s", pubkey_b58 ));
-    } else {
-      FD_LOG_WARNING(( "permanently blacklisted peer identity %s",
-                       ctx->peer.key.url.hostname[0] ? ctx->peer.key.url.hostname : "(none)" ));
-    }
+    FD_BASE58_ENCODE_32_BYTES( ctx->peer.key.pubkey->uc, pubkey_b58 );
+    FD_LOG_WARNING(( "permanently blacklisted peer identity %s", pubkey_b58 ));
   } else {
     FD_LOG_WARNING(( "blacklist pool full, peer banned via ssping only" ));
   }
