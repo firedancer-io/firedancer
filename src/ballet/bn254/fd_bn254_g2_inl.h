@@ -54,8 +54,8 @@ fd_bn254_g2_neg( fd_bn254_g2_t *       r,
 
 static inline fd_bn254_g2_t *
 fd_bn254_g2_set_zero( fd_bn254_g2_t * r ) {
-  // fd_bn254_fp2_set_zero( &r->X );
-  // fd_bn254_fp2_set_zero( &r->Y );
+  fd_bn254_fp2_set_zero( &r->X );
+  fd_bn254_fp2_set_zero( &r->Y );
   fd_bn254_fp2_set_zero( &r->Z );
   return r;
 }
