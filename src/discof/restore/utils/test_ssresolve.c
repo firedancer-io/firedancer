@@ -15,8 +15,10 @@ static uchar _ssresolve[ 1UL<<20 ] __attribute__((aligned(FD_SSRESOLVE_ALIGN)));
    needed. */
 
 static int
-connect_pair( fd_ssresolve_t ** out,
-              int               full ) {
+connect_pair_host( fd_ssresolve_t ** out,
+                   int               full,
+                   char const *      hostname,
+                   ushort            port ) {
   int sv[ 2 ];
   FD_TEST( 0==socketpair( AF_UNIX, SOCK_STREAM, 0, sv ) );
   FD_TEST( -1!=fcntl( sv[ 0 ], F_SETFL, fcntl( sv[ 0 ], F_GETFL, 0 )|O_NONBLOCK ) );
@@ -25,8 +27,8 @@ connect_pair( fd_ssresolve_t ** out,
   fd_ssresolve_t * ssresolve = fd_ssresolve_join( fd_ssresolve_new( _ssresolve ) );
   FD_TEST( ssresolve );
 
-  fd_ip4_port_t addr = { .addr = 0x7F000001U, .port = fd_ushort_bswap( 80 ) };
-  fd_ssresolve_init( ssresolve, addr, sv[ 0 ], full, "localhost" );
+  fd_ip4_port_t addr = { .addr = fd_uint_bswap( 0x7F000001U ), .port = fd_ushort_bswap( port ) };
+  fd_ssresolve_init( ssresolve, addr, sv[ 0 ], full, hostname );
 
   /* Flush the request out so the state machine is waiting on a
      response. */
@@ -34,6 +36,29 @@ connect_pair( fd_ssresolve_t ** out,
 
   *out = ssresolve;
   return sv[ 1 ];
+}
+
+static int
+connect_pair( fd_ssresolve_t ** out,
+              int               full ) {
+  return connect_pair_host( out, full, "localhost", 80 );
+}
+
+static void
+test_host_header( void ) {
+  char const * hosts[] = { "snapshots.example.com", "", NULL };
+  for( ulong i=0UL; i<3UL; i++ ) {
+    fd_ssresolve_t * ssresolve;
+    int server = connect_pair_host( &ssresolve, 1, hosts[i], 8899 );
+    char request[4096];
+    long n = recv( server, request, sizeof(request)-1UL, 0 );
+    FD_TEST( n>0L );
+    request[n] = '\0';
+    FD_TEST( strstr( request, i ? "\r\nHost: 127.0.0.1:8899\r\n\r\n"
+                                : "\r\nHost: snapshots.example.com:8899\r\n\r\n" ) );
+    FD_TEST( !close( server ) );
+    fd_ssresolve_cancel( ssresolve );
+  }
 }
 
 /* respond plays the server, then drives one poll_in. */
@@ -133,6 +158,8 @@ int
 main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
+
+  test_host_header();
 
   test_incremental_absent();
   test_full_absent_error();

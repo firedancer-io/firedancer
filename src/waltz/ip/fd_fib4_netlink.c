@@ -71,6 +71,8 @@ fd_fib4_netlink_translate( struct nlmsghdr const * msg_hdr,
   struct rtattr * rat    = RTM_RTA( msg );
   long            rat_sz = (long)(int)RTM_PAYLOAD( msg_hdr );
 
+  if( FD_UNLIKELY( msg->rtm_tos ) ) return 0;
+
   if( FD_UNLIKELY(msg->rtm_flags & RTM_F_CLONED) ) {
     return 0;
   }

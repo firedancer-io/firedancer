@@ -1,4 +1,9 @@
 #include <stdio.h>
+#include <errno.h>
+#include <linux/rtnetlink.h>
+#include <linux/if_arp.h>
+#include <sys/socket.h>
+#include <unistd.h>
 #include "fd_netdev_netlink.h"
 #include "../../util/fd_util.h"
 
@@ -37,11 +42,52 @@ main( int     argc,
   fd_netdev_tbl_join_t tbl[1];
   FD_TEST( fd_netdev_tbl_join( tbl, tbl_mem )==tbl );
 
+  int sv[2];
+  FD_TEST( !socketpair( AF_UNIX, SOCK_DGRAM, 0, sv ) );
+  struct {
+    struct nlmsghdr nlh;
+    struct ifinfomsg ifi;
+    struct nlmsghdr bad;
+  } dump = {
+    .nlh = { .nlmsg_type=RTM_NEWLINK, .nlmsg_flags=NLM_F_MULTI, .nlmsg_len=NLMSG_LENGTH( sizeof(struct ifinfomsg) ), .nlmsg_seq=42U },
+    .ifi = { .ifi_type=ARPHRD_LOOPBACK, .ifi_index=1 },
+    .bad = { .nlmsg_len=sizeof(struct nlmsghdr)+1 }
+  };
+  FD_TEST( send( sv[1], &dump, sizeof(dump), 0 )==(long)sizeof(dump) );
+  /* Queue the old dump's tail and the next request's response separately. */
+  dump.ifi.ifi_index = 2;
+  dump.bad = (struct nlmsghdr){ .nlmsg_type=NLMSG_DONE, .nlmsg_len=sizeof(struct nlmsghdr), .nlmsg_seq=42U };
+  FD_TEST( send( sv[1], &dump, sizeof(dump), 0 )==(long)sizeof(dump) );
+  dump.ifi.ifi_index = 3;
+  dump.nlh.nlmsg_seq = dump.bad.nlmsg_seq = 43U;
+  FD_TEST( send( sv[1], &dump, sizeof(dump), 0 )==(long)sizeof(dump) );
+  fd_netlink_t mock = { .fd=sv[0], .seq=42U };
+  FD_TEST( fd_netdev_netlink_load_table( tbl, &mock )==EPROTO );
+  FD_TEST( !tbl->hdr->dev_cnt );
+  struct nlmsghdr next;
+  FD_TEST( recv( sv[0], &next, sizeof(next), MSG_PEEK|MSG_DONTWAIT )==(long)sizeof(next) );
+  FD_TEST( next.nlmsg_seq==43U );
+  FD_TEST( !fd_netdev_netlink_load_table( tbl, &mock ) );
+  FD_TEST( tbl->hdr->dev_cnt==1U && tbl->dev_tbl[0].if_idx==3U );
+
+  /* The kernel can mark either a data message or DONE as interrupted. */
+  for( uint i=0U; i<2U; i++ ) {
+    dump.nlh.nlmsg_seq = dump.bad.nlmsg_seq = mock.seq;
+    dump.nlh.nlmsg_flags = (ushort)(NLM_F_MULTI | (i ? 0 : NLM_F_DUMP_INTR));
+    dump.bad.nlmsg_flags = (ushort)(i ? NLM_F_DUMP_INTR : 0);
+    FD_TEST( send( sv[1], &dump, sizeof(dump), 0 )==(long)sizeof(dump) );
+    FD_TEST( fd_netdev_netlink_load_table( tbl, &mock )==EINTR );
+    FD_TEST( !tbl->hdr->dev_cnt );
+  }
+  FD_TEST( !close( sv[0] ) );
+  FD_TEST( !close( sv[1] ) );
+
   fd_netlink_t _netlink[1];
   fd_netlink_t * netlink = fd_netlink_init( _netlink, 42U );
   FD_TEST( netlink );
 
   int ld_err = fd_netdev_netlink_load_table( tbl, netlink );
+  FD_TEST( !ld_err );
   if( FD_UNLIKELY( ld_err ) ) {
     FD_LOG_WARNING(( "Failed to load interfaces (error code %i)", ld_err ));
   }
