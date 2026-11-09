@@ -121,7 +121,7 @@ deliver( fd_tlsrec_conn_t * conn,
          ulong *            app_rx_sz,
          int *              oom ) {
   ulong avail = in->tail - in->head;
-  ulong sz    = fd_ulong_min( avail, frag_sz );
+  ulong sz    = fd_ulong_min( fd_ulong_min( avail, frag_sz ), FD_TLSREC_CAP );
   fd_tlsrec_slice_t tcp_rx[1];
   fd_tlsrec_slice_init( tcp_rx, in->buf + in->head, sz );
 
