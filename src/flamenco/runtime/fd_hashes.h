@@ -25,9 +25,7 @@
 
 FD_PROTOTYPES_BEGIN
 
-/* fd_hashes_account_lthash_simple is functionally the same as
-   fd_hashes_account_lthash, but with simpler arguments that detail the
-   exact parameters that go into the lthash.
+/* fd_hashes_account_lthash_simple computes an account's lthash.
 
    pubkey points to the account's public key (32 bytes).  owner points
    to the account's owner (32 bytes).  lamports is the account's
