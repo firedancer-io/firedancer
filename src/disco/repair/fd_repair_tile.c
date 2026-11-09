@@ -19,6 +19,7 @@
 #include "fd_repair_serde.h"
 #include "fd_repair_strat.h"
 #include "../../ballet/sha256/fd_sha256.h"
+#include "../../ballet/chacha/fd_chacha_rng.h"
 #include "../../disco/keyguard/fd_keyguard.h"
 #include "../../disco/events/generated/fd_event_gen.h"
 #include "../../disco/metrics/fd_metrics.h"
@@ -190,6 +191,7 @@ struct fd_repair_tile {
 
   fd_clock_tile_t   clock[1];
   fd_rng_t          rng[1];
+  fd_chacha_rng_t   nonce_rng[1];
   fd_rnonce_ss_t    rnonce_ss[1];
   timeout_t *       eager_prq;
   timeout_t *       notar_prq;
@@ -1158,8 +1160,9 @@ after_credit( fd_repair_tile_t *  ctx,
     peer->ping_ts = now;
 
     sign_t * pending = sign_pool_ele_acquire( ctx->sign_pool );
-    *pending    = (sign_t){ .sig_off = sizeof(uint), .daddr = peer->ip4, .dport = fd_ushort_bswap( peer->port ) };
-    pending->sz = fd_repair_req_parent_and_fec_set_count_ser( &(fd_repair_parent_fec_set_count_t){ .slot = 0UL }, sig_null, &ctx->identity_key, &id_key, ts, fd_rng_uint( ctx->rng ), pending->buf );
+    *pending = (sign_t){ .sig_off = sizeof(uint), .daddr = peer->ip4, .dport = fd_ushort_bswap( peer->port ) };
+    uint nonce = (uint)fd_chacha_rng_ulong( ctx->nonce_rng );
+    pending->sz = fd_repair_req_parent_and_fec_set_count_ser( &(fd_repair_parent_fec_set_count_t){ .slot = 0UL }, sig_null, &ctx->identity_key, &id_key, ts, nonce, pending->buf );
 
     ulong s = 0UL;
     for( ulong i=1UL; i<ctx->sign_cnt; i++ ) s = fd_ulong_if( ctx->sign[ i ].free>ctx->sign[ s ].free, i, s );
@@ -1213,8 +1216,10 @@ after_credit( fd_repair_tile_t *  ctx,
     req.stuck     = stuck;
     req.rcvd      = rcvd;
 
-    uint nonce = fd_rng_uint( ctx->rng );
-    while( meta && pending_map_ele_query_const( ctx->pending_map, &(ulong){ nonce }, NULL, ctx->pending_pool ) ) nonce = fd_rng_uint( ctx->rng );
+    uint nonce = (uint)fd_chacha_rng_ulong( ctx->nonce_rng );
+    while( meta && pending_map_ele_query_const( ctx->pending_map, &(ulong){ nonce }, NULL, ctx->pending_pool ) ) {
+      nonce = (uint)fd_chacha_rng_ulong( ctx->nonce_rng );
+    }
 
     if( FD_UNLIKELY( !pending_pool_free( ctx->pending_pool ) ) ) { /* evict the oldest, a reply to it no longer matches */
       pending_t * oldest = pending_dlist_ele_pop_head( ctx->pending_dlist, ctx->pending_pool );
@@ -1495,6 +1500,11 @@ privileged_init( fd_topo_t const *      topo,
   fd_memset( ctx, 0, sizeof(fd_repair_tile_t) );
 
   FD_TEST( fd_rng_secure( &ctx->seed, sizeof(ulong) ) );
+  uchar nonce_seed[ 32 ];
+  FD_TEST( fd_rng_secure( nonce_seed, sizeof(nonce_seed) ) );
+  FD_TEST( fd_chacha_rng_join( fd_chacha_rng_new( ctx->nonce_rng, FD_CHACHA_RNG_MODE_SHIFT ) ) );
+  fd_chacha_rng_init( ctx->nonce_rng, nonce_seed, FD_CHACHA_RNG_ALGO_CHACHA8 );
+  fd_memzero_explicit( nonce_seed, sizeof(nonce_seed) );
 
   uchar const * identity_key = fd_keyload_load( tile->repair.identity_key_path, /* pubkey only: */ 1 );
   fd_memcpy( ctx->identity_key.uc, identity_key, sizeof(fd_pubkey_t) );
