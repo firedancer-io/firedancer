@@ -247,6 +247,17 @@ test_redirect_location( void ) {
   FD_TEST( http->addr.addr==FD_IP4_ADDR( 127, 0, 0, 1 ) && http->addr.port==fd_ushort_bswap( 80 ) );
   fd_sshttp_cancel( http );
 
+  /* The rpc tile sends the generic path to the snapshot server, which
+     then names the file.  That hop is followed without resolving. */
+  FD_TEST( FD_SSHTTP_ADVANCE_AGAIN==redirect_to( http, "http://127.0.0.1:8902/snapshot.tar.bz2" ) );
+  FD_TEST( http->addr.port==fd_ushort_bswap( 8902 ) );
+  FD_TEST( strstr( http->request, "GET /snapshot.tar.bz2 HTTP/1.1\r\n" )==http->request );
+  FD_TEST( !strcmp( http->snapshot_name, file ) );
+  fd_sshttp_cancel( http );
+  FD_TEST( FD_SSHTTP_ADVANCE_AGAIN==redirect_to( http, "/incremental-snapshot.tar.bz2" ) );
+  FD_TEST( !strcmp( http->snapshot_name, file ) );
+  fd_sshttp_cancel( http );
+
   /* Another host or a scheme change is refused. */
   FD_TEST( fd_cstr_printf_check( location, sizeof(location), NULL, "http://1.2.3.4:8902/%s", file ) );
   FD_TEST( FD_SSHTTP_ADVANCE_ERROR==redirect_to( http, location ) );

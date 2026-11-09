@@ -565,9 +565,17 @@ follow_redirect( fd_sshttp_t *        http,
         return FD_SSHTTP_ADVANCE_ERROR;
       }
 
+      /* The rpc tile sends the generic path on to the snapshot server,
+         which then names the file.  Only a file name is resolved. */
+      char const * file     = location+1UL;
+      ulong        file_len = location_len-1UL;
+      int generic = ( file_len==16UL && ( !memcmp( file, "snapshot.tar.bz2", 16UL ) || !memcmp( file, "snapshot.tar.zst", 16UL ) ) ) ||
+                    ( file_len==28UL && ( !memcmp( file, "incremental-snapshot.tar.bz2", 28UL ) || !memcmp( file, "incremental-snapshot.tar.zst", 28UL ) ) );
+      if( generic ) break;
+
       char snapshot_name[ PATH_MAX ];
-      fd_memcpy( snapshot_name, location+1UL, location_len-1UL );
-      snapshot_name[ location_len-1UL ] = '\0';
+      fd_memcpy( snapshot_name, file, file_len );
+      snapshot_name[ file_len ] = '\0';
 
       int is_zstd;
       ulong full_entry_slot, incremental_entry_slot;
