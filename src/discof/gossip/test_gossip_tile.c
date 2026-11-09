@@ -333,15 +333,23 @@ test_snapshot_hashes( void ) {
   FD_TEST( sign_cnt==2UL );
   check_pushed( 100UL, 2, 120UL, 5 );
 
+  /* An incremental on a full that was never reported neither gets
+     advertised nor pushes aside the one on our full. */
+  snapmk_msg( FD_SNAPMK_MSG_FOUND, 310UL, 300UL, "incremental-snapshot-300-310-11111111111111111111111111111118.tar.zst" );
+  FD_TEST( sign_cnt==2UL );
+  snapmk_msg( FD_SNAPMK_MSG_CREATED, 130UL, 100UL, "incremental-snapshot-100-130-11111111111111111111111111111119.tar.zst" );
+  FD_TEST( sign_cnt==3UL );
+  check_pushed( 100UL, 2, 130UL, 8 );
+
   /* A new full snapshot is advertised alone. */
   snapmk_msg( FD_SNAPMK_MSG_CREATED, 200UL, ULONG_MAX, "snapshot-200-11111111111111111111111111111117.tar.zst" );
-  FD_TEST( sign_cnt==3UL );
+  FD_TEST( sign_cnt==4UL );
   check_pushed( 200UL, 6, 0UL, 0 );
 
   /* Deletes and bad names change nothing. */
   snapmk_msg( FD_SNAPMK_MSG_DELETED, 200UL, ULONG_MAX, "snapshot-200-11111111111111111111111111111117.tar.zst" );
   snapmk_msg( FD_SNAPMK_MSG_CREATED, 300UL, ULONG_MAX, "garbage" );
-  FD_TEST( sign_cnt==3UL );
+  FD_TEST( sign_cnt==4UL );
 
   free( mem );
 }

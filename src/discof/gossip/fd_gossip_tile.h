@@ -102,9 +102,13 @@ struct fd_gossip_tile_ctx {
   long  peer_sat_hwm_nanos;  /* wallclock when HWM last increased   */
   int   peer_sat_published;  /* one-shot latch (0 -> 1)             */
 
-  /* Newest full and incremental snapshot to advertise on gossip. */
+  /* Newest full snapshot to advertise on gossip, and the newest
+     incremental snapmk has reported.  The incremental goes into the
+     value only when it was built on that full. */
   fd_gossip_snapshot_hashes_t snap[ 1 ];
+  ulong                       snap_incr_slot;
   ulong                       snap_incr_base_slot; /* full slot the incremental was built on                 */
+  uchar                       snap_incr_hash[ 32 ];
   int                         snap_publish;        /* is the version in gossip dirty and needs to be updated? */
   long                        snap_publish_nanos;  /* time of the last push                                   */
 };

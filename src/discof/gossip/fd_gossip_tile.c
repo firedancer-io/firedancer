@@ -276,6 +276,14 @@ metrics_write( fd_gossip_tile_ctx_t * ctx ) {
 static void
 publish_snap( fd_gossip_tile_ctx_t * ctx,
               long                   now ) {
+  fd_gossip_snapshot_hashes_t * snap = ctx->snap;
+  snap->incremental_len = 0UL;
+  if( ctx->snap_incr_slot && ctx->snap_incr_base_slot==snap->full_slot ) {
+    snap->incremental_len       = 1UL;
+    snap->incremental[ 0 ].slot = ctx->snap_incr_slot;
+    fd_memcpy( snap->incremental[ 0 ].hash, ctx->snap_incr_hash, 32UL );
+  }
+
   now = fd_long_max( now, ctx->snap_publish_nanos+1000000L /* 1 ms */ );
   if( FD_UNLIKELY( fd_gossip_push_snapshot_hashes( ctx->gossip, ctx->snap, now ) ) ) return;
   ctx->snap_publish_nanos = now;
@@ -299,6 +307,8 @@ after_credit( fd_gossip_tile_ctx_t * ctx,
                             (ulong)FD_NANOSEC_TO_MICRO( ctx->keyswitch->param ) );
     ctx->is_halting_signing        = 0;
     ctx->is_pending_set_identity   = 0;
+    /* The snapshot hashes were signed by the old identity. */
+    ctx->snap_publish              = !!ctx->snap->full_slot;
     fd_keyswitch_state( ctx->keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
     *charge_busy = 1;
     return;
@@ -446,15 +456,19 @@ handle_snapmk( fd_gossip_tile_ctx_t *  ctx,
     snap->full_slot = full_slot;
     fd_memcpy( snap->full_hash, hash, 32UL );
   } else {
-    if( incr_slot<=snap->incremental[ 0 ].slot ) return;
-    snap->incremental[ 0 ].slot = incr_slot;
-    fd_memcpy( snap->incremental[ 0 ].hash, hash, 32UL );
+    /* An incremental on our full wins over one on another full.  On
+       the same footing the newer one wins. */
+    int held_on_full = ctx->snap_incr_slot && ctx->snap_incr_base_slot==snap->full_slot;
+    int new_on_full  = full_slot==snap->full_slot;
+    if( held_on_full && !new_on_full ) return;
+    if( held_on_full==new_on_full && incr_slot<=ctx->snap_incr_slot ) return;
+    ctx->snap_incr_slot      = incr_slot;
     ctx->snap_incr_base_slot = full_slot;
+    fd_memcpy( ctx->snap_incr_hash, hash, 32UL );
     /* The full snapshot it builds on has not been reported yet. */
-    if( full_slot!=snap->full_slot ) return;
+    if( !new_on_full ) return;
   }
-  snap->incremental_len = (ulong)( ctx->snap_incr_base_slot==snap->full_slot );
-  ctx->snap_publish     = 1;
+  ctx->snap_publish = 1;
 }
 
 static inline int
