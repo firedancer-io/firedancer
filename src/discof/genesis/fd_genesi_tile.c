@@ -53,6 +53,7 @@ bz2_free( void * opaque,
 
 struct fd_genesi_tile {
   fd_accdb_t * accdb;
+  fd_accdb_fork_id_t accdb_root;
 
   fd_hash_t genesis_hash[1];
 
@@ -147,7 +148,7 @@ next_deadline( fd_genesi_tile_t * ctx ) {
   return fd_clock_tile_wallclock_to_tickcount( ctx->clock, deadline );
 }
 
-static void
+static fd_accdb_fork_id_t
 initialize_accdb( fd_accdb_t *         accdb,
                   fd_genesis_t const * genesis,
                   uchar const *        genesis_blob,
@@ -172,6 +173,7 @@ initialize_accdb( fd_accdb_t *         accdb,
     acc.commit = 1;
     fd_accdb_unwrite_one( accdb, &acc );
   }
+  return fork_id;
 }
 
 static inline void
@@ -247,6 +249,7 @@ after_credit( fd_genesi_tile_t *  ctx,
     dst->genesis_hash = *ctx->genesis_hash;
 
     if( FD_UNLIKELY( ctx->bootstrap ) ) {
+      dst->accdb_root = ctx->accdb_root;
       dst->bootstrap  = 1;
       dst->has_lthash = 1;
       dst->lthash     = *ctx->lthash;
@@ -565,7 +568,7 @@ unprivileged_init( fd_topo_t const *      topo,
   if( FD_LIKELY( -1!=ctx->in_fd ) ) {
     process_local_genesis( ctx, tile->genesi.genesis_path );
     if( FD_UNLIKELY( ctx->bootstrap ) ) {
-      initialize_accdb( ctx->accdb, ctx->genesis, ctx->genesis_blob, ctx->lthash );
+      ctx->accdb_root = initialize_accdb( ctx->accdb, ctx->genesis, ctx->genesis_blob, ctx->lthash );
       fd_accdb_flush_metrics( ctx->accdb );
     }
   }
