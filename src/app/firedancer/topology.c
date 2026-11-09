@@ -1639,18 +1639,20 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
 
     /* Peers download snapshots through the RPC socket.  The rpc tile
        answers their JSON-RPC checks and redirects snapshot requests to
-       the snapshot server.  Without an rpc tile the snapshot server is
-       advertised directly, which only Firedancer peers can use. */
+       the snapshot server.  When the rpc tile is off or listens on
+       loopback, the snapshot server is advertised directly, which only
+       Firedancer peers can use.  Nothing is advertised when it listens
+       on loopback too. */
     tile->gossip.ports.rpc              = 0;
     if( fd_topo_find_tile( &config->topo, "snapsv", 0UL )!=ULONG_MAX ) {
-      char const * listen_address = config->tiles.rpc.rpc_listen_address;
-      ushort       listen_port    = (ushort)config->tiles.rpc.rpc_listen_port;
-      if( !config->tiles.rpc.enabled ) {
-        if( config->firedancer.snapshots.server.http_listen_address[0] ) listen_address = config->firedancer.snapshots.server.http_listen_address;
-        listen_port = (ushort)config->firedancer.snapshots.server.http_listen_port;
-      }
-      fd_ip6_addr_t listen_addr;
-      if( fd_cstr_to_ip46_addr( listen_address, &listen_addr ) && !listen_addr_is_loopback( &listen_addr ) ) tile->gossip.ports.rpc = listen_port;
+      fd_ip6_addr_t rpc_addr;
+      parse_listen_addr( config->tiles.rpc.rpc_listen_address, "tiles.rpc.rpc_listen_address", &rpc_addr );
+      char const * snapsv_address = config->firedancer.snapshots.server.http_listen_address;
+      if( !snapsv_address[0] ) snapsv_address = config->tiles.rpc.rpc_listen_address;
+      fd_ip6_addr_t snapsv_addr;
+      parse_listen_addr( snapsv_address, "snapshots.server.http_listen_address", &snapsv_addr );
+      if(      config->tiles.rpc.enabled && !listen_addr_is_loopback( &rpc_addr ) ) tile->gossip.ports.rpc = (ushort)config->tiles.rpc.rpc_listen_port;
+      else if( !listen_addr_is_loopback( &snapsv_addr ) )                          tile->gossip.ports.rpc = (ushort)config->firedancer.snapshots.server.http_listen_port;
     }
 
     tile->gossip.entrypoints_cnt        = config->gossip.entrypoints_cnt;

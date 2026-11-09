@@ -636,10 +636,11 @@ telemetry = true
 
         # The TCP port to listen on.
         # Firedancer runs a HTTP/1.1 server supporting Range requests on
-        # this port.  With [tiles.rpc] enabled, gossip advertises the RPC
-        # port and snapshot requests are redirected here.  Without it,
-        # gossip advertises this port directly, which only Firedancer
-        # nodes can use.
+        # this port.  With [tiles.rpc] enabled and listening beyond
+        # loopback, gossip advertises the RPC port and snapshot requests
+        # are redirected here.  Otherwise gossip advertises this port
+        # directly, which only Firedancer nodes can use, and nothing at
+        # all if this port listens on loopback too.
         http_listen_port = 8902
 
         # The maximum number of concurrent snapshot downloads to allow.
