@@ -388,12 +388,58 @@ void
 test_epoch_slots_bitvec_deserialize( void ) {
   /*                                        has_bits  cap  bits_cnt  accept */
   test_epoch_slots_bitvec_deserialize_case( 0U,       0UL, 0UL,      1 ); /* None, empty          */
-  test_epoch_slots_bitvec_deserialize_case( 1U,       0UL, 0UL,      1 ); /* Some([]), empty      */
+  test_epoch_slots_bitvec_deserialize_case( 1U,       0UL, 0UL,      0 ); /* Some([]) is not canonical */
   test_epoch_slots_bitvec_deserialize_case( 0U,       0UL, 1UL,      0 ); /* None, over cap 0     */
   test_epoch_slots_bitvec_deserialize_case( 1U,       0UL, 1UL,      0 ); /* Some([]), over cap 0 */
   test_epoch_slots_bitvec_deserialize_case( 1U,       1UL, 7UL,      0 ); /* under capacity 8     */
   test_epoch_slots_bitvec_deserialize_case( 1U,       1UL, 8UL,      1 ); /* exact fit            */
   test_epoch_slots_bitvec_deserialize_case( 1U,       1UL, 9UL,      0 ); /* over capacity 8      */
+}
+
+void
+test_restart_slots_bitvec_deserialize_case( uchar has_bits,
+                                            ulong bits_cap,
+                                            ulong encoded_bits_len,
+                                            int   expected ) {
+  uchar payload[ 256UL ] = {0};
+  uchar * cur = payload;
+
+  FD_STORE( uint,  cur, FD_GOSSIP_MESSAGE_PUSH ); cur += 4UL;
+  cur += 32UL; /* sender */
+  FD_STORE( ulong, cur, 1UL ); cur += 8UL; /* values */
+
+  cur += 64UL; /* signature */
+  FD_STORE( uint, cur, FD_GOSSIP_VALUE_RESTART_LAST_VOTED_FORK_SLOTS ); cur += 4UL;
+  cur += 32UL; /* origin */
+  FD_STORE( ulong, cur, 0UL ); cur += 8UL; /* wallclock */
+  FD_STORE( uint,  cur, 1U  ); cur += 4UL; /* RawOffsets */
+
+  *cur++ = has_bits;
+  if( has_bits ) {
+    FD_TEST( bits_cap<=2UL );
+    FD_STORE( ulong, cur, bits_cap ); cur += 8UL;
+    cur += bits_cap;
+  }
+  FD_STORE( ulong, cur, encoded_bits_len ); cur += 8UL;
+  cur += 8UL+32UL+2UL; /* last voted slot, hash, shred version */
+
+  fd_gossip_message_t message[1] = {0};
+  FD_TEST( fd_gossip_message_deserialize( message, payload, (ulong)(cur-payload) )==expected );
+}
+
+void
+test_restart_slots_bitvec_deserialize( void ) {
+  /*                                          has_bits  cap  bits_len  accept */
+  test_restart_slots_bitvec_deserialize_case( 0U,       0UL,  0UL,     1 ); /* None, empty          */
+  test_restart_slots_bitvec_deserialize_case( 0U,       0UL,  1UL,     0 ); /* None, over cap 0     */
+  test_restart_slots_bitvec_deserialize_case( 1U,       0UL,  0UL,     0 ); /* Some([]) is not canonical */
+  test_restart_slots_bitvec_deserialize_case( 1U,       1UL,  0UL,     0 ); /* surplus block        */
+  test_restart_slots_bitvec_deserialize_case( 1U,       1UL,  1UL,     1 ); /* partial final block  */
+  test_restart_slots_bitvec_deserialize_case( 1U,       1UL,  8UL,     1 ); /* exact fit            */
+  test_restart_slots_bitvec_deserialize_case( 1U,       1UL,  9UL,     0 ); /* over capacity 8      */
+  test_restart_slots_bitvec_deserialize_case( 1U,       2UL,  8UL,     0 ); /* surplus block        */
+  test_restart_slots_bitvec_deserialize_case( 1U,       2UL,  9UL,     1 ); /* partial final block  */
+  test_restart_slots_bitvec_deserialize_case( 1U,       2UL, 16UL,     1 ); /* exact fit            */
 }
 
 /* If keys region is incorrectly sized, it would overlap with filter
@@ -490,6 +536,7 @@ main( int     argc,
   test_pull_request_serialize_alignment();
   test_bitvec_deserialize();
   test_epoch_slots_bitvec_deserialize();
+  test_restart_slots_bitvec_deserialize();
   test_keys_oob();
   if( bench ) bench_insert();
 

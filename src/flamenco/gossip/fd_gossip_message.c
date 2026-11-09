@@ -240,6 +240,7 @@ deser_bitvec_u8_epoch_slots( uchar const ** payload,
 
   ulong bits_cap;
   READ_U64( bits_cap, payload, payload_sz );
+  CHECK( bits_cap );
   SKIP_BYTES( bits_cap, payload, payload_sz );
   ulong bits_cnt;
   READ_U64( bits_cnt, payload, payload_sz );
@@ -465,10 +466,11 @@ deser_bitvec_u8_restart_last_voted_fork_slots( uchar const ** payload,
 
   ulong bits_cap;
   READ_U64( bits_cap, payload, payload_sz );
+  CHECK( bits_cap );
   SKIP_BYTES( bits_cap, payload, payload_sz );
   ulong bits_len;
   READ_U64( bits_len, payload, payload_sz );
-  CHECK( bits_len<=bits_cap*8UL );
+  CHECK( bits_len<=bits_cap*8UL && bits_len>(bits_cap-1UL)*8UL );
   return 1;
 }
 
