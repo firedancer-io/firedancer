@@ -236,7 +236,7 @@ FD_STATIC_ASSERT( sizeof (fd_accdb_accmeta_t)==64, layout );
    The on-disk fd_accdb_disk_meta_t.size is only the raw data length,
    written via FD_ACCDB_SIZE_DATA.  It includes neither the executable
    bit nor the cache/PD flags.  Compaction preserves these record
-   headers verbatim with copy_file_range. */
+   headers verbatim. */
 
 #define FD_ACCDB_SIZE_EXEC_BIT        (1U<<31)
 #define FD_ACCDB_SIZE_CACHE_VALID_BIT (1U<<30)
