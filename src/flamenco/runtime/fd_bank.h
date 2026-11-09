@@ -294,10 +294,8 @@ struct fd_bank {
 
   /* These fields should only be accessed by the replay and executor
      tiles.  The lock is taken per transaction, so it sits on its own
-     line.  The mode fields share the line because they change only
-     while no exec tile is working on the bank.  lthash_rec points into
-     replay tile private memory and is valid only in OOB_RECORD mode,
-     which only the replay tile sets. */
+     line.  lthash_rec points into replay tile private memory and is
+     valid only in OOB_RECORD mode, which only the replay tile sets. */
   fd_rwlock_t            lthash_lock __attribute__((aligned(64UL)));
   uchar                  lthash_mode;
   fd_bank_lthash_rec_t * lthash_rec;
