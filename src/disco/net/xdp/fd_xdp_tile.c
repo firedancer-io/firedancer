@@ -693,8 +693,7 @@ before_frag( fd_net_ctx_t * ctx,
   return 0; /* continue */
 }
 
-/* during_frag is called when before_frag has committed to transmit an
-   outgoing packet. */
+/* during_frag stages route updates or copies an outgoing packet. */
 
 static inline void
 during_frag( fd_net_ctx_t * ctx,
@@ -983,8 +982,6 @@ before_credit_prefbusy( fd_net_ctx_t *      ctx,
   ctx->rr_idx++;
   ctx->rr_idx = fd_uint_if( ctx->rr_idx>=ctx->xsk_cnt, 0, ctx->rr_idx );
 }
-
-/* before_credit is called every loop iteration. */
 
 static void
 before_credit( fd_net_ctx_t *      ctx,
