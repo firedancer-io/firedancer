@@ -104,8 +104,7 @@ fd_blockhashes_init( fd_blockhashes_t * mem,
    (currently only lamports_per_signature).  Called as part of regular
    runtime processing.  The new entry's hash_index is one past the
    newest entry's (0 on an empty queue, like Agave's genesis hash).
-   Evicts the oldest entry if the queue is full (practically always the
-   case except for the first few blocks after genesis).  Aborts if hash
+   Evicts the oldest entry if the queue is full.  Aborts if hash
    is already present.  Always returns a valid pointer. */
 
 fd_blockhash_info_t *
