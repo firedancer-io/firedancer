@@ -29,12 +29,10 @@
    so the curve equation is preserved.
 
    phi satisfies phi(P) = [lambda]P where lambda is a cube root of unity
-   modulo r (the group order we defined above^):
-    lambda = 4407920970296243842393367215006156084916469457145843978461
-             (a root of X^2 + X + 1 = 0 mod r)
+   modulo r (the group order we defined above^).
 
    Computing phi(P) = (beta * x, y) costs just one FP multiplication, but
-   is equivalent to a full scalar multiplication by the ~254-bit scalar lambda.
+   is equivalent to a full scalar multiplication by the scalar lambda.
 
    We want to "decompose" the input scalar in a way where a majority of the
    effort is re-used by the lambda computation, leaving the remaining operations

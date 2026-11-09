@@ -165,6 +165,9 @@ fd_bn254_g2_frombytes_check_subgroup( fd_bn254_g2_t * p,
   if( FD_UNLIKELY( fd_bn254_g2_frombytes_check_eq_only( p, in, big_endian )==NULL ) ) {
     return NULL;
   }
+  if( FD_UNLIKELY( fd_bn254_g2_is_zero( p ) ) ) {
+    return p;
+  }
 
   /* G2 does NOT have prime order, so we have to check group membership. */
 
