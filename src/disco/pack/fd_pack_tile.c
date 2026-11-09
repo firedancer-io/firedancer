@@ -1644,14 +1644,6 @@ populate_allowed_fds( fd_topo_t const *      topo,
  */
 #define STEM_BURST (2UL)
 
-/* We want lazy (measured in ns) to be small enough that the producer
-    and the consumer never have to wait for credits.  For most tango
-    links, we use a default worst case speed coming from 100 Gbps
-    Ethernet.  That's not very suitable for microblocks that go from
-    pack to bank.  Instead we manually estimate the very aggressive
-    1000ns per microblock, and then reduce it further (in line with the
-    default lazy value computation) to ensure the random value chosen
-    based on this won't lead to credit return stalls. */
 #define STEM_LAZY  (128L*3000L)
 
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_pack_ctx_t
