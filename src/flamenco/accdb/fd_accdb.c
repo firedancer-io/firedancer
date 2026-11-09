@@ -99,21 +99,12 @@ struct __attribute__((aligned(FD_ACCDB_ALIGN))) fd_accdb_private {
      their hash chains but cannot be released back to acc_pool yet,
      because concurrent readers (acquire / compact) may still be
      traversing the removed nodes via map.next.  The batch is released
-     once all joiner_epochs exceed shmem->deferred_acc_epoch.  Indices
+     once all joiner_epochs exceed shmem->deferred_epoch.  Indices
      are written here (not into pool.next) until after the epoch drain
      because pool.next is union-aliased to cache_idx, which a concurrent
      cold_load_acc may still write through a captured pointer.  Backed
      by shmem->deferred_acc_buf_off; cnt and epoch live in shmem too. */
   uint * deferred_acc_buf;
-
-  /* Chain of fork pool slots whose IDs are still potentially
-     referenced by concurrent readers (via descends_set_test or
-     root_fork_id snapshot).  The chain is released back to fork_pool
-     once all joiner_epochs exceed deferred_fork_epoch.  NULL head
-     means no deferred forks. */
-  fd_accdb_fork_shmem_t * deferred_fork_head;
-  fd_accdb_fork_shmem_t * deferred_fork_tail;
-  ulong                   deferred_fork_epoch;
 
   fd_accdb_metrics_t metrics[1];
 
@@ -360,9 +351,6 @@ fd_accdb_new( void *              ljoin,
   accdb->delta.chains = (uint *)             ( (uchar *)shmem + shmem->delta.chain_off );
   accdb->delta.pool   = (fd_accdb_delta_t *) ( (uchar *)shmem + shmem->delta.ele_off   );
 
-  accdb->deferred_fork_head  = NULL;
-  accdb->deferred_fork_tail  = NULL;
-  accdb->deferred_fork_epoch = 0UL;
   accdb->prealloc_failed_at  = ULONG_MAX;
 
   memset( accdb->metrics,      0, sizeof(fd_accdb_metrics_t) );
@@ -372,16 +360,47 @@ fd_accdb_new( void *              ljoin,
 }
 
 static void delta_reset( fd_accdb_t * accdb );
-static inline void wait_cmd( fd_accdb_t * accdb );
-static inline void submit_cmd( fd_accdb_t * accdb, uint op, ushort fork_id );
+
+/* wait_idle waits until the accdb tile has applied every published
+   root / purge request and released everything they retired.  The
+   accdb tile then does not touch the fork, acc or txn pools until the
+   next request. */
+
+static void
+wait_idle( fd_accdb_t * accdb ) {
+  while( fd_accdb_requests_pending( accdb ) ) {
+    fd_racesan_hook( "accdb_wait_idle:spin" );
+    FD_SPIN_PAUSE();
+  }
+  FD_COMPILER_MFENCE();
+}
+
+/* publish_req publishes a new request word, after the fork tree
+   updates it describes. */
+
+static void
+publish_req( fd_accdb_t *   accdb,
+             fd_accdb_req_t req ) {
+  FD_COMPILER_MFENCE();
+  FD_VOLATILE( accdb->shmem->req.u ) = req.u;
+  FD_COMPILER_MFENCE();
+  if( FD_UNLIKELY( accdb->sleep ) ) fd_sleep_ring( accdb->sleep, accdb->sleep_tile_id );
+}
 
 void
 fd_accdb_reset( fd_accdb_t * accdb ) {
   fd_accdb_shmem_t * shmem = accdb->shmem;
 
-  /* Wait for any pending background command (advance_root / purge) on
-     T2 to finish before clobbering shared state. */
-  wait_cmd( accdb );
+  /* Once idle, the accdb tile holds nothing that refers to the pools
+     rebuilt below.  Compaction keeps a carried tail between steps, so
+     it must not be running either.  Partitions are only queued for
+     compaction once a snapshot load ends, and snapin resets only before
+     loading a full snapshot. */
+  wait_idle( accdb );
+  for( ulong k=0UL; k<FD_ACCDB_COMPACTION_LAYER_CNT; k++ ) {
+    FD_CHECK_CRIT( compaction_dlist_is_empty( accdb->compaction_dlist[ k ], accdb->partition_pool ),
+                   "accdb reset while compaction is queued" );
+  }
 
   /* Reset pools through the joiner's existing pointers.  acc_pool and
      txn_pool use POOL_LAZY=1 so reset is O(1).  fork_pool and
@@ -458,7 +477,9 @@ fd_accdb_reset( fd_accdb_t * accdb ) {
 
   /* Deferred acc buffer. */
   shmem->deferred_acc_buf_cnt = 0UL;
-  shmem->deferred_acc_epoch   = 0UL;
+  shmem->deferred_epoch       = 0UL;
+  shmem->deferred_fork_head   = (fd_accdb_fork_id_t){ .val = USHORT_MAX };
+  shmem->deferred_fork_tail   = (fd_accdb_fork_id_t){ .val = USHORT_MAX };
 
   /* Shared metrics: zero gauges that reflect current state (now empty)
      but preserve counters and accounts_capacity. */
@@ -468,25 +489,11 @@ fd_accdb_reset( fd_accdb_t * accdb ) {
   shmem->shmetrics->disk_used_bytes      = 0UL;
   shmem->shmetrics->in_compaction        = 0;
 
-  /* Command slot */
-  shmem->cmd_op      = FD_ACCDB_CMD_IDLE;
-  shmem->cmd_fork_id = USHORT_MAX;
-
   shmem->snapshot_loading = 0;
 
   FD_COMPILER_MFENCE();
 
-  /* Tell the accdb tile to clear its stale deferred fork chain.
-     Its deferred_fork_head/tail now reference recycled pool elements;
-     it must discard them before processing any future advance_root or
-     purge command.  The command is asynchronous; the next advance_root
-     or purge call will wait for it to complete via wait_cmd. */
-  submit_cmd( accdb, FD_ACCDB_CMD_CLEAR_DEFERRED, 0 );
-
   /* Reset local state */
-  accdb->deferred_fork_head  = NULL;
-  accdb->deferred_fork_tail  = NULL;
-  accdb->deferred_fork_epoch = 0UL;
   accdb->acquire_state       = FD_ACCDB_ACQUIRE_STATE_IDLE;
   memset( &accdb->write_stats, 0, sizeof(accdb->write_stats) );
 }
@@ -625,9 +632,9 @@ fd_accdb_snapshot_revert_whead( fd_accdb_t *                         accdb,
   /* Partitions are about to be released, so flush metrics first. */
   fd_accdb_flush_metrics( accdb );
 
-  /* Wait for any pending background command (purge) on T2 to finish
-     before releasing partitions. */
-  wait_cmd( accdb );
+  /* The incremental fork purge must be applied, and its accounts
+     released, before its partitions are. */
+  wait_idle( accdb );
 
   ulong cur_partition_max = shmem->partition_max;
 
@@ -791,9 +798,6 @@ fd_accdb_join_readonly( void *             ljoin,
   accdb->stage                = NULL;
 
   accdb->deferred_acc_buf    = NULL;
-  accdb->deferred_fork_head  = NULL;
-  accdb->deferred_fork_tail  = NULL;
-  accdb->deferred_fork_epoch = 0UL;
   accdb->prealloc_failed_at  = ULONG_MAX;
 
   memset( accdb->metrics,      0, sizeof(fd_accdb_metrics_t) );
@@ -802,85 +806,64 @@ fd_accdb_join_readonly( void *             ljoin,
   return accdb;
 }
 
-/* T1 -> T2 cmd channel.  Two states on cmd_op:
-
-     IDLE     - no cmd in flight
-     non-IDLE - cmd pending; T2 will process it then flip back to IDLE
-
-   T1 submits by writing fork_id then cmd_op (non-IDLE).  T2 processes
-   by reading fork_id then writing cmd_op = IDLE.  T1 waits for IDLE
-   before submitting again, so T2 never sees a half-written cmd and
-   never re-processes the same cmd. */
-
-static inline void
-wait_cmd( fd_accdb_t * accdb ) {
-  fd_accdb_shmem_t * shmem = accdb->shmem;
-  while( FD_VOLATILE_CONST( shmem->cmd_op )!=FD_ACCDB_CMD_IDLE ) FD_SPIN_PAUSE();
-  FD_COMPILER_MFENCE();
-}
-
-static inline void
-submit_cmd( fd_accdb_t * accdb,
-            uint         op,
-            ushort       fork_id ) {
-  fd_accdb_shmem_t * shmem = accdb->shmem;
-  FD_VOLATILE( shmem->cmd_fork_id ) = fork_id;
-  FD_COMPILER_MFENCE();
-  FD_VOLATILE( shmem->cmd_op ) = op;
-  if( FD_UNLIKELY( accdb->sleep ) ) fd_sleep_ring( accdb->sleep, accdb->sleep_tile_id );
-}
-
 fd_accdb_fork_id_t
 fd_accdb_attach_child( fd_accdb_t *       accdb,
                        fd_accdb_fork_id_t parent_fork_id ) {
-  /* Replay gates attaches on fd_banks_can_start_bank.  wait_cmd waits
-     for the prior background command; on pool exhaustion, drain
-     deferred forks on T2 before retrying fork_pool_acquire. */
-  wait_cmd( accdb );
+  fd_accdb_shmem_t * shmem = accdb->shmem;
 
-  if( FD_UNLIKELY( accdb->shmem->generation==UINT_MAX ) ) FD_LOG_ERR(( "accdb ran out of generation sequence numbers, restart required" ));
+  if( FD_UNLIKELY( shmem->generation==UINT_MAX ) ) FD_LOG_ERR(( "accdb ran out of generation sequence numbers, restart required" ));
 
+  /* The pool can be exhausted by forks that are purged or rooted past
+     but not yet released.  The accdb tile releases them once concurrent
+     readers drain. */
   fd_accdb_fork_shmem_t * acquired = fork_pool_acquire( accdb->fork_shmem_pool );
   if( FD_UNLIKELY( !acquired ) ) {
-    submit_cmd( accdb, FD_ACCDB_CMD_DRAIN_DEFERRED, USHORT_MAX );
-    wait_cmd( accdb );
+    wait_idle( accdb );
     acquired = fork_pool_acquire( accdb->fork_shmem_pool );
-    FD_CHECK_CRIT( acquired, "accdb fork pool exhausted after deferred drain" );
+    FD_CHECK_CRIT( acquired, "accdb fork pool exhausted" );
   }
   ulong idx = fork_pool_idx( accdb->fork_shmem_pool, acquired );
 
   fd_accdb_fork_t * fork = &accdb->fork_pool[ idx ];
   fd_accdb_fork_id_t fork_id = { .val = (ushort)idx };
 
-  fork->shmem->child_id = (fd_accdb_fork_id_t){ .val = USHORT_MAX };
+  /* The slot's previous fork may still have its bit set in the
+     descends_set of a fork that descended from it.  That bit was
+     harmless while the slot was retired (a rooted fork's accounts are
+     visible by generation, a purged fork had no live descendants), but
+     it would make the new fork look like an ancestor.  Clear it before
+     the new fork can write any account. */
+  for( ulong i=0UL; i<shmem->max_live_slots; i++ ) descends_set_remove( accdb->fork_pool[ i ].descends, idx );
+
+  fork->shmem->child_id   = (fd_accdb_fork_id_t){ .val = USHORT_MAX };
+  fork->shmem->sibling_id = (fd_accdb_fork_id_t){ .val = USHORT_MAX };
+  fork->shmem->generation = shmem->generation++;
+  fork->shmem->txn_head   = UINT_MAX;
 
   if( FD_UNLIKELY( parent_fork_id.val==USHORT_MAX ) ) {
-    fork->shmem->parent_id  = (fd_accdb_fork_id_t){ .val = USHORT_MAX };
-    fork->shmem->sibling_id = (fd_accdb_fork_id_t){ .val = USHORT_MAX };
-
+    /* Published as both the applied and the requested root, so the
+       accdb tile has nothing to root.  The request keeps purge_seq
+       (the accdb tile is idle, so every purge is applied). */
+    FD_CHECK_CRIT( shmem->root_fork_id.val==USHORT_MAX, "accdb root fork already exists" );
+    fork->shmem->parent_id = (fd_accdb_fork_id_t){ .val = USHORT_MAX };
     descends_set_null( fork->descends );
-    accdb->shmem->root_fork_id = fork_id;
+    FD_VOLATILE( shmem->root_fork_id ) = fork_id;
+    fd_accdb_req_t req = shmem->req;
+    req.root_gen = fork->shmem->generation;
+    publish_req( accdb, req );
   } else {
+    /* Forks below the requested root have a single child that the
+       accdb tile may be rooting.  Every other live fork descends from
+       the requested root and so is newer. */
     fd_accdb_fork_t * parent = &accdb->fork_pool[ parent_fork_id.val ];
+    FD_CHECK_CRIT( shmem->root_fork_id.val!=USHORT_MAX, "attach_child before the root fork exists" );
+    FD_CHECK_CRIT( parent->shmem->generation>=shmem->req.root_gen, "attach_child parent is an ancestor of the root" );
     fork->shmem->parent_id  = parent_fork_id;
-
+    fork->shmem->sibling_id = parent->shmem->child_id;
     descends_set_copy( fork->descends, parent->descends );
     descends_set_insert( fork->descends, parent_fork_id.val );
-
-    /* Atomically prepend to parent's child list.  attach_child waits
-       for pending T2 commands before modifying the list. */
-    FD_COMPILER_MFENCE();
-    for(;;) {
-      ushort old_head = FD_VOLATILE_CONST( parent->shmem->child_id.val );
-      fork->shmem->sibling_id = (fd_accdb_fork_id_t){ .val = old_head };
-      FD_COMPILER_MFENCE();
-      if( FD_LIKELY( FD_ATOMIC_CAS( &parent->shmem->child_id.val, old_head, fork_id.val )==old_head ) ) break;
-      FD_SPIN_PAUSE();
-    }
+    parent->shmem->child_id = fork_id;
   }
-
-  fork->shmem->generation = accdb->shmem->generation++;
-  fork->shmem->txn_head = UINT_MAX;
 
   FD_TEST( !descends_set_test( fork->descends, fork_id.val ) );
 
@@ -1044,28 +1027,21 @@ cache_try_pin( fd_accdb_cache_line_t * line,
   }
 }
 
-/* wait_for_epoch_drain spins until every joiner's published epoch
-   exceeds tag, meaning all readers that were active at epoch=tag have
-   since exited their critical sections. */
+/* epoch_drained returns 1 if every joiner's published epoch exceeds
+   tag, meaning all readers that were active at epoch=tag have since
+   exited their critical sections. */
 
-static void
-wait_for_epoch_drain( fd_accdb_t * accdb,
-                      ulong        tag ) {
-  for(;;) {
-    ulong min_epoch = ULONG_MAX;
-    ulong joiner_cnt = FD_VOLATILE_CONST( accdb->shmem->joiner_cnt );
-    for( ulong t=0UL; t<joiner_cnt; t++ ) {
-      ulong e = FD_VOLATILE_CONST( accdb->shmem->joiner_epochs[ t ].val );
-      if( FD_LIKELY( e<min_epoch ) ) min_epoch = e;
-    }
-    for( ulong t=0UL; t<accdb->external_epoch_cnt; t++ ) {
-      ulong e = FD_VOLATILE_CONST( *accdb->external_epoch_slots[ t ] );
-      if( FD_LIKELY( e<min_epoch ) ) min_epoch = e;
-    }
-    if( FD_LIKELY( tag<min_epoch ) ) break;
-    fd_racesan_hook( "accdb_epoch_drain:wait" );
-    FD_SPIN_PAUSE();
+static int
+epoch_drained( fd_accdb_t * accdb,
+               ulong        tag ) {
+  ulong joiner_cnt = FD_VOLATILE_CONST( accdb->shmem->joiner_cnt );
+  for( ulong t=0UL; t<joiner_cnt; t++ ) {
+    if( FD_VOLATILE_CONST( accdb->shmem->joiner_epochs[ t ].val )<=tag ) return 0;
   }
+  for( ulong t=0UL; t<accdb->external_epoch_cnt; t++ ) {
+    if( FD_VOLATILE_CONST( *accdb->external_epoch_slots[ t ] )<=tag ) return 0;
+  }
+  return 1;
 }
 
 /* stray_pin_drained waits out every in-flight acquire and returns 1 if
@@ -1075,32 +1051,36 @@ static int
 stray_pin_drained( fd_accdb_t *            accdb,
                    fd_accdb_cache_line_t * line ) {
   ulong tag = FD_ATOMIC_FETCH_AND_ADD( &accdb->shmem->epoch, 1UL );
-  wait_for_epoch_drain( accdb, tag );
+  while( !epoch_drained( accdb, tag ) ) {
+    fd_racesan_hook( "accdb_epoch_drain:wait" );
+    FD_SPIN_PAUSE();
+  }
   return FD_VOLATILE_CONST( line->refcnt )==1U;
 }
 
-/* drain_deferred_frees releases back to their respective pools any acc
-   batch and/or fork slots that were unlinked in a prior advance_root /
-   purge call.  The resources cannot be released immediately because
-   concurrent readers may still reference them. We wait until every
-   joiner's published epoch exceeds the tag stamped when each resource
-   was unlinked.
+/* drain_deferred_frees releases back to their respective pools the
+   accs and fork slots retired by a prior request pass.  The resources
+   cannot be released immediately because concurrent readers may still
+   reference them.  The caller has checked that every joiner's
+   published epoch exceeds deferred_epoch, stamped after they were
+   unlinked.
 
-   Must be called before creating new deferred batches (there is at most
-   one of each outstanding at a time). */
+   Must be called before creating a new batch (there is at most one
+   outstanding at a time). */
 
 static void
 drain_deferred_frees( fd_accdb_t * accdb ) {
-  if( FD_UNLIKELY( accdb->deferred_fork_head ) ) {
-    wait_for_epoch_drain( accdb, accdb->deferred_fork_epoch );
-    fork_pool_release_chain( accdb->fork_shmem_pool, accdb->deferred_fork_head, accdb->deferred_fork_tail );
-    accdb->deferred_fork_head = NULL;
-    accdb->deferred_fork_tail = NULL;
+  fd_accdb_shmem_t * shmem = accdb->shmem;
+  if( FD_UNLIKELY( shmem->deferred_fork_head.val!=USHORT_MAX ) ) {
+    fork_pool_release_chain( accdb->fork_shmem_pool,
+                             fork_pool_ele( accdb->fork_shmem_pool, shmem->deferred_fork_head.val ),
+                             fork_pool_ele( accdb->fork_shmem_pool, shmem->deferred_fork_tail.val ) );
+    shmem->deferred_fork_head = (fd_accdb_fork_id_t){ .val = USHORT_MAX };
+    shmem->deferred_fork_tail = (fd_accdb_fork_id_t){ .val = USHORT_MAX };
   }
 
   ulong n = accdb->shmem->deferred_acc_buf_cnt;
   if( FD_LIKELY( !n ) ) return;
-  wait_for_epoch_drain( accdb, accdb->shmem->deferred_acc_epoch );
 
   /* All readers that could have been holding a captured pointer to any
      of these accs at unlink time have now exited their epoch sections.
@@ -1154,7 +1134,7 @@ drain_deferred_frees( fd_accdb_t * accdb ) {
 }
 
 /* deferred_acc_append records an unlinked acc index in the side buffer
-   for later release after wait_for_epoch_drain.  T2 is the sole writer.
+   for later release once its epoch drains.  T2 is the sole writer.
    The chain link from acc->pool.next is NOT laid down here: pool.next
    is union-aliased to cache_idx, and a concurrent cold_load_acc may
    still publish through a captured pointer until the epoch drains.
@@ -1353,47 +1333,19 @@ acc_unlink( fd_accdb_t * accdb,
   }
 }
 
-/* fork_slot_defer removes fork_id from every descends_set and chains
-   the fork pool slot onto the deferred fork chain for later release.
-   The slot must not be released immediately because concurrent readers
-   may still reference the fork ID via descends_set or stale chain
-   walks.
-
-   The eager descends_set_remove here is safe despite being a
-   non-atomic RMW that races with concurrent descends_set_test in
-   fd_accdb_acquire, for two reasons:
-
-   (a) Rooted parent forks: after advance_root publishes the new
-       root_fork_id, any acquire loads root_generation >=
-       parent->generation.  Every account from the old parent has
-       generation <= parent->generation, so the
-       "generation > root_generation" gate in the chain walk is
-       never satisfied and the parent's bit is never tested.
-
-   (b) Purged / pruned sibling forks: a purged fork is by
-       definition not an ancestor of any live fork, so its bit
-       was never set in any live fork's descends_set.  Clearing
-       it is a literal no-op.
-
-   Fork-id ABA after slot reuse is also safe: the fork pool slot
-   is not released until drain_deferred_frees, which waits until
-   all epoch-protected readers have exited.  On x86 (TSO), the
-   synchronization chain (T2: bit clear -> epoch FAA; reader:
-   epoch load -> epoch_slot store -> mfence -> bit read) guarantees
-   that any reader entering a new epoch section after the drain
-   will observe the cleared bit before the slot is recycled by
-   attach_child. */
+/* fork_slot_defer chains a retired fork pool slot onto the deferred
+   fork chain.  The slot is released only after concurrent readers that
+   could still hold its fork ID (via root_fork_id or descends_set) have
+   exited.  Stale descends_set bits naming the slot are cleared by
+   fd_accdb_attach_child when the slot is reused. */
 
 static inline void
-fork_slot_defer( fd_accdb_t *              accdb,
-                 fd_accdb_fork_id_t         fork_id,
-                 fd_accdb_fork_shmem_t **   fork_head,
-                 fd_accdb_fork_shmem_t **   fork_tail ) {
-  for( ulong i=0UL; i<accdb->shmem->max_live_slots; i++ ) descends_set_remove( accdb->fork_pool[ i ].descends, fork_id.val );
-  fd_accdb_fork_shmem_t * shmem = fork_pool_ele( accdb->fork_shmem_pool, (ulong)fork_id.val );
-  if( *fork_tail ) (*fork_tail)->pool.next = fork_pool_private_cidx( (ulong)fork_id.val );
-  else             *fork_head = shmem;
-  *fork_tail = shmem;
+fork_slot_defer( fd_accdb_t *       accdb,
+                 fd_accdb_fork_id_t fork_id ) {
+  fd_accdb_shmem_t * shmem = accdb->shmem;
+  if( shmem->deferred_fork_tail.val!=USHORT_MAX ) fork_pool_ele( accdb->fork_shmem_pool, shmem->deferred_fork_tail.val )->pool.next = fork_pool_private_cidx( (ulong)fork_id.val );
+  else                                            shmem->deferred_fork_head = fork_id;
+  shmem->deferred_fork_tail = fork_id;
 }
 
 /* chain_prewalk prefetches the hash chain walks of up to CHAIN_PREWALK_W
@@ -1444,16 +1396,14 @@ chain_prewalk( fd_accdb_t *      accdb,
 }
 
 static void
-purge_inner( fd_accdb_t *              accdb,
-             fd_accdb_fork_id_t         fork_id,
-             fd_accdb_fork_shmem_t **   fork_head,
-             fd_accdb_fork_shmem_t **   fork_tail ) {
+purge_inner( fd_accdb_t *       accdb,
+             fd_accdb_fork_id_t fork_id ) {
   fd_accdb_fork_t * fork = &accdb->fork_pool[ fork_id.val ];
 
   fd_accdb_fork_id_t child = fork->shmem->child_id;
   while( child.val!=USHORT_MAX ) {
     fd_accdb_fork_id_t next = accdb->fork_pool[ child.val ].shmem->sibling_id;
-    purge_inner( accdb, child, fork_head, fork_tail );
+    purge_inner( accdb, child );
     child = next;
   }
 
@@ -1489,53 +1439,21 @@ purge_inner( fd_accdb_t *              accdb,
     txn_pool_release_chain( accdb->txn_pool, txn_head, txn_tail );
   }
 
-  fork_slot_defer( accdb, fork_id, fork_head, fork_tail );
+  fork_slot_defer( accdb, fork_id );
 }
 
-static inline void
-remove_children( fd_accdb_t *              accdb,
-                 fd_accdb_fork_t *          fork,
-                 fd_accdb_fork_t *          except,
-                 fd_accdb_fork_shmem_t **   fork_head,
-                 fd_accdb_fork_shmem_t **   fork_tail ) {
-  fd_accdb_fork_id_t sibling_idx = fork->shmem->child_id;
-  while( sibling_idx.val!=USHORT_MAX ) {
-    fd_accdb_fork_t * sibling = &accdb->fork_pool[ sibling_idx.val ];
-    fd_accdb_fork_id_t cur_idx = sibling_idx;
-
-    sibling_idx = sibling->shmem->sibling_id;
-    if( FD_UNLIKELY( sibling==except ) ) continue;
-
-    purge_inner( accdb, cur_idx, fork_head, fork_tail );
-  }
-}
+/* root_level roots fork_id, the only child of the current root,
+   on the accdb tile.  Siblings were already detached and purged by
+   fd_accdb_advance_root. */
 
 static void
-background_advance_root( fd_accdb_t *       accdb,
-                         fd_accdb_fork_id_t fork_id ) {
-  drain_deferred_frees( accdb );
-
-  /* The caller guarantees that rooting is sequential: each call
-     advances the root by exactly one slot (the immediate child of the
-     current root).  Skipping levels is not supported. */
+root_level( fd_accdb_t *       accdb,
+            fd_accdb_fork_id_t fork_id ) {
   fd_accdb_fork_t * fork = &accdb->fork_pool[ fork_id.val ];
   FD_TEST( fork->shmem->parent_id.val==accdb->shmem->root_fork_id.val );
-  FD_TEST( fork->shmem->parent_id.val!=USHORT_MAX );
+  FD_TEST( fork->shmem->sibling_id.val==USHORT_MAX );
 
   fd_accdb_fork_t * parent_fork = &accdb->fork_pool[ fork->shmem->parent_id.val ];
-
-  /* Accumulate freed fork pool slots across remove_children and the
-     old-version cleanup below into a chain that will be deferred-
-     released after the epoch bump.  Freed acc pool slots are recorded
-     in the shmem side buffer via deferred_acc_append (they cannot be
-     chained via pool.next yet — see comment on the side buffer). */
-  fd_accdb_fork_shmem_t * fork_head = NULL;
-  fd_accdb_fork_shmem_t * fork_tail = NULL;
-
-  /* When a fork is rooted, any competing forks can be immediately
-     removed as they will not be needed again.  This includes child
-     forks of the pruned siblings as well. */
-  remove_children( accdb, parent_fork, fork, &fork_head, &fork_tail );
 
   /* And for any accounts which were updated in the newly rooted slot,
      we will now never need to access any older version, so we can
@@ -1634,115 +1552,177 @@ background_advance_root( fd_accdb_t *       accdb,
     txn_pool_release_chain( accdb->txn_pool, parent_head, parent_tail );
   }
 
-  /* Remove the parent from all descends_sets and chain it for deferred
-     release, so that when the slot is eventually recycled to a new
-     fork, no concurrent reader can mistake the new fork for the old
-     ancestor.  Entries from the freed parent are still visible via the
-     generation <= root_generation fast path in reads. */
-  fd_accdb_fork_id_t old_parent_id = fork->shmem->parent_id;
-  fork_slot_defer( accdb, old_parent_id, &fork_head, &fork_tail );
+  fork->shmem->txn_head = UINT_MAX;
 
-  fork->shmem->parent_id  = (fd_accdb_fork_id_t){ .val = USHORT_MAX };
-  fork->shmem->sibling_id = (fd_accdb_fork_id_t){ .val = USHORT_MAX };
-  fork->shmem->txn_head   = UINT_MAX;
-  descends_set_null( fork->descends );
+  /* Retire the old root.  Its accounts stay visible through the
+     generation <= root_generation fast path.  A reader that loaded the
+     old root_fork_id may still read its slot, so the slot is released
+     only after the epoch bump that ends the pass drains. */
+  fork_slot_defer( accdb, fork->shmem->parent_id );
 
-  /* Publish the new root_fork_id BEFORE bumping the epoch and deferring
-     the parent slot.  On x86-64 (TSO) a concurrent reader that still
-     loads the old root_fork_id is guaranteed to see the parent shmem in
-     its original (not-yet-recycled) state because the slot has not been
-     released yet.  A reader that loads the new root_fork_id uses the
-     new fork. */
   fd_racesan_hook( "accdb_advance:pre_publish_root" );
-  accdb->shmem->root_fork_id = fork_id;
+  FD_COMPILER_MFENCE();
+  FD_VOLATILE( accdb->shmem->root_fork_id ) = fork_id;
   FD_COMPILER_MFENCE();
   fd_racesan_hook( "accdb_advance:post_publish_root" );
-
-  /* Bump epoch and defer both the acc batch and parent fork slot. They
-     will be released at the next drain_deferred_frees call once all
-     concurrent readers have exited.  The acc batch lives in the shmem
-     side buffer; only its epoch tag needs setting here. */
-  ulong tag = FD_ATOMIC_FETCH_AND_ADD( &accdb->shmem->epoch, 1UL );
-  if( FD_LIKELY( accdb->shmem->deferred_acc_buf_cnt ) ) {
-    accdb->shmem->deferred_acc_epoch = tag;
-  }
-  if( FD_LIKELY( fork_head ) ) {
-    accdb->deferred_fork_head  = fork_head;
-    accdb->deferred_fork_tail  = fork_tail;
-    accdb->deferred_fork_epoch = tag;
-  }
 }
 
 int
-fd_accdb_cmd_pending( fd_accdb_t const * accdb ) {
-  return FD_VOLATILE_CONST( accdb->shmem->cmd_op )!=FD_ACCDB_CMD_IDLE;
+fd_accdb_requests_pending( fd_accdb_t const * accdb ) {
+  fd_accdb_req_t  req  = { .u = FD_VOLATILE_CONST( accdb->shmem->req.u  ) };
+  fd_accdb_done_t done = { .u = FD_VOLATILE_CONST( accdb->shmem->done.u ) };
+  return done.root_gen!=req.root_gen || done.purge_seq!=req.purge_seq || done.retiring;
 }
 
 void
 fd_accdb_advance_root( fd_accdb_t *       accdb,
                        fd_accdb_fork_id_t fork_id ) {
-  FD_CHECK_CRIT( fd_accdb_snapshot_sync_state( &accdb->shmem->snapshot_sync )!=FD_ACCDB_SNAPSHOT_SYNC_RUNNING,
+  fd_accdb_shmem_t * shmem = accdb->shmem;
+  FD_CHECK_CRIT( fd_accdb_snapshot_sync_state( &shmem->snapshot_sync )!=FD_ACCDB_SNAPSHOT_SYNC_RUNNING,
                  "fd_accdb_advance_root called during snapshot production" );
-  wait_cmd( accdb );
-  submit_cmd( accdb, FD_ACCDB_CMD_ADVANCE_ROOT, fork_id.val );
-}
 
-/* background_purge does the heavy lifting of purge on T2: unlink the
-   fork from the parent's child list, drain deferred frees, recursively
-   purge the fork subtree, and defer-release the freed acc pool
-   elements.  The sibling-list unlink is done here (not on T1) because
-   advance_root / remove_children also mutate sibling lists on T2, and
-   T2 is single-threaded so plain stores are safe. */
-
-static void
-background_purge( fd_accdb_t *       accdb,
-                  fd_accdb_fork_id_t fork_id ) {
-  /* Unlink fork_id from its parent's child list.  T2 mutations are
-     serialized with T1 attach_child through the command handshake,
-     so plain stores are safe here. */
+  /* The caller roots sequentially: fork_id is a child of the last
+     requested root. */
+  fd_accdb_req_t    req  = shmem->req;
   fd_accdb_fork_t * fork = &accdb->fork_pool[ fork_id.val ];
   fd_accdb_fork_id_t parent_id = fork->shmem->parent_id;
-  if( FD_LIKELY( parent_id.val!=USHORT_MAX ) ) {
-    fd_accdb_fork_t * parent = &accdb->fork_pool[ parent_id.val ];
-    if( FD_UNLIKELY( parent->shmem->child_id.val==fork_id.val ) ) {
-      parent->shmem->child_id = fork->shmem->sibling_id;
-    } else {
-      fd_accdb_fork_id_t prev_id = parent->shmem->child_id;
-      while( prev_id.val!=USHORT_MAX ) {
-        fd_accdb_fork_t * prev = &accdb->fork_pool[ prev_id.val ];
-        if( prev->shmem->sibling_id.val==fork_id.val ) {
-          prev->shmem->sibling_id = fork->shmem->sibling_id;
-          break;
-        }
-        prev_id = prev->shmem->sibling_id;
-      }
+  FD_CHECK_CRIT( parent_id.val!=USHORT_MAX && accdb->fork_pool[ parent_id.val ].shmem->generation==req.root_gen, "advance_root target is not a child of the root" );
+
+  /* Detach the competing siblings for purging.  The parent is left with
+     fork_id as its only child, which is how the accdb tile finds the
+     next level to root.  The purges and the root are published in one
+     request, and the accdb tile applies a request's purges first. */
+  fd_accdb_fork_shmem_t * parent = accdb->fork_pool[ parent_id.val ].shmem;
+  fd_accdb_fork_id_t child = parent->child_id;
+  while( child.val!=USHORT_MAX ) {
+    fd_accdb_fork_id_t next = accdb->fork_pool[ child.val ].shmem->sibling_id;
+    if( child.val!=fork_id.val ) {
+      accdb->fork_pool[ child.val ].shmem->parent_id  = (fd_accdb_fork_id_t){ .val = USHORT_MAX };
+      accdb->fork_pool[ child.val ].shmem->sibling_id = req.purge_fork;
+      req.purge_fork = child;
+      req.purge_seq++;
     }
+    child = next;
   }
+  fork->shmem->sibling_id = (fd_accdb_fork_id_t){ .val = USHORT_MAX };
+  parent->child_id        = fork_id;
 
-  drain_deferred_frees( accdb );
-
-  fd_accdb_fork_shmem_t * fork_head = NULL;
-  fd_accdb_fork_shmem_t * fork_tail = NULL;
-  purge_inner( accdb, fork_id, &fork_head, &fork_tail );
-
-  ulong tag = FD_ATOMIC_FETCH_AND_ADD( &accdb->shmem->epoch, 1UL );
-  if( FD_LIKELY( accdb->shmem->deferred_acc_buf_cnt ) ) {
-    accdb->shmem->deferred_acc_epoch = tag;
-  }
-  if( FD_LIKELY( fork_head ) ) {
-    accdb->deferred_fork_head  = fork_head;
-    accdb->deferred_fork_tail  = fork_tail;
-    accdb->deferred_fork_epoch = tag;
-  }
+  req.root_gen = fork->shmem->generation;
+  publish_req( accdb, req );
 }
 
 void
 fd_accdb_purge( fd_accdb_t *       accdb,
                 fd_accdb_fork_id_t fork_id ) {
-  FD_TEST( fork_id.val!=accdb->shmem->root_fork_id.val );
+  fd_accdb_shmem_t * shmem = accdb->shmem;
 
-  wait_cmd( accdb );
-  submit_cmd( accdb, FD_ACCDB_CMD_PURGE, fork_id.val );
+  /* Live forks that do not descend from the requested root are the
+     root and its ancestors, which are older.  A fork newer than the
+     root has a parent (unless it was already purged). */
+  fd_accdb_req_t          req  = shmem->req;
+  fd_accdb_fork_shmem_t * fork = accdb->fork_pool[ fork_id.val ].shmem;
+  FD_CHECK_CRIT( shmem->root_fork_id.val!=USHORT_MAX, "purge before the root fork exists" );
+  FD_CHECK_CRIT( fork->generation>req.root_gen, "purge target is the root or its ancestor" );
+  fd_accdb_fork_id_t parent_id = fork->parent_id;
+  FD_CHECK_CRIT( parent_id.val!=USHORT_MAX, "purge target was already purged" );
+
+  fd_accdb_fork_shmem_t * parent = accdb->fork_pool[ parent_id.val ].shmem;
+  fd_accdb_fork_id_t      next   = fork->sibling_id;
+  if( parent->child_id.val==fork_id.val ) {
+    parent->child_id = next;
+  } else {
+    fd_accdb_fork_shmem_t * prev = accdb->fork_pool[ parent->child_id.val ].shmem;
+    while( prev->sibling_id.val!=fork_id.val ) prev = accdb->fork_pool[ prev->sibling_id.val ].shmem;
+    prev->sibling_id = next;
+  }
+
+  fork->parent_id  = (fd_accdb_fork_id_t){ .val = USHORT_MAX };
+  fork->sibling_id = req.purge_fork;
+  req.purge_fork   = fork_id;
+  req.purge_seq++;
+  publish_req( accdb, req );
+}
+
+/* background_release releases the retired batch once every reader
+   that could still reference it has exited.  Does not wait.  Returns
+   1 if no batch is held afterwards. */
+
+static int
+background_release( fd_accdb_t * accdb ) {
+  fd_accdb_shmem_t * shmem = accdb->shmem;
+  fd_accdb_done_t    done  = shmem->done;
+  if( FD_LIKELY( !done.retiring ) ) return 1;
+  if( FD_UNLIKELY( !epoch_drained( accdb, shmem->deferred_epoch ) ) ) return 0;
+  drain_deferred_frees( accdb );
+  fd_racesan_hook( "accdb_release:pre_done" );
+  done.retiring = 0U;
+  FD_COMPILER_MFENCE();
+  FD_VOLATILE( shmem->done.u ) = done.u;
+  FD_COMPILER_MFENCE();
+  return 1;
+}
+
+/* background_requests applies the root and purge requests published
+   since the last pass, then retires everything they unlinked as one
+   batch.  Returns 1 if it did any work.
+
+   A request's purges are applied before its root, and fd_accdb_advance_root
+   requests a level's sibling purges together with the level, so no
+   losing sibling is visible through the generation fast path. */
+
+static int
+background_requests( fd_accdb_t * accdb ) {
+  fd_accdb_shmem_t * shmem = accdb->shmem;
+
+  /* One batch is held at a time.  Until it is released, requests wait
+     and the tile keeps doing other work. */
+  if( FD_UNLIKELY( !background_release( accdb ) ) ) return 0;
+
+  fd_accdb_req_t  req  = { .u = FD_VOLATILE_CONST( shmem->req.u ) };
+  fd_accdb_done_t done = shmem->done;
+  if( FD_LIKELY( done.root_gen==req.root_gen && done.purge_seq==req.purge_seq ) ) return 0;
+  FD_COMPILER_MFENCE();
+
+  /* The newest purge_cnt forks of the chain are the ones not yet
+     applied.  Each still holds its slot, so the links are intact. */
+  ulong              purge_cnt = (ushort)( req.purge_seq-done.purge_seq );
+  fd_accdb_fork_id_t purge     = req.purge_fork;
+  for( ulong i=0UL; i<purge_cnt; i++ ) {
+    fd_accdb_fork_id_t next = accdb->fork_pool[ purge.val ].shmem->sibling_id;
+    purge_inner( accdb, purge );
+    purge = next;
+  }
+  done.purge_seq = req.purge_seq;
+
+  /* A level unlinks at most two accounts per txn (the replaced rooted
+     version and a rooted tombstone).  A level that could overflow the
+     deferred buffer is left for the next pass, which starts with an
+     empty buffer, so passes always progress. */
+  for(;;) {
+    fd_accdb_fork_shmem_t const * root = accdb->fork_pool[ shmem->root_fork_id.val ].shmem;
+    done.root_gen = root->generation;
+    if( done.root_gen==req.root_gen ) break;
+    FD_TEST( done.root_gen<req.root_gen );
+    fd_accdb_fork_id_t level = root->child_id;
+    if( shmem->deferred_acc_buf_cnt ) {
+      ulong unlink_max = 0UL;
+      for( uint txn=accdb->fork_pool[ level.val ].shmem->txn_head; txn!=UINT_MAX; txn=txn_pool_ele( accdb->txn_pool, (ulong)txn )->fork.next ) unlink_max += 2UL;
+      if( FD_UNLIKELY( shmem->deferred_acc_buf_cnt+unlink_max>shmem->deferred_acc_buf_max ) ) break;
+    }
+    root_level( accdb, level );
+  }
+
+  /* One grace period for everything unlinked or retired in this pass. */
+  if( FD_LIKELY( shmem->deferred_acc_buf_cnt || shmem->deferred_fork_head.val!=USHORT_MAX ) ) {
+    shmem->deferred_epoch = FD_ATOMIC_FETCH_AND_ADD( &shmem->epoch, 1UL );
+    done.retiring         = 1U;
+  }
+
+  fd_racesan_hook( "accdb_requests:pre_done" );
+  FD_COMPILER_MFENCE();
+  FD_VOLATILE( shmem->done.u ) = done.u;
+  FD_COMPILER_MFENCE();
+  return 1;
 }
 
 static inline fd_accdb_cache_line_t *
@@ -2269,6 +2249,7 @@ background_compact( fd_accdb_t * accdb,
 
   if( FD_UNLIKELY( compact->compaction_offset>=compact->write_offset ) ) {
     FD_LOG_INFO(( "compaction of partition %lu completed", partition_pool_idx( accdb->partition_pool, compact ) ));
+    accdb->carry_sz = 0UL; /* nothing is carried past a finished partition */
 
     fd_event_accdb_compaction_completed_t ev = {
       .partition_idx      = partition_pool_idx( accdb->partition_pool, compact ),
@@ -4567,40 +4548,11 @@ fd_accdb_background( fd_accdb_t * accdb,
   ulong * snap_sync_p = &shmem->snapshot_sync;
   ulong   snap_sync   = fd_accdb_snapshot_sync_state( snap_sync_p );
 
-  uint op = FD_VOLATILE_CONST( shmem->cmd_op );
-  if( FD_UNLIKELY( op!=FD_ACCDB_CMD_IDLE ) ) {
-    fd_accdb_fork_id_t fork_id = { .val = FD_VOLATILE_CONST( shmem->cmd_fork_id ) };
-
-    switch( op ) {
-      case FD_ACCDB_CMD_ADVANCE_ROOT:
-        background_advance_root( accdb, fork_id );
-        break;
-      case FD_ACCDB_CMD_PURGE:
-        background_purge( accdb, fork_id );
-        break;
-      case FD_ACCDB_CMD_DRAIN_DEFERRED:
-        drain_deferred_frees( accdb );
-        break;
-      case FD_ACCDB_CMD_CLEAR_DEFERRED: {
-        /* Posted by fd_accdb_reset after it clobbers shared pools.
-           T2's deferred fork chain now points at recycled elements;
-           discard the stale pointers.  Epoch slots are preserved
-           across reset so no re-join is needed. */
-        accdb->deferred_fork_head  = NULL;
-        accdb->deferred_fork_tail  = NULL;
-        accdb->deferred_fork_epoch = 0UL;
-        accdb->carry_sz            = 0UL;
-        break;
-      }
-      default:
-        FD_LOG_ERR(( "unexpected accdb cmd_op %u", op ));
-    }
-
-    FD_COMPILER_MFENCE();
-    FD_VOLATILE( shmem->cmd_op ) = FD_ACCDB_CMD_IDLE;
-    *charge_busy = 1;
-    return;
-  }
+  /* The batch a pass retires is usually free to release right away
+     (no reader mid-epoch).  A held batch keeps the tile busy, so it
+     does not park with it. */
+  if( FD_UNLIKELY( background_requests( accdb ) ) ) *charge_busy = 1;
+  if( FD_UNLIKELY( !background_release( accdb ) ) ) *charge_busy = 1;
 
   if( FD_UNLIKELY( snap_sync!=FD_ACCDB_SNAPSHOT_SYNC_IDLE ) ) {
     switch( snap_sync ) {

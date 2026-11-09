@@ -107,7 +107,7 @@ static inline void
 before_credit( fd_accdb_tile_ctx_t * ctx,
                fd_stem_context_t *   stem FD_FN_UNUSED,
                int *                 charge_busy ) {
-  /* Commands are serviced even before replay starts.  A command posted
+  /* Requests are serviced even before replay starts.  A request posted
      during the startup gate's idle sleep waits until the next pass. */
   fd_accdb_background( ctx->accdb, charge_busy );
   if( FD_LIKELY( ctx->progcache_enabled ) ) *charge_busy |= !!fd_progcache_housekeeping( ctx->progcache, ctx->progcache_metrics );
