@@ -19,4 +19,14 @@ f19173fc3a60881d0e5f36fc5872d686b3ad288b8a439c6dc20bbaccec519d5d  picohttpparser
 SHA256
 )
 
+# remove chunked HTTP decoding
+perl -0pi -e 's/^enum \{\n(?=\s*CHUNKED_).*chunked.*?\n\}\n\n//msi' \
+  "$tmp/picohttpparser.c"
+perl -0pi -e 's/(?:^\/\*(?:(?!\*\/).)*\*\/\n)?^struct phr_chunked_decoder \{.*chunked[^\n]*\n\n//msi' \
+  "$tmp/picohttpparser.h"
+if grep -qi chunked "$tmp/picohttpparser.c" "$tmp/picohttpparser.h"; then
+  echo "vendor.sh: chunked decoder strip did not apply cleanly" >&2
+  exit 1
+fi
+
 cp "$tmp/picohttpparser.c" "$tmp/picohttpparser.h" .
