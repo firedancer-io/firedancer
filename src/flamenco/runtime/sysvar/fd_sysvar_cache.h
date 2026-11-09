@@ -80,8 +80,9 @@ FD_PROTOTYPES_BEGIN
 
 /* Constructor API */
 
-/* fd_sysvar_cache_new formats a memory region allocated according to
-   fd_sysvar_cache_{align,footprint} for use as a sysvar_cache object. */
+/* fd_sysvar_cache_new formats a memory region of size
+   sizeof(fd_sysvar_cache_t) and alignment alignof(fd_sysvar_cache_t)
+   for use as a sysvar_cache object. */
 
 void *
 fd_sysvar_cache_new( void * mem );
