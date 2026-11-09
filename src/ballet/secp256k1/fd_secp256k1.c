@@ -31,7 +31,6 @@ fd_secp256k1_recover( uchar        public_key[64],
                       uchar const  sig[64],
                       int          recovery_id ) {
   if( FD_UNLIKELY( !( recovery_id>=0 && recovery_id<=3 ) ) ) {
-    /* COV: the callers do the same check */
     return NULL;
   }
 
