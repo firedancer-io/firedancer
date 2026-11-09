@@ -96,6 +96,20 @@ static inline ulong
 fd_rdisp_mq_cnt( fd_rdisp_mq_t * mq,
                  ulong           staging_lane );
 
+/* fd_rdisp_mq_prio0_cnt returns the number of elements in the multiprq
+   with the specified staging lane that have priority 0. */
+static inline ulong
+fd_rdisp_mq_prio0_cnt( fd_rdisp_mq_t const * mq,
+                       ulong                 staging_lane );
+
+/* fd_rdisp_mq_test_prio0 returns 1 if the element
+   (acct_idx,staging_lane) has priority 0, and 0 otherwise.  The element
+   must be in the multiprq. */
+static inline int
+fd_rdisp_mq_test_prio0( fd_rdisp_mq_t const * mq,
+                        ulong                 acct_idx,
+                        ulong                 staging_lane );
+
 static inline void *
 fd_rdisp_mq_leave( fd_rdisp_mq_t * mq );
 
@@ -234,6 +248,19 @@ fd_rdisp_mq_test( fd_rdisp_mq_t const * mq,
   return mq->flat[acct_idx].per_lane[staging_lane]!=UINT_MAX;
 }
 
+static inline int
+fd_rdisp_mq_test_prio0( fd_rdisp_mq_t const * mq,
+                        ulong                 acct_idx,
+                        ulong                 staging_lane ) {
+  return mq->flat[acct_idx].per_lane[staging_lane]>fd_rdisp_mprq_cnt( mq->prq[staging_lane] );
+}
+
+static inline ulong
+fd_rdisp_mq_prio0_cnt( fd_rdisp_mq_t const * mq,
+                       ulong                 staging_lane ) {
+  return mq->prio0_cnt[staging_lane];
+}
+
 static inline void
 fd_rdisp_mq_insert( fd_rdisp_mq_t * mq,
                     ulong           acct_idx,
@@ -264,7 +291,7 @@ fd_rdisp_mq_adjust( fd_rdisp_mq_t * mq,
   fd_rdisp_mq_prqe_t * prq = mq->prq[staging_lane];
 
   uint fidx                = mq->flat[acct_idx].per_lane[staging_lane];
-  int  pre_prio0           = fidx>fd_rdisp_mprq_cnt( prq );
+  int  pre_prio0           = fd_rdisp_mq_test_prio0( mq, acct_idx, staging_lane );
   int  new_prio0           = prio==0.0f;
 
   if( FD_UNLIKELY( pre_prio0 & new_prio0 ) ) return; /* nothing to do */

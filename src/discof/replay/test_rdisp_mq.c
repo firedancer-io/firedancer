@@ -116,6 +116,37 @@ FD_UNIT_TEST( full_heap ) {
   FD_TEST( popped==fd_ulong_mask( 1, 10 ) );
 }
 
+/* Priority 0 is a class of its own.  Elements enter it on insert or
+   adjust, pop ahead of the heap newest first, and leave it on adjust
+   to a nonzero priority. */
+FD_UNIT_TEST( prio0 ) {
+  fd_rdisp_mq_t * mq = fd_rdisp_mq_join( fd_rdisp_mq_new( _footprint, 20UL, 10UL ) );
+  for( ulong a=1UL; a<=5UL; a++ ) fd_rdisp_mq_insert( mq, a, 0UL, (float)a );
+  FD_TEST( fd_rdisp_mq_prio0_cnt( mq, 0UL )==0UL );
+  for( ulong a=1UL; a<=5UL; a++ ) FD_TEST( !fd_rdisp_mq_test_prio0( mq, a, 0UL ) );
+
+  fd_rdisp_mq_adjust( mq, 3UL, 0UL, 0.0f );
+  FD_TEST( fd_rdisp_mq_prio0_cnt( mq, 0UL )==1UL );
+  FD_TEST( fd_rdisp_mq_test_prio0( mq, 3UL, 0UL ) && !fd_rdisp_mq_test_prio0( mq, 1UL, 0UL ) );
+  fd_rdisp_mq_insert( mq, 6UL, 0UL, 0.0f );
+  FD_TEST( fd_rdisp_mq_prio0_cnt( mq, 0UL )==2UL && fd_rdisp_mq_cnt( mq, 0UL )==6UL );
+  FD_TEST( fd_rdisp_mq_prio0_cnt( mq, 1UL )==0UL );
+
+  FD_TEST( fd_rdisp_mq_pop( mq, 0UL )==6UL );
+  FD_TEST( fd_rdisp_mq_prio0_cnt( mq, 0UL )==1UL );
+  fd_rdisp_mq_adjust( mq, 3UL, 0UL, 2.5f );
+  FD_TEST( fd_rdisp_mq_prio0_cnt( mq, 0UL )==0UL && !fd_rdisp_mq_test_prio0( mq, 3UL, 0UL ) );
+  FD_TEST( fd_rdisp_mq_cnt( mq, 0UL )==5UL );
+  FD_TEST( fd_rdisp_mq_pop( mq, 0UL )==1UL );
+  FD_TEST( fd_rdisp_mq_pop( mq, 0UL )==2UL );
+  FD_TEST( fd_rdisp_mq_pop( mq, 0UL )==3UL ); /* 2.5 sits between 2 and 4 */
+
+  fd_rdisp_mq_insert( mq, 7UL, 1UL, 0.0f );
+  FD_TEST( fd_rdisp_mq_prio0_cnt( mq, 1UL )==1UL && fd_rdisp_mq_prio0_cnt( mq, 0UL )==0UL );
+  FD_TEST( fd_rdisp_mq_test_prio0( mq, 7UL, 1UL ) );
+  fd_rdisp_mq_delete( fd_rdisp_mq_leave( mq ) );
+}
+
 int
 main( int     argc,
       char ** argv ) {

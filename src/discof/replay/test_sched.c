@@ -2546,28 +2546,33 @@ run_lthash_respeculate_case( void ) {
   delete_sched( sched );
 }
 
-/* A speculative addition that is PENDING behind its writer when the
-   account is written again.  T1 writes A and is held on its tile.  The
-   block speculates A, but the guess waits on T1 and no addition is
-   handed out.  FEC2, with T2 writing A, arrives before T1 completes,
-   and T2's parse bit clears the guess's ticket and frees its slot.
-   Once T1 completes the stale guess surfaces and is completed without
-   hashing.  A is added once, after T2, at the final version.  With
-   fec2_last, FEC2 ends the block and the drain pops A again.
-   Otherwise the block speculates A again after T2, runs dry, and an
-   empty last FEC set ends it. */
+/* A speculative addition that is PENDING behind a serializing
+   transaction when its account is written again.  T1 writes A and
+   completes.  S, a lookup table transaction inserted serializing with
+   payer P, is held on its tile, and the block guesses at A behind S.
+   FEC2, with T2 writing A, arrives before S completes, and T2's parse
+   bit clears the guess's ticket and frees its slot.  T2 waits for S,
+   and for the guess, which reads A ahead of it.  Once S completes the
+   stale guess surfaces and is completed without hashing, then T2 runs
+   and A is added once, after T2, at the final version.  With
+   fec2_last, FEC2 ends the block and the drain adds A and P.
+   Otherwise the block guesses P, then A again after T2, runs dry, and
+   an empty last FEC set ends it. */
 static void
 run_lthash_pending_rewrite_case( int fec2_last ) {
   fd_sched_t * sched = new_sched( 4UL );
   fd_sched_set_bypass_poh_verify( sched, 1 );
+  fd_sched_set_bypass_alut_resolution( sched, 1 );
 
-  fd_pubkey_t acct[ 2 ];
+  fd_pubkey_t acct[ 2 ]; /* A, P */
   lthash_test_keys( acct, acct+1 );
-  uchar t1[ FD_TXN_MTU ]; ulong t1_sz = build_lthash_test_txn( t1, acct, NULL, 0UL, 0x01 );
-  uchar t2[ FD_TXN_MTU ]; ulong t2_sz = build_lthash_test_txn( t2, acct, NULL, 0UL, 0x02 );
-  uchar const * txns1[ 1 ] = { t1 };
+  uchar t1[ FD_TXN_MTU ]; ulong t1_sz = build_lthash_test_txn( t1, acct,   NULL, 0UL, 0x01 );
+  uchar s [ FD_TXN_MTU ]; ulong s_sz  = build_lthash_v0_txn(   s,  acct+1, 1UL,       0x02 );
+  uchar t2[ FD_TXN_MTU ]; ulong t2_sz = build_lthash_test_txn( t2, acct,   NULL, 0UL, 0x03 );
+  uchar const * txns1[ 2 ] = { t1, s };
+  ulong txn_sz1[ 2 ] = { t1_sz, s_sz };
   uchar const * txns2[ 1 ] = { t2 };
-  uchar encoded1[ 8192 ]; ulong sz1 = encode_lthash_batch( encoded1, txns1, &t1_sz, 1UL );
+  uchar encoded1[ 8192 ]; ulong sz1 = encode_lthash_batch( encoded1, txns1, txn_sz1, 2UL );
   uchar encoded2[ 8192 ]; ulong sz2 = encode_lthash_batch( encoded2, txns2, &t2_sz, 1UL );
 
   fd_hash_t start_poh[ 1 ]; hash_from_seed( start_poh, 0x4c5d6e7f8091a2b3UL );
@@ -2576,45 +2581,51 @@ run_lthash_pending_rewrite_case( int fec2_last ) {
 
   static test_lthash_ctx_t ctx[ 1 ]; fd_memset( ctx, 0, sizeof(test_lthash_ctx_t) );
   fd_sched_task_t held[ 1 ]; fd_lthash_value_t unused[ 1 ];
+  /* T1 completes and S is held.  PoH, sigverify and the subtractions
+     run, and the guess at A is PENDING behind S. */
   FD_TEST( lthash_drive_hold( sched, ctx, 100UL, FD_SCHED_TT_TXN_EXEC, held, unused ) );
-  /* PoH, sigverify and the subtraction run around T1.  The speculative
-     pop happens, but the guess is PENDING behind T1. */
+  FD_TEST( txn_task_payer_is( sched, held, acct ) );
+  lthash_drive_task( sched, held, ctx );
+  FD_TEST( lthash_drive_hold( sched, ctx, 100UL, FD_SCHED_TT_TXN_EXEC, held, unused ) );
+  FD_TEST( txn_task_payer_is( sched, held, acct+1 ) );
   lthash_drive( sched, ctx, 100UL );
-  FD_TEST( ctx->sub_cnt==1UL && !ctx->add_cnt && !ctx->txn_exec_cnt );
+  FD_TEST( ctx->txn_exec_cnt==1UL && ctx->sub_cnt==2UL && !ctx->add_cnt );
   FD_TEST( !fd_sched_is_drained( sched ) );
-  lthash_check_metrics( sched, &(test_lthash_metrics_t){ .parsed_writable=1UL, .first_write=1UL, .add_created=1UL, .spec=1UL, .entry=1UL, .sub_dispatched=1UL, .sub_task=1UL, .sub_applied=1UL } );
+  lthash_check_metrics( sched, &(test_lthash_metrics_t){ .parsed_writable=2UL, .first_write=2UL, .add_created=1UL, .spec=1UL, .entry=2UL, .sub_dispatched=2UL, .sub_task=1UL, .sub_applied=2UL } );
   char * state = fd_sched_get_state_cstr( sched );
-  FD_TEST( strstr( state, "sub_queued_cnt 0, sub_in_flight_cnt 0, sub_applied_cnt 1, add_owed_cnt 0, add_created_cnt 1, add_surfaced_cnt 0, add_done_cnt 0, add_applied_cnt 0, add_undone_cnt 0" ) );
+  FD_TEST( strstr( state, "sub_queued_cnt 0, sub_in_flight_cnt 0, sub_applied_cnt 2, add_owed_cnt 1, add_created_cnt 1, add_surfaced_cnt 0, add_done_cnt 0, add_applied_cnt 0, add_undone_cnt 0" ) );
 
   /* T2 arrives while the guess is pending.  Its PoH and sigverify
-     run, and T2 itself waits on T1. */
+     run, and T2 itself waits on S and on the guess. */
   ingest_lthash_fec( sched, 2UL, 1UL, TEST_ROOT_SLOT+1UL, TEST_ROOT_SLOT, encoded2, sz2, 0, fec2_last );
   lthash_drive( sched, ctx, 100UL );
-  FD_TEST( !ctx->txn_exec_cnt && !ctx->add_cnt && !ctx->block_end_cnt );
+  FD_TEST( ctx->txn_exec_cnt==1UL && !ctx->add_cnt && !ctx->block_end_cnt );
 
-  /* T1 completes.  The stale guess surfaces and is completed without
+  /* S completes.  The stale guess surfaces and is completed without
      hashing, then T2 runs and A is added at version 2. */
   lthash_drive_task( sched, held, ctx );
   lthash_drive( sched, ctx, 100UL );
   if( !fec2_last ) {
-    FD_TEST( ctx->txn_exec_cnt==2UL && ctx->add_cnt==1UL && !ctx->block_end_cnt );
+    FD_TEST( ctx->txn_exec_cnt==3UL && ctx->add_cnt==2UL && !ctx->block_end_cnt );
     FD_TEST( fd_sched_is_drained( sched ) );
-    /* The first guess surfaced stale.  The second was applied. */
-    lthash_check_metrics( sched, &(test_lthash_metrics_t){ .parsed_writable=2UL, .first_write=2UL, .add_created=2UL, .spec=2UL, .entry=1UL, .sub_dispatched=1UL, .sub_task=1UL, .sub_applied=1UL, .add_surfaced=2UL, .add_surfaced_stale=1UL, .add_dispatched=1UL, .add_task=1UL, .add_applied=1UL, .spec_stale=1UL, .spec_applied=1UL } );
+    /* The first guess surfaced stale.  P's and the second guess at A
+       were applied. */
+    lthash_check_metrics( sched, &(test_lthash_metrics_t){ .parsed_writable=3UL, .first_write=3UL, .add_created=3UL, .spec=3UL, .entry=2UL, .sub_dispatched=2UL, .sub_task=1UL, .sub_applied=2UL, .add_surfaced=3UL, .add_surfaced_stale=1UL, .add_dispatched=2UL, .add_task=2UL, .add_applied=2UL, .spec_applied=2UL, .spec_stale=1UL } );
     ingest_lthash_fec( sched, 2UL, 1UL, TEST_ROOT_SLOT+1UL, TEST_ROOT_SLOT, NULL, 0UL, 0, 1 );
     lthash_drive( sched, ctx, 100UL );
   }
 
-  FD_TEST( ctx->txn_exec_cnt==2UL && ctx->block_end_cnt==1UL );
-  FD_TEST( ctx->acct_cnt==1UL && ctx->sub_cnt==1UL && ctx->add_cnt==1UL );
-  lthash_check_acct( ctx, 2UL, acct, 1UL, 1UL, 2UL );
-  fd_lthash_value_t expected[ 1 ]; lthash_expected_delta( expected, ctx, 2UL, acct, 1UL );
+  FD_TEST( ctx->txn_exec_cnt==3UL && ctx->block_end_cnt==1UL );
+  FD_TEST( ctx->acct_cnt==2UL && ctx->sub_cnt==2UL && ctx->add_cnt==2UL );
+  lthash_check_acct( ctx, 2UL, acct,   1UL, 1UL, 2UL );
+  lthash_check_acct( ctx, 2UL, acct+1, 1UL, 1UL, 1UL );
+  fd_lthash_value_t expected[ 1 ]; lthash_expected_delta( expected, ctx, 2UL, acct, 2UL );
   FD_TEST( fd_lthash_eq( ctx->delta, expected ) );
   FD_TEST( fd_lthash_eq( ctx->delta, ctx->handed ) ); /* nothing was hashed in vain */
   FD_TEST( ctx->block_end_step[ 2 ]>ctx->last_lthash_step[ 2 ] );
-  /* With fec2_last the second addition came from the drain, otherwise
-     from a second guess. */
-  lthash_check_metrics( sched, &(test_lthash_metrics_t){ .parsed_writable=2UL, .first_write=2UL, .add_created=2UL, .spec=fd_ulong_if( fec2_last, 1UL, 2UL ), .entry=1UL, .sub_dispatched=1UL, .sub_task=1UL, .sub_applied=1UL, .add_surfaced=2UL, .add_surfaced_stale=1UL, .add_dispatched=1UL, .add_task=1UL, .add_applied=1UL, .spec_stale=1UL, .spec_applied=fd_ulong_if( fec2_last, 0UL, 1UL ), .frozen=1UL } );
+  /* With fec2_last the two additions came from the drain, otherwise
+     from guesses. */
+  lthash_check_metrics( sched, &(test_lthash_metrics_t){ .parsed_writable=3UL, .first_write=3UL, .add_created=3UL, .spec=fd_ulong_if( fec2_last, 1UL, 3UL ), .entry=2UL, .sub_dispatched=2UL, .sub_task=1UL, .sub_applied=2UL, .add_surfaced=3UL, .add_surfaced_stale=1UL, .add_dispatched=2UL, .add_task=fd_ulong_if( fec2_last, 1UL, 2UL ), .add_applied=2UL, .spec_applied=fd_ulong_if( fec2_last, 0UL, 2UL ), .spec_stale=1UL, .frozen=2UL } );
   state = fd_sched_get_state_cstr( sched );
   FD_TEST( strstr( state, "lthash_ready_bitset[ 0 ] 0xf," ) );
 
@@ -2706,9 +2717,9 @@ run_lthash_two_late_alt_case( void ) {
    writing A, proves the guess wrong.  The addition is undone through
    its hash slot and A is added again after T2.  The delta is exactly
    -sub(A)+add(A,2), and the handed values also hold add(A,1).  With
-   hold_writer, T1 is still on its tile when the block speculates.  The
-   pseudo transaction is created but not READY, speculation pauses, and
-   the addition surfaces once T1 completes. */
+   hold_writer, T1 is still on its tile when the block runs dry.  A's
+   last writer is out, so nothing is guessed until T1 completes, and
+   then A's addition goes out. */
 static void
 run_lthash_speculate_case( int hold_writer ) {
   fd_sched_t * sched = new_sched( 4UL );
@@ -2731,11 +2742,11 @@ run_lthash_speculate_case( int hold_writer ) {
   if( hold_writer ) {
     fd_sched_task_t held[ 1 ]; fd_lthash_value_t unused[ 1 ];
     FD_TEST( lthash_drive_hold( sched, ctx, 100UL, FD_SCHED_TT_TXN_EXEC, held, unused ) );
-    /* PoH, sigverify and the subtraction run around T1.  The
-       speculative pop happens too, but its addition waits on T1. */
+    /* PoH, sigverify and the subtraction run around T1.  A's writer is
+       still out, so there is nothing to guess at. */
     lthash_drive( sched, ctx, 100UL );
     FD_TEST( ctx->sub_cnt==1UL && !ctx->add_cnt && !ctx->txn_exec_cnt );
-    lthash_check_metrics( sched, &(test_lthash_metrics_t){ .parsed_writable=1UL, .first_write=1UL, .add_created=1UL, .spec=1UL, .entry=1UL, .sub_dispatched=1UL, .sub_task=1UL, .sub_applied=1UL } );
+    lthash_check_metrics( sched, &(test_lthash_metrics_t){ .parsed_writable=1UL, .first_write=1UL, .entry=1UL, .sub_dispatched=1UL, .sub_task=1UL, .sub_applied=1UL } );
     FD_TEST( !fd_sched_is_drained( sched ) );
     lthash_drive_task( sched, held, ctx );
   }
@@ -2763,6 +2774,67 @@ run_lthash_speculate_case( int hold_writer ) {
   FD_TEST( ctx->block_end_step[ 2 ]>ctx->last_lthash_step[ 2 ] );
   /* T2's write undid the applied guess.  The drain added A again. */
   lthash_check_metrics( sched, &(test_lthash_metrics_t){ .parsed_writable=2UL, .first_write=2UL, .add_created=2UL, .spec=1UL, .entry=1UL, .sub_dispatched=1UL, .sub_task=1UL, .sub_applied=1UL, .add_surfaced=2UL, .add_dispatched=2UL, .add_task=2UL, .add_applied=2UL, .add_undone=1UL, .spec_applied=1UL, .frozen=1UL } );
+  char * state = fd_sched_get_state_cstr( sched );
+  FD_TEST( strstr( state, "lthash_ready_bitset[ 0 ] 0xf," ) );
+
+  delete_sched( sched );
+}
+
+/* Speculation picks an account whose last writer has completed.  T1
+   writes A and T2 writes B in one FEC set that is not the last.  The
+   first of them to dispatch is held on its tile while the other runs
+   to completion.  The held account still waits on its writer, so the
+   block guesses the other account alone and runs dry instead of
+   parking behind the held writer.  Once the held transaction completes
+   its account is guessed too.  An empty last FEC set ends the block
+   with both guesses standing. */
+static void
+run_lthash_spec_ready_first_case( void ) {
+  fd_sched_t * sched = new_sched( 4UL );
+  fd_sched_set_bypass_poh_verify( sched, 1 );
+
+  fd_pubkey_t acct[ 2 ];
+  lthash_test_keys( acct, acct+1 );
+  uchar t1[ FD_TXN_MTU ]; ulong t1_sz = build_lthash_test_txn( t1, acct,   NULL, 0UL, 0x01 );
+  uchar t2[ FD_TXN_MTU ]; ulong t2_sz = build_lthash_test_txn( t2, acct+1, NULL, 0UL, 0x02 );
+  uchar const * txns[ 2 ] = { t1, t2 };
+  ulong txn_sz[ 2 ] = { t1_sz, t2_sz };
+  uchar encoded[ 8192 ]; ulong sz = encode_lthash_batch( encoded, txns, txn_sz, 2UL );
+
+  fd_hash_t start_poh[ 1 ]; hash_from_seed( start_poh, 0x0a1b2c3d4e5f6071UL );
+  ingest_lthash_fec( sched, 2UL, 1UL, TEST_ROOT_SLOT+1UL, TEST_ROOT_SLOT, encoded, sz, 1, 0 );
+  fd_sched_set_poh_params( sched, 2UL, TEST_ROOT_TICK_HEIGHT, TEST_ROOT_TICK_HEIGHT+1UL, start_poh );
+
+  static test_lthash_ctx_t ctx[ 1 ]; fd_memset( ctx, 0, sizeof(test_lthash_ctx_t) );
+  fd_sched_task_t held[ 1 ]; fd_lthash_value_t unused[ 1 ];
+  FD_TEST( lthash_drive_hold( sched, ctx, 100UL, FD_SCHED_TT_TXN_EXEC, held, unused ) );
+  fd_pubkey_t const * held_acct = txn_task_payer_is( sched, held, acct ) ? acct : acct+1;
+  fd_pubkey_t const * done_acct = held_acct==acct ? acct+1 : acct;
+  lthash_drive( sched, ctx, 100UL );
+
+  /* The other transaction, PoH, sigverify and both subtractions ran,
+     and the completed account was guessed.  The held one was not. */
+  FD_TEST( ctx->txn_exec_cnt==1UL && ctx->sub_cnt==2UL && ctx->add_cnt==1UL && !ctx->block_end_cnt );
+  lthash_check_acct( ctx, 2UL, done_acct, 1UL, 1UL, 1UL );
+  lthash_check_acct( ctx, 2UL, held_acct, 1UL, 0UL, 0UL );
+  FD_TEST( !fd_sched_is_drained( sched ) );
+  lthash_check_metrics( sched, &(test_lthash_metrics_t){ .parsed_writable=2UL, .first_write=2UL, .add_created=1UL, .spec=1UL, .entry=2UL, .sub_dispatched=2UL, .sub_task=1UL, .sub_applied=2UL, .add_surfaced=1UL, .add_dispatched=1UL, .add_task=1UL, .add_applied=1UL, .spec_applied=1UL } );
+
+  lthash_drive_task( sched, held, ctx );
+  lthash_drive( sched, ctx, 100UL );
+  FD_TEST( ctx->txn_exec_cnt==2UL && ctx->sub_cnt==2UL && ctx->add_cnt==2UL && !ctx->block_end_cnt );
+  lthash_check_acct( ctx, 2UL, held_acct, 1UL, 1UL, 1UL );
+  FD_TEST( fd_sched_is_drained( sched ) );
+  lthash_check_metrics( sched, &(test_lthash_metrics_t){ .parsed_writable=2UL, .first_write=2UL, .add_created=2UL, .spec=2UL, .entry=2UL, .sub_dispatched=2UL, .sub_task=1UL, .sub_applied=2UL, .add_surfaced=2UL, .add_dispatched=2UL, .add_task=2UL, .add_applied=2UL, .spec_applied=2UL } );
+
+  ingest_lthash_fec( sched, 2UL, 1UL, TEST_ROOT_SLOT+1UL, TEST_ROOT_SLOT, NULL, 0UL, 0, 1 );
+  lthash_drive( sched, ctx, 100UL );
+  FD_TEST( ctx->txn_exec_cnt==2UL && ctx->block_end_cnt==1UL && ctx->add_cnt==2UL );
+  fd_lthash_value_t expected[ 1 ]; lthash_expected_delta( expected, ctx, 2UL, acct, 2UL );
+  FD_TEST( fd_lthash_eq( ctx->delta, expected ) );
+  FD_TEST( fd_lthash_eq( ctx->delta, ctx->handed ) ); /* both guesses stood */
+  FD_TEST( ctx->block_end_step[ 2 ]>ctx->last_lthash_step[ 2 ] );
+  lthash_check_metrics( sched, &(test_lthash_metrics_t){ .parsed_writable=2UL, .first_write=2UL, .add_created=2UL, .spec=2UL, .entry=2UL, .sub_dispatched=2UL, .sub_task=1UL, .sub_applied=2UL, .add_surfaced=2UL, .add_dispatched=2UL, .add_task=2UL, .add_applied=2UL, .spec_applied=2UL, .frozen=2UL } );
   char * state = fd_sched_get_state_cstr( sched );
   FD_TEST( strstr( state, "lthash_ready_bitset[ 0 ] 0xf," ) );
 
@@ -2830,26 +2902,36 @@ run_lthash_spec_result_dropped_case( void ) {
   delete_sched( sched );
 }
 
-/* A speculative addition that waited on its writer surfaces when the
-   idle rule would not let it onto a tile.  T1's completion leaves one
-   idle tile while the other three hold PoH and sigverify tasks, and
-   no transaction is in flight.  The speculation is given up.  A goes
-   back as written and the surfaced pseudo transaction is completed
-   without hashing.  The last FEC set's drain adds A the regular way,
-   so A is hashed once each way and the handed values equal the
-   delta. */
+/* A speculative addition that waited behind a serializing transaction
+   surfaces when the idle rule would not let it onto a tile.  T1 writes
+   A and completes.  S, a lookup table transaction inserted serializing
+   with payer P, is held on its tile, so A is ready while P is not.
+   The block guesses at A and the guess waits behind S.  The first FEC
+   set's PoH task is held on a second tile.  T2, writing B, arrives in
+   a second FEC set and waits for S like any transaction, while its PoH
+   and sigverify tasks are held on the other two tiles.  S completes,
+   T2 runs on the freed tile and is held too, and when T2 completes one
+   tile is idle with no transaction in flight, so the surfacing guess
+   is given up.  A goes back as written and the surfaced pseudo
+   transaction completes without hashing.  Once the holds are released
+   the block guesses A, B and P, and the empty last FEC set ends it
+   with every account hashed once each way. */
 static void
 run_lthash_spec_given_up_case( void ) {
   fd_sched_t * sched = new_sched( 4UL );
   fd_sched_set_bypass_poh_verify( sched, 1 );
+  fd_sched_set_bypass_alut_resolution( sched, 1 );
 
-  fd_pubkey_t acct[ 2 ];
+  fd_pubkey_t acct[ 3 ]; /* A, B, P */
   lthash_test_keys( acct, acct+1 );
+  fd_memset( acct[ 2 ].uc, 0xc3, sizeof(fd_pubkey_t) );
   uchar t1[ FD_TXN_MTU ]; ulong t1_sz = build_lthash_test_txn( t1, acct,   NULL, 0UL, 0x01 );
-  uchar t2[ FD_TXN_MTU ]; ulong t2_sz = build_lthash_test_txn( t2, acct+1, NULL, 0UL, 0x02 );
-  uchar const * txns1[ 1 ] = { t1 };
+  uchar s [ FD_TXN_MTU ]; ulong s_sz  = build_lthash_v0_txn(   s,  acct+2, 1UL,       0x02 );
+  uchar t2[ FD_TXN_MTU ]; ulong t2_sz = build_lthash_test_txn( t2, acct+1, NULL, 0UL, 0x03 );
+  uchar const * txns1[ 2 ] = { t1, s };
+  ulong txn_sz1[ 2 ] = { t1_sz, s_sz };
   uchar const * txns2[ 1 ] = { t2 };
-  uchar encoded1[ 8192 ]; ulong sz1 = encode_lthash_batch( encoded1, txns1, &t1_sz, 1UL );
+  uchar encoded1[ 8192 ]; ulong sz1 = encode_lthash_batch( encoded1, txns1, txn_sz1, 2UL );
   uchar encoded2[ 8192 ]; ulong sz2 = encode_lthash_batch( encoded2, txns2, &t2_sz, 1UL );
 
   fd_hash_t start_poh[ 1 ]; hash_from_seed( start_poh, 0x5e6f708192a3b4c5UL );
@@ -2857,46 +2939,58 @@ run_lthash_spec_given_up_case( void ) {
   fd_sched_set_poh_params( sched, 2UL, TEST_ROOT_TICK_HEIGHT, TEST_ROOT_TICK_HEIGHT+1UL, start_poh );
 
   static test_lthash_ctx_t ctx[ 1 ]; fd_memset( ctx, 0, sizeof(test_lthash_ctx_t) );
-  fd_sched_task_t held_t1[ 1 ]; fd_sched_task_t held_t2[ 1 ]; fd_sched_task_t held[ 3 ]; fd_lthash_value_t unused[ 1 ];
-  /* T1 on its tile and its PoH task on a second.  Sigverify and the
-     subtraction run on the other two, and then the block speculates on
-     A, whose pseudo transaction waits on T1. */
-  FD_TEST( lthash_drive_hold( sched, ctx, 100UL, FD_SCHED_TT_TXN_EXEC, held_t1, unused ) );
-  FD_TEST( lthash_drive_hold( sched, ctx, 100UL, FD_SCHED_TT_POH_HASH, held,    unused ) );
+  fd_sched_task_t held_s[ 1 ]; fd_sched_task_t held_t2[ 1 ]; fd_sched_task_t held[ 3 ]; fd_lthash_value_t unused[ 1 ];
+  /* T1 completes, then S and the PoH task are held.  Sigverify and the
+     subtractions of A and P run, and then the block guesses at A,
+     behind S. */
+  FD_TEST( lthash_drive_hold( sched, ctx, 100UL, FD_SCHED_TT_TXN_EXEC, held_s, unused ) );
+  FD_TEST( txn_task_payer_is( sched, held_s, acct ) );
+  lthash_drive_task( sched, held_s, ctx );
+  FD_TEST( lthash_drive_hold( sched, ctx, 100UL, FD_SCHED_TT_TXN_EXEC, held_s, unused ) );
+  FD_TEST( txn_task_payer_is( sched, held_s, acct+2 ) );
+  FD_TEST( lthash_drive_hold( sched, ctx, 100UL, FD_SCHED_TT_POH_HASH, held, unused ) );
   lthash_drive( sched, ctx, 100UL );
-  FD_TEST( ctx->sub_cnt==1UL && !ctx->add_cnt && !ctx->txn_exec_cnt );
-  lthash_check_metrics( sched, &(test_lthash_metrics_t){ .parsed_writable=1UL, .first_write=1UL, .add_created=1UL, .spec=1UL, .entry=1UL, .sub_dispatched=1UL, .sub_task=1UL, .sub_applied=1UL } );
+  FD_TEST( ctx->txn_exec_cnt==1UL && ctx->sub_cnt==2UL && !ctx->add_cnt );
+  lthash_check_metrics( sched, &(test_lthash_metrics_t){ .parsed_writable=2UL, .first_write=2UL, .add_created=1UL, .spec=1UL, .entry=2UL, .sub_dispatched=2UL, .sub_task=1UL, .sub_applied=2UL } );
 
-  /* T2, writing B, runs and completes while T1 is still out.  Its PoH
-     and sigverify tasks take the last two idle tiles. */
+  /* T2 arrives and waits for S.  Its PoH and sigverify tasks take the
+     last two tiles, so B's subtraction waits too. */
   ingest_lthash_fec( sched, 2UL, 1UL, TEST_ROOT_SLOT+1UL, TEST_ROOT_SLOT, encoded2, sz2, 0, 0 );
-  FD_TEST( lthash_drive_hold( sched, ctx, 100UL, FD_SCHED_TT_TXN_EXEC,      held_t2, unused ) );
-  FD_TEST( lthash_drive_hold( sched, ctx, 100UL, FD_SCHED_TT_POH_HASH,      held+1,  unused ) );
-  lthash_drive_task( sched, held_t2, ctx );
-  FD_TEST( lthash_drive_hold( sched, ctx, 100UL, FD_SCHED_TT_TXN_SIGVERIFY, held+2,  unused ) );
+  FD_TEST( lthash_drive_hold( sched, ctx, 100UL, FD_SCHED_TT_POH_HASH,      held+1, unused ) );
+  FD_TEST( lthash_drive_hold( sched, ctx, 100UL, FD_SCHED_TT_TXN_SIGVERIFY, held+2, unused ) );
   fd_sched_task_t task[ 1 ];
   FD_TEST( 0UL==fd_sched_task_next_ready( sched, task ) );
 
-  /* T1 completes.  The addition surfaces with one idle tile and no
-     transaction in flight, so it is given up. */
-  lthash_drive_task( sched, held_t1, ctx );
+  /* S completes and T2 takes its tile.  Once T2 completes the guess
+     surfaces with one idle tile and no transaction in flight, so it is
+     given up. */
+  lthash_drive_task( sched, held_s, ctx );
+  FD_TEST( lthash_drive_hold( sched, ctx, 100UL, FD_SCHED_TT_TXN_EXEC, held_t2, unused ) );
+  FD_TEST( txn_task_payer_is( sched, held_t2, acct+1 ) );
+  lthash_drive_task( sched, held_t2, ctx );
   FD_TEST( 0UL==fd_sched_task_next_ready( sched, task ) );
-  FD_TEST( ctx->txn_exec_cnt==2UL && ctx->sub_cnt==1UL && !ctx->add_cnt );
-  lthash_check_metrics( sched, &(test_lthash_metrics_t){ .parsed_writable=2UL, .first_write=3UL, .add_created=1UL, .spec=1UL, .entry=2UL, .sub_dispatched=1UL, .sub_task=1UL, .sub_applied=1UL, .add_surfaced=1UL, .spec_given_up=1U } );
+  FD_TEST( ctx->txn_exec_cnt==3UL && ctx->sub_cnt==2UL && !ctx->add_cnt );
+  lthash_check_metrics( sched, &(test_lthash_metrics_t){ .parsed_writable=3UL, .first_write=4UL, .add_created=1UL, .spec=1UL, .entry=3UL, .sub_dispatched=2UL, .sub_task=1UL, .sub_applied=2UL, .add_surfaced=1UL, .spec_given_up=1U } );
 
   for( ulong i=0UL; i<3UL; i++ ) lthash_drive_task( sched, held+i, ctx );
+  lthash_drive( sched, ctx, 100UL );
+  FD_TEST( ctx->txn_exec_cnt==3UL && ctx->sub_cnt==3UL && ctx->add_cnt==3UL && !ctx->block_end_cnt );
+  FD_TEST( fd_sched_is_drained( sched ) );
   ingest_lthash_fec( sched, 2UL, 1UL, TEST_ROOT_SLOT+1UL, TEST_ROOT_SLOT, NULL, 0UL, 0, 1 );
   lthash_drive( sched, ctx, 100UL );
 
-  FD_TEST( ctx->txn_exec_cnt==2UL && ctx->block_end_cnt==1UL );
-  FD_TEST( ctx->acct_cnt==2UL && ctx->sub_cnt==2UL && ctx->add_cnt==2UL );
+  FD_TEST( ctx->txn_exec_cnt==3UL && ctx->block_end_cnt==1UL );
+  FD_TEST( ctx->acct_cnt==3UL && ctx->sub_cnt==3UL && ctx->add_cnt==3UL );
   lthash_check_acct( ctx, 2UL, acct,   1UL, 1UL, 1UL );
   lthash_check_acct( ctx, 2UL, acct+1, 1UL, 1UL, 1UL );
-  fd_lthash_value_t expected[ 1 ]; lthash_expected_delta( expected, ctx, 2UL, acct, 2UL );
+  lthash_check_acct( ctx, 2UL, acct+2, 1UL, 1UL, 1UL );
+  fd_lthash_value_t expected[ 1 ]; lthash_expected_delta( expected, ctx, 2UL, acct, 3UL );
   FD_TEST( fd_lthash_eq( ctx->delta, expected ) );
-  FD_TEST( fd_lthash_eq( ctx->delta, ctx->handed ) ); /* nothing speculative was hashed */
+  FD_TEST( fd_lthash_eq( ctx->delta, ctx->handed ) ); /* nothing was hashed in vain */
   FD_TEST( ctx->block_end_step[ 2 ]>ctx->last_lthash_step[ 2 ] );
-  lthash_check_metrics( sched, &(test_lthash_metrics_t){ .parsed_writable=2UL, .first_write=3UL, .add_created=3UL, .spec=1UL, .entry=2UL, .sub_dispatched=2UL, .sub_task=2UL, .sub_applied=2UL, .add_surfaced=3UL, .add_dispatched=2UL, .add_task=1UL, .add_applied=2UL, .spec_given_up=1U, .frozen=2UL } );
+  /* The given up guess went back into the set and was guessed again
+     with B and P, one task each. */
+  lthash_check_metrics( sched, &(test_lthash_metrics_t){ .parsed_writable=3UL, .first_write=4UL, .add_created=4UL, .spec=4UL, .entry=3UL, .sub_dispatched=3UL, .sub_task=2UL, .sub_applied=3UL, .add_surfaced=4UL, .add_dispatched=3UL, .add_task=3UL, .add_applied=3UL, .spec_applied=3UL, .spec_given_up=1U, .frozen=3UL } );
   char * state = fd_sched_get_state_cstr( sched );
   FD_TEST( strstr( state, "lthash_ready_bitset[ 0 ] 0xf," ) );
 
@@ -2905,30 +2999,35 @@ run_lthash_spec_given_up_case( void ) {
 
 /* A speculative addition that surfaces once the block is complete is
    given up whatever the idle tiles, and its addition is created again
-   on the spot.  T1, writing A, is held on its tile and the block
-   speculates on A behind it.  The last FEC set, T2 writing B and the
-   tick, completes the block.  Its drain adds B the regular way and T2
-   runs to its end.  With child set, block 3 has taken the next lane
-   meanwhile, and block 2, alone on its own, stays insert ready.  T1's
-   completion surfaces A's speculation with three idle tiles.  It is
-   given up, A goes back into the set, a re-drain creates its addition
-   again behind every transaction, it is hashed once, and the handed
-   values equal the delta. */
+   on the spot.  T1 writes A and completes.  S, a lookup table
+   transaction inserted serializing with payer P, is held on its tile,
+   and the block guesses at A behind S.  The last FEC set, T2 writing B
+   and the tick, completes the block.  T2 waits for S, and the drain
+   creates the additions of B and P, pending behind their writers.
+   With child set, block 3 has taken the next lane meanwhile, and block
+   2, alone on its own, stays insert ready.  S's completion lets T2 run
+   and surfaces A's guess with the block complete.  It is given up, A
+   goes back into the set, a re-drain creates its addition again behind
+   every transaction, and every account is hashed once each way. */
 static void
 run_lthash_spec_given_up_complete_case( int child ) {
   fd_sched_t * sched = new_sched( 4UL );
   fd_sched_set_bypass_poh_verify( sched, 1 );
+  fd_sched_set_bypass_alut_resolution( sched, 1 );
 
-  fd_pubkey_t acct[ 3 ]; /* A, B, and C written in block 3 */
+  fd_pubkey_t acct[ 4 ]; /* A, B, P, and C written in block 3 */
   lthash_test_keys( acct, acct+1 );
-  fd_memset( acct[ 2 ].uc, 0xd4, sizeof(fd_pubkey_t) );
+  fd_memset( acct[ 2 ].uc, 0xc3, sizeof(fd_pubkey_t) );
+  fd_memset( acct[ 3 ].uc, 0xd4, sizeof(fd_pubkey_t) );
   uchar t1[ FD_TXN_MTU ]; ulong t1_sz = build_lthash_test_txn( t1, acct,   NULL, 0UL, 0x01 );
-  uchar t2[ FD_TXN_MTU ]; ulong t2_sz = build_lthash_test_txn( t2, acct+1, NULL, 0UL, 0x02 );
-  uchar t3[ FD_TXN_MTU ]; ulong t3_sz = build_lthash_test_txn( t3, acct+2, NULL, 0UL, 0x03 );
-  uchar const * txns1[ 1 ] = { t1 };
+  uchar s [ FD_TXN_MTU ]; ulong s_sz  = build_lthash_v0_txn(   s,  acct+2, 1UL,       0x02 );
+  uchar t2[ FD_TXN_MTU ]; ulong t2_sz = build_lthash_test_txn( t2, acct+1, NULL, 0UL, 0x03 );
+  uchar t3[ FD_TXN_MTU ]; ulong t3_sz = build_lthash_test_txn( t3, acct+3, NULL, 0UL, 0x04 );
+  uchar const * txns1[ 2 ] = { t1, s };
+  ulong txn_sz1[ 2 ] = { t1_sz, s_sz };
   uchar const * txns2[ 1 ] = { t2 };
   uchar const * txns3[ 1 ] = { t3 };
-  uchar encoded1[ 8192 ]; ulong sz1 = encode_lthash_batch( encoded1, txns1, &t1_sz, 1UL );
+  uchar encoded1[ 8192 ]; ulong sz1 = encode_lthash_batch( encoded1, txns1, txn_sz1, 2UL );
   uchar encoded2[ 8192 ]; ulong sz2 = encode_lthash_batch( encoded2, txns2, &t2_sz, 1UL );
   uchar encoded3[ 8192 ]; ulong sz3 = encode_lthash_batch( encoded3, txns3, &t3_sz, 1UL );
 
@@ -2936,22 +3035,26 @@ run_lthash_spec_given_up_complete_case( int child ) {
   ingest_lthash_fec( sched, 2UL, 1UL, TEST_ROOT_SLOT+1UL, TEST_ROOT_SLOT, encoded1, sz1, 1, 0 );
   fd_sched_set_poh_params( sched, 2UL, TEST_ROOT_TICK_HEIGHT, TEST_ROOT_TICK_HEIGHT+1UL, start_poh );
 
-  /* T1 on its tile.  The rest of the first FEC set runs, and then the
-     block speculates on A, behind T1. */
+  /* T1 completes and S is held.  The rest of the first FEC set runs,
+     and then the block guesses at A, behind S. */
   static test_lthash_ctx_t ctx[ 1 ]; fd_memset( ctx, 0, sizeof(test_lthash_ctx_t) );
-  fd_sched_task_t held_t1[ 1 ]; fd_lthash_value_t unused[ 1 ];
-  FD_TEST( lthash_drive_hold( sched, ctx, 100UL, FD_SCHED_TT_TXN_EXEC, held_t1, unused ) );
+  fd_sched_task_t held_s[ 1 ]; fd_lthash_value_t unused[ 1 ];
+  FD_TEST( lthash_drive_hold( sched, ctx, 100UL, FD_SCHED_TT_TXN_EXEC, held_s, unused ) );
+  FD_TEST( txn_task_payer_is( sched, held_s, acct ) );
+  lthash_drive_task( sched, held_s, ctx );
+  FD_TEST( lthash_drive_hold( sched, ctx, 100UL, FD_SCHED_TT_TXN_EXEC, held_s, unused ) );
+  FD_TEST( txn_task_payer_is( sched, held_s, acct+2 ) );
   lthash_drive( sched, ctx, 100UL );
-  FD_TEST( ctx->sub_cnt==1UL && !ctx->add_cnt && !ctx->txn_exec_cnt );
-  lthash_check_metrics( sched, &(test_lthash_metrics_t){ .parsed_writable=1UL, .first_write=1UL, .add_created=1UL, .spec=1UL, .entry=1UL, .sub_dispatched=1UL, .sub_task=1UL, .sub_applied=1UL } );
+  FD_TEST( ctx->txn_exec_cnt==1UL && ctx->sub_cnt==2UL && !ctx->add_cnt );
+  lthash_check_metrics( sched, &(test_lthash_metrics_t){ .parsed_writable=2UL, .first_write=2UL, .add_created=1UL, .spec=1UL, .entry=2UL, .sub_dispatched=2UL, .sub_task=1UL, .sub_applied=2UL } );
 
-  /* The last FEC set completes the block.  Its drain adds B, T2 runs
-     and completes and B is hashed, while A's speculation still waits
-     on T1. */
+  /* The last FEC set completes the block.  T2 waits for S, B is
+     subtracted, and the drain creates the additions of B and P, both
+     pending, while A's guess still waits on S. */
   ingest_lthash_fec( sched, 2UL, 1UL, TEST_ROOT_SLOT+1UL, TEST_ROOT_SLOT, encoded2, sz2, 0, 1 );
   lthash_drive( sched, ctx, 100UL );
-  FD_TEST( ctx->txn_exec_cnt==1UL && ctx->sub_cnt==2UL && ctx->add_cnt==1UL && !ctx->block_end_cnt );
-  lthash_check_metrics( sched, &(test_lthash_metrics_t){ .parsed_writable=2UL, .first_write=2UL, .add_created=2UL, .spec=1UL, .entry=2UL, .sub_dispatched=2UL, .sub_task=2UL, .sub_applied=2UL, .add_surfaced=1UL, .add_dispatched=1UL, .add_task=1UL, .add_applied=1UL } );
+  FD_TEST( ctx->txn_exec_cnt==1UL && ctx->sub_cnt==3UL && !ctx->add_cnt && !ctx->block_end_cnt );
+  lthash_check_metrics( sched, &(test_lthash_metrics_t){ .parsed_writable=3UL, .first_write=3UL, .add_created=3UL, .spec=1UL, .entry=3UL, .sub_dispatched=3UL, .sub_task=2UL, .sub_applied=3UL } );
   if( child ) {
     ingest_lthash_fec( sched, 3UL, 2UL, TEST_ROOT_SLOT+2UL, TEST_ROOT_SLOT+1UL, encoded3, sz3, 1, 1 );
     fd_sched_set_poh_params( sched, 3UL, TEST_ROOT_TICK_HEIGHT+1UL, TEST_ROOT_TICK_HEIGHT+2UL, start_poh );
@@ -2959,25 +3062,28 @@ run_lthash_spec_given_up_complete_case( int child ) {
     FD_TEST( strstr( state, "active_idx 2, staged_bitset 3," ) );
   }
 
-  /* T1 completes and A's speculation surfaces with three idle tiles
-     and the block complete.  It is given up, A's addition is created
-     again, hashed, and block 2 ends.  With child, block 3 follows. */
-  lthash_drive_task( sched, held_t1, ctx );
+  /* S completes.  T2 runs, A's guess surfaces with the block complete
+     and is given up, A's addition is created again and hashed with the
+     others, and block 2 ends.  With child, block 3 follows. */
+  lthash_drive_task( sched, held_s, ctx );
   lthash_drive( sched, ctx, 100UL );
 
   ulong c = (ulong)!!child;
-  FD_TEST( ctx->txn_exec_cnt==2UL+c && ctx->block_end_cnt==1UL+c );
-  FD_TEST( ctx->acct_cnt==2UL+c && ctx->sub_cnt==2UL+c && ctx->add_cnt==2UL+c );
+  FD_TEST( ctx->txn_exec_cnt==3UL+c && ctx->block_end_cnt==1UL+c );
+  FD_TEST( ctx->acct_cnt==3UL+c && ctx->sub_cnt==3UL+c && ctx->add_cnt==3UL+c );
   lthash_check_acct( ctx, 2UL, acct,   1UL, 1UL, 1UL );
   lthash_check_acct( ctx, 2UL, acct+1, 1UL, 1UL, 1UL );
-  if( child ) lthash_check_acct( ctx, 3UL, acct+2, 1UL, 1UL, 1UL );
+  lthash_check_acct( ctx, 2UL, acct+2, 1UL, 1UL, 1UL );
+  if( child ) lthash_check_acct( ctx, 3UL, acct+3, 1UL, 1UL, 1UL );
   fd_lthash_value_t expected[ 1 ];
-  if( !child ) lthash_expected_delta( expected, ctx, 2UL, acct,   2UL );
-  else         lthash_expected_delta( expected, ctx, 3UL, acct+2, 1UL );
+  if( !child ) lthash_expected_delta( expected, ctx, 2UL, acct,   3UL );
+  else         lthash_expected_delta( expected, ctx, 3UL, acct+3, 1UL );
   FD_TEST( fd_lthash_eq( ctx->delta, expected ) );
   if( !child ) FD_TEST( fd_lthash_eq( ctx->delta, ctx->handed ) ); /* nothing speculative was hashed */
   FD_TEST( ctx->block_end_step[ 2 ]>ctx->last_lthash_step[ 2 ] );
-  lthash_check_metrics( sched, &(test_lthash_metrics_t){ .parsed_writable=2UL+c, .first_write=3UL+c, .add_created=3UL+c, .spec=1UL, .entry=2UL+c, .sub_dispatched=2UL+c, .sub_task=2UL+c, .sub_applied=2UL+c, .add_surfaced=3UL+c, .add_dispatched=2UL+c, .add_task=2UL+c, .add_applied=2UL+c, .frozen=2UL+c, .spec_given_up=1U } );
+  /* B's and P's additions, both READY once T2 and S completed, left in
+     one batch.  A's re-created addition followed alone. */
+  lthash_check_metrics( sched, &(test_lthash_metrics_t){ .parsed_writable=3UL+c, .first_write=4UL+c, .add_created=4UL+c, .spec=1UL, .entry=3UL+c, .sub_dispatched=3UL+c, .sub_task=2UL+c, .sub_applied=3UL+c, .add_surfaced=4UL+c, .add_dispatched=3UL+c, .add_task=2UL+c, .add_applied=3UL+c, .spec_given_up=1U, .frozen=3UL+c } );
   char * state = fd_sched_get_state_cstr( sched );
   FD_TEST( strstr( state, "lthash_ready_bitset[ 0 ] 0xf," ) );
 
@@ -3710,31 +3816,34 @@ run_lthash_batch_held_tail_case( void ) {
 }
 
 /* The other hold, a transaction released by a stale addition completed
-   inside the poll.  FEC set 1 carries T0 and T0', both writing X.  T0
-   completes and T0' goes out, and with nothing queued the block
-   speculates on X, the only account it owes, so the speculative
-   addition scores X after two writes.  FEC set 2 carries T1 writing X,
-   which makes the speculative addition stale and waits on it, and T2
-   writing Y.  FEC set 3 ends the block and drains an addition of X
-   after T1 and one of Y after T2.  T2 and T0' complete, and the poll
-   finds Y's addition and X's stale one READY, Y's first since Y has
-   one write to X's two.  It batches Y, completes X's stale addition on
-   the spot, which releases T1, and T1 comes out ahead of the batch,
-   which is held.  Y's addition goes out alone once nothing is READY,
-   and X's second addition after T1. */
+   inside the poll.  T0 writes X and completes.  S, a lookup table
+   transaction inserted serializing with payer P, is held on its tile,
+   and the block guesses at X behind S.  FEC set 2 carries T1 writing X,
+   which makes the guess stale and waits on it, and T2 writing Y.  Both
+   wait for S as well.  FEC set 3 ends the block and drains an addition
+   of X after T1, one of Y after T2 and one of P after S.  S completes
+   and T2 runs to completion, and the next poll finds Y's addition, P's
+   and X's stale guess READY, all alike in score.  Completing the stale
+   guess on the spot releases T1, which comes out ahead of whatever
+   additions the poll batched before it, and that batch is held.  The
+   held additions go out while T1 runs, and X's second addition after
+   T1.  Which additions the poll batched before the guess depends on
+   the order among equal scores, so the test allows either. */
 static void
 run_lthash_batch_held_behind_txn_case( void ) {
   fd_sched_t * sched = new_sched( 4UL );
   fd_sched_set_bypass_poh_verify( sched, 1 );
+  fd_sched_set_bypass_alut_resolution( sched, 1 );
 
-  fd_pubkey_t acct[ 2 ]; /* X, Y */
+  fd_pubkey_t acct[ 3 ]; /* X, Y, P */
   lthash_test_keys( acct, acct+1 );
-  uchar t0 [ FD_TXN_MTU ]; ulong t0_sz  = build_lthash_test_txn( t0,  acct,   NULL, 0UL, 0x01 );
-  uchar t0p[ FD_TXN_MTU ]; ulong t0p_sz = build_lthash_test_txn( t0p, acct,   NULL, 0UL, 0x02 );
-  uchar t1 [ FD_TXN_MTU ]; ulong t1_sz  = build_lthash_test_txn( t1,  acct,   NULL, 0UL, 0x03 );
-  uchar t2 [ FD_TXN_MTU ]; ulong t2_sz  = build_lthash_test_txn( t2,  acct+1, NULL, 0UL, 0x04 );
-  uchar const * txns1[ 2 ] = { t0, t0p }; ulong txn_sz1[ 2 ] = { t0_sz, t0p_sz };
-  uchar const * txns2[ 2 ] = { t1, t2  }; ulong txn_sz2[ 2 ] = { t1_sz, t2_sz  };
+  fd_memset( acct[ 2 ].uc, 0xc3, sizeof(fd_pubkey_t) );
+  uchar t0[ FD_TXN_MTU ]; ulong t0_sz = build_lthash_test_txn( t0, acct,   NULL, 0UL, 0x01 );
+  uchar s [ FD_TXN_MTU ]; ulong s_sz  = build_lthash_v0_txn(   s,  acct+2, 1UL,       0x02 );
+  uchar t1[ FD_TXN_MTU ]; ulong t1_sz = build_lthash_test_txn( t1, acct,   NULL, 0UL, 0x03 );
+  uchar t2[ FD_TXN_MTU ]; ulong t2_sz = build_lthash_test_txn( t2, acct+1, NULL, 0UL, 0x04 );
+  uchar const * txns1[ 2 ] = { t0, s  }; ulong txn_sz1[ 2 ] = { t0_sz, s_sz  };
+  uchar const * txns2[ 2 ] = { t1, t2 }; ulong txn_sz2[ 2 ] = { t1_sz, t2_sz };
   uchar encoded1[ 8192 ]; ulong sz1 = encode_lthash_batch( encoded1, txns1, txn_sz1, 2UL );
   uchar encoded2[ 8192 ]; ulong sz2 = encode_lthash_batch( encoded2, txns2, txn_sz2, 2UL );
 
@@ -3742,73 +3851,70 @@ run_lthash_batch_held_behind_txn_case( void ) {
   ingest_lthash_fec( sched, 2UL, 1UL, TEST_ROOT_SLOT+1UL, TEST_ROOT_SLOT, encoded1, sz1, 1, 0 );
   fd_sched_set_poh_params( sched, 2UL, TEST_ROOT_TICK_HEIGHT, TEST_ROOT_TICK_HEIGHT+1UL, start_poh );
 
-  /* T0 stays on its tile while PoH, sigverify and X's subtraction run.
-     Speculation waits for the queue to empty, so it starts once T0
-     completes and T0' is on its tile, and the speculative addition
-     lands behind T0'. */
+  /* T0 completes and S is held.  PoH, sigverify and the subtractions
+     of X and P run, and the block guesses at X, behind S. */
   static test_lthash_ctx_t ctx[ 1 ]; fd_memset( ctx, 0, sizeof(test_lthash_ctx_t) );
-  fd_sched_task_t t0_task[ 1 ]; fd_lthash_value_t unused[ 1 ];
-  FD_TEST( lthash_drive_hold( sched, ctx, 100UL, FD_SCHED_TT_TXN_EXEC, t0_task, unused ) );
-  FD_TEST( txn_task_payer_is( sched, t0_task, acct ) );
+  fd_sched_task_t held_s[ 1 ]; fd_lthash_value_t unused[ 1 ];
+  FD_TEST( lthash_drive_hold( sched, ctx, 100UL, FD_SCHED_TT_TXN_EXEC, held_s, unused ) );
+  FD_TEST( txn_task_payer_is( sched, held_s, acct ) );
+  lthash_drive_task( sched, held_s, ctx );
+  FD_TEST( lthash_drive_hold( sched, ctx, 100UL, FD_SCHED_TT_TXN_EXEC, held_s, unused ) );
+  FD_TEST( txn_task_payer_is( sched, held_s, acct+2 ) );
   lthash_drive( sched, ctx, 100UL );
-  FD_TEST( ctx->sub_cnt==1UL && !ctx->add_cnt && !ctx->txn_exec_cnt );
-  lthash_check_metrics( sched, &(test_lthash_metrics_t){ .parsed_writable=2UL, .first_write=1UL, .coalesced=1UL, .entry=1UL, .sub_dispatched=1UL, .sub_task=1UL, .sub_applied=1UL } );
-  lthash_drive_task( sched, t0_task, ctx );
-  fd_sched_task_t t0p_task[ 1 ];
-  FD_TEST( lthash_drive_hold( sched, ctx, 100UL, FD_SCHED_TT_TXN_EXEC, t0p_task, unused ) );
-  FD_TEST( txn_task_payer_is( sched, t0p_task, acct ) );
-  lthash_drive( sched, ctx, 100UL );
-  FD_TEST( ctx->sub_cnt==1UL && !ctx->add_cnt && ctx->txn_exec_cnt==1UL );
-  lthash_check_metrics( sched, &(test_lthash_metrics_t){ .parsed_writable=2UL, .first_write=1UL, .coalesced=1UL, .add_created=1UL, .spec=1UL, .entry=1UL, .sub_dispatched=1UL, .sub_task=1UL, .sub_applied=1UL } );
+  FD_TEST( ctx->txn_exec_cnt==1UL && ctx->sub_cnt==2UL && !ctx->add_cnt );
+  lthash_check_metrics( sched, &(test_lthash_metrics_t){ .parsed_writable=2UL, .first_write=2UL, .add_created=1UL, .spec=1UL, .entry=2UL, .sub_dispatched=2UL, .sub_task=1UL, .sub_applied=2UL } );
 
-  /* T1 makes the speculation stale and waits on it.  T2 goes out and
-     stays on its tile.  The block ends and the remaining additions are
-     drained, X's behind T1 and Y's behind T2. */
+  /* T1 makes the guess stale and waits on it and on S.  T2 waits on S.
+     The block ends and the remaining additions are drained, X's behind
+     T1, Y's behind T2 and P's behind S. */
   ingest_lthash_fec( sched, 2UL, 1UL, TEST_ROOT_SLOT+1UL, TEST_ROOT_SLOT, encoded2, sz2, 0, 0 );
+  lthash_drive( sched, ctx, 100UL );
+  FD_TEST( ctx->txn_exec_cnt==1UL && ctx->sub_cnt==3UL && !ctx->add_cnt );
+  ingest_lthash_fec( sched, 2UL, 1UL, TEST_ROOT_SLOT+1UL, TEST_ROOT_SLOT, NULL, 0UL, 0, 1 );
+  lthash_drive( sched, ctx, 100UL );
+  FD_TEST( ctx->txn_exec_cnt==1UL && !ctx->add_cnt && !ctx->block_end_cnt );
+  char * state = fd_sched_get_state_cstr( sched );
+  FD_TEST( strstr( state, "add_created_cnt 4, add_surfaced_cnt 0, add_done_cnt 0," ) );
+
+  /* S completes and T2 runs to completion.  The poll completes the
+     stale guess and hands out the released T1 ahead of whatever it
+     batched. */
+  lthash_drive_task( sched, held_s, ctx );
   fd_sched_task_t t2_task[ 1 ];
   FD_TEST( lthash_drive_hold( sched, ctx, 100UL, FD_SCHED_TT_TXN_EXEC, t2_task, unused ) );
   FD_TEST( txn_task_payer_is( sched, t2_task, acct+1 ) );
-  lthash_drive( sched, ctx, 100UL );
-  FD_TEST( ctx->sub_cnt==2UL && !ctx->add_cnt && ctx->txn_exec_cnt==1UL );
-  ingest_lthash_fec( sched, 2UL, 1UL, TEST_ROOT_SLOT+1UL, TEST_ROOT_SLOT, NULL, 0UL, 0, 1 );
-  lthash_drive( sched, ctx, 100UL );
-  FD_TEST( !ctx->add_cnt && ctx->txn_exec_cnt==1UL );
-  char * state = fd_sched_get_state_cstr( sched );
-  FD_TEST( strstr( state, "add_created_cnt 3, add_surfaced_cnt 0, add_done_cnt 0," ) );
-
-  /* T2 and T0' complete.  The poll batches Y's addition, completes
-     the stale speculation, and hands out the released T1 ahead of the
-     batch. */
   lthash_drive_task( sched, t2_task, ctx );
-  lthash_drive_task( sched, t0p_task, ctx );
   fd_sched_task_t t1_task[ 1 ];
   FD_TEST( 1UL==fd_sched_task_next_ready( sched, t1_task ) );
   FD_TEST( t1_task->task_type==FD_SCHED_TT_TXN_EXEC && txn_task_payer_is( sched, t1_task, acct ) );
-  state = fd_sched_get_state_cstr( sched );
-  FD_TEST( strstr( state, "lthash_add_batch_cnt 1," ) );
-  FD_TEST( strstr( state, "lthash_add_batch_held_cnt 1, lthash_add_batch_wait_idle_cnt 0," ) );
-  FD_TEST( strstr( state, "add_created_cnt 3, add_surfaced_cnt 2, add_done_cnt 1," ) );
   FD_TEST( !ctx->add_cnt );
+  ulong held_cnt = lthash_state_has( sched, "lthash_add_batch_cnt 2," ) ? 2UL : lthash_state_has( sched, "lthash_add_batch_cnt 1," ) ? 1UL : 0UL;
+  FD_TEST( lthash_state_has( sched, "lthash_add_batch_held_cnt %lu, lthash_add_batch_wait_idle_cnt 0,", (ulong)!!held_cnt ) );
+  FD_TEST( lthash_state_has( sched, "add_created_cnt 4, add_surfaced_cnt %lu, add_done_cnt 1,", 1UL+held_cnt ) );
 
-  /* Nothing is READY behind the held batch, so it goes out, alone. */
+  /* Y's and P's additions go out while T1 runs, the held ones first,
+     and nothing is left behind. */
+  lthash_drive( sched, ctx, 100UL );
+  FD_TEST( ctx->txn_exec_cnt==3UL && ctx->add_cnt==2UL && !ctx->block_end_cnt );
   fd_sched_task_t task[ 1 ];
-  FD_TEST( 1UL==fd_sched_task_next_ready( sched, task ) );
-  FD_TEST( task->task_type==FD_SCHED_TT_LTHASH_ADD && task->lthash->cnt==1UL );
-  FD_TEST( lthash_task_has_acct( task, acct+1 ) );
-  lthash_drive_task( sched, task, ctx );
   FD_TEST( 0UL==fd_sched_task_next_ready( sched, task ) );
+  FD_TEST( lthash_state_has( sched, "lthash_add_batch_cnt 0," ) );
 
   lthash_drive_task( sched, t1_task, ctx );
   lthash_drive( sched, ctx, 100UL );
   FD_TEST( ctx->txn_exec_cnt==4UL && ctx->block_end_cnt==1UL );
-  FD_TEST( ctx->acct_cnt==2UL && ctx->sub_cnt==2UL && ctx->add_cnt==2UL );
-  lthash_check_acct( ctx, 2UL, acct,   1UL, 1UL, 3UL );
+  FD_TEST( ctx->acct_cnt==3UL && ctx->sub_cnt==3UL && ctx->add_cnt==3UL );
+  lthash_check_acct( ctx, 2UL, acct,   1UL, 1UL, 2UL );
   lthash_check_acct( ctx, 2UL, acct+1, 1UL, 1UL, 1UL );
-  fd_lthash_value_t expected[ 1 ]; lthash_expected_delta( expected, ctx, 2UL, acct, 2UL );
+  lthash_check_acct( ctx, 2UL, acct+2, 1UL, 1UL, 1UL );
+  fd_lthash_value_t expected[ 1 ]; lthash_expected_delta( expected, ctx, 2UL, acct, 3UL );
   FD_TEST( fd_lthash_eq( ctx->delta, expected ) );
-  FD_TEST( fd_lthash_eq( ctx->delta, ctx->handed ) ); /* the stale speculation was never hashed */
+  FD_TEST( fd_lthash_eq( ctx->delta, ctx->handed ) ); /* the stale guess was never hashed */
   FD_TEST( ctx->block_end_step[ 2 ]>ctx->last_lthash_step[ 2 ] );
-  lthash_check_metrics( sched, &(test_lthash_metrics_t){ .parsed_writable=4UL, .first_write=3UL, .coalesced=1UL, .add_created=3UL, .spec=1UL, .entry=2UL, .sub_dispatched=2UL, .sub_task=2UL, .sub_applied=2UL, .add_surfaced=3UL, .add_surfaced_stale=1UL, .add_dispatched=2UL, .add_task=2UL, .add_batch_held=1UL, .add_applied=2UL, .spec_stale=1UL, .frozen=2UL } );
+  /* Y's and P's additions went out in one task or two, depending on
+     what the poll batched ahead of the stale guess. */
+  ulong add_task_cnt = lthash_state_has( sched, "lthash_add_task_cnt 2," ) ? 2UL : 3UL;
+  lthash_check_metrics( sched, &(test_lthash_metrics_t){ .parsed_writable=4UL, .first_write=4UL, .add_created=4UL, .spec=1UL, .entry=3UL, .sub_dispatched=3UL, .sub_task=2UL, .sub_applied=3UL, .add_surfaced=4UL, .add_surfaced_stale=1UL, .add_dispatched=3UL, .add_task=add_task_cnt, .add_batch_held=(ulong)!!held_cnt, .add_applied=3UL, .spec_stale=1UL, .frozen=3UL } );
   state = fd_sched_get_state_cstr( sched );
   FD_TEST( strstr( state, "lthash_ready_bitset[ 0 ] 0xf," ) );
   FD_TEST( strstr( state, "lthash_add_batch_cnt 0," ) );
@@ -4913,6 +5019,7 @@ main( int     argc,
   run_lthash_block_start_writes_case( 3 );
   run_lthash_speculate_case( 0 );
   run_lthash_speculate_case( 1 );
+  run_lthash_spec_ready_first_case();
   run_lthash_spec_result_dropped_case();
   run_lthash_spec_given_up_case();
   run_lthash_spec_given_up_complete_case( 0 );

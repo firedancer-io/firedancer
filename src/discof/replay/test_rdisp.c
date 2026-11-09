@@ -728,6 +728,113 @@ test_clear_writable_set( fd_rng_t * rng ) {
   fd_rdisp_delete( fd_rdisp_leave( disp ) );
 }
 
+/* The ready pop creates pseudo-transactions only for accounts whose
+   last writer has completed and whose reference EMA is under the
+   threshold, so each one is READY on creation.  A new writer takes a
+   ready account back out until it completes.  The plain pop still
+   drains everything. */
+static void
+test_ready_pseudo_txn( fd_rng_t * rng ) {
+  ulong depth = 16UL;
+  FD_TEST( fd_rdisp_footprint( depth, 4UL, TEST_ACCT_EXTRA )<=TEST_FOOTPRINT );
+  fd_rdisp_t * disp = fd_rdisp_join( fd_rdisp_new( footprint, depth, 4UL, TEST_ACCT_EXTRA, SEED ) );
+  FD_TEST( disp );
+  FD_TEST( 0==fd_rdisp_add_block( disp, tag( 0UL ), 0UL ) );
+  fd_rdisp_set_ready_acct_ema_max( disp, 2.0f ); /* every account qualifies */
+
+  ulong w[1] = { 0UL };
+  ulong t0 = add_txn3( disp, rng, tag( 0UL ), 'F', "AB", "", 0, w ); FD_TEST( t0 );
+  ulong t1 = add_txn3( disp, rng, tag( 0UL ), 'G', "C",  "", 0, w ); FD_TEST( t1 );
+  FD_TEST( fd_rdisp_lane_writable_cnt( disp, 0UL )==5UL );
+  FD_TEST( fd_rdisp_lane_ready_acct_cnt( disp, 0UL )==0UL );
+  FD_TEST( 0UL==fd_rdisp_add_ready_pseudo_txn( disp, tag( 0UL ) ) );
+
+  /* Both transactions dispatch.  Completing t0 readies F, A and B
+     while G and C still wait on t1. */
+  ulong d0 = fd_rdisp_get_next_ready( disp, tag( 0UL ) ); FD_TEST( d0==t0 || d0==t1 );
+  ulong d1 = fd_rdisp_get_next_ready( disp, tag( 0UL ) ); FD_TEST( d1==t0+t1-d0 );
+  FD_TEST( 0UL==fd_rdisp_get_next_ready( disp, tag( 0UL ) ) );
+  fd_rdisp_complete_txn( disp, t0, 1 );
+  FD_TEST( fd_rdisp_lane_ready_acct_cnt( disp, 0UL )==3UL );
+  fd_acct_addr_t acct[1];
+  for( ulong i=0UL; i<3UL; i++ ) {
+    ulong p = fd_rdisp_add_ready_pseudo_txn( disp, tag( 0UL ) );
+    FD_TEST( p & FD_RDISP_LTHASH_PSEUDO_TXN );
+    fd_rdisp_pseudo_txn_to_addr( disp, p, acct );
+    FD_TEST( acct->b[0]=='F' || acct->b[0]=='A' || acct->b[0]=='B' );
+    FD_TEST( p==fd_rdisp_get_next_ready( disp, tag( 0UL ) ) ); /* READY on creation */
+    fd_rdisp_complete_txn( disp, p, 1 );
+  }
+  FD_TEST( fd_rdisp_lane_ready_acct_cnt( disp, 0UL )==0UL && fd_rdisp_lane_writable_cnt( disp, 0UL )==2UL );
+  FD_TEST( 0UL==fd_rdisp_add_ready_pseudo_txn( disp, tag( 0UL ) ) );
+  fd_rdisp_verify( disp, verify_scratch );
+  fd_rdisp_complete_txn( disp, t1, 1 );
+  FD_TEST( fd_rdisp_lane_ready_acct_cnt( disp, 0UL )==2UL );
+
+  /* A new writer of C takes it back out until it completes.  H, the
+     payer, waits on it too. */
+  ulong t2 = add_txn3( disp, rng, tag( 0UL ), 'H', "C", "", 0, w ); FD_TEST( t2 );
+  FD_TEST( fd_rdisp_lane_ready_acct_cnt( disp, 0UL )==1UL );
+  ulong p = fd_rdisp_add_ready_pseudo_txn( disp, tag( 0UL ) ); FD_TEST( p & FD_RDISP_LTHASH_PSEUDO_TXN );
+  fd_rdisp_pseudo_txn_to_addr( disp, p, acct ); FD_TEST( acct->b[0]=='G' );
+  FD_TEST( 0UL==fd_rdisp_add_ready_pseudo_txn( disp, tag( 0UL ) ) );
+  FD_TEST( t2==fd_rdisp_get_next_ready( disp, tag( 0UL ) ) ); /* real transactions go first */
+  FD_TEST( p ==fd_rdisp_get_next_ready( disp, tag( 0UL ) ) );
+  fd_rdisp_complete_txn( disp, p,  1 );
+  fd_rdisp_complete_txn( disp, t2, 1 );
+  FD_TEST( fd_rdisp_lane_ready_acct_cnt( disp, 0UL )==2UL );
+  for( ulong i=0UL; i<2UL; i++ ) {
+    p = fd_rdisp_add_ready_pseudo_txn( disp, tag( 0UL ) ); FD_TEST( p & FD_RDISP_LTHASH_PSEUDO_TXN );
+    FD_TEST( p==fd_rdisp_get_next_ready( disp, tag( 0UL ) ) );
+    fd_rdisp_complete_txn( disp, p, 1 );
+  }
+  FD_TEST( fd_rdisp_lane_writable_cnt( disp, 0UL )==0UL );
+  fd_rdisp_verify( disp, verify_scratch );
+
+  /* Y is read by three transactions and then written by one, which
+     puts its EMA over the threshold, while each payer is referenced
+     once.  Y never readies and the plain pop drains it. */
+  fd_rdisp_set_ready_acct_ema_max( disp, 0.0075f );
+  char const payer[3] = { 'J', 'K', 'L' };
+  for( ulong i=0UL; i<3UL; i++ ) FD_TEST( add_txn3( disp, rng, tag( 0UL ), payer[i], "", "Y", 0, w ) );
+  FD_TEST( add_txn3( disp, rng, tag( 0UL ), 'M', "Y", "", 0, w ) );
+  for( ulong i=0UL; i<4UL; i++ ) {
+    ulong d = fd_rdisp_get_next_ready( disp, tag( 0UL ) ); FD_TEST( d );
+    fd_rdisp_complete_txn( disp, d, 1 );
+  }
+  FD_TEST( fd_rdisp_lane_writable_cnt( disp, 0UL )==5UL ); /* J, K, L, M, Y */
+  FD_TEST( fd_rdisp_lane_ready_acct_cnt( disp, 0UL )==4UL );
+  for( ulong i=0UL; i<4UL; i++ ) {
+    p = fd_rdisp_add_ready_pseudo_txn( disp, tag( 0UL ) ); FD_TEST( p & FD_RDISP_LTHASH_PSEUDO_TXN );
+    fd_rdisp_pseudo_txn_to_addr( disp, p, acct ); FD_TEST( acct->b[0]!='Y' );
+    FD_TEST( p==fd_rdisp_get_next_ready( disp, tag( 0UL ) ) );
+    fd_rdisp_complete_txn( disp, p, 1 );
+  }
+  FD_TEST( 0UL==fd_rdisp_add_ready_pseudo_txn( disp, tag( 0UL ) ) );
+  FD_TEST( fd_rdisp_lane_writable_cnt( disp, 0UL )==1UL );
+  p = fd_rdisp_add_pseudo_txn( disp, tag( 0UL ) ); FD_TEST( p & FD_RDISP_LTHASH_PSEUDO_TXN );
+  fd_rdisp_pseudo_txn_to_addr( disp, p, acct ); FD_TEST( acct->b[0]=='Y' );
+  FD_TEST( p==fd_rdisp_get_next_ready( disp, tag( 0UL ) ) );
+  fd_rdisp_complete_txn( disp, p, 1 );
+  FD_TEST( fd_rdisp_lane_writable_cnt( disp, 0UL )==0UL );
+  fd_rdisp_verify( disp, verify_scratch );
+
+  /* A write the dispatcher learns of outside a transaction has no
+     writer in front of it, so it is ready at once under the
+     threshold. */
+  fd_rdisp_set_ready_acct_ema_max( disp, 2.0f );
+  fd_acct_addr_t z[1]; memset( z->b, 'Z', 32UL );
+  FD_TEST( 1==fd_rdisp_add_writable( disp, tag( 0UL ), z ) );
+  FD_TEST( fd_rdisp_lane_ready_acct_cnt( disp, 0UL )==1UL );
+  p = fd_rdisp_add_ready_pseudo_txn( disp, tag( 0UL ) ); FD_TEST( p & FD_RDISP_LTHASH_PSEUDO_TXN );
+  FD_TEST( p==fd_rdisp_get_next_ready( disp, tag( 0UL ) ) );
+  fd_rdisp_complete_txn( disp, p, 1 );
+  fd_rdisp_verify( disp, verify_scratch );
+
+  FD_TEST( 0==fd_rdisp_remove_block( disp, tag( 0UL ) ) );
+  fd_rdisp_delete( fd_rdisp_leave( disp ) );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -1135,8 +1242,8 @@ main( int     argc,
 
   /* Transactions before pseudo-transactions.  C is written three times
      and A once, all complete, then both get a READY pseudo-transaction.
-     B's transaction, inserted after them, comes out first, then A's
-     pseudo-transaction, the colder account, then C's. */
+     B's transaction, inserted after them, comes out first, then the two
+     pseudo-transactions in no particular order. */
   ulong t6[5];
   FD_TEST( 0==fd_rdisp_add_block( disp, tag( 6UL ), 1UL ) );
   *w = 0UL;
@@ -1149,9 +1256,10 @@ main( int     argc,
   FD_TEST( 0UL!=(t6[4]=add_txn3( disp, rng, tag( 6UL ), 'B', "", "J", 0, w )) );
   FD_TEST( t6[4]==fd_rdisp_get_next_ready( disp, tag( 6UL ) ) );
   ulong pa = fd_rdisp_get_next_ready( disp, tag( 6UL ) ); FD_TEST( pa & FD_RDISP_LTHASH_PSEUDO_TXN );
-  fd_rdisp_pseudo_txn_to_addr( disp, pa, paddr ); FD_TEST( paddr->b[0]=='A' );
+  fd_rdisp_pseudo_txn_to_addr( disp, pa, paddr ); int first = paddr->b[0];
   ulong pc = fd_rdisp_get_next_ready( disp, tag( 6UL ) ); FD_TEST( pc & FD_RDISP_LTHASH_PSEUDO_TXN );
-  fd_rdisp_pseudo_txn_to_addr( disp, pc, paddr ); FD_TEST( paddr->b[0]=='C' );
+  fd_rdisp_pseudo_txn_to_addr( disp, pc, paddr ); int second = paddr->b[0];
+  FD_TEST( (first=='A' && second=='C') || (first=='C' && second=='A') );
   FD_TEST( 0UL==fd_rdisp_get_next_ready( disp, tag( 6UL ) ) );
   fd_rdisp_complete_txn( disp, t6[4], 1 );
   fd_rdisp_complete_txn( disp, pa,    1 );
@@ -1228,10 +1336,12 @@ main( int     argc,
 
   FD_TEST(  0==fd_rdisp_remove_block( disp, tag( 0UL ) ) );
 
-  /* Test that add_pseudo_txn adds a reasonable one. prio is based on
-     the value at the time of first touch, not when the ptxn is created
-     though. */
+  /* Test that add_pseudo_txn adds a reasonable one.  With no ready
+     accounts, the coldest account by reference EMA comes out first.
+     prio is based on the value at the time of first touch, not when
+     the ptxn is created though. */
   FD_TEST(  0==fd_rdisp_add_block( disp, tag( 0UL ), 1 ) );
+  fd_rdisp_set_ready_acct_ema_max( disp, 0.0f );
   *w = 0UL;
   for( ulong i=0UL; i<40UL; i++ ) {
     FD_TEST( 0UL!=(t0[0]=add_txn3( disp, rng, tag( 0UL ), 'F',  "BCDE", "JKL", 0, w )) );  FD_TEST( *w==0x3EUL ); /* no A */
@@ -1248,6 +1358,7 @@ main( int     argc,
   drain_all_ptxn( disp, tag( 0UL ), w ); FD_TEST( *w==0UL    );
 
   FD_TEST(  0==fd_rdisp_remove_block( disp, tag( 0UL ) ) );
+  fd_rdisp_set_ready_acct_ema_max( disp, FD_RDISP_READY_ACCT_EMA_MAX );
 
 
   FD_TEST(  0==fd_rdisp_add_block( disp, tag( 0UL ), 1 ) );
@@ -1382,6 +1493,7 @@ main( int     argc,
 
   test_acct_extra();
   test_clear_writable_set( rng );
+  test_ready_pseudo_txn( rng );
 
   FD_TEST( fd_rdisp_footprint( FD_RDISP_MAX_BLOCK_DEPTH, FD_RDISP_MAX_BLOCK_DEPTH, 0UL )<=TEST_FOOTPRINT && fd_rdisp_align()<=128UL ); /* if this fails, update the test */
 
@@ -1410,26 +1522,24 @@ main( int     argc,
   /* test fd_rdisp_score over every integer part a block can reach.
      Pseudo-transactions count toward a block's inserted_cnt, so integer
      parts reach past the transaction limit.  Below 2^17 the score is
-     the plain sum, bit for bit.  The largest pseudo-transaction
-     fraction stays in its class as well, and below 2^14 the coldest
-     pseudo-transaction sorts behind the hottest transaction, see
-     FD_RDISP_PTXN_SCORE_MIN. */
+     the plain sum, bit for bit.  The pseudo-transaction fraction stays
+     in its class as well, and below 2^14 it sorts behind the hottest
+     transaction, see FD_RDISP_PTXN_SCORE. */
   ulong max_i = FD_MAX_TXN_PER_SLOT+2UL*FD_RDISP_MAX_WRITERS_PER_BLOCK;
-  float ptxn_max = FD_RDISP_PTXN_SCORE_MIN+0.002f*FD_RDISP_MAX_SCORE;
   for( ulong i=0UL; i<max_i; i++ ) {
     float s = fd_rdisp_score( FD_RDISP_MAX_SCORE, (uint)i );
     FD_TEST( (float)i<=s && s<(float)(i+1UL) );
     if( i<(1UL<<17) ) FD_TEST( fd_float_eq( s, FD_RDISP_MAX_SCORE+(float)i ) );
-    float p = fd_rdisp_score( ptxn_max, (uint)i );
+    float p = fd_rdisp_score( FD_RDISP_PTXN_SCORE, (uint)i );
     FD_TEST( (float)i<=p && p<(float)(i+1UL) );
-    if( i<(1UL<<14) ) FD_TEST( fd_rdisp_score( FD_RDISP_PTXN_SCORE_MIN, (uint)i )>s );
+    if( i<(1UL<<14) ) FD_TEST( p>s );
   }
-  /* At 2^14 the two fractions round to the same float, and at 2^15 the
+  /* At 2^14 the two fractions round to the same float, and at 2^16 the
      pseudo-transaction sum rounds up to the next integer and is
      clamped. */
-  FD_TEST( fd_float_eq( fd_rdisp_score( FD_RDISP_PTXN_SCORE_MIN, 1U<<14 ), fd_rdisp_score( FD_RDISP_MAX_SCORE, 1U<<14 ) ) );
-  FD_TEST( fd_float_eq( ptxn_max+(float)(1U<<15), (float)((1U<<15)+1U) ) );
-  FD_TEST( fd_rdisp_score( ptxn_max, 1U<<15 )<(float)((1U<<15)+1U) );
+  FD_TEST( fd_float_eq( fd_rdisp_score( FD_RDISP_PTXN_SCORE, 1U<<14 ), fd_rdisp_score( FD_RDISP_MAX_SCORE, 1U<<14 ) ) );
+  FD_TEST( fd_float_eq( FD_RDISP_PTXN_SCORE+(float)(1U<<16), (float)((1U<<16)+1U) ) );
+  FD_TEST( fd_rdisp_score( FD_RDISP_PTXN_SCORE, 1U<<16 )<(float)((1U<<16)+1U) );
   /* A mid fraction at the largest integer part is representable, so
      there is nothing to clamp. */
   FD_TEST( fd_float_eq( fd_rdisp_score( 0.5f, (uint)(max_i-1UL) ), 0.5f+(float)(max_i-1UL) ) );
