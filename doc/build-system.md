@@ -21,7 +21,7 @@ release artifacts.
 
 ```
 ┌────────────┐
-│   C/C++    │  cc
+│     C      │  cc
 │  sources   ├─────────────┬──────────────────────────────────────────┐
 └────────────┘             │                                          │ cc
                            │                                          │
@@ -44,7 +44,7 @@ release artifacts.
 
 ### Compile Units
 
-A compile unit is a set of C/C++ files, assembly files, and embedded
+A compile unit is a set of C files, assembly files, and embedded
 files.  Each compile unit gets compiled into a static object by
 invoking the GCC or Clang frontend.
 
@@ -59,20 +59,14 @@ eBPF programs and large text files (e.g. command-line help text).
 
 ### System Dependencies
 
-Firedancer depends on the GNU C Library (glibc) and the C++ standard library.
-Both are linked dynamically.
+Firedancer only depends on the GNU C Library (glibc).
 
 ```
 $ ldd build/firedancer
-        linux-vdso.so.1 (0x00007ffce652e000)
-        librt.so.1 => /lib64/librt.so.1 (0x00007f0d0398c000)
-        libdl.so.2 => /lib64/libdl.so.2 (0x00007f0d03788000)
-        libstdc++.so.6 => /lib64/libstdc++.so.6 (0x00007f0d033f3000)
-        libm.so.6 => /lib64/libm.so.6 (0x00007f0d03071000)
-        libgcc_s.so.1 => /lib64/libgcc_s.so.1 (0x00007f0d02e59000)
-        libpthread.so.0 => /lib64/libpthread.so.0 (0x00007f0d02c39000)
-        libc.so.6 => /lib64/libc.so.6 (0x00007f0d02874000)
-        /lib64/ld-linux-x86-64.so.2 (0x00007f0d097e0000)
+        linux-vdso.so.1 (0x00007ddaabd16000)
+        libm.so.6 => /usr/lib/x86_64-linux-gnu/libm.so.6 (0x00007ddaa131e000)
+        libc.so.6 => /usr/lib/x86_64-linux-gnu/libc.so.6 (0x00007ddaa1000000)
+        /lib64/ld-linux-x86-64.so.2 (0x00007ddaabd18000)
 ```
 
 ### ABI stability
