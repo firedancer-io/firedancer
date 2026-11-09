@@ -1,6 +1,7 @@
 #include "fd_tls_proto.h"
 #include "../../ballet/hex/fd_hex.h"
 #include "../../ballet/x509/fd_x509_mock.h"
+#include "../../ballet/x509/fd_x509_verify.h"
 
 /* Serialization related testing **************************************/
 
@@ -857,6 +858,38 @@ test_tls_truncated_cert_handshake( fd_rng_t * rng ) {
   fd_tls_estate_cli_delete( cli_hs );
   fd_tls_delete( fd_tls_leave( server ) );
   fd_tls_delete( fd_tls_leave( client ) );
+}
+
+static void
+test_tls_certificate_verify_alert( fd_rng_t * rng ) {
+  fd_tls_t client[1], server[1];
+  prepare_tls_pair( rng, client, server );
+  static fd_x509_ca_store_t empty_store;
+  client->ca_store = &empty_store;
+  client->server_name_len = 0;
+  int const errors[] = { FD_X509_VERIFY_ERR_NO_TRUST_ANCHOR,
+                         FD_X509_VERIFY_ERR_EXPIRED,
+                         FD_X509_VERIFY_ERR_NOT_YET_VALID };
+  for( ulong i=0UL; i<3UL; i++ ) {
+    uchar cert[ FD_X509_MOCK_CERT_SZ ];
+    fd_x509_mock_cert( cert, server->cert_public_key );
+    fd_x509_cert_info_t info[1];
+    FD_TEST( !fd_x509_cert_parse( cert, sizeof(cert), info ) );
+    if( i==1UL ) fd_memcpy( cert+(info->not_after-cert),  "19700101000000Z", 15UL );
+    if( i==2UL ) fd_memcpy( cert+(info->not_before-cert), "490101000000Z",   13UL );
+    uchar record[ 512 ];
+    long sz = fd_tls_encode_cert_x509( cert, sizeof(cert), record, sizeof(record) );
+    FD_TEST( sz>0L );
+    fd_tls_estate_cli_t hs[1];
+    FD_TEST( fd_tls_estate_cli_new( hs ) );
+    hs->base.state = FD_TLS_HS_WAIT_CERT;
+    fd_sha256_init( &hs->transcript );
+    long res = fd_tls_client_handshake( client, hs, record, (ulong)sz, FD_TLS_LEVEL_HANDSHAKE );
+    FD_TEST( res==-(long)( i ? FD_TLS_ALERT_CERTIFICATE_EXPIRED : FD_TLS_ALERT_UNKNOWN_CA ) );
+    FD_TEST( hs->cert_verify_err==errors[i] );
+    FD_TEST( hs->base.reason==FD_TLS_REASON_CERT_VERIFY );
+    fd_tls_estate_cli_delete( hs );
+  }
 }
 
 static void
@@ -1717,6 +1750,7 @@ main( int     argc,
   test_tls_certificate_der_alert();
   test_tls_truncated_cert_handshake( rng );
   test_tls_certificate_length_reason( rng );
+  test_tls_certificate_verify_alert( rng );
   test_tls_client_unsolicited_cert_type( rng );
   test_tls_client_accepts_cert_req( rng );
   test_tls_cert_req_rules( rng );
