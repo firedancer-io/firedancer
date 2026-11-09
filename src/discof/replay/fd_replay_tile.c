@@ -2235,7 +2235,7 @@ refresh_vote_account_staked( fd_replay_tile_t * ctx,
   fd_stake_history_t const * stake_history = fd_sysvar_stake_history_read( ctx->accdb, bank->accdb_fork_id, stake_history_data, stake_history_ );
   fd_stake_history_entry_t   status        = fd_stake_delegations_vote_account_status(
       fd_banks_stake_delegations_root_query( ctx->banks ), vote_key, bank->f.epoch, stake_history,
-      &bank->f.warmup_cooldown_rate_epoch, FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ) );
+      &bank->f.warmup_cooldown_rate_epoch );
   ctx->vote_account_staked       = status.effective || status.activating;
   ctx->vote_account_inadmissible = !!status.effective;
 }
@@ -2294,7 +2294,6 @@ init_after_snapshot( fd_replay_tile_t *  ctx,
       bank->f.epoch,
       stake_history, /* may be NULL */
       &bank->f.warmup_cooldown_rate_epoch,
-      FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ),
       FD_FEATURE_ACTIVE_BANK( bank, remove_inactive_stakes ) );
   fd_stake_history_entry_t totals = fd_stake_delegations_totals( root_delegations );
   bank->f.total_effective_stake    = totals.effective;
