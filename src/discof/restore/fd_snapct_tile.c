@@ -2575,8 +2575,6 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->out_rp  = out1( topo, tile, "snapct_repr" );
 }
 
-/* after_credit can result in as many as 5 stem publishes in some code
-   paths, and returnable_frag can result in 1. */
 #define STEM_BURST 6UL
 
 #define STEM_LAZY  (128L*3000L)

@@ -286,17 +286,7 @@ struct fd_snapshot_manifest {
 
   /* The bank hash of the slot represented by this snapshot.  The bank
      hash is used by the validator to detect mismatches.  All validators
-     must agree on a bank hash for each slot or they will fork off.
-
-     The bank hash is created for every slot by hashing together the
-     parent bank hash with the accounts delta hash, the most recent
-     Proof of History blockhash, and the number of signatures in the
-     slot.
-
-     The bank hash includes the epoch accounts hash when the epoch
-     accounts hash is ready at slot 324000 in the current epoch. See the
-     epoch_accounts_hash for more details regarding the epcoh accounts
-     hash calculation . */
+     must agree on a bank hash for each slot or they will fork off. */
   uchar bank_hash[ 32UL ];
 
   /* The bank hash of the parent slot. */

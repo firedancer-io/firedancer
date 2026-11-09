@@ -252,10 +252,11 @@ struct __attribute__((packed)) fd_shred {
 
     /* Common coding shred header */
     struct __attribute__((packed)) {
-      /* Total number of data shreds in FEC set. Must be positive <= FD_REEDSOL_DATA_SHREDS_MAX. */
+      /* Total number of data shreds in FEC set.  Must be positive, with
+         data_cnt+code_cnt<=256. */
       /* 0x53 */ ushort data_cnt;
 
-      /* Total number of coding shreds in FEC set. Must be positive <= FD_REEDSOL_CODE_SHREDS_MAX. */
+      /* Total number of coding shreds in FEC set.  Must be positive. */
       /* 0x55 */ ushort code_cnt;
 
       /* Index within the vector of coding shreds in FEC set. In [0,
@@ -311,9 +312,7 @@ fd_shred_sz( fd_shred_t const * shred ) {
 }
 
 /* fd_shred_header_sz: Returns the header size of a shred.
-   Returns zero if the shred has an invalid variant.
-
-   Accesses offsets up to FD_SHRED_HEADER_MIN_SZ. */
+   Returns zero if the shred has an invalid variant. */
 FD_FN_CONST static inline ulong
 fd_shred_header_sz( uchar variant ) {
   uchar type = fd_shred_type( variant );

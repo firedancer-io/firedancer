@@ -654,8 +654,6 @@ returnable_frag( fd_snapld_tile_t *  ctx,
   return 0;
 }
 
-/* META plus FD_SNAPLD_RX_BURST data frags from after_credit plus one
-   from returnable_frag */
 #define STEM_BURST (FD_SNAPLD_RX_BURST+2UL)
 
 #define STEM_LAZY (128L*3000L)

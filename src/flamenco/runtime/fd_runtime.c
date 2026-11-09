@@ -675,20 +675,6 @@ fd_compute_and_apply_new_feature_activations( fd_bank_t *          bank,
   }
 }
 
-/* Starting a new epoch.
-  New epoch:        T
-  Just ended epoch: T-1
-  Epoch before:     T-2
-
-  In this function:
-  - stakes in T-2 (vote_states_prev_prev) should be replaced by T-1 (vote_states_prev)
-  - stakes at T-1 (vote_states_prev) should be replaced by updated stakes at T (vote_states)
-  - leader schedule should be calculated using new T-2 stakes (vote_states_prev_prev)
-
-  Invariant during an epoch T:
-  vote_states_prev holds the stakes at T-1
-  vote_states_prev_prev holds the stakes at T-2
- */
 /* process for the start of a new epoch
    https://github.com/anza-xyz/agave/blob/v4.3.0-beta.0/runtime/src/bank.rs#L1811-L1899 */
 static void
@@ -759,10 +745,6 @@ fd_runtime_process_new_epoch( fd_bank_t *          bank,
      before that.
      https://github.com/anza-xyz/agave/blob/v3.0.4/runtime/src/bank.rs#L2175
   */
-
-  /* Now that our stakes caches have been updated, we can calculate the
-     leader schedule for the upcoming epoch epoch using our new
-     vote_states_prev_prev (stakes for T-2). */
 
   fd_runtime_update_leaders( bank, runtime_stack );
 

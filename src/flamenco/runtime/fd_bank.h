@@ -134,8 +134,7 @@ FD_PROTOTYPES_BEGIN
   - Frozen: This bank has been marked as frozen and no other tasks
     should be dispatched to it.  Any bank-specific resources will be
     released (e.g. cost tracker element).  A bank can be marked frozen
-    if the bank has finished executing all of its transactions or if the
-    bank is marked as dead and has no outstanding references.  A bank
+    if the bank has finished executing all of its transactions.  A bank
     can only be copied from a parent bank (fd_banks_clone_from_parent)
     if the parent bank is frozen or prunable.  The program will crash
     if this invariant is violated.
@@ -587,8 +586,8 @@ fd_banks_clone_from_parent( fd_banks_t * banks,
 /* fd_banks_advance_root() advances the root bank to the bank manager.
    This should only be used when a bank is no longer needed and has no
    active refcnts.  This will prune off the bank from the bank manager.
-   It returns the new root bank.  An invariant of this function is that
-   the new root bank should be a child of the current root bank.
+   An invariant of this function is that the new root bank should be a
+   child of the current root bank.
 
    All banks that are ancestors or siblings of the new root bank will be
    cancelled and their resources will be released back to the pool.
