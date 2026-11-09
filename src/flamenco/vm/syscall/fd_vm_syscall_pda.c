@@ -226,8 +226,9 @@ fd_vm_syscall_sol_create_program_address( /**/            void *  _vm,
 /* fd_vm_syscall_sol_try_find_program_address is the entrypoint for the sol_try_find_program_address syscall:
 https://github.com/anza-xyz/agave/blob/v2.1.1/programs/bpf_loader/src/syscalls/mod.rs#L791
 
-This syscall creates a valid program derived address, searching for a valid ed25519 curve point by
-iterating through 255 possible bump seeds.
+This syscall creates a valid program derived address, searching for a hash
+that is not a valid ed25519 curve point by iterating through 255 possible
+bump seeds.
 
 It does this by hashing all the seeds, the program id, and the PDA marker, and then
 checking if the resulting hash is a valid ed25519 curve point.
