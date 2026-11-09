@@ -973,7 +973,7 @@ interp_exec:
     reg[ dst ] = (ulong)(long)(int)reg_src;
   FD_VM_INTERP_INSTR_END;
 
-  FD_VM_INTERP_INSTR_BEGIN(0xbcdepr) /* FD_SBPF_OP_MOV_REG deprecated SIMD-1074 */
+  FD_VM_INTERP_INSTR_BEGIN(0xbcdepr) /* FD_SBPF_OP_MOV_REG deprecated SIMD-0174 */
     reg[ dst ] = (ulong)(uint)reg_src;
   FD_VM_INTERP_INSTR_END;
 
