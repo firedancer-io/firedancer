@@ -51,7 +51,8 @@ static void
 test_incremental_absent( void ) {
   char const * responses[] = {
     "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n",
-    "HTTP/1.1 410 Gone\r\nContent-Length: 0\r\n\r\n"
+    "HTTP/1.1 410 Gone\r\nContent-Length: 0\r\n\r\n",
+    "HTTP/1.1 103 Early Hints\r\n\r\nHTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n"
   };
 
   for( ulong i=0UL; i<sizeof(responses)/sizeof(responses[0]); i++ ) {
@@ -129,6 +130,43 @@ test_incremental_redirect_result( void ) {
   FD_LOG_NOTICE(( "pass: test_incremental_redirect_result" ));
 }
 
+static void
+test_informational( void ) {
+  fd_ssresolve_t * ssresolve;
+  int server = connect_pair( &ssresolve, 0 /* incremental */ );
+  fd_ssresolve_result_t result;
+  FD_TEST( FD_SSRESOLVE_ADVANCE_AGAIN==respond( ssresolve, server, "HTTP/1.1 103 Early Hints\r\nLink: </a>\r\n\r\n", &result ) );
+  FD_TEST( FD_SSRESOLVE_ADVANCE_RESULT==respond( ssresolve, server,
+           "HTTP/1.1 100 Continue\r\n\r\n"
+           "HTTP/1.1 302 Found\r\n"
+           "Location: /incremental-snapshot-100-200-9NUeyNtZH1uoYsivVTvCHrWeqcMHvxrBCvvwHcwQG1L4.tar.zst\r\n\r\n", &result ) );
+  FD_TEST( result.base_slot==100UL && result.slot==200UL );
+  FD_TEST( 0==close( server ) );
+  fd_ssresolve_cancel( ssresolve );
+
+  server = connect_pair( &ssresolve, 0 /* incremental */ );
+  FD_TEST( FD_SSRESOLVE_ADVANCE_ERROR==respond( ssresolve, server, "HTTP/1.1 101 Switching Protocols\r\n\r\n", &result ) );
+  FD_TEST( 0==close( server ) );
+  fd_ssresolve_cancel( ssresolve );
+
+  server = connect_pair( &ssresolve, 0 /* incremental */ );
+  FD_TEST( -1!=fcntl( server, F_SETFL, fcntl( server, F_GETFL, 0 )|O_NONBLOCK ) );
+  static char flood[ 65536UL ];
+  for( ulong i=0UL; i<sizeof(flood); i++ ) flood[ i ] = "HTTP/1.1 100 Continue\r\n\r\n"[ i%25UL ];
+  ulong sent = 0UL;
+  int   res  = FD_SSRESOLVE_ADVANCE_AGAIN;
+  ulong i    = 0UL;
+  for( ; i<4096UL && res==FD_SSRESOLVE_ADVANCE_AGAIN; i++ ) {
+    long n = send( server, flood+sent, fd_ulong_min( 4096UL, sizeof(flood)-sent ), 0 );
+    if( n>0L ) sent += (ulong)n;
+    res = fd_ssresolve_advance_poll_in( ssresolve, &result );
+  }
+  FD_TEST( res==FD_SSRESOLVE_ADVANCE_ERROR && i>=16UL );
+  FD_TEST( 0==close( server ) );
+  fd_ssresolve_cancel( ssresolve );
+  FD_LOG_NOTICE(( "pass: test_informational" ));
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -138,6 +176,7 @@ main( int     argc,
   test_full_absent_error();
   test_incremental_other_error();
   test_incremental_redirect_result();
+  test_informational();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

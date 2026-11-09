@@ -338,6 +338,7 @@ fd_sshttp_init( fd_sshttp_t * http,
   }
 
   http->response_len = 0UL;
+  http->response_off = 0UL;
   http->content_len  = 0UL;
   http->content_read = 0UL;
 
@@ -493,6 +494,7 @@ send_request( fd_sshttp_t * http,
   if( FD_UNLIKELY( http->request_sent==http->request_len ) ) {
     http->state        = FD_SSHTTP_STATE_RESP;
     http->response_len = 0UL;
+    http->response_off = 0UL;
     http->deadline     = now + FD_SSHTTP_DEADLINE_NANOS;
   }
 
@@ -622,6 +624,7 @@ follow_redirect( fd_sshttp_t *        http,
     } else {
       http->state = FD_SSHTTP_STATE_RESP;
       http->response_len = 0UL;
+      http->response_off = 0UL;
     }
   }
 
@@ -658,24 +661,34 @@ read_response( fd_sshttp_t *        http,
   const char *      message;
   ulong             message_len;
   struct phr_header headers[ 128UL ];
-  ulong             header_cnt = 128UL;
-  int parsed = phr_parse_response( http->response,
-                                    http->response_len,
-                                    &minor_version,
-                                    &status,
-                                    &message,
-                                    &message_len,
-                                    headers,
-                                    &header_cnt,
-                                    http->response_len - (ulong)read );
-  if( FD_UNLIKELY( parsed==-1 ) ) {
-    FD_LOG_WARNING(( "malformed response headers from " FD_IP4_ADDR_FMT ":%hu",
-                     FD_IP4_ADDR_FMT_ARGS( http->addr.addr ), fd_ushort_bswap( http->addr.port ) ));
-    fd_sshttp_cancel( http );
-    return FD_SSHTTP_ADVANCE_ERROR;
-  } else if( parsed==-2 ) {
-    return FD_SSHTTP_ADVANCE_AGAIN;
+  ulong             header_cnt;
+  int               parsed;
+  ulong             prev_len = http->response_len - (ulong)read;
+  for(;;) {
+    ulong off  = http->response_off;
+    header_cnt = 128UL;
+    parsed = phr_parse_response( http->response+off,
+                                 http->response_len-off,
+                                 &minor_version,
+                                 &status,
+                                 &message,
+                                 &message_len,
+                                 headers,
+                                 &header_cnt,
+                                 fd_ulong_if( prev_len>off, prev_len-off, 0UL ) );
+    if( FD_UNLIKELY( parsed==-1 ) ) {
+      FD_LOG_WARNING(( "malformed response headers from " FD_IP4_ADDR_FMT ":%hu",
+                       FD_IP4_ADDR_FMT_ARGS( http->addr.addr ), fd_ushort_bswap( http->addr.port ) ));
+      fd_sshttp_cancel( http );
+      return FD_SSHTTP_ADVANCE_ERROR;
+    } else if( parsed==-2 ) {
+      return FD_SSHTTP_ADVANCE_AGAIN;
+    }
+    /* 101 is never solicited (no Upgrade is sent), so it is final */
+    if( status<100 || status>199 || status==101 ) break;
+    http->response_off += (ulong)parsed;
   }
+  parsed += (int)http->response_off;
 
   int is_redirect = (status==301) | (status==302) | (status==303) | (status==307) | (status==308);
   if( FD_UNLIKELY( is_redirect ) ) {

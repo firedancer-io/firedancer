@@ -38,6 +38,7 @@ struct fd_ssresolve_private {
   ulong request_len;
 
   ulong response_len;
+  ulong response_off;
   char  response[ USHORT_MAX ];
 
   /* Native TLS state */
@@ -81,6 +82,7 @@ fd_ssresolve_new( void * shmem ) {
   ssresolve->request_sent    = 0UL;
   ssresolve->request_len     = 0UL;
   ssresolve->response_len    = 0UL;
+  ssresolve->response_off    = 0UL;
   ssresolve->sockfd          = -1;
   fd_tlsrec_sock_init( ssresolve->tls_sock );
 
@@ -127,6 +129,7 @@ fd_ssresolve_init( fd_ssresolve_t * ssresolve,
   ssresolve->request_sent    = 0UL;
   ssresolve->request_len     = 0UL;
   ssresolve->response_len    = 0UL;
+  ssresolve->response_off    = 0UL;
   ssresolve->is_https        = 0;
   ssresolve->hostname        = hostname;
   fd_tlsrec_sock_init( ssresolve->tls_sock );
@@ -149,6 +152,7 @@ fd_ssresolve_init_https( fd_ssresolve_t *           ssresolve,
   ssresolve->request_sent  = 0UL;
   ssresolve->request_len  = 0UL;
   ssresolve->response_len = 0UL;
+  ssresolve->response_off = 0UL;
   ssresolve->is_https     = 1;
   ssresolve->hostname     = hostname;
 
@@ -387,21 +391,29 @@ fd_ssresolve_read_response( fd_ssresolve_t *        ssresolve,
   const char *      message;
   ulong             message_len;
   struct phr_header headers[ 128UL ];
-  ulong             header_cnt = 128UL;
-  int parsed = phr_parse_response( ssresolve->response,
-                                    ssresolve->response_len,
-                                    &minor_version,
-                                    &status,
-                                    &message,
-                                    &message_len,
-                                    headers,
-                                    &header_cnt,
-                                    ssresolve->response_len - (ulong)read );
-  if( FD_UNLIKELY( parsed==-1 ) ) {
-    FD_LOG_WARNING(( "malformed response body" ));
-    return FD_SSRESOLVE_ADVANCE_ERROR;
-  } else if( parsed==-2 ) {
-    return FD_SSRESOLVE_ADVANCE_AGAIN;
+  ulong             header_cnt;
+  ulong             prev_len = ssresolve->response_len - (ulong)read;
+  for(;;) {
+    ulong off  = ssresolve->response_off;
+    header_cnt = 128UL;
+    int parsed = phr_parse_response( ssresolve->response+off,
+                                     ssresolve->response_len-off,
+                                     &minor_version,
+                                     &status,
+                                     &message,
+                                     &message_len,
+                                     headers,
+                                     &header_cnt,
+                                     fd_ulong_if( prev_len>off, prev_len-off, 0UL ) );
+    if( FD_UNLIKELY( parsed==-1 ) ) {
+      FD_LOG_WARNING(( "malformed response body" ));
+      return FD_SSRESOLVE_ADVANCE_ERROR;
+    } else if( parsed==-2 ) {
+      return FD_SSRESOLVE_ADVANCE_AGAIN;
+    }
+    /* 101 is never solicited (no Upgrade is sent), so it is final */
+    if( status<100 || status>199 || status==101 ) break;
+    ssresolve->response_off += (ulong)parsed;
   }
 
   int is_redirect = (status==301) | (status==302) | (status==303) | (status==307) | (status==308);

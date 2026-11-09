@@ -30,6 +30,7 @@ connect_pair( fd_sshttp_t * http ) {
   http->is_https     = 0;
   http->hops         = 4UL;
   http->response_len = 0UL;
+  http->response_off = 0UL;
   http->content_len  = 0UL;
   http->content_read = 0UL;
   http->addr         = (fd_ip4_port_t){ .addr = 0x7F000001U, .port = fd_ushort_bswap( 80 ) };
@@ -115,11 +116,13 @@ test_eof_immediate( void ) {
   fd_sshttp_cancel( http );
 }
 
-/* Headers that never terminate must be rejected once they fill the
-   response buffer, instead of looping on a zero sized recv. */
+/* Headers that never terminate (or endless 1xx) must be rejected once
+   they fill the response buffer, instead of looping on a zero sized recv. */
 
 static void
-test_headers_too_large( void ) {
+test_headers_too_large( char const * prefix,
+                        char const * fill,
+                        ulong        min_off ) {
   fd_sshttp_t * http = fd_sshttp_join( fd_sshttp_new( test_http, test_epoll_fd ) );
   FD_TEST( http );
 
@@ -127,8 +130,10 @@ test_headers_too_large( void ) {
   FD_TEST( -1!=fcntl( server, F_SETFL, fcntl( server, F_GETFL, 0 )|O_NONBLOCK ) );
 
   static uchar junk[ 65536UL ];
-  memset( junk, 'a', sizeof(junk) );
-  fd_memcpy( junk, "HTTP/1.1 200 OK\r\nX-Pad: ", 24UL );
+  ulong prefix_len = strlen( prefix );
+  ulong fill_len   = strlen( fill );
+  fd_memcpy( junk, prefix, prefix_len );
+  for( ulong i=prefix_len; i<sizeof(junk); i++ ) junk[ i ] = (uchar)fill[ (i-prefix_len)%fill_len ];
 
   uchar buf[ 4096 ];
   struct iovec iov = { .iov_base = buf, .iov_len = sizeof(buf) };
@@ -147,7 +152,62 @@ test_headers_too_large( void ) {
     if( FD_UNLIKELY( res!=FD_SSHTTP_ADVANCE_AGAIN ) ) break;
   }
   FD_TEST( res==FD_SSHTTP_ADVANCE_ERROR );
+  FD_TEST( http->response_off>=min_off );
 
+  FD_TEST( 0==close( server ) );
+  fd_sshttp_cancel( http );
+}
+
+static void
+send_str( int          fd,
+          char const * s ) {
+  FD_TEST( (long)strlen( s )==send( fd, s, strlen( s ), 0 ) );
+}
+
+static int
+advance( fd_sshttp_t * http,
+         uchar *       buf,
+         ulong         buf_sz,
+         ulong *       data_len ) {
+  struct iovec iov = { .iov_base = buf, .iov_len = buf_sz };
+  int downloading = 0;
+  *data_len = 0UL;
+  return fd_sshttp_advance( http, &iov, 1UL, data_len, &downloading, 0L );
+}
+
+static void
+test_informational( void ) {
+  fd_sshttp_t * http = fd_sshttp_join( fd_sshttp_new( test_http, test_epoll_fd ) );
+  FD_TEST( http );
+  int server = connect_pair( http );
+  uchar buf[ 16 ];
+  ulong data_len;
+  send_str( server, "HTTP/1.1 103 Early" );
+  FD_TEST( FD_SSHTTP_ADVANCE_AGAIN==advance( http, buf, 2UL, &data_len ) );
+  send_str( server, " Hints\r\nLocation: /bad\r\n\r\n" );
+  FD_TEST( FD_SSHTTP_ADVANCE_AGAIN==advance( http, buf, 2UL, &data_len ) );
+  send_str( server, "HTTP/1.1 100 Continue\r\n\r" );
+  FD_TEST( FD_SSHTTP_ADVANCE_AGAIN==advance( http, buf, 2UL, &data_len ) );
+  send_str( server, "\nHTTP/1.1 302 Found\r\n"
+                    "Location: /snapshot-200-9NUeyNtZH1uoYsivVTvCHrWeqcMHvxrBCvvwHcwQG1L4.tar.zst\r\n\r\n" );
+  FD_TEST( FD_SSHTTP_ADVANCE_AGAIN==advance( http, buf, 2UL, &data_len ) );
+  FD_TEST( http->resolved_slot==200UL );
+  send_str( server, "HTTP/1.1 103 Early Hints\r\n\r\nHTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nhello" );
+  ulong got = 0UL;
+  int   res = FD_SSHTTP_ADVANCE_AGAIN;
+  for( ulong i=0UL; i<64UL && res!=FD_SSHTTP_ADVANCE_DONE; i++ ) {
+    res = advance( http, buf+got, 2UL, &data_len );
+    FD_TEST( res==FD_SSHTTP_ADVANCE_DATA || res==FD_SSHTTP_ADVANCE_AGAIN || res==FD_SSHTTP_ADVANCE_DONE );
+    got += data_len;
+    FD_TEST( got<=5UL );
+  }
+  FD_TEST( res==FD_SSHTTP_ADVANCE_DONE && got==5UL && !memcmp( buf, "hello", 5UL ) );
+  FD_TEST( 0==close( server ) );
+  fd_sshttp_cancel( http );
+
+  server = connect_pair( http );
+  send_str( server, "HTTP/1.1 101 Switching Protocols\r\n\r\nHTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nhello" );
+  FD_TEST( FD_SSHTTP_ADVANCE_ERROR==advance_until_terminal( http ) );
   FD_TEST( 0==close( server ) );
   fd_sshttp_cancel( http );
 }
@@ -208,7 +268,9 @@ main( int     argc,
   test_eof_during_body();
   test_eof_during_headers();
   test_eof_immediate();
-  test_headers_too_large();
+  test_headers_too_large( "HTTP/1.1 200 OK\r\nX-Pad: ", "a", 0UL );
+  test_headers_too_large( "", "HTTP/1.1 100 Continue\r\n\r\n", 65000UL );
+  test_informational();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

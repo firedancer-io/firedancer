@@ -43,6 +43,7 @@ struct fd_sshttp_private {
   ulong request_sent;
 
   ulong response_len;
+  ulong response_off;
   char  response[ USHORT_MAX ];
 
   char  snapshot_name[ PATH_MAX ];
