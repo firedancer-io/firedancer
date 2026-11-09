@@ -152,7 +152,7 @@ static const fd_acct_addr_t null_addr = { 0 };
 #define MAP_KEY_T   fd_acct_addr_t
 #define MAP_MEMOIZE   0
 #define MAP_QUERY_OPT 2 /* low hit rate */
-#define MAP_LG_SLOT_CNT 5 /* 18 entries, space for 32 */
+#define MAP_LG_SLOT_CNT 5
 #define MAP_KEY_NULL          null_addr
 #if FD_HAS_AVX
 # define MAP_KEY_INVAL(k)     _mm256_testz_si256( wb_ldu( (k).b ), wb_ldu( (k).b ) )
