@@ -308,6 +308,36 @@ test_vote_history_authorize( void ) {
   FD_TEST( !fd_keyguard_payload_authorize( &authority, body, 133UL, FD_KEYGUARD_ROLE_VOTOR, FD_KEYGUARD_SIGN_TYPE_ED25519 ) );
 }
 
+/* test_snapshot_hashes_authorize: the gossip role signs the
+   SnapshotHashes value gossip pushes for our own snapshots: tag,
+   origin, full slot and hash, incremental count, one slot and hash
+   per incremental, wallclock. */
+
+static void
+test_snapshot_hashes_authorize( void ) {
+  fd_keyguard_authority_t authority = {0};
+  fd_memset( authority.identity_pubkey, 0xa5, 32UL );
+
+  uchar body[ 4UL+32UL+8UL+32UL+8UL+40UL+8UL ];
+  fd_memset( body, 0x11, sizeof(body) );
+  FD_STORE( uint, body, FD_GOSSIP_VALUE_SNAPSHOT_HASHES );
+  fd_memcpy( body+4UL, authority.identity_pubkey, 32UL );
+  ulong * incremental_cnt = (ulong *)( body+4UL+32UL+8UL+32UL );
+
+  *incremental_cnt = 1UL;
+  FD_TEST(  fd_keyguard_payload_authorize( &authority, body, sizeof(body),      FD_KEYGUARD_ROLE_GOSSIP, FD_KEYGUARD_SIGN_TYPE_ED25519 ) );
+  *incremental_cnt = 0UL;
+  FD_TEST(  fd_keyguard_payload_authorize( &authority, body, sizeof(body)-40UL, FD_KEYGUARD_ROLE_GOSSIP, FD_KEYGUARD_SIGN_TYPE_ED25519 ) );
+  /* count does not match the size */
+  FD_TEST( !fd_keyguard_payload_authorize( &authority, body, sizeof(body),      FD_KEYGUARD_ROLE_GOSSIP, FD_KEYGUARD_SIGN_TYPE_ED25519 ) );
+  /* wrong role, wrong sign type, not our identity */
+  *incremental_cnt = 1UL;
+  FD_TEST( !fd_keyguard_payload_authorize( &authority, body, sizeof(body),      FD_KEYGUARD_ROLE_VOTOR,  FD_KEYGUARD_SIGN_TYPE_ED25519        ) );
+  FD_TEST( !fd_keyguard_payload_authorize( &authority, body, sizeof(body),      FD_KEYGUARD_ROLE_GOSSIP, FD_KEYGUARD_SIGN_TYPE_SHA256_ED25519 ) );
+  body[ 4UL ] ^= (uchar)1;
+  FD_TEST( !fd_keyguard_payload_authorize( &authority, body, sizeof(body),      FD_KEYGUARD_ROLE_GOSSIP, FD_KEYGUARD_SIGN_TYPE_ED25519        ) );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -318,6 +348,7 @@ main( int     argc,
   test_bls_pubkey_authorize();
   test_vote_history_authorize();
   test_failov_message();
+  test_snapshot_hashes_authorize();
   FD_LOG_NOTICE(( "pass" ));
   return 0;
 }
