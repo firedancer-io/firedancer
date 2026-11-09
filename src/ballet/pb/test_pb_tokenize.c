@@ -40,6 +40,8 @@ test_pb_corrupt( void ) {
   static uchar const tag_eof[] = { 0x80 };
   static uchar const wire_type_invalid[] = { 0x03, 0x00 };
   static uchar const varint_mega[] = { 0x08, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x01 };
+  static uchar const varint_overflow[] = { 0x08, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x02 };
+  static uchar const field_zero[] = { 0x00, 0x01 };
   static uchar const varint_eof[] = { 0x08, 0x80 };
   static uchar const i32_eof[] = { 0x0d, 0x01, 0x02 };
   static uchar const i64_eof[] = { 0x09, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07 };
@@ -49,6 +51,8 @@ test_pb_corrupt( void ) {
     { tag_eof,           sizeof(tag_eof)               },
     { wire_type_invalid, sizeof(wire_type_invalid)     },
     { varint_mega,       sizeof(varint_mega)           },
+    { varint_overflow,   sizeof(varint_overflow)       },
+    { field_zero,        sizeof(field_zero)            },
     { varint_eof,        sizeof(varint_eof)            },
     { i32_eof,           sizeof(i32_eof)               },
     { i64_eof,           sizeof(i64_eof)               },

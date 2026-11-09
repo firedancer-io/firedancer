@@ -9,7 +9,7 @@ read_varint( fd_pb_inbuf_t * buf,
   int   shift = 0;
   for( ulong i=0UL;; i++ ) {
     if( FD_UNLIKELY( i>=10 || i>=sz ) ) return NULL;
-    /* FIXME check if one bits are shifted out of bounds */
+    if( FD_UNLIKELY( i==9UL && buf->cur[i]>1U ) ) return NULL;
     var |= (ulong)( buf->cur[i] & 0x7f ) << shift;
     shift += 7;
     if( !( buf->cur[i] & 0x80 ) ) {
@@ -29,6 +29,7 @@ fd_pb_read_tlv_slow( fd_pb_inbuf_t * buf,
   if( FD_UNLIKELY( tag>UINT_MAX ) ) return NULL;
   uint  wire_type = fd_pb_tag_wire_type( (uint)tag );
   uint  field_id  = fd_pb_tag_field_id ( (uint)tag );
+  if( FD_UNLIKELY( !field_id ) ) return NULL;
   ulong val;
   switch( wire_type ) {
   case FD_PB_WIRE_TYPE_VARINT:
