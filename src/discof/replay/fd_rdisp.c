@@ -668,6 +668,8 @@ struct fd_rdisp {
   block_map_t          * blockmap; /* map chain */
   fd_rdisp_blockinfo_t * block_pool;
 
+  float ready_acct_ema_max;
+
   int free_lanes; /* a bitmask */
   per_lane_info_t lanes[4];
 
@@ -783,6 +785,8 @@ fd_rdisp_new( void * mem,
   fd_rdisp_blockinfo_t * bpool_temp_join = block_pool_join( _bpool );
   for( ulong i=0UL; i<block_depth+1UL; i++ ) zombie_dlist_new( bpool_temp_join[ i ].zombie_list );
   block_pool_leave( bpool_temp_join );
+
+  disp->ready_acct_ema_max = FD_RDISP_READY_ACCT_EMA_MAX;
 
   disp->free_lanes = 0xF;
   for( ulong i=0UL; i<4UL; i++ ) {
@@ -1105,6 +1109,21 @@ untrack_writer( fd_rdisp_t * disp,
   }
 }
 
+/* Priority of an account in a lane's writable set.  An account whose
+   every writer in the block has completed, so that an addition
+   pseudo-transaction for it would be READY on creation, is ready and
+   sits at priority 0 if its reference EMA is under the threshold.
+   Every other account waits at 1 plus its EMA, so the coldest comes out
+   first.  An account over the threshold is considered hot enough to
+   likely be written again before the block ends, so a speculative
+   addition on it would likely have to be undone. */
+static inline float
+mq_prio( fd_rdisp_t const *  disp,
+         acct_info_t const * ai,
+         int                 ready ) {
+  return fd_float_if( ready && ai->ema_refs<disp->ready_acct_ema_max, 0.0f, 1.0f+ai->ema_refs );
+}
+
 int
 fd_rdisp_promote_block( fd_rdisp_t *          disp,
                         FD_RDISP_BLOCK_TAG_T  block_tag,
@@ -1175,7 +1194,7 @@ fd_rdisp_promote_block( fd_rdisp_t *          disp,
     ai->states = (uchar)s;
 
     if( FD_UNLIKELY( fd_rdisp_mq_cnt( disp->mq, staging_lane )>=MAX_WRITERS_PER_BLOCK ) ) FD_LOG_CRIT(( "rdisp lane %lu writable account set full", staging_lane ));
-    fd_rdisp_mq_insert( disp->mq, acct_idx, staging_lane, disp->acct_pool[acct_idx].ema_refs );
+    fd_rdisp_mq_insert( disp->mq, acct_idx, staging_lane, mq_prio( disp, ai, ACCT_INFO_STATE_IS( s, staging_lane, NEEDS_PTXN ) ) );
 
     ustlt_dlist_ele_remove   ( block->ustlt_needed, ele, disp->ustlt_pool );
     ustlt_map_ele_remove_fast( disp->ustlt_map,     ele, disp->ustlt_pool );
@@ -1463,6 +1482,9 @@ add_edges( fd_rdisp_t           * disp,
         }
         states = ACCT_INFO_STATE_SET( states, lane, LAST_REF_WAS_WRITE );
       }
+      /* An account in the ready class is getting rewritten.  So we bump
+         it out of the ready class. */
+      if( fd_rdisp_mq_test( disp->mq, idx, lane ) && fd_rdisp_mq_test_prio0( disp->mq, idx, lane ) ) fd_rdisp_mq_adjust( disp->mq, idx, lane, mq_prio( disp, ai, 0 ) );
     } else {
       if( ACCT_INFO_STATE_IS( states, lane, LAST_REF_WAS_WRITE ) ) { /* unclear prob */
         /* Case 3: w-r. Similar to case 1, but need to initialize my
@@ -1485,7 +1507,7 @@ add_edges( fd_rdisp_t           * disp,
     /* Step 3: Update new_wr */
     if( ((!!writable) & FD_LIKELY( !!new_wr )) && !fd_rdisp_mq_test( disp->mq, idx, lane ) ) {
       if( FD_UNLIKELY( fd_rdisp_mq_cnt( disp->mq, lane )>=MAX_WRITERS_PER_BLOCK ) ) FD_LOG_CRIT(( "rdisp lane %u writable account set full", lane ));
-      fd_rdisp_mq_insert( disp->mq, idx, lane, ai->ema_refs );
+      fd_rdisp_mq_insert( disp->mq, idx, lane, mq_prio( disp, ai, 0 ) );
       fd_rdisp_neww_insert( new_wr, new_wr_offset+i );
     }
 
@@ -1779,8 +1801,11 @@ fd_rdisp_complete_txn( fd_rdisp_t * disp,
            that state. */
         if( edge_idx<w_cnt ) {
           ai->last_reference[ lane ] = 0U;
-          ai->states = fd_uchar_if( fd_rdisp_mq_test( disp->mq, acct_idx, lane ), ACCT_INFO_STATE_SET(ai->states, lane, NEEDS_PTXN),
-                                                                                  ACCT_INFO_STATE_SET(ai->states, lane, NO_WRITERS));
+          int needs_ptxn = fd_rdisp_mq_test( disp->mq, acct_idx, lane );
+          ai->states = fd_uchar_if( needs_ptxn, ACCT_INFO_STATE_SET(ai->states, lane, NEEDS_PTXN), ACCT_INFO_STATE_SET(ai->states, lane, NO_WRITERS) );
+          /* The account's last writer is done, so we bump it into the
+             ready class, hotness threshold permitting. */
+          if( needs_ptxn && ai->ema_refs<disp->ready_acct_ema_max ) fd_rdisp_mq_adjust( disp->mq, acct_idx, lane, 0.0f );
         } else if( e[1]==ref_to_me ) {
           ai->last_reference[ lane ] = 0U;
         } else {
@@ -1888,12 +1913,16 @@ fd_rdisp_complete_txn( fd_rdisp_t * disp,
              NEEDS_PTXN.  In case 2, we must be in LAST_REF_WAS_WRITE
              and we stay there. */
 
-          acct_info_t * ai = disp->acct_pool + EDGE_SPECIAL_IDX(*child_edge);
+          ulong acct_idx = EDGE_SPECIAL_IDX( *child_edge );
+          acct_info_t * ai = disp->acct_pool + acct_idx;
           uint s = ai->states;
           if( !ACCT_INFO_STATE_IS( s, lane, LAST_REF_WAS_WRITE ) ) {
-            int needs_ptxn = fd_rdisp_mq_test( disp->mq, EDGE_SPECIAL_IDX( *child_edge ), lane );
+            int needs_ptxn = fd_rdisp_mq_test( disp->mq, acct_idx, lane );
             s = fd_uint_if( needs_ptxn, ACCT_INFO_STATE_SET(s, lane, NEEDS_PTXN), ACCT_INFO_STATE_SET(s, lane, NO_WRITERS) );
             ai->states = (uchar)s;
+            /* The account's last writer is done, so we bump it into the
+               ready class, hotness threshold permitting. */
+            if( needs_ptxn && ai->ema_refs<disp->ready_acct_ema_max ) fd_rdisp_mq_adjust( disp->mq, acct_idx, lane, 0.0f );
           }
         }
       }
@@ -1958,15 +1987,67 @@ fd_rdisp_add_all_pseudo_txn( fd_rdisp_t          *  disp,
   while( fd_rdisp_add_pseudo_txn( disp, insert_block ) );
 }
 
-/* Score of a staged pseudo-transaction for the account.  It sequences
-   behind every real transaction of its serializing class.  Among
-   pseudo-transactions, a lower EMA, i.e. an account less likely to be
-   written again in the block, comes first. */
+/* Score of a staged pseudo-transaction.  It sequences behind every
+   real transaction of its serializing class. */
 static inline float
-ptxn_score( acct_info_t const * ai,
-            uint                last_serializing ) {
-  float ema = ai->ema_refs<FD_RDISP_MAX_SCORE ? ai->ema_refs : FD_RDISP_MAX_SCORE;
-  return fd_rdisp_score( FD_RDISP_PTXN_SCORE_MIN + 0.002f*ema, last_serializing );
+ptxn_score( uint last_serializing ) {
+  return fd_rdisp_score( FD_RDISP_PTXN_SCORE, last_serializing );
+}
+
+static ulong
+add_staged_pseudo_txn( fd_rdisp_t *           disp,
+                       fd_rdisp_blockinfo_t * block ) {
+  uint lane = block->staging_lane;
+  if( FD_UNLIKELY( !ptxn_pool_free( disp->ptxn_pool ) ) ) FD_LOG_CRIT(( "rdisp pseudo-transaction pool exhausted" ));
+  fd_rdisp_ptxn_t * ptxn = ptxn_pool_ele_acquire( disp->ptxn_pool );
+  uint ptxn_idx = EDGE_MAKE_SPECIAL(PTXN, (uint)(ptxn - disp->ptxn_pool));
+
+  ulong acct_idx = fd_rdisp_mq_pop( disp->mq, lane );
+  acct_info_t * ai = disp->acct_pool + acct_idx;
+
+  ptxn->in_degree = 0U;
+  if( FD_UNLIKELY( block->last_insert_was_serializing ) ) {
+    block->last_serializing = block->inserted_cnt;
+  }
+  block->last_insert_was_serializing = 0U;
+  ptxn->score = ptxn_score( block->last_serializing );
+
+  /* see add_txn for this line */
+  ptxn->edge_cnt_etc = ((block->linear_block_number<<16) | (lane<<14)) - 1U;
+
+  /* add_edges is more general than what we need, but it's better to
+     have all the logic in one place.  We don't need to pass new_wr
+     because it's only a reader, so it won't be accessed anyway. */
+  add_edges( disp, (fd_rdisp_txn_t *)fd_type_pun( ptxn ), &(ai->key), 1UL, lane, 0, 0, NULL, 0UL );
+  /* since we're kind of cheating with edge_cnt_etc, we need to fix it
+     here.  Additionally, type punning ptxn like that is a bit
+     fast-and-loose with the C spec, so add a compiler fence to make
+     sure these writes can't be reordered. */
+  FD_COMPILER_MFENCE();
+  ptxn->edge_cnt_etc += 1U<<7;
+  ptxn->last = EDGE_MAKE_SPECIAL(LAST, (uint)acct_idx);
+
+  /* add_edge handles most of the state transitions, but it treats the
+     pseudo-transaction like a reader, so it needs a little fixing. */
+  uint states = ai->states;
+  states = fd_uint_if( ACCT_INFO_STATE_IS( states, lane, NEEDS_PTXN ), ACCT_INFO_STATE_SET( states, lane, NO_WRITERS ), states );
+  ai->states = (uchar)states;
+
+  if( FD_LIKELY( ptxn->in_degree==0U ) ) {
+    pending_prq_ele_t temp[1] = {{ .score = ptxn->score, .linear_block_number = block->linear_block_number, .txn_idx = ptxn_idx }};
+    pending_prq_insert( disp->lanes[ lane ].pending, temp );
+  }
+  block->inserted_cnt++;
+  return ptxn_idx;
+}
+
+ulong
+fd_rdisp_add_ready_pseudo_txn( fd_rdisp_t          *  disp,
+                               FD_RDISP_BLOCK_TAG_T   insert_block ) {
+  fd_rdisp_blockinfo_t * block = block_map_ele_query( disp->blockmap, &insert_block, NULL, disp->block_pool );
+  if( FD_UNLIKELY( !block || !block->insert_ready || !block->staged ) ) return 0UL;
+  if( FD_UNLIKELY( !fd_rdisp_mq_prio0_cnt( disp->mq, block->staging_lane ) ) ) return 0UL;
+  return add_staged_pseudo_txn( disp, block );
 }
 
 ulong
@@ -1979,48 +2060,8 @@ fd_rdisp_add_pseudo_txn( fd_rdisp_t          *  disp,
   uint ptxn_idx;
 
   if( FD_LIKELY( block->staged ) ) {
-    uint lane = block->staging_lane;
-    if( FD_UNLIKELY( !fd_rdisp_mq_cnt( disp->mq, lane ) ) ) return 0UL;
-
-    if( FD_UNLIKELY( !ptxn_pool_free( disp->ptxn_pool ) ) ) FD_LOG_CRIT(( "rdisp pseudo-transaction pool exhausted" ));
-    ptxn = ptxn_pool_ele_acquire( disp->ptxn_pool );
-    ptxn_idx = EDGE_MAKE_SPECIAL(PTXN, (uint)(ptxn - disp->ptxn_pool));
-
-    ulong acct_idx = fd_rdisp_mq_pop( disp->mq, lane );
-    acct_info_t * ai = disp->acct_pool + acct_idx;
-
-    ptxn->in_degree = 0U;
-    if( FD_UNLIKELY( block->last_insert_was_serializing ) ) {
-      block->last_serializing = block->inserted_cnt;
-    }
-    block->last_insert_was_serializing = 0U;
-    ptxn->score = ptxn_score( ai, block->last_serializing );
-
-    /* see add_txn for this line */
-    ptxn->edge_cnt_etc = ((block->linear_block_number<<16) | (lane<<14)) - 1U;
-
-    /* add_edges is more general than what we need, but it's better to
-       have all the logic in one place.  We don't need to pass new_wr
-       because it's only a reader, so it won't be accessed anyway. */
-    add_edges( disp, (fd_rdisp_txn_t *)fd_type_pun( ptxn ), &(ai->key), 1UL, lane, 0, 0, NULL, 0UL );
-    /* since we're kind of cheating with edge_cnt_etc, we need to fix it
-       here.  Additionally, type punning ptxn like that is a bit
-       fast-and-loose with the C spec, so add a compiler fence to make
-       sure these writes can't be reordered. */
-    FD_COMPILER_MFENCE();
-    ptxn->edge_cnt_etc += 1U<<7;
-    ptxn->last = EDGE_MAKE_SPECIAL(LAST, (uint)acct_idx);
-
-    /* add_edge handles most of the state transitions, but it treats the
-       pseudo-transaction like a reader, so it needs a little fixing. */
-    uint states = ai->states;
-    states = fd_uint_if( ACCT_INFO_STATE_IS( states, lane, NEEDS_PTXN ), ACCT_INFO_STATE_SET( states, lane, NO_WRITERS ), states );
-    ai->states = (uchar)states;
-
-    if( FD_LIKELY( ptxn->in_degree==0U ) ) {
-      pending_prq_ele_t temp[1] = {{ .score = ptxn->score, .linear_block_number = block->linear_block_number, .txn_idx = ptxn_idx }};
-      pending_prq_insert( disp->lanes[ block->staging_lane ].pending, temp );
-    }
+    if( FD_UNLIKELY( !fd_rdisp_mq_cnt( disp->mq, block->staging_lane ) ) ) return 0UL;
+    return add_staged_pseudo_txn( disp, block );
   } else {
     if( FD_UNLIKELY( ustlt_dlist_is_empty( block->ustlt_needed, disp->ustlt_pool ) ) ) return 0UL;
 
@@ -2061,7 +2102,7 @@ fd_rdisp_add_writable( fd_rdisp_t           * disp,
     states = fd_uint_if( ACCT_INFO_STATE_IS( states, lane, NO_WRITERS ), ACCT_INFO_STATE_SET( states, lane, NEEDS_PTXN ), states );
     ai->states = (uchar)states;
     if( FD_UNLIKELY( fd_rdisp_mq_cnt( disp->mq, lane )>=MAX_WRITERS_PER_BLOCK ) ) FD_LOG_CRIT(( "rdisp lane %lu writable account set full", lane ));
-    fd_rdisp_mq_insert( disp->mq, idx, lane, 0.0f );
+    fd_rdisp_mq_insert( disp->mq, idx, lane, mq_prio( disp, ai, ACCT_INFO_STATE_IS( states, lane, NEEDS_PTXN ) ) );
     return 1;
   } else {
     ustlt_key_t query[1] = {{
@@ -2131,7 +2172,7 @@ fd_rdisp_add_extra_pseudo_txn( fd_rdisp_t           * disp,
       /* What follows below is essentially the same as the normal
          add_pseudo_txn case */
       ptxn->in_degree = 0U;
-      ptxn->score = ptxn_score( ai, block->last_serializing );
+      ptxn->score = ptxn_score( block->last_serializing );
       ptxn->edge_cnt_etc = ((block->linear_block_number<<16) | (lane<<14)) - 1U;
       add_edges( disp, (fd_rdisp_txn_t *)fd_type_pun( ptxn ), &(ai->key), 1UL, lane, 0, 0, NULL, 0UL );
       FD_COMPILER_MFENCE();
@@ -2156,7 +2197,7 @@ fd_rdisp_add_extra_pseudo_txn( fd_rdisp_t           * disp,
 
       ptxn->in_degree = 0U;
       ptxn->edge_cnt_etc = ((block->linear_block_number<<16) | (lane<<14)); /* r_cnt==0, w_cnt is ignored */
-      ptxn->score = ptxn_score( ai, block->last_serializing );
+      ptxn->score = ptxn_score( block->last_serializing );
       ptxn->last = EDGE_MAKE_SPECIAL(LAST, (uint)idx);
       /* We know that there's a transaction that must execute after this
          one in the DAG, so the account info can't get freed until after
@@ -2192,6 +2233,18 @@ fd_rdisp_lane_writable_cnt( fd_rdisp_t * disp,
                             ulong        staging_lane ) {
   FD_TEST( staging_lane<4UL );
   return fd_rdisp_mq_cnt( disp->mq, staging_lane );
+}
+
+ulong
+fd_rdisp_lane_ready_acct_cnt( fd_rdisp_t * disp,
+                              ulong        staging_lane ) {
+  return fd_rdisp_mq_prio0_cnt( disp->mq, staging_lane );
+}
+
+void
+fd_rdisp_set_ready_acct_ema_max( fd_rdisp_t * disp,
+                                 float        ema_max ) {
+  disp->ready_acct_ema_max = ema_max;
 }
 
 void
