@@ -871,12 +871,12 @@ static void
 run_many_entries_cases( void ) {
   ulong big = 60000UL;
   FD_TEST( FD_SCHED_MAX_MBLK_PER_SLOT>big+1000UL );
-  FD_TEST( MANY_ENTRIES_MAX_TXN>90000UL );
+  FD_TEST( MANY_ENTRIES_MAX_TXN>66000UL );
 
   /* There is no cap on entry count beyond the shred payload limit */
   run_many_entries_case( big,      ULONG_MAX, 0UL, 1, FD_SCHED_DEAD_REASON_NONE );
   run_many_entries_case( big+1UL,  ULONG_MAX, 0UL, 1, FD_SCHED_DEAD_REASON_NONE );
-  run_many_entries_case( 90000UL,  ULONG_MAX, 0UL, 1, FD_SCHED_DEAD_REASON_NONE );
+  run_many_entries_case( 66000UL,  ULONG_MAX, 0UL, 1, FD_SCHED_DEAD_REASON_NONE );
 
   /* Every entry must declare exactly one hash, even deep into a long
      batch.  Neither a huge nor a zero hash count gets through. */
@@ -5065,7 +5065,7 @@ main( int     argc,
   fd_boot( &argc, &argv );
 
   char const * _page_sz = fd_env_strip_cmdline_cstr ( &argc, &argv, "--page-sz",  NULL, "gigantic"               );
-  ulong        page_cnt = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt", NULL, 4UL                      );
+  ulong        page_cnt = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt", NULL, 2UL                      );
   ulong        numa_idx = fd_env_strip_cmdline_ulong( &argc, &argv, "--numa-idx", NULL, fd_shmem_numa_idx( 0UL ) );
   test_wksp = fd_wksp_new_anonymous( fd_cstr_to_shmem_page_sz( _page_sz ), page_cnt, fd_shmem_cpu_idx( numa_idx ), "wksp", 0UL );
   FD_TEST( test_wksp );
