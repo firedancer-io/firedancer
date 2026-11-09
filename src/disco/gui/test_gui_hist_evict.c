@@ -4695,6 +4695,64 @@ batch_stake_sum( fd_gui_t * gui, ulong slot, uint event, ulong * cnt ) {
   return sum;
 }
 
+static ulong
+batch_cum_max( fd_gui_t * gui, ulong slot, uint event ) {
+  fd_gui_hist_iter_t it[ 1 ];
+  FD_TEST( !fd_gui_hist_range_begin( gui, it, FD_GUI_HIST_VOTE_BATCH, LONG_MIN+1, LONG_MAX-1L, NULL, NULL ) );
+  ulong max = 0UL;
+  while( fd_gui_hist_range_next( it ) ) {
+    fd_gui_store_vote_t const * v = (fd_gui_store_vote_t const *)it->rec;
+    if( v->slot!=slot || v->event!=event ) continue;
+    FD_TEST( v->cum_stake!=FD_GUI_VOTE_CUM_UNKNOWN );
+    max = fd_ulong_max( max, v->cum_stake );
+  }
+  fd_gui_hist_range_end( it );
+  return max;
+}
+
+/* query_cum_max queries votes (vote batches if batch) of [start,end)
+   and returns the largest cumulative_stake of slot's rows of event,
+   checking that no row's exceeds limit and that the stake of each row
+   is at most its cumulative_stake.  *stake_sum is the sum of their
+   stake. */
+
+static ulong
+query_cum_max( fd_gui_t * gui,
+               long       start,
+               long       end,
+               int        batch,
+               ulong      slot,
+               ulong      event,
+               ulong      limit,
+               ulong *    stake_sum ) {
+  fd_http_server_stage_trunc( gui->http, 0UL );
+  FD_TEST( !fd_gui_printf_timeline_query_votes( gui, start, end, batch, 7UL ) );
+  test_json_t json  = timeline_response( gui );
+  test_json_t ev    = timeline_value( json, "event" );
+  test_json_t sd    = timeline_value( json, "slot_delta" );
+  test_json_t stake = timeline_value( json, "stake" );
+  test_json_t cum   = timeline_value( json, "cumulative_stake" );
+  int         cnt   = test_json_count( ev );
+  FD_TEST( test_json_count( cum )==cnt );
+  ulong ref = cnt ? test_json_ulong( timeline_value( json, "reference_slot" ) ) : 0UL;
+  ulong max = 0UL;
+  *stake_sum = 0UL;
+  for( int i=0; i<cnt; i++ ) {
+    ulong e = test_json_ulong( test_json_index( ev, i ) );
+    test_json_t cj = test_json_index( cum, i );
+    if( !fd_gui_vote_event_has_stake( (uchar)e ) ) { FD_TEST( test_json_kind( cj )==FD_JTOK_NULL ); continue; }
+    if( e!=event || ref+test_json_ulong( test_json_index( sd, i ) )!=slot ) continue;
+    test_json_t sj = test_json_index( stake, i );
+    FD_TEST( cj.sz>2UL && cj.ptr[ 0 ]=='"' && sj.sz>2UL && sj.ptr[ 0 ]=='"' );
+    ulong c = strtoul( cj.ptr+1, NULL, 10 );
+    ulong s = strtoul( sj.ptr+1, NULL, 10 );
+    FD_TEST( c<=limit && s<=c );
+    max = fd_ulong_max( max, c );
+    *stake_sum += s;
+  }
+  return max;
+}
+
 static void
 test_vote_batch( fd_gui_t * gui ) {
   long  base = 5L*FD_GUI_TIMELINE_DAY_NS;
@@ -4764,11 +4822,13 @@ test_vote_batch( fd_gui_t * gui ) {
   r = vote_rec( FD_VOTOR_GUI_REC_KIND_VOTE, FD_VOTE_KIND_NOTAR, 202UL+FD_GUI_VOTE_SLOT_CNT, t2+1L, 5UL );
   fd_gui_handle_votor_gui( gui, &r, 1UL, t2+1L );
   FD_TEST( batch_stake_sum( gui, 202UL, FD_GUI_VOTE_EVENT_BATCH+FD_VOTE_KIND_NOTAR, &c )==5UL && c==1UL );
+  FD_TEST( batch_cum_max( gui, 202UL, FD_GUI_VOTE_EVENT_BATCH+FD_VOTE_KIND_NOTAR )==5UL );
   ulong late = gui->votes.batch_late_cnt;
   r = vote_rec( FD_VOTOR_GUI_REC_KIND_VOTE, FD_VOTE_KIND_SKIP_FALLBACK, 202UL, t2+2L, 7UL );
   fd_gui_handle_votor_gui( gui, &r, 1UL, t2+2L );
   FD_TEST( gui->votes.batch_late_cnt==late+1UL );
   FD_TEST( batch_stake_sum( gui, 202UL, FD_GUI_VOTE_EVENT_BATCH+FD_VOTE_KIND_SKIP_FALLBACK, &c )==7UL && c==1UL );
+  FD_TEST( batch_cum_max( gui, 202UL, FD_GUI_VOTE_EVENT_BATCH+FD_VOTE_KIND_SKIP_FALLBACK )==7UL );
 
   /* A full buffer flushes. */
   long t3 = base+sec_ns( 60UL );
@@ -4781,6 +4841,44 @@ test_vote_batch( fd_gui_t * gui ) {
   FD_TEST( gui->votes.batch[ 300UL%FD_GUI_VOTE_SLOT_CNT ].pt_cnt==1UL );
   fd_gui_vote_batch_flush( gui, t3, 1 );
   FD_TEST( batch_stake_sum( gui, 300UL, FD_GUI_VOTE_EVENT_BATCH+FD_VOTE_KIND_NOTAR, &c )==FD_GUI_VOTE_BATCH_PTS_MAX+1UL );
+  /* The second flush continues the running total of the first. */
+  FD_TEST( batch_cum_max( gui, 300UL, FD_GUI_VOTE_EVENT_BATCH+FD_VOTE_KIND_NOTAR )==FD_GUI_VOTE_BATCH_PTS_MAX+1UL );
+  FD_TEST( batch_cum_max( gui, 200UL, FD_GUI_VOTE_EVENT_BATCH+FD_VOTE_KIND_NOTAR )==4000UL );
+  FD_TEST( batch_cum_max( gui, 200UL, FD_GUI_VOTE_EVENT_BATCH+FD_VOTE_KIND_SKIP  )==2050UL );
+
+  /* A slot split across two requests, polled live: the first request
+     sees half the votes, whose curve ends at its 50th vote.  The rest
+     extend the line, so the open slot simplifies to its two ends and
+     the second request's last breakpoint carries the stake of all but
+     the first vote, already counted by the first request.  Summing
+     stake gives 149%, but the largest cumulative_stake is the total,
+     with votes or vote batches, open or flushed. */
+  long  t4 = base+sec_ns( 80UL );
+  ulong const sl = 400UL;
+  ulong const ek = FD_GUI_VOTE_EVENT_BATCH+FD_VOTE_KIND_NOTAR;
+  ulong const ev_vote = FD_GUI_VOTE_EVENT_VOTE+FD_VOTE_KIND_NOTAR;
+  for( ulong i=0UL; i<100UL; i++ ) recs[ i ] = vote_rec( FD_VOTOR_GUI_REC_KIND_VOTE, FD_VOTE_KIND_NOTAR, sl, t4+(long)i*ms, 100UL );
+  long  mid = t4+50L*ms;
+  long  end = t4+sec_ns( 1UL );
+  ulong s0, s1;
+  fd_gui_handle_votor_gui( gui, recs, 50UL, t4 );
+  ulong c0 = query_cum_max( gui, t4, mid, 1, sl, ek, 10000UL, &s0 );
+  FD_TEST( c0==5000UL && s0==5000UL );
+  fd_gui_handle_votor_gui( gui, recs+50UL, 50UL, t4 );
+  ulong c1 = query_cum_max( gui, mid, end, 1, sl, ek, 10000UL, &s1 );
+  FD_TEST( s0+s1==14900UL ); /* the issue cumulative_stake fixes */
+  FD_TEST( fd_ulong_max( c0, c1 )==10000UL );
+  for( int flushed=0; flushed<2; flushed++ ) {
+    c0 = query_cum_max( gui, t4,  mid, 1, sl, ek, 10000UL, &s0 );
+    c1 = query_cum_max( gui, mid, end, 1, sl, ek, 10000UL, &s1 );
+    FD_TEST( fd_ulong_max( c0, c1 )==10000UL );
+    FD_TEST( query_cum_max( gui, t4, end, 1, sl, ek, 10000UL, &s0 )==10000UL && s0==10000UL );
+    /* Raw votes: the running total at the window edge, then the total. */
+    FD_TEST( query_cum_max( gui, t4,  mid, 0, sl, ev_vote, 10000UL, &s0 )==5000UL && s0==5000UL );
+    FD_TEST( query_cum_max( gui, mid, end, 0, sl, ev_vote, 10000UL, &s1 )==10000UL && s1==5000UL );
+    fd_gui_vote_batch_flush( gui, t4, 1 );
+  }
+  FD_TEST( batch_cum_max( gui, sl, (uint)ek )==10000UL );
 
   /* vote_batch queries return batches and markers, never raw votes;
      vote queries the reverse. */

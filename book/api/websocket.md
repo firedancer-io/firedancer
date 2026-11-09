@@ -3448,6 +3448,21 @@ and recent slots are simplified at query time, so a later query may
 return different breakpoints for them. A vote arriving after its slot
 was batched is a batch of its own.
 
+Summing `stake` only gives a slot's total when every row of the slot
+is summed exactly once, which fails when a slot's votes are split
+across requests: a recent slot's breakpoints can change between
+requests, so a later request can return a breakpoint carrying stake
+already counted in an earlier one. Each vote and vote batch row also
+has `cumulative_stake`, the slot's total stake of the row's kind up to
+and including the row. It is the same for a vote whichever request
+returns it, so the latest stake of a slot's kind is the largest
+`cumulative_stake` among its rows, regardless of how the slot was
+split into requests or whether it was fetched as votes or vote batches.
+For votes, the total is in the order the votor counted them, which can
+differ slightly from timestamp order. `cumulative_stake` is `null` for
+markers and for late votes of a slot whose total was dropped (totals
+are kept for about the 4096 most recent voted slots).
+
 Each vote row is one vote, counted once per voter and kind. If the
 response also has votes (or vote batches) for slots of the next epoch,
 `next_epoch_start_slot` is that epoch's first slot and
@@ -3470,6 +3485,7 @@ the first timestamp. Both are `null` when the arrays are empty.
 | event              | `number[]`          | Per row, the event above |
 | event_ts_delta     | `string[]`          | Per row, timestamp minus `reference_ts`, in nanoseconds |
 | stake              | `(string\|null)[]`  | Per vote row, the voter's stake in lamports; per vote batch row, the stake added since the previous breakpoint; `null` for markers |
+| cumulative_stake   | `(string\|null)[]`  | Per vote or vote batch row, the slot's total stake in lamports of the row's kind up to and including the row; `null` for markers or if unknown |
 | total_stake        | `string\|null`      | Total stake in lamports of the epoch of the lowest voted slot; `null` without votes |
 | next_epoch_start_slot | `number\|null`   | First slot of the next epoch, if the response has votes for it |
 | next_total_stake   | `string\|null`      | Total stake in lamports of the next epoch, if the response has votes for it |
@@ -3504,6 +3520,7 @@ the first timestamp. Both are `null` when the arrays are empty.
         "event": [0, 10, 0, 7, 1],
         "event_ts_delta": ["0", "3000000", "5000000", "41000000", "45000000"],
         "stake": ["4800000000000000", null, "136000000000000000", null, "32400000000000000"],
+        "cumulative_stake": ["4800000000000000", null, "140800000000000000", null, "32400000000000000"],
         "total_stake": "400000000000000000",
         "next_epoch_start_slot": null,
         "next_total_stake": null
