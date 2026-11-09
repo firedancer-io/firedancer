@@ -429,8 +429,9 @@ fd_accdb_reset( fd_accdb_t * accdb ) {
   }
 
   /* Reset shmem scalar fields. */
+  /* generation keeps counting.  req and done name roots by generation,
+     so reusing generations would make a new root look already applied. */
   shmem->root_fork_id   = (fd_accdb_fork_id_t){ .val = USHORT_MAX };
-  shmem->generation     = 0U;
   shmem->partition_lock = 0;
   shmem->partition_max  = 0UL;
   shmem->partition_fallocated = 0UL;
