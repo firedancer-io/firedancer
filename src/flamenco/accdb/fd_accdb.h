@@ -233,7 +233,10 @@ fd_accdb_attach_child( fd_accdb_t *       accdb,
    acquire/release pairs on every sibling of fork_id (and their entire
    subtrees) have completed before calling advance_root.  advance_root
    implicitly purges those sibling subtrees, which frees their fork pool
-   slots for recycling.
+   slots for recycling.  Acquires on any ancestor of fork_id must also
+   have completed: rooting fork_id unlinks the ancestor versions it
+   replaces from the index.  Read-only acquires on fork_id and its
+   descendants may continue.
 
    Once a fork is rooted, its generation becomes the new
    root_generation.  Concurrent acquires that observe the new root will
@@ -635,8 +638,9 @@ fd_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
    acquire and release may be called concurrently from T1 and any number
    of T3 threads.
 
-   Read-only acquire/release on a fork F may run concurrently with
-   advance_root(F) (rooting F itself) and with T2 applying it.
+   Read-only acquire/release on a fork F or its descendants may run
+   concurrently with advance_root(F) and with T2 applying it, but not
+   acquires on an ancestor of F.
 
    fd_accdb_background must be called from exactly one thread (T2). It
    must not be called concurrently with itself.

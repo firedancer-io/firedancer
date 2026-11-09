@@ -1329,6 +1329,30 @@ test_snapshot_write_one( fd_accdb_t *       accdb,
   return 1;
 }
 
+/* Requests name roots by generation.  If reset reused generations, a
+   root requested after reset could match the pre-reset progress and be
+   skipped. */
+void
+test_reset_root_gen( void ) {
+  int fd;
+  fd_accdb_t * accdb = test_setup( &fd, 64UL, 8UL, 4UL, 64UL, 1UL<<30UL );
+
+  fd_accdb_fork_id_t root  = fd_accdb_attach_child( accdb, SENTINEL );
+  fd_accdb_fork_id_t child = fd_accdb_attach_child( accdb, root );
+  fd_accdb_advance_root( accdb, child );
+  while( fd_accdb_requests_pending( accdb ) ) drain_background( accdb );
+
+  fd_accdb_reset( accdb );
+  root  = fd_accdb_attach_child( accdb, SENTINEL );
+  child = fd_accdb_attach_child( accdb, root );
+  fd_accdb_advance_root( accdb, child );
+  FD_TEST( fd_accdb_requests_pending( accdb ) );
+  while( fd_accdb_requests_pending( accdb ) ) drain_background( accdb );
+  FD_TEST( test_shmem_mem->root_fork_id.val==child.val );
+
+  test_teardown( accdb, fd );
+}
+
 /* The pending purge count is purge_seq differences mod 2^16.  Start
    the counters just below the wrap and purge across it, sometimes one
    per pass, sometimes several.  Every purged fork must be purged
@@ -2600,6 +2624,9 @@ main( int     argc,
 
   FD_LOG_NOTICE(( "test_pd_write_bit_and_probe ..." ));
   test_pd_write_bit_and_probe();
+
+  FD_LOG_NOTICE(( "test_reset_root_gen ..." ));
+  test_reset_root_gen();
 
   FD_LOG_NOTICE(( "test_purge_seq_wrap ..." ));
   test_purge_seq_wrap();

@@ -564,9 +564,10 @@ struct fd_accdb_shmem_private {
      req.root_gen is the generation of the latest requested root.  Every
      fork from root_fork_id up to the requested root's parent has a
      single child, and generations increase along that path, so T2
-     roots root_fork_id's child_id until root_fork_id has root_gen.  The
-     initial root has generation 0 and needs no rooting, so root_gen 0
-     also means "nothing requested".
+     roots root_fork_id's child_id until root_fork_id has root_gen.
+     Attaching the initial root requests it as the root, so there is
+     nothing to root.  Generations are never reused (reset keeps
+     counting), so done never matches a request it has not applied.
 
      req.purge_fork is the latest purged (detached) fork.  Each purged
      fork links to the one purged before it through its sibling_id (a
