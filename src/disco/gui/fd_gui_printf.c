@@ -4169,19 +4169,13 @@ fd_gui_printf_timeline_query_chunked( fd_gui_t * gui,
   ulong k1 = fd_ulong_min( (ulong)((end-1L)/FD_GUI_CHUNK_NS)+1UL, fd_gui_chunk_edge( c, kind ) );
   k1 = fd_ulong_max( k0, fd_ulong_min( k1, k0+FD_GUI_CHUNK_QUERY_MAX ) );
 
-  ulong sz    = 0UL;
-  ulong built = 0UL;
-  ulong k     = k0;
+  ulong sz = 0UL;
+  ulong k  = k0;
   for( ; k<k1; k++ ) {
     fd_gui_chunk_entry_t const * e = fd_gui_chunk_get( c, kind, k );
     if( FD_LIKELY( e ) ) {
       c->hit_cnt++;
     } else {
-      /* Bound the work of one request: stop after building
-         FD_GUI_CHUNK_BUILD_MAX chunks, the client continues from
-         available_end_ns. */
-      if( FD_UNLIKELY( built==FD_GUI_CHUNK_BUILD_MAX ) ) break;
-      built++;
       c->miss_cnt++;
       c->mode = 1;
       int err = fd_gui_chunk_print( gui, kind, (long)k*FD_GUI_CHUNK_NS, (long)(k+1UL)*FD_GUI_CHUNK_NS );

@@ -30,7 +30,6 @@
 #define FD_GUI_CHUNK_IDX_CNT     (4096UL)       /* chunks indexed per kind, ~410 s */
 #define FD_GUI_CHUNK_SZ_MAX      (4UL<<20)      /* larger chunks are not cached */
 #define FD_GUI_CHUNK_QUERY_MAX   (300UL)        /* chunks per cached response */
-#define FD_GUI_CHUNK_BUILD_MAX   (20UL)         /* chunks built per cached response */
 #define FD_GUI_CHUNK_RESPONSE_MAX (16UL<<20)    /* compressed bytes per cached response */
 
 #define FD_GUI_CHUNK_KIND_TILE_STATES_TXN   (0)
