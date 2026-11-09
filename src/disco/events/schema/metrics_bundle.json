@@ -140,7 +140,7 @@
                 "sum": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Sum of samples (nanos)" }
             }
         },
-        "txn_pending":                { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Transactions buffered and waiting to be published" },
-        "txn_buffer_full_dropped":    { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Transactions dropped because the pending transaction buffer was full" }
+        "txn_pending":                { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Transactions buffered and waiting to be published", "deprecated": true },
+        "txn_buffer_full_dropped":    { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Transactions from the block engine dropped because the verify tiles were too slow to keep up" }
     }
 }
