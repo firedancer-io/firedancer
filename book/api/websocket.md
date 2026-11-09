@@ -2885,10 +2885,7 @@ covers the time between a row's timestamp and the server recording it
 milliseconds of their last member). A response therefore may cover less than
 the requested window: it ends at `available_end_ns`, and the client
 should request the rest later. A response returns at most 300 chunks
-(30 seconds), and fewer if their compressed size exceeds 16 MiB or more
-than 20 of them are not cached yet: each response builds at most 20
-missing chunks, so a client catching up on history receives it in
-steps. Final
+(30 seconds), and fewer if their compressed size exceeds 16 MiB. Final
 chunks are cached on the server and shared by all clients, so live
 clients following the present should request from the end of their
 previous response. Cached chunks never change: rows recorded late

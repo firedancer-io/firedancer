@@ -650,21 +650,16 @@ test_chunks( fd_gui_t * gui ) {
   plain = field( query( gui, "query_revenue", ts, ts+3000L ), "value" );
   for( ulong i=0UL; i<9UL; i++ ) FD_TEST( json_eq( field( chunk, names[ i ] ), field( plain, names[ i ] ) ) );
 
-  /* A response builds at most FD_GUI_CHUNK_BUILD_MAX missing chunks;
-     the rest follow in the next response. */
+  /* A response builds every missing final chunk of the request. */
   {
     long  b0   = ts+1000000000L; /* uncached, at or after the rows */
     long  save = c->now;
     c->now = b0+10000000000L;
+    ulong miss0 = c->miss_cnt;
     value = field( chunked( gui, 1, FD_GUI_CHUNK_KIND_REVENUE_TXN, b0, b0+50L*FD_GUI_CHUNK_NS, &rc ), "value" );
-    FD_TEST( count( field( value, "chunks" ) )==FD_GUI_CHUNK_BUILD_MAX );
-    long next = b0+(long)FD_GUI_CHUNK_BUILD_MAX*FD_GUI_CHUNK_NS;
-    char want[ 32 ]; fd_cstr_printf_check( want, sizeof(want), NULL, "%ld", next-FD_GUI_CHUNK_NS );
-    FD_TEST( string_eq( field( element( field( value, "chunks" ), FD_GUI_CHUNK_BUILD_MAX-1UL ), "chunk_ts" ), want ) );
-    /* Cached chunks don't count: the second response returns the 20
-       cached ones and builds 20 more. */
-    value = field( chunked( gui, 1, FD_GUI_CHUNK_KIND_REVENUE_TXN, b0, b0+50L*FD_GUI_CHUNK_NS, &rc ), "value" );
-    FD_TEST( count( field( value, "chunks" ) )==2UL*FD_GUI_CHUNK_BUILD_MAX );
+    FD_TEST( count( field( value, "chunks" ) )==50UL && c->miss_cnt==miss0+50UL );
+    char want[ 32 ]; fd_cstr_printf_check( want, sizeof(want), NULL, "%ld", b0+49L*FD_GUI_CHUNK_NS );
+    FD_TEST( string_eq( field( element( field( value, "chunks" ), 49UL ), "chunk_ts" ), want ) );
     c->now = save;
   }
 
