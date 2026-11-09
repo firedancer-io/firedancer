@@ -6,7 +6,7 @@
 
 /* FD_VM_CU_UPDATE charges the vm cost compute units.
 
-   If the vm does not have more than cost cu available, this will cause
+   If the vm has fewer than cost cu available, this will cause
    the caller to zero out the vm->cu and return with FD_VM_SYSCALL_ERR_COMPUTE_BUDGET_EXCEEDED.
    This macro is robust.
    This is meant to be used by syscall implementations and strictly
