@@ -515,64 +515,45 @@ fd_bundle_client_grpc_conn_dead( void * app_ctx,
   ctx->defer_reset = 1;
 }
 
-/* Buffers a bundle transaction for deferred publishing by after_credit. */
+/* Publishes a transaction to the verify tiles.  Assumes the caller
+   checked that a credit is available.  bundle_txn_cnt is zero for a
+   standalone packet. */
 
 static void
-fd_bundle_tile_publish_bundle_txn(
-    fd_bundle_tile_t * ctx,
-    void const *       txn,
-    ulong              txn_sz,  /* <=FD_TXN_MTU */
-    ulong              bundle_txn_cnt,
-    uint               source_ipv4
-) {
-  if( FD_UNLIKELY( !ctx->builder_info_avail ) ) {
-    ctx->metrics.missing_builder_info_fail_cnt++; /* unreachable */
-    return;
-  }
+fd_bundle_tile_publish_txn( fd_bundle_tile_t * ctx,
+                            void const *       txn,
+                            ulong              txn_sz,  /* <=FD_TXN_MTU */
+                            uint               source_ipv4,
+                            ulong              bundle_txn_cnt ) {
+  int is_bundle = bundle_txn_cnt>0UL;
+  fd_txn_m_t * txnm = fd_chunk_to_laddr( ctx->verify_out.mem, ctx->verify_out.chunk );
+  *txnm = (fd_txn_m_t) {
+    .reference_block_height = 0UL,
+    .payload_sz             = (ushort)txn_sz,
+    .txn_t_sz               = 0U,
+    .source_ipv4            = source_ipv4,
+    .source_tpu             = FD_TXN_M_TPU_SOURCE_BUNDLE,
+    .first_seen_nanos       = fd_bundle_now( ctx ),
+    .block_engine = {
+      .bundle_id      = is_bundle ? ctx->bundle_seq : 0UL,
+      .bundle_txn_cnt = is_bundle ? bundle_txn_cnt : 1UL,
+      .commission     = is_bundle ? (uchar)ctx->builder_commission : (uchar)0,
+    },
+  };
+  if( is_bundle ) fd_memcpy( txnm->block_engine.commission_pubkey, ctx->builder_pubkey, 32UL );
+  else            fd_memset( txnm->block_engine.commission_pubkey, 0, 32UL );
+  fd_memcpy( fd_txn_m_payload( txnm ), txn, txn_sz );
 
-  if( FD_UNLIKELY( pending_txn_full( ctx->pending_txns ) ) ) {
-    ctx->metrics.backpressure_drop_cnt++;
-    return;
-  }
-
-  fd_bundle_pending_txn_t * entry = pending_txn_push_tail_nocopy( ctx->pending_txns );
-  fd_memcpy( entry->payload, txn, txn_sz );
-  entry->payload_sz       = (ushort)txn_sz;
-  entry->source_ipv4      = source_ipv4;
-  entry->first_seen_nanos = fd_bundle_now( ctx );
-  entry->sig              = 1UL;
-  entry->bundle_seq       = ctx->bundle_seq;
-  entry->bundle_txn_cnt   = bundle_txn_cnt;
-  entry->commission     = (uchar)ctx->builder_commission;
-  fd_memcpy( entry->commission_pubkey, ctx->builder_pubkey, 32UL );
+  ulong sz    = fd_txn_m_realized_footprint( txnm, 0, 0 );
+  ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_bundle_now( ctx ) );
+  fd_stem_publish( ctx->stem, ctx->verify_out.idx, (ulong)is_bundle, ctx->verify_out.chunk, sz, 0UL, 0UL, tspub );
+  ctx->verify_out.chunk = fd_dcache_compact_next( ctx->verify_out.chunk, sz, ctx->verify_out.chunk0, ctx->verify_out.wmark );
   ctx->metrics.txn_received_cnt++;
 }
 
-/* Buffers a regular transaction for deferred publishing by after_credit. */
-
-static void
-fd_bundle_tile_publish_txn(
-    fd_bundle_tile_t * ctx,
-    void const *       txn,
-    ulong              txn_sz,  /* <=FD_TXN_MTU */
-    uint               source_ipv4
-) {
-  if( FD_UNLIKELY( pending_txn_full( ctx->pending_txns ) ) ) {
-    ctx->metrics.backpressure_drop_cnt++;
-    return;
-  }
-
-  fd_bundle_pending_txn_t * entry = pending_txn_push_tail_nocopy( ctx->pending_txns );
-  fd_memcpy( entry->payload, txn, txn_sz );
-  entry->payload_sz       = (ushort)txn_sz;
-  entry->source_ipv4      = source_ipv4;
-  entry->first_seen_nanos = fd_bundle_now( ctx );
-  entry->sig              = 0UL;
-  entry->bundle_seq       = 0UL;
-  entry->bundle_txn_cnt   = 1UL;
-  entry->commission     = 0U;
-  fd_memset( entry->commission_pubkey, 0, 32UL );
-  ctx->metrics.txn_received_cnt++;
+static inline ulong
+fd_bundle_tile_cr_avail( fd_bundle_tile_t const * ctx ) {
+  return ctx->stem->cr_avail[ ctx->verify_out.idx ];
 }
 
 /* fd_bundle_packet_t holds the fields of a packet.Packet message used
@@ -672,28 +653,12 @@ fd_bundle_client_sample_rx_delay( fd_bundle_tile_t * ctx,
   fd_histf_sample( ctx->metrics.msg_rx_delay, fd_ulong_sat_sub( (ulong)ctx->cached_ts, (ulong)ts ) );
 }
 
-/* Publishes a transaction of a bundle to the tango message bus. */
-
-static void
-fd_bundle_client_handle_bundle_txn( fd_bundle_tile_t *         ctx,
-                                    fd_bundle_packet_t const * packet ) {
-  if( FD_UNLIKELY( packet->data_sz == 0 ) ) {
-    FD_LOG_INFO(( "Bundle server delivered an empty packet, ignoring" ));
-    return;
-  }
-
-  if( FD_UNLIKELY( packet->data_sz > FD_TXN_MTU ) ) {
-    FD_LOG_WARNING(( "Bundle server delivered an oversize transaction, ignoring" ));
-    return;
-  }
-
-  uint _ip4; uint ip4 = fd_uint_if( packet->has_meta, fd_cstr_to_ip4_addr( packet->addr, &_ip4 ) ? _ip4 : ctx->server_ip4_addr, ctx->server_ip4_addr );
-  fd_bundle_tile_publish_bundle_txn(
-      ctx,
-      packet->data, packet->data_sz,
-      ctx->bundle_txn_cnt,
-      ip4
-  );
+static uint
+fd_bundle_packet_ip4( fd_bundle_packet_t const * packet,
+                      uint                       dflt ) {
+  uint ip4;
+  if( packet->has_meta && fd_cstr_to_ip4_addr( packet->addr, &ip4 ) ) return ip4;
+  return dflt;
 }
 
 /* Handles a bundle.Bundle message.  Returns 1 on success and 0 on
@@ -701,21 +666,11 @@ fd_bundle_client_handle_bundle_txn( fd_bundle_tile_t *         ctx,
 
 static int
 fd_bundle_client_handle_bundle( fd_bundle_tile_t * ctx,
-                                fd_pb_inbuf_t      bundle ) {
+                                fd_pb_inbuf_t      in ) {
+  fd_bundle_packet_t packets[ FD_BUNDLE_CLIENT_MAX_TXN_PER_BUNDLE ];
+  ulong cnt = 0UL;
+  long  ts  = 0L;
 
-  /* Reset bundle state */
-
-  ctx->bundle_txn_cnt = 0UL;
-
-  /* Do two decode passes.  This is required because we need to know the
-     number of transactions in a bundle ahead of time.  However, due to
-     the Protobuf wire encoding, we don't know the number of txns that
-     will come until we've parsed everything.
-
-     First pass: Validate and count number of transactions. */
-
-  long ts = 0L;
-  fd_pb_inbuf_t in = bundle;
   while( fd_pb_inbuf_sz( &in ) ) {
     fd_pb_tlv_t tlv[1];
     if( FD_UNLIKELY( !fd_pb_tlv_read( &in, tlv ) ) ) return 0;
@@ -732,7 +687,12 @@ fd_bundle_client_handle_bundle( fd_bundle_tile_t * ctx,
       fd_bundle_packet_t packet[1];
       if( FD_UNLIKELY( !fd_pb_tlv_submsg( &in, tlv, sub ) ) ) return 0;
       if( FD_UNLIKELY( !fd_bundle_client_decode_packet( *sub, packet ) ) ) return 0;
-      ctx->bundle_txn_cnt++;
+      if( FD_UNLIKELY( packet->data_sz==0UL || packet->data_sz>FD_TXN_MTU ) ) {
+        FD_LOG_WARNING(( "Bundle server delivered a %lu byte packet, dropping bundle", packet->data_sz ));
+        return 1;
+      }
+      if( FD_UNLIKELY( cnt>=FD_BUNDLE_CLIENT_MAX_TXN_PER_BUNDLE ) ) return 1;
+      packets[ cnt++ ] = *packet;
       break;
     }
     default:
@@ -741,37 +701,18 @@ fd_bundle_client_handle_bundle( fd_bundle_tile_t * ctx,
     if( FD_UNLIKELY( !fd_pb_tlv_skip( &in, tlv ) ) ) return 0;
   }
 
-  /* At this point, ctx->bundle_txn_cnt is correctly set.  Too many txns
-     is treated as a NOP.
-
-     Second pass: Actually publish bundle packets */
-
-  if( FD_UNLIKELY( ctx->bundle_txn_cnt>FD_BUNDLE_CLIENT_MAX_TXN_PER_BUNDLE ) ) return 1;
-
-  if( FD_UNLIKELY( pending_txn_avail( ctx->pending_txns )<ctx->bundle_txn_cnt ) ) {
-    ctx->metrics.backpressure_drop_cnt += ctx->bundle_txn_cnt;
+  if( FD_UNLIKELY( fd_bundle_tile_cr_avail( ctx )<cnt ) ) {
+    ctx->metrics.backpressure_drop_cnt += cnt;
     return 1;
   }
 
   ctx->bundle_seq++;
   ctx->metrics.bundle_received_cnt++;
-
-  in = bundle;
-  while( fd_pb_inbuf_sz( &in ) ) {
-    fd_pb_tlv_t tlv[1];
-    FD_TEST( fd_pb_tlv_read( &in, tlv ) );
-    if( tlv->field_id==3U ) { /* packets */
-      fd_pb_inbuf_t sub[1];
-      fd_bundle_packet_t packet[1];
-      FD_TEST( fd_pb_tlv_submsg( &in, tlv, sub ) );
-      FD_TEST( fd_bundle_client_decode_packet( *sub, packet ) );
-      fd_bundle_client_handle_bundle_txn( ctx, packet );
-    }
-    FD_TEST( fd_pb_tlv_skip( &in, tlv ) );
+  for( ulong i=0UL; i<cnt; i++ ) {
+    uint ip4 = fd_bundle_packet_ip4( &packets[ i ], ctx->server_ip4_addr );
+    fd_bundle_tile_publish_txn( ctx, packets[ i ].data, packets[ i ].data_sz, ip4, cnt );
   }
-
   fd_bundle_client_sample_rx_delay( ctx, ts );
-
   return 1;
 }
 
@@ -819,18 +760,15 @@ fail:
 static void
 fd_bundle_client_handle_packet( fd_bundle_tile_t *         ctx,
                                 fd_bundle_packet_t const * packet ) {
-  if( FD_UNLIKELY( packet->data_sz == 0 ) ) {
-    FD_LOG_WARNING(( "Bundle server delivered an empty packet, ignoring" ));
+  if( FD_UNLIKELY( packet->data_sz==0UL || packet->data_sz>FD_TXN_MTU ) ) {
+    FD_LOG_WARNING(( "Bundle server delivered a %lu byte packet, ignoring", packet->data_sz ));
     return;
   }
-
-  if( FD_UNLIKELY( packet->data_sz > FD_TXN_MTU ) ) {
-    FD_LOG_WARNING(( "Bundle server delivered an oversize transaction, ignoring" ));
+  if( FD_UNLIKELY( !fd_bundle_tile_cr_avail( ctx ) ) ) {
+    ctx->metrics.backpressure_drop_cnt++;
     return;
   }
-
-  uint _ip4; uint ip4 = fd_uint_if( packet->has_meta, fd_cstr_to_ip4_addr( packet->addr, &_ip4 ) ? _ip4 : 0U, 0U );
-  fd_bundle_tile_publish_txn( ctx, packet->data, packet->data_sz, ip4 );
+  fd_bundle_tile_publish_txn( ctx, packet->data, packet->data_sz, fd_bundle_packet_ip4( packet, 0U ), 0UL );
   ctx->metrics.packet_received_cnt++;
 }
 

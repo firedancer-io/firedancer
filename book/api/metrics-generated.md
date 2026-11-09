@@ -380,8 +380,7 @@
 | <span class="metrics-name">bundle_&#8203;rtt_&#8203;smoothed_&#8203;nanos</span> | gauge | Smoothed block engine HTTP/2 PING round trip (RFC 9002), 0 if none since connect |
 | <span class="metrics-name">bundle_&#8203;rtt_&#8203;deviation_&#8203;nanos</span> | gauge | Mean deviation of block engine HTTP/2 PING round trips (RFC 9002 rttvar), 0 if none since connect |
 | <span class="metrics-name">bundle_&#8203;message_&#8203;rx_&#8203;delay_&#8203;nanos</span> | histogram | Local wall clock minus server timestamp per block engine message; includes clock skew, negative clamped to 0 |
-| <span class="metrics-name">bundle_&#8203;txn_&#8203;pending</span> | gauge | Transactions buffered and waiting to be published |
-| <span class="metrics-name">bundle_&#8203;txn_&#8203;buffer_&#8203;full_&#8203;dropped</span> | counter | Transactions dropped because the pending transaction buffer was full |
+| <span class="metrics-name">bundle_&#8203;txn_&#8203;buffer_&#8203;full_&#8203;dropped</span> | counter | Transactions from the block engine dropped because the verify tiles were too slow to keep up |
 
 </div>
 

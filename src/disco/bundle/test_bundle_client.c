@@ -61,8 +61,7 @@ FD_UNIT_TEST( bundle_rx ) {
       FD_BUNDLE_CLIENT_REQ_Bundle_SubscribePackets
   );
 
-  FD_TEST( pending_txn_cnt( state->pending_txns )==2UL );
-  FD_TEST( pending_txn_peek_head( state->pending_txns )->sig==0UL );
+  FD_TEST( published_txn_cnt( env )==2UL );
 
   state->builder_info_avail = 1;
 
@@ -72,7 +71,7 @@ FD_UNIT_TEST( bundle_rx ) {
       FD_BUNDLE_CLIENT_REQ_Bundle_SubscribeBundles
   );
 
-  FD_TEST( pending_txn_cnt( state->pending_txns )>2UL );
+  FD_TEST( published_txn_cnt( env )>2UL );
 
   test_bundle_env_destroy( env );
 }
@@ -127,7 +126,7 @@ FD_UNIT_TEST( bundle_rx_too_many_txns ) {
       FD_BUNDLE_CLIENT_REQ_Bundle_SubscribeBundles
   );
 
-  FD_TEST( pending_txn_cnt( state->pending_txns )==5UL );
+  FD_TEST( published_txn_cnt( env )==5UL );
   test_bundle_env_destroy( env );
 
   test_bundle_env_create( env, wksp );
@@ -153,8 +152,8 @@ FD_UNIT_TEST( bundle_rx_too_many_txns ) {
       FD_BUNDLE_CLIENT_REQ_Bundle_SubscribeBundles
   );
 
-  FD_TEST( state->bundle_txn_cnt==6 );
-  FD_TEST( pending_txn_cnt( state->pending_txns )==0UL );
+  FD_TEST( state->metrics.bundle_received_cnt==0UL );
+  FD_TEST( published_txn_cnt( env )==0UL );
   test_bundle_env_destroy( env );
 }
 
@@ -175,7 +174,7 @@ FD_UNIT_TEST( bundle_no_builder_fee_info ) {
       subscribe_packets_msg, sizeof(subscribe_packets_msg),
       FD_BUNDLE_CLIENT_REQ_Bundle_SubscribePackets
   );
-  FD_TEST( pending_txn_cnt( state->pending_txns )==1UL );
+  FD_TEST( published_txn_cnt( env )==1UL );
   FD_TEST( state->metrics.packet_received_cnt          ==1UL );
   FD_TEST( state->metrics.missing_builder_info_fail_cnt==0UL );
 
@@ -186,7 +185,7 @@ FD_UNIT_TEST( bundle_no_builder_fee_info ) {
       test_bundle_response, test_bundle_response_sz,
       FD_BUNDLE_CLIENT_REQ_Bundle_SubscribeBundles
   );
-  FD_TEST( pending_txn_cnt( state->pending_txns )==1UL );
+  FD_TEST( published_txn_cnt( env )==1UL );
   FD_TEST( state->metrics.bundle_received_cnt          ==0UL );
   FD_TEST( state->metrics.missing_builder_info_fail_cnt==1UL );
 
@@ -895,8 +894,6 @@ FD_UNIT_TEST( bundle_client_subscribe_bundles ) {
   test_bundle_env_destroy( env );
 }
 
-#define TEST_STEM_BURST (5UL)
-
 typedef struct {
   uchar const * payload;
   ulong         payload_sz;
@@ -952,22 +949,6 @@ encode_subscribe_bundles_response( uchar *                payload_buf,
   return fd_pb_encoder_out_sz( enc );
 }
 
-static ulong
-published_txn_cnt( test_bundle_env_t const * env ) {
-  return env->stem_seqs[ 0 ];
-}
-
-static fd_txn_m_t const *
-published_txn( test_bundle_env_t const *  env,
-               ulong                      seq,
-               fd_frag_meta_t const **    opt_meta ) {
-  FD_TEST( seq<published_txn_cnt( env ) );
-  fd_frag_meta_t const * meta = env->out_mcache + fd_mcache_line_idx( seq, env->stem_depths[ 0 ] );
-  FD_TEST( meta->seq==seq );
-  if( opt_meta ) *opt_meta = meta;
-  return (fd_txn_m_t const *)fd_chunk_to_laddr( env->out_dcache, meta->chunk );
-}
-
 static void
 expect_published_txn( test_bundle_env_t const * env,
                       ulong                     seq,
@@ -992,74 +973,7 @@ expect_published_txn( test_bundle_env_t const * env,
   FD_TEST( 0==memcmp( fd_txn_m_payload_const( txnm ), payload, payload_sz ) );
 }
 
-/* Mirror the production after_credit publish loop so tests can verify
-   actual published output without exposing the static callback. */
-
-static ulong
-publish_after_credit( fd_bundle_tile_t * state ) {
-  if( pending_txn_empty( state->pending_txns ) ) return 0UL;
-
-  fd_stem_context_t * stem = state->stem;
-  fd_bundle_pending_txn_t * head = pending_txn_peek_head( state->pending_txns );
-  ulong drain_seq = head->bundle_seq;
-  ulong drain_sig = head->sig;
-  ulong drain_cnt = 0UL;
-
-  do {
-    fd_bundle_pending_txn_t const * txn = pending_txn_peek_head( state->pending_txns );
-
-    fd_txn_m_t * txnm = fd_chunk_to_laddr( state->verify_out.mem, state->verify_out.chunk );
-    *txnm = (fd_txn_m_t) {
-      .reference_block_height = 0UL,
-      .payload_sz             = txn->payload_sz,
-      .txn_t_sz               = 0U,
-      .source_ipv4            = txn->source_ipv4,
-      .source_tpu             = FD_TXN_M_TPU_SOURCE_BUNDLE,
-      .block_engine           = {
-        .bundle_id      = txn->bundle_seq,
-        .bundle_txn_cnt = txn->bundle_txn_cnt,
-        .commission     = txn->commission,
-      },
-    };
-    fd_memcpy( txnm->block_engine.commission_pubkey, txn->commission_pubkey, 32UL );
-    fd_memcpy( fd_txn_m_payload( txnm ), txn->payload, txn->payload_sz );
-
-    ulong sz    = fd_txn_m_realized_footprint( txnm, 0, 0 );
-    ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_bundle_now( state ) );
-    fd_stem_publish( stem, state->verify_out.idx, txn->sig, state->verify_out.chunk, sz, 0UL, 0UL, tspub );
-    state->verify_out.chunk = fd_dcache_compact_next( state->verify_out.chunk, sz, state->verify_out.chunk0, state->verify_out.wmark );
-
-    pending_txn_remove_head( state->pending_txns );
-    drain_cnt++;
-  } while( fd_bundle_drain_continue( state->pending_txns, drain_sig, drain_seq, drain_cnt, TEST_STEM_BURST ) );
-
-  return drain_cnt;
-}
-
-/* Simulate after_credit drain using the same continuation logic as
-   production (fd_bundle_drain_continue). */
-
-static ulong
-drain_one_bundle( fd_bundle_pending_txn_t * deque ) {
-  if( pending_txn_empty( deque ) ) return 0UL;
-
-  fd_bundle_pending_txn_t * head = pending_txn_peek_head( deque );
-  ulong drain_seq = head->bundle_seq;
-  ulong drain_sig = head->sig;
-  ulong cnt = 0UL;
-
-  do {
-    pending_txn_pop_head( deque );
-    cnt++;
-  } while( fd_bundle_drain_continue( deque, drain_sig, drain_seq, cnt, TEST_STEM_BURST ) );
-
-  return cnt;
-}
-
-/* Verify that the drain logic publishes one complete bundle
-   atomically, stopping at bundle boundaries. */
-
-FD_UNIT_TEST( packet_publish_after_credit ) {
+FD_UNIT_TEST( packet_publish ) {
   test_bundle_env_t env[1];
   test_bundle_env_create( env, wksp );
   fd_bundle_tile_t * state = env->state;
@@ -1079,12 +993,7 @@ FD_UNIT_TEST( packet_publish_after_credit ) {
       FD_BUNDLE_CLIENT_REQ_Bundle_SubscribePackets
   );
 
-  FD_TEST( pending_txn_cnt( state->pending_txns )==2UL );
-  FD_TEST( published_txn_cnt( env )==0UL );
-
   uchar const zero_pubkey[ 32 ] = {0};
-  FD_TEST( publish_after_credit( state )==2UL );
-  FD_TEST( pending_txn_empty( state->pending_txns ) );
   FD_TEST( published_txn_cnt( env )==2UL );
   expect_published_txn( env, 0UL, 0UL, payload0, sizeof(payload0), 0UL, 1UL, 0U, zero_pubkey );
   expect_published_txn( env, 1UL, 0UL, payload1, sizeof(payload1), 0UL, 1UL, 0U, zero_pubkey );
@@ -1092,10 +1001,7 @@ FD_UNIT_TEST( packet_publish_after_credit ) {
   test_bundle_env_destroy( env );
 }
 
-/* Verify that bundles publish atomically: one full bundle per
-   after_credit-style drain, never crossing into the next bundle. */
-
-FD_UNIT_TEST( packet_publish_after_credit_atomic ) {
+FD_UNIT_TEST( bundle_publish ) {
   test_bundle_env_t env[1];
   test_bundle_env_create( env, wksp );
   fd_bundle_tile_t * state = env->state;
@@ -1132,29 +1038,17 @@ FD_UNIT_TEST( packet_publish_after_credit_atomic ) {
       FD_BUNDLE_CLIENT_REQ_Bundle_SubscribeBundles
   );
 
-  FD_TEST( pending_txn_cnt( state->pending_txns )==5UL );
-  FD_TEST( published_txn_cnt( env )==0UL );
-
-  FD_TEST( publish_after_credit( state )==3UL );
-  FD_TEST( pending_txn_cnt( state->pending_txns )==2UL );
-  FD_TEST( pending_txn_peek_head( state->pending_txns )->bundle_seq==2UL );
+  FD_TEST( published_txn_cnt( env )==5UL );
   expect_published_txn( env, 0UL, 1UL, bundle_a0, sizeof(bundle_a0), 1UL, 3UL, 7U, builder_pubkey );
   expect_published_txn( env, 1UL, 1UL, bundle_a1, sizeof(bundle_a1), 1UL, 3UL, 7U, builder_pubkey );
   expect_published_txn( env, 2UL, 1UL, bundle_a2, sizeof(bundle_a2), 1UL, 3UL, 7U, builder_pubkey );
-
-  FD_TEST( publish_after_credit( state )==2UL );
-  FD_TEST( pending_txn_empty( state->pending_txns ) );
-  FD_TEST( published_txn_cnt( env )==5UL );
   expect_published_txn( env, 3UL, 1UL, bundle_b0, sizeof(bundle_b0), 2UL, 2UL, 7U, builder_pubkey );
   expect_published_txn( env, 4UL, 1UL, bundle_b1, sizeof(bundle_b1), 2UL, 2UL, 7U, builder_pubkey );
 
   test_bundle_env_destroy( env );
 }
 
-/* Bundles are all-or-nothing at the head of the queue: after_credit
-   must publish the entire bundle before touching following packets. */
-
-FD_UNIT_TEST( bundle_publish_all_or_nothing ) {
+FD_UNIT_TEST( bundle_publish_max_txn ) {
   test_bundle_env_t env[1];
   test_bundle_env_create( env, wksp );
   fd_bundle_tile_t * state = env->state;
@@ -1195,11 +1089,7 @@ FD_UNIT_TEST( bundle_publish_all_or_nothing ) {
       FD_BUNDLE_CLIENT_REQ_Bundle_SubscribePackets
   );
 
-  FD_TEST( pending_txn_cnt( state->pending_txns )==6UL );
-  FD_TEST( publish_after_credit( state )==5UL );
-  FD_TEST( published_txn_cnt( env )==5UL );
-  FD_TEST( pending_txn_cnt( state->pending_txns )==1UL );
-  FD_TEST( pending_txn_peek_head( state->pending_txns )->sig==0UL );
+  FD_TEST( published_txn_cnt( env )==6UL );
 
   uchar const zero_pubkey[ 32 ] = {0};
   expect_published_txn( env, 0UL, 1UL, b0, sizeof(b0), 1UL, 5UL, 0U, zero_pubkey );
@@ -1207,17 +1097,12 @@ FD_UNIT_TEST( bundle_publish_all_or_nothing ) {
   expect_published_txn( env, 2UL, 1UL, b2, sizeof(b2), 1UL, 5UL, 0U, zero_pubkey );
   expect_published_txn( env, 3UL, 1UL, b3, sizeof(b3), 1UL, 5UL, 0U, zero_pubkey );
   expect_published_txn( env, 4UL, 1UL, b4, sizeof(b4), 1UL, 5UL, 0U, zero_pubkey );
-
-  FD_TEST( publish_after_credit( state )==1UL );
-  FD_TEST( pending_txn_empty( state->pending_txns ) );
   expect_published_txn( env, 5UL, 0UL, pkt, sizeof(pkt), 0UL, 1UL, 0U, zero_pubkey );
 
   test_bundle_env_destroy( env );
 }
 
-/* Verify queue boundary behavior with mixed packets and bundles. */
-
-FD_UNIT_TEST( mixed_queue_boundary_behavior ) {
+FD_UNIT_TEST( mixed_publish_order ) {
   test_bundle_env_t env[1];
   test_bundle_env_create( env, wksp );
   fd_bundle_tile_t * state = env->state;
@@ -1260,202 +1145,78 @@ FD_UNIT_TEST( mixed_queue_boundary_behavior ) {
   fd_bundle_client_grpc_rx_msg( state, packet_buf1, packet_sz1, FD_BUNDLE_CLIENT_REQ_Bundle_SubscribePackets );
 
   uchar const zero_pubkey[ 32 ] = {0};
-  FD_TEST( pending_txn_cnt( state->pending_txns )==8UL );
-
-  FD_TEST( publish_after_credit( state )==4UL );
-  FD_TEST( pending_txn_cnt( state->pending_txns )==4UL );
+  FD_TEST( published_txn_cnt( env )==8UL );
   expect_published_txn( env, 0UL, 0UL, p0, sizeof(p0), 0UL, 1UL, 0U, zero_pubkey );
   expect_published_txn( env, 1UL, 0UL, p1, sizeof(p1), 0UL, 1UL, 0U, zero_pubkey );
   expect_published_txn( env, 2UL, 0UL, p2, sizeof(p2), 0UL, 1UL, 0U, zero_pubkey );
   expect_published_txn( env, 3UL, 0UL, p3, sizeof(p3), 0UL, 1UL, 0U, zero_pubkey );
-
-  FD_TEST( publish_after_credit( state )==2UL );
-  FD_TEST( pending_txn_cnt( state->pending_txns )==2UL );
   expect_published_txn( env, 4UL, 1UL, b0, sizeof(b0), 1UL, 2UL, 0U, zero_pubkey );
   expect_published_txn( env, 5UL, 1UL, b1, sizeof(b1), 1UL, 2UL, 0U, zero_pubkey );
-
-  FD_TEST( publish_after_credit( state )==2UL );
-  FD_TEST( pending_txn_empty( state->pending_txns ) );
   expect_published_txn( env, 6UL, 0UL, p4, sizeof(p4), 0UL, 1UL, 0U, zero_pubkey );
   expect_published_txn( env, 7UL, 0UL, p5, sizeof(p5), 0UL, 1UL, 0U, zero_pubkey );
 
   test_bundle_env_destroy( env );
 }
 
-/* Messages are only buffered by grpc_rx_msg. Nothing should hit the
-   output link until after_credit runs. */
+/* Packets and bundles are dropped (and counted) when the verify link
+   has no credits.  A bundle needs a credit per txn. */
 
-FD_UNIT_TEST( no_publish_before_after_credit ) {
+FD_UNIT_TEST( backpressure_drop ) {
   test_bundle_env_t env[1];
   test_bundle_env_create( env, wksp );
   fd_bundle_tile_t * state = env->state;
   state->builder_info_avail = 1;
-
-  uchar const packet_payload[] = { 0x55 };
-  uchar const bundle_payload0[] = { 0x66 };
-  uchar const bundle_payload1[] = { 0x67 };
-  test_packet_desc_t packets[] = {
-    { .payload=packet_payload, .payload_sz=sizeof(packet_payload) },
-  };
-  test_packet_desc_t bundle_packets[] = {
-    { .payload=bundle_payload0, .payload_sz=sizeof(bundle_payload0) },
-    { .payload=bundle_payload1, .payload_sz=sizeof(bundle_payload1) },
-  };
-  test_bundle_desc_t bundles[] = {
-    { .packets=bundle_packets, .packet_cnt=2UL, .uuid={5,4,3}, .uuid_sz=3UL },
-  };
-  uchar packet_buf[ 128 ];
-  uchar bundle_buf[ 256 ];
-  ulong packet_sz = encode_subscribe_packets_response( packet_buf, sizeof(packet_buf), packets, 1UL );
-  ulong bundle_sz = encode_subscribe_bundles_response( bundle_buf, sizeof(bundle_buf), bundles, 1UL );
-
-  fd_bundle_client_grpc_rx_msg(
-      state,
-      packet_buf, packet_sz,
-      FD_BUNDLE_CLIENT_REQ_Bundle_SubscribePackets
-  );
-  FD_TEST( pending_txn_cnt( state->pending_txns )==1UL );
-  FD_TEST( published_txn_cnt( env )==0UL );
-
-  fd_bundle_client_grpc_rx_msg(
-      state,
-      bundle_buf, bundle_sz,
-      FD_BUNDLE_CLIENT_REQ_Bundle_SubscribeBundles
-  );
-  FD_TEST( pending_txn_cnt( state->pending_txns )==3UL );
-  FD_TEST( published_txn_cnt( env )==0UL );
-
-  test_bundle_env_destroy( env );
-}
-
-FD_UNIT_TEST( bundle_drain_atomicity ) {
-  test_bundle_env_t env[1];
-  test_bundle_env_create( env, wksp );
-  fd_bundle_tile_t * state = env->state;
-  state->builder_info_avail = 1;
-
-  /* Push bundle A (3 txns, bundle_seq=1) */
-  for( ulong i=0; i<3; i++ ) {
-    fd_bundle_pending_txn_t entry = { .sig=1UL, .bundle_seq=1UL };
-    pending_txn_push_tail( state->pending_txns, entry );
-  }
-
-  /* Push bundle B (2 txns, bundle_seq=2) */
-  for( ulong i=0; i<2; i++ ) {
-    fd_bundle_pending_txn_t entry = { .sig=1UL, .bundle_seq=2UL };
-    pending_txn_push_tail( state->pending_txns, entry );
-  }
-
-  FD_TEST( pending_txn_cnt( state->pending_txns )==5UL );
-
-  /* First drain: should pop exactly bundle A (3 txns) */
-  ulong drained = drain_one_bundle( state->pending_txns );
-  FD_TEST( drained==3UL );
-  FD_TEST( pending_txn_cnt( state->pending_txns )==2UL );
-  FD_TEST( pending_txn_peek_head( state->pending_txns )->bundle_seq==2UL );
-
-  /* Second drain: should pop exactly bundle B (2 txns) */
-  drained = drain_one_bundle( state->pending_txns );
-  FD_TEST( drained==2UL );
-  FD_TEST( pending_txn_empty( state->pending_txns ) );
-
-  test_bundle_env_destroy( env );
-}
-
-/* Verify that individual packets drain up to STEM_BURST per call. */
-
-FD_UNIT_TEST( packet_drain_batch ) {
-  test_bundle_env_t env[1];
-  test_bundle_env_create( env, wksp );
-  fd_bundle_tile_t * state = env->state;
-
-  /* Push 4 packets (< STEM_BURST) -- should drain in one call */
-  for( ulong i=0; i<4; i++ ) {
-    fd_bundle_pending_txn_t entry = { .sig=0UL, .bundle_seq=0UL };
-    pending_txn_push_tail( state->pending_txns, entry );
-  }
-  FD_TEST( drain_one_bundle( state->pending_txns )==4UL );
-  FD_TEST( pending_txn_empty( state->pending_txns ) );
-
-  /* Push 8 packets (> STEM_BURST) -- should drain 5 then 3 */
-  for( ulong i=0; i<8; i++ ) {
-    fd_bundle_pending_txn_t entry = { .sig=0UL, .bundle_seq=0UL };
-    pending_txn_push_tail( state->pending_txns, entry );
-  }
-  FD_TEST( drain_one_bundle( state->pending_txns )==TEST_STEM_BURST );
-  FD_TEST( pending_txn_cnt( state->pending_txns )==3UL );
-  FD_TEST( drain_one_bundle( state->pending_txns )==3UL );
-  FD_TEST( pending_txn_empty( state->pending_txns ) );
-
-  test_bundle_env_destroy( env );
-}
-
-/* Verify correct drain ordering when bundles and packets are
-   interleaved in the deque. */
-
-FD_UNIT_TEST( interleaved_drain ) {
-  test_bundle_env_t env[1];
-  test_bundle_env_create( env, wksp );
-  fd_bundle_tile_t * state = env->state;
-  state->builder_info_avail = 1;
-
-  /* packet, bundle(3 txns), packet, packet */
-  fd_bundle_pending_txn_t pkt = { .sig=0UL, .bundle_seq=0UL };
-  pending_txn_push_tail( state->pending_txns, pkt );
-
-  for( ulong i=0; i<3; i++ ) {
-    fd_bundle_pending_txn_t b = { .sig=1UL, .bundle_seq=5UL };
-    pending_txn_push_tail( state->pending_txns, b );
-  }
-
-  pending_txn_push_tail( state->pending_txns, pkt );
-  pending_txn_push_tail( state->pending_txns, pkt );
-
-  FD_TEST( pending_txn_cnt( state->pending_txns )==6UL );
-
-  /* Drain 1: leading packet (1, stops because next entry is a bundle) */
-  FD_TEST( drain_one_bundle( state->pending_txns )==1UL );
-  FD_TEST( pending_txn_cnt( state->pending_txns )==5UL );
-
-  /* Drain 2: bundle (3 txns, same bundle_seq) */
-  FD_TEST( drain_one_bundle( state->pending_txns )==3UL );
-  FD_TEST( pending_txn_cnt( state->pending_txns )==2UL );
-
-  /* Drain 3: trailing 2 packets batched (2 < STEM_BURST) */
-  FD_TEST( drain_one_bundle( state->pending_txns )==2UL );
-  FD_TEST( pending_txn_empty( state->pending_txns ) );
-
-  test_bundle_env_destroy( env );
-}
-
-/* Verify that the pending_txn_full guard fires and counts drops. */
-
-FD_UNIT_TEST( deque_overflow_guard ) {
-  test_bundle_env_t env[1];
-  test_bundle_env_create( env, wksp );
-  fd_bundle_tile_t * state = env->state;
-
-  ulong cap = pending_txn_max( state->pending_txns );
-  for( ulong i=0; i<cap; i++ ) {
-    fd_bundle_pending_txn_t entry = {0};
-    entry.sig = 0UL;
-    pending_txn_push_tail( state->pending_txns, entry );
-  }
-  FD_TEST( pending_txn_full( state->pending_txns ) );
-  FD_TEST( state->metrics.backpressure_drop_cnt==0UL );
 
   static uchar single_packet_msg[] = {
     0x12, 0x09, 0x0a, 0x07, 0x0a, 0x01, 0x48, 0x12,
     0x02, 0x08, 0x01
   };
-  fd_bundle_client_grpc_rx_msg(
-      state,
-      single_packet_msg, sizeof(single_packet_msg),
-      FD_BUNDLE_CLIENT_REQ_Bundle_SubscribePackets
-  );
-
-  FD_TEST( pending_txn_cnt( state->pending_txns )==cap );
+  env->stem_cr_avail[ 0 ] = 0UL;
+  fd_bundle_client_grpc_rx_msg( state, single_packet_msg, sizeof(single_packet_msg), FD_BUNDLE_CLIENT_REQ_Bundle_SubscribePackets );
+  FD_TEST( published_txn_cnt( env )==0UL );
   FD_TEST( state->metrics.backpressure_drop_cnt==1UL );
+
+  uchar const b0[] = { 0x10 };
+  uchar const b1[] = { 0x11 };
+  test_packet_desc_t bundle_packets[] = {
+    { .payload=b0, .payload_sz=sizeof(b0) },
+    { .payload=b1, .payload_sz=sizeof(b1) },
+  };
+  test_bundle_desc_t bundles[] = {
+    { .packets=bundle_packets, .packet_cnt=2UL, .uuid={1,1,1}, .uuid_sz=3UL },
+  };
+  uchar bundle_buf[ 256 ];
+  ulong bundle_sz = encode_subscribe_bundles_response( bundle_buf, sizeof(bundle_buf), bundles, 1UL );
+
+  env->stem_cr_avail[ 0 ] = 1UL;
+  fd_bundle_client_grpc_rx_msg( state, bundle_buf, bundle_sz, FD_BUNDLE_CLIENT_REQ_Bundle_SubscribeBundles );
+  FD_TEST( published_txn_cnt( env )==0UL );
+  FD_TEST( state->metrics.backpressure_drop_cnt==3UL );
+  FD_TEST( state->metrics.bundle_received_cnt==0UL );
+
+  env->stem_cr_avail[ 0 ] = 2UL;
+  fd_bundle_client_grpc_rx_msg( state, bundle_buf, bundle_sz, FD_BUNDLE_CLIENT_REQ_Bundle_SubscribeBundles );
+  FD_TEST( published_txn_cnt( env )==2UL );
+  FD_TEST( env->stem_cr_avail[ 0 ]==0UL );
+  FD_TEST( state->metrics.backpressure_drop_cnt==3UL );
+  FD_TEST( state->metrics.bundle_received_cnt==1UL );
+
+  /* Two bundles in one message with credits for one and a half: the
+     first publishes whole, the second is dropped whole. */
+  test_bundle_desc_t two_bundles[] = {
+    { .packets=bundle_packets, .packet_cnt=2UL, .uuid={2,2,2}, .uuid_sz=3UL },
+    { .packets=bundle_packets, .packet_cnt=2UL, .uuid={3,3,3}, .uuid_sz=3UL },
+  };
+  ulong two_sz = encode_subscribe_bundles_response( bundle_buf, sizeof(bundle_buf), two_bundles, 2UL );
+  env->stem_cr_avail[ 0 ] = 3UL;
+  fd_bundle_client_grpc_rx_msg( state, bundle_buf, two_sz, FD_BUNDLE_CLIENT_REQ_Bundle_SubscribeBundles );
+  FD_TEST( published_txn_cnt( env )==4UL );
+  FD_TEST( env->stem_cr_avail[ 0 ]==1UL );
+  FD_TEST( state->metrics.backpressure_drop_cnt==5UL );
+  FD_TEST( state->metrics.bundle_received_cnt==2UL );
+  uchar const zero_pubkey[ 32 ] = {0};
+  expect_published_txn( env, 2UL, 1UL, b0, sizeof(b0), 2UL, 2UL, 0U, zero_pubkey );
+  expect_published_txn( env, 3UL, 1UL, b1, sizeof(b1), 2UL, 2UL, 0U, zero_pubkey );
 
   test_bundle_env_destroy( env );
 }

@@ -9953,8 +9953,8 @@ message MetricsBundle {
   // Local wall clock minus server timestamp per block engine message; includes clock skew, negative clamped to 0
   MetricsBundleMessageRxDelayNanos message_rx_delay_nanos = 37;
   // Transactions buffered and waiting to be published
-  uint64 txn_pending = 38;
-  // Transactions dropped because the pending transaction buffer was full
+  uint64 txn_pending = 38 [deprecated = true];
+  // Transactions from the block engine dropped because the verify tiles were too slow to keep up
   uint64 txn_buffer_full_dropped = 39;
 }
 

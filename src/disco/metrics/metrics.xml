@@ -485,8 +485,8 @@ deliberate exception with lint-allow="<rule id>")
     <histogram name="MessageRxDelayNanos" min="100000" max="1000000000">
         <summary>Local wall clock minus server timestamp per block engine message; includes clock skew, negative clamped to 0</summary>
     </histogram>
-    <gauge name="TxnPending" summary="Transactions buffered and waiting to be published" />
-    <counter name="TxnBufferFullDropped" summary="Transactions dropped because the pending transaction buffer was full" />
+    <gauge name="TxnPending" deprecated="true" summary="Transactions buffered and waiting to be published" />
+    <counter name="TxnBufferFullDropped" summary="Transactions from the block engine dropped because the verify tiles were too slow to keep up" />
 </tile>
 
 <enum name="VerifyResult">
