@@ -3,6 +3,7 @@
 #include "fd_ssarchive.h"
 
 #include "../../../third_party/picohttpparser/picohttpparser.h"
+#include "../../../waltz/http/fd_url.h"
 #include "../../../waltz/tlsrec/fd_tlsrec_sock.h"
 #include "../../../ballet/ed25519/fd_x25519.h"
 #include "../../../util/log/fd_log.h"
@@ -304,13 +305,20 @@ fd_ssresolve_parse_redirect( fd_ssresolve_t *        ssresolve,
 
   for( ulong i=0UL; i<header_cnt; i++ ) {
     if( FD_UNLIKELY( headers[ i ].name_len == 8 && !strncasecmp( headers[ i ].name, "location", headers[ i ].name_len ) ) ) {
-      if( FD_UNLIKELY( !headers [ i ].value_len || headers[ i ].value[ 0 ]!='/' ) ) {
+      location_len = headers[ i ].value_len;
+      location     = headers[ i ].value;
+
+      /* The Firedancer rpc tile redirects with a full URL.  Only the
+         file name matters here. */
+      fd_url_t url[ 1 ];
+      if( location_len && location[ 0 ]!='/' && fd_url_parse_cstr( url, location, location_len, NULL ) ) {
+        location     = url->tail;
+        location_len = url->tail_len;
+      }
+      if( FD_UNLIKELY( !location_len || location[ 0 ]!='/' ) ) {
         FD_LOG_WARNING(( "invalid location header `%.*s`", (int)headers[ i ].value_len, headers[ i ].value ));
         return FD_SSRESOLVE_ADVANCE_ERROR;
       }
-
-      location_len = headers[ i ].value_len;
-      location = headers[ i ].value;
       break;
     }
   }

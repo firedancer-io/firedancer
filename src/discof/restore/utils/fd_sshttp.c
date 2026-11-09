@@ -6,6 +6,7 @@
 #include "../../../util/log/fd_log.h"
 #include "../../../util/fd_util.h"
 #include "../../../waltz/http/fd_http.h"
+#include "../../../waltz/http/fd_url.h"
 #include "../../../ballet/ed25519/fd_x25519.h"
 
 FD_STATIC_ASSERT( FD_HASH_FOOTPRINT==32UL, resolved_hash_sz );
@@ -501,67 +502,30 @@ send_request( fd_sshttp_t * http,
 
 /* Agave redirects to a path on the same server.  The Firedancer rpc
    tile redirects to the snapshot server on another port with a full
-   URL, http://host:port/path.  The host must be the address or name
-   already being talked to, so a peer cannot send the download
-   somewhere else.  On success addr, is_https, path and path_len
-   describe the new target.  Returns -1 for any other URL. */
+   URL.  Only the host already being talked to is accepted, so a peer
+   cannot send the download elsewhere, and the scheme may not change.
+   Returns the path, shrinks *len to it and stores the port in *port.
+   Returns NULL for any other URL. */
 
-static int
+static char const *
 parse_redirect_url( fd_sshttp_t const * http,
                     char const *        url,
-                    ulong               url_len,
-                    fd_ip4_port_t *     addr,
-                    int *               is_https,
-                    char const **       path,
-                    ulong *             path_len ) {
-  if( url_len>=7UL && !strncmp( url, "http://", 7UL ) ) {
-    *is_https = 0;
-    url     += 7UL;
-    url_len -= 7UL;
-  } else if( url_len>=8UL && !strncmp( url, "https://", 8UL ) ) {
-    *is_https = 1;
-    url     += 8UL;
-    url_len -= 8UL;
-  } else {
-    return -1;
-  }
+                    ulong *             len,
+                    ushort *            port ) {
+  fd_url_t parsed[ 1 ];
+  _Bool    is_ssl;
+  if( FD_UNLIKELY( fd_url_parse_endpoint( parsed, url, *len, port, &is_ssl, "redirect location" ) ) ) return NULL;
+  if( FD_UNLIKELY( is_ssl!=(_Bool)http->is_https ) ) return NULL;
+  if( FD_UNLIKELY( !parsed->tail_len || parsed->tail[ 0 ]!='/' ) ) return NULL;
 
-  char const * slash = memchr( url, '/', url_len );
-  if( FD_UNLIKELY( !slash ) ) return -1;
-  ulong host_len = (ulong)(slash-url);
+  char ip[ 16 ];
+  fd_cstr_printf( ip, sizeof(ip), NULL, FD_IP4_ADDR_FMT, FD_IP4_ADDR_FMT_ARGS( http->addr.addr ) );
+  int same_ip   = parsed->host_len==strlen( ip ) && !memcmp( parsed->host, ip, parsed->host_len );
+  int same_name = http->hostname[ 0 ] && parsed->host_len==strlen( http->hostname ) && !memcmp( parsed->host, http->hostname, parsed->host_len );
+  if( FD_UNLIKELY( !same_ip && !same_name ) ) return NULL;
 
-  ulong        port  = fd_ulong_if( *is_https, 443UL, 80UL );
-  char const * colon = memchr( url, ':', host_len );
-  if( colon ) {
-    char const * digits = colon+1UL;
-    ulong digits_len = (ulong)(slash-digits);
-    if( FD_UNLIKELY( !digits_len || digits_len>5UL ) ) return -1;
-    port = 0UL;
-    for( ulong i=0UL; i<digits_len; i++ ) {
-      if( FD_UNLIKELY( digits[ i ]<'0' || digits[ i ]>'9' ) ) return -1;
-      port = port*10UL + (ulong)(digits[ i ]-'0');
-    }
-    if( FD_UNLIKELY( !port || port>USHORT_MAX ) ) return -1;
-    host_len = (ulong)(colon-url);
-  }
-  if( FD_UNLIKELY( !host_len || host_len>=FD_FQDN_BUF_MAX ) ) return -1;
-
-  char host[ FD_FQDN_BUF_MAX ];
-  fd_memcpy( host, url, host_len );
-  host[ host_len ] = '\0';
-
-  uint ip4;
-  if( fd_cstr_to_ip4_addr( host, &ip4 ) ) {
-    if( FD_UNLIKELY( ip4!=http->addr.addr ) ) return -1;
-  } else if( FD_UNLIKELY( strcmp( host, http->hostname ) ) ) {
-    return -1;
-  }
-
-  addr->addr = http->addr.addr;
-  addr->port = fd_ushort_bswap( (ushort)port );
-  *path      = slash;
-  *path_len  = url_len-(ulong)(slash-url);
-  return 0;
+  *len = parsed->tail_len;
+  return parsed->tail;
 }
 
 static int
@@ -578,23 +542,16 @@ follow_redirect( fd_sshttp_t *        http,
   /* The check above guarantees hops>0. */
   http->hops--;
 
-  ulong         location_len = 0UL;
-  char const *  location     = NULL;
-  fd_ip4_port_t addr         = http->addr;
-  int           is_https     = http->is_https;
+  ulong        location_len = 0UL;
+  char const * location     = NULL;
+  ushort       port         = fd_ushort_bswap( http->addr.port );
 
   for( ulong i=0UL; i<header_cnt; i++ ) {
     if( FD_UNLIKELY( headers[ i ].name_len == 8 && !strncasecmp( headers[ i ].name, "location", headers[ i ].name_len ) ) ) {
       location_len = headers[ i ].value_len;
       location     = headers[ i ].value;
-      if( location_len && location[ 0 ]!='/' &&
-          parse_redirect_url( http, location, location_len, &addr, &is_https, &location, &location_len ) ) {
-        FD_LOG_WARNING(( "refusing redirect to `%.*s` from " FD_IP4_ADDR_FMT ":%hu", (int)headers[ i ].value_len, headers[ i ].value,
-                         FD_IP4_ADDR_FMT_ARGS( http->addr.addr ), fd_ushort_bswap( http->addr.port ) ));
-        fd_sshttp_cancel( http );
-        return FD_SSHTTP_ADVANCE_ERROR;
-      }
-      if( FD_UNLIKELY( !location_len ) ) {
+      if( location_len && location[ 0 ]!='/' ) location = parse_redirect_url( http, location, &location_len, &port );
+      if( FD_UNLIKELY( !location || !location_len ) ) {
         FD_LOG_WARNING(( "invalid location header `%.*s` from " FD_IP4_ADDR_FMT ":%hu", (int)headers[ i ].value_len, headers[ i ].value,
                          FD_IP4_ADDR_FMT_ARGS( http->addr.addr ), fd_ushort_bswap( http->addr.port ) ));
         fd_sshttp_cancel( http );
@@ -646,8 +603,7 @@ follow_redirect( fd_sshttp_t *        http,
     fd_sshttp_cancel( http );
     return FD_SSHTTP_ADVANCE_ERROR;
   }
-  http->addr     = addr;
-  http->is_https = is_https;
+  http->addr.port = fd_ushort_bswap( port );
 
   /* Pre-validate that the redirect request will fit in the request
      buffer.  The request is rebuilt from scratch by fd_sshttp_init

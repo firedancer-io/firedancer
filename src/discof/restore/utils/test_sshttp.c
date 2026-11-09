@@ -196,9 +196,9 @@ test_plaintext_host( char const * hostname,
 }
 
 /* Plays a redirect to the given Location from the server side and
-   returns the advance result once the client has acted on it.  In
-   fuzz mode the client does not reconnect, so the new address and the
-   rebuilt request can be read back from the struct. */
+   returns the advance result.  In fuzz mode the client does not
+   reconnect, so the new port and the rebuilt request can be read back
+   from the struct. */
 
 static int
 redirect_to( fd_sshttp_t * http,
@@ -210,20 +210,12 @@ redirect_to( fd_sshttp_t * http,
 
   uchar buf[ 4096 ];
   struct iovec iov = { .iov_base = buf, .iov_len = sizeof(buf) };
-  int   res = FD_SSHTTP_ADVANCE_AGAIN;
-  for( ulong i=0UL; i<64UL && http->hops==4UL && res==FD_SSHTTP_ADVANCE_AGAIN; i++ ) {
-    ulong data_len    = 0UL;
-    int   downloading = 0;
-    res = fd_sshttp_advance( http, &iov, 1UL, &data_len, &downloading, 0L );
-  }
+  ulong data_len    = 0UL;
+  int   downloading = 0;
+  int   res = fd_sshttp_advance( http, &iov, 1UL, &data_len, &downloading, 0L );
   FD_TEST( 0==close( server ) );
   return res;
 }
-
-/* Agave redirects to a path on the same port.  The Firedancer rpc
-   tile redirects to the snapshot server on another port with a full
-   URL.  Both must be followed, but only to the host we are already
-   talking to. */
 
 static void
 test_redirect_location( void ) {
@@ -231,12 +223,14 @@ test_redirect_location( void ) {
   FD_TEST( http );
   char const * file = "snapshot-100-11111111111111111111111111111112.tar.zst";
   char location[ 256 ];
+  char request [ 256 ];
+  FD_TEST( fd_cstr_printf_check( request, sizeof(request), NULL, "GET /%s HTTP/1.1\r\n", file ) );
 
   /* Path only: same address, new path. */
   FD_TEST( fd_cstr_printf_check( location, sizeof(location), NULL, "/%s", file ) );
   FD_TEST( FD_SSHTTP_ADVANCE_AGAIN==redirect_to( http, location ) );
   FD_TEST( http->addr.addr==FD_IP4_ADDR( 127, 0, 0, 1 ) && http->addr.port==fd_ushort_bswap( 80 ) );
-  FD_TEST( strstr( http->request, "GET /snapshot-100-11111111111111111111111111111112.tar.zst HTTP/1.1\r\n" )==http->request );
+  FD_TEST( strstr( http->request, request )==http->request );
   FD_TEST( !strcmp( http->snapshot_name, file ) );
   fd_sshttp_cancel( http );
 
@@ -244,8 +238,7 @@ test_redirect_location( void ) {
   FD_TEST( fd_cstr_printf_check( location, sizeof(location), NULL, "http://127.0.0.1:8902/%s", file ) );
   FD_TEST( FD_SSHTTP_ADVANCE_AGAIN==redirect_to( http, location ) );
   FD_TEST( http->addr.addr==FD_IP4_ADDR( 127, 0, 0, 1 ) && http->addr.port==fd_ushort_bswap( 8902 ) );
-  FD_TEST( !http->is_https );
-  FD_TEST( strstr( http->request, "GET /snapshot-100-11111111111111111111111111111112.tar.zst HTTP/1.1\r\n" )==http->request );
+  FD_TEST( strstr( http->request, request )==http->request );
   fd_sshttp_cancel( http );
 
   /* Full URL naming the host we connected to, default port. */
@@ -254,10 +247,12 @@ test_redirect_location( void ) {
   FD_TEST( http->addr.addr==FD_IP4_ADDR( 127, 0, 0, 1 ) && http->addr.port==fd_ushort_bswap( 80 ) );
   fd_sshttp_cancel( http );
 
-  /* Another host is refused. */
+  /* Another host or a scheme change is refused. */
   FD_TEST( fd_cstr_printf_check( location, sizeof(location), NULL, "http://1.2.3.4:8902/%s", file ) );
   FD_TEST( FD_SSHTTP_ADVANCE_ERROR==redirect_to( http, location ) );
   FD_TEST( fd_cstr_printf_check( location, sizeof(location), NULL, "http://snapshots.example.com/%s", file ) );
+  FD_TEST( FD_SSHTTP_ADVANCE_ERROR==redirect_to( http, location ) );
+  FD_TEST( fd_cstr_printf_check( location, sizeof(location), NULL, "https://127.0.0.1:8902/%s", file ) );
   FD_TEST( FD_SSHTTP_ADVANCE_ERROR==redirect_to( http, location ) );
 
   /* Malformed URLs are refused. */

@@ -110,22 +110,33 @@ test_incremental_other_error( void ) {
   FD_LOG_NOTICE(( "pass: test_incremental_other_error" ));
 }
 
+/* Agave redirects to a path, the Firedancer rpc tile to a full URL on
+   another port.  Both name the file. */
+
 static void
 test_incremental_redirect_result( void ) {
-  fd_ssresolve_t * ssresolve;
-  int server = connect_pair( &ssresolve, 0 /* incremental */ );
+  char const * responses[] = {
+    "HTTP/1.1 302 Found\r\n"
+    "Location: /incremental-snapshot-100-200-9NUeyNtZH1uoYsivVTvCHrWeqcMHvxrBCvvwHcwQG1L4.tar.zst\r\n"
+    "Content-Length: 0\r\n\r\n",
+    "HTTP/1.1 302 Found\r\n"
+    "Location: http://127.0.0.1:8902/incremental-snapshot-100-200-9NUeyNtZH1uoYsivVTvCHrWeqcMHvxrBCvvwHcwQG1L4.tar.zst\r\n"
+    "Content-Length: 0\r\n\r\n"
+  };
 
-  fd_ssresolve_result_t result;
-  char const * resp = "HTTP/1.1 302 Found\r\n"
-                      "Location: /incremental-snapshot-100-200-9NUeyNtZH1uoYsivVTvCHrWeqcMHvxrBCvvwHcwQG1L4.tar.zst\r\n"
-                      "Content-Length: 0\r\n\r\n";
-  FD_TEST( FD_SSRESOLVE_ADVANCE_RESULT==respond( ssresolve, server, resp, &result ) );
-  FD_TEST( fd_ssresolve_is_done( ssresolve ) );
-  FD_TEST( result.base_slot==100UL );
-  FD_TEST( result.slot     ==200UL );
+  for( ulong i=0UL; i<sizeof(responses)/sizeof(responses[0]); i++ ) {
+    fd_ssresolve_t * ssresolve;
+    int server = connect_pair( &ssresolve, 0 /* incremental */ );
 
-  FD_TEST( 0==close( server ) );
-  fd_ssresolve_cancel( ssresolve );
+    fd_ssresolve_result_t result;
+    FD_TEST( FD_SSRESOLVE_ADVANCE_RESULT==respond( ssresolve, server, responses[ i ], &result ) );
+    FD_TEST( fd_ssresolve_is_done( ssresolve ) );
+    FD_TEST( result.base_slot==100UL );
+    FD_TEST( result.slot     ==200UL );
+
+    FD_TEST( 0==close( server ) );
+    fd_ssresolve_cancel( ssresolve );
+  }
   FD_LOG_NOTICE(( "pass: test_incremental_redirect_result" ));
 }
 
