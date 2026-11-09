@@ -328,7 +328,9 @@ test_snapshot_hashes_authorize( void ) {
   FD_TEST(  fd_keyguard_payload_authorize( &authority, body, sizeof(body),      FD_KEYGUARD_ROLE_GOSSIP, FD_KEYGUARD_SIGN_TYPE_ED25519 ) );
   *incremental_cnt = 0UL;
   FD_TEST(  fd_keyguard_payload_authorize( &authority, body, sizeof(body)-40UL, FD_KEYGUARD_ROLE_GOSSIP, FD_KEYGUARD_SIGN_TYPE_ED25519 ) );
-  /* count does not match the size */
+  /* count does not match the size, or wraps the size check */
+  FD_TEST( !fd_keyguard_payload_authorize( &authority, body, sizeof(body),      FD_KEYGUARD_ROLE_GOSSIP, FD_KEYGUARD_SIGN_TYPE_ED25519 ) );
+  *incremental_cnt = 1UL+(1UL<<61);
   FD_TEST( !fd_keyguard_payload_authorize( &authority, body, sizeof(body),      FD_KEYGUARD_ROLE_GOSSIP, FD_KEYGUARD_SIGN_TYPE_ED25519 ) );
   /* wrong role, wrong sign type, not our identity */
   *incremental_cnt = 1UL;

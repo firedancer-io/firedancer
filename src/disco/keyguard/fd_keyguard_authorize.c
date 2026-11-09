@@ -172,6 +172,7 @@ fd_keyguard_authorize_gossip( fd_keyguard_authority_t const * authority,
          and hash per incremental, wallclock */
       if( sz<4UL+32UL+8UL+32UL+8UL+8UL ) return 0;
       ulong incremental_cnt = FD_LOAD( ulong, data+4UL+32UL+8UL+32UL );
+      if( incremental_cnt>25UL ) return 0; /* Agave MAX_INCREMENTAL_SNAPSHOT_HASHES */
       if( sz!=4UL+32UL+8UL+32UL+8UL+8UL+40UL*incremental_cnt ) return 0;
       break;
 
