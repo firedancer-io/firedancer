@@ -307,7 +307,7 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
   if( FD_UNLIKELY( !fd_sysvar_stake_history_read( accdb, bank->accdb_fork_id, stake_history_data, stake_history ) ) ) {
     FD_LOG_ERR(( "StakeHistory sysvar missing or invalid" ));
   }
-  fd_stake_delegations_refresh( stake_delegations, bank->f.epoch, stake_history, &bank->f.warmup_cooldown_rate_epoch, FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ), FD_FEATURE_ACTIVE_BANK( bank, remove_inactive_stakes ) );
+  fd_stake_delegations_refresh( stake_delegations, bank->f.epoch, stake_history, &bank->f.warmup_cooldown_rate_epoch, FD_FEATURE_ACTIVE_BANK( bank, remove_inactive_stakes ) );
 
   ulong chain_cnt = fd_vote_rewards_map_chain_cnt_est( runtime_stack->max_vote_accounts );
   FD_TEST( fd_vote_rewards_map_join( fd_vote_rewards_map_new( runtime_stack->stakes.vote_map, chain_cnt, 999 ) ) );
@@ -583,14 +583,12 @@ fd_solfuzz_pb_collect_stake_delegations( fd_solfuzz_runner_t *             runne
   fd_stake_history_t   stake_history_[1];
   fd_stake_history_t * stake_history = fd_sysvar_stake_history_read( runner->accdb, bank->accdb_fork_id, stake_history_data, stake_history_ );
   ulong * warmup_cooldown_rate_epoch = &bank->f.warmup_cooldown_rate_epoch;
-  int     use_fixed_point            = FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 );
 
   fd_stake_delegations_t * stake_delegations = fd_bank_stake_delegations_modify( bank );
   fd_stake_delegations_view_begin( stake_delegations,
                                    bank->f.epoch,
                                    stake_history,
                                    warmup_cooldown_rate_epoch,
-                                   use_fixed_point,
                                    bank->stake_delegations_fork_id );
 
   ulong cnt = 0UL;
@@ -611,7 +609,7 @@ fd_solfuzz_pb_collect_stake_delegations( fd_solfuzz_runner_t *             runne
     o->data_len           = d->acc_dlen;
   }
 
-  fd_stake_delegations_view_end( stake_delegations, stake_history, warmup_cooldown_rate_epoch, use_fixed_point );
+  fd_stake_delegations_view_end( stake_delegations, stake_history, warmup_cooldown_rate_epoch );
 
   sort_stake_delegation_inplace( out, cnt );
   return cnt;

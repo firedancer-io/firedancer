@@ -595,7 +595,6 @@ create_block_context_protobuf_from_block( fd_block_dump_ctx_t * dump_ctx,
                                    parent_bank->f.epoch,
                                    stake_delegations_history,
                                    &parent_bank->f.warmup_cooldown_rate_epoch,
-                                   FD_FEATURE_ACTIVE_BANK( parent_bank, upgrade_bpf_stake_program_to_v5_1 ),
                                    parent_bank->stake_delegations_fork_id );
 
   /* Collect account states in a temporary set before iterating over
@@ -659,8 +658,7 @@ create_block_context_protobuf_from_block( fd_block_dump_ctx_t * dump_ctx,
   }
   fd_stake_delegations_view_end( stake_delegations,
                                  stake_delegations_history,
-                                 &parent_bank->f.warmup_cooldown_rate_epoch,
-                                 FD_FEATURE_ACTIVE_BANK( parent_bank, upgrade_bpf_stake_program_to_v5_1 ) );
+                                 &parent_bank->f.warmup_cooldown_rate_epoch );
 
   /* BlockBank -> vote_accounts_t_1 and vote_accounts_t_2 */
   fd_exec_test_prev_vote_account_t * va_t1 = fd_spad_alloc( spad,

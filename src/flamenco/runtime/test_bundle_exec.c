@@ -66,7 +66,6 @@ test_stake_delegations_frontier_mark( test_env_t * env ) {
                                    bank->f.epoch,
                                    stake_history,
                                    &bank->f.warmup_cooldown_rate_epoch,
-                                   FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ),
                                    bank->stake_delegations_fork_id );
   return stake_delegations;
 }
@@ -76,8 +75,7 @@ test_stake_delegations_frontier_unmark( test_env_t * env ) {
   fd_bank_t * bank = env->bank;
   fd_stake_delegations_view_end( fd_bank_stake_delegations_modify( bank ),
                                  TEST_STAKE_HISTORY( env ),
-                                 &bank->f.warmup_cooldown_rate_epoch,
-                                 FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ) );
+                                 &bank->f.warmup_cooldown_rate_epoch );
 }
 
 static void

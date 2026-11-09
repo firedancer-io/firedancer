@@ -315,7 +315,6 @@ calculate_alpenglow_points( fd_epoch_credits_t const *    epoch_credits,
                             fd_stake_history_t const *    stake_history,
                             fd_stake_delegation_t const * stake,
                             ulong *                       new_rate_activation_epoch,
-                            int                           use_fixed_point_stake_math,
                             ulong                         rewarded_epoch,
                             ulong                         validator_reward_epoch_stake,
                             fd_calculated_stake_points_t * result ) {
@@ -352,8 +351,7 @@ calculate_alpenglow_points( fd_epoch_credits_t const *    epoch_credits,
       stake,
       rewarded_epoch,
       stake_history,
-      new_rate_activation_epoch,
-      use_fixed_point_stake_math );
+      new_rate_activation_epoch );
   result->inactive = (uchar)( !status.effective && !status.activating );
 
   if( FD_UNLIKELY( !earned_credits ) ) return;
@@ -375,7 +373,6 @@ calculate_stake_points_for_reward( fd_runtime_stack_t *           runtime_stack,
                                    fd_stake_history_t const *     stake_history,
                                    fd_stake_delegation_t const *  stake,
                                    ulong *                        new_rate_activation_epoch,
-                                   int                            use_fixed_point_stake_math,
                                    ulong                          rewarded_epoch,
                                    fd_calculated_stake_points_t * result ) {
   ulong                    validator_reward_epoch_stake = 0UL;
@@ -389,7 +386,6 @@ calculate_stake_points_for_reward( fd_runtime_stack_t *           runtime_stack,
                               stake_history,
                               stake,
                               new_rate_activation_epoch,
-                              use_fixed_point_stake_math,
                               rewarded_epoch,
                               validator_reward_epoch_stake,
                               result );
@@ -421,8 +417,7 @@ calculate_reward_points_partitioned( fd_bank_t *                    bank,
     fd_calculated_stake_points_t * stake_points_result = &runtime_stack->stakes.stake_results[ stake_delegation_idx ].points;
 
     if( FD_UNLIKELY( FD_FEATURE_ACTIVE_BANK( bank, remove_inactive_stakes ) &&
-                     fd_stake_delegation_is_inactive( stake_delegation, rewarded_epoch, stake_history, &bank->f.warmup_cooldown_rate_epoch,
-                                                      FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ) ) ) ) {
+                     fd_stake_delegation_is_inactive( stake_delegation, rewarded_epoch, stake_history, &bank->f.warmup_cooldown_rate_epoch ) ) ) {
       stake_points_result->vote_idx = UINT_MAX;
       continue;
     }
@@ -442,7 +437,6 @@ calculate_reward_points_partitioned( fd_bank_t *                    bank,
                                        stake_history,
                                        stake_delegation,
                                        &bank->f.warmup_cooldown_rate_epoch,
-                                       FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ),
                                        rewarded_epoch,
                                        stake_points_result );
   }
@@ -473,8 +467,7 @@ delegation_may_need_adjustment( fd_bank_t *                   bank,
     stake_delegation,
     rewarded_epoch,
     stake_history,
-    &bank->f.warmup_cooldown_rate_epoch,
-    FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ) );
+    &bank->f.warmup_cooldown_rate_epoch );
 
   return !( status.effective==0UL && status.activating==0UL );
 }
@@ -501,8 +494,7 @@ calculate_block_reward( fd_bank_t *                   bank,
   ulong stake = fd_stake_delegation_activation_status( stake_delegation,
                                                        rewarded_epoch,
                                                        stake_history,
-                                                       &bank->f.warmup_cooldown_rate_epoch,
-                                                       FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ) ).effective;
+                                                       &bank->f.warmup_cooldown_rate_epoch ).effective;
   /* During recalculation, if stake account has already received rewards,
      it's possible to have `stake > total_active_stake`. If
      `pending_delegator_rewards` is a huge number, we could potentially
@@ -576,8 +568,7 @@ calculate_stake_vote_rewards( fd_bank_t *                    bank,
 
 
     if( FD_UNLIKELY( FD_FEATURE_ACTIVE_BANK( bank, remove_inactive_stakes ) &&
-                     fd_stake_delegation_is_inactive( stake_delegation, rewarded_epoch, stake_history, &bank->f.warmup_cooldown_rate_epoch,
-                                                      FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ) ) ) ) {
+                     fd_stake_delegation_is_inactive( stake_delegation, rewarded_epoch, stake_history, &bank->f.warmup_cooldown_rate_epoch ) ) ) {
       continue;
     }
 
@@ -631,7 +622,6 @@ calculate_stake_vote_rewards( fd_bank_t *                    bank,
                                          stake_history,
                                          stake_delegation,
                                          &bank->f.warmup_cooldown_rate_epoch,
-                                         FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ),
                                          rewarded_epoch,
                                          stake_points_result );
     }
@@ -721,8 +711,7 @@ setup_stake_partitions( fd_bank_t *                    bank,
     ulong                         stake_delegation_idx = fd_stake_delegations_iter_idx( iter );
 
     if( FD_UNLIKELY( FD_FEATURE_ACTIVE_BANK( bank, remove_inactive_stakes ) &&
-                     fd_stake_delegation_is_inactive( stake_delegation, rewarded_epoch, stake_history, &bank->f.warmup_cooldown_rate_epoch,
-                                                      FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ) ) ) ) {
+                     fd_stake_delegation_is_inactive( stake_delegation, rewarded_epoch, stake_history, &bank->f.warmup_cooldown_rate_epoch ) ) ) {
       continue;
     }
 
@@ -763,7 +752,6 @@ setup_stake_partitions( fd_bank_t *                    bank,
                                          stake_history,
                                          stake_delegation,
                                          &bank->f.warmup_cooldown_rate_epoch,
-                                         FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ),
                                          rewarded_epoch,
                                          stake_points_result );
 
@@ -1681,7 +1669,6 @@ recalculate_partitioned_rewards( fd_bank_t *          bank,
                                    bank->f.epoch,
                                    stake_history,
                                    &bank->f.warmup_cooldown_rate_epoch,
-                                   FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ),
                                    bank->stake_delegations_fork_id );
 
   calculate_stake_vote_rewards(
@@ -1722,8 +1709,7 @@ recalculate_partitioned_rewards( fd_bank_t *          bank,
 
   fd_stake_delegations_view_end( stake_delegations,
                                  stake_history,
-                                 &bank->f.warmup_cooldown_rate_epoch,
-                                 FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ) );
+                                 &bank->f.warmup_cooldown_rate_epoch );
   return 1;
 }
 

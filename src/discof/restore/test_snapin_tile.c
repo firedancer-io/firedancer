@@ -246,7 +246,7 @@ static uchar test_write_result = FD_ACCDB_SNAPSHOT_WRITE_LOADED;
 
 /* The mocks above hide these prototypes; tests reach the real ones. */
 ushort fd_stake_delegations_new_fork( fd_stake_delegations_t * stake_delegations, ushort parent_fork_idx );
-void   fd_stake_delegations_advance_root( ulong epoch, fd_stake_history_t const * stake_history, ulong * warmup_cooldown_rate_epoch, int use_fixed_point_stake_math, int skip_stake_math, fd_stake_delegations_t * stake_delegations, ushort fork_idx, fd_stake_delegations_delta_stats_t * stake_delegations_delta_stats );
+void   fd_stake_delegations_advance_root( ulong epoch, fd_stake_history_t const * stake_history, ulong * warmup_cooldown_rate_epoch, int skip_stake_math, fd_stake_delegations_t * stake_delegations, ushort fork_idx, fd_stake_delegations_delta_stats_t * stake_delegations_delta_stats );
 void   fd_stake_delegations_evict_fork( fd_stake_delegations_t * stake_delegations, ushort fork_idx );
 
 /* Production per-slot limits (tile->snapin.max_txn_per_slot and its
@@ -443,12 +443,11 @@ void
 mock_stake_delegations_advance_root( ulong                                epoch,
                                      fd_stake_history_t const *           stake_history,
                                      ulong *                              warmup_cooldown_rate_epoch,
-                                     int                                  use_fixed_point_stake_math,
                                      int                                  skip_stake_math,
                                      fd_stake_delegations_t *             sd,
                                      ushort                               fork_idx,
                                      fd_stake_delegations_delta_stats_t * stats ) {
-  (void)epoch; (void)stake_history; (void)warmup_cooldown_rate_epoch; (void)use_fixed_point_stake_math; (void)sd; (void)stats;
+  (void)epoch; (void)stake_history; (void)warmup_cooldown_rate_epoch; (void)sd; (void)stats;
   FD_TEST( skip_stake_math );
   test_stake_publish_cnt++;
   test_stake_publish_fork = fork_idx;
@@ -1737,7 +1736,7 @@ test_snoop_incremental_fork( fd_wksp_t * wksp ) {
   write_one( ctx, &acc_a, &fd_solana_stake_program_id, 9000UL, state, stake_sz, 100UL, FD_ACCDB_SNAPSHOT_WRITE_REPLACED_CROSS );
   FD_TEST( test_stake_delegations_find_copy( stake_delegations, &acc_a, d ) && d->lamports==5000UL ); /* root untouched */
 
-  fd_stake_delegations_advance_root( 0UL, NULL, NULL, 0, 1, stake_delegations, ctx->shmem->stake_fork, NULL );
+  fd_stake_delegations_advance_root( 0UL, NULL, NULL, 1, stake_delegations, ctx->shmem->stake_fork, NULL );
   fd_stake_delegations_evict_fork( stake_delegations, ctx->shmem->stake_fork );
   FD_TEST( test_stake_delegations_find_copy( stake_delegations, &acc_a, d ) && d->lamports==9000UL && d->slot==100U );
 }
