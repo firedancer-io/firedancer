@@ -434,9 +434,12 @@ best_incremental_peer( fd_snapct_tile_t * ctx ) {
   return best;
 }
 
-/* No server has an incremental for the full we just loaded, and with
-   gossip off no other server will appear.  Boot from the full alone
-   and let replay catch up. */
+/* Before NEXT, full_only decides whether to boot from the full alone:
+   that happens only when no gossip peer is allowed as a snapshot
+   source, no configured server has an incremental for it, and none is
+   on disk for that full.  Once the full is committed with NEXT, an
+   incremental is required, since the decision cannot be reverted (no
+   control message can finish the load with the full alone). */
 
 static int
 full_only( fd_snapct_tile_t * ctx ) {
@@ -1575,6 +1578,13 @@ after_credit( fd_snapct_tile_t *  ctx,
     /* ============================================================== */
     case FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_FILE_RESET:
     case FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP_RESET:
+      /* Once the full is committed with NEXT, an incremental is
+         required.  The incremental load resets the full's status cache
+         and may already have replaced its manifest in replay, so
+         reverting would mean restoring both.  It would also require
+         the incremental's partial account state to be rolled back.
+         Booting from the full alone may never catch up either.  Every
+         path from here loads an incremental or aborts. */
       if( FD_UNLIKELY( ctx->flush_ack<ctx->flush_ack_cnt ) ) break;
 
       if( ctx->metrics.incremental.num_retries>=ctx->config.max_retry_abort ) {
