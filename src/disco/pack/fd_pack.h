@@ -100,10 +100,7 @@ struct fd_pack_limits {
      transactions in a block.  This includes new accounts and extending
      existing accounts.  This limit is not especially well specified,
      and rarely comes close to being hit in production, so we use a
-     conservative estimate when packing to ensure we never hit it.  It
-     is currently limited to 100 MB, without any features to change it,
-     but we include it here with other limits in case it is change-able
-     in the future. */
+     conservative estimate when packing to ensure we never hit it. */
   ulong max_allocated_data_per_block; /* in [1, 100,000,000 ] */
 };
 typedef struct fd_pack_limits fd_pack_limits_t;
