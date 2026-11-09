@@ -4550,9 +4550,15 @@ fd_accdb_background( fd_accdb_t * accdb,
 
   /* The batch a pass retires is usually free to release right away
      (no reader mid-epoch).  A held batch keeps the tile busy, so it
-     does not park with it. */
-  if( FD_UNLIKELY( background_requests( accdb ) ) ) *charge_busy = 1;
+     does not park with it.  A call that applies requests does nothing
+     else, as before: single-threaded joins without a compaction buffer
+     call it once after a purge. */
+  int requests = background_requests( accdb );
   if( FD_UNLIKELY( !background_release( accdb ) ) ) *charge_busy = 1;
+  if( FD_UNLIKELY( requests ) ) {
+    *charge_busy = 1;
+    return;
+  }
 
   if( FD_UNLIKELY( snap_sync!=FD_ACCDB_SNAPSHOT_SYNC_IDLE ) ) {
     switch( snap_sync ) {
