@@ -1637,7 +1637,6 @@ try_become_leader( fd_replay_tile_t *  ctx,
   if( FD_UNLIKELY( !fd_banks_can_start_bank( ctx->banks ) ) ) return 0;
   if( FD_UNLIKELY( ctx->halt_replay ) ) return 0;
   if( !ctx->supports_leader ) return 0;
-  if( FD_UNLIKELY( fd_accdb_cmd_pending( ctx->accdb ) ) ) return 0; /* leader bank attaches an accdb fork */
 
   /* Don't become leader if the slot is not scheduled for the identity.
      This can only happen in cases where the identity just switched. */
@@ -2924,10 +2923,6 @@ try_replay( fd_replay_tile_t *  ctx,
      footer certs verify under it. */
   if( FD_UNLIKELY( !ctx->shred_version ) ) return 0;
 
-  /* Starting a block attaches an accdb fork, which would spin on a
-     pending root.  Nothing of the block dispatches before its start. */
-  if( FD_UNLIKELY( fd_sched_block_start_pending( ctx->sched ) && fd_accdb_cmd_pending( ctx->accdb ) ) ) return 0;
-
   int charge_busy = 0;
   fd_sched_task_t task[ 1 ];
   if( FD_UNLIKELY( !fd_sched_task_next_ready( ctx->sched, task ) ) ) {
@@ -3289,17 +3284,8 @@ try_advance_published_root( fd_replay_tile_t *  ctx,
 
   if( FD_LIKELY( ctx->published_root_slot==ctx->consensus_root_slot ) ) return 0;
 
-  /* accdb pauses advance_root while producing a snapshot, so submitting
-     one would stall the next wait_cmd until the snapshot completes. */
+  /* accdb does not root while producing a snapshot. */
   if( FD_UNLIKELY( ctx->snapmk.active ) ) return 0;
-
-  /* Don't spin in advance_root on the previous root, replay instead and
-     retry next iteration. */
-  if( FD_UNLIKELY( fd_accdb_cmd_pending( ctx->accdb ) ) ) return 0;
-
-  /* Let a waiting block start take the idle accdb first, else it would
-     wait out the whole drain. */
-  if( FD_UNLIKELY( fd_sched_block_start_pending( ctx->sched ) ) ) return 0;
 
   /* If the new root is not available because the bank is/has been
      evicted, we can't advance the root.  Try again later. */
@@ -3438,10 +3424,6 @@ try_prune_sched( fd_replay_tile_t * ctx ) {
 
 static int
 try_prune_bank( fd_replay_tile_t * ctx ) {
-  /* A cancellation purges accdb, which would spin on a pending root.
-     Check before popping the bank so the cancel info isn't lost. */
-  if( FD_UNLIKELY( fd_accdb_cmd_pending( ctx->accdb ) ) ) return 0;
-
   fd_banks_prune_cancel_info_t cancel_info[ 1 ];
 
   int pruned = fd_banks_prune_one_bank( ctx->banks, cancel_info );

@@ -1265,7 +1265,6 @@ test_reset( ulong delta_max ) {
 
   /* Reset the accdb. */
   fd_accdb_reset( accdb );
-  drain_background( accdb );
 
   FD_TEST( !test_shmem_mem->delta.head );
   for( ulong i=0UL; i<test_shmem_mem->delta.chain_cnt; i++ ) FD_TEST( delta_chains[ i ]==UINT_MAX );
@@ -1328,6 +1327,96 @@ test_snapshot_write_one( fd_accdb_t *       accdb,
   if( replaced ) return 2;
   FD_TEST( loaded==1UL );
   return 1;
+}
+
+/* The pending purge count is purge_seq differences mod 2^16.  Start
+   the counters just below the wrap and purge across it, sometimes one
+   per pass, sometimes several.  Every purged fork must be purged
+   exactly once. */
+void
+test_purge_seq_wrap( void ) {
+  int fd;
+  fd_accdb_t * accdb = test_setup( &fd, 64UL, 8UL, 4UL, 64UL, 1UL<<30UL );
+  fd_accdb_shmem_metrics_t const * shmetrics = fd_accdb_shmetrics( accdb );
+  uchar owner[ 32UL ] = {0};
+
+  fd_accdb_fork_id_t root = fd_accdb_attach_child( accdb, SENTINEL );
+  test_shmem_mem->req.purge_seq  = (ushort)0xFFF0;
+  test_shmem_mem->done.purge_seq = (ushort)0xFFF0;
+
+  for( ulong i=0UL; i<16UL; i++ ) {
+    ulong cnt = 1UL+(i%3UL);
+    for( ulong j=0UL; j<cnt; j++ ) {
+      uchar pk[ 32UL ] = { (uchar)(1UL+i), (uchar)j };
+      fd_accdb_fork_id_t f = fd_accdb_attach_child( accdb, root );
+      accdb_write( accdb, f, pk, 10UL, NULL, 0UL, owner );
+      fd_accdb_purge( accdb, f );
+    }
+    while( fd_accdb_requests_pending( accdb ) ) drain_background( accdb );
+    FD_TEST( !shmetrics->accounts_total );
+  }
+  FD_TEST( test_shmem_mem->req.purge_seq<0xFFF0 ); /* wrapped */
+
+  /* Every slot but the root's is free, each exactly once. */
+  fd_accdb_fork_id_t got[ 7 ];
+  for( ulong n=0UL; n<7UL; n++ ) {
+    got[ n ] = fd_accdb_attach_child( accdb, root );
+    FD_TEST( got[ n ].val!=root.val );
+    for( ulong j=0UL; j<n; j++ ) FD_TEST( got[ j ].val!=got[ n ].val );
+  }
+
+  test_teardown( accdb, fd );
+}
+
+/* A root backlog whose unlinks exceed the deferred acc buffer is
+   applied over several passes.  The buffer holds max_live_slots *
+   max_account_writes_per_slot = 32 entries.  Each level deletes 4
+   snapshot accounts, unlinking 8 (old version and tombstone), so a
+   pass fits 4 of the 7 queued levels. */
+void
+test_root_backlog_splits_pass( void ) {
+  int fd;
+  fd_accdb_t * accdb = test_setup( &fd, 64UL, 8UL, 4UL, 64UL, 1UL<<30UL );
+  fd_accdb_shmem_metrics_t const * shmetrics = fd_accdb_shmetrics( accdb );
+  uchar owner[ 32UL ] = {0};
+
+  fd_accdb_fork_id_t root = fd_accdb_attach_child( accdb, SENTINEL );
+  fd_accdb_snapshot_load_begin( accdb );
+  for( ulong k=0UL; k<28UL; k++ ) {
+    uchar pk[ 32UL ] = { (uchar)(1UL+k) };
+    ulong replaced;
+    FD_TEST( test_snapshot_write_one( accdb, SENTINEL, pk, 1UL, 10UL, 0UL, 0, &replaced )==1 );
+  }
+  fd_accdb_snapshot_load_end( accdb );
+  FD_TEST( shmetrics->accounts_total==28UL );
+
+  fd_accdb_fork_id_t level[ 7 ];
+  fd_accdb_fork_id_t parent = root;
+  for( ulong l=0UL; l<7UL; l++ ) {
+    level[ l ] = fd_accdb_attach_child( accdb, parent );
+    for( ulong k=0UL; k<4UL; k++ ) {
+      uchar pk[ 32UL ] = { (uchar)(1UL+4UL*l+k) };
+      accdb_write( accdb, level[ l ], pk, 0UL, NULL, 0UL, owner );
+    }
+    fd_accdb_advance_root( accdb, level[ l ] );
+    parent = level[ l ];
+  }
+
+  drain_background( accdb );
+  FD_TEST( test_shmem_mem->root_fork_id.val==level[ 3 ].val );
+  FD_TEST( fd_accdb_requests_pending( accdb ) );
+  drain_background( accdb );
+  FD_TEST( test_shmem_mem->root_fork_id.val==level[ 6 ].val );
+  FD_TEST( !fd_accdb_requests_pending( accdb ) );
+
+  FD_TEST( !shmetrics->accounts_total );
+  for( ulong k=0UL; k<28UL; k++ ) {
+    uchar pk[ 32UL ] = { (uchar)(1UL+k) };
+    ulong lamports;
+    FD_TEST( !accdb_read( accdb, level[ 6 ], pk, &lamports, NULL, NULL, NULL ) );
+  }
+
+  test_teardown( accdb, fd );
 }
 
 /* test_reserve_write_dead_tail: the padded tail of a snapshot write
@@ -2229,7 +2318,7 @@ test_snapshot_write_results( void ) {
 static void
 test_incremental_retry_reuses_acc_pool( void ) {
   int fd;
-  fd_accdb_t * accdb = test_setup_ex( &fd, 5UL, 8UL, 64UL, 64UL, 1UL<<30UL,
+  fd_accdb_t * accdb = test_setup_ex( &fd, 3UL, 8UL, 64UL, 64UL, 1UL<<30UL,
                                       TEST_CACHE_FOOTPRINT, TEST_CACHE_MIN_RESERVED, 2UL, 0UL );
   fd_accdb_t * background = test_join_writer( fd );
   fd_accdb_shmem_metrics_t const * shmetrics = fd_accdb_shmetrics( accdb );
@@ -2265,9 +2354,12 @@ test_incremental_retry_reuses_acc_pool( void ) {
 
   ulong top_before  = FD_VOLATILE_CONST( pool->ver_top  );
   ulong lazy_before = FD_VOLATILE_CONST( pool->ver_lazy );
-  FD_TEST( acc_pool_private_vidx_idx( top_before  )<5UL );
+  /* revert_whead waits for each failed attempt's accounts to be
+     released, so the retry reused them after the first attempt
+     exhausted lazy allocation. */
+  FD_TEST( acc_pool_private_vidx_idx( top_before  )<3UL );
   FD_TEST( acc_pool_private_vidx_idx( lazy_before )==acc_pool_idx_null() );
-  FD_TEST( test_shmem_mem->deferred_acc_buf_cnt==2UL );
+  FD_TEST( !test_shmem_mem->deferred_acc_buf_cnt );
 
   fd_accdb_fork_id_t success = fd_accdb_attach_child( accdb, root );
   uchar success_pk[ 32UL ] = { 0xE0 };
@@ -2282,11 +2374,13 @@ test_incremental_retry_reuses_acc_pool( void ) {
   fd_accdb_snapshot_load_end( accdb );
 
   fd_accdb_fork_id_t next = fd_accdb_attach_child( accdb, success );
+  while( fd_accdb_requests_pending( accdb ) ) FD_SPIN_PAUSE();
+  FD_COMPILER_MFENCE();
   FD_TEST( shmetrics->accounts_total==2UL );
 
   /* Drain the replaced full-snapshot account. */
   fd_accdb_advance_root( accdb, next );
-  while( FD_VOLATILE_CONST( test_shmem_mem->cmd_op )!=FD_ACCDB_CMD_IDLE ) FD_SPIN_PAUSE();
+  while( fd_accdb_requests_pending( accdb ) ) FD_SPIN_PAUSE();
   FD_COMPILER_MFENCE();
   FD_TEST( !test_shmem_mem->deferred_acc_buf_cnt );
 
@@ -2506,6 +2600,12 @@ main( int     argc,
 
   FD_LOG_NOTICE(( "test_pd_write_bit_and_probe ..." ));
   test_pd_write_bit_and_probe();
+
+  FD_LOG_NOTICE(( "test_purge_seq_wrap ..." ));
+  test_purge_seq_wrap();
+
+  FD_LOG_NOTICE(( "test_root_backlog_splits_pass ..." ));
+  test_root_backlog_splits_pass();
 
   FD_LOG_NOTICE(( "success" ));
 

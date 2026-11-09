@@ -404,7 +404,9 @@ fd_accdb_shmem_new( void * shmem,
   accdb->deferred_acc_buf_off = (ulong)_deferred_acc_buf - (ulong)shmem;
   accdb->deferred_acc_buf_cnt = 0UL;
   accdb->deferred_acc_buf_max = txn_max;
-  accdb->deferred_acc_epoch   = 0UL;
+  accdb->deferred_epoch       = 0UL;
+  accdb->deferred_fork_head   = (fd_accdb_fork_id_t){ .val = USHORT_MAX };
+  accdb->deferred_fork_tail   = (fd_accdb_fork_id_t){ .val = USHORT_MAX };
 
   accdb->epoch          = 1UL;
   accdb->snapshot_sync  = FD_ACCDB_SNAPSHOT_SYNC_IDLE;
@@ -456,8 +458,8 @@ fd_accdb_shmem_new( void * shmem,
   memset( accdb->shmetrics, 0, sizeof( fd_accdb_shmem_metrics_t ) );
   accdb->shmetrics->accounts_capacity = max_accounts;
 
-  accdb->cmd_op      = FD_ACCDB_CMD_IDLE;
-  accdb->cmd_fork_id = USHORT_MAX;
+  accdb->req  = (fd_accdb_req_t ){ .root_gen = 0U, .purge_seq = 0U, .purge_fork = { .val = USHORT_MAX } };
+  accdb->done = (fd_accdb_done_t){ .root_gen = 0U, .purge_seq = 0U, .retiring = 0U };
 
   FD_COMPILER_MFENCE();
   FD_VOLATILE( accdb->magic ) = FD_ACCDB_SHMEM_MAGIC;

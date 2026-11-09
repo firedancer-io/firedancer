@@ -278,7 +278,6 @@ mock_runtime_block_execute_prepare_fn( fd_banks_t *         banks FD_PARAM_UNUSE
 #define fd_txncache_attach_child             mock_txncache_attach_child_fn
 #define fd_progcache_attach_child            mock_progcache_attach_child_fn
 #define fd_accdb_attach_child                mock_accdb_attach_child_fn
-#define fd_accdb_cmd_pending(a)              ( (a) ? (fd_accdb_cmd_pending)(a) : 0 )
 #define fd_txncache_cancel_fork(tc,f)        ((void)(tc),(void)(f))
 #define fd_progcache_cancel_fork(c,f)        ((void)(c),(void)(f))
 #define fd_accdb_purge(a,f)                  ((void)(a),(void)(f))
@@ -286,7 +285,6 @@ mock_runtime_block_execute_prepare_fn( fd_banks_t *         banks FD_PARAM_UNUSE
 #define fd_txncache_metrics_snap(t,o)        do { if( t ) (fd_txncache_metrics_snap)(t,o); else memset( (o), 0, sizeof(*(o)) ); } while(0)
 #define fd_accdb_metrics(a)                  ( (a) ? (fd_accdb_metrics)(a) : &mock_accdb_metrics )
 #define fd_progcache_cache_class_occupancy(c,u,m) do { if( (c)->shmem ) (fd_progcache_cache_class_occupancy)(c,u,m); else { memset( u, 0, FD_PROGCACHE_CACHE_CLASS_CNT*sizeof(ulong) ); memset( m, 0, FD_PROGCACHE_CACHE_CLASS_CNT*sizeof(ulong) ); } } while(0)
-#define fd_sched_block_start_pending(s)      ( (s) ? (fd_sched_block_start_pending)(s) : 0 )
 #define fd_sched_fec_waits_for_lane(s,p,f)  ( (s) ? (fd_sched_fec_waits_for_lane)(s,p,f) : mock_sched_lane_wait )
 #define fd_sched_block_start_writes(s,b,a,c) do { if( (s) ) (fd_sched_block_start_writes)(s,b,a,c); } while(0)
 /* Bypass unrelated boot dependencies while exercising snapshot DONE to completion. */

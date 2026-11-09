@@ -439,11 +439,6 @@ fd_sched_fec_waits_for_lane( fd_sched_t * sched, ulong parent_bank_idx, int is_f
 int
 fd_sched_is_drained( fd_sched_t * sched );
 
-/* Returns 1 if the active block has not been started yet, i.e. the
-   next task next_ready returns for it is a BLOCK_START, 0 otherwise. */
-int
-fd_sched_block_start_pending( fd_sched_t * sched );
-
 /* Claims up to cnt idle exec tiles for footer tasks of the active
    block, whose BLOCK_END is signaled and not done yet.  The tasks
    include the cert verifies the scheduler has not sent out as tasks of
