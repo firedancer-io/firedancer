@@ -1031,9 +1031,8 @@ fd_txn_ctx_push( fd_runtime_t *      runtime,
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
 
-/* Pushes a new instruction onto the instruction stack and trace. This check loops through all instructions in the current call stack
-   and checks for reentrancy violations. If successful, simply increments the instruction stack and trace size and returns. It is
-   the responsibility of the caller to populate the newly pushed instruction fields, which are undefined otherwise.
+/* fd_instr_stack_push checks for reentrancy violations and pushes the
+   already-populated instr onto the instruction stack.
 
    https://github.com/anza-xyz/agave/blob/v2.0.0/program-runtime/src/invoke_context.rs#L246-L290 */
 int
@@ -1082,7 +1081,7 @@ fd_instr_stack_push( fd_runtime_t *      runtime,
       return FD_EXECUTOR_INSTR_ERR_REENTRANCY_NOT_ALLOWED;
     }
   }
-  /* "Push" a new instruction onto the stack by simply incrementing the stack and trace size counters
+  /* Push the instruction onto the stack
      https://github.com/anza-xyz/agave/blob/v2.0.0/program-runtime/src/invoke_context.rs#L289 */
   return fd_txn_ctx_push( runtime, txn_in, txn_out, instr );
 }
