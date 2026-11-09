@@ -2451,8 +2451,8 @@ boot_genesis( fd_replay_tile_t *        ctx,
   bank->f.slot = 0UL;
   FD_TEST( bank->idx==FD_REPLAY_BOOT_BANK_IDX );
 
-  static const fd_accdb_fork_id_t accdb_root = { .val = USHORT_MAX };
-  bank->accdb_fork_id = fd_accdb_attach_child( ctx->accdb, accdb_root );
+  FD_TEST( meta->accdb_root.val!=USHORT_MAX );
+  bank->accdb_fork_id = meta->accdb_root;
   bank->parent_accdb_fork_id = bank->accdb_fork_id;
 
   fd_runtime_read_genesis( ctx->banks, bank, ctx->accdb, NULL, &meta->genesis_hash, &meta->lthash, ctx->genesis, genesis_blob, ctx->runtime_stack );

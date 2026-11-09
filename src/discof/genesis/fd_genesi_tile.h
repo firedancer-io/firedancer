@@ -8,6 +8,7 @@
 
 #include "../../ballet/lthash/fd_lthash.h"
 #include "../../flamenco/fd_flamenco_base.h"
+#include "../../flamenco/accdb/fd_accdb_base.h"
 
 /* Worst case bound for a genesis TAR and bzip2's output size in MiB can
    fit in a uint (in bytes). */
@@ -20,6 +21,8 @@ struct fd_genesis_meta {
   fd_hash_t         genesis_hash;
   ulong             creation_time_seconds;
   fd_lthash_value_t lthash;
+
+  fd_accdb_fork_id_t accdb_root; /* populated by genesi when bootstrap is set */
 
   ulong blob_sz;
   /* uchar[ blob_sz ] follows immediately after this struct */
