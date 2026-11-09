@@ -102,14 +102,11 @@ struct fd_gossip_tile_ctx {
   long  peer_sat_hwm_nanos;  /* wallclock when HWM last increased   */
   int   peer_sat_published;  /* one-shot latch (0 -> 1)             */
 
-  /* Newest full and incremental snapshot snapmk has reported, and the
-     full slot the incremental builds on.  A slot of 0 means none yet.
-     snap_dirty is set when the value changed and cleared once it has
-     been pushed to gossip. */
+  /* Newest full and incremental snapshot to advertise on gossip. */
   fd_gossip_snapshot_hashes_t snap[ 1 ];
-  ulong                       snap_incr_base_slot;
-  int                         snap_dirty;
-  long                        snap_push_nanos;
+  ulong                       snap_incr_base_slot; /* full slot the incremental was built on                 */
+  int                         snap_publish;        /* is the version in gossip dirty and needs to be updated? */
+  long                        snap_publish_nanos;  /* time of the last push                                   */
 };
 
 typedef struct fd_gossip_tile_ctx fd_gossip_tile_ctx_t;

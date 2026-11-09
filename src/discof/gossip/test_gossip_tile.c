@@ -264,8 +264,8 @@ snapmk_msg( ulong        kind,
   msg->base_slot = base_slot;
   fd_cstr_ncpy( msg->name, name, sizeof(msg->name) );
   FD_TEST( !returnable_frag( &ctx, 3UL, 0UL, kind, 0UL, sizeof(fd_snapmk_msg_t), 0UL, 0UL, 0UL, NULL ) );
-  if( ctx.snap_dirty ) snap_push( &ctx, fd_clock_tile_now( ctx.clock ) );
-  FD_TEST( !ctx.snap_dirty );
+  if( ctx.snap_publish ) publish_snap( &ctx, fd_clock_tile_now( ctx.clock ) );
+  FD_TEST( !ctx.snap_publish );
 }
 
 /* Checks the last signing request is a snapshot hashes value for the
