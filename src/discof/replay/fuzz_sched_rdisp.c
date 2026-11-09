@@ -13,7 +13,6 @@
 #include "../../ballet/bmtree/fd_bmtree.h"
 #include "../../ballet/sha256/fd_sha256.h"
 #include "../../flamenco/alpenglow/fd_block_marker_serde.h"
-#include "../../flamenco/txn/fd_txn_generate.h"
 
 /* Keep the generated cases small.  These limits are intentionally much
    smaller than production so the fuzzer stays cheap to run and easy to
@@ -501,9 +500,9 @@ block_txn_mask( block_t const * block ) {
    program while avoiding accidental overlap with the data-account id
    space used to model conflicts.
 
-   After fd_txn_base_generate() lays out a legacy message, the function
-   stamps deterministic signature bytes and appends one instruction that
-   references every non-program account.  The instruction data records
+   The function lays out a legacy message, stamps deterministic
+   signature bytes and appends one instruction that references every
+   non-program account.  The instruction data records
    the generation choices so downstream debugging can recover the
    intended shape from the wire image alone.  A version 0 message is
    laid out by hand with the same accounts, instruction and signature,
@@ -594,20 +593,25 @@ build_txn( reader_t * r, ulong block_idx, ulong txn_idx, txn_t * out ) {
 
   fd_memset( out->payload, 0, sizeof(out->payload) );
   if( !out->is_alt ) {
-    fd_txn_accounts_t accounts = {
-      .signature_cnt         = 1U,
-      .readonly_signed_cnt   = 0U,
-      .readonly_unsigned_cnt = (uchar)(readonly_extra + 1UL),
-      .acct_cnt              = (ushort)acct_cnt,
-      .signers_w             = signer_w,
-      .signers_r             = NULL,
-      .non_signers_w         = non_signer_w,
-      .non_signers_r         = non_signer_r,
-    };
-    uchar meta[ FD_TXN_MAX_SZ ] __attribute__((aligned(alignof(fd_txn_t))));
-    fd_memset( meta, 0, sizeof(meta) );
-    fd_txn_base_generate( meta, out->payload, 1UL, &accounts, NULL );
-    out->payload_sz = (ushort)fd_txn_add_instr( meta, out->payload, (uchar)(acct_cnt-1UL), instr_accounts, instr_accounts_sz, instr_data, sizeof(instr_data) );
+    uchar * p = out->payload;
+    ulong   i = 0UL;
+    p[ i++ ] = 1;                                                         /* signature count */
+    i += FD_TXN_SIGNATURE_SZ;                                             /* signature, stamped below */
+    p[ i++ ] = 1;                                                         /* required signatures */
+    p[ i++ ] = 0;                                                         /* read-only signed */
+    p[ i++ ] = (uchar)(readonly_extra + 1UL);                             /* read-only unsigned */
+    p[ i++ ] = (uchar)acct_cnt;                                           /* accounts */
+    fd_memcpy( p+i, signer_w, sizeof(fd_pubkey_t) );                      i += sizeof(fd_pubkey_t);
+    fd_memcpy( p+i, non_signer_w, writable_extra*sizeof(fd_pubkey_t) );   i += writable_extra*sizeof(fd_pubkey_t);
+    fd_memcpy( p+i, non_signer_r, (readonly_extra+1UL)*sizeof(fd_pubkey_t) ); i += (readonly_extra+1UL)*sizeof(fd_pubkey_t);
+    i += FD_TXN_BLOCKHASH_SZ;                                             /* zero recent blockhash */
+    p[ i++ ] = 1;                                                         /* instruction count */
+    p[ i++ ] = (uchar)(acct_cnt-1UL);                                     /*   program index */
+    p[ i++ ] = (uchar)instr_accounts_sz;                                  /*   account count */
+    fd_memcpy( p+i, instr_accounts, instr_accounts_sz );                  i += instr_accounts_sz;
+    p[ i++ ] = (uchar)sizeof(instr_data);                                 /*   data length */
+    fd_memcpy( p+i, instr_data, sizeof(instr_data) );                     i += sizeof(instr_data);
+    out->payload_sz = (ushort)i;
   } else {
     uchar * p = out->payload;
     ulong   i = 0UL;

@@ -6,7 +6,6 @@
 #include "fd_execrp.h"
 #include "fd_sched.h"
 #include "../../ballet/sha256/fd_sha256.h"
-#include "../../flamenco/txn/fd_txn_generate.h"
 #include "../../flamenco/alpenglow/fd_block_marker_serde.h"
 #include "../../flamenco/runtime/fd_runtime_const.h"
 
@@ -96,30 +95,38 @@ repeat_hash( fd_hash_t *       out,
 }
 
 static ulong
+build_legacy_test_txn( uchar *             payload,
+                       fd_pubkey_t const * payer,
+                       fd_pubkey_t const * writables,
+                       ulong               writable_cnt,
+                       uchar               sig_tag ) {
+  ulong i = 0UL;
+  payload[ i++ ] = 1;                                          /* signature count */
+  fd_memset( payload+i, 0, FD_TXN_SIGNATURE_SZ );
+  payload[ i+1UL ] = sig_tag;                                  /* distinct signatures */
+  i += FD_TXN_SIGNATURE_SZ;
+  payload[ i++ ] = 1;                                          /* required signatures */
+  payload[ i++ ] = 0;                                          /* read-only signed */
+  payload[ i++ ] = 1;                                          /* read-only unsigned */
+  payload[ i++ ] = (uchar)(2UL+writable_cnt);                  /* accounts */
+  fd_memcpy( payload+i, payer->uc, sizeof(fd_pubkey_t) );              i += sizeof(fd_pubkey_t);
+  fd_memcpy( payload+i, writables, writable_cnt*sizeof(fd_pubkey_t) ); i += writable_cnt*sizeof(fd_pubkey_t);
+  fd_memset( payload+i, 0x22, sizeof(fd_pubkey_t) );                   i += sizeof(fd_pubkey_t); /* program */
+  fd_memset( payload+i, 0, FD_TXN_BLOCKHASH_SZ );                      i += FD_TXN_BLOCKHASH_SZ; /* recent blockhash */
+  payload[ i++ ] = 1;                                          /* instruction count */
+  payload[ i++ ] = (uchar)(1UL+writable_cnt);                  /*   program index */
+  payload[ i++ ] = 1;                                          /*   account count */
+  payload[ i++ ] = 0;                                          /*   the payer */
+  payload[ i++ ] = 1;                                          /*   data length */
+  payload[ i++ ] = 0x5a;
+  return i;
+}
+
+static ulong
 build_shred_test_txn( uchar * payload ) {
   fd_pubkey_t payer[ 1 ];
-  fd_pubkey_t program[ 1 ];
-  fd_memset( payer->uc,   0x11, sizeof(fd_pubkey_t) );
-  fd_memset( program->uc, 0x22, sizeof(fd_pubkey_t) );
-
-  fd_txn_accounts_t accounts = {
-    .signature_cnt         = 1U,
-    .readonly_signed_cnt   = 0U,
-    .readonly_unsigned_cnt = 1U,
-    .acct_cnt              = 2U,
-    .signers_w             = payer,
-    .signers_r             = NULL,
-    .non_signers_w         = NULL,
-    .non_signers_r         = program,
-  };
-
-  uchar meta[ FD_TXN_MAX_SZ ] __attribute__((aligned(alignof(fd_txn_t))));
-  fd_memset( meta, 0, sizeof(meta) );
-  fd_txn_base_generate( meta, payload, 1UL, &accounts, NULL );
-
-  uchar instr_acct = 0U;
-  uchar instr_data = 0x5aU;
-  return fd_txn_add_instr( meta, payload, 1U, &instr_acct, 1UL, &instr_data, 1UL );
+  fd_memset( payer->uc, 0x11, sizeof(fd_pubkey_t) );
+  return build_legacy_test_txn( payload, payer, NULL, 0UL, 0 );
 }
 
 /* Alpenglow block structure cases.  Each component is its own FEC set
@@ -1801,40 +1808,6 @@ drive_untracked( fd_sched_t * sched,
   while( fd_sched_pruned_block_next( sched )!=ULONG_MAX ) {}
 }
 
-/* Legacy transaction with payer as the writable signer, writable_cnt
-   writable non-signers and a read-only program, so a test chooses the
-   accounts whose LtHash a block owes. */
-static ulong
-build_lthash_test_txn( uchar *             payload,
-                       fd_pubkey_t const * payer,
-                       fd_pubkey_t const * writables,
-                       ulong               writable_cnt,
-                       uchar               sig_tag ) {
-  fd_pubkey_t program[ 1 ];
-  fd_memset( program->uc, 0x22, sizeof(fd_pubkey_t) );
-
-  fd_txn_accounts_t accounts = {
-    .signature_cnt         = 1U,
-    .readonly_signed_cnt   = 0U,
-    .readonly_unsigned_cnt = 1U,
-    .acct_cnt              = (ushort)(2UL+writable_cnt),
-    .signers_w             = payer,
-    .signers_r             = NULL,
-    .non_signers_w         = writables,
-    .non_signers_r         = program,
-  };
-
-  uchar meta[ FD_TXN_MAX_SZ ] __attribute__((aligned(alignof(fd_txn_t))));
-  fd_memset( meta, 0, sizeof(meta) );
-  fd_txn_base_generate( meta, payload, 1UL, &accounts, NULL );
-
-  uchar instr_acct = 0U;
-  uchar instr_data = 0x5aU;
-  ulong sz = fd_txn_add_instr( meta, payload, (uchar)(1UL+writable_cnt), &instr_acct, 1UL, &instr_data, 1UL );
-  payload[ 1 ] = sig_tag; /* distinct signatures */
-  return sz;
-}
-
 /* Version 0 transaction with payer as the writable signer, a read-only
    program and one address lookup table naming alt_writable_cnt
    writable accounts.  The cases bypass lookup table resolution, so the
@@ -2083,8 +2056,8 @@ run_lthash_basic_case( void ) {
 
   fd_pubkey_t acct[ 2 ];
   lthash_test_keys( acct, acct+1 );
-  uchar t1[ FD_TXN_MTU ]; ulong t1_sz = build_lthash_test_txn( t1, acct, NULL,   0UL, 0x01 );
-  uchar t2[ FD_TXN_MTU ]; ulong t2_sz = build_lthash_test_txn( t2, acct, acct+1, 1UL, 0x02 );
+  uchar t1[ FD_TXN_MTU ]; ulong t1_sz = build_legacy_test_txn( t1, acct, NULL,   0UL, 0x01 );
+  uchar t2[ FD_TXN_MTU ]; ulong t2_sz = build_legacy_test_txn( t2, acct, acct+1, 1UL, 0x02 );
   uchar const * txns[ 2 ] = { t1, t2 };
   ulong txn_sz[ 2 ] = { t1_sz, t2_sz };
   uchar encoded[ 8192 ];
@@ -2127,7 +2100,7 @@ run_lthash_abandon_in_flight_case( int last_is_add ) {
 
   fd_pubkey_t acct[ 2 ];
   lthash_test_keys( acct, acct+1 );
-  uchar t1[ FD_TXN_MTU ]; ulong t1_sz = build_lthash_test_txn( t1, acct, NULL, 0UL, 0x01 );
+  uchar t1[ FD_TXN_MTU ]; ulong t1_sz = build_legacy_test_txn( t1, acct, NULL, 0UL, 0x01 );
   uchar const * txns[ 1 ] = { t1 };
   uchar encoded[ 8192 ];
   ulong sz = encode_lthash_batch( encoded, txns, &t1_sz, 1UL );
@@ -2212,8 +2185,8 @@ run_lthash_demote_promote_case( void ) {
 
   fd_pubkey_t acct[ 2 ];
   lthash_test_keys( acct, acct+1 );
-  uchar t1[ FD_TXN_MTU ]; ulong t1_sz = build_lthash_test_txn( t1, acct, NULL,   0UL, 0x01 );
-  uchar t2[ FD_TXN_MTU ]; ulong t2_sz = build_lthash_test_txn( t2, acct, acct+1, 1UL, 0x02 );
+  uchar t1[ FD_TXN_MTU ]; ulong t1_sz = build_legacy_test_txn( t1, acct, NULL,   0UL, 0x01 );
+  uchar t2[ FD_TXN_MTU ]; ulong t2_sz = build_legacy_test_txn( t2, acct, acct+1, 1UL, 0x02 );
   uchar const * txns1[ 1 ] = { t1 };
   uchar const * txns2[ 1 ] = { t2 };
   uchar encoded1[ 8192 ]; ulong sz1 = encode_lthash_batch( encoded1, txns1, &t1_sz, 1UL );
@@ -2299,7 +2272,7 @@ run_lthash_inband_fallback_case( void ) {
   ulong       sz[ 3 ];
   for( ulong i=0UL; i<3UL; i++ ) {
     fd_memset( acct[ i ].uc, 0xd1+(int)i, sizeof(fd_pubkey_t) );
-    uchar txn[ FD_TXN_MTU ]; ulong txn_sz = build_lthash_test_txn( txn, acct+i, NULL, 0UL, (uchar)(0x20UL+i) );
+    uchar txn[ FD_TXN_MTU ]; ulong txn_sz = build_legacy_test_txn( txn, acct+i, NULL, 0UL, (uchar)(0x20UL+i) );
     uchar const * txns[ 1 ] = { txn };
     sz[ i ] = encode_lthash_batch( encoded[ i ], txns, &txn_sz, 1UL );
   }
@@ -2382,8 +2355,8 @@ run_lthash_block_start_writes_case( int mode ) {
 
   fd_pubkey_t acct[ 2 ]; /* A, S */
   lthash_test_keys( acct, acct+1 );
-  uchar t1[ FD_TXN_MTU ]; ulong t1_sz = build_lthash_test_txn( t1, acct,   NULL, 0UL, 0x01 );
-  uchar t2[ FD_TXN_MTU ]; ulong t2_sz = build_lthash_test_txn( t2, acct+1, NULL, 0UL, 0x02 );
+  uchar t1[ FD_TXN_MTU ]; ulong t1_sz = build_legacy_test_txn( t1, acct,   NULL, 0UL, 0x01 );
+  uchar t2[ FD_TXN_MTU ]; ulong t2_sz = build_legacy_test_txn( t2, acct+1, NULL, 0UL, 0x02 );
   uchar const * txns[ 1 ] = { t1 };
   uchar const * txns2[ 1 ] = { t2 };
   uchar encoded[ 8192 ];
@@ -2398,7 +2371,7 @@ run_lthash_block_start_writes_case( int mode ) {
 
   int child = mode==2;
   if( child ) {
-    uchar t3[ FD_TXN_MTU ]; ulong t3_sz = build_lthash_test_txn( t3, acct, NULL, 0UL, 0x03 );
+    uchar t3[ FD_TXN_MTU ]; ulong t3_sz = build_legacy_test_txn( t3, acct, NULL, 0UL, 0x03 );
     uchar const * txns3[ 1 ] = { t3 };
     uchar encoded3[ 8192 ]; ulong sz3 = encode_lthash_batch( encoded3, txns3, &t3_sz, 1UL );
     ingest_lthash_fec( sched, 3UL, 2UL, TEST_ROOT_SLOT+2UL, TEST_ROOT_SLOT+1UL, encoded3, sz3, 1, 0 );
@@ -2480,9 +2453,9 @@ run_lthash_respeculate_case( void ) {
 
   fd_pubkey_t acct[ 2 ]; /* A, B */
   lthash_test_keys( acct, acct+1 );
-  uchar t1[ FD_TXN_MTU ]; ulong t1_sz = build_lthash_test_txn( t1, acct,   NULL, 0UL, 0x01 );
-  uchar t2[ FD_TXN_MTU ]; ulong t2_sz = build_lthash_test_txn( t2, acct+1, NULL, 0UL, 0x02 );
-  uchar t3[ FD_TXN_MTU ]; ulong t3_sz = build_lthash_test_txn( t3, acct,   NULL, 0UL, 0x03 );
+  uchar t1[ FD_TXN_MTU ]; ulong t1_sz = build_legacy_test_txn( t1, acct,   NULL, 0UL, 0x01 );
+  uchar t2[ FD_TXN_MTU ]; ulong t2_sz = build_legacy_test_txn( t2, acct+1, NULL, 0UL, 0x02 );
+  uchar t3[ FD_TXN_MTU ]; ulong t3_sz = build_legacy_test_txn( t3, acct,   NULL, 0UL, 0x03 );
   uchar const * txns1[ 1 ] = { t1 };
   uchar const * txns2[ 1 ] = { t2 };
   uchar const * txns3[ 1 ] = { t3 };
@@ -2563,8 +2536,8 @@ run_lthash_pending_rewrite_case( int fec2_last ) {
 
   fd_pubkey_t acct[ 2 ];
   lthash_test_keys( acct, acct+1 );
-  uchar t1[ FD_TXN_MTU ]; ulong t1_sz = build_lthash_test_txn( t1, acct, NULL, 0UL, 0x01 );
-  uchar t2[ FD_TXN_MTU ]; ulong t2_sz = build_lthash_test_txn( t2, acct, NULL, 0UL, 0x02 );
+  uchar t1[ FD_TXN_MTU ]; ulong t1_sz = build_legacy_test_txn( t1, acct, NULL, 0UL, 0x01 );
+  uchar t2[ FD_TXN_MTU ]; ulong t2_sz = build_legacy_test_txn( t2, acct, NULL, 0UL, 0x02 );
   uchar const * txns1[ 1 ] = { t1 };
   uchar const * txns2[ 1 ] = { t2 };
   uchar encoded1[ 8192 ]; ulong sz1 = encode_lthash_batch( encoded1, txns1, &t1_sz, 1UL );
@@ -2716,8 +2689,8 @@ run_lthash_speculate_case( int hold_writer ) {
 
   fd_pubkey_t acct[ 2 ];
   lthash_test_keys( acct, acct+1 );
-  uchar t1[ FD_TXN_MTU ]; ulong t1_sz = build_lthash_test_txn( t1, acct, NULL, 0UL, 0x01 );
-  uchar t2[ FD_TXN_MTU ]; ulong t2_sz = build_lthash_test_txn( t2, acct, NULL, 0UL, 0x02 );
+  uchar t1[ FD_TXN_MTU ]; ulong t1_sz = build_legacy_test_txn( t1, acct, NULL, 0UL, 0x01 );
+  uchar t2[ FD_TXN_MTU ]; ulong t2_sz = build_legacy_test_txn( t2, acct, NULL, 0UL, 0x02 );
   uchar const * txns1[ 1 ] = { t1 };
   uchar const * txns2[ 1 ] = { t2 };
   uchar encoded1[ 8192 ]; ulong sz1 = encode_lthash_batch( encoded1, txns1, &t1_sz, 1UL );
@@ -2781,8 +2754,8 @@ run_lthash_spec_result_dropped_case( void ) {
 
   fd_pubkey_t acct[ 2 ];
   lthash_test_keys( acct, acct+1 );
-  uchar t1[ FD_TXN_MTU ]; ulong t1_sz = build_lthash_test_txn( t1, acct, NULL, 0UL, 0x01 );
-  uchar t2[ FD_TXN_MTU ]; ulong t2_sz = build_lthash_test_txn( t2, acct, NULL, 0UL, 0x02 );
+  uchar t1[ FD_TXN_MTU ]; ulong t1_sz = build_legacy_test_txn( t1, acct, NULL, 0UL, 0x01 );
+  uchar t2[ FD_TXN_MTU ]; ulong t2_sz = build_legacy_test_txn( t2, acct, NULL, 0UL, 0x02 );
   uchar const * txns1[ 1 ] = { t1 };
   uchar const * txns2[ 1 ] = { t2 };
   uchar encoded1[ 8192 ]; ulong sz1 = encode_lthash_batch( encoded1, txns1, &t1_sz, 1UL );
@@ -2845,8 +2818,8 @@ run_lthash_spec_given_up_case( void ) {
 
   fd_pubkey_t acct[ 2 ];
   lthash_test_keys( acct, acct+1 );
-  uchar t1[ FD_TXN_MTU ]; ulong t1_sz = build_lthash_test_txn( t1, acct,   NULL, 0UL, 0x01 );
-  uchar t2[ FD_TXN_MTU ]; ulong t2_sz = build_lthash_test_txn( t2, acct+1, NULL, 0UL, 0x02 );
+  uchar t1[ FD_TXN_MTU ]; ulong t1_sz = build_legacy_test_txn( t1, acct,   NULL, 0UL, 0x01 );
+  uchar t2[ FD_TXN_MTU ]; ulong t2_sz = build_legacy_test_txn( t2, acct+1, NULL, 0UL, 0x02 );
   uchar const * txns1[ 1 ] = { t1 };
   uchar const * txns2[ 1 ] = { t2 };
   uchar encoded1[ 8192 ]; ulong sz1 = encode_lthash_batch( encoded1, txns1, &t1_sz, 1UL );
@@ -2922,9 +2895,9 @@ run_lthash_spec_given_up_complete_case( int child ) {
   fd_pubkey_t acct[ 3 ]; /* A, B, and C written in block 3 */
   lthash_test_keys( acct, acct+1 );
   fd_memset( acct[ 2 ].uc, 0xd4, sizeof(fd_pubkey_t) );
-  uchar t1[ FD_TXN_MTU ]; ulong t1_sz = build_lthash_test_txn( t1, acct,   NULL, 0UL, 0x01 );
-  uchar t2[ FD_TXN_MTU ]; ulong t2_sz = build_lthash_test_txn( t2, acct+1, NULL, 0UL, 0x02 );
-  uchar t3[ FD_TXN_MTU ]; ulong t3_sz = build_lthash_test_txn( t3, acct+2, NULL, 0UL, 0x03 );
+  uchar t1[ FD_TXN_MTU ]; ulong t1_sz = build_legacy_test_txn( t1, acct,   NULL, 0UL, 0x01 );
+  uchar t2[ FD_TXN_MTU ]; ulong t2_sz = build_legacy_test_txn( t2, acct+1, NULL, 0UL, 0x02 );
+  uchar t3[ FD_TXN_MTU ]; ulong t3_sz = build_legacy_test_txn( t3, acct+2, NULL, 0UL, 0x03 );
   uchar const * txns1[ 1 ] = { t1 };
   uchar const * txns2[ 1 ] = { t2 };
   uchar const * txns3[ 1 ] = { t3 };
@@ -3011,7 +2984,7 @@ run_lthash_late_alt_case( int speculate ) {
   fd_acct_addr_t late[ 2 ]; /* A, X */
   fd_memcpy( late[ 0 ].b, acct[ 0 ].uc, sizeof(fd_acct_addr_t) );
   fd_memcpy( late[ 1 ].b, acct[ 2 ].uc, sizeof(fd_acct_addr_t) );
-  uchar t1[ FD_TXN_MTU ]; ulong t1_sz = build_lthash_test_txn( t1, acct,   NULL, 0UL, 0x01 );
+  uchar t1[ FD_TXN_MTU ]; ulong t1_sz = build_legacy_test_txn( t1, acct,   NULL, 0UL, 0x01 );
   uchar s [ FD_TXN_MTU ]; ulong s_sz  = build_lthash_v0_txn(   s,  acct+1, 2UL,       0x02 );
 
   fd_hash_t start_poh[ 1 ]; hash_from_seed( start_poh, 0x2c3d4e5f60718293UL );
@@ -3090,9 +3063,9 @@ lthash_batch_setup( fd_sched_t *        sched,
   fd_sched_set_bypass_poh_verify( sched, 1 );
 
   for( ulong i=0UL; i<3UL*per_txn; i++ ) fd_memset( acct[ i ].uc, (int)(0xa1UL+i), sizeof(fd_pubkey_t) );
-  uchar t1[ FD_TXN_MTU ]; ulong t1_sz = build_lthash_test_txn( t1, acct,             acct+1,             per_txn-1UL, 0x01 );
-  uchar t2[ FD_TXN_MTU ]; ulong t2_sz = build_lthash_test_txn( t2, acct+per_txn,     acct+per_txn+1UL,   per_txn-1UL, 0x02 );
-  uchar t3[ FD_TXN_MTU ]; ulong t3_sz = build_lthash_test_txn( t3, acct+2UL*per_txn, acct+2UL*per_txn+1UL, per_txn-1UL, 0x03 );
+  uchar t1[ FD_TXN_MTU ]; ulong t1_sz = build_legacy_test_txn( t1, acct,             acct+1,             per_txn-1UL, 0x01 );
+  uchar t2[ FD_TXN_MTU ]; ulong t2_sz = build_legacy_test_txn( t2, acct+per_txn,     acct+per_txn+1UL,   per_txn-1UL, 0x02 );
+  uchar t3[ FD_TXN_MTU ]; ulong t3_sz = build_legacy_test_txn( t3, acct+2UL*per_txn, acct+2UL*per_txn+1UL, per_txn-1UL, 0x03 );
   uchar const * txns[ 3 ] = { t1, t2, t3 };
   ulong txn_sz[ 3 ] = { t1_sz, t2_sz, t3_sz };
   uchar encoded[ 8192 ];
@@ -3334,9 +3307,9 @@ run_lthash_batch_completion_order_case( int batch_first ) {
 
   fd_pubkey_t acct[ 4 ]; /* A, the payer of all three, then B, C, D */
   for( ulong i=0UL; i<4UL; i++ ) fd_memset( acct[ i ].uc, (int)(0xc1UL+0x0dUL*i), sizeof(fd_pubkey_t) );
-  uchar t1[ FD_TXN_MTU ]; ulong t1_sz = build_lthash_test_txn( t1, acct, acct+1, 1UL, 0x01 );
-  uchar t2[ FD_TXN_MTU ]; ulong t2_sz = build_lthash_test_txn( t2, acct, acct+2, 1UL, 0x02 );
-  uchar t3[ FD_TXN_MTU ]; ulong t3_sz = build_lthash_test_txn( t3, acct, acct+3, 1UL, 0x03 );
+  uchar t1[ FD_TXN_MTU ]; ulong t1_sz = build_legacy_test_txn( t1, acct, acct+1, 1UL, 0x01 );
+  uchar t2[ FD_TXN_MTU ]; ulong t2_sz = build_legacy_test_txn( t2, acct, acct+2, 1UL, 0x02 );
+  uchar t3[ FD_TXN_MTU ]; ulong t3_sz = build_legacy_test_txn( t3, acct, acct+3, 1UL, 0x03 );
   uchar const * txns[ 3 ] = { t1, t2, t3 };
   ulong txn_sz[ 3 ] = { t1_sz, t2_sz, t3_sz };
   uchar encoded[ 8192 ];
@@ -3419,11 +3392,11 @@ run_lthash_bubble_case( void ) {
 
   fd_pubkey_t acct[ 8 ]; /* A to H */
   for( ulong i=0UL; i<8UL; i++ ) fd_memset( acct[ i ].uc, (int)(0xa1UL+0x0bUL*i), sizeof(fd_pubkey_t) );
-  uchar t1[ FD_TXN_MTU ]; ulong t1_sz = build_lthash_test_txn( t1, acct,   acct+1, 1UL, 0x01 );
-  uchar t2[ FD_TXN_MTU ]; ulong t2_sz = build_lthash_test_txn( t2, acct+2, acct+3, 1UL, 0x02 );
-  uchar t3[ FD_TXN_MTU ]; ulong t3_sz = build_lthash_test_txn( t3, acct+4, acct+5, 1UL, 0x03 );
-  uchar t4[ FD_TXN_MTU ]; ulong t4_sz = build_lthash_test_txn( t4, acct,   acct+6, 1UL, 0x04 );
-  uchar t5[ FD_TXN_MTU ]; ulong t5_sz = build_lthash_test_txn( t5, acct+6, acct+7, 1UL, 0x05 );
+  uchar t1[ FD_TXN_MTU ]; ulong t1_sz = build_legacy_test_txn( t1, acct,   acct+1, 1UL, 0x01 );
+  uchar t2[ FD_TXN_MTU ]; ulong t2_sz = build_legacy_test_txn( t2, acct+2, acct+3, 1UL, 0x02 );
+  uchar t3[ FD_TXN_MTU ]; ulong t3_sz = build_legacy_test_txn( t3, acct+4, acct+5, 1UL, 0x03 );
+  uchar t4[ FD_TXN_MTU ]; ulong t4_sz = build_legacy_test_txn( t4, acct,   acct+6, 1UL, 0x04 );
+  uchar t5[ FD_TXN_MTU ]; ulong t5_sz = build_legacy_test_txn( t5, acct+6, acct+7, 1UL, 0x05 );
   uchar const * txns[ 5 ] = { t1, t2, t3, t4, t5 };
   ulong txn_sz[ 5 ] = { t1_sz, t2_sz, t3_sz, t4_sz, t5_sz };
   uchar encoded[ 8192 ];
@@ -3534,8 +3507,8 @@ run_lthash_batch_cap_case( void ) {
   ulong const acct_cnt = t1_cnt+2UL;
   fd_pubkey_t acct[ FD_SCHED_LTHASH_BATCH_BUSY_MAX+5UL ]; /* T1's, then T2's two */
   for( ulong i=0UL; i<acct_cnt; i++ ) fd_memset( acct[ i ].uc, (int)(0x61UL+i), sizeof(fd_pubkey_t) );
-  uchar t1[ FD_TXN_MTU ]; ulong t1_sz = build_lthash_test_txn( t1, acct,        acct+1UL,        t1_cnt-1UL, 0x01 );
-  uchar t2[ FD_TXN_MTU ]; ulong t2_sz = build_lthash_test_txn( t2, acct+t1_cnt, acct+t1_cnt+1UL, 1UL,        0x02 );
+  uchar t1[ FD_TXN_MTU ]; ulong t1_sz = build_legacy_test_txn( t1, acct,        acct+1UL,        t1_cnt-1UL, 0x01 );
+  uchar t2[ FD_TXN_MTU ]; ulong t2_sz = build_legacy_test_txn( t2, acct+t1_cnt, acct+t1_cnt+1UL, 1UL,        0x02 );
   uchar const * txns[ 2 ] = { t1, t2 };
   ulong txn_sz[ 2 ] = { t1_sz, t2_sz };
   uchar encoded[ 8192 ];
@@ -3622,9 +3595,9 @@ run_lthash_batch_held_tail_case( void ) {
   ulong const acct_cnt = t2_cnt+4UL;
   fd_pubkey_t acct[ FD_SCHED_LTHASH_BATCH_MAX+6UL ]; /* T1: 0, 1; T2: 2 on; T3: the last two */
   for( ulong i=0UL; i<acct_cnt; i++ ) fd_memset( acct[ i ].uc, (int)(0x50UL+i), sizeof(fd_pubkey_t) );
-  uchar t1[ FD_TXN_MTU ]; ulong t1_sz = build_lthash_test_txn( t1, acct,              acct+1UL,          1UL,        0x01 );
-  uchar t2[ FD_TXN_MTU ]; ulong t2_sz = build_lthash_test_txn( t2, acct+2UL,          acct+3UL,          t2_cnt-1UL, 0x02 );
-  uchar t3[ FD_TXN_MTU ]; ulong t3_sz = build_lthash_test_txn( t3, acct+acct_cnt-2UL, acct+acct_cnt-1UL, 1UL,        0x03 );
+  uchar t1[ FD_TXN_MTU ]; ulong t1_sz = build_legacy_test_txn( t1, acct,              acct+1UL,          1UL,        0x01 );
+  uchar t2[ FD_TXN_MTU ]; ulong t2_sz = build_legacy_test_txn( t2, acct+2UL,          acct+3UL,          t2_cnt-1UL, 0x02 );
+  uchar t3[ FD_TXN_MTU ]; ulong t3_sz = build_legacy_test_txn( t3, acct+acct_cnt-2UL, acct+acct_cnt-1UL, 1UL,        0x03 );
   FD_TEST( t2_sz<=FD_TXN_MTU );
   uchar const * txns[ 3 ] = { t1, t2, t3 };
   ulong txn_sz[ 3 ] = { t1_sz, t2_sz, t3_sz };
@@ -3729,10 +3702,10 @@ run_lthash_batch_held_behind_txn_case( void ) {
 
   fd_pubkey_t acct[ 2 ]; /* X, Y */
   lthash_test_keys( acct, acct+1 );
-  uchar t0 [ FD_TXN_MTU ]; ulong t0_sz  = build_lthash_test_txn( t0,  acct,   NULL, 0UL, 0x01 );
-  uchar t0p[ FD_TXN_MTU ]; ulong t0p_sz = build_lthash_test_txn( t0p, acct,   NULL, 0UL, 0x02 );
-  uchar t1 [ FD_TXN_MTU ]; ulong t1_sz  = build_lthash_test_txn( t1,  acct,   NULL, 0UL, 0x03 );
-  uchar t2 [ FD_TXN_MTU ]; ulong t2_sz  = build_lthash_test_txn( t2,  acct+1, NULL, 0UL, 0x04 );
+  uchar t0 [ FD_TXN_MTU ]; ulong t0_sz  = build_legacy_test_txn( t0,  acct,   NULL, 0UL, 0x01 );
+  uchar t0p[ FD_TXN_MTU ]; ulong t0p_sz = build_legacy_test_txn( t0p, acct,   NULL, 0UL, 0x02 );
+  uchar t1 [ FD_TXN_MTU ]; ulong t1_sz  = build_legacy_test_txn( t1,  acct,   NULL, 0UL, 0x03 );
+  uchar t2 [ FD_TXN_MTU ]; ulong t2_sz  = build_legacy_test_txn( t2,  acct+1, NULL, 0UL, 0x04 );
   uchar const * txns1[ 2 ] = { t0, t0p }; ulong txn_sz1[ 2 ] = { t0_sz, t0p_sz };
   uchar const * txns2[ 2 ] = { t1, t2  }; ulong txn_sz2[ 2 ] = { t1_sz, t2_sz  };
   uchar encoded1[ 8192 ]; ulong sz1 = encode_lthash_batch( encoded1, txns1, txn_sz1, 2UL );
@@ -3832,7 +3805,7 @@ build_lthash_wide_txns( fd_pubkey_t * acct,
     acct[ i ].uc[ 2 ] = tag;
   }
   for( ulong t=0UL; t<txn_cnt; t++ ) {
-    txn_sz[ t ] = build_lthash_test_txn( txn[ t ], acct+TEST_WIDE_TXN_ACCT_CNT*t, acct+TEST_WIDE_TXN_ACCT_CNT*t+1UL, TEST_WIDE_TXN_ACCT_CNT-1UL, (uchar)(tag+t) );
+    txn_sz[ t ] = build_legacy_test_txn( txn[ t ], acct+TEST_WIDE_TXN_ACCT_CNT*t, acct+TEST_WIDE_TXN_ACCT_CNT*t+1UL, TEST_WIDE_TXN_ACCT_CNT-1UL, (uchar)(tag+t) );
     FD_TEST( txn_sz[ t ]<=FD_TXN_MTU );
   }
 }
@@ -3898,8 +3871,8 @@ run_lthash_drain_chunk_case( void ) {
   fd_pubkey_t * payer5 = acct+TEST_WIDE_ACCT_CNT+1UL;
   fd_memset( payer0->uc, 0xc3, sizeof(fd_pubkey_t) );
   fd_memset( payer5->uc, 0xd4, sizeof(fd_pubkey_t) );
-  uchar t0[ FD_TXN_MTU ]; ulong t0_sz = build_lthash_test_txn( t0, payer0, NULL, 0UL, 0x01 );
-  uchar t5[ FD_TXN_MTU ]; ulong t5_sz = build_lthash_test_txn( t5, payer5, NULL, 0UL, 0x02 );
+  uchar t0[ FD_TXN_MTU ]; ulong t0_sz = build_legacy_test_txn( t0, payer0, NULL, 0UL, 0x01 );
+  uchar t5[ FD_TXN_MTU ]; ulong t5_sz = build_legacy_test_txn( t5, payer5, NULL, 0UL, 0x02 );
   uchar const * txns2[ 1 ] = { t0 };
   uchar const * txns4[ 1 ] = { t5 };
   uchar encoded2[ 8192 ];              ulong sz2 = encode_lthash_batch( encoded2, txns2, &t0_sz, 1UL );
@@ -4055,7 +4028,7 @@ run_lthash_drain_switch_case( void ) {
   build_lthash_wide_txns( acct, txn, txn_sz, TEST_WIDE_TXN_CNT, 0x10 );
   fd_pubkey_t * payer0 = acct+TEST_WIDE_ACCT_CNT;
   fd_memset( payer0->uc, 0xc3, sizeof(fd_pubkey_t) );
-  uchar t0[ FD_TXN_MTU ]; ulong t0_sz = build_lthash_test_txn( t0, payer0, NULL, 0UL, 0x01 );
+  uchar t0[ FD_TXN_MTU ]; ulong t0_sz = build_legacy_test_txn( t0, payer0, NULL, 0UL, 0x01 );
   uchar const * txns2[ 1 ] = { t0 };
   uchar encoded2[ 8192 ];              ulong sz2 = encode_lthash_batch( encoded2, txns2, &t0_sz, 1UL );
   uchar encoded3[ TEST_WIDE_BLOCK_SZ ]; ulong sz3 = encode_lthash_wide_block( encoded3, txn, txn_sz, 0UL, TEST_WIDE_TXN_CNT );
@@ -4152,7 +4125,7 @@ run_lthash_dying_parent_case( void ) {
   build_lthash_wide_txns( acct, txn, txn_sz, TEST_WIDE_TXN_CNT, 0x10 );
   fd_pubkey_t * payer0 = acct+TEST_WIDE_ACCT_CNT;
   fd_memset( payer0->uc, 0xc3, sizeof(fd_pubkey_t) );
-  uchar t0[ FD_TXN_MTU ]; ulong t0_sz = build_lthash_test_txn( t0, payer0, NULL, 0UL, 0x01 );
+  uchar t0[ FD_TXN_MTU ]; ulong t0_sz = build_legacy_test_txn( t0, payer0, NULL, 0UL, 0x01 );
   uchar const * txns2[ 1 ] = { t0 };
   uchar encoded2[ 8192 ];              ulong sz2 = encode_lthash_batch( encoded2, txns2, &t0_sz, 1UL );
   uchar encoded3[ TEST_WIDE_BLOCK_SZ ]; ulong sz3 = encode_lthash_wide_block( encoded3, txn, txn_sz, 0UL, TEST_WIDE_TXN_CNT );
@@ -4448,7 +4421,7 @@ run_lane_wait_idle_handover_case( void ) {
   uchar txn[ 5 ][ FD_TXN_MTU ]; ulong txn_sz[ 5 ]; uchar const * txns[ 5 ];
   uchar encoded[ 5 ][ 2048 ]; ulong sz[ 5 ];
   for( ulong i=0UL; i<5UL; i++ ) {
-    txn_sz[ i ] = build_lthash_test_txn( txn[ i ], acct, acct+1, 1UL, (uchar)(0x10UL+i) );
+    txn_sz[ i ] = build_legacy_test_txn( txn[ i ], acct, acct+1, 1UL, (uchar)(0x10UL+i) );
     txns[ i ]   = txn[ i ];
     sz[ i ]     = encode_lthash_batch( encoded[ i ], txns+i, txn_sz+i, 1UL );
   }
@@ -4579,7 +4552,7 @@ test_cert_dispatch( void ) {
   fd_sched_set_bypass_poh_verify( sched, 1 );
   fd_hash_t start_poh[ 1 ]; hash_from_seed( start_poh, 0x6a1c3e5f7b9d2048UL );
   fd_pubkey_t acct[ 2 ]; lthash_test_keys( acct, acct+1 );
-  uchar t1[ FD_TXN_MTU ]; ulong t1_sz = build_lthash_test_txn( t1, acct, acct+1, 1UL, 0x01 );
+  uchar t1[ FD_TXN_MTU ]; ulong t1_sz = build_legacy_test_txn( t1, acct, acct+1, 1UL, 0x01 );
   uchar const * txns[ 1 ] = { t1 };
   uchar encoded[ 8192 ]; ulong sz = encode_lthash_batch( encoded, txns, &t1_sz, 1UL );
   test_footer_fast_final = 1;
@@ -4641,7 +4614,7 @@ run_cert_dying_dispatch_case( int root_notify ) {
     txn_bank = 5UL; txn_parent = 4UL; txn_parent_slot = TEST_ROOT_SLOT+2UL;
   }
   fd_pubkey_t acct[ 2 ]; lthash_test_keys( acct, acct+1 );
-  uchar t1[ FD_TXN_MTU ]; ulong t1_sz = build_lthash_test_txn( t1, acct, acct+1, 1UL, 0x01 );
+  uchar t1[ FD_TXN_MTU ]; ulong t1_sz = build_legacy_test_txn( t1, acct, acct+1, 1UL, 0x01 );
   uchar const * txns[ 1 ] = { t1 };
   uchar encoded3[ 8192 ]; ulong sz3 = encode_lthash_batch( encoded3, txns, &t1_sz, 1UL );
   ingest_lthash_fec( sched, txn_bank, txn_parent, TEST_ROOT_SLOT+3UL, txn_parent_slot, encoded3, sz3, 1, 1 );
@@ -4729,8 +4702,8 @@ run_lthash_writer_bound_case( int site ) {
   build_lthash_wide_txns( acct, wide, wide_sz, 3UL, 0x10 );
   fd_pubkey_t const * payer = acct+2UL*wide_cnt;
   fd_pubkey_t const * extra = payer+1UL;
-  uchar t1[ FD_TXN_MTU ]; ulong t1_sz = build_lthash_test_txn( t1, acct,  acct+1UL, wide_cnt-1UL, 0x21 );
-  uchar t4[ FD_TXN_MTU ]; ulong t4_sz = build_lthash_test_txn( t4, payer, NULL,     0UL,          0x24 );
+  uchar t1[ FD_TXN_MTU ]; ulong t1_sz = build_legacy_test_txn( t1, acct,  acct+1UL, wide_cnt-1UL, 0x21 );
+  uchar t4[ FD_TXN_MTU ]; ulong t4_sz = build_legacy_test_txn( t4, payer, NULL,     0UL,          0x24 );
   uchar const * txns01[ 2 ] = { wide[ 0 ], t1 }; ulong txn01_sz[ 2 ] = { wide_sz[ 0 ], t1_sz };
   uchar encoded01[ 4096 ]; ulong sz01 = encode_lthash_batch( encoded01, txns01, txn01_sz, 2UL );
   uchar const * txns4[ 1 ] = { t4 }; uchar encoded4[ 2048 ]; ulong sz4 = encode_lthash_batch( encoded4, txns4, &t4_sz, 1UL );
@@ -4748,7 +4721,7 @@ run_lthash_writer_bound_case( int site ) {
     /* Blocks 2 to 5 hold the lanes with a transaction each to run. */
     uchar busy[ 4 ][ FD_TXN_MTU ]; ulong busy_sz[ 4 ]; uchar const * busy_txns[ 4 ]; uchar encoded_busy[ 4 ][ 2048 ]; ulong busy_enc_sz[ 4 ];
     for( ulong b=0UL; b<4UL; b++ ) {
-      busy_sz[ b ]     = build_lthash_test_txn( busy[ b ], extra+b, NULL, 0UL, (uchar)(0x40UL+b) );
+      busy_sz[ b ]     = build_legacy_test_txn( busy[ b ], extra+b, NULL, 0UL, (uchar)(0x40UL+b) );
       busy_txns[ b ]   = busy[ b ];
       busy_enc_sz[ b ] = encode_lthash_batch( encoded_busy[ b ], busy_txns+b, busy_sz+b, 1UL );
       ingest_lthash_fec( sched, 2UL+b, 1UL, TEST_ROOT_SLOT+1UL+b, TEST_ROOT_SLOT, encoded_busy[ b ], busy_enc_sz[ b ], 1, 0 );
@@ -4838,7 +4811,7 @@ run_lthash_writer_bound_full_case( void ) {
       /* Transaction n writes its own run of accounts, distinct from the
          start-of-block accounts by the byte after the index. */
       for( ulong i=0UL; i<wide_cnt; i++ ) { fd_memset( acct[ wide_cnt*t+i ].uc, 0x5a, sizeof(fd_pubkey_t) ); FD_STORE( ulong, acct[ wide_cnt*t+i ].uc, wide_cnt*n+i ); }
-      txn_sz[ t ] = build_lthash_test_txn( txn[ t ], acct+wide_cnt*t, acct+wide_cnt*t+1UL, wide_cnt-1UL, 0 );
+      txn_sz[ t ] = build_legacy_test_txn( txn[ t ], acct+wide_cnt*t, acct+wide_cnt*t+1UL, wide_cnt-1UL, 0 );
       FD_STORE( uint, txn[ t ]+1UL, (uint)n ); /* distinct signatures */
       txns[ t ] = txn[ t ];
     }
