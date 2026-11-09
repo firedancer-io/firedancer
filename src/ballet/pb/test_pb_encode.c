@@ -824,6 +824,18 @@ test_pb_encode_nested_overflow( void ) {
 }
 
 static void
+test_pb_encode_packed_overflow( void ) {
+  uchar buf[ 32 ];
+  uint  value32 = 0U;
+  ulong value64 = 0UL;
+  fd_pb_encoder_t enc[1];
+  FD_TEST( fd_pb_encoder_init( enc, buf, sizeof(buf) ) );
+  FD_TEST( !fd_pb_push_packed_fixed32( enc, 1U, &value32, ULONG_MAX/4UL+1UL ) );
+  FD_TEST( fd_pb_encoder_init( enc, buf, sizeof(buf) ) );
+  FD_TEST( !fd_pb_push_packed_fixed64( enc, 1U, &value64, ULONG_MAX/8UL+1UL ) );
+}
+
+static void
 test_pb_encode( void ) {
   test_pb_encode_doc_simple();
   test_pb_encode_doc_length_types();
@@ -846,4 +858,5 @@ test_pb_encode( void ) {
   test_pb_encode_bytes();
   test_pb_encode_nested();
   test_pb_encode_nested_overflow();
+  test_pb_encode_packed_overflow();
 }
