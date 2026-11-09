@@ -2453,9 +2453,7 @@ unprivileged_init( fd_topo_t const *      topo,
     1. snapin_ct    - worst case: 1 message (ack or unsolicited ERROR)
     2. snapin_manif - worst case: 1 message (tile 0 only)
     3. snapin_gui   - worst case: 1 message (config program account)
-   The STEM_BURST is the max value across these 3 links (not the sum).
-   Note that snapin_txn is excluded from this calculation, since it is
-   an unreliable link, working as a dcache place holder. */
+   The STEM_BURST is the max value across these 3 links (not the sum). */
 #define STEM_BURST 1UL
 
 #define STEM_LAZY  (128L*3000L)
