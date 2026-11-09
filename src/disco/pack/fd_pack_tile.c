@@ -1202,24 +1202,9 @@ after_frag( fd_pack_ctx_t *     ctx,
     long now_ticks = fd_tickcount();
     long now_ns    = fd_log_wallclock();
 
-    if( FD_UNLIKELY( ctx->leader_slot!=ULONG_MAX ) ) {
-      fd_done_packing_t * done_packing = fd_chunk_to_laddr( ctx->poh_out.mem, ctx->poh_out.chunk );
-      get_done_packing( ctx, done_packing, FD_PACK_END_SLOT_REASON_ABANDONED );
-      log_end_block_metrics( ctx, now_ticks, "switch", done_packing->limits_usage->block_cost );
-      fd_pack_end_block( ctx->pack );
-      fd_pack_get_top_writers( ctx->pack, done_packing->limits_usage->top_writers );
-
-      metrics_write( ctx ); /* final for the slot before poh ends it */
-      fd_stem_publish( stem, ctx->poh_out.out_idx, fd_disco_execle_sig( ctx->leader_slot, ctx->pack_idx ), ctx->poh_out.chunk, sizeof(fd_done_packing_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
-      ctx->poh_out.chunk = fd_dcache_compact_next( ctx->poh_out.chunk, sizeof(fd_done_packing_t), ctx->poh_out.chunk0, ctx->poh_out.wmark );
-      ctx->pack_idx++;
-
-      FD_LOG_WARNING(( "switching to slot %lu while packing for slot %lu. Draining execle tiles.", leader_slot, ctx->leader_slot ));
-      ctx->drain_execle        = 1;
-      ctx->leader_slot         = ULONG_MAX;
-      ctx->slot_microblock_cnt = 0UL;
-      remove_ib( ctx );
-    }
+    /* Replay sends the next became leader only once the previous leader
+       slot ended, which pack's done packing starts. */
+    if( FD_UNLIKELY( ctx->leader_slot!=ULONG_MAX ) ) FD_LOG_CRIT(( "invariant violation: became leader for slot %lu while packing for slot %lu", leader_slot, ctx->leader_slot ));
     ctx->leader_slot = leader_slot;
     ulong slots_left = 3UL - (leader_slot%4UL);
     long  slot_ns    = (long)( ctx->_became_leader->ticks_per_slot*ctx->_became_leader->tick_duration_ns );
