@@ -2720,7 +2720,8 @@ rpc_json_request( fd_rpc_tile_t * ctx,
 static fd_http_server_response_t
 rpc_http_request1( fd_rpc_tile_t *                  ctx,
                    fd_http_server_request_t const * request ) {
-  if( FD_UNLIKELY( request->method==FD_HTTP_SERVER_METHOD_GET &&
+  int is_get = request->method==FD_HTTP_SERVER_METHOD_GET || request->method==FD_HTTP_SERVER_METHOD_HEAD;
+  if( FD_UNLIKELY( is_get &&
                    request->headers.upgrade_websocket &&
                    (!strcmp( request->path, "/" ) || !strcmp( request->path, "/websocket" )) ) ) {
     if( FD_UNLIKELY( !ctx->http->max_ws_conns ) ) return (fd_http_server_response_t){ .status = 404 };
@@ -2730,7 +2731,7 @@ rpc_http_request1( fd_rpc_tile_t *                  ctx,
     };
   }
 
-  if( FD_UNLIKELY( request->method==FD_HTTP_SERVER_METHOD_GET && !strcmp( request->path, "/health" ) ) ) {
+  if( FD_UNLIKELY( is_get && !strcmp( request->path, "/health" ) ) ) {
     FD_MCNT_INC( RPC, REQUEST_HANDLED_HEALTH, 1UL );
     int health_status = _getHealth( ctx );
 
@@ -2742,7 +2743,7 @@ rpc_http_request1( fd_rpc_tile_t *                  ctx,
     }
   }
 
-  if( FD_UNLIKELY( request->method==FD_HTTP_SERVER_METHOD_GET && !strcmp( request->path, "/genesis.tar.bz2" ) ) ) {
+  if( FD_UNLIKELY( is_get && !strcmp( request->path, "/genesis.tar.bz2" ) ) ) {
     FD_MCNT_INC( RPC, REQUEST_HANDLED_GENESIS, 1UL );
     if( FD_UNLIKELY( ctx->genesis_tar_bz_sz==ULONG_MAX ) ) return (fd_http_server_response_t){ .status = 404 };
 
@@ -2753,7 +2754,7 @@ rpc_http_request1( fd_rpc_tile_t *                  ctx,
     };
   }
 
-  if( FD_UNLIKELY( request->method==FD_HTTP_SERVER_METHOD_GET &&
+  if( FD_UNLIKELY( is_get &&
                    ( !strncmp( request->path, "/snapshot",             9UL ) ||
                      !strncmp( request->path, "/incremental-snapshot", 21UL ) ) ) ) {
     if( FD_UNLIKELY( !ctx->snapshot_server_enabled ) ) {
@@ -2767,7 +2768,7 @@ rpc_http_request1( fd_rpc_tile_t *                  ctx,
   }
 
 
-  if( FD_UNLIKELY( request->method==FD_HTTP_SERVER_METHOD_GET ) ) {
+  if( FD_UNLIKELY( is_get ) ) {
     return (fd_http_server_response_t){ .status = 404 };
   }
 
