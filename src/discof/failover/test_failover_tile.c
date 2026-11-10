@@ -244,10 +244,10 @@ test_handoff( void ) {
   ctx->tx.valid         = 0;
   ctx->handoff.delivery = FD_FAILOVER_DELIVERY_SENT;
   FD_TEST( ctx->action==FD_FAILOVER_ACTION_DEMOTE_WAIT_ACK && !holds_identity( ctx ) );
-  /* The taker may be adopting still: a takeover sees a live holder, --force
+  /* The taker may be adopting still: a takeover is told we handed off, --force
      takes the identity back on the operator's word. */
   ctx->target_since = 1000L-FD_FAILOVER_GOSSIP_FRESH_NANOS;
-  FD_TEST( operator_promote( ctx, FD_ADMINCTL_FAILOVER_FLAG_TAKEOVER, 1000L+FD_FAILOVER_GOSSIP_FRESH_NANOS )==FD_FAILOVER_CONTROL_RESULT_HOLDER_LIVE );
+  FD_TEST( operator_promote( ctx, FD_ADMINCTL_FAILOVER_FLAG_TAKEOVER, 1000L+FD_FAILOVER_GOSSIP_FRESH_NANOS )==FD_FAILOVER_CONTROL_RESULT_HANDED_OFF );
   FD_TEST( ctx->action==FD_FAILOVER_ACTION_DEMOTE_WAIT_ACK );
   FD_TEST( operator_promote( ctx, FD_ADMINCTL_FAILOVER_FLAG_TAKEOVER|FD_ADMINCTL_FAILOVER_FLAG_FORCE, 1000L )==FD_FAILOVER_CMD_PENDING );
   FD_TEST( ctx->action==FD_FAILOVER_ACTION_PROMOTE_WAIT_REPLAY && ctx->handoff.result==FD_FAILOVER_HANDOFF_CANCELLED && ctx->promotion.gave_up );
@@ -580,6 +580,129 @@ test_result_wait_peer_restart( void ) {
   fd_failover_bus_msg_t const * out = (fd_failover_bus_msg_t const *)bus_mem;
   FD_TEST( out->nonce==8UL && out->result==FD_ADMINCTL_RESULT_SUCCESS );
   controller_fini( ctx );
+}
+
+static void
+test_result_wait_deadline( void ) {
+  for( int holds=0; holds<2; holds++ ) {
+    fd_failover_tile_ctx_t * ctx = controller_init( holds );
+    open_request( ctx, FD_FAILOVER_ACTION_HANDOFF_WAIT_RESULT );
+    int busy = 0;
+    poll_peer( ctx, ctx->request.until-1L, &busy );
+    FD_TEST( ctx->action==FD_FAILOVER_ACTION_HANDOFF_WAIT_RESULT && ctx->request.id==900UL && ctx->request.until );
+    poll_peer( ctx, ctx->request.until, &busy );
+    if( holds ) FD_TEST( ctx->action==FD_FAILOVER_ACTION_IDLE && !ctx->request.id && holds_identity( ctx ) && !ctx->stuck );
+    else        FD_TEST( ctx->action==FD_FAILOVER_ACTION_HANDOFF_WAIT_RESULT && ctx->request.id==900UL && !ctx->request.until && ctx->stuck );
+    controller_fini( ctx );
+  }
+
+  /* A key switch in flight keeps the wait past its deadline. */
+  fd_failover_tile_ctx_t * ctx = controller_init( 1 );
+  open_request( ctx, FD_FAILOVER_ACTION_HANDOFF_WAIT_RESULT );
+  ctx->id_switch.pending_key = FD_FAILOVER_SWITCH_KEY_STAKED;
+  int busy = 0;
+  poll_peer( ctx, ctx->request.until, &busy );
+  FD_TEST( ctx->action==FD_FAILOVER_ACTION_HANDOFF_WAIT_RESULT && ctx->request.id==900UL && !ctx->request.until );
+  controller_fini( ctx );
+}
+
+static void
+test_demote_wait_ack_deadline( void ) {
+  fd_failover_handoff_request_t req = { .handoff_id=42UL, .target_boot_id=OUR_BOOT_ID, .replay_slot=99UL };
+  for( int how=0; how<7; how++ ) {
+    fd_failover_tile_ctx_t * ctx = controller_init( 1 );
+    pair( ctx, 77UL, 0, 1000L );
+    make_history( &ctx->current_history, 99UL );
+    deliver( ctx, FD_FAILOVER_MSG_HANDOFF_REQUEST, &req, sizeof(req) );
+    step_controller( ctx, stem );
+    switch_ok( ctx, 0UL );
+    step_controller( ctx, stem );
+    FD_TEST( ctx->action==FD_FAILOVER_ACTION_DEMOTE_WAIT_ACK && ctx->tx.valid );
+    unpair_session( ctx );
+    ctx->deadline_at = fd_failover_clock()-1L;
+    step_controller( ctx, stem );
+    FD_TEST( ctx->action==FD_FAILOVER_ACTION_IDLE && ctx->stuck && !ctx->tx.valid && !holds_identity( ctx ) );
+    FD_TEST( ctx->handoff.delivery!=FD_FAILOVER_DELIVERY_NONE && ctx->handoff.result==FD_FAILOVER_HANDOFF_PENDING );
+    /* The taker may still be adopting. */
+    ctx->target_since = 1000L-FD_FAILOVER_GOSSIP_FRESH_NANOS;
+    long later = 1000L+FD_FAILOVER_GOSSIP_FRESH_NANOS;
+    FD_TEST( operator_promote( ctx, FD_ADMINCTL_FAILOVER_FLAG_TAKEOVER, later )==FD_FAILOVER_CONTROL_RESULT_HANDED_OFF );
+    FD_TEST( ctx->action==FD_FAILOVER_ACTION_IDLE && ctx->handoff.delivery!=FD_FAILOVER_DELIVERY_NONE );
+    if( how==0 ) {
+      /* The taker resumes the handoff. */
+      pair( ctx, 77UL, 0, 1000L );
+      deliver( ctx, FD_FAILOVER_MSG_HANDOFF_REQUEST, &req, sizeof(req) );
+      FD_TEST( pending_demoted( ctx ).handoff_id==42UL );
+      unpair_session( ctx );
+      FD_TEST( !ctx->tx.valid );
+      pair( ctx, 77UL, 0, 1000L );
+      deliver( ctx, FD_FAILOVER_MSG_HANDOFF_REQUEST, &req, sizeof(req) );
+      FD_TEST( pending_demoted( ctx ).handoff_id==42UL );
+      ctx->tx.valid = 0;
+      deliver_ack( ctx, 42UL );
+      FD_TEST( ctx->handoff.result==FD_FAILOVER_HANDOFF_TAKEN && ctx->handoff.delivery==FD_FAILOVER_DELIVERY_NONE );
+      FD_TEST( ctx->action==FD_FAILOVER_ACTION_IDLE && !ctx->stuck && !holds_identity( ctx ) );
+    } else if( how==1 ) {
+      FD_TEST( operator_promote( ctx, FD_ADMINCTL_FAILOVER_FLAG_TAKEOVER|FD_ADMINCTL_FAILOVER_FLAG_FORCE, later )==FD_FAILOVER_CMD_PENDING );
+      FD_TEST( ctx->promotion.gave_up && ctx->handoff.delivery==FD_FAILOVER_DELIVERY_NONE && ctx->handoff.result==FD_FAILOVER_HANDOFF_CANCELLED );
+      pair( ctx, 77UL, 0, 1000L );
+      deliver( ctx, FD_FAILOVER_MSG_HANDOFF_REQUEST, &req, sizeof(req) );
+      FD_TEST( ctx->tx.valid && ctx->tx.type==(ushort)FD_FAILOVER_MSG_HANDOFF_RESULT );
+      fd_failover_handoff_result_t answer;
+      fd_memcpy( &answer, ctx->tx.payload, sizeof(answer) );
+      FD_TEST( answer.handoff_id==42UL && answer.result==FD_FAILOVER_CONTROL_RESULT_HANDOFF_ABORTED );
+    } else if( how==2 ) {
+      FD_TEST( operator_cmd( ctx, FD_ADMINCTL_FAILOVER_CMD_HANDOFF, FD_IP4_ADDR(10,0,0,2), 0 )==FD_FAILOVER_CMD_PENDING );
+      FD_TEST( ctx->action==FD_FAILOVER_ACTION_HANDOFF_WAIT_PEER && ctx->handoff.delivery!=FD_FAILOVER_DELIVERY_NONE );
+    } else if( how==3 ) {
+      /* A slow adoption's ACK after the deadline still settles it. */
+      pair( ctx, 77UL, 0, 1000L );
+      deliver_ack( ctx, 42UL );
+      FD_TEST( ctx->handoff.result==FD_FAILOVER_HANDOFF_TAKEN && ctx->handoff.delivery==FD_FAILOVER_DELIVERY_NONE && !ctx->stuck );
+      FD_TEST( ctx->tx.valid && ctx->tx.type==(ushort)FD_FAILOVER_MSG_HANDOFF_RESULT );
+    } else if( how==4 ) {
+      /* A late refusal settles it too. */
+      pair( ctx, 77UL, 0, 1000L );
+      uchar payload[ sizeof(fd_failover_promote_rejected_t) ];
+      deliver( ctx, (ushort)FD_FAILOVER_MSG_PROMOTE_REJECTED, payload,
+               fd_failover_promote_rejected_encode( payload, 42UL, (uchar)FD_FAILOVER_REJECT_REPLAY_BEHIND ) );
+      FD_TEST( ctx->handoff.result==FD_FAILOVER_HANDOFF_DECLINED && ctx->handoff.delivery==FD_FAILOVER_DELIVERY_NONE && ctx->stuck );
+      unpair_session( ctx );
+      ctx->holder_seen_at = 0L;
+      FD_TEST( operator_promote( ctx, FD_ADMINCTL_FAILOVER_FLAG_TAKEOVER, later )==FD_FAILOVER_CMD_PENDING );
+      FD_TEST( ctx->action==FD_FAILOVER_ACTION_PROMOTE_WAIT_REPLAY && !ctx->promotion.gave_up );
+    } else if( how==5 ) {
+      /* Another boot's request is in progress. */
+      pair( ctx, 78UL, 0, 1000L );
+      fd_failover_handoff_request_t again = { .handoff_id=43UL, .target_boot_id=OUR_BOOT_ID, .replay_slot=99UL };
+      deliver( ctx, FD_FAILOVER_MSG_HANDOFF_REQUEST, &again, sizeof(again) );
+      fd_failover_handoff_result_t answer;
+      FD_TEST( ctx->tx.valid && ctx->tx.type==(ushort)FD_FAILOVER_MSG_HANDOFF_RESULT );
+      fd_memcpy( &answer, ctx->tx.payload, sizeof(answer) );
+      FD_TEST( answer.handoff_id==43UL && answer.result==FD_FAILOVER_CONTROL_RESULT_IN_PROGRESS );
+      FD_TEST( ctx->handoff.delivery!=FD_FAILOVER_DELIVERY_NONE );
+    } else {
+      FD_TEST( operator_cmd( ctx, FD_ADMINCTL_FAILOVER_CMD_HANDOFF, FD_IP4_ADDR(10,0,0,3), 0 )==FD_FAILOVER_CMD_PENDING );
+      pair( ctx, 79UL, 1, 1000L );
+      int busy = 0;
+      poll_peer( ctx, 1000L, &busy );
+      FD_TEST( ctx->request.peer.boot_id==79UL );
+      static uchar payload[ FD_FAILOVER_DEMOTED_PAYLOAD_MAX ];
+      fd_failover_history_t history; make_history( &history, 99UL );
+      ulong sz = fd_failover_demoted_encode( payload, ctx->request.id, OUR_BOOT_ID, 99UL, history.state, history.sz );
+      FD_TEST( sz );
+      deliver( ctx, FD_FAILOVER_MSG_DEMOTED, payload, sz );
+      FD_TEST( ctx->action==FD_FAILOVER_ACTION_PROMOTE_WAIT_REPLAY );
+      FD_TEST( ctx->handoff.delivery==FD_FAILOVER_DELIVERY_NONE && ctx->handoff.result==FD_FAILOVER_HANDOFF_CANCELLED );
+      pair( ctx, 77UL, 0, 1000L );
+      deliver( ctx, FD_FAILOVER_MSG_HANDOFF_REQUEST, &req, sizeof(req) );
+      fd_failover_handoff_result_t answer;
+      FD_TEST( ctx->tx.valid && ctx->tx.type==(ushort)FD_FAILOVER_MSG_HANDOFF_RESULT );
+      fd_memcpy( &answer, ctx->tx.payload, sizeof(answer) );
+      FD_TEST( answer.handoff_id==42UL && answer.result==FD_FAILOVER_CONTROL_RESULT_HANDOFF_ABORTED );
+    }
+    controller_fini( ctx );
+  }
 }
 
 /* test_session_change_drops_result: a new session drops a queued
@@ -1192,6 +1315,8 @@ main( int argc, char ** argv ) {
   test_operator_failover_identity();
   test_standby_vote_counts();
   test_result_wait_peer_restart();
+  test_result_wait_deadline();
+  test_demote_wait_ack_deadline();
   test_session_change_drops_result();
   test_request_address();
   test_abort_answers_requester();
