@@ -14,30 +14,22 @@ fd_backt_src_pcap_create( fd_backtest_src_opts_t const * opts,
                           uint                          flags );
 
 static uint
-detect_src_type( char const * path ) {
+detect_src_type( int          fd,
+                 char const * path ) {
 
   struct stat st;
-  if( 0==stat( path, &st ) && S_ISDIR( st.st_mode ) ) {
+  if( 0==fstat( fd, &st ) && S_ISDIR( st.st_mode ) ) {
     FD_LOG_WARNING(( "\"%s\" is a directory, expected a pcap/pcapng file; if this is a RocksDB blockstore, convert "
                      "it to a shredcap capture first (blockstore2shredcap --rocksdb %s --out <path>.pcapng.zst --zstd)",
                      path, path ));
     return FD_BACKT_SRC_INVAL;
   }
 
-  int fd = open( path, O_RDONLY );
-  if( FD_UNLIKELY( fd<0 ) ) {
-    FD_LOG_WARNING(( "ledger auto detect failed: open(%s) failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
-    return FD_BACKT_SRC_INVAL;
-  }
-
   uint magic;
-  ulong _sz;
-  if( FD_UNLIKELY( 0!=fd_io_read( fd, &magic, sizeof(uint), sizeof(uint), &_sz ) ) ) {
+  if( FD_UNLIKELY( pread( fd, &magic, sizeof(uint), 0 )!=(long)sizeof(uint) ) ) {
     FD_LOG_WARNING(( "ledger auto detect failed: cannot read file (%i-%s)", errno, fd_io_strerror( errno ) ));
-    close( fd );
     return FD_BACKT_SRC_INVAL;
   }
-  close( fd );
 
   if( magic == 0xa1b2c3d4U || magic == 0xa1b23c4dU ) {
     return FD_BACKT_SRC_FMT_PCAP;
@@ -50,9 +42,22 @@ detect_src_type( char const * path ) {
     return FD_BACKT_SRC_INVAL;
   }
 
-  FILE * file = fopen( path, "rb" );
+  /* The stream owns and closes its own descriptor, and the source
+     rewinds fd before reading it. */
+  int dup_fd = dup( fd );
+  if( FD_UNLIKELY( dup_fd<0 ) ) {
+    FD_LOG_WARNING(( "dup(%s) failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
+    return FD_BACKT_SRC_INVAL;
+  }
+  FILE * file = fdopen( dup_fd, "rb" );
   if( FD_UNLIKELY( !file ) ) {
-    FD_LOG_WARNING(( "fopen(%s) failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
+    FD_LOG_WARNING(( "fdopen(%s) failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
+    close( dup_fd );
+    return FD_BACKT_SRC_INVAL;
+  }
+  if( FD_UNLIKELY( fseek( file, 0L, SEEK_SET ) ) ) {
+    FD_LOG_WARNING(( "fseek(%s) failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
+    FD_TEST( 0==fclose( file ) );
     return FD_BACKT_SRC_INVAL;
   }
 
@@ -104,29 +109,33 @@ fd_backtest_src_create( fd_backtest_src_opts_t const * opts ) {
     FD_LOG_WARNING(( "NULL opts" ));
     return NULL;
   }
+  if( FD_UNLIKELY( opts->fd<0 ) ) {
+    FD_LOG_WARNING(( "invalid opts.fd" ));
+    return NULL;
+  }
   if( FD_UNLIKELY( !opts->format ) ) {
     FD_LOG_WARNING(( "NULL opts.format" ));
-    return NULL;
+    goto fail;
   }
   if( FD_UNLIKELY( !opts->path ) ) {
     FD_LOG_WARNING(( "NULL opts.path" ));
-    return NULL;
+    goto fail;
   }
 
-  uint src_type = detect_src_type( opts->path );
+  uint src_type = detect_src_type( opts->fd, opts->path );
   uint fmt      = src_type & FD_BACKT_SRC_FMT_MASK;
   uint flags    = src_type & (uint)~FD_BACKT_SRC_FMT_MASK;
 
   if( 0==strcmp( opts->format, "auto" ) ) {
-    if( src_type==FD_BACKT_SRC_INVAL ) return NULL;
+    if( src_type==FD_BACKT_SRC_INVAL ) goto fail;
   } else if( 0==strcmp( opts->format, "pcap" ) ) {
     if( !( fmt==FD_BACKT_SRC_FMT_PCAP || fmt==FD_BACKT_SRC_FMT_PCAPNG ) ) {
       FD_LOG_WARNING(( "cannot open ledger" ));
-      return NULL;
+      goto fail;
     }
   } else {
     FD_LOG_WARNING(( "unsupported opts.format \"%s\"", opts->format ));
-    return NULL;
+    goto fail;
   }
 
   switch( fmt ) {
@@ -134,6 +143,10 @@ fd_backtest_src_create( fd_backtest_src_opts_t const * opts ) {
     case FD_BACKT_SRC_FMT_PCAPNG:  return fd_backt_src_pcap_create( opts, fmt, flags );
     default:
       FD_LOG_WARNING(( "unsupported source type" ));
-      return NULL;
+      goto fail;
   }
+
+fail:
+  close( opts->fd );
+  return NULL;
 }
