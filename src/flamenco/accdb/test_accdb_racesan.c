@@ -390,6 +390,39 @@ fiber_acquire( fiber_t *          fiber,
   return fiber_acquire_expect( fiber, accdb, fork_id, pubkey, 0UL );
 }
 
+/* Writable variant, released without committing.  A read-only acquire
+   reads under the hazard list and never touches refcnt; the scenarios
+   about pins on a line's refcnt need a writable one. */
+
+static void
+fiber_acquire_w_exec( void * _ctx ) {
+  fiber_t * f = _ctx;
+  uchar const * pks[1] = { f->acquire.pubkey };
+  int wr[1] = { 1 };
+  fd_acc_t acc[1];
+  memset( acc, 0, sizeof(acc) );
+  fd_accdb_acquire( f->accdb, f->acquire.fork_id, 1UL, pks, wr, acc );
+  if( f->acquire.expect_lamports ) {
+    FD_TEST( acc[0].lamports==f->acquire.expect_lamports );
+    FD_TEST( !memcmp( acc[0].pubkey, f->acquire.pubkey, 32UL ) );
+  }
+  fd_accdb_release( f->accdb, 1UL, acc );
+}
+
+static fd_racesan_async_t *
+fiber_acquire_w_expect( fiber_t *          fiber,
+                        fd_accdb_t *       accdb,
+                        fd_accdb_fork_id_t fork_id,
+                        uchar const *      pubkey,
+                        ulong              expect_lamports ) {
+  fiber->accdb                   = accdb;
+  fiber->acquire.fork_id         = fork_id;
+  fiber->acquire.expect_lamports = expect_lamports;
+  memcpy( fiber->acquire.pubkey, pubkey, 32UL );
+  fd_racesan_async_new( fiber->async, fiber->stack, FIBER_STACK_MAX, fiber_acquire_w_exec, fiber );
+  return fiber->async;
+}
+
 /* release fiber: a writable acquire+commit+release, which prepends a new
    acc to the hash chain (the accdb_release:pre_chain_cas hook). */
 
@@ -2616,7 +2649,7 @@ test_stray_pin_vs_freepop( void ) {
   FD_TEST( cls==0UL );
 
   /* R captures P's cache_idx, suspends before pinning. */
-  fd_racesan_async_t * ar = fiber_acquire_expect( &g_fiber[0], accdb_r, root0, key_P, 100UL );
+  fd_racesan_async_t * ar = fiber_acquire_w_expect( &g_fiber[0], accdb_r, root0, key_P, 100UL );
   FD_TEST( fd_racesan_async_step_until( ar, "accdb_acquire:pre_try_pin", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
 
   /* Evict L: P written back to disk, L pushed to the class-0 free
@@ -2707,7 +2740,7 @@ test_stray_pin_vs_release_cleanup( void ) {
   FD_TEST( cls==7UL );
 
   /* R captures P's cache_idx, suspends before pinning. */
-  fd_racesan_async_t * ar = fiber_acquire_expect( &g_fiber[0], accdb_r, root0, key_P, 100UL );
+  fd_racesan_async_t * ar = fiber_acquire_w_expect( &g_fiber[0], accdb_r, root0, key_P, 100UL );
   FD_TEST( fd_racesan_async_step_until( ar, "accdb_acquire:pre_try_pin", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
 
   /* Evict L to the free list. */
@@ -2823,7 +2856,7 @@ test_overwrite_discard_stray_pin_cls7( void ) {
   FD_TEST( cls==7UL );
 
   /* R captures X's cache_idx, suspends before pinning. */
-  fd_racesan_async_t * ar = fiber_acquire_expect( &g_fiber[0], accdb_r, root0, key_X, 500UL );
+  fd_racesan_async_t * ar = fiber_acquire_w_expect( &g_fiber[0], accdb_r, root0, key_X, 500UL );
   FD_TEST( fd_racesan_async_step_until( ar, "accdb_acquire:pre_try_pin", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
 
   /* Evict L (X flushed to disk, L to the class-7 free list), then
@@ -2904,7 +2937,7 @@ test_overwrite_discard_stray_pin_xclass( void ) {
   FD_TEST( cls==0UL );
 
   /* R captures X's cache_idx, suspends before pinning. */
-  fd_racesan_async_t * ar = fiber_acquire_expect( &g_fiber[0], accdb_r, root0, key_X, 500UL );
+  fd_racesan_async_t * ar = fiber_acquire_w_expect( &g_fiber[0], accdb_r, root0, key_X, 500UL );
   FD_TEST( fd_racesan_async_step_until( ar, "accdb_acquire:pre_try_pin", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
 
   /* Evict L, then commit P (100 bytes -> class 0): its class-0 final
@@ -2980,7 +3013,7 @@ test_orphan_evict_vs_real_evict( void ) {
   FD_TEST( fd_accdb_debug_find_line( accdb, key_X, &cls, &idx ) );
   FD_TEST( cls==0UL );
 
-  fd_racesan_async_t * ar = fiber_acquire_expect( &g_fiber[0], accdb_r, root0, key_X, 500UL );
+  fd_racesan_async_t * ar = fiber_acquire_w_expect( &g_fiber[0], accdb_r, root0, key_X, 500UL );
   FD_TEST( fd_racesan_async_step_until( ar, "accdb_acquire:pre_try_pin", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
   FD_TEST( fd_accdb_debug_clock_evict_line( accdb, 0UL, idx )!=UINT_MAX );
   seq_write_data( accdb, root0, key_P, 100UL, owner_P, 100UL, 0xA1 );
@@ -3243,7 +3276,7 @@ test_unlink_stray_pin_old_version( void ) {
   FD_TEST( cls==0UL );
   fd_accdb_cache_line_t * L = fd_accdb_debug_line_addr( accdb, 0UL, idx );
 
-  fd_racesan_async_t * ar = fiber_acquire_expect( &g_fiber[0], accdb_r, F, key_X, 500UL );
+  fd_racesan_async_t * ar = fiber_acquire_w_expect( &g_fiber[0], accdb_r, F, key_X, 500UL );
   FD_TEST( fd_racesan_async_step_until( ar, "accdb_acquire:pre_try_pin", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
 
   FD_TEST( fd_accdb_debug_clock_evict_line( accdb, 0UL, idx )!=UINT_MAX );
@@ -3648,6 +3681,222 @@ test_release_take_vs_reader( void ) {
   seq_read_check( ctl, root, q, &lamports, &owner0 );
   FD_TEST( lamports==77UL );
   join_delete( w );
+  join_delete( ctl );
+  test_shmem_delete();
+}
+
+/* test_hazard_vs_evict: a read-only reader holds a line through its
+   hazard list, not a pin, and an evictor that finds it there leaves the
+   line claimed until the reader is gone.
+
+   P in class-0 line L.
+   Phase 1, reader still checking:
+     1. R publishes the hazard for L and parks before re-checking P.
+     2. Main evicts L: P is written back and unlinked from L, but L
+        stays claimed (hazard_pending) instead of going to a free list.
+     3. R resumes: the check fails (P no longer names L), R drops the
+        hazard, cold-loads P and reads it intact.
+     4. A forced sweep now finds no hazard and frees L.
+   Phase 2, reader past the check:
+     5. P is read back in; R2 passes the check on its new line M and
+        parks mid-acquire.
+     6. Main evicts M: claimed, pending, contents untouched.
+     7. R2 completes reading M intact and releases.
+     8. A forced sweep frees M. */
+static void
+test_hazard_vs_evict( void ) {
+  test_shmem_new();
+  fd_accdb_t * ctl = join_new();
+  fd_accdb_t * jr  = join_new();
+
+  uchar key_P[ 32 ]; mk_key( 710001UL, key_P );
+  fd_accdb_fork_id_t root0 = fd_accdb_attach_child( ctl, SENTINEL );
+  seq_write( ctl, root0, key_P, 100UL, NULL );
+
+  ulong cls, idx;
+  FD_TEST( fd_accdb_debug_find_line( ctl, key_P, &cls, &idx ) );
+  FD_TEST( cls==0UL );
+  fd_accdb_cache_line_t * l = fd_accdb_debug_line_addr( ctl, cls, idx );
+
+  /* Phase 1 */
+  fd_racesan_async_t * ar = fiber_acquire_expect( &g_fiber[0], jr, root0, key_P, 100UL );
+  FD_TEST( fd_racesan_async_step_until( ar, "accdb_acquire:pre_hazard_check", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
+
+  ulong free0 = free_cnt_total( 0UL );
+  FD_TEST( fd_accdb_debug_clock_evict_line( ctl, cls, idx )!=UINT_MAX ); /* P was dirty */
+  FD_TEST( l->hazard_pending );
+  FD_TEST( l->refcnt==FD_ACCDB_EVICT_SENTINEL );
+  FD_TEST( free_cnt_total( 0UL )==free0 );
+
+  async_finish( ar );
+  fiber_done( &g_fiber[0] );
+
+  fd_accdb_debug_force_preevict( ctl );
+  FD_TEST( !l->hazard_pending );
+  FD_TEST( l->refcnt!=FD_ACCDB_EVICT_SENTINEL );
+
+  /* Phase 2.  The sweep flushed everything, so bring P back first. */
+  ulong lamports; uchar owner0;
+  seq_read_check( ctl, root0, key_P, &lamports, &owner0 );
+  FD_TEST( lamports==100UL );
+  FD_TEST( fd_accdb_debug_find_line( ctl, key_P, &cls, &idx ) );
+  fd_accdb_cache_line_t * m = fd_accdb_debug_line_addr( ctl, cls, idx );
+
+  ar = fiber_acquire_expect( &g_fiber[0], jr, root0, key_P, 100UL );
+  FD_TEST( fd_racesan_async_step_until( ar, "accdb_acquire:pre_step7_meta", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
+
+  fd_accdb_debug_clock_evict_line( ctl, cls, idx );
+  FD_TEST( m->hazard_pending );
+
+  async_finish( ar );
+  fiber_done( &g_fiber[0] );
+
+  fd_accdb_debug_force_preevict( ctl );
+  FD_TEST( !m->hazard_pending );
+
+  seq_read_check( ctl, root0, key_P, &lamports, &owner0 );
+  FD_TEST( lamports==100UL );
+
+  join_delete( jr );
+  join_delete( ctl );
+  test_shmem_delete();
+}
+
+/* test_hazard_recheck_vs_reuse: an evictor that scans before the
+   reader's hazard is stored does not see it, so the reader's re-check
+   is all that keeps it off a line reused for another account.
+
+     1. R reads P's cache_idx (line L) and parks before storing the
+        hazard.
+     2. Main evicts L: no hazard yet, so L goes straight to a free list.
+     3. Main writes new account Q, which takes L.
+     4. R resumes, stores the hazard on L and re-checks: P no longer
+        names L (and L's seq moved), so R cold-loads P.
+     5. Oracle: R reads P's bytes, not Q's (lamports come from the
+        accmeta, so only the data shows which line R used). */
+static uchar g_hazard_fill;
+
+static void
+fiber_acquire_fill_exec( void * _ctx ) {
+  fiber_t * f = _ctx;
+  uchar const * pks[1] = { f->acquire.pubkey };
+  int wr[1] = { 0 };
+  fd_acc_t acc[1];
+  memset( acc, 0, sizeof(acc) );
+  fd_accdb_acquire( f->accdb, f->acquire.fork_id, 1UL, pks, wr, acc );
+  FD_TEST( acc[0].data_len==64UL );
+  for( ulong b=0UL; b<64UL; b++ ) FD_TEST( acc[0].data[ b ]==g_hazard_fill );
+  fd_accdb_release( f->accdb, 1UL, acc );
+}
+
+static void
+test_hazard_recheck_vs_reuse( void ) {
+  test_shmem_new_tiny();
+  fd_accdb_t * ctl = join_new();
+  fd_accdb_t * jr  = join_new();
+  fd_accdb_fork_id_t root = fd_accdb_attach_child( ctl, SENTINEL );
+
+  uchar key_P[ 32 ]; mk_key( 730001UL, key_P );
+  uchar key_Q[ 32 ]; mk_key( 730002UL, key_Q );
+  seq_write_data( ctl, root, key_P, 100UL, NULL, 64UL, 0xAA );
+
+  ulong cls, idx;
+  FD_TEST( fd_accdb_debug_find_line( ctl, key_P, &cls, &idx ) );
+  FD_TEST( cls==0UL );
+
+  g_hazard_fill = 0xAA;
+  fiber_t * fr = &g_fiber[0];
+  fr->accdb           = jr;
+  fr->acquire.fork_id = root;
+  memcpy( fr->acquire.pubkey, key_P, 32UL );
+  fd_racesan_async_new( fr->async, fr->stack, FIBER_STACK_MAX, fiber_acquire_fill_exec, fr );
+  fd_racesan_async_t * ar = fr->async;
+  FD_TEST( fd_racesan_async_step_until( ar, "accdb_acquire:pre_hazard_publish", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
+
+  fd_accdb_cache_line_t * l = fd_accdb_debug_line_addr( ctl, cls, idx );
+  FD_TEST( fd_accdb_debug_clock_evict_line( ctl, cls, idx )!=UINT_MAX );
+  FD_TEST( !l->hazard_pending );
+
+  seq_write_data( ctl, root, key_Q, 900UL, NULL, 64UL, 0x55 );
+  ulong qcls, qidx;
+  FD_TEST( fd_accdb_debug_find_line( ctl, key_Q, &qcls, &qidx ) );
+  FD_TEST( qcls==cls && qidx==idx ); /* Q reused L */
+
+  async_finish( ar ); /* the reader's data check is the oracle */
+  fiber_done( &g_fiber[0] );
+
+  join_delete( jr );
+  join_delete( ctl );
+  test_shmem_delete();
+}
+
+/* test_hazard_parked_dirty_writeback: a dirty line a CLOCK sweep has
+   to leave parked for a hazard reader is still written back at once,
+   so a cold load of its account reads the new bytes instead of a stale
+   disk copy, and the sweep takes another line.
+
+   Class 0 is full of dirty accounts.
+     1. R hazard-reads V (one of them) and parks mid-acquire.
+     2. Every other class-0 line is referenced; V's is not.
+     3. W commits new account Q into class 0 at release: its sweep
+        claims V's line, finds R on it, writes V back and parks the line
+        (hazard_pending), then evicts another line for Q.
+     4. R completes reading V intact.
+     5. Oracle: V, read back cold, has its committed value; Q too; a
+        forced sweep frees the parked line. */
+static void
+test_hazard_parked_dirty_writeback( void ) {
+  test_shmem_new_tiny();
+  fd_accdb_t * ctl = join_new();
+  fd_accdb_t * jr  = join_new();
+  fd_accdb_t * jw  = join_new();
+  fd_accdb_fork_id_t root = fd_accdb_attach_child( ctl, SENTINEL );
+
+  ulong const n = TEST_TINY_CACHE_MIN_RESERVED;
+  FD_TEST( g_shmem->cache_class_max[ 0 ]==n );
+  uchar keys[ TEST_TINY_CACHE_MIN_RESERVED ][ 32UL ];
+  for( ulong i=0UL; i<n; i++ ) { mk_key( 720000UL+i, keys[ i ] ); seq_write( ctl, root, keys[ i ], 2000UL+i, NULL ); }
+
+  ulong const v = 3UL;
+  ulong cls, idx;
+  FD_TEST( fd_accdb_debug_find_line( ctl, keys[ v ], &cls, &idx ) );
+  FD_TEST( cls==0UL );
+  fd_accdb_cache_line_t * l = fd_accdb_debug_line_addr( ctl, cls, idx );
+  FD_TEST( !l->persisted );
+
+  fd_racesan_async_t * ar = fiber_acquire_expect( &g_fiber[0], jr, root, keys[ v ], 2000UL+v );
+  FD_TEST( fd_racesan_async_step_until( ar, "accdb_acquire:pre_step7_meta", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
+
+  /* Point the hand at V's line with every other line referenced, so
+     the sweep's first claim is V. */
+  for( ulong i=0UL; i<n; i++ ) {
+    ulong c2, i2;
+    FD_TEST( fd_accdb_debug_find_line( ctl, keys[ i ], &c2, &i2 ) );
+    ((fd_accdb_cache_line_t *)fd_accdb_debug_line_addr( ctl, c2, i2 ))->referenced = (uchar)( i!=v );
+  }
+  g_shmem->clock_hand[ 0 ].val = idx;
+
+  uchar q[ 32UL ]; mk_key( 729999UL, q );
+  fd_racesan_async_t * aw = fiber_release_write( &g_fiber[1], jw, root, q, 77UL );
+  async_finish( aw );
+  fiber_done( &g_fiber[1] );
+  FD_TEST( l->hazard_pending );
+  FD_TEST( l->persisted );
+
+  async_finish( ar );
+  fiber_done( &g_fiber[0] );
+
+  ulong lamports; uchar owner0;
+  seq_read_check( ctl, root, keys[ v ], &lamports, &owner0 );
+  FD_TEST( lamports==2000UL+v );
+  seq_read_check( ctl, root, q, &lamports, &owner0 );
+  FD_TEST( lamports==77UL );
+
+  fd_accdb_debug_force_preevict( ctl );
+  FD_TEST( !l->hazard_pending );
+
+  join_delete( jw );
+  join_delete( jr );
   join_delete( ctl );
   test_shmem_delete();
 }
@@ -4698,6 +4947,9 @@ main( int     argc,
     TEST( test_unlink_stray_pin_old_version ),
     TEST( test_overwrite_discard_vs_evictor ),
     TEST( test_clock_claim_vs_freed ),
+    TEST( test_hazard_vs_evict ),
+    TEST( test_hazard_parked_dirty_writeback ),
+    TEST( test_hazard_recheck_vs_reuse ),
     TEST( test_preevict_release_store_order ),
     TEST( test_preevict_batch_cap ),
     TEST( test_preevict_batch_reader_wait ),
