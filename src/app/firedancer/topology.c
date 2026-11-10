@@ -1995,8 +1995,13 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
 
     tile->rpc.snapshot_server_enabled = fd_topo_find_tile( &config->topo, "snapsv", 0UL )!=ULONG_MAX;
     if( FD_LIKELY( tile->rpc.snapshot_server_enabled ) ) {
-      fd_cstr_ncpy( tile->rpc.snapshot_server_host, config->firedancer.gossip.host,
-                    sizeof(tile->rpc.snapshot_server_host) );
+      if( config->firedancer.gossip.host[0] ) {
+        fd_cstr_ncpy( tile->rpc.snapshot_server_host, config->firedancer.gossip.host,
+                      sizeof(tile->rpc.snapshot_server_host) );
+      } else {
+        FD_TEST( fd_cstr_printf_check( tile->rpc.snapshot_server_host, sizeof(tile->rpc.snapshot_server_host), NULL,
+                                      FD_IP4_ADDR_FMT, FD_IP4_ADDR_FMT_ARGS( config->net.ip_addr ) ) );
+      }
 
       uint listen_port = config->firedancer.snapshots.server.http_listen_port;
       FD_CHECK_ERR( listen_port && listen_port<=USHORT_MAX,
