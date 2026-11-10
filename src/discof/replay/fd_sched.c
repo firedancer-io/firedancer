@@ -74,14 +74,15 @@ FD_STATIC_ASSERT( FD_SCHED_MAX_DEPTH<=UINT_MAX,                 txn_idx_width );
    every earlier writer of the account is done.  Once the block has all
    its FEC sets we know the last writers, and the fec_eos drain creates
    the pseudo transactions for every account still owed an addition, a
-   chunk at a time.  Before that we may speculate that an account's last
-   write has already happened, keeping the value in the speculation pool
-   so a later write to the account can undo it.  Subtractions and
-   additions go out in batches of accounts whose hashes the exec tile
-   sums.  A speculation goes out alone.  The scheduler folds the sums
-   into the block's delta, which the caller adds to the bank's LtHash at
-   block end.  Hash tasks go only to tiles that would otherwise sit
-   idle, and speculation is the lowest priority of all.
+   chunk at a time.  Before that we may speculate on an account whose
+   writers so far have all completed, guessing that no more are coming,
+   and keep the value in the speculation pool so a later write to the
+   account can undo it.  Subtractions and additions go out in batches of
+   accounts whose hashes the exec tile sums.  A speculation goes out
+   alone.  The scheduler folds the sums into the block's delta, which
+   the caller adds to the bank's LtHash at block end.  Hash tasks go
+   only to tiles that would otherwise sit idle, and speculation is the
+   lowest priority of all.
 
    Writes the scheduler cannot see at parse are registered later:
    start-of-block writes through fd_sched_block_start_writes(), and the
@@ -884,19 +885,21 @@ block_is_lane_tail( fd_sched_t * sched, fd_sched_block_t * block ) {
 }
 
 /* A block with absolutely nothing to dispatch may still speculate on
-   additions when it holds a lane, is still receiving FEC sets, owes
-   additions, and the speculation pool has at least spec_free_min free
-   entries.  Only the active block speculates.  An already speculating
-   block keeps going until the last free entry.  In contrast,
-   deactivated blocks are activated for speculation only if a higher
-   free entry threshold is reached, so a trickle of freed entries does
-   not bounce blocks in and out of the active state. */
+   additions when it holds a lane, is still receiving FEC sets, owes an
+   addition the dispatcher offers as ready (meaning every writer of the
+   account so far has completed), and the speculation pool has at least
+   spec_free_min free entries.  Only the active block speculates.  An
+   already speculating block keeps going until the last free entry.  In
+   contrast, deactivated blocks are activated for speculation only if a
+   higher free entry threshold is reached, so a trickle of freed entries
+   does not bounce blocks in and out of the active state. */
 static inline int
 block_may_speculate( fd_sched_t * sched, fd_sched_block_t * block, ulong spec_free_min ) {
   if( block->fec_eos || !block->add_owed_cnt ) return 0;
   if( sched->lthash_spec_free_cnt<spec_free_min ) return 0;
   /* No need to check for tail because we have one block per lane. */
-  return block_is_lane_head( sched, block );
+  if( !block_is_lane_head( sched, block ) ) return 0;
+  return fd_rdisp_lane_ready_acct_cnt( sched->rdisp, block->staging_lane )>0UL;
 }
 
 static inline int
@@ -2047,11 +2050,15 @@ lthash_dispatch_sub( fd_sched_t *       sched,
 
 /* The block is assumed to be active and has absolutely no other type of
    task queued.  The block is also assumed to satisfy
-   block_may_speculate().  A speculation that lands behind an in-flight
-   writer pauses speculation until that writer completes.
+   block_may_speculate().  The dispatcher hands us an account whose
+   writers have all completed, so the guess is READY at once and goes
+   straight to a tile.  The one exception is a serializing transaction
+   still outstanding, which every pseudo transaction created after it
+   waits behind.  Speculation is paused for a moment until that
+   serializing transaction completes.
 
    Returns 1 with a task in out, or 0 when a pseudo transaction was
-   created but waits on an in-flight writer, so the caller returns
+   created but waits on a serializing transaction, so the caller returns
    without a task, or -1 when speculation does not apply and the caller
    proceeds. */
 static inline int
@@ -2071,16 +2078,16 @@ lthash_speculate( fd_sched_t *       sched,
 
   if( fd_ulong_popcnt( ready_bitset )<=idle_reserve( sched, block ) ) return -1;
 
-  ulong ptxn_idx = fd_rdisp_add_pseudo_txn( sched->rdisp, bank_idx );
-  if( FD_UNLIKELY( !ptxn_idx ) ) FD_LOG_CRIT(( "invariant violation: block %lu:%lu owes %u additions but fd_rdisp_add_pseudo_txn returned none", block->slot, bank_idx, block->add_owed_cnt ));
+  ulong ptxn_idx = fd_rdisp_add_ready_pseudo_txn( sched->rdisp, bank_idx );
+  if( FD_UNLIKELY( !ptxn_idx ) ) FD_LOG_CRIT(( "invariant violation: block %lu:%lu owes %u additions and has a ready account but fd_rdisp_add_ready_pseudo_txn returned none", block->slot, bank_idx, block->add_owed_cnt ));
   sched->metrics->lthash_spec_cnt++;
   block->add_owed_cnt--;
   lthash_add_created( sched, block, ptxn_idx, 1 );
 
   /* We expect to get either the only pseudo transaction, the one we
      just instructed rdisp to create, or nothing because it is blocked
-     by an in-flight write.  There should otherwise be no task queued,
-     especially no other pseudo transaction queued. */
+     by a serializing transaction.  There should otherwise be no task
+     queued, especially no other pseudo transaction queued. */
   ulong idx = fd_rdisp_get_next_ready( sched->rdisp, bank_idx );
   if( FD_LIKELY( idx==ptxn_idx ) ) {
     fd_sched_lthash_entry_t * e = lthash_surface( sched, block, bank_idx, idx );
@@ -2090,8 +2097,8 @@ lthash_speculate( fd_sched_t *       sched,
   }
   if( FD_UNLIKELY( idx ) ) FD_LOG_CRIT(( "invariant violation: fd_rdisp_get_next_ready returned 0x%lx instead of pseudo transaction 0x%lx of block %lu:%lu", idx, ptxn_idx, block->slot, bank_idx ));
 
-  /* Pseudo transaction pending behind an in-flight writer.  It'll be
-     eligible for surfacing once that writer completes. */
+  /* Pseudo transaction pending behind a serializing transaction.  It'll
+     be eligible for surfacing once that transaction completes. */
   return 0;
 }
 
@@ -2830,15 +2837,14 @@ task_next_ready( fd_sched_t * sched, fd_sched_task_t * out, int may_drain ) {
         /* ... and the addition is not stale. */
         fd_sched_lthash_batch_t * batch = sched->lthash_add_batch;
         if( FD_UNLIKELY( e->spec_idx!=UINT_MAX ) ) {
-          /* This is a speculative addition that was transiently waiting
-             on a writer.  While the block may still speculate, the
-             speculation goes out under the same idleness policy as
-             lthash_speculate(), and could be given up rather than
-             forced onto the last idle tile.  Once the block is complete
-             it is given up outright.  Giving up creates an addition
-             sequenced behind every real transaction, as desired.  If we
-             did a speculation here, there's a small chance it might be
-             undone. */
+          /* This is a speculative addition that waited behind a
+             serializing transaction.  The speculation goes out under
+             the same idleness policy as lthash_speculate(), and could
+             be given up rather than forced onto the last idle tile.
+             Once the block is complete it is given up outright.  Giving
+             up creates an addition sequenced behind every real
+             transaction, as desired.  If we did a speculation here,
+             there's a small chance it might be undone. */
           if( FD_LIKELY( !block->fec_eos && idle_cnt>(ulong)reserve ) ) {
             lthash_dispatch_one_add( sched, block, bank_idx, e, txn_idx, (int)exec_tile_idx1, out );
             sched->metrics->lthash_add_batch_held_cnt += (ulong)(batch->cnt>0UL);
@@ -2981,7 +2987,7 @@ task_next_ready( fd_sched_t * sched, fd_sched_task_t * out, int may_drain ) {
   }
 
   /* At this point txn_queued_cnt==0.  Any unsurfaced addition waits on
-     an in-flight writer. */
+     an in-flight writer or a serializing transaction. */
 
   /* Next up are PoH tasks.  Same dispatching policy as sigverify. */
   ulong poh_ready_bitset = exec_fully_ready_bitset;
@@ -5236,14 +5242,16 @@ maybe_switch_block( fd_sched_t * sched, ulong bank_idx ) {
        simply went down.  Reset the active block. */
     sched->last_active_bank_idx = sched->active_bank_idx;
     active_bank_set( sched, ULONG_MAX );
-    /* Attribute this deactivation to a full speculation pool when the
-       block still owes additions.  A full speculation pool is the only
-       thing that could have stopped it from speculating.  The other
-       reason, fec_eos, never reaches this branch.  A block with fec_eos
-       is dispatched to finish, and then it leaves through the branch
-       above. */
-    if( block->add_owed_cnt ) sched->metrics->lthash_pool_full_cnt++;
-    else                      sched->metrics->deactivate_no_txn_cnt++;
+    /* Nothing of the block is in flight, so no owed account is waiting
+       on a writer.  A block that still owes additions could not
+       speculate on them because the speculation pool is out of entries,
+       or because every owed account is over the hotness threshold and
+       the block has nothing it may run.  The remaining reason not to
+       speculate, fec_eos, never reaches this branch.  A block with
+       fec_eos is dispatched to finish, and then it leaves through the
+       branch above. */
+    if( block->add_owed_cnt && !sched->lthash_spec_free_cnt ) sched->metrics->lthash_pool_full_cnt++;
+    else                                                      sched->metrics->deactivate_no_txn_cnt++;
     try_activate_block( sched );
   }
 }
