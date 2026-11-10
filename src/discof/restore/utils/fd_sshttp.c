@@ -6,6 +6,7 @@
 #include "../../../util/log/fd_log.h"
 #include "../../../util/fd_util.h"
 #include "../../../waltz/http/fd_http.h"
+#include "../../../waltz/http/fd_url.h"
 #include "../../../ballet/ed25519/fd_x25519.h"
 
 FD_STATIC_ASSERT( FD_HASH_FOOTPRINT==32UL, resolved_hash_sz );
@@ -321,16 +322,16 @@ fd_sshttp_init( fd_sshttp_t * http,
       "User-Agent: Firedancer\r\n"
       "Accept: */*\r\n"
       "Accept-Encoding: identity\r\n"
-      "Host: %s\r\n\r\n",
-      (int)path_len, path, hostname );
+      "Host: %s:%u\r\n\r\n",
+      (int)path_len, path, hostname, fd_ushort_bswap( addr.port ) );
   } else {
     fmt_ok = fd_cstr_printf_check( http->request, sizeof(http->request), &http->request_len,
       "GET %.*s HTTP/1.1\r\n"
       "User-Agent: Firedancer\r\n"
       "Accept: */*\r\n"
       "Accept-Encoding: identity\r\n"
-      "Host: " FD_IP4_ADDR_FMT "\r\n\r\n",
-      (int)path_len, path, FD_IP4_ADDR_FMT_ARGS( addr.addr ) );
+      "Host: " FD_IP4_ADDR_FMT ":%u\r\n\r\n",
+      (int)path_len, path, FD_IP4_ADDR_FMT_ARGS( addr.addr ), fd_ushort_bswap( addr.port ) );
   }
   if( FD_UNLIKELY( !fmt_ok ) ) {
     FD_LOG_WARNING(( "HTTP request too long for %.*s", (int)path_len, path ));
@@ -499,6 +500,31 @@ send_request( fd_sshttp_t * http,
   return FD_SSHTTP_ADVANCE_AGAIN;
 }
 
+/* Accepts a full URL redirect to another port on the same host. */
+
+static char const *
+parse_redirect_url( fd_sshttp_t const * http,
+                    char const *        url,
+                    ulong *             len,
+                    ushort *            port ) {
+  fd_url_t parsed[ 1 ];
+  _Bool    is_ssl;
+  if( FD_UNLIKELY( fd_url_parse_endpoint( parsed, url, *len, port, &is_ssl, "redirect location" ) ) ) return NULL;
+  if( FD_UNLIKELY( is_ssl!=(_Bool)http->is_https ) ) return NULL;
+  if( FD_UNLIKELY( !parsed->tail_len || parsed->tail[ 0 ]!='/' ) ) return NULL;
+
+  char host[ FD_FQDN_BUF_MAX ];
+  fd_memcpy( host, parsed->host, parsed->host_len );
+  host[ parsed->host_len ] = '\0';
+  uint ip4;
+  int same_ip   = fd_cstr_to_ip4_addr( host, &ip4 ) && ip4==http->addr.addr;
+  int same_name = http->hostname[ 0 ] && !strcasecmp( host, http->hostname );
+  if( FD_UNLIKELY( !same_ip && !same_name ) ) return NULL;
+
+  *len = parsed->tail_len;
+  return parsed->tail;
+}
+
 static int
 follow_redirect( fd_sshttp_t *        http,
                   struct phr_header * headers,
@@ -515,18 +541,19 @@ follow_redirect( fd_sshttp_t *        http,
 
   ulong        location_len = 0UL;
   char const * location     = NULL;
+  ushort       port         = fd_ushort_bswap( http->addr.port );
 
   for( ulong i=0UL; i<header_cnt; i++ ) {
     if( FD_UNLIKELY( headers[ i ].name_len == 8 && !strncasecmp( headers[ i ].name, "location", headers[ i ].name_len ) ) ) {
-      if( FD_UNLIKELY( !headers [ i ].value_len || headers[ i ].value[ 0 ]!='/' ) ) {
+      location_len = headers[ i ].value_len;
+      location     = headers[ i ].value;
+      if( location_len && location[ 0 ]!='/' ) location = parse_redirect_url( http, location, &location_len, &port );
+      if( FD_UNLIKELY( !location || !location_len ) ) {
         FD_LOG_WARNING(( "invalid location header `%.*s` from " FD_IP4_ADDR_FMT ":%hu", (int)headers[ i ].value_len, headers[ i ].value,
                          FD_IP4_ADDR_FMT_ARGS( http->addr.addr ), fd_ushort_bswap( http->addr.port ) ));
         fd_sshttp_cancel( http );
         return FD_SSHTTP_ADVANCE_ERROR;
       }
-
-      location_len = headers[ i ].value_len;
-      location     = headers[ i ].value;
 
       if( FD_UNLIKELY( location_len>=PATH_MAX-1UL ) ) {
         FD_LOG_WARNING(( "location header too long `%.*s` from " FD_IP4_ADDR_FMT ":%hu", (int)location_len, location,
@@ -535,9 +562,17 @@ follow_redirect( fd_sshttp_t *        http,
         return FD_SSHTTP_ADVANCE_ERROR;
       }
 
+      /* The rpc tile sends the generic path on to the snapshot server,
+         which then names the file.  Only a file name is resolved. */
+      char const * file     = location+1UL;
+      ulong        file_len = location_len-1UL;
+      int generic = ( file_len==16UL && ( !memcmp( file, "snapshot.tar.bz2", 16UL ) || !memcmp( file, "snapshot.tar.zst", 16UL ) ) ) ||
+                    ( file_len==28UL && ( !memcmp( file, "incremental-snapshot.tar.bz2", 28UL ) || !memcmp( file, "incremental-snapshot.tar.zst", 28UL ) ) );
+      if( generic ) break;
+
       char snapshot_name[ PATH_MAX ];
-      fd_memcpy( snapshot_name, location+1UL, location_len-1UL );
-      snapshot_name[ location_len-1UL ] = '\0';
+      fd_memcpy( snapshot_name, file, file_len );
+      snapshot_name[ file_len ] = '\0';
 
       int is_zstd;
       ulong full_entry_slot, incremental_entry_slot;
@@ -585,16 +620,16 @@ follow_redirect( fd_sshttp_t *        http,
       "User-Agent: Firedancer\r\n"
       "Accept: */*\r\n"
       "Accept-Encoding: identity\r\n"
-      "Host: %s\r\n\r\n",
-      (int)location_len, location, http->hostname );
+      "Host: %s:%u\r\n\r\n",
+      (int)location_len, location, http->hostname, port );
   } else {
     pre_check = fd_cstr_printf_check( http->request, sizeof(http->request), &http->request_len,
       "GET %.*s HTTP/1.1\r\n"
       "User-Agent: Firedancer\r\n"
       "Accept: */*\r\n"
       "Accept-Encoding: identity\r\n"
-      "Host: " FD_IP4_ADDR_FMT "\r\n\r\n",
-      (int)location_len, location, FD_IP4_ADDR_FMT_ARGS( http->addr.addr ) );
+      "Host: " FD_IP4_ADDR_FMT ":%u\r\n\r\n",
+      (int)location_len, location, FD_IP4_ADDR_FMT_ARGS( http->addr.addr ), port );
   }
   if( FD_UNLIKELY( !pre_check ) ) {
     FD_LOG_WARNING(( "redirect request too long `%.*s` from " FD_IP4_ADDR_FMT ":%hu", (int)location_len, location,
@@ -603,6 +638,7 @@ follow_redirect( fd_sshttp_t *        http,
     return FD_SSHTTP_ADVANCE_ERROR;
   }
 
+  http->addr.port = fd_ushort_bswap( port );
   FD_LOG_INFO(( "following redirect to %s://" FD_IP4_ADDR_FMT ":%hu%.*s", http->is_https ? "https" : "http",
                 FD_IP4_ADDR_FMT_ARGS( http->addr.addr ), fd_ushort_bswap( http->addr.port ),
                 (int)location_len, location ));
