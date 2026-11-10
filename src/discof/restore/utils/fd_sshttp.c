@@ -500,12 +500,7 @@ send_request( fd_sshttp_t * http,
   return FD_SSHTTP_ADVANCE_AGAIN;
 }
 
-/* Agave redirects to a path on the same server.  The Firedancer rpc
-   tile redirects to the snapshot server on another port with a full
-   URL.  Only the host already being talked to is accepted, so a peer
-   cannot send the download elsewhere, and the scheme may not change.
-   Returns the path, shrinks *len to it and stores the port in *port.
-   Returns NULL for any other URL. */
+/* Accepts a full URL redirect to another port on the same host. */
 
 static char const *
 parse_redirect_url( fd_sshttp_t const * http,
