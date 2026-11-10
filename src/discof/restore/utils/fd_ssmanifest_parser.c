@@ -700,7 +700,7 @@ state_dst( fd_ssmanifest_parser_t * parser ) {
     case STATE_SLOT:                                                                                          return (uchar*)&manifest->slot;
     case STATE_EPOCH:                                                                                         return (uchar*)&parser->epoch;
     case STATE_BLOCK_HEIGHT:                                                                                  return (uchar*)&manifest->block_height;
-    case STATE_COLLECTOR_ID:                                                                                  return NULL;
+    case STATE_COLLECTOR_ID:                                                                                  return manifest->leader_id;
     case STATE_COLLECTOR_FEES:                                                                                return (uchar*)&manifest->collector_fees;
     case STATE_FEE_COLLECTOR_LAMPORTS_PER_SIGNATURE:                                                          return NULL;
     case STATE_FEE_RATE_GOVERNOR_TARGET_LAMPORTS_PER_SIGNATURE:                                               return (uchar*)&manifest->fee_rate_governor.target_lamports_per_signature;

@@ -264,7 +264,8 @@ struct fd_snapshot_manifest {
 
   fd_snapshot_manifest_rent_t rent_params;
 
-  /* The slot number for this snapshot */
+  /* The slot number for this snapshot (this slot was fully replayed and
+     then the snapshot was taken) */
   ulong slot;
 
   /* The number of blocks that have been built since genesis.  This is
@@ -272,6 +273,9 @@ struct fd_snapshot_manifest {
      landed block, but it does not increment for skipped slots, so the
      block_height will always be less than or equal to the slot. */
   ulong block_height;
+
+  /* Leader node identity of the snapshot slot */
+  uchar leader_id[ 32UL ];
 
   /* TODO: Document */
   ulong collector_fees;
