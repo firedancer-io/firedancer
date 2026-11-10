@@ -136,6 +136,7 @@ struct snapsv_conn {
   struct {
     ulong req_seq;  /* seq no of this HTTP request */
     uint  len;
+    uint  skip_len; /* bytes the in-flight consume should remove */
     uint  head:1;        /* HEAD request? */
     uint  get_snap:1;    /* GET request for a snapshot? (streaming) */
     uint  incremental:1; /* incremental snap requested? */
@@ -1642,7 +1643,8 @@ handle_peek( fd_snapsv_t *       ctx,
     /* avoid copying the same data again */
     FD_MCNT_INC( SNAPSV, HTTP_RX_BYTES, peek_len );
     prep_consume( ctx, conn_idx, peek_len, UDATA_OP_CONSUME_FRAG );
-    conn->state = CONN_STATE_REQ_SKIP;
+    conn->req.skip_len = peek_len;
+    conn->state        = CONN_STATE_REQ_SKIP;
     return;
   }
 
@@ -1813,6 +1815,10 @@ handle_consume_frag_comp( fd_snapsv_t *       ctx,
   uint consume_len = (uint)res;
   snapsv_conn_t * conn = &ctx->conn0[ conn_idx ];
   FD_CHECK_ERR( conn->state==CONN_STATE_REQ_SKIP, "conn state confusion" );
+  if( FD_UNLIKELY( consume_len!=conn->req.skip_len ) ) {
+    conn_close( ctx, stem, conn_idx, now );
+    return;
+  }
   conn->req.len += consume_len;
   conn->state = CONN_STATE_REQ_PEEK;
   prep_peek( ctx, conn_idx );

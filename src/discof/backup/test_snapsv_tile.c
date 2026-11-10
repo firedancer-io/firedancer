@@ -25,6 +25,7 @@ struct fake_client {
   uint  res_sz;
   uint  conn_alive:1;
   ulong req_cnt;
+  int   trunc_res; /* if set, every MSG_TRUNC recv completes with this count */
 
 # define DEFER_SQE_MAX 32
   fd_io_uring_sqe_t defer_sqe[ DEFER_SQE_MAX ];
@@ -41,6 +42,7 @@ fake_client_init( fake_client_t * fake ) {
   fake->conn_alive    = 0;
   fake->defer_sqe_cnt = 0;
   fake->req_cnt       = 0;
+  fake->trunc_res     = 0;
   return fake;
 }
 
@@ -81,6 +83,10 @@ fake_client_handle_sqe( fake_client_t *     fake,
   case FD_IORING_OP_RECV:
     FD_TEST( sqe->flags & FD_IOSQE_FIXED_FILE );
     FD_TEST( sqe->len > 0L );
+    if( (sqe->msg_flags & MSG_TRUNC) && fake->trunc_res ) {
+      fake_client_post_cqe( cq, sqe->user_data, fake->trunc_res, 0U );
+      break;
+    }
     if( fake->req_cur < fake->req_sz ) {
       ulong len = fd_ulong_min( sqe->len, fake->req_sz - fake->req_cur );
       FD_TEST( len<=INT_MAX );
@@ -848,6 +854,39 @@ FD_UNIT_TEST( conn_close_after_body_rejected ) {
       "\r\n",
       RES_400_CLOSE );
 }
+
+/* The consume that follows a peek of an incomplete request head must
+   remove exactly the peeked bytes.  Any other count closes the conn
+   instead of growing the request buffer. */
+
+static void
+expect_consume_frag_mismatch( int consume_res ) {
+  snapsv_env_t * env = snapsv_env_create();
+  fd_snapsv_t *  ctx = env->ctx;
+
+  fake_client_t fake;
+  fake_client_req( &fake, "GET /nope HTTP/1.1\r\nHost: x" ); /* 23 bytes, no blank line */
+  snapsv_step( env, &fake, 0U ); /* accept */
+  snapsv_step( env, &fake, 1U ); /* peek, queue consume */
+  snapsv_conn_t * conn = NULL;
+  for( ulong i=0UL; i<ctx->conn_max; i++ ) {
+    if( ctx->conn0[ i ].state==CONN_STATE_REQ_SKIP ) conn = &ctx->conn0[ i ];
+  }
+  FD_TEST( conn );
+
+  fake.trunc_res = consume_res;
+  snapsv_step( env, &fake, 2U ); /* consume completes with the wrong count */
+
+  FD_TEST( !ctx->conn_cnt );
+  FD_TEST( ctx->conn_free_cnt==CONN_MAX-1U ); /* one held by the pending accept */
+  FD_TEST( ctx->iobuf_free_cnt==2U*CONN_MAX );
+  snapsv_env_destroy( env );
+}
+
+FD_UNIT_TEST( consume_frag_short )     { expect_consume_frag_mismatch( 1    ); }
+FD_UNIT_TEST( consume_frag_overcount ) { expect_consume_frag_mismatch( 24   ); }
+FD_UNIT_TEST( consume_frag_fills )     { expect_consume_frag_mismatch( 4096 ); } /* iobuf_sz in this env */
+FD_UNIT_TEST( consume_frag_overshoot ) { expect_consume_frag_mismatch( 4097 ); }
 
 static void
 expect_redirect_after( char const * method,
