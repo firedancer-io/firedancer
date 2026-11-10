@@ -3150,6 +3150,8 @@ can_process_rotor_fec( fd_replay_tile_t       * ctx,
   int sched_full = !fec->is_leader && fd_sched_can_ingest_cnt( ctx->sched )==0UL;
   ctx->metrics.sched_full += (ulong)( sched_full & !ctx->sched_full ); /* once per stall */
   ctx->sched_full = sched_full;
+  int was_lane_wait = ctx->lane_wait;
+  ctx->lane_wait    = 0; /* set below only if this FEC waits on a lane */
   if( FD_UNLIKELY( sched_full ) ) {
     return PROCESS_FEC_WAIT;
   }
@@ -3312,8 +3314,10 @@ can_process_rotor_fec( fd_replay_tile_t       * ctx,
      eviction decision so that a wait for a lane doesn't shadow it.  Our
      own leader FECs never enter sched, so they don't need to wait for a
      lane. */
-  if( FD_UNLIKELY( fec->fec_set_idx==0U && !fec->is_leader && fd_sched_fec_waits_for_lane( ctx->sched, parent_bank_idx, 1 ) ) ) {
-    ctx->metrics.lane_wait++;
+  int lane_wait = fec->fec_set_idx==0U && !fec->is_leader && fd_sched_fec_waits_for_lane( ctx->sched, parent_bank_idx, 1 );
+  ctx->metrics.lane_wait += (ulong)( lane_wait & !was_lane_wait ); /* once per stall */
+  ctx->lane_wait = lane_wait;
+  if( FD_UNLIKELY( lane_wait ) ) {
     return PROCESS_FEC_WAIT;
   }
 
@@ -4544,10 +4548,11 @@ returnable_frag( fd_replay_tile_t *  ctx,
         }
         case PROCESS_FEC_SKIP: { return 0; }
         case PROCESS_FEC_WAIT: {
-          /* Sched space frees only on an execrp completion frag or our
-             own busy work, so the stem may park until then.  A pending
-             accdb command rings no one when done, keep polling. */
-          if( FD_LIKELY( ctx->sched_full && !fd_accdb_cmd_pending( ctx->accdb ) ) ) return FD_STEM_FRAG_BLOCKED;
+          /* Sched space and staging lanes free only on an execrp
+             completion frag or our own busy work, so the stem may park
+             until then.  A pending accdb command rings no one when
+             done, keep polling. */
+          if( FD_LIKELY( ( ctx->sched_full | ctx->lane_wait ) && !fd_accdb_cmd_pending( ctx->accdb ) ) ) return FD_STEM_FRAG_BLOCKED;
 
           /* queue an eviction, then retry the frag. */
           if( FD_UNLIKELY( evict_banks ) ) {
