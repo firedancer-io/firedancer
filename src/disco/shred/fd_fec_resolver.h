@@ -274,8 +274,8 @@ typedef struct fd_fec_resolver_spilled fd_fec_resolver_spilled_t;
    out_{shred,merkle_root}.
 
    If the shred fails validation for any other reason, returns
-   SHRED_REJECTED and does not write to out_{fec_set,shred}. If
-   non-NULL, the contents pointed to by out_merkle_root may be
+   SHRED_REJECTED and does not write to out_fec_set.  The contents
+   pointed to by out_shred and, if non-NULL, out_merkle_root may be
    clobbered.
 
    Note that only light validation is performed when returning
