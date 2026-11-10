@@ -6,6 +6,7 @@
 #include "../../ballet/base64/fd_base64.h"
 #include "../../ballet/json/fd_jtok.h"
 #include "../../disco/topo/fd_topo.h"
+#include "../../disco/topo/fd_dns_resolve.h"
 #include "../../util/pod/fd_pod_format.h"
 #include "../../disco/fd_clock_tile.h"
 #include "../../disco/metrics/fd_metrics.h"
@@ -3046,9 +3047,16 @@ privileged_init( fd_topo_t const *      topo,
   ctx->http = fd_http_server_join( fd_http_server_new( _http, http_params, callbacks, ctx ) );
   ctx->snapshot_server_enabled = tile->rpc.snapshot_server_enabled;
   if( FD_LIKELY( ctx->snapshot_server_enabled ) ) {
+    /* The same address gossip advertises, so peers that connected by
+       IP recognize the redirect as the same host. */
+    uint ip_addr = tile->rpc.net_ip_addr;
+    if( FD_LIKELY( tile->rpc.snapshot_server_host[ 0 ] ) ) {
+      if( FD_UNLIKELY( !fd_dns_resolve_address( tile->rpc.snapshot_server_host, &ip_addr ) ) )
+        FD_LOG_ERR(( "failed to resolve [gossip.host] `%s`", tile->rpc.snapshot_server_host ));
+    }
     FD_TEST( fd_cstr_printf_check(
         ctx->snapshot_server_url, sizeof(ctx->snapshot_server_url), NULL,
-        "http://%s:%u", tile->rpc.snapshot_server_host,
+        "http://" FD_IP4_ADDR_FMT ":%u", FD_IP4_ADDR_FMT_ARGS( ip_addr ),
         tile->rpc.snapshot_server_port ) );
   }
   ctx->waker_client_idx = tile->waker_client_idx;

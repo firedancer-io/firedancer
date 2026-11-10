@@ -2030,6 +2030,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
       FD_CHECK_ERR( listen_port && listen_port<=USHORT_MAX,
                     "[snapshots.server.http_listen_port] must be in [1,65535]" );
       tile->rpc.snapshot_server_port = (ushort)listen_port;
+      tile->rpc.net_ip_addr          = config->net.ip_addr;
     }
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "backt" ) ) ) {
