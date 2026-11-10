@@ -1567,8 +1567,9 @@ failover_adopt_response( fd_votor_tile_t *   ctx,
       .vote_slot  = ULONG_MAX,
       .vote_bound = ULONG_MAX
     };
-  } else if( FD_UNLIKELY( ctx->keyswitch_state==FD_KEYSWITCH_STATE_SWITCH_PENDING ||
-                          fd_keyswitch_state_query( ctx->id_keyswitch )==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
+  } else if( FD_UNLIKELY( ctx->keyswitch_state!=FD_KEYSWITCH_STATE_UNLOCKED ||
+                          fd_keyswitch_state_query( ctx->id_keyswitch )==FD_KEYSWITCH_STATE_SWITCH_PENDING ||
+                          fd_keyswitch_state_query( ctx->id_keyswitch )==FD_KEYSWITCH_STATE_UNHALT_PENDING ) ) {
     FD_LOG_WARNING(( "failover: rejecting a vote history adoption, an identity switch is in progress" ));
     result = (fd_votor_adopt_result_t){
       .result     = FD_VOTOR_ADOPT_ERR_INVALID,
@@ -2184,7 +2185,8 @@ during_housekeeping( fd_votor_tile_t * ctx ) {
   if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->id_keyswitch )==FD_KEYSWITCH_STATE_UNHALT_PENDING ) ) {
     FD_CHECK_CRIT( ctx->keyswitch_state==FD_KEYSWITCH_STATE_COMPLETED, "state machine corruption" );
     load_keys( ctx, ctx->auth_vtr_path_cnt );
-    ctx->vote_history_slot = fd_ulong_max( ctx->vote_history_slot, fd_first_slot_in_window( ctx->highest_vote_or_lead_slot )+FD_VOTOR_SLOTS_PER_WINDOW );
+    /* A failover promotion adopted its votes per slot, so it votes on in the adopted window. The file still covers it for a restart. */
+    if( FD_LIKELY( !ctx->installed_by_failover ) ) ctx->vote_history_slot = fd_ulong_max( ctx->vote_history_slot, fd_first_slot_in_window( ctx->highest_vote_or_lead_slot )+FD_VOTOR_SLOTS_PER_WINDOW );
     if( FD_LIKELY( ctx->vote_history_fd_dir!=-1 ) ) write_vote_history( ctx ); /* the sign tile has the new key, so its floor is on disk before it votes */
     ctx->keyswitch_state = FD_KEYSWITCH_STATE_UNLOCKED;
     update_own_rank( ctx );

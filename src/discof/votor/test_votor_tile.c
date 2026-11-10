@@ -2956,6 +2956,38 @@ test_switch_runs_the_failover_rule( void ) {
   FD_TEST( ctx.id_keyswitch->state==FD_KEYSWITCH_STATE_COMPLETED );
   FD_TEST( !ctx.vote_authority && ctx.id_keyswitch->result==77UL );
 
+  /* A promotion with an adopted history. */
+  fd_keyswitch_state( ctx.id_keyswitch, FD_KEYSWITCH_STATE_UNLOCKED );
+  ctx.keyswitch_state            = FD_KEYSWITCH_STATE_UNLOCKED;
+  ctx.highest_vote_or_lead_slot  = 0UL;
+  ctx.failover_hist_adopted      = 1;
+  ctx.adopted_tip                = 41UL;
+  fd_votor_loop_failover_set_vote_bound( ctx.votor, 39UL );
+  ctx.adopted_last_leader_slot   = fd_first_slot_in_window( 20UL );
+  ctx.id_keyswitch->failover     = 1UL;
+  failover_switched( &ctx );
+  FD_TEST( ctx.vote_authority && ctx.installed_by_failover );
+  /* The file a restart reads covers the adopted tip, the live floor does
+     not: the adopted slots are refused one by one, so the taker votes on
+     in the tip's window. */
+  FD_TEST( ctx.highest_vote_or_lead_slot==41UL );
+  uchar bls_keys[2][ FD_BLS_PUB_COMPRESSED_SZ ];
+  memcpy( bls_keys[0], bls_key, FD_BLS_PUB_COMPRESSED_SZ );
+  memcpy( bls_keys[1], bls_key, FD_BLS_PUB_COMPRESSED_SZ );
+  bls_pubkey_client_init( ctx.keyguard_client, bls_keys, 2UL ); /* the unhalt reloads the identity's key twice below */
+  ctx.vote_history_slot = 0UL;
+  fd_keyswitch_state( ctx.id_keyswitch, FD_KEYSWITCH_STATE_UNHALT_PENDING );
+  ctx.keyswitch_state = FD_KEYSWITCH_STATE_COMPLETED;
+  during_housekeeping( &ctx );
+  FD_TEST( ctx.id_keyswitch->state==FD_KEYSWITCH_STATE_COMPLETED && ctx.keyswitch_state==FD_KEYSWITCH_STATE_UNLOCKED );
+  FD_TEST( ctx.vote_history_slot==0UL );
+  /* An operator switch keeps the floor past every slot the old identity voted in. */
+  ctx.installed_by_failover = 0;
+  fd_keyswitch_state( ctx.id_keyswitch, FD_KEYSWITCH_STATE_UNHALT_PENDING );
+  ctx.keyswitch_state = FD_KEYSWITCH_STATE_COMPLETED;
+  during_housekeeping( &ctx );
+  FD_TEST( ctx.vote_history_slot==fd_first_slot_in_window( 41UL )+FD_VOTOR_SLOTS_PER_WINDOW );
+
   hist_teardown( &ctx );
 }
 
@@ -3028,6 +3060,17 @@ test_adopt_refused_while_voting( void ) {
   reply = fd_chunk_to_laddr_const( reply_mem, mcache[3].chunk );
   FD_TEST( seqs[0]==4UL && mcache[3].sig==906UL );
   FD_TEST( reply->result==FD_VOTOR_ADOPT_ERR_INVALID && !ctx.failover_hist_adopted );
+  /* And between the switch and its UNHALT, when the operator's key is
+     installed with authority that an adoption would take away. */
+  ctx.keyswitch_state = FD_KEYSWITCH_STATE_COMPLETED;
+  fd_keyswitch_state( ctx.id_keyswitch, FD_KEYSWITCH_STATE_UNHALT_PENDING );
+  ctx.vote_authority = 1;
+  after_frag( &ctx, 0UL, 1UL, 907UL, ctx.adopt_req_sz, 0UL, 0UL, stem );
+  reply = fd_chunk_to_laddr_const( reply_mem, mcache[4].chunk );
+  FD_TEST( seqs[0]==5UL && mcache[4].sig==907UL );
+  FD_TEST( reply->result==FD_VOTOR_ADOPT_ERR_INVALID && !ctx.failover_hist_adopted && ctx.vote_authority );
+  ctx.vote_authority  = 0;
+  ctx.keyswitch_state = FD_KEYSWITCH_STATE_UNLOCKED;
   fd_keyswitch_state( ctx.id_keyswitch, FD_KEYSWITCH_STATE_UNLOCKED );
   seqs[0] = 1UL; /* the capacity and success steps below keep their frame slots */
 
