@@ -809,6 +809,13 @@ fd_grpc_h2_cb_headers(
   if( rx_end ) fd_h2_stream_error( h2_stream, conn, client->frame_tx, FD_H2_SUCCESS );
 
   if( !stream->hdrs_received ) {
+    if( FD_UNLIKELY( stream->hdrs.h2_status>=200U &&
+                    ( stream->hdrs.h2_status!=200U || !stream->hdrs.is_grpc_proto ) ) ) {
+      if( !rx_end ) fd_h2_stream_error( h2_stream, conn, client->frame_tx, FD_H2_ERR_CANCEL );
+      client->callbacks->rx_end( client->ctx, stream->request_ctx, &stream->hdrs );
+      fd_grpc_client_stream_release( client, stream );
+      return;
+    }
     /* Got initial response header */
     stream->hdrs_received = 1;
     stream->has_header_deadline = 0;
