@@ -77,16 +77,16 @@ fd_net_tx_route( fd_net_router_t *   ctx,
 
   if( FD_UNLIKELY( rtype!=FD_FIB4_RTYPE_UNICAST ) ) {
     uint const reason = fd_uint_if( rtype==FD_FIB4_RTYPE_THROW,
-                                    FD_METRICS_ENUM_PKT_TX_ROUTING_FAILURE_REASON_V_NO_ROUTE_IDX,
-                                    FD_METRICS_ENUM_PKT_TX_ROUTING_FAILURE_REASON_V_UNSUPPORTED_ROUTE_IDX );
-    net->metrics.tx_routing_failure_cnt[ reason ]++;
+                                    FD_METRICS_ENUM_PKT_TX_SLOW_PATH_REASON_V_NO_ROUTE_IDX,
+                                    FD_METRICS_ENUM_PKT_TX_SLOW_PATH_REASON_V_UNSUPPORTED_ROUTE_IDX );
+    net->metrics.tx_slow_path_reason_cnt[ reason ]++;
     out->routing_failure = 1;
     return 0;
   }
 
   fd_netdev_t * netdev = fd_netdev_tbl_query( &ctx->netdev_tbl, if_idx );
   if( !netdev ) {
-    net->metrics.tx_routing_failure_cnt[ FD_METRICS_ENUM_PKT_TX_ROUTING_FAILURE_REASON_V_INTERFACE_MISSING_IDX ]++;
+    net->metrics.tx_slow_path_reason_cnt[ FD_METRICS_ENUM_PKT_TX_SLOW_PATH_REASON_V_INTERFACE_MISSING_IDX ]++;
     out->routing_failure = 1;
     return 0;
   }
@@ -110,13 +110,13 @@ fd_net_tx_route( fd_net_router_t *   ctx,
   }
 
   if( FD_UNLIKELY( netdev->dev_type!=ARPHRD_ETHER ) ) {
-    net->metrics.tx_routing_failure_cnt[ FD_METRICS_ENUM_PKT_TX_ROUTING_FAILURE_REASON_V_UNSUPPORTED_INTERFACE_IDX ]++;
+    net->metrics.tx_slow_path_reason_cnt[ FD_METRICS_ENUM_PKT_TX_SLOW_PATH_REASON_V_UNSUPPORTED_INTERFACE_IDX ]++;
     out->routing_failure = 1;
     return 0;
   }
 
   if( FD_UNLIKELY( if_idx!=ctx->if_virt ) ) {
-    net->metrics.tx_routing_failure_cnt[ FD_METRICS_ENUM_PKT_TX_ROUTING_FAILURE_REASON_V_UNSUPPORTED_INTERFACE_IDX ]++;
+    net->metrics.tx_slow_path_reason_cnt[ FD_METRICS_ENUM_PKT_TX_SLOW_PATH_REASON_V_UNSUPPORTED_INTERFACE_IDX ]++;
     out->routing_failure = 1;
     return 0;
   }

@@ -388,21 +388,29 @@ test_bond_route( void ) {
   }
   test_tile.net.kind_id  = 0UL;
   test_tile.net.tile_cnt = 1UL;
+  ulong * result_cnt  = test_tile.net.metrics.tx_route_result_cnt;
+  ulong   fast_before = result_cnt[ FD_METRICS_ENUM_PKT_TX_ROUTE_RESULT_V_FAST_PATH_IDX ];
+  ulong   slow_before = result_cnt[ FD_METRICS_ENUM_PKT_TX_ROUTE_RESULT_V_SLOW_PATH_IDX ];
   FD_TEST( !before_frag( &test_tile, 0UL, 0UL, sig ) );
+  FD_TEST( result_cnt[ FD_METRICS_ENUM_PKT_TX_ROUTE_RESULT_V_FAST_PATH_IDX ]==fast_before+1UL );
+  FD_TEST( result_cnt[ FD_METRICS_ENUM_PKT_TX_ROUTE_RESULT_V_SLOW_PATH_IDX ]==slow_before     );
   ulong chosen = test_tile.tx_vf_idx;
   FD_TEST( !before_frag( &test_tile, 0UL, 0UL, sig ) && test_tile.tx_vf_idx==chosen );
   test_tile.vfs[chosen].vf_info.link_usable = 0;
   FD_TEST( !before_frag( &test_tile, 0UL, 0UL, sig ) && test_tile.tx_vf_idx==1UL-chosen );
   test_tile.vfs[1UL-chosen].vf_info.link_usable = 0;
+  ulong const fast_no_link_before = result_cnt[ FD_METRICS_ENUM_PKT_TX_ROUTE_RESULT_V_FAST_PATH_IDX ];
   FD_TEST( before_frag( &test_tile, 0UL, 0UL, sig ) );
   FD_TEST( test_tile.metrics.tx_no_link_cnt==1UL );
+  /* before_frag rejected the job, so it has no route result */
+  FD_TEST( result_cnt[ FD_METRICS_ENUM_PKT_TX_ROUTE_RESULT_V_FAST_PATH_IDX ]==fast_no_link_before );
   /* A routing failure falls back to the kernel socket, but still needs a
      usable VF to stage the packet, so with no link it is dropped there. */
   hop.if_idx = 7U;
   FD_TEST( fd_fib4_insert( test_tile.router.fib_main, dst, 32, 0U, &hop ) );
   FD_TEST( before_frag( &test_tile, 0UL, 0UL, sig ) );
   FD_TEST( test_tile.net.tx_route.routing_failure );
-  FD_TEST( test_tile.net.metrics.tx_routing_failure_cnt[ FD_METRICS_ENUM_PKT_TX_ROUTING_FAILURE_REASON_V_UNSUPPORTED_INTERFACE_IDX ]==1UL );
+  FD_TEST( test_tile.net.metrics.tx_slow_path_reason_cnt[ FD_METRICS_ENUM_PKT_TX_SLOW_PATH_REASON_V_UNSUPPORTED_INTERFACE_IDX ]==1UL );
   FD_TEST( test_tile.metrics.tx_no_link_cnt==2UL );
 
   /* One failed job must count once even when tile 0 probes for loopback. */
@@ -416,7 +424,7 @@ test_bond_route( void ) {
     test_tile.net.kind_id = tile_idx;
     FD_TEST( before_frag( &test_tile, 0UL, 0UL, sig ) );
   }
-  FD_TEST( test_tile.net.metrics.tx_routing_failure_cnt[ FD_METRICS_ENUM_PKT_TX_ROUTING_FAILURE_REASON_V_NO_ROUTE_IDX ]==1UL );
+  FD_TEST( test_tile.net.metrics.tx_slow_path_reason_cnt[ FD_METRICS_ENUM_PKT_TX_SLOW_PATH_REASON_V_NO_ROUTE_IDX ]==1UL );
 
   /* An unroutable GRE outer endpoint is counted once, as NoRoute */
   test_tile.net.kind_id  = 0UL;
@@ -425,7 +433,7 @@ test_bond_route( void ) {
   test_netdevs[1].gre_dst_ip = FD_IP4_ADDR( 192,0,2,1 );
   FD_TEST( fd_fib4_insert( test_tile.router.fib_main, dst, 32, 0U, &hop ) );
   FD_TEST( before_frag( &test_tile, 0UL, 0UL, sig ) );
-  FD_TEST( test_tile.net.metrics.tx_routing_failure_cnt[ FD_METRICS_ENUM_PKT_TX_ROUTING_FAILURE_REASON_V_NO_ROUTE_IDX ]==2UL );
+  FD_TEST( test_tile.net.metrics.tx_slow_path_reason_cnt[ FD_METRICS_ENUM_PKT_TX_SLOW_PATH_REASON_V_NO_ROUTE_IDX ]==2UL );
   FD_TEST( test_tile.net.metrics.tx_drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_GRE_NO_ROUTE_IDX ]==0UL );
 
   test_tile.net.tile_cnt = 2UL;
@@ -635,17 +643,22 @@ test_tx_sock_fallback( void ) {
     };
     for( ulong i=0UL; i<sizeof(cases)/sizeof(cases[0]); i++ ) {
       ulong * drop_cnt         = test_tile.net.metrics.tx_drop_cnt;
+      ulong * result_cnt       = test_tile.net.metrics.tx_route_result_cnt;
       ulong   pkt_before       = test_tile.net.metrics.tx_pkt_cnt;
       ulong   bytes_before     = test_tile.net.metrics.tx_bytes_total;
-      ulong   sock_before      = test_tile.net.metrics.tx_sock_cnt;
+      ulong   sock_before      = test_tile.net.metrics.tx_slow_path_submit_cnt;
       ulong   sock_fail_before = drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_SOCKET_SEND_FAILURE_IDX ];
+      ulong   fast_before      = result_cnt[ FD_METRICS_ENUM_PKT_TX_ROUTE_RESULT_V_FAST_PATH_IDX ];
+      ulong   slow_before      = result_cnt[ FD_METRICS_ENUM_PKT_TX_ROUTE_RESULT_V_SLOW_PATH_IDX ];
 
       ulong pkt_sz = send_fallback_pkt( cases[ i ].dst_ip, cases[ i ].src_ip, /*send_fail=*/0 );
 
-      FD_TEST( test_tile.net.metrics.tx_pkt_cnt    ==pkt_before+1UL      );
-      FD_TEST( test_tile.net.metrics.tx_bytes_total==bytes_before+pkt_sz );
-      FD_TEST( test_tile.net.metrics.tx_sock_cnt   ==sock_before+1UL     );
+      FD_TEST( test_tile.net.metrics.tx_pkt_cnt             ==pkt_before+1UL      );
+      FD_TEST( test_tile.net.metrics.tx_bytes_total         ==bytes_before+pkt_sz );
+      FD_TEST( test_tile.net.metrics.tx_slow_path_submit_cnt==sock_before+1UL     );
       FD_TEST( drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_SOCKET_SEND_FAILURE_IDX ]==sock_fail_before );
+      FD_TEST( result_cnt[ FD_METRICS_ENUM_PKT_TX_ROUTE_RESULT_V_FAST_PATH_IDX ]==fast_before     );
+      FD_TEST( result_cnt[ FD_METRICS_ENUM_PKT_TX_ROUTE_RESULT_V_SLOW_PATH_IDX ]==slow_before+1UL );
     }
     /* The neighbor miss still requests a solicitation */
     FD_TEST( test_tile.router.solicit_ip==neigh1_ip4_addr );
@@ -657,15 +670,18 @@ test_tx_sock_fallback( void ) {
     ulong * drop_cnt         = test_tile.net.metrics.tx_drop_cnt;
     ulong   pkt_before       = test_tile.net.metrics.tx_pkt_cnt;
     ulong   bytes_before     = test_tile.net.metrics.tx_bytes_total;
-    ulong   sock_before      = test_tile.net.metrics.tx_sock_cnt;
+    ulong   sock_before      = test_tile.net.metrics.tx_slow_path_submit_cnt;
     ulong   sock_fail_before = drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_SOCKET_SEND_FAILURE_IDX ];
+    ulong   slow_before      = test_tile.net.metrics.tx_route_result_cnt[ FD_METRICS_ENUM_PKT_TX_ROUTE_RESULT_V_SLOW_PATH_IDX ];
 
     send_fallback_pkt( no_route_ip4_addr, public_ip4_addr, /*send_fail=*/1 );
 
-    FD_TEST( test_tile.net.metrics.tx_pkt_cnt    ==pkt_before   );
-    FD_TEST( test_tile.net.metrics.tx_bytes_total==bytes_before );
-    FD_TEST( test_tile.net.metrics.tx_sock_cnt   ==sock_before  );
+    FD_TEST( test_tile.net.metrics.tx_pkt_cnt             ==pkt_before   );
+    FD_TEST( test_tile.net.metrics.tx_bytes_total         ==bytes_before );
+    FD_TEST( test_tile.net.metrics.tx_slow_path_submit_cnt==sock_before  );
     FD_TEST( drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_SOCKET_SEND_FAILURE_IDX ]==sock_fail_before+1UL );
+    /* Routed to the slow path even though the send then failed */
+    FD_TEST( test_tile.net.metrics.tx_route_result_cnt[ FD_METRICS_ENUM_PKT_TX_ROUTE_RESULT_V_SLOW_PATH_IDX ]==slow_before+1UL );
   }
 
   /* Fallback packets share the TX queue buffer accounting, so they are
@@ -729,7 +745,7 @@ test_tx_sock_fallback( void ) {
       ulong const inner_ip_sz = inner_sz-sizeof(fd_eth_hdr_t);
 
       ulong const gre_before  = test_tile.net.metrics.tx_gre_cnt;
-      ulong const sock_before = test_tile.net.metrics.tx_sock_cnt;
+      ulong const sock_before = test_tile.net.metrics.tx_slow_path_submit_cnt;
       ulong const pkt_before  = test_tile.net.metrics.tx_pkt_cnt;
       memset( &mock_sock, 0, sizeof(mock_sock) );
 
@@ -767,9 +783,9 @@ test_tx_sock_fallback( void ) {
       /* Nothing was submitted to the TX queue */
       FD_TEST( vf->tx_queue.prod==prod_before );
 
-      FD_TEST( test_tile.net.metrics.tx_gre_cnt ==gre_before+1UL  );
-      FD_TEST( test_tile.net.metrics.tx_sock_cnt==sock_before+1UL );
-      FD_TEST( test_tile.net.metrics.tx_pkt_cnt ==pkt_before+1UL  );
+      FD_TEST( test_tile.net.metrics.tx_gre_cnt             ==gre_before+1UL  );
+      FD_TEST( test_tile.net.metrics.tx_slow_path_submit_cnt==sock_before+1UL );
+      FD_TEST( test_tile.net.metrics.tx_pkt_cnt             ==pkt_before+1UL  );
     }
 
     /* A nested tunnel (outer route is itself GRE) is still dropped. */
@@ -786,9 +802,13 @@ test_tx_sock_fallback( void ) {
   }
 
   metrics_write( &test_tile );
-  FD_TEST( FD_MCNT_GET( IAVF, SOCKET_PKT_TX_SUBMITTED )==test_tile.net.metrics.tx_sock_cnt );
-  FD_TEST( FD_MCNT_GET( IAVF, GRE_PKT_TX_SUBMITTED    )==test_tile.net.metrics.tx_gre_cnt  );
-  FD_TEST( test_tile.net.metrics.tx_sock_cnt==7UL );
+  FD_TEST( FD_MCNT_GET( IAVF, PKT_TX_SLOW_PATH_SUBMITTED )==test_tile.net.metrics.tx_slow_path_submit_cnt );
+  FD_TEST( FD_MCNT_GET( IAVF, GRE_PKT_TX_SUBMITTED       )==test_tile.net.metrics.tx_gre_cnt              );
+  FD_TEST( fd_metrics_tl[ FD_METRICS_COUNTER_IAVF_PKT_TX_ROUTED_SLOW_PATH_OFF ]==
+           test_tile.net.metrics.tx_route_result_cnt[ FD_METRICS_ENUM_PKT_TX_ROUTE_RESULT_V_SLOW_PATH_IDX ] );
+  FD_TEST( fd_metrics_tl[ FD_METRICS_COUNTER_IAVF_PKT_TX_ROUTED_FAST_PATH_OFF ]==
+           test_tile.net.metrics.tx_route_result_cnt[ FD_METRICS_ENUM_PKT_TX_ROUTE_RESULT_V_FAST_PATH_IDX ] );
+  FD_TEST( test_tile.net.metrics.tx_slow_path_submit_cnt==7UL );
   FD_TEST( fd_metrics_tl[ FD_METRICS_COUNTER_IAVF_PKT_TX_DROPPED_SOCKET_SEND_FAILURE_OFF ]==
            test_tile.net.metrics.tx_drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_SOCKET_SEND_FAILURE_IDX ] );
 

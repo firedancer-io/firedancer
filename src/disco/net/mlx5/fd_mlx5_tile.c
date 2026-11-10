@@ -887,6 +887,7 @@ before_frag( fd_mlx5_tile_t * ctx,
     return 1;
   }
 
+  fd_net_tx_route_result_increment( &ctx->net );
   return 0; /* continue */
 }
 
@@ -1036,12 +1037,13 @@ metrics_write( fd_mlx5_tile_t * ctx ) {
 
   FD_MCNT_SET(   MLX5, PKT_TX_COMPLETED,       ctx->net.metrics.tx_pkt_cnt            );
   FD_MCNT_SET(   MLX5, PKT_TX_COMPLETED_BYTES, ctx->net.metrics.tx_bytes_total        );
-  ctx->net.metrics.tx_routing_failure_cnt[ FD_METRICS_ENUM_PKT_TX_ROUTING_FAILURE_REASON_V_NO_NEIGHBOR_IDX ] = ctx->router.metrics.tx_neigh_fail_cnt;
+  ctx->net.metrics.tx_slow_path_reason_cnt[ FD_METRICS_ENUM_PKT_TX_SLOW_PATH_REASON_V_NO_NEIGHBOR_IDX ] = ctx->router.metrics.tx_neigh_fail_cnt;
   ctx->net.metrics.tx_drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_RING_FULL_IDX ] = ctx->metrics.tx_no_buffer_cnt;
-  FD_MCNT_ENUM_COPY( MLX5, PKT_TX_DROPPED,     ctx->net.metrics.tx_drop_cnt           );
-  FD_MCNT_ENUM_COPY( MLX5, PKT_TX_ROUTING_FAILED, ctx->net.metrics.tx_routing_failure_cnt );
-  FD_MCNT_SET(   MLX5, GRE_PKT_TX_SUBMITTED,   ctx->net.metrics.tx_gre_cnt            );
-  FD_MCNT_SET(   MLX5, SOCKET_PKT_TX_SUBMITTED, ctx->net.metrics.tx_sock_cnt          );
+  FD_MCNT_ENUM_COPY( MLX5, PKT_TX_DROPPED,          ctx->net.metrics.tx_drop_cnt             );
+  FD_MCNT_ENUM_COPY( MLX5, PKT_TX_ROUTED,           ctx->net.metrics.tx_route_result_cnt     );
+  FD_MCNT_ENUM_COPY( MLX5, PKT_TX_SLOW_PATH_ROUTED, ctx->net.metrics.tx_slow_path_reason_cnt );
+  FD_MCNT_SET(   MLX5, GRE_PKT_TX_SUBMITTED,       ctx->net.metrics.tx_gre_cnt              );
+  FD_MCNT_SET(   MLX5, PKT_TX_SLOW_PATH_SUBMITTED, ctx->net.metrics.tx_slow_path_submit_cnt );
   FD_MGAUGE_SET( MLX5, TX_BUFFER_USED,         tx_buffer_busy_cnt                     );
   FD_MGAUGE_SET( MLX5, TX_BUFFER_FREE,         tx_buffer_idle_cnt                     );
 }

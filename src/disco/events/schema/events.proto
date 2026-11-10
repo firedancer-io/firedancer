@@ -1434,8 +1434,8 @@ message BlockReceivedFecSets {
   BlockReceivedFecSetsFinalShredSource final_shred_source = 9;
 }
 
-// Transmit jobs that failed route resolution, by reason
-message MetricsNetPktTxRoutingFailed {
+// Transmit jobs that failed userland routing and selected the kernel fallback, by reason
+message MetricsNetPktTxSlowPathRouted {
   // No matching route
   uint64 no_route = 1;
   // Unsupported route type
@@ -1446,6 +1446,14 @@ message MetricsNetPktTxRoutingFailed {
   uint64 unsupported_interface = 4;
   // Next-hop neighbor unresolved or inactive
   uint64 no_neighbor = 5;
+}
+
+// Transmit jobs accepted after route resolution, by result
+message MetricsNetPktTxRouted {
+  // Userland routing succeeded and selected the configured provider
+  uint64 fast_path = 1;
+  // Failed userland routing and selected the kernel fallback
+  uint64 slow_path = 2;
 }
 
 // IPv4 routes installed in the forwarding table
@@ -1461,17 +1469,17 @@ message MetricsNetPktTxDropped {
   // Invalid packet headers, or GRE packet exceeding the MTU
   uint64 invalid = 1;
   // No matching route
-  uint64 no_route = 2;
+  uint64 no_route = 2 [deprecated = true];
   // Unsupported route type
-  uint64 unsupported_route = 3;
+  uint64 unsupported_route = 3 [deprecated = true];
   // Interface not available
-  uint64 interface_missing = 4;
+  uint64 interface_missing = 4 [deprecated = true];
   // Interface type not supported
-  uint64 unsupported_interface = 5;
+  uint64 unsupported_interface = 5 [deprecated = true];
   // No source IP address chosen
   uint64 source_ip_missing = 6;
   // Next-hop neighbor unresolved
-  uint64 no_neighbor = 7;
+  uint64 no_neighbor = 7 [deprecated = true];
   // TX ring full or no TX buffer available
   uint64 ring_full = 8;
   // GRE tunnel addresses missing or outer route is itself tunnelled
@@ -1542,8 +1550,8 @@ message MetricsNetRegimeDurationNanos {
   uint64 backpressure_sleeping = 10;
 }
 
-// Transmit jobs that failed route resolution, by reason
-message MetricsMlx5PktTxRoutingFailed {
+// Transmit jobs that failed userland routing and selected the kernel fallback, by reason
+message MetricsMlx5PktTxSlowPathRouted {
   // No matching route
   uint64 no_route = 1;
   // Unsupported route type
@@ -1556,22 +1564,30 @@ message MetricsMlx5PktTxRoutingFailed {
   uint64 no_neighbor = 5;
 }
 
+// Transmit jobs accepted after route resolution, by result
+message MetricsMlx5PktTxRouted {
+  // Userland routing succeeded and selected the configured provider
+  uint64 fast_path = 1;
+  // Failed userland routing and selected the kernel fallback
+  uint64 slow_path = 2;
+}
+
 // Transmit jobs dropped, by reason
 message MetricsMlx5PktTxDropped {
   // Invalid packet headers, or GRE packet exceeding the MTU
   uint64 invalid = 1;
   // No matching route
-  uint64 no_route = 2;
+  uint64 no_route = 2 [deprecated = true];
   // Unsupported route type
-  uint64 unsupported_route = 3;
+  uint64 unsupported_route = 3 [deprecated = true];
   // Interface not available
-  uint64 interface_missing = 4;
+  uint64 interface_missing = 4 [deprecated = true];
   // Interface type not supported
-  uint64 unsupported_interface = 5;
+  uint64 unsupported_interface = 5 [deprecated = true];
   // No source IP address chosen
   uint64 source_ip_missing = 6;
   // Next-hop neighbor unresolved
-  uint64 no_neighbor = 7;
+  uint64 no_neighbor = 7 [deprecated = true];
   // TX ring full or no TX buffer available
   uint64 ring_full = 8;
   // GRE tunnel addresses missing or outer route is itself tunnelled
@@ -8146,8 +8162,8 @@ message MetricsMotorRegimeDurationNanos {
   uint64 backpressure_sleeping = 10;
 }
 
-// Transmit jobs that failed route resolution, by reason
-message MetricsIavfPktTxRoutingFailed {
+// Transmit jobs that failed userland routing and selected the kernel fallback, by reason
+message MetricsIavfPktTxSlowPathRouted {
   // No matching route
   uint64 no_route = 1;
   // Unsupported route type
@@ -8160,22 +8176,30 @@ message MetricsIavfPktTxRoutingFailed {
   uint64 no_neighbor = 5;
 }
 
+// Transmit jobs accepted after route resolution, by result
+message MetricsIavfPktTxRouted {
+  // Userland routing succeeded and selected the configured provider
+  uint64 fast_path = 1;
+  // Failed userland routing and selected the kernel fallback
+  uint64 slow_path = 2;
+}
+
 // Transmit jobs dropped, by reason
 message MetricsIavfPktTxDropped {
   // Invalid packet headers, or GRE packet exceeding the MTU
   uint64 invalid = 1;
   // No matching route
-  uint64 no_route = 2;
+  uint64 no_route = 2 [deprecated = true];
   // Unsupported route type
-  uint64 unsupported_route = 3;
+  uint64 unsupported_route = 3 [deprecated = true];
   // Interface not available
-  uint64 interface_missing = 4;
+  uint64 interface_missing = 4 [deprecated = true];
   // Interface type not supported
-  uint64 unsupported_interface = 5;
+  uint64 unsupported_interface = 5 [deprecated = true];
   // No source IP address chosen
   uint64 source_ip_missing = 6;
   // Next-hop neighbor unresolved
-  uint64 no_neighbor = 7;
+  uint64 no_neighbor = 7 [deprecated = true];
   // TX ring full or no TX buffer available
   uint64 ring_full = 8;
   // GRE tunnel addresses missing or outer route is itself tunnelled
@@ -9640,10 +9664,12 @@ message MetricsNet {
   MetricsNetRouteCount route_count = 47;
   // VLAN-tagged packets with the tag stripped in software and published; subset of PktRx
   uint64 vlan_pkt_rx = 48;
-  // Transmit jobs that failed route resolution, by reason
-  MetricsNetPktTxRoutingFailed pkt_tx_routing_failed = 49;
-  // Packets sent via a kernel socket instead of the configured provider; subset of PktTxSubmitted
-  uint64 socket_pkt_tx_submitted = 50;
+  // Transmit jobs accepted after route resolution, by result
+  MetricsNetPktTxRouted pkt_tx_routed = 49;
+  // Transmit jobs that failed userland routing and selected the kernel fallback, by reason
+  MetricsNetPktTxSlowPathRouted pkt_tx_slow_path_routed = 50;
+  // Packets submitted to a kernel socket on the slow path; subset of PktTxSubmitted
+  uint64 pkt_tx_slow_path_submitted = 51;
 }
 
 // Metrics of one mlx5 tile instance, one row per sweep
@@ -9722,10 +9748,12 @@ message MetricsMlx5 {
   uint64 tx_buffer_free = 36;
   // VLAN-tagged packets with the tag stripped in software and published; subset of PktRx
   uint64 vlan_pkt_rx = 37;
-  // Transmit jobs that failed route resolution, by reason
-  MetricsMlx5PktTxRoutingFailed pkt_tx_routing_failed = 38;
-  // Packets sent via a kernel socket instead of the NIC
-  uint64 socket_pkt_tx_submitted = 39;
+  // Transmit jobs accepted after route resolution, by result
+  MetricsMlx5PktTxRouted pkt_tx_routed = 38;
+  // Transmit jobs that failed userland routing and selected the kernel fallback, by reason
+  MetricsMlx5PktTxSlowPathRouted pkt_tx_slow_path_routed = 39;
+  // Packets submitted to a kernel socket on the slow path
+  uint64 pkt_tx_slow_path_submitted = 40;
 }
 
 // Metrics of one sock tile instance, one row per sweep
@@ -13327,10 +13355,12 @@ message MetricsIavf {
   uint64 non_fd_pkt_rx = 40;
   // VLAN-tagged packets with the tag stripped in software and published; subset of PktRx
   uint64 vlan_pkt_rx = 41;
-  // Transmit jobs that failed route resolution, by reason
-  MetricsIavfPktTxRoutingFailed pkt_tx_routing_failed = 42;
-  // Packets sent via a kernel socket instead of the NIC
-  uint64 socket_pkt_tx_submitted = 43;
+  // Transmit jobs accepted after route resolution, by result
+  MetricsIavfPktTxRouted pkt_tx_routed = 42;
+  // Transmit jobs that failed userland routing and selected the kernel fallback, by reason
+  MetricsIavfPktTxSlowPathRouted pkt_tx_slow_path_routed = 43;
+  // Packets submitted to a kernel socket on the slow path
+  uint64 pkt_tx_slow_path_submitted = 44;
 }
 
 // Metrics of one failov tile instance, one row per sweep

@@ -304,16 +304,17 @@ metrics_write( fd_net_ctx_t * ctx ) {
   FD_MCNT_SET( NET, PKT_TX_SUBMITTED,        ctx->metrics.tx_submit_cnt         );
   FD_MCNT_SET( NET, PKT_TX_COMPLETED,        ctx->net.metrics.tx_pkt_cnt        );
   FD_MCNT_SET( NET, PKT_TX_SUBMITTED_BYTES,  ctx->net.metrics.tx_bytes_total    );
-  ctx->net.metrics.tx_routing_failure_cnt[ FD_METRICS_ENUM_PKT_TX_ROUTING_FAILURE_REASON_V_NO_NEIGHBOR_IDX ] = ctx->metrics.tx_neigh_fail_cnt;
+  ctx->net.metrics.tx_slow_path_reason_cnt[ FD_METRICS_ENUM_PKT_TX_SLOW_PATH_REASON_V_NO_NEIGHBOR_IDX ] = ctx->metrics.tx_neigh_fail_cnt;
   ctx->net.metrics.tx_drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_RING_FULL_IDX ] = ctx->metrics.tx_full_fail_cnt;
-  FD_MCNT_ENUM_COPY( NET, PKT_TX_DROPPED,    ctx->net.metrics.tx_drop_cnt       );
-  FD_MCNT_ENUM_COPY( NET, PKT_TX_ROUTING_FAILED, ctx->net.metrics.tx_routing_failure_cnt );
+  FD_MCNT_ENUM_COPY( NET, PKT_TX_DROPPED,          ctx->net.metrics.tx_drop_cnt             );
+  FD_MCNT_ENUM_COPY( NET, PKT_TX_ROUTED,           ctx->net.metrics.tx_route_result_cnt     );
+  FD_MCNT_ENUM_COPY( NET, PKT_TX_SLOW_PATH_ROUTED, ctx->net.metrics.tx_slow_path_reason_cnt );
 
   FD_MCNT_SET( NET, XSK_SYSCALL_TX,          ctx->metrics.xsk_tx_wakeup_cnt );
   FD_MCNT_SET( NET, XSK_SYSCALL_RX,          ctx->metrics.xsk_rx_wakeup_cnt );
 
-  FD_MCNT_SET( NET, GRE_PKT_TX_SUBMITTED,    ctx->net.metrics.tx_gre_cnt            );
-  FD_MCNT_SET( NET, SOCKET_PKT_TX_SUBMITTED, ctx->net.metrics.tx_sock_cnt           );
+  FD_MCNT_SET( NET, GRE_PKT_TX_SUBMITTED,       ctx->net.metrics.tx_gre_cnt              );
+  FD_MCNT_SET( NET, PKT_TX_SLOW_PATH_SUBMITTED, ctx->net.metrics.tx_slow_path_submit_cnt );
   /* fd_fib4_cnt includes the synthetic throw route at index zero. */
   FD_MGAUGE_SET( NET, ROUTE_COUNT_LOCAL, fd_ulong_sat_sub( fd_fib4_cnt( ctx->fib_local ), 1UL ) );
   FD_MGAUGE_SET( NET, ROUTE_COUNT_MAIN,  fd_ulong_sat_sub( fd_fib4_cnt( ctx->fib_main  ), 1UL ) );
@@ -538,16 +539,16 @@ net_tx_route( fd_net_ctx_t * ctx,
 
   if( FD_UNLIKELY( rtype!=FD_FIB4_RTYPE_UNICAST ) ) {
     uint reason = fd_uint_if( rtype==FD_FIB4_RTYPE_THROW,
-        FD_METRICS_ENUM_PKT_TX_ROUTING_FAILURE_REASON_V_NO_ROUTE_IDX,
-        FD_METRICS_ENUM_PKT_TX_ROUTING_FAILURE_REASON_V_UNSUPPORTED_ROUTE_IDX );
-    ctx->net.metrics.tx_routing_failure_cnt[ reason ]++;
+        FD_METRICS_ENUM_PKT_TX_SLOW_PATH_REASON_V_NO_ROUTE_IDX,
+        FD_METRICS_ENUM_PKT_TX_SLOW_PATH_REASON_V_UNSUPPORTED_ROUTE_IDX );
+    ctx->net.metrics.tx_slow_path_reason_cnt[ reason ]++;
     route->routing_failure = 1;
     return 0;
   }
 
   fd_netdev_t * netdev = fd_netdev_tbl_query( &ctx->netdev_tbl, if_idx );
   if( !netdev ) {
-    ctx->net.metrics.tx_routing_failure_cnt[ FD_METRICS_ENUM_PKT_TX_ROUTING_FAILURE_REASON_V_INTERFACE_MISSING_IDX ]++;
+    ctx->net.metrics.tx_slow_path_reason_cnt[ FD_METRICS_ENUM_PKT_TX_SLOW_PATH_REASON_V_INTERFACE_MISSING_IDX ]++;
     route->routing_failure = 1;
     return 0;
   }
@@ -575,13 +576,13 @@ net_tx_route( fd_net_ctx_t * ctx,
   }
 
   if( FD_UNLIKELY( netdev->dev_type!=ARPHRD_ETHER ) ) {
-    ctx->net.metrics.tx_routing_failure_cnt[ FD_METRICS_ENUM_PKT_TX_ROUTING_FAILURE_REASON_V_UNSUPPORTED_INTERFACE_IDX ]++;
+    ctx->net.metrics.tx_slow_path_reason_cnt[ FD_METRICS_ENUM_PKT_TX_SLOW_PATH_REASON_V_UNSUPPORTED_INTERFACE_IDX ]++;
     route->routing_failure = 1;
     return 0;
   }
 
   if( FD_UNLIKELY( if_idx!=ctx->if_virt ) ) {
-    ctx->net.metrics.tx_routing_failure_cnt[ FD_METRICS_ENUM_PKT_TX_ROUTING_FAILURE_REASON_V_UNSUPPORTED_INTERFACE_IDX ]++;
+    ctx->net.metrics.tx_slow_path_reason_cnt[ FD_METRICS_ENUM_PKT_TX_SLOW_PATH_REASON_V_UNSUPPORTED_INTERFACE_IDX ]++;
     route->routing_failure = 1;
     return 0;
   }
@@ -697,7 +698,7 @@ before_frag( fd_net_ctx_t * ctx,
 
   if( FD_UNLIKELY( xsk_idx>=ctx->xsk_cnt ) ) {
     /* Packet does not route to an XDP interface, so send it on net.sock */
-    ctx->net.metrics.tx_routing_failure_cnt[ FD_METRICS_ENUM_PKT_TX_ROUTING_FAILURE_REASON_V_UNSUPPORTED_INTERFACE_IDX ]++;
+    ctx->net.metrics.tx_slow_path_reason_cnt[ FD_METRICS_ENUM_PKT_TX_SLOW_PATH_REASON_V_UNSUPPORTED_INTERFACE_IDX ]++;
     route->routing_failure = 1;
     xsk_idx                = XSK_IDX_MAIN;
     ctx->tx_op.xsk_idx     = XSK_IDX_MAIN;
@@ -718,6 +719,7 @@ before_frag( fd_net_ctx_t * ctx,
   free->cons = fd_seq_inc( alloc_seq, 1UL );
 
   ctx->tx_op.frame = frame;
+  fd_net_tx_route_result_increment( &ctx->net );
 
   return 0; /* continue */
 }

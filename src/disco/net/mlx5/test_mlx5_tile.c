@@ -1337,8 +1337,8 @@ main( int     argc,
   ulong       tx_chunk  = tx_chunk0;
   ulong tx_drop_before[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_CNT ];
   fd_memcpy( tx_drop_before, tile->net.metrics.tx_drop_cnt, sizeof(tx_drop_before) );
-  ulong tx_route_fail_before[ FD_METRICS_ENUM_PKT_TX_ROUTING_FAILURE_REASON_CNT ];
-  fd_memcpy( tx_route_fail_before, tile->net.metrics.tx_routing_failure_cnt, sizeof(tx_route_fail_before) );
+  ulong tx_route_fail_before[ FD_METRICS_ENUM_PKT_TX_SLOW_PATH_REASON_CNT ];
+  fd_memcpy( tx_route_fail_before, tile->net.metrics.tx_slow_path_reason_cnt, sizeof(tx_route_fail_before) );
   ulong const tx_neigh_fail_before = tile->router.metrics.tx_neigh_fail_cnt;
 
   /* TX packet with invalid sig */
@@ -1389,25 +1389,25 @@ main( int     argc,
   FD_TEST( tile->net.tx_route.routing_failure );
   FD_TEST( tile->net.tx_route.src_ip==site_ip4_addr );
   FD_TEST( tile->router.solicit_ip==neigh1_ip4_addr );
-  FD_TEST( tile->net.metrics.tx_routing_failure_cnt[ FD_METRICS_ENUM_PKT_TX_ROUTING_FAILURE_REASON_V_NO_ROUTE_IDX ]==
-           tx_route_fail_before[ FD_METRICS_ENUM_PKT_TX_ROUTING_FAILURE_REASON_V_NO_ROUTE_IDX ]+1UL );
-  FD_TEST( tile->net.metrics.tx_routing_failure_cnt[ FD_METRICS_ENUM_PKT_TX_ROUTING_FAILURE_REASON_V_UNSUPPORTED_ROUTE_IDX ]==
-           tx_route_fail_before[ FD_METRICS_ENUM_PKT_TX_ROUTING_FAILURE_REASON_V_UNSUPPORTED_ROUTE_IDX ]+1UL );
-  FD_TEST( tile->net.metrics.tx_routing_failure_cnt[ FD_METRICS_ENUM_PKT_TX_ROUTING_FAILURE_REASON_V_INTERFACE_MISSING_IDX ]==
-           tx_route_fail_before[ FD_METRICS_ENUM_PKT_TX_ROUTING_FAILURE_REASON_V_INTERFACE_MISSING_IDX ]+1UL );
-  FD_TEST( tile->net.metrics.tx_routing_failure_cnt[ FD_METRICS_ENUM_PKT_TX_ROUTING_FAILURE_REASON_V_UNSUPPORTED_INTERFACE_IDX ]==
-           tx_route_fail_before[ FD_METRICS_ENUM_PKT_TX_ROUTING_FAILURE_REASON_V_UNSUPPORTED_INTERFACE_IDX ]+1UL );
+  FD_TEST( tile->net.metrics.tx_slow_path_reason_cnt[ FD_METRICS_ENUM_PKT_TX_SLOW_PATH_REASON_V_NO_ROUTE_IDX ]==
+           tx_route_fail_before[ FD_METRICS_ENUM_PKT_TX_SLOW_PATH_REASON_V_NO_ROUTE_IDX ]+1UL );
+  FD_TEST( tile->net.metrics.tx_slow_path_reason_cnt[ FD_METRICS_ENUM_PKT_TX_SLOW_PATH_REASON_V_UNSUPPORTED_ROUTE_IDX ]==
+           tx_route_fail_before[ FD_METRICS_ENUM_PKT_TX_SLOW_PATH_REASON_V_UNSUPPORTED_ROUTE_IDX ]+1UL );
+  FD_TEST( tile->net.metrics.tx_slow_path_reason_cnt[ FD_METRICS_ENUM_PKT_TX_SLOW_PATH_REASON_V_INTERFACE_MISSING_IDX ]==
+           tx_route_fail_before[ FD_METRICS_ENUM_PKT_TX_SLOW_PATH_REASON_V_INTERFACE_MISSING_IDX ]+1UL );
+  FD_TEST( tile->net.metrics.tx_slow_path_reason_cnt[ FD_METRICS_ENUM_PKT_TX_SLOW_PATH_REASON_V_UNSUPPORTED_INTERFACE_IDX ]==
+           tx_route_fail_before[ FD_METRICS_ENUM_PKT_TX_SLOW_PATH_REASON_V_UNSUPPORTED_INTERFACE_IDX ]+1UL );
   FD_TEST( tile->router.metrics.tx_neigh_fail_cnt==tx_neigh_fail_before+1UL );
 
   /* An unroutable outer endpoint is counted once, as NoRoute, and the
      packet is accepted for the socket fallback. */
   eth1->dev_type   = ARPHRD_IPGRE;
   eth1->gre_dst_ip = no_route_ip4_addr;
-  ulong const tx_no_route_before = tile->net.metrics.tx_routing_failure_cnt[ FD_METRICS_ENUM_PKT_TX_ROUTING_FAILURE_REASON_V_NO_ROUTE_IDX ];
+  ulong const tx_no_route_before = tile->net.metrics.tx_slow_path_reason_cnt[ FD_METRICS_ENUM_PKT_TX_SLOW_PATH_REASON_V_NO_ROUTE_IDX ];
   FD_TEST( 0==before_frag( tile, 0UL, tx_seq,
            fd_disco_netmux_sig( 0U, 0, path2_ip4_addr, DST_PROTO_OUTGOING, 0UL ) ) );
   FD_TEST( tile->net.tx_route.use_gre && tile->net.tx_route.routing_failure );
-  FD_TEST( tile->net.metrics.tx_routing_failure_cnt[ FD_METRICS_ENUM_PKT_TX_ROUTING_FAILURE_REASON_V_NO_ROUTE_IDX ]==tx_no_route_before+1UL );
+  FD_TEST( tile->net.metrics.tx_slow_path_reason_cnt[ FD_METRICS_ENUM_PKT_TX_SLOW_PATH_REASON_V_NO_ROUTE_IDX ]==tx_no_route_before+1UL );
   FD_TEST( tile->net.metrics.tx_drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_GRE_NO_ROUTE_IDX ]==tx_gre_route_fail_before+1UL );
   eth1->gre_dst_ip = 0U;
   eth1->dev_type   = ARPHRD_ETHER;
@@ -1431,15 +1431,21 @@ main( int     argc,
   /* TX packet targeting default gateway */
   memset( &tile->net.tx_route, 0, sizeof(tile->net.tx_route) );
   tx_sig = fd_disco_netmux_sig( 0U, 0, FD_IP4_ADDR( 1,1,1,1 ), DST_PROTO_OUTGOING, 0UL );
+  ulong * result_cnt  = tile->net.metrics.tx_route_result_cnt;
+  ulong   fast_before = result_cnt[ FD_METRICS_ENUM_PKT_TX_ROUTE_RESULT_V_FAST_PATH_IDX ];
+  ulong   slow_before = result_cnt[ FD_METRICS_ENUM_PKT_TX_ROUTE_RESULT_V_SLOW_PATH_IDX ];
   FD_TEST( 0==before_frag( tile, 0UL, tx_seq, tx_sig ) );
+  FD_TEST( result_cnt[ FD_METRICS_ENUM_PKT_TX_ROUTE_RESULT_V_FAST_PATH_IDX ]==fast_before+1UL );
+  FD_TEST( result_cnt[ FD_METRICS_ENUM_PKT_TX_ROUTE_RESULT_V_SLOW_PATH_IDX ]==slow_before     );
 
-  /* TX packet with no free buffer */
+  /* TX packet with no free buffer is dropped, not routed */
   ulong const tx_no_buffer_before = tile->metrics.tx_no_buffer_cnt;
   uint const full_sq_prod = tile->tx_qp.sq_prod;
   tile->tx_qp.sq_prod = tile->tx_qp.sq_cons+tile->tx_qp.tx_depth;
   FD_TEST( 1==before_frag( tile, 0UL, tx_seq, tx_sig ) );
   tile->tx_qp.sq_prod = full_sq_prod;
   FD_TEST( tile->metrics.tx_no_buffer_cnt==tx_no_buffer_before+1UL );
+  FD_TEST( result_cnt[ FD_METRICS_ENUM_PKT_TX_ROUTE_RESULT_V_FAST_PATH_IDX ]==fast_before+1UL );
   uchar * tx_packet = fd_chunk_to_laddr( wksp, tx_chunk );
   struct {
     fd_eth_hdr_t eth;
@@ -1694,18 +1700,23 @@ main( int     argc,
     };
     for( ulong i=0UL; i<sizeof(cases)/sizeof(cases[0]); i++ ) {
       ulong * drop_cnt         = tile->net.metrics.tx_drop_cnt;
+      ulong * result_cnt       = tile->net.metrics.tx_route_result_cnt;
       ulong   pkt_before       = tile->net.metrics.tx_pkt_cnt;
       ulong   bytes_before     = tile->net.metrics.tx_bytes_total;
-      ulong   sock_before      = tile->net.metrics.tx_sock_cnt;
+      ulong   sock_before      = tile->net.metrics.tx_slow_path_submit_cnt;
       ulong   sock_fail_before = drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_SOCKET_SEND_FAILURE_IDX ];
+      ulong   fast_before      = result_cnt[ FD_METRICS_ENUM_PKT_TX_ROUTE_RESULT_V_FAST_PATH_IDX ];
+      ulong   slow_before      = result_cnt[ FD_METRICS_ENUM_PKT_TX_ROUTE_RESULT_V_SLOW_PATH_IDX ];
 
       ulong pkt_sz = send_fallback_pkt( tile, mock, stem, &tx_seq, &tx_chunk,
                                         cases[ i ].dst_ip, cases[ i ].src_ip, /*send_fail=*/0 );
 
-      FD_TEST( tile->net.metrics.tx_pkt_cnt    ==pkt_before+1UL      );
-      FD_TEST( tile->net.metrics.tx_bytes_total==bytes_before+pkt_sz );
-      FD_TEST( tile->net.metrics.tx_sock_cnt   ==sock_before+1UL     );
+      FD_TEST( tile->net.metrics.tx_pkt_cnt             ==pkt_before+1UL      );
+      FD_TEST( tile->net.metrics.tx_bytes_total         ==bytes_before+pkt_sz );
+      FD_TEST( tile->net.metrics.tx_slow_path_submit_cnt==sock_before+1UL     );
       FD_TEST( drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_SOCKET_SEND_FAILURE_IDX ]==sock_fail_before );
+      FD_TEST( result_cnt[ FD_METRICS_ENUM_PKT_TX_ROUTE_RESULT_V_FAST_PATH_IDX ]==fast_before     );
+      FD_TEST( result_cnt[ FD_METRICS_ENUM_PKT_TX_ROUTE_RESULT_V_SLOW_PATH_IDX ]==slow_before+1UL );
     }
     /* The neighbor miss still requests a solicitation */
     FD_TEST( tile->router.solicit_ip==neigh1_ip4_addr );
@@ -1717,16 +1728,19 @@ main( int     argc,
     ulong * drop_cnt         = tile->net.metrics.tx_drop_cnt;
     ulong   pkt_before       = tile->net.metrics.tx_pkt_cnt;
     ulong   bytes_before     = tile->net.metrics.tx_bytes_total;
-    ulong   sock_before      = tile->net.metrics.tx_sock_cnt;
+    ulong   sock_before      = tile->net.metrics.tx_slow_path_submit_cnt;
     ulong   sock_fail_before = drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_SOCKET_SEND_FAILURE_IDX ];
+    ulong   slow_before      = tile->net.metrics.tx_route_result_cnt[ FD_METRICS_ENUM_PKT_TX_ROUTE_RESULT_V_SLOW_PATH_IDX ];
 
     send_fallback_pkt( tile, mock, stem, &tx_seq, &tx_chunk,
                        no_route_ip4_addr, public_ip4_addr, /*send_fail=*/1 );
 
-    FD_TEST( tile->net.metrics.tx_pkt_cnt    ==pkt_before   );
-    FD_TEST( tile->net.metrics.tx_bytes_total==bytes_before );
-    FD_TEST( tile->net.metrics.tx_sock_cnt   ==sock_before  );
+    FD_TEST( tile->net.metrics.tx_pkt_cnt             ==pkt_before   );
+    FD_TEST( tile->net.metrics.tx_bytes_total         ==bytes_before );
+    FD_TEST( tile->net.metrics.tx_slow_path_submit_cnt==sock_before  );
     FD_TEST( drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_SOCKET_SEND_FAILURE_IDX ]==sock_fail_before+1UL );
+    /* Routed to the slow path even though the send then failed */
+    FD_TEST( tile->net.metrics.tx_route_result_cnt[ FD_METRICS_ENUM_PKT_TX_ROUTE_RESULT_V_SLOW_PATH_IDX ]==slow_before+1UL );
   }
 
   /* Fallback packets share the SQ buffer accounting, so they are
@@ -1763,20 +1777,20 @@ main( int     argc,
       fb_sig = fd_disco_netmux_sig( 0U, port, no_route_ip4_addr, DST_PROTO_OUTGOING, 0UL );
     }
 
-    ulong route_fail_before[ FD_METRICS_ENUM_PKT_TX_ROUTING_FAILURE_REASON_CNT ];
-    fd_memcpy( route_fail_before, tile->net.metrics.tx_routing_failure_cnt, sizeof(route_fail_before) );
+    ulong route_fail_before[ FD_METRICS_ENUM_PKT_TX_SLOW_PATH_REASON_CNT ];
+    fd_memcpy( route_fail_before, tile->net.metrics.tx_slow_path_reason_cnt, sizeof(route_fail_before) );
     ulong const neigh_fail_before = tile->router.metrics.tx_neigh_fail_cnt;
 
     tile->net.tile_cnt = 2UL;
     tile->net.kind_id  = 0UL;
     FD_TEST( 1==before_frag( tile, 0UL, tx_seq, fb_sig ) );
-    FD_TEST( 0==memcmp( route_fail_before, tile->net.metrics.tx_routing_failure_cnt, sizeof(route_fail_before) ) );
+    FD_TEST( 0==memcmp( route_fail_before, tile->net.metrics.tx_slow_path_reason_cnt, sizeof(route_fail_before) ) );
     FD_TEST( tile->router.metrics.tx_neigh_fail_cnt==neigh_fail_before );
 
     tile->net.kind_id  = 1UL;
     FD_TEST( 0==before_frag( tile, 0UL, tx_seq, fb_sig ) );
-    route_fail_before[ FD_METRICS_ENUM_PKT_TX_ROUTING_FAILURE_REASON_V_NO_ROUTE_IDX ]++;
-    FD_TEST( 0==memcmp( route_fail_before, tile->net.metrics.tx_routing_failure_cnt, sizeof(route_fail_before) ) );
+    route_fail_before[ FD_METRICS_ENUM_PKT_TX_SLOW_PATH_REASON_V_NO_ROUTE_IDX ]++;
+    FD_TEST( 0==memcmp( route_fail_before, tile->net.metrics.tx_slow_path_reason_cnt, sizeof(route_fail_before) ) );
     FD_TEST( tile->router.metrics.tx_neigh_fail_cnt==neigh_fail_before );
 
     tile->net.kind_id  = 0UL;
@@ -1819,7 +1833,7 @@ main( int     argc,
       ulong const inner_ip_sz = inner_sz-sizeof(fd_eth_hdr_t);
 
       ulong const gre_before  = tile->net.metrics.tx_gre_cnt;
-      ulong const sock_before = tile->net.metrics.tx_sock_cnt;
+      ulong const sock_before = tile->net.metrics.tx_slow_path_submit_cnt;
       ulong const pkt_before  = tile->net.metrics.tx_pkt_cnt;
       uint  const sq_before   = tile->tx_qp.sq_prod;
       uint  const wq_before   = test_tx_wq_cnt( mock, tile );
@@ -1859,9 +1873,9 @@ main( int     argc,
       FD_TEST( tile->tx_qp.sq_prod==sq_before );
       FD_TEST( test_tx_wq_cnt( mock, tile )==wq_before );
 
-      FD_TEST( tile->net.metrics.tx_gre_cnt ==gre_before+1UL  );
-      FD_TEST( tile->net.metrics.tx_sock_cnt==sock_before+1UL );
-      FD_TEST( tile->net.metrics.tx_pkt_cnt ==pkt_before+1UL  );
+      FD_TEST( tile->net.metrics.tx_gre_cnt             ==gre_before+1UL  );
+      FD_TEST( tile->net.metrics.tx_slow_path_submit_cnt==sock_before+1UL );
+      FD_TEST( tile->net.metrics.tx_pkt_cnt             ==pkt_before+1UL  );
 
       tx_seq++;
       tx_chunk = fd_dcache_compact_next( tx_chunk, inner_sz, tx_chunk0, tx_wmark );
@@ -1881,9 +1895,13 @@ main( int     argc,
   }
 
   metrics_write( tile );
-  FD_TEST( FD_MCNT_GET( MLX5, SOCKET_PKT_TX_SUBMITTED )==tile->net.metrics.tx_sock_cnt );
-  FD_TEST( FD_MCNT_GET( MLX5, GRE_PKT_TX_SUBMITTED    )==tile->net.metrics.tx_gre_cnt  );
-  FD_TEST( tile->net.metrics.tx_sock_cnt==7UL );
+  FD_TEST( FD_MCNT_GET( MLX5, PKT_TX_SLOW_PATH_SUBMITTED )==tile->net.metrics.tx_slow_path_submit_cnt );
+  FD_TEST( FD_MCNT_GET( MLX5, GRE_PKT_TX_SUBMITTED       )==tile->net.metrics.tx_gre_cnt              );
+  FD_TEST( fd_metrics_tl[ FD_METRICS_COUNTER_MLX5_PKT_TX_ROUTED_SLOW_PATH_OFF ]==
+           tile->net.metrics.tx_route_result_cnt[ FD_METRICS_ENUM_PKT_TX_ROUTE_RESULT_V_SLOW_PATH_IDX ] );
+  FD_TEST( fd_metrics_tl[ FD_METRICS_COUNTER_MLX5_PKT_TX_ROUTED_FAST_PATH_OFF ]==
+           tile->net.metrics.tx_route_result_cnt[ FD_METRICS_ENUM_PKT_TX_ROUTE_RESULT_V_FAST_PATH_IDX ] );
+  FD_TEST( tile->net.metrics.tx_slow_path_submit_cnt==7UL );
   FD_TEST( fd_metrics_tl[ FD_METRICS_COUNTER_MLX5_PKT_TX_DROPPED_SOCKET_SEND_FAILURE_OFF ]==
            tile->net.metrics.tx_drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_SOCKET_SEND_FAILURE_IDX ] );
 

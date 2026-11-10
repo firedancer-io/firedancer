@@ -98,9 +98,10 @@ struct fd_net_tile {
     ulong tx_pkt_cnt;
     ulong tx_bytes_total;
     ulong tx_drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_CNT ];
-    ulong tx_routing_failure_cnt[ FD_METRICS_ENUM_PKT_TX_ROUTING_FAILURE_REASON_CNT ];
+    ulong tx_route_result_cnt[ FD_METRICS_ENUM_PKT_TX_ROUTE_RESULT_CNT ];
+    ulong tx_slow_path_reason_cnt[ FD_METRICS_ENUM_PKT_TX_SLOW_PATH_REASON_CNT ];
     ulong tx_gre_cnt;
-    ulong tx_sock_cnt;
+    ulong tx_slow_path_submit_cnt;
   } metrics;
 };
 typedef struct fd_net_tile fd_net_tile_t;
@@ -125,6 +126,18 @@ fd_net_gre_tunnels_refresh( fd_net_tile_t *              ctx,
       ctx->gre_tunnel_ip[ gre_tunnel_cnt++ ] = netdev->gre_dst_ip;
     }
   }
+}
+
+/* fd_net_tx_route_result_increment counts a transmit job this tile
+   accepted after route resolution.  Packets that failed userland routing
+   take the slow path through the kernel, all others take the fast path
+   (sent by the provider). */
+static inline void
+fd_net_tx_route_result_increment( fd_net_tile_t * ctx ) {
+  ulong const idx = fd_ulong_if( !!ctx->tx_route.routing_failure,
+                                 FD_METRICS_ENUM_PKT_TX_ROUTE_RESULT_V_SLOW_PATH_IDX,
+                                 FD_METRICS_ENUM_PKT_TX_ROUTE_RESULT_V_FAST_PATH_IDX );
+  ctx->metrics.tx_route_result_cnt[ idx ]++;
 }
 
 /* fd_net_tx_probe_loopback returns 1 if dst_ip routes to a loopback
@@ -300,7 +313,7 @@ fd_net_tx_sock_send( fd_net_tile_t * ctx,
     ctx->metrics.tx_drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_SOCKET_SEND_FAILURE_IDX ]++;
     return 0;
   }
-  ctx->metrics.tx_sock_cnt++;
+  ctx->metrics.tx_slow_path_submit_cnt++;
   return 1;
 }
 
