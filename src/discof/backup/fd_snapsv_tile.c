@@ -132,10 +132,12 @@ struct snapsv_conn {
   uint disk_inflight:1; /* file read pending completion */
   uint net_inflight:1;  /* tcp send pending completion */
   uint closing:1;       /* close once shovel operations drain? */
+  uint shutdown:1;      /* idle sweep issued a socket shutdown? */
 
   struct {
     ulong req_seq;  /* seq no of this HTTP request */
     uint  len;
+    uint  skip_len;      /* bytes requested by the in-flight CONSUME_FRAG */
     uint  head:1;        /* HEAD request? */
     uint  get_snap:1;    /* GET request for a snapshot? (streaming) */
     uint  incremental:1; /* incremental snap requested? */
@@ -263,6 +265,7 @@ union snapsv_udata {
 #define UDATA_OP_SHOVEL_NET   ((uchar)6) /* send snapshot data */
 #define UDATA_OP_FUTEX        ((uchar)7) /* wait for tango frag */
 #define UDATA_OP_TIMEOUT      ((uchar)8) /* linked socket op timeout */
+#define UDATA_OP_SHUTDOWN     ((uchar)9) /* idle sweep socket shutdown */
   };
 };
 
@@ -335,6 +338,11 @@ snapsv_listen( fd_ip6_addr_t const * listen_addr,
   optval = 1;
   if( FD_UNLIKELY( -1==setsockopt( sock_fd, SOL_SOCKET, SO_REUSEPORT, &optval, sizeof(int) ) ) ) {
     FD_LOG_ERR(( "setsockopt(SOL_SOCKET,SO_REUSEPORT) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
+  /* TCP urgent meaningless for snapshot protocol */
+  optval = 1;
+  if( FD_UNLIKELY( -1==setsockopt( sock_fd, SOL_SOCKET, SO_OOBINLINE, &optval, sizeof(int) ) ) ) {
+    FD_LOG_ERR(( "setsockopt(SOL_SOCKET,SO_OOBINLINE) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
 
   union {
@@ -454,6 +462,7 @@ privileged_init( fd_topo_t const *      topo,
     { .opcode = FD_IORING_RESTRICTION_SQE_OP, .sqe_op = FD_IORING_OP_READ_FIXED   },
     { .opcode = FD_IORING_RESTRICTION_SQE_OP, .sqe_op = FD_IORING_OP_FUTEX_WAIT   },
     { .opcode = FD_IORING_RESTRICTION_SQE_OP, .sqe_op = FD_IORING_OP_LINK_TIMEOUT },
+    { .opcode = FD_IORING_RESTRICTION_SQE_OP, .sqe_op = FD_IORING_OP_SHUTDOWN     },
     { .opcode      = FD_IORING_RESTRICTION_REGISTER_OP, /* deregister files */
       .register_op = FD_IORING_REGISTER_FILES_UPDATE },
     { .opcode    = FD_IORING_RESTRICTION_SQE_FLAGS_ALLOWED,
@@ -1640,7 +1649,8 @@ handle_peek( fd_snapsv_t *       ctx,
     }
     /* avoid copying the same data again */
     prep_consume( ctx, conn_idx, peek_len, UDATA_OP_CONSUME_FRAG );
-    conn->state = CONN_STATE_REQ_SKIP;
+    conn->state        = CONN_STATE_REQ_SKIP;
+    conn->req.skip_len = peek_len;
     return;
   }
 
@@ -1807,10 +1817,14 @@ handle_consume_frag_comp( fd_snapsv_t *       ctx,
     conn_close( ctx, stem, conn_idx, now );
     return;
   }
-  uint consume_len = (uint)res;
   snapsv_conn_t * conn = &ctx->conn0[ conn_idx ];
   FD_CHECK_ERR( conn->state==CONN_STATE_REQ_SKIP, "conn state confusion" );
-  conn->req.len += consume_len;
+  if( FD_UNLIKELY( (uint)res!=conn->req.skip_len ) ) {
+    FD_LOG_DEBUG(( "conn %u: consumed %i bytes, requested %u", conn_idx, res, conn->req.skip_len ));
+    conn_close( ctx, stem, conn_idx, now );
+    return;
+  }
+  conn->req.len += conn->req.skip_len;
   conn->state = CONN_STATE_REQ_PEEK;
   prep_peek( ctx, conn_idx );
 }
@@ -1925,10 +1939,49 @@ handle_cqe( fd_snapsv_t *             ctx,
     futex_comp( ctx, conn_idx, cqe->res );
     break;
   case UDATA_OP_TIMEOUT:
+  case UDATA_OP_SHUTDOWN:
     break;
   default:
     FD_LOG_CRIT(( "io_uring completion has invalid user_data 0x%016lx", (ulong)cqe->user_data ));
   }
+}
+
+/* prep_shutdown enqueues a shutdown of a conn's socket, which fails
+   any pending request receive op. */
+
+static void
+prep_shutdown( fd_snapsv_t * ctx,
+               uint          conn_idx ) {
+  fd_io_uring_t * ring = ctx->ring;
+  fd_io_uring_sqe_t * sqe = fd_io_uring_get_sqe( ring->sq );
+  FD_CHECK_ERR( sqe, "io_uring submission queue full" );
+  *sqe = (fd_io_uring_sqe_t) {
+    .opcode = FD_IORING_OP_SHUTDOWN,
+    .flags  = FD_IOSQE_FIXED_FILE,
+    .fd     = (int)( ctx->conn0_fd_idx + conn_idx ),
+    .len    = SHUT_RDWR
+  };
+  snapsv_udata_t udata = { .op = UDATA_OP_SHUTDOWN, .conn_idx = conn_idx };
+  sqe->user_data = udata.user_data;
+  ctx->conn0[ conn_idx ].shutdown = 1;
+}
+
+/* idle_sweep shuts down conns that are waiting for a request past the
+   idle deadline.  The linked timeout on the request peek is not enough
+   on its own: the kernel can lose a timeout firing while it retries the
+   receive op. */
+
+static void
+idle_sweep( fd_snapsv_t * ctx,
+            uint          conn_idx,
+            long          now ) {
+  snapsv_conn_t * conn = &ctx->conn0[ conn_idx ];
+  if( conn->shutdown ) return;
+  if( conn->state!=CONN_STATE_REQ_PEEK &&
+      conn->state!=CONN_STATE_REQ_SKIP &&
+      conn->state!=CONN_STATE_REQ_DONE ) return;
+  if( now - conn->active_ts < ctx->idle_timeout_nanos ) return;
+  prep_shutdown( ctx, conn_idx );
 }
 
 /* stem_in_update grants flow control credits to an upstream producer. */
@@ -1963,6 +2016,7 @@ after_credit_pre( fd_snapsv_t *       ctx,
       if( conn->req.get_snap ) {
         event_snap( ctx, stem, i, now, 0, 0 );
       }
+      idle_sweep( ctx, i, now );
     }
     ctx->out.next_heartbeat += FD_SNAPSV_SYNC_PERIOD;
     if( FD_UNLIKELY( ctx->out.next_heartbeat < now ) ) {
