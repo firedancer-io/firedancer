@@ -559,27 +559,12 @@ iavf_pf_ntuple_rule_get( fd_ethtool_ioctl_t *          ioc,
 static int
 iavf_pf_ntuple_rule_equal( struct ethtool_rx_flow_spec const * a,
                            struct ethtool_rx_flow_spec const * b ) {
-  /* i40e can fill unused IPv6 destination mask bytes with 0xff when reading
-     back UDP/IPv4 ntuple rules. Ignore these bytes when comparing rules */
-  struct ethtool_tcpip4_spec const * a_hdr  = &a->h_u.udp_ip4_spec;
-  struct ethtool_tcpip4_spec const * b_hdr  = &b->h_u.udp_ip4_spec;
-  struct ethtool_tcpip4_spec const * a_mask = &a->m_u.udp_ip4_spec;
-  struct ethtool_tcpip4_spec const * b_mask = &b->m_u.udp_ip4_spec;
-
   int same_type_action_location = a->flow_type  ==UDP_V4_FLOW &&
                                   b->flow_type  ==UDP_V4_FLOW &&
                                   a->ring_cookie==b->ring_cookie &&
                                   a->location   ==b->location;
-  int same_udp_ip4_fields       = a_hdr->ip4src==b_hdr->ip4src &&
-                                  a_hdr->ip4dst==b_hdr->ip4dst &&
-                                  a_hdr->psrc  ==b_hdr->psrc   &&
-                                  a_hdr->pdst  ==b_hdr->pdst   &&
-                                  a_hdr->tos   ==b_hdr->tos;
-  int same_udp_ip4_masks        = a_mask->ip4src==b_mask->ip4src &&
-                                  a_mask->ip4dst==b_mask->ip4dst &&
-                                  a_mask->psrc  ==b_mask->psrc   &&
-                                  a_mask->pdst  ==b_mask->pdst   &&
-                                  a_mask->tos   ==b_mask->tos;
+  int same_udp_ip4_fields       = fd_ethtool_ioctl_ntuple_udp4_equal( &a->h_u.udp_ip4_spec, &b->h_u.udp_ip4_spec );
+  int same_udp_ip4_masks        = fd_ethtool_ioctl_ntuple_udp4_equal( &a->m_u.udp_ip4_spec, &b->m_u.udp_ip4_spec );
   int same_flow_extensions      = 0==memcmp( &a->h_ext, &b->h_ext, sizeof(a->h_ext) ) &&
                                   0==memcmp( &a->m_ext, &b->m_ext, sizeof(a->m_ext) );
   return same_type_action_location && same_udp_ip4_fields && same_udp_ip4_masks && same_flow_extensions;

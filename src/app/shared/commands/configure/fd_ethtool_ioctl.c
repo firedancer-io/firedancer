@@ -450,6 +450,16 @@ fd_ethtool_ioctl_ntuple_clear( fd_ethtool_ioctl_t * ioc ) {
 }
 
 int
+fd_ethtool_ioctl_ntuple_udp4_equal( struct ethtool_tcpip4_spec const * a,
+                                    struct ethtool_tcpip4_spec const * b ) {
+  return a->ip4src==b->ip4src &&
+         a->ip4dst==b->ip4dst &&
+         a->psrc  ==b->psrc   &&
+         a->pdst  ==b->pdst   &&
+         a->tos   ==b->tos;
+}
+
+int
 fd_ethtool_ioctl_ntuple_set_udp_dport( fd_ethtool_ioctl_t * ioc,
                                        uint                 rule_idx,
                                        ushort               dport,
@@ -569,11 +579,11 @@ fd_ethtool_ioctl_ntuple_validate( fd_ethtool_ioctl_t * ioc,
   TRY_RUN_IOCTL( ioc, "ETHTOOL_GRXCLSRLALL", &efc );
 
   /* Loop over all rules, returning early if any are invalid */
-  static const struct ethtool_flow_ext  EXPECTED_EXT_MASK = { 0 };
-         const union ethtool_flow_union expected_mask     = { .udp_ip4_spec = {
+  static const struct ethtool_flow_ext    EXPECTED_EXT_MASK = { 0 };
+         const struct ethtool_tcpip4_spec expected_mask     = {
     .pdst   = 0xFFFF,
     .ip4src = fd_uint_bswap( rule_group_cnt-1U ),
-  } };
+  };
   static const union ethtool_flow_union expected_gre_mask = { .usr_ip4_spec = {
     .ip_ver = 0xFF,
     .proto  = 0xFF
@@ -597,7 +607,7 @@ fd_ethtool_ioctl_ntuple_validate( fd_ethtool_ioctl_t * ioc,
       continue;
     } else if( FD_UNLIKELY( ((flow_type!=UDP_V4_FLOW) | (rule_group_idx>=rule_group_cnt) |
                             (get.fs.ring_cookie!=(rule_group_idx%queue_cnt)) | (dport==0)) ||
-                            0!=memcmp( &get.fs.m_u,   &expected_mask,     sizeof(expected_mask)    ) ||
+                            !fd_ethtool_ioctl_ntuple_udp4_equal( &get.fs.m_u.udp_ip4_spec, &expected_mask ) ||
                             0!=memcmp( &get.fs.m_ext, &EXPECTED_EXT_MASK, sizeof(EXPECTED_EXT_MASK)) ) ) {
       *valid = 0;
       return 0;

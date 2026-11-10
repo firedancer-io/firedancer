@@ -34,6 +34,7 @@
    ntuple rules is not supported, we can assume that the clear function
    is successful. */
 
+#include <linux/ethtool.h>
 #include <linux/if.h>
 
 #include "../../../../util/fd_util_base.h"
@@ -168,6 +169,13 @@ fd_ethtool_ioctl_feature_gro_test( fd_ethtool_ioctl_t * ioc,
 
 int
 fd_ethtool_ioctl_ntuple_clear( fd_ethtool_ioctl_t * ioc );
+
+/* fd_ethtool_ioctl_ntuple_udp4_equal compares the named UDP/IPv4 header
+   or mask fields, ignoring padding and inactive ethtool_flow_union bytes.
+   i40e can fill unused IPv6 destination mask bytes during IPv4 readback. */
+int
+fd_ethtool_ioctl_ntuple_udp4_equal( struct ethtool_tcpip4_spec const * a,
+                                    struct ethtool_tcpip4_spec const * b );
 
 /* fd_ethtool_ioctl_ntuple_set_udp_dport installs a flow steering rule
    at the given rule_idx to route all UDP/IPv4 packets with the given
