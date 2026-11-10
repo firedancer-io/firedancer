@@ -3883,16 +3883,7 @@ process_rotor_fec( fd_replay_tile_t       * ctx,
     block_id_ele->dmr           = fec->block_id;
     block_id_ele->finalized     = !!fec->is_finalized;
 
-    /* block is complete and DMR block id is now known so re-key.  The
-       map does not support duplicate keys: rotor guarantees at most one
-       delivery stream per block (a turbine copy of a slot with a
-       votor-driven version is abandoned in the rotor, see
-       fd_repair_tile.h), so {slot, block_id} can never already be
-       occupied by another LIVE bank.  It can however be occupied by a
-       STALE entry: a previously-completed copy of this block whose bank
-       was evicted (eviction does not remove map entries), now being
-       rebuilt through recovery redelivery.  Evict the stale entry before
-       inserting. */
+    /* Block is complete and DMR block id is now known, so re-key. */
     FD_TEST( fd_block_id_map_ele_remove( ctx->block_id_map, &block_id_ele->block_info, NULL, ctx->block_id_arr )==block_id_ele );
     fd_block_id_t key = fd_block_id( fec->slot, fec->block_id.uc );
     block_id_ele->block_info = key;
