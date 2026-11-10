@@ -153,6 +153,7 @@ derive_http_params( fd_topo_tile_t const * tile ) {
     .outgoing_buffer_sz    = tile->gui.send_buffer_size_mb * (1UL<<20UL),
     .send_buffer_sz        = 4UL<<20UL,
     .compress_websocket    = tile->gui.websocket_compression,
+    .reuse_port            = tile->gui.reuse_port,
   };
 }
 

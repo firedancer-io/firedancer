@@ -183,6 +183,7 @@ fd_http_server_new( void *                     shmem,
   http->max_ws_send_frame_cnt = params.max_ws_send_frame_cnt;
   http->send_buffer_sz        = params.send_buffer_sz;
   http->compress_websocket    = params.compress_websocket;
+  http->reuse_port            = params.reuse_port;
 
   http->zstd_ctx = ZSTD_initStaticCCtx( _zstd_ctx, ZSTD_estimateCCtxSize( FD_HTTP_ZSTD_COMPRESSION_LEVEL ) );
   FD_TEST( http->zstd_ctx );
@@ -323,6 +324,11 @@ fd_http_server_listen6( fd_http_server_t *    http,
   int optval = 1;
   if( FD_UNLIKELY( -1==setsockopt( sockfd, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof( optval ) ) ) )
     FD_LOG_ERR(( "setsockopt failed (%i-%s)", errno, strerror( errno ) ));
+
+  if( FD_UNLIKELY( http->reuse_port ) ) {
+    if( FD_UNLIKELY( -1==setsockopt( sockfd, SOL_SOCKET, SO_REUSEPORT, &optval, sizeof( optval ) ) ) )
+      FD_LOG_ERR(( "setsockopt(SO_REUSEPORT) failed (%i-%s)", errno, strerror( errno ) ));
+  }
 
   /* Pipelines responses: without this Nagle holds each sub-MSS tail
      for an RTT waiting on the prior segment's ACK */
@@ -941,6 +947,10 @@ read_conn_http( fd_http_server_t * http,
 }
 
 static void
+write_conn_ws( fd_http_server_t * http,
+               ulong              conn_idx );
+
+static void
 read_conn_ws( fd_http_server_t * http,
               ulong              conn_idx ) {
   struct fd_http_server_ws_connection * conn = &http->ws_conns[ conn_idx-http->max_conns ];
@@ -1095,6 +1105,12 @@ again:
 
   conn->recv_started_msg  = 0;
   conn->recv_bytes_parsed = 0UL;
+  /* Start sending this message's response before handling the next
+     one, so pipelined requests don't wait behind each other.  The
+     write is non-blocking; whatever is left is sent once the socket is
+     writable, as usual. */
+  write_conn_ws( http, conn_idx );
+  if( FD_UNLIKELY( -1==http->pollfds[ conn_idx ].fd ) ) return; /* Connection was closed by the write */
   if( FD_UNLIKELY( trailing_data_len ) ) {
     memmove( conn->recv_bytes, trailing_data, trailing_data_len );
     goto again; /* Might be another message in the buffer to process */

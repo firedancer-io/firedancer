@@ -103,6 +103,22 @@ rm_tmpdir( char const * path ) {
 
 /* ---- write helpers ---------------------------------------------------- */
 
+/* epoch_reblk rebuilds epoch's block hulls from its slot intervals, for
+   tests that write the intervals directly. */
+
+static void
+epoch_reblk( fd_gui_epoch_t * epoch ) {
+  fd_gui_epoch_timeline_blk_init( epoch );
+  for( ulong i=0UL; i<fd_ulong_min( epoch->slot_cnt, MAX_SLOTS_PER_EPOCH ); i++ ) {
+    long rs = epoch->timeline_slot_start_ns[ i ];
+    long re = epoch->timeline_slot_end_ns[ i ];
+    if( rs<0L || re<=rs ) continue;
+    ulong blk = i/FD_GUI_TIMELINE_SLOT_BLK_SZ;
+    epoch->timeline_blk_min_start_ns[ blk ] = fd_long_min( epoch->timeline_blk_min_start_ns[ blk ], rs );
+    epoch->timeline_blk_max_end_ns  [ blk ] = fd_long_max( epoch->timeline_blk_max_end_ns  [ blk ], re );
+  }
+}
+
 static void
 put_epoch( fd_gui_t * gui, ulong epoch, ulong start_slot, ulong slot_cnt ) {
   fd_gui_hist_epoch_key_t key[ 1 ];
@@ -118,6 +134,7 @@ put_epoch( fd_gui_t * gui, ulong epoch, ulong start_slot, ulong slot_cnt ) {
   rec->timeline_slot_max_end_ns   = LONG_MIN;
   rec->timeline_slot_lo_idx       = ULONG_MAX;
   rec->timeline_slot_hi_idx       = ULONG_MAX;
+  fd_gui_epoch_timeline_blk_init( rec );
   memset( rec->vote_count, 0xFF, sizeof(rec->vote_count) );
   memset( rec->timeline_slot_shred_cnt, 0xFF, sizeof(rec->timeline_slot_shred_cnt) );
 
@@ -2061,14 +2078,19 @@ test_timeline_batch_stream( fd_gui_t * gui ) {
   long last     = ts+2000L+400L; /* execution lane end */
   long sig_last = ts+2000L;      /* sigverify lane end */
   FD_TEST( count_ts( gui, FD_GUI_HIST_REPLAY_TXN_BATCH, ULONG_MAX )==base );
+  /* Flushes before the earliest due batch skip the scan. */
+  FD_TEST( gui->tile_state.txn_flush_ns<=sig_last+FD_GUI_TXN_BATCH_IDLE_NS );
   fd_gui_txn_batch_flush( gui, sig_last+FD_GUI_TXN_BATCH_IDLE_NS-1L );
+  FD_TEST( gui->tile_state.txn_flush_ns==sig_last+FD_GUI_TXN_BATCH_IDLE_NS );
   FD_TEST( count_ts( gui, FD_GUI_HIST_REPLAY_TXN_BATCH, ULONG_MAX )==base );
   fd_gui_txn_batch_flush( gui, sig_last+FD_GUI_TXN_BATCH_IDLE_NS );
   FD_TEST( count_ts( gui, FD_GUI_HIST_REPLAY_TXN_BATCH, ULONG_MAX )==base+1UL ); /* each lane flushes on its own idle */
+  FD_TEST( gui->tile_state.txn_flush_ns==last+FD_GUI_TXN_BATCH_IDLE_NS );
   fd_gui_txn_batch_flush( gui, last+FD_GUI_TXN_BATCH_IDLE_NS-1L );
   FD_TEST( count_ts( gui, FD_GUI_HIST_REPLAY_TXN_BATCH, ULONG_MAX )==base+1UL );
   fd_gui_txn_batch_flush( gui, last+FD_GUI_TXN_BATCH_IDLE_NS );
   FD_TEST( count_ts( gui, FD_GUI_HIST_REPLAY_TXN_BATCH, ULONG_MAX )==base+2UL );
+  FD_TEST( gui->tile_state.txn_flush_ns==LONG_MAX );
   fd_gui_hist_iter_t it;
   FD_TEST( !fd_gui_hist_range_begin( gui, &it, FD_GUI_HIST_REPLAY_TXN_BATCH, sig_last+FD_GUI_TXN_BATCH_IDLE_NS, last+FD_GUI_TXN_BATCH_IDLE_NS, NULL, NULL ) );
   ulong seen = 0UL;
@@ -2507,6 +2529,7 @@ test_timeline_limits( fd_gui_t * gui ) {
   }
   epoch->timeline_slot_min_start_ns = ts;
   epoch->timeline_slot_max_end_ns   = ts + 1L;
+  epoch_reblk( epoch );
   FD_TEST( !fd_gui_printf_timeline_query_slots( gui, ts, ts+1L, 7UL ) );
   test_json_t json = timeline_response( gui );
   FD_TEST( test_json_count( timeline_value( json, "slot_delta" ) )==(int)FD_GUI_TIMELINE_QUERY_SLOT_MAX );
@@ -2532,6 +2555,7 @@ test_timeline_limits( fd_gui_t * gui ) {
   epoch->timeline_slot_end_ns[ 12 ]   = 30L;
   epoch->timeline_slot_min_start_ns   = 10L;
   epoch->timeline_slot_max_end_ns     = 40L;
+  epoch_reblk( epoch );
   FD_TEST( !fd_gui_printf_timeline_query_slots( gui, 0L, 50L, 7UL ) );
   json = timeline_response( gui );
   FD_TEST( test_json_ulong( timeline_value( json, "reference_slot" ) )==10UL );
@@ -2584,6 +2608,21 @@ test_timeline_limits( fd_gui_t * gui ) {
      the availability bounds come from the hull alone. */
   ulong rows = 0UL;
   FD_TEST( !fd_gui_timeline_slots_collect( gui, 0L, 50L, gui->timeline_scratch.slots, 3UL, &rows ) && rows==3UL );
+  /* Blocks whose hull misses the window are skipped whole: slot 200
+     (block 3) is found alone, and the others still without it. */
+  epoch->timeline_slot_start_ns[ 200 ] = 41L;
+  epoch->timeline_slot_end_ns[ 200 ]   = 45L;
+  epoch->timeline_slot_state[ 200 ]    = FD_GUI_TIMELINE_SLOT_STATE_VALID;
+  epoch->timeline_slot_hi_idx          = 200UL;
+  epoch->timeline_slot_max_end_ns      = 45L;
+  epoch_reblk( epoch );
+  FD_TEST( epoch->timeline_blk_min_start_ns[ 3 ]==41L );
+  FD_TEST( !fd_gui_timeline_slots_collect( gui, 40L, 50L, gui->timeline_scratch.slots, 3UL, &rows ) && rows==1UL &&
+           gui->timeline_scratch.slots[ 0 ].slot==200UL );
+  FD_TEST( !fd_gui_timeline_slots_collect( gui, 0L, 40L, gui->timeline_scratch.slots, 3UL, &rows ) && rows==3UL );
+  epoch->timeline_slot_state[ 200 ] = 0;
+  epoch->timeline_slot_hi_idx       = 12UL;
+  epoch->timeline_slot_max_end_ns   = 40L;
   epoch->timeline_slot_min_start_ns = 100L;
   epoch->timeline_slot_max_end_ns   = 200L;
   FD_TEST( !fd_gui_timeline_slots_collect( gui, 0L, 50L, gui->timeline_scratch.slots, 3UL, &rows ) && !rows );
@@ -2608,6 +2647,7 @@ test_timeline_limits( fd_gui_t * gui ) {
   epoch->timeline_slot_hi_idx       = FD_GUI_TIMELINE_QUERY_EVENT_MAX-1UL;
   epoch->timeline_slot_min_start_ns = ts;
   epoch->timeline_slot_max_end_ns   = ts + 2L;
+  epoch_reblk( epoch );
   FD_TEST( !fd_gui_printf_timeline_query_events( gui, ts, ts+2L, 7UL ) );
   json = timeline_response( gui );
   FD_TEST( test_json_count( timeline_value( json, "slot" ) )==(int)FD_GUI_TIMELINE_QUERY_EVENT_MAX );
@@ -2628,6 +2668,7 @@ test_timeline_limits( fd_gui_t * gui ) {
   epoch->timeline_slot_end_ns[ 2 ]  = 31L;                                                                 /* midpoint 25 */
   epoch->timeline_slot_min_start_ns = 0L;
   epoch->timeline_slot_max_end_ns   = 80L;
+  epoch_reblk( epoch );
   FD_TEST( !fd_gui_printf_timeline_query_events( gui, 0L, 100L, 7UL ) );
   json = timeline_response( gui );
   FD_TEST( test_json_string_eq( timeline_value( json, "available_start_ns" ), "0" ) );
@@ -4792,9 +4833,11 @@ test_vote_batch( fd_gui_t * gui ) {
   ulong c;
   FD_TEST( !batch_stake_sum( gui, 200UL, FD_GUI_VOTE_EVENT_BATCH+FD_VOTE_KIND_NOTAR, &c ) && !c );
 
-  /* Not yet idle or old: nothing flushed. */
+  /* Not yet idle or old: nothing flushed, and the next due time is
+     the idle deadline. */
   fd_gui_vote_batch_flush( gui, base+FD_GUI_VOTE_BATCH_IDLE_NS-1L, 0 );
   FD_TEST( !count_ts( gui, FD_GUI_HIST_VOTE_BATCH, 200UL ) );
+  FD_TEST( gui->votes.batch_flush_ns==base+FD_GUI_VOTE_BATCH_IDLE_NS );
   /* Idle: flushed, with the same rows the open query produced. */
   fd_gui_vote_batch_flush( gui, base+FD_GUI_VOTE_BATCH_IDLE_NS, 0 );
   FD_TEST( batch_stake_sum( gui, 200UL, FD_GUI_VOTE_EVENT_BATCH+FD_VOTE_KIND_NOTAR, &c )==4000UL && c==2UL );

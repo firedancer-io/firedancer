@@ -172,13 +172,6 @@ fd_config_fillf( fd_config_t * config ) {
     FD_TEST( fd_cstr_printf_check( config->paths.shredb, sizeof(config->paths.shredb), NULL, "%s/shreds.db", config->paths.base ) );
   }
 
-  if( FD_UNLIKELY( strcmp( config->paths.guidb, "" ) ) ) {
-    replace( config->paths.guidb, "{user}", config->user );
-    replace( config->paths.guidb, "{name}", config->name );
-  } else {
-    FD_TEST( fd_cstr_printf_check( config->paths.guidb, sizeof(config->paths.guidb), NULL, "%s/gui.db", config->paths.base ) );
-  }
-
   if( FD_UNLIKELY( strcmp( config->paths.vote_history, "" ) ) ) {
     replace( config->paths.vote_history, "{user}", config->user );
     replace( config->paths.vote_history, "{name}", config->name );
@@ -189,6 +182,37 @@ fd_config_fillf( fd_config_t * config ) {
   for( ulong i=0UL; i<config->firedancer.paths.authorized_voter_paths_cnt; i++ ) {
     replace( config->firedancer.paths.authorized_voter_paths[ i ], "{user}", config->user );
     replace( config->firedancer.paths.authorized_voter_paths[ i ], "{name}", config->name );
+  }
+
+  /* GUI database paths, one per GUI tile.  If [paths.guidbs] is
+     given it lists every tile's path explicitly, otherwise tile i uses
+     "<base>/gui.<i>.db". */
+  ulong gui_tile_cnt = config->firedancer.layout.gui_tile_count;
+  if( FD_UNLIKELY( gui_tile_cnt>FD_CONFIG_GUI_TILE_MAX ) )
+    FD_LOG_ERR(( "[layout.gui_tile_count] %lu exceeds the maximum of %lu", gui_tile_cnt, FD_CONFIG_GUI_TILE_MAX ));
+  if( FD_UNLIKELY( config->firedancer.paths.guidbs_cnt ) ) {
+    if( FD_UNLIKELY( config->firedancer.paths.guidbs_cnt!=gui_tile_cnt ) )
+      FD_LOG_ERR(( "[paths.guidbs] has %lu entries but [layout.gui_tile_count] is %lu, they must match",
+                   config->firedancer.paths.guidbs_cnt, gui_tile_cnt ));
+    for( ulong i=0UL; i<gui_tile_cnt; i++ ) {
+      replace( config->firedancer.paths.guidbs[ i ], "{user}", config->user );
+      replace( config->firedancer.paths.guidbs[ i ], "{name}", config->name );
+      if( FD_UNLIKELY( !strcmp( config->firedancer.paths.guidbs[ i ], "" ) ) )
+        FD_LOG_ERR(( "[paths.guidbs] entry %lu is empty", i ));
+    }
+  } else {
+    for( ulong i=0UL; i<gui_tile_cnt; i++ ) {
+      FD_TEST( fd_cstr_printf_check( config->firedancer.paths.guidbs[ i ], PATH_MAX, NULL, "%s/gui.%lu.db", config->paths.base, i ) );
+    }
+  }
+  /* Each tile truncates its database on boot, so sharing one would
+     corrupt it */
+  for( ulong i=0UL; i<gui_tile_cnt; i++ ) {
+    for( ulong j=0UL; j<i; j++ ) {
+      if( FD_UNLIKELY( !strcmp( config->firedancer.paths.guidbs[ i ], config->firedancer.paths.guidbs[ j ] ) ) )
+        FD_LOG_ERR(( "[paths.guidbs] entries %lu and %lu are both `%s`, each GUI tile needs its own database",
+                     j, i, config->firedancer.paths.guidbs[ i ] ));
+    }
   }
 }
 
@@ -486,6 +510,7 @@ fd_config_validatef( fd_configf_t const * config ) {
   CFG_HAS_NON_ZERO( layout.snapzp_tile_count );
   CFG_HAS_NON_ZERO( layout.snapsv_tile_count );
   CFG_HAS_NON_ZERO( layout.snapsv_io_worker_count );
+  CFG_HAS_NON_ZERO( layout.gui_tile_count );
   CFG_HAS_NON_ZERO( layout.snapdc_tile_count );
   CFG_HAS_NON_ZERO( layout.snapin_tile_count );
   if( FD_UNLIKELY( config->layout.sign_tile_count < 2 ) ) {

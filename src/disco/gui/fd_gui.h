@@ -1160,6 +1160,9 @@ typedef struct fd_gui_slot_rankings fd_gui_slot_rankings_t;
 #define FD_GUI_TIMELINE_SLOT_STATE_MINE      ((uchar)4U)
 #define FD_GUI_TIMELINE_SLOT_STATE_STARTED   ((uchar)8U)  /* first_shred_ns is set */
 
+#define FD_GUI_TIMELINE_SLOT_BLK_SZ  (64UL)
+#define FD_GUI_TIMELINE_SLOT_BLK_CNT ((MAX_SLOTS_PER_EPOCH+FD_GUI_TIMELINE_SLOT_BLK_SZ-1UL)/FD_GUI_TIMELINE_SLOT_BLK_SZ)
+
 struct fd_gui_epoch {
   ulong epoch;
   /* Per-slot timeline intervals; idx is slot-start_slot. */
@@ -1167,6 +1170,11 @@ struct fd_gui_epoch {
   ulong timeline_slot_hi_idx;                                  /* highest idx written (ULONG_MAX if none) */
   long  timeline_slot_min_start_ns;                            /* earliest start ever written (LONG_MAX if none) */
   long  timeline_slot_max_end_ns;                              /* latest end ever written (LONG_MIN if none) */
+  /* Interval hull of each block of FD_GUI_TIMELINE_SLOT_BLK_SZ slots, so
+     window queries skip blocks that cannot overlap.  Like the epoch
+     hull above, these only widen. */
+  long  timeline_blk_min_start_ns   [ FD_GUI_TIMELINE_SLOT_BLK_CNT ]; /* LONG_MAX if none */
+  long  timeline_blk_max_end_ns     [ FD_GUI_TIMELINE_SLOT_BLK_CNT ]; /* LONG_MIN if none */
   long  timeline_slot_first_shred_ns[ MAX_SLOTS_PER_EPOCH ];   /* first shred arrival, valid if STARTED */
   long  timeline_slot_start_ns      [ MAX_SLOTS_PER_EPOCH ];   /* interval start (LONG_MAX if unknown) */
   long  timeline_slot_end_ns        [ MAX_SLOTS_PER_EPOCH ];   /* replay completion, or interpolated if skipped and never replayed */
@@ -1861,6 +1869,7 @@ struct fd_gui {
     /* Open transaction batch per lane and tile. */
     fd_gui_txn_batch_open_t txn_open[ FD_GUI_TXN_BATCH_LANE_CNT ][ FD_GUI_TXN_BATCH_TILE_MAX ];
     ulong                   txn_batch_seq; /* batch_idx of the next written batch */
+    long                    txn_flush_ns;  /* no open batch is due before this (may be early) */
   } tile_state;
 
   /* Markers already recorded for recent slots, indexed by
@@ -1892,6 +1901,7 @@ struct fd_gui {
       ulong                  pt_cnt;
       fd_gui_vote_batch_pt_t pt[ FD_GUI_VOTE_BATCH_PTS_MAX ];
     } batch[ FD_GUI_VOTE_SLOT_CNT ];
+    long batch_flush_ns; /* no buffered batch is due before this (may be early) */
     /* Running stake total per kind of the votes counted for a recent
        slot, indexed by slot%FD_GUI_VOTE_CUM_SLOT_CNT.  A slot's batched
        votes are a subset, so its flushed total is this less its
@@ -2754,7 +2764,8 @@ fd_gui_slot_is_skipped( fd_gui_t * gui, ulong root, ulong des, ulong des_bank_se
    schedule is known yet or no record for that epoch is present. */
 
 /* fd_gui_epoch_timeline_slot_note widens epoch's retained slot range
-   and interval hull to include the interval at idx. */
+   and interval hulls (epoch and block) to include the interval at idx.
+   Every write of a slot interval must be followed by a note. */
 
 static inline void
 fd_gui_epoch_timeline_slot_note( fd_gui_epoch_t * epoch,
@@ -2766,6 +2777,19 @@ fd_gui_epoch_timeline_slot_note( fd_gui_epoch_t * epoch,
   if( rs<0L || re<=rs ) return;
   epoch->timeline_slot_min_start_ns = fd_long_min( epoch->timeline_slot_min_start_ns, rs );
   epoch->timeline_slot_max_end_ns   = fd_long_max( epoch->timeline_slot_max_end_ns,   re );
+  ulong blk = idx/FD_GUI_TIMELINE_SLOT_BLK_SZ;
+  epoch->timeline_blk_min_start_ns[ blk ] = fd_long_min( epoch->timeline_blk_min_start_ns[ blk ], rs );
+  epoch->timeline_blk_max_end_ns  [ blk ] = fd_long_max( epoch->timeline_blk_max_end_ns  [ blk ], re );
+}
+
+/* fd_gui_epoch_timeline_blk_init marks every block of epoch empty. */
+
+static inline void
+fd_gui_epoch_timeline_blk_init( fd_gui_epoch_t * epoch ) {
+  for( ulong i=0UL; i<FD_GUI_TIMELINE_SLOT_BLK_CNT; i++ ) {
+    epoch->timeline_blk_min_start_ns[ i ] = LONG_MAX;
+    epoch->timeline_blk_max_end_ns  [ i ] = LONG_MIN;
+  }
 }
 
 static inline fd_gui_epoch_t *

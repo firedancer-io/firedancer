@@ -4495,6 +4495,22 @@ fd_gui_timeline_epoch_in_window( fd_gui_t * gui,
   return NULL;
 }
 
+/* fd_gui_timeline_blk_overlaps returns 1 if the block holding slot
+   index *i may hold an interval overlapping [start,end).  Otherwise it
+   returns 0 and advances *i to the last index of the block, so the
+   caller's next iteration starts the following block. */
+
+static inline int
+fd_gui_timeline_blk_overlaps( fd_gui_epoch_t const * epoch,
+                              ulong *                i,
+                              long                   start,
+                              long                   end ) {
+  ulong blk = *i/FD_GUI_TIMELINE_SLOT_BLK_SZ;
+  if( FD_LIKELY( epoch->timeline_blk_min_start_ns[ blk ]<end && epoch->timeline_blk_max_end_ns[ blk ]>start ) ) return 1;
+  *i = blk*FD_GUI_TIMELINE_SLOT_BLK_SZ + FD_GUI_TIMELINE_SLOT_BLK_SZ - 1UL;
+  return 0;
+}
+
 int
 fd_gui_timeline_slots_collect( fd_gui_t *                     gui,
                                long                           start,
@@ -4511,6 +4527,7 @@ fd_gui_timeline_slots_collect( fd_gui_t *                     gui,
     fd_gui_epoch_t const * epoch = fd_gui_timeline_epoch_in_window( gui, e, start, end );
     if( epoch ) {
       for( ulong i=epoch->timeline_slot_lo_idx; i<=epoch->timeline_slot_hi_idx; i++ ) {
+        if( FD_UNLIKELY( !fd_gui_timeline_blk_overlaps( epoch, &i, start, end ) ) ) continue;
         uchar state = epoch->timeline_slot_state[ i ];
         long  rs    = epoch->timeline_slot_start_ns[ i ];
         long  re    = epoch->timeline_slot_end_ns[ i ];
@@ -4549,6 +4566,7 @@ fd_gui_timeline_leader_skips_collect( fd_gui_t *                      gui,
     fd_gui_epoch_t const * epoch = fd_gui_timeline_epoch_in_window( gui, e, start, end );
     if( epoch ) {
       for( ulong i=epoch->timeline_slot_lo_idx; i<=epoch->timeline_slot_hi_idx; i++ ) {
+        if( FD_UNLIKELY( !fd_gui_timeline_blk_overlaps( epoch, &i, start, end ) ) ) continue;
         uchar state = epoch->timeline_slot_state[ i ];
         long  rs    = epoch->timeline_slot_start_ns[ i ];
         long  re    = epoch->timeline_slot_end_ns[ i ];

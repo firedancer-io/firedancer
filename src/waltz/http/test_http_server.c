@@ -1,6 +1,7 @@
 #include "fd_http_server.h"
 #include "fd_http_server_private.h"
 #include "../../util/fd_util.h"
+#include "../../util/net/fd_ip4.h"
 
 #include <arpa/inet.h>
 #include <errno.h>
@@ -377,6 +378,69 @@ test_split_body( void ) {
   FD_TEST( !close( fd_http_server_fd( http ) ) );
   fd_http_server_delete( fd_http_server_leave( http ) );
   free( scratch );
+}
+
+/* Two servers with reuse_port share one listen port, and the kernel
+   spreads client connections across them. */
+
+static void
+test_reuse_port( void ) {
+  fd_http_server_params_t params = {
+    .max_connection_cnt    = 64UL,
+    .max_ws_connection_cnt = 0UL,
+    .max_request_len       = 1024UL,
+    .max_ws_recv_frame_len = 1024UL,
+    .max_ws_send_frame_cnt = 1UL,
+    .outgoing_buffer_sz    = 1024UL,
+    .reuse_port            = 1,
+  };
+  fd_http_server_callbacks_t callbacks = {0};
+
+  ulong footprint = fd_ulong_align_up( fd_http_server_footprint( params ), 128UL );
+  fd_http_server_t * http[ 2 ];
+  uchar *            scratch[ 2 ];
+  for( ulong i=0UL; i<2UL; i++ ) {
+    scratch[ i ] = aligned_alloc( 128UL, footprint );
+    FD_TEST( scratch[ i ] );
+    http[ i ] = fd_http_server_join( fd_http_server_new( scratch[ i ], params, callbacks, NULL ) );
+    FD_TEST( http[ i ] );
+  }
+
+  FD_TEST( fd_http_server_listen( http[ 0 ], new_epoll(), FD_IP4_ADDR( 127, 0, 0, 1 ), 0U ) );
+  struct sockaddr_in server_addr = {0};
+  socklen_t server_addr_sz = sizeof( server_addr );
+  FD_TEST( !getsockname( fd_http_server_fd( http[ 0 ] ), fd_type_pun( &server_addr ), &server_addr_sz ) );
+  ushort port = ntohs( server_addr.sin_port );
+  /* Without SO_REUSEPORT this bind fails with EADDRINUSE */
+  FD_TEST( fd_http_server_listen( http[ 1 ], new_epoll(), FD_IP4_ADDR( 127, 0, 0, 1 ), port ) );
+
+  struct sockaddr_in connect_addr = {
+    .sin_family      = AF_INET,
+    .sin_port        = htons( port ),
+    .sin_addr.s_addr = htonl( INADDR_LOOPBACK ),
+  };
+  int client_fds[ 32 ];
+  for( ulong i=0UL; i<32UL; i++ ) {
+    client_fds[ i ] = socket( AF_INET, SOCK_STREAM, 0 );
+    FD_TEST( client_fds[ i ]>=0 );
+    FD_TEST( !connect( client_fds[ i ], fd_type_pun( &connect_addr ), sizeof( connect_addr ) ) );
+  }
+
+  for( ulong j=0UL; j<200UL && http[ 0 ]->metrics.connection_cnt+http[ 1 ]->metrics.connection_cnt<32UL; j++ ) {
+    int busy = fd_http_server_epoll_poll( http[ 0 ], ULONG_MAX ) | fd_http_server_epoll_poll( http[ 1 ], ULONG_MAX );
+    if( !busy ) fd_log_sleep( (long)1e6 );
+  }
+  FD_TEST( http[ 0 ]->metrics.connection_cnt+http[ 1 ]->metrics.connection_cnt==32UL );
+  /* Hash distribution, 32 connections all landing on one is ~2^-31 */
+  FD_TEST( http[ 0 ]->metrics.connection_cnt>0UL );
+  FD_TEST( http[ 1 ]->metrics.connection_cnt>0UL );
+
+  for( ulong i=0UL; i<32UL; i++ ) FD_TEST( !close( client_fds[ i ] ) );
+  for( ulong i=0UL; i<2UL; i++ ) {
+    FD_TEST( !close( fd_http_server_fd( http[ i ] ) ) );
+    fd_http_server_delete( fd_http_server_leave( http[ i ] ) );
+    free( scratch[ i ] );
+  }
 }
 
 static void
@@ -893,6 +957,62 @@ recv_exact( int     fd,
     FD_TEST( n>0L );
     got += (ulong)n;
   }
+}
+
+/* test_ws_pipelined_reply checks that the response to a websocket
+   message is written before the next message buffered on the same
+   connection is handled. */
+
+static fd_http_server_t * pipelined_http;
+static ulong              pipelined_written[ 2 ];
+static ulong              pipelined_cnt;
+
+static void
+ws_message_reply( ulong         ws_conn_id,
+                  uchar const * data,
+                  ulong         data_len,
+                  void *        ctx ) {
+  (void)ctx;
+  FD_TEST( pipelined_cnt<2UL );
+  pipelined_written[ pipelined_cnt++ ] = pipelined_http->metrics.frames_written;
+  fd_http_server_memcpy( pipelined_http, data, data_len );
+  FD_TEST( !fd_http_server_ws_send( pipelined_http, ws_conn_id ) );
+}
+
+static void
+test_ws_pipelined_reply( void ) {
+  FD_LOG_NOTICE(( "Testing WebSocket replies to pipelined messages" ));
+
+  ws_msg_state_t state = {0};
+  uchar * scratch;
+  int client_fd;
+  fd_http_server_t * http = ws_test_server_new( &scratch, &state, &client_fd );
+  ws_connect( http, client_fd, &state );
+  http->callbacks.ws_message = ws_message_reply;
+  pipelined_http = http;
+  pipelined_cnt  = 0UL;
+
+  /* Both messages arrive in one segment, so one read sees both. */
+  uchar buf[ 64 ];
+  ulong off = 0UL;
+  ws_frame( buf, &off, 0x1, 1, (uchar const *)"first",  5UL );
+  ws_frame( buf, &off, 0x1, 1, (uchar const *)"second", 6UL );
+  send_all( client_fd, (char const *)buf, off );
+  for( ulong i=0UL; i<200UL && pipelined_cnt<2UL; i++ ) poll_1ms( http );
+  FD_TEST( pipelined_cnt==2UL );
+  FD_TEST( pipelined_written[ 1 ]==pipelined_written[ 0 ]+1UL ); /* first reply out before the second message */
+
+  char const * want[ 2 ] = { "first", "second" };
+  for( ulong i=0UL; i<2UL; i++ ) {
+    uchar hdr[ 2 ];
+    recv_exact( client_fd, hdr, 2UL );
+    FD_TEST( hdr[ 0 ]==0x81 && hdr[ 1 ]==strlen( want[ i ] ) );
+    uchar got[ 8 ];
+    recv_exact( client_fd, got, hdr[ 1 ] );
+    FD_TEST( !memcmp( got, want[ i ], hdr[ 1 ] ) );
+  }
+
+  ws_test_server_delete( http, scratch, client_fd );
 }
 
 /* test_ws_send_compressed checks the pre-compressed send path used for
@@ -1789,11 +1909,13 @@ main( int     argc,
   test_oring();
   test_content_length_overflow_close();
   test_poll_conn_max();
+  test_reuse_port();
   test_split_body();
   test_treap_seed();
   test_poll_interest();
   test_ws_send_after_staging_eviction();
   test_ws_send_compressed();
+  test_ws_pipelined_reply();
   test_location_raw_path();
   test_keep_alive();
   test_zero_length_status_body();

@@ -88,6 +88,7 @@ struct fd_http_server_params {
   ulong outgoing_buffer_sz;    /* Size of the outgoing data ring, which is used to stage outgoing HTTP response bodies and WebSocket frames */
   ulong send_buffer_sz;        /* SO_SNDBUF for the listen socket, inherited by accepted sockets.  Zero leaves the kernel default */
   int   compress_websocket;    /* True if large websocket messages are compressed and sent as binary websocket frames */
+  int   reuse_port;            /* True to set SO_REUSEPORT on the listen socket, so several servers (e.g. tiles) can share a port and the kernel load balances connections between them */
 };
 
 typedef struct fd_http_server_params fd_http_server_params_t;
