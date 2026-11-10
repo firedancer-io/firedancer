@@ -1635,9 +1635,20 @@ main( int     argc,
   tile->tx_qp.sq_prod = sq_prod;
 
   /* Another local bind address uses the kernel without submitting a WQE. */
-  ulong const loopback_sig = fd_disco_netmux_sig( 0U, 0U, FD_IP4_ADDR( 127,0,0,1 ), DST_PROTO_OUTGOING, 0UL );
+  ulong loopback_sig = 0UL;
+  for( ushort port=1U; ; port++ ) {
+    loopback_sig = fd_disco_netmux_sig( 0U, port, FD_IP4_ADDR( 127,0,0,1 ), DST_PROTO_OUTGOING, 0UL );
+    if( fd_disco_netmux_sig_hash( loopback_sig )%2UL==1UL ) break;
+  }
   tile->net.bind_address = public_ip4_addr;
+
+  /* Loopback still targets tile 0 when the hash selects tile 1. */
+  tile->net.tile_cnt = 2UL;
+  tile->net.kind_id  = 1UL;
+  FD_TEST( before_frag( tile, 0UL, tx_seq, loopback_sig )==1 );
+  tile->net.kind_id = 0UL;
   FD_TEST( before_frag( tile, 0UL, tx_seq, loopback_sig )==0 );
+  tile->net.tile_cnt = 1UL;
   FD_TEST( tile->net.tx_route.use_loopback );
   fd_memcpy( tx_packet, &tx_pkt_templ, sizeof(tx_pkt_templ) );
   fd_ip4_hdr_t * loopback_ip4 = (fd_ip4_hdr_t *)(tx_packet+sizeof(fd_eth_hdr_t));
