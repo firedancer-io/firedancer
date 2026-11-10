@@ -119,9 +119,9 @@ FD_STATIC_ASSERT( ( FD_SHRED_BATCH_BLOCK_DATA_OHEAD ) < ( FD_FEC_BLK_MAX * FD_SH
        finishes on an empty tick; low-power can finish on a
        max-size microblock.
 
-   Empty ticks are not included; the caller should subtract
-   48*ticks_per_slot.  Returns 0 if the shred budget
-   cannot cover the reserved FEC sets. */
+   Tick entries are not included.  An Alpenglow block's only tick is
+   its closing alpentick, which the last batch's FEC sets cover.
+   Returns 0 if the shred budget cannot cover the reserved FEC sets. */
 FD_FN_CONST static inline ulong
 fd_shred_batch_pack_data_max( ulong slot_max_data_shreds,
                               ulong max_microblock_sz ) {
