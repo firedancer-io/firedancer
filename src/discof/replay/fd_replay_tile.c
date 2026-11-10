@@ -1776,37 +1776,36 @@ try_become_leader( fd_replay_tile_t *  ctx,
   return 1;
 }
 
-/* try_optimistic_leader arms our leader window on bank, the frozen
-   last block of the window before ours, ahead of the ParentReady that
-   names the parent (fast leader handover) */
+/* try_optimistic_leader arms our leader window on votor's
+   OPTIMISTIC_LEADER (fast leader handover): replay completed the last
+   block of the window before ours, and votor, which owns whether we may
+   lead the window (vote history and leader floors, failover vote
+   authority) and has recorded it in the vote history, says we may
+   start it on that block ahead of the ParentReady that names the
+   parent.  Replay checks the feature gate on the parent's bank and that
+   the parent is still frozen.  LEADER later confirms the parent or
+   switches it. */
 
 static void
-try_optimistic_leader( fd_replay_tile_t * ctx,
-                       fd_bank_t const *  frozen_bank ) {
-  ulong slot = frozen_bank->f.slot+1UL;
-  if( FD_LIKELY( !fd_is_start_of_window( slot ) ) ) return;
-  if( FD_LIKELY( !FD_FEATURE_ACTIVE_BANK( frozen_bank, alpenglow_fast_leader_handover ) ) ) return;
+try_optimistic_leader( fd_replay_tile_t *        ctx,
+                       fd_votor_leader_t const * optimistic ) {
+  ulong slot = optimistic->slot;
   if( ctx->next_leader_slot!=ULONG_MAX || ctx->is_leader || !ctx->supports_leader ) return; /* a LEADER or our own window is pending */
   if( ctx->highwater_leader_slot!=ULONG_MAX && ctx->highwater_leader_slot>=slot ) return;
+  if( ctx->votor_parent_ready_slot>=slot ) return; /* our window is ParentReady: LEADER names the parent */
 
-  /* Make sure parent's window was ParentReady, so a fork of frozen
-     banks far ahead of consensus cannot start us.
+  fd_block_id_t       parent_key = fd_block_id( optimistic->parent_slot, optimistic->parent_block_id.uc );
+  fd_block_id_ele_t * parent_ele = fd_block_id_map_ele_query( ctx->block_id_map, &parent_key, NULL, ctx->block_id_arr );
+  if( FD_UNLIKELY( !parent_ele ) ) return;
+  fd_bank_t const * parent = fd_banks_bank_query( ctx->banks, fd_block_id_ele_get_idx( ctx->block_id_arr, parent_ele ) );
+  if( FD_UNLIKELY( !parent || parent->bank_seq!=parent_ele->bank_seq || parent->state!=FD_BANK_STATE_FROZEN ) ) return;
+  if( FD_LIKELY( !FD_FEATURE_ACTIVE_BANK( parent, alpenglow_fast_leader_handover ) ) ) return;
 
-     If our own window is ParentReady, wait for LEADER to name the parent. */
-  if( ctx->votor_parent_ready_slot<fd_first_slot_in_window( frozen_bank->f.slot ) ) return;
-  if( ctx->votor_parent_ready_slot>=slot ) return;
-
-  fd_pubkey_t const * leader = fd_multi_epoch_leaders_get_leader_for_slot( ctx->mleaders, slot );
-  if( !leader || !fd_pubkey_eq( leader, ctx->identity_pubkey ) ) return;
-
-  /* TODO: votor writes the window to the vote history only when it
-     sends LEADER, so a restart before then could lead this window
-     again. */
   *ctx->votor_leader = (fd_votor_leader_t){
     .slot            = slot,
-    .parent_slot     = frozen_bank->f.slot,
-    .parent_block_id = frozen_bank->f.block_id,
-    .parent_ready_ns = fd_clock_tile_now( ctx->clock ) /* the block timer starts at the freeze */
+    .parent_slot     = optimistic->parent_slot,
+    .parent_block_id = optimistic->parent_block_id,
+    .parent_ready_ns = parent->block_completed_nanos /* the block timer starts at the freeze */
   };
   ctx->next_leader_slot          = slot;
   ctx->leader_parent_unconfirmed = 1;
@@ -1888,7 +1887,6 @@ replay_block_complete( fd_replay_tile_t *        ctx,
   /* Must be last so we can measure completion time correctly, even
      though we could technically do this before the hash cmp. */
   publish_slot_completed( ctx, stem, bank, 0, 0 /* is_leader */, execution_fees_pre_settle, priority_fees_pre_settle, footer );
-  try_optimistic_leader( ctx, bank );
 
   /* The footer's finalization cert can also finalize. */
   if( footer->has_fast_final_cert ) { try_advance_root( ctx, fd_block_id( footer->fast_final_cert.slot, footer->fast_final_cert.block_id.uc ) ); }
@@ -4517,6 +4515,9 @@ returnable_frag( fd_replay_tile_t *  ctx,
           break;
         default: break;
         }
+      } else if( FD_UNLIKELY( sig==FD_VOTOR_SIG_OPTIMISTIC_LEADER ) ) {
+        try_optimistic_leader( ctx, fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ) );
+        try_become_leader( ctx, stem, FD_METRICS_SAMPLE_REASON_LEADER_START, 0UL );
       } else if( FD_UNLIKELY( sig==FD_VOTOR_SIG_PARENT_READY ) ) {
         fd_votor_parent_ready_t const * pr = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
         ctx->votor_parent_ready_slot = fd_ulong_max( ctx->votor_parent_ready_slot, pr->slot );

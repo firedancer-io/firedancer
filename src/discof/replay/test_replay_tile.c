@@ -4255,6 +4255,19 @@ deliver_leader( fd_replay_tile_t * ctx,
   FD_TEST( !returnable_frag( ctx, TEST_VOTOR_IN_IDX, 0UL, FD_VOTOR_SIG_LEADER, chunk, sizeof(fd_votor_msg_t), 0UL, 0UL, 0UL, test_stem ) );
 }
 
+/* deliver_optimistic drives votor's OPTIMISTIC_LEADER for the window
+   after bank through the votor input, as votor sends it when replay
+   completes the last block of the window before ours. */
+
+static void
+deliver_optimistic( fd_replay_tile_t * ctx,
+                    fd_bank_t const *  bank ) {
+  ulong chunk = ctx->in[ TEST_VOTOR_IN_IDX ].chunk0;
+  fd_votor_leader_t * leader = fd_chunk_to_laddr( ctx->in[ TEST_VOTOR_IN_IDX ].mem, chunk );
+  *leader = (fd_votor_leader_t){ .slot = bank->f.slot+1UL, .parent_slot = bank->f.slot, .parent_block_id = bank->f.block_id };
+  FD_TEST( !returnable_frag( ctx, TEST_VOTOR_IN_IDX, 0UL, FD_VOTOR_SIG_OPTIMISTIC_LEADER, chunk, sizeof(fd_votor_msg_t), 0UL, 0UL, 0UL, test_stem ) );
+}
+
 /* setup_flh_ctx is setup_ag_leader_ctx before any LEADER: slot 3, the
    last block of the window before ours, is frozen with fast leader
    handover active, and certs made its window ParentReady.  Our window
@@ -4291,12 +4304,10 @@ test_flh_optimistic_start( fd_wksp_t * wksp ) {
   fd_hash_t id3     = { .ul = { 203UL } };
   fd_bank_t * b3 = setup_flh_ctx( ctx, wksp, &root_id, &id3 );
 
-  try_optimistic_leader( ctx, b3 );
-  FD_TEST( ctx->next_leader_slot==4UL && ctx->leader_parent_unconfirmed );
-  FD_TEST( ctx->votor_leader->parent_slot==3UL && fd_hash_eq( &ctx->votor_leader->parent_block_id, &id3 ) );
-
   ulong seq0 = test_stem_seqs[ ctx->replay_out->idx ];
-  FD_TEST( try_become_leader( ctx, test_stem, FD_METRICS_SAMPLE_REASON_LEADER_START, 0UL ) );
+  deliver_optimistic( ctx, b3 );
+  FD_TEST( ctx->leader_parent_unconfirmed );
+  FD_TEST( ctx->votor_leader->parent_slot==3UL && fd_hash_eq( &ctx->votor_leader->parent_block_id, &id3 ) );
   FD_TEST( ctx->is_leader && ctx->leader_bank->f.slot==4UL && ctx->reset_slot==3UL );
   fd_became_leader_t const * became = last_sig( ctx, seq0, REPLAY_SIG_BECAME_LEADER );
   FD_TEST( became && became->slot==4UL && became->parent_unconfirmed );
@@ -4318,28 +4329,25 @@ test_flh_optimistic_start( fd_wksp_t * wksp ) {
   FD_LOG_NOTICE(( "pass: test_flh_optimistic_start" ));
 }
 
-/* The optimistic start is gated.  It needs the feature on the parent,
-   a window start that is ours, and certs that made the parent's window,
-   not yet ours, ParentReady (Agave #14408). */
+/* Replay's own gates on OPTIMISTIC_LEADER: the feature on the parent's
+   bank, our window not yet ParentReady (LEADER names the parent), and
+   the parent still frozen.  Votor gates the rest (test_votor_tile). */
 
 static void
 test_flh_optimistic_gates( fd_wksp_t * wksp ) {
   fd_hash_t root_id = { .ul = { 0xBEEFUL } };
   fd_hash_t id3     = { .ul = { 203UL } };
 
-  for( int c=0; c<5; c++ ) {
+  for( int c=0; c<3; c++ ) {
     static fd_replay_tile_t ctx[ 1 ];
     fd_bank_t * b3 = setup_flh_ctx( ctx, wksp, &root_id, &id3 );
     switch( c ) {
-    case 0: b3->f.features.alpenglow_fast_leader_handover = FD_FEATURE_DISABLED; break; /* no FLH       */
-    case 1: mock_slot_leader = (fd_pubkey_t){ .ul = { 9UL } };                   break; /* not our window */
-    case 2: ctx->votor_parent_ready_slot = 4UL;                                  break; /* LEADER names it */
-    case 3: b3->f.slot = 2UL;                                                    break; /* not a window's last block */
-    case 4: ctx->votor_parent_ready_slot = 0UL; b3->f.slot = 7UL;                break; /* parent window not ParentReady */
+    case 0: b3->f.features.alpenglow_fast_leader_handover = FD_FEATURE_DISABLED; break; /* no FLH          */
+    case 1: ctx->votor_parent_ready_slot = 4UL;                                  break; /* LEADER names it */
+    case 2: b3->state = FD_BANK_STATE_DEAD;                                      break; /* parent not frozen */
     }
-    try_optimistic_leader( ctx, b3 );
-    FD_TEST( ctx->next_leader_slot==ULONG_MAX && !ctx->leader_parent_unconfirmed );
-    mock_slot_leader = (fd_pubkey_t){ .ul = { 1UL } };
+    deliver_optimistic( ctx, b3 );
+    FD_TEST( ctx->next_leader_slot==ULONG_MAX && !ctx->leader_parent_unconfirmed && !ctx->is_leader );
     fd_wksp_reset( wksp, 42U );
   }
 
@@ -4358,8 +4366,8 @@ test_flh_superseded( fd_wksp_t * wksp ) {
   fd_hash_t id3     = { .ul = { 203UL } };
   fd_bank_t * b3 = setup_flh_ctx( ctx, wksp, &root_id, &id3 );
 
-  try_optimistic_leader( ctx, b3 );
-  FD_TEST( try_become_leader( ctx, test_stem, FD_METRICS_SAMPLE_REASON_LEADER_START, 0UL ) );
+  deliver_optimistic( ctx, b3 );
+  FD_TEST( ctx->is_leader && ctx->leader_bank && ctx->leader_parent_unconfirmed );
   fd_bank_t * leader = ctx->leader_bank;
   FD_TEST( !try_fini_leader( ctx, test_stem ) ); /* our window is not skipped */
 
@@ -4396,8 +4404,8 @@ test_flh_update_parent_kill( fd_wksp_t * wksp ) {
   fd_hash_t id2     = { .ul = { 202UL } };
   fd_bank_t * b3 = setup_flh_ctx( ctx, wksp, &root_id, &id3 );
 
-  try_optimistic_leader( ctx, b3 );
-  FD_TEST( try_become_leader( ctx, test_stem, FD_METRICS_SAMPLE_REASON_LEADER_START, 0UL ) );
+  deliver_optimistic( ctx, b3 );
+  FD_TEST( ctx->is_leader && ctx->leader_bank && ctx->leader_parent_unconfirmed );
   fd_bank_t * old = ctx->leader_bank;
   FD_TEST( old->refcnt==1UL );
 
@@ -4437,8 +4445,8 @@ test_flh_update_parent_bank( fd_wksp_t * wksp,
   fd_bank_t * b3 = setup_flh_ctx( ctx, wksp, &root_id, &id3 );
   fd_bank_t * b1 = fd_banks_bank_query( ctx->banks, b3->parent_idx );
 
-  try_optimistic_leader( ctx, b3 );
-  FD_TEST( try_become_leader( ctx, test_stem, FD_METRICS_SAMPLE_REASON_LEADER_START, 0UL ) );
+  deliver_optimistic( ctx, b3 );
+  FD_TEST( ctx->is_leader && ctx->leader_bank && ctx->leader_parent_unconfirmed );
   fd_bank_t * old     = ctx->leader_bank;
   ulong       old_idx = old->idx;
   ulong       old_seq = old->bank_seq;
@@ -4504,8 +4512,8 @@ test_flh_leader_during_switch( fd_wksp_t * wksp ) {
   fd_bank_t * b3 = setup_flh_ctx( ctx, wksp, &root_id, &id3 );
   fd_bank_t * b1 = fd_banks_bank_query( ctx->banks, b3->parent_idx );
 
-  try_optimistic_leader( ctx, b3 );
-  FD_TEST( try_become_leader( ctx, test_stem, FD_METRICS_SAMPLE_REASON_LEADER_START, 0UL ) );
+  deliver_optimistic( ctx, b3 );
+  FD_TEST( ctx->is_leader && ctx->leader_bank && ctx->leader_parent_unconfirmed );
   deliver_leader( ctx, 4UL, 2UL, &id2 );
   FD_TEST( ctx->is_leader && !ctx->leader_bank && ctx->votor_leader_switch->slot==4UL );
 
@@ -4547,8 +4555,8 @@ test_flh_switch_superseded( fd_wksp_t * wksp ) {
   fd_bank_t * b3 = setup_flh_ctx( ctx, wksp, &root_id, &id3 );
   fd_bank_t * b1 = fd_banks_bank_query( ctx->banks, b3->parent_idx );
 
-  try_optimistic_leader( ctx, b3 );
-  FD_TEST( try_become_leader( ctx, test_stem, FD_METRICS_SAMPLE_REASON_LEADER_START, 0UL ) );
+  deliver_optimistic( ctx, b3 );
+  FD_TEST( ctx->is_leader && ctx->leader_bank && ctx->leader_parent_unconfirmed );
   fd_bank_t * old     = ctx->leader_bank;
   ulong       old_idx = old->idx;
   ulong       old_seq = old->bank_seq;
