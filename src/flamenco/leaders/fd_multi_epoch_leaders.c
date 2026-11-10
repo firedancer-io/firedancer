@@ -179,7 +179,7 @@ fd_multi_epoch_leaders_get_sorted_lscheds( fd_multi_epoch_leaders_t const * mlea
   fd_epoch_leaders_t * even_option = fd_ptr_if( mleaders->init_done[0], mleaders->lsched[0], NULL );
   fd_epoch_leaders_t * odd_option  = fd_ptr_if( mleaders->init_done[1], mleaders->lsched[1], NULL );
 
-  /* Sort by epoch if both non-null, null comes first */
+  /* Sort by epoch if both non-null, null comes last */
   if( even_option && odd_option ) {
     ret.lscheds[0] = fd_ptr_if( even_option->epoch < odd_option->epoch, even_option, odd_option );
     ret.lscheds[1] = fd_ptr_if( even_option->epoch < odd_option->epoch, odd_option, even_option );
