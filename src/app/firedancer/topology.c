@@ -1637,12 +1637,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->gossip.ports.rserve           = fd_ushort_if( config->tiles.rserve.enabled, config->tiles.rserve.repair_serve_listen_port, 0 );
     tile->gossip.ports.votor            = config->firedancer.development.votor.quic_server_listen_port;
 
-    /* Peers download snapshots through the RPC socket.  The rpc tile
-       answers their JSON-RPC checks and redirects snapshot requests to
-       the snapshot server.  When the rpc tile is off or listens on
-       loopback, the snapshot server is advertised directly, which only
-       Firedancer peers can use.  Nothing is advertised when it listens
-       on loopback too. */
+    /* Advertise the rpc port for snapshots, else the snapshot server's. */
     tile->gossip.ports.rpc              = 0;
     if( fd_topo_find_tile( &config->topo, "snapsv", 0UL )!=ULONG_MAX ) {
       fd_ip6_addr_t rpc_addr;
