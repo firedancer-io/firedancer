@@ -295,10 +295,8 @@ struct fd_snapshot_manifest {
      a snapshot. */
   uchar accounts_hash[ 32UL ];
 
-  /* The merkle-based hash of modified accounts for the slot the
-     snapshot is created.  The accounts_delta_hash is computed at
-     the end of every slot and included into each bank hash.  It is
-     computed by hashing all modified account state together. */
+  /* The legacy Merkle-based hash of modified accounts in the snapshot
+     slot. */
   uchar accounts_delta_hash[ 32UL ];
 
   /* The lattice hash of all account state on chain. */
