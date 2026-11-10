@@ -442,9 +442,7 @@ fd_h2_rx_ping( fd_h2_conn_t *            conn,
   if( FD_UNLIKELY( frame_flags & FD_H2_FLAG_ACK ) ) {
 
     /* Received an acknowledgement for a PING frame. */
-    if( FD_UNLIKELY( conn->ping_tx==0 ) ) {
-      /* Unsolicited PING ACK ... Blindly ignore, since RFC 9113
-         technically doesn't forbid those. */
+    if( FD_UNLIKELY( conn->ping_tx==0 || FD_LOAD( ulong, payload )!=0UL ) ) {
       return 1;
     }
     cb->ping_ack( conn );

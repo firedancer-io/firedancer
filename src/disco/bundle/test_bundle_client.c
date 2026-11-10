@@ -313,7 +313,7 @@ FD_UNIT_TEST( bundle_ping ) {
     .flags  = FD_H2_FLAG_ACK
   };
   fd_h2_rbuf_push( grpc_client->frame_rx, &ping_ack_hdr, sizeof(fd_h2_frame_hdr_t) );
-  ulong const ping_seq = 1UL;
+  ulong const ping_seq = 0UL;
   fd_h2_rbuf_push( grpc_client->frame_rx, &ping_seq, sizeof(ulong) );
   int charge_busy = 0;
   fd_bundle_client_step( state, &charge_busy );
