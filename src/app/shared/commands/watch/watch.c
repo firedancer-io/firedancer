@@ -238,6 +238,23 @@ diff_tile_regime( config_t const * config,
   return result;
 }
 
+/* tile_regime is diff_tile_regime for the one tile at tile_idx. */
+
+static ulong
+tile_regime( ulong const * prev_tile,
+             ulong const * cur_tile,
+             ulong         tile_idx,
+             ulong         mask ) {
+  ulong result = 0UL;
+  for( ; mask; mask=fd_ulong_pop_lsb( mask ) ) {
+    ulong idx  = tile_idx*FD_METRICS_TOTAL_SZ+MIDX( COUNTER, TILE, REGIME_DURATION_NANOS )+(ulong)fd_ulong_find_lsb( mask );
+    ulong prev = prev_tile[ idx ];
+    ulong cur  =  cur_tile[ idx ];
+    result += cur>=prev ? cur-prev : 0UL;
+  }
+  return result;
+}
+
 static ulong
 total_regime( ulong const * metrics ) {
   ulong sum = 0UL;
@@ -542,8 +559,8 @@ write_bench( config_t const * config,
     if( FD_LIKELY( strcmp( config->topo.tiles[ i ].name, "benchg" ) ) ) continue;
 
     ulong total_ticks = total_regime( &cur_tile[ i*FD_METRICS_TOTAL_SZ ] )-total_regime( &prev_tile[ i*FD_METRICS_TOTAL_SZ ] );
-    double backp_pct = 100.0*(double)diff_tile_regime( config, "benchg", prev_tile, cur_tile, FD_METRICS_ENUM_TILE_REGIME_G_BACKPRESSURE_MASK )/(double)total_ticks;
-    double idle_pct = 100.0*(double)diff_tile_regime( config, "benchg", prev_tile, cur_tile, FD_METRICS_ENUM_TILE_REGIME_G_IDLE_MASK )/(double)total_ticks;
+    double backp_pct = 100.0*(double)tile_regime( prev_tile, cur_tile, i, FD_METRICS_ENUM_TILE_REGIME_G_BACKPRESSURE_MASK )/(double)total_ticks;
+    double idle_pct = 100.0*(double)tile_regime( prev_tile, cur_tile, i, FD_METRICS_ENUM_TILE_REGIME_G_IDLE_MASK )/(double)total_ticks;
     double busy_pct = 100.0 - idle_pct - backp_pct;
 
     PRINT( " %s%.1f" U( "%%" ) RESET, sev_color( busy_pct ), busy_pct );
@@ -554,8 +571,8 @@ write_bench( config_t const * config,
     if( FD_LIKELY( strcmp( config->topo.tiles[ i ].name, "benchs" ) ) ) continue;
 
     ulong total_ticks = total_regime( &cur_tile[ i*FD_METRICS_TOTAL_SZ ] )-total_regime( &prev_tile[ i*FD_METRICS_TOTAL_SZ ] );
-    double backp_pct = 100.0*(double)diff_tile_regime( config, "benchs", prev_tile, cur_tile, FD_METRICS_ENUM_TILE_REGIME_G_BACKPRESSURE_MASK )/(double)total_ticks;
-    double idle_pct = 100.0*(double)diff_tile_regime( config, "benchs", prev_tile, cur_tile, FD_METRICS_ENUM_TILE_REGIME_G_IDLE_MASK )/(double)total_ticks;
+    double backp_pct = 100.0*(double)tile_regime( prev_tile, cur_tile, i, FD_METRICS_ENUM_TILE_REGIME_G_BACKPRESSURE_MASK )/(double)total_ticks;
+    double idle_pct = 100.0*(double)tile_regime( prev_tile, cur_tile, i, FD_METRICS_ENUM_TILE_REGIME_G_IDLE_MASK )/(double)total_ticks;
     double busy_pct = 100.0 - idle_pct - backp_pct;
 
     PRINT( " %s%.1f" U( "%%" ) RESET, sev_color( busy_pct ), busy_pct );
