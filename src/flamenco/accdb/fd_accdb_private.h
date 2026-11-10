@@ -668,4 +668,47 @@ struct fd_accdb_shmem_private {
   ulong magic; /* ==FD_ACCDB_SHMEM_MAGIC */
 };
 
+/* fd_accdb_shmem_cache_alloc_reset empties the cache line allocator: no
+   line used yet, every free list empty, no idle reservation credits.
+   cache_class_max, cache_min_reserved and joiner_cnt_max must be set.
+   If a class has enough lines for every joiner's worst case at once
+   (cache_min_reserved per joiner), no reservation can overflow, and
+   the cache_class_used sentinel ULONG_MAX tells acquire/release to skip
+   the counter. */
+
+static inline void
+fd_accdb_shmem_cache_alloc_reset( fd_accdb_shmem_t * shmem ) {
+  ulong worst = shmem->cache_min_reserved*shmem->joiner_cnt_max;
+  for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) {
+    shmem->clock_hand      [ c ].val = 0UL;
+    shmem->cache_class_init[ c ].val = 0UL;
+    shmem->cache_class_used[ c ].val = fd_ulong_if( shmem->cache_class_max[ c ]>=worst, ULONG_MAX, 0UL );
+    for( ulong w=0UL; w<FD_ACCDB_MAX_JOINERS/64UL; w++ ) {
+      shmem->cache_free_have  [ c ].bits[ w ] = 0UL;
+      shmem->cache_free_hungry[ c ].bits[ w ] = 0UL;
+    }
+  }
+  for( ulong j=0UL; j<FD_ACCDB_MAX_JOINERS; j++ ) {
+    for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) {
+      shmem->cache_free    [ j ].ver_top[ c ] = (ulong)UINT_MAX;
+      shmem->cache_free_cnt[ j ].val    [ c ] = 0UL;
+      shmem->join_cred     [ j ].val    [ c ] = 0UL;
+    }
+  }
+}
+
+FD_PROTOTYPES_BEGIN
+
+/* fd_accdb_set_preevict_interval sets the minimum ticks between this
+   join's background pre-eviction watermark scans (default ~100000; 0
+   scans on every fd_accdb_background call).  For tests: a
+   single-threaded test that calls fd_accdb_background once to refill
+   the free lists sets 0. */
+
+void
+fd_accdb_set_preevict_interval( fd_accdb_t * accdb,
+                                long         ticks );
+
+FD_PROTOTYPES_END
+
 #endif /* HEADER_fd_src_flamenco_accdb_fd_accdb_private_h */

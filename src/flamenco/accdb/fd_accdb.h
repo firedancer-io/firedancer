@@ -45,9 +45,11 @@ struct fd_accdb_entry {
   ulong   _original_size_class;
   ulong   _original_cache_idx;
 
-  struct {
-    ulong destination_cache_idx[ 8UL ];
-  } _write;
+  /* Writable only.  _staging_cache_idx is the 10 MiB line the account
+     is written in.  _final_cache_idx is the line of the account's final
+     size class, taken at release (ULONG_MAX if none). */
+  ulong   _staging_cache_idx;
+  ulong   _final_cache_idx;
 };
 
 typedef struct fd_accdb_entry fd_acc_t;
@@ -710,16 +712,6 @@ void
 fd_accdb_cache_class_thresholds( fd_accdb_t * accdb,
                                  ulong *      free_target,
                                  ulong *      free_low_water );
-
-/* fd_accdb_set_preevict_interval sets the minimum ticks between this
-   join's background pre-eviction watermark scans (default ~100000; 0
-   scans on every fd_accdb_background call).  For tests: a
-   single-threaded test that calls fd_accdb_background once to refill
-   the free lists sets 0. */
-
-void
-fd_accdb_set_preevict_interval( fd_accdb_t * accdb,
-                                long         ticks );
 
 /* FD_ACCDB_METRICS_WRITE publishes the per-joiner accdb runtime metrics
    for tile prefix TILE.  TILE must be a tile that declares the
