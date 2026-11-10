@@ -56,8 +56,10 @@ struct fd_net_router {
 };
 typedef struct fd_net_router fd_net_router_t;
 
-/* fd_net_tx_route_t stores the resolved TX route.  IP addresses are in
-   network byte order. */
+/* fd_net_tx_route_t stores a resolved TX route.  It includes src_ip to fill
+   an unset source address in the original IPv4 header, but no original
+   destination address because packet preparation leaves that field
+   unchanged.  IP addresses are in network byte order. */
 struct fd_net_tx_route {
   uchar  mac_addrs[12];
   ushort mtu;
@@ -90,6 +92,8 @@ struct fd_net_tile {
 
   fd_net_in_dcache_ctx_t in_dcache_ctx[ FD_NET_IN_MAX ];
   uchar                  in_kind[ FD_NET_IN_MAX ];
+
+  fd_net_router_t router;
 
   /* iproute_msg stages route updates between during_frag and after_frag */
   fd_iproute_msg_t iproute_msg;
@@ -130,28 +134,23 @@ typedef struct fd_net_tile fd_net_tile_t;
 
 FD_PROTOTYPES_BEGIN
 
-/* fd_net_tx_route returns 1 on success, 0 on failure.  On success, sets
-   out->src_ip, out->if_idx, and out->mtu.  For GRE, sets out->use_gre and
-   loads out->gre_outer_src_ip and out->gre_outer_dst_ip from the netdev
-   table, leaving MAC resolution to the caller's outer route lookup.
-   Otherwise, clears out->use_gre and sets out->mac_addrs.  On failure,
-   out->routing_failure indicates kernel socket fallback, and out->src_ip
-   is the bind address, route's preferred source or default address, in
-   that order. */
+/* fd_net_tx_route_lookup resolves one destination and returns 1 on
+   success, 0 on failure.  For GRE, returns the tunnel settings without
+   resolving the outer route. */
 static inline int
-fd_net_tx_route( fd_net_router_t *   ctx,
-                 fd_net_tile_t *     net,
-                 uint                dst_ip,
-                 fd_net_tx_route_t * out ) {
+fd_net_tx_route_lookup( fd_net_tile_t *     net,
+                        uint                dst_ip,
+                        fd_net_tx_route_t * out ) {
 
   if( FD_UNLIKELY( !out ) ) return 0;
   *out = (fd_net_tx_route_t) {0};
+  fd_net_router_t * router = &net->router;
 
   /* Route lookup */
 
   fd_fib4_hop_t hop[2] = {0};
-  hop[0] = fd_fib4_lookup( ctx->fib_local, dst_ip, 0UL );
-  hop[1] = fd_fib4_lookup( ctx->fib_main,  dst_ip, 0UL );
+  hop[0] = fd_fib4_lookup( router->fib_local, dst_ip, 0UL );
+  hop[1] = fd_fib4_lookup( router->fib_main,  dst_ip, 0UL );
   fd_fib4_hop_t const * next_hop = fd_fib4_hop_or( hop+0, hop+1 );
 
   uint rtype   = next_hop->rtype;
@@ -159,7 +158,7 @@ fd_net_tx_route( fd_net_router_t *   ctx,
   uint ip4_src = fd_uint_if( !!net->bind_address, net->bind_address, next_hop->ip4_src );
   /* if the provider uses a socket fallback it'll need the src ip.
      Success paths below overwrite it. */
-  out->src_ip  = fd_uint_if( !ip4_src, ctx->default_address, ip4_src );
+  out->src_ip  = fd_uint_if( !ip4_src, router->default_address, ip4_src );
 
   if( FD_UNLIKELY( rtype==FD_FIB4_RTYPE_LOCAL ) ) {
     rtype  = FD_FIB4_RTYPE_UNICAST;
@@ -175,7 +174,7 @@ fd_net_tx_route( fd_net_router_t *   ctx,
     return 0;
   }
 
-  fd_netdev_t * netdev = fd_netdev_tbl_query( &ctx->netdev_tbl, if_idx );
+  fd_netdev_t * netdev = fd_netdev_tbl_query( &router->netdev_tbl, if_idx );
   if( !netdev ) {
     net->metrics.tx_slow_path_reason_cnt[ FD_METRICS_ENUM_PKT_TX_SLOW_PATH_REASON_V_INTERFACE_MISSING_IDX ]++;
     out->routing_failure = 1;
@@ -209,7 +208,7 @@ fd_net_tx_route( fd_net_router_t *   ctx,
     return 0;
   }
 
-  if( FD_UNLIKELY( if_idx!=ctx->if_virt ) ) {
+  if( FD_UNLIKELY( if_idx!=router->if_virt ) ) {
     net->metrics.tx_slow_path_reason_cnt[ FD_METRICS_ENUM_PKT_TX_SLOW_PATH_REASON_V_UNSUPPORTED_INTERFACE_IDX ]++;
     out->routing_failure = 1;
     return 0;
@@ -220,11 +219,11 @@ fd_net_tx_route( fd_net_router_t *   ctx,
   if( !neigh_ip ) neigh_ip = dst_ip;
 
   fd_neigh4_entry_t neigh[1];
-  int neigh_res = fd_neigh4_hmap_query_entry( ctx->neigh4, neigh_ip, neigh );
+  int neigh_res = fd_neigh4_hmap_query_entry( router->neigh4, neigh_ip, neigh );
   if( FD_UNLIKELY( neigh_res!=FD_MAP_SUCCESS ) ) {
     /* Neighbor not found */
-    ctx->solicit_ip     = neigh_ip;
-    ctx->solicit_if_idx = if_idx;
+    router->solicit_ip     = neigh_ip;
+    router->solicit_if_idx = if_idx;
     net->metrics.tx_slow_path_reason_cnt[ FD_METRICS_ENUM_PKT_TX_SLOW_PATH_REASON_V_NO_NEIGHBOR_IDX ]++;
     out->routing_failure = 1;
     return 0;
@@ -234,7 +233,7 @@ fd_net_tx_route( fd_net_router_t *   ctx,
     out->routing_failure = 1;
     return 0;
   }
-  ip4_src = fd_uint_if( !ip4_src, ctx->default_address, ip4_src );
+  ip4_src = fd_uint_if( !ip4_src, router->default_address, ip4_src );
   out->src_ip = ip4_src;
   memcpy( out->mac_addrs+0, neigh->mac_addr,  6 );
   memcpy( out->mac_addrs+6, netdev->mac_addr, 6 );
@@ -242,13 +241,42 @@ fd_net_tx_route( fd_net_router_t *   ctx,
   return 1;
 }
 
-static inline void
-fd_net_router_solicit( fd_net_router_t *   ctx,
-                       fd_stem_context_t * stem ) {
-  if( FD_LIKELY( !ctx->solicit_ip ) ) return;
+/* fd_net_tx_route resolves dst_ip into out, including the remote endpoint
+   for GRE tunnels.  src_ip remains the inner source IP, while if_idx, mtu,
+   and mac_addrs come from the outer route.  Rejects GRE or loopback outer
+   routes.  Returns 1 on success, 0 on failure.  If kernel socket fallback
+   is allowed, sets routing_failure and retains the source and tunnel
+   addresses needed to prepare the packet. */
+static inline int
+fd_net_tx_route( fd_net_tile_t *     net,
+                 uint                dst_ip,
+                 fd_net_tx_route_t * out ) {
+  if( FD_UNLIKELY( !fd_net_tx_route_lookup( net, dst_ip, out ) ) ) return 0;
+  if( FD_LIKELY( !out->use_gre ) ) return 1;
 
-  fd_stem_publish( stem, ctx->netlnk_out_idx, fd_netlink_neigh4_solicit_sig( ctx->solicit_ip, ctx->solicit_if_idx ), 0UL, 0UL, 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
-  ctx->solicit_ip = 0U;
+  fd_net_tx_route_t outer_route;
+  if( FD_UNLIKELY( !fd_net_tx_route_lookup( net, out->gre_outer_dst_ip, &outer_route ) &&
+                   !outer_route.routing_failure ) ) return 0;
+  if( FD_UNLIKELY( outer_route.use_gre || outer_route.use_loopback ) ) {
+    net->metrics.tx_drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_GRE_NO_ROUTE_IDX ]++;
+    return 0;
+  }
+
+  memcpy( out->mac_addrs, outer_route.mac_addrs, sizeof(out->mac_addrs) );
+  out->mtu              = outer_route.mtu;
+  out->if_idx           = outer_route.if_idx;
+  out->gre_outer_src_ip = fd_uint_if( !out->gre_outer_src_ip, outer_route.src_ip, out->gre_outer_src_ip );
+  out->routing_failure = outer_route.routing_failure;
+  return !out->routing_failure;
+}
+
+static inline void
+fd_net_router_solicit( fd_net_router_t *   router,
+                       fd_stem_context_t * stem ) {
+  if( FD_LIKELY( !router->solicit_ip ) ) return;
+
+  fd_stem_publish( stem, router->netlnk_out_idx, fd_netlink_neigh4_solicit_sig( router->solicit_ip, router->solicit_if_idx ), 0UL, 0UL, 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+  router->solicit_ip = 0U;
 }
 
 /* fd_net_gre_tunnels_refresh fills ctx->gre_tunnel_ip with the IP
