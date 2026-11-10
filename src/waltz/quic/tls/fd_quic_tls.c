@@ -369,6 +369,7 @@ fd_quic_tls_secrets( void const * handshake,
   memcpy( secret.write_secret, send_secret, 32UL );
 
   hs->quic_tls->secret_cb( hs, hs->context, &secret );
+  fd_memzero_explicit( &secret, sizeof(secret) );
 }
 
 fd_quic_tls_hs_data_t *

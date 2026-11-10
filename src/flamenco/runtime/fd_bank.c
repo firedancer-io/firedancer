@@ -588,7 +588,6 @@ fd_bank_apply_deltas( fd_banks_t *                         banks,
   fd_stake_delegations_advance_root( bank->f.epoch,
                                      stake_history,
                                      &bank->f.warmup_cooldown_rate_epoch,
-                                     FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ),
                                      0,
                                      stake_delegations,
                                      bank->stake_delegations_fork_id,
@@ -622,7 +621,6 @@ fd_banks_advance_root( fd_banks_t *               banks,
   ulong                    stake_delegations_prunes = 0UL;
   if( FD_UNLIKELY( old_root->f.epoch!=new_root->f.epoch && FD_FEATURE_ACTIVE_BANK( new_root, remove_inactive_stakes ) ) ) {
     stake_delegations_prunes = fd_stake_delegations_prune_inactive_root( stake_delegations, new_root->f.epoch, stake_history, &new_root->f.warmup_cooldown_rate_epoch,
-                                                                         FD_FEATURE_ACTIVE_BANK( new_root, upgrade_bpf_stake_program_to_v5_1 ),
                                                                          banks->report_runtime_diffs ? new_root : NULL );
   }
 

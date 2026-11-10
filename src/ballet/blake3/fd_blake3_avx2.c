@@ -160,7 +160,7 @@ fd_blake3_avx_compress8( ulong                   batch_cnt,
 
   ulong const * batch_data = (ulong const *)_batch_data;
 
-  if( FD_UNLIKELY( batch_cnt==1 ) ) {
+  if( FD_UNLIKELY( batch_cnt==1 && out_sz==32U && !batch_cv ) ) {
     fd_blake3_sse_compress1( (uchar *)(_batch_hash[0]),
                              (uchar const *)(batch_data[0]),
                              batch_sz[0],

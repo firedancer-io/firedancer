@@ -17,6 +17,7 @@
 #include "generated/block.pb.h"
 #include "../../capture/fd_capture_ctx.h"
 #include "../../capture/fd_solcap_writer.h"
+#include <stdlib.h>
 
 /* Templatized leader schedule sort helper functions */
 typedef struct {
@@ -51,7 +52,7 @@ fd_solfuzz_block_update_prev_epoch_stakes( fd_vote_stakes_t *                 vo
                                            ushort                             vote_stakes_fork_id,
                                            int                                use_t_1,
                                            fd_exec_test_prev_vote_account_t * vote_accounts,
-                                           pb_size_t                          vote_accounts_cnt ) {
+                                           uint                          vote_accounts_cnt ) {
   if( FD_UNLIKELY( !vote_accounts ) ) return;
 
   for( uint i=0U; i<vote_accounts_cnt; i++ ) {
@@ -307,7 +308,7 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
   if( FD_UNLIKELY( !fd_sysvar_stake_history_read( accdb, bank->accdb_fork_id, stake_history_data, stake_history ) ) ) {
     FD_LOG_ERR(( "StakeHistory sysvar missing or invalid" ));
   }
-  fd_stake_delegations_refresh( stake_delegations, bank->f.epoch, stake_history, &bank->f.warmup_cooldown_rate_epoch, FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ), FD_FEATURE_ACTIVE_BANK( bank, remove_inactive_stakes ) );
+  fd_stake_delegations_refresh( stake_delegations, bank->f.epoch, stake_history, &bank->f.warmup_cooldown_rate_epoch, FD_FEATURE_ACTIVE_BANK( bank, remove_inactive_stakes ) );
 
   ulong chain_cnt = fd_vote_rewards_map_chain_cnt_est( runtime_stack->max_vote_accounts );
   FD_TEST( fd_vote_rewards_map_join( fd_vote_rewards_map_new( runtime_stack->stakes.vote_map, chain_cnt, 999 ) ) );
@@ -583,14 +584,12 @@ fd_solfuzz_pb_collect_stake_delegations( fd_solfuzz_runner_t *             runne
   fd_stake_history_t   stake_history_[1];
   fd_stake_history_t * stake_history = fd_sysvar_stake_history_read( runner->accdb, bank->accdb_fork_id, stake_history_data, stake_history_ );
   ulong * warmup_cooldown_rate_epoch = &bank->f.warmup_cooldown_rate_epoch;
-  int     use_fixed_point            = FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 );
 
   fd_stake_delegations_t * stake_delegations = fd_bank_stake_delegations_modify( bank );
   fd_stake_delegations_view_begin( stake_delegations,
                                    bank->f.epoch,
                                    stake_history,
                                    warmup_cooldown_rate_epoch,
-                                   use_fixed_point,
                                    bank->stake_delegations_fork_id );
 
   ulong cnt = 0UL;
@@ -611,7 +610,7 @@ fd_solfuzz_pb_collect_stake_delegations( fd_solfuzz_runner_t *             runne
     o->data_len           = d->acc_dlen;
   }
 
-  fd_stake_delegations_view_end( stake_delegations, stake_history, warmup_cooldown_rate_epoch, use_fixed_point );
+  fd_stake_delegations_view_end( stake_delegations, stake_history, warmup_cooldown_rate_epoch );
 
   sort_stake_delegation_inplace( out, cnt );
   return cnt;
@@ -675,7 +674,7 @@ fd_solfuzz_pb_block_run( fd_solfuzz_runner_t * runner,
       ulong cnt = fd_solfuzz_pb_collect_stake_delegations( runner, out, (output_end-_l)/sizeof(fd_exec_test_stake_delegation_t) );
       FD_SCRATCH_ALLOC_APPEND( l, 1UL, cnt*sizeof(fd_exec_test_stake_delegation_t) );
       effects->stake_delegations       = out;
-      effects->stake_delegations_count = (pb_size_t)cnt;
+      effects->stake_delegations_count = (uint)cnt;
     }
 
     ulong actual_end = FD_SCRATCH_ALLOC_FINI( l, 1UL );

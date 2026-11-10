@@ -1,5 +1,6 @@
 FD_HAS_MSAN:=1
 CPPFLAGS+=-DFD_HAS_MSAN=1
+CPPFLAGS+=-U_FORTIFY_SOURCE
 
 CPPFLAGS+=-fsanitize=memory
 #CPPFLAGS+=-fsanitize-memory-track-origins

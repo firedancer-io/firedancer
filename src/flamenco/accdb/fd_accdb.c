@@ -404,6 +404,7 @@ fd_accdb_new( void *              ljoin,
   return accdb;
 }
 
+static void delta_reset( fd_accdb_t * accdb );
 static inline void wait_cmd( fd_accdb_t * accdb );
 static inline void submit_cmd( fd_accdb_t * accdb, uint op, ushort fork_id );
 
@@ -424,6 +425,8 @@ fd_accdb_reset( fd_accdb_t * accdb ) {
   txn_pool_reset( accdb->txn_pool );
   fork_pool_reset( accdb->fork_shmem_pool );
   partition_pool_reset( accdb->partition_pool );
+
+  delta_reset( accdb );
 
   /* Clear hash chains */
   fd_memset( accdb->acc_map, 0xFF, shmem->chain_cnt*sizeof(uint) );

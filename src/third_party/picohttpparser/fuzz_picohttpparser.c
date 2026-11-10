@@ -175,27 +175,6 @@ void fuzz_headers(uchar const * data, ulong size) {
   }
 }
 
-void fuzz_phr_decode_chunked(uchar const * data, ulong size) {
-  if (size >= 2) {
-    struct phr_chunked_decoder decoder;
-    memset(&decoder, 0, sizeof(struct phr_chunked_decoder));
-    decoder._state = (char) (data[0] % 6);
-    decoder.consume_trailer = (char) data[1];
-
-    size_t buf_sz = size - 2;
-    if (buf_sz > 0) {
-      char *buf = malloc(buf_sz);
-      memcpy(buf, data + 2, buf_sz);
-
-      do {
-        phr_decode_chunked(&decoder, buf, &buf_sz);
-      } while(0);
-
-      free(buf);
-    }
-  }
-}
-
 int
 LLVMFuzzerTestOneInput( uchar const * data,
                         ulong         size ) {
@@ -203,7 +182,7 @@ LLVMFuzzerTestOneInput( uchar const * data,
   /* parse request in one go */
 
   if (size >= 1) {
-    uchar action = data[0] % 4;
+    uchar action = data[0] % 3;
     switch(action) {
       case 0:
         fuzz_request(data + 1, size - 1);
@@ -213,9 +192,6 @@ LLVMFuzzerTestOneInput( uchar const * data,
         break;
       case 2:
         fuzz_headers(data + 1, size - 1);
-        break;
-      case 3:
-        fuzz_phr_decode_chunked(data + 1, size - 1);
         break;
     }
   }

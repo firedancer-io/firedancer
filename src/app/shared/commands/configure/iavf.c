@@ -626,7 +626,7 @@ iavf_pf_ntuple_drops_install( char const *        pf_if,
   if( 0==capacity || capacity>65536U ) {
     FD_LOG_ERR(( "PF %s reports an unsupported ntuple rule capacity of %u", pf_if, capacity ));
   }
-  ushort ports[ 32 ];
+  ushort ports[ FD_NET_RX_DEST_CNT ];
   uint port_cnt = configure_udp_ports( config, ports );
   if( port_cnt>capacity ) {
     FD_LOG_ERR(( "PF %s has space for %u ntuple rules but IAVF requires %u UDP drop rules", pf_if, capacity, port_cnt ));
@@ -721,7 +721,7 @@ iavf_pf_config_check( fd_config_t const * config,
     }
     NOT_CONFIGURED( "PF %s has %u VFs and no ntuple rules to remove", pf_if, numvfs );
   }
-  ushort ports[ 32 ];
+  ushort ports[ FD_NET_RX_DEST_CNT ];
   uint port_cnt = configure_udp_ports( config, ports );
   if( 0==count.rule_cnt && 0!=port_cnt ) {
     fd_ethtool_ioctl_fini( &ioc );

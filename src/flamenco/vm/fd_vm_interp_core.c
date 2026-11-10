@@ -115,7 +115,6 @@
 
    Execution.
    Do the syscall. The return value is placed into vm->reg[0].
-   At this point, vm->cu is positive.
 
    Error handling.
    If we trust syscall implementations to handle the vm state
@@ -142,11 +141,10 @@
    - A syscall that returns SIGCOST is always treated as though
      it also zerod cu.
 
-   At this point, vm->cu is whatever the syscall tried to set
-   and cu is positive.
+   At this point, vm->cu is whatever the syscall tried to set.
 
    Exit
-   At this point, cu is positive and err is clear.
+   At this point, err is clear.
 */
 
 # define FD_VM_INTERP_SYSCALL_EXEC_DUMP                                       \
@@ -973,7 +971,7 @@ interp_exec:
     reg[ dst ] = (ulong)(long)(int)reg_src;
   FD_VM_INTERP_INSTR_END;
 
-  FD_VM_INTERP_INSTR_BEGIN(0xbcdepr) /* FD_SBPF_OP_MOV_REG deprecated SIMD-1074 */
+  FD_VM_INTERP_INSTR_BEGIN(0xbcdepr) /* FD_SBPF_OP_MOV_REG deprecated SIMD-0174 */
     reg[ dst ] = (ulong)(uint)reg_src;
   FD_VM_INTERP_INSTR_END;
 

@@ -64,7 +64,7 @@ FD_PROTOTYPES_BEGIN
    less than 32 bytes of space is remaining, even if the field would
    still fit). */
 
-static FD_FN_UNUSED fd_pb_encoder_t *
+static inline fd_pb_encoder_t *
 fd_pb_encoder_init( fd_pb_encoder_t * encoder,
                     uchar *           out,
                     ulong             out_sz ) {
@@ -75,12 +75,9 @@ fd_pb_encoder_init( fd_pb_encoder_t * encoder,
   return encoder;
 }
 
-/* fd_pb_encoder_fini destroys a Protobuf encoder.  This is mostly
-   provided for code cosmetics (does not do any work), since
-   fd_pb_encoder ensures that the output buffer contains a valid
-   Protobuf message after every topmost-level write. */
+/* fd_pb_encoder_fini clears the encoder state. */
 
-static FD_FN_UNUSED void *
+static inline void *
 fd_pb_encoder_fini( fd_pb_encoder_t * encoder ) {
   encoder->buf0  = NULL;
   encoder->buf1  = NULL;
@@ -93,7 +90,8 @@ fd_pb_encoder_fini( fd_pb_encoder_t * encoder ) {
    output.  There is a valid serialized Protobuf message behind this
    pointer when the following conditions are true:
    - At least one field was fully written at the topmost message
-   - No write is currently inflight (submessage, length-prefixed, etc) */
+   - No write is currently inflight (submessage, length-prefixed, etc)
+   - No write failed */
 
 static inline uchar *
 fd_pb_encoder_out( fd_pb_encoder_t * encoder ) {
@@ -199,7 +197,8 @@ fd_pb_submsg_close( fd_pb_encoder_t * encoder ) {
    defined in the schema.  value depends on the message type.  Note that
    the provided type MUST match the schema (e.g. encoding uint32 where
    the schema says sint32 would result in memory corruption).  Returns
-   encoder on success, or NULL on failure (out of space).
+   encoder on success, or NULL on failure (out of space).  On any write
+   failure, discard the entire message.
 
    fd_pb_push_bool adds a boolean field.  value==0 implies false,
    otherwise implies true.
@@ -364,7 +363,6 @@ fd_pb_push_float( fd_pb_encoder_t * encoder,
   return fd_pb_push_fixed32( encoder, field_id, cast.u );
 }
 
-#if FD_HAS_DOUBLE
 static inline fd_pb_encoder_t *
 fd_pb_push_double( fd_pb_encoder_t * encoder,
                    uint              field_id,
@@ -373,7 +371,6 @@ fd_pb_push_double( fd_pb_encoder_t * encoder,
   cast.d = value;
   return fd_pb_push_fixed64( encoder, field_id, cast.v );
 }
-#endif
 
 static inline fd_pb_encoder_t *
 fd_pb_push_bytes( fd_pb_encoder_t * encoder,
@@ -472,6 +469,8 @@ FD_PB_PUSH_PACKED( sint64,  long  )
       return NULL;                                                        \
     }                                                                     \
     uint  tag     = fd_pb_tag( FD_PB_WIRE_TYPE_LEN, field_id );           \
+    if( FD_UNLIKELY( cnt>fd_pb_encoder_space( encoder ) /                 \
+                         fd_pb_##type##_sz_max ) ) return NULL;           \
     ulong data_sz = cnt*fd_pb_##type##_sz_max;                            \
     encoder->cur  = fd_pb_append_uint32 ( encoder->cur, tag      );       \
     encoder->cur  = fd_pb_append_uint64 ( encoder->cur, data_sz );        \
@@ -497,7 +496,6 @@ fd_pb_push_packed_float( fd_pb_encoder_t * encoder,
   return fd_pb_push_packed_fixed32( encoder, field_id, fd_type_pun_const( value ), cnt );
 }
 
-#if FD_HAS_DOUBLE
 static inline fd_pb_encoder_t *
 fd_pb_push_packed_double( fd_pb_encoder_t * encoder,
                           uint              field_id,
@@ -505,7 +503,6 @@ fd_pb_push_packed_double( fd_pb_encoder_t * encoder,
                           ulong             cnt ) {
   return fd_pb_push_packed_fixed64( encoder, field_id, fd_type_pun_const( value ), cnt );
 }
-#endif
 
 FD_PROTOTYPES_END
 

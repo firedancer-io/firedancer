@@ -490,7 +490,7 @@ fuzz_start_request( uchar arg0,
   char const * path = paths[ arg0 & 3u ];
   int streaming = !!( arg1 & 1u );
   fd_grpc_h2_stream_t * stream =
-    fd_grpc_client_request_start1( g_client,
+    fd_grpc_client_request_start( g_client,
                                    path,
                                    strlen( path ),
                                    (ulong)raw,

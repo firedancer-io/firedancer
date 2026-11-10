@@ -110,7 +110,6 @@ fd_bls_pub_add_many( fd_bls_pub_t *               out,
     if( FD_LIKELY( !fd_bls_pub_is_inf( pubs[ i ] ) ) ) finite[ finite_cnt++ ] = pubs[ i ];
   if( FD_UNLIKELY( !finite_cnt ) ) { fd_memset( out, 0, sizeof(fd_bls_pub_t) ); return; }
 
-  /* blst_p1s_to_affine cannot normalize infinity safely. */
   blst_p1_affine         affine    [ FD_BLS_SET_MAX ];
   blst_p1_affine const * affine_ptr[ FD_BLS_SET_MAX ];
   blst_p1s_to_affine( affine, finite, finite_cnt );
@@ -243,8 +242,6 @@ fd_bls_sig_add_many( fd_bls_sig_t *               out,
     if( FD_LIKELY( !fd_bls_sig_is_inf( sigs[ i ] ) ) ) finite[ finite_cnt++ ] = sigs[ i ];
   if( FD_UNLIKELY( !finite_cnt ) ) { fd_memset( out, 0, sizeof(fd_bls_sig_t) ); return; }
 
-  /* blst_p2s_to_affine cannot normalize infinity safely.  Filtering it
-     here does not remove the corresponding rank from an aggregate set. */
   blst_p2_affine         affine    [ FD_BLS_SET_MAX ];
   blst_p2_affine const * affine_ptr[ FD_BLS_SET_MAX ];
   blst_p2s_to_affine( affine, finite, finite_cnt );

@@ -250,7 +250,7 @@ FD_STATIC_ASSERT( sizeof (fd_accdb_accmeta_t)==64, layout );
    The on-disk fd_accdb_disk_meta_t.size is only the raw data length,
    written via FD_ACCDB_SIZE_DATA.  It includes neither the executable
    bit nor the cache/PD flags.  Compaction preserves these record
-   headers verbatim with copy_file_range. */
+   headers verbatim. */
 
 #define FD_ACCDB_SIZE_EXEC_BIT        (1U<<31)
 #define FD_ACCDB_SIZE_CACHE_VALID_BIT (1U<<30)
@@ -431,10 +431,10 @@ struct fd_accdb_shmem_private {
   ulong seed;
 
   /* generation is a monotonically increasing counter assigned to each
-     fork on creation.  When a fork is rooted, its pool slot (fork_id)
-     is freed and may be recycled by a new fork, making fork_id in
-     on-disk metadata useless for identifying entries from that freed
-     fork.  But generation persists in disk metadata and is never
+     fork on creation.  When the root advances past a fork, its pool
+     slot (fork_id) is retired and may be recycled by a new fork, making
+     on-disk fork_id values useless for identifying entries from that
+     retired fork.  But generation persists in disk metadata and is never
      recycled.
 
      Any rooted fork is by definition an ancestor of all live forks, so

@@ -587,6 +587,48 @@ test_blacklist_peer_readd_blocked( fd_ssping_t * ssping ) {
   free( scratch );
 }
 
+/* A server the operator listed is removed from the selector when a
+   download from it fails, but it is not blacklisted and not banned in
+   ssping, so the resolver can offer it again. */
+
+static void
+test_blacklist_server_not_banned( fd_ssping_t * ssping ) {
+  void * scratch = aligned_alloc( scratch_align(), scratch_footprint( NULL ) ); FD_TEST( scratch );
+
+  fd_snapct_tile_t * ctx;
+  setup_blacklist_snapct( scratch, ssping, TOTAL_PEERS_MAX, &ctx );
+
+  fd_ip4_port_t   addr = test_addr( 0x16171819, 8899 );
+  fd_sspeer_key_t key  = { .is_url = 1 };
+  strncpy( key.url.hostname, "snapshots.example.org", sizeof(key.url.hostname)-1UL );
+  key.url.resolved_addr = addr;
+
+  fd_ssping_add( ctx->ssping, addr );
+  fd_sspeer_selector_add( ctx->selector, &key, addr, 5000UL, 100UL, 200UL, NULL, NULL );
+  fd_sspeer_selector_process_cluster_slot( ctx->selector );
+
+  ctx->peer.addr = addr;
+  ctx->peer.key  = key;
+  blacklist_peer( ctx );
+
+  /* Removed from the selector, but not blacklisted and not banned. */
+  FD_TEST( fd_sspeer_selector_peer_map_by_key_ele_cnt( ctx->selector )==0UL );
+  FD_TEST( blacklist_pool_used( ctx->blacklist_pool )==0UL );
+  FD_TEST( !fd_ssping_is_invalidated( ctx->ssping, addr ) );
+
+  /* The resolver's next check adds it back. */
+  on_resolve( ctx, &key, addr, 100UL, 200UL, NULL, NULL );
+  FD_TEST( fd_sspeer_selector_peer_map_by_key_ele_cnt( ctx->selector )==1UL );
+  fd_sspeer_t best = fd_sspeer_selector_best( ctx->selector, 0, FD_SSPEER_SLOT_UNKNOWN, 0UL );
+  FD_TEST( best.addr.l==addr.l );
+
+  fd_sspeer_selector_remove( ctx->selector, &key );
+  fd_sspeer_selector_process_cluster_slot( ctx->selector );
+  fd_ssping_remove( ctx->ssping, addr );
+
+  free( scratch );
+}
+
 static void
 test_blacklist_pool_exhaustion( fd_ssping_t * ssping ) {
   void * scratch = aligned_alloc( scratch_align(), scratch_footprint( NULL ) ); FD_TEST( scratch );
@@ -1775,6 +1817,7 @@ main( int     argc,
   test_blacklist_peer_dedup( ssping );
   test_blacklist_peer_cluster_slot_regression( ssping );
   test_blacklist_peer_readd_blocked( ssping );
+  test_blacklist_server_not_banned( ssping );
   test_blacklist_pool_exhaustion( ssping );
   test_predict_incremental_wfs_gate( ssping );
   test_log_download_peer_churn( ssping );

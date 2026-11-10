@@ -737,10 +737,10 @@ struct fd_gui_epoch {
   ushort vote_count   [ MAX_SLOTS_PER_EPOCH ]; /* Alpenglow: distinct signers of the reward certs carried by this (cert) slot, USHORT_MAX if unknown */
 
   fd_epoch_schedule_t epoch_schedule;    /* slot<->epoch conversion (fd_slot_to_epoch) */
-  ulong               pub_cnt;           /* number of deduped leader pubkeys in pub[] */
+  ulong               pub_cnt;           /* number of leader pubkeys in pub[] */
   ulong               stakes_cnt;        /* number of entries in stakes[] */
   uint                sched[ FD_GUI_EPOCH_SCHED_CNT ]; /* rotation -> index into pub[] */
-  fd_pubkey_t         pub[ FD_GUI_EPOCH_PUB_CNT ];     /* deduped leaders */
+  fd_pubkey_t         pub[ FD_GUI_EPOCH_PUB_CNT ];     /* leaders, one per vote account */
   fd_vote_stake_weight_t stakes[ MAX_STAKE_WEIGHTS ];
 };
 

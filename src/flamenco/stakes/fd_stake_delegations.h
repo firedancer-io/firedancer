@@ -383,7 +383,6 @@ fd_stake_delegations_prune_inactive_root( fd_stake_delegations_t *   stake_deleg
                                           ulong                      epoch,
                                           fd_stake_history_t const * stake_history,
                                           ulong *                    warmup_cooldown_rate_epoch,
-                                          int                        use_fixed_point_stake_math,
                                           fd_bank_t const *          emit_bank );
 
 /* fd_stake_delegations_refresh finalizes the root after a snapshot or
@@ -398,7 +397,6 @@ fd_stake_delegations_refresh( fd_stake_delegations_t *   stake_delegations,
                               ulong                      epoch,
                               fd_stake_history_t const * stake_history,
                               ulong *                    warmup_cooldown_rate_epoch,
-                              int                        use_fixed_point_stake_math,
                               int                        remove_inactive_stakes );
 
 /* fd_stake_delegations_vote_account_status sums the root activation
@@ -411,8 +409,7 @@ fd_stake_delegations_vote_account_status( fd_stake_delegations_t *   stake_deleg
                                           fd_pubkey_t const *        vote_account,
                                           ulong                      epoch,
                                           fd_stake_history_t const * stake_history,
-                                          ulong *                    warmup_cooldown_rate_epoch,
-                                          int                        use_fixed_point_stake_math );
+                                          ulong *                    warmup_cooldown_rate_epoch );
 
 /* fd_stake_delegations_new_fork allocates a child of parent_fork_idx.
    USHORT_MAX indicates that the parent is the root. */
@@ -493,7 +490,6 @@ void
 fd_stake_delegations_advance_root( ulong                                epoch,
                                    fd_stake_history_t const *           stake_history,
                                    ulong *                              warmup_cooldown_rate_epoch,
-                                   int                                  use_fixed_point_stake_math,
                                    int                                  skip_stake_math,
                                    fd_stake_delegations_t *             stake_delegations,
                                    ushort                               fork_idx,
@@ -516,14 +512,12 @@ fd_stake_delegations_view_begin( fd_stake_delegations_t *   stake_delegations,
                                  ulong                      epoch,
                                  fd_stake_history_t const * stake_history,
                                  ulong *                    warmup_cooldown_rate_epoch,
-                                 int                        use_fixed_point_stake_math,
                                  ushort                     fork_idx );
 
 void
 fd_stake_delegations_view_end( fd_stake_delegations_t *   stake_delegations,
                                fd_stake_history_t const * stake_history,
-                               ulong *                    warmup_cooldown_rate_epoch,
-                               int                        use_fixed_point_stake_math );
+                               ulong *                    warmup_cooldown_rate_epoch );
 
 /* Iterator API for stake delegations.  The iterator is initialized with
    a call to fd_stake_delegations_iter_init.  The caller is responsible
@@ -582,18 +576,6 @@ static inline int
 fd_stake_delegations_iter_done( fd_stake_delegations_iter_t * iter ) {
   return !iter->ele;
 }
-
-/* Invalidates WARMED tags in the in-memory and disk roots, skipping the
-   scan if no tag was awarded under floating point math.  Use this when
-   upgrade_bpf_stake_program_to_v5_1 is active.  The next scan
-   reevaluates each formerly WARMED delegation.
-
-   Unlike the other mutators, this one does not take the write lock
-   itself: its only callers run inside the boundary's
-   view_begin/iterate/view_end bracket, which already holds it. */
-
-void
-fd_stake_delegations_invalidate_warmed( fd_stake_delegations_t * stake_delegations );
 
 FD_PROTOTYPES_END
 

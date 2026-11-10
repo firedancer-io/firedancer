@@ -951,7 +951,7 @@ fd_tls_handle_cert_verify( fd_tls_estate_base_t *    hs,
 
   /* Verify signature *************************************************/
 
-  /* Export transcript hash ClientHello..server Certificate
+  /* Export transcript hash ClientHello..peer Certificate
      And recover message that was signed */
 
   uchar sign_msg[ FD_TLS_CV_SIGN_SZ ];
@@ -1158,7 +1158,7 @@ fd_tls_server_hs_wait_finished( fd_tls_t const *      server,
     if( FD_UNLIKELY( fd_tls_u24_to_uint( msg_hdr.sz ) != sizeof(fd_tls_finished_t) ) )
       return fd_tls_alert( &handshake->base, FD_TLS_ALERT_DECODE_ERROR, FD_TLS_REASON_FINI_PARSE );
 
-    /* Decode server Finished */
+    /* Decode client Finished */
 
     decode_res = fd_tls_decode_finished( &finished, wire, (ulong)(wire_end-wire) );
     if( FD_UNLIKELY( decode_res<0L ) )
@@ -1666,7 +1666,14 @@ fd_tls_client_handle_cert_chain( fd_tls_t const *      const client,
     hs->cert_verify_err = (uchar)verify_err;
     if( FD_UNLIKELY( verify_err ) ) {
       FD_LOG_WARNING(( "certificate verification failed (%i) for %s", verify_err, client->server_name ));
-      return fd_tls_alert( &hs->base, FD_TLS_ALERT_BAD_CERTIFICATE, FD_TLS_REASON_CERT_VERIFY );
+      uchar alert = FD_TLS_ALERT_BAD_CERTIFICATE;
+      switch( verify_err ) {
+      case FD_X509_VERIFY_ERR_NOT_YET_VALID:
+      case FD_X509_VERIFY_ERR_EXPIRED:         alert = FD_TLS_ALERT_CERTIFICATE_EXPIRED;     break;
+      case FD_X509_VERIFY_ERR_NO_TRUST_ANCHOR: alert = FD_TLS_ALERT_UNKNOWN_CA;              break;
+      case FD_X509_VERIFY_ERR_UNSUPPORTED:    alert = FD_TLS_ALERT_UNSUPPORTED_CERTIFICATE; break;
+      }
+      return fd_tls_alert( &hs->base, alert, FD_TLS_REASON_CERT_VERIFY );
     }
   }
 

@@ -29,10 +29,7 @@
 #define IN_KIND_SIGN         (3UL)
 #define IN_KIND_REPLAY       (4UL)
 
-/* Pace microblocks, but only slightly.  This helps keep performance
-   more stable.  This limit is 2,000 microblocks/second/execle.  At
-   MAX_TXN_PER_MICROBLOCK transactions/microblock, that's
-   2000*MAX_TXN_PER_MICROBLOCK txn/sec/execle. */
+/* Minimum time between microblocks per execle.  Zero disables pacing. */
 #define MICROBLOCK_DURATION_NS  (0L)
 
 /* There are 151 accepted blockhashes.  The execle tile does the final
@@ -1205,24 +1202,9 @@ after_frag( fd_pack_ctx_t *     ctx,
     long now_ticks = fd_tickcount();
     long now_ns    = fd_log_wallclock();
 
-    if( FD_UNLIKELY( ctx->leader_slot!=ULONG_MAX ) ) {
-      fd_done_packing_t * done_packing = fd_chunk_to_laddr( ctx->poh_out.mem, ctx->poh_out.chunk );
-      get_done_packing( ctx, done_packing, FD_PACK_END_SLOT_REASON_ABANDONED );
-      log_end_block_metrics( ctx, now_ticks, "switch", done_packing->limits_usage->block_cost );
-      fd_pack_end_block( ctx->pack );
-      fd_pack_get_top_writers( ctx->pack, done_packing->limits_usage->top_writers );
-
-      metrics_write( ctx ); /* final for the slot before poh ends it */
-      fd_stem_publish( stem, ctx->poh_out.out_idx, fd_disco_execle_sig( ctx->leader_slot, ctx->pack_idx ), ctx->poh_out.chunk, sizeof(fd_done_packing_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
-      ctx->poh_out.chunk = fd_dcache_compact_next( ctx->poh_out.chunk, sizeof(fd_done_packing_t), ctx->poh_out.chunk0, ctx->poh_out.wmark );
-      ctx->pack_idx++;
-
-      FD_LOG_WARNING(( "switching to slot %lu while packing for slot %lu. Draining execle tiles.", leader_slot, ctx->leader_slot ));
-      ctx->drain_execle        = 1;
-      ctx->leader_slot         = ULONG_MAX;
-      ctx->slot_microblock_cnt = 0UL;
-      remove_ib( ctx );
-    }
+    /* Replay sends the next became leader only once the previous leader
+       slot ended, which pack's done packing starts. */
+    if( FD_UNLIKELY( ctx->leader_slot!=ULONG_MAX ) ) FD_LOG_CRIT(( "invariant violation: became leader for slot %lu while packing for slot %lu", leader_slot, ctx->leader_slot ));
     ctx->leader_slot = leader_slot;
     ulong slots_left = 3UL - (leader_slot%4UL);
     long  slot_ns    = (long)( ctx->_became_leader->ticks_per_slot*ctx->_became_leader->tick_duration_ns );
@@ -1647,14 +1629,6 @@ populate_allowed_fds( fd_topo_t const *      topo,
  */
 #define STEM_BURST (2UL)
 
-/* We want lazy (measured in ns) to be small enough that the producer
-    and the consumer never have to wait for credits.  For most tango
-    links, we use a default worst case speed coming from 100 Gbps
-    Ethernet.  That's not very suitable for microblocks that go from
-    pack to bank.  Instead we manually estimate the very aggressive
-    1000ns per microblock, and then reduce it further (in line with the
-    default lazy value computation) to ensure the random value chosen
-    based on this won't lead to credit return stalls. */
 #define STEM_LAZY  (128L*3000L)
 
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_pack_ctx_t

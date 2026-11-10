@@ -142,7 +142,7 @@ fd_solfuzz_pb_shred_run( fd_solfuzz_runner_t * runner,
   effects->block_parse_result = FD_EXEC_TEST_BLOCK_PARSE_RESULT_ACCEPTED;
 
   ulong shred_cnt = (ulong)input->shreds_count;
-  effects->shred_results_count = (pb_size_t)shred_cnt;
+  effects->shred_results_count = (uint)shred_cnt;
   effects->shred_results =
     FD_SCRATCH_ALLOC_APPEND( l, alignof(bool), sizeof(bool)*shred_cnt );
   FD_TEST( _l <= output_end );
@@ -222,7 +222,7 @@ fd_solfuzz_pb_shred_run( fd_solfuzz_runner_t * runner,
      completes. */
   fd_pubkey_t dummy_leader_pubkey = {0};
   for( ulong i=0UL; i<shred_cnt; i++ ) {
-    pb_bytes_array_t const * shred_msg = input->shreds[ i ];
+    fd_pb_bytes_array_t const * shred_msg = input->shreds[ i ];
     FD_TEST( shred_msg );
     FD_TEST( shred_msg->size>=FD_SHRED_MIN_SZ && shred_msg->size<=FD_SHRED_MAX_SZ );
 

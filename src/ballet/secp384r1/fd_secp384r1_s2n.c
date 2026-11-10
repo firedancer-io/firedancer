@@ -89,9 +89,6 @@ fd_secp384r1_fp_frombytes( fd_secp384r1_fp_t * r,
 static inline fd_secp384r1_fp_t *
 fd_secp384r1_fp_sqrt( fd_secp384r1_fp_t *       r,
                       fd_secp384r1_fp_t const * a ) {
-  /* (p+1)/4 bit pattern (382 bits, MSB first):
-     255 ones | 0 | 31 ones | 0 | 63 ones | 1 | 30 zeros */
-
   fd_secp384r1_fp_t _t0[1], _t1[1];
   ulong * t0 = _t0->limbs;
   ulong * t1 = _t1->limbs;

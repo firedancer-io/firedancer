@@ -178,32 +178,28 @@ configure_cmd_fn( args_t *   args,
   if( FD_UNLIKELY( error ) ) FD_LOG_ERR(( "failed to configure some stages" ));
 }
 
-/* FIXME: Centrally define listen port list to avoid this configure
-   stage from going out of sync with port mappings. */
 uint
 configure_udp_ports( fd_config_t const * config,
-                     ushort              ports[ 32 ] ) {
+                     ushort              ports[ FD_NET_RX_DEST_CNT ] ) {
+  ulong net_tile_idx = fd_topo_find_tile( &config->topo, fd_net_tile_name( config->net.provider ), 0UL );
+  if( net_tile_idx==ULONG_MAX ) return 0U;
+
+  fd_net_rx_dest_t rx_dests[ FD_NET_RX_DEST_CNT ];
+  fd_net_rx_dest_list( rx_dests, &config->topo.tiles[ net_tile_idx ].net );
   uint port_cnt = 0U;
-
-#define ADD_PORT( p ) do { \
-  ushort __port = ( p ); \
-  if( FD_UNLIKELY( __port==0U ) ) break; \
-  int __dupe = 0; \
-  for( uint __p=0U; !__dupe && __p<port_cnt; ++__p ) __dupe = (ports[ __p ]==__port); \
-  if( FD_UNLIKELY( __dupe ) ) break; \
-  ports[ port_cnt ] = __port; \
-  port_cnt++; \
-} while(0)
-
-  ADD_PORT( config->tiles.shred.shred_listen_port              );
-  ADD_PORT( config->tiles.quic.quic_transaction_listen_port    );
-  ADD_PORT( config->tiles.quic.regular_transaction_listen_port );
-  ADD_PORT( config->gossip.port                              );
-  ADD_PORT( config->tiles.repair.repair_client_listen_port   );
-  ADD_PORT( config->tiles.rserve.repair_serve_listen_port    );
-  ADD_PORT( config->firedancer.development.votor.quic_client_listen_port );
-  ADD_PORT( config->firedancer.development.votor.quic_server_listen_port );
-#undef ADD_PORT
+  for( ulong i=0UL; i<FD_NET_RX_DEST_CNT; i++ ) {
+    ushort listen_port = rx_dests[ i ].listen_port;
+    if( !listen_port ) continue;
+    int duplicate = 0;
+    for( uint j=0U; j<port_cnt; j++ ) {
+      if( ports[ j ]==listen_port ) {
+        duplicate = 1;
+        break;
+      }
+    }
+    if( duplicate ) continue;
+    ports[ port_cnt++ ] = listen_port;
+  }
 
   return port_cnt;
 }

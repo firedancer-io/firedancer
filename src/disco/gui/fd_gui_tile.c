@@ -323,7 +323,7 @@ before_credit( fd_gui_ctx_t *      ctx,
      a reliable consumer of hot links; unbounded fd work here would
      backpressure replay): EPOLL_CTL_MOD re-polls the inner set
      immediately, so leftover or raced readiness re-fires the outer
-     set and servicing resumes next iteration. */
+     set; servicing resumes when the idle/deadline gate above allows it. */
   if( FD_UNLIKELY( fd_fseq_query( ctx->waker_fseq )==1UL ) ) {
     fd_fseq_update( ctx->waker_fseq, 0UL );
     /* 8 matches a browser's per-host parallel connection budget */

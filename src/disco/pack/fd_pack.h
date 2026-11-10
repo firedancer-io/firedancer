@@ -100,10 +100,7 @@ struct fd_pack_limits {
      transactions in a block.  This includes new accounts and extending
      existing accounts.  This limit is not especially well specified,
      and rarely comes close to being hit in production, so we use a
-     conservative estimate when packing to ensure we never hit it.  It
-     is currently limited to 100 MB, without any features to change it,
-     but we include it here with other limits in case it is change-able
-     in the future. */
+     conservative estimate when packing to ensure we never hit it. */
   ulong max_allocated_data_per_block; /* in [1, 100,000,000 ] */
 };
 typedef struct fd_pack_limits fd_pack_limits_t;
@@ -194,7 +191,7 @@ typedef struct fd_pack_private fd_pack_t;
 
    bank_tile_cnt sets the number of bank tiles to which this pack object
    can schedule transactions.  bank_tile_cnt must be in [1,
-   FD_PACK_MAX_BANK_TILES].
+   FD_PACK_MAX_EXECLE_TILES].
 
    limits sets various limits for the blocks and microblocks that pack
    can produce. */
@@ -290,7 +287,7 @@ FD_FN_PURE ulong fd_pack_next_auction_txn_cnt( fd_pack_t const * pack );
 /* fd_pack_bank_tile_cnt: returns the value of bank_tile_cnt provided in
    pack when the pack object was initialized with fd_pack_new.  pack
    must be a valid local join.  The result will be in [1,
-   FD_PACK_MAX_BANK_TILES]. */
+   FD_PACK_MAX_EXECLE_TILES]. */
 FD_FN_PURE ulong fd_pack_bank_tile_cnt( fd_pack_t const * pack );
 
 /* fd_pack_set_block_limits: Updates the limits provided fd_pack_new to

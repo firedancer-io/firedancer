@@ -53,9 +53,10 @@ void
 fd_features_enable_one_offs( fd_features_t * f, char const * * one_offs, uint one_offs_cnt, ulong slot ) {
   uchar pubkey[32];
   for( uint i=0U; i<one_offs_cnt; i++ ) {
-    fd_base58_decode_32( one_offs[i], pubkey );
-    for( fd_feature_id_t const * id = fd_feature_iter_init();
-         !fd_feature_iter_done( id );
+    if( FD_UNLIKELY( !fd_base58_decode_32( one_offs[i], pubkey ) ) )
+      FD_LOG_ERR(( "Invalid feature key \"%s\" in [tiles.replay].enable_features", one_offs[i] ));
+    fd_feature_id_t const * id = fd_feature_iter_init();
+    for( ; !fd_feature_iter_done( id );
          id = fd_feature_iter_next( id ) ) {
       if( !memcmp( &id->id, pubkey, sizeof(fd_pubkey_t) ) ) {
         fd_features_set( f, id, slot );
@@ -63,6 +64,8 @@ fd_features_enable_one_offs( fd_features_t * f, char const * * one_offs, uint on
         break;
       }
     }
+    if( FD_UNLIKELY( fd_feature_iter_done( id ) ) )
+      FD_LOG_ERR(( "Unknown feature key \"%s\" in [tiles.replay].enable_features", one_offs[i] ));
   }
 }
 
