@@ -39,9 +39,9 @@ void fd_bls_sec_sign( fd_bls_sec_t const * sec, uchar const * msg, ulong msg_sz,
 /* Public Keys (G1).  fd_bls_pub_de accepts compressed or uncompressed
    encodings and rejects infinity and points outside G1. */
 int  fd_bls_pub_de          ( fd_bls_pub_t * pub, uchar const * buf, ulong buf_sz );
-/* fd_bls_pub_de_unchecked accepts only an uncompressed encoding and checks
-   that it is a curve point, but skips the infinity and G1 subgroup checks.
-   It is only for keys that have already passed those checks. */
+/* fd_bls_pub_de_unchecked checks that the encoding is a curve point,
+   but skips the infinity and G1 subgroup checks.  It is only for keys
+   that have already passed those checks. */
 int  fd_bls_pub_de_unchecked( fd_bls_pub_t * pub, uchar const buf[ static FD_BLS_PUB_SZ ] );
 void fd_bls_pub_compress( fd_bls_pub_t const * pub, uchar buf[ static FD_BLS_PUB_COMPRESSED_SZ ] );
 void fd_bls_pub_add     ( fd_bls_pub_t * out, fd_bls_pub_t const * a, fd_bls_pub_t const * b );

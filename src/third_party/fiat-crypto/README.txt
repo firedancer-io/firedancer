@@ -8,6 +8,13 @@ src/ballet/secp384r1 and src/ballet/secp256k1 (the *_ref.c files),
 which are selected when FD_HAS_S2NBIGNUM is unset, e.g. on noarch
 machines.
 
+The bn254 field and scalar files were imported in Firedancer commit
+8b1e83d4595a7613b1384bd82055271e8616275a; local changes add inline
+qualifiers and explicit casts.  The curve25519_32.c and curve25519_64.c
+files are unchanged since their import in Firedancer commit
+89da411981808437f094de2682e70ee8d7e44d52.  Each file records its generator
+command in its first line.
+
 fiat-crypto code is synthesized from a verified specification: never
 edit these files locally, re-copy them from upstream instead.
 

@@ -62,9 +62,7 @@ fd_accdb_svm_credit( fd_bank_t *         bank,
    Mints lamports if account has less than lamports_min balance, otherwise
    leaves lamports untouched.  Also updates the bank LtHash and bank
    capitalization.  Bypasses rent-exemption rules.  skip_event_diff
-   keeps the write out of the runtime_block account diffs (e.g. the
-   per-block alpenglow cert-signer vote state rewrites, which would
-   overflow the bounded diff array every block). */
+   keeps the write out of the runtime_block account diffs. */
 
 void
 fd_accdb_svm_write( fd_bank_t *         bank,
