@@ -67,6 +67,7 @@ test_setup_ex( int * out_fd,
   FD_TEST( accdb_mem );
   fd_accdb_t * accdb = fd_accdb_join( fd_accdb_new( accdb_mem, shmem, fd, 0UL, NULL, NULL, 0UL, 1 ) );
   FD_TEST( accdb );
+  fd_accdb_set_preevict_interval( accdb, 0L ); /* drain_background pre-evicts every call */
   return accdb;
 }
 
@@ -88,6 +89,7 @@ test_join_writer( int fd ) {
   FD_TEST( mem );
   fd_accdb_t * accdb = fd_accdb_join( fd_accdb_new( mem, test_shmem_mem, fd, 0UL, NULL, NULL, 0UL, 1 ) );
   FD_TEST( accdb );
+  fd_accdb_set_preevict_interval( accdb, 0L );
   return accdb;
 }
 
@@ -2508,6 +2510,451 @@ test_txn_footprint_growth( void ) {
   FD_TEST( fp_96-fp_64==32UL*(8UL+4UL) );
 }
 
+/* Deferred final-line allocation: a writable acquire materializes only
+   its staging line; release takes the final class's line.  With a tiny
+   cache full of dirty accounts, those release-time lines come from CLOCK
+   with dirty victims, which release must write back (and publish) before
+   reusing the line.  Checks every account reads back its last committed
+   value after heavy churn across size classes, including class changes
+   on overwrite and on new versions, reverts, and class-7 results. */
+
+static void
+test_release_alloc( void ) {
+  int fd;
+  ulong cache_fp = 24UL<<20;
+  /* 1024 partitions of 64 MiB: room for the churn's write-back (no
+     compaction thread runs here; drain_background compacts). */
+  fd_accdb_t * accdb = test_setup_ex( &fd, 1024UL, 8UL, 1024UL, 1024UL, 64UL<<20UL, cache_fp, TEST_CACHE_MIN_RESERVED, 1UL, 0UL );
+  fd_accdb_fork_id_t root = fd_accdb_attach_child( accdb, SENTINEL );
+  fd_accdb_fork_id_t f    = fd_accdb_attach_child( accdb, root );
+
+#define RA_CNT (200UL)
+  static uchar data[ 3UL<<20 ];
+  ulong want_lam[ RA_CNT ] = {0};
+  ulong want_len[ RA_CNT ] = {0};
+  uchar want_b0 [ RA_CNT ] = {0};
+  static ulong const sizes[] = { 0UL, 100UL, 165UL, 600UL, 3000UL, 20000UL, 200000UL, 2UL<<20, 100UL, 165UL, 600UL };
+  ulong sz_cnt = sizeof(sizes)/sizeof(sizes[0]);
+  fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 7U, 0UL ) );
+
+  for( ulong it=0UL; it<3000UL; it++ ) {
+    if( !(it%64UL) ) drain_background( accdb ); /* compaction + pre-evict */
+    ulong k = fd_rng_ulong( rng )%RA_CNT;
+    uchar pk[ 32 ] = { 0x52, 0x41 }; FD_STORE( ulong, pk+8, k );
+    ulong len = sizes[ fd_rng_ulong( rng )%sz_cnt ];
+    int   commit = ( fd_rng_uint( rng )%8U )!=0U; /* 1 in 8 reverts */
+    uchar fill = (uchar)fd_rng_uint( rng );
+
+    uchar const * pks[ 1 ] = { pk }; int wr[ 1 ] = { 1 }; fd_acc_t acc[ 1 ];
+    memset( acc, 0, sizeof(acc) );
+    fd_accdb_acquire( accdb, f, 1UL, pks, wr, acc );
+    if( want_lam[ k ] ) {
+      FD_TEST( acc[ 0 ].lamports==want_lam[ k ] && acc[ 0 ].data_len==want_len[ k ] );
+      if( want_len[ k ] ) FD_TEST( acc[ 0 ].data[ 0 ]==want_b0[ k ] );
+    }
+    acc[ 0 ].lamports = 1UL+it;
+    acc[ 0 ].data_len = len;
+    if( len ) fd_memset( acc[ 0 ].data, fill, len );
+    memcpy( acc[ 0 ].owner, owner2, 32UL );
+    acc[ 0 ].commit = commit;
+    fd_accdb_release( accdb, 1UL, acc );
+    if( commit ) { want_lam[ k ] = 1UL+it; want_len[ k ] = len; want_b0[ k ] = fill; }
+
+    /* Root and open a new fork now and then, so writes alternate between
+       overwrites (same fork) and new versions (child fork). */
+    if( !(it%250UL) && it ) {
+      fd_accdb_advance_root( accdb, f );
+      drain_background( accdb );
+      drain_background( accdb );
+      f = fd_accdb_attach_child( accdb, f );
+    }
+  }
+  for( ulong k=0UL; k<RA_CNT; k++ ) {
+    if( !want_lam[ k ] ) continue;
+    uchar pk[ 32 ] = { 0x52, 0x41 }; FD_STORE( ulong, pk+8, k );
+    ulong lamports, data_len;
+    FD_TEST( accdb_read( accdb, f, pk, &lamports, data, &data_len, NULL ) );
+    FD_TEST( lamports==want_lam[ k ] && data_len==want_len[ k ] );
+    if( data_len ) FD_TEST( data[ 0 ]==want_b0[ k ] && data[ data_len-1UL ]==want_b0[ k ] );
+  }
+  FD_TEST( fd_accdb_shmetrics( accdb )->accounts_total );
+  fd_rng_delete( fd_rng_leave( rng ) );
+  test_teardown( accdb, fd );
+#undef RA_CNT
+}
+
+/* Per-join free lists: a join's freed lines land on its own list, a
+   join with an empty list steals another's, data stays correct across
+   many writable cycles on both joins, and fd_accdb_reset empties every
+   list. */
+
+static ulong
+test_free_cnt( ulong j, ulong c ) {
+  return FD_VOLATILE_CONST( test_shmem_mem->cache_free_cnt[ j ].val[ c ] );
+}
+
+static void
+test_free_lists( void ) {
+  int fd;
+  ulong joiners = 2UL;
+  fd_accdb_t * a = test_setup_ex( &fd, 1024UL, 8UL, 1024UL, 64UL, 11UL<<20UL, 64UL<<20, TEST_CACHE_MIN_RESERVED, joiners, 0UL );
+  fd_accdb_t * b = test_join_writer( fd );
+  fd_accdb_shmem_t * sh = test_shmem_mem;
+  fd_accdb_fork_id_t root = fd_accdb_attach_child( a, SENTINEL );
+  fd_accdb_fork_id_t f    = fd_accdb_attach_child( a, root );
+
+  /* a's writable cycles free their spare lines onto a's lists only. */
+  uchar pk[ 32 ] = { 0x6A };
+  uchar data[ 200 ];
+  for( ulong i=0UL; i<500UL; i++ ) {
+    fd_memset( data, (int)(i&0xFF), sizeof(data) );
+    accdb_write( a, f, pk, 1000UL+i, data, 165UL+(i%3UL)*10UL, owner2 );
+    ulong lamports, data_len; uchar out[ 256 ];
+    FD_TEST( accdb_read( a, f, pk, &lamports, out, &data_len, NULL ) );
+    FD_TEST( lamports==1000UL+i && data_len==165UL+(i%3UL)*10UL && out[ 0 ]==(uchar)(i&0xFF) );
+  }
+  FD_TEST( test_free_cnt( 0UL, 7UL )>=1UL );  /* the staging line */
+  for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) FD_TEST( !test_free_cnt( 1UL, c ) );
+
+  ulong max7 = sh->cache_class_max[ 7 ];
+  FD_TEST( sh->cache_class_init[ 7 ].val<=max7 );
+
+  /* b writes with an empty list of its own.  Mark class 7 fully
+     initialized (the lines past init just stay unused; they look free
+     to CLOCK) so b cannot lazy-init and must steal a's staging line,
+     which then ends on b's list. */
+  ulong steal0 = test_free_cnt( 0UL, 7UL );
+  sh->cache_class_init[ 7 ].val = max7;
+  uchar pkb[ 32 ] = { 0x6B };
+  accdb_write( b, f, pkb, 77UL, data, 165UL, owner2 );
+  FD_TEST( test_free_cnt( 1UL, 7UL )>=1UL );
+  ulong lamports;
+  FD_TEST( accdb_read( a, f, pkb, &lamports, NULL, NULL, NULL ) && lamports==77UL );
+  FD_TEST( test_free_cnt( 0UL, 7UL )<steal0 );
+
+  /* Free-line conservation: the per-join counts plus resident lines
+     never exceed what was initialized. */
+  ulong used[ FD_ACCDB_CACHE_CLASS_CNT ], max[ FD_ACCDB_CACHE_CLASS_CNT ], res[ FD_ACCDB_CACHE_CLASS_CNT ];
+  fd_accdb_cache_class_occupancy( a, used, max, res );
+  for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) {
+    FD_TEST( test_free_cnt( 0UL, c )+test_free_cnt( 1UL, c )<=fd_ulong_min( sh->cache_class_init[ c ].val, max[ c ] ) );
+  }
+
+  /* reset empties every list; the engine still works. */
+  fd_accdb_reset( a );
+  drain_background( a );
+  for( ulong j=0UL; j<joiners; j++ ) for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) {
+    FD_TEST( !test_free_cnt( j, c ) );
+    FD_TEST( (uint)sh->cache_free[ j ].ver_top[ c ]==UINT_MAX );
+  }
+  root = fd_accdb_attach_child( a, SENTINEL );
+  f    = fd_accdb_attach_child( a, root );
+  accdb_write( a, f, pk, 7UL, data, 165UL, owner2 );
+  FD_TEST( accdb_read( b, f, pk, &lamports, NULL, NULL, NULL ) && lamports==7UL );
+  free( b );
+  test_teardown( a, fd );
+}
+
+/* Stealing under eviction: two joins share a cache too small for their
+   working set, so most acquires evict.  Alternating joins keep moving
+   lines between their lists by stealing; every value must survive. */
+
+static void
+test_free_lists_evict( void ) {
+  int fd;
+  ulong joiners = 2UL;
+  fd_accdb_t * a = test_setup_ex( &fd, 4096UL, 8UL, 4096UL, 256UL, 11UL<<20UL, 48UL<<20, TEST_CACHE_MIN_RESERVED, joiners, 0UL );
+  fd_accdb_t * b = test_join_writer( fd );
+  fd_accdb_t * j[ 2 ] = { a, b };
+  fd_accdb_fork_id_t root = fd_accdb_attach_child( a, SENTINEL );
+  fd_accdb_fork_id_t f    = fd_accdb_attach_child( a, root );
+  /* Class 3 (4000 B accounts) gets a few hundred lines in a 48 MiB
+     cache (the small classes are capped near their mainnet population,
+     so they would hold the whole working set).  The working set is
+     ~3x the class, else writes reuse their lines and nothing is
+     evicted or stolen. */
+  ulong const c  = 3UL;
+  ulong const sz = 4000UL;
+  FD_TEST( fd_accdb_cache_class( sz )==c );
+  ulong max_c = test_shmem_mem->cache_class_max[ c ];
+  ulong n     = fd_ulong_min( 3000UL, max_c*3UL );
+  FD_TEST( max_c>=64UL && n>2UL*max_c );
+  static uchar data[ 4096 ];
+  for( ulong r=0UL; r<3UL; r++ ) {
+    for( ulong i=0UL; i<n; i++ ) {
+      uchar pk[ 32 ] = { 0x5E }; FD_STORE( ulong, pk+8, i );
+      fd_memset( data, (int)((i+r)&0xFF), sz );
+      accdb_write( j[ (i+r)&1UL ], f, pk, 1UL+i+r*n, data, sz, owner2 );
+      if( (i&63UL)==63UL ) drain_background( a );
+    }
+  }
+  FD_TEST( fd_accdb_metrics( a )->accounts_evicted_per_class[ c ]+fd_accdb_metrics( b )->accounts_evicted_per_class[ c ]+
+           fd_accdb_metrics( a )->accounts_preevicted_per_class[ c ] );
+  for( ulong i=0UL; i<n; i++ ) {
+    uchar pk[ 32 ] = { 0x5E }; FD_STORE( ulong, pk+8, i );
+    ulong lamports, data_len;
+    FD_TEST( accdb_read( j[ i&1UL ], f, pk, &lamports, data, &data_len, NULL ) );
+    FD_TEST( lamports==1UL+i+2UL*n && data_len==sz && data[ 0 ]==(uchar)((i+2UL)&0xFF) && data[ sz-1UL ]==(uchar)((i+2UL)&0xFF) );
+  }
+  free( b );
+  test_teardown( a, fd );
+}
+
+/* Pre-eviction throttle: between watermark scans, fd_accdb_background
+   keeps reporting busy while the last scan left a class below its
+   low-water mark (so the accdb tile does not park mid-refill), and
+   stops once the class is refilled.  A huge interval stands in for
+   "the next scan is not due yet". */
+
+static int
+bg_busy( fd_accdb_t * accdb ) {
+  int charge_busy = 0;
+  fd_accdb_background( accdb, &charge_busy );
+  return charge_busy;
+}
+
+static ulong
+class_avail( fd_accdb_t * accdb,
+             ulong        c ) {
+  ulong used[ FD_ACCDB_CACHE_CLASS_CNT ], max[ FD_ACCDB_CACHE_CLASS_CNT ], res[ FD_ACCDB_CACHE_CLASS_CNT ];
+  fd_accdb_cache_class_occupancy( accdb, used, max, res );
+  return max[ c ]-used[ c ];
+}
+
+static void
+test_preevict_throttle( void ) {
+  int fd;
+  fd_accdb_t * a = test_setup_ex( &fd, 16384UL, 8UL, 16384UL, 256UL, 11UL<<20UL, 48UL<<20, TEST_CACHE_MIN_RESERVED, 1UL, 0UL );
+  fd_accdb_set_preevict_interval( a, LONG_MAX );
+  fd_accdb_fork_id_t root = fd_accdb_attach_child( a, SENTINEL );
+  fd_accdb_fork_id_t f    = fd_accdb_attach_child( a, root );
+
+  ulong c = 1UL; /* 300 B accounts */
+  ulong target[ FD_ACCDB_CACHE_CLASS_CNT ], low[ FD_ACCDB_CACHE_CLASS_CNT ];
+  fd_accdb_cache_class_thresholds( a, target, low );
+  ulong max_c = test_shmem_mem->cache_class_max[ c ];
+  /* Low water must be well above one scan's tick budget (256), so a
+     single scan cannot refill the class. */
+  FD_TEST( max_c<=16384UL && low[ c ]>=512UL );
+
+  /* Fill class c with dirty lines; no scan runs meanwhile. */
+  uchar data[ 300 ] = { 0x33 };
+  for( ulong i=0UL; i<max_c; i++ ) {
+    uchar pk[ 32 ] = { 0x71 }; FD_STORE( ulong, pk+8, i );
+    accdb_write( a, f, pk, 1UL+i, data, sizeof(data), owner2 );
+  }
+  FD_TEST( class_avail( a, c )<low[ c ] );
+
+  /* Settle other background work.  No scan has run, so nothing is
+     pending and the tile goes idle. */
+  ulong iter = 0UL;
+  while( bg_busy( a ) ) FD_TEST( ++iter<1000UL );
+
+  /* One scan: its tick budget refills only part of the class. */
+  fd_accdb_set_preevict_interval( a, 0L );
+  bg_busy( a );
+  ulong avail = class_avail( a, c );
+  FD_TEST( avail<low[ c ] ); /* else the budget covered the gap: grow the class */
+
+  /* Throttled calls stay busy while the refill is pending. */
+  fd_accdb_set_preevict_interval( a, LONG_MAX );
+  for( ulong k=0UL; k<4UL; k++ ) FD_TEST( bg_busy( a ) );
+
+  /* Scans continue until the class reaches low water ... */
+  fd_accdb_set_preevict_interval( a, 0L );
+  for( iter=0UL; class_avail( a, c )<low[ c ]; iter++ ) { FD_TEST( iter<1000UL ); bg_busy( a ); }
+
+  /* ... and the next throttled interval goes idle. */
+  fd_accdb_set_preevict_interval( a, LONG_MAX );
+  iter = 0UL;
+  while( bg_busy( a ) ) FD_TEST( ++iter<1000UL );
+
+  /* Every account survived the write-back. */
+  for( ulong i=0UL; i<max_c; i+=97UL ) {
+    uchar pk[ 32 ] = { 0x71 }; FD_STORE( ulong, pk+8, i );
+    ulong lamports;
+    FD_TEST( accdb_read( a, f, pk, &lamports, NULL, NULL, NULL ) && lamports==1UL+i );
+  }
+  test_teardown( a, fd );
+}
+
+/* Pre-eviction hands its freed lines to the join that ran short: b
+   fills class c, then allocates with an empty list and no never-used
+   line (setting its hungry bit); a's pre-eviction pass then pushes onto
+   b's list, not its own. */
+
+static void
+test_preevict_handoff( void ) {
+  int fd;
+  ulong joiners = 2UL;
+  fd_accdb_t * a = test_setup_ex( &fd, 16384UL, 8UL, 16384UL, 256UL, 11UL<<20UL, 48UL<<20, TEST_CACHE_MIN_RESERVED, joiners, 0UL );
+  fd_accdb_t * b = test_join_writer( fd );
+  fd_accdb_set_preevict_interval( a, LONG_MAX ); /* b's writes run unrefilled */
+  fd_accdb_shmem_t * sh = test_shmem_mem;
+  fd_accdb_fork_id_t root = fd_accdb_attach_child( a, SENTINEL );
+  fd_accdb_fork_id_t f    = fd_accdb_attach_child( a, root );
+
+  ulong const c  = 3UL;
+  ulong const sz = 4000UL;
+  FD_TEST( fd_accdb_cache_class( sz )==c );
+  ulong max_c = sh->cache_class_max[ c ];
+  static uchar data[ 4096 ];
+  ulong n = max_c+64UL; /* the last writes evict */
+  for( ulong i=0UL; i<n; i++ ) {
+    uchar pk[ 32 ] = { 0x48 }; FD_STORE( ulong, pk+8, i );
+    fd_memset( data, (int)(i&0xFF), sz );
+    accdb_write( b, f, pk, 1UL+i, data, sz, owner2 );
+  }
+  FD_TEST( sh->cache_class_init[ c ].val>=max_c );
+  FD_TEST( sh->cache_free_hungry[ c ].bits[ 0 ]==2UL ); /* b (join 1) only */
+
+  /* One pass: b is the only hungry join, so it gets every line. */
+  ulong a0 = test_free_cnt( 0UL, c );
+  ulong b0 = test_free_cnt( 1UL, c );
+  fd_accdb_set_preevict_interval( a, 0L );
+  drain_background( a );
+  ulong got = test_free_cnt( 1UL, c )-b0;
+  FD_TEST( got>=1UL );
+  FD_TEST( test_free_cnt( 0UL, c )==a0 );
+  FD_TEST( !sh->cache_free_hungry[ c ].bits[ 0 ] ); /* taken */
+  FD_TEST( sh->cache_free_have[ c ].bits[ 0 ] & 2UL );
+
+  /* b's next allocations pop its own list. */
+  ulong b1 = test_free_cnt( 1UL, c );
+  uchar pk[ 32 ] = { 0x49 };
+  accdb_write( b, f, pk, 7UL, data, sz, owner2 );
+  FD_TEST( test_free_cnt( 1UL, c )==b1-1UL );
+
+  for( ulong i=0UL; i<n; i+=37UL ) {
+    uchar k[ 32 ] = { 0x48 }; FD_STORE( ulong, k+8, i );
+    ulong lamports, data_len;
+    FD_TEST( accdb_read( a, f, k, &lamports, data, &data_len, NULL ) );
+    FD_TEST( lamports==1UL+i && data_len==sz && data[ sz-1UL ]==(uchar)(i&0xFF) );
+  }
+  free( b );
+  test_teardown( a, fd );
+}
+
+/* A pre-eviction pass that frees no line for a hungry join keeps its
+   request: b runs short of class c, every resident line is marked
+   referenced, so a's first pass (PREEVICT_TICK_BUDGET < class lines)
+   only clears reference bits.  b must still be hungry after it, and a
+   later pass hands b the lines instead of keeping them on a's list. */
+
+static void
+test_preevict_hungry_kept( void ) {
+  int fd;
+  ulong joiners = 2UL;
+  fd_accdb_t * a = test_setup_ex( &fd, 16384UL, 8UL, 16384UL, 256UL, 11UL<<20UL, 48UL<<20, TEST_CACHE_MIN_RESERVED, joiners, 0UL );
+  fd_accdb_t * b = test_join_writer( fd );
+  fd_accdb_set_preevict_interval( a, LONG_MAX );
+  fd_accdb_shmem_t * sh = test_shmem_mem;
+  fd_accdb_fork_id_t root = fd_accdb_attach_child( a, SENTINEL );
+  fd_accdb_fork_id_t f    = fd_accdb_attach_child( a, root );
+
+  ulong const c  = 3UL;
+  ulong const sz = 4000UL;
+  ulong max_c = sh->cache_class_max[ c ];
+  FD_TEST( max_c>256UL ); /* one pass cannot reach every line */
+  static uchar data[ 4096 ];
+  for( ulong i=0UL; i<max_c+64UL; i++ ) {
+    uchar pk[ 32 ] = { 0x4A }; FD_STORE( ulong, pk+8, i );
+    accdb_write( b, f, pk, 1UL+i, data, sz, owner2 );
+  }
+  FD_TEST( sh->cache_free_hungry[ c ].bits[ 0 ]==2UL );
+
+  uchar * region = (uchar *)sh + sh->cache_region_off[ c ];
+  for( ulong i=0UL; i<max_c; i++ ) ((fd_accdb_cache_line_t *)( region + i*fd_accdb_cache_slot_sz[ c ] ))->referenced = 1;
+
+  ulong a0 = test_free_cnt( 0UL, c );
+  ulong b0 = test_free_cnt( 1UL, c );
+  fd_accdb_set_preevict_interval( a, 0L );
+  drain_background( a );
+  FD_TEST( test_free_cnt( 1UL, c )==b0 );                 /* freed nothing */
+  FD_TEST( sh->cache_free_hungry[ c ].bits[ 0 ]==2UL );    /* request kept */
+
+  for( ulong pass=0UL; pass<64UL && test_free_cnt( 1UL, c )==b0; pass++ ) drain_background( a );
+  FD_TEST( test_free_cnt( 1UL, c )>b0 );
+  FD_TEST( test_free_cnt( 0UL, c )==a0 );                 /* none kept by a */
+
+  free( b );
+  test_teardown( a, fd );
+}
+
+/* Per-join reservation credits: a join keeps idle credits after its
+   release, the shared counter equals the joins' idle credits when no
+   acquire is in flight, occupancy reports only in-flight reservations,
+   and a join that needs a class's whole reservable capacity gets it by
+   stealing another join's idle credits (without the steal this acquire
+   would spin forever). */
+
+static void
+test_reservation_credits( void ) {
+  int fd;
+  ulong joiners = 2UL;
+  /* min_reserved 32: the large classes get ~32 lines, tracked (32 <
+     32*joiners), with room for credits. */
+  fd_accdb_t * a = test_setup_ex( &fd, 1024UL, 8UL, 1024UL, 64UL, 11UL<<20UL, 400UL<<20, 32UL, joiners, 0UL );
+  fd_accdb_t * b = test_join_writer( fd );
+  fd_accdb_shmem_t * sh = test_shmem_mem;
+  fd_accdb_fork_id_t root = fd_accdb_attach_child( a, SENTINEL );
+  fd_accdb_fork_id_t f    = fd_accdb_attach_child( a, root );
+
+  /* The bottleneck: the tracked class with the fewest reservable lines. */
+  ulong c = ULONG_MAX, limit = ULONG_MAX;
+  for( ulong k=0UL; k<FD_ACCDB_CACHE_CLASS_CNT; k++ ) {
+    if( sh->cache_class_used[ k ].val==ULONG_MAX || !fd_accdb_cred_max( sh->cache_class_max[ k ], joiners ) ) continue;
+    ulong l = sh->cache_class_max[ k ];
+    if( l<limit ) { limit = l; c = k; }
+  }
+  FD_TEST( c!=ULONG_MAX && limit>=2UL && limit<=FD_ACCDB_MAX_TX_ACCOUNT_LOCKS );
+
+  /* a's writes leave it idle credits; nothing is in flight. */
+  uchar pk[ 32 ] = { 0x7C };
+  uchar data[ 165 ] = { 1 };
+  for( ulong i=0UL; i<8UL; i++ ) { pk[ 1 ] = (uchar)i; accdb_write( a, f, pk, 1UL+i, data, sizeof(data), owner2 ); }
+  FD_TEST( sh->join_cred[ 0 ].val[ c ]>=1UL );
+  for( ulong k=0UL; k<FD_ACCDB_CACHE_CLASS_CNT; k++ ) {
+    if( sh->cache_class_used[ k ].val==ULONG_MAX ) continue;
+    FD_TEST( sh->join_cred[ 0 ].val[ k ]<=fd_accdb_cred_max( sh->cache_class_max[ k ], joiners ) );
+    FD_TEST( sh->cache_class_used[ k ].val==sh->join_cred[ 0 ].val[ k ]+sh->join_cred[ 1 ].val[ k ] );
+  }
+  ulong used[ FD_ACCDB_CACHE_CLASS_CNT ], max[ FD_ACCDB_CACHE_CLASS_CNT ], res[ FD_ACCDB_CACHE_CLASS_CNT ];
+  fd_accdb_cache_class_occupancy( a, used, max, res );
+  FD_TEST( res[ c ]==0UL );
+
+  /* b acquires limit fresh writable accounts: every reservable line of
+     class c, so a's idle credits must be stolen. */
+  uchar         pks [ FD_ACCDB_MAX_TX_ACCOUNT_LOCKS ][ 32 ];
+  uchar const * pkp [ FD_ACCDB_MAX_TX_ACCOUNT_LOCKS ];
+  int           wr  [ FD_ACCDB_MAX_TX_ACCOUNT_LOCKS ];
+  fd_acc_t      accs[ FD_ACCDB_MAX_TX_ACCOUNT_LOCKS ];
+  for( ulong i=0UL; i<limit; i++ ) { fd_memset( pks[ i ], 0, 32UL ); pks[ i ][ 0 ] = 0x7D; pks[ i ][ 1 ] = (uchar)i; pkp[ i ] = pks[ i ]; wr[ i ] = 1; }
+  memset( accs, 0, sizeof(accs) );
+  ulong failed0 = fd_accdb_metrics( b )->acquire_failed;
+  fd_accdb_acquire( b, f, limit, pkp, wr, accs );
+  FD_TEST( fd_accdb_metrics( b )->acquire_failed>failed0 );
+  FD_TEST( sh->join_cred[ 0 ].val[ c ]==0UL );
+  FD_TEST( sh->cache_class_used[ c ].val==limit );
+  fd_accdb_cache_class_occupancy( b, used, max, res );
+  FD_TEST( res[ c ]==limit );
+  fd_accdb_release( b, limit, accs ); /* revert */
+
+  for( ulong k=0UL; k<FD_ACCDB_CACHE_CLASS_CNT; k++ ) {
+    if( sh->cache_class_used[ k ].val==ULONG_MAX ) continue;
+    FD_TEST( sh->cache_class_used[ k ].val==sh->join_cred[ 0 ].val[ k ]+sh->join_cred[ 1 ].val[ k ] );
+  }
+  ulong lamports;
+  pk[ 1 ] = 3; FD_TEST( accdb_read( b, f, pk, &lamports, NULL, NULL, NULL ) && lamports==4UL );
+
+  /* reset clears every credit */
+  fd_accdb_reset( a );
+  drain_background( a );
+  for( ulong j=0UL; j<joiners; j++ ) for( ulong k=0UL; k<FD_ACCDB_CACHE_CLASS_CNT; k++ ) FD_TEST( !sh->join_cred[ j ].val[ k ] );
+  free( b );
+  test_teardown( a, fd );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -2633,6 +3080,21 @@ main( int     argc,
 
   FD_LOG_NOTICE(( "test_root_backlog_splits_pass ..." ));
   test_root_backlog_splits_pass();
+
+  FD_LOG_NOTICE(( "test_free_lists ..." ));
+  test_free_lists();
+  FD_LOG_NOTICE(( "test_free_lists_evict ..." ));
+  test_free_lists_evict();
+  FD_LOG_NOTICE(( "test_preevict_throttle ..." ));
+  test_preevict_throttle();
+  FD_LOG_NOTICE(( "test_preevict_handoff ..." ));
+  test_preevict_handoff();
+  test_preevict_hungry_kept();
+  FD_LOG_NOTICE(( "test_reservation_credits ..." ));
+  test_reservation_credits();
+
+  FD_LOG_NOTICE(( "test_release_alloc ..." ));
+  test_release_alloc();
 
   FD_LOG_NOTICE(( "success" ));
 

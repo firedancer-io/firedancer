@@ -45,9 +45,11 @@ struct fd_accdb_entry {
   ulong   _original_size_class;
   ulong   _original_cache_idx;
 
-  struct {
-    ulong destination_cache_idx[ 8UL ];
-  } _write;
+  /* Writable only.  _staging_cache_idx is the 10 MiB line the account
+     is written in.  _final_cache_idx is the line of the account's final
+     size class, taken at release (ULONG_MAX if none). */
+  ulong   _staging_cache_idx;
+  ulong   _final_cache_idx;
 };
 
 typedef struct fd_accdb_entry fd_acc_t;
