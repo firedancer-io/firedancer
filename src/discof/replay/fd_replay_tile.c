@@ -2183,32 +2183,32 @@ publish_boot_slot( fd_replay_tile_t *  ctx,
 }
 
 /* Determine the default slot params to use for slots where no
-   reduce_slot_time feature gate is in effect. This is important for
-   the inflation calculations, which use the slot times for
-   historical slots as input. Therefore we need the same semantics
-   as Agave, even after the reduce_slot_time feature gates are
-   active. */
+   reduce_slot_time feature gate is in effect.  This is important for
+   the inflation calculations, which use the slot times for historical
+   slots as input.  Therefore we need the same semantics as Agave, even
+   after the reduce_slot_time feature gates are active.
+   https://github.com/anza-xyz/agave/blob/4f8937b9568f7672ce0edcf67501666a95df015b/runtime/src/bank.rs#L2919-L2942 */
 static fd_slot_params_t
-restore_default_slot_params( fd_bank_t const * bank ) {
+restore_default_slot_params( fd_bank_t const *    bank,
+                             fd_genesis_t const * genesis ) {
+  fd_slot_params_t genesis_params = fd_slot_params_from_genesis( genesis );
 
-  /* A reduction is effective if the effective ns_per_slot is less than
-     the 400ms value.
-     https://github.com/anza-xyz/agave/blob/v4.2/runtime/src/slot_params.rs#L332-L350 */
-  int reduction_effective = fd_slot_params_lookup( &FD_SLOT_PARAMS_400MS,
-                                                   &bank->f.features,
-                                                   &bank->f.epoch_schedule,
-                                                   bank->f.slot ).ns_per_slot < FD_SLOT_PARAMS_400MS.ns_per_slot;
+  /* A reduction is effective if any reduce_slot_time gate with a slot
+     time no greater than the genesis slot time is effective.
+     https://github.com/anza-xyz/agave/blob/4f8937b9568f7672ce0edcf67501666a95df015b/runtime/src/slot_params.rs#L332-L349 */
+  int reduction_effective = fd_slot_params_any_reduction_effective( &bank->f.features,
+                                                                    &bank->f.epoch_schedule,
+                                                                    bank->f.slot,
+                                                                    genesis_params.ns_per_slot );
 
-  /* In order to behave correctly in real networks, if a reduction is
-     effective then we use the 400ms slot params as the default. */
-  if( reduction_effective ) {
-    return FD_SLOT_PARAMS_400MS;
-  }
+  /* If a reduction is effective, the restored bank's slot params no
+     longer describe the pre-reduction slots, so use the genesis slot
+     params as the default. */
+  if( reduction_effective ) return genesis_params;
 
-  /* If a reduction is not effective, then we can rely on the slot
-     times having remained constant throughout the lifetime of the
-     cluster, and can use the slot params from the manifest. Note that
-     in test clusters these may differ from the 400ms values. */
+  /* If a reduction is not effective, use the slot params from the
+     manifest.  These may differ from genesis for values changed by
+     older feature gates (e.g. hashes_per_tick). */
   return bank->f.slot_params;
 }
 
@@ -2259,7 +2259,7 @@ init_after_snapshot( fd_replay_tile_t *  ctx,
      manifest. These assertions match Agave:
      https://github.com/anza-xyz/agave/blob/v4.2/runtime/src/bank.rs#L4839-L4869 */
   fd_slot_params_t manifest_params = bank->f.slot_params;
-  bank->f.slot_params_default      = restore_default_slot_params( bank );
+  bank->f.slot_params_default      = restore_default_slot_params( bank, ctx->genesis );
   bank->f.slot_params              = fd_slot_params_at_slot( bank, bank->f.slot );
   FD_TEST( bank->f.slot_params.ns_per_slot    == manifest_params.ns_per_slot  );
   FD_TEST( bank->f.slot_params.slots_per_year == manifest_params.slots_per_year );
@@ -4261,6 +4261,10 @@ returnable_frag( fd_replay_tile_t *  ctx,
       break;
     }
     case IN_KIND_SNAP: {
+      /* Booting from the snapshot needs the parsed genesis (see
+         restore_default_slot_params).  genesi_out and snapin_manif are
+         independent links, so hold DONE until genesis has arrived. */
+      if( FD_UNLIKELY( fd_ssmsg_sig_message( sig )==FD_SSMSG_DONE && !ctx->has_genesis_hash ) ) return 1;
       on_snapshot_message( ctx, stem, in_idx, chunk, sig );
       maybe_verify_cluster_type( ctx );
       maybe_verify_shred_version( ctx );

@@ -131,6 +131,28 @@ typedef struct fd_slot_params fd_slot_params_t;
 
 FD_PROTOTYPES_BEGIN
 
+/* fd_slot_params_from_genesis returns the slot params implied by the
+   genesis PoH config: ns_per_slot, ns_per_slot_adjusted,
+   slots_per_year and hashes_per_tick are derived from genesis, all
+   other fields are the 400ms values.
+
+   https://github.com/anza-xyz/agave/blob/4f8937b9568f7672ce0edcf67501666a95df015b/runtime/src/bank.rs#L2876-L2886 */
+
+fd_slot_params_t
+fd_slot_params_from_genesis( fd_genesis_t const * genesis );
+
+/* fd_slot_params_any_reduction_effective returns 1 if any
+   reduce_slot_time gate with a slot time <= ns_per_slot is effective
+   at the given slot, 0 otherwise.
+
+   https://github.com/anza-xyz/agave/blob/4f8937b9568f7672ce0edcf67501666a95df015b/runtime/src/slot_params.rs#L332-L349 */
+
+int
+fd_slot_params_any_reduction_effective( fd_features_t const *       features,
+                                        fd_epoch_schedule_t const * epoch_schedule,
+                                        ulong                       slot,
+                                        ulong                       ns_per_slot );
+
 /* fd_slot_params_at_slot returns the effective slot params at the given
    slot, using the bank's default params, features, and epoch schedule.
 

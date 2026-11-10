@@ -1519,8 +1519,6 @@ fd_runtime_init_bank_from_genesis( fd_banks_t *         banks,
   fd_hash_t * bank_hash = &bank->f.bank_hash;
   memset( bank_hash->hash, 0, FD_SHA256_HASH_SZ );
 
-  uint128 target_tick_duration = (uint128)genesis->poh.tick_duration_secs * 1000000000UL + (uint128)genesis->poh.tick_duration_ns;
-
   fd_epoch_schedule_t * epoch_schedule = &bank->f.epoch_schedule;
   epoch_schedule->leader_schedule_slot_offset = genesis->epoch_schedule.leader_schedule_slot_offset;
   epoch_schedule->warmup                      = genesis->epoch_schedule.warmup;
@@ -1560,11 +1558,7 @@ fd_runtime_init_bank_from_genesis( fd_banks_t *         banks,
   fee_rate_governor->burn_percent                  = genesis->fee_rate_governor.burn_percent;
 
   bank->f.max_tick_height                  = genesis->poh.ticks_per_slot * (bank->f.slot + 1);
-  bank->f.slot_params                      = FD_SLOT_PARAMS_400MS;
-  bank->f.slot_params.ns_per_slot          = (ulong)( target_tick_duration * genesis->poh.ticks_per_slot );
-  bank->f.slot_params.ns_per_slot_adjusted = fd_ulong_sat_sub( bank->f.slot_params.ns_per_slot, FD_TARGET_SLOT_ADJUSTMENT_NS );
-  bank->f.slot_params.slots_per_year       = SECONDS_PER_YEAR * (1000000000.0 / (double)target_tick_duration) / (double)genesis->poh.ticks_per_slot;
-  bank->f.slot_params.hashes_per_tick      = genesis->poh.hashes_per_tick;
+  bank->f.slot_params                      = fd_slot_params_from_genesis( genesis );
   bank->f.slot_params_default              = bank->f.slot_params;
 
   bank->f.ticks_per_slot = genesis->poh.ticks_per_slot;
