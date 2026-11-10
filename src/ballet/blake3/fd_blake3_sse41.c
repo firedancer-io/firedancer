@@ -291,7 +291,7 @@ fd_blake3_sse_compress1( uchar * restrict       out,
       block = tail;
     }
 
-    if( FD_UNLIKELY( out_chain && (block_flags & FD_BLAKE3_FLAG_CHUNK_END) ) ) {
+    if( FD_UNLIKELY( out_chain && msg_sz<=FD_BLAKE3_BLOCK_SZ ) ) {
       /* FIXME better document and polish the transition from the compress
                part to the expand part. */
       fd_memcpy( out,       block, FD_BLAKE3_BLOCK_SZ    ); /* FIXME DOCUMENT OVERLOADING OF OUT ARGUMENT */

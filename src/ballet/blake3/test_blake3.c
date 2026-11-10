@@ -876,6 +876,23 @@ bench_avx_lthash( void ) {
 #if FD_HAS_SSE
 
 static void
+test_sse_compress1_capture( void ) {
+  struct { uint sz; uint flags; } const cases[] = {
+    { 64U, FD_BLAKE3_FLAG_PARENT },
+    { 64U, 0U },
+    { 65U, 0U }
+  };
+  for( ulong i=0UL; i<sizeof(cases)/sizeof(cases[0]); i++ ) {
+    uchar ref_msg[64] = {0}; uchar ref_cv[32] = {0};
+    uchar sse_msg[64] = {0}; uchar sse_cv[32] = {0};
+    fd_blake3_ref_compress1( ref_msg, rand_buf, cases[i].sz, 0UL, cases[i].flags, ref_cv, NULL );
+    fd_blake3_sse_compress1( sse_msg, rand_buf, cases[i].sz, 0UL, cases[i].flags, sse_cv, NULL );
+    FD_TEST( !memcmp( ref_msg, sse_msg, sizeof(ref_msg) ) );
+    FD_TEST( !memcmp( ref_cv,  sse_cv,  sizeof(ref_cv)  ) );
+  }
+}
+
+static void
 bench_sse_compress1( void ) {
   FD_LOG_NOTICE(( "Benchmarking SSE4.1 backend (compress1)" ));
   do {
@@ -1075,6 +1092,7 @@ static struct test_fn const tests[] = {
   { "bench avx_lthash",             bench_avx_lthash },
 #endif
 #if FD_HAS_SSE
+  { "test sse_compress1_capture",   test_sse_compress1_capture },
   { "bench sse_compress1",          bench_sse_compress1 },
 #endif
 #if FD_HAS_SVE2
