@@ -427,13 +427,14 @@ test_bond_route( void ) {
   FD_TEST( test_tile.net.metrics.tx_slow_path_reason_cnt[ FD_METRICS_ENUM_PKT_TX_SLOW_PATH_REASON_V_NO_ROUTE_IDX ]==1UL );
 
   /* An unroutable GRE outer endpoint is counted once, as NoRoute */
-  test_tile.net.kind_id  = 0UL;
-  test_tile.net.tile_cnt = 1UL;
   test_netdevs[1].dev_type   = ARPHRD_IPGRE;
   test_netdevs[1].gre_dst_ip = FD_IP4_ADDR( 192,0,2,1 );
   FD_TEST( fd_fib4_insert( test_tile.net.router.fib_main, dst, 32, 0U, &hop ) );
-  FD_TEST( before_frag( &test_tile, 0UL, 0UL, sig ) );
-  FD_TEST( test_tile.net.metrics.tx_slow_path_reason_cnt[ FD_METRICS_ENUM_PKT_TX_SLOW_PATH_REASON_V_NO_ROUTE_IDX ]==2UL );
+  for( ulong tile_idx=0UL; tile_idx<2UL; tile_idx++ ) {
+    test_tile.net.kind_id = tile_idx;
+    FD_TEST( before_frag( &test_tile, 0UL, 0UL, sig ) );
+    FD_TEST( test_tile.net.metrics.tx_slow_path_reason_cnt[ FD_METRICS_ENUM_PKT_TX_SLOW_PATH_REASON_V_NO_ROUTE_IDX ]==1UL+tile_idx );
+  }
   FD_TEST( test_tile.net.metrics.tx_drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_GRE_NO_ROUTE_IDX ]==0UL );
 
   test_tile.net.tile_cnt = 2UL;

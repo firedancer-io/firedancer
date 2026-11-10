@@ -766,16 +766,30 @@ main( int     argc,
     /* A loopback outer route is rejected before allocating a TX buffer. */
     gre0->gre_dst_ip = FD_IP4_ADDR( 127,0,0,1 );
     ulong const free_cons = ctx->free_tx.cons;
-    ulong const sig = fd_disco_netmux_sig( 0U, SHRED_PORT, gre0_dst_ip, DST_PROTO_OUTGOING, 42UL );
-    FD_TEST( before_frag( ctx, 0UL, 0UL, sig )==1 );
-    FD_TEST( *fail_cnt==before+3UL );
+    ulong sig = 0UL;
+    for( ushort port=1U; ; port++ ) {
+      sig = fd_disco_netmux_sig( 0U, port, gre0_dst_ip, DST_PROTO_OUTGOING, 42UL );
+      if( fd_disco_netmux_sig_hash( sig )%2UL==1UL ) break;
+    }
+    ctx->net.tile_cnt = 2UL;
+    for( ulong kind_id=0UL; kind_id<2UL; kind_id++ ) {
+      ctx->net.kind_id = kind_id;
+      FD_TEST( before_frag( ctx, 0UL, 0UL, sig )==1 );
+      FD_TEST( *fail_cnt==before+2UL+kind_id );
+    }
     FD_TEST( ctx->free_tx.cons==free_cons );
 
     /* A GRE outer route is rejected rather than adding another tunnel. */
     gre0->gre_dst_ip = gre1_dst_ip;
-    FD_TEST( fd_net_tx_route( &ctx->net, gre0_dst_ip, &ctx->net.tx_route )==0 );
-    FD_TEST( *fail_cnt==before+4UL );
+    for( ulong kind_id=0UL; kind_id<2UL; kind_id++ ) {
+      ctx->net.kind_id = kind_id;
+      FD_TEST( before_frag( ctx, 0UL, 0UL, sig )==1 );
+      FD_TEST( *fail_cnt==before+3UL+kind_id );
+    }
+    FD_TEST( ctx->free_tx.cons==free_cons );
     gre0->gre_dst_ip = gre0_outer_dst_ip;
+    ctx->net.kind_id  = 0UL;
+    ctx->net.tile_cnt = 1UL;
   }
 
   /* TX routes to non-XDP or non-Ethernet interfaces count as
@@ -826,12 +840,26 @@ main( int     argc,
     FD_TEST( ctx->xsk_cnt==1U );
 
     ctx->net.tile_cnt = 2UL;
-    ulong sig = 0UL;
-    for( ushort port=1; ; port++ ) {
-      sig = fd_disco_netmux_sig( 0, port, FD_IP4_ADDR( 127,0,0,1 ), DST_PROTO_OUTGOING, 42UL );
+    ushort port = 1U;
+    ulong  sig  = 0UL;
+    for( ; ; port++ ) {
+      sig = fd_disco_netmux_sig( 0U, port, banned_ip, DST_PROTO_OUTGOING, 42UL );
       if( fd_disco_netmux_sig_hash( sig )%2UL==1UL ) break;
     }
 
+    ulong const route_fail_before = fail_cnt[ FD_METRICS_ENUM_PKT_TX_SLOW_PATH_REASON_V_UNSUPPORTED_ROUTE_IDX ];
+    ulong const free_cons = ctx->free_tx.cons;
+    for( ulong kind_id=0UL; kind_id<2UL; kind_id++ ) {
+      ctx->net.kind_id = kind_id;
+      int const rc = before_frag( ctx, 0UL, 0UL, sig );
+      FD_TEST( rc==(int)(kind_id==0UL) );
+      if( !rc ) release_tx_frame( ctx );
+      FD_TEST( fail_cnt[ FD_METRICS_ENUM_PKT_TX_SLOW_PATH_REASON_V_UNSUPPORTED_ROUTE_IDX ]==route_fail_before+kind_id );
+    }
+    FD_TEST( ctx->free_tx.cons==free_cons+1UL );
+
+    /* Only tile 0 counts a missing loopback XSK. */
+    sig = fd_disco_netmux_sig( 0U, port, FD_IP4_ADDR( 127,0,0,1 ), DST_PROTO_OUTGOING, 42UL );
     ctx->net.kind_id = 1UL;
     FD_TEST( before_frag( ctx, 0UL, 0UL, sig )==1 );
     FD_TEST( fail_cnt[ FD_METRICS_ENUM_PKT_TX_SLOW_PATH_REASON_V_UNSUPPORTED_INTERFACE_IDX ]==before );
@@ -1383,13 +1411,13 @@ main( int     argc,
       ctx->net.tile_cnt = 1UL;
     }
 
-    /* A fallback packet owned by a nonzero tile counts its routing
-       failure once: tile 0 probes for loopback without counting. */
+    /* Only the hash-target tile counts a missing neighbor and requests
+       its address from netlink. */
     {
-      ulong fb_sig = fd_disco_netmux_sig( 0U, SHRED_PORT, fb_no_route_ip, DST_PROTO_OUTGOING, 0UL );
+      ulong fb_sig = fd_disco_netmux_sig( 0U, SHRED_PORT, fb_neigh_miss_ip, DST_PROTO_OUTGOING, 0UL );
       for( ushort port=SHRED_PORT; 0UL==fd_disco_netmux_sig_hash( fb_sig )%2UL; port++ ) {
         FD_TEST( port<SHRED_PORT+1000U );
-        fb_sig = fd_disco_netmux_sig( 0U, port, fb_no_route_ip, DST_PROTO_OUTGOING, 0UL );
+        fb_sig = fd_disco_netmux_sig( 0U, port, fb_neigh_miss_ip, DST_PROTO_OUTGOING, 0UL );
       }
 
       ulong route_fail_before[ FD_METRICS_ENUM_PKT_TX_SLOW_PATH_REASON_CNT ];
@@ -1407,10 +1435,12 @@ main( int     argc,
       ctx->net.kind_id  = 1UL;
       FD_TEST( 0==before_frag( ctx, 0UL, tx_seq, fb_sig ) );
       release_tx_frame( ctx );
-      route_fail_before[ FD_METRICS_ENUM_PKT_TX_SLOW_PATH_REASON_V_NO_ROUTE_IDX ]++;
+      route_fail_before[ FD_METRICS_ENUM_PKT_TX_SLOW_PATH_REASON_V_NO_NEIGHBOR_IDX ]++;
       FD_TEST( 0==memcmp( route_fail_before, ctx->net.metrics.tx_slow_path_reason_cnt, sizeof(route_fail_before) ) );
-      FD_TEST( ctx->net.metrics.tx_slow_path_reason_cnt[ FD_METRICS_ENUM_PKT_TX_SLOW_PATH_REASON_V_NO_NEIGHBOR_IDX ]==neigh_fail_before );
+      FD_TEST( ctx->net.metrics.tx_slow_path_reason_cnt[ FD_METRICS_ENUM_PKT_TX_SLOW_PATH_REASON_V_NO_NEIGHBOR_IDX ]==neigh_fail_before+1UL );
 
+      FD_TEST( ctx->net.router.solicit_ip==fb_neigh_miss_ip );
+      ctx->net.router.solicit_ip = solicit_before;
       ctx->net.kind_id  = 0UL;
       ctx->net.tile_cnt = 1UL;
     }
