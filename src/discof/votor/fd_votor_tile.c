@@ -300,6 +300,8 @@ struct fd_votor_tile {
   ulong                      next_leader_slot;
   ulong                      highest_vote_or_lead_slot; /* voting can be out of order, so track a hi-watermark of every vote votor decided and window it led */
   ulong                      highest_parent_ready_slot;
+  ulong                      optimistic_leader_slot;    /* window an OPTIMISTIC_LEADER was sent for, ULONG_MAX none */
+  fd_block_id_t              completed_block;           /* block of the last SLOT_COMPLETED, slot ULONG_MAX if none, for after_frag */
   ulong                      highest_certed_final_slot; /* highest slot whose final cert was published paired with its notar cert */
   ulong                      catchup_slot;              /* highest slot past the pool window with a verified cert, 0 if none */
   ulong                      catchup_final_slot;        /* same, for a final or fast-final cert */
@@ -1900,6 +1902,7 @@ handle_replay( fd_votor_tile_t *           ctx,
     fd_block_id_t                      block_id        = fd_block_id( slot_completed->slot,        slot_completed->block_id.uc        );
     fd_block_id_t                      parent_block_id = fd_block_id( slot_completed->parent_slot, slot_completed->parent_block_id.uc );
     if( FD_UNLIKELY( ctx->failover_enabled ) ) failover_slot_completed( ctx, slot_completed );
+    ctx->completed_block = block_id;
     if( FD_UNLIKELY( fd_votor_pool_finalized_slot( ctx->pool )==ULONG_MAX ) ) {
       ctx->boot_block_id = block_id;
 
@@ -2803,10 +2806,36 @@ after_frag( fd_votor_tile_t *   ctx,
     ctx->net_tx_cnt = 0UL;
     break;
   }
-  case IN_KIND_REPLAY:
+  case IN_KIND_REPLAY: {
     /* reliable link, handled in during_frag */
     if( FD_UNLIKELY( ctx->failover_enabled && sig==REPLAY_SIG_SLOT_COMPLETED ) ) failover_publish_hist( ctx, stem, 0 ); /* keeps the failover deadlines ticking */
+    if( FD_UNLIKELY( sig!=REPLAY_SIG_SLOT_COMPLETED || !ctx->init || ctx->keyswitch_state ) ) break;
+
+    /* FLH: replay completed the last block of the window before our
+       next leader window, so replay may start our window on it
+       (FD_VOTOR_SIG_OPTIMISTIC_LEADER) before the ParentReady that
+       names the real parent. Sent once per window, for the first
+       completed block. */
+
+    fd_block_id_t const * block = &ctx->completed_block;
+    ulong                 slot  = block->slot+1UL;
+    if( FD_LIKELY  ( slot!=ctx->next_leader_slot || !fd_is_start_of_window( slot ) ) ) break;
+    if( FD_UNLIKELY( ctx->optimistic_leader_slot==slot ) ) break;
+    if( FD_UNLIKELY( ctx->failover_enabled && !ctx->vote_authority ) ) break;
+    if( FD_UNLIKELY( slot<=fd_votor_pool_finalized_slot( ctx->pool ) || slot<ctx->vote_history_slot || ctx->next_leader_slot+ctx->slot_max<=ctx->catchup_slot ) ) break;
+    if( FD_LIKELY  ( fd_votor_pool_highest_parent_ready( ctx->pool )<fd_first_slot_in_window( block->slot ) || fd_votor_pool_highest_parent_ready( ctx->pool )>=slot ) ) break;
+
+    ctx->optimistic_leader_slot    = slot;
+    ctx->highest_vote_or_lead_slot = fd_ulong_max( ctx->highest_vote_or_lead_slot, fd_first_slot_in_window( slot )+FD_VOTOR_SLOTS_PER_WINDOW-1UL );
+    if( FD_LIKELY( ctx->vote_history_fd_dir!=-1 ) ) write_vote_history( ctx );
+
+    fd_votor_msg_t * chunk = fd_chunk_to_laddr( ctx->votor_out_mem, ctx->votor_out_chunk );
+    chunk->leader = (fd_votor_leader_t){ .slot = slot, .parent_slot = block->slot, .parent_block_id = FD_LOAD( fd_hash_t, block->hash.uc ), .parent_ready_ns = fd_clock_tile_now( ctx->clock ) };
+    fd_stem_publish( stem, OUT_IDX_VOTOR, FD_VOTOR_SIG_OPTIMISTIC_LEADER, ctx->votor_out_chunk, sizeof(fd_votor_msg_t), 0UL, fd_frag_meta_ts_comp( fd_tickcount() ), fd_frag_meta_ts_comp( fd_tickcount() ) );
+    ctx->votor_out_chunk = fd_dcache_compact_next( ctx->votor_out_chunk, sizeof(fd_votor_msg_t), ctx->votor_out_chunk0, ctx->votor_out_wmark );
+    if( FD_UNLIKELY( ctx->failover_enabled ) ) failover_after_leader( ctx, stem );
     break;
+  }
   case IN_KIND_FAILOV:
     failover_adopt_response( ctx, sig, stem );
     break;
@@ -2997,6 +3026,8 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->ns_per_slot               = 400000000L; /* until epoch info */
   ctx->slots_per_epoch           = 0UL;
   ctx->highest_parent_ready_slot = 0UL;
+  ctx->optimistic_leader_slot    = ULONG_MAX;
+  ctx->completed_block.slot      = ULONG_MAX;
   ctx->highest_certed_final_slot = 0UL;
   ctx->catchup_slot              = 0UL;
   ctx->catchup_final_slot        = 0UL;

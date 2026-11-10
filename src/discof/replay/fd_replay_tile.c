@@ -875,6 +875,7 @@ pack_end_reason_to_event( int reason ) {
     case FD_PACK_END_SLOT_REASON_TIME:       return FD_EVENT_BLOCK_COMPLETED_PACK_END_REASON_TIME;
     case FD_PACK_END_SLOT_REASON_MICROBLOCK: return FD_EVENT_BLOCK_COMPLETED_PACK_END_REASON_MICROBLOCK_LIMIT;
     case FD_PACK_END_SLOT_REASON_ABANDONED:  return FD_EVENT_BLOCK_COMPLETED_PACK_END_REASON_ABANDONED;
+    case FD_PACK_END_SLOT_REASON_REPARENTED: return FD_EVENT_BLOCK_COMPLETED_PACK_END_REASON_REPARENTED;
     default:                                 FD_LOG_CRIT(( "unmapped pack end reason %d", reason ));
   }
 }
@@ -1451,14 +1452,24 @@ mark_bank_dead( fd_replay_tile_t *        ctx,
 /* Leader bank management                                             */
 /**********************************************************************/
 
+/* prepare_leader_bank builds the leader bank of slot on the frozen
+   parent_bank, and fills msg.  Returns the bank, which holds a leader
+   refcount and its cost tracker pin until the slot is done. */
+
 static fd_bank_t *
-prepare_leader_bank( fd_replay_tile_t * ctx,
-                     fd_bank_t *        parent_bank,
-                     ulong              slot,
-                     long               now ) {
+prepare_leader_bank( fd_replay_tile_t *        ctx,
+                     fd_bank_t *               parent_bank,
+                     fd_block_id_ele_t const * parent_ele,
+                     ulong                     slot,
+                     long                      now,
+                     long                      parent_ready_ns,
+                     fd_became_leader_t *      msg ) {
 
   /* Make sure that we are not already leader. */
   FD_TEST( ctx->leader_bank==NULL );
+
+  fd_hash_t const * parent_blockhash = fd_blockhashes_peek_last_hash( &parent_bank->f.block_hash_queue );
+  FD_TEST( parent_blockhash );
 
   ctx->leader_bank = fd_banks_new_bank( ctx->banks, parent_bank->idx, now, 1 );
   if( FD_UNLIKELY( !ctx->leader_bank ) ) {
@@ -1512,7 +1523,70 @@ prepare_leader_bank( fd_replay_tile_t * ctx,
      reference count until we are done with the leader slot. */
   ctx->leader_bank->refcnt++;
 
-  return ctx->leader_bank;
+  fd_bank_t * bank = ctx->leader_bank;
+
+  fd_bundle_crank_tip_payment_config_t config[1] = { 0 };
+  fd_pubkey_t tip_receiver_owner = {0};
+
+  if( FD_UNLIKELY( ctx->bundle.enabled ) ) {
+    fd_acct_addr_t tip_payment_config[1];
+    fd_acct_addr_t tip_receiver[1];
+    fd_bundle_crank_get_addresses( ctx->bundle.gen, bank->f.epoch, tip_payment_config, tip_receiver );
+
+    fd_acc_t tip_config_acc = fd_accdb_read_one( ctx->accdb, bank->accdb_fork_id, tip_payment_config->b );
+    if( FD_UNLIKELY( !tip_config_acc.lamports ) ) {
+      FD_BASE58_ENCODE_32_BYTES( tip_payment_config->b, tip_config_acc_b58 );
+      FD_LOG_WARNING(( "tip payment config account %s does not exist", tip_config_acc_b58 ));
+      fd_accdb_unread_one( ctx->accdb, &tip_config_acc );
+    } else if( FD_UNLIKELY( tip_config_acc.data_len<sizeof(fd_bundle_crank_tip_payment_config_t) ) ) {
+      FD_LOG_HEXDUMP_WARNING(( "invalid tip payment config account data", tip_config_acc.data, tip_config_acc.data_len ));
+      fd_accdb_unread_one( ctx->accdb, &tip_config_acc );
+    } else {
+      memcpy( config, tip_config_acc.data, sizeof(fd_bundle_crank_tip_payment_config_t) );
+      fd_accdb_unread_one( ctx->accdb, &tip_config_acc );
+    }
+
+    /* It is possible that the tip receiver account does not exist yet
+       if it is the first time in an epoch. */
+    fd_acc_t tip_receiver_acc = fd_accdb_read_one( ctx->accdb, bank->accdb_fork_id, tip_receiver->b );
+    if( FD_LIKELY( tip_receiver_acc.lamports ) ) {
+      fd_memcpy( tip_receiver_owner.uc, tip_receiver_acc.owner, 32UL );
+    }
+    fd_accdb_unread_one( ctx->accdb, &tip_receiver_acc );
+  }
+
+  msg->slot                = slot;
+  msg->parent_slot         = parent_bank->f.slot;
+  msg->parent_cmr          = parent_ele->latest_mr;
+  msg->parent_dmr          = parent_ele->dmr;
+  msg->parent_blockhash    = *parent_blockhash;
+  msg->block_height        = bank->f.block_height;
+  msg->slot_start_ns       = now;
+  long slot_end_ns = parent_ready_ns
+                   + (long)( ( slot%FD_VOTOR_SLOTS_PER_WINDOW+1UL )*bank->f.slot_params.ns_per_slot )
+                   - (long)FD_TARGET_SLOT_ADJUSTMENT_NS - FD_TIME_TO_COMPLETE_BROADCAST_NS;
+  msg->slot_end_ns         = fd_long_max( slot_end_ns, now );
+  msg->bank_idx            = bank->idx;
+  msg->bank_seq            = bank->bank_seq;
+  msg->ticks_per_slot      = bank->f.ticks_per_slot;
+  msg->tick_duration_ns    = bank->f.slot_params.ns_per_slot_adjusted/msg->ticks_per_slot;
+  msg->bundle->config[0]   = config[0];
+  memcpy( msg->bundle->last_blockhash,     bank->f.poh.hash,      sizeof(fd_hash_t)   );
+  memcpy( msg->bundle->tip_receiver_owner, tip_receiver_owner.uc, sizeof(fd_pubkey_t) );
+
+  msg->max_microblocks_in_slot = FD_POH_ALPENGLOW_MAX_MICROBLOCKS_PER_SLOT;
+  msg->parent_unconfirmed      = ctx->leader_parent_unconfirmed;
+
+  msg->epoch = fd_slot_to_epoch( &bank->f.epoch_schedule, slot, NULL );
+
+  fd_cost_tracker_t const * cost_tracker = fd_cost_tracker_store_peek( fd_bank_cost_tracker( bank ), bank->cost_tracker_fork_id );
+
+  msg->limits.slot_max_cost                     = cost_tracker->block_cost_limit;
+  msg->limits.slot_max_write_cost_per_acct      = cost_tracker->account_cost_limit;
+  msg->limits.slot_max_allocated_data_per_block = cost_tracker->data_size_limit;
+  msg->limits.slot_max_data_shreds              = bank->f.slot_params.max_shred_idx;
+
+  return bank;
 }
 
 static inline void
@@ -1594,6 +1668,9 @@ publish_leader_footer( fd_replay_tile_t *        ctx,
   publish_replay_out( ctx, stem, REPLAY_SIG_LEADER_FOOTER, sz );
 }
 
+/* 1. no more PoH-hashing and 2. picking the reset bank is based on
+   ParentReady rather than fork choice. */
+
 static inline int
 try_become_leader( fd_replay_tile_t *  ctx,
                    fd_stem_context_t * stem,
@@ -1670,16 +1747,7 @@ try_become_leader( fd_replay_tile_t *  ctx,
   ctx->reset_slot = parent_slot;
 
   FD_TEST( ctx->next_leader_slot>ctx->reset_slot );
-  long now = fd_tickcount();
-
-  fd_hash_t parent_cmr = block_id_ele->latest_mr;
-  fd_hash_t parent_dmr = *parent_block_id;
-
-  fd_blockhashes_t const * block_hash_queue = &reset_bank->f.block_hash_queue;
-  fd_hash_t const * last_hash = fd_blockhashes_peek_last_hash( block_hash_queue );
-  FD_TEST( last_hash );
-  fd_hash_t parent_blockhash = *last_hash;
-
+  long now       = fd_tickcount();
   long now_nanos = fd_clock_epoch_y( ctx->clock->epoch, now );
 
   ctx->is_leader = 1;
@@ -1696,73 +1764,8 @@ try_become_leader( fd_replay_tile_t *  ctx,
 
   FD_LOG_INFO(( "becoming leader for slot %lu, parent slot is %lu", ctx->next_leader_slot, ctx->reset_slot ));
 
-  fd_bank_t * bank = prepare_leader_bank( ctx, reset_bank, ctx->next_leader_slot, now_nanos );
-
-  fd_bundle_crank_tip_payment_config_t config[1] = { 0 };
-  fd_pubkey_t tip_receiver_owner = {0};
-
-  if( FD_UNLIKELY( ctx->bundle.enabled ) ) {
-    fd_acct_addr_t tip_payment_config[1];
-    fd_acct_addr_t tip_receiver[1];
-    fd_bundle_crank_get_addresses( ctx->bundle.gen, bank->f.epoch, tip_payment_config, tip_receiver );
-
-    fd_acc_t tip_config_acc = fd_accdb_read_one( ctx->accdb, bank->accdb_fork_id, tip_payment_config->b );
-    if( FD_UNLIKELY( !tip_config_acc.lamports ) ) {
-      FD_BASE58_ENCODE_32_BYTES( tip_payment_config->b, tip_config_acc_b58 );
-      FD_LOG_WARNING(( "tip payment config account %s does not exist", tip_config_acc_b58 ));
-      fd_accdb_unread_one( ctx->accdb, &tip_config_acc );
-    } else if( FD_UNLIKELY( tip_config_acc.data_len<sizeof(fd_bundle_crank_tip_payment_config_t) ) ) {
-      FD_LOG_HEXDUMP_WARNING(( "invalid tip payment config account data", tip_config_acc.data, tip_config_acc.data_len ));
-      fd_accdb_unread_one( ctx->accdb, &tip_config_acc );
-    } else {
-      memcpy( config, tip_config_acc.data, sizeof(fd_bundle_crank_tip_payment_config_t) );
-      fd_accdb_unread_one( ctx->accdb, &tip_config_acc );
-    }
-
-    /* It is possible that the tip receiver account does not exist yet
-       if it is the first time in an epoch. */
-    fd_acc_t tip_receiver_acc = fd_accdb_read_one( ctx->accdb, bank->accdb_fork_id, tip_receiver->b );
-    if( FD_LIKELY( tip_receiver_acc.lamports ) ) {
-      fd_memcpy( tip_receiver_owner.uc, tip_receiver_acc.owner, 32UL );
-    }
-    fd_accdb_unread_one( ctx->accdb, &tip_receiver_acc );
-  }
-
-
-  /* Like Agave's block_timeout, the block ends relative to the window's
-     ParentReady.  If that is already past, end at once rather than run
-     into votor's skip timeout. */
-  long slot_end_ns = ctx->votor_leader->parent_ready_ns
-                   + (long)( ( ctx->next_leader_slot%FD_VOTOR_SLOTS_PER_WINDOW+1UL )*bank->f.slot_params.ns_per_slot )
-                   - (long)FD_TARGET_SLOT_ADJUSTMENT_NS - FD_TIME_TO_COMPLETE_BROADCAST_NS;
-
   fd_became_leader_t * msg = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
-  msg->slot                = ctx->next_leader_slot;
-  msg->parent_slot         = ctx->reset_slot;
-  msg->parent_cmr          = parent_cmr;
-  msg->parent_dmr          = parent_dmr;
-  msg->parent_blockhash    = parent_blockhash;
-  msg->block_height        = bank->f.block_height;
-  msg->slot_start_ns       = now_nanos;
-  msg->slot_end_ns         = fd_long_max( slot_end_ns, now_nanos );
-  msg->bank_idx            = bank->idx;
-  msg->bank_seq            = bank->bank_seq;
-  msg->ticks_per_slot      = bank->f.ticks_per_slot;
-  msg->tick_duration_ns    = bank->f.slot_params.ns_per_slot_adjusted/msg->ticks_per_slot;
-  msg->bundle->config[0]   = config[0];
-  memcpy( msg->bundle->last_blockhash,     bank->f.poh.hash,      sizeof(fd_hash_t)   );
-  memcpy( msg->bundle->tip_receiver_owner, tip_receiver_owner.uc, sizeof(fd_pubkey_t) );
-
-  msg->max_microblocks_in_slot = FD_POH_ALPENGLOW_MAX_MICROBLOCKS_PER_SLOT;
-
-  msg->epoch = fd_slot_to_epoch( &bank->f.epoch_schedule, ctx->next_leader_slot, NULL );
-
-  fd_cost_tracker_t const * cost_tracker = fd_cost_tracker_store_peek( fd_bank_cost_tracker( bank ), bank->cost_tracker_fork_id );
-
-  msg->limits.slot_max_cost                     = cost_tracker->block_cost_limit;
-  msg->limits.slot_max_write_cost_per_acct      = cost_tracker->account_cost_limit;
-  msg->limits.slot_max_allocated_data_per_block = cost_tracker->data_size_limit;
-  msg->limits.slot_max_data_shreds              = bank->f.slot_params.max_shred_idx;
+  prepare_leader_bank( ctx, reset_bank, block_id_ele, ctx->next_leader_slot, now_nanos, ctx->votor_leader->parent_ready_ns, msg );
 
   publish_replay_out( ctx, stem, REPLAY_SIG_BECAME_LEADER, sizeof(fd_became_leader_t) );
   metrics_trigger( ctx, reason, reason==FD_METRICS_SAMPLE_REASON_LEADER_START ? msg->slot : end_slot );
@@ -1771,6 +1774,41 @@ try_become_leader( fd_replay_tile_t *  ctx,
   ctx->next_leader_slot       = ULONG_MAX;
 
   return 1;
+}
+
+/* try_optimistic_leader arms our leader window on votor's
+   OPTIMISTIC_LEADER (fast leader handover): replay completed the last
+   block of the window before ours, and votor, which owns whether we may
+   lead the window (vote history and leader floors, failover vote
+   authority) and has recorded it in the vote history, says we may
+   start it on that block ahead of the ParentReady that names the
+   parent.  Replay checks the feature gate on the parent's bank and that
+   the parent is still frozen.  LEADER later confirms the parent or
+   switches it. */
+
+static void
+try_optimistic_leader( fd_replay_tile_t *        ctx,
+                       fd_votor_leader_t const * optimistic ) {
+  ulong slot = optimistic->slot;
+  if( ctx->next_leader_slot!=ULONG_MAX || ctx->is_leader || !ctx->supports_leader ) return; /* a LEADER or our own window is pending */
+  if( ctx->highwater_leader_slot!=ULONG_MAX && ctx->highwater_leader_slot>=slot ) return;
+  if( ctx->votor_parent_ready_slot>=slot ) return; /* our window is ParentReady: LEADER names the parent */
+
+  fd_block_id_t       parent_key = fd_block_id( optimistic->parent_slot, optimistic->parent_block_id.uc );
+  fd_block_id_ele_t * parent_ele = fd_block_id_map_ele_query( ctx->block_id_map, &parent_key, NULL, ctx->block_id_arr );
+  if( FD_UNLIKELY( !parent_ele ) ) return;
+  fd_bank_t const * parent = fd_banks_bank_query( ctx->banks, fd_block_id_ele_get_idx( ctx->block_id_arr, parent_ele ) );
+  if( FD_UNLIKELY( !parent || parent->bank_seq!=parent_ele->bank_seq || parent->state!=FD_BANK_STATE_FROZEN ) ) return;
+  if( FD_LIKELY( !FD_FEATURE_ACTIVE_BANK( parent, alpenglow_fast_leader_handover ) ) ) return;
+
+  *ctx->votor_leader = (fd_votor_leader_t){
+    .slot            = slot,
+    .parent_slot     = optimistic->parent_slot,
+    .parent_block_id = optimistic->parent_block_id,
+    .parent_ready_ns = parent->block_completed_nanos /* the block timer starts at the freeze */
+  };
+  ctx->next_leader_slot          = slot;
+  ctx->leader_parent_unconfirmed = 1;
 }
 
 /* replay_block_complete checks the footer's bank hash, then freezes and
@@ -2040,6 +2078,39 @@ try_fini_leader( fd_replay_tile_t *  ctx,
      discipline broke. */
 
   if( FD_LIKELY( !ctx->is_leader ) ) return 0;
+
+  /* Certs skipped our window before LEADER confirmed its optimistic
+     parent, so votor never sends that LEADER.  Pack holds the slot until
+     the parent is confirmed: tell it to give the slot up.  The bank dies
+     on the aborted slot ended that comes back. */
+
+  if( FD_UNLIKELY( ctx->leader_parent_unconfirmed && ctx->leader_bank && ctx->votor_parent_ready_slot>ctx->leader_bank->f.slot ) ) {
+    ctx->metrics.leader_window_superseded++;
+    ctx->leader_parent_unconfirmed = 0;
+    fd_replay_leader_slot_t * msg = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
+    msg->slot = ctx->leader_bank->f.slot;
+    publish_replay_out( ctx, stem, REPLAY_SIG_ABANDON_LEADER, sizeof(fd_replay_leader_slot_t) );
+    return 1;
+  }
+
+  /* Certs skipped our window while it was switching parent, before the
+     new bank was built.  The new parent may never freeze, so don't wait
+     for it: build nothing, and tell pack to give the slot up.  Pack
+     still drains the old bank first, so motor sends the marker and its
+     drain report releases the old bank as usual.  The aborted slot
+     ended that follows finds no leader bank. */
+
+  fd_votor_leader_t * sw = ctx->votor_leader_switch;
+  if( FD_UNLIKELY( sw->slot!=ULONG_MAX && ctx->votor_parent_ready_slot>sw->slot ) ) {
+    FD_TEST( !ctx->leader_bank );
+    ctx->metrics.leader_window_superseded++;
+    fd_replay_leader_slot_t * msg = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
+    msg->slot = sw->slot;
+    publish_replay_out( ctx, stem, REPLAY_SIG_ABANDON_LEADER, sizeof(fd_replay_leader_slot_t) );
+    sw->slot = ULONG_MAX;
+    return 1;
+  }
+
   if( !ctx->recv_poh ) return 0;
 
   /* The consensus root only advances through FROZEN banks and the
@@ -2056,9 +2127,10 @@ try_fini_leader( fd_replay_tile_t *  ctx,
     ulong bank_idx = ctx->leader_bank->idx;
     metrics_trigger( ctx, FD_METRICS_SAMPLE_REASON_LEADER_END, ctx->leader_bank->f.slot );
     ctx->leader_bank->refcnt--;
-    ctx->leader_bank = NULL;
-    ctx->recv_poh    = 0;
-    ctx->is_leader   = 0;
+    ctx->leader_bank               = NULL;
+    ctx->recv_poh                  = 0;
+    ctx->is_leader                 = 0;
+    ctx->leader_parent_unconfirmed = 0;
     mark_bank_dead( ctx, stem, bank_idx, FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_NOT_DEAD, FD_EVENT_BLOCK_COMPLETED_ABANDONED_REASON_PRUNED, NULL );
     return 1;
   }
@@ -2106,6 +2178,7 @@ try_fini_leader( fd_replay_tile_t *  ctx,
   ctx->leader_bank = NULL;
   ctx->recv_poh    = 0;
   ctx->is_leader   = 0;
+  FD_CHECK_CRIT( !ctx->leader_parent_unconfirmed, "invariant violation: pack ended a slot on an unconfirmed parent" );
 
   if( FD_UNLIKELY( ctx->next_leader_slot==ULONG_MAX && (curr_slot+1UL)%FD_VOTOR_SLOTS_PER_WINDOW ) ) {
     *ctx->votor_leader = (fd_votor_leader_t){
@@ -2348,6 +2421,78 @@ enforce_nanosecond_clock_bounds( fd_replay_tile_t * ctx,
   return (ulong)fd_long_max( lo, fd_long_min( hi, (long)fd_ulong_min( now_nanos, (ulong)LONG_MAX ) ) );
 }
 
+/* update_parent_kill switches our optimistic slot to the parent LEADER
+   named.  Pack stops and drains the old bank; the old bank is marked
+   dead quietly.  It keeps its leader refcount and cost tracker pin;
+   execle may still read both, until we are sure execles are drained.
+   Until the new bank is prepared, is_leader is set with no leader_bank,
+   and votor_leader_switch holds the slot and its new parent.
+   votor_leader is left alone: a LEADER for a later window can arrive
+   while this slot switches. */
+
+static void
+update_parent_kill( fd_replay_tile_t *        ctx,
+                    fd_stem_context_t *       stem,
+                    fd_votor_leader_t const * leader ) {
+  fd_bank_t * old = ctx->leader_bank;
+  FD_LOG_NOTICE(( "slot %lu: ParentReady names parent slot %lu, not the optimistic parent slot %lu, switching parent", leader->slot, leader->parent_slot, ctx->votor_leader->parent_slot ));
+
+  /* Like Agave's, the block timer restarts from ParentReady. */
+  long now         = fd_clock_tile_now( ctx->clock );
+  long slot_end_ns = leader->parent_ready_ns
+                   + (long)( ( leader->slot%FD_VOTOR_SLOTS_PER_WINDOW+1UL )*old->f.slot_params.ns_per_slot )
+                   - (long)FD_TARGET_SLOT_ADJUSTMENT_NS - FD_TIME_TO_COMPLETE_BROADCAST_NS;
+
+  fd_replay_update_parent_kill_t * msg = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
+  msg->slot        = leader->slot;
+  msg->parent_slot = leader->parent_slot;
+  memcpy( msg->parent_dmr, leader->parent_block_id.uc, sizeof(fd_hash_t) );
+  msg->slot_end_ns = fd_long_max( slot_end_ns, now );
+  publish_replay_out( ctx, stem, REPLAY_SIG_UPDATE_PARENT_KILL, sizeof(fd_replay_update_parent_kill_t) );
+
+  FD_TEST( !ctx->recv_poh );
+  ctx->leader_bank               = NULL;
+  ctx->leader_parent_unconfirmed = 0;
+  ctx->leader_window_start_ns    = leader->parent_ready_ns; /* the rest of the window chains from ParentReady */
+  *ctx->votor_leader_switch      =*leader;
+  ctx->reset_slot                = leader->parent_slot;
+  ctx->leader_stats.pack_end_reason = FD_PACK_END_SLOT_REASON_REPARENTED; /* the old bank's row */
+  mark_bank_dead( ctx, stem, old->idx, FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_NOT_DEAD, FD_EVENT_BLOCK_COMPLETED_ABANDONED_REASON_REPARENTED, NULL );
+}
+
+/* try_update_parent_bank builds the new leader bank of a slot that
+   switched parent, on votor_leader_switch's parent: it must be frozen and a
+   bank must be free.  It does not need to wait for the old bank to
+   drain: pack holds the new bank's microblocks back until then.
+   Returns 1 if it published, which ends the switch. */
+
+static int
+try_update_parent_bank( fd_replay_tile_t *  ctx,
+                        fd_stem_context_t * stem ) {
+  fd_votor_leader_t const * switch_parent = ctx->votor_leader_switch;
+  if( FD_LIKELY( switch_parent->slot==ULONG_MAX ) ) return 0;
+  FD_TEST( ctx->is_leader && !ctx->leader_bank );
+
+  fd_block_id_t       parent_key = fd_block_id( switch_parent->parent_slot, switch_parent->parent_block_id.uc );
+  fd_block_id_ele_t * parent_ele = fd_block_id_map_ele_query( ctx->block_id_map, &parent_key, NULL, ctx->block_id_arr );
+  if( FD_UNLIKELY( !parent_ele ) ) return 0;
+  fd_bank_t * parent = fd_banks_bank_query( ctx->banks, fd_block_id_ele_get_idx( ctx->block_id_arr, parent_ele ) );
+  if( FD_UNLIKELY( !parent || parent->bank_seq!=parent_ele->bank_seq || parent->state!=FD_BANK_STATE_FROZEN ) ) return 0;
+  if( FD_UNLIKELY( !fd_banks_can_start_bank( ctx->banks ) ) ) return 0;
+  if( FD_UNLIKELY( fd_accdb_cmd_pending( ctx->accdb ) ) ) return 0; /* the leader bank attaches an accdb fork */
+
+  ulong slot      = switch_parent->slot;
+  long  now_nanos = fd_clock_epoch_y( ctx->clock->epoch, fd_tickcount() );
+  FD_LOG_INFO(( "slot %lu: switching parent, new leader bank on parent slot %lu", slot, switch_parent->parent_slot ));
+
+  /* Pack takes the prefix's bytes off the new bank's byte budget. */
+  fd_became_leader_t * msg = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
+  prepare_leader_bank( ctx, parent, parent_ele, slot, now_nanos, ctx->leader_window_start_ns, msg );
+  publish_replay_out( ctx, stem, REPLAY_SIG_UPDATE_PARENT_BANK, sizeof(fd_became_leader_t) );
+  ctx->votor_leader_switch->slot = ULONG_MAX;
+  return 1;
+}
+
 static void
 process_motor_done( fd_replay_tile_t *                 ctx,
                     fd_stem_context_t *                stem,
@@ -2355,7 +2500,6 @@ process_motor_done( fd_replay_tile_t *                 ctx,
 
   FD_TEST( ctx->is_booted );
   FD_TEST( ctx->is_leader );
-  FD_TEST( ctx->leader_bank!=NULL );
 
   FD_TEST( ctx->highwater_leader_slot>=slot_ended->slot );
   FD_TEST( ctx->next_leader_slot>ctx->highwater_leader_slot );
@@ -2369,6 +2513,17 @@ process_motor_done( fd_replay_tile_t *                 ctx,
     ctx->leader_stats.pack_start_nanos = slot_ended->pack_start_ns;
     ctx->leader_stats.pack_end_nanos   = slot_ended->pack_end_ns;
     ctx->leader_stats.timing_table_idx = slot_ended->timing_table_idx;
+  }
+
+  /* The slot was given up while it switched parent, before its new
+     bank (see try_fini_leader).  The old bank went with the drain
+     report, so there is no bank left. */
+  if( FD_UNLIKELY( !ctx->leader_bank ) ) {
+    FD_TEST( !slot_ended->completed && ctx->votor_leader_switch->slot==ULONG_MAX );
+    metrics_trigger( ctx, FD_METRICS_SAMPLE_REASON_LEADER_END, slot_ended->slot );
+    ctx->recv_poh  = 0;
+    ctx->is_leader = 0;
+    return;
   }
 
   /* unpin when we know leader bank done executing txns */
@@ -3014,11 +3169,19 @@ can_process_rotor_fec( fd_replay_tile_t       * ctx,
   /* We can process a FEC set if a few conditions are met:
      - sched has capacity
      - banks has capacity.  Evict if we don't (see below)
-     Our leader FECs bind to the existing leader bank and never enter
-     sched, so neither capacity gate applies to them.  One that is not
-     for the current leader slot has no bank to bind to. */
+     Our leader FECs are not replayed, so none of the checks below apply
+     to them.  Only the slot-complete one matters, for the block id.  It
+     ends with the footer, which replay only sends on the slot's last
+     leader bank, so that bank is still the leader bank when it arrives.
+     Every other one is skipped, including the prefix of a slot that
+     switched parent, so they never wait or ask for a redelivery. */
 
-  if( FD_UNLIKELY( fec->is_leader && ( !ctx->leader_bank || ctx->leader_bank->f.slot!=fec->slot ) ) ) return PROCESS_FEC_SKIP;
+  if( FD_UNLIKELY( fec->is_leader ) ) {
+    if( FD_LIKELY( !fec->slot_complete ) ) return PROCESS_FEC_SKIP;
+    if( FD_UNLIKELY( !ctx->leader_bank || ctx->leader_bank->f.slot!=fec->slot ) ) return PROCESS_FEC_SKIP;
+    if( FD_UNLIKELY( ctx->block_id_arr[ ctx->leader_bank->idx ].block_id_seen ) ) return PROCESS_FEC_SKIP; /* a redelivery */
+    return PROCESS_FEC_OK;
+  }
 
   /* The FEC sets before an UpdateParent are the abandoned prefix,
      built on the leader's optimistic parent.  The block replays from
@@ -3028,7 +3191,7 @@ can_process_rotor_fec( fd_replay_tile_t       * ctx,
     return PROCESS_FEC_SKIP;
   }
 
-  if( FD_UNLIKELY( !fec->is_leader && fd_sched_can_ingest_cnt( ctx->sched )==0UL ) ) {
+  if( FD_UNLIKELY( fd_sched_can_ingest_cnt( ctx->sched )==0UL ) ) {
     ctx->metrics.sched_full++;
     return PROCESS_FEC_WAIT;
   }
@@ -3115,7 +3278,7 @@ can_process_rotor_fec( fd_replay_tile_t       * ctx,
     return PROCESS_FEC_WAIT;
   }
 
-  if( FD_UNLIKELY( ctx->is_leader &&
+  if( FD_UNLIKELY( ctx->is_leader && ctx->leader_bank && /* none while switching parent */
                    fec->fec_set_idx==fec->update_parent_fec_idx &&
                    parent_bank_idx==ctx->leader_bank->idx &&
                    parent->bank_seq==ctx->leader_bank->bank_seq ) ) {
@@ -3179,7 +3342,7 @@ can_process_rotor_fec( fd_replay_tile_t       * ctx,
   }
 
   if( FD_UNLIKELY( !fd_banks_can_start_bank( ctx->banks ) ) ) {
-    int is_new_block = fec->fec_set_idx==fec->update_parent_fec_idx && !fec->is_leader;
+    int is_new_block = fec->fec_set_idx==fec->update_parent_fec_idx;
     if( FD_UNLIKELY( is_new_block ) ) {
       ctx->metrics.banks_full++;
       if( FD_UNLIKELY( fd_sched_is_drained( ctx->sched ) && !ctx->snapmk.active ) ) *evict_banks_out = 1; /* see can_process_fec */
@@ -3188,10 +3351,8 @@ can_process_rotor_fec( fd_replay_tile_t       * ctx,
   }
 
   /* A block's first FEC set needs a staging lane.  This comes after the
-     eviction decision so that a wait for a lane doesn't shadow it.  Our
-     own leader FECs never enter sched, so they don't need to wait for a
-     lane. */
-  if( FD_UNLIKELY( fec->fec_set_idx==0U && !fec->is_leader && fd_sched_fec_waits_for_lane( ctx->sched, parent_bank_idx, 1 ) ) ) {
+     eviction decision so that a wait for a lane doesn't shadow it. */
+  if( FD_UNLIKELY( fec->fec_set_idx==0U && fd_sched_fec_waits_for_lane( ctx->sched, parent_bank_idx, 1 ) ) ) {
     ctx->metrics.lane_wait++;
     return PROCESS_FEC_WAIT;
   }
@@ -3526,6 +3687,12 @@ after_credit( fd_replay_tile_t *  ctx,
     return;
   }
 
+  if( FD_UNLIKELY( try_update_parent_bank( ctx, stem ) ) ) {
+    *charge_busy = 1;
+    *opt_poll_in = 0;
+    return;
+  }
+
   if( FD_UNLIKELY( try_become_leader( ctx, stem, FD_METRICS_SAMPLE_REASON_LEADER_START, 0UL ) ) ) {
     *charge_busy = 1;
     *opt_poll_in = 0;
@@ -3764,6 +3931,25 @@ process_rotor_fec( fd_replay_tile_t       * ctx,
     ctx->catch_up_tip_advance_cnt++;
   }
 
+  /* Our own slot-complete FEC set (see can_process_rotor_fec): its
+     merkle root chains the next slot, and its block id lets
+     try_fini_leader end the slot.  The block isn't replayed, so its
+     payload isn't read. */
+  if( FD_UNLIKELY( fec->is_leader ) ) {
+    fd_block_id_ele_t * ele = &ctx->block_id_arr[ ctx->leader_bank->idx ];
+    if( FD_LIKELY( ctx->leader_stats.slot==fec->slot ) ) ctx->leader_stats.first_fec_returned_nanos = fd_log_wallclock();
+    ele->latest_mr      = fec->mr;
+    ele->latest_fec_idx = fec->fec_set_idx;
+    ele->fec_cnt        = fec->fec_set_idx/FD_FEC_SHRED_CNT+1U; /* every FEC set of the block, an abandoned prefix included */
+    ele->block_id_seen  = 1;
+    ele->dmr            = fec->block_id;
+    ele->finalized      = !!fec->is_finalized;
+    ele->block_info     = fd_block_id( fec->slot, fec->block_id.uc );
+    fd_block_id_map_ele_remove( ctx->block_id_map, &ele->block_info, NULL, ctx->block_id_arr ); /* a stale, evicted copy */
+    FD_TEST( fd_block_id_map_ele_insert( ctx->block_id_map, ele, ctx->block_id_arr ) );
+    return;
+  }
+
   ulong parent_bank_idx = ULONG_MAX;
   if( FD_UNLIKELY( fec->fec_set_idx==fec->update_parent_fec_idx ) ) {
     fd_block_id_t parent_key = fd_block_id( fec->parent_slot, fec->parent_block_id.uc );
@@ -3825,7 +4011,7 @@ process_rotor_fec( fd_replay_tile_t       * ctx,
        fault, so its sched block is discarded, not invalid, and
        SLOT_DEAD is not published. */
     fd_block_id_t       prefix_key = fec->is_known ? fd_block_id( fec->slot, fec->block_id.uc ) : (fd_block_id_t){ .slot = fec->slot };
-    fd_block_id_ele_t * prefix     = fec->update_parent_fec_idx && !fec->is_leader ? live_block_id_ele( ctx, fd_block_id_map_ele_query( ctx->block_id_map, &prefix_key, NULL, ctx->block_id_arr ) ) : NULL;
+    fd_block_id_ele_t * prefix     = fec->update_parent_fec_idx ? live_block_id_ele( ctx, fd_block_id_map_ele_query( ctx->block_id_map, &prefix_key, NULL, ctx->block_id_arr ) ) : NULL;
     if( FD_UNLIKELY( prefix ) ) {
       ulong opt_idx = fd_block_id_ele_get_idx( ctx->block_id_arr, prefix );
       FD_TEST( fd_block_id_map_ele_remove( ctx->block_id_map, &prefix->block_info, NULL, ctx->block_id_arr )==prefix );
@@ -3841,10 +4027,7 @@ process_rotor_fec( fd_replay_tile_t       * ctx,
       FD_LOG_INFO(( "abandoned optimistic bank (idx=%lu, slot=%lu), replaying the slot from its UpdateParent", opt_idx, fec->slot ));
       try_prune_sched( ctx );
     }
-    bank = fec->is_leader ? ctx->leader_bank : fd_banks_new_bank( ctx->banks, parent_bank_idx, now, 0 );
-    if( FD_UNLIKELY( fec->is_leader && ctx->leader_stats.slot==fec->slot ) ) {
-      ctx->leader_stats.first_fec_returned_nanos = now;
-    }
+    bank = fd_banks_new_bank( ctx->banks, parent_bank_idx, now, 0 );
 
     block_id_ele = &ctx->block_id_arr[ bank->idx ];
     /* Clear the previous occupant of this reused bank idx  */
@@ -3898,12 +4081,6 @@ process_rotor_fec( fd_replay_tile_t       * ctx,
     block_id_ele->block_info = key;
     fd_block_id_map_ele_remove( ctx->block_id_map, &key, NULL, ctx->block_id_arr ); // evicted / stale entry
     FD_TEST( fd_block_id_map_ele_insert( ctx->block_id_map, block_id_ele, ctx->block_id_arr ) );
-  }
-
-  /* For leader FECs, don't insert the FEC into the scheduler. */
-  if( FD_UNLIKELY( fec->is_leader ) ) {
-    fd_store_fec_data_view_release( ctx->store, data_view );
-    return;
   }
 
   /* Forks form a partial ordering over FEC sets. The Rotor tile
@@ -4288,6 +4465,14 @@ returnable_frag( fd_replay_tile_t *  ctx,
       break;
     }
     case IN_KIND_MOTOR: {
+      if( FD_UNLIKELY( sig==FD_POH_SIG_PREFIX_DRAINED ) ) {
+        fd_motor_prefix_drained_t const * drained = (fd_motor_prefix_drained_t const *)fd_type_pun_const( fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk ) );
+        fd_bank_t * old = fd_banks_bank_query( ctx->banks, drained->bank_idx );
+        FD_TEST( old && old->bank_seq==drained->bank_seq && old->state==FD_BANK_STATE_DEAD && old->refcnt );
+        fd_cost_tracker_store_unpin( fd_bank_cost_tracker( old ), old->cost_tracker_fork_id );
+        old->refcnt--;
+        break;
+      }
       process_motor_done( ctx, stem, fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ) );
       break;
     }
@@ -4299,9 +4484,23 @@ returnable_frag( fd_replay_tile_t *  ctx,
     case IN_KIND_VOTOR: {
       if( FD_UNLIKELY( sig==FD_VOTOR_SIG_LEADER ) ) {
         fd_votor_leader_t const * leader = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
-        *ctx->votor_leader    = *leader;
-        ctx->next_leader_slot = leader->slot;
-        try_become_leader( ctx, stem, FD_METRICS_SAMPLE_REASON_LEADER_START, 0UL );
+        if( FD_LIKELY( ctx->leader_parent_unconfirmed && ctx->leader_bank && ctx->leader_bank->f.slot==leader->slot ) ) {
+          /* We already lead this window on an optimistic parent. */
+          if( FD_UNLIKELY( leader->parent_slot!=ctx->votor_leader->parent_slot || !fd_hash_eq( &leader->parent_block_id, &ctx->votor_leader->parent_block_id ) ) ) {
+            update_parent_kill( ctx, stem, leader );
+          } else {
+            /* Confirm the parent to pack. */
+            ctx->leader_parent_unconfirmed = 0;
+            fd_replay_leader_slot_t * msg = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
+            msg->slot = leader->slot;
+            publish_replay_out( ctx, stem, REPLAY_SIG_CONFIRM_LEADER, sizeof(fd_replay_leader_slot_t) );
+          }
+        } else {
+          if( FD_LIKELY( !ctx->is_leader ) ) ctx->leader_parent_unconfirmed = 0; /* an armed start that never began */
+          *ctx->votor_leader    = *leader;
+          ctx->next_leader_slot = leader->slot;
+          try_become_leader( ctx, stem, FD_METRICS_SAMPLE_REASON_LEADER_START, 0UL );
+        }
       } else if( FD_LIKELY( sig==FD_VOTOR_SIG_CERTED ) ) {
         fd_votor_certed_t const * certed = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
         fd_votor_certed_t *       fin    = ctx->votor_final;
@@ -4316,6 +4515,9 @@ returnable_frag( fd_replay_tile_t *  ctx,
           break;
         default: break;
         }
+      } else if( FD_UNLIKELY( sig==FD_VOTOR_SIG_OPTIMISTIC_LEADER ) ) {
+        try_optimistic_leader( ctx, fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ) );
+        try_become_leader( ctx, stem, FD_METRICS_SAMPLE_REASON_LEADER_START, 0UL );
       } else if( FD_UNLIKELY( sig==FD_VOTOR_SIG_PARENT_READY ) ) {
         fd_votor_parent_ready_t const * pr = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
         ctx->votor_parent_ready_slot = fd_ulong_max( ctx->votor_parent_ready_slot, pr->slot );
@@ -4807,6 +5009,8 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->ns_per_slot           = 0UL;
   ctx->next_leader_slot      = ULONG_MAX;
   ctx->highwater_leader_slot = ULONG_MAX;
+  ctx->leader_parent_unconfirmed = 0;
+  ctx->votor_leader_switch->slot = ULONG_MAX;
 
   ctx->votor_final->slot       = ULONG_MAX;
   ctx->votor_parent_ready_slot = 0UL;

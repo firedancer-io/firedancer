@@ -2631,6 +2631,116 @@ test_leader_window_superseded( void ) {
   FD_LOG_NOTICE(( "pass: test_leader_window_superseded" ));
 }
 
+/* OPTIMISTIC_LEADER: when replay completes the last block of the window
+   before ours, votor tells replay it may start our window on that block,
+   with LEADER's gates, once per window, and never once ParentReady has
+   reached our window. */
+
+static ulong
+count_votor_sig( fd_frag_meta_t const * mcache,
+                 ulong                  seq0,
+                 ulong                  seq1,
+                 ulong                  sig ) {
+  ulong n = 0UL;
+  for( ulong i=seq0; i<seq1; i++ ) n += (ulong)( mcache[ fd_mcache_line_idx( i, 128UL ) ].sig==sig );
+  return n;
+}
+
+static void
+test_optimistic_leader( void ) {
+  static fd_votor_tile_t ctx[1];
+  memset( ctx, 0, sizeof(fd_votor_tile_t) );
+  ctx->id_key.uc[ 0 ] = 1;
+  ctx->vote_history_fd_dir = -1;
+  fd_clock_tile_init( ctx->clock );
+
+  ulong const slot_max = 4UL*FD_VOTOR_SLOTS_PER_WINDOW+FD_VOTOR_REWARD_SLOT_DELTA;
+  void * pool_mem  = aligned_alloc( fd_votor_pool_align(), fd_ulong_align_up( fd_votor_pool_footprint( slot_max, QUIC_DGRAM_BURST ), fd_votor_pool_align() ) );
+  void * votor_mem = aligned_alloc( fd_votor_loop_align(), fd_ulong_align_up( fd_votor_loop_footprint( slot_max                   ), fd_votor_loop_align() ) );
+  FD_TEST( pool_mem && votor_mem );
+  ctx->pool  = fd_votor_pool_join( fd_votor_pool_new( pool_mem,  slot_max, QUIC_DGRAM_BURST, 42UL ) );
+  ctx->votor = fd_votor_loop_join( fd_votor_loop_new( votor_mem, slot_max, 42UL ) );
+  FD_TEST( ctx->pool && ctx->votor );
+
+  fd_vote_stake_weight_t stakes[ TEST_VOTER_MAX ];
+  build_stakes( stakes, 3UL, 10UL );
+  fd_epoch_info_t * epoch_info = test_epoch( stakes, 3UL, 1 );
+  fd_votor_pool_from_genesis ( ctx->pool, &(fd_block_id_t){ .slot = 0UL } );
+  fd_votor_pool_advance_epoch( ctx->pool, epoch_info, USHORT_MAX, 0UL );
+  while( fd_votor_pool_poll_pool_event( ctx->pool, &ctx->scratch.pool_event ) ); /* genesis' own window */
+  ctx->init                   = 1;
+  ctx->optimistic_leader_slot = ULONG_MAX;
+  ctx->in_kind[ 0 ]           = IN_KIND_REPLAY; /* after_frag on a SLOT_COMPLETED of completed_block */
+  ctx->hist_out_idx           = ULONG_MAX;      /* no failover tile to publish the history to */
+
+  fd_frag_meta_t * mcache = fd_mcache_join( fd_mcache_new( reward_mcache_mem, 128UL, 0UL, 0UL ) );
+  FD_TEST( mcache );
+  ctx->votor_out_mem    = reward_out_mem;
+  ctx->votor_out_chunk0 = 0UL;
+  ctx->votor_out_chunk  = 0UL;
+  ctx->votor_out_wmark  = REWARD_OUT_WMARK;
+  fd_frag_meta_t *  mcaches[1]      = { mcache };
+  ulong             seqs[1]         = { 0UL };
+  ulong             depths[1]       = { 128UL };
+  ulong             cr_avail[1]     = { ULONG_MAX };
+  ulong             min_cr_avail[1] = { ULONG_MAX };
+  int               reliable[1]     = { 0 };
+  fd_stem_context_t stem[1]         = {{ .mcaches = mcaches, .seqs = seqs, .depths = depths, .cr_avail = cr_avail, .min_cr_avail = min_cr_avail, .out_reliable = reliable }};
+
+  /* We lead window 2W.  Skips of 1..W-1 make window W ParentReady, not
+     ours.  The last block of window W, slot 2W-1, completes. */
+  ulong W = FD_VOTOR_SLOTS_PER_WINDOW;
+  for( ulong slot=1UL; slot<W; slot++ ) {
+    fd_cert_t skip = standstill_cert( FD_CERT_KIND_SKIP, slot );
+    FD_TEST( fd_votor_pool_add_cert( ctx->pool, &skip, 1, ctx->scratch.bad )==FD_VOTOR_POOL_SUCCESS );
+  }
+  FD_TEST( fd_votor_pool_highest_parent_ready( ctx->pool )==W );
+  fd_block_id_t last = { .slot = 2UL*W-1UL }; memset( &last.hash, 7, sizeof(fd_block_hash_t) );
+
+  /* Gates: not our next window, not a window's last block, failover
+     without vote authority, the block's window not ParentReady. */
+  for( int c=0; c<4; c++ ) {
+    ctx->next_leader_slot = 2UL*W; ctx->completed_block = last; ctx->failover_enabled = 0; ctx->vote_authority = 1;
+    switch( c ) {
+    case 0: ctx->next_leader_slot = 3UL*W;                                    break; /* not our next window */
+    case 1: ctx->completed_block.slot = 2UL*W-2UL;                            break; /* not the window's last block */
+    case 2: ctx->failover_enabled = 1; ctx->vote_authority = 0;               break; /* failover standby */
+    case 3: ctx->completed_block.slot = 3UL*W-1UL; ctx->next_leader_slot = 3UL*W; break; /* its window not ParentReady */
+    }
+    ulong seq0 = seqs[ 0 ];
+    after_frag( ctx, 0UL, 0UL, REPLAY_SIG_SLOT_COMPLETED, 0UL, 0UL, 0UL, stem );
+    FD_TEST( seqs[ 0 ]==seq0 && ctx->optimistic_leader_slot==ULONG_MAX );
+  }
+
+  /* Sent, once, naming the completed block, with the window recorded. */
+  ctx->next_leader_slot = 2UL*W; ctx->completed_block = last; ctx->failover_enabled = 0;
+  ulong seq0 = seqs[ 0 ];
+  after_frag( ctx, 0UL, 0UL, REPLAY_SIG_SLOT_COMPLETED, 0UL, 0UL, 0UL, stem );
+  FD_TEST( count_votor_sig( mcache, seq0, seqs[ 0 ], FD_VOTOR_SIG_OPTIMISTIC_LEADER )==1UL );
+  fd_votor_leader_t const * opt = &((fd_votor_msg_t const *)fd_chunk_to_laddr_const( reward_out_mem, mcache[ fd_mcache_line_idx( seq0, 128UL ) ].chunk ))->leader;
+  FD_TEST( opt->slot==2UL*W && opt->parent_slot==2UL*W-1UL && !memcmp( opt->parent_block_id.uc, &last.hash, 32UL ) );
+  FD_TEST( ctx->optimistic_leader_slot==2UL*W && ctx->highest_vote_or_lead_slot>=3UL*W-1UL );
+  seq0 = seqs[ 0 ];
+  after_frag( ctx, 0UL, 0UL, REPLAY_SIG_SLOT_COMPLETED, 0UL, 0UL, 0UL, stem );                              /* another fork's last block */
+  FD_TEST( seqs[ 0 ]==seq0 );
+
+  /* Once ParentReady reached our window, LEADER names the parent: no
+     OPTIMISTIC_LEADER for it.  Skips of W..2W-1 make window 2W ParentReady. */
+  ctx->optimistic_leader_slot = ULONG_MAX;
+  for( ulong slot=W; slot<2UL*W; slot++ ) {
+    fd_cert_t skip = standstill_cert( FD_CERT_KIND_SKIP, slot );
+    FD_TEST( fd_votor_pool_add_cert( ctx->pool, &skip, 1, ctx->scratch.bad )==FD_VOTOR_POOL_SUCCESS );
+  }
+  FD_TEST( fd_votor_pool_highest_parent_ready( ctx->pool )>=2UL*W );
+  seq0 = seqs[ 0 ];
+  after_frag( ctx, 0UL, 0UL, REPLAY_SIG_SLOT_COMPLETED, 0UL, 0UL, 0UL, stem );
+  FD_TEST( seqs[ 0 ]==seq0 && ctx->optimistic_leader_slot==ULONG_MAX );
+
+  free( votor_mem );
+  free( pool_mem );
+  FD_LOG_NOTICE(( "pass: test_optimistic_leader" ));
+}
+
 /* reward_vote_sig returns the signature of the voter at rank over the
    vote of kind for slot and hash. */
 
@@ -3215,6 +3325,7 @@ main( int     argc,
   test_park();
   test_standstill();
   test_leader_window_superseded();
+  test_optimistic_leader();
   test_write_vote_history();
   test_boot_vote_history_floor();
   test_reward_certs();

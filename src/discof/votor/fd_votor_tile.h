@@ -6,12 +6,13 @@
 #include "../../disco/topo/fd_topo.h"
 #include "../../waltz/quic/tls/fd_quic_tls.h"
 
-#define FD_VOTOR_SIG_CERTED       (0)
-#define FD_VOTOR_SIG_REPAIR       (1)
-#define FD_VOTOR_SIG_LEADER       (2)
-#define FD_VOTOR_SIG_REWARD       (3)
-#define FD_VOTOR_SIG_QUORUM       (4)
-#define FD_VOTOR_SIG_PARENT_READY (5)
+#define FD_VOTOR_SIG_CERTED            (0)
+#define FD_VOTOR_SIG_REPAIR            (1)
+#define FD_VOTOR_SIG_LEADER            (2)
+#define FD_VOTOR_SIG_REWARD            (3)
+#define FD_VOTOR_SIG_QUORUM            (4)
+#define FD_VOTOR_SIG_PARENT_READY      (5)
+#define FD_VOTOR_SIG_OPTIMISTIC_LEADER (6)
 
 #define FD_VOTOR_NET_BURST (2UL*(1UL+FD_QUIC_TLS_HS_DATA_CNT+3UL)) /* 1 ACK + 1 TLS + 3 1-RTT pkts * 2 for both client and server. EXCLUDES DATAGRAMS. */
 
@@ -33,7 +34,7 @@
 
 #define QUIC_DGRAM_BURST (9UL)
 
-#define FD_VOTOR_OUT_BURST (1UL+FD_VOTOR_SLOTS_PER_WINDOW+1UL+QUIC_DGRAM_BURST+1UL) /* 1 leader + 4 reward + 1 republished reward, then 2 certed or 1 quorum + 1 repair, or a catchup repair per datagram, + 1 parent ready */
+#define FD_VOTOR_OUT_BURST (1UL+FD_VOTOR_SLOTS_PER_WINDOW+1UL+QUIC_DGRAM_BURST+1UL+1UL) /* 1 leader + 4 reward + 1 republished reward, then 2 certed or 1 quorum + 1 repair, or a catchup repair per datagram, + 1 parent ready, + 1 optimistic leader from after_frag */
 
 /* fd_votor_certed notifies that we have a valid cert for the block
    reaching a given state.  A final cert names only its slot, so it is
@@ -57,7 +58,15 @@ struct fd_votor_certed {
 typedef struct fd_votor_certed fd_votor_certed_t;
 
 /* fd_votor_leader notifies that it is time to become leader for the
-   window beginning from slot. */
+   window beginning from slot.
+
+   FD_VOTOR_SIG_OPTIMISTIC_LEADER carries one too (fast leader
+   handover): replay completed the last block of the window before
+   ours, so we may start our window on it, parent_slot and
+   parent_block_id, ahead of the ParentReady that names the real
+   parent.  Votor sends it with the same gates as LEADER and records the
+   window in the vote history first, so a restart does not lead it
+   again.  LEADER still follows with the real parent. */
 
 struct fd_votor_leader {
   ulong     slot;
