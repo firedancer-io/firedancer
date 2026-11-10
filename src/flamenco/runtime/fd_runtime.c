@@ -733,14 +733,7 @@ fd_runtime_process_new_epoch( fd_bank_t *          bank,
                                  stake_delegations_history,
                                  &bank->f.warmup_cooldown_rate_epoch );
 
-  /* The Agave client handles updating their stakes cache with a call to
-     update_epoch_stakes() which keys stakes by the leader schedule
-     epochs and retains up to 6 epochs of stakes.  However, to correctly
-     calculate the leader schedule, we just need to maintain the vote
-     states for the current epoch, the previous epoch, and the one
-     before that.
-     https://github.com/anza-xyz/agave/blob/v3.0.4/runtime/src/bank.rs#L2175
-  */
+  /* Calculate the leader schedule for the upcoming epoch. */
 
   fd_runtime_update_leaders( bank, runtime_stack );
 
