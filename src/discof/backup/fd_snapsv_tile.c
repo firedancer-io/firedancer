@@ -414,7 +414,7 @@ privileged_init( fd_topo_t const *      topo,
   ctx->ring_shmem = ring_mem;
   fd_io_uring_params_t params[1];
   fd_io_uring_params_init( params, (uint)sq_depth );
-  params->flags |= FD_IORING_SETUP_COOP_TASKRUN | FD_IORING_SETUP_DEFER_TASKRUN;
+  params->flags |= FD_IORING_SETUP_COOP_TASKRUN;
 
   if( FD_UNLIKELY( !fd_io_uring_init_shmem( ctx->ring, params, ctx->ring_shmem, sq_depth, cq_depth ) ) ) {
     FD_LOG_ERR(( "fd_io_uring_init_shmem failed (%i-%s)", errno, fd_io_strerror( errno ) ));
