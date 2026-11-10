@@ -2279,6 +2279,16 @@ init_after_snapshot( fd_replay_tile_t *  ctx,
   FD_TEST( leader );
   bank->leader = *leader;
 
+  /* Agave asserts that the manifest leader_id matches the computed slot
+     leader.  At slot 0, Agave uses the highest staked node instead.
+     https://github.com/anza-xyz/agave/blob/v4.2.0/runtime/src/bank.rs#L2056-L2082 */
+  if( FD_UNLIKELY( bank->f.slot && !fd_pubkey_eq( leader, &ctx->manifest_leader_id ) ) ) {
+    FD_BASE58_ENCODE_32_BYTES( ctx->manifest_leader_id.uc, manifest_b58 );
+    FD_BASE58_ENCODE_32_BYTES( leader->uc,                 computed_b58 );
+    FD_LOG_ERR(( "invalid snapshot: leader_id %s does not match computed slot leader %s at slot %lu",
+                 manifest_b58, computed_b58, bank->f.slot ));
+  }
+
   fd_progcache_reset( ctx->progcache );
   bank->progcache_fork_id = fd_progcache_fork_id_initial();
 
@@ -2730,6 +2740,7 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
       ctx->expected_genesis_timestamp     = manifest->creation_time_seconds;
       ctx->has_manifest_block_id          = manifest->has_block_id;
       if( manifest->has_block_id ) memcpy( ctx->manifest_block_id.uc, manifest->block_id, 32UL );
+      memcpy( ctx->manifest_leader_id.uc, manifest->leader_id, 32UL );
       if( FD_UNLIKELY( msg==FD_SSMSG_MANIFEST_FULL ) ) {
         ctx->snapmk.base_slot = manifest->slot;
       }

@@ -1497,6 +1497,7 @@ test_consensus_root_notification_handoff( fd_wksp_t * wksp ) {
   ctx->initial_block_id = root_id;
   ctx->manifest_block_id = root_id;
   ctx->has_manifest_block_id = 1;
+  ctx->manifest_leader_id = *(fd_multi_epoch_leaders_get_leader_for_slot)( ctx->mleaders, root->f.slot );
 
   root->accdb_fork_id        = (fd_accdb_fork_id_t){ .val=37U };
   root->parent_accdb_fork_id = root->accdb_fork_id;
@@ -4301,6 +4302,7 @@ setup_snapshot_test_ctx( fd_replay_tile_t *   ctx,
   ctx->initial_block_id               = root_id;
   ctx->manifest_block_id              = root_id;
   ctx->has_manifest_block_id          = 1;
+  ctx->manifest_leader_id             = *(fd_multi_epoch_leaders_get_leader_for_slot)( ctx->mleaders, snapshot_slot );
   ctx->has_expected_genesis_timestamp = 1;
   root->accdb_fork_id                 = (fd_accdb_fork_id_t){ .val=37U };
   root->parent_accdb_fork_id          = root->accdb_fork_id;
