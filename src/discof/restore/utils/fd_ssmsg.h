@@ -121,9 +121,7 @@ struct fd_snapshot_manifest_epoch_stakes {
 typedef struct fd_snapshot_manifest_epoch_stakes fd_snapshot_manifest_epoch_stakes_t;
 
 struct fd_snapshot_manifest_inflation_params {
-  /* The initial inflation percentage starting at genesis.  This value is
-     set at genesis to 8%, and is only changed at the boundary when
-     double_disinflation_rate activates. */
+  /* The initial inflation percentage starting at genesis. */
   double initial;
 
   /* The terminal inflation percentage is the long-term steady state
