@@ -7,7 +7,7 @@
 
 #include "fd_transpile.h"
 
-#if defined(__linux__) && FD_HAS_X86
+#if defined(__linux__) && ( FD_HAS_X86 || FD_HAS_ARM )
 
 /* fd_transpiled_live_t is a transpiled sBPF program loaded into the
    current process.  It is backed by two anonymous mappings at kernel
@@ -49,6 +49,6 @@ fd_transpiled_live_destroy( fd_transpiled_live_t * live );
 
 FD_PROTOTYPES_END
 
-#endif /* defined(__linux__) && FD_HAS_X86 */
+#endif /* defined(__linux__) && ( FD_HAS_X86 || FD_HAS_ARM ) */
 
 #endif /* HEADER_fd_src_flamenco_vm_transpile_fd_transpile_live_h */

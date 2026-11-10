@@ -1,4 +1,4 @@
-/* The jit tile transpiles sBPF programs to x86 at run time.  It is the
+/* The jit tile transpiles sBPF programs to native code at run time.  It is the
    untrusted half of the JIT: it only sees verified program images
    (exec_jit frags), runs the transpiler on them, and sends the
    resulting relocatable code to jitmap (jit_jitmap frags).  It maps no
@@ -192,7 +192,7 @@ after_frag( fd_jit_tile_t *     ctx,
   fd_stem_publish( stem, 0UL, 0UL, ctx->out_chunk, 0UL, 0UL, 0UL, 0UL );
   ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, res_sz, ctx->out_chunk0, ctx->out_wmark );
   ctx->metrics.compiled++;
-  FD_LOG_INFO(( "jit %s: %lu sBPF insns -> %lu bytes x86 in %ld us", prog_b58, (ulong)req->text_cnt, t->code_sz, dt/1000L ));
+  FD_LOG_INFO(( "jit %s: %lu sBPF insns -> %lu bytes native in %ld us", prog_b58, (ulong)req->text_cnt, t->code_sz, dt/1000L ));
 }
 
 static void

@@ -1,4 +1,5 @@
 #include "fd_transpile_obj.h"
+#include "fd_transpile_target.h"
 #include "../../../util/fd_util.h"
 
 #include <stdio.h>
@@ -54,7 +55,7 @@ test_export_obj( void ) {
   FD_TEST( ehdr->e_ident[ FD_ELF_EI_MAG2 ] == 'L' );
   FD_TEST( ehdr->e_ident[ FD_ELF_EI_MAG3 ] == 'F' );
   FD_TEST( ehdr->e_type == FD_ELF_ET_REL );
-  FD_TEST( ehdr->e_machine == FD_ELF_EM_X86_64 );
+  FD_TEST( ehdr->e_machine == FD_TRANSPILE_EM );
   FD_TEST( ehdr->e_shnum > 0 );
 
   /* Find .symtab and .strtab */

@@ -1,0 +1,1945 @@
+/* fd_transpile_arm64.dasc translates sBPF v0, v1, and v3 programs to
+   native AArch64 code.  It is the arm64 twin of fd_transpile_x86.dasc,
+   which documents the overall design (basic blocks, CU budgeting, soft
+   MMU, frames, bail, unwind).  Only the register assignment and the
+   points where the two backends differ are described here.
+
+   sBPF registers are assigned to arm64 registers as follows:
+
+   BPF | r0 | r1 | r2 | r3 | r4 | r5 | r6  | r7  | r8  | r9  | r10
+   arm | x0 | x1 | x2 | x3 | x4 | x5 | x20 | x21 | x22 | x23 | x24
+
+   The remaining registers are used as follows:
+   - x19: fd_vm_t context pointer
+   - x29: frame pointer of the current sBPF function
+   - x30: link register
+   - sp:  stack pointer (used for the sBPF call stack)
+   - x9, x10, x11, x12: scratch (x9 and x10 play the roles of rdi and
+     r15 in the x86 backend: x9 carries block CU counts and C call
+     arguments, x10 carries virtual/host addresses and error codes)
+   - x16, x17: intra-procedure-call scratch (veneers)
+
+   Note: Why this assignment?
+   - BPF r0 and AAPCS64 x0 are both "return register 0"
+   - BPF r1..r5 and AAPCS64 x1..x5 are the scalar syscall arguments
+   - BPF r6..r10 are callee-saved across syscalls either way, so they
+     live in callee-saved x20..x24 and survive C calls untouched
+
+   Frames follow AAPCS64: every sBPF function invocation has a frame
+   record at x29 ([x29] = caller x29, [x29+8] = return address) so
+   frame pointer based unwinders see the sBPF call stack.  Each frame
+   also holds the root frame pointer at [x29-8] (the root frame points
+   to itself), and sBPF function bodies run with sp==x29-16.
+
+   Branch Target Identification is not used: the only indirect branch
+   in transpiled code is callx, which jumps to a basic block start
+   looked up in a read-only table.
+
+   Load/store immediates: AArch64 unsigned scaled offsets cover
+   [0,4095*width] and unscaled signed offsets [-256,255].  sBPF
+   offsets are 16 bit signed, so memory accesses add the offset into
+   a scratch register first.  The frame-relative fast path reaches
+   [-4096,-1] through a second scratch add.
+
+   Division: arm64 udiv never traps, so only the zero check remains,
+   and division by a constant uses the same Granlund-Montgomery
+   magic as x86 via umulh. */
+
+#include "fd_transpile.h"
+#include <setjmp.h>
+
+static FD_TL jmp_buf dasm_oom;
+__attribute__((noreturn)) static void
+dasm_trap_oom( char const * msg ) {
+  FD_LOG_WARNING(( "transpile scratch buffer out of memory (%s)", msg ));
+  longjmp( dasm_oom, 1 );
+}
+
+/* all DynASM state is preallocated, so just trap to OOM on grow request */
+#define Dst_DECL fd_transpiler_t * Dst
+#define Dst_REF  (Dst->state)
+#define DASM_M_GROW( ctx, t, p, sz, need ) dasm_trap_oom( #t " " #p )
+#define DASM_M_FREE( ctx, p, sz )
+
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wconversion"
+#pragma GCC diagnostic ignored "-Wsign-conversion"
+#pragma GCC diagnostic ignored "-Wimplicit-fallthrough"
+#pragma GCC diagnostic ignored "-Wunused-parameter"
+#pragma GCC diagnostic ignored "-Wempty-body"
+#pragma GCC diagnostic ignored "-Wunused-function"
+#define DASM_CHECKS 1
+#include "../../../third_party/luajit/dasm_proto.h"
+#include "../../../third_party/luajit/dasm_arm64.h"
+#pragma GCC diagnostic pop
+#include "../fd_vm_private.h"
+#include "../syscall/fd_vm_syscall.h"
+#include "../../../ballet/murmur3/fd_murmur3.h"
+#include "fd_transpile_idiv.h"
+#include "fd_transpile_bb.h"
+#include "fd_transpile_target.h"
+
+|.arch arm64
+|.actionlist actions
+|.globals fd_xlat_
+|.globalnames fd_xlat_names
+|.type vm, fd_vm_t, x19
+|.section code
+
+/* fd_vm_t field offsets reachable by scaled 12 bit immediates (the
+   .type form) go up to 32 KiB; shadow and syscalls are within that,
+   region tables too.  Nothing emitted below exceeds it. */
+
+FD_STATIC_ASSERT( offsetof( fd_vm_t, shadow )+FD_VM_STACK_FRAME_MAX*sizeof(fd_vm_shadow_t) < 32768UL, vm_shadow );
+FD_STATIC_ASSERT( offsetof( fd_vm_t, stack_push_frame_count ) < 32768UL, vm_stack_push_frame_count );
+
+/* emit_regs_subroutines: emit helper functions for reg save/restore */
+
+static void
+emit_regs_subroutines( fd_transpiler_t * Dst ) {
+  |->regs_save:
+  | stp x0,  x1,  vm->reg[0]
+  | stp x2,  x3,  vm->reg[2]
+  | stp x4,  x5,  vm->reg[4]
+  | stp x20, x21, vm->reg[6]
+  | stp x22, x23, vm->reg[8]
+  | str x24,      vm->reg[10]
+  | ret
+
+  |->regs_restore:
+  | ldp x0,  x1,  vm->reg[0]
+  | ldp x2,  x3,  vm->reg[2]
+  | ldp x4,  x5,  vm->reg[4]
+  | ldp x20, x21, vm->reg[6]
+  | ldp x22, x23, vm->reg[8]
+  | ldr x24,      vm->reg[10]
+  | ret
+}
+
+/* emit_mov16 emits movz (kind 0), movn (kind 1, c is the chunk of the
+   final value) or movk (kind 2) of 16 bit chunk c at position i. */
+
+static void
+emit_mov16( fd_transpiler_t * Dst,
+            uint              reg,
+            ushort            c,
+            int               i,
+            int               kind ) {
+  ushort n = (ushort)~c;
+  switch( kind*4 + i ) {
+  case  0:
+    | movz Rx(reg), #c, lsl #0
+           break;
+  case  1:
+    | movz Rx(reg), #c, lsl #16
+           break;
+  case  2:
+    | movz Rx(reg), #c, lsl #32
+           break;
+  case  3:
+    | movz Rx(reg), #c, lsl #48
+           break;
+  case  4:
+    | movn Rx(reg), #n, lsl #0
+           break;
+  case  5:
+    | movn Rx(reg), #n, lsl #16
+           break;
+  case  6:
+    | movn Rx(reg), #n, lsl #32
+           break;
+  case  7:
+    | movn Rx(reg), #n, lsl #48
+           break;
+  case  8:
+    | movk Rx(reg), #c, lsl #0
+           break;
+  case  9:
+    | movk Rx(reg), #c, lsl #16
+           break;
+  case 10:
+    | movk Rx(reg), #c, lsl #32
+           break;
+  default:
+    | movk Rx(reg), #c, lsl #48
+           break;
+  }
+}
+
+/* emit_const64: load a 64-bit immediate into a register. */
+
+static void
+emit_const64( fd_transpiler_t * Dst,
+              uint              reg,
+              ulong             value ) {
+  if( value==0UL ) {
+    | mov Rx(reg), xzr
+    return;
+  }
+  if( ~value==0UL ) {
+    | movn Rx(reg), #0
+    return;
+  }
+  /* count 16 bit chunks that are zero / ones */
+  int zeros = 0, ones = 0;
+  for( int i=0; i<4; i++ ) {
+    ushort c = (ushort)( value>>(16*i) );
+    zeros += c==0;
+    ones  += c==0xffff;
+  }
+  int first = 1;
+  ushort skip = ones>zeros ? (ushort)0xffff : (ushort)0;
+  for( int i=0; i<4; i++ ) {
+    ushort c = (ushort)( value>>(16*i) );
+    if( c==skip ) continue;
+    emit_mov16( Dst, reg, c, i, first ? ( skip ? 1 : 0 ) : 2 );
+    first = 0;
+  }
+}
+
+/* emit_const32: load a 32 bit immediate, zero extending. */
+
+static void
+emit_const32( fd_transpiler_t * Dst,
+              uint              reg,
+              uint              value ) {
+  emit_const64( Dst, reg, (ulong)value );
+}
+
+/* Scratch register numbers */
+#define SCR0 (9U)
+#define SCR1 (10U)
+#define SCR2 (11U)
+
+/* CU budgeting: see fd_transpile_x86.dasc.  x9 and x11 are scratch. */
+
+| // Settle internal CU state into fd_vm_t (updates 'ic')
+|.macro cu_save
+| ldr x9, vm->transpiled.ic_cu_anchor
+| ldr x11, vm->cu
+| sub x9, x9, x11
+| str x9, vm->ic
+|.endmacro
+
+| // Restore internal CU state from fd_vm_t
+|.macro cu_restore
+| ldr x9, vm->ic
+| ldr x11, vm->cu
+| add x9, x9, x11
+| str x9, vm->transpiled.ic_cu_anchor
+|.endmacro
+
+/* cu_charge / cu_settle take a C expression; the count fits 12 bits
+   (blocks are split well before that) but emit_cu_sub handles the
+   general case. */
+
+static void
+emit_cu_sub( fd_transpiler_t * Dst,
+             ulong             n ) {
+  | ldr x9, vm->cu
+  if( n<4096UL ) {
+    | subs x9, x9, #n
+  } else {
+    emit_const64( Dst, SCR2, n );
+    | subs x9, x9, x11
+  }
+  | str x9, vm->cu
+}
+
+static void
+emit_cu_charge( fd_transpiler_t * Dst,
+                ulong             n ) {
+  emit_cu_sub( Dst, n );
+  | bpl >8
+  | b ->exception_cost
+  |8:
+}
+
+/* External function calls */
+
+static uint
+sym_id_syscall_handler( ulong syscall_slot_id ) {
+  return (uint)( FD_VM_TRANSPILE_SYM_MAX + syscall_slot_id );
+}
+
+/* emit_ffi_call generates a relocatable `bl` to a C function.  Assumes
+   the CPU state is AAPCS64 compliant and sp is 16 byte aligned. */
+
+static void
+emit_ffi_call( fd_transpiler_t * Dst,
+               uint              sym ) {
+  ulong idx = Dst->reloc_cnt++;
+  if( FD_UNLIKELY( idx>=FD_TRANSPILER_RELOC_MAX ) ) {
+    longjmp( dasm_oom, 1 );
+  }
+  Dst->reloc[ idx ] = (fd_elf64_rela){
+    .r_info   = FD_ELF64_R_INFO( sym, FD_TRANSPILE_R_CALL ),
+    .r_addend = 0L,
+  };
+  |=>(Dst->dasm_lbl_reloc0 + idx):
+  | .long 0x94000000 // bl #0
+}
+
+/* emit_rodata_adr generates `adrp x11, rodata+off; add x11, x11,
+   :lo12:rodata+off` (two relocations). */
+
+static void
+emit_rodata_adr( fd_transpiler_t * Dst,
+                 ulong             off ) {
+  ulong idx = Dst->reloc_cnt;
+  if( FD_UNLIKELY( idx+2UL>FD_TRANSPILER_RELOC_MAX ) ) {
+    longjmp( dasm_oom, 1 );
+  }
+  Dst->reloc_cnt += 2UL;
+  Dst->reloc[ idx ] = (fd_elf64_rela){
+    .r_info   = FD_ELF64_R_INFO( FD_VM_TRANSPILE_SYM_RODATA, FD_TRANSPILE_R_ADRP ),
+    .r_addend = (long)off,
+  };
+  Dst->reloc[ idx+1UL ] = (fd_elf64_rela){
+    .r_info   = FD_ELF64_R_INFO( FD_VM_TRANSPILE_SYM_RODATA, FD_TRANSPILE_R_ADD_LO12 ),
+    .r_addend = (long)off,
+  };
+  |=>(Dst->dasm_lbl_reloc0 + idx):
+  | .long 0x9000000b // adrp x11, #0
+  |=>(Dst->dasm_lbl_reloc0 + idx + 1UL):
+  | add x11, x11, #0
+}
+
+|.macro mmu_tlb_invalidate
+| movn x9, #0
+| str x9, vm->transpiled.tlb_vaddr_lo
+|.endmacro
+
+| // Recompute the host address of the current stack frame end from
+| // x10=vm->frame_cnt.  Clobbers x9, x11.
+|.macro frame_haddr_update
+| add x9, x10, #1
+| lsl x9, x9, #12
+| ldr x11, vm->region_haddr[FD_VM_STACK_REGION]
+| add x9, x9, x11
+| str x9, vm->transpiled.frame_haddr
+|.endmacro
+
+/* emit_syscall_call generates an FFI call to an sBPF syscall handler.
+   Entered via bl from the instruction stream (x30 = return address
+   into the sBPF function body, whose sp is 16 byte aligned). */
+
+static void
+emit_syscall_call( fd_transpiler_t * Dst,
+                   ulong             slot_idx ) {
+  | str x30, [sp, #-16]!
+  | mmu_tlb_invalidate
+  | bl ->regs_save
+  | cu_save
+  | mov x0, x19 // handlers take (vm, r1..r5); r1..r5 already sit in x1..x5
+  emit_ffi_call( Dst, sym_id_syscall_handler( slot_idx ) );
+  | cu_restore
+  | cbnz w0, >1
+  | bl ->regs_restore
+  | ldr x30, [sp], #16
+  | ret
+  |1:
+  | add sp, sp, #16
+  | mov w9, #(uint)(-FD_VM_SYSCALL_ERR_COMPUTE_BUDGET_EXCEEDED)
+  | cmn w0, w9
+  | bne >2
+  | str xzr, vm->cu
+  |2:
+  | mov w10, #(uint)(-FD_VM_ERR_EBPF_SYSCALL_ERROR)
+  | neg w10, w10
+  | mov x9, xzr
+  | b ->exception_charge
+}
+
+/* Software address translation routines
+
+   Input: x10 = vaddr.  Output: x10 = haddr.  Clobber x9, x11.
+   Faults unwind. */
+
+static void
+emit_mmu_routines( fd_transpiler_t * Dst ) {
+  |// mmu_translate_flat: flat region (prog/heap).  w9/x9 scratch.
+  |.macro mmu_translate_flat, region, limits, width
+  | ldr w9, vm->limits[region]
+  | cmp x9, #width
+  | blo >2
+  | sub x9, x9, #width
+  | cmp w10, w9
+  | bhi >2
+  | mov w9, w10
+  | ldr x11, vm->region_haddr[region]
+  | adds x9, x9, x11
+  | beq >2
+  | mov x10, x9
+  | b ->mmu_translate_check
+  |.endmacro
+
+  |// mmu_translate_stack: striped (v0) or dense stack region
+  |.macro mmu_translate_stack, limits, width
+  | mov w9, w10
+  | ldr x11, vm->stack_push_frame_count
+  | cmp x11, #1
+  | bls >3
+  | tbnz w9, #12, >2
+  | lsr w9, w9, #1
+  | eor w9, w9, w10
+  | and w9, w9, #0xfffff000
+  | eor w9, w9, w10
+  |3:
+  | adds w9, w9, #width
+  | bcs >2
+  | ldr w11, vm->limits[FD_VM_STACK_REGION]
+  | cmp w9, w11
+  | bhi >2
+  | sub w9, w9, #width
+  | ldr x11, vm->region_haddr[FD_VM_STACK_REGION]
+  | adds x9, x9, x11
+  | beq >2
+  | mov x10, x9
+  | b ->mmu_translate_check
+  |.endmacro
+
+  |.macro mmu_translate_fast, limits, width
+  | lsr x9, x10, #32
+  | cmp w9, #FD_VM_STACK_REGION
+  | bne >4
+  | mmu_translate_stack limits, width
+  |4:
+  | cmp w9, #FD_VM_PROG_REGION
+  | beq >1
+  | cmp w9, #FD_VM_HEAP_REGION
+  | bne >2
+  | mmu_translate_flat FD_VM_HEAP_REGION, limits, width
+  |1:
+  | mmu_translate_flat FD_VM_PROG_REGION, limits, width
+  |2:
+  |.endmacro
+
+  |.macro mmu_translate, acc, tlb_hi, limits, sz
+  | ldr x9, vm->transpiled.tlb_vaddr_lo
+  | cmp x10, x9
+  | blo >9
+  | ldr x9, vm->transpiled.tlb_hi
+  | subs x9, x9, x10
+  | blo >9
+  | cmp x9, #sz
+  | blo >9
+  | b ->mmu_tlb_hit
+  |9:
+  | mmu_translate_fast limits, sz
+  | mov w9, #((acc*0x100)+sz)
+  | b ->mmu_tlb_miss
+  |.endmacro
+
+  |.macro mmu_translate_ld, sz
+  | mmu_translate 0, tlb_vaddr_ld_hi, region_ld_sz, sz
+  |.endmacro
+
+  |.macro mmu_translate_st, sz
+  | mmu_translate 1, tlb_vaddr_st_hi, region_st_sz, sz
+  |.endmacro
+
+  |.align 32
+  |->mmu_translate_ld_1:
+  |  mmu_translate_ld,1
+  |.align 32
+  |->mmu_translate_ld_2:
+  |  mmu_translate_ld,2
+  |.align 32
+  |->mmu_translate_ld_4:
+  |  mmu_translate_ld,4
+  |.align 32
+  |->mmu_translate_ld_8:
+  |  mmu_translate_ld,8
+  |.align 32
+  |->mmu_translate_st_1:
+  |  mmu_translate_st,1
+  |.align 32
+  |->mmu_translate_st_2:
+  |  mmu_translate_st,2
+  |.align 32
+  |->mmu_translate_st_4:
+  |  mmu_translate_st,4
+  |.align 32
+  |->mmu_translate_st_8:
+  |  mmu_translate_st,8
+  |->mmu_tlb_hit:
+  | ldr x9, vm->transpiled.tlb_vaddr_lo
+  | sub x10, x10, x9
+  | ldr x9, vm->transpiled.tlb_haddr_lo
+  | add x10, x10, x9
+  |->mmu_translate_check:
+  | tbnz x10, #63, >1
+  | ret
+  |1:
+  | b ->exception_segfault
+
+  |// mmu_tlb_miss: C fallback.  x10 = vaddr, w9 = (is_write<<8)|width.
+  |// Returns haddr (or negative error) in x10.  Preserves r0..r5.
+  |->mmu_tlb_miss:
+  | stp x30, x0, [sp, #-64]!
+  | stp x1, x2, [sp, #16]
+  | stp x3, x4, [sp, #32]
+  | str x5, [sp, #48]
+  | and x2, x9, #0xff   // arg 2: access_width
+  | lsr w3, w9, #8      // arg 3: is_write
+  | mov x0, x19         // arg 0: vm
+  | mov x1, x10         // arg 1: vaddr
+  emit_ffi_call( Dst, FD_VM_TRANSPILE_SYM_MMU_TRANSLATE );
+  | mov x10, x0
+  | ldr x5, [sp, #48]
+  | ldp x3, x4, [sp, #32]
+  | ldp x1, x2, [sp, #16]
+  | ldp x30, x0, [sp], #64
+  | b ->mmu_translate_check
+}
+
+/* BPF to BPF calls */
+
+| // Open a transpiled frame: [x29+8] return address, [x29] caller x29,
+| // [x29-8] root frame pointer (inherited).  Leaves sp==x29-16.
+|.macro sbpf_frame_enter
+| ldr x9, [x29, #-8]
+| sub sp, sp, #32
+| stp x29, x30, [sp, #16]
+| str x9, [sp, #8]
+| add x29, sp, #16
+|.endmacro
+
+/* emit_frame_helpers: generate subroutines for BPF-to-BPF calls.
+   bpfcall_frame_push returns 0 in w10 on success, 1 on depth overflow.
+   Clobbers x9, x10, x11. */
+
+static void
+emit_frame_helpers( fd_transpiler_t * Dst ) {
+  |->bpfcall_frame_push:
+  | ldr x10, vm->frame_cnt
+  | mov x9, #sizeof(fd_vm_shadow_t)
+  | mul x9, x10, x9
+  | add x9, x19, x9
+  | add x9, x9, #offsetof(fd_vm_t, shadow)
+  | stp x20, x21, [x9, #0]
+  | stp x22, x23, [x9, #16]
+  | ldr x11, vm->pc
+  | stp x24, x11, [x9, #32]
+  | add x10, x10, #1
+  | str x10, vm->frame_cnt
+  | cmp x10, #FD_VM_STACK_FRAME_MAX
+  | bhs >2
+  | ldr x9, vm->stack_push_frame_count
+  | add x24, x24, x9, lsl #12
+  | frame_haddr_update
+  | ldr x9, vm->transpiled.frame_clean_cnt
+  | cmp x10, x9
+  | bhs ->bpfcall_frame_init
+  | mov w10, wzr
+  | ret
+  |2:
+  | mov w10, #1
+  | ret
+
+  |->bpfcall_frame_init:
+  | str x30, [sp, #-16]!
+  | mmu_tlb_invalidate
+  | bl ->regs_save
+  | cu_save
+  | mov x0, x19
+  emit_ffi_call( Dst, FD_VM_TRANSPILE_SYM_FRAME_INIT );
+  | cu_restore
+  | bl ->regs_restore
+  | ldr x30, [sp], #16
+  | mov w10, wzr
+  | ret
+
+  |->bpfcall_frame_pop:
+  | ldr x10, vm->frame_cnt
+  | cbz x10, >1
+  | sub x10, x10, #1
+  | str x10, vm->frame_cnt
+  | mov x9, #sizeof(fd_vm_shadow_t)
+  | mul x9, x10, x9
+  | add x9, x19, x9
+  | add x9, x9, #offsetof(fd_vm_t, shadow)
+  | ldp x20, x21, [x9, #0]
+  | ldp x22, x23, [x9, #16]
+  | ldr x24, [x9, #32]
+  | frame_haddr_update
+  | // leave: [x29] = caller fp, [x29+8] = lr, caller sp = x29+16
+  | mov x9, x29
+  | ldp x29, x30, [x9]
+  | add sp, x9, #16
+  | ret
+  |1:
+  | bl ->regs_save
+  | cu_save
+  | mov w10, wzr
+  | b ->unwind
+
+  |->call_imm_depth:
+  | bl ->regs_save
+  | mov w10, #(uint)(-FD_VM_ERR_EBPF_CALL_DEPTH_EXCEEDED)
+  | neg w10, w10
+  | mov x9, xzr
+  | b ->exception_charge
+}
+
+/* emit_callx_handler: see fd_transpile_x86.dasc.  Entered via bl with
+   x10 = target virtual address. */
+
+static void
+emit_callx_handler( fd_transpiler_t * Dst ) {
+  |->callx:
+  | // callee frame:
+  | //   [x29+ 8]: return address
+  | //   [x29+ 0]: caller x29
+  | //   [x29- 8]: root frame pointer
+  | //   [sp+16]:  BPF r0 save
+  | //   [sp+ 8]:  target BPF program counter
+  | //   [sp+ 0]:  target BPF virtual address
+  | sbpf_frame_enter
+  | sub sp, sp, #32
+  | str x0, [sp, #16]
+  | str x10, [sp, #0]
+  |
+  | mov w9, w10
+  | lsr x10, x10, #32
+  | cmp x10, #1
+  | bne >1 // if( (vaddr>>32)!=1 )
+  | ldr x11, vm->text_off
+  | sub x9, x9, x11
+  | lsr x9, x9, #3
+  | ldr x11, vm->text_cnt
+  | cmp x9, x11
+  | bhs >1
+  | str x9, [sp, #8]
+  |
+  | bl ->bpfcall_frame_push
+  | cbnz w10, >4 // call depth exceeded
+  |
+  | ldr x9, [sp, #8]
+  |
+  ulong bb_word_cnt = (Dst->bpf_text_cnt+63UL)>>6;
+  ulong bitmap_off  = 0UL;
+  ulong seq_off     = bitmap_off + bb_word_cnt*sizeof(ulong);
+  ulong jmp_off     = seq_off    + bb_word_cnt*sizeof(ulong);
+  emit_rodata_adr( Dst, bitmap_off );
+  | // bit test: word = bitmap[pc>>6], bit = pc&63
+  | lsr x10, x9, #6
+  | ldr x12, [x11, x10, lsl #3]
+  | lsr x12, x12, x9  // shift amount is taken mod 64
+  | tbz x12, #0, >2  // middle of a basic block: bail
+  |
+  | // BB index = popcount(word & ((1<<bit)-1)) + seq[pc>>6]
+  | ldr x12, [x11, x10, lsl #3]
+  | and x9, x9, #63
+  | lsl x12, x12, #1  // (word << 1) << (63-bit) keeps bits below 'bit'
+  | mvn x9, x9        // x9 = ~bit = -bit-1, low 6 bits = 63-bit
+  | lsl x12, x12, x9
+  | fmov d0, x12
+  | .long 0x0e205800 // cnt  v0.8b, v0.8b
+  | .long 0x0e31b800 // addv b0, v0.8b
+  | fmov w12, s0
+  emit_rodata_adr( Dst, seq_off );
+  | ldr x9, [x11, x10, lsl #3]
+  | add x12, x12, x9
+  |
+  | // BB index -> address of first instruction
+  emit_rodata_adr( Dst, jmp_off );
+  | ldrsw x10, [x11, x12, lsl #2]
+  | add x10, x10, x11
+  |
+  | ldr x0, [sp, #16]
+  | add sp, sp, #32
+  | br x10
+  |
+  |1: // sigtextbr
+  | mov w10, #(uint)(-FD_VM_ERR_EBPF_CALL_OUTSIDE_TEXT_SEGMENT)
+  | b >3
+  |4: // call depth exceeded
+  | mov w10, #(uint)(-FD_VM_ERR_EBPF_CALL_DEPTH_EXCEEDED)
+  | b >3
+  |2: // bail to interpreter
+  | ldr x9, [sp, #8]
+  | str x9, vm->pc
+  | mov w10, #(uint)(-FD_VM_ERR_EBPF_BAIL)
+  |3:
+  | neg w10, w10
+  | ldr x0, [sp, #16]
+  | bl ->regs_save
+  | mov x9, xzr
+  | b ->exception_charge
+}
+
+/* emit_udiv32_imm: reg = (uint)reg / d (or % d), zero extended.
+   d non-zero.  Clobbers x9, x10. */
+
+static void
+emit_udiv32_imm( fd_transpiler_t * Dst,
+                 uint              reg,
+                 uint              d,
+                 int               is_mod ) {
+  if( fd_uint_is_pow2( d ) ) {
+    int s = fd_uint_find_msb( d );
+    if( is_mod ) {
+      if( s==0 ) {
+        | mov Rw(reg), wzr
+      } else {
+        | and Rw(reg), Rw(reg), #(d-1U)
+      }
+    } else if( s==0 ) {
+      | mov Rw(reg), Rw(reg)
+    } else {
+      | lsr Rw(reg), Rw(reg), #s
+    }
+    return;
+  }
+  int   k;
+  ulong m = fd_transpile_udiv32_magic( d, &k );
+  | mov w9, Rw(reg)
+  if( m<=(ulong)UINT_MAX ) {
+    /* q = (n*m)>>k, n*m < 2^64 */
+    emit_const64( Dst, SCR1, m );
+    | mul x9, x9, x10
+    | lsr x9, x9, #k
+  } else {
+    /* m = 2^32+m', (n*m)>>32 = n + ((n*m')>>32) < 2^33 */
+    emit_const64( Dst, SCR1, m & 0xffffffffUL );
+    | mul x10, x9, x10
+    | add x9, x9, x10, lsr #32
+    | lsr x9, x9, #(k-32)
+  }
+  if( is_mod ) {
+    emit_const32( Dst, SCR1, d );
+    | msub w9, w9, w10, Rw(reg)
+    | mov Rw(reg), w9
+  } else {
+    | mov Rw(reg), w9
+  }
+}
+
+/* emit_udiv64_imm: reg = reg / d (or % d).  d is the sign extended
+   imm32, non-zero.  Clobbers x9, x10, x11. */
+
+static void
+emit_udiv64_imm( fd_transpiler_t * Dst,
+                 uint              reg,
+                 uint              imm,
+                 int               is_mod ) {
+  ulong d = (ulong)(long)(int)imm;
+
+  if( (long)d<0L ) {
+    /* d>=2^63, so q = n>=d */
+    emit_const64( Dst, SCR1, d );
+    | cmp Rx(reg), x10
+    if( is_mod ) {
+      | csel x9, x10, xzr, hs
+      | sub Rx(reg), Rx(reg), x9
+    } else {
+      | cset Rx(reg), hs
+    }
+    return;
+  }
+
+  if( fd_ulong_is_pow2( d ) ) {
+    int s = fd_ulong_find_msb( d );
+    if( is_mod ) {
+      if( s==0 ) {
+        | mov Rx(reg), xzr
+      } else {
+        | and Rx(reg), Rx(reg), #(d-1UL)
+      }
+    } else if( s ) {
+      | lsr Rx(reg), Rx(reg), #s
+    }
+    return;
+  }
+
+  int     k;
+  uint128 m = fd_transpile_udiv64_magic( d, &k );
+  emit_const64( Dst, SCR1, (ulong)m );
+  | umulh x9, Rx(reg), x10
+  if( m>>64 ) {
+    /* m = 2^64+m': (n*m)>>64 = n + hi(n*m') < 2^65 */
+    | adds x9, x9, Rx(reg)
+    | cset x10, cs
+    | extr x9, x10, x9, #1
+    if( k>65 ) {
+      | lsr x9, x9, #(k-65)
+    }
+  } else if( k>64 ) {
+    | lsr x9, x9, #(k-64)
+  }
+  if( is_mod ) {
+    emit_const64( Dst, SCR1, d );
+    | msub x9, x9, x10, Rx(reg)
+  }
+  | mov Rx(reg), x9
+}
+
+static inline int
+is_stack_frame_access( ulong sbpf_version,
+                       ulong bpf_reg,
+                       long  offset,
+                       ulong width ) {
+  return !FD_VM_SBPF_MANUAL_STACK_FRAME_BUMP( sbpf_version ) &&
+         bpf_reg==10 &&
+         offset>=-(long)FD_VM_STACK_FRAME_SZ &&
+         offset<=-(long)width;
+}
+
+/* emit_add_off: x10 = Rx(reg) + offset (16 bit signed) */
+
+static void
+emit_add_off( fd_transpiler_t * Dst,
+              uint              reg,
+              long              offset ) {
+  if( offset>=0L ) {
+    ulong hi = (ulong)offset & ~0xfffUL;
+    ulong lo = (ulong)offset &  0xfffUL;
+    if( hi ) {
+      | add x10, Rx(reg), #hi
+      if( lo ) {
+        | add x10, x10, #lo
+      }
+    } else {
+      | add x10, Rx(reg), #lo
+    }
+  } else {
+    ulong mag = (ulong)-offset;
+    ulong hi  = mag & ~0xfffUL;
+    ulong lo  = mag &  0xfffUL;
+    if( hi ) {
+      | sub x10, Rx(reg), #hi
+      if( lo ) {
+        | sub x10, x10, #lo
+      }
+    } else {
+      | sub x10, Rx(reg), #lo
+    }
+  }
+}
+
+/* emit_frame_addr: x10 = frame_haddr + offset, offset in [-4096,-1]
+   (4096 encodes as a shifted imm12) */
+
+static void
+emit_frame_addr( fd_transpiler_t * Dst,
+                 long              offset ) {
+  | ldr x10, vm->transpiled.frame_haddr
+  | sub x10, x10, #(-offset)
+}
+
+/* emit_addsub_imm: reg += v (is_add) or reg -= v, where v is the sign
+   extended imm32, in 32 or 64 bits. */
+
+static void
+emit_addsub_imm( fd_transpiler_t * Dst,
+                 int               is_add,
+                 int               is64,
+                 uint              reg,
+                 uint              imm ) {
+  long v = (long)(int)imm;
+  if( !is_add ) v = -v;
+  ulong mag = v<0L ? (ulong)-v : (ulong)v;
+  int   sub = v<0L;
+  if( mag<4096UL || ( !(mag&0xfffUL) && mag<(1UL<<24) ) ) {
+    if( is64 ) {
+      if( sub ) {
+        | sub Rx(reg), Rx(reg), #mag
+      } else {
+        | add Rx(reg), Rx(reg), #mag
+      }
+    } else {
+      if( sub ) {
+        | sub Rw(reg), Rw(reg), #mag
+      } else {
+        | add Rw(reg), Rw(reg), #mag
+      }
+    }
+    return;
+  }
+  emit_const64( Dst, SCR0, (ulong)v );
+  if( is64 ) {
+    | add Rx(reg), Rx(reg), x9
+  } else {
+    | add Rw(reg), Rw(reg), w9
+  }
+}
+
+/* emit_cmp_imm: compare reg with the sign extended imm32 */
+
+static void
+emit_cmp_imm( fd_transpiler_t * Dst,
+              int               is64,
+              uint              reg,
+              uint              imm ) {
+  long v = (long)(int)imm;
+  if( v>=0L && v<4096L ) {
+    if( is64 ) {
+      | cmp Rx(reg), #v
+    } else {
+      | cmp Rw(reg), #v
+    }
+  } else if( v<0L && v>-4096L ) {
+    if( is64 ) {
+      | cmn Rx(reg), #(-v)
+    } else {
+      | cmn Rw(reg), #(-v)
+    }
+  } else {
+    emit_const64( Dst, SCR0, (ulong)v );
+    if( is64 ) {
+      | cmp Rx(reg), x9
+    } else {
+      | cmp Rw(reg), w9
+    }
+  }
+}
+
+/* is_bitmask_imm: can v be encoded as a logical immediate? */
+
+static int
+is_bitmask_imm( ulong v,
+                int   is64 ) {
+  if( !is64 ) return dasm_imm13( (int)(uint)v, (int)(uint)v )!=-1;
+  return dasm_imm13( (int)(uint)v, (int)(uint)(v>>32) )!=-1;
+}
+
+/* emit_logic_imm: reg = reg OP v (op: 0 and, 1 orr, 2 eor, 3 tst) */
+
+#define LOGIC_AND (0)
+#define LOGIC_ORR (1)
+#define LOGIC_EOR (2)
+#define LOGIC_TST (3)
+
+static void
+emit_logic_imm( fd_transpiler_t * Dst,
+                int               op,
+                int               is64,
+                uint              reg,
+                ulong             v ) {
+  if( is_bitmask_imm( v, is64 ) ) {
+    if( is64 ) {
+      switch( op ) {
+      case LOGIC_AND:
+        | and Rx(reg), Rx(reg), #v
+                      break;
+      case LOGIC_ORR:
+        | orr Rx(reg), Rx(reg), #v
+                      break;
+      case LOGIC_EOR:
+        | eor Rx(reg), Rx(reg), #v
+                      break;
+      default:
+        | tst Rx(reg), #v
+                      break;
+      }
+    } else {
+      uint w = (uint)v;
+      switch( op ) {
+      case LOGIC_AND:
+        | and Rw(reg), Rw(reg), #w
+                      break;
+      case LOGIC_ORR:
+        | orr Rw(reg), Rw(reg), #w
+                      break;
+      case LOGIC_EOR:
+        | eor Rw(reg), Rw(reg), #w
+                      break;
+      default:
+        | tst Rw(reg), #w
+                      break;
+      }
+    }
+    return;
+  }
+  emit_const64( Dst, SCR0, v );
+  if( is64 ) {
+    switch( op ) {
+    case LOGIC_AND:
+      | and Rx(reg), Rx(reg), x9
+                    break;
+    case LOGIC_ORR:
+      | orr Rx(reg), Rx(reg), x9
+                    break;
+    case LOGIC_EOR:
+      | eor Rx(reg), Rx(reg), x9
+                    break;
+    default:
+      | tst Rx(reg), x9
+                    break;
+    }
+  } else {
+    switch( op ) {
+    case LOGIC_AND:
+      | and Rw(reg), Rw(reg), w9
+                    break;
+    case LOGIC_ORR:
+      | orr Rw(reg), Rw(reg), w9
+                    break;
+    case LOGIC_EOR:
+      | eor Rw(reg), Rw(reg), w9
+                    break;
+    default:
+      | tst Rw(reg), w9
+                    break;
+    }
+  }
+}
+
+/* emit_cost_marker loads the block CU count into w9 as
+   `movz w9, #lo16` optionally followed by `movk w9, #hi16, lsl #16`.
+   exception_segfault decodes this exact shape from the return address
+   of a failed mmu_translate call, so it must not be changed without
+   updating that decoder. */
+
+static void
+emit_cost_marker( fd_transpiler_t * Dst,
+                  ulong             cost ) {
+  uint lo = (uint)( cost & 0xffffUL );
+  uint hi = (uint)( cost>>16 );
+  | movz w9, #lo
+  if( hi ) {
+    | movk w9, #hi, lsl #16
+  }
+}
+
+/* emit_mem_addr: x10 = host address for the access.  Frame-relative
+   accesses skip translation.  cost is the block CU marker that
+   exception_segfault decodes from the instruction after the bl. */
+
+static void
+emit_mem_addr( fd_transpiler_t * Dst,
+               int               frame_fast,
+               int               is_store,
+               ulong             width,
+               uint              reg,
+               long              offset,
+               ulong             cost ) {
+  if( frame_fast ) {
+    emit_frame_addr( Dst, offset );
+    return;
+  }
+  emit_add_off( Dst, reg, offset );
+  if( is_store ) {
+    switch( width ) {
+    case 1UL:
+      | bl ->mmu_translate_st_1
+              break;
+    case 2UL:
+      | bl ->mmu_translate_st_2
+              break;
+    case 4UL:
+      | bl ->mmu_translate_st_4
+              break;
+    default:
+      | bl ->mmu_translate_st_8
+              break;
+    }
+  } else {
+    switch( width ) {
+    case 1UL:
+      | bl ->mmu_translate_ld_1
+              break;
+    case 2UL:
+      | bl ->mmu_translate_ld_2
+              break;
+    case 4UL:
+      | bl ->mmu_translate_ld_4
+              break;
+    default:
+      | bl ->mmu_translate_ld_8
+              break;
+    }
+  }
+  emit_cost_marker( Dst, cost );
+}
+
+static void
+emit_load( fd_transpiler_t * Dst,
+           ulong             width,
+           uint              rd ) {
+  switch( width ) {
+  case 1UL:
+    | ldrb Rw(rd), [x10]
+            break;
+  case 2UL:
+    | ldrh Rw(rd), [x10]
+            break;
+  case 4UL:
+    | ldr Rw(rd), [x10]
+            break;
+  default:
+    | ldr Rx(rd), [x10]
+            break;
+  }
+}
+
+static void
+emit_store( fd_transpiler_t * Dst,
+            ulong             width,
+            uint              rs ) {
+  switch( width ) {
+  case 1UL:
+    | strb Rw(rs), [x10]
+            break;
+  case 2UL:
+    | strh Rw(rs), [x10]
+            break;
+  case 4UL:
+    | str Rw(rs), [x10]
+            break;
+  default:
+    | str Rx(rs), [x10]
+            break;
+  }
+}
+
+/* emit_branch: conditional branch to a pc label.  b.cond reaches
+   +-1 MiB, not enough for large programs, so the condition is
+   inverted to skip an unconditional b (+-128 MiB).  cond is the
+   AArch64 condition code of the taken branch. */
+
+#define COND_EQ ( 0)
+#define COND_NE ( 1)
+#define COND_HS ( 2)
+#define COND_LO ( 3)
+#define COND_HI ( 8)
+#define COND_LS ( 9)
+#define COND_GE (10)
+#define COND_LT (11)
+#define COND_GT (12)
+#define COND_LE (13)
+
+static void
+emit_branch( fd_transpiler_t * Dst,
+             int               cond,
+             ulong             target ) {
+  switch( cond ) {
+  case COND_EQ:
+    | bne >8
+                break;
+  case COND_NE:
+    | beq >8
+                break;
+  case COND_HS:
+    | blo >8
+                break;
+  case COND_LO:
+    | bhs >8
+                break;
+  case COND_HI:
+    | bls >8
+                break;
+  case COND_LS:
+    | bhi >8
+                break;
+  case COND_GE:
+    | blt >8
+                break;
+  case COND_LT:
+    | bge >8
+                break;
+  case COND_GT:
+    | ble >8
+                break;
+  default:
+    | bgt >8
+                break;
+  }
+  | b =>target
+  |8:
+}
+
+/* emit_jcc: compare and branch, covering the J* opcode family.
+   is_set selects JSET (tst) over cmp. */
+
+static void
+emit_jcc( fd_transpiler_t * Dst,
+          int               cond,
+          int               is_set,
+          int               is_imm,
+          int               is64,
+          uint              rd,
+          uint              rs,
+          uint              imm,
+          ulong             target ) {
+  if( is_set ) {
+    if( is_imm ) {
+      emit_logic_imm( Dst, LOGIC_TST, is64, rd, is64 ? (ulong)(long)(int)imm : (ulong)imm );
+    } else if( is64 ) {
+      | tst Rx(rd), Rx(rs)
+    } else {
+      | tst Rw(rd), Rw(rs)
+    }
+  } else if( is_imm ) {
+    emit_cmp_imm( Dst, is64, rd, imm );
+  } else if( is64 ) {
+    | cmp Rx(rd), Rx(rs)
+  } else {
+    | cmp Rw(rd), Rw(rs)
+  }
+  emit_branch( Dst, cond, target );
+}
+
+/* syms_compute: see fd_transpile_x86.dasc */
+
+#define SORT_NAME        sym_sort
+#define SORT_KEY_T       fd_transpiler_sym_t
+#define SORT_BEFORE(a,b) ( (a).off<(b).off || ( (a).off==(b).off && (a).kind>(b).kind ) )
+#include "../../../util/tmpl/fd_sort.c"
+
+static void
+syms_compute( fd_transpiler_t * Dst,
+              ulong             bpf_text_cnt,
+              ulong             bpf_entry_pc,
+              ulong const *     bpf_calldests,
+              ulong const *     syscall_used,
+              ulong             code_sz ) {
+  ulong cnt = 0UL;
+# define PUSH( _kind, _arg, _lbl ) do {                                  \
+    int _ofs = dasm_getpclabel( Dst, (uint)(_lbl) );                     \
+    if( _ofs>=0 && (ulong)_ofs<code_sz && cnt<FD_TRANSPILER_SYM_MAX ) { \
+      Dst->sym[ cnt++ ] = (fd_transpiler_sym_t){                         \
+        .off=(uint)_ofs, .arg=(uint)(_arg), .kind=(uchar)(_kind) };      \
+    }                                                                    \
+  } while(0)
+
+  for( ulong pc=0UL; pc<bpf_text_cnt; pc++ ) {
+    int is_func = pc==bpf_entry_pc || ( bpf_calldests && fd_sbpf_calldests_test( bpf_calldests, pc ) );
+    if( is_func ) PUSH( FD_TRANSPILER_SYM_KIND_FUNC, pc, pc );
+    if( Dst->thunk_bv[ pc>>6 ] & (1UL<<( pc&63UL )) ) {
+      PUSH( FD_TRANSPILER_SYM_KIND_THUNK, pc, Dst->dasm_lbl_thunk0+pc );
+    }
+  }
+  for( ulong slot=0UL; slot<FD_SBPF_SYSCALLS_SLOT_CNT; slot++ ) {
+    if( syscall_used[ slot>>6 ] & (1UL<<( slot&63UL )) ) {
+      PUSH( FD_TRANSPILER_SYM_KIND_SYSCALL, slot, Dst->dasm_lbl_sys0+slot );
+    }
+  }
+# undef PUSH
+  for( ulong g=0UL; g<(ulong)fd_xlat__MAX; g++ ) {
+    void * addr = Dst->glob[ g ];
+    if( !addr ) continue;
+    ulong ofs = (ulong)( (uchar *)addr - Dst->code );
+    if( ofs>=code_sz || cnt>=FD_TRANSPILER_SYM_MAX ) continue;
+    Dst->sym[ cnt++ ] = (fd_transpiler_sym_t){ .off=(uint)ofs, .arg=(uint)g, .kind=FD_TRANSPILER_SYM_KIND_HELPER };
+  }
+
+  sym_sort_inplace( Dst->sym, cnt );
+  for( ulong i=0UL; i<cnt; i++ ) {
+    ulong end = i+1UL<cnt ? Dst->sym[ i+1UL ].off : code_sz;
+    Dst->sym[ i ].sz = (uint)( end - Dst->sym[ i ].off );
+  }
+  Dst->sym_cnt = cnt;
+}
+
+char const *
+fd_transpiler_helper_name( ulong idx ) {
+  if( FD_UNLIKELY( idx>=(ulong)fd_xlat__MAX ) ) return NULL;
+  return fd_xlat_names[ idx ];
+}
+
+static void
+fd_transpiler_init( fd_transpiler_t * Dst,
+                    ulong             bpf_text_cnt ) {
+  memset( Dst, 0, sizeof(fd_transpiler_t) );
+  Dst->bpf_text_cnt = bpf_text_cnt;
+  Dst->reloc_cnt    = 0UL;
+
+  ulong dasm_lbl = bpf_text_cnt;
+  Dst->dasm_lbl_thunk0 = dasm_lbl;
+  dasm_lbl += bpf_text_cnt;
+  Dst->dasm_lbl_sys0 = dasm_lbl;
+  dasm_lbl += FD_SBPF_SYSCALLS_SLOT_CNT;
+  dasm_lbl++;
+  Dst->dasm_lbl_reloc0 = FD_VM_TRANSPILE_DASM_LBL_RELOC0( bpf_text_cnt );
+  FD_TEST( dasm_lbl==Dst->dasm_lbl_reloc0 );
+  dasm_lbl = Dst->dasm_lbl_reloc0 + FD_TRANSPILER_RELOC_MAX;
+  Dst->dasm_lbl_max = dasm_lbl;
+  FD_TEST( dasm_lbl<=FD_DASM_PCLABELS_MAX );
+
+  dasm_State * D = Dst->state = (dasm_State *)Dst->state_;
+  D->psize       = sizeof(Dst->state_);
+  D->actionlist  = actions;
+  D->lglabels    = Dst->lglabels;
+  D->lgsize      = sizeof(Dst->lglabels);
+  D->pclabels    = Dst->pclabels;
+  D->pcsize      = sizeof(Dst->pclabels);
+  D->globals     = Dst->glob;
+  D->section     = &D->sections[0];
+  D->codesize    = 0UL;
+  D->maxsection  = 1;
+  D->status      = DASM_S_OK;
+  D->sections[0] = (dasm_Section) {
+    .buf   = Dst->code_bits,
+    .rbuf  = Dst->code_bits - DASM_SEC2POS( 0 ),
+    .bsize = sizeof(Dst->code_bits),
+    .pos   = DASM_SEC2POS( 0 ),
+    .epos  = (int)( sizeof(Dst->code_bits) / sizeof(int) ) - DASM_MAXSECPOS + DASM_POS2BIAS( DASM_SEC2POS( 0 ) ),
+    .ofs   = 0
+  };
+}
+
+int
+fd_vm_transpile_code( fd_transpiler_t *          Dst,
+                      ulong                      sbpf_version,
+                      uchar const *              bpf_text,
+                      ulong                      bpf_text_cnt,
+                      ulong                      bpf_entry_pc,
+                      ulong const *              bpf_calldests,
+                      fd_sbpf_syscalls_t const * syscalls,
+                      uchar const *              bpf_rodata,
+                      ulong                      bpf_rodata_sz,
+                      ulong                      bpf_text_off ) {
+
+  int is_oom = setjmp( dasm_oom );
+  if( FD_UNLIKELY( is_oom ) ) return -1;
+
+  if( FD_UNLIKELY( sbpf_version!=0 && sbpf_version!=1 && sbpf_version!=3 ) ) {
+    FD_LOG_WARNING(( "sBPF v%lu programs are not supported", sbpf_version ));
+    return -1;
+  }
+  if( FD_UNLIKELY( bpf_text_cnt>FD_TRANSPILER_TEXT_CNT_MAX ) ) {
+    FD_LOG_WARNING(( "program too large (%lu instruction slots, max %lu)", bpf_text_cnt, FD_TRANSPILER_TEXT_CNT_MAX ));
+    return -1;
+  }
+
+  fd_transpiler_init( Dst, bpf_text_cnt );
+
+  ulong   bb_word_cnt   = (bpf_text_cnt+63UL)>>6;
+  ulong * bpf_bb_splits = (ulong *)Dst->rodata;
+  Dst->bb_cnt = fd_transpile_bb_splits( bpf_bb_splits, sbpf_version, (ulong const *)bpf_text, bpf_text_cnt, bpf_entry_pc, bpf_calldests, bpf_rodata, bpf_rodata_sz, bpf_text_off );
+  if( FD_UNLIKELY( Dst->bb_cnt>FD_TRANSPILER_BB_MAX ) ) {
+    FD_LOG_WARNING(( "program too large (%lu basic blocks, max %lu)", Dst->bb_cnt, FD_TRANSPILER_BB_MAX ));
+    return -1;
+  }
+  ulong rodata_sz = 2UL*bb_word_cnt*sizeof(ulong) + Dst->bb_cnt*sizeof(int);
+  if( FD_UNLIKELY( rodata_sz>FD_TRANSPILER_RODATA_MAX ) ) {
+    FD_LOG_WARNING(( "program too large (%lu rodata bytes, max %lu)", rodata_sz, FD_TRANSPILER_RODATA_MAX ));
+    return -1;
+  }
+
+  |.code
+  | ldr x9, [x0, #offsetof(fd_vm_t, cu)]
+  | tbz x9, #63, >1
+  | mov w0, #(uint)(-FD_VM_ERR_INVAL)
+  | neg w0, w0
+  | ret
+  |1:
+  | // root stack frame:
+  | //   [x29+ 8]: return address (C caller)
+  | //   [x29+ 0]: caller x29
+  | //   [x29- 8]: root frame pointer (self)
+  | //   [x29-16..x29-64]: callee-saved x19..x24 (6 regs, 48 bytes)
+  | //   [x29-72]: alignment pad
+  | sub sp, sp, #80
+  | stp x29, x30, [sp, #64]
+  | add x29, sp, #64
+  | str x29, [sp, #56]
+  | stp x19, x20, [sp, #40]
+  | stp x21, x22, [sp, #24]
+  | stp x23, x24, [sp, #8]
+  | mov x19, x0
+  | cu_restore
+  | mmu_tlb_invalidate
+  | ldr x9, vm->stack_clean
+  | lsr x9, x9, #12
+  | str x9, vm->transpiled.frame_clean_cnt
+  | ldr x10, vm->frame_cnt
+  | frame_haddr_update
+  | bl ->regs_restore
+  | ldr x9, vm->transpiled.frame_clean_cnt
+  | cmp x10, x9
+  | blo >1
+  | bl ->bpfcall_frame_init
+  |1:
+  | bl >2
+  | brk #0
+  |2:
+  | sbpf_frame_enter
+  | b =>bpf_entry_pc
+
+  static uchar const bpf_arm_reg[] = {
+    /* r0  */  0U,
+    /* r1  */  1U,
+    /* r2  */  2U,
+    /* r3  */  3U,
+    /* r4  */  4U,
+    /* r5  */  5U,
+    /* r6  */ 20U,
+    /* r7  */ 21U,
+    /* r8  */ 22U,
+    /* r9  */ 23U,
+    /* r10 */ 24U
+  };
+
+  int   has_callx = 0;
+  ulong bb_start  = 0UL;
+  ulong bb_lddw   = 0UL;
+  ulong syscall_used[ FD_SBPF_SYSCALLS_SLOT_CNT >> 6 ] = {0};
+
+  for( ulong pc=0UL; pc<bpf_text_cnt; pc++ ) {
+    ulong instr   = FD_LOAD( ulong, bpf_text + (pc<<3) );
+    ulong opcode  = fd_vm_instr_opcode( instr );
+    ulong dst     = fd_vm_instr_dst   ( instr );
+    ulong src     = fd_vm_instr_src   ( instr );
+    uint  imm     = fd_vm_instr_imm   ( instr );
+    long  offset  = (long)fd_vm_instr_offset( instr );
+    if( FD_UNLIKELY( dst>=11UL || src>=11UL ) ) {
+      FD_LOG_WARNING(( "invalid register at pc %lu", pc ));
+      return -1;
+    }
+    uint rd = bpf_arm_reg[ dst ];
+    uint rs = bpf_arm_reg[ src ];
+    ulong imm64 = (ulong)(long)(int)imm;
+
+    if( bpf_bb_splits[ pc>>6 ] & (1UL<<( pc&63UL )) ) {
+      if( pc>bb_start ) emit_cu_charge( Dst, pc-bb_start-bb_lddw );
+      bb_start = pc;
+      bb_lddw  = 0UL;
+    }
+    |=>pc:
+
+    int is_branch = ( ( (opcode&7UL)==5UL ) |
+                      ( (opcode&7UL)==6UL ) ) &
+                    ( opcode!=0x85UL ) &
+                    ( opcode!=0x8dUL );
+    if( is_branch ) {
+      emit_cu_charge( Dst, pc+1UL-bb_start-bb_lddw );
+      bb_start = pc+1UL;
+      bb_lddw  = 0UL;
+    }
+
+    if( (opcode&7UL)==6UL && !FD_VM_SBPF_ENABLE_JMP32( sbpf_version ) ) {
+      FD_LOG_WARNING(( "invalid opcode 0x%02lx at pc %lu", opcode, pc ));
+      return -1;
+    }
+
+    ulong jmp_dst = 0UL;
+    if( is_branch && opcode!=0x95UL ) {
+      long jd = (long)pc + 1L + offset;
+      if( FD_UNLIKELY( jd<0L || jd>=(long)bpf_text_cnt ||
+                       fd_vm_instr_opcode( FD_LOAD( ulong, bpf_text + (jd<<3) ) )==0x00UL ) ) {
+        FD_LOG_WARNING(( "invalid jump target at pc %lu", pc ));
+        return -1;
+      }
+      jmp_dst = (ulong)jd;
+    }
+
+    /* cost marker: block CUs consumed including this instruction */
+    ulong cost = pc+1UL-bb_start-bb_lddw;
+
+    switch( opcode ) {
+
+    /* Memory accesses.  Loads of less than 8 bytes zero extend by
+       writing a w register. */
+
+    case 0x61: case 0x69: case 0x71: case 0x79: { /* LDX{W,H,B,DW} */
+      ulong width = opcode==0x61 ? 4UL : opcode==0x69 ? 2UL : opcode==0x71 ? 1UL : 8UL;
+      emit_mem_addr( Dst, is_stack_frame_access( sbpf_version, src, offset, width ), 0, width, rs, offset, cost );
+      emit_load( Dst, width, rd );
+      break;
+    }
+    case 0x62: case 0x6a: case 0x72: case 0x7a: { /* ST{W,H,B,DW} */
+      ulong width = opcode==0x62 ? 4UL : opcode==0x6a ? 2UL : opcode==0x72 ? 1UL : 8UL;
+      emit_mem_addr( Dst, is_stack_frame_access( sbpf_version, dst, offset, width ), 1, width, rd, offset, cost );
+      emit_const64( Dst, SCR2, width==8UL ? imm64 : (ulong)imm );
+      emit_store( Dst, width, SCR2 );
+      break;
+    }
+    case 0x63: case 0x6b: case 0x73: case 0x7b: { /* STX{W,H,B,DW} */
+      ulong width = opcode==0x63 ? 4UL : opcode==0x6b ? 2UL : opcode==0x73 ? 1UL : 8UL;
+      emit_mem_addr( Dst, is_stack_frame_access( sbpf_version, dst, offset, width ), 1, width, rd, offset, cost );
+      emit_store( Dst, width, rs );
+      break;
+    }
+
+    case 0x18: { /* LDDW */
+      pc++;
+      bb_lddw++;
+      ulong ins1 = FD_LOAD( ulong, bpf_text + (pc<<3) );
+      ulong v = (ulong)imm | ((ulong)fd_vm_instr_imm( ins1 ) << 32);
+      emit_const64( Dst, rd, v );
+      break;
+    }
+
+    /* ALU.  32 bit add/sub/mul results are sign extended to 64 bits
+       (pre SIMD-0174 semantics, the only ones v0/v1/v3 use); other
+       32 bit ops zero extend, which w-register writes do for free. */
+
+    case 0x04: /* ADD32_IMM */
+      emit_addsub_imm( Dst, 1, 0, rd, imm );
+      | sxtw Rx(rd), Rw(rd)
+      break;
+    case 0x07: /* ADD64_IMM */
+      emit_addsub_imm( Dst, 1, 1, rd, imm );
+      break;
+    case 0x0c: /* ADD32_REG */
+      | add Rw(rd), Rw(rd), Rw(rs)
+      | sxtw Rx(rd), Rw(rd)
+      break;
+    case 0x0f: /* ADD64_REG */
+      | add Rx(rd), Rx(rd), Rx(rs)
+      break;
+    case 0x14: /* SUB32_IMM */
+      emit_addsub_imm( Dst, 0, 0, rd, imm );
+      | sxtw Rx(rd), Rw(rd)
+      break;
+    case 0x17: /* SUB64_IMM */
+      emit_addsub_imm( Dst, 0, 1, rd, imm );
+      break;
+    case 0x1c: /* SUB32_REG */
+      | sub Rw(rd), Rw(rd), Rw(rs)
+      | sxtw Rx(rd), Rw(rd)
+      break;
+    case 0x1f: /* SUB64_REG */
+      | sub Rx(rd), Rx(rd), Rx(rs)
+      break;
+    case 0x24: /* MUL32_IMM */
+      emit_const32( Dst, SCR0, imm );
+      | mul Rw(rd), Rw(rd), w9
+      | sxtw Rx(rd), Rw(rd)
+      break;
+    case 0x27: /* MUL64_IMM */
+      emit_const64( Dst, SCR0, imm64 );
+      | mul Rx(rd), Rx(rd), x9
+      break;
+    case 0x2c: /* MUL32_REG */
+      | mul Rw(rd), Rw(rd), Rw(rs)
+      | sxtw Rx(rd), Rw(rd)
+      break;
+    case 0x2f: /* MUL64_REG */
+      | mul Rx(rd), Rx(rd), Rx(rs)
+      break;
+    case 0x34: /* DIV32_IMM */
+      emit_udiv32_imm( Dst, rd, imm, 0 );
+      break;
+    case 0x37: /* DIV64_IMM */
+      emit_udiv64_imm( Dst, rd, imm, 0 );
+      break;
+    case 0x3c: /* DIV32_REG */
+      | cbnz Rw(rs), >1
+      emit_const32( Dst, SCR0, (uint)cost );
+      | b ->exception_div_zero
+      |1:
+      | udiv Rw(rd), Rw(rd), Rw(rs)
+      break;
+    case 0x3f: /* DIV64_REG */
+      | cbnz Rx(rs), >1
+      emit_const32( Dst, SCR0, (uint)cost );
+      | b ->exception_div_zero
+      |1:
+      | udiv Rx(rd), Rx(rd), Rx(rs)
+      break;
+    case 0x44: /* OR32_IMM */
+      emit_logic_imm( Dst, LOGIC_ORR, 0, rd, (ulong)imm );
+      break;
+    case 0x47: /* OR64_IMM */
+      emit_logic_imm( Dst, LOGIC_ORR, 1, rd, imm64 );
+      break;
+    case 0x4c: /* OR32_REG */
+      | orr Rw(rd), Rw(rd), Rw(rs)
+      break;
+    case 0x4f: /* OR64_REG */
+      | orr Rx(rd), Rx(rd), Rx(rs)
+      break;
+    case 0x54: /* AND32_IMM */
+      emit_logic_imm( Dst, LOGIC_AND, 0, rd, (ulong)imm );
+      break;
+    case 0x57: /* AND64_IMM */
+      emit_logic_imm( Dst, LOGIC_AND, 1, rd, imm64 );
+      break;
+    case 0x5c: /* AND32_REG */
+      | and Rw(rd), Rw(rd), Rw(rs)
+      break;
+    case 0x5f: /* AND64_REG */
+      | and Rx(rd), Rx(rd), Rx(rs)
+      break;
+    case 0x64: /* LSH32_IMM */
+      | lsl Rw(rd), Rw(rd), #(imm&31U)
+      break;
+    case 0x67: /* LSH64_IMM */
+      | lsl Rx(rd), Rx(rd), #(imm&63U)
+      break;
+    case 0x6c: /* LSH32_REG */
+      | lsl Rw(rd), Rw(rd), Rw(rs)
+      break;
+    case 0x6f: /* LSH64_REG */
+      | lsl Rx(rd), Rx(rd), Rx(rs)
+      break;
+    case 0x74: /* RSH32_IMM */
+      | lsr Rw(rd), Rw(rd), #(imm&31U)
+      break;
+    case 0x77: /* RSH64_IMM */
+      | lsr Rx(rd), Rx(rd), #(imm&63U)
+      break;
+    case 0x7c: /* RSH32_REG */
+      | lsr Rw(rd), Rw(rd), Rw(rs)
+      break;
+    case 0x7f: /* RSH64_REG */
+      | lsr Rx(rd), Rx(rd), Rx(rs)
+      break;
+    case 0x84: /* NEG32 */
+      | neg Rw(rd), Rw(rd)
+      break;
+    case 0x87: /* NEG64 */
+      | neg Rx(rd), Rx(rd)
+      break;
+    case 0x94: /* MOD32_IMM */
+      emit_udiv32_imm( Dst, rd, imm, 1 );
+      break;
+    case 0x97: /* MOD64_IMM */
+      emit_udiv64_imm( Dst, rd, imm, 1 );
+      break;
+    case 0x9c: /* MOD32_REG */
+      | cbnz Rw(rs), >1
+      emit_const32( Dst, SCR0, (uint)cost );
+      | b ->exception_div_zero
+      |1:
+      | udiv w9, Rw(rd), Rw(rs)
+      | msub Rw(rd), w9, Rw(rs), Rw(rd)
+      break;
+    case 0x9f: /* MOD64_REG */
+      | cbnz Rx(rs), >1
+      emit_const32( Dst, SCR0, (uint)cost );
+      | b ->exception_div_zero
+      |1:
+      | udiv x9, Rx(rd), Rx(rs)
+      | msub Rx(rd), x9, Rx(rs), Rx(rd)
+      break;
+    case 0xa4: /* XOR32_IMM */
+      emit_logic_imm( Dst, LOGIC_EOR, 0, rd, (ulong)imm );
+      break;
+    case 0xa7: /* XOR64_IMM */
+      emit_logic_imm( Dst, LOGIC_EOR, 1, rd, imm64 );
+      break;
+    case 0xac: /* XOR32_REG */
+      | eor Rw(rd), Rw(rd), Rw(rs)
+      break;
+    case 0xaf: /* XOR64_REG */
+      | eor Rx(rd), Rx(rd), Rx(rs)
+      break;
+    case 0xb4: /* MOV32_IMM */
+      emit_const32( Dst, rd, imm );
+      break;
+    case 0xb7: /* MOV64_IMM */
+      emit_const64( Dst, rd, imm64 );
+      break;
+    case 0xbc: /* MOV32_REG */
+      | mov Rw(rd), Rw(rs)
+      break;
+    case 0xbf: /* MOV64_REG */
+      | mov Rx(rd), Rx(rs)
+      break;
+    case 0xc4: /* ARSH32_IMM */
+      | asr Rw(rd), Rw(rd), #(imm&31U)
+      break;
+    case 0xc7: /* ARSH64_IMM */
+      | asr Rx(rd), Rx(rd), #(imm&63U)
+      break;
+    case 0xcc: /* ARSH32_REG */
+      | asr Rw(rd), Rw(rd), Rw(rs)
+      break;
+    case 0xcf: /* ARSH64_REG */
+      | asr Rx(rd), Rx(rd), Rx(rs)
+      break;
+    case 0xd4: /* END_LE */
+      if( imm==16U ) {
+        | uxth Rw(rd), Rw(rd)
+      } else if( imm==32U ) {
+        | mov Rw(rd), Rw(rd)
+      }
+      break;
+    case 0xdc: /* END_BE */
+      if( imm==16U ) {
+        | rev16 Rw(rd), Rw(rd)
+        | uxth Rw(rd), Rw(rd)
+      } else if( imm==32U ) {
+        | rev Rw(rd), Rw(rd)
+      } else {
+        | rev Rx(rd), Rx(rd)
+      }
+      break;
+
+    /* Branches.  Opcode bits: 0x?5 64 bit, 0x?6 32 bit; src bit 3
+       (0x08) selects the register form. */
+
+    case 0x05: /* JA */
+      | b =>jmp_dst
+      break;
+    case 0x15: case 0x16: case 0x1d: case 0x1e: /* JEQ */
+      emit_jcc( Dst, COND_EQ, 0, !(opcode&8UL), (opcode&7UL)==5UL, rd, rs, imm, jmp_dst ); break;
+    case 0x25: case 0x26: case 0x2d: case 0x2e: /* JGT */
+      emit_jcc( Dst, COND_HI, 0, !(opcode&8UL), (opcode&7UL)==5UL, rd, rs, imm, jmp_dst ); break;
+    case 0x35: case 0x36: case 0x3d: case 0x3e: /* JGE */
+      emit_jcc( Dst, COND_HS, 0, !(opcode&8UL), (opcode&7UL)==5UL, rd, rs, imm, jmp_dst ); break;
+    case 0x45: case 0x46: case 0x4d: case 0x4e: /* JSET */
+      emit_jcc( Dst, COND_NE, 1, !(opcode&8UL), (opcode&7UL)==5UL, rd, rs, imm, jmp_dst ); break;
+    case 0x55: case 0x56: case 0x5d: case 0x5e: /* JNE */
+      emit_jcc( Dst, COND_NE, 0, !(opcode&8UL), (opcode&7UL)==5UL, rd, rs, imm, jmp_dst ); break;
+    case 0x65: case 0x66: case 0x6d: case 0x6e: /* JSGT */
+      emit_jcc( Dst, COND_GT, 0, !(opcode&8UL), (opcode&7UL)==5UL, rd, rs, imm, jmp_dst ); break;
+    case 0x75: case 0x76: case 0x7d: case 0x7e: /* JSGE */
+      emit_jcc( Dst, COND_GE, 0, !(opcode&8UL), (opcode&7UL)==5UL, rd, rs, imm, jmp_dst ); break;
+    case 0xa5: case 0xa6: case 0xad: case 0xae: /* JLT */
+      emit_jcc( Dst, COND_LO, 0, !(opcode&8UL), (opcode&7UL)==5UL, rd, rs, imm, jmp_dst ); break;
+    case 0xb5: case 0xb6: case 0xbd: case 0xbe: /* JLE */
+      emit_jcc( Dst, COND_LS, 0, !(opcode&8UL), (opcode&7UL)==5UL, rd, rs, imm, jmp_dst ); break;
+    case 0xc5: case 0xc6: case 0xcd: case 0xce: /* JSLT */
+      emit_jcc( Dst, COND_LT, 0, !(opcode&8UL), (opcode&7UL)==5UL, rd, rs, imm, jmp_dst ); break;
+    case 0xd5: case 0xd6: case 0xdd: case 0xde: /* JSLE */
+      emit_jcc( Dst, COND_LE, 0, !(opcode&8UL), (opcode&7UL)==5UL, rd, rs, imm, jmp_dst ); break;
+
+    /* Call */
+
+    case 0x85: { /* CALL_IMM (BPF call or syscall) */
+      fd_sbpf_syscalls_t const * sys = NULL;
+      long target_pc = -1L;
+      if( FD_VM_SBPF_STATIC_SYSCALLS( sbpf_version ) ) {
+        if( src==0UL ) {
+          sys = fd_sbpf_syscalls_query_const( syscalls, imm, NULL );
+        } else if( src==1UL ) {
+          target_pc = (long)pc + (long)(int)imm + 1L;
+          if( target_pc<0L || target_pc>=(long)bpf_text_cnt ) target_pc = -1L;
+        }
+      } else {
+        sys = fd_sbpf_syscalls_query_const( syscalls, imm, NULL );
+        if( !sys ) {
+          if( imm==0x71e3cf81U ) { /* hash of "entrypoint" */
+            target_pc = (long)bpf_entry_pc;
+          } else {
+            target_pc = (long)(ulong)fd_pchash_inverse( imm );
+            if( target_pc>=(long)bpf_text_cnt ||
+                !fd_sbpf_calldests_test( bpf_calldests, (ulong)target_pc ) ) {
+              target_pc = -1L;
+            }
+          }
+        }
+      }
+      emit_cu_sub( Dst, cost );
+      if( sys ) {
+        ulong slot_idx = (ulong)( sys-syscalls );
+        syscall_used[ slot_idx >> 6 ] |= 1UL<<( slot_idx & 63UL );
+        emit_const64( Dst, SCR0, pc );
+        | str x9, vm->pc
+        | bl =>(Dst->dasm_lbl_sys0 + slot_idx)
+      } else if( target_pc>=0L ) {
+        ulong tpc = (ulong)target_pc;
+        if( fd_vm_instr_opcode( FD_LOAD( ulong, bpf_text + (tpc<<3) ) )==0x00UL ) {
+          | b ->exception_ill
+        } else {
+          Dst->thunk_bv[ tpc >> 6 ] |= 1UL<<( tpc & 63UL );
+          emit_const64( Dst, SCR0, pc );
+          | str x9, vm->pc
+          | bl =>(Dst->dasm_lbl_thunk0 + tpc)
+        }
+      } else {
+        | b ->exception_ill
+      }
+      bb_start = pc+1UL;
+      bb_lddw  = 0UL;
+      break;
+    }
+    case 0x8d: { /* CALLX */
+      has_callx = 1;
+      ulong callx_reg =
+          FD_VM_SBPF_CALLX_USES_SRC_REG( sbpf_version ) ? src :
+          FD_VM_SBPF_CALLX_USES_DST_REG( sbpf_version ) ? dst :
+          (ulong)imm;
+      if( FD_UNLIKELY( callx_reg>9UL ) ) {
+        FD_LOG_WARNING(( "invalid callx register at pc %lu", pc ));
+        return -1;
+      }
+      emit_cu_sub( Dst, cost );
+      emit_const64( Dst, SCR0, pc );
+      | str x9, vm->pc
+      | mov x10, Rx(bpf_arm_reg[callx_reg])
+      | bl ->callx
+      bb_start = pc+1UL;
+      bb_lddw  = 0UL;
+      break;
+    }
+    case 0x95: /* EXIT */
+      | b ->bpfcall_frame_pop
+      break;
+
+    default:
+      FD_LOG_WARNING(( "invalid opcode 0x%02lx at pc %lu", opcode, pc ));
+      return -1;
+    }
+  }
+
+  /* Execution fell off the end of the text segment */
+  if( bb_start<bpf_text_cnt ) emit_cu_charge( Dst, bpf_text_cnt-bb_start-bb_lddw );
+  | bl ->regs_save
+  | mov w10, #(uint)(-FD_VM_ERR_EBPF_EXECUTION_OVERRUN)
+  | neg w10, w10
+  | mov w9, #1
+  | b ->exception_charge
+  |=>(Dst->dasm_lbl_reloc0-1UL):
+
+  emit_mmu_routines( Dst );
+
+  /* BPF-to-BPF call thunks */
+
+  for( ulong pc=0UL; pc<bpf_text_cnt; pc++ ) {
+    if( Dst->thunk_bv[ pc>>6 ] & (1UL<<( pc&63UL )) ) {
+      |=>(Dst->dasm_lbl_thunk0 + pc):
+      | sbpf_frame_enter
+      | bl ->bpfcall_frame_push
+      | cbnz w10, ->call_imm_depth
+      | b =>pc
+    }
+  }
+
+  for( ulong word_idx=0UL; word_idx<(FD_SBPF_SYSCALLS_SLOT_CNT>>6); word_idx++ ) {
+    ulong word = syscall_used[ word_idx ];
+    while( word ) {
+      int bit = fd_ulong_find_lsb( word );
+      word &= ~(1UL<<bit);
+      ulong slot_idx = (word_idx<<6) + (ulong)bit;
+      |=>(Dst->dasm_lbl_sys0 + slot_idx):
+      emit_syscall_call( Dst, slot_idx );
+    }
+  }
+
+  emit_regs_subroutines( Dst );
+  emit_frame_helpers( Dst );
+  if( has_callx ) {
+    emit_callx_handler( Dst );
+  }
+
+  /* Fault handlers */
+
+  |->exception_div_zero:
+  | // w9: CUs consumed by the current block so far (incl. this instr)
+  | bl ->regs_save
+  | mov w10, #(uint)(-FD_VM_ERR_EBPF_DIVIDE_BY_ZERO)
+  | neg w10, w10
+  | b ->exception_charge
+
+  |->exception_segfault:
+  | // x10: negative FD_VM_ERR_EBPF_* code from mmu_tlb_miss
+  | // x30: return address into the body, followed by `mov w9, #cost`
+  | ldr w9, [x30]
+  | ubfx w9, w9, #5, #16        // movz w9, #lo16
+  | ldr w11, [x30, #4]
+  | and w12, w11, #0xffe0001f
+  | mov w16, #0x0009
+  | movk w16, #0x72a0, lsl #16  // movk w9, #hi16, lsl #16
+  | cmp w12, w16
+  | bne >1
+  | ubfx w11, w11, #5, #16
+  | add w9, w9, w11, lsl #16
+  |1:
+  | bl ->regs_save
+  | b ->exception_charge
+
+  |->exception_ill:
+  | bl ->regs_save
+  | mov w10, #(uint)(-FD_VM_ERR_EBPF_UNSUPPORTED_INSTRUCTION)
+  | neg w10, w10
+  | mov x9, xzr
+  | b ->exception_charge
+
+  |->exception_cost:
+  | bl ->regs_save
+  | mov w10, #(uint)(-FD_VM_ERR_EBPF_EXCEEDED_MAX_INSTRUCTIONS)
+  | neg w10, w10
+  | mov x9, xzr
+  | // fall through
+
+  |->exception_charge:
+  | // Bills the pending block and unwinds.  BPF registers saved.
+  | // - w10: error code
+  | // - x9:  CUs consumed by the pending block so far
+  | ldr x11, vm->cu
+  | sub x11, x11, x9
+  | str x11, vm->cu
+  | cu_save
+  | ldr x11, vm->cu
+  | tbz x11, #63, >1
+  | str xzr, vm->cu
+  | mov w10, #(uint)(-FD_VM_ERR_EBPF_EXCEEDED_MAX_INSTRUCTIONS)
+  | neg w10, w10
+  |1:
+  | b ->unwind
+
+  |->unwind:
+  | // - w10: return value
+  | // - x29: any transpiled frame (sBPF function or root)
+  | ldr x29, [x29, #-8] // root frame
+  | mov w0, w10
+  | sub sp, x29, #64
+  | ldp x23, x24, [sp, #8]
+  | ldp x21, x22, [sp, #24]
+  | ldp x19, x20, [sp, #40]
+  | ldp x29, x30, [sp, #64]
+  | add sp, sp, #80
+  | ret
+
+  size_t code_sz;
+  int link_res = dasm_link( Dst, &code_sz );
+  if( link_res!=0 ) {
+    FD_LOG_WARNING(( "dasm_link failed: %#x", (uint)link_res ));
+    return -1;
+  }
+  if( FD_UNLIKELY( code_sz > FD_TRANSPILER_CODE_MAX ) ) {
+    FD_LOG_WARNING(( "transpiled code is too big: %lu bytes larger than FD_TRANSPILER_CODE_MAX", code_sz-FD_TRANSPILER_CODE_MAX ));
+    return -1;
+  }
+
+  int enc_res = dasm_encode( Dst, Dst->code );
+  if( enc_res!=0 ) {
+    FD_LOG_WARNING(( "dasm_encode failed: %#x", (uint)enc_res ));
+    return -1;
+  }
+
+  /* Resolve relocation site labels to code offsets */
+  for( ulong i=0UL; i<Dst->reloc_cnt; i++ ) {
+    int ofs = dasm_getpclabel( Dst, (uint)( Dst->dasm_lbl_reloc0+i ) );
+    if( FD_UNLIKELY( ofs<0 || (ulong)ofs+4UL>code_sz ) ) {
+      FD_LOG_WARNING(( "failed to resolve relocation %lu site label (%d)", i, ofs ));
+      return -1;
+    }
+    Dst->reloc[ i ].r_offset = (ulong)ofs;
+  }
+
+  /* Basic block tables */
+  ulong * seq     = bpf_bb_splits + bb_word_cnt;
+  ulong   jmp_off = 2UL*bb_word_cnt*sizeof(ulong);
+  ulong bb_idx = 0UL;
+  for( ulong w=0UL; w<bb_word_cnt; w++ ) {
+    seq[ w ] = bb_idx;
+    ulong word = bpf_bb_splits[ w ];
+    while( word ) {
+      ulong pc = (w<<6) + (ulong)fd_ulong_find_lsb( word );
+      word &= word-1UL;
+      int ofs = dasm_getpclabel( Dst, (uint)pc );
+      if( FD_UNLIKELY( ofs<0 || (ulong)ofs>=code_sz ) ) {
+        FD_LOG_WARNING(( "failed to resolve basic block %lu label (%d)", pc, ofs ));
+        return -1;
+      }
+      /* entry holds text+ofs relative to the table base */
+      Dst->rodata_reloc[ bb_idx ] = (fd_elf64_rela){
+        .r_offset = jmp_off + bb_idx*sizeof(int),
+        .r_info   = FD_ELF64_R_INFO( FD_VM_TRANSPILE_SYM_TEXT, FD_TRANSPILE_R_PCREL32 ),
+        .r_addend = (long)( (ulong)ofs + bb_idx*sizeof(int) )
+      };
+      bb_idx++;
+    }
+  }
+  Dst->rodata_reloc_cnt  = bb_idx;
+  Dst->rodata_sz         = jmp_off + bb_idx*sizeof(int);
+
+  Dst->code_sz           = (ulong)code_sz;
+  Dst->entrypoint_off    = 0UL;
+  syms_compute( Dst, bpf_text_cnt, bpf_entry_pc, bpf_calldests, syscall_used, (ulong)code_sz );
+  Dst->meta.text_cnt     = bpf_text_cnt;
+  Dst->meta.text_sz      = bpf_text_cnt * 8UL;
+  Dst->meta.entry_pc     = bpf_entry_pc;
+  Dst->meta.sbpf_version = sbpf_version;
+
+  return 0;
+}

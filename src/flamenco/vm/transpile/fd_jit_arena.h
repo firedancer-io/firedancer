@@ -16,6 +16,7 @@
    vm->transpiled.rt for the runtime helpers) and tail jump to it. */
 
 #include "fd_jit_proto.h"
+#include "fd_transpile_target.h"
 
 #define FD_JIT_ARENA_MAGIC    (0xf17eda2c3e71a4e0UL)
 #define FD_JIT_ARENA_ALIGN    (4096UL)
@@ -66,6 +67,7 @@ fd_jit_arena_join( void * mem );
 static inline fd_vm_transpiled_exec_func_t
 fd_jit_arena_exec( fd_jit_arena_t const * arena,
                    ulong                  slot_idx ) {
+  fd_transpile_icache_sync(); /* jitmap flushed the lines; this core may still hold stale fetches */
   return (fd_vm_transpiled_exec_func_t)( (ulong)arena + arena->slot[ slot_idx ].entry_off );
 }
 

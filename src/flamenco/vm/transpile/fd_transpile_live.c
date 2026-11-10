@@ -1,6 +1,7 @@
 #define _GNU_SOURCE
 #include "fd_transpile_live.h"
 #include "fd_transpile_runtime.h"
+#include "fd_transpile_target.h"
 #include "../fd_vm_base.h"
 #include "../../../util/rng/fd_rng.h"
 
@@ -9,10 +10,10 @@
 #include <string.h>
 #include <sys/mman.h>
 
-/* Transpiled code only uses rel32 addressing.  Calls to C functions
-   (PLT32 relocs) go through veneers appended to .text, which jump via
-   a GOT in .rodata.  This way, the .text and .rodata mappings only need
-   to be within +/-2 GiB of each other, not of the host binary.
+/* Transpiled code only uses PC-relative addressing.  Calls to C
+   functions go through veneers appended to .text, which jump via a GOT
+   in .rodata.  This way, the .text and .rodata mappings only need to
+   be within +/-1 GiB of each other, not of the host binary.
 
    .rodata layout:
      fd_transpiled_live_t
@@ -21,7 +22,7 @@
 
    .text layout:
      code       uchar[ code_sz ]      (entrypoint at offset 0)
-     veneer     uchar[ ext_cnt ][ 8 ] (jmp qword [rip+got_off]; int3; int3)
+     veneer     uchar[ ext_cnt ][ FD_TRANSPILE_VENEER_SZ ] (jmp [got])
 
    The distance between .text and .rodata is randomized within
    FD_TRANSPILED_LIVE_GAP_MAX. */
@@ -31,17 +32,7 @@
 #define FD_TRANSPILED_LIVE_PLACE_TRIES (64UL)
 
 #define FD_TRANSPILED_LIVE_EXT_MAX (FD_VM_TRANSPILE_SYM_MAX+FD_SBPF_SYSCALLS_SLOT_CNT)
-#define FD_TRANSPILED_LIVE_VENEER_SZ (8UL)
-
-static int
-rel32_patch( uchar * site,
-             ulong   s,
-             long    a ) {
-  long v = (long)s + a - (long)site;
-  if( FD_UNLIKELY( v<(long)INT_MIN || v>(long)INT_MAX ) ) return -1;
-  FD_STORE( int, site, (int)v );
-  return 0;
-}
+#define FD_TRANSPILED_LIVE_VENEER_SZ FD_TRANSPILE_VENEER_SZ
 
 /* text_map_place maps sz bytes of RW anonymous memory at a random
    page-aligned distance of at most FD_TRANSPILED_LIVE_GAP_MAX from
@@ -128,7 +119,7 @@ fd_transpiled_live_create( fd_sbpf_program_t const * prog,
   ulong ext_cnt = 0UL;
   memset( ext_idx, 0xff, sizeof(ext_idx) );
   for( ulong i=0UL; i<reloc_cnt; i++ ) {
-    if( FD_ELF64_R_TYPE( reloc[i].r_info )!=FD_ELF_R_X86_64_PLT32 ) continue;
+    if( fd_transpile_reloc_kind( FD_ELF64_R_TYPE( reloc[i].r_info ) )!=FD_TRANSPILE_RELOC_CALL ) continue;
     uint sym = FD_ELF64_R_SYM( reloc[i].r_info );
     if( FD_UNLIKELY( sym>=FD_TRANSPILED_LIVE_EXT_MAX ) ) {
       FD_LOG_WARNING(( "unsupported call target symbol %u", sym ));
@@ -182,35 +173,35 @@ fd_transpiled_live_create( fd_sbpf_program_t const * prog,
 
   /* Populate .text */
 
-  memset( text, 0xcc, text_map_sz ); /* int3 */
+  fd_transpile_trap_fill( text, text_map_sz );
   memcpy( text, t->code, code_sz );
 
   for( ulong i=0UL; i<ext_cnt; i++ ) {
     uchar * veneer = text + veneer_off + i*FD_TRANSPILED_LIVE_VENEER_SZ;
-    veneer[0] = 0xff; veneer[1] = 0x25; /* jmp qword [rip+disp32] */
-    if( FD_UNLIKELY( rel32_patch( veneer+2, (ulong)( rodata + got_off + i*sizeof(ulong) ), -4L ) ) ) goto fail_reach;
+    if( FD_UNLIKELY( fd_transpile_veneer_got( veneer, (ulong)( rodata + got_off + i*sizeof(ulong) ) ) ) ) goto fail_reach;
   }
 
   for( ulong i=0UL; i<reloc_cnt; i++ ) {
     ulong ofs = reloc[i].r_offset;
-    if( FD_UNLIKELY( ofs+4UL>code_sz ) ) {
+    if( FD_UNLIKELY( ofs+FD_TRANSPILE_RELOC_SZ>code_sz ) ) {
       FD_LOG_WARNING(( "relocation %lu offset %lu out of bounds (code_sz %lu)", i, ofs, code_sz ));
       goto fail;
     }
-    uint  sym = FD_ELF64_R_SYM ( reloc[i].r_info );
-    uint  typ = FD_ELF64_R_TYPE( reloc[i].r_info );
+    uint  sym  = FD_ELF64_R_SYM ( reloc[i].r_info );
+    uint  typ  = FD_ELF64_R_TYPE( reloc[i].r_info );
+    int   kind = fd_transpile_reloc_kind( typ );
     ulong s;
-    if( typ==FD_ELF_R_X86_64_PLT32 ) {
+    if( kind==FD_TRANSPILE_RELOC_CALL ) {
       s = (ulong)( text + veneer_off + ext_idx[ sym ]*FD_TRANSPILED_LIVE_VENEER_SZ );
-    } else if( typ==FD_ELF_R_X86_64_PC32 && sym==FD_VM_TRANSPILE_SYM_RODATA ) {
+    } else if( kind==FD_TRANSPILE_RELOC_ADDR && sym==FD_VM_TRANSPILE_SYM_RODATA ) {
       s = (ulong)( rodata + tables_off );
-    } else if( typ==FD_ELF_R_X86_64_PC32 && sym==FD_VM_TRANSPILE_SYM_TEXT ) {
+    } else if( kind==FD_TRANSPILE_RELOC_ADDR && sym==FD_VM_TRANSPILE_SYM_TEXT ) {
       s = (ulong)text;
     } else {
       FD_LOG_WARNING(( "unsupported relocation (type %u, sym %u)", typ, sym ));
       goto fail;
     }
-    if( FD_UNLIKELY( rel32_patch( text+ofs, s, reloc[i].r_addend ) ) ) goto fail_reach;
+    if( FD_UNLIKELY( fd_transpile_reloc_apply( text+ofs, typ, s, reloc[i].r_addend ) ) ) goto fail_reach;
   }
 
   /* Populate .rodata */
@@ -219,13 +210,13 @@ fd_transpiled_live_create( fd_sbpf_program_t const * prog,
   memcpy( tables, t->rodata, t->rodata_sz );
   for( ulong i=0UL; i<t->rodata_reloc_cnt; i++ ) {
     fd_elf64_rela const * r = &t->rodata_reloc[ i ];
-    if( FD_UNLIKELY( FD_ELF64_R_TYPE( r->r_info )!=FD_ELF_R_X86_64_PC32 ||
+    if( FD_UNLIKELY( FD_ELF64_R_TYPE( r->r_info )!=FD_TRANSPILE_R_PCREL32 ||
                      FD_ELF64_R_SYM ( r->r_info )!=FD_VM_TRANSPILE_SYM_TEXT ||
-                     r->r_offset+4UL>t->rodata_sz ) ) {
+                     r->r_offset+FD_TRANSPILE_RELOC_SZ>t->rodata_sz ) ) {
       FD_LOG_WARNING(( "unsupported rodata relocation %lu", i ));
       goto fail;
     }
-    if( FD_UNLIKELY( rel32_patch( tables+r->r_offset, (ulong)text, r->r_addend ) ) ) goto fail_reach;
+    if( FD_UNLIKELY( fd_transpile_reloc_apply( tables+r->r_offset, FD_TRANSPILE_R_PCREL32, (ulong)text, r->r_addend ) ) ) goto fail_reach;
   }
   memcpy( rodata + got_off, ext_addr, ext_cnt*sizeof(ulong) );
 
@@ -239,6 +230,7 @@ fd_transpiled_live_create( fd_sbpf_program_t const * prog,
 
   /* Seal */
 
+  fd_transpile_icache_flush( text, text_sz );
   if( FD_UNLIKELY( mprotect( text, text_map_sz, PROT_READ|PROT_EXEC ) ) ) {
     FD_LOG_WARNING(( "mprotect(.text,r-x) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     goto fail;
@@ -252,7 +244,7 @@ fd_transpiled_live_create( fd_sbpf_program_t const * prog,
   return live;
 
 fail_reach:
-  FD_LOG_WARNING(( "rel32 out of reach (text %p, rodata %p)", (void *)text, (void *)rodata ));
+  FD_LOG_WARNING(( "relocation out of reach (text %p, rodata %p)", (void *)text, (void *)rodata ));
 fail:
   if( text   ) munmap( text,   text_map_sz   );
   if( rodata ) munmap( rodata, rodata_map_sz );

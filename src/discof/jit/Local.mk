@@ -1,5 +1,5 @@
 ifdef FD_HAS_HOSTED
-ifdef FD_HAS_AVX
+ifdef FD_HAS_TRANSPILE_EXEC
 $(call add-hdrs,fd_jit_client.h)
 $(call add-objs,fd_jit_client,fd_discof)
 

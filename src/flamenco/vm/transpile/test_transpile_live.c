@@ -1,5 +1,6 @@
 #include "fd_transpile_live.h"
 #include "fd_transpile_runtime.h"
+#include "fd_jit_arena.h"
 #include "../fd_vm_private.h"
 #include "../../../ballet/murmur3/fd_murmur3.h"
 #include "../../../ballet/sbpf/fd_sbpf_opcodes.h"
@@ -11,6 +12,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/mman.h>
 
 /* maps_perms looks up the /proc/self/maps entry containing addr and
    copies its permission string (e.g. "r-xp") to perms.  Returns 0 on
@@ -125,8 +127,8 @@ test_exec( fd_sbpf_program_t const *    prog,
 
 /* Frame pointer chain test
 
-   Every sBPF function invocation has a psABI style x86 frame (see
-   fd_transpile_x86.dasc).  A syscall handler walks the rbp chain and
+   Every sBPF function invocation has an ABI style frame record (see
+   fd_transpile_x86.dasc).  A syscall handler walks the frame chain and
    records how many frames lie between it and the root frame's caller.
 
    Program (sBPF v0), a recursion of depth FRAME_TEST_DEPTH that calls
@@ -580,6 +582,7 @@ fixture_exec( test_env_t *                 env,
                        prog->entry_pc, prog->calldests, prog->info.sbpf_version, syscalls, NULL, sha,
                        &region, 1UL, NULL, 0, 0, 0, 0, 0, 0UL ) );
   FD_TEST( fd_vm_validate( vm )==FD_VM_SUCCESS );
+  vm->transpiled.rt = &fd_transpile_rt;
 
   out->bail_cnt = 0UL;
   if( fn ) {
@@ -598,6 +601,68 @@ fixture_exec( test_env_t *                 env,
 
   fd_vm_delete( fd_vm_leave( vm ) );
   fd_sha256_delete( fd_sha256_leave( sha ) );
+}
+
+static void
+fixture_check( char const *          name,
+               char const *          kind,
+               test_result_t const * a,
+               test_result_t const * b ) {
+  if( FD_UNLIKELY( a->err!=b->err || a->r0!=b->r0 || a->cu!=b->cu || a->log_sz!=b->log_sz ||
+                   memcmp( a->log, b->log, a->log_sz ) ) ) {
+    FD_LOG_ERR(( "%s: mismatch (interp err %d r0 %#lx cu %ld log_sz %lu) (%s err %d r0 %#lx cu %ld log_sz %lu)",
+                 name, a->err, a->r0, a->cu, a->log_sz, kind, b->err, b->r0, b->cu, b->log_sz ));
+  }
+}
+
+/* arena_place transpiles prog and places it in a JIT arena the way the
+   jitmap tile does (an fd_jit_res_t frag), returning the entrypoint.
+   The arena is one RWX mapping here; the validator maps it read-only
+   in exec tiles. */
+
+#define ARENA_CODE_MAX (64UL<<20)
+
+static fd_vm_transpiled_exec_func_t
+arena_place( fd_sbpf_program_t const *  prog,
+             fd_sbpf_syscalls_t const * syscalls,
+             fd_features_t const *      features ) {
+  static fd_jit_arena_t * arena;
+  if( !arena ) {
+    void * mem = mmap( NULL, fd_jit_arena_footprint( ARENA_CODE_MAX ), PROT_READ|PROT_WRITE|PROT_EXEC, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0 );
+    FD_TEST( mem!=MAP_FAILED );
+    arena = fd_jit_arena_join( fd_jit_arena_new( mem, ARENA_CODE_MAX ) );
+    FD_TEST( arena );
+  }
+
+  fd_transpiler_t * t = aligned_alloc( 64UL, sizeof(fd_transpiler_t) );
+  FD_TEST( t );
+  FD_TEST( !fd_vm_transpile_prog( t, prog, syscalls ) );
+  fd_jit_res_t * res = aligned_alloc( 64UL, FD_JIT_RES_MTU );
+  FD_TEST( res );
+  *res = (fd_jit_res_t) {
+    .code_sz          = t->code_sz,
+    .rodata_sz        = t->rodata_sz,
+    .reloc_cnt        = t->reloc_cnt,
+    .rodata_reloc_cnt = t->rodata_reloc_cnt,
+    .entrypoint_off   = t->entrypoint_off,
+    .meta             = t->meta,
+    .features         = *features,
+  };
+  /* distinct identity per call: no dedup against earlier placements */
+  FD_STORE( ulong, res->meta.prog_id, (ulong)arena->slot_cnt+1UL );
+  ulong code_off, rodata_off, reloc_off, rodata_reloc_off;
+  ulong res_sz = fd_jit_res_layout( res, &code_off, &rodata_off, &reloc_off, &rodata_reloc_off );
+  uchar * out = (uchar *)res;
+  memcpy( out+code_off,         t->code,         t->code_sz );
+  memcpy( out+rodata_off,       t->rodata,       t->rodata_sz );
+  memcpy( out+reloc_off,        t->reloc,        t->reloc_cnt*sizeof(fd_elf64_rela) );
+  memcpy( out+rodata_reloc_off, t->rodata_reloc, t->rodata_reloc_cnt*sizeof(fd_elf64_rela) );
+  int dedup = 1;
+  long slot = fd_jit_arena_place( arena, res, out, res_sz, &dedup );
+  FD_TEST( slot>=0L && !dedup );
+  free( res );
+  free( t );
+  return fd_jit_arena_exec( arena, (ulong)slot );
 }
 
 static void
@@ -632,17 +697,14 @@ test_fixtures( fd_sbpf_syscalls_t * syscalls ) {
 
     fixture_exec( env, prog, syscalls, NULL, res_interp );
     fixture_exec( env, prog, syscalls, (fd_vm_transpiled_exec_func_t)live->text_haddr, res_live );
+    fixture_check( fixtures[i].name, "live", res_interp, res_live );
 
-    if( FD_UNLIKELY( res_interp->err!=res_live->err ||
-                     res_interp->r0 !=res_live->r0  ||
-                     res_interp->cu !=res_live->cu  ||
-                     res_interp->log_sz!=res_live->log_sz ||
-                     memcmp( res_interp->log, res_live->log, res_interp->log_sz ) ) ) {
-      FD_LOG_ERR(( "%s: mismatch (interp err %d r0 %#lx cu %ld log_sz %lu) (live err %d r0 %#lx cu %ld log_sz %lu)",
-                   fixtures[i].name,
-                   res_interp->err, res_interp->r0, res_interp->cu, res_interp->log_sz,
-                   res_live->err,   res_live->r0,   res_live->cu,   res_live->log_sz ));
-    }
+    /* The same program through the JIT arena path (veneers resolve
+       through the fd_vm_t at run time) */
+    fd_vm_transpiled_exec_func_t arena_fn = arena_place( prog, syscalls, &env->bank->f.features );
+    fixture_exec( env, prog, syscalls, arena_fn, res_live );
+    fixture_check( fixtures[i].name, "arena", res_interp, res_live );
+
     FD_LOG_NOTICE(( "%s: ok (err %d r0 %#lx cu %ld log_sz %lu bail %lu)",
                     fixtures[i].name, res_live->err, res_live->r0, res_live->cu, res_live->log_sz, res_live->bail_cnt ));
 

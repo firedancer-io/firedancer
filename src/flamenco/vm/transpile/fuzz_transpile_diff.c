@@ -4,7 +4,7 @@
 #endif
 
 /* fuzz_transpile_diff runs canonicalized random sBPF programs through
-   fd_vm_exec and through transpiled x86 code and compares the resulting
+   fd_vm_exec and through transpiled native code and compares the resulting
    VM state.  A transpiled run that bails is resumed with fd_vm_exec.
 
    Input layout:
@@ -17,6 +17,7 @@
      [8,..)  text words, followed by the input region bytes */
 
 #include "fd_transpile.h"
+#include "fd_transpile_target.h"
 #include "../fd_vm_private.h"
 #include "../syscall/fd_vm_syscall.h"
 #include "../../runtime/fd_runtime.h"
@@ -32,11 +33,11 @@
 #define INPUT_MAX (4096UL)
 #define EXT_MAX   (FD_VM_TRANSPILE_SYM_MAX+FD_SBPF_SYSCALLS_SLOT_CNT)
 
-/* One RWX arena: code, veneers (jmp [rip+got]), GOT, rodata */
+/* One RWX arena: code, veneers (jmp [got]), GOT, rodata */
 
 #define CODE_OFF   (0UL)
 #define VENEER_OFF (FD_TRANSPILER_CODE_MAX)
-#define GOT_OFF    (VENEER_OFF + 8UL*EXT_MAX)
+#define GOT_OFF    (VENEER_OFF + FD_TRANSPILE_VENEER_SZ*EXT_MAX)
 #define RODATA_OFF (( GOT_OFF + 8UL*EXT_MAX + 63UL ) & ~63UL)
 #define ARENA_SZ   (RODATA_OFF + FD_TRANSPILER_RODATA_MAX)
 
@@ -136,10 +137,9 @@ LLVMFuzzerInitialize( int  *   argc,
   got[ FD_VM_TRANSPILE_SYM_FRAME_INIT    ] = (ulong)fd_vm_transpiled_frame_init;
   for( ulong i=0UL; i<FD_SBPF_SYSCALLS_SLOT_CNT; i++ ) got[ FD_VM_TRANSPILE_SYM_MAX+i ] = (ulong)syscalls[i].func;
   for( ulong i=0UL; i<EXT_MAX; i++ ) {
-    uchar * v = arena+VENEER_OFF+8UL*i;
-    v[0] = 0xff; v[1] = 0x25; v[6] = 0xcc; v[7] = 0xcc;
-    FD_STORE( int, v+2, (int)( (long)(uchar *)&got[i] - (long)(v+6) ) );
+    FD_TEST( !fd_transpile_veneer_got( arena+VENEER_OFF+FD_TRANSPILE_VENEER_SZ*i, (ulong)&got[i] ) );
   }
+  fd_transpile_icache_flush( arena+VENEER_OFF, FD_TRANSPILE_VENEER_SZ*EXT_MAX );
 
   ulong const versions[3] = { FD_SBPF_V0, FD_SBPF_V1, FD_SBPF_V3 };
   for( ulong v=0UL; v<3UL; v++ ) {
@@ -250,21 +250,22 @@ link( void ) {
   memcpy( rodata, t->rodata, t->rodata_sz );
   for( ulong i=0UL; i<t->reloc_cnt; i++ ) {
     fd_elf64_rela const * r = &t->reloc[i];
-    uint sym = FD_ELF64_R_SYM ( r->r_info );
-    uint typ = FD_ELF64_R_TYPE( r->r_info );
+    uint sym  = FD_ELF64_R_SYM ( r->r_info );
+    uint typ  = FD_ELF64_R_TYPE( r->r_info );
+    int  kind = fd_transpile_reloc_kind( typ );
     uchar * s;
-    if(      typ==FD_ELF_R_X86_64_PLT32 && sym<EXT_MAX          ) s = arena+VENEER_OFF+8UL*sym;
-    else if( typ==FD_ELF_R_X86_64_PC32 && sym==FD_VM_TRANSPILE_SYM_RODATA ) s = rodata;
-    else if( typ==FD_ELF_R_X86_64_PC32 && sym==FD_VM_TRANSPILE_SYM_TEXT   ) s = code;
+    if(      kind==FD_TRANSPILE_RELOC_CALL && sym<EXT_MAX                    ) s = arena+VENEER_OFF+FD_TRANSPILE_VENEER_SZ*sym;
+    else if( kind==FD_TRANSPILE_RELOC_ADDR && sym==FD_VM_TRANSPILE_SYM_RODATA ) s = rodata;
+    else if( kind==FD_TRANSPILE_RELOC_ADDR && sym==FD_VM_TRANSPILE_SYM_TEXT   ) s = code;
     else FD_LOG_ERR(( "unsupported reloc type %u sym %u", typ, sym ));
-    uchar * site = code + r->r_offset;
-    FD_STORE( int, site, (int)( (long)s + r->r_addend - (long)site ) );
+    FD_TEST( !fd_transpile_reloc_apply( code + r->r_offset, typ, (ulong)s, r->r_addend ) );
   }
   for( ulong i=0UL; i<t->rodata_reloc_cnt; i++ ) {
     fd_elf64_rela const * r = &t->rodata_reloc[i];
-    uchar * site = rodata + r->r_offset;
-    FD_STORE( int, site, (int)( (long)code + r->r_addend - (long)site ) );
+    FD_TEST( !fd_transpile_reloc_apply( rodata + r->r_offset, FD_TRANSPILE_R_PCREL32, (ulong)code, r->r_addend ) );
   }
+  fd_transpile_icache_flush( code, t->code_sz );
+  fd_transpile_icache_sync();
   fd_vm_transpiled_exec_func_t fn;
   void * entry = code + t->entrypoint_off;
   memcpy( &fn, &entry, sizeof(fn) );

@@ -1,4 +1,5 @@
 #include "fd_transpile_obj.h"
+#include "fd_transpile_target.h"
 #include "fd_transpile.h"
 #include "../syscall/fd_vm_syscall.h"
 #include "../fd_vm_base.h"
@@ -124,7 +125,7 @@ typedef struct {
   ulong        offset;       /* file offset */
 } fd_elf_sec_t;
 
-/* elf_write serializes a relocatable x86_64 ELF object with the given
+/* elf_write serializes a relocatable ELF object with the given
    sections to elf (capacity *elf_sz).  The last section must be
    .shstrtab with NULL data (populated here).  Returns elf on success
    (sets *elf_sz), or NULL on failure (logs warning). */
@@ -189,7 +190,7 @@ elf_write( uchar *        elf,
   ehdr->e_ident[ FD_ELF_EI_OSABI ]      = FD_ELF_OSABI_NONE;
   ehdr->e_ident[ FD_ELF_EI_ABIVERSION ] = 0;
   ehdr->e_type      = FD_ELF_ET_REL;
-  ehdr->e_machine   = FD_ELF_EM_X86_64;
+  ehdr->e_machine   = FD_TRANSPILE_EM;
   ehdr->e_version   = 1;
   ehdr->e_entry     = 0UL;
   ehdr->e_phoff     = 0UL;
@@ -258,7 +259,7 @@ fd_transpiler_export_obj( fd_transpiler_t *          t,
 
   for( ulong i = 0UL; i < reloc_cnt; i++ ) {
     ulong r_offset = t->reloc[ i ].r_offset;
-    if( FD_UNLIKELY( r_offset + 4UL > t->code_sz ) ) {
+    if( FD_UNLIKELY( r_offset + FD_TRANSPILE_RELOC_SZ > t->code_sz ) ) {
       FD_LOG_WARNING(( "relocation %lu offset %lu out of bounds (code_sz %lu)", i, r_offset, t->code_sz ));
       free( text_relas );
       return 0UL;
@@ -468,7 +469,7 @@ fd_transpiler_export_obj( fd_transpiler_t *          t,
   /* .rela.data.rel.ro: export.exec, then basic block jump table entries */
   rodata_relas[ 0 ] = (fd_elf64_rela){
     .r_offset = (ulong)offsetof( fd_transpile_export_t, exec ),
-    .r_info   = FD_ELF64_R_INFO( 1U /* .text */, FD_ELF_R_X86_64_64 ),
+    .r_info   = FD_ELF64_R_INFO( 1U /* .text */, FD_TRANSPILE_R_ABS64 ),
     .r_addend = (long)t->entrypoint_off
   };
   for( ulong i = 0UL; i < t->rodata_reloc_cnt; i++ ) {
@@ -789,7 +790,7 @@ fd_transpiler_export_archive( char const * obj_dir ) {
       };
       relas[ i ] = (fd_elf64_rela){
         .r_offset = i * sizeof(ulong),
-        .r_info   = FD_ELF64_R_INFO( 3UL + i, FD_ELF_R_X86_64_64 ),
+        .r_info   = FD_ELF64_R_INFO( 3UL + i, FD_TRANSPILE_R_ABS64 ),
         .r_addend = 0L
       };
     }

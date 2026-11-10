@@ -16,7 +16,11 @@ $(call add-objs,commands/force_mismatch,fd_firedancer_dev)
 
 ifdef FD_ARCH_SUPPORTS_SANDBOX
 # Programs transpiled by `firedancer-dev snapshot-load --transpile`
+ifdef FD_HAS_ARM
+FD_TRANSPILED_LIB:=$(wildcard $(BASEDIR)/transpiled/arm64/libfd_transpiled.a)
+else
 FD_TRANSPILED_LIB:=$(wildcard $(BASEDIR)/transpiled/x86/libfd_transpiled.a)
+endif
 $(call make-bin,firedancer-dev,main,fd_firedancer_dev fd_firedancer fddev_shared fdctl_shared fdctl_platform fd_discof fd_disco fd_choreo fd_jit fd_transpiler fd_flamenco fd_waltz_test fd_quic fd_tls fd_reedsol fd_waltz fd_tango fd_ballet fd_util_extra fd_util,$(FD_TRANSPILED_LIB))
 $(OBJDIR)/bin/firedancer-dev: $(FD_TRANSPILED_LIB)
 $(call make-integration-test,test_firedancer_dev,tests/test_firedancer_dev,fd_firedancer_dev fd_firedancer fddev_shared fdctl_shared fdctl_platform fd_discof fd_disco fd_choreo fd_jit fd_transpiler fd_flamenco fd_waltz_test fd_quic fd_tls fd_reedsol fd_waltz fd_tango fd_ballet fd_util_extra fd_util)

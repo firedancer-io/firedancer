@@ -12,6 +12,9 @@ set -x
 
 OBJDIR=${OBJDIR:?}
 PROG=${PROG:-src/ballet/sbpf/fixtures/spl_p_token.so}
+# RUN_HOST prefixes the transpiler and test binaries (e.g. qemu-aarch64
+# -L sysroot for a cross build)
+RUN_HOST=${RUN_HOST:-}
 
 #   .flags:   MACHINE | EXTRAS | CC_ID CC CC_VERSION | CPPFLAGS | CFLAGS
 #   .ldflags: LD_ID LD | LDFLAGS | LDFLAGS_EXE | LDFLAGS_SO | LDFLAGS_FUZZ
@@ -32,12 +35,12 @@ trap 'rm -rf "$TMP"' EXIT
 
 PROG_ID=TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA
 cp "$PROG" "$TMP/$PROG_ID.so" || exit 1
-"$OBJDIR/bin/fd_transpile" --log-path "" "$TMP/$PROG_ID.so" || { echo "FAIL (transpile)"; exit 1; }
+$RUN_HOST "$OBJDIR/bin/fd_transpile" --log-path "" "$TMP/$PROG_ID.so" || { echo "FAIL (transpile)"; exit 1; }
 [[ -f "$TMP/fd_transpiled_$PROG_ID.o" ]] || { echo "FAIL (object missing)"; exit 1; }
 
 # 2. Archive
 
-"$OBJDIR/bin/fd_transpile" --log-path "" "$TMP" || { echo "FAIL (archive)"; exit 1; }
+$RUN_HOST "$OBJDIR/bin/fd_transpile" --log-path "" "$TMP" || { echo "FAIL (archive)"; exit 1; }
 [[ -f "$TMP/libfd_transpiled.a" && -f "$TMP/fd_transpiled_export.o" ]] || { echo "FAIL (archive files missing)"; exit 1; }
 
 # 3. Link.  The test references fd_transpiled_ext, so the archive
@@ -49,7 +52,7 @@ OUT=$OBJDIR/unit-test/test_transpile_link
 eval "$CC $CPPFLAGS $CFLAGS \
   -o '$OUT' src/flamenco/vm/transpile/test_transpile_link.c \
   '$TMP/libfd_transpiled.a' \
-  -L'$OBJDIR/lib' -lfd_flamenco -lfd_vm -lfd_ballet -lfd_util $VENDOR_LIBS \
+  -L'$OBJDIR/lib' -lfd_flamenco -lfd_ballet -lfd_util $VENDOR_LIBS \
   $LDFLAGS $LDFLAGS_EXE -Wl,-z,text" \
   || { echo "FAIL (link)"; exit 1; }
 
@@ -59,5 +62,5 @@ fi
 
 # 4. Run
 
-"$OUT" --prog "$PROG" --log-path "" || { echo "FAIL (run)"; exit 1; }
+$RUN_HOST "$OUT" --prog "$PROG" --log-path "" || { echo "FAIL (run)"; exit 1; }
 echo "pass"

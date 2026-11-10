@@ -2,7 +2,7 @@
 #define HEADER_fd_src_flamenco_vm_transpile_fd_transpile_obj_h
 
 /* fd_transpile_obj.h is a high-level API to create static object files
-   containing sBPF-to-x86 transpiled programs. */
+   containing transpiled sBPF programs. */
 
 #include "fd_transpile.h"
 
@@ -10,7 +10,7 @@ FD_PROTOTYPES_BEGIN
 
 /* fd_transpiler_export_obj creates a relocatable ELF object file from a
    transpiled program.  Such object files can be linked into Linux -fPIC
-   x86 builds.  Object files depend on symbols provided in
+   builds for the same target.  Object files depend on symbols provided in
    fd_transpile_runtime.  t is a transpiler state previously populated
    using fd_vm_transpile_code.  syscalls is the syscall table that was
    passed to fd_vm_transpile_code (relocations reference its slots).

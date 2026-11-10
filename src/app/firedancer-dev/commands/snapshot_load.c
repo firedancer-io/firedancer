@@ -451,7 +451,11 @@ accounts_hist( accounts_hist_t * hist,
 
 /* Transpile support **************************************************/
 
+#if FD_HAS_ARM
+#define TRANSPILE_DIR "build/transpiled/arm64"
+#else
 #define TRANSPILE_DIR "build/transpiled/x86"
+#endif
 
 struct transpile_list {
   fd_pubkey_t * addrs;

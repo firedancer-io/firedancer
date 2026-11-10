@@ -52,6 +52,7 @@
 
 #define FD_ELF_EM_NONE     0
 #define FD_ELF_EM_X86_64  62
+#define FD_ELF_EM_AARCH64 183
 #define FD_ELF_EM_BPF    247
 #define FD_ELF_EM_SBPF   263
 
@@ -132,6 +133,14 @@
 #define FD_ELF_R_X86_64_64    1
 #define FD_ELF_R_X86_64_PC32  2
 #define FD_ELF_R_X86_64_PLT32 4
+
+/* FD_ELF_R_AARCH64: AArch64 relocation types */
+
+#define FD_ELF_R_AARCH64_ABS64            257
+#define FD_ELF_R_AARCH64_PREL32           261
+#define FD_ELF_R_AARCH64_ADR_PREL_PG_HI21 275
+#define FD_ELF_R_AARCH64_ADD_ABS_LO12_NC  277
+#define FD_ELF_R_AARCH64_CALL26           283
 
 /* FD_ELF_R_BPF: BPF relocation types */
 

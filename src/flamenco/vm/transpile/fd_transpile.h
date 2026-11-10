@@ -2,7 +2,9 @@
 #define HEADER_fd_src_flamenco_vm_transpile_fd_transpile_h
 
 /* fd_transpile.h provides low-level APIs to transpile sBPF v0, v1, and
-   v3 programs to x86.  (See fd_transpile_obj.h for a friendly wrapper.) */
+   v3 programs to native code (x86-64 or arm64, picked by the build; see
+   fd_transpile_target.h).  (See fd_transpile_obj.h for a friendly
+   wrapper.) */
 
 #include "../../../ballet/elf/fd_elf64.h"
 #include "../../../flamenco/runtime/fd_runtime_const.h"
@@ -84,7 +86,7 @@ struct fd_transpiler {
      - [0,dasm_lbl_thunk0)              bpf_text_cnt labels, one for each BPF instruction
      - [dasm_lbl_thunk0,dasm_lbl_sys0)  thunk_cnt labels, one for each BPF direct call destination
      - [dasm_lbl_sys0,fd_lbl_reloc0)    one label for each syscall thunk (not all used)
-     - [dasm_lbl_reloc0,dasm_lbl_max)   relocation site labels, one for each `call rel32` x86 instruction */
+     - [dasm_lbl_reloc0,dasm_lbl_max)   relocation site labels, one for each relocated instruction */
   ulong dasm_lbl_thunk0;
   ulong dasm_lbl_sys0;
   ulong dasm_lbl_reloc0;
@@ -103,12 +105,12 @@ struct fd_transpiler {
   __attribute__((aligned(64)))
   int code_bits[ FD_DASM_POS_MAX ];
 
-  uchar code[ FD_TRANSPILER_CODE_MAX ]; /* relocatable x86 code */
+  uchar code[ FD_TRANSPILER_CODE_MAX ]; /* relocatable machine code */
 
   /* rodata layout (see emit_callx_handler):
        bb_bitmap ulong[ ceil(bpf_text_cnt/64) ]  basic block starts
        bb_seq    ulong[ ceil(bpf_text_cnt/64) ]  popcnt of bb_bitmap left of each word
-       bb_jmp    int  [ bb_cnt ]                 x86 offset of each basic block relative to bb_jmp */
+       bb_jmp    int  [ bb_cnt ]                 code offset of each basic block relative to bb_jmp */
   __attribute__((aligned(8)))
   uchar rodata[ FD_TRANSPILER_RODATA_MAX ];
 
@@ -122,8 +124,8 @@ typedef struct fd_transpiler fd_transpiler_t;
 
 FD_PROTOTYPES_BEGIN
 
-/* fd_vm_transpile_code emits position-independent x86_64 code from sBPF
-   text.  Addressing is like `-mcmodel=small`.
+/* fd_vm_transpile_code emits position-independent machine code from
+   sBPF text.  Addressing is like `-mcmodel=small`.
 
    transpiler is an uninitialized buffer.
    sbpf_version is the sBPF version of the program (FD_SBPF_V*).
@@ -144,12 +146,13 @@ FD_PROTOTYPES_BEGIN
    - transpiler->rodata contains read-only tables referenced by code
    - transpiler->rodata_sz contains the size of these tables in bytes
    - transpiler->reloc contains reloc_cnt ELF relocation entries against
-     code.  The symbol IDs are either
+     code (types per fd_transpile_target.h).  The symbol IDs are either
      - in [0,FD_VM_TRANSPILE_SYM_MAX) for FD_VM_TRANSPILE_SYM_*
      - FD_VM_TRANSPILE_SYM_MAX plus a syscall slot index
-     r_offset is the byte offset of the rel32 field in code.
+     r_offset is the byte offset of the patched 32 bit field in code.
    - transpiler->rodata_reloc contains rodata_reloc_cnt ELF relocation
-     entries against rodata, all PC32 against FD_VM_TRANSPILE_SYM_TEXT
+     entries against rodata, all FD_TRANSPILE_R_PCREL32 against
+     FD_VM_TRANSPILE_SYM_TEXT
    - transpiler->thunk_bv is a bit vector of the instruction slots that
      are BPF-to-BPF call destinations reached via a direct call
    - transpiler->sym contains sym_cnt code range names sorted by

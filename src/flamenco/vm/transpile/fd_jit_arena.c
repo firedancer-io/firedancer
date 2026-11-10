@@ -1,5 +1,6 @@
 #include "fd_jit_arena.h"
 #include "fd_transpile.h"
+#include "fd_transpile_target.h"
 #include "../fd_vm_private.h"
 #include "../syscall/fd_vm_syscall.h"
 #include "../../../ballet/base58/fd_base58.h"
@@ -15,7 +16,7 @@ fd_jit_arena_new( void * mem,
   memset( arena, 0, sizeof(fd_jit_arena_t) );
   arena->code_off = fd_ulong_align_up( sizeof(fd_jit_arena_t), FD_JIT_ARENA_ALIGN );
   arena->code_max = fd_ulong_align_up( code_max, FD_JIT_ARENA_ALIGN );
-  memset( (uchar *)mem + arena->code_off, 0xcc, arena->code_max ); /* int3 */
+  fd_transpile_trap_fill( (uchar *)mem + arena->code_off, arena->code_max );
   FD_COMPILER_MFENCE();
   arena->magic = FD_JIT_ARENA_MAGIC;
   return mem;
@@ -31,39 +32,12 @@ fd_jit_arena_join( void * mem ) {
   return arena;
 }
 
-/* Veneers: 16 bytes each, entered by `call rel32` from transpiled code
-   with r12 = fd_vm_t * (and rdi = vm as first argument).
+/* Veneers (fd_transpile_veneer_vm) load a pointer from the fd_vm_t and
+   tail jump through a function pointer in it.  For syscalls that is
+   vm->syscalls and the slot's func pointer; for runtime helpers it is
+   vm->transpiled.rt (an fd_transpile_rt_t) and the helper. */
 
-     mov rax, [r12+disp32]      49 8b 84 24 <disp32>
-     jmp qword [rax+disp32]     ff a0 <disp32>
-     int3 x2                    cc cc
-
-   For syscalls rax = vm->syscalls and the second disp picks the slot's
-   func pointer; for runtime helpers rax = vm->transpiled.rt (an
-   fd_transpile_rt_t) and the second disp picks the helper. */
-
-#define VENEER_SZ (16UL)
-
-static void
-veneer_emit( uchar * p,
-             uint    disp_a,
-             uint    disp_b ) {
-  p[0] = 0x49; p[1] = 0x8b; p[2] = 0x84; p[3] = 0x24;
-  FD_STORE( uint, p+4, disp_a );
-  p[8] = 0xff; p[9] = 0xa0;
-  FD_STORE( uint, p+10, disp_b );
-  p[14] = 0xcc; p[15] = 0xcc;
-}
-
-static int
-rel32_patch( uchar * site,
-             ulong   s,
-             long    a ) {
-  long v = (long)s + a - (long)site;
-  if( FD_UNLIKELY( v<(long)INT_MIN || v>(long)INT_MAX ) ) return -1;
-  FD_STORE( int, site, (int)v );
-  return 0;
-}
+#define VENEER_SZ FD_TRANSPILE_VENEER_SZ
 
 #define EXT_MAX (FD_VM_TRANSPILE_SYM_MAX+FD_SBPF_SYSCALLS_SLOT_CNT)
 
@@ -126,18 +100,19 @@ fd_jit_arena_place( fd_jit_arena_t *     arena,
   for( ulong i=0UL; i<res->reloc_cnt; i++ ) {
     uint sym = FD_ELF64_R_SYM ( reloc[i].r_info );
     uint typ = FD_ELF64_R_TYPE( reloc[i].r_info );
-    if( FD_UNLIKELY( reloc[i].r_offset+4UL>res->code_sz ) ) {
+    int  kind = fd_transpile_reloc_kind( typ );
+    if( FD_UNLIKELY( reloc[i].r_offset+FD_TRANSPILE_RELOC_SZ>res->code_sz ) ) {
       FD_LOG_WARNING(( "jit %s: reloc %lu out of bounds", prog_b58, i ));
       return -1L;
     }
-    if( typ==FD_ELF_R_X86_64_PC32 ) {
+    if( kind==FD_TRANSPILE_RELOC_ADDR ) {
       if( FD_UNLIKELY( sym!=FD_VM_TRANSPILE_SYM_TEXT && sym!=FD_VM_TRANSPILE_SYM_RODATA ) ) {
-        FD_LOG_WARNING(( "jit %s: bad PC32 sym %u", prog_b58, sym ));
+        FD_LOG_WARNING(( "jit %s: bad address reloc sym %u", prog_b58, sym ));
         return -1L;
       }
       continue;
     }
-    if( FD_UNLIKELY( typ!=FD_ELF_R_X86_64_PLT32 || sym>=EXT_MAX ) ) {
+    if( FD_UNLIKELY( kind!=FD_TRANSPILE_RELOC_CALL || sym>=EXT_MAX ) ) {
       FD_LOG_WARNING(( "jit %s: bad reloc type %u sym %u", prog_b58, typ, sym ));
       return -1L;
     }
@@ -154,9 +129,9 @@ fd_jit_arena_place( fd_jit_arena_t *     arena,
   }
   for( ulong i=0UL; i<res->rodata_reloc_cnt; i++ ) {
     fd_elf64_rela const * r = &rodata_reloc[ i ];
-    if( FD_UNLIKELY( FD_ELF64_R_TYPE( r->r_info )!=FD_ELF_R_X86_64_PC32 ||
+    if( FD_UNLIKELY( FD_ELF64_R_TYPE( r->r_info )!=FD_TRANSPILE_R_PCREL32 ||
                      FD_ELF64_R_SYM ( r->r_info )!=FD_VM_TRANSPILE_SYM_TEXT ||
-                     r->r_offset+4UL>res->rodata_sz ) ) {
+                     r->r_offset+FD_TRANSPILE_RELOC_SZ>res->rodata_sz ) ) {
       FD_LOG_WARNING(( "jit %s: bad rodata reloc %lu", prog_b58, i ));
       return -1L;
     }
@@ -183,11 +158,11 @@ fd_jit_arena_place( fd_jit_arena_t *     arena,
     uchar * v = text + veneer_off + i*VENEER_SZ;
     if( sym>=FD_VM_TRANSPILE_SYM_MAX ) {
       ulong slot = sym-FD_VM_TRANSPILE_SYM_MAX;
-      veneer_emit( v, (uint)offsetof( fd_vm_t, syscalls ), (uint)( slot*sizeof(fd_sbpf_syscalls_t) + offsetof( fd_sbpf_syscalls_t, func ) ) );
+      fd_transpile_veneer_vm( v, (uint)offsetof( fd_vm_t, syscalls ), (uint)( slot*sizeof(fd_sbpf_syscalls_t) + offsetof( fd_sbpf_syscalls_t, func ) ) );
     } else {
       ulong rt_off = sym==FD_VM_TRANSPILE_SYM_MMU_TRANSLATE ? offsetof( fd_transpile_rt_t, mmu_translate )
                                                               : offsetof( fd_transpile_rt_t, frame_init );
-      veneer_emit( v, (uint)offsetof( fd_vm_t, transpiled.rt ), (uint)rt_off );
+      fd_transpile_veneer_vm( v, (uint)offsetof( fd_vm_t, transpiled.rt ), (uint)rt_off );
     }
   }
 
@@ -195,14 +170,15 @@ fd_jit_arena_place( fd_jit_arena_t *     arena,
     uint  sym = FD_ELF64_R_SYM ( reloc[i].r_info );
     uint  typ = FD_ELF64_R_TYPE( reloc[i].r_info );
     ulong s;
-    if(      typ==FD_ELF_R_X86_64_PLT32            ) s = (ulong)( text + veneer_off + ext_idx[ sym ]*VENEER_SZ );
-    else if( sym==FD_VM_TRANSPILE_SYM_RODATA       ) s = (ulong)tables;
-    else                                             s = (ulong)text;
-    if( FD_UNLIKELY( rel32_patch( text + reloc[i].r_offset, s, reloc[i].r_addend ) ) ) goto reach;
+    if(      fd_transpile_reloc_kind( typ )==FD_TRANSPILE_RELOC_CALL ) s = (ulong)( text + veneer_off + ext_idx[ sym ]*VENEER_SZ );
+    else if( sym==FD_VM_TRANSPILE_SYM_RODATA                         ) s = (ulong)tables;
+    else                                                               s = (ulong)text;
+    if( FD_UNLIKELY( fd_transpile_reloc_apply( text + reloc[i].r_offset, typ, s, reloc[i].r_addend ) ) ) goto reach;
   }
   for( ulong i=0UL; i<res->rodata_reloc_cnt; i++ ) {
-    if( FD_UNLIKELY( rel32_patch( tables + rodata_reloc[i].r_offset, (ulong)text, rodata_reloc[i].r_addend ) ) ) goto reach;
+    if( FD_UNLIKELY( fd_transpile_reloc_apply( tables + rodata_reloc[i].r_offset, FD_TRANSPILE_R_PCREL32, (ulong)text, rodata_reloc[i].r_addend ) ) ) goto reach;
   }
+  fd_transpile_icache_flush( text, tables_off );
 
   ulong idx = arena->slot_cnt;
   fd_jit_slot_t * slot = &arena->slot[ idx ];
@@ -219,7 +195,7 @@ fd_jit_arena_place( fd_jit_arena_t *     arena,
   return (long)idx;
 
 reach:
-  FD_LOG_WARNING(( "jit %s: rel32 out of reach", prog_b58 ));
-  memset( base, 0xcc, prog_sz );
+  FD_LOG_WARNING(( "jit %s: relocation out of reach", prog_b58 ));
+  fd_transpile_trap_fill( base, prog_sz );
   return -1L;
 }

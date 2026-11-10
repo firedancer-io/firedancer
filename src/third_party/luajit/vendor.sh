@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 
-# Re-imports the DynASM x86/x64 subset from LuaJIT used by Firedancer:
-# C headers (dasm_proto.h, dasm_x86.h) and Lua preprocessor modules
-# (dynasm.lua, dasm_x86.lua, dasm_x64.lua).
+# Re-imports the DynASM x86/x64 and arm64 subset from LuaJIT used by
+# Firedancer: C headers (dasm_proto.h, dasm_x86.h, dasm_arm64.h) and Lua
+# preprocessor modules (dynasm.lua, dasm_x86.lua, dasm_x64.lua,
+# dasm_arm64.lua).
 
 set -euo pipefail
 
@@ -36,17 +37,21 @@ bcde2830be490ae7cc46e1ad4c0ab0e6935e87a11bfa48710d08b53662fae7b9  dynasm/dasm_x8
 8d162770544aee5dd66b1cae9f94faccc5ae82d7225f43c708acb4279175c727  dynasm/dasm_x64.lua
 52b44ad1cf29a13c372fea516841bc2fe576c221b00378834d91fc37907967ff  dynasm/dynasm.lua
 9554085064e870e4a0222ca80aed48233c6370f00cff4eee6939ce737945a2c5  dynasm/dasm_x86.lua
+6696c2fa2f820836a20282c00f2ea2ba57ff6f6eac8efbcb000a2ca4a38c67e9  dynasm/dasm_arm64.h
+a77b98e0fd4b7936af4396c7e62e893a830e527daac6bba5bb052eb8e1d46333  dynasm/dasm_arm64.lua
 EOF
 )
 
 cp "$src_dir/COPYRIGHT" LICENSE
 cp "$src_dir/dynasm/dasm_proto.h" dasm_proto.h
 cp "$src_dir/dynasm/dasm_x86.h" dasm_x86.h
+cp "$src_dir/dynasm/dasm_arm64.h" dasm_arm64.h
 
 mkdir -p dynasm
 cp "$src_dir/dynasm/dasm_x64.lua" dynasm/dasm_x64.lua
 cp "$src_dir/dynasm/dynasm.lua" dynasm/dynasm.lua
 cp "$src_dir/dynasm/dasm_x86.lua" dynasm/dasm_x86.lua
 cp "$src_dir/dynasm/dasm_x86.lua" dynasm/dynasm_x86.lua
+cp "$src_dir/dynasm/dasm_arm64.lua" dynasm/dasm_arm64.lua
 
 echo "[+] Vendored luajit files from ${LUAJIT_COMMIT}"

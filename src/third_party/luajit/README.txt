@@ -6,14 +6,16 @@ Files are copied exactly from commit
 modifications.  Do not edit vendored files locally; update by
 re-running `vendor.sh` against a new pinned commit.
 
-Only the DynASM x86/x64 preprocessor and C header subset used for
-dynamic machine code generation is vendored:
+Only the DynASM x86/x64 and arm64 preprocessor and C header subset
+used for dynamic machine code generation is vendored:
 - dasm_proto.h: Core DynASM C interface
 - dasm_x86.h: x86/x64 encoding engine
+- dasm_arm64.h: arm64 encoding engine
 - dynasm/dynasm.lua: DynASM preprocessor
 - dynasm/dasm_x86.lua: x86 architecture description module
 - dynasm/dasm_x64.lua: x64 architecture description wrapper
 - dynasm/dynasm_x86.lua: alias of dasm_x86.lua
+- dynasm/dasm_arm64.lua: arm64 architecture description module
 
 For licensing information (MIT license), see LICENSE in this
 directory and NOTICE in the root of this repo.
