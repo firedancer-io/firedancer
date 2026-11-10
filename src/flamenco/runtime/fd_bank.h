@@ -99,8 +99,8 @@ FD_PROTOTYPES_BEGIN
   The cost tracker is allocated from a pool.  The lifetime of a cost
   tracker element starts when the bank is linked to a parent with a
   call to fd_banks_clone_from_parent() which makes the bank replayable.
-  The lifetime of a cost tracker element ends when the bank is marked
-  dead or when the bank is frozen.
+  The lifetime of a cost tracker element ends when the bank is frozen
+  or removed by root advancement or pruning.
 
   The lthash is a simple field that is laid out contiguously in the
   fd_bank_t struct, but is not templatized and it has its own lock.

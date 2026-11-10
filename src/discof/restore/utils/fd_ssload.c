@@ -445,8 +445,7 @@ fd_ssload_recover_apply( fd_snapshot_manifest_t * manifest,
      stakes at the end of epoch 6, we should query by 8, because
      the leader schedule for epoch 8 is determined based on the
      stakes at the end of epoch 6.  Therefore, we save the total
-     epoch stake by querying for epoch+1.  This logic is encapsulated
-     in fd_ssmanifest_parser.c. */
+     epoch stake using the leader schedule epoch below. */
 
   fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
   fd_vote_stakes_reset( vote_stakes );

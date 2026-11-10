@@ -15,45 +15,6 @@
 
 #define FD_BUNDLE_CLIENT_MAX_TXN_PER_BUNDLE (5UL)
 
-/* Pending transaction buffer.  gRPC callbacks push decoded transactions
-   here.  after_credit drains one bundle per call by writing to dcache
-   and calling fd_stem_publish.
-
-   Sized to match the bundle_verif output link depth. */
-
-struct fd_bundle_pending_txn {
-  uchar  payload[ FD_TXN_MTU ];
-  ushort payload_sz;
-  uint   source_ipv4;
-  long   first_seen_nanos;
-  ulong  sig;
-  ulong  bundle_seq;
-  ulong  bundle_txn_cnt;
-  uchar  commission;
-  uchar  commission_pubkey[ 32 ];
-};
-
-typedef struct fd_bundle_pending_txn fd_bundle_pending_txn_t;
-
-#define DEQUE_NAME pending_txn
-#define DEQUE_T    fd_bundle_pending_txn_t
-#include "../../util/tmpl/fd_deque_dynamic.c"
-
-/* Returns true if the drain loop should continue after popping an
-   entry.  Bundles drain atomically (all txns with matching bundle_seq).
-   Packets drain up to burst consecutive entries. */
-
-static inline int
-fd_bundle_drain_continue( fd_bundle_pending_txn_t * txns,
-                          ulong                     drain_sig,
-                          ulong                     drain_seq,
-                          ulong                     drain_cnt,
-                          ulong                     burst ) {
-  if( pending_txn_empty( txns ) ) return 0;
-  if( drain_sig==1UL ) return pending_txn_peek_head( txns )->bundle_seq==drain_seq;
-  return drain_cnt<burst && pending_txn_peek_head( txns )->sig==0UL;
-}
-
 #include "../../waltz/tlsrec/fd_tlsrec.h"
 #include "../../ballet/x509/fd_x509_ca_store.h"
 #include "../../ballet/x509/fd_x509_verify.h"
@@ -162,7 +123,6 @@ struct fd_bundle_tile {
 
   /* Bundle state */
   ulong bundle_seq;
-  ulong bundle_txn_cnt;
 
   /* Error backoff */
   fd_rng_t rng[1];
@@ -174,7 +134,6 @@ struct fd_bundle_tile {
   fd_stem_context_t *       stem;
   fd_bundle_out_ctx_t       verify_out;
   fd_bundle_out_ctx_t       plugin_out;
-  fd_bundle_pending_txn_t * pending_txns;
 
   /* App metrics */
   fd_bundle_metrics_t metrics;

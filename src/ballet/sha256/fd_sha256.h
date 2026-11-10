@@ -385,9 +385,9 @@ FD_PROTOTYPES_BEGIN
 
 void
 fd_sha256_private_batch_avx512( ulong          batch_cnt,    /* In [1,FD_SHA256_BATCH_MAX] */
-                                void const *   batch_data,   /* Indexed [0,FD_SHA256_BATCH_MAX), aligned 32,
+                                void const *   batch_data,   /* Indexed [0,FD_SHA256_BATCH_MAX), aligned 64,
                                                                 only [0,batch_cnt) used, essentially a msg_t const * const * */
-                                ulong const *  batch_sz,     /* Indexed [0,FD_SHA256_BATCH_MAX), aligned 32,
+                                ulong const *  batch_sz,     /* Indexed [0,FD_SHA256_BATCH_MAX), aligned 64,
                                                                 only [0,batch_cnt) used */
                                 void * const * batch_hash ); /* Indexed [0,FD_SHA256_BATCH_MAX), aligned 32,
                                                                 only [0,batch_cnt) used */

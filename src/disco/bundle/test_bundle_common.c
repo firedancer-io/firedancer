@@ -18,13 +18,28 @@ struct test_bundle_env {
   fd_frag_meta_t *  out_mcache;
   uchar *           out_dcache;
   int               server_sock;
-  void *            deque_mem;
   ulong             waker_fseq[ FD_FSEQ_FOOTPRINT/sizeof(ulong) ] __attribute__((aligned(FD_FSEQ_ALIGN)));
 
   fd_bundle_tile_t state[1];
 };
 
 typedef struct test_bundle_env test_bundle_env_t;
+
+static inline ulong
+published_txn_cnt( test_bundle_env_t const * env ) {
+  return env->stem_seqs[ 0 ];
+}
+
+static inline fd_txn_m_t const *
+published_txn( test_bundle_env_t const *  env,
+               ulong                      seq,
+               fd_frag_meta_t const **    opt_meta ) {
+  FD_TEST( seq<published_txn_cnt( env ) );
+  fd_frag_meta_t const * meta = env->out_mcache + fd_mcache_line_idx( seq, env->stem_depths[ 0 ] );
+  FD_TEST( meta->seq==seq );
+  if( opt_meta ) *opt_meta = meta;
+  return (fd_txn_m_t const *)fd_chunk_to_laddr( env->out_dcache, meta->chunk );
+}
 
 static test_bundle_env_t *
 test_bundle_env_create( test_bundle_env_t * env,
@@ -58,7 +73,7 @@ test_bundle_env_create( test_bundle_env_t * env,
     .depths       = env->stem_depths,
     .cr_avail     = env->stem_cr_avail,
     .min_cr_avail = env->stem_min_cr_avail,
-    .cr_decrement_amount = 0UL,
+    .cr_decrement_amount = 1UL,
     .out_reliable = env->out_reliable,
   };
   env->server_sock = -1;
@@ -92,12 +107,6 @@ test_bundle_env_create( test_bundle_env_t * env,
   h2_conn->self_settings.max_frame_size = (uint)( state->grpc_buf_max - sizeof(fd_h2_frame_hdr_t) );
   /* Verify invariant: buffer can hold any valid frame (header + max payload) */
   FD_TEST( h2_conn->self_settings.max_frame_size + sizeof(fd_h2_frame_hdr_t) <= state->grpc_buf_max );
-
-  const ulong pending_max  = mcache_depth;
-  env->deque_mem      = fd_wksp_alloc_laddr( wksp, pending_txn_align(), pending_txn_footprint( pending_max ), 1UL );
-  FD_TEST( env->deque_mem );
-  state->pending_txns = pending_txn_join( pending_txn_new( env->deque_mem, pending_max ) );
-  FD_TEST( state->pending_txns );
 
   FD_TEST( fd_rng_new( state->rng, 0U, 0UL ) );
   long ka_interval = (long)1e9;
@@ -200,6 +209,5 @@ test_bundle_env_destroy( test_bundle_env_t * env ) {
   fd_wksp_free_laddr( fd_mcache_delete( fd_mcache_leave( env->out_mcache ) ) );
   fd_wksp_free_laddr( fd_dcache_delete( fd_dcache_leave( env->out_dcache ) ) );
   fd_wksp_free_laddr( env->state->grpc_client_mem );
-  fd_wksp_free_laddr( pending_txn_delete( pending_txn_leave( env->state->pending_txns ) ) );
   fd_memset( env, 0, sizeof(test_bundle_env_t) );
 }

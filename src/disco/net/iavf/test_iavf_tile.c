@@ -526,6 +526,120 @@ test_rx_non_fd_packets( void ) {
   }
 }
 
+/* recv_vlan_pkt receives one VLAN-tagged UDP packet. inner_type is the
+   VLAN tag's Ethertype in host order.  Asserts the RX descriptor was
+   consumed, no drop reason was counted, and the right buffer was recycled.
+   If published, asserts the mline points at the frame with the tag
+   stripped in place.  If not, asserts nothing was published.  Returns
+   the size of the tagged frame received. */
+
+static ulong
+recv_vlan_pkt( ushort inner_type ) {
+  test_vfs_init();
+  test_tile.vf_cnt                 = 1UL;
+  test_tile.batch_size             = 1U;
+  test_tile.net.rx_dest_cnt        = 1UL;
+  test_tile.net.rx_listen_ports[0] = 9000U;
+  test_tile.net.rx_proto_ids[0]    = DST_PROTO_SHRED;
+  test_tile.net.rx_out_link_idx[0] = 0UL;
+  test_tile.net.rx_out_cnt         = 1UL;
+  test_tile.net.pkt_buf_chunk0     = 1UL;
+  test_tile.net.pkt_buf_wmark      = 33UL;
+  uchar packet_memory[ 4096 ] __attribute__((aligned(64))) = {0};
+  test_tile.net.pkt_buf_wksp_base = packet_memory;
+
+  struct __attribute__((packed)) {
+    fd_eth_hdr_t  eth;
+    fd_vlan_tag_t vlan;
+    fd_ip4_hdr_t  ip4;
+    fd_udp_hdr_t  udp;
+  } const vlan_pkt = {
+    .eth  = { .dst={ 2,3,4,5,6,7 }, .src={ 8,9,10,11,12,13 },
+              .net_type=fd_ushort_bswap( FD_ETH_HDR_TYPE_VLAN ) },
+    .vlan = { .net_vid=fd_ushort_bswap( 100 ), .net_type=fd_ushort_bswap( inner_type ) },
+    .ip4  = { .verihl=FD_IP4_VERIHL( 4,5 ), .protocol=FD_IP4_HDR_PROTOCOL_UDP,
+              .net_tot_len=fd_ushort_bswap( 28U ), .saddr=FD_IP4_ADDR( 198,51,100,1 ) },
+    .udp  = { .net_sport=fd_ushort_bswap( 4321U ), .net_dport=fd_ushort_bswap( 9000U ),
+              .net_len=fd_ushort_bswap( 8U ) }
+  };
+
+  /* The expected published frame: the same packet without the tag */
+  struct __attribute__((packed)) {
+    fd_eth_hdr_t eth;
+    fd_ip4_hdr_t ip4;
+    fd_udp_hdr_t udp;
+  } stripped_pkt;
+  stripped_pkt.eth          = vlan_pkt.eth;
+  stripped_pkt.eth.net_type = vlan_pkt.vlan.net_type;
+  stripped_pkt.ip4          = vlan_pkt.ip4;
+  stripped_pkt.udp          = vlan_pkt.udp;
+  FD_TEST( sizeof(vlan_pkt)==sizeof(stripped_pkt)+sizeof(fd_vlan_tag_t) );
+
+  uchar * rx_frame = fd_chunk_to_laddr( packet_memory, 1UL );
+  fd_memcpy( rx_frame, &vlan_pkt, sizeof(vlan_pkt) );
+
+  fd_frag_meta_t mcache[ 128 ] __attribute__((aligned(128))) = {0};
+  mcache[0].chunk = 33U;
+  fd_frag_meta_t * mcaches[] = { mcache };
+  ulong seq=0UL, depth=128UL;
+  int reliable=0;
+  fd_stem_context_t stem = { .mcaches=mcaches, .seqs=&seq, .depths=&depth, .out_reliable=&reliable };
+  fd_iavf_hw_rx_desc_t desc[ 128 ] = {0};
+  uint chunks[ 128 ] = { 1U };
+  uint tail = 0U;
+  fd_iavf_tile_vf_t * vf = &test_tile.vfs[0];
+  vf->rx_queue = (fd_iavf_queue_t) { .ring=desc, .depth=128U, .tail=&tail, .prod=1UL, .posted=1UL };
+  vf->rx_desc_buf_chunk = chunks;
+  desc[0].qword[1] = FD_IAVF_RX_DESC_DONE | FD_IAVF_RX_DESC_END_OF_PACKET |
+                     ((ulong)sizeof(vlan_pkt)<<FD_IAVF_RX_DESC_LENGTH_SHIFT);
+  FD_TEST( fd_iavf_tile_poll_rx( &test_tile, &stem ) );
+
+  /* The RX descriptor was consumed and no drop reason was counted */
+  FD_TEST( vf->rx_queue.cons==1UL );
+  for( ulong r=0UL; r<FD_METRICS_ENUM_PKT_RX_DROP_REASON_CNT; r++ ) FD_TEST( !test_tile.net.metrics.rx_drop_cnt[ r ] );
+
+  if( inner_type==FD_ETH_HDR_TYPE_IP ) {
+    FD_TEST( seq==1UL );
+
+    /* The tag was stripped in place, so the frame starts 4 bytes in */
+    FD_TEST( mcache[0].chunk==1U );
+    FD_TEST( mcache[0].ctl==sizeof(fd_vlan_tag_t) );
+    FD_TEST( mcache[0].sz==sizeof(stripped_pkt) );
+    FD_TEST( 0==memcmp( rx_frame+mcache[0].ctl, &stripped_pkt, sizeof(stripped_pkt) ) );
+
+    /* The buffer previously held by the mline was recycled */
+    FD_TEST( chunks[1]==33U );
+  } else {
+    FD_TEST( seq==0UL );
+    FD_TEST( chunks[1]==1U );
+  }
+
+  return sizeof(vlan_pkt);
+}
+
+static void
+test_rx_vlan( void ) {
+  /* A VLAN-tagged IPv4 packet is published with the tag stripped and
+     counted as a VLAN packet. */
+  {
+    ulong vlan_pkt_sz = recv_vlan_pkt( FD_ETH_HDR_TYPE_IP );
+    FD_TEST( test_tile.net.metrics.rx_vlan_cnt   ==1UL                               );
+    FD_TEST( test_tile.net.metrics.rx_pkt_cnt    ==1UL                               );
+    FD_TEST( test_tile.net.metrics.rx_bytes_total==vlan_pkt_sz-sizeof(fd_vlan_tag_t) );
+    FD_TEST( test_tile.metrics.non_fd_pkt_cnt    ==0UL                               );
+  }
+
+  /* A VLAN-tagged packet with a non-IPv4 inner Ethertype is not for
+     Firedancer: it is counted as non-FD, not published, and not
+     counted as a VLAN packet. */
+  {
+    recv_vlan_pkt( FD_ETH_HDR_TYPE_ARP );
+    FD_TEST( test_tile.net.metrics.rx_vlan_cnt==0UL );
+    FD_TEST( test_tile.net.metrics.rx_pkt_cnt ==0UL );
+    FD_TEST( test_tile.metrics.non_fd_pkt_cnt ==1UL );
+  }
+}
+
 static void
 test_tx_ring( void ) {
   fd_iavf_tx_desc_t desc[ 64 ] = {0};
@@ -979,6 +1093,7 @@ main( int argc, char ** argv ) {
   test_bond_route();
   test_inactive_rx();
   test_rx_non_fd_packets();
+  test_rx_vlan();
   test_vf_batches();
   test_shared_links();
   test_packet_memory();

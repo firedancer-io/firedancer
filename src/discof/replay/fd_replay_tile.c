@@ -1748,7 +1748,6 @@ try_become_leader( fd_replay_tile_t *  ctx,
   msg->bank_idx            = bank->idx;
   msg->bank_seq            = bank->bank_seq;
   msg->ticks_per_slot      = bank->f.ticks_per_slot;
-  msg->hashcnt_per_tick    = 1UL; /* one tick per block, no hash budget (see replay_block_start) */
   msg->tick_duration_ns    = bank->f.slot_params.ns_per_slot_adjusted/msg->ticks_per_slot;
   msg->bundle->config[0]   = config[0];
   memcpy( msg->bundle->last_blockhash,     bank->f.poh.hash,      sizeof(fd_hash_t)   );
@@ -1756,7 +1755,6 @@ try_become_leader( fd_replay_tile_t *  ctx,
 
   msg->max_microblocks_in_slot = FD_POH_ALPENGLOW_MAX_MICROBLOCKS_PER_SLOT;
 
-  msg->total_skipped_ticks = 0UL; /* even when slots are skipped, ticks increment by exactly one for every block */
   msg->epoch = fd_slot_to_epoch( &bank->f.epoch_schedule, ctx->next_leader_slot, NULL );
 
   fd_cost_tracker_t const * cost_tracker = fd_cost_tracker_store_peek( fd_bank_cost_tracker( bank ), bank->cost_tracker_fork_id );
@@ -3883,16 +3881,7 @@ process_rotor_fec( fd_replay_tile_t       * ctx,
     block_id_ele->dmr           = fec->block_id;
     block_id_ele->finalized     = !!fec->is_finalized;
 
-    /* block is complete and DMR block id is now known so re-key.  The
-       map does not support duplicate keys: rotor guarantees at most one
-       delivery stream per block (a turbine copy of a slot with a
-       votor-driven version is abandoned in the rotor, see
-       fd_repair_tile.h), so {slot, block_id} can never already be
-       occupied by another LIVE bank.  It can however be occupied by a
-       STALE entry: a previously-completed copy of this block whose bank
-       was evicted (eviction does not remove map entries), now being
-       rebuilt through recovery redelivery.  Evict the stale entry before
-       inserting. */
+    /* Block is complete and DMR block id is now known, so re-key. */
     FD_TEST( fd_block_id_map_ele_remove( ctx->block_id_map, &block_id_ele->block_info, NULL, ctx->block_id_arr )==block_id_ele );
     fd_block_id_t key = fd_block_id( fec->slot, fec->block_id.uc );
     block_id_ele->block_info = key;

@@ -196,10 +196,8 @@ struct fd_http_server_callbacks {
      Connection: close, or pipelined requests, and otherwise when an
      error condition occurs, the connection is evicted, the client
      disconnects, or the caller force closes it by calling close.  If a
-     connection is upgraded to a WebSocket connection, a close event is
-     first sent once the HTTP upgrade response is sent, before a ws_open
-     event is sent.  Close is not called when a WebSocket connection is
-     closed, instead ws_close is called.  reason is one of
+     connection is upgraded to a WebSocket connection, close is not
+     called.  Closing a WebSocket calls ws_close instead.  reason is one of
      FD_HTTP_SERVER_CONNECTION_CLOSE_* indicating why the connection is
      being closed.  ctx is the user provided context pointer provided
      when constructing the HTTP server.  The close callback can be NULL

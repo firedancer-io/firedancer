@@ -574,10 +574,6 @@ static void
 deprecate_rent_exemption_threshold( fd_bank_t *        bank,
                                     fd_accdb_t *       accdb,
                                     fd_capture_ctx_t * capture_ctx ) {
-  /* We use the bank fields here to mirror Agave - in mainnet, devnet
-     and testnet Agave's bank rent.burn_percent field is different to
-     the value in the sysvar. When this feature is activated in Agave,
-     the sysvar inherits the value from the bank. */
   fd_rent_t rent               = bank->f.rent;
   rent.lamports_per_uint8_year = fd_rust_cast_double_to_ulong(
     (double)rent.lamports_per_uint8_year * rent.exemption_threshold );

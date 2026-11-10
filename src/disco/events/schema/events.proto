@@ -9702,6 +9702,8 @@ message MetricsNet {
   uint64 gre_pkt_tx_submitted = 46;
   // IPv4 routes installed in the forwarding table
   MetricsNetRouteCount route_count = 47;
+  // VLAN-tagged packets with the tag stripped in software and published; subset of PktRx
+  uint64 vlan_pkt_rx = 48;
 }
 
 // Metrics of one mlx5 tile instance, one row per sweep
@@ -9778,6 +9780,8 @@ message MetricsMlx5 {
   uint64 tx_buffer_used = 35;
   // TX buffers available for a new transmit job
   uint64 tx_buffer_free = 36;
+  // VLAN-tagged packets with the tag stripped in software and published; subset of PktRx
+  uint64 vlan_pkt_rx = 37;
 }
 
 // Metrics of one sock tile instance, one row per sweep
@@ -10065,8 +10069,8 @@ message MetricsBundle {
   // Local wall clock minus server timestamp per block engine message; includes clock skew, negative clamped to 0
   MetricsBundleMessageRxDelayNanos message_rx_delay_nanos = 37;
   // Transactions buffered and waiting to be published
-  uint64 txn_pending = 38;
-  // Transactions dropped because the pending transaction buffer was full
+  uint64 txn_pending = 38 [deprecated = true];
+  // Transactions from the block engine dropped because the verify tiles were too slow to keep up
   uint64 txn_buffer_full_dropped = 39;
 }
 
@@ -13393,6 +13397,8 @@ message MetricsIavf {
   uint64 tx_buffer_free = 39;
   // Packets received by IAVF VFs that are not intended for Firedancer
   uint64 non_fd_pkt_rx = 40;
+  // VLAN-tagged packets with the tag stripped in software and published; subset of PktRx
+  uint64 vlan_pkt_rx = 41;
 }
 
 // Metrics of one failov tile instance, one row per sweep
