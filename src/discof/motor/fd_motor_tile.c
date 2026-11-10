@@ -306,7 +306,7 @@ before_frag( fd_motor_tile_t * ctx,
   case IN_KIND_REPLAY: return !( sig==REPLAY_SIG_BECAME_LEADER ||
                                  sig==REPLAY_SIG_LEADER_FOOTER );
   case IN_KIND_PACK:
-    if( FD_UNLIKELY( sig==FD_PACK_MSG_DONE_DRAINING || sig==FD_PACK_MSG_REDUCE_MB_BOUND ) ) return 1;
+    if( FD_UNLIKELY( sig==FD_PACK_MSG_DONE_DRAINING ) ) return 1;
     __attribute__((fallthrough));
   case IN_KIND_EXECLE: {
     ulong slot = fd_disco_execle_sig_slot( sig );

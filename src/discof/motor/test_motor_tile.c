@@ -89,7 +89,6 @@ main( int     argc,
     FD_TEST( before_frag( ctx, 0UL, 0UL, execle_sig )==-1 );
     FD_TEST( before_frag( ctx, 1UL, 0UL, pack_sig )==-1 );
     FD_TEST( before_frag( ctx, 1UL, 0UL, FD_PACK_MSG_DONE_DRAINING )==1 );
-    FD_TEST( before_frag( ctx, 1UL, 0UL, FD_PACK_MSG_REDUCE_MB_BOUND )==1 );
 
     /* The leader notice carries the parent: the header names it, the
        first entry batch chains to its last FEC set, and its blockhash
