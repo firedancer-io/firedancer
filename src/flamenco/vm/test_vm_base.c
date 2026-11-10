@@ -139,77 +139,6 @@ main( int     argc,
   TEST( FD_VM_ERR_LDQ_NO_ADDL_IMM              );
 # undef TEST
 
-  FD_LOG_NOTICE(( "Testing fd_vm_disasm" ));
-
-  /* FIXME: TEST WITH SYSCALLS TOO */
-
-  char  out[128]; out[0] = '\0';
-  ulong out_max = 128UL;
-  ulong out_len = 0UL;
-
-  ulong text[2];
-  text[0] = fd_rng_ulong( rng );
-  text[1] = fd_rng_ulong( rng );
-
-  FD_TEST( fd_vm_disasm_instr( NULL, 1UL, 0UL, NULL, out,  out_max, &out_len )==FD_VM_ERR_INVAL ); /* NULL instr    */
-  FD_TEST( fd_vm_disasm_instr( text, 0UL, 0UL, NULL, out,  out_max, &out_len )==FD_VM_ERR_INVAL ); /* zero cnt      */
-  FD_TEST( fd_vm_disasm_instr( text, 1UL, 0UL, NULL, NULL, out_max, &out_len )==FD_VM_ERR_INVAL ); /* NULL out      */
-  FD_TEST( fd_vm_disasm_instr( text, 1UL, 0UL, NULL, out,  0UL,     &out_len )==FD_VM_ERR_INVAL ); /* zero out_max  */
-  FD_TEST( fd_vm_disasm_instr( text, 1UL, 0UL, NULL, out,  out_max, NULL     )==FD_VM_ERR_INVAL ); /* NULL _out_len */
-  out_len = out_max;
-  FD_TEST( fd_vm_disasm_instr( text, 1UL, 0UL, NULL, out,  out_max, &out_len )==FD_VM_ERR_INVAL ); /* bad _out_len  */
-
-  struct { ulong instr; char const * expected; } const endian_tests[] = {
-    { 0x00000010000004d4UL, "le16 r4" },
-    { 0x00000020000004d4UL, "le32 r4" },
-    { 0x00000040000004d4UL, "le64 r4" },
-    { 0x00000010000005dcUL, "be16 r5" },
-    { 0x00000020000005dcUL, "be32 r5" },
-    { 0x00000040000005dcUL, "be64 r5" }
-  };
-  for( ulong i=0UL; i<sizeof(endian_tests)/sizeof(endian_tests[0]); i++ ) {
-    text[0] = endian_tests[i].instr;
-    out_len = 0UL;
-    FD_TEST( fd_vm_disasm_instr( text, 1UL, 0UL, NULL, out, out_max, &out_len )==FD_VM_SUCCESS );
-    FD_TEST( !strcmp( out, endian_tests[i].expected ) );
-  }
-
-  for( ulong iter=0UL; iter<10000000UL; iter++ ) {
-    text[0] = fd_rng_ulong( rng );
-    text[1] = fd_rng_ulong( rng );
-
-    fd_sbpf_instr_t instr = fd_sbpf_instr( text[0] );
-    instr.imm = fd_pchash( fd_rng_uint( rng )>>11 ); /* Use the pchash of a 21-bit random number to exercise some esoteric code paths */
-    text[0] = fd_sbpf_ulong( instr );
-
-    int   mw  = (instr.opcode.any.op_class==FD_SBPF_OPCODE_CLASS_LD);
-    int   tr  = !(fd_rng_uint( rng ) & 0xffU);
-    ulong cnt = (mw & !tr) ? 2UL : 1UL;
-    ulong pc  = fd_rng_ulong( rng ) & 0xffffUL;
-
-    out[0]  = '\0';
-    out_len = 0UL;
-    int err = fd_vm_disasm_instr( text, cnt, pc, NULL, out, out_max, &out_len );
-
-    if( out_len ) FD_TEST( !err );
-    else          FD_TEST(  err );
-    FD_TEST( out_len<out_max        );
-    FD_TEST( out[out_len]=='\0'     );
-    FD_TEST( strlen( out )==out_len );
-
-    if( 0 ) FD_LOG_NOTICE(( "%016lx %016lx (cnt %lu pc %04lx mw %i tr %i) -> %-40s (%i-%s)",
-                            text[0], text[1], cnt, pc, mw, tr, out, err, fd_vm_strerror( err ) ));
-  }
-
-  FD_TEST( fd_vm_disasm_program( NULL, 2UL, NULL, out,  out_max, &out_len )==FD_VM_ERR_INVAL ); /* NULL instr w/ non-zero sz */
-  FD_TEST( fd_vm_disasm_program( text, 2UL, NULL, NULL, out_max, &out_len )==FD_VM_ERR_INVAL ); /* NULL out      */
-  FD_TEST( fd_vm_disasm_program( text, 2UL, NULL, out,  0UL,     &out_len )==FD_VM_ERR_INVAL ); /* zero out_max  */
-  FD_TEST( fd_vm_disasm_program( text, 2UL, NULL, out,  out_max, NULL     )==FD_VM_ERR_INVAL ); /* NULL _out_len */
-  out_len = out_max;
-  FD_TEST( fd_vm_disasm_program( text, 2UL, NULL, out,  out_max, &out_len )==FD_VM_ERR_INVAL ); /* bad _out_len  */
-
-  /* FIXME: more coverage of fd_vm_disasm_program */
-
   FD_LOG_NOTICE(( "Testing fd_vm_trace (--event-max %lu)", event_max ));
 
   /* Test trace constructors */
@@ -244,6 +173,7 @@ main( int     argc,
   /* Test tracing */
 
   ulong reg[ 3UL+FD_VM_REG_CNT ];
+  ulong text[2];
   for( ulong i=0UL; i<3UL+FD_VM_REG_CNT; i++ ) reg[i] = fd_rng_ulong( rng );
   text[0] = fd_rng_ulong( rng );
   text[1] = fd_rng_ulong( rng );
@@ -263,10 +193,10 @@ vm_trace_done:
 
   /* FIXME: Iterate over the trace manually and verify contents */
 
-  FD_TEST( fd_vm_trace_printf( NULL, NULL )==FD_VM_ERR_INVAL );
+  FD_TEST( fd_vm_trace_printf( NULL )==FD_VM_ERR_INVAL );
 
   FD_LOG_NOTICE(( "Synthetic trace"));
-  FD_TEST( !fd_vm_trace_printf( trace, NULL ) );
+  FD_TEST( !fd_vm_trace_printf( trace ) );
   /* FIXME: More fd_vm_trace coverage */
 
   /* Test destructors */

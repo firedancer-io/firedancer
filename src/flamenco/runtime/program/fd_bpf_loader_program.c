@@ -572,7 +572,7 @@ bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
   }
 
   if( FD_UNLIKELY( vm->trace ) ) {
-    err = fd_vm_trace_printf( vm->trace, vm->syscalls );
+    err = fd_vm_trace_printf( vm->trace );
     if( FD_UNLIKELY( err ) ) {
       FD_LOG_WARNING(( "fd_vm_trace_printf failed (%i-%s)", err, fd_vm_strerror( err ) ));
     }

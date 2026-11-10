@@ -1,5 +1,5 @@
 $(call add-hdrs,fd_vm_base.h fd_vm.h fd_vm_private.h) # FIXME: PRIVATE TEMPORARILY HERE DUE TO SOME MESSINESS IN FD_VM_SYSCALL.H
-$(call add-objs,fd_vm fd_vm_interp fd_vm_disasm fd_vm_trace,fd_flamenco)
+$(call add-objs,fd_vm fd_vm_interp fd_vm_trace,fd_flamenco)
 
 ifdef FD_HAS_HOSTED
 $(call add-hdrs,test_vm_util.h)

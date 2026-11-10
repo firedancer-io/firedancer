@@ -530,67 +530,6 @@ FD_PROTOTYPES_END
 
 #define FD_VM_LOADED_ACCOUNTS_DATA_SIZE_LIMIT           (64UL*1024UL*1024UL) /* 64MiB */
 
-/* fd_vm_disasm API ***************************************************/
-
-/* FIXME: pretty good case this actually belongs in ballet/sbpf */
-/* FIXME: fd_sbpf_instr_t is nominally a ulong but implemented using
-   bit-fields.  Compilers tend to generate notoriously poor asm for bit
-   fields ... check ASM here. */
-
-FD_PROTOTYPES_BEGIN
-
-/* fd_vm_disasm_{instr,program} appends to the *_out_len (in strlen
-   sense) cstr in the out_max byte buffer out a pretty printed cstr of
-   the {instruction,program}.  If syscalls is non-NULL, syscalls will be
-   annotated with the names from the provided syscall mapping.
-
-   On input, *_out_len should be strlen(out) and in [0,out_max).  For
-   instr, pc is the program counter corresponding to text[0] (as such
-   text_cnt should be positive) and text_cnt is the number of words
-   available at text to support safely printing multiword instructions.
-
-   Given a valid out on input, on output, *_out_len will be strlen(out)
-   and in [0,out_max), even if there was an error.
-
-   Returns:
-
-   FD_VM_SUCCESS - out buffer and *_out_len updated.
-
-   FD_VM_ERR_INVAL - Invalid input.  For instr, out buffer and *_out_len
-   are unchanged.  For program, out buffer and *_out_len will have been
-   updated up to the point where the error occurred.
-
-   FD_VM_ERR_UNSUP - For program, too many functions and/or labels for
-   the current implementation.  out buffer and *_out_len unchanged.
-
-   FD_VM_ERR_FULL - Not enough room in out to hold the result so output
-   was truncated.  out buffer and *_out_len updated.
-
-   FD_VM_ERR_IO - An error occurred formatting the string to append.  For
-   instr, out_buffer and *_out_len unchanged.  For program, out buffer
-   and *_out_len will have been updated up to the point where the error
-   occurred.  In both cases, trailing bytes of out might have been
-   clobbered. */
-
-int
-fd_vm_disasm_instr( ulong const *              text,      /* Indexed [0,text_cnt) */
-                    ulong                      text_cnt,
-                    ulong                      pc,
-                    fd_sbpf_syscalls_t const * syscalls,
-                    char *                     out,       /* Indexed [0,out_max) */
-                    ulong                      out_max,
-                    ulong *                    _out_len );
-
-int
-fd_vm_disasm_program( ulong const *              text,       /* Indexed [0,text_cnt) */
-                      ulong                      text_cnt,
-                      fd_sbpf_syscalls_t const * syscalls,
-                      char *                     out,        /* Indexed [0,out_max) */
-                      ulong                      out_max,
-                      ulong *                    _out_len );
-
-FD_PROTOTYPES_END
-
 /* fd_vm_trace API ****************************************************/
 
 /* FIXME: pretty good case this actually belongs in ballet/sbpf */
@@ -692,17 +631,14 @@ fd_vm_trace_event_exe( fd_vm_trace_t * trace,
                        ulong           ic_correction,
                        ulong           frame_cnt );
 
-/* fd_vm_trace_printf pretty prints the current trace to stdout.  If
-   syscalls is non-NULL, the trace will annotate syscalls in its
-   disassembly according the syscall mapping.  Returns FD_VM_SUCCESS (0)
-   on success and a FD_VM_ERR code (negative) on failure.  Reasons for
+/* fd_vm_trace_printf pretty prints the current trace to stdout.
+   Returns FD_VM_SUCCESS (0) on success and a FD_VM_ERR code (negative) on failure.  Reasons for
    failure include INVAL (NULL trace) and IO (corruption detected while
    parsing the trace events).  FIXME: REVAMP THIS API FOR MORE GENERAL
    USE CASES. */
 
 int
-fd_vm_trace_printf( fd_vm_trace_t      const * trace,
-                    fd_sbpf_syscalls_t const * syscalls );
+fd_vm_trace_printf( fd_vm_trace_t const * trace );
 
 /* fd_vm_syscall API **************************************************/
 
