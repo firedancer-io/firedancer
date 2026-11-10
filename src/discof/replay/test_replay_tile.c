@@ -455,6 +455,21 @@ setup_node_info( fd_replay_tile_t * ctx ) {
   FD_TEST( ctx->node_info );
 }
 
+/* setup_genesis gives ctx a parsed genesis with 400ms slots (64 ticks
+   of 6.25ms), as the snapshot boot path reads the genesis slot
+   params. */
+
+static void
+setup_genesis( fd_replay_tile_t * ctx ) {
+  static uchar genesis_mem[ 4096 ] __attribute__((aligned(64)));
+  FD_TEST( fd_genesis_footprint( 0UL )<=sizeof(genesis_mem) );
+  ctx->genesis = fd_genesis_new( genesis_mem, 0UL );
+  FD_TEST( ctx->genesis );
+  ctx->genesis->poh.ticks_per_slot   = 64UL;
+  ctx->genesis->poh.tick_duration_ns = 6250000UL;
+  ctx->genesis->poh.hashes_per_tick  = 4UL;
+}
+
 /* setup_mleaders fills the leader cache for epochs 0 and 1 (128-slot
    epochs, one staked node), as production does at boot. */
 
@@ -1428,6 +1443,7 @@ test_consensus_root_notification_handoff( fd_wksp_t * wksp ) {
   setup_timing( ctx, wksp );
   setup_stem( ctx, wksp );
   setup_node_info( ctx );
+  setup_genesis( ctx );
 
   ulong const bank_cnt = 4UL;
   void * banks_mem = fd_wksp_alloc_laddr( wksp, fd_banks_align(), fd_banks_footprint( bank_cnt, 8UL, 8UL, 8UL ), 1UL );
@@ -4231,6 +4247,7 @@ setup_snapshot_test_ctx( fd_replay_tile_t *   ctx,
   setup_timing( ctx, wksp );
   setup_stem( ctx, wksp );
   setup_node_info( ctx );
+  setup_genesis( ctx );
 
   ulong const bank_cnt = 4UL;
   void * banks_mem = fd_wksp_alloc_laddr( wksp, fd_banks_align(), fd_banks_footprint( bank_cnt, bank_cnt, 8UL, 8UL ), 1UL );
