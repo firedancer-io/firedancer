@@ -827,28 +827,10 @@ before_frag( fd_mlx5_tile_t * ctx,
              ulong            seq,
              ulong            sig ) {
   (void)seq;
+  /* Short circuit TX logic for route updates */
   if( FD_UNLIKELY( ctx->net.in_kind[ in_idx ]==FD_NET_IN_KIND_IPROUTE ) ) return 0;
 
-  /* Resolve the TX route for outgoing packets */
-  ulong proto_id = fd_disco_netmux_sig_proto( sig );
-  if( FD_UNLIKELY( proto_id!=DST_PROTO_OUTGOING ) ) return 1;
-
-  ulong const hash       = fd_disco_netmux_sig_hash( sig );
-  ulong       target_idx = hash % ctx->net.tile_cnt;
-  ulong const kind_id    = ctx->net.kind_id;
-  if( kind_id!=0UL && kind_id!=target_idx ) return 1;
-
-  uint dst_ip = fd_disco_netmux_sig_ip( sig );
-  /* Tile 0 probes for loopback without counting another tile's route failures. */
-  if( kind_id!=target_idx &&
-      !fd_net_tx_probe_loopback( ctx->net.router.fib_local, ctx->net.router.fib_main, &ctx->net.router.netdev_tbl, dst_ip ) ) return 1;
-
-  fd_net_tx_route_t * route = &ctx->net.tx_route;
-  if( FD_UNLIKELY( !fd_net_tx_route( &ctx->net, dst_ip, route ) &&
-                   !route->routing_failure ) ) return 1;
-
-  if( route->use_loopback ) target_idx = 0UL;
-  if( kind_id!=target_idx ) return 1;
+  if( !fd_net_tx_select( &ctx->net, sig ) ) return 1;
 
   /* Drop the packet if no SQ WQE is available. */
   fd_mlx5_tx_qp_t const * tx_qp       = &ctx->tx_qp;

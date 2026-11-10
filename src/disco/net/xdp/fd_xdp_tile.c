@@ -496,40 +496,14 @@ before_frag( fd_net_ctx_t * ctx,
              ulong          sig ) {
   (void)seq;
 
+  /* Short circuit TX logic for route updates */
   if( FD_UNLIKELY( ctx->net.in_kind[ in_idx ]==FD_NET_IN_KIND_IPROUTE ) ) return 0;
 
-  /* Find interface index of next packet */
-  ulong proto_id = fd_disco_netmux_sig_proto( sig );
-  if( FD_UNLIKELY( proto_id!=DST_PROTO_OUTGOING ) ) return 1;
-
-  /* Load balance TX */
-  ulong tile_cnt   = ctx->net.tile_cnt;
-  ulong hash       = fd_disco_netmux_sig_hash( sig );
-  ulong target_idx = hash % tile_cnt;
-  ulong kind_id    = ctx->net.kind_id;
-  uint  dst_ip     = fd_disco_netmux_sig_ip( sig );
-
-  /* Skip if another net tile is responsible for this packet.
-     Fast path for net tiles other than net_tile 0. */
-
-  if( kind_id!=0UL && kind_id!=target_idx ) return 1; /* ignore */
-
-  /* Tile 0 probes for loopback without counting another tile's route failures. */
-  if( kind_id!=target_idx &&
-      !fd_net_tx_probe_loopback( ctx->net.router.fib_local, ctx->net.router.fib_main, &ctx->net.router.netdev_tbl, dst_ip ) ) return 1;
+  if( !fd_net_tx_select( &ctx->net, sig ) ) return 1;
 
   fd_net_tx_route_t * route = &ctx->net.tx_route;
-  if( FD_UNLIKELY( !fd_net_tx_route( &ctx->net, dst_ip, route ) &&
-                   !route->routing_failure ) ) return 1;
-
   uint xsk_idx = route->use_loopback && route->if_idx!=ctx->net.router.if_virt ? XSK_IDX_LO : XSK_IDX_MAIN;
   ctx->tx_op.xsk_idx = xsk_idx;
-
-  if( xsk_idx==XSK_IDX_LO ) target_idx = 0UL; /* loopback always targets tile 0 */
-
-  /* Skip if another net tile is responsible for this packet */
-
-  if( kind_id!=target_idx ) return 1; /* ignore */
 
   if( FD_UNLIKELY( xsk_idx>=ctx->xsk_cnt ) ) {
     /* Packet does not route to an XDP interface, so send it on net.sock */
@@ -540,7 +514,6 @@ before_frag( fd_net_ctx_t * ctx,
   }
 
   /* Skip if TX is blocked */
-
   fd_xsk_t *           xsk  = &ctx->xsk[ xsk_idx ];
   fd_net_free_ring_t * free = &ctx->free_tx;
   if( FD_UNLIKELY( !net_tx_ready( &xsk->ring_tx, free ) ) ) {

@@ -270,6 +270,54 @@ fd_net_tx_route( fd_net_tile_t *     net,
   return !out->routing_failure;
 }
 
+/* fd_net_tx_probe_loopback returns 1 if dst_ip routes to a loopback
+   device and 0 otherwise.  It updates no metrics and requests no
+   neighbor solicit, so tile 0 can use it to find loopback packets
+   owned by another net tile without counting that tile's routing
+   failures. */
+static inline int
+fd_net_tx_probe_loopback( fd_fib4_t const *      fib_local,
+                          fd_fib4_t const *      fib_main,
+                          fd_netdev_tbl_join_t * netdev_tbl,
+                          uint                   dst_ip ) {
+  fd_fib4_hop_t hop[2];
+  hop[0] = fd_fib4_lookup( fib_local, dst_ip, 0UL );
+  hop[1] = fd_fib4_lookup( fib_main,  dst_ip, 0UL );
+  fd_fib4_hop_t const * next_hop = fd_fib4_hop_or( hop+0, hop+1 );
+  if( next_hop->rtype!=FD_FIB4_RTYPE_LOCAL && next_hop->rtype!=FD_FIB4_RTYPE_UNICAST ) return 0;
+  uint const if_idx = next_hop->rtype==FD_FIB4_RTYPE_LOCAL ? 1U : next_hop->if_idx;
+  fd_netdev_t const * netdev = fd_netdev_tbl_query( netdev_tbl, if_idx );
+  return NULL!=netdev && netdev->dev_type==ARPHRD_LOOPBACK;
+}
+
+/* fd_net_tx_select expects a TX input and returns 1 if this tile should
+   transmit the packet described by sig, storing its route in
+   net->tx_route, or 0 otherwise.  The caller must handle route updates
+   separately. */
+static inline int
+fd_net_tx_select( fd_net_tile_t * net,
+                  ulong           sig ) {
+  ulong proto_id = fd_disco_netmux_sig_proto( sig );
+  if( FD_UNLIKELY( proto_id!=DST_PROTO_OUTGOING ) ) return 0;
+
+  ulong const hash       = fd_disco_netmux_sig_hash( sig );
+  ulong       target_idx = hash % net->tile_cnt;
+  ulong const kind_id    = net->kind_id;
+  if( kind_id!=0UL && kind_id!=target_idx ) return 0;
+
+  uint dst_ip = fd_disco_netmux_sig_ip( sig );
+  /* Tile 0 probes for loopback without counting another tile's route failures. */
+  if( kind_id!=target_idx &&
+      !fd_net_tx_probe_loopback( net->router.fib_local, net->router.fib_main, &net->router.netdev_tbl, dst_ip ) ) return 0;
+
+  fd_net_tx_route_t * route = &net->tx_route;
+  if( FD_UNLIKELY( !fd_net_tx_route( net, dst_ip, route ) &&
+                   !route->routing_failure ) ) return 0;
+
+  if( route->use_loopback ) target_idx = 0UL;
+  return kind_id==target_idx;
+}
+
 static inline void
 fd_net_router_solicit( fd_net_router_t *   router,
                        fd_stem_context_t * stem ) {
@@ -309,27 +357,6 @@ fd_net_tx_route_result_increment( fd_net_tile_t * ctx ) {
                                  FD_METRICS_ENUM_PKT_TX_ROUTE_RESULT_V_SLOW_PATH_IDX,
                                  FD_METRICS_ENUM_PKT_TX_ROUTE_RESULT_V_FAST_PATH_IDX );
   ctx->metrics.tx_route_result_cnt[ idx ]++;
-}
-
-/* fd_net_tx_probe_loopback returns 1 if dst_ip routes to a loopback
-   device and 0 otherwise.  It updates no metrics and requests no
-   neighbor solicit, so tile 0 can use it to find loopback packets
-   owned by another net tile without counting that tile's routing
-   failures. */
-
-static inline int
-fd_net_tx_probe_loopback( fd_fib4_t const *      fib_local,
-                          fd_fib4_t const *      fib_main,
-                          fd_netdev_tbl_join_t * netdev_tbl,
-                          uint                   dst_ip ) {
-  fd_fib4_hop_t hop[2];
-  hop[0] = fd_fib4_lookup( fib_local, dst_ip, 0UL );
-  hop[1] = fd_fib4_lookup( fib_main,  dst_ip, 0UL );
-  fd_fib4_hop_t const * next_hop = fd_fib4_hop_or( hop+0, hop+1 );
-  if( next_hop->rtype!=FD_FIB4_RTYPE_LOCAL && next_hop->rtype!=FD_FIB4_RTYPE_UNICAST ) return 0;
-  uint const if_idx = next_hop->rtype==FD_FIB4_RTYPE_LOCAL ? 1U : next_hop->if_idx;
-  fd_netdev_t const * netdev = fd_netdev_tbl_query( netdev_tbl, if_idx );
-  return NULL!=netdev && netdev->dev_type==ARPHRD_LOOPBACK;
 }
 
 /* fd_net_in_frag_validate checks input dcache bounds and TX packet length. */

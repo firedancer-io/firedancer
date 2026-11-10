@@ -871,6 +871,18 @@ main( int     argc,
     FD_TEST( ctx->tx_op.xsk_idx==XSK_IDX_MAIN );
     release_tx_frame( ctx );
 
+    /* Loopback as the configured XDP interface also selects tile 0. */
+    uint const if_virt = ctx->net.router.if_virt;
+    ulong const select_free_cons = ctx->free_tx.cons;
+    ctx->net.router.if_virt = IF_IDX_LO;
+    FD_TEST( fd_net_tx_select( &ctx->net, sig ) );
+    ctx->net.kind_id = 1UL;
+    FD_TEST( !fd_net_tx_select( &ctx->net, sig ) );
+    FD_TEST( ctx->net.tx_route.use_loopback );
+    FD_TEST( ctx->net.tx_route.if_idx==IF_IDX_LO );
+    FD_TEST( ctx->free_tx.cons==select_free_cons );
+    ctx->net.router.if_virt = if_virt;
+    ctx->net.kind_id = 0UL;
     ctx->net.tile_cnt = 1UL;
   }
 
