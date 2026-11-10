@@ -142,9 +142,9 @@ new_input_mem_region( fd_vm_input_region_t * input_mem_regions,
 /* This function handles casing for direct mapping being enabled as well as if
    the alignment is being stored. In the case where direct mapping is not
    enabled, we copy in the account data and a 10KiB buffer into the input region.
-   These both go into the same memory buffer. However, when direct mapping is
-   enabled, the account data and resizing buffers are represented by two
-   different memory regions. In both cases, padding is used to maintain 8 byte
+   These both go into the same memory buffer.  With direct mapping, a
+   single region points to the account data and reserves address space
+   for growth.  In both cases, padding is used to maintain 8 byte
    alignment. If alignment is not required, then a resizing buffer is not used
    as the deprecated loader doesn't allow for resizing accounts. */
 static ulong

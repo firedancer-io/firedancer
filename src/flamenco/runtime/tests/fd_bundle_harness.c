@@ -12,6 +12,7 @@
 #include "../../progcache/fd_progcache_admin.h"
 #include "../../log_collector/fd_log_collector.h"  /* IWYU pragma: keep */
 #include "../../stakes/fd_stakes.h"
+#include <stdlib.h>
 
 static void
 fd_solfuzz_bundle_ctx_destroy( fd_solfuzz_runner_t * runner ) {
@@ -161,7 +162,7 @@ fd_solfuzz_bundle_execute( fd_solfuzz_runner_t *                 runner,
   if( FD_UNLIKELY( _l>output_end ) ) abort();
   fd_memset( effects, 0, sizeof(fd_exec_test_bundle_effects_t) );
 
-  effects->txn_results_count = (pb_size_t)txn_cnt;
+  effects->txn_results_count = (uint)txn_cnt;
   effects->txn_results = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_exec_test_txn_result_t),
                                                   txn_cnt*sizeof(fd_exec_test_txn_result_t) );
   if( FD_UNLIKELY( _l>output_end ) ) abort();
@@ -313,8 +314,8 @@ fd_solfuzz_bundle_assert_same_success( fd_solfuzz_runner_t *          runner,
 
   ulong regular_sz = buf_sz;
   ulong bundle_sz  = buf_sz;
-  FD_TEST( sol_compat_encode( regular_buf, &regular_sz, regular, &fd_exec_test_bundle_effects_t_msg ) );
-  FD_TEST( sol_compat_encode( bundle_buf,  &bundle_sz,  bundle,  &fd_exec_test_bundle_effects_t_msg ) );
+  FD_TEST( fd_pb_encode( &fd_exec_test_bundle_effects_desc, regular, regular_buf, &regular_sz ) );
+  FD_TEST( fd_pb_encode( &fd_exec_test_bundle_effects_desc, bundle, bundle_buf, &bundle_sz ) );
 
   if( FD_UNLIKELY( regular_sz!=bundle_sz || !fd_memeq( regular_buf, bundle_buf, regular_sz ) ) ) {
     FD_LOG_ERR(( "bundle transaction effects mismatch" ));

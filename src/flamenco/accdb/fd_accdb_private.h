@@ -164,6 +164,20 @@ typedef struct fd_accdb_partition fd_accdb_partition_t;
 
 #include "../../util/tmpl/fd_dlist.c"
 
+/* Per-join reservation credits (fd_accdb.c res_*).  fd_accdb_cred_max
+   is the most idle credits a join holds per tracked class: at most
+   FD_ACCDB_CRED_MAX, and all joins together at most
+   class_max/FD_ACCDB_CRED_DIV. */
+
+#define FD_ACCDB_CRED_MAX (64UL)
+#define FD_ACCDB_CRED_DIV (2UL)
+
+static inline ulong
+fd_accdb_cred_max( ulong class_max,
+                   ulong joiner_cnt ) {
+  return fd_ulong_min( FD_ACCDB_CRED_MAX, class_max/( FD_ACCDB_CRED_DIV*fd_ulong_max( joiner_cnt, 1UL ) ) );
+}
+
 struct fd_accdb_cache_key {
   uchar pubkey[ 32UL ];
   uint generation;
@@ -236,7 +250,7 @@ FD_STATIC_ASSERT( sizeof (fd_accdb_accmeta_t)==64, layout );
    The on-disk fd_accdb_disk_meta_t.size is only the raw data length,
    written via FD_ACCDB_SIZE_DATA.  It includes neither the executable
    bit nor the cache/PD flags.  Compaction preserves these record
-   headers verbatim with copy_file_range. */
+   headers verbatim. */
 
 #define FD_ACCDB_SIZE_EXEC_BIT        (1U<<31)
 #define FD_ACCDB_SIZE_CACHE_VALID_BIT (1U<<30)
@@ -363,6 +377,7 @@ packed_partition_file_offset( accdb_offset_t const * offset,
    referencing each cache line without overflow.  With a uint refcnt
    field, 256 joiners is well within range. */
 #define FD_ACCDB_MAX_JOINERS (256UL)
+FD_STATIC_ASSERT( FD_ACCDB_MAX_JOINERS%64UL==0UL, joiner_bitmap );  /* cache_free_have words */
 
 /* EVICT_SENTINEL: stored in refcnt to indicate a cache line is being
    claimed by an eviction scan.  Any thread seeing this value must treat
@@ -393,26 +408,33 @@ struct fd_accdb_shmem_private {
      its own cacheline to avoid false sharing between classes. */
   struct __attribute__((aligned(64))) { ulong val; } clock_hand[ FD_ACCDB_CACHE_CLASS_CNT ];
 
-  /* Per-class CAS free list (Treiber stack) for fully-freed cache
-     lines.  ver_top packs a 32-bit ABA version counter in bits
-     63..32 and a uint pool index in bits 31..0.  UINT_MAX in the
-     low 32 bits means empty. */
-  struct __attribute__((aligned(64))) { ulong ver_top; } cache_free[ FD_ACCDB_CACHE_CLASS_CNT ];
+  /* Per-join, per-class free lists of cache lines (Treiber stacks, see
+     fd_accdb.c cache_free_*).  ver_top is a 32-bit ABA version (high)
+     and a line index (low, UINT_MAX = empty). */
+  struct __attribute__((aligned(64))) { ulong ver_top[ FD_ACCDB_CACHE_CLASS_CNT ]; } cache_free[ FD_ACCDB_MAX_JOINERS ];
 
-  /* Per-class approximate depth of the CAS free list.  Atomically
-     incremented on push, decremented on pop.  Used by the
-     background pre-eviction loop to decide when to refill. */
-  struct __attribute__((aligned(64))) { ulong val; } cache_free_cnt[ FD_ACCDB_CACHE_CLASS_CNT ];
+  /* Approximate depth of each of those lists. */
+  struct __attribute__((aligned(64))) { ulong val[ FD_ACCDB_CACHE_CLASS_CNT ]; } cache_free_cnt[ FD_ACCDB_MAX_JOINERS ];
+
+  /* Bit j of cache_free_have[c] is set whenever join j's class-c list
+     is non-empty (it may also be set when empty). */
+  struct __attribute__((aligned(64))) { ulong bits[ FD_ACCDB_MAX_JOINERS/64UL ]; } cache_free_have[ FD_ACCDB_CACHE_CLASS_CNT ];
+
+  /* Bit j of cache_free_hungry[c] is set when join j ran out of free
+     class-c lines (own list empty, no never-used line).  Pre-eviction
+     takes and clears the bits, and hands the lines it frees to those
+     joins' lists. */
+  struct __attribute__((aligned(64))) { ulong bits[ FD_ACCDB_MAX_JOINERS/64UL ]; } cache_free_hungry[ FD_ACCDB_CACHE_CLASS_CNT ];
 
   fd_accdb_fork_id_t root_fork_id;
 
   ulong seed;
 
   /* generation is a monotonically increasing counter assigned to each
-     fork on creation.  When a fork is rooted, its pool slot (fork_id)
-     is freed and may be recycled by a new fork, making fork_id in
-     on-disk metadata useless for identifying entries from that freed
-     fork.  But generation persists in disk metadata and is never
+     fork on creation.  When the root advances past a fork, its pool
+     slot (fork_id) is retired and may be recycled by a new fork, making
+     on-disk fork_id values useless for identifying entries from that
+     retired fork.  But generation persists in disk metadata and is never
      recycled.
 
      Any rooted fork is by definition an ancestor of all live forks, so
@@ -457,9 +479,9 @@ struct fd_accdb_shmem_private {
      result exceeds cache_class_max[i] the reservation overflowed
      and the thread subtracts back and retries.  Release atomically
      decrements.  Each element is on its own cacheline to avoid
-     false sharing between classes.  Invariant:
-       used[i].val + available[i] == cache_class_max[i]
-     at all times. */
+     false sharing between classes.  The count includes the joins' idle
+     credits (join_cred), so used[i].val + available[i] ==
+     cache_class_max[i] at all times. */
   struct __attribute__((aligned(64))) { ulong val; } cache_class_used[ FD_ACCDB_CACHE_CLASS_CNT ];
 
   /* Per-layer write heads.  whead[0] is the hot (execution) write
@@ -521,6 +543,11 @@ struct fd_accdb_shmem_private {
   struct __attribute__((aligned(64))) { ulong val; } joiner_epochs[ FD_ACCDB_MAX_JOINERS ];
   ulong joiner_cnt __attribute__((aligned(64)));
   ulong deferred_free_dlist_off;
+
+  /* join_cred[j].val[c] is join j's idle reservation credits in class
+     c (fd_accdb.c res_*).  Only updated atomically: the owner adds and
+     CAS-takes, a failing reserver exchanges it to 0. */
+  struct __attribute__((aligned(64))) { ulong val[ FD_ACCDB_CACHE_CLASS_CNT ]; } join_cred[ FD_ACCDB_MAX_JOINERS ];
 
   fd_accdb_shmem_metrics_t shmetrics[1];
 

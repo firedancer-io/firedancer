@@ -96,7 +96,10 @@ fd_vm_disasm_instr_alu( fd_sbpf_instr_t instr,
   case FD_SBPF_OPCODE_ALU_OP_MODE_XOR:  op_name = "xor";  break;
   case FD_SBPF_OPCODE_ALU_OP_MODE_MOV:  op_name = "mov";  break;
   case FD_SBPF_OPCODE_ALU_OP_MODE_ARSH: op_name = "arsh"; break;
-  case FD_SBPF_OPCODE_ALU_OP_MODE_END:  op_name = "end";  break;
+  case FD_SBPF_OPCODE_ALU_OP_MODE_END:
+    OUT_PRINTF( "%s%u r%d", instr.opcode.normal.op_src==FD_SBPF_OPCODE_SOURCE_MODE_REG ? "be" : "le",
+                instr.imm, instr.dst_reg );
+    return FD_VM_SUCCESS;
   default: return FD_VM_ERR_INVAL;
   }
 

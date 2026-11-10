@@ -1564,6 +1564,23 @@ test_nonce( void ) {
     FD_TEST( !fd_disco_tpu_is_durable_nonce( TXN( p ), p->payload ) );
     FD_TEST( insert1( p, 9UL, pack )==FD_PACK_INSERT_REJECT_EXPIRED ); i++; p++;
   }
+  /* Only a static nonce account exempts a V0 transaction from expiry. */
+  for( ulong use_alt=0UL; use_alt<2UL; use_alt++ ) {
+    fd_txn_e_t * slot = fd_pack_insert_txn_init( pack );
+    make_nonce_transaction1( slot->txnp, MAX_TEST_TXNS+use_alt, 11.0, 2, 0, 'v' );
+    fd_txn_t * txn = TXN( slot->txnp );
+    txn->transaction_version          = FD_TXN_V0;
+    txn->addr_table_lookup_cnt        = 1;
+    txn->addr_table_adtl_cnt           = 1;
+    txn->addr_table_adtl_writable_cnt  = 1;
+    fd_memset( slot->alt_accts, 'z', sizeof(fd_acct_addr_t) );
+    if( use_alt ) slot->txnp->payload[ txn->instr[ 0 ].acct_off ] = (uchar)txn->acct_addr_cnt;
+    FD_TEST( fd_disco_tpu_is_durable_nonce( txn, slot->txnp->payload )==!use_alt );
+    ulong deleted;
+    int result = fd_pack_insert_txn_fini( pack, slot, 9UL, &deleted );
+    FD_TEST( result==(use_alt ? FD_PACK_INSERT_REJECT_EXPIRED : FD_PACK_INSERT_ACCEPT_NONCE_NONVOTE_ADD) );
+  }
+
   /* Use a nonce key distinct from the transactions already in pack. */
   make_nonce_transaction( i, 11.0, 5, 1, 'r' );
   FD_TEST( fd_disco_tpu_is_durable_nonce( TXN( p ), p->payload ) );

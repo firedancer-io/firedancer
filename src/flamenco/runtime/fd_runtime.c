@@ -675,20 +675,6 @@ fd_compute_and_apply_new_feature_activations( fd_bank_t *          bank,
   }
 }
 
-/* Starting a new epoch.
-  New epoch:        T
-  Just ended epoch: T-1
-  Epoch before:     T-2
-
-  In this function:
-  - stakes in T-2 (vote_states_prev_prev) should be replaced by T-1 (vote_states_prev)
-  - stakes at T-1 (vote_states_prev) should be replaced by updated stakes at T (vote_states)
-  - leader schedule should be calculated using new T-2 stakes (vote_states_prev_prev)
-
-  Invariant during an epoch T:
-  vote_states_prev holds the stakes at T-1
-  vote_states_prev_prev holds the stakes at T-2
- */
 /* process for the start of a new epoch
    https://github.com/anza-xyz/agave/blob/v4.3.0-beta.0/runtime/src/bank.rs#L1811-L1899 */
 static void
@@ -725,27 +711,7 @@ fd_runtime_process_new_epoch( fd_bank_t *          bank,
                                    bank->f.epoch,
                                    stake_delegations_history,
                                    &bank->f.warmup_cooldown_rate_epoch,
-                                   FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ),
                                    bank->stake_delegations_fork_id );
-
-  /* Wipe WARMED tags awarded under the old floating point math when the
-     fixed point math activates.  This will force all the effective
-     stakes to be re-computed using the post-activation math.
-     Unfortunately, one wipe at the activation boundary is not enough.
-     The consensus root lags the replay frontier.  So
-     post-activation/post-boundary, when the unrooted pre-activation
-     blocks root and their deltas are applied into the root, their
-     pre-activation tags will also leak into the root pool.  So the
-     award sites record whether any live WARMED tag might have been
-     computed with the pre-activation floating point math, and we wipe
-     whenever that is the case.  We expect the invalidation to fire
-     exactly twice: at the activation boundary and at the first boundary
-     after it, unless some extremely sparse epochs happen after
-     activation.  Tags are only used at boundaries for now, and this
-     runs before any use. */
-  if( FD_UNLIKELY( FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ) ) ) {
-    fd_stake_delegations_invalidate_warmed( stake_delegations );
-  }
 
   fd_stakes_activate_epoch( bank, runtime_stack, accdb, capture_ctx, stake_delegations,
                             &bank->f.warmup_cooldown_rate_epoch );
@@ -769,8 +735,7 @@ fd_runtime_process_new_epoch( fd_bank_t *          bank,
 
   fd_stake_delegations_view_end( stake_delegations,
                                  stake_delegations_history,
-                                 &bank->f.warmup_cooldown_rate_epoch,
-                                 FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ) );
+                                 &bank->f.warmup_cooldown_rate_epoch );
 
   /* The Agave client handles updating their stakes cache with a call to
      update_epoch_stakes() which keys stakes by the leader schedule
@@ -780,10 +745,6 @@ fd_runtime_process_new_epoch( fd_bank_t *          bank,
      before that.
      https://github.com/anza-xyz/agave/blob/v3.0.4/runtime/src/bank.rs#L2175
   */
-
-  /* Now that our stakes caches have been updated, we can calculate the
-     leader schedule for the upcoming epoch epoch using our new
-     vote_states_prev_prev (stakes for T-2). */
 
   fd_runtime_update_leaders( bank, runtime_stack );
 

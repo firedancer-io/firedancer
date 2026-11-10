@@ -1,5 +1,6 @@
 #define _GNU_SOURCE
 #include "../keyguard/fd_keyguard_client.h"
+#include <stdlib.h>
 static ulong test_sign_cnt;
 static void
 test_sign( fd_keyguard_client_t * kg, uchar * sig, uchar const * data, ulong sz, int type ) {
@@ -171,6 +172,8 @@ FD_UNIT_TEST( conn_tls_lifecycle ) {
   fd_event_client_poll( client, fd_log_wallclock(), &poll_busy );
   FD_TEST( client->state==FD_EVENT_CLIENT_STATE_DISCONNECTED );
   FD_TEST( client->defer_disconnect==INT_MAX );
+  static uchar const zero_conn[ sizeof(fd_tlsrec_conn_t) ] = {0};
+  FD_TEST( 0==memcmp( client->tls_conn, zero_conn, sizeof(zero_conn) ) );
   FD_TEST( client->sockfd==-1 );
 
   close( sv[1] );
@@ -280,7 +283,7 @@ test_connected_client_rate( fd_circq_t * circq,
   FD_TEST( client->event_stream );
   client->event_stream->s.tx_wnd = UINT_MAX>>1;
   FD_TEST( !ZSTD_isError( ZSTD_CCtx_reset( client->zst, ZSTD_reset_session_only ) ) );
-  client->zout = (ZSTD_outBuffer){ .dst = grpc->nanopb_tx+sizeof(fd_grpc_hdr_t), .size = grpc->nanopb_tx_max-sizeof(fd_grpc_hdr_t), .pos = 0UL };
+  client->zout = (ZSTD_outBuffer){ .dst = grpc->pb_tx+sizeof(fd_grpc_hdr_t), .size = grpc->pb_tx_max-sizeof(fd_grpc_hdr_t), .pos = 0UL };
   return client;
 }
 

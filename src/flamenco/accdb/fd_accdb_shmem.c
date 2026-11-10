@@ -185,9 +185,9 @@ fd_accdb_shmem_new( void * shmem,
   }
 
   /* Partition offsets are packed into the low 51 bits of accdb_offset_t
-     (see FD_ACCDB_PARTITION_OFF_BITS in fd_accdb.c).  partition_sz must
+     (see FD_ACCDB_PARTITION_OFF_BITS).  partition_sz must
      be small enough that speculative fetch-and-adds from up to
-     FD_ACCDB_MAX_JOINERS concurrent threads in allocate_next_write
+     FD_ACCDB_MAX_JOINERS concurrent threads in reserve_next_write
      can never carry the offset field into the partition_idx bits.
      Worst case: all joiners each do one FETCH_AND_ADD of partition_sz
      before the partition switch completes, starting from an offset of
@@ -357,8 +357,18 @@ fd_accdb_shmem_new( void * shmem,
   accdb->bundle_enabled   = bundle_enabled;
 
   for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) accdb->clock_hand[ c ].val = 0UL;
-  for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) accdb->cache_free[ c ].ver_top = (ulong)UINT_MAX;
-  for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) accdb->cache_free_cnt[ c ].val = 0UL;
+  for( ulong j=0UL; j<FD_ACCDB_MAX_JOINERS; j++ ) {
+    for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) {
+      accdb->cache_free    [ j ].ver_top[ c ] = (ulong)UINT_MAX;
+      accdb->cache_free_cnt[ j ].val    [ c ] = 0UL;
+    }
+  }
+  for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) {
+    for( ulong w=0UL; w<FD_ACCDB_MAX_JOINERS/64UL; w++ ) {
+      accdb->cache_free_have  [ c ].bits[ w ] = 0UL;
+      accdb->cache_free_hungry[ c ].bits[ w ] = 0UL;
+    }
+  }
 
   for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) {
     ulong max_c       = cache_class_max[ c ];
@@ -436,13 +446,16 @@ fd_accdb_shmem_new( void * shmem,
     }
   }
 
+  for( ulong j=0UL; j<FD_ACCDB_MAX_JOINERS; j++ ) {
+    for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) accdb->join_cred[ j ].val[ c ] = 0UL;
+  }
+
   /* If a class has enough slots for every joiner's worst case
      simultaneously (cache_min_reserved per joiner), no reservation can
      ever overflow.  Sentinel ULONG_MAX tells acquire/release to skip
      the atomic counters entirely. */
   for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) {
-    if( cache_class_max[ c ]>=cache_min_reserved*joiner_cnt ) accdb->cache_class_used[ c ].val = ULONG_MAX;
-    else                                                      accdb->cache_class_used[ c ].val = 0UL;
+    accdb->cache_class_used[ c ].val = fd_ulong_if( cache_class_max[ c ]>=cache_min_reserved*joiner_cnt, ULONG_MAX, 0UL );
   }
 
   accdb->delta.seed       = seed+1UL;

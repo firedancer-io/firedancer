@@ -1,5 +1,5 @@
 ifdef FD_HAS_HOSTED
-# Compiled without project warning flags (upstream code, unmodified).
+# Compiled without project warning flags (upstream code, see README.txt).
 # Archive wired directly, bzip2-style: add-objs would register the TU
 # in DEPFILES and "make check" would syntax-check it with full flags.
 LIB_OBJS_fd_waltz+=$(OBJDIR)/obj/third_party/picohttpparser/picohttpparser.o

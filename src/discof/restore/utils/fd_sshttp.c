@@ -349,6 +349,11 @@ fd_sshttp_init( fd_sshttp_t * http,
     return -1;
   }
 
+  int so_rcvbuf = (int)FD_SSHTTP_SO_RCVBUF;
+  if( FD_UNLIKELY( -1==setsockopt( http->sockfd, SOL_SOCKET, SO_RCVBUF, &so_rcvbuf, sizeof(int) ) ) ) {
+    FD_LOG_ERR(( "setsockopt(SOL_SOCKET,SO_RCVBUF,%i) failed (%i-%s)", so_rcvbuf, errno, fd_io_strerror( errno ) ));
+  }
+
   struct sockaddr_in addr_in = {
     .sin_family = AF_INET,
     .sin_port   = addr.port,
@@ -408,6 +413,8 @@ fd_sshttp_cancel( fd_sshttp_t * http ) {
   http->state = FD_SSHTTP_STATE_INIT;
 
   /* Clean up native TLS state */
+  fd_tlsrec_conn_fini( &http->tls_conn );
+  fd_memzero_explicit( http->tls.kex_private_key, 32UL );
   fd_tlsrec_sock_init( http->tls_sock );
 }
 

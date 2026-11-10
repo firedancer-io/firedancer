@@ -1144,7 +1144,7 @@ fd_gui_peers_request_sort( fd_gui_peers_ctx_t * peers,
         if( FD_UNLIKELY( fd_jtok_err( j ) ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
         sort_key.col[ i ] = fd_gui_peers_live_table_col_name_to_idx( peers->live_table, col_name );
         if( FD_UNLIKELY( sort_key.col[ i ]==ULONG_MAX ) ) {
-          FD_LOG_WARNING(( "unexpected column name %s", col_name ));
+          FD_LOG_WARNING(( "unexpected column name" ));
           return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
         }
         i++;

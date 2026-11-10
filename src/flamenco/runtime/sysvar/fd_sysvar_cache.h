@@ -80,8 +80,9 @@ FD_PROTOTYPES_BEGIN
 
 /* Constructor API */
 
-/* fd_sysvar_cache_new formats a memory region allocated according to
-   fd_sysvar_cache_{align,footprint} for use as a sysvar_cache object. */
+/* fd_sysvar_cache_new formats a memory region of size
+   sizeof(fd_sysvar_cache_t) and alignment alignof(fd_sysvar_cache_t)
+   for use as a sysvar_cache object. */
 
 void *
 fd_sysvar_cache_new( void * mem );
@@ -177,15 +178,15 @@ fd_sysvar_cache_data_query(
 
 /* Accessors for small POD sysvars.  These do a copy on read.
 
-   fd_sysvar_clock_is_valid returns 1 if the cached sysvar is valid
-   (read, read_nofail, join_const are then guaranteed to succeed).
+   fd_sysvar_cache_clock_is_valid returns 1 if the cached sysvar is valid
+   (read and read_nofail are then guaranteed to succeed).
    Returns 0 otherwise.
 
-   fd_sysvar_clock_read attempts to copy sysvar data from cache into the
-   out argument.  Returns out on success, or NULL if the sysvar account
+   fd_sysvar_cache_clock_read copies sysvar data from cache into out.
+   Returns out on success, or NULL if the sysvar account
    does not exist or contains data that failed deserialization.
 
-   fd_sysvar_clock_read_nofail returns a copy of the sysvar data.  If
+   fd_sysvar_cache_clock_read_nofail returns a copy of the sysvar data.  If
    the sysvar does not exist or failed to deserialize, aborts the app
    with FD_LOG_ERR.
 

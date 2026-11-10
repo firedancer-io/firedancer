@@ -28,7 +28,6 @@ test_bank_stake_delegations_frontier_mark( fd_bank_t * bank ) {
                                    bank->f.epoch,
                                    NULL,
                                    &bank->f.warmup_cooldown_rate_epoch,
-                                   FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ),
                                    bank->stake_delegations_fork_id );
   return stake_delegations;
 }
@@ -37,8 +36,7 @@ static void
 test_bank_stake_delegations_frontier_unmark( fd_bank_t * bank ) {
   fd_stake_delegations_view_end( fd_bank_stake_delegations_modify( bank ),
                                  NULL,
-                                 &bank->f.warmup_cooldown_rate_epoch,
-                                 FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ) );
+                                 &bank->f.warmup_cooldown_rate_epoch );
 }
 
 static void
@@ -1250,10 +1248,10 @@ test_bank_stake_delegations_ancestry( void * mem ) {
   fd_stake_delegations_t * sd = fd_bank_stake_delegations_modify( child );
   fd_stake_delegations_fork_update( sd, child->stake_delegations_fork_id, 0UL, &key, &key, 7UL, ULONG_MAX, ULONG_MAX, 0UL, TEST_BANK_STAKE_LAMPORTS, TEST_BANK_STAKE_ACC_DLEN );
   fd_stake_history_t history[1] = {0};
-  fd_stake_delegations_view_begin( sd, 1UL, history, NULL, 1, grandchild->stake_delegations_fork_id );
+  fd_stake_delegations_view_begin( sd, 1UL, history, NULL, grandchild->stake_delegations_fork_id );
   fd_stake_delegation_t found[1];
   FD_TEST( test_stake_delegations_find_copy( sd, &key, found ) && found->stake==7UL );
-  fd_stake_delegations_view_end( sd, history, NULL, 1 );
+  fd_stake_delegations_view_end( sd, history, NULL );
 
 }
 

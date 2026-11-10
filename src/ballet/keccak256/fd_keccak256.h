@@ -37,7 +37,7 @@ struct __attribute__((aligned(FD_KECCAK256_ALIGN))) fd_keccak256_private {
 
   /* This point is 32-byte aligned */
 
-  ulong padding_start; /* Number of buffered bytes, in [0,FD_KECCAK256_BUF_MAX) */
+  ulong padding_start; /* Number of buffered bytes, in [0,FD_KECCAK256_RATE) */
 
   /* Padding to 128-byte here */
 };
@@ -65,11 +65,8 @@ fd_keccak256_init( fd_keccak256_t * sha );
    return ... data==NULL is fine if sz==0).  Returns sha (on return, sha
    will have the updated state of the in-progress calculation).
 
-   It does not matter how the user group data bytes for a keccak256
-   calculation; the final hash will be identical.  It is preferable for
-   performance to try to append as many bytes as possible as a time
-   though.  It is also preferable for performance if sz is a multiple of
-   64. */
+   It does not matter how the user groups data bytes for a keccak256
+   calculation; the final hash will be identical. */
 
 fd_keccak256_t *
 fd_keccak256_append( fd_keccak256_t * sha,

@@ -6,13 +6,14 @@
    to use the maps or to size/create a runtime stack. */
 
 #include "fd_runtime_stack.h"
+#include "../../util/fd_hash32.h"
 
 #define MAP_NAME               fd_vote_rewards_map
 #define MAP_KEY_T              fd_pubkey_t
 #define MAP_ELE_T              fd_vote_rewards_t
 #define MAP_KEY                pubkey
 #define MAP_KEY_EQ(k0,k1)      (!memcmp( k0, k1, sizeof(fd_pubkey_t) ))
-#define MAP_KEY_HASH(key,seed) (fd_ulong_hash( (seed)^FD_LOAD( ulong, ((uchar const *)(key))+24UL ) ))
+#define MAP_KEY_HASH(key,seed) (fd_hash32( (key)->uc, (seed) ))
 #define MAP_NEXT               next
 #define MAP_IDX_T              uint
 #include "../../util/tmpl/fd_map_chain.c"
@@ -22,7 +23,7 @@
 #define MAP_ELE_T              fd_stake_accum_t
 #define MAP_KEY                pubkey
 #define MAP_KEY_EQ(k0,k1)      (!memcmp( k0, k1, sizeof(fd_pubkey_t) ))
-#define MAP_KEY_HASH(key,seed) (fd_ulong_hash( (seed)^FD_LOAD( ulong, ((uchar const *)(key))+24UL ) ))
+#define MAP_KEY_HASH(key,seed) (fd_hash32( (key)->uc, (seed) ))
 #define MAP_NEXT               next
 #define MAP_IDX_T              uint
 #include "../../util/tmpl/fd_map_chain.c"

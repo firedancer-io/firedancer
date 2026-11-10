@@ -536,5 +536,6 @@ fd_ssresolve_cancel( fd_ssresolve_t * ssresolve ) {
     if( FD_UNLIKELY( -1==close( ssresolve->sockfd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     ssresolve->sockfd = -1;
   }
+  fd_tlsrec_conn_fini( &ssresolve->tls_conn );
   fd_tlsrec_sock_init( ssresolve->tls_sock );
 }

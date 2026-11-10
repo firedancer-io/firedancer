@@ -3,6 +3,8 @@
 
 /* fd_net_tile_private.h defines private APIs used by network tiles. */
 
+#include "fd_net_tile.h"
+
 #include <net/if.h>
 #include <linux/if_arp.h>
 
@@ -29,10 +31,6 @@
    the OS enumerates them), it will be dropped.  This is limited for
    performance reasons. */
 #define FD_NET_GRE_MAX (4UL)
-
-/* FD_NET_RX_PORT_MAX is the max number of UDP ports which the network
-   stack can receive on. */
-#define FD_NET_RX_PORT_MAX (64UL)
 
 /* fd_net_tx_route_t stores the resolved TX route.  IP addresses are in
    network byte order. */
@@ -73,10 +71,10 @@ struct fd_net_tile {
   ulong  pkt_buf_wmark;
   uint   bind_address;
 
-  ulong  dst_port_cnt;
-  ushort dst_ports[ FD_NET_RX_PORT_MAX ];
-  ulong  dst_protos[ FD_NET_RX_PORT_MAX ];
-  ulong  dst_out_idx[ FD_NET_RX_PORT_MAX ];
+  ulong  rx_dest_cnt;
+  ushort rx_listen_ports[ FD_NET_RX_DEST_CNT ];
+  ulong  rx_proto_ids   [ FD_NET_RX_DEST_CNT ];
+  ulong  rx_out_link_idx[ FD_NET_RX_DEST_CNT ];
   ulong  rx_out_cnt;
   uint   gre_tunnel_ip[ FD_NET_GRE_MAX ];
 
@@ -251,68 +249,65 @@ fd_net_tx_pkt_prep( fd_net_tile_t * ctx,
   return 1;
 }
 
-/* fd_net_rx_dst_port_add maps an IPv4 UDP destination port to the
-   output link with the requested name and tile kind. */
+/* fd_net_rx_dest_add fills in ctx's mappings between a UDP port, protocol
+   and output link for one rx dest. */
 static inline void
-fd_net_rx_dst_port_add( fd_net_tile_t *        ctx,
-                        fd_topo_t const *      topo,
-                        fd_topo_tile_t const * tile,
-                        ulong                  dst_proto,
-                        char const *           out_link,
-                        ushort                 dst_port,
-                        int                    required ) {
-  if( FD_UNLIKELY( !dst_port ) ) return;
+fd_net_rx_dest_add( fd_net_tile_t *        ctx,
+                    fd_topo_t const *      topo,
+                    fd_topo_tile_t const * tile,
+                    ulong                  proto_id,
+                    char const *           out_link,
+                    ushort                 listen_port,
+                    int                    out_link_required ) {
+  if( FD_UNLIKELY( !listen_port ) ) return;
   ulong out_idx = fd_topo_find_tile_out_link( topo, tile, out_link, tile->kind_id );
 
   if( FD_UNLIKELY( out_idx==ULONG_MAX ) ) {
-    if( FD_UNLIKELY( required ) ) {
-      FD_LOG_ERR(( "net output link `%s` is missing for UDP port %hu", out_link, dst_port ));
+    if( FD_UNLIKELY( out_link_required ) ) {
+      FD_LOG_ERR(( "net output link `%s` is missing for UDP port %hu", out_link, listen_port ));
     }
     return;
   }
 
-  if( FD_UNLIKELY( ctx->dst_port_cnt>=FD_NET_RX_PORT_MAX ) ) {
-    FD_LOG_ERR(( "net tile RX port count exceeds max of %lu", FD_NET_RX_PORT_MAX ));
+  if( FD_UNLIKELY( ctx->rx_dest_cnt>=FD_NET_RX_DEST_CNT ) ) {
+    FD_LOG_ERR(( "net tile RX destination count exceeds max of %lu", FD_NET_RX_DEST_CNT ));
   }
 
-  ctx->dst_protos [ ctx->dst_port_cnt ] = dst_proto;
-  ctx->dst_ports  [ ctx->dst_port_cnt ] = dst_port;
-  ctx->dst_out_idx[ ctx->dst_port_cnt ] = out_idx;
-  ctx->dst_port_cnt++;
+  ctx->rx_proto_ids   [ ctx->rx_dest_cnt ] = proto_id;
+  ctx->rx_listen_ports[ ctx->rx_dest_cnt ] = listen_port;
+  ctx->rx_out_link_idx[ ctx->rx_dest_cnt ] = out_idx;
+  ctx->rx_dest_cnt++;
 }
 
 static inline void
-fd_net_rx_dst_ports_init( fd_net_tile_t *        ctx,
-                          fd_topo_t const *      topo,
-                          fd_topo_tile_t const * tile ) {
+fd_net_rx_dests_init( fd_net_tile_t *        ctx,
+                      fd_topo_t const *      topo,
+                      fd_topo_tile_t const * tile ) {
   ctx->rx_out_cnt = tile->out_cnt;
 
-  fd_net_rx_dst_port_add( ctx, topo, tile, DST_PROTO_TPU_UDP,  "net_quic",   tile->net.legacy_transaction_listen_port, 1 );
-  fd_net_rx_dst_port_add( ctx, topo, tile, DST_PROTO_TPU_QUIC, "net_quic",   tile->net.quic_transaction_listen_port,   1 );
-  fd_net_rx_dst_port_add( ctx, topo, tile, DST_PROTO_SHRED,    "net_shred",  tile->net.shred_listen_port,              1 );
-  fd_net_rx_dst_port_add( ctx, topo, tile, DST_PROTO_GOSSIP,   "net_gossvf", tile->net.gossip_listen_port,             1 );
-  fd_net_rx_dst_port_add( ctx, topo, tile, DST_PROTO_REPAIR,   "net_shred",  tile->net.repair_client_listen_port,      1 );
-  fd_net_rx_dst_port_add( ctx, topo, tile, DST_PROTO_RSERVE,   "net_rserve", tile->net.repair_serve_listen_port,       0 );
-  fd_net_rx_dst_port_add( ctx, topo, tile, DST_PROTO_VOTOR,    "net_votor",  tile->net.votor_quic_client_listen_port,  1 );
-  fd_net_rx_dst_port_add( ctx, topo, tile, DST_PROTO_VOTOR,    "net_votor",  tile->net.votor_quic_server_listen_port,  1 );
+  fd_net_rx_dest_t dests[ FD_NET_RX_DEST_CNT ];
+  fd_net_rx_dest_list( dests, &tile->net );
+  for( ulong i=0UL; i<FD_NET_RX_DEST_CNT; i++ ) {
+    fd_net_rx_dest_add( ctx, topo, tile, dests[ i ].proto_id, dests[ i ].out_link, dests[ i ].listen_port, dests[ i ].out_link_required );
+  }
 }
 
 static inline int
-fd_net_rx_dst_port_lookup( fd_net_tile_t const * ctx,
-                           ushort                net_dport,
-                           ulong *               out_idx,
-                           ulong *               dst_proto ) {
+fd_net_rx_dest_lookup( fd_net_tile_t const * ctx,
+                       ushort                dst_port,
+                       ulong *               out_idx,
+                       ulong *               proto_id ) {
   ulong rule_idx = ULONG_MAX;
-  for( ulong i=0UL; i<ctx->dst_port_cnt; i++ ) {
-    if( ctx->dst_ports[ i ]==net_dport ) {
+  for( ulong i=0UL; i<ctx->rx_dest_cnt; i++ ) {
+    if( ctx->rx_listen_ports[ i ]==dst_port ) {
       rule_idx = i;
       break;
     }
   }
   if( FD_UNLIKELY( rule_idx==ULONG_MAX ) ) return 0;
 
-  *out_idx   = ctx->dst_out_idx[ rule_idx ];
-  *dst_proto = ctx->dst_protos [ rule_idx ];
+  *out_idx  = ctx->rx_out_link_idx[ rule_idx ];
+  *proto_id = ctx->rx_proto_ids   [ rule_idx ];
   return *out_idx<ctx->rx_out_cnt;
 }
 
@@ -429,15 +424,15 @@ fd_net_rx_pkt( fd_net_tile_t *     ctx,
 
   ushort const dst_port = fd_ushort_bswap( udp_hdr->net_dport );
   ulong out_idx;
-  ulong dst_proto;
-  if( FD_UNLIKELY( !fd_net_rx_dst_port_lookup( ctx, dst_port, &out_idx, &dst_proto ) ) ) {
+  ulong proto_id;
+  if( FD_UNLIKELY( !fd_net_rx_dest_lookup( ctx, dst_port, &out_idx, &proto_id ) ) ) {
     /* Missing output links for configured ports still count as drops. */
     if( iavf_non_fd_pkts_rx_total ) {
-      ulong port_idx = 0UL;
-      for( ; port_idx<ctx->dst_port_cnt; port_idx++ ) {
-        if( ctx->dst_ports[ port_idx ]==dst_port ) break;
+      ulong dest_idx = 0UL;
+      for( ; dest_idx<ctx->rx_dest_cnt; dest_idx++ ) {
+        if( ctx->rx_listen_ports[ dest_idx ]==dst_port ) break;
       }
-      if( port_idx==ctx->dst_port_cnt ) goto iavf_non_fd_pkt;
+      if( dest_idx==ctx->rx_dest_cnt ) goto iavf_non_fd_pkt;
     }
     ctx->metrics.rx_drop_cnt[ FD_METRICS_ENUM_PKT_RX_DROP_REASON_V_DST_PORT_UNBOUND_IDX ]++;
     return 0;
@@ -450,7 +445,7 @@ fd_net_rx_pkt( fd_net_tile_t *     ctx,
   *freed_chunk = mcache[ fd_mcache_line_idx( seq, depth ) ].chunk;
 
   ushort const src_port = fd_ushort_bswap( udp_hdr->net_sport );
-  ulong const  sig      = fd_disco_netmux_sig( ip4_hdr->saddr, src_port, ip4_hdr->saddr, dst_proto, dgram_off );
+  ulong const  sig      = fd_disco_netmux_sig( ip4_hdr->saddr, src_port, ip4_hdr->saddr, proto_id, dgram_off );
   ulong const  tsorig   = 0UL;
 
   fd_stem_publish( stem, out_idx, sig, chunk, byte_len, ctl, tsorig, tspub );

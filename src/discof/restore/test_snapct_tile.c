@@ -587,6 +587,48 @@ test_blacklist_peer_readd_blocked( fd_ssping_t * ssping ) {
   free( scratch );
 }
 
+/* A server the operator listed is removed from the selector when a
+   download from it fails, but it is not blacklisted and not banned in
+   ssping, so the resolver can offer it again. */
+
+static void
+test_blacklist_server_not_banned( fd_ssping_t * ssping ) {
+  void * scratch = aligned_alloc( scratch_align(), scratch_footprint( NULL ) ); FD_TEST( scratch );
+
+  fd_snapct_tile_t * ctx;
+  setup_blacklist_snapct( scratch, ssping, TOTAL_PEERS_MAX, &ctx );
+
+  fd_ip4_port_t   addr = test_addr( 0x16171819, 8899 );
+  fd_sspeer_key_t key  = { .is_url = 1 };
+  strncpy( key.url.hostname, "snapshots.example.org", sizeof(key.url.hostname)-1UL );
+  key.url.resolved_addr = addr;
+
+  fd_ssping_add( ctx->ssping, addr );
+  fd_sspeer_selector_add( ctx->selector, &key, addr, 5000UL, 100UL, 200UL, NULL, NULL );
+  fd_sspeer_selector_process_cluster_slot( ctx->selector );
+
+  ctx->peer.addr = addr;
+  ctx->peer.key  = key;
+  blacklist_peer( ctx );
+
+  /* Removed from the selector, but not blacklisted and not banned. */
+  FD_TEST( fd_sspeer_selector_peer_map_by_key_ele_cnt( ctx->selector )==0UL );
+  FD_TEST( blacklist_pool_used( ctx->blacklist_pool )==0UL );
+  FD_TEST( !fd_ssping_is_invalidated( ctx->ssping, addr ) );
+
+  /* The resolver's next check adds it back. */
+  on_resolve( ctx, &key, addr, 100UL, 200UL, NULL, NULL );
+  FD_TEST( fd_sspeer_selector_peer_map_by_key_ele_cnt( ctx->selector )==1UL );
+  fd_sspeer_t best = fd_sspeer_selector_best( ctx->selector, 0, FD_SSPEER_SLOT_UNKNOWN, 0UL );
+  FD_TEST( best.addr.l==addr.l );
+
+  fd_sspeer_selector_remove( ctx->selector, &key );
+  fd_sspeer_selector_process_cluster_slot( ctx->selector );
+  fd_ssping_remove( ctx->ssping, addr );
+
+  free( scratch );
+}
+
 static void
 test_blacklist_pool_exhaustion( fd_ssping_t * ssping ) {
   void * scratch = aligned_alloc( scratch_align(), scratch_footprint( NULL ) ); FD_TEST( scratch );
@@ -779,7 +821,7 @@ test_start_after_init_acks( void ) {
   void * sel = aligned_alloc( fd_sspeer_selector_align(), fd_sspeer_selector_footprint( TOTAL_PEERS_MAX ) ); FD_TEST( sel );
   gossip_ci_entry_t * ci_table = aligned_alloc( alignof(gossip_ci_entry_t), sizeof(gossip_ci_entry_t)*GOSSIP_PEERS_MAX ); FD_TEST( ci_table );
   void * ci_map = aligned_alloc( gossip_ci_map_align(), gossip_ci_map_footprint( gossip_ci_map_chain_cnt_est( GOSSIP_PEERS_MAX ) ) ); FD_TEST( ci_map );
-  for( int file=0; file<2; file++ ) {
+  for( int source=0; source<3; source++ ) for( int file=0; file<2; file++ ) {
     for( int full=0; full<2; full++ ) {
       fd_memset( ctx, 0, sizeof(*ctx) );
       test_ctx_wake_init( ctx );
@@ -805,14 +847,22 @@ test_start_after_init_acks( void ) {
       /* Committing an incremental source also queues an expected slot,
          drained by the first after_credit. */
       ulong pre_start_cnt = full ? 1UL : 2UL;
-      ctx->peer.addr                       = test_addr( 0x7f000001U, 8899 );
+      ctx->peer.addr                    = test_addr( 0x7f000001U, 8899 );
       ctx->peer.incr_hash[ 0 ]             = 1;
       ctx->predicted_incremental.full_slot = 100UL;
       ctx->predicted_incremental.slot      = 200UL;
-      ctx->resolved_servers_cnt            = 1UL;
-      ctx->resolved_servers[ 0 ].addr      = ctx->peer.addr;
-      ctx->resolved_servers[ 0 ].is_https  = 1;
-      fd_cstr_ncpy( ctx->resolved_servers[ 0 ].hostname, "snapshots.example", FD_FQDN_BUF_MAX );
+      ctx->resolved_servers_cnt          = 2UL;
+      ctx->resolved_servers[ 0 ].addr     = ctx->peer.addr;
+      ctx->resolved_servers[ 0 ].is_https = 0;
+      fd_cstr_ncpy( ctx->resolved_servers[ 0 ].hostname, "alpha.example", FD_FQDN_BUF_MAX );
+      ctx->resolved_servers[ 1 ].addr     = ctx->peer.addr;
+      ctx->resolved_servers[ 1 ].is_https = 1;
+      fd_cstr_ncpy( ctx->resolved_servers[ 1 ].hostname, "beta.example", FD_FQDN_BUF_MAX );
+      ctx->peer.key.is_url = source!=0;
+      if( source ) {
+        ctx->peer.key.url.resolved_addr = ctx->peer.addr;
+        fd_cstr_ncpy( ctx->peer.key.url.hostname, source==1 ? "alpha.example" : "beta.example", FD_FQDN_BUF_MAX );
+      }
       ulong sig  = full ? FD_SNAPSHOT_MSG_CTRL_INIT_FULL : FD_SNAPSHOT_MSG_CTRL_INIT_INCR;
       int   busy = 0;
       for( int ack=0; ack<ctx->flush_ack_cnt; ack++ ) {
@@ -828,8 +878,8 @@ test_start_after_init_acks( void ) {
       FD_TEST( test_publish_chunk!=init_chunk );
       FD_TEST( !memcmp( output, &saved_init, sizeof(saved_init) ) );
       if( !file ) {
-        FD_TEST( test_start.addr.l==ctx->peer.addr.l && test_start.is_https );
-        FD_TEST( !strcmp( test_start.hostname, "snapshots.example" ) );
+        FD_TEST( test_start.addr.l==ctx->peer.addr.l && test_start.is_https==(source==2) );
+        FD_TEST( !strcmp( test_start.hostname, source==0 ? "" : source==1 ? "alpha.example" : "beta.example" ) );
         if( full ) {
           FD_TEST( !strcmp( test_start.path, "/snapshot.tar.bz2" ) );
         } else {
@@ -1767,6 +1817,7 @@ main( int     argc,
   test_blacklist_peer_dedup( ssping );
   test_blacklist_peer_cluster_slot_regression( ssping );
   test_blacklist_peer_readd_blocked( ssping );
+  test_blacklist_server_not_banned( ssping );
   test_blacklist_pool_exhaustion( ssping );
   test_predict_incremental_wfs_gate( ssping );
   test_log_download_peer_churn( ssping );

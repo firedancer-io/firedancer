@@ -745,28 +745,15 @@ struct fd_pack_private {
 
 
   /* use_by_bank: An array of size (max_txn_per_microblock *
-     FD_TXN_ACCT_ADDR_MAX) for each banking tile.  Only the MSB of
-     in_use_by is relevant.  Addressed use_by_bank[i][j] where i is in
-     [0, bank_tile_cnt) and j is in [0, use_by_bank_cnt[i]).  Used
-     mostly for clearing the proper bits of acct_in_use when a
+     FD_TXN_ACCT_ADDR_MAX + 1) for each banking tile.  Addressed as
+     use_by_bank[i][j] where i is in [0, bank_tile_cnt) and j is in
+     [0, use_by_bank_cnt[i]).  Used to release account locks when a
      microblock finishes.
 
-     use_by_bank_txn: indexed [i][j], where i is in [0, bank_tile_cnt)
-     and j is in [0, max_txn_per_microblock).  Transaction j in the
-     microblock currently scheduled to bank i uses account addresses in
-     use_by_bank[i][k] where k is in [0, use_by_bank[i][j]).  For
-     example, if use_by_bank[i][0] = 2 and use_by_bank[i][1] = 3, then
-     all the accounts that the first transaction in the outstanding
-     microblock for bank 0 uses are contained in the set
-               { use_by_bank[i][0], use_by_bank[i][1] },
-     and all the accounts in the second transaction in the microblock
-     are in the set
-        { use_by_bank[i][0], use_by_bank[i][1], use_by_bank[i][2] }.
-     Each transaction writes to at least one account (the fee payer)
-     that no other transaction scheduled to the bank uses, which means
-     that use_by_bank_txn[i][j] - use_by_bank_txn[i][j-1] >= 1 (with 0
-     for use_by_bank_txn[i][-1]).  This means we can stop iterating when
-     use_by_bank_txn[i][j] == use_by_bank_cnt[i].  */
+     use_by_bank_txn[i][j] stores the cumulative end offset in
+     use_by_bank[i] for transaction j in the outstanding microblock.
+     Indexed by i in [0, bank_tile_cnt) and j in
+     [0, max_txn_per_microblock). */
   fd_pack_addr_use_t * use_by_bank    [ FD_PACK_MAX_EXECLE_TILES ];
   ulong                use_by_bank_cnt[ FD_PACK_MAX_EXECLE_TILES ];
   ulong *              use_by_bank_txn[ FD_PACK_MAX_EXECLE_TILES ];
@@ -1092,8 +1079,6 @@ fd_pack_estimate_rewards_and_compute( fd_txn_e_t             * txne,
 
   if( FD_UNLIKELY( !cost_estimate ) ) return 0;
 
-  /* precompile_sigs <= 16320, so after the addition,
-     sig_rewards < 83,000,000 */
   sig_rewards += FD_PACK_FEE_PER_SIGNATURE * precompile_sigs;
   sig_rewards = sig_rewards * FD_PACK_TXN_FEE_BURN_PCT / 100UL;
 
@@ -1126,7 +1111,6 @@ fd_pack_estimate_rewards_and_compute( fd_txn_e_t             * txne,
      So the numerator (<2^57) and denominator (<2^48) can't overflow.
      Both cost_estimate and max_allocated_data_per_block non-zero,
      so the denominator is never zero.
-     1 <= divisor <= 1 + (max_cost_per_block * .000206)
      */
   ulong divisor = 1UL + (allocated_data * lim->max_cost_per_block) / (cost_estimate * lim->max_allocated_data_per_block);
   out->rewards /= (uint)divisor;
@@ -1156,6 +1140,8 @@ fd_pack_validate_durable_nonce( fd_txn_e_t * txne ) {
   /* The program has to be a static account */
   fd_acct_addr_t const * accts = fd_txn_get_acct_addrs( txn, txne->txnp->payload );
   if( FD_UNLIKELY( !fd_memeq( accts[ txn->instr[ 0 ].program_id ].b, null_addr.b, 32UL       ) ) ) return 1;
+  /* SIMD-0242 requires the nonce account to be static. */
+  if( FD_UNLIKELY( txne->txnp->payload[ txn->instr[ 0 ].acct_off ]>=txn->acct_addr_cnt ) ) return 1;
   if( FD_UNLIKELY( !fd_txn_is_writable( txn, txne->txnp->payload[ txn->instr[ 0 ].acct_off ] ) ) ) return 1;
   if( FD_UNLIKELY( !fd_txn_is_signer( txn, txne->txnp->payload[ txn->instr[ 0 ].acct_off+2 ] ) ) ) return 0;
   /* We could check recent blockhash, but it's not necessary */

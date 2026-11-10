@@ -831,11 +831,11 @@ enum MetricsDiagBundleState {
   METRICS_DIAG_BUNDLE_STATE_DISABLED = 5;  // No bundle tiles configured
 }
 
-// Vote subsystem state: 0=disabled (Non-voting or no tower tile), 1=not_started (Tower tile not running or no votes cast yet), 2=delinquent (Vote distance exceeds threshold or vote stalled), 3=voting (Voting normally), 4=inadmissible (Voting, but the vote account fails the validator admission ticket filter)
+// Vote subsystem state: 0=disabled (Non-voting or no votor tile), 1=not_started (Votor tile not running or no votes cast yet), 2=delinquent (Vote distance exceeds threshold or vote stalled), 3=voting (Voting normally), 4=inadmissible (Voting, but the vote account fails the validator admission ticket filter)
 enum MetricsDiagVoteState {
   METRICS_DIAG_VOTE_STATE_UNSPECIFIED = 0;
-  METRICS_DIAG_VOTE_STATE_DISABLED = 1;  // Non-voting or no tower tile
-  METRICS_DIAG_VOTE_STATE_NOT_STARTED = 2;  // Tower tile not running or no votes cast yet
+  METRICS_DIAG_VOTE_STATE_DISABLED = 1;  // Non-voting or no votor tile
+  METRICS_DIAG_VOTE_STATE_NOT_STARTED = 2;  // Votor tile not running or no votes cast yet
   METRICS_DIAG_VOTE_STATE_DELINQUENT = 3;  // Vote distance exceeds threshold or vote stalled
   METRICS_DIAG_VOTE_STATE_VOTING = 4;  // Voting normally
   METRICS_DIAG_VOTE_STATE_INADMISSIBLE = 5;  // Voting, but the vote account fails the validator admission ticket filter
@@ -10774,7 +10774,7 @@ message MetricsReplay {
   uint64 epoch_credits = 28;
   // Whether our vote account's stake is not admitted: at the optimistically confirmed slot it fails the validator admission ticket filter (missing, below the V4 rent-exempt minimum, or not V4 with a BLS pubkey), or it passes but has not yet been admitted at an epoch boundary
   bool is_vote_account_inadmissible = 29;
-  // Latest slot for which our vote appears in a reward certificate, 0 if none observed (always 0 under Tower)
+  // Latest slot for which our vote appears in a reward certificate, 0 if none observed
   uint64 last_rewarded_vote_slot = 30;
   // Duration of ingesting one queried FEC set into the scheduler
   MetricsReplayStoreQueryDurationNanos store_query_duration_nanos = 31;
@@ -10806,7 +10806,7 @@ message MetricsReplay {
   uint64 leader_slot = 44;
   // Slot at which we are next leader, or 0 if none. If we are currently leader, this is the same as the current leader slot
   uint64 next_leader_slot = 45;
-  // Slot replay last reset to (Tower reset slot; under Alpenglow the newest replayed slot or parent-ready parent); can decrease
+  // Slot replay last reset to (the newest replayed slot or parent-ready parent); can decrease
   uint64 reset_slot = 46;
   // Maximum number of banks we can have alive
   uint64 bank_capacity = 47;
@@ -12019,7 +12019,7 @@ message MetricsDiag {
   uint64 timer_irq = 24;
   // Bundle subsystem state: 0=disconnected (All bundle tiles disconnected), 1=connecting (At least one bundle tile connecting, none connected or sleeping), 2=connected (At least one bundle tile connected), 3=sleeping (At least one bundle tile sleeping, none connected), 4=disabled (No bundle tiles configured)
   MetricsDiagBundleState bundle_state = 25;
-  // Vote subsystem state: 0=disabled (Non-voting or no tower tile), 1=not_started (Tower tile not running or no votes cast yet), 2=delinquent (Vote distance exceeds threshold or vote stalled), 3=voting (Voting normally), 4=inadmissible (Voting, but the vote account fails the validator admission ticket filter)
+  // Vote subsystem state: 0=disabled (Non-voting or no votor tile), 1=not_started (Votor tile not running or no votes cast yet), 2=delinquent (Vote distance exceeds threshold or vote stalled), 3=voting (Voting normally), 4=inadmissible (Voting, but the vote account fails the validator admission ticket filter)
   MetricsDiagVoteState vote_state = 26;
   // Replay subsystem state: 0=disabled (No replay tile), 1=not_started (Replay tile not running or slots are zero), 2=behind (Replay lagging behind turbine or reset slot stalled), 3=running (Replay keeping up)
   MetricsDiagReplayState replay_state = 27;

@@ -2,7 +2,6 @@
 #define HEADER_fd_src_flamenco_leaders_fd_leaders_h
 
 /* fd_leaders provides APIs for the Solana leader schedule.
-   Logic is compatible with Solana mainnet as of 2023-Jul.
 
    Every slot is assigned a leader (identified by a "node identity"
    public key).  The sequence of leaders for all slots in an epoch is

@@ -285,11 +285,7 @@ genesis_create( void *                       buf,
 
   /* Create rent configuration */
 
-  genesis->rent = (fd_rent_t) {
-    .lamports_per_uint8_year = 3480,
-    .exemption_threshold     = 2.0,
-    .burn_percent            = 50,
-  };
+  genesis->rent = FD_RENT_DEFAULT_PARAMS;
 
   /* Create inflation configuration */
 

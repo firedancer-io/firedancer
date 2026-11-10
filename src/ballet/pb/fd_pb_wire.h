@@ -146,7 +146,7 @@ fd_pb_append_varint64( uchar buf[ fd_pb_varint64_sz_max ],
   /* Generate continuation bits */
   ulong const pattern = 0x8080808080808080UL;
   ulong cont0 = _bzhi_u64( pattern, (uint)fd_uint_min( (uint)(  len   <<3 ), 64 ) );
-  ulong cont1 = _bzhi_u64( pattern,                    (uint)( (len-8)<<3 )       );
+  ulong cont1 = _bzhi_u64( pattern,                    ( (uint)len-8U )<<3       );
   /* Store result */
   FD_STORE( ulong,  buf,             enc0|cont0   );
   FD_STORE( ushort, buf+8, (ushort)( enc1|cont1 ) );

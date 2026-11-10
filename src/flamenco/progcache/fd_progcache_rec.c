@@ -9,7 +9,7 @@
 
 /* rec_init_inflight turns a write-locked record of class c into an in-flight
    one owned by the caller.  Callers hold the write lock and have the record
-   out of the map, so no other thread can observe the intermediate state. */
+   out of the map. */
 
 static fd_progcache_rec_t *
 rec_init_inflight( fd_progcache_join_t * join,

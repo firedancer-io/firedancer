@@ -481,15 +481,15 @@ test_rx_non_fd_packets( void ) {
   };
   for( ulong i=0UL; i<sizeof(cases)/sizeof(cases[0]); i++ ) {
     test_vfs_init();
-    test_tile.vf_cnt             = 1UL;
-    test_tile.batch_size         = 1U;
-    test_tile.net.dst_port_cnt   = 1UL;
-    test_tile.net.dst_ports[0]   = 9000U;
-    test_tile.net.dst_protos[0]  = DST_PROTO_SHRED;
-    test_tile.net.dst_out_idx[0] = cases[i].out_idx;
-    test_tile.net.rx_out_cnt     = 1UL;
-    test_tile.net.pkt_buf_chunk0 = 1UL;
-    test_tile.net.pkt_buf_wmark  = 33UL;
+    test_tile.vf_cnt                 = 1UL;
+    test_tile.batch_size             = 1U;
+    test_tile.net.rx_dest_cnt        = 1UL;
+    test_tile.net.rx_listen_ports[0] = 9000U;
+    test_tile.net.rx_proto_ids[0]    = DST_PROTO_SHRED;
+    test_tile.net.rx_out_link_idx[0] = cases[i].out_idx;
+    test_tile.net.rx_out_cnt         = 1UL;
+    test_tile.net.pkt_buf_chunk0     = 1UL;
+    test_tile.net.pkt_buf_wmark      = 33UL;
     uchar packet_memory[ 4096 ] __attribute__((aligned(64))) = {0};
     test_tile.net.pkt_buf_wksp_base = packet_memory;
     fd_eth_hdr_t * eth = fd_chunk_to_laddr( packet_memory, 1UL );

@@ -3,6 +3,7 @@
 #define NAME "sysctl"
 
 #include "../../../platform/fd_file_util.h"
+#include "../../../../discof/restore/utils/fd_sshttp.h"
 
 #include <errno.h>
 #include <stdio.h>
@@ -41,6 +42,12 @@ static const sysctl_param_t params[] = {
   {
     "/proc/sys/fs/nr_open", /* uint */
     CONFIGURE_NR_OPEN_FILES,
+    ENFORCE_MINIMUM,
+    0,
+  },
+  {
+    "/proc/sys/net/core/rmem_max", /* int */
+    FD_SSHTTP_SO_RCVBUF,
     ENFORCE_MINIMUM,
     0,
   },

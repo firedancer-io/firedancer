@@ -15,7 +15,7 @@ test_pb_tokenize1( void ) {
 # define EXPECT_TLV( in, ... ) do {           \
     fd_pb_tlv_t expected = __VA_ARGS__;       \
     fd_pb_tlv_t actual;                       \
-    FD_TEST( fd_pb_read_tlv( in, &actual ) ); \
+    FD_TEST( fd_pb_tlv_read( in, &actual ) ); \
     if( FD_UNLIKELY( !fd_memeq( &expected, &actual, sizeof(fd_pb_tlv_t) ) ) ) { \
       FD_LOG_HEXDUMP_NOTICE(( "exp", &expected, sizeof(fd_pb_tlv_t) ));\
       FD_LOG_HEXDUMP_ERR   (( "act", &actual,   sizeof(fd_pb_tlv_t) ));\
@@ -40,6 +40,8 @@ test_pb_corrupt( void ) {
   static uchar const tag_eof[] = { 0x80 };
   static uchar const wire_type_invalid[] = { 0x03, 0x00 };
   static uchar const varint_mega[] = { 0x08, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x01 };
+  static uchar const varint_overflow[] = { 0x08, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x02 };
+  static uchar const field_zero[] = { 0x00, 0x01 };
   static uchar const varint_eof[] = { 0x08, 0x80 };
   static uchar const i32_eof[] = { 0x0d, 0x01, 0x02 };
   static uchar const i64_eof[] = { 0x09, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07 };
@@ -49,6 +51,8 @@ test_pb_corrupt( void ) {
     { tag_eof,           sizeof(tag_eof)               },
     { wire_type_invalid, sizeof(wire_type_invalid)     },
     { varint_mega,       sizeof(varint_mega)           },
+    { varint_overflow,   sizeof(varint_overflow)       },
+    { field_zero,        sizeof(field_zero)            },
     { varint_eof,        sizeof(varint_eof)            },
     { i32_eof,           sizeof(i32_eof)               },
     { i64_eof,           sizeof(i64_eof)               },
@@ -58,7 +62,7 @@ test_pb_corrupt( void ) {
     fd_pb_inbuf_t inbuf[1];
     fd_pb_inbuf_init( inbuf, corrupt_cases[i].p, corrupt_cases[i].sz );
     fd_pb_tlv_t tlv;
-    FD_TEST( !fd_pb_read_tlv( inbuf, &tlv ) );
+    FD_TEST( !fd_pb_tlv_read( inbuf, &tlv ) );
   }
 }
 

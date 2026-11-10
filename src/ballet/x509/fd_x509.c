@@ -1198,19 +1198,29 @@ fd_x509_san_matches( fd_x509_cert_info_t const * info,
 
   int   is_ip4 = 0;
   uchar ip4[ 4 ];
+  int numeric = 1;
+  for( ulong i=0UL; i<hostname_len; i++ )
+    numeric &= (hostname[i]>='0' && hostname[i]<='9') || hostname[i]=='.';
+  if( numeric && hostname_len>15UL ) return 0;
   if( hostname_len<=15UL ) {
     char ip4_cstr[ 16 ];
     memcpy( ip4_cstr, hostname, hostname_len );
     ip4_cstr[ hostname_len ] = '\0';
     uint addr;
     if( fd_cstr_to_ip4_addr( ip4_cstr, &addr ) ) {
+      /* The resolver accepts octal octets; only accept canonical
+         dotted decimal here so the two interpretations cannot differ. */
+      for( ulong i=0UL; i<hostname_len; i++ ) {
+        if( ( !i || hostname[ i-1UL ]=='.' ) && hostname[ i ]=='0' &&
+            i+1UL<hostname_len && hostname[ i+1UL ]!='.' ) return 0;
+      }
       is_ip4 = 1;
       /* opposite endianness of FD_IP4_ADDR */
       ip4[0] = (uchar)( addr       );
       ip4[1] = (uchar)( addr >>  8 );
       ip4[2] = (uchar)( addr >> 16 );
       ip4[3] = (uchar)( addr >> 24 );
-    }
+    } else if( numeric ) return 0;
   }
   if( FD_UNLIKELY( !info->has_subject_alt_name ) ) return 0;
 

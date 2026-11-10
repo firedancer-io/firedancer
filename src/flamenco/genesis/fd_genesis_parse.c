@@ -122,6 +122,7 @@ fd_genesis_parse( fd_genesis_t * genesis,
 
   CHECK_LEFT( 8UL ); genesis->poh.tick_duration_secs = FD_LOAD( ulong, CURSOR ); INC( 8UL );
   CHECK_LEFT( 4UL ); genesis->poh.tick_duration_ns   = FD_LOAD( uint,  CURSOR ); INC( 4UL );
+  CHECK( genesis->poh.tick_duration_ns<1000000000U );
   CHECK_LEFT( 1UL ); int has_target_tick_count       = FD_LOAD( uchar, CURSOR ); INC( 1UL );
   CHECK( has_target_tick_count<=1 );
   if( has_target_tick_count ) { CHECK_LEFT( 8UL ); genesis->poh.target_tick_count = FD_LOAD( ulong, CURSOR ); INC( 8UL ); }

@@ -128,6 +128,12 @@ fd_tls_decode_client_hello( fd_tls_client_hello_t * out,
     case FD_TLS_EXT_ALPN:
       ext_parse_res = fd_tls_decode_ext_alpn( &out->alpn, ext_data, ext_sz );
       break;
+    case FD_TLS_EXT_PRE_SHARED_KEY:
+      /* RFC 8446 Section 4.2.11: pre_shared_key must be last. */
+      if( FD_UNLIKELY( wire_laddr+ext_sz!=list_stop ) )
+        return -(long)FD_TLS_ALERT_ILLEGAL_PARAMETER;
+      ext_parse_res = (long)ext_sz;
+      break;
     default:
       ext_parse_res = (long)ext_sz;
       break;
@@ -146,6 +152,12 @@ fd_tls_decode_client_hello( fd_tls_client_hello_t * out,
   out->has_supported_groups     = !!( seen & (1UL<<FD_TLS_EXT_SUPPORTED_GROUPS) );
   out->has_signature_algorithms = !!( seen & (1UL<<FD_TLS_EXT_SIGNATURE_ALGORITHMS) );
   out->has_key_share            = !!( seen & (1UL<<FD_TLS_EXT_KEY_SHARE) );
+
+  /* RFC 8446 Section 4.2.9 requires modes whenever a PSK is offered,
+     even when the server does not select a PSK. */
+  if( FD_UNLIKELY( (seen & (1UL<<FD_TLS_EXT_PRE_SHARED_KEY)) &&
+                  !(seen & (1UL<<FD_TLS_EXT_PSK_KEY_EXCHANGE_MODES)) ) )
+    return -(long)FD_TLS_ALERT_MISSING_EXTENSION;
 
   return (long)( wire_laddr - (ulong)wire );
 }
@@ -363,8 +375,7 @@ fd_tls_decode_server_hello( fd_tls_server_hello_t * out,
     FD_TLS_DECODE_STATIC_BATCH( FIELDS )
 # undef FIELDS
 
-  if( FD_UNLIKELY( ( legacy_version != FD_TLS_VERSION_TLS12 )
-                 | ( legacy_compression_method != 0         ) ) )
+  if( FD_UNLIKELY( legacy_version != FD_TLS_VERSION_TLS12 ) )
     return -(long)FD_TLS_ALERT_PROTOCOL_VERSION;
 
   out->cipher_suite = cipher_suite;
@@ -410,7 +421,7 @@ fd_tls_decode_server_hello( fd_tls_server_hello_t * out,
       FD_TLS_DECODE_FIELD( &chosen_version, ushort );
       ext_parse_res = 2L;
       if( FD_UNLIKELY( chosen_version!=FD_TLS_VERSION_TLS13 ) )
-        return -(long)FD_TLS_ALERT_PROTOCOL_VERSION;
+        return -(long)FD_TLS_ALERT_ILLEGAL_PARAMETER;
       break;
     }
     case FD_TLS_EXT_KEY_SHARE:
@@ -446,6 +457,8 @@ fd_tls_decode_server_hello( fd_tls_server_hello_t * out,
 
   if( FD_UNLIKELY( !(seen & (1UL<<FD_TLS_EXT_SUPPORTED_VERSIONS)) ) )
     return -(long)FD_TLS_ALERT_PROTOCOL_VERSION;
+  if( FD_UNLIKELY( legacy_compression_method != 0 ) )
+    return -(long)FD_TLS_ALERT_ILLEGAL_PARAMETER;
   if( FD_UNLIKELY( !(seen & (1UL<<FD_TLS_EXT_KEY_SHARE)) ) )
     return -(long)FD_TLS_ALERT_MISSING_EXTENSION;
   if( FD_UNLIKELY( !out->key_share.has_x25519 ) )
@@ -1140,13 +1153,22 @@ fd_tls_extract_cert_pubkey_( fd_tls_extract_cert_pubkey_res_t * res,
     if( FD_UNLIKELY( ext_sz ) ) return -(long)FD_TLS_ALERT_UNSUPPORTED_EXTENSION;
   }
 
-  if( FD_UNLIKELY( fd_x509_extract_pubkey( cert, cert_sz, &res->pubkey,
-                                           &res->pubkey_len, &res->key_type ) ) ) {
+  fd_x509_cert_info_t info;
+  if( FD_UNLIKELY( fd_x509_cert_parse( cert, cert_sz, &info ) ) ) {
     res->pubkey = NULL;
-    res->alert  = FD_TLS_ALERT_UNSUPPORTED_CERTIFICATE;
+    res->alert  = FD_TLS_ALERT_BAD_CERTIFICATE;
     res->reason = FD_TLS_REASON_X509_PARSE;
     return -1L;
   }
+  if( FD_UNLIKELY( info.key_type==FD_X509_KEY_UNKNOWN ) ) {
+    res->pubkey = NULL;
+    res->alert  = FD_TLS_ALERT_UNSUPPORTED_CERTIFICATE;
+    res->reason = FD_TLS_REASON_CERT_KEY_TYPE;
+    return -1L;
+  }
+  res->pubkey     = info.pubkey;
+  res->pubkey_len = info.pubkey_len;
+  res->key_type   = info.key_type;
 
   return 0L;
 }

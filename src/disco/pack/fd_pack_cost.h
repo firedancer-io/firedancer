@@ -182,10 +182,10 @@ FD_STATIC_ASSERT( FD_MAX_TXN_PER_SLOT_CU==(FD_PACK_MAX_COST_PER_BLOCK_UPPER_BOUN
    measured in lamports (i.e. the part of the fee that excludes the
    per-signature fee). This value is in [0, ULONG_MAX].
    If opt_precompile_sig_cnt is non-null, on success it will contain the
-   total number of signatures in precompile instructions, namely Keccak
-   and Ed25519 signature verification programs.  This value is in [0,
-   256*64].  Note that this does not do full parsing of the precompile
-   instruction, and it may be malformed.
+   total number of signatures in secp256k1, Ed25519, and secp256r1
+   precompile instructions.  This value is in [0, 16].  Note that this
+   does not do full parsing of the precompile instruction, and it may
+   be malformed.
    If opt_loaded_accounts_data_cost is non-null, on success it will
    contain the total requested cost due to loaded accounts data.  This
    value is in [0, the returned value).

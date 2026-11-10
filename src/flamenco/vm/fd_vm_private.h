@@ -376,10 +376,8 @@ fd_vm_handle_input_mem_region_oob( fd_vm_t const * vm,
 
 /* fd_vm_find_input_mem_region returns the translated haddr for a given
    offset into the input region.  If an offset/sz is invalid or if an
-   illegal write is performed, the sentinel value is returned. If the offset
-   provided is too large, it will choose the upper-most region as the
-   region_idx. However, it will get caught for being too large of an access
-   in the multi-region checks. */
+   illegal write is performed, the sentinel value is returned.  The
+   access must fit within a single input memory region. */
 static inline ulong
 fd_vm_find_input_mem_region( fd_vm_t const * vm,
                              ulong           offset,

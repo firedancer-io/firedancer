@@ -91,7 +91,9 @@ fd_cost_tracker_new( void * shmem,
 
   cost_tracker->pool_offset = (ulong)_accounts-(ulong)cost_tracker;
 
+  fd_memset( cost_tracker->cost_tracker, 0, sizeof(fd_cost_tracker_t) );
   cost_tracker->cost_tracker->bench_max_cost_per_block = bench_max_cost_per_block;
+  cost_tracker->accounts_used = 0UL;
 
   fd_rwlock_new( &cost_tracker->lock );
 

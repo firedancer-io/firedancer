@@ -35,121 +35,6 @@ typedef struct effective_activating effective_activating_t;
 /* Static helpers                                                     */
 /**********************************************************************/
 
-// https://github.com/solana-program/stake/blob/interface@v4.3.0/interface/src/state.rs#L694-L778
-static effective_activating_t
-stake_and_activating( fd_delegation_t const *    self,
-                      ulong                      target_epoch,
-                      fd_stake_history_t const * history,
-                      ulong *                    new_rate_activation_epoch ) {
-  ulong delegated_stake = self->stake;
-
-  fd_stake_history_entry_t const * cluster_stake_at_activation_epoch;
-  if( self->activation_epoch==ULONG_MAX ) {
-    return ( effective_activating_t ){ .effective = delegated_stake, .activating = 0 };
-  } else if( self->activation_epoch==self->deactivation_epoch ) {
-    return ( effective_activating_t ){ .effective = 0, .activating = 0 };
-  } else if( target_epoch==self->activation_epoch ) {
-    return ( effective_activating_t ){ .effective = 0, .activating = delegated_stake };
-  } else if( target_epoch<self->activation_epoch ) {
-    return ( effective_activating_t ){ .effective = 0, .activating = 0 };
-  } else if( history &&
-              ( cluster_stake_at_activation_epoch = fd_sysvar_stake_history_query( history, self->activation_epoch ) ) ) {
-    ulong                            prev_epoch         = self->activation_epoch;
-    fd_stake_history_entry_t const * prev_cluster_stake = cluster_stake_at_activation_epoch;
-
-    ulong current_epoch;
-    ulong current_effective_stake = 0;
-    for( ;; ) {
-      current_epoch = prev_epoch + 1;
-      if( FD_LIKELY( prev_cluster_stake->activating==0 ) ) {
-        break;
-      }
-
-      ulong remaining_activating_stake = delegated_stake - current_effective_stake;
-      ulong newly_effective_stake = fd_ulong_max( fd_stake_calculate_change_allowance_float( current_epoch, remaining_activating_stake, prev_cluster_stake->activating, prev_cluster_stake->effective, new_rate_activation_epoch ), 1 );
-
-      current_effective_stake += newly_effective_stake;
-      if( FD_LIKELY( current_effective_stake>=delegated_stake ) ) {
-        current_effective_stake = delegated_stake;
-        break;
-      }
-
-      if( FD_LIKELY( current_epoch>=target_epoch ||
-                     current_epoch>=self->deactivation_epoch ) ) {
-        break;
-      }
-
-      fd_stake_history_entry_t const * current_cluster_stake = fd_sysvar_stake_history_query( history, current_epoch );
-      if( FD_LIKELY( current_cluster_stake ) ) {
-        prev_epoch         = current_epoch;
-        prev_cluster_stake = current_cluster_stake;
-      } else {
-        break;
-      }
-    }
-    return ( effective_activating_t ){ .effective  = current_effective_stake,
-                                       .activating = delegated_stake - current_effective_stake };
-  } else {
-    return ( effective_activating_t ){ .effective = delegated_stake, .activating = 0 };
-  }
-}
-
-/* https://github.com/solana-program/stake/blob/interface@v4.3.0/interface/src/state.rs#L606-L690 */
-fd_stake_history_entry_t
-stake_activating_and_deactivating( fd_delegation_t const *    self,
-                                   ulong                      target_epoch,
-                                   fd_stake_history_t const * stake_history,
-                                   ulong *                    new_rate_activation_epoch ) {
-
-  effective_activating_t effective_activating = stake_and_activating( self, target_epoch, stake_history, new_rate_activation_epoch );
-
-  ulong effective_stake  = effective_activating.effective;
-  ulong activating_stake = effective_activating.activating;
-
-  fd_stake_history_entry_t const * cluster_stake_at_deactivation_epoch = NULL;
-
-  if( target_epoch<self->deactivation_epoch ) {
-    if( activating_stake==0 ) {
-      return ( fd_stake_history_entry_t ){ .effective = effective_stake, .deactivating = 0, .activating = 0 };
-    } else {
-      return ( fd_stake_history_entry_t ){ .effective = effective_stake, .deactivating = 0, .activating = activating_stake };
-    }
-  } else if( target_epoch==self->deactivation_epoch ) {
-    return ( fd_stake_history_entry_t ){ .effective = effective_stake, .deactivating = effective_stake, .activating = 0 };
-  } else if( stake_history &&
-             ( cluster_stake_at_deactivation_epoch = fd_sysvar_stake_history_query( stake_history, self->deactivation_epoch ) ) ) {
-    ulong                            prev_epoch         = self->deactivation_epoch;
-    fd_stake_history_entry_t const * prev_cluster_stake = cluster_stake_at_deactivation_epoch;
-
-    ulong current_epoch;
-    ulong current_effective_stake = effective_stake;
-    for( ;; ) {
-      current_epoch = prev_epoch + 1;
-      if( prev_cluster_stake->deactivating==0 ) break;
-
-      ulong newly_not_effective_stake = fd_ulong_max( fd_stake_calculate_change_allowance_float( current_epoch, current_effective_stake, prev_cluster_stake->deactivating, prev_cluster_stake->effective, new_rate_activation_epoch ), 1 );
-
-      current_effective_stake = fd_ulong_sat_sub( current_effective_stake, newly_not_effective_stake );
-      if( current_effective_stake==0 ) break;
-
-      if( current_epoch>=target_epoch ) break;
-
-      fd_stake_history_entry_t const * current_cluster_stake = NULL;
-      if( ( current_cluster_stake = fd_sysvar_stake_history_query(stake_history, current_epoch ) ) ) {
-        prev_epoch         = current_epoch;
-        prev_cluster_stake = current_cluster_stake;
-      } else {
-        break;
-      }
-    }
-    return ( fd_stake_history_entry_t ){ .effective    = current_effective_stake,
-                                         .deactivating = current_effective_stake,
-                                         .activating   = 0 };
-  } else {
-    return ( fd_stake_history_entry_t ){ .effective = 0, .activating = 0, .deactivating = 0 };
-  }
-}
-
 /* https://github.com/solana-program/stake/blob/interface@v4.3.0/interface/src/warmup_cooldown_allowance.rs#L7-L14 */
 static ulong
 fd_stake_warmup_cooldown_rate_bps( ulong current_epoch, ulong * opt_rate_change_activation_epoch ) {
@@ -209,14 +94,12 @@ fd_stake_calculate_deactivation_allowance( ulong                            curr
                                            opt_rate_change_activation_epoch );
 }
 
-/* Fixed-point version of stake_and_activating.
-   Mirrors exactly the logic in the on-chain stake program:
-   https://github.com/solana-program/stake/blob/interface@v4.3.0/interface/src/state.rs#L881-L971 */
+/* https://github.com/solana-program/stake/blob/interface@v4.3.0/interface/src/state.rs#L881-L971 */
 static effective_activating_t
-stake_and_activating_v2( fd_delegation_t const *    self,
-                         ulong                      target_epoch,
-                         fd_stake_history_t const * history,
-                         ulong *                    new_rate_activation_epoch ) {
+stake_and_activating( fd_delegation_t const *    self,
+                      ulong                      target_epoch,
+                      fd_stake_history_t const * history,
+                      ulong *                    new_rate_activation_epoch ) {
   ulong delegated_stake = self->stake;
 
   fd_stake_history_entry_t const * prev_cluster_stake = NULL;
@@ -283,16 +166,14 @@ stake_and_activating_v2( fd_delegation_t const *    self,
   }
 }
 
-/* Fixed-point version of stake_activating_and_deactivating.
-   Mirrors exactly the logic in the on-chain stake program:
-   https://github.com/solana-program/stake/blob/interface@v4.3.0/interface/src/state.rs#L790-L879 */
+/* https://github.com/solana-program/stake/blob/interface@v4.3.0/interface/src/state.rs#L790-L879 */
 static fd_stake_history_entry_t
-stake_activating_and_deactivating_v2( fd_delegation_t const *    self,
-                                      ulong                      target_epoch,
-                                      fd_stake_history_t const * history,
-                                      ulong *                    new_rate_activation_epoch ) {
+stake_activating_and_deactivating( fd_delegation_t const *    self,
+                                   ulong                      target_epoch,
+                                   fd_stake_history_t const * history,
+                                   ulong *                    new_rate_activation_epoch ) {
   effective_activating_t effective_activating =
-      stake_and_activating_v2( self, target_epoch, history, new_rate_activation_epoch );
+      stake_and_activating( self, target_epoch, history, new_rate_activation_epoch );
   ulong effective_stake  = effective_activating.effective;
   ulong activating_stake = effective_activating.activating;
 
@@ -364,27 +245,20 @@ fd_stake_history_entry_t
 fd_delegation_activation_status( fd_delegation_t const *    self,
                                  ulong                      target_epoch,
                                  fd_stake_history_t const * stake_history,
-                                 ulong *                    new_rate_activation_epoch,
-                                 int                        use_fixed_point_stake_math ) {
-  if( use_fixed_point_stake_math ) {
-    return stake_activating_and_deactivating_v2( self, target_epoch, stake_history, new_rate_activation_epoch );
-  } else {
-    return stake_activating_and_deactivating( self, target_epoch, stake_history, new_rate_activation_epoch );
-  }
+                                 ulong *                    new_rate_activation_epoch ) {
+  return stake_activating_and_deactivating( self, target_epoch, stake_history, new_rate_activation_epoch );
 }
 
 int
 fd_delegation_is_inactive( fd_delegation_t const *    delegation,
                            ulong                      target_epoch,
                            fd_stake_history_t const * stake_history,
-                           ulong *                    new_rate_activation_epoch,
-                           int                        use_fixed_point_stake_math ) {
+                           ulong *                    new_rate_activation_epoch ) {
   fd_stake_history_entry_t status = fd_delegation_activation_status(
       delegation,
       target_epoch,
       stake_history,
-      new_rate_activation_epoch,
-      use_fixed_point_stake_math );
+      new_rate_activation_epoch );
   return !status.effective && !status.activating;
 }
 
@@ -435,24 +309,21 @@ fd_stake_history_entry_t
 fd_stake_delegation_activation_status( fd_stake_delegation_t const * stake_delegation,
                                        ulong                         target_epoch,
                                        fd_stake_history_t const *    stake_history,
-                                       ulong *                       new_rate_activation_epoch,
-                                       int                           use_fixed_point_stake_math ) {
+                                       ulong *                       new_rate_activation_epoch ) {
   fd_delegation_t delegation = fd_delegation_from_stake_delegation( stake_delegation );
-  return fd_delegation_activation_status( &delegation, target_epoch, stake_history, new_rate_activation_epoch, use_fixed_point_stake_math );
+  return fd_delegation_activation_status( &delegation, target_epoch, stake_history, new_rate_activation_epoch );
 }
 
 int
 fd_stake_delegation_is_inactive( fd_stake_delegation_t const * delegation,
                                  ulong                         target_epoch,
                                  fd_stake_history_t const *    stake_history,
-                                 ulong *                       new_rate_activation_epoch,
-                                 int                           use_fixed_point_stake_math ) {
+                                 ulong *                       new_rate_activation_epoch ) {
   fd_delegation_t raw_delegation = fd_delegation_from_stake_delegation( delegation );
   return fd_delegation_is_inactive( &raw_delegation,
                                     target_epoch,
                                     stake_history,
-                                    new_rate_activation_epoch,
-                                    use_fixed_point_stake_math );
+                                    new_rate_activation_epoch );
 }
 
 ulong
@@ -563,7 +434,6 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
   ulong total_activating           = 0UL;
   ulong total_deactivating         = 0UL;
   ulong staked_accounts            = 0UL;
-  int   use_fixed_point_stake_math = FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 );
   int   block_revenue_sharing      = FD_FEATURE_ACTIVE_BANK( bank, block_revenue_sharing );
   int   accumulate_reward_stakes   = rewarded_epoch!=ULONG_MAX;
 
@@ -585,7 +455,7 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
     } else if( st==FD_STAKE_DELEGATION_STATE_COOLED ) {
       new_acc = (fd_stake_history_entry_t){ .effective = 0UL, .activating = 0UL, .deactivating = 0UL };
     } else {
-      new_acc = fd_stake_delegation_activation_status( stake_delegation, epoch, history, new_rate_activation_epoch, use_fixed_point_stake_math );
+      new_acc = fd_stake_delegation_activation_status( stake_delegation, epoch, history, new_rate_activation_epoch );
     }
 
     ulong reward_stake = 0UL;
@@ -593,7 +463,7 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
       if( FD_LIKELY( st==FD_STAKE_DELEGATION_STATE_WARMED ) ) {
         reward_stake = stake_delegation->stake;
       } else if( st!=FD_STAKE_DELEGATION_STATE_COOLED ) {
-        reward_stake = fd_stake_delegation_activation_status( stake_delegation, rewarded_epoch, history, new_rate_activation_epoch, use_fixed_point_stake_math ).effective;
+        reward_stake = fd_stake_delegation_activation_status( stake_delegation, rewarded_epoch, history, new_rate_activation_epoch ).effective;
       }
     }
 
@@ -802,45 +672,6 @@ fd_stakes_activate_epoch( fd_bank_t *                    bank,
   fd_stake_history_entry_t elem = fd_stake_delegations_totals( stake_delegations );
   elem.epoch = bank->f.epoch;
 
-  /* Agave recomputes each stake history entry from scratch every epoch
-     boundary, whereas Firedancer keeps running totals. Therefore,
-     at the boundary where upgrade_bpf_stake_program_to_v5_1 is
-     activated, we need to recompute the stake history entry for the
-     epoch that has just ended, so that all the delegations for this
-     entry are summed using the new fixed point arithmetic. We only
-     need to do this once, at the feature activation epoch boundary.
-
-     https://github.com/anza-xyz/agave/blob/v4.2.0-beta.1/runtime/src/stakes.rs#L444-L477
-  */
-  if( FD_UNLIKELY( FD_FEATURE_JUST_ACTIVATED_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ) ) ) {
-    uchar              history_data[ FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ ];
-    fd_stake_history_t history[1];
-    if( FD_UNLIKELY( !fd_sysvar_stake_history_read( accdb, bank->accdb_fork_id, history_data, history ) ) ) {
-      FD_LOG_CRIT(( "invariant violation: StakeHistory sysvar missing or invalid" ));
-    }
-    ulong effective    = 0UL;
-    ulong activating   = 0UL;
-    ulong deactivating = 0UL;
-
-    int use_fixed_point_stake_math = FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 );
-
-    fd_stake_delegations_iter_t iter_[1];
-    for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, stake_delegations );
-         !fd_stake_delegations_iter_done( iter );
-         fd_stake_delegations_iter_next( iter ) ) {
-      fd_stake_delegation_t const * stake_delegation = fd_stake_delegations_iter_ele( iter );
-      fd_stake_history_entry_t      acc              = fd_stake_delegation_activation_status(
-          stake_delegation, bank->f.epoch, history, new_rate_activation_epoch, use_fixed_point_stake_math );
-      effective    += acc.effective;
-      activating   += acc.activating;
-      deactivating += acc.deactivating;
-    }
-
-    elem.effective    = effective;
-    elem.activating   = activating;
-    elem.deactivating = deactivating;
-  }
-
   fd_sysvar_stake_history_update( bank, accdb, capture_ctx, &elem );
   if( FD_UNLIKELY( fd_bank_report_runtime_diffs( bank ) ) ) fd_event_runtime_epoch_stake_history( &elem );
 
@@ -909,10 +740,9 @@ fd_stakes_update_stake_delegation( fd_pubkey_t const *        pubkey,
 
   fd_stake_delegations_t * stake_delegations = fd_bank_stake_delegations_modify( bank );
   if( FD_FEATURE_ACTIVE_BANK( bank, remove_inactive_stakes ) ) {
-    int                        use_fp_stake_math = FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 );
-    fd_delegation_t const *    delegation        = &stake_state->stake.stake.delegation;
-    if( FD_UNLIKELY( fd_delegation_is_inactive( delegation, bank->f.epoch, stake_history, &bank->f.warmup_cooldown_rate_epoch, use_fp_stake_math ) &&
-                     fd_delegation_is_inactive( delegation, fd_ulong_sat_sub( bank->f.epoch, 1UL ), stake_history, &bank->f.warmup_cooldown_rate_epoch, use_fp_stake_math ) ) ) {
+    fd_delegation_t const * delegation = &stake_state->stake.stake.delegation;
+    if( FD_UNLIKELY( fd_delegation_is_inactive( delegation, bank->f.epoch, stake_history, &bank->f.warmup_cooldown_rate_epoch ) &&
+                     fd_delegation_is_inactive( delegation, fd_ulong_sat_sub( bank->f.epoch, 1UL ), stake_history, &bank->f.warmup_cooldown_rate_epoch ) ) ) {
       fd_stake_delegations_fork_remove( stake_delegations, bank->stake_delegations_fork_id, 0UL, pubkey, 0 );
       if( FD_UNLIKELY( txn_in && fd_bank_report_runtime_diffs( bank ) ) ) fd_event_runtime_stake_delegation_emit( txn_in, bank, pubkey, NULL );
       return;

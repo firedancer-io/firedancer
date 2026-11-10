@@ -498,10 +498,11 @@ during_housekeeping( fd_net_ctx_t * ctx ) {
 
 /* net_tx_route resolves the src IP address and for non-GRE routes the XSK
    index and MAC addresses.  Returns 1 on success, 0 on failure.
-   On success, tx_op.xsk_idx and net.tx_route.src_ip are set, and if the dst_ip
-   belongs to a GRE interface, is_gre_inf will set to 1 and net.tx_route.gre_outer_src_ip
-   and net.tx_route.gre_outer_dst_ip will be loaded from the netdev
-   table. is_gre_inf is set to 0 if dst_ip doesn't belong to a GRE interface. */
+   On success, net.tx_route.src_ip is set.  For GRE interfaces,
+   is_gre_inf is set to 1 and net.tx_route.gre_outer_src_ip and
+   net.tx_route.gre_outer_dst_ip are loaded from the netdev table;
+   tx_op.xsk_idx remains UINT_MAX until the outer route lookup.
+   Otherwise, is_gre_inf is set to 0 and tx_op.xsk_idx is set. */
 
 static int
 net_tx_route( fd_net_ctx_t * ctx,
@@ -612,8 +613,8 @@ before_frag( fd_net_ctx_t * ctx,
   if( FD_UNLIKELY( ctx->net.in_kind[ in_idx ]==FD_NET_IN_KIND_IPROUTE ) ) return 0;
 
   /* Find interface index of next packet */
-  ulong proto = fd_disco_netmux_sig_proto( sig );
-  if( FD_UNLIKELY( proto!=DST_PROTO_OUTGOING ) ) return 1;
+  ulong proto_id = fd_disco_netmux_sig_proto( sig );
+  if( FD_UNLIKELY( proto_id!=DST_PROTO_OUTGOING ) ) return 1;
 
   /* Load balance TX */
   ulong tile_cnt   = ctx->net.tile_cnt;
@@ -693,8 +694,7 @@ before_frag( fd_net_ctx_t * ctx,
   return 0; /* continue */
 }
 
-/* during_frag is called when before_frag has committed to transmit an
-   outgoing packet. */
+/* during_frag stages route updates or copies an outgoing packet. */
 
 static inline void
 during_frag( fd_net_ctx_t * ctx,
@@ -983,8 +983,6 @@ before_credit_prefbusy( fd_net_ctx_t *      ctx,
   ctx->rr_idx++;
   ctx->rr_idx = fd_uint_if( ctx->rr_idx>=ctx->xsk_cnt, 0, ctx->rr_idx );
 }
-
-/* before_credit is called every loop iteration. */
 
 static void
 before_credit( fd_net_ctx_t *      ctx,
@@ -1316,7 +1314,7 @@ unprivileged_init( fd_topo_t const *      topo,
     ctx->net.in_dcache_ctx[ i ].wmark     = fd_dcache_compact_wmark( ctx->net.in_dcache_ctx[ i ].wksp_base, link->dcache, link->mtu );
   }
 
-  fd_net_rx_dst_ports_init( &ctx->net, topo, tile );
+  fd_net_rx_dests_init( &ctx->net, topo, tile );
 
   ctx->netlnk_out_idx = fd_topo_find_tile_out_link( topo, tile, "net_netlnk", tile->kind_id );
   if( FD_UNLIKELY( ctx->netlnk_out_idx==ULONG_MAX ) ) FD_LOG_ERR(( "netlink request link not found" ));

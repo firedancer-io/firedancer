@@ -220,8 +220,17 @@ main( int     argc,
   FD_TEST( hs_client->hs.base.state == FD_TLS_HS_CONNECTED );
   FD_LOG_INFO(( "connected" ));
 
+  /* Duplicate data is harmless; new Handshake bytes after Finished are not. */
+  FD_TEST( fd_quic_tls_process( hs_server )==FD_QUIC_SUCCESS );
+  FD_TEST( hs_server->rx_sz<sizeof(hs_server->rx_hs_buf) );
+  hs_server->rx_hs_buf[ hs_server->rx_sz++ ] = 0;
+  FD_TEST( fd_quic_tls_process( hs_server )==FD_QUIC_FAILED );
+  FD_TEST( hs_server->alert==FD_TLS_ALERT_UNEXPECTED_MESSAGE );
+  FD_TEST( hs_server->hs.base.state==FD_TLS_HS_FAIL );
+
            fd_quic_tls_hs_delete( hs_client );
            fd_quic_tls_hs_delete( hs_server );
+
   FD_TEST( fd_quic_tls_delete   ( quic_tls  ) );
 
   fd_rng_delete( fd_rng_leave( rng ) );
