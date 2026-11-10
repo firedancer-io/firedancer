@@ -134,9 +134,6 @@ FD_PROTOTYPES_BEGIN
 
 #define MICRO_LAMPORTS_PER_LAMPORT (1000000UL)
 
-#define DEFAULT_HASHES_PER_TICK  (12500)
-#define FD_RUNTIME_MAX_HASHES_PER_TICK (62500UL)
-
 #define SECONDS_PER_YEAR ((double)(365.242199 * 24.0 * 60.0 * 60.0))
 
 /* https://github.com/anza-xyz/agave/blob/0d34a1a160129c4293dac248e14231e9e773b4ce/program-runtime/src/compute_budget.rs#L139 */

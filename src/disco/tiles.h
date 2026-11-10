@@ -52,16 +52,6 @@ struct fd_became_leader {
 
   ulong tick_duration_ns;
 
-  /* The number of ticks that the PoH tile has skipped, but needs to
-     publish to show peers they were skipped correctly.  This is used
-     to adjust some pack limits. */
-  ulong total_skipped_ticks;
-
-  /* The number of hashes per tick.  This is used to update the
-     parameter for the proof of history component in case it has
-     changed. */
-  ulong hashcnt_per_tick;
-
   /* The epoch of the slot for which we are becoming leader. */
   ulong epoch;
 
@@ -138,7 +128,6 @@ typedef struct fd_microblock_trailer fd_microblock_trailer_t;
 /* Sentinel sig values for messages on the pack_poh.  Normal
    done_packing messages use fd_disco_execle_sig( slot, pack_idx ). */
 #define FD_PACK_MSG_DONE_DRAINING   (ULONG_MAX)
-#define FD_PACK_MSG_REDUCE_MB_BOUND (ULONG_MAX-1UL)
 
 #define FD_PACK_END_SLOT_REASON_TIME       (1)
 #define FD_PACK_END_SLOT_REASON_MICROBLOCK (2)

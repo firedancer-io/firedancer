@@ -779,8 +779,8 @@ run_ag_structure_cases( void ) {
     run_ag_structure_case_up( start_poh, c, 3UL, 1, 1, FD_SCHED_DEAD_REASON_NONE ); }
 }
 
-/* More than FD_RUNTIME_MAX_HASHES_PER_TICK entries, each with one
-   transaction, exceed the production limits. */
+/* Tens of thousands of entries, each with one transaction, exceed the
+   production limits. */
 #define MANY_ENTRIES_MAX_SHREDS (2UL*FD_SHRED_BLK_MAX)
 #define MANY_ENTRIES_MAX_TXN    (2UL*FD_MAX_TXN_PER_SLOT)
 
@@ -869,22 +869,21 @@ run_many_entries_case( ulong entry_cnt,
 
 static void
 run_many_entries_cases( void ) {
-  ulong lim = FD_RUNTIME_MAX_HASHES_PER_TICK;
-  FD_TEST( FD_SCHED_MAX_MBLK_PER_SLOT>lim+1000UL );
+  ulong big = 60000UL;
+  FD_TEST( FD_SCHED_MAX_MBLK_PER_SLOT>big+1000UL );
   FD_TEST( MANY_ENTRIES_MAX_TXN>90000UL );
 
-  /* Entry counts are valid well past FD_RUNTIME_MAX_HASHES_PER_TICK */
-  run_many_entries_case( lim,      ULONG_MAX, 0UL, 1, FD_SCHED_DEAD_REASON_NONE );
-  run_many_entries_case( lim+1UL,  ULONG_MAX, 0UL, 1, FD_SCHED_DEAD_REASON_NONE );
+  /* There is no cap on entry count beyond the shred payload limit */
+  run_many_entries_case( big,      ULONG_MAX, 0UL, 1, FD_SCHED_DEAD_REASON_NONE );
+  run_many_entries_case( big+1UL,  ULONG_MAX, 0UL, 1, FD_SCHED_DEAD_REASON_NONE );
   run_many_entries_case( 90000UL,  ULONG_MAX, 0UL, 1, FD_SCHED_DEAD_REASON_NONE );
 
-  /* Every entry is pinned to one hash, deep into a long batch: this is
-     what bounds PoH work.  Neither a huge nor a zero hash count gets
-     through. */
-  run_many_entries_case( lim+100UL, lim+50UL, 2UL,       0, FD_SCHED_DEAD_REASON_ALPENGLOW_HASH_CNT );
-  run_many_entries_case( lim+100UL, lim+50UL, ULONG_MAX, 0, FD_SCHED_DEAD_REASON_ALPENGLOW_HASH_CNT );
-  run_many_entries_case( lim+100UL, lim+50UL, 0UL,       0, FD_SCHED_DEAD_REASON_ALPENGLOW_HASH_CNT );
-  run_many_entries_case( 10UL,      0UL,      lim+1UL,   0, FD_SCHED_DEAD_REASON_ALPENGLOW_HASH_CNT );
+  /* Every entry must declare exactly one hash, even deep into a long
+     batch.  Neither a huge nor a zero hash count gets through. */
+  run_many_entries_case( big+100UL, big+50UL, 2UL,       0, FD_SCHED_DEAD_REASON_ALPENGLOW_HASH_CNT );
+  run_many_entries_case( big+100UL, big+50UL, ULONG_MAX, 0, FD_SCHED_DEAD_REASON_ALPENGLOW_HASH_CNT );
+  run_many_entries_case( big+100UL, big+50UL, 0UL,       0, FD_SCHED_DEAD_REASON_ALPENGLOW_HASH_CNT );
+  run_many_entries_case( 10UL,      0UL,      big+1UL,   0, FD_SCHED_DEAD_REASON_ALPENGLOW_HASH_CNT );
 }
 
 /* Ingest a single empty FEC set to bring a new live block into the fork
