@@ -3968,6 +3968,46 @@ test_rotor_fec_blocked( fd_wksp_t * wksp ) {
   FD_LOG_NOTICE(( "pass: test_rotor_fec_blocked" ));
 }
 
+/* test_rotor_fec_lane_blocked: a block's first FEC waiting on a staging
+   lane reports its in blocked so the stem can park, like a full sched,
+   and counts lane_wait once per stall.  Another wait reason is not
+   taken for a lane wait. */
+
+static void
+test_rotor_fec_lane_blocked( fd_wksp_t * wksp ) {
+  static fd_replay_tile_t ctx[ 1 ];
+  setup_ctx( ctx, wksp );
+  fd_hash_t parent_bid = { .ul = { 0xBEEFUL } };
+  setup_ag_root( ctx, &parent_bid );
+  fd_hash_t mr = { .ul = { 701UL } };
+  ulong ing0 = mock_sched_fec_ingest_cnt;
+
+  mock_sched_lane_wait = 1;
+  for( ulong i=0UL; i<3UL; i++ ) FD_TEST( deliver_rotor_fec( ctx, 7UL, 0U, 0UL, &parent_bid, &mr, 0, 0 )==FD_STEM_FRAG_BLOCKED );
+  FD_TEST( ctx->metrics.lane_wait==1UL && ctx->lane_wait );
+  FD_TEST( mock_sched_fec_ingest_cnt==ing0 );
+
+  /* A full sched is its own stall and clears the lane wait */
+  mock_sched_capacity = 0UL;
+  mock_sched_drained  = 0;
+  FD_TEST( deliver_rotor_fec( ctx, 7UL, 0U, 0UL, &parent_bid, &mr, 0, 0 )==FD_STEM_FRAG_BLOCKED );
+  FD_TEST( ctx->sched_full && !ctx->lane_wait );
+  mock_sched_capacity = ULONG_MAX;
+  mock_sched_drained  = 1;
+
+  /* Back to a lane wait: a new stall */
+  FD_TEST( deliver_rotor_fec( ctx, 7UL, 0U, 0UL, &parent_bid, &mr, 0, 0 )==FD_STEM_FRAG_BLOCKED );
+  FD_TEST( ctx->metrics.lane_wait==2UL );
+
+  /* A lane frees: the FEC is ingested and the stall ends */
+  mock_sched_lane_wait = 0;
+  FD_TEST( deliver_rotor_fec( ctx, 7UL, 0U, 0UL, &parent_bid, &mr, 0, 0 )==0 );
+  FD_TEST( mock_sched_fec_ingest_cnt==ing0+1UL && !ctx->lane_wait );
+  FD_TEST( ctx->metrics.lane_wait==2UL );
+
+  FD_LOG_NOTICE(( "pass: test_rotor_fec_lane_blocked" ));
+}
+
 /* Minimal context setup for on_snapshot_message with mock_snapshot_boot=1.
    Returns the root bank (at snapshot_slot). */
 static fd_bank_t *
@@ -4505,6 +4545,8 @@ main( int     argc,
   test_ag_become_leader_refuses_settled_slot( wksp ); fd_wksp_reset( wksp, 42U );
   test_ag_leader_fec_not_gated( wksp );
   test_rotor_fec_blocked( wksp );
+  fd_wksp_reset( wksp, 42U );
+  test_rotor_fec_lane_blocked( wksp );
   fd_wksp_reset( wksp, 42U );
   test_snapmk_start_leader_after_epoch_rollover( wksp );
 
