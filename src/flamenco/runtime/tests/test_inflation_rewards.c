@@ -669,10 +669,11 @@ test_footer_fused_matches_sequential( fd_svm_mini_t * mini ) {
 /* Footer vote accounts are acquired writable once.  An executable
    vote account is stored with the bit cleared.  Accounts that are not
    readable vote accounts (wrong owner, uninitialized, undecodable,
-   zero lamports, missing) are released uncommitted.  The bank lthash
+   zero lamports, missing, oversized) are released uncommitted, and an
+   oversized one is rejected before its data is copied.  The bank lthash
    moves by exactly lthash(post)-lthash(pre) of the touched accounts. */
 
-#define ACQ_KEY_CNT (7UL)
+#define ACQ_KEY_CNT (8UL)
 
 static void
 acq_account_lthash( fd_svm_mini_t *     mini,
@@ -716,7 +717,8 @@ test_footer_vote_account_acquire( fd_svm_mini_t * mini ) {
   init_epoch_inflation_account( mini, 1UL );
 
   /* 0: executable vote account, 1: vote account, 2: system owned,
-     3: uninitialized, 4: undecodable, 5: zero lamports, 6: missing */
+     3: uninitialized, 4: undecodable, 5: zero lamports, 6: missing,
+     7: vote owned at the max account size */
   fd_pubkey_t vote[ ACQ_KEY_CNT ], identity[ ACQ_KEY_CNT ];
   uchar       bls [ ACQ_KEY_CNT ][ FD_BLS_PUBKEY_COMPRESSED_SZ ];
   for( ulong i=0UL; i<ACQ_KEY_CNT; i++ ) {
@@ -749,6 +751,9 @@ test_footer_vote_account_acquire( fd_svm_mini_t * mini ) {
   fd_memset( data, 0xff, FD_VOTE_STATE_V4_SZ ); FD_STORE( uint, data, fd_vote_state_versioned_enum_v4 );
   acq_put( mini, vote+4, fd_solana_vote_program_id.uc, 1000000UL, 0, data, FD_VOTE_STATE_V4_SZ );
   acq_put( mini, vote+5, fd_solana_vote_program_id.uc, 0UL,       0, NULL, 0UL );
+  static uchar big[ FD_RUNTIME_ACC_SZ_MAX ];
+  FD_STORE( uint, big, fd_vote_state_versioned_enum_v4 );
+  acq_put( mini, vote+7, fd_solana_vote_program_id.uc, 1000000UL, 0, big, sizeof(big) );
 
   ulong bank_slot   = 24UL;
   ulong reward_slot = bank_slot-8UL;
@@ -780,7 +785,9 @@ test_footer_vote_account_acquire( fd_svm_mini_t * mini ) {
     fd_bls_set_insert( footer->skip_reward_cert.signer_set, r );
     fd_bls_set_insert( footer->fast_final_cert.signer_set,  r );
   }
+  ulong copied_pre = fd_accdb_metrics( mini->runtime->accdb )->bytes_copied;
   FD_TEST( !fd_alpenglow_rewards_apply( bank, mini->runtime->accdb, NULL, empty_cache(), footer ) );
+  FD_TEST( fd_accdb_metrics( mini->runtime->accdb )->bytes_copied-copied_pre<FD_RUNTIME_ACC_SZ_MAX );
 
   for( ulong i=0UL; i<2UL; i++ ) {
     acc = fd_accdb_read_one( mini->runtime->accdb, fork_id, vote[i].uc );
