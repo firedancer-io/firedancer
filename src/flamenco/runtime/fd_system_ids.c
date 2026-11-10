@@ -37,10 +37,8 @@ const fd_pubkey_t fd_solana_spl_token_id                      = { .uc = { TOKEN_
 const fd_pubkey_t fd_solana_spl_associated_token_account_id   = { .uc = { ASSOCIATED_TOKEN_PROG_ID } };
 const fd_pubkey_t fd_solana_zk_token_proof_program_id         = { .uc = { ZK_TOKEN_PROG_ID         } };
 const fd_pubkey_t fd_solana_zk_elgamal_proof_program_id       = { .uc = { ZK_EL_GAMAL_PROG_ID      } };
-const fd_pubkey_t fd_solana_slashing_program_id               = { .uc = { SLASHING_PROG_ID        } };
 
 const fd_pubkey_t fd_solana_feature_program_buffer_address             = { .uc = { FEATURE_PROG_BUFFER_ID } };
-const fd_pubkey_t fd_solana_slashing_program_buffer_address            = { .uc = { SLASHING_PROG_BUFFER_ID } };
 const fd_pubkey_t fd_solana_pata_program_buffer_address                = { .uc = { PATA_PROG_BUFFER_ID } };
 const fd_hash_t   fd_solana_feature_program_verified_build_hash        = { .uc = { FEATURE_PROG_VERIFIED_BUILD_HASH } };
 const fd_hash_t   fd_solana_pata_program_verified_build_hash           = { .uc = { PATA_PROG_VERIFIED_BUILD_HASH } };

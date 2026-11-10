@@ -1918,7 +1918,7 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\x0c\xe8\xe3\x0a\x1b\x9d\x30\xc1\x5d\x98\x93\xa3\x19\x40\xb4\xc8\x7f\x92\x5b\x24\x5e\x7a\xe6\xec\x6b\xe8\x87\xd5\xaa\x22\xb2\x6d"},
                                  /* sProgVaNWkYdP2eTRAy1CPrgb3b9p8yXCASrPEqo6VJ */
     .name                      = "enshrine_slashing_program",
-    .implemented               = 1,
+    .implemented               = 0,
     .cleaned_up                = 0 },
 
   { .index                     = offsetof(fd_features_t, raise_account_cu_limit)>>3,

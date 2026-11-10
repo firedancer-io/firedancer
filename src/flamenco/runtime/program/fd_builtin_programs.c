@@ -37,21 +37,6 @@ static const fd_core_bpf_migration_config_t STATELESS_TO_CORE_BPF_FEATURE_GATE_P
 };
 static const fd_core_bpf_migration_config_t * const MIGRATE_STATELESS_TO_CORE_BPF_FEATURE_GATE_PROGRAM_CONFIG = &STATELESS_TO_CORE_BPF_FEATURE_GATE_PROGRAM_CONFIG;
 
-/* FIXME: update to correct hash when slashing program is finalized */
-/* 9260b9ac8dfa1a6ed1022380a713bec7b75979ae136e91f9a86795b51c6c489f */
-#define SLASHING_PROG_HASH_SIMD_204 0x92U,0x60U,0xb9U,0xacU,0x8dU,0xfaU,0x1aU,0x6eU,0xd1U,0x02U,0x23U,0x80U,0xa7U,0x13U,0xbeU,0xc7U, \
-                                    0xb7U,0x59U,0x79U,0xaeU,0x13U,0x6eU,0x91U,0xf9U,0xa8U,0x67U,0x95U,0xb5U,0x1cU,0x6cU,0x48U,0x9fU
-const fd_hash_t fd_solana_slashing_program_verified_build_hash_simd_204 = { .uc = { SLASHING_PROG_HASH_SIMD_204 } };
-static const fd_core_bpf_migration_config_t STATELESS_TO_CORE_BPF_SLASHING_PROGRAM_CONFIG = {
-    &fd_solana_slashing_program_buffer_address,
-    NULL,
-    offsetof(fd_features_t, enshrine_slashing_program),
-    FD_CORE_BPF_MIGRATION_TARGET_STATELESS,
-    &fd_solana_slashing_program_id,
-    &fd_solana_slashing_program_verified_build_hash_simd_204
-};
-static const fd_core_bpf_migration_config_t * const MIGRATE_STATELESS_TO_CORE_BPF_SLASHING_PROGRAM_CONFIG = &STATELESS_TO_CORE_BPF_SLASHING_PROGRAM_CONFIG;
-
 #define SYSTEM_PROGRAM_BUILTIN            BUILTIN_PROGRAM(&fd_solana_system_program_id,                 "solana_system_program",                 NO_ENABLE_FEATURE_ID,                                      NULL)
 #define VOTE_PROGRAM_BUILTIN              BUILTIN_PROGRAM(&fd_solana_vote_program_id,                   "solana_vote_program",                   NO_ENABLE_FEATURE_ID,                                      NULL)
 #define LOADER_V4_BUILTIN                 BUILTIN_PROGRAM(&fd_solana_bpf_loader_v4_program_id,          "loader_v4",                             offsetof(fd_features_t, enable_loader_v4),                 NULL)
@@ -63,12 +48,10 @@ static const fd_core_bpf_migration_config_t * const MIGRATE_STATELESS_TO_CORE_BP
 #define ZK_ELGAMAL_PROOF_PROGRAM_BUILTIN  BUILTIN_PROGRAM(&fd_solana_zk_elgamal_proof_program_id,       "zk_elgamal_proof_program",              offsetof(fd_features_t, zk_elgamal_proof_program_enabled), NULL)
 
 #define FEATURE_PROGRAM_BUILTIN           STATELESS_BUILTIN(&fd_solana_feature_program_id,  MIGRATE_STATELESS_TO_CORE_BPF_FEATURE_GATE_PROGRAM_CONFIG)
-#define SLASHING_PROGRAM_BUILTIN          STATELESS_BUILTIN(&fd_solana_slashing_program_id, MIGRATE_STATELESS_TO_CORE_BPF_SLASHING_PROGRAM_CONFIG)
 
 /* https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank/builtins/mod.rs#L133-L143 */
 static const fd_stateless_builtin_program_t stateless_programs_builtins[] = {
-    FEATURE_PROGRAM_BUILTIN,
-    SLASHING_PROGRAM_BUILTIN
+    FEATURE_PROGRAM_BUILTIN
 };
 #define STATELESS_BUILTINS_COUNT (sizeof(stateless_programs_builtins) / sizeof(fd_stateless_builtin_program_t))
 
