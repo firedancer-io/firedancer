@@ -1129,13 +1129,13 @@ after_frag( fd_pack_ctx_t *     ctx,
     /* Cap pack's entry bytes at the worst case: how many entry bytes
        fit in max_shred_idx given our shredding.  We fill a batch until
        the next microblock would not fit in two FEC sets, then pad out
-       that batch.  Empty ticks are subtracted below. */
+       that batch.  An Alpenglow block has no tick entries besides the
+       closing alpentick, which the end of block reserve covers. */
     ulong shreds            = fd_ulong_max( ctx->_became_leader->limits.slot_max_data_shreds, ctx->bench_max_shreds_per_block );
     ulong max_microblock_sz = sizeof(fd_entry_batch_header_t) + EFFECTIVE_TXN_PER_MICROBLOCK*FD_TPU_MTU;
     ulong base_max_data     = fd_shred_batch_pack_data_max( shreds, max_microblock_sz );
     FD_TEST( base_max_data );
-    /* Reserve some space in the block for ticks */
-    ctx->slot_max_data        = base_max_data - 48UL*ctx->_became_leader->ticks_per_slot;
+    ctx->slot_max_data        = base_max_data;
 
     ctx->limits.slot_max_cost                     = ctx->_became_leader->limits.slot_max_cost;
     ctx->limits.slot_max_write_cost_per_acct      = ctx->_became_leader->limits.slot_max_write_cost_per_acct;
