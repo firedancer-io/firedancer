@@ -276,6 +276,8 @@ main( int     argc,
     max_threads = fd_ulong_max( max_threads, t );
     p = *end==',' ? end+1 : end;
   }
+  if( FD_UNLIKELY( !sweep_cnt   ) ) FD_LOG_ERR(( "--threads needs at least one thread count" ));
+  if( FD_UNLIKELY( !duration_s ) ) FD_LOG_ERR(( "--duration must be positive" ));
 
   /* Each txn picks distinct accounts: its writable ones and the
      read-only ones beyond the hot set may all come from the worker's

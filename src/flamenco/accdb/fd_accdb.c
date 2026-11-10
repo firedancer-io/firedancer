@@ -3357,11 +3357,11 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
   //   repeatedly reading the same account off disk into cache, if it is
   //   being written cold multiple times and every write fails.
 
-  ulong read_ops_cnt = 0UL;
-  ulong read_offsets[ FD_ACCDB_CACHE_CLASS_CNT*FD_ACCDB_MAX_ACQUIRE_CNT ];
-  uchar * read_bases[ FD_ACCDB_CACHE_CLASS_CNT*FD_ACCDB_MAX_ACQUIRE_CNT ];
-  ulong read_sizes[ FD_ACCDB_CACHE_CLASS_CNT*FD_ACCDB_MAX_ACQUIRE_CNT ];
-  struct iovec read_ops[ FD_ACCDB_CACHE_CLASS_CNT*FD_ACCDB_MAX_ACQUIRE_CNT ];
+  ulong read_ops_cnt = 0UL; /* at most one read per account */
+  ulong read_offsets[ FD_ACCDB_MAX_ACQUIRE_CNT ];
+  uchar * read_bases[ FD_ACCDB_MAX_ACQUIRE_CNT ];
+  ulong read_sizes[ FD_ACCDB_MAX_ACQUIRE_CNT ];
+  struct iovec read_ops[ FD_ACCDB_MAX_ACQUIRE_CNT ];
 
   for( ulong i=0UL; i<pubkeys_cnt; i++ ) {
     if( FD_UNLIKELY( !accmetas[ i ] || exists_in_cache[ i ] ) ) continue;
@@ -4421,10 +4421,13 @@ cache_line_free( fd_accdb_t *            accdb,
    pass).  preevict_target deals the lines the pass frees round-robin
    to those joins' lists, or to the pre-evicting join's own list when
    none ran short.  A join that ran short once gets as many as one that
-   ran short often; any surplus is stealable. */
+   ran short often; any surplus is stealable.  Joins the pass gave no
+   line (it freed too few) are put back by preevict_hungry_restore, so
+   a later pass serves them. */
 
 struct preevict_hungry {
-  ulong bits[ FD_ACCDB_MAX_JOINERS/64UL ];
+  ulong bits  [ FD_ACCDB_MAX_JOINERS/64UL ];
+  ulong served[ FD_ACCDB_MAX_JOINERS/64UL ]; /* got a line this pass */
   ulong next; /* join to try first */
 };
 
@@ -4438,7 +4441,18 @@ preevict_hungry_take( preevict_hungry_t * h,
   h->next = 0UL;
   for( ulong w=0UL; w<FD_ACCDB_MAX_JOINERS/64UL; w++ ) {
     ulong * bits = &shmem->cache_free_hungry[ size_class ].bits[ w ];
-    h->bits[ w ] = ( !force && FD_VOLATILE_CONST( *bits ) ) ? FD_ATOMIC_XCHG( bits, 0UL ) : 0UL;
+    h->bits  [ w ] = ( !force && FD_VOLATILE_CONST( *bits ) ) ? FD_ATOMIC_XCHG( bits, 0UL ) : 0UL;
+    h->served[ w ] = 0UL;
+  }
+}
+
+static void
+preevict_hungry_restore( preevict_hungry_t const * h,
+                         fd_accdb_shmem_t *        shmem,
+                         ulong                     size_class ) {
+  for( ulong w=0UL; w<FD_ACCDB_MAX_JOINERS/64UL; w++ ) {
+    ulong unserved = h->bits[ w ] & ~h->served[ w ];
+    if( FD_UNLIKELY( unserved ) ) FD_ATOMIC_FETCH_AND_OR( &shmem->cache_free_hungry[ size_class ].bits[ w ], unserved );
   }
 }
 
@@ -4459,6 +4473,7 @@ preevict_target( preevict_hungry_t * h,
   if( j==ULONG_MAX ) j = preevict_hungry_find( h, 0UL );
   if( j==ULONG_MAX ) return accdb->free_idx;
   h->next = j+1UL;
+  h->served[ j/64UL ] |= 1UL<<( j%64UL );
   return j;
 }
 
@@ -4671,6 +4686,7 @@ background_preevict( fd_accdb_t * accdb,
       pend_cnt = 0UL;
       stage_sz = 0UL;
     }
+    preevict_hungry_restore( hungry, shmem, size_class );
 
     /* Still below low water (budget ran out or too little was
        evictable): the next scan will sweep this class again, so stay

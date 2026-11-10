@@ -2835,6 +2835,52 @@ test_preevict_handoff( void ) {
   test_teardown( a, fd );
 }
 
+/* A pre-eviction pass that frees no line for a hungry join keeps its
+   request: b runs short of class c, every resident line is marked
+   referenced, so a's first pass (PREEVICT_TICK_BUDGET < class lines)
+   only clears reference bits.  b must still be hungry after it, and a
+   later pass hands b the lines instead of keeping them on a's list. */
+
+static void
+test_preevict_hungry_kept( void ) {
+  int fd;
+  ulong joiners = 2UL;
+  fd_accdb_t * a = test_setup_ex( &fd, 16384UL, 8UL, 16384UL, 256UL, 11UL<<20UL, 48UL<<20, TEST_CACHE_MIN_RESERVED, joiners );
+  fd_accdb_t * b = test_join_writer( fd );
+  fd_accdb_set_preevict_interval( a, LONG_MAX );
+  fd_accdb_shmem_t * sh = test_shmem_mem;
+  fd_accdb_fork_id_t root = fd_accdb_attach_child( a, SENTINEL );
+  fd_accdb_fork_id_t f    = fd_accdb_attach_child( a, root );
+
+  ulong const c  = 3UL;
+  ulong const sz = 4000UL;
+  ulong max_c = sh->cache_class_max[ c ];
+  FD_TEST( max_c>256UL ); /* one pass cannot reach every line */
+  static uchar data[ 4096 ];
+  for( ulong i=0UL; i<max_c+64UL; i++ ) {
+    uchar pk[ 32 ] = { 0x4A }; FD_STORE( ulong, pk+8, i );
+    accdb_write( b, f, pk, 1UL+i, data, sz, owner2 );
+  }
+  FD_TEST( sh->cache_free_hungry[ c ].bits[ 0 ]==2UL );
+
+  uchar * region = (uchar *)sh + sh->cache_region_off[ c ];
+  for( ulong i=0UL; i<max_c; i++ ) ((fd_accdb_cache_line_t *)( region + i*fd_accdb_cache_slot_sz[ c ] ))->referenced = 1;
+
+  ulong a0 = test_free_cnt( 0UL, c );
+  ulong b0 = test_free_cnt( 1UL, c );
+  fd_accdb_set_preevict_interval( a, 0L );
+  drain_background( a );
+  FD_TEST( test_free_cnt( 1UL, c )==b0 );                 /* freed nothing */
+  FD_TEST( sh->cache_free_hungry[ c ].bits[ 0 ]==2UL );    /* request kept */
+
+  for( ulong pass=0UL; pass<64UL && test_free_cnt( 1UL, c )==b0; pass++ ) drain_background( a );
+  FD_TEST( test_free_cnt( 1UL, c )>b0 );
+  FD_TEST( test_free_cnt( 0UL, c )==a0 );                 /* none kept by a */
+
+  free( b );
+  test_teardown( a, fd );
+}
+
 /* Per-join reservation credits: a join keeps idle credits after its
    release, the shared counter equals the joins' idle credits when no
    acquire is in flight, occupancy reports only in-flight reservations,
@@ -3043,6 +3089,7 @@ main( int     argc,
   test_preevict_throttle();
   FD_LOG_NOTICE(( "test_preevict_handoff ..." ));
   test_preevict_handoff();
+  test_preevict_hungry_kept();
   FD_LOG_NOTICE(( "test_reservation_credits ..." ));
   test_reservation_credits();
 
