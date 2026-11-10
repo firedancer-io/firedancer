@@ -18,10 +18,10 @@
    of its way to use memory in a way that doesn't require a second
    memcpy once the FEC set is complete.  To that end, the FEC resolver
    makes two promises:
-   1. Once memory has been used for a specific FEC set, it will not be
-      reused for a different FEC set until at least partial_depth other
-      distinct FEC sets have been returned in the out_fec_set field of
-      fd_fec_resolver_add_shred.
+   1. Memory for an in-progress FEC set evicted for lack of space is not
+      reused until at least partial_depth new FEC sets are allocated.
+      Sets pruned by fd_fec_resolver_advance_slot_old may be reused
+      immediately.
    2. Once a FEC set is complete (specified with COMPLETES), the
       associated memory will not be reused for a different FEC set until
       at least complete_depth other distinct FEC sets have been returned
@@ -105,9 +105,8 @@ typedef struct fd_fec_resolver fd_fec_resolver_t;
 FD_PROTOTYPES_BEGIN
 /* fd_fec_resolver_footprint returns the required footprint (in bytes as
    always) required to create an FEC set resolver that can keep track of
-   `depth` in progress FEC sets, will not reuse FEC sets for at least
-   partial_depth shreds or for at least complete_depth complete FEC sets
-   (see above for more information).  Additionally, the FEC resolver
+   `depth` in progress FEC sets, with the memory lifetimes described
+   above.  Additionally, the FEC resolver
    remembers done_depth FEC sets to recognize duplicates vs. new FEC
    sets.  All depths must positive.
 
