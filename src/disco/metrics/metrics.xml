@@ -211,14 +211,28 @@ deliberate exception with lint-allow="<rule id>")
 
 <enum name="PktTxDropReason">
     <int value="0" name="Invalid" label="Invalid packet headers, or GRE packet exceeding the MTU" />
-    <int value="1" name="NoRoute" label="No matching route" />
-    <int value="2" name="UnsupportedRoute" label="Unsupported route type" />
-    <int value="3" name="InterfaceMissing" label="Interface not available" />
-    <int value="4" name="UnsupportedInterface" label="Interface type not supported" />
+    <int value="1" name="NoRoute" deprecated="true" label="No matching route" />
+    <int value="2" name="UnsupportedRoute" deprecated="true" label="Unsupported route type" />
+    <int value="3" name="InterfaceMissing" deprecated="true" label="Interface not available" />
+    <int value="4" name="UnsupportedInterface" deprecated="true" label="Interface type not supported" />
     <int value="5" name="SourceIpMissing" label="No source IP address chosen" />
-    <int value="6" name="NoNeighbor" label="Next-hop neighbor unresolved" />
+    <int value="6" name="NoNeighbor" deprecated="true" label="Next-hop neighbor unresolved" />
     <int value="7" name="RingFull" label="TX ring full or no TX buffer available" />
     <int value="8" name="GreNoRoute" label="GRE tunnel addresses missing or outer route is itself tunnelled" />
+    <int value="9" name="SocketSendFailure" label="Socket send failed or failed to send the entire packet" />
+</enum>
+
+<enum name="PktTxRouteResult">
+    <int value="0" name="FastPath" label="Userland routing succeeded and selected the configured provider" />
+    <int value="1" name="SlowPath" label="Failed userland routing and selected the kernel fallback" />
+</enum>
+
+<enum name="PktTxSlowPathReason">
+    <int value="0" name="NoRoute" label="No matching route" />
+    <int value="1" name="UnsupportedRoute" label="Unsupported route type" />
+    <int value="2" name="InterfaceMissing" label="Interface not available" />
+    <int value="3" name="UnsupportedInterface" label="Interface type not supported" />
+    <int value="4" name="NoNeighbor" label="Next-hop neighbor unresolved or inactive" />
 </enum>
 
 <tile name="net">
@@ -233,6 +247,8 @@ deliberate exception with lint-allow="<rule id>")
     <counter name="PktTxCompleted" summary="Packet transmit jobs marked as completed by the kernel" />
     <counter name="PktTxSubmittedBytes" summary="Bytes of packets submitted for transmission" />
     <counter name="PktTxDropped" enum="PktTxDropReason" summary="Transmit jobs dropped, by reason" />
+    <counter name="PktTxRouted" enum="PktTxRouteResult" summary="Transmit jobs accepted after route resolution, by result" />
+    <counter name="PktTxSlowPathRouted" enum="PktTxSlowPathReason" summary="Transmit jobs that failed userland routing and selected the kernel fallback, by reason" />
     <gauge name="TxBufferUsed" summary="Transmit buffers currently in use" />
     <gauge name="TxBufferFree" summary="Transmit buffers currently free" />
 
@@ -250,6 +266,9 @@ deliberate exception with lint-allow="<rule id>")
     <!-- GRE metrics -->
     <counter name="GrePktRx" summary="GRE packets decapsulated and published; subset of PktRx" />
     <counter name="GrePktTxSubmitted" summary="GRE packet transmit jobs submitted; subset of PktTxSubmitted" />
+
+    <!-- Slow path metrics -->
+    <counter name="PktTxSlowPathSubmitted" summary="Packets submitted to a kernel socket on the slow path; subset of PktTxSubmitted" />
     <gauge name="RouteCount" enum="RouteTableType" summary="IPv4 routes installed in the forwarding table" />
 
     <!-- VLAN metrics -->
@@ -267,7 +286,10 @@ deliberate exception with lint-allow="<rule id>")
     <counter name="PktTxCompleted" summary="Packets completed by the NIC for transmission" />
     <counter name="PktTxCompletedBytes" summary="Bytes of packets completed by the NIC" />
     <counter name="PktTxDropped" enum="PktTxDropReason" summary="Transmit jobs dropped, by reason" />
-    <counter name="GrePktTxSubmitted" summary="GRE transmit jobs submitted to the NIC" />
+    <counter name="PktTxRouted" enum="PktTxRouteResult" summary="Transmit jobs accepted after route resolution, by result" />
+    <counter name="PktTxSlowPathRouted" enum="PktTxSlowPathReason" summary="Transmit jobs that failed userland routing and selected the kernel fallback, by reason" />
+    <counter name="GrePktTxSubmitted" summary="GRE transmit jobs submitted to the NIC or a kernel socket" />
+    <counter name="PktTxSlowPathSubmitted" summary="Packets submitted to a kernel socket on the slow path" />
     <gauge name="TxBufferUsed" summary="TX buffers pending or submitted to the NIC" />
     <gauge name="TxBufferFree" summary="TX buffers available for a new transmit job" />
 </tile>
@@ -284,9 +306,12 @@ deliberate exception with lint-allow="<rule id>")
     <counter name="PktTxCompleted" summary="Packets completed by the NIC for transmission" />
     <counter name="PktTxCompletedBytes" summary="Bytes of packets completed by the NIC" />
     <counter name="PktTxDropped" enum="PktTxDropReason" summary="Transmit jobs dropped, by reason" />
+    <counter name="PktTxRouted" enum="PktTxRouteResult" summary="Transmit jobs accepted after route resolution, by result" />
+    <counter name="PktTxSlowPathRouted" enum="PktTxSlowPathReason" summary="Transmit jobs that failed userland routing and selected the kernel fallback, by reason" />
     <counter name="PktTxNoLinkDropped" summary="Transmit jobs dropped because no configured VF or bond member can send traffic" />
     <counter name="PktTxLoopbackFailed" summary="Loopback transmit jobs dropped because the socket send failed or accepted only part of a batch" />
-    <counter name="GrePktTxSubmitted" summary="GRE transmit jobs submitted to the NIC" />
+    <counter name="GrePktTxSubmitted" summary="GRE transmit jobs submitted to the NIC or a kernel socket" />
+    <counter name="PktTxSlowPathSubmitted" summary="Packets submitted to a kernel socket on the slow path" />
     <gauge name="TxBufferUsed" summary="TX buffers pending or submitted to the NIC" />
     <gauge name="TxBufferFree" summary="TX buffers available for a new transmit job" />
     <counter name="NonFdPktRx" summary="Packets received by IAVF VFs that are not intended for Firedancer" />

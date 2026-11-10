@@ -12,12 +12,14 @@
 #include "../stem/fd_stem.h"
 #include "../topo/fd_topo.h"
 #include "../../waltz/mib/fd_netdev_tbl.h"
+#include "../../waltz/ip/fd_fib4.h"
 
 #include "../../waltz/ip/fd_iproute.h"
 #include "../../util/net/fd_eth.h"
 #include "../../util/net/fd_gre.h"
 #include "../../util/net/fd_ip4.h"
 #include "../../util/net/fd_udp.h"
+#include "fd_net_sock.h"
 
 #define FD_NET_IN_KIND_TX      (0U)
 #define FD_NET_IN_KIND_IPROUTE (1U)
@@ -43,6 +45,11 @@ struct fd_net_tx_route {
   uint   use_gre;
   uint   gre_outer_src_ip;
   uint   gre_outer_dst_ip;
+  /* routing_failure is set if userland routing failed.  The packet is
+     then sent on fd_net_tile_t::sock and routed by the kernel.  For a
+     GRE route whose outer endpoint failed routing, use_gre is also set
+     and the encapsulated packet is sent to gre_outer_dst_ip. */
+  int    routing_failure;
 };
 typedef struct fd_net_tx_route fd_net_tx_route_t;
 
@@ -78,6 +85,9 @@ struct fd_net_tile {
   ulong  rx_out_cnt;
   uint   gre_tunnel_ip[ FD_NET_GRE_MAX ];
 
+  /* sock is a raw socket for packets that failed userland routing */
+  fd_net_sock_t sock;
+
   struct {
     ulong rx_pkt_cnt;
     ulong rx_bytes_total;
@@ -88,7 +98,10 @@ struct fd_net_tile {
     ulong tx_pkt_cnt;
     ulong tx_bytes_total;
     ulong tx_drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_CNT ];
+    ulong tx_route_result_cnt[ FD_METRICS_ENUM_PKT_TX_ROUTE_RESULT_CNT ];
+    ulong tx_slow_path_reason_cnt[ FD_METRICS_ENUM_PKT_TX_SLOW_PATH_REASON_CNT ];
     ulong tx_gre_cnt;
+    ulong tx_slow_path_submit_cnt;
   } metrics;
 };
 typedef struct fd_net_tile fd_net_tile_t;
@@ -113,6 +126,39 @@ fd_net_gre_tunnels_refresh( fd_net_tile_t *              ctx,
       ctx->gre_tunnel_ip[ gre_tunnel_cnt++ ] = netdev->gre_dst_ip;
     }
   }
+}
+
+/* fd_net_tx_route_result_increment counts a transmit job this tile
+   accepted after route resolution.  Packets that failed userland routing
+   take the slow path through the kernel, all others take the fast path
+   (sent by the provider). */
+static inline void
+fd_net_tx_route_result_increment( fd_net_tile_t * ctx ) {
+  ulong const idx = fd_ulong_if( !!ctx->tx_route.routing_failure,
+                                 FD_METRICS_ENUM_PKT_TX_ROUTE_RESULT_V_SLOW_PATH_IDX,
+                                 FD_METRICS_ENUM_PKT_TX_ROUTE_RESULT_V_FAST_PATH_IDX );
+  ctx->metrics.tx_route_result_cnt[ idx ]++;
+}
+
+/* fd_net_tx_probe_loopback returns 1 if dst_ip routes to a loopback
+   device and 0 otherwise.  It updates no metrics and requests no
+   neighbor solicit, so tile 0 can use it to find loopback packets
+   owned by another net tile without counting that tile's routing
+   failures. */
+
+static inline int
+fd_net_tx_probe_loopback( fd_fib4_t const *      fib_local,
+                          fd_fib4_t const *      fib_main,
+                          fd_netdev_tbl_join_t * netdev_tbl,
+                          uint                   dst_ip ) {
+  fd_fib4_hop_t hop[2];
+  hop[0] = fd_fib4_lookup( fib_local, dst_ip, 0UL );
+  hop[1] = fd_fib4_lookup( fib_main,  dst_ip, 0UL );
+  fd_fib4_hop_t const * next_hop = fd_fib4_hop_or( hop+0, hop+1 );
+  if( next_hop->rtype!=FD_FIB4_RTYPE_LOCAL && next_hop->rtype!=FD_FIB4_RTYPE_UNICAST ) return 0;
+  uint const if_idx = next_hop->rtype==FD_FIB4_RTYPE_LOCAL ? 1U : next_hop->if_idx;
+  fd_netdev_t const * netdev = fd_netdev_tbl_query( netdev_tbl, if_idx );
+  return NULL!=netdev && netdev->dev_type==ARPHRD_LOOPBACK;
 }
 
 /* fd_net_in_frag_validate checks input dcache bounds and TX packet length. */
@@ -247,6 +293,27 @@ fd_net_tx_pkt_prep( fd_net_tile_t * ctx,
   };
   FD_STORE( fd_gre_hdr_t, frame+sizeof(fd_eth_hdr_t)+sizeof(fd_ip4_hdr_t), gre_hdr );
   *frame_sz = sizeof(fd_eth_hdr_t)+outer_ip_sz;
+  return 1;
+}
+
+/* fd_net_tx_sock_send sends a prepared frame on ctx->sock.  frame
+   points to the Ethernet header and frame_sz is the size of the whole
+   frame.  The Ethernet header is not sent: the kernel routes the packet
+   to the daddr of the first IPv4 header and builds its own L2 header.
+   For GRE that is the outer header built by fd_net_tx_pkt_prep, so the
+   packet goes to the tunnel endpoint.  Returns 1 if the packet was sent and 0
+   after counting a dropped packet.  The caller updates the packet and
+   byte counters, because they differ between providers. */
+static inline int
+fd_net_tx_sock_send( fd_net_tile_t * ctx,
+                     uchar const *   frame,
+                     ulong           frame_sz ) {
+  fd_ip4_hdr_t const * ip4 = (fd_ip4_hdr_t const *)( frame+sizeof(fd_eth_hdr_t) );
+  if( FD_UNLIKELY( !fd_net_sock_send( &ctx->sock, ip4, frame_sz-sizeof(fd_eth_hdr_t) ) ) ) {
+    ctx->metrics.tx_drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_SOCKET_SEND_FAILURE_IDX ]++;
+    return 0;
+  }
+  ctx->metrics.tx_slow_path_submit_cnt++;
   return 1;
 }
 
