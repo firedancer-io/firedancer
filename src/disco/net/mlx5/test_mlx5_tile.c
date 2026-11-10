@@ -932,8 +932,8 @@ main( int     argc,
   int hk_async_fd[2];
   FD_TEST( !pipe2( hk_async_fd, O_NONBLOCK ) );
   tile->uverbs.async_fd = hk_async_fd[0]; /* nothing to drain */
-  fd_netdev_t * eth0_local = fd_netdev_tbl_query( &tile->router.netdev_tbl, IF_IDX_ETH0 );
-  fd_netdev_t * eth0_share = fd_netdev_tbl_query( netdev_tbl,               IF_IDX_ETH0 );
+  fd_netdev_t * eth0_local = fd_netdev_tbl_query( &tile->net.router.netdev_tbl, IF_IDX_ETH0 );
+  fd_netdev_t * eth0_share = fd_netdev_tbl_query( netdev_tbl,                   IF_IDX_ETH0 );
   FD_TEST( eth0_local && eth0_share && eth0_local->mtu==0U );
   FD_TEST( tile->netdev_seq==atomic_load( &netdev_tbl->hdr->seqlock ) );
   eth0_local->mtu = 1U;                                     /* unchanged: no copy */
@@ -946,22 +946,22 @@ main( int     argc,
   FD_TEST( eth0_local->mtu==1500U );
   eth0_share->mtu = 0U; eth0_local->mtu = 0U;
   FD_TEST( !close( hk_async_fd[0] ) && !close( hk_async_fd[1] ) );
-  tile->router.if_virt         = IF_IDX_ETH0;
-  tile->router.default_address = public_ip4_addr;
+  tile->net.router.if_virt         = IF_IDX_ETH0;
+  tile->net.router.default_address = public_ip4_addr;
   fd_fib4_hop_t hop = { .if_idx=IF_IDX_LO, .ip4_src=FD_IP4_ADDR( 127,0,0,1 ), .rtype=FD_FIB4_RTYPE_LOCAL };
-  FD_TEST( fd_fib4_insert( tile->router.fib_local, FD_IP4_ADDR( 127,0,0,1 ), 32, 0U, &hop ) );
+  FD_TEST( fd_fib4_insert( tile->net.router.fib_local, FD_IP4_ADDR( 127,0,0,1 ), 32, 0U, &hop ) );
   hop = (fd_fib4_hop_t) { .if_idx=IF_IDX_ETH0, .rtype=FD_FIB4_RTYPE_UNICAST, .ip4_gw=gw_ip4_addr };
-  FD_TEST( fd_fib4_insert( tile->router.fib_main, FD_IP4_ADDR( 0,0,0,0 ), 0, 0U, &hop ) );
+  FD_TEST( fd_fib4_insert( tile->net.router.fib_main, FD_IP4_ADDR( 0,0,0,0 ), 0, 0U, &hop ) );
   hop = (fd_fib4_hop_t) { .if_idx=IF_IDX_ETH0, .rtype=FD_FIB4_RTYPE_BLACKHOLE };
-  FD_TEST( fd_fib4_insert( tile->router.fib_main, banned_ip4_addr, 32, 0U, &hop ) );
+  FD_TEST( fd_fib4_insert( tile->net.router.fib_main, banned_ip4_addr, 32, 0U, &hop ) );
   hop = (fd_fib4_hop_t) { .if_idx=IF_IDX_ETH1, .rtype=FD_FIB4_RTYPE_UNICAST, .ip4_src=gre_inner_src_ip };
-  FD_TEST( fd_fib4_insert( tile->router.fib_main, path2_ip4_addr, 32, 0U, &hop ) );
+  FD_TEST( fd_fib4_insert( tile->net.router.fib_main, path2_ip4_addr, 32, 0U, &hop ) );
   hop = (fd_fib4_hop_t) { .rtype=FD_FIB4_RTYPE_THROW };
-  FD_TEST( fd_fib4_insert( tile->router.fib_main, no_route_ip4_addr, 32, 0U, &hop ) );
+  FD_TEST( fd_fib4_insert( tile->net.router.fib_main, no_route_ip4_addr, 32, 0U, &hop ) );
   hop = (fd_fib4_hop_t) { .if_idx=999U, .rtype=FD_FIB4_RTYPE_UNICAST };
-  FD_TEST( fd_fib4_insert( tile->router.fib_main, missing_if_ip4_addr, 32, 0U, &hop ) );
+  FD_TEST( fd_fib4_insert( tile->net.router.fib_main, missing_if_ip4_addr, 32, 0U, &hop ) );
   hop = (fd_fib4_hop_t) { .if_idx=IF_IDX_ETH0, .rtype=FD_FIB4_RTYPE_UNICAST, .ip4_src=site_ip4_addr };
-  FD_TEST( fd_fib4_insert( tile->router.fib_main, FD_IP4_ADDR( 192,168,1,0 ), 24, 0U, &hop ) );
+  FD_TEST( fd_fib4_insert( tile->net.router.fib_main, FD_IP4_ADDR( 192,168,1,0 ), 24, 0U, &hop ) );
 
   /* Verify initial assignment */
   FD_TEST( test_rx_wq_cnt( mock, tile )==rx_fill_cnt );
@@ -1369,7 +1369,7 @@ main( int     argc,
   FD_TEST( tile->net.tx_route.src_ip==gre_inner_src_ip );
 
   /* A GRE route without a remote tunnel endpoint is rejected. */
-  fd_netdev_t * eth1 = fd_netdev_tbl_query( &tile->router.netdev_tbl, IF_IDX_ETH1 );
+  fd_netdev_t * eth1 = fd_netdev_tbl_query( &tile->net.router.netdev_tbl, IF_IDX_ETH1 );
   FD_TEST( eth1 );
   eth1->dev_type  = ARPHRD_IPGRE;
   eth1->gre_src_ip = gre_outer_src_ip;
@@ -1384,7 +1384,7 @@ main( int     argc,
            fd_disco_netmux_sig( 0U, 0, neigh1_ip4_addr, DST_PROTO_OUTGOING, 0UL ) ) );
   FD_TEST( tile->net.tx_route.routing_failure );
   FD_TEST( tile->net.tx_route.src_ip==site_ip4_addr );
-  FD_TEST( tile->router.solicit_ip==neigh1_ip4_addr );
+  FD_TEST( tile->net.router.solicit_ip==neigh1_ip4_addr );
   FD_TEST( tile->net.metrics.tx_slow_path_reason_cnt[ FD_METRICS_ENUM_PKT_TX_SLOW_PATH_REASON_V_NO_ROUTE_IDX ]==
            tx_route_fail_before[ FD_METRICS_ENUM_PKT_TX_SLOW_PATH_REASON_V_NO_ROUTE_IDX ]+1UL );
   FD_TEST( tile->net.metrics.tx_slow_path_reason_cnt[ FD_METRICS_ENUM_PKT_TX_SLOW_PATH_REASON_V_UNSUPPORTED_ROUTE_IDX ]==
@@ -1712,7 +1712,7 @@ main( int     argc,
       FD_TEST( result_cnt[ FD_METRICS_ENUM_PKT_TX_ROUTE_RESULT_V_SLOW_PATH_IDX ]==slow_before+1UL );
     }
     /* The neighbor miss still requests a solicitation */
-    FD_TEST( tile->router.solicit_ip==neigh1_ip4_addr );
+    FD_TEST( tile->net.router.solicit_ip==neigh1_ip4_addr );
   }
 
   /* A failed socket send is counted as a SocketSendFailure drop, and no
@@ -1795,7 +1795,7 @@ main( int     argc,
      source is the GRE device's source, else the fallback source of the
      failed outer route (here the default address). */
   {
-    fd_netdev_t * gre_dev = fd_netdev_tbl_query( &tile->router.netdev_tbl, IF_IDX_ETH1 );
+    fd_netdev_t * gre_dev = fd_netdev_tbl_query( &tile->net.router.netdev_tbl, IF_IDX_ETH1 );
     gre_dev->dev_type   = ARPHRD_IPGRE;
     gre_dev->gre_dst_ip = no_route_ip4_addr;
 

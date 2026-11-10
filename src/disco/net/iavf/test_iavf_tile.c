@@ -311,12 +311,12 @@ static fd_netdev_t test_netdevs[ 2 ];
 static void
 test_vfs_init( void ) {
   fd_memset( &test_tile, 0, sizeof(test_tile) );
-  test_netdev_hdr             = (fd_netdev_tbl_hdr_t) { .dev_cnt=2U };
-  test_tile.router.netdev_tbl = (fd_netdev_tbl_join_t) { .hdr=&test_netdev_hdr, .dev_tbl=test_netdevs };
-  test_tile.router.if_virt    = 4U;
-  test_tile.net.tile_cnt      = 1UL;
-  test_tile.vf_cnt            = 2UL;
-  test_netdevs[0]             = (fd_netdev_t) {
+  test_netdev_hdr                 = (fd_netdev_tbl_hdr_t) { .dev_cnt=2U };
+  test_tile.net.router.netdev_tbl = (fd_netdev_tbl_join_t) { .hdr=&test_netdev_hdr, .dev_tbl=test_netdevs };
+  test_tile.net.router.if_virt    = 4U;
+  test_tile.net.tile_cnt          = 1UL;
+  test_tile.vf_cnt                = 2UL;
+  test_netdevs[0]                 = (fd_netdev_t) {
     .if_idx=4U, .dev_type=ARPHRD_ETHER, .oper_status=FD_OPER_STATUS_UP, .mtu=1500U, .mac_addr={ 2,3,4,5,6,7 }
   };
   for( ulong i=0UL; i<2UL; i++ ) {
@@ -329,7 +329,7 @@ test_vfs_init( void ) {
 static void
 test_vf_selection( void ) {
   test_vfs_init();
-  test_tile.router.netdev_tbl = (fd_netdev_tbl_join_t) {0};
+  test_tile.net.router.netdev_tbl = (fd_netdev_tbl_join_t) {0};
   for( ulong i=0UL; i<64UL; i++ ) {
     FD_TEST( fd_iavf_tile_select_tx_vf( &test_tile, i)==i%2UL );
   }
@@ -352,18 +352,18 @@ test_bond_route( void ) {
   static uchar fib_main [ 262144 ] __attribute__((aligned(FD_FIB4_ALIGN)));
   static fd_neigh4_entry_t neigh[ 256 ] __attribute__((aligned(128)));
   test_vfs_init();
-  FD_TEST( NULL!=fd_fib4_join( test_tile.router.fib_local, fd_fib4_new( fib_local, 16UL, 16UL, 1UL ) ) );
-  FD_TEST( NULL!=fd_fib4_join( test_tile.router.fib_main, fd_fib4_new( fib_main, 16UL, 16UL, 1UL ) ) );
+  FD_TEST( NULL!=fd_fib4_join( test_tile.net.router.fib_local, fd_fib4_new( fib_local, 16UL, 16UL, 1UL ) ) );
+  FD_TEST( NULL!=fd_fib4_join( test_tile.net.router.fib_main, fd_fib4_new( fib_main, 16UL, 16UL, 1UL ) ) );
   FD_TEST( fd_neigh4_hmap_footprint( 16UL )<=sizeof(neigh) );
   FD_TEST( NULL!=fd_neigh4_hmap_new( neigh, 16UL, 1 ) );
-  FD_TEST( NULL!=fd_neigh4_hmap_join( test_tile.router.neigh4, neigh, 16UL, 8UL, 1UL ) );
+  FD_TEST( NULL!=fd_neigh4_hmap_join( test_tile.net.router.neigh4, neigh, 16UL, 8UL, 1UL ) );
   uint                gw    = FD_IP4_ADDR( 10,0,0,1 );
-  fd_neigh4_entry_t * entry = fd_neigh4_hmap_upsert( test_tile.router.neigh4, &gw );
+  fd_neigh4_entry_t * entry = fd_neigh4_hmap_upsert( test_tile.net.router.neigh4, &gw );
   FD_TEST( NULL!=entry );
   fd_neigh4_entry_t neighbor = { .ip4_addr=gw, .state=FD_NEIGH4_STATE_ACTIVE, .mac_addr={ 2,7,6,5,4,3 } };
   fd_neigh4_entry_atomic_st( entry, &neighbor );
   fd_fib4_hop_t hop = { .rtype=FD_FIB4_RTYPE_UNICAST, .if_idx=4U, .ip4_gw=gw, .ip4_src=FD_IP4_ADDR( 10,0,0,2 ) };
-  FD_TEST( fd_fib4_insert( test_tile.router.fib_main, 0U, 0, 0U, &hop ) );
+  FD_TEST( fd_fib4_insert( test_tile.net.router.fib_main, 0U, 0, 0U, &hop ) );
   uint  dst = FD_IP4_ADDR( 10,181,80,14 );
   ulong sig = fd_disco_netmux_sig( dst, 9000U, dst, DST_PROTO_OUTGOING, 0UL );
   FD_TEST( !before_frag( &test_tile, 0UL, 0UL, sig ) );
@@ -407,14 +407,14 @@ test_bond_route( void ) {
   /* A routing failure falls back to the kernel socket, but still needs a
      usable VF to stage the packet, so with no link it is dropped there. */
   hop.if_idx = 7U;
-  FD_TEST( fd_fib4_insert( test_tile.router.fib_main, dst, 32, 0U, &hop ) );
+  FD_TEST( fd_fib4_insert( test_tile.net.router.fib_main, dst, 32, 0U, &hop ) );
   FD_TEST( before_frag( &test_tile, 0UL, 0UL, sig ) );
   FD_TEST( test_tile.net.tx_route.routing_failure );
   FD_TEST( test_tile.net.metrics.tx_slow_path_reason_cnt[ FD_METRICS_ENUM_PKT_TX_SLOW_PATH_REASON_V_UNSUPPORTED_INTERFACE_IDX ]==1UL );
   FD_TEST( test_tile.metrics.tx_no_link_cnt==2UL );
 
   /* One failed job must count once even when tile 0 probes for loopback. */
-  fd_fib4_clear( test_tile.router.fib_main );
+  fd_fib4_clear( test_tile.net.router.fib_main );
   test_tile.net.tile_cnt = 2UL;
   for( ushort port=9000U; 0==(fd_disco_netmux_sig_hash( sig )%2UL); port++ ) {
     FD_TEST( port<10000U );
@@ -431,7 +431,7 @@ test_bond_route( void ) {
   test_tile.net.tile_cnt = 1UL;
   test_netdevs[1].dev_type   = ARPHRD_IPGRE;
   test_netdevs[1].gre_dst_ip = FD_IP4_ADDR( 192,0,2,1 );
-  FD_TEST( fd_fib4_insert( test_tile.router.fib_main, dst, 32, 0U, &hop ) );
+  FD_TEST( fd_fib4_insert( test_tile.net.router.fib_main, dst, 32, 0U, &hop ) );
   FD_TEST( before_frag( &test_tile, 0UL, 0UL, sig ) );
   FD_TEST( test_tile.net.metrics.tx_slow_path_reason_cnt[ FD_METRICS_ENUM_PKT_TX_SLOW_PATH_REASON_V_NO_ROUTE_IDX ]==2UL );
   FD_TEST( test_tile.net.metrics.tx_drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_GRE_NO_ROUTE_IDX ]==0UL );
@@ -439,7 +439,7 @@ test_bond_route( void ) {
   test_tile.net.tile_cnt = 2UL;
   test_netdevs[1] = (fd_netdev_t) { .if_idx=1U, .dev_type=ARPHRD_LOOPBACK };
   hop.rtype = FD_FIB4_RTYPE_LOCAL;
-  FD_TEST( fd_fib4_insert( test_tile.router.fib_local, dst, 32, 0U, &hop ) );
+  FD_TEST( fd_fib4_insert( test_tile.net.router.fib_local, dst, 32, 0U, &hop ) );
   for( ulong tile_idx=0UL; tile_idx<2UL; tile_idx++ ) {
     test_tile.net.kind_id = tile_idx;
     FD_TEST( before_frag( &test_tile, 0UL, 0UL, sig )==(int)(tile_idx!=0UL) );
@@ -613,23 +613,23 @@ test_tx_sock_fallback( void ) {
   uint const missing_if_ip4_addr = FD_IP4_ADDR( 7,40,0,1 );     /* route names an absent interface */
   uint const neigh1_ip4_addr     = FD_IP4_ADDR( 192,168,1,11 ); /* missing a neighbor table entry */
   uint const gre_inner_src_ip    = FD_IP4_ADDR( 10,0,0,1 );
-  test_tile.router.default_address = public_ip4_addr;
+  test_tile.net.router.default_address = public_ip4_addr;
 
-  FD_TEST( NULL!=fd_fib4_join( test_tile.router.fib_local, fd_fib4_new( fib_local, 16UL, 16UL, 1UL ) ) );
-  FD_TEST( NULL!=fd_fib4_join( test_tile.router.fib_main,  fd_fib4_new( fib_main,  16UL, 16UL, 1UL ) ) );
+  FD_TEST( NULL!=fd_fib4_join( test_tile.net.router.fib_local, fd_fib4_new( fib_local, 16UL, 16UL, 1UL ) ) );
+  FD_TEST( NULL!=fd_fib4_join( test_tile.net.router.fib_main,  fd_fib4_new( fib_main,  16UL, 16UL, 1UL ) ) );
   FD_TEST( fd_neigh4_hmap_footprint( 16UL )<=sizeof(neigh) );
   FD_TEST( NULL!=fd_neigh4_hmap_new( neigh, 16UL, 1 ) );
-  FD_TEST( NULL!=fd_neigh4_hmap_join( test_tile.router.neigh4, neigh, 16UL, 8UL, 1UL ) );
+  FD_TEST( NULL!=fd_neigh4_hmap_join( test_tile.net.router.neigh4, neigh, 16UL, 8UL, 1UL ) );
   fd_fib4_hop_t hop = { .if_idx=4U, .rtype=FD_FIB4_RTYPE_BLACKHOLE };
-  FD_TEST( fd_fib4_insert( test_tile.router.fib_main, banned_ip4_addr, 32, 0U, &hop ) );
+  FD_TEST( fd_fib4_insert( test_tile.net.router.fib_main, banned_ip4_addr, 32, 0U, &hop ) );
   hop = (fd_fib4_hop_t) { .if_idx=7U, .rtype=FD_FIB4_RTYPE_UNICAST, .ip4_src=gre_inner_src_ip };
-  FD_TEST( fd_fib4_insert( test_tile.router.fib_main, path2_ip4_addr, 32, 0U, &hop ) );
+  FD_TEST( fd_fib4_insert( test_tile.net.router.fib_main, path2_ip4_addr, 32, 0U, &hop ) );
   hop = (fd_fib4_hop_t) { .rtype=FD_FIB4_RTYPE_THROW };
-  FD_TEST( fd_fib4_insert( test_tile.router.fib_main, no_route_ip4_addr, 32, 0U, &hop ) );
+  FD_TEST( fd_fib4_insert( test_tile.net.router.fib_main, no_route_ip4_addr, 32, 0U, &hop ) );
   hop = (fd_fib4_hop_t) { .if_idx=999U, .rtype=FD_FIB4_RTYPE_UNICAST };
-  FD_TEST( fd_fib4_insert( test_tile.router.fib_main, missing_if_ip4_addr, 32, 0U, &hop ) );
+  FD_TEST( fd_fib4_insert( test_tile.net.router.fib_main, missing_if_ip4_addr, 32, 0U, &hop ) );
   hop = (fd_fib4_hop_t) { .if_idx=4U, .rtype=FD_FIB4_RTYPE_UNICAST, .ip4_src=site_ip4_addr };
-  FD_TEST( fd_fib4_insert( test_tile.router.fib_main, FD_IP4_ADDR( 192,168,1,0 ), 24, 0U, &hop ) );
+  FD_TEST( fd_fib4_insert( test_tile.net.router.fib_main, FD_IP4_ADDR( 192,168,1,0 ), 24, 0U, &hop ) );
 
   /* Packets that fail userland routing are sent on net.sock and counted
      as transmitted.  Each case exercises a different failure path. */
@@ -661,7 +661,7 @@ test_tx_sock_fallback( void ) {
       FD_TEST( result_cnt[ FD_METRICS_ENUM_PKT_TX_ROUTE_RESULT_V_SLOW_PATH_IDX ]==slow_before+1UL );
     }
     /* The neighbor miss still requests a solicitation */
-    FD_TEST( test_tile.router.solicit_ip==neigh1_ip4_addr );
+    FD_TEST( test_tile.net.router.solicit_ip==neigh1_ip4_addr );
   }
 
   /* A failed socket send is counted as a SocketSendFailure drop, and no
@@ -812,8 +812,8 @@ test_tx_sock_fallback( void ) {
   FD_TEST( fd_metrics_tl[ FD_METRICS_COUNTER_IAVF_PKT_TX_DROPPED_SOCKET_SEND_FAILURE_OFF ]==
            test_tile.net.metrics.tx_drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_SOCKET_SEND_FAILURE_IDX ] );
 
-  fd_fib4_delete( fd_fib4_leave( test_tile.router.fib_local ) );
-  fd_fib4_delete( fd_fib4_leave( test_tile.router.fib_main  ) );
+  fd_fib4_delete( fd_fib4_leave( test_tile.net.router.fib_local ) );
+  fd_fib4_delete( fd_fib4_leave( test_tile.net.router.fib_main  ) );
 }
 
 static void

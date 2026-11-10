@@ -153,7 +153,6 @@ struct __attribute__((aligned(64UL))) fd_mlx5_tile {
   int              rx_comp_channel_fd;    /* completion channel of rx_cq, -1 if not efficient mode */
   uint             has_out_credit;
   long             repoll_deadline_ticks; /* LONG_MAX when no repoll is scheduled */
-  fd_net_router_t  router; /* TX IP routing */
 
   long             sq_flush_timeout_ticks;
   long             lo_tx_timeout_ticks;
@@ -183,7 +182,7 @@ struct __attribute__((aligned(64UL))) fd_mlx5_tile {
   int  epoll_fd;
   long repoll_timeout_ticks;
 
-  ulong netdev_seq; /* netdev_shared seqlock value of the router.netdev_tbl copy */
+  ulong netdev_seq; /* netdev_shared seqlock value of the net.router.netdev_tbl copy */
 
   /* Metric tracking */
   struct {
@@ -702,7 +701,7 @@ before_credit( fd_mlx5_tile_t *    ctx,
                fd_stem_context_t * stem,
                int *               charge_busy ) {
   ctx->has_out_credit = 0U;
-  fd_net_router_solicit( &ctx->router, stem );
+  fd_net_router_solicit( &ctx->net.router, stem );
 
   if( FD_UNLIKELY( ctx->lo_tx_cnt && fd_tickcount()>=ctx->lo_tx_deadline_ticks ) ) {
     fd_mlx5_tile_lo_tx_flush( ctx );
@@ -842,34 +841,11 @@ before_frag( fd_mlx5_tile_t * ctx,
   uint dst_ip = fd_disco_netmux_sig_ip( sig );
   /* Tile 0 probes for loopback without counting another tile's route failures. */
   if( kind_id!=target_idx &&
-      !fd_net_tx_probe_loopback( ctx->router.fib_local, ctx->router.fib_main, &ctx->router.netdev_tbl, dst_ip ) ) return 1;
+      !fd_net_tx_probe_loopback( ctx->net.router.fib_local, ctx->net.router.fib_main, &ctx->net.router.netdev_tbl, dst_ip ) ) return 1;
 
   fd_net_tx_route_t * route = &ctx->net.tx_route;
-  /* Packets that fail userland routing are sent on net.sock in
-     after_frag and routed by the kernel. */
-  if( FD_UNLIKELY( !fd_net_tx_route( &ctx->router, &ctx->net, dst_ip, route ) &&
+  if( FD_UNLIKELY( !fd_net_tx_route( &ctx->net, dst_ip, route ) &&
                    !route->routing_failure ) ) return 1;
-  if( FD_UNLIKELY( route->use_gre ) ) {
-    fd_net_tx_route_t outer_route;
-    uint const inner_src_ip = route->src_ip;
-    uint const outer_src_ip = route->gre_outer_src_ip;
-    uint const outer_dst_ip = route->gre_outer_dst_ip;
-
-    /* fd_net_tx_route counts its own routing failure.  An unroutable
-       outer endpoint is encapsulated here and sent on net.sock, so the
-       kernel routes the outer packet. */
-    if( FD_UNLIKELY( !fd_net_tx_route( &ctx->router, &ctx->net, outer_dst_ip, &outer_route ) &&
-                     !outer_route.routing_failure ) ) return 1;
-    if( FD_UNLIKELY( outer_route.use_gre || outer_route.use_loopback ) ) {
-      ctx->net.metrics.tx_drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_GRE_NO_ROUTE_IDX ]++;
-      return 1;
-    }
-    *route                  = outer_route;
-    route->src_ip           = inner_src_ip;
-    route->gre_outer_src_ip = fd_uint_if( !outer_src_ip, outer_route.src_ip, outer_src_ip );
-    route->gre_outer_dst_ip = outer_dst_ip;
-    route->use_gre          = 1U;
-  }
 
   if( route->use_loopback ) target_idx = 0UL;
   if( kind_id!=target_idx ) return 1;
@@ -921,19 +897,19 @@ after_frag( fd_mlx5_tile_t *    ctx,
   if( FD_UNLIKELY( ctx->net.in_kind[ in_idx ]==FD_NET_IN_KIND_IPROUTE ) ) {
     fd_iproute_msg_t const * msg = &ctx->net.iproute_msg;
     if( msg->op==FD_IPROUTE_OP_FLUSH ) {
-      fd_fib4_clear( ctx->router.fib_local );
-      fd_fib4_clear( ctx->router.fib_main );
+      fd_fib4_clear( ctx->net.router.fib_local );
+      fd_fib4_clear( ctx->net.router.fib_main );
       return;
     }
 
     fd_fib4_t * fib;
-    if( msg->table_id==RT_TABLE_LOCAL )     fib = ctx->router.fib_local;
-    else if( msg->table_id==RT_TABLE_MAIN ) fib = ctx->router.fib_main;
+    if( msg->table_id==RT_TABLE_LOCAL )     fib = ctx->net.router.fib_local;
+    else if( msg->table_id==RT_TABLE_MAIN ) fib = ctx->net.router.fib_main;
     else return;
 
     if( msg->op==FD_IPROUTE_OP_UPSERT && FD_UNLIKELY( !fd_fib4_insert( fib, msg->dst_addr, msg->prefix, msg->prio, &msg->hop ) ) ) {
       FD_LOG_WARNING(( "route update dropped: route table full (increase [tiles.netlink].max_routes or [tiles.netlink].max_peer_routes)" ));
-      fd_stem_publish( stem, ctx->router.netlnk_out_idx, FD_NETLINK_ROUTE4_SYNC_SIG, 0UL, 0UL, 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+      fd_stem_publish( stem, ctx->net.router.netlnk_out_idx, FD_NETLINK_ROUTE4_SYNC_SIG, 0UL, 0UL, 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
     } else if( msg->op==FD_IPROUTE_OP_DELETE ) {
       fd_fib4_remove( fib, msg->dst_addr, msg->prefix, msg->prio );
     }
@@ -1046,8 +1022,8 @@ static inline void
 during_housekeeping( fd_mlx5_tile_t * ctx ) {
   fd_mlx5_tile_async_drain( ctx );
 
-  if( FD_UNLIKELY( fd_netdev_tbl_refresh( &ctx->router.netdev_tbl, &ctx->router.netdev_shared, &ctx->netdev_seq ) ) ) {
-    fd_net_gre_tunnels_refresh( &ctx->net, &ctx->router.netdev_tbl );
+  if( FD_UNLIKELY( fd_netdev_tbl_refresh( &ctx->net.router.netdev_tbl, &ctx->net.router.netdev_shared, &ctx->netdev_seq ) ) ) {
+    fd_net_gre_tunnels_refresh( &ctx->net, &ctx->net.router.netdev_tbl );
   }
 }
 
@@ -1324,8 +1300,8 @@ privileged_init( fd_topo_t const *      topo,
     FD_LOG_ERR(( "if_nametoindex(%s) failed (%i-%s)",
                  tile->mlx5.if_name, errno, fd_io_strerror( errno ) ));
   }
-  ctx->router.if_virt         = interface_idx;
-  ctx->router.default_address = fd_mlx5_tile_if_ip4_addr( tile->mlx5.if_name );
+  ctx->net.router.if_virt         = interface_idx;
+  ctx->net.router.default_address = fd_mlx5_tile_if_ip4_addr( tile->mlx5.if_name );
   ctx->lo_tx_sock = tile->kind_id==0UL ? fd_mlx5_tile_lo_tx_socket() : -1;
   if( FD_UNLIKELY( !fd_net_sock_init( &ctx->net.sock ) ) ) {
     FD_LOG_ERR(( "fd_net_sock_init failed (%i-%s)", errno, fd_io_strerror( errno ) ));
@@ -1430,14 +1406,14 @@ unprivileged_init( fd_topo_t const *      topo,
   }
 
   /* Join netbase objects */
-  FD_TEST( fd_fib4_join( ctx->router.fib_local, fd_fib4_new( fib_local_mem, tile->mlx5.route_max, tile->mlx5.route_peer_max, tile->mlx5.route_peer_seed ) ) );
-  FD_TEST( fd_fib4_join( ctx->router.fib_main,  fd_fib4_new( fib_main_mem,  tile->mlx5.route_max, tile->mlx5.route_peer_max, tile->mlx5.route_peer_seed ) ) );
-  FD_TEST( fd_netdev_tbl_join( &ctx->router.netdev_shared, fd_topo_obj_laddr( topo, tile->mlx5.netdev_tbl_obj_id ) )                                        );
+  FD_TEST( fd_fib4_join( ctx->net.router.fib_local, fd_fib4_new( fib_local_mem, tile->mlx5.route_max, tile->mlx5.route_peer_max, tile->mlx5.route_peer_seed ) ) );
+  FD_TEST( fd_fib4_join( ctx->net.router.fib_main,  fd_fib4_new( fib_main_mem,  tile->mlx5.route_max, tile->mlx5.route_peer_max, tile->mlx5.route_peer_seed ) ) );
+  FD_TEST( fd_netdev_tbl_join( &ctx->net.router.netdev_shared, fd_topo_obj_laddr( topo, tile->mlx5.netdev_tbl_obj_id ) )                                    );
   FD_TEST( fd_netdev_tbl_new( netdev_tbl_local, NETDEV_MAX, BOND_MASTER_MAX )                                                                               );
-  FD_TEST( fd_netdev_tbl_join( &ctx->router.netdev_tbl, netdev_tbl_local )                                                                                  );
+  FD_TEST( fd_netdev_tbl_join( &ctx->net.router.netdev_tbl, netdev_tbl_local )                                                                              );
 
-  ctx->netdev_seq = fd_netdev_tbl_copy( &ctx->router.netdev_tbl, &ctx->router.netdev_shared );
-  fd_net_gre_tunnels_refresh( &ctx->net, &ctx->router.netdev_tbl );
+  ctx->netdev_seq = fd_netdev_tbl_copy( &ctx->net.router.netdev_tbl, &ctx->net.router.netdev_shared );
+  fd_net_gre_tunnels_refresh( &ctx->net, &ctx->net.router.netdev_tbl );
   ctx->net.bind_address = tile->mlx5.net.bind_address;
 
   ulong neigh4_obj_id = tile->mlx5.neigh4_obj_id;
@@ -1447,13 +1423,13 @@ unprivileged_init( fd_topo_t const *      topo,
   if( FD_UNLIKELY( (ele_max==ULONG_MAX) | (probe_max==ULONG_MAX) | (seed==ULONG_MAX) ) ) {
     FD_LOG_ERR(( "neigh4 hmap properties not set" ));
   }
-  if( FD_UNLIKELY( !fd_neigh4_hmap_join( ctx->router.neigh4, fd_topo_obj_laddr( topo, neigh4_obj_id ), ele_max, probe_max, seed ) ) ) {
+  if( FD_UNLIKELY( !fd_neigh4_hmap_join( ctx->net.router.neigh4, fd_topo_obj_laddr( topo, neigh4_obj_id ), ele_max, probe_max, seed ) ) ) {
     FD_LOG_ERR(( "fd_neigh4_hmap_join failed" ));
   }
 
-  ctx->router.netlnk_out_idx = fd_topo_find_tile_out_link( topo, tile, "net_netlnk", tile->kind_id );
-  if( FD_UNLIKELY( ctx->router.netlnk_out_idx==ULONG_MAX ) ) FD_LOG_ERR(( "netlink request link not found" ));
-  ctx->router.solicit_ip = 0U;
+  ctx->net.router.netlnk_out_idx = fd_topo_find_tile_out_link( topo, tile, "net_netlnk", tile->kind_id );
+  if( FD_UNLIKELY( ctx->net.router.netlnk_out_idx==ULONG_MAX ) ) FD_LOG_ERR(( "netlink request link not found" ));
+  ctx->net.router.solicit_ip = 0U;
 
   /* Check if all chunks are in bound */
   if( FD_UNLIKELY( next_chunk>ctx->net.pkt_buf_wmark ) ) {
