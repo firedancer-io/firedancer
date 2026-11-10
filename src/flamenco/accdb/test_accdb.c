@@ -2524,7 +2524,7 @@ test_release_alloc( void ) {
   ulong cache_fp = 24UL<<20;
   /* 1024 partitions of 64 MiB: room for the churn's write-back (no
      compaction thread runs here; drain_background compacts). */
-  fd_accdb_t * accdb = test_setup_ex( &fd, 1024UL, 8UL, 1024UL, 1024UL, 64UL<<20UL, cache_fp, TEST_CACHE_MIN_RESERVED, 1UL );
+  fd_accdb_t * accdb = test_setup_ex( &fd, 1024UL, 8UL, 1024UL, 1024UL, 64UL<<20UL, cache_fp, TEST_CACHE_MIN_RESERVED, 1UL, 0UL );
   fd_accdb_fork_id_t root = fd_accdb_attach_child( accdb, SENTINEL );
   fd_accdb_fork_id_t f    = fd_accdb_attach_child( accdb, root );
 
@@ -2597,7 +2597,7 @@ static void
 test_free_lists( void ) {
   int fd;
   ulong joiners = 2UL;
-  fd_accdb_t * a = test_setup_ex( &fd, 1024UL, 8UL, 1024UL, 64UL, 11UL<<20UL, 64UL<<20, TEST_CACHE_MIN_RESERVED, joiners );
+  fd_accdb_t * a = test_setup_ex( &fd, 1024UL, 8UL, 1024UL, 64UL, 11UL<<20UL, 64UL<<20, TEST_CACHE_MIN_RESERVED, joiners, 0UL );
   fd_accdb_t * b = test_join_writer( fd );
   fd_accdb_shmem_t * sh = test_shmem_mem;
   fd_accdb_fork_id_t root = fd_accdb_attach_child( a, SENTINEL );
@@ -2663,7 +2663,7 @@ static void
 test_free_lists_evict( void ) {
   int fd;
   ulong joiners = 2UL;
-  fd_accdb_t * a = test_setup_ex( &fd, 4096UL, 8UL, 4096UL, 256UL, 11UL<<20UL, 48UL<<20, TEST_CACHE_MIN_RESERVED, joiners );
+  fd_accdb_t * a = test_setup_ex( &fd, 4096UL, 8UL, 4096UL, 256UL, 11UL<<20UL, 48UL<<20, TEST_CACHE_MIN_RESERVED, joiners, 0UL );
   fd_accdb_t * b = test_join_writer( fd );
   fd_accdb_t * j[ 2 ] = { a, b };
   fd_accdb_fork_id_t root = fd_accdb_attach_child( a, SENTINEL );
@@ -2724,7 +2724,7 @@ class_avail( fd_accdb_t * accdb,
 static void
 test_preevict_throttle( void ) {
   int fd;
-  fd_accdb_t * a = test_setup_ex( &fd, 16384UL, 8UL, 16384UL, 256UL, 11UL<<20UL, 48UL<<20, TEST_CACHE_MIN_RESERVED, 1UL );
+  fd_accdb_t * a = test_setup_ex( &fd, 16384UL, 8UL, 16384UL, 256UL, 11UL<<20UL, 48UL<<20, TEST_CACHE_MIN_RESERVED, 1UL, 0UL );
   fd_accdb_set_preevict_interval( a, LONG_MAX );
   fd_accdb_fork_id_t root = fd_accdb_attach_child( a, SENTINEL );
   fd_accdb_fork_id_t f    = fd_accdb_attach_child( a, root );
@@ -2787,7 +2787,7 @@ static void
 test_preevict_handoff( void ) {
   int fd;
   ulong joiners = 2UL;
-  fd_accdb_t * a = test_setup_ex( &fd, 16384UL, 8UL, 16384UL, 256UL, 11UL<<20UL, 48UL<<20, TEST_CACHE_MIN_RESERVED, joiners );
+  fd_accdb_t * a = test_setup_ex( &fd, 16384UL, 8UL, 16384UL, 256UL, 11UL<<20UL, 48UL<<20, TEST_CACHE_MIN_RESERVED, joiners, 0UL );
   fd_accdb_t * b = test_join_writer( fd );
   fd_accdb_set_preevict_interval( a, LONG_MAX ); /* b's writes run unrefilled */
   fd_accdb_shmem_t * sh = test_shmem_mem;
@@ -2845,7 +2845,7 @@ static void
 test_preevict_hungry_kept( void ) {
   int fd;
   ulong joiners = 2UL;
-  fd_accdb_t * a = test_setup_ex( &fd, 16384UL, 8UL, 16384UL, 256UL, 11UL<<20UL, 48UL<<20, TEST_CACHE_MIN_RESERVED, joiners );
+  fd_accdb_t * a = test_setup_ex( &fd, 16384UL, 8UL, 16384UL, 256UL, 11UL<<20UL, 48UL<<20, TEST_CACHE_MIN_RESERVED, joiners, 0UL );
   fd_accdb_t * b = test_join_writer( fd );
   fd_accdb_set_preevict_interval( a, LONG_MAX );
   fd_accdb_shmem_t * sh = test_shmem_mem;
@@ -2894,7 +2894,7 @@ test_reservation_credits( void ) {
   ulong joiners = 2UL;
   /* min_reserved 32: the large classes get ~32 lines, tracked (32 <
      32*joiners), with room for credits. */
-  fd_accdb_t * a = test_setup_ex( &fd, 1024UL, 8UL, 1024UL, 64UL, 11UL<<20UL, 400UL<<20, 32UL, joiners );
+  fd_accdb_t * a = test_setup_ex( &fd, 1024UL, 8UL, 1024UL, 64UL, 11UL<<20UL, 400UL<<20, 32UL, joiners, 0UL );
   fd_accdb_t * b = test_join_writer( fd );
   fd_accdb_shmem_t * sh = test_shmem_mem;
   fd_accdb_fork_id_t root = fd_accdb_attach_child( a, SENTINEL );
