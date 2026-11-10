@@ -238,11 +238,6 @@ snapshot_load_topo( config_t * config ) {
 }
 
 static void
-snapshot_load_topo1( config_t * config ) {
-  snapshot_load_topo( config );
-}
-
-static void
 snapshot_load_args( int *    pargc,
                     char *** pargv,
                     args_t * args ) {
@@ -714,7 +709,7 @@ snapshot_load_args_help( fd_action_help_t * help ) {
 
 action_t fd_action_snapshot_load = {
   .name        = NAME,
-  .topo        = snapshot_load_topo1,
+  .topo        = snapshot_load_topo,
   .perm        = dev_cmd_perm,
   .args        = snapshot_load_args,
   .apply_args  = snapshot_load_apply_args,
