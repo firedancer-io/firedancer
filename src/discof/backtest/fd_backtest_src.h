@@ -57,7 +57,8 @@ struct fd_backt_src_vt {
 
 struct fd_backtest_src_opts {
   char const * format;
-  char const * path;
+  char const * path; /* for log messages only */
+  int          fd;   /* ledger file, the source takes ownership */
 
   uint rooted_only : 1;
   uint code_shreds : 1;

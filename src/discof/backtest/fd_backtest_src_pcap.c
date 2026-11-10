@@ -12,6 +12,7 @@
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <unistd.h>
 
 #define ZSTD_STATIC_LINKING_ONLY
 #include <zstd.h>
@@ -305,10 +306,15 @@ fd_backt_src_t *
 fd_backt_src_pcap_create( fd_backtest_src_opts_t const * opts,
                           uint                          format,
                           uint                          flags ) {
-  (void)flags;
-  FILE * file = fopen( opts->path, "rb" );
+  if( FD_UNLIKELY( -1==lseek( opts->fd, 0L, SEEK_SET ) ) ) {
+    FD_LOG_WARNING(( "lseek(%s) failed (%i-%s)", opts->path, errno, fd_io_strerror( errno ) ));
+    close( opts->fd );
+    return NULL;
+  }
+  FILE * file = fdopen( opts->fd, "rb" );
   if( FD_UNLIKELY( !file ) ) {
-    FD_LOG_WARNING(( "fopen(%s,rb) failed", opts->path ));
+    FD_LOG_WARNING(( "fdopen(%s,rb) failed (%i-%s)", opts->path, errno, fd_io_strerror( errno ) ));
+    close( opts->fd );
     return NULL;
   }
 
