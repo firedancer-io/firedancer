@@ -153,8 +153,7 @@ fd_vm_trace_event_exe( fd_vm_trace_t * trace,
 #include <stdio.h>
 
 int
-fd_vm_trace_printf( fd_vm_trace_t const *      trace,
-                    fd_sbpf_syscalls_t const * syscalls ) {
+fd_vm_trace_printf( fd_vm_trace_t const * trace ) {
 
   if( FD_UNLIKELY( !trace ) ) {
     FD_LOG_WARNING(( "bad input args" ));
@@ -191,12 +190,8 @@ fd_vm_trace_printf( fd_vm_trace_t const *      trace,
 
     /* Print the instruction */
 
-    ulong out_len = 0UL;
-    char  out[128];
-    out[0] = '\0';
-    int err = fd_vm_disasm_instr( event->text, fd_ulong_if( !multiword, 1UL, 2UL ), event_pc, syscalls, out, 128UL, &out_len );
-    if( FD_UNLIKELY( err ) ) printf( "disasm failed (%i-%s)", err, fd_vm_strerror( err ) );
-    else                     printf( "%s", out );
+    printf( "%016lX", event->text[0] );
+    if( multiword ) printf( " %016lX", event->text[1] );
 
     /* Print CUs  */
     printf( " %lu\n", event->cu );
