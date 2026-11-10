@@ -26,6 +26,7 @@ struct fake_client {
   uint  conn_alive:1;
   ulong req_cnt;
   int   trunc_res; /* if set, every MSG_TRUNC recv completes with this count */
+  uint  peek_max;  /* if set, a peek returns at most this many bytes */
 
 # define DEFER_SQE_MAX 32
   fd_io_uring_sqe_t defer_sqe[ DEFER_SQE_MAX ];
@@ -43,6 +44,7 @@ fake_client_init( fake_client_t * fake ) {
   fake->defer_sqe_cnt = 0;
   fake->req_cnt       = 0;
   fake->trunc_res     = 0;
+  fake->peek_max      = 0;
   return fake;
 }
 
@@ -89,6 +91,7 @@ fake_client_handle_sqe( fake_client_t *     fake,
     }
     if( fake->req_cur < fake->req_sz ) {
       ulong len = fd_ulong_min( sqe->len, fake->req_sz - fake->req_cur );
+      if( (sqe->msg_flags & MSG_PEEK) && fake->peek_max ) len = fd_ulong_min( len, fake->peek_max );
       FD_TEST( len<=INT_MAX );
       if( !(sqe->msg_flags & MSG_TRUNC) ) {
         memcpy( (void *)sqe->addr, fake->req + fake->req_cur, len );
@@ -865,7 +868,7 @@ expect_consume_frag_mismatch( int consume_res ) {
   fd_snapsv_t *  ctx = env->ctx;
 
   fake_client_t fake;
-  fake_client_req( &fake, "GET /nope HTTP/1.1\r\nHost: x" ); /* 23 bytes, no blank line */
+  fake_client_req( &fake, "GET /nope HTTP/1.1\r\nHost: x" ); /* 27 bytes, no blank line */
   snapsv_step( env, &fake, 0U ); /* accept */
   snapsv_step( env, &fake, 1U ); /* peek, queue consume */
   snapsv_conn_t * conn = NULL;
@@ -884,9 +887,28 @@ expect_consume_frag_mismatch( int consume_res ) {
 }
 
 FD_UNIT_TEST( consume_frag_short )     { expect_consume_frag_mismatch( 1    ); }
-FD_UNIT_TEST( consume_frag_overcount ) { expect_consume_frag_mismatch( 24   ); }
+FD_UNIT_TEST( consume_frag_overcount ) { expect_consume_frag_mismatch( 28   ); }
 FD_UNIT_TEST( consume_frag_fills )     { expect_consume_frag_mismatch( 4096 ); } /* iobuf_sz in this env */
 FD_UNIT_TEST( consume_frag_overshoot ) { expect_consume_frag_mismatch( 4097 ); }
+
+/* A request head that arrives in pieces is consumed piece by piece and
+   still served. */
+
+FD_UNIT_TEST( req_head_fragmented ) {
+  snapsv_env_t * env = snapsv_env_create();
+  fake_client_t fake;
+  fake_client_req( &fake, "GET /nope HTTP/1.1\r\n\r\n" );
+  fake.peek_max = 5U;
+  for( uint iter=0U; iter<256U; iter++ ) snapsv_step( env, &fake, iter );
+  char  res[ 512 ];
+  ulong res_len = sizeof(res);
+  fake_client_res( &fake, res, &res_len );
+  FD_TEST( res_len==strlen( RES_404_KEEPALIVE ) );
+  FD_TEST( !memcmp( res, RES_404_KEEPALIVE, res_len ) );
+  FD_TEST( !env->ctx->conn_cnt );
+  FD_TEST( env->ctx->iobuf_free_cnt==2U*CONN_MAX );
+  snapsv_env_destroy( env );
+}
 
 static void
 expect_redirect_after( char const * method,

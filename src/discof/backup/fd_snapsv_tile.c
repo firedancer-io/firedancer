@@ -760,8 +760,8 @@ prep_peek( fd_snapsv_t * ctx,
     .tv_sec  = idle_rem / (long)1e9,
     .tv_nsec = idle_rem % (long)1e9
   };
+  FD_CHECK_CRIT( conn->req.len < ctx->iobuf_sz, "request head buffer is full" );
   uint            len  = ctx->iobuf_sz - conn->req.len;
-  FD_CHECK_CRIT( len, "request head buffer is full" );
   iobuf_alloc( ctx, &conn->iobuf_idx );
 
   fd_io_uring_t * ring = ctx->ring;
