@@ -173,6 +173,10 @@ unprivileged_init( fd_topo_t const *      topo,
   if( FD_UNLIKELY( ZSTD_isError( zst_err ) ) ) {
     FD_LOG_ERR(( "ZSTD_CCtx_setParameter(ZSTD_c_srcSizeHint) failed: %s", ZSTD_getErrorName( zst_err ) ));
   }
+  zst_err = ZSTD_CCtx_setParameter( ctx->zst, ZSTD_c_literalCompressionMode, ZSTD_lcm_uncompressed );
+  if( FD_UNLIKELY( ZSTD_isError( zst_err ) ) ) {
+    FD_LOG_ERR(( "ZSTD_CCtx_setParameter(ZSTD_c_literalCompressionMode) failed: %s", ZSTD_getErrorName( zst_err ) ));
+  }
   ctx->zst_in_rec = ZSTD_CStreamInSize();
   ctx->raw      = ctx->raw_buf1;
   ctx->raw_buf  = (ZSTD_inBuffer ){ .src = ctx->raw_buf1, .size = 0UL };
