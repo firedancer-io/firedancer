@@ -252,6 +252,13 @@ struct fd_action {
   uchar        is_diagnostic;    /* 1 implies action should be allowed for prod debugging */
 
   void       (*args)( int * pargc, char *** pargv, args_t * args );
+
+  /* apply_args, if non-NULL, applies the parsed command-line arguments
+     to the config before the topology is built, so the topology picks
+     the overridden values up directly.  Called once at boot, after args
+     and before topo. */
+  void       (*apply_args)( args_t const * args, config_t * config );
+
   void       (*topo)( config_t * config );
   void       (*perm)( args_t * args, fd_cap_chk_t * chk, config_t const * config );
   void       (*fn  )( args_t * args, config_t * config );

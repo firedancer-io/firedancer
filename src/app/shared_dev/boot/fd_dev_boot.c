@@ -160,14 +160,15 @@ fd_dev_main( int                        argc,
   if( FD_UNLIKELY( max_live_slots ) ) config.firedancer.runtime.max_live_slots = max_live_slots;
   if( FD_UNLIKELY( efficient      ) ) fd_cstr_ncpy( config.firedancer.layout.mode, "efficient", sizeof(config.firedancer.layout.mode) );
 
-  if( FD_LIKELY( load_topo ) ) {
-    if( FD_LIKELY( action->topo ) ) action->topo( &config );
-    else                            topo_init( &config );
-  }
-
   args_t args = {0};
   if( FD_LIKELY( action->args ) ) action->args( &argc, &argv, &args );
   if( FD_UNLIKELY( argc ) ) FD_LOG_ERR(( "unknown argument `%s`", argv[ 0 ] ));
+
+  if( FD_LIKELY( load_topo ) ) {
+    if( FD_UNLIKELY( action->apply_args ) ) action->apply_args( &args, &config );
+    if( FD_LIKELY  ( action->topo       ) ) action->topo      ( &config );
+    else                                    topo_init         ( &config );
+  }
 
   /* Check if we are appropriately permissioned to run the desired
      command. */
