@@ -2575,7 +2575,7 @@ test_step14_orphan_no_hang( void ) {
    recycled.  The pin CAS transiently bumps refcnt on a line the reader
    no longer owns; the ABA recheck then fails and unpins.  Historically
    the free-list pop (acquire_cache_line priority 1) and the
-   uncommitted-destination cleanup (release_inner) mutated refcnt with
+   uncommitted staging-line cleanup (release_inner) mutated refcnt with
    plain stores, which wiped such a transient pin; the stray's later
    decrement then dropped the new owner's refcnt to 0 (or underflowed it
    to EVICT_SENTINEL), letting CLOCK steal a line still in use.
@@ -2590,8 +2590,8 @@ test_step14_orphan_no_hang( void ) {
      2. Main evicts L (L -> free list, gen=UINT_MAX, refcnt=0).
      3. R resumes to accdb_try_pin:post_cas: its CAS pinned the
         free-listed L (refcnt 0->1); R now holds the stray pin.
-     4. Writer W (new account Q) pops L as its class-0 destination and
-        must WAIT at accdb_freepop:refcnt_wait (a plain refcnt=1 store
+     4. Writer W (new account Q) pops L at release as its class-0 final
+        line (release_take_line) and must WAIT at accdb_freepop:refcnt_wait (a plain refcnt=1 store
         here would let R's later unpin zero out W's pin).
      5. R resumes: ABA recheck fails (gen==UINT_MAX), unpins,
         cold-loads P from disk, completes.
@@ -2627,7 +2627,7 @@ test_stray_pin_vs_freepop( void ) {
      recheck. */
   FD_TEST( fd_racesan_async_step_until( ar, "accdb_try_pin:post_cas", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
 
-  /* W pops L as its class-0 destination and must wait for the stray
+  /* W pops L at release as its class-0 final line and must wait for the stray
      pin to drop.  A regression to the plain store never reaches this
      hook (W runs to exit) and the FD_TEST fails. */
   fd_racesan_async_t * w = fiber_release_write( &g_fiber[1], accdb, root0, key_Q, 400UL );
@@ -2668,11 +2668,11 @@ test_stray_pin_vs_freepop( void ) {
   test_teardown( accdb, fd );
 }
 
-/* test_stray_pin_vs_release_cleanup proves the uncommitted-destination
-   cleanup in release_inner waits out a stray pin on a destination line
+/* test_stray_pin_vs_release_cleanup proves the uncommitted staging-line
+   cleanup in release_inner waits out a stray pin on the staging line
    instead of plain-storing refcnt=0 over it.  A writable acquire only
    materializes its class-7 staging line (the final class's line is
-   taken at release), so the destination here is a class-7 line:
+   taken at release):
      1. P resident in class-7 line L; reader R suspends at
         accdb_acquire:pre_try_pin having captured L.
      2. Main evicts L (free list).
@@ -2680,8 +2680,8 @@ test_stray_pin_vs_freepop( void ) {
         pops L as its class-7 staging line (refcnt 0->1) and parks at
         accdb_acquire:pre_step7_meta, mid-bracket.
      4. R resumes to accdb_try_pin:post_cas: CAS 1->2, stray pin on
-        W's destination line.
-     5. W resumes into release (no commit): the destination cleanup
+        W's staging line.
+     5. W resumes into release (no commit): the staging-line cleanup
         must WAIT at accdb_release:dest_refcnt_wait (a plain refcnt=0
         store here would be underflowed to EVICT_SENTINEL by R's
         later unpin).
@@ -2723,11 +2723,11 @@ test_stray_pin_vs_release_cleanup( void ) {
   fd_racesan_async_new( wf->async, wf_stack, READ_FIBER_STACK_SZ, read_fiber_exec, wf );
   FD_TEST( fd_racesan_async_step_until( wf->async, "accdb_acquire:pre_step7_meta", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
 
-  /* R pins W's destination line (stray pin: refcnt 1->2), suspends
+  /* R pins W's staging line (stray pin: refcnt 1->2), suspends
      before the ABA recheck. */
   FD_TEST( fd_racesan_async_step_until( ar, "accdb_try_pin:post_cas", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
 
-  /* W: release without commit; the destination cleanup must wait for
+  /* W: release without commit; the staging-line cleanup must wait for
      the stray pin.  A regression to the plain store never reaches
      this hook. */
   FD_TEST( fd_racesan_async_step_until( wf->async, "accdb_release:dest_refcnt_wait", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
@@ -2769,7 +2769,7 @@ test_stray_pin_vs_release_cleanup( void ) {
 /* ------------------------------------------------------------------ */
 
 /* When an overwrite commit discards the original cache line (class-7
-   destination, or a size-class change), release tries to claim the line
+   result, or a size-class change), release tries to claim the line
    for freeing; if a concurrent reader still holds a transient
    cache_try_pin pin, the claim fails and the line is abandoned for
    CLOCK to reclaim later.
@@ -2827,7 +2827,7 @@ test_overwrite_discard_stray_pin_cls7( void ) {
   FD_TEST( fd_racesan_async_step_until( ar, "accdb_acquire:pre_try_pin", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
 
   /* Evict L (X flushed to disk, L to the class-7 free list), then
-     commit P: its class-7 destination pops L, so P lives in L, dirty.
+     commit P: its class-7 staging line pops L, so P lives in L, dirty.
      The overwrite below takes the new_size_class==7 discard branch. */
   FD_TEST( fd_accdb_debug_clock_evict_line( accdb, 7UL, idx )!=UINT_MAX );
   seq_write_data( accdb, root0, key_P, 100UL, owner_P, BIG_DATA, 0xA1 );
@@ -2907,8 +2907,8 @@ test_overwrite_discard_stray_pin_xclass( void ) {
   fd_racesan_async_t * ar = fiber_acquire_expect( &g_fiber[0], accdb_r, root0, key_X, 500UL );
   FD_TEST( fd_racesan_async_step_until( ar, "accdb_acquire:pre_try_pin", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
 
-  /* Evict L, then commit P (100 bytes -> class 0): its class-0
-     destination pops L, so P lives in L, dirty. */
+  /* Evict L, then commit P (100 bytes -> class 0): its class-0 final
+     line (taken at release) pops L, so P lives in L, dirty. */
   FD_TEST( fd_accdb_debug_clock_evict_line( accdb, 0UL, idx )!=UINT_MAX );
   seq_write_data( accdb, root0, key_P, 100UL, owner_P, 100UL, 0xA1 );
   {
@@ -3432,7 +3432,7 @@ test_clock_claim_vs_freed( void ) {
   uchar owner[ 32UL ] = { 7, 0 };
   fd_accdb_fork_id_t root = fd_accdb_attach_child( ctl, SENTINEL );
 
-  /* Each commit keeps its destination line, so cache_class_max writes
+  /* Each commit keeps its final line, so cache_class_max writes
      leave every class-0 line resident with an empty free list. */
   ulong max0 = g_shmem->cache_class_max[ 0 ];
   FD_TEST( max0>=2UL );
@@ -3443,8 +3443,8 @@ test_clock_claim_vs_freed( void ) {
   FD_TEST( !free_cnt_total( 0UL ) );
   FD_TEST( FD_VOLATILE_CONST( g_shmem->cache_class_init[ 0 ].val )>=max0 );
 
-  /* W: writable acquire of a NEW account, so its class-0 destination
-     comes from the CLOCK sweep. */
+  /* W: write of a NEW account, so its class-0 final line (taken at
+     release) comes from the CLOCK sweep. */
   uchar key_Q[ 32UL ]; mk_key( 800001UL, key_Q );
   fd_racesan_async_t * w = fiber_release_write( &g_fiber[0], jw, root, key_Q, 400UL );
 

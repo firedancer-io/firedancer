@@ -505,13 +505,11 @@ struct fd_accdb_shmem_private {
   ulong cache_free_low_water[ FD_ACCDB_CACHE_CLASS_CNT ];
 
   /* cache_class_used[i].val holds the number of reserved cache
-     slots in size class i.  Acquire atomically increments; if the
-     result exceeds cache_class_max[i] the reservation overflowed
-     and the thread subtracts back and retries.  Release atomically
-     decrements.  Each element is on its own cacheline to avoid
-     false sharing between classes.  The count includes the joins' idle
-     credits (join_cred), so used[i].val + available[i] ==
-     cache_class_max[i] at all times. */
+     slots in size class i, taken and returned in chunks by the joins'
+     reservation credits (fd_accdb.c res_*).  Each element is on its
+     own cacheline to avoid false sharing between classes.  The count
+     includes the joins' idle credits (join_cred), so used[i].val +
+     available[i] == cache_class_max[i] at all times. */
   struct __attribute__((aligned(64))) { ulong val; } cache_class_used[ FD_ACCDB_CACHE_CLASS_CNT ];
 
   /* Per-layer write heads.  whead[0] is the hot (execution) write

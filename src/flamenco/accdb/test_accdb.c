@@ -2510,7 +2510,7 @@ test_txn_footprint_growth( void ) {
   FD_TEST( fp_96-fp_64==32UL*(8UL+4UL) );
 }
 
-/* Deferred destination allocation: a writable acquire materializes only
+/* Deferred final-line allocation: a writable acquire materializes only
    its staging line; release takes the final class's line.  With a tiny
    cache full of dirty accounts, those release-time lines come from CLOCK
    with dirty victims, which release must write back (and publish) before
