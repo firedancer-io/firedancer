@@ -199,18 +199,28 @@
    fd_rdisp_score clamps the sum. */
 #define FD_RDISP_MAX_SCORE 0.996f
 
-/* FD_RDISP_PTXN_SCORE_MIN is the smallest fractional score of a staged
-   LtHash pseudo-transaction.  It is above FD_RDISP_MAX_SCORE, so within
-   a serializing class every READY transaction is handed out before any
-   READY pseudo-transaction.  The fraction is this constant plus 0.002
-   times the account's EMA, so it stays below 0.999, and among
-   pseudo-transactions a colder account still comes first.
-   fd_rdisp_score keeps the sum below integer_part+1 for every integer
-   part below 2^24.  From 2^14 the largest transaction fraction and this
-   constant round to the same float, and from 2^15 the EMA sliver is
-   lost and the clamp sets in.  A block of a few thousand transactions
-   and additions stays well below 2^14. */
-#define FD_RDISP_PTXN_SCORE_MIN 0.997f
+/* FD_RDISP_PTXN_SCORE is the fractional score of every staged LtHash
+   pseudo-transaction.  It is above FD_RDISP_MAX_SCORE, so within a
+   serializing class every READY transaction is handed out before any
+   READY pseudo-transaction.  Pseudo-transactions are not ordered among
+   themselves.  fd_rdisp_score keeps the sum below integer_part+1 for
+   every integer part below 2^24.  From 2^14 the largest transaction
+   fraction and this constant round to the same float, and from 2^16 the
+   clamp sets in.  A block of a few thousand transactions and additions
+   stays well below 2^14. */
+#define FD_RDISP_PTXN_SCORE 0.997f
+
+/* FD_RDISP_READY_ACCT_EMA_MAX bounds the reference EMA of an account
+   that fd_rdisp_add_ready_pseudo_txn may hand out, which is to say an
+   account still worth speculating on once its writers have completed.
+   The EMA adds 0.005 per transaction referencing the account and decays
+   per transaction inserted, so an account referenced by one in ten
+   recent transactions sits near 0.1, one in twenty near 0.05.  An
+   account over the threshold is considered hot and likely written again
+   before the block ends.  The EMA is always less than 1.0, so we can
+   use a threshold of 1.0 to state a policy of speculating on every
+   account. */
+#define FD_RDISP_READY_ACCT_EMA_MAX (1.0f)
 
 /* fd_rdisp_score returns frac+integer_part as a float that is
    >=integer_part and strictly <integer_part+1.  The integer part of a
@@ -218,9 +228,9 @@
    rounded up to integer_part+1 would wait for one completion too many,
    possibly one that never comes.  For a fraction of at most
    FD_RDISP_MAX_SCORE the plain sum is below integer_part+1 until 2^17
-   and is returned bit for bit.  A sum that rounds up, which the larger
-   pseudo-transaction fractions do from 2^15, is replaced by the largest
-   float below integer_part+1.  Requires 0<=frac<1 and
+   and is returned bit for bit.  A sum that rounds up, which the
+   pseudo-transaction fraction does from 2^16, is replaced by the
+   largest float below integer_part+1.  Requires 0<=frac<1 and
    integer_part<2^24. */
 FD_FN_CONST static inline float
 fd_rdisp_score( float frac,
@@ -596,30 +606,21 @@ fd_rdisp_pseudo_txn_to_addr( fd_rdisp_t const * disp,
    pseudo-txn that was created, but for most uses, this value is not
    very meaningful.
 
-   This function tries to create a pseudo-transaction that is READY if
-   it can.  Additionally, it will try to create a pseudo-transaction for
-   an account that is less likely to be written to again.  This means
-   when there are multiple account addresses that meet the criteria in
-   the first paragraph, which is returned is effectively arbitrary.
-   It's clear that other things being equal, creating a
-   pseudo-transaction that is READY is better than creating one that is
-   PENDING.  Similarly, it's clear that creating a pseudo-transaction
-   for an account that is less likely to be written is better than one
-   for an account more likely to be written again.  However, combining
-   them is slightly tricky.  The criteria we would like is that it's
-   better to create a pseudo-transaction for a PENDING account B than a
-   READY account A if it's likely another transaction that writes to
-   account A will arrive before we can complete the addition LtHash task
-   for A.  Implementing this requires estimating how long hashing takes
-   and a more precise estimate of when a transaction will be used again
-   than we have, so we ignore this.
+   Accounts are classified into two classes.  The first class of
+   accounts, whose every writer in the block has completed, and whose
+   reference EMA is under the threshold, come out first, last completed
+   first.  A pseudo-transaction for one of them is READY on creation,
+   barring an outstanding serializing transaction.  The second class of
+   accounts come out coldest first, by reference EMA, and their
+   pseudo-transactions are PENDING behind the writer still outstanding.
+   fd_rdisp_add_ready_pseudo_txn pops from the first class only.
 
-   Summing all that up: if you're catching or otherwise not at the tip
-   of the chain, just wait until the end of the block and call
+   Summing all that up: if you're catching up or otherwise not at the
+   tip of the chain, just wait until the end of the block and call
    add_all_pseudo_txn.  If you are at the tip of the chain, dispatch all
    READY transactions, then all the sigverify, PoH verify, and LtHash
    subtraction tasks first, since the results of those are definitely
-   needed.  If you're still idle, call add_pseudo_txn once, then
+   needed.  If you're still idle, call add_ready_pseudo_txn once, then
    get_next_ready once, and repeat.
 
    IMPORTANT: if insert_block is staged, add_pseudo_txn must be called
@@ -652,6 +653,25 @@ fd_rdisp_add_pseudo_txn( fd_rdisp_t          *  disp,
 void
 fd_rdisp_add_all_pseudo_txn( fd_rdisp_t          *  disp,
                              FD_RDISP_BLOCK_TAG_T   insert_block );
+
+/* fd_rdisp_add_ready_pseudo_txn is add_pseudo_txn restricted to the
+   accounts whose addition can be hashed now, meaning every writer of
+   the account in insert_block has completed and its reference EMA is
+   under the threshold of fd_rdisp_set_ready_acct_ema_max.  The
+   pseudo-transaction it creates is READY on creation, unless a
+   serializing transaction is still outstanding ahead of it.  Returns 0
+   if no account qualifies, or if insert_block is unstaged. */
+ulong
+fd_rdisp_add_ready_pseudo_txn( fd_rdisp_t          *  disp,
+                               FD_RDISP_BLOCK_TAG_T   insert_block );
+
+/* fd_rdisp_set_ready_acct_ema_max sets the reference EMA threshold of
+   fd_rdisp_add_ready_pseudo_txn, FD_RDISP_READY_ACCT_EMA_MAX by
+   default.  An account qualifies when its last writer completes under
+   the threshold in force at that moment, so a later change does not
+   reclassify accounts already in the set. */
+void
+fd_rdisp_set_ready_acct_ema_max( fd_rdisp_t * disp, float ema_max );
 
 
 /* fd_rdisp_add_writable and add_extra_pseudo_txn informs rdisp that the
@@ -704,9 +724,15 @@ fd_rdisp_staging_lane_info( fd_rdisp_t           const * disp,
                             fd_rdisp_staging_lane_info_t out_sched[ static 4 ] );
 
 /* fd_rdisp_lane_writable_cnt returns the number of accounts in the
-   writable set of staging_lane, which must be in [0,4). */
+   writable set of staging_lane, which must be in [0,4).
+
+   fd_rdisp_lane_ready_acct_cnt returns how many of them
+   fd_rdisp_add_ready_pseudo_txn would currently pick from. */
 ulong
 fd_rdisp_lane_writable_cnt( fd_rdisp_t * disp, ulong staging_lane );
+
+ulong
+fd_rdisp_lane_ready_acct_cnt( fd_rdisp_t * disp, ulong staging_lane );
 
 /* fd_rdisp_verify does some light verification and internal consistency
    checks of some internal data structures.  Aborts with an error
