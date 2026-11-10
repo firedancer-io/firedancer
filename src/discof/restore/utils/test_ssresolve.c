@@ -25,12 +25,18 @@ connect_pair( fd_ssresolve_t ** out,
   fd_ssresolve_t * ssresolve = fd_ssresolve_join( fd_ssresolve_new( _ssresolve ) );
   FD_TEST( ssresolve );
 
-  fd_ip4_port_t addr = { .addr = 0x7F000001U, .port = fd_ushort_bswap( 80 ) };
+  fd_ip4_port_t addr = { .addr = 0x7F000001U, .port = fd_ushort_bswap( 8080 ) };
   fd_ssresolve_init( ssresolve, addr, sv[ 0 ], full, "localhost" );
 
   /* Flush the request out so the state machine is waiting on a
      response. */
   FD_TEST( FD_SSRESOLVE_ADVANCE_SUCCESS==fd_ssresolve_advance_poll_out( ssresolve ) );
+
+  char request[ 1024 ];
+  long n = recv( sv[1], request, sizeof(request)-1UL, 0 );
+  FD_TEST( n>0 );
+  request[n] = '\0';
+  FD_TEST( strstr( request, "\r\nHost: localhost:8080\r\n" ) );
 
   *out = ssresolve;
   return sv[ 1 ];
