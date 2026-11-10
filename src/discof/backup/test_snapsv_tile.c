@@ -26,6 +26,15 @@ struct fake_client {
   uint  conn_alive:1;
   ulong req_cnt;
 
+  /* fault injection: if non-zero, the result of the next consume */
+  int   consume_res;
+
+  /* if set, a receive with no data pending stays in flight (held_recv)
+     until a shutdown, instead of failing */
+  uint  recv_hold:1;
+  uint  recv_held:1;
+  ulong held_recv;
+
 # define DEFER_SQE_MAX 32
   fd_io_uring_sqe_t defer_sqe[ DEFER_SQE_MAX ];
   uint              defer_sqe_cnt;
@@ -41,6 +50,10 @@ fake_client_init( fake_client_t * fake ) {
   fake->conn_alive    = 0;
   fake->defer_sqe_cnt = 0;
   fake->req_cnt       = 0;
+  fake->consume_res   = 0;
+  fake->recv_hold     = 0;
+  fake->recv_held     = 0;
+  fake->held_recv     = 0UL;
   return fake;
 }
 
@@ -90,10 +103,28 @@ fake_client_handle_sqe( fake_client_t *     fake,
       if( !( sqe->msg_flags & MSG_PEEK ) ) {
         fake->req_cur += (uint)len;
       }
-      fake_client_post_cqe( cq, sqe->user_data, (int)len, 0U );
+      int res = (int)len;
+      if( (sqe->msg_flags & MSG_TRUNC) && fake->consume_res ) {
+        res = fake->consume_res;
+        fake->consume_res = 0;
+      }
+      fake_client_post_cqe( cq, sqe->user_data, res, 0U );
+    } else if( fake->recv_hold ) {
+      FD_TEST( !fake->recv_held );
+      fake->recv_held = 1;
+      fake->held_recv = sqe->user_data;
     } else {
       fake_client_post_cqe( cq, sqe->user_data, -1, 0U );
     }
+    break;
+  case FD_IORING_OP_SHUTDOWN:
+    FD_TEST( sqe->flags & FD_IOSQE_FIXED_FILE );
+    FD_TEST( sqe->len==SHUT_RDWR );
+    if( fake->recv_held ) {
+      fake_client_post_cqe( cq, fake->held_recv, 0, 0U );
+      fake->recv_held = 0;
+    }
+    fake_client_post_cqe( cq, sqe->user_data, 0, 0U );
     break;
   case FD_IORING_OP_SEND: {
     FD_TEST( sqe->flags & FD_IOSQE_FIXED_FILE );
@@ -847,6 +878,75 @@ FD_UNIT_TEST( conn_close_after_body_rejected ) {
       "GET /nope HTTP/1.1\r\n"
       "\r\n",
       RES_400_CLOSE );
+}
+
+/* A consume op that completes with a different byte count than was
+   requested must close the conn, not desync the request buffer.  TCP
+   urgent data can make the kernel over-count MSG_TRUNC receives. */
+
+static void
+expect_consume_mismatch( int consume_res ) {
+  snapsv_env_t * env = snapsv_env_create();
+  fake_client_t  fake;
+  fake_client_req( &fake, "GET /nope HTTP/1.1\r\n" ); /* head incomplete */
+  fake.consume_res = consume_res;
+  for( uint iter=0U; iter<64U; iter++ ) snapsv_step( env, &fake, iter );
+  FD_TEST( !fake.res_sz );
+  FD_TEST( !env->ctx->conn_cnt );
+  FD_TEST( env->ctx->iobuf_free_cnt==2U*CONN_MAX );
+  snapsv_env_destroy( env );
+}
+
+FD_UNIT_TEST( consume_mismatch ) {
+  int req_len = (int)strlen( "GET /nope HTTP/1.1\r\n" );
+  int iobuf_sz = 4096;
+  expect_consume_mismatch( req_len-1 );      /* short */
+  expect_consume_mismatch( req_len+1 );      /* over-counted */
+  expect_consume_mismatch( iobuf_sz );       /* fills the buffer exactly */
+  expect_consume_mismatch( iobuf_sz+100 );   /* overshoots the buffer */
+  expect_consume_mismatch( INT_MAX );
+}
+
+/* A conn waiting for a request is shut down at the idle deadline even if
+   the linked timeout never fires (fake io_uring ignores it). */
+
+static void
+expect_idle_shutdown( char const * req,
+                      char const * expected ) {
+  snapsv_env_t * env = snapsv_env_create();
+  fd_snapsv_t *  ctx = env->ctx;
+  fake_client_t  fake;
+  fake_client_req( &fake, req );
+  fake.recv_hold = 1;
+
+  /* A keep-alive response restarts the idle deadline, so track
+     active_ts of the conn as it goes.  active_ts==0 means unset, so
+     start the clock at step 1. */
+  long deadline = LONG_MAX;
+  uint iter     = 1U;
+  for( ; iter<256U && (iter==1U || ctx->conn_cnt); iter++ ) {
+    long now = (long)iter*STEP_NANOS;
+    FD_TEST( deadline==LONG_MAX || now < deadline+2L*STEP_NANOS );
+    snapsv_step( env, &fake, iter );
+    for( ulong i=0UL; i<CONN_MAX; i++ ) {
+      snapsv_conn_t const * conn = &ctx->conn0[ i ];
+      if( conn->state>CONN_STATE_ACCEPT ) deadline = conn->active_ts + ctx->idle_timeout_nanos;
+    }
+  }
+  FD_TEST( deadline!=LONG_MAX );
+  FD_TEST( (long)iter*STEP_NANOS > deadline );
+  FD_TEST( !ctx->conn_cnt );
+  FD_TEST( !fake.recv_held );
+  FD_TEST( ctx->iobuf_free_cnt==2U*CONN_MAX );
+  FD_TEST( fake.res_sz==strlen( expected ) );
+  FD_TEST( !memcmp( fake.res, expected, fake.res_sz ) );
+  snapsv_env_destroy( env );
+}
+
+FD_UNIT_TEST( idle_shutdown ) {
+  expect_idle_shutdown( "", "" );
+  expect_idle_shutdown( "GET /nope HTTP/1.1\r\n", "" );
+  expect_idle_shutdown( "GET /nope HTTP/1.1\r\n\r\n", RES_404_KEEPALIVE );
 }
 
 static void
