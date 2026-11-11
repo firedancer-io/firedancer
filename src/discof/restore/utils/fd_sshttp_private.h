@@ -61,6 +61,9 @@ struct fd_sshttp_private {
   ulong content_len;
   ulong content_read;
 
+  ulong rx_lowat;  /* SO_RCVLOWAT set on a plaintext body socket, 0 until set */
+  int   rx_parked; /* last plaintext body read found the socket empty */
+
   ulong magic;
 };
 

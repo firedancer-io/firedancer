@@ -88,6 +88,14 @@ fd_sshttp_deadline( fd_sshttp_t const * http );
 
 #define FD_SSHTTP_SO_RCVBUF (128UL<<20)
 
+/* SO_RCVLOWAT for plaintext body downloads.  The socket reports
+   readable (to epoll) only once this many body bytes are queued,
+   lowered to the remaining length for the tail of the body, so every
+   wake is followed by large reads instead of one per arriving
+   segment. */
+
+#define FD_SSHTTP_SO_RCVLOWAT (1UL<<20)
+
 int
 fd_sshttp_advance( fd_sshttp_t *        http,
                    struct iovec const * iov,
@@ -95,6 +103,16 @@ fd_sshttp_advance( fd_sshttp_t *        http,
                    ulong *              data_len,
                    int *                downloading,
                    long                 now );
+
+/* fd_sshttp_rx_parked returns 1 if http is downloading a plaintext
+   body and its last socket read found nothing queued.  The caller may
+   then batch reads by skipping fd_sshttp_advance until its readiness
+   notification (epoll) reports the socket readable; up to
+   FD_SSHTTP_SO_RCVLOWAT-1 bytes may be queued meanwhile.  Readiness
+   covers the end of the body and peer close or error. */
+
+int
+fd_sshttp_rx_parked( fd_sshttp_t const * http );
 
 FD_PROTOTYPES_END
 

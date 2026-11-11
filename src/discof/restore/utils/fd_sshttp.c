@@ -237,6 +237,8 @@ fd_sshttp_new( void * shmem,
   sshttp->sockfd   = -1;
   sshttp->epoll_fd = epoll_fd;
   sshttp->content_len = 0UL;
+  sshttp->rx_lowat    = 0UL;
+  sshttp->rx_parked   = 0;
   fd_cstr_fini( sshttp->snapshot_name );
   sshttp->resolved_slot = 0UL;
   fd_memset( sshttp->resolved_hash, 0, FD_HASH_FOOTPRINT );
@@ -664,6 +666,25 @@ follow_redirect( fd_sshttp_t *        http,
   return FD_SSHTTP_ADVANCE_AGAIN;
 }
 
+/* rx_lowat_update lowers the socket's SO_RCVLOWAT to the body bytes
+   still to arrive, capped at FD_SSHTTP_SO_RCVLOWAT, so the socket
+   turns readable once a full low-water mark is queued or the rest of
+   the body is.  Plaintext only: TLS reads go through record
+   buffering. */
+
+static void
+rx_lowat_update( fd_sshttp_t * http ) {
+  if( FD_UNLIKELY( http->is_https ) ) return;
+  ulong pending = http->content_len - http->content_read - http->response_len;
+  ulong lowat   = fd_ulong_min( FD_SSHTTP_SO_RCVLOWAT, pending );
+  if( FD_LIKELY( !lowat || ( http->rx_lowat && lowat>=http->rx_lowat ) ) ) return;
+  int so_rcvlowat = (int)lowat;
+  if( FD_UNLIKELY( -1==setsockopt( http->sockfd, SOL_SOCKET, SO_RCVLOWAT, &so_rcvlowat, sizeof(int) ) ) ) {
+    FD_LOG_ERR(( "setsockopt(SOL_SOCKET,SO_RCVLOWAT,%i) failed (%i-%s)", so_rcvlowat, errno, fd_io_strerror( errno ) ));
+  }
+  http->rx_lowat = lowat;
+}
+
 static int
 read_response( fd_sshttp_t *        http,
                struct iovec const * iov,
@@ -748,7 +769,9 @@ read_response( fd_sshttp_t *        http,
     return FD_SSHTTP_ADVANCE_ERROR;
   }
 
-  http->state = FD_SSHTTP_STATE_DL;
+  http->state     = FD_SSHTTP_STATE_DL;
+  http->rx_lowat  = 0UL;
+  http->rx_parked = 0;
   if( FD_UNLIKELY( (ulong)parsed<http->response_len ) ) {
     /* Body bytes past the caller's buffer are kept in response, with
        response_len repurposed as the residual length, drained by
@@ -760,10 +783,12 @@ read_response( fd_sshttp_t *        http,
     http->response_len  = leftover-copy_len;
     http->content_read += copy_len;
     *data_len = copy_len;
+    rx_lowat_update( http );
     return FD_SSHTTP_ADVANCE_DATA;
   } else {
     FD_TEST( http->response_len==(ulong)parsed );
     http->response_len = 0UL;
+    rx_lowat_update( http );
     return FD_SSHTTP_ADVANCE_AGAIN;
   }
 }
@@ -799,12 +824,22 @@ read_body( fd_sshttp_t *        http,
   }
 
   long read = http_recv( http, iov, iov_cnt, http->content_len-http->content_read );
-  if( FD_UNLIKELY( read<=0 ) ) return (int)read;
+  if( FD_UNLIKELY( read<=0 ) ) {
+    http->rx_parked = read==FD_SSHTTP_ADVANCE_AGAIN && !http->is_https;
+    return (int)read;
+  }
 
   *data_len = (ulong)read;
   http->content_read += (ulong)read;
+  http->rx_parked     = 0;
+  rx_lowat_update( http );
 
   return FD_SSHTTP_ADVANCE_DATA;
+}
+
+int
+fd_sshttp_rx_parked( fd_sshttp_t const * http ) {
+  return http->state==FD_SSHTTP_STATE_DL && http->rx_parked;
 }
 
 char const *

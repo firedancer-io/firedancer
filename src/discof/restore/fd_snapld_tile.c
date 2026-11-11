@@ -397,14 +397,24 @@ after_credit( fd_snapld_tile_t *  ctx,
       return; /* verbose return */
     }
   } else {
+    long  now         = fd_clock_tile_now( ctx->clock );
+    int   fired       = fd_fseq_query( ctx->waker_fseq )==1UL;
+    if( FD_LIKELY( !fired && fd_sshttp_rx_parked( ctx->sshttp ) ) ) {
+      /* The last read found the socket empty and the waker has not
+         reported it readable since.  Bytes below the low-water mark
+         may be queued, but skipping the read until the waker fires
+         batches them into large reads instead of polling the socket
+         in a loop. */
+      check_download_progress( ctx, stem, 1, now );
+      return;
+    }
+    if( FD_LIKELY( fired ) ) fd_fseq_update( ctx->waker_fseq, 0UL );
+
     /* Single chunk until META is sent, see the swap below. */
     struct iovec iov[2];
     ulong iov_cnt     = rx_iov( ctx, iov, ctx->sent_meta ? FD_SNAPLD_RX_BURST : 1UL );
     int   downloading = 0;
     ulong data_len    = 0UL;
-    long  now         = fd_clock_tile_now( ctx->clock );
-    int   fired       = fd_fseq_query( ctx->waker_fseq )==1UL;
-    if( FD_LIKELY( fired ) ) fd_fseq_update( ctx->waker_fseq, 0UL );
     int   result      = fd_sshttp_advance( ctx->sshttp, iov, iov_cnt, &data_len, &downloading, now );
     if( FD_LIKELY( fired ) ) fd_waker_client_rearm( ctx->waker_client_idx );
     switch( result ) {
