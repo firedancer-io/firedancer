@@ -1,4 +1,5 @@
 #include "test_bundle_common.c"
+#include "fd_bundle_tile.h"
 #include "../../ballet/base58/fd_base58.h"
 #include "../../ballet/pb/fd_pb_encode.h"
 #include "../../util/tmpl/fd_unit_test.c"
@@ -42,41 +43,41 @@ FD_UNIT_TEST( maintenance_deadlines_require_ready_request ) {
   test_bundle_env_mock_conn_empty( env );
   fd_bundle_tile_t * state = env->state;
   test_bundle_env_mock_h2_hs( state );
-  state->keepalive->ts_next_tx = g_clock-1L;
-  state->builder_info_avail = 1;
-  state->builder_info_valid_until = g_clock-1L;
-  state->conn_deadline = g_clock+1000L;
+  state->conn->keepalive->ts_next_tx = g_clock-1L;
+  state->conn->builder.avail = 1;
+  state->conn->builder.next = g_clock-1L;
+  state->conn->conn_deadline = g_clock+1000L;
 
   FD_TEST( fd_bundle_client_next_deadline( state, g_clock )<g_clock );
-  state->grpc_client->h2_hs_done = 0;
-  FD_TEST( fd_bundle_client_next_deadline( state, g_clock )==state->conn_deadline );
-  state->grpc_client->h2_hs_done = 1;
+  state->conn->grpc_client->h2_hs_done = 0;
+  FD_TEST( fd_bundle_client_next_deadline( state, g_clock )==state->conn->conn_deadline );
+  state->conn->grpc_client->h2_hs_done = 1;
 
   uchar byte = 0;
-  fd_h2_rbuf_push( state->grpc_client->frame_tx, &byte, 1UL );
+  fd_h2_rbuf_push( state->conn->grpc_client->frame_tx, &byte, 1UL );
   FD_TEST( fd_bundle_client_next_deadline( state, g_clock )>g_clock );
-  fd_h2_rbuf_skip( state->grpc_client->frame_tx, 1UL );
+  fd_h2_rbuf_skip( state->conn->grpc_client->frame_tx, 1UL );
 
-  state->auther.needs_poll = 1;
+  state->conn->auther.needs_poll = 1;
   FD_TEST( fd_bundle_client_next_deadline( state, g_clock )>g_clock );
-  state->auther.needs_poll = 0;
-  state->auther.state = FD_BUNDLE_AUTH_STATE_REQ_CHALLENGE;
+  state->conn->auther.needs_poll = 0;
+  state->conn->auther.state = FD_BUNDLE_AUTH_STATE_REQ_CHALLENGE;
   FD_TEST( fd_bundle_client_next_deadline( state, g_clock )>g_clock );
-  state->auther.state = FD_BUNDLE_AUTH_STATE_DONE_WAIT;
+  state->conn->auther.state = FD_BUNDLE_AUTH_STATE_DONE_WAIT;
 
-  state->backoff_until = g_clock+500L;
-  FD_TEST( fd_bundle_client_next_deadline( state, g_clock )==state->backoff_until );
-  state->keepalive->inflight = 1;
-  state->keepalive->ts_deadline = g_clock+100L;
-  FD_TEST( fd_bundle_client_next_deadline( state, g_clock )==state->keepalive->ts_deadline );
-  state->keepalive->inflight = 0;
-  state->backoff_until = 0L;
+  state->conn->backoff_until = g_clock+500L;
+  FD_TEST( fd_bundle_client_next_deadline( state, g_clock )==state->conn->backoff_until );
+  state->conn->keepalive->inflight = 1;
+  state->conn->keepalive->ts_deadline = g_clock+100L;
+  FD_TEST( fd_bundle_client_next_deadline( state, g_clock )==state->conn->keepalive->ts_deadline );
+  state->conn->keepalive->inflight = 0;
+  state->conn->backoff_until = 0L;
 
-  state->builder_info_valid_until = LONG_MAX;
-  fd_grpc_client_h2_conn( state->grpc_client )->flags = FD_H2_CONN_FLAGS_WAIT_SETTINGS_ACK_0;
+  state->conn->builder.next = LONG_MAX;
+  fd_grpc_client_h2_conn( state->conn->grpc_client )->flags = FD_H2_CONN_FLAGS_WAIT_SETTINGS_ACK_0;
   FD_TEST( fd_bundle_client_next_deadline( state, g_clock )>g_clock );
-  fd_grpc_client_h2_conn( state->grpc_client )->flags = 0U;
-  FD_TEST( fd_bundle_client_next_deadline( state, g_clock )==state->keepalive->ts_next_tx );
+  fd_grpc_client_h2_conn( state->conn->grpc_client )->flags = 0U;
+  FD_TEST( fd_bundle_client_next_deadline( state, g_clock )==state->conn->keepalive->ts_next_tx );
   test_bundle_env_destroy( env );
 }
 
@@ -99,17 +100,17 @@ FD_UNIT_TEST( bundle_rx ) {
     0x48, 0x12, 0x02, 0x08, 0x02
   };
   fd_bundle_client_grpc_rx_msg(
-      state,
+      state->conn,
       subscribe_packets_msg, sizeof(subscribe_packets_msg),
       FD_BUNDLE_CLIENT_REQ_Bundle_SubscribePackets
   );
 
   FD_TEST( published_txn_cnt( env )==2UL );
 
-  state->builder_info_avail = 1;
+  state->conn->builder.avail = 1;
 
   fd_bundle_client_grpc_rx_msg(
-      state,
+      state->conn,
       test_bundle_response, test_bundle_response_sz,
       FD_BUNDLE_CLIENT_REQ_Bundle_SubscribeBundles
   );
@@ -162,9 +163,9 @@ FD_UNIT_TEST( bundle_rx_too_many_txns ) {
     0x28, 0x00, 0x12, 0x03, 0x00, 0x00, 0x00
   };
 
-  state->builder_info_avail = 1;
+  state->conn->builder.avail = 1;
   fd_bundle_client_grpc_rx_msg(
-      state,
+      state->conn,
       subscribe_bundles_msg_x5, sizeof(subscribe_bundles_msg_x5),
       FD_BUNDLE_CLIENT_REQ_Bundle_SubscribeBundles
   );
@@ -188,9 +189,9 @@ FD_UNIT_TEST( bundle_rx_too_many_txns ) {
     0x12, 0x00, 0x18, 0x00, 0x28, 0x00, 0x12, 0x03, 0x00, 0x00, 0x00
   };
 
-  state->builder_info_avail = 1;
+  state->conn->builder.avail = 1;
   fd_bundle_client_grpc_rx_msg(
-      state,
+      state->conn,
       subscribe_bundles_msg_x6, sizeof(subscribe_bundles_msg_x6),
       FD_BUNDLE_CLIENT_REQ_Bundle_SubscribeBundles
   );
@@ -205,7 +206,7 @@ FD_UNIT_TEST( bundle_rx_too_many_txns ) {
 FD_UNIT_TEST( bundle_no_builder_fee_info ) {
   test_bundle_env_t env[1]; test_bundle_env_create( env, wksp );
   fd_bundle_tile_t * state = env->state;
-  state->builder_info_avail = 0;
+  state->conn->builder.avail = 0;
 
   /* Regular packets are always forwarded */
   static uchar subscribe_packets_msg[] = {
@@ -213,7 +214,7 @@ FD_UNIT_TEST( bundle_no_builder_fee_info ) {
     0x02, 0x08, 0x01
   };
   fd_bundle_client_grpc_rx_msg(
-      state,
+      state->conn,
       subscribe_packets_msg, sizeof(subscribe_packets_msg),
       FD_BUNDLE_CLIENT_REQ_Bundle_SubscribePackets
   );
@@ -224,7 +225,7 @@ FD_UNIT_TEST( bundle_no_builder_fee_info ) {
   /* Bundles are no longer forwarded */
 
   fd_bundle_client_grpc_rx_msg(
-      state,
+      state->conn,
       test_bundle_response, test_bundle_response_sz,
       FD_BUNDLE_CLIENT_REQ_Bundle_SubscribeBundles
   );
@@ -244,15 +245,15 @@ FD_UNIT_TEST( bundle_stream_ended ) {
   test_bundle_env_mock_conn( env );
 
   fd_bundle_tile_t * state = env->state;
-  fd_h2_rbuf_t * rbuf_tx = fd_grpc_client_rbuf_tx( state->grpc_client );
+  fd_h2_rbuf_t * rbuf_tx = fd_grpc_client_rbuf_tx( state->conn->grpc_client );
   FD_TEST( rbuf_tx->hi_off==0UL );
   fd_grpc_resp_hdrs_t hdrs = {
     .h2_status   = 200,
     .grpc_status = FD_GRPC_STATUS_OK
   };
-  FD_TEST( state->defer_reset==0 );
-  fd_bundle_client_grpc_rx_end( state, FD_BUNDLE_CLIENT_REQ_Bundle_SubscribeBundles, &hdrs );
-  FD_TEST( state->defer_reset==1 );
+  FD_TEST( state->conn->defer_reset==0 );
+  fd_bundle_client_grpc_rx_end( state->conn, FD_BUNDLE_CLIENT_REQ_Bundle_SubscribeBundles, &hdrs );
+  FD_TEST( state->conn->defer_reset==1 );
 
   test_bundle_env_destroy( env );
 }
@@ -265,7 +266,7 @@ FD_UNIT_TEST( bundle_stream_reset ) {
   test_bundle_env_mock_conn( env );
 
   fd_bundle_tile_t * state   = env->state;
-  fd_grpc_client_t * client  = state->grpc_client;
+  fd_grpc_client_t * client  = state->conn->grpc_client;
   fd_h2_conn_t *     h2_conn = fd_grpc_client_h2_conn( client );
 
   fd_grpc_h2_stream_t * stream = fd_grpc_client_stream_acquire( client, FD_BUNDLE_CLIENT_REQ_Bundle_SubscribeBundles );
@@ -273,9 +274,9 @@ FD_UNIT_TEST( bundle_stream_reset ) {
   stream->hdrs.h2_status     = 200;
   stream->hdrs.is_grpc_proto = 1;
 
-  FD_TEST( state->defer_reset==0 );
+  FD_TEST( state->conn->defer_reset==0 );
   fd_grpc_client_h2_callbacks.rst_stream( h2_conn, &stream->s, 0U, 1 );
-  FD_TEST( state->defer_reset==1 );
+  FD_TEST( state->conn->defer_reset==1 );
 
   test_bundle_env_destroy( env );
 }
@@ -288,7 +289,7 @@ FD_UNIT_TEST( bundle_header_timeout ) {
   test_bundle_env_mock_conn( env );
 
   fd_bundle_tile_t * state  = env->state;
-  fd_grpc_client_t * client = state->grpc_client;
+  fd_grpc_client_t * client = state->conn->grpc_client;
 
   fd_grpc_h2_stream_t * stream = fd_grpc_client_stream_acquire( client, FD_BUNDLE_CLIENT_REQ_Bundle_SubscribeBundles );
   FD_TEST( stream );
@@ -300,7 +301,7 @@ FD_UNIT_TEST( bundle_header_timeout ) {
   /* FIXME ensure that receiving a header disarms the timeout */
 
   fd_grpc_client_service_streams( client, 100L );
-  FD_TEST( state->defer_reset==1 );
+  FD_TEST( state->conn->defer_reset==1 );
 
   test_bundle_env_destroy( env );
 }
@@ -313,7 +314,7 @@ FD_UNIT_TEST( bundle_rx_end_timeout ) {
   test_bundle_env_mock_conn( env );
 
   fd_bundle_tile_t * state  = env->state;
-  fd_grpc_client_t * client = state->grpc_client;
+  fd_grpc_client_t * client = state->conn->grpc_client;
 
   fd_grpc_h2_stream_t * stream = fd_grpc_client_stream_acquire( client, FD_BUNDLE_CLIENT_REQ_Bundle_SubscribeBundles );
   FD_TEST( stream );
@@ -323,7 +324,7 @@ FD_UNIT_TEST( bundle_rx_end_timeout ) {
   stream->rx_end_deadline_nanos = 99L;
 
   fd_grpc_client_service_streams( client, 100L );
-  FD_TEST( state->defer_reset==1 );
+  FD_TEST( state->conn->defer_reset==1 );
 
   test_bundle_env_destroy( env );
 }
@@ -336,16 +337,16 @@ FD_UNIT_TEST( bundle_ping ) {
   test_bundle_env_mock_conn( env );
 
   fd_bundle_tile_t * state       = env->state;
-  fd_grpc_client_t * grpc_client = state->grpc_client;
+  fd_grpc_client_t * grpc_client = state->conn->grpc_client;
   long const ts_ping_tx = g_clock;
-  fd_keepalive_tx( state->keepalive, state->rng, ts_ping_tx );
-  state->grpc_client->conn->ping_tx = 1;
-  FD_TEST( state->keepalive->inflight==1 );
-  FD_TEST( !!state->keepalive->ts_deadline );
-  FD_TEST( state->keepalive->ts_next_tx >= ts_ping_tx + (state->keepalive->interval>>1) );
-  FD_TEST( state->keepalive->ts_last_tx==ts_ping_tx );
-  FD_TEST( fd_keepalive_is_timeout( state->keepalive, ts_ping_tx )==0 );
-  FD_TEST( fd_keepalive_should_tx ( state->keepalive, ts_ping_tx )==0 );
+  fd_keepalive_tx( state->conn->keepalive, state->rng, ts_ping_tx );
+  state->conn->grpc_client->conn->ping_tx = 1;
+  FD_TEST( state->conn->keepalive->inflight==1 );
+  FD_TEST( !!state->conn->keepalive->ts_deadline );
+  FD_TEST( state->conn->keepalive->ts_next_tx >= ts_ping_tx + (state->conn->keepalive->interval>>1) );
+  FD_TEST( state->conn->keepalive->ts_last_tx==ts_ping_tx );
+  FD_TEST( fd_keepalive_is_timeout( state->conn->keepalive, ts_ping_tx )==0 );
+  FD_TEST( fd_keepalive_should_tx ( state->conn->keepalive, ts_ping_tx )==0 );
 
   /* PING ACK should update timer */
   g_clock += (long)10e6; /* 10ms passed */
@@ -362,27 +363,27 @@ FD_UNIT_TEST( bundle_ping ) {
   fd_bundle_client_step( state, &charge_busy );
   FD_TEST( fd_h2_rbuf_used_sz( grpc_client->frame_rx )==0UL );
   FD_TEST( grpc_client->conn->ping_tx == 0 );
-  FD_TEST( state->defer_reset==0 );
-  FD_TEST( state->keepalive->ts_last_tx==ts_ping_tx );
-  FD_TEST( state->keepalive->ts_last_rx==ts_ping_rx );
-  FD_TEST( !state->keepalive->inflight );
+  FD_TEST( state->conn->defer_reset==0 );
+  FD_TEST( state->conn->keepalive->ts_last_tx==ts_ping_tx );
+  FD_TEST( state->conn->keepalive->ts_last_rx==ts_ping_rx );
+  FD_TEST( !state->conn->keepalive->inflight );
   FD_TEST( state->metrics.ping_ack_cnt==1UL );
-  FD_TEST( state->rtt->latest_rtt==10e6f );
-  FD_TEST( fd_keepalive_is_timeout( state->keepalive, ts_ping_rx )==0 );
-  FD_TEST( fd_keepalive_should_tx ( state->keepalive, ts_ping_rx )==0 );
+  FD_TEST( state->conn->rtt->latest_rtt==10e6f );
+  FD_TEST( fd_keepalive_is_timeout( state->conn->keepalive, ts_ping_rx )==0 );
+  FD_TEST( fd_keepalive_should_tx ( state->conn->keepalive, ts_ping_rx )==0 );
 
   /* Test PING TX */
-  g_clock = state->keepalive->ts_next_tx;
+  g_clock = state->conn->keepalive->ts_next_tx;
   long const ts_ping_tx2 = g_clock;
-  FD_TEST( fd_keepalive_is_timeout( state->keepalive, ts_ping_tx2 )==0 );
-  FD_TEST( fd_keepalive_should_tx ( state->keepalive, ts_ping_tx2 )==1 );
-  FD_TEST( state->keepalive->inflight==0 );
+  FD_TEST( fd_keepalive_is_timeout( state->conn->keepalive, ts_ping_tx2 )==0 );
+  FD_TEST( fd_keepalive_should_tx ( state->conn->keepalive, ts_ping_tx2 )==1 );
+  FD_TEST( state->conn->keepalive->inflight==0 );
   charge_busy = 0;
   fd_bundle_client_step( state, &charge_busy );
-  FD_TEST( state->defer_reset==0 );
-  FD_TEST( fd_keepalive_is_timeout( state->keepalive, ts_ping_tx2 )==0 );
-  FD_TEST( fd_keepalive_should_tx ( state->keepalive, ts_ping_tx2 )==0 );
-  FD_TEST( state->keepalive->inflight==1 );
+  FD_TEST( state->conn->defer_reset==0 );
+  FD_TEST( fd_keepalive_is_timeout( state->conn->keepalive, ts_ping_tx2 )==0 );
+  FD_TEST( fd_keepalive_should_tx ( state->conn->keepalive, ts_ping_tx2 )==0 );
+  FD_TEST( state->conn->keepalive->inflight==1 );
   FD_TEST( charge_busy==1 );
   FD_TEST( fd_h2_rbuf_used_sz( grpc_client->frame_tx )==0 ); /* flushed in-step */
   fd_h2_rbuf_t * wire = wire_rx( env );
@@ -391,20 +392,20 @@ FD_UNIT_TEST( bundle_ping ) {
   fd_h2_rbuf_pop_copy( wire, &ping, sizeof(fd_h2_ping_t) );
   FD_TEST( ping.hdr.typlen==fd_h2_frame_typlen( FD_H2_FRAME_TYPE_PING, 8UL ) );
   FD_TEST( ping.hdr.flags==0 );
-  FD_TEST( state->keepalive->inflight==1 );
+  FD_TEST( state->conn->keepalive->inflight==1 );
   charge_busy = 0;
   fd_bundle_client_step( state, &charge_busy );
   FD_TEST( charge_busy==0 );
   FD_TEST( fd_h2_rbuf_used_sz( grpc_client->frame_tx )==0 );
 
   /* Test timeout */
-  g_clock = state->keepalive->ts_deadline + 1L;
+  g_clock = state->conn->keepalive->ts_deadline + 1L;
   long const ts_ping_timeout = g_clock;
-  FD_TEST( fd_keepalive_is_timeout( state->keepalive, ts_ping_timeout )==1 );
+  FD_TEST( fd_keepalive_is_timeout( state->conn->keepalive, ts_ping_timeout )==1 );
 
   /* Stepping should cause a reset due to timeout */
   fd_bundle_client_step( state, &charge_busy );
-  FD_TEST( state->defer_reset==1 );
+  FD_TEST( state->conn->defer_reset==1 );
 
   test_bundle_env_destroy( env );
 }
@@ -417,23 +418,23 @@ FD_UNIT_TEST( bundle_msg_oversized ) {
   test_bundle_env_mock_conn( env );
 
   fd_bundle_tile_t * state  = env->state;
-  fd_grpc_client_t * client = state->grpc_client;
+  fd_grpc_client_t * client = state->conn->grpc_client;
 
   fd_grpc_h2_stream_t * stream = fd_grpc_client_stream_acquire( client, FD_BUNDLE_CLIENT_REQ_Bundle_SubscribeBundles );
   FD_TEST( stream );
   stream->hdrs.h2_status     = 200;
   stream->hdrs.is_grpc_proto = 1;
 
-  fd_h2_conn_t * h2_conn = fd_grpc_client_h2_conn( state->grpc_client );
+  fd_h2_conn_t * h2_conn = fd_grpc_client_h2_conn( state->conn->grpc_client );
   fd_grpc_hdr_t hdr = {
     .compressed = 0,
     .msg_sz     = fd_uint_bswap( USHORT_MAX )
   };
 
-  FD_TEST( state->bundle_subscription_live );
+  FD_TEST( state->conn->sub[ FD_BUNDLE_SUB_BUNDLES ].live );
   fd_grpc_client_h2_callbacks.data( h2_conn, &stream->s, &hdr, sizeof(fd_grpc_hdr_t), 0UL );
-  FD_TEST( !state->bundle_subscription_live );
-  FD_TEST( state->defer_reset );
+  FD_TEST( !state->conn->sub[ FD_BUNDLE_SUB_BUNDLES ].live );
+  FD_TEST( state->conn->defer_reset );
 
   test_bundle_env_destroy( env );
 }
@@ -449,28 +450,28 @@ FD_UNIT_TEST( bundle_keyswitch ) {
   void * keyswitch_mem = fd_wksp_alloc_laddr( wksp, fd_keyswitch_align(), fd_keyswitch_footprint(), 1UL );
   FD_TEST( keyswitch_mem );
   state->keyswitch = fd_keyswitch_join( fd_keyswitch_new( keyswitch_mem, FD_KEYSWITCH_STATE_UNLOCKED ) );
-  memset( state->auther.pubkey, 0, 32 );
+  memset( state->conn->auther.pubkey, 0, 32 );
 
   fd_bundle_tile_housekeeping( state ); /* should not switch */
-  FD_TEST( !state->defer_reset );
+  FD_TEST( !state->conn->defer_reset );
 
   fd_keyswitch_state( state->keyswitch, FD_KEYSWITCH_STATE_SWITCH_PENDING );
   state->keyswitch->bytes[0] = 0x01;
   fd_bundle_tile_housekeeping( state ); /* should halt and install the new public key */
-  FD_TEST( state->tcp_sock==-1 );
+  FD_TEST( state->conn->tcp_sock==-1 );
   FD_TEST( state->halt_signing );
   FD_TEST( fd_keyswitch_state_query( state->keyswitch )==FD_KEYSWITCH_STATE_COMPLETED );
-  FD_TEST( !state->defer_reset );
-  FD_TEST( state->auther.pubkey[0]==0x01 );
+  FD_TEST( !state->conn->defer_reset );
+  FD_TEST( state->conn->auther.pubkey[0]==0x01 );
 
   state->sleep_check_ns = 1L;
   fd_keyswitch_state( state->keyswitch, FD_KEYSWITCH_STATE_UNHALT_PENDING );
   fd_bundle_tile_housekeeping( state ); /* should resume with the new public key */
   FD_TEST( !state->halt_signing );
-  FD_TEST( state->defer_reset );
+  FD_TEST( state->conn->defer_reset );
   FD_TEST( state->sleep_check_ns==0L );
   FD_TEST( fd_keyswitch_state_query( state->keyswitch )==FD_KEYSWITCH_STATE_COMPLETED );
-  FD_TEST( state->auther.pubkey[0]==0x01 );
+  FD_TEST( state->conn->auther.pubkey[0]==0x01 );
 
   test_bundle_env_destroy( env );
   fd_wksp_free_laddr( keyswitch_mem );
@@ -484,10 +485,10 @@ FD_UNIT_TEST( bundle_client_status ) {
   test_bundle_env_mock_conn( env );
   fd_bundle_tile_t * state = env->state;
   fd_bundle_tile_t state_backup  = *state;
-  fd_grpc_client_t client_backup = *state->grpc_client;
+  fd_grpc_client_t client_backup = *state->conn->grpc_client;
 
   FD_TEST( fd_bundle_client_status( state )==2 );
-  state->tcp_sock_connected = 0;
+  state->conn->tcp_sock_connected = 0;
   FD_TEST( fd_bundle_client_status( state )==0 );
   *state = state_backup;
 
@@ -497,9 +498,9 @@ FD_UNIT_TEST( bundle_client_status ) {
   };
   for( ulong i=0; i<sizeof(conn_dead_flags)/sizeof(ushort); i++ ) {
     FD_TEST( fd_bundle_client_status( state )==2 );
-    state->grpc_client->conn->flags |= conn_dead_flags[ i ];
+    state->conn->grpc_client->conn->flags |= conn_dead_flags[ i ];
     FD_TEST( fd_bundle_client_status( state )==0 );
-    *state->grpc_client = client_backup;
+    *state->conn->grpc_client = client_backup;
   }
 
   ushort const conn_prog_flags[] = {
@@ -510,48 +511,48 @@ FD_UNIT_TEST( bundle_client_status ) {
   };
   for( ulong i=0; i<sizeof(conn_prog_flags)/sizeof(ushort); i++ ) {
     FD_TEST( fd_bundle_client_status( state )==2 );
-    state->grpc_client->conn->flags |= conn_prog_flags[ i ];
+    state->conn->grpc_client->conn->flags |= conn_prog_flags[ i ];
     FD_TEST( fd_bundle_client_status( state )==1 );
-    *state->grpc_client = client_backup;
+    *state->conn->grpc_client = client_backup;
   }
 
   for( int auth_state=0; auth_state<FD_BUNDLE_AUTH_STATE_DONE_WAIT; auth_state++ ) {
     FD_TEST( fd_bundle_client_status( state )==2 );
-    state->auther.state = auth_state;
+    state->conn->auther.state = auth_state;
     FD_TEST( fd_bundle_client_status( state )==1 );
-    state->auther.state = FD_BUNDLE_AUTH_STATE_DONE_WAIT;
+    state->conn->auther.state = FD_BUNDLE_AUTH_STATE_DONE_WAIT;
   }
 
   FD_TEST( fd_bundle_client_status( state )==2 );
-  state->builder_info_wait = 1;
+  state->conn->builder.wait = 1;
   FD_TEST( fd_bundle_client_status( state )==2 ); /* rotate builder info without downtime */
-  state->auther.state = FD_BUNDLE_AUTH_STATE_DONE_WAIT;
+  state->conn->auther.state = FD_BUNDLE_AUTH_STATE_DONE_WAIT;
 
   FD_TEST( fd_bundle_client_status( state )==2 );
-  state->builder_info_avail = 0;
+  state->conn->builder.avail = 0;
   FD_TEST( fd_bundle_client_status( state )==1 );
   *state = state_backup;
 
   FD_TEST( fd_bundle_client_status( state )==2 );
-  state->packet_subscription_live = 0;
+  state->conn->sub[ FD_BUNDLE_SUB_PACKETS ].live = 0;
   FD_TEST( fd_bundle_client_status( state )==1 );
   *state = state_backup;
 
   FD_TEST( fd_bundle_client_status( state )==2 );
-  state->bundle_subscription_live = 0;
+  state->conn->sub[ FD_BUNDLE_SUB_BUNDLES ].live = 0;
   FD_TEST( fd_bundle_client_status( state )==1 );
   *state = state_backup;
 
   FD_TEST( fd_bundle_client_status( state )==2 );
-  state->keepalive->inflight     = 1;
-  state->keepalive->ts_deadline -= g_clock-1L;
+  state->conn->keepalive->inflight     = 1;
+  state->conn->keepalive->ts_deadline -= g_clock-1L;
   FD_TEST( fd_bundle_client_status( state )==0 );
   *state = state_backup;
 
   FD_TEST( fd_bundle_client_status( state )==2 );
-  state->grpc_client->h2_hs_done = 0;
+  state->conn->grpc_client->h2_hs_done = 0;
   FD_TEST( fd_bundle_client_status( state )==1 );
-  *state->grpc_client = client_backup;
+  *state->conn->grpc_client = client_backup;
 
   test_bundle_env_destroy( env );
 }
@@ -564,43 +565,43 @@ FD_UNIT_TEST( bundle_client_reset ) {
   test_bundle_env_mock_conn( env );
   fd_bundle_tile_t * state = env->state;
 
-  FD_TEST( state->tcp_sock!=-1 );
-  FD_TEST( state->tcp_sock_connected==1 );
-  FD_TEST( state->defer_reset==0 );
-  FD_TEST( state->builder_info_avail==1 );
-  FD_TEST( state->builder_info_wait==0 );
-  FD_TEST( state->packet_subscription_live==1 );
-  FD_TEST( state->packet_subscription_wait==0 );
-  FD_TEST( state->bundle_subscription_live==1 );
-  FD_TEST( state->bundle_subscription_wait==0 );
-  FD_TEST( state->rtt->is_rtt_valid==0 );
-  FD_TEST( state->auther.state==FD_BUNDLE_AUTH_STATE_DONE_WAIT );
-  FD_TEST( state->auther.needs_poll==0 );
-  FD_TEST( state->grpc_client->h2_hs_done==1 );
-  FD_TEST( state->grpc_client->stream_cnt==2 );
+  FD_TEST( state->conn->tcp_sock!=-1 );
+  FD_TEST( state->conn->tcp_sock_connected==1 );
+  FD_TEST( state->conn->defer_reset==0 );
+  FD_TEST( state->conn->builder.avail==1 );
+  FD_TEST( state->conn->builder.wait==0 );
+  FD_TEST( state->conn->sub[ FD_BUNDLE_SUB_PACKETS ].live==1 );
+  FD_TEST( state->conn->sub[ FD_BUNDLE_SUB_PACKETS ].wait==0 );
+  FD_TEST( state->conn->sub[ FD_BUNDLE_SUB_BUNDLES ].live==1 );
+  FD_TEST( state->conn->sub[ FD_BUNDLE_SUB_BUNDLES ].wait==0 );
+  FD_TEST( state->conn->rtt->is_rtt_valid==0 );
+  FD_TEST( state->conn->auther.state==FD_BUNDLE_AUTH_STATE_DONE_WAIT );
+  FD_TEST( state->conn->auther.needs_poll==0 );
+  FD_TEST( state->conn->grpc_client->h2_hs_done==1 );
+  FD_TEST( state->conn->grpc_client->stream_cnt==2 );
 
-  fd_memset( state->tls_conn, 0xa5, sizeof(*state->tls_conn) );
-  fd_memset( state->tls->kex_private_key, 0xa5, 32UL );
+  fd_memset( state->conn->tls_conn, 0xa5, sizeof(*state->conn->tls_conn) );
+  fd_memset( state->conn->tls->kex_private_key, 0xa5, 32UL );
   fd_bundle_client_reset( state );
   static uchar const zero_conn[ sizeof(fd_tlsrec_conn_t) ] = {0};
   static uchar const zero_key[ 32 ] = {0};
-  FD_TEST( 0==memcmp( state->tls_conn, zero_conn, sizeof(zero_conn) ) );
-  FD_TEST( 0==memcmp( state->tls->kex_private_key, zero_key, sizeof(zero_key) ) );
+  FD_TEST( 0==memcmp( state->conn->tls_conn, zero_conn, sizeof(zero_conn) ) );
+  FD_TEST( 0==memcmp( state->conn->tls->kex_private_key, zero_key, sizeof(zero_key) ) );
 
-  FD_TEST( state->tcp_sock==-1 );
-  FD_TEST( state->tcp_sock_connected==0 );
-  FD_TEST( state->defer_reset==0 );
-  FD_TEST( state->builder_info_avail==0 );
-  FD_TEST( state->builder_info_wait==0 );
-  FD_TEST( state->packet_subscription_live==0 );
-  FD_TEST( state->packet_subscription_wait==0 );
-  FD_TEST( state->bundle_subscription_live==0 );
-  FD_TEST( state->bundle_subscription_wait==0 );
-  FD_TEST( state->rtt->is_rtt_valid==0 );
-  FD_TEST( state->auther.state==FD_BUNDLE_AUTH_STATE_REQ_CHALLENGE );
-  FD_TEST( state->auther.needs_poll==1 );
-  FD_TEST( state->grpc_client->h2_hs_done==0 );
-  FD_TEST( state->grpc_client->stream_cnt==0 );
+  FD_TEST( state->conn->tcp_sock==-1 );
+  FD_TEST( state->conn->tcp_sock_connected==0 );
+  FD_TEST( state->conn->defer_reset==0 );
+  FD_TEST( state->conn->builder.avail==0 );
+  FD_TEST( state->conn->builder.wait==0 );
+  FD_TEST( state->conn->sub[ FD_BUNDLE_SUB_PACKETS ].live==0 );
+  FD_TEST( state->conn->sub[ FD_BUNDLE_SUB_PACKETS ].wait==0 );
+  FD_TEST( state->conn->sub[ FD_BUNDLE_SUB_BUNDLES ].live==0 );
+  FD_TEST( state->conn->sub[ FD_BUNDLE_SUB_BUNDLES ].wait==0 );
+  FD_TEST( state->conn->rtt->is_rtt_valid==0 );
+  FD_TEST( state->conn->auther.state==FD_BUNDLE_AUTH_STATE_REQ_CHALLENGE );
+  FD_TEST( state->conn->auther.needs_poll==1 );
+  FD_TEST( state->conn->grpc_client->h2_hs_done==0 );
+  FD_TEST( state->conn->grpc_client->stream_cnt==0 );
 
   test_bundle_env_destroy( env );
 }
@@ -652,31 +653,32 @@ FD_UNIT_TEST( bundle_client_request_builder_fee_info ) {
   test_bundle_env_create( env, wksp );
   test_bundle_env_mock_conn( env );
   fd_bundle_tile_t * const state       = env->state;
-  fd_grpc_client_t * const grpc_client = state->grpc_client;
+  fd_grpc_client_t * const grpc_client = state->conn->grpc_client;
 
   /* Client should request new builder info */
-  state->builder_info_avail = 0;
-  FD_TEST( state->builder_info_wait==0 );
+  state->conn->builder.avail = 0;
+  state->conn->builder.next  = 0L;
+  FD_TEST( state->conn->builder.wait==0 );
 
   /* But it's blocked on stream count ... */
-  FD_TEST( fd_grpc_client_request_is_blocked( state->grpc_client )==0 );
-  FD_TEST( state->grpc_client->stream_cnt==2 );
-  state->grpc_client->conn->peer_settings.max_concurrent_streams = 2;
-  FD_TEST( fd_grpc_client_request_is_blocked( state->grpc_client )==1 );
+  FD_TEST( fd_grpc_client_request_is_blocked( state->conn->grpc_client )==0 );
+  FD_TEST( state->conn->grpc_client->stream_cnt==2 );
+  state->conn->grpc_client->conn->peer_settings.max_concurrent_streams = 2;
+  FD_TEST( fd_grpc_client_request_is_blocked( state->conn->grpc_client )==1 );
   int charge_busy = 0;
   fd_bundle_client_step( state, &charge_busy );
-  FD_TEST( state->builder_info_wait==0 );
+  FD_TEST( state->conn->builder.wait==0 );
 
   /* Unblock it ... */
-  state->grpc_client->conn->peer_settings.max_concurrent_streams = 3;
-  FD_TEST( fd_grpc_client_request_is_blocked( state->grpc_client )==0 );
+  state->conn->grpc_client->conn->peer_settings.max_concurrent_streams = 3;
+  FD_TEST( fd_grpc_client_request_is_blocked( state->conn->grpc_client )==0 );
   fd_bundle_client_step( state, &charge_busy );
-  FD_TEST( state->builder_info_wait==1 );
+  FD_TEST( state->conn->builder.wait==1 );
 
   /* Get newly created stream */
   FD_TEST( !grpc_client->request_stream ); /* request instantly flushed */
-  ulong const stream_id = state->grpc_client->stream_ids[ 2 ];
-  fd_grpc_h2_stream_t * stream = &state->grpc_client->stream_pool[ 2 ];
+  ulong const stream_id = state->conn->grpc_client->stream_ids[ 2 ];
+  fd_grpc_h2_stream_t * stream = &state->conn->grpc_client->stream_pool[ 2 ];
   FD_TEST( stream->s.stream_id==stream_id );
   FD_TEST( stream->request_ctx==FD_BUNDLE_CLIENT_REQ_Bundle_GetBlockBuilderFeeInfo );
 
@@ -708,15 +710,15 @@ FD_UNIT_TEST( bundle_client_request_builder_fee_info ) {
   FD_TEST( grpc_hdr.msg_sz==0 );
 
   /* Inject a response */
-  fd_bundle_client_grpc_rx_start( state, FD_BUNDLE_CLIENT_REQ_Bundle_GetBlockBuilderFeeInfo );
+  fd_bundle_client_grpc_rx_start( state->conn, FD_BUNDLE_CLIENT_REQ_Bundle_GetBlockBuilderFeeInfo );
 
   uchar prev_builder_pubkey[ 32 ];
   for( ulong i=0UL; i<sizeof(prev_builder_pubkey); i++ ) prev_builder_pubkey[ i ] = (uchar)( i + 1U );
-  fd_memcpy( state->builder_pubkey, prev_builder_pubkey, sizeof(prev_builder_pubkey) );
+  fd_memcpy( state->conn->builder.pubkey, prev_builder_pubkey, sizeof(prev_builder_pubkey) );
   uchar prev_builder_commission = 11U;
-  state->builder_commission = prev_builder_commission;
-  long prev_builder_valid_until = 123456789L;
-  state->builder_info_valid_until = prev_builder_valid_until;
+  state->conn->builder.commission = prev_builder_commission;
+  long prev_builder_next = 123456789L;
+  state->conn->builder.next = prev_builder_next;
 
   /* Protobuf encoder util */
   uchar pb_buf[ 128 ];
@@ -738,11 +740,11 @@ FD_UNIT_TEST( bundle_client_request_builder_fee_info ) {
   for( ulong i=0UL; i<2UL; i++ ) {
     strcpy( resp.pubkey, invalid_pubkeys[i] );
     ENCODE_MSG();
-    fd_bundle_client_grpc_rx_msg( state, pb_buf, pb_sz, FD_BUNDLE_CLIENT_REQ_Bundle_GetBlockBuilderFeeInfo );
-    FD_TEST( state->builder_info_avail==0 && state->builder_info_wait==1 );
-    FD_TEST( state->builder_commission==prev_builder_commission );
-    FD_TEST( fd_memeq( state->builder_pubkey, prev_builder_pubkey, sizeof(prev_builder_pubkey) ) );
-    FD_TEST( state->builder_info_valid_until==prev_builder_valid_until );
+    fd_bundle_client_grpc_rx_msg( state->conn, pb_buf, pb_sz, FD_BUNDLE_CLIENT_REQ_Bundle_GetBlockBuilderFeeInfo );
+    FD_TEST( state->conn->builder.avail==0 && state->conn->builder.wait==1 );
+    FD_TEST( state->conn->builder.commission==prev_builder_commission );
+    FD_TEST( fd_memeq( state->conn->builder.pubkey, prev_builder_pubkey, sizeof(prev_builder_pubkey) ) );
+    FD_TEST( state->conn->builder.next==prev_builder_next );
   }
 
   /* Invalid commission */
@@ -750,49 +752,49 @@ FD_UNIT_TEST( bundle_client_request_builder_fee_info ) {
   fd_base58_encode_32( pubkey, NULL, resp.pubkey );
   resp.commission = 101;
   ENCODE_MSG();
-  fd_bundle_client_grpc_rx_msg( state, pb_buf, pb_sz, FD_BUNDLE_CLIENT_REQ_Bundle_GetBlockBuilderFeeInfo );
-  FD_TEST( state->builder_info_avail==0 );
-  FD_TEST( state->builder_info_wait==1 ); /* retry ... */
-  FD_TEST( state->builder_commission==prev_builder_commission );
-  FD_TEST( 0==memcmp( state->builder_pubkey, prev_builder_pubkey, sizeof(prev_builder_pubkey) ) );
-  FD_TEST( state->builder_info_valid_until==prev_builder_valid_until );
+  fd_bundle_client_grpc_rx_msg( state->conn, pb_buf, pb_sz, FD_BUNDLE_CLIENT_REQ_Bundle_GetBlockBuilderFeeInfo );
+  FD_TEST( state->conn->builder.avail==0 );
+  FD_TEST( state->conn->builder.wait==1 ); /* retry ... */
+  FD_TEST( state->conn->builder.commission==prev_builder_commission );
+  FD_TEST( 0==memcmp( state->conn->builder.pubkey, prev_builder_pubkey, sizeof(prev_builder_pubkey) ) );
+  FD_TEST( state->conn->builder.next==prev_builder_next );
 
   /* Valid response */
   resp.commission = 2;
   ENCODE_MSG();
-  fd_bundle_client_grpc_rx_msg( state, pb_buf, pb_sz, FD_BUNDLE_CLIENT_REQ_Bundle_GetBlockBuilderFeeInfo );
-  FD_TEST( state->builder_info_avail==1 );
-  FD_TEST( state->builder_info_wait==1 );
-  FD_TEST( state->builder_commission==2U );
+  fd_bundle_client_grpc_rx_msg( state->conn, pb_buf, pb_sz, FD_BUNDLE_CLIENT_REQ_Bundle_GetBlockBuilderFeeInfo );
+  FD_TEST( state->conn->builder.avail==1 );
+  FD_TEST( state->conn->builder.wait==1 );
+  FD_TEST( state->conn->builder.commission==2U );
   uchar decoded_builder_pubkey[ 32 ];
   FD_TEST( fd_base58_decode_32( resp.pubkey, decoded_builder_pubkey ) );
-  FD_TEST( 0==memcmp( state->builder_pubkey, decoded_builder_pubkey, sizeof(decoded_builder_pubkey) ) );
-  FD_TEST( state->builder_info_valid_until!=prev_builder_valid_until );
+  FD_TEST( 0==memcmp( state->conn->builder.pubkey, decoded_builder_pubkey, sizeof(decoded_builder_pubkey) ) );
+  FD_TEST( state->conn->builder.next!=prev_builder_next );
 
   /* Preserve the last valid metadata when a later response has a zero
      key, just as for an invalid Base58 response. */
-  long valid_until = state->builder_info_valid_until;
+  long valid_until = state->conn->builder.next;
   strcpy( resp.pubkey, "11111111111111111111111111111111" );
   resp.commission = 3;
   ENCODE_MSG();
-  fd_bundle_client_grpc_rx_msg( state, pb_buf, pb_sz, FD_BUNDLE_CLIENT_REQ_Bundle_GetBlockBuilderFeeInfo );
-  FD_TEST( state->builder_info_avail==1 && state->builder_info_wait==1 );
-  FD_TEST( state->builder_commission==2U );
-  FD_TEST( fd_memeq( state->builder_pubkey, decoded_builder_pubkey, sizeof(decoded_builder_pubkey) ) );
-  FD_TEST( state->builder_info_valid_until==valid_until );
+  fd_bundle_client_grpc_rx_msg( state->conn, pb_buf, pb_sz, FD_BUNDLE_CLIENT_REQ_Bundle_GetBlockBuilderFeeInfo );
+  FD_TEST( state->conn->builder.avail==1 && state->conn->builder.wait==1 );
+  FD_TEST( state->conn->builder.commission==2U );
+  FD_TEST( fd_memeq( state->conn->builder.pubkey, decoded_builder_pubkey, sizeof(decoded_builder_pubkey) ) );
+  FD_TEST( state->conn->builder.next==valid_until );
   fd_base58_encode_32( prev_builder_pubkey, NULL, resp.pubkey );
   ENCODE_MSG();
-  fd_bundle_client_grpc_rx_msg( state, pb_buf, pb_sz, FD_BUNDLE_CLIENT_REQ_Bundle_GetBlockBuilderFeeInfo );
-  FD_TEST( state->builder_info_avail==1 && state->builder_commission==3U );
-  FD_TEST( fd_memeq( state->builder_pubkey, prev_builder_pubkey, sizeof(prev_builder_pubkey) ) );
+  fd_bundle_client_grpc_rx_msg( state->conn, pb_buf, pb_sz, FD_BUNDLE_CLIENT_REQ_Bundle_GetBlockBuilderFeeInfo );
+  FD_TEST( state->conn->builder.avail==1 && state->conn->builder.commission==3U );
+  FD_TEST( fd_memeq( state->conn->builder.pubkey, prev_builder_pubkey, sizeof(prev_builder_pubkey) ) );
 
   /* End stream */
   fd_grpc_resp_hdrs_t grpc_resp_hdrs = {
     .h2_status   = 200,
     .grpc_status = FD_GRPC_STATUS_OK
   };
-  fd_bundle_client_grpc_rx_end( state, FD_BUNDLE_CLIENT_REQ_Bundle_GetBlockBuilderFeeInfo, &grpc_resp_hdrs );
-  FD_TEST( state->builder_info_wait==0 );
+  fd_bundle_client_grpc_rx_end( state->conn, FD_BUNDLE_CLIENT_REQ_Bundle_GetBlockBuilderFeeInfo, &grpc_resp_hdrs );
+  FD_TEST( state->conn->builder.wait==0 );
 
 #undef ENCODE_MSG
 
@@ -806,30 +808,30 @@ FD_UNIT_TEST( bundle_client_subscribe_packets ) {
   test_bundle_env_create( env, wksp );
   test_bundle_env_mock_conn( env );
   fd_bundle_tile_t * const state       = env->state;
-  fd_grpc_client_t * const grpc_client = state->grpc_client;
+  fd_grpc_client_t * const grpc_client = state->conn->grpc_client;
 
-  state->packet_subscription_live = 0;
-  FD_TEST( state->packet_subscription_wait==0 );
+  state->conn->sub[ FD_BUNDLE_SUB_PACKETS ].live = 0;
+  FD_TEST( state->conn->sub[ FD_BUNDLE_SUB_PACKETS ].wait==0 );
 
   /* But it's blocked on stream count ... */
-  FD_TEST( fd_grpc_client_request_is_blocked( state->grpc_client )==0 );
-  FD_TEST( state->grpc_client->stream_cnt==2 );
-  state->grpc_client->conn->peer_settings.max_concurrent_streams = 2;
-  FD_TEST( fd_grpc_client_request_is_blocked( state->grpc_client )==1 );
+  FD_TEST( fd_grpc_client_request_is_blocked( state->conn->grpc_client )==0 );
+  FD_TEST( state->conn->grpc_client->stream_cnt==2 );
+  state->conn->grpc_client->conn->peer_settings.max_concurrent_streams = 2;
+  FD_TEST( fd_grpc_client_request_is_blocked( state->conn->grpc_client )==1 );
   int charge_busy = 0;
   fd_bundle_client_step( state, &charge_busy );
-  FD_TEST( state->packet_subscription_wait==0 );
+  FD_TEST( state->conn->sub[ FD_BUNDLE_SUB_PACKETS ].wait==0 );
 
   /* Unblock it ... */
-  state->grpc_client->conn->peer_settings.max_concurrent_streams = 3;
-  FD_TEST( fd_grpc_client_request_is_blocked( state->grpc_client )==0 );
+  state->conn->grpc_client->conn->peer_settings.max_concurrent_streams = 3;
+  FD_TEST( fd_grpc_client_request_is_blocked( state->conn->grpc_client )==0 );
   fd_bundle_client_step( state, &charge_busy );
-  FD_TEST( state->packet_subscription_wait==1 );
+  FD_TEST( state->conn->sub[ FD_BUNDLE_SUB_PACKETS ].wait==1 );
 
   /* Get newly created stream */
   FD_TEST( !grpc_client->request_stream ); /* request instantly flushed */
-  ulong const stream_id = state->grpc_client->stream_ids[ 2 ];
-  fd_grpc_h2_stream_t * stream = &state->grpc_client->stream_pool[ 2 ];
+  ulong const stream_id = state->conn->grpc_client->stream_ids[ 2 ];
+  fd_grpc_h2_stream_t * stream = &state->conn->grpc_client->stream_pool[ 2 ];
   FD_TEST( stream->s.stream_id==stream_id );
   FD_TEST( stream->request_ctx==FD_BUNDLE_CLIENT_REQ_Bundle_SubscribePackets );
 
@@ -861,9 +863,9 @@ FD_UNIT_TEST( bundle_client_subscribe_packets ) {
   FD_TEST( grpc_hdr.msg_sz==0 );
 
   /* Inject a response */
-  FD_TEST( state->packet_subscription_wait==1 );
-  fd_bundle_client_grpc_rx_start( state, FD_BUNDLE_CLIENT_REQ_Bundle_SubscribePackets );
-  FD_TEST( state->packet_subscription_wait==0 );
+  FD_TEST( state->conn->sub[ FD_BUNDLE_SUB_PACKETS ].wait==1 );
+  fd_bundle_client_grpc_rx_start( state->conn, FD_BUNDLE_CLIENT_REQ_Bundle_SubscribePackets );
+  FD_TEST( state->conn->sub[ FD_BUNDLE_SUB_PACKETS ].wait==0 );
 
   test_bundle_env_destroy( env );
 }
@@ -875,30 +877,30 @@ FD_UNIT_TEST( bundle_client_subscribe_bundles ) {
   test_bundle_env_create( env, wksp );
   test_bundle_env_mock_conn( env );
   fd_bundle_tile_t * const state       = env->state;
-  fd_grpc_client_t * const grpc_client = state->grpc_client;
+  fd_grpc_client_t * const grpc_client = state->conn->grpc_client;
 
-  state->bundle_subscription_live = 0;
-  FD_TEST( state->bundle_subscription_wait==0 );
+  state->conn->sub[ FD_BUNDLE_SUB_BUNDLES ].live = 0;
+  FD_TEST( state->conn->sub[ FD_BUNDLE_SUB_BUNDLES ].wait==0 );
 
   /* But it's blocked on stream count ... */
-  FD_TEST( fd_grpc_client_request_is_blocked( state->grpc_client )==0 );
-  FD_TEST( state->grpc_client->stream_cnt==2 );
-  state->grpc_client->conn->peer_settings.max_concurrent_streams = 2;
-  FD_TEST( fd_grpc_client_request_is_blocked( state->grpc_client )==1 );
+  FD_TEST( fd_grpc_client_request_is_blocked( state->conn->grpc_client )==0 );
+  FD_TEST( state->conn->grpc_client->stream_cnt==2 );
+  state->conn->grpc_client->conn->peer_settings.max_concurrent_streams = 2;
+  FD_TEST( fd_grpc_client_request_is_blocked( state->conn->grpc_client )==1 );
   int charge_busy = 0;
   fd_bundle_client_step( state, &charge_busy );
-  FD_TEST( state->bundle_subscription_wait==0 );
+  FD_TEST( state->conn->sub[ FD_BUNDLE_SUB_BUNDLES ].wait==0 );
 
   /* Unblock it ... */
-  state->grpc_client->conn->peer_settings.max_concurrent_streams = 3;
-  FD_TEST( fd_grpc_client_request_is_blocked( state->grpc_client )==0 );
+  state->conn->grpc_client->conn->peer_settings.max_concurrent_streams = 3;
+  FD_TEST( fd_grpc_client_request_is_blocked( state->conn->grpc_client )==0 );
   fd_bundle_client_step( state, &charge_busy );
-  FD_TEST( state->bundle_subscription_wait==1 );
+  FD_TEST( state->conn->sub[ FD_BUNDLE_SUB_BUNDLES ].wait==1 );
 
   /* Get newly created stream */
   FD_TEST( !grpc_client->request_stream ); /* request instantly flushed */
-  ulong const stream_id = state->grpc_client->stream_ids[ 2 ];
-  fd_grpc_h2_stream_t * stream = &state->grpc_client->stream_pool[ 2 ];
+  ulong const stream_id = state->conn->grpc_client->stream_ids[ 2 ];
+  fd_grpc_h2_stream_t * stream = &state->conn->grpc_client->stream_pool[ 2 ];
   FD_TEST( stream->s.stream_id==stream_id );
   FD_TEST( stream->request_ctx==FD_BUNDLE_CLIENT_REQ_Bundle_SubscribeBundles );
 
@@ -930,9 +932,9 @@ FD_UNIT_TEST( bundle_client_subscribe_bundles ) {
   FD_TEST( grpc_hdr.msg_sz==0 );
 
   /* Inject a response */
-  FD_TEST( state->bundle_subscription_wait==1 );
-  fd_bundle_client_grpc_rx_start( state, FD_BUNDLE_CLIENT_REQ_Bundle_SubscribeBundles );
-  FD_TEST( state->bundle_subscription_wait==0 );
+  FD_TEST( state->conn->sub[ FD_BUNDLE_SUB_BUNDLES ].wait==1 );
+  fd_bundle_client_grpc_rx_start( state->conn, FD_BUNDLE_CLIENT_REQ_Bundle_SubscribeBundles );
+  FD_TEST( state->conn->sub[ FD_BUNDLE_SUB_BUNDLES ].wait==0 );
 
   test_bundle_env_destroy( env );
 }
@@ -1031,7 +1033,7 @@ FD_UNIT_TEST( packet_publish ) {
   ulong pb_sz = encode_subscribe_packets_response( pb_buf, sizeof(pb_buf), packets, 2UL );
 
   fd_bundle_client_grpc_rx_msg(
-      state,
+      state->conn,
       pb_buf, pb_sz,
       FD_BUNDLE_CLIENT_REQ_Bundle_SubscribePackets
   );
@@ -1048,11 +1050,11 @@ FD_UNIT_TEST( bundle_publish ) {
   test_bundle_env_t env[1];
   test_bundle_env_create( env, wksp );
   fd_bundle_tile_t * state = env->state;
-  state->builder_info_avail  = 1;
-  state->builder_commission  = 7U;
+  state->conn->builder.avail      = 1;
+  state->conn->builder.commission = 7U;
   uchar builder_pubkey[ 32 ];
   for( ulong i=0UL; i<32UL; i++ ) builder_pubkey[ i ] = (uchar)( i + 1U );
-  fd_memcpy( state->builder_pubkey, builder_pubkey, sizeof(builder_pubkey) );
+  fd_memcpy( state->conn->builder.pubkey, builder_pubkey, sizeof(builder_pubkey) );
 
   uchar const bundle_a0[] = { 0xA0 };
   uchar const bundle_a1[] = { 0xA1 };
@@ -1076,7 +1078,7 @@ FD_UNIT_TEST( bundle_publish ) {
   ulong pb_sz = encode_subscribe_bundles_response( pb_buf, sizeof(pb_buf), bundles, 2UL );
 
   fd_bundle_client_grpc_rx_msg(
-      state,
+      state->conn,
       pb_buf, pb_sz,
       FD_BUNDLE_CLIENT_REQ_Bundle_SubscribeBundles
   );
@@ -1095,7 +1097,7 @@ FD_UNIT_TEST( bundle_publish_max_txn ) {
   test_bundle_env_t env[1];
   test_bundle_env_create( env, wksp );
   fd_bundle_tile_t * state = env->state;
-  state->builder_info_avail = 1;
+  state->conn->builder.avail = 1;
 
   uchar const b0[] = { 0x10 };
   uchar const b1[] = { 0x11 };
@@ -1122,12 +1124,12 @@ FD_UNIT_TEST( bundle_publish_max_txn ) {
   ulong packet_sz = encode_subscribe_packets_response( packet_buf, sizeof(packet_buf), trailing_packet, 1UL );
 
   fd_bundle_client_grpc_rx_msg(
-      state,
+      state->conn,
       bundle_buf, bundle_sz,
       FD_BUNDLE_CLIENT_REQ_Bundle_SubscribeBundles
   );
   fd_bundle_client_grpc_rx_msg(
-      state,
+      state->conn,
       packet_buf, packet_sz,
       FD_BUNDLE_CLIENT_REQ_Bundle_SubscribePackets
   );
@@ -1149,7 +1151,7 @@ FD_UNIT_TEST( mixed_publish_order ) {
   test_bundle_env_t env[1];
   test_bundle_env_create( env, wksp );
   fd_bundle_tile_t * state = env->state;
-  state->builder_info_avail = 1;
+  state->conn->builder.avail = 1;
 
   uchar const p0[] = { 0x20 };
   uchar const p1[] = { 0x21 };
@@ -1183,9 +1185,9 @@ FD_UNIT_TEST( mixed_publish_order ) {
   ulong bundle_sz  = encode_subscribe_bundles_response( bundle_buf, sizeof(bundle_buf), bundles, 1UL );
   ulong packet_sz1 = encode_subscribe_packets_response( packet_buf1, sizeof(packet_buf1), trailing_packets, 2UL );
 
-  fd_bundle_client_grpc_rx_msg( state, packet_buf0, packet_sz0, FD_BUNDLE_CLIENT_REQ_Bundle_SubscribePackets );
-  fd_bundle_client_grpc_rx_msg( state, bundle_buf,  bundle_sz,  FD_BUNDLE_CLIENT_REQ_Bundle_SubscribeBundles );
-  fd_bundle_client_grpc_rx_msg( state, packet_buf1, packet_sz1, FD_BUNDLE_CLIENT_REQ_Bundle_SubscribePackets );
+  fd_bundle_client_grpc_rx_msg( state->conn, packet_buf0, packet_sz0, FD_BUNDLE_CLIENT_REQ_Bundle_SubscribePackets );
+  fd_bundle_client_grpc_rx_msg( state->conn, bundle_buf,  bundle_sz,  FD_BUNDLE_CLIENT_REQ_Bundle_SubscribeBundles );
+  fd_bundle_client_grpc_rx_msg( state->conn, packet_buf1, packet_sz1, FD_BUNDLE_CLIENT_REQ_Bundle_SubscribePackets );
 
   uchar const zero_pubkey[ 32 ] = {0};
   FD_TEST( published_txn_cnt( env )==8UL );
@@ -1208,14 +1210,14 @@ FD_UNIT_TEST( backpressure_drop ) {
   test_bundle_env_t env[1];
   test_bundle_env_create( env, wksp );
   fd_bundle_tile_t * state = env->state;
-  state->builder_info_avail = 1;
+  state->conn->builder.avail = 1;
 
   static uchar single_packet_msg[] = {
     0x12, 0x09, 0x0a, 0x07, 0x0a, 0x01, 0x48, 0x12,
     0x02, 0x08, 0x01
   };
   env->stem_cr_avail[ 0 ] = 0UL;
-  fd_bundle_client_grpc_rx_msg( state, single_packet_msg, sizeof(single_packet_msg), FD_BUNDLE_CLIENT_REQ_Bundle_SubscribePackets );
+  fd_bundle_client_grpc_rx_msg( state->conn, single_packet_msg, sizeof(single_packet_msg), FD_BUNDLE_CLIENT_REQ_Bundle_SubscribePackets );
   FD_TEST( published_txn_cnt( env )==0UL );
   FD_TEST( state->metrics.backpressure_drop_cnt==1UL );
 
@@ -1232,13 +1234,13 @@ FD_UNIT_TEST( backpressure_drop ) {
   ulong bundle_sz = encode_subscribe_bundles_response( bundle_buf, sizeof(bundle_buf), bundles, 1UL );
 
   env->stem_cr_avail[ 0 ] = 1UL;
-  fd_bundle_client_grpc_rx_msg( state, bundle_buf, bundle_sz, FD_BUNDLE_CLIENT_REQ_Bundle_SubscribeBundles );
+  fd_bundle_client_grpc_rx_msg( state->conn, bundle_buf, bundle_sz, FD_BUNDLE_CLIENT_REQ_Bundle_SubscribeBundles );
   FD_TEST( published_txn_cnt( env )==0UL );
   FD_TEST( state->metrics.backpressure_drop_cnt==3UL );
   FD_TEST( state->metrics.bundle_received_cnt==0UL );
 
   env->stem_cr_avail[ 0 ] = 2UL;
-  fd_bundle_client_grpc_rx_msg( state, bundle_buf, bundle_sz, FD_BUNDLE_CLIENT_REQ_Bundle_SubscribeBundles );
+  fd_bundle_client_grpc_rx_msg( state->conn, bundle_buf, bundle_sz, FD_BUNDLE_CLIENT_REQ_Bundle_SubscribeBundles );
   FD_TEST( published_txn_cnt( env )==2UL );
   FD_TEST( env->stem_cr_avail[ 0 ]==0UL );
   FD_TEST( state->metrics.backpressure_drop_cnt==3UL );
@@ -1252,7 +1254,7 @@ FD_UNIT_TEST( backpressure_drop ) {
   };
   ulong two_sz = encode_subscribe_bundles_response( bundle_buf, sizeof(bundle_buf), two_bundles, 2UL );
   env->stem_cr_avail[ 0 ] = 3UL;
-  fd_bundle_client_grpc_rx_msg( state, bundle_buf, two_sz, FD_BUNDLE_CLIENT_REQ_Bundle_SubscribeBundles );
+  fd_bundle_client_grpc_rx_msg( state->conn, bundle_buf, two_sz, FD_BUNDLE_CLIENT_REQ_Bundle_SubscribeBundles );
   FD_TEST( published_txn_cnt( env )==4UL );
   FD_TEST( env->stem_cr_avail[ 0 ]==1UL );
   FD_TEST( state->metrics.backpressure_drop_cnt==5UL );
@@ -1280,35 +1282,35 @@ FD_UNIT_TEST( request_failed_clears_wait ) {
   };
 
   /* GetBlockBuilderFeeInfo: builder_info_wait should be cleared */
-  state->builder_info_wait = 1;
-  state->auther.state      = FD_BUNDLE_AUTH_STATE_DONE_WAIT;
-  state->defer_reset       = 0;
-  fd_bundle_client_grpc_rx_end( state, FD_BUNDLE_CLIENT_REQ_Bundle_GetBlockBuilderFeeInfo, &hdrs );
-  FD_TEST( state->builder_info_wait==0 );
-  FD_TEST( state->auther.state==FD_BUNDLE_AUTH_STATE_REQ_CHALLENGE );
-  FD_TEST( state->defer_reset==1 );
+  state->conn->builder.wait = 1;
+  state->conn->auther.state = FD_BUNDLE_AUTH_STATE_DONE_WAIT;
+  state->conn->defer_reset  = 0;
+  fd_bundle_client_grpc_rx_end( state->conn, FD_BUNDLE_CLIENT_REQ_Bundle_GetBlockBuilderFeeInfo, &hdrs );
+  FD_TEST( state->conn->builder.wait==0 );
+  FD_TEST( state->conn->auther.state==FD_BUNDLE_AUTH_STATE_REQ_CHALLENGE );
+  FD_TEST( state->conn->defer_reset==1 );
 
-  /* SubscribePackets: packet_subscription_wait should be cleared */
-  state->packet_subscription_wait = 1;
-  state->packet_subscription_live = 1;
-  state->auther.state             = FD_BUNDLE_AUTH_STATE_DONE_WAIT;
-  state->defer_reset              = 0;
-  fd_bundle_client_grpc_rx_end( state, FD_BUNDLE_CLIENT_REQ_Bundle_SubscribePackets, &hdrs );
-  FD_TEST( state->packet_subscription_wait==0 );
-  FD_TEST( state->packet_subscription_live==0 );
-  FD_TEST( state->auther.state==FD_BUNDLE_AUTH_STATE_REQ_CHALLENGE );
-  FD_TEST( state->defer_reset==1 );
+  /* SubscribePackets: its wait flag should be cleared */
+  state->conn->sub[ FD_BUNDLE_SUB_PACKETS ].wait = 1;
+  state->conn->sub[ FD_BUNDLE_SUB_PACKETS ].live = 1;
+  state->conn->auther.state                      = FD_BUNDLE_AUTH_STATE_DONE_WAIT;
+  state->conn->defer_reset                       = 0;
+  fd_bundle_client_grpc_rx_end( state->conn, FD_BUNDLE_CLIENT_REQ_Bundle_SubscribePackets, &hdrs );
+  FD_TEST( state->conn->sub[ FD_BUNDLE_SUB_PACKETS ].wait==0 );
+  FD_TEST( state->conn->sub[ FD_BUNDLE_SUB_PACKETS ].live==0 );
+  FD_TEST( state->conn->auther.state==FD_BUNDLE_AUTH_STATE_REQ_CHALLENGE );
+  FD_TEST( state->conn->defer_reset==1 );
 
-  /* SubscribeBundles: bundle_subscription_wait should be cleared */
-  state->bundle_subscription_wait = 1;
-  state->bundle_subscription_live = 1;
-  state->auther.state             = FD_BUNDLE_AUTH_STATE_DONE_WAIT;
-  state->defer_reset              = 0;
-  fd_bundle_client_grpc_rx_end( state, FD_BUNDLE_CLIENT_REQ_Bundle_SubscribeBundles, &hdrs );
-  FD_TEST( state->bundle_subscription_wait==0 );
-  FD_TEST( state->bundle_subscription_live==0 );
-  FD_TEST( state->auther.state==FD_BUNDLE_AUTH_STATE_REQ_CHALLENGE );
-  FD_TEST( state->defer_reset==1 );
+  /* SubscribeBundles: its wait flag should be cleared */
+  state->conn->sub[ FD_BUNDLE_SUB_BUNDLES ].wait = 1;
+  state->conn->sub[ FD_BUNDLE_SUB_BUNDLES ].live = 1;
+  state->conn->auther.state                      = FD_BUNDLE_AUTH_STATE_DONE_WAIT;
+  state->conn->defer_reset                       = 0;
+  fd_bundle_client_grpc_rx_end( state->conn, FD_BUNDLE_CLIENT_REQ_Bundle_SubscribeBundles, &hdrs );
+  FD_TEST( state->conn->sub[ FD_BUNDLE_SUB_BUNDLES ].wait==0 );
+  FD_TEST( state->conn->sub[ FD_BUNDLE_SUB_BUNDLES ].live==0 );
+  FD_TEST( state->conn->auther.state==FD_BUNDLE_AUTH_STATE_REQ_CHALLENGE );
+  FD_TEST( state->conn->defer_reset==1 );
 
   test_bundle_env_destroy( env );
 }

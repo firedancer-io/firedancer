@@ -5,6 +5,7 @@
 #include <sys/resource.h> /* RLIMIT_NOFILE */
 #include "../../../disco/topo/fd_topob.h"
 #include "../../../disco/fd_txn_m.h"
+#include "../../../disco/bundle/fd_bundle_tile.h"
 
 #include <unistd.h> /* pause */
 
@@ -47,10 +48,7 @@ bundle_client_topo( config_t *   config ) {
 
   /* Tile config */
 
-  fd_cstr_ncpy( bundle_tile->bundle.url, config->tiles.bundle.url, sizeof(bundle_tile->bundle.url) );
-  bundle_tile->bundle.url_len = strnlen( bundle_tile->bundle.url, sizeof(bundle_tile->bundle.url)-1UL );
-  fd_cstr_ncpy( bundle_tile->bundle.sni, config->tiles.bundle.tls_domain_name, sizeof(bundle_tile->bundle.sni) );
-  bundle_tile->bundle.sni_len = strnlen( bundle_tile->bundle.sni, sizeof(bundle_tile->bundle.sni)-1UL );
+  fd_bundle_tile_add_server( bundle_tile, config->tiles.bundle.url,         config->tiles.bundle.tls_domain_name, FD_BUNDLE_PROTOCOL_JITO                     );
   fd_cstr_ncpy( bundle_tile->bundle.identity_key_path, config->paths.identity_key, sizeof(bundle_tile->bundle.identity_key_path) );
   fd_cstr_ncpy( bundle_tile->bundle.key_log_path, config->development.bundle.ssl_key_log_file, sizeof(bundle_tile->bundle.key_log_path) );
   bundle_tile->bundle.buf_sz = config->development.bundle.buffer_size_kib<<10;

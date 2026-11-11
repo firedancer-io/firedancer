@@ -48,7 +48,9 @@ FD_FN_CONST static ulong
 scratch_footprint( fd_topo_tile_t const * tile ) {
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_bundle_tile_t), sizeof(fd_bundle_tile_t)                        );
-  l = FD_LAYOUT_APPEND( l, fd_grpc_client_align(),    fd_grpc_client_footprint( tile->bundle.buf_sz ) );
+  for( ulong i=0UL; i<FD_BUNDLE_CONN_MAX; i++ ) {
+    l = FD_LAYOUT_APPEND( l, fd_grpc_client_align(),  fd_grpc_client_footprint( tile->bundle.buf_sz ) );
+  }
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -103,9 +105,9 @@ metrics_write( fd_bundle_tile_t * ctx ) {
   FD_MCNT_SET  ( BUNDLE, CLIENT_FAILED_NO_FEE_INFO, ctx->metrics.missing_builder_info_fail_cnt );
   FD_MCNT_SET  ( BUNDLE, TXN_BUFFER_FULL_DROPPED,   ctx->metrics.backpressure_drop_cnt         );
 
-  FD_MGAUGE_SET( BUNDLE, LAST_RTT_NANOS,      (ulong)ctx->rtt->latest_rtt   );
-  FD_MGAUGE_SET( BUNDLE, RTT_SMOOTHED_NANOS,  (ulong)ctx->rtt->smoothed_rtt );
-  FD_MGAUGE_SET( BUNDLE, RTT_DEVIATION_NANOS, (ulong)ctx->rtt->var_rtt      );
+  FD_MGAUGE_SET( BUNDLE, LAST_RTT_NANOS,      (ulong)ctx->conn->rtt->latest_rtt   );
+  FD_MGAUGE_SET( BUNDLE, RTT_SMOOTHED_NANOS,  (ulong)ctx->conn->rtt->smoothed_rtt );
+  FD_MGAUGE_SET( BUNDLE, RTT_DEVIATION_NANOS, (ulong)ctx->conn->rtt->var_rtt      );
 
   FD_MHIST_COPY( BUNDLE, MESSAGE_RX_DELAY_NANOS, ctx->metrics.msg_rx_delay );
 
@@ -139,14 +141,18 @@ fd_bundle_tile_housekeeping( fd_bundle_tile_t * ctx ) {
   }
 
   if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->keyswitch )==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
-    if( ctx->tcp_sock>=0 ) fd_bundle_client_reset( ctx );
     ctx->halt_signing = 1;
-    fd_memcpy( ctx->auther.pubkey, ctx->keyswitch->bytes, 32UL );
+    fd_memcpy( ctx->identity_pubkey, ctx->keyswitch->bytes, 32UL );
+    for( ulong i=0UL; i<ctx->conn_cnt; i++ ) {
+      fd_bundle_conn_t * conn = &ctx->conn[ i ];
+      if( conn->tcp_sock>=0 ) fd_bundle_conn_reset( conn );
+      fd_memcpy( conn->auther.pubkey, ctx->keyswitch->bytes, 32UL );
+    }
     fd_keyswitch_state( ctx->keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
   }
 
   if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->keyswitch )==FD_KEYSWITCH_STATE_UNHALT_PENDING ) ) {
-    ctx->defer_reset        = 1;
+    for( ulong i=0UL; i<ctx->conn_cnt; i++ ) ctx->conn[ i ].defer_reset = 1;
     ctx->sleep_check_ns     = 0;
     ctx->halt_signing       = 0;
     ctx->next_step_deadline = 0L; /* the socket was closed outside a step: step now */
@@ -165,19 +171,20 @@ fd_bundle_tile_publish_block_engine_update(
       fd_chunk_to_laddr( ctx->plugin_out.mem, ctx->plugin_out.chunk );
   memset( update, 0, sizeof(fd_bundle_block_engine_update_t) );
 
-  strncpy( update->name, "jito", sizeof(update->name) );
+  fd_bundle_conn_t const * conn = ctx->conn;
+  fd_cstr_ncpy( update->name, fd_bundle_conn_name( conn ), sizeof(update->name) );
 
   FD_TEST( fd_cstr_printf_check( update->url, sizeof(update->url), NULL,
                                 "%s://%.*s:%u",
-                                ctx->is_ssl ? "https" : "http",
-                                (int)ctx->server_fqdn_len,
-                                ctx->server_fqdn,
-                                ctx->server_tcp_port ) );
+                                conn->is_ssl ? "https" : "http",
+                                (int)conn->server_fqdn_len,
+                                conn->server_fqdn,
+                                conn->server_tcp_port ) );
 
   /* Format IPv4 string */
   snprintf( update->ip_cstr, sizeof(update->ip_cstr),
             FD_IP4_ADDR_FMT,
-            FD_IP4_ADDR_FMT_ARGS( ctx->server_ip4_addr ) );
+            FD_IP4_ADDR_FMT_ARGS( conn->server_ip4_addr ) );
 
   ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_bundle_now( ctx ) );
   fd_stem_publish(
@@ -253,11 +260,13 @@ before_credit( fd_bundle_tile_t *  ctx,
   }
 
   if( FD_UNLIKELY( ctx->halt_signing || ctx->sleep_mode ) ) {
-    if( ctx->sleep_mode && ctx->tcp_sock>=0 ) {
-      fd_bundle_client_reset( ctx );
+    for( ulong i=0UL; ctx->sleep_mode && i<ctx->conn_cnt; i++ ) {
+      fd_bundle_conn_t * conn = &ctx->conn[ i ];
+      if( conn->tcp_sock<0 ) continue;
+      fd_bundle_conn_reset( conn );
       /* Override backoff so we don't treat this as an error */
-      ctx->backoff_until = 0;
-      ctx->backoff_iter  = 0;
+      conn->backoff_until = 0;
+      conn->backoff_iter  = 0;
     }
     /* The socket is closed so any wake (even one that raced the close)
        is stale: drain it or the stem never parks, and rearm so the next
@@ -330,8 +339,9 @@ fd_bundle_tls_keylog( void const * handshake,
                       uint         encryption_level ) {
   fd_tlsrec_conn_t const * tls_conn = (fd_tlsrec_conn_t const *)(
       (ulong)handshake - offsetof(fd_tlsrec_conn_t, hs) );
-  fd_bundle_tile_t * ctx = (fd_bundle_tile_t *)(
-      (ulong)tls_conn - offsetof(fd_bundle_tile_t, tls_conn) );
+  fd_bundle_conn_t const * conn = (fd_bundle_conn_t const *)(
+      (ulong)tls_conn - offsetof(fd_bundle_conn_t, tls_conn) );
+  fd_bundle_tile_t * ctx = conn->ctx;
   fd_tls_estate_t const * hs = handshake;
 
   char const * client_label;
@@ -358,62 +368,65 @@ fd_bundle_tls_keylog( void const * handshake,
 }
 
 #ifndef FD_TILE_TEST
+/* fd_bundle_tile_add_conn adds a conn to the server tile->bundle.conn[
+   idx ]. */
+
 static void
-fd_bundle_tile_parse_endpoint( fd_bundle_tile_t *     ctx,
-                               fd_topo_tile_t const * tile ) {
+fd_bundle_tile_add_conn( fd_bundle_tile_t *     ctx,
+                         void *                 grpc_mem,
+                         fd_topo_tile_t const * tile,
+                         ulong                  idx ) {
+  fd_bundle_conn_t * conn = &ctx->conn[ ctx->conn_cnt++ ];
+  conn->ctx             = ctx;
+  conn->protocol        = tile->bundle.conn[ idx ].protocol;
+  conn->grpc_client_mem = grpc_mem;
+  conn->tcp_sock        = -1;
+  fd_bundle_auther_init( &conn->auther );
+  fd_memcpy( conn->auther.pubkey, ctx->identity_pubkey, 32UL );
+
+  char const * name    = fd_bundle_conn_name( conn );
+  char const * sni     = tile->bundle.conn[ idx ].sni;
+  ulong        sni_len = tile->bundle.conn[ idx ].sni_len;
   fd_url_t url[1];
   _Bool is_ssl = 0;
-  if( FD_UNLIKELY( fd_url_parse_endpoint( url,
-                                          tile->bundle.url,
-                                          tile->bundle.url_len,
-                                          &ctx->server_tcp_port,
-                                          &is_ssl,
-                                          "[tiles.bundle.url]" ) ) ) {
-    FD_LOG_ERR(( "Could not parse [tiles.bundle.url]" ));
+  if( FD_UNLIKELY( fd_url_parse_endpoint( url, tile->bundle.conn[ idx ].url, tile->bundle.conn[ idx ].url_len, &conn->server_tcp_port, &is_ssl, name ) ) ) {
+    FD_LOG_ERR(( "Could not parse the %s server URL", name ));
   }
   if( FD_UNLIKELY( url->host_len>=FD_FQDN_BUF_MAX ) ) {
     FD_LOG_CRIT(( "Invalid url->host_len" )); /* unreachable */
   }
-  fd_cstr_fini( fd_cstr_append_text( fd_cstr_init( ctx->server_fqdn ), url->host, url->host_len ) );
-  ctx->server_fqdn_len = url->host_len;
+  fd_cstr_fini( fd_cstr_append_text( fd_cstr_init( conn->server_fqdn ), url->host, url->host_len ) );
+  conn->server_fqdn_len = url->host_len;
 
-  if( FD_UNLIKELY( tile->bundle.sni_len ) ) {
-    fd_cstr_fini( fd_cstr_append_text( fd_cstr_init( ctx->server_sni ), tile->bundle.sni, tile->bundle.sni_len ) );
-    ctx->server_sni_len = tile->bundle.sni_len;
+  if( FD_UNLIKELY( sni_len ) ) {
+    fd_cstr_fini( fd_cstr_append_text( fd_cstr_init( conn->server_sni ), sni, sni_len ) );
+    conn->server_sni_len = sni_len;
   } else {
-    fd_cstr_fini( fd_cstr_append_text( fd_cstr_init( ctx->server_sni ), url->host, url->host_len ) );
-    ctx->server_sni_len = url->host_len;
+    fd_cstr_fini( fd_cstr_append_text( fd_cstr_init( conn->server_sni ), url->host, url->host_len ) );
+    conn->server_sni_len = url->host_len;
   }
 
-  if( FD_UNLIKELY( ctx->server_sni_len>=sizeof(ctx->tls->server_name) ) ) {
+  if( FD_UNLIKELY( conn->server_sni_len>=sizeof(conn->tls->server_name) ) ) {
     FD_LOG_ERR(( "Server name is %lu bytes, longer than the %lu byte maximum: "
-                 "check [tiles.bundle.url] and [tiles.bundle.tls_domain_name]",
-                 ctx->server_sni_len, sizeof(ctx->tls->server_name)-1UL ));
+                 "check the %s server URL and [tiles.bundle.tls_domain_name]",
+                 conn->server_sni_len, sizeof(conn->tls->server_name)-1UL, name ));
   }
 
-  ctx->is_ssl = !!is_ssl;
+  conn->is_ssl = !!is_ssl;
 }
 
 
 static void
 fd_bundle_tile_init_tls( fd_bundle_tile_t *     ctx,
                          fd_topo_tile_t const * tile ) {
-  /* Initialize native TLS */
-  fd_tls_t * tls = fd_tls_join( fd_tls_new( ctx->tls ) );
-
   uchar rng_key[ FD_CHACHA_KEY_SZ ];
   if( FD_UNLIKELY( !fd_rng_secure( rng_key, sizeof(rng_key) ) ) ) FD_LOG_CRIT(( "fd_rng_secure failed" ));
   fd_chacha_rng_init( ctx->tls_rng, rng_key, FD_CHACHA_RNG_ALGO_CHACHA8 );
   fd_memzero_explicit( rng_key, sizeof(rng_key) );
-  tls->rng = ctx->tls_rng;
-  if( FD_LIKELY( ctx->keylog_fd>=0 ) ) tls->secrets_fn = fd_bundle_tls_keylog;
 
-  /* ALPN: h2 */
-  static uchar const alpn[] = { 2, 'h', '2' };
-  fd_memcpy( tls->alpn, alpn, sizeof(alpn) );
-  tls->alpn_sz = sizeof(alpn);
-
-  if( FD_UNLIKELY( !ctx->is_ssl ) ) return; /* plaintext, nothing to verify */
+  int is_ssl = 0;
+  for( ulong i=0UL; i<ctx->conn_cnt; i++ ) is_ssl |= ctx->conn[ i ].is_ssl;
+  if( FD_UNLIKELY( !is_ssl ) ) return; /* plaintext, nothing to verify */
 
   if( FD_UNLIKELY( !tile->bundle.tls_cert_verify ) ) {
     FD_LOG_WARNING(( "[tiles.bundle.tls_cert_verify] is disabled.  The block engine "
@@ -428,8 +441,22 @@ fd_bundle_tile_init_tls( fd_bundle_tile_t *     ctx,
                  "`[tiles.bundle] tls_cert_verify = false` to disable verification "
                  "(insecure)." ));
   }
+}
 
-  tls->ca_store = ctx->ca_store;
+static void
+fd_bundle_conn_init_tls( fd_bundle_conn_t *     conn,
+                         fd_topo_tile_t const * tile ) {
+  fd_bundle_tile_t * ctx = conn->ctx;
+  fd_tls_t * tls = fd_tls_join( fd_tls_new( conn->tls ) );
+  tls->rng = ctx->tls_rng;
+  if( FD_LIKELY( ctx->keylog_fd>=0 ) ) tls->secrets_fn = fd_bundle_tls_keylog;
+
+  /* ALPN: h2 */
+  static uchar const alpn[] = { 2, 'h', '2' };
+  fd_memcpy( tls->alpn, alpn, sizeof(alpn) );
+  tls->alpn_sz = sizeof(alpn);
+
+  if( FD_LIKELY( conn->is_ssl && tile->bundle.tls_cert_verify ) ) tls->ca_store = ctx->ca_store;
 }
 
 static void
@@ -439,21 +466,21 @@ privileged_init( fd_topo_t const *      topo,
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_bundle_tile_t * ctx         = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_bundle_tile_t), sizeof(fd_bundle_tile_t)                        );
-  void *             grpc_mem    = FD_SCRATCH_ALLOC_APPEND( l, fd_grpc_client_align(),    fd_grpc_client_footprint( tile->bundle.buf_sz ) );
+  void *             grpc_mem[ FD_BUNDLE_CONN_MAX ];
+  for( ulong i=0UL; i<FD_BUNDLE_CONN_MAX; i++ ) {
+    grpc_mem[ i ]                = FD_SCRATCH_ALLOC_APPEND( l, fd_grpc_client_align(),    fd_grpc_client_footprint( tile->bundle.buf_sz ) );
+  }
 
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
 
   memset( ctx, 0, sizeof(fd_bundle_tile_t) );
-  ctx->grpc_client_mem  = grpc_mem;
-  ctx->grpc_buf_max     = tile->bundle.buf_sz;
-  ctx->tcp_sock         = -1;
-  ctx->waker_client_idx = tile->waker_client_idx;
+  ctx->grpc_buf_max           = tile->bundle.buf_sz;
+  ctx->waker_client_idx       = tile->waker_client_idx;
 
-  fd_bundle_auther_init( &ctx->auther );
   uchar const * public_key = fd_keyload_load( tile->bundle.identity_key_path, 1 /* public key only */ );
-  fd_memcpy( ctx->auther.pubkey, public_key, 32UL );
+  fd_memcpy( ctx->identity_pubkey, public_key, 32UL );
 
   ctx->keylog_fd = -1;
 
@@ -464,10 +491,12 @@ privileged_init( fd_topo_t const *      topo,
     }
   }
 
-  fd_bundle_tile_parse_endpoint( ctx, tile );
+  for( ulong i=0UL; i<tile->bundle.conn_cnt; i++ ) fd_bundle_tile_add_conn( ctx, grpc_mem[ i ], tile, i );
+  if( FD_UNLIKELY( !ctx->conn_cnt ) ) FD_LOG_ERR(( "No bundle server configured: set [tiles.bundle.url]" ));
 
   /* Initialize native TLS before seccomp (reads CA certs from disk) */
   fd_bundle_tile_init_tls( ctx, tile );
+  for( ulong i=0UL; i<ctx->conn_cnt; i++ ) fd_bundle_conn_init_tls( &ctx->conn[ i ], tile );
 
   /* Init resolver */
   if( FD_UNLIKELY( !fd_netdb_open_fds( ctx->netdb_fds ) ) ) {
@@ -597,13 +626,16 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->halt_signing     = 0;
   if( !has_replay_in ) memset( &ctx->replay_in, 0, sizeof(ctx->replay_in) );
 
-  ctx->grpc_client = fd_grpc_client_new( ctx->grpc_client_mem, &fd_bundle_client_grpc_callbacks, ctx->grpc_metrics, ctx, ctx->grpc_buf_max, ctx->map_seed );
-  if( FD_UNLIKELY( !ctx->grpc_client ) ) {
-    FD_LOG_CRIT(( "fd_grpc_client_new failed" )); /* unreachable */
+  for( ulong i=0UL; i<ctx->conn_cnt; i++ ) {
+    fd_bundle_conn_t * conn = &ctx->conn[ i ];
+    conn->grpc_client = fd_grpc_client_new( conn->grpc_client_mem, &fd_bundle_client_grpc_callbacks, conn->grpc_metrics, conn, ctx->grpc_buf_max, ctx->map_seed );
+    if( FD_UNLIKELY( !conn->grpc_client ) ) {
+      FD_LOG_CRIT(( "fd_grpc_client_new failed" )); /* unreachable */
+    }
+    fd_grpc_client_set_version( conn->grpc_client, fd_version_cstr, strlen( fd_version_cstr ) );
+    fd_grpc_client_set_authority( conn->grpc_client, conn->server_sni, conn->server_sni_len, conn->server_tcp_port );
+    fd_grpc_client_set_https( conn->grpc_client, conn->is_ssl );
   }
-  fd_grpc_client_set_version( ctx->grpc_client, fd_version_cstr, strlen( fd_version_cstr ) );
-  fd_grpc_client_set_authority( ctx->grpc_client, ctx->server_sni, ctx->server_sni_len, ctx->server_tcp_port );
-  fd_grpc_client_set_https( ctx->grpc_client, ctx->is_ssl );
 
   fd_histf_new( ctx->metrics.msg_rx_delay,
       FD_MHIST_MIN( BUNDLE, MESSAGE_RX_DELAY_NANOS ),

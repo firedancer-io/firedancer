@@ -2,8 +2,10 @@
 #define HEADER_fd_src_disco_bundle_fd_bundle_tile_private_h
 
 #include "fd_bundle_auth.h"
+#include "fd_bundle_tile.h"
 #include "fd_keepalive.h"
 #include "../fd_clock_tile.h"
+#include "../fd_txn_m.h"
 #include "../stem/fd_stem.h"
 #include "../keyguard/fd_keyswitch.h"
 #include "../keyguard/fd_keyguard_client.h"
@@ -49,6 +51,84 @@ struct fd_bundle_metrics {
 
 typedef struct fd_bundle_metrics fd_bundle_metrics_t;
 
+typedef struct fd_bundle_tile fd_bundle_tile_t;
+
+/* fd_bundle_builder_t is the block builder whose tips the validator
+   cranks for a bundle, and when to next ask the server for it. */
+
+struct fd_bundle_builder {
+  uchar pubkey[ 32 ];
+  uchar commission; /* in [0,100] (percent) */
+  uchar avail;      /* known (potentially stale)? */
+  uchar wait;       /* request in flight? */
+  long  next;       /* when the next request is due */
+};
+
+typedef struct fd_bundle_builder fd_bundle_builder_t;
+
+/* Streams a Jito protocol session subscribes to */
+
+#define FD_BUNDLE_SUB_PACKETS (0) /* SubscribePackets */
+#define FD_BUNDLE_SUB_BUNDLES (1) /* SubscribeBundles */
+#define FD_BUNDLE_SUB_CNT     (2)
+
+/* fd_bundle_conn_t is the state of one connection to a bundle server.
+   Its gRPC client's app_ctx is the conn. */
+
+struct fd_bundle_conn {
+  fd_bundle_tile_t * ctx;
+  int                protocol; /* FD_BUNDLE_PROTOCOL_* */
+
+  /* Session state, reset with the conn */
+  fd_bundle_auther_t  auther;
+  fd_bundle_builder_t builder; /* refreshed every 5 minutes */
+
+  /* Subscriptions, indexed by FD_BUNDLE_SUB_* */
+  struct {
+    uchar live; /* stream open */
+    uchar wait; /* request in flight */
+  } sub[ FD_BUNDLE_SUB_CNT ];
+
+  /* Endpoint */
+  uint   is_ssl : 1;
+  char   server_fqdn[ FD_FQDN_BUF_MAX ]; /* cstr */
+  ulong  server_fqdn_len;
+  char   server_sni[ FD_SNI_BUF_MAX ]; /* cstr */
+  ulong  server_sni_len;
+  ushort server_tcp_port;
+  uint   server_ip4_addr; /* last DNS lookup result */
+
+  /* Native TLS, configured with this conn's server name */
+  fd_tls_t         tls[1];
+  fd_tlsrec_conn_t tls_conn[1];
+
+  /* TCP socket */
+  int  tcp_sock;
+  uint tcp_sock_connected : 1;
+  uint defer_reset : 1;
+  uint sock_in_epoll : 1;
+  uint epoll_out_armed : 1;
+  long conn_deadline;
+
+  /* Keepalive via HTTP/2 PINGs (randomized) */
+  fd_keepalive_t    keepalive[1];
+  fd_rtt_estimate_t rtt[1];
+
+  /* gRPC client */
+  void *                   grpc_client_mem;
+  fd_grpc_client_t *       grpc_client;
+  fd_grpc_client_metrics_t grpc_metrics[1];
+
+  /* Error backoff */
+  uint backoff_iter;
+  long backoff_until;
+  long backoff_reset;
+};
+
+typedef struct fd_bundle_conn fd_bundle_conn_t;
+
+#define FD_BUNDLE_CONN_MAX FD_TOPO_BUNDLE_CONN_MAX
+
 /* fd_bundle_tile_t is the context object provided to callbacks from
    stem, and contains all state needed to progress the tile. */
 
@@ -59,76 +139,46 @@ struct fd_bundle_tile {
   /* Key guard */
   fd_keyguard_client_t keyguard_client[1];
 
-  uint is_ssl : 1;
-  int  keylog_fd;
+  int keylog_fd;
 
-  /* Native TLS */
-  fd_tls_t           tls[1];
+  /* Native TLS, shared by all conns */
   fd_chacha_rng_t    tls_rng[1];
-  fd_tlsrec_conn_t   tls_conn[1];
   fd_x509_ca_store_t ca_store[1];
-
-  /* Config */
-  char   server_fqdn[ FD_FQDN_BUF_MAX ]; /* cstr */
-  ulong  server_fqdn_len;
-  char   server_sni[ FD_SNI_BUF_MAX ]; /* cstr */
-  ulong  server_sni_len;
-  ushort server_tcp_port;
 
   /* Resolver */
   fd_netdb_fds_t netdb_fds[1];
-  uint server_ip4_addr; /* last DNS lookup result */
 
-  /* TCP socket */
-  int  tcp_sock;
-  int  so_rcvbuf;
-  uint tcp_sock_connected : 1;
-  uint defer_reset : 1;
-  uint sock_in_epoll : 1;
-  uint epoll_out_armed : 1;
-  long cached_ts;
-  long conn_deadline;
+  fd_bundle_conn_t conn[ FD_BUNDLE_CONN_MAX ];
+  ulong            conn_cnt;
+  int              so_rcvbuf;
+  long             keepalive_interval;
+  ulong            grpc_buf_max;
+  ulong            map_seed;
+  long             cached_ts;
 
   ulong   waker_client_idx;
   ulong * waker_fseq;
   long    next_step_deadline;
 
-  /* Keepalive via HTTP/2 PINGs (randomized) */
-  long              keepalive_interval;
-  fd_keepalive_t    keepalive[1];
-  fd_rtt_estimate_t rtt[1];
-
-  /* gRPC client */
-  void *                   grpc_client_mem;
-  ulong                    grpc_buf_max;
-  fd_grpc_client_t *       grpc_client;
-  fd_grpc_client_metrics_t grpc_metrics[1];
-  ulong                    map_seed;
-
-  /* Bundle authenticator */
-  fd_bundle_auther_t auther;
-
-  /* Bundle block builder info */
-  uchar builder_pubkey[ 32 ];
-  uchar builder_commission;  /* in [0,100] (percent) */
-  uchar builder_info_avail : 1;  /* Block builder info available? (potentially stale) */
-  uchar builder_info_wait  : 1;  /* Request already in-flight? */
-  long  builder_info_valid_until;
-
-  /* Bundle subscriptions */
-  uchar packet_subscription_live : 1;  /* Want to subscribe to a stream? */
-  uchar packet_subscription_wait : 1;  /* Request already in-flight? */
-  uchar bundle_subscription_live : 1;
-  uchar bundle_subscription_wait : 1;
+  /* Validator identity.  Each conn's auther keeps its own copy. */
+  uchar identity_pubkey[ 32 ];
 
   /* Bundle state */
   ulong bundle_seq;
 
-  /* Error backoff */
+  /* Bundle being decoded, published on close */
+  struct {
+    fd_bundle_builder_t const * builder;
+    ulong txn_cnt;     /* transactions seen, including dropped ones */
+    uchar invalid : 1; /* dropped on close */
+    struct {
+      void const * data; /* in the message being decoded */
+      ulong        data_sz;
+      uint         source_ipv4;
+    } txn[ FD_BUNDLE_CLIENT_MAX_TXN_PER_BUNDLE ];
+  } bundle;
+
   fd_rng_t rng[1];
-  uint     backoff_iter;
-  long     backoff_until;
-  long     backoff_reset;
 
   /* Stem publish */
   fd_stem_context_t *       stem;
@@ -164,8 +214,6 @@ struct fd_bundle_tile {
   } replay_in;
 };
 
-typedef struct fd_bundle_tile fd_bundle_tile_t;
-
 /* Define 'request_ctx' IDs to identify different types of gRPC calls */
 
 #define FD_BUNDLE_CLIENT_REQ_Bundle_SubscribePackets            4
@@ -194,13 +242,13 @@ void
 fd_bundle_client_step( fd_bundle_tile_t * bundle,
                        int *              charge_busy );
 
-/* fd_bundle_client_step_reconnect drives the 'reconnect' state machine.
-   Once the HTTP/2 conn is established (SETTINGS exchanged), this
-   function drives the auth logic, requests block builder info, sets up
-   packet and bundle subscriptions, and PINGs. */
+/* fd_bundle_client_step_reconnect drives the session on conn once the
+   HTTP/2 conn is established (SETTINGS exchanged), e.g. for a Jito
+   session the auth logic, block builder info requests, subscriptions
+   and PINGs.  Returns 1 if it did work. */
 
 int
-fd_bundle_client_step_reconnect( fd_bundle_tile_t * ctx,
+fd_bundle_client_step_reconnect( fd_bundle_conn_t * conn,
                                  long               now );
 
 /* fd_bundle_client_next_deadline returns when fd_bundle_client_step
@@ -215,21 +263,21 @@ long
 fd_bundle_client_next_deadline( fd_bundle_tile_t const * ctx,
                                 long                     now );
 
-/* fd_bundle_tile_backoff is called whenever an error occurs.  Stalls
-   forward progress for a randomized amount of time to prevent error
-   floods. */
+/* fd_bundle_conn_backoff is called whenever an error occurs on conn.
+   Stalls its forward progress for a randomized amount of time to
+   prevent error floods. */
 
 void
-fd_bundle_tile_backoff( fd_bundle_tile_t * ctx,
+fd_bundle_conn_backoff( fd_bundle_conn_t * conn,
                         long               now );
 
-/* fd_bundle_tile_should_stall returns 1 if forward progress should be
-   temporarily prevented due to an error. */
+/* fd_bundle_conn_should_stall returns 1 if forward progress on conn
+   should be temporarily prevented due to an error. */
 
 FD_FN_PURE static inline int
-fd_bundle_tile_should_stall( fd_bundle_tile_t const * ctx,
+fd_bundle_conn_should_stall( fd_bundle_conn_t const * conn,
                              long                     now ) {
-  return now < ctx->backoff_until;
+  return now < conn->backoff_until;
 }
 
 /* fd_bundle_tile_housekeeping runs periodically at a low frequency. */
@@ -250,7 +298,7 @@ fd_bundle_client_grpc_rx_start(
 
 void
 fd_bundle_client_grpc_rx_msg(
-    void *       app_ctx,      /* (fd_bundle_tile_t *) */
+    void *       app_ctx,      /* (fd_bundle_conn_t *) */
     void const * protobuf,
     ulong        protobuf_sz,
     ulong        request_ctx   /* FD_BUNDLE_CLIENT_REQ_{...} */
@@ -276,16 +324,26 @@ fd_bundle_client_grpc_rx_timeout(
     int    deadline_kind /* FD_GRPC_DEADLINE_{HEADER|RX_END} */
 );
 
-/* fd_bundle_client_status provides a "check engine light" using
+/* fd_bundle_conn_status provides a "check engine light" for conn using
    FD_BUNDLE_STATE_{DISCONNECTED,CONNECTING,CONNECTED}.
 
    DISCONNECTED means TCP or HTTP/2 is unavailable/dead, GOAWAY is being
    sent, or keepalive has timed out.  CONNECTING means HTTP/2 setup,
-   authentication, builder info or either subscription is not ready.
-   CONNECTED means these checks pass and the gRPC client is connected. */
+   authentication, builder info or a subscription is not ready.
+   CONNECTED means these checks pass and the gRPC client is connected.
+
+   fd_bundle_client_status is the worst status of all conns. */
+
+int
+fd_bundle_conn_status( fd_bundle_conn_t const * conn );
 
 int
 fd_bundle_client_status( fd_bundle_tile_t const * ctx );
+
+/* fd_bundle_conn_name returns the name of conn's protocol, e.g. "jito". */
+
+char const *
+fd_bundle_conn_name( fd_bundle_conn_t const * conn );
 
 /* fd_bundle_request_ctx_cstr returns the gRPC method name for a
    FD_BUNDLE_CLIENT_REQ_* ID.  Returns "unknown" the ID is not
@@ -294,17 +352,22 @@ fd_bundle_client_status( fd_bundle_tile_t const * ctx );
 FD_FN_CONST char const *
 fd_bundle_request_ctx_cstr( ulong request_ctx );
 
-/* fd_bundle_client_reset frees all connection-related resources. */
+/* fd_bundle_conn_reset closes conn and resets the session on it, and
+   backs off before it reconnects.  fd_bundle_client_reset resets every
+   conn. */
+
+void
+fd_bundle_conn_reset( fd_bundle_conn_t * conn );
 
 void
 fd_bundle_client_reset( fd_bundle_tile_t * ctx );
 
-/* fd_bundle_client_send_ping enqueues an HTTP/2 PING and starts the
-   keepalive deadline.  Does nothing if the connection is unavailable,
-   busy, or lacks TX ring space. */
+/* fd_bundle_conn_send_ping enqueues an HTTP/2 PING on conn and starts
+   the keepalive deadline.  Does nothing if the connection is
+   unavailable, busy, or lacks TX ring space. */
 
 void
-fd_bundle_client_send_ping( fd_bundle_tile_t * ctx );
+fd_bundle_conn_send_ping( fd_bundle_conn_t * conn );
 
 FD_PROTOTYPES_END
 

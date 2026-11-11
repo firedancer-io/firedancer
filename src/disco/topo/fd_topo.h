@@ -38,6 +38,9 @@ FD_STATIC_ASSERT( FD_SLEEP_OUT_MAX ==FD_TOPO_MAX_TILE_OUT_LINKS, sleep_limits );
 /* Maximum number of additional destinations for leader shreds and for retransmitted shreds */
 #define FD_TOPO_ADTL_DESTS_MAX ( 32UL)
 
+/* Maximum number of bundle servers the bundle tile connects to at once */
+#define FD_TOPO_BUNDLE_CONN_MAX (  2UL)
+
 #define FD_TOPO_CORE_DUMP_LEVEL_DISABLED (0)
 #define FD_TOPO_CORE_DUMP_LEVEL_MINIMAL  (1)
 #define FD_TOPO_CORE_DUMP_LEVEL_REGULAR  (2)
@@ -344,10 +347,14 @@ struct fd_topo_tile {
     } dedup;
 
     struct {
-      char  url[ FD_URL_MAX ];
-      ulong url_len;
-      char  sni[ FD_SNI_BUF_MAX ];
-      ulong sni_len;
+      struct {
+        char  url[ FD_URL_MAX ];
+        ulong url_len;
+        char  sni[ FD_SNI_BUF_MAX ]; /* TLS server name, empty for the URL's host */
+        ulong sni_len;
+        int   protocol; /* FD_BUNDLE_PROTOCOL_* */
+      } conn[ FD_TOPO_BUNDLE_CONN_MAX ];
+      ulong conn_cnt;
       char  identity_key_path[ PATH_MAX ];
       char  key_log_path[ PATH_MAX ];
       ulong buf_sz;

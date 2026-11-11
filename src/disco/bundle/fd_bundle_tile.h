@@ -20,6 +20,27 @@ typedef struct fd_bundle_tile fd_bundle_tile_t;
 #define FD_BUNDLE_STATE_CONNECTED    (2)
 #define FD_BUNDLE_STATE_SLEEPING     (3)
 
+#define FD_BUNDLE_PROTOCOL_JITO (0)
+
+/* fd_bundle_tile_add_server adds a server at url speaking protocol to
+   the bundle tile's connections, with TLS server name sni (empty for
+   url's host).  Does nothing if url is empty. */
+
+static inline void
+fd_bundle_tile_add_server( fd_topo_tile_t * tile,
+                           char const *     url,
+                           char const *     sni,
+                           int              protocol ) {
+  if( !url[ 0 ] ) return;
+  FD_TEST( tile->bundle.conn_cnt<FD_TOPO_BUNDLE_CONN_MAX );
+  ulong idx = tile->bundle.conn_cnt++;
+  fd_cstr_ncpy( tile->bundle.conn[ idx ].url, url, sizeof(tile->bundle.conn[ idx ].url) );
+  tile->bundle.conn[ idx ].url_len = strnlen( tile->bundle.conn[ idx ].url, sizeof(tile->bundle.conn[ idx ].url)-1UL );
+  fd_cstr_ncpy( tile->bundle.conn[ idx ].sni, sni, sizeof(tile->bundle.conn[ idx ].sni) );
+  tile->bundle.conn[ idx ].sni_len = strnlen( tile->bundle.conn[ idx ].sni, sizeof(tile->bundle.conn[ idx ].sni)-1UL );
+  tile->bundle.conn[ idx ].protocol = protocol;
+}
+
 struct fd_bundle_block_engine_update {
   char name[ 16 ];
   char url[ FD_URL_MAX ];
