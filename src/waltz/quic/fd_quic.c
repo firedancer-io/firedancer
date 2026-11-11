@@ -481,9 +481,6 @@ fd_quic_init( fd_quic_t * quic ) {
 
   fd_quic_transport_params_t * tp = &state->transport_params;
 
-  /* initial max streams is zero */
-  /* we will send max_streams and max_data frames later to allow the peer to */
-  /* send us data */
   ulong initial_max_streams_uni = quic->config.role==FD_QUIC_ROLE_SERVER ? 1UL<<60 : 0;
   ulong initial_max_stream_data = config->initial_rx_max_stream_data;
 
