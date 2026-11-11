@@ -407,6 +407,31 @@ test_extend_then_invoke( fd_svm_mini_t * mini ) {
   FD_LOG_NOTICE(( "extend -> invoke rejected, extended size counted... ok" ));
 }
 
+static void
+test_extend_disabled( fd_svm_mini_t * mini ) {
+  setup_env( env, mini );
+  FD_FEATURE_SET_ACTIVE( &env->bank->f.features, loader_v3_remove_extend_program, TEST_CHILD_SLOT );
+
+  struct __attribute__((packed)) { uint discriminant; uint additional_bytes; } instr_data =
+    { FD_BPF_INSTR_EXTEND_PROGRAM, 4096U };
+  fd_pubkey_t const * accts[4] = { &env->programdata, &env->program, &fd_solana_system_program_id, &env->payer };
+  uint                cats [4] = { FD_TXN_ACCT_CAT_WRITABLE, FD_TXN_ACCT_CAT_WRITABLE, 0U, FD_TXN_ACCT_CAT_WRITABLE|FD_TXN_ACCT_CAT_SIGNER };
+  fd_txn_p_t txn[1];
+  build_loader_txn( env, txn, (uchar const *)&instr_data, sizeof(instr_data), accts, cats, 4UL );
+  fd_txn_out_t * o = exec_single( env, txn );
+  FD_TEST( o->err.is_committable );
+  FD_TEST( o->err.txn_err==FD_RUNTIME_TXN_ERR_INSTRUCTION_ERROR );
+  FD_TEST( o->err.exec_err==FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA );
+  FD_TEST( !pd_write_committed_on_child( env ) );
+
+  build_invoke_txn( env, txn );
+  o = exec_single( env, txn );
+  assert_invoke_success( o );
+  ulong expect = (3UL*FD_TRANSACTION_ACCOUNT_BASE_SIZE) + SIZE_OF_PROGRAM + env->pd_dlen;
+  FD_TEST( o->details.loaded_accounts_data_size==expect );
+  FD_LOG_NOTICE(( "extend disabled -> rejected, programdata unchanged... ok" ));
+}
+
 /* Case 1 (deploy -> invoke): D does not exist on the parent fork at all
    -> exists(parent) skips it -> get_executable_account NULL -> same
    "not deployed" error.  Also case 12 direction 3: Agave still counts
@@ -1339,6 +1364,7 @@ main( int     argc,
   test_setauthority_then_invoke     ( mini );
   test_close_then_invoke            ( mini );
   test_extend_then_invoke           ( mini );
+  test_extend_disabled              ( mini );
   test_deploy_then_invoke           ( mini );
   test_parent_slot_upgrade_then_invoke( mini );
   test_listed_programdata_slot_check( mini );

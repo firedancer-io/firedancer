@@ -308,5 +308,6 @@
   {"name":"remove_runtime_float_ops","implemented":1,"pubkey":"7AzqUCKQjoCKhWDDHgEYkTY8iRwWtuuxHogcmx1UJzR8"},
   {"name":"core_bpf_hash_validation","implemented":1,"pubkey":"FCsQnd4V52NESBhVURWYSWBbmLFzgxEZVC2WngzHzp1u","comment":"firedancer assumes this feature gate is activated for all migrations, which is safe because of the feature-gate schedule ordering"},
   {"name":"replace_ata_with_p_ata","implemented":1,"pubkey":"pata6uFabFDejC1U7rpmFj9s1FhmiPyWk6D51U1ksx3","comment":"core_bpf_hash_validation will be activated first"},
-  {"name":"loaderv3_programdata_size_floor","implemented":1,"pubkey":"8whkDenELnfwYLirBc4Wb4H2Z1z5K7tiykpdxJS7cWg1"}
+  {"name":"loaderv3_programdata_size_floor","implemented":1,"pubkey":"8whkDenELnfwYLirBc4Wb4H2Z1z5K7tiykpdxJS7cWg1"},
+  {"name":"loader_v3_remove_extend_program","implemented":1,"pubkey":"5Ach9H8V5NCNDQg7Md6HnJmVttF3tzHwiWWucnnFd4jz"}
 ]
