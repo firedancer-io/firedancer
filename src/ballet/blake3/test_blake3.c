@@ -757,7 +757,7 @@ bench_avx512_compress16( void ) {
   FD_LOG_NOTICE(( "Benchmarking AVX512 backend (compress16)" ));
   for( uint sz=1024; sz>4; sz>>=4 ) {
     uchar        block_res[ 1024 ] __attribute__((aligned(64)));
-    ulong        batch_data2[ 16 ]; for( uint i=0; i<16; i++ ) batch_data2[i] = (ulong)rand_buf;
+    ulong        batch_data2[ 16 ] __attribute__((aligned(64))); for( uint i=0; i<16; i++ ) batch_data2[i] = (ulong)rand_buf;
     uint         batch_sz   [ 16 ]; for( uint i=0; i<16; i++ ) batch_sz   [i] = sz;
     void *       batch_hash [ 16 ]; for( uint i=0; i<16; i++ ) batch_hash [i] = block_res;
     ulong        ctr_vec    [ 16 ] = {0UL};
@@ -779,7 +779,7 @@ bench_avx512_compress16( void ) {
 static void
 bench_avx512_lthash( void ) {
   FD_LOG_NOTICE(( "Benchmarking AVX512 backend (LtHash)" ));
-    ulong  batch_data2[ 16 ]; for( uint i=0; i<16; i++ ) batch_data2[i] = (ulong)rand_buf;
+    ulong  batch_data2[ 16 ] __attribute__((aligned(64))); for( uint i=0; i<16; i++ ) batch_data2[i] = (ulong)rand_buf;
     uint   batch_sz   [ 16 ]; for( uint i=0; i<16; i++ ) batch_sz   [i] = 64;
     ulong  ctr_vec    [ 16 ] = {0UL};
     uint   batch_flags[ 16 ]; for( uint i=0; i<16; i++ ) batch_flags[i] = FD_BLAKE3_FLAG_ROOT;
