@@ -144,6 +144,14 @@ void
 fd_gossip_set_shred_version( fd_gossip_t * gossip,
                              ushort        shred_version );
 
+/* fd_gossip_set_sockets replaces the sockets of our contact info with
+   FD_GOSSIP_CONTACT_INFO_SOCKET_CNT sockets, e.g. to advertise a block
+   engine's TPU in place of ours. */
+
+void
+fd_gossip_set_sockets( fd_gossip_t *              gossip,
+                       fd_gossip_socket_t const * sockets );
+
 void
 fd_gossip_stakes_update( fd_gossip_t *             gossip,
                          fd_stake_weight_t const * stake_weights,

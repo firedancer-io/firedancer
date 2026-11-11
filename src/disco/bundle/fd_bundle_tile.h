@@ -20,7 +20,33 @@ typedef struct fd_bundle_tile fd_bundle_tile_t;
 #define FD_BUNDLE_STATE_CONNECTED    (2)
 #define FD_BUNDLE_STATE_SLEEPING     (3)
 
-#define FD_BUNDLE_PROTOCOL_JITO (0)
+#define FD_BUNDLE_PROTOCOL_JITO     (0)
+#define FD_BUNDLE_PROTOCOL_HARMONIC (1)
+#define FD_BUNDLE_PROTOCOL_BAM      (2)
+
+/* fd_bundle_builder_protocol returns the FD_BUNDLE_PROTOCOL_* of the
+   block builder at url, detected from its host, or -1 if the host is
+   not a known block builder. */
+
+static inline int
+fd_bundle_builder_protocol( char const * url ) {
+  static struct {
+    char const * suffix;
+    int          protocol;
+  } const builders[] = {
+    { ".harmonic.gg",  FD_BUNDLE_PROTOCOL_HARMONIC },
+    { ".bam.jito.wtf", FD_BUNDLE_PROTOCOL_BAM      },
+  };
+  fd_url_t parsed[1];
+  if( FD_UNLIKELY( !fd_url_parse_cstr( parsed, url, strlen( url ), NULL ) ) ) return -1;
+  for( ulong i=0UL; i<sizeof(builders)/sizeof(builders[0]); i++ ) {
+    ulong suffix_len = strlen( builders[ i ].suffix );
+    if( parsed->host_len>=suffix_len && fd_memeq( parsed->host+parsed->host_len-suffix_len, builders[ i ].suffix, suffix_len ) ) {
+      return builders[ i ].protocol;
+    }
+  }
+  return -1;
+}
 
 /* fd_bundle_tile_add_server adds a server at url speaking protocol to
    the bundle tile's connections, with TLS server name sni (empty for

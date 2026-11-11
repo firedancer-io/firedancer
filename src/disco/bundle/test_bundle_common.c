@@ -110,8 +110,9 @@ test_bundle_env_create( test_bundle_env_t * env,
   /* Verify invariant: buffer can hold any valid frame (header + max payload) */
   FD_TEST( h2_conn->self_settings.max_frame_size + sizeof(fd_h2_frame_hdr_t) <= state->grpc_buf_max );
 
-  state->next_leader_slot = ULONG_MAX;
-  state->reset_slot       = ULONG_MAX;
+  state->leader_state->slot = ULONG_MAX;
+  state->next_leader_slot   = ULONG_MAX;
+  state->reset_slot         = ULONG_MAX;
 
   FD_TEST( fd_rng_new( state->rng, 0U, 0UL ) );
   long ka_interval = (long)1e9;

@@ -6,6 +6,7 @@
 #include "fd_keepalive.h"
 #include "../fd_clock_tile.h"
 #include "../fd_txn_m.h"
+#include "../tiles.h"
 #include "../stem/fd_stem.h"
 #include "../keyguard/fd_keyswitch.h"
 #include "../keyguard/fd_keyguard_client.h"
@@ -89,6 +90,10 @@ struct fd_bundle_conn {
     uchar wait; /* request in flight */
   } sub[ FD_BUNDLE_SUB_CNT ];
 
+  /* TPU the server offers for gossip, kept across reconnects, zero if
+     none */
+  fd_bundle_tpu_t tpu;
+
   /* Endpoint */
   uint   is_ssl : 1;
   char   server_fqdn[ FD_FQDN_BUF_MAX ]; /* cstr */
@@ -170,6 +175,10 @@ struct fd_bundle_tile {
   struct {
     fd_bundle_builder_t const * builder;
     ulong txn_cnt;     /* transactions seen, including dropped ones */
+    uchar atomic;
+    uchar want_result;
+    ulong slot;        /* fd_txn_m_t block_engine.slot, set on close */
+    ulong seq;         /* fd_txn_m_t block_engine.seq, set on close */
     uchar invalid : 1; /* dropped on close */
     struct {
       void const * data; /* in the message being decoded */
@@ -188,6 +197,16 @@ struct fd_bundle_tile {
   /* App metrics */
   fd_bundle_metrics_t metrics;
 
+  /* 1 while connected, 0 otherwise, for pack.  NULL if the topology has
+     none. */
+  ulong * active_fseq;
+
+  /* tpu_advertised is the last TPU published to gossip, from a healthy
+     conn that offers one (zero for ours), tpu_dirty is set until it is. */
+  fd_bundle_tpu_t     tpu_advertised;
+  uchar               tpu_dirty;
+  fd_bundle_out_ctx_t tpu_out;
+
   /* Check engine light */
   uchar bundle_status_recent;  /* most recently observed 'check engine light' */
   uchar bundle_status_plugin;  /* last 'plugin' update written */
@@ -203,8 +222,11 @@ struct fd_bundle_tile {
   int   halt_signing;     /* 1 means signing is halted, 0 means signing is not halted */
 
   /* Staged values from during_frag, committed in after_frag */
-  ulong next_leader_slot_staged;
-  ulong reset_slot_staged;
+  ulong                  next_leader_slot_staged;
+  ulong                  reset_slot_staged;
+  fd_pack_leader_state_t leader_state_staged[1];
+
+  fd_pack_leader_state_t leader_state[1]; /* latest from pack, slot is ULONG_MAX before the first */
 
   int   in_kind[ 64 ];
   struct {
@@ -212,6 +234,11 @@ struct fd_bundle_tile {
     ulong       chunk0;
     ulong       wmark;
   } replay_in;
+  struct {
+    fd_wksp_t * mem;
+    ulong       chunk0;
+    ulong       wmark;
+  } pack_in;
 };
 
 /* Define 'request_ctx' IDs to identify different types of gRPC calls */

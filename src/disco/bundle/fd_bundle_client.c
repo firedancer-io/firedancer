@@ -691,7 +691,11 @@ fd_bundle_tile_publish_txn( fd_bundle_tile_t * ctx,
     .block_engine = {
       .bundle_id      = is_bundle ? ctx->bundle_seq : 0UL,
       .bundle_txn_cnt = is_bundle ? bundle_txn_cnt : 1UL,
+      .slot           = is_bundle ? ctx->bundle.slot : 0UL,
+      .seq            = is_bundle ? ctx->bundle.seq : 0UL,
       .commission     = is_bundle ? ctx->bundle.builder->commission : (uchar)0,
+      .atomic         = is_bundle ? ctx->bundle.atomic : (uchar)0,
+      .want_result    = is_bundle ? ctx->bundle.want_result : (uchar)0,
     },
   };
   if( is_bundle ) fd_memcpy( txnm->block_engine.commission_pubkey, ctx->bundle.builder->pubkey, 32UL );
@@ -713,10 +717,14 @@ fd_bundle_tile_publish_txn( fd_bundle_tile_t * ctx,
 
 static void
 fd_bundle_client_bundle_open( fd_bundle_tile_t *          ctx,
-                              fd_bundle_builder_t const * builder ) {
-  ctx->bundle.builder = builder;
-  ctx->bundle.txn_cnt = 0UL;
-  ctx->bundle.invalid = 0;
+                              fd_bundle_builder_t const * builder,
+                              int                         atomic,
+                              int                         want_result ) {
+  ctx->bundle.builder     = builder;
+  ctx->bundle.txn_cnt     = 0UL;
+  ctx->bundle.atomic      = (uchar)atomic;
+  ctx->bundle.want_result = (uchar)want_result;
+  ctx->bundle.invalid     = 0;
 }
 
 static void
@@ -732,13 +740,18 @@ fd_bundle_client_bundle_push( fd_bundle_tile_t * ctx,
   ctx->bundle.txn[ idx ].source_ipv4 = source_ipv4;
 }
 
+/* bundle_close publishes the bundle with its slot and seq (see
+   fd_txn_m_t). */
+
 static void
-fd_bundle_client_bundle_close( fd_bundle_tile_t * ctx ) {
+fd_bundle_client_bundle_close( fd_bundle_tile_t * ctx,
+                               ulong              slot,
+                               ulong              seq ) {
   ulong const n = ctx->bundle.txn_cnt;
   ctx->bundle.txn_cnt = 0UL;
   if( FD_UNLIKELY( !n ) ) return;
   if( FD_UNLIKELY( ctx->bundle.invalid | (n>FD_BUNDLE_CLIENT_MAX_TXN_PER_BUNDLE) ) ) {
-    FD_LOG_DEBUG(( "Dropping a bundle with %lu transactions", n ));
+    FD_LOG_DEBUG(( "Dropping bundle %lu with %lu transactions", seq, n ));
     return;
   }
   if( FD_UNLIKELY( fd_bundle_tile_cr_avail( ctx )<n ) ) {
@@ -746,6 +759,8 @@ fd_bundle_client_bundle_close( fd_bundle_tile_t * ctx ) {
     return;
   }
   ctx->bundle_seq++;
+  ctx->bundle.slot = slot;
+  ctx->bundle.seq  = seq;
   for( ulong i=0UL; i<n; i++ ) {
     fd_bundle_tile_publish_txn( ctx, ctx->bundle.txn[ i ].data, ctx->bundle.txn[ i ].data_sz, ctx->bundle.txn[ i ].source_ipv4, n );
   }
@@ -864,7 +879,7 @@ static int
 fd_bundle_client_handle_bundle( fd_bundle_conn_t * conn,
                                 fd_pb_inbuf_t      in ) {
   fd_bundle_tile_t * ctx = conn->ctx;
-  fd_bundle_client_bundle_open( ctx, &conn->builder );
+  fd_bundle_client_bundle_open( ctx, &conn->builder, 1, 0 );
   long ts = 0L;
 
   while( fd_pb_inbuf_sz( &in ) ) {
@@ -892,7 +907,7 @@ fd_bundle_client_handle_bundle( fd_bundle_conn_t * conn,
     if( FD_UNLIKELY( !fd_pb_tlv_skip( &in, tlv ) ) ) return 0;
   }
 
-  fd_bundle_client_bundle_close( ctx );
+  fd_bundle_client_bundle_close( ctx, 0UL, 0UL );
   fd_bundle_client_sample_rx_delay( ctx, ts );
   return 1;
 }

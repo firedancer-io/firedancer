@@ -1683,6 +1683,24 @@ telemetry = true
         # The URL of the block engine to receive blocks from.
         url = ""
 
+        # The URL of a block builder to receive ordered blocks from,
+        # connected at the same time as the block engine at url.  Either
+        # url or builder_url may be empty, but not both.  The protocol
+        # is detected from the host: Harmonic (*.harmonic.gg) or BAM
+        # (*.bam.jito.wtf).  Not supported yet and rejected at startup.
+        builder_url = ""
+
+        # The protocol spoken by the block builder at builder_url, for a
+        # host it cannot be detected from.  One of "harmonic" or "bam",
+        # or empty to detect it.
+        builder_protocol = ""
+
+        # True to advertise the TPU offered by the block builder in
+        # gossip in place of ours, while its connection is healthy.
+        # Transactions sent to our own TPU are still accepted, and the
+        # vote TPU is not changed.
+        advertise_tpu = false
+
         # The domain name of the TLS certificate to use when verifying
         # the peer.  If none is provided, the domain from the URL above
         # will be used by default.
