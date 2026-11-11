@@ -1628,21 +1628,28 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->gossip.ports.rserve           = fd_ushort_if( config->tiles.rserve.enabled, config->tiles.rserve.repair_serve_listen_port, 0 );
     tile->gossip.ports.votor            = config->firedancer.development.votor.quic_server_listen_port;
 
-    /* Advertise the rpc port for snapshots, else the snapshot server's. */
-    tile->gossip.ports.rpc = 0;
+    /* Peers download snapshots from the rpc port, or from the snapshot
+       server's port when the rpc tile is off or on loopback. */
+    ushort snapshot_port = 0;
     if( fd_topo_find_tile( &config->topo, "snapsv", 0UL )!=ULONG_MAX ) {
-      fd_ip6_addr_t rpc_addr;
-      parse_listen_addr( config->tiles.rpc.rpc_listen_address, "tiles.rpc.rpc_listen_address", &rpc_addr );
+      char const * rpc_address    = config->tiles.rpc.rpc_listen_address;
       char const * snapsv_address = config->firedancer.snapshots.server.http_listen_address;
-      if( !snapsv_address[0] ) snapsv_address = config->tiles.rpc.rpc_listen_address;
+      if( !snapsv_address[0] ) snapsv_address = rpc_address;
+
+      fd_ip6_addr_t rpc_addr;
       fd_ip6_addr_t snapsv_addr;
+      parse_listen_addr( rpc_address,    "tiles.rpc.rpc_listen_address",         &rpc_addr    );
       parse_listen_addr( snapsv_address, "snapshots.server.http_listen_address", &snapsv_addr );
-      if( config->tiles.rpc.enabled && !fd_ip6_addr_is_loopback( rpc_addr.addr ) ) {
-        tile->gossip.ports.rpc = (ushort)config->tiles.rpc.rpc_listen_port;
-      } else if( !fd_ip6_addr_is_loopback( snapsv_addr.addr ) ) {
-        tile->gossip.ports.rpc = (ushort)config->firedancer.snapshots.server.http_listen_port;
+
+      int rpc_public    = config->tiles.rpc.enabled && !fd_ip6_addr_is_loopback( rpc_addr.addr );
+      int snapsv_public = !fd_ip6_addr_is_loopback( snapsv_addr.addr );
+      if( rpc_public ) {
+        snapshot_port = (ushort)config->tiles.rpc.rpc_listen_port;
+      } else if( snapsv_public ) {
+        snapshot_port = (ushort)config->firedancer.snapshots.server.http_listen_port;
       }
     }
+    tile->gossip.ports.rpc = snapshot_port;
 
     tile->gossip.entrypoints_cnt        = config->gossip.entrypoints_cnt;
     for( ulong i=0UL; i<tile->gossip.entrypoints_cnt; i++ ) {
