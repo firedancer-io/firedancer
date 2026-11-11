@@ -154,6 +154,60 @@ test_delinquent( void ) {
   free( fd_http_server_delete( fd_http_server_leave( http ) ) );
 }
 
+/* A contact info refresh that only changes fields the peer JSON does
+   not show (outset, version.commit) is stored without a broadcast; a
+   change to a shown field (feature_set) is broadcast. */
+
+static void
+test_contact_info_refresh( void ) {
+  fd_http_server_params_t params = { .max_connection_cnt = 1UL, .max_ws_connection_cnt = 1UL, .max_request_len = 1024UL,
+                                     .max_ws_recv_frame_len = 2048UL, .max_ws_send_frame_cnt = 100UL, .outgoing_buffer_sz = 1UL<<20 };
+  fd_http_server_callbacks_t callbacks = {0};
+  void * http_mem = aligned_alloc( fd_http_server_align(), fd_http_server_footprint( params ) );
+  fd_http_server_t * http = fd_http_server_join( fd_http_server_new( http_mem, params, callbacks, NULL ) );
+  void * peers_mem = aligned_alloc( fd_gui_peers_align(), fd_gui_peers_footprint( 1UL ) );
+  fd_gui_peers_ctx_t * peers = fd_gui_peers_join( fd_gui_peers_new( peers_mem, http, NULL, 1UL, "", 0UL, 0L ) );
+
+  static fd_gossip_update_message_t u;
+  memset( &u, 0, sizeof(u) );
+  u.tag       = FD_GOSSIP_UPDATE_TAG_CONTACT_INFO;
+  u.wallclock = 1000UL;
+  memset( u.origin, 0x42, 32UL );
+  u.contact_info->idx                          = 0UL;
+  u.contact_info->value->outset                = 1UL;
+  u.contact_info->value->shred_version         = 7;
+  u.contact_info->value->version.major         = 3;
+  u.contact_info->value->version.feature_set   = 11U;
+  u.contact_info->value->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].ip4  = 0x0100007fU;
+  u.contact_info->value->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].port = fd_ushort_bswap( 8001 );
+
+  ulong off = http->stage_off;
+  fd_gui_peers_handle_gossip_update( peers, &u, 1L ); /* add */
+  FD_TEST( http->stage_off>off );
+  fd_gui_peers_node_t const * peer = &peers->contact_info_table[ 0 ];
+  FD_TEST( peer->row.valid );
+
+  /* hidden fields only: stored, not broadcast */
+  u.wallclock                          = 1001UL;
+  u.contact_info->value->outset        = 2UL;
+  u.contact_info->value->version.commit = 99U;
+  off = http->stage_off;
+  fd_gui_peers_handle_gossip_update( peers, &u, 2L );
+  FD_TEST( http->stage_off==off );
+  FD_TEST( peer->row.contact_info.outset==2UL && peer->row.contact_info.version.commit==99U );
+  FD_TEST( peer->row.wallclock_nanos==FD_MILLI_TO_NANOSEC( 1001L ) );
+
+  /* a shown field: broadcast */
+  u.contact_info->value->version.feature_set = 12U;
+  off = http->stage_off;
+  fd_gui_peers_handle_gossip_update( peers, &u, 3L );
+  FD_TEST( http->stage_off>off );
+  FD_TEST( peer->row.contact_info.version.feature_set==12U );
+
+  free( peers_mem );
+  free( fd_http_server_delete( fd_http_server_leave( http ) ) );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -184,6 +238,7 @@ main( int     argc,
 
   test_newest_copy();
   test_delinquent();
+  test_contact_info_refresh();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
