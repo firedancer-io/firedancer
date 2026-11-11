@@ -1106,11 +1106,13 @@ fd_gossip_push_snapshot_hashes( fd_gossip_t *                       gossip,
                                 fd_gossip_snapshot_hashes_t const * snapshot_hashes,
                                 long                                now ) {
   fd_gossip_value_t value = {
-    .tag = FD_GOSSIP_VALUE_SNAPSHOT_HASHES,
-    .wallclock = (ulong)FD_NANOSEC_TO_MILLI( now ),
+    .tag             = FD_GOSSIP_VALUE_SNAPSHOT_HASHES,
+    .wallclock       = (ulong)FD_NANOSEC_TO_MILLI( now ),
+    .snapshot_hashes = {
+      *snapshot_hashes
+    },
   };
   fd_memcpy( value.origin, gossip->identity_pubkey, 32UL );
-  *value.snapshot_hashes = *snapshot_hashes;
 
   return fd_gossip_push( gossip, &value );
 }
