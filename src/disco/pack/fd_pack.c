@@ -808,6 +808,7 @@ fd_pack_footprint( ulong                    pack_depth,
                    fd_pack_limits_t const * limits         ) {
   if( FD_UNLIKELY( (bank_tile_cnt==0) | (bank_tile_cnt>FD_PACK_MAX_EXECLE_TILES) ) ) return 0UL;
   if( FD_UNLIKELY( pack_depth<4UL ) ) return 0UL;
+  if( FD_UNLIKELY( bundle_meta_sz>FD_PACK_SCHED_INFO_BUNDLE_META_MAX ) ) return 0UL;
 
   int enable_bundles = !!bundle_meta_sz;
   ulong l;
@@ -2237,7 +2238,8 @@ fd_pack_schedule_impl( fd_pack_t          * pack,
                        ulong                bank_tile,
                        fd_pack_smallest_t * smallest_in_treap,
                        ulong              * use_by_bank_txn,
-                       fd_txn_e_t         * out ) {
+                       fd_txn_e_t         * out,
+                       ulong              * opt_expires_at ) {
   if( FD_UNLIKELY( (cu_limit<smallest_in_treap->cus) | (txn_limit==0UL) | (byte_limit<smallest_in_treap->bytes) ) ) {
     sched_return_t to_return = { .cus_scheduled = 0UL, .txns_scheduled = 0UL, .bytes_scheduled = 0UL };
     return to_return;
@@ -2423,6 +2425,7 @@ fd_pack_schedule_impl( fd_pack_t          * pack,
     ulong alt_acct_cnt = (ulong)txn->addr_table_adtl_cnt;
     if( FD_UNLIKELY( alt_acct_cnt ) ) pack_memcpy_out( out->alt_accts, cur->txn_e->alt_accts, alt_acct_cnt*sizeof(fd_acct_addr_t) );
     out++;
+    if( FD_UNLIKELY( opt_expires_at ) ) *(opt_expires_at++) = fd_ulong_if( !!(cur->txn->flags & FD_TXN_P_FLAGS_DURABLE_NONCE), cur->nonce_expires_at, cur->expires_at );
 
     for( fd_txn_acct_iter_t iter=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_WRITABLE );
         iter!=fd_txn_acct_iter_end(); iter=fd_txn_acct_iter_next( iter ) ) {
@@ -2633,9 +2636,10 @@ fd_pack_microblock_complete( fd_pack_t * pack,
 #define TRY_BUNDLE_DOES_NOT_FIT        (-2)
 #define TRY_BUNDLE_SUCCESS(n)          ( n) /* schedule bundle with n transactions */
 static inline int
-fd_pack_try_schedule_bundle( fd_pack_t  * pack,
-                             ulong        bank_tile,
-                             fd_txn_e_t * out ) {
+fd_pack_try_schedule_bundle( fd_pack_t            * pack,
+                             ulong                  bank_tile,
+                             fd_txn_e_t           * out,
+                             fd_pack_sched_info_t * opt_info ) {
   int state = pack->initializer_bundle_state;
   if( FD_UNLIKELY( (state==FD_PACK_IB_STATE_PENDING) | (state==FD_PACK_IB_STATE_FAILED ) ) ) return TRY_BUNDLE_NO_READY_BUNDLES;
 
@@ -2869,6 +2873,11 @@ fd_pack_try_schedule_bundle( fd_pack_t  * pack,
   pack->use_by_bank_cnt[bank_tile] = cum_sum;
 
 
+  /* bundle_meta is indexed by the pool element of the bundle's first
+     txn, which the loop below releases. */
+  if( FD_UNLIKELY( opt_info ) ) fd_memcpy( opt_info->bundle_meta, (uchar const *)pack->bundle_meta + (ulong)_txn0*pack->bundle_meta_sz, pack->bundle_meta_sz );
+  ulong * opt_expires_at = opt_info ? opt_info->expires_at : NULL;
+
   for( _cur=_txn0; _cur!=_end; _cur=_next ) {
     _next = treap_rev_iter_next( _cur, pool );
 
@@ -2891,6 +2900,7 @@ fd_pack_try_schedule_bundle( fd_pack_t  * pack,
     ulong alt_acct_cnt = (ulong)txn->addr_table_adtl_cnt;
     if( FD_UNLIKELY( alt_acct_cnt ) ) pack_memcpy_out( out->alt_accts, cur->txn_e->alt_accts, alt_acct_cnt*sizeof(fd_acct_addr_t) );
     out++;
+    if( FD_UNLIKELY( opt_expires_at ) ) *(opt_expires_at++) = cur->expires_at; /* a bundle's txns keep the expires_at they were inserted with */
 
     pack->cumulative_block_cost += cur->compute_est;
     pack->data_bytes_consumed   += cur->txn->payload_sz + MICROBLOCK_DATA_OVERHEAD;
@@ -2957,11 +2967,12 @@ fd_pack_try_schedule_bundle( fd_pack_t  * pack,
 
 
 ulong
-fd_pack_schedule_next_microblock( fd_pack_t *  pack,
-                                  ulong        total_cus,
-                                  ulong        bank_tile,
-                                  int          schedule_flags,
-                                  fd_txn_e_t * out ) {
+fd_pack_schedule_next_microblock( fd_pack_t            * pack,
+                                  ulong                  total_cus,
+                                  ulong                  bank_tile,
+                                  int                    schedule_flags,
+                                  fd_txn_e_t           * out,
+                                  fd_pack_sched_info_t * opt_info ) {
 
   /* TODO: Decide if these are exactly how we want to handle limits */
   total_cus = fd_ulong_min( total_cus, pack->lim->max_cost_per_block - pack->cumulative_block_cost );
@@ -2995,7 +3006,7 @@ fd_pack_schedule_next_microblock( fd_pack_t *  pack,
   sched_return_t status = {0};
 
   if( FD_UNLIKELY( schedule_flags & FD_PACK_SCHEDULE_BUNDLE ) ) {
-    int bundle_result = fd_pack_try_schedule_bundle( pack, bank_tile, out );
+    int bundle_result = fd_pack_try_schedule_bundle( pack, bank_tile, out, opt_info );
     if( FD_UNLIKELY( bundle_result>0                         ) ) return (ulong)bundle_result;
     if( FD_UNLIKELY( bundle_result==TRY_BUNDLE_HAS_CONFLICTS ) ) return 0UL;
     /* in the NO_READY_BUNDLES or DOES_NOT_FIT case, we schedule like
@@ -3009,7 +3020,7 @@ fd_pack_schedule_next_microblock( fd_pack_t *  pack,
   /* Fill the microblock with transactions, votes included */
   if( FD_LIKELY( schedule_flags & FD_PACK_SCHEDULE_TXN ) ) {
     status = fd_pack_schedule_impl( pack, pack->pending, cu_limit, txn_limit, byte_limit, alloc_limit, bank_tile,
-        pack->pending_smallest, use_by_bank_txn, out+scheduled );
+        pack->pending_smallest, use_by_bank_txn, out+scheduled, opt_info ? opt_info->expires_at+scheduled : NULL );
 
     scheduled                   += status.txns_scheduled;
     pack->cumulative_block_cost += status.cus_scheduled;

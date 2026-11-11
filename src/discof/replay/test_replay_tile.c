@@ -4592,6 +4592,108 @@ test_flh_switch_superseded( fd_wksp_t * wksp ) {
   FD_LOG_NOTICE(( "pass: test_flh_switch_superseded" ));
 }
 
+/* flh_settle runs replay's leader steps after_credit would, until
+   neither makes progress. */
+
+static void
+flh_settle( fd_replay_tile_t * ctx ) {
+  while( try_update_parent_bank( ctx, test_stem ) || try_fini_leader( ctx, test_stem ) );
+}
+
+/* Every order of a switch's events.  K: LEADER names parent slot 2,
+   not the optimistic slot 3.  F: slot 2 freezes.  X: slot 2 is
+   replayed but dies.  D: motor's drain report for the old bank.  A:
+   certs skip our window.  D and A only follow K: motor drains only
+   after the kill, and A before K is test_flh_superseded.  The new bank
+   goes out iff the parent freezes before the window is skipped, and
+   the slot is given up iff not.  Either goes out once, the drain report
+   always releases the old bank, and the slot ends without wedging
+   is_leader. */
+
+static void
+test_flh_switch_orders( fd_wksp_t * wksp ) {
+  static char const * orders[] = {
+    "KDFA", "KDAF", "KFDA", "KFAD", "KADF", "KAFD", "FKDA", "FKAD", /* the parent freezes */
+    "KDA",  "KAD",  "KXDA", "KDXA", "XKAD"                          /* it never does      */
+  };
+  fd_hash_t root_id = { .ul = { 0xBEEFUL } };
+  fd_hash_t id3     = { .ul = { 203UL } };
+  fd_hash_t id2     = { .ul = { 202UL } };
+
+  for( ulong o=0UL; o<sizeof(orders)/sizeof(orders[0]); o++ ) {
+    char const * order = orders[ o ];
+    static fd_replay_tile_t ctx[ 1 ];
+    fd_bank_t * b3 = setup_flh_ctx( ctx, wksp, &root_id, &id3 );
+    fd_bank_t * b1 = fd_banks_bank_query( ctx->banks, b3->parent_idx );
+
+    deliver_optimistic( ctx, b3 );
+    FD_TEST( ctx->is_leader && ctx->leader_bank && ctx->leader_parent_unconfirmed );
+    fd_bank_t * old     = ctx->leader_bank;
+    ulong       old_idx = old->idx;
+    ulong       old_seq = old->bank_seq;
+    ulong       seq0    = test_stem_seqs[ ctx->replay_out->idx ];
+    ulong       frozen  = ULONG_MAX; /* the event index slot 2 froze at */
+    ulong       skipped = ULONG_MAX; /* the event index certs skipped our window at */
+
+    for( ulong e=0UL; order[ e ]; e++ ) {
+      switch( order[ e ] ) {
+      case 'K':
+        deliver_leader( ctx, 4UL, 2UL, &id2 );
+        FD_TEST( old->refcnt==1UL && old->state==FD_BANK_STATE_DEAD ); /* held for the drain */
+        break;
+      case 'F':
+      case 'X': {
+        fd_bank_t * b2 = add_block( ctx, b1, 2UL, &id2 );
+        fd_hash_t alpentick2 = { .ul = { 0xA2UL } };
+        FD_TEST( fd_blockhashes_push_new( &b2->f.block_hash_queue, &alpentick2 ) );
+        if( order[ e ]=='X' ) b2->state = FD_BANK_STATE_DEAD;
+        else                  frozen    = e;
+        break;
+      }
+      case 'D': {
+        fd_motor_prefix_drained_t drained = { .slot = 4UL, .bank_idx = old_idx, .bank_seq = old_seq };
+        deliver_prefix_drained( ctx, wksp, &drained );
+        FD_TEST( !old->refcnt );
+        break;
+      }
+      case 'A':
+        ctx->votor_parent_ready_slot = 8UL;
+        skipped = e;
+        break;
+      default: FD_LOG_ERR(( "bad event %c", order[ e ] ));
+      }
+      flh_settle( ctx );
+      FD_TEST( ctx->is_leader );
+      FD_TEST( count_sig( ctx, seq0, REPLAY_SIG_UPDATE_PARENT_BANK )+count_sig( ctx, seq0, REPLAY_SIG_ABANDON_LEADER )<=1UL );
+    }
+
+    int resumed = frozen<skipped;
+    FD_TEST( count_sig( ctx, seq0, REPLAY_SIG_UPDATE_PARENT_KILL )==1UL );
+    FD_TEST( count_sig( ctx, seq0, REPLAY_SIG_UPDATE_PARENT_BANK )==(ulong)resumed );
+    FD_TEST( count_sig( ctx, seq0, REPLAY_SIG_ABANDON_LEADER    )==(ulong)!resumed );
+    FD_TEST( !count_sig( ctx, seq0, REPLAY_SIG_CONFIRM_LEADER ) && !count_sig( ctx, seq0, REPLAY_SIG_SLOT_DEAD ) );
+    FD_TEST( ctx->votor_leader_switch->slot==ULONG_MAX );
+    FD_TEST( old->state==FD_BANK_STATE_DEAD && !old->refcnt );
+
+    if( resumed ) {
+      fd_bank_t * nb = ctx->leader_bank;
+      FD_TEST( nb && nb->idx!=old_idx && nb->f.slot==4UL && nb->refcnt==1UL );
+      ulong seq1 = test_stem_seqs[ ctx->replay_out->idx ];
+      end_leader_slot( ctx, 4UL );
+      FD_TEST( count_sig( ctx, seq1, REPLAY_SIG_LEADER_FOOTER )==1UL );
+    } else {
+      FD_TEST( !ctx->leader_bank );
+      fd_poh_leader_slot_ended_t slot_ended = { .completed = 0, .slot = 4UL, .pack_end_reason = FD_PACK_END_SLOT_REASON_ABANDONED };
+      process_motor_done( ctx, test_stem, &slot_ended );
+      FD_TEST( !ctx->is_leader && !ctx->leader_bank && !ctx->recv_poh );
+      FD_TEST( !count_sig( ctx, seq0, REPLAY_SIG_LEADER_FOOTER ) );
+    }
+    fd_wksp_reset( wksp, 42U );
+  }
+
+  FD_LOG_NOTICE(( "pass: test_flh_switch_orders" ));
+}
+
 /* Our leader FECs bind to the existing leader bank and never enter
    sched, so a full sched or a full bank pool must not hold them back
    the way it holds back other FECs. */
@@ -5198,6 +5300,7 @@ main( int     argc,
   test_flh_update_parent_bank( wksp, 1 );           fd_wksp_reset( wksp, 42U );
   test_flh_leader_during_switch( wksp );            fd_wksp_reset( wksp, 42U );
   test_flh_switch_superseded( wksp );               fd_wksp_reset( wksp, 42U );
+  test_flh_switch_orders( wksp );                   fd_wksp_reset( wksp, 42U );
   test_ag_leader_fec_not_gated( wksp );
   fd_wksp_reset( wksp, 42U );
   test_snapmk_start_leader_after_epoch_rollover( wksp );

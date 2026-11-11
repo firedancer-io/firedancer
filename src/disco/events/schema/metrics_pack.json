@@ -480,6 +480,9 @@
                 "b15": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[100000000, inf) nanos" },
                 "sum": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Sum of samples (nanos)" }
             }
-        }
+        },
+        "prefix_txn_recorded":            { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Transactions sent to an execle while the slot's parent was unconfirmed that pack kept, to insert again if the slot switches parent", "field_number": 280277852 },
+        "prefix_txn_dropped":             { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Transactions sent to an execle while the slot's parent was unconfirmed that pack did not keep because its prefix was full", "field_number": 498003265 },
+        "prefix_txn_reinserted":          { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Transactions pack kept from a slot's prefix and inserted again for the slot's new bank after it switched parent; TxnInsertAttempted counts their results", "field_number": 372804248 }
     }
 }

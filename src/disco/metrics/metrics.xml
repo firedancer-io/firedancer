@@ -681,6 +681,10 @@ deliberate exception with lint-allow="<rule id>")
     <counter name="TxnDropped" enum="PackTxnDropReason" summary="Transactions dropped from pack after insertion, by reason" />
     <counter name="TxnEvicted" summary="Transactions evicted from pack to make room for others, including the bundle initializer transaction removed when a leader slot ends" />
 
+    <counter name="PrefixTxnRecorded" summary="Transactions sent to an execle while the slot's parent was unconfirmed that pack kept, to insert again if the slot switches parent" />
+    <counter name="PrefixTxnDropped" summary="Transactions sent to an execle while the slot's parent was unconfirmed that pack did not keep because its prefix was full" />
+    <counter name="PrefixTxnReinserted" summary="Transactions pack kept from a slot's prefix and inserted again for the slot's new bank after it switched parent; TxnInsertAttempted counts their results" />
+
     <gauge name="TxnPendingUsed" enum="PendingTxnType" summary="Pending transactions in pack's pool, by type" />
     <gauge name="TxnPendingCapacity" summary="Maximum pending transactions pack can hold" />
 

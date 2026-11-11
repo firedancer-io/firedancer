@@ -183,7 +183,8 @@ typedef struct fd_pack_private fd_pack_t;
    this pack object can be used, and it can schedule bundles.
    Additionally, if bundle_meta_sz is non-zero, then a region of size
    bundle_meta_sz bytes (with no additional alignment) will be reserved
-   for each bundle.
+   for each bundle.  bundle_meta_sz must be at most
+   FD_PACK_SCHED_INFO_BUNDLE_META_MAX.
 
    Note: if you'd like to use bundles, but don't require metadata for
    the bundles, simply use a small positive value (e.g. 1), always pass
@@ -722,16 +723,36 @@ void fd_pack_set_rotation_end_ns( fd_pack_t * pack, long end_ns );
    Inspecting these flags is the proper way to tell which codepath
    executed.
 
+   If opt_info is non-NULL, it receives what pack drops when it
+   schedules a transaction, for a caller that keeps the transactions to
+   insert them again later (fast leader handover): see
+   fd_pack_sched_info_t.
+
    Returns the number of transactions in the scheduled microblock or
    bundle.  The return value may be 0 if there are no eligible
    transactions at the moment. */
 
+/* fd_pack_sched_info_t: expires_at[i] is the expires_at out[i] was
+   inserted with (for a durable nonce transaction, the caller's value,
+   not pack's synthetic lifetime).  If the microblock is a bundle,
+   bundle_meta holds the bundle_meta_sz bytes of metadata it was
+   inserted with. */
+
+#define FD_PACK_SCHED_INFO_BUNDLE_META_MAX (64UL)
+
+struct fd_pack_sched_info {
+  ulong expires_at[ MAX_TXN_PER_MICROBLOCK ];
+  uchar bundle_meta[ FD_PACK_SCHED_INFO_BUNDLE_META_MAX ];
+};
+typedef struct fd_pack_sched_info fd_pack_sched_info_t;
+
 ulong
-fd_pack_schedule_next_microblock( fd_pack_t  * pack,
-                                  ulong        total_cus,
-                                  ulong        bank_tile,
-                                  int          schedule_flags,
-                                  fd_txn_e_t * out );
+fd_pack_schedule_next_microblock( fd_pack_t            * pack,
+                                  ulong                  total_cus,
+                                  ulong                  bank_tile,
+                                  int                    schedule_flags,
+                                  fd_txn_e_t           * out,
+                                  fd_pack_sched_info_t * opt_info );
 
 
 /* fd_pack_rebate_cus adjusts the compute unit accounting for the

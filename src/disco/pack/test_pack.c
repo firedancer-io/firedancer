@@ -379,7 +379,7 @@ schedule_validate_microblock( fd_pack_t * pack,
 
   ulong pre_txn_cnt  = fd_pack_avail_txn_cnt( pack );
   fd_pack_microblock_complete( pack, bank_tile );
-  ulong txn_cnt = fd_pack_schedule_next_microblock( pack, total_cus, bank_tile, ALL, outcome->results );
+  ulong txn_cnt = fd_pack_schedule_next_microblock( pack, total_cus, bank_tile, ALL, outcome->results, NULL );
   ulong post_txn_cnt = fd_pack_avail_txn_cnt( pack );
 
 #if DETAILED_STATUS_MESSAGES
@@ -750,7 +750,7 @@ performance_test2( void ) {
       }
       ulong scheduled = 0UL;
       for( ulong i=0UL; i<1024UL/MAX_TXN_PER_MICROBLOCK+1UL; i++ ) {
-        scheduled += fd_pack_schedule_next_microblock( pack, MAX_TXN_PER_MICROBLOCK*26000UL, i&3UL, ALL, outcome.results );
+        scheduled += fd_pack_schedule_next_microblock( pack, MAX_TXN_PER_MICROBLOCK*26000UL, i&3UL, ALL, outcome.results, NULL );
         fd_pack_microblock_complete( pack, i&3UL );
       }
       FD_TEST( scheduled==1024UL );
@@ -860,7 +860,7 @@ void performance_test( int extra_bench ) {
       for( ulong j=0UL; j<heap_sz/2UL; j++ ) {
         /* With a cap of tx2_cost-1 CUs, nothing fits, but we scan the whole heap
            each time to figure that out. */
-        fd_pack_schedule_next_microblock( pack, tx2_cost - 1UL, 0UL, ALL, outcome.results );
+        fd_pack_schedule_next_microblock( pack, tx2_cost - 1UL, 0UL, ALL, outcome.results, NULL );
         fd_pack_microblock_complete( pack, 0UL );
       }
       if( FD_LIKELY( iter>=WARMUP ) ) skip0     += fd_log_wallclock( );
@@ -872,7 +872,7 @@ void performance_test( int extra_bench ) {
       for( ulong j=0UL; j<heap_sz; j++ ) {
         /* With a cap of tx1_cost CUs, we schedule 1 transaction and then
            immediately break. */
-        FD_TEST( 1UL==fd_pack_schedule_next_microblock( pack, tx1_cost, 0UL, ALL, outcome.results ));
+        FD_TEST( 1UL==fd_pack_schedule_next_microblock( pack, tx1_cost, 0UL, ALL, outcome.results, NULL ));
         fd_pack_microblock_complete( pack, 0UL );
       }
       if( FD_LIKELY( iter>=WARMUP ) ) schedule += fd_log_wallclock( );
@@ -901,7 +901,7 @@ void performance_test( int extra_bench ) {
            1 (which conflict because of accounts), finally find an
            instance of transaction 2, schedule it, and then immediately
            break. */
-        FD_TEST( 2UL==fd_pack_schedule_next_microblock( pack, tx1_cost+tx2_cost+1, 0UL, ALL, outcome.results ) );
+        FD_TEST( 2UL==fd_pack_schedule_next_microblock( pack, tx1_cost+tx2_cost+1, 0UL, ALL, outcome.results, NULL ) );
         fd_pack_microblock_complete( pack, 0UL );
       }
       if( FD_LIKELY( iter>=WARMUP ) ) skip1 += fd_log_wallclock( );
@@ -930,7 +930,7 @@ void performance_test( int extra_bench ) {
            conflict because of accounts), finally find an instance of
            transaction 2, schedule it, then continue skipping through
            all the copies of transaction 2. */
-        FD_TEST( 2UL==fd_pack_schedule_next_microblock( pack, 5000000UL, 0UL, ALL, outcome.results ) );
+        FD_TEST( 2UL==fd_pack_schedule_next_microblock( pack, 5000000UL, 0UL, ALL, outcome.results, NULL ) );
         fd_pack_microblock_complete( pack, 0UL );
       }
       if( FD_LIKELY( iter>=WARMUP ) ) skip2 += fd_log_wallclock( );
@@ -999,7 +999,7 @@ void performance_end_block( void ) {
         fd_pack_insert_txn_fini( pack, slot, 0UL, &_deleted );
       }
       while( fd_pack_avail_txn_cnt( pack )>0UL ) {
-        FD_TEST( fd_pack_schedule_next_microblock( pack, 5000000UL, 0UL, ALL, outcome.results ) );
+        FD_TEST( fd_pack_schedule_next_microblock( pack, 5000000UL, 0UL, ALL, outcome.results, NULL ) );
         fd_pack_microblock_complete( pack, 0UL );
       }
 
@@ -1378,6 +1378,76 @@ check_slot( fd_txn_e_t const * out,
     for( ulong b=0UL; b<sizeof(fd_acct_addr_t); b++ ) FD_TEST( out->alt_accts[ a ].b[ b ]==COPY_OUT_CANARY );
 }
 
+/* fd_pack_schedule_next_microblock's opt_info hands back what pack
+   drops when it schedules: each txn's expires_at as inserted (the
+   caller's value for a durable nonce txn, not pack's synthetic one) and
+   a bundle's metadata. */
+
+static void
+test_sched_info( void ) {
+  FD_LOG_NOTICE(( "TEST SCHED INFO" ));
+  fd_pack_limits_t limits[1] = { {
+    .max_cost_per_block           = FD_PACK_TEST_MAX_COST_PER_BLOCK,
+    .max_write_cost_per_acct      = FD_PACK_TEST_MAX_WRITE_COST_PER_ACCT,
+    .max_data_bytes_per_block     = MAX_DATA_PER_BLOCK,
+    .max_txn_per_microblock       = 1UL,
+    .max_microblocks_per_block    = MAX_TEST_TXNS,
+    .max_allocated_data_per_block = FD_PACK_MAX_ALLOCATED_DATA_PER_BLOCK,
+  } };
+  ulong const meta_sz = 40UL;
+  FD_TEST( fd_pack_footprint( 1024UL, meta_sz, 1UL, limits )<=PACK_SCRATCH_SZ );
+  FD_TEST( !fd_pack_footprint( 1024UL, FD_PACK_SCHED_INFO_BUNDLE_META_MAX+1UL, 1UL, limits ) );
+  fd_pack_t * pack = fd_pack_join( fd_pack_new( pack_scratch, 1024UL, meta_sz, 1UL, limits, NULL, 0UL, rng ) );
+  fd_pack_set_rotation_end_ns( pack, LONG_MAX );
+  fd_pack_sched_info_t info[1];
+  ulong _deleted;
+
+  /* A normal txn: its expires_at. */
+  make_transaction( 0UL, 500U, 500U, 11.0, "A", "B", NULL, NULL );
+  fd_txn_e_t * slot = fd_pack_insert_txn_init( pack );
+  memcpy( slot->txnp, &txnp_scratch[ 0 ], sizeof(fd_txn_p_t) );
+  FD_TEST( fd_pack_insert_txn_fini( pack, slot, 77UL, &_deleted )>=0 );
+  FD_TEST( fd_pack_schedule_next_microblock( pack, 1000000UL, 0UL, FD_PACK_SCHEDULE_TXN, outcome.results, info )==1UL );
+  FD_TEST( info->expires_at[ 0 ]==77UL );
+  fd_pack_microblock_complete( pack, 0UL );
+
+  /* A durable nonce txn: the caller's expires_at, not the synthetic
+     lifetime pack gives it. */
+  make_nonce_transaction( 1UL, 11.0, 4, 0, 'i' );
+  slot = fd_pack_insert_txn_init( pack );
+  memcpy( slot->txnp, &txnp_scratch[ 1 ], sizeof(fd_txn_p_t) );
+  FD_TEST( fd_pack_insert_txn_fini( pack, slot, 33UL, &_deleted )==FD_PACK_INSERT_ACCEPT_NONCE_NONVOTE_ADD );
+  FD_TEST( fd_pack_schedule_next_microblock( pack, 1000000UL, 0UL, FD_PACK_SCHEDULE_TXN, outcome.results, info )==1UL );
+  FD_TEST( outcome.results[ 0 ].txnp->flags & FD_TXN_P_FLAGS_DURABLE_NONCE );
+  FD_TEST( info->expires_at[ 0 ]==33UL );
+  fd_pack_microblock_complete( pack, 0UL );
+
+  /* A bundle: every member's expires_at and the bundle's metadata. */
+  uchar meta[ 40 ]; for( ulong j=0UL; j<meta_sz; j++ ) meta[ j ] = (uchar)(0xA0UL+j);
+  make_transaction( 2UL, 500U, 500U, 11.0, "C", "D", NULL, NULL );
+  make_transaction( 3UL, 500U, 500U, 11.0, "E", "F", NULL, NULL );
+  fd_txn_e_t *         _bundle[ 2 ];
+  fd_txn_e_t * const * bundle = fd_pack_insert_bundle_init( pack, _bundle, 2UL );
+  memcpy( bundle[ 0 ]->txnp, &txnp_scratch[ 2 ], sizeof(fd_txn_p_t) );
+  memcpy( bundle[ 1 ]->txnp, &txnp_scratch[ 3 ], sizeof(fd_txn_p_t) );
+  FD_TEST( fd_pack_insert_bundle_fini( pack, bundle, 2UL, 55UL, 0, meta, &_deleted )>=0 );
+  fd_pack_set_initializer_bundles_ready( pack );
+  memset( info, 0, sizeof(fd_pack_sched_info_t) );
+  FD_TEST( fd_pack_schedule_next_microblock( pack, FD_PACK_TEST_MAX_COST_PER_BLOCK, 0UL, FD_PACK_SCHEDULE_BUNDLE, outcome.results, info )==2UL );
+  FD_TEST( info->expires_at[ 0 ]==55UL && info->expires_at[ 1 ]==55UL );
+  FD_TEST( !memcmp( info->bundle_meta, meta, meta_sz ) );
+  fd_pack_microblock_complete( pack, 0UL );
+
+  /* NULL info schedules as before. */
+  make_transaction( 4UL, 500U, 500U, 11.0, "G", "H", NULL, NULL );
+  slot = fd_pack_insert_txn_init( pack );
+  memcpy( slot->txnp, &txnp_scratch[ 4 ], sizeof(fd_txn_p_t) );
+  FD_TEST( fd_pack_insert_txn_fini( pack, slot, 99UL, &_deleted )>=0 );
+  FD_TEST( fd_pack_schedule_next_microblock( pack, 1000000UL, 0UL, FD_PACK_SCHEDULE_TXN, outcome.results, NULL )==1UL );
+
+  fd_pack_delete( fd_pack_leave( pack ) );
+}
+
 static void
 test_copy_out( void ) {
   FD_LOG_NOTICE(( "TEST COPY OUT" ));
@@ -1396,7 +1466,7 @@ test_copy_out( void ) {
 
       fd_pack_microblock_complete( pack, 0UL );
       fd_memset( outcome.results, COPY_OUT_CANARY, sizeof(fd_txn_e_t) );
-      FD_TEST( fd_pack_schedule_next_microblock( pack, 1000000UL, 0UL, FD_PACK_SCHEDULE_TXN, outcome.results )==1UL );
+      FD_TEST( fd_pack_schedule_next_microblock( pack, 1000000UL, 0UL, FD_PACK_SCHEDULE_TXN, outcome.results, NULL )==1UL );
       check_slot( outcome.results, 0UL );
       fd_pack_delete( fd_pack_leave( pack ) );
 
@@ -1413,10 +1483,10 @@ test_copy_out( void ) {
       FD_TEST( fd_pack_insert_bundle_fini( pack, bundle, 3UL, 1000UL, 0, NULL, &_deleted )>=0 );
 
       /* The previous iteration left pack_scratch READY */
-      FD_TEST( fd_pack_schedule_next_microblock( pack, FD_PACK_TEST_MAX_COST_PER_BLOCK, 0UL, FD_PACK_SCHEDULE_BUNDLE, outcome.results )==0UL );
+      FD_TEST( fd_pack_schedule_next_microblock( pack, FD_PACK_TEST_MAX_COST_PER_BLOCK, 0UL, FD_PACK_SCHEDULE_BUNDLE, outcome.results, NULL )==0UL );
       fd_pack_set_initializer_bundles_ready( pack );
       fd_memset( outcome.results, COPY_OUT_CANARY, 3UL*sizeof(fd_txn_e_t) );
-      FD_TEST( fd_pack_schedule_next_microblock( pack, FD_PACK_TEST_MAX_COST_PER_BLOCK, 0UL, FD_PACK_SCHEDULE_BUNDLE, outcome.results )==3UL );
+      FD_TEST( fd_pack_schedule_next_microblock( pack, FD_PACK_TEST_MAX_COST_PER_BLOCK, 0UL, FD_PACK_SCHEDULE_BUNDLE, outcome.results, NULL )==3UL );
       for( ulong j=0UL; j<3UL; j++ ) check_slot( outcome.results+j, j );
       fd_pack_delete( fd_pack_leave( pack ) );
     }
@@ -1670,7 +1740,7 @@ test_bundle_nonce( void ) {
   FD_TEST( !fd_pack_verify( pack, pack_verify_scratch ) );
 
   /* Schedule transactions */
-  ulong txn_cnt = fd_pack_schedule_next_microblock( pack, FD_PACK_TEST_MAX_COST_PER_BLOCK, 0UL, FD_PACK_SCHEDULE_BUNDLE, outcome.results );
+  ulong txn_cnt = fd_pack_schedule_next_microblock( pack, FD_PACK_TEST_MAX_COST_PER_BLOCK, 0UL, FD_PACK_SCHEDULE_BUNDLE, outcome.results, NULL );
   FD_TEST( txn_cnt == 3UL );
   FD_TEST( fd_pack_avail_txn_cnt( pack ) == 0UL );
   for( ulong j = 0UL; j < 3UL; j++ ) {
@@ -1731,7 +1801,7 @@ test_bundle_nonce( void ) {
   result = fd_pack_insert_bundle_fini( pack, bundle, 3UL, 1000UL, 0, NULL, &_deleted );
   FD_TEST( result==FD_PACK_INSERT_ACCEPT_NONCE_NONVOTE_REPLACE );
   FD_TEST( fd_pack_avail_txn_cnt( pack )==3UL );
-  fd_pack_schedule_next_microblock( pack, FD_PACK_TEST_MAX_COST_PER_BLOCK, 0UL, FD_PACK_SCHEDULE_BUNDLE|FD_PACK_SCHEDULE_TXN, outcome.results );
+  fd_pack_schedule_next_microblock( pack, FD_PACK_TEST_MAX_COST_PER_BLOCK, 0UL, FD_PACK_SCHEDULE_BUNDLE|FD_PACK_SCHEDULE_TXN, outcome.results, NULL );
   fd_pack_microblock_complete( pack, 0UL );
   FD_TEST( fd_pack_avail_txn_cnt( pack )==0UL );
   FD_TEST( !fd_pack_verify( pack, pack_verify_scratch ) );
@@ -1873,7 +1943,7 @@ result_id( fd_txn_e_t const * r ) {
    ULONG_MAX if nothing was scheduled */
 static ulong
 schedule_bundle_id( fd_pack_t * pack ) {
-  ulong cnt = fd_pack_schedule_next_microblock( pack, FD_PACK_TEST_MAX_COST_PER_BLOCK, 0UL, FD_PACK_SCHEDULE_BUNDLE, outcome.results );
+  ulong cnt = fd_pack_schedule_next_microblock( pack, FD_PACK_TEST_MAX_COST_PER_BLOCK, 0UL, FD_PACK_SCHEDULE_BUNDLE, outcome.results, NULL );
   if( !cnt ) return ULONG_MAX;
   fd_pack_microblock_complete( pack, 0UL );
   return result_id( outcome.results );
@@ -1969,7 +2039,7 @@ test_pre_rotation_bundles( void ) {
   FD_TEST( insert_tip_bundle ( pack, 40UL, 6000UL, 0UL, "A", 1000UL )>=0 );
   FD_TEST( insert_tip_bundle2( pack, 41UL, 3000UL, 42UL, 4000UL, 1000UL )>=0 );
   FD_TEST( pre_rotation_bundle_cnt( pack )==2UL );
-  FD_TEST( fd_pack_schedule_next_microblock( pack, FD_PACK_TEST_MAX_COST_PER_BLOCK, 0UL, FD_PACK_SCHEDULE_BUNDLE, outcome.results )==2UL );
+  FD_TEST( fd_pack_schedule_next_microblock( pack, FD_PACK_TEST_MAX_COST_PER_BLOCK, 0UL, FD_PACK_SCHEDULE_BUNDLE, outcome.results, NULL )==2UL );
   FD_TEST( result_id( outcome.results+0 )==41UL );
   FD_TEST( result_id( outcome.results+1 )==42UL );
   fd_pack_microblock_complete( pack, 0UL );
@@ -1985,9 +2055,9 @@ test_pre_rotation_bundles( void ) {
   fd_pack_set_rotation_end_ns( pack, LONG_MAX );
   make_transaction( 51UL, 1000U, 100U, 11.0, "A", "Z", NULL, NULL );
   FD_TEST( insert( 51UL, pack )>=0 );
-  FD_TEST( fd_pack_schedule_next_microblock( pack, FD_PACK_TEST_MAX_COST_PER_BLOCK, 0UL, FD_PACK_SCHEDULE_TXN, outcome.results )==1UL );
+  FD_TEST( fd_pack_schedule_next_microblock( pack, FD_PACK_TEST_MAX_COST_PER_BLOCK, 0UL, FD_PACK_SCHEDULE_TXN, outcome.results, NULL )==1UL );
   FD_TEST( insert_tip_bundle( pack, 52UL, 1UL, 1UL, "A", 1000UL )>=0 );
-  FD_TEST( fd_pack_schedule_next_microblock( pack, FD_PACK_TEST_MAX_COST_PER_BLOCK, 1UL, FD_PACK_SCHEDULE_BUNDLE, outcome.results )==0UL );
+  FD_TEST( fd_pack_schedule_next_microblock( pack, FD_PACK_TEST_MAX_COST_PER_BLOCK, 1UL, FD_PACK_SCHEDULE_BUNDLE, outcome.results, NULL )==0UL );
   fd_pack_microblock_complete( pack, 0UL );
   FD_TEST( schedule_bundle_id( pack )==52UL );
   FD_TEST( schedule_bundle_id( pack )==50UL );
@@ -2178,9 +2248,9 @@ test_next_auction( void ) {
 
   /* We expect only the transaction that arrived before the auction
      started to be scheduled. */
-  FD_TEST( 1UL==fd_pack_schedule_next_microblock( pack, 10000000UL, 0UL, ALL, outcome.results ) );
+  FD_TEST( 1UL==fd_pack_schedule_next_microblock( pack, 10000000UL, 0UL, ALL, outcome.results, NULL ) );
   fd_pack_microblock_complete( pack, 0UL );
-  FD_TEST( 0UL==fd_pack_schedule_next_microblock( pack, 10000000UL, 0UL, ALL, outcome.results ) );
+  FD_TEST( 0UL==fd_pack_schedule_next_microblock( pack, 10000000UL, 0UL, ALL, outcome.results, NULL ) );
   fd_pack_microblock_complete( pack, 0UL );
 
   /* When we end the auction, the transaction that is held in
@@ -2188,7 +2258,7 @@ test_next_auction( void ) {
   fd_pack_auction_end( pack );
   FD_TEST( fd_pack_next_auction_txn_cnt( pack )==0UL );
   FD_TEST( !fd_pack_verify( pack, pack_verify_scratch ) );
-  FD_TEST( 1UL==fd_pack_schedule_next_microblock( pack, 10000000UL, 0UL, ALL, outcome.results ) );
+  FD_TEST( 1UL==fd_pack_schedule_next_microblock( pack, 10000000UL, 0UL, ALL, outcome.results, NULL ) );
   fd_pack_microblock_complete( pack, 0UL );
   FD_TEST( !fd_pack_verify( pack, pack_verify_scratch ) );
 
@@ -2293,6 +2363,7 @@ main( int     argc,
   test_limits();
   test_reject_writes_to_sysvars();
   test_copy_out();
+  test_sched_info();
   test_reject();
   test_reject_blocklist();
   test_duplicate_sig();
